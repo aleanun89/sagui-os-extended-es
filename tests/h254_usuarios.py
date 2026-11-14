@@ -5,8 +5,7 @@
 Tres arranques, todos con la sesión como sagui (--sesion-sagui; el resto de la batería
 corre como root, D255):
 
-1. Disco con la partición SAGUI-CONF (ext2; hasta que la haga mkimagem.py, aquí se crea
-   como la de /logs y se le cambia la etiqueta), consola de texto y red con hostfwd:
+1. Disco con la partición SAGUI-CONF (ext2; la crea mkimagem.py por defecto, D256), consola de texto y red con hostfwd:
    - el shell es sagui (id, whoami) y el kernel anota la sesión;
    - /testes/usuarios --llamadas: TODAS las llamadas y operaciones clasificadas: las de
      root dan ERRO_ACESSO y las libres no; --rutas: sombra, /etc, /bin, /sistema...;
@@ -81,30 +80,14 @@ def construir_imagen(nome, extras, chave_root=None, chave_sagui=None, conf=False
     sgfs = os.path.join(TRAB, nome + ".sgfs")
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mksgfs.py"), raiz, sgfs], check=True, stdout=subprocess.DEVNULL)
     img = os.path.join(TRAB, nome + ".img")
-    if conf:
-        extras = extras + ["--logs-mb", "16", "--logs-fs", "ext2"]
+    if not conf:
+        extras = extras + ["--sin-conf"]      # sin SAGUI-CONF: modo en vivo (D256: por defecto la imagen la lleva)
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(B, "boot", "mbr.bin"), "--estagio2", os.path.join(B, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(B, "kernel.bin"), "--kernel-elf", os.path.join(B, "kernel.elf"),
                     "--ramdisk", sgfs, "--saida", img, "--sesion-sagui"] + extras,
                    check=True, stdout=subprocess.DEVNULL)
-    if conf:
-        poner_etiqueta_conf(img)
     return img
-
-
-def poner_etiqueta_conf(img):
-    """La partición de /logs (ext2, 16 MB) pasa a ser SAGUI-CONF, como la hará la herramienta."""
-    parts = [p for p in particoes_img(img) if p[1] == 0x83]
-    verificar(parts, "la imagen tiene una partición ext2")
-    _, _, ini, qtd = parts[-1]
-    tmp = os.path.join(TRAB, "conf.ext2")
-    subprocess.run(["dd", f"if={img}", f"of={tmp}", "bs=512", f"skip={ini}", f"count={qtd}", "status=none"], check=True)
-    r = subprocess.run(["e2label", tmp], capture_output=True, text=True)
-    verificar(r.stdout.strip() == "SAGUI-LOGS", f"es la de /logs ({r.stdout.strip()})")
-    subprocess.run(["e2label", tmp, "SAGUI-CONF"], check=True)
-    subprocess.run(["dd", f"if={tmp}", f"of={img}", "bs=512", f"seek={ini}", "conv=notrunc", "status=none"], check=True)
-    os.remove(tmp)
 
 
 def ssh(porta, chave, usuario, orden, entrada=None, tempo=90):

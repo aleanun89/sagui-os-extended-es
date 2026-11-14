@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit fbdee880 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 2a577c85 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -688,13 +688,29 @@ The scheme, by layers (explained calmly in [`docs/licencia.md`](docs/licencia.md
 | New files of this fork | `GPL-2.0-or-later` (which can be used under GPL v3) |
 | Third parties (MicroPython, uACPI, SQLite, the ported games...) | their own, recorded in [`docs/terceros.md`](docs/terceros.md) |
 
-Each file of our own carries its `SPDX-License-Identifier` line. The NetSurf browser (GPL-2.0 without «or
-later») **is not included in the published images**: only whoever builds it can include it, for
-private use. Details and the decision: D258 in [`docs/decisoes.md`](docs/decisoes.md).
+Each file of our own carries its `SPDX-License-Identifier` line. NetSurf, GNUBoy and the modern start of the Realtek r8169 network driver (GPL-2.0 without «or later») **are not included in the published images or code**: only whoever builds them can include them, for private use. Details and the decision: D258 in [`docs/decisoes.md`](docs/decisoes.md).
 
 ## The project's rules
 
-From [`prd.md`](prd.md): no code from other operating systems (with isolated exceptions recorded in [`docs/terceros.md`](docs/terceros.md): MicroPython, D034; since D073, driver and hardware code taken from Linux, Mesa or linux-firmware; and since D149 and D156, QuickJS and OpenTyrian, besides the Fluent icons and the third-party data that this document lists), no GRUB or other
-ready-made loader, no libc or ready-made libraries inside the system, fonts and images
-created in the project (except those registered as third parties), names and comments in Portuguese that explain the why, one automated test
-per story, and each phase validated by Eli on real hardware before the next one.
+SaguiOS started from a simple idea (see [`prd.md`](prd.md), Eli Rigobeli's original specification):
+**an operating system written from scratch**. This fork keeps that spirit with these rules:
+
+- **The essentials are our own:** the boot loader (no GRUB), the kernel, the libc, the graphics library,
+  the desktop and the system applications are written in the project.
+- **Third-party code is the exception, and it is always isolated and recorded** in
+  [`docs/terceros.md`](docs/terceros.md), with its origin and its license: interpreters and libraries
+  (MicroPython, QuickJS, SQLite, uACPI), the ported games (Quake, OpenTyrian, OpenJazz, Command &
+  Conquer…), hardware tables taken from free drivers (FreeBSD, OpenBSD, Mesa and some from Linux under
+  «GPL v2 or later»), icons and fonts.
+- **Only licenses compatible with GPL v3** in what is published. What is not (NetSurf, GNUBoy and the
+  modern start of the Realtek r8169 network driver, which are «GPL v2 only») stays out of the published
+  images and code; each person can build it for their own use
+  ([`compilar_versiones.md`](compilar_versiones.md)).
+- **One automated test per feature**, which boots the system in QEMU and checks the result
+  ([`tests/`](tests/)).
+- **Decisions are written down** in [`docs/decisoes.md`](docs/decisoes.md) (D001, D002…) and proposals in
+  [`mejoras/`](mejoras/README.md).
+- **Tested on real hardware** before a version is considered good, not only in virtual machines.
+- Identifiers and file names come from the original, in Portuguese; comments, documentation and the
+  interface are in Spanish.
+

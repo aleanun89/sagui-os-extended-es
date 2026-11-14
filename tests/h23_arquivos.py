@@ -19,8 +19,9 @@ TEXTO = "Olá, SaguiOS! Ação e coração."
 # saem do rootfs/, para o teste não quebrar quando se acrescenta uma pasta.
 _ROOTFS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rootfs")
 # D194: el punto de montaje /apps (SAGUI-APPS) también está en la raíz.
-PASTAS = sorted(set(d for d in os.listdir(_ROOTFS) if os.path.isdir(os.path.join(_ROOTFS, d))) | {"apps"})
-ITENS_RAIZ = len(set(os.listdir(_ROOTFS)) | {"apps"})
+# D255: /sistema (con /sistema/conf, SAGUI-CONF) también aparece en la raíz.
+PASTAS = sorted(set(d for d in os.listdir(_ROOTFS) if os.path.isdir(os.path.join(_ROOTFS, d))) | {"apps", "sistema"})
+ITENS_RAIZ = len(set(os.listdir(_ROOTFS)) | {"apps", "sistema"})
 
 
 def janela(serial, titulo):

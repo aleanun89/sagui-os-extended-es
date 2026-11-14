@@ -32,7 +32,8 @@ def criar_imagem(nome, fs, partes=(True, True, True)):
     cmd = [sys.executable, os.path.join(RAIZ, "tools", "mkimagem.py"),
            "--mbr", f"{B}/boot/mbr.bin", "--estagio2", f"{B}/boot/estagio2.bin", "--kernel", f"{B}/kernel.bin",
            "--kernel-elf", f"{B}/kernel.elf", "--ramdisk", f"{B}/ramdisk.sgfs", "--saida", img,
-           "--vesa", "--console", "--part-fs", fs, "--home-mb", str(h)]
+           "--vesa", "--console", "--part-fs", fs, "--home-mb", str(h),
+           "--sin-conf"]      # D256: SAGUI-CONF la prueba h255; aquí solo /home, /tmp y /logs
     if partes[1]:
         cmd += ["--tmp-mb", str(t)]
     if partes[2]:

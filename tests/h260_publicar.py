@@ -17,6 +17,8 @@ import tempfile
 RAIZ = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SCRIPT = os.path.join(RAIZ, "tools", "publicar.sh")
 fallos = []
+NOMBRE = "beta1"          # nomenclatura del repo público (D261): betaN o AAAAMM-VERSION
+ORIGEN = "v1.0"           # versión del repo de trabajo de la que sale
 
 
 def comprobar(cond, texto):
@@ -52,7 +54,11 @@ def repo_limpio(tmp, nombre):
     escribir(r, "input_share/juego.bin", "datos\n")
     escribir(r, "ayudame.md", "notas internas\n")
     escribir(r, "kernel/terceros/linux/r8169/x.c", "// SPDX-License-Identifier: GPL-2.0-only\n")
-    escribir(r, "userland/terceros/gnuboy/g.c", "int g;\n")
+    # D261: el código de NetSurf y GNUBoy no va (se descarga); su pegamento propio sí
+    escribir(r, "userland/terceros/gnuboy/jogo/g.c", "int g;\n")
+    escribir(r, "userland/terceros/netsurf/fuentes/n.c", "int n;\n")
+    escribir(r, "userland/terceros/gnuboy/gnuboy.mk", "# SPDX-License-Identifier: GPL-2.0-or-later\nGB := 1\n")
+    escribir(r, "userland/terceros/netsurf/netsurf.mk", "# SPDX-License-Identifier: GPL-2.0-or-later\nNS := 1\n")
     # D259: lo GPL-2.0-or-later de kernel/terceros/linux/ sí va
     escribir(r, "kernel/terceros/linux/hda/idt.h", "// SPDX-License-Identifier: GPL-2.0-or-later\n")
     git(r, "add", "-A")
@@ -60,9 +66,9 @@ def repo_limpio(tmp, nombre):
     return r
 
 
-def preparar(repo, tmp, destino, extra=None):
+def preparar(repo, tmp, destino, extra=None, nombre=None):
     env = dict(os.environ, PUBLICAR_RAIZ=repo, PUBLICAR_RAMA="main", PUBLICAR_TRABAJO=os.path.join(tmp, "trabajo"))
-    p = subprocess.run(["bash", SCRIPT, "preparar", "v1.0", destino, *(extra or [])], env=env,
+    p = subprocess.run(["bash", SCRIPT, "preparar", nombre or NOMBRE, destino, *(extra or [])], env=env,
                        capture_output=True, text=True, stdin=subprocess.DEVNULL)
     return p.returncode, p.stdout + p.stderr
 
@@ -88,9 +94,11 @@ def main():
         rc, salida = preparar(r, tmp, dest)
         comprobar(rc == 0, "árbol limpio: preparar pasa\n" + (salida if rc else ""))
         comprobar(os.path.isfile(os.path.join(dest, "kernel/main.c")), "limpio: el código va")
-        for excluido in ("entrega", ".env_agents", "input_share", "ayudame.md", "kernel/terceros/linux/r8169", "userland/terceros/gnuboy"):
+        for excluido in ("entrega", ".env_agents", "input_share", "ayudame.md", "kernel/terceros/linux/r8169", "userland/terceros/gnuboy/jogo", "userland/terceros/netsurf/fuentes"):
             comprobar(not os.path.exists(os.path.join(dest, excluido)), f"limpio: se excluye {excluido}")
         comprobar(os.path.isfile(os.path.join(dest, "kernel/terceros/linux/hda/idt.h")), "limpio: el «or later» de linux/ va")
+        for propio in ("userland/terceros/gnuboy/gnuboy.mk", "userland/terceros/netsurf/netsurf.mk"):
+            comprobar(os.path.isfile(os.path.join(dest, propio)), f"limpio: el pegamento propio va ({propio})")
         comprobar(os.path.isfile(dest + ".ok"), "limpio: deja la marca de lo comprobado")
         # un fichero sin versionar (del árbol de trabajo) nunca se exporta
         escribir(r, "sin_versionar.txt", "no está en git\n")
@@ -112,6 +120,18 @@ def main():
         caso_malo(tmp, "linuxsolov2", "kernel/terceros/linux/hwmon/t.h", "// SPDX-License-Identifier: GPL-2.0-only\n", "sin «or later»")
         caso_malo(tmp, "clave", "docs/k.md", "-----BEGIN RSA " + "PRIVATE KEY-----\n", "secretos")
 
+        # 2b. Código de NetSurf o de GNUBoy fuera de las carpetas excluidas: se rechaza (se arma aquí)
+        caso_malo(tmp, "netsurf", "userland/x/ns.c", "/* This file is part of " + "NetSurf, http://www.netsurf-browser.org/ */\n", "NetSurf o GNUBoy")
+        caso_malo(tmp, "gnuboy", "userland/x/gb.c", "/* credits: " + "Laguna */\n", "NetSurf o GNUBoy")
+        # Nombres de publicación: solo betaN y AAAAMM-VERSION
+        for malo in ("v1.0", "2026-8.0", "beta", "202611-", "beta1x"):
+            rc, salida = preparar(r, tmp, os.path.join(tmp, "dest_nombre"), None, malo)
+            comprobar(rc != 0 and "no válido" in salida, f"el nombre «{malo}» se rechaza")
+        for bueno in ("beta2", "202611-8.0", "202612-8.0.1", "202611-8.0b7"):
+            d = os.path.join(tmp, "dest_" + bueno)
+            rc, salida = preparar(r, tmp, d, None, bueno)
+            comprobar(rc == 0, f"el nombre «{bueno}» se acepta\n" + (salida if rc else ""))
+
         # 3. Un commit que no está en main se rechaza
         git(r, "checkout", "-q", "-b", "otra")
         escribir(r, "otra.txt", "x\n")
@@ -124,18 +144,19 @@ def main():
         publico = os.path.join(tmp, "publico.git")
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", publico], check=True)
         env = dict(os.environ, PUBLICAR_RAIZ=r, PUBLICAR_RAMA="main", PUBLICAR_TRABAJO=os.path.join(tmp, "trabajo"))
-        p = subprocess.run(["bash", SCRIPT, "subir", "v1.0", dest, publico], env=env, capture_output=True, text=True,
+        p = subprocess.run(["bash", SCRIPT, "subir", NOMBRE, dest, publico], env=env, capture_output=True, text=True,
                            stdin=subprocess.DEVNULL)
         comprobar(p.returncode != 0 and "no se subió nada" in p.stdout + p.stderr, "subir sin PUBLICAR no empuja")
         comprobar(subprocess.run(["git", "-C", publico, "rev-parse", "--verify", "-q", "refs/heads/main"],
                                  capture_output=True).returncode != 0, "el repo público sigue vacío")
         clon = os.path.join(tmp, "trabajo", "repo-publico")
         autor = git(clon, "log", "-1", "--format=%an <%ae>|%s").strip()
-        comprobar(autor == "Prueba <prueba@prueba.invalid>|Publicación v1.0", "el commit local lleva el autor de git config y el mensaje")
-        comprobar("v1.0" in git(clon, "tag").split(), "la etiqueta existe en el clon local")
+        comprobar(autor.startswith("Prueba <prueba@prueba.invalid>|Publicación beta1 (beta1 = ") and "commit " in autor,
+                  "el commit local lleva el autor de git config y de qué commit del repo de trabajo sale: " + autor)
+        comprobar(NOMBRE in git(clon, "tag").split(), "la etiqueta existe en el clon local")
         # modificar lo preparado invalida la marca
         escribir(dest, "kernel/main.c", "int main(void) { return 1; }\n")
-        p = subprocess.run(["bash", SCRIPT, "subir", "v1.0", dest, publico], env=env, capture_output=True, text=True,
+        p = subprocess.run(["bash", SCRIPT, "subir", NOMBRE, dest, publico], env=env, capture_output=True, text=True,
                            stdin=subprocess.DEVNULL)
         comprobar(p.returncode != 0 and "cambió" in p.stdout + p.stderr, "subir detecta un directorio modificado")
     finally:

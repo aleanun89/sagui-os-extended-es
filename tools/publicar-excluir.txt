@@ -48,19 +48,20 @@
 # Salida de baterías y diario de trabajo internos
 /docs/regressao-final.txt
 
-# --- Fuentes descargadas de terceros que no se redistribuyen ---
-# Las fuentes de NetSurf las baja tools/netsurf_fuentes.sh (ya fuera de git por .gitignore).
+# --- Código de terceros que no se redistribuye (opción A del mantenedor, D261) ---
+# NetSurf y GNUBoy son GPL-2.0 SOLO v2 y se enlazan con la libsagui (GPL-3.0-only de Eli): su
+# código y sus binarios no pueden ir en lo publicado (docs/licencia.md, D258, D259). Quien los
+# quiera se los compila para uso propio: los guiones tools/netsurf_fuentes.sh y
+# tools/gnuboy_fuentes.sh los descargan del upstream y SÍ van, igual que nuestro pegamento
+# (netsurf.mk, gnuboy.mk, plataforma/, libc/curl), propio y con SPDX GPL-2.0-or-later.
+# El Makefile solo incluye cada .mk si existen las fuentes descargadas.
 /userland/terceros/netsurf/fuentes/
-# NetSurf es GPL-2.0 SOLO v2 y se enlaza con la libsagui (GPL-3.0-only de Eli): no puede ir en
-# lo publicado (docs/licencia.md, D258). Se excluye entero el glue (netsurf.mk, plataforma/,
-# libc/); el Makefile solo lo incluye si existen las fuentes preparadas, así que sin él no rompe.
-/userland/terceros/netsurf/
+/userland/terceros/gnuboy/jogo/
+/userland/terceros/gnuboy/roms-libres/
 # D259: GPL-2.0 SOLO la v2 (no se puede enlazar con la libsagui, GPL-3.0): solo en lo privado.
 # El r8169 derivado de Linux (el resto de kernel/terceros/linux/ es GPL-2.0-or-later y SÍ va;
 # sin esta carpeta el driver usa el inicio clasico propio, r8169_sem_gpl.h).
 /kernel/terceros/linux/r8169/
-# GNUBoy (SDL2-GNUBoy): GPL-2.0 casi sin cabeceras «or later», se trata como solo v2 (D259).
-/userland/terceros/gnuboy/
 
 # --- Lo que SÍ va (aclaración, no son patrones) ---
 # docs/capturas/ (25 MB de capturas de las pruebas) sí va. testes_eli/ (980 KB, fotos del

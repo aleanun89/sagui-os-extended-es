@@ -7,6 +7,8 @@ Esquema de capas (docs/licencia.md):
     (dba0fffc, de Eli Rigobeli) y cualquier fichero derivado de ellos
     (renombrado o copiado, aunque esté muy cambiado): GPL-3.0-only;
   - los ficheros nuevos de este proyecto: GPL-2.0-or-later;
+  - el pegamento propio con NetSurf y GNUBoy (D261: netsurf.mk, gnuboy.mk, plataforma/, libc/)
+    es nuevo del fork: GPL-2.0-or-later aunque viva en userland/terceros/;
   - los terceros (userland/terceros/, kernel/terceros/, MicroPython, QuickJS y
     todo lo registrado en docs/terceros.md) no se tocan.
 
@@ -20,6 +22,8 @@ Uso:
   tools/spdx.py                    escribe las marcas que faltan
   tools/spdx.py --raiz DIR         trabaja sobre otra copia del árbol (pruebas)
   tools/spdx.py --lista            con --comprobar, escribe también cada fichero
+Sin git (un árbol exportado para el repositorio público) solo se puede comprobar: se exige que cada
+fichero propio lleve alguna SPDX propia (no se puede saber de cuál de las dos capas es).
 """
 import argparse
 import os
@@ -38,8 +42,14 @@ DERIVADOS_EXTRA = ("userland/sagsh/",)
 # solo para esto se saca de esa exclusión y se marca GPL-3.0-only.
 M4R4G0N = ("kernel/rede/e1000.c", "kernel/rede/rede.c", "kernel/rede/tcp.c", "kernel/rede/socket.c",
            "kernel/inc/rede.h", "userland/programas/cipo.c")
+# D261: ficheros propios dentro de carpetas de terceros (van al repositorio público).
+PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/plataforma/",
+             "userland/terceros/netsurf/libc/", "userland/terceros/gnuboy/gnuboy.mk",
+             "userland/terceros/gnuboy/plataforma/")
 EXCLUIDOS = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/",
-             "build/", "entrega/", "testes_hw/", "dashboard/", "firmware/")
+             "build/", "entrega/", "testes_hw/", "dashboard/", "firmware/",
+             # Ejemplos que la prueba h64 (Mico) lee por números de línea: una cabecera los desplazaría.
+             "rootfs/ejemplos/mico/")
 # extensión -> prefijo de comentario
 COMENTARIO = {".c": "//", ".h": "//", ".cpp": "//", ".hpp": "//", ".cc": "//", ".ld": "/*",
               ".asm": ";", ".inc": ";", ".s": "#", ".S": "#", ".py": "#", ".sh": "#", ".mk": "#"}
@@ -119,17 +129,40 @@ def punto_de_insercion(datos, ruta):
     return pos
 
 
+def hay_git(raiz):
+    """True si raiz es la raíz de un repositorio git (un árbol exportado no lo es)."""
+    try:
+        t = git(raiz, "rev-parse", "--show-toplevel").strip()
+    except (subprocess.CalledProcessError, OSError):
+        return False
+    return os.path.realpath(t) == os.path.realpath(raiz)
+
+
+def lista_de_ficheros(raiz, con_git):
+    if con_git:
+        return git(raiz, "ls-files").splitlines()
+    r = []
+    for d, ds, fs in os.walk(raiz):
+        ds[:] = [x for x in ds if x not in (".git", "__pycache__")]
+        r += [os.path.relpath(os.path.join(d, f), raiz).replace(os.sep, "/") for f in fs]
+    return sorted(r)
+
+
 def procesar(raiz, aplicar, listar):
+    con_git = hay_git(raiz)
+    if aplicar and not con_git:
+        sys.exit("spdx.py: sin git no se puede decidir la licencia de cada fichero; usa --comprobar")
     ajenos = rutas_de_terceros(raiz)
-    eli = de_origen_eli(raiz)
+    eli = de_origen_eli(raiz) if con_git else set()
     res = {"GPL-3.0-only": [], "GPL-2.0-or-later": [], "ya": [], "ajeno": [], "otra": []}
-    for ruta in git(raiz, "ls-files").splitlines():
-        if ruta.startswith(EXCLUIDOS) or not os.path.isfile(os.path.join(raiz, ruta)):
+    for ruta in lista_de_ficheros(raiz, con_git):
+        peg = ruta.startswith(PEGAMENTO)
+        if (ruta.startswith(EXCLUIDOS) and not peg) or not os.path.isfile(os.path.join(raiz, ruta)):
             continue
         com = comentario_de(ruta)
         if com is None:
             continue
-        if ruta not in M4R4G0N and any(ruta == a or ruta.startswith(a + "/") for a in ajenos):
+        if not peg and ruta not in M4R4G0N and any(ruta == a or ruta.startswith(a + "/") for a in ajenos):
             continue
         with open(os.path.join(raiz, ruta), "rb") as f:
             datos = f.read()

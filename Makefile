@@ -27,6 +27,11 @@
 #   make vazio      -> alvo vazio (critério da H01)
 #   make limpar     -> apaga build/
 
+# El objetivo por defecto es siempre «all». Sin esto, en un arbol sin las fuentes de NetSurf (el
+# repositorio publico) el primero que se define en un .mk incluido (p. ej. un .o de gprolog) pasaba
+# a ser el objetivo por defecto y «make» no generaba la imagen (D261).
+.DEFAULT_GOAL := all
+
 # O GCC do sistema em modo 32 bits e freestanding faz o papel do compilador
 # cruzado (ver docs/decisoes.md, D001).
 CC      := gcc
@@ -420,9 +425,12 @@ endif
 NETSURF ?= 1
 ifneq ($(SEM_GPL),1)
 ifeq ($(NETSURF),1)
+# D261: en el árbol público no están las fuentes (se descargan) y puede faltar el pegamento:
+# solo se incluye si hay las dos cosas.
 ifneq ($(wildcard userland/terceros/netsurf/fuentes/.preparado),)
-.DEFAULT_GOAL := all
+ifneq ($(wildcard userland/terceros/netsurf/netsurf.mk),)
 include userland/terceros/netsurf/netsurf.mk
+endif
 endif
 endif
 endif
@@ -462,12 +470,15 @@ endif
 # Game Boy con SDL2-GNUBoy (D235): GPL-2.0, aislado en userland/terceros/gnuboy/ como
 # los anteriores y fuera de la variante sin GPL; es C: no pide g++. Usa la SDL 2
 # (userland/libsdl2) del sistema. GNUBOY=0 lo deja fuera (D259: PUBLICABLE=1 lo pasa; GPL-2.0 solo
-# la v2, solo en lo privado; si la carpeta no existe, como en el repositorio publico, no entra).
+# la v2). D261: su codigo (jogo/) no va en el repositorio publico: lo baja tools/gnuboy_fuentes.sh
+# (make priv_descargas); sin el, como en el arbol publico, no entra y el sistema se construye igual.
 GNUBOY ?= 1
 ifneq ($(SEM_GPL),1)
 ifeq ($(GNUBOY),1)
 ifneq ($(wildcard userland/terceros/gnuboy/gnuboy.mk),)
+ifneq ($(wildcard userland/terceros/gnuboy/jogo/VERSAO),)
 include userland/terceros/gnuboy/gnuboy.mk
+endif
 endif
 endif
 endif
@@ -495,7 +506,7 @@ CD_RAMDISK := $(B)/ramdisk-cd.sgfs
 APPS_IMG_DEP := $(APPS_DEP)
 endif
 
-.PHONY: variantes priv_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
+.PHONY: help variantes priv_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
 
 all: $(B)/saguios.img $(B)/host/chip8
 
@@ -1111,7 +1122,8 @@ variantes:
 
 # Variantes privadas (solo para quien compila, NUNCA publicar, D228): todas las de
 # «variantes» con los juegos de input_share/ y los datos que no van en git. Antes
-# baja (si faltan) lo que hace falta: las fuentes del navegador NetSurf (D184), los
+# baja (si faltan) lo que hace falta: las fuentes del navegador NetSurf (D184), las del
+# emulador GNUBoy (D235, D261), los
 # datos shareware de Quake (D229) y OpenJazz (D228) y las fuentes de Typodermic
 # (D196). Los guiones no repiten la descarga si ya está hecha.
 #   make priv_variantes [PRIV_DESTINO=entrega/latest] [GERAR_OPC="--probar"]
@@ -1119,15 +1131,32 @@ PRIV_DESTINO ?= entrega/latest
 TYPODERMIC_ZIP := typodermic-public-domain-2024-12.zip
 priv_descargas:
 	@[ -f userland/terceros/netsurf/fuentes/.preparado ] || bash tools/netsurf_fuentes.sh
+	@[ -f userland/terceros/gnuboy/jogo/VERSAO ] || bash tools/gnuboy_fuentes.sh
 	bash tools/quake_datos.sh
 	bash tools/openjazz_datos.sh
 	@$(PY) -c "import sys; sys.path.insert(0, 'tools'); import fuentes_typodermic as f; sys.exit(0 if f.buscar_zip() else 3)" || \
-	    echo "priv_descargas: sin las fuentes de Typodermic (se sigue sin ellas): baja a mano $(TYPODERMIC_ZIP) de typodermicfonts.com y ponlo en NEW_FONTS/"
+	    echo "priv_descargas: sin las fuentes de Typodermic (opcionales; se sigue sin ellas): baja a mano $(TYPODERMIC_ZIP) de typodermicfonts.com/public-domain/ y ponlo en NEW_FONTS/"
 	@[ -d input_share ] || echo "priv_descargas: AVISO: no hay input_share/ (los juegos propios no entrarán; ver docs/input_share.md)"
 
 priv_variantes: priv_descargas
 	./gerar_versao.sh --todas --con-input-share --destino $(PRIV_DESTINO) $(GERAR_OPC)
 	@echo "priv_variantes: en $(PRIV_DESTINO): son para uso propio, NO publicar (D228)"
+
+# Ayuda: objetivos y variables principales (el detalle, en compilar_versiones.md).
+help:
+	@echo "SaguiOS: objetivos principales (detalle en compilar_versiones.md)"
+	@echo "  make                  build/saguios.img: la imagen base (sin NetSurf ni GNUBoy si no estan sus fuentes)"
+	@echo "  make vdi              ademas build/saguios.vdi (VirtualBox)"
+	@echo "  make imagem-persistente | imagem-persistente-fat32 | imagem-particoes | imagem-smp | imagem-uacpi"
+	@echo "  make variantes [DESTINO=entrega/latest]    todas las imagenes publicables (sin NetSurf, GNUBoy ni input_share)"
+	@echo "  make priv_descargas   baja lo que no va en git: NetSurf, GNUBoy, datos shareware de Quake y OpenJazz, fuentes Typodermic"
+	@echo "  make priv_variantes [PRIV_DESTINO=entrega/latest]   igual que variantes pero con todo lo descargado y los juegos de"
+	@echo "                        input_share/: para uso PROPIO, no se distribuyen (NetSurf y GNUBoy son GPL v2)"
+	@echo "  make test | rodar | limpar | entrega FASE=N | help"
+	@echo "Variables: B (carpeta de compilacion) INPUT_SHARE (vacio = sin juegos propios) JOGOS=0 GNUBOY=0 NETSURF=0 CONQUER=0 QUAKE=0"
+	@echo "  OPENJAZZ=0 APPS=0 HOME_MB TMP_MB LOGS_MB JOGOS_MB DATOS_MB PART_FS FUENTES_RED=1 (baja Typodermic si falta) SEM_GPL=1"
+	@echo "  GERAR_OPC=\"--probar\" (opciones de gerar_versao.sh)"
+	@echo "Entorno: . ~/.local/saguitools/env.sh antes de make (ver compilar_versiones.md)"
 
 # Imagen multinúcleo (D164): la misma, con los procesadores secundarios
 # encendidos. Sin el IOAPIC (D166): en el Amilo (945) las IRQ PCI del USB no

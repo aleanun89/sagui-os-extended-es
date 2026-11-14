@@ -20,6 +20,16 @@ público) sin la orden explícita del mantenedor **en esa conversación**. Se pu
 versión X.Y, o una beta cuando el mantenedor lo decida. El mantenedor es quien escribe `PUBLICAR`
 en la confirmación.
 
+## Nombres y repositorio (D261)
+
+El repo público es `aleanun89/sagui-os-extended-es` (`PUBLICAR_URL` lo cambia; es el valor por defecto de
+`subir`). Tiene su propia nomenclatura, distinta de la privada: la primera publicación es **`beta1`**
+(luego `beta2`...) y después **`AAAAMM-VERSION`** con el año-mes y la versión del repo de trabajo
+(`202611-8.0`, `202612-8.0.1`). Es la etiqueta y el título de la Release. `--origen vX.Y` (por defecto,
+`git describe`) dice de qué versión del repo de trabajo sale; el commit, la etiqueta y las notas de la
+Release llevan «beta1 = v8.0b7, commit X del repo de trabajo». Las imágenes se buscan en
+`entrega/<origen>`.
+
 ## Pasos
 
 1. Que `main` tenga todo integrado y limpio (también la rama de licencia `v8.0b7-licencia-gplv3` y
@@ -29,7 +39,7 @@ en la confirmación.
 3. Preparar y comprobar:
 
    ```bash
-   tools/publicar.sh preparar vX.Y /ruta/preparacion/vX.Y          # [--commit REF] [--compilar]
+   tools/publicar.sh preparar beta1 /ruta/preparacion/beta1 --origen v8.0b7   # [--commit REF] [--compilar]
    ```
 
    Exporta con `git archive` **solo los ficheros versionados** (nunca el árbol de trabajo), aplica
@@ -44,13 +54,13 @@ en la confirmación.
    etiqueta, y **pide escribir `PUBLICAR`** antes del `git push`):
 
    ```bash
-   tools/publicar.sh subir vX.Y /ruta/preparacion/vX.Y https://github.com/ORG/REPO.git [--imagenes entrega/vX.Y]
+   tools/publicar.sh subir beta1 /ruta/preparacion/beta1 [URL] [--imagenes entrega/v8.0b7]
    ```
 
    Si lo preparado cambió después de `preparar` (huella del directorio), `subir` se niega.
 5. Release con las imágenes: `subir` imprime la orden (y, con `tools/gh-agentes.sh` y confirmación
    `RELEASE`, la ejecuta):
-   `gh release create vX.Y --title ... --notes-file ... saguios.img saguios-smp.img SHA256SUMS.txt VERSION.txt`.
+   `gh release create beta1 --title ... --notes-file ... saguios.img saguios-smp.img SHA256SUMS.txt VERSION.txt`.
    Las notas dicen que el código fuente es el commit etiquetado.
 
 ## Qué no se publica y por qué
@@ -59,17 +69,20 @@ La lista está comentada en `tools/publicar-excluir.txt`. Resumen: `entrega/` (1
 van a la Release), `build*/`, `input_share/`, `NEW_FONTS/`, `data_extra/`, audio/vídeo personales,
 `.env*` (tokens), `.claude/` (configuración de los agentes), `testes_hw/` (informes y fotos de
 máquinas reales: números de serie, MAC), `ayudame.md`, `status.md`, `docs/CONTINUAR.md`,
-`docs/regressao-final.txt` (notas internas), NetSurf entero (GPL-2.0 solo v2, no compatible con la
-libsagui GPL-3.0-only; `docs/licencia.md`) y `kernel/terceros/linux/` (rama `v8.0b7-sin-linux`).
-Sí van `docs/capturas/` (25 MB) y `testes_eli/` (980 KB, fotos del proyecto original). GNUBoy está
-pendiente de decisión del mantenedor (hay una línea comentada para excluirlo).
+`docs/regressao-final.txt` (notas internas), el **código** de NetSurf y de GNUBoy (GPL-2.0 solo v2, no
+compatible con la libsagui GPL-3.0-only: `netsurf/fuentes/` y `gnuboy/jogo/`; `docs/licencia.md`) y
+`kernel/terceros/linux/r8169/`. **Sí van** nuestro pegamento con NetSurf y GNUBoy (`netsurf.mk`,
+`gnuboy.mk`, `plataforma/`, `libc/`, SPDX GPL-2.0-or-later) y los guiones que descargan el original
+(D261): cada usuario se los compila para uso propio con `make priv_variantes`.
+Sí van `docs/capturas/` (25 MB) y `testes_eli/` (980 KB, fotos del proyecto original).
+`publicar.sh` y `auditar_licencias.py --publico` fallan si aparece código de NetSurf o GNUBoy.
 
 La amalgama de SQLite (9,5 MB, dominio público) es la única excepción al límite de 5 MB.
 
 ## Corregir una publicación
 
 Nunca se reescribe la historia del público (ni `push --force`, ni mover etiquetas): se arregla en el
-repo de trabajo, se integra en `main` y se publica **una versión nueva** (por ejemplo `v8.0.1`) con
+repo de trabajo, se integra en `main` y se publica **una versión nueva** (por ejemplo `202612-8.0.1`) con
 otro commit y otra etiqueta. Si algo sensible llegó a publicarse, avisar al mantenedor: hay que
 rotar el secreto, no solo borrarlo.
 

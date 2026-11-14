@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # saludo.py - F5 lo ejecuta con python
 def saludar(nombre, veces=2):
     """Saluda varias veces."""

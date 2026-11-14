@@ -109,6 +109,11 @@ de Eli. Un solo binario no puede ser a la vez v2-solo y v3-solo. Por eso, desde 
 - `make NETSURF=0` lo quita de cualquier compilación; las fuentes del upstream no van en git
   (`tools/netsurf_fuentes.sh` las baja).
 
+**Uso propio de NetSurf y GNUBoy con solo el repositorio público (D261).** El repositorio público lleva
+nuestro pegamento (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`: propio, `GPL-2.0-or-later`) y los
+guiones que descargan el código original, pero **no** ese código. `make priv_variantes` lo descarga y lo
+compila para quien lo ejecuta; esas imágenes **no se redistribuyen**.
+
 ## La variante `SEM_GPL=1`
 
 Ya no significa «sin nada GPL» (el código propio es GPL v3). Significa **sin ports de terceros con

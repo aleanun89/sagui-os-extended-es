@@ -35,7 +35,8 @@ def criar(nome):
                     "--mbr", f"{B}/boot/mbr.bin", "--estagio2", f"{B}/boot/estagio2.bin", "--kernel", f"{B}/kernel.bin",
                     "--kernel-elf", f"{B}/kernel.elf", "--ramdisk", f"{B}/ramdisk.sgfs", "--saida", img,
                     "--vesa", "--console", "--part-fs", "fat32", "--tmp-fs", "ext2", "--home-mb", "40",
-                    "--tmp-mb", "8", "--logs-mb", "34", "--extra-mb", "40", "--esquema", "mixto"],
+                    "--tmp-mb", "8", "--logs-mb", "34", "--extra-mb", "40", "--esquema", "mixto",
+                    "--sin-conf"],      # D256: sin SAGUI-CONF (la prueba h255); aquí las 3 lógicas de datos
                    check=True, stdout=subprocess.DEVNULL)
     return img
 

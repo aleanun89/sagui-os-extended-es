@@ -705,13 +705,30 @@ El esquema, por capas (explicado con calma en [`docs/licencia.md`](docs/licencia
 | Ficheros nuevos de este fork | `GPL-2.0-or-later` (que se puede usar bajo la GPL v3) |
 | Terceros (MicroPython, uACPI, SQLite, los juegos portados...) | la suya, registrada en [`docs/terceros.md`](docs/terceros.md) |
 
-Cada fichero propio lleva su línea `SPDX-License-Identifier`. El navegador NetSurf (GPL-2.0 sin «o
-posterior») **no va en las imágenes publicadas**: solo quien compila puede incluirlo, para uso
-privado. Detalles y la decisión: D258 en [`docs/decisoes.md`](docs/decisoes.md).
+Cada fichero propio lleva su línea `SPDX-License-Identifier`. NetSurf, GNUBoy y el inicio moderno de
+la red Realtek r8169 (GPL-2.0 sin «o posterior») **no van en las imágenes ni en el código
+publicados**: solo quien compila puede incluirlos, para uso privado. Detalles y la decisión: D258 en [`docs/decisoes.md`](docs/decisoes.md).
 
 ## Las reglas del proyecto
 
-Del [`prd.md`](prd.md): nada de código de otros sistemas operativos (con excepciones aisladas y registradas en [`docs/terceros.md`](docs/terceros.md): MicroPython, D034; desde la D073, el código de drivers y hardware tomado de Linux, Mesa o linux-firmware; y desde la D149 y la D156, el QuickJS y el OpenTyrian, además de los iconos Fluent y los datos de terceros que lista ese documento), nada de GRUB ni de otro
-cargador ya hecho, nada de libc ni de bibliotecas ya hechas dentro del sistema, fuentes e imágenes
-creadas en el proyecto (salvo las registradas como terceros), nombres y comentarios en portugués que explican el porqué, una prueba automática
-por historia y cada fase validada por Eli en el hardware real antes de la siguiente.
+SaguiOS nació con una idea sencilla (ver [`prd.md`](prd.md), la especificación original de Eli
+Rigobeli): **un sistema operativo escrito desde cero**. Este fork mantiene ese espíritu con estas reglas:
+
+- **Lo esencial es propio:** el cargador de arranque (sin GRUB), el kernel, la libc, la biblioteca
+  gráfica, el escritorio y las aplicaciones del sistema están escritos en el proyecto.
+- **El código de terceros es la excepción, y siempre está aislado y registrado** en
+  [`docs/terceros.md`](docs/terceros.md), con su origen y su licencia: intérpretes y bibliotecas
+  (MicroPython, QuickJS, SQLite, uACPI), los juegos portados (Quake, OpenTyrian, OpenJazz, Command &
+  Conquer…), tablas de hardware tomadas de drivers libres (FreeBSD, OpenBSD, Mesa y alguna de Linux con
+  licencia «GPL v2 o posterior»), iconos y fuentes.
+- **Solo licencias compatibles con la GPL v3** en lo que se publica. Lo que no lo es (NetSurf,
+  GNUBoy y el inicio moderno de la red Realtek r8169, que son «solo GPL v2») queda fuera de las
+  imágenes y del código publicados; cada uno puede compilarlo para su propio uso
+  ([`compilar_versiones.md`](compilar_versiones.md)).
+- **Una prueba automática por funcionalidad**, que arranca el sistema en QEMU y comprueba el resultado
+  ([`tests/`](tests/)).
+- **Las decisiones quedan escritas** en [`docs/decisoes.md`](docs/decisoes.md) (D001, D002…) y las
+  propuestas en [`mejoras/`](mejoras/README.md).
+- **Probado en hardware real** antes de dar una versión por buena, no solo en máquinas virtuales.
+- Los identificadores y nombres de fichero vienen del original, en portugués; los comentarios, la
+  documentación y la interfaz están en español.

@@ -33,9 +33,17 @@ Recorre el árbol del proyecto y falla (código de salida 1) si algo no cuadra:
      SPDX-License-Identifier (GPL-3.0-only o GPL-2.0-or-later). Los ficheros con esas marcas son
      propios: no cuentan como «licencia ajena» ni como GPL a aislar.
 
-Uso: tools/auditar_licencias.py [--sin-make] [--elf RUTA] [--elf-publicable RUTA] [--estricto]
+     (D261) El pegamento propio con NetSurf y GNUBoy (netsurf.mk, gnuboy.mk, plataforma/, libc/curl)
+     es código propio (GPL-2.0-or-later): puede ir en el repositorio público y, en modo estricto,
+     debe llevar SPDX. El código de NetSurf y de GNUBoy, no.
+ 11. Con --publico (árbol exportado para el repositorio público): no existen
+     userland/terceros/netsurf/fuentes/ ni userland/terceros/gnuboy/jogo/ ni binarios de ellos, y
+     ningún fichero lleva las cabeceras de copyright de NetSurf (y sus bibliotecas) o de GNUBoy.
+
+Uso: tools/auditar_licencias.py [--sin-make] [--elf RUTA] [--elf-publicable RUTA] [--estricto] [--publico]
   --sin-make   salta el punto 5 y la parte dinámica del 8 (no ejecuta make ni gcc)
   --estricto   exige SPDX en todo fichero propio (punto 10)
+  --publico    comprobaciones del árbol público (punto 11)
 """
 import argparse
 import concurrent.futures
@@ -85,11 +93,34 @@ SOLO_V2_PERMITIDO = ("userland/terceros/netsurf/", "userland/terceros/gnuboy/", 
 FUERA_DE_LO_PUBLICABLE = (("NETSURF", "userland/terceros/netsurf/", "NetSurf"),
                           ("GNUBOY", "userland/terceros/gnuboy/", "GNUBoy"))
 R8169_LINUX = "kernel/terceros/linux/r8169/"
+# D261: nuestro pegamento con NetSurf y GNUBoy. Es propio (GPL-2.0-or-later) aunque viva en
+# userland/terceros/<x>/ y va en el repositorio público; el código del upstream no.
+PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/plataforma/",
+             "userland/terceros/netsurf/libc/", "userland/terceros/gnuboy/gnuboy.mk",
+             "userland/terceros/gnuboy/plataforma/", "userland/terceros/gnuboy/roms-leeme.txt")
+# D259: código de M4R4G0N (PR #3 del original), GPL-3.0-only como el de Eli; figura en terceros.md
+# pero es propio de la capa GPL v3: no es «GPL a aislar».
+M4R4G0N = ("kernel/rede/e1000.c", "kernel/rede/rede.c", "kernel/rede/tcp.c", "kernel/rede/socket.c",
+           "kernel/inc/rede.h", "userland/programas/cipo.c")
+# Lo que no se redistribuye (opción A del mantenedor): lo descargan los guiones de tools/.
+NO_REDISTRIBUIBLE = ("userland/terceros/netsurf/fuentes", "userland/terceros/gnuboy/jogo", R8169_LINUX.rstrip("/"))
+# Marcas del código de NetSurf (y sus bibliotecas) y de GNUBoy, para el punto 11.
+RE_MARCAS_AJENAS = re.compile(
+    r"This file is part of (?:NetSurf|libdom|LibCSS|Hubbub|LibParserUtils|libnsfb|nsgenbind|RUfl|Libsvgtiny|libnsutils)"
+    r"|Copyright[^\n]{0,40}(?:NetSurf|John-Mark Bell|Rob Kendrick|Vincent Sanders)"
+    r"|\b(?:Laguna|Gilgamesh)\b")
+# Ficheros que citan esas marcas a propósito (esta herramienta y lo que la documenta o prueba).
+CITAN_MARCAS = ("tools/auditar_licencias.py", "tools/publicar.sh", "tools/gnuboy_fuentes.sh", "tools/netsurf_fuentes.sh",
+                "tests/h260_publicar.py", "tests/h81_licencias.py")
 # Carpetas de lo que NO es propio (para exigir SPDX en el modo estricto).
 NO_PROPIO = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/")
 EXT_SPDX = {".c", ".h", ".cpp", ".hpp", ".cc", ".asm", ".inc", ".s", ".S", ".py", ".sh", ".mk", ".ld"}
 ARCHIVOS_DE_LICENCIA = {"LICENSE"}   # el texto de la GPL v3 de la raíz
 errores = []
+
+
+def es_pegamento(ruta):
+    return ruta in M4R4G0N or any(ruta == p or ruta.startswith(p) for p in PEGAMENTO)
 
 
 def falla(msg):
@@ -200,9 +231,10 @@ def comprobar_arbol(archivos, rutas):
     ajenos = gpl = 0
     for a in archivos:
         spdx, copia, texto = analizar(a)
-        if not any(a.startswith(d) for d in GPL_AISLADAS):
-            # marca de la licencia del propio proyecto (D258): también en lo heredado del original
-            # que figura en docs/terceros.md (el código de M4R4G0N, GPL-3.0 como el de Eli)
+        if es_pegamento(a) or not any(a.startswith(d) for d in GPL_AISLADAS):
+            # marca de la licencia del propio proyecto (D258, D261): también en lo heredado del original
+            # que figura en docs/terceros.md (el código de M4R4G0N, GPL-3.0 como el de Eli) y en el
+            # pegamento propio que vive en carpetas de terceros
             spdx = [x for x in spdx if x not in SPDX_PROPIOS]
         for carpeta, lic in LICENCIA_POR_CARPETA.items():
             if not spdx and a.startswith(carpeta):
@@ -233,12 +265,16 @@ def comprobar_arbol(archivos, rutas):
             if l:
                 excluidas.append(l.strip("/"))
     for r in rutas:
+        # D261: lo que se descarga (fuentes de NetSurf, jogo/ de GNUBoy) y el r8169 no están en el
+        # árbol público, aunque terceros.md los registre.
+        if r.rstrip("/").startswith(NO_REDISTRIBUIBLE):
+            continue
         if not os.path.exists(os.path.join(RAIZ, r.rstrip("/"))):
             if any(r.rstrip("/") == e or r.startswith(e + "/") for e in excluidas):
                 continue   # no se publica (NetSurf, GNUBoy, r8169 de Linux): solo en lo privado
             falla("docs/terceros.md: la ruta `%s` no existe" % r)
-    if os.path.isdir(os.path.join(RAIZ, "userland/terceros/gnuboy")):
-        print("AVISO: userland/terceros/gnuboy/ es GPL-2.0 casi sin cabeceras «or later»: solo en lo privado (D259): "
+    if os.path.isdir(os.path.join(RAIZ, "userland/terceros/gnuboy/jogo")):
+        print("AVISO: userland/terceros/gnuboy/jogo/ es GPL-2.0 casi sin cabeceras «or later»: solo en lo privado (D259): "
               "fuera de lo publicable (docs/licencia.md)")
     print("árbol: %d archivos de texto, %d con licencia o copyright ajeno, %d GPL (todos aislados)" % (len(archivos), ajenos, gpl))
 
@@ -251,17 +287,50 @@ def comprobar_linux_retirado():
 def comprobar_estricto(archivos):
     """Todo fichero propio con extensión de código tiene su SPDX (punto 10)."""
     sin = [a for a in archivos if (os.path.splitext(a)[1] in EXT_SPDX or os.path.basename(a) == "Makefile")
-           and not a.startswith(NO_PROPIO)]
+           and (not a.startswith(NO_PROPIO) or es_pegamento(a))
+           # ejemplos que el usuario abre en Mico: sin línea SPDX a propósito (tools/spdx.py, EXCLUIDOS)
+           and not a.startswith("rootfs/ejemplos/mico/")]
     n = 0
     for a in sin:
         spdx, _, _ = analizar(a)
         if not any(x in SPDX_PROPIOS for x in spdx):
-            if analizar(a)[1] or cubierto(a, rutas_de_terceros()):
+            if not es_pegamento(a) and (analizar(a)[1] or cubierto(a, rutas_de_terceros())):
                 continue   # copyright ajeno o registrado como tercero: no se exige
             falla("%s: fichero propio sin SPDX-License-Identifier (ejecutar tools/spdx.py)" % a)
         else:
             n += 1
     print("estricto: %d ficheros propios con SPDX" % n)
+
+
+def comprobar_publico():
+    """Punto 11 (D261): en el árbol público no hay código de NetSurf ni de GNUBoy, solo el pegamento."""
+    for d in NO_REDISTRIBUIBLE:
+        if os.path.exists(os.path.join(RAIZ, d)):
+            falla("árbol público: existe %s (código de terceros solo v2: se descarga, no se publica; D261)" % d)
+    n = 0
+    for pasta, ds, fs in os.walk(RAIZ):
+        ds[:] = [x for x in ds if x not in IGNORAR and x != "docs"]
+        for f in fs:
+            r = rel(os.path.join(pasta, f))
+            if r in CITAN_MARCAS or f.endswith(".md"):
+                continue
+            ruta = os.path.join(pasta, f)
+            try:
+                if os.path.getsize(ruta) > 2_000_000:
+                    continue
+                with open(ruta, "rb") as fh:
+                    datos = fh.read()
+            except OSError:
+                continue
+            if b"\0" in datos[:4096]:
+                if re.search(rb"netsurf|gnuboy", f.encode().lower()) and not r.startswith("userland/terceros/"):
+                    falla("árbol público: binario sospechoso %s" % r)
+                continue
+            n += 1
+            m = RE_MARCAS_AJENAS.search(datos.decode("latin-1"))
+            if m:
+                falla("árbol público: %s lleva una marca de código de NetSurf/GNUBoy («%s»; D261)" % (r, m.group(0)[:50]))
+    print("público: %d ficheros de texto sin código de NetSurf ni de GNUBoy" % n)
 
 
 def netsurf_fuera_de_lo_publicable(sin_make):
@@ -408,6 +477,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sin-make", action="store_true")
     ap.add_argument("--estricto", action="store_true")
+    ap.add_argument("--publico", action="store_true")
     ap.add_argument("--elf", default=os.path.join(RAIZ, "build-sem-gpl", "kernel.elf"))
     # D259: el kernel de una compilación PUBLICABLE=1 (con IDT y k10temp, que son «or later»)
     # no puede llevar nada del r8169 de Linux.
@@ -419,6 +489,8 @@ def main():
     netsurf_fuera_de_lo_publicable(a.sin_make)
     if a.estricto:
         comprobar_estricto(archivos)
+    if a.publico:
+        comprobar_publico()
     if not a.sin_make:
         comprobar_variante()
     comprobar_binario(a.elf)

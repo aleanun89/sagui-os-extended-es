@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /* hola.c - un programa pequeño para probar Mico.
  * F5 lo compila con cc y lo ejecuta en el terminal de abajo. */
 #include <stdio.h>

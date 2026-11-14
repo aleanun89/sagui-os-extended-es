@@ -7,7 +7,13 @@
 # con la etiqueta VERSION, solo con lo que cumple la GPL v3 y sin binarios (las imágenes van a
 # la GitHub Release). Procedimiento completo: docs/publicar.md.
 #
-#   tools/publicar.sh preparar VERSION DESTINO [--commit REF] [--compilar]
+# NOMBRES (D261): el repo público tiene su propia nomenclatura, distinta de la del privado: la
+# primera publicación es «beta1» (betaN) y las siguientes «AAAAMM-VERSION» con el año-mes y la
+# versión del repo de trabajo (p. ej. 202611-8.0). Es la etiqueta y el título de la Release; el
+# commit y las notas dicen de qué versión y commit del repo de trabajo sale («beta1 = v8.0b7,
+# commit X»). Repositorio por defecto: PUBLICAR_URL o https://github.com/aleanun89/sagui-os-extended-es
+#
+#   tools/publicar.sh preparar VERSION DESTINO [--commit REF] [--origen VERSION_TRABAJO] [--compilar]
 #       Exporta los ficheros VERSIONADOS de REF (por defecto HEAD, que debe estar en main) a
 #       DESTINO con «git archive», aplica tools/publicar-excluir.txt y pasa todas las
 #       comprobaciones. Si una falla no deja DESTINO. --compilar compila el árbol preparado
@@ -31,13 +37,18 @@ TAM_MAX=$((5 * 1024 * 1024))
 die() { echo "publicar: $*" >&2; exit 1; }
 info() { echo "publicar: $*"; }
 
-uso() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
+uso() { sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
 
+URL_PUBLICO="${PUBLICAR_URL:-https://github.com/aleanun89/sagui-os-extended-es}"
+
+# Nombre de la publicación en el repo público: betaN o AAAAMM-VERSION (D261).
 validar_version() {
-    # Nomenclatura del repo público (mantenedor, 2026-11-14): betaN y después AAAAMM-VERSION
-    # (año-mes + versión del repo de trabajo, p. ej. 202611-8.0); se aceptan también las vX.Y de trabajo.
-    [[ "$1" =~ ^beta[0-9]+$ || "$1" =~ ^[0-9]{6}-[0-9]+(\.[0-9]+)*(b[0-9]*)?$ || "$1" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?([a-z]+[0-9]*)?$ ]] \
-        || die "versión no válida: «$1» (ejemplos: beta1, 202611-8.0, v8.0b7)"
+    [[ "$1" =~ ^beta[0-9]+$ ]] || [[ "$1" =~ ^[0-9]{6}-[0-9]+(\.[0-9]+)*(b[0-9]*)?$ ]] \
+        || die "nombre de publicación no válido: «$1» (formatos: beta1, 202611-8.0, 202612-8.0.1, 202611-8.0b7)"
+}
+# Versión del repo de trabajo (vX.Y...): se anota en el commit y en las notas de la Release.
+validar_origen() {
+    [[ "$1" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?([a-z]+[0-9]*)?$ ]] || die "versión de trabajo no válida: «$1» (ejemplos: v8.0, v8.0b7, v7.4.3)"
 }
 
 # ---------------------------------------------------------------- comprobaciones
@@ -50,7 +61,7 @@ ok() { echo "  ok: $1"; }
 # Ficheros de texto del árbol (sin binarios), con ruta relativa a $1, separados por NUL.
 # Se omiten los ficheros que citan los patrones buscados a propósito (esta herramienta, su
 # prueba, su documentación y el guion de los agentes).
-PROPIOS_PATRONES=(tools/publicar.sh tools/publicar-excluir.txt tests/h260_publicar.py docs/publicar.md AGENTS.md tools/gh-agentes.sh tools/entorno-local.sh)
+PROPIOS_PATRONES=(tools/publicar.sh tools/publicar-excluir.txt tests/h260_publicar.py docs/publicar.md AGENTS.md tools/gh-agentes.sh tools/entorno-local.sh tools/auditar_licencias.py tools/gnuboy_fuentes.sh tools/netsurf_fuentes.sh)
 buscar_texto() { # $1 = árbol; resto = argumentos de grep -E
     local arbol="$1"; shift
     local excl=() f
@@ -144,12 +155,23 @@ comp_tamano() {
     info "  tamaño total: $(du -sh "$a" | cut -f1), $(cd "$a" && find . -type f | wc -l) ficheros"
 }
 
+# D261: ni código de NetSurf (y sus bibliotecas) ni de GNUBoy en lo público: solo el pegamento propio.
+comp_terceros_v2() {
+    local a="$1" r
+    r="$(buscar_texto "$a" -e 'This file is part of (NetSurf|libdom|LibCSS|Hubbub|LibParserUtils|libnsfb|nsgenbind|RUfl|Libsvgtiny|libnsutils)' \
+        -e 'Copyright.{0,40}(NetSurf|John-Mark Bell|Rob Kendrick|Vincent Sanders)' -e '\<(Laguna|Gilgamesh)\>' \
+        | { grep -vE '\.md:' || true; } | cut -c1-110)"
+    if [ -n "$r" ]; then fallo "código de NetSurf o GNUBoy en el árbol público ($(echo "$r" | wc -l) líneas):"; echo "$r" | head -6 | sed 's/^/      /'
+    else ok "sin código de NetSurf ni de GNUBoy (solo el pegamento propio)"; fi
+}
+
 comp_licencia() {
     local a="$1" r
     # D259: de kernel/terceros/linux/ solo puede ir lo GPL-2.0-or-later (IDT, k10temp); el r8169
     # (GPL-2.0-only) y cualquier fichero de esa carpeta sin «or later» hacen fallar la comprobación.
     if [ -d "$a/kernel/terceros/linux/r8169" ]; then fallo "existe kernel/terceros/linux/r8169/ (GPL-2.0-only)"
-    elif [ -d "$a/userland/terceros/gnuboy" ]; then fallo "existe userland/terceros/gnuboy/ (GPL-2.0, solo en lo privado)"
+    elif [ -d "$a/userland/terceros/gnuboy/jogo" ]; then fallo "existe userland/terceros/gnuboy/jogo/ (código de GNUBoy, GPL-2.0 solo v2: se descarga, no se publica)"
+    elif [ -d "$a/userland/terceros/netsurf/fuentes" ]; then fallo "existen userland/terceros/netsurf/fuentes/ (código de NetSurf, GPL-2.0 solo v2: se descarga, no se publica)"
     else
         local solo2="" g
         if [ -d "$a/kernel/terceros/linux" ]; then
@@ -158,7 +180,7 @@ comp_licencia() {
             done < <(cd "$a" && find kernel/terceros/linux -type f)
         fi
         if [ -n "$solo2" ]; then fallo "ficheros de kernel/terceros/linux/ sin «or later»:"; echo "$solo2" | head -6 | sed "s/^/      /"
-        else ok "kernel/terceros/linux/: solo GPL-2.0-or-later (sin r8169 ni GNUBoy)"; fi
+        else ok "kernel/terceros/linux/: solo GPL-2.0-or-later (sin r8169, NetSurf ni GNUBoy)"; fi
     fi
     # GPL-2.0 solo (sin «o posterior») en código propio (los ports de terceros/ tienen su licencia)
     local malos="" f
@@ -176,7 +198,7 @@ comp_licencia() {
     else fallo "AUTORES.md falta o no enlaza a https://github.com/erigobeli/sagui-os"; fi
     # Auditoría y SPDX: se usan las del propio árbol preparado (cada una toma su raíz de su ubicación)
     if [ -f "$a/tools/auditar_licencias.py" ]; then
-        local opc="--sin-make"
+        local opc="--sin-make --publico"
         # --estricto solo existe cuando se fusionó la rama de licencia
         grep -q -- '--estricto' "$a/tools/auditar_licencias.py" && opc="$opc --estricto" \
             || aviso "auditar_licencias.py aún no tiene --estricto (falta fusionar v8.0b7-licencia-gplv3)"
@@ -221,17 +243,19 @@ aplicar_exclusiones() {
 }
 
 cmd_preparar() {
-    local version="" destino="" ref="HEAD" compilar=0
+    local version="" destino="" ref="HEAD" compilar=0 origen=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --commit) ref="${2:?falta REF}"; shift 2;;
             --compilar) compilar=1; shift;;
+            --origen) origen="${2:?falta VERSION_TRABAJO}"; shift 2;;
             -*) die "opción desconocida: $1";;
             *) if [ -z "$version" ]; then version="$1"; elif [ -z "$destino" ]; then destino="$1"; else die "sobran argumentos"; fi; shift;;
         esac
     done
     [ -n "$version" ] && [ -n "$destino" ] || uso
     validar_version "$version"
+    [ -z "$origen" ] || validar_origen "$origen"
     [ -f "$EXCLUIR" ] || die "falta la lista de exclusión $EXCLUIR"
     git -C "$RAIZ" rev-parse --verify -q "$ref^{commit}" >/dev/null || die "no existe el commit $ref en $RAIZ"
     local sha; sha="$(git -C "$RAIZ" rev-parse "$ref^{commit}")"
@@ -252,6 +276,7 @@ cmd_preparar() {
     comp_correos "$parcial"
     comp_mac_ip_serie "$parcial"
     comp_tamano "$parcial"
+    comp_terceros_v2 "$parcial"
     comp_licencia "$parcial"
     [ "$compilar" -eq 1 ] && comp_compilar "$parcial"
     if [ "${#FALLOS[@]}" -gt 0 ]; then
@@ -264,7 +289,8 @@ cmd_preparar() {
     rmdir "$destino" 2>/dev/null || true
     mv "$parcial" "$destino"; trap - EXIT
     # Marca de lo comprobado: «subir» verifica que el árbol no cambió después.
-    printf '%s\n%s\n%s\n' "$version" "$sha" "$(huella "$destino")" > "$destino.ok"
+    [ -n "$origen" ] || origen="$(git -C "$RAIZ" describe --tags --always "$sha" 2>/dev/null || echo "${sha:0:8}")"
+    printf '%s\n%s\n%s\n%s\n' "$version" "$sha" "$(huella "$destino")" "$origen" > "$destino.ok"
     info "preparado en $destino (${#AVISOS[@]} avisos). Siguiente: tools/publicar.sh subir $version $destino URL"
 }
 
@@ -280,12 +306,16 @@ cmd_subir() {
             *) if [ -z "$version" ]; then version="$1"; elif [ -z "$destino" ]; then destino="$1"; elif [ -z "$url" ]; then url="$1"; else die "sobran argumentos"; fi; shift;;
         esac
     done
-    [ -n "$version" ] && [ -n "$destino" ] && [ -n "$url" ] || uso
+    [ -n "$url" ] || url="$URL_PUBLICO"
+    [ -n "$version" ] && [ -n "$destino" ] || uso
     validar_version "$version"
     destino="$(realpath "$destino")"
     [ -f "$destino.ok" ] || die "$destino no está preparado: ejecuta antes «preparar»"
     [ "$(sed -n 1p "$destino.ok")" = "$version" ] || die "el directorio se preparó para otra versión ($(sed -n 1p "$destino.ok"))"
     [ "$(sed -n 3p "$destino.ok")" = "$(huella "$destino")" ] || die "el contenido de $destino cambió después de preparar: vuelve a ejecutar «preparar»"
+    local sha origen mensaje
+    sha="$(sed -n 2p "$destino.ok")"; origen="$(sed -n 4p "$destino.ok")"
+    mensaje="Publicación $version ($version = $origen, commit ${sha:0:12} del repo de trabajo)"
     local nombre email
     nombre="$(git -C "$RAIZ" config user.name)" && email="$(git -C "$RAIZ" config user.email)" || die "falta user.name/user.email en git config del repo de trabajo"
     [ -n "$nombre" ] && [ -n "$email" ] || die "falta user.name/user.email en git config del repo de trabajo"
@@ -312,8 +342,8 @@ cmd_subir() {
         die "no hay cambios respecto a la última publicación"
     fi
     GIT_AUTHOR_NAME="$nombre" GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_NAME="$nombre" GIT_COMMITTER_EMAIL="$email" \
-        git -C "$clon" commit -q -m "Publicación $version"
-    GIT_COMMITTER_NAME="$nombre" GIT_COMMITTER_EMAIL="$email" git -C "$clon" tag -a "$version" -m "Publicación $version"
+        git -C "$clon" commit -q -m "$mensaje"
+    GIT_COMMITTER_NAME="$nombre" GIT_COMMITTER_EMAIL="$email" git -C "$clon" tag -a "$version" -m "$mensaje"
     git -C "$clon" show --stat --format='%h %an: %s' HEAD | tail -n 6
     echo
     echo "Se va a hacer push de main y de la etiqueta $version a: $url"
@@ -325,20 +355,30 @@ cmd_subir() {
     fi
     git -C "$clon" push origin main
     git -C "$clon" push origin "$version"
-    release "$version" "$url" "$imagenes"
+    release "$version" "$url" "$imagenes" "$origen" "$sha"
 }
 
 release() {
-    local version="$1" url="$2" imagenes="$3" repo
+    local version="$1" url="$2" imagenes="$3" origen="${4:-?}" sha="${5:-?}" repo
     repo="$(echo "$url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')"
-    [ -n "$imagenes" ] || for imagenes in "$RAIZ/entrega/$version" "$RAIZ/entrega/latest" ""; do [ -f "$imagenes/saguios.img" ] && break; done
+    # Nunca entrega/latest: son las imágenes PRIVADAS (input_share, NetSurf, GNUBoy, r8169 de Linux).
+    [ -n "$imagenes" ] || for imagenes in "$RAIZ/entrega/$origen" ""; do [ -f "$imagenes/saguios.img" ] && break; done
+    if [ -n "$imagenes" ]; then
+        case "$(cd "$imagenes" 2>/dev/null && pwd)" in */entrega/latest*) die "$imagenes son imágenes privadas: no se publican";; esac
+        if [ -f "$imagenes/VERSION.txt" ] && ! grep -q "^input_share: *no incluido" "$imagenes/VERSION.txt"; then
+            die "$imagenes/VERSION.txt no dice «input_share: no incluido»: no son imágenes publicables (make variantes)"
+        fi
+        grep -qi "netsurf\|gnuboy" "$imagenes/VERSION.txt" 2>/dev/null && die "$imagenes lleva NetSurf o GNUBoy: no se publica"
+    fi
     local notas="${PUBLICAR_TRABAJO:-$HOME/.cache/saguios-publicar}/notas-$version.md"
     cat > "$notas" <<NOTAS
-SaguiOS-Extended $version.
+SaguiOS-Extended $version ($version = $origen, commit ${sha:0:12} del repositorio de trabajo).
 
 Licencia: GPL v3 (ver LICENSE y docs/licencia.md). Código fuente correspondiente de estas imágenes
 (GPL v3, sección 6): el commit etiquetado \`$version\` de este repositorio. Las imágenes se
-generan con \`make variantes\` (sin NetSurf ni input_share); las sumas están en SHA256SUMS.txt.
+generan con \`make variantes\` (sin NetSurf, GNUBoy ni input_share); las sumas están en SHA256SUMS.txt.
+NetSurf y GNUBoy (GPL v2) no se distribuyen: quien los quiera los compila para uso propio
+(ver compilar_versiones.md).
 NOTAS
     local ficheros=() f
     for f in saguios.img saguios-smp.img SHA256SUMS.txt VERSION.txt; do [ -n "$imagenes" ] && [ -f "$imagenes/$f" ] && ficheros+=("$imagenes/$f"); done

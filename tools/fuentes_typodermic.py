@@ -73,7 +73,14 @@ def buscar_zip(ruta=None, red=True):
     try:
         os.makedirs(os.path.dirname(destino), exist_ok=True)
         print("fuentes_typodermic: bajando %s ..." % ZIP_URL, file=sys.stderr)
-        urllib.request.urlretrieve(ZIP_URL, destino + ".parte")
+        # typodermicfonts.com rechaza (406) el agente por defecto de Python/curl
+        peticion = urllib.request.Request(ZIP_URL, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+        with urllib.request.urlopen(peticion, timeout=60) as r, open(destino + ".parte", "wb") as f:
+            while True:
+                bloque = r.read(1 << 20)
+                if not bloque:
+                    break
+                f.write(bloque)
         if sha256(destino + ".parte") != ZIP_SHA256:
             os.remove(destino + ".parte")
             print("fuentes_typodermic: el SHA-256 de lo bajado no coincide", file=sys.stderr)
@@ -81,7 +88,12 @@ def buscar_zip(ruta=None, red=True):
         os.replace(destino + ".parte", destino)
         return destino
     except Exception as e:  # sin red: se sigue sin las fuentes
-        print("fuentes_typodermic: no se pudo bajar el zip (%s)" % e, file=sys.stderr)
+        if os.path.exists(destino + ".parte"):
+            os.remove(destino + ".parte")
+        print("fuentes_typodermic: no se pudo bajar el zip (%s).\n"
+              "  Las fuentes son opcionales: el sistema se construye igual sin ellas. Para incluirlas, baja\n"
+              "  %s (CC0, de https://typodermicfonts.com/public-domain/ ;\n"
+              "  SHA-256 %s) y ponlo a mano en NEW_FONTS/." % (e, ZIP_NOMBRE, ZIP_SHA256), file=sys.stderr)
         return None
 
 

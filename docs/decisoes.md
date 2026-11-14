@@ -14457,3 +14457,41 @@ notas internas. El proyecto debe poder publicarse cumpliendo la GPL v3 (D258) si
 
 **Prueba:** `tests/h260_publicar.py` (repositorio de juguete en el anfitrión, sin QEMU). Procedimiento:
 `docs/publicar.md`.
+
+## D261. Código de enlace de NetSurf y GNUBoy en lo público; nomenclatura del repo público
+
+**Contexto:** NetSurf y GNUBoy son GPL-2.0 solo v2 y se enlazan con la libsagui (GPL-3.0-only de Eli): su
+código y sus binarios no se pueden distribuir (D258, D259). Compilarlos cada uno para sí es uso privado y
+sí está permitido. D260 excluía las carpetas enteras `userland/terceros/netsurf/` y `gnuboy/`, con lo que
+quien tuviera solo el repositorio público no podía compilárselos (faltaban `netsurf.mk`, `gnuboy.mk` y la
+plataforma).
+
+**Decisión del mantenedor (2026-11-14), opción A:**
+1. **Va** al repositorio público lo nuestro: `netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/curl/`
+   (código propio con SPDX `GPL-2.0-or-later`; `tools/spdx.py` los trata como propios aunque vivan en
+   `userland/terceros/`) y los guiones que descargan el original (`tools/netsurf_fuentes.sh`,
+   `tools/gnuboy_fuentes.sh`). **No va** el código de NetSurf ni de GNUBoy ni sus binarios.
+2. GNUBoy se descarga como NetSurf: `tools/gnuboy_fuentes.sh` baja el commit fijo `c8642d1` de SDL2-GNUBoy,
+   comprueba su SHA-256 y deja `userland/terceros/gnuboy/jogo/` (aplica `parches/*.patch` si algún día hay;
+   hoy lo copiado en git era idéntico al original, `--comprobar`, así que no hay parches). En el repo de
+   trabajo `jogo/` sigue versionado por comodidad; el público no lo lleva.
+3. `tools/publicar-excluir.txt` excluye solo `netsurf/fuentes/`, `gnuboy/jogo/` y `gnuboy/roms-libres/`.
+   `tools/publicar.sh` falla si en el árbol exportado hay esas carpetas o ficheros con las cabeceras de
+   copyright de NetSurf (y sus bibliotecas) o de GNUBoy; `tools/auditar_licencias.py --publico` lo
+   comprueba igual. `spdx.py --comprobar` funciona sin git (solo exige que haya SPDX).
+4. El `Makefile` incluye `netsurf.mk` solo si hay fuentes preparadas **y** pegamento, y `gnuboy.mk` solo si
+   existe `jogo/`: `make` en el árbol público no falla. `make priv_descargas` / `make priv_variantes`
+   descargan NetSurf, GNUBoy, los datos shareware y las fuentes Typodermic y compilan todo para uso propio.
+5. El r8169 de Linux sigue solo en lo privado (no hay forma de regenerarlo; se espera al r8168 de Realtek o
+   a una sala limpia).
+6. **Nomenclatura del repo público** (`aleanun89/sagui-os-extended-es`), distinta de la privada: la primera
+   publicación es `beta1`; las siguientes `AAAAMM-VERSION` (p. ej. `202611-8.0`). Es la etiqueta y el título
+   de la Release; el commit y las notas dicen de qué versión y commit del repo de trabajo salen («beta1 =
+   v8.0b7, commit X», opción `--origen`). `PUBLICAR_URL` por defecto es ese repositorio.
+
+**Arreglos menores:** `make help`; Typodermic se descarga con `make priv_descargas` (si la web da 404, avisa
+con cómo ponerlo a mano y sigue); `tools/auditar_licencias.py` ya no cuenta el código de M4R4G0N
+(GPL-3.0-only) como GPL a aislar.
+
+**Pruebas:** `tests/h260_publicar.py` (nombres, pegamento que va, código que no va), h81, h159 y h04; flujo
+real desde un árbol exportado sin git (ver el informe de la rama).

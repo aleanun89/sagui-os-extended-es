@@ -1,0 +1,34 @@
+Game Boy (GNUBoy) en SaguiOS: las ROM
+=====================================
+
+GNUBoy (Inicio > Juegos > Game Boy) es un emulador de Game Boy y Game Boy
+Color (GPL-2.0). Los juegos son las ROM, archivos .gb y .gbc, y NO vienen con
+SaguiOS: son de quien los pone. Use solo ROM de juegos que tenga derecho a
+usar (los suyos, o homebrew libre).
+
+Dónde ponerlas (el emulador las busca en todos estos sitios, y en las
+subcarpetas de /jogos/gb):
+
+  - /jogos/gb       la partición de juegos (de lectura y escritura): se
+                    pueden copiar desde SaguiOS con Archivos.
+  - /home/gnuboy/roms
+  - jogos/gb, gb o roms de un pendrive montado, o sueltas en su raíz.
+  - Al compilar el sistema: input_share/games/gb/ va a /jogos/gb
+    (docs/input_share.md). Nunca van a git ni a las imágenes publicadas.
+
+Al abrir el emulador sale una lista con el nombre de la cabecera de cada
+cartucho. También se puede abrir una ROM concreta:  gnuboy /ruta/juego.gb  o
+desde Archivos (abrir un .gb o un .gbc).
+
+Teclas (se cambian en /home/gnuboy/gnuboy.rc):
+
+  flechas        cruceta
+  Z / X          A / B
+  Intro          Start
+  Mayús          Select (también Tab)
+  F5 / F7        guardar / cargar el estado (0 a 9 eligen la ranura)
+  F11            pantalla completa, con la proporción correcta y bandas
+  Esc            salir (guarda la batería del cartucho)
+
+La batería del cartucho (.sav), el reloj (.rtc) y los estados (.sv0 a .sv9)
+quedan en /home/gnuboy.

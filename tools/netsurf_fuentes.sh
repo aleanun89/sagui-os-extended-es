@@ -28,7 +28,7 @@
 #   --forzar           borrar lo preparado y volver a empezar
 #
 # Al final deja userland/terceros/netsurf/fuentes/.preparado: el Makefile solo
-# compila /bin/netsurf si existe (sin las fuentes, el sistema se construye igual,
+# compila /bin/netsurf si existe (y si existe netsurf.mk, el pegamento propio, D261) (sin las fuentes, el sistema se construye igual,
 # sin el navegador).
 set -euo pipefail
 
@@ -128,3 +128,8 @@ mv "$S" "$SRC"
 mv "$G" "$GER"
 echo "$VERSAO $SHA256" > "$DEST/.preparado"
 echo "netsurf_fuentes.sh: preparado en $DEST"
+# D261: el pegamento propio (netsurf.mk, plataforma/) va en git y en el repo público; si falta,
+# el Makefile no incluye NetSurf (no falla) y aquí se avisa.
+if [ ! -f "$RAIZ/userland/terceros/netsurf/netsurf.mk" ]; then
+    echo "netsurf_fuentes.sh: AVISO: falta userland/terceros/netsurf/netsurf.mk (el pegamento de SaguiOS): sin él no se compila NetSurf" >&2
+fi

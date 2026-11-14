@@ -85,7 +85,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `SEM_FIRMWARE` | `0` | `1` no mete el firmware binario (`firmware/`, hoy el del pincho Wi-Fi RTL8188EU). Compila en `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` genera la imagen sin MicroPython (bastante más pequeña) |
 | `NETSURF` | `1` | navegador NetSurf; solo entra si están las fuentes preparadas y el pegamento (ver 7). `NETSURF=0` lo quita |
-| `GNUBOY` | `1` | emulador de Game Boy; solo entra si existe `userland/terceros/gnuboy/` (no está en el repositorio público, ver 7) |
+| `GNUBOY` | `1` | emulador de Game Boy; solo entra si está descargado su código (`make priv_descargas` o `bash tools/gnuboy_fuentes.sh`, ver 5 y 7). `GNUBOY=0` lo quita |
 | `QUAKE` | `1` | motor de Quake (`0` lo quita) |
 | `OPENJAZZ`, `CONQUER`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer) y GNU Prolog (`0` los quita) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | meter en `/jogos` los datos shareware que bajaron `tools/quake_datos.sh` y `tools/openjazz_datos.sh`. Si no se bajaron, no entra nada; `0` los ignora aunque estén bajados |
@@ -124,7 +124,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `--jobs N`, `-j N` | núcleos del PC | trabajos de `make` |
 | `--limpiar` | no | borra la carpeta de compilación antes de compilar |
 | `--sin-compilar` | no | no compila: usa lo que ya haya en la carpeta de compilación |
-| `--con-input-share` | no | mete `input_share/`, los datos shareware bajados y NetSurf. **Solo uso propio** (ver 6 y 7) |
+| `--con-input-share` | no | mete `input_share/`, los datos shareware bajados, NetSurf y GNUBoy. **Solo uso propio** (ver 6 y 7) |
 | `--probar` | no | arranca la imagen en QEMU y comprueba que llega al escritorio |
 | `--sin-notas`, `--notas FICHERO` | notas sí | no escribe `VERSION.txt`, o le añade el texto de un fichero |
 | `--fijar-version V` | no | cambia la versión en `kernel/inc/versao.h` antes de compilar (`v8.1`...) |
@@ -167,12 +167,13 @@ Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente)
 | Orden | Qué genera |
 | --- | --- |
 | `make` / `make all` | `build/saguios.img` (la normal, un núcleo) |
+| `make help` | lista los objetivos y las variables principales |
 | `make vdi`, `make iso` | `build/saguios.vdi`, `build/saguios.iso` |
 | `make imagem-smp`, `imagem-uacpi` | `build/saguios-smp.img`, `build/saguios-uacpi.img` |
 | `make imagem-persistente`, `imagem-persistente-fat32`, `imagem-persistente-smp`, `imagem-persistente-smp-uacpi` | las persistentes (con `/home`) en `build/` |
 | `make imagem-particoes`, `imagem-particoes-xz` | `build/saguios-particiones.img` (y `.xz`) |
 | `make variantes [DESTINO=entrega/mia]` | **lo publicable**: `./gerar_versao.sh --todas --destino DESTINO`: todas las imágenes de la tabla de abajo, sin `input_share/`, sin NetSurf ni GNUBoy, sin datos shareware |
-| `make priv_variantes [PRIV_DESTINO=...]` | **uso propio**: lo mismo con `--con-input-share` (tus juegos, shareware de Quake y Jazz, NetSurf si lo has preparado). Antes ejecuta `make priv_descargas` (ver 5 y 7) |
+| `make priv_variantes [PRIV_DESTINO=...]` | **uso propio**: lo mismo con `--con-input-share` (tus juegos, shareware de Quake y Jazz, NetSurf y GNUBoy, que descarga antes). Antes ejecuta `make priv_descargas` (ver 5 y 7) |
 | `make entrega-sin-gpl` | `build-sem-gpl/saguios-sin-gpl.img`, tras la auditoría de licencias |
 | `./gerar_versao.sh --todas` | lo mismo que `make variantes`, con el destino por defecto `entrega/latest` |
 
@@ -201,15 +202,16 @@ Todas las imágenes de disco llevan, además, las particiones `SAGUI-JOGOS` (jue
 | Qué | Guion | Origen | Licencia | Dónde queda |
 | --- | --- | --- | --- | --- |
 | Fuentes de NetSurf 3.11 (unos 90 MB) | `bash tools/netsurf_fuentes.sh [--tarball FICHERO] [--forzar]` | `https://download.netsurf-browser.org/netsurf/releases/source-full/netsurf-all-3.11.tar.gz` | GPL-2.0 solo v2 (las bibliotecas, MIT). Ver 7 | `userland/terceros/netsurf/fuentes/` (ignorada por git). Necesita `perl` |
+| Fuentes de GNUBoy (SDL2-GNUBoy, commit `c8642d1`, unos 450 KB) | `bash tools/gnuboy_fuentes.sh [--tarball FICHERO] [--forzar] [--comprobar]` | `https://github.com/AlexOberhofer/SDL2-GNUBoy/archive/c8642d11bd2706333c5255e2b7f2b84445d0a070.tar.gz` | GPL-2.0 (solo v2 en la práctica). Ver 7 | `userland/terceros/gnuboy/jogo/` |
 | Shareware de Quake 1.06 (episodio 1) | `bash tools/quake_datos.sh [--zip FICHERO] [--forzar]` | `ftp.gwdg.de/pub/misc/ftp.idsoftware.com/idstuff/quake/quake106.zip` (y la réplica `youfailit.net`) | datos de id Software: gratis para el usuario, **sin derecho a redistribuirlos dentro de otro sistema** | `userland/terceros/quake/datos/` (ignorada por git) |
 | Shareware de Jazz Jackrabbit 1.0 (episodio 1) | `bash tools/openjazz_datos.sh [--zip FICHERO] [--forzar]` | `https://slackware.uk/~urchlay/src/jjrabbit.zip` | datos de Epic MegaGames, con condiciones de redistribución: no se publican | `userland/terceros/openjazz/datos/` (ignorada por git) |
-| Fuentes tipográficas de Typodermic (28 elegidas de 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (con red, baja el zip) | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` | CC0 (dominio público) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
+| Fuentes tipográficas de Typodermic (28 elegidas de 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (con red, baja el zip); `make priv_descargas` lo hace solo | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**a veces da 404**: ver la nota) | CC0 (dominio público) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
 | ROM libre de Game Boy (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, versión v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (solo útil con GNUBoy, ver 7) |
 
 Notas:
 
-- **Typodermic:** `make` solo mete las fuentes si el zip ya está en `NEW_FONTS/` cuando compilas (esa carpeta no está en el repositorio público). Dos formas de tenerlo: ejecutar una vez `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba` (baja el zip a `NEW_FONTS/`), o bajarlo a mano de la URL de la tabla y ponerlo en `NEW_FONTS/` con ese nombre exacto (se comprueba el SHA-256). Sin él, el sistema se construye igual, sin esas fuentes.
-- **`make priv_descargas`** ejecuta, por este orden: `tools/netsurf_fuentes.sh` (si no hay fuentes preparadas), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` y la comprobación de las fuentes Typodermic (solo avisa si faltan). Con el repositorio público, ver el aviso de la sección 7 antes de usarlo.
+- **Typodermic:** `make priv_descargas` (o `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba`) baja el zip a `NEW_FONTS/` si falta. Si la web da 404 (pasó el 2026-11-14), el guion lo dice con claridad y **no rompe nada**: el sistema se construye igual sin esas fuentes. Para tenerlas, baja el zip a mano y ponlo en `NEW_FONTS/typodermic-public-domain-2024-12.zip` (se comprueba el SHA-256). `make` solo mete las fuentes si el zip ya está en `NEW_FONTS/` cuando compilas (esa carpeta no va en el repositorio público).
+- **`make priv_descargas`** ejecuta, por este orden: `tools/netsurf_fuentes.sh` (si no hay fuentes preparadas), `tools/gnuboy_fuentes.sh` (si no está `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` y la descarga de las fuentes Typodermic (si falla, avisa y sigue). Funciona igual con el repositorio público: el pegamento de NetSurf y GNUBoy va en él.
 - **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Juegos y datos que pones tú (`input_share/`)
@@ -235,7 +237,7 @@ input_share/
 | **Quake** | `input_share/games/Quake/id1/pak0.pak` y `pak1.pak` | Acaba en `/jogos/Quake/id1/`. Vale también el `pak0.pak` suelto en `games/Quake/`, y los nombres en mayúsculas (`ID1/PAK0.PAK`, como en el CD de DOS). Las expansiones, en `games/Quake/hipnotic/` y `games/Quake/rogue/` (se arrancan con `quake -hipnotic` o `-rogue`). Usa tu copia legal (Steam, GOG, el CD). El shareware lo baja solo `tools/quake_datos.sh`; Quake prefiere la versión completa |
 | **Jazz Jackrabbit** | `input_share/games/Jazz/` con los ficheros del juego, sin cambiarlos | La versión de GOG u otra completa. OpenJazz la encuentra en cualquier carpeta de `/jogos` y la prefiere al shareware |
 | **Command & Conquer** | `input_share/games/CnC/CnC_GDI95.iso` y `CnC_NOD95.iso` | Son las ISO de **Command & Conquer Gold para Windows 95**, el regalo (freeware) de EA de 2007, una por disco; se reconocen por su volumen (GDI95, NOD95), no por el nombre. `tools/cnc_extraer.py` saca de ellas solo lo que usa Vanilla Conquer (63 MB en `/jogos/CnC`; con `CNC_VIDEOS=1`, 840 MB más). Sin las ISO, vale copiar a `/jogos/CnC` la carpeta de un C&C95 ya instalado |
-| **Game Boy** | `input_share/games/gb/*.gb` o `*.gbc` | Solo ROM que tengas derecho a usar. Las busca GNUBoy, que **no está en el repositorio público** (ver 7) |
+| **Game Boy** | `input_share/games/gb/*.gb` o `*.gbc` | Solo ROM que tengas derecho a usar. Las busca GNUBoy, que no va en las imágenes publicadas: solo en las tuyas de uso propio (ver 7) |
 | Otros | `input_share/games/<carpeta>/` | Se copia tal cual a `/jogos/<carpeta>`. Si la carpeta se llama como una del sistema (`opentyrian`, `openjazz`), su contenido se pone encima |
 
 Detalles: el `Makefile` vigila `input_share/games` y `input_share/apps` y rehace las particiones cuando cambian los nombres, tamaños o fechas; las marcas `*:Zone.Identifier` de Windows no se copian. Otra carpeta: `make INPUT_SHARE=/ruta/a/mi_input_share`; ninguna: `make INPUT_SHARE=`. La referencia completa es `docs/input_share.md`.
@@ -248,20 +250,22 @@ Detalles: el `Makefile` vigila `input_share/games` y `input_share/apps` y rehace
 
 ### 7. Lo que no está en el repositorio público, y por qué
 
-SaguiOS-Extended es **GPL v3** (`LICENSE`, `docs/licencia.md`). Tres piezas son **GPL v2 solamente** (sin «o posterior»), y la v2 sola es incompatible con la v3: no pueden enlazarse en un mismo binario con la libsagui y la libc comunes, así que no se publican ni van en las imágenes publicadas:
+SaguiOS-Extended es **GPL v3** (`LICENSE`, `docs/licencia.md`). Tres piezas son **GPL v2 solamente** (sin «o posterior»), y la v2 sola es incompatible con la v3: no pueden enlazarse en un mismo binario con la libsagui y la libc comunes, así que **su código no se publica** ni va en las imágenes publicadas. Sí se publica lo nuestro: el pegamento con SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, con su SPDX `GPL-2.0-or-later`) y los guiones que descargan el código original; así cada uno puede compilárselos **para uso propio** (usar en privado no es distribuir):
 
 | Pieza | Licencia | Qué pasa en el repositorio público |
 | --- | --- | --- |
-| **NetSurf** (navegador, `userland/terceros/netsurf/`) | GPL-2.0 solo v2 | no está; las fuentes no van en git, las baja `tools/netsurf_fuentes.sh` |
-| **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (casi sin «o posterior»: se trata como solo v2) | no está; el `Makefile` lo salta si falta la carpeta |
+| **NetSurf** (navegador, `userland/terceros/netsurf/`) | GPL-2.0 solo v2 | su código (`fuentes/`) no está: lo baja `tools/netsurf_fuentes.sh`; el pegamento propio sí |
+| **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (casi sin «o posterior»: se trata como solo v2) | su código (`jogo/`) no está: lo baja `tools/gnuboy_fuentes.sh` (commit fijo, SHA-256 comprobado); el pegamento propio sí |
 | **r8169 derivado de Linux** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | no está; el driver de la tarjeta Realtek RTL8168/8111 usa su inicio clásico propio (`kernel/rede/r8169_sem_gpl.h`): funciona, pero sin las secuencias de inicio de los chips más nuevos (RTL8111G/H) |
 
 **Usarlos en privado está permitido; redistribuir esas imágenes, no.** Compilarte una imagen con ellos y usarla tú no es distribuir (`docs/licencia.md`).
 
-**Cómo compilarlos para ti, y hasta dónde llega el repositorio público.** No he podido comprobar nada de esto ejecutándolo; lo digo por lo que se lee en el código:
+**Cómo compilarlos para ti con solo el repositorio público.** Comprobado de verdad desde un árbol exportado sin git (`tools/publicar.sh preparar` y después `make` y `make priv_variantes INPUT_SHARE=`):
 
-- **NetSurf:** `bash tools/netsurf_fuentes.sh` baja y prepara las fuentes del proyecto original (y deja `userland/terceros/netsurf/fuentes/.preparado`), y con `NETSURF=1` (el valor por defecto) el `Makefile` incluye `userland/terceros/netsurf/netsurf.mk`. Pero ese `netsurf.mk` y la plataforma propia (`plataforma/`, `libc/`) viven en la misma carpeta que **no se publica**. Con solo el repositorio público falta esa parte: la orden de arriba dejaría `make` sin el fichero a incluir. **Cuidado:** no ejecutes `make priv_descargas` ni `make priv_variantes` con el repositorio público (llaman a `tools/netsurf_fuentes.sh`); usa los guiones de la sección 5 a mano y `./gerar_versao.sh --todas --con-input-share`. Para tener NetSurf hace falta el repositorio de trabajo completo del mantenedor.
-- **GNUBoy:** `tools/gnuboy_fuentes.sh` trae las fuentes originales (SDL2-GNUBoy, commit `c8642d1`, `https://github.com/AlexOberhofer/SDL2-GNUBoy`) a `userland/terceros/gnuboy/jogo/`, pero la integración con SaguiOS (`gnuboy.mk`, la plataforma SDL 2) está en la misma carpeta excluida. Con solo el repositorio público no se puede reconstruir.
+- `make` (sin más) funciona sin NetSurf ni GNUBoy: el menú no los muestra.
+- `make priv_variantes INPUT_SHARE=` (o `make priv_descargas` y después `make`) **baja el código original** de NetSurf 3.11 y de SDL2-GNUBoy, comprueba sus SHA-256, los compila con nuestro pegamento y los mete en las imágenes **privadas**. Hace falta red y `perl` (NetSurf). Esas imágenes son solo para ti: **no las redistribuyas** (NetSurf y GNUBoy son GPL v2; enlazados con la libsagui, que es GPL v3, no se pueden distribuir).
+- **NetSurf:** `bash tools/netsurf_fuentes.sh` deja `userland/terceros/netsurf/fuentes/.preparado`; el `Makefile` incluye `netsurf.mk` solo si existen las fuentes y el pegamento.
+- **GNUBoy:** `bash tools/gnuboy_fuentes.sh` deja `userland/terceros/gnuboy/jogo/` (`--comprobar` compara con el original; si algún día hay parches propios, van en `userland/terceros/gnuboy/parches/*.patch` y el guion los aplica).
 - **r8169:** los ficheros son extractos adaptados de `drivers/net/ethernet/realtek/r8169_main.c` de Linux 6.6; no hay guion que los regenere. Sin ellos el driver sigue funcionando con el inicio clásico.
 
 Lo demás de `kernel/terceros/linux/` (`hda`, `hwmon`, GPL-2.0 o posterior) sí está en el repositorio. Tampoco están, por tamaño o privacidad, `entrega/` (las imágenes de cada versión van a la página de «Releases» del proyecto), `input_share/`, `NEW_FONTS/`, `testes_hw/` ni las notas internas (`tools/publicar-excluir.txt`).
@@ -294,7 +298,7 @@ Comprueba las descargas con `sha256sum -c SHA256SUMS.txt`. En una máquina real,
 | Una cabecera «no existe» en el kernel o en un programa | `env.sh` exporta `CPATH` con la glibc del PC y GCC lo añade incluso con `-nostdinc`; el `Makefile` ya lo anula para todo lo que va dentro de SaguiOS. **No lo arregles** volviendo a pasar `CPATH` o `-I` a la glibc del PC: falta una cabecera nuestra o un `-I` |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | `run_in_qemu.sh` usa `set -u`. Dentro de `env.sh`, las variables que pueden no existir se amplían con `${VAR:+:$VAR}` o `${VAR:-}`, nunca con `$VAR` a secas (ya está así en `tools/entorno-local.sh`; si lo editas, mantenlo). Prueba: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
 | Los programas de C++ (OpenJazz, Command & Conquer) no salen | No hay `g++` de 32 bits (`cc1plus`): instala `g++` o ejecuta `tools/entorno-local.sh`. El resto se construye igual |
-| Sin NetSurf, sin fuentes Typodermic o sin datos de Quake/Jazz | Son opcionales y solo entran si preparaste antes sus datos (ver 5 y 7) |
+| Sin NetSurf, GNUBoy, fuentes Typodermic o datos de Quake/Jazz | Son opcionales y solo entran si descargaste antes sus datos con `make priv_descargas` (ver 5 y 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Instala `mtools`, `e2fsprogs`, `dosfstools` (o ejecuta `tools/entorno-local.sh`) |
 | QEMU muy lento | Sin KVM usa emulación por software. Comprueba que existe `/dev/kvm` y que estás en el grupo: `sudo usermod -aG kvm $USER` (abre una sesión nueva). Para forzar sin KVM: `--sin-kvm`. |
 | Con KVM falla algo de Intel, o sin KVM va muy lento | Con KVM la CPU es la de tu PC (puede ser AMD): lo que espera una CPU Intel puede fallar. El emulador sin KVM no comprueba límites de segmento ni algunos bits de CPU: probar siempre en hardware real o con KVM antes de fiarse |
@@ -385,7 +389,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `SEM_FIRMWARE` | `0` | `1` leaves out the binary firmware (`firmware/`, today the RTL8188EU Wi-Fi dongle's). Builds in `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` builds the image without MicroPython (considerably smaller) |
 | `NETSURF` | `1` | the NetSurf browser; only included if the sources are prepared and the glue exists (see 7). `NETSURF=0` removes it |
-| `GNUBOY` | `1` | the Game Boy emulator; only included if `userland/terceros/gnuboy/` exists (not in the public repository, see 7) |
+| `GNUBOY` | `1` | the Game Boy emulator; only included if its code has been downloaded (`make priv_descargas` or `bash tools/gnuboy_fuentes.sh`, see 5 and 7). `GNUBOY=0` removes it |
 | `QUAKE` | `1` | the Quake engine (`0` removes it) |
 | `OPENJAZZ`, `CONQUER`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer) and GNU Prolog (`0` removes them) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | put the shareware data downloaded by `tools/quake_datos.sh` and `tools/openjazz_datos.sh` into `/jogos`. If they were not downloaded, nothing is added; `0` ignores them even if downloaded |
@@ -424,7 +428,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `--jobs N`, `-j N` | PC cores | `make` jobs |
 | `--limpiar` | no | deletes the build folder before building |
 | `--sin-compilar` | no | does not build: uses what is already in the build folder |
-| `--con-input-share` | no | adds `input_share/`, the downloaded shareware data and NetSurf. **Personal use only** (see 6 and 7) |
+| `--con-input-share` | no | adds `input_share/`, the downloaded shareware data, NetSurf and GNUBoy. **Personal use only** (see 6 and 7) |
 | `--probar` | no | boots the image in QEMU and checks it reaches the desktop |
 | `--sin-notas`, `--notas FICHERO` | notes on | does not write `VERSION.txt`, or appends the text of a file to it |
 | `--fijar-version V` | no | sets the version in `kernel/inc/versao.h` before building (`v8.1`...) |
@@ -467,12 +471,13 @@ A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `ma
 | Command | What it produces |
 | --- | --- |
 | `make` / `make all` | `build/saguios.img` (the normal one, single core) |
+| `make help` | lists the main targets and variables |
 | `make vdi`, `make iso` | `build/saguios.vdi`, `build/saguios.iso` |
 | `make imagem-smp`, `imagem-uacpi` | `build/saguios-smp.img`, `build/saguios-uacpi.img` |
 | `make imagem-persistente`, `imagem-persistente-fat32`, `imagem-persistente-smp`, `imagem-persistente-smp-uacpi` | the persistent images (with `/home`) in `build/` |
 | `make imagem-particoes`, `imagem-particoes-xz` | `build/saguios-particiones.img` (and `.xz`) |
 | `make variantes [DESTINO=entrega/mine]` | **the publishable build**: `./gerar_versao.sh --todas --destino DESTINO`: every image in the table below, without `input_share/`, NetSurf, GNUBoy or shareware data |
-| `make priv_variantes [PRIV_DESTINO=...]` | **personal use**: the same with `--con-input-share` (your games, Quake and Jazz shareware, NetSurf if you prepared it). It first runs `make priv_descargas` (see 5 and 7) |
+| `make priv_variantes [PRIV_DESTINO=...]` | **personal use**: the same with `--con-input-share` (your games, Quake and Jazz shareware, NetSurf and GNUBoy, which it downloads first). It first runs `make priv_descargas` (see 5 and 7) |
 | `make entrega-sin-gpl` | `build-sem-gpl/saguios-sin-gpl.img`, after the license audit |
 | `./gerar_versao.sh --todas` | the same as `make variantes`, with the default destination `entrega/latest` |
 
@@ -501,15 +506,16 @@ Every disk image also carries the `SAGUI-JOGOS` (games, `/jogos`), `SAGUI-APPS` 
 | What | Script | Source | License | Where it ends up |
 | --- | --- | --- | --- | --- |
 | NetSurf 3.11 sources (about 90 MB) | `bash tools/netsurf_fuentes.sh [--tarball FILE] [--forzar]` | `https://download.netsurf-browser.org/netsurf/releases/source-full/netsurf-all-3.11.tar.gz` | GPL-2.0 v2 only (the libraries, MIT). See 7 | `userland/terceros/netsurf/fuentes/` (ignored by git). Needs `perl` |
+| GNUBoy sources (SDL2-GNUBoy, commit `c8642d1`, about 450 KB) | `bash tools/gnuboy_fuentes.sh [--tarball FILE] [--forzar] [--comprobar]` | `https://github.com/AlexOberhofer/SDL2-GNUBoy/archive/c8642d11bd2706333c5255e2b7f2b84445d0a070.tar.gz` | GPL-2.0 (v2 only in practice). See 7 | `userland/terceros/gnuboy/jogo/` |
 | Quake 1.06 shareware (episode 1) | `bash tools/quake_datos.sh [--zip FILE] [--forzar]` | `ftp.gwdg.de/pub/misc/ftp.idsoftware.com/idstuff/quake/quake106.zip` (and the `youfailit.net` mirror) | id Software data: free for the user, **no right to redistribute it inside another system** | `userland/terceros/quake/datos/` (ignored by git) |
 | Jazz Jackrabbit 1.0 shareware (episode 1) | `bash tools/openjazz_datos.sh [--zip FILE] [--forzar]` | `https://slackware.uk/~urchlay/src/jjrabbit.zip` | Epic MegaGames data, with redistribution conditions: not published | `userland/terceros/openjazz/datos/` (ignored by git) |
-| Typodermic typefaces (28 chosen out of 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINATION` (with network, it downloads the zip) | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` | CC0 (public domain) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
+| Typodermic typefaces (28 chosen out of 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINATION` (with network, it downloads the zip); `make priv_descargas` does it for you | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**sometimes gives 404**: see the note) | CC0 (public domain) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
 | Free Game Boy ROM (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, version v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (only useful with GNUBoy, see 7) |
 
 Notes:
 
-- **Typodermic:** `make` only includes the fonts if the zip is already in `NEW_FONTS/` when you build (that folder is not in the public repository). Two ways to get it: run `python3 tools/fuentes_typodermic.py seleccion /tmp/fonts-test` once (it downloads the zip into `NEW_FONTS/`), or download it by hand from the URL in the table and put it in `NEW_FONTS/` under that exact name (the SHA-256 is checked). Without it, the system is built anyway, without those fonts.
-- **`make priv_descargas`** runs, in this order: `tools/netsurf_fuentes.sh` (if there are no prepared sources), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` and the check for the Typodermic fonts (it only warns if missing). With the public repository, read the warning in section 7 before using it.
+- **Typodermic:** `make priv_descargas` (or `python3 tools/fuentes_typodermic.py seleccion /tmp/fonts-test`) downloads the zip into `NEW_FONTS/` if it is missing. If the website gives 404 (it did on 2026-11-14), the script says so clearly and **breaks nothing**: the system is built anyway without those fonts. To get them, download the zip by hand and put it at `NEW_FONTS/typodermic-public-domain-2024-12.zip` (the SHA-256 is checked). `make` only includes the fonts if the zip is already in `NEW_FONTS/` when you build (that folder is not in the public repository).
+- **`make priv_descargas`** runs, in this order: `tools/netsurf_fuentes.sh` (if there are no prepared sources), `tools/gnuboy_fuentes.sh` (if `jogo/` is missing), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` and the download of the Typodermic fonts (if it fails, it warns and goes on). It works the same with the public repository: the NetSurf and GNUBoy glue is in it.
 - **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Games and data you provide (`input_share/`)
@@ -535,7 +541,7 @@ input_share/
 | **Quake** | `input_share/games/Quake/id1/pak0.pak` and `pak1.pak` | Ends up in `/jogos/Quake/id1/`. A loose `pak0.pak` in `games/Quake/` also works, and upper-case names (`ID1/PAK0.PAK`, as on the DOS CD). Expansions go in `games/Quake/hipnotic/` and `games/Quake/rogue/` (started with `quake -hipnotic` or `-rogue`). Use your legal copy (Steam, GOG, the CD). The shareware is downloaded by `tools/quake_datos.sh`; Quake prefers the full version |
 | **Jazz Jackrabbit** | `input_share/games/Jazz/` with the game's files, unchanged | The GOG or another full version. OpenJazz finds it in any folder under `/jogos` and prefers it to the shareware |
 | **Command & Conquer** | `input_share/games/CnC/CnC_GDI95.iso` and `CnC_NOD95.iso` | These are the ISOs of **Command & Conquer Gold for Windows 95**, EA's 2007 freeware giveaway, one per disc; they are recognised by their volume (GDI95, NOD95), not by file name. `tools/cnc_extraer.py` pulls out of them only what Vanilla Conquer uses (63 MB in `/jogos/CnC`; with `CNC_VIDEOS=1`, 840 MB more). Without the ISOs, you can copy the folder of an installed C&C95 to `/jogos/CnC` |
-| **Game Boy** | `input_share/games/gb/*.gb` or `*.gbc` | Only ROMs you have the right to use. GNUBoy looks for them, and it is **not in the public repository** (see 7) |
+| **Game Boy** | `input_share/games/gb/*.gb` or `*.gbc` | Only ROMs you have the right to use. GNUBoy looks for them; it is not in the published images, only in your own personal-use ones (see 7) |
 | Others | `input_share/games/<folder>/` | Copied as is to `/jogos/<folder>`. If the folder is named like a system one (`opentyrian`, `openjazz`), its contents are laid over it |
 
 Details: the `Makefile` watches `input_share/games` and `input_share/apps` and rebuilds the partitions when names, sizes or dates change; Windows `*:Zone.Identifier` marks are not copied. Another folder: `make INPUT_SHARE=/path/to/my_input_share`; none: `make INPUT_SHARE=`. The full reference is `docs/input_share.md`.
@@ -548,20 +554,22 @@ Details: the `Makefile` watches `input_share/games` and `input_share/apps` and r
 
 ### 7. What is not in the public repository, and why
 
-SaguiOS-Extended is **GPL v3** (`LICENSE`, `docs/licencia.md`). Three pieces are **GPL v2 only** (no «or later»), and v2 alone is incompatible with v3: they cannot be linked into one binary with the common libsagui and libc, so they are neither published nor included in the published images:
+SaguiOS-Extended is **GPL v3** (`LICENSE`, `docs/licencia.md`). Three pieces are **GPL v2 only** (no «or later»), and v2 alone is incompatible with v3: they cannot be linked into one binary with the common libsagui and libc, so **their code is not published** and is not in the published images. What is ours is published: the glue with SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, with their `GPL-2.0-or-later` SPDX) and the scripts that download the original code; so anyone can build them **for personal use** (using it privately is not distributing):
 
 | Piece | License | What happens in the public repository |
 | --- | --- | --- |
-| **NetSurf** (browser, `userland/terceros/netsurf/`) | GPL-2.0 v2 only | not there; the sources are not in git, `tools/netsurf_fuentes.sh` downloads them |
-| **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (almost no «or later»: treated as v2 only) | not there; the `Makefile` skips it if the folder is missing |
+| **NetSurf** (browser, `userland/terceros/netsurf/`) | GPL-2.0 v2 only | its code (`fuentes/`) is not there: `tools/netsurf_fuentes.sh` downloads it; our glue is there |
+| **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (almost no «or later»: treated as v2 only) | its code (`jogo/`) is not there: `tools/gnuboy_fuentes.sh` downloads it (pinned commit, SHA-256 checked); our glue is there |
 | **Linux-derived r8169** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | not there; the driver for the Realtek RTL8168/8111 card uses its own classic init (`kernel/rede/r8169_sem_gpl.h`): it works, but without the init sequences of the newest chips (RTL8111G/H) |
 
 **Using them privately is allowed; redistributing those images is not.** Building an image with them and using it yourself is not distributing (`docs/licencia.md`).
 
-**How to build them for yourself, and how far the public repository goes.** I could not verify any of this by running it; I am reporting what the code says:
+**How to build them for yourself with only the public repository.** Verified for real from an exported tree without git (`tools/publicar.sh preparar`, then `make` and `make priv_variantes INPUT_SHARE=`):
 
-- **NetSurf:** `bash tools/netsurf_fuentes.sh` downloads and prepares the original project's sources (and leaves `userland/terceros/netsurf/fuentes/.preparado`), and with `NETSURF=1` (the default) the `Makefile` includes `userland/terceros/netsurf/netsurf.mk`. But that `netsurf.mk` and the own platform layer (`plataforma/`, `libc/`) live in the same folder that is **not published**. With only the public repository that part is missing: the command above would leave `make` without the file to include. **Careful:** do not run `make priv_descargas` or `make priv_variantes` with the public repository (they call `tools/netsurf_fuentes.sh`); use the section 5 scripts by hand and `./gerar_versao.sh --todas --con-input-share`. To have NetSurf you need the maintainer's complete working repository.
-- **GNUBoy:** `tools/gnuboy_fuentes.sh` brings the original sources (SDL2-GNUBoy, commit `c8642d1`, `https://github.com/AlexOberhofer/SDL2-GNUBoy`) into `userland/terceros/gnuboy/jogo/`, but the SaguiOS integration (`gnuboy.mk`, the SDL 2 platform layer) is in the same excluded folder. With only the public repository it cannot be rebuilt.
+- plain `make` works without NetSurf or GNUBoy: the menu does not show them.
+- `make priv_variantes INPUT_SHARE=` (or `make priv_descargas` and then `make`) **downloads the original code** of NetSurf 3.11 and SDL2-GNUBoy, checks their SHA-256, builds them with our glue and puts them in the **private** images. It needs network and `perl` (NetSurf). Those images are for you only: **do not redistribute them** (NetSurf and GNUBoy are GPL v2; linked with the libsagui, which is GPL v3, they cannot be distributed).
+- **NetSurf:** `bash tools/netsurf_fuentes.sh` leaves `userland/terceros/netsurf/fuentes/.preparado`; the `Makefile` includes `netsurf.mk` only if both the sources and the glue exist.
+- **GNUBoy:** `bash tools/gnuboy_fuentes.sh` leaves `userland/terceros/gnuboy/jogo/` (`--comprobar` compares it with the original; if there are ever own patches, they go in `userland/terceros/gnuboy/parches/*.patch` and the script applies them).
 - **r8169:** the files are adapted extracts of Linux 6.6's `drivers/net/ethernet/realtek/r8169_main.c`; no script regenerates them. Without them the driver keeps working with the classic init.
 
 The rest of `kernel/terceros/linux/` (`hda`, `hwmon`, GPL-2.0 or later) is in the repository. Also left out, for size or privacy, are `entrega/` (each version's images go to the project's «Releases» page), `input_share/`, `NEW_FONTS/`, `testes_hw/` and the internal notes (`tools/publicar-excluir.txt`).
@@ -594,7 +602,7 @@ Check downloads with `sha256sum -c SHA256SUMS.txt`. On a real machine, start wit
 | A header «does not exist» in the kernel or in a program | `env.sh` exports `CPATH` with the PC's glibc and GCC adds it even with `-nostdinc`; the `Makefile` already clears it for everything that goes inside SaguiOS. **Do not fix it** by passing `CPATH` or `-I` to the PC's glibc again: one of our own headers or an `-I` is missing |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | `run_in_qemu.sh` uses `set -u`. Inside `env.sh`, variables that may not exist are extended with `${VAR:+:$VAR}` or `${VAR:-}`, never with a bare `$VAR` (it is already like that in `tools/entorno-local.sh`; keep it if you edit it). Test: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
 | The C++ programs (OpenJazz, Command & Conquer) are missing | There is no 32-bit `g++` (`cc1plus`): install `g++` or run `tools/entorno-local.sh`. Everything else is built anyway |
-| No NetSurf, no Typodermic fonts or no Quake/Jazz data | They are optional and only included if you prepared their data beforehand (see 5 and 7) |
+| No NetSurf, GNUBoy, Typodermic fonts or Quake/Jazz data | They are optional and only included if you downloaded their data beforehand with `make priv_descargas` (see 5 and 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Install `mtools`, `e2fsprogs`, `dosfstools` (or run `tools/entorno-local.sh`) |
 | QEMU is very slow | Without KVM it uses software emulation. Check that `/dev/kvm` exists and that you are in the group: `sudo usermod -aG kvm $USER` (open a new session). To force no KVM: `--sin-kvm` |
 | With KVM something Intel-specific fails, or without KVM it is very slow | With KVM the CPU is your PC's (it may be AMD): what expects an Intel CPU may fail. Emulation without KVM does not check segment limits or some CPU bits: always try on real hardware or with KVM before trusting it |
@@ -685,7 +693,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `SEM_FIRMWARE` | `0` | `1` não inclui o firmware binário (`firmware/`, hoje o do adaptador Wi-Fi RTL8188EU). Compila em `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` gera a imagem sem o MicroPython (bem menor) |
 | `NETSURF` | `1` | o navegador NetSurf; só entra se as fontes estiverem preparadas e a cola existir (veja 7). `NETSURF=0` o remove |
-| `GNUBOY` | `1` | o emulador de Game Boy; só entra se existir `userland/terceros/gnuboy/` (não está no repositório público, veja 7) |
+| `GNUBOY` | `1` | o emulador de Game Boy; só entra se o seu código foi baixado (`make priv_descargas` ou `bash tools/gnuboy_fuentes.sh`, veja 5 e 7). `GNUBOY=0` o remove |
 | `QUAKE` | `1` | o motor do Quake (`0` o remove) |
 | `OPENJAZZ`, `CONQUER`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer) e GNU Prolog (`0` os remove) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | colocar em `/jogos` os dados shareware baixados por `tools/quake_datos.sh` e `tools/openjazz_datos.sh`. Se não foram baixados, nada entra; `0` os ignora mesmo que estejam baixados |
@@ -724,7 +732,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `--jobs N`, `-j N` | núcleos do PC | trabalhos do `make` |
 | `--limpiar` | não | apaga a pasta de compilação antes de compilar |
 | `--sin-compilar` | não | não compila: usa o que já houver na pasta de compilação |
-| `--con-input-share` | não | inclui `input_share/`, os dados shareware baixados e o NetSurf. **Só uso próprio** (veja 6 e 7) |
+| `--con-input-share` | não | inclui `input_share/`, os dados shareware baixados, o NetSurf e o GNUBoy. **Só uso próprio** (veja 6 e 7) |
 | `--probar` | não | inicia a imagem no QEMU e verifica que chega à área de trabalho |
 | `--sin-notas`, `--notas FICHERO` | notas sim | não escreve `VERSION.txt`, ou acrescenta a ele o texto de um arquivo |
 | `--fijar-version V` | não | muda a versão em `kernel/inc/versao.h` antes de compilar (`v8.1`...) |
@@ -767,12 +775,13 @@ Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assisten
 | Comando | O que gera |
 | --- | --- |
 | `make` / `make all` | `build/saguios.img` (a normal, um núcleo) |
+| `make help` | lista os alvos e as variáveis principais |
 | `make vdi`, `make iso` | `build/saguios.vdi`, `build/saguios.iso` |
 | `make imagem-smp`, `imagem-uacpi` | `build/saguios-smp.img`, `build/saguios-uacpi.img` |
 | `make imagem-persistente`, `imagem-persistente-fat32`, `imagem-persistente-smp`, `imagem-persistente-smp-uacpi` | as persistentes (com `/home`) em `build/` |
 | `make imagem-particoes`, `imagem-particoes-xz` | `build/saguios-particiones.img` (e `.xz`) |
 | `make variantes [DESTINO=entrega/minha]` | **o publicável**: `./gerar_versao.sh --todas --destino DESTINO`: todas as imagens da tabela abaixo, sem `input_share/`, sem NetSurf nem GNUBoy, sem dados shareware |
-| `make priv_variantes [PRIV_DESTINO=...]` | **uso próprio**: o mesmo com `--con-input-share` (seus jogos, shareware de Quake e Jazz, NetSurf se você o preparou). Antes executa `make priv_descargas` (veja 5 e 7) |
+| `make priv_variantes [PRIV_DESTINO=...]` | **uso próprio**: o mesmo com `--con-input-share` (seus jogos, shareware de Quake e Jazz, NetSurf e GNUBoy, que ele baixa antes). Antes executa `make priv_descargas` (veja 5 e 7) |
 | `make entrega-sin-gpl` | `build-sem-gpl/saguios-sin-gpl.img`, depois da auditoria de licenças |
 | `./gerar_versao.sh --todas` | o mesmo que `make variantes`, com o destino padrão `entrega/latest` |
 
@@ -801,15 +810,16 @@ Todas as imagens de disco levam ainda as partições `SAGUI-JOGOS` (jogos, `/jog
 | O quê | Script | Origem | Licença | Onde fica |
 | --- | --- | --- | --- | --- |
 | Fontes do NetSurf 3.11 (uns 90 MB) | `bash tools/netsurf_fuentes.sh [--tarball ARQUIVO] [--forzar]` | `https://download.netsurf-browser.org/netsurf/releases/source-full/netsurf-all-3.11.tar.gz` | GPL-2.0 só v2 (as bibliotecas, MIT). Veja 7 | `userland/terceros/netsurf/fuentes/` (ignorada pelo git). Precisa de `perl` |
+| Fontes do GNUBoy (SDL2-GNUBoy, commit `c8642d1`, uns 450 KB) | `bash tools/gnuboy_fuentes.sh [--tarball ARQUIVO] [--forzar] [--comprobar]` | `https://github.com/AlexOberhofer/SDL2-GNUBoy/archive/c8642d11bd2706333c5255e2b7f2b84445d0a070.tar.gz` | GPL-2.0 (só v2 na prática). Veja 7 | `userland/terceros/gnuboy/jogo/` |
 | Shareware do Quake 1.06 (episódio 1) | `bash tools/quake_datos.sh [--zip ARQUIVO] [--forzar]` | `ftp.gwdg.de/pub/misc/ftp.idsoftware.com/idstuff/quake/quake106.zip` (e o espelho `youfailit.net`) | dados da id Software: grátis para o usuário, **sem direito de redistribuí-los dentro de outro sistema** | `userland/terceros/quake/datos/` (ignorada pelo git) |
 | Shareware do Jazz Jackrabbit 1.0 (episódio 1) | `bash tools/openjazz_datos.sh [--zip ARQUIVO] [--forzar]` | `https://slackware.uk/~urchlay/src/jjrabbit.zip` | dados da Epic MegaGames, com condições de redistribuição: não são publicados | `userland/terceros/openjazz/datos/` (ignorada pelo git) |
-| Fontes tipográficas da Typodermic (28 escolhidas de 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (com rede, baixa o zip) | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` | CC0 (domínio público) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
+| Fontes tipográficas da Typodermic (28 escolhidas de 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (com rede, baixa o zip); o `make priv_descargas` faz isso sozinho | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**às vezes dá 404**: veja a nota) | CC0 (domínio público) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
 | ROM livre de Game Boy (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, versão v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (só útil com o GNUBoy, veja 7) |
 
 Notas:
 
-- **Typodermic:** o `make` só inclui as fontes se o zip já estiver em `NEW_FONTS/` quando você compila (essa pasta não está no repositório público). Duas formas de tê-lo: executar uma vez `python3 tools/fuentes_typodermic.py seleccion /tmp/fontes-teste` (baixa o zip para `NEW_FONTS/`), ou baixá-lo à mão da URL da tabela e colocá-lo em `NEW_FONTS/` com esse nome exato (o SHA-256 é verificado). Sem ele, o sistema é construído do mesmo jeito, sem essas fontes.
-- **`make priv_descargas`** executa, nesta ordem: `tools/netsurf_fuentes.sh` (se não houver fontes preparadas), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` e a verificação das fontes Typodermic (só avisa se faltarem). Com o repositório público, leia o aviso da seção 7 antes de usá-lo.
+- **Typodermic:** o `make priv_descargas` (ou `python3 tools/fuentes_typodermic.py seleccion /tmp/fontes-teste`) baixa o zip para `NEW_FONTS/` se faltar. Se o site der 404 (aconteceu em 2026-11-14), o script avisa com clareza e **não quebra nada**: o sistema é construído do mesmo jeito sem essas fontes. Para tê-las, baixe o zip à mão e coloque-o em `NEW_FONTS/typodermic-public-domain-2024-12.zip` (o SHA-256 é verificado). O `make` só inclui as fontes se o zip já estiver em `NEW_FONTS/` quando você compila (essa pasta não está no repositório público).
+- **`make priv_descargas`** executa, nesta ordem: `tools/netsurf_fuentes.sh` (se não houver fontes preparadas), `tools/gnuboy_fuentes.sh` (se faltar `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` e o download das fontes Typodermic (se falhar, avisa e continua). Funciona igual com o repositório público: a cola do NetSurf e do GNUBoy está nele.
 - **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Jogos e dados que você fornece (`input_share/`)
@@ -835,7 +845,7 @@ input_share/
 | **Quake** | `input_share/games/Quake/id1/pak0.pak` e `pak1.pak` | Vai para `/jogos/Quake/id1/`. Vale também o `pak0.pak` solto em `games/Quake/`, e nomes em maiúsculas (`ID1/PAK0.PAK`, como no CD do DOS). As expansões, em `games/Quake/hipnotic/` e `games/Quake/rogue/` (iniciam com `quake -hipnotic` ou `-rogue`). Use sua cópia legal (Steam, GOG, o CD). O shareware é baixado por `tools/quake_datos.sh`; o Quake prefere a versão completa |
 | **Jazz Jackrabbit** | `input_share/games/Jazz/` com os arquivos do jogo, sem alterá-los | A versão da GOG ou outra completa. O OpenJazz a encontra em qualquer pasta de `/jogos` e a prefere ao shareware |
 | **Command & Conquer** | `input_share/games/CnC/CnC_GDI95.iso` e `CnC_NOD95.iso` | São as ISO do **Command & Conquer Gold para Windows 95**, o presente (freeware) da EA em 2007, uma por disco; são reconhecidas pelo volume (GDI95, NOD95), não pelo nome. O `tools/cnc_extraer.py` tira delas só o que o Vanilla Conquer usa (63 MB em `/jogos/CnC`; com `CNC_VIDEOS=1`, 840 MB a mais). Sem as ISO, vale copiar para `/jogos/CnC` a pasta de um C&C95 já instalado |
-| **Game Boy** | `input_share/games/gb/*.gb` ou `*.gbc` | Só ROM que você tenha o direito de usar. Quem as procura é o GNUBoy, que **não está no repositório público** (veja 7) |
+| **Game Boy** | `input_share/games/gb/*.gb` ou `*.gbc` | Só ROMs que você tenha direito de usar. O GNUBoy as procura; ele não vai nas imagens publicadas, só nas suas de uso próprio (veja 7) |
 | Outros | `input_share/games/<pasta>/` | Copiada como está para `/jogos/<pasta>`. Se a pasta tem o nome de uma do sistema (`opentyrian`, `openjazz`), seu conteúdo é posto por cima |
 
 Detalhes: o `Makefile` vigia `input_share/games` e `input_share/apps` e refaz as partições quando mudam nomes, tamanhos ou datas; as marcas `*:Zone.Identifier` do Windows não são copiadas. Outra pasta: `make INPUT_SHARE=/caminho/para/meu_input_share`; nenhuma: `make INPUT_SHARE=`. A referência completa é `docs/input_share.md`.
@@ -848,20 +858,22 @@ Detalhes: o `Makefile` vigia `input_share/games` e `input_share/apps` e refaz as
 
 ### 7. O que não está no repositório público, e por quê
 
-O SaguiOS-Extended é **GPL v3** (`LICENSE`, `docs/licencia.md`). Três peças são **GPL v2 somente** (sem «ou posterior»), e a v2 sozinha é incompatível com a v3: não podem ser ligadas no mesmo binário com a libsagui e a libc comuns, então não são publicadas nem vão nas imagens publicadas:
+O SaguiOS-Extended é **GPL v3** (`LICENSE`, `docs/licencia.md`). Três peças são **GPL v2 somente** (sem «ou posterior»), e a v2 sozinha é incompatível com a v3: não podem ser ligadas no mesmo binário com a libsagui e a libc comuns, então **o código delas não é publicado** nem vai nas imagens publicadas. O que é nosso é publicado: a cola com o SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, com o SPDX `GPL-2.0-or-later`) e os scripts que baixam o código original; assim cada um pode compilá-los **para uso próprio** (usar em privado não é distribuir):
 
 | Peça | Licença | O que acontece no repositório público |
 | --- | --- | --- |
-| **NetSurf** (navegador, `userland/terceros/netsurf/`) | GPL-2.0 só v2 | não está; as fontes não vão no git, o `tools/netsurf_fuentes.sh` as baixa |
-| **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (quase sem «ou posterior»: tratado como só v2) | não está; o `Makefile` o ignora se a pasta não existir |
+| **NetSurf** (navegador, `userland/terceros/netsurf/`) | GPL-2.0 só v2 | o código dele (`fuentes/`) não está: o `tools/netsurf_fuentes.sh` o baixa; a cola própria está |
+| **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (quase sem «ou posterior»: tratado como só v2) | o código dele (`jogo/`) não está: o `tools/gnuboy_fuentes.sh` o baixa (commit fixo, SHA-256 verificado); a cola própria está |
 | **r8169 derivado do Linux** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | não está; o driver da placa Realtek RTL8168/8111 usa seu início clássico próprio (`kernel/rede/r8169_sem_gpl.h`): funciona, mas sem as sequências de início dos chips mais novos (RTL8111G/H) |
 
 **Usá-los em privado é permitido; redistribuir essas imagens, não.** Compilar para si uma imagem com eles e usá-la não é distribuir (`docs/licencia.md`).
 
-**Como compilá-los para você, e até onde vai o repositório público.** Não consegui confirmar nada disto executando; digo o que se lê no código:
+**Como compilá-los para você só com o repositório público.** Verificado de verdade a partir de uma árvore exportada sem git (`tools/publicar.sh preparar`, depois `make` e `make priv_variantes INPUT_SHARE=`):
 
-- **NetSurf:** `bash tools/netsurf_fuentes.sh` baixa e prepara as fontes do projeto original (e deixa `userland/terceros/netsurf/fuentes/.preparado`), e com `NETSURF=1` (o padrão) o `Makefile` inclui `userland/terceros/netsurf/netsurf.mk`. Mas esse `netsurf.mk` e a plataforma própria (`plataforma/`, `libc/`) ficam na mesma pasta que **não é publicada**. Só com o repositório público falta essa parte: o comando acima deixaria o `make` sem o arquivo a incluir. **Cuidado:** não execute `make priv_descargas` nem `make priv_variantes` com o repositório público (chamam `tools/netsurf_fuentes.sh`); use os scripts da seção 5 à mão e `./gerar_versao.sh --todas --con-input-share`. Para ter o NetSurf é preciso o repositório de trabalho completo do mantenedor.
-- **GNUBoy:** `tools/gnuboy_fuentes.sh` traz as fontes originais (SDL2-GNUBoy, commit `c8642d1`, `https://github.com/AlexOberhofer/SDL2-GNUBoy`) para `userland/terceros/gnuboy/jogo/`, mas a integração com o SaguiOS (`gnuboy.mk`, a plataforma SDL 2) está na mesma pasta excluída. Só com o repositório público não dá para reconstruí-lo.
+- o `make` simples funciona sem NetSurf nem GNUBoy: o menu não os mostra.
+- `make priv_variantes INPUT_SHARE=` (ou `make priv_descargas` e depois `make`) **baixa o código original** do NetSurf 3.11 e do SDL2-GNUBoy, confere os SHA-256, os compila com a nossa cola e os põe nas imagens **privadas**. Precisa de rede e `perl` (NetSurf). Essas imagens são só suas: **não as redistribua** (NetSurf e GNUBoy são GPL v2; ligados com a libsagui, que é GPL v3, não podem ser distribuídos).
+- **NetSurf:** `bash tools/netsurf_fuentes.sh` deixa `userland/terceros/netsurf/fuentes/.preparado`; o `Makefile` inclui o `netsurf.mk` só se existirem as fontes e a cola.
+- **GNUBoy:** `bash tools/gnuboy_fuentes.sh` deixa `userland/terceros/gnuboy/jogo/` (`--comprobar` compara com o original; se um dia houver patches próprios, ficam em `userland/terceros/gnuboy/parches/*.patch` e o script os aplica).
 - **r8169:** os arquivos são extratos adaptados de `drivers/net/ethernet/realtek/r8169_main.c` do Linux 6.6; não há script que os regenere. Sem eles o driver continua funcionando com o início clássico.
 
 O resto de `kernel/terceros/linux/` (`hda`, `hwmon`, GPL-2.0 ou posterior) está no repositório. Também ficam de fora, por tamanho ou privacidade, `entrega/` (as imagens de cada versão vão para a página de «Releases» do projeto), `input_share/`, `NEW_FONTS/`, `testes_hw/` e as notas internas (`tools/publicar-excluir.txt`).
@@ -894,7 +906,7 @@ Verifique os downloads com `sha256sum -c SHA256SUMS.txt`. Em uma máquina real, 
 | Um cabeçalho «não existe» no kernel ou em um programa | O `env.sh` exporta `CPATH` com a glibc do PC e o GCC o acrescenta mesmo com `-nostdinc`; o `Makefile` já o anula para tudo o que vai dentro do SaguiOS. **Não conserte** voltando a passar `CPATH` ou `-I` para a glibc do PC: falta um cabeçalho nosso ou um `-I` |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | O `run_in_qemu.sh` usa `set -u`. Dentro do `env.sh`, as variáveis que podem não existir são ampliadas com `${VAR:+:$VAR}` ou `${VAR:-}`, nunca com `$VAR` solto (já está assim em `tools/entorno-local.sh`; mantenha se editar). Teste: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
 | Os programas em C++ (OpenJazz, Command & Conquer) não aparecem | Não há `g++` de 32 bits (`cc1plus`): instale `g++` ou execute `tools/entorno-local.sh`. O resto é construído do mesmo jeito |
-| Sem NetSurf, sem fontes Typodermic ou sem dados de Quake/Jazz | São opcionais e só entram se você preparou antes os dados deles (veja 5 e 7) |
+| Sem NetSurf, GNUBoy, fontes Typodermic ou dados de Quake/Jazz | São opcionais e só entram se você baixou antes os dados com `make priv_descargas` (veja 5 e 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Instale `mtools`, `e2fsprogs`, `dosfstools` (ou execute `tools/entorno-local.sh`) |
 | QEMU muito lento | Sem KVM usa emulação por software. Verifique se `/dev/kvm` existe e se você está no grupo: `sudo usermod -aG kvm $USER` (abra uma sessão nova). Para forçar sem KVM: `--sin-kvm` |
 | Com KVM algo específico de Intel falha, ou sem KVM fica muito lento | Com KVM a CPU é a do seu PC (pode ser AMD): o que espera uma CPU Intel pode falhar. A emulação sem KVM não verifica limites de segmento nem alguns bits da CPU: teste sempre em hardware real ou com KVM antes de confiar |

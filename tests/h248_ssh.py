@@ -549,8 +549,8 @@ def maquina():
         out = m.comando("sshd --huella")
         h = re.search(r"(SHA256:[A-Za-z0-9+/]{43}) \(ED25519\)", out)
         verificar(h, "sshd --huella muestra la huella de la clave del servidor")
-        verificar("archivo: /home/.ssh/ssh_host_ed25519_key" in out and "aviso" not in out,
-                  "la clave del servidor está en /home/.ssh (persistente: sin aviso)")
+        verificar("archivo: /etc/ssh/ssh_host_ed25519_key" in out and "aviso" not in out,
+                  "la clave del servidor está en /etc/ssh, guardada en SAGUI-CONF (D255, persistente: sin aviso)")
         r = subprocess.run(["ssh-keyscan", "-T", "20", "-p", str(porta), "-t", "ed25519", "127.0.0.1"],
                            capture_output=True, text=True, timeout=60)
         conhecidos = os.path.join(TRAB, "known_hosts")
@@ -757,7 +757,7 @@ def maquina():
                       "sin algoritmo com", "shell con terminal", "el proceso", "no es un cliente SSH-2",
                       "de paquete no v"):
             verificar(texto in log, f"el registro tiene: {texto}")
-        r = cl.ssh("cat /home/.ssh/ssh_host_ed25519_key")
+        r = cl.ssh("cat /etc/ssh/ssh_host_ed25519_key")
         semilla = r.stdout.split()[-1].decode() if r.stdout.split() else "?"
         verificar(len(semilla) == 44 and semilla not in log and semilla not in m.serial(),
                   "la clave privada del servidor no aparece en el registro ni en la serie")

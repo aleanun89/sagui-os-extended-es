@@ -1,4 +1,3 @@
-; SPDX-License-Identifier: GPL-2.0-or-later
 ; parpadeo.asm - dibuja una letra y la borra (CHIP-8)
 ; F5: chip8asm parpadeo.asm -o /tmp/parpadeo.ch8 && chip8 /tmp/parpadeo.ch8
 espera = 30
