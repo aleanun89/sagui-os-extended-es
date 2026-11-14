@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* quebra.c - oportunidades de quebra de linha (UAX #14, Unicode 16.0.0).
  *
  * quebra_linha(cp, n, r): r[i] diz o que vale antes do caractere i

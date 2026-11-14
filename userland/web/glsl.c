@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* glsl.c - compilador de GLSL ES 1.00 (WebGL 1) para uma máquina virtual de 4 vias.
  *
  * Etapas: pré-processador (#define com e sem argumentos, #if/#ifdef/#elif/#else

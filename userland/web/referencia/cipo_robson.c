@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* cipo [endereço] - o Cipó, navegador do SaguiOS (D033).
  *
  * O nome: o sagui atravessa a mata pulando de cipó em cipó; o navegador

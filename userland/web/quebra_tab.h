@@ -1,3 +1,4 @@
+/* Datos de Unicode (Unicode License v3, Copyright 1991-2026 Unicode, Inc.): ver terceros/unicode/LICENSE y docs/terceros.md (D262). */
 /* quebra_tab.h - classes de quebra de linha (UAX #14, Unicode 16.0.0) já resolvidas pela LB1,
  * com marcas: 1 East_Asian_Width F/W/H, 2 Pi, 4 Pf, 8 Extended_Pictographic sem atribuição.
  * Gerado de LineBreak.txt, EastAsianWidth.txt, DerivedGeneralCategory.txt e emoji-data.txt. */

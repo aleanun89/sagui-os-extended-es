@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* fonte.c - motor de fuentes de la libfontes (D196; viene del motor de la web del
  * Cipó, D141): TrueType (glyf), OpenType con contornos CFF (charstrings Type 2),
  * WOFF (zlib) y WOFF2 (Brotli + transformación de glyf), contornos con
@@ -11,6 +12,7 @@
  * ellos esos formatos se rechazan (TTF y OTF funcionan siempre). */
 #include "sagui.h"
 #include "fontes.h"
+#include "../web/terceros/font-rs/fontrs.h"   /* rasterizador tipo font-rs, Apache-2.0 (D262) */
 
 __attribute__((weak)) uint8_t *brotli_descomprimir(const uint8_t *in, unsigned n, unsigned *saida_n, unsigned max);
 __attribute__((weak)) bool inflar_zlib(const uint8_t *p, unsigned n, uint8_t *s, unsigned max);
@@ -973,48 +975,7 @@ struct acum { float *a; int w, h; };
 
 static void linha(acum *r, float x0, float y0, float x1, float y1)
 {
-    if (fabs_f(y0 - y1) < 1e-6f) return;
-    float dir = 1.0f;
-    if (y0 > y1) { float t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; dir = -1.0f; }
-    float dxdy = (x1 - x0) / (y1 - y0);
-    float x = x0;
-    int ya = y0 < 0 ? 0 : (int)y0;
-    if (y0 < 0) x -= y0 * dxdy;
-    int yb = (int)fteto(y1); if (yb > r->h) yb = r->h;
-    for (int y = ya; y < yb; y++) {
-        float *l = r->a + y * r->w;
-        float lo = (float)y > y0 ? (float)y : y0, hi = (float)(y + 1) < y1 ? (float)(y + 1) : y1;
-        float dy = hi - lo;
-        float xn = x + dxdy * dy, d = dy * dir;
-        float xa = x < xn ? x : xn, xb = x < xn ? xn : x;
-        if (xa < 0) xa = 0;
-        if (xb < 0) xb = 0;
-        float xaf = fpiso(xa); int xai = (int)xaf;
-        float xbc = fteto(xb); int xbi = (int)xbc;
-        if (xai < 0 || xbi >= r->w) { x = xn; continue; }
-        if (xbi <= xai + 1) {
-            float xm = 0.5f * (x + xn) - xaf;
-            l[xai] += d - d * xm;
-            l[xai + 1] += d * xm;
-        } else {
-            float s = 1.0f / (xb - xa);
-            float x0f = xa - xaf;
-            float a0 = 0.5f * s * (1.0f - x0f) * (1.0f - x0f);
-            float x1f = xb - xbc + 1.0f;
-            float am = 0.5f * s * x1f * x1f;
-            l[xai] += d * a0;
-            if (xbi == xai + 2) l[xai + 1] += d * (1.0f - a0 - am);
-            else {
-                float a1 = s * (1.5f - x0f);
-                l[xai + 1] += d * (a1 - a0);
-                for (int xi = xai + 2; xi < xbi - 1; xi++) l[xi] += d * s;
-                float a2 = a1 + (float)(xbi - xai - 3) * s;
-                l[xbi - 1] += d * (1.0f - a2 - am);
-            }
-            l[xbi] += d * am;
-        }
-        x = xn;
-    }
+    fontrs_linha(r->a, r->w, r->h, x0, y0, x1, y1);   /* font-rs (Apache-2.0), D262 */
 }
 
 static void quad(acum *r, float x0, float y0, float x1, float y1, float x2, float y2)
@@ -1120,15 +1081,7 @@ static const uint8_t *guardar_cache(fonte_t *f, gcache *c, unsigned gid, int px,
     acum r = *rp;
     uint8_t *cob = aloca((unsigned)(w * hh));
     if (!cob) { libera(r.a); return NULL; }
-    for (int y = 0; y < hh; y++) {
-        float s = 0;
-        for (int x = 0; x < w; x++) {
-            s += r.a[y * w + x];
-            float v = fabs_f(s);
-            if (v > 1) v = 1;
-            cob[y * w + x] = (uint8_t)(v * 255.0f + 0.5f);
-        }
-    }
+    fontrs_acumular(r.a, w, hh, cob);   /* suma corriente de font-rs (Apache-2.0), D262 */
     libera(r.a);
     if (c->cob) { f->cache_bytes -= (unsigned)(c->l * c->a); libera(c->cob); }
     c->cob = cob; c->gid = (uint16_t)gid; c->px = (uint16_t)px; c->l = (int16_t)w; c->a = (int16_t)hh; c->ox = (int16_t)bx0; c->oy = (int16_t)by0;

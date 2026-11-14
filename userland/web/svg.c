@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* svg.c - SVG 1.1/2 para o Cipó: XML, estilo (atributos, <style>, style=),
  * herança, viewBox e preserveAspectRatio, formas, caminhos exatos, use/symbol,
  * gradientes (bbox ou espaço do usuário), clipPath, opacidade de grupo,

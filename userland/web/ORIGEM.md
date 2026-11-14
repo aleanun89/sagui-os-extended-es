@@ -56,17 +56,36 @@ Ficaram também os nossos cabeçalhos: `web.h`, `js.h` e `canvas2d.h` (a API que
 motor espera), e `web_compat.c` (o que o motor precisa do browser: imagens em
 ARGB, o pedido preparado do `fetch` e o pote de cookies).
 
-## Licença e crédito
+## Licença e crédito (D262)
 
-O repositório de onde veio **não tem ficheiro LICENSE**. O código foi escrito
-por IA a partir do `prd.md` do mesmo projeto, e o próprio repositório diz
-"sem código de outros sistemas" (as únicas exceções são tabelas de dados de
-especificações). O que é de terceiros mesmo e está registado em
-`docs/terceros.md`:
+O motor é **GPL-3.0-only**. O repositório de onde veio não tinha ficheiro LICENSE, mas o
+autor (robson-apk) propôs o código ao projeto original como o **PR #6 de
+`erigobeli/sagui-os`** (aberto em 2026-11-10, sem fundir) e esse repositório é GPL-3.0:
+pelos Termos do GitHub (secção D.6, «inbound = outbound») o que se contribui para um
+repositório com licença fica sob essa licença. **Pediu-se ao autor que o confirme**
+explicitamente (rascunho em `docs/borradores/robson-licencia.md`). Os ficheiros levam
+`SPDX-License-Identifier: GPL-3.0-only` (lista `ROBSON` de `tools/spdx.py`). Ficam sem
+marca as tabelas de dados (`brotli_tab.h`, `quebra_tab.h`) e o `js_base.h` gerado.
 
-- as **fontes DejaVu** (`rootfs/fontes/`), com a `LICENCA-DejaVu.txt` ao lado;
-- as **tabelas do Brotli** (RFC 7932) e da **quebra de linha** (UAX #14), que
-  são dados das normas.
+O autor reconheceu em 2026-11-14 (commit `8c3b56b` de `robson-apk/sagui-os`,
+`docs/cipo.md`) que **nem tudo foi escrito do zero**: há trechos que seguem de perto
+projetos conhecidos. Os que estão na nossa cópia foram separados em
+`userland/web/terceros/<projeto>/`, com a licença original e um `ORIGEM.md`, **sem mudar o
+comportamento**, e estão em `docs/terceros.md`:
+
+| Trecho | Onde estava | Projeto e licença | Agora |
+| --- | --- | --- | --- |
+| Rasterizador por área acumulada (linha do contorno, soma corrida, variante recortada e regra par-ímpar) | `linha()` de `fonte.c` (hoje `userland/libfontes/`) e `r_linha()` + soma de `cobrir()` em `canvas2d.c` | **font-rs** (Raph Levien, Google), **Apache-2.0** | `terceros/font-rs/fontrs.h` |
+| `Number.prototype.toString(base)` | `n_numstr` de `js_nativo.h` | **V8** (`DoubleToRadixCString`), **BSD-3-Clause** | `terceros/v8-numeros/numero_base.h` |
+| Tabelas da quebra de linha (UAX #14) | `quebra_tab.h` | **Unicode**, Unicode License v3 | dados no sítio; licença em `terceros/unicode/` |
+| Dicionário, transformações e contextos do Brotli | `brotli_tab.h` | **RFC 7932** (IETF Trust; dicionário de Google, MIT) | dados no sítio; nota em `terceros/rfc7932-brotli/` |
+
+**Não estão na nossa cópia** (só vieram no PR #6, que também tem o vídeo): o decodificador
+VP8/WebP (libwebp, BSD), as tabelas CABAC/CAVLC do H.264 (FFmpeg, LGPL-2.1+) e os livros de
+Huffman do AAC (FAAD2, GPL-2.0+). Se algum dia se integrar o vídeo, vão em
+`userland/web/terceros/` com a licença e o crédito (o do FAAD2 exige a mensagem «Code from
+FAAD2 is copyright (c) Nero AG, www.nero.com»). As **fontes DejaVu** (`rootfs/fontes/`) têm a
+`LICENCA-DejaVu.txt` ao lado.
 
 ### O ficheiro original, em `referencia/`
 
@@ -80,11 +99,6 @@ licença.
 O motor do JavaScript tem uma base gerada (`js_base.h`) a partir de
 `js_base.js` com `tools/web/mkjsbase.py`, que pode ser re-gerada se mudar o
 origem.
-
-## Licença dos dados das normas
-
-As tabelas do Brotli e da quebra de linha são dados factuais das normas
-(ietf.org RFC 7932 e unicode.org UAX #14), não código de terceiros.
 
 ## Como se usa
 

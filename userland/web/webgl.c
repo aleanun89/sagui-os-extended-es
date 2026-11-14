@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* webgl.c - WebGL 1 em software.
  *
  * Estado do GL, objetos (buffers, texturas, framebuffers, renderbuffers,

@@ -14495,3 +14495,39 @@ con cómo ponerlo a mano y sigue); `tools/auditar_licencias.py` ya no cuenta el 
 
 **Pruebas:** `tests/h260_publicar.py` (nombres, pegamento que va, código que no va), h81, h159 y h04; flujo
 real desde un árbol exportado sin git (ver el informe de la rama).
+
+## D262. Licencia y atribución del motor web del Cipó (código de robson-apk)
+
+**Contexto.** El motor de `userland/web/` (motor.c, js*.c/h, canvas2d.c, svg.c, webgl.c, glsl*, brotli.c,
+quebra.c, y `fonte.c` de `userland/libfontes/`) vino del repositorio `robson-apk/sagui-os`, rama `cipo-web`
+(commit `03906c8`, D141). Ese repositorio no tenía LICENSE y `docs/terceros.md` decía «sin licencia declarada».
+El 2026-11-10 robson-apk propuso ese código al proyecto original como **PR #6 de `erigobeli/sagui-os`**
+(sin fusionar), y el original es GPL-3.0. El 2026-11-14 robson corrigió su documentación (commit `8c3b56b`):
+no todo se escribió desde cero; hay trozos que siguen font-rs (Apache-2.0), libwebp (BSD), V8 (BSD),
+FFmpeg (LGPL-2.1+) y FAAD2 (GPL-2.0+), más datos de especificaciones (RFC 7932, Unicode).
+
+**Decisión.**
+1. El motor de robson se trata como **GPL-3.0-only**: aportado a un repositorio GPL-3.0 (PR #6), los
+   Términos de GitHub (D.6, «inbound = outbound») lo dejan bajo esa licencia. Se pide además confirmación
+   explícita al autor (borrador en `docs/borradores/robson-licencia.md`, lo envía el mantenedor). Como el
+   código de M4R4G0N (D259), figura en `terceros.md` pero es de la capa GPL v3: `tools/spdx.py` y
+   `tools/auditar_licencias.py` lo reconocen por la lista `ROBSON` y los ficheros llevan
+   `SPDX-License-Identifier: GPL-3.0-only`. Fuera de la marca quedan los datos (`brotli_tab.h`, `quebra_tab.h`)
+   y el `js_base.h` generado.
+2. Los trozos de terceros que **sí están en nuestra copia** se separan en `userland/web/terceros/<proyecto>/`
+   con licencia, crédito y `ORIGEM.md`, sin cambiar el comportamiento: `font-rs/` (Apache-2.0: rasterizador
+   por área acumulada, antes en `fonte.c` y `canvas2d.c`), `v8-numeros/` (BSD-3-Clause: `toString(base)`,
+   antes en `js_nativo.h`), `unicode/` (Unicode License v3) y `rfc7932-brotli/` (datos de la RFC). Son
+   cabeceras con funciones `static inline` para no tocar el Makefile. Cada uno tiene su fila en `terceros.md`.
+3. **No están en nuestra copia** (solo en el PR #6, con el vídeo): el decodificador VP8/WebP (libwebp), las
+   tablas CABAC/CAVLC del H.264 (FFmpeg) y los libros de Huffman del AAC (FAAD2). Si se integra el vídeo,
+   irán en `userland/web/terceros/` con su licencia y, para FAAD2, la frase «Code from FAAD2 is copyright (c)
+   Nero AG, www.nero.com».
+4. La auditoría (`tools/auditar_licencias.py`) exige que cada carpeta de `userland/web/terceros/` tenga
+   `ORIGEM.md` y licencia (`LICENSE` o su nota) y una fila en `docs/terceros.md`.
+
+**Compatibilidad.** Apache-2.0, BSD, LGPL-2.1+, GPL-2.0+ y Unicode v3 son compatibles con una GPL v3 de
+conjunto; Apache-2.0 no lo sería con «solo v2», pero aquí el conjunto es v3 (NetSurf/GNUBoy solo-v2 quedan
+fuera de lo publicable, D261).
+
+**Pruebas.** Compilación y las del Cipó (h47, h112-h128, h81, h04); ver el informe de la rama.

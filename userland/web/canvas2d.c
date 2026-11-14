@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* canvas2d.c - o <canvas> 2D do Cipó (HTML, "The 2D rendering context").
  *
  * Cada tela guarda pixels ARGB sem pré-multiplicar (alfa no byte de cima),
@@ -11,6 +12,7 @@
  * Texto: sem acesso às fontes da página, usa a fonte do sistema escalada,
  * que é o que um navegador faz quando a fonte pedida não está carregada. */
 #include "canvas2d.h"
+#include "terceros/font-rs/fontrs.h"   /* rasterizador tipo font-rs, Apache-2.0 (D262) */
 
 extern const unsigned char fonte_sagui[256][16];
 
@@ -529,52 +531,8 @@ typedef struct { float *acc; int x0, y0, l, a; } raster_t;
 
 static void r_linha(raster_t *R, double x0, double y0, double x1, double y1)
 {
-    x0 -= R->x0; x1 -= R->x0; y0 -= R->y0; y1 -= R->y0;
-    if (y0 == y1) return;
-    double dir = 1;
-    if (y0 > y1) { double t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; dir = -1; }
-    if (y1 <= 0 || y0 >= R->a) return;
-    double dxdy = (x1 - x0) / (y1 - y0);
-    double x = x0;
-    if (y0 < 0) { x -= y0 * dxdy; y0 = 0; }
-    if (y1 > R->a) y1 = R->a;
-    int l = R->l;
-    for (int y = (int)y0; y < R->a && y < y1; y++) {
-        float *lin = R->acc + y * (l + 2);
-        double dy = c_min(y + 1, y1) - c_max(y, y0);
-        double xn = x + dxdy * dy, d = dy * dir;
-        double a0x = x < xn ? x : xn, a1x = x < xn ? xn : x;
-        /* fora da largura: à esquerda conta na coluna 0, à direita não aparece */
-        if (a1x <= 0) { lin[0] += (float)d; x = xn; continue; }
-        if (a0x >= l) { x = xn; continue; }
-        if (a0x < 0) {   /* parte à esquerda: vertical na borda, o resto como está */
-            double f = -a0x / (a1x - a0x);
-            lin[0] += (float)(d * f);
-            d -= d * f; a0x = 0;
-        }
-        if (a1x > l) a1x = l;
-        double fl = c_floor(a0x); int x0i = (int)fl;
-        double ce = c_ceil(a1x); int x1i = (int)ce;
-        if (x1i <= x0i + 1) {
-            double xm = 0.5 * (a0x + a1x) - fl;
-            lin[x0i] += (float)(d - d * xm);
-            lin[x0i + 1] += (float)(d * xm);
-        } else {
-            double s = 1 / (a1x - a0x), x0f = a0x - fl, a0 = 0.5 * s * (1 - x0f) * (1 - x0f);
-            double x1f = a1x - ce + 1, am = 0.5 * s * x1f * x1f;
-            lin[x0i] += (float)(d * a0);
-            if (x1i == x0i + 2) lin[x0i + 1] += (float)(d * (1 - a0 - am));
-            else {
-                double a1 = s * (1.5 - x0f);
-                lin[x0i + 1] += (float)(d * (a1 - a0));
-                for (int xi = x0i + 2; xi < x1i - 1; xi++) lin[xi] += (float)(d * s);
-                double a2 = a1 + (x1i - x0i - 3) * s;
-                lin[x1i - 1] += (float)(d * (1 - a2 - am));
-            }
-            lin[x1i] += (float)(d * am);
-        }
-        x = xn;
-    }
+    /* font-rs (Apache-2.0), D262: ver terceros/font-rs/fontrs.h */
+    fontrs_linha_recortada(R->acc, R->l + 2, R->l, R->a, x0 - R->x0, y0 - R->y0, x1 - R->x0, y1 - R->y0);
 }
 
 /* polígonos (lista de pontos e subcaminhos) -> cobertura 0..255 por pixel da caixa */
@@ -623,16 +581,7 @@ static uint8_t *cobrir(tela_t *t, const poli_t *P, int parimpar, int *bx, int *b
         }
     }
     uint8_t *m = aloca((unsigned)(R.l * R.a));
-    if (m) for (int y = 0; y < R.a; y++) {
-        float s = 0, *lin = R.acc + y * (R.l + 2);
-        for (int x = 0; x < R.l; x++) {
-            s += lin[x];
-            double c = s < 0 ? -s : s;
-            if (parimpar) { c -= 2 * c_floor(c / 2); if (c > 1) c = 2 - c; }
-            else if (c > 1) c = 1;
-            m[y * R.l + x] = (uint8_t)(c * 255 + 0.5);
-        }
-    }
+    if (m) fontrs_acumular_regra(R.acc, R.l + 2, R.l, R.a, parimpar, m);   /* font-rs (Apache-2.0), D262 */
     libera(R.acc);
     *bx = x0; *by = y0; *bl = R.l; *ba = R.a;
     return m;

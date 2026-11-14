@@ -102,6 +102,28 @@ PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/
 # pero es propio de la capa GPL v3: no es «GPL a aislar».
 M4R4G0N = ("kernel/rede/e1000.c", "kernel/rede/rede.c", "kernel/rede/tcp.c", "kernel/rede/socket.c",
            "kernel/inc/rede.h", "userland/programas/cipo.c")
+# D262: el motor de la web del Cipó (código de robson-apk, D141) es GPL-3.0-only: lo aportó al
+# repositorio original (GPL-3.0) con el PR #6 de erigobeli/sagui-os (Términos de GitHub, D.6).
+# Como el de M4R4G0N, figura en terceros.md pero es de la capa GPL v3. Quedan fuera las tablas de
+# datos (brotli_tab.h: RFC 7932; quebra_tab.h: Unicode) y el js_base.h generado.
+ROBSON = ("userland/web/motor.c",
+          "userland/web/motor.h",
+          "userland/web/js.c",
+          "userland/web/js_nativo.h",
+          "userland/web/js_num.h",
+          "userland/web/js_big.h",
+          "userland/web/js_quadros.h",
+          "userland/web/canvas2d.c",
+          "userland/web/svg.c",
+          "userland/web/webgl.c",
+          "userland/web/glsl.c",
+          "userland/web/glsl.h",
+          "userland/web/glsl_emb.h",
+          "userland/web/glsl_gen.h",
+          "userland/web/quebra.c",
+          "userland/web/brotli.c",
+          "userland/libfontes/fonte.c",
+          "userland/web/referencia/cipo_robson.c")
 # Lo que no se redistribuye (opción A del mantenedor): lo descargan los guiones de tools/.
 NO_REDISTRIBUIBLE = ("userland/terceros/netsurf/fuentes", "userland/terceros/gnuboy/jogo", R8169_LINUX.rstrip("/"))
 # Marcas del código de NetSurf (y sus bibliotecas) y de GNUBoy, para el punto 11.
@@ -113,14 +135,15 @@ RE_MARCAS_AJENAS = re.compile(
 CITAN_MARCAS = ("tools/auditar_licencias.py", "tools/publicar.sh", "tools/gnuboy_fuentes.sh", "tools/netsurf_fuentes.sh",
                 "tests/h260_publicar.py", "tests/h81_licencias.py")
 # Carpetas de lo que NO es propio (para exigir SPDX en el modo estricto).
-NO_PROPIO = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/")
+NO_PROPIO = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/",
+             "userland/web/terceros/")
 EXT_SPDX = {".c", ".h", ".cpp", ".hpp", ".cc", ".asm", ".inc", ".s", ".S", ".py", ".sh", ".mk", ".ld"}
 ARCHIVOS_DE_LICENCIA = {"LICENSE"}   # el texto de la GPL v3 de la raíz
 errores = []
 
 
 def es_pegamento(ruta):
-    return ruta in M4R4G0N or any(ruta == p or ruta.startswith(p) for p in PEGAMENTO)
+    return ruta in M4R4G0N or ruta in ROBSON or any(ruta == p or ruta.startswith(p) for p in PEGAMENTO)
 
 
 def falla(msg):
@@ -277,6 +300,26 @@ def comprobar_arbol(archivos, rutas):
         print("AVISO: userland/terceros/gnuboy/jogo/ es GPL-2.0 casi sin cabeceras «or later»: solo en lo privado (D259): "
               "fuera de lo publicable (docs/licencia.md)")
     print("árbol: %d archivos de texto, %d con licencia o copyright ajeno, %d GPL (todos aislados)" % (len(archivos), ajenos, gpl))
+
+
+def comprobar_terceros_web(rutas):
+    """D262: cada carpeta de userland/web/terceros/ lleva su ORIGEM.md, su licencia y su fila en terceros.md."""
+    base = os.path.join(RAIZ, "userland/web/terceros")
+    if not os.path.isdir(base):
+        return
+    n = 0
+    for d in sorted(os.listdir(base)):
+        ruta = "userland/web/terceros/" + d
+        if not os.path.isdir(os.path.join(base, d)):
+            continue
+        n += 1
+        if not os.path.exists(os.path.join(base, d, "ORIGEM.md")):
+            falla("%s: falta ORIGEM.md (origen y licencia, D262)" % ruta)
+        if not any(os.path.exists(os.path.join(base, d, f)) for f in ("LICENSE", "COPYING")):
+            falla("%s: falta el texto de la licencia (LICENSE o COPYING, D262)" % ruta)
+        if not any(r.rstrip("/") == ruta for r in rutas):
+            falla("%s: sin fila en docs/terceros.md (D262)" % ruta)
+    print("terceros del motor web: %d carpetas con ORIGEM.md, licencia y fila" % n)
 
 
 def comprobar_linux_retirado():
@@ -485,6 +528,7 @@ def main():
     a = ap.parse_args()
     archivos = archivos_del_arbol()
     comprobar_arbol(archivos, rutas_de_terceros())
+    comprobar_terceros_web(rutas_de_terceros())
     comprobar_linux_retirado()
     netsurf_fuera_de_lo_publicable(a.sin_make)
     if a.estricto:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* js_num.h - números do JavaScript em IEEE 754 de dupla precisão.
  *
  * Sem libgcc nem libm: inteiros grandes (bignum) para as conversões exatas,

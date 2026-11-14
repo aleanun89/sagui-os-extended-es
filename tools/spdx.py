@@ -42,11 +42,33 @@ DERIVADOS_EXTRA = ("userland/sagsh/",)
 # solo para esto se saca de esa exclusión y se marca GPL-3.0-only.
 M4R4G0N = ("kernel/rede/e1000.c", "kernel/rede/rede.c", "kernel/rede/tcp.c", "kernel/rede/socket.c",
            "kernel/inc/rede.h", "userland/programas/cipo.c")
+# D262: el motor de la web del Cipó (código de robson-apk, D141) es GPL-3.0-only: lo aportó al
+# repositorio original (GPL-3.0) con el PR #6 de erigobeli/sagui-os (Términos de GitHub, D.6).
+# Como el de M4R4G0N, figura en terceros.md pero es de la capa GPL v3. Quedan fuera las tablas de
+# datos (brotli_tab.h: RFC 7932; quebra_tab.h: Unicode) y el js_base.h generado.
+ROBSON = ("userland/web/motor.c",
+          "userland/web/motor.h",
+          "userland/web/js.c",
+          "userland/web/js_nativo.h",
+          "userland/web/js_num.h",
+          "userland/web/js_big.h",
+          "userland/web/js_quadros.h",
+          "userland/web/canvas2d.c",
+          "userland/web/svg.c",
+          "userland/web/webgl.c",
+          "userland/web/glsl.c",
+          "userland/web/glsl.h",
+          "userland/web/glsl_emb.h",
+          "userland/web/glsl_gen.h",
+          "userland/web/quebra.c",
+          "userland/web/brotli.c",
+          "userland/libfontes/fonte.c",
+          "userland/web/referencia/cipo_robson.c")
 # D261: ficheros propios dentro de carpetas de terceros (van al repositorio público).
 PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/plataforma/",
              "userland/terceros/netsurf/libc/", "userland/terceros/gnuboy/gnuboy.mk",
              "userland/terceros/gnuboy/plataforma/")
-EXCLUIDOS = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/",
+EXCLUIDOS = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/", "userland/web/terceros/",
              "build/", "entrega/", "testes_hw/", "dashboard/", "firmware/",
              # Ejemplos que la prueba h64 (Mico) lee por números de línea: una cabecera los desplazaría.
              "rootfs/ejemplos/mico/")
@@ -162,7 +184,7 @@ def procesar(raiz, aplicar, listar):
         com = comentario_de(ruta)
         if com is None:
             continue
-        if not peg and ruta not in M4R4G0N and any(ruta == a or ruta.startswith(a + "/") for a in ajenos):
+        if not peg and ruta not in M4R4G0N and ruta not in ROBSON and any(ruta == a or ruta.startswith(a + "/") for a in ajenos):
             continue
         with open(os.path.join(raiz, ruta), "rb") as f:
             datos = f.read()
@@ -174,7 +196,7 @@ def procesar(raiz, aplicar, listar):
         if any(RE_COPY.search(l) and not any(p in l.lower() for p in PROPIOS) for l in cab.splitlines()):
             res["ajeno"].append(ruta)
             continue
-        lic = LIC_ELI if (ruta in eli or ruta in M4R4G0N or ruta.startswith(DERIVADOS_EXTRA)) else LIC_NUEVA
+        lic = LIC_ELI if (ruta in eli or ruta in M4R4G0N or ruta in ROBSON or ruta.startswith(DERIVADOS_EXTRA)) else LIC_NUEVA
         res[lic].append(ruta)
         if aplicar:
             nl = b"\r\n" if b"\r\n" in datos[:2000] else b"\n"

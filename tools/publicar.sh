@@ -368,7 +368,7 @@ release() {
         if [ -f "$imagenes/VERSION.txt" ] && ! grep -q "^input_share: *no incluido" "$imagenes/VERSION.txt"; then
             die "$imagenes/VERSION.txt no dice «input_share: no incluido»: no son imágenes publicables (make variantes)"
         fi
-        grep -qi "netsurf\|gnuboy" "$imagenes/VERSION.txt" 2>/dev/null && die "$imagenes lleva NetSurf o GNUBoy: no se publica"
+        grep -i "^Aplicaciones:" "$imagenes/VERSION.txt" 2>/dev/null | grep -qi "netsurf\|gnuboy" && die "$imagenes lleva NetSurf o GNUBoy: no se publica"
     fi
     local notas="${PUBLICAR_TRABAJO:-$HOME/.cache/saguios-publicar}/notas-$version.md"
     cat > "$notas" <<NOTAS

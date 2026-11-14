@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* glsl.h - programa GLSL compilado para a VM de 4 vias (glsl.c) */
 #ifndef SAGUI_GLSL_H
 #define SAGUI_GLSL_H

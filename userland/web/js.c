@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* js.c - motor de JavaScript do Cipó.
  *
  * Árvore sintática + interpretador, com objetos, protótipos, closures, classes,

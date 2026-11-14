@@ -1,3 +1,4 @@
+/* Datos de la RFC 7932 (IETF Trust; BSD revisada según las Trust Legal Provisions): ver terceros/rfc7932-brotli/ORIGEM.md y docs/terceros.md (D262). */
 /* brotli_tab.h - dados da RFC 7932 (Brotli): dicionário estático (Apêndice A,
  * 122784 bytes, CRC-32 0x5136cb04), transformações (Apêndice B, CRC 0x3d965f81)
  * e tabelas de contexto Lut0..2 (seção 7.1). Gerado de rfc7932.txt; só números. */

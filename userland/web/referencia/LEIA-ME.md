@@ -30,16 +30,6 @@ el navegador a nuestro sistema.
 
 ## Licencia
 
-El repositorio de origen **no tiene fichero LICENSE**. Su propio `README` dice
-que su código es «sem código de outros sistemas», y que lo que trae de terceros
-son solo tablas de datos de especificaciones. El código lo escribió una IA a
-partir del `prd.md` del mismo proyecto.
-
-Mientras la licencia de ese repositorio no esté aclarada (está pendiente el
-permiso de los autores, como el de la rama `licencia` de este repo), este
-fichero se guarda **como referencia**, con su procedencia escrita aquí, y no se
-usa para nada más. Lo mismo dice `docs/terceros.md`.
-
-Si algún día la licencia se aclara o los autores dan permiso, esto se puede
-quitar sin tocar nada más: el motor que se usa ya está en `userland/web/` y en
-`userland/programas/cipo.c`, y no dependen de este fichero.
+El repositorio de origen no tenía fichero LICENSE, pero su autor propuso este código al proyecto
+original (GPL-3.0) como PR #6 de `erigobeli/sagui-os`: se trata como **GPL-3.0-only** (D262,
+`userland/web/ORIGEM.md`). Se guarda **como referencia** y no se compila.

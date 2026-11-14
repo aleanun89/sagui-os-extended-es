@@ -67,3 +67,6 @@
 # docs/capturas/ (25 MB de capturas de las pruebas) sí va. testes_eli/ (980 KB, fotos del
 # proyecto original) puede ir. rootfs/, mejoras/, dashboard/, firmware/ van (la auditoría de
 # licencias vigila el firmware).
+
+# Borradores de mensajes del mantenedor (internos)
+/docs/borradores/

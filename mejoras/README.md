@@ -106,3 +106,4 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 097 | [Escritorio remoto VNC (servidor y cliente)](097-vnc.md) | hecha (v8.0b6, D251-D254) | alta |
 | 098 | [Usuarios y permisos](098-usuarios-permisos.md) | aprobada (fase 1 v8.0b7; 2 y 3 v8.5) | alta |
 | 099 | [r8169 de sala limpia (sustituir el código de Linux GPL-2.0-only)](099-r8169-sala-limpia.md) | propuesta (v8.4 o cuando toque la red; la opción A, D259, ya hecha) | media |
+| 100 | [Vídeo H.264/AAC en el Cipó (reproductor de robson-apk)](100-cipo-video-h264.md) | aprobada (v8.0.1) | media |

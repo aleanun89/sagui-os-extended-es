@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* brotli.c - descompressor Brotli (RFC 7932), usado pelas fontes WOFF2.
  *
  * Guarda a saída inteira na memória (não usa janela circular): as fontes

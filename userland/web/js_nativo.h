@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 static str *video_src;   /* último src dado a um <video> pelo JavaScript */
 /* js_nativo.h - biblioteca nativa, expressões regulares e DOM do motor (js.c). */
 #define ARG(i) ((i) < n ? a[i] : vU())
@@ -752,55 +753,20 @@ static val n_json_q(val este, val *a, int n)
 }
 
 /* ---- Number e globais ---- */
+#include "terceros/v8-numeros/numero_base.h"   /* toString(base) del V8, BSD (D262) */
 static val n_number(val este, val *a, int n) { (void)este; if (n && prim(a[0]).t == BI) return vN(bi_para_double(prim(a[0]).g)); return n ? vN(to_num(a[0])) : vI(0); }
 static val n_boolean(val este, val *a, int n) { (void)este; return vB(to_bool(ARG(0))); }
 /* Number.prototype.toString(raiz): mesmo algoritmo do V8 (DoubleToRadixCString):
  * fração até a precisão do número (delta = meia distância ao vizinho) */
+static double n_resto_js(double a, double b) { return m_func(30, a, b); }
 static val n_numstr(val este, val *a, int n)
 {
     double v = to_num(este); int b = ARG(0).t == U ? 10 : to_i(a[0]);
     if (b < 2 || b > 36) erro("RangeError", "toString() radix must be between 2 and 36", NULL);
     if (b == 10 || !d_fin(v) || d_nan(v)) return vS(num_str(v));
-    static const char cs[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     static char buf[2200];
-    int pos = 1100, ini = pos;
-    int neg = v < 0; if (neg) v = -v;
-    double inteiro = m_floor(v), fr = v - inteiro;
-    double delta = 0.5 * (d_de(d_bits(v) + 1) - v);
-    double minimo = d_de(1);
-    if (delta < minimo) delta = minimo;
-    int fp = pos;
-    if (fr >= delta) {
-        buf[fp++] = '.';
-        do {
-            fr *= b; delta *= b;
-            int dg = (int)fr;
-            buf[fp++] = cs[dg];
-            fr -= dg;
-            if (fr > 0.5 || (fr == 0.5 && (dg & 1))) {
-                if (fr + delta > 1) {
-                    /* arredonda para cima e propaga */
-                    for (;;) {
-                        fp--;
-                        if (fp == pos) { inteiro += 1; break; }
-                        char c = buf[fp];
-                        int d = c > '9' ? c - 'a' + 10 : c - '0';
-                        if (d + 1 < b) { buf[fp++] = cs[d + 1]; break; }
-                    }
-                    break;
-                }
-            }
-        } while (fr >= delta && fp < 2190);
-    }
-    /* parte inteira: dígitos de baixo para cima, exatos enquanto o expoente permite */
-    while (((d_bits(inteiro / b) >> 52) & 0x7FF) > 1075) { inteiro /= b; buf[--ini] = '0'; }
-    do {
-        double resto = m_func(30, inteiro, b);
-        buf[--ini] = cs[(int)resto];
-        inteiro = (inteiro - resto) / b;
-    } while (inteiro > 0 && ini > 1);
-    if (neg) buf[--ini] = '-';
-    return vS(novo_str(buf + ini, fp - ini));
+    int tam = v8_numero_em_base(v, b, buf, m_floor, n_resto_js);   /* algoritmo del V8 (BSD), D262 */
+    return vS(novo_str(buf, tam));
 }
 /* toFixed / toPrecision / toExponential pela expansão decimal exata */
 static val n_numfmt(val este, val *a, int n)

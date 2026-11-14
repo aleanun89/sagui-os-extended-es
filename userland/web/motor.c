@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* motor.c - motor de páginas do Cipó.
  *
  * 1. HTML vira árvore (regras de fechamento implícito do HTML comum).

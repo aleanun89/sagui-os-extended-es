@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* glsl_gen.h - geração de código e máquina virtual (incluído por glsl.c) */
 
 /* ---------------------------------------------------------------- emissão */

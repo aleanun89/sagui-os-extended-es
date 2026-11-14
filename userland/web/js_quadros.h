@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* js_quadros.h - iframes: cada quadro é uma janela própria (window, document,
  * protótipos, timers) dentro do mesmo motor (incluído por js_nativo.h).
  *

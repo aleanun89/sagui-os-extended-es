@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* js_big.h - BigInt (incluído por js.c): inteiros de tamanho qualquer.
  *
  * Sinal e magnitude, dígitos de 16 bits (as contas cabem em 32 bits: sem

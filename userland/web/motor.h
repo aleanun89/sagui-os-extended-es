@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* motor.h - motor de páginas do Cipó: HTML em árvore, cascata CSS, caixas
  * (bloco, inline, float, flex, grid, tabela, posicionadas) e lista de pintura. */
 #ifndef SAGUI_MOTOR_H

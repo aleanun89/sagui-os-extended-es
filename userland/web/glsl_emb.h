@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /* glsl_emb.h - funções e variáveis embutidas do GLSL ES 1.00 (incluído por glsl.c) */
 
 enum {
