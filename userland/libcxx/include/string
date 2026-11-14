@@ -1,0 +1,613 @@
+// <string> - std::string para los ports (D230).
+//
+// Una cadena de bytes con su memoria en el montón (operator new, sobre el
+// malloc de la libc común, D210) y siempre terminada en cero, de modo que
+// c_str() y data() valen para las funciones de C. Sin optimización de cadena
+// corta: lo que piden los juegos portados (rutas, opciones del .ini) es poco.
+// Es plantilla sobre el carácter (basic_string) pero solo se usa con char:
+// las comparaciones y búsquedas recorren los caracteres sin char_traits.
+//
+// Incluye las conversiones de <string> (to_string, stoi, stol, stoul, stoll,
+// stof, stod) sobre strtol/strtod de la libc. Los errores que el estándar
+// señala con excepciones (at() fuera de rango, stoi de algo que no es un
+// número) lanzan std::out_of_range o std::invalid_argument (<stdexcept>).
+#ifndef SAGUI_CXX_STRING
+#define SAGUI_CXX_STRING
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <new>
+#include <utility>
+#include <initializer_list>
+#include <stdexcept>
+
+namespace std {
+
+namespace detalhe_string {
+// Para comparar como unsigned char, como memcmp y char_traits<char>.
+template <class C> struct sem_sinal { typedef C type; };
+template <> struct sem_sinal<char> { typedef unsigned char type; };
+} // namespace detalhe_string
+
+template <class C> class basic_string {
+    C *d;          // siempre válido: como mínimo, un cero
+    size_t n;      // caracteres, sin el cero
+    size_t cap;    // caracteres que caben, sin el cero
+
+    static size_t comprimento(const C *s)
+    {
+        size_t k = 0;
+        while (s[k] != C()) k++;
+        return k;
+    }
+    static C *reservar(size_t c) { return static_cast<C *>(::operator new((c + 1) * sizeof(C))); }
+    void iniciar(const C *s, size_t k)
+    {
+        cap = k < 15 ? 15 : k;
+        d = reservar(cap);
+        if (k) memcpy(d, s, k * sizeof(C));
+        n = k;
+        d[n] = C();
+    }
+    void crescer(size_t minimo)
+    {
+        if (minimo <= cap) return;
+        size_t c = cap * 2;
+        if (c < minimo) c = minimo;
+        C *novo = reservar(c);
+        memcpy(novo, d, (n + 1) * sizeof(C));
+        ::operator delete(d);
+        d = novo;
+        cap = c;
+    }
+    static size_t limitar(size_t pos, size_t k, size_t total)
+    {
+        return (k > total - pos) ? total - pos : k;
+    }
+    void verificar(size_t pos) const
+    {
+        if (pos > n) throw out_of_range("basic_string: posición fuera de rango");
+    }
+
+public:
+    typedef C value_type;
+    typedef size_t size_type;
+    typedef ptrdiff_t difference_type;
+    typedef C &reference;
+    typedef const C &const_reference;
+    typedef C *pointer;
+    typedef const C *const_pointer;
+    typedef C *iterator;
+    typedef const C *const_iterator;
+    static constexpr size_t npos = (size_t)-1;
+
+    // ---- construcción ----
+    basic_string() { iniciar(nullptr, 0); }
+    basic_string(const C *s) { iniciar(s, comprimento(s)); }
+    basic_string(const C *s, size_t k) { iniciar(s, k); }
+    basic_string(size_t k, C c)
+    {
+        iniciar(nullptr, 0);
+        assign(k, c);
+    }
+    basic_string(const basic_string &o) { iniciar(o.d, o.n); }
+    basic_string(const basic_string &o, size_t pos, size_t k = npos)
+    {
+        o.verificar(pos);
+        iniciar(o.d + pos, limitar(pos, k, o.n));
+    }
+    basic_string(basic_string &&o) noexcept : d(o.d), n(o.n), cap(o.cap)
+    {
+        // El origen queda vacío pero válido: con su propio cero.
+        o.cap = 0;
+        o.n = 0;
+        o.d = nullptr;
+        o.iniciar(nullptr, 0);
+    }
+    basic_string(initializer_list<C> l) { iniciar(l.begin(), l.size()); }
+    template <class I, class = decltype(*declval<I &>()), class = decltype(++declval<I &>())>
+    basic_string(I ini, I fim)
+    {
+        iniciar(nullptr, 0);
+        for (; ini != fim; ++ini) push_back(*ini);
+    }
+    basic_string(decltype(nullptr)) = delete;
+    ~basic_string() { ::operator delete(d); }
+
+    // ---- asignación ----
+    basic_string &operator=(const basic_string &o) { return o.d == d ? *this : assign(o.d, o.n); }
+    basic_string &operator=(basic_string &&o) noexcept
+    {
+        swap(o);
+        o.clear();
+        return *this;
+    }
+    basic_string &operator=(const C *s) { return assign(s); }
+    basic_string &operator=(C c) { return assign(1, c); }
+    basic_string &operator=(initializer_list<C> l) { return assign(l.begin(), l.size()); }
+    basic_string &assign(const C *s, size_t k)
+    {
+        if (s >= d && s <= d + n) {   // un trozo de sí misma
+            basic_string t(s, k);
+            swap(t);
+            return *this;
+        }
+        n = 0;
+        crescer(k);
+        if (k) memcpy(d, s, k * sizeof(C));
+        n = k;
+        d[n] = C();
+        return *this;
+    }
+    basic_string &assign(const C *s) { return assign(s, comprimento(s)); }
+    basic_string &assign(const basic_string &o) { return *this = o; }
+    basic_string &assign(const basic_string &o, size_t pos, size_t k = npos)
+    {
+        o.verificar(pos);
+        return assign(o.d + pos, limitar(pos, k, o.n));
+    }
+    basic_string &assign(size_t k, C c)
+    {
+        n = 0;
+        crescer(k);
+        for (size_t i = 0; i < k; i++) d[i] = c;
+        n = k;
+        d[n] = C();
+        return *this;
+    }
+
+    // ---- acceso ----
+    C &operator[](size_t i) { return d[i]; }
+    const C &operator[](size_t i) const { return d[i]; }
+    C &at(size_t i)
+    {
+        if (i >= n) throw out_of_range("basic_string::at");
+        return d[i];
+    }
+    const C &at(size_t i) const
+    {
+        if (i >= n) throw out_of_range("basic_string::at");
+        return d[i];
+    }
+    C &front() { return d[0]; }
+    const C &front() const { return d[0]; }
+    C &back() { return d[n - 1]; }
+    const C &back() const { return d[n - 1]; }
+    const C *c_str() const noexcept { return d; }
+    const C *data() const noexcept { return d; }
+    C *data() noexcept { return d; }
+
+    iterator begin() noexcept { return d; }
+    iterator end() noexcept { return d + n; }
+    const_iterator begin() const noexcept { return d; }
+    const_iterator end() const noexcept { return d + n; }
+    const_iterator cbegin() const noexcept { return d; }
+    const_iterator cend() const noexcept { return d + n; }
+
+    // ---- tamaño ----
+    size_t size() const noexcept { return n; }
+    size_t length() const noexcept { return n; }
+    size_t capacity() const noexcept { return cap; }
+    size_t max_size() const noexcept { return ((size_t)-1) / sizeof(C) / 2; }
+    bool empty() const noexcept { return n == 0; }
+    void reserve(size_t k) { crescer(k); }
+    void shrink_to_fit() {}
+    void clear() noexcept
+    {
+        n = 0;
+        d[0] = C();
+    }
+    void resize(size_t k, C c = C())
+    {
+        crescer(k);
+        for (size_t i = n; i < k; i++) d[i] = c;
+        n = k;
+        d[n] = C();
+    }
+
+    // ---- modificación ----
+    void push_back(C c)
+    {
+        crescer(n + 1);
+        d[n++] = c;
+        d[n] = C();
+    }
+    void pop_back()
+    {
+        if (n) d[--n] = C();
+    }
+    basic_string &append(const C *s, size_t k)
+    {
+        if (s >= d && s <= d + n) {   // un trozo de sí misma: copiarlo antes de crecer
+            basic_string t(s, k);
+            return append(t.d, t.n);
+        }
+        crescer(n + k);
+        if (k) memcpy(d + n, s, k * sizeof(C));
+        n += k;
+        d[n] = C();
+        return *this;
+    }
+    basic_string &append(const C *s) { return append(s, comprimento(s)); }
+    basic_string &append(const basic_string &o) { return append(o.d, o.n); }
+    basic_string &append(const basic_string &o, size_t pos, size_t k = npos)
+    {
+        o.verificar(pos);
+        return append(o.d + pos, limitar(pos, k, o.n));
+    }
+    basic_string &append(size_t k, C c)
+    {
+        crescer(n + k);
+        for (size_t i = 0; i < k; i++) d[n + i] = c;
+        n += k;
+        d[n] = C();
+        return *this;
+    }
+    basic_string &operator+=(const basic_string &o) { return append(o.d, o.n); }
+    basic_string &operator+=(const C *s) { return append(s); }
+    basic_string &operator+=(C c)
+    {
+        push_back(c);
+        return *this;
+    }
+    basic_string &operator+=(initializer_list<C> l) { return append(l.begin(), l.size()); }
+
+    basic_string &insert(size_t pos, const C *s, size_t k)
+    {
+        verificar(pos);
+        basic_string t(s, k);   // por si s apunta dentro de sí misma
+        crescer(n + k);
+        memmove(d + pos + k, d + pos, (n - pos + 1) * sizeof(C));
+        if (k) memcpy(d + pos, t.d, k * sizeof(C));
+        n += k;
+        return *this;
+    }
+    basic_string &insert(size_t pos, const C *s) { return insert(pos, s, comprimento(s)); }
+    basic_string &insert(size_t pos, const basic_string &o) { return insert(pos, o.d, o.n); }
+    basic_string &insert(size_t pos, size_t k, C c) { return insert(pos, basic_string(k, c)); }
+    iterator insert(const_iterator p, C c)
+    {
+        size_t pos = p - d;
+        insert(pos, &c, 1);
+        return d + pos;
+    }
+
+    basic_string &erase(size_t pos = 0, size_t k = npos)
+    {
+        verificar(pos);
+        k = limitar(pos, k, n);
+        memmove(d + pos, d + pos + k, (n - pos - k + 1) * sizeof(C));
+        n -= k;
+        return *this;
+    }
+    iterator erase(const_iterator p)
+    {
+        size_t pos = p - d;
+        erase(pos, 1);
+        return d + pos;
+    }
+    iterator erase(const_iterator a, const_iterator b)
+    {
+        size_t pos = a - d;
+        erase(pos, b - a);
+        return d + pos;
+    }
+
+    basic_string &replace(size_t pos, size_t k, const C *s, size_t k2)
+    {
+        verificar(pos);
+        k = limitar(pos, k, n);
+        basic_string t(d, pos);
+        t.append(s, k2);
+        t.append(d + pos + k, n - pos - k);
+        swap(t);
+        return *this;
+    }
+    basic_string &replace(size_t pos, size_t k, const C *s) { return replace(pos, k, s, comprimento(s)); }
+    basic_string &replace(size_t pos, size_t k, const basic_string &o) { return replace(pos, k, o.d, o.n); }
+    basic_string &replace(size_t pos, size_t k, size_t k2, C c) { return replace(pos, k, basic_string(k2, c)); }
+
+    void swap(basic_string &o) noexcept
+    {
+        C *td = d; d = o.d; o.d = td;
+        size_t tn = n; n = o.n; o.n = tn;
+        size_t tc = cap; cap = o.cap; o.cap = tc;
+    }
+
+    size_t copy(C *dest, size_t k, size_t pos = 0) const
+    {
+        verificar(pos);
+        k = limitar(pos, k, n);
+        if (k) memcpy(dest, d + pos, k * sizeof(C));
+        return k;
+    }
+
+    basic_string substr(size_t pos = 0, size_t k = npos) const { return basic_string(*this, pos, k); }
+
+    // ---- búsquedas ----
+    size_t find(const C *s, size_t pos, size_t k) const
+    {
+        if (k == 0) return pos <= n ? pos : npos;
+        if (k > n) return npos;
+        for (size_t i = pos; i + k <= n; i++) {
+            size_t j = 0;
+            while (j < k && d[i + j] == s[j]) j++;
+            if (j == k) return i;
+        }
+        return npos;
+    }
+    size_t find(const C *s, size_t pos = 0) const { return find(s, pos, comprimento(s)); }
+    size_t find(const basic_string &o, size_t pos = 0) const noexcept { return find(o.d, pos, o.n); }
+    size_t find(C c, size_t pos = 0) const noexcept
+    {
+        for (size_t i = pos; i < n; i++)
+            if (d[i] == c) return i;
+        return npos;
+    }
+    size_t rfind(const C *s, size_t pos, size_t k) const
+    {
+        if (k > n) return npos;
+        size_t i = n - k;
+        if (pos < i) i = pos;
+        for (;; i--) {
+            size_t j = 0;
+            while (j < k && d[i + j] == s[j]) j++;
+            if (j == k) return i;
+            if (i == 0) break;
+        }
+        return npos;
+    }
+    size_t rfind(const C *s, size_t pos = npos) const { return rfind(s, pos, comprimento(s)); }
+    size_t rfind(const basic_string &o, size_t pos = npos) const noexcept { return rfind(o.d, pos, o.n); }
+    size_t rfind(C c, size_t pos = npos) const noexcept { return rfind(&c, pos, 1); }
+
+    size_t find_first_of(const C *s, size_t pos, size_t k) const
+    {
+        for (size_t i = pos; i < n; i++)
+            for (size_t j = 0; j < k; j++)
+                if (d[i] == s[j]) return i;
+        return npos;
+    }
+    size_t find_first_of(const C *s, size_t pos = 0) const { return find_first_of(s, pos, comprimento(s)); }
+    size_t find_first_of(const basic_string &o, size_t pos = 0) const noexcept { return find_first_of(o.d, pos, o.n); }
+    size_t find_first_of(C c, size_t pos = 0) const noexcept { return find(c, pos); }
+
+    size_t find_last_of(const C *s, size_t pos, size_t k) const
+    {
+        if (n == 0) return npos;
+        size_t i = pos < n ? pos : n - 1;
+        for (;; i--) {
+            for (size_t j = 0; j < k; j++)
+                if (d[i] == s[j]) return i;
+            if (i == 0) break;
+        }
+        return npos;
+    }
+    size_t find_last_of(const C *s, size_t pos = npos) const { return find_last_of(s, pos, comprimento(s)); }
+    size_t find_last_of(const basic_string &o, size_t pos = npos) const noexcept { return find_last_of(o.d, pos, o.n); }
+    size_t find_last_of(C c, size_t pos = npos) const noexcept { return find_last_of(&c, pos, 1); }
+
+    size_t find_first_not_of(const C *s, size_t pos, size_t k) const
+    {
+        for (size_t i = pos; i < n; i++) {
+            size_t j = 0;
+            while (j < k && d[i] != s[j]) j++;
+            if (j == k) return i;
+        }
+        return npos;
+    }
+    size_t find_first_not_of(const C *s, size_t pos = 0) const { return find_first_not_of(s, pos, comprimento(s)); }
+    size_t find_first_not_of(const basic_string &o, size_t pos = 0) const noexcept { return find_first_not_of(o.d, pos, o.n); }
+    size_t find_first_not_of(C c, size_t pos = 0) const noexcept { return find_first_not_of(&c, pos, 1); }
+
+    size_t find_last_not_of(const C *s, size_t pos, size_t k) const
+    {
+        if (n == 0) return npos;
+        size_t i = pos < n ? pos : n - 1;
+        for (;; i--) {
+            size_t j = 0;
+            while (j < k && d[i] != s[j]) j++;
+            if (j == k) return i;
+            if (i == 0) break;
+        }
+        return npos;
+    }
+    size_t find_last_not_of(const C *s, size_t pos = npos) const { return find_last_not_of(s, pos, comprimento(s)); }
+    size_t find_last_not_of(const basic_string &o, size_t pos = npos) const noexcept { return find_last_not_of(o.d, pos, o.n); }
+    size_t find_last_not_of(C c, size_t pos = npos) const noexcept { return find_last_not_of(&c, pos, 1); }
+
+    // ---- comparación ----
+    static int comparar(const C *a, size_t na, const C *b, size_t nb)
+    {
+        size_t k = na < nb ? na : nb;
+        for (size_t i = 0; i < k; i++) {
+            typedef typename detalhe_string::sem_sinal<C>::type U;
+            if ((U)a[i] != (U)b[i]) return (U)a[i] < (U)b[i] ? -1 : 1;
+        }
+        return na == nb ? 0 : (na < nb ? -1 : 1);
+    }
+    int compare(const basic_string &o) const noexcept { return comparar(d, n, o.d, o.n); }
+    int compare(const C *s) const { return comparar(d, n, s, comprimento(s)); }
+    int compare(size_t pos, size_t k, const basic_string &o) const
+    {
+        verificar(pos);
+        return comparar(d + pos, limitar(pos, k, n), o.d, o.n);
+    }
+    int compare(size_t pos, size_t k, const C *s) const
+    {
+        verificar(pos);
+        return comparar(d + pos, limitar(pos, k, n), s, comprimento(s));
+    }
+    int compare(size_t pos, size_t k, const C *s, size_t k2) const
+    {
+        verificar(pos);
+        return comparar(d + pos, limitar(pos, k, n), s, k2);
+    }
+};
+
+typedef basic_string<char> string;
+
+// ---- concatenación ----
+template <class C> basic_string<C> operator+(const basic_string<C> &a, const basic_string<C> &b)
+{
+    basic_string<C> r;
+    r.reserve(a.size() + b.size());
+    r.append(a);
+    r.append(b);
+    return r;
+}
+template <class C> basic_string<C> operator+(const basic_string<C> &a, const C *b)
+{
+    basic_string<C> r(a);
+    r.append(b);
+    return r;
+}
+template <class C> basic_string<C> operator+(const C *a, const basic_string<C> &b)
+{
+    basic_string<C> r(a);
+    r.append(b);
+    return r;
+}
+template <class C> basic_string<C> operator+(const basic_string<C> &a, C b)
+{
+    basic_string<C> r(a);
+    r.push_back(b);
+    return r;
+}
+template <class C> basic_string<C> operator+(C a, const basic_string<C> &b)
+{
+    basic_string<C> r(1, a);
+    r.append(b);
+    return r;
+}
+template <class C> basic_string<C> operator+(basic_string<C> &&a, const basic_string<C> &b)
+{
+    a.append(b);
+    return std::move(a);
+}
+template <class C> basic_string<C> operator+(basic_string<C> &&a, const C *b)
+{
+    a.append(b);
+    return std::move(a);
+}
+template <class C> basic_string<C> operator+(basic_string<C> &&a, C b)
+{
+    a.push_back(b);
+    return std::move(a);
+}
+
+// ---- comparaciones ----
+template <class C> bool operator==(const basic_string<C> &a, const basic_string<C> &b) { return a.compare(b) == 0; }
+template <class C> bool operator==(const basic_string<C> &a, const C *b) { return a.compare(b) == 0; }
+template <class C> bool operator==(const C *a, const basic_string<C> &b) { return b.compare(a) == 0; }
+template <class C> bool operator!=(const basic_string<C> &a, const basic_string<C> &b) { return a.compare(b) != 0; }
+template <class C> bool operator!=(const basic_string<C> &a, const C *b) { return a.compare(b) != 0; }
+template <class C> bool operator!=(const C *a, const basic_string<C> &b) { return b.compare(a) != 0; }
+template <class C> bool operator<(const basic_string<C> &a, const basic_string<C> &b) { return a.compare(b) < 0; }
+template <class C> bool operator<(const basic_string<C> &a, const C *b) { return a.compare(b) < 0; }
+template <class C> bool operator<(const C *a, const basic_string<C> &b) { return b.compare(a) > 0; }
+template <class C> bool operator>(const basic_string<C> &a, const basic_string<C> &b) { return a.compare(b) > 0; }
+template <class C> bool operator>(const basic_string<C> &a, const C *b) { return a.compare(b) > 0; }
+template <class C> bool operator>(const C *a, const basic_string<C> &b) { return b.compare(a) < 0; }
+template <class C> bool operator<=(const basic_string<C> &a, const basic_string<C> &b) { return a.compare(b) <= 0; }
+template <class C> bool operator<=(const basic_string<C> &a, const C *b) { return a.compare(b) <= 0; }
+template <class C> bool operator<=(const C *a, const basic_string<C> &b) { return b.compare(a) >= 0; }
+template <class C> bool operator>=(const basic_string<C> &a, const basic_string<C> &b) { return a.compare(b) >= 0; }
+template <class C> bool operator>=(const basic_string<C> &a, const C *b) { return a.compare(b) >= 0; }
+template <class C> bool operator>=(const C *a, const basic_string<C> &b) { return b.compare(a) <= 0; }
+
+template <class C> void swap(basic_string<C> &a, basic_string<C> &b) noexcept { a.swap(b); }
+
+// ---- conversiones numéricas ----
+// El texto de los números con la libc (snprintf con %lld y %g de D210).
+inline string to_string(long long v)
+{
+    char b[24];
+    snprintf(b, sizeof b, "%lld", v);
+    return string(b);
+}
+inline string to_string(unsigned long long v)
+{
+    char b[24];
+    snprintf(b, sizeof b, "%llu", v);
+    return string(b);
+}
+inline string to_string(int v) { return to_string((long long)v); }
+inline string to_string(long v) { return to_string((long long)v); }
+inline string to_string(unsigned v) { return to_string((unsigned long long)v); }
+inline string to_string(unsigned long v) { return to_string((unsigned long long)v); }
+inline string to_string(double v)
+{
+    char b[64];
+    snprintf(b, sizeof b, "%f", v);
+    return string(b);
+}
+inline string to_string(float v) { return to_string((double)v); }
+inline string to_string(long double v) { return to_string((double)v); }
+
+// Las sto*: como en el estándar, invalid_argument si no hay número y
+// out_of_range si no cabe; idx recibe dónde acabó.
+namespace detalhe_string {
+inline void conferir(const char *ini, const char *fim, size_t *idx, const char *nome)
+{
+    if (fim == ini) throw invalid_argument(nome);
+    if (errno == ERANGE) throw out_of_range(nome);
+    if (idx) *idx = (size_t)(fim - ini);
+}
+} // namespace detalhe_string
+
+inline long stol(const string &s, size_t *idx = nullptr, int base = 10)
+{
+    char *fim;
+    errno = 0;
+    long v = strtol(s.c_str(), &fim, base);
+    detalhe_string::conferir(s.c_str(), fim, idx, "stol");
+    return v;
+}
+inline int stoi(const string &s, size_t *idx = nullptr, int base = 10)
+{
+    long v = stol(s, idx, base);
+    if (v > 0x7FFFFFFFL || v < -0x7FFFFFFFL - 1) throw out_of_range("stoi");
+    return (int)v;
+}
+inline unsigned long stoul(const string &s, size_t *idx = nullptr, int base = 10)
+{
+    char *fim;
+    errno = 0;
+    unsigned long v = strtoul(s.c_str(), &fim, base);
+    detalhe_string::conferir(s.c_str(), fim, idx, "stoul");
+    return v;
+}
+inline long long stoll(const string &s, size_t *idx = nullptr, int base = 10)
+{
+    char *fim;
+    errno = 0;
+    long long v = strtoll(s.c_str(), &fim, base);
+    detalhe_string::conferir(s.c_str(), fim, idx, "stoll");
+    return v;
+}
+inline unsigned long long stoull(const string &s, size_t *idx = nullptr, int base = 10)
+{
+    char *fim;
+    errno = 0;
+    unsigned long long v = strtoull(s.c_str(), &fim, base);
+    detalhe_string::conferir(s.c_str(), fim, idx, "stoull");
+    return v;
+}
+inline double stod(const string &s, size_t *idx = nullptr)
+{
+    char *fim;
+    errno = 0;
+    double v = strtod(s.c_str(), &fim);
+    detalhe_string::conferir(s.c_str(), fim, idx, "stod");
+    return v;
+}
+inline float stof(const string &s, size_t *idx = nullptr) { return (float)stod(s, idx); }
+
+} // namespace std
+
+#endif

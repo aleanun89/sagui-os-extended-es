@@ -1,0 +1,12 @@
+- [Pruebas por capa](pruebas-por-capa.md) — ramas: solo lo afectado; X.Y: batería completa en main; X.Y.Z: solo lo afectado + generales
+- [Volcados ACPI uACPI](acpidumps-uacpi.md) — ACPI de máquinas reales para probar _PSS/_PRT sin hardware
+- [Base vs apps en particiones](base-vs-apps-particiones.md) — ramdisk solo lo esencial; apps/juegos en particiones montadas
+- [Carga WSL y reinicios](carga-wsl-concurrencia.md) — 16 núcleos/36 GB: -j 4, 3-4 agentes, audio de una en una; WHEA 18 en el núcleo 2
+- [Plan v7.3 WiFi/BT](plan-v73-wifi-bt.md) — pincho RTL8188EU en v7.3; Bluetooth entero e integrados en v8; v7.3.1 servicios/cron/bloqueo DNS
+- [Plan aceleración 2D por GPU](plan-acel2d-gpus.md) — capa común + autoprueba; v7.2 Intel/X1400/VMware, v7.4 HD4550 + GeForce Go
+- [Máquinas de prueba físicas](maquinas-prueba-fisicas.md) — Amilo T2400 (AHCI D199, USB), Toshiba i3 1.ª gen (IDE ok, AHCI pendiente)
+- [Subir ramas a GitHub](subir-ramas-github.md) — también las ramas de los agentes, como copia; los agentes no hacen push
+- [Notas al revisor](respuesta-claude-notas.md) — resultados de pruebas con hora en ../notas-revisor/RESPUESTA_CLAUDE.md (Test hNN para Release / Test rama)
+- [No matar el QEMU del usuario](no-matar-qemu-usuario.md) — solo matar QEMU de pruebas (build/paralelo, aisl, testes); nunca el de run_in_qemu.sh
+- [Imágenes en GitHub](imagenes-en-github.md) — solo las dos básicas por versión; el resto con make variantes; juegos 800 MB rw; input_share/ fuera de git
+- [Ports amplían el sistema](ports-amplian-sistema.md) — juegos portados añaden C++/SDL/libc reutilizables; datos por input_share; OpenRA no viable

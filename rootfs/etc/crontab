@@ -1,0 +1,12 @@
+# /etc/crontab - tareas programadas del sistema (D216). La del usuario se
+# cambia con "crontab -e" (/home/.config/crontab).
+#
+# minuto hora día mes día_semana orden
+#   */15 * * * *  orden        cada 15 minutos
+#   30 8 * * 1-5  orden        a las 8:30 de lunes a viernes
+#   @reboot orden              al arrancar
+#   @daily orden               cada día (si el PC estaba apagado, al arrancar)
+
+# Actualizar las listas del bloqueo de publicidad por DNS (D218) una vez por semana.
+# Solo tiene efecto si el bloqueo está activado (bloqueo activar); quita la # para usarla.
+# @weekly bloqueo actualizar

@@ -1,0 +1,131 @@
+Raíces de confianza de SaguiOS (copiadas de /etc/ssl/certs con tools/raices_ssl.py).
+Añade o quita con el comando "certificados". Ver docs/decisoes.md, D063.
+
+isrg-root-x1.pem
+  C=US, O=Internet Security Research Group, CN=ISRG Root X1
+  caduca: Jun  4 11:04:38 2035 GMT
+  SHA-256: 96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6
+isrg-root-x2.pem
+  C=US, O=Internet Security Research Group, CN=ISRG Root X2
+  caduca: Sep 17 16:00:00 2040 GMT
+  SHA-256: 69:72:9B:8E:15:A8:6E:FC:17:7A:57:AF:B7:17:1D:FC:64:AD:D2:8C:2F:CA:8C:F1:50:7E:34:45:3C:CB:14:70
+digicert-global-g2.pem
+  C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert Global Root G2
+  caduca: Jan 15 12:00:00 2038 GMT
+  SHA-256: CB:3C:CB:B7:60:31:E5:E0:13:8F:8D:D3:9A:23:F9:DE:47:FF:C3:5E:43:C1:14:4C:EA:27:D4:6A:5A:B1:CB:5F
+digicert-global-g3.pem
+  C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert Global Root G3
+  caduca: Jan 15 12:00:00 2038 GMT
+  SHA-256: 31:AD:66:48:F8:10:41:38:C7:38:F3:9E:A4:32:01:33:39:3E:3A:18:CC:02:29:6E:F9:7C:2A:C9:EF:67:31:D0
+digicert-tls-rsa4096-g5.pem
+  C=US, O=DigiCert, Inc., CN=DigiCert TLS RSA4096 Root G5
+  caduca: Jan 14 23:59:59 2046 GMT
+  SHA-256: 37:1A:00:DC:05:33:B3:72:1A:7E:EB:40:E8:41:9E:70:79:9D:2B:0A:0F:2C:1D:80:69:31:65:F7:CE:C4:AD:75
+digicert-tls-ecc-g5.pem
+  C=US, O=DigiCert, Inc., CN=DigiCert TLS ECC P384 Root G5
+  caduca: Jan 14 23:59:59 2046 GMT
+  SHA-256: 01:8E:13:F0:77:25:32:CF:80:9B:D1:B1:72:81:86:72:83:FC:48:C6:E1:3B:E9:C6:98:12:85:4A:49:0C:1B:05
+globalsign-r3.pem
+  OU=GlobalSign Root CA - R3, O=GlobalSign, CN=GlobalSign
+  caduca: Mar 18 10:00:00 2029 GMT
+  SHA-256: CB:B5:22:D7:B7:F1:27:AD:6A:01:13:86:5B:DF:1C:D4:10:2E:7D:07:59:AF:63:5A:7C:F4:72:0D:C9:63:C5:3B
+globalsign-r6.pem
+  OU=GlobalSign Root CA - R6, O=GlobalSign, CN=GlobalSign
+  caduca: Dec 10 00:00:00 2034 GMT
+  SHA-256: 2C:AB:EA:FE:37:D0:6C:A2:2A:BA:73:91:C0:03:3D:25:98:29:52:C4:53:64:73:49:76:3A:3A:B5:AD:6C:CF:69
+globalsign-r46.pem
+  C=BE, O=GlobalSign nv-sa, CN=GlobalSign Root R46
+  caduca: Mar 20 00:00:00 2046 GMT
+  SHA-256: 4F:A3:12:6D:8D:3A:11:D1:C4:85:5A:4F:80:7C:BA:D6:CF:91:9D:3A:5A:88:B0:3B:EA:2C:63:72:D9:3C:40:C9
+globalsign-e46.pem
+  C=BE, O=GlobalSign nv-sa, CN=GlobalSign Root E46
+  caduca: Mar 20 00:00:00 2046 GMT
+  SHA-256: CB:B9:C4:4D:84:B8:04:3E:10:50:EA:31:A6:9F:51:49:55:D7:BF:D2:E2:C6:B4:93:01:01:9A:D6:1D:9F:50:58
+globalsign-ecc-r4.pem
+  OU=GlobalSign ECC Root CA - R4, O=GlobalSign, CN=GlobalSign
+  caduca: Jan 19 03:14:07 2038 GMT
+  SHA-256: B0:85:D7:0B:96:4F:19:1A:73:E4:AF:0D:54:AE:7A:0E:07:AA:FD:AF:9B:71:DD:08:62:13:8A:B7:32:5A:24:A2
+amazon-root-ca-1.pem
+  C=US, O=Amazon, CN=Amazon Root CA 1
+  caduca: Jan 17 00:00:00 2038 GMT
+  SHA-256: 8E:CD:E6:88:4F:3D:87:B1:12:5B:A3:1A:C3:FC:B1:3D:70:16:DE:7F:57:CC:90:4F:E1:CB:97:C6:AE:98:19:6E
+amazon-root-ca-2.pem
+  C=US, O=Amazon, CN=Amazon Root CA 2
+  caduca: May 26 00:00:00 2040 GMT
+  SHA-256: 1B:A5:B2:AA:8C:65:40:1A:82:96:01:18:F8:0B:EC:4F:62:30:4D:83:CE:C4:71:3A:19:C3:9C:01:1E:A4:6D:B4
+amazon-root-ca-3.pem
+  C=US, O=Amazon, CN=Amazon Root CA 3
+  caduca: May 26 00:00:00 2040 GMT
+  SHA-256: 18:CE:6C:FE:7B:F1:4E:60:B2:E3:47:B8:DF:E8:68:CB:31:D0:2E:BB:3A:DA:27:15:69:F5:03:43:B4:6D:B3:A4
+amazon-root-ca-4.pem
+  C=US, O=Amazon, CN=Amazon Root CA 4
+  caduca: May 26 00:00:00 2040 GMT
+  SHA-256: E3:5D:28:41:9E:D0:20:25:CF:A6:90:38:CD:62:39:62:45:8D:A5:C6:95:FB:DE:A3:C2:2B:0B:FB:25:89:70:92
+gts-root-r1.pem
+  C=US, O=Google Trust Services LLC, CN=GTS Root R1
+  caduca: Jun 22 00:00:00 2036 GMT
+  SHA-256: D9:47:43:2A:BD:E7:B7:FA:90:FC:2E:6B:59:10:1B:12:80:E0:E1:C7:E4:E4:0F:A3:C6:88:7F:FF:57:A7:F4:CF
+gts-root-r3.pem
+  C=US, O=Google Trust Services LLC, CN=GTS Root R3
+  caduca: Jun 22 00:00:00 2036 GMT
+  SHA-256: 34:D8:A7:3E:E2:08:D9:BC:DB:0D:95:65:20:93:4B:4E:40:E6:94:82:59:6E:8B:6F:73:C8:42:6B:01:0A:6F:48
+gts-root-r4.pem
+  C=US, O=Google Trust Services LLC, CN=GTS Root R4
+  caduca: Jun 22 00:00:00 2036 GMT
+  SHA-256: 34:9D:FA:40:58:C5:E2:63:12:3B:39:8A:E7:95:57:3C:4E:13:13:C8:3F:E6:8F:93:55:6C:D5:E8:03:1B:3C:7D
+usertrust-rsa.pem
+  C=US, ST=New Jersey, L=Jersey City, O=The USERTRUST Network, CN=USERTrust RSA Certification Authority
+  caduca: Jan 18 23:59:59 2038 GMT
+  SHA-256: E7:93:C9:B0:2F:D8:AA:13:E2:1C:31:22:8A:CC:B0:81:19:64:3B:74:9C:89:89:64:B1:74:6D:46:C3:D4:CB:D2
+usertrust-ecc.pem
+  C=US, ST=New Jersey, L=Jersey City, O=The USERTRUST Network, CN=USERTrust ECC Certification Authority
+  caduca: Jan 18 23:59:59 2038 GMT
+  SHA-256: 4F:F4:60:D5:4B:9C:86:DA:BF:BC:FC:57:12:E0:40:0D:2B:ED:3F:BC:4D:4F:BD:AA:86:E0:6A:DC:D2:A9:AD:7A
+sectigo-r46.pem
+  C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication Root R46
+  caduca: Mar 21 23:59:59 2046 GMT
+  SHA-256: 7B:B6:47:A6:2A:EE:AC:88:BF:25:7A:A5:22:D0:1F:FE:A3:95:E0:AB:45:C7:3F:93:F6:56:54:EC:38:F2:5A:06
+sectigo-e46.pem
+  C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication Root E46
+  caduca: Mar 21 23:59:59 2046 GMT
+  SHA-256: C9:0F:26:F0:FB:1B:40:18:B2:22:27:51:9B:5C:A2:B5:3E:2C:A5:B3:BE:5C:F1:8E:FE:1B:EF:47:38:0C:53:83
+microsoft-rsa-2017.pem
+  C=US, O=Microsoft Corporation, CN=Microsoft RSA Root Certificate Authority 2017
+  caduca: Jul 18 23:00:23 2042 GMT
+  SHA-256: C7:41:F7:0F:4B:2A:8D:88:BF:2E:71:C1:41:22:EF:53:EF:10:EB:A0:CF:A5:E6:4C:FA:20:F4:18:85:30:73:E0
+microsoft-ecc-2017.pem
+  C=US, O=Microsoft Corporation, CN=Microsoft ECC Root Certificate Authority 2017
+  caduca: Jul 18 23:16:04 2042 GMT
+  SHA-256: 35:8D:F3:9D:76:4A:F9:E1:B7:66:E9:C9:72:DF:35:2E:E1:5C:FA:C2:27:AF:6A:D1:D7:0E:8E:4A:6E:DC:BA:02
+godaddy-g2.pem
+  C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., CN=Go Daddy Root Certificate Authority - G2
+  caduca: Dec 31 23:59:59 2037 GMT
+  SHA-256: 45:14:0B:32:47:EB:9C:C8:C5:B4:F0:D7:B5:30:91:F7:32:92:08:9E:6E:5A:63:E2:74:9D:D3:AC:A9:19:8E:DA
+starfield-g2.pem
+  C=US, ST=Arizona, L=Scottsdale, O=Starfield Technologies, Inc., CN=Starfield Root Certificate Authority - G2
+  caduca: Dec 31 23:59:59 2037 GMT
+  SHA-256: 2C:E1:CB:0B:F9:D2:F9:E1:02:99:3F:BE:21:51:52:C3:B2:DD:0C:AB:DE:1C:68:E5:31:9B:83:91:54:DB:B7:F5
+sslcom-tls-rsa-2022.pem
+  C=US, O=SSL Corporation, CN=SSL.com TLS RSA Root CA 2022
+  caduca: Aug 19 16:34:21 2046 GMT
+  SHA-256: 8F:AF:7D:2E:2C:B4:70:9B:B8:E0:B3:36:66:BF:75:A5:DD:45:B5:DE:48:0F:8E:A8:D4:BF:E6:BE:BC:17:F2:ED
+sslcom-tls-ecc-2022.pem
+  C=US, O=SSL Corporation, CN=SSL.com TLS ECC Root CA 2022
+  caduca: Aug 19 16:33:47 2046 GMT
+  SHA-256: C3:2F:FD:9F:46:F9:36:D1:6C:36:73:99:09:59:43:4B:9A:D6:0A:AF:BB:9E:7C:F3:36:54:F1:44:CC:1B:A1:43
+sslcom-rsa.pem
+  C=US, ST=Texas, L=Houston, O=SSL Corporation, CN=SSL.com Root Certification Authority RSA
+  caduca: Feb 12 17:39:39 2041 GMT
+  SHA-256: 85:66:6A:56:2E:E0:BE:5C:E9:25:C1:D8:89:0A:6F:76:A8:7E:C1:6D:4D:7D:5F:29:EA:74:19:CF:20:12:3B:69
+harica-tls-rsa-2021.pem
+  C=GR, O=Hellenic Academic and Research Institutions CA, CN=HARICA TLS RSA Root CA 2021
+  caduca: Feb 13 10:55:37 2045 GMT
+  SHA-256: D9:5D:0E:8E:DA:79:52:5B:F9:BE:B1:1B:14:D2:10:0D:32:94:98:5F:0C:62:D9:FA:BD:9C:D9:99:EC:CB:7B:1D
+harica-tls-ecc-2021.pem
+  C=GR, O=Hellenic Academic and Research Institutions CA, CN=HARICA TLS ECC Root CA 2021
+  caduca: Feb 13 11:01:09 2045 GMT
+  SHA-256: 3F:99:CC:47:4A:CF:CE:4D:FE:D5:87:94:66:5E:47:8D:15:47:73:9F:2E:78:0F:1B:B4:CA:9B:13:30:97:D4:01
+actalis.pem
+  C=IT, L=Milan, O=Actalis S.p.A./03358520967, CN=Actalis Authentication Root CA
+  caduca: Sep 22 11:22:02 2030 GMT
+  SHA-256: 55:92:60:84:EC:96:3A:64:B9:6E:2A:BE:01:CE:0B:A8:6A:64:FB:FE:BC:C7:AA:B5:AF:C1:55:B3:7F:D7:60:66

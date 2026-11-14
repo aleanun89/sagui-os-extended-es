@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: GPL-3.0-only
+/* portas.h - acceso a los puertos de E/S del x86 (instrucciones in/out). */
+#ifndef SAGUI_PORTAS_H
+#define SAGUI_PORTAS_H
+#include "tipos.h"
+
+static inline void porta_escreve8(uint16_t porta, uint8_t v)
+{
+    __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(porta));
+}
+
+static inline uint8_t porta_le8(uint16_t porta)
+{
+    uint8_t v;
+    __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(porta));
+    return v;
+}
+
+static inline void porta_escreve16(uint16_t porta, uint16_t v)
+{
+    __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(porta));
+}
+
+static inline uint16_t porta_le16(uint16_t porta)
+{
+    uint16_t v;
+    __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(porta));
+    return v;
+}
+
+static inline void porta_escreve32(uint16_t porta, uint32_t v)
+{
+    __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(porta));
+}
+
+static inline uint32_t porta_le32(uint16_t porta)
+{
+    uint32_t v;
+    __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(porta));
+    return v;
+}
+
+/* Pequeña pausa: el puerto 0x80 es el de diagnóstico del POST, sin efecto. */
+static inline void porta_pausa(void)
+{
+    porta_escreve8(0x80, 0);
+}
+
+#endif

@@ -1,0 +1,58 @@
+# Lista de ejemplo del bloqueo de publicidad y rastreo por DNS (D218).
+#
+# Es pequeña a propósito: sirve para que «bloqueo activar» funcione sin red.
+# La lista completa (StevenBlack, licencia MIT, unos 100 000 dominios) se
+# descarga con «bloqueo actualizar» a /home/.config/bloqueo/listas/.
+# Formato hosts: «0.0.0.0 dominio», «127.0.0.1 dominio» o un dominio por línea.
+# Con «subdominios» (lo normal), cada dominio bloquea también sus subdominios.
+
+# Redes de publicidad
+0.0.0.0 doubleclick.net
+0.0.0.0 googlesyndication.com
+0.0.0.0 googleadservices.com
+0.0.0.0 adservice.google.com
+0.0.0.0 ads.yahoo.com
+0.0.0.0 adnxs.com
+0.0.0.0 advertising.com
+0.0.0.0 criteo.com
+0.0.0.0 criteo.net
+0.0.0.0 taboola.com
+0.0.0.0 outbrain.com
+0.0.0.0 pubmatic.com
+0.0.0.0 rubiconproject.com
+0.0.0.0 openx.net
+0.0.0.0 adform.net
+0.0.0.0 smartadserver.com
+0.0.0.0 media.net
+0.0.0.0 amazon-adsystem.com
+0.0.0.0 adcolony.com
+0.0.0.0 popads.net
+0.0.0.0 propellerads.com
+
+# Rastreo y analítica
+0.0.0.0 google-analytics.com
+0.0.0.0 googletagmanager.com
+0.0.0.0 googletagservices.com
+0.0.0.0 scorecardresearch.com
+0.0.0.0 quantserve.com
+0.0.0.0 hotjar.com
+0.0.0.0 mixpanel.com
+0.0.0.0 segment.io
+0.0.0.0 chartbeat.com
+0.0.0.0 newrelic.com
+0.0.0.0 nr-data.net
+0.0.0.0 bat.bing.com
+0.0.0.0 pixel.facebook.com
+0.0.0.0 analytics.twitter.com
+0.0.0.0 ads.linkedin.com
+0.0.0.0 app-measurement.com
+0.0.0.0 crashlytics.com
+0.0.0.0 branch.io
+0.0.0.0 adjust.com
+0.0.0.0 appsflyer.com
+0.0.0.0 moatads.com
+0.0.0.0 krxd.net
+0.0.0.0 bluekai.com
+0.0.0.0 demdex.net
+0.0.0.0 omtrdc.net
+0.0.0.0 everesttech.net

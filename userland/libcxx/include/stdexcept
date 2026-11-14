@@ -1,0 +1,82 @@
+// <stdexcept> - las excepciones de la biblioteca estándar (D230).
+// Guardan una copia de su mensaje (en el montón) para que what() siga valiendo
+// cuando la cadena con que se crearon ya no existe. No incluye <string> (que
+// las usa); el constructor de std::string vale igual por su c_str() con la
+// plantilla de abajo.
+#ifndef SAGUI_CXX_STDEXCEPT
+#define SAGUI_CXX_STDEXCEPT
+#pragma GCC system_header
+
+#include <exception>
+#include <stdlib.h>
+#include <string.h>
+
+namespace std {
+
+class logic_error : public exception {
+    char *msg;
+    void copiar(const char *m)
+    {
+        size_t k = m ? strlen(m) : 0;
+        msg = (char *)malloc(k + 1);
+        if (msg) {
+            if (k) memcpy(msg, m, k);
+            msg[k] = 0;
+        }
+    }
+public:
+    explicit logic_error(const char *m) { copiar(m); }
+    template <class S, class = decltype(((const S *)0)->c_str())> explicit logic_error(const S &m) { copiar(m.c_str()); }
+    logic_error(const logic_error &o) noexcept : exception(o) { copiar(o.msg); }
+    logic_error &operator=(const logic_error &o) noexcept
+    {
+        if (this != &o) { free(msg); copiar(o.msg); }
+        return *this;
+    }
+    ~logic_error() noexcept override { free(msg); }
+    const char *what() const noexcept override { return msg ? msg : "std::logic_error"; }
+};
+
+class runtime_error : public exception {
+    char *msg;
+    void copiar(const char *m)
+    {
+        size_t k = m ? strlen(m) : 0;
+        msg = (char *)malloc(k + 1);
+        if (msg) {
+            if (k) memcpy(msg, m, k);
+            msg[k] = 0;
+        }
+    }
+public:
+    explicit runtime_error(const char *m) { copiar(m); }
+    template <class S, class = decltype(((const S *)0)->c_str())> explicit runtime_error(const S &m) { copiar(m.c_str()); }
+    runtime_error(const runtime_error &o) noexcept : exception(o) { copiar(o.msg); }
+    runtime_error &operator=(const runtime_error &o) noexcept
+    {
+        if (this != &o) { free(msg); copiar(o.msg); }
+        return *this;
+    }
+    ~runtime_error() noexcept override { free(msg); }
+    const char *what() const noexcept override { return msg ? msg : "std::runtime_error"; }
+};
+
+#define SAGUI_CXX_EXCECAO(nome, base)                                                           \
+    class nome : public base {                                                                  \
+    public:                                                                                     \
+        explicit nome(const char *m) : base(m) {}                                               \
+        template <class S, class = decltype(((const S *)0)->c_str())> explicit nome(const S &m) \
+            : base(m.c_str()) {}                                                                \
+    };
+SAGUI_CXX_EXCECAO(domain_error, logic_error)
+SAGUI_CXX_EXCECAO(invalid_argument, logic_error)
+SAGUI_CXX_EXCECAO(length_error, logic_error)
+SAGUI_CXX_EXCECAO(out_of_range, logic_error)
+SAGUI_CXX_EXCECAO(range_error, runtime_error)
+SAGUI_CXX_EXCECAO(overflow_error, runtime_error)
+SAGUI_CXX_EXCECAO(underflow_error, runtime_error)
+#undef SAGUI_CXX_EXCECAO
+
+} // namespace std
+
+#endif

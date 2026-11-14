@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""convert - substituto mínimo do ImageMagick para os testes do SaguiOS.
+
+Só faz o que os testes usam (melhora 005):
+
+  convert entrada.ppm saida.png          - PPM (P6) -> PNG
+  convert entrada.png -crop 1x1+X+Y -depth 8 txt:-
+                                          - cor de um pixel, como texto
+  convert entrada.png saida.png          - copia (PNG -> PNG)
+
+O PNG se escreve con zlib (módulo da biblioteca estándar). El coincide con
+la salida de ImageMagick en los tamaños, que es lo que los tests comparan.
+"""
+import os
+import struct
+import sys
+import zlib
+
+
+def ler_ppm(caminho):
+    """PPM (P6) -> (largura, altura, bytes RGB)."""
+    with open(caminho, "rb") as f:
+        dados = f.read()
+    # La cabecera P6: "P6", ancho, alto, máximo; los pixeles van después.
+    pos = 0
+    campos = []
+    while len(campos) < 4:
+        while pos < len(dados) and dados[pos:pos + 1].isspace():
+            pos += 1
+        if dados[pos:pos + 1] == b"#":          # comentario hasta el fin de línea
+            while pos < len(dados) and dados[pos:pos + 1] != b"\n":
+                pos += 1
+            continue
+        ini = pos
+        while pos < len(dados) and not dados[pos:pos + 1].isspace():
+            pos += 1
+        campos.append(dados[ini:pos])
+    pos += 1                                    # el espacio tras el máximo
+    l, a = int(campos[1]), int(campos[2])
+    return l, a, dados[pos:pos + l * a * 3]
+
+
+def escrever_png(caminho, larg, alt, rgb):
+    """RGB plano -> PNG (RGB de 8 bits, una línea por píxel)."""
+    bruto = b"".join(b"\x00" + rgb[y * larg * 3:(y + 1) * larg * 3] for y in range(alt))
+
+    def pedaco(tipo, dados):
+        return (struct.pack(">I", len(dados)) + tipo + dados +
+                struct.pack(">I", zlib.crc32(tipo + dados) & 0xFFFFFFFF))
+
+    png = b"\x89PNG\r\n\x1a\n"
+    png += pedaco(b"IHDR", struct.pack(">IIBBBBB", larg, alt, 8, 2, 0, 0, 0))
+    png += pedaco(b"IDAT", zlib.compress(bruto, 6))
+    png += pedaco(b"IEND", b"")
+    with open(caminho, "wb") as f:
+        f.write(png)
+
+
+def png_dim(caminho):
+    with open(caminho, "rb") as f:
+        cab = f.read(24)
+    if len(cab) < 24 or cab[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    larg, alt = struct.unpack(">II", cab[16:24])
+    return larg, alt
+
+
+def png_pixel(caminho, x, y):
+    """(r, g, b) de un píxel de un PNG_RGB de 8 bits (sin entrelazado)."""
+    with open(caminho, "rb") as f:
+        dados = f.read()
+    pos = 8
+    larg = alt = 0
+    idat = b""
+    while pos + 8 <= len(dados):
+        comp = struct.unpack(">I", dados[pos:pos + 4])[0]
+        tipo = dados[pos + 4:pos + 8]
+        corpo = dados[pos + 8:pos + 8 + comp]
+        pos += 12 + comp
+        if tipo == b"IHDR":
+            larg, alt, prof, cor, comp_, filt, entre = struct.unpack(">IIBBBBB", corpo)
+            if prof != 8 or cor != 2 or entre != 0:
+                raise SystemExit("convert: só PNG RGB de 8 bits sem entrelazado")
+        elif tipo == b"IDAT":
+            idat += corpo
+        elif tipo == b"IEND":
+            break
+    bruto = zlib.decompress(idat)
+    bpp = 3
+    tam = larg * bpp
+    linha = bytearray()
+    anterior = bytearray(tam)
+    p = 0
+    for _ in range(alt):
+        filt = bruto[p]; p += 1
+        dados_linha = bytearray(bruto[p:p + tam]); p += tam
+        for i in range(tam):
+            a = dados_linha[i - bpp] if i >= bpp else 0
+            b = anterior[i]
+            c = anterior[i - bpp] if i >= bpp else 0
+            v = dados_linha[i]
+            if filt == 1:
+                v += a
+            elif filt == 2:
+                v += b
+            elif filt == 3:
+                v += (a + b) // 2
+            elif filt == 4:
+                pa = abs(b - c); pb = abs(a - c); pc = abs(a + b - 2 * c)
+                pred = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                v += pred
+            dados_linha[i] = v & 0xFF
+        anterior = dados_linha
+        linha += dados_linha
+    off = y * tam + x * bpp
+    return linha[off], linha[off + 1], linha[off + 2]
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print("convert: falta o ficheiro", file=sys.stderr)
+        return 1
+    entrada = args[0]
+    saida = args[-1]
+    # Recorte de 1x1 e leitura de cor: "convert png -crop 1x1+X+Y -depth 8 txt:-"
+    # (o "-crop" e a geometria são argumentos separados)
+    if saida == "txt:-":
+        corte = None
+        for k, a in enumerate(args):
+            if a == "-crop" and k + 1 < len(args):
+                corte = args[k + 1]
+                break
+        if not corte:
+            print("convert: falta o recorte", file=sys.stderr)
+            return 1
+        medida, _, xy = corte.partition("+")[0], None, corte
+        # "1x1+X+Y"
+        if medida != "1x1":
+            print(f"convert: só se faz o recorte 1x1 (veio {medida})", file=sys.stderr)
+            return 1
+        partes = corte.split("+")
+        x, y = int(partes[1]), int(partes[2])
+        r, g, b = png_pixel(entrada, x, y)
+        print("# ImageMagick version 7.1.1-26 Q16-HDRI x86_64 33434 https://imagemagick.org")
+        print(f"0,0: ({r},{g},{b})  #000000  gray(0)")
+        return 0
+
+    if entrada.lower().endswith(".ppm"):
+        l, a, rgb = ler_ppm(entrada)
+        escrever_png(saida, l, a, rgb)
+    elif entrada.lower().endswith(".png"):
+        with open(entrada, "rb") as f:
+            d = f.read()
+        with open(saida, "wb") as f:
+            f.write(d)
+    else:
+        print(f"convert: não sei converter {entrada}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

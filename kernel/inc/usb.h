@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: GPL-3.0-only
+/* usb.h - controladores EHCI y xHCI, dispositivos USB, hubs, almacenamiento y HID
+ * (fase 6; xHCI y HID en la v7.3, D214). */
+#ifndef SAGUI_USB_H
+#define SAGUI_USB_H
+#include "tipos.h"
+#include "pci.h"
+
+#define USB_MAX_CONTROLADORES 4
+#define USB_MAX_PORTAS        16
+#define USB_MAX_DISP          16
+
+/* Errores internos de las transferencias. */
+#define USB_ERRO_PAROU  -100   /* el dispositivo respondió STALL */
+#define USB_ERRO_TEMPO  -101   /* no respondió a tiempo */
+#define USB_ERRO        -102   /* error de transmisión, el dispositivo desapareció... */
+
+typedef struct ehci ehci_t;
+typedef struct xhci xhci_t;
+
+/* Controlador al que está conectado un dispositivo (D214). */
+#define USB_EHCI 0
+#define USB_XHCI 1
+
+/* Velocidades: los números son los del xHCI (Protocol Speed ID por omisión). */
+#define USB_VEL_PLENA   1   /* 12 Mb/s (USB 1.1) */
+#define USB_VEL_BAIXA   2   /* 1,5 Mb/s (teclados y ratones) */
+#define USB_VEL_ALTA    3   /* 480 Mb/s (USB 2.0) */
+#define USB_VEL_SUPER   4   /* 5 Gb/s (USB 3.0) */
+#define USB_VEL_SUPERP  5   /* 10 Gb/s (USB 3.1) */
+
+/* Una interfaz HID (teclado o ratón) de un dispositivo: un dispositivo puede
+ * traer las dos (el receptor inalámbrico de un teclado con ratón). */
+#define USB_MAX_HID 2
+typedef struct {
+    uint8_t  interface, subclasse, protocolo;
+    uint8_t  ep;                /* endpoint de interrupción de entrada (número, sin el bit 0x80) */
+    uint16_t mps;
+    uint8_t  intervalo;         /* bInterval tal cual */
+    uint16_t tam_relatorio;     /* longitud del descriptor de informe (0x22) */
+} usb_hid_if_t;
+
+/* D227: estado de un puerto (del controlador o de un hub) en la conexión en
+ * caliente. Cada conexión nueva tiene hasta USB_INTENTOS_MAX intentos: los
+ * USB_INTENTOS_RAPIDOS primeros enseguida y a 1, 2 y 5 s; los demás, cada 10 s. */
+#define USB_PORTA_VAZIA        0   /* nada conectado (o todavía sin mirar) */
+#define USB_PORTA_PENDENTE     1   /* conectado y sin reconocer: hay otro intento programado */
+#define USB_PORTA_OK           2   /* reconocido */
+#define USB_PORTA_DESISTIU     3   /* sin reconocer tras todos los intentos, o sin solución posible */
+#define USB_PORTA_COMPANHEIRO  4   /* EHCI: USB 1.x, puerto cedido al controlador compañero */
+#define USB_INTENTOS_RAPIDOS   4
+#define USB_INTENTOS_MAX       10
+#define USB_HUB_MAX_PORTAS     15  /* la "route string" del xHCI da 4 bits por nivel */
+
+typedef struct {
+    uint8_t  estado;       /* USB_PORTA_* */
+    uint8_t  tentativas;   /* intentos hechos en esta conexión */
+    uint8_t  passo;        /* paso donde se quedó el último intento (usb_nome_passo) */
+    uint8_t  reservado;
+    uint32_t proxima;      /* tic del próximo intento (USB_PORTA_PENDENTE) */
+    uint32_t conexoes;     /* conexiones vistas en el puerto (diagnóstico) */
+} usb_porta_t;
+
+/* CAB_USB_PRUEBA (cabecera, byte 141; mkimagem.py --usb-prueba): fallos
+ * simulados de la enumeración, solo para las pruebas (D227). */
+#define USB_PRUEBA_PRIMEIRO 1   /* el primer intento de cada conexión falla (paso 3) */
+#define USB_PRUEBA_SEMPRE   2   /* fallan todos los intentos */
+
+/* Respuestas especiales de ehci_porta_resetar (D227). */
+#define USB_PORTA_CEDIDA  -103   /* USB 1.x: el puerto pasa al compañero (bit PO) */
+#define USB_PORTA_USB1    -104   /* USB 1.x de baja velocidad y sin compañero: no hay quien lo lleve */
+#define EHCI_PORTA_PO     (1u << 13)   /* PORTSC: el puerto es del compañero */
+
+typedef struct usb_disp {
+    bool      usado;
+    uint8_t   tipo_ctl;        /* USB_EHCI o USB_XHCI */
+    ehci_t   *ctl;             /* si es EHCI */
+    xhci_t   *xctl;            /* si es xHCI */
+    uint8_t   slot;            /* xHCI: ranura del dispositivo */
+    uint8_t   velocidade;      /* USB_VEL_* */
+    uint8_t   porta_raiz;      /* puerto del controlador (desde 0) por el que se llega */
+    uint32_t  rota;            /* xHCI: "route string" (puerto de cada hub, 4 bits por nivel) */
+    uint8_t   profundidade;    /* cuántos hubs hay por encima */
+    uint8_t   tt_endereco;     /* baja/plena velocidad detrás de un hub de alta: dirección del hub (EHCI) */
+    uint8_t   tt_slot;         /* ... y su ranura (xHCI) */
+    uint8_t   tt_porta;        /* ... y el puerto de ese hub */
+    uint16_t  bcd_usb;
+    uint8_t   burst_entrada, burst_saida;  /* USB 3.0: ráfaga de los endpoints bulk */
+    uint8_t   n_hid;
+    usb_hid_if_t hid[USB_MAX_HID];
+    uint8_t   endereco;
+    uint16_t  mps0;            /* tamaño máximo de paquete del endpoint 0 (512 en USB 3.0) */
+    struct usb_disp *hub;      /* NULL = conectado directo al puerto del controlador */
+    uint8_t   porta;           /* puerto del hub (o del controlador) donde está */
+    uint16_t  id_fabricante, id_produto;
+    uint8_t   classe, subclasse, protocolo;   /* del dispositivo o de la interfaz */
+    char      fabricante[32], produto[48];
+    uint8_t   config;
+    uint8_t   interface;
+    uint8_t   ep_entrada, ep_saida;           /* endpoints bulk (almacenamiento) */
+    uint16_t  mps_entrada, mps_saida;
+    uint8_t   alterna_entrada, alterna_saida;  /* "data toggle" de cada endpoint bulk */
+    uint8_t   hub_portas;                      /* si es hub (como mucho USB_HUB_MAX_PORTAS) */
+    usb_porta_t hub_porta[USB_HUB_MAX_PORTAS];  /* si es hub: estado de cada puerto (D227) */
+    void     *disco;                           /* si es almacenamiento */
+    bool      wifi;                            /* el pincho Wi-Fi (D215) */
+} usb_disp_t;
+
+/* ---- ehci.c ---- */
+struct ehci {
+    pci_disp_t pci;
+    volatile uint8_t *cap;     /* registros de capacidad */
+    volatile uint32_t *op;     /* registros de operación */
+    int       portas;
+    uint8_t   proximo_endereco;
+    bool      ok;
+    int       companheiros;            /* controladores USB 1.1 asociados (0 en el G470) */
+    bool      enderecos64;             /* usa las estructuras en formato de 64 bits */
+    int       bios;                    /* 0 = no lo usaba, 1 = lo soltó, -1 = no lo soltó */
+    int       resultado[USB_MAX_PORTAS];   /* del último intento de enumerar el puerto (0 = ok) */
+    uint32_t  estruturas;              /* página con el anillo asíncrono solo de este controlador */
+    uint32_t  periodica;               /* lista periódica (HID, D214); 0 = apagada */
+    uint32_t  continua;                /* QH de recepción continua (Wi-Fi, D215); 0 = ninguna */
+    uint8_t   irq;                     /* línea PCI del controlador (0 = sin IRQ utilizable) */
+    bool      irq_usavel;              /* la IRQ ya llegó y sigue llegando (D095) */
+    bool      esperando;               /* un proceso duerme esperando el fin de la transferencia */
+    bool      irq_chegou;              /* la IRQ del fin de la transferencia actual llegó */
+    int       esperas_sem_irq;         /* despertadas solo por el reloj, seguidas */
+    uint32_t  irqs;                    /* cuántas IRQ de fin de transferencia ya llegaron */
+    volatile bool     prova;           /* D211: autoprueba de la IRQ en curso (aviso IAA) */
+    volatile uint32_t provas;          /* D211: avisos IAA de la autoprueba atendidos */
+};
+
+int  ehci_iniciar_todos(void);                 /* devuelve cuántos controladores encendió */
+int  ehci_quantidade(void);
+void ehci_modo_assincrono(bool ligado);        /* D095: puede dormir esperando el DMA (solo con planificador y IRQ) */
+ehci_t *ehci_controlador(int i);
+uint32_t ehci_porta_estado(ehci_t *c, int porta);
+bool ehci_porta_mudou(ehci_t *c, int porta);   /* lee y limpia "cambió la conexión" */
+/* 0 = alta velocidad lista; USB_PORTA_CEDIDA / USB_PORTA_USB1 = USB 1.x (D227); otro <0 = no se habilitó */
+int  ehci_porta_resetar(ehci_t *c, int porta);
+void ehci_esperar_ms(ehci_t *c, uint32_t ms);
+/* Transferencias síncronas. Devuelven bytes transferidos o un error USB_ERRO_*.
+ * Del dispositivo salen la dirección, la velocidad y, para los de baja o plena
+ * velocidad detrás de un hub de alta, el "transaction translator" (D214). */
+int  ehci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, bool entrada);
+int  ehci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam);
+/* Endpoints de interrupción (HID, D214) en la lista periódica: se abren, se
+ * consultan sin esperar (>0 bytes recibidos, 0 nada nuevo, <0 error) y se cierran. */
+int  ehci_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);
+int  ehci_int_ler(int h, uint8_t *dados, int max);
+void ehci_int_fechar(int h);
+/* Recepción bulk continua (Wi-Fi, D215): una QH fija en el anillo asíncrono
+ * con su buffer (físico, alineado a página, <= 16 KB); se consulta sin esperar
+ * y sin el bloqueo de las transferencias. Una por controlador. */
+int  ehci_rx_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps, uint32_t buffer_fis, uint32_t tam);
+int  ehci_rx_ler(int h, uint8_t *dados, int max);
+void ehci_rx_fechar(int h);
+/* D238: la misma recepción con una cola de n qTD (n buffers de tam bytes
+ * seguidos, alineados a página); se lee y se cierra con ehci_rx_ler/fechar. */
+int  ehci_rx_abrir_fila(usb_disp_t *d, uint8_t ep, uint16_t mps, uint32_t buffer_fis, uint32_t tam, int n);
+bool ehci_rx_info(int h, uint32_t *emvoo, uint32_t *completadas, uint32_t *erros);
+
+/* ---- usb.c ---- */
+void usb_iniciar(void);
+int  usb_controle(usb_disp_t *d, uint8_t tipo, uint8_t pedido, uint16_t valor, uint16_t indice, void *dados, uint16_t tam);
+/* Transferencia bulk por el endpoint bulk de entrada o de salida del dispositivo,
+ * por el controlador que sea (D214). Bytes transferidos o USB_ERRO_*. */
+int  usb_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam);
+void usb_esperar_ms(usb_disp_t *d, uint32_t ms);
+/* D227: espera de los puertos (reset, antirrebote). En la tarea "usb" duerme con
+ * las interrupciones encendidas; en el arranque gira con el reloj del controlador
+ * (c = EHCI) o con el TSC (c = NULL). */
+void usb_pausa_ms(ehci_t *c, uint32_t ms);
+const char *usb_nome_passo(int passo);         /* texto del paso donde se quedó una enumeración */
+/* D215: recepción continua por el endpoint bulk de entrada (el pincho Wi-Fi):
+ * buffer físico de 16 KB alineado a 16 KB; leer no espera (>0 bytes, 0 nada,
+ * <0 error). Devuelve un identificador (>=0) o USB_ERRO. */
+int  usb_rx_abrir(usb_disp_t *d, uint32_t buffer_fis, uint32_t tam);
+int  usb_rx_ler(usb_disp_t *d, int h, uint8_t *dados, int max);
+void usb_rx_fechar(usb_disp_t *d, int h);
+/* D238: colas de varias transferencias bulk en vuelo a la vez (el Wi-Fi).
+ *   - recepción: n lecturas de tam bytes (buffers seguidos desde base_fis,
+ *     alineados a tam y a página, para siempre) armadas a la vez; se lee y se
+ *     cierra con usb_rx_ler/usb_rx_fechar, como la de una sola. EHCI y xHCI.
+ *   - envío (solo xHCI; con el EHCI, USB_ERRO y se sigue con usb_bulk): la
+ *     trama se copia a uno de los n buffers y se manda sin esperar.
+ *   - con el xHCI, cada IRQ del controlador despierta el canal dado (la tarea
+ *     no espera al tic para ver lo que llegó). */
+#define USB_FILA_MAX 8
+int  usb_rx_abrir_fila(usb_disp_t *d, uint32_t base_fis, uint32_t tam, int n);
+int  usb_tx_abrir_fila(usb_disp_t *d, uint32_t base_fis, uint32_t tam, int n);   /* 0 o USB_ERRO */
+int  usb_tx_fila(usb_disp_t *d, const void *dados, uint32_t n);   /* n puesto, 0 cola llena, <0 error */
+void usb_tx_fechar_fila(usb_disp_t *d);
+bool usb_fila_info(usb_disp_t *d, int h, bool entrada, uint32_t *emvoo, uint32_t *completadas, uint32_t *perdidas);
+void usb_avisar_fila(const void *canal);
+const char *usb_nome_velocidade(int v);
+usb_disp_t *usb_disp(int i);
+void usb_verificar_conexoes(void);             /* conexión y retirada en caliente */
+
+/* ---- armazenamento.c ---- */
+/* >0 = disco registrado; 0 = no se puede usar (sin endpoints, sector raro); <0 = no
+ * respondió: vale la pena otro intento con un reset nuevo (D227). */
+int  armaz_conectar(usb_disp_t *d);
+void armaz_desconectar(usb_disp_t *d);
+
+/* ---- hid.c (D214): teclados y ratones USB ---- */
+void hid_conectar(usb_disp_t *d);
+void hid_desconectar(usb_disp_t *d);
+int  hid_relatorio(char *s, int max);
+
+#endif

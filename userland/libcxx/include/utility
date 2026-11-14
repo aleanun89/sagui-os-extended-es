@@ -1,0 +1,49 @@
+// <utility> - move, forward, swap y pair (D228).
+#ifndef SAGUI_CXX_UTILITY
+#define SAGUI_CXX_UTILITY
+#pragma GCC system_header
+
+#include <type_traits>
+
+namespace std {
+
+template <class T> constexpr typename remove_reference<T>::type &&move(T &&t) noexcept
+{
+    return static_cast<typename remove_reference<T>::type &&>(t);
+}
+
+template <class T> constexpr T &&forward(typename remove_reference<T>::type &t) noexcept
+{
+    return static_cast<T &&>(t);
+}
+template <class T> constexpr T &&forward(typename remove_reference<T>::type &&t) noexcept
+{
+    return static_cast<T &&>(t);
+}
+
+template <class T> void swap(T &a, T &b) noexcept
+{
+    T t(std::move(a));
+    a = std::move(b);
+    b = std::move(t);
+}
+
+template <class T, class U = T> T exchange(T &obj, U &&novo)
+{
+    T velho = std::move(obj);
+    obj = std::forward<U>(novo);
+    return velho;
+}
+
+template <class A, class B> struct pair {
+    A first;
+    B second;
+    constexpr pair() : first(), second() {}
+    constexpr pair(const A &a, const B &b) : first(a), second(b) {}
+    template <class U, class V> constexpr pair(U &&a, V &&b) : first(std::forward<U>(a)), second(std::forward<V>(b)) {}
+};
+template <class A, class B> constexpr pair<A, B> make_pair(A a, B b) { return pair<A, B>(a, b); }
+
+} // namespace std
+
+#endif

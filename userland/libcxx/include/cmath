@@ -1,0 +1,92 @@
+// <cmath> - la cabecera de C <math.h> para C++ (D228; los nombres en std::, D230).
+// Las funciones están en el espacio global, como en <math.h>, y también en std::
+// (std::memcpy, std::abs...), como en la biblioteca de C++. La libc común
+// (D210) no conoce C++: las declaraciones entran con enlace de C por los
+// envoltorios que genera el Makefile (tools/cxx_envoltorios.py).
+#ifndef SAGUI_CXX_CMATH
+#define SAGUI_CXX_CMATH
+#pragma GCC system_header
+#include <math.h>
+#include <stdlib.h>
+
+namespace std {
+using ::fabs;
+using ::fabsf;
+using ::sqrt;
+using ::sqrtf;
+using ::pow;
+using ::powf;
+using ::sin;
+using ::cos;
+using ::tan;
+using ::asin;
+using ::acos;
+using ::atan;
+using ::atan2;
+using ::sinf;
+using ::cosf;
+using ::tanf;
+using ::atan2f;
+using ::exp;
+using ::log;
+using ::log10;
+using ::log2;
+using ::expf;
+using ::logf;
+using ::floor;
+using ::ceil;
+using ::floorf;
+using ::ceilf;
+using ::fmod;
+using ::fmodf;
+using ::round;
+using ::roundf;
+using ::trunc;
+using ::truncf;
+using ::lround;
+using ::hypot;
+using ::modf;
+using ::frexp;
+using ::ldexp;
+using ::copysign;
+using ::fmin;
+using ::fmax;
+// Las sobrecargas de float de C++ (std::sqrt(1.0f) es float).
+inline float sqrt(float x) { return ::sqrtf(x); }
+inline float pow(float a, float b) { return ::powf(a, b); }
+inline float sin(float x) { return ::sinf(x); }
+inline float cos(float x) { return ::cosf(x); }
+inline float floor(float x) { return ::floorf(x); }
+inline float ceil(float x) { return ::ceilf(x); }
+inline float fabs(float x) { return ::fabsf(x); }
+inline float fmod(float a, float b) { return ::fmodf(a, b); }
+inline float round(float x) { return ::roundf(x); }
+inline float trunc(float x) { return ::truncf(x); }
+// isnan e isinf son macros de <math.h>: aquí, funciones.
+#undef isnan
+#undef isinf
+#undef isfinite
+#undef signbit
+template <class T> inline bool isnan(T x) { return __builtin_isnan(x); }
+template <class T> inline bool isinf(T x) { return __builtin_isinf(x); }
+template <class T> inline bool isfinite(T x) { return __builtin_isfinite(x); }
+template <class T> inline bool signbit(T x) { return __builtin_signbit(x); }
+#ifndef SAGUI_CXX_ABS_SOBRECARGAS
+#define SAGUI_CXX_ABS_SOBRECARGAS
+// std::abs para todos los tipos (lo comparten <cstdlib> y <cmath>).
+using ::abs;
+inline long abs(long x) { return x < 0 ? -x : x; }
+inline long long abs(long long x) { return x < 0 ? -x : x; }
+inline double abs(double x) { return __builtin_fabs(x); }
+inline float abs(float x) { return __builtin_fabsf(x); }
+inline long double abs(long double x) { return __builtin_fabsl(x); }
+#endif
+} // namespace std
+
+// Y en el espacio global, como las macros que sustituyen.
+using std::isnan;
+using std::isinf;
+using std::isfinite;
+using std::signbit;
+
+#endif

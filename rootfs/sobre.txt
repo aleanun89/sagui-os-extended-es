@@ -1,0 +1,37 @@
+Acerca de SaguiOS-Extended v4
+=============================
+
+SaguiOS-Extended está basado en SaguiOS, el proyecto original de Eli Rigobeli
+(github.com/erigobeli/sagui-os), escrito por Claude (Anthropic). La red (driver
+e1000, TCP/IP) y el navegador Cipó son de M4R4G0N. SaguiOS-Extended lo mantiene
+Alejandro Anuncibay, con mejoras escritas con Claude (Anthropic) y con un agente
+de IA (MiniMax Code).
+
+El SaguiOS original lo escribió desde cero una IA (Claude, de Anthropic), siguiendo un
+documento de requisitos preparado por Eli Rigobeli, para un vídeo. El objetivo
+era demostrar que una IA es capaz de escribir las partes fundamentales de un
+sistema operativo: cargador de arranque, interrupciones, memoria con
+paginación, procesos, llamadas al sistema, sistema de archivos, drivers y una
+interfaz gráfica sencilla.
+
+El objetivo es un portátil real, un Lenovo G470 de 2011, además de máquinas
+virtuales.
+
+Las reglas del desafío
+----------------------
+
+- Nada de código de otros sistemas operativos: ni copiarlo, ni leerlo.
+- Nada de bibliotecas ya hechas dentro del sistema, ni la biblioteca de C.
+- Nada de cargador de arranque ya hecho: el cargador es nuestro.
+- Nada de fuentes ni imágenes ya hechas: la fuente y el dibujo del sagui
+  los creó la IA, como datos en el código.
+- Se pueden consultar especificaciones y manuales oficiales del hardware.
+
+Solo los conceptos vienen de fuera (qué es un proceso, cómo funciona la
+paginación). La implementación es íntegramente de este proyecto, y el
+razonamiento detrás de cada parte está en docs/decisoes.md en el repositorio.
+
+¿Por qué "Sagui"?
+-----------------
+
+El sagui (tití) es un monito brasileño, pequeño y listo. Como este sistema.

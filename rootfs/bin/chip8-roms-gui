@@ -1,0 +1,238 @@
+#!/bin/python
+# chip8-roms-gui - ventana para bajar y jugar las ROM del Chip8 Community Archive
+# (CC0, https://github.com/JohnEarnest/chip8Archive). Usa tkinter y la lógica
+# común de /lib/python/chip8roms.py (la misma de chip8-roms). D123.
+# Opciones: --url BASE (otro servidor) y --carpeta DIR (donde guardar).
+import sys
+import tkinter as tk
+from tkinter import messagebox
+import chip8roms as c8
+
+url = None
+carpeta = None
+a = sys.argv[1:]
+while a:
+    if a[0] == "--url" and len(a) > 1:
+        url = a[1]
+        a = a[2:]
+    elif a[0] == "--carpeta" and len(a) > 1:
+        carpeta = a[1]
+        a = a[2:]
+    else:
+        print("uso: chip8-roms-gui [--url BASE] [--carpeta DIR]")
+        sys.exit(2)
+
+raiz = tk.Tk()
+raiz.title("ROM de CHIP-8")
+
+estado = {"indice": {}, "visibles": [], "cola": None, "n": 0, "total": 0, "bien": 0}
+plat = tk.StringVar(value="")
+buscar = tk.StringVar()
+mensaje = tk.StringVar(value="Cargando el indice...")
+
+aviso = c8.aviso_persistencia(carpeta)
+if aviso:
+    tk.Label(raiz, text=aviso, fg="#a02000", anchor="w", padx=8, pady=4).pack(fill="x")
+
+filtros = tk.Frame(raiz, padx=8, pady=4)
+filtros.pack(fill="x")
+tk.Label(filtros, text="Plataforma:").pack(side="left")
+for texto, valor in (("Todas", ""), ("CHIP-8", "chip8"), ("SUPER-CHIP", "schip"), ("XO-CHIP", "xochip")):
+    tk.Radiobutton(filtros, text=texto, value=valor, variable=plat, command=lambda: filtrar()).pack(side="left", padx=2)
+tk.Label(filtros, text="  Buscar:").pack(side="left")
+entrada = tk.Entry(filtros, textvariable=buscar, width=18)
+entrada.pack(side="left")
+
+medio = tk.Frame(raiz, padx=8)
+medio.pack(fill="both", expand=True)
+lista = tk.Listbox(medio, width=48, height=16, selectmode="browse")
+barra = tk.Scrollbar(medio, command=lista.yview)
+lista.config(yscrollcommand=barra.set)
+lista.pack(side="left", fill="both", expand=True)
+barra.pack(side="left", fill="y")
+detalle = tk.Text(medio, width=46, height=16, wrap="word", state="disabled")
+detalle.pack(side="left", fill="both", expand=True, padx=(8, 0))
+
+botones = tk.Frame(raiz, padx=8, pady=6)
+botones.pack(fill="x")
+b_bajar = tk.Button(botones, text="Descargar", command=lambda: bajar_seleccion())
+b_bajar.pack(side="left")
+b_todas = tk.Button(botones, text="Descargar todas", command=lambda: bajar_todas())
+b_todas.pack(side="left", padx=4)
+b_jugar = tk.Button(botones, text="Jugar", command=lambda: jugar())
+b_jugar.pack(side="left")
+b_act = tk.Button(botones, text="Actualizar indice", command=lambda: cargar(True))
+b_act.pack(side="left", padx=4)
+tk.Button(botones, text="Cerrar", command=raiz.destroy).pack(side="right")
+
+pie = tk.Frame(raiz, padx=8, pady=2)
+pie.pack(fill="x")
+progreso = tk.Label(pie, textvariable=mensaje, anchor="w")
+progreso.pack(side="left", fill="x", expand=True)
+tk.Label(raiz, text="ROM del Chip8 Community Archive, licencia CC0. No vienen con SaguiOS: se bajan al usarlas.",
+         anchor="w", padx=8, pady=2).pack(fill="x")
+
+
+def decir(txt):
+    mensaje.set(txt)
+    print("chip8-roms-gui:", txt)
+
+
+def seleccionado():
+    s = lista.curselection()
+    if not s or s[0] >= len(estado["visibles"]):
+        return None
+    return estado["visibles"][s[0]]
+
+
+def texto_detalle(clave, p):
+    o = p.get("options", {})
+    l = [p.get("title", clave), "",
+         "Clave: " + clave, "Plataforma: " + c8.plataforma(p),
+         "Autores: " + c8.autores(p), "Evento: " + (p.get("event") or "-"),
+         "Fecha: " + (p.get("release") or "-"), "Licencia: " + c8.LICENCIA,
+         "Descargada: " + ("si" if c8.esta_bajada(clave, p, carpeta) else "no"), "",
+         p.get("desc") or "", "", "Opciones del indice:"]
+    for k in sorted(o):
+        l.append("  %s = %s" % (k, o[k]))
+    args, avisos = c8.opciones_emulador(p)
+    l += ["", "Emulador: chip8 " + " ".join(args)]
+    for x in avisos:
+        l.append("Aviso: " + x)
+    return "\n".join(l)
+
+
+def mostrar_detalle(evento=None):
+    f = seleccionado()
+    detalle.config(state="normal")
+    detalle.delete("1.0", "end")
+    if f:
+        detalle.insert("1.0", texto_detalle(f[0], f[1]))
+        print("chip8-roms-gui: seleccionada", f[0])
+    detalle.config(state="disabled")
+
+
+def filtrar(evento=None):
+    ind = estado["indice"]
+    estado["visibles"] = c8.filtrar(ind, plat.get() or None, buscar.get().strip() or None)
+    lista.delete(0, "end")
+    for clave, p in estado["visibles"]:
+        marca = "[x]" if c8.esta_bajada(clave, p, carpeta) else "[ ]"
+        lista.insert("end", "%s %s (%s) %s" % (marca, p.get("title", clave), c8.plataforma(p), c8.autores(p)))
+    baj = sum(1 for k, p in estado["visibles"] if c8.esta_bajada(k, p, carpeta))
+    decir("%d programas, %d descargados" % (len(estado["visibles"]), baj))
+    if estado["visibles"]:
+        lista.selection_set(0)
+    mostrar_detalle()
+
+
+def cargar(forzar=False):
+    decir("Actualizando el indice..." if forzar else "Cargando el indice...")
+    raiz.update()
+    try:
+        estado["indice"] = c8.cargar_indice(url, forzar, carpeta, aviso=print)
+    except OSError as e:
+        decir("no se pudo obtener el indice: %s" % e)
+        return
+    filtrar()
+
+
+def refrescar_marca():
+    sel = lista.curselection()
+    filtrar()
+    if sel and sel[0] < len(estado["visibles"]):
+        lista.selection_clear(0, "end")
+        lista.selection_set(sel[0])
+        mostrar_detalle()
+
+
+def bajar_una(clave, p):
+    try:
+        ruta = c8.bajar_rom(clave, p, url, carpeta, aviso=print)
+        print("chip8-roms-gui: guardada", ruta)
+        return True
+    except OSError as e:
+        print("chip8-roms-gui: ERROR", e)
+        return False
+
+
+def bajar_seleccion():
+    f = seleccionado()
+    if not f:
+        raiz.bell()
+        decir("selecciona un programa")
+        return
+    decir("descargando %s..." % f[0])
+    raiz.update()
+    if bajar_una(f[0], f[1]):
+        refrescar_marca()
+        decir("descargada %s" % f[0])
+    else:
+        decir("error al descargar %s" % f[0])
+
+
+def paso_todas():
+    cola = estado["cola"]
+    if cola is None:
+        return
+    if not cola:
+        decir("terminado: %d de %d descargadas" % (estado["bien"], estado["total"]))
+        parar_todas(False)
+        return
+    clave, p = cola.pop(0)
+    estado["n"] += 1
+    mensaje.set("descargando %d/%d: %s" % (estado["n"], estado["total"], clave))
+    raiz.update()
+    if bajar_una(clave, p):
+        estado["bien"] += 1
+    raiz.after(5, paso_todas)
+
+
+def parar_todas(avisar=True):
+    estado["cola"] = None
+    b_todas.config(text="Descargar todas")
+    if avisar:
+        decir("parado: %d de %d descargadas" % (estado["bien"], estado["total"]))
+    refrescar_marca()
+
+
+def bajar_todas():
+    if estado["cola"] is not None:
+        parar_todas()
+        return
+    pend = [(k, p) for k, p in estado["visibles"] if not c8.esta_bajada(k, p, carpeta)]
+    if not pend:
+        decir("no hay nada que descargar")
+        return
+    estado.update(cola=pend, n=0, total=len(pend), bien=0)
+    b_todas.config(text="Parar")
+    print("chip8-roms-gui: descargando todas (%d)" % len(pend))
+    raiz.after(5, paso_todas)
+
+
+def jugar():
+    f = seleccionado()
+    if not f:
+        raiz.bell()
+        decir("selecciona un programa")
+        return
+    clave, p = f
+    if not c8.esta_bajada(clave, p, carpeta):
+        decir("descargando %s..." % clave)
+        raiz.update()
+        if not bajar_una(clave, p):
+            messagebox.showerror("ROM de CHIP-8", "No se pudo descargar " + clave)
+            return
+        refrescar_marca()
+    _, linea, avisos = c8.jugar(clave, p, carpeta, fondo=True)
+    print("chip8-roms-gui: lanzo", linea)
+    decir("jugando " + clave + (" (" + "; ".join(avisos) + ")" if avisos else ""))
+
+
+lista.bind("<<ListboxSelect>>", mostrar_detalle)
+lista.bind("<Double-1>", lambda e: jugar())
+buscar.trace_add("write", lambda *a: filtrar())
+raiz.after(50, cargar)
+print("chip8-roms-gui: listo")
+raiz.mainloop()
+print("chip8-roms-gui: salio")

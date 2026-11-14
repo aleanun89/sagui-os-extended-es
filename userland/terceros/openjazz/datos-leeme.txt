@@ -1,0 +1,24 @@
+OpenJazz en SaguiOS: los datos de Jazz Jackrabbit
+=================================================
+
+OpenJazz (Inicio > Juegos) es la reimplementación libre (GPL-2.0) del motor de
+Jazz Jackrabbit, el juego de plataformas de Epic MegaGames de 1994. Los
+gráficos, la música y los niveles son los del juego original, que NO son
+libres y no vienen con SaguiOS. OpenJazz los busca en /jogos/openjazz y en
+cualquier otra carpeta de /jogos (y en jogos/ de los discos montados); si
+encuentra varias, prefiere la versión completa a la shareware.
+
+Cómo conseguirlos:
+
+  - La versión shareware (el episodio 1), que Epic distribuía gratis: al
+    compilar SaguiOS, tools/openjazz_datos.sh la descarga (con su suma
+    SHA-256) a userland/terceros/openjazz/datos/, y el make la pone aquí, en
+    /jogos/openjazz, con todos sus ficheros sin tocar. Sus condiciones de
+    distribución están en su LICENSE.DOC.
+
+  - La versión completa (la de GOG, «Jazz Jackrabbit Collection», o el CD
+    original): copie su carpeta (la de MAINCHAR.000, BLOCKS.000...) a /jogos
+    desde SaguiOS (la partición de juegos es de lectura y escritura), o, al
+    compilar, póngala en input_share/games/<carpeta> (docs/input_share.md).
+
+La configuración y las partidas guardadas van a /home/openjazz.

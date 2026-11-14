@@ -1,0 +1,48 @@
+Contraste del decodificador MPEG-1 con el ffmpeg
+================================================
+
+Fichero: build/h115/video.mpg (426x240, 30 fps, 30 cuadros, MPEG-PS)
+Referencia: ffmpeg -i build/h115/video.mpg -pix_fmt rgb24 -f rawvideo
+Decodificador: build/h115/medir (anfitrión) -> RGB24, con la cabecera SAGUIV1
+
+Comando: python3 tools/mpeg1_psnr.py build/h115/meu_video.rgb build/h115/ref_video.rgb
+
+Resultado medido (última ejecución):
+  cuadro  0 (I): 48.97 dB
+  cuadro  1 (B): 48.20 dB
+  cuadro  2 (B): 48.17 dB
+  cuadro  3 (P): 48.09 dB
+  ...
+  quadro 12 (I): 48.95 dB
+  quadro 24 (I): 48.93 dB
+  quadro 29 (P): 47.59 dB
+  media: 47.98 dB   peor: 47.19 dB
+
+Sin cuadros B (el mismo vídeo con -bf 0):
+  media: 46.51 dB   peor: 43.42 dB
+
+Por planos (el cuadro I, el primero):
+  Y  63.02 dB   Cb 64.85 dB   Cr 65.99 dB
+
+Estado: el decodificador está bien. Los cuadros I dan bien con el ffmpeg (los
+coeficientes de la DCT son los mismos y el plano Y sale con ~63 dB), la conversión de
+color usa el alcance limitado (del estudio) como hace el ffmpeg en el MPEG-1, y los
+cuadros P y B ya se reconstruyen con la compensación de movimiento de la norma
+(7.6.3).
+
+El objetivo de la mejora 048 eran 35 dB en todos los cuadros: se superó (media de
+48 dB, el peor cuadro en 47 dB). La prueba tests/h115_video_mpeg1.py ya exige los
+35 dB en cada cuadro.
+
+Lo que faltaba y se corrigió (D144):
+  - el primer coeficiente de los bloques inter (el caso especial "1" + signo) nunca
+    se leía: la máscara 0x80000000 nunca quedaba puesta, porque la vista de un bit
+    devuelve 0 o 1. El flujo se desalineaba dos bits por bloque y los cuadros P y B
+    salían todos mal (la media era de 13 dB);
+  - en los cuadros B, la media con la referencia de atrás sólo se hace cuando también
+    hay predicción de delante (y el macrobloque saltado hereda la dirección del
+    anterior);
+  - en el MPEG-1 el vector "de delante" de un cuadro B apunta al cuadro ANTERIOR
+    (el ffmpeg también: MV_DIR_FORWARD usa la última referencia decodificada);
+  - el último cuadro del flujo nunca se cerraba: sólo se cerraba cuando venía el
+    código de inicio del cuadro siguiente.

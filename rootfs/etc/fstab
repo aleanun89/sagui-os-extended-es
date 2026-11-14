@@ -1,0 +1,40 @@
+# /etc/fstab - sistemas de archivos que SaguiOS monta solo al arrancar
+# y al conectar un disco (ver docs/decisoes.md, D040).
+#
+# dispositivo   carpeta   tipo   opciones
+#
+# dispositivo: un nombre de "discos" (usb0p1, hda1), LABEL=etiqueta o
+#   "arranque" = la particion de datos (ext2 o FAT32) del propio disco de
+#   arranque (imagen creada con "make imagem-persistente" o
+#   "make imagem-persistente-fat32").
+# LABEL=SAGUI-TMP / LABEL=SAGUI-LOGS: las particiones del disco de arranque creadas por
+#   "make imagem-particoes" (D120); solo se montan en el disco que tiene SaguiOS. Si no
+#   existen, /tmp sigue en la RAM y /logs no existe.
+# LABEL=SAGUI-JOGOS: la particion de juegos de la propia imagen (D181, D228), ext2 de lectura
+#   y escritura en /jogos, con un juego por carpeta: /jogos/opentyrian, /jogos/openjazz y lo
+#   que se meta (por ejemplo la version completa de un juego). Lleva tambien lo que el
+#   ramdisk tiene en /jogos (chip8, jclic, sagui3d), que el montaje tapa. Si no existe
+#   (imagen sin GPL, CD), el sistema arranca igual con el /jogos del ramdisk y los juegos
+#   buscan sus datos en un pendrive (/usb/jogos/...). En un disco instalado con
+#   "instalar" (D179) es igual.
+# LABEL=SAGUI-APPS: la particion de aplicaciones (D194), ext2 de lectura y escritura, en
+#   la imagen y en el disco instalado (D179): las apps que no son de la base (NetSurf...),
+#   con sus ejecutables en /apps/bin (esta en el PATH) y sus datos en /apps/<app>. Solo
+#   en el disco de arranque; si falta, el sistema arranca igual, sin esas apps.
+# LABEL=SAGUI-CONF: la configuracion del sistema (D255): cuentas, contrasenas, claves SSH de
+#   root y del servidor, contrasena del VNC, servicios. ext2, solo root (el kernel niega
+#   /sistema a los demas). Su etc/ se copia sobre este /etc al arrancar. Si no existe,
+#   "modo en vivo": nada del sistema se guarda y root no tiene contrasena.
+# tipo: auto, fat32, ext2, ext3 o ext4.  opciones: ro, rw, noauto.
+# Los discos internos solo se montan para escribir con "rw" explicito.
+#
+# Ejemplos:
+#   LABEL=MIPEN   /datos       auto   rw
+#   hda1          /mnt/disco   ext4   ro
+
+arranque        /home        auto   rw
+LABEL=SAGUI-TMP    /tmp     auto   rw
+LABEL=SAGUI-LOGS   /logs    auto   rw
+LABEL=SAGUI-JOGOS  /jogos    auto   rw
+LABEL=SAGUI-APPS   /apps    auto   rw
+LABEL=SAGUI-CONF   /sistema/conf  ext2  rw

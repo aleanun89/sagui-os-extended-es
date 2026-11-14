@@ -1,0 +1,155 @@
+// <vector> - un vector dinámico, lo que usan los ports (D228).
+// Los elementos se construyen en su sitio (placement new) y, al crecer, se
+// mueven al bloque nuevo.
+#ifndef SAGUI_CXX_VECTOR
+#define SAGUI_CXX_VECTOR
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <new>
+#include <utility>
+#include <initializer_list>
+
+namespace std {
+
+template <class T> class vector {
+    T *d;
+    size_t n, cap;
+
+    static T *reservar(size_t c) { return c ? static_cast<T *>(::operator new(c * sizeof(T))) : nullptr; }
+    void crescer(size_t minimo)
+    {
+        if (minimo <= cap) return;
+        size_t c = cap ? cap * 2 : 4;
+        if (c < minimo) c = minimo;
+        T *novo = reservar(c);
+        for (size_t i = 0; i < n; i++) {
+            new (novo + i) T(std::move(d[i]));
+            d[i].~T();
+        }
+        ::operator delete(d);
+        d = novo;
+        cap = c;
+    }
+
+public:
+    typedef T value_type;
+    typedef T &reference;
+    typedef const T &const_reference;
+    typedef size_t size_type;
+    typedef T *iterator;
+    typedef const T *const_iterator;
+
+    vector() : d(nullptr), n(0), cap(0) {}
+    explicit vector(size_t k) : d(nullptr), n(0), cap(0) { resize(k); }
+    vector(size_t k, const T &v) : d(nullptr), n(0), cap(0) { resize(k, v); }
+    vector(initializer_list<T> l) : d(nullptr), n(0), cap(0)
+    {
+        reserve(l.size());
+        for (const T &v : l) push_back(v);
+    }
+    vector(const vector &o) : d(nullptr), n(0), cap(0)
+    {
+        reserve(o.n);
+        for (size_t i = 0; i < o.n; i++) push_back(o.d[i]);
+    }
+    vector(vector &&o) noexcept : d(o.d), n(o.n), cap(o.cap) { o.d = nullptr; o.n = o.cap = 0; }
+    ~vector() { clear(); ::operator delete(d); }
+    vector &operator=(const vector &o)
+    {
+        if (this != &o) {
+            clear();
+            reserve(o.n);
+            for (size_t i = 0; i < o.n; i++) push_back(o.d[i]);
+        }
+        return *this;
+    }
+    vector &operator=(vector &&o) noexcept
+    {
+        if (this != &o) {
+            clear();
+            ::operator delete(d);
+            d = o.d; n = o.n; cap = o.cap;
+            o.d = nullptr; o.n = o.cap = 0;
+        }
+        return *this;
+    }
+
+    T *begin() { return d; }
+    T *end() { return d + n; }
+    const T *begin() const { return d; }
+    const T *end() const { return d + n; }
+    const T *cbegin() const { return d; }
+    const T *cend() const { return d + n; }
+    T *data() { return d; }
+    const T *data() const { return d; }
+
+    size_t size() const { return n; }
+    size_t capacity() const { return cap; }
+    bool empty() const { return n == 0; }
+    T &operator[](size_t i) { return d[i]; }
+    const T &operator[](size_t i) const { return d[i]; }
+    T &at(size_t i) { return d[i]; }
+    const T &at(size_t i) const { return d[i]; }
+    T &front() { return d[0]; }
+    T &back() { return d[n - 1]; }
+    const T &front() const { return d[0]; }
+    const T &back() const { return d[n - 1]; }
+
+    void reserve(size_t c) { crescer(c); }
+    void push_back(const T &v)
+    {
+        if (n == cap) { T copia(v); crescer(n + 1); new (d + n) T(std::move(copia)); }
+        else new (d + n) T(v);
+        n++;
+    }
+    void push_back(T &&v)
+    {
+        if (n == cap) { T copia(std::move(v)); crescer(n + 1); new (d + n) T(std::move(copia)); }
+        else new (d + n) T(std::move(v));
+        n++;
+    }
+    template <class... A> T &emplace_back(A &&...args)
+    {
+        crescer(n + 1);
+        new (d + n) T(std::forward<A>(args)...);
+        return d[n++];
+    }
+    void pop_back() { d[--n].~T(); }
+    void resize(size_t k)
+    {
+        if (k < n) { while (n > k) d[--n].~T(); return; }
+        crescer(k);
+        while (n < k) { new (d + n) T(); n++; }
+    }
+    void resize(size_t k, const T &v)
+    {
+        if (k < n) { while (n > k) d[--n].~T(); return; }
+        crescer(k);
+        while (n < k) { new (d + n) T(v); n++; }
+    }
+    void clear() { while (n > 0) d[--n].~T(); }
+    T *erase(const T *pos)
+    {
+        size_t i = static_cast<size_t>(pos - d);
+        for (size_t j = i; j + 1 < n; j++) d[j] = std::move(d[j + 1]);
+        d[--n].~T();
+        return d + i;
+    }
+    T *insert(const T *pos, const T &v)
+    {
+        size_t i = static_cast<size_t>(pos - d);
+        T copia(v);
+        crescer(n + 1);
+        if (i == n) { new (d + n) T(std::move(copia)); n++; return d + i; }
+        new (d + n) T(std::move(d[n - 1]));
+        for (size_t j = n - 1; j > i; j--) d[j] = std::move(d[j - 1]);
+        d[i] = std::move(copia);
+        n++;
+        return d + i;
+    }
+};
+
+} // namespace std
+
+#endif

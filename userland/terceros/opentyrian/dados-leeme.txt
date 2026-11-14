@@ -1,0 +1,20 @@
+Datos del juego Tyrian 2.1 para OpenTyrian (particion SAGUI-JOGOS, D181)
+=========================================================================
+
+Esta carpeta (/jogos/opentyrian) es la particion SAGUI-JOGOS de la imagen de
+SaguiOS, montada solo de lectura. Tiene los 79 ficheros de datos que el juego
+usa (niveles, formas, sonidos y musicas), copiados sin cambios.
+
+Origen: Tyrian 2.1 (c) 1995 Epic MegaGames / World Tree Games; autor
+Jason Emery. Desde 2007 Tyrian 2.1 se distribuye como freeware, y es la
+version de los datos que usa el proyecto OpenTyrian
+(https://github.com/opentyrian/opentyrian). Los textos LICENSE.DOC y
+FILE_ID.DIZ del paquete original son los de la venta de 1995 y no van aqui.
+
+El motor del juego (OpenTyrian) es GPL-2.0 y esta en /bin/opentyrian; su
+codigo vive en userland/terceros/opentyrian/ del repositorio. Los datos no
+son GPL: son del autor del Tyrian.
+
+No van en la variante de SaguiOS sin GPL (D109), ni en el CD (el kernel no
+lee el CD despues del arranque, D077): ahi los datos se ponen en un pendrive,
+en /jogos/opentyrian, y el juego los busca en /usb/jogos/opentyrian.

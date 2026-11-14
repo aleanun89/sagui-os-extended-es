@@ -1,0 +1,37 @@
+// <new> - placement new y lo que declara el runtime (D228, userland/libcxx/rt/abi.cpp).
+#ifndef SAGUI_CXX_NEW
+#define SAGUI_CXX_NEW
+#pragma GCC system_header
+
+#include <stddef.h>
+
+namespace std {
+struct nothrow_t { explicit nothrow_t() = default; };
+extern const nothrow_t nothrow;
+enum class align_val_t : size_t {};
+} // namespace std
+
+void *operator new(size_t n);
+void *operator new[](size_t n);
+void *operator new(size_t n, const std::nothrow_t &) noexcept;
+void *operator new[](size_t n, const std::nothrow_t &) noexcept;
+void *operator new(size_t n, std::align_val_t a);
+void *operator new[](size_t n, std::align_val_t a);
+void operator delete(void *p) noexcept;
+void operator delete[](void *p) noexcept;
+void operator delete(void *p, size_t) noexcept;
+void operator delete[](void *p, size_t) noexcept;
+void operator delete(void *p, const std::nothrow_t &) noexcept;
+void operator delete[](void *p, const std::nothrow_t &) noexcept;
+void operator delete(void *p, std::align_val_t) noexcept;
+void operator delete[](void *p, std::align_val_t) noexcept;
+void operator delete(void *p, size_t, std::align_val_t) noexcept;
+void operator delete[](void *p, size_t, std::align_val_t) noexcept;
+
+// Placement new: construye en una memoria que ya hay.
+inline void *operator new(size_t, void *p) noexcept { return p; }
+inline void *operator new[](size_t, void *p) noexcept { return p; }
+inline void operator delete(void *, void *) noexcept {}
+inline void operator delete[](void *, void *) noexcept {}
+
+#endif

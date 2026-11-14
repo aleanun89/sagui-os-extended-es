@@ -1,0 +1,53 @@
+GNU Prolog 1.5.0 en SaguiOS (D189)
+==================================
+
+Origen:   https://ftp.gnu.org/gnu/gprolog/gprolog-1.5.0.tar.gz (Daniel Diaz)
+SHA-256:  670642b43c0faa27ebd68961efb17ebe707688f91b6809566ddd606139512c01
+          (firma GPG del autor comprobada al bajarlo: clave C839 8D6B E2EB 931C
+          93F3 53D7 042C 1C2F CB3A FB1A)
+Licencia: LGPL-3 o GPL-2 (o posteriores), a elegir: ver COPYING. Por eso vive
+          aislado aquí y no entra en la variante sin GPL (SEM_GPL=1, D109).
+
+Qué hay
+-------
+fonte/       Lo que se usa del upstream, con su estructura de carpetas
+             (EnginePl, BipsPl, TopComp, Pl2Wam, Linedit): el motor en C, los
+             predicados en C y en Prolog (.pl, con los .wam que trae el tarball).
+gerado/      Lo generado en el anfitrión por tools/gprolog_gerar.sh: los .s de
+             i686 de cada .wam (wam2ma + ma2asm de GNU Prolog compilados para
+             i686) y las cabeceras de la configuración (gp_config.h,
+             wam_archi.h, wam_regs.h, wam_stacks.h, gprolog_cst.h). No se
+             editan a mano.
+(libc)       Desde la D210, la libc común del sistema (userland/libc/, nuestra):
+             tiene el printf y el strtod exactos que Prolog necesita. La que
+             traía el port (libc/: libc_gp.c, numeros_gp.c...) se quitó.
+plataforma/  La entrada (principal_gp.c), lanzar procesos (processos_gp.c),
+             los límites de las pilas por software (pilhas_gp.c) y el script
+             de enlace (nuestro).
+gprolog.mk   Las reglas de compilación; las incluye el Makefile.
+
+Cambios en el código del upstream (todos marcados «SaguiOS (D189)», casi
+todos dentro de #ifdef __saguios__); tools/gprolog_gerar.sh --comprobar los
+lista:
+  EnginePl/wam_archi.def    pilas más pequeñas (28 MB en vez de 80).
+  EnginePl/wam_inst.c       comprobación de las pilas al crear entornos,
+                            puntos de elección, listas, estructuras y reales.
+  EnginePl/stacks_sigsegv.c fija los límites al reservar las pilas y mira
+                            su rango relativo a TAG_BASE_ENDERECO.
+  EnginePl/pl_config.c      escribe en wam_archi.h las macros de marcas con
+                            la base de las direcciones: 0x80000000 en
+                            SaguiOS (todo el usuario tiene el bit 31 a 1),
+                            0 en el anfitrión.
+  BipsPl/flag_c.c           la palabra 0 de '$sys_var_put' ya no es un REF
+                            a NULL (más la comprobación de la copia).
+  BipsPl/stream_supp.h      pl_last_*_sora empiezan en NOT_A_WAM_WORD.
+  EnginePl/machine1.c       spawn/exec con executar() del sistema (sin fork).
+  BipsPl/bc_supp.c          comprobación en cada llamada del emulador de
+                            byte-code (el código consultado).
+  BipsPl/all_solut_c.c, c_supp.c, dynam_supp.c, g_var_inl_c.c, term_inl_c.c,
+  list_c.c                  comprobación antes de las copias grandes a la
+                            pila global.
+
+Fuera de alcance: gplc (compilar a ejecutables nativos necesita ensamblador y
+enlazador dentro de SaguiOS), el resolvedor de dominios finitos (FD), los
+sockets y el editor de líneas propio (el terminal del sistema ya edita).

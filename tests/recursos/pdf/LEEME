@@ -1,0 +1,51 @@
+PDF reales para la prueba h205 (visor de PDF, v7.1.1, D205)
+===========================================================
+
+Son PDF de verdad, de productores distintos, para que el motor de PDF
+(userland/pdf/) se pruebe con lo que se encuentra el usuario y no solo con
+los PDF escritos a mano de tests/pdf_exemplos.py. Las referencias de ref/
+las dibuja MuPDF (tools/pdf_referencias.py) y se guardan reducidas a una
+rejilla de grises (tests/pdf_reales_comum.py).
+
+dummy.pdf     (13 KB) "Dummy PDF file" del W3C (pruebas de accesibilidad WAI):
+              https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf
+              Hecho con OpenOffice.org 2.1 Writer: una TrueType incrustada.
+              Licencia: W3C Document License (copia y redistribucion
+              permitidas citando el origen).
+
+w4.pdf        (209 KB) Formulario W-4 (2026) del IRS de los EE. UU.:
+              https://www.irs.gov/pub/irs-pdf/fw4.pdf
+              Adobe Designer 6.5: fuentes CFF CID (Identity-H) y Type1C,
+              xref en flujo con predictor, object streams, imagen de 1 bit.
+              Obra del gobierno federal de los EE. UU.: dominio publico.
+
+enumitem.pdf  (154 KB) Manual del paquete enumitem de LaTeX (CTAN):
+              https://mirrors.ctan.org/macros/latex/contrib/enumitem/enumitem.pdf
+              pdfTeX 1.40.26: Type 1 en subconjunto (eexec), object streams.
+              Licencia: MIT (la del paquete en CTAN).
+
+rfc9116.pdf   (305 KB) RFC 9116 ("A File Format to Aid in Security
+              Vulnerability Disclosure"), del RFC Editor:
+              https://www.rfc-editor.org/rfc/rfc9116.pdf
+              cairo 1.16 (xml2rfc): TrueType y CIDFontType2 Identity-H.
+              Licencia: IETF Trust Legal Provisions (los RFC se pueden copiar
+              y distribuir enteros, sin modificar; este va tal cual).
+
+naca.pdf      (86 KB) Paginas 1 y 2 de NACA TN 2651 "Supersonic Conical
+              Flow" (1952), del NASA Technical Reports Server:
+              https://ntrs.nasa.gov/api/citations/19930083238/downloads/19930083238.pdf
+              Escaneado con Acrobat PDFWriter: imagenes CCITT grupo 4.
+              Recortado a 2 paginas con qpdf (pikepdf), sin tocar las
+              imagenes. Obra del gobierno de los EE. UU.: dominio publico.
+
+nist.pdf      (416 KB) Paginas 1 y 2 de NIST CSWP 29 "The NIST Cybersecurity
+              Framework (CSF) 2.0" (2024):
+              https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf
+              Word + Acrobat PDFMaker: JPEG con /SMask, Indexed, TrueType.
+              Recortado a 2 paginas con qpdf (pikepdf), sin recomprimir.
+              Obra del gobierno de los EE. UU.: dominio publico.
+
+Para regenerar las referencias (hace falta MuPDF en un entorno aparte):
+
+    python3 -m venv /tmp/venv-pdf && /tmp/venv-pdf/bin/pip install pymupdf
+    /tmp/venv-pdf/bin/python tools/pdf_referencias.py

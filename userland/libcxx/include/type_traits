@@ -1,0 +1,66 @@
+// <type_traits> - lo poco que usan <memory>, <utility> y los ports (D228).
+#ifndef SAGUI_CXX_TYPE_TRAITS
+#define SAGUI_CXX_TYPE_TRAITS
+#pragma GCC system_header
+
+#include <stddef.h>
+
+namespace std {
+
+template <class T, T v> struct integral_constant {
+    static constexpr T value = v;
+    typedef T value_type;
+    constexpr operator T() const noexcept { return v; }
+};
+typedef integral_constant<bool, true> true_type;
+typedef integral_constant<bool, false> false_type;
+
+template <class T> struct remove_reference { typedef T type; };
+template <class T> struct remove_reference<T &> { typedef T type; };
+template <class T> struct remove_reference<T &&> { typedef T type; };
+template <class T> using remove_reference_t = typename remove_reference<T>::type;
+
+template <class T> struct remove_const { typedef T type; };
+template <class T> struct remove_const<const T> { typedef T type; };
+template <class T> struct remove_volatile { typedef T type; };
+template <class T> struct remove_volatile<volatile T> { typedef T type; };
+template <class T> struct remove_cv { typedef typename remove_volatile<typename remove_const<T>::type>::type type; };
+template <class T> using remove_cv_t = typename remove_cv<T>::type;
+
+template <bool B, class T = void> struct enable_if {};
+template <class T> struct enable_if<true, T> { typedef T type; };
+template <bool B, class T = void> using enable_if_t = typename enable_if<B, T>::type;
+
+template <bool B, class T, class F> struct conditional { typedef T type; };
+template <class T, class F> struct conditional<false, T, F> { typedef F type; };
+
+template <class T, class U> struct is_same : false_type {};
+template <class T> struct is_same<T, T> : true_type {};
+
+template <class T> struct is_array : false_type {};
+template <class T> struct is_array<T[]> : true_type {};
+template <class T, size_t N> struct is_array<T[N]> : true_type {};
+
+template <class T> struct is_lvalue_reference : false_type {};
+template <class T> struct is_lvalue_reference<T &> : true_type {};
+
+template <class T> struct is_pointer : false_type {};
+template <class T> struct is_pointer<T *> : true_type {};
+
+template <class T> struct remove_extent { typedef T type; };
+template <class T> struct remove_extent<T[]> { typedef T type; };
+template <class T, size_t N> struct remove_extent<T[N]> { typedef T type; };
+
+template <class T> struct is_trivially_copyable : integral_constant<bool, __is_trivially_copyable(T)> {};
+template <class T> struct is_trivially_destructible : integral_constant<bool, __has_trivial_destructor(T)> {};
+template <class T> struct is_enum : integral_constant<bool, __is_enum(T)> {};
+template <class T> struct is_class : integral_constant<bool, __is_class(T)> {};
+
+template <class T> struct decay { typedef typename remove_cv<typename remove_reference<T>::type>::type type; };
+template <class T> using decay_t = typename decay<T>::type;
+
+template <class T> T &&declval() noexcept;
+
+} // namespace std
+
+#endif

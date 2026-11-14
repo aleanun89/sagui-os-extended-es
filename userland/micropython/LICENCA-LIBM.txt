@@ -1,0 +1,57 @@
+Licencias de la biblioteca matemática de /bin/python (userland/micropython/libm_dbl/)
+=====================================================================================
+
+Los archivos de libm_dbl/ son una copia sin cambios de lib/libm_dbl del
+repositorio de MicroPython 1.24.1 (ver docs/decisoes.md, D038). Allí, a su vez,
+vienen de la biblioteca musl 1.1.16, que los tomó en parte de la libm (msun) de
+FreeBSD, escrita originalmente por Sun Microsystems. Se copiaron solo los
+archivos que usa el módulo math; el README original va junto a ellos
+(libm_dbl/README). Cada archivo conserva su cabecera de derechos de autor.
+
+1. musl (todos los archivos, salvo lo indicado en cada uno), licencia MIT:
+
+----------------------------------------------------------------------
+Copyright © 2005-2014 Rich Felker, et al.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+----------------------------------------------------------------------
+
+2. FreeBSD msun / Sun Microsystems (los archivos marcados "origin: FreeBSD":
+   __cos.c, __rem_pio2.c, __rem_pio2_large.c, __sin.c, __tan.c, acos.c,
+   asin.c, atan.c, atan2.c, cos.c, erf.c, exp.c, expm1.c, log.c, log1p.c,
+   pow.c, sin.c, tan.c, y libm.h):
+
+----------------------------------------------------------------------
+Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+
+Developed at SunPro, a Sun Microsystems, Inc. business.
+Permission to use, copy, modify, and distribute this
+software is freely granted, provided that this notice
+is preserved.
+----------------------------------------------------------------------
+
+(Algunos de estos archivos dicen "Developed at SunSoft" o tienen otro año,
+como 2004 en pow.c; el texto exacto de cada uno está en su cabecera.)
+
+3. lgamma.c, log10.c y tanh.c son demasiado pequeños para tener derechos de
+   autor o licencia propios (según el README de MicroPython).
+
+Lo que no viene de ahí es propio de SaguiOS: libc/math.h y libm_sagui.c (sqrt
+con la instrucción SQRTSD, fabs, copysign, nan y log2).

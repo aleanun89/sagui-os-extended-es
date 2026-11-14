@@ -1,0 +1,171 @@
+// <list> - una lista doblemente enlazada, lo que usan los ports (D228).
+// Con un nodo centinela: end() es el centinela y la lista vacía apunta a sí misma.
+#ifndef SAGUI_CXX_LIST
+#define SAGUI_CXX_LIST
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <new>
+#include <utility>
+#include <initializer_list>
+
+namespace std {
+
+template <class T> class list {
+    struct elo { elo *ant, *prox; };
+    struct no : elo {
+        T valor;
+        template <class... A> no(A &&...args) : valor(std::forward<A>(args)...) {}
+    };
+    elo cab;
+    size_t n;
+
+    void iniciar() { cab.ant = cab.prox = &cab; n = 0; }
+    template <class... A> no *inserir_antes(elo *pos, A &&...args)
+    {
+        no *x = new no(std::forward<A>(args)...);
+        x->prox = pos;
+        x->ant = pos->ant;
+        pos->ant->prox = x;
+        pos->ant = x;
+        n++;
+        return x;
+    }
+
+public:
+    typedef T value_type;
+    typedef T &reference;
+    typedef const T &const_reference;
+    typedef size_t size_type;
+
+    class const_iterator;
+    class iterator {
+        friend class list;
+        friend class const_iterator;
+        elo *e;
+    public:
+        typedef T value_type;
+        typedef T &reference;
+        typedef T *pointer;
+        typedef ptrdiff_t difference_type;
+        iterator() : e(nullptr) {}
+        explicit iterator(elo *x) : e(x) {}
+        T &operator*() const { return static_cast<no *>(e)->valor; }
+        T *operator->() const { return &static_cast<no *>(e)->valor; }
+        iterator &operator++() { e = e->prox; return *this; }
+        iterator operator++(int) { iterator t = *this; e = e->prox; return t; }
+        iterator &operator--() { e = e->ant; return *this; }
+        iterator operator--(int) { iterator t = *this; e = e->ant; return t; }
+        bool operator==(const iterator &o) const { return e == o.e; }
+        bool operator!=(const iterator &o) const { return e != o.e; }
+    };
+    class const_iterator {
+        friend class list;
+        const elo *e;
+    public:
+        typedef T value_type;
+        typedef const T &reference;
+        typedef const T *pointer;
+        typedef ptrdiff_t difference_type;
+        const_iterator() : e(nullptr) {}
+        explicit const_iterator(const elo *x) : e(x) {}
+        const_iterator(const iterator &i) : e(i.e) {}
+        const T &operator*() const { return static_cast<const no *>(e)->valor; }
+        const T *operator->() const { return &static_cast<const no *>(e)->valor; }
+        const_iterator &operator++() { e = e->prox; return *this; }
+        const_iterator operator++(int) { const_iterator t = *this; e = e->prox; return t; }
+        const_iterator &operator--() { e = e->ant; return *this; }
+        const_iterator operator--(int) { const_iterator t = *this; e = e->ant; return t; }
+        bool operator==(const const_iterator &o) const { return e == o.e; }
+        bool operator!=(const const_iterator &o) const { return e != o.e; }
+    };
+
+    list() { iniciar(); }
+    list(initializer_list<T> l) { iniciar(); for (const T &v : l) push_back(v); }
+    list(const list &o) { iniciar(); for (const T &v : o) push_back(v); }
+    list(list &&o) noexcept
+    {
+        iniciar();
+        if (o.n) {
+            cab.prox = o.cab.prox; cab.ant = o.cab.ant;
+            cab.prox->ant = &cab; cab.ant->prox = &cab;
+            n = o.n;
+            o.iniciar();
+        }
+    }
+    ~list() { clear(); }
+    list &operator=(const list &o)
+    {
+        if (this != &o) { clear(); for (const T &v : o) push_back(v); }
+        return *this;
+    }
+    list &operator=(list &&o) noexcept
+    {
+        if (this != &o) {
+            clear();
+            if (o.n) {
+                cab.prox = o.cab.prox; cab.ant = o.cab.ant;
+                cab.prox->ant = &cab; cab.ant->prox = &cab;
+                n = o.n;
+                o.iniciar();
+            }
+        }
+        return *this;
+    }
+
+    iterator begin() { return iterator(cab.prox); }
+    iterator end() { return iterator(&cab); }
+    const_iterator begin() const { return const_iterator(cab.prox); }
+    const_iterator end() const { return const_iterator(&cab); }
+    const_iterator cbegin() const { return begin(); }
+    const_iterator cend() const { return end(); }
+
+    bool empty() const { return n == 0; }
+    size_t size() const { return n; }
+    T &front() { return static_cast<no *>(cab.prox)->valor; }
+    T &back() { return static_cast<no *>(cab.ant)->valor; }
+    const T &front() const { return static_cast<const no *>(cab.prox)->valor; }
+    const T &back() const { return static_cast<const no *>(cab.ant)->valor; }
+
+    void push_back(const T &v) { inserir_antes(&cab, v); }
+    void push_back(T &&v) { inserir_antes(&cab, std::move(v)); }
+    void push_front(const T &v) { inserir_antes(cab.prox, v); }
+    void push_front(T &&v) { inserir_antes(cab.prox, std::move(v)); }
+    template <class... A> T &emplace_back(A &&...args) { return inserir_antes(&cab, std::forward<A>(args)...)->valor; }
+    template <class... A> T &emplace_front(A &&...args) { return inserir_antes(cab.prox, std::forward<A>(args)...)->valor; }
+    iterator insert(const_iterator pos, const T &v) { return iterator(inserir_antes(const_cast<elo *>(pos.e), v)); }
+
+    iterator erase(const_iterator pos)
+    {
+        elo *x = const_cast<elo *>(pos.e);
+        elo *seg = x->prox;
+        x->ant->prox = x->prox;
+        x->prox->ant = x->ant;
+        delete static_cast<no *>(x);
+        n--;
+        return iterator(seg);
+    }
+    void pop_back() { erase(const_iterator(cab.ant)); }
+    void pop_front() { erase(const_iterator(cab.prox)); }
+    void clear()
+    {
+        elo *x = cab.prox;
+        while (x != &cab) {
+            elo *seg = x->prox;
+            delete static_cast<no *>(x);
+            x = seg;
+        }
+        iniciar();
+    }
+    template <class P> void remove_if(P pred)
+    {
+        for (iterator i = begin(); i != end();) {
+            if (pred(*i)) i = erase(i);
+            else ++i;
+        }
+    }
+};
+
+} // namespace std
+
+#endif

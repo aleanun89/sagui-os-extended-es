@@ -1,0 +1,63 @@
+Diario resumido de SaguiOS
+==========================
+
+Fase 1 - Arranque
+  Cargador de arranque propio en dos etapas (MBR de 512 bytes y una
+  etapa 2 en modo real), que activa la línea A20, pide el mapa de memoria a
+  la BIOS, copia el kernel y el ramdisk por encima de 1 MB usando el "unreal
+  mode", comprueba la integridad de todo y entra en el modo protegido de 32
+  bits.
+
+
+Fase 2 - Kernel y terminal
+  El kernel ganó sus propias tablas de segmentos y de interrupciones, una
+  pantalla de error que muestra el nombre de la excepción y los registros,
+  el reloj a 100 tics por segundo y la lectura de la fecha de la placa
+  base. La memoria física se controla página a página con un mapa de bits,
+  con un asignador para el propio kernel. El teclado entiende la
+  distribución ABNT2, con cedilla y acentos. El kernel lee el sistema de
+  archivos del ramdisk (SGFS), y un terminal provisional permite navegar por
+  las carpetas y leer archivos.
+  En la primera prueba en el Lenovo G470 el saludo desapareció de la
+  pantalla: el portátil tiene 8 GB y un mapa de memoria con 20 regiones,
+  que empujó el texto hacia arriba. Ahora el mapa va al registro y la
+  pantalla muestra solo el resumen.
+
+Fase 3 - Procesos y programas
+  La fase que convierte el kernel en un sistema operativo de verdad.
+  Cada programa tiene su propio espacio de memoria (paginación) y se ejecuta
+  en el anillo 3, sin privilegios: si intenta tocar el kernel o usar una
+  instrucción prohibida, solo se cierra ese programa. Un planificador cambia
+  de programa 50 veces por segundo. Los programas lo piden todo al kernel
+  mediante llamadas al sistema, se cargan desde archivos ELF, guardan
+  archivos y carpetas en memoria y se comunican por pipes. El terminal pasó
+  a ser sagsh, un programa normal, y cada comando (ls, cat, cp, ps...) es
+  un programa aparte en /bin.
+
+Fase 4 - Gráficos y ratón
+  La pantalla dejó el modo texto de la tarjeta de vídeo y pasó a dibujarse
+  píxel a píxel, a 1024x768, con una fuente creada en este proyecto y
+  dibujada en texto, letra a letra, con todos los acentos del portugués.
+  El touchpad se convirtió en un cursor en forma de flecha, también
+  dibujado aquí. A petición de Eli, el shell ganó edición con las flechas
+  en mitad de la línea.
+
+Fase 5 - Ventanas y programas
+  El sistema ganó un escritorio con los colores de Brasil, con el sagui
+  en la esquina e iconos. El kernel se ocupa de las ventanas (dibuja los
+  marcos, las arrastra, entrega clics y teclas), y cada programa dibuja su
+  propio contenido, en el anillo 3: Archivos, el Terminal (con el shell
+  dentro), el Editor de texto, la Calculadora (en coma fija, sin coma
+  flotante) y el juego Sagui Atrapa Bananas. Los dibujos se hicieron en
+  pixel art en el código.
+
+Fase 6 - Pendrive de datos
+  SaguiOS ganó un driver USB 2.0 escrito desde cero (controlador EHCI,
+  hubs, pendrives con el protocolo Bulk-Only y comandos SCSI) y el sistema
+  de archivos FAT32, con nombres largos y acentos. El pendrive se puede
+  conectar con el sistema encendido: aparece una notificación y un icono,
+  Archivos y el Editor abren y guardan en él, y "retirar con seguridad"
+  lo graba todo antes de liberarlo. Los archivos sobreviven al apagar.
+
+En total fueron 34 historias en 6 fases, probadas en QEMU a cada paso y en
+el Lenovo G470 de Eli al final de cada fase.

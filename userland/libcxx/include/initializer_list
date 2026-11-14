@@ -1,0 +1,30 @@
+// <initializer_list> - la clase que el compilador construye para «{a, b, c}» (D228).
+// Su forma (un puntero y un tamaño, en el espacio std) la fija g++.
+#ifndef SAGUI_CXX_INITIALIZER_LIST
+#define SAGUI_CXX_INITIALIZER_LIST
+#pragma GCC system_header
+
+#include <stddef.h>
+
+namespace std {
+template <class E> class initializer_list {
+    const E *dados;
+    size_t n;
+    constexpr initializer_list(const E *d, size_t t) noexcept : dados(d), n(t) {}
+public:
+    typedef E value_type;
+    typedef const E &reference;
+    typedef const E &const_reference;
+    typedef size_t size_type;
+    typedef const E *iterator;
+    typedef const E *const_iterator;
+    constexpr initializer_list() noexcept : dados(nullptr), n(0) {}
+    constexpr size_t size() const noexcept { return n; }
+    constexpr const E *begin() const noexcept { return dados; }
+    constexpr const E *end() const noexcept { return dados + n; }
+};
+template <class E> constexpr const E *begin(initializer_list<E> l) noexcept { return l.begin(); }
+template <class E> constexpr const E *end(initializer_list<E> l) noexcept { return l.end(); }
+} // namespace std
+
+#endif

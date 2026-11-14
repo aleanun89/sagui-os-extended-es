@@ -1,0 +1,53 @@
+// <cstdio> - la cabecera de C <stdio.h> para C++ (D228; los nombres en std::, D230).
+// Las funciones están en el espacio global, como en <stdio.h>, y también en std::
+// (std::memcpy, std::abs...), como en la biblioteca de C++. La libc común
+// (D210) no conoce C++: las declaraciones entran con enlace de C por los
+// envoltorios que genera el Makefile (tools/cxx_envoltorios.py).
+#ifndef SAGUI_CXX_CSTDIO
+#define SAGUI_CXX_CSTDIO
+#pragma GCC system_header
+#include <stdio.h>
+
+namespace std {
+using ::FILE;
+using ::size_t;
+using ::fopen;
+using ::fclose;
+using ::fread;
+using ::fwrite;
+using ::fseek;
+using ::ftell;
+using ::rewind;
+using ::fflush;
+using ::fgets;
+using ::fputs;
+using ::fgetc;
+using ::fputc;
+using ::getc;
+using ::putc;
+using ::ungetc;
+using ::printf;
+using ::fprintf;
+using ::sprintf;
+using ::snprintf;
+using ::vprintf;
+using ::vfprintf;
+using ::vsprintf;
+using ::vsnprintf;
+using ::fscanf;
+using ::sscanf;
+using ::vsscanf;
+using ::puts;
+using ::putchar;
+using ::getchar;
+using ::remove;
+using ::rename;
+using ::feof;
+using ::ferror;
+using ::clearerr;
+using ::perror;
+using ::tmpfile;
+using ::setvbuf;
+} // namespace std
+
+#endif

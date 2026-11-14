@@ -1,0 +1,9 @@
+Actividades JClic (D185)
+========================
+Este proyecto (ejemplo.jclic.zip) es propio de SaguiOS: un ejemplo de cada tipo de actividad que el visor
+juega, con imagenes generadas por tests/datos/jclic/gerar_ejemplo.py.
+
+Mas actividades: Inicio > Educacion > "Actividades JClic (bajar)" las baja del repositorio de Clic del XTEC
+(https://projectes.xtec.cat/clic/es/repo/) a /home/jclic/, y el visor ("Actividades JClic") las abre junto con
+las de esta carpeta. Cada proyecto tiene su propia licencia (normalmente Creative Commons): no se distribuyen
+con el sistema.

@@ -1,0 +1,29 @@
+// <exception> - std::exception y lo que da el runtime (D230; el runtime es de D228).
+// std::terminate, uncaught_exception(s) están en userland/libcxx/rt/excecoes.cpp.
+#ifndef SAGUI_CXX_EXCEPTION
+#define SAGUI_CXX_EXCEPTION
+#pragma GCC system_header
+
+namespace std {
+
+class exception {
+public:
+    exception() noexcept {}
+    exception(const exception &) noexcept = default;
+    exception &operator=(const exception &) noexcept = default;
+    virtual ~exception() noexcept {}
+    virtual const char *what() const noexcept { return "std::exception"; }
+};
+
+class bad_exception : public exception {
+public:
+    const char *what() const noexcept override { return "std::bad_exception"; }
+};
+
+[[noreturn]] void terminate() noexcept;
+bool uncaught_exception() noexcept;
+int uncaught_exceptions() noexcept;
+
+} // namespace std
+
+#endif

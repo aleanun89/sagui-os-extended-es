@@ -1,0 +1,6 @@
+# .mico - configuración de Mico para esta carpeta
+# (ver /ayuda/mico.md)
+tab = 4
+espacios = sí
+# Qué hace F5 según la extensión ({archivo} {nombre} {base} {carpeta}):
+ejecutar.sh = sh {archivo} 5

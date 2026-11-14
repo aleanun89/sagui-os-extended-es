@@ -1,0 +1,9 @@
+// <climits> - la cabecera de C <limits.h> para C++ (D228).
+// Las funciones quedan en el espacio global, como en <limits.h>; los ports las
+// usan así. La libc común (D210) no conoce C++: las declaraciones entran con
+// enlace de C por los envoltorios que genera el Makefile (tools/cxx_envoltorios.py).
+#ifndef SAGUI_CXX_CLIMITS
+#define SAGUI_CXX_CLIMITS
+#pragma GCC system_header
+#include <limits.h>
+#endif

@@ -1,0 +1,50 @@
+// <algorithm> - lo poco que usan los ports (D228).
+#ifndef SAGUI_CXX_ALGORITHM
+#define SAGUI_CXX_ALGORITHM
+#pragma GCC system_header
+
+#include <utility>
+
+namespace std {
+
+template <class I, class P> I find_if(I ini, I fim, P pred)
+{
+    for (; ini != fim; ++ini)
+        if (pred(*ini)) return ini;
+    return fim;
+}
+
+template <class I, class T> I find(I ini, I fim, const T &v)
+{
+    for (; ini != fim; ++ini)
+        if (*ini == v) return ini;
+    return fim;
+}
+
+template <class I, class F> F for_each(I ini, I fim, F f)
+{
+    for (; ini != fim; ++ini) f(*ini);
+    return f;
+}
+
+template <class I, class O> O copy(I ini, I fim, O dest)
+{
+    for (; ini != fim; ++ini, ++dest) *dest = *ini;
+    return dest;
+}
+
+template <class I, class T> void fill(I ini, I fim, const T &v)
+{
+    for (; ini != fim; ++ini) *ini = v;
+}
+
+template <class T> constexpr const T &min(const T &a, const T &b) { return b < a ? b : a; }
+template <class T> constexpr const T &max(const T &a, const T &b) { return a < b ? b : a; }
+template <class T> constexpr const T &clamp(const T &v, const T &lo, const T &hi)
+{
+    return v < lo ? lo : (hi < v ? hi : v);
+}
+
+} // namespace std
+
+#endif

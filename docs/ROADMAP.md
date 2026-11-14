@@ -1,0 +1,552 @@
+# Roadmap de versiones de SaguiOS-Extended (fork de SaguiOS, de Eli Rigobeli)
+
+> Versión visual: [`docs/roadmap.html`](roadmap.html) (ábrela en el navegador).
+
+Documento vivo: se ajusta según las pruebas en hardware real y las prioridades del
+mantenedor. Cada versión es una carpeta en `entrega/vN/` (pendrive `.img`, imagen persistente
+FAT32 `.img.xz`, VirtualBox `.vdi`, CD `.iso`, `SHA256SUMS.txt`). Detalle de cada mejora en
+`mejoras/NNN-*.md`.
+
+**Criterio para cerrar una versión:**
+- todo fusionado en `main`;
+- la batería completa o las pruebas afectadas en verde;
+- la imagen generada y subida a GitHub;
+- lo nuevo que dependa del hardware, probado en al menos un PC real cuando sea posible.
+
+## Publicadas
+
+| Versión | Fecha | Contenido principal |
+| --- | --- | --- |
+| original (v1) | — | Proyecto de Eli Rigobeli: fases 1-6 + bonus (`entrega/final`) |
+| **v2** | 2026-11-07 | Menú contextual, visor de imágenes, Paint, resoluciones con write-combining, HTTPS (TLS propia), barra de tareas e Inicio |
+| **v3** | 2026-11-07 | Mico (editor de código) y portapapeles, Python con biblioteca estándar y red, `tkinter` y módulo `sagui`, Python x87, zona horaria, pestaña Red, CHIP-8, PC antiguos (ISO, 16 bits, `infopc --informe`), imagen persistente FAT32 de 2 GB |
+| **v4** | 2026-11-08 | Nombre SaguiOS-Extended, USB rápido, Realtek del HP dv7, persistencia FAT32 |
+| **v5** | 2026-11-08 | Terminal ampliado, códecs de audio (ADPCM, MP3, FLAC), compresor, SaguiGL, Pascal, SaguiMark 2, batería en paralelo |
+| **v5.1** | 2026-11-08 | P-states con límite de 79 °C, sonido del dv7, optimizador de `cc`/Pascal, variante sin GPL |
+| **v5.2** | 2026-11-08 | Configuración, apagado ACPI, bandeja, reproductor de música, Cipó mejorado, meta de 8 MB |
+| **v5.3** | 2026-11-08 | SQLite 3 en C y Python |
+| **v5.3.1** | 2026-11-08 | SQLite pulido (`sqlite3.Row`, cerrojo entre procesos, rendimiento), comentarios traducidos |
+| **v5.4** | 2026-11-08 | lite-monkey (NoSQL en C, puerto 7979, cliente Python) e imagen con varias particiones (/home, /tmp, /logs, extendidas) |
+| **v6.0 beta** | 2026-11-08 | Atajos de escritorio, utilidad Discos, meta de 16 MB |
+| **v6.0 beta 2** | 2026-11-08 | `chip8-roms` y `chip8-roms-gui` (ROM CC0 del Chip8 Community Archive) |
+| **v6.0 beta 3** | 2026-11-08 | Capturas de pantalla y recortes, red RTL8168evl del Toshiba L850 |
+| **v6.0** | 2026-11-08 | Lo de la beta 3 más el compresor tar/gzip/zip (D103) y el portapapeles de imágenes |
+| **v6.1** | 2026-11-08 | Componentes nuevos de la libsagui (lienzo, barra de progreso, casilla) y barra de progreso al aplicar el fondo (D126), **decodificador de JPEG baseline** (047) y, adelantados de la v6.2, el motor del SaguiGL compilado con el `cc` de dentro (D127) y el `long long` del `cc` (D128) | D126, D127, D128 |
+| **v6.2** | 2026-11-09 | **Biblioteca de iconos** (112 iconos de 16x16 de los «Fluent UI System Icons» de Microsoft, con rasterizador propio; D135) y **reproductor de vídeo MJPEG en AVI** (048, D129) | D129, D135 |
+| **v6.2.1** | 2026-11-10 | **Cliente de IA** (`ia`, API compatible con la de OpenAI, con streaming; D134), **SaguiGL v6** (texturas, mezcla, niebla, luces y ruta SIMD; D130) y **el `cc` con varios ficheros de origen** (unidades de traducción y más biblioteca: ficheros, `qsort`, `strtol`, reloj; D133) | D130, D133, D134 |
+| **v6.3** | 2026-11-11 | **El Archivos de verdad** (058, D136), **el visor de PDF con motor propio** (059, D138), **el motor de la web del Cipó** (081, D141: CSS, JavaScript, Canvas, SVG y WebGL por software, con el render por bandas) y su segunda parte (descargas de uno en uno, botón derecho para guardar, URL codificadas), **las mejoras del navegador** (D148: pestañas con caché y posición de lectura, imágenes JPEG con el tamaño del HTML y reducidas, marcadores, copiar, búsqueda sin tildes, filtro CSS y animaciones), **la hoja Macaco** (078, D142), **el chat con IA** (043, D143) con su configuración (D145) y **el cliente de correo** (082, D146) | D136, D138, D141, D142, D143, D145, D146, D148 |
+| **v6.4** | 2026-11-11 | **JavaScript real en el navegador** (081, D149: el motor es el QuickJS, portado al SO, con un DOM mínimo), **el navegador con pestañas y posición de lectura** (084, D152: Ctrl+clic para abrir en otra pestaña y la posición de cada sitio guardada), **las transiciones CSS** (085, D153), **la base del SMP** (083, D150: atómicas, cerrojo de espera activa, datos por CPU, mutex y semáforo), **la máquina de pruebas** (084, D151: 2 GB, `--nucleos` y benchmark) y **el generador de versiones** (086, D154: `gerar_versao.sh` deja la entrega en `entrega/latest/`) | D149-D155 |
+| **v6.6** | 2026-11-11 | **El JavaScript de las páginas ve un DOM de verdad** (092, D160: `getElementById`, `getElementsByTagName`, `querySelector`, los atributos, el `textContent` y los tratadores de clic), **el navegador sigue los reenvíos** (091, D159: la ventana, el `location` y el `meta refresh`, con la navegación diferida y el cliente HTTP que tolera las cabeceras gigantes), **el OpenTyrian** (088, D156: el juego de tiro vertical de 1995, con su plataforma propia y los datos del shareware en un disco aparte), **el armazón de los drivers 3D de AMD** (054 B2, D158: la tabla de familias, la lectura de los registros MMIO del BAR y la herramienta `/bin/amd`), **la configuración de la IA compartida** (043, D145), **el cliente de correo** (082, D146) y **el DOM ya no se parte** con las páginas que tienen pseudo-elementos (093, D161: `https://www.amd.com/` carga entera) | D145, D146, D152, D156, D158-D161 |
+| **v6.7** | 2026-11-12 | **Los procesadores secundarios se encienden de verdad** (089, D157: el kernel los acende con la secuencia INIT-SIPI, cada CPU tiene su GDT, TSS y GS, su temporizador del APIC local, su planificador y su «proceso actual» —que se lee por el GS, como en Linux—, la tabla de procesos tiene cerrojo y el «proceso actual» es por CPU), con la llamada nueva `INFO_NUCLEOS` (61) que da el estado y el uso de cada núcleo y con `info_processo_t` ganando `cpu` y `n_hilos` para el Administrador de tareas | D157 |
+| **v6.7** | 2026-11-12 | **El SMP arranca en KVM y en hardware real** (D164): trampolín mínimo (la GDT, el GS, la TSS, la IDT y la FPU de cada CPU se cargan en C, como en el principal), `smp_iniciar()` después de `fpu_iniciar()`, secuencia INIT, 10 ms, SIPI de Intel y diagnóstico del paso en que se queda cada CPU. **Opcional:** solo con `mkimagem.py --smp`; sin ella, un procesador. **Modelo maestro/esclavo:** el kernel solo corre en la CPU 0 y los secundarios ejecutan programas en modo usuario; FPU por CPU y sin carrera de la pila de kernel al cambiar de proceso | D164 |
+| **v6.8** | 2026-11-12 | **Cerrojo general del kernel** (D165): cada CPU atiende las llamadas al sistema, los fallos y las excepciones de sus programas, con un único dueño del kernel a la vez (`trava_geral.c`); se toma al entrar y se suelta al volver a modo usuario o en el `hlt` de `cpu_espera()`. Fin del modelo maestro/esclavo. Matar un proceso que corre en otra CPU la saca de él con una IPI; las tareas del kernel siguen en la CPU 0. `bench 4 s` (llamadas al sistema) gana 3,38x con cuatro CPU y KVM (antes, un solo proceso tardaba 220 veces más que con una CPU) | D165 |
+| **v6.9** | 2026-11-12 | **Pruebas que fallaban desde antes** (D172): `build/rootfs` vuelve (el Makefile renombra la carpeta temporal), macros y prototipos de `math.h` en el cabecalho del `cc`, y h129, h39, h75, h82 y b6 corregidas (memoria, KVM, textos y coordenadas viejos) |
+| **v6.8** | 2026-11-12 | **Las IRQ de los dispositivos por el IOAPIC** (D166): lectura de los IOAPIC y de las *Interrupt Source Override* de la MADT, driver del IOAPIC (MMIO en 0xFFC01000), los vectores 0x20-0x2F de siempre con una capa `irq_habilitar`/`irq_fim` que elige el 8259 o el IOAPIC, EOI al APIC local, y vuelta atrás al PIC si el tic del PIT no llega. **Opcional:** solo con `mkimagem.py --ioapic`; todas las IRQ a la CPU 0, con `ioapic_destino()` lista para repartirlas cuando el kernel tenga cerrojo general | D166 |
+| **v6.8** | 2026-11-12 | **Hilos de usuario** (D167): un hilo es una entrada de la tabla de procesos que comparte el espacio, los ficheros, la carpeta y las ventanas de su líder (estilo `clone`); llamadas 120-126 (crear, salir, esperar hilo, ceder, futex y tid); `salir` o un fallo en un hilo terminan el proceso; el espacio se destruye cuando ninguna CPU corre un hilo suyo; invalidación de TLB en todas las CPU al quitar páginas. libsagui: `thread_create`/`thread_join`/`thread_yield`/`thread_sair`, `mutex_t` y `semaforo_t` que duermen en el kernel (futex), `malloc` seguro entre hilos; la misma API en la biblioteca del `cc` (`/ejemplos/hilos.c`). `bench 4 h` gana 3,77x con cuatro CPU y KVM | D167 |
+| **v6.8** | 2026-11-12 | **Las IRQ repartidas entre las CPU** (D168): con `--ioapic --smp`, `ioapic_repartir()` da las IRQ 1-15 por turnos a las CPU secundarias (el PIT se queda en la CPU 0) y una IRQ atendida en un secundario despierta a la CPU 0 por IPI; `SAGUI_NUCLEOS` en las pruebas |
+| **v6.9** | 2026-11-12 | **El cerrojo general por turnos** (D169): *ticket lock* (`proximo`/`atendendo` con `lock xadd`) con el dueño por CPU y la espera medida por CPU (`TRAVA_MEDIR`); bajo un hipervisor se toma sin cola, como `virt_spin_lock` de Linux (con turnos, la CPU virtual a la que le toca puede estar parada), y `mkimagem.py --trava-turnos` fuerza los turnos para las pruebas. `bench 4 s`: 2,5-3,1x sin cola con KVM, 2,0-2,2x por turnos | D169 |
+| **v6.9** | 2026-11-12 | **Hilos en el Pascal del sistema** (D171): `uses Hilos` con `CrearHilo(@Proc, arg)`, `EsperarHilo`, `CederTurno`, `SalirHilo`, `IdHilo`, `TMutex` y `TSemaforo` (futex); `@Rutina` da la dirección de un procedimiento; `New`/`Dispose`/`GetMem` y cada `write`/`writeln` son seguros entre hilos; `/ejemplos/hilos.pas`, prueba `h142` | D171 |
+| **v6.9** | 2026-11-12 | **Solitario Spider** (D173): el Spider de Windows Me en Inicio > Juegos; 104 cartas, 10 columnas, 1, 2 o 4 palos, arrastrar y soltar, pista, deshacer, puntuación de Windows, animación al repartir, al retirar una escalera y al ganar; cartas y palos dibujados a mano; `spider --autoprueba` | D173 |
+| **v6.9** | 2026-11-12 | **EIST de los Intel antiguos, fases A y B (solo lectura)** (D177): detección de Pentium M, Core Solo/Duo y Core 2 (CPUID, `IA32_MISC_ENABLE`, FID/VID de `PERF_STATUS`/`PERF_CTL`) y lector de `_PSS`/`_PSD`/`_PCT` sin intérprete, también en las SSDT que la BIOS carga con `Load()` (`CPU0IST`); validación contra los MSR; probado con las SSDT reales de un Inspiron 6400 (Core Duo); ningún MSR se escribe (la fase C, sobre la D175) | D177 |
+| **v7.0c** | 2026-11-12 | **OpenTyrian: el fondo de la partida se ve** (D187): `SDL_Swap16/32/64` y `SDL_SwapBE*` de nuestra `SDL_endian.h` eran la identidad (en la SDL de verdad solo `SDL_SwapLE*` lo es en un procesador pequeño), el motor leía mal la tabla de formas del terreno (`mapSh`) y el fondo salía negro salvo unos mosaicos; prueba h136 ampliada (el área de juego no es casi toda negra) y captura `H136-opentyrian-partida.png` | D187 |
+| **v7.2** | 2026-11-12 | **GNU Prolog 1.5.0** (D189): `/bin/gprolog` (top-level con la biblioteca ISO, `consult`, `listing`) y `/bin/pl2wam`; biblioteca en Prolog generada en el anfitrión (`tools/gprolog_gerar.sh`, .s de i686 en git), libc propia con reales exactos, pilas de la WAM comprobadas por software (`resource_error` en vez de fallo de página), fuera de la variante sin GPL; ejemplo `/ejemplos/familia.pl`, prueba `h156`. **En curso: falta compilar y probar** | D189 |
+| **v7.0b** | 2026-11-12 | **OpenTyrian en Inicio > Juegos y datos autodetectados** (D180): entrada con icono de nave (solo si `/bin/opentyrian` está en la imagen), búsqueda de los datos en `/jogos/opentyrian` y en `jogos/opentyrian` de todos los discos montados, y una ventana explicativa con «Buscar otra vez» si faltan (h150) | D180 |
+| **v6.9** | 2026-11-12 | **Hilos en el Python del sistema** (D170): el módulo `_thread` del MicroPython sobre los hilos de la D167 y un `threading` mínimo (`Thread`, `Lock`, `RLock`, `Event`); con GIL por turnos, que se suelta cada 1024 saltos y en las esperas (`time.sleep`, red, entrada, `os.system`); el recolector ve las pilas y los registros de todos los hilos; el Python sin hilos va igual de rápido; `/ejemplos/hilos.py` | D170 |
+| **v6.9** | 2026-11-12 | **P-states por CPU con SMP** (D175): cada CPU escribe su propio registro de P-state en su tic (nunca el de otra) y lee su estado y el de su BIOS; «a demanda» decide por núcleo físico (los hilos SMT, el mismo estado) o por paquete (`--paquete`); el límite de 79 °C manda sobre todas; un #GP en cualquier CPU lo desactiva en todas y `--desactivar` devuelve cada CPU a su estado de la BIOS; `INFO_FREQ_NUCLEOS`; `frecuencia` y el Administrador de tareas muestran el estado de cada CPU; prueba `h145` con el driver simulado | D175 |
+| **v6.9** | 2026-11-12 | **Benchmark monoNúcleo y multiNúcleo** (D176): `/bin/benchmark` (`--mono`, `--multi [N]`, `--rapido`, `--procesos`, `--hilos`) con ocho cargas de resultado comprobado (entero, coma flotante SSE2, memoria, SHA-256, llamadas al sistema), tiempo con el TSC, mediana, N trabajadores tras una barrera (procesos e hilos), puntuación normalizada (1000 = QEMU con KVM y una CPU), factor de escala y eficiencia, e historial en `/home/.benchmark`; pestaña «Rendimiento» en Información del PC con progreso por carga que no congela la ventana. Con KVM y 4 CPU: escala 3,0x en el total | D176 |
+| **v6.9** | 2026-11-12 | **Planificadores seleccionables** (D174): `rr` (el de siempre, por defecto), `afinidad` (cada proceso vuelve a su CPU; casi no migra), `equilibrio` (cola por CPU y reparto de la carga) y `prioridad` (nice y preferencia por los interactivos: de despertar a correr en ~20 µs con las CPU ocupadas); al arrancar (`--planificador`) o en caliente (`planificador`); máscara de CPU por proceso (`afinidad`); topología Hyper-Threading/SMT por CPUID | D174 |
+| **v7.2** | 2026-11-12 | **`qjs`, el intérprete de JavaScript en la terminal** (D188): `qjs archivo.js`, `-e` y REPL con historial, módulos ES, `std`/`os`, errores con traza y código de salida; reutiliza los objetos del QuickJS del Cipó. Arregla el `%d` del printf del porte (el `Date` salía con NUL). Prueba `h155` (rama `v7.2-qjs`; **sin compilar ni probar aún**) | D188 |
+| **v7.0b** | 2026-11-12 | **Meta de la imagen de 38 MB y la partición de juegos** (D181): la meta cuenta arranque + particiones del sistema; los datos del OpenTyrian (Tyrian 2.1) en una ext2 `SAGUI-JOGOS` de la propia imagen, montada solo de lectura en `/jogos/opentyrian` por etiqueta (el ramdisk no crece); la etapa 2 avisa si el ramdisk no cabe en la RAM del E820; prueba `h151` con una imagen de 38 MB por IDE, USB y CD (RAM mínima con 38 MB de ramdisk: 48 MB en consola, 56 MB con escritorio) | D181 |
+| **v7.0b** | 2026-11-12 | **El multinúcleo completo**: SMP opcional (`--smp`, D164), cerrojo general del kernel (D165) por turnos en hardware real (D169), IOAPIC (`--ioapic`, D166) con las IRQ repartidas entre CPU (D168), cuatro planificadores seleccionables con afinidad y topología SMT (D174), P-states por núcleo (D175) y la FPU guardada al quedarse una CPU ociosa (D178). **Hilos** en C (D167), Python con GIL (D170) y Pascal (D171). **Benchmark** mono y multinúcleo en Información del sistema (D176). EIST de los Intel antiguos en solo lectura (D177). **Solitario Spider** (D173) y **OpenTyrian** en Inicio > Juegos (D180) con sus datos en la partición `SAGUI-JOGOS` (D181) y su propia pila de 1 MB para no caerse al empezar la partida (D183). **Meta de imagen de 38 MB** (D181). `run_in_qemu.sh --smp/--ioapic/--planificador`, `make variantes` y tamaños de partición por variables de entorno. Las pruebas que fallaban desde antes, arregladas (D172) | D182 |
+| **v7.0c** | 2026-11-12 | **El instalador a disco duro o pendrive** y la gestión de particiones (D179): tabla MBR con primarias, extendida y lógicas, crear, borrar, redimensionar (sin encoger sistemas de ficheros), formatear FAT32 y ext2, TRIM en AHCI, GPT de solo lectura, deshacer, en la orden `particiones` y en la ventana Discos; el asistente «Instalar SaguiOS» deja el disco arrancable con `/home`, `/jogos/opentyrian` y `/apps` en particiones montadas por etiqueta, con las reglas de seguridad en el kernel (`SIS_DISCO_BLOCOS`). **OpenTyrian completo**: no se cae al empezar la partida (D183) y se ve el fondo (D187, `SDL_Swap*`). Ajustes de pruebas tras la integración (h58) | D193 |
+| **v7.1** | 2026-11-12 | **Pila de usuario que crece bajo demanda** con página de guarda (D186); **las cabeceras del anfitrión ya no se cuelan en la compilación** (`CPATH`, D191); **constructores globales y división de 64 bits para todos los programas** (mejora 094, puntos 9 y 10); **visor de actividades JClic** con descargador del repositorio del XTEC (D185); **el navegador NetSurf** portado, con el informe de carencias del sistema (D184, `docs/carencias-netsurf.md`); **reproductor MIDI** con sintetizador propio, vista de 16 canales y karaoke (D190); **partición `SAGUI-APPS`** (ext2 de lectura y escritura en `/apps`) con NetSurf y `sqlite3` fuera del ramdisk (D194); y el reparto de las carencias entre la v7.1 y la v7.2 (mejora 094) | D197 |
+| **v7.2** | 2026-11-12 | **Fuentes vectoriales para todos** (D196): el rasterizador del Cipó (TrueType, OpenType/CFF, WOFF) pasa a la `libfontes` con una API sencilla (abrir, medir, dibujar con color y tamaño, nombre de familia, catálogo); 28 fuentes de Typodermic (CC0) en `/apps/fuentes` (partición `SAGUI-APPS`; `tools/fuentes_typodermic.py` también empaqueta las 731); Configuración > Fuentes con vista previa y fuente por defecto para documentos y títulos; Paint (texto) y Editor (botón Vista) las usan; el escritorio sigue en 8x16 (siguiente paso); prueba `h162` | D196 |
+| **v7.1** | 2026-11-12 | **La pila de usuario crece bajo demanda, con guarda** (D186): 8 MB virtuales para el hilo principal y 1 MB por hilo, con la memoria física asignada al tocarla (un programa pequeño pasa de 64 KB a 12 KB de pila física); un desbordamiento termina el proceso con «Desbordamiento de pila» en vez de pisar memoria; OpenTyrian ya no necesita su pila propia y el Python llega a 1 MB de recursión; `tareas -t` muestra la pila de cada proceso (h154) | D186 |
+| **v7.1** | 2026-11-12 | **El build de SaguiOS no ve las cabeceras del anfitrión** (D191): el Makefile anula `CPATH`/`C_INCLUDE_PATH` (GCC los añade incluso con `-nostdinc`) y solo las herramientas del PC (chip8 del anfitrión) las reciben explícitas; `sgl.c` deja de pedir `<stdlib.h>` por `mm_malloc.h`; prueba `h191` | D191 |
+| **v7.1** | 2026-11-12 | **Actividades educativas JClic** (D185): visor `/bin/jclic` (puzles doble, de intercambio y de agujero, asociaciones, memoria, explorar, identificar, sopa de letras y crucigrama; las de texto y el Clic 3.0 quedan fuera), lector de GIF nuevo en la libsagui, descargador `jclicbajar` del repositorio del XTEC (índice de 2.633 proyectos, a `/home/jclic`), grupo **Inicio > Educación**, Archivos abre `.jclic`/`.jclic.zip`, proyecto propio de ejemplo en `/jogos/jclic`; prueba `h152` | D185 |
+| **v7.1** | 2026-11-12 | **La partición `SAGUI-APPS`** (D194): las apps que no son de la base van fuera del ramdisk, en una ext2 de lectura y escritura montada por etiqueta en `/apps` (`/apps/bin` en el `PATH`, los datos en `/apps/<app>`); NetSurf y `sqlite3` se mudan ahí (el ramdisk baja de 14,1 a 11,7 MB; la partición mide 8 MB, `APPS_MB`), el menú Inicio solo muestra NetSurf si está, `APPS=0` las deja en el ramdisk (en `/apps`) y el CD las lleva en el suyo; el instalador crea `SAGUI-APPS` en ext2 y copia `/apps`; prueba `h159` | D194 |
+| **v7.1** | 2026-11-12 | **NetSurf, un navegador de terceros** (D184): NetSurf 3.11 con su frontend framebuffer, sin tocar el upstream (las fuentes las baja `tools/netsurf_fuentes.sh`, fuera de git); libc propia del port, superficie de libnsfb sobre las ventanas, fetcher `http`/`https` sobre la HTTP y el TLS de la libsagui, PNG/JPEG con sus decodificadores; abre páginas locales y por red con CSS e imágenes (h153); Inicio > Internet; fuera de la variante sin GPL. **Informe de carencias** del sistema para portar programas grandes: `docs/carencias-netsurf.md` | D184 |
+| **v6.8** | 2026-11-11 | **Las transiciones CSS en el motor de la web** (085, D153: la propiedad `transition` con el atajo y las formas largas, la interpolación de colores, opacidad y medidas, las curvas `ease` y compañía, y el aviso de repintado por el mismo `motor_tick` de las animaciones) | D153 |
+| **v7.3** | 2026-11-13 | **Particiones flexibles** (D213): las imágenes llevan la de SaguiOS como única primaria y todas las de datos y del sistema como lógicas de una extendida; Discos > Particiones y `particiones` amplían la extendida hasta el final del disco, crean lógicas y redimensionan con el disco de arranque en uso (el kernel protege lo montado y la partición de SaguiOS y simula cada escritura de la tabla); ext2 crece y encoge sin mover datos, FAT32 crece (con la FAT dimensionada); comprobación de solo lectura antes y después; prueba `h213` (rama `v7.3-particiones`) | D213 |
+| **v7.3** | 2026-11-13 | **Wi-Fi con el pincho Realtek RTL8188EU** (D215): cambio de modo del CD virtual, driver propio (referencia: urtwn de OpenBSD, ISC) con el firmware de linux-firmware en `firmware/realtek/` (fuera con `SEM_FIRMWARE=1`), recepción USB continua por EHCI y xHCI, pila 802.11 cliente (búsqueda, autenticación abierta, asociación b/g) y WPA2-PSK con CCMP por hardware; wlan0 en la pila IP (una interfaz activa), `wifi buscar/conectar/desconectar/estado/recordadas/olvidar`, redes recordadas como PMK, `ifconfig wlan0`, `infopc` y la bandeja; prueba `h215` con el pincho real (rama `v7.3-wifi`) | D215 |
+
+Las secciones de abajo de las versiones ya publicadas se conservan como historia del plan.
+
+## v4: publicada
+
+| Contenido | Mejora | Estado |
+| --- | --- | --- |
+| Sonido AC'97 + Intel HDA, mezclador, `reproducir` (streaming), `volumen`, XO-CHIP con sonido | 041 | en `main` |
+| Monitor de hardware seguro (temperatura, frecuencias, P-states…) y benchmark SaguiMark | 050, 051 | en `main` |
+| Red Realtek: diagnóstico y arranque «moderno» RTL8111G/H | D091 | en `main` (falta confirmar en el Ryzen) |
+| Persistencia FAT32 solo con la partición `SAGUI-DATOS` | — | en `main` |
+| USB rápido: EHCI con transferencias grandes, IRQ y sin congelar el sistema | 045 (p. 6) | **en curso** (rama `usb-rapido`) |
+| Comentarios en español (primeros lotes) | D096 | en `main` |
+
+## v5: publicada
+
+Tema: **multimedia, terminal y compiladores**.
+
+| Contenido | Mejora | Estado |
+| --- | --- | --- |
+| Terminal: comandos completos (`ls -l -a -h`, `cp -r`, `rm -r`, `mkdir -p`…) y nuevos (`head`, `tail`, `grep`, `find`, `sort`, `less`, `df`, `du`…) | D097 | **en curso** (rama `terminal-comandos`) |
+| Códecs de audio: IMA ADPCM, **MP3**, FLAC | 053 (fases 1-3) | **en curso** (rama `audio-codecs`) |
+| **Terminar el compilador Pascal**: poner al día la rama `pascal`, revisar sus cambios del kernel (unidad `crt`), h69, documentación y batería. Con Opus medio | 040 | se lanza **cuando termine `terminal-comandos`** (comparten la zona del terminal) |
+| Más lotes de traducción de comentarios | D096 | continuo (Haiku) |
+| **Compresor/descompresor multiformato:** `tar`, `gzip`/`gunzip`, `zip`/`unzip` (DEFLATE propio), integrado en Archivos («Comprimir», «Extraer aquí»). Con Sonnet, cuando termine `terminal-comandos` | 056 | pendiente |
+| **3D mínimo:** API de SaguiGL y motor por software de referencia básico (triángulos planos y Gouraud, matrices, búfer Z, recorte), `sgldemo` con un cubo y prueba de píxeles. Con Sonnet | 054 (A1, base) | **hecho** (D104, rama `3d-minimo`) |
+| **Identificar la GPU** en `infopc` (AMD/Intel, familia y generación, y si SaguiGL tendría motor) | 054/055 | **hecho** (D104, rama `3d-minimo`) |
+| **Compresor/descompresor multiformato:** `tar`, `gzip`/`gunzip`, `zip`/`unzip` (DEFLATE propio), integrado en Archivos («Comprimir», «Extraer aquí»). Con Sonnet, cuando termine `terminal-comandos` | 056 | hecha (D103) |
+| **3D mínimo:** API de SaguiGL y motor por software de referencia básico (triángulos planos y Gouraud, matrices, búfer Z, recorte), `sgldemo` con un cubo y prueba de píxeles. Con Sonnet | 054 (A1, base) | pendiente |
+| **Identificar la GPU** en `infopc` (AMD/Intel, familia y generación, y si SaguiGL tendría motor) | 054/055 | pendiente |
+| Activar de serie la red Realtek confirmada (dv7 y, si funciona, Ryzen) | D091 | pendiente de fotos de `ip` |
+
+## v5.1: publicada
+
+Tema: **licencias, velocidad de la CPU y optimización de los compiladores**.
+
+| Contenido | Mejora |
+| --- | --- |
+| **Control de la frecuencia de la CPU** (P-states AMD 10h+ e Intel EIST): rendimiento por defecto, ahorro y a demanda; **límite de 79 °C** con vuelta al mínimo e histéresis a 72 °C. En el HP dv7 SaguiOS va hoy a la mitad de velocidad. Con Opus | 061 |
+| **Optimizaciones del generador común de `cc` y Pascal** (mirilla, inmediatos, comparar y saltar, reducción de fuerza), movidas desde la v5 por plazo. **Hecho en la rama `generador-opt`** (D108, h80): ejecutables -19 % de media (cc hasta -40 %), `-O0` reproduce los binarios anteriores | 040/D033/D108 |
+| **Sonido del HP dv7 por los altavoces** (hoy solo suena el subwoofer): ajuste del códec IDT 92HD75B (pines, GPIO y EAPD del amplificador), con el ajuste de Linux como referencia (D073). Con Opus | 041 |
+| **Tablas del MP3 regeneradas desde la norma** (ISO/IEC 11172-3, anexo B), sin leerlas de libshine/libtwolame; mismas sumas en h75 | 053 |
+| **Compilación con GPL y sin GPL** (`make SEM_GPL=1`, `make SEM_FIRMWARE=1`): todo lo GPL aislado en `kernel/terceros/linux/`; lo que no está disponible sin GPL se desactiva y lo dice (r8169 moderno, tablas de sensores); auditoría automática de licencias; batería en las dos variantes; `entrega/v5.1/` con `saguios.img` y `saguios-sin-gpl.img` | 057 |
+
+> No sustituye al permiso de Eli Rigobeli y M4R4G0N: hace falta igualmente antes de publicar o
+> distribuir (rama `licencia`).
+
+## v5.2: publicada (mejoras rápidas de uso)
+
+Tema: **dejar más usable lo que ya hay** (decidido el 2026-11-08).
+
+| Contenido | Mejora |
+| --- | --- |
+| **Configuración:** aplicación que reúne teclado, zona horaria, resolución, volumen, **fondo de escritorio** (BMP/PNG) y **color de acento**; todo guardado en `/home` y recordado entre arranques (también la distribución del teclado) | 007, 047 (sin JPEG) |
+| **Apagar con ACPI:** apagado real (S5) y botón de encendido, leyendo FADT/DSDT; vuelta segura a «puedes apagar» si algo falla | 030 |
+| **Bandeja de la barra de tareas:** iconos de volumen, red y temperatura, con clic para ajustar o ver el detalle (**hecho**, D114, h85) | 058 (parte) |
+| **Reproductor de música** gráfico (**hecho**, rama `reproductor-musica`, D115): abrir, reproducir/pausa, barra de progreso, volumen y lista; doble clic en `.wav/.mp3/.flac` desde Archivos | 041, 053 |
+
+## v5.3: publicada
+
+| Contenido | Mejora |
+| --- | --- |
+| **SQLite 3** en C y Python: biblioteca con VFS propio, programa `sqlite3`, módulo `sqlite3` de MicroPython; truncar y sincronizar archivos en el kernel (se sigue la rama `sqlite`) | 064 |
+
+## v5.3.1: publicada (lo que faltaba de la v5.3)
+
+| Contenido | Mejora |
+| --- | --- |
+| **SQLite, pulido:** `row_factory` y `sqlite3.Row` en Python, conexiones que se cierran solas al liberarse, cerrojo sencillo entre procesos si el VFS lo permite, y cifras de rendimiento (inserciones y consultas por segundo) | 064 |
+| **Traducción de comentarios** pendiente (D096): drivers, `cc`, Pascal, libsagui, MicroPython y programas que tocaban las ramas de la v5.1 y la v5.2 | — |
+
+## v5.4: publicada
+
+| Contenido | Mejora |
+| --- | --- |
+| **lite-monkey:** motor de base de datos documental propio en C (inspirado en MongoDB, más básico), servidor en el **puerto 7979** que funciona en Linux/WSL y en SaguiOS; cliente Python igual en CPython y MicroPython; consola `lmk`; el *loopback* (127.0.0.1) ya existía (D079) y se añade `SIS_ESPERAR_REDE` (D117) | 067 |
+| **lite-monkey:** motor de base de datos documental propio en C (inspirado en MongoDB, más básico), servidor en el **puerto 7979** que funciona en Linux/WSL y en SaguiOS; cliente Python igual en CPython y MicroPython; consola `lmk`; *loopback* mínimo (127.0.0.1) en SaguiOS | 067 |
+| **Imagen de disco con varias particiones:** `make imagem-particoes` crea un `.img` (para Rufus o dd) con `/home`, `/tmp` y `/logs` en particiones de tamaño elegido, FAT32 o ext2; el kernel las monta por etiqueta, guarda su registro en `/logs` y entiende particiones extendidas y lógicas. Con tests (h91, h93) | 068 |
+
+## v6: propuesta, repartida en v6.0, v6.1 y v6.2 (decidido el 2026-11-08)
+
+Tema: **interfaz, vídeo, la «web» de SaguiOS y `cc` completo**. Se publica por partes; cada
+parte se apoya en la anterior.
+
+**Tamaño:** desde la v7.0b la meta es de **38 MB** (D181: arranque + particiones del sistema).
+Desde la v6.0 la meta de la imagen pasó de 8 MB (D111) a **16 MB** (decisión del
+mantenedor, 2026-11-08), para dar sitio a JPEG, vídeo, SaguiGL completo, IA y los componentes.
+
+### v6.0 (publicada; beta, beta 2, beta 3 y final)
+
+| Contenido | Mejora |
+| --- | --- |
+| **Atajos de escritorio**: **Alt+F4** cierra la ventana activa (el programa recibe el aviso de cierre, como al pulsar la X), **Alt+Tab** cambia de ventana (Alt+Mayús+Tab, a la anterior), **tecla Windows** abre el menú, **Windows+D** muestra el escritorio y **Ctrl+Alt+Supr** abre el Administrador de tareas. Con test | 058 |
+| **Utilidad «Discos»** gráfica: cada disco y partición con una barra de espacio ocupado/libre (en colores), sistema de archivos, etiqueta y punto de montaje; montar, desmontar y abrir en Archivos; el comando `discos` del terminal muestra también el uso | — |
+| **Beta 2** (publicada): `chip8-roms` y `chip8-roms-gui`, descarga de las ROM CC0 del Chip8 Community Archive | D123 |
+| **Beta 3** (publicada): **capturas de pantalla y recortes** (Impr Pant, Alt+Impr Pant, Windows+Mayús+S, programa Recortes, `captura`) y red **RTL8168evl** del Toshiba L850 | D125, D124 |
+| **v6.0** (publicada): lo de la beta 3 más el **compresor** tar/gzip/zip (D103) y el **portapapeles de imágenes** con PNG comprimido | D103, D125 |
+
+### v6.1: interfaz, imágenes y discos
+
+La v6.1 se publica **a partes**: la primera, con lo que ya está hecho, y las siguientes con el
+resto. Lo que se ha adelantado de la v6.2 va indicado en cada tabla.
+
+#### v6.1 (publicada, 2026-11-08)
+
+| Contenido | Mejora |
+| --- | --- |
+| Componentes de la libsagui: lienzo con imágenes, barra de progreso y casilla, y barra de progreso al aplicar el fondo de pantalla | 042 (D126) |
+| **Decodificador de JPEG baseline** en la biblioteca de imágenes: el visor ya abre las fotos de los teléfonos y cámaras (secuencial, YCbCr 4:4:4/4:2:2/4:2:0 y en escala de grises; el progresivo y el de 12 bits avisan que no se leen) | 047 |
+
+**Adelantado de la v6.2** (va en esta entrega aunque en el plan esté en la v6.2):
+
+| Contenido | Mejora |
+| --- | --- |
+| El motor del SaguiGL se compila también con el `cc` de dentro del SaguiOS (D127): la aritmética entera del rasterizador pasa a coma flotante (el `cc` no tenía enteros de 64 bits) y la galería 3D del ejemplo `/ejemplos/sagui_gl` es la prueba — **hecho y publicado en la v6.1** | 054 (A1-A2) |
+| `cc`: `long long` e enteros de 64 bits, con la biblioteca de 64 bits y `printf` con `%lld` | D128 |
+
+#### v6.1 (sigue pendiente)
+
+| Contenido | Mejora |
+| --- | --- |
+| **Interfaz y explorador de archivos:** ver/ocultar ocultos (Ctrl+H; `.punto` y atributo FAT), vistas de detalles y miniaturas, barra de ruta y panel lateral, selección múltiple, copiar/cortar/pegar y arrastrar, renombrar en el sitio, buscar, «Abrir con», propiedades y papelera; ventanas ajustables a media pantalla, Alt+Tab con miniaturas, centro de notificaciones y presentación más pulida — **hecho** (D136, rama `v6.3-arquivos`, prueba h104) | 058 |
+| Ogg Vorbis (el formato de audio que falta) | 053 (fase 4) |
+| **Sistema fuera de la RAM, fase 0** (decidido para la v6.1, 2026-11-08): en la imagen con particiones, lo grande y poco usado (Python, SQLite, lite-monkey, Sagui 3D, imágenes, ejemplos) va en una partición `SAGUI-SIS` de solo lectura montada en `/sistema`, y el ramdisk se queda con el núcleo | 035 (F0) |
+| **Turbo opcional** en el control de frecuencia (Intel Turbo Boost y AMD Core Performance Boost), desactivado de serie, con el límite de 79 °C mandando; `frecuencia --turbo si` (en el Toshiba L850: de 2,4 a 3,4 GHz en un núcleo) | 061 |
+| **Sonido (1):** elegir la salida (altavoces, auriculares, línea, **HDMI**), detección de auriculares en marcha, sonidos del sistema, teclas multimedia y ajustes de conectores guardados por modelo | 075 |
+| **AHCI**: discos SATA en PC desde ~2006 (dv7, G470, Ryzen...), con las reglas de seguridad de la D040 | 055 |
+| Temas del escritorio (lo de la 047 que no son el JPEG) | 047 |
+
+### v6.2: vídeo, HMKD, 3D, `cc` e IA
+
+La v6.2 también se publica **a partes**. Lo que va en esta entrega:
+
+| Contenido | Mejora |
+| --- | --- |
+| **Biblioteca de iconos** para el SaguiOS: 112 iconos de 16x16 generados de los «Fluent UI System Icons» de Microsoft (MIT) con un rasterizador propio en Python; el programa `icones` los enseña | 042, D135 |
+| **Vídeo:** reproductor de **MJPEG dentro de un AVI** (usa el decodificador de JPEG de la v6.1), con `tools/convertir-video.sh` y un vídeo de ejemplo propio | 048, D129 |
+| **Vídeo, arreglos:** la **GUI del reproductor** (la ventana se quedaba a medias) y el **volcado de cuadros**, que fallaba a veces al escribir justo después de montar el pendrive — **en curso** (rama `v6.3-video-volcar`, sobre la escritura del USB y del FAT32) | 048 |
+
+Lo que sigue pendiente de la v6.2:
+
+| Contenido | Mejora |
+| --- | --- |
+| Vídeo: **MPEG-1 + MP2** en MPEG-PS (el reproductor ya avisa de que aún no se lee) — **en curso** (rama `v6.2-mpeg1`: demultiplexador, decodificador de MPEG-1 con IDCT entera y herramientas de PSNR) | 048 |
+| HMKD: Markdown con imágenes y vídeo embebido, en el visor y en Cipó, con `servidor` | 049 |
+| **SaguiGL completo por software:** texturas (con la JPEG), mezcla, niebla y luces; **aceleración SIMD** (bloques 8x8, SSE2/SSE/MMX); grupo «3D» en SaguiMark; `sagui.gl` en Python — **texturas, mezcla, niebla, luces y la ruta SIMD (SSE2) hechas** (D130, rama `v6.2-sagui3d`, prueba h101); falta el grupo «3D» de SaguiMark, la ruta x87 y `sagui.gl` en Python | 054 (A1-A2, A4) |
+| El motor del SaguiGL se compila también con el `cc` de dentro del SaguiOS (D127): la aritmética entera del rasterizador pasa a coma flotante (el `cc` no tenía enteros de 64 bits) y la galería 3D del ejemplo `/ejemplos/sagui_gl` es la prueba — **hecho y publicado en la v6.1** | 054 (A1-A2) |
+| `cc`: **`long long`** (hecho, D128, rama `v6.2-cc-longlong`, publicado en la v6.1) y **varios `.c` con su propio ámbito** (unidades de traducción, `static` por fichero) y **más biblioteca** (`fopen`, `fread`, `fwrite`, `qsort`, `strtol`, `time.h`) — **hecho** (D133, rama `v6.2-cc`, prueba h102); falta `stdarg`, `goto`, avisos `-Wall` | — |
+| Variables en registros en el generador común (`cc` y Pascal) | — |
+| **Sonido (2):** micrófono y grabación (`grabar`, API en libsagui y Python), volumen por aplicación («Mezclador»), balance y ecualizador, 48 kHz/24 bits y latencia configurable | 075 |
+| **Emulador de NES** propio: CPU 6502, PPU, APU con sonido, mappers 0-4 (NROM, MMC1, UxROM, CNROM, MMC3), teclado y mando USB, guardar partida; sin ROMs comerciales | 071 |
+| **Cliente de chat con IA** («Asistente IA»: conversaciones, streaming, Markdown) y **asistente en Mico**; proveedores configurables: **OpenRouter** o cualquier endpoint compatible con OpenAI (llama.cpp, Ollama, LM Studio…); comando `ia` para el terminal — **cliente `ia` hecho** (D134, h105), **panel Asistente de Mico hecho** (D140, rama `v6.4-mico-ia`, H111), **aplicación de chat con ventana hecha** (D143, h116), **interfaz del chat mejorada** y **configuración compartida de la IA con un modelo por programa** (D145, h117); siguen pendientes la lista lateral de conversaciones, el Markdown en las respuestas y el selector de proveedor y modelo dentro de la ventana del chat | 043 |
+
+### v6.3: servicios y tareas programadas
+
+Lo que ya está **fusionado en `main`** (aún sin carpeta en `entrega/`): el explorador de
+archivos (058, D136), el visor de PDF (059, D138) y los arreglos del escritorio (080, D139).
+Falta publicar la entrega y los servicios y el `cron` (074).
+
+| Contenido | Mejora |
+| --- | --- |
+| **Visor de PDF** con motor propio en `userland/pdf/` (tipografías, filtros, cifrados RC4 y AES-256) y el programa `visorpdf` — **hecho** (D138, rama `v6.3-pdf`, prueba h107) | 059 |
+| **Arreglos del escritorio:** icono para todos los programas del menú Inicio (los que estaban sin él y los nuevos: Visor de PDF, Reproductor de vídeo e IA), la rejilla de iconos del Archivos que rueda por filas enteras (ya no se desplaza de lado) y acciones de grupo con varios archivos marcados (copiar, cortar, borrar, propiedades y comprimir todo) — **hecho** (D139, rama `FIXES`, pruebas h108 y h109) | 080 |
+| **Gestor de servicios:** programas en segundo plano definidos en `/etc/servicios` y `/home/.config/servicios`, arranque automático con dependencias (red, `/home`), reinicio con espera creciente, parada ordenada al apagar, registro en `/logs`; `servicio` en el terminal y pestaña **Servicios** en el Administrador de tareas | 074 |
+| **cron:** formato clásico de 5 campos y `@reboot/@daily...`, zona horaria, tareas perdidas al arrancar, `/logs/cron.log`; `crontab -l/-e/-r`. **Hecho (D216), pendiente de compilar** | 074 |
+
+### v6.4: propuesta
+
+Lo que el usuario ha pedido para la release siguiente (decidido el 2026-11-11).
+
+| Contenido | Mejora |
+| --- | --- |
+| **Terminal con pestañas:** varias instancias de terminal en una ventana (una pestaña por sesión, cada una con su directorio y su historial), más bonito (colores ANSI, tema y fondo propio) y con más opciones (búsqueda en el scrollback, copiar y pegar con el ratón, barra de estado, registro de la sesión) | 077 |
+| **Asistente IA dentro del Mico** (parte de la 043, que nació para la v6.2): panel en el editor de código para explicar el fragmento seleccionado, proponer correcciones a partir de los errores de «Problemas» y generar funciones, con la misma biblioteca y la misma configuración que el comando `ia` — **hecho** (D140, rama `v6.4-mico-ia`, prueba h111) | 043 |
+| **Hoja de cálculo minimalista «Macaco»:** cuadrícula con las fórmulas típicas (suma, promedio, mínimo, máximo, contar, si, redondear…), gráficos de barras y de tarta, y ficheros propios `.mxs` (Macaco eXcel Sheet) para guardar y cargar — **en curso** (rama `v6.4-macaco`) | 078 |
+| **Hoja de cálculo minimalista «Macaco»:** cuadrícula con las fórmulas típicas (suma, promedio, mínimo, máximo, contar, si, redondear…), gráficos de barras y de tarta, y ficheros propios `.mxs` (Macaco eXcel Sheet) para guardar y cargar — **hecho** (D142, rama `v6.4-macaco`, prueba h110) | 078 |
+| **Discos SATA en modo AHCI:** driver del controlador AHCI (los PC de hoy dejan la SATA en modo nativo, no en IDE), con los discos SATA entrando en la misma capa de discos que los IDE: se ven sus particiones y se montan con las mismas reglas de solo lectura; y el **USB 3.0 (xHCI)**, que es otro controlador y otro modelo de programación: aquí queda el esqueleto (detección, registros de capacidad y anillos en memoria) y el plan completo en `docs/usb3.md` - **hecho** (D155, rama `v6.4-sata-usb3`, prueba h131) | 087 |
+| **Generador de versiones:** un guion (`gerar_versao.sh`, hermano de `run_in_qemu.sh`) que compila la versión, arma las imágenes (disco, VDI, ISO, persistente FAT32 y variante sin GPL) y deja la entrega en `entrega/latest/` con `SHA256SUMS.txt` y una hoja `VERSION.txt`; la compilación se parametriza (variante de licencia, MicroPython, nivel de optimización) y `--probar` comprueba que la imagen arranca antes de publicarla — **hecho** (D154, rama `v6.4-versao-entrega`) | 086 |
+| **JavaScript en las páginas del Cipó:** el motor pasa a ser el **QuickJS** (terceros, MIT), portado al SO: cada `<script>` de la página se ejecuta con un DOM mínimo (`document.title`, `document.body`, `console`, `alert`, `setTimeout`) y el navegador es quien decide qué hacer con eso — **hecho** (D149, rama `v6.4-quickjs`, pruebas h125 y h128) | 081 |
+| **Un juego de terceros dentro del SO: el OpenTyrian** (el tiro vertical de 1995): el motor del upstream, con GPL-2.0 y aislado en `userland/terceros/opentyrian/` (fuera de la variante sin GPL), una plataforma propia (un SDL 1.2 sobre las ventanas del SO: 640×400, teclado, ratón, sonido y vídeo) y los datos del shareware en un disco aparte, porque no caben en la imagen — **hecho** (D156, rama `v6.4-opentyrian`, prueba h136) | 088 |
+| **El navegador sigue los reenvíos de las páginas:** la ventana (`window`, `window.parent`) y el `location` (`href`, `assign`, `replace`) en el QuickJS del SO, con la navegación **diferida** (fuera del script, para no destruir el motor que corre); el `<meta http-equiv="refresh">` inmediato también; y el cliente HTTP tolera las cabeceras gigantes (GitHub manda 5,7 KB), que antes tumbaban la respuesta entera. Con esto, pulsar un resultado del DuckDuckGo lleva a la página de destino en vez de dejar la pantalla en blanco — **hecho** (D159, pruebas h125 y h132) | 091 |
+| **El navegador abre un enlace en otra pestaña y recuerda la posición de lectura de cada sitio:** el Ctrl+clic (o el «Abrir en pestaña nueva» del menú del botón derecho) abre el enlace en una pestaña nueva sin perder la actual; la posición de lectura se guarda por sitio y se repone al volver a él — **hecho** (D152, rama `v6.5-navegador-extra`, prueba h127) | 084 |
+| **Transiciones CSS en el motor:** `transition` con duraciones, retrasos y curvas (`ease`, `ease-in-out`…), que interpolan colores, medidas y opacidad en vez de dar un salto — **hecho** (D153, rama `v6.8-transicoes-css`, prueba h130) | 085 |
+| **La base del SMP y del multihilo:** primitivas atómicas del kernel y de los programas, cerrojo de espera activa, datos por CPU y mutex y semáforo en la libsagui. **No enciende todavía los procesadores secundarios** — **hecho** (D150, rama `v6.7-smp-prep`, prueba h126) | 083 |
+| **Máquina de pruebas:** 2 GB de memoria en el QEMU, `--nucleos N` para arrancar con varios procesadores y un benchmark (`/testes/bench`) que mide la ganancia de los procesos en paralelo — **hecho** (D151, rama `v6.8-maquina-testes`, prueba h129) | 084 |
+| **Los drivers 3D de AMD (la parte B2 de la 054):** el armazón de las familias (Evergreen, R5xx y R300/R420, con la de R6xx/R7xx de B1): una tabla con los identificadores, los registros de identificación, la ISA de los shaders, qué reutiliza de B1 y si necesita microcódigo; la pieza mínima del kernel para leer los registros MMIO de un BAR (`SIS_MAPEAR_BAR`); la herramienta `/bin/amd`, que identifica la GPU; el vigilante de la GPU con plazo máximo, la caída al motor por software y la opción de arranque `SGL_MOTOR=software`. **El motor por hardware sigue sin hacerse** (es B1) — **hecho la estructura** (D158, rama `v6.5-amd-b2`, prueba h134) | 054 (B2), 090 |
+
+| **As páginas do Cipó correm JavaScript:** o motor passa a ser o **QuickJS** (terceiros, MIT), portado ao SO: cada `<script>` da página corre com um DOM mínimo (`document.title`, `document.body`, `console`, `alert` e `setTimeout`) — **feito** (D149, ramo `v6.4-quickjs`, provas h125 e h128). O DOM completo (querySelector, eventos, canvas) fica para depois | 081 |
+
+### v6.6: publicada (la IA compartida, el correo, el juego y el navegador con JavaScript de verdad)
+
+Lo que se ha hecho para esta release, ya **fusionado en `main`**:
+
+| Contenido | Mejora |
+| --- | --- |
+| **Configuración de la IA compartida, con un modelo por programa:** el proveedor, la dirección, la clave y los modelos (general, terminal, chat y Mico) se eligen en la pestaña «IA» de Configuración; la clave se guarda aparte y no se enseña — **hecho** (D145, rama `v6.5-conf-ia`, prueba h117) | 043 |
+| **Cliente de correo:** recibe por POP3 o IMAP y envía por SMTP, con ventana, lista de mensajes, adjuntos y cuerpo en texto plano o en HTML (el HTML se convierte a texto); la cuenta se configura en su propia ventana, con la clave escondida y dos puertos (recepción y envío) — **hecho** (D146, rama `v6.6-correo`, prueba h118) | 082 |
+| **Navegador: abrir un enlace en otra pestaña y recordar la posición de lectura de cada sitio:** el Ctrl+clic (o el «Abrir en pestaña nueva» del menú del botón derecho) abre el enlace en una pestaña nueva, sin perder la actual; la posición de lectura de cada sitio se guarda en un fichero y se repone al volver a él — **hecho** (D152, rama `v6.5-navegador-extra`, prueba h127) | 084 |
+| **Un juego de terceros dentro del SO: el OpenTyrian** (el tiro vertical de 1995): el motor del upstream, con GPL-2.0 y aislado en `userland/terceros/opentyrian/` (fuera de la variante sin GPL), una plataforma propia (un SDL 1.2 sobre las ventanas del SO: 640×400, teclado, ratón, sonido y vídeo) y los datos del shareware en un disco aparte, porque no caben en la imagen — **hecho** (D156, rama `v6.4-opentyrian`, prueba h136) | 088 |
+| **El navegador sigue los reenvíos de las páginas:** la ventana (`window`, `window.parent`) y el `location` (`href`, `assign`, `replace`) en el QuickJS del SO, con la navegación **diferida** (fuera del script, para no destruir el motor que corre); el `<meta http-equiv="refresh">` inmediato también; y el cliente HTTP tolera las cabeceras gigantes (GitHub manda 5,7 KB), que antes tumbaban la respuesta entera. Con esto, pulsar un resultado del DuckDuckGo lleva a la página de destino en vez de dejar la pantalla en blanco — **hecho** (D159, pruebas h125 y h132) | 091 |
+| **Los drivers 3D de AMD (la parte B2 de la 054):** el armazón de las familias (Evergreen, R5xx y R300/R420, con la de R6xx/R7xx de B1): una tabla con los identificadores, los registros de identificación, la ISA de los shaders, qué reutiliza de B1 y si necesita microcódigo; la pieza mínima del kernel para leer los registros MMIO de un BAR (`SIS_MAPEAR_BAR`); la herramienta `/bin/amd`, que identifica la GPU; el vigilante de la GPU con plazo máximo, la caída al motor por software y la opción de arranque `SGL_MOTOR=software`. **El motor por hardware sigue sin hacerse** (es B1) — **hecho la estructura** (D158, rama `v6.5-amd-b2`, prueba h134) | 054 (B2), 090 |
+| **El JavaScript de las páginas ve un DOM de verdad:** la página es un árbol de elementos que el script consulta (`getElementById`, `getElementsByTagName`, `querySelector`, `querySelectorAll`) y en el que pone un tratador de clic (`onclick` y `addEventListener("click")`); al pulsar con el ratón, el tratador corre, con su evento (`type` y `target`), y un `preventDefault()` cancela la navegación del enlace. Falta la escritura en el DOM (`createElement`, `appendChild`…) — **hecho** (D160, rama `v6.6-qjs-dom`, prueba h135) | 092 |
+| **El navegador no se muere con las páginas que tienen pseudo-elementos:** los nodos que el motor genera (`::before`, `::after` y los bloques anónimos) no son elementos del DOM y no repiten el identificador de otro nodo; el puente del QuickJS no deja que un identificador repetido ni un padre equivocado monten un ciclo, y el recorrido del árbol tiene un límite de profundidad. `https://www.amd.com/` carga entera — **hecho** (D161, prueba h137) | 093 |
+
+### v6.7: publicada (los procesadores secundarios se encienden de verdad)
+
+Lo que se preparaba **antes** de encender un segundo procesador (v9) o de dar
+hilos a los programas (v10), y que en esta versión ya **enciende** los
+procesadores secundarios. Con una sola CPU no cambia nada.
+
+| Contenido | Mejora |
+| --- | --- |
+| **La base del SMP y del multihilo:** primitivas atómicas del kernel y de los programas (comparación y cambio, suma, resta, incremento y decremento, de 32 y de 64 bits), cerrojo de espera activa, zona de datos por CPU (8 entradas alineadas a 64 bytes, pila propia por CPU y recuento de procesadores por la MADT del ACPI) y mutex y semáforo en la libsagui — **hecho** (D150, rama `v6.7-smp-prep`, prueba h126) | 083 |
+| **A necessidade dos fios, por escrito:** o documento `docs/multihilo.md` conta o que falta (acender os processadores, planeador por CPU, fios de verdade, TLS e FPU por fio), o que precisa cada linguagem (a API dos fios em C, o `threading` do Python com a questao do GIL, e a unidade `Hilos` do Pascal) e o exemplo que entra em `rootfs/ejemplos/` (`hilos.c`, `hilos.py` e `hilos.pas`) quando os fios existirem | 083 |
+| **Os processadores secundários acendem-se de verdade (SMP, fase 1):** o kernel acende-os com INIT-SIPI, cada CPU tem o seu estado (GDT, TSS e GS), o seu temporizador (APIC local) e o seu plano; o processo atual é por CPU (GS), a tabela de processos tem cerrojo, e o Administrador de tarefas e o infopc mostram os núcleos e o seu uso — **hecho** (D157, rama `v6.5-smp-real`, prueba h133) | 089 |
+
+## v7: propuesta
+
+Tema: **rendimiento, 3D y sistemas de archivos**.
+
+**Sistemas de archivos** (decidido el 2026-11-08: el foco de la v7, para no complicar la v6):
+
+| Contenido | Mejora |
+| --- | --- |
+| **exFAT** de lectura y escritura (pendrives de más de 32 GB, tarjetas SD) | 076 |
+| **ext3 con diario**: reproducir el diario al montar y escritura «ordered» (no se corrompe si se va la luz) | 076 |
+| **Escritura en ext4**: extents, 64 bits, flex_bg y sumas CRC32c de los metadatos | 076 |
+| **v7.0b — gestión de particiones e instalador** (D179): MBR con extendida y lógicas (crear, borrar, redimensionar, formatear FAT32/ext2, activa, deshacer), GPT en solo lectura, TRIM en AHCI, y el instalador a disco duro o pendrive con `/home`, los juegos (`SAGUI-JOGOS` en `/jogos/opentyrian`, como la D181) y `/apps` por etiqueta. Hecho en `v7.0-instalador`, ya con `main` (v7.0b) mezclado; va en la v7.0c | — |
+
+**Optimizaciones de lo que ya hay** (cada una medida antes y después con SaguiMark, `wget`, el
+tiempo de arranque o las pruebas):
+
+| Contenido | Mejora |
+| --- | --- |
+| Caché de bloques de disco y memoria alta (`kmap`): primera fase de la arquitectura de almacenamiento, sin cambiar el arranque | 035 (F1) / 012 |
+| Tiempo de arranque medido y reducido (G470, dv7, QEMU) | — |
+| Escritorio: menos redibujado (copiar al mover ventanas, recortes más finos) y rutas SSE2 que falten | 015 |
+| **Elegir x87 o SSE2 por medida y no solo por disponibilidad** (`cc`, Python, SaguiGL): en el dv7 (K8/Griffin) x87 rinde ~3,5 veces más que SSE2 en SaguiMark | — |
+| **SSE, SSE3 y SSSE3 opcionales, elegidos por CPUID y por medida** (rutas de copia, relleno y píxeles del kernel y la libsagui; `lddqu`, `pshufb`; `infopc` lo muestra; el sistema base sigue arrancando sin SSE) — **hecho** (D208, rama `v7.2-sse`, prueba h208); falta que JPEG/MPEG-1 (IDCT) y el audio tengan variante SIMD | — |
+| Python: arranque e `import tkinter` más rápidos (hoy ~220 ms en QEMU), y menos memoria | 032/033 |
+| Pruebas: acortar las esperas fijas para que la batería con KVM baje de verdad | — (hecho en parte con `tests/rodar_paralelo.py`, D105: varias pruebas a la vez; las esperas fijas siguen) |
+
+**3D y GPU:**
+
+| Contenido | Mejora |
+| --- | --- |
+| **Sagui 3D sobre SaguiGL** y optimización del motor con las cifras de SaguiMark | 054 (A5) |
+| **2D por la GPU** para el escritorio (copias y rellenos): **blitter de Intel** (Gen2-Gen6) y **AMD R6xx/R7xx** (detección, procesador de comandos con microcódigo, GART, 2D). Con Opus para AMD | 054 (B1.1-B1.4), 055 |
+
+## Plan: v7.1 y v7.2 (carencias de NetSurf)
+
+Reparto aprobado por el mantenedor, detallado en la ficha `mejoras/094-carencias-libc-sistema.md`.
+El inventario de las 38 carencias llegará con la v7.1 en `docs/carencias-netsurf.md` (D184).
+
+**v7.1** (pocas cosas):
+
+| Contenido | Mejora |
+| --- | --- |
+| **JClic** (D185) y **NetSurf** (D184) | 094 |
+| Pila de usuario que crece bajo demanda, con página de guarda (D186): hecha en `v7.1-pila-dinamica`, pendiente de mezclar | 094 (punto 4) |
+| Reproductor MIDI (D190) | — |
+| `CPATH` que no se cuela en la compilación (D191): hecha en `v7.0-cpath`, pendiente de mezclar | 094 (punto 2) |
+| Constructores globales al arrancar (`.init_array` en `inicio.asm` y `programa.ld`) | 094 (punto 10) |
+| Ayudantes de división de 64 bits (`__divdi3`...) en la libsagui | 094 (punto 9) |
+| Partición `SAGUI-APPS` de lectura y escritura en `/apps` para apps nuevas y no fundamentales (política del mantenedor): hecha en `v7.1-sagui-apps` (D194, NetSurf y `sqlite3`), pendiente de mezclar; la lista de las siguientes candidatas está en la D194 | — |
+
+**v7.2** (el grueso, en cinco bloques; A y B primero y juntos, luego C, D y E, de dos en dos agentes
+como mucho):
+
+| Bloque | Contenido | Mejora |
+| --- | --- | --- |
+| **A. libc común** en `userland/libc/` (base: la libc de NetSurf, rama `v7.1-netsurf`): stdio con búfer, printf completo (`%f`, 64 bits), strtod, errno, qsort, stat, opendir, fechas, getenv, atexit, realpath, libm de precisión simple. Sustituye a las libc de OpenTyrian, SQLite, MicroPython, QuickJS y GNU Prolog | 094 (puntos 1, 5-8, 11, 12, 14, 17, 18, 22, 33-37) |
+| **B. Memoria**: `malloc` por clases de tamaño que devuelve la RAM al sistema, y `mmap` | 094 (puntos 3, 13) |
+| **C. Red sin bloquear**: `select`/`poll`, descriptores sin bloqueo, sockets estilo BSD, zlib por trozos | 094 (puntos 21, 24, 25) |
+| **D. Tiempo**: reloj monótono de 64 bits, `time_t` de 64 bits (2038), `nanosleep` | 094 (puntos 15, 16) |
+| **E. Teclado y ventanas**: eventos con código de tecla y tecla soltada (ñ y acentos en NetSurf), ventanas mayores de 1000×700 | 094 (puntos 29, 30) |
+| Además: `qjs` (D188), GNU Prolog (D189) y el indicador de batería con uACPI (D192) | — |
+| **Indicador de batería** (D192): intérprete de AML **uACPI** (MIT, en `kernel/terceros/uacpi/`) en su propia tarea, **opcional y desactivado por defecto** (imagen con `--uacpi`, `make UACPI=1`, `run_in_qemu.sh --uacpi`) y solo en modo ACPI; el controlador embebido por sondeo con sus eventos `_Qxx`; `PNP0C0A`/`ACPI0003` cada 5 s y con `Notify`; icono en la bandeja (relleno, rayo, rojo bajo el 15 %, aviso al 10 %), `INFO_BATERIA` y la orden `bateria`. El apagado y el botón de la D113 no cambian. Rama `v7.2-bateria-uacpi`; falta probarlo en el G470, el dv7, el Amilo y el Toshiba. Después, con el intérprete ya dentro: `_PTS` antes de apagar, la tapa (`PNP0C0D`), el botón como dispositivo AML (`PNP0C0C`) y las zonas térmicas (mejora 030) | — |
+| **Las IRQ PCI de verdad con el IOAPIC** (D211): con `--ioapic`, autoprueba al arrancar (EHCI por el aviso IAA, e1000 por el ICS, HDA por la RIRB) y, si la interrupción no llega, esa línea vuelve al 8259 (modo mixto); con `--uacpi`, `\_PIC(1)` y el `_PRT` (puentes PCI-PCI y enlaces `LNKx`) dan a cada función su GSI real, comprobada por la misma autoprueba; tabla `[PRT]`/`[IOAPIC]` en el registro y la vía de cada IRQ en `infopc`. Rama `v7.2-ioapic-prt`, prueba h209; volcados del Inspiron 6400 y del Satellite L655 coherentes. Falta probarlo en el Amilo y decidir si las imágenes `--smp` vuelven a llevar `--ioapic` | — |
+| **Instalar desde CD/DVD** (pedido del mantenedor, 2026-11-13: el Amilo no arranca por USB): driver ATAPI de solo lectura (PATA y SATA por AHCI), el instalador copia la imagen de arranque El Torito del CD al disco elegido, y montar CD/DVD ISO 9660 en `/cd`. **Hecha en `v7.2-cd-instalar`** (D207, prueba h207; IDE por PIO y AHCI/SATAPI), pendiente de mezclar y de probar en el Amilo | 095 |
+| **2D por la GPU para el escritorio (D195)**: capa común `acel2d` con elección automática por el PCI y autoprueba contra la CPU al arrancar; VMware SVGA II probada en QEMU (copia 7 veces más rápida, arrastre 1,9 veces); blitter de Intel Gen3-Gen6 y motor 2D de Radeon R100-R500 escritos, sin probar en hardware; solo se toca la GPU que tiene la pantalla y solo se usa si es más rápida que la CPU. Hecha en `v7.2-gpu2d`, pendiente de mezclar | 054 (B1.4, B2), 055 |
+
+## Plan: v7.3 (USB 3.0, Wi-Fi por pincho USB, particiones flexibles)
+
+Decidido por el mantenedor el 2026-11-12 y 2026-11-13. Las tarjetas Wi-Fi **integradas** de los portátiles quedan para la v8 (fase 8). **El Bluetooth entero (pincho CSR8510 e integrados) pasa a la v8** (decidido el 2026-11-13).
+
+| Contenido | Mejora |
+| --- | --- |
+| **USB 3.0 (xHCI)** con teclado y ratón USB (HID) y pendrives por xHCI (adelantado de la v8). **Hecho (D214, rama `v7.3-xhci`):** traspaso de la BIOS, anillos, ranuras, contextos de 32/64 bytes, control/bulk/interrupción, hubs, pendrives, teclado y ratón/tableta USB por el xHCI **y por el EHCI** (lista periódica y transacciones partidas tras el hub interno), IRQ INTx con sonda para la autoprueba (D211); prueba `h214`. Falta probarlo en hardware real (el Ryzen) | 046, 029 |
+| **Wi-Fi solo con un pincho concreto:** Realtek **RTL8188EU** `0bda:8179` (el del mantenedor); cambio de modo desde el CD virtual `1111:1111` (como `usb_modeswitch`), firmware `rtl8188eufw.bin` de linux-firmware, pila 802.11 cliente y **WPA2-PSK** (AES-CCMP por hardware); `wifi buscar/conectar`, redes recordadas e icono en la bandeja. Se prueba con el pincho real pasado a QEMU por usbipd. **Hecho (D215, rama `v7.3-wifi`):** firmware, MAC de la eFuse, búsqueda y transmisión con el pincho real; conexión y WPA2 probados contra un punto de acceso simulado (falta la red del mantenedor); wlan0, `wifi`, `ifconfig wlan0`, `infopc` y bandeja; prueba `h215` | 072, D215 |
+| **Imágenes con particiones: una primaria y el resto en una extendida.** La partición de SaguiOS (kernel y ramdisk, tipo `0xDA`) es la única primaria, y `SAGUI-DATOS`, `SAGUI-JOGOS`, `SAGUI-APPS`, `/tmp` y `/logs` van como **lógicas dentro de una extendida** que ocupa el resto del disco. Así se acaba el límite de 4 primarias y queda sitio para **crear particiones nuevas y redimensionar** las existentes. Lo mismo en `make variantes` y en el instalador (D179). **Hecho (D213, rama `v7.3-particiones`):** `mkimagem --esquema logicas` por defecto (`primarias`/`mixto` para los formatos de antes) | D213 |
+| **Particiones (programa «Discos» > Particiones):** crear particiones lógicas nuevas en el hueco libre de la extendida, **redimensionar** (mover el final de una partición y crecer o encoger su sistema de archivos: ext2 crecer y encoger, FAT32 crecer), borrar, y ampliar la extendida al tamaño del disco tras grabar la imagen en un pendrive mayor. Con comprobación previa del sistema de archivos y confirmación. **Hecho (D213):** con el disco de arranque en uso (el kernel protege lo montado y la de SaguiOS), `particiones ampliar\|comprobar`, botón «Ampliar», ext2 crece y encoge sin mover datos (conserva `resize_inode`), FAT32 con la FAT dimensionada para crecer; prueba `h213` | D213 |
+
+**v7.3.1 (pedido del mantenedor, 2026-11-13):**
+
+| Contenido | Mejora |
+| --- | --- |
+| **Servicios en segundo plano:** definidos en `/etc/servicios` y `/home/.config/servicios`, arranque automático con dependencias (red, `/home`), reinicio con espera creciente, parada ordenada al apagar, registro en `/logs`; `servicio` en el terminal y pestaña Servicios en el Administrador de tareas | 074 |
+| **cron:** 5 campos y `@reboot/@daily...`, zona horaria, tareas perdidas al arrancar, `/logs/cron.log`; `crontab -l/-e/-r` | 074 |
+| **Bloqueo de publicidad y rastreo por DNS (como Pi-hole):** fase 1, en el resolvedor del kernel para todos los programas (listas en formato hosts, p. ej. StevenBlack (MIT), listas propias de permitidos y bloqueados, contador; `bloqueo` y pestaña en Configuración > Red); fase 2, servidor DNS en el puerto 53 como servicio para los demás equipos de la casa; las listas se actualizan con una tarea de cron. **Desactivado por defecto**: se enciende a mano (`bloqueo activar` o Configuración). **Hecho (D218, rama `v7.3.1-bloqueo-dns`):** filtro en `sis_resolver` con una tabla de hashes de 64 bits ordenada (100 000 dominios = 782 KB, ~180 ns por consulta), `bloqueo`, pestaña Red, `infopc`, y el servidor `dnsbloqueo` (UDP 53) con `/etc/servicios/dnsbloqueo.conf` desactivado; falta la tarea de cron que actualice las listas (cuando llegue el cron) | — |
+| **Archivos:** al hacer scroll en una carpeta con muchos archivos se perdía la vista elegida (iconos o detalles) hasta parar y hacer clic (visto en hardware real); **revisión robusta y compatible de los componentes de interfaz** (listas, rejillas, barras, campos, menús, pestañas, deslizadores, diálogos) | — |
+
+**v7.3.2 (pedido del mantenedor, 2026-11-13): más seguridad Wi-Fi para el pincho RTL8188EU**
+
+| Contenido | Mejora |
+| --- | --- |
+| **WPA2 en modo mixto y WPA (TKIP):** TKIP por software (Michael MIC y RC4 por paquete) para routers antiguos o en modo mixto WPA/WPA2 | 072 |
+| **WEP** (64 y 128 bits, clave abierta y compartida), solo para redes muy antiguas, con aviso de que es inseguro | 072 |
+| **WPA3-Personal (SAE)**: intercambio SAE (curva P-256, hunting-and-pecking y hash-to-element), PMF (802.11w) obligatorio, y modo de transición WPA2/WPA3 | 072 |
+| **Servicios en segundo plano:** definidos en `/etc/servicios` y `/home/.config/servicios`, arranque automático con dependencias (red, `/home`), reinicio con espera creciente, parada ordenada al apagar, registro en `/logs`; `servicio` en el terminal y pestaña Servicios en el Administrador de tareas. **Hecho (D216, rama `v7.3.1-servicios-cron`), pendiente de compilar y de la prueba `h216`** | 074 |
+| **cron:** 5 campos y `@reboot/@daily...`, zona horaria, tareas perdidas al arrancar, `/logs/cron.log`; `crontab -l/-e/-r`. **Hecho (D216), pendiente de compilar** | 074 |
+| **Bloqueo de publicidad y rastreo por DNS (como Pi-hole):** fase 1, en el resolvedor del kernel para todos los programas (listas en formato hosts, p. ej. StevenBlack (MIT), listas propias de permitidos y bloqueados, contador; `bloqueo` y pestaña en Configuración > Red); fase 2, servidor DNS en el puerto 53 como servicio para los demás equipos de la casa; las listas se actualizan con una tarea de cron. **Desactivado por defecto**: se enciende a mano (`bloqueo activar` o Configuración) | — |
+| **Componentes de interfaz robustos (D217):** la rueda del Archivos ya no cambia la vista (iconos o detalles) mientras se hace scroll; `lista_t` con gancho de dibujo propio, RePág/AvPág en las listas, caja de texto con el clic correcto en textos largos y topes en listas y barras. Prueba `h217`. | — |
+| **WPA2 en modo mixto y WPA (TKIP):** TKIP por software (Michael MIC y RC4 por paquete) para routers antiguos o en modo mixto WPA/WPA2. **Hecho (D220, rama `v7.3.2-wifi-seguridad`):** TKIP por software (el CCMP de datos sigue en el chip), WPA1 (descriptor 254), descriptor 1 (HMAC-MD5 y RC4), grupo TKIP con par CCMP y contramedidas de Michael; probado en el anfitrión con los vectores y contra un punto de acceso simulado (falta un router real) | 072, D220 |
+| **WEP** (64 y 128 bits, clave abierta y compartida), solo para redes muy antiguas, con aviso de que es inseguro. **Hecho (D220):** por software, autenticación abierta y de clave compartida, avisos en `wifi conectar`, en `wifi` y en la bandeja (falta un router real) | 072, D220 |
+| **WPA3-Personal (SAE)**: intercambio SAE (curva P-256, hunting-and-pecking y hash-to-element), PMF (802.11w) obligatorio, y modo de transición WPA2/WPA3. **Hecho (D220):** P-256 propia en el kernel, SAE con anti-clogging token, PMKID, H2E con RSNXE, 802.11w (CCMP de gestión, BIP, consulta SA), PSK-SHA256 y transición (SAE si se puede); vectores del anexo J.10 en el anfitrión (falta un router real) | 072, D220 |
+
+**Por confirmar para la v7.3:**
+- Editor de texto para el terminal basado en **kilo** (BSD), con alias `nano`.
+- El driver `alc` (D200) sin «experimental» si funciona en el Toshiba.
+- El formato de pendrive que arranque en el Amilo (D203).
+
+**Después de la v7.2, lo hecho** (comprobado contra `main`, 2026-11-13): una primera versión
+de `iconv` (19) en `userland/libc/iconv.c` y `iconv.h` (UTF-8, ISO-8859-1, Windows-1252, ASCII,
+UTF-16 y UTF-32, con `//TRANSLIT` y `//IGNORE`); `regcomp`/`regexec` (20) en
+`userland/libc/regex.c` y `regex.h`, **sin subexpresiones**; la **capa de señales de la libc
+común** (23, D210): `signal`, `raise`, `sigaction`, máscaras (`sigprocmask`...), `kill`,
+`waitpid`, `system` y `pipe` en `userland/libc/signal.h` y `posix.c`, y `fork`/`exec*` que
+devuelven `ENOSYS`; la **lectura de PNG de todos los tipos** (27, en `userland/libsagui/imagem.c`:
+con y sin alfa, 1 a 16 bits, Adam7), y su grabación (D125).
+
+**Después de la v7.2, lo pendiente:**
+- `iconv` completo (19): más codificaciones (ISO-8859-x y Windows-125x aparte de las dichas, CJK)
+  y las demás funciones.
+- Regex POSIX con **subexpresiones** (20): hoy solo se rellena `pmatch[0]` y el tamaño del
+  programa está limitado.
+- **Señales reales** (23): `signal`/`sigaction` solo recuerdan el tratador, que no llama nadie
+  más que `raise()`; las máscaras no hacen nada, `kill` solo sabe terminar un proceso y no hay
+  entrega asíncrona de señales desde el kernel; `wait` y `waitpid(-1)` dan `ECHILD`.
+- **`pthread` como capa de compatibilidad** (31): no hay `pthread_*` en `userland/libc` ni en
+  `userland/libsagui`; los hilos de la D167 (`thread_create`, `thread_join`, mutex y semáforo
+  con futex) son la base sobre la que se haría.
+- **PNG con canal alfa** de verdad (27): el alfa de un PNG leído se mezcla sobre blanco y la
+  imagen no lo conserva; y **FreeType** (28), que no está en el árbol.
+
+**Descartado o sustituido:** libcurl y `dlopen`, que no hacen falta (26, 32); herramientas del
+anfitrión, ya sustituidas (38).
+
+## Plan: v7.4 (2D por la GPU, segunda tanda)
+
+Decidido por el mantenedor el 2026-11-13: adelantar la segunda tanda de la aceleración 2D (D195) a la v7.4, sobre la misma capa común con detección por PCI y autoprueba al arrancar (si la GPU no copia o rellena igual que la CPU, o es más lenta, se usa la CPU).
+
+| Contenido | Mejora |
+| --- | --- |
+| **AMD R6xx/R7xx** (portátil del mantenedor con **Mobility Radeon HD 4550**, RV710): copias y rellenos por el **motor DMA**, que en estas familias **no lleva microcódigo** (D223: driver `r600dma`, `kernel/dispositivos/acel_r600.c`; lista exacta de 119 modelos de `drm_pciids.h`; R7xx sola, R6xx solo con `--acel2d=radeon`; sin probar en hardware, la autoprueba decide). El microcódigo (linux-firmware, como el del Wi-Fi) queda para el 3D de la v8 | 054 (B1.1-B1.4), 055 |
+| **NVIDIA GeForce 6/7 y Go 6xxx/7xxx** (NV4x/G7x), referencia `xf86-video-nv` (MIT); banco de pruebas: placas base con **GeForce 7025/7050/7100/7150 o 6100/6150 integrada (nForce)** | 054, 055 |
+| **AMD R6xx/R7xx** (portátil del mantenedor con **Mobility Radeon HD 4550**, RV710): copias y rellenos por el motor DMA o el 3D en modo 2D, con su microcódigo (de linux-firmware, como el del Wi-Fi; sin él, CPU) | 054 (B1.1-B1.4), 055 |
+| **NVIDIA GeForce 6/7 y Go 6xxx/7xxx** (NV4x/G7x), referencia `xf86-video-nv` (MIT); banco de pruebas: placas base con **GeForce 7025/7050/7100/7150 o 6100/6150 integrada (nForce)**. **Hecho, sin probar en hardware (D224):** `kernel/dispositivos/acel_nv.c`, canal 0 de PFIFO en modo DMA con los objetos 2D de X.Org (IMAGE_BLIT y GDI_RECTANGLE_TEXT), 129 identificadores exactos (C51, C61, C67, C68 y C73 incluidas) comprobados con `PMC_BOOT_0`, el CRTC y, en las integradas, `PMC 0x1700`; `--acel2d=nvidia`; prueba `h226` | 054, 055 |
+| Probar en hardware real la primera tanda: **Mobility Radeon X1400** (R5xx) del Amilo e **Intel Gen6** (HD 3000) del G470 | D195 |
+| **Reproductor de música propio** «al estilo» de los clásicos (confirmado el 2026-11-13) (ventana compacta, lista de reproducción, ecualizador de la v7.3.1, visualizador de espectro y osciloscopio, radio por internet, modo mini, temas propios; opcional leer pieles `.wsz` del usuario). **No** se usa el código de Winamp: su licencia (WCL) no permite distribuir versiones modificadas. **Hecho en la rama `v7.4-reproductor` (pendiente de compilar y probar):** `sintonia` en `/apps` (Inicio > Multimedia), lista M3U/PLS, ID3/Vorbis, espectro por FFT entera y osciloscopio, radio MP3 por HTTP/HTTPS con ICY, mini y temas en `/home/.config/sintonia/`; **faltan** «siempre encima» y arrastrar desde Archivos (el sistema no los tiene) y las pieles `.wsz` | D225 |
+| **OpenJazz** (pedido del mantenedor): el motor libre de *Jazz Jackrabbit* (20260301, GPL-2.0) como el port de OpenTyrian, con el **primer runtime de C++** propio (`userland/libcxx/`: new/delete, excepciones con desenrollador DWARF nuestro, cabeceras mínimas) y una **SDL 1.2 común** (`userland/libsdl12/`, 8 bits con paleta); en `/apps/bin/openjazz` e Inicio > Juegos. Los datos (no libres) no van en git ni en las entregas: `tools/openjazz_datos.sh` (shareware) o `input_share/games/` (versión completa). La partición **`SAGUI-JOGOS` pasa a `/jogos` de lectura y escritura** (800 MB en las persistentes y el instalador, la justa en `saguios.img`) y nace **`input_share/`** (docs/input_share.md). **Hecho en la rama `v7.4-openjazz` (pendiente de compilar y probar en QEMU)**; prueba `h228` | D228 |
+
+**v7.4.1 (pedido del mantenedor, 2026-11-13): Quake**
+
+| Contenido | Mejora |
+| --- | --- |
+| **Quake 1** con el renderizador por software, «el mismo modelo que los otros juegos»: el **WinQuake de id Software** (GPL-2.0, commit `bf4ac424`) sin tocar en `userland/terceros/quake/jogo/` (C puro: sin el ensamblador, `id386` a 0), sobre la SDL 1.2 común (320x200 en ventana al doble o 640x480, pantalla completa 4:3, sonido a 22050 Hz, teclado y ratón); en `/apps/bin/quake` e Inicio > Juegos («Quake» y «Quake (pantalla completa)»); configuración y partidas en `/home/quake/id1` (superposición sobre los datos de `/jogos`); sin red ni CD. Los datos (no libres) no van en git ni en las entregas: `tools/quake_datos.sh` (shareware 1.06, con un extractor LHA propio) o `input_share/games/Quake/`. El menú Inicio pasa de 64 a 96 líneas. **Hecho en la rama `v7.4.1-quake` (pendiente de compilar y probar en QEMU)**; prueba `h229` | D229 |
+
+
+## Plan: v7.4.1 y v7.4.2 (juegos portados que amplían el sistema)
+
+**Principio (mantenedor, 2026-11-13):** portar juegos libres es también una forma de completar lo que el sistema sabe hacer, para luego **compilar desde el propio SaguiOS aplicaciones más completas**. Lo que cada port necesita (runtime de C++, capas SDL, funciones de la libc, cabeceras) se hace general y reutilizable en `userland/libcxx`, `userland/libsdl12`, `userland/libsdl2` y la libc común (D210), no como parches dentro del juego. Los datos que no pueden ir en el repositorio entran por `input_share/` (`docs/input_share.md`).
+
+| Versión | Contenido | Decisión |
+| --- | --- | --- |
+| v7.4 | **OpenJazz** (motor libre de Jazz Jackrabbit, GPL-2.0): runtime de C++ propio con excepciones y SDL 1.2 común; partición de juegos de 800 MB rw | D228 |
+| v7.4.1 | **Quake 1** (id Software, GPL-2.0), renderizado por software sobre la SDL común; datos en `input_share/games/Quake/` | D229 |
+| v7.4.1 | **USB en caliente** robusto (reintentos, sin congelar el sistema) | D227 |
+| v7.4.1 | **CD/DVD en caliente** (fallo del mantenedor: «meto un CD/DVD y no puedo verlo»): tarea que vigila el lector, montaje automático en `/cd`, `eject` y Expulsar en Discos y Archivos, **UDF de solo lectura** (1.02-2.01, DVD y discos grabados), multisesión y **CD de audio como carpeta de WAV** (sistema de archivos `cdda`, CD-TEXT, `Lista.m3u`; se escucha con Sintonía o `musica`; aviso pulsable). **Hecho en `v7.4.1-cd-medio`** (prueba h233), pendiente de compilar, de probar y de mezclar | D233 |
+| v7.4.2 | **Vanilla Conquer** (código de EA, GPL-3.0): primero Command & Conquer (Tiberian Dawn) con las ISO de C&C Gold en `input_share/games/CnC/`; capa **SDL2 mínima** reutilizable | D230 |
+| v7.4.2 | **Terminal con pestañas** y configurable: varios `sagsh` en una ventana, temas de colores propios y los 16 ANSI, fuentes vectoriales monoespaciadas, Preferencias en `/home/.config/terminal.conf`, buscar, copiar y pegar, enlaces al Cipó | D231 |
+| v7.4.2 | **Más comandos en el terminal** (33 nuevos): `sed`, `tr`, `nl`, `od`/`xxd`, `base64`, `md5sum`/`sha1sum`, `file`, `expr`, `bc`, `cal`, `lscpu`, `lspci`, `dmesg`, `top`, `watch`, `time`, `timeout`... con `--help` y ayuda; los de lógica delicada se prueban en el PC | D232 |
+| v7.4.2 | Rendimiento del Wi-Fi (802.11n, recepción por interrupción) y lo que salga de las pruebas en hardware real (GPU, Atheros, instalador desde CD). **Wi-Fi escrito (D238, rama `v7.4.2-wifi-rendimiento`):** colas de 8 lecturas USB en vuelo (EHCI y xHCI, la IRQ del xHCI despierta a la tarea) y envío sin esperar (xHCI), 802.11n MCS 0-7 a 20 MHz con GI corto y WMM, ADDBA rechazado, A-MSDU, contadores en `wifi` y en el registro; vuelta sola a b/g y a una lectura cada vez si algo falla; compilado y en main (`h215`, `h214`, `h29_ehci` y `h227` pasan); falta la medida con el router del mantenedor | D238 |
+| v7.4.3 | **Mico: vista de diferencias y «Aplicar» en el Asistente** (D240, rama `v7.4.3-mico-diff`): las propuestas de la IA (corregir a partir de Problemas, generar función) se piden con el código completo en un bloque, se comparan por líneas (Myers, `libsagui/difer.c`) y se enseñan en rojo/verde con 3 líneas de contexto y navegación entre bloques; botones «Aplicar» (todo, un solo paso de Ctrl+Z), «Aplicar este bloque» y «Descartar»; si el archivo cambió desde la petición se avisa y se recalcula. Prueba `h240` (unidad en el PC + QEMU) | 043 |
+
+
+## v7.4.3: asistente de IA
+
+| Versión | Contenido | Decisión |
+| --- | --- | --- |
+| v7.4.3 | **El «Chat IA» ampliado** (mejora 043): lista lateral de conversaciones guardadas en `/home/.config/ia/conversas/` (abrir, renombrar, borrar; la nueva arriba; título automático), respuestas en **Markdown** con bloques de código y botón «Copiar» (también en streaming) gracias a un **visor de texto con estilos** nuevo en la libsagui (`rico_*`), **Preferencias** en la ventana (servidor, clave, modelo del chat; la configuración compartida de D145), mensaje de sistema por conversación, «Regenerar» y «Adjuntar» un fichero de texto. **Hecho en la rama `v7.4.3-chatia`** (compilado; `h239` y h116, h117, h105, h111, h81, h04, h28 y h151 pasan con KVM) | D239 |
+
+
+## Plan: v8.x y v9.0 (reparto decidido el 2026-11-13)
+
+Orden propuesto y aceptado por el mantenedor. Las tablas detalladas de «v8» y «v9-v11» de abajo siguen valiendo como lista de contenidos; este reparto manda sobre el número de versión.
+
+| Versión | Tema | Contenido |
+| --- | --- | --- |
+| **v8.0b** (beta, antes de la v8.0) | Probar en máquinas reales | Lo que el mantenedor necesita para depurar en sus equipos antes de empezar la v8.0: **captura del ratón** para juegos (D242: Quake mira con el ratón, `SDL_WM_GrabInput` real, Ctrl+Alt la suelta) y en **Información del PC** una **pestaña «GPU»** con los datos de la tarjeta (identificador PCI, familia, VRAM, modo de vídeo, acelerador 2D activo o por software) y un **benchmark 2D** (rellenos, copias, líneas, texto y redibujado de ventanas) que mide la aceleración 2D por la GPU donde la hay y el camino por software (CPU) donde no, con puntuación y comparación; más adelante, cuando haya 3D por la GPU (v8.3), las **puntuaciones 3D** en la misma pestaña (D243; **hecho en la rama `v8.0b-infopc-gpu`**: pestaña GPU, benchmark 2D con GPU y CPU, prueba h242; el 3D queda como hueco); y un juego extra, el **buscaminas** propio (D248: tres niveles y personalizado, banderas, acorde, primera casilla segura y mejores tiempos; rama `v8.0b3-buscaminas`) |
+| **v8.0b2** | Diagnóstico y fluidez en hardware real | **Hecho en main:** vigilante del acelerador 2D, tarjetas confirmadas, `acel2d apagar/encender` y detector de tormentas de IRQ (D244); write-combining medido con reintento por MTRR y pantalla completa más barata (D245); driver R7xx revisado contra Linux con `acel2d probar --detalle` (D246). **En curso:** **C&C más fluido** optimizando el renderizador **por software** de la SDL 2 (paleta por tabla/SSE2, ampliación entera, solo lo que cambia); medido primero dónde se va el tiempo. El renderizador **por la GPU** de la SDL 2 (texturas en VRAM, la GPU amplía y convierte) va con el 3D, en la **v8.3** |
+| **v8.0b5** | Acceso remoto para depurar | **SSH de administración** (decidido el 2026-11-14, a partir de la mejora 052): servidor `sshd` en SaguiOS (`curve25519-sha256`, `chacha20-poly1305@openssh.com`, claves **Ed25519** nuevas sobre la aritmética de X25519, solo **clave pública** con `authorized_keys`, `exec` y `shell` con PTY, y `scp`/`sftp` para traer registros), **desactivado de serie**, solo red local y registro en `/logs`; para que el asistente se conecte desde el PC a los portátiles de prueba. Después, el **cliente `ssh`**. Los *jails* de la 052 siguen para más adelante (D250). **Publicada** (2026-11-14, batería 205/205, etiqueta `v8.0b5`): `sshd` con Ed25519 propio (vectores de la RFC 8032), `exec`, `shell` con PTY y `sftp` (que es lo que usa `scp`), modo estricto de intercambio, solo red local, límites y bloqueo por fallos, registro en `/logs/sshd.log`, `sshd --huella`; prueba h248 contra el OpenSSH del anfitrión; guía en `docs/ssh.md`. Falta el cliente `ssh` |
+| **v8.0b6** | Escritorio remoto | **VNC propio** (mejora 097, decidido el 2026-11-14): servidor `vncd` (RFB 3.8, Raw/CopyRect/Hextile/ZRLE, deflate continuo, contraseña VNC, desactivado de serie y por defecto solo en 127.0.0.1), inyección de teclado y ratón en el kernel solo para el servicio, y redirección `ssh -L` en el `sshd` para entrar cifrado; después el cliente `vnc`. Sin portar TightVNC (1.3.10 es un servidor X; 2.x es solo Windows). **Fase 1 en main** (2026-11-14): `SIS_INYECTAR` (D251, h249), `vncd` con RFB 3.8/3.7/3.3, ZRLE/Hextile/Raw y 8/16/32 bpp (D252, h250), `ssh -L` (D253, h251). Prueba de extremo a extremo con el OpenSSH del anfitrión (h252) y **cliente `vnc`** (D254, h253: Raw, CopyRect, Hextile, ZRLE, Tight con JPEG, cursor, escalado). **Publicada** (2026-11-14, etiqueta `v8.0b6`) |
+| **v8.0b7** | Usuarios (fase 1) | **Usuarios y llamadas privilegiadas** (mejora 098, decidido el 2026-11-14): `uid`/`gid` en los procesos, `root` con contraseña y `sagui` con entrada automática, las llamadas al sistema de administración solo para root (deniega por defecto), elevación por el gestor de servicios (`su`, `admin`, diálogo) sin setuid, modo rescate; `sshd`/`vncd` por usuario |
+| **v8.0b7** | Licencia GPL v3 | **El proyecto pasa a GPL v3** (D258, permiso de Eli Rigobeli, autor del SaguiOS original): `LICENSE`, `AUTORES.md`, `docs/licencia.md`; capas `GPL-3.0-only` (lo del original y derivados), `GPL-2.0-or-later` (lo nuevo) y terceros con la suya; `tools/spdx.py` (marcas SPDX) y auditoría ampliada; **NetSurf solo en privado** (`NETSURF=0` en `make variantes`); `SEM_GPL` = sin ports GPL; pendiente del mantenedor: GNUBoy (GPL-2.0 casi sin «or later») |
+| **v8.0** | Arrancar en PC modernos | **UEFI** (x64 e IA32, GOP), imagen híbrida BIOS+UEFI, **NVMe**, instalador con **GPT** y ESP; **USB 1.1 (UHCI/OHCI)** para PC antiguos como el Amilo (062, 029) |
+| **v8.1** | USB isócrono | transferencias isócronas en EHCI y xHCI, **cámaras web integradas** (UVC, aplicación «Cámara») y **audio USB** **Decidido (discusión #8, 2026-11-14):** primero isócrono y cámaras UVC integradas, después audio USB; las cámaras USB externas, fuera de esta versión |
+| **v8.2** | Inalámbrico integrado | **Bluetooth** (pincho CSR8510, luego integrados como el Intel AX210, BLE) y **Wi-Fi integrada** de portátiles (079, 072) **Decidido (discusión #9, 2026-11-14):** empezar a la vez por el **Bluetooth CSR8510** y la **Wi-Fi Atheros AR9485** (los dos sin firmware); Bluetooth y Wi-Fi en la misma versión; el Intel AX210, después |
+| **v8.3** | Gráficos | **3D por la GPU** (Radeon R6xx/R7xx, Intel Gen3) y **varias pantallas**, fase 1 (054, 055, 060); con el 3D, **renderizador por GPU de la SDL 2** (`SDL_RENDERER_ACCELERATED`: texturas en la memoria de vídeo, ampliación y conversión de paleta en la GPU), decidido el 2026-11-14 **Decidido (discusión #10, 2026-11-14):** Radeon R6xx/R7xx e Intel Gen3 **en paralelo**; orden: 3D, luego el renderizador SDL 2 por GPU, luego varias pantallas |
+| **v8.3.1** | Demostrar el 3D | **ejemplos 3D** y **pruebas de rendimiento 3D** (benchmarks) que usan la aceleración, y un **monitor de uso de la GPU** (carga del motor, memoria de vídeo, cuadros por segundo; en el Administrador de tareas y en `infopc`) |
+| **v8.4** | Sistema de archivos | **disco IDE sin congelar el sistema** (decidido el 2026-11-14: la lectura por PIO congela el tic porque las llamadas al sistema corren con las interrupciones apagadas, D165; arreglo de verdad con **DMA por Bus Master IDE** e interrupción, o troceando en el VFS con cesión; D245 dejó hechas las esperas por tiempo real) y **optimizar el sistema de archivos y los puntos de montaje**: caché de bloques compartida, lectura anticipada, escritura diferida con vaciado seguro, montajes más rápidos y robustos (por etiqueta, al conectar en caliente, desmontaje limpio al apagar), y la arquitectura de almacenamiento de la mejora 035 (raíz en disco, carga bajo demanda) |
+| v8.5 | Usuarios (fases 2 y 3) | Permisos de ficheros (dueño, grupo, `rwx`; ext2 nativo, SGFS de root, FAT32 con `uid=`/`umask=`) y varios usuarios con pantalla de inicio y «Usuarios» en Configuración (mejora 098) |
+| **v9.0** | Más aplicaciones y autonomía | **más aplicaciones** y **autonomía del sistema**: compilar aplicaciones completas desde el propio SaguiOS (con lo que aportan los ports de juegos: C++, SDL1.2/SDL2, libc), instalar y actualizar apps en `/apps` sin otro PC, y depender lo menos posible del PC de desarrollo; **port de OpenLoco** (*Chris Sawyer's Locomotion*, MIT, sin `loco.exe`; datos del mantenedor por `input_share/`; trae una capa **SDL 3** y más C++ moderno para otros ports; mejora 096) |
+
+**v7.4.1 (pedido del mantenedor, 2026-11-13): la búsqueda de dispositivos USB al conectarse**
+
+| Contenido | Mejora |
+| --- | --- |
+| **USB en caliente que no se pierde nada:** estado por puerto (EHCI, xHCI y hubs) con **reintentos** (reset nuevo cada vez; a 1, 2 y 5 s y después cada 10 s, hasta 10; en el EHCI, el esquema antiguo de dirección en los pares), antirrebote de 100 ms, puertos conectados sin estado que se vuelven a mirar, pendrive que no responde reintentado, la tarea `usb` con las interrupciones encendidas y esperas que duermen (enchufar ya no congela el sistema), el xHCI la despierta con el evento de cambio de puerto, el puerto cedido al compañero se deja hasta que vuelve, `usb` muestra cada puerto con sus intentos. **Hecho en la rama `v7.4.1-usb-caliente` (pendiente de compilar y probar):** prueba `h227` con `--usb-prueba` (fallo simulado del primer intento o de todos) | D227 |
+
+**v7.4.2 (pedido del mantenedor, 2026-11-13): Command & Conquer y Game Boy**
+
+| Contenido | Mejora |
+| --- | --- |
+| **Command & Conquer: Tiberian Dawn** con **Vanilla Conquer** (el código que EA publicó en 2020, GPL-3.0; commit `29e68a3`) sin tocar en `userland/terceros/conquer/jogo/` (C++), en `/apps/bin/conquer` e Inicio > Juegos. Trae, para todos los ports: una **SDL 2 propia** (`userland/libsdl2/`: ventana con renderer de software y ventana lógica escalada, 4:3 a pantalla completa, superficies de 8 y 32 bits, teclado con códigos de rastreo, ratón, audio), una **OpenAL propia** (`userland/libopenal/`: mezclador de software), `<string>`, `<chrono>`, `<stdexcept>` y las de C en `std::` en el runtime de C++, y `fnmatch`/`basename`/`dirname` en la libc común. Los datos salen de las **ISO de C&C Gold** de `input_share/games/CnC/` con `tools/cnc_extraer.py` (lector de ISO y descompresor de InstallShield propios): 63 MB a `/jogos/CnC` (los dos discos en `gdi/` y `nod/`), las películas (840 MB) solo con `CNC_VIDEOS=1`; nunca en git ni en las entregas. El menú Inicio pasa a 96 líneas (como D229). Red Alert compila también (`/apps/bin/redalert`) si se bajan sus fuentes, sin entrada en el menú hasta tener datos. **En main** (compilado; `h230` pasa con KVM) | D230 |
+| **Game Boy y Game Boy Color con SDL2-GNUBoy** (pedido del mantenedor; commit `c8642d1`, GPL-2.0) sin tocar en `userland/terceros/gnuboy/jogo/` (C, 0,7 MB, en git), en `/apps/bin/gnuboy` e Inicio > Juegos > «Game Boy (GNUBoy)». Compila sobre la SDL 2 de C&C, que gana de forma general `<SDL2/SDL.h>`, los formatos `*32`, `SDL_ShowMessageBox`, `SDL_SaveBMP`, los textos y `SDL_HAT_*` de los mandos, el audio sin tarjeta al ritmo del reloj y un escalado de texturas sin divisiones de 64 bits por píxel. Ventana de 480x432 (160x144 por 3), pantalla completa con la proporción y bandas, sonido por la SDL 2, flechas, Z/X, Intro y Mayús (en `gnuboy.rc`), batería y estados en `/home/gnuboy`. **Las ROM no van en git ni en las imágenes:** `/jogos/gb`, `/home/gnuboy/roms` y los discos montados, con una ventana para elegir (nombre de la cabecera del cartucho) o la ayuda si no hay; `input_share/games/gb/` (D235); `tools/gnuboy_roms_libres.sh` baja Libbet (zlib). ROM de prueba propia (`tools/gnuboy_rom_teste.py`). Prueba `h235` (la parte «unidad» ya corre en el PC; las de QEMU, pendientes de compilar) | D235 |
+
+
+## v8: propuesta
+
+Tema: **hardware moderno y red** (la red y la web en Python, decididas el 2026-11-08; el arranque UEFI, adelantado aquí el 2026-11-13).
+
+| Contenido | Mejora |
+| --- | --- |
+| Red por USB: CDC-NCM/ECM (adaptador RTL8156) | 044 |
+| **Rendimiento de la red:** ventana TCP grande, control de congestión, ACK retardado y Nagle (movido de la v7) | 045 |
+| **Dirección local (*loopback*, 127.0.0.1)**: lo mínimo llega antes con lite-monkey (v5.4); aquí, lo que falte para la web local (el Cipó abre las aplicaciones locales) | 065 |
+| **Python web:** `asyncio` activado en MicroPython y **Microdot** (el microframework web hecho para MicroPython, MIT) en `/lib/python`, con ejemplos; capa opcional compatible con Bottle | 065 |
+| USB 1.1 (OHCI/UHCI) para PC antiguos y el dv7 | 029 (fase 1) |
+| Red **Intel e1000e** (82566/82567/82574/82579) | 055 |
+| **Wi-Fi integrada** (la del pincho RTL8188EU llega en la v7.3): **Atheros AR9485** por PCIe (Toshiba L850, `ath9k` de licencia ISC, sin firmware) y otras integradas, sobre la pila 802.11 y WPA2 de la v7.3 | 072 |
+| **Sonido (3):** ahorro de energía del códec y **audio USB** (USB Audio Class) | 075 |
+| **Cortafuegos:** filtro con estado en la pila IPv4, entrada bloqueada por defecto, reglas por puerto, red y **programa**, pregunta al escuchar por primera vez, `cortafuegos` y pestaña en Configuración, registro en `/logs` | 073 |
+| **3D por la GPU:** AMD R6xx/R7xx (HP dv7) e **Intel GMA 900/950/3100 (Gen3)** | 054 (B1.5-B1.6), 055 |
+| Reparto del rasterizador por software entre núcleos, si ya hay SMP | 054 (A3) |
+| **Varias pantallas, fase 1:** escritorio extendido/duplicado, aplicación «Pantallas», con varias salidas en QEMU. **Entera pendiente:** el programa `pantalla` que ya existe (`userland/programas/pantalla.c`, D058 y D059) es solo de **resolución** de una pantalla (lista los modos, cambia o graba la resolución, `pantalla auto`); no tiene nada de varias pantallas y no hay que confundirlo con esta mejora | 060 |
+| **Arranque UEFI** (adelantado de la v10, decidido el 2026-11-13: desde ~2020 muchos PC ya no tienen el modo CSM): cargador propio `BOOTX64.EFI` y `BOOTIA32.EFI` que lee el kernel y el ramdisk de la partición ESP (FAT), elige la resolución por **GOP**, pasa el mapa de memoria, ACPI y SMBIOS en el mismo `boot_info`, y baja de 64 a 32 bits para saltar al kernel (que sigue siendo de 32 bits); **imagen híbrida** GPT/MBR con ESP que arranca por BIOS y por UEFI; **Secure Boot desactivado** (fuera del alcance). Base posible: POSIX-UEFI (MIT) o gnu-efi (BSD) | 062 |
+| **Bluetooth** (movido de la v7.3 el 2026-11-13): primero un pincho USB estándar sin firmware (CSR8510): HCI/L2CAP/SDP, emparejamiento, teclado y ratón; luego integrados con firmware (Intel AX210) y BLE; aplicación «Bluetooth» | 079 |
+| **Cámaras web integradas de los portátiles** (confirmado el 2026-11-13): por dentro van por el USB del portátil y son de clase **UVC**; transferencias isócronas en EHCI y xHCI (las mismas que el audio USB), driver UVC (YUYV y MJPEG) y aplicación «Cámara» (vista previa, foto, vídeo, lector de QR). Primero las integradas (Toshiba L635 y portátiles de prueba del mantenedor); las **cámaras USB externas**, con sus particularidades, más adelante | — |
+| **Discos NVMe** (los PC con UEFI sin CSM suelen tenerlos) e **instalador con GPT y ESP** además de MBR | 062 |
+
+## v9-v11: propuesta
+
+Tema: **varios núcleos, Bluetooth y varias pantallas** (necesitan el xHCI/HID de la v7.3 y el escritorio multipantalla de la v8).
+
+| Versión | Contenido | Mejora |
+| --- | --- | --- |
+| **v9** | **Varios núcleos (SMP), fase 1: ya hecha** (v6.7, v6.8 y v7.0b; no volver a planearla): arranque de los secundarios con INIT-SIPI, estructuras y FPU/SSE por CPU y opción «un solo núcleo» (`mkimagem.py --smp`; sin ella, un procesador) en la **D164**; cerrojo general del kernel en la **D165**; I/O APIC en la **D166**; hilos de usuario (`thread_create`, `thread_join`, mutex y semáforo con futex) en la **D167**; IRQ repartidas entre CPU (`ioapic_repartir()`) en la **D168**. Lo que falta es la fase 2, en la fila de la v10 | 017 |
+| **v9** | **Varias pantallas en Intel nativo** (panel interno + VGA/HDMI externo, EDID) | 060 |
+| **v9** | **UEFI, pulido:** menú de arranque pequeño para elegir resolución y opciones, apagado y reinicio por los servicios de UEFI como reserva, y Secure Boot con claves propias si merece la pena | 062 |
+| **v10** | **Varios núcleos, fase 2:** cerrojos finos en vez del global (memoria, VFS, red, GUI), colas de planificación por núcleo con reparto de carga, afinidad, hilos de usuario (`pthread` sencillo) y aprovechamiento en SaguiGL (rasterizado por bloques en varios núcleos), SaguiMark multinúcleo y compiladores | 017, 054 (A3) |
+| **v10** | **Varias pantallas en AMD** (salidas Radeon con AtomBIOS, R6xx/R7xx) | 060 |
+| **v10** | **Audio Bluetooth** (A2DP con SBC, AVRCP básico) sobre el mezclador de la 041 | 079 |
+| **v11** | **Archivos (OBEX) y red (PAN)** por Bluetooth | 079 |
+
+## Más adelante (sin versión asignada)
+
+| Contenido | Mejora | Nota |
+| --- | --- | --- |
+| Arquitectura de almacenamiento: raíz en disco, caché, carga bajo demanda, bibliotecas compartidas | 035 | por fases, **sola** (sin otros hilos de kernel) |
+| Clientes de **MySQL/MariaDB** (`pymysql` adaptado) y **MongoDB** (`bson` y `pymongo` propios) para Python, con DNS SRV/TXT para `mongodb+srv://` | 066 | mucho más adelante (decidido el 2026-11-08); antes va lite-monkey (067) |
+| **Memoria:** que el sistema no muera sin RAM (OOM), swap **comprimida** en la RAM que el kernel de 32 bits no usa (PC con más de 2 GB) y partición `SAGUI-SWAP` | 069 | mejora «gorda», mucho más adelante (2026-11-08) |
+| **Apps extra en `/app`** (persistentes con disco), **repositorio en red** (servidor en Python, índice firmado, pruebas automáticas en QEMU) y **SDK de compilación cruzada** (`sagui-sdk`, plantillas, `AGENTES.md`) para que personas e IA creen apps | 070 | futuro, por fases (2026-11-08) |
+| **Autocompilación:** que el `cc` de SaguiOS compile aplicaciones grandes del sistema, empezando por el emulador de NES (y, a largo plazo, el propio sistema) | 071, `cc` | objetivo a largo plazo (2026-11-08) |
+| SSH: cliente y servidor de *jails* | 052 | el servidor de administración ya está (D250, v8.0b5); después el cliente; los jails necesitan raíz por proceso (encaja con la 035) |
+| PC antiguos: drivers de la época (e100, 3Com, IDE DMA…) | 036 (fase B) | por máquina, según los informes |
+| **Apagado de emergencia por temperatura** (p. ej. 90 °C, ajustable solo hacia abajo) con el apagado ACPI de la 030; umbrales ACPI del fabricante si algún día hay intérprete AML | 030/061 | mucho más adelante (decisión del 2026-11-08) |
+| 3D por la GPU en más familias (Radeon Evergreen y R5xx, Intel Gen6 del G470) y **resolución nativa del panel** con el motor de pantalla de Intel — la **estructura de las familias de AMD ya está** (D158, mejora 090): la tabla, la identificación y el vigilante; falta el motor por hardware, que depende de B1 | 054 (B2), 090 | según el hardware disponible; la resolución nativa, con vuelta a VESA siempre disponible |
+| **Motor de JavaScript mejor:** **hecho.** El motor de las páginas del Cipó (081) es ya el **QuickJS** ([bellard/quickjs](https://github.com/bellard/quickjs)) y no uno propio (D149, rama `v6.4-quickjs`); además `qjs` lo trae a la terminal (D188) y el QuickJS (`qjs_port.c`) y GNU Prolog pasaron a la libc común (D210, rama `v7.3-libc-qjs-prolog`, fusionada en `8e26c35`, con `strtod`/`printf` exactos propios). Procedencia en `docs/terceros.md`. Sin pendientes registrados de esta mejora | 081 | idea del 2026-11-11; hecha antes de la v7.3 |
+| Port a ARM / Raspberry Pi | 028 | **no hacer por ahora** |
+| Licencia GPLv2 y publicación del repositorio | rama `licencia` | requiere el permiso de Eli Rigobeli y M4R4G0N |

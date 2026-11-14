@@ -1,0 +1,33 @@
+Command & Conquer en SaguiOS: los datos del juego
+=================================================
+
+Command & Conquer (Inicio > Juegos) es Vanilla Conquer, la versión libre y
+portable (GPL-3.0) del motor de Tiberian Dawn que Electronic Arts publicó en
+2020. Los gráficos, los sonidos, la música, las películas y las misiones son
+los del juego original de Westwood Studios, que NO son libres y no vienen con
+SaguiOS. El juego los busca en /jogos/CnC y en cualquier otra carpeta de
+/jogos (y en jogos/ de los discos montados).
+
+Cómo conseguirlos:
+
+  - Command & Conquer Gold para Windows 95, la edición que EA regaló en 2007
+    (dos CD: GDI y NOD). Al compilar SaguiOS, ponga las dos ISO en
+    input_share/games/CnC/: tools/cnc_extraer.py saca de ellas solo lo que
+    usa el motor (unos 63 MB: los .MIX del juego, los del instalador y las
+    misiones de cada disco en gdi/ y nod/) y el make lo pone en /jogos/CnC.
+    Las películas (MOVIES.MIX, unos 880 MB) solo con CNC_VIDEOS=1 y una
+    partición de juegos mayor (JOGOS_MB=2000); sin ellas el juego se salta
+    las escenas.
+
+  - Un C&C95 ya instalado: copie su carpeta (CONQUER.MIX, GENERAL.MIX,
+    UPDATE.MIX, UPDATEC.MIX, CCLOCAL.MIX, SOUNDS.MIX, SPEECH.MIX,
+    TRANSIT.MIX, DESERT.MIX, TEMPERAT.MIX, WINTER.MIX y los *ICNH.MIX) a
+    /jogos/CnC desde SaguiOS (la partición de juegos es de lectura y
+    escritura). Para las dos campañas, el GENERAL.MIX (y el MOVIES.MIX) de
+    cada disco en /jogos/CnC/gdi y /jogos/CnC/nod.
+
+La configuración (CONQUER.INI), las partidas guardadas y el registro del
+motor (vanillatd.log) van a /home/cnc.
+
+Teclas: F11 o Alt+Intro, pantalla completa; el ratón, como en el original
+(clic izquierdo para elegir y mover, derecho para cancelar).

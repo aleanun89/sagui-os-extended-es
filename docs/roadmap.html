@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SaguiOS — Roadmap</title>
+<meta name="description" content="Roadmap de versiones de SaguiOS, un sistema operativo hecho desde cero para PC x86 antiguos.">
+<style>
+:root{
+  --bg:#f3f8f2; --surface:#ffffff; --surface2:#eaf3e8; --text:#17261c; --muted:#4a5f50; --border:#c8d9c9;
+  --g1:#1f7a4d; --g2:#e9b919; --g3:#1d5fa8; --link:#14589e; --shadow:0 2px 10px rgba(20,60,30,.12);
+  --pub-bg:#d3efdc; --pub-fg:#0d4a2a;
+  --casi-bg:#fbeaa6; --casi-fg:#5a4300;
+  --curso-bg:#cfe3f8; --curso-fg:#0f3d70;
+  --prop-bg:#e3dcf3; --prop-fg:#3d2a73;
+  --fut-bg:#e2e6e3; --fut-fg:#37433b;
+  --no-bg:#f7d6d3; --no-fg:#7a1d16;
+  --pend-bg:#eceff0; --pend-fg:#33403a;
+  --hero:linear-gradient(120deg,#1f7a4d 0%,#4f9a3a 38%,#d9aa10 66%,#1d5fa8 100%);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1712; --surface:#17241c; --surface2:#1e2f25; --text:#e6f1e8; --muted:#a9bfb0; --border:#2e4636;
+    --link:#8fc3ff; --shadow:0 2px 12px rgba(0,0,0,.5);
+    --pub-bg:#1b4a30; --pub-fg:#bff0cf; --casi-bg:#5a4700; --casi-fg:#ffe58a; --curso-bg:#16406f; --curso-fg:#c4e0ff;
+    --prop-bg:#3a2d63; --prop-fg:#dcd0ff; --fut-bg:#2d3a32; --fut-fg:#cbd8cf; --no-bg:#5a2420; --no-fg:#ffc9c4;
+    --pend-bg:#2b362f; --pend-fg:#d0ddd3;
+    --hero:linear-gradient(120deg,#0f4a2f 0%,#2f6a28 38%,#8a6a06 66%,#123d70 100%);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1712; --surface:#17241c; --surface2:#1e2f25; --text:#e6f1e8; --muted:#a9bfb0; --border:#2e4636;
+  --link:#8fc3ff; --shadow:0 2px 12px rgba(0,0,0,.5);
+  --pub-bg:#1b4a30; --pub-fg:#bff0cf; --casi-bg:#5a4700; --casi-fg:#ffe58a; --curso-bg:#16406f; --curso-fg:#c4e0ff;
+  --prop-bg:#3a2d63; --prop-fg:#dcd0ff; --fut-bg:#2d3a32; --fut-fg:#cbd8cf; --no-bg:#5a2420; --no-fg:#ffc9c4;
+  --pend-bg:#2b362f; --pend-fg:#d0ddd3;
+  --hero:linear-gradient(120deg,#0f4a2f 0%,#2f6a28 38%,#8a6a06 66%,#123d70 100%);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;overflow-x:hidden}
+a{color:var(--link)}
+code{font:.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--surface2);padding:.05em .35em;border-radius:4px;overflow-wrap:anywhere}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px}
+header.hero{background:var(--hero);color:#fff;padding:28px 0 56px;position:relative}
+header.hero .wrap{display:flex;gap:20px;align-items:center;justify-content:space-between}
+.hero h1{margin:0;font-size:clamp(1.7rem,5vw,2.8rem);line-height:1.1;text-shadow:0 2px 8px rgba(0,0,0,.35)}
+.hero p{margin:.5rem 0 0;font-size:1.05rem;max-width:34em;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.mono{width:min(150px,30vw);flex:none;filter:drop-shadow(0 4px 6px rgba(0,0,0,.3))}
+.mono .tail{transform-origin:20px 140px;animation:sway 3s ease-in-out infinite}
+@keyframes sway{50%{transform:rotate(-8deg)}}
+.themebtn{position:absolute;top:12px;right:16px}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:999px;padding:.35em .9em;min-height:36px}
+.btn:hover{border-color:var(--g1)}
+.btn:focus-visible,input:focus-visible,.chip:focus-visible,.card-h:focus-visible{outline:3px solid var(--g3);outline-offset:2px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:-34px;position:relative}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow);border-top:5px solid var(--g1)}
+.stat:nth-child(2){border-top-color:var(--g2)}.stat:nth-child(3){border-top-color:var(--g3)}.stat:nth-child(4){border-top-color:var(--prop-fg)}
+.stat b{display:block;font-size:2rem;line-height:1.1}
+.stat span{color:var(--muted);font-size:.9rem}
+.tools{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin:18px 0;box-shadow:var(--shadow)}
+.tools label.s{display:block;font-weight:600;margin:0 0 4px}
+.tools input[type=search]{width:100%;padding:.55em .8em;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+.grp{margin-top:12px}.grp>b{display:block;font-size:.85rem;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:.3em .8em;min-height:34px}
+.chip[aria-pressed=true]{background:var(--g1);color:#fff;border-color:var(--g1)}
+:root[data-theme="dark"] .chip[aria-pressed=true]{background:#2e9e66;color:#05170d}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .chip[aria-pressed=true]{background:#2e9e66;color:#05170d}}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+#count{color:var(--muted);font-size:.9rem;margin-left:auto}
+.timeline{position:relative;margin:24px 0 8px;padding-left:34px;list-style:none}
+.timeline::before{content:"";position:absolute;left:11px;top:6px;bottom:6px;width:6px;border-radius:3px;background:linear-gradient(var(--g1),var(--g2),var(--g3))}
+.ver{position:relative;margin:0 0 20px}
+.ver::before{content:"";position:absolute;left:-31px;top:20px;width:20px;height:20px;border-radius:50%;background:var(--surface);border:5px solid var(--dot,var(--g1))}
+.ver[data-st=publicada]{--dot:var(--g1)}.ver[data-st=casi]{--dot:var(--g2)}.ver[data-st=curso]{--dot:var(--g3)}.ver[data-st=propuesta]{--dot:#7a5fc4}.ver[data-st=futura]{--dot:#7d8c82}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.card-h{display:flex;width:100%;gap:10px;align-items:center;flex-wrap:wrap;text-align:left;background:none;border:0;padding:14px 16px}
+.vname{font-size:1.35rem;font-weight:800}
+.theme{flex:1 1 220px;color:var(--muted)}
+.date{font-size:.85rem;color:var(--muted)}
+.arrow{transition:transform .25s;margin-left:auto}
+.card-h[aria-expanded=false] .arrow{transform:rotate(-90deg)}
+.pill{display:inline-block;border-radius:999px;padding:.1em .7em;font-size:.8rem;font-weight:700;white-space:nowrap}
+.p-publicada{background:var(--pub-bg);color:var(--pub-fg)}.p-casi{background:var(--casi-bg);color:var(--casi-fg)}
+.p-curso{background:var(--curso-bg);color:var(--curso-fg)}.p-propuesta{background:var(--prop-bg);color:var(--prop-fg)}
+.p-hecho{background:var(--pub-bg);color:var(--pub-fg)}.gen{color:var(--muted);font-size:.9rem;margin:14px 0 0}
+.p-futura{background:var(--fut-bg);color:var(--fut-fg)}.p-nohacer{background:var(--no-bg);color:var(--no-fg)}.p-pendiente{background:var(--pend-bg);color:var(--pend-fg)}
+.body{padding:0 16px 14px}
+.body[hidden]{display:none}
+.body .note{margin:0 0 8px;color:var(--muted);font-size:.92rem}
+.body h3{margin:10px 0 4px;font-size:.95rem;color:var(--muted)}
+ul.items{list-style:none;margin:0;padding:0}
+ul.items li{padding:8px 0;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px 8px;align-items:baseline}
+ul.items li[hidden]{display:none}
+.txt{flex:1 1 280px;overflow-wrap:anywhere}
+.refs a,.refs span{font-size:.85rem;margin-right:6px;white-space:nowrap}
+.refs span{color:var(--muted)}
+.tag{font-size:.72rem;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:0 .4em}
+.empty{text-align:center;color:var(--muted);padding:24px}
+footer{border-top:1px solid var(--border);margin-top:28px;padding:18px 0 30px;color:var(--muted);font-size:.9rem}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+@media (max-width:520px){.mono{display:none}.timeline{padding-left:28px}.ver::before{left:-26px}.timeline::before{left:7px}.themebtn{position:static;margin-bottom:10px}}
+</style>
+</head>
+<body>
+<header class="hero">
+ <div class="wrap">
+  <div>
+   <button class="btn themebtn" id="theme" type="button" aria-label="Cambiar entre tema claro y oscuro">Tema</button>
+   <h1>SaguiOS — Roadmap</h1>
+   <p>Hoja de ruta de versiones de un sistema operativo hecho desde cero para PC x86 antiguos, con un sagüí como mascota.</p>
+  </div>
+  <svg class="mono" viewBox="0 0 160 170" role="img" aria-label="Ilustración del sagüí, la mascota de SaguiOS">
+   <path class="tail" d="M30 150 C-10 140 -5 100 25 98 C45 96 50 112 38 116" fill="none" stroke="#7a4a21" stroke-width="9" stroke-linecap="round"/>
+   <ellipse cx="82" cy="132" rx="38" ry="32" fill="#9a6130"/>
+   <ellipse cx="82" cy="138" rx="22" ry="22" fill="#f1d9a8"/>
+   <circle cx="42" cy="62" r="19" fill="#f4f0e2" stroke="#e6e0cc" stroke-width="2"/>
+   <circle cx="122" cy="62" r="19" fill="#f4f0e2" stroke="#e6e0cc" stroke-width="2"/>
+   <circle cx="82" cy="70" r="44" fill="#9a6130"/>
+   <path d="M60 34 Q82 14 104 34 Q82 28 60 34Z" fill="#f4f0e2"/>
+   <path d="M82 52 C62 46 50 62 52 78 C54 96 70 104 82 104 C94 104 110 96 112 78 C114 62 102 46 82 52Z" fill="#f6dfb4"/>
+   <circle cx="68" cy="74" r="6" fill="#1b1209"/><circle cx="96" cy="74" r="6" fill="#1b1209"/>
+   <circle cx="70" cy="72" r="2" fill="#fff"/><circle cx="98" cy="72" r="2" fill="#fff"/>
+   <ellipse cx="82" cy="88" rx="4" ry="3" fill="#6b3b1d"/>
+   <path d="M74 95 Q82 101 90 95" fill="none" stroke="#6b3b1d" stroke-width="2.5" stroke-linecap="round"/>
+   <ellipse cx="52" cy="152" rx="11" ry="6" fill="#7a4a21"/><ellipse cx="112" cy="152" rx="11" ry="6" fill="#7a4a21"/>
+  </svg>
+ </div>
+</header>
+<main class="wrap">
+ <section class="stats" aria-label="Resumen">
+  <div class="stat"><b id="n-pub">0</b><span>versiones publicadas</span></div>
+  <div class="stat"><b id="n-cur">0</b><span>versiones en curso</span></div>
+  <div class="stat"><b id="n-pre">0</b><span>versiones previstas</span></div>
+  <div class="stat"><b id="n-mej">0</b><span>mejoras citadas en el roadmap</span></div>
+ </section>
+ <p class="gen">Generado a partir de <code>docs/ROADMAP.md</code> el 2026-11-08; la fuente de verdad es <code>ROADMAP.md</code>.</p>
+
+ <section class="tools" aria-label="Filtros">
+  <label class="s" for="q">Buscar</label>
+  <input id="q" type="search" placeholder="Por ejemplo: USB, MP3, 3D, Pascal…" autocomplete="off">
+  <div class="grp"><b id="lst">Estado de la versión</b><div class="chips" id="fst" role="group" aria-labelledby="lst"></div></div>
+  <div class="grp"><b id="lar">Área</b><div class="chips" id="far" role="group" aria-labelledby="lar"></div></div>
+  <div class="row">
+   <button class="btn" id="open" type="button">Desplegar todo</button>
+   <button class="btn" id="close" type="button">Plegar todo</button>
+   <button class="btn" id="reset" type="button">Quitar filtros</button>
+   <span id="count" aria-live="polite"></span>
+  </div>
+ </section>
+
+ <ol class="timeline" id="tl"></ol>
+ <p class="empty" id="none" hidden>Nada coincide con los filtros.</p>
+</main>
+<footer><div class="wrap">Generado a partir de <code>docs/ROADMAP.md</code> el 2026-11-08; la fuente de verdad es ROADMAP.md.<br>El repositorio es privado: los enlaces a las fichas solo funcionan con acceso al repositorio o desde una copia local.</div></footer>
+
+<script>
+var STATES=[["publicada","Publicada"],["curso","En curso"],["propuesta","Prevista"],["futura","Más adelante"]];
+var AREAS=[["sistema","Sistema / kernel"],["graficos","Gráficos / 3D"],["multimedia","Multimedia"],["red","Red"],["comp","Compiladores / programación"],["hw","Hardware"]];
+var ALAB={};AREAS.forEach(function(a){ALAB[a[0]]=a[1]});
+var SLAB={publicada:"publicada",curso:"en curso",propuesta:"prevista",futura:"más adelante",hecho:"hecho",nohacer:"no hacer por ahora",pendiente:"pendiente"};
+var AK={S:"sistema",G:"graficos",M:"multimedia",R:"red",C:"comp",H:"hw"};
+/* i(texto, refs separadas por |, áreas en letras, estado del ítem): refs = números de mejora (NNN) o texto libre */
+function i(t,r,a,s){return [t,r?r.split("|"):[],s||"",a.split("").map(function(c){return AK[c]})]}
+var D="2026-11-08";
+var V=[
+{id:"v1",name:"original (v1)",st:"publicada",label:"publicada",date:"—",theme:"Proyecto de Eli Rigobeli",items:[
+ i("Proyecto de Eli Rigobeli: fases 1-6 + bonus (`entrega/final`)","","S")]},
+{id:"v2",name:"v2",st:"publicada",label:"publicada",date:"2026-11-07",theme:"Escritorio, imágenes y HTTPS",items:[
+ i("Menú contextual","023","SG"),i("Visor de imágenes","024","G"),i("Paint","025","G"),
+ i("Resoluciones con write-combining","026","GH"),i("HTTPS (TLS propia)","027","R"),i("Barra de tareas e Inicio","031","S")]},
+{id:"v3",name:"v3",st:"publicada",label:"publicada",date:"2026-11-07",theme:"Programación, Python y PC antiguos",items:[
+ i("Mico (editor de código) y portapapeles","037","CS"),i("Python con biblioteca estándar y red","032","CR"),
+ i("`tkinter` y módulo `sagui`","033","CG"),i("Python x87","","C"),i("Zona horaria","039","S"),i("Pestaña Red","038","R"),
+ i("CHIP-8","034","M"),i("PC antiguos (ISO, 16 bits, `infopc --informe`)","036","H"),i("Imagen persistente FAT32 de 2 GB","","S")]},
+{id:"v4",name:"v4",st:"publicada",label:"publicada",date:D,theme:"Sonido, monitor de hardware y USB rápido",items:[
+ i("Sonido AC'97 + Intel HDA, mezclador, `reproducir` (streaming), `volumen`, XO-CHIP con sonido","041","MH"),
+ i("Monitor de hardware seguro (temperatura, frecuencias, P-states…) y benchmark SaguiMark","050|051","HS"),
+ i("Red Realtek: diagnóstico y arranque «moderno» RTL8111G/H (falta confirmar en el Ryzen)","D091","RH"),
+ i("Persistencia FAT32 solo con la partición `SAGUI-DATOS`","","S"),
+ i("USB rápido: EHCI con transferencias grandes, IRQ y sin congelar el sistema (rama `usb-rapido`)","045 (p. 6)","HS"),
+ i("Comentarios en español (primeros lotes)","D096","S")]},
+{id:"v5",name:"v5",st:"publicada",label:"publicada",date:D,theme:"Multimedia, terminal y compiladores",items:[
+ i("Terminal: comandos completos (`ls -l -a -h`, `cp -r`, `rm -r`, `mkdir -p`…) y nuevos (`head`, `tail`, `grep`, `find`, `sort`, `less`, `df`, `du`…)","D097","S"),
+ i("Códecs de audio: IMA ADPCM, MP3, FLAC","053 (fases 1-3)","M"),
+ i("Terminar el compilador Pascal: poner al día la rama `pascal`, revisar sus cambios del kernel (unidad `crt`), h69, documentación y batería","040","C","pendiente"),
+ i("Más lotes de traducción de comentarios (continuo)","D096","S"),
+ i("Compresor/descompresor multiformato: `tar`, `gzip`/`gunzip`, `zip`/`unzip` (DEFLATE propio), integrado en Archivos («Comprimir», «Extraer aquí»)","056","S","pendiente"),
+ i("3D mínimo: API de SaguiGL y motor por software de referencia básico (triángulos planos y Gouraud, matrices, búfer Z, recorte), `sgldemo` con un cubo y prueba de píxeles","054 (A1, base)|D104","G","hecho"),
+ i("Identificar la GPU en `infopc` (AMD/Intel, familia y generación, y si SaguiGL tendría motor)","054|055|D104","GH","hecho"),
+ i("Activar de serie la red Realtek confirmada (dv7 y, si funciona, Ryzen); pendiente de fotos de `ip`","D091","RH","pendiente")]},
+{id:"v5.1",name:"v5.1",st:"publicada",label:"publicada",date:D,theme:"Licencias, velocidad de la CPU y optimización de los compiladores",items:[
+ i("Control de la frecuencia de la CPU (P-states AMD 10h+ e Intel EIST): rendimiento por defecto, ahorro y a demanda; límite de 79 °C con vuelta al mínimo e histéresis a 72 °C","061","HS"),
+ i("Optimizaciones del generador común de `cc` y Pascal (mirilla, inmediatos, comparar y saltar, reducción de fuerza): ejecutables -19 % de media (cc hasta -40 %), `-O0` reproduce los binarios anteriores (rama `generador-opt`, h80)","040|D108","C","hecho"),
+ i("Sonido del HP dv7 por los altavoces (hoy solo suena el subwoofer): ajuste del códec IDT 92HD75B (pines, GPIO y EAPD), con el ajuste de Linux como referencia (D073)","041","MH"),
+ i("Tablas del MP3 regeneradas desde la norma (ISO/IEC 11172-3, anexo B), sin leerlas de libshine/libtwolame; mismas sumas en h75","053","M"),
+ i("Compilación con GPL y sin GPL (`make SEM_GPL=1`, `make SEM_FIRMWARE=1`): todo lo GPL aislado en `kernel/terceros/linux/`; auditoría automática de licencias; `entrega/v5.1/` con `saguios.img` y `saguios-sin-gpl.img`","057","S")],
+ note:"No sustituye al permiso de Eli Rigobeli y M4R4G0N: hace falta igualmente antes de publicar o distribuir (rama `licencia`)."},
+{id:"v5.2",name:"v5.2",st:"publicada",label:"publicada",date:D,theme:"Dejar más usable lo que ya hay (mejoras rápidas de uso)",items:[
+ i("Configuración: aplicación que reúne teclado, zona horaria, resolución, volumen, fondo de escritorio (BMP/PNG) y color de acento; todo guardado en `/home` y recordado entre arranques","007|047 (sin JPEG)|D112","SG"),
+ i("Apagar con ACPI: apagado real (S5) y botón de encendido, leyendo FADT/DSDT; vuelta segura a «puedes apagar» si algo falla","030|D113","HS"),
+ i("Bandeja de la barra de tareas: iconos de volumen, red y temperatura, con clic para ajustar o ver el detalle","058 (parte)|D114","S","hecho"),
+ i("Reproductor de música gráfico: abrir, reproducir/pausa, barra de progreso, volumen y lista; doble clic en `.wav/.mp3/.flac` desde Archivos (rama `reproductor-musica`)","041|053|D115","M","hecho"),
+ i("SQLite 3 en C y Python: biblioteca con VFS propio, programa `sqlite3`, módulo `sqlite3` de MicroPython; truncar y sincronizar archivos en el kernel","064|D116","CS")]},
+{id:"v5.3",name:"v5.3",st:"publicada",label:"publicada",date:D,theme:"SQLite 3",items:[
+ i("SQLite 3 en C y Python: biblioteca con VFS propio, programa `sqlite3`, módulo `sqlite3` de MicroPython; truncar y sincronizar archivos en el kernel (rama `sqlite`)","064","CS")]},
+{id:"v5.3.1",name:"v5.3.1",st:"publicada",label:"publicada",date:D,theme:"Lo que faltaba de la v5.3",items:[
+ i("SQLite, pulido: `row_factory` y `sqlite3.Row` en Python, conexiones que se cierran solas al liberarse, cerrojo sencillo entre procesos si el VFS lo permite, y cifras de rendimiento (inserciones y consultas por segundo)","064|D118","C"),
+ i("Traducción de comentarios pendiente: drivers, `cc`, Pascal, libsagui, MicroPython y programas que tocaban las ramas de la v5.1 y la v5.2","D096","S")]},
+{id:"v5.4",name:"v5.4",st:"publicada",label:"publicada",date:D,theme:"lite-monkey e imagen con varias particiones",items:[
+ i("lite-monkey: motor de base de datos documental propio en C (inspirado en MongoDB, más básico), servidor en el puerto 7979 que funciona en Linux/WSL y en SaguiOS; cliente Python igual en CPython y MicroPython; consola `lmk`; el loopback (127.0.0.1) ya existía (D079) y se añade `SIS_ESPERAR_REDE`","067|D117","CR"),
+ i("Imagen de disco con varias particiones: `make imagem-particoes` crea un `.img` (para Rufus o dd) con `/home`, `/tmp` y `/logs` en particiones de tamaño elegido, FAT32 o ext2; el kernel las monta por etiqueta, guarda su registro en `/logs` y entiende particiones extendidas y lógicas (h91, h93)","068|D120","SH")]},
+{id:"v6.0b",name:"v6.0 beta",st:"publicada",label:"publicada",date:D,theme:"Atajos de escritorio y utilidad «Discos»",items:[
+ i("Atajos de escritorio: Alt+F4 cierra la ventana activa (el programa recibe el aviso de cierre), Alt+Tab cambia de ventana (Alt+Mayús+Tab, a la anterior), tecla Windows abre el menú, Windows+D muestra el escritorio y Ctrl+Alt+Supr abre el Administrador de tareas","058|D119","S"),
+ i("Utilidad «Discos» gráfica: cada disco y partición con una barra de espacio ocupado/libre, sistema de archivos, etiqueta y punto de montaje; montar, desmontar y abrir en Archivos; el comando `discos` muestra también el uso","D121","SH")]},
+{id:"v6.0b2",name:"v6.0 beta 2",st:"publicada",label:"publicada",date:D,theme:"Meta de 16 MB y ROM de CHIP-8 por red",items:[
+ i("La meta de tamaño de la imagen pasa de 8 MB a 16 MB, para dar sitio a JPEG, vídeo, SaguiGL completo, IA y los componentes","D122","S"),
+ i("`chip8-roms` y `chip8-roms-gui`: bajan ROM del Chip8 Community Archive (CC0, no se distribuyen); prueba h94","D123|034","MR"),
+ i("Atajos de escritorio y utilidad «Discos» (de la v6.0 beta), incluidos en esta entrega","058|D119|D121","S")]},
+{id:"v6.0b3",name:"v6.0 beta 3",st:"curso",label:"en curso",date:"",theme:"Capturas de pantalla y red RTL8168evl",items:[
+ i("Capturas de pantalla y recortes","","GS","curso"),
+ i("Red RTL8168evl del Toshiba L850 (experimental)","D091","RH","curso")]},
+{id:"v6.1",name:"v6.1",st:"propuesta",label:"prevista",date:"",theme:"Interfaz, imágenes y discos",items:[
+ i("Componentes de la libsagui (lienzo, barra de progreso, pestañas, árbol…) y `tkinter` sobre ellos","042","GC"),
+ i("JPEG y temas del escritorio (lo que no entró con la Configuración de la v5.2)","047","G"),
+ i("Interfaz y explorador de archivos: ver/ocultar ocultos (Ctrl+H), vistas de detalles y miniaturas, barra de ruta y panel lateral, selección múltiple, copiar/cortar/pegar y arrastrar, renombrar en el sitio, buscar, «Abrir con», propiedades y papelera; Alt+Tab con miniaturas, centro de notificaciones y presentación más pulida","058","GS"),
+ i("Ogg Vorbis (el formato de audio que falta)","053 (fase 4)","M"),
+ i("Sistema fuera de la RAM, fase 0: en la imagen con particiones, lo grande y poco usado (Python, SQLite, lite-monkey, Sagui 3D, imágenes, ejemplos) va en una partición `SAGUI-SIS` de solo lectura montada en `/sistema`, y el ramdisk se queda con el núcleo","035 (F0)","S"),
+ i("Turbo opcional en el control de frecuencia (Intel Turbo Boost y AMD Core Performance Boost), desactivado de serie, con el límite de 79 °C mandando; `frecuencia --turbo si`","061","H"),
+ i("Sonido (1): elegir la salida (altavoces, auriculares, línea, HDMI), detección de auriculares en marcha, sonidos del sistema, teclas multimedia y ajustes de conectores guardados por modelo","075","MH"),
+ i("AHCI: discos SATA en PC desde ~2006 (dv7, G470, Ryzen...), con las reglas de seguridad de la D040","055","HS")],
+ note:"Parte de la v6 (decidido el 2026-11-08): interfaz, vídeo, la «web» de SaguiOS y `cc` completo. Se publica por partes y cada una se apoya en la anterior."},
+{id:"v6.2",name:"v6.2",st:"propuesta",label:"prevista",date:"",theme:"Vídeo, HMKD, 3D, `cc`, sonido, NES e IA",items:[
+ i("Vídeo a 240p/30 fps: MJPEG en AVI y MPEG-1 + MP2, con reproductor (usa el JPEG de la v6.1)","048","M"),
+ i("HMKD: Markdown con imágenes y vídeo embebido, en el visor y en Cipó, con `servidor`","049","MR"),
+ i("SaguiGL completo por software: texturas (con la JPEG), mezcla, niebla y luces; aceleración SIMD (bloques 8x8, SSE2/SSE/MMX); grupo «3D» en SaguiMark; `sagui.gl` en Python","054 (A1-A2, A4)","GC"),
+ i("`cc`: `long long`, varios `.c`, `stdarg`, `goto`, avisos `-Wall`, más biblioteca (`fopen`, `qsort`, `strtol`, `time.h`)","","C"),
+ i("Variables en registros en el generador común (`cc` y Pascal)","","C"),
+ i("Sonido (2): micrófono y grabación (`grabar`, API en libsagui y Python), volumen por aplicación («Mezclador»), balance y ecualizador, 48 kHz/24 bits y latencia configurable","075","MH"),
+ i("Emulador de NES propio: CPU 6502, PPU, APU con sonido, mappers 0-4 (NROM, MMC1, UxROM, CNROM, MMC3), teclado y mando USB, guardar partida; sin ROMs comerciales","071","M"),
+ i("Cliente de chat con IA («Asistente IA») y asistente en Mico; proveedores configurables: OpenRouter o cualquier endpoint compatible con OpenAI (llama.cpp, Ollama, LM Studio…); comando `ia`","043","CR")]},
+{id:"v6.3",name:"v6.3",st:"propuesta",label:"prevista",date:"",theme:"Servicios y tareas programadas",items:[
+ i("Gestor de servicios: programas en segundo plano definidos en `/etc/servicios` y `/home/.config/servicios`, arranque automático con dependencias (red, `/home`), reinicio con espera creciente, parada ordenada al apagar, registro en `/logs`; `servicio` en el terminal y pestaña Servicios en el Administrador de tareas","074","S"),
+ i("cron: formato clásico de 5 campos y `@reboot/@daily...`, zona horaria, tareas perdidas al arrancar, `/logs/cron.log`; `crontab -l/-e/-r`","074","S")]},
+{id:"v7",name:"v7",st:"propuesta",label:"prevista",date:"",theme:"Rendimiento y 3D",items:[
+ i("Caché de bloques de disco y memoria alta (`kmap`): primera fase de la arquitectura de almacenamiento, sin cambiar el arranque","035 (F1)|012","S"),
+ i("Tiempo de arranque medido y reducido (G470, dv7, QEMU)","","SH"),
+ i("Escritorio: menos redibujado (copiar al mover ventanas, recortes más finos) y rutas SSE2 que falten","015","G"),
+ i("Elegir x87 o SSE2 por medida y no solo por disponibilidad (`cc`, Python, SaguiGL): en el dv7 (K8/Griffin) x87 rinde ~3,5 veces más que SSE2 en SaguiMark","","CH"),
+ i("Python: arranque e `import tkinter` más rápidos (hoy ~220 ms en QEMU), y menos memoria","032|033","C"),
+ i("Pruebas: acortar las esperas fijas para que la batería con KVM baje de verdad (hecho en parte con `tests/rodar_paralelo.py`, D105)","D105","S"),
+ i("Sagui 3D sobre SaguiGL y optimización del motor con las cifras de SaguiMark","054 (A5)","G"),
+ i("2D por la GPU para el escritorio (copias y rellenos): blitter de Intel (Gen2-Gen6) y AMD R6xx/R7xx (detección, procesador de comandos con microcódigo, GART, 2D)","054 (B1.1-B1.4)|055","GH")],
+ note:"Optimizaciones de lo que ya hay: cada una se mide antes y después con SaguiMark, `wget`, el tiempo de arranque o las pruebas."},
+{id:"v7.3",name:"v7.3",st:"propuesta",label:"prevista",date:"",theme:"USB 3.0, Wi-Fi por pincho USB, particiones flexibles",items:[
+ i("USB 3.0 (xHCI) con teclado, ratón y pendrives (adelantado de la v8)","046|029","H"),
+ i("Wi-Fi solo con el pincho Realtek RTL8188EU (0bda:8179): cambio de modo desde el CD virtual, firmware de linux-firmware, pila 802.11 cliente y WPA2-PSK; wifi buscar/conectar e icono en la bandeja","072","RH"),
+ i("Imágenes con particiones: SaguiOS en la única primaria y datos, juegos, apps, /tmp y /logs como lógicas dentro de una extendida; igual en make variantes y en el instalador","","S"),
+ i("Discos > Particiones: crear particiones lógicas nuevas, redimensionar (ext2 crecer y encoger, FAT32 crecer), borrar y ampliar la extendida al tamaño del pendrive","","S")],
+ note:"Decidido el 2026-11-12/13. Wi-Fi integrada y todo el Bluetooth, en la v8. Por confirmar: editor kilo para el terminal, alc sin experimental, formato de pendrive para el Amilo."},
+{id:"v7.4",name:"v7.4",st:"propuesta",label:"prevista",date:"",theme:"2D por la GPU, segunda tanda",items:[
+ i("AMD R6xx/R7xx (Mobility Radeon HD 4550): copias y rellenos con su microcódigo, sobre la capa común con autoprueba (D195)","054|055","GH"),
+ i("NVIDIA GeForce 6/7 y Go 6xxx/7xxx (NV4x/G7x), referencia xf86-video-nv (MIT); pruebas en placas nForce con GeForce 7025/7050/6150 integrada","054|055","GH"),
+ i("Probar en hardware la primera tanda: X1400 (Amilo) e Intel Gen6 (G470)","","GH"),
+ i("Reproductor de música propio al estilo clásico (lista, ecualizador, visualizador, radio, modo mini, temas); sin código de Winamp (licencia WCL)","","M")],
+ note:"Adelantado por el mantenedor el 2026-11-13."},
+{id:"v8",name:"v8",st:"propuesta",label:"prevista",date:"",theme:"Hardware moderno y red",items:[
+ i("Red por USB: CDC-NCM/ECM (adaptador RTL8156)","044","RH"),
+ i("Rendimiento de la red: ventana TCP grande, control de congestión, ACK retardado y Nagle (movido de la v7)","045","R"),
+ i("Dirección local (loopback, 127.0.0.1): lo que falte para la web local (el Cipó abre las aplicaciones locales); lo mínimo llega antes con lite-monkey (v5.4)","065","R"),
+ i("Python web: `asyncio` activado en MicroPython y Microdot (microframework web para MicroPython, MIT) en `/lib/python`, con ejemplos; capa opcional compatible con Bottle","065","CR"),
+ i("USB 1.1 (OHCI/UHCI) para PC antiguos y el dv7","029 (fase 1)","H"),
+ i("Red Intel e1000e (82566/82567/82574/82579)","055","RH"),
+ i("Wi-Fi integrada: Atheros AR9485 por PCIe (Toshiba L850, ath9k, ISC) y otras, sobre la pila 802.11 y WPA2 de la v7.3","072","RH"),
+ i("Sonido (3): ahorro de energía del códec y audio USB (USB Audio Class)","075","MH"),
+ i("Cortafuegos: filtro con estado en la pila IPv4, entrada bloqueada por defecto, reglas por puerto, red y programa, pregunta al escuchar por primera vez, `cortafuegos` y pestaña en Configuración, registro en `/logs`","073","RS"),
+ i("3D por la GPU: AMD R6xx/R7xx (HP dv7) e Intel GMA 900/950/3100 (Gen3)","054 (B1.5-B1.6)|055","GH"),
+ i("Reparto del rasterizador por software entre núcleos, si ya hay SMP","054 (A3)","GS"),
+ i("Varias pantallas, fase 1: escritorio extendido/duplicado, aplicación «Pantallas», con varias salidas en QEMU","060","GH"),
+ i("Arranque UEFI (adelantado de la v10): cargador propio BOOTX64.EFI y BOOTIA32.EFI que lee el kernel de la ESP, resolución por GOP, mapa de memoria, ACPI y SMBIOS; baja a 32 bits para el kernel; imagen híbrida GPT/MBR que arranca por BIOS y UEFI; Secure Boot desactivado","062","SH"),
+ i("Discos NVMe e instalador con GPT y ESP además de MBR","062","SH"),
+ i("Cámaras web integradas de los portátiles (UVC por el USB interno): isócronas en EHCI y xHCI, driver UVC (YUYV, MJPEG) y app «Cámara»; las USB externas, más adelante","","MH"),
+ i("Bluetooth (de la v7.3): pincho USB CSR8510 (HCI/L2CAP/SDP, emparejamiento, teclado y ratón), luego integrados con firmware (Intel AX210) y BLE; aplicación «Bluetooth»","079","H")],
+ note:"La red y la web en Python, decididas el 2026-11-08; el arranque UEFI se adelanta aquí el 2026-11-13 (muchos PC desde ~2020 no tienen CSM)."},
+{id:"v9",name:"v9",st:"propuesta",label:"prevista",date:"",theme:"Varios núcleos, pantallas Intel y Bluetooth (v9-v11 necesitan xHCI/HID y el escritorio multipantalla de la v8)",items:[
+ i("Varios núcleos (SMP), fase 1: APIC local e I/O APIC en vez del PIC (con la MADT de la 030), arranque de los núcleos secundarios (INIT-SIPI), estructuras por CPU, un cerrojo global del kernel, procesos de usuario en todos los núcleos, FPU/SSE por núcleo, invalidación de TLB; opción de arranque «un solo núcleo»","017","SH"),
+ i("Varias pantallas en Intel nativo (panel interno + VGA/HDMI externo, EDID)","060","GH"),
+ i("UEFI, pulido: menú de arranque para elegir resolución y opciones, apagado/reinicio por los servicios de UEFI como reserva, Secure Boot con claves propias si merece la pena","062","SH"),
+ i("(el Bluetooth pasa a la v8)","059","H")]},
+{id:"v10",name:"v10",st:"propuesta",label:"prevista",date:"",theme:"SMP fase 2, pantallas AMD y audio Bluetooth",items:[
+ i("Varios núcleos, fase 2: cerrojos finos en vez del global (memoria, VFS, red, GUI), colas de planificación por núcleo con reparto de carga, afinidad, hilos de usuario (`pthread` sencillo) y aprovechamiento en SaguiGL, SaguiMark multinúcleo y compiladores","017|054 (A3)","SG"),
+ i("Varias pantallas en AMD (salidas Radeon con AtomBIOS, R6xx/R7xx)","060","GH"),
+ i("Audio Bluetooth (A2DP con SBC, AVRCP básico) sobre el mezclador de la 041","059|041","MH")]},
+{id:"v11",name:"v11",st:"propuesta",label:"prevista",date:"",theme:"Bluetooth: archivos y red",items:[
+ i("Archivos (OBEX) y red (PAN) por Bluetooth","059","RH")]},
+{id:"mas",name:"Más adelante",st:"futura",label:"más adelante",date:"",theme:"Sin versión asignada",items:[
+ i("Arquitectura de almacenamiento: raíz en disco, caché, carga bajo demanda, bibliotecas compartidas. Por fases, sola (sin otros hilos de kernel)","035","S"),
+ i("Clientes de MySQL/MariaDB (`pymysql` adaptado) y MongoDB (`bson` y `pymongo` propios) para Python, con DNS SRV/TXT para `mongodb+srv://`. Mucho más adelante; antes va lite-monkey (067)","066|067","CR"),
+ i("Memoria: que el sistema no muera sin RAM (OOM), swap comprimida en la RAM que el kernel de 32 bits no usa (PC con más de 2 GB) y partición `SAGUI-SWAP`. Mejora «gorda», mucho más adelante","069","SH"),
+ i("Apps extra en `/app` (persistentes con disco), repositorio en red (servidor en Python, índice firmado, pruebas automáticas en QEMU) y SDK de compilación cruzada (`sagui-sdk`, plantillas, `AGENTES.md`). Futuro, por fases","070","CR"),
+ i("Autocompilación: que el `cc` de SaguiOS compile aplicaciones grandes del sistema, empezando por el emulador de NES (y, a largo plazo, el propio sistema)","071|cc","C"),
+ i("SSH: cliente y servidor de jails. Cliente primero; los jails necesitan raíz por proceso (encaja con la 035)","052","R"),
+ i("PC antiguos: drivers de la época (e100, 3Com, IDE DMA…), por máquina, según los informes","036 (fase B)","H"),
+ i("Apagado de emergencia por temperatura (p. ej. 90 °C, ajustable solo hacia abajo) con el apagado ACPI de la 030; umbrales ACPI del fabricante si algún día hay intérprete AML","030|061","HS"),
+ i("3D por la GPU en más familias (Radeon Evergreen y R5xx, Intel Gen6 del G470) y resolución nativa del panel con el motor de pantalla de Intel; con vuelta a VESA siempre disponible","054 (B2)|055","GH"),
+ i("Port a ARM / Raspberry Pi (no hacer por ahora)","028","HS","nohacer"),
+ i("Licencia GPLv2 y publicación del repositorio (rama `licencia`): requiere el permiso de Eli Rigobeli y M4R4G0N","","S")]}
+];
+var EXIST={"001": "001-traduccion-espanol.md", "002": "002-teclado-es-abnt2.md", "003": "003-compilador-c.md", "004": "004-micropython.md", "005": "005-entorno-sin-sudo.md", "006": "006-git.md", "007": "007-teclado-persistente.md", "008": "008-fpu-mmx-sse.md", "009": "009-raton-absoluto-vm.md", "010": "010-terminal-virtual.md", "011": "011-shell-completo.md", "012": "012-memoria-alta.md", "013": "013-sistemas-de-archivos.md", "014": "014-infopc.md", "015": "015-sse2-graficos.md", "016": "016-gestor-tareas.md", "017": "017-smp-multinucleo.md", "018": "018-ventanas-redimensionables.md", "019": "019-markdown.md", "020": "020-red.md", "021": "021-rueda-raton.md", "023": "023-menu-contextual.md", "024": "024-visor-imagenes.md", "025": "025-paint.md", "026": "026-video-wc-resoluciones.md", "027": "027-tls-certificados.md", "028": "028-port-arm-raspberry.md", "029": "029-usb-teclado-raton.md", "030": "030-acpi-basico.md", "031": "031-barra-tareas-inicio.md", "032": "032-micropython-stdlib-red.md", "033": "033-python-sagui-tkinter.md", "034": "034-chip8.md", "035": "035-arquitectura-almacenamiento.md", "036": "036-compatibilidad-pc-antiguos.md", "037": "037-mico-editor-codigo.md", "038": "038-red-administrador-tareas.md", "039": "039-zona-horaria.md", "040": "040-compilador-pascal.md", "041": "041-sonido-ac97-hda.md", "042": "042-componentes-libsagui.md", "043": "043-mico-asistente-ia.md", "044": "044-red-usb-cdc-ncm.md", "045": "045-rendimiento-red.md", "046": "046-xhci-usb3.md", "047": "047-personalizacion-escritorio-jpeg.md", "048": "048-video-reproductor.md", "049": "049-formato-hmkd.md", "050": "050-temperatura-cpu.md", "051": "051-benchmark-saguimark.md", "052": "052-ssh-jails.md", "053": "053-formatos-audio-libres.md", "054": "054-motor-3d-y-drivers-amd.md", "055": "055-intel-igpu-y-chipsets.md", "056": "056-compresor-tar-gzip-zip.md", "057": "057-compilacion-con-y-sin-gpl.md", "058": "058-interfaz-y-explorador.md", "059": "059-bluetooth-usb.md", "060": "060-multiples-pantallas.md", "061": "061-frecuencia-cpu.md", "062": "062-arranque-uefi.md", "063": "063-navegador.md", "064": "064-sqlite3.md", "065": "065-bottle-web-python.md", "066": "066-clientes-mysql-mongodb.md", "067": "067-lite-monkey.md", "068": "068-imagen-varias-particiones.md", "069": "069-memoria-swap.md", "070": "070-apps-repositorio-sdk.md", "071": "071-emulador-nes.md", "072": "072-wifi-rtl8188eu.md", "073": "073-cortafuegos.md", "074": "074-servicios-y-cron.md", "075": "075-mejoras-audio.md"};
+function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function md(s){return esc(s).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*([^*]+)\*/g,"<em>$1</em>")}
+var $=function(i){return document.getElementById(i)};
+var fs={}, fa={}, tl=$("tl");
+function refsHtml(r){return r.map(function(x){var n=x.slice(0,3);
+ return EXIST[n]?'<a href="../mejoras/'+EXIST[n]+'">Mejora '+esc(x)+'</a>':'<span>Mejora '+esc(x)+'</span>'}).join("")}
+function build(){
+ V.forEach(function(v){
+  var li=document.createElement("li");li.className="ver";li.dataset.st=v.st;li.id=v.id;
+  var bid="b-"+v.id;
+  var h='<div class="card"><button class="card-h" type="button" aria-expanded="true" aria-controls="'+bid+'">'+
+   '<span class="vname">'+esc(v.name)+'</span><span class="pill p-'+v.st+'">'+esc(v.label)+'</span>'+
+   '<span class="theme">'+md(v.theme)+'</span>'+(v.date&&v.date!=="—"?'<span class="date">'+v.date+'</span>':"")+'<span class="arrow" aria-hidden="true">▾</span></button>'+
+   '<div class="body" id="'+bid+'">'+(v.note?'<p class="note">'+md(v.note)+'</p>':"")+'<ul class="items">';
+  v.items.forEach(function(it,i){
+   h+='<li data-i="'+i+'" data-a="'+it[3].join(" ")+'"><span class="txt">'+md(it[0])+'</span>'+
+    (it[2]?'<span class="pill p-'+it[2]+'">'+SLAB[it[2]]+'</span>':"")+
+    it[3].map(function(a){return '<span class="tag">'+ALAB[a]+'</span>'}).join("")+
+    '<span class="refs">'+refsHtml(it[1])+'</span></li>';
+  });
+  li.innerHTML=h+'</ul></div></div>';
+  tl.appendChild(li);
+  li.querySelector(".card-h").addEventListener("click",function(){toggle(li)});
+ });
+}
+function toggle(li,force){var b=li.querySelector(".card-h"),body=li.querySelector(".body");
+ var open=force===undefined?b.getAttribute("aria-expanded")!=="true":force;
+ b.setAttribute("aria-expanded",open);body.hidden=!open}
+function chips(id,list,store){var box=$(id);list.forEach(function(x){
+ var b=document.createElement("button");b.type="button";b.className="chip";b.textContent=x[1];b.setAttribute("aria-pressed","false");
+ b.addEventListener("click",function(){store[x[0]]=!store[x[0]];b.setAttribute("aria-pressed",!!store[x[0]]);apply()});box.appendChild(b)})}
+function any(o){return Object.keys(o).some(function(k){return o[k]})}
+function apply(){
+ var q=$("q").value.trim().toLowerCase(),anyS=any(fs),anyA=any(fa),shown=0,cards=0;
+ V.forEach(function(v){
+  var li=$(v.id),okS=!anyS||fs[v.st]||(v.st==="curso"&&fs.curso),n=0;
+  li.querySelectorAll("li[data-i]").forEach(function(row){
+   var it=v.items[row.dataset.i],ok=true;
+   if(anyA&&!it[3].some(function(a){return fa[a]}))ok=false;
+   if(ok&&q){var hay=(v.name+" "+v.theme+" "+it[0]+" "+it[1].join(" ")+" "+it[3].map(function(a){return ALAB[a]}).join(" ")).toLowerCase();ok=hay.indexOf(q)>-1}
+   row.hidden=!ok;if(ok)n++});
+  var vis=okS&&n>0;li.hidden=!vis;if(vis){cards++;shown+=n}
+ });
+ $("none").hidden=cards>0;
+ $("count").textContent=cards+" versión(es), "+shown+" elemento(s)";
+}
+function setTheme(t){document.documentElement.setAttribute("data-theme",t);try{localStorage.setItem("sagui-theme",t)}catch(e){}}
+function curTheme(){var t=document.documentElement.getAttribute("data-theme");
+ return t||(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+(function(){var m={};V.forEach(function(v){v.items.forEach(function(it){it[1].forEach(function(r){var n=r.slice(0,3);if(/^\d{3}$/.test(n))m[n]=1})})});
+ function c(st){return V.filter(function(v){return v.st===st}).length}
+ $("n-pub").textContent=c("publicada");$("n-cur").textContent=c("curso");$("n-pre").textContent=c("propuesta");$("n-mej").textContent=Object.keys(m).length})();
+build();chips("fst",STATES,fs);chips("far",AREAS,fa);
+$("q").addEventListener("input",apply);
+$("open").onclick=function(){document.querySelectorAll(".ver").forEach(function(l){toggle(l,true)})};
+$("close").onclick=function(){document.querySelectorAll(".ver").forEach(function(l){toggle(l,false)})};
+$("reset").onclick=function(){Object.keys(fs).forEach(function(k){delete fs[k]});Object.keys(fa).forEach(function(k){delete fa[k]});$("q").value="";document.querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed","false")});
+ apply()};
+try{var t=localStorage.getItem("sagui-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}
+$("theme").onclick=function(){setTheme(curTheme()==="dark"?"light":"dark")};
+apply();
+</script>
+</body>
+</html>

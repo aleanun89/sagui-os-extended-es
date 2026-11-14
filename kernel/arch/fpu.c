@@ -1,0 +1,248 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* fpu.c - FPU x87, MMX y SSE para los programas.
+ *
+ * Hasta la fase 5 el CR0.EM estaba activado y cualquier instrucción de punto
+ * flotante, MMX o SSE terminaba el programa. Aquí la CPU se consulta por el
+ * CPUID y, si tiene FPU, el kernel:
+ *   - desactiva CR0.EM y activa CR0.MP y CR0.NE (los errores de la FPU pasan a la
+ *     excepción 16, no a la IRQ 13 del PIC);
+ *   - con FXSR, activa CR4.OSFXSR (SSE y FXSAVE/FXRSTOR) y, con SSE,
+ *     CR4.OSXMMEXCPT (los errores SSE pasan a la excepción 19).
+ *
+ * Los registros x87/MMX/XMM son de cada proceso, pero guardarlos en cada
+ * cambio costaría 512 bytes de ida y vuelta cada 20 ms, incluso para quien
+ * nunca usa la FPU (casi todos). Por eso el cambio es perezoso: el
+ * planificador solo activa CR0.TS cuando el siguiente proceso no es el "dueño" del
+ * estado cargado. La primera instrucción de FPU/MMX/SSE suya genera la excepción
+ * 7 (#NM); el manejador guarda el estado del dueño anterior, carga el del nuevo (o
+ * un estado limpio, la primera vez) y desactiva TS. El kernel se compila con
+ * -mgeneral-regs-only y nunca toca esos registros, así que no necesita
+ * protegerse de ellos. Ver D032.
+ *
+ * Excepción (D042): las copias y rellenos grandes de la interfaz gráfica
+ * usan SSE2 (kernel/lib/sse2.c), siempre entre fpu_kernel_inicio() y
+ * fpu_kernel_fim(), como el kernel_fpu_begin/end de Linux: el estado del dueño
+ * va a su área y nadie queda como dueño; al final el TS vuelve a activarse y
+ * el siguiente #NM devuelve los registros a quien vaya a usarlos. */
+#include "fpu.h"
+#include "console.h"
+#include "cpu.h"
+#include "processo.h"
+#include "texto.h"
+#include "smp.h"
+
+#define CR0_MP 0x02
+#define CR0_EM 0x04
+#define CR0_TS 0x08
+#define CR0_NE 0x20
+#define CR4_OSFXSR     0x200
+#define CR4_OSXMMEXCPT 0x400
+
+static uint32_t recursos;
+static char fabricante[13];
+/* Por CPU (D164): cada procesador tiene sus propios registros de FPU/SSE, así
+ * que el dueño de esos registros y el uso del kernel son de cada uno. */
+static processo_t *dono_cpu[CPU_MAX];   /* de quién es el estado que está en los registros de cada CPU */
+static int kernel_nivel_cpu[CPU_MAX];   /* fpu_kernel_inicio() abiertos (pueden anidarse) */
+static bool kernel_int_cpu[CPU_MAX];    /* las interrupciones estaban activadas en el primer inicio */
+#define dono         dono_cpu[cpu_atual()]
+#define kernel_nivel kernel_nivel_cpu[cpu_atual()]
+#define kernel_int   kernel_int_cpu[cpu_atual()]
+static uint8_t estado_limpo[FPU_ESTADO] __attribute__((aligned(16)));
+
+static inline void cpuid(uint32_t folha, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
+{
+    __asm__ volatile("cpuid" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "a"(folha), "c"(0));
+}
+
+/* El CPUID existe si el bit ID (21) del EFLAGS se puede cambiar. */
+static bool tem_cpuid(void)
+{
+    uint32_t antes, depois;
+    __asm__ volatile("pushf; pop %0; mov %0, %1; xor $0x200000, %1; push %1; popf; pushf; pop %1; push %0; popf"
+                     : "=&r"(antes), "=&r"(depois));
+    return ((antes ^ depois) & 0x200000) != 0;
+}
+
+static inline uint32_t le_cr4(void) { uint32_t v; __asm__ volatile("mov %%cr4, %0" : "=r"(v)); return v; }
+static inline void escreve_cr0(uint32_t v) { __asm__ volatile("mov %0, %%cr0" : : "r"(v) : "memory"); }
+static inline void escreve_cr4(uint32_t v) { __asm__ volatile("mov %0, %%cr4" : : "r"(v) : "memory"); }
+
+static void salvar(uint8_t *area)
+{
+    if (recursos & CPU_FXSR) __asm__ volatile("fxsave (%0)" : : "r"(area) : "memory");
+    else __asm__ volatile("fnsave (%0); fwait" : : "r"(area) : "memory");
+}
+
+static void carregar(const uint8_t *area)
+{
+    if (recursos & CPU_FXSR) __asm__ volatile("fxrstor (%0)" : : "r"(area) : "memory");
+    else __asm__ volatile("frstor (%0)" : : "r"(area) : "memory");
+}
+
+/* #NM: un programa usó la FPU/MMX/SSE con CR0.TS activado. */
+static quadro_t *dispositivo_indisponivel(quadro_t *q)
+{
+    if (!(q->cs & 3))
+        excecao_fatal(q);   /* el kernel solo usa SSE entre fpu_kernel_inicio/fim (TS desactivado): si llegó aquí, es un error suyo */
+    __asm__ volatile("clts");
+    if (dono != processo_atual()) {
+        if (dono) salvar(dono->fpu);
+        carregar(processo_atual()->fpu_usada ? processo_atual()->fpu : estado_limpo);
+        processo_atual()->fpu_usada = true;
+        dono = processo_atual();
+    }
+    return q;
+}
+
+void fpu_trocar(processo_t *prox)
+{
+    if (!(recursos & CPU_FPU)) return;
+    /* Con varias CPU (D164) un proceso puede seguir en otra CPU: su estado
+     * tiene que estar en memoria, no en los registros de esta. Se guarda al
+     * cambiar a otro proceso; si vuelve el mismo, los registros siguen siendo suyos. */
+    if (smp_arrancadas() && dono && dono != prox) {
+        __asm__ volatile("clts" ::: "memory");
+        salvar(dono->fpu);
+        dono = NULL;
+    }
+    uint32_t cr0 = le_cr0();
+    uint32_t novo = prox == dono ? cr0 & ~CR0_TS : cr0 | CR0_TS;
+    if (novo != cr0) escreve_cr0(novo);
+}
+
+/* El kernel va a usar SSE/SSE2. Interrupciones desactivadas hasta el fin: nada puede
+ * cambiar de proceso ni llamar a otra rutina con SSE en medio (el kernel no es
+ * reentrante, D010, y ninguna interrupción usa SSE). Devuelve false si la CPU
+ * no tiene SSE (D208: antes pedía SSE2); entonces quien llamó usa el camino sin SSE y no llama al fin. */
+bool fpu_kernel_inicio(void)
+{
+    if ((recursos & (CPU_FPU | CPU_SSE)) != (CPU_FPU | CPU_SSE)) return false;   /* D208: basta SSE; cada variante pide lo suyo */
+    bool estavam = int_salva_desliga();
+    if (kernel_nivel++ == 0) {
+        kernel_int = estavam;
+        __asm__ volatile("clts" ::: "memory");
+        if (dono) {               /* los registros son de un proceso: guarda */
+            salvar(dono->fpu);
+            dono = NULL;          /* el próximo #NM suyo recarga desde el área */
+        }
+    }
+    return true;
+}
+
+void fpu_kernel_fim(void)
+{
+    if (kernel_nivel <= 0) return;
+    if (--kernel_nivel == 0) {
+        escreve_cr0(le_cr0() | CR0_TS);   /* nadie es dueño: quien use la FPU recibe #NM */
+        int_restaura(kernel_int);
+    }
+}
+
+bool fpu_kernel_ativo(void) { return kernel_nivel > 0; }
+
+void fpu_esquecer(processo_t *p)
+{
+    /* el próximo #NM no guarda nada encima de un proceso muerto, en ninguna CPU */
+    for (int i = 0; i < CPU_MAX; i++)
+        if (dono_cpu[i] == p) dono_cpu[i] = NULL;
+}
+
+void fpu_iniciar(void)
+{
+    if (tem_cpuid()) {
+        uint32_t a, b, c, d;
+        cpuid(0, &a, &b, &c, &d);
+        memcpy(fabricante, &b, 4); memcpy(fabricante + 4, &d, 4); memcpy(fabricante + 8, &c, 4);
+        if (a >= 1) {
+            cpuid(1, &a, &b, &c, &d);
+            if (d & (1u << 0))  recursos |= CPU_FPU;
+            if (d & (1u << 23)) recursos |= CPU_MMX;
+            if (d & (1u << 24)) recursos |= CPU_FXSR;
+            if (d & (1u << 25)) recursos |= CPU_SSE;
+            if (d & (1u << 26)) recursos |= CPU_SSE2;
+            if (c & (1u << 0))  recursos |= CPU_SSE3;
+            if (c & (1u << 9))  recursos |= CPU_SSSE3;
+            if (c & (1u << 19)) recursos |= CPU_SSE41;
+            if (c & (1u << 20)) recursos |= CPU_SSE42;
+        }
+    } else {
+        txt_copia_n(fabricante, "sem CPUID", sizeof fabricante);
+    }
+    /* SSE sin FXSR no existe en la práctica, y sin FXSR no hay forma de guardar los XMM. */
+    if (!(recursos & CPU_FXSR)) recursos &= ~(uint32_t)(CPU_SSE | CPU_SSE2 | CPU_SSE3 | CPU_SSSE3 | CPU_SSE41 | CPU_SSE42);
+    if (!(recursos & CPU_FPU)) {
+        klog("[CPU] %s sem FPU: CR0.EM continua ligado\n", fabricante);
+        return;
+    }
+
+    escreve_cr0((le_cr0() & ~(uint32_t)(CR0_EM | CR0_TS)) | CR0_MP | CR0_NE);
+    if (recursos & CPU_FXSR) {
+        uint32_t cr4 = le_cr4() | CR4_OSFXSR;
+        if (recursos & CPU_SSE) cr4 |= CR4_OSXMMEXCPT;
+        escreve_cr4(cr4);
+    }
+    /* Estado limpio: FPU reiniciada y, con SSE, MXCSR por defecto (todas las
+     * excepciones enmascaradas, redondeo al más cercano). La x87 empieza a 53
+     * bits (palabra de control 0x027F en lugar del 0x037F del FNINIT, D236):
+     * cada operación de double redondea como en el SSE2, que es lo que espera
+     * la libm x87 (floor/ceil con el truco de 2^52). Va en este estado, que
+     * todo proceso recibe en su primer #NM, y no en el inicio de cada
+     * programa: así quien no usa la FPU no paga el #NM ni el FXSAVE, y en una
+     * CPU sin FPU nada ejecuta una instrucción de x87. Quien quiera los 64
+     * bits (el cc, el Pascal, el Math del Cipó) la cambia él. */
+    __asm__ volatile("fninit");
+    {
+        uint16_t cw = 0x027F;
+        __asm__ volatile("fldcw %0" : : "m"(cw));
+    }
+    if (recursos & CPU_SSE) {
+        uint32_t mxcsr = 0x1F80;
+        __asm__ volatile("ldmxcsr %0" : : "m"(mxcsr));
+    }
+    salvar(estado_limpo);
+    if (!(recursos & CPU_FXSR)) carregar(estado_limpo);   /* el FNSAVE reinicia la FPU; deja igual al guardado */
+    idt_registrar(7, dispositivo_indisponivel);
+    escreve_cr0(le_cr0() | CR0_TS);   /* nadie es dueño todavía */
+
+    char s[80];
+    fpu_descrever(s, sizeof s);
+    klog("[CPU] %s: %s\n", fabricante, s);
+}
+
+/* Un procesador secundario (D164): lo mismo que fpu_iniciar() en el principal,
+ * con los recursos que este ya detectó (todos los núcleos son iguales). Sin
+ * esto el secundario ejecutaba código SSE del kernel sin CR4.OSFXSR. */
+void fpu_iniciar_secundaria(void)
+{
+    if (!(recursos & CPU_FPU)) return;
+    escreve_cr0((le_cr0() & ~(uint32_t)(CR0_EM | CR0_TS)) | CR0_MP | CR0_NE);
+    if (recursos & CPU_FXSR) {
+        uint32_t cr4 = le_cr4() | CR4_OSFXSR;
+        if (recursos & CPU_SSE) cr4 |= CR4_OSXMMEXCPT;
+        escreve_cr4(cr4);
+    }
+    __asm__ volatile("fninit");
+    if (recursos & CPU_SSE) {
+        uint32_t mxcsr = 0x1F80;
+        __asm__ volatile("ldmxcsr %0" : : "m"(mxcsr));
+    }
+    escreve_cr0(le_cr0() | CR0_TS);   /* como en el principal: nadie es dueño todavía */
+}
+
+uint32_t fpu_recursos(void) { return recursos; }
+const char *cpu_fabricante(void) { return fabricante; }
+
+int fpu_descrever(char *s, int max)
+{
+    static const struct { uint32_t bit; const char *nome; } nomes[] = {
+        { CPU_FPU, "FPU" }, { CPU_MMX, "MMX" }, { CPU_SSE, "SSE" }, { CPU_SSE2, "SSE2" },
+        { CPU_SSE3, "SSE3" }, { CPU_SSSE3, "SSSE3" }, { CPU_SSE41, "SSE4.1" }, { CPU_SSE42, "SSE4.2" },
+    };
+    int n = 0;
+    if (max > 0) s[0] = 0;
+    for (unsigned i = 0; i < sizeof nomes / sizeof nomes[0]; i++)
+        if (recursos & nomes[i].bit)
+            n += snformatar(s + n, (uint32_t)(max - n), "%s%s", n ? " " : "", nomes[i].nome);
+    return n;
+}

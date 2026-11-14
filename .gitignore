@@ -1,0 +1,56 @@
+# Saída do build (regenerável com make)
+/build/
+# Lixo de editores e Python
+__pycache__/
+*.pyc
+*.swp
+.vscode/
+# Restos de copiar desde Windows (rompen el Makefile)
+*:Zone.Identifier
+
+# Audio y vídeo personales (no son del proyecto; derechos de terceros)
+/*.mp3
+/*.wav
+/*.ogg
+/*.flac
+/data_extra/
+/build-*/
+
+# lite-monkey en el PC (make -C litemonkey)
+/litemonkey/build/
+*.egg-info/
+
+# La entrega que genera el guion gerar_versao.sh (regenerable; las versiones
+# congeladas de entrega/vX/ sí están en el repositorio)
+/entrega/latest/
+# De cada versión congelada (entrega/vX/) solo se guardan en git la imagen
+# normal, la multinúcleo y las hojas de sumas y de datos (v7.0b, D182): el
+# resto se regenera con «make variantes DESTINO=entrega/vX» desde su etiqueta.
+/entrega/v*/*
+!/entrega/v*/saguios.img
+!/entrega/v*/saguios-smp.img
+!/entrega/v*/SHA256SUMS.txt
+!/entrega/v*/VERSION.txt
+
+# Fuentes de NetSurf (D184): las baja y prepara tools/netsurf_fuentes.sh
+/userland/terceros/netsurf/fuentes
+
+# Contenido propio del que compila la distribución (juegos completos, apps, datos que no
+# pueden ir en el repositorio ni descargarse con un guion): docs/input_share.md
+/input_share/
+# Marcas de descarga de Windows (flujos alternativos copiados a WSL)
+*:Zone.Identifier
+
+# Datos de Jazz Jackrabbit (D228): los baja tools/openjazz_datos.sh; no son libres
+/userland/terceros/openjazz/datos
+
+# Fuentes de Red Alert (D230): las copia tools/conquer_fuentes.sh --redalert; no van en git
+/userland/terceros/conquer/redalert
+# Datos del shareware de Quake (D229): los baja tools/quake_datos.sh; no son libres
+/userland/terceros/quake/datos
+
+# ROM libres de Game Boy (D235): las baja tools/gnuboy_roms_libres.sh; nunca van a git
+/userland/terceros/gnuboy/roms-libres
+# Zip de las fuentes de Typodermic (D196), bajado por «make priv_descargas»
+/NEW_FONTS/
+.env_agents

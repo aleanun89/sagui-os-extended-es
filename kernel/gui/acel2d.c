@@ -1,0 +1,962 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* acel2d.c - 2D por la GPU para el escritorio: la capa común (D195).
+ *
+ * El escritorio se compone en un búfer en RAM (video.c) y la CPU copia a la
+ * tarjeta lo que cambió. La GPU ayuda donde los píxeles ya están en la
+ * memoria de vídeo: mover un rectángulo de la pantalla (arrastrar una ventana,
+ * desplazar la terminal) y rellenar uno (borrar). video.c hace la misma
+ * operación en el búfer de atrás con la CPU, así que los dos siguen iguales.
+ *
+ * Al arrancar:
+ *   1. se busca en el PCI una tarjeta de la tabla (VMware SVGA II, Intel Gen3 a
+ *      Gen6, Radeon R100-R500 y R6xx/R7xx); la cabecera de arranque puede pedir la CPU
+ *      (--sin-acel2d) o forzar un acelerador concreto (--acel2d=...);
+ *   2. el acelerador se inicia y se pone a prueba: copias solapadas en las
+ *      cuatro direcciones y rellenos en una zona de la memoria de vídeo (debajo
+ *      de la pantalla visible si hay memoria; si no, o en la VMware, en las
+ *      últimas filas visibles, que después se redibujan), comparadas píxel a
+ *      píxel con lo mismo hecho por la CPU, con tiempo máximo;
+ *   3. solo si todo coincide y responde a tiempo se activa. Si no, se apaga, se
+ *      queda la CPU y el motivo va al log ([ACEL2D]) y a infopc.
+ * Después, cualquier orden que no termine a tiempo apaga el acelerador y
+ * vuelve a la CPU, que redibuja la pantalla entera desde el búfer de atrás:
+ * un fallo de la GPU nunca deja la máquina sin pantalla ni colgada.
+ *
+ * Solo con 32 bits por píxel en el orden 0x00RRGGBB (video_formato_direto):
+ * en 15, 16 y 24 bits la conversión la hace la copia de la CPU y nada cambia. */
+#include "acel2d.h"
+#include "abi.h"
+#include "bootinfo.h"
+#include "console.h"
+#include "cpu.h"
+#include "info_hardware.h"
+#include "memoria.h"
+#include "paginacao.h"
+#include "rapido.h"
+#include "sensores_conv.h"
+#include "sistema.h"
+#include "texto.h"
+#include "video.h"
+
+#define ZONA_A        ACEL2D_ZONA_A   /* filas de la zona de prueba */
+#define ZONA_BOOT_A   48     /* la autoprueba del arranque usa solo las primeras */
+#define PRAZO_MS      250    /* tiempo máximo de cada espera de la GPU al arrancar (iniciar, autoprueba) */
+#define PRAZO_SESION_MS 30   /* D244: en sesión, cualquier espera de la GPU pasa de esto y se apaga */
+#define ORDENS_PROVA  160    /* órdenes aleatorias de la autoprueba completa */
+#define VOLTAS_BENCH  60     /* copias de la medida */
+
+/* Tarjetas conocidas: fabricante, intervalo de modelos, acelerador y generación.
+ * Para añadir una tarjeta de una familia que ya existe basta una línea. */
+typedef struct {
+    uint16_t fab, de, ate;
+    const acel_driver_t *drv;
+    int geracao;
+    const char *nome;
+} acel_placa_t;
+
+static const acel_placa_t placas[] = {
+    { 0x15AD, 0x0405, 0x0405, &acel_vmware, 2, "VMware SVGA II" },
+    /* NVIDIA GeForce 6/7 (NV4x/G7x) y las integradas de los nForce (D224): los
+     * intervalos de cada familia; acel_nv.c solo sigue con los identificadores
+     * exactos de su lista y si PMC_BOOT_0 dice el chip esperado. */
+    { 0x10DE, 0x0040, 0x004E, &acel_nv, 0, "GeForce 6800 (NV40/NV45)" },
+    { 0x10DE, 0x00C0, 0x00CE, &acel_nv, 0, "GeForce 6800 (NV41/NV42)" },
+    { 0x10DE, 0x00F1, 0x00F9, &acel_nv, 0, "GeForce 6/7 AGP (puente HSI)" },
+    { 0x10DE, 0x0140, 0x014F, &acel_nv, 0, "GeForce 6600 (NV43)" },
+    { 0x10DE, 0x0160, 0x016A, &acel_nv, 0, "GeForce 6200 (NV44)" },
+    { 0x10DE, 0x0211, 0x0218, &acel_nv, 0, "GeForce 6800 (NV48)" },
+    { 0x10DE, 0x0221, 0x0222, &acel_nv, 0, "GeForce 6200 (NV44A)" },
+    { 0x10DE, 0x0090, 0x009D, &acel_nv, 0, "GeForce 7800 (G70)" },
+    { 0x10DE, 0x01D0, 0x01DF, &acel_nv, 0, "GeForce 7300 (G72)" },
+    { 0x10DE, 0x0290, 0x029F, &acel_nv, 0, "GeForce 7900 (G71)" },
+    { 0x10DE, 0x0390, 0x039E, &acel_nv, 0, "GeForce 7600 (G73)" },
+    { 0x10DE, 0x0240, 0x0247, &acel_nv, 0, "GeForce 6150/6100 (C51)" },
+    { 0x10DE, 0x03D0, 0x03D6, &acel_nv, 0, "GeForce 6150SE/6100 (C61)" },
+    { 0x10DE, 0x0531, 0x053E, &acel_nv, 0, "GeForce 7050/7025 (C67/C68)" },
+    { 0x10DE, 0x07E0, 0x07E5, &acel_nv, 0, "GeForce 7150/7100/7050 (C73)" },
+    /* Intel Gen3: el blitter va por el ring de comandos principal (el Amilo: 945GM). */
+    { 0x8086, 0x2582, 0x2582, &acel_intel, 3, "Intel 915G" },
+    { 0x8086, 0x2592, 0x2592, &acel_intel, 3, "Intel 915GM" },
+    { 0x8086, 0x2772, 0x2772, &acel_intel, 3, "Intel 945G" },
+    { 0x8086, 0x27A2, 0x27A2, &acel_intel, 3, "Intel 945GM" },
+    { 0x8086, 0x27AE, 0x27AE, &acel_intel, 3, "Intel 945GME" },
+    { 0x8086, 0x29B2, 0x29B2, &acel_intel, 3, "Intel Q35" },
+    { 0x8086, 0x29C2, 0x29C2, &acel_intel, 3, "Intel G33" },
+    { 0x8086, 0x29D2, 0x29D2, &acel_intel, 3, "Intel Q33" },
+    { 0x8086, 0xA001, 0xA001, &acel_intel, 3, "Intel Pineview G" },
+    { 0x8086, 0xA011, 0xA011, &acel_intel, 3, "Intel Pineview M" },
+    /* Gen4 y Gen5: las mismas órdenes del blitter, también por el ring principal. */
+    { 0x8086, 0x2972, 0x2972, &acel_intel, 4, "Intel 946GZ" },
+    { 0x8086, 0x2982, 0x2982, &acel_intel, 4, "Intel G35" },
+    { 0x8086, 0x2992, 0x2992, &acel_intel, 4, "Intel Q965" },
+    { 0x8086, 0x29A2, 0x29A2, &acel_intel, 4, "Intel G965" },
+    { 0x8086, 0x2A02, 0x2A02, &acel_intel, 4, "Intel GM965" },
+    { 0x8086, 0x2A12, 0x2A12, &acel_intel, 4, "Intel GME965" },
+    { 0x8086, 0x2A42, 0x2A42, &acel_intel, 4, "Intel GM45" },
+    { 0x8086, 0x2E02, 0x2E92, &acel_intel, 4, "Intel G4x" },
+    { 0x8086, 0x0042, 0x0042, &acel_intel, 5, "Intel HD (Ironlake)" },
+    { 0x8086, 0x0046, 0x0046, &acel_intel, 5, "Intel HD (Ironlake M)" },
+    /* Gen6 (Sandy Bridge, HD 2000/3000: el G470): ring propio del blitter. */
+    { 0x8086, 0x0102, 0x0102, &acel_intel, 6, "Intel HD 2000" },
+    { 0x8086, 0x0106, 0x0106, &acel_intel, 6, "Intel HD 2000 M" },
+    { 0x8086, 0x010A, 0x010A, &acel_intel, 6, "Intel HD P3000" },
+    { 0x8086, 0x0112, 0x0112, &acel_intel, 6, "Intel HD 3000" },
+    { 0x8086, 0x0116, 0x0116, &acel_intel, 6, "Intel HD 3000 M" },
+    { 0x8086, 0x0122, 0x0122, &acel_intel, 6, "Intel HD 3000" },
+    { 0x8086, 0x0126, 0x0126, &acel_intel, 6, "Intel HD 3000 M" },
+    /* Radeon con el motor 2D clásico por registros (sin microcódigo). La
+     * generación: 2 = R5xx (AVIVO; la X1400 es RV515/M54, 0x7145), 1 = R300/R420,
+     * 0 = R100/R200. Los intervalos son los de la D158 (userland/libamd/amd.c). */
+    { 0x1002, 0x7100, 0x72FF, &acel_radeon, 2, "Radeon X1000 (R5xx)" },
+    { 0x1002, 0x791E, 0x791F, &acel_radeon, 2, "Radeon Xpress 1200 (RS690)" },
+    { 0x1002, 0x7941, 0x7942, &acel_radeon, 2, "Radeon Xpress 1250 (RS600)" },
+    { 0x1002, 0x4144, 0x4177, &acel_radeon, 1, "Radeon R300" },
+    { 0x1002, 0x4A48, 0x4A6F, &acel_radeon, 1, "Radeon R420" },
+    { 0x1002, 0x4E44, 0x4E57, &acel_radeon, 1, "Radeon R300" },
+    { 0x1002, 0x5460, 0x5465, &acel_radeon, 1, "Radeon RV370" },
+    { 0x1002, 0x5548, 0x555F, &acel_radeon, 1, "Radeon R423" },
+    { 0x1002, 0x564A, 0x5657, &acel_radeon, 1, "Radeon RV410" },
+    { 0x1002, 0x5B60, 0x5B65, &acel_radeon, 1, "Radeon RV370" },
+    { 0x1002, 0x5D48, 0x5D57, &acel_radeon, 1, "Radeon R430" },
+    { 0x1002, 0x5E48, 0x5E4F, &acel_radeon, 1, "Radeon RV410" },
+    { 0x1002, 0x4C57, 0x4C66, &acel_radeon, 0, "Radeon Mobility (R100/R200)" },
+    { 0x1002, 0x5144, 0x515E, &acel_radeon, 0, "Radeon 7000-9250" },
+    { 0x1002, 0x5960, 0x5969, &acel_radeon, 0, "Radeon 9200 (RV280)" },
+    /* Radeon R6xx/R7xx por el motor DMA (D223). La generación: 7 = R7xx (se
+     * elige sola; la HD 4550 del mantenedor es RV710), 6 = R6xx (solo con
+     * --acel2d=radeon). Aquí van las familias; el driver solo sigue si el
+     * modelo está en su lista exacta (acel_r600.c), y si no, no toca nada. */
+    { 0x1002, 0x9540, 0x955F, &acel_r600, 7, "Radeon HD 4350/4550 (RV710)" },
+    { 0x1002, 0x9480, 0x949F, &acel_r600, 7, "Radeon HD 4650/4670 (RV730)" },
+    { 0x1002, 0x94A0, 0x94B9, &acel_r600, 7, "Radeon HD 4770 (RV740)" },
+    { 0x1002, 0x9440, 0x947B, &acel_r600, 7, "Radeon HD 4850/4870 (RV770)" },
+    { 0x1002, 0x95C0, 0x95CF, &acel_r600, 6, "Radeon HD 3450 (RV620)" },
+    { 0x1002, 0x9590, 0x959B, &acel_r600, 6, "Radeon HD 3650 (RV635)" },
+    { 0x1002, 0x94C0, 0x94CD, &acel_r600, 6, "Radeon HD 2400 (RV610)" },
+    { 0x1002, 0x9580, 0x958F, &acel_r600, 6, "Radeon HD 2600 (RV630)" },
+    { 0x1002, 0x9500, 0x9519, &acel_r600, 6, "Radeon HD 3850/3870 (RV670)" },
+    { 0x1002, 0x9400, 0x940F, &acel_r600, 6, "Radeon HD 2900 (R600)" },
+};
+#define N_PLACAS (int)(sizeof placas / sizeof placas[0])
+
+static const acel_driver_t *drv;      /* acelerador elegido (aunque haya fallado) */
+static const acel_placa_t *placa;
+
+/* D244: tarjetas confirmadas, es decir, probadas con éxito. En esas basta la autoprueba corta del
+ * arranque; en las demás el acelerador solo se activa si pasa la autoprueba completa (copias
+ * solapadas en las cuatro direcciones, rellenos, bordes y muchas órdenes al azar, con tiempo).
+ * Aquí solo va la VMware SVGA II (la del emulador, donde corre la batería). Ninguna tarjeta real
+ * consta como probada en hardware (Intel 945GM, X1400, HD 3000, HD 4550 y GeForce siguen «por
+ * probar» en docs/decisoes.md): cuando el mantenedor confirme una, se añade aquí con su fecha. */
+static const struct { uint16_t fab, modelo; } confirmadas[] = {
+    { 0x15AD, 0x0405 },   /* VMware SVGA II */
+};
+static bool confirmada;       /* la tarjeta elegida está en la lista */
+static bool apagado_a_mano;   /* «acel2d apagar» */
+static pci_disp_t disp;
+static bool ativo, iniciado;
+static uint8_t modo;                 /* CAB_ACEL2D */
+static char motivo[160] = "sin iniciar";
+static acel_tela_t tela;
+static uint32_t n_copias, n_rellenos, n_falhas, n_arrastos, n_quadros;
+static uint64_t ciclos_arrasto;
+static uint32_t *zona;               /* zona de prueba en la memoria de vídeo (ventana del kernel) */
+static int zona_y;                   /* su primera fila */
+static uint32_t cmd_original;        /* registro de órdenes del PCI de la tarjeta antes de tocarla */
+static uint32_t us_autoprova, us_gpu_boot, us_cpu_boot;   /* medidas del arranque (infopc, acel2d) */
+
+/* ------------------------------------------------------------------ plazos */
+
+static inline uint64_t tsc(void)
+{
+    uint32_t lo, hi;
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+void acel_prazo(acel_prazo_t *p, uint32_t ms)
+{
+    uint32_t khz = hw_tsc_khz();
+    if (ativo && ms > PRAZO_SESION_MS) ms = PRAZO_SESION_MS;   /* D244: en sesión, plazos de unos ms */
+    p->fim = khz ? tsc() + (uint64_t)khz * ms : 0;
+    p->voltas = 0;
+    /* Sin TSC medido: vueltas (cada una lee un registro, ~1 us en hardware real). */
+    p->max_voltas = ms * 1000u;
+}
+
+bool acel_prazo_esgotado(acel_prazo_t *p)
+{
+    p->voltas++;
+    if (p->fim) return tsc() >= p->fim;
+    return p->voltas >= p->max_voltas;
+}
+
+/* Vacía los búferes de write-combining antes de que la GPU lea lo que la CPU escribió. */
+static inline void vaciar_wc(void)
+{
+    __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
+}
+
+/* ------------------------------------------------------------ la CPU de referencia */
+
+static void cpu_copiar(uint32_t *b, int passo, int ox, int oy, int dx, int dy, int l, int a)
+{
+    if (dy > oy)
+        for (int j = a - 1; j >= 0; j--)
+            memmove(b + (dy + j) * passo + dx, b + (oy + j) * passo + ox, (size_t)l * 4);
+    else
+        for (int j = 0; j < a; j++)
+            memmove(b + (dy + j) * passo + dx, b + (oy + j) * passo + ox, (size_t)l * 4);
+}
+
+static void cpu_preencher(uint32_t *b, int passo, int x, int y, int l, int a, uint32_t cor)
+{
+    for (int j = 0; j < a; j++)
+        for (int i = 0; i < l; i++) b[(y + j) * passo + x + i] = cor;
+}
+
+/* ------------------------------------------------------------------ la autoprueba */
+
+typedef struct { int tipo, ox, oy, dx, dy, l, a; uint32_t cor; } ordem_t;   /* tipo 0 copia, 1 relleno */
+
+static uint32_t semente;
+static uint32_t aleatorio(uint32_t n) { semente = semente * 1103515245u + 12345u; return ((semente >> 8) % n); }
+
+/* Las órdenes fijas: solapes en las cuatro direcciones, en la misma fila y en la
+ * misma columna, rellenos, y los bordes de la zona (columna 0, la última, la
+ * primera y la última fila). Las coordenadas son de la zona (ancho L, alto A). */
+static int ordens_fixas(ordem_t *o, int L, int A)
+{
+    int n = 0;
+    o[n++] = (ordem_t){ 1, 0, 0, 10, 5, 30, 12, 0x00A1B2C3 };
+    o[n++] = (ordem_t){ 0, 0, 0, 7, 3, 60, 30, 0 };            /* hacia abajo y a la derecha, solapada */
+    o[n++] = (ordem_t){ 0, 20, 15, 11, 9, 70, 25, 0 };         /* hacia arriba y a la izquierda */
+    o[n++] = (ordem_t){ 0, 30, 36, 36, 36, 60, 8, 0 };         /* misma fila, a la derecha */
+    o[n++] = (ordem_t){ 0, 40, 20, 33, 20, 50, 10, 0 };        /* misma fila, a la izquierda */
+    o[n++] = (ordem_t){ 0, 100, 2, 100, 6, 20, A - 8, 0 };     /* misma columna, hacia abajo */
+    o[n++] = (ordem_t){ 0, 130, 9, 130, 1, 20, A - 10, 0 };    /* misma columna, hacia arriba */
+    o[n++] = (ordem_t){ 0, 150, 1, 140, 5, 40, A - 6, 0 };     /* abajo a la izquierda */
+    o[n++] = (ordem_t){ 0, 160, 7, 171, 2, 40, A - 9, 0 };     /* arriba a la derecha */
+    o[n++] = (ordem_t){ 1, L - 1, A - 1, 0, 0, 1, 1, 0x00FFFFFF };   /* el último píxel */
+    o[n++] = (ordem_t){ 1, 0, 0, 0, 0, 1, A, 0x00102030 };          /* la columna 0 */
+    o[n++] = (ordem_t){ 0, L - 64, 0, 0, A - 16, 64, 16, 0 };        /* de la esquina derecha a la izquierda */
+    o[n++] = (ordem_t){ 0, 0, A - 20, L - 50, 0, 50, 20, 0 };        /* y al revés */
+    o[n++] = (ordem_t){ 0, 1, 0, 0, 0, L - 1, A, 0 };                /* toda la zona un píxel a la izquierda */
+    o[n++] = (ordem_t){ 0, 0, 0, 0, 1, L, A - 1, 0 };                /* toda la zona una fila hacia abajo */
+    o[n++] = (ordem_t){ 1, L - 33, 3, 0, 0, 33, A - 3, 0x00FF00FF }; /* hasta el borde derecho */
+    return n;
+}
+
+static void ordem_aleatoria(ordem_t *o, int L, int A)
+{
+    o->tipo = (int)aleatorio(4) == 0;
+    o->l = 1 + (int)aleatorio((uint32_t)L);
+    o->a = 1 + (int)aleatorio((uint32_t)A);
+    o->ox = (int)aleatorio((uint32_t)(L - o->l + 1));
+    o->oy = (int)aleatorio((uint32_t)(A - o->a + 1));
+    /* El destino cerca del origen la mitad de las veces: así hay muchos solapes. */
+    if (aleatorio(2)) {
+        o->dx = o->ox + (int)aleatorio(17) - 8;
+        o->dy = o->oy + (int)aleatorio(9) - 4;
+        if (o->dx < 0) o->dx = 0;
+        if (o->dy < 0) o->dy = 0;
+        if (o->dx > L - o->l) o->dx = L - o->l;
+        if (o->dy > A - o->a) o->dy = A - o->a;
+    } else {
+        o->dx = (int)aleatorio((uint32_t)(L - o->l + 1));
+        o->dy = (int)aleatorio((uint32_t)(A - o->a + 1));
+    }
+    o->cor = aleatorio(0x1000000);
+}
+
+static bool executar_gpu(const ordem_t *o)
+{
+    if (o->tipo) return drv->preencher(o->ox, zona_y + o->oy, o->l, o->a, o->cor);
+    return drv->copiar(o->ox, zona_y + o->oy, o->dx, zona_y + o->dy, o->l, o->a);
+}
+
+static void executar_cpu(uint32_t *ref, int L, const ordem_t *o)
+{
+    if (o->tipo) cpu_preencher(ref, L, o->ox, o->oy, o->l, o->a, o->cor);
+    else cpu_copiar(ref, L, o->ox, o->oy, o->dx, o->dy, o->l, o->a);
+}
+
+/* Pone la zona y la referencia en el mismo dibujo (que cambia en cada píxel). */
+static void zona_padrao(uint32_t *ref, int L, int A)
+{
+    uint32_t passo = tela.pitch / 4;
+    for (int y = 0; y < A; y++)
+        for (int x = 0; x < L; x++) {
+            uint32_t v = ((uint32_t)x * 2654435761u ^ (uint32_t)y * 40503u ^ ((uint32_t)(x + y) << 13)) & 0x00FFFFFF;
+            zona[(uint32_t)y * passo + (uint32_t)x] = v;
+            ref[y * L + x] = v;
+        }
+    vaciar_wc();
+}
+
+/* La zona visible (VMware, o sin memoria debajo) se redibuja desde el búfer de atrás. */
+static void zona_restaurar(int A)
+{
+    if (zona_y < tela.alt) {
+        video_marcar(0, zona_y, tela.larg, A);
+        video_mostrar();
+    }
+}
+
+/* La autoprueba: devuelve true si la GPU dio los mismos píxeles que la CPU. */
+static bool autoprova(bool completa, bool simular, info_acel2d_prova_t *r, char *m, int nm)
+{
+    int L = tela.larg, A = completa ? ZONA_A : ZONA_BOOT_A;
+    uint32_t *ref = kmalloc((uint32_t)(L * A) * 4);
+    if (!ref) { snformatar(m, (size_t)nm, "sin memoria para la autoprueba"); return false; }
+    static ordem_t fixas[32];
+    int nf = ordens_fixas(fixas, L, A);
+    int total = nf + (completa ? ORDENS_PROVA : 24);
+    semente = 0x5A6E1u;
+    zona_padrao(ref, L, A);
+    bool ok = true;
+    for (int k = 0; k < total && ok; k++) {
+        ordem_t o = k < nf ? fixas[k] : (ordem_t){ 0 };
+        if (k >= nf) ordem_aleatoria(&o, L, A);
+        if (!executar_gpu(&o)) { snformatar(m, (size_t)nm, "la GPU rechazo la orden %d", k); ok = false; break; }
+        executar_cpu(ref, L, &o);
+        /* Cada pocas órdenes se espera: así una orden mal hecha se ve antes. */
+        if ((k & 7) == 7 && !drv->esperar()) { snformatar(m, (size_t)nm, "tiempo agotado en la orden %d", k); ok = false; }
+    }
+    bool tempo = ok && simular && (modo & ACEL2D_PROVA_TEMPO);
+    if (ok && (tempo || !drv->esperar())) { snformatar(m, (size_t)nm, "tiempo agotado al final%s", tempo ? " (simulado)" : ""); ok = false; }
+    uint32_t passo = tela.pitch / 4, dif = 0, sg = 0, sc = 0;
+    int px = -1, py = -1;
+    if (ok) {
+        if (simular && (modo & ACEL2D_PROVA_PIXEL)) zona[(uint32_t)(A / 2) * passo + (uint32_t)(L / 3)] ^= 0x00FF00;
+        for (int y = 0; y < A; y++)
+            for (int x = 0; x < L; x++) {
+                uint32_t g = zona[(uint32_t)y * passo + (uint32_t)x] & 0x00FFFFFF, c = ref[y * L + x];
+                sg = sg * 31 + g; sc = sc * 31 + c;
+                if (g != c) { if (!dif) { px = x; py = y; klog("[ACEL2D] primer pixel distinto: gpu %x cpu %x\n", g, c); } dif++; }
+            }
+        if (dif) {
+            snformatar(m, (size_t)nm, "%u pixeles distintos de la CPU (el primero en %d,%d)%s", dif, px, py,
+                       simular && (modo & ACEL2D_PROVA_PIXEL) ? " (simulado)" : "");
+            ok = false;
+        }
+    }
+    if (r) { r->ordens = (uint32_t)total; r->diferentes = dif; r->soma_gpu = sg; r->soma_cpu = sc; }
+    klog("[ACEL2D] autoprueba %s: %d ordenes en %dx%d (fila %d, %s), %s%s%s, suma gpu %x cpu %x\n",
+         completa ? "completa" : "del arranque", total, L, A, zona_y, zona_y >= tela.alt ? "fuera de la pantalla" : "visible",
+         ok ? "IGUAL que la CPU" : "FALLO", ok ? "" : ": ", ok ? "" : m, sg, sc);
+    kfree(ref);
+    return ok;
+}
+
+/* La medida: VOLTAS_BENCH copias de casi toda la zona por la GPU y lo que hace
+ * la CPU sin acelerador (mover en el búfer de atrás y copiar el destino a la
+ * tarjeta). Devuelve los microsegundos de cada una. */
+static void medir(info_acel2d_prova_t *r)
+{
+    int L = tela.larg, A = ZONA_A, l = L - 8, a = A - 4;
+    uint32_t *ref = kmalloc((uint32_t)(L * A) * 4);
+    if (!ref) return;
+    memset(ref, 0, (uint32_t)(L * A) * 4);
+    uint32_t khz = hw_tsc_khz();
+    uint64_t t0 = tsc();
+    bool ok = true;
+    for (int k = 0; k < VOLTAS_BENCH && ok; k++)
+        ok = (k & 1) ? drv->copiar(4, zona_y + 2, 0, zona_y, l, a) : drv->copiar(0, zona_y, 4, zona_y + 2, l, a);
+    if (ok) ok = drv->esperar();
+    uint64_t t1 = tsc();
+    uint32_t passo = tela.pitch / 4;
+    bool sse = rapido_inicio();
+    for (int k = 0; k < VOLTAS_BENCH; k++) {
+        int ox = (k & 1) ? 4 : 0, oy = (k & 1) ? 2 : 0, dx = 4 - ox, dy = 2 - oy;
+        cpu_copiar(ref, L, ox, oy, dx, dy, l, a);
+        for (int j = 0; j < a; j++)
+            rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ref + (dy + j) * L + dx, (uint32_t)l * 4);
+    }
+    rapido_fim(sse);
+    vaciar_wc();
+    uint64_t t2 = tsc();
+    kfree(ref);
+    if (khz) {
+        r->us_gpu = ok ? (uint32_t)sconv_div64((t1 - t0) * 1000, khz) : 0;
+        r->us_cpu = (uint32_t)sconv_div64((t2 - t1) * 1000, khz);
+    }
+    klog("[ACEL2D] medida: %d copias de %dx%d: GPU %u us, CPU %u us%s\n", VOLTAS_BENCH, l, a, r->us_gpu, r->us_cpu,
+         ok ? "" : " (la GPU fallo)");
+}
+
+/* D243: tres tandas de órdenes iguales por la GPU y por la CPU (rellenos, copias sin solape y
+ * copias solapadas). Cada tanda parte del mismo dibujo; las sumas de la zona tienen que coincidir.
+ * La CPU hace lo que haría sin acelerador: mover en el búfer y escribir el destino en la tarjeta. */
+#define OPS_BENCH 120
+static uint32_t soma_zona(const uint32_t *b, int passo, int L, int A)
+{
+    uint32_t h = 0;
+    for (int y = 0; y < A; y++)
+        for (int x = 0; x < L; x++) h = h * 31 + (b[y * passo + x] & 0x00FFFFFF);
+    return h;
+}
+
+static void medir_tandas(info_acel2d_prova_t *r)
+{
+    int L = tela.larg, A = ZONA_A;
+    uint32_t khz = hw_tsc_khz();
+    uint32_t *ref = kmalloc((uint32_t)(L * A) * 4);
+    ordem_t *os = kmalloc(OPS_BENCH * sizeof(ordem_t));
+    if (!ref || !os || !khz) { if (ref) kfree(ref); if (os) kfree(os); return; }
+    uint32_t passo = tela.pitch / 4;
+    for (int t = 0; t < 3; t++) {
+        semente = 0xBE7C0u + (uint32_t)t;
+        uint32_t pix = 0;
+        for (int k = 0; k < OPS_BENCH; k++) {
+            ordem_t *o = &os[k];
+            o->tipo = t == 0;
+            o->l = 16 + (int)aleatorio((uint32_t)(L / 2 - 16));
+            o->a = 4 + (int)aleatorio((uint32_t)(A / 2 - 4));
+            o->ox = (int)aleatorio((uint32_t)(L - o->l + 1));
+            o->oy = (int)aleatorio((uint32_t)(A - o->a + 1));
+            o->cor = aleatorio(0x1000000);
+            if (t == 2) {   /* destino a pocos píxeles del origen: siempre solapa */
+                o->dx = o->ox + (int)aleatorio(9) - 4;
+                o->dy = o->oy + (int)aleatorio(5) - 2;
+                if (o->dx < 0) o->dx = 0;
+                if (o->dy < 0) o->dy = 0;
+                if (o->dx > L - o->l) o->dx = L - o->l;
+                if (o->dy > A - o->a) o->dy = A - o->a;
+            } else {
+                o->dx = (int)aleatorio((uint32_t)(L - o->l + 1));
+                o->dy = (int)aleatorio((uint32_t)(A - o->a + 1));
+            }
+            pix += (uint32_t)(o->l * o->a);
+        }
+        r->b[t].ops = OPS_BENCH;
+        r->b[t].pixeis = pix;
+        zona_padrao(ref, L, A);
+        uint64_t t0 = tsc();
+        bool ok = true;
+        for (int k = 0; k < OPS_BENCH && ok; k++) ok = executar_gpu(&os[k]);
+        if (ok) ok = drv->esperar();
+        uint64_t t1 = tsc();
+        r->b[t].us_gpu = ok ? (uint32_t)sconv_div64((t1 - t0) * 1000, khz) : 0;
+        r->b[t].soma_gpu = ok ? soma_zona(zona, (int)passo, L, A) : 0;
+        zona_padrao(ref, L, A);
+        bool sse = rapido_inicio();
+        uint64_t t2 = tsc();
+        for (int k = 0; k < OPS_BENCH; k++) {
+            const ordem_t *o = &os[k];
+            executar_cpu(ref, L, o);
+            int dx = o->tipo ? o->ox : o->dx, dy = o->tipo ? o->oy : o->dy;
+            for (int j = 0; j < o->a; j++)
+                rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ref + (dy + j) * L + dx, (uint32_t)o->l * 4);
+        }
+        rapido_fim(sse);
+        vaciar_wc();
+        uint64_t t3 = tsc();
+        r->b[t].us_cpu = (uint32_t)sconv_div64((t3 - t2) * 1000, khz);
+        r->b[t].soma_cpu = soma_zona(ref, L, L, A);
+        klog("[ACEL2D] tanda %d: %d ordenes, %u pixeles: GPU %u us (suma %x), CPU %u us (suma %x)\n", t, OPS_BENCH, pix,
+             r->b[t].us_gpu, r->b[t].soma_gpu, r->b[t].us_cpu, r->b[t].soma_cpu);
+    }
+    r->bn = 3;
+    kfree(os);
+    kfree(ref);
+}
+
+/* La comparación de velocidad del arranque: las mismas copias de la zona por la
+ * GPU y lo que haría la CPU sin acelerador para que la pantalla cambie igual
+ * (escribir el rectángulo de destino en la tarjeta desde la RAM; mover el búfer
+ * de atrás lo hace la CPU en los dos casos). Así se elige de verdad: en una
+ * máquina virtual con la memoria de vídeo mapeada directamente (KVM) la GPU
+ * emulada puede ser más lenta que la CPU. */
+#define VOLTAS_BOOT 8
+static bool comparar_velocidade(uint32_t *ug, uint32_t *uc)
+{
+    int L = tela.larg, A = ZONA_BOOT_A, l = L - 8, a = A - 4;
+    uint32_t khz = hw_tsc_khz();
+    uint32_t *ram = kmalloc((uint32_t)(L * A) * 4);
+    if (!ram || !khz) { if (ram) kfree(ram); return false; }
+    memset(ram, 0, (uint32_t)(L * A) * 4);
+    uint64_t t0 = tsc();
+    bool ok = true;
+    for (int k = 0; k < VOLTAS_BOOT && ok; k++)
+        ok = (k & 1) ? drv->copiar(4, zona_y + 2, 0, zona_y, l, a) : drv->copiar(0, zona_y, 4, zona_y + 2, l, a);
+    if (ok) ok = drv->esperar();
+    uint64_t t1 = tsc();
+    uint32_t passo = tela.pitch / 4;
+    bool sse = rapido_inicio();
+    for (int k = 0; k < VOLTAS_BOOT; k++) {
+        int dx = (k & 1) ? 0 : 4, dy = (k & 1) ? 0 : 2;
+        for (int j = 0; j < a; j++)
+            rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ram + (dy + j) * L + dx, (uint32_t)l * 4);
+        if (drv->atualizar) drv->atualizar(dx, zona_y + dy, l, a);   /* la VMware lo pide también con la CPU */
+    }
+    rapido_fim(sse);
+    vaciar_wc();
+    if (ok && drv->atualizar) ok = drv->esperar();
+    uint64_t t2 = tsc();
+    kfree(ram);
+    *ug = (uint32_t)sconv_div64((t1 - t0) * 1000, khz);
+    *uc = (uint32_t)sconv_div64((t2 - t1) * 1000, khz);
+    return ok;
+}
+
+/* Los BAR de memoria (de 32 bits, o de 64 por debajo de 4 GB) de una tarjeta. */
+static int bars_memoria(const pci_disp_t *d, uint32_t *base, int max)
+{
+    int n = 0;
+    for (uint8_t r = 0x10; r <= 0x24 && n < max; r += 4) {
+        uint32_t v = pci_le32(d, r);
+        if (v & 1) continue;                       /* de E/S */
+        bool b64 = ((v >> 1) & 3) == 2;
+        uint32_t alto = b64 && r < 0x24 ? pci_le32(d, (uint8_t)(r + 4)) : 0;
+        if (b64) r += 4;
+        if (alto || !(v & ~0xFu)) continue;        /* por encima de 4 GB o sin asignar */
+        base[n++] = v & ~0xFu;
+    }
+    return n;
+}
+
+/* Qué tarjeta de vídeo tiene la pantalla del VBE, solo leyendo el espacio de
+ * configuración del PCI (sin tocar ningún registro de ninguna GPU): la dueña del
+ * BAR de memoria de base más alta que no pasa de vesa_fb (como mucho 512 MB por
+ * debajo). Así, en un portátil con dos GPU (una Intel y una Radeon, por
+ * ejemplo) nunca se programa la que no muestra la pantalla. -1: ninguna. */
+static int dona_da_tela(const pci_disp_t *v, int n, uint32_t fb)
+{
+    int dona = -1;
+    uint32_t melhor = 0;
+    for (int i = 0; i < n; i++) {
+        uint32_t b[6];
+        int nb = bars_memoria(&v[i], b, 6);
+        for (int k = 0; k < nb; k++)
+            if (b[k] <= fb && fb - b[k] < 0x20000000u && (dona < 0 || b[k] > melhor)) { dona = i; melhor = b[k]; }
+    }
+    if (dona >= 0 && !(pci_le32(&v[dona], 0x04) & 0x02)) {
+        klog("[ACEL2D] la tarjeta %04x:%04x tiene la memoria apagada en el PCI (orden %x)\n",
+             v[dona].fabricante, v[dona].modelo, pci_le32(&v[dona], 0x04) & 0xFFFF);
+        return -1;
+    }
+    return dona;
+}
+
+/* Apaga el acelerador y deja el registro de órdenes del PCI como estaba. */
+static void soltar(void)
+{
+    if (drv && drv->desligar) drv->desligar();
+    if (placa) pci_escreve32(&disp, 0x04, cmd_original & 0xFFFFu);   /* el estado (bits altos) no se toca */
+    iniciado = false;
+}
+
+/* ------------------------------------------------------------------ elección */
+
+static const char *nome_modo(int m)
+{
+    switch (m) {
+    case ACEL2D_CPU: return "cpu";
+    case ACEL2D_VMWARE: return "vmware";
+    case ACEL2D_INTEL: return "intel";
+    case ACEL2D_RADEON: return "radeon";
+    case ACEL2D_NVIDIA: return "nvidia";
+    default: return "auto";
+    }
+}
+
+static bool preparar_zona(void)
+{
+    int A = ZONA_A;
+    bool cabe = tela.memoria >= tela.pitch * (uint32_t)(tela.alt + A);
+    if (drv->fora_da_tela && cabe) {
+        zona_y = tela.alt;
+        if (!zona) zona = (uint32_t *)janela_mapear_tipo(tela.fb_fisico + tela.pitch * (uint32_t)zona_y,
+                                                          tela.pitch * (uint32_t)A, PG_PCD | PG_PWT);
+    } else {
+        zona_y = tela.alt - A;
+        zona = (uint32_t *)(video_placa() + tela.pitch * (uint32_t)zona_y);
+    }
+    return zona != NULL;
+}
+
+void acel2d_iniciar(void)
+{
+    modo = cabecalho_boot[CAB_ACEL2D];
+    int pedido = modo & ACEL2D_MODO_MASCARA;
+    if (!video_ativo()) { snformatar(motivo, sizeof motivo, "sin modo grafico"); return; }
+    tela.fb_fisico = info_boot.vesa_fb;
+    tela.pitch = video_pitch();
+    tela.larg = (int)video_largura();
+    tela.alt = (int)video_altura();
+    tela.memoria = hw_video_memoria_kb() * 1024;
+    if (tela.memoria < tela.pitch * (uint32_t)tela.alt) tela.memoria = tela.pitch * (uint32_t)tela.alt;
+    if (pedido == ACEL2D_CPU) {
+        snformatar(motivo, sizeof motivo, "la opcion de arranque pide la CPU (--sin-acel2d)");
+        klog("[ACEL2D] desactivado: %s\n", motivo);
+        return;
+    }
+    if (!video_formato_direto() || tela.larg < 320 || tela.alt < 2 * ZONA_A) {
+        snformatar(motivo, sizeof motivo, "la pantalla no es de 32 bits 0x00RRGGBB (%u bits): copia la CPU", video_bpp());
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        return;
+    }
+    /* Las tarjetas de vídeo (VGA, XGA, 3D y «otra»: la 2.ª función de algunas
+     * Intel, o la GPU dedicada de un portátil con dos). */
+    pci_disp_t v[8];
+    int n = 0;
+    static const uint8_t subclasses[] = { 0x00, 0x01, 0x02, 0x80 };
+    for (int k = 0; k < 4 && n < 8; k++) n += pci_procurar_classe(0x03, subclasses[k], v + n, 8 - n);
+    for (int i = 0; i < n; i++)
+        klog("[ACEL2D] tarjeta de video %04x:%04x en %u:%u.%u (clase 03%02x)\n", v[i].fabricante, v[i].modelo,
+             v[i].barramento, v[i].dispositivo, v[i].funcao, v[i].subclasse);
+    /* Solo se mira la que tiene la pantalla, y solo si es de una familia de la tabla. */
+    int d = dona_da_tela(v, n, tela.fb_fisico);
+    if (d < 0) {
+        snformatar(motivo, sizeof motivo, "ninguna tarjeta de video tiene la pantalla (%x) en sus BAR: copia la CPU",
+                   tela.fb_fisico);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        return;
+    }
+    klog("[ACEL2D] la pantalla (%x) es de la tarjeta %04x:%04x\n", tela.fb_fisico, v[d].fabricante, v[d].modelo);
+    for (int k = 0; k < N_PLACAS; k++) {
+        const acel_placa_t *p = &placas[k];
+        if (p->fab != v[d].fabricante || v[d].modelo < p->de || v[d].modelo > p->ate) continue;
+        if (pedido != ACEL2D_AUTO && p->drv->modo != pedido) continue;
+        placa = p; disp = v[d]; drv = p->drv;
+        break;
+    }
+    if (!placa) {
+        if (pedido != ACEL2D_AUTO)
+            snformatar(motivo, sizeof motivo, "se pidio el acelerador %s y la pantalla no es de una tarjeta suya (%04x:%04x)",
+                       nome_modo(pedido), v[d].fabricante, v[d].modelo);
+        else
+            snformatar(motivo, sizeof motivo, "la tarjeta %04x:%04x no es de una familia con acelerador: copia la CPU (no se toca)",
+                       v[d].fabricante, v[d].modelo);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        return;
+    }
+    klog("[ACEL2D] %s (%04x:%04x, generacion %d): acelerador %s%s\n", placa->nome, disp.fabricante, disp.modelo,
+         placa->geracao, drv->nome, pedido != ACEL2D_AUTO ? " (forzado)" : "");
+    /* Los plazos de la GPU se miden con el TSC: sin él no se arriesga nada. */
+    if (!hw_tsc_khz()) {
+        snformatar(motivo, sizeof motivo, "%s: sin TSC medido para los plazos de la GPU: copia la CPU", placa->nome);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        placa = NULL; drv = NULL;
+        return;
+    }
+    cmd_original = pci_le32(&disp, 0x04);
+    char m[96] = "";
+    /* Iniciar puede esperar (la sonda de la VMware, hasta 3 s): con las
+     * interrupciones activas, para que el reloj siga contando. */
+    uint64_t t0 = tsc();
+    if (!drv->iniciar(&disp, placa->geracao, &tela, m, sizeof m)) {
+        soltar();
+        snformatar(motivo, sizeof motivo, "%s: no se pudo iniciar: %s", placa->nome, m);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        n_falhas++;
+        return;
+    }
+    iniciado = true;
+    uint32_t khz = hw_tsc_khz();
+    klog("[ACEL2D] %s iniciado en %u ms\n", drv->nome, (uint32_t)sconv_div64(tsc() - t0, khz));
+    bool sim = int_salva_desliga();   /* la autoprueba, sin que nada más toque la pantalla */
+    if (!preparar_zona()) {
+        soltar();
+        int_restaura(sim);
+        snformatar(motivo, sizeof motivo, "%s: sin ventana para la zona de prueba", placa->nome);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        return;
+    }
+    t0 = tsc();
+    confirmada = false;
+    for (unsigned k = 0; k < sizeof confirmadas / sizeof confirmadas[0]; k++)
+        if (confirmadas[k].fab == disp.fabricante && confirmadas[k].modelo == disp.modelo) confirmada = true;
+    /* D244: en una tarjeta sin confirmar (elegida sola) la autoprueba es la completa. */
+    bool completa = !confirmada && pedido == ACEL2D_AUTO;
+    klog("[ACEL2D] tarjeta %s: autoprueba %s\n", confirmada ? "confirmada" : "no confirmada",
+         completa ? "completa" : "corta");
+    bool ok = autoprova(completa, true, NULL, m, sizeof m);
+    us_autoprova = (uint32_t)sconv_div64((tsc() - t0) * 1000, khz);
+    if (!us_autoprova) us_autoprova = 1;
+    klog("[ACEL2D] la autoprueba del arranque tardo %u us\n", us_autoprova);
+    /* ¿Compensa? Solo en la elección automática: forzado, se usa aunque sea más lento. */
+    bool lenta = false;
+    if (ok && pedido == ACEL2D_AUTO) {
+        if (!comparar_velocidade(&us_gpu_boot, &us_cpu_boot)) {
+            ok = false;
+            snformatar(m, sizeof m, "tiempo agotado al medir la velocidad");
+        } else {
+            lenta = us_gpu_boot > us_cpu_boot + us_cpu_boot / 2;
+            klog("[ACEL2D] velocidad: %d copias de %dx%d: GPU %u us, CPU %u us: %s\n", VOLTAS_BOOT, tela.larg - 8,
+                 ZONA_BOOT_A - 4, us_gpu_boot, us_cpu_boot, lenta ? "la GPU es mas lenta, se queda la CPU" : "compensa la GPU");
+        }
+    }
+    zona_restaurar(completa ? ZONA_A : ZONA_BOOT_A);
+    if (!ok || lenta) {
+        soltar();
+        int_restaura(sim);
+        video_mostrar_tudo();
+        if (lenta)
+            snformatar(motivo, sizeof motivo, "%s: autoprueba superada, pero la GPU (%u us) es mas lenta que la CPU (%u us)",
+                       placa->nome, us_gpu_boot, us_cpu_boot);
+        else
+            snformatar(motivo, sizeof motivo, "%s: autoprueba fallida (%s)", placa->nome, m);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        if (!lenta) n_falhas++;
+        return;
+    }
+    ativo = true;
+    int_restaura(sim);
+    if (us_gpu_boot)
+        snformatar(motivo, sizeof motivo, "%s (%04x:%04x, %s): autoprueba superada en %u ms; GPU %u us, CPU %u us",
+                   placa->nome, disp.fabricante, disp.modelo, confirmada ? "confirmada" : "por autoprueba",
+                   (us_autoprova + 999) / 1000, us_gpu_boot, us_cpu_boot);
+    else
+        snformatar(motivo, sizeof motivo, "%s (%04x:%04x, %s): autoprueba superada en %u ms (forzado)",
+                   placa->nome, disp.fabricante, disp.modelo, confirmada ? "confirmada" : "por autoprueba",
+                   (us_autoprova + 999) / 1000);
+    klog("[ACEL2D] activo: %s, acelerador %s\n", motivo, drv->nome);
+    video_mostrar_tudo();
+}
+
+bool acel2d_ativo(void) { return ativo; }
+const char *acel2d_nome(void) { return ativo ? drv->nome : "cpu"; }
+const char *acel2d_motivo(void) { return motivo; }
+bool acel2d_forcado(void) { return (modo & ACEL2D_MODO_MASCARA) > ACEL2D_CPU; }
+
+void acel2d_desligar(const char *m)
+{
+    if (!ativo) return;
+    ativo = false;
+    n_falhas++;
+    soltar();
+    /* D244: el vigilante. Para el resto de la sesión todo pasa a la CPU, sin esperar más. */
+    snformatar(motivo, sizeof motivo, "%s: apagado por el vigilante, sigue la CPU (%s)", placa ? placa->nome : "?", m);
+    klog("[ACEL2D] apagado: %s\n", m);
+    video_mostrar_tudo();   /* la CPU redibuja todo desde el búfer de atrás */
+}
+
+/* «acel2d apagar»: a mano, sin contar como fallo. */
+int32_t acel2d_apagar(void)
+{
+    if (!ativo) return 0;
+    ativo = false;
+    apagado_a_mano = true;
+    soltar();
+    snformatar(motivo, sizeof motivo, "%s: apagado a mano (acel2d apagar), sigue la CPU", placa ? placa->nome : "?");
+    klog("[ACEL2D] apagado: a mano (acel2d apagar)\n");
+    video_mostrar_tudo();
+    return 0;
+}
+
+/* «acel2d encender»: repite la elección y la autoprueba del arranque. */
+int32_t acel2d_acender(void)
+{
+    if (ativo) return 0;
+    klog("[ACEL2D] encender a mano: se repite la autoprueba\n");
+    placa = NULL; drv = NULL; iniciado = false;
+    acel2d_iniciar();
+    return ativo ? 0 : ERRO_INVALIDO;
+}
+
+/* ------------------------------------------------------------------ las órdenes */
+
+/* Recorta origen y destino juntos a la pantalla visible. */
+static bool recortar(int *ox, int *oy, int *dx, int *dy, int *l, int *a)
+{
+    int d;
+    if (*ox < 0) { d = -*ox; *ox += d; *dx += d; *l -= d; }
+    if (*oy < 0) { d = -*oy; *oy += d; *dy += d; *a -= d; }
+    if (*dx < 0) { d = -*dx; *ox += d; *dx += d; *l -= d; }
+    if (*dy < 0) { d = -*dy; *oy += d; *dy += d; *a -= d; }
+    if (*ox + *l > tela.larg) *l = tela.larg - *ox;
+    if (*dx + *l > tela.larg) *l = tela.larg - *dx;
+    if (*oy + *a > tela.alt) *a = tela.alt - *oy;
+    if (*dy + *a > tela.alt) *a = tela.alt - *dy;
+    return *l > 0 && *a > 0;
+}
+
+/* Las órdenes se escriben con las interrupciones cerradas: la IRQ del ratón
+ * también llama a video_mostrar (y este a acel_atualizar), y dos órdenes a medio
+ * escribir en la FIFO de la VMware a la vez la estropearían. */
+bool acel_copiar(int ox, int oy, int dx, int dy, int l, int a)
+{
+    if (!ativo) return false;
+    if (!recortar(&ox, &oy, &dx, &dy, &l, &a)) return true;
+    /* D246: una copia pequeña sale más cara por el motor (paquete, valla, espera) que por la CPU:
+     * se devuelve false sin apagar nada y quien llama la hace con el búfer de atrás. */
+    if (drv->min_pixeis && (uint32_t)l * (uint32_t)a < drv->min_pixeis) return false;
+    bool sim = int_salva_desliga();
+    vaciar_wc();
+    bool ok = drv->copiar(ox, oy, dx, dy, l, a);
+    int_restaura(sim);
+    if (!ok) { acel2d_desligar("la GPU rechazo una copia"); return false; }
+    n_copias++;
+    return true;
+}
+
+bool acel_rellenar(int x, int y, int l, int a, uint32_t cor)
+{
+    if (!ativo) return false;
+    int dx = x, dy = y;
+    if (!recortar(&x, &y, &dx, &dy, &l, &a)) return true;
+    bool sim = int_salva_desliga();
+    vaciar_wc();
+    bool ok = drv->preencher(x, y, l, a, cor & 0x00FFFFFF);
+    int_restaura(sim);
+    if (!ok) { acel2d_desligar("la GPU rechazo un relleno"); return false; }
+    n_rellenos++;
+    return true;
+}
+
+bool acel_esperar(void)
+{
+    if (!ativo) return false;
+    bool sim = int_salva_desliga();
+    bool ok = drv->esperar();
+    int_restaura(sim);
+    if (ok) return true;
+    acel2d_desligar("tiempo agotado esperando a la GPU");
+    return false;
+}
+
+/* D246: la CPU va a escribir en la pantalla: si el motor sigue copiando, se espera antes (en la
+ * práctica ya se espera tras cada orden; esto lo garantiza para cualquier camino nuevo). */
+void acel_sincronizar(void)
+{
+    if (!ativo || !drv->assincrono) return;
+    (void)acel_esperar();
+}
+
+void acel_atualizar(int x, int y, int l, int a)
+{
+    if (!ativo || !drv->atualizar) return;
+    int dx = x, dy = y;
+    if (!recortar(&x, &y, &dx, &dy, &l, &a)) return;
+    bool sim = int_salva_desliga();
+    bool ok = drv->atualizar(x, y, l, a);
+    int_restaura(sim);
+    /* Una tarjeta que solo enseña lo que se le pide y no lo acepta dejaría la
+     * pantalla congelada: se apaga y vuelve a enseñar el framebuffer del VBE. */
+    if (!ok) acel2d_desligar("la GPU no acepta la orden de mostrar");
+}
+
+/* ------------------------------------------------------------------ infopc y la orden */
+
+void acel2d_contar_arrasto(uint32_t quadros, uint64_t ciclos)
+{
+    if (!quadros) return;
+    n_arrastos++;
+    n_quadros += quadros;
+    ciclos_arrasto += ciclos;
+}
+
+int32_t acel2d_info(uint32_t ptr, uint32_t n)
+{
+    info_acel2d_t *v = (info_acel2d_t *)ptr;
+    if (n < sizeof *v || !usuario_ok((void *)ptr, sizeof *v, true)) return ERRO_ENDERECO;
+    memset(v, 0, sizeof *v);
+    v->versao = 1;
+    v->ativo = ativo;
+    v->modo = modo;
+    v->fabricante = placa ? disp.fabricante : 0;
+    v->modelo = placa ? disp.modelo : 0;
+    txt_copia_n(v->nome, acel2d_nome(), sizeof v->nome);
+    txt_copia_n(v->motivo, motivo, sizeof v->motivo);
+    v->copias = n_copias; v->rellenos = n_rellenos; v->falhas = n_falhas;
+    v->arrastos = n_arrastos; v->quadros = n_quadros;
+    v->kciclos_quadro = n_quadros ? (uint32_t)sconv_div64(ciclos_arrasto, n_quadros * 1000u) : 0;
+    v->us_autoprova = us_autoprova; v->us_gpu = us_gpu_boot; v->us_cpu = us_cpu_boot;
+    v->confirmada = confirmada;
+    v->apagado = !ativo && (n_falhas || apagado_a_mano) ? (apagado_a_mano ? 2u : 1u) : 0;
+    v->prazo_ms = PRAZO_SESION_MS;
+    return 0;
+}
+
+/* D246: «acel2d probar --detalle». Órdenes sueltas de varios tamaños por la GPU y por la CPU, con el
+ * tiempo de cada una (poner en cola, esperar) y los registros del motor antes y después, para que
+ * una foto del log [ACEL2D] (o «dmesg > /home/acel.txt») diga dónde falla o cuándo no compensa. */
+static void detalhar(void)
+{
+    uint32_t khz = hw_tsc_khz();
+    int L = tela.larg, A = ZONA_A;
+    uint32_t passo = tela.pitch / 4;
+    uint32_t *ref = kmalloc((uint32_t)(L * A) * 4);
+    if (!ref || !khz) { klog("[ACEL2D] detalle: sin memoria o sin TSC medido\n"); if (ref) kfree(ref); return; }
+    zona_padrao(ref, L, A);
+    static const struct { int l, a; } t[] = {
+        { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 }, { 128, 32 }, { 256, 16 },
+        { 0, 1 }, { 0, 8 }, { 0, 32 }, { 0, 56 },   /* l = 0: ancho completo */
+    };
+    klog("[ACEL2D] detalle: %s, pantalla %dx%d pitch %u, zona en la fila %d; TSC %u kHz\n", drv->nome, L, A, tela.pitch, zona_y, khz);
+    if (drv->detalle) drv->detalle("antes de la primera orden");
+    bool sse = rapido_inicio();
+    for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++) {
+        int l = t[i].l ? t[i].l : L, a = t[i].a, ox = 0, oy = 0, dx, dy;
+        if (t[i].l) { dx = L - l; dy = 0; if (dx < l) continue; }
+        else { dx = 0; dy = a <= ZONA_A / 2 ? a : 2; }   /* ancho completo: sin solape si cabe, si no 2 filas */
+        if (dy + a > A) continue;
+        uint64_t t0 = tsc();
+        bool ok = drv->copiar(ox, zona_y + oy, dx, zona_y + dy, l, a);
+        uint64_t t1 = tsc();
+        if (ok) ok = drv->esperar();
+        uint64_t t2 = tsc();
+        executar_cpu(ref, L, &(ordem_t){ 0, ox, oy, dx, dy, l, a, 0 });
+        for (int j = 0; j < a; j++)
+            rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ref + (dy + j) * L + dx, (uint32_t)l * 4);
+        uint64_t t3 = tsc();
+        klog("[ACEL2D] detalle: copia %dx%d%s (%u px)%s: GPU %u ns (cola %u + espera %u), CPU %u ns\n", l, a,
+             t[i].l ? "" : " ancho completo", (uint32_t)(l * a), ok ? "" : " FALLO", (uint32_t)sconv_div64((t2 - t0) * 1000000, khz),
+             (uint32_t)sconv_div64((t1 - t0) * 1000000, khz), (uint32_t)sconv_div64((t2 - t1) * 1000000, khz),
+             (uint32_t)sconv_div64((t3 - t2) * 1000000, khz));
+        if (i == 0 && drv->detalle) drv->detalle("despues de la primera orden");
+        if (!ok) { if (drv->detalle) drv->detalle("tras el fallo"); break; }
+    }
+    rapido_fim(sse);
+    vaciar_wc();
+    if (drv->detalle) drv->detalle("al final");
+    kfree(ref);
+}
+
+/* «acel2d probar»: la autoprueba completa (con los bordes y muchas órdenes
+ * aleatorias) y la medida, ahora. Si el acelerador quedó apagado en el
+ * arranque, se vuelve a iniciar solo para la prueba (para mirarlo en el
+ * hardware) y se apaga otra vez: no se activa desde aquí. */
+int32_t acel2d_prova(uint32_t ptr, uint32_t n)
+{
+    info_acel2d_prova_t *r = (info_acel2d_prova_t *)ptr;
+    if (n < sizeof *r || !usuario_ok((void *)ptr, sizeof *r, true)) return ERRO_ENDERECO;
+    bool com_detalhe = r->versao == 2;   /* D246: «--detalle» (el programa pone 2 antes de llamar) */
+    memset(r, 0, sizeof *r);
+    r->versao = 1;
+    if (!drv) {
+        r->resultado = -1;
+        snformatar(r->texto, sizeof r->texto, "sin acelerador: %s", motivo);
+        return 0;
+    }
+    bool sim = int_salva_desliga();
+    char m[96] = "";
+    bool temporal = !iniciado;
+    if (temporal) cmd_original = pci_le32(&disp, 0x04);
+    if (temporal && !drv->iniciar(&disp, placa->geracao, &tela, m, sizeof m)) {
+        soltar();
+        int_restaura(sim);
+        r->resultado = 0;
+        snformatar(r->texto, sizeof r->texto, "%s no se pudo iniciar: %s", drv->nome, m);
+        klog("[ACEL2D] prueba: %s\n", r->texto);
+        return 0;
+    }
+    if (temporal) iniciado = true;
+    bool ok = preparar_zona() && autoprova(true, false, r, m, sizeof m);
+    if (ok) { medir(r); medir_tandas(r); }
+    if (com_detalhe) { if (ok) detalhar(); else if (drv->detalle) drv->detalle("tras el fallo de la autoprueba"); }
+    zona_restaurar(ZONA_A);
+    if (temporal) soltar();
+    int_restaura(sim);
+    if (temporal) video_mostrar_tudo();
+    r->resultado = ok ? 1 : 0;
+    if (ok)
+        snformatar(r->texto, sizeof r->texto, "%s: %u ordenes, los mismos pixeles que la CPU; %d copias: GPU %u us, CPU %u us",
+                   drv->nome, r->ordens, VOLTAS_BENCH, r->us_gpu, r->us_cpu);
+    else
+        snformatar(r->texto, sizeof r->texto, "%s: FALLO: %s", drv->nome, m);
+    klog("[ACEL2D] prueba: %s\n", r->texto);
+    return 0;
+}

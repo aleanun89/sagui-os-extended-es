@@ -1,0 +1,68 @@
+# Lista de exclusión de tools/publicar.sh (D260): lo que NUNCA va al repositorio público.
+# Un patrón por línea; las líneas vacías y las que empiezan por # se ignoran.
+#   /ruta/      anclado a la raíz del repositorio (admite comodines de find: * ? [])
+#   nombre      sin barra inicial: coincide con ese nombre en cualquier carpeta
+# Una barra final solo indica «carpeta» y se ignora al aplicar el patrón.
+# Los patrones que no encuentran nada se cuentan en el informe (son preventivos).
+
+# --- Binarios: las imágenes van a la GitHub Release de la etiqueta, no a git ---
+# 1,2 GB de imágenes de todas las versiones; la GPL v3 se cumple con el commit etiquetado
+# (código fuente) y la Release (binarios).
+/entrega/
+# Salidas de compilación (regenerables con make)
+/build/
+/build-*/
+
+# --- Contenido propio o con derechos de terceros que no se redistribuye ---
+# Juegos completos y datos privados (docs/input_share.md); nunca están en git, pero se
+# excluyen por si un día entra algo por error.
+/input_share/
+/NEW_FONTS/
+/data_extra/
+# Audio y vídeo personales (también están en .gitignore)
+/*.mp3
+/*.wav
+/*.ogg
+/*.flac
+
+# --- Secretos y configuración de los agentes ---
+# Tokens (.env_agents, etc.)
+.env*
+# Definición de los trabajadores de IA: es herramienta interna del mantenedor
+/.claude/
+
+# --- Datos de máquinas reales ---
+# Informes de hardware (dmesg, lspci, DMI...) y fotos de las máquinas del mantenedor: pueden
+# llevar números de serie, MAC y fotos personales. 26 MB. Lo útil de ellos ya está resumido en
+# docs/usb-real.md, docs/usb3.md y las mejoras/.
+/testes_hw/
+*informe*.txt
+
+# --- Notas internas de traspaso entre sesiones ---
+# ayudame.md: estado y dudas para el mantenedor (rutas locales, máquinas, tokens citados)
+/ayudame.md
+# status.md: generado por tools/status.py, estado interno del trabajo
+/status.md
+# docs/CONTINUAR.md: traspaso a otro PC, con rutas y nombres de cuentas privadas
+/docs/CONTINUAR.md
+# Salida de baterías y diario de trabajo internos
+/docs/regressao-final.txt
+
+# --- Fuentes descargadas de terceros que no se redistribuyen ---
+# Las fuentes de NetSurf las baja tools/netsurf_fuentes.sh (ya fuera de git por .gitignore).
+/userland/terceros/netsurf/fuentes/
+# NetSurf es GPL-2.0 SOLO v2 y se enlaza con la libsagui (GPL-3.0-only de Eli): no puede ir en
+# lo publicado (docs/licencia.md, D258). Se excluye entero el glue (netsurf.mk, plataforma/,
+# libc/); el Makefile solo lo incluye si existen las fuentes preparadas, así que sin él no rompe.
+/userland/terceros/netsurf/
+# D259: GPL-2.0 SOLO la v2 (no se puede enlazar con la libsagui, GPL-3.0): solo en lo privado.
+# El r8169 derivado de Linux (el resto de kernel/terceros/linux/ es GPL-2.0-or-later y SÍ va;
+# sin esta carpeta el driver usa el inicio clasico propio, r8169_sem_gpl.h).
+/kernel/terceros/linux/r8169/
+# GNUBoy (SDL2-GNUBoy): GPL-2.0 casi sin cabeceras «or later», se trata como solo v2 (D259).
+/userland/terceros/gnuboy/
+
+# --- Lo que SÍ va (aclaración, no son patrones) ---
+# docs/capturas/ (25 MB de capturas de las pruebas) sí va. testes_eli/ (980 KB, fotos del
+# proyecto original) puede ir. rootfs/, mejoras/, dashboard/, firmware/ van (la auditoría de
+# licencias vigila el firmware).

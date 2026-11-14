@@ -1,0 +1,35 @@
+// <ratio> - fracciones en tiempo de compilación, para <chrono> (D230).
+#ifndef SAGUI_CXX_RATIO
+#define SAGUI_CXX_RATIO
+#pragma GCC system_header
+
+#include <stdint.h>
+
+namespace std {
+
+namespace detalhe_ratio {
+constexpr intmax_t abs(intmax_t a) { return a < 0 ? -a : a; }
+constexpr intmax_t mdc(intmax_t a, intmax_t b) { return b == 0 ? abs(a) : mdc(b, a % b); }
+constexpr intmax_t sinal(intmax_t a) { return a < 0 ? -1 : 1; }
+} // namespace detalhe_ratio
+
+template <intmax_t N, intmax_t D = 1> struct ratio {
+    static_assert(D != 0, "ratio: denominador cero");
+    static constexpr intmax_t num = detalhe_ratio::sinal(D) * N / detalhe_ratio::mdc(N, D);
+    static constexpr intmax_t den = detalhe_ratio::abs(D) / detalhe_ratio::mdc(N, D);
+    typedef ratio<num, den> type;
+};
+
+template <class R1, class R2> using ratio_multiply = ratio<R1::num * R2::num, R1::den * R2::den>;
+template <class R1, class R2> using ratio_divide = ratio<R1::num * R2::den, R1::den * R2::num>;
+
+typedef ratio<1, 1000000000> nano;
+typedef ratio<1, 1000000> micro;
+typedef ratio<1, 1000> milli;
+typedef ratio<1, 100> centi;
+typedef ratio<1, 10> deci;
+typedef ratio<1000, 1> kilo;
+
+} // namespace std
+
+#endif

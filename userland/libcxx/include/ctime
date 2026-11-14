@@ -1,0 +1,26 @@
+// <ctime> - la cabecera de C <time.h> para C++ (D228; los nombres en std::, D230).
+// Las funciones están en el espacio global, como en <time.h>, y también en std::
+// (std::memcpy, std::abs...), como en la biblioteca de C++. La libc común
+// (D210) no conoce C++: las declaraciones entran con enlace de C por los
+// envoltorios que genera el Makefile (tools/cxx_envoltorios.py).
+#ifndef SAGUI_CXX_CTIME
+#define SAGUI_CXX_CTIME
+#pragma GCC system_header
+#include <time.h>
+
+namespace std {
+using ::time_t;
+using ::clock_t;
+using ::tm;
+using ::time;
+using ::clock;
+using ::difftime;
+using ::mktime;
+using ::gmtime;
+using ::localtime;
+using ::strftime;
+using ::asctime;
+using ::ctime;
+} // namespace std
+
+#endif

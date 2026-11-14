@@ -1,0 +1,14 @@
+# SaguiMark: puntuaciones de referencia (mejora 051, D093).
+# Una línea por máquina: versión;máquina;total;enteros;fpu;simd;memoria;2d
+# (0 = el grupo no está disponible en esa máquina). Solo se comparan las
+# puntuaciones de la misma versión del benchmark (la versión 2 añade el grupo
+# Gráficos 2D y cambia el total: las líneas de la versión 1 ya no se usan).
+#
+# Referencia PROVISIONAL de las versiones 1 y 2: 1000 = máquina virtual QEMU 8.2 con
+# KVM (-cpu qemu32) en el PC de desarrollo. Cuando se mida el HP dv7, sus
+# tiempos pasarán a ser la referencia (dv7 = 1000) y estas cifras cambiarán.
+# Para añadir un PC: ejecuta "saguimark" en él y copia aquí la última línea
+# del archivo /home/saguimark-AAAAMMDD-HHMM.txt, con el nombre del PC.
+1;QEMU/KVM, PC de desarrollo (referencia provisional);1000;1000;1000;1000;1000
+1;HP dv7 (Athlon X2 QL-64, P-state bajo, SaguiOS v4 rápido);64;81;161;45;29
+2;QEMU/KVM, PC de desarrollo (referencia provisional);1000;1000;1000;1000;1000;1000

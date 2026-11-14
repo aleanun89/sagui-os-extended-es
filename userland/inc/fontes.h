@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* fontes.h - las fuentes vectoriales de SaguiOS (D196, libfontes).
+ *
+ * TrueType, OpenType con contornos CFF, WOFF y WOFF2, con antialias por cobertura
+ * exacta y caché de glifos. El motor es el del navegador Cipó (D141), sacado a
+ * userland/libfontes/; lo enlazan los programas con FONTES_OBJ (usa la FPU x87,
+ * así que no está en la libsagui comun). La fuente del escritorio (mapa de bits
+ * 8x16 del kernel) no cambia: esto es para programas que dibujan sus textos.
+ *
+ * Los textos son UTF-8 y se toleran los bytes sueltos como Latin-1 (los literales
+ * de los programas salen en ISO-8859-1): un byte que no forma una secuencia UTF-8
+ * válida vale por sí mismo. */
+#ifndef FONTES_H
+#define FONTES_H
+
+#include "sagui.h"
+
+typedef struct fonte fonte_t;
+
+/* ---- cargar ---- */
+fonte_t *fonte_abrir(const uint8_t *d, unsigned n);       /* desde memoria (copia los datos) */
+fonte_t *fonte_abrir_archivo(const char *ruta);           /* NULL si no existe o no es una fuente */
+void     fonte_fechar(fonte_t *f);
+
+/* ---- metricas (px = tamaño de la fuente en píxeles) ---- */
+int  fonte_ascendente(fonte_t *f, int px);                /* sobre la línea base */
+int  fonte_descendente(fonte_t *f, int px);               /* bajo la línea base, positivo */
+int  fonte_altura_normal(fonte_t *f, int px);             /* altura de línea (ascendente + descendente + hueco) */
+int  fonte_avanco(fonte_t *f, unsigned cp, int px);       /* avance de un carácter en 1/64 de píxel */
+bool fonte_tem(fonte_t *f, unsigned cp);
+/* Nombre de familia y de estilo (de la tabla name) en Latin-1; devuelve el largo
+ * de la familia, 0 si la fuente no lo trae. */
+int  fonte_nombre(fonte_t *f, char *familia, int nf, char *estilo, int ne);
+
+/* ---- medir y dibujar ---- */
+/* Ancho en píxeles de un texto UTF-8 (o hasta el primer '\n'). */
+int  fonte_medir(fonte_t *f, const char *texto, int px);
+int  fonte_medir_n(fonte_t *f, const char *texto, int n, int px);
+/* Dibuja el texto en un búfer 0xRRGGBB de larg x alt (lo que hay en jan_t->px),
+ * mezclando con la cobertura de cada píxel. (x, y) es la esquina de arriba a la
+ * izquierda de la línea (y = arriba del ascendente). Devuelve el ancho dibujado,
+ * igual que fonte_medir. */
+int  fonte_texto_buf(fonte_t *f, uint32_t *dst, int larg, int alt, int x, int y,
+                     const char *texto, int px, uint32_t cor);
+int  fonte_texto_buf_n(fonte_t *f, uint32_t *dst, int larg, int alt, int x, int y,
+                       const char *texto, int n, int px, uint32_t cor);
+/* Lo mismo sobre una ventana (jan_t de gui.h); falta el jan_mostrar. */
+#define fonte_texto(f, jn_, x_, y_, texto_, tam_, cor_) \
+    fonte_texto_buf((f), (jn_)->px, (jn_)->larg, (jn_)->alt, (x_), (y_), (texto_), (tam_), (cor_))
+
+/* ---- fuentes variables, itálico sintético (las usa el navegador) ---- */
+const uint8_t *fonte_glifo(fonte_t *f, unsigned cp, int px, int *l, int *a, int *ox, int *oy);
+fonte_t *fonte_instancia(fonte_t *b, const uint32_t *tags, const int *valores100, int n);
+bool     fonte_variavel(fonte_t *f);
+fonte_t *fonte_obliqua(fonte_t *b);
+
+/* ---- el catálogo del sistema ---- */
+#define FUENTES_DIR_APPS  "/apps/fuentes"     /* las que trae el sistema (partición SAGUI-APPS) */
+#define FUENTES_DIR_HOME  "/home/fuentes"     /* las que añade el usuario */
+#define FUENTES_MAX       1024
+typedef struct { char ruta[88]; char familia[48]; char estilo[24]; } fuente_info_t;
+/* Busca *.otf y *.ttf en las dos carpetas y lee la familia de cada una (solo la
+ * tabla name, sin cargar la fuente). Ordenado por familia. Devuelve cuántas. */
+int fuentes_catalogo(fuente_info_t *v, int max);
+/* Fuente por defecto elegida en Configuración: uso 0 = documentos, 1 = títulos.
+ * Copia la ruta; devuelve false si no hay ninguna elegida. */
+bool fuentes_defecto(int uso, char *ruta, int n);
+#define FUENTE_DOCUMENTOS 0
+#define FUENTE_TITULOS    1
+/* Abre la fuente por defecto de un uso (NULL si no hay o no se pudo cargar). */
+fonte_t *fuentes_abrir_defecto(int uso);
+
+/* Para el catálogo: la tabla name de un archivo ya abierto (fonte_leer_tabla_name)
+ * y su nombre de familia. */
+int fonte_leer_tabla_name(int fd, uint8_t *buf, int max);
+int fonte_nombre_de_tabla(const uint8_t *tabla, int n, char *familia, int nf, char *estilo, int ne);
+
+#endif

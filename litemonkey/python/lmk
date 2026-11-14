@@ -1,0 +1,6 @@
+#!/bin/python
+# lmk - consola de lite-monkey (mejora 067). En SaguiOS es /bin/lmk; el código
+# está en /lib/python/litemonkey/lmk.py. Ejemplo: lmk 127.0.0.1 --base tienda
+import sys
+from litemonkey import lmk
+sys.exit(lmk.principal())

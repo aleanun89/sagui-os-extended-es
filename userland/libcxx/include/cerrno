@@ -1,0 +1,9 @@
+// <cerrno> - la cabecera de C <errno.h> para C++ (D228).
+// Las funciones quedan en el espacio global, como en <errno.h>; los ports las
+// usan así. La libc común (D210) no conoce C++: las declaraciones entran con
+// enlace de C por los envoltorios que genera el Makefile (tools/cxx_envoltorios.py).
+#ifndef SAGUI_CXX_CERRNO
+#define SAGUI_CXX_CERRNO
+#pragma GCC system_header
+#include <errno.h>
+#endif

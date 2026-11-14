@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""identify - substituto mínimo do ImageMagick para os testes do SaguiOS.
+
+Só faz o que os testes usam (melhora 005):
+
+  identify -format "%w %h" ficheiro.png   - largura e altura
+"""
+import struct
+import sys
+
+
+def main():
+    args = sys.argv[1:]
+    formato = None
+    ficheiros = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-format":
+            formato = args[i + 1] if i + 1 < len(args) else ""
+            i += 2
+            continue
+        if args[i].startswith("-"):
+            i += 1
+            continue
+        ficheiros.append(args[i])
+        i += 1
+    if not ficheiros:
+        print("identify: falta o ficheiro", file=sys.stderr)
+        return 1
+    for caminho in ficheiros:
+        with open(caminho, "rb") as f:
+            cab = f.read(24)
+        if len(cab) < 24 or cab[:8] != b"\x89PNG\r\n\x1a\n":
+            print(f"identify: {caminho} não é um PNG", file=sys.stderr)
+            return 1
+        larg, alt = struct.unpack(">II", cab[16:24])
+        if formato:
+            print(formato.replace("%w", str(larg)).replace("%h", str(alt)), end="")
+        else:
+            print(f"{caminho} PNG {larg}x{alt}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

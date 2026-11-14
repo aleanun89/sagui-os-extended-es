@@ -1,0 +1,36 @@
+// <cstring> - la cabecera de C <string.h> para C++ (D228; los nombres en std::, D230).
+// Las funciones están en el espacio global, como en <string.h>, y también en std::
+// (std::memcpy, std::abs...), como en la biblioteca de C++. La libc común
+// (D210) no conoce C++: las declaraciones entran con enlace de C por los
+// envoltorios que genera el Makefile (tools/cxx_envoltorios.py).
+#ifndef SAGUI_CXX_CSTRING
+#define SAGUI_CXX_CSTRING
+#pragma GCC system_header
+#include <string.h>
+
+namespace std {
+using ::size_t;
+using ::memcpy;
+using ::memmove;
+using ::memset;
+using ::memcmp;
+using ::memchr;
+using ::strcpy;
+using ::strncpy;
+using ::strcat;
+using ::strncat;
+using ::strcmp;
+using ::strncmp;
+using ::strchr;
+using ::strrchr;
+using ::strstr;
+using ::strlen;
+using ::strspn;
+using ::strcspn;
+using ::strpbrk;
+using ::strtok;
+using ::strerror;
+using ::strcoll;
+} // namespace std
+
+#endif

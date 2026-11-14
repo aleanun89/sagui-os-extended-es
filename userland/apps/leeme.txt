@@ -1,0 +1,17 @@
+Aplicaciones de SaguiOS fuera de la RAM (/apps, particion SAGUI-APPS, D194)
+===========================================================================
+
+Esta carpeta (/apps) es la particion SAGUI-APPS de SaguiOS: ext2, montada por
+su etiqueta en lectura y escritura. Aqui van las aplicaciones que no son de la
+base del sistema: no se copian a la RAM al arrancar, se leen del disco al
+abrirlas. Si la particion falta, el sistema arranca igual, sin ellas.
+
+  /apps/bin        los ejecutables (esta en el PATH del terminal: basta con
+                   escribir su nombre, por ejemplo "netsurf")
+  /apps/<app>/     los datos de cada aplicacion (por ejemplo /apps/netsurf)
+  /apps/fuentes/   las fuentes vectoriales .otf/.ttf (Typodermic, CC0); Configuracion > Fuentes
+                   las lista; las tuyas, en /home/fuentes
+
+Para instalar otra aplicacion, copia su ejecutable a /apps/bin y sus datos a
+/apps/<app>/. El instalador de SaguiOS (Inicio > Sistema > Instalar SaguiOS)
+copia todo /apps al disco instalado.

@@ -1,0 +1,8 @@
+# /etc/usuarios - las cuentas de SaguiOS (D255, mejora 098).
+# nombre:uid:gid:carpeta:shell:descripción
+# root es el administrador; sagui, el usuario del escritorio (entra solo);
+# servicio, la cuenta de los servicios que no necesitan ser root.
+# Si este archivo falta o tiene líneas que no valen, se usan estas mismas de serie.
+root:0:0:/home:/bin/sagsh:Administrador
+sagui:1000:1000:/home:/bin/sagsh:Usuario del escritorio
+servicio:100:100:/::Servicios sin escritorio

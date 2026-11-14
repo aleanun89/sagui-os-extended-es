@@ -1,0 +1,32 @@
+Quake en SaguiOS: los datos del juego
+=====================================
+
+Quake (Inicio > Juegos) es el motor que id Software publicó en 1999 con
+licencia GPL-2.0, con su renderizador por software. Los mapas, los gráficos,
+los sonidos y la música son los del juego original (los ficheros .pak), que
+NO son libres y no vienen con SaguiOS. El lanzador los busca en cada carpeta
+de /jogos (y en jogos/ de los discos montados): sirve una carpeta con
+id1/pak0.pak, la estructura de Quake, o con el pak0.pak suelto. Si encuentra
+varias, prefiere la versión registrada (con pak1.pak) a la shareware.
+
+Cómo conseguirlos:
+
+  - La versión shareware (el episodio 1, «Dimension of the Doomed»), que id
+    distribuía gratis: al compilar SaguiOS, tools/quake_datos.sh descarga
+    quake106.zip (con su suma SHA-256) a userland/terceros/quake/datos/, y el
+    make la pone aquí, en /jogos/quake, con todos sus ficheros sin tocar. Sus
+    condiciones están en su SLICNSE.TXT: se puede usar y regalar entera, pero
+    no venderla ni usarla con fines comerciales.
+
+  - La versión completa (la de Steam o GOG, o el CD original): copie su
+    carpeta id1 (con pak0.pak y pak1.pak) a /jogos/<carpeta>/id1 desde SaguiOS
+    (la partición de juegos es de lectura y escritura), o, al compilar,
+    póngala en input_share/games/Quake/ (docs/input_share.md).
+
+La configuración (config.cfg), las partidas guardadas, las demos grabadas y
+las capturas van a /home/quake/id1.
+
+Teclas: las flechas para moverse, Ctrl dispara, Espacio salta, Esc abre el
+menú, la tecla de la izquierda del 1 («º» en el teclado español) abre la
+consola. El ratón gira la vista a pantalla completa; en una ventana, escriba
+en la consola «_windowed_mouse 1». Con «+mlook» mira también arriba y abajo.
