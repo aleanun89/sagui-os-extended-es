@@ -737,7 +737,13 @@ char *expandir_prompt(const char *ps)
         case 'u': { char n[32]; tx_junta(&t, conta_nome(meu_uid(), n, sizeof n)); break; }   /* D255 */
         case 'h': case 'H': tx_junta(&t, "saguios"); break;
         case 's': tx_junta(&t, "sagsh"); break;
-        case '$': tx_car(&t, '$'); break;
+        case '$': tx_car(&t, sh_raiz_visivel() ? '#' : '$'); break;   /* D263 */
+        case 'e': tx_car(&t, 27); break;
+        case 'a': tx_car(&t, 7); break;
+        case '0':   /* \033 en octal, como en bash */
+            if (c[1] == '3' && c[2] == '3') { tx_car(&t, 27); c += 2; }
+            else { tx_car(&t, '\\'); tx_car(&t, '0'); }
+            break;
         case 'n': tx_car(&t, '\n'); break;
         case '\\': tx_car(&t, '\\'); break;
         case '[': case ']': break;
@@ -745,11 +751,25 @@ char *expandir_prompt(const char *ps)
         }
     }
     tx_texto(&t);
-    if (!acha_char(t.s, '$') && !acha_char(t.s, '`')) return t.s;
-    int st = sh.status;
-    char *r = expandir_simples(t.s, C_ASPAS);
-    sh.status = st;
-    tx_liberar(&t);
+    char *r = t.s;
+    if (acha_char(t.s, '$') || acha_char(t.s, '`')) {
+        int st = sh.status;
+        r = expandir_simples(t.s, C_ASPAS);
+        sh.status = st;
+        tx_liberar(&t);
+    }
+    if (!sh_cor()) {   /* sin colores (consola, serie, NO_COLOR): se quitan las secuencias ESC [ ... m */
+        char *d = r;
+        for (const char *p = r; *p; ) {
+            if (*p == 27 && p[1] == '[') {
+                const char *q = p + 2;
+                while ((*q >= '0' && *q <= '9') || *q == ';') q++;
+                if (*q == 'm') { p = q + 1; continue; }
+            }
+            *d++ = *p++;
+        }
+        *d = 0;
+    }
     return r;
 }
 

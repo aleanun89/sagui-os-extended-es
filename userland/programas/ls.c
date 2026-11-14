@@ -9,7 +9,7 @@
 
 typedef struct { entrada_pasta_t e; uint32_t mt; } item_t;
 
-static bool longo, ocultos, humano, recursivo, uno, por_tempo, por_tamanho, inverso, so_pasta, tty;
+static bool longo, ocultos, humano, recursivo, uno, por_tempo, por_tamanho, inverso, so_pasta, tty, cor;
 static int cuantos_args;
 
 static const char *AYUDA =
@@ -22,7 +22,42 @@ static const char *AYUDA =
     "  -t  ordena por fecha de modificación (la más nueva primero)\n"
     "  -S  ordena por tamaño (el mayor primero)\n"
     "  -r  invierte el orden\n"
-    "  -d  muestra la carpeta en sí y no su contenido\n";
+    "  -d  muestra la carpeta en sí y no su contenido\n"
+    "  --color[=cuándo]  colores (always, never, auto): por defecto, solo en el terminal con colores\n";
+
+/* Colores (D263): carpetas en azul, programas en verde, imágenes y sonido en magenta,
+ * comprimidos en rojo. Solo con --color o en un terminal con TERM; nunca en tuberías. */
+static bool termina_en(const char *n, const char *ext)
+{
+    size_t a = tam_texto(n), b = tam_texto(ext);
+    if (a <= b) return false;
+    for (size_t i = 0; i < b; i++) {
+        char c = n[a - b + i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c != ext[i]) return false;
+    }
+    return true;
+}
+
+static const char *cor_de(const char *nome, unsigned tipo)
+{
+    if (!cor) return "";
+    if (tipo == TIPO_PASTA) return "\x1b[1;34m";
+    if (tipo == TIPO_PROGRAMA) return "\x1b[1;32m";
+    static const char *const img[] = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".qoi", ".ppm", ".wav", ".mp3", ".ogg", ".flac", ".mid", ".mpg", ".mp4", NULL };
+    static const char *const zip[] = { ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".iso", NULL };
+    for (int i = 0; img[i]; i++) if (termina_en(nome, img[i])) return "\x1b[35m";
+    for (int i = 0; zip[i]; i++) if (termina_en(nome, zip[i])) return "\x1b[31m";
+    return "";
+}
+
+/* El nombre con su color y el relleno hasta "ancho" columnas (el relleno va fuera del color). */
+static void nome_pintado(char *dst, size_t max, const char *nome, unsigned tipo, const char *sufixo, int ancho)
+{
+    const char *c = cor_de(nome, tipo);
+    int n = (int)tam_texto(nome) + (int)tam_texto(sufixo);
+    formatar_texto(dst, max, "%s%s%s%s%*s", c, nome, sufixo, *c ? "\x1b[0m" : "", n < ancho ? ancho - n : 0, "");
+}
 
 static uint32_t mtime_de(const char *caminho)
 {
@@ -50,13 +85,18 @@ static int cmp_tamanho(const void *a, const void *b)
 
 static void mostrar(const char *caminho, const char *nome, unsigned tipo, unsigned tamanho, uint32_t mt)
 {
-    char linha[320], tam[16];
+    char linha[420], tam[16], np[200];
     if (!tty || uno) {
-        if (!longo) { saida_linha(nome, -1); return; }
+        if (!longo) {
+            if (cor && *cor_de(nome, tipo)) { nome_pintado(np, sizeof np, nome, tipo, "", 0); saida_linha(np, -1); }
+            else saida_linha(nome, -1);
+            return;
+        }
     } else if (!longo) {
-        if (tipo == TIPO_PASTA) formatar_texto(linha, sizeof linha, "%s/", nome);
-        else if (tipo == TIPO_PROGRAMA) formatar_texto(linha, sizeof linha, "%-28s %7u bytes  programa", nome, tamanho);
-        else formatar_texto(linha, sizeof linha, "%-28s %7u bytes", nome, tamanho);
+        if (tipo == TIPO_PASTA) { nome_pintado(np, sizeof np, nome, tipo, "/", 0); saida_linha(np, -1); return; }
+        nome_pintado(np, sizeof np, nome, tipo, "", 28);
+        if (tipo == TIPO_PROGRAMA) formatar_texto(linha, sizeof linha, "%s %7u bytes  programa", np, tamanho);
+        else formatar_texto(linha, sizeof linha, "%s %7u bytes", np, tamanho);
         saida_linha(linha, -1);
         return;
     }
@@ -69,8 +109,9 @@ static void mostrar(const char *caminho, const char *nome, unsigned tipo, unsign
     } else copia_texto(data, "                ", sizeof data);
     if (humano) formatar_tamanho(tam, sizeof tam, tamanho);
     else formatar_texto(tam, sizeof tam, "%u", tamanho);
-    if (tipo == TIPO_PASTA) formatar_texto(linha, sizeof linha, "%s  %9s  %s/", data, "<carpeta>", nome);
-    else formatar_texto(linha, sizeof linha, "%s  %9s  %s%s", data, tam, nome, tipo == TIPO_PROGRAMA ? "  (programa)" : "");
+    nome_pintado(np, sizeof np, nome, tipo, tipo == TIPO_PASTA ? "/" : "", 0);
+    if (tipo == TIPO_PASTA) formatar_texto(linha, sizeof linha, "%s  %9s  %s", data, "<carpeta>", np);
+    else formatar_texto(linha, sizeof linha, "%s  %9s  %s%s", data, tam, np, tipo == TIPO_PROGRAMA ? "  (programa)" : "");
     saida_linha(linha, -1);
 }
 
@@ -126,6 +167,7 @@ int principal(int argc, char **argv)
 {
     opcoes_t o = { 0 };
     int r;
+    int modo_cor = cor_opcao(&argc, argv);
     while ((r = obter_opcao(argc, argv, "1ahlRrStd", &o)) >= 0) {
         switch (r) {
         case 'l': longo = true; break;
@@ -142,6 +184,7 @@ int principal(int argc, char **argv)
         }
     }
     tty = eh_terminal(SAIDA);
+    cor = cor_para(SAIDA, modo_cor);
     cuantos_args = argc - o.indice;
     bool primeiro = true;
     int erros = 0;

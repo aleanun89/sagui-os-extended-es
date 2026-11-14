@@ -217,6 +217,45 @@ int saida_linha(const char *s, int n)
 
 bool eh_terminal(int fd) { return tipo_descritor(fd) == TIPO_TERMINAL; }
 
+/* ¿Hay un terminal con colores en el entorno? TERM definido (lo ponen el Terminal y sshd; la
+ * consola de texto y el puerto serie no) y distinto de "dumb", y NO_COLOR sin definir (D263). */
+bool cor_do_ambiente(void)
+{
+    const char *t = obter_env("TERM"), *n = obter_env("NO_COLOR");
+    if (!t || !*t || compara_texto(t, "dumb") == 0) return false;
+    return !(n && *n);
+}
+
+/* Quita de argv las opciones --color, --color=WHEN y --colour: devuelve 0 (never), 1 (always),
+ * 2 (auto, por defecto). Así cada programa decide con cor_para() sin tocar su obter_opcao. */
+int cor_opcao(int *argc, char **argv)
+{
+    int modo = 2, k = 1;
+    for (int i = 1; i < *argc; i++) {
+        const char *a = argv[i];
+        if (compara_texto(a, "--") == 0) { while (i < *argc) argv[k++] = argv[i++]; break; }
+        const char *v = NULL;
+        if (compara_texto(a, "--color") == 0 || compara_texto(a, "--colour") == 0) v = "always";
+        else if (compara_texto_n(a, "--color=", 8) == 0) v = a + 8;
+        else if (compara_texto_n(a, "--colour=", 9) == 0) v = a + 9;
+        if (!v) { argv[k++] = argv[i]; continue; }
+        if (compara_texto(v, "never") == 0 || compara_texto(v, "no") == 0 || compara_texto(v, "none") == 0) modo = 0;
+        else if (compara_texto(v, "auto") == 0 || compara_texto(v, "tty") == 0 || compara_texto(v, "if-tty") == 0) modo = 2;
+        else modo = 1;
+    }
+    argv[k] = NULL;
+    *argc = k;
+    return modo;
+}
+
+/* ¿Se pintan colores en fd? always: sí; never: no; auto: solo si es un terminal con colores. */
+bool cor_para(int fd, int modo)
+{
+    if (modo == 0) return false;
+    if (modo == 1) return true;
+    return eh_terminal(fd) && cor_do_ambiente();
+}
+
 /* -------------------------------------------------------------- nombres */
 
 const char *nome_base(const char *caminho)

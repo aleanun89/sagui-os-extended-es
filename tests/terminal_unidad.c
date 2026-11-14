@@ -52,6 +52,33 @@ static void prueba_escapes(void)
     COMPROBAR(!strcmp(t, "q") && csis == 1, "demasiados parametros no desbordan");
 }
 
+/* D263: el texto de la OSC (título con «[root]») y los colores de 256 / RGB llevados a los 16 ANSI. */
+static void prueba_osc_y_256(void)
+{
+    tl_esc_t e = {0};
+    int oscs = 0;
+    char ultimo[TL_OSC_MAX] = "";
+    const char *sec = "x\x1b]0;[root] root@saguios:/\ay\x1b]2;normal\x1b\\";
+    for (const char *p = sec; *p; p++) {
+        int r = tl_esc_alimentar(&e, (unsigned char)*p);
+        if (r == TL_ESC_OSC) { oscs++; strcpy(ultimo, e.osc); }
+    }
+    COMPROBAR(oscs == 2 && !strcmp(ultimo, "2;normal"), "OSC: %d '%s'", oscs, ultimo);
+    COMPROBAR(tl_comeca("0;[root] root@saguios:/" + 2, "[root]"), "titulo de root");
+    COMPROBAR(tl_256_a_16(1) == 1 && tl_256_a_16(9) == 9 && tl_256_a_16(15) == 15, "256: los 16 primeros");
+    COMPROBAR(tl_256_a_16(196) == 9, "256: 196 (rojo puro) = rojo brillante, da %d", tl_256_a_16(196));
+    COMPROBAR(tl_256_a_16(46) == 10, "256: 46 (verde puro) = verde brillante, da %d", tl_256_a_16(46));
+    COMPROBAR(tl_256_a_16(21) == 12, "256: 21 (azul puro) = azul brillante, da %d", tl_256_a_16(21));
+    COMPROBAR(tl_256_a_16(16) == 0 && tl_256_a_16(231) == 15, "256: negro y blanco del cubo");
+    COMPROBAR(tl_256_a_16(232) == 0 && tl_256_a_16(255) == 15, "256: la escala de grises");
+    tl_esc_t u = {0};
+    char t[16];
+    int csis;
+    alimentar(&e, "\x1b[38;5;196;48;5;21mz", t, &u, &csis);
+    uint16_t at = tl_sgr_todo(0, &u);
+    COMPROBAR(TL_AT_FG(at) == 10 && TL_AT_BG(at) == 13, "38;5;196;48;5;21: fg=%u bg=%u", TL_AT_FG(at), TL_AT_BG(at));
+}
+
 static void prueba_sgr(void)
 {
     tl_conf_t c;
@@ -83,7 +110,7 @@ static void prueba_sgr(void)
     COMPROBAR(fg == c.letra && bg == c.fundo, "atributo 0 = colores de la tema");
     alimentar(&e, "\x1b[38;5;200;1mx", t, &u, &csis);
     at = tl_sgr_todo(0, &u);
-    COMPROBAR(at == TL_AT_NEGRITA, "38;5;n se salta y 1 sigue valiendo");
+    COMPROBAR(at == (TL_AT_NEGRITA | 14), "38;5;200 = magenta brillante (D263) y 1 sigue valiendo: %x", at);
     alimentar(&e, "\x1b[m", t, &u, &csis);
     COMPROBAR(tl_sgr_todo(0x123, &u) == 0, "ESC[m restablece");
 }
@@ -194,6 +221,7 @@ static void prueba_titulos(void)
 int main(void)
 {
     prueba_escapes();
+    prueba_osc_y_256();
     prueba_sgr();
     prueba_temas();
     prueba_conf();

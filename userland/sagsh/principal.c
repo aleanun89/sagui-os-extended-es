@@ -10,6 +10,7 @@
  * quedó abierto (comillas, if sin fi, "|" al final, here-doc), el shell muestra
  * el PS2 ("> ") y une la siguiente línea antes de ejecutar. */
 #include "sagsh.h"
+#include "contas.h"
 
 static int ler_linha_fd(char **saida)
 {
@@ -49,13 +50,32 @@ static void variaveis_iniciais(void)
     if (!var_obter("SHELL")) var_definir("SHELL", "/bin/sagsh", V_EXPORTADA);
     char pasta[256];
     if (pasta_atual(pasta, sizeof pasta) >= 0) var_definir("PWD", pasta, V_EXPORTADA);
-    if (!var_obter("PS1")) var_definir("PS1", "sagui:\\w\\$ ", 0);
+    if (!var_obter("PS1")) var_definir("PS1", sh_raiz_visivel() ? "root:\\w\\$ " : "sagui:\\w\\$ ", 0);
+    char euid[16];
+    formatar_texto(euid, sizeof euid, "%u", meu_uid());   /* como EUID de bash */
+    var_definir("EUID", euid, 0);
+    var_definir("SAGSH_RAIZ", sh_raiz_visivel() ? "1" : "0", 0);   /* sagshrc lo usa para el color del prompt */
     if (!var_obter("PS2")) var_definir("PS2", "> ", 0);
     var_definir("IFS", " \t\n", 0);
     char buf[16];
     const char *nivel = var_obter("SHLVL");
     formatar_texto(buf, sizeof buf, "%d", (nivel ? para_int(nivel) : 0) + 1);
     var_definir("SHLVL", buf, V_EXPORTADA);
+}
+
+/* D263: título de la ventana (OSC 0) en cada prompt: «[root] usuario@saguios:carpeta» si el shell es
+ * root, y sin «[root]» si no. El Terminal lo lee para marcar la ventana (franja roja); en SSH el
+ * cliente lo muestra como título. Solo con TERM: la consola de texto y el serie no lo reciben. */
+static void titulo_ventana(void)
+{
+    char n[32], pasta[256];
+    if (pasta_atual(pasta, sizeof pasta) < 0) copia_texto(pasta, "?", sizeof pasta);
+    texto_t t = {0};
+    tx_junta(&t, "\x1b]0;");
+    if (sh_raiz_visivel()) tx_junta(&t, "[root] ");
+    tx_formatar(&t, "%s@saguios:%s\a", conta_nome(meu_uid(), n, sizeof n), pasta);
+    escrever_texto(SAIDA, t.s);
+    tx_liberar(&t);
 }
 
 /* Bucle de lectura de la entrada (terminal o pipe). */
@@ -72,6 +92,7 @@ static int laco_interativo(void)
         char *l = NULL;
         int n;
         if (sh.interativo) {
+            if (sh_tem_term() && !buf.n) titulo_ventana();
             char *ps = expandir_prompt(var_obter(buf.n ? "PS2" : "PS1") ? var_obter(buf.n ? "PS2" : "PS1") : "");
             n = ler_linha_editada(ps, &l);
             libera(ps);
@@ -206,6 +227,7 @@ int principal(int argc, char **argv)
         if (sh.interativo) {
             definir_grupo(0, 0);   /* el shell lidera su propio grupo; cada trabajo tendrá el suyo */
             imprimir("sagsh: el shell de SaguiOS (proceso %d). Escribe ajuda para ver los comandos.\n", meu_pid());
+            historico_carregar();
             info_arquivo_t inf;
             if (info_arquivo("/etc/sagshrc", &inf) == 0) {
                 char *a[] = { ".", "/etc/sagshrc", NULL };

@@ -147,10 +147,10 @@ además corta el desarrollo. Reglas:
   - **Nunca la batería completa mientras haya agentes trabajando.** Primero terminan o se
     paran los agentes; después, la batería sola.
   - **Como mucho 2 agentes a la vez** que compilen o prueben en QEMU; el resto, esperando.
-    **En el PC principal del mantenedor (16 núcleos, 36 GB) pueden ser 3** (dicho el 2026-11-14), y
-    la batería con `-j 3`. En otro ordenador, 2.
+    **En el PC principal del mantenedor (16 núcleos, 36 GB) pueden ser 4** (dicho el 2026-11-14), y
+    la batería con `-j 4`. En otro ordenador, 2.
   - **Escribir código no cuenta:** pueden trabajar más agentes a la vez si solo escriben; el límite
-    es para compilar y probar. El coordinador lo hace cumplir con un guion de turnos (`flock` con 2 o 3
+    es para compilar y probar. El coordinador lo hace cumplir con un guion de turnos (`flock` con 2 a 4
     huecos, que además espera a que acabe la batería) con el que cada agente envuelve `make` y las pruebas
     (o lanzarlos después).
   - Cada agente con `make -j2` y una prueba QEMU cada vez.

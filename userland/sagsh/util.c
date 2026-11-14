@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /* util.c - textos y listas que crecen, arena del árbol y mensajes. */
 #include "sagsh.h"
+#include "contas.h"
 
 void *sh_aloca(size_t n)
 {
@@ -135,6 +136,29 @@ void aspas_simples(texto_t *t, const char *s)
     tx_car(t, '\'');
 }
 
+bool sh_tem_term(void)
+{
+    const char *t = var_obter("TERM");
+    return t && *t && compara_texto(t, "dumb") != 0;
+}
+
+bool sh_cor(void)
+{
+    const char *n = var_obter("NO_COLOR");
+    return sh_tem_term() && !(n && *n);
+}
+
+/* D263: root se marca con «#», en rojo y con [root] en el título donde se ve: el Terminal y SSH (ponen
+ * TERM) y el modo rescate (consola de texto). Las imágenes de prueba (--sesion-root) son root de
+ * mentira para todo: no se marcan, para que las pruebas lean siempre el mismo indicador. */
+bool sh_raiz_visivel(void)
+{
+    if (meu_uid() != 0) return false;
+    int e = usuario_op(USU_ESTADO, 0, 0);
+    if (e >= 0 && (e & USU_EST_PRUEBA)) return false;
+    return sh_tem_term() || (e >= 0 && (e & USU_EST_RESCATE));
+}
+
 int erro(const char *fmt, ...)
 {
     char buf[400];
@@ -143,9 +167,12 @@ int erro(const char *fmt, ...)
     formatar_lista(buf, sizeof buf, fmt, ap);
     va_end(ap);
     texto_t t = {0};
+    bool pinta = sh_cor() && eh_terminal(ERROS);   /* mensajes en rojo, solo en un terminal con colores */
+    if (pinta) tx_junta(&t, "\x1b[31m");
     tx_junta(&t, "sagsh: ");
     if (sh.script && !sh.interativo) tx_formatar(&t, "%s: línea %d: ", sh.script, sh.linha);
     tx_junta(&t, buf);
+    if (pinta) tx_junta(&t, "\x1b[0m");
     tx_car(&t, '\n');
     escrever_tudo(ERROS, t.s, (unsigned)t.n);
     tx_liberar(&t);

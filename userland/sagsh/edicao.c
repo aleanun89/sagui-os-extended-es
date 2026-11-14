@@ -15,10 +15,46 @@ const char *prompt_atual = "";
 static void mostrar(const char *s) { escrever_texto(SAIDA, s); }
 static void prompt(void) { mostrar(prompt_atual); }
 
+#define ARQ_HIST "/home/.sagsh_historial"
+static bool hist_persistente;
+
+/* D263: historial persistente. Solo con TERM (Terminal y SSH): en la consola y en las pruebas por
+ * el serie no se toca el disco. Las últimas MAX_HIST líneas del archivo. */
+void historico_carregar(void)
+{
+    if (!sh_tem_term()) return;
+    int fd = abrir(ARQ_HIST, ABRIR_LER);
+    hist_persistente = true;
+    if (fd < 0) return;
+    unsigned tam = 0;
+    char *b = ler_todo_fd(fd, &tam);
+    fechar(fd);
+    if (!b) return;
+    for (char *p = b; *p; ) {
+        char *nl = acha_char(p, '\n');
+        if (nl) *nl = 0;
+        if (*p && qtd_hist < MAX_HIST) historico[qtd_hist++] = sh_dup(p);
+        else if (*p) { libera(historico[0]); for (int i = 1; i < MAX_HIST; i++) historico[i - 1] = historico[i]; historico[MAX_HIST - 1] = sh_dup(p); }
+        if (!nl) break;
+        p = nl + 1;
+    }
+    libera(b);
+}
+
+static void historico_guardar(const char *linha)
+{
+    int fd = abrir(ARQ_HIST, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_ACRESCENTAR);
+    if (fd < 0) { hist_persistente = false; return; }
+    escrever(fd, linha, (unsigned)tam_texto(linha));
+    escrever(fd, "\n", 1);
+    fechar(fd);
+}
+
 void historico_por(const char *linha)
 {
     if (!*linha) return;
     if (qtd_hist && compara_texto(historico[qtd_hist - 1], linha) == 0) return;
+    if (hist_persistente) historico_guardar(linha);
     if (qtd_hist == MAX_HIST) {
         libera(historico[0]);
         for (int i = 1; i < MAX_HIST; i++) historico[i - 1] = historico[i];
@@ -32,6 +68,7 @@ void historico_limpar(void)
 {
     for (int i = 0; i < qtd_hist; i++) libera(historico[i]);
     qtd_hist = 0;
+    if (hist_persistente) { int fd = abrir(ARQ_HIST, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR); if (fd >= 0) fechar(fd); }
 }
 
 /* Lista el historial; con ultimos > 0, solo las últimas N líneas. */

@@ -2,5 +2,17 @@
 # Aquí puedes poner alias, funciones y variables. Ejemplos:
 #   PS1='\w> '              (cambia el prompt; \w es la carpeta actual)
 #   export EDITOR=editor
+#
+# Prompt con colores (D263): usuario en verde y root en rojo con «#», carpeta en azul.
+# Solo si hay un terminal con colores (TERM definido lo ponen el Terminal y sshd) y no hay
+# NO_COLOR. En la consola de texto y por el puerto serie se queda el prompt sin colores.
+# Escapes: \u usuario, \h máquina, \w carpeta, \$ («#» para root), \e[..m color.
+if [ -n "$TERM" ] && [ "$TERM" != dumb ] && [ -z "$NO_COLOR" ]; then
+    if [ "$SAGSH_RAIZ" = 1 ]; then
+        PS1='\[\e[31m\]\u@\h\[\e[0m\]:\[\e[34m\]\w\[\e[0m\]\[\e[31m\]\$\[\e[0m\] '
+    else
+        PS1='\[\e[32m\]\u@\h\[\e[0m\]:\[\e[34m\]\w\[\e[0m\]\$ '
+    fi
+fi
 alias ll='ls'
 alias ..='cd ..'

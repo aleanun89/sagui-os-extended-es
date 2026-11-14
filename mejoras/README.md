@@ -107,3 +107,5 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 098 | [Usuarios y permisos](098-usuarios-permisos.md) | aprobada (fase 1 v8.0b7; 2 y 3 v8.5) | alta |
 | 099 | [r8169 de sala limpia (sustituir el código de Linux GPL-2.0-only)](099-r8169-sala-limpia.md) | propuesta (v8.4 o cuando toque la red; la opción A, D259, ya hecha) | media |
 | 100 | [Vídeo H.264/AAC en el Cipó (reproductor de robson-apk)](100-cipo-video-h264.md) | aprobada (v8.0.1) | media |
+| 101 | [Ordenar los iconos del escritorio](101-ordenar-iconos-escritorio.md) | aprobada (v8.0) | media |
+| 102 | [Diálogo gráfico de permisos de administrador (y avisos que se leen enteros)](102-dialogo-permisos-admin.md) | aprobada (v8.0) | alta |

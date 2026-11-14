@@ -552,11 +552,17 @@ class Maquina:
         return "\n".join(l for l in linhas[1:] if not l.startswith("(qemu)"))
 
     # ------------------------------------------------------------ serial
-    def serial(self):
+    def serial_bruto(self):
         if not os.path.exists(self.arq_serial):
             return ""
         with open(self.arq_serial, "rb") as f:
             return f.read().decode("latin-1")
+
+    def serial(self):
+        # D263: el prompt del Terminal es «sagui@saguios:/$» (o «root@saguios:/$» en las imágenes de
+        # sesión root); las pruebas esperan «sagui:/$»: se normaliza. serial_bruto() es el texto tal cual.
+        # (y «root:/#» del modo rescate, a principio de línea, a «sagui:/#»)
+        return re.sub(r"(?m)^root:(?=/)", "sagui:", re.sub(r"(?:sagui|root)@saguios:", "sagui:", self.serial_bruto()))
 
     def esperar_serial(self, texto, tempo=TEMPO_MAX):
         fim = time.time() + tempo

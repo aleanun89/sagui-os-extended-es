@@ -239,7 +239,15 @@ void painel_iniciar(void)
     duplicar(tv[1], SAIDA);
     duplicar(tv[1], ERROS);
     char *args[] = { "sagsh", NULL };
-    shell = executar("/bin/sagsh", args);
+    /* D263: el panel de Mico es un terminal sencillo, sin colores ni títulos (ANSI): el sagsh
+     * de dentro nace sin TERM aunque Mico se abriera desde el Terminal, para que no mande
+     * secuencias de escape que el panel pintaría tal cual. */
+    static char *envp[96];
+    int ne = 0;
+    for (int e = 0; environ && environ[e] && ne < 94; e++)
+        if (compara_texto_n(environ[e], "TERM=", 5) != 0) envp[ne++] = environ[e];
+    envp[ne] = NULL;
+    shell = executar_env("/bin/sagsh", args, envp);
     duplicar(g0, ENTRADA); duplicar(g1, SAIDA); duplicar(g2, ERROS);
     fechar(g0); fechar(g1); fechar(g2);
     fechar(tv[1]);

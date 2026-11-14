@@ -15,9 +15,10 @@ static const char *AYUDA =
     "  -H / -h  con / sin nombre de archivo   -q  sin salida, solo el código   -s  sin errores\n"
     "  -m N  para tras N líneas  -A N / -B N / -C N  líneas de contexto después / antes / ambas\n"
     "Expresiones: . * + ? | ( ) [abc] [^a-z] [[:digit:]] ^ $ \\w \\s \\d \\b (en básica, \\+ \\? \\| \\( \\)).\n"
+    "Colores: --color[=always|never|auto] resalta las coincidencias (por defecto, solo en el terminal con colores).\n"
     "Código de salida: 0 si hubo coincidencias, 1 si no, 2 si hubo errores.\n";
 
-static bool opc_i, opc_v, opc_n, opc_c, opc_l, opc_L, opc_r, opc_E, opc_F, opc_w, opc_x, opc_o, opc_q, opc_s;
+static bool opc_i, opc_v, opc_n, opc_c, opc_l, opc_L, opc_r, opc_E, opc_F, opc_w, opc_x, opc_o, opc_q, opc_s, cor;
 static int con_nombre = -1, maximo = -1, ctx_antes, ctx_despues;
 static char *pats[MAX_PAT];
 static int npats;
@@ -81,6 +82,24 @@ static void escribir_linea(const char *nome, int num, char sep, const char *t, i
     int k = 0;
     if (con_nombre > 0) k += formatar_texto(s + k, sizeof s - (size_t)k, "%s%c", nome, sep);
     if (opc_n) k += formatar_texto(s + k, sizeof s - (size_t)k, "%d%c", num, sep);
+    if (cor && sep == ':' && !opc_v && !opc_o) {
+        /* D263: la coincidencia resaltada en rojo y negrita (el nombre, en magenta) */
+        static char c[LINEA_MAX + 400];
+        int m = 0, pos = 0, i, f;
+        if (k > 0 && con_nombre > 0) m += formatar_texto(c, sizeof c, "\x1b[35m%s\x1b[0m%c", nome, sep);
+        if (opc_n) m += formatar_texto(c + m, sizeof c - (size_t)m, "\x1b[32m%d\x1b[0m%c", num, sep);
+        while (pos <= n && coincide(t, n, pos, &i, &f) && m + (f - pos) + 24 < (int)sizeof c) {
+            if (f == i) { if (i < n && m + 1 < (int)sizeof c) c[m++] = t[i]; pos = i + 1; continue; }
+            memcpy(c + m, t + pos, (size_t)(i - pos)); m += i - pos;
+            m += formatar_texto(c + m, sizeof c - (size_t)m, "\x1b[1;31m");
+            memcpy(c + m, t + i, (size_t)(f - i)); m += f - i;
+            m += formatar_texto(c + m, sizeof c - (size_t)m, "\x1b[0m");
+            pos = f;
+        }
+        if (pos < n && m + (n - pos) < (int)sizeof c) { memcpy(c + m, t + pos, (size_t)(n - pos)); m += n - pos; }
+        saida_linha(c, m);
+        return;
+    }
     if (k + n + 2 > (int)sizeof s) n = (int)sizeof s - k - 2;
     memcpy(s + k, t, (size_t)n);
     saida_linha(s, k + n);
@@ -210,6 +229,7 @@ int principal(int argc, char **argv)
         { "with-filename", 'H' }, { "no-filename", 'h' }, { "quiet", 'q' }, { "max-count", 'm' }, { NULL, 0 } };
     o.longas = largas;
     int r, v;
+    int modo_cor = cor_opcao(&argc, argv);
     while ((r = obter_opcao(argc, argv, "ivnclLrREFwxoHhqsm:e:A:B:C:", &o)) >= 0) {
         switch (r) {
         case 'i': opc_i = true; break;
@@ -242,6 +262,7 @@ int principal(int argc, char **argv)
         default: return opcao_invalida("grep", r, &o);
         }
     }
+    cor = cor_para(SAIDA, modo_cor);
     int i0 = o.indice;
     if (npats == 0) {
         if (i0 >= argc) { imprimir_em(ERROS, "grep: falta el patrón (uso: grep [opciones] PATRÓN [archivo...]; grep --help)\n"); return 2; }

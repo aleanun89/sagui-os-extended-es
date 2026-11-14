@@ -286,7 +286,7 @@ def maquina_en_vivo():
 def maquina_rescate():
     img = construir_imagen("rescate", ["--vesa", "--rescate"])
     with Maquina("h254-rescate", "ide", imagem=img) as m:
-        m.esperar_serial("sagui:/$", 120)
+        m.esperar_serial("sagui:/#", 120)   # D263: en el rescate el prompt marca a root (root:/#, normalizado)
         s = m.serial()
         verificar("(MODO RESCATE)" in s and "[SAGUI] MODO RESCATE" in s, "modo rescate anotado")
         verificar("no se lanzan en el modo rescate" in s, "sin servicios")

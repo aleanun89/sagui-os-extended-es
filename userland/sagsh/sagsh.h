@@ -43,6 +43,10 @@ bool  eh_nome_n(const char *s, int n);
 bool  eh_numero(const char *s);    /* entero decimal, con signo opcional */
 int   para_int(const char *s);
 void  aspas_simples(texto_t *t, const char *s);   /* 'texto' seguro para el shell */
+bool  sh_tem_term(void);                          /* TERM definido y distinto de "dumb" (D263) */
+bool  sh_cor(void);                               /* ademas, NO_COLOR sin definir: se pueden mandar colores */
+bool  sh_raiz_visivel(void);                      /* uid 0 y un sitio donde se vea (terminal con TERM, o modo rescate) */
+void  historico_carregar(void);                   /* lee /home/.sagsh_historial (solo con TERM) */
 int   erro(const char *fmt, ...);                 /* "sagsh: ..." en la salida de errores; devuelve 1 */
 int   escrever_saida(int fd, const char *s, int n); /* marca pipe roto */
 void  ordenar(char **v, int n);

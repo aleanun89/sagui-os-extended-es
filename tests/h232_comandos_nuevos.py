@@ -114,7 +114,7 @@ def sem_eco(out):
 def unidad():
     os.makedirs(DIR, exist_ok=True)
     exe = os.path.join(DIR, "comandos_unidad")
-    libs = [os.path.join(RAIZ, "userland", "libsagui", f) for f in ("regex.c", "texto.c", "formatar.c", "utilitarios.c")]
+    libs = [os.path.join(RAIZ, "userland", "libsagui", f) for f in ("regex.c", "texto.c", "formatar.c", "utilitarios.c", "ambiente.c")]
     r = subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-DSAGUI_HOST", "-I", os.path.join(RAIZ, "userland", "inc"),
                         "-idirafter", os.path.join(RAIZ, "kernel", "inc"), "-I", os.path.join(RAIZ, "userland", "programas"),
                         "-o", exe, os.path.join(RAIZ, "tests", "comandos_unidad.c")] + libs, capture_output=True, text=True)

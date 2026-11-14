@@ -25,7 +25,7 @@ Por eso este proyecto mantiene la GPL v3 y enlaza de vuelta al original desde el
 | Autor | Contribución |
 | --- | --- |
 | **Eli Rigobeli** | creador del proyecto, especificación, validación en el G470 |
-| **robson-apk** (Robson de Lima Barbosa) | PR #6 del repositorio original (abierto el 2026-11-10): el navegador Cipó con motor web (HTML/CSS, JavaScript, Canvas, SVG, WebGL, fuentes) y el reproductor de vídeo. El motor está integrado aquí (D141, `userland/web/ORIGEM.md`); su código es **GPL-3.0-only** (D262): aportado al repositorio original (GPL-3.0) con ese PR, Términos de GitHub D.6; confirmación explícita pedida al autor. Reconoció (2026-11-14) trozos que siguen font-rs, libwebp, V8, FFmpeg y FAAD2: ver `docs/terceros.md` |
+| **robson-apk** (Robson de Lima Barbosa) | PR #6 del repositorio original (abierto el 2026-11-10): el navegador Cipó con motor web (HTML/CSS, JavaScript, Canvas, SVG, WebGL, fuentes) y el reproductor de vídeo. El motor está integrado aquí (D141, `userland/web/ORIGEM.md`); su código es **GPL-3.0-only** (D262): aportado al repositorio original (GPL-3.0) con ese PR, Términos de GitHub D.6; confirmación explícita pedida al autor. Reconoció (2026-11-14) trozos que siguen font-rs, libwebp, V8, FFmpeg y FAAD2: ver `docs/terceros.md` Confirmado el 2026-11-14: aceptado para fusionarse en el SaguiOS original (GPL-3.0). |
 | **M4R4G0N** | PR #3 del repositorio original: driver e1000, base de la pila TCP/IP y el navegador Cipó (ver D046 y D047 en [`docs/decisoes.md`](docs/decisoes.md)), aportados bajo la licencia del original (GPL v3); su código es **GPL-3.0-only** (D259) |
 
 ## Este fork

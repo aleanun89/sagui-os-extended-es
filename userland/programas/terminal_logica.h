@@ -59,6 +59,8 @@ static TL_USADA bool tl_comeca(const char *s, const char *p)
 #define TL_ESC_NAO   0   /* un carácter normal: hay que imprimirlo */
 #define TL_ESC_COMER 1   /* consumido por la secuencia */
 #define TL_ESC_CSI   2   /* secuencia CSI completa: final, par[0..n-1], privado */
+#define TL_ESC_OSC   3   /* secuencia OSC completa: el texto está en osc[] (D263: título de la ventana) */
+#define TL_OSC_MAX   80
 
 typedef struct {
     int  estado;          /* 0 normal, 1 tras ESC, 2 parámetros CSI, 3 OSC, 4 ESC dentro de OSC */
@@ -67,6 +69,8 @@ typedef struct {
     bool tem;             /* el parámetro actual ya tiene algún dígito */
     bool privado;         /* ESC [ ? ... */
     char final;
+    char osc[TL_OSC_MAX];  /* texto de la OSC en curso («0;título») */
+    int  osc_n;
 } tl_esc_t;
 
 static TL_USADA int tl_esc_alimentar(tl_esc_t *e, unsigned char c)
@@ -79,7 +83,7 @@ static TL_USADA int tl_esc_alimentar(tl_esc_t *e, unsigned char c)
         if (c == '[') {
             e->estado = 2; e->n = 0; e->tem = false; e->privado = false; e->final = 0;
             for (int i = 0; i < TL_PAR; i++) e->par[i] = 0;
-        } else if (c == ']') e->estado = 3;
+        } else if (c == ']') { e->estado = 3; e->osc_n = 0; e->osc[0] = 0; }
         else e->estado = 0;   /* ESC + otra letra: se descarta, como siempre */
         return TL_ESC_COMER;
     case 2:
@@ -102,12 +106,14 @@ static TL_USADA int tl_esc_alimentar(tl_esc_t *e, unsigned char c)
         } else if (c == 27) e->estado = 1;   /* secuencia cortada por otra */
         /* lo demás (intermedios 0x20-0x2F, controles): se ignora */
         return TL_ESC_COMER;
-    case 3:   /* OSC: hasta BEL o ESC \ (se descarta; no hace falta el título) */
-        if (c == 7) e->estado = 0;
-        else if (c == 27) e->estado = 4;
+    case 3:   /* OSC: hasta BEL o ESC \ ; se guarda el texto (el título de la ventana, D263) */
+        if (c == 7) { e->estado = 0; return TL_ESC_OSC; }
+        if (c == 27) e->estado = 4;
+        else if (e->osc_n < TL_OSC_MAX - 1) { e->osc[e->osc_n++] = (char)c; e->osc[e->osc_n] = 0; }
         return TL_ESC_COMER;
     default:
-        e->estado = c == '\\' ? 0 : 3;
+        if (c == '\\') { e->estado = 0; return TL_ESC_OSC; }
+        e->estado = 3;
         return TL_ESC_COMER;
     }
 }
@@ -144,7 +150,28 @@ static TL_USADA uint16_t tl_sgr(uint16_t at, int p)
     return at;
 }
 
-/* Aplica ESC [ ... m entera. 38/48 con ;5;n o ;2;r;g;b no se admiten (se saltan sus parámetros). */
+/* D263: un color de la tabla de 256 (xterm) o RGB al más parecido de los 16 ANSI (índice 0..15). */
+static TL_USADA int tl_rgb_a_16(int r, int g, int b)   /* componentes 0..5 */
+{
+    int m = r > g ? r : g;
+    if (b > m) m = b;
+    if (m == 0) return 0;
+    if (m <= 1) return 8;
+    int idx = (r * 2 >= m ? 1 : 0) | (g * 2 >= m ? 2 : 0) | (b * 2 >= m ? 4 : 0);
+    if (idx == 7 && m <= 2) return 8;
+    return idx + (m >= 4 ? 8 : 0);
+}
+
+static TL_USADA int tl_256_a_16(int n)
+{
+    if (n < 0) n = 0;
+    if (n < 16) return n;
+    if (n >= 232) { int v = n - 232; return v < 6 ? 0 : v < 12 ? 8 : v < 18 ? 7 : 15; }
+    n -= 16;
+    return tl_rgb_a_16(n / 36, (n / 6) % 6, n % 6);
+}
+
+/* Aplica ESC [ ... m entera. 38/48 con ;5;n (256 colores) y ;2;r;g;b (RGB) se llevan a la paleta de 16. */
 static TL_USADA uint16_t tl_sgr_todo(uint16_t at, const tl_esc_t *e)
 {
     if (e->n == 0) return 0;
@@ -152,6 +179,11 @@ static TL_USADA uint16_t tl_sgr_todo(uint16_t at, const tl_esc_t *e)
         int p = e->par[i];
         if (p == 38 || p == 48) {
             int modo = i + 1 < e->n ? e->par[i + 1] : 0;
+            int c = -1;
+            if (modo == 5 && i + 2 < e->n) c = tl_256_a_16(e->par[i + 2]);
+            else if (modo == 2 && i + 4 < e->n)
+                c = tl_rgb_a_16((e->par[i + 2] * 5 + 127) / 255, (e->par[i + 3] * 5 + 127) / 255, (e->par[i + 4] * 5 + 127) / 255);
+            if (c >= 0) at = p == 38 ? (uint16_t)((at & ~31u) | (unsigned)(c + 1)) : (uint16_t)((at & ~(31u << 5)) | (unsigned)(c + 1) << 5);
             i += modo == 5 ? 2 : modo == 2 ? 4 : 1;
             continue;
         }

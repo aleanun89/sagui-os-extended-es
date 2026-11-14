@@ -454,6 +454,9 @@ int  leitor_linha(leitor_linhas_t *l, char *dst, int max, bool *com_salto);   /*
 char *ler_todo_fd(int fd, unsigned *tam);                            /* todo el descriptor, con un 0 al final */
 int  saida_linha(const char *s, int n);                           /* línea + \n a la salida; <0 si el pipe se cerró */
 bool eh_terminal(int fd);
+bool cor_do_ambiente(void);                  /* TERM definido y NO_COLOR no (D263) */
+int  cor_opcao(int *argc, char **argv);      /* quita --color[=WHEN]: 0 never, 1 always, 2 auto */
+bool cor_para(int fd, int modo);             /* ¿colores ANSI en fd? solo terminal con TERM, o always */
 const char *nome_base(const char *caminho);
 void caminho_juntar(char *dst, size_t max, const char *pasta, const char *nome);
 int  listar_tudo(const char *pasta, entrada_pasta_t **v);         /* ordenadas; libera(*v) después */

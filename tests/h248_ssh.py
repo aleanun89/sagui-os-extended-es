@@ -666,8 +666,10 @@ def maquina():
 
         # --- terminal interactivo
         r = cl.ssh(None, entrada=b"echo PTY-$((6*7))\nexit\n", args=["-tt"], tempo=60)
-        verificar(b"PTY-42" in r.stdout and b"sagui:" in r.stdout and r.returncode == 0,
+        verificar(b"PTY-42" in r.stdout and b"@saguios" in r.stdout and r.returncode == 0,
                   f"sesión interactiva con terminal (ssh -tt): sagsh responde ({r.stdout[-120:]!r})")
+        verificar(b"\x1b[3" in r.stdout and b"\x1b]0;" in r.stdout,
+                  "con ssh -tt el cliente recibe los colores del prompt y el título de la ventana (D263)")
         r = cl.ssh("echo año; exit 3", args=["-tt"], tempo=60)
         verificar("año".encode("utf-8") in r.stdout and r.returncode == 3,
                   "orden con terminal (ssh -t): acentos en UTF-8 y código de salida")

@@ -63,6 +63,7 @@
 #define BARRA_A 26
 #define MAX_SESSOES 8
 #define COR_BUSCA 0xE5C07B
+#define COR_RAIZ  0xD0342C   /* franja y pestaña de un shell de root (D263) */
 
 typedef struct {
     int       shell, mestre;
@@ -81,6 +82,9 @@ typedef struct {
     char      titulo[28], dir[28];
     bool      em_marcha;
     char      cmd[28];
+    int       se, sn;            /* filtro de la copia a la serial (D263): estado y secuencia pendiente */
+    char      sp[24];
+    bool      raiz;              /* el shell avisó (OSC 0 «[root] ...») de que es root (D263) */
 } sessao_t;
 
 #define GR(s, l, c) ((s)->g[(l) * COLS_MAX + (c)])
@@ -90,7 +94,6 @@ static jan_t *j;
 static tl_conf_t conf;
 static sessao_t *sess[MAX_SESSOES];
 static int nsess, atual;
-static sessao_t *sa;                           /* la sesión que se ve */
 static int COLS = 94, LINS = 28;               /* lo que entra en la ventana ahora */
 static int suj_l0 = LINS_MAX, suj_l1 = -1;     /* líneas a redibujar */
 static bool barra_suja;
@@ -182,7 +185,9 @@ static bool primeira_mono(char *ruta, int max)
 
 /* ------------------------------------------------------------ geometría */
 
-static bool barra_visivel(void) { return nsess > 1 || conf.barra_siempre; }
+static sessao_t *sa;
+/* D263: con un shell de root en la pestaña activa la barra se ve siempre (con la franja ADMINISTRADOR). */
+static bool barra_visivel(void) { return nsess > 1 || conf.barra_siempre || (sa && sa->raiz); }
 
 static void calcular_y0(void) { y0 = MARGEM + (barra_visivel() ? BARRA_A : 0); }
 
@@ -351,16 +356,20 @@ static void desenhar_barra(void)
     barra_suja = false;
     if (!barra_visivel()) return;
     uint32_t fundo_b = tl_misturar(conf.fundo, 0x808080, 22), letra_f = tl_misturar(conf.letra, conf.fundo, 45);
+    bool raiz_a = sa && sa->raiz;
+    if (raiz_a) fundo_b = tl_misturar(fundo_b, COR_RAIZ, 45);   /* barra teñida de rojo mientras el shell es root */
     g_retangulo(j, 0, 0, j->larg, BARRA_A, fundo_b);
     for (int i = 0; i < nsess; i++) {
         int x, w;
         geom_tab(i, &x, &w);
         bool ativa = i == atual;
         g_retangulo(j, x, ativa ? 3 : 5, w, BARRA_A - (ativa ? 3 : 5), ativa ? conf.fundo : tl_misturar(fundo_b, conf.fundo, 30));
-        if (ativa) g_retangulo(j, x, 3, w, 2, COR_DESTAQUE);
+        if (ativa) g_retangulo(j, x, 3, w, 2, sess[i]->raiz ? COR_RAIZ : COR_DESTAQUE);
         bool com_x = w >= 70 || ativa;
         int cab = (w - 12 - (com_x ? 18 : 0)) / LETRA_L;
+        char tr[40];
         const char *t = sess[i]->titulo;
+        if (sess[i]->raiz) { formatar_texto(tr, sizeof tr, "[root] %s", sess[i]->titulo); t = tr; }
         int n = (int)tl_len(t);
         if (cab < 1) cab = 1;
         if (n > cab) {   /* se corta con una marca de continuación */
@@ -383,6 +392,14 @@ static void desenhar_barra(void)
     g_retangulo(j, px, 6, 20, 16, tl_misturar(fundo_b, conf.fundo, 30));
     g_linha(j, px + 5, 14, px + 14, 14, conf.letra);
     g_linha(j, px + 9, 10, px + 9, 18, conf.letra);
+    if (raiz_a) {   /* franja roja con ADMINISTRADOR, a la derecha */
+        int lw = 13 * LETRA_L + 16, lx = j->larg - lw - 4;
+        if (lx > px + 26) {
+            g_retangulo(j, lx, 3, lw, BARRA_A - 6, COR_RAIZ);
+            g_texto(j, lx + 8, 6, "ADMINISTRADOR", 0xFFFFFF);
+        }
+        g_retangulo(j, 0, BARRA_A - 2, j->larg, 2, COR_RAIZ);
+    }
     jan_mostrar_area(j, 0, 0, j->larg, BARRA_A);
 }
 
@@ -510,6 +527,64 @@ static void csi(sessao_t *s)
     }
 }
 
+static void tamanho_minimo(void);
+static void novo_tamanho(bool avisar);
+
+/* Tras cambiar si la barra se ve (root en la sesión activa, otra pestaña): recalcula la geometría. */
+static void reavaliar_barra(bool tinha_barra)
+{
+    barra_suja = true;
+    if (tinha_barra == barra_visivel()) return;
+    calcular_y0();
+    tamanho_minimo();
+    novo_tamanho(false);
+}
+
+/* OSC 0 / 2 (título): «[root] ...» marca la sesión como de administrador (D263). Lo manda sagsh en
+ * cada prompt, así que al salir de «su» la marca se quita sola. Sirve igual por SSH. */
+static void osc(sessao_t *s)
+{
+    const char *t = s->esc.osc;
+    if (!((t[0] == '0' || t[0] == '2') && t[1] == ';')) return;
+    bool raiz = tl_comeca(t + 2, "[root]");
+    if (raiz == s->raiz) return;
+    bool tinha = barra_visivel();
+    s->raiz = raiz;
+    registrar("terminal: pestana con shell %s", raiz ? "de root (ADMINISTRADOR)" : "normal");
+    reavaliar_barra(tinha);
+}
+
+/* La copia a la serial (lo que leen las pruebas y SSH de depuración) no lleva colores ni títulos
+ * (D263): se quitan ESC [ ... m y las OSC; el resto de secuencias (cursor, borrado) pasa como siempre. */
+static void copiar_serie(sessao_t *s, const char *b, int n)
+{
+    char o[512 + 32];
+    int m = 0;
+    for (int k = 0; k < n; k++) {
+        unsigned char c = (unsigned char)b[k];
+        if (s->se == 0) {
+            if (c == 27) { s->se = 1; s->sn = 0; s->sp[s->sn++] = (char)c; }
+            else o[m++] = (char)c;
+        } else if (s->se == 1) {   /* tras ESC */
+            if (c == '[') { s->se = 2; s->sp[s->sn++] = (char)c; }
+            else if (c == ']') s->se = 3;
+            else { s->se = 0; memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
+        } else if (s->se == 2) {   /* CSI: parámetros hasta el final */
+            if (c >= 0x40 && c <= 0x7E) {
+                if (c != 'm') { memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
+                s->se = 0;
+            } else if (s->sn < (int)sizeof s->sp - 1) s->sp[s->sn++] = (char)c;
+            else { s->se = 0; memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
+        } else {                   /* OSC: se descarta hasta BEL, o ESC \ */
+            if (c == 7) s->se = 0;
+            else if (c == 27) s->se = 4;
+        }
+        if (s->se == 4 && c == '\\') s->se = 0;
+        else if (s->se == 4 && c != 27) s->se = 3;
+    }
+    if (m > 0) escrever(SAIDA, o, (unsigned)m);
+}
+
 static void receber(sessao_t *s, unsigned char c)
 {
     bool viva = s == sa;
@@ -522,6 +597,7 @@ static void receber(sessao_t *s, unsigned char c)
     int r = tl_esc_alimentar(&s->esc, c);
     if (r == TL_ESC_COMER) return;
     if (r == TL_ESC_CSI) { csi(s); if (viva) sujar(s->lin); return; }
+    if (r == TL_ESC_OSC) { osc(s); return; }
     if (c == 7) { campana(); return; }
     if (c == '\n') { s->col = 0; s->lin++; }
     else if (c == '\r') s->col = 0;
@@ -597,7 +673,14 @@ static sessao_t *sessao_nova(void)
     duplicar(tv[1], SAIDA);
     duplicar(tv[1], ERROS);
     char *args[] = { "sagsh", NULL };
-    int shell = executar("/bin/sagsh", args);
+    /* D263: el shell sabe que habla con un terminal con colores y títulos (ANSI SGR + OSC). */
+    static char *envp[96];
+    int ne = 0;
+    for (int e = 0; environ && environ[e] && ne < 90; e++)
+        if (compara_texto_n(environ[e], "TERM=", 5) != 0) envp[ne++] = environ[e];
+    envp[ne++] = "TERM=xterm-16color";
+    envp[ne] = NULL;
+    int shell = executar_env("/bin/sagsh", args, envp);
     duplicar(g0, ENTRADA); duplicar(g1, SAIDA); duplicar(g2, ERROS);
     fechar(g0); fechar(g1); fechar(g2);
     fechar(tv[1]);
@@ -631,7 +714,9 @@ static void trocar(int i)
     if (i < 0 || i >= nsess) return;
     if (i == atual && sa) return;
     if (sa) { sem_selecao(sa); }
+    bool tinha_b = barra_visivel();
     atual = i; sa = sess[i];
+    if (tinha_b != barra_visivel()) { calcular_y0(); tamanho_minimo(); novo_tamanho(false); }
     busca_ativa = busca_ok = false;
     sujar_tudo();
     barra_suja = true;
@@ -1391,7 +1476,7 @@ int principal(int argc, char **argv)
             if (d > 0) {
                 int n = ler(s->mestre, buf, sizeof buf);
                 for (int k = 0; k < n; k++) receber(s, (unsigned char)buf[k]);
-                if (n > 0) escrever(SAIDA, buf, (unsigned)n);  /* copia a la serial */
+                if (n > 0) copiar_serie(s, buf, n);  /* copia a la serial, sin colores ni títulos */
                 if (n > 0 && s == sa) { cursor_aceso = true; t_cursor = tempo_ms(); }
                 fez = true;
             }

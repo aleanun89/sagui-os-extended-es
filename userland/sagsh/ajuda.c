@@ -187,6 +187,15 @@ const comando_t *achar_comando(const char *nome)
 
 static void sai(const char *s) { escrever_saida(SAIDA, s, (int)tam_texto(s)); }
 
+/* Títulos de la ayuda en negrita cian si la salida es un terminal con colores (D263). */
+static void titulo(const char *s)
+{
+    bool cor = sh_cor() && eh_terminal(SAIDA);
+    if (cor) sai("\x1b[1;36m");
+    sai(s);
+    if (cor) sai("\x1b[0m");
+}
+
 static const char *ajuda_sh =
     "El lenguaje de sagsh (como sh/bash):\n"
     "  a; b   a && b   a || b   a | b   a &   ( subshell )   { grupo; }   # comentario\n"
@@ -198,7 +207,9 @@ static const char *ajuda_sh =
     "  case $x in a|b) ...;; *.txt) ...;; *) ...;; esac\n"
     "  nombre() { local v=1; echo $1; return 0; }\n"
     "Scripts: sagsh script.sh args, o un archivo que empiece por #!/bin/sh (ejemplos en /ejemplos).\n"
-    "Prompt: variable PS1 (\\w = carpeta). Inicio: /etc/sagshrc. ajuda internos: lista los internos.\n";
+    "Prompt: variable PS1 con escapes de bash: \\u usuario, \\h máquina, \\w carpeta, \\$ ($ o # si eres root),\n"
+    "  \\e[32m colores (\\[ y \\] se aceptan). Inicio: /etc/sagshrc. NO_COLOR desactiva los colores.\n"
+    "ajuda internos: lista los internos.\n";
 
 /* Atajos del escritorio (D119): los atrapa el gestor de ventanas del kernel. */
 static const char *ajuda_atajos =
@@ -224,7 +235,7 @@ int interno_ajuda(int argc, char **argv)
 {
     if (argc > 1) {
         if (compara_texto(argv[1], "sh") == 0 || compara_texto(argv[1], "sagsh") == 0 ||
-            compara_texto(argv[1], "shell") == 0) { sai(ajuda_sh); return 0; }
+            compara_texto(argv[1], "shell") == 0) { titulo("El lenguaje de sagsh (como sh/bash):\n"); sai(ajuda_sh + 37); return 0; }
         if (compara_texto(argv[1], "internos") == 0) { sai(ajuda_internos); return 0; }
         if (compara_texto(argv[1], "atajos") == 0 || compara_texto(argv[1], "teclas") == 0) { sai(ajuda_atajos); return 0; }
         const comando_t *c = achar_comando(argv[1]);
@@ -233,12 +244,13 @@ int interno_ajuda(int argc, char **argv)
             imprimir("ajuda: no conozco el comando %s\n", argv[1]);
             return 1;
         }
-        imprimir("Uso: %s\n%s\n", c->uso, c->explicacao);
+        titulo("Uso:");
+        imprimir(" %s\n%s\n", c->uso, c->explicacao);
         if (c->apelido) imprimir("Alias en portugués: %s\n", c->apelido);
         imprimir("Tipo: %s\n", c->interno ? "comando interno del shell" : "programa en /bin");
         return 0;
     }
-    sai("Comandos de SaguiOS (nombre/alias):\n");
+    titulo("Comandos de SaguiOS (nombre/alias):\n");
     for (int i = 0; i < qtd_comandos; i++) {
         char nome[32];
         formatar_texto(nome, sizeof nome, "%s%s%s", comandos[i].nome, comandos[i].apelido ? "/" : "",

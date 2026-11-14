@@ -14531,3 +14531,47 @@ conjunto; Apache-2.0 no lo sería con «solo v2», pero aquí el conjunto es v3 
 fuera de lo publicable, D261).
 
 **Pruebas.** Compilación y las del Cipó (h47, h112-h128, h81, h04); ver el informe de la rama.
+
+**Confirmado (2026-11-14):** el mantenedor informa de que el código del PR #6 se acepta para fusionarse en el SaguiOS original (GPL-3.0) por un canal interno; queda como GPL-3.0.
+
+## D263. Color en el Terminal y en sagsh; root siempre visible (v8.0b8)
+
+**Contexto.** El Terminal ya pintaba SGR de 16 colores (D231), pero el shell y las órdenes no usaban
+color y no había forma de ver que un shell era de root (`su`, modo rescate).
+
+**Decisión.**
+1. **Quién manda colores: `TERM`.** El Terminal lanza sus `sagsh` con `TERM=xterm-16color` y `sshd` con la
+   `TERM` del cliente. La consola de texto y el puerto serie **no** tienen `TERM`: no reciben ninguna
+   secuencia (es lo que leen las pruebas). `cor_do_ambiente()` (libsagui) = `TERM` definido, distinto de
+   `dumb`, y `NO_COLOR` sin definir. `cor_opcao()`/`cor_para()` dan `--color[=always|never|auto]` a
+   cualquier programa; con `auto` (por defecto) solo si la salida es un terminal **y** hay `TERM`.
+2. **El Terminal:** SGR con 256 colores (`38;5;n`, `48;5;n`) y RGB (`38;2;r;g;b`) llevados al más parecido de
+   los 16 ANSI del tema (la celda guarda 5 bits por color: no se amplía, para no tocar la memoria de las
+   rejillas). Las OSC se guardan (`osc[]`) y se interpreta el título (OSC 0/2).
+3. **Root visible, mecanismo robusto y sin llamadas nuevas:** sagsh manda, antes de cada prompt, la OSC
+   `ESC ] 0 ; [root] usuario@saguios:carpeta BEL` (sin `[root]` si no es root). El Terminal marca la pestaña
+   como de administrador al verla y la quita al ver otra sin la marca, así que al salir de `su` vuelve solo.
+   Se descartó `USU_DE_PID` sobre el shell de la pestaña: tras `su` el shell root es un hijo y el
+   original sigue siendo `sagui`. Funciona igual por SSH (el cliente la muestra de título). Aspecto: la barra
+   de pestañas aparece siempre (aunque haya una sola), teñida de rojo, con «[root]» en el título de la
+   pestaña, una franja roja «ADMINISTRADOR» a la derecha y una línea roja bajo la barra. (No hay llamada
+   para cambiar el título de la ventana del gestor: no se tocó el núcleo.)
+4. **Prompt.** `\u \h \w \W \$ \e \a \033 \[ \]` al estilo bash; `\$` da `#` para root donde se ve. El
+   `PS1` con color vive en `/etc/sagshrc` (`sagui@saguios:/carpeta$`: usuario verde, carpeta azul; root
+   todo en rojo con `#`) y solo se pone con `TERM` y sin `NO_COLOR`. Sin colores (consola, serie, `NO_COLOR`)
+   se quitan las secuencias `ESC [ ... m` del prompt y se mantiene `sagui:/carpeta$`. El shell define
+   `EUID` y `SAGSH_RAIZ` (1 si es root y se ve).
+5. **Las imágenes de prueba con `--sesion-root` no marcan root** (`USU_EST_PRUEBA`): son root de mentira y
+   todas las pruebas esperan el mismo indicador. Root se marca en el modo rescate (consola, `root:/#`).
+6. **La copia del Terminal a la serial** (lo que leen las pruebas) filtra `ESC [ ... m` y las OSC; el
+   resto (cursor, borrado) pasa como antes. `tests/qemu.py` normaliza `sagui@saguios:`/`root@saguios:` a
+   `sagui:` en `Maquina.serial()` (`serial_bruto()` da el texto tal cual).
+7. **Órdenes:** `ls` (carpetas azul, programas verde, imágenes/sonido/vídeo magenta, comprimidos rojo; no hay
+   enlaces simbólicos en SaguiOS, así que no hay cian), `grep` (coincidencia en rojo, nombre en magenta,
+   número de línea en verde), errores de sagsh en rojo y títulos de `ajuda` en cian: solo en un terminal con
+   color o con `--color=always`, nunca en tuberías ni archivos.
+8. **Historial persistente** en `/home/.sagsh_historial` (solo con `TERM`; la consola y las pruebas por serie
+   no tocan el disco). Tab y flechas ya existían. Sin resaltado de sintaxis mientras se escribe (opcional,
+   no hecho).
+
+**Pruebas.** `tests/h263_terminal_color.py` (con unidad en `terminal_unidad.c`); capturas `H263-*.png`.
