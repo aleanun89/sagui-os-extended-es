@@ -196,7 +196,7 @@ def parte_b(puerto):
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
         ini = len(m.serial())
-        m.digitar(f"python /t/sonda.py /bin/chip8-roms-gui --url http://10.0.2.2:{puerto}/\n", 0.03)
+        m.digitar(f"python /t/sonda.py /apps/bin/chip8-roms-gui --url http://10.0.2.2:{puerto}/\n", 0.03)
         j = tk68.janela(m, "ROM de CHIP-8", ini, 90)
         tk68.esperar(m, r"chip8-roms-gui: 3 programas, 0 descargados", 90, ini)
         comps, _ = tk68.sonda(m, "ROM de CHIP-8", ini, 60)

@@ -1,0 +1,11 @@
+LaiNES en SaguiOS (D321)
+========================
+Emulador de NES (Famicom) basado en LaiNES de Andrea Orru (licencia BSD de 2 cláusulas, ver LICENSE).
+El sonido usa Nes_Snd_Emu de Shay Green (LGPL 2.1 o posterior). La interfaz es la de SaguiOS.
+
+Las ROM NO vienen con el sistema. Se juega desde Recreativa (carpetas /home/juegos/nes y /jogos/nes) o con
+"laines [--pantalla-completa] juego.nes" o abriendo el .nes desde Archivos.
+
+Teclas: flechas, X = A, Z = B, Intro = Start, Espacio = Select, F5/F7 guardar/cargar estado,
+F9 reiniciar, F11 pantalla completa, Tab avance rápido, Esc salir. El mando se maneja por SDL_GameController.
+La SRAM de los cartuchos con batería y los estados van a /home/.config/laines/.

@@ -102,7 +102,7 @@ os.rmdir("d1/d2/d3"); os.rmdir("d1/d2"); os.rmdir("d1")
 print("borrado:", os.path.exists("d1"))
 print("path:", os.path.join("a", "b", "c.txt"), os.path.join("a", "/b"), os.path.basename("/x/y.txt"),
       os.path.dirname("/x/y.txt"), os.path.split("/x/y.txt"), os.path.splitext("f.tar.gz"))
-print("path2:", os.path.isdir("/tmp"), os.path.isfile("/tmp"), os.path.isfile("/bin/python"),
+print("path2:", os.path.isdir("/tmp"), os.path.isfile("/tmp"), os.path.isfile("/apps/bin/python"),
       os.path.abspath("x/../y"), os.path.normpath("/a//b/./c/.."), os.sep)
 print("urandom:", len(os.urandom(64)), os.urandom(8) != os.urandom(8))
 os.environ["SAGUI_PRUEBA"] = "tito"

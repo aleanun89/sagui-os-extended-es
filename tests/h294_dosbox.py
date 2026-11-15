@@ -154,7 +154,7 @@ def abrir_pelo_menu(m, entrada, capturar=None):
     m.clique(40, 12)
     p = painel(m, marca)
     sub = submenu_pelo_mouse(m, p, "Juegos", entrada)
-    verificar("DOSBox" in sub["linhas"] and "Recreativa (juegos de DOS)" in sub["linhas"],
+    verificar("DOSBox" in sub["linhas"] and "Recreativa (juegos y consolas)" in sub["linhas"],
               "Inicio > Juegos tiene «DOSBox» y «Recreativa» (%s)" % ", ".join(sub["linhas"]))
     time.sleep(0.4)
     if capturar:
@@ -312,7 +312,7 @@ def lanzador():
         for c in ("mkdir -p /home/dos/prueba", "cp /jogos/dos/PRUEBA.COM /home/dos/prueba/PRUEBA.COM",
                   "cp /jogos/dos/PRUEBA.COM /home/dos/prueba/SETUP.COM", "ls /home/dos/prueba"):
             m.comando(c)
-        marca = abrir_pelo_menu(m, "Recreativa (juegos de DOS)", capturar="H294-6-menu-recreativa")
+        marca = abrir_pelo_menu(m, "Recreativa (juegos y consolas)", capturar="H294-6-menu-recreativa")
         esperar(m, r"inicio -> /apps/bin/recreativa", 60, desde=marca)
         esperar(m, r"\[RECREATIVA\] \d+ juego", 30, desde=marca)
         n0 = int(re.findall(r"\[RECREATIVA\] (\d+) juego", m.serial()[marca:])[-1])
@@ -329,7 +329,7 @@ def lanzador():
         m.tecla("ctrl-l")
         time.sleep(0.8)
         # Propiedades del juego elegido (Alt+Intro).
-        m.clique(ox + 60, oy + 80)
+        m.clique(ox + 60 + 148, oy + 80)   # D321: la lista de sistemas ocupa 148 px a la izquierda
         time.sleep(0.5)
         marca = len(m.serial())
         m.tecla("alt-ret")

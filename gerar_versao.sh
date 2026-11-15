@@ -59,6 +59,9 @@
 #                   más un margen para instalar otras: el doble, al menos 4 MB más)
 #   APPS=0          sin la partición SAGUI-APPS: las apps (NetSurf, sqlite3) van
 #                   dentro del ramdisk, en /apps (imagen de un solo bloque, D194)
+#   RAMDISK=completo  lo mismo que APPS=0 (D324); por defecto «base»: el ramdisk solo
+#                   lleva lo fundamental y las aplicaciones van en SAGUI-APPS. La ISO
+#                   es siempre «completo» (el kernel no lee el CD)
 # Por ejemplo:  HOME_MB=8192 JOGOS_MB=64 APPS_MB=64 ./gerar_versao.sh --particiones --smp
 #
 # Lo que se compila se puede parametrizar (variante de licencia, MicroPython,
@@ -95,7 +98,7 @@ export JOGOS_IMG_MB="${JOGOS_IMG_MB:-0}"
 # D228: lo que quien compila pone en input_share/ (un juego completo comprado...) y el
 # shareware de Jazz Jackrabbit no se pueden publicar: la entrega se hace sin ellos.
 CON_INPUT_SHARE=0
-export APPS_MB="${APPS_MB:-0}" APPS="${APPS:-1}"
+export APPS_MB="${APPS_MB:-0}" APPS="${APPS:-1}" RAMDISK="${RAMDISK:-base}"
 JOBS="$(nproc 2>/dev/null || echo 2)"
 LIMPIAR=0
 COMPILAR=1
@@ -305,7 +308,7 @@ fi
 # D194: qué lleva la partición SAGUI-APPS de la imagen y cuánto mide (se lee de
 # la propia saguios.img: la tabla, con sus lógicas, y la etiqueta de cada ext2).
 texto_apps() {
-    if [ "$APPS" = 0 ]; then
+    if [ "$APPS" = 0 ] || [ "$RAMDISK" = completo ]; then
         echo "sin la partición SAGUI-APPS: las aplicaciones van en el ramdisk (/apps)"
         return
     fi

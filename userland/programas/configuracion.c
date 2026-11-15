@@ -72,9 +72,11 @@ typedef struct {
     char     salida[48];             /* D292: la tarjeta de salida elegida (su nombre); vacía = la de siempre */
     char     mando_cal[96];          /* D307: calibración del joystick del puerto de juegos; vacía = automática */
     char     idioma[16];             /* D313: es, pt_BR, en; vacío = el del sistema (/etc/idioma) o el español */
+    /* D323: aceleración gráfica. -1 = la clave no está en el archivo (no se toca nada); 0 automático, 1 sí, 2 no. */
+    int      a_2d, a_3d, a_sdl, a_disco;
 } conf_t;
 
-static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1 };
+static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1, .a_2d = -1, .a_3d = -1, .a_sdl = -1, .a_disco = -1 };
 
 #define CORES_QTD 8
 static const struct { const char *nome; uint32_t cor; } cores[CORES_QTD] = {
@@ -123,12 +125,21 @@ static int indice_modo(const char *s)
     return -1;
 }
 
+/* D323: «auto», «si» o «no» (también sí, yes, on, off, 0 y 1); lo demás vale automático. */
+static int tri_texto(const char *v)
+{
+    if (compara_texto(v, "si") == 0 || compara_texto(v, "sí") == 0 || compara_texto(v, "yes") == 0 ||
+        compara_texto(v, "on") == 0 || compara_texto(v, "1") == 0) return 1;
+    if (compara_texto(v, "no") == 0 || compara_texto(v, "off") == 0 || compara_texto(v, "0") == 0) return 2;
+    return 0;
+}
+
 /* Lee el archivo; false = no existe. Las claves desconocidas se ignoran. */
 static bool conf_ler(void)
 {
     int fd = abrir(ARQ_CONF, ABRIR_LER);
     if (fd < 0) return false;
-    static char t[2048];
+    static char t[3072];
     int n = ler(fd, t, sizeof t - 1);
     fechar(fd);
     if (n < 0) return false;
@@ -164,6 +175,10 @@ static bool conf_ler(void)
             else if (compara_texto(k, "fuente_titulos") == 0) copia_texto(conf.fuente_tit, v, sizeof conf.fuente_tit);
             else if (compara_texto(k, "capturas_sonido") == 0) conf.cap_sonido = texto_para_int(v) != 0;
             else if (compara_texto(k, "fondo_modo") == 0) { int m = indice_modo(v); if (m >= 0) conf.modo = m; }
+            else if (compara_texto(k, "acel2d") == 0) conf.a_2d = tri_texto(v);
+            else if (compara_texto(k, "gpu3d") == 0) conf.a_3d = tri_texto(v);
+            else if (compara_texto(k, "sdl2_gpu") == 0) conf.a_sdl = tri_texto(v);
+            else if (compara_texto(k, "disco_dma_cache") == 0) conf.a_disco = tri_texto(v);
         }
         if (!fim) break;
         p = fim + 1;
@@ -194,7 +209,7 @@ static int conf_gravar(void)
     }
     if (!home_persistente()) return 1;
     criar_pasta(DIR_CONF);
-    char t[1700];
+    char t[2048];
     char cap[NOME_MAX_F + 60];
     formatar_texto(cap, sizeof cap, "capturas_carpeta=%s\ncapturas_sonido=%d\n", conf.capturas, conf.cap_sonido);
     char tec[24] = "";
@@ -217,6 +232,15 @@ static int conf_gravar(void)
         size_t l = tam_texto(son);
         formatar_texto(son + l, sizeof son - l, "mando_puerto=%s\n", conf.mando_cal);
     }
+    char ace2[160] = "";   /* D323: la aceleración gráfica */
+    {
+        static const char *const nt[3] = { "auto", "si", "no" };
+        int u = 0;
+        if (conf.a_2d >= 0) u += formatar_texto(ace2 + u, sizeof ace2 - (unsigned)u, "acel2d=%s\n", nt[conf.a_2d]);
+        if (conf.a_3d >= 0) u += formatar_texto(ace2 + u, sizeof ace2 - (unsigned)u, "gpu3d=%s\n", nt[conf.a_3d]);
+        if (conf.a_sdl >= 0) u += formatar_texto(ace2 + u, sizeof ace2 - (unsigned)u, "sdl2_gpu=%s\n", nt[conf.a_sdl]);
+        if (conf.a_disco >= 0) formatar_texto(ace2 + u, sizeof ace2 - (unsigned)u, "disco_dma_cache=%s\n", nt[conf.a_disco]);
+    }
     char zon[80] = "";
     if (conf.zona[0]) formatar_texto(zon, sizeof zon, "zona=%s\n", conf.zona);
     char idi[32] = "";
@@ -227,8 +251,8 @@ static int conf_gravar(void)
     if (conf.fundo[0]) formatar_texto(fun, sizeof fun, "fondo=%s\nfondo_modo=%s\n", conf.fundo, nomes_modo[conf.modo]);
     formatar_texto(t, sizeof t,
                    "# Configuración de SaguiOS (la escribe el programa \"configuracion\"; D112).\n"
-                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s",
-                   tec, vol, ecu, son, zon, ace, fun, cap, fnt, idi);
+                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s%s",
+                   tec, vol, ecu, son, zon, ace, fun, cap, fnt, idi, ace2);
     int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
     int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
@@ -395,16 +419,221 @@ static const char *texto_erro(int r)
     return nome_erro(r);
 }
 
+/* Lo de la aceleración va antes de aplicar_tudo, y la orden y la ventana más abajo (necesitan aviso_persistencia). */
+/* ------------------------------------------------------------ aceleración gráfica (D323) */
+
+#define TRI_AUTO 0
+#define TRI_SI   1
+#define TRI_NO   2
+#define CAB_OFF_ACEL2D 135     /* bytes de la cabecera de arranque (kernel/inc/bootinfo.h) */
+#define CAB_OFF_DISCO  143
+#define CAB_DISCO_BITS 3       /* CAB_DISCO_SEM_DMA | CAB_DISCO_SEM_CACHE */
+#define OPC_ACEL_SEGURA 0x10000   /* boot_info.opcoes: Mayús al arrancar */
+#define ARQ_MARCA  "/home/.config/acel-arranque"   /* existe mientras el arranque no llegó al escritorio */
+#define ARQ_AVISO  "/tmp/acel-aviso"               /* lo que dijo el modo seguro (la ventana lo enseña) */
+#define ARQ_SDL    "/tmp/acel-sdl2"                /* «1» o «0»: lo lee la SDL 2 (sdl2gpu.h) */
+
+static const char *const nomes_tri[3] = { "auto", "si", "no" };
+static const char *const rotulos_tri[3] = { "Automático", "Activado", "Desactivado" };
+
+static bool contem(const char *t, const char *p)
+{
+    size_t n = tam_texto(p);
+    for (; *t; t++)
+        if (compara_texto_n(t, p, n) == 0) return true;
+    return false;
+}
+
+/* Cambia bits de la cabecera de arranque del disco de arranque (solo administrador). < 0: no se pudo
+ * (CD, sin disco de arranque, sin permiso): no pasa nada, vale lo que se aplicó en la sesión. */
+static int cab_gravar(int desl, int mascara, int valor)
+{
+    return info_sistema(INFO_CAB_OPC, (void *)(long)CAB_OPC_PEDIDO(desl, mascara, valor), 0);
+}
+
+static bool acel_seguro_pedido(void)
+{
+    info_motor_gpu_t m;
+    memset(&m, 0, sizeof m);
+    return info_sistema(INFO_MOTOR_GPU, &m, sizeof m) == 0 && (m.boot_opcoes & OPC_ACEL_SEGURA) != 0;
+}
+
+/* El estado que enseñan la ventana y «configuracion aceleracion». */
+static info_acel2d_t ac2;
+static info_gpu3d_t  ac3;
+static void acel_ler_estado(void)
+{
+    memset(&ac2, 0, sizeof ac2);
+    memset(&ac3, 0, sizeof ac3);
+    info_sistema(INFO_ACEL2D, &ac2, sizeof ac2);
+    info_sistema(INFO_GPU3D, &ac3, sizeof ac3);
+}
+
+/* Tarjetas con 3D sin probar en hardware (D284, D287): R5xx y R7xx. */
+static bool acel_3d_experimental(void) { return contem(ac3.placa, "R5xx") || contem(ac3.placa, "R7xx"); }
+static bool acel_3d_hay_driver(void) { return ac3.estado != GPU3D_SEM_GPU && ac3.estado != GPU3D_DESATIVADO; }
+
+static const char *acel_texto_2d(void)
+{
+    if (ac2.ativo) return "activo (la GPU copia y rellena)";
+    if (ac2.apagado == 2) return "apagado a mano (la CPU hace todo)";
+    if (ac2.apagado == 1) return "apagado por el vigilante: la GPU no respondió";
+    if ((ac2.modo & 0x0F) == 1 || (ac2.modo & 0x80)) return "desactivado (la CPU hace todo)";
+    return "CPU (sin acelerador o la autoprueba falló)";
+}
+
+static const char *acel_texto_3d(void)
+{
+    switch (ac3.estado) {
+    case GPU3D_SIN_PROBAR:  return "disponible, sin probar (se prueba con el primer uso)";
+    case GPU3D_ATIVO:       return "activo";
+    case GPU3D_FALHOU:      return "falló: SaguiGL va por software";
+    case GPU3D_APAGADO:     return "apagado (SaguiGL por software)";
+    case GPU3D_DESATIVADO:  return "desactivado en el arranque (software)";
+    default:                return "sin driver 3D para esta tarjeta (software)";
+    }
+}
+
+/* 2D: aplica la elección ahora. Devuelve 0 bien, < 0 no se pudo; "res" dice qué pasó. */
+static int acel_aplicar_2d(int t, char *res, size_t n)
+{
+    acel_ler_estado();
+    int r = 0;
+    if (t == TRI_NO) {
+        if ((ac2.modo & 0x0F) != 1) cab_gravar(CAB_OFF_ACEL2D, 0x0F, 1);   /* también para los próximos arranques */
+        if (ac2.ativo) r = info_sistema(INFO_ACEL2D_CTL, (void *)0L, 0);
+    } else {
+        bool estaba_cpu = (ac2.modo & 0x0F) == 1;
+        if (estaba_cpu) cab_gravar(CAB_OFF_ACEL2D, 0x0F, 0);
+        /* Automático solo repone lo que Configuración apagó; Activado lo reintenta siempre. */
+        if (!ac2.ativo && (t == TRI_SI || ac2.apagado == 2 || estaba_cpu)) r = info_sistema(INFO_ACEL2D_CTL, (void *)1L, 0);
+    }
+    acel_ler_estado();
+    formatar_texto(res, n, "2D: %s", acel_texto_2d());
+    if (t == TRI_SI && !ac2.ativo) r = -1;
+    return r < 0 ? -1 : 0;
+}
+
+static int acel_aplicar_3d(int t, char *res, size_t n)
+{
+    acel_ler_estado();
+    int r = 0;
+    if (!acel_3d_hay_driver()) {
+        formatar_texto(res, n, "3D: %s", acel_texto_3d());
+        return t == TRI_SI ? -1 : 0;
+    }
+    if (t == TRI_NO) {
+        if (ac3.estado != GPU3D_APAGADO) r = info_sistema(INFO_GPU3D_CTL, (void *)0L, 0);
+    } else if (t == TRI_SI) {
+        if (ac3.estado != GPU3D_ATIVO) r = info_sistema(INFO_GPU3D_CTL, (void *)1L, 0);   /* enciende y hace la autoprueba */
+    } else if (acel_3d_experimental()) {
+        if (ac3.estado == GPU3D_ATIVO || ac3.estado == GPU3D_SIN_PROBAR) r = info_sistema(INFO_GPU3D_CTL, (void *)0L, 0);
+    } else if (ac3.estado == GPU3D_APAGADO) {
+        r = info_sistema(INFO_GPU3D_CTL, (void *)1L, 0);
+    }
+    acel_ler_estado();
+    formatar_texto(res, n, "3D: %s", acel_texto_3d());
+    if (t == TRI_SI && ac3.estado != GPU3D_ATIVO) r = -1;
+    return r < 0 ? -1 : 0;
+}
+
+/* SDL 2: /tmp/acel-sdl2 (la lee la biblioteca al crear un renderizador). */
+static int acel_aplicar_sdl(int t)
+{
+    if (t == TRI_AUTO) { apagar(ARQ_SDL); return 0; }
+    int fd = abrir(ARQ_SDL, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return fd;
+    escrever_tudo(fd, t == TRI_SI ? "1" : "0", 1);
+    fechar(fd);
+    return 0;
+}
+
+/* Disco (D281): DMA y caché solo se deciden al arrancar: va a la cabecera. */
+static int acel_aplicar_disco(int t)
+{
+    return cab_gravar(CAB_OFF_DISCO, CAB_DISCO_BITS, t == TRI_NO ? CAB_DISCO_BITS : 0);
+}
+
+/* Lo que se pide con la configuración, sin la marca de arranque. */
+static void acel_aplicar_conf(void)
+{
+    char r[200];
+    if (conf.a_2d >= 0) { int q = acel_aplicar_2d(conf.a_2d, r, sizeof r); registrar("configuracion: acel2d %s -> %d (%s)", nomes_tri[conf.a_2d], q, r); }
+    if (conf.a_3d >= 0) { int q = acel_aplicar_3d(conf.a_3d, r, sizeof r); registrar("configuracion: gpu3d %s -> %d (%s)", nomes_tri[conf.a_3d], q, r); }
+    if (conf.a_sdl >= 0) registrar("configuracion: sdl2_gpu %s -> %d", nomes_tri[conf.a_sdl], acel_aplicar_sdl(conf.a_sdl));
+    if (conf.a_disco >= 0) registrar("configuracion: disco dma/cache %s -> %d", nomes_tri[conf.a_disco], acel_aplicar_disco(conf.a_disco));
+}
+
+static void acel_aviso(const char *t)
+{
+    int fd = abrir(ARQ_AVISO, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd >= 0) { escrever_tudo(fd, t, (unsigned)tam_texto(t)); fechar(fd); }
+}
+
+/* Restablece los valores seguros: todo en automático (y la cabecera del disco también). */
+static void acel_restablecer(void)
+{
+    conf.a_2d = conf.a_3d = conf.a_sdl = conf.a_disco = TRI_AUTO;
+    char r[200];
+    acel_aplicar_2d(TRI_AUTO, r, sizeof r);
+    acel_aplicar_3d(TRI_AUTO, r, sizeof r);
+    acel_aplicar_sdl(TRI_AUTO);
+    acel_aplicar_disco(TRI_AUTO);
+}
+
+/* El arranque (D323). Pasos:
+ *  - Mayús al arrancar (o --acel-segura): el kernel ya dejó la 2D por la CPU y el 3D por software; aquí no se
+ *    aplica nada y se avisa. La configuración guardada no se toca.
+ *  - La marca de arranque sigue ahí: el arranque anterior no llegó al escritorio con la aceleración forzada a
+ *    mano. Se restablecen los valores seguros (en el archivo y en la cabecera), se avisa y se sigue.
+ *  - Si no, se pone la marca, se aplica lo guardado y, al llegar aquí (el escritorio ya está), se borra. */
+static void acel_arranque(bool tem)
+{
+    if (acel_seguro_pedido()) {
+        acel_aviso("Modo seguro de la aceleración (Mayús al arrancar): 2D por la CPU, 3D por software. La configuración guardada no se ha aplicado.");
+        registrar("configuracion: aceleracion en MODO SEGURO pedido al arrancar: no se aplica la configuracion");
+        return;
+    }
+    int fd = abrir(ARQ_MARCA, ABRIR_LER);
+    if (fd >= 0) {
+        fechar(fd);
+        apagar(ARQ_MARCA);
+        acel_aviso("Arranque anterior sin llegar al escritorio: valores seguros restablecidos (todo en automático).");
+        registrar("configuracion: la marca de arranque seguia puesta: valores seguros de la aceleracion");
+        if (tem) {
+            acel_restablecer();
+            conf_gravar();
+        }
+        return;
+    }
+    if (conf.a_2d < 0 && conf.a_3d < 0 && conf.a_sdl < 0 && conf.a_disco < 0) return;
+    bool riesgo = conf.a_2d == TRI_SI || conf.a_3d == TRI_SI;
+    if (riesgo) {
+        criar_pasta(DIR_CONF);
+        int fm = abrir(ARQ_MARCA, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+        if (fm >= 0) { escrever_tudo(fm, "1\n", 2); fechar(fm); }
+    }
+    acel_aplicar_conf();
+    if (riesgo) apagar(ARQ_MARCA);
+    registrar("configuracion: aceleracion aplicada, marca de arranque borrada");
+}
+
+
 /* Lo que hace el arranque. Los errores van al log; nada de esto debe detener el sistema. */
-static int aplicar_tudo(void)
+static int aplicar_tudo(int argc, char **argv)
 {
     aplicar_conectores();
-    bool hay = conf_ler();
+    bool tem_conf = conf_ler();
+    acel_arranque(tem_conf);   /* D323: modo seguro, marca de arranque y aceleración (el kernel nos lanza como root) */
     /* D313: el idioma del usuario (sagui.conf) manda sobre el del sistema (/etc/idioma). Aunque no haya
      * sagui.conf, el del sistema se aplica: el kernel traduce su interfaz con él. */
     if (!conf.idioma[0]) idioma_sistema_ler(conf.idioma, sizeof conf.idioma);
     if (conf.idioma[0]) registrar("configuracion: idioma %s -> %d", conf.idioma, idioma_fijar(conf.idioma));
-    if (!hay) { registrar("configuracion: sin %s, nada que aplicar", ARQ_CONF); return 0; }
+    if (argc >= 4 && sou_root()) {   /* y ahora, a la identidad de la sesión: el resto va con los permisos de siempre */
+        int uid = texto_para_int(argv[2]), gid = texto_para_int(argv[3]);
+        if (uid > 0) registrar("configuracion: bajo a uid %d -> %d", uid, usuario_op(USU_FIJAR, uid, gid));
+    }
+    if (!tem_conf) { registrar("configuracion: sin %s, nada que aplicar", ARQ_CONF); return 0; }
     if (conf.salida[0]) registrar("configuracion: salida '%s' -> %d", conf.salida, aplicar_salida(conf.salida));
     if (conf.teclado >= 0) registrar("configuracion: teclado %d -> %d", conf.teclado, aplicar_teclado(conf.teclado));
     if (conf.volume >= 0) registrar("configuracion: volumen %d silencio %d -> %d", conf.volume, conf.silencio,
@@ -439,6 +668,112 @@ static void aviso_persistencia(int g)
     if (g == 1) imprimir("Aviso: /home no es un disco persistente; el cambio vale hasta apagar y no se recordará.\n");
     else if (g < 0) imprimir("Aviso: no se pudo guardar %s: %s\n", ARQ_CONF, nome_erro(g));
     else imprimir("Guardado en %s: se aplicará en cada arranque.\n", ARQ_CONF);
+}
+
+/* Autopruebas del botón «Probar ahora» y de «configuracion aceleracion 2d|3d probar». 1 bien, 0 mal, < 0 sin acelerador. */
+static int acel_probar_2d(char *res, size_t n)
+{
+    info_acel2d_prova_t r;
+    memset(&r, 0, sizeof r);
+    if (info_sistema(INFO_ACEL2D_PROVA, &r, sizeof r) != 0) { copia_texto(res, "el kernel no tiene la autoprueba", n); return -2; }
+    if (r.resultado == 1) formatar_texto(res, n, "BIEN: %u órdenes iguales a la CPU; GPU %u us, CPU %u us", r.ordens, r.us_gpu, r.us_cpu);
+    else if (r.resultado == 0) formatar_texto(res, n, "MAL: %u píxeles distintos (%s)", r.diferentes, r.texto);
+    else formatar_texto(res, n, "sin acelerador 2D: %s", r.texto);
+    return r.resultado;
+}
+
+static int acel_probar_3d(char *res, size_t n)
+{
+    info_gpu3d_prova_t r;
+    memset(&r, 0, sizeof r);
+    if (info_sistema(INFO_GPU3D_PROVA, &r, sizeof r) != 0) { copia_texto(res, "el kernel no tiene la autoprueba", n); return -2; }
+    if (r.resultado == 1) formatar_texto(res, n, "BIEN: puntuación 3D %u (%u triángulos/s)", r.pontos, r.tri_s);
+    else if (r.resultado == 0) formatar_texto(res, n, "MAL: %s (se apaga el 3D)", r.texto);
+    else formatar_texto(res, n, "sin 3D por GPU: %s", r.texto);
+    return r.resultado;
+}
+
+bool falta_admin(const char *programa);
+
+/* configuracion aceleracion [2d|3d|sdl|disco [auto|si|no|probar]] | restablecer | --simular-cuelgue (D323) */
+static void acel_mostrar(void)
+{
+    acel_ler_estado();
+    imprimir("Aceleración gráfica\n");
+    if (ac2.modelo) imprimir("  Tarjeta:   %04x:%04x%s%s\n", ac2.fabricante, ac2.modelo, ac3.placa[0] ? ", 3D: " : "", ac3.placa[0] ? ac3.placa : "");
+    else imprimir("  Tarjeta:   %s\n", ac3.placa[0] ? ac3.placa : "sin acelerador reconocido");
+    imprimir("  2D (%s): %s\n", ac2.nome, acel_texto_2d());
+    imprimir("  3D (%s): %s\n", ac3.nome, acel_texto_3d());
+    if (ac3.pontos) imprimir("  Puntuación 3D: %u\n", ac3.pontos);
+    if (acel_3d_experimental()) imprimir("  Aviso: el 3D de esta tarjeta es experimental (sin probar en hardware)\n");
+    conf_ler();
+    imprimir("  Elegido:   2D %s, 3D %s, SDL 2 %s, disco (DMA y caché) %s\n",
+             conf.a_2d < 0 ? "auto" : nomes_tri[conf.a_2d], conf.a_3d < 0 ? "auto" : nomes_tri[conf.a_3d],
+             conf.a_sdl < 0 ? "auto" : nomes_tri[conf.a_sdl], conf.a_disco < 0 ? "auto" : nomes_tri[conf.a_disco]);
+    char av[200];
+    int fd = abrir(ARQ_AVISO, ABRIR_LER);
+    if (fd >= 0) {
+        int n = ler(fd, av, sizeof av - 1);
+        fechar(fd);
+        if (n > 0) { av[n] = 0; imprimir("  Último aviso del arranque: %s\n", av); }
+    }
+}
+
+static int acel_cli(int argc, char **argv)
+{
+    if (argc < 3) { acel_mostrar(); return 0; }
+    const char *que = argv[2];
+    char res[200];
+    if (compara_texto(que, "--simular-cuelgue") == 0) {   /* para las pruebas: como un arranque que no llegó al escritorio */
+        if (falta_admin("configuracion")) return 1;
+        criar_pasta(DIR_CONF);
+        int fm = abrir(ARQ_MARCA, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+        if (fm < 0) return 1;
+        escrever_tudo(fm, "1\n", 2);
+        fechar(fm);
+        imprimir("Marca de arranque puesta: el próximo arranque volverá a los valores seguros.\n");
+        return 0;
+    }
+    if (compara_texto(que, "restablecer") == 0) {
+        if (falta_admin("configuracion")) return 1;
+        conf_ler();
+        acel_restablecer();
+        imprimir("Valores seguros restablecidos (todo en automático).\n");
+        aviso_persistencia(conf_gravar());
+        acel_mostrar();
+        return 0;
+    }
+    int k = compara_texto(que, "2d") == 0 ? 0 : compara_texto(que, "3d") == 0 ? 1 : compara_texto(que, "sdl") == 0 ? 2
+          : compara_texto(que, "disco") == 0 ? 3 : -1;
+    if (k < 0 || argc < 4) {
+        imprimir_em(ERROS, "uso: configuracion aceleracion [2d|3d|sdl [auto|si|no|probar] | disco [auto|no] | restablecer]\n");
+        return 2;
+    }
+    const char *v = argv[3];
+    if (compara_texto(v, "probar") == 0) {
+        if (k > 1) { imprimir_em(ERROS, "configuracion: solo 2d y 3d se pueden probar\n"); return 2; }
+        if (falta_admin("configuracion")) return 1;
+        int p = k == 0 ? acel_probar_2d(res, sizeof res) : acel_probar_3d(res, sizeof res);
+        imprimir("%s probar: %s\n", k == 0 ? "2d" : "3d", res);
+        return p == 1 ? 0 : 1;
+    }
+    int t = compara_texto(v, "auto") == 0 ? TRI_AUTO : compara_texto(v, "si") == 0 || compara_texto(v, "sí") == 0 ? TRI_SI
+          : compara_texto(v, "no") == 0 ? TRI_NO : -1;
+    if (t < 0 || (k == 3 && t == TRI_SI)) {
+        imprimir_em(ERROS, "configuracion: el valor es auto, si o no%s\n", k == 3 ? " (en disco, solo auto o no)" : "");
+        return 2;
+    }
+    if (k != 2 && falta_admin("configuracion")) return 1;   /* la SDL 2 no toca la GPU: no pide permiso */
+    conf_ler();
+    int r = 0;
+    if (k == 0) { conf.a_2d = t; r = acel_aplicar_2d(t, res, sizeof res); }
+    else if (k == 1) { conf.a_3d = t; r = acel_aplicar_3d(t, res, sizeof res); }
+    else if (k == 2) { conf.a_sdl = t; r = acel_aplicar_sdl(t); formatar_texto(res, sizeof res, "SDL 2 por la GPU: %s", rotulos_tri[t]); }
+    else { conf.a_disco = t; r = acel_aplicar_disco(t); formatar_texto(res, sizeof res, "disco: %s (se aplica al reiniciar)%s", rotulos_tri[t], r < 0 ? "; no se pudo grabar en la cabecera de arranque" : ""); if (r < 0) r = 0; }
+    imprimir("%s\n", res);
+    if (r < 0) imprimir("Aviso: no quedó activado%s.\n", k == 1 && acel_3d_experimental() ? " (3D experimental: no pasó la autoprueba)" : "");
+    aviso_persistencia(conf_gravar());
+    return r < 0 ? 1 : 0;
 }
 
 static int mostrar(void)
@@ -477,6 +812,7 @@ static int linha_de_comandos(int argc, char **argv)
     conf_ler();
     const char *c = argv[1];
     int r = 0;
+    if (compara_texto(c, "aceleracion") == 0 || compara_texto(c, "acel") == 0) return acel_cli(argc, argv);
     if (compara_texto(c, "mostrar") == 0) return mostrar();
     if (compara_texto(c, "teclado") == 0 && argc == 3) {
         int l = compara_texto(argv[2], "abnt2") == 0 ? TECLADO_ABNT2 : compara_texto(argv[2], "es") == 0 ? TECLADO_ES : -1;
@@ -566,7 +902,7 @@ static int linha_de_comandos(int argc, char **argv)
         imprimir_em(ERROS, "uso: configuracion [--aplicar | mostrar | teclado es|abnt2 | idioma es|pt_BR|en [--sistema] | volumen N | zona NOMBRE |\n"
                            "                      salida N | balance -100..100 | latencia MS | microfono entrada N|ganancia N|silencio|activar |\n"
                            "                      acento RRGGBB | fondo ARCHIVO [modo] | fondo ninguno |\n"
-                           "                      fuente documentos|titulos RUTA|ninguna]\n");
+                           "                      fuente documentos|titulos RUTA|ninguna | aceleracion [2d|3d|sdl|disco VALOR | restablecer]]\n");
         return 2;
     }
     aviso_persistencia(conf_gravar());
@@ -1432,6 +1768,155 @@ static bool md_tratar(const evento_t *e)
     return mudou;
 }
 
+/* Pantalla > Aceleración gráfica (D323). La página Pantalla tiene dos vistas: la resolución de siempre y esta. */
+static int sub_tela;   /* 0 = Resolución, 1 = Aceleración gráfica */
+static botao_t b_sub[2] = { { 480, Y_PAG + 2, 150, 26, "Resolución", false }, { 636, Y_PAG + 2, 190, 26, "Aceleración gráfica", false } };
+#define AC_X0   180            /* primera columna de botones */
+#define AC_PASO 124
+#define AC_Y0   (Y_PAG + 122)  /* fila 2D; las demás, AC_FILA más abajo */
+#define AC_FILA 44
+static botao_t b_ac[4][3];     /* 2D, 3D, SDL 2 y disco; tres opciones (el disco solo dos) */
+static botao_t b_acp[2];       /* «Probar ahora» del 2D y del 3D */
+static botao_t b_acr = { 24, Y_PAG + 350, 220, 28, "Restablecer valores seguros", false };
+static char acel_res[4][160];  /* el resultado de lo último hecho en cada fila */
+static char acel_arq[200];     /* el aviso que dejó el arranque (/tmp/acel-aviso) */
+static const char *const acel_rot_fila[4] = { "2D por la GPU", "3D por la GPU", "SDL 2 por la GPU", "Disco: DMA y caché" };
+
+static void acel_preparar(void)
+{
+    for (int f = 0; f < 4; f++) {
+        int nb = f == 3 ? 2 : 3;
+        for (int s = 0; s < nb; s++) {
+            const char *rot = f == 3 ? (s == 0 ? "Automático" : "Desactivado") : rotulos_tri[s];
+            b_ac[f][s] = (botao_t){ AC_X0 + s * AC_PASO, AC_Y0 + f * AC_FILA, 120, 26, rot, false };
+        }
+    }
+    b_acp[0] = (botao_t){ AC_X0 + 3 * AC_PASO + 8, AC_Y0, 130, 26, "Probar ahora", false };
+    b_acp[1] = (botao_t){ AC_X0 + 3 * AC_PASO + 8, AC_Y0 + AC_FILA, 130, 26, "Probar ahora", false };
+    acel_ler_estado();
+    conf_ler();
+    acel_arq[0] = 0;
+    int fd = abrir(ARQ_AVISO, ABRIR_LER);
+    if (fd >= 0) {
+        int n = ler(fd, acel_arq, sizeof acel_arq - 1);
+        fechar(fd);
+        acel_arq[n > 0 ? n : 0] = 0;
+    }
+}
+
+/* Cambiar la GPU es cosa del administrador: el diálogo de permisos (D269); sin contraseña en modo en vivo. */
+static bool acel_permiso(const char *motivo)
+{
+    if (sou_root()) return true;
+    if (elevar_grafico(motivo) == 0) return true;
+    dizer("Sin permisos de administrador no se puede cambiar la aceleración.");
+    return false;
+}
+
+static int acel_valor(int f) { int v = f == 0 ? conf.a_2d : f == 1 ? conf.a_3d : f == 2 ? conf.a_sdl : conf.a_disco; return v < 0 ? 0 : v; }
+
+static void acel_escolher(int f, int t)
+{
+    bool gpu = f != 2;
+    if (gpu && !acel_permiso(f == 0 ? "cambiar el 2D por la GPU" : f == 1 ? "cambiar el 3D por la GPU" : "cambiar el DMA y la caché del disco")) return;
+    int r = 0;
+    char *res = acel_res[f];
+    if (f == 0) { conf.a_2d = t; r = acel_aplicar_2d(t, res, sizeof acel_res[0]); }
+    else if (f == 1) { conf.a_3d = t; r = acel_aplicar_3d(t, res, sizeof acel_res[0]); }
+    else if (f == 2) { conf.a_sdl = t; r = acel_aplicar_sdl(t); formatar_texto(res, sizeof acel_res[0], "SDL 2: %s", rotulos_tri[t]); }
+    else { conf.a_disco = t; r = acel_aplicar_disco(t); formatar_texto(res, sizeof acel_res[0], "Disco: %s; se aplica al reiniciar%s", t == TRI_NO ? "DMA y caché desactivados" : "automático", r < 0 ? " (no se pudo grabar en la cabecera de arranque)" : ""); r = 0; }
+    registrar("configuracion: aceleracion fila %d -> %s: %s", f, nomes_tri[t], res);
+    int g = conf_gravar();
+    registrar("configuracion: aceleracion guardada en %s -> %d", ARQ_CONF, g);
+    if (r < 0) {
+        if (f == 1 && acel_3d_experimental()) dizer("El 3D experimental no pasó la autoprueba: SaguiGL sigue por software.");
+        else dizer("No se pudo activar: la autoprueba falló o la tarjeta no lo permite.");
+    } else if (g == 1) dizer("Aplicado en esta sesión, pero /home no es persistente: no se recordará.");
+    else dizer("Aplicado y guardado: se recordará en cada arranque.");
+    if (gpu) elevacao_soltar();
+}
+
+static void acel_probar_fila(int f)
+{
+    if (!acel_permiso(f == 0 ? "probar el 2D por la GPU" : "probar el 3D por la GPU")) return;
+    int p = f == 0 ? acel_probar_2d(acel_res[f], sizeof acel_res[0]) : acel_probar_3d(acel_res[f], sizeof acel_res[0]);
+    registrar("configuracion: aceleracion probar %s -> %d: %s", f == 0 ? "2d" : "3d", p, acel_res[f]);
+    acel_ler_estado();
+    dizer(p == 1 ? "Autoprueba superada." : "La autoprueba no se superó (el driver queda apagado si falló).");
+    elevacao_soltar();
+}
+
+static bool acel_tratar(const evento_t *e)
+{
+    bool mudou = false;
+    for (int f = 0; f < 4; f++) {
+        int nb = f == 3 ? 2 : 3;
+        for (int s = 0; s < nb; s++)
+            if (botao_tratar(jn, &b_ac[f][s], e)) {
+                int t = f == 3 ? (s == 0 ? TRI_AUTO : TRI_NO) : s;
+                acel_escolher(f, t);
+                acel_ler_estado();
+                mudou = true;
+            }
+    }
+    for (int k = 0; k < 2; k++)
+        if (botao_tratar(jn, &b_acp[k], e)) { acel_probar_fila(k); mudou = true; }
+    if (botao_tratar(jn, &b_acr, e)) {
+        if (acel_permiso("restablecer la aceleración gráfica a los valores seguros")) {
+            acel_restablecer();
+            for (int f = 0; f < 4; f++) acel_res[f][0] = 0;
+            int g = conf_gravar();
+            registrar("configuracion: aceleracion restablecida a los valores seguros");
+            dizer(g == 1 ? "Valores seguros restablecidos en esta sesión (/home no es persistente)." : "Valores seguros restablecidos: todo en automático.");
+            acel_ler_estado();
+            elevacao_soltar();
+        }
+        mudou = true;
+    }
+    return mudou;
+}
+
+static void acel_desenhar(void)
+{
+    char t[200];
+    acel_ler_estado();
+    titulo_pag(24, Y_PAG + 8, "Aceleración gráfica");
+    int y = Y_PAG + 34;
+    if (ac2.modelo) formatar_texto(t, sizeof t, "Tarjeta: PCI %04x:%04x; 3D: %s", ac2.fabricante, ac2.modelo, ac3.placa[0] && acel_3d_hay_driver() ? ac3.placa : "sin driver");
+    else formatar_texto(t, sizeof t, "Tarjeta: %s", ac3.placa[0] && acel_3d_hay_driver() ? ac3.placa : "sin acelerador reconocido");
+    g_texto_n(jn, 24, y, t, (LARG - 48) / LETRA_L, COR_TEXTO);
+    formatar_texto(t, sizeof t, "2D (driver %s): %s", ac2.nome, acel_texto_2d());
+    g_texto_n(jn, 24, y + 18, t, (LARG - 48) / LETRA_L, COR_TEXTO);
+    formatar_texto(t, sizeof t, "3D (driver %s): %s", ac3.nome, acel_texto_3d());
+    g_texto_n(jn, 24, y + 36, t, (LARG - 48) / LETRA_L, COR_TEXTO);
+    if (ac3.pontos) formatar_texto(t, sizeof t, "Puntuación 3D (infopc): %u; autoprueba 2D: GPU %u us, CPU %u us", ac3.pontos, ac2.us_gpu, ac2.us_cpu);
+    else formatar_texto(t, sizeof t, "Puntuación: sin medir (Probar ahora, o la pestaña GPU de infopc)");
+    g_texto_n(jn, 24, y + 54, t, (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_retangulo(jn, 24, Y_PAG + 112, LARG - 48, 1, COR_BORDA);
+    for (int f = 0; f < 4; f++) {
+        int yy = AC_Y0 + f * AC_FILA;
+        g_texto(jn, 24, yy + 6, acel_rot_fila[f], COR_TEXTO);
+        int v = acel_valor(f);
+        int nb = f == 3 ? 2 : 3;
+        for (int s = 0; s < nb; s++) {
+            int t_ = f == 3 ? (s == 0 ? TRI_AUTO : TRI_NO) : s;
+            b_ac[f][s].apertado = v == t_;
+            botao_desenhar(jn, &b_ac[f][s]);
+        }
+        if (f < 2) botao_desenhar(jn, &b_acp[f]);
+        if (acel_res[f][0]) g_texto_n(jn, AC_X0, yy + 29, acel_res[f], (LARG - AC_X0 - 24) / LETRA_L, COR_TEXTO_FRACO);
+    }
+    if (acel_3d_hay_driver() && acel_3d_experimental()) {
+        if (conf.a_3d == TRI_SI)
+            g_texto_n(jn, 24, Y_PAG + 306, "Experimental: si la pantalla se queda congelada, reinicia; el sistema volverá al modo seguro.", (LARG - 48) / LETRA_L, 0xB03000);
+        else
+            g_texto_n(jn, 24, Y_PAG + 306, "El 3D de esta tarjeta es experimental (sin probar en hardware): por eso está apagado.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    }
+    if (acel_arq[0]) g_texto_n(jn, 24, Y_PAG + 324, acel_arq, (LARG - 48) / LETRA_L, 0xB03000);
+    else g_texto_n(jn, 24, Y_PAG + 324, "Mayús al arrancar = modo seguro (2D por la CPU, 3D por software, sin esta configuración).", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    botao_desenhar(jn, &b_acr);
+}
+
 static void desenhar_pagina(void)
 {
     char t[160];
@@ -1452,6 +1937,8 @@ static void desenhar_pagina(void)
         titulo_pag(24, Y_PAG + 8, t);
         lista_desenhar(jn, &lista_zona);
         botao_desenhar(jn, &b_zona);
+    } else if (pagina == P_TELA && sub_tela == 1) {
+        acel_desenhar();
     } else if (pagina == P_TELA) {
         formatar_texto(t, sizeof t, _("Resolución actual: %ux%u, %u bits"), tela.largura, tela.altura, tela.bpp);
         titulo_pag(24, Y_PAG + 8, t);
@@ -1602,6 +2089,9 @@ static void desenhar(void)
     }
     g_retangulo(jn, 10, Y_PAG - 6, LARG - 20, 1, COR_BORDA);
     desenhar_pagina();
+    if (pagina == P_TELA) {   /* D323: las dos vistas de Pantalla */
+        for (int i = 0; i < 2; i++) { b_sub[i].apertado = sub_tela == i; botao_desenhar(jn, &b_sub[i]); }
+    }
     if (!persiste) g_texto_n(jn, 14, ALT - 62, _("Aviso: /home no es un disco persistente: los cambios no se recordarán."), (LARG - 28) / LETRA_L, 0xB03000);
     g_texto_n(jn, 14, ALT - 38, estado, (LARG - 130) / LETRA_L, COR_TEXTO_FRACO);
     /* La barra de progreso del fondo (042): sólo mientras se aplica. */
@@ -1898,7 +2388,7 @@ static int janela(void)
                 pagina = i;
                 registrar("configuracion: pagina %s", titulos_pag[i]);
                 if (i == P_SOM) mic_abrir(); else mic_cerrar();   /* D292 */
-                if (i == P_TELA) ler_modos_video();
+                if (i == P_TELA) { ler_modos_video(); if (sub_tela == 1) acel_preparar(); }
                 if (i == P_IA) ia_preparar();   /* relee lo guardado (D145) */
                 if (i == P_FUENTES) fuentes_preparar();   /* (D196) */
                 if (i == P_VNC) vnc_refrescar();
@@ -1906,8 +2396,18 @@ static int janela(void)
                 else md_fase = 0;
                 mudou = true;
             }
+        if (pagina == P_TELA)
+            for (int i = 0; i < 2; i++)
+                if (botao_tratar(jn, &b_sub[i], &e)) {
+                    sub_tela = i;
+                    if (i == 1) acel_preparar(); else ler_modos_video();
+                    registrar("configuracion: pantalla vista %s", i ? "aceleracion" : "resolucion");
+                    mudou = true;
+                }
         if (pagina == P_MANDOS) {
             if (md_tratar(&e)) mudou = true;
+        } else if (pagina == P_TELA && sub_tela == 1) {
+            if (acel_tratar(&e)) mudou = true;
         } else if (pagina == P_TECLADO) {
             for (int i = 0; i < 2; i++)
                 if (botao_tratar(jn, &b_tec[i], &e)) {
@@ -2279,7 +2779,7 @@ static int janela(void)
 
 int principal(int argc, char **argv)
 {
-    if (argc >= 2 && compara_texto(argv[1], "--aplicar") == 0) return aplicar_tudo();
+    if (argc >= 2 && compara_texto(argv[1], "--aplicar") == 0) return aplicar_tudo(argc, argv);
     if (argc >= 2 && compara_texto(argv[1], "--ventana") != 0) return linha_de_comandos(argc, argv);
     return janela();
 }

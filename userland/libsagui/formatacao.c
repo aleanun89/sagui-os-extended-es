@@ -152,6 +152,143 @@ falha:
     return r;
 }
 
+/* ------------------------------------------------------------ exFAT (D325) */
+
+static void po64(uint8_t *p, uint64_t v) { po32(p, (uint32_t)v); po32(p + 4, (uint32_t)(v >> 32)); }
+
+/* Rotación a la derecha de las sumas de verificación de exFAT. */
+static uint32_t soma32_exfat(uint32_t s, const uint8_t *b, uint32_t n, bool pula_flags)
+{
+    for (uint32_t i = 0; i < n; i++) {
+        if (pula_flags && (i == 106 || i == 107 || i == 112)) continue;
+        s = ((s & 1) ? 0x80000000u : 0) + (s >> 1) + b[i];
+    }
+    return s;
+}
+
+/* Formatea exFAT como manda la especificación pública de Microsoft (2019): región de arranque
+ * (sectores 0-11) y su copia (12-23), una FAT, y en el montón el mapa de bits, la tabla de
+ * mayúsculas (la mínima: ASCII y Latin-1, comprimida) y la raíz con la etiqueta. Clústeres de
+ * 4 KB (hasta 256 MB), 32 KB (hasta 32 GB) y 128 KB (más), como el formateo de Windows. */
+int fs_formatar_exfat(const char *vol, const char *rotulo, fs_progresso_t prog, void *ctx, char *erro, int max)
+{
+    info_bloco_t inf;
+    int r = blocos_info(vol, &inf);
+    if (r < 0) { erro_txt(erro, max, "%s: %s", vol, nome_erro(r)); return r; }
+    uint32_t tot = inf.setores;
+    if (tot < 4096) { erro_txt(erro, max, "exFAT necesita al menos 2 MB (%s tiene %u KB)", vol, tot / 2); return ERRO_INVALIDO; }
+    uint32_t spc = tot <= 524288 ? 8 : tot <= 67108864 ? 64 : 256;
+    while (spc > 1 && tot / spc < 64) spc /= 2;
+    uint32_t spc_sh = 0;
+    while ((1u << spc_sh) < spc) spc_sh++;
+    uint32_t bpc = spc * 512, fat_off = 32, fat_len = 0, heap_off = 0, count = 0;
+    for (int k = 0; k < 4; k++) {   /* la FAT depende de los clústeres y los clústeres de la FAT */
+        fat_len = (count + 2) * 4 / 512 + 1;
+        heap_off = (fat_off + fat_len + spc - 1) / spc * spc;
+        if (heap_off >= tot) { erro_txt(erro, max, "%s es demasiado pequeña para exFAT", vol); return ERRO_INVALIDO; }
+        count = (tot - heap_off) / spc;
+    }
+    /* Tabla de mayúsculas mínima y comprimida (0xFFFF, n = n caracteres sin cambio). */
+    uint16_t up[160];
+    uint32_t nup = 0;
+    up[nup++] = 0xFFFF; up[nup++] = 0x61;                                   /* 0x00-0x60 */
+    for (uint32_t c = 'A'; c <= 'Z'; c++) up[nup++] = (uint16_t)c;          /* a-z */
+    up[nup++] = 0xFFFF; up[nup++] = 0xE0 - 0x7B;                            /* 0x7B-0xDF */
+    for (uint32_t c = 0xC0; c <= 0xDE; c++) up[nup++] = (uint16_t)(c == 0xD7 ? 0xF7 : c);   /* 0xE0-0xFE */
+    up[nup++] = 0x178;                                                      /* 0xFF */
+    uint32_t up_bytes = nup * 2, bm_bytes = (count + 7) / 8;
+    uint32_t bm_cl = (bm_bytes + bpc - 1) / bpc, up_cl = (up_bytes + bpc - 1) / bpc;
+    uint32_t c_bm = 2, c_up = c_bm + bm_cl, c_raiz = c_up + up_cl, usados = bm_cl + up_cl + 1;
+    if (c_raiz - 1 > count) { erro_txt(erro, max, "%s es demasiado pequeña para exFAT", vol); return ERRO_INVALIDO; }
+
+    avisar(prog, ctx, 0);
+    if (inf.trim == TRIM_SIM) blocos_descartar(vol, 1, tot - 1);
+    /* Lo que diga cómo era el volumen anterior fuera (región de arranque, FAT, mapa y raíz). */
+    if ((r = blocos_zerar(vol, 0, 32)) < 0) goto falha;
+    if ((r = zerar_com_progresso(vol, fat_off, fat_len, prog, ctx, 2, 40)) < 0) goto falha;
+    if ((r = zerar_com_progresso(vol, heap_off, bm_cl * spc, prog, ctx, 40, 70)) < 0) goto falha;
+    if ((r = blocos_zerar(vol, heap_off + (c_raiz - 2) * spc, spc)) < 0) goto falha;
+
+    uint8_t *buf = aloca(bpc > 32768 ? 32768 : (bpc < 4096 ? 4096 : bpc));
+    uint8_t *bm = aloca(((usados + 7) / 8 + 511) / 512 * 512);
+    if (!buf || !bm) { if (buf) libera(buf); if (bm) libera(bm); return ERRO_SEM_MEMORIA; }
+    /* FAT: medio, fin, y las cadenas del mapa, la tabla y la raíz (cada una seguida). */
+    memset(buf, 0, 512);
+    po32(buf, 0xFFFFFFF8); po32(buf + 4, 0xFFFFFFFF);
+    uint32_t ult = c_raiz;
+    if (ult + 1 > 126) { erro_txt(erro, max, "formato exFAT: el mapa de bits no cabe en el primer sector de la FAT"); libera(buf); libera(bm); return ERRO_INVALIDO; }
+    for (uint32_t c = c_bm; c <= ult; c++) {
+        bool fin = c == c_up - 1 || c == c_raiz - 1 || c == c_raiz;
+        po32(buf + c * 4, fin ? 0xFFFFFFFFu : c + 1);
+    }
+    if ((r = blocos_escrever(vol, fat_off, 1, buf)) < 0) goto falha2;
+    /* Mapa de bits con lo usado. */
+    memset(bm, 0, ((usados + 7) / 8 + 511) / 512 * 512);
+    for (uint32_t i = 0; i < usados; i++) bm[i >> 3] |= (uint8_t)(1u << (i & 7));
+    if ((r = blocos_escrever(vol, heap_off, ((usados + 7) / 8 + 511) / 512, bm)) < 0) goto falha2;
+    /* Tabla de mayúsculas. */
+    uint32_t suma_up = 0;
+    {
+        uint8_t *t = aloca(up_cl * bpc);
+        if (!t) { libera(buf); libera(bm); return ERRO_SEM_MEMORIA; }
+        memset(t, 0, up_cl * bpc);
+        for (uint32_t i = 0; i < nup; i++) po16(t + i * 2, up[i]);
+        suma_up = soma32_exfat(0, t, up_bytes, false);
+        r = blocos_escrever(vol, heap_off + (c_up - 2) * spc, up_cl * spc, t);
+        libera(t);
+        if (r < 0) goto falha2;
+    }
+    /* Raíz: etiqueta (0x83), mapa de bits (0x81) y tabla de mayúsculas (0x82). */
+    memset(buf, 0, 512);
+    uint32_t ne = 0;
+    if (rotulo && rotulo[0]) {
+        uint8_t *e = buf;
+        int n = 0;
+        for (; rotulo[n] && n < 11; n++) po16(e + 2 + n * 2, (uint8_t)rotulo[n]);
+        e[0] = 0x83; e[1] = (uint8_t)n;
+        ne = 1;
+    }
+    uint8_t *e = buf + ne * 32;
+    e[0] = 0x81; po32(e + 20, c_bm); po64(e + 24, bm_bytes);
+    e = buf + (ne + 1) * 32;
+    e[0] = 0x82; po32(e + 4, suma_up); po32(e + 20, c_up); po64(e + 24, up_bytes);
+    if ((r = blocos_escrever(vol, heap_off + (c_raiz - 2) * spc, 1, buf)) < 0) goto falha2;
+    /* Región de arranque: sector 0, sectores extendidos 1-8 (firma 0xAA550000 al final), 9-10
+     * vacíos y el 11 con la suma; después, la copia en 12-23. */
+    uint32_t serie = aleatorio32();
+    uint8_t *rg = aloca(12 * 512);
+    if (!rg) { libera(buf); libera(bm); return ERRO_SEM_MEMORIA; }
+    memset(rg, 0, 12 * 512);
+    uint8_t *b0 = rg;
+    b0[0] = 0xEB; b0[1] = 0x76; b0[2] = 0x90;
+    memcpy(b0 + 3, "EXFAT   ", 8);
+    po64(b0 + 64, inf.inicio);
+    po64(b0 + 72, tot);
+    po32(b0 + 80, fat_off); po32(b0 + 84, fat_len); po32(b0 + 88, heap_off); po32(b0 + 92, count);
+    po32(b0 + 96, c_raiz); po32(b0 + 100, serie);
+    b0[104] = 0; b0[105] = 1;            /* revisión 1.00 */
+    b0[108] = 9; b0[109] = (uint8_t)spc_sh; b0[110] = 1; b0[111] = 0x80;
+    b0[112] = (uint8_t)(usados * 100 / count);
+    memset(b0 + 120, 0xF4, 390);         /* código de arranque: parar */
+    b0[510] = 0x55; b0[511] = 0xAA;
+    for (int k = 1; k <= 8; k++) po32(rg + k * 512 + 508, 0xAA550000);
+    uint32_t sm = soma32_exfat(0, rg, 11 * 512, true);
+    for (int i = 0; i < 128; i++) po32(rg + 11 * 512 + i * 4, sm);
+    r = blocos_escrever(vol, 12, 12, rg);   /* la copia primero; el sector 0 es lo último de todo */
+    if (r >= 0) r = blocos_escrever(vol, 1, 11, rg + 512);
+    if (r >= 0) r = blocos_escrever(vol, 0, 1, rg);
+    libera(rg); libera(buf); libera(bm);
+    if (r < 0) goto falha;
+    avisar(prog, ctx, 100);
+    registrar("formatar: %s exFAT \"%s\", %u sectores, %u por cluster, %u clusters", vol, rotulo ? rotulo : "", tot, spc, count);
+    return 0;
+falha2:
+    libera(buf); libera(bm);
+falha:
+    erro_txt(erro, max, "error al escribir en %s: %s (el volumen queda sin formato válido)", vol, nome_erro(r));
+    return r;
+}
+
 /* Hacer crecer un FAT32 hasta el tamaño de su partición, si su FAT da para ello (D213: las
  * de las imágenes y las que formatea SaguiOS traen la FAT con sitio de sobra). No se amplía la
  * FAT moviéndola hacia los sectores reservados: con 32 reservados darían como mucho 12 sectores

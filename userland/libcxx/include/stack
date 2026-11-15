@@ -1,0 +1,39 @@
+// <stack> - std::stack sobre vector (D321, lo pide Gearsystem).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_STACK
+#define SAGUI_CXX_STACK
+#pragma GCC system_header
+
+#include <vector>
+#include <utility>
+
+namespace std {
+
+template <class T, class Container = vector<T>> class stack {
+public:
+    typedef Container container_type;
+    typedef T value_type;
+    typedef typename Container::size_type size_type;
+    typedef T &reference;
+    typedef const T &const_reference;
+
+protected:
+    Container c;
+
+public:
+    stack() {}
+    explicit stack(const Container &cont) : c(cont) {}
+
+    bool empty() const { return c.empty(); }
+    size_type size() const { return c.size(); }
+    reference top() { return c.back(); }
+    const_reference top() const { return c.back(); }
+    void push(const T &v) { c.push_back(v); }
+    void push(T &&v) { c.push_back(static_cast<T &&>(v)); }
+    void pop() { c.pop_back(); }
+    void swap(stack &o) { c.swap(o.c); }
+};
+
+}  // namespace std
+
+#endif

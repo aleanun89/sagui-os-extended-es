@@ -73,7 +73,8 @@ def main():
             if r:
                 verificar(abs(int(r.group(3)) - pct) <= 1.0, f"discos: {nome} {r.group(3)}% (esperado {pct:.1f}% +-1)")
         out = m.comando("discos -u")
-        verificar(len(re.findall(r"\[#+\.*\] \d+ %", out)) == 3, "discos -u: una barra de texto por partición montada")
+        # 3 montadas a mano + /apps (hda5) y SAGUI-CONF (hda6), que ahora van montadas de serie (D324, D255)
+        verificar(len(re.findall(r"\[#*\.*\] \d+ %", out)) == 5, "discos -u: una barra de texto por partición montada")
         r = re.search(r"usb0p1.*\n?.*\[(#+)(\.*)\] (\d+) %", out)
         verificar(r and len(r.group(1)) + len(r.group(2)) == 10 and abs(len(r.group(1)) - round(int(r.group(3)) / 10)) <= 1,
                   "discos -u: la barra tiene 10 casillas y concuerda con el porcentaje")

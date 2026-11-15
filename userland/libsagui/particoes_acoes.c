@@ -25,7 +25,8 @@ static void txt(char *m, int max, const char *fmt, ...)
     va_end(ap);
 }
 
-const char *pt_nome_fs(int fs) { return fs == PA_FS_FAT32 ? "FAT32" : fs == PA_FS_EXT2 ? "ext2" : "sin formato"; }
+const char *pt_nome_fs(int fs) { return fs == PA_FS_FAT32 ? "FAT32" : fs == PA_FS_EXFAT ? "exFAT" : fs == PA_FS_EXT2 ? "ext2" : "sin formato"; }
+static uint8_t tipo_mbr_do_fs(int fs) { return fs == PA_FS_FAT32 ? 0x0C : fs == PA_FS_EXFAT ? 0x07 : 0x83; }
 
 bool pt_separar_nome(const char *nome, char *disco, int max, int *numero)
 {
@@ -116,11 +117,12 @@ static int formatar_acao(pt_acao_t *a, int numero, char *m, int max)
     char vol[16];
     pt_nome_particao(a->disco, numero, vol, sizeof vol);
     int r = a->fs == PA_FS_FAT32 ? fs_formatar_fat32(vol, a->rotulo, a->progresso, a->ctx, m, max)
+          : a->fs == PA_FS_EXFAT ? fs_formatar_exfat(vol, a->rotulo, a->progresso, a->ctx, m, max)
           : a->fs == PA_FS_EXT2 ? fs_formatar_ext2(vol, a->rotulo, a->progresso, a->ctx, m, max) : ERRO_INVALIDO;
     if (r < 0) return r;
     /* El tipo de la tabla, de acuerdo con el formato. */
     pt_tabela_t t;
-    uint8_t tipo = a->fs == PA_FS_FAT32 ? 0x0C : 0x83;
+    uint8_t tipo = tipo_mbr_do_fs(a->fs);
     if ((r = pt_ler(a->disco, &t)) < 0) return r;
     pt_part_t *p = pt_achar(&t, numero);
     if (t.esquema == PT_MBR && p && p->tipo != tipo && p->tipo != 0xEF) {   /* la ESP (0xEF) conserva su tipo (D266) */
@@ -151,7 +153,7 @@ static int executar_gpt(pt_acao_t *a, pt_tabela_t *t, char *m, int max)
     if (t->gpt_mala) { txt(m, max, "%s: la GPT no es válida (%s): solo vale una tabla nueva", a->disco, t->gpt_aviso); return ERRO_FORMATO; }
     if (a->op == PA_CRIAR) {
         if (a->logica) { txt(m, max, "una GPT no tiene particiones lógicas"); return ERRO_INVALIDO; }
-        uint8_t tipo = a->tipo ? a->tipo : a->fs == PA_FS_FAT32 ? 0x0C : 0x83;
+        uint8_t tipo = a->tipo ? a->tipo : tipo_mbr_do_fs(a->fs);
         const uint8_t *guid = gpt_guid_de_tipo_mbr(tipo);
         if (!guid) { txt(m, max, "ese tipo de partición no existe en una GPT (usa fat32, ext2, tipo=0xEF para la ESP, 0xDA, 0x83 o 0x07)"); return ERRO_INVALIDO; }
         pt_livre_t v[24];
@@ -246,7 +248,7 @@ static int executar_acao(pt_acao_t *a, char *m, int max)
     case PA_CRIAR: {
         pt_livre_t v[24];
         int n = pt_livres(&t, v, 24), k = -1;
-        uint8_t tipo = a->tipo ? a->tipo : a->fs == PA_FS_FAT32 ? 0x0C : 0x83;
+        uint8_t tipo = a->tipo ? a->tipo : tipo_mbr_do_fs(a->fs);
         for (int i = 0; i < n && k < 0; i++) {
             if (v[i].logica != a->logica) continue;
             if (a->inicio && (a->inicio < v[i].inicio || a->inicio >= v[i].inicio + v[i].setores)) continue;
@@ -314,6 +316,22 @@ static int executar_acao(pt_acao_t *a, char *m, int max)
         if (depois == antes) { txt(m, max, "%s ya mide %u MB", vol, antes / PT_MB); return 0; }
         uint32_t ocupa = fs_tamanho(vol, tipo_fs, sizeof tipo_fs);
         bool fat = ocupa && compara_texto(tipo_fs, "FAT32") == 0, ext = ocupa && !fat;
+        /* D318: un sistema de archivos que no conocemos (NTFS, ext4...) no se encoge nunca: cortar su
+         * partición perdería datos sin que nadie lo vea. Solo una partición sin formato (los primeros
+         * 8 KB a cero) se encoge sin más. NTFS no se toca: no hay driver de escritura. */
+        if (!ocupa && depois < antes) {
+            uint8_t *cab = aloca(16 * 512);
+            bool vazia = cab && blocos_ler(vol, 0, 16, cab) == 0;
+            bool ntfs = vazia && memcmp(cab + 3, "NTFS    ", 8) == 0;
+            for (int i = 0; vazia && i < 16 * 512; i++) if (cab[i]) vazia = false;
+            if (cab) libera(cab);
+            if (!vazia) {
+                txt(m, max, ntfs ? "%s es NTFS: SaguiOS no escribe en NTFS, así que no la encoge (se puede usar el espacio libre "
+                                   "que haya, o encogerla desde Windows)" : "%s tiene un sistema de archivos que SaguiOS no sabe "
+                                   "encoger: no se toca", vol);
+                return ERRO_NAO_SUPORTADO;
+            }
+        }
         /* Antes de tocar nada, el sistema de archivos tiene que estar sano (fsck de solo lectura). */
         if (ocupa && (r = fs_verificar(vol, cmp, sizeof cmp)) < 0) {
             txt(m, max, "comprobación previa: %s. No se ha cambiado nada", cmp);
@@ -321,11 +339,12 @@ static int executar_acao(pt_acao_t *a, char *m, int max)
         }
         /* Encoger: primero el sistema de archivos (si no cabe), después la partición. */
         if (depois < antes && ocupa > depois) {
-            if (fat) {
-                txt(m, max, "el FAT32 de %s ocupa %u MB: un FAT32 solo crece, no se encoge por debajo de eso", vol, (ocupa + PT_MB - 1) / PT_MB);
-                return ERRO_INVALIDO;
-            }
-            if ((r = fs_redimensionar_ext2(vol, depois, a->progresso, a->ctx, extra, sizeof extra)) < 0) {
+            if (fat) {   /* D318: un FAT32 encoge si lo que se corta está libre (sin mover datos) */
+                if ((r = fs_reduzir_fat32(vol, depois, extra, sizeof extra)) < 0) {
+                    txt(m, max, "no se encoge el FAT32 de %s: %s. La partición no ha cambiado", vol, extra);
+                    return r;
+                }
+            } else if ((r = fs_redimensionar_ext2(vol, depois, a->progresso, a->ctx, extra, sizeof extra)) < 0) {
                 txt(m, max, "no se encoge el ext2 de %s: %s. La partición no ha cambiado", vol, extra);
                 return r;
             }

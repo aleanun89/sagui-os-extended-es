@@ -498,7 +498,58 @@ int    rte_exportar_pdf(rte_t *r, const char *titulo, uint8_t **dados, int *n);
 bool   dialogo_wordart(rte_obj_t *o);
 bool   dialogo_formato_imagem(rte_obj_t *o, int *alinhamento);
 bool   dialogo_fonte(rte_fmt_t *f);
+bool   dialogo_familia(int *fam);       /* selector de familia con todas las fuentes, cada una con la suya (D319) */
 bool   dialogo_paragrafo(rte_par_t *p);
+
+/* ---- diálogos comunes de color y fuente, y el combo de fuentes (D327; dialogos_cf.c) ----
+ * Modales, estilo Windows. Los usan Pluma, Macaco, Paint y, por sagui.dialogo(3|4), Python.
+ *
+ * dialogo_cor: el diálogo Color. 48 colores básicos, 16 personalizados (guardados en
+ * /home/.config/colores.conf, uno por línea en hexadecimal), y el botón «Definir colores
+ * personalizados >>» que despliega el espectro (tono x saturación, con cruz), la barra de luminosidad,
+ * la muestra Color|Sólido, los cuadros Tono/Sat/Lum (0-240, como Windows) y Rojo/Verde/Azul
+ * (0-255), sincronizados, y «Agregar a colores personalizados». *cor es 0xRRGGBB, de entrada y de
+ * salida (solo cambia si se acepta). titulo NULL = «Color». */
+bool   dialogo_cor(const char *titulo, uint32_t *cor);
+/* Conversión HSL (0-240) <-> RGB, la de Windows, en enteros. */
+void   cor_de_hsl(int h, int s, int l, uint32_t *rgb);
+void   cor_para_hsl(uint32_t rgb, int *h, int *s, int *l);
+
+/* dialogo_fonte_sistema: el diálogo Fuente completo. Lista de las fuentes del sistema con un cuadro de
+ * texto encima que filtra mientras se escribe; estilos (los que tenga la familia); tamaño (lista con
+ * cuadro, 6...72, o cualquier valor 1-127); efectos (tachado, subrayado y color, con dialogo_cor) y la
+ * muestra «AaBbYyZz» con la fuente real. Entrada: fam (número de familia de rte/pdfw; si es < 0 se
+ * busca por el nombre de familia), estilo, efectos, tam, cor. Salida: todo eso y familia (nombre). */
+#define FONTE_ESTILO_NEGRITA 1     /* = RTE_NEGRITA */
+#define FONTE_ESTILO_CURSIVA 2     /* = RTE_CURSIVA */
+#define FONTE_EFEITO_SUBLINHADO 1
+#define FONTE_EFEITO_RISCADO    2
+typedef struct {
+    char     familia[48];   /* nombre de la familia */
+    int      fam;           /* número de familia (rte/pdfw); < 0 en la entrada = buscar por nombre */
+    uint8_t  estilo;        /* FONTE_ESTILO_* */
+    uint8_t  efeitos;       /* FONTE_EFEITO_* */
+    int      tam;           /* puntos */
+    uint32_t cor;           /* 0xRRGGBB */
+} fonte_sel_t;
+bool   dialogo_fonte_sistema(const char *titulo, fonte_sel_t *f);
+/* Estilos que trae una familia: máscara con el bit (1 << (FONTE_ESTILO_*)). Siempre incluye el normal. */
+int    fuente_estilos(int fam);
+/* Número de familia por nombre (sin distinguir mayúsculas); -1 si no existe. Instala el proveedor si hace falta. */
+int    fuente_familia_por_nombre(const char *nombre);
+
+/* combo_fuentes: lista desplegable de fuentes con buscador (escribir filtra) y cada nombre dibujado con su
+ * propia fuente. Pulsarlo abre la lista sobre la ventana (restaura lo de debajo al cerrarse). */
+typedef struct {
+    int  x, y, l, a;      /* a = 21 */
+    int  fam;             /* familia mostrada y elegida */
+    char texto[64];       /* su nombre */
+} combo_fuentes_t;
+void combo_fuentes_iniciar(combo_fuentes_t *c, int x, int y, int l);
+void combo_fuentes_definir(combo_fuentes_t *c, int fam);
+void combo_fuentes_desenhar(jan_t *j, combo_fuentes_t *c);
+/* COMBO_SELECIONOU: eligió una familia (c->fam). Se abre con el clic izquierdo. */
+int  combo_fuentes_tratar(jan_t *j, combo_fuentes_t *c, const evento_t *e);
 /* Buscar/Reemplazar: devuelve DLG_BUSCAR_* (0 = cerrado). com_substituir muestra el campo y los botones de reemplazo. */
 #define DLG_BUSCAR_NADA      0
 #define DLG_BUSCAR_SEGUINTE  1

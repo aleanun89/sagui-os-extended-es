@@ -53,7 +53,7 @@ def abrir_pelo_menu(m, capturar=None):
         m.captura(capturar)
     marca = len(m.serial())
     clicar_aqui(m)
-    esperar(m, r"inicio -> /bin/opentyrian", desde=marca)
+    esperar(m, r"inicio -> /apps/bin/opentyrian", desde=marca)
     return marca
 
 

@@ -54,6 +54,8 @@ METODOS = {
 }
 
 METODOS.update(vps._datos.METODOS)      # mejora 127: ConectorBD y RejillaDatos
+METODOS.update(vps._selectores.METODOS)  # v8.4.3: selectores de archivos y carpetas
+METODOS.update(vps._fechas.METODOS)
 
 FUNCIONES = [
     ("ejecutar", "ejecutar(ns=None)", "Muestra el primer formulario y no vuelve hasta cerrarlo"),
@@ -87,7 +89,10 @@ AYUDA_PROP = {
     "columnas": "Los títulos de las columnas", "filas": "Las filas (listas de celdas)",
     "minimo": "El valor más pequeño", "maximo": "El valor más grande", "paso": "Lo que sube o baja cada flecha",
     "decimales": "Cifras decimales que se enseñan (0 = enteros)", "url": "Dirección asociada (la usa tu programa)",
-    "ruta": "Ruta del archivo", "separador": "Separador de las columnas del CSV",
+    "ruta": "Ruta del archivo", "titulo": "Título de la ventana del diálogo", "filtro": "Tipos de archivo: \"Texto (*.txt)|*.txt|Todos|*\"",
+    "carpeta": "Carpeta inicial del diálogo (al elegir, la elegida)", "archivo": "Ruta del archivo elegido (o propuesto al guardar)",
+    "modo": "\"abrir\" o \"guardar\"", "confirmar_sobrescribir": "Si se pregunta antes de pisar un archivo (el diálogo del sistema lo hace siempre)",
+    "extension_por_defecto": "Extensión que se añade si el nombre no la lleva: \"txt\"", "separador": "Separador de las columnas del CSV",
     "intervalo": "Milisegundos entre dos «tic»", "raton_x": "X del ratón en el último evento de ratón",
     "raton_y": "Y del ratón en el último evento de ratón", "editable": "Si se pueden editar las celdas",
     "ordenable": "Si un clic en la cabecera ordena por esa columna",

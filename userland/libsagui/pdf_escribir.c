@@ -12,6 +12,20 @@ typedef struct { uint8_t *d; int n, pw, ph, ncomp; bool jpeg; int pag; } imgpdf_
 
 typedef struct { char *d; int n, cap; } bufer_t;
 
+#define MAX_EMB 32      /* fuentes del sistema incrustadas por documento (familia x estilo) */
+typedef struct { int fam, est; bool oblicua; uint8_t usadas[32]; } emb_t;
+
+static const fuentes_prov_t *prov;
+void fuentes_prov_instalar(const fuentes_prov_t *p) { prov = p; }
+const fuentes_prov_t *fuentes_prov_obter(void) { return prov; }
+const char *pdfw_nombre_familia(int fam)
+{
+    static const char *const cl[3] = { "Arial", "Times New Roman", "Courier New" };
+    if (fam >= 0 && fam < 3) return cl[fam];
+    const char *n = prov && prov->nombre ? prov->nombre(fam) : NULL;
+    return n ? n : cl[0];
+}
+
 struct pdfw {
     int      papel, larg, alt;
     char     titulo[128];
@@ -21,6 +35,8 @@ struct pdfw {
     bool     fallo;
     imgpdf_t img[MAX_IMAGENES];
     int      nimg;
+    emb_t    emb[MAX_EMB];
+    int      nemb;
     /* Estado gráfico de la página en curso: evita repetir fuente y color. */
     int      f_actual, tam_actual;
     uint32_t cor_actual;
@@ -78,6 +94,11 @@ static const char *const nomes_fonte[12] = {
 int pdfw_largura_char(int fam, int est, unsigned char c)
 {
     if (c < 32) return 0;
+    if (fam >= PDFW_FAM_SIS) {
+        int v = prov && prov->ancho ? prov->ancho(fam, est & 3, c) : -1;
+        if (v >= 0) return v;
+        fam = PDFW_SANS;
+    }
     int tab;
     if (fam == PDFW_MONO) tab = 6;
     else if (fam == PDFW_SERIF) tab = 2 + (est & 3);
@@ -130,13 +151,35 @@ static void cor_rellenar(pdfw_t *w, bufer_t *b, uint32_t cor, bool trazo)
     b_texto(b, trazo ? " RG\n" : " rg\n", &w->fallo);
 }
 
+/* Casilla de la fuente del sistema (fam, est) o -1 si no se puede incrustar (se usa la clásica parecida). */
+static int emb_slot(pdfw_t *w, int fam, int est)
+{
+    for (int i = 0; i < w->nemb; i++) if (w->emb[i].fam == fam && w->emb[i].est == est) return i;
+    pdfw_finfo_t inf;
+    if (!prov || !prov->info || !prov->archivo || w->nemb >= MAX_EMB || !prov->info(fam, est, &inf)) return -1;
+    emb_t *e = &w->emb[w->nemb];
+    memset(e, 0, sizeof *e);
+    e->fam = fam; e->est = est; e->oblicua = inf.oblicua;
+    return w->nemb++;
+}
+
 void pdfw_texto(pdfw_t *w, int x, int y, int fam, int est, int tam, uint32_t cor,
                 const char *t, int n, int extra)
 {
     if (w->npag == 0 || n <= 0) return;
     bufer_t *b = &w->pag[w->npag - 1];
-    int f = idx_fonte(fam, est);
-    w->fuente_usada[f] = true;
+    int f, e = -1;
+    if (fam >= PDFW_FAM_SIS) {
+        e = emb_slot(w, fam, est & 3);
+        if (e < 0) { fam = prov && prov->clase ? prov->clase(fam) : 0; if (fam < 0 || fam > 2) fam = 0; }
+    }
+    if (e >= 0) {
+        f = 12 + e;
+        for (int i = 0; i < n; i++) { unsigned char c = (unsigned char)t[i]; w->emb[e].usadas[c >> 3] |= (uint8_t)(1u << (c & 7)); }
+    } else {
+        f = idx_fonte(fam, est);
+        w->fuente_usada[f] = true;
+    }
     char num[48];
     b_texto(b, "BT\n", &w->fallo);
     if (cor != w->cor_actual) { cor_rellenar(w, b, cor, false); w->cor_actual = cor; }
@@ -145,7 +188,7 @@ void pdfw_texto(pdfw_t *w, int x, int y, int fam, int est, int tam, uint32_t cor
     k = fmt_tw(num, tam); b_poner(b, num, k, &w->fallo);
     b_texto(b, " Tf\n", &w->fallo);
     k = fmt_tw(num, extra); b_poner(b, num, k, &w->fallo);
-    b_texto(b, " Tw\n1 0 0 1 ", &w->fallo);
+    b_texto(b, e >= 0 && w->emb[e].oblicua ? " Tw\n1 0 0.2126 1 " : " Tw\n1 0 0 1 ", &w->fallo);
     k = fmt_tw(num, x); b_poner(b, num, k, &w->fallo);
     b_poner(b, " ", 1, &w->fallo);
     k = fmt_tw(num, w->alt - y); b_poner(b, num, k, &w->fallo);
@@ -253,11 +296,73 @@ static void obj_ini(bufer_t *o, int *pos, int num, bool *fallo)
     b_poner(o, t, k, fallo);
 }
 
+/* Un flujo comprimido con Flate: "N 0 obj << extra /Length n /Filter /FlateDecode >> stream ...". */
+static void flujo_flate(bufer_t *o, int *pos, int num, const char *extra, const uint8_t *d, int n, bool *f)
+{
+    int lim = deflar_limite(n) + 16;
+    uint8_t *z = aloca((size_t)lim);
+    if (!z) { *f = true; return; }
+    z[0] = 0x78; z[1] = 0x9C;
+    int r = deflar(d, n, z + 2, lim - 6, 6);
+    if (r < 0) { libera(z); *f = true; return; }
+    int nz = 2 + r;
+    uint32_t ad = adler32_somar(1, d, (size_t)n);
+    z[nz++] = (uint8_t)(ad >> 24); z[nz++] = (uint8_t)(ad >> 16); z[nz++] = (uint8_t)(ad >> 8); z[nz++] = (uint8_t)ad;
+    char t[160];
+    obj_ini(o, pos, num, f);
+    int k = formatar_texto(t, sizeof t, "<< %s/Length %d /Filter /FlateDecode >>\nstream\n", extra, nz);
+    b_poner(o, t, k, f);
+    b_poner(o, (const char *)z, nz, f);
+    b_texto(o, "\nendstream\nendobj\n", f);
+    libera(z);
+}
+
+/* La fuente incrustada n (D319): diccionario (num), descriptor (num+1) y archivo (num+2). TrueType:
+ * subconjunto en FontFile2; OpenType CFF: la fuente entera en FontFile3 /OpenType. WinAnsi y Widths de 32 a 255. */
+static void emb_escribir(pdfw_t *w, bufer_t *o, int *pos, int num, const emb_t *e)
+{
+    bool *f = &w->fallo;
+    pdfw_finfo_t inf;
+    int n = 0, original = 0;
+    uint8_t *arq = NULL;
+    if (prov && prov->info && prov->info(e->fam, e->est, &inf)) arq = prov->archivo(e->fam, e->est, e->usadas, &n, &original);
+    if (!arq) { *f = true; return; }
+    char t[400], base[80];
+    /* nombre con prefijo de subconjunto (seis letras fijas por familia/estilo) en TrueType */
+    if (!inf.cff) {
+        unsigned h = (unsigned)(e->fam * 2654435761u + (unsigned)e->est * 40503u);
+        for (int i = 0; i < 6; i++) { base[i] = (char)('A' + (h % 26)); h = h / 26 + (unsigned)i * 7919u; }
+        base[6] = '+';
+        copia_texto(base + 7, inf.psname, sizeof base - 7);
+    } else copia_texto(base, inf.psname, sizeof base);
+    obj_ini(o, pos, num, f);
+    int k = formatar_texto(t, sizeof t, "<< /Type /Font /Subtype /%s /BaseFont /%s /FirstChar 32 /LastChar 255 /Encoding /WinAnsiEncoding /FontDescriptor %d 0 R /Widths [",
+                           inf.cff ? "Type1" : "TrueType", base, num + 1);
+    b_poner(o, t, k, f);
+    for (int c = 32; c < 256; c++) {
+        int a = prov->ancho ? prov->ancho(e->fam, e->est, (unsigned char)c) : 0;
+        k = formatar_texto(t, sizeof t, "%d ", a < 0 ? 0 : a);
+        b_poner(o, t, k, f);
+    }
+    b_texto(o, "] >>\nendobj\n", f);
+    obj_ini(o, pos, num + 1, f);
+    k = formatar_texto(t, sizeof t, "<< /Type /FontDescriptor /FontName /%s /Flags %d /FontBBox [%d %d %d %d] /ItalicAngle %d /Ascent %d /Descent %d /CapHeight %d /StemV %d /%s %d 0 R >>\nendobj\n",
+                       base, inf.flags, inf.bbox[0], inf.bbox[1], inf.bbox[2], inf.bbox[3], inf.angulo, inf.ascent, inf.descent, inf.capheight, inf.stemv,
+                       inf.cff ? "FontFile3" : "FontFile2", num + 2);
+    b_poner(o, t, k, f);
+    char ex[64];
+    if (inf.cff) copia_texto(ex, "/Subtype /OpenType ", sizeof ex);
+    else formatar_texto(ex, sizeof ex, "/Length1 %d ", original ? original : n);
+    flujo_flate(o, pos, num + 2, ex, arq, n, f);
+    libera(arq);
+}
+
 bool pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *tam)
 {
     if (w->npag == 0 || w->fallo) return false;
     int img_base = 16 + 2 * w->npag;       /* las imágenes van después de las páginas */
-    int nobj = 3 + 12 + 2 * w->npag + w->nimg;   /* 1 catálogo, 2 páginas, 3 info, 4..15 fuentes, luego contenido+página */
+    int emb_base = img_base + w->nimg;       /* luego, 3 objetos por fuente incrustada: diccionario, descriptor y archivo */
+    int nobj = 3 + 12 + 2 * w->npag + w->nimg + 3 * w->nemb;   /* 1 catálogo, 2 páginas, 3 info, 4..15 fuentes, luego contenido+página */
     int *pos = aloca_zerado(sizeof(int) * (size_t)(nobj + 1));
     if (!pos) return false;
     bufer_t o = { 0, 0, 0 };
@@ -316,6 +421,10 @@ bool pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *tam)
             k = formatar_texto(t, sizeof t, "/F%d %d 0 R ", i + 1, 4 + i);
             b_poner(&o, t, k, f);
         }
+        for (int i = 0; i < w->nemb; i++) {
+            k = formatar_texto(t, sizeof t, "/F%d %d 0 R ", 13 + i, emb_base + 3 * i);
+            b_poner(&o, t, k, f);
+        }
         b_texto(&o, ">> ", f);
         bool hay_img = false;
         for (int q = 0; q < w->nimg; q++) if (w->img[q].pag == p) hay_img = true;
@@ -339,6 +448,7 @@ bool pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *tam)
         b_poner(&o, (const char *)im->d, im->n, f);
         b_texto(&o, "\nendstream\nendobj\n", f);
     }
+    for (int q = 0; q < w->nemb && !*f; q++) emb_escribir(w, &o, pos, emb_base + 3 * q, &w->emb[q]);
     int xref = o.n;
     k = formatar_texto(t, sizeof t, "xref\n0 %d\n0000000000 65535 f \n", nobj + 1);
     b_poner(&o, t, k, f);

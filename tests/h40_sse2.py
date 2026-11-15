@@ -78,7 +78,7 @@ def main():
         # segundo plano escrevendo no Terminal derruba o sagsh: ver D042).
         m.comando("simd estres 5 800 > /tmp/estres5.txt &")
         m.comando("sagui3d --medir 3000")
-        pid3d = re.findall(r"executar /bin/sagui3d -> processo (\d+)", m.serial())[-1]
+        pid3d = re.findall(r"executar /apps/bin/sagui3d -> processo (\d+)", m.serial())[-1]
         x, y = janela_terminal(m)
         m.arrastar(x + 80, y + 10, x + 40, y + 60)    # o Terminal vem para a frente, vai e volta
         m.arrastar(x + 40, y + 60, x + 80, y + 10)

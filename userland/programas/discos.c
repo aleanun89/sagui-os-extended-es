@@ -883,7 +883,7 @@ static void pv_desenhar(void)
 
     /* Leyenda. */
     static const struct { uint8_t t; const char *n; } ley[] = {
-        { 0x0C, "FAT32" }, { 0x83, "Linux/ext2" }, { 0xDA, "SaguiOS" }, { 0xEF, "EFI" }, { 0x07, "NTFS" }, { 0x0F, "extendida" }, { 0x01, "otras" }, { 0, "libre" } };
+        { 0x0C, "FAT32" }, { 0x83, "Linux/ext2" }, { 0xDA, "SaguiOS" }, { 0xEF, "EFI" }, { 0x07, "exFAT/NTFS" }, { 0x0F, "extendida" }, { 0x01, "otras" }, { 0, "libre" } };
     int lx = 14;
     for (unsigned i = 0; i < sizeof ley / sizeof ley[0]; i++) {
         if (ley[i].t) g_retangulo(j, lx, PV_LEG_Y + 3, 12, 12, ley[i].t == 0x01 ? pv_cor(0x99) : pv_cor(ley[i].t));
@@ -1092,7 +1092,7 @@ static void pv_criar(int escolha)
     a.op = PA_CRIAR;
     a.logica = s.logica;
     a.inicio = s.inicio;
-    a.fs = escolha == 0 || escolha == 4 ? PA_FS_FAT32 : escolha == 1 ? PA_FS_EXT2 : PA_FS_NENHUM;
+    a.fs = escolha == 0 || escolha == 4 ? PA_FS_FAT32 : escolha == 5 ? PA_FS_EXFAT : escolha == 1 ? PA_FS_EXT2 : PA_FS_NENHUM;
     if (escolha == 3) a.tipo = 0x0F;
     if (escolha == 4) a.tipo = 0xEF;   /* D266: partición EFI (ESP), FAT32 */
     char p[200];
@@ -1122,7 +1122,7 @@ static void pv_formatear(int escolha)
     memset(&a, 0, sizeof a);
     a.op = PA_FORMATAR;
     a.numero = s.num;
-    a.fs = escolha == 0 ? PA_FS_FAT32 : PA_FS_EXT2;
+    a.fs = escolha == 0 ? PA_FS_FAT32 : escolha == 2 ? PA_FS_EXFAT : PA_FS_EXT2;
     char r[20] = "";
     info_disco_t d;
     char n[16];
@@ -1152,12 +1152,12 @@ static void pv_acao(int bt)
     case PV_CRIAR: {
         bool ext_ok = s && !s->logica && pt_extendida(&pv_t) < 0 && pv_t.esquema != PT_GPT;
         char m[128];
-        formatar_texto(m, sizeof m, "Crear FAT32\nCrear ext2\nCrear sin formato\n%sCrear extendida\nCrear partición EFI (ESP)", ext_ok ? "" : "~");
+        formatar_texto(m, sizeof m, "Crear FAT32\nCrear ext2\nCrear sin formato\n%sCrear extendida\nCrear partición EFI (ESP)\nCrear exFAT", ext_ok ? "" : "~");
         menu_contextual(j->id, pv_bt_x(PV_CRIAR), pv_bt_y() - 4, m, MENU_CRIAR);
         return;
     }
     case PV_FORMATEAR:
-        menu_contextual(j->id, pv_bt_x(PV_FORMATEAR), pv_bt_y() - 4, "Formatear en FAT32\nFormatear en ext2", MENU_FMT);
+        menu_contextual(j->id, pv_bt_x(PV_FORMATEAR), pv_bt_y() - 4, "Formatear en FAT32\nFormatear en ext2\nFormatear en exFAT", MENU_FMT);
         return;
     case PV_BORRAR: {
         a.op = PA_APAGAR;

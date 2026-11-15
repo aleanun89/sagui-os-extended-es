@@ -393,7 +393,7 @@ NetSurf y GNUBoy (GPL v2) no se distribuyen: quien los quiera los compila para u
 (ver compilar_versiones.md).
 NOTAS
     local ficheros=() f
-    for f in saguios.img saguios-smp.img SHA256SUMS.txt VERSION.txt; do [ -n "$imagenes" ] && [ -f "$imagenes/$f" ] && ficheros+=("$imagenes/$f"); done
+    for f in saguios.img saguios-smp.img saguios-completo.img SHA256SUMS.txt VERSION.txt; do [ -n "$imagenes" ] && [ -f "$imagenes/$f" ] && ficheros+=("$imagenes/$f"); done
     local orden=(gh release create "$version" --title "SaguiOS-Extended $version" --notes-file "$notas" "${ficheros[@]}")
     echo
     echo "Release (binarios de la versión):"

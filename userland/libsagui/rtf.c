@@ -2,9 +2,10 @@
 /* rtf.c - lector y escritor de RTF (mejora 116, D291). Ver rtf.h. */
 #include "rtf.h"
 #include "wordart.h"
+#include "pdf_escribir.h"
 
 #define PILHA_MAX 64
-#define FONTES_MAX 64
+#define FONTES_MAX 256
 #define CORES_MAX 64
 
 typedef struct { rte_fmt_t f; bool ignora; int uc; } estado_t;
@@ -86,11 +87,46 @@ static int clasificar_fonte(int hint, const char *nome)
     return RTE_SANS;
 }
 
+/* Fuentes del último RTF leído que no están en el sistema y se sustituyeron (D319). */
+static char sust_lista[160];
+static int sust_n;
+
+int rtf_fuentes_sustituidas(char *lista, int n)
+{
+    if (lista && n > 0) copia_texto(lista, sust_lista, (size_t)n);
+    return sust_n;
+}
+
+static bool igual_sin_caso(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) if (minus((unsigned char)*a) != minus((unsigned char)*b)) return false;
+    return *a == *b;
+}
+
+/* La familia de una entrada de la tabla de fuentes: las clásicas por nombre, luego las del sistema
+ * (D319) y, si no está, la clásica más parecida; en ese caso se anota para avisar al usuario. */
+static int resolver_fonte(int hint, const char *nome)
+{
+    static const char *const cl[3] = { "Arial", "Times New Roman", "Courier New" };
+    for (int i = 0; i < 3; i++) if (igual_sin_caso(nome, cl[i])) return i;
+    const fuentes_prov_t *pv = fuentes_prov_obter();
+    if (pv && pv->resolver && nome[0]) { int r = pv->resolver(nome); if (r >= PDFW_FAM_SIS) return r; }
+    int c = clasificar_fonte(hint, nome);
+    bool parecida = contiene(nome, "arial") || contiene(nome, "helvet") || contiene(nome, "times") || contiene(nome, "courier") ||
+                    contiene(nome, "symbol") || contiene(nome, "wingdings") || !nome[0];
+    if (!parecida) {
+        sust_n++;
+        size_t l = tam_texto(sust_lista);
+        if (l + tam_texto(nome) + 3 < sizeof sust_lista) formatar_texto(sust_lista + l, sizeof sust_lista - l, "%s%s", l ? ", " : "", nome);
+    }
+    return c;
+}
+
 static void fin_fonte(lector_t *L)
 {
     if (L->fonte_idx >= 0 && L->fonte_idx < FONTES_MAX) {
         L->fonte_nome[L->fonte_nn] = 0;
-        L->fonte_fam[L->fonte_idx] = (uint8_t)clasificar_fonte(L->fonte_hint, L->fonte_nome);
+        L->fonte_fam[L->fonte_idx] = (uint8_t)resolver_fonte(L->fonte_hint, L->fonte_nome);
     }
     L->fonte_nn = 0; L->fonte_hint = 0;
 }
@@ -313,6 +349,7 @@ static int hex(int c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <=
 int rtf_ler(rte_t *r, const char *d, int n)
 {
     if (n < 6 || memcmp(d, "{\\rtf", 5) != 0) return -1;
+    sust_n = 0; sust_lista[0] = 0;
     lector_t *L = aloca_zerado(sizeof *L);
     if (!L) return -1;
     rte_limpar(r);
@@ -507,7 +544,30 @@ int rtf_escrever(rte_t *r, char **saida, int *n)
     }
     int pw, ph, ml, mr, mt, mb;
     rte_papel_obter(r, &pw, &ph, &ml, &mr, &mt, &mb);
-    st(&s, "{\\rtf1\\ansi\\ansicpg1252\\deff0\\deflang1034\n{\\fonttbl{\\f0\\fswiss\\fcharset0 Arial;}{\\f1\\froman\\fcharset0 Times New Roman;}{\\f2\\fmodern\\fcharset0 Courier New;}}\n{\\colortbl ;");
+    st(&s, "{\\rtf1\\ansi\\ansicpg1252\\deff0\\deflang1034\n{\\fonttbl{\\f0\\fswiss\\fcharset0 Arial;}{\\f1\\froman\\fcharset0 Times New Roman;}{\\f2\\fmodern\\fcharset0 Courier New;}");
+    {   /* las fuentes del sistema que usa el documento, con su nombre de familia real (D319) */
+        uint8_t usada[256];
+        memset(usada, 0, sizeof usada);
+        for (int p = 0; p < np; p++) {
+            int a, b;
+            rte_par_dados(r, p, &a, &b, NULL);
+            for (int i = a; i < b; i++) {
+                rte_fmt_t f; rte_fmt_em(r, i, &f);
+                if (f.fam >= PDFW_FAM_SIS && f.fam <= PDFW_FAM_MAX && !rte_obj_em(r, i)) usada[f.fam] = 1;
+            }
+        }
+        const fuentes_prov_t *pv = fuentes_prov_obter();
+        for (int fam = PDFW_FAM_SIS; fam <= PDFW_FAM_MAX; fam++) {
+            const char *nm = usada[fam] && pv && pv->nombre ? pv->nombre(fam) : NULL;
+            if (!nm) continue;
+            int cl = pv->clase ? pv->clase(fam) : 0;
+            sf(&s, "{\\f%d", fam, 0, 0);
+            st(&s, cl == 1 ? "\\froman\\fcharset0 " : cl == 2 ? "\\fmodern\\fcharset0 " : "\\fswiss\\fcharset0 ");
+            for (const char *q = nm; *q; q++) { char ch = (*q == ';' || *q == '{' || *q == '}' || *q == '\\') ? ' ' : *q; sp(&s, &ch, 1); }
+            st(&s, ";}");
+        }
+    }
+    st(&s, "}\n{\\colortbl ;");
     for (int k = 0; k < nc; k++) sf(&s, "\\red%d\\green%d\\blue%d;", (int)((cores[k] >> 16) & 255), (int)((cores[k] >> 8) & 255), (int)(cores[k] & 255));
     st(&s, "}\n");
     sf(&s, "\\paperw%d\\paperh%d\\margl%d", pw, ph, ml);

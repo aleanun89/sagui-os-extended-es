@@ -43,23 +43,46 @@ static const icone_t icones[] = {
     { N_("Terminal"),    "/bin/terminal",    &arte_icone_terminal,   "terminal",  2 },
     { N_("Editor"),      "/bin/editor",      &arte_icone_editor,     "editor",    1 },
     { N_("Calculadora"), "/bin/calculadora", &arte_icone_calculadora, "calculadora", 2 },
-    { N_("Banana"),      "/bin/banana",      &arte_icone_banana,     "banana",    2 },
-    { N_("Sagui 3D"),    "/bin/sagui3d",     &arte_icone_sagui3d,    "sagui3d",   2 },   /* bonus B4 */
+    { N_("Banana"),      "/apps/bin/banana",      &arte_icone_banana,     "banana",    2 },
+    { N_("Sagui 3D"),    "/apps/bin/sagui3d",     &arte_icone_sagui3d,    "sagui3d",   2 },   /* bonus B4 */
     { N_("Acerca de"),   "/bin/sobre-o-sistema",   &arte_icone_sobre, "acerca",   2 },
     { N_("Pendrive"),    "/bin/arquivos",    &arte_icone_pendrive,   "pendrive",  0 },   /* sólo aparece con un pendrive conectado (H34) */
     { N_("Tareas"),      "/bin/tareas",      &arte_icone_tarefas,    "tareas",    2 },   /* segunda columna (D043) */
     { N_("Visor"),       "/bin/visor",       &arte_icone_visor,      "visor",     1 },   /* "Visor de imágenes" (D055): el nombre entero chocaría con el de la columna 1 */
-    { N_("Paint"),       "/bin/paint",       &arte_icone_paint,      "paint",     1 },   /* D056 */
-    { N_("CHIP-8"),      "/bin/chip8",       &arte_icone_chip8,      "chip8",     2 },   /* D070 */
+    { N_("Paint"),       "/apps/bin/paint",       &arte_icone_paint,      "paint",     1 },   /* D056 */
+    { N_("CHIP-8"),      "/apps/bin/chip8",       &arte_icone_chip8,      "chip8",     2 },   /* D070 */
     { N_("Configuración"), "/bin/configuracion", &arte_icone_configuracion, "configuracion", 2 },   /* D112 */
     { N_("Discos"),      "/bin/discos",      &arte_icone_discos,     "discos",    0 },   /* D121: sin argumentos y con salida no-terminal abre la ventana */
+    /* D318: solo en el modo en vivo (arrancado de un pendrive o de un CD): el asistente de instalación
+     * (sin argumentos y fuera del Terminal, «instalar» abre el asistente). El último: no mueve a los demás. */
+    { N_("Instalar SaguiOS"), "/bin/instalar", &arte_icone_discos,   "instalar",  2 },
 };
 #define QTD_ICONES (int)(sizeof icones / sizeof icones[0])
 #define ICONE_PENDRIVE 7
+#define ICONE_INSTALAR (QTD_ICONES - 1)
 static bool pendrive_visivel;
+static bool instalar_visivel;   /* D318: se decide al arrancar el escritorio */
 static char nome_pendrive[24] = "Pendrive";
 
-static bool icone_visivel(int i) { return i != ICONE_PENDRIVE || pendrive_visivel; }
+/* D324: los iconos de programas que viven en /apps (la partición SAGUI-APPS) solo se ven si el
+ * ejecutable está: sin la partición se ocultan, como sus entradas del menú Inicio (D194). */
+static bool icone_visivel(int i)
+{
+    if (i == ICONE_PENDRIVE) return pendrive_visivel;
+    if (i == ICONE_INSTALAR) return instalar_visivel;   /* D318 */
+    const char *p = icones[i].programa;
+    if (!(p[0] == '/' && p[1] == 'a' && p[2] == 'p' && p[3] == 'p' && p[4] == 's' && p[5] == '/')) return true;
+    /* Se consulta el VFS como mucho una vez por segundo: esta función se llama muchas veces por dibujo. */
+    static bool vis[32], vis_ok[32];
+    static uint32_t vis_t[32];
+    uint32_t t = relogio_tiques();
+    if (i < 32) {
+        if (vis_ok[i] && (uint32_t)(t - vis_t[i]) < 100) return vis[i];
+        vis[i] = vfs_existe_arquivo(p); vis_ok[i] = true; vis_t[i] = t;
+        return vis[i];
+    }
+    return vfs_existe_arquivo(p);
+}
 #define ICONE_X 20
 #define ICONE_Y0 (BARRA_SUPERIOR + 16)
 #define ICONE_PASSO 84
@@ -526,6 +549,10 @@ bool area_iniciar(void)
     alt = (int)video_altura();
     fundo = kmalloc((uint32_t)(larg * alt) * 4);
     if (!fundo) return false;
+    {   /* D318: «Instalar SaguiOS» en el escritorio del modo en vivo (pendrive o CD) */
+        disco_t *d = disco_arranque_real();
+        instalar_visivel = d && (d->removivel || d->imagem_cd || d->cd);
+    }
     suja_limpar();
     carregar_conf();
     ajustar_casillas();
@@ -1050,7 +1077,7 @@ void area_icone_abrir(int i)
         disco_t *d = primeiro_disco();
         if (!d) return;
         int r = disco_montar(d);
-        if (r == ERRO_FORMATO) { gui_aviso(_("Este pendrive no está en FAT32 ni ext2/ext4: formato no soportado.")); return; }
+        if (r == ERRO_FORMATO) { gui_aviso(_("Este pendrive no está en FAT32, exFAT ni ext2/ext4: formato no soportado.")); return; }
         if (r < 0 && r != ERRO_OCUPADO) { gui_aviso(_("No se pudo montar el pendrive.")); return; }
         /* Abre donde el volumen esté montado (normalmente /usb, D040). */
         static char ponto[CAMINHO_MAX];
@@ -1062,7 +1089,9 @@ void area_icone_abrir(int i)
         klog("[GUI] icone Pendrive -> /bin/arquivos %s (pid %d)\n", ponto, pid);
         return;
     }
-    char *argv[] = { (char *)icones[i].programa + 5, NULL };
+    const char *nome_exe = icones[i].programa;   /* D324: el nombre sin la carpeta (/bin o /apps/bin) */
+    for (const char *q = nome_exe; *q; q++) if (*q == '/') nome_exe = q + 1;
+    char *argv[] = { (char *)nome_exe, NULL };
     int pid = processo_executar(icones[i].programa, 1, argv, NULL);
     klog("[GUI] icone %s -> %s (pid %d)\n", icones[i].nome, icones[i].programa, pid);
 }

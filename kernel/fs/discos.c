@@ -21,6 +21,7 @@
 #include "cache_disco.h"
 #include "console.h"
 #include "fat32.h"
+#include "exfat.h"
 #include "iso9660.h"
 #include "udf.h"
 #include "memoria.h"
@@ -194,7 +195,14 @@ static bool reconhecer_volume(disco_t *d, const uint8_t *s0, uint8_t *buf)
         return true;
     }
     if (d->setores > 4 && disco_ler(d, 2, 2, buf) == 0 && reconhecer_ext(d, buf)) return true;
-    if (memcmp(s0 + 3, "EXFAT   ", 8) == 0) { txt_copia_n(d->formato, "exFAT: formato no soportado", sizeof d->formato); return false; }
+    if (exfat_reconhecer(s0)) {   /* D325: exFAT, con lectura y escritura */
+        txt_copia_n(d->tipo_fs, "exfat", sizeof d->tipo_fs);
+        txt_copia_n(d->formato, "exFAT", sizeof d->formato);
+        d->rotulo[0] = 0;
+        char r[12];
+        if (exfat_rotulo_raiz(d, r)) txt_copia_n(d->rotulo, r, sizeof d->rotulo);
+        return true;
+    }
     if (memcmp(s0 + 3, "NTFS    ", 8) == 0) { txt_copia_n(d->formato, "NTFS: formato no soportado", sizeof d->formato); return false; }
     return false;
 }
@@ -360,7 +368,7 @@ static void reconhecer(disco_t *d)
     if (!s || !buf) { if (s) kfree(s); if (buf) kfree(buf); return; }
     txt_copia_n(d->formato, "desconocido: formato no soportado", sizeof d->formato);
     if (disco_ler(d, 0, 1, s) < 0) { txt_copia_n(d->formato, "error de lectura", sizeof d->formato); goto fim; }
-    bool tem_tabela = s[510] == 0x55 && s[511] == 0xAA && !eh_fat32(s);
+    bool tem_tabela = s[510] == 0x55 && s[511] == 0xAA && !eh_fat32(s) && !exfat_reconhecer(s);
     if (!tem_tabela && reconhecer_volume(d, s, buf)) {   /* sin tabla de particiones */
         d->volume = d;
         goto fim;
@@ -904,9 +912,9 @@ int32_t sis_montar(uint32_t pnome, uint32_t pponto, uint32_t opcoes, uint32_t dd
     }
     disco_t *v = d->pai || d->volume == d ? d : d->volume;
     if (!v || !v->tipo_fs[0]) return ERRO_FORMATO;
-    static const char *const tipos[] = { "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf" };
+    static const char *const tipos[] = { "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf", "exfat" };
     uint32_t t = MONTAR_TIPO(opcoes);
-    if (t > 6) return ERRO_INVALIDO;
+    if (t > 7) return ERRO_INVALIDO;
     return montagem_montar_dono(v, ponto, tipos[t],
                                 opcoes & (MONTAR_SO_LEITURA | MONTAR_LEITURA_ESCRITA | MONTAR_DONO | MONTAR_COM_UMASK | 0777u << 16),
                                 dd);

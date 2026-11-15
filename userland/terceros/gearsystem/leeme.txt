@@ -1,0 +1,14 @@
+Gearsystem en SaguiOS (D321)
+============================
+Emulador de Sega Master System, Game Gear y SG-1000 (Gearsystem 3.9.25 de Ignacio Sanchez, GPL v3, ver LICENSE).
+Incluye Blip_Buffer/Sms_Apu (Shay Green, LGPL 2.1 o posterior). El FM del YM2413 (Master System
+japonesa) no se incluye: su emulador es de Genesis Plus GX y de licencia no comercial; esa música calla.
+La interfaz es la de SaguiOS.
+
+Las ROM NO vienen con el sistema. Se juega desde Recreativa (carpetas /home/juegos/sms, /home/juegos/gg y
+/jogos/sms, /jogos/gg), con "gearsystem [--pantalla-completa] juego.sms" o abriendo la ROM desde Archivos.
+No se leen ROM dentro de un .zip: descomprímala antes.
+
+Teclas: flechas, X = botón 1, Z = botón 2, Intro = Start (en Game Gear) o Pause (en Master System),
+F5/F7 guardar/cargar estado, F9 reiniciar, F11 pantalla completa, Tab avance rápido, Esc salir.
+El mando se maneja por SDL_GameController. La SRAM y los estados van a /home/.config/gearsystem/.

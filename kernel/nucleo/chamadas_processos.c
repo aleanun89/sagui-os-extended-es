@@ -260,6 +260,10 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_GPU3D_OP) return gpu3d_op(ptr, n);
     if (tipo == INFO_GPU3D_PROVA) return gpu3d_prova(ptr, n);
     if (tipo == INFO_GPU3D_CTL) return gpu3d_ctl(ptr);
+    if (tipo == INFO_CAB_OPC) {   /* D323: configuración de aceleración y disco en la cabecera de arranque */
+        int32_t cab_opc_gravar(uint32_t pedido);
+        return cab_opc_gravar(ptr);
+    }
     if (tipo == INFO_MOTOR_GPU) {   /* motor 3D por la GPU (D158) */
         int32_t motor_gpu_info(uint32_t ptr, uint32_t n);
         return motor_gpu_info(ptr, n);

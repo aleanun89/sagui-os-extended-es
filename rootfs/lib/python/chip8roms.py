@@ -227,7 +227,7 @@ def _si(v):
 
 
 def opciones_emulador(prog):
-    """Traduce las opciones del índice a las de /bin/chip8.
+    """Traduce las opciones del índice a las de /apps/bin/chip8.
     Devuelve (argumentos, avisos)."""
     o = prog.get("options", {})
     args = ["-m", plataforma(prog)]

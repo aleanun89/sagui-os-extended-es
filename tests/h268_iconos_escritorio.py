@@ -20,7 +20,7 @@ import time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, cor_do_pixel, SAIDA, BUILD  # noqa: E402
+from qemu import Maquina, verificar, cor_do_pixel, SAIDA, BUILD, opcoes_apps  # noqa: E402
 
 DIREITO = 2
 ICONE_X, ICONE_Y0, PASSO_X, PASSO_Y = 20, 40, 104, 84
@@ -39,7 +39,7 @@ def imagem_persistente(nome):
                     "--mbr", os.path.join(BUILD, "boot", "mbr.bin"), "--estagio2", os.path.join(BUILD, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(BUILD, "kernel.bin"), "--kernel-elf", os.path.join(BUILD, "kernel.elf"),
                     "--ramdisk", os.path.join(BUILD, "ramdisk.sgfs"), "--saida", destino, "--vesa",
-                    "--dados-mb", str(DADOS_MB)], check=True, stdout=subprocess.DEVNULL)
+                    "--dados-mb", str(DADOS_MB), *opcoes_apps()], check=True, stdout=subprocess.DEVNULL)
     return destino
 
 
@@ -228,7 +228,9 @@ def main():
         m.esperar_serial("[ICONOS] casillas al arrancar", 120)
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
-        verificar("[ICONOS] cargado /home/.config/escritorio.conf: 13 casillas" in m.serial(), "tras reiniciar se carga el archivo")
+        cargado = re.search(r"\[ICONOS\] cargado /home/\.config/escritorio\.conf: (\d+) casillas", m.serial())
+        print("   casillas cargadas:", cargado and cargado.group(1), "guardadas:", len(c_final))
+        verificar(cargado is not None and int(cargado.group(1)) >= len(c_final), "tras reiniciar se carga el archivo (D318: el icono Instalar SaguiOS cuenta aunque no se vea fuera del modo en vivo)")
         c = casillas(m)
         verificar(c == c_final, f"las casillas se conservan tras reiniciar {c}")
         m.captura("H268-4-persistente")

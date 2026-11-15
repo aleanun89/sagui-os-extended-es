@@ -5,6 +5,8 @@
  *   redimensao minimo <archivo>
  *   redimensao redimensionar <archivo> <sectores>
  *   redimensao crecer-fat32 <archivo>          (fs_crescer_fat32, de formatacao.c)
+ *   redimensao reducir-fat32 <archivo> <sectores>   (D318)
+ *   redimensao minimo-fat32 <archivo>                (D318)
  *   redimensao formatear-fat32|formatear-ext2 <archivo> <etiqueta>
  * Escribe el mensaje y termina con 0 si fue bien, 1 si no. */
 #include "particoes.h"
@@ -71,6 +73,9 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "redimensionar") == 0 && argc > 3)
         r = fs_redimensionar_ext2("vol", (uint32_t)strtoul(argv[3], NULL, 10), NULL, NULL, m, sizeof m);
     else if (strcmp(argv[1], "crecer-fat32") == 0) r = fs_crescer_fat32("vol", m, sizeof m);
+    else if (strcmp(argv[1], "reducir-fat32") == 0 && argc > 3)
+        r = fs_reduzir_fat32("vol", (uint32_t)strtoul(argv[3], NULL, 10), m, sizeof m);
+    else if (strcmp(argv[1], "minimo-fat32") == 0) { printf("%u\n", fs_fat32_minimo("vol")); return 0; }
     else if (strcmp(argv[1], "formatear-fat32") == 0 && argc > 3) r = fs_formatar_fat32("vol", argv[3], NULL, NULL, m, sizeof m);
     else if (strcmp(argv[1], "formatear-ext2") == 0 && argc > 3) r = fs_formatar_ext2("vol", argv[3], NULL, NULL, m, sizeof m);
     else return 2;

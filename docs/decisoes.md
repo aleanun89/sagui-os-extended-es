@@ -16149,6 +16149,31 @@ los quince ejemplos del manual con **clics reales** (Pestanas cambia de página,
 Lienzo dibuja al arrastrar, SelectorColor elige en su paleta...), el diseñador con ratón y teclado (colocar, propiedad, código con
 autocompletado, F5; «wh» y `def` + Tab; unas Pestanas en el diseñador) y la comprobación `tools/vps_manual.py --comprobar`.
 
+### Arreglo #42 y selectores (v8.4.3)
+
+**Autocompletado (#42).** Causa: `Editor._sugerir` colocaba la lista con `Text.bbox("insert")`, que en este `tkinter` devuelve
+`None` si la línea aún no se ha redibujado (justo tras Intro); entonces `y` valía 18 y la lista caía arriba del todo. Además cortaba el
+texto a 46 caracteres, usaba 16 px por fila cuando las del `Listbox` miden 18, y la firma de la función solo salía en la barra de estado.
+Ahora `_geom_cursor` calcula la posición por línea, columna, desplazamiento vertical (`yview`) y horizontal (si el widget lo tiene; el
+`Text` actual no), borde, relleno y letra 8x16; `_colocar_ventanita` pone la **lista bajo la palabra** (encima si no cabe) y la **firma
+completa, partida en líneas, encima de la línea** (debajo si no cabe), sin taparse entre sí, sin salirse del editor y sin tapar la línea
+editada. La firma sale al escribir `(` y sigue mientras el cursor esté dentro de los paréntesis; Esc cierra la lista y, después, la firma.
+La lista elide con `...` lo que pasa de 60 caracteres. Pruebas: `autoprueba_disenador.py` (`posicion_autocompletar`: línea baja,
+desplazamiento vertical, última línea, línea larga, firma y lista a la vez) y `tests/h299_vps_avanzado.py` (caso del fallo: cursor en una
+línea baja y `msg`; capturas `H342-autocompletar-*.png`). El explorador y el diseñador no tienen autocompletado propio: usan este editor.
+
+**Componentes nuevos** (`vps/_selectores.py`, `vps/_fechas.py`; el dibujo, en `vps/_widgets.py`):
+- `SelectorDeArchivos` (sin ventana): `titulo`, `filtro`, `carpeta`, `archivo`, `modo`, `confirmar_sobrescribir`, `extension_por_defecto`;
+  `abrir()`, `guardar()` y `mostrar()` devuelven la ruta o `None`; eventos `seleccionado` y `cancelado`. `SelectorDeCarpetas` (sin
+  ventana): `titulo`, `carpeta`, `mostrar()`. Usan `vps._dialogo` (los diálogos de D272). Límite: el diálogo de guardar del sistema siempre
+  pregunta antes de pisar un archivo; `confirmar_sobrescribir` se guarda pero no puede quitar esa pregunta (haría falta tocar C).
+- `CampoArchivo` y `CampoCarpeta` (visibles): cuadro de texto con botón «...» (un `Entry` con el botón dibujado dentro, como el `Spinbox`).
+- Ejemplo `/ejemplos/vps/editor-notas` y sección en el manual.
+- Adelantados de la 8.4.4 (con pruebas en la autoprueba): `SelectorDeColor` y `SelectorDeFuente` (sin ventana; usan `sagui.dialogo(3, ...)`
+  y `sagui.dialogo(4, ...)` y, si no existen o fallan, un respaldo en Python; el formato del resultado de la fuente
+  `familia|estilo|tamano|subrayado|tachado|color` es una suposición hasta ver D327), `ComboFuentes` (con buscador), `Calendario` y
+  `SelectorFecha`; ejemplo `/ejemplos/vps/fecha-fuente`. Pendientes: `Arbol`, `Notificacion`, `Grafico`, `Divisor`, `Medidor`, `LED`.
+
 ## D304. Bases de datos visuales: `basedatos`, conector y rejilla en VisualPythonS y Explorador (mejora 127, v8.3.2)
 
 **Decisión (mantenedor, 2026-11-15):** un conector visual, un componente y un explorador de bases de datos para SQLite (D116) y
@@ -16603,6 +16628,141 @@ dentro de SaguiOS, el `.pmini` del prototipo, órdenes sin ventana, DXF y PDF (v
 ventana, dibujar por órdenes y con el ratón con REFENT, recortar, empalmar, acotar, capas, selección, pinzamientos,
 propiedades, guardar, reabrir y exportar. `h22`, `h98`, `h272`, `h300` y `h309` (afectadas) y `SAGUI_GUI_REVISAR`.
 
+## D313. Multiidioma, fase 1: catálogos propios, `_()`, idioma elegible y pseudo-idioma (v8.4, mejora 118)
+
+**Contexto.** Hay unas 1400 cadenas en español en los programas y 600 en la interfaz del kernel. Para llegar a Brasil y al mundo
+de habla inglesa el sistema tiene que mostrarse en varios idiomas sin duplicar programas. El mantenedor aprobó (2026-11-15) la
+mejora 118 y pidió una fase 1 reducida para la v8.4: infraestructura, Configuración, interfaz del kernel, Archivos, el diálogo
+común de archivos, formatos regionales y un pseudo-idioma de pruebas.
+
+**Decisión.**
+1. **`_("texto")`, la cadena en español es la clave.** Sin traducción (o con el catálogo ausente) sale el español, así que **en
+   español todo es idéntico a antes**. `N_("texto")` solo marca la cadena (tablas estáticas, `botao_t` de inicialización) y se
+   traduce al usarla con `_()`. Mismo nombre en el kernel (`kernel/inc/idioma.h`) y en la libsagui (`sagui.h`).
+2. **Catálogos binarios por programa** en `/sistema/idiomas/<idioma>/<programa>.cat` (+ `libsagui.cat` con los textos comunes y
+   `kernel.cat`), generados de `.po` estándar (UTF-8, Poedit/Weblate) en `idiomas/<idioma>/*.po`. Formato en `kernel/inc/catalogo.h`:
+   cabecera `SGCT`, tabla ordenada por hash FNV-1a y cadenas Latin-1; **lector propio** (`kernel/lib/catalogo.c`, el mismo en el
+   kernel, la libsagui y la prueba del anfitrión), búsqueda binaria por hash, sin código de GNU gettext; no se fía del archivo
+   (todo desplazamiento se comprueba). `tools/extraer_textos.py` extrae las marcas (analizador de C propio: comentarios,
+   concatenación de literales, escapes), mantiene los `.po` (`extraer`), compila (`compilar`, desde el Makefile al armar el ramdisk),
+   `comprobar` (pendientes) y `estadisticas`. Las fuentes mezcladas de `arquivos.c` y `cipo.c` se leen byte a byte (cada literal es
+   UTF-8 válido o Latin-1 crudo, como los trata el compilador).
+3. **Idioma.** `LANG` del entorno manda (`LANG=en arquivos`); si no, el idioma del sistema que tiene el kernel (`SIS_IDIOMA`, nº 138 desde la integración en la v8.4.2: en la rama era la 137, que `main` ya daba a `SIS_PERMISOS_ARQ`; clase libre: es una preferencia del usuario). Se fija al arrancar con `configuracion --aplicar` (clave `idioma=` de
+   `/home/.config/sagui.conf`, y si no hay, `/etc/idioma`, que `configuracion idioma X --sistema` escribe como root con
+   `conf_gravar`, D255) y desde Configuración. Los programas que se abren después salen en el idioma nuevo; el kernel recarga su
+   catálogo al instante y redibuja el escritorio. `/sistema/idiomas` se puede **leer** desde cualquier usuario (el resto de
+   `/sistema` sigue siendo de root: con los permisos de D282, `/sistema` es 0711 —se atraviesa pero no se lista—, lo de dentro 0700 salvo `/sistema/idiomas` 0755/0644, y `/sistema/conf` se sigue negando por ruta). Nombres: `es`, `pt_BR`, `en` (`pt` = `pt_BR`; `en_US.UTF-8` = `en`).
+4. **Codificación.** Latin-1, como hoy (cubre es, pt, en, fr, de, it). UTF-8 interno queda para una fase 3 si se decide.
+5. **Interfaz del kernel.** Barra (reloj con `mm/dd/aaaa` en inglés, días, paneles de la bandeja), menú Inicio (grupos y programas),
+   escritorio (iconos y menú contextual), menú de la ventana, avisos del kernel y diálogo de permisos. **El `dmesg` y los registros
+   (`klog`, `registrar`) siguen en español**: las pruebas dependen de ellos.
+6. **Componentes de la libsagui** que traducen por sí mismos y sin quejarse (`idioma_traducir_sl`): texto de los botones
+   (`botao_desenhar`, `boton98`), título y texto de `confirmar`/`mensagem`/`pedir_texto`, y el título de los diálogos de archivos.
+   Los programas siguen escribiendo `_()` en cada literal (así lo ve el extractor).
+7. **Formatos regionales** (`regional.c`): separador decimal y de miles (`1.234,56` en es/pt_BR, `1,234.56` en en), fecha
+   (`dd/mm/aaaa` o `mm/dd/aaaa`). Se usan en la fecha de la barra y en los tamaños de Archivos. Moneda, primer día de la semana y
+   papel quedan para la v8.4.1.
+8. **Pseudo-idioma `xx`** (se genera de las fuentes, no tiene `.po`): cada cadena entre corchetes y un 30 % más larga
+   (`[Guardar~~]`). Sirve para ver lo que queda sin traducir (en `xx` cada `_()` encuentra su entrada; lo que sale sin corchetes
+   está sin marcar) y lo que no cabe (`SAGUI_GUI_REVISAR`, D300). Con un idioma que no es el español, la libsagui anota **una vez**
+   en el registro `[IDIOMA] sin traducir (idioma): texto` para lo marcado que falta en el catálogo.
+9. **Dónde se elige.** Una sección «Idioma de la interfaz» en la página **Teclado** de Configuración, no una pestaña nueva: con
+   pestañas de ancho el de su título, la barra de 780 px no admite una más (ni en español ni en inglés) sin cambiar la ventana, y las
+   pruebas existentes (h83, h117, h162) dependen de ese tamaño y de esas posiciones.
+
+**Traducido en la fase 1** (pt_BR y en completos, 526 cadenas): interfaz del kernel (197), Configuración (198, todas las páginas),
+Archivos (94) y los componentes y diálogos comunes de la libsagui (37). Criterio de Windows en cada idioma («Arquivo, Editar,
+Exibir» / «File, Edit, View»; «Excluir» y «Lixeira» en pt, «Delete» y «Trash» en en). **Pendiente (v8.4.1):** Pluma, Macaco, correo,
+instalador, el resto de programas, la línea de comandos de los programas (ayudas y errores), los motivos que el kernel muestra en
+el diálogo de permisos, el selector de idioma del instalador, moneda/semana/papel, y el cambio de idioma sin reabrir las ventanas
+ya abiertas (hoy las ventanas abiertas conservan su idioma hasta que se cierran).
+
+**Pruebas.** `tests/h315_idiomas.py` (lector de catálogos del anfitrión con `tests/catalogo_unidad.c`; `.po` completos; en QEMU:
+español sin cambios, `LANG`, `en` y `pt_BR` con capturas del escritorio, el menú Inicio, todas las páginas de Configuración y
+Archivos; cambiar el idioma desde Configuración y abrir un programa nuevo; persistencia tras reiniciar; pseudo-idioma sin cadenas sin
+traducir, incluido el diálogo de archivos). Capturas `H315-*.png`. Guía de uso: `docs/idiomas.md`.
+
+**Nota v8.4.2 (h95, 32 MB con escritorio).** Con 32 MB el Terminal salía con código 1: `jan_abrir`
+fallaba porque `sis_criar_janela` necesita 339 páginas *seguidas* (ventana 760x456) y el mayor hueco libre
+del físico era de 311 páginas (596 libres, el resto disperso). Causa: crecimiento legítimo del ramdisk
+(+240 KB: catálogos de `/sistema/idiomas` 140 KB, libsagui con `idioma.c` en todos los programas, `configuracion`
+y `arquivos` más grandes); en la v8.4.1 el margen era de solo ~8 páginas. Arreglo mínimo: el Terminal, si el
+kernel no le da la ventana, reintenta con 2 líneas menos (hasta 10) en vez de salir con error; con RAM de sobra
+no cambia nada. La mudanza de aplicaciones a `/apps` (v8.4.3) devolverá el margen. Sin cambios en el kernel.
+
+## D314. rsync: servidor por SSH y copia local con openrsync (v8.4, mejora 120)
+
+**Contexto.** El mantenedor pidió (2026-11-15) `rsync` para copias de seguridad de `/home` y sincronizar carpetas con el PC.
+SaguiOS no tiene `fork` ni `exec` y el rsync de Samba (GPL v3) los usa, con mucho estado global.
+
+1. **Base: openrsync** (Kristaps Dzonsons / OpenBSD, **ISC**), etiqueta `VERSION_0_5_0` (commit `22b37c9a`, protocolo 27, unas
+   5000 líneas), en `userland/terceros/openrsync/fuentes/` con su licencia; `tools/openrsync_fuentes.sh --comprobar` baja el tarball
+   (SHA-256 fijado) y verifica que solo difieren los ficheros parcheados (`PARCHES.md`). Fila en `terceros.md`. ISC es
+   compatible con la GPL v3 y con `SEM_GPL=1`/`PUBLICABLE=1` (no está en `publicar-excluir.txt`).
+2. **Sin `fork`/`exec`.** Solo se compila el emisor y el receptor del modo `--server`, que lanza el `sshd` (ya ejecuta cualquier
+   orden con `sagsh -c` y tuberías, D250): no hace falta ningún cambio de proceso. `child.c`, `client.c`, `fargs.c`, `socket.c` y
+   el `main.c` de openrsync (fork, socketpair, exec de ssh, demonios) no se compilan; `principal_rsync.c` es el `main` propio.
+3. **Compatibilidad con rsync 3.x.** openrsync habla el protocolo 27; el rsync 3.2.7 del PC lo negocia sin problema. Cuatro cambios
+   a openrsync: (a) la opción `-o` (el cliente 3.x manda `-vlogDtpre.iLsfxCIvu`): uid antes del gid en cada entrada y una lista de uid
+   (vacía al enviar, ignorada al recibir; SaguiOS no tiene usuarios, todo es uid y gid 0); (b) el emisor servidor manda siempre las
+   estadísticas (con «solo -v» el cliente 3.x sin -v se quedaba esperando); (c) la raíz del receptor es un descriptor simulado
+   (`rs_abrir_raiz`) y (d) opciones `-D -z -x -L -s -u -h`, `--delete-*` aceptadas (`-z` rechazada con un mensaje).
+4. **La libc que falta** (`compat/compat_sagui.c`, nuestra, ): `poll` sobre pipes y ficheros con `disponivel()`
+   (escribir se da por posible: el `sshd` vacía la salida sin esperar), `fts` mínimo, `hsearch`, `arc4random`, y las funciones
+   `...at` que resuelven rutas relativas a la carpeta raíz (la `openat` de la libc ignora el descriptor).
+5. **Fechas y permisos.** Los sistemas de archivos escribibles de SaguiOS **no guardan la fecha de modificación** ni el dueño
+   (solo ISO 9660 y UDF, de solo lectura) y no hay una llamada para fijarlas; añadirla es trabajo del VFS y de D282, fuera de este
+   encargo. `utimensat`/`futimens`/`fchown` aceptan y no hacen nada; el receptor trata un fichero existente como «distinto», recalcula
+   sus sumas y el emisor manda solo el delta (h314 lo comprueba: 10 bytes cambiados en 1 MB mandan unos 6 KB). Cuando D282 guarde
+   modos y fechas, se conectan en `compat_sagui.c` sin tocar el resto.
+6. **Copia local propia** (`local_rsync.c`, GPL-3.0): dentro de una máquina no hace falta el protocolo. Compara tamaño y, si las fechas no
+   valen, contenido; copia por un temporal y renombra; `--delete`, `--dry-run`, `-v`, `--progress`, `--stats`. Un solo proceso, sin
+   riesgo de interbloqueo con las tuberías de 512 bytes del kernel.
+7. **Seguridad.** El servidor solo corre bajo el `sshd` (clave pública, D250). No se abre ningún puerto (873) ni demonio.
+   El `sshd` no convierte a UTF-8 la salida de `rsync --server` (protocolo binario).
+8. **Queda para la v8.4.1:** cliente remoto sobre SSH (cuando exista `ssh` en SaguiOS), cliente de demonio `rsync://`, `-z`, enlaces
+   simbólicos, ficheros de cientos de MB (el delta usa `mmap` emulado, que carga el fichero).
+
+**Pruebas.** `tests/h314_rsync.py`: subida de una carpeta con subcarpetas, un fichero de 1 MB y textos (sumas en SaguiOS), delta
+(10 bytes cambiados, pocos bytes enviados con `--stats`), bajada idéntica, `--delete`, y copia local con `--dry-run` y `--delete`.
+Sin `rsync` en el anfitrión se marca «no aplica». Afectadas: las del `sshd` (h248, h251, h252, h254) y h81.
+
+## D314 (ampliación, v8.4.2). El cliente rsync por ssh y los modos de D282; integración con `main`
+
+**Contexto.** D314 dejó rsync como servidor (lo lanza el `sshd`) y copia local; el cliente remoto esperaba al cliente `ssh`, que llegó con D317, y los
+modos al D282. En la v8.4.2 se integran `v8.4-rsync` y `v8.4-idiomas` sobre la v8.4.1 y se completa lo que faltaba.
+
+1. **Cliente por ssh** (`userland/terceros/openrsync/cliente_rsync.c`, código propio GPL-3.0; hace lo que `client.c` y `fargs.c` de openrsync, que usan
+   `fork` y `socketpair`). `rsync [-av...] [-e "ssh -p 2222 -i clave"] ORIGEN... [usuario@]máquina:RUTA` (subir) y `[usuario@]máquina:RUTA... DESTINO`
+   (bajar). Lanza `/bin/ssh -T -q máquina "rsync --server [--sender] -vlogDtpre.iLsfxC [--delete] . rutas"` con `executar()` y dos tuberías como entrada y
+   salida del hijo (como hace el `sshd`), hace el saludo del protocolo 27 y entrega las tuberías al emisor o al receptor de openrsync, que ya sabían ser
+   cliente. `rsync://` se rechaza con un mensaje (el cliente de demonio no se hace: SaguiOS no abre el 873; queda anotado para la v8.4.3 si el mantenedor lo
+   quiere), y «remoto a remoto» también. Una máquina desconocida hay que aceptarla antes (`ssh máquina` una vez, o `-e "ssh -o StrictHostKeyChecking=accept-new"`):
+   con la entrada ocupada por el protocolo, `ssh` no puede preguntar la huella.
+2. **Tuberías de 512 bytes sin interbloqueo** (punto 8 de D317). Escribir en una tubería llena duerme hasta que el otro lado lea, y `ssh` escribe su salida
+   con `escrever_tudo` sin mirar la entrada: con un bloque grande en cada sentido se dormirían los dos. `compat_sagui.c` pasa la lectura y la escritura de
+   esas dos tuberías por `rs_read`/`rs_write` y por el `poll`: lo que llega de `ssh` se vacía siempre a un búfer propio (crece cuanto haga falta) antes de
+   escribir y mientras se espera, y hacia `ssh` solo se escribe lo que cabe (la tubería tiene 512 bytes y se guarda una copia del lado de lectura, de modo
+   que cabe `512 - disponivel(copia)`, como hace el `sshd` con `fd_in_l`). **No se tocó el kernel** (no se agrandaron las tuberías). Si `ssh` muere, la
+   escritura falla con `EPIPE` y no se cuelga. Comprobado con un fichero de 300 KB (unas 600 tuberías llenas) en los dos sentidos.
+3. **Modos (D282) conectados** en `compat_sagui.c`: el `stat` del emisor y del receptor da los permisos y el dueño de verdad (`permisos_arquivo`; la libc daba
+   0755/0644 según el tipo); `fchmodat` es un `chmod` de verdad (`mudar_permisos`; un FAT32 lo rechaza y se sigue, como rsync hacia un FAT); los ficheros nuevos
+   toman el modo del origen al crearlos (con `-p` o `-a` el exacto; sin ellos, como `open(2)` con umask 022); la copia local con `-a`/`-p` también conserva los modos.
+   **El dueño no se aplica** (un uid de otra máquina no significa nada aquí; SaguiOS solo tiene `root` y `sagui` y el flist sigue mandando 0) y **las fechas siguen
+   sin poder fijarse** (no hay llamada que las escriba; solo se leen). Un fichero existente se sigue tratando como «posiblemente distinto».
+4. **Integración.** Los dos conflictos de `v8.4-idiomas` con `main` se resolvieron entendiendo los dos lados: `SIS_IDIOMA` pasó de 137 a **138** (`SIS_MAX` 139) por
+   chocar con `SIS_PERMISOS_ARQ`; `permisos_ruta` ya no niega `/sistema` entero (lo hacen los permisos de D282), así que la excepción de los catálogos se hizo con
+   modos: `/sistema` es 0711 en el ramdisk, lo de dentro 0700 salvo `/sistema/idiomas` (0755/0644), y `/sistema/conf` (SAGUI-CONF montada: sombra, claves) se
+   sigue negando por ruta a quien no es root. La barra de tareas, Configuración (con Mandos, D307, y la ventana de 840 px) y Archivos (permisos en Propiedades) se
+   fusionaron conservando lo de los dos lados, y las cadenas nuevas de `main` (Mandos, Propiedades, PlanoMini) se marcaron con `_()`/`N_()` y se tradujeron a
+   pt_BR y en (`tools/extraer_textos.py`; el pseudo-idioma `xx` sale de las fuentes y no deja nada pendiente).
+5. **Núcleo:** no se tocó nada de memoria, planificador, VFS ni arranque salvo `meta_inicial` de `vfs.c` (los modos de `/sistema`, el punto 4) y la tabla de
+   llamadas (`sistema.c`, `abi.h`, `permisos.c`).
+
+**Pruebas.** `tests/h314_rsync.py` ampliada: el cliente contra el `sshd` de SaguiOS por 127.0.0.1 (el anfitrión no tiene `sshd` sin root): subir, bajar,
+delta (se mandan ~2,6 KB de 320 KB), `--delete`, modos 600/755 conservados, errores claros y `--rsync-path` inexistente sin colgarse; y la parte del servidor
+contra el `rsync` y el `ssh` del anfitrión sigue pasando.
+
 ## D315. VisualPythonS: explorador del proyecto y más eventos (v8.4.1)
 
 **Petición (mantenedor, 2026-11-15).** Para VisualPythonS, un explorador de elementos (formularios y controles) para saltar más
@@ -16762,6 +16922,161 @@ Capturas `H313-*.png`.
 
 ## D317. Cliente ssh, ssh-keygen y scp en SaguiOS (v8.4.1, segunda fase de D250)
 
+## D318. Instalador con asistente gráfico, opciones y configuración copiada; cambiar el tamaño de las particiones y «Ampliar /home» en el primer arranque (v8.4.3)
+
+**Petición (mantenedor, 2026-11-15).** Que el instalador ofrezca opciones de instalación, copie la configuración
+de la sesión en vivo y amplíe o cambie el tamaño de las particiones, todo de forma sencilla. Prioridad, como en
+D179: nada puede dejar el sistema sin arrancar ni perder datos.
+
+**1. El asistente** (`instalar_asistente.h`, incluido por `instalar.c`; `instalar --ventana`, `instalar` sin nada
+fuera del Terminal, Inicio > Sistema > Instalar SaguiOS y el icono «Instalar SaguiOS» del escritorio, que solo
+aparece en el modo en vivo: arrancado de un pendrive o de un CD). Aspecto de Windows 98 (D289/D291: gris,
+biseles, franja azul con los pasos, «< Atrás / Siguiente > / Cancelar»). Ocho pasos: bienvenida con lo detectado
+(CPU, RAM, BIOS o UEFI, discos); disco (modelo, tamaño, IDE/SATA/NVMe/USB y la tabla dibujada en una barra; el
+de arranque no se puede elegir); tipo; tamaños; opciones; configuración; resumen; progreso (barra y registro) y
+el final con «Reiniciar ahora». Tipos:
+- **Usar todo el disco**: se dice qué se borra (cada partición con su formato y etiqueta) y no se pasa sin
+  escribir el nombre del disco (ni con el botón ni con Intro).
+- **Junto a lo que hay**: el hueco libre más grande si da (512 MB o más); si no, reducir la partición FAT32 o
+  ext2 de la que más se pueda sacar, dejándole al menos el doble de lo que ocupa. El tirador de la barra, las
+  flechas o un cuadro de MB fijan su tamaño nuevo, entre lo que ocupa (`fs_minimo`) y lo que deja 512 MB a
+  SaguiOS.
+- **Avanzado**: se pulsa en la barra un hueco (se usa), una FAT32/ext2 (se reduce) u otra primaria («Sustituir
+  (borrar)», con su confirmación). Se descartó un editor completo de particiones dentro del asistente: para crear,
+  borrar o formatear a mano ya está Discos > Particiones, y repetirlo aquí era más superficie para errores.
+Tamaños: `/home`, `/apps`, juegos, `/tmp` y `/logs` (estos dos, nuevos en el instalador: lógicas `SAGUI-TMP` y
+`SAGUI-LOGS`, en el orden de `mkimagem.py`), cada uno ext2 o FAT32, con los valores del plan automático (D179) y
+«Usar el espacio restante para /home»; `/tmp` y `/logs` vienen marcados en discos de 8 GB o más. Opciones:
+arranque BIOS (MBR), UEFI (GPT, solo disco entero, D266) o los dos (MBR + ESP, la imagen híbrida, D264; por
+defecto si hay cargador UEFI), idioma (solo español: la rama de idiomas, D313, no está en main todavía), teclado
+(es/ABNT2), zona (la tabla de `zonas.c`), contraseñas de root y de sagui (dos veces), nombre del equipo, sshd y
+VNC (apagados por defecto, D250) y qué copiar de `/apps` y de los juegos. El resumen dice en texto claro qué se
+reduce, qué se borra, qué se crea, qué se copia y las opciones; en «junto a lo que hay» avisa de que el arranque
+por BIOS del disco pasa a ser el de SaguiOS (el otro sistema sigue ahí, pero no arranca desde ese disco hasta que
+se restaure su cargador: el código del MBR es uno). «Instalar» pide además la confirmación de siempre.
+
+El modo de terminal no cambia (todas sus opciones siguen) y gana las del asistente: `--reducir N:MB`,
+`--home-mb/--apps-mb/--jogos-mb/--tmp-mb/--logs-mb`, `--fat32 home,apps,...`, `--nombre`, `--zona`, `--teclado`,
+`--clave-root`, `--clave-usuario`, `--sshd`, `--vncd` y `--copiar-config prefs,wifi,ssh,correo,ia,ia-clave,docs|todo`.
+
+**2. Las opciones y la configuración, en el disco instalado.** En SAGUI-CONF (su `etc/` se copia sobre `/etc` al
+arrancar, D255): `etc/sombra` con hashes PBKDF2 (`pbkdf2.h`; la contraseña en claro no se escribe en ningún sitio
+y se borra de la memoria al acabar), `etc/hostname` (`hostname` lo lee si no hay `HOSTNAME`), `etc/zona` y
+`etc/servicios/activados`. En `/home`: `.config/sagui.conf` (el teclado, sin tocar el resto) y `.zona`. Si se
+conserva la SAGUI-CONF de una instalación anterior (D256), se cambian solo esas líneas. Lo que se copia de la
+sesión: preferencias (`/home/.config`, sin lo que tiene casilla propia), redes Wi-Fi (`wifi.conf`), claves SSH
+(`/home/.ssh`, con aviso), correo (`.config/correo`, la libreta y `/home/correo`), agentes de IA (`.config/agentes`
+y `.config/ia`; la clave de la API, `ia/chave`, solo con su propia casilla) y documentos (lo de `/home` que no
+empieza por punto). Cada archivo se relee y se compara, como el resto de la instalación. Permisos (D282): la copia
+conserva el modo de cada archivo (una clave SSH sigue con su 0600) y todo el `/home` nuevo pasa a ser de `sagui`,
+como en las imágenes; `/apps` es de root con `/apps/vps` de sagui (también si no se copian las aplicaciones); la
+sombra de SAGUI-CONF queda en 0600 y de root.
+
+**3. Cambiar el tamaño** (`particoes_tamanho.c`, `redimensao.c`; `particiones ampliar /home|<partición>` y
+`particiones tamaño /home|<partición> <8G|512M|MB|max>`; la orden de siempre `particiones ampliar <disco>` sigue
+ampliando la extendida).
+- **FAT32 encoge** (nuevo, `fs_reduzir_fat32`): sin mover datos, solo si todos los clústeres que desaparecen están
+  libres, ningún enlace de la FAT apunta a ellos y la raíz queda dentro; nunca por debajo de 65.525 clústeres
+  (dejaría de ser FAT32). Cambian el total de sectores (primero la copia del sector de arranque, luego el
+  principal) y el FSInfo; la FAT queda algo grande, como las preparadas para crecer (D213). Si hay datos al final,
+  se dice hasta dónde se podría (`fs_fat32_minimo`) y que desfragmentar desde Windows los junta. Mover clústeres
+  se descartó: hay que reescribir cadenas y entradas de directorio, y un corte a medias puede perder archivos.
+- **ext2** crece y encoge como en D213 (encoger, sin mover datos).
+- **Ampliar más allá de la lógica de al lado**: el caso de una imagen pequeña grabada en un pendrive grande, donde
+  `/home` va seguida de juegos, `/apps` y SAGUI-CONF. Las lógicas de detrás se copian al final del disco a un sitio
+  que **no se solapa** con el suyo (si no cabe así, no se mueve nada), se releen y se comparan; solo entonces se
+  escribe la tabla: `pt_gravar` escribe los EBR nuevos (en espacio libre, sin enlazar) y el último sector que cambia
+  es el EBR de `/home`, que enlaza la cadena nueva de una vez. Un corte antes deja el disco como estaba (la copia
+  queda en espacio libre); después, la tabla nueva ya apunta a copias verificadas. Luego crece la partición y,
+  después, su sistema de archivos (ext2: `fs_redimensionar_ext2`; FAT32: hasta donde le dé su FAT) y se comprueba.
+  Antes de nada, `fs_verificar` (solo lectura). Lo montado que se toca se desmonta y se vuelve a montar donde
+  estaba (también si falla). La partición de SaguiOS y la ESP no se mueven ni se cambian nunca.
+- **NTFS no se toca** (no hay driver de escritura): ni reducir ni ampliar; su espacio libre sin particionar sí se
+  usa. `PA_REDIMENSIONAR` se niega además a encoger cualquier sistema de archivos que no sea FAT32 o ext2 (antes
+  encogía la partición sin mirar si el volumen desconocido cabía): solo una partición sin formato (8 KB a cero).
+- En el disco de arranque, `particiones` solo cambia sin `--arranque` lo que la orden nombra a propósito: `/home`
+  (y lo que haya que mover para ampliarla).
+- Si `/home` está en la RAM (la imagen básica no lleva partición de datos), «ampliar /home» crea una lógica ext2
+  `SAGUI-DATOS` con el espacio libre, le copia lo que haya en `/home` y la monta (`home_ampliar.c`).
+
+**4. El primer arranque** (`ampliar-home`, lanzado por el gestor de servicios con
+`/etc/servicios/ampliar-home.conf`, `reiniciar=no`): si el disco de arranque tiene al menos 512 MB libres que
+SaguiOS no usa, hay escritorio y no se ha contestado antes, un diálogo ofrece «Ampliar /home para usar todo el
+espacio libre (X GB)» con «Ampliar», «Ahora no» y «No volver a preguntar». Lo contestado (y una ampliación hecha)
+se recuerda en SAGUI-CONF (`/sistema/conf/ampliar-home.no`; sin ella, en `/home/.config`). Sin escritorio (consola,
+rescate) no hace nada. A mano: `ampliar-home --ventana` o `particiones ampliar /home`.
+
+**Correcciones de paso.** `pt_deshacer` leía la descripción del paso después de liberar su memoria (tres usos
+después de `libera`): ahora se escribe el mensaje antes. Las llamadas en bruto de `particoes.c` se pueden sustituir
+en el anfitrión (`SAGUI_ANFITRIAO`) para probar la libsagui de particiones sobre un archivo-disco
+(`tests/recursos/instalador_anfitriao`).
+
+**Pruebas.** `tests/h318_instalador.py`: parte 1 en el anfitrión (FAT32 con datos encoge a su mínimo con
+`fsck.fat -n` limpio y los archivos iguales por suma; se niega con datos al final sin cambiar un byte y por debajo
+de 65.525 clústeres; un disco como el de una imagen persistente grabado en uno mayor: el plan mueve dos lógicas al
+final y `/home` crece, con `e2fsck -fn` limpio y los archivos iguales en las tres; una primaria FAT32 con datos se
+reduce con `pt_executar`; una NTFS se niega sin cambiar el disco); parte 2 (QEMU, el asistente de punta a punta con
+«usar todo el disco», `/tmp` en FAT32, contraseña, nombre, sshd y configuración copiada; el disco arranca solo por
+BIOS con su nombre de equipo y por UEFI con OVMF); parte 3 («junto a lo que hay» con una FAT32 con datos que se
+reduce: sus archivos siguen iguales); parte 4 (una imagen persistente pequeña en un disco de 2 GB: el diálogo del
+primer arranque amplía `/home` moviendo juegos, `/apps` y SAGUI-CONF; el segundo arranque ya no pregunta). Capturas
+`H318-*.png`. Adaptada: `h149` (parte 3, el asistente nuevo). Guía: `docs/instalar.md`.
+
+## D319. Pluma lee las fuentes extra del sistema: pantalla, PDF y RTF (v8.4.3)
+
+**Petición (mantenedor, 2026-11-15).** Que Pluma ofrezca y use las fuentes instaladas (`/fontes`, `/apps/fuentes`,
+`/home/fuentes`), no solo Arial, Times New Roman y Courier New. Amplía D291 y D296 (subsección «Fuentes del sistema»).
+
+**Decisiones.**
+
+1. **Familias del sistema.** `fuentes_sistema_listar()` (`userland/libfontes/texto.c`, `fontes.h`) lee la tabla `name` de cada `.ttf` y
+   `.otf` de las tres carpetas (`/fontes`, `/apps/fuentes`, `/home/fuentes`; no duplica a Configuración: comparte con ella el
+   catálogo interno `catalogar`, y `fuentes_catalogo` sigue igual) y las agrupa por **familia** con cuatro casillas (Regular, Negrita,
+   Cursiva, Negrita cursiva). Lo que no es negrita ni cursiva (Light, Condensed...) forma otra familia («Foo Light»); sin tabla
+   `name`, vale el nombre del fichero. Reutilizable por Macaco, PlanoMini y GebraMini.
+2. **Proveedor en lugar de enlazar la libfontes en la libsagui.** La libsagui se compila sin FPU (D076) y la libfontes la usa, así que
+   el control `rte`, el escritor de PDF y el RTF consultan un **proveedor** (`fuentes_prov_t`, `pdf_escribir.h`) que instala el programa
+   que enlaza `FONTES_OBJ` (`fuentes_doc_instalar()`, `userland/libfontes/familias.c`). Sin proveedor todo se comporta como antes.
+   Las familias del sistema tienen un número estable **de 3 a 249** (`fmt.fam`; las ya registradas no cambian al añadir otras); las
+   clásicas 0, 1 y 2 siguen siendo Arial, Times y Courier.
+3. **Pantalla.** Las familias del sistema se miden con sus **anchos reales** (tabla de 256 anchos por familia y estilo, en milésimas de
+   em, calculada una vez) y se dibujan con la fuente vectorial con **antialias** (`fonte_glifo`, con la caché de glifos de la libfontes:
+   512 por fuente, claves glifo y tamaño). **Arial, Times New Roman y Courier New se dibujan con DejaVu Sans, Serif y Mono** pero
+   **se maquetan con Helvetica, Times y Courier** (los anchos del PDF estándar): así la paginación de pantalla y PDF sigue siendo la misma
+   (D291), y DejaVu se escala para que su ancho medio de ASCII iguale al de la fuente estándar (Sans 0,93; Serif 0,85; Mono 1,00).
+   Sin fuente cargable (la ruta ya no existe, el archivo está dañado, el carácter no está en la fuente) se vuelve a la 8x16 sin error,
+   y para medir, a Helvetica. Los estilos que la familia no trae: la cursiva se obtiene con `fonte_obliqua` (12 grados); la negrita
+   que falta se dibuja con la regular (no hay negrita sintética).
+4. **Selector.** Pulsar el combo de fuentes de la barra Formato abre un selector propio (`dialogo_familia`): lista con scroll con
+   **todas** las familias, cada nombre dibujado con su propia fuente, y **«Actualizar lista»** (vuelve a leer las carpetas: encuentra lo
+   copiado a `/home/fuentes` con Pluma abierto). El menú desplegable del sistema no sirve (96 líneas como mucho y sin scroll). El
+   diálogo Fuente lleva la misma lista (con las clásicas rotuladas como antes) y también vuelve a leer las carpetas al abrirse.
+5. **PDF.** Cada fuente del sistema usada se **incrusta**: TrueType con `FontFile2` y **subconjunto** (`subconjunto.c`, entero y
+   probado en el anfitrión: solo los glifos de los caracteres usados más los componentes de los compuestos, mismos identificadores de
+   glifo, `cmap` (3,1) formato 4 nueva, `head`/`hhea`/`maxp`/`hmtx`/`loca`/`glyf`/`post`/`OS/2`, sin hinting; el nombre lleva el prefijo
+   de subconjunto de seis letras). OpenType CFF: la fuente **entera** con `FontFile3 /Subtype /OpenType` (no se recorta CFF; las Typodermic
+   son pequeñas). Fuente simple con `/WinAnsiEncoding`, `FirstChar 32`, `LastChar 255` y `/Widths` reales; `FontDescriptor` con caja,
+   ascendente, descendente, altura de mayúsculas, ángulo y banderas leídos de la fuente. La cursiva sintética se inclina con la
+   matriz de texto (`1 0 0,2126 1`). Las tres clásicas siguen yendo como Helvetica, Times y Courier estándar, sin incrustar. Si una
+   fuente ya no se puede abrir al exportar, ese texto sale como la clásica más parecida (por el nombre: `mono`, `serif`...).
+   Licencias: DejaVu permite incrustar (Bitstream Vera/Arev); las Typodermic son CC0.
+6. **RTF.** Se escribe en `\fonttbl` el **nombre de familia real** de cada fuente del sistema usada (con `\froman`, `\fmodern` o
+   `\fswiss` según el nombre), con el mismo número que `\fN`. Al leer, el nombre se busca entre las clásicas y las del sistema; si no
+   está, se sustituye por la clásica más parecida (`\f...` y el nombre) y **se avisa en la barra de estado** («Fuente no instalada,
+   sustituida: ...»; desaparece al editar). `rtf_fuentes_sustituidas()` devuelve la lista de la última carga. Se evitan los avisos
+   por Arial, Helvetica, Times, Courier y Symbol, que ya son clásicas o muy parecidas. La tabla del lector sube de 64 a 256 fuentes.
+7. **Rendimiento.** El maquetado sigue siendo O(n) por tecla; cada carácter cuesta una búsqueda en una tabla (sin llamar a la fuente), y
+   el dibujo usa la caché de glifos. Medido con un documento de ~15 páginas: ver `docs/pluma.md`.
+
+**Qué no se hizo.** Negrita sintética de familias sin negrita; recortar fuentes OpenType CFF en el PDF (se incrustan enteras);
+kerning; ligaduras; caracteres fuera de Latin-1 (el documento sigue siendo Latin-1); el combo no pinta el menú desplegable del
+sistema para las fuentes extra (lo sustituye el selector); elegir una fuente de una pestaña propia en Configuración.
+
+**Pruebas.** `tests/h319_subconjunto.py` (unidad en el anfitrión: sumas de las tablas, `checksumAdjustment`, `loca`, `cmap`, glifos
+idénticos, compuestos, tamaño) y `tests/h319_pluma_fuentes.py` en QEMU: lista de familias, anchos reales, la fuente extra copiada a
+`/home/fuentes` con Pluma abierto («Actualizar lista»), PDF con `FontFile2` validado con `pdf_validar` y FreeType (`fc-scan`),
+RTF con el nombre real, sustitución con aviso, antialias y ancho en pantalla contra `--medir`. Capturas `H319-*.png`.
+
 ## D320. El Terminal de ventana, a un subconjunto de xterm/VT220 para vim, less, htop, nano y mc por ssh (v8.4.1)
 
 El cliente ssh (D317) dejó anotado lo que faltaba: regiones de desplazamiento, insertar y borrar líneas, pantalla alternativa y
@@ -16818,106 +17133,187 @@ juego DEC y el SGR comprobados, pero no se ha grabado una sesión suya.
 **Pruebas.** `tests/h320_terminal_vt.py`: unidad del emulador y de ssh (cajas, teclas), vim/less/htop/nano contra tmux, y en
 QEMU `/testes/vtprova` (región, IL/DL, pantalla alternativa, 256 colores, atributos, cajas DEC, bce, DSR/DA, 19 teclas) y
 una sesión grabada de vim por ssh contra el servidor de h317 (pantalla alternativa y vuelta). Capturas `H320-*.png`.
-## D313. Multiidioma, fase 1: catálogos propios, `_()`, idioma elegible y pseudo-idioma (v8.4, mejora 118)
 
-**Contexto.** Hay unas 1400 cadenas en español en los programas y 600 en la interfaz del kernel. Para llegar a Brasil y al mundo
-de habla inglesa el sistema tiene que mostrarse en varios idiomas sin duplicar programas. El mantenedor aprobó (2026-11-15) la
-mejora 118 y pidió una fase 1 reducida para la v8.4: infraestructura, Configuración, interfaz del kernel, Archivos, el diálogo
-común de archivos, formatos regionales y un pseudo-idioma de pruebas.
+## D321. Emuladores de NES, Master System y Game Gear, y Recreativa multisistema (v8.4.3)
+
+El mantenedor pidió portar **LaiNES** (NES) y **SMS Plus** (Master System y Game Gear) y que **Recreativa** deje de ser el
+lanzador de DOS para ser un **lanzador multisistema**; otro agente porta mGBA (GBA, y GB/GBC) y se registra en el mismo
+lanzador. Amplía D294 (DOSBox y Recreativa), D235 (GNUBoy), D288 (SDL 2 por la GPU) y D307 (mandos).
+
+1. **Licencias, antes de nada.**
+   - **LaiNES** (Andrea Orru): `LICENSE` BSD de 2 cláusulas; el APU es Nes_Snd_Emu / Blip_Buffer de Shay Green (LGPL 2.1 o
+     posterior). Compatible con la GPL v3: **va** (commit `1f3d126`, SHA-256 del tarball fijado).
+   - **SMS Plus** (Charles MacDonald, versión SDL): el `readme` dice «GNU General Public License» sin versión, **pero el
+     Z80 y el YM2413 son del proyecto MAME con su licencia no comercial de entonces** («covered under the MAME license»): no es
+     compatible con publicarse junto a la GPL v3. **No se usa.** En su lugar **Gearsystem 3.9.25** (Ignacio Sanchez, GPL-3.0;
+     C++, Master System, Game Gear y SG-1000).
+   - Gearsystem trae un YM2413 (`src/audio/emu2413`) que es el de Genesis Plus GX (EkeEke) sobre el de MAME: la licencia de
+     Genesis Plus GX es no comercial. **Se descarta ese directorio** (`tools/gearsystem_fuentes.sh` no lo trae) y se
+     sustituye por un YM2413 vacío (`plataforma/ym2413/`): la música FM de la Master System japonesa calla; el PSG, que es la
+     de casi todos los juegos, suena. Tampoco se trae miniz (MIT): las ROM dentro de un `.zip` no se leen (`plataforma/miniz.h`).
+   - Los dos van **en el repositorio público y con `PUBLICABLE=1`** (a diferencia de GNUBoy, GPL-2.0-only), y fuera de la
+     variante `SEM_GPL=1` como el resto. Registrados en `docs/terceros.md` y en `tools/auditar_licencias.py` (h81).
+2. **Ports** (`userland/terceros/laines/`, `userland/terceros/gearsystem/`), como DOSBox: fuentes **en git** con versión y
+   SHA-256 fijos (`tools/laines_fuentes.sh`, `tools/gearsystem_fuentes.sh`: `--comprobar`, `--regenerar`), parches propios en
+   `parches/sagui.patch`, y un **marco común** nuestro (`userland/terceros/emucomun/marco.hpp` y `principal_emu.c`) que da vídeo
+   (SDL 2: renderizador por la GPU si hay, escalado con proporción, F11 / `--pantalla-completa`), sonido por `SDL_QueueAudio`,
+   teclado y `SDL_GameController` (D307) con un mapeo por defecto, y un reloj por cuadro (60.0988 Hz NES, la frecuencia de la
+   región en Gearsystem) con salto de dibujos si la CPU no llega y un informe cada 5 s (cuadros/s, CPU, saltados). Del upstream
+   de LaiNES no se compila su interfaz (SDL_ttf, SDL_image, menú, configuración): `plataforma/frontal_nes.cpp` define lo que el
+   núcleo pide de `GUI::`. Gearsystem se usa por su API (`GearsystemCore`), sin el directorio `platforms/`. Binarios en
+   `/apps/bin/` (`laines`, `gearsystem`; no cuentan en la meta de 38 MB de arranque, D306).
+   - **SRAM y estados:** `/home/.config/laines/<rom>.sav|.sta` y `/home/.config/gearsystem/` (los guarda el núcleo de
+     Gearsystem); F5 guarda, F7 carga, F9 reinicia.
+   - Mejoras generales del runtime de C++ que pidió Gearsystem: `<stack>` y `vector::insert` de un rango
+     (`userland/libcxx`, probados en `tests/cxx_biblioteca_unidad.cpp`).
+3. **Recreativa multisistema.** Registro **por ficheros**: `rootfs/etc/recreativa/sistemas/<sistema>.conf` (nombre, orden,
+   extensiones, carpetas, icono y uno o más bloques `[emulador x]` con binario, argumentos, predeterminado y prioridad) y
+   `emuladores/<x>.conf` para sumar un emulador a sistemas ya definidos (GB/GBC: mGBA público y GNUBoy privado como
+   alternativa, registrado ya aquí). **Un emulador sin binario no se muestra y un sistema sin emulador desaparece**, así que
+   la imagen pública y la privada comparten los `.conf`. DOSBox es un sistema más (`tipo=dosbox`: sus juegos siguen en
+   `/home/dos/juegos.conf` y con sus propiedades de siempre). Interfaz: lista de sistemas a la izquierda («Todos», «DOS»,
+   «NES», «Master System», «Game Gear»...), juegos detectados por extensión en las carpetas del sistema, añadir ROM o carpeta con
+   el diálogo D272, portada opcional (imagen con el nombre de la ROM), propiedades por juego (nombre, emulador, pantalla
+   completa) y Jugar. Lo añadido a mano va a `/home/.config/recreativa/roms.conf`. Recreativa pasa de `userland/terceros/dosbox/`
+   a `userland/terceros/recreativa/` (con DOSBOX=0 sigue existiendo). **Archivos** abre `.nes`, `.sms`, `.sg` y `.gg` con su
+   emulador y los lista en «Abrir con». Formato y cómo añadir un sistema: `docs/recreativa.md`.
+4. **ROM de prueba:** ninguna comercial ni de terceros. `tools/nes_rom_teste.py` (iNES MMC1 con batería: un 6502 que pinta cuatro
+   cuadrantes, toca un pulso de 1 kHz, reacciona al mando y escribe en la SRAM) y `tools/sms_rom_teste.py` (un Z80 equivalente,
+   con cabecera TMR SEGA, 64 KB y mapper Sega; con `--gg` para la Game Gear) generan las ROM en la propia prueba; no se guarda
+   ninguna en git. Los datos del usuario: `input_share/games/nes|sms|gg` -> `/jogos/...`.
+5. **Medidas** (el marco anota cada 5 s los cuadros por segundo y el porcentaje de CPU con el TSC; ROM de prueba propias):
+   - **QEMU con KVM** (CPU del anfitrión, un Ryzen 9): LaiNES 60,0 cuadros/s con **7 % de CPU**; Gearsystem 59,8 cuadros/s con
+     **4 %**; sin cuadros saltados.
+   - **QEMU sin KVM (TCG, muy lento, referencia de un PC antiguo):** LaiNES **99 %** de CPU y ~57 cuadros/s con unos 195 de
+     cada 285 dibujos saltados (el núcleo es de **ciclo exacto**: CPU y PPU ciclo a ciclo; en este límite se sostiene la
+     velocidad saltando dibujos, no más de 3 seguidos); Gearsystem **34 %** y 60 cuadros/s sin saltar. Conclusión: Gearsystem
+     va holgado en un PC antiguo; LaiNES pide bastante más CPU (el orden de ~15 veces lo de Gearsystem) y sería el candidato a
+     optimizar si hace falta (PPU por líneas).
+
+**Qué no hay y por qué:** ROM dentro de `.zip` (miniz, MIT, no se trae: se descomprime antes con Archivos); FM del YM2413
+(licencia); mappers de NES que no tiene LaiNES (pocos juegos); aceleración por GPU del emulador más allá del renderizador de
+SDL 2 (D288); SMS Plus (licencia). **Pruebas:** `tests/h321_emuladores.py` (unidad, nes, sms, gg, lanzador, archivos); afectadas:
+h294, h307, h288, h81 y h28. Capturas `H321-*.png`.
+
+## D322. mGBA: Game Boy Advance, Game Boy y Game Boy Color (v8.4.3, rama `v8.4.3-mgba`)
+
+**Contexto.** El mantenedor pidió portar mGBA, y que Recreativa (D321, otro agente) lo ofrezca como emulador de GBA, GB y GBC.
+GNUBoy (D235) cubría la Game Boy, pero es GPL-2.0 solo la v2 y solo entra en la imagen privada; la GBA no tenía emulador.
 
 **Decisión.**
-1. **`_("texto")`, la cadena en español es la clave.** Sin traducción (o con el catálogo ausente) sale el español, así que **en
-   español todo es idéntico a antes**. `N_("texto")` solo marca la cadena (tablas estáticas, `botao_t` de inicialización) y se
-   traduce al usarla con `_()`. Mismo nombre en el kernel (`kernel/inc/idioma.h`) y en la libsagui (`sagui.h`).
-2. **Catálogos binarios por programa** en `/sistema/idiomas/<idioma>/<programa>.cat` (+ `libsagui.cat` con los textos comunes y
-   `kernel.cat`), generados de `.po` estándar (UTF-8, Poedit/Weblate) en `idiomas/<idioma>/*.po`. Formato en `kernel/inc/catalogo.h`:
-   cabecera `SGCT`, tabla ordenada por hash FNV-1a y cadenas Latin-1; **lector propio** (`kernel/lib/catalogo.c`, el mismo en el
-   kernel, la libsagui y la prueba del anfitrión), búsqueda binaria por hash, sin código de GNU gettext; no se fía del archivo
-   (todo desplazamiento se comprueba). `tools/extraer_textos.py` extrae las marcas (analizador de C propio: comentarios,
-   concatenación de literales, escapes), mantiene los `.po` (`extraer`), compila (`compilar`, desde el Makefile al armar el ramdisk),
-   `comprobar` (pendientes) y `estadisticas`. Las fuentes mezcladas de `arquivos.c` y `cipo.c` se leen byte a byte (cada literal es
-   UTF-8 válido o Latin-1 crudo, como los trata el compilador).
-3. **Idioma.** `LANG` del entorno manda (`LANG=en arquivos`); si no, el idioma del sistema que tiene el kernel (`SIS_IDIOMA`, nº 138 desde la integración en la v8.4.2: en la rama era la 137, que `main` ya daba a `SIS_PERMISOS_ARQ`; clase libre: es una preferencia del usuario). Se fija al arrancar con `configuracion --aplicar` (clave `idioma=` de
-   `/home/.config/sagui.conf`, y si no hay, `/etc/idioma`, que `configuracion idioma X --sistema` escribe como root con
-   `conf_gravar`, D255) y desde Configuración. Los programas que se abren después salen en el idioma nuevo; el kernel recarga su
-   catálogo al instante y redibuja el escritorio. `/sistema/idiomas` se puede **leer** desde cualquier usuario (el resto de
-   `/sistema` sigue siendo de root: con los permisos de D282, `/sistema` es 0711 —se atraviesa pero no se lista—, lo de dentro 0700 salvo `/sistema/idiomas` 0755/0644, y `/sistema/conf` se sigue negando por ruta). Nombres: `es`, `pt_BR`, `en` (`pt` = `pt_BR`; `en_US.UTF-8` = `en`).
-4. **Codificación.** Latin-1, como hoy (cubre es, pt, en, fr, de, it). UTF-8 interno queda para una fase 3 si se decide.
-5. **Interfaz del kernel.** Barra (reloj con `mm/dd/aaaa` en inglés, días, paneles de la bandeja), menú Inicio (grupos y programas),
-   escritorio (iconos y menú contextual), menú de la ventana, avisos del kernel y diálogo de permisos. **El `dmesg` y los registros
-   (`klog`, `registrar`) siguen en español**: las pruebas dependen de ellos.
-6. **Componentes de la libsagui** que traducen por sí mismos y sin quejarse (`idioma_traducir_sl`): texto de los botones
-   (`botao_desenhar`, `boton98`), título y texto de `confirmar`/`mensagem`/`pedir_texto`, y el título de los diálogos de archivos.
-   Los programas siguen escribiendo `_()` en cada literal (así lo ve el extractor).
-7. **Formatos regionales** (`regional.c`): separador decimal y de miles (`1.234,56` en es/pt_BR, `1,234.56` en en), fecha
-   (`dd/mm/aaaa` o `mm/dd/aaaa`). Se usan en la fecha de la barra y en los tamaños de Archivos. Moneda, primer día de la semana y
-   papel quedan para la v8.4.1.
-8. **Pseudo-idioma `xx`** (se genera de las fuentes, no tiene `.po`): cada cadena entre corchetes y un 30 % más larga
-   (`[Guardar~~]`). Sirve para ver lo que queda sin traducir (en `xx` cada `_()` encuentra su entrada; lo que sale sin corchetes
-   está sin marcar) y lo que no cabe (`SAGUI_GUI_REVISAR`, D300). Con un idioma que no es el español, la libsagui anota **una vez**
-   en el registro `[IDIOMA] sin traducir (idioma): texto` para lo marcado que falta en el catálogo.
-9. **Dónde se elige.** Una sección «Idioma de la interfaz» en la página **Teclado** de Configuración, no una pestaña nueva: con
-   pestañas de ancho el de su título, la barra de 780 px no admite una más (ni en español ni en inglés) sin cambiar la ventana, y las
-   pruebas existentes (h83, h117, h162) dependen de ese tamaño y de esas posiciones.
+1. **Licencia.** mGBA 0.10.5 es MPL-2.0. Es compatible con la GPL v3 del proyecto: la sección 3.3 de la MPL 2.0 («Secondary
+   License», la GPL v3 está entre las licencias secundarias de la definición 1.12) permite distribuir el código MPL combinado con código
+   GPL en una «obra mayor» bajo los términos de la GPL; los ficheros de mGBA siguen bajo la MPL (su texto va en /apps/mgba/LICENSE y
+   las fuentes, en el repositorio). Ningún fichero lleva la nota de «Incompatible With Secondary Licenses» (Exhibit B de la MPL), que impediría la 3.3. Se comprobó fichero a fichero (`tests/h322_mgba.py licencia`): todos MPL salvo **blip_buf**
+   (LGPL-2.1 «o posterior»: compatible con la GPL v3), **inih** (BSD de 3 cláusulas), `crc32.c` (Gary S. Brown, uso libre) y
+   `hash.c` (MurmurHash3, dominio público). Las dependencias opcionales del upstream (libpng, zlib, lzma, sqlite3, discord-rpc,
+   Lua, libzip, ffmpeg, Qt) **no se copian**. Entra con `PUBLICABLE=1` y en el repositorio público (no es GPL-2.0-only: no va en
+   `tools/publicar-excluir.txt`); no entra en la variante `SEM_GPL=1`, como los demás emuladores. Fila en docs/terceros.md;
+   `tools/auditar_licencias.py` (h81) la trata como carpeta aislada de terceros.
+2. **Port.** Versión fija 0.10.5 con SHA-256 (`tools/mgba_fuentes.sh`, con `--comprobar` y `--regenerar` como el de DOSBox);
+   `userland/terceros/mgba/jogo/` es el upstream reducido al núcleo (arm, sm83, core, gb, gba, util, feature y blip_buf/inih), **sin
+   ningún parche**. No se usa el CMake: `mgba.mk` compila los 100 ficheros del núcleo con las banderas que CMake pondría
+   (`-DM_CORE_GBA -DM_CORE_GB -DDISABLE_THREADING -DUSE_VFS_FILE`...). Sin hilos, depurador, scripts, ni ninguna biblioteca opcional.
+   Lo que la libc del sistema no tiene se resuelve en el pegamento propio: `PRIXPTR` (compat_mgba.h), `exp2f`, la memoria sin
+   `mmap` y los directorios del VFS (que no se usan) en `plataforma/memoria_mgba.c`, y `version.c` (lo que CMake genera).
+3. **Front-end propio** (`plataforma/principal_mgba.c`, ~500 líneas) en lugar del de Qt/SDL de upstream: sobre la SDL 2 del sistema
+   (D230, D288): ventana escalada (3x por defecto) con el vecino más cercano, pantalla completa (F11), sonido por cola de la SDL a
+   44100 Hz, teclado y SDL_GameController (D307) por posición de botones, F5/F7 para el estado, guardados en
+   `/home/.config/mgba/` con el nombre de la ROM **y su extensión** (para que `x.gb` y `x.gba` no se pisen). La BIOS de la GBA no se
+   usa: mGBA emula la suya (HLE); no se usa ni se distribuye nunca la de Nintendo.
+4. **Rendimiento (PC antiguos).** Salto de cuadros **automático por defecto** (el núcleo siempre emula todos los cuadros; se salta el
+   dibujo y la presentación, hasta 3 de cada 4, cuando un cuadro cuesta más que su tiempo), configurable (`salto=` en `mgba.conf` o
+   `--salto N`). Núcleo software, sin rebobinado ni trucos. `mgba --medir ROM [s]` mide FPS medios y mínimos, % de CPU y ticks por
+   cuadro sin límite y a 60 Hz, sin vídeo, a 1x y escalado, con salto 1 y 2 (pedido para probar en hardware real); cifras en docs/mgba.md.
+5. **Game Boy.** Sin el marco de la Super Game Boy (160x144) y con una paleta gris por defecto (mGBA parte de negro si no hay
+   paleta configurada). Un mismo ejecutable corre GB y GBC (GBC en color; GNUBoy sigue como alternativa en la imagen privada).
+6. **Recreativa.** `rootfs/etc/recreativa/sistemas/{gb,gbc,gba}.conf` en el formato de docs/recreativa.md (D321), con mGBA como
+   emulador predeterminado (`args={rom}`, `args_completa=--pantalla-completa {rom}`). No se toca `recreativa.c`.
+7. **ROM.** Ninguna ROM ni BIOS va a git ni a las imágenes: se meten por `input_share/games/{gba,gb,gbc}` (docs/input_share.md) o por
+   un pendrive. Las de **prueba** son nuestras y se generan al ejecutar la prueba (`tools/mgba_rom_teste.py`): una GBA ARM en modo 3
+   (con el logo de la cabecera a ceros: no se copia ninguno; mGBA no lo comprueba), otra «cargada» para medir el vídeo, una GB (la de
+   D235) y una GBC (con la paleta de color cargada por un arranque propio).
 
-**Traducido en la fase 1** (pt_BR y en completos, 526 cadenas): interfaz del kernel (197), Configuración (198, todas las páginas),
-Archivos (94) y los componentes y diálogos comunes de la libsagui (37). Criterio de Windows en cada idioma («Arquivo, Editar,
-Exibir» / «File, Edit, View»; «Excluir» y «Lixeira» en pt, «Delete» y «Trash» en en). **Pendiente (v8.4.1):** Pluma, Macaco, correo,
-instalador, el resto de programas, la línea de comandos de los programas (ayudas y errores), los motivos que el kernel muestra en
-el diálogo de permisos, el selector de idioma del instalador, moneda/semana/papel, y el cambio de idioma sin reabrir las ventanas
-ya abiertas (hoy las ventanas abiertas conservan su idioma hasta que se cierran).
+**Pruebas.** `tests/h322_mgba.py`: unidad en el PC (el núcleo con un arnés propio, `tests/mgba_unidad.c`: cuadrantes, teclas, estado,
+batería de GB y GBA), licencias (SHA-256, MPL, ningún otro fichero, la fila, ninguna ROM en git, h81) y sistema en QEMU con KVM (ventana,
+FPS, mando de D307, F5/F7, Start y la SRAM, GB, GBC y `--medir` con dos ROM). Capturas `H322-*.png`. Afectadas: h307 (mandos), h288
+(SDL 2 por GPU) y h81 (licencias).
 
-**Pruebas.** `tests/h315_idiomas.py` (lector de catálogos del anfitrión con `tests/catalogo_unidad.c`; `.po` completos; en QEMU:
-español sin cambios, `LANG`, `en` y `pt_BR` con capturas del escritorio, el menú Inicio, todas las páginas de Configuración y
-Archivos; cambiar el idioma desde Configuración y abrir un programa nuevo; persistencia tras reiniciar; pseudo-idioma sin cadenas sin
-traducir, incluido el diálogo de archivos). Capturas `H315-*.png`. Guía de uso: `docs/idiomas.md`.
+## D323. Activar el 3D y las aceleraciones desde Configuración, con modo seguro (v8.4.3)
 
-**Nota v8.4.2 (h95, 32 MB con escritorio).** Con 32 MB el Terminal salía con código 1: `jan_abrir`
-fallaba porque `sis_criar_janela` necesita 339 páginas *seguidas* (ventana 760x456) y el mayor hueco libre
-del físico era de 311 páginas (596 libres, el resto disperso). Causa: crecimiento legítimo del ramdisk
-(+240 KB: catálogos de `/sistema/idiomas` 140 KB, libsagui con `idioma.c` en todos los programas, `configuracion`
-y `arquivos` más grandes); en la v8.4.1 el margen era de solo ~8 páginas. Arreglo mínimo: el Terminal, si el
-kernel no le da la ventana, reintenta con 2 líneas menos (hasta 10) en vez de salir con error; con RAM de sobra
-no cambia nada. La mudanza de aplicaciones a `/apps` (v8.4.3) devolverá el margen. Sin cambios en el kernel.
+**Contexto.** El 2D y el 3D por la GPU solo se cambiaban con órdenes de terminal (`acel2d`, `gpu3d`) o al grabar la
+imagen (`mkimagem.py --acel2d=…`, `--gpu3d=…`). El 3D de las Radeon R5xx y R7xx arranca apagado porque no está probado
+en hardware (D284, D287) y la persona no tenía forma fácil de encenderlo ni de que se recordase.
 
-## D314. rsync: servidor por SSH y copia local con openrsync (v8.4, mejora 120)
+**Decisión.**
+1. **Sección «Aceleración gráfica»** dentro de la página **Pantalla** de Configuración, como segunda vista (dos botones
+   arriba a la derecha: «Resolución» y «Aceleración gráfica»). No es una pestaña nueva: con 11 pestañas y 840 px no cabe
+   otra y h83, h117 y h162 siguen valiendo (las posiciones de las pestañas no cambian). Lleva el **estado detectado**
+   (tarjeta, driver 2D y su estado —activo, CPU, apagado a mano, apagado por el vigilante—, driver 3D y su estado, la
+   puntuación 3D si hay), cuatro filas de opciones y «Restablecer valores seguros»:
+   - **2D por la GPU** y **3D por la GPU:** Automático / Activado / Desactivado, con «Probar ahora» (autoprueba y su
+     resultado, `acel2d probar` y `gpu3d probar`). En tarjetas con el 3D sin probar en hardware (R5xx, R7xx) hay un
+     aviso permanente y, al elegir «Activado», uno claro en naranja: «Experimental: si la pantalla se queda congelada,
+     reinicia; el sistema volverá al modo seguro».
+   - **SDL 2 por la GPU** (D288): Automático / Activado / Desactivado.
+   - **Disco: DMA y caché** (D281): Automático / Desactivado (las dos cosas a la vez; se aplica al reiniciar).
+2. **Qué significa cada valor.** *Automático*: lo que decide el kernel (2D por GPU si la autoprueba pasa; 3D de Intel Gen3
+   y simulado «sin probar» hasta el primer uso; el de R5xx/R7xx apagado). Si Configuración lo había apagado, «Automático»
+   lo repone. *Activado*: se enciende y se autoprueba ahora y **en cada arranque** (si la autoprueba falla, queda apagado
+   y se dice). *Desactivado*: se apaga ahora y en cada arranque.
+3. **Persistencia.** Claves en `/home/.config/sagui.conf`: `acel2d=auto|si|no`, `gpu3d=…`, `sdl2_gpu=…`,
+   `disco_dma_cache=auto|no` (sin la clave, no se toca nada). Se aplica **al momento** y `configuracion --aplicar`
+   (que ya corre al arrancar) lo repite. Lo que debe decidirse antes de que arranque el kernel se escribe además en la
+   cabecera de arranque del disco, con la llamada nueva `INFO_CAB_OPC` (78, solo administrador), que reutiliza la
+   lógica de `pantalla --guardar` (`particao_de_boot`: solo el disco del que se arrancó, comprobando que su cabecera es la
+   que arrancó; nunca desde el CD, y solo los bytes `CAB_ACEL2D` bits 0-3, `CAB_GPU3D` bits 0-2 y `CAB_DISCO_OPC` bits
+   0-2): 2D «Desactivado» → `CAB_ACEL2D` = CPU (el kernel ni intenta la autoprueba del 2D en el siguiente arranque; «Automático»
+   lo devuelve a 0 solo si estaba en CPU, para no pisar un `--acel2d=vmware` de la imagen), y el disco → `CAB_DISCO_OPC`
+   bits 0 y 1. El 3D no escribe la cabecera: el kernel no lo puede volver a encender con el modo `--gpu3d=no` en el mismo
+   arranque, y apagarlo en cada arranque desde `--aplicar` es igual de seguro. La SDL 2 va por `/tmp/acel-sdl2` («1» o
+   «0»), que lee `sdl2gpu.h` al crear un renderizador (la variable `SAGUI_SDL2_GPU` y `sagui_sdl2_gpu` mandan sobre él).
+   Sin disco de arranque escribible (CD, otro sistema), la elección vale en la sesión y por `sagui.conf` en `/home`.
+4. **Permisos.** Cambiar el 2D o el 3D (también «Automático», «Probar ahora» y «Restablecer») y el disco **piden
+   administrador**: la ventana usa el diálogo de D269 (`elevar_grafico`; la primera vez root elige contraseña, y se
+   recuerda 5 minutos) y suelta la elevación al terminar; en modo en vivo no pide contraseña. **No pide permiso:** la
+   SDL 2 (no toca la GPU: es un archivo de `/tmp`), ver el estado y la ventana en sí. La orden hace lo mismo: sin ser
+   administrador dice «usa admin configuracion …». **Compromiso conocido:** las claves viven en `sagui.conf`, que el
+   usuario escribe; un usuario sin permisos podría editar el archivo a mano y el arranque (root) lo aplicaría. Lo que
+   puede provocar son los modos 2D/3D/disco ya acotados por el vigilante, las autopruebas y el modo seguro de abajo; se
+   descartó `/etc/aceleracion` porque sin SAGUI-CONF (modo en vivo) no se guarda nada del sistema y la persona
+   perdería la elección. Cuando lleguen los varios usuarios (D282, fase 3) se moverá a `/etc`.
+5. **Aplicar al arrancar como root.** Con la sesión como sagui, `configuracion --aplicar` corría sin permisos para la GPU.
+   El kernel lo lanza ahora como root (`processo_executar_como`) pasándole el uid y gid de la sesión; el programa aplica la
+   aceleración y **baja él mismo** a esa identidad (`USU_FIJAR`) antes de lo demás (teclado, volumen, fondo…), que sigue
+   corriendo con los permisos de siempre. En el modo rescate o la sesión como root no cambia nada.
+6. **Modo seguro.**
+   - **Marca de arranque en curso:** si hay `2D=Activado` o `3D=Activado`, antes de aplicarlos `--aplicar` crea
+     `/home/.config/acel-arranque` y la borra al terminar (el escritorio ya está en pantalla: `--aplicar` corre después de
+     `gui_iniciar`). Si el kernel o la autoprueba cuelgan en medio, la marca sigue ahí: **el siguiente arranque la ve,
+     restablece los valores seguros** (todo en automático, en `sagui.conf` y en la cabecera), borra la marca, deja el aviso
+     en `/tmp/acel-aviso` (la ventana lo enseña en naranja y `configuracion aceleracion` también) y sigue.
+   - **Mayús pulsado al arrancar** (la etapa 2 por BIOS mira el estado de Mayús de la BIOS, como hace con Ctrl para el
+     rescate de D255; el cargador UEFI, `EFI_*_SHIFT_PRESSED`): activa `OPC_BOOT_ACEL_SEGURO` (bit 16 de las opciones de
+     `boot_info`, que es u32; no cabe en la cabecera). El kernel arranca con el 2D por la CPU y el 3D por software y
+     `--aplicar` no aplica nada ni toca la configuración guardada. Para las pruebas, `mkimagem.py --acel-segura` pone el bit
+     `CAB_ACEL_SEGURO` (0x80) de `CAB_ACEL2D`, con el mismo efecto. No toca el disco ni el DMA (no se reducen más cosas por
+     una tecla). No hay «menú de arranque» en SaguiOS al que añadir una entrada: la tecla es la única vía.
+7. **Orden de terminal:** `configuracion aceleracion` (estado y lo elegido), `configuracion aceleracion 2d|3d|sdl
+   auto|si|no`, `… 2d|3d probar`, `… disco auto|no`, `… restablecer` y, para las pruebas, `… --simular-cuelgue` (pone la
+   marca de arranque en curso).
 
-**Contexto.** El mantenedor pidió (2026-11-15) `rsync` para copias de seguridad de `/home` y sincronizar carpetas con el PC.
-SaguiOS no tiene `fork` ni `exec` y el rsync de Samba (GPL v3) los usa, con mucho estado global.
+**Toca el kernel (poco):** `INFO_CAB_OPC` en `modos_video.c` (junto a `gravar_preferencia`), un `if` de modo seguro en
+`acel2d_iniciar` y `gpu3d_iniciar`, el bit nuevo en `boot_info`/`estagio2.asm`/`cargador.c` y el arranque de
+`configuracion --aplicar` como root en `principal.c`. No se toca memoria, planificador, VFS ni la secuencia de arranque.
 
-1. **Base: openrsync** (Kristaps Dzonsons / OpenBSD, **ISC**), etiqueta `VERSION_0_5_0` (commit `22b37c9a`, protocolo 27, unas
-   5000 líneas), en `userland/terceros/openrsync/fuentes/` con su licencia; `tools/openrsync_fuentes.sh --comprobar` baja el tarball
-   (SHA-256 fijado) y verifica que solo difieren los ficheros parcheados (`PARCHES.md`). Fila en `terceros.md`. ISC es
-   compatible con la GPL v3 y con `SEM_GPL=1`/`PUBLICABLE=1` (no está en `publicar-excluir.txt`).
-2. **Sin `fork`/`exec`.** Solo se compila el emisor y el receptor del modo `--server`, que lanza el `sshd` (ya ejecuta cualquier
-   orden con `sagsh -c` y tuberías, D250): no hace falta ningún cambio de proceso. `child.c`, `client.c`, `fargs.c`, `socket.c` y
-   el `main.c` de openrsync (fork, socketpair, exec de ssh, demonios) no se compilan; `principal_rsync.c` es el `main` propio.
-3. **Compatibilidad con rsync 3.x.** openrsync habla el protocolo 27; el rsync 3.2.7 del PC lo negocia sin problema. Cuatro cambios
-   a openrsync: (a) la opción `-o` (el cliente 3.x manda `-vlogDtpre.iLsfxCIvu`): uid antes del gid en cada entrada y una lista de uid
-   (vacía al enviar, ignorada al recibir; SaguiOS no tiene usuarios, todo es uid y gid 0); (b) el emisor servidor manda siempre las
-   estadísticas (con «solo -v» el cliente 3.x sin -v se quedaba esperando); (c) la raíz del receptor es un descriptor simulado
-   (`rs_abrir_raiz`) y (d) opciones `-D -z -x -L -s -u -h`, `--delete-*` aceptadas (`-z` rechazada con un mensaje).
-4. **La libc que falta** (`compat/compat_sagui.c`, nuestra, ): `poll` sobre pipes y ficheros con `disponivel()`
-   (escribir se da por posible: el `sshd` vacía la salida sin esperar), `fts` mínimo, `hsearch`, `arc4random`, y las funciones
-   `...at` que resuelven rutas relativas a la carpeta raíz (la `openat` de la libc ignora el descriptor).
-5. **Fechas y permisos.** Los sistemas de archivos escribibles de SaguiOS **no guardan la fecha de modificación** ni el dueño
-   (solo ISO 9660 y UDF, de solo lectura) y no hay una llamada para fijarlas; añadirla es trabajo del VFS y de D282, fuera de este
-   encargo. `utimensat`/`futimens`/`fchown` aceptan y no hacen nada; el receptor trata un fichero existente como «distinto», recalcula
-   sus sumas y el emisor manda solo el delta (h314 lo comprueba: 10 bytes cambiados en 1 MB mandan unos 6 KB). Cuando D282 guarde
-   modos y fechas, se conectan en `compat_sagui.c` sin tocar el resto.
-6. **Copia local propia** (`local_rsync.c`, GPL-3.0): dentro de una máquina no hace falta el protocolo. Compara tamaño y, si las fechas no
-   valen, contenido; copia por un temporal y renombra; `--delete`, `--dry-run`, `-v`, `--progress`, `--stats`. Un solo proceso, sin
-   riesgo de interbloqueo con las tuberías de 512 bytes del kernel.
-7. **Seguridad.** El servidor solo corre bajo el `sshd` (clave pública, D250). No se abre ningún puerto (873) ni demonio.
-   El `sshd` no convierte a UTF-8 la salida de `rsync --server` (protocolo binario).
-8. **Queda para la v8.4.1:** cliente remoto sobre SSH (cuando exista `ssh` en SaguiOS), cliente de demonio `rsync://`, `-z`, enlaces
-   simbólicos, ficheros de cientos de MB (el delta usa `mmap` emulado, que carga el fichero).
+**Sin probar en hardware.** El aviso del 3D experimental, Mayús en BIOS/UEFI reales y la escritura de la cabecera en un
+disco físico (solo QEMU). El 3D de R5xx/R7xx sigue sin probarse: esta pantalla es la forma de que lo pruebe quien tenga la
+tarjeta, con la red de seguridad de arriba.
 
-**Pruebas.** `tests/h314_rsync.py`: subida de una carpeta con subcarpetas, un fichero de 1 MB y textos (sumas en SaguiOS), delta
-(10 bytes cambiados, pocos bytes enviados con `--stats`), bajada idéntica, `--delete`, y copia local con `--dry-run` y `--delete`.
-Sin `rsync` en el anfitrión se marca «no aplica». Afectadas: las del `sshd` (h248, h251, h252, h254) y h81.
-
-## D314 (ampliación, v8.4.2). El cliente rsync por ssh y los modos de D282; integración con `main`
+**Pruebas.** `tests/h323_conf_aceleracion.py`: en QEMU con VMware SVGA y `--gpu3d=simulado`, la ventana (3D Activado con
+el diálogo de administrador, Probar ahora, 2D Desactivado, SDL 2 sin diálogo, disco), lo visto en `acel2d`, `gpu3d`,
+`/tmp/acel-sdl2` y `sagui.conf`, la cabecera grabada, el reinicio (`--aplicar`, DMA en PIO), «Restablecer», la orden de
+terminal, la marca de arranque en curso tras un cuelgue simulado y el modo seguro. Capturas `H323-*.png`.
 
 **Contexto.** D314 dejó rsync como servidor (lo lanza el `sshd`) y copia local; el cliente remoto esperaba al cliente `ssh`, que llegó con D317, y los
 modos al D282. En la v8.4.2 se integran `v8.4-rsync` y `v8.4-idiomas` sobre la v8.4.1 y se completa lo que faltaba.
@@ -16952,3 +17348,158 @@ modos al D282. En la v8.4.2 se integran `v8.4-rsync` y `v8.4-idiomas` sobre la v
 **Pruebas.** `tests/h314_rsync.py` ampliada: el cliente contra el `sshd` de SaguiOS por 127.0.0.1 (el anfitrión no tiene `sshd` sin root): subir, bajar,
 delta (se mandan ~2,6 KB de 320 KB), `--delete`, modos 600/755 conservados, errores claros y `--rsync-path` inexistente sin colgarse; y la parte del servidor
 contra el `rsync` y el `ssh` del anfitrión sigue pasando.
+
+## D324. Las aplicaciones no fundamentales pasan del ramdisk a /apps (v8.4.3)
+
+**Problema.** El ramdisk se carga entero en la RAM al arrancar (19,3 MB en la 8.4.2). Con 32 MB y escritorio, `mem` daba **296 KB libres**
+(h95 fallaba en la 8.4.2). La meta de 38 MB es solo la del arranque (D306), y es el ramdisk lo que hay que adelgazar. La política (D181, D194, D228)
+ya era: base en el ramdisk, aplicaciones en la partición SAGUI-APPS montada en `/apps`.
+
+**Qué se movió** (ejecutables de `/bin` del ramdisk a `/apps/bin`; tamaños de la 8.4.2):
+
+| Aplicación | KB | | Aplicación | KB |
+|---|---|---|---|---|
+| `cipo` (Cipó, navegador) | 1333 | | `ia` (IA, chat de texto) | 152 |
+| `python` (MicroPython, SSE2) | 927 | | `paint` | 148 |
+| `python-x87` (sin SSE2) | 923 | | `cc` (compilador de C) | 145 |
+| `pluma` | 450 | | `camara` | 96 |
+| `macaco` | 438 | | `grabadora` | 84 |
+| `opentyrian` (solo con GPL) | 378 | | `spider` | 68 |
+| `mico` | 352 | | `sagui3d` | 68 |
+| `correo` | 313 | | `sgldemo` | 68 |
+| `planomini` | 312 | | `buscaminas` | 48 |
+| `visorpdf` | 280 | | `banana` | 32 |
+| `chatia` (Chat IA y agentes) | 268 | | `chip8` + `chip8asm` | 108 + 36 |
+| `gebramini` | 240 | | `jclic` + `jclicbajar` | 120 + 117 |
+| `reproductor` | 216 | | `chip8-roms`, `chip8-roms-gui` (guiones) | 5 + 8 |
+| `musica` | 208 | | `pascal` | 161 |
+| `/videos/sagui.avi` (vídeo de demostración, ahora `/apps/videos`) | 325 | | | |
+
+Ejecutables: 8,30 MB; con el vídeo, **8,64 MB**. **Ramdisk: 19.304.288 -> 10.666.320 bytes (-8,24 MiB)**; «sistema base» de `saguios.img`: 51,6 % -> 29,9 % de la
+meta de 38 MB. **32 MB y escritorio: 296 KB libres -> 8.328 KB libres** (h95 con consola: 13 MB libres; h324: más de 4 MB como mínimo).
+Tiempo hasta el escritorio con KVM y 32 MB: 7,9 s -> 5,9 s (con y sin `/apps`: la BIOS lee menos del disco).
+
+**Qué se queda en el ramdisk:** el shell (`sagsh`, `sh`) y las utilidades básicas (`ls`, `cp`, `mv`, `cat`, `grep`, `tar`...), Archivos, Terminal, Configuración, Discos,
+Instalar, Particiones, servicios, cron, `admin`/`su`/`passwd`, red (`ifconfig`, `dhcp`, `ping`, `wget`, `curl`, `ssh`, `sshd`, `nc`...), el editor sencillo, Visor de imágenes,
+Calculadora, Recortes, Iconos, Markdown, MIDI, `infopc`, `mem`, `tareas`, lite-monkey, `/fontes` (DejaVu, 1,3 MB, las usan Configuración y el Editor), `/lib/python`
+(la biblioteca de Python: 0,9 MB, pequeña frente al intérprete y la cargan los servicios), `/ejemplos` (0,6 MB: los usan `cc`, `python` y las pruebas) y los programas de `/testes`.
+**No se movió** `/testes` (1,7 MB de programas de prueba que van en el ramdisk de producción: candidato a v8.4.4, pero muchas pruebas dependen de él) ni
+`/jogos` (50 KB; la partición SAGUI-JOGOS ya lo repite).
+
+**Qué cambia en el sistema** (todo lo demás sigue igual: `PATH` ya llevaba `/apps/bin`, y `ejecutar`, `xargs`, `which` y `crontab` ya la buscaban):
+1. `Makefile`: `APPS_MOVER_FIJO` + `APPS_MOVER` (lo que depende de la configuración: `opentyrian` solo con GPL, `python` solo con MicroPython) se suman a `APPS_PROGRAMAS`,
+   y `PROGRAMAS` se filtra como ya hacía con NetSurf. Los guiones de `userland/apps/bin/` y el vídeo (`userland/apps/videos/`) van a `/apps` por el mismo árbol.
+2. Menú Inicio (`barra.c`) e iconos del escritorio (`area_trabalho.c`): las entradas apuntan a `/apps/bin/<x>` y **se ocultan si el ejecutable no existe** (la
+   regla de D194 para las entradas con ruta bajo `/apps/`; los iconos la heredan con `icone_visivel`, que consulta el VFS como mucho una vez por segundo). Corregido de paso
+   `area_icone_abrir`, que daba a `argv[0]` el nombre quitando 5 caracteres («/bin/»): ahora quita la carpeta, sea `/bin` o `/apps/bin`.
+3. Los programas que se llaman por ruta absoluta: Terminal (enlaces al Cipó), avisos (`musica`), JClic y su descargador, Recortes (Paint), el explorador de BD (Macaco),
+   `python` -> `python-x87` (`inicio_python.c`, el cambio de CPU sin SSE2), los `#!/apps/bin/python` de `lmk`, `chip8-roms*` y el diseñador de VisualPythonS, y `find -exec`.
+   Archivos (`arquivos.c`): `ruta_programa()` busca el programa en `/bin` y luego en `/apps/bin` para «Abrir» y «Abrir con...»; el menú de «Abrir con...» **oculta** las
+   aplicaciones que no están instaladas. El Reproductor de vídeo busca por defecto en `/apps/videos`.
+4. Datos que esos programas buscan: `/ejemplos`, `/fontes` y `/lib/python` **siguen en el ramdisk** (no hay ruta rota).
+5. **Instalador (D318/D179)**: ya copia todo `/apps` a la partición SAGUI-APPS del disco instalado (`h149`), y las imágenes persistentes y de particiones la llevan. No hubo que tocarlo.
+6. **Pruebas**: `imagem_de_teste()` lleva `--apps build/apps/raiz` por defecto (`apps=False` para probar sin ella), las pruebas pasan a `/apps/bin/<x>` y las que montan su
+   propia imagen con `mkimagem.py` añaden `*opcoes_apps()`.
+
+**ISO y CD (D077).** El kernel no lee el CD, así que **en la ISO no hay partición `/apps`**. Decisión: la ISO usa el perfil **«completo»**: `ramdisk-cd.sgfs` = ramdisk «base»
+más el árbol `/apps` dentro (ya existía desde D194: el mismo árbol y las mismas rutas). Las imágenes de disco usan el perfil **«base»** (por defecto). Elegible con
+`RAMDISK=base|completo` en el Makefile y en `gerar_versao.sh`; `completo` en una imagen de disco equivale a `APPS=0` (sin partición, las aplicaciones en el ramdisk). La ISO
+necesita más RAM (unos 25 MB de ramdisk sin los datos de los juegos): un equipo de 32 MB debe arrancar la imagen de disco, no el CD.
+
+**Pruebas.** `tests/h324_apps_fuera.py`: (A) ramdisk < 12 MB, las aplicaciones en `/apps/bin` y no en el `/bin` del ramdisk, ninguna ruta `/bin/<app movida>` entre comillas en las
+fuentes; (B) 32 MB con escritorio: más de 4 MB libres, Pluma desde Inicio > Accesorios y el icono de Paint abren desde `/apps/bin`; (C) sin la partición, el sistema arranca igual y se
+ocultan el menú y los iconos; (D) la ISO llega al escritorio con `/apps` dentro. **Núcleo:** no se tocó memoria, planificador, VFS ni arranque (solo `area_trabalho.c` y `barra.c` de la GUI).
+
+**Pendiente para la 8.4.4 (D324):**
+- Las pruebas que montan su propia imagen con `mkimagem.py` sin `--apps` (h213, h255, h91…) pueden necesitar `*opcoes_apps()` si abren aplicaciones movidas.
+- h159 sale con 77 («NetSurf no compilado») y `rodar_paralelo` lo cuenta como fallo.
+- Mover `/testes` (1,7 MB) fuera del ramdisk de producción.
+- Actualizar `userland/apps/leeme.txt` con las aplicaciones movidas.
+
+## D325 - exFAT con lectura y escritura (v8.4.3, mejora 076 apartado 1)
+
+**Qué.** `kernel/fs/exfat.c` (~1.100 líneas, `GPL-2.0-or-later`, hecho con la especificación pública de Microsoft de 2019, sin código de Linux), tabla `fs_exfat`, tipo `"exfat"` en `discos.c`/`montagem.c`, `MONTAR_EXFAT` (0x700), `mount -t exfat`, `montar` y LABEL= como FAT32. No se tocó memoria, planificador, VFS ni arranque.
+
+**Lectura.** Sector de arranque con su suma (sectores 0-11), bytes por sector 512-4096, FAT y mapa de bits, archivos `NoFatChain` y con cadena, grupos File+Stream+Name con `SetChecksum` (un grupo con suma mala se ignora y se cuenta), tabla de mayúsculas del volumen (comprimida o no, con su suma; sin tabla fiable: solo lectura), nombres UTF-16 a Latin-1 (lo que no cabe, `_` como FAT32), fechas con `UtcOffset`, etiqueta (0x83), `ValidDataLength` (lo de detrás se lee como ceros). Los permisos (D282, `uid=`/`gid=`/`umask=`) y las reglas de discos internos (D040: solo `rw` explícito) son los generales del montaje.
+
+**Escritura.** Crear, escribir, ampliar, truncar, borrar, renombrar/mover (también carpetas; sin `..` en exFAT, la carpeta dentro de sí misma se detecta por la ruta) y carpetas que crecen de clúster. Los archivos nuevos van `NoFatChain` mientras sean contiguos y pasan a cadena en la FAT al fragmentarse. Mapa de bits entero en memoria (hasta 4 MB), grabando solo los sectores tocados. **Orden de grabación:** si la operación reservó, primero FAT y mapa y luego las entradas; si solo liberó, primero las entradas y luego FAT y mapa (un corte deja clústeres perdidos, nunca una entrada apuntando a libre); renombrar graba la entrada nueva antes de borrar la vieja. Datos antes que metadatos. `VolumeDirty` se pone al montar `rw` y se quita al desmontar bien (solo si lo puso este montaje).
+
+**Volumen sucio:** se monta en **solo lectura con aviso**; con `-o rw` a propósito se monta para escribir y la marca se queda (no se comprobó). TexFAT (2 FAT), mapa de bits ausente o de más de 4 MB, o tabla de mayúsculas mala: solo lectura.
+
+**Límites.** Posiciones del VFS de 32 bits: un archivo de 4 GB o más se **lee hasta 4 GB - 1** (el listado satura) y **no se abre para escribir** (rechazado, no se corrompe; comprobado con uno de 4,5 GB); archivos nuevos hasta 4 GB - 1. Nombres de más de 63 caracteres salen recortados (`NOME_MAX`, igual que FAT32); se crean hasta 255. El volumen no pasa de 2 TB (sectores de 32 bits del disco). Sin UTF-16 fuera de Latin-1 al crear. Sin GUID de volumen ni TexFAT.
+
+**Formatear.** `fs_formatar_exfat` (`formatacao.c`): `particiones formatear|crear ... exfat` y los menús de Discos («Crear exFAT», «Formatear en exFAT»); clústeres de 4 KB (hasta 256 MB), 32 KB (hasta 32 GB) y 128 KB; tabla de mayúsculas mínima (ASCII y Latin-1). `fsck.exfat -n` da limpio.
+
+**Pruebas.** `tests/h325_exfat.py` (`python3 tests/h325_exfat.py 2` = solo la parte 2): `exfatprogs` se extrae sin root (`tools/entorno-local.sh` lo trae; si falta, la prueba sale «NO APLICA» con 0 y dice `sudo apt install exfatprogs`). Volúmenes de `mkfs.exfat` (4 KB y 128 KB) poblados con `tests/exfat_lib.py` (lector/escritor propio en Python: carpetas anidadas, acentos, fragmentado, `NoFatChain`); SaguiOS lee (SHA-256), escribe y renombra; el anfitrión da `fsck.exfat -n` limpio y compara byte a byte. Parte 2: `montar`, sucio, lleno (sin clústeres perdidos), formateo propio, archivo de 4,5 GB.
+
+**Pendiente para la 8.4.4:** probar en un pendrive/SD reales de 64 GB; corte de luz simulado (grabación ordenada solo razonada y con una prueba de orden, no de corte); crear ficheros de más de 4 GB (necesita offsets de 64 bits en el VFS); nombres de más de 63 caracteres; UTF-16 completo; el hash de nombre no se usa para filtrar búsquedas (carpetas enormes lentas, O(n) por entrada en cadena); TexFAT.
+
+## D326. ext3/ext4: reproducción del diario JBD2 al montar; escritura escrita pero desactivada (v8.4.3)
+
+- **Hecho y activo:** al montar con escritura (`-o rw`, o un pendrive) un ext3/ext4 con
+  `needs_recovery`, `kernel/fs/jbd2.c` reproduce el diario interno (inodo 8) en tres pasadas
+  (buscar el final, revocaciones, reproducir): descriptores con etiquetas de 32/64 bits, csum v2
+  y v3 (CRC32c, `kernel/lib/crc32c.c`), bloques escapados y revocaciones. Una copia o un commit
+  con la suma mal: no se escribe y el volumen queda en solo lectura. Después el diario queda
+  vacío (`s_start = 0`). Un montaje de solo lectura **no** reproduce (D040: no toca el disco) y
+  avisa de que puede faltar lo último.
+- **Tras la reproducción el volumen sigue en solo lectura**, como antes: el mantenedor prueba la
+  8.4.3 en discos reales y la prioridad es no corromper nada. El superbloque conserva la marca
+  `needs_recovery` con el diario vacío, que Linux y e2fsck aceptan (h326: `e2fsck -fn` limpio).
+- **Escrito pero desactivado (`ESCRITA_EXT34 0` en `ext2.c`), para la 8.4.4:**
+  - transacciones JBD2 en modo «ordered»: datos de bloques enteros directo al disco antes del
+    commit; metadatos sucios de la caché al diario con barreras (`disco_sincronizar`), después a
+    su sitio y el superbloque del diario con la secuencia siguiente; una sola transacción en el
+    diario cada vez; los bloques liberados no se reutilizan hasta el commit; caché de hasta 320
+    bloques con diario (los sucios no se expulsan);
+  - extents: el árbol se reconstruye entero al modificarlo (caso rápido: alargar el último extent);
+    convierte extents no inicializados; truncar;
+  - descriptores de 64 bytes, flex_bg, `BLOCK_UNINIT`/`INODE_UNINIT`, `bg_itable_unused`;
+  - sumas `metadata_csum` (superbloque, descriptores, mapas, inodos, extents, carpetas con la cola
+    de 12 bytes, atributos compartidos) y CRC16 de `uninit_bg`; comprobación al leer;
+  - htree: se quita el índice de forma válida al modificar la carpeta;
+  - características desconocidas o no soportadas (inline_data, encrypt, casefold, bigalloc, quota,
+    project, mmp, meta_bg...) → solo lectura con «característica X no soportada para escribir».
+  - **Pendiente 8.4.4:** activar, arnés en el PC (compilar `ext2.c` con disco simulado, cortes
+    de luz en cada escritura y `e2fsck -fn`), h326 ampliada (mkfs.ext3/ext4 por defecto, sin
+    `metadata_csum`, sin diario; crear, borrar, grandes fragmentados, renombrar, truncar) y
+    pruebas de unidad de CRC32c, extents y JBD2.
+- **ext2 sin cambios de comportamiento**, aunque su código (caché, contadores de grupo) pasa por
+  las funciones nuevas: h50, h51, h92, h281, h282 pasan.
+
+## D327. Diálogos comunes de color y de fuente, y combo de fuentes (v8.4.3)
+
+Tres componentes nuevos de la libsagui, al estilo de los de Windows, en `userland/libsagui/dialogos_cf.c` (API en `gui.h`, sin coma flotante):
+
+1. **`bool dialogo_cor(const char *titulo, uint32_t *cor)`**: 48 colores básicos, 16 personalizados guardados en `/home/.config/colores.conf` (16 líneas de
+   seis cifras hexadecimales; blanco por defecto), «Definir colores personalizados >>» (la ventana se ensancha de 296 a 624 px), espectro tono x saturación con
+   cruz arrastrable, barra de luminosidad con flecha, muestra Color|Sólido, cuadros Tono/Sat/Lum (0-240, la escala de Windows; `cor_de_hsl`/`cor_para_hsl`, en
+   enteros) y Rojo/Verde/Azul (0-255) sincronizados, «Agregar a colores personalizados» (se guarda al instante) y Aceptar/Cancelar. Doble clic en un color acepta.
+2. **`bool dialogo_fonte_sistema(const char *titulo, fonte_sel_t *f)`**: lista de las fuentes del sistema con un cuadro encima que filtra al escribir (contiene,
+   sin distinguir mayúsculas), estilos según los que trae la familia (nuevo `estilos()` al final de `fuentes_prov_t`, que rellena `familias.c`), tamaño (lista
+   6...72 y cuadro, 1-127), efectos tachado/subrayado, color con `dialogo_cor` y la muestra «AaBbYyZz» con la fuente real. `fonte_sel_t` = familia, fam, estilo
+   (1 negrita, 2 cursiva), efeitos (1 subrayado, 2 tachado), tam, cor. **`dialogo_fonte(rte_fmt_t*)` de Pluma es ahora un envoltorio** de este (no pierde nada:
+   familia, estilo, tamaño, subrayado, tachado, color).
+3. **`combo_fuentes_t`** (`combo_fuentes_iniciar/definir/desenhar/tratar`): lista desplegable dentro de la propia ventana, con buscador y cada nombre dibujado con su
+   fuente; guarda y restaura los píxeles de debajo. **Pluma lo usa en la barra de formato** en lugar del selector `dialogo_familia` (que sigue en la libsagui).
+
+**Python** (`sagui.dialogo`, sin qstr nuevos, D034): `tipo` 3 = color: `inicial` = `"RRGGBB"` (o `#RRGGBB`), devuelve el entero `0xRRGGBB` o `None`; `tipo` 4 =
+fuente: `inicial` = `"familia;tam;estilo;efectos;RRGGBB"` (todo opcional desde el final), devuelve la **tupla `(familia:str, estilo:int, tam:int, efectos:int,
+color:int)`** (estilo 1 negrita + 2 cursiva; efectos 1 subrayado + 2 tachado) o `None`. `python` y `python-x87` enlazan ahora la libfontes (`FONTES_OBJ`) para que
+la lista traiga las fuentes del sistema.
+
+**Pruebas.** `tests/h327_dialogos_color_fuente.py` (color: básico, RGB 12/34/56 -> HSL 140,155,32, agregar y persistir; fuente: filtrar, estilo, tamaño y tupla
+desde Python; combo de Pluma con búsqueda). Capturas `docs/capturas/H327-*.png`.
+
+**Pendiente para la 8.4.4** (no dio tiempo): usar `dialogo_cor` en Paint (elegir color) y en Macaco (relleno y texto); `combo_fuentes` y fuentes del sistema en la barra
+de formato de Macaco (hoy su `fam` solo vale 0-2 y no enlaza la libfontes); pasada del detector D300 (`SAGUI_GUI_REVISAR=1`) por los tres diálogos; arrastre del espectro
+solo probado por clic (el código de `EV_MOVER` está, sin prueba); color de texto en la barra de Pluma (solo está en el diálogo Fuente); adaptar `h319` al nuevo
+selector si falla (el combo ya no es el diálogo con «Actualizar lista»; ahora actualiza al abrirse).
+
+**D324, añadido 2026-11-15 (entrega de la v8.4.3):** la revisión en 86Box (`tests/emergencia.py`) mostró que en
+`p2-450-voodoo3500` el ATA no ve el disco (#36, ya en la 8.4.2). Al no montar `/apps`, faltan Pluma, Macaco,
+Paint y Python, que en la 8.4.2 iban en el ramdisk. Por eso cada versión publica también
+**`saguios-completo.img`** (`make RAMDISK=completo`), con todas las aplicaciones en el ramdisk, para los PC
+cuya controladora de disco no localiza bien el disco de arranque. Está documentado en `docs/imagenes.md` y
+en el README. Comprobada en QEMU con 1 núcleo y 512 MB: escritorio en 10 s y las aplicaciones abren.
+

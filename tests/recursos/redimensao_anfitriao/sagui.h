@@ -36,6 +36,7 @@ static inline int formatar_lista(char *s, size_t n, const char *f, va_list ap) {
 #define formatar_texto snprintf
 static inline void copia_texto(char *d, const char *s, size_t n) { snprintf(d, n, "%s", s); }
 static inline int compara_texto(const char *a, const char *b) { return strcmp(a, b); }
+static inline bool comeca_com(const char *s, const char *p) { return strncmp(s, p, strlen(p)) == 0; }   /* D282: formatacao.c */
 static inline const char *nome_erro(int r) { (void)r; return "error de E/S"; }
 void registrar(const char *fmt, ...);
 int bytes_aleatorios(void *p, unsigned n);

@@ -553,7 +553,7 @@ def main():
         s = submenu_pelo_mouse(m, p, "Accesorios", "Mico (editor de código)")
         verificar("Mico (editor de código)" in s["linhas"], "Inicio > Accesorios tem o Mico")
         clicar_aqui(m)
-        esperar(m, r"inicio -> /bin/mico", 10, k)
+        esperar(m, r"inicio -> /apps/bin/mico", 10, k)
         esperar(m, r"mico: pronto \(1 pestanas, carpeta -\)", 20, k)
         verificar(True, "e abre o Mico")
     return 0

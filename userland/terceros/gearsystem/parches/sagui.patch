@@ -1,0 +1,102 @@
+diff -ruN a/src/Cartridge.cpp c/src/Cartridge.cpp
+--- a/src/Cartridge.cpp	2026-11-15 12:04:35.000000000 +0100
++++ c/src/Cartridge.cpp	2026-11-15 20:41:18.928156457 +0100
+@@ -431,7 +431,7 @@
+ 
+         string fn((const char*) file_stat.m_filename);
+         string extension = fn.substr(fn.find_last_of(".") + 1);
+-        transform(extension.begin(), extension.end(), extension.begin(), (int(*)(int)) tolower);
++        std::transform(extension.begin(), extension.end(), extension.begin(), (int(*)(int)) tolower);
+ 
+         if ((extension == "sms") || (extension == "gg") || (extension == "sg") || (extension == "mv") || (extension == "bin") || (extension == "rom"))
+         {
+@@ -496,7 +496,7 @@
+             {
+                 string fn(path);
+                 string extension = fn.substr(fn.find_last_of(".") + 1);
+-                transform(extension.begin(), extension.end(), extension.begin(), (int(*)(int)) tolower);
++                std::transform(extension.begin(), extension.end(), extension.begin(), (int(*)(int)) tolower);
+ 
+                 if (extension == "zip")
+                 {
+@@ -668,7 +668,7 @@
+     const char* filename_to_check = (m_szFileNameInZip[0] != 0) ? m_szFileNameInZip : m_szFileName;
+     std::string fn(filename_to_check);
+     std::string extension = fn.substr(fn.find_last_of(".") + 1);
+-    transform(extension.begin(), extension.end(), extension.begin(), (int(*)(int)) tolower);
++    std::transform(extension.begin(), extension.end(), extension.begin(), (int(*)(int)) tolower);
+ 
+     m_bGameGear = (extension == "gg");
+     m_iGameGearASIC = m_bGameGear ? 2 : 0;
+diff -ruN a/src/GearsystemCore.cpp c/src/GearsystemCore.cpp
+--- a/src/GearsystemCore.cpp	2026-11-15 12:04:35.000000000 +0100
++++ c/src/GearsystemCore.cpp	2026-11-15 21:01:28.325704039 +0100
+@@ -54,7 +54,7 @@
+ #include "TraceLogger.h"
+ #include "Profiler.h"
+ #include "common.h"
+-#include "memory_stream.h"
++// SaguiOS (D321): sin <streambuf>; los estados en memoria pasan por un stringstream
+ 
+ GearsystemCore::GearsystemCore()
+ {
+@@ -720,7 +720,9 @@
+ 
+ void GearsystemCore::LoadRam(const char* szPath, bool fullPath)
+ {
+-    if (m_pCartridge->IsReady() && IsValidPointer(m_pMemory->GetCurrentRule()) && m_pMemory->GetCurrentRule()->PersistedRAM())
++    // SaguiOS (D321): la memoria Sega solo se declara «persistente» cuando el juego enciende la RAM, que es
++    // después de cargar: sin este cambio una partida guardada no se encuentra al arrancar.
++    if (m_pCartridge->IsReady() && IsValidPointer(m_pMemory->GetCurrentRule()))
+     {
+         Log("Loading RAM...");
+ 
+@@ -891,7 +893,8 @@
+     }
+     else
+     {
+-        memory_stream direct_stream(reinterpret_cast<char*>(buffer), size);
++        stringstream direct_stream;
++        size_t max_size = size;
+ 
+         if (!SaveState(direct_stream, size, screenshot))
+         {
+@@ -899,13 +902,15 @@
+             return false;
+         }
+ 
+-        if (!direct_stream.good())
++        string datos = direct_stream.str();
++        if (datos.size() > max_size)
+         {
+             Error("Failed to save state to buffer: output buffer is too small");
+             return false;
+         }
+ 
+-        size = direct_stream.size();
++        memcpy(buffer, datos.data(), datos.size());
++        size = datos.size();
+         return true;
+     }
+ }
+@@ -1040,7 +1045,7 @@
+         return false;
+     }
+ 
+-    memory_input_stream direct_stream(reinterpret_cast<const char*>(buffer), size);
++    stringstream direct_stream(string(reinterpret_cast<const char*>(buffer), size));
+     return LoadState(direct_stream);
+ }
+ 
+diff -ruN a/src/SegaMemoryRule.cpp c/src/SegaMemoryRule.cpp
+--- a/src/SegaMemoryRule.cpp	2026-11-15 12:04:35.000000000 +0100
++++ c/src/SegaMemoryRule.cpp	2026-11-15 21:01:28.325704039 +0100
+@@ -201,6 +201,8 @@
+ 
+     Debug("SegaMemoryRule load RAM done");
+ 
++    m_iPersistRAM = 1;   // SaguiOS (D321): había un .sav: la RAM es de batería y se vuelve a guardar
++
+     return true;
+ }
+ 

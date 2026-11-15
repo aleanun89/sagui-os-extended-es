@@ -33,7 +33,7 @@ int principal(int argc, char **argv)
 
 #else
 
-#define PYTHON_X87 "/bin/python-x87"
+#define PYTHON_X87 "/apps/bin/python-x87"   /* D324: python vive en /apps/bin */
 
 static int tem_sse2(void)
 {

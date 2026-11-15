@@ -324,7 +324,7 @@ def revision(t):
 
 def gui():
     srv = sfa.servidor_falso_agentes().arrancar()
-    imagem = imagem_de_teste(f"/bin/chatia --url http://10.0.2.2:{srv.porta}/v1 --modelo prova", ["--vesa"])
+    imagem = imagem_de_teste(f"/apps/bin/chatia --url http://10.0.2.2:{srv.porta}/v1 --modelo prova", ["--vesa"])
     try:
         with Maquina("h295gui", "ide", imagem=imagem, extras=["-nic", "user,model=e1000"]) as m:
             m.esperar_serial("chatia: janela", 60)

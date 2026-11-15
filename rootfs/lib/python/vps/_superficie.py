@@ -14,7 +14,8 @@ ROJO_I = 0xC00000
 HERRAMIENTAS = ["Puntero", "Etiqueta", "Boton", "CuadroTexto", "Casilla", "Opcion", "Lista", "Combo",
                 "Imagen", "Marco", "Deslizador", "BarraProgreso", "Temporizador", "Menu",
                 "Pestanas", "Tabla", "Numerico", "Lienzo", "Enlace", "BarraEstado", "SelectorColor",
-                "Reloj", "Archivo", "ConectorBD", "RejillaDatos"]
+                "Reloj", "Archivo", "ConectorBD", "RejillaDatos", "SelectorDeArchivos", "SelectorDeCarpetas",
+                "CampoArchivo", "CampoCarpeta", "SelectorDeColor", "SelectorDeFuente", "ComboFuentes", "Calendario", "SelectorFecha"]
 NOMBRES_HERR = {"Puntero": "Puntero (seleccionar)"}
 
 # geometría de la superficie: el formulario se dibuja en (OX, OY); su cliente en (FX, FY)
@@ -113,7 +114,7 @@ def icono(v, tipo, x, y):
         v.rect(x + 5, y + 6, 14, 4, AZUL)
         v.rect(x + 5, y + 12, 10, 2, NEGRO)
         v.rect(x + 5, y + 16, 12, 2, NEGRO)
-    elif tipo == "Combo":
+    elif tipo in ("Combo", "ComboFuentes"):
         hundido(v, x + 2, y + 6, 20, 13)
         elevado(v, x + 14, y + 8, 7, 9)
         v.poligono([(x + 15, y + 11), (x + 19, y + 11), (x + 17, y + 14)], NEGRO)
@@ -137,6 +138,49 @@ def icono(v, tipo, x, y):
         v.elipse(x + 3, y + 3, 18, 18, NEGRO, relleno=False)
         v.linea(x + 12, y + 12, x + 12, y + 6, NEGRO)
         v.linea(x + 12, y + 12, x + 16, y + 14, NEGRO)
+    elif tipo == "SelectorDeArchivos":      # una hoja con la esquina doblada y una flecha de «abrir»
+        v.poligono([(x + 5, y + 3), (x + 14, y + 3), (x + 18, y + 7), (x + 18, y + 21), (x + 5, y + 21)], BLANCO)
+        v.linea(x + 5, y + 3, x + 5, y + 21, NEGRO)
+        v.linea(x + 5, y + 21, x + 18, y + 21, NEGRO)
+        v.linea(x + 18, y + 7, x + 18, y + 21, NEGRO)
+        v.linea(x + 14, y + 3, x + 18, y + 7, NEGRO)
+        v.poligono([(x + 9, y + 11), (x + 15, y + 11), (x + 15, y + 8), (x + 21, y + 14), (x + 15, y + 20),
+                    (x + 15, y + 17), (x + 9, y + 17)], 0x2A9D3C)
+    elif tipo == "SelectorDeCarpetas":      # una carpeta amarilla con una flecha
+        v.rect(x + 3, y + 5, 8, 4, 0xE8C040)
+        v.rect(x + 3, y + 8, 18, 12, 0xF4D060)
+        v.rect(x + 3, y + 8, 18, 12, NEGRO, relleno=False)
+        v.poligono([(x + 8, y + 12), (x + 13, y + 12), (x + 13, y + 10), (x + 18, y + 14), (x + 13, y + 18),
+                    (x + 13, y + 16), (x + 8, y + 16)], 0x2A9D3C)
+    elif tipo == "SelectorDeColor":
+        v.elipse(x + 3, y + 3, 18, 18, BLANCO)
+        v.elipse(x + 3, y + 3, 18, 18, NEGRO, relleno=False)
+        for k, c in enumerate((0xFF0000, 0x00A000, 0x0000FF, 0xFFFF00)):
+            v.elipse(x + 6 + (k % 2) * 6, y + 6 + (k // 2) * 6, 5, 5, c)
+    elif tipo == "SelectorDeFuente":
+        elevado(v, x + 2, y + 4, 20, 16, BLANCO)
+        v.texto(x + 5, y + 4, "Aa", NEGRO)
+    elif tipo == "ComboFuentes":
+        hundido(v, x + 1, y + 6, 22, 13, BLANCO)
+        v.texto(x + 3, y + 3, "A", NEGRO)
+        elevado(v, x + 15, y + 7, 7, 11)
+    elif tipo == "Calendario":
+        elevado(v, x + 3, y + 3, 18, 18, BLANCO)
+        v.rect(x + 4, y + 4, 16, 4, AZUL)
+        for fila in range(3):
+            for col in range(4):
+                v.rect(x + 5 + col * 4, y + 10 + fila * 3, 2, 1, NEGRO)
+    elif tipo == "SelectorFecha":
+        hundido(v, x + 1, y + 6, 22, 13, BLANCO)
+        v.rect(x + 3, y + 11, 6, 1, SOMBRA)
+        elevado(v, x + 15, y + 7, 7, 11)
+        v.rect(x + 17, y + 9, 3, 2, AZUL)
+    elif tipo in ("CampoArchivo", "CampoCarpeta"):
+        hundido(v, x + 1, y + 6, 22, 13, BLANCO)
+        elevado(v, x + 15, y + 7, 7, 11)
+        v.rect(x + 17, y + 12, 1, 1, NEGRO)
+        v.rect(x + 19, y + 12, 1, 1, NEGRO)
+        v.rect(x + 4, y + 12, 6, 1, SOMBRA)
     elif tipo == "ConectorBD":      # mejora 127: un cilindro de base de datos
         for k in range(3):
             v.elipse(x + 4, y + 4 + k * 5, 16, 7, 0xE8E8A0)

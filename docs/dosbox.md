@@ -1,12 +1,14 @@
 # DOSBox y Recreativa: juegos de DOS en SaguiOS
 
+> Desde D321 Recreativa es un lanzador **multisistema** (DOS, NES, Master System, Game Gear...): ver [`recreativa.md`](recreativa.md).
+
 *(D294, mejora 119, v8.3.1)*
 
 SaguiOS lleva **DOSBox 0.74-3** (el clásico, GPL v2 o posterior) y un lanzador de juegos,
 **Recreativa**. Los dos son aplicaciones no esenciales: viven en la partición `SAGUI-APPS`
 (`/apps/bin/dosbox`, `/apps/bin/recreativa`) y salen en **Inicio > Juegos**:
 
-- **Recreativa (juegos de DOS)**: la lista de tus juegos, con cuadrícula o lista, propiedades por juego,
+- **Recreativa (juegos y consolas)**: la lista de tus juegos, con cuadrícula o lista, propiedades por juego,
   CD, núcleo, ciclos y sonido.
 - **DOSBox** y **DOSBox (pantalla completa)**: el emulador solo, con el indicador `Z:\>` y `C:` ya montado.
 - Un **.exe, .com o .bat** se abre con DOSBox desde **Archivos** (doble clic): se monta su carpeta como C:,

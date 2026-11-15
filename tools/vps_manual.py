@@ -57,7 +57,7 @@ def tabla_controles(nombre):
             q = c["props"]
             tam = cls.TAM
             pos = "%s, %s, %s, %s" % (q.get("x", 0), q.get("y", 0), q.get("ancho", tam[0]), q.get("alto", tam[1]))
-            if c["tipo"] in ("Temporizador", "Menu", "Reloj", "Archivo", "ConectorBD"):
+            if c["tipo"] in ("Temporizador", "Menu", "Reloj", "Archivo", "ConectorBD", "SelectorDeArchivos", "SelectorDeCarpetas", "SelectorDeColor", "SelectorDeFuente"):
                 pos = "(sin ventana)"
             extra = ", ".join("`%s = %s`" % (k, _val(v)) for k, v in q.items() if k not in ("x", "y", "ancho", "alto"))
             if c["padre"]:
@@ -66,7 +66,7 @@ def tabla_controles(nombre):
     return "\n".join(filas)
 
 
-SIN_VENTANA = ("Temporizador", "Reloj", "Menu", "Archivo", "ConectorBD")
+SIN_VENTANA = ("Temporizador", "Reloj", "Menu", "Archivo", "ConectorBD", "SelectorDeArchivos", "SelectorDeCarpetas", "SelectorDeColor", "SelectorDeFuente")
 DATO_COMUN = {"doble_click": "`raton_x`, `raton_y`", "raton_abajo": "`raton_x`, `raton_y`, `boton`",
               "raton_arriba": "`raton_x`, `raton_y`, `boton`", "raton_entra": "`raton_x`, `raton_y`",
               "raton_sale": "`raton_x`, `raton_y`", "raton_mueve": "`raton_x`, `raton_y`",

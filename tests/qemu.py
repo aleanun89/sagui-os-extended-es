@@ -184,12 +184,17 @@ def imagem_sesion_root(origem=None):
     return destino
 
 
-def imagem_de_teste(teste, extras=()):
+def imagem_de_teste(teste, extras=(), apps=True):
     """Monta build/testes/teste-<nome>.img: a imagem normal com um autoteste
     do kernel ligado pelo cabeçalho de boot (campo CAB_TESTE)."""
     extras = list(extras) + [o for o in OPCOES_IMAGEM if o not in extras]
     b = BUILD
     os.makedirs(SAIDA, exist_ok=True)
+    # D324: las aplicaciones ya no van en el ramdisk sino en SAGUI-APPS: las imagenes de prueba
+    # la llevan (build/apps/raiz) salvo que la prueba pida otra (--apps) o ninguna (--sin-apps).
+    apps_raiz = os.path.join(b, "apps", "raiz")
+    if apps and "--apps" not in extras and os.path.isdir(apps_raiz) and os.listdir(apps_raiz):
+        extras += ["--apps", apps_raiz]
     seguro = re.sub(r"[^A-Za-z0-9_.-]+", "_", teste).strip("_")[:40]
     if extras:   # con opciones distintas, imágenes distintas (p. ej. con y sin --smp)
         seguro += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "_", "".join(extras)).strip("_")[:40]

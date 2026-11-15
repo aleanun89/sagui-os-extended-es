@@ -141,6 +141,7 @@ def principal():
     componentes()
     eventos()
     explorador()
+    selectores()
     print("vps-autoprueba: fin")
 
 
@@ -619,6 +620,135 @@ def explorador():
               "explorador: enviar atrás un hijo lo deja justo detrás de su contenedor")
     M.mover_z(forms[0], forms[0]["controles"][3], False)
     comprobar(forms[0]["controles"][0]["nombre"] == "Marco1" and forms[0]["controles"][1]["nombre"] == "Boton1", "explorador: enviar atrás")
+
+
+def selectores():
+    """SelectorDeArchivos, SelectorDeCarpetas, CampoArchivo y CampoCarpeta (v8.4.3, D303); el diálogo del
+    sistema se sustituye por una función que contesta lo que se le diga."""
+    f = vps.Formulario("Sel", 300, 200, nombre="FormSel")
+    sa = vps.SelectorDeArchivos(f, titulo="Abrir", filtro="Texto (*.txt)|*.txt|Todos|*", carpeta="/home",
+                                extension_por_defecto="txt", nombre="Sa1")
+    sc = vps.SelectorDeCarpetas(f, titulo="Carpeta", carpeta="/home", nombre="Sc1")
+    ca = vps.CampoArchivo(f, 8, 8, 200, 22, nombre="Ca1", filtro="Todos|*")
+    cc = vps.CampoCarpeta(f, 8, 40, 200, 22, nombre="Cc1")
+    comprobar(sa.EVENTOS == ("seleccionado", "cancelado") and sc.EVENTOS == ("seleccionado", "cancelado")
+              and "cambio" in ca.EVENTOS, "selectores: eventos")
+    comprobar(sa.modo == "abrir" and sa.confirmar_sobrescribir is True and sa.filtro.startswith("Texto"), "selectores: propiedades")
+    visto = []
+    llamadas = []
+    resp = [""]
+    orig = vps._dialogo
+
+    def falso(tipo, titulo, filtros, inicial, tk_fun, **kw):
+        llamadas.append((tipo, titulo, filtros, inicial))
+        return resp[0]
+    vps._dialogo = falso
+    try:
+        sa.conectar("seleccionado", lambda: visto.append("sel:" + sa.archivo))
+        sa.conectar("cancelado", lambda: visto.append("can"))
+        resp[0] = "/home/nota.txt"
+        r = sa.abrir()
+        comprobar(r == "/home/nota.txt" and sa.archivo == r and visto == ["sel:/home/nota.txt"] and llamadas[-1][0] == 0
+                  and llamadas[-1][3] == "/home", "selectores: abrir() devuelve la ruta y dispara seleccionado %r %r" % (r, llamadas[-1]))
+        resp[0] = ""
+        comprobar(sa.abrir() is None and visto[-1] == "can", "selectores: cancelar devuelve None y dispara cancelado")
+        resp[0] = "/home/otra"
+        r = sa.guardar()
+        comprobar(r == "/home/otra.txt" and llamadas[-1][0] == 1, "selectores: guardar() añade la extensión por defecto %r" % (r,))
+        sa.modo = "guardar"
+        sa.mostrar()
+        comprobar(llamadas[-1][0] == 1 and llamadas[-1][3] == "/home/otra.txt", "selectores: mostrar() sigue el modo y propone el archivo %r" % (llamadas[-1],))
+        # CampoArchivo y CampoCarpeta
+        resp[0] = "/home/x.bin"
+        cam = []
+        ca.conectar("cambio", lambda: cam.append(ca.texto))
+        comprobar(ca.elegir() == "/home/x.bin" and ca.texto == "/home/x.bin" and cam == ["/home/x.bin"],
+                  "selectores: CampoArchivo.elegir() deja la ruta en el cuadro y dispara cambio %r" % (cam,))
+        ca.w.al_pulsar()
+        comprobar(llamadas[-1][0] == 0, "selectores: el botón «...» llama al selector")
+    finally:
+        vps._dialogo = orig
+    orig_c = vps.dialogo_carpeta
+    vps.dialogo_carpeta = lambda titulo="", carpeta=None: "/home/docs"
+    try:
+        ev = []
+        sc.conectar("seleccionado", lambda: ev.append(sc.carpeta))
+        comprobar(sc.mostrar() == "/home/docs" and sc.carpeta == "/home/docs" and ev == ["/home/docs"], "selectores: SelectorDeCarpetas.mostrar()")
+        comprobar(cc.elegir() == "/home/docs" and cc.texto == "/home/docs", "selectores: CampoCarpeta.elegir()")
+        vps.dialogo_carpeta = lambda titulo="", carpeta=None: ""
+        comprobar(sc.mostrar() is None and cc.elegir() is None and cc.texto == "/home/docs", "selectores: cancelar la carpeta")
+    finally:
+        vps.dialogo_carpeta = orig_c
+    from vps import _autocompletar as AC, _modelo as M, _superficie as SU
+    nom = [m[0] for m in AC.miembros("SelectorDeArchivos")]
+    comprobar("abrir" in nom and "guardar" in nom and "filtro" in nom and "extension_por_defecto" in nom
+              and "conectar(\"seleccionado\", " in nom, "selectores: autocompletado de propiedades, métodos y eventos")
+    comprobar("elegir" in [m[0] for m in AC.miembros("CampoCarpeta")], "selectores: autocompletado de CampoCarpeta")
+    comprobar(all(t in SU.HERRAMIENTAS for t in ("SelectorDeArchivos", "SelectorDeCarpetas", "CampoArchivo", "CampoCarpeta"))
+              and "SelectorDeArchivos" in M.SIN_VENTANA and "CampoArchivo" not in M.SIN_VENTANA, "selectores: en la caja de herramientas")
+    selectores_2(f)
+    comprobar(vps.TIPOS["SelectorDeArchivos"] is vps.SelectorDeArchivos and "CampoCarpeta" in vps.__all__, "selectores: registrados en vps.TIPOS")
+    cerrar_todo()
+
+
+def selectores_2(f):
+    """SelectorDeColor, SelectorDeFuente, ComboFuentes, Calendario y SelectorFecha (v8.4.3, D303)."""
+    from vps import _selectores as S, _fechas as FE
+    # color: el diálogo del sistema (sagui.dialogo(3)) se sustituye
+    sc = vps.SelectorDeColor(f, titulo="Color", nombre="Co1")
+    vistos = []
+    sc.conectar("seleccionado", lambda: vistos.append(sc.color))
+    sc.conectar("cancelado", lambda: vistos.append("can"))
+    orig = S._dialogo_sagui
+    try:
+        S._dialogo_sagui = lambda tipo, titulo, ini: (True, "#10ff20")
+        comprobar(sc.mostrar() == 0x10FF20 and sc.color == 0x10FF20 and vistos == [0x10FF20], "color: mostrar() devuelve el color y dispara seleccionado")
+        S._dialogo_sagui = lambda tipo, titulo, ini: (True, None)
+        comprobar(sc.mostrar() is None and vistos[-1] == "can", "color: cancelar")
+        # fuente
+        sf = vps.SelectorDeFuente(f, familia="DejaVu Sans", tamano=14, estilo="negrita", subrayado=True, nombre="Fu1")
+        comprobar(sf.cadena() == "DejaVu Sans 14 negrita subrayado", "fuente: cadena() %r" % sf.cadena())
+        et = vps.Etiqueta(f, 8, 70, 100, 20, nombre="EtF", texto="x")
+        sf.color = 0xFF0000
+        sf.aplicar_a(et)
+        comprobar(et.fuente == "DejaVu Sans 14 negrita subrayado" and et.color == 0xFF0000, "fuente: aplicar_a(control)")
+        S._dialogo_sagui = lambda tipo, titulo, ini: (True, ("Sans", 2, 20, 2, 0x00ff00))
+        ev = []
+        sf.conectar("seleccionado", lambda: ev.append(1))
+        comprobar(sf.mostrar() is True and sf.familia == "Sans" and sf.estilo == "cursiva" and sf.tamano == 20
+                  and sf.tachado is True and sf.color == 0x00FF00 and ev == [1], "fuente: lee el resultado del diálogo")
+        S._dialogo_sagui = lambda tipo, titulo, ini: (True, None)
+        comprobar(sf.mostrar() is False, "fuente: cancelar")
+    finally:
+        S._dialogo_sagui = orig
+    # ComboFuentes: buscador
+    cf = vps.ComboFuentes(f, 8, 100, 160, 22, nombre="CF1")
+    cf.texto = "mono"
+    comprobar(cf.filtrar() == ["DejaVu Sans Mono", "Monospace"] and cf.filtrar("serif") == ["DejaVu Serif", "Serif"], "ComboFuentes: el buscador filtra %r" % (cf.filtrar(),))
+    # calendario
+    comprobar(FE.dia_semana(2026, 11, 15) == 6 and FE.dia_semana(2024, 2, 29) == 3 and FE.dias_del_mes(2024, 2) == 29
+              and FE.dias_del_mes(2100, 2) == 28, "calendario: días del mes y día de la semana")
+    comprobar(FE.analizar("2026-02-30") is None and FE.analizar("2026-11-15") == (2026, 11, 15), "calendario: analizar fechas")
+    cal = vps.Calendario(f, 8, 130, 196, 170, nombre="Cal1", valor="2026-11-15")
+    comprobar(cal.valor == "2026-11-15" and (cal.anio, cal.mes, cal.dia) == (2026, 11, 15), "calendario: valor, anio, mes y dia")
+    cal.w._wl, cal.w._wa = 196, 170
+    cam = []
+    cal.conectar("cambio", lambda: cam.append(cal.valor))
+    cw, ch = cal.w._geom()
+    # el 10 de noviembre de 2026 es martes: fila 2, columna 1
+    cal.w.event_generate("<ButtonPress-1>", x=2 + cw + cw // 2, y=2 + FE.ALTO_CAB + FE.ALTO_SEM + 2 * ch + ch // 2)
+    comprobar(cal.valor == "2026-11-10" and cam == ["2026-11-10"], "calendario: un clic en un día lo elige y dispara cambio %r" % (cal.valor,))
+    cal.w.event_generate("<ButtonPress-1>", x=196 - 8, y=8)
+    comprobar(cal.w.visible == (2026, 12) and cal.valor == "2026-11-10", "calendario: la flecha cambia de mes sin cambiar el día")
+    cal.valor = "2027-01-31"
+    comprobar(cal.w.visible == (2027, 1) and cal.dia == 31, "calendario: poner valor muestra su mes")
+    sfe = vps.SelectorFecha(f, 8, 310, 130, 22, nombre="SF1", valor="2026-11-15")
+    fcam = []
+    sfe.conectar("cambio", lambda: fcam.append(sfe.valor))
+    sfe.valor = "2026-12-24"
+    comprobar(sfe.valor == "2026-12-24" and fcam == ["2026-12-24"], "SelectorFecha: valor y evento cambio")
+    sfe.valor = "no es fecha"
+    comprobar(fcam == ["2026-12-24"], "SelectorFecha: un texto que no es fecha no dispara cambio")
 
 
 if __name__ == "__main__":

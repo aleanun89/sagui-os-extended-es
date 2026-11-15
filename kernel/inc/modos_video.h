@@ -7,6 +7,7 @@
 void    modos_iniciar(void);              /* después de video_iniciar: registra la lista en el log */
 int32_t modos_info_tela(uint32_t ptr);    /* INFO_TELA */
 #include "abi.h"
+int32_t cab_opc_gravar(uint32_t pedido);   /* D323: INFO_CAB_OPC */
 int     modos_lista(modo_video_t *v, int n);   /* la lista de SIS_MODOS_VIDEO, para el kernel (D066) */
 
 #endif

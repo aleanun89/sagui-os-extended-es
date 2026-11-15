@@ -29,6 +29,7 @@
 #include <iterator>
 #include <algorithm>
 #include <functional>
+#include <stack>
 #include <list>
 #include <vector>
 
@@ -351,6 +352,26 @@ static void prueba_algoritmos()
               "numeric_limits");
 }
 
+static void prueba_pila()
+{
+    std::stack<int> p;
+    COMPROBAR(p.empty() && p.size() == 0, "stack vacía");
+    p.push(1); p.push(2); p.push(3);
+    COMPROBAR(p.size() == 3 && p.top() == 3, "stack push y top");
+    p.pop();
+    COMPROBAR(p.size() == 2 && p.top() == 2, "stack pop");
+    std::vector<int> v = { 1, 2, 3, 4 };
+    int ins[3] = { 7, 8, 9 };
+    v.insert(v.begin() + 1, ins, ins + 3);
+    COMPROBAR(v.size() == 7 && v[0] == 1 && v[1] == 7 && v[3] == 9 && v[4] == 2 && v[6] == 4, "vector::insert de un rango en medio");
+    v.insert(v.end(), ins, ins + 2);
+    COMPROBAR(v.size() == 9 && v[7] == 7 && v[8] == 8, "vector::insert de un rango al final");
+    std::vector<std::string> sv = { "a", "b" };
+    std::vector<std::string> otro = { "x", "y", "z" };
+    sv.insert(sv.begin(), otro.begin(), otro.end());
+    COMPROBAR(sv.size() == 5 && sv[0] == "x" && sv[3] == "a" && sv[4] == "b", "vector::insert de un rango de cadenas");
+}
+
 int main()
 {
     prueba_construir();
@@ -363,6 +384,7 @@ int main()
     prueba_mapa();
     prueba_flujos();
     prueba_algoritmos();
+    prueba_pila();
     std::printf("%d comprobaciones, %d fallos\n", total, fallos);
     if (!fallos) std::printf("todo bien\n");
     return fallos ? 1 : 0;

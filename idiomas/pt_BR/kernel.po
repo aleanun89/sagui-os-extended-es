@@ -126,8 +126,8 @@ msgid "Acerca de %s"
 msgstr "Sobre o %s"
 
 #: kernel/gui/area_trabalho.c:1053
-msgid "Este pendrive no está en FAT32 ni ext2/ext4: formato no soportado."
-msgstr "Este pendrive não está em FAT32 nem ext2/ext4: formato não suportado."
+msgid "Este pendrive no está en FAT32, exFAT ni ext2/ext4: formato no soportado."
+msgstr "Este pendrive não está em FAT32, exFAT nem ext2/ext4: formato não suportado."
 
 #: kernel/gui/area_trabalho.c:1054
 msgid "No se pudo montar el pendrive."

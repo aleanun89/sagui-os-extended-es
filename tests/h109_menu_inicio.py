@@ -168,8 +168,8 @@ def principal():
         for _ in range(pos[0]):
             m.tecla("down")
         m.tecla("ret")
-        m.esperar_serial("inicio -> /bin/visorpdf", 25)
-        verificar("/bin/visorpdf" in m.serial()[marca5:], "o Visor de PDF abre desde o menu Inicio")
+        m.esperar_serial("inicio -> /apps/bin/visorpdf", 25)
+        verificar("/apps/bin/visorpdf" in m.serial()[marca5:], "o Visor de PDF abre desde o menu Inicio")
 
     return 0
 

@@ -1,4 +1,4 @@
-#!/bin/python
+#!/apps/bin/python
 # SPDX-License-Identifier: GPL-2.0-or-later
 # vps.disenador - el diseñador de VisualPythonS (mejora 123, D297): un entorno al estilo del
 # Visual Basic clásico para hacer aplicaciones sencillas en Python, con el aspecto de Win98.

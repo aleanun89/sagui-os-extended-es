@@ -96,7 +96,7 @@ def main():
     pend = pendientes()
     resultado = []      # (página, fila, rótulo, bien)
     try:
-        imagem = imagem_de_teste("/bin/cipo %s1" % base, ["--vesa"])
+        imagem = imagem_de_teste("/apps/bin/cipo %s1" % base, ["--vesa"])
         with Maquina("h271", "ide", imagem=imagem, extras=["-nic", "user,model=e1000"]) as m:
             desde = 0
             for n, pag in enumerate(PAGINAS, 1):

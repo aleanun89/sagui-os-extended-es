@@ -284,7 +284,7 @@ def cipo():
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Tratador, directory=pasta))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     porta = srv.server_address[1]
-    img = imagem_de_teste(f"/bin/cipo http://10.0.2.2:{porta}/", ["--vesa"])
+    img = imagem_de_teste(f"/apps/bin/cipo http://10.0.2.2:{porta}/", ["--vesa"])
     vermelho_ok = azul_ok = False
     with Maquina("h276-cipo", "ide", imagem=img, extras=["-nic", "user,model=e1000"], som="hda") as m:
         m.esperar_serial("cipo: pronto", 90)

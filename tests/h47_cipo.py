@@ -63,7 +63,7 @@ def main():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     porta = srv.server_address[1]
 
-    img = imagem_de_teste(f"/bin/cipo http://10.0.2.2:{porta}/", ["--vesa"])
+    img = imagem_de_teste(f"/apps/bin/cipo http://10.0.2.2:{porta}/", ["--vesa"])
     with Maquina("h47", "ide", imagem=img, extras=["-nic", "user,model=e1000"]) as m:
         m.esperar_serial("cipo: pronto", 60)
         s = m.serial()

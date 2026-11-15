@@ -3,6 +3,7 @@
  * Fuente, Párrafo y Buscar/Reemplazar. Ventanas modales con listas, casillas y cuadros de
  * texto del kit gráfico. */
 #include "gui.h"
+#include "pdf_escribir.h"
 
 #define CTL_MAX 12
 
@@ -89,62 +90,59 @@ void lista_en_marco(jan_t *j, lista_t *l)
 
 /* ------------------------------------------------------------ Fuente */
 
-static const int tams[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72 };
-#define N_TAMS ((int)(sizeof tams / sizeof tams[0]))
-static const struct { const char *nome; uint32_t cor; } cores_fonte[] = {
-    { "Negro", 0x000000 }, { "Rojo", 0xFF0000 }, { "Verde oscuro", 0x008000 }, { "Azul", 0x0000FF },
-    { "Azul oscuro", 0x000080 }, { "Rojo oscuro", 0x800000 }, { "Gris", 0x808080 }, { "Naranja", 0xFF8000 },
-};
-#define N_CORES ((int)(sizeof cores_fonte / sizeof cores_fonte[0]))
+/* ---- la lista de familias (D319): cada nombre con su propia fuente ---- */
 
-bool dialogo_fonte(rte_fmt_t *f)
+/* Rellena it con las familias: las clásicas con el nombre de Word (o con "clasicas" si no es NULL) y
+ * las del sistema. Antes vuelve a mirar las carpetas si actualizar. Devuelve cuántas. */
+static int llenar_familias(char (*it)[64], const char *const *clasicas, bool actualizar)
 {
-    static char it_fam[3][64] = { "Helvetica (sans)", "Times (serif)", "Courier (mono)" };
-    static char it_est[4][64] = { "Normal", "Cursiva", "Negrita", "Negrita cursiva" };
-    static char it_tam[16][64], it_cor[8][64];
-    for (int i = 0; i < N_TAMS; i++) formatar_texto(it_tam[i], 64, "%d", tams[i]);
-    for (int i = 0; i < N_CORES; i++) copia_texto(it_cor[i], cores_fonte[i].nome, 64);
-    jan_t *j = jan_abrir("Fuente", 500, 350);
+    const fuentes_prov_t *p = fuentes_prov_obter();
+    if (actualizar && p && p->actualizar) p->actualizar();
+    int n = p && p->cantidad ? p->cantidad() : 3;
+    if (n < 3) n = 3;
+    if (n > PDFW_FAM_MAX + 1) n = PDFW_FAM_MAX + 1;
+    for (int i = 0; i < n; i++) copia_texto(it[i], i < 3 && clasicas ? clasicas[i] : pdfw_nombre_familia(i), 64);
+    return n;
+}
+
+static void lista_familias_desenhar(jan_t *j, lista_t *l)
+{
+    lista_desenhar(j, l);                  /* marco, selección y barra; luego cada nombre con su fuente */
+    int vis = (l->a - 4) / LISTA_ALTURA_ITEM;
+    for (int k = 0; k < vis && l->topo + k < l->qtd; k++) {
+        int i = l->topo + k, y = l->y + 2 + k * LISTA_ALTURA_ITEM;
+        bool sel = i == l->sel;
+        g_retangulo(j, l->x + 3, y, l->l - 12, LISTA_ALTURA_ITEM, sel ? COR_SELECAO : COR_BRANCO);
+        rte_fmt_t f = { (uint8_t)i, 0, 11, sel ? COR_BRANCO : 0x000000 };
+        rte_amostra(j, l->x + 3, y, l->l - 12, LISTA_ALTURA_ITEM, &f, l->itens[i]);
+    }
+    jan_mostrar_area(j, l->x, l->y, l->l, l->a);
+}
+
+/* El selector de familia de la barra de formato: lista con todas las fuentes, cada una dibujada
+ * con la suya, y «Actualizar lista» para las que se acaban de copiar a /home/fuentes. */
+bool dialogo_familia(int *fam)
+{
+    static char it[PDFW_FAM_MAX + 1][64];
+    int n = llenar_familias(it, NULL, true);
+    registrar("dialogo: fuentes %d familias\n", n);
+    jan_t *j = jan_abrir("Fuente", 400, 380);
     if (!j) return false;
     jan_estilo(j, JAN_DIALOGO, 0, 0);
-    int est = (f->est & RTE_NEGRITA ? 2 : 0) | (f->est & RTE_CURSIVA ? 1 : 0);
-    int sel_tam = -1, sel_cor = -1;
-    for (int i = 0; i < N_TAMS; i++) if (tams[i] == f->tam) sel_tam = i;
-    for (int i = 0; i < N_CORES; i++) if (cores_fonte[i].cor == f->cor) sel_cor = i;
-    lista_t l[4] = {
-        { 14, 30, 150, 104, it_fam, 3, f->fam < 3 ? f->fam : 0, 0, NULL, NULL },
-        { 176, 30, 124, 104, it_est, 4, est, 0, NULL, NULL },
-        { 306, 30, 56, 104, it_tam, N_TAMS, sel_tam, 0, NULL, NULL },
-        { 368, 30, 118, 104, it_cor, N_CORES, sel_cor, 0, NULL, NULL },
-    };
-    for (int i = 0; i < 4; i++) {
-        int vis = (l[i].a - 4) / LISTA_ALTURA_ITEM;
-        if (l[i].sel >= vis) l[i].topo = l[i].sel - vis + 1;
-    }
-    casilla_t c_sub = { 14, 156, (f->est & RTE_SUBLINHADO) != 0 }, c_ris = { 170, 156, (f->est & RTE_RISCADO) != 0 };
-    botao_t ok = { 300, 312, 90, 26, "Aceptar", false }, cancel = { 400, 312, 90, 26, "Cancelar", false };
-    int foco = 0;
-    bool aceptar = false;
+    lista_t l = { 14, 30, 372, 290, it, n, *fam >= 0 && *fam < n ? *fam : 0, 0, NULL, lista_familias_desenhar };
+    int vis = (l.a - 4) / LISTA_ALTURA_ITEM;
+    if (l.sel >= vis) l.topo = l.sel - vis + 1;
+    botao_t ok = { 204, 340, 90, 26, "Aceptar", false }, cancel = { 300, 340, 84, 26, "Cancelar", false }, act = { 14, 340, 150, 26, "Actualizar lista", false };
+    bool aceptar = false, redib = true;
     evento_t e;
-    bool redib = true;
     for (;;) {
         if (redib) {
             fondo(j);
-            etiqueta(j, 14, 10, "Fuente:"); etiqueta(j, 176, 10, "Estilo:"); etiqueta(j, 306, 10, "Tamaño:"); etiqueta(j, 368, 10, "Color:");
-            for (int i = 0; i < 4; i++) lista_en_marco(j, &l[i]);
-            casilla98(j, &c_sub, "Subrayado"); casilla98(j, &c_ris, "Tachado");
-            etiqueta(j, 14, 186, "Vista previa");
-            g_retangulo(j, 14, 206, 472, 90, COR_BRANCO);
-            g_bisel(j, 12, 204, 476, 94, true);
-            rte_fmt_t g = *f;
-            g.fam = (uint8_t)l[0].sel;
-            g.est = (uint8_t)((l[1].sel & 1 ? RTE_CURSIVA : 0) | (l[1].sel & 2 ? RTE_NEGRITA : 0) |
-                              (c_sub.marcada ? RTE_SUBLINHADO : 0) | (c_ris.marcada ? RTE_RISCADO : 0));
-            if (l[2].sel >= 0) g.tam = (uint8_t)tams[l[2].sel];
-            if (g.tam > 40) g.tam = 40;   /* la muestra cabe en el cuadro */
-            if (l[3].sel >= 0) g.cor = cores_fonte[l[3].sel].cor;
-            rte_amostra(j, 14, 206, 472, 90, &g, "AaBbYyZz Texto de ejemplo");
-            boton98(j, &ok); boton98(j, &cancel);
+            char t[64];
+            formatar_texto(t, sizeof t, "Fuentes instaladas: %d", n);
+            etiqueta(j, 14, 10, t);
+            lista_familias_desenhar(j, &l);
+            boton98(j, &ok); boton98(j, &cancel); boton98(j, &act);
             jan_mostrar(j);
             redib = false;
         }
@@ -154,22 +152,40 @@ bool dialogo_fonte(rte_fmt_t *f)
         if (e.tipo == EV_TECLA && e.tecla == '\n') { aceptar = true; break; }
         if (boton98_tratar(j, &ok, &e)) { aceptar = true; break; }
         if (boton98_tratar(j, &cancel, &e)) break;
-        if (casilla98_tratar(j, &c_sub, "Subrayado", &e) || casilla98_tratar(j, &c_ris, "Tachado", &e)) redib = true;
-        for (int i = 0; i < 4; i++) {
-            if (e.tipo == EV_CLIQUE && en(e.x, e.y, l[i].x, l[i].y, l[i].l, l[i].a)) foco = i;
-            if (e.tipo == EV_TECLA && i != foco) continue;
-            if (lista_tratar(j, &l[i], &e) != LISTA_NADA) redib = true;
+        if (boton98_tratar(j, &act, &e)) {
+            int sel = l.sel;
+            n = llenar_familias(it, NULL, true);
+            l.qtd = n; l.sel = sel < n ? sel : 0;
+            registrar("dialogo: fuentes %d familias\n", n);
+            redib = true;
+            continue;
         }
+        int r = lista_tratar(j, &l, &e);
+        if (r == LISTA_ATIVOU) { aceptar = true; break; }
+        if (r != LISTA_NADA) redib = true;
     }
-    if (aceptar) {
-        f->fam = (uint8_t)l[0].sel;
-        f->est = (uint8_t)((l[1].sel & 1 ? RTE_CURSIVA : 0) | (l[1].sel & 2 ? RTE_NEGRITA : 0) |
-                           (c_sub.marcada ? RTE_SUBLINHADO : 0) | (c_ris.marcada ? RTE_RISCADO : 0));
-        if (l[2].sel >= 0) f->tam = (uint8_t)tams[l[2].sel];
-        if (l[3].sel >= 0) f->cor = cores_fonte[l[3].sel].cor;
-    }
+    if (aceptar && l.sel >= 0) *fam = l.sel;
     jan_fechar(j);
-    return aceptar;
+    return aceptar && l.sel >= 0;
+}
+
+/* D327: el diálogo Fuente de Pluma es el común (dialogos_cf.c): familia filtrable, estilo, tamaño,
+ * efectos, color con dialogo_cor y muestra. Aquí solo se traduce de y a rte_fmt_t. */
+bool dialogo_fonte(rte_fmt_t *f)
+{
+    fonte_sel_t s;
+    memset(&s, 0, sizeof s);
+    s.fam = f->fam;
+    s.estilo = (uint8_t)(f->est & (RTE_NEGRITA | RTE_CURSIVA));
+    s.efeitos = (uint8_t)((f->est & RTE_SUBLINHADO ? FONTE_EFEITO_SUBLINHADO : 0) | (f->est & RTE_RISCADO ? FONTE_EFEITO_RISCADO : 0));
+    s.tam = f->tam;
+    s.cor = f->cor;
+    if (!dialogo_fonte_sistema("Fuente", &s)) return false;
+    f->fam = (uint8_t)s.fam;
+    f->est = (uint8_t)(s.estilo | (s.efeitos & FONTE_EFEITO_SUBLINHADO ? RTE_SUBLINHADO : 0) | (s.efeitos & FONTE_EFEITO_RISCADO ? RTE_RISCADO : 0));
+    f->tam = (uint8_t)s.tam;
+    f->cor = s.cor;
+    return true;
 }
 
 /* ------------------------------------------------------------ Párrafo */

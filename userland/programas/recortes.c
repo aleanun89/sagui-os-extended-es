@@ -196,7 +196,7 @@ static int previa(const imagem_t *im)
             criar_pasta("/tmp/recortes");
             char c[200];
             nombre_auto(c, sizeof c, "/tmp/recortes");
-            if (gravar(c, im) >= 0) { char *av[] = { "paint", c, NULL }; executar("/bin/paint", av); }
+            if (gravar(c, im) >= 0) { char *av[] = { "paint", c, NULL }; executar("/apps/bin/paint", av); }
             else copia_texto(msg, "No se pudo guardar para Paint.", sizeof msg);
         } else if (i == 3) acao = A_NUEVO;
         if (msg[0] || i < 4) {

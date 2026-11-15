@@ -89,18 +89,6 @@ $(B)/userland/bin/dosbox: $(DB_OBJ) $(DB_PLAT_OBJ) $(SDL12_OBJ) $(CXXRT_OBJ) $(L
 	objcopy --strip-all $@.elf $@
 	@$(PY) $(CHECK_ELF32) $@.elf
 
-# Recreativa (D294, mejora 119): el lanzador de juegos de DOS; código propio (GPL-2.0 o posterior), en C,
-# con los componentes de la libsagui. Va a /apps/bin junto con DOSBox (no entra en la variante sin GPL).
-DB_REC_OBJ := $(B)/$(DB_DIR)/plataforma/recreativa.o
-$(DB_REC_OBJ): $(DB_DIR)/plataforma/recreativa.c $(USER_HDR) $(wildcard userland/inc/icones.h userland/inc/imagem.h)
-	@mkdir -p $(dir $@)
-	$(CC) $(UCFLAGS) -c -o $@ $<
-$(B)/userland/bin/recreativa: $(DB_REC_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
-	@mkdir -p $(dir $@)
-	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
-	objcopy --strip-all $@.elf $@
-	@$(PY) $(CHECK_ELF32) $@.elf
-
 # Lo que va a /apps/dosbox: las licencias y el leeme.
 DB_RECURSOS := $(B)/dosbox-res/.feito
 $(DB_RECURSOS): $(DB_J)/COPYING $(DB_J)/AUTHORS $(DB_DIR)/leeme.txt
@@ -111,5 +99,5 @@ $(DB_RECURSOS): $(DB_J)/COPYING $(DB_J)/AUTHORS $(DB_DIR)/leeme.txt
 	@touch $@
 
 # D194: no es de la base: /apps/bin (la partición SAGUI-APPS) y /apps/dosbox.
-APPS_BINS += $(B)/userland/bin/dosbox $(B)/userland/bin/recreativa
+APPS_BINS += $(B)/userland/bin/dosbox
 APPS_RECURSOS += dosbox:$(B)/dosbox-res

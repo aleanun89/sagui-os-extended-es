@@ -305,7 +305,7 @@ def main():
         # ---- (e) ícone, seletor, AURORA com som e o Archivos
         marca = len(m.serial())
         m.clique(150, 40 + 3 * 84 + 30, duplo=True)
-        esperar(m, r"\[GUI\] icone CHIP-8 -> /bin/chip8", 15, marca)
+        esperar(m, r"\[GUI\] icone CHIP-8 -> /apps/bin/chip8", 15, marca)
         esperar(m, r"chip8: pronto \(sin rom\)", 20, marca)
         verificar(True, "o ícone da área de trabalho abre o emulador")
         time.sleep(1)

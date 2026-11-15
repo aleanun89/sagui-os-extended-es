@@ -79,7 +79,8 @@ def comprobar(img, rotulo, solo_leeme=True):
     ls = subprocess.run([DEBUGFS, "-R", "ls -p /", p], capture_output=True, text=True).stdout
     nombres = {l.split("/")[5] for l in ls.splitlines() if l.count("/") >= 5} - {".", "..", "lost+found"}
     if solo_leeme:
-        verificar(nombres == {"LEEME"}, f"[{rotulo}] solo contiene LEEME ({sorted(nombres)})")
+        # D318: el instalador deja ademas etc/ (sombra, hostname, zona, servicios) en SAGUI-CONF
+        verificar(nombres in ({"LEEME"}, {"LEEME", "etc"}), f"[{rotulo}] solo contiene LEEME (y etc/ del instalador, D318) ({sorted(nombres)})")
     return c
 
 

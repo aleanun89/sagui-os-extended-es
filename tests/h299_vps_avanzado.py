@@ -164,6 +164,32 @@ def principal():
         m.tecla("ctrl-z", 0.6)
         m.tecla("ctrl-y", 0.6)
         m.captura("H299-3b-editor")
+        # fallo #42: cursor en una línea baja, escribir «msg»: la lista sale junto a la palabra, no arriba
+        m.tecla("ctrl-end", 0.2)
+        m.digitar("\n\n\n\n\n\n", 0.05)
+        marca7 = len(m.serial())
+        m.digitar("msg", 0.15)
+        esperar(m, "vps: ventanitas|", marca7, 10)
+        time.sleep(0.6)
+        m.captura("H342-autocompletar-lista")
+        v = re.findall(r"vps: ventanitas\|cursor (-?\d+) (-?\d+)\|lista (-?\d+) (-?\d+) (-?\d+) (-?\d+)\|firma (-?\d+) (-?\d+) "
+                       r"(-?\d+) (-?\d+)\|editor (\d+) (\d+)", m.serial()[marca7:])
+        verificar(bool(v), "el editor informa de dónde pone la lista")
+        cx, cy, lx, ly, lw, lh, fx, fy, fw, fh, ew, eh = [int(x) for x in v[-1]]
+        verificar(cy > 16 * 6, "#42: el cursor está en una línea baja (y=%d)" % cy)
+        verificar(0 <= ly - (cy + 16) <= 2 and abs(lx - (cx - 3 * 8)) <= 2,
+                  "#42: la lista está bajo la palabra, no arriba (lista %d,%d; palabra %d,%d)" % (lx, ly, cx - 24, cy))
+        verificar(lx + lw <= ew and ly + lh <= eh, "#42: la lista cabe en el editor")
+        # la firma al abrir un paréntesis
+        m.tecla("escape", 0.3)
+        m.digitar("box(", 0.15)
+        esperar(m, "vps: ventanitas|", marca7 + 1, 10)
+        time.sleep(0.6)
+        m.captura("H342-autocompletar-firma")
+        v = re.findall(r"vps: ventanitas\|cursor (-?\d+) (-?\d+)\|lista (-?\d+) (-?\d+) (-?\d+) (-?\d+)\|firma (-?\d+) (-?\d+) "
+                       r"(-?\d+) (-?\d+)\|editor (\d+) (\d+)", m.serial()[marca7:])
+        cx, cy, lx, ly, lw, lh, fx, fy, fw, fh, ew, eh = [int(x) for x in v[-1]]
+        verificar(fy + fh <= cy and fx + fw <= ew and fy >= 0, "#42: la firma va encima de la línea y cabe (firma %d,%d %dx%d; línea y=%d)" % (fx, fy, fw, fh, cy))
         cerrar(m, ed)
         time.sleep(1)
 

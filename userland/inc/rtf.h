@@ -14,6 +14,9 @@
 
 /* Carga el RTF en un documento vacío (lo limpia antes). 0 = bien, -1 = no es RTF. */
 int rtf_ler(rte_t *r, const char *dados, int n);
+/* Tras rtf_ler: cuántas fuentes del RTF no están en el sistema y se sustituyeron por la clásica más
+ * parecida (D319), con sus nombres separados por comas en lista (si no es NULL). 0 = ninguna. */
+int rtf_fuentes_sustituidas(char *lista, int n);
 /* Escribe el documento como RTF; *saida se libera con libera(). 0 = bien. */
 int rtf_escrever(rte_t *r, char **saida, int *n);
 

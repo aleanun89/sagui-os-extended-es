@@ -106,6 +106,7 @@ def nombres_de_codigo(form):
 
 
 FONDO_ERROR, FONDO_PUNTO, FONDO_ACTUAL = 0xFFC8C8, 0xFFD890, 0xB8D8FF
+LETRA_L, LETRA_A = 8, 16     # el tamaño de la letra del sistema
 IDENT = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
 
@@ -144,6 +145,10 @@ class Editor:
         self._sug = None        # la lista de sugerencias (Listbox) cuando está abierta
         self._sug_items = []
         self._sug_prefijo = ""
+        self._firma = None      # la ventanita con la firma de la función (Label) cuando está abierta
+        self._firma_texto = ""
+        self.geom_sug = None    # (x, y, ancho, alto) de la lista, respecto al cuerpo del editor (para las pruebas)
+        self.geom_firma = None
         self._lineas_antes = 1
         self._linea_antes = 1
         self._silencio = False  # Esc cerró la lista: no se vuelve a abrir hasta empezar otra palabra
@@ -151,7 +156,8 @@ class Editor:
         t.bind("<Return>", self._intro)
         t.bind("<Tab>", self._tab)
         t.bind("<Key>", self._tecla)
-        t.bind("<Button-1>", lambda e: (self._cerrar_sug(), self._sin_silencio(), t.after_idle(self._posicion)))
+        t.bind("<Button-1>", lambda e: (self._cerrar_sug(), self._cerrar_firma(), self._sin_silencio(),
+                                        t.after_idle(self._posicion)))
         t.bind("<F5>", lambda e: dis.ejecutar())
         t.bind("<F8>", lambda e: dis.depurar_paso())
         t.bind("<F9>", lambda e: self.alternar_punto())
@@ -175,6 +181,7 @@ class Editor:
 
     def ocultar(self):
         self._cerrar_sug()
+        self._cerrar_firma()
         self.top.withdraw()
 
     def visible(self):
@@ -366,6 +373,11 @@ class Editor:
                 self._sugerir(False, True)
         else:
             self._silencio = False
+        # la firma sigue visible mientras el cursor está dentro de los paréntesis de la llamada
+        if self._firma is not None and ch != "(":
+            self._actualizar_firma()
+        elif self._firma is None and ch == "," :
+            self._actualizar_firma()
 
     def _intro(self, ev):
         if self._sug is not None:
@@ -439,7 +451,10 @@ class Editor:
 
     def _escape(self, ev):
         if self._sug is None:
-            return None
+            if self._firma is None:
+                return None
+            self._cerrar_firma()
+            return "break"
         self._cerrar_sug()
         self._silencio = True
         return "break"
@@ -464,29 +479,37 @@ class Editor:
         self._sug_items = cand
         self._sug_prefijo = prefijo
         n = min(len(cand), 10)
-        ancho = max(len(c[2]) for c in cand)
-        ancho = max(18, min(ancho, 46)) * 8 + 24
-        b = self.t.bbox("insert")
-        x = (b[0] if b else 0) - len(prefijo) * 8
-        y = (b[1] if b else 0) + 18
+        g = self._geom_cursor(len(prefijo))
+        maxcar = max(12, min(60, (g[2] - 16) // LETRA_L))
+        textos = []
+        for texto, clase, firma, ayuda in cand:
+            marca = {"propiedad": "p", "método": "m", "evento": "e", "control": "c", "palabra": "k",
+                     "variable": "v", "clase": "C", "integrada": "i", "módulo": "M"}.get(clase, "f")
+            t = "%s %s" % (marca, firma if clase != "evento" else texto.split("(")[0] + " (evento)")
+            if len(t) > maxcar:
+                t = t[:maxcar - 3] + "..."      # elipsis: la lista nunca es más ancha que el editor
+            textos.append(t)
+        ncar = max(14, max(len(t) for t in textos))
+        ancho = ncar * LETRA_L + 14
+        alto = n * 18 + 6                       # la fila del Listbox mide 18 píxeles
         if self._sug is None:
             self._sug = tk.Listbox(self.cuerpo, height=n, width=10, takefocus=0, exportselection=0)
             self._sug.bind("<Double-Button-1>", lambda e: self._aceptar_sug())
             self._sug.bind("<Button-1>", lambda e: self._sug.after_idle(self._clic_sug))
         s = self._sug
         s.delete(0, "end")
-        for texto, clase, firma, ayuda in cand:
-            marca = {"propiedad": "p", "método": "m", "evento": "e", "control": "c", "palabra": "k",
-                     "variable": "v", "clase": "C", "integrada": "i", "módulo": "M"}.get(clase, "f")
-            s.insert("end", "%s %s" % (marca, firma if clase != "evento" else texto.split("(")[0] + " (evento)"))
+        for t in textos:
+            s.insert("end", t)
         s.configure(height=n)
-        tw = self.t.winfo_width() or 600
-        s.place(x=max(0, min(x, tw - ancho)), y=y, width=ancho, height=n * 16 + 6)
+        self.geom_sug = self._colocar_ventanita(s, ancho, alto, g, "lista")
         s.selection_clear(0, "end")
         s.selection_set(0)
         self._sug_sel = 0
         self._ayuda_sug()
+        if self._firma is not None:
+            self._actualizar_firma()            # la firma va encima de la línea y la lista debajo
         print("vps: sugerencias|%d" % len(cand))
+        self._informar_posiciones()
 
     def _clic_sug(self):
         sel = self._sug.curselection() if self._sug is not None else ()
@@ -513,7 +536,145 @@ class Editor:
             self._sug.destroy()
             self._sug = None
             self._sug_items = []
+            self.geom_sug = None
             self._posicion()
+
+    # --- posición y tamaño de las ventanitas (lista de nombres y firma)
+    def _geom_cursor(self, atras=0):
+        """(x, y, ancho, alto) respecto a `cuerpo`: x e y son la esquina de arriba a la izquierda de
+        la letra que está `atras` caracteres antes del cursor (el principio de la palabra), ancho y alto
+        son los del área visible del texto. Se calcula por línea, columna, desplazamiento y tamaño de letra
+        (8x16) y no con `bbox`: este devuelve nada cuando la línea aún no se ha redibujado (Intro
+        recién pulsado), y entonces la lista salía arriba del todo (fallo #42)."""
+        t = self.t
+        t.see("insert")
+        l, c = [int(x) for x in t.index("insert").split(".")]
+        total = max(1, int(t.index("end-1c").split(".")[0]))
+        try:
+            topo = int(round(t.yview()[0] * total))
+        except Exception:
+            topo = 0
+        b = int(str(t.cget("borderwidth")) or 0)
+        px = int(str(t.cget("padx")) or 0)
+        py = int(str(t.cget("pady")) or 0)
+        try:
+            ox, oy = t.winfo_x(), t.winfo_y()
+        except Exception:
+            ox = oy = 0
+        xdesp = 0
+        try:
+            fx = t.xview()[0]
+            if fx > 0:      # desplazamiento horizontal (si el widget lo tiene)
+                xdesp = int(fx * max(len(x) for x in self.lineas()) * LETRA_L)
+        except Exception:
+            pass
+        x = ox + b + px + max(0, c - atras) * LETRA_L - xdesp
+        y = oy + b + py + (l - 1 - topo) * LETRA_A
+        ancho = (t.winfo_width() or 600)
+        alto = (t.winfo_height() or 400)
+        return x, y, ancho, alto
+
+    def _colocar_ventanita(self, w, ancho, alto, g, cual):
+        """Coloca `w` (lista o firma) de `ancho` x `alto` píxeles junto a la palabra que se escribe `g`
+        (ver _geom_cursor) y devuelve (x, y, ancho, alto). La firma va encima de la línea (o debajo
+        si no cabe); la lista, debajo (o encima si no cabe). Si están las dos, no se tapan entre sí
+        ni tapan la línea que se edita. Nunca se sale del editor."""
+        x, y, W, H = g
+        tw = self.t
+        ox, oy = tw.winfo_x(), tw.winfo_y()
+        ancho = min(ancho, W - 2)
+        x = max(ox, min(x, ox + W - ancho))
+        otra = self.geom_firma if cual == "lista" else self.geom_sug
+        # huecos: debajo de la línea y encima de ella
+        abajo = y + LETRA_A
+        arriba = y
+        if cual == "firma":
+            if arriba - alto >= oy:
+                py = arriba - alto
+            else:
+                py = abajo
+                if otra is not None and otra[1] >= abajo:
+                    py = otra[1] + otra[3]
+        else:
+            if otra is not None and otra[1] >= abajo:    # la firma está debajo: la lista, tras ella
+                abajo = otra[1] + otra[3]
+            if abajo + alto <= oy + H:
+                py = abajo
+            else:
+                py = arriba - alto
+                if otra is not None and otra[1] + otra[3] <= arriba and otra[1] + otra[3] > py:
+                    py = otra[1] - alto
+        py = max(oy, min(py, oy + H - alto))
+        w.place(x=x, y=py, width=ancho, height=alto)
+        return (x, py, ancho, alto)
+
+    def _informar_posiciones(self):
+        """Imprime dónde están las ventanitas respecto a la línea del cursor (lo lee la prueba)."""
+        g = self._geom_cursor(0)
+        s = self.geom_sug or (-1, -1, 0, 0)
+        f = self.geom_firma or (-1, -1, 0, 0)
+        print("vps: ventanitas|cursor %d %d|lista %d %d %d %d|firma %d %d %d %d|editor %d %d"
+              % ((g[0], g[1]) + s + f + (g[2], g[3])))
+
+    @staticmethod
+    def _partir(texto, ncar):
+        """Parte `texto` en líneas de `ncar` caracteres como mucho, cortando en los espacios."""
+        r = []
+        for parrafo in texto.split("\n"):
+            actual = ""
+            for pal in parrafo.split(" "):
+                while len(pal) > ncar:                  # una palabra más larga que la línea
+                    if actual:
+                        r.append(actual)
+                        actual = ""
+                    r.append(pal[:ncar])
+                    pal = pal[ncar:]
+                if actual and len(actual) + 1 + len(pal) > ncar:
+                    r.append(actual)
+                    actual = pal
+                else:
+                    actual = (actual + " " + pal) if actual else pal
+            r.append(actual)
+        return r
+
+    def _mostrar_firma(self, texto):
+        """Abre (o actualiza) la ventanita con la firma completa, partida en varias líneas si hace falta."""
+        g = self._geom_cursor(0)
+        ncar = max(20, min(72, (g[2] - 16) // LETRA_L))
+        if " - " in texto:
+            firma, ayuda = texto.split(" - ", 1)
+            lineas = self._partir(firma, ncar) + self._partir(ayuda, ncar)
+        else:
+            lineas = self._partir(texto, ncar)
+        maxl = max(len(x) for x in lineas)
+        ancho = maxl * LETRA_L + 12
+        alto = len(lineas) * LETRA_A + 8
+        if self._firma is None:
+            self._firma = tk.Label(self.cuerpo, text="", anchor="nw", justify="left", bg="#ffffe0",
+                                   relief="solid", bd=1, padx=2, pady=2, takefocus=0)
+        self._firma.configure(text="\n".join(lineas))
+        self._firma_texto = texto
+        self.geom_firma = self._colocar_ventanita(self._firma, ancho, alto, g, "firma")
+        if self._sug is not None:        # la lista se recoloca con la firma ya puesta
+            gs = self.geom_sug
+            self.geom_sug = self._colocar_ventanita(self._sug, gs[2], gs[3], g, "lista")
+        self._informar_posiciones()
+
+    def _cerrar_firma(self):
+        if self._firma is not None:
+            self._firma.place_forget()
+            self._firma.destroy()
+            self._firma = None
+            self._firma_texto = ""
+            self.geom_firma = None
+
+    def _actualizar_firma(self):
+        """La firma solo se ve mientras el cursor está dentro de los paréntesis de una llamada conocida."""
+        h = AC.ayuda_llamada(self._linea_hasta_cursor(), self.dis.proy["forms"], self.texto())
+        if h:
+            self._mostrar_firma(h)
+        else:
+            self._cerrar_firma()
 
     def _aceptar_sug(self):
         if self._sug is None:
@@ -538,6 +699,9 @@ class Editor:
         h = AC.ayuda_llamada(self._linea_hasta_cursor(), self.dis.proy["forms"], self.texto())
         if h:
             self.estado.configure(text=h)
+            self._mostrar_firma(h)
+        else:
+            self._cerrar_firma()
 
     # --- puntos de parada
     def _pintar_puntos(self):

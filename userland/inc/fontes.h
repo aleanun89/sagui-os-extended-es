@@ -62,6 +62,23 @@ typedef struct { char ruta[88]; char familia[48]; char estilo[24]; } fuente_info
 /* Busca *.otf y *.ttf en las dos carpetas y lee la familia de cada una (solo la
  * tabla name, sin cargar la fuente). Ordenado por familia. Devuelve cuántas. */
 int fuentes_catalogo(fuente_info_t *v, int max);
+
+/* ---- las familias del sistema para los programas de documentos (D319) ----
+ * Pluma y los demás (Macaco, PlanoMini, GebraMini podrán usarla) agrupan las fuentes de /fontes
+ * (DejaVu, en el ramdisk), /apps/fuentes y /home/fuentes por FAMILIA, con una ruta por estilo:
+ * ruta[0] regular, ruta[1] negrita, ruta[2] cursiva, ruta[3] negrita cursiva (cadena vacía = no
+ * hay). Los nombres salen de la tabla name del fichero (el nombre del fichero si no la trae); lo
+ * que no es negrita ni cursiva en el estilo (Light, Condensed...) pasa a formar otra familia.
+ * Si una familia está en dos carpetas gana la primera de la lista. Ordenadas por nombre. */
+#define FUENTES_DIR_SISTEMA "/fontes"
+typedef struct { char familia[48]; char ruta[4][88]; } familia_fuente_t;
+int fuentes_sistema_listar(familia_fuente_t *v, int max);
+/* Instala el proveedor de fuentes de documento (familias.c) en la libsagui: las familias >= 3 de
+ * rte/pdfw/rtf pasan a ser estas fuentes (el 0..2 clásico se dibuja con DejaVu). Idempotente. */
+void fuentes_doc_instalar(void);
+/* Para pruebas: vuelve a leer las carpetas y devuelve cuántas familias quedan registradas. */
+int fuentes_doc_actualizar(void);
+
 /* Fuente por defecto elegida en Configuración: uso 0 = documentos, 1 = títulos.
  * Copia la ruta; devuelve false si no hay ninguna elegida. */
 bool fuentes_defecto(int uso, char *ruta, int n);

@@ -162,8 +162,15 @@ static void rodar_programa_de_teste(char *linha)
  * primer programa ya vea el teclado y el escritorio elegidos. */
 static void aplicar_configuracao(void)
 {
-    char *argv[] = { "configuracion", "--aplicar", NULL };
-    int pid = processo_executar("/bin/configuracion", 2, argv, NULL);
+    /* D323: la aceleración (2D, 3D, cabecera del disco) la cambia solo root: con la sesión como sagui, el programa
+     * arranca como root, lo aplica y baja él mismo a la identidad de la sesión (le pasa su uid y gid) antes de
+     * aplicar lo demás, que sigue corriendo con los mismos permisos de siempre. */
+    char suid[12], sgid[12];
+    snformatar(suid, sizeof suid, "%u", UID_SAGUI);
+    snformatar(sgid, sizeof sgid, "%u", GID_SAGUI);
+    char *argv[] = { "configuracion", "--aplicar", suid, sgid, NULL };
+    int pid = permisos_uid_inicial() == UID_ROOT ? processo_executar("/bin/configuracion", 2, argv, NULL)
+                                                 : processo_executar_como("/bin/configuracion", 4, argv, UID_ROOT, GID_ROOT);
     klog("[SAGUI] configuracion --aplicar: %d\n", pid);
     if (pid < 0) return;
     uint32_t limite = relogio_tiques() + 15 * TIQUES_POR_SEGUNDO;

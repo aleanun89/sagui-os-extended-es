@@ -53,6 +53,10 @@ int  info_sistema(int tipo, void *buf, unsigned n);
 _Bool dialogo_abrir(const char *titulo, const char *filtros, const char *inicial, char *saida, int max);
 _Bool dialogo_guardar(const char *titulo, const char *filtros, const char *inicial, char *saida, int max);
 _Bool dialogo_carpeta(const char *titulo, const char *inicial, char *saida, int max);
+/* D327: diálogos de color y fuente (dialogos_cf.c) */
+typedef struct { char familia[48]; int fam; unsigned char estilo, efeitos; int tam; uint32_t cor; } fonte_sel_t;
+_Bool dialogo_cor(const char *titulo, uint32_t *cor);
+_Bool dialogo_fonte_sistema(const char *titulo, fonte_sel_t *f);
 void preencher32(uint32_t *d, uint32_t cor, size_t n);
 extern const unsigned char fonte_sagui[256][16];
 
@@ -1307,7 +1311,9 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_portapapeis_obj, 0, 1, mod_portap
 /* ------------------------------------------------------------ diálogos de archivos (D272, D297) */
 
 /* dialogo(tipo, titulo="", filtros="", inicial=""): el diálogo de archivos de estilo Windows 95 del
- * sistema. tipo: 0 = abrir, 1 = guardar, 2 = elegir carpeta (esta no usa filtros). filtros =
+ * sistema. tipo: 0 = abrir, 1 = guardar, 2 = elegir carpeta (esta no usa filtros), 3 = color, 4 = fuente (D327:
+ * 3 devuelve 0xRRGGBB, `inicial` = "RRGGBB"; 4 devuelve (familia, estilo, tam, efectos, 0xRRGGBB), `inicial` =
+ * "familia;tam;estilo;efectos;RRGGBB"; estilo 1 negrita 2 cursiva, efectos 1 subrayado 2 tachado). filtros =
  * "Texto (*.txt)|*.txt|Todos|*" (vacío: todos). Devuelve la ruta elegida o None si se cancela.
  * Una sola función y no tres porque un nombre nuevo pediría regenerar los qstr (D034); vps.py
  * le pone los nombres bonitos (dialogo_abrir, dialogo_guardar). */
@@ -1320,6 +1326,55 @@ static mp_obj_t mod_dialogo(size_t n, const mp_obj_t *a)
     if (n > 3 && a[3] != mp_const_none) sagui_str_para_latin1(a[3], inicial, sizeof inicial);
     saida[0] = 0;
     _Bool ok;
+    if (tipo == 3 || tipo == 4) {   /* D327: 3 = color (0xRRGGBB o None), 4 = fuente (tupla o None) */
+        unsigned cv = 0;
+        const char *p = inicial;
+        if (p[0] == '#') p++;
+        if (tipo == 3) {
+            for (; (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'); p++)
+                cv = cv * 16 + (unsigned)(*p <= '9' ? *p - '0' : (*p | 32) - 'a' + 10);
+            uint32_t cor = cv & 0xFFFFFF;
+            MP_THREAD_GIL_EXIT();
+            ok = dialogo_cor(titulo[0] ? titulo : "Color", &cor);
+            MP_THREAD_GIL_ENTER();
+            return ok ? mp_obj_new_int((mp_int_t)cor) : mp_const_none;
+        }
+        /* inicial = "familia;tam;estilo;efectos;RRGGBB" (todo opcional al final) */
+        fonte_sel_t f;
+        memset(&f, 0, sizeof f);
+        f.fam = -1; f.tam = 12;
+        int campo = 0, k = 0;
+        char tmp[64];
+        for (const char *q = inicial;; q++) {
+            if (*q == ';' || !*q) {
+                tmp[k] = 0;
+                if (campo == 0) { strncpy(f.familia, tmp, sizeof f.familia - 1); }
+                else {
+                    unsigned v = 0;
+                    for (int i = 0; tmp[i]; i++) {
+                        char c = tmp[i];
+                        v = campo == 4 ? v * 16 + (unsigned)(c <= '9' ? c - '0' : (c | 32) - 'a' + 10) : v * 10 + (unsigned)(c - '0');
+                    }
+                    if (campo == 1) f.tam = (int)v;
+                    else if (campo == 2) f.estilo = (unsigned char)v;
+                    else if (campo == 3) f.efeitos = (unsigned char)v;
+                    else if (campo == 4) f.cor = v & 0xFFFFFF;
+                }
+                campo++; k = 0;
+                if (!*q) break;
+            } else if (k < 60) tmp[k++] = *q;
+        }
+        MP_THREAD_GIL_EXIT();
+        ok = dialogo_fonte_sistema(titulo[0] ? titulo : "Fuente", &f);
+        MP_THREAD_GIL_ENTER();
+        if (!ok) return mp_const_none;
+        vstr_t v;
+        vstr_init(&v, 48);
+        sagui_latin1_para_vstr(&v, f.familia, strlen(f.familia));
+        mp_obj_t it[5] = { mp_obj_new_str_from_vstr(&v), mp_obj_new_int(f.estilo), mp_obj_new_int(f.tam),
+                           mp_obj_new_int(f.efeitos), mp_obj_new_int((mp_int_t)f.cor) };
+        return mp_obj_new_tuple(5, it);
+    }
     MP_THREAD_GIL_EXIT();
     if (tipo == 0) ok = dialogo_abrir(titulo[0] ? titulo : "Abrir", filtros[0] ? filtros : NULL, inicial, saida, sizeof saida);
     else if (tipo == 1) ok = dialogo_guardar(titulo[0] ? titulo : "Guardar como", filtros[0] ? filtros : NULL, inicial, saida, sizeof saida);

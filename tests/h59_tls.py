@@ -44,7 +44,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, imagem_console, RAIZ, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, imagem_console, RAIZ, SAIDA, opcoes_apps  # noqa: E402
 
 from cryptography import x509  # noqa: E402
 from cryptography.hazmat.primitives import hashes, serialization  # noqa: E402
@@ -362,7 +362,8 @@ def parte_cipo(p):
                     "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
                     "--ramdisk", sgfs, "--saida", img, "--vesa",
-                    "--teste", f"/bin/cipo https://10.0.2.2:{p['13ec']}/segura.html"], check=True, stdout=subprocess.DEVNULL)
+                    "--teste", f"/apps/bin/cipo https://10.0.2.2:{p['13ec']}/segura.html",
+                    *opcoes_apps()], check=True, stdout=subprocess.DEVNULL)
     with Maquina("h59-cipo", "ide", imagem=img) as m:
         m.esperar_serial("cipo: pronto", 90)
         s = m.serial()

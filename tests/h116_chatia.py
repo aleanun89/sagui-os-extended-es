@@ -34,7 +34,7 @@ def main():
     porta = servidor.porta
     # A linha de ordem do auto-teste cabe em 64 bytes: o modelo e curto.
     imagem = imagem_de_teste(
-        f"/bin/chatia --url http://10.0.2.2:{porta}/v1 --modelo prova", ["--vesa"])
+        f"/apps/bin/chatia --url http://10.0.2.2:{porta}/v1 --modelo prova", ["--vesa"])
     try:
         with Maquina("h116", "ide", imagem=imagem, extras=["-nic", "user,model=e1000"]) as m:
             m.esperar_serial("chatia: janela", 60)

@@ -333,13 +333,15 @@ void gpu3d_iniciar(void)
 {
     cab = cabecalho_boot[CAB_GPU3D];
     int pedido = cab & GPU3D_CAB_MODO;
+    bool seguro = (info_boot.opcoes & OPC_BOOT_ACEL_SEGURO) || (cabecalho_boot[CAB_ACEL2D] & CAB_ACEL_SEGURO);   /* D323 */
+    if (seguro) pedido = GPU3D_CAB_NAO;
     variante = cab & GPU3D_CAB_ANEL;
     drv = NULL; estado = GPU3D_SEM_GPU;
     snformatar(placa_nome, sizeof placa_nome, "ninguna");
     if ((info_boot.opcoes & OPC_BOOT_SGL_SOFTWARE) || pedido == GPU3D_CAB_NAO) {
         estado = GPU3D_DESATIVADO;
         snformatar(motivo, sizeof motivo, "la opcion de arranque pide SaguiGL por software (%s)",
-                   pedido == GPU3D_CAB_NAO ? "--gpu3d=no" : "SGL_MOTOR=software");
+                   seguro ? "modo seguro de la aceleracion" : pedido == GPU3D_CAB_NAO ? "--gpu3d=no" : "SGL_MOTOR=software");
     } else if (pedido == GPU3D_CAB_SIMULADO) {
         drv = &gpu3d_sim;
         memset(&disp, 0, sizeof disp); memset(&tela, 0, sizeof tela);

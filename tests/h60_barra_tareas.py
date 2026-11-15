@@ -216,7 +216,7 @@ def main():
         verificar("menu: cancelado" not in m.serial()[marca:], "a seta à esquerda fecha só o submenu")
         m.tecla("right")
         m.tecla("ret")
-        esperar(m, r"inicio -> /bin/paint", desde=marca)
+        esperar(m, r"inicio -> /apps/bin/paint", desde=marca)
         m.esperar_serial('"Paint - sin nombre"', 20)
         time.sleep(1)
         pt = janela(m.serial(), "Paint - sin nombre")

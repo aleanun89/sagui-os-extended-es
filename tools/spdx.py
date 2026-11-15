@@ -198,7 +198,7 @@ def procesar(raiz, aplicar, listar):
         cab = b"\n".join(datos.splitlines()[:40])
         m = RE_SPDX.search(cab)
         if m:
-            (res["ya"] if m.group(1).decode() in (LIC_ELI, LIC_NUEVA) else res["otra"]).append(ruta)
+            (res["ya"] if m.group(1).decode() in (LIC_ELI, LIC_NUEVA, "GPL-3.0-or-later") else res["otra"]).append(ruta)
             continue
         if any(RE_COPY.search(l) and not any(p in l.lower() for p in PROPIOS) for l in cab.splitlines()):
             res["ajeno"].append(ruta)

@@ -95,6 +95,7 @@ int  pt_passos_deshacer(const char *disco);                   /* cuántos cambio
 /* Sistemas de archivos (formatacao.c). "volume" es el nombre de la partición. */
 typedef void (*fs_progresso_t)(int por_cento, void *ctx);
 int  fs_formatar_fat32(const char *volume, const char *rotulo, fs_progresso_t p, void *ctx, char *erro, int max);
+int  fs_formatar_exfat(const char *volume, const char *rotulo, fs_progresso_t p, void *ctx, char *erro, int max);   /* D325 */
 int  fs_formatar_ext2(const char *volume, const char *rotulo, fs_progresso_t p, void *ctx, char *erro, int max);
 /* Después de cambiar el tamaño de la partición: un FAT32 crece hasta donde le da la FAT; si no
  * se puede, se dice por qué. Encoger un sistema de archivos no se hace (D179). */
@@ -111,6 +112,11 @@ int  fs_verificar(const char *volume, char *msg, int max);
 int  fs_redimensionar_ext2(const char *volume, uint32_t setores, fs_progresso_t p, void *ctx, char *msg, int max);
 /* Lo mínimo (sectores, múltiplo de 1 MB) a lo que se puede encoger un ext2 sin mover datos. */
 uint32_t fs_ext2_minimo(const char *volume);
+/* D318: encoger un FAT32 sin mover datos (solo si lo que se corta está libre y quedan al menos
+ * 65.525 clústeres); lo mínimo de un FAT32 y de cualquiera de los dos (0 = no se reconoce). */
+int      fs_reduzir_fat32(const char *volume, uint32_t setores, char *msg, int max);
+uint32_t fs_fat32_minimo(const char *volume);
+uint32_t fs_minimo(const char *volume);
 
 /* Una operación completa (particoes_acoes.c): reserva el disco, cambia, verifica, escribe,
  * guarda el deshacer y suelta el disco (el kernel vuelve a leer la tabla). La usan el
@@ -121,7 +127,7 @@ uint32_t fs_ext2_minimo(const char *volume);
 enum { PA_CRIAR, PA_APAGAR, PA_REDIMENSIONAR, PA_FORMATAR, PA_ATIVAR, PA_TRIM, PA_DESHACER, PA_TABELA_NOVA,
        PA_AMPLIAR,     /* D213: la extendida hasta el final del disco */
        PA_TABELA_GPT };   /* D266: una tabla GPT vacía (con su MBR protector) */
-enum { PA_FS_NENHUM, PA_FS_FAT32, PA_FS_EXT2 };
+enum { PA_FS_NENHUM, PA_FS_FAT32, PA_FS_EXT2, PA_FS_EXFAT };
 typedef struct {
     int      op;
     char     disco[12];
@@ -138,6 +144,49 @@ typedef struct {
     int      resultado;          /* crear: el número de la partición nueva */
 } pt_acao_t;
 int  pt_executar(pt_acao_t *a, char *msg, int max);
+
+/* D318 (particoes_tamanho.c): cambiar el tamaño de una partición hasta donde haga falta. Para
+ * crecer más allá de la lógica que la sigue, las lógicas de detrás se copian al final del disco
+ * (a espacio libre que no se solapa con el suyo: si no cabe, no se mueve nada) y se releen antes
+ * de cambiar la tabla; después la partición crece y luego su sistema de archivos. Encoger es
+ * PA_REDIMENSIONAR (primero el sistema de archivos). */
+typedef struct {
+    char     disco[12];
+    int      numero;
+    uint32_t antes, depois;            /* tamaño de ahora y el final (sectores) */
+    uint32_t maximo;                   /* lo máximo posible (moviendo, si se permite) */
+    uint32_t maximo_sem_mover;
+    uint32_t ext_fim;                  /* 0 = la extendida no cambia; si no, su final nuevo */
+    int      nmover, nmover_possivel;  /* lógicas que se mueven (y las que habría que mover para el máximo) */
+    int      mover[PT_MAX_LOG];        /* sus números (5..) */
+    uint32_t novo_ini[PT_MAX_LOG];     /* su inicio nuevo */
+    uint32_t mover_setores;            /* lo que hay que copiar */
+    uint32_t copiados;
+    fs_progresso_t progresso;
+    void    *ctx;
+} pt_tamanho_t;
+/* Solo cálculos (no lee ni escribe el disco). setores = 0: lo máximo. */
+int  pt_planejar_tamanho(const pt_tabela_t *t, int numero, uint32_t setores, bool mover, pt_tamanho_t *p, char *erro, int max);
+/* Lo hace. conf: DBLOCO_CONF_ARRANQUE en el disco de arranque. Con desmontar_permitido, lo montado
+ * que se toca se desmonta y se vuelve a montar donde estaba al acabar (también si falla). */
+int  pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *msg, int max);
+bool pt_volume_de_ponto(const char *ponto, char *vol, int max);   /* "/home" -> "hda5" */
+
+/* D318 (home_ampliar.c): «ampliar /home a todo el espacio libre» en el disco de arranque. Si /home
+ * es una partición, crece con pt_mudar_tamanho; si está en la RAM, se crea una lógica ext2
+ * SAGUI-DATOS con todo el hueco, se copia /home y se monta. */
+typedef struct {
+    char         disco[12];      /* el de arranque */
+    char         vol[16];        /* la partición de /home ("" si está en la RAM) */
+    bool         criar;          /* no hay partición: se crea */
+    bool         ext_ampliar;    /* criar: la extendida crece antes */
+    uint32_t     criar_ini, criar_set;
+    uint32_t     ganho;          /* sectores que gana /home (0 = nada que hacer) */
+    uint32_t     total_novo;     /* el tamaño final de /home */
+    pt_tamanho_t plano;          /* !criar */
+} home_plano_t;
+int home_planejar(home_plano_t *h, char *msg, int max);
+int home_ampliar(home_plano_t *h, fs_progresso_t p, void *ctx, char *msg, int max);
 bool pt_separar_nome(const char *nome, char *disco, int max, int *numero);   /* "hdb5" -> "hdb", 5 */
 const char *pt_nome_fs(int fs);
 

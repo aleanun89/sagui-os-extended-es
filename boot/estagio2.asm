@@ -99,6 +99,16 @@ inicio:
         mov si, msg_rescate
         call escrever
 .sem_rescate:
+        ; D323: Mayús (izquierda o derecha) pulsado al arrancar = modo seguro de la
+        ; aceleración (2D por la CPU, 3D por software, sin la configuración guardada).
+        mov ah, 0x02
+        int 0x16
+        test al, 0x03
+        jz .sem_seguro
+        or dword [BOOTINFO + BI_OPCOES], OPC_ACEL_SEGURA
+        mov si, msg_acel_segura
+        call escrever
+.sem_seguro:
 
         call preparar_disco
 
@@ -1024,6 +1034,7 @@ gdt_descritor:
 
 msg_titulo:     db "SaguiOS - etapa 2 del cargador", 13, 10, 0
 msg_rescate:    db "Ctrl pulsado: MODO RESCATE", 13, 10, 0
+msg_acel_segura: db "Mayus pulsado: aceleracion en modo seguro", 13, 10, 0
 msg_a20:        db "[1/6] A20 ok", 13, 10, 0
 msg_mem:        db "[2/6] memoria ok: ", 0
 msg_mem2:       db " regiones, ", 0

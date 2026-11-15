@@ -3,13 +3,17 @@
  *
  *   particiones                           todos los discos con su tabla
  *   particiones <disco>                   la tabla de un disco y sus huecos libres
- *   particiones crear <disco> <MB|todo> [fat32|ext2|extendida|tipo=0xNN] [--logica]
+ *   particiones crear <disco> <MB|todo> [fat32|exfat|ext2|extendida|tipo=0xNN] [--logica]
  *                     [--inicio MB] [--etiqueta TEXTO]
  *   particiones borrar <partición> [--trim]
  *   particiones redimensionar <partición> <MB>   (y su ext2 crece o encoge; un FAT32, crece: D213)
  *   particiones ampliar <disco>           la extendida hasta el final del disco (D213)
+ *   particiones ampliar /home | <partición>   la partición, hasta todo el espacio libre del disco: las
+ *                                         lógicas que tenga detrás se mueven al final si hace falta (D318);
+ *                                         si /home está en la RAM, se crea su partición con el espacio libre
+ *   particiones tamaño /home | <partición> <8G|512M|MB|max>   crecer o encoger (D318)
  *   particiones comprobar <partición>     fsck de solo lectura del FAT32 o ext2 (D213)
- *   particiones formatear <partición> fat32|ext2 [etiqueta]
+ *   particiones formatear <partición> fat32|exfat|ext2 [etiqueta]
  *   particiones activa <partición>
  *   particiones trim <partición|disco>     descarta (SSD) el contenido o el espacio libre
  *   particiones deshacer <disco>           vuelve a la tabla de antes del último cambio
@@ -171,12 +175,13 @@ static int usar(void)
 {
     imprimir_em(ERROS,
         "uso: particiones [disco]\n"
-        "     particiones crear <disco> <MB|todo> [fat32|ext2|esp|extendida|tipo=0xNN] [--logica] [--inicio MB] [--etiqueta X]\n"
+        "     particiones crear <disco> <MB|todo> [fat32|exfat|ext2|esp|extendida|tipo=0xNN] [--logica] [--inicio MB] [--etiqueta X]\n"
         "     particiones borrar <partición> [--trim]\n"
         "     particiones redimensionar <partición> <MB>\n"
-        "     particiones ampliar <disco>\n"
+        "     particiones ampliar <disco> | /home | <partición>\n"
+        "     particiones tamaño /home | <partición> <8G|512M|MB|max>\n"
         "     particiones comprobar <partición>\n"
-        "     particiones formatear <partición> fat32|ext2 [etiqueta]\n"
+        "     particiones formatear <partición> fat32|exfat|ext2 [etiqueta]\n"
         "     particiones activa <partición>\n"
         "     particiones trim <partición|disco>\n"
         "     particiones deshacer <disco>\n"
@@ -191,7 +196,7 @@ static void ayuda(void)
         "particiones: la tabla de particiones de los discos (MBR: primarias, extendida y lógicas; GPT: hasta\n"
         "cuatro entradas, con la partición EFI).\n\n"
         "  particiones [disco]                 la tabla y los huecos libres\n"
-        "  particiones crear <disco> <MB|todo> [fat32|ext2|esp|extendida|tipo=0xNN] [--logica]\n"
+        "  particiones crear <disco> <MB|todo> [fat32|exfat|ext2|esp|extendida|tipo=0xNN] [--logica]\n"
         "              [--inicio MB] [--etiqueta X]   una partición nueva en un hueco libre (esp = EFI, FAT32)\n"
         "  particiones borrar <partición> [--trim]    quita la partición de la tabla (se puede deshacer)\n"
         "  particiones redimensionar <partición> <MB> mueve su final; un ext2 crece o encoge con ella\n"
@@ -199,8 +204,13 @@ static void ayuda(void)
         "              crece hasta donde le dé su FAT. Antes y después, una comprobación sin escribir.\n"
         "  particiones ampliar <disco>         la extendida hasta el final del disco (tras grabar la\n"
         "              imagen en un pendrive más grande); luego, \"crear ... --logica\" en el hueco\n"
+        "  particiones ampliar /home           /home hasta todo el espacio libre del disco (las particiones de\n"
+        "              detrás se mueven al final si hace falta; si /home está en la RAM, se le crea partición)\n"
+        "  particiones ampliar <partición>     lo mismo con cualquier partición FAT32 o ext2\n"
+        "  particiones tamaño <partición|/home> <8G|512M|MB|max>   crecer o encoger (encoger: ext2 y FAT32,\n"
+        "              solo si lo que se corta está libre; NTFS no se toca)\n"
         "  particiones comprobar <partición>   comprueba el FAT32 o el ext2 sin cambiar nada\n"
-        "  particiones formatear <partición> fat32|ext2 [etiqueta]\n"
+        "  particiones formatear <partición> fat32|exfat|ext2 [etiqueta]\n"
         "  particiones activa | trim | deshacer | tabla-nueva <disco> [mbr|gpt] ...\n"
         "  En un disco GPT se puede crear, borrar y formatear; el resto (activa, tamaño, deshacer) solo en MBR.\n\n"
         "Lo montado no se toca: desmóntalo antes (umount). La partición de SaguiOS del disco de\n"
@@ -218,6 +228,104 @@ static void descrever(const char *vol, char *s, int max)
                                          compara_texto(d.rotulo, "SAGUI-CONF") == 0
                                          ? "  ATENCION: es la CONFIGURACION DEL SISTEMA (usuarios, contrasenas y claves); sin ella SaguiOS arranca con los valores de fabrica" : "");
     else copia_texto(s, vol, (size_t)max);
+}
+
+/* D318: "8G", "512M", "1024" (MB) o "max"/"todo" (0). -1 si no se entiende. */
+static int64_t ler_tamanho(const char *t)
+{
+    if (compara_texto(t, "max") == 0 || compara_texto(t, "todo") == 0 || compara_texto(t, "máximo") == 0) return 0;
+    uint64_t v = 0, frac = 0, div = 1;
+    const char *p = t;
+    if (*p < '0' || *p > '9') return -1;
+    while (*p >= '0' && *p <= '9') v = v * 10 + (uint64_t)(*p++ - '0');
+    if (*p == ',' || *p == '.') { p++; while (*p >= '0' && *p <= '9' && div < 1000) { frac = frac * 10 + (uint64_t)(*p++ - '0'); div *= 10; } }
+    uint64_t mb;
+    if (*p == 'G' || *p == 'g') { mb = v * 1024 + frac * 1024 / div; p++; }
+    else if (*p == 'T' || *p == 't') { mb = v * 1024 * 1024 + frac * 1024 * 1024 / div; p++; }
+    else { mb = v; if (*p == 'M' || *p == 'm') p++; }
+    if (*p == 'B' || *p == 'b') p++;
+    if (*p || !mb || mb > 2u * 1024 * 1024) return -1;
+    return (int64_t)mb * 2048;
+}
+
+static void progresso_mover(int pc, void *ctx) { progresso(pc > 100 ? 100 : pc, ctx); }
+
+/* D318: «particiones ampliar /home» y «particiones tamaño X N». */
+static int mudar_tamanho(const char *alvo, const char *qtd, bool ampliar)
+{
+    char vol[16], disco[12], m[300];
+    int num = 0;
+    bool home = compara_texto(alvo, "/home") == 0;
+    if (alvo[0] == '/') {
+        if (!pt_volume_de_ponto(alvo, vol, sizeof vol)) {
+            if (home && ampliar) {   /* /home en la RAM: se crea su partición */
+                home_plano_t h;
+                int r = home_planejar(&h, m, sizeof m);
+                if (r < 0) { imprimir_em(ERROS, "particiones: %s\n", m); return 1; }
+                if (!h.ganho) { imprimir("%s\n", m); return 0; }
+                imprimir("/home está en la RAM (se pierde al apagar). Se va a crear en %s una partición SAGUI-DATOS (ext2) de %u MB\n"
+                         "con el espacio libre, copiar a ella lo que hay ahora en /home y montarla en /home.\n", h.disco, h.criar_set / 2048);
+                if (!perguntar("¿Crear la partición de /home?")) { imprimir("No se ha cambiado nada.\n"); return 1; }
+                r = home_ampliar(&h, progresso, NULL, m, sizeof m);
+                if (r < 0) { imprimir_em(ERROS, "particiones: %s\n", m); return 1; }
+                imprimir("%s\n", m);
+                return 0;
+            }
+            imprimir_em(ERROS, "particiones: no hay ninguna partición montada en %s\n", alvo);
+            return 1;
+        }
+    } else copia_texto(vol, alvo, sizeof vol);
+    if (!pt_separar_nome(vol, disco, sizeof disco, &num) || !num) { imprimir_em(ERROS, "particiones: %s no es una partición (mira \"discos\")\n", vol); return 1; }
+    int64_t set = ampliar ? 0 : ler_tamanho(qtd);
+    if (set < 0) { imprimir_em(ERROS, "particiones: tamaño no válido: %s (ejemplos: 8G, 512M, 2048, max)\n", qtd); return 2; }
+    pt_tabela_t t;
+    if (pt_ler(disco, &t) < 0) { imprimir_em(ERROS, "particiones: no se puede leer %s\n", disco); return 1; }
+    pt_part_t *pp = pt_achar(&t, num);
+    if (pp && pp->tipo == 0x07) {
+        imprimir_em(ERROS, "particiones: %s es NTFS: SaguiOS no escribe en NTFS, así que no cambia su tamaño (encógela desde Windows; "
+                           "el espacio libre que haya sí se puede usar)\n", vol);
+        return 1;
+    }
+    pt_tamanho_t p;
+    int r = pt_planejar_tamanho(&t, num, (uint32_t)set, true, &p, m, sizeof m);
+    if (r < 0) { imprimir_em(ERROS, "particiones: %s: %s\n", vol, m); return 1; }
+    if (p.depois < p.antes) {
+        uint32_t min = fs_minimo(vol);
+        if (min && p.depois < min) {
+            imprimir_em(ERROS, "particiones: %s no se puede encoger por debajo de %u MB sin mover datos (lo que ocupa)\n", vol, min / 2048);
+            return 1;
+        }
+    }
+    if (p.depois == p.antes && !p.nmover) { imprimir("%s ya mide %u MB.\n", vol, p.antes / 2048); return 0; }
+    info_disco_t d;
+    bool arranque = info_de(disco, &d) && (d.flags & DISCO_ARRANQUE_REAL);
+    char que[360];
+    descrever(vol, que, sizeof que);
+    imprimir("%s pasará de %u a %u MB%s.\n", que, p.antes / 2048, p.depois / 2048, p.depois > p.antes ? "" : " (encoger: solo si lo que se corta está libre)");
+    if (p.ext_fim) imprimir("  La extendida crece hasta el final del disco.\n");
+    for (int j = 0; j < p.nmover; j++) {
+        char v2[16];
+        pt_nome_particao(disco, p.mover[j], v2, sizeof v2);
+        descrever(v2, que, sizeof que);
+        imprimir("  Se mueve al final del disco: %s (se copia, se relee y se compara antes de cambiar la tabla)\n", que);
+    }
+    imprimir("  Antes se comprueba el sistema de archivos; lo montado que se toca se desmonta y se vuelve a montar.\n");
+    if (!perguntar(p.depois > p.antes ? "¿Ampliar?" : "¿Encoger?")) { imprimir("No se ha cambiado nada.\n"); return 1; }
+    int conf = 0;
+    if (arranque) {
+        /* /home (y lo que se mueva para ampliarlo) es lo único del disco de arranque que se toca sin
+         * --arranque: la orden lo nombra a propósito. La partición de SaguiOS y la ESP, nunca. */
+        if (!home && !permitir_arranque) {
+            imprimir_em(ERROS, "particiones: %s es el disco de arranque de SaguiOS. Si de verdad quieres cambiarlo, añade --arranque.\n", disco);
+            return 1;
+        }
+        conf = DBLOCO_CONF_ARRANQUE;
+    }
+    p.progresso = progresso_mover;
+    r = pt_mudar_tamanho(&p, conf, true, m, sizeof m);
+    if (r < 0) { imprimir_em(ERROS, "particiones: %s\n", m[0] ? m : nome_erro(r)); return 1; }
+    imprimir("%s\n", m);
+    return 0;
 }
 
 int principal(int argc, char **argv)
@@ -242,6 +350,15 @@ int principal(int argc, char **argv)
     if (np == 0) return listar_todos();
     const char *orden = pos[0];
     if (np == 1) return mostrar(orden);
+    /* D318: ampliar una partición o /home, y tamaño. */
+    bool tam = compara_texto(orden, "tamaño") == 0 || compara_texto(orden, "tamano") == 0;
+    if (tam || compara_texto(orden, "ampliar") == 0) {
+        int nn = 0;
+        char dd[12];
+        bool e_part = pos[1][0] == '/' || (pt_separar_nome(pos[1], dd, sizeof dd, &nn) && nn);
+        if (tam && np < 3) return usar();
+        if (tam || e_part) return mudar_tamanho(pos[1], tam ? pos[2] : NULL, !tam);
+    }
     char m[200];
     int num = 0;
     if (!pt_separar_nome(pos[1], a.disco, sizeof a.disco, &num)) {
@@ -270,6 +387,7 @@ int principal(int argc, char **argv)
         }
         if (np >= 4) {
             if (compara_texto(pos[3], "fat32") == 0) a.fs = PA_FS_FAT32;
+            else if (compara_texto(pos[3], "exfat") == 0) a.fs = PA_FS_EXFAT;   /* D325 */
             else if (compara_texto(pos[3], "ext2") == 0) a.fs = PA_FS_EXT2;
             else if (compara_texto(pos[3], "extendida") == 0) a.tipo = 0x0F;
             else if (compara_texto(pos[3], "esp") == 0) { a.fs = PA_FS_FAT32; a.tipo = 0xEF; if (!etiqueta) etiqueta = "SAGUI-ESP"; }   /* D266 */
@@ -313,6 +431,7 @@ int principal(int argc, char **argv)
         if (!num || np < 3) return usar();
         a.op = PA_FORMATAR;
         if (compara_texto(pos[2], "fat32") == 0) a.fs = PA_FS_FAT32;
+        else if (compara_texto(pos[2], "exfat") == 0) a.fs = PA_FS_EXFAT;   /* D325 */
         else if (compara_texto(pos[2], "ext2") == 0) a.fs = PA_FS_EXT2;
         else return usar();
         copia_texto(a.rotulo, np >= 4 ? pos[3] : etiqueta ? etiqueta : "", sizeof a.rotulo);

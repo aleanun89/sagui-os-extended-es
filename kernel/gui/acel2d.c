@@ -671,6 +671,9 @@ void acel2d_iniciar(void)
 {
     modo = cabecalho_boot[CAB_ACEL2D];
     int pedido = modo & ACEL2D_MODO_MASCARA;
+    /* D323: modo seguro de la aceleración (Mayús al arrancar o CAB_ACEL_SEGURO): la CPU hace todo. */
+    bool seguro = (info_boot.opcoes & OPC_BOOT_ACEL_SEGURO) || (modo & CAB_ACEL_SEGURO);
+    if (seguro) pedido = ACEL2D_CPU;
     if (!video_ativo()) { snformatar(motivo, sizeof motivo, "sin modo grafico"); return; }
     tela.fb_fisico = info_boot.vesa_fb;
     tela.pitch = video_pitch();
@@ -679,7 +682,7 @@ void acel2d_iniciar(void)
     tela.memoria = hw_video_memoria_kb() * 1024;
     if (tela.memoria < tela.pitch * (uint32_t)tela.alt) tela.memoria = tela.pitch * (uint32_t)tela.alt;
     if (pedido == ACEL2D_CPU) {
-        snformatar(motivo, sizeof motivo, "la opcion de arranque pide la CPU (--sin-acel2d)");
+        snformatar(motivo, sizeof motivo, seguro ? "modo seguro de la aceleracion: la CPU hace todo" : "la opcion de arranque pide la CPU (--sin-acel2d)");
         klog("[ACEL2D] desactivado: %s\n", motivo);
         return;
     }

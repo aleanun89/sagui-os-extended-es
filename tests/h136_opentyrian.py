@@ -101,7 +101,7 @@ def focar_jogo(m):
 def jogar(m):
     """Arranca o jogo desde o Terminal e comprova a janela, os dados e as teclas."""
     desde = len(m.serial())
-    m.digitar("/bin/opentyrian")
+    m.digitar("/apps/bin/opentyrian")
     m.tecla("ret")
     esperar(m, r"\[OPENTYRIAN\] janela 640x400 criada", 90, desde=desde)
     verificar(True, "o jogo abre a sua janela de 640x400")

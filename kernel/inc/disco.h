@@ -34,7 +34,7 @@ typedef struct disco {
     bool     interno;             /* disco ATA: montado solo para lectura salvo "-o rw" (D040) */
     /* Rellenados por discos.c al reconocer el formato: */
     char     formato[40];         /* "FAT32", "ext2", "exFAT: formato no soportado"... */
-    char     tipo_fs[8];          /* "fat32", "ext2", "ext3", "ext4" o "" (no monta) */
+    char     tipo_fs[8];          /* "fat32", "exfat", "ext2", "ext3", "ext4" o "" (no monta) */
     char     rotulo[20];
     bool     de_boot;             /* disco de arranque de SaguiOS: sin aviso ni icono */
     struct disco *volume;         /* solo en el disco entero: lo que "usb0" monta (primer volumen válido) */

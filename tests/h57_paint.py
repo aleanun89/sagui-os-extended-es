@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""H57 - Paint (/bin/paint, D056).
+"""H57 - Paint (/apps/bin/paint, D056).
 
 Critério:
  (a) `paint /tmp/prueba.bmp` (arquivo novo) abre um lienzo branco de 640x480;
@@ -288,7 +288,7 @@ def main():
         time.sleep(0.5)
         ini = len(m.serial())
         m.clique(150, 40 + 2 * 84 + 30, duplo=True)
-        esperar(m, r"\[GUI\] icone Paint -> /bin/paint", 15, ini)
+        esperar(m, r"\[GUI\] icone Paint -> /apps/bin/paint", 15, ini)
         esperar(m, r"paint: pronto, lienzo 640x480", 20, ini)
         verificar(True, "o ícone da área de trabalho abre o Paint")
     return 0

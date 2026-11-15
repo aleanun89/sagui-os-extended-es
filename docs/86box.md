@@ -213,3 +213,27 @@ de la Voodoo3 que trae 86Box solo ofrecen modos VESA de 16 y 24 bits (1024x768x2
 XTEST como absoluto y lo devuelve al centro de la ventana tras cada evento), así que el arrastre de ventanas no se
 automatiza ([#39](https://github.com/aleanun89/miniOS/issues/39)); se prueba a mano con `./run_in_86box.sh --windows`. El teclado sí funciona: `emu86box.py` teclea «-»
 y «/» con el mapa ES del kernel (la tecla «slash» de EE. UU. es el «-»; el «/» es Mayús+7).
+
+## Batería de emergencia
+
+`tests/emergencia.py` es la revisión rápida de una imagen antes de probarla en hardware real (no es `hNN` ni `bN_`:
+ninguna batería la recoge; tampoco está en `tests/reducida.txt`). Arranca, **en serie y cada máquina envuelta con
+`tools/turno.sh`**: 86Box `p2-450-voodoo3500`, 86Box `p3-rage` y QEMU con **1 núcleo y 512 MB** (KVM si `/dev/kvm` es
+accesible; si no, TCG). En cada una mide el tiempo hasta el escritorio y recoge CPU, RAM, GPU y 2D, sonido, red, disco
+(DMA y caché), `/apps`, USB y teclado, y abre pluma, macaco, paint, python y la Configuración desde `/apps/bin`
+(`configuracion aceleracion` hace de la página de Aceleración gráfica; la ventana no se navega con el ratón).
+
+```
+. ~/.local/saguitools/env.sh
+python3 tests/emergencia.py [--imagen RUTA] [--referencia RUTA] [--salida DIR] [--maquinas p3-rage,qemu-1n-512m]
+sg kvm -c ". ~/.local/saguitools/env.sh; SAGUI_TURNOS=6 python3 tests/emergencia.py --imagen X --referencia Y"
+```
+
+- `--imagen` por omisión `build/saguios.img` (con las particiones SAGUI-APPS/JOGOS/CONF para que `/apps` exista);
+  `--referencia` es una imagen anterior que se pasa por las mismas máquinas: lo que estaba bien y ahora falla sale como
+  **REGRESIÓN** y se muestra el diff de lo detectado.
+- Salida: tabla resumen y código 0 (todo bien) o 1 (algún elemento falla, o regresión). Logs en `build/emergencia/`
+  (o `--salida`): `<máquina>-<ahora|ref>.json` (todo lo recogido), `.txt` (órdenes y su salida), `-serie.txt` (el serie
+  entero), capturas `.png` y `resumen.txt`. `SAGUI_TURNOS` marca los turnos de `turno.sh` (por omisión 2).
+- Una máquina no llega a ser parte del resultado si no arranca: sale como «sin datos» y cuenta como fallo.
+- Las ROM de 86Box se leen de `~/.local/saguitools/86box/roms` y no se copian a ningún sitio.

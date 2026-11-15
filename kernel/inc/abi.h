@@ -426,6 +426,7 @@ typedef struct {
 #define MONTAR_EXT4      0x400
 #define MONTAR_ISO9660   0x500   /* D207: CD/DVD, siempre solo lectura */
 #define MONTAR_UDF       0x600   /* D233: DVD y CD grabados (UDF 1.02-2.01), solo lectura */
+#define MONTAR_EXFAT     0x700   /* D325: pendrives y tarjetas exFAT, lectura y escritura */
 /* SIS_HORA (D080) */
 #define HORA_UTC          0   /* (&hora_t) -> segundos UTC desde 1/1/1970 (ler como unsigned) */
 #define HORA_AJUSTAR      1   /* (segundos UTC, HORA_*) -> 0: acerta o relógio do sistema */
@@ -740,6 +741,8 @@ typedef struct {
 #define INFO_GPU3D        71  /* (&info_gpu3d_t, sizeof) -> 0 */
 #define INFO_GPU3D_OP     72  /* (&gpu3d_pedido_t, sizeof) -> 0, GPU3D_SEM_SUPORTE (> 0) o error (< 0) */
 #define INFO_GPU3D_PROVA  73  /* (&info_gpu3d_prova_t, sizeof) -> 0: autoprueba y medida, ahora */
+#define INFO_CAB_OPC      78  /* D323: (CAB_OPC_PEDIDO(desplazamiento, máscara, valor), 0) -> 0 / error: cambia bits de la cabecera de arranque del disco de arranque (solo administrador); solo CAB_ACEL2D, CAB_GPU3D y CAB_DISCO_OPC */
+#define CAB_OPC_PEDIDO(d, m, v) ((unsigned)(d) | (unsigned)(m) << 8 | (unsigned)(v) << 16)
 #define INFO_GPU3D_CTL    74  /* (op, 0): 0 = apagar, 1 = encender (lotes), 2 = encender con las órdenes en el anillo */
 
 /* Captura de sonido / micrófono (D292). Una sola llamada, como la cámara: info_sistema(INFO_CAPTURA,
@@ -1607,7 +1610,7 @@ typedef struct {
     unsigned int suportado;        /* tem um volume que dá para montar */
     /* D040 */
     char         pai[12];          /* "" = disco inteiro */
-    char         tipo_fs[8];       /* "fat32", "ext2", "ext3", "ext4" ou "" */
+    char         tipo_fs[8];       /* "fat32", "exfat", "ext2", "ext3", "ext4" ou "" */
     char         ponto[64];        /* onde está montado ("" = não está) */
     unsigned int particao;         /* 0 = disco inteiro */
     unsigned int flags;            /* DISCO_* abaixo */

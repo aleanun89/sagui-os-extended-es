@@ -628,7 +628,7 @@ static void jogar(const proj_t *p)
     char c[260];
     nome_destino(p, c, sizeof c);
     char *av[] = { "jclic", c, NULL };
-    int pid = executar("/bin/jclic", av);
+    int pid = executar("/apps/bin/jclic", av);
     if (pid < 0) formatar_texto(estado, sizeof estado, "No se pudo abrir el visor: %s", nome_erro(pid));
 }
 

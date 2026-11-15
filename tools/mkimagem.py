@@ -105,7 +105,7 @@ ACEL2D_PRUEBA = {"": 0, "pixel": 0x10, "tiempo": 0x20}
 
 def acel2d_byte(a):
     modo = ACEL2D_MODOS["cpu"] if a.sin_acel2d else ACEL2D_MODOS[a.acel2d]
-    return modo | ACEL2D_PRUEBA[a.acel2d_prueba]
+    return modo | ACEL2D_PRUEBA[a.acel2d_prueba] | (0x80 if a.acel_segura else 0)   # 0x80: CAB_ACEL_SEGURO (D323)
 
 
 # D285: el byte CAB_GPU3D de la cabecera (kernel/inc/gpu3d.h).
@@ -224,6 +224,9 @@ def main():
                     help="D281: sin caché de bloques común (cada lectura y grabación va al disco)")
     ap.add_argument("--sin-escritura-diferida", action="store_true",
                     help="D281: la caché de bloques graba al instante (sin escritura diferida)")
+    ap.add_argument("--acel-segura", action="store_true",
+                    help="D323: arrancar en modo seguro de la aceleración (2D por la CPU, 3D por software, sin la configuración guardada); "
+                         "es lo que hace Mayús pulsado al arrancar")
     ap.add_argument("--acel2d-prueba", default="", choices=("", "pixel", "tiempo"),
                     help="solo pruebas: la autoprueba del acelerador falla a propósito (un píxel distinto o tiempo agotado)")
     ap.add_argument("--gpu3d", default="auto", choices=sorted(GPU3D_MODOS),

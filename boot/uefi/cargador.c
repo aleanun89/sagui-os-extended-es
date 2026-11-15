@@ -98,6 +98,7 @@ typedef struct __attribute__((packed)) {
 #define CAB_MOTOR      134
 #define OPC_SGL_SOFTWARE 32
 #define OPC_RESCATE      0x4000
+#define OPC_ACEL_SEGURA  0x10000   /* D323: Mayús al arrancar */
 
 /* La zona de transferencia: 4 páginas propias (LoaderCode, por debajo de 4 GB) con todo
  * lo que el kernel lee al empezar y el trampolín con su pila. */
@@ -698,7 +699,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
 
     /* D255: Ctrl pulsado al arrancar = modo rescate. UEFI solo da el estado de Ctrl con
      * una tecla en la cola: se mira si la hay, sin esperar. */
-    UINT32 rescate = 0;
+    UINT32 rescate = 0, acel_segura = 0;
     {
         EFI_GUID gx = GUID_TEXT_INPUT_EX;
         EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *tx = 0;
@@ -709,6 +710,12 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
                 (k.KeyState.KeyShiftState & (EFI_LEFT_CONTROL_PRESSED | EFI_RIGHT_CONTROL_PRESSED))) {
                 rescate = 1;
                 escrever(L"Ctrl pulsado: MODO RESCATE\r\n");
+            }
+            /* D323: Mayús = modo seguro de la aceleración */
+            if ((k.KeyState.KeyShiftState & EFI_SHIFT_STATE_VALID) &&
+                (k.KeyState.KeyShiftState & (EFI_RIGHT_SHIFT_PRESSED | EFI_LEFT_SHIFT_PRESSED))) {
+                acel_segura = 1;
+                escrever(L"Mayus pulsado: aceleracion en modo seguro\r\n");
             }
         }
     }
@@ -875,7 +882,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
     bi->ramdisk_bytes = r_bytes;
     bi->setores_lidos = (k_bytes + 511) / 512 + (r_bytes + 511) / 512;
     memcpy(bi->teste, cab + CAB_TESTE, 64);
-    bi->opcoes = le16(cab + CAB_OPCOES) | (cab[CAB_MOTOR] ? OPC_SGL_SOFTWARE : 0) | (rescate ? OPC_RESCATE : 0);
+    bi->opcoes = le16(cab + CAB_OPCOES) | (cab[CAB_MOTOR] ? OPC_SGL_SOFTWARE : 0) | (rescate ? OPC_RESCATE : 0) | (acel_segura ? OPC_ACEL_SEGURA : 0);
     bi->res_pref = le16(cab + CAB_RES_LARG) | (UINT32)le16(cab + CAB_RES_ALT) << 16;
     bi->bpp_pref = cab[CAB_BPP_PREF];
     bi->modos_qtd = qtd_modos;

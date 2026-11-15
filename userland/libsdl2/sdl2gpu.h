@@ -51,6 +51,16 @@ static int sdlg_quiere(Uint32 flags)
     int modo = sagui_sdl2_gpu;
     const char *e = getenv("SAGUI_SDL2_GPU");
     if (e && e[0]) modo = e[0] == '0' ? -1 : 1;
+    else if (modo == 0) {
+        /* D323: lo que se eligió en Configuración (Aceleración gráfica): /tmp/acel-sdl2 con "1" (sí) o "0" (no);
+         * sin el archivo, automático. La variable de entorno y sagui_sdl2_gpu mandan sobre él. */
+        int fa = abrir("/tmp/acel-sdl2", ABRIR_LER);
+        if (fa >= 0) {
+            char ch = 0;
+            if (ler(fa, &ch, 1) == 1) modo = ch == '1' ? 1 : ch == '0' ? -1 : 0;
+            fechar(fa);
+        }
+    }
     if (modo < 0) return 0;
     return modo > 0 || (flags & SDL_RENDERER_ACCELERATED);
 }

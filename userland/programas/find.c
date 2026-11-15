@@ -70,7 +70,11 @@ static void accion(const char *ruta, unsigned tipo)
         args[k] = NULL;
         char prog[160];
         if (acha_char(args[0], '/')) copia_texto(prog, args[0], sizeof prog);
-        else formatar_texto(prog, sizeof prog, "/bin/%s", args[0]);
+        else {
+            info_arquivo_t inf;
+            formatar_texto(prog, sizeof prog, "/bin/%s", args[0]);
+            if (info_arquivo(prog, &inf) < 0) formatar_texto(prog, sizeof prog, "/apps/bin/%s", args[0]);   /* D324 */
+        }
         int pid = executar(prog, args), c = 1;
         if (pid <= 0) { imprimir_em(ERROS, "find: -exec %s: %s\n", args[0], nome_erro(pid)); erros++; return; }
         esperar(pid, &c);

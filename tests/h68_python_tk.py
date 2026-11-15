@@ -29,8 +29,8 @@ Criterio:
      - geometría: pack (side, fill, expand, padx), grid (sticky, columnspan,
        weight) y place (relx/rely/anchor) con las posiciones esperadas; y
        redimensionar la ventana con la geometría que acompaña.
-  3. Python x87: con -cpu pentium3 (sin SSE2) /bin/python ejecuta la
-     variante /bin/python-x87 y da los mismos resultados que con SSE2
+  3. Python x87: con -cpu pentium3 (sin SSE2) /apps/bin/python ejecuta la
+     variante /apps/bin/python-x87 y da los mismos resultados que con SSE2
      (math.sqrt(2), 1/3, flotante.py y mandelbrot.py).
 """
 import os
@@ -683,7 +683,7 @@ def parte_x87():
             r.append(m.comando("python /ejemplos/flotante.py", tempo=120))
             saidas[cpu] = r
             if cpu == "pentium3":
-                verificar("executar /bin/python-x87" in m.serial(), "pentium3: /bin/python ejecuta /bin/python-x87")
+                verificar("executar /apps/bin/python-x87" in m.serial(), "pentium3: /apps/bin/python ejecuta /apps/bin/python-x87")
                 m.captura("H68-python-x87")
 
     def limpar(t):

@@ -1,0 +1,11 @@
+mGBA 0.10.5 en SaguiOS (D322)
+=============================
+
+Emulador de Game Boy Advance, Game Boy y Game Boy Color. mGBA es de endrift y colaboradores
+(https://mgba.io), licencia MPL-2.0 (el texto, en LICENSE; blip_buf es LGPL-2.1 y inih, BSD).
+
+Uso:   mgba [opciones] ROM.gba|ROM.gb|ROM.gbc
+Las ROM NO vienen con el sistema (no hay ninguna ROM ni BIOS de Nintendo): copia las tuyas a
+/jogos/gba, /jogos/gb y /jogos/gbc (o por input_share/games/). mGBA no necesita la BIOS de la
+GBA (lleva una propia).
+Guardados y estados: /home/.config/mgba/ (docs/mgba.md).

@@ -257,6 +257,128 @@ int fs_verificar(const char *vol, char *m, int max)
     return verificar_ext2(vol, m, max);
 }
 
+/* ------------------------------------------------------------ FAT32: encoger (D318) */
+
+/* Un FAT32 encoge sin mover datos: el volumen se corta por el final solo si todos los clústeres
+ * que desaparecen están libres, ninguna entrada de la FAT apunta a ellos y la carpeta raíz queda
+ * dentro. La FAT no cambia de sitio ni de tamaño (queda más grande de lo necesario, como las que
+ * se preparan para crecer, D213): solo cambian el total de sectores del sector de arranque (y su
+ * copia) y el FSInfo. Por debajo de 65.525 clústeres el volumen dejaría de ser FAT32 (Windows lo
+ * leería como FAT16): eso se niega. */
+#define FAT32_MIN_CLUSTERS 65525u
+
+typedef struct { uint32_t spc, rsvd, nf, tot, fatsz, raiz, dados, clusters; } fat_geo_t;
+
+static int fat_geo(const char *vol, uint8_t *s, fat_geo_t *g, char *m, int max)
+{
+    int r = blocos_ler(vol, 0, 1, s);
+    if (r < 0) { msg_txt(m, max, "%s: %s", vol, nome_erro(r)); return r; }
+    if (s[510] != 0x55 || s[511] != 0xAA || memcmp(s + 82, "FAT32   ", 8) != 0) { msg_txt(m, max, "%s no es FAT32", vol); return ERRO_FORMATO; }
+    g->spc = s[13]; g->rsvd = le16(s + 14); g->nf = s[16]; g->tot = le32(s + 32); g->fatsz = le32(s + 36); g->raiz = le32(s + 44);
+    if (!g->spc || !g->nf || !g->fatsz || g->tot <= g->rsvd + g->nf * g->fatsz) { msg_txt(m, max, "%s: FAT32 con datos incoherentes", vol); return ERRO_FORMATO; }
+    g->dados = g->rsvd + g->nf * g->fatsz;
+    g->clusters = (g->tot - g->dados) / g->spc;
+    return 0;
+}
+
+/* El clúster usado más alto (2.. clusters+1), o 0 si la FAT no se puede leer. Además, en *apunta,
+ * el destino más alto de un enlace (para ver que nadie apunta a lo que se corta). */
+static uint32_t fat_ultimo_usado(const char *vol, const fat_geo_t *g, uint32_t *apunta)
+{
+    const uint32_t lote = 64;
+    uint8_t *a = aloca(lote * 512);
+    if (!a) return 0;
+    uint32_t setores = ((g->clusters + 2) * 4 + 511) / 512, ult = 2, alto = 0;
+    for (uint32_t sec = 0; sec < setores; sec += lote) {
+        uint32_t q = setores - sec > lote ? lote : setores - sec;
+        if (blocos_ler(vol, g->rsvd + sec, q, a) < 0) { libera(a); return 0; }
+        for (uint32_t i = 0; i < q * 128; i++) {
+            uint32_t c = sec * 128 + i;
+            if (c < 2) continue;
+            if (c >= g->clusters + 2) break;
+            uint32_t v = le32(a + i * 4) & 0x0FFFFFFFu;
+            if (!v) continue;
+            ult = c;
+            if (v >= 2 && v < 0x0FFFFFF7u && v > alto) alto = v;
+        }
+    }
+    libera(a);
+    if (g->raiz > ult) ult = g->raiz;
+    if (apunta) *apunta = alto;
+    return ult;
+}
+
+/* Lo mínimo (sectores, múltiplo de 1 MB) a lo que se puede encoger un FAT32 sin mover datos:
+ * hasta el último clúster en uso, más 1 MB de margen, y nunca por debajo de 65.525 clústeres. */
+uint32_t fs_fat32_minimo(const char *vol)
+{
+    uint8_t s[512];
+    fat_geo_t g;
+    char m[8];
+    if (fat_geo(vol, s, &g, m, sizeof m) < 0) return 0;
+    uint32_t alto = 0, ult = fat_ultimo_usado(vol, &g, &alto);
+    if (!ult) return 0;
+    if (alto > ult) ult = alto;
+    uint32_t cl = ult - 1;   /* clústeres 2..ult */
+    if (cl < FAT32_MIN_CLUSTERS) cl = FAT32_MIN_CLUSTERS;
+    uint64_t setores = (uint64_t)g.dados + (uint64_t)cl * g.spc + 2048;
+    setores = (setores + 2047) / 2048 * 2048;
+    if (setores > g.tot) setores = (uint64_t)g.tot / 2048 * 2048 + (g.tot % 2048 ? 2048 : 0);
+    return (uint32_t)setores;
+}
+
+/* Lo mínimo de un FAT32 o un ext2 (0 si no se reconoce). */
+uint32_t fs_minimo(const char *vol)
+{
+    char tipo[16];
+    if (!fs_tamanho(vol, tipo, sizeof tipo)) return 0;
+    return compara_texto(tipo, "FAT32") == 0 ? fs_fat32_minimo(vol) : fs_ext2_minimo(vol);
+}
+
+int fs_reduzir_fat32(const char *vol, uint32_t setores, char *m, int max)
+{
+    uint8_t s[512];
+    fat_geo_t g;
+    int r = fat_geo(vol, s, &g, m, max);
+    if (r < 0) return r;
+    if (setores >= g.tot) { msg_txt(m, max, "el FAT32 de %s ya mide %u MB o menos", vol, g.tot / 2048); return 0; }
+    if (setores <= g.dados) { msg_txt(m, max, "%u MB no dan ni para la FAT de %s", setores / 2048, vol); return ERRO_INVALIDO; }
+    uint32_t novos = (setores - g.dados) / g.spc;
+    if (novos < FAT32_MIN_CLUSTERS) {
+        uint32_t min = (uint32_t)(((uint64_t)g.dados + (uint64_t)FAT32_MIN_CLUSTERS * g.spc + 2047) / 2048);
+        msg_txt(m, max, "por debajo de %u MB el volumen de %s dejaría de ser FAT32 (menos de 65.525 clústeres)", min, vol);
+        return ERRO_INVALIDO;
+    }
+    uint32_t alto = 0, ult = fat_ultimo_usado(vol, &g, &alto);
+    if (!ult) { msg_txt(m, max, "no se puede leer la FAT de %s", vol); return ERRO_FORMATO; }
+    if (ult >= novos + 2 || alto >= novos + 2) {
+        uint32_t min = fs_fat32_minimo(vol);
+        msg_txt(m, max, "hay datos al final del FAT32 de %s: como mucho se puede encoger hasta %u MB (no mueve datos; "
+                        "desfragmentar desde Windows puede juntarlos al principio)", vol, min / 2048);
+        return ERRO_INVALIDO;
+    }
+    /* El sector de arranque: primero la copia (sector 6), después el principal; luego el FSInfo. Si
+     * se corta entre los dos, el principal sigue diciendo el tamaño viejo, que cabe en la partición
+     * (la tabla se cambia después, particoes_acoes.c). */
+    uint32_t velhos = g.clusters;
+    po32(s + 32, setores);
+    if ((r = blocos_escrever(vol, 6, 1, s)) < 0 || (r = blocos_escrever(vol, 0, 1, s)) < 0) {
+        msg_txt(m, max, "no se puede escribir el sector de arranque de %s: %s", vol, nome_erro(r));
+        return r;
+    }
+    uint32_t fsi = le16(s + 48);
+    if (fsi && fsi < g.rsvd && blocos_ler(vol, fsi, 1, s) == 0 && le32(s) == 0x41615252) {
+        uint32_t livres = le32(s + 488), prox = le32(s + 492);
+        if (livres != 0xFFFFFFFFu) po32(s + 488, livres >= velhos - novos ? livres - (velhos - novos) : 0xFFFFFFFFu);
+        if (prox != 0xFFFFFFFFu && prox >= novos + 2) po32(s + 492, 0xFFFFFFFFu);
+        blocos_escrever(vol, fsi, 1, s);
+        if (fsi + 6 < g.rsvd) blocos_escrever(vol, fsi + 6, 1, s);
+    }
+    msg_txt(m, max, "el FAT32 de %s ha encogido de %u a %u MB", vol, g.tot / 2048, setores / 2048);
+    registrar("redimensao: %s FAT32 encoge de %u a %u sectores", vol, g.tot, setores);
+    return 1;
+}
+
 /* ------------------------------------------------------------ ext2: redimensionar */
 
 /* Grupos y bloques de un ext2 de "blocos" bloques con esta geometría: el último grupo,

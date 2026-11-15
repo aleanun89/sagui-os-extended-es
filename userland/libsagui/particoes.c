@@ -21,6 +21,9 @@
 
 /* ------------------------------------------------------------ acceso en bruto */
 
+/* D318: en el anfitrión (pruebas de h318) estas llamadas las pone la prueba sobre un archivo. */
+#ifndef SAGUI_ANFITRIAO
+
 static inline int chamar_blocos(unsigned op, const char *nome, unsigned a, unsigned b, unsigned c)
 {
     int r;
@@ -73,6 +76,7 @@ int blocos_zerar(const char *nome, uint32_t lba, uint32_t n)
     }
     return 0;
 }
+#endif
 
 /* ------------------------------------------------------------ utilidades */
 
@@ -668,19 +672,19 @@ int pt_deshacer(const char *disco, char *msg, int max)
     uint8_t s[512];
     for (uint32_t i = 0; i < c->n; i++)
         if (blocos_ler(disco, v[i].lba, 1, s) < 0 || memcmp(s, v[i].depois, 512) != 0) {
-            libera(d);
             erro_txt(msg, max, "la tabla de %s ha cambiado después de \"%s\": no se deshace (se perdería ese cambio)", disco, c->descricao);
+            libera(d);   /* D318: después del mensaje, que lee c (dentro de d) */
             return ERRO_OCUPADO;
         }
     for (uint32_t k = 0; k < c->n; k++) {   /* como pt_gravar: EBR del último al primero, MBR al final */
         uint32_t i = k < c->n - 1 ? c->n - 2 - k : c->n - 1;
         r = blocos_escrever(disco, v[i].lba, 1, v[i].antes);
-        if (r < 0) { libera(d); erro_txt(msg, max, "error al restaurar el sector %u: %s", v[i].lba, nome_erro(r)); return r; }
+        if (r < 0) { erro_txt(msg, max, "error al restaurar el sector %u: %s", v[i].lba, nome_erro(r)); libera(d); return r; }
     }
     for (uint32_t i = 0; i < c->n; i++)
         if (blocos_ler(disco, v[i].lba, 1, s) < 0 || memcmp(s, v[i].antes, 512) != 0) {
-            libera(d);
             erro_txt(msg, max, "el sector %u restaurado no coincide", v[i].lba);
+            libera(d);
             return ERRO_INVALIDO;
         }
     erro_txt(msg, max, "deshecho: \"%s\" (la tabla vuelve a como estaba; los datos de un formateo no vuelven)", c->descricao);

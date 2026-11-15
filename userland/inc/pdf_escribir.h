@@ -4,7 +4,7 @@
  * Crea PDF 1.4 con texto, rectángulos y líneas usando las 14 fuentes estándar
  * (Helvetica, Times y Courier con sus variantes, codificación WinAnsi: los acentos
  * de Latin-1 salen bien) y el contenido comprimido con Flate (deflar + cabecera
- * zlib). No incrusta fuentes ni imágenes.
+ * zlib). Incrusta las fuentes del sistema que use el texto (D319); las 14 estándar no.
  *
  * Todas las medidas van en TWIPS (1/20 de punto, como RTF), con el origen arriba a
  * la izquierda de la hoja y la "y" creciendo hacia abajo: el escritor lo invierte.
@@ -19,6 +19,7 @@
 #ifndef SAGUI_PDF_ESCRIBIR_H
 #define SAGUI_PDF_ESCRIBIR_H
 #include "sagui.h"
+#include "fontes_pdf.h"
 
 #define PDFW_A4     0
 #define PDFW_CARTA  1
@@ -30,6 +31,36 @@
 #define PDFW_CURSIVA  2
 
 typedef struct pdfw pdfw_t;
+
+/* ---- fuentes del sistema (D319) ----
+ * Las familias 0..2 son las clásicas (Helvetica, Times y Courier estándar). Las de numero >= 3
+ * son fuentes TrueType/OpenType instaladas (/fontes, /apps/fuentes, /home/fuentes): las pone un
+ * proveedor (userland/libfontes/familias.c, que usa la FPU y por eso no está en la libsagui; solo
+ * lo instalan los programas que enlazan FONTES_OBJ, como Pluma). Sin proveedor, o si la fuente ya
+ * no se puede abrir, todo se comporta como antes: una familia >= 3 mide, dibuja y exporta como
+ * Helvetica. El PDF incrusta las fuentes del sistema usadas (subconjunto TrueType con FontFile2;
+ * OpenType CFF entera con FontFile3). */
+#define PDFW_FAM_SIS 3
+#define PDFW_FAM_MAX 249
+typedef struct {
+    int  (*ancho)(int fam, int est, unsigned char c);        /* milésimas de em; -1 = esa fuente no está */
+    bool (*info)(int fam, int est, pdfw_finfo_t *i);          /* para incrustar; false = no se puede */
+    uint8_t *(*archivo)(int fam, int est, const uint8_t *usadas, int *n, int *original);  /* aloca; false... NULL = no */
+    /* Un glifo de un carácter Latin-1 como mapa de cobertura 0..255 (l x a, con el desplazamiento ox, oy
+     * respecto a la línea base); NULL = dibujar con la fuente 8x16. Vale para las clásicas y las del sistema. */
+    const uint8_t *(*glifo)(int fam, int est, unsigned char c, int px, int *l, int *a, int *ox, int *oy);
+    int  (*cantidad)(void);                                  /* mayor número de familia + 1 (>= 3) */
+    const char *(*nombre)(int fam);                          /* nombre de familia; NULL si no existe */
+    int  (*resolver)(const char *nombre);                    /* familia del sistema por nombre (sin distinguir mayúsculas), -1 = no hay */
+    int  (*clase)(int fam);                                  /* 0 sans, 1 serif, 2 mono: la clásica más parecida */
+    int  (*actualizar)(void);                                /* vuelve a mirar las carpetas; devuelve cuántas familias nuevas */
+    int  (*estilos)(int fam);                                /* D327: estilos que trae la familia, máscara con el bit (1 << est),
+                                                              * est = RTE_NEGRITA | RTE_CURSIVA (0 normal ... 3 negrita cursiva); NULL = los cuatro */
+} fuentes_prov_t;
+void fuentes_prov_instalar(const fuentes_prov_t *p);
+const fuentes_prov_t *fuentes_prov_obter(void);
+/* Nombre de la familia clásica o del sistema ("Arial", "Times New Roman", "Courier New" o la del sistema). */
+const char *pdfw_nombre_familia(int fam);
 
 /* Tamaño de la hoja en twips (A4 = 11906 x 16838, Carta = 12240 x 15840). */
 void    pdfw_papel_tamanho(int papel, int *largura, int *altura);

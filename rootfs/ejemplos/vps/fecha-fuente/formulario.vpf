@@ -1,0 +1,33 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Fecha y fuente'
+  ancho = 392
+  alto = 190
+control Calendario Calendario1
+  x = 8
+  y = 8
+control SelectorFecha SelectorFecha1
+  x = 212
+  y = 8
+control ComboFuentes ComboFuentes1
+  x = 212
+  y = 40
+control SelectorDeColor SelectorDeColor1
+  x = 212
+  y = 72
+  titulo = 'Color del texto'
+control SelectorDeFuente SelectorDeFuente1
+  x = 252
+  y = 72
+  titulo = 'Fuente del texto'
+control Boton Boton1
+  x = 292
+  y = 76
+  ancho = 80
+  texto = 'Fuente...'
+control Etiqueta Etiqueta1
+  x = 212
+  y = 116
+  ancho = 170
+  alto = 60
+  texto = 'Hola, mundo'

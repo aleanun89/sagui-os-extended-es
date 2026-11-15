@@ -13,9 +13,11 @@
 #   PART_EXT DATOS_MB DATOS_FAT32_MB JOGOS_MB (800; 0 = el justo) JOGOS_IMG_MB (saguios.img: 0)
 #   JOGOS=0 (sin juegos) INPUT_SHARE (input_share; vacío = sin él, D228) OPENJAZZ_DATOS=0 OPENJAZZ=0
 #   DOSBOX=0 (sin DOSBox ni el lanzador Recreativa, D294)
+#   MGBA=0 (sin mGBA, el emulador de GBA, GB y GBC, D322; MPL-2.0, entra con PUBLICABLE=1)
 #   GNUBOY=0 (sin el emulador de Game Boy, D235) CONQUER=0 (sin Command & Conquer, D230) CNC_VIDEOS=1 (con las películas de C&C: ~880 MB más en
 #   /jogos; súbase JOGOS_MB, p. ej. JOGOS_MB=2000)
 #   QUAKE_DATOS=0 QUAKE=0 (D229)
+#   RAMDISK=base|completo (D324; completo = apps dentro del ramdisk, como APPS=0)
 #   APPS_MB (0 = lo justo más margen) APPS=0 (las apps de /apps dentro del ramdisk, D194)
 #   make variantes [DESTINO=entrega/v7.0b] -> todas las imágenes en una carpeta (gerar_versao.sh --todas)
 #   make imagem-smp -> build/saguios-smp.img: la misma imagen con --smp (D164; sin IOAPIC)
@@ -291,6 +293,7 @@ MP_OBJ_X87 := $(patsubst $(B)/%,$(B)/x87/%,$(filter-out $(B)/$(MP_DIR)/ponte_sag
 MP_OBJ += $(LIBC_OBJ)
 ifeq ($(MICROPYTHON),1)
 PROGRAMAS += $(B)/userland/bin/python $(B)/userland/bin/python-x87
+APPS_MOVER += python python-x87
 endif
 # CHIP-8 (D070): o emulador e o montador (regras mais abaixo).
 PROGRAMAS += $(B)/userland/bin/chip8 $(B)/userland/bin/chip8asm
@@ -356,6 +359,7 @@ JOGOS_OPC :=
 JOGOS_OPC_IMG :=
 else
 PROGRAMAS += $(B)/userland/bin/opentyrian
+APPS_MOVER += opentyrian
 # D181: os dados do jogo (o shareware, 6,9 MB) não vão no ramdisk (que se copia
 # inteiro para a RAM): vão numa partição ext2 da própria imagem, SAGUI-JOGOS. D228: el
 # /etc/fstab la monta en /jogos (lectura y escritura), con los datos del OpenTyrian en
@@ -395,13 +399,27 @@ endif
 #   APPS_BINS:      todos los ejecutables de /apps/bin (los de terceros se añaden
 #                   en su .mk, como NetSurf).
 #   APPS_RECURSOS:  "app:carpeta" -> se copia la carpeta a /apps/<app>/.
+# D324: perfil del ramdisk. «base» (por defecto): solo lo fundamental (las aplicaciones van a la
+# partición SAGUI-APPS). «completo»: las mismas aplicaciones dentro del ramdisk, en /apps, sin
+# partición (equivale a APPS=0). La ISO (el kernel no lee el CD, D077) es siempre «completo»:
+# su ramdisk (ramdisk-cd.sgfs) lleva la base mas /apps.
+RAMDISK ?= base
+ifeq ($(RAMDISK),completo)
+APPS := 0
+endif
 APPS ?= 1
 APPS_MB ?= 0
 # gprolog y pl2wam solo si se compilan (no con SEM_GPL=1 ni con GPROLOG=0).
 # sintonia (D225): el reproductor de música propio; la radio por HTTPS le pide la libtls (TLS_PROGS).
-APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS)
+# D324: lo que se mueve del ramdisk a /apps para adelgazarlo (el ramdisk entero se copia a la
+# RAM al arrancar). APPS_MOVER acumula, ademas, lo que solo existe segun la configuracion
+# (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
+APPS_MOVER_FIJO := cipo pluma macaco mico correo planomini gebramini visorpdf chatia ia \
+  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo \
+  chip8 chip8asm jclic jclicbajar
+APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
-APPS_RECURSOS :=
+APPS_RECURSOS := videos:userland/apps/videos
 
 # La libfontes (D196): el motor de fuentes vectoriales (TrueType/OpenType-CFF/WOFF,
 # el del Cipó sacado de userland/web/) y su API sencilla. Usa la FPU x87, como el
@@ -493,6 +511,27 @@ ifeq ($(RSYNC),1)
 include userland/terceros/openrsync/openrsync.mk
 endif
 
+# Recreativa (D294, D321): el lanzador multisistema; también sin DOSBOX.
+ifneq ($(SEM_GPL),1)
+include userland/terceros/recreativa/recreativa.mk
+endif
+
+# Emuladores de consolas (D321): LaiNES (NES, BSD-2-Clause) y Gearsystem (Master System, Game Gear
+# y SG-1000; GPL-3.0), C++ con la SDL 2 del sistema y un marco común (userland/terceros/emucomun).
+# LAINES=0 / GEARSYSTEM=0 los dejan fuera; con SEM_GPL=1 (D109) tampoco entran (el APU de LaiNES es LGPL).
+LAINES ?= 1
+GEARSYSTEM ?= 1
+ifneq ($(SEM_GPL),1)
+ifeq ($(LAINES)$(CXX_OK),11)
+include userland/terceros/laines/laines.mk
+endif
+ifeq ($(GEARSYSTEM)$(CXX_OK),11)
+ifneq ($(wildcard userland/terceros/gearsystem/gearsystem.mk),)
+include userland/terceros/gearsystem/gearsystem.mk
+endif
+endif
+endif
+
 # Game Boy con SDL2-GNUBoy (D235): GPL-2.0, aislado en userland/terceros/gnuboy/ como
 # los anteriores y fuera de la variante sin GPL; es C: no pide g++. Usa la SDL 2
 # (userland/libsdl2) del sistema. GNUBOY=0 lo deja fuera (D259: PUBLICABLE=1 lo pasa; GPL-2.0 solo
@@ -505,6 +544,19 @@ ifneq ($(wildcard userland/terceros/gnuboy/gnuboy.mk),)
 ifneq ($(wildcard userland/terceros/gnuboy/jogo/VERSAO),)
 include userland/terceros/gnuboy/gnuboy.mk
 endif
+endif
+endif
+endif
+
+# Game Boy Advance, Game Boy y Game Boy Color con mGBA (D322): MPL-2.0, compatible con la GPL v3
+# del proyecto (docs/terceros.md); aislado en userland/terceros/mgba/. Es C y usa la SDL 2 del
+# sistema. MGBA=0 lo deja fuera. Sus fuentes (jogo/) van en git (tools/mgba_fuentes.sh --comprobar)
+# y entra con PUBLICABLE=1: ninguna ROM ni BIOS van con el sistema.
+MGBA ?= 1
+ifneq ($(SEM_GPL),1)
+ifeq ($(MGBA),1)
+ifneq ($(wildcard userland/terceros/mgba/jogo/VERSAO),)
+include userland/terceros/mgba/mgba.mk
 endif
 endif
 endif
@@ -688,6 +740,10 @@ $(B)/userland/programas/benchmark.o: UCFLAGS := $(filter-out -mgeneral-regs-only
 $(B)/userland/bin/benchmark: $(B)/userland/libtls/sha256.o
 # D255: el gestor de servicios comprueba las contraseñas (PBKDF2-HMAC-SHA256, userland/inc/pbkdf2.h).
 $(B)/userland/bin/servicios $(B)/userland/testes/usuarios: $(B)/userland/libtls/sha256.o
+# D318: el instalador escribe las contraseñas elegidas en la sombra de SAGUI-CONF (PBKDF2) y su
+# asistente va en instalar_asistente.h.
+$(B)/userland/bin/instalar: $(B)/userland/libtls/sha256.o
+$(B)/userland/programas/instalar.o: userland/programas/instalar_asistente.h
 
 # As rotinas SSE2 da libsagui são o mesmo kernel/lib/sse2.c, compilado sem
 # -mgeneral-regs-only; texto.c só as chama se o CPUID disser que há SSE2.
@@ -1054,9 +1110,9 @@ $(B)/$(MP_DIR)/libm_sagui.o: $(MP_DIR)/libm_sagui.c $(MP_DIR)/libc/math.h
 # se há SSE2: ele confere o CPUID e recusa a CPU sem SSE2 com uma mensagem.
 $(B)/$(MP_DIR)/libc_sagui.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -msse -msse2 -mfpmath=sse
 
-$(B)/userland/bin/python: $(MP_OBJ) $(TLS_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
+$(B)/userland/bin/python: $(MP_OBJ) $(TLS_OBJ) $(FONTES_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
-	$(LD) $(ULDFLAGS) -o $@.elf $(MP_OBJ) $(TLS_OBJ) $(LIBSAGUI_OBJ)
+	$(LD) $(ULDFLAGS) -o $@.elf $(MP_OBJ) $(TLS_OBJ) $(FONTES_OBJ) $(LIBSAGUI_OBJ)
 	objcopy --strip-all $@.elf $@
 
 # A variante x87 (D082): as mesmas regras, com MPCFLAGS_X87.
@@ -1084,9 +1140,9 @@ $(B)/x87/$(MP_DIR)/inicio_python.o: $(MP_DIR)/inicio_python.c $(USER_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(UCFLAGS) -DSAGUI_X87 -c -o $@ $<
 
-$(B)/userland/bin/python-x87: $(MP_OBJ_X87) $(TLS_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
+$(B)/userland/bin/python-x87: $(MP_OBJ_X87) $(TLS_OBJ) $(FONTES_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
-	$(LD) $(ULDFLAGS) -o $@.elf $(MP_OBJ_X87) $(TLS_OBJ) $(LIBSAGUI_OBJ)
+	$(LD) $(ULDFLAGS) -o $@.elf $(MP_OBJ_X87) $(TLS_OBJ) $(FONTES_OBJ) $(LIBSAGUI_OBJ)
 	objcopy --strip-all $@.elf $@
 
 $(B)/userland/testes/%: $(B)/userland/testes/%.o $(LIBSAGUI_OBJ) userland/programa.ld
@@ -1136,7 +1192,7 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8
 	cp -r litemonkey/python/litemonkey "$$d/lib/python/"; \
 	find "$$d" -type d -name __pycache__ -prune -exec rm -rf {} +; \
 	cp litemonkey/python/lmk "$$d/bin/lmk"; \
-	if [ "$(MICROPYTHON)" = "0" ]; then rm -rf "$$d/lib/python" "$$d/bin/lmk" "$$d/bin/chip8-roms" "$$d/bin/chip8-roms-gui"; fi; \
+	if [ "$(MICROPYTHON)" = "0" ]; then rm -rf "$$d/lib/python" "$$d/bin/lmk"; fi; \
 	if [ -n "$(FIRMWARE_RAMDISK)" ]; then mkdir -p "$$d/lib/firmware"; cp $(FIRMWARE_RAMDISK) "$$d/lib/firmware/"; fi; \
 	if [ -n "$(FIRMWARE_RADEON)" ]; then mkdir -p "$$d/lib/firmware/radeon"; cp $(FIRMWARE_RADEON) "$$d/lib/firmware/radeon/"; fi; \
 	mkdir -p "$$d/sistema/efi/EFI/BOOT" "$$d/sistema/arranque" "$$d/sistema/idiomas"; \
@@ -1170,7 +1226,9 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # El árbol de la partición SAGUI-APPS: /bin con los ejecutables de las apps y
 # una carpeta por app con sus datos, más el leeme.txt. Se monta en una carpeta
 # temporal que solo al final se renombra (como el ramdisk, D147).
-$(APPS_DEP): $(APPS_BINS) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+# D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
+APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \
@@ -1178,6 +1236,7 @@ $(APPS_DEP): $(APPS_BINS) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_REC
 	chmod 755 "$$t"; \
 	mkdir "$$t/bin"; \
 	if [ -n "$(APPS_BINS)" ]; then cp $(APPS_BINS) "$$t/bin/"; fi; \
+	if [ -n "$(APPS_GUIONES)" ]; then cp $(APPS_GUIONES) "$$t/bin/"; fi; \
 	for r in $(APPS_RECURSOS); do mkdir -p "$$t/$${r%%:*}"; cp "$${r#*:}"/* "$$t/$${r%%:*}/"; done; \
 	cp userland/apps/leeme.txt "$$t/leeme.txt"; \
 	if [ -n "$(INPUT_SHARE)" ] && [ -d "$(INPUT_SHARE)/apps" ]; then \
@@ -1280,7 +1339,7 @@ help:
 	@echo "                        input_share/: para uso PROPIO, no se distribuyen (NetSurf y GNUBoy son GPL v2)"
 	@echo "  make test | rodar | limpar | entrega FASE=N | help"
 	@echo "Variables: B (carpeta de compilacion) INPUT_SHARE (vacio = sin juegos propios) JOGOS=0 GNUBOY=0 NETSURF=0 CONQUER=0 QUAKE=0"
-	@echo "  OPENJAZZ=0 DOSBOX=0 APPS=0 HOME_MB TMP_MB LOGS_MB JOGOS_MB DATOS_MB PART_FS FUENTES_RED=1 (baja Typodermic si falta) SEM_GPL=1"
+	@echo "  OPENJAZZ=0 DOSBOX=0 MGBA=0 APPS=0 HOME_MB TMP_MB LOGS_MB JOGOS_MB DATOS_MB PART_FS FUENTES_RED=1 (baja Typodermic si falta) SEM_GPL=1"
 	@echo "  GERAR_OPC=\"--probar\" (opciones de gerar_versao.sh)"
 	@echo "Entorno: . ~/.local/saguitools/env.sh antes de make (ver compilar_versiones.md)"
 

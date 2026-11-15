@@ -65,7 +65,7 @@ def rodar(caminho, nome, extras):
     servidor = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Tratador)
     threading.Thread(target=servidor.serve_forever, daemon=True).start()
     porta = servidor.server_address[1]
-    imagem = imagem_de_teste(f"/bin/cipo http://10.0.2.2:{porta}{caminho}", ["--vesa"])
+    imagem = imagem_de_teste(f"/apps/bin/cipo http://10.0.2.2:{porta}{caminho}", ["--vesa"])
     try:
         with Maquina(nome, "ide", imagem=imagem, extras=["-nic", "user,model=e1000"]) as m:
             m.esperar_serial("cipo: pronto \"Destino\"", 90)

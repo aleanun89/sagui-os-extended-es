@@ -5,6 +5,7 @@
 # Se importa al crear el primer control de cada tipo (necesita el tkinter del sistema).
 import tkinter as tk
 from vps import TAB_H, _pest_tramos
+from vps import _fechas as FE
 
 
 class _PestanasW(tk.Frame):
@@ -268,3 +269,123 @@ class _SelectorW(tk.Widget):
         v.texto(x + 34, y + (h - tk.LETRA_A) // 2, "#%06X" % self.valor, self._cor_op("foreground", tk.TEXTO))
 
 
+
+
+class _CampoW(tk.Entry):
+    """Cuadro de texto con un botón «...» a la derecha (CampoArchivo y CampoCarpeta, D303): el botón
+    llama a `self.al_pulsar`. Como el Spinbox, el botón se dibuja dentro del propio componente."""
+    _classe = "CampoRuta"
+    _BOTAO = 26
+    al_pulsar = None
+    etiqueta = "..."
+
+    def _natural(self):
+        l, a = tk.Entry._natural(self)
+        return l + self._BOTAO, a
+
+    def _cabem(self):
+        b = tk._int(self._op.get("borderwidth", 2))
+        return max(1, (self._wl - self._BOTAO - 2 * (b + self._PAD)) // tk.LETRA_L)
+
+    def _desenhar(self, v):
+        tk.Entry._desenhar(self, v)
+        x = self._ax + self._wl - self._BOTAO - 2
+        y = self._ay + 2
+        h = self._wa - 4
+        v.rect(x, y, self._BOTAO, h, tk.BOTAO)
+        tk._relevo(v, x, y, self._BOTAO, h, "raised", 1)
+        v.texto(x + (self._BOTAO - len(self.etiqueta) * tk.LETRA_L) // 2, y + (h - tk.LETRA_A) // 2, self.etiqueta, tk.TEXTO)
+
+    def _tratar(self, tipo, ev):
+        if self._op.get("state", "normal") == "disabled":
+            return None
+        if tipo == "ButtonPress" and ev.num == 1 and ev.x >= self._wl - self._BOTAO - 2:
+            f = self.al_pulsar
+            if f is not None:
+                f()
+            return "break"
+        return tk.Entry._tratar(self, tipo, ev)
+
+
+class _CalendarioW(tk.Widget):
+    """El calendario dibujado: cabecera con flechas, días de la semana y la rejilla del mes."""
+    _classe = "Calendario"
+    _foca_no_clique = True
+    _padrao = {"width": 196, "height": 170, "takefocus": 1, "cursor": "", "highlightthickness": 0,
+               "borderwidth": 2, "background": tk.BRANCO, "foreground": tk.TEXTO}
+
+    def _iniciar(self):
+        self.anio, self.mes, self.dia = FE.hoy()
+        self.visible = (self.anio, self.mes)    # el mes que se ve (puede no ser el del día elegido)
+        self.al_elegir = None
+        self.bind("<Button-1>", self._pulsar)
+
+    def _natural(self):
+        return (tk._int(self._op.get("width", 196)), tk._int(self._op.get("height", 170)))
+
+    def _geom(self):
+        w, h = self._wl, self._wa
+        cw = max(8, (w - 4) // 7)
+        ch = max(8, (h - 4 - FE.ALTO_CAB - FE.ALTO_SEM) // 6)
+        return cw, ch
+
+    def mover(self, delta):
+        a, m = self.visible
+        m += delta
+        while m < 1:
+            m += 12
+            a -= 1
+        while m > 12:
+            m -= 12
+            a += 1
+        self.visible = (a, m)
+        self._redesenhar()
+
+    def _pulsar(self, ev):
+        x, y = ev.x, ev.y
+        if y < FE.ALTO_CAB + 2:
+            if x < 24:
+                self.mover(-1)
+            elif x >= self._wl - 24:
+                self.mover(1)
+            return
+        cw, ch = self._geom()
+        fila = (y - 2 - FE.ALTO_CAB - FE.ALTO_SEM) // ch
+        col = (x - 2) // cw
+        if y < 2 + FE.ALTO_CAB + FE.ALTO_SEM or not (0 <= col < 7 and 0 <= fila < 6):
+            return
+        a, m = self.visible
+        for f, c, d in FE.celdas(a, m):
+            if f == fila and c == col:
+                self.anio, self.mes, self.dia = a, m, d
+                self._redesenhar()
+                if self.al_elegir is not None:
+                    self.al_elegir()
+                return
+
+    def _desenhar(self, v):
+        x, y, w, h = self._ax, self._ay, self._wl, self._wa
+        fondo = self._cor_op("background", tk.BRANCO)
+        frente = self._cor_op("foreground", tk.TEXTO)
+        v.rect(x, y, w, h, fondo)
+        tk._moldura_campo(v, x, y, w, h, "sunken", 2, False)
+        a, m = self.visible
+        v.rect(x + 2, y + 2, w - 4, FE.ALTO_CAB, 0x000080)
+        titulo = "%s %d" % (FE.MESES[m - 1], a)
+        v.texto(x + (w - len(titulo) * 8) // 2, y + 2 + (FE.ALTO_CAB - 16) // 2, titulo, 0xFFFFFF)
+        v.texto(x + 8, y + 2 + (FE.ALTO_CAB - 16) // 2, "<", 0xFFFFFF)
+        v.texto(x + w - 16, y + 2 + (FE.ALTO_CAB - 16) // 2, ">", 0xFFFFFF)
+        cw, ch = self._geom()
+        for c in range(7):
+            v.texto(x + 2 + c * cw + (cw - 8) // 2, y + 2 + FE.ALTO_CAB + 1, FE.DIAS[c], 0x808080)
+        ya = y + 2 + FE.ALTO_CAB + FE.ALTO_SEM
+        h_a, h_m, h_d = FE.hoy()
+        for f, c, d in FE.celdas(a, m):
+            cx, cy = x + 2 + c * cw, ya + f * ch
+            elegido = (a, m, d) == (self.anio, self.mes, self.dia)
+            if elegido:
+                v.rect(cx + 1, cy + 1, cw - 2, ch - 2, 0x2A6FD8)
+            elif (a, m, d) == (h_a, h_m, h_d):
+                v.rect(cx + 1, cy + 1, cw - 2, ch - 2, 0x2A6FD8, relleno=False)
+            t = str(d)
+            v.texto(cx + (cw - len(t) * 8) // 2, cy + (ch - 16) // 2, t, 0xFFFFFF if elegido else (0x900000 if c == 6 else frente))

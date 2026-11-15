@@ -2131,3 +2131,14 @@ from vps import _datos                                      # noqa: E402
 from vps._datos import ConectorBD, RejillaDatos             # noqa: E402,F401
 TIPOS.update(_datos.TIPOS)
 __all__ += ["ConectorBD", "RejillaDatos"]
+# selectores de archivos y carpetas (v8.4.3, D303)
+from vps import _selectores                                 # noqa: E402
+from vps._selectores import SelectorDeArchivos, SelectorDeCarpetas, CampoArchivo, CampoCarpeta   # noqa: E402,F401
+TIPOS.update(_selectores.TIPOS)
+__all__ += ["SelectorDeArchivos", "SelectorDeCarpetas", "CampoArchivo", "CampoCarpeta"]
+from vps import _fechas                                     # noqa: E402
+from vps._fechas import Calendario, SelectorFecha           # noqa: E402,F401
+from vps._selectores import SelectorDeColor, SelectorDeFuente, ComboFuentes   # noqa: E402,F401
+TIPOS.update(_fechas.TIPOS)
+TIPOS.update({"SelectorDeColor": SelectorDeColor, "SelectorDeFuente": SelectorDeFuente, "ComboFuentes": ComboFuentes})
+__all__ += ["SelectorDeColor", "SelectorDeFuente", "ComboFuentes", "Calendario", "SelectorFecha"]

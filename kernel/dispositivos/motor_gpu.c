@@ -32,7 +32,7 @@ int32_t motor_gpu_info(uint32_t ptr, uint32_t n)
     v->versao = 1;
     v->estado = MOTOR_GPU_SOFTWARE;
     v->watchdog_ms = MOTOR_GPU_VIGILANTE_MS;
-    v->boot_opcoes = info_boot.opcoes;
+    v->boot_opcoes = info_boot.opcoes | ((cabecalho_boot[CAB_ACEL2D] & CAB_ACEL_SEGURO) ? OPC_BOOT_ACEL_SEGURO : 0);   /* D323 */
 
     /* La opción de arranque manda sobre todo lo demás. */
     if (info_boot.opcoes & OPC_BOOT_SGL_SOFTWARE) {

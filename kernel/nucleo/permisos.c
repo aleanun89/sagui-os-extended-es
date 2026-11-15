@@ -174,7 +174,7 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
         return do_mesmo_usuario(a, eu);
     case SIS_INFO_SISTEMA:
         return a != INFO_ACEL2D_CTL && a != INFO_ACEL2D_PROVA && a != INFO_MSR_PROVA &&
-               a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA;   /* D284/D285: encender y probar el 3D tocan la GPU */
+               a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA && a != INFO_CAB_OPC;   /* D284/D285: encender y probar el 3D tocan la GPU */
     case SIS_HORA:
         return a == HORA_UTC || a == HORA_LER_RTC;
     case SIS_ZONA:

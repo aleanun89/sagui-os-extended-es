@@ -26,6 +26,24 @@ Estado a 2026-11-15 (v8.0; 3dfx, Mach64 y S3, v8.3.3). **Leyenda:** ✅ funciona
 | **ATI Mach64 / Rage** GX, CT, VT, 3D Rage II/IIC, Rage Pro, LT Pro, XL, Mobility | ✅ (VESA) | 🟡 **v8.3.3** (D308), motor 2D por MMIO; en 24 bits con x3; probado solo en 86Box (VT2) | — | — | 86Box `p2-mach64` |
 | **S3 Trio64 / ViRGE** Trio64, V+, UV+, V2; ViRGE, VX, DX/GX, GX2, Trio3D, Trio3D/2X | ✅ (VESA con BIOS VBE 2.0; las VBE 1.2 se quedan en modo texto, #40) | 🟡 **v8.3.3** (D308): Trio64 por puertos, ViRGE por MMIO; probado solo en 86Box (Trio64V2/DX y ViRGE/DX) | — | — | 86Box `p2-s3trio64`, `p2-s3virge` |
 
+## Cómo activar la aceleración (D323)
+
+Desde la v8.4.3 no hace falta la terminal: **Configuración > Pantalla > «Aceleración gráfica»** (botón arriba a la
+derecha) enseña la tarjeta, el driver 2D y el 3D con su estado, y deja elegir **Automático / Activado / Desactivado**
+para el 2D y el 3D por la GPU, la SDL 2 por la GPU (juegos y emuladores) y el DMA y la caché del disco, con «Probar
+ahora» (autoprueba) y «Restablecer valores seguros». Lo elegido se aplica al momento y en cada arranque
+(`/home/.config/sagui.conf`, más la cabecera de arranque del disco para lo que va antes del kernel). Cambiar la GPU pide
+el diálogo de administrador.
+
+![Aceleración gráfica](capturas/H323-4-todo-elegido.png)
+
+- Las tarjetas **sin probar en hardware** (Radeon R5xx y R7xx: 3D apagado por defecto) enseñan un aviso: «Experimental:
+  si la pantalla se queda congelada, reinicia; el sistema volverá al modo seguro».
+- **Modo seguro:** si un arranque con la aceleración activada a mano no llega al escritorio, el siguiente restablece
+  todo en automático y avisa. También se fuerza con **Mayús pulsado al arrancar** (2D por la CPU, 3D por software, sin
+  aplicar la configuración).
+- Orden equivalente (soporte y SSH): `configuracion aceleracion [2d|3d|sdl auto|si|no | disco auto|no | restablecer]`.
+
 ## Otras piezas gráficas por versión
 
 | Versión | Qué trae |

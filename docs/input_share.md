@@ -28,6 +28,9 @@ input_share/
   imágenes que se publican (`input_share/` está ignorada y la compilación publicable la deja vacía). Para tenerlos
   en el C: por defecto (`/home/dos`), cópialos a mano o con Archivos; la lista de Recreativa los guarda en
   `/home/dos/juegos.conf`. Guía: `docs/dosbox.md`.
+- **ROM de consolas (D321):** `input_share/games/nes`, `sms`, `gg` (y los sistemas que se vayan registrando) acaban en `/jogos/nes|sms|gg`
+  y Recreativa las muestra solas por extensión (`.nes`, `.sms`, `.sg`, `.gg`). Nunca van a git ni a las imágenes publicadas. Guía:
+  `docs/recreativa.md`.
 - **Quake (D229):** los datos van en `input_share/games/Quake/id1/pak0.pak` (y `pak1.pak` de la
   versión registrada), la estructura de Quake, y acaban en `/jogos/Quake/id1/`. También vale el
   `pak0.pak` suelto, `input_share/games/Quake/pak0.pak`: el lanzador toma la carpeta como el `id1`.

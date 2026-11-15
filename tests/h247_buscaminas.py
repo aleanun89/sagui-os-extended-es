@@ -111,7 +111,7 @@ def main():
         m.captura("H247-1-menu-juegos")
         marca = len(m.serial())
         clicar_aqui(m)
-        esperar(m, r"inicio -> /bin/buscaminas", desde=marca)
+        esperar(m, r"inicio -> /apps/bin/buscaminas", desde=marca)
         m.esperar_serial("buscaminas: pronto", 40)
         time.sleep(1.5)
         g = Juego(m)

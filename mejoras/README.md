@@ -132,3 +132,6 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 127 | [Bases de datos visuales: conector y rejilla en VisualPythonS y Explorador de bases de datos](127-bases-de-datos-visual.md) | hecha (v8.3.2, D304) | media |
 | 128 | [GebraMini: geometría dinámica y funciones](128-gebramini.md) | hecha (v8.3.2) | media |
 | 129 | [PlanoMini: mini CAD 2D](129-planomini.md) | hecha (v8.3.3) | media |
+| 130 | [Macaco: hoja de cálculo completa (combinar celdas, hoja grande)](130-macaco-hoja-completa.md) | pendiente (v8.4.4) | alta |
+| 131 | [Dos exploradores de bases de datos: SQLite y lite-monkey](131-dos-exploradores-bd.md) | pendiente (v8.4.4) | alta |
+| 132 | [Componente «cinta» (Ribbon) en la libsagui y VisualPythonS](132-cinta-ribbon.md) | pendiente (v8.4.4) | media-alta |

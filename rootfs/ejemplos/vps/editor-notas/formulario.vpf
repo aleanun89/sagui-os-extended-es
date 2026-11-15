@@ -1,0 +1,37 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Editor de notas'
+  ancho = 424
+  alto = 262
+control SelectorDeArchivos SelectorDeArchivos1
+  x = 8
+  y = 8
+  titulo = 'Abrir una nota'
+  filtro = 'Texto (*.txt)|*.txt|Todos (*.*)|*'
+  extension_por_defecto = 'txt'
+control Boton Boton1
+  x = 48
+  y = 8
+  ancho = 80
+  texto = 'Abrir'
+control Boton Boton2
+  x = 136
+  y = 8
+  ancho = 80
+  texto = 'Guardar'
+control CampoCarpeta CampoCarpeta1
+  x = 224
+  y = 10
+  ancho = 190
+  titulo = 'Carpeta de trabajo'
+control Etiqueta Etiqueta1
+  x = 8
+  y = 44
+  ancho = 406
+  texto = 'Sin archivo'
+control CuadroTexto CuadroTexto1
+  x = 8
+  y = 68
+  ancho = 406
+  alto = 186
+  multilinea = True

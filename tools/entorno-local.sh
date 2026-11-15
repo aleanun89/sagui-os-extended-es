@@ -33,7 +33,7 @@ echo "Entorno local de SaguiOS en $BASE"
 mkdir -p "$PKGS" "$ROOT" "$DADOS" "$BIN"
 
 # Lo que hace falta para compilar y para las pruebas.
-QUERIDOS="nasm mtools dosfstools e2fsprogs binutils gcc-multilib qemu-system-x86 qemu-utils"
+QUERIDOS="nasm mtools dosfstools exfatprogs e2fsprogs binutils gcc-multilib qemu-system-x86 qemu-utils"
 
 # Un paquete está bien si está instalado en el sistema o si ya se extrajo aquí
 # (para no volver a descargar lo de una vez anterior).

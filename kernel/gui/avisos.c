@@ -172,7 +172,7 @@ bool avisos_clique(int mx, int my)
             txt_copia_n(pasta, atual.caminho, sizeof pasta);
             for (int k = (int)txt_tamanho(pasta) - 1; k > 0; k--) if (pasta[k] == '/') { pasta[k] = 0; break; }
             char *am[] = { "musica", pasta, NULL };
-            pid = processo_executar("/bin/musica", 2, am, NULL);
+            pid = processo_executar("/apps/bin/musica", 2, am, NULL);
         }
         klog("[GUI] aviso pulsado: reproducir %s (pid %d)\n", atual.caminho, pid);
     } else {   /* D125 */

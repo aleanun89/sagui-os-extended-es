@@ -1,0 +1,12 @@
+diff -ruN a/src/apu.cpp c/src/apu.cpp
+--- a/src/apu.cpp	2025-11-06 06:52:07.000000000 +0100
++++ c/src/apu.cpp	2026-11-15 18:59:12.159428832 +0100
+@@ -21,7 +21,7 @@
+ 
+ void init()
+ {
+-    buf.sample_rate(96000);
++    buf.sample_rate(48000);   // SaguiOS (D321): 48 kHz, no 96 kHz (menos trabajo)
+     buf.clock_rate(1789773);
+ 
+     apu.output(&buf);

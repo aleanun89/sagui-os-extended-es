@@ -139,7 +139,7 @@ def parte_a():
 
 
 def parte_b():
-    imagem = imagem_de_teste("", ["--vesa"])
+    imagem = imagem_de_teste("", ["--vesa"], apps=False)   # D324: sin la particion
     with Maquina("h159-b", "ide", imagem=imagem) as m:
         terminal(m)
         verificar("SAGUI-APPS -> " not in m.serial(), "B: sin la partición de apps el sistema arranca igual")

@@ -10,12 +10,16 @@
  *   pluma --info archivo                         páginas, palabras, párrafos y objetos
  *   pluma --wordart salida "texto" estilo [pt]   documento con un WordArt (.rtf o .pdf)
  *   pluma --imagem imagen salida [cm]            documento con una imagen centrada, con borde y pie
+ *   pluma --fuentes                              familias de fuentes que ofrece (D319)
+ *   pluma --medir familia estilo pt "texto"      ancho en twips con las métricas de esa familia
+ *   pluma --bench familia|8x16 [paginas]         tiempo por tecla (maquetar y dibujar) en un documento largo
  */
 #include "sagui.h"
 #include "gui.h"
 #include "rtf.h"
 #include "wordart.h"
 #include "fontes.h"
+#include "pdf_escribir.h"
 #include "agentes.h"
 #include "icones.h"
 
@@ -46,12 +50,27 @@ static barra_menu_t menu;
 static barra_ferr_t ferr1, ferr2, ferr3;
 static barra_item_t it1[17], it2[16], it3[4];
 static bool dibujo_visible = true;
-static combo_t c_fonte, c_tam, c_zoom;
+static combo_fuentes_t c_fonte;
+static combo_t c_tam, c_zoom;
 static regua_t regua;
 static barra_estado_t estado;
 static char ult_titulo[128];
 
-static const char *const nomes_fonte[3] = { "Arial", "Times New Roman", "Courier New" };
+/* Nombres del combo de fuentes: las tres clásicas y las del sistema (D319), hasta PDFW_FAM_MAX. */
+static char nomes_sis[PDFW_FAM_MAX + 1][32];
+static const char *nomes_fonte[PDFW_FAM_MAX + 1];
+static int n_fontes = 3;
+static char aviso[96];                    /* aviso de la barra de estado (fuentes sustituidas al abrir) */
+
+static void fontes_listar(void)
+{
+    const fuentes_prov_t *p = fuentes_prov_obter();
+    int n = p && p->cantidad ? p->cantidad() : 3;
+    if (n < 3) n = 3;
+    if (n > PDFW_FAM_MAX + 1) n = PDFW_FAM_MAX + 1;
+    for (int i = 0; i < n; i++) { copia_texto(nomes_sis[i], pdfw_nombre_familia(i), sizeof nomes_sis[i]); nomes_fonte[i] = nomes_sis[i]; }
+    n_fontes = n;
+}
 static const char *const tams_txt[] = { "8", "9", "10", "11", "12", "14", "16", "18", "20", "22", "24", "26", "28", "36", "48", "72" };
 static const char *const zooms_txt[] = { "50%", "75%", "100%", "150%", "200%" };
 
@@ -252,7 +271,8 @@ static void estado_atualizar(void)
     int pw, ph;
     rte_papel_obter(doc, &pw, &ph, NULL, NULL, NULL, NULL);
     barra_estado_texto(&estado, 3, pw == 12240 ? "Carta" : pw == 11906 ? "A4" : "Personal.");
-    barra_estado_texto(&estado, 4, rte_modificado(doc) ? "Modificado" : "");
+    if (rte_modificado(doc)) aviso[0] = 0;
+    barra_estado_texto(&estado, 4, aviso[0] ? aviso : rte_modificado(doc) ? "Modificado" : "");
     barra_estado_desenhar(j, &estado);
 }
 
@@ -272,6 +292,8 @@ static void regua_sincronizar(void)
 /* Refleja el formato bajo el cursor en las barras. */
 static void ui_atualizar(void)
 {
+    const fuentes_prov_t *pv = fuentes_prov_obter();
+    if (pv && pv->cantidad && pv->cantidad() != n_fontes) fontes_listar();   /* se registró una fuente nueva */
     rte_fmt_t f;
     rte_fmt_atual(doc, &f);
     rte_par_t p;
@@ -285,8 +307,8 @@ static void ui_atualizar(void)
     barra_ferr_marcar(&ferr2, A_JUST, p.alin == RTE_JUST);
     barra_ferr_marcar(&ferr2, A_VINETAS, p.marcador != 0);
     barra_ferr_desenhar(j, &ferr2);
-    if (!c_fonte.foco) combo_definir(&c_fonte, nomes_fonte[f.fam < 3 ? f.fam : 0]);
-    combo_desenhar(j, &c_fonte);
+    combo_fuentes_definir(&c_fonte, f.fam < n_fontes ? f.fam : 0);
+    combo_fuentes_desenhar(j, &c_fonte);
     if (!c_tam.foco) { char t[8]; formatar_texto(t, sizeof t, "%d", f.tam); combo_definir(&c_tam, t); }
     combo_desenhar(j, &c_tam);
     char z[12];
@@ -307,7 +329,7 @@ static void layout(void)
     barra_menu_iniciar(&menu, 0, 0, l);
     barra_ferr_iniciar(&ferr1, 0, BARRA_Y, l, it1, 16);
     barra_ferr_iniciar(&ferr2, 0, BARRA_Y + FERR_A, l, it2, 15);
-    combo_iniciar(&c_fonte, barra_ferr_x(&ferr2, 0), BARRA_Y + FERR_A + 3, 164, nomes_fonte, 3, false, 7101);
+    combo_fuentes_iniciar(&c_fonte, barra_ferr_x(&ferr2, 0), BARRA_Y + FERR_A + 3, 164);
     combo_iniciar(&c_tam, barra_ferr_x(&ferr2, 1), BARRA_Y + FERR_A + 3, 52, tams_txt, 16, true, 7102);
     combo_iniciar(&c_zoom, barra_ferr_x(&ferr1, 15), BARRA_Y + 3, 70, zooms_txt, 5, false, 7103);
     int y = BARRA_Y + 2 * FERR_A;
@@ -452,8 +474,13 @@ static int abrir_documento(rte_t *r, const char *c)
     int n;
     char *b = ler_arquivo(c, &n);
     if (!b) return -1;
+    aviso[0] = 0;
     if (n >= 5 && memcmp(b, "{\\rtf", 5) == 0) {
         if (rtf_ler(r, b, n) != 0) { libera(b); return -1; }
+        char lista[100];
+        if (rtf_fuentes_sustituidas(lista, sizeof lista) > 0)
+            formatar_texto(aviso, sizeof aviso, "Fuente no instalada, sustituida: %s", lista);
+        if (aviso[0]) registrar("pluma: aviso %s\n", aviso);
     } else carregar_texto(r, b, n);
     libera(b);
     return 0;
@@ -1226,6 +1253,68 @@ static int modo_converter(const char *ent, const char *sai, bool carta)
     return rc ? 1 : 0;
 }
 
+static int modo_fuentes(void)
+{
+    const fuentes_prov_t *p = fuentes_prov_obter();
+    int n = p && p->cantidad ? p->cantidad() : 3;
+    imprimir("pluma: fuentes %d familias\n", n);
+    for (int i = 0; i < n; i++) imprimir("pluma: familia %d %s\n", i, pdfw_nombre_familia(i));
+    return 0;
+}
+
+/* pluma --medir familia estilo pt "texto": ancho en twips con las métricas de la familia (por nombre). */
+static int modo_medir(const char *fam, const char *est, const char *pt, const char *t)
+{
+    const fuentes_prov_t *p = fuentes_prov_obter();
+    int f = -1;
+    for (int i = 0; i < 3; i++) if (compara_texto(fam, pdfw_nombre_familia(i)) == 0) f = i;
+    if (f < 0 && p && p->resolver) f = p->resolver(fam);
+    if (f < 0) { imprimir("pluma: familia desconocida %s\n", fam); return 1; }
+    int e = 0, tam = 0;
+    for (const char *q = est; *q; q++) e = e * 10 + (*q - '0');
+    for (const char *q = pt; *q; q++) tam = tam * 10 + (*q - '0');
+    imprimir("pluma: ancho familia=%d estilo=%d %dpt = %d twips\n", f, e, tam, pdfw_largura_texto(f, e, tam * 20, t, (int)tam_texto(t)));
+    return 0;
+}
+
+/* pluma --bench familia [paginas]: cuánto cuesta una tecla en un documento de varias páginas (el control
+ * vuelve a maquetar todo el documento y redibuja la vista). "8x16" quita el proveedor de fuentes: la
+ * vista de antes de D319, para comparar. Abre una ventana para dibujar de verdad. */
+static int modo_bench(const char *fam, int paginas)
+{
+    bool sin = compara_texto(fam, "8x16") == 0;
+    int f = 1;
+    if (!sin) {
+        const fuentes_prov_t *p = fuentes_prov_obter();
+        f = -1;
+        for (int i = 0; i < 3; i++) if (compara_texto(fam, pdfw_nombre_familia(i)) == 0) f = i;
+        if (f < 0 && p && p->resolver) f = p->resolver(fam);
+        if (f < 0) { imprimir("pluma: familia desconocida %s\n", fam); return 1; }
+    } else fuentes_prov_instalar(NULL);
+    j = jan_abrir("Bench", 820, 600);
+    if (!j) return 1;
+    rte_t *r = rte_criar(0, 0, 800, 570);
+    if (!r) return 1;
+    rte_fmt_t fm = { (uint8_t)f, 0, 12, 0 };
+    static const char par[] = "El veloz murcielago hindu comia feliz cardillo y kiwi mientras la cigue\xF1" "a tocaba el saxofon. "
+                              "Jovencillo emponzo\xF1" "ado de whisky: que figurota exhibe! Pack my box with five dozen liquor jugs.\n";
+    for (int i = 0; i < paginas * 24; i++) rte_doc_anexar(r, par, (int)sizeof par - 1, &fm);
+    rte_doc_fim(r);
+    int np = rte_paginas(r);
+    rte_desenhar(j, r);
+    unsigned t0 = tempo_ms();
+    const int N = 400;
+    for (int i = 0; i < N; i++) { rte_inserir(r, "x", 1); rte_paginas(r); }
+    unsigned t1 = tempo_ms();
+    for (int i = 0; i < N; i++) { rte_inserir(r, "x", 1); rte_desenhar(j, r); }
+    unsigned t2 = tempo_ms();
+    unsigned a = (t1 - t0) * 100 / N, b = (t2 - t1) * 100 / N;    /* centésimas de ms por tecla */
+    imprimir("pluma: bench fam=%s paginas=%d maquetar=%u.%02u ms/tecla tecla_completa=%u.%02u ms/tecla\n", fam, np, a / 100, a % 100, b / 100, b % 100);
+    rte_liberar(r);
+    jan_fechar(j);
+    return 0;
+}
+
 static int modo_info(const char *ent)
 {
     rte_t *r = rte_criar(0, 0, 800, 600);
@@ -1235,6 +1324,11 @@ static int modo_info(const char *ent)
     int nobj = 0;
     for (int i = 0; i < rte_tamanho(r); i++) if (rte_obj_em(r, i)) nobj++;
     imprimir("pluma: info paginas=%d palabras=%d caracteres=%d paragrafos=%d objetos=%d\n", rte_paginas(r), w, c, p, nobj);
+    {
+        char lista[100];
+        int ns = rtf_fuentes_sustituidas(lista, sizeof lista);
+        if (ns) imprimir("pluma: fuentes sustituidas %d: %s\n", ns, lista);
+    }
     for (int i = 0; i < rte_tamanho(r); i++) {
         const rte_obj_t *o = rte_obj_em(r, i);
         if (!o) continue;
@@ -1314,9 +1408,18 @@ int principal(int argc, char **argv)
 {
     ag_app_opciones(&argc, argv);          /* --url y --modelo del asistente (pruebas) */
     wordart_provedor(mascara_fonte);       /* letras vectoriales para los WordArt (también sin ventana) */
+    fuentes_doc_instalar();                /* fuentes del sistema para pantalla, PDF y RTF (D319) */
+    fontes_listar();
     if (argc >= 4 && compara_texto(argv[1], "--convertir") == 0)
         return modo_converter(argv[2], argv[3], argc >= 5 && compara_texto(argv[4], "--carta") == 0);
     if (argc >= 3 && compara_texto(argv[1], "--info") == 0) return modo_info(argv[2]);
+    if (argc >= 2 && compara_texto(argv[1], "--fuentes") == 0) return modo_fuentes();
+    if (argc >= 3 && compara_texto(argv[1], "--bench") == 0) {
+        int pg = 0;
+        if (argc >= 4) for (const char *q = argv[3]; *q >= '0' && *q <= '9'; q++) pg = pg * 10 + (*q - '0');
+        return modo_bench(argv[2], pg > 0 ? pg : 15);
+    }
+    if (argc >= 6 && compara_texto(argv[1], "--medir") == 0) return modo_medir(argv[2], argv[3], argv[4], argv[5]);
     if (argc >= 5 && compara_texto(argv[1], "--wordart") == 0) {
         int est = 0, tam = argc >= 6 ? 0 : 36;
         for (const char *q = argv[4]; *q >= '0' && *q <= '9'; q++) est = est * 10 + (*q - '0');
@@ -1372,13 +1475,7 @@ int principal(int argc, char **argv)
         if (e.tipo == EV_MENU) {
             int m = barra_menu_tratar(j, &menu, &e);
             if (m >= 0) { int a = menu_acoes[m / 100][m % 100]; if (a) acao(a); continue; }
-            int r = combo_tratar(j, &c_fonte, &e);
-            if (r == COMBO_SELECIONOU) {
-                rte_fmt_t f = { (uint8_t)c_fonte.sel, 0, 12, 0 };
-                rte_fmt_aplicar(doc, RTE_C_FAM, &f);
-                tudo_redesenhar();
-                continue;
-            }
+            int r;
             r = combo_tratar(j, &c_tam, &e);
             if (r == COMBO_SELECIONOU) {
                 rte_fmt_t f = { 0, 0, (uint8_t)(tams_txt[c_tam.sel][0] ? 0 : 12), 0 };
@@ -1393,13 +1490,22 @@ int principal(int argc, char **argv)
             if (r == COMBO_SELECIONOU) { static const int zs[5] = { 50, 75, 100, 150, 200 }; zoom(zs[c_zoom.sel]); tudo_redesenhar(); }
             continue;
         }
+        /* el combo de fuentes: lista con buscador y cada nombre con su fuente (D327) */
+        if (e.tipo == EV_CLIQUE && (e.botoes & 1) && combo_fuentes_tratar(j, &c_fonte, &e) == COMBO_SELECIONOU) {
+            rte_fmt_t f = { (uint8_t)c_fonte.fam, 0, 12, 0 };
+            rte_fmt_aplicar(doc, RTE_C_FAM, &f);
+            registrar("pluma: fuente aplicada %s\n", pdfw_nombre_familia(c_fonte.fam));
+            rte_foco(doc, true);
+            tudo_redesenhar();
+            continue;
+        }
         if (e.tipo == EV_CLIQUE && (e.botoes & 1)) {
             int m = barra_menu_tratar(j, &menu, &e);
             (void)m;
         }
         /* combos con foco: reciben el teclado */
-        if (e.tipo == EV_TECLA && (c_tam.foco || c_fonte.foco)) {
-            int r = combo_tratar(j, c_tam.foco ? &c_tam : &c_fonte, &e);
+        if (e.tipo == EV_TECLA && c_tam.foco) {
+            int r = combo_tratar(j, &c_tam, &e);
             if (r == COMBO_ENTROU) {
                 int v = 0;
                 for (const char *s = c_tam.texto; *s >= '0' && *s <= '9'; s++) v = v * 10 + (*s - '0');
@@ -1411,7 +1517,6 @@ int principal(int argc, char **argv)
         }
         if (e.tipo == EV_CLIQUE) {
             bool antes_t = c_tam.foco;
-            combo_tratar(j, &c_fonte, &e);
             combo_tratar(j, &c_tam, &e);
             combo_tratar(j, &c_zoom, &e);
             if (c_tam.foco && !antes_t) rte_foco(doc, false);

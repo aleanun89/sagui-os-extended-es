@@ -65,7 +65,7 @@ typedef struct {
     uint8_t     dados[];              /* fs->tam_arq bytes del sistema de archivos */
 } arq_montado_t;
 
-extern const sistema_arquivos_t fs_fat32, fs_ext2, fs_iso9660, fs_udf, fs_cdda;
+extern const sistema_arquivos_t fs_fat32, fs_exfat, fs_ext2, fs_iso9660, fs_udf, fs_cdda;
 extern trava_t trava_fs;   /* D095: una operación de sistema de archivos a la vez (ver montagem.c) */
 
 /* Si la ruta absoluta está dentro de un montaje, devuelve este y el resto en
@@ -76,7 +76,7 @@ bool        montagem_viva(const arq_montado_t *a);
 /* ¿Hay algún punto de montaje dentro de "caminho" (o igual)? */
 bool        montagem_abaixo(const char *caminho);
 
-/* tipo: "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf" (NULL = auto). */
+/* tipo: "auto", "fat32", "exfat", "ext2", "ext3", "ext4", "iso9660", "udf" (NULL = auto). */
 int  montagem_montar(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes);
 /* D282: con dueño (uid | gid << 16) si opcoes lleva MONTAR_DONO, y la máscara si lleva MONTAR_COM_UMASK. */
 int  montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes, uint32_t dono);

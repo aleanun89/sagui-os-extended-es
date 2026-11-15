@@ -69,7 +69,7 @@ def main():
 
         # ---- A: --pantalla-completa
         desde = len(m.serial())
-        m.digitar("/bin/opentyrian --pantalla-completa")
+        m.digitar("/apps/bin/opentyrian --pantalla-completa")
         m.tecla("ret")
         h136.esperar(m, r"\[OPENTYRIAN\] pantalla completa activada: ventana \d+x\d+", 90, desde=desde)
         h136.esperar(m, r"\[OPENTYRIAN\] primeiro quadro desenhado", 30, desde=desde)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* mount - monta sistemas de archivos (D040).
  *   mount                                   lista lo que está montado
- *   mount [-t fat32|ext2|ext3|ext4|iso9660|udf|cd|auto] [-o ro|rw] <dispositivo> <carpeta>
+ *   mount [-t fat32|exfat|ext2|ext3|ext4|iso9660|udf|cd|auto] [-o ro|rw] <dispositivo> <carpeta>
  * "-t cd" (D233): lo que tenga el CD/DVD (ISO 9660 o UDF), como auto.
  * El dispositivo es un nombre de "discos" (usb0, usb0p1, hda1), LABEL=rótulo
  * ou "arranque". Os discos internos montam só para leitura, salvo -o rw.
@@ -50,6 +50,7 @@ int principal(int argc, char **argv)
         if (compara_texto(argv[i], "-t") == 0 && i + 1 < argc) {
             const char *t = argv[++i];
             if (compara_texto(t, "fat32") == 0 || compara_texto(t, "vfat") == 0) opcoes |= MONTAR_FAT32;
+            else if (compara_texto(t, "exfat") == 0) opcoes |= MONTAR_EXFAT;   /* D325 */
             else if (compara_texto(t, "ext2") == 0) opcoes |= MONTAR_EXT2;
             else if (compara_texto(t, "ext3") == 0) opcoes |= MONTAR_EXT3;
             else if (compara_texto(t, "ext4") == 0) opcoes |= MONTAR_EXT4;

@@ -28,9 +28,15 @@ y mantenido por **Alejandro Anuncibay**, con mejoras escritas con Claude
    `dd` (se borra todo lo que tenga) y arranca desde USB, por BIOS o UEFI. Requisitos: CPU **i686** (Pentium
    Pro/II, AMD Athlon o posterior), **64 MB** de RAM y una gráfica con VESA. Detalles en
    [docs/imagenes.md](docs/imagenes.md).
+   **Si en tu PC no aparecen Pluma, Macaco o Python** (en algunos PC la controladora de disco no
+   localiza bien el disco de arranque y no se monta la partición `/apps` donde viven), usa
+   `saguios-completo.img`: lleva todas las aplicaciones dentro del sistema en memoria (pide unos 64 MB
+   más de RAM).
 4. **Primeros pasos:** el menú **Inicio** abre las aplicaciones (Pluma, Macaco, Correo, VisualPythonS, GebraMini,
    DOSBox…); en el **Terminal**, `ajuda` lista las órdenes; **Configuración** cambia teclado, pantalla, sonido
-   e IA; `instalar` lo instala en el disco duro.
+   e IA; **Instalar SaguiOS** (o `instalar`) lo instala en el disco duro con un asistente: guía paso a paso,
+   con capturas, en [docs/instalar.md](docs/instalar.md). Si el pendrive es mayor que la imagen, el primer
+   arranque ofrece ampliar `/home` a todo el espacio libre.
 5. **Compilarlo tú:** `make` y `./run_in_qemu.sh`. Guía completa en
    [compilar_versiones.md](compilar_versiones.md).
 

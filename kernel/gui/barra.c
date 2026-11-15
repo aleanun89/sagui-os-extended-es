@@ -935,48 +935,48 @@ static const programa_t programas[] = {
     { N_("Editor de texto"),         "/bin/editor",      NULL, "editor",      G_ACESSORIOS, &arte_icone_editor, false },
     { N_("Recortes"),                "/bin/recortes",    NULL, "recortes",    G_ACESSORIOS, &arte_mini_recortes, true },   /* D125, D139 */
     { N_("Iconos"),                  "/bin/icones",      NULL, "icones",      G_ACESSORIOS, &arte_mini_icones, false },  /* D135, D139 */
-    { N_("Música"),                  "/bin/musica",      NULL, "musica",      G_ACESSORIOS, &arte_mini_musica, false },
+    { N_("Música"),                  "/apps/bin/musica",      NULL, "musica",      G_ACESSORIOS, &arte_mini_musica, false },
     { N_("MIDI"),                    "/bin/midi",        NULL, "midi",        G_ACESSORIOS, &arte_mini_musica, false },   /* D190 */
     { N_("Sintonía (reproductor)"),  "/apps/bin/sintonia", NULL, "sintonia",  G_MULTIMEDIA, &arte_mini_musica, false },   /* D225: en /apps (D194); sólo si está */
     { N_("Markdown"),                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
-    { N_("Mico (editor de código)"), "/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
-    { N_("VisualPythonS (diseñador)"), "/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
-    { N_("Explorador de bases de datos"), "/bin/python", "/lib/python/basedatos/explorador.py", "exploradorbd", G_ACESSORIOS, &arte_mini_exploradorbd, false },   /* D304: melhoria 127 */
-    { N_("Pluma (procesador de textos)"), "/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
-    { N_("Macaco (hoja de cálculo)"), "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
-    { N_("Paint"),                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
+    { N_("Mico (editor de código)"), "/apps/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
+    { N_("VisualPythonS (diseñador)"), "/apps/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
+    { N_("Explorador de bases de datos"), "/apps/bin/python", "/lib/python/basedatos/explorador.py", "exploradorbd", G_ACESSORIOS, &arte_mini_exploradorbd, false },   /* D304: melhoria 127 */
+    { N_("Pluma (procesador de textos)"), "/apps/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
+    { N_("Macaco (hoja de cálculo)"), "/apps/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
+    { N_("Paint"),                   "/apps/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
     { N_("Visor de imágenes"),       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
-    { N_("PlanoMini (CAD 2D)"),      "/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */
-    { N_("Visor de PDF"),            "/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
-    { N_("Reproductor de vídeo"),    "/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
-    { N_("Grabadora de sonido"),     "/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
-    { N_("Cámara"),                  "/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
-    { N_("Cipó (navegador)"),        "/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
-    { N_("GebraMini (geometría dinámica)"), "/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
-    { N_("Actividades JClic"),       "/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
-    { N_("Actividades JClic (bajar)"), "/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
+    { N_("PlanoMini (CAD 2D)"),      "/apps/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */
+    { N_("Visor de PDF"),            "/apps/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
+    { N_("Reproductor de vídeo"),    "/apps/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
+    { N_("Grabadora de sonido"),     "/apps/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
+    { N_("Cámara"),                  "/apps/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
+    { N_("Cipó (navegador)"),        "/apps/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
+    { N_("GebraMini (geometría dinámica)"), "/apps/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
+    { N_("Actividades JClic"),       "/apps/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
+    { N_("Actividades JClic (bajar)"), "/apps/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
 #ifndef SAGUI_SEM_GPL   /* D184: ni el nombre en la variante sin GPL (la auditoría h81 busca las marcas) */
     { N_("NetSurf (navegador)"),     "/apps/bin/netsurf", NULL, "netsurf",    G_INTERNET,   &arte_mini_netsurf, false },  /* D184, D194: en /apps; sólo si está */
 #endif
-    { N_("Sagui Atrapa Bananas"),    "/bin/banana",      NULL, "banana",      G_JUEGOS,     &arte_icone_banana, false },
-    { N_("Solitario Spider"),        "/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
-    { N_("Buscaminas"),              "/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
+    { N_("Sagui Atrapa Bananas"),    "/apps/bin/banana",      NULL, "banana",      G_JUEGOS,     &arte_icone_banana, false },
+    { N_("Solitario Spider"),        "/apps/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
+    { N_("Buscaminas"),              "/apps/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
 #ifndef SAGUI_SEM_GPL   /* D184: la h81 encontraba «OpenTyrian» en el kernel sin GPL */
-    { N_("OpenTyrian"),              "/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
-    { N_("OpenTyrian (pantalla completa)"), "/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */
+    { N_("OpenTyrian"),              "/apps/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
+    { N_("OpenTyrian (pantalla completa)"), "/apps/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */
     { N_("OpenJazz"),                "/apps/bin/openjazz", NULL, "openjazz",  G_JUEGOS,     &arte_mini_openjazz, false },   /* D228: en /apps; sólo si está */
     { N_("OpenJazz (pantalla completa)"), "/apps/bin/openjazz", "--pantalla-completa", "openjazz-cheia", G_JUEGOS, &arte_mini_openjazz, false },   /* D228 */
     { N_("Command & Conquer"),       "/apps/bin/conquer", NULL, "conquer",    G_JUEGOS,     &arte_mini_conquer, false },   /* D230: Vanilla Conquer, en /apps; sólo si está */
     { N_("Quake"),                   "/apps/bin/quake",  NULL, "quake",       G_JUEGOS,     &arte_mini_quake, false },   /* D229: en /apps; sólo si está */
     { N_("Quake (pantalla completa)"), "/apps/bin/quake", "--pantalla-completa", "quake-cheia", G_JUEGOS, &arte_mini_quake, false },   /* D229 */
     { N_("Game Boy (GNUBoy)"),       "/apps/bin/gnuboy", NULL, "gnuboy",      G_JUEGOS,     &arte_mini_gnuboy, false },    /* D235: SDL2-GNUBoy, en /apps; sólo si está */
-    { N_("Recreativa (juegos de DOS)"), "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
+    { N_("Recreativa (juegos y consolas)"), "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
     { N_("DOSBox"),                  "/apps/bin/dosbox", NULL, "dosbox",      G_JUEGOS,     &arte_mini_dosbox, false },   /* D294: DOSBox 0.74, en /apps; sólo si está */
     { N_("DOSBox (pantalla completa)"), "/apps/bin/dosbox", "--pantalla-completa", "dosbox-cheia", G_JUEGOS, &arte_mini_dosbox, false },   /* D294 */
 #endif
-    { N_("Sagui 3D"),                "/bin/sagui3d",     NULL, "sagui3d",     G_JUEGOS,     &arte_icone_sagui3d, false },
-    { N_("CHIP-8"),                  "/bin/chip8",       NULL, "chip8",       G_JUEGOS,     &arte_icone_chip8, false },
-    { N_("ROM de CHIP-8 (bajar)"),   "/bin/python", "/bin/chip8-roms-gui", "python", G_JUEGOS, &arte_icone_chip8, false },   /* D123 */
+    { N_("Sagui 3D"),                "/apps/bin/sagui3d",     NULL, "sagui3d",     G_JUEGOS,     &arte_icone_sagui3d, false },
+    { N_("CHIP-8"),                  "/apps/bin/chip8",       NULL, "chip8",       G_JUEGOS,     &arte_icone_chip8, false },
+    { N_("ROM de CHIP-8 (bajar)"),   "/apps/bin/python", "/apps/bin/chip8-roms-gui", "python", G_JUEGOS, &arte_icone_chip8, false },   /* D123 */
     { N_("Terminal"),                "/bin/terminal",    NULL, "terminal",    G_SISTEMA,    &arte_icone_terminal, false },
     { N_("Administrador de tareas"), "/bin/tareas",      NULL, "tareas",      G_SISTEMA,    &arte_icone_tarefas, true },
     { N_("Información del PC"),      "/bin/infopc",      NULL, "infopc",      G_SISTEMA,    &arte_mini_infopc, false },
@@ -986,9 +986,9 @@ static const programa_t programas[] = {
     { N_("Discos"),                  "/bin/discos",      "--ventana", "discos", G_SISTEMA, &arte_icone_discos, true },   /* D121 */
     { N_("Bluetooth"),               "/bin/bluetooth",   "--ventana", "bluetooth", G_SISTEMA, &arte_mini_bluetooth, true },   /* D279 */
     { N_("Instalar SaguiOS"),        "/bin/instalar",    "--ventana", "instalar", G_SISTEMA, &arte_icone_discos, true },   /* D179 */
-    { N_("IA (chat)"),               "/bin/ia",          NULL, "ia",          G_ACESSORIOS, &arte_mini_ia, false },        /* D139: D134 */
-    { N_("Chat IA"),                 "/bin/chatia",      NULL, "chatia",      G_ACESSORIOS, &arte_mini_chatia, false },    /* D143: janela e contexto */
-    { N_("Correo"),                  "/bin/correo",      NULL, "correo",      G_INTERNET,   &arte_mini_correo, false },    /* D146: cliente de correio (082) */
+    { N_("IA (chat)"),               "/apps/bin/ia",          NULL, "ia",          G_ACESSORIOS, &arte_mini_ia, false },        /* D139: D134 */
+    { N_("Chat IA"),                 "/apps/bin/chatia",      NULL, "chatia",      G_ACESSORIOS, &arte_mini_chatia, false },    /* D143: janela e contexto */
+    { N_("Correo"),                  "/apps/bin/correo",      NULL, "correo",      G_INTERNET,   &arte_mini_correo, false },    /* D146: cliente de correio (082) */
     { N_("Escritorio remoto (VNC)"), "/bin/vnc",         NULL, "vnc",         G_INTERNET,   &arte_mini_pantalla, false },  /* D254: cliente VNC (097); sin icono propio todavía */
 };
 #define QTD_PROGRAMAS (int)(sizeof programas / sizeof programas[0])
@@ -1095,7 +1095,7 @@ static void executar_vps(int n)
     char l[2 * NOME_MAX + 32];
     snformatar(l, sizeof l, "%s/lanzador.py", vps_ruta[n]);
     char *argv[3] = { "python", l, NULL };
-    int pid = processo_executar("/bin/python", 2, argv, NULL);
+    int pid = processo_executar("/apps/bin/python", 2, argv, NULL);
     klog("[GUI] inicio -> vps %s (pid %d)\n", l, pid);
     if (pid < 0) gui_aviso(_("No se pudo abrir la aplicación."));
 }

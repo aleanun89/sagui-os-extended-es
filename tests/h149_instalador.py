@@ -164,32 +164,39 @@ def parte2():
 
 
 def parte3():
+    # D318: el asistente nuevo (ocho pasos); se maneja con las zonas que escribe en el registro
+    # (la clase de h318). Camino corto: disco hdb, usar todo el disco y lo que propone.
+    from h318_instalador import Asistente
     dest = vazio("h149-gui-dest", 300)
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw"]
     with Maquina("h149-gui", "ide", extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)
         time.sleep(2)
+        a = Asistente(m)
         m.digitar("instalar --ventana\n", 0.04)
-        m.esperar_serial("instalar: pagina 0", 30)
-        time.sleep(1.5)
-        s = m.serial()
-        jl, ja, jx, jy = (int(v) for v in re.findall(r'criada por \d+: "Instalar SaguiOS" (\d+)x(\d+) em \((\d+),(\d+)\)', s)[-1])
-        ox, oy = jx + 2, jy + 24
-        by = int(re.findall(r"instalar: pagina 0 botones y=(\d+)", s)[-1])
-        verificar(re.search(r"instalar: disco hda ok=0", s) and re.search(r"instalar: disco hdb ok=1", s),
-                  "el asistente no deja elegir el disco de arranque y sí hdb")
+        a.esperar_pagina(0)
+        a.origen()
+        a.pulsar("siguiente")
+        a.esperar_pagina(1)
+        z = a.zonas()
+        verificar("disco1" in z and "disco0" not in z, "el asistente no deja elegir el disco de arranque y sí hdb")
+        a.pulsar("disco1")
         m.captura("H149-2-elegir-disco")
-        m.clique(ox + jl - 70, oy + by + 14)   # Siguiente
-        m.esperar_serial("instalar: pagina 1", 20)
-        time.sleep(1.5)
-        verificar(re.search(r"instalar: casillas .* plan=SaguiOS", m.serial()), "el plan se calcula y se muestra")
+        a.pulsar("siguiente")
+        a.esperar_pagina(2)
+        a.pulsar("tipo-entero")
+        a.escribir("confirmar", "hdb")
+        a.pulsar("siguiente")
+        a.esperar_pagina(3)
+        verificar(re.search(r"instalar: plan ok", m.serial()[m.serial().rfind("instalar: pagina 3"):]), "el plan se calcula y se muestra")
         m.captura("H149-3-plan")
-        m.clique(ox + jl - 70, oy + by + 14)   # Instalar
+        for pagina in (4, 5, 6):
+            a.pulsar("siguiente")
+            a.esperar_pagina(pagina)
+        a.pulsar("siguiente")                  # «Instalar»
         time.sleep(1.5)
         m.captura("H149-4-confirmar")
         m.tecla("ret")
-        time.sleep(1.5)
-        m.tecla("ret")                          # segunda confirmación (disco entero)
         m.esperar_serial("instalar: fase 3", 300)
         time.sleep(0.5)
         m.captura("H149-5-progreso")

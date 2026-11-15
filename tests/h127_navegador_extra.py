@@ -271,7 +271,7 @@ def main():
     base = f"http://10.0.2.2:{porta}"
     # Imagem com partição de dados (/home), para que o ficheiro das posições
     # fique no disco e se possa ver (e reler num segundo arranque).
-    imagem = imagem_de_teste(f"/bin/cipo {base}/longa.html", ["--vesa", "--dados-mb", "16"])
+    imagem = imagem_de_teste(f"/apps/bin/cipo {base}/longa.html", ["--vesa", "--dados-mb", "16"])
     qmp_path = f"/tmp/sagui-h127-{os.getpid()}.sock"   # nome próprio: não choca com outra prova
     try:
         with Maquina("h127", "ide", imagem=imagem,

@@ -332,7 +332,7 @@ static void pedir_arquivo(void)
 {
     char c[200];
     if (caminho_video[0]) copia_texto(c, caminho_video, sizeof c);
-    else { copia_texto(c, "/videos", sizeof c); junta_texto(c, "/", sizeof c); }
+    else { copia_texto(c, "/apps/videos", sizeof c); junta_texto(c, "/", sizeof c); }
     if (!dialogo_abrir("Abrir vídeo", "Vídeos (*.mp4;*.avi;*.mpg;*.mpeg)|*.mp4;*.avi;*.mpg;*.mpeg|Todos los archivos (*.*)|*", c, c, sizeof c) || !c[0]) return;
     int erro = 0;
     video_t *v = video_abrir(c, &erro);

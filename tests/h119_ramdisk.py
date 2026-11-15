@@ -104,7 +104,7 @@ def main():
     for i in range(entradas):
         off = TAM_CAB + i * TAM_ENTRADA
         caminhos.append(rd[off:off + 56].split(b"\0")[0].decode("latin-1"))
-    for esperado in ("bin/terminal", "bin/arquivos", "bin/correo", "lib/python"):
+    for esperado in ("bin/terminal", "bin/arquivos", "bin/sagsh", "lib/python"):   # D324: correo vive en /apps
         verificar(esperado in caminhos, f"el ramdisk trae {esperado}")
 
     # ---- y la imagen lleva ese ramdisk dentro ----

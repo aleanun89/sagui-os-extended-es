@@ -1078,6 +1078,22 @@ static bool gb_extensao(const char *c)
 }
 #endif
 
+/* .nes: ROM de NES, LaiNES de /apps (D321; BSD). .sms .sg .gg: Master System, SG-1000 y Game Gear, Gearsystem (D321; GPL-3.0). */
+static bool ext_rom(const char *c, const char *e1, const char *e2)
+{
+    unsigned n = tam_texto(c);
+    unsigned l1 = tam_texto(e1);
+    if (n > l1 && c[n - l1 - 1] == '.') {
+        bool ig = true;
+        for (unsigned k = 0; k < l1; k++) if ((c[n - l1 + k] | 0x20) != e1[k]) ig = false;
+        if (ig) return true;
+    }
+    if (!e2) return false;
+    return ext_rom(c, e2, NULL);
+}
+static bool nes_extensao(const char *c) { return ext_rom(c, "nes", NULL); }
+static bool sms_extensao(const char *c) { return ext_rom(c, "sms", "sg") || ext_rom(c, "gg", NULL); }
+
 #ifndef SAGUI_SEM_GPL
 /* .exe .com .bat: programas de DOS, con DOSBox de /apps (D294; GPL: fuera de la variante sin GPL) */
 static bool dos_extensao(const char *c)
@@ -1088,6 +1104,19 @@ static bool dos_extensao(const char *c)
     return compara_texto(e, "exe") == 0 || compara_texto(e, "com") == 0 || compara_texto(e, "bat") == 0;
 }
 #endif
+
+/* D324: la ruta de un programa por su nombre: /bin si esta en la base, /apps/bin (la particion
+ * SAGUI-APPS) si es una aplicacion que no va en el ramdisk. */
+static bool ruta_programa(char *bin, unsigned n, const char *prog)
+{
+    info_arquivo_t inf;
+    formatar_texto(bin, n, "/bin/%s", prog);
+    if (info_arquivo(bin, &inf) == 0) return true;
+    formatar_texto(bin, n, "/apps/bin/%s", prog);
+    if (info_arquivo(bin, &inf) == 0) return true;
+    formatar_texto(bin, n, "/bin/%s", prog);   /* no esta en ninguno: el error sale al ejecutar */
+    return false;
+}
 
 static void abrir_item(int i)
 {
@@ -1110,17 +1139,19 @@ static void abrir_item(int i)
         if (jclic_extensao(c)) prog = "jclic";   /* .jclic .jclic.zip: Actividades JClic (D183) */
         if (pdf_extensao(c)) prog = "visorpdf";   /* .pdf: el Visor de PDF (D138) */
         if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg: el Reproductor de vÃ­deo (D129) */
-        char bin[24];
-        formatar_texto(bin, sizeof bin, "/bin/%s", prog);
+        char bin[40];
+        ruta_programa(bin, sizeof bin, prog);
 #ifndef SAGUI_SEM_GPL
         if (gb_extensao(c)) { prog = "gnuboy"; formatar_texto(bin, sizeof bin, "/apps/bin/gnuboy"); }   /* .gb .gbc: GNUBoy (D235) */
         if (dos_extensao(c)) { prog = "dosbox"; formatar_texto(bin, sizeof bin, "/apps/bin/dosbox"); }   /* .exe .com .bat: DOSBox (D294) */
+        if (sms_extensao(c)) { prog = "gearsystem"; formatar_texto(bin, sizeof bin, "/apps/bin/gearsystem"); }   /* .sms .sg .gg: Gearsystem (D321) */
 #endif
+        if (nes_extensao(c)) { prog = "laines"; formatar_texto(bin, sizeof bin, "/apps/bin/laines"); }   /* .nes: LaiNES (D321) */
         argv[0] = (char *)prog; argv[1] = c; argv[2] = NULL;
         char *argv_bd[4];
         if (bd_extensao(c)) {   /* .db: el Explorador de bases de datos (Python); no ejecuta nada al abrir */
             prog = "exploradorbd";
-            formatar_texto(bin, sizeof bin, "/bin/python");
+            ruta_programa(bin, sizeof bin, "python");
             argv_bd[0] = "python"; argv_bd[1] = "/lib/python/basedatos/explorador.py"; argv_bd[2] = c; argv_bd[3] = NULL;
             pid = executar(bin, argv_bd);
         } else
@@ -1622,6 +1653,25 @@ static const app_t apps[] = {
 };
 
 /* El programa que abrirÃ­a este archivo (la asociaciÃ³n por defecto). */
+/* La lista de «Abrir con...»: los de siempre y, si están instalados en /apps, los emuladores (D321). */
+static const char *abrir_lista[16];
+static int abrir_n;
+static void preparar_lista_abrir(void)
+{
+    static const char *const EMUS[] = { "laines", "gearsystem" };
+    abrir_n = 0;
+    for (unsigned a = 0; a < sizeof apps / sizeof apps[0] && abrir_n < 14; a++) {
+        char bin[40];
+        if (ruta_programa(bin, sizeof bin, apps[a].nome)) abrir_lista[abrir_n++] = apps[a].nome;   /* D324: sin /apps no salen */
+    }
+    for (unsigned a = 0; a < sizeof EMUS / sizeof EMUS[0] && abrir_n < 16; a++) {
+        char bin[40];
+        info_arquivo_t inf;
+        formatar_texto(bin, sizeof bin, "/apps/bin/%s", EMUS[a]);
+        if (info_arquivo(bin, &inf) >= 0) abrir_lista[abrir_n++] = EMUS[a];
+    }
+}
+
 static const char *programa_padrao(const char *c)
 {
     bool md = tam_texto(c) > 3 && compara_texto(c + tam_texto(c) - 3, ".md") == 0;
@@ -1630,13 +1680,15 @@ static const char *programa_padrao(const char *c)
     if (audio_extensao(c)) p = "musica";
     if (pdf_extensao(c)) p = "visorpdf";
     if (video_extensao(c)) p = "reproductor";
+    if (nes_extensao(c)) p = "laines";       /* D321 */
+    if (sms_extensao(c)) p = "gearsystem";
     return p;
 }
 
 static void abrir_com(const char *prog, const char *arquivo)
 {
     char bin[40];
-    formatar_texto(bin, sizeof bin, "/bin/%s", prog);
+    ruta_programa(bin, sizeof bin, prog);
     char *argv[3];
     argv[0] = (char *)prog; argv[1] = (char *)arquivo; argv[2] = NULL;
     int pid = executar(bin, argv);
@@ -1658,9 +1710,10 @@ static void menu_abrir_com(void)
     char itens[MENU_MAX * 24];
     int k = 0;
     itens[0] = 0;
-    for (unsigned a = 0; a < sizeof apps / sizeof apps[0]; a++) {
-        const char *p = apps[a].nome;
-        if (a) itens[k++] = '\n';
+    preparar_lista_abrir();
+    for (int a = 0; a < abrir_n; a++) {
+        const char *p = abrir_lista[a];
+        if (k) itens[k++] = '\n';
         if (compara_texto(p, padrao) == 0) itens[k++] = '*';
         while (*p && k < (int)sizeof itens - 2) itens[k++] = *p++;
         itens[k] = 0;
@@ -1759,12 +1812,12 @@ static void escolha_menu(int codigo, int indice)
         else if (indice == MG_ZIP) comprimir_grupo(false);
         else if (indice == MG_TGZ) comprimir_grupo(true);
     } else if (codigo == MENU_COM) {
-        if (indice < 0 || indice >= (int)(sizeof apps / sizeof apps[0])) return;
+        if (indice < 0 || indice >= abrir_n) return;
         int i = lista.sel;
         if (i < 0 || i >= lista.qtd) return;
         char c[200];
         caminho_de(i, c, sizeof c);
-        abrir_com(apps[indice].nome, c);
+        abrir_com(abrir_lista[indice], c);
     }
 }
 

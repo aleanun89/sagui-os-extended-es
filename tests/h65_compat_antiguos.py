@@ -143,7 +143,7 @@ def cpu_sem_sse2(cpu, rotulo, completo):
         else:
             out = m.comando("simd")
             verificar("SSE2   no disponible" in out and "simd: todo correcto" in out, f"[{rotulo}] simd sem SSE2")
-            # Sem SSE2 o /bin/python passa para o /bin/python-x87 (D082).
+            # Sem SSE2 o /apps/bin/python passa para o /apps/bin/python-x87 (D082).
             out = m.comando("python -c 'print(1.5 * 2, 1/3)'", tempo=60)
             print("    python:", " | ".join(l for l in salida_programa(out)))
             verificar("3.0 0.3333333333333333" in out and "excecao" not in out.lower(),

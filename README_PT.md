@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 35e8e905 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit a231b6ac (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -29,9 +29,13 @@ e mantido por **Alejandro Anuncibay**, com melhorias escritas com o Claude
    `dd` (apaga tudo o que houver nele) e inicie pelo USB, por BIOS ou UEFI. Requisitos: CPU **i686** (Pentium
    Pro/II, AMD Athlon ou posterior), **64 MB** de RAM e uma placa de vídeo com VESA. Detalhes em
    [docs/imagenes.md](docs/imagenes.md).
+   **Se no seu PC não aparecem Pluma, Macaco ou Python** (em alguns PCs a controladora de disco não localiza bem o disco de inicialização e não se monta a partição `/apps` onde eles ficam), use
+   `saguios-completo.img`: leva todos os aplicativos dentro do sistema na memória (pede uns 64 MB a mais de RAM).
 4. **Primeiros passos:** o menu **Início** abre os aplicativos (Pluma, Macaco, Correio, VisualPythonS, GebraMini,
    DOSBox…); no **Terminal**, `ajuda` lista os comandos; **Configurações** muda teclado, tela, som
-   e IA; `instalar` instala no disco rígido.
+   e IA; **Instalar SaguiOS** (ou `instalar`) instala no disco rígido com um assistente: guia passo a passo,
+   com capturas, em [docs/instalar.md](docs/instalar.md). Se o pendrive for maior que a imagem, o primeiro
+   arranque oferece ampliar `/home` para todo o espaço livre.
 5. **Compile você mesmo:** `make` e `./run_in_qemu.sh`. Guia completo em
    [compilar_versiones.md](compilar_versiones.md).
 

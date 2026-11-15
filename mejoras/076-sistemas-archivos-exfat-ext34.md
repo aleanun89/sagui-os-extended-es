@@ -1,6 +1,6 @@
 # 076 - Sistemas de archivos: exFAT y escritura en ext3/ext4
 
-- **Estado:** propuesta (**v7**, decidido por el mantenedor el 2026-11-08: «el sistema de archivos nos enfocaremos en la v7»)
+- **Estado:** exFAT **hecho en la v8.4.3 (D325, `kernel/fs/exfat.c`, h325)**; ext3/ext4 siguen pendientes (**v7**, decidido por el mantenedor el 2026-11-08: «el sistema de archivos nos enfocaremos en la v7»)
 - **Prioridad:** media-alta
 - **Alta:** 2026-11-08
 - **Relacionadas:** D040 (discos y reglas de seguridad), D026 (FAT32), `kernel/fs/ext2.c`, 035 (raíz en disco, caché F1), 068 (particiones), 064/067 (SQLite y lite-monkey: sincronizar)
@@ -75,9 +75,10 @@ Si el tiempo aprieta, la 3 puede pasar a una versión posterior.
 
 ## Criterios de aceptación
 
-- [ ] exFAT de lectura y escritura, con `fsck.exfat` limpio
-- [ ] ext3: reproducción del diario y escritura «ordered»; `e2fsck` limpio tras cortes simulados
-- [ ] ext4: escritura con extents y CRC32c; `e2fsck` limpio
+- [x] exFAT de lectura y escritura, con `fsck.exfat` limpio (D325; falta probarlo en un pendrive de 64 GB real)
+- [x] ext3/ext4: reproducción del diario al montar (v8.4.3, D326, h326)
+- [ ] ext3: escritura «ordered»; `e2fsck` limpio tras cortes simulados (código escrito, `ESCRITA_EXT34 0`: 8.4.4)
+- [ ] ext4: escritura con extents y CRC32c; `e2fsck` limpio (código escrito, sin probar: 8.4.4)
 - [ ] Reglas de D040 intactas (discos internos)
 - [ ] Tests automáticos en `tests/`
 - [ ] Decisiones registradas en `docs/decisoes.md`

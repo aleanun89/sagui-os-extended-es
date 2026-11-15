@@ -19,7 +19,7 @@ Guía para compilar SaguiOS-Extended desde el código del repositorio público y
 sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
     mtools dosfstools e2fsprogs xz-utils curl perl \
     qemu-system-x86 qemu-utils
-# opcional, solo para las pruebas automáticas: imagemagick ffmpeg zip sqlite3
+# opcional, solo para las pruebas automáticas: imagemagick ffmpeg zip sqlite3 exfatprogs
 # opcional, para probar el arranque UEFI (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
@@ -31,6 +31,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | `python3` | todas las herramientas de `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | particiones FAT32 (`mcopy`, `mkfs.vfat`) |
 | `e2fsprogs` | particiones ext2 (`mke2fs`) |
+| `exfatprogs` (opcional) | pruebas de exFAT (`tests/h325_exfat.py`: `mkfs.exfat`, `fsck.exfat`); sin él esa prueba no se hace. `tools/entorno-local.sh` lo baja sin sudo |
 | `xz-utils` | imágenes `.xz` y los datos comprimidos de OpenTyrian |
 | `qemu-system-x86`, `qemu-utils` | arrancar el sistema (`qemu-system-i386`) y crear el `.vdi` (`qemu-img`) |
 | `ovmf`, `ovmf-ia32` (opcional) | firmware UEFI de QEMU de 64 y 32 bits, para probar el arranque UEFI (`run_in_qemu.sh --uefi`, prueba h264; D264). `tools/entorno-local.sh` los baja sin sudo |
@@ -88,6 +89,8 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `MICROPYTHON` | `1` | `0` genera la imagen sin MicroPython (bastante más pequeña) |
 | `NETSURF` | `1` | navegador NetSurf; solo entra si están las fuentes preparadas y el pegamento (ver 7). `NETSURF=0` lo quita |
 | `GNUBOY` | `1` | emulador de Game Boy; solo entra si está descargado su código (`make priv_descargas` o `bash tools/gnuboy_fuentes.sh`, ver 5 y 7). `GNUBOY=0` lo quita |
+| `MGBA` | `1` | emulador de Game Boy Advance, Game Boy y Game Boy Color con mGBA (MPL-2.0; sus fuentes van en git). También entra con `PUBLICABLE=1`. `MGBA=0` lo quita |
+| `LAINES`, `GEARSYSTEM` | `1` | emuladores de NES (LaiNES) y de Master System, Game Gear y SG-1000 (Gearsystem), en C++ con SDL 2; sin `g++` no entran. `0` los quita; con `SEM_GPL=1` tampoco entran |
 | `QUAKE` | `1` | motor de Quake (`0` lo quita) |
 | `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (con el lanzador Recreativa) y GNU Prolog (`0` los quita) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | meter en `/jogos` los datos shareware que bajaron `tools/quake_datos.sh` y `tools/openjazz_datos.sh`. Si no se bajaron, no entra nada; `0` los ignora aunque estén bajados |
@@ -97,6 +100,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `JOGOS_MB` | `800` | tamaño de `SAGUI-JOGOS` en las imágenes persistentes, la de particiones y lo que crea el instalador (`0` = el justo) |
 | `JOGOS_IMG_MB` | `0` | lo mismo para `saguios.img`, `-smp` y `-uacpi` (`0` = el justo para lo que lleva) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` mete las aplicaciones dentro del ramdisk (`/apps`, imagen de un solo bloque); `APPS_MB` es el tamaño de la partición `SAGUI-APPS` (`0` = lo justo más un margen) |
+| `RAMDISK` | `base` | `base` (por defecto): el ramdisk solo lleva lo fundamental y las aplicaciones no fundamentales van a la partición `SAGUI-APPS` (`/apps`). `completo`: se meten en el ramdisk, como `APPS=0`. La ISO es siempre `completo`. Se pasa igual con `gerar_versao.sh`, por ejemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` de la imagen persistente ext2 |
 | `DATOS_FAT32_MB` | `2048` | `/home` de la imagen persistente FAT32 |
 | `HOME_MB`, `TMP_MB`, `LOGS_MB` | `2048`, `256`, `128` | particiones del disco con particiones (`imagem-particoes`) |
@@ -195,7 +199,7 @@ Ficheros que deja `make variantes` en la carpeta de entrega:
 | `saguios.vdi` | VirtualBox |
 | `SHA256SUMS.txt`, `VERSION.txt` | sumas de comprobación y hoja de datos de lo que se compiló |
 
-Todas las imágenes de disco llevan, además, las particiones `SAGUI-JOGOS` (juegos, `/jogos`), `SAGUI-APPS` (aplicaciones, `/apps`) y `SAGUI-CONF` (configuración, 16 MB).
+Todas las imágenes de disco llevan, además, las particiones `SAGUI-JOGOS` (juegos, `/jogos`), `SAGUI-APPS` (aplicaciones, `/apps`) y `SAGUI-CONF` (configuración, 16 MB). Con `APPS=0` o `RAMDISK=completo` no hay partición `SAGUI-APPS`.
 
 ### 5. Qué se descarga y cuándo
 
@@ -325,7 +329,7 @@ A guide to building SaguiOS-Extended from the public repository and generating y
 sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
     mtools dosfstools e2fsprogs xz-utils curl perl \
     qemu-system-x86 qemu-utils
-# optional, only for the automated tests: imagemagick ffmpeg zip sqlite3
+# optional, only for the automated tests: imagemagick ffmpeg zip sqlite3 exfatprogs
 # optional, to test UEFI boot (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
@@ -337,6 +341,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | `python3` | every tool in `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | FAT32 partitions (`mcopy`, `mkfs.vfat`) |
 | `e2fsprogs` | ext2 partitions (`mke2fs`) |
+| `exfatprogs` (optional) | exFAT tests (`tests/h325_exfat.py`: `mkfs.exfat`, `fsck.exfat`); without it that test is not run. `tools/entorno-local.sh` installs it without sudo |
 | `xz-utils` | `.xz` images and the compressed OpenTyrian data |
 | `qemu-system-x86`, `qemu-utils` | running the system (`qemu-system-i386`) and creating the `.vdi` (`qemu-img`) |
 | `ovmf`, `ovmf-ia32` (optional) | 64- and 32-bit UEFI firmware for QEMU, to test UEFI boot (`run_in_qemu.sh --uefi`, test h264; D264). `tools/entorno-local.sh` fetches them without sudo |
@@ -394,6 +399,8 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `MICROPYTHON` | `1` | `0` builds the image without MicroPython (considerably smaller) |
 | `NETSURF` | `1` | the NetSurf browser; only included if the sources are prepared and the glue exists (see 7). `NETSURF=0` removes it |
 | `GNUBOY` | `1` | the Game Boy emulator; only included if its code has been downloaded (`make priv_descargas` or `bash tools/gnuboy_fuentes.sh`, see 5 and 7). `GNUBOY=0` removes it |
+| `MGBA` | `1` | the Game Boy Advance, Game Boy and Game Boy Color emulator, mGBA (MPL-2.0; its sources are in git). Also included with `PUBLICABLE=1`. `MGBA=0` removes it |
+| `LAINES`, `GEARSYSTEM` | `1` | the NES emulator (LaiNES) and the Master System, Game Gear and SG-1000 emulator (Gearsystem), in C++ with SDL 2; without `g++` they are not included. `0` removes them; with `SEM_GPL=1` they are not included either |
 | `QUAKE` | `1` | the Quake engine (`0` removes it) |
 | `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (with the Recreativa launcher) and GNU Prolog (`0` removes them) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | put the shareware data downloaded by `tools/quake_datos.sh` and `tools/openjazz_datos.sh` into `/jogos`. If they were not downloaded, nothing is added; `0` ignores them even if downloaded |
@@ -403,6 +410,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `JOGOS_MB` | `800` | size of `SAGUI-JOGOS` in the persistent images, the partitioned one and what the installer creates (`0` = just enough) |
 | `JOGOS_IMG_MB` | `0` | the same for `saguios.img`, `-smp` and `-uacpi` (`0` = just enough for what it holds) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` puts the applications inside the ramdisk (`/apps`, single-block image); `APPS_MB` is the size of the `SAGUI-APPS` partition (`0` = just enough plus a margin) |
+| `RAMDISK` | `base` | `base` (default): the ramdisk holds only the essentials and the non-essential applications go to the `SAGUI-APPS` partition (`/apps`). `completo`: they go into the ramdisk, like `APPS=0`. The ISO is always `completo`. It is passed the same way with `gerar_versao.sh`, for example `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` of the ext2 persistent image |
 | `DATOS_FAT32_MB` | `2048` | `/home` of the FAT32 persistent image |
 | `HOME_MB`, `TMP_MB`, `LOGS_MB` | `2048`, `256`, `128` | partitions of the partitioned disk (`imagem-particoes`) |
@@ -501,7 +509,7 @@ Files that `make variantes` leaves in the delivery folder:
 | `saguios.vdi` | VirtualBox |
 | `SHA256SUMS.txt`, `VERSION.txt` | checksums and a data sheet of what was built |
 
-Every disk image also carries the `SAGUI-JOGOS` (games, `/jogos`), `SAGUI-APPS` (applications, `/apps`) and `SAGUI-CONF` (configuration, 16 MB) partitions.
+Every disk image also carries the `SAGUI-JOGOS` (games, `/jogos`), `SAGUI-APPS` (applications, `/apps`) and `SAGUI-CONF` (configuration, 16 MB) partitions. With `APPS=0` or `RAMDISK=completo` there is no `SAGUI-APPS` partition.
 
 ### 5. What is downloaded, and when
 
@@ -631,7 +639,7 @@ Guia para compilar o SaguiOS-Extended a partir do repositório público e gerar 
 sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
     mtools dosfstools e2fsprogs xz-utils curl perl \
     qemu-system-x86 qemu-utils
-# opcional, só para os testes automáticos: imagemagick ffmpeg zip sqlite3
+# opcional, só para os testes automáticos: imagemagick ffmpeg zip sqlite3 exfatprogs
 # opcional, para testar o arranque UEFI (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
@@ -643,6 +651,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | `python3` | todas as ferramentas de `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | partições FAT32 (`mcopy`, `mkfs.vfat`) |
 | `e2fsprogs` | partições ext2 (`mke2fs`) |
+| `exfatprogs` (opcional) | testes de exFAT (`tests/h325_exfat.py`: `mkfs.exfat`, `fsck.exfat`); sem ele esse teste não é feito. `tools/entorno-local.sh` o baixa sem sudo |
 | `xz-utils` | imagens `.xz` e os dados comprimidos do OpenTyrian |
 | `qemu-system-x86`, `qemu-utils` | executar o sistema (`qemu-system-i386`) e criar o `.vdi` (`qemu-img`) |
 | `ovmf`, `ovmf-ia32` (opcional) | firmware UEFI do QEMU de 64 e 32 bits, para testar o arranque UEFI (`run_in_qemu.sh --uefi`, teste h264; D264). `tools/entorno-local.sh` baixa-os sem sudo |
@@ -700,6 +709,8 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `MICROPYTHON` | `1` | `0` gera a imagem sem o MicroPython (bem menor) |
 | `NETSURF` | `1` | o navegador NetSurf; só entra se as fontes estiverem preparadas e a cola existir (veja 7). `NETSURF=0` o remove |
 | `GNUBOY` | `1` | o emulador de Game Boy; só entra se o seu código foi baixado (`make priv_descargas` ou `bash tools/gnuboy_fuentes.sh`, veja 5 e 7). `GNUBOY=0` o remove |
+| `MGBA` | `1` | o emulador de Game Boy Advance, Game Boy e Game Boy Color com mGBA (MPL-2.0; as fontes estão no git). Também entra com `PUBLICABLE=1`. `MGBA=0` o remove |
+| `LAINES`, `GEARSYSTEM` | `1` | os emuladores de NES (LaiNES) e de Master System, Game Gear e SG-1000 (Gearsystem), em C++ com SDL 2; sem `g++` não entram. `0` os remove; com `SEM_GPL=1` também não entram |
 | `QUAKE` | `1` | o motor do Quake (`0` o remove) |
 | `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (com o lançador Recreativa) e GNU Prolog (`0` os remove) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | colocar em `/jogos` os dados shareware baixados por `tools/quake_datos.sh` e `tools/openjazz_datos.sh`. Se não foram baixados, nada entra; `0` os ignora mesmo que estejam baixados |
@@ -709,6 +720,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `JOGOS_MB` | `800` | tamanho da `SAGUI-JOGOS` nas imagens persistentes, na de partições e no que o instalador cria (`0` = o justo) |
 | `JOGOS_IMG_MB` | `0` | o mesmo para `saguios.img`, `-smp` e `-uacpi` (`0` = o justo para o que ela leva) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` coloca os aplicativos dentro do ramdisk (`/apps`, imagem de um só bloco); `APPS_MB` é o tamanho da partição `SAGUI-APPS` (`0` = o justo mais uma margem) |
+| `RAMDISK` | `base` | `base` (padrão): o ramdisk leva só o essencial e os aplicativos não essenciais vão para a partição `SAGUI-APPS` (`/apps`). `completo`: vão para dentro do ramdisk, como `APPS=0`. A ISO é sempre `completo`. Passa-se igual com o `gerar_versao.sh`, por exemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` da imagem persistente ext2 |
 | `DATOS_FAT32_MB` | `2048` | `/home` da imagem persistente FAT32 |
 | `HOME_MB`, `TMP_MB`, `LOGS_MB` | `2048`, `256`, `128` | partições do disco com partições (`imagem-particoes`) |
@@ -807,7 +819,7 @@ Arquivos que o `make variantes` deixa na pasta de entrega:
 | `saguios.vdi` | VirtualBox |
 | `SHA256SUMS.txt`, `VERSION.txt` | somas de verificação e ficha técnica do que foi compilado |
 
-Todas as imagens de disco levam ainda as partições `SAGUI-JOGOS` (jogos, `/jogos`), `SAGUI-APPS` (aplicativos, `/apps`) e `SAGUI-CONF` (configuração, 16 MB).
+Todas as imagens de disco levam ainda as partições `SAGUI-JOGOS` (jogos, `/jogos`), `SAGUI-APPS` (aplicativos, `/apps`) e `SAGUI-CONF` (configuração, 16 MB). Com `APPS=0` ou `RAMDISK=completo` não há partição `SAGUI-APPS`.
 
 ### 5. O que é baixado e quando
 

@@ -869,8 +869,8 @@ static int autoprueba(const char *arq)
 static void bajar_de_internet(void)
 {
     char *av[] = { "jclicbajar", NULL };
-    int pid = executar("/bin/jclicbajar", av);
-    if (pid < 0) formatar_texto(aviso_lista, sizeof aviso_lista, "No se pudo abrir el descargador (/bin/jclicbajar): %s", nome_erro(pid));
+    int pid = executar("/apps/bin/jclicbajar", av);
+    if (pid < 0) formatar_texto(aviso_lista, sizeof aviso_lista, "No se pudo abrir el descargador (/apps/bin/jclicbajar): %s", nome_erro(pid));
 }
 
 static void tratar_lista(const evento_t *ev)

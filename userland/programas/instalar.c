@@ -48,6 +48,7 @@
 #include "gui.h"
 #include "particoes.h"
 #include "gpt.h"
+#include "pbkdf2.h"
 
 #define MB 2048u
 #define CAB_ASSINATURA 0x44484753u
@@ -103,7 +104,30 @@ typedef struct {
     uint32_t cab_origem;         /* D270: sector de la cabecera en el origen: 1, o el de su partición GPT de SaguiOS */
     bool     tabela_auto;        /* D270: la tabla la eligió el modo automático */
     char     perde[400];         /* qué se borra, dicho para la persona */
+    /* D318: tamaños elegidos (MB; 0 = automático: /home, lo que sobre), sistema de archivos de cada
+     * partición de datos (PA_FS_EXT2 o PA_FS_FAT32; 0 = ext2) y /tmp y /logs en disco */
+    uint32_t home_mb, apps_mb, jogos_mb, tmp_mb, logs_mb;
+    bool     tmp, logs;
+    int      fs_home, fs_apps, fs_jogos, fs_tmp, fs_logs;
+    uint32_t tmp_set, logs_set;
+    /* D318: «junto a lo que hay»: antes de instalar, la partición reduzir_part se encoge a
+     * reduzir_set sectores (primero su sistema de archivos) y se instala en el hueco que deja */
+    bool     reduzir;
+    int      reduzir_part;
+    uint32_t reduzir_set, reduzir_antes;
+    char     reduzir_txt[160];
+    /* D318: opciones del sistema instalado (van a SAGUI-CONF y a /home) */
+    char     nome_equipo[32];
+    char     zona[40];
+    int      teclado;            /* -1 = el de ahora; TECLADO_ES o TECLADO_ABNT2 */
+    char     senha_root[64], senha_usuario[64];
+    bool     sshd, vncd;
+    unsigned copiar_conf;        /* CC_* */
+    bool     sem_copiar_apps;    /* crear /apps vacía (sin copiar las aplicaciones de este sistema) */
 } plano_t;
+
+/* D318: lo que se copia de la sesión en vivo al /home instalado */
+enum { CC_PREFS = 1, CC_WIFI = 2, CC_SSH = 4, CC_CORREO = 8, CC_IA = 16, CC_IA_CHAVE = 32, CC_DOCS = 64 };
 
 /* ------------------------------------------------------------ utilidades */
 
@@ -118,6 +142,20 @@ static void txt(char *m, int max, const char *fmt, ...)
 static uint32_t le32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 static void po32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
 static uint32_t alinhar_cima(uint32_t x) { return (x + MB - 1) / MB * MB; }
+
+/* D318: ¿aparece "palavra" como elemento de una lista separada por comas ("home,apps")? */
+static bool acha_texto(const char *lista, const char *palavra)
+{
+    int n = (int)tam_texto(palavra);
+    for (const char *l = lista; *l; ) {
+        const char *f = acha_char(l, ',');
+        int len = f ? (int)(f - l) : (int)tam_texto(l);
+        if (len == n && memcmp(l, palavra, (unsigned)n) == 0) return true;
+        l += len;
+        if (*l == ',') l++;
+    }
+    return false;
+}
 
 static bool info_de(const char *nome, info_disco_t *out)
 {
@@ -201,8 +239,17 @@ static bool e_jogo_base(const char *nome)
     return false;
 }
 
-/* KB de /jogos: con «todo», todo; sin él, solo los juegos de la base. */
+/* KB de /jogos: con «todo», todo; sin él, solo los juegos de la base. D318: se recuerda (el
+ * asistente rehace el plan a cada tecla y recorrer /jogos entero cada vez sería lento). */
+static uint32_t kb_jogos_de_verdade(bool todo);
 static uint32_t kb_jogos(bool todo)
+{
+    static uint32_t cache[2] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+    if (cache[todo] == 0xFFFFFFFFu) cache[todo] = kb_jogos_de_verdade(todo);
+    return cache[todo];
+}
+
+static uint32_t kb_jogos_de_verdade(bool todo)
 {
     uint32_t kb = 0;
     entrada_pasta_t e;
@@ -222,7 +269,13 @@ static bool ha_jogos(void) { return existe_pasta(JOGOS_ORIGEM) && kb_jogos(true)
 /* ¿Hay aplicaciones en /apps (la partición SAGUI-APPS o, con APPS=0, el ramdisk)? D194 */
 /* D266: ¿hay un cargador UEFI que copiar a la ESP? (la ruta acordada con la rama UEFI: D266) */
 static bool efi_disponivel(void) { return existe_pasta(EFI_ORIGEM) && kb_pasta(EFI_ORIGEM, 0) > 0; }
-static bool ha_apps(void) { return existe_pasta(APPS_ORIGEM) && kb_pasta(APPS_ORIGEM, 0) > 0; }
+static uint32_t kb_apps(void)   /* D318: recordado, como kb_jogos */
+{
+    static uint32_t kb = 0xFFFFFFFFu;
+    if (kb == 0xFFFFFFFFu) kb = existe_pasta(APPS_ORIGEM) ? kb_pasta(APPS_ORIGEM, 0) : 0;
+    return kb;
+}
+static bool ha_apps(void) { return kb_apps() > 0; }
 
 /* ------------------------------------------------------------ el plan */
 
@@ -342,6 +395,7 @@ static bool planejar(plano_t *p, char *erro, int max)
         p->conf_set = CONF_MB * MB;
         if (fim_g < p->home_ini + p->conf_set + (p->sin_home ? 0u : 16u * MB)) { txt(erro, max, "no cabe: hacen falta al menos %u MB para ESP, sistema, configuración%s", (p->home_ini + p->conf_set) / MB + (p->sin_home ? 0u : 16u), p->sin_home ? "" : " y /home"); return false; }
         p->home_set = p->sin_home ? 0 : fim_g - p->home_ini - p->conf_set;
+        if (!p->sin_home && p->home_mb && p->home_mb * MB < p->home_set) p->home_set = p->home_mb * MB;   /* D318 */
         if (p->home_set > 0xFFFFFFFFu - MB) p->home_set = 0xFFFFFFFFu - MB;
         p->home_set = p->home_set / MB * MB;
         p->conf_ini = p->home_ini + p->home_set;
@@ -354,6 +408,30 @@ static bool planejar(plano_t *p, char *erro, int max)
         if (t.esquema != PT_MBR && t.esquema != PT_SEM_TABELA) {
             txt(erro, max, "%s no tiene tabla MBR: solo se puede instalar en el disco entero", p->destino);
             return false;
+        }
+        if (p->reduzir) {   /* D318: «junto a lo que hay»: el hueco sale de encoger una partición */
+            pt_part_t *x = pt_achar(&t, p->reduzir_part);
+            char n[16], e[160], tp[16];
+            info_disco_t q;
+            if (!x || pt_tipo_extendida(x->tipo) || x->tipo == 0xDA || x->tipo == 0xEF) { txt(erro, max, "esa partición no se puede reducir"); return false; }
+            pt_nome_particao(p->destino, p->reduzir_part, n, sizeof n);
+            if (x->tipo == 0x07) { txt(erro, max, "%s es NTFS: SaguiOS no escribe en NTFS y no la reduce (redúcela desde Windows y usa el espacio libre)", n); return false; }
+            uint32_t ocupa = fs_tamanho(n, tp, sizeof tp);
+            if (!ocupa) { txt(erro, max, "%s no es FAT32 ni ext2: SaguiOS no sabe reducirla", n); return false; }
+            uint32_t min = fs_minimo(n);
+            if (!min || p->reduzir_set < min) { txt(erro, max, "%s no se puede reducir por debajo de %u MB sin mover datos", n, min / MB); return false; }
+            p->reduzir_antes = x->setores;
+            if (p->reduzir_set >= x->setores) { txt(erro, max, "el tamaño nuevo de %s tiene que ser menor que el de ahora (%u MB)", n, x->setores / MB); return false; }
+            if (pt_redimensionar(&t, p->reduzir_part, p->reduzir_set, e, sizeof e) < 0) { txt(erro, max, "%s: %s", n, e); return false; }
+            x = pt_achar(&t, p->reduzir_part);
+            p->reduzir_set = x->setores;
+            p->hueco_ini = alinhar_cima(x->inicio + x->setores);
+            if (p->modo == M_ENTERO || p->modo == M_PARTICION) p->modo = M_HUECO;
+            tamanho(p->reduzir_antes, e, 16);
+            char d2[16];
+            tamanho(p->reduzir_set, d2, sizeof d2);
+            txt(p->reduzir_txt, sizeof p->reduzir_txt, "%s (%s%s%s%s) se reduce de %s a %s: sus archivos se conservan", n, tp,
+                info_de(n, &q) && q.rotulo[0] ? " \"" : "", info_de(n, &q) ? q.rotulo : "", info_de(n, &q) && q.rotulo[0] ? "\"" : "", e, d2);
         }
         if (p->modo == M_PARTICION) {
             pt_part_t *x = pt_achar(&t, p->particao);
@@ -394,21 +472,27 @@ static bool planejar(plano_t *p, char *erro, int max)
     }
     if (p->ext_ini >= fim) { txt(erro, max, "no cabe: SaguiOS necesita al menos %u MB más espacio para los datos", sys_mb); return false; }
     p->ext_set = fim - p->ext_ini;
-    /* Los datos: /home se queda con lo que sobre; /jogos y /apps según el espacio (y lo pedido). */
+    /* Los datos: /home se queda con lo que sobre (o lo pedido); /jogos y /apps según el espacio (o lo
+     * pedido); /tmp y /logs (D318) con lo pedido. Cada lógica gasta 1 MB de EBR. */
     uint32_t disp = p->ext_set / MB;
-    int nlog = 2 + (p->jogos ? 1 : 0) + (p->apps ? 1 : 0);   /* /home, SAGUI-CONF y las opcionales */
-    if (disp < (uint32_t)nlog) { txt(erro, max, "no cabe"); return false; }
-    disp -= (uint32_t)nlog;   /* un MB para el EBR de cada lógica */
-    if (disp < CONF_MB + 16) { txt(erro, max, "no cabe: falta sitio para SAGUI-CONF (%u MB)", CONF_MB); return false; }
-    disp -= CONF_MB;          /* D256: SAGUI-CONF, la última de las lógicas */
+    if (disp < 2 + CONF_MB + 16) { txt(erro, max, "no cabe: falta sitio para SAGUI-CONF (%u MB) y /home", CONF_MB); return false; }
+    disp -= 2 + CONF_MB;      /* los EBR de /home y SAGUI-CONF, y D256: SAGUI-CONF, la última de las lógicas */
     p->conf_set = CONF_MB * MB;
+    uint32_t tm = 0, lg = 0;
+    if (p->tmp) { tm = p->tmp_mb ? p->tmp_mb : 256; disp = disp > tm + 1 ? disp - tm - 1 : 0; }
+    if (p->logs) { lg = p->logs_mb ? p->logs_mb : 128; disp = disp > lg + 1 ? disp - lg - 1 : 0; }
     uint32_t jg = 0, ap = 0;
-    if (p->apps && disp >= 16 + 40 + 40) {
+    uint32_t dados_apps = p->apps && ha_apps() ? kb_apps() / 1024 + 1 : 0;
+    if (p->apps && p->apps_mb) {
+        ap = p->apps_mb;
+        if (ap < dados_apps + 16) { txt(erro, max, "/apps necesita al menos %u MB (lo que ocupan las aplicaciones más 16)", dados_apps + 16); return false; }
+        disp = disp > 1 ? disp - 1 : 0;
+    } else if (p->apps && disp >= 16 + 40 + 40) {
+        disp -= 1;
         ap = disp * 15 / 100; if (ap < 40) ap = 40; if (ap > 4096) ap = 4096;
         /* D194: al menos el doble de lo que hay en /apps más 16 MB, para instalar otras. */
-        uint32_t dados = ha_apps() ? kb_pasta(APPS_ORIGEM, 0) / 1024 + 1 : 0;
-        if (ap < dados * 2 + 16) ap = dados * 2 + 16;
-    } else if (p->apps) { p->apps = false; disp += 1; }
+        if (ap < dados_apps * 2 + 16) ap = dados_apps * 2 + 16;
+    } else p->apps = false;
     /* Juegos (D181, D228): 800 MB, para meter desde el SaguiOS la versión completa de un
      * juego, o lo que quepa: como mucho la mitad de lo que queda tras /apps (el resto es
      * para /home). Nunca menos del doble de lo que se copia más 8 MB (o 32 MB). */
@@ -416,32 +500,57 @@ static bool planejar(plano_t *p, char *erro, int max)
         uint32_t dados = kb_jogos(p->copiar_jogos && ha_jogos()) / 1024 + 1;
         uint32_t minimo = dados * 2 + 8;
         if (minimo < 32) minimo = 32;
-        uint32_t resto = disp > ap ? disp - ap : 0;
-        jg = JOGOS_INSTALAR_MB;
-        if (jg < minimo) jg = minimo;
-        if (jg > resto / 2) jg = resto / 2;
-        if (jg < minimo) { p->jogos = false; p->copiar_jogos = false; jg = 0; disp += 1; }
+        if (p->jogos_mb) {
+            jg = p->jogos_mb;
+            if (jg < dados + 8) { txt(erro, max, "la partición de juegos necesita al menos %u MB", dados + 8); return false; }
+            disp = disp > 1 ? disp - 1 : 0;
+        } else {
+            uint32_t resto = disp > ap + 1 ? disp - ap - 1 : 0;
+            jg = JOGOS_INSTALAR_MB;
+            if (jg < minimo) jg = minimo;
+            if (jg > resto / 2) jg = resto / 2;
+            if (jg < minimo) { p->jogos = false; p->copiar_jogos = false; jg = 0; }
+            else disp -= 1;
+        }
     }
-    if (disp < jg + ap + 16) { txt(erro, max, "no cabe: hacen falta al menos %u MB", sys_mb + 16 + 2); return false; }
+    /* Un FAT32 de SaguiOS necesita al menos 34 MB (formatacao.c). */
+    struct { bool usa; int fs; uint32_t mb; const char *nome; } fat[] = {
+        { p->apps, p->fs_apps, ap, "/apps" }, { p->jogos, p->fs_jogos, jg, "juegos" },
+        { p->tmp, p->fs_tmp, tm, "/tmp" }, { p->logs, p->fs_logs, lg, "/logs" } };
+    for (int i = 0; i < 4; i++)
+        if (fat[i].usa && fat[i].fs == PA_FS_FAT32 && fat[i].mb < 34) { txt(erro, max, "%s en FAT32 necesita al menos 34 MB", fat[i].nome); return false; }
+    uint32_t fixo = jg + ap;
+    if (disp < fixo + 16) { txt(erro, max, "no cabe: hacen falta al menos %u MB más", fixo + 16 - disp); return false; }
+    uint32_t hm = p->home_mb ? p->home_mb : disp - fixo;
+    if (hm > disp - fixo) { txt(erro, max, "no cabe: /home puede tener como mucho %u MB con lo demás que se ha pedido", disp - fixo); return false; }
+    if (hm < 16 || (p->fs_home == PA_FS_FAT32 && hm < 34)) { txt(erro, max, "/home necesita al menos %u MB", p->fs_home == PA_FS_FAT32 ? 34 : 16); return false; }
     p->apps_set = ap * MB;
     p->jogos_set = jg * MB;
-    p->home_set = (disp - jg - ap) * MB;
+    p->tmp_set = tm * MB;
+    p->logs_set = lg * MB;
+    p->home_set = hm * MB;
     if (p->home_set > 0xFFFFFFFFu - MB) p->home_set = 0xFFFFFFFFu - MB;
     return true;
 }
 
 static void descrever_plano(const plano_t *p, char *s, int max)
 {
-    char a[16], h[16], j[16], x[16], e[16], parte[96];
+    char a[16], h[16], e[16], parte[96];
     tamanho(p->sys_set + 1, a, sizeof a);
     tamanho(p->home_set, h, sizeof h);
-    tamanho(p->jogos_set, j, sizeof j);
-    tamanho(p->apps_set, x, sizeof x);
     tamanho(p->esp_set, e, sizeof e);
     txt(s, max, "SaguiOS %s", a);
-    if (p->home_set) { txt(parte, sizeof parte, "  |  /home %s (ext2)", h); junta_texto(s, parte, (size_t)max); }
-    if (p->jogos) { txt(parte, sizeof parte, "  |  juegos %s (ext2)", j); junta_texto(s, parte, (size_t)max); }
-    if (p->apps) { txt(parte, sizeof parte, "  |  /apps %s (ext2)", x); junta_texto(s, parte, (size_t)max); }
+    /* D318: cada partición de datos con su tamaño y su sistema de archivos */
+    struct { bool usa; uint32_t set; int fs; const char *nome; } v[] = {
+        { p->home_set != 0, p->home_set, p->fs_home, "/home" }, { p->tmp, p->tmp_set, p->fs_tmp, "/tmp" },
+        { p->logs, p->logs_set, p->fs_logs, "/logs" }, { p->jogos, p->jogos_set, p->fs_jogos, "juegos" },
+        { p->apps, p->apps_set, p->fs_apps, "/apps" } };
+    for (int i = 0; i < 5; i++) {
+        if (!v[i].usa) continue;
+        tamanho(v[i].set, h, sizeof h);
+        txt(parte, sizeof parte, "  |  %s %s (%s)", v[i].nome, h, v[i].fs == PA_FS_FAT32 ? "FAT32" : "ext2");
+        junta_texto(s, parte, (size_t)max);
+    }
     junta_texto(s, "  |  SAGUI-CONF 16 MB", (size_t)max);
     if (p->esp) { txt(parte, sizeof parte, "  |  EFI %s (FAT32)", e); junta_texto(s, parte, (size_t)max); }
     if (p->tabela == T_GPT) junta_texto(s, "  |  tabla GPT (UEFI)", (size_t)max);
@@ -600,6 +709,240 @@ static int escrever_texto_arquivo(const char *caminho, const char *t)
     return r < 0 ? r : 0;
 }
 
+/* ---- D318: copiar la configuración de la sesión en vivo y escribir las opciones ---- */
+static int escrever_texto_arquivo(const char *caminho, const char *t);
+
+/* ¿Existe la ruta? */
+static bool existe(const char *c) { info_arquivo_t i; return info_arquivo(c, &i) == 0; }
+
+/* KB de un archivo o una carpeta (0 si no existe). */
+static uint32_t kb_de(const char *c)
+{
+    info_arquivo_t i;
+    if (info_arquivo(c, &i) < 0) return 0;
+    return i.tipo == TIPO_PASTA ? kb_pasta(c, 0) : i.tamanho / 1024 + 1;
+}
+
+/* Lo que va en «preferencias»: /home/.config sin lo que tiene su propia casilla. */
+static bool conf_propia(const char *nome)
+{
+    static const char *const v[] = { "wifi.conf", "correo", "correo.libreta", "agentes", "ia" };
+    for (unsigned i = 0; i < sizeof v / sizeof v[0]; i++) if (compara_texto(nome, v[i]) == 0) return true;
+    return false;
+}
+
+/* KB que se copiarían con cada casilla (para la ventana y el resumen). */
+static uint32_t kb_copia(unsigned cc)
+{
+    uint32_t kb = 0;
+    entrada_pasta_t e;
+    char c[256];
+    if (cc & CC_PREFS)
+        for (int i = 0; listar("/home/.config", i, &e) > 0; i++) {
+            if (e.nome[0] == '.' && (!e.nome[1] || e.nome[1] == '.')) continue;
+            if (conf_propia(e.nome)) continue;
+            caminho_juntar(c, sizeof c, "/home/.config", e.nome);
+            kb += kb_de(c);
+        }
+    if (cc & CC_WIFI) kb += kb_de("/home/.config/wifi.conf");
+    if (cc & CC_SSH) kb += kb_de("/home/.ssh");
+    if (cc & CC_CORREO) kb += kb_de("/home/.config/correo") + kb_de("/home/.config/correo.libreta") + kb_de("/home/correo");
+    if (cc & CC_IA) {
+        kb += kb_de("/home/.config/agentes") + kb_de("/home/.config/ia");
+        if (!(cc & CC_IA_CHAVE)) { uint32_t k = kb_de("/home/.config/ia/chave"); kb = kb > k ? kb - k : 0; }
+    }
+    if (cc & CC_DOCS)
+        for (int i = 0; listar("/home", i, &e) > 0; i++) {
+            if (e.nome[0] == '.' || compara_texto(e.nome, "lost+found") == 0 || compara_texto(e.nome, "correo") == 0) continue;
+            caminho_juntar(c, sizeof c, "/home", e.nome);
+            kb += kb_de(c);
+        }
+    return kb;
+}
+
+/* Copia un archivo o una carpeta de /home (rel = ".ssh", ".config/wifi.conf"...) al /home nuevo. */
+static int copiar_rel(const char *ponto, const char *rel, char *erro, int max)
+{
+    char de[160], para[160];
+    caminho_juntar(de, sizeof de, "/home", rel);
+    caminho_juntar(para, sizeof para, ponto, rel);
+    info_arquivo_t i;
+    if (info_arquivo(de, &i) < 0) return 0;
+    return i.tipo == TIPO_PASTA ? copiar_pasta(de, para, erro, max, 1) : copiar_arquivo(de, para, erro, max);
+}
+
+static uint32_t arquivos_conf;
+static int copiar_configuracao(plano_t *p, const char *ponto, char *erro, int max)
+{
+    if (!p->copiar_conf) return 0;
+    uint32_t antes = arquivos_copiados;
+    int r = 0;
+    char c[160];
+    caminho_juntar(c, sizeof c, ponto, ".config");
+    criar_pasta(c);
+    entrada_pasta_t e;
+    if (p->copiar_conf & CC_PREFS) {
+        fase(fase_atual, 0, "Copiando las preferencias (/home/.config)...");
+        for (int i = 0; r == 0 && listar("/home/.config", i, &e) > 0; i++) {
+            if ((e.nome[0] == '.' && (!e.nome[1] || e.nome[1] == '.')) || conf_propia(e.nome)) continue;
+            char rel[96];
+            txt(rel, sizeof rel, ".config/%s", e.nome);
+            r = copiar_rel(ponto, rel, erro, max);
+        }
+    }
+    if (r == 0 && (p->copiar_conf & CC_WIFI)) r = copiar_rel(ponto, ".config/wifi.conf", erro, max);
+    if (r == 0 && (p->copiar_conf & CC_SSH)) { fase(fase_atual, 0, "Copiando las claves SSH (/home/.ssh)..."); r = copiar_rel(ponto, ".ssh", erro, max); }
+    if (r == 0 && (p->copiar_conf & CC_CORREO)) {
+        fase(fase_atual, 0, "Copiando las cuentas de correo...");
+        if ((r = copiar_rel(ponto, ".config/correo", erro, max)) == 0 && (r = copiar_rel(ponto, ".config/correo.libreta", erro, max)) == 0)
+            r = copiar_rel(ponto, "correo", erro, max);
+    }
+    if (r == 0 && (p->copiar_conf & CC_IA)) {
+        fase(fase_atual, 0, "Copiando los agentes de IA y su configuración...");
+        if ((r = copiar_rel(ponto, ".config/agentes", erro, max)) == 0) {
+            caminho_juntar(c, sizeof c, ponto, ".config/ia");
+            criar_pasta(c);
+            for (int i = 0; r == 0 && listar("/home/.config/ia", i, &e) > 0; i++) {
+                if (e.nome[0] == '.' && (!e.nome[1] || e.nome[1] == '.')) continue;
+                if (compara_texto(e.nome, "chave") == 0 && !(p->copiar_conf & CC_IA_CHAVE)) continue;   /* la clave de la API, solo si se pide */
+                char rel[96];
+                txt(rel, sizeof rel, ".config/ia/%s", e.nome);
+                r = copiar_rel(ponto, rel, erro, max);
+            }
+        }
+    }
+    if (r == 0 && (p->copiar_conf & CC_DOCS)) {
+        fase(fase_atual, 0, "Copiando los documentos de /home...");
+        for (int i = 0; r == 0 && listar("/home", i, &e) > 0; i++) {
+            if (e.nome[0] == '.' || compara_texto(e.nome, "lost+found") == 0 || compara_texto(e.nome, "correo") == 0
+                || compara_texto(e.nome, "leeme.txt") == 0) continue;
+            r = copiar_rel(ponto, e.nome, erro, max);
+        }
+    }
+    arquivos_conf = arquivos_copiados - antes;
+    registrar("instalar: configuración copiada (%x): %u archivos", p->copiar_conf, arquivos_conf);
+    return r;
+}
+
+/* Cambia (o añade) "clave=valor" en un archivo de líneas; el resto se conserva. */
+static int fixar_linha(const char *caminho, const char *chave, const char *valor, char sep)
+{
+    char novo[4096];
+    int k = 0;
+    bool feito = false;
+    int fd = abrir(caminho, ABRIR_LER);
+    if (fd >= 0) {
+        unsigned tam;
+        char *b = ler_todo_fd(fd, &tam);
+        fechar(fd);
+        if (b) {
+            int n = (int)tam_texto(chave);
+            for (char *l = b; *l && k < (int)sizeof novo - 200; ) {
+                char *f = acha_char(l, '\n');
+                int len = f ? (int)(f - l) : (int)tam_texto(l);
+                bool esta = len > n && memcmp(l, chave, (unsigned)n) == 0 && l[n] == sep;
+                if (esta && !feito) { k += formatar_texto(novo + k, sizeof novo - (size_t)k, "%s%c%s\n", chave, sep, valor); feito = true; }
+                else if (!esta && len < (int)sizeof novo - 200 - k) { memcpy(novo + k, l, (unsigned)len); k += len; novo[k++] = '\n'; }
+                l += len;
+                if (*l == '\n') l++;
+            }
+            libera(b);
+        }
+    }
+    if (!feito) k += formatar_texto(novo + k, sizeof novo - (size_t)k, "%s%c%s\n", chave, sep, valor);
+    fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return fd;
+    int r = escrever_tudo(fd, novo, (unsigned)k);
+    fechar(fd);
+    return r < 0 ? r : 0;
+}
+
+/* El texto de /etc/zona para una zona de la tabla. */
+static bool texto_zona(const char *nome, char *t, int max)
+{
+    const zona_info_t *z = zona_achar(nome);
+    if (!z) return false;
+    txt(t, max, "# Zona horaria de SaguiOS (la escribió el instalador; se cambia con \"zona\", D080).\n"
+                "zona=%s\ntz=%s\nformato=24\n", z->nome, z->tz);
+    return true;
+}
+
+/* D282: todo el /home nuevo es de sagui (como en las imágenes, mkimagem.py), sin cambiar los modos: lo
+ * que escribe el instalador lo crea root, y una clave SSH copiada sigue con su 0600. */
+static void dono_sagui(const char *c, int nivel)
+{
+    if (nivel > 16) return;
+    mudar_dono(c, UID_SAGUI, GID_SAGUI);
+    entrada_pasta_t e;
+    for (int i = 0; listar(c, i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0 || compara_texto(e.nome, "lost+found") == 0) continue;
+        char f[256];
+        caminho_juntar(f, sizeof f, c, e.nome);
+        if (e.tipo == TIPO_PASTA) dono_sagui(f, nivel + 1);
+        else mudar_dono(f, UID_SAGUI, GID_SAGUI);
+    }
+}
+
+/* En el /home nuevo: el teclado (configuración del escritorio, D112) y la zona (D080). */
+static int opcoes_home(plano_t *p, const char *ponto)
+{
+    char c[160], t[300];
+    caminho_juntar(c, sizeof c, ponto, ".config");
+    criar_pasta(c);
+    if (p->teclado >= 0) {
+        caminho_juntar(c, sizeof c, ponto, ".config/sagui.conf");
+        int r = fixar_linha(c, "teclado", p->teclado == TECLADO_ABNT2 ? "abnt2" : "es", '=');
+        if (r < 0) return r;
+    }
+    if (p->zona[0] && texto_zona(p->zona, t, sizeof t)) {
+        caminho_juntar(c, sizeof c, ponto, ".zona");
+        int r = escrever_texto_arquivo(c, t);
+        if (r < 0) return r;
+    }
+    return 0;
+}
+
+/* En SAGUI-CONF nueva (su etc/ se copia sobre /etc al arrancar, D255): contraseñas, nombre del
+ * equipo, zona y servicios. La sombra solo lleva hashes PBKDF2 (pbkdf2.h); la contraseña en claro
+ * no se escribe en ningún sitio y se borra de la memoria al acabar. */
+static int opcoes_conf(plano_t *p, const char *ponto, char *erro, int max)
+{
+    char c[160], t[300];
+    caminho_juntar(c, sizeof c, ponto, "etc");
+    criar_pasta(c);
+    caminho_juntar(c, sizeof c, ponto, "etc/servicios");
+    criar_pasta(c);
+    int r = 0;
+    (void)pbkdf2_conferir;   /* pbkdf2.h trae también la comprobación, que aquí no hace falta */
+    struct { const char *conta, *senha; } s[] = { { "root", p->senha_root }, { "sagui", p->senha_usuario } };
+    for (int i = 0; i < 2 && r == 0; i++) {
+        if (!s[i].senha[0]) continue;
+        char h[PBKDF2_TEXTO_MAX];
+        if (pbkdf2_gerar(s[i].senha, h, sizeof h) < 0) { txt(erro, max, "no se puede preparar la contraseña de %s", s[i].conta); return ERRO_INVALIDO; }
+        caminho_juntar(c, sizeof c, ponto, "etc/sombra");
+        r = fixar_linha(c, s[i].conta, h, ':');
+        if (r == 0) mudar_permisos(c, 0600);   /* D282: la sombra, solo root */
+        memset(h, 0, sizeof h);
+    }
+    if (r == 0 && p->nome_equipo[0]) {
+        caminho_juntar(c, sizeof c, ponto, "etc/hostname");
+        txt(t, sizeof t, "%s\n", p->nome_equipo);
+        r = escrever_texto_arquivo(c, t);
+    }
+    if (r == 0 && p->zona[0] && texto_zona(p->zona, t, sizeof t)) {
+        caminho_juntar(c, sizeof c, ponto, "etc/zona");
+        r = escrever_texto_arquivo(c, t);
+    }
+    if (r == 0) {   /* D250: el sshd, apagado salvo que se pida; lo mismo el VNC */
+        caminho_juntar(c, sizeof c, ponto, "etc/servicios/activados");
+        if ((r = fixar_linha(c, "sshd", p->sshd ? "si" : "no", '=')) == 0) r = fixar_linha(c, "vncd", p->vncd ? "si" : "no", '=');
+    }
+    if (r < 0) txt(erro, max, "no se pueden escribir las opciones en SAGUI-CONF: %s", nome_erro(r));
+    registrar("instalar: opciones en SAGUI-CONF: claves %s/%s, equipo '%s', zona '%s', sshd %d, vncd %d", p->senha_root[0] ? "root" : "-",
+              p->senha_usuario[0] ? "sagui" : "-", p->nome_equipo, p->zona, p->sshd, p->vncd);
+    return r;
+}
+
 /* Monta una partición del destino, la prepara y la desmonta. jogos: copia los datos del
  * juego (si se pidió); apps: copia lo que haya en /apps (D194). */
 static uint32_t arquivos_jogos, arquivos_apps;
@@ -640,11 +983,25 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
             r = copiar_pasta(APPS_ORIGEM, ponto, erro, max, 0);
             arquivos_apps += arquivos_copiados - antes;
         }
+        if (r == 0) {   /* D282: /apps es de root, pero /apps/vps es de sagui (VisualPythonS guarda ahí, D297), también vacía */
+            char v[96];
+            caminho_juntar(v, sizeof v, ponto, "vps");
+            criar_pasta(v);
+            mudar_dono(v, UID_SAGUI, GID_SAGUI);
+            mudar_dono(ponto, UID_ROOT, GID_ROOT);
+            mudar_permisos(ponto, 0755);
+        }
     } else if (r < 0) txt(erro, max, "no se puede escribir en %s: %s", vol, nome_erro(r));
     if (r == 0 && conf && conf_respaldada) {
         /* D256: reinstalación: se devuelve lo que había (contraseñas, claves), también su LEEME. */
         fase(fase_atual, 0, "Devolviendo el contenido de SAGUI-CONF...");
         r = copiar_pasta(CONF_RESPALDO, ponto, erro, max, 0);
+    }
+    if (r == 0 && conf) r = opcoes_conf(p, ponto, erro, max);   /* D318 */
+    if (r == 0 && compara_texto(ponto, "/mnt/instalar-home") == 0) {
+        if ((r = copiar_configuracao(p, ponto, erro, max)) == 0 && (r = opcoes_home(p, ponto)) < 0)
+            txt(erro, max, "no se pueden escribir el teclado y la zona en /home: %s", nome_erro(r));
+        if (r == 0) dono_sagui(ponto, 0);   /* D282 */
     }
     int d = desmontar(ponto);
     if (r == 0 && d < 0) { txt(erro, max, "no se puede desmontar %s: %s", vol, nome_erro(d)); r = d; }
@@ -673,13 +1030,31 @@ static int instalar(plano_t *p, char *erro, int max)
 {
     char e[200];
     int r;
-    int num_sys = 0, num_ext = 0, num_home = 0, num_jogos = 0, num_apps = 0, num_conf = 0, num_esp = 0;
+    int num_sys = 0, num_ext = 0, num_home = 0, num_jogos = 0, num_apps = 0, num_conf = 0, num_esp = 0, num_tmp = 0, num_logs = 0;
     bool gpt_novo = p->tabela == T_GPT;
     bool reservado = false, tocado = false;
     bytes_copiados = arquivos_copiados = arquivos_jogos = arquivos_apps = 0;
     registrar("instalar: de %s a %s, modo %d, tabla %s, sistema %u+%u, extendida %u+%u, home %u jogos %u apps %u, esp %u+%u",
               p->origem, p->destino, p->modo, gpt_novo ? "GPT" : "MBR", p->sys_ini, p->sys_set, p->ext_ini, p->ext_set, p->home_set, p->jogos_set, p->apps_set,
               p->esp_ini, p->esp_set);
+
+    /* 0a. D318: «junto a lo que hay»: primero se encoge la partición elegida (pt_executar comprueba su
+     * sistema de archivos, lo encoge y después cambia la tabla; si algo falla, el disco queda como
+     * estaba). Hasta aquí el disco no se ha marcado como no arrancable: su otro sistema sigue igual. */
+    if (p->reduzir) {
+        fase(0, 0, p->reduzir_txt);
+        pt_acao_t a;
+        memset(&a, 0, sizeof a);
+        a.op = PA_REDIMENSIONAR;
+        copia_texto(a.disco, p->destino, sizeof a.disco);
+        a.numero = p->reduzir_part;
+        a.setores = p->reduzir_set;
+        a.progresso = prog_fmt;
+        r = pt_executar(&a, e, sizeof e);
+        if (r < 0) { txt(erro, max, "no se ha podido reducir la partición %d: %s. No se ha tocado nada más", p->reduzir_part, e); return r; }
+        registrar("instalar: %s", e);
+        fase(0, 0, e);
+    }
 
     /* 0. D256: una SAGUI-CONF que ya hay en el destino se conserva: se copia a la RAM antes de
      * tocar nada (y se devuelve a la nueva); solo se pierde si se pidió formatear todo. */
@@ -734,7 +1109,7 @@ static int instalar(plano_t *p, char *erro, int max)
         if ((sl = gpt_adicionar(g, GPT_TIPO_SAGUI, p->sys_ini, p->sys_set, "SaguiOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (sistema): %s", e); r = sl; goto falha; }
         num_sys = gpt_numero_kernel(g, sl);
         if (p->home_set) {
-            if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->home_ini, p->home_set, "SAGUI-DATOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (/home): %s", e); r = sl; goto falha; }
+            if ((sl = gpt_adicionar(g, p->fs_home == PA_FS_FAT32 ? GPT_TIPO_DADOS_MS : GPT_TIPO_LINUX, p->home_ini, p->home_set, "SAGUI-DATOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (/home): %s", e); r = sl; goto falha; }
             num_home = gpt_numero_kernel(g, sl);
         }
         if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->conf_ini, p->conf_set, "SAGUI-CONF", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (SAGUI-CONF): %s", e); r = sl; goto falha; }
@@ -761,16 +1136,26 @@ static int instalar(plano_t *p, char *erro, int max)
     num_ext = pt_criar(&t, p->ext_ini, p->ext_set, 0x0F, false, e, sizeof e);
     if (num_ext < 0) { txt(erro, max, "la extendida: %s", e); r = num_ext; goto falha; }
     uint32_t pos = p->ext_ini + MB;
-    num_home = pt_criar(&t, pos, p->home_set, 0x83, true, e, sizeof e);
+    num_home = pt_criar(&t, pos, p->home_set, p->fs_home == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
     if (num_home < 0) { txt(erro, max, "/home: %s", e); r = num_home; goto falha; }
     pos += p->home_set + MB;
+    if (p->tmp) {   /* D318: el orden de las imágenes (mkimagem): DATOS, TMP, LOGS, JOGOS, APPS, CONF */
+        num_tmp = pt_criar(&t, pos, p->tmp_set, p->fs_tmp == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
+        if (num_tmp < 0) { txt(erro, max, "/tmp: %s", e); r = num_tmp; goto falha; }
+        pos += p->tmp_set + MB;
+    }
+    if (p->logs) {
+        num_logs = pt_criar(&t, pos, p->logs_set, p->fs_logs == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
+        if (num_logs < 0) { txt(erro, max, "/logs: %s", e); r = num_logs; goto falha; }
+        pos += p->logs_set + MB;
+    }
     if (p->jogos) {
-        num_jogos = pt_criar(&t, pos, p->jogos_set, 0x83, true, e, sizeof e);
+        num_jogos = pt_criar(&t, pos, p->jogos_set, p->fs_jogos == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
         if (num_jogos < 0) { txt(erro, max, "juegos: %s", e); r = num_jogos; goto falha; }
         pos += p->jogos_set + MB;
     }
     if (p->apps) {
-        num_apps = pt_criar(&t, pos, p->apps_set, 0x83, true, e, sizeof e);   /* D194: ext2, como en la imagen */
+        num_apps = pt_criar(&t, pos, p->apps_set, p->fs_apps == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);   /* D194: ext2, como en la imagen */
         if (num_apps < 0) { txt(erro, max, "/apps: %s", e); r = num_apps; goto falha; }
         pos += p->apps_set + MB;
     }
@@ -785,20 +1170,20 @@ tabela_pronta: ;
         fase(1, 0, "Formateando la partición EFI (FAT32)...");
         if ((r = fs_formatar_fat32(vol, ESP_ROTULO, prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
     }
-    if (num_home) {
-        pt_nome_particao(p->destino, num_home, vol, sizeof vol);
-        fase(1, 0, "Formateando /home (ext2)...");
-        if ((r = fs_formatar_ext2(vol, "SAGUI-DATOS", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
-    }
-    if (num_jogos) {
-        pt_nome_particao(p->destino, num_jogos, vol, sizeof vol);
-        fase(1, 0, "Formateando la partición de juegos (ext2)...");
-        if ((r = fs_formatar_ext2(vol, "SAGUI-JOGOS", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
-    }
-    if (num_apps) {
-        pt_nome_particao(p->destino, num_apps, vol, sizeof vol);
-        fase(1, 0, "Formateando /apps (ext2)...");
-        if ((r = fs_formatar_ext2(vol, "SAGUI-APPS", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
+    /* D318: cada partición de datos con el sistema de archivos elegido (ext2 por defecto). */
+    struct { int num, fs; const char *rotulo, *nome; } dados[] = {
+        { num_home, p->fs_home, "SAGUI-DATOS", "/home" }, { num_tmp, p->fs_tmp, "SAGUI-TMP", "/tmp" },
+        { num_logs, p->fs_logs, "SAGUI-LOGS", "/logs" }, { num_jogos, p->fs_jogos, "SAGUI-JOGOS", "la partición de juegos" },
+        { num_apps, p->fs_apps, "SAGUI-APPS", "/apps" } };
+    for (int i = 0; i < 5; i++) {
+        if (!dados[i].num) continue;
+        char t2[80];
+        bool fat = dados[i].fs == PA_FS_FAT32;
+        pt_nome_particao(p->destino, dados[i].num, vol, sizeof vol);
+        txt(t2, sizeof t2, "Formateando %s (%s)...", dados[i].nome, fat ? "FAT32" : "ext2");
+        fase(1, 0, t2);
+        r = fat ? fs_formatar_fat32(vol, dados[i].rotulo, prog_fmt, NULL, e, sizeof e) : fs_formatar_ext2(vol, dados[i].rotulo, prog_fmt, NULL, e, sizeof e);
+        if (r < 0) { txt(erro, max, "%s", e); goto falha; }
     }
     pt_nome_particao(p->destino, num_conf, vol, sizeof vol);
     fase(1, 0, "Formateando SAGUI-CONF (ext2)...");
@@ -823,7 +1208,7 @@ tabela_pronta: ;
                             NULL, true, false, erro, max, false)) < 0) goto falha;
     if (num_apps && (r = preparar_dados(p, num_apps, "/mnt/instalar-apps",
                             "Aplicaciones de SaguiOS fuera de la RAM (/apps, D194): los ejecutables en /apps/bin\n"
-                            "y los datos de cada una en /apps/<app>.\n", false, true, erro, max, false)) < 0) goto falha;
+                            "y los datos de cada una en /apps/<app>.\n", false, !p->sem_copiar_apps, erro, max, false)) < 0) goto falha;
     if ((r = preparar_dados(p, num_conf, "/mnt/instalar-conf", CONF_LEEME, false, false, erro, max, true)) < 0) goto falha;
     fase(4, 100, NULL);
 
@@ -889,6 +1274,7 @@ falha:
         static const char *const c[] = { NULL, "/mnt/instalar-home", "/mnt/instalar-jogos", "/mnt/instalar-apps" };
         desmontar(c[i]);
     }
+    desmontar("/mnt/instalar-conf");
     desmontar(ESP_PUNTO);
     if (tocado && gpt_novo) marcar_nao_arrancavel_gpt(p, reservado);
     else if (tocado) marcar_nao_arrancavel(p->destino);
@@ -936,8 +1322,68 @@ static int terminal(int argc, char **argv)
     memset(&p, 0, sizeof p);
     p.modo = M_ENTERO;
     p.jogos = p.apps = true;
+    p.teclado = -1;
     bool sim = false;
     for (int i = 1; i < argc; i++) {
+        /* D318: tamaños, sistemas de archivos, reducir, opciones y configuración que se copia */
+        int v;
+        if (i + 1 < argc && (compara_texto(argv[i], "--home-mb") == 0 || compara_texto(argv[i], "--apps-mb") == 0 ||
+                             compara_texto(argv[i], "--jogos-mb") == 0 || compara_texto(argv[i], "--tmp-mb") == 0 ||
+                             compara_texto(argv[i], "--logs-mb") == 0)) {
+            if (!texto_para_numero(argv[i + 1], &v) || v < 0) { imprimir_em(ERROS, "instalar: %s: número no válido\n", argv[i]); return 2; }
+            char o = argv[i][2];
+            if (o == 'h') p.home_mb = (uint32_t)v;
+            else if (o == 'a') p.apps_mb = (uint32_t)v;
+            else if (o == 'j') p.jogos_mb = (uint32_t)v;
+            else if (o == 't') { p.tmp_mb = (uint32_t)v; p.tmp = v > 0; }
+            else { p.logs_mb = (uint32_t)v; p.logs = v > 0; }
+            i++;
+            continue;
+        }
+        if (compara_texto(argv[i], "--fat32") == 0 && i + 1 < argc) {   /* --fat32 home,apps,jogos,tmp,logs */
+            const char *l = argv[++i];
+            if (acha_texto(l, "home")) p.fs_home = PA_FS_FAT32;
+            if (acha_texto(l, "apps")) p.fs_apps = PA_FS_FAT32;
+            if (acha_texto(l, "jogos") || acha_texto(l, "juegos")) p.fs_jogos = PA_FS_FAT32;
+            if (acha_texto(l, "tmp")) p.fs_tmp = PA_FS_FAT32;
+            if (acha_texto(l, "logs")) p.fs_logs = PA_FS_FAT32;
+            continue;
+        }
+        if (compara_texto(argv[i], "--reducir") == 0 && i + 1 < argc) {   /* --reducir N:MB */
+            const char *l = argv[++i], *dp = acha_char(l, ':');
+            int n2, mb;
+            char a[8];
+            copia_texto(a, l, dp && dp - l < 7 ? (size_t)(dp - l + 1) : sizeof a);
+            if (!dp || !texto_para_numero(a, &n2) || !texto_para_numero(dp + 1, &mb) || n2 < 1 || mb < 1) {
+                imprimir_em(ERROS, "instalar: --reducir N:MB (la partición N se reduce a MB y se instala en el hueco)\n");
+                return 2;
+            }
+            p.reduzir = true; p.reduzir_part = n2; p.reduzir_set = (uint32_t)mb * MB; p.modo = M_HUECO;
+            continue;
+        }
+        if (compara_texto(argv[i], "--nombre") == 0 && i + 1 < argc) { copia_texto(p.nome_equipo, argv[++i], sizeof p.nome_equipo); continue; }
+        if (compara_texto(argv[i], "--zona") == 0 && i + 1 < argc) {
+            if (!zona_achar(argv[i + 1])) { imprimir_em(ERROS, "instalar: zona desconocida: %s (mira \"zona lista\")\n", argv[i + 1]); return 2; }
+            copia_texto(p.zona, zona_achar(argv[++i])->nome, sizeof p.zona);
+            continue;
+        }
+        if (compara_texto(argv[i], "--teclado") == 0 && i + 1 < argc) { p.teclado = compara_texto(argv[++i], "abnt2") == 0 ? TECLADO_ABNT2 : TECLADO_ES; continue; }
+        if (compara_texto(argv[i], "--clave-root") == 0 && i + 1 < argc) { copia_texto(p.senha_root, argv[++i], sizeof p.senha_root); continue; }
+        if (compara_texto(argv[i], "--clave-usuario") == 0 && i + 1 < argc) { copia_texto(p.senha_usuario, argv[++i], sizeof p.senha_usuario); continue; }
+        if (compara_texto(argv[i], "--sshd") == 0) { p.sshd = true; continue; }
+        if (compara_texto(argv[i], "--vncd") == 0) { p.vncd = true; continue; }
+        if (compara_texto(argv[i], "--copiar-config") == 0 && i + 1 < argc) {   /* prefs,wifi,ssh,correo,ia,ia-clave,docs | todo */
+            const char *l = argv[++i];
+            bool todo = compara_texto(l, "todo") == 0;
+            if (todo || acha_texto(l, "prefs")) p.copiar_conf |= CC_PREFS;
+            if (todo || acha_texto(l, "wifi")) p.copiar_conf |= CC_WIFI;
+            if (todo || acha_texto(l, "ssh")) p.copiar_conf |= CC_SSH;
+            if (todo || acha_texto(l, "correo")) p.copiar_conf |= CC_CORREO;
+            if (todo || acha_texto(l, "ia")) p.copiar_conf |= CC_IA;
+            if (acha_texto(l, "ia-clave")) p.copiar_conf |= CC_IA | CC_IA_CHAVE;
+            if (todo || acha_texto(l, "docs")) p.copiar_conf |= CC_DOCS;
+            continue;
+        }
         if (compara_texto(argv[i], "--entero") == 0) p.modo = M_ENTERO;
         else if (compara_texto(argv[i], "--hueco") == 0 && i + 1 < argc) { int v; texto_para_numero(argv[++i], &v); p.modo = M_HUECO; p.hueco_ini = (uint32_t)v * MB; }
         else if (compara_texto(argv[i], "--particion") == 0 && i + 1 < argc) { int v; texto_para_numero(argv[++i], &v); p.modo = M_PARTICION; p.particao = v; }
@@ -952,9 +1398,12 @@ static int terminal(int argc, char **argv)
         else if (compara_texto(argv[i], "--sin-home") == 0) p.sin_home = true;
         else if (compara_texto(argv[i], "-s") == 0 || compara_texto(argv[i], "--si") == 0) sim = true;
         else if (argv[i][0] == '-') {
-            imprimir_em(ERROS, "uso: instalar [disco [--entero | --hueco MB | --particion N] [--sin-jogos] [--sin-apps] [--copiar-jogos] [--formatear-conf]\n"
-                               "                      [--mbr | --gpt | --auto] [--esp] [--sin-home] [-s]]\n"
-                               "     instalar --ventana\n");
+            imprimir_em(ERROS, "uso: instalar [disco [--entero | --hueco MB | --particion N | --reducir N:MB] [--sin-jogos] [--sin-apps]\n"
+                               "                      [--copiar-jogos] [--formatear-conf] [--mbr | --gpt | --auto] [--esp] [--sin-home]\n"
+                               "                      [--home-mb N] [--apps-mb N] [--jogos-mb N] [--tmp-mb N] [--logs-mb N] [--fat32 home,apps,...]\n"
+                               "                      [--nombre EQUIPO] [--zona Z] [--teclado es|abnt2] [--clave-root X] [--clave-usuario X]\n"
+                               "                      [--sshd] [--vncd] [--copiar-config prefs,wifi,ssh,correo,ia,ia-clave,docs|todo] [-s]]\n"
+                               "     instalar --ventana   (el asistente; también «instalar» sin nada fuera del Terminal)\n");
             return 2;
         } else copia_texto(p.destino, argv[i], sizeof p.destino);
     }
@@ -971,6 +1420,8 @@ static int terminal(int argc, char **argv)
         imprimir(p.formatear_conf ? "  AVISO: se BORRA también SAGUI-CONF (%s): contraseñas y claves del sistema\n"
                                   : "  Se conserva el contenido de SAGUI-CONF (%s): contraseñas y claves (--formatear-conf lo borra)\n", p.conf_vieja);
     if (p.copiar_jogos) imprimir("  Se copian también los datos de " JOGOS_ORIGEM "%s\n", ha_jogos() ? "" : " (no hay datos: nada que copiar)");
+    if (p.reduzir) imprimir("  Antes: %s\n", p.reduzir_txt);
+    if (p.copiar_conf) imprimir("  Se copia de esta sesión a /home: %u KB de configuración y documentos\n", kb_copia(p.copiar_conf));
     if (!sim) {
         char r[16];
         imprimir("Escribe el nombre del disco (%s) para seguir: ", p.destino);
@@ -985,6 +1436,7 @@ static int terminal(int argc, char **argv)
         return 1;
     }
     imprimir("SaguiOS instalado en %s y verificado.\n  %s\n", p.destino, d);
+    if (p.copiar_conf) imprimir("  Configuración de la sesión copiada: %u archivos\n", arquivos_conf);
     if (p.copiar_jogos) imprimir("  Datos de juegos copiados: %u archivos\n", arquivos_jogos);
     if (p.apps) imprimir("  Aplicaciones de " APPS_ORIGEM " copiadas: %u archivos\n", arquivos_apps);
     imprimir("  SAGUI-CONF (configuración del sistema, %u MB)%s\n", CONF_MB, conf_respaldada ? ": contenido anterior conservado" : "");
@@ -995,392 +1447,15 @@ static int terminal(int argc, char **argv)
     return 0;
 }
 
-/* ------------------------------------------------------------ ventana */
+/* ------------------------------------------------------------ ventana (D318: el asistente) */
 
-#define JL 660
-#define JA 500
-enum { P_DISCO, P_MODO, P_PROGRESSO, P_FIM };
-static jan_t *j;
-static int pagina;
-static plano_t pl;
-static char destinos[12][12];
-static bool destino_ok[12];
-static char destino_por[12][96];
-static int ndest, sel_dest = -1;
-typedef struct { int modo; uint32_t ini; int part; int tabela; char texto[120]; } opcao_t;
-static opcao_t ops[12];
-static int nops, sel_op;
-static casilla_t cas_copiar = { 24, 0, true }, cas_apps = { 24, 0, true }, cas_esp = { 24, 0, false };   /* D266: cas_esp = ESP con MBR */
-static char plano_txt[300], plano_erro[300], resultado[400];
-static bool resultado_ok;
-static int prog_fase, prog_pc;
-static char prog_txt[96];
-
-static void quebrar(const char *t, char *s, int max, int n)
-{
-    int k = 0, col = 0;
-    while (*t && k < max - 1) {
-        const char *p = t;
-        while (*p && *p != ' ' && *p != '\n') p++;
-        int len = (int)(p - t);
-        if (col && col + 1 + len > n) { s[k++] = '\n'; col = 0; }
-        else if (col && k < max - 1) { s[k++] = ' '; col++; }
-        for (int i = 0; i < len && k < max - 1; i++) s[k++] = t[i];
-        col += len;
-        t = p;
-        if (*t == '\n') { if (k < max - 1) s[k++] = '\n'; col = 0; t++; }
-        else if (*t == ' ') t++;
-    }
-    s[k] = 0;
-}
-
-static int texto_linhas(int x, int y, const char *t, int n, uint32_t cor)
-{
-    char q[800];
-    quebrar(t, q, sizeof q, n);
-    const char *l = q;
-    while (*l) {
-        const char *f = acha_char(l, '\n');
-        int c = f ? (int)(f - l) : (int)tam_texto(l);
-        g_texto_n(j, x, y, l, c, cor);
-        y += 18;
-        l += c;
-        if (*l == '\n') l++;
-    }
-    return y;
-}
-
-static void ler_destinos(void)
-{
-    ndest = 0;
-    info_disco_t d;
-    for (int i = 0; listar_discos(i, &d) == 1 && ndest < 12; i++) {
-        if (d.particao) continue;
-        copia_texto(destinos[ndest], d.nome, 12);
-        destino_ok[ndest] = destino_valido(&d, destino_por[ndest], 96);
-        ndest++;
-    }
-    if (sel_dest >= ndest || (sel_dest >= 0 && !destino_ok[sel_dest])) sel_dest = -1;
-    for (int i = 0; i < ndest && sel_dest < 0; i++) if (destino_ok[i]) sel_dest = i;
-}
-
-static void ler_opcoes(void)
-{
-    nops = 0;
-    if (sel_dest < 0) return;
-    pt_tabela_t t;
-    if (pt_ler(destinos[sel_dest], &t) < 0) return;
-    char tm[16];
-    tamanho(t.setores, tm, sizeof tm);
-    ops[nops].modo = M_ENTERO; ops[nops].tabela = T_MBR;
-    txt(ops[nops].texto, sizeof ops[nops].texto, "Usar el disco entero (%s), tabla MBR (BIOS): se borra todo", tm);
-    nops++;
-    /* D266: el disco entero con GPT (UEFI): ESP + SaguiOS + /home + SAGUI-CONF */
-    ops[nops].modo = M_ENTERO; ops[nops].tabela = T_GPT;
-    txt(ops[nops].texto, sizeof ops[nops].texto, "Usar el disco entero (%s), tabla GPT (UEFI): se borra todo", tm);
-    nops++;
-    if (t.esquema == PT_MBR || t.esquema == PT_SEM_TABELA) {
-        pt_livre_t v[24];
-        int n = pt_livres(&t, v, 24);
-        for (int i = 0; i < n && nops < 12; i++) {
-            if (v[i].logica || v[i].setores < 160 * MB) continue;
-            tamanho(v[i].setores, tm, sizeof tm);
-            ops[nops].modo = M_HUECO; ops[nops].ini = v[i].inicio; ops[nops].tabela = T_MBR;
-            txt(ops[nops].texto, sizeof ops[nops].texto, "Espacio libre de %s (desde %u MB): no se borra nada", tm, v[i].inicio / MB);
-            nops++;
-        }
-        for (int i = 0; i < 4 && nops < 12; i++) {
-            if (!t.prim[i].tipo || t.prim[i].setores < 160 * MB) continue;
-            char n[16];
-            info_disco_t q;
-            pt_nome_particao(destinos[sel_dest], i + 1, n, sizeof n);
-            tamanho(t.prim[i].setores, tm, sizeof tm);
-            ops[nops].modo = M_PARTICION; ops[nops].part = i + 1; ops[nops].tabela = T_MBR;
-            if (info_de(n, &q) && q.suportado) txt(ops[nops].texto, sizeof ops[nops].texto, "Sustituir %s (%s, %s \"%s\"): se borra", n, tm, q.formato, q.rotulo);
-            else txt(ops[nops].texto, sizeof ops[nops].texto, "Sustituir %s (%s, %s): se borra", n, tm, pt_nome_tipo(t.prim[i].tipo));
-            nops++;
-        }
-    }
-    if (sel_op >= nops) sel_op = 0;
-    if (tabela_automatica(t.setores) == T_GPT) sel_op = 1;   /* «automático»: GPT si pasa de 2 TB o se arrancó por UEFI */
-}
-
-static void recalcular(void)
-{
-    memset(&pl, 0, sizeof pl);
-    plano_erro[0] = plano_txt[0] = 0;
-    if (sel_dest < 0 || !nops) return;
-    copia_texto(pl.destino, destinos[sel_dest], sizeof pl.destino);
-    pl.modo = ops[sel_op].modo;
-    pl.hueco_ini = ops[sel_op].ini;
-    pl.particao = ops[sel_op].part;
-    pl.tabela = ops[sel_op].tabela;
-    pl.esp = pl.tabela == T_GPT || cas_esp.marcada;
-    pl.jogos = true;
-    pl.apps = cas_apps.marcada;
-    pl.copiar_jogos = cas_copiar.marcada && ha_jogos();
-    if (!planejar(&pl, plano_erro, sizeof plano_erro)) return;
-    descrever_plano(&pl, plano_txt, sizeof plano_txt);
-}
-
-static void botao(int x, int y, int l, const char *t, bool ativo)
-{
-    botao_t b = { x, y, l, 28, t, false };
-    botao_desenhar(j, &b);
-    if (!ativo) for (int k = 0; k < 28; k += 2) g_retangulo(j, x + 2, y + k, l - 4, 1, 0xE2E6EA);
-}
-
-static void cabecalho(const char *titulo, const char *sub)
-{
-    g_retangulo(j, 0, 0, j->larg, 64, 0x0B7A3E);
-    g_texto(j, 20, 10, titulo, 0xFFFFFF);
-    g_texto(j, 20, 40, sub, 0xD8F0E0);
-    static const char *const passos[] = { "1 Disco", "2 Dónde", "3 Copia", "4 Fin" };
-    for (int i = 0; i < 4; i++) {
-        int x = j->larg - 4 * 76 - 12 + i * 76;
-        bool at = i == pagina;
-        g_retangulo(j, x, 8, 70, 22, at ? 0xFFFFFF : 0x2E9E5F);
-        g_texto(j, x + (70 - g_largura_texto(passos[i])) / 2, 11, passos[i], at ? 0x0B7A3E : 0xD8F0E0);
-    }
-}
-
-static void desenhar(void)
-{
-    g_retangulo(j, 0, 0, j->larg, j->alt, COR_FUNDO);
-    int bh = j->alt - 46;
-    g_retangulo(j, 0, bh - 10, j->larg, 1, 0xDDE1E5);
-    if (pagina == P_DISCO) {
-        char o[12] = "", s[160];
-        bool tem = achar_origem(o, sizeof o);
-        txt(s, sizeof s, tem ? "Se copia el sistema que está corriendo ahora (de %s)." : "No se sabe de qué disco arrancó el sistema: no se puede instalar.", o);
-        cabecalho("Instalar SaguiOS", s);
-        g_texto(j, 20, 80, "¿En qué disco quieres instalarlo?", COR_TEXTO);
-        int y = 106;
-        for (int i = 0; i < ndest; i++, y += 46) {
-            info_disco_t d;
-            if (!info_de(destinos[i], &d)) continue;
-            bool sel = i == sel_dest;
-            g_retangulo(j, 20, y, j->larg - 40, 40, sel ? 0xDCE8FA : destino_ok[i] ? 0xFFFFFF : 0xF0F1F2);
-            g_moldura(j, 20, y, j->larg - 40, 40, sel ? COR_SELECAO : 0xC9CED3);
-            g_retangulo(j, 30, y + 8, 24, 24, destino_ok[i] ? ((d.flags & DISCO_REMOVIVEL) ? 0xE8891C : 0x3A7BD5) : 0xB0B6BC);
-            g_texto(j, 34, y + 12, (d.flags & DISCO_REMOVIVEL) ? "U" : "D", 0xFFFFFF);
-            char tm[16], l1[120];
-            tamanho(d.setores, tm, sizeof tm);
-            txt(l1, sizeof l1, "%s  -  %s %s  -  %s", d.nome, d.fabricante, d.produto, tm);
-            g_texto(j, 66, y + 4, l1, destino_ok[i] ? COR_TEXTO : COR_TEXTO_FRACO);
-            txt(l1, sizeof l1, "%s%s", destino_ok[i] ? ((d.flags & DISCO_REMOVIVEL) ? "pendrive USB" : "disco interno") : "no: ",
-                destino_ok[i] ? "" : destino_por[i]);
-            g_texto(j, 66, y + 21, l1, destino_ok[i] ? COR_TEXTO_FRACO : 0xC0392B);
-        }
-        botao(j->larg - 120, bh, 100, "Siguiente >", sel_dest >= 0 && tem);
-        botao(20, bh, 100, "Cancelar", true);
-    } else if (pagina == P_MODO) {
-        char s[120];
-        txt(s, sizeof s, "Disco de destino: %s", pl.destino[0] ? pl.destino : destinos[sel_dest]);
-        cabecalho("¿Dónde, dentro del disco?", s);
-        int y = 80;
-        for (int i = 0; i < nops; i++, y += 28) {
-            bool sel = i == sel_op;
-            g_retangulo(j, 22, y + 3, 14, 14, 0xFFFFFF);
-            g_moldura(j, 22, y + 3, 14, 14, COR_BORDA);
-            if (sel) g_retangulo(j, 26, y + 7, 6, 6, COR_SELECAO);
-            g_texto(j, 44, y + 2, ops[i].texto, ops[i].modo == M_HUECO ? COR_TEXTO : sel ? 0xC0392B : COR_TEXTO);
-        }
-        y += 8;
-        bool gpt_sel = ops[sel_op].tabela == T_GPT;
-        cas_apps.y = y;
-        casilla_desenhar(j, &cas_apps);
-        g_texto(j, 46, y, ha_apps() ? "Crear también la partición /apps, con las aplicaciones de este sistema"
-                                    : "Crear también la partición /apps (para aplicaciones)", gpt_sel ? COR_TEXTO_FRACO : COR_TEXTO);
-        y += 26;
-        cas_copiar.y = y;
-        bool hay = ha_jogos();
-        casilla_desenhar(j, &cas_copiar);
-        g_texto(j, 46, y, hay ? "Copiar también los datos de juegos de /jogos (OpenTyrian, OpenJazz...)"
-                              : "Copiar los datos de juegos (no hay en este sistema)", hay && !gpt_sel ? COR_TEXTO : COR_TEXTO_FRACO);
-        y += 26;
-        cas_esp.y = y;
-        casilla_desenhar(j, &cas_esp);
-        g_texto(j, 46, y, gpt_sel ? "Con GPT, la partición EFI (ESP) y /home van siempre; sin juegos ni /apps"
-                                  : "Crear también la partición EFI (para la imagen híbrida BIOS+UEFI)", gpt_sel ? COR_TEXTO_FRACO : COR_TEXTO);
-        y += 30;
-        g_retangulo(j, 20, y, j->larg - 40, bh - 20 - y, 0xFFFFFF);
-        g_moldura(j, 20, y, j->larg - 40, bh - 20 - y, 0xC9CED3);
-        if (plano_erro[0]) texto_linhas(32, y + 10, plano_erro, 74, 0xC0392B);
-        else {
-            g_texto(j, 32, y + 10, "Lo que va a quedar en el disco:", COR_TEXTO);
-            /* Mini barra del plan. */
-            int bx = 32, bw = j->larg - 64, by2 = y + 32;
-            uint32_t tot = pl.sys_set + pl.ext_set + (pl.tabela == T_GPT ? pl.home_set + pl.conf_set : 0) + pl.esp_set;
-            uint32_t partes[5] = { pl.esp ? pl.esp_set : 0, pl.sys_set, pl.home_set, pl.jogos ? pl.jogos_set : 0, pl.apps ? pl.apps_set : 0 };
-            uint32_t cores[5] = { 0xC9A60C, 0xE8891C, 0x2E9E4F, 0x3A7BD5, 0x8E5CC2 };
-            const char *nomes[5] = { "EFI", "SaguiOS", "/home", "juegos", "/apps" };
-            int x = bx;
-            for (int i = 0; i < 5; i++) {
-                if (!partes[i]) continue;
-                int l = (int)(partes[i] / MB * (uint32_t)bw / (tot / MB + 1));
-                if (l < 40) l = 40;
-                if (x + l > bx + bw) l = bx + bw - x;
-                g_retangulo(j, x, by2, l, 30, cores[i]);
-                g_moldura(j, x, by2, l, 30, 0xFFFFFF);
-                if (l > g_largura_texto(nomes[i]) + 6) g_texto(j, x + 4, by2 + 7, nomes[i], 0xFFFFFF);
-                x += l;
-            }
-            int yy = texto_linhas(32, by2 + 40, plano_txt, 74, COR_TEXTO);
-            char p2[460];
-            txt(p2, sizeof p2, "Se borra: %s", pl.perde);
-            yy = texto_linhas(32, yy + 4, p2, 74, pl.modo == M_HUECO ? COR_TEXTO_FRACO : 0xC0392B);
-            if (pl.aviso[0]) texto_linhas(32, yy + 2, pl.aviso, 74, 0xB9770E);
-        }
-        botao(20, bh, 100, "< Atrás", true);
-        botao(j->larg - 120, bh, 100, "Instalar", !plano_erro[0]);
-    } else if (pagina == P_PROGRESSO) {
-        cabecalho("Instalando SaguiOS...", "No apagues el ordenador ni quites ningún disco.");
-        int y = 84;
-        for (int i = 0; i < FASES; i++, y += 26) {
-            uint32_t c = i < prog_fase ? COR_DESTAQUE : i == prog_fase ? COR_SELECAO : 0xB0B6BC;
-            g_retangulo(j, 24, y + 3, 12, 12, c);
-            if (i < prog_fase) g_texto(j, 25, y, "v", 0xFFFFFF);
-            g_texto(j, 46, y, nome_fase[i], i <= prog_fase ? COR_TEXTO : COR_TEXTO_FRACO);
-        }
-        int py = y + 16, pw = j->larg - 48;
-        int total = (prog_fase * 100 + prog_pc) / FASES;
-        g_retangulo(j, 24, py, pw, 22, 0xD5D9DD);
-        g_retangulo(j, 24, py, pw * total / 100, 22, COR_DESTAQUE);
-        g_moldura(j, 24, py, pw, 22, COR_BORDA);
-        char t[48];
-        txt(t, sizeof t, "%d %%", total);
-        g_texto(j, 24 + pw / 2 - 16, py + 3, t, COR_TEXTO);
-        if (prog_txt[0]) g_texto(j, 24, py + 32, prog_txt, COR_TEXTO_FRACO);
-    } else {
-        cabecalho(resultado_ok ? "SaguiOS está instalado" : "La instalación ha fallado",
-                  resultado_ok ? "Todo lo copiado se ha releído y comparado con el original." : "El disco de destino ha quedado NO ARRANCABLE.");
-        if (!resultado_ok) g_retangulo(j, 0, 0, j->larg, 4, 0xC0392B);
-        texto_linhas(24, 84, resultado, 72, resultado_ok ? COR_TEXTO : 0xC0392B);
-        botao(j->larg - 120, bh, 100, "Cerrar", true);
-    }
-    jan_mostrar(j);
-}
-
-static void inf_janela(int f, int pc, const char *t)
-{
-    if (f != prog_fase) prog_txt[0] = 0;
-    prog_fase = f;
-    prog_pc = pc > 100 ? 100 : pc;
-    if (t) copia_texto(prog_txt, t, sizeof prog_txt);
-    desenhar();
-    registrar("instalar: fase %d %d%%", f + 1, prog_pc);
-}
-
-static void comecar(void)
-{
-    char t[700];
-    txt(t, sizeof t, "Se va a instalar SaguiOS en %s.\nSe borra: %s.\n\n¿Seguir?", pl.destino, pl.perde);
-    char q[800];
-    quebrar(t, q, sizeof q, 42);
-    if (!confirmar("Instalar SaguiOS", q)) return;
-    if (pl.tabela == T_GPT) {
-        txt(t, sizeof t, "El disco %s quedará con tabla GPT (arranque UEFI): ESP, SaguiOS, /home y configuración.%s%s\n\n¿Seguir?", pl.destino,
-            pl.aviso[0] ? " AVISO: " : "", pl.aviso);
-        quebrar(t, q, sizeof q, 42);
-        if (!confirmar("Instalar SaguiOS (GPT)", q)) return;
-    }
-    if (pl.modo != M_HUECO) {
-        txt(t, sizeof t, "Última confirmación: TODO lo que se ha dicho de %s se borra y no se puede recuperar.", pl.destino);
-        quebrar(t, q, sizeof q, 42);
-        if (!confirmar("Instalar SaguiOS", q)) return;
-    }
-    /* Lo montado del destino se desmonta (con permiso). */
-    info_disco_t d;
-    if (info_de(pl.destino, &d) && d.montado) {
-        txt(t, sizeof t, "%s tiene particiones montadas. ¿Desmontarlas para instalar?", pl.destino);
-        quebrar(t, q, sizeof q, 42);
-        if (!confirmar("Instalar SaguiOS", q)) return;
-        desmontar(pl.destino);
-    }
-    pagina = P_PROGRESSO;
-    prog_fase = 0; prog_pc = 0; prog_txt[0] = 0;
-    desenhar();
-    informar = inf_janela;
-    char e[300];
-    registrar("instalar: comienza en %s", pl.destino);
-    int r = instalar(&pl, e, sizeof e);
-    resultado_ok = r >= 0;
-    char d2[300];
-    descrever_plano(&pl, d2, sizeof d2);
-    if (resultado_ok)
-        txt(resultado, sizeof resultado, "SaguiOS se ha instalado en %s.\n%s\n%s\nPara usarlo: apaga, %s y arranca desde %s.",
-            pl.destino, d2, pl.copiar_jogos ? "Los datos de juegos se han copiado." : "",
-            pl.desde_cd ? "saca el CD" : "quita el disco de arranque actual", pl.destino);
-    else
-        txt(resultado, sizeof resultado, "Error en \"%s\": %s.\n\nEl disco %s NO ARRANCA tal como ha quedado. Se puede repetir la instalación.",
-            nome_fase[prog_fase], e, pl.destino);
-    registrar("instalar: resultado %d: %s", r, resultado);
-    pagina = P_FIM;
-    desenhar();
-}
-
-static void registrar_layout(void)
-{
-    if (pagina == P_DISCO) for (int i = 0; i < ndest; i++) registrar("instalar: disco %s ok=%d y=%d", destinos[i], destino_ok[i], 106 + i * 46 + 20);
-    if (pagina == P_MODO) {
-        for (int i = 0; i < nops; i++) registrar("instalar: opcion %d y=%d %s", i, 80 + i * 28 + 10, ops[i].texto);
-        registrar("instalar: casillas apps=%d copiar=%d esp=%d plan=%s erro=%s", cas_apps.y, cas_copiar.y, cas_esp.y, plano_txt, plano_erro);
-    }
-    registrar("instalar: pagina %d botones y=%d", pagina, j->alt - 46);
-}
-
-static int janela(void)
-{
-    if (!sou_root() && elevar_grafico("instalar SaguiOS: escribe y borra discos enteros") != 0) {   /* D255, D269: diálogo de permisos */
-        mensagem("Instalar SaguiOS", "Instalar SaguiOS necesita permisos de administrador y no se concedieron.\n"
-                 "Ábrelo otra vez y escribe la contraseña de administrador, o usa el Terminal:  admin instalar --ventana");
-        return 1;
-    }
-    j = jan_abrir("Instalar SaguiOS", JL, JA);
-    if (!j) { imprimir("instalar: no se pudo abrir la ventana (¿hay escritorio?)\n"); return 1; }
-    ler_destinos();
-    desenhar();
-    registrar("instalar: ventana abierta");
-    registrar_layout();
-    evento_t e;
-    for (;;) {
-        if (esperar_evento(j->id, &e, 1000) != 1) continue;
-        if (e.tipo == EV_FECHAR) { if (pagina != P_PROGRESSO) break; continue; }
-        if (e.tipo != EV_CLIQUE && e.tipo != EV_TECLA) continue;
-        int bh = j->alt - 46;
-        bool b_dir = e.tipo == EV_CLIQUE && e.y >= bh && e.y < bh + 28 && e.x >= j->larg - 120 && e.x < j->larg - 20;
-        bool b_esq = e.tipo == EV_CLIQUE && e.y >= bh && e.y < bh + 28 && e.x >= 20 && e.x < 120;
-        if (e.tipo == EV_TECLA && e.tecla == '\n') b_dir = true;
-        if (pagina == P_DISCO) {
-            if (b_esq || (e.tipo == EV_TECLA && e.tecla == TECLA_ESC)) break;
-            if (e.tipo == EV_CLIQUE && e.y >= 106 && e.y < 106 + ndest * 46) {
-                int i = (e.y - 106) / 46;
-                if (i < ndest && destino_ok[i]) { sel_dest = i; desenhar(); }
-            }
-            if (b_dir && sel_dest >= 0) {
-                sel_op = 0;
-                ler_opcoes();
-                recalcular();
-                pagina = P_MODO;
-                desenhar();
-                registrar_layout();
-            }
-        } else if (pagina == P_MODO) {
-            if (b_esq) { pagina = P_DISCO; ler_destinos(); desenhar(); registrar_layout(); continue; }
-            if (e.tipo == EV_CLIQUE && e.y >= 80 && e.y < 80 + nops * 28) { sel_op = (e.y - 80) / 28; recalcular(); desenhar(); registrar_layout(); continue; }
-            if (ops[sel_op].tabela != T_GPT && (casilla_tratar(&cas_apps, &e) || casilla_tratar(&cas_copiar, &e) || casilla_tratar(&cas_esp, &e))) { recalcular(); desenhar(); registrar_layout(); continue; }
-            if (b_dir && !plano_erro[0]) comecar();
-        } else if (pagina == P_FIM) {
-            if (b_dir) break;
-        }
-    }
-    jan_fechar(j);
-    return 0;
-}
+#include "instalar_asistente.h"
 
 int principal(int argc, char **argv)
 {
-    if (argc >= 2 && (compara_texto(argv[1], "--ventana") == 0 || compara_texto(argv[1], "-v") == 0)) return janela();
+    if (argc >= 2 && (compara_texto(argv[1], "--ventana") == 0 || compara_texto(argv[1], "-v") == 0 ||
+                      compara_texto(argv[1], "--asistente") == 0)) return janela();
+    /* D318: sin nada y fuera del Terminal (Inicio, el icono del escritorio), el asistente, como «discos» (D121). */
+    if (argc == 1 && !eh_terminal(SAIDA)) return janela();
     return terminal(argc, argv);
 }

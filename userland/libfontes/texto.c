@@ -116,12 +116,12 @@ static int cmp_info(const fuente_info_t *a, const fuente_info_t *b)
     return r ? r : compara_texto(a->estilo, b->estilo);
 }
 
-int fuentes_catalogo(fuente_info_t *v, int max)
+/* Lee los .ttf y .otf de las carpetas dadas (solo la tabla name de cada uno), sin ordenar. */
+static int catalogar(const char *const *dirs, int nd, fuente_info_t *v, int max)
 {
-    static const char *const dirs[2] = { FUENTES_DIR_APPS, FUENTES_DIR_HOME };
     static uint8_t tabla[4096];
     int n = 0;
-    for (int d = 0; d < 2; d++) {
+    for (int d = 0; d < nd; d++) {
         entrada_pasta_t e;
         for (int i = 0; n < max && listar(dirs[d], i, &e) > 0; i++) {
             if (e.tipo == TIPO_PASTA || !es_fuente(e.nome)) continue;
@@ -137,13 +137,89 @@ int fuentes_catalogo(fuente_info_t *v, int max)
             n++;
         }
     }
+    return n;
+}
+
+static void ordenar_info(fuente_info_t *v, int n)
+{
     for (int i = 1; i < n; i++) {
         fuente_info_t t = v[i];
         int j = i;
         while (j > 0 && cmp_info(&v[j - 1], &t) > 0) { v[j] = v[j - 1]; j--; }
         v[j] = t;
     }
+}
+
+int fuentes_catalogo(fuente_info_t *v, int max)
+{
+    static const char *const dirs[2] = { FUENTES_DIR_APPS, FUENTES_DIR_HOME };
+    int n = catalogar(dirs, 2, v, max);
+    ordenar_info(v, n);
     return n;
+}
+
+/* ---- familias del sistema, agrupadas por estilo (D319) ---- */
+
+static bool palabra_igual(const char *p, int n, const char *q)
+{
+    for (int i = 0; i < n; i++) if (!q[i] || ((p[i] | 32) != q[i])) return false;
+    return !q[n];
+}
+
+/* Separa el estilo en negrita / cursiva y el resto ("Light", "Condensed"...), que pasa al nombre de
+ * la familia para no mezclar estilos que no caben en las cuatro casillas. */
+static void clasificar_estilo(const char *est, int *neg, int *cur, char *resto, int nr)
+{
+    *neg = *cur = 0;
+    resto[0] = 0;
+    const char *p = est;
+    while (*p) {
+        while (*p == ' ' || *p == '-') p++;
+        const char *q = p;
+        while (*q && *q != ' ' && *q != '-') q++;
+        int n = (int)(q - p);
+        if (n) {
+            if (palabra_igual(p, n, "bold") || palabra_igual(p, n, "black") || palabra_igual(p, n, "heavy") || palabra_igual(p, n, "extrabold")) *neg = 1;
+            else if (palabra_igual(p, n, "italic") || palabra_igual(p, n, "oblique")) *cur = 1;
+            else if (palabra_igual(p, n, "regular") || palabra_igual(p, n, "normal") || palabra_igual(p, n, "roman") || palabra_igual(p, n, "book")) { }
+            else {
+                size_t l = tam_texto(resto);
+                if (l + (size_t)n + 2 < (size_t)nr) { if (l) resto[l++] = ' '; for (int i = 0; i < n; i++) resto[l + (size_t)i] = p[i]; resto[l + (size_t)n] = 0; }
+            }
+        }
+        p = q;
+    }
+}
+
+int fuentes_sistema_listar(familia_fuente_t *v, int max)
+{
+    static const char *const dirs[3] = { FUENTES_DIR_SISTEMA, FUENTES_DIR_APPS, FUENTES_DIR_HOME };
+    static fuente_info_t cat[FUENTES_MAX];
+    int nc = catalogar(dirs, 3, cat, FUENTES_MAX), nf = 0;
+    for (int i = 0; i < nc; i++) {
+        int neg, cur;
+        char resto[24], nombre[48];
+        clasificar_estilo(cat[i].estilo, &neg, &cur, resto, sizeof resto);
+        if (resto[0]) formatar_texto(nombre, sizeof nombre, "%s %s", cat[i].familia, resto);
+        else copia_texto(nombre, cat[i].familia, sizeof nombre);
+        int k = -1;
+        for (int q = 0; q < nf; q++) if (compara_texto(v[q].familia, nombre) == 0) { k = q; break; }
+        if (k < 0) {
+            if (nf >= max) continue;
+            k = nf++;
+            memset(&v[k], 0, sizeof v[k]);
+            copia_texto(v[k].familia, nombre, sizeof v[k].familia);
+        }
+        int e = (neg ? 1 : 0) | (cur ? 2 : 0);
+        if (!v[k].ruta[e][0]) copia_texto(v[k].ruta[e], cat[i].ruta, sizeof v[k].ruta[e]);   /* a igualdad, la primera carpeta */
+    }
+    for (int i = 1; i < nf; i++) {       /* por nombre */
+        familia_fuente_t t = v[i];
+        int j = i;
+        while (j > 0 && compara_texto(v[j - 1].familia, t.familia) > 0) { v[j] = v[j - 1]; j--; }
+        v[j] = t;
+    }
+    return nf;
 }
 
 /* Busca «clave=valor» en un texto; true si la encontró. */

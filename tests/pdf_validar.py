@@ -73,10 +73,79 @@ def analizar(datos):
     for p in paginas:
         for m in re.finditer(rb"/Im(\d+) (\d+) 0 R", objetos[p]):
             assert int(m.group(2)) in objetos and b"/Subtype /Image" in objetos[int(m.group(2))], "XObject sin imagen"
+    incrustadas = _fuentes_incrustadas(objetos)
     mb = re.search(rb"/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]", objetos[paginas[0]])
     return dict(paginas=len(paginas), objetos=objetos, contenidos=textos, imagenes=imagenes,
                 mediabox=(float(mb.group(1)), float(mb.group(2))),
-                fuentes=sorted(set(re.findall(rb"/BaseFont /([A-Za-z-]+)", datos))))
+                fuentes=sorted(set(re.findall(rb"/BaseFont /([A-Za-z0-9+-]+)", datos))), incrustadas=incrustadas)
+
+
+def _flujo(obj):
+    ln = int(re.search(rb"/Length (\d+)", obj).group(1))
+    ini = obj.index(b"stream\n") + 7
+    assert obj[ini + ln:].startswith(b"\nendstream"), "Length del flujo de fuente incorrecto"
+    f = obj[ini:ini + ln]
+    return zlib.decompress(f) if b"/FlateDecode" in obj else f
+
+
+def _fuentes_incrustadas(objetos):
+    """Fuentes con FontDescriptor y archivo incrustado (D319): base, subtipo, FontFile2/3, Widths, bytes y
+    la comprobación de que cada /Widths cubre 32..255 y de que todo objeto referenciado existe."""
+    res = []
+    for i, cuerpo in objetos.items():
+        if b"/Type /Font " not in cuerpo and not re.search(rb"/Type /Font\b", cuerpo):
+            continue
+        d = re.search(rb"/FontDescriptor (\d+) 0 R", cuerpo)
+        if not d:
+            continue
+        desc = objetos[int(d.group(1))]
+        ff = re.search(rb"/(FontFile[23]?) (\d+) 0 R", desc)
+        assert ff, "el FontDescriptor de la fuente %d no apunta a un archivo" % i
+        obj = objetos[int(ff.group(2))]
+        datos = _flujo(obj)
+        w = re.search(rb"/Widths \[([^\]]*)\]", cuerpo)
+        anchos = [int(x) for x in w.group(1).split()] if w else []
+        fc, lc = int(re.search(rb"/FirstChar (\d+)", cuerpo).group(1)), int(re.search(rb"/LastChar (\d+)", cuerpo).group(1))
+        assert len(anchos) == lc - fc + 1, "/Widths no cubre FirstChar..LastChar"
+        assert b"/WinAnsiEncoding" in cuerpo, "la fuente incrustada debe ir en WinAnsi"
+        l1 = re.search(rb"/Length1 (\d+)", obj)
+        if l1:
+            assert int(l1.group(1)) == len(datos), "Length1 no coincide con el tamaño real del archivo"
+        res.append(dict(obj=i, base=re.search(rb"/BaseFont /([^ >/]+)", cuerpo).group(1).decode(),
+                        subtipo=re.search(rb"/Subtype /(\w+)", cuerpo).group(1).decode(), tipo_archivo=ff.group(1).decode(),
+                        anchos=anchos, primero=fc, datos=datos, flags=int(re.search(rb"/Flags (\d+)", desc).group(1))))
+    return res
+
+
+def validar_fuente_incrustada(f, tmp_dir):
+    """Valida una fuente incrustada: TrueType (sfnt 0x00010000 con head/glyf/loca/cmap/hmtx y suma
+    correcta) o OpenType CFF; y, si el anfitrión tiene fc-scan (FreeType), que la abre. Devuelve el
+    charset de fc-scan o None."""
+    import os
+    import struct
+    d = f["datos"]
+    if f["tipo_archivo"] == "FontFile2":
+        assert d[:4] == b"\x00\x01\x00\x00", "FontFile2 debe ser TrueType"
+        n = struct.unpack(">H", d[4:6])[0]
+        tags = [d[12 + 16 * k:16 + 16 * k] for k in range(n)]
+        for t in (b"head", b"hhea", b"maxp", b"hmtx", b"loca", b"glyf", b"cmap"):
+            assert t in tags, "falta la tabla %s en la fuente incrustada" % t
+        tot = 0
+        for k in range(0, len(d) - len(d) % 4, 4):
+            tot += struct.unpack(">I", d[k:k + 4])[0]
+        resto = d[len(d) - len(d) % 4:]
+        if resto:
+            tot += struct.unpack(">I", resto + b"\0" * (4 - len(resto)))[0]
+        assert tot & 0xFFFFFFFF == 0xB1B0AFBA, "checksumAdjustment de la fuente incrustada incorrecto"
+    else:
+        assert d[:4] in (b"OTTO", b"\x00\x01\x00\x00", b"true"), "FontFile3 debe ser OpenType"
+    if shutil.which("fc-scan"):
+        ruta = os.path.join(tmp_dir, "emb-%d.font" % f["obj"])
+        open(ruta, "wb").write(d)
+        r = subprocess.run(["fc-scan", "--format", "%{charset}", ruta], capture_output=True, text=True)
+        assert r.returncode == 0 and r.stdout.strip(), "FreeType (fc-scan) no abre la fuente incrustada %s: %s" % (f["base"], r.stderr)
+        return r.stdout.strip()
+    return None
 
 
 def _desescapar(s):

@@ -305,6 +305,15 @@ La tabla sale del código (`tools/vps_manual.py`). A los propios se suman los co
 | `Archivo` | (ninguno) | no |
 | `ConectorBD` | `conectado`, `error`, `registro`, `datos` | no |
 | `RejillaDatos` | `seleccion`, `cambio` | sí |
+| `SelectorDeArchivos` | `seleccionado`, `cancelado` | no |
+| `SelectorDeCarpetas` | `seleccionado`, `cancelado` | no |
+| `CampoArchivo` | `cambio`, `seleccionado`, `cancelado` | sí |
+| `CampoCarpeta` | `cambio`, `seleccionado`, `cancelado` | sí |
+| `SelectorDeColor` | `seleccionado`, `cancelado` | no |
+| `SelectorDeFuente` | `seleccionado`, `cancelado` | no |
+| `ComboFuentes` | `seleccion`, `cambio` | sí |
+| `Calendario` | `cambio` | sí |
+| `SelectorFecha` | `cambio` | sí |
 <!-- /eventos-tabla -->
 
 --- | --- |
@@ -509,101 +518,17 @@ Carpeta: `/ejemplos/vps/boton-raton`.
 *[captura: El botón en amarillo con el ratón encima]*
 
 <!-- controles:boton-raton -->
+| Control | Nombre | x, y, ancho, alto | Propiedades |
+| --- | --- | --- | --- |
+| Formulario | `Formulario` | 350 x 170 | `texto = "Botón y ratón"`, `ancho = 0x00015E`, `alto = 170` |
+| Boton | `Boton1` | 24, 24, 160, 40 | `texto = "Pasa el ratón por aquí"` |
+| Etiqueta | `Etiqueta1` | 24, 80, 300, 20 |  |
+| Etiqueta | `Etiqueta2` | 24, 104, 300, 20 |  |
+| Etiqueta | `Etiqueta3` | 24, 128, 300, 20 |  |
 <!-- /controles -->
 
-<!-- ejemplo:boton-raton -->
-```python
-# Un botón que cambia de color con el ratón: raton_entra y raton_sale.
-# Los datos del evento están en el control: raton_x, raton_y, boton y rueda_delta.
-clics = 0
-
-
-def Boton1_raton_entra():
-    Boton1.colorfondo = AMARILLO
-    Etiqueta1.texto = "El ratón entró"
-
-
-def Boton1_raton_sale():
-    Boton1.colorfondo = 0xE2E6EA
-    Etiqueta1.texto = "El ratón salió"
-
-
-def Boton1_click():
-    global clics
-    clics += 1
-    Etiqueta2.texto = "Clics: %d" % clics
-
-
-def Boton1_doble_click():
-    Etiqueta2.texto = "Doble clic en %d, %d" % (Boton1.raton_x, Boton1.raton_y)
-
-
-def Boton1_rueda():
-    Etiqueta3.texto = "Rueda: %d" % Boton1.rueda_delta
-```
+<!-- ejemplo:editor-notas -->
 <!-- /ejemplo -->
-
----
-
-## 5. Los componentes nuevos de la v8.3.2
-
-Todos están en la caja de herramientas (con su icono), se dibujan en el diseñador con el mismo código
-que la aplicación, salen en el autocompletado y son controles normales de `vps`.
-
-### Pestanas
-
-Contenedor con páginas. `elementos` son los títulos (`["Datos", "Opciones"]`); `seleccion` es la página que
-se ve (0 es la primera); `valor`, su título. Un control es de la página que diga su propiedad `pagina`.
-En código: `Casilla(Pestanas1, "Aviso", 12, 20, pagina=1)`. Evento `cambio` al pulsar otra pestaña.
-
-### Tabla
-
-Rejilla de texto. `columnas` (títulos) y `filas` (cada una, una lista de celdas; en el diseñador, una
-línea `a;b;c` por fila). `seleccion` es la fila elegida y `valor` su contenido; `columna`, la última
-columna pulsada. Con `ordenable`, un clic en la cabecera ordena (números como números); con `editable`, un
-doble clic edita la celda (Intro acepta, Esc cancela). Métodos: `agregar(fila)`, `quitar(i)`, `limpiar()`,
-`contar()`, `celda(f, c)`, `poner_celda(f, c, valor)`, `ordenar(columna, descendente=False)`,
-`cargar_csv(ruta, separador=";", encabezado=True)` y `guardar_csv(ruta, separador=";")`.
-
-### Numerico
-
-Un número con flechas arriba y abajo (o las teclas Arriba y Abajo y la rueda del ratón). `valor`, `minimo`, `maximo`,
-`paso` (puede ser `0.5`) y `decimales` (0 = enteros). Evento `cambio`. `valor` siempre queda entre el mínimo
-y el máximo, aunque se escriba otra cosa.
-
-### Lienzo
-
-Superficie para dibujar. Métodos: `linea(x1, y1, x2, y2, color=None, grosor=1)`,
-`rectangulo(x, y, ancho, alto, color=None, relleno=None, grosor=1)`, `circulo(cx, cy, radio, color=None,
-relleno=None, grosor=1)`, `texto(x, y, texto, color=None)`, `imagen(x, y, archivo)` y `limpiar()`. Eventos
-de ratón `click`, `arrastrar` (con el botón pulsado), `soltar` y `mover`; la posición, en `raton_x` y `raton_y`.
-Lo dibujado no se guarda con el proyecto: se dibuja en `Formulario_cargar`.
-
-### Enlace
-
-Etiqueta azul y subrayada que se pulsa (`click`). `texto` y `url` (un dato para tu programa).
-
-### BarraEstado
-
-`texto` es el mensaje de la izquierda; `elementos`, los paneles de la derecha, y `poner(i, texto)` cambia
-uno. Pon `anclaje="izq|der|abj"` para que siga al borde inferior.
-
-### SelectorColor
-
-Botón con la muestra del color. Al pulsarlo se abre una paleta; `valor` es el color (`0xRRGGBB`) y
-`cambio` salta al elegirlo. `elegir()` la abre desde el código.
-
-### Reloj
-
-Sin ventana. `anio`, `mes`, `dia`, `hora`, `minuto`, `segundo`, `dia_semana` (el lunes es 0), `fecha`
-(`"2026-11-15"`), `hora_texto` (`"14:03:09"`), `nombre_dia`, `nombre_mes`, `ahora()` y
-`formatear("%d/%m/%Y %H:%M")`. Dispara `tic` cada `intervalo` ms mientras esté `activo`.
-
-### Archivo
-
-Sin ventana. `ruta` y `separador`. `existe()`, `leer()` (texto vacío si no existe), `escribir(texto)`,
-`agregar(texto)`, `leer_lineas()`, `escribir_lineas(lineas)`, `leer_csv()` (lista de listas, con las comillas
-del CSV), `escribir_csv(filas)` y `borrar()`.
 
 ---
 

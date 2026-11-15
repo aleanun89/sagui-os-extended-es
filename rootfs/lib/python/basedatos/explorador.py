@@ -943,7 +943,7 @@ class Explorador:
             return None
         self.msg("Exportado: %s" % ruta)
         if abrir and messagebox.askyesno("Exportar", "Guardado en %s.\n¿Abrirlo en Macaco?" % ruta):
-            os.system("/bin/macaco %s &" % ruta)
+            os.system("/apps/bin/macaco %s &" % ruta)
             self.msg("Abriendo %s en Macaco" % ruta)
         return ruta
 

@@ -902,7 +902,7 @@ static bool abrir_enlace(int l, int c)
     linha_vis(sa, l, &s, &at);
     if (!tl_url_en(s, COLS, c, url, sizeof url)) return false;
     char *a[] = { "cipo", url, NULL };
-    int r = executar("/bin/cipo", a);
+    int r = executar("/apps/bin/cipo", a);   /* D324: el Cipó vive en /apps */
     registrar("terminal: enlace %s (cipo %d)", url, r);
     return true;
 }

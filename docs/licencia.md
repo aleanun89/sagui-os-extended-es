@@ -149,6 +149,8 @@ lo que es GPL-2.0 solo la v2; `make priv_variantes` y el `make all` de desarroll
 | TjMax de FreeBSD (`kernel/terceros/bsd/coretemp/`) | BSD-2-Clause | Sí | Sí | |
 | Código de M4R4G0N (e1000, pila TCP/IP, Cipó) | GPL-3.0-only | Sí | Sí | |
 | OpenTyrian, OpenJazz, Quake, GNU Prolog, Vanilla Conquer, DOSBox | or-later / GPL-3.0 | Sí | Sí | |
+| Gearsystem (D321) | GPL-3.0 | Sí | Sí | |
+| LaiNES (D321) | BSD-2-Clause (APU: LGPL-2.1+) | Sí | Sí | |
 
 El repositorio público excluye `kernel/terceros/linux/r8169/` y `userland/terceros/gnuboy/`
 (`tools/publicar-excluir.txt`). Sustituto limpio del r8169: mejora 099.

@@ -148,6 +148,28 @@ public:
         n++;
         return d + i;
     }
+    // Inserción de un rango [a, b) (D321: lo usa Gearsystem para armar el VGM). Los iteradores no son del propio vector.
+    template <class It> T *insert(const T *pos, It a, It b)
+    {
+        size_t i = static_cast<size_t>(pos - d);
+        size_t k = 0;
+        for (It p = a; p != b; ++p) k++;
+        if (k == 0) return d + i;
+        vector copia;                       // por si el rango apunta a este mismo vector
+        for (It p = a; p != b; ++p) copia.push_back(*p);
+        crescer(n + k);
+        for (size_t j = n; j > i; j--) {    // abre el hueco de atrás adelante
+            size_t dst = j - 1 + k;
+            if (dst >= n) new (d + dst) T(std::move(d[j - 1]));
+            else d[dst] = std::move(d[j - 1]);
+        }
+        for (size_t j = 0; j < k; j++) {
+            if (i + j >= n) new (d + i + j) T(copia.d[j]);
+            else d[i + j] = copia.d[j];
+        }
+        n += k;
+        return d + i;
+    }
 };
 
 } // namespace std

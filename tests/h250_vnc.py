@@ -246,6 +246,7 @@ def maquina():
 def _prueba(m, porta):
     # --- de serie: parado, sin nadie en el puerto
     out = m.comando("servicio listar")
+    out = re.sub(r"\[SAGUI\][^\n]*\n", "", out)   # el registro del kernel puede colarse en mitad de una linea
     verificar(re.search(r"^vncd\s+parado", out, re.M), "servicio listar: vncd está parado de serie")
     verificar(banner(porta) == b"", "con el servicio parado no hay nadie en el puerto 5900")
     out = m.comando("vncd --ayuda")

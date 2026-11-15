@@ -23,7 +23,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, SAIDA, RAIZ, BUILD  # noqa: E402
+from qemu import Maquina, verificar, SAIDA, RAIZ, BUILD, opcoes_apps  # noqa: E402
 
 BORDA, TITULO = 2, 24
 EJEMPLO = "/tmp/ejemplo.db"
@@ -133,7 +133,7 @@ def imagen_con_home():
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(BUILD, "boot", "mbr.bin"), "--estagio2", os.path.join(BUILD, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(BUILD, "kernel.bin"), "--kernel-elf", os.path.join(BUILD, "kernel.elf"),
-                    "--ramdisk", sgfs, "--saida", img, "--vesa", "--dados-mb", "32"],
+                    "--ramdisk", sgfs, "--saida", img, "--vesa", "--dados-mb", "32", *opcoes_apps()],   # D324: python vive en /apps
                    check=True, stdout=subprocess.DEVNULL)
     return img
 

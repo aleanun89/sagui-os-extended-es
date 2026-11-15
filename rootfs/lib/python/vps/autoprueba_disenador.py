@@ -171,6 +171,7 @@ def principal():
 
     explorador(app)
     componentes_y_sintaxis(app)
+    posicion_autocompletar(app)
     app.proy["modificado"] = False
     app.raiz.destroy()
     print("vps-autoprueba: fin")
@@ -193,6 +194,128 @@ def teclear(ed, texto):
         if r != "break":
             ed.t.insert("insert", ch)
         ed._tras_tecla(ch, ch)
+
+
+def _dentro(g, W, H):
+    return g is not None and g[0] >= 0 and g[1] >= 0 and g[0] + g[2] <= W and g[1] + g[3] <= H
+
+
+def posicion_autocompletar(app):
+    """D303 (arreglo #42): la lista de nombres y la firma salen junto al cursor, caben en el editor
+    y no tapan la línea que se escribe, con la línea abajo, con desplazamiento vertical y con una
+    línea muy larga."""
+    ed = app.editor
+    ed.mostrar()
+    ed.top.update_idletasks()
+    t = ed.t
+    W, H = t.winfo_width(), t.winfo_height()
+    comprobar(W > 100 and H > 100, "autocompletar: el editor tiene tamaño (%dx%d)" % (W, H))
+
+    def cursor_y():
+        return ed._geom_cursor(0)[1]
+
+    # 1. línea 7 de un programa corto, escribiendo «msg»: la lista sale justo debajo de la palabra
+    ed.poner("def Formulario_cargar():\n    x = 1\n    y = 2\n    z = 3\n    w = 4\n    v = 5\n    ")
+    t.mark_set("insert", "end-1c")
+    teclear(ed, "msg")
+    g = ed.geom_sug
+    cx, cy = ed._geom_cursor(3)[:2]
+    comprobar(ed._sug is not None and "msgbox" in [i[0] for i in ed._sug_items], "autocompletar #42: «msg» abre la lista con msgbox")
+    comprobar(g[1] == cy + 16 and g[0] == cx, "autocompletar #42: la lista está bajo la palabra (lista %r, palabra %d,%d)" % (g, cx, cy))
+    comprobar(cy > 16 * 4, "autocompletar #42: el cursor está en una línea baja (y=%d)" % cy)
+    comprobar(_dentro(g, W, H), "autocompletar: la lista cabe en el editor %r" % (g,))
+    ancho_texto = max(len(t_) for t_ in [ed._sug.get(i) for i in range(ed._sug.size())]) * 8
+    comprobar(g[2] >= ancho_texto, "autocompletar: la lista tiene ancho para su elemento más largo (%d >= %d)" % (g[2], ancho_texto))
+    comprobar(ed._firma is None, "autocompletar: sin paréntesis no hay firma")
+    # Esc cierra; escribir algo que no casa la cierra
+    ed._escape(None)
+    comprobar(ed._sug is None, "autocompletar: Esc cierra la lista")
+    teclear(ed, "b")
+    comprobar(ed._sug is None, "autocompletar: con Esc no se reabre al seguir escribiendo")
+    ed._silencio = False
+    ed.poner("    ms")
+    t.mark_set("insert", "end-1c")
+    teclear(ed, "g")
+    comprobar(ed._sug is not None, "autocompletar: msg abre la lista")
+    teclear(ed, "q")
+    comprobar(ed._sug is None, "autocompletar: escribir algo que no casa cierra la lista")
+
+    # 2. firma: solo al escribir «(» tras un nombre de función; completa y encima de la línea
+    ed.poner("\n".join(["x = %d" % i for i in range(6)] + [""]))
+    t.mark_set("insert", "end-1c")
+    teclear(ed, "msgbox")
+    comprobar(ed._firma is None, "autocompletar: la firma no sale al escribir el nombre")
+    ed._cerrar_sug()
+    teclear(ed, "(")
+    f = ed.geom_firma
+    cy = cursor_y()
+    comprobar(ed._firma is not None, "autocompletar: la firma sale al escribir «(»")
+    texto_f = ed._firma.cget("text")
+    comprobar("msgbox(texto" in texto_f and "icono" in texto_f and texto_f.startswith("msgbox"), "autocompletar: la firma está completa %r" % texto_f)
+    comprobar(max(len(l_) for l_ in texto_f.split("\n")) * 8 <= f[2], "autocompletar: la firma no se corta (ancho %d)" % f[2])
+    comprobar(f[1] + f[3] <= cy and _dentro(f, W, H), "autocompletar #42: la firma va encima de la línea %r (línea y=%d)" % (f, cy))
+    # dentro de los paréntesis sigue; al cerrarlos desaparece
+    teclear(ed, '"hola", pr')
+    comprobar(ed._firma is not None, "autocompletar: la firma sigue dentro de los paréntesis")
+    # firma y lista a la vez: la firma encima, la lista debajo, sin taparse
+    comprobar(ed._sug is not None, "autocompletar: «pr» abre la lista dentro de la llamada")
+    f, g = ed.geom_firma, ed.geom_sug
+    cy = cursor_y()
+    comprobar(f[1] + f[3] <= cy and g[1] >= cy + 16, "autocompletar: con las dos, la firma encima %r y la lista debajo %r de la línea y=%d" % (f, g, cy))
+    comprobar(_dentro(f, W, H) and _dentro(g, W, H), "autocompletar: las dos caben en el editor")
+    ed._escape(None)
+    ed._escape(None)
+    comprobar(ed._sug is None and ed._firma is None, "autocompletar: Esc cierra la lista y luego la firma")
+    ed.poner("msgbox(\"a\"")
+    t.mark_set("insert", "end-1c")
+    teclear(ed, ")")
+    comprobar(ed._firma is None, "autocompletar: cerrar el paréntesis quita la firma")
+
+    # 3. desplazamiento vertical: 80 líneas, el editor enseñado desde la 40
+    ed.poner("\n".join(["x = %d" % i for i in range(80)] + [""]))
+    t.yview("moveto", 0.5)
+    n = len(ed.lineas())
+    topo = int(round(t.yview()[0] * n))
+    linea = topo + 12
+    t.mark_set("insert", "%d.end" % linea)
+    ed._cerrar_sug()
+    teclear(ed, " + msg")
+    cx, cy = ed._geom_cursor(3)[:2]
+    g = ed.geom_sug
+    comprobar(topo > 10 and ed._sug is not None, "autocompletar: con desplazamiento vertical (arriba = línea %d) abre la lista" % (topo + 1))
+    comprobar(cy == 4 + 16 * 11, "autocompletar: la y del cursor tiene en cuenta el desplazamiento (%d)" % cy)
+    comprobar(g[1] == cy + 16 and _dentro(g, W, H), "autocompletar: con desplazamiento, la lista está bajo la palabra %r (palabra y=%d)" % (g, cy))
+    ed._escape(None)
+
+    # 4. línea de abajo del todo: no cabe debajo, va encima
+    t.yview("moveto", 0.0)
+    ed.poner("\n".join(["x = %d" % i for i in range(80)] + [""]))
+    t.mark_set("insert", "end-1c")
+    ed._cerrar_sug()
+    ed._silencio = False
+    teclear(ed, "msg")
+    t.see("insert")
+    cx, cy = ed._geom_cursor(3)[:2]
+    g = ed.geom_sug
+    comprobar(ed._sug is not None and g[1] + g[3] <= cy and _dentro(g, W, H),
+              "autocompletar: si no cabe debajo, la lista va encima %r (palabra y=%d)" % (g, cy))
+    ed._escape(None)
+
+    # 5. línea larga: la palabra queda lejos a la derecha y la lista se recoloca dentro del editor
+    ed.poner("x = " + "a" * 150 + " + ")
+    t.mark_set("insert", "end-1c")
+    ed._silencio = False
+    teclear(ed, "msg")
+    g = ed.geom_sug
+    comprobar(ed._sug is not None and _dentro(g, W, H), "autocompletar: con una línea larga la lista no se sale del editor %r (editor %dx%d)" % (g, W, H))
+    ed._escape(None)
+    ed.poner("x = " + "a" * 150 + " + msgbox")
+    t.mark_set("insert", "end-1c")
+    teclear(ed, "(")
+    comprobar(ed._firma is not None and _dentro(ed.geom_firma, W, H), "autocompletar: con una línea larga la firma no se sale del editor %r" % (ed.geom_firma,))
+    ed._escape(None)
+    ed.poner("")
+    ed.ocultar()
 
 
 def componentes_y_sintaxis(app):

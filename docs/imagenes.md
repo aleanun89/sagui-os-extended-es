@@ -46,6 +46,25 @@ Las extras se llaman `SAGUI-X1`, `SAGUI-X2`... y no tienen carpeta fija (se mont
 El kernel reconoce cualquier extendida (0x05, 0x0F, 0x85), también las creadas con otras herramientas;
 una cadena rota, en bucle o con tamaños absurdos se ignora con un aviso en el registro, sin colgar nada.
 
+## `saguios.img` o `saguios-completo.img` (D324)
+
+Desde la v8.4.3, `saguios.img` arranca con un sistema en memoria pequeño (unos 12 MB), y las aplicaciones
+que no son fundamentales viven en la partición **SAGUI-APPS**, que se monta en `/apps`. Entre ellas están
+Pluma, Macaco, Correo, Paint, Python, Cipó, VisualPythonS, PlanoMini y los juegos. Así arranca con 32 MB
+de RAM.
+
+**`saguios-completo.img`** lleva esas aplicaciones **dentro del sistema en memoria** (ramdisk de unos
+31 MB), como hasta la v8.4.2, y no necesita leer el disco para tenerlas. Úsala en los **PC donde la
+controladora de disco no localiza bien el disco de arranque**: en algunos PC de época (IDE sin LBA, #36)
+o con controladoras que SaguiOS aún no maneja bien, el sistema arranca por la BIOS pero luego no ve el
+disco, no monta `/apps`, y en el menú Inicio faltan esas aplicaciones. Pide más RAM: unos 64 MB más que
+la normal.
+
+Para generarla: `make RAMDISK=completo` (o `RAMDISK=completo ./gerar_versao.sh`).
+
+Si pasa con tu PC, apunta el modelo (placa y controladora de disco) y abre una issue con el registro
+(`/logs`): así se arregla el driver.
+
 ## Grabarla con Rufus (Windows)
 
 1. Abre Rufus y conecta el pendrive o disco USB de destino (**se borra todo lo que tenga**).

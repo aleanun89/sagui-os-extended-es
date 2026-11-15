@@ -110,7 +110,7 @@ def main():
         m.captura("H143-1-menu-juegos")
         marca = len(m.serial())
         clicar_aqui(m)
-        esperar(m, r"inicio -> /bin/spider", desde=marca)
+        esperar(m, r"inicio -> /apps/bin/spider", desde=marca)
         m.esperar_serial("spider: pronto", 40)
         time.sleep(2.0)
         j = janela(m.serial())

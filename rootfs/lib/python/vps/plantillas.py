@@ -264,6 +264,77 @@ def Boton2_click():
     return _f("Abrir y guardar", 416, 262, c), codigo
 
 
+def ejemplo_selectores():
+    c = [_c("SelectorDeArchivos", "SelectorDeArchivos1", 8, 8, 32, 32, titulo="Abrir una nota",
+            filtro="Texto (*.txt)|*.txt|Todos (*.*)|*", extension_por_defecto="txt"),
+         _c("Boton", "Boton1", 48, 8, 80, 26, texto="Abrir"),
+         _c("Boton", "Boton2", 136, 8, 80, 26, texto="Guardar"),
+         _c("CampoCarpeta", "CampoCarpeta1", 224, 10, 190, 22, titulo="Carpeta de trabajo"),
+         _c("Etiqueta", "Etiqueta1", 8, 44, 406, 20, texto="Sin archivo"),
+         _c("CuadroTexto", "CuadroTexto1", 8, 68, 406, 186, multilinea=True)]
+    codigo = '''# Un editor de notas con los selectores de archivos y de carpetas (como el CommonDialog de Visual Basic).
+# Los selectores abren por debajo los diálogos comunes del sistema; `archivo` guarda la ruta elegida.
+
+def Boton1_click():
+    if SelectorDeArchivos1.abrir():
+        f = open(SelectorDeArchivos1.archivo)
+        CuadroTexto1.texto = f.read()
+        f.close()
+
+
+def Boton2_click():
+    if SelectorDeArchivos1.guardar():
+        f = open(SelectorDeArchivos1.archivo, "w")
+        f.write(CuadroTexto1.texto)
+        f.close()
+
+
+def SelectorDeArchivos1_seleccionado():
+    Etiqueta1.texto = SelectorDeArchivos1.archivo
+
+
+def SelectorDeArchivos1_cancelado():
+    Etiqueta1.texto = "Cancelado"
+
+
+def CampoCarpeta1_seleccionado():
+    SelectorDeArchivos1.carpeta = CampoCarpeta1.texto
+'''
+    return _f("Editor de notas", 424, 262, c), codigo
+
+
+def ejemplo_fecha_fuente():
+    c = [_c("Calendario", "Calendario1", 8, 8, 196, 170),
+         _c("SelectorFecha", "SelectorFecha1", 212, 8, 130, 22),
+         _c("ComboFuentes", "ComboFuentes1", 212, 40, 160, 22),
+         _c("SelectorDeColor", "SelectorDeColor1", 212, 72, 32, 32, titulo="Color del texto"),
+         _c("SelectorDeFuente", "SelectorDeFuente1", 252, 72, 32, 32, titulo="Fuente del texto"),
+         _c("Boton", "Boton1", 292, 76, 80, 26, texto="Fuente..."),
+         _c("Etiqueta", "Etiqueta1", 212, 116, 170, 60, texto="Hola, mundo")]
+    codigo = '''# Calendario, SelectorFecha, ComboFuentes y los selectores de color y de fuente.
+
+def Calendario1_cambio():
+    SelectorFecha1.valor = Calendario1.valor
+
+
+def SelectorFecha1_cambio():
+    Calendario1.valor = SelectorFecha1.valor
+
+
+def ComboFuentes1_seleccion():
+    SelectorDeFuente1.familia = ComboFuentes1.texto
+    SelectorDeFuente1.aplicar_a(Etiqueta1)
+
+
+def Boton1_click():
+    SelectorDeColor1.mostrar()
+    if SelectorDeFuente1.mostrar():
+        SelectorDeFuente1.color = SelectorDeColor1.color
+        SelectorDeFuente1.aplicar_a(Etiqueta1)
+'''
+    return _f("Fecha y fuente", 392, 190, c), codigo
+
+
 def ejemplo_pestanas():
     c = [_c("Pestanas", "Pestanas1", 12, 12, 290, 150, elementos=["Datos", "Opciones", "Acerca de"]),
          _c("Etiqueta", "Etiqueta1", 12, 14, 80, 20, padre="Pestanas1", texto="Nombre:"),
@@ -599,4 +670,5 @@ PLANTILLAS = [("Proyecto vacío", vacia), ("Hola mundo", hola_mundo),
               ("Lienzo", ejemplo_lienzo), ("Enlace", ejemplo_enlace), ("Barra de estado", ejemplo_barra_estado),
               ("Selector de color", ejemplo_selector_color), ("Reloj", ejemplo_reloj), ("Archivo", ejemplo_archivo),
               ("Guardar al cerrar", ejemplo_guardar_cerrar), ("Botón y ratón", ejemplo_boton_raton),
-              ("Validar al perder el foco", ejemplo_validar_foco)]
+              ("Validar al perder el foco", ejemplo_validar_foco), ("Editor de notas", ejemplo_selectores),
+              ("Fecha y fuente", ejemplo_fecha_fuente)]

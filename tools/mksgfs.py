@@ -70,7 +70,10 @@ def coletar(raiz):
             else:
                 tipo = TIPO_ARQUIVO
                 if os.path.splitext(nome)[1].lower() in EXT_TEXTO:
-                    dados = dados.decode("utf-8").encode("latin-1")
+                    try:
+                        dados = dados.decode("utf-8").encode("latin-1")
+                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        pass   # textos de terceros con caracteres fuera de Latin-1 (README de Gearsystem): tal cual
             itens.append((rel, tipo, dados))
     itens.sort(key=lambda i: i[0])
     return itens

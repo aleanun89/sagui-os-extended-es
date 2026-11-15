@@ -38,6 +38,7 @@ OPC_TURNOS          equ 256    ; el cerrojo general por turnos también bajo un 
 OPC_UACPI           equ 0x1000 ; arrancar el intérprete de AML (uACPI, D192; sin él, apagado de siempre). La etapa 2 no lo mira
 OPC_SEM_SERVICOS    equ 0x2000 ; no lanzar el gestor de servicios (D216). La etapa 2 no lo mira
 OPC_RESCATE         equ 0x4000 ; modo rescate (D255): la etapa 2 lo pone también si Ctrl está pulsado
+OPC_ACEL_SEGURA      equ 0x10000 ; modo seguro de la aceleración (D323): Mayús al arrancar; solo en boot_info (u32)
 OPC_SESION_RAIZ     equ 0x8000 ; imagen de prueba: la sesión como root (D255). La etapa 2 no lo mira
 OPC_PLANIFICADOR    equ 0xE00  ; bits 9-11: el planificador al arrancar (D174); 0 = el de por defecto.
                                ; La etapa 2 no los mira: los copia con el resto de CAB_OPCOES

@@ -7,7 +7,10 @@
  * (1/20 de punto) con los anchos de Helvetica/Times/Courier (pdf_metricas.h): es la misma que
  * usa la exportación a PDF, así que lo que se ve en pantalla se pagina igual en el PDF.
  * En pantalla se dibuja con la fuente de mapa de bits 8x16 escalada con promediado (la
- * libsagui no usa coma flotante ni enlaza la libfontes).
+ * libsagui no usa coma flotante ni enlaza la libfontes) salvo que el programa instale un proveedor
+ * de fuentes vectoriales (fuentes_prov_instalar, D319): entonces las familias del sistema y las
+ * clásicas se dibujan con la fuente real (DejaVu para las clásicas) y las familias >= 3 miden con
+ * sus anchos reales (pdfw_largura_char).
  * Deshacer/rehacer por instantáneas del documento (texto + formatos + párrafos). */
 #include "gui.h"
 #include "pdf_escribir.h"
@@ -754,10 +757,26 @@ static void retang_clip(jan_t *j, int x, int y, int l, int a, uint32_t cor)
         for (int xx = x; xx < x1; xx++) j->px[yy * j->larg + xx] = cor;
 }
 
+/* El glifo vectorial del proveedor de fuentes (D319), con antialias; false = no hay y se usa la 8x16. */
+static bool glifo_vec(jan_t *j, int x, int ybase, int em, int fam, unsigned char c, int est, uint32_t cor)
+{
+    const fuentes_prov_t *p = fuentes_prov_obter();
+    if (!p || !p->glifo) return false;
+    int l, a, ox, oy;
+    const uint8_t *g = p->glifo(fam, est & 3, c, em, &l, &a, &ox, &oy);
+    if (!g) return false;
+    for (int yy = 0; yy < a; yy++) {
+        const uint8_t *lin = g + yy * l;
+        for (int xx = 0; xx < l; xx++) if (lin[xx]) mezclar(j, x + ox + xx, ybase + oy + yy, cor, lin[xx], 255);
+    }
+    return true;
+}
+
 /* Un glifo de la fuente 8x16 escalado a (adv x altura) con promediado de 2x2 muestras. */
-static void glifo(jan_t *j, int x, int ybase, int adv, int em, unsigned char c, int est, uint32_t cor)
+static void glifo(jan_t *j, int x, int ybase, int adv, int em, int fam, unsigned char c, int est, uint32_t cor)
 {
     if (c <= ' ' || c == 0xA0) return;
+    if (glifo_vec(j, x, ybase, em, fam, c, est, cor)) return;
     int ch = em + em / 8; if (ch < 4) ch = 4;
     int cw = adv < 2 ? 2 : adv;
     int top = ybase - (ch * 13 + 8) / 16;
@@ -783,7 +802,7 @@ void rte_amostra(jan_t *j, int x, int y, int l, int a, const rte_fmt_t *f, const
     int xx = x + 4, base = y + a / 2 + em / 3;
     for (const char *p = texto; *p; p++) {
         int adv = (pdfw_largura_char(f->fam, f->est, (unsigned char)*p) * em + 500) / 1000;
-        glifo(j, xx, base, adv, em, (unsigned char)*p, f->est, f->cor);
+        glifo(j, xx, base, adv, em, f->fam, (unsigned char)*p, f->est, f->cor);
         if (f->est & RTE_SUBLINHADO) retang_clip(j, xx, base + 1, adv, 1, f->cor);
         if (f->est & RTE_RISCADO) retang_clip(j, xx, base - em / 3, adv, 1, f->cor);
         xx += adv;
@@ -865,7 +884,7 @@ static void obj_dibujar(jan_t *j, rte_t *r, const rte_obj_t *o, int i, int x, in
         int yb = y + h + tw2px(r, 230);
         for (int k = 0; k < n; k++) {
             int adv = (pdfw_largura_char(PDFW_SANS, 0, (unsigned char)o->pie[k]) * em + 500) / 1000;
-            glifo(j, xx, yb, adv, em, (unsigned char)o->pie[k], 0, 0x202020);
+            glifo(j, xx, yb, adv, em, PDFW_SANS, (unsigned char)o->pie[k], 0, 0x202020);
             xx += adv;
         }
     }
@@ -952,7 +971,7 @@ void rte_desenhar(jan_t *j, rte_t *r)
             bool sel = tem_sel && i >= s0 && i < s1;
             uint32_t cor = sel ? COR_BRANCO : f->cor;
             int em = em_px(r, f->tam);
-            if (c != '\t' && c != '\f' && c >= 32) glifo(j, xa, base, xb - xa, em, c, f->est, cor);
+            if (c != '\t' && c != '\f' && c >= 32) glifo(j, xa, base, xb - xa, em, f->fam, c, f->est, cor);
             if ((f->est & RTE_SUBLINHADO) && c >= 32) retang_clip(j, xa, base + 1 + em / 16, xb - xa, em / 14 > 1 ? em / 14 : 1, cor);
             if ((f->est & RTE_RISCADO) && c >= 32) retang_clip(j, xa, base - em / 3, xb - xa, 1, cor);
             xc += adv_t;

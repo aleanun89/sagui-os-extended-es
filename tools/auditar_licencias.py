@@ -80,12 +80,18 @@ GPL_AISLADA = "kernel/terceros/linux/"
 # GPL-2.0 o posterior (D229). userland/terceros/gnuboy/ es SDL2-GNUBoy, el emulador
 # de Game Boy, GPL-2.0 (D235). userland/terceros/dosbox/ es DOSBox 0.74-3, el emulador de
 # MS-DOS, GPL-2.0 o posterior (D294); sus ficheros de MAME (src/hardware/mame/) son BSD-3-Clause.
+# userland/terceros/mgba/ es mGBA 0.10.5, el emulador de GBA/GB/GBC, MPL-2.0 (D322; con blip_buf LGPL-2.1+ e
+# inih BSD): compatible con la GPL v3, se aísla como los demás porque sus textos citan la GPL.
+# userland/terceros/laines/ es LaiNES (NES, BSD-2-Clause, con el APU LGPL de blargg) y
+# userland/terceros/gearsystem/ es Gearsystem (Master System y Game Gear, GPL-3.0) (D321).
 # userland/web/terceros/ffmpeg-h264-tablas/ (LGPL-2.1+) y userland/web/terceros/faad2-huffman/
 # (GPL-2.0+) son las tablas del H.264 y del AAC del reproductor de vídeo (D276): fuera de la
 # variante sin GPL (el MP4 no se decodifica en ella: video_mp4.c y el Makefile lo respetan).
 GPL_AISLADAS = (GPL_AISLADA, "userland/terceros/opentyrian/", "userland/terceros/netsurf/", "userland/terceros/gprolog/",
                 "userland/terceros/openjazz/", "userland/terceros/conquer/", "userland/terceros/quake/",
-                "userland/terceros/gnuboy/", "userland/terceros/dosbox/", "userland/web/terceros/ffmpeg-h264-tablas/",
+                "userland/terceros/gnuboy/", "userland/terceros/dosbox/", "userland/terceros/mgba/",
+                "userland/terceros/laines/", "userland/terceros/gearsystem/",
+                "userland/web/terceros/ffmpeg-h264-tablas/",
                 "userland/web/terceros/faad2-huffman/")
 RE_SPDX = re.compile(r"^\s*(?://|/\*|\*|#|;)\s*SPDX-License-Identifier:\s*(.+?)\s*(?:\*/)?\s*$")
 RE_COPY = re.compile(r"^\s*(?://|/\*|\*|#|;)?\s*Copyright\s*(?:\(c\)|\xa9|©|\d)", re.I)
@@ -109,7 +115,8 @@ R8169_LINUX = "kernel/terceros/linux/r8169/"
 # userland/terceros/<x>/ y va en el repositorio público; el código del upstream no.
 PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/plataforma/",
              "userland/terceros/netsurf/libc/", "userland/terceros/gnuboy/gnuboy.mk",
-             "userland/terceros/gnuboy/plataforma/", "userland/terceros/gnuboy/roms-leeme.txt")
+             "userland/terceros/gnuboy/plataforma/", "userland/terceros/gnuboy/roms-leeme.txt",
+             "userland/terceros/mgba/mgba.mk", "userland/terceros/mgba/plataforma/", "userland/terceros/mgba/leeme.txt")
 # D259: código de M4R4G0N (PR #3 del original), GPL-3.0-only como el de Eli; figura en terceros.md
 # pero es propio de la capa GPL v3: no es «GPL a aislar».
 M4R4G0N = ("kernel/rede/e1000.c", "kernel/rede/rede.c", "kernel/rede/tcp.c", "kernel/rede/socket.c",

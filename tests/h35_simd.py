@@ -59,8 +59,8 @@ def main():
         # O python (MicroPython com double pelo SSE2, D038) confere o CPUID
         # antes de qualquer conta e, sem SSE2, executa a variante x87 (D082).
         out = m.comando("python -c 'print(1/3)'")
-        verificar("executar /bin/python-x87" in out and "0.3333333333333333" in out and "terminou com codigo 0" in out,
-                  "pentium2: sem SSE2, python usa /bin/python-x87 e calcula 1/3")
+        verificar("executar /apps/bin/python-x87" in out and "0.3333333333333333" in out and "terminou com codigo 0" in out,
+                  "pentium2: sem SSE2, python usa /apps/bin/python-x87 e calcula 1/3")
     return 0
 
 

@@ -200,7 +200,7 @@ def principal():
         m.captura("H152-1-menu-educacion")
         marca = len(m.serial())
         clicar_aqui(m)
-        esperar(m, r"inicio -> /bin/jclic\b", desde=marca)
+        esperar(m, r"inicio -> /apps/bin/jclic\b", desde=marca)
         m.esperar_serial("jclic: pronto", 40)
         time.sleep(1.5)
         j = janela(m.serial(), "Actividades JClic")

@@ -23,6 +23,7 @@
 #include "bga.h"
 #include "bootinfo.h"
 #include "console.h"
+#include "acel2d.h"
 #include "cpu.h"
 #include "disco.h"
 #include "gui.h"
@@ -173,6 +174,41 @@ static int gravar_preferencia(uint32_t l, uint32_t a)
     }
     kfree(s);
     klog("[VIDEO] preferencia %ux%u gravada em %s: %d\n", l, a, p->nome, r);
+    return r;
+}
+
+/* D323: cambia bits de la cabecera de arranque del disco de arranque (lo que Configuración guarda de
+ * la aceleración y del disco: solo se puede decidir antes de arrancar el kernel). Solo los bytes y
+ * bits de la lista; igual que la resolución, solo en el disco de arranque (se comprueba que su
+ * cabecera es la que arrancó) y nunca desde el CD. pedido = CAB_OPC_PEDIDO(desplazamiento, máscara, valor). */
+int32_t cab_opc_gravar(uint32_t pedido)
+{
+    uint32_t desl = pedido & 0xFF, mascara = (pedido >> 8) & 0xFF, valor = (pedido >> 16) & 0xFF;
+    uint32_t permitida = desl == CAB_ACEL2D ? ACEL2D_MODO_MASCARA
+                       : desl == CAB_GPU3D ? 0x07
+                       : desl == CAB_DISCO_OPC ? (CAB_DISCO_SEM_DMA | CAB_DISCO_SEM_CACHE | CAB_DISCO_SEM_DIFERIDA) : 0;
+    if (!permitida || !mascara || (mascara & ~permitida) || (valor & ~mascara)) return ERRO_INVALIDO;
+    if (info_boot.opcoes & OPC_BOOT_CD) return ERRO_SO_LEITURA;
+    uint32_t lba;
+    disco_t *p = particao_de_boot(&lba);
+    if (!p) return ERRO_NAO_EXISTE;
+    uint8_t *s = kmalloc(512);
+    if (!s) return ERRO_SEM_MEMORIA;
+    int r = disco_ler(p, lba, 1, s);
+    if (r == 0 && memcmp(s, cabecalho_boot, CAB_RES_LARG) != 0) r = ERRO_FORMATO;
+    if (r == 0) {
+        uint8_t nuevo = (uint8_t)((s[desl] & ~mascara) | valor);
+        if (nuevo != s[desl]) {
+            s[desl] = nuevo;
+            bool antes = p->rw_autorizado;
+            p->rw_autorizado = true;
+            r = disco_escrever(p, lba, 1, s);
+            p->rw_autorizado = antes;
+            if (r == 0) cabecalho_boot[desl] = nuevo;
+        }
+    }
+    kfree(s);
+    klog("[VIDEO] cabecera %u &%02x=%02x grabada en %s: %d\n", desl, mascara, valor, p->nome, r);
     return r;
 }
 

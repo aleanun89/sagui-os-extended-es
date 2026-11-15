@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""H86 (D115) - Reproductor de música gráfico (/bin/musica, mejora 041/053).
+"""H86 (D115) - Reproductor de música gráfico (/apps/bin/musica, mejora 041/053).
 
 El audio es GENERADO aquí (tonos distintos por canal, 6 s cada uno; nada con derechos de
 terceros): un WAV (440 Hz izquierda, 660 Hz derecha), un MP3 con etiquetas ID3 (600/1500 Hz) y un
