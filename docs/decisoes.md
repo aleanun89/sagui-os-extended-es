@@ -16818,3 +16818,137 @@ juego DEC y el SGR comprobados, pero no se ha grabado una sesión suya.
 **Pruebas.** `tests/h320_terminal_vt.py`: unidad del emulador y de ssh (cajas, teclas), vim/less/htop/nano contra tmux, y en
 QEMU `/testes/vtprova` (región, IL/DL, pantalla alternativa, 256 colores, atributos, cajas DEC, bce, DSR/DA, 19 teclas) y
 una sesión grabada de vim por ssh contra el servidor de h317 (pantalla alternativa y vuelta). Capturas `H320-*.png`.
+## D313. Multiidioma, fase 1: catálogos propios, `_()`, idioma elegible y pseudo-idioma (v8.4, mejora 118)
+
+**Contexto.** Hay unas 1400 cadenas en español en los programas y 600 en la interfaz del kernel. Para llegar a Brasil y al mundo
+de habla inglesa el sistema tiene que mostrarse en varios idiomas sin duplicar programas. El mantenedor aprobó (2026-11-15) la
+mejora 118 y pidió una fase 1 reducida para la v8.4: infraestructura, Configuración, interfaz del kernel, Archivos, el diálogo
+común de archivos, formatos regionales y un pseudo-idioma de pruebas.
+
+**Decisión.**
+1. **`_("texto")`, la cadena en español es la clave.** Sin traducción (o con el catálogo ausente) sale el español, así que **en
+   español todo es idéntico a antes**. `N_("texto")` solo marca la cadena (tablas estáticas, `botao_t` de inicialización) y se
+   traduce al usarla con `_()`. Mismo nombre en el kernel (`kernel/inc/idioma.h`) y en la libsagui (`sagui.h`).
+2. **Catálogos binarios por programa** en `/sistema/idiomas/<idioma>/<programa>.cat` (+ `libsagui.cat` con los textos comunes y
+   `kernel.cat`), generados de `.po` estándar (UTF-8, Poedit/Weblate) en `idiomas/<idioma>/*.po`. Formato en `kernel/inc/catalogo.h`:
+   cabecera `SGCT`, tabla ordenada por hash FNV-1a y cadenas Latin-1; **lector propio** (`kernel/lib/catalogo.c`, el mismo en el
+   kernel, la libsagui y la prueba del anfitrión), búsqueda binaria por hash, sin código de GNU gettext; no se fía del archivo
+   (todo desplazamiento se comprueba). `tools/extraer_textos.py` extrae las marcas (analizador de C propio: comentarios,
+   concatenación de literales, escapes), mantiene los `.po` (`extraer`), compila (`compilar`, desde el Makefile al armar el ramdisk),
+   `comprobar` (pendientes) y `estadisticas`. Las fuentes mezcladas de `arquivos.c` y `cipo.c` se leen byte a byte (cada literal es
+   UTF-8 válido o Latin-1 crudo, como los trata el compilador).
+3. **Idioma.** `LANG` del entorno manda (`LANG=en arquivos`); si no, el idioma del sistema que tiene el kernel (`SIS_IDIOMA`, nº 138 desde la integración en la v8.4.2: en la rama era la 137, que `main` ya daba a `SIS_PERMISOS_ARQ`; clase libre: es una preferencia del usuario). Se fija al arrancar con `configuracion --aplicar` (clave `idioma=` de
+   `/home/.config/sagui.conf`, y si no hay, `/etc/idioma`, que `configuracion idioma X --sistema` escribe como root con
+   `conf_gravar`, D255) y desde Configuración. Los programas que se abren después salen en el idioma nuevo; el kernel recarga su
+   catálogo al instante y redibuja el escritorio. `/sistema/idiomas` se puede **leer** desde cualquier usuario (el resto de
+   `/sistema` sigue siendo de root: con los permisos de D282, `/sistema` es 0711 —se atraviesa pero no se lista—, lo de dentro 0700 salvo `/sistema/idiomas` 0755/0644, y `/sistema/conf` se sigue negando por ruta). Nombres: `es`, `pt_BR`, `en` (`pt` = `pt_BR`; `en_US.UTF-8` = `en`).
+4. **Codificación.** Latin-1, como hoy (cubre es, pt, en, fr, de, it). UTF-8 interno queda para una fase 3 si se decide.
+5. **Interfaz del kernel.** Barra (reloj con `mm/dd/aaaa` en inglés, días, paneles de la bandeja), menú Inicio (grupos y programas),
+   escritorio (iconos y menú contextual), menú de la ventana, avisos del kernel y diálogo de permisos. **El `dmesg` y los registros
+   (`klog`, `registrar`) siguen en español**: las pruebas dependen de ellos.
+6. **Componentes de la libsagui** que traducen por sí mismos y sin quejarse (`idioma_traducir_sl`): texto de los botones
+   (`botao_desenhar`, `boton98`), título y texto de `confirmar`/`mensagem`/`pedir_texto`, y el título de los diálogos de archivos.
+   Los programas siguen escribiendo `_()` en cada literal (así lo ve el extractor).
+7. **Formatos regionales** (`regional.c`): separador decimal y de miles (`1.234,56` en es/pt_BR, `1,234.56` en en), fecha
+   (`dd/mm/aaaa` o `mm/dd/aaaa`). Se usan en la fecha de la barra y en los tamaños de Archivos. Moneda, primer día de la semana y
+   papel quedan para la v8.4.1.
+8. **Pseudo-idioma `xx`** (se genera de las fuentes, no tiene `.po`): cada cadena entre corchetes y un 30 % más larga
+   (`[Guardar~~]`). Sirve para ver lo que queda sin traducir (en `xx` cada `_()` encuentra su entrada; lo que sale sin corchetes
+   está sin marcar) y lo que no cabe (`SAGUI_GUI_REVISAR`, D300). Con un idioma que no es el español, la libsagui anota **una vez**
+   en el registro `[IDIOMA] sin traducir (idioma): texto` para lo marcado que falta en el catálogo.
+9. **Dónde se elige.** Una sección «Idioma de la interfaz» en la página **Teclado** de Configuración, no una pestaña nueva: con
+   pestañas de ancho el de su título, la barra de 780 px no admite una más (ni en español ni en inglés) sin cambiar la ventana, y las
+   pruebas existentes (h83, h117, h162) dependen de ese tamaño y de esas posiciones.
+
+**Traducido en la fase 1** (pt_BR y en completos, 526 cadenas): interfaz del kernel (197), Configuración (198, todas las páginas),
+Archivos (94) y los componentes y diálogos comunes de la libsagui (37). Criterio de Windows en cada idioma («Arquivo, Editar,
+Exibir» / «File, Edit, View»; «Excluir» y «Lixeira» en pt, «Delete» y «Trash» en en). **Pendiente (v8.4.1):** Pluma, Macaco, correo,
+instalador, el resto de programas, la línea de comandos de los programas (ayudas y errores), los motivos que el kernel muestra en
+el diálogo de permisos, el selector de idioma del instalador, moneda/semana/papel, y el cambio de idioma sin reabrir las ventanas
+ya abiertas (hoy las ventanas abiertas conservan su idioma hasta que se cierran).
+
+**Pruebas.** `tests/h315_idiomas.py` (lector de catálogos del anfitrión con `tests/catalogo_unidad.c`; `.po` completos; en QEMU:
+español sin cambios, `LANG`, `en` y `pt_BR` con capturas del escritorio, el menú Inicio, todas las páginas de Configuración y
+Archivos; cambiar el idioma desde Configuración y abrir un programa nuevo; persistencia tras reiniciar; pseudo-idioma sin cadenas sin
+traducir, incluido el diálogo de archivos). Capturas `H315-*.png`. Guía de uso: `docs/idiomas.md`.
+
+**Nota v8.4.2 (h95, 32 MB con escritorio).** Con 32 MB el Terminal salía con código 1: `jan_abrir`
+fallaba porque `sis_criar_janela` necesita 339 páginas *seguidas* (ventana 760x456) y el mayor hueco libre
+del físico era de 311 páginas (596 libres, el resto disperso). Causa: crecimiento legítimo del ramdisk
+(+240 KB: catálogos de `/sistema/idiomas` 140 KB, libsagui con `idioma.c` en todos los programas, `configuracion`
+y `arquivos` más grandes); en la v8.4.1 el margen era de solo ~8 páginas. Arreglo mínimo: el Terminal, si el
+kernel no le da la ventana, reintenta con 2 líneas menos (hasta 10) en vez de salir con error; con RAM de sobra
+no cambia nada. La mudanza de aplicaciones a `/apps` (v8.4.3) devolverá el margen. Sin cambios en el kernel.
+
+## D314. rsync: servidor por SSH y copia local con openrsync (v8.4, mejora 120)
+
+**Contexto.** El mantenedor pidió (2026-11-15) `rsync` para copias de seguridad de `/home` y sincronizar carpetas con el PC.
+SaguiOS no tiene `fork` ni `exec` y el rsync de Samba (GPL v3) los usa, con mucho estado global.
+
+1. **Base: openrsync** (Kristaps Dzonsons / OpenBSD, **ISC**), etiqueta `VERSION_0_5_0` (commit `22b37c9a`, protocolo 27, unas
+   5000 líneas), en `userland/terceros/openrsync/fuentes/` con su licencia; `tools/openrsync_fuentes.sh --comprobar` baja el tarball
+   (SHA-256 fijado) y verifica que solo difieren los ficheros parcheados (`PARCHES.md`). Fila en `terceros.md`. ISC es
+   compatible con la GPL v3 y con `SEM_GPL=1`/`PUBLICABLE=1` (no está en `publicar-excluir.txt`).
+2. **Sin `fork`/`exec`.** Solo se compila el emisor y el receptor del modo `--server`, que lanza el `sshd` (ya ejecuta cualquier
+   orden con `sagsh -c` y tuberías, D250): no hace falta ningún cambio de proceso. `child.c`, `client.c`, `fargs.c`, `socket.c` y
+   el `main.c` de openrsync (fork, socketpair, exec de ssh, demonios) no se compilan; `principal_rsync.c` es el `main` propio.
+3. **Compatibilidad con rsync 3.x.** openrsync habla el protocolo 27; el rsync 3.2.7 del PC lo negocia sin problema. Cuatro cambios
+   a openrsync: (a) la opción `-o` (el cliente 3.x manda `-vlogDtpre.iLsfxCIvu`): uid antes del gid en cada entrada y una lista de uid
+   (vacía al enviar, ignorada al recibir; SaguiOS no tiene usuarios, todo es uid y gid 0); (b) el emisor servidor manda siempre las
+   estadísticas (con «solo -v» el cliente 3.x sin -v se quedaba esperando); (c) la raíz del receptor es un descriptor simulado
+   (`rs_abrir_raiz`) y (d) opciones `-D -z -x -L -s -u -h`, `--delete-*` aceptadas (`-z` rechazada con un mensaje).
+4. **La libc que falta** (`compat/compat_sagui.c`, nuestra, ): `poll` sobre pipes y ficheros con `disponivel()`
+   (escribir se da por posible: el `sshd` vacía la salida sin esperar), `fts` mínimo, `hsearch`, `arc4random`, y las funciones
+   `...at` que resuelven rutas relativas a la carpeta raíz (la `openat` de la libc ignora el descriptor).
+5. **Fechas y permisos.** Los sistemas de archivos escribibles de SaguiOS **no guardan la fecha de modificación** ni el dueño
+   (solo ISO 9660 y UDF, de solo lectura) y no hay una llamada para fijarlas; añadirla es trabajo del VFS y de D282, fuera de este
+   encargo. `utimensat`/`futimens`/`fchown` aceptan y no hacen nada; el receptor trata un fichero existente como «distinto», recalcula
+   sus sumas y el emisor manda solo el delta (h314 lo comprueba: 10 bytes cambiados en 1 MB mandan unos 6 KB). Cuando D282 guarde
+   modos y fechas, se conectan en `compat_sagui.c` sin tocar el resto.
+6. **Copia local propia** (`local_rsync.c`, GPL-3.0): dentro de una máquina no hace falta el protocolo. Compara tamaño y, si las fechas no
+   valen, contenido; copia por un temporal y renombra; `--delete`, `--dry-run`, `-v`, `--progress`, `--stats`. Un solo proceso, sin
+   riesgo de interbloqueo con las tuberías de 512 bytes del kernel.
+7. **Seguridad.** El servidor solo corre bajo el `sshd` (clave pública, D250). No se abre ningún puerto (873) ni demonio.
+   El `sshd` no convierte a UTF-8 la salida de `rsync --server` (protocolo binario).
+8. **Queda para la v8.4.1:** cliente remoto sobre SSH (cuando exista `ssh` en SaguiOS), cliente de demonio `rsync://`, `-z`, enlaces
+   simbólicos, ficheros de cientos de MB (el delta usa `mmap` emulado, que carga el fichero).
+
+**Pruebas.** `tests/h314_rsync.py`: subida de una carpeta con subcarpetas, un fichero de 1 MB y textos (sumas en SaguiOS), delta
+(10 bytes cambiados, pocos bytes enviados con `--stats`), bajada idéntica, `--delete`, y copia local con `--dry-run` y `--delete`.
+Sin `rsync` en el anfitrión se marca «no aplica». Afectadas: las del `sshd` (h248, h251, h252, h254) y h81.
+
+## D314 (ampliación, v8.4.2). El cliente rsync por ssh y los modos de D282; integración con `main`
+
+**Contexto.** D314 dejó rsync como servidor (lo lanza el `sshd`) y copia local; el cliente remoto esperaba al cliente `ssh`, que llegó con D317, y los
+modos al D282. En la v8.4.2 se integran `v8.4-rsync` y `v8.4-idiomas` sobre la v8.4.1 y se completa lo que faltaba.
+
+1. **Cliente por ssh** (`userland/terceros/openrsync/cliente_rsync.c`, código propio GPL-3.0; hace lo que `client.c` y `fargs.c` de openrsync, que usan
+   `fork` y `socketpair`). `rsync [-av...] [-e "ssh -p 2222 -i clave"] ORIGEN... [usuario@]máquina:RUTA` (subir) y `[usuario@]máquina:RUTA... DESTINO`
+   (bajar). Lanza `/bin/ssh -T -q máquina "rsync --server [--sender] -vlogDtpre.iLsfxC [--delete] . rutas"` con `executar()` y dos tuberías como entrada y
+   salida del hijo (como hace el `sshd`), hace el saludo del protocolo 27 y entrega las tuberías al emisor o al receptor de openrsync, que ya sabían ser
+   cliente. `rsync://` se rechaza con un mensaje (el cliente de demonio no se hace: SaguiOS no abre el 873; queda anotado para la v8.4.3 si el mantenedor lo
+   quiere), y «remoto a remoto» también. Una máquina desconocida hay que aceptarla antes (`ssh máquina` una vez, o `-e "ssh -o StrictHostKeyChecking=accept-new"`):
+   con la entrada ocupada por el protocolo, `ssh` no puede preguntar la huella.
+2. **Tuberías de 512 bytes sin interbloqueo** (punto 8 de D317). Escribir en una tubería llena duerme hasta que el otro lado lea, y `ssh` escribe su salida
+   con `escrever_tudo` sin mirar la entrada: con un bloque grande en cada sentido se dormirían los dos. `compat_sagui.c` pasa la lectura y la escritura de
+   esas dos tuberías por `rs_read`/`rs_write` y por el `poll`: lo que llega de `ssh` se vacía siempre a un búfer propio (crece cuanto haga falta) antes de
+   escribir y mientras se espera, y hacia `ssh` solo se escribe lo que cabe (la tubería tiene 512 bytes y se guarda una copia del lado de lectura, de modo
+   que cabe `512 - disponivel(copia)`, como hace el `sshd` con `fd_in_l`). **No se tocó el kernel** (no se agrandaron las tuberías). Si `ssh` muere, la
+   escritura falla con `EPIPE` y no se cuelga. Comprobado con un fichero de 300 KB (unas 600 tuberías llenas) en los dos sentidos.
+3. **Modos (D282) conectados** en `compat_sagui.c`: el `stat` del emisor y del receptor da los permisos y el dueño de verdad (`permisos_arquivo`; la libc daba
+   0755/0644 según el tipo); `fchmodat` es un `chmod` de verdad (`mudar_permisos`; un FAT32 lo rechaza y se sigue, como rsync hacia un FAT); los ficheros nuevos
+   toman el modo del origen al crearlos (con `-p` o `-a` el exacto; sin ellos, como `open(2)` con umask 022); la copia local con `-a`/`-p` también conserva los modos.
+   **El dueño no se aplica** (un uid de otra máquina no significa nada aquí; SaguiOS solo tiene `root` y `sagui` y el flist sigue mandando 0) y **las fechas siguen
+   sin poder fijarse** (no hay llamada que las escriba; solo se leen). Un fichero existente se sigue tratando como «posiblemente distinto».
+4. **Integración.** Los dos conflictos de `v8.4-idiomas` con `main` se resolvieron entendiendo los dos lados: `SIS_IDIOMA` pasó de 137 a **138** (`SIS_MAX` 139) por
+   chocar con `SIS_PERMISOS_ARQ`; `permisos_ruta` ya no niega `/sistema` entero (lo hacen los permisos de D282), así que la excepción de los catálogos se hizo con
+   modos: `/sistema` es 0711 en el ramdisk, lo de dentro 0700 salvo `/sistema/idiomas` (0755/0644), y `/sistema/conf` (SAGUI-CONF montada: sombra, claves) se
+   sigue negando por ruta a quien no es root. La barra de tareas, Configuración (con Mandos, D307, y la ventana de 840 px) y Archivos (permisos en Propiedades) se
+   fusionaron conservando lo de los dos lados, y las cadenas nuevas de `main` (Mandos, Propiedades, PlanoMini) se marcaron con `_()`/`N_()` y se tradujeron a
+   pt_BR y en (`tools/extraer_textos.py`; el pseudo-idioma `xx` sale de las fuentes y no deja nada pendiente).
+5. **Núcleo:** no se tocó nada de memoria, planificador, VFS ni arranque salvo `meta_inicial` de `vfs.c` (los modos de `/sistema`, el punto 4) y la tabla de
+   llamadas (`sistema.c`, `abi.h`, `permisos.c`).
+
+**Pruebas.** `tests/h314_rsync.py` ampliada: el cliente contra el `sshd` de SaguiOS por 127.0.0.1 (el anfitrión no tiene `sshd` sin root): subir, bajar,
+delta (se mandan ~2,6 KB de 320 KB), `--delete`, modos 600/755 conservados, errores claros y `--rsync-path` inexistente sin colgarse; y la parte del servidor
+contra el `rsync` y el `ssh` del anfitrión sigue pasando.

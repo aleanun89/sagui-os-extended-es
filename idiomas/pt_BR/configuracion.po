@@ -1,0 +1,960 @@
+# Traducción de SaguiOS: catálogo «configuracion», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/configuracion.c:52
+msgid "Degradado"
+msgstr "Degradê"
+
+#: userland/programas/configuracion.c:52
+msgid "Centrado"
+msgstr "Centralizado"
+
+#: userland/programas/configuracion.c:52
+msgid "Ajustado"
+msgstr "Ajustado"
+
+#: userland/programas/configuracion.c:52
+msgid "Rellenar"
+msgstr "Preencher"
+
+#: userland/programas/configuracion.c:52
+msgid "Estirado"
+msgstr "Esticado"
+
+#: userland/programas/configuracion.c:52
+msgid "Mosaico"
+msgstr "Lado a lado"
+
+#: userland/programas/configuracion.c:81
+msgid "Verde"
+msgstr "Verde"
+
+#: userland/programas/configuracion.c:81
+msgid "Azul"
+msgstr "Azul"
+
+#: userland/programas/configuracion.c:81
+msgid "Rojo"
+msgstr "Vermelho"
+
+#: userland/programas/configuracion.c:81
+msgid "Naranja"
+msgstr "Laranja"
+
+#: userland/programas/configuracion.c:82
+msgid "Violeta"
+msgstr "Violeta"
+
+#: userland/programas/configuracion.c:82
+msgid "Turquesa"
+msgstr "Turquesa"
+
+#: userland/programas/configuracion.c:82
+msgid "Rosa"
+msgstr "Rosa"
+
+#: userland/programas/configuracion.c:82
+msgid "Grafito"
+msgstr "Grafite"
+
+#: userland/programas/configuracion.c:291
+msgid "cambiar la zona horaria del sistema"
+msgstr "mudar o fuso horário do sistema"
+
+#: userland/programas/configuracion.c:582
+msgid "Teclado"
+msgstr "Teclado"
+
+#: userland/programas/configuracion.c:582
+msgid "Fecha y hora"
+msgstr "Data e hora"
+
+#: userland/programas/configuracion.c:582
+msgid "Pantalla"
+msgstr "Tela"
+
+#: userland/programas/configuracion.c:582
+msgid "Sonido"
+msgstr "Som"
+
+#: userland/programas/configuracion.c:582
+msgid "Escritorio"
+msgstr "Área de trabalho"
+
+#: userland/programas/configuracion.c:582
+msgid "Capturas"
+msgstr "Capturas"
+
+#: userland/programas/configuracion.c:582
+msgid "IA"
+msgstr "IA"
+
+#: userland/programas/configuracion.c:582
+msgid "Fuentes"
+msgstr "Fontes"
+
+#: userland/programas/configuracion.c:582
+msgid "Red"
+msgstr "Rede"
+
+#: userland/programas/configuracion.c:582
+msgid "Escritorio remoto"
+msgstr "Acesso remoto"
+
+#: userland/programas/configuracion.c:582
+msgid "Mandos"
+msgstr "Controles"
+
+#: userland/programas/configuracion.c:592 userland/programas/configuracion.c:609 userland/programas/configuracion.c:618
+msgid "Aplicar"
+msgstr "Aplicar"
+
+#: userland/programas/configuracion.c:593
+msgid "Cerrar"
+msgstr "Fechar"
+
+#: userland/programas/configuracion.c:601
+msgid "Español (ES)"
+msgstr "Espanhol (ES)"
+
+#: userland/programas/configuracion.c:602
+msgid "Portugués de Brasil (ABNT2)"
+msgstr "Português do Brasil (ABNT2)"
+
+#: userland/programas/configuracion.c:618
+msgid "Aplicar y guardar"
+msgstr "Aplicar e salvar"
+
+#: userland/programas/configuracion.c:624
+msgid "Extender"
+msgstr "Estender"
+
+#: userland/programas/configuracion.c:624
+msgid "Espejo"
+msgstr "Espelhar"
+
+#: userland/programas/configuracion.c:634 userland/programas/configuracion.c:2116
+msgid "Silenciar"
+msgstr "Silenciar"
+
+#: userland/programas/configuracion.c:643
+msgid "Plano"
+msgstr "Plano"
+
+#: userland/programas/configuracion.c:643
+msgid "Graves"
+msgstr "Graves"
+
+#: userland/programas/configuracion.c:644
+msgid "Voz"
+msgstr "Voz"
+
+#: userland/programas/configuracion.c:644
+msgid "Agudos"
+msgstr "Agudos"
+
+#: userland/programas/configuracion.c:652
+msgid "Centro"
+msgstr "Centro"
+
+#: userland/programas/configuracion.c:653
+msgid "Probar izq."
+msgstr "Testar esq."
+
+#: userland/programas/configuracion.c:653
+msgid "Probar der."
+msgstr "Testar dir."
+
+#: userland/programas/configuracion.c:660 userland/programas/configuracion.c:1535
+msgid "Silenciar micrófono"
+msgstr "Silenciar microfone"
+
+#: userland/programas/configuracion.c:730
+msgid "Aplicar fondo"
+msgstr "Aplicar fundo"
+
+#: userland/programas/configuracion.c:746
+msgid "Para documentos"
+msgstr "Para documentos"
+
+#: userland/programas/configuracion.c:747
+msgid "Para títulos"
+msgstr "Para títulos"
+
+#: userland/programas/configuracion.c:748
+msgid "Quitar"
+msgstr "Remover"
+
+#: userland/programas/configuracion.c:809
+msgid "No hay fuentes instaladas."
+msgstr "Não há fontes instaladas."
+
+#: userland/programas/configuracion.c:812
+#, c-format
+msgid "Se buscan ficheros .otf y .ttf en %s y en %s."
+msgstr "Procuram-se arquivos .otf e .ttf em %s e em %s."
+
+#: userland/programas/configuracion.c:815
+msgid "Las de Typodermic (CC0) vienen en la partición SAGUI-APPS."
+msgstr "As da Typodermic (CC0) vêm na partição SAGUI-APPS."
+
+#: userland/programas/configuracion.c:818
+#, c-format
+msgid "%d fuentes (%s, %s)"
+msgstr "%d fontes (%s, %s)"
+
+#: userland/programas/configuracion.c:826
+msgid "No se pudo cargar esta fuente."
+msgstr "Não foi possível carregar esta fonte."
+
+#: userland/programas/configuracion.c:827
+#, c-format
+msgid "Documentos: %s"
+msgstr "Documentos: %s"
+
+#: userland/programas/configuracion.c:827 userland/programas/configuracion.c:829
+msgid "(ninguna)"
+msgstr "(nenhuma)"
+
+#: userland/programas/configuracion.c:829
+#, c-format
+msgid "Títulos:     %s"
+msgstr "Títulos:     %s"
+
+#: userland/programas/configuracion.c:847
+msgid "Modelo por omisión"
+msgstr "Modelo padrão"
+
+#: userland/programas/configuracion.c:847 userland/programas/configuracion.c:860
+msgid "Terminal"
+msgstr "Terminal"
+
+#: userland/programas/configuracion.c:847 userland/programas/configuracion.c:861
+msgid "Chat"
+msgstr "Chat"
+
+#: userland/programas/configuracion.c:847 userland/programas/configuracion.c:862
+msgid "Mico"
+msgstr "Mico"
+
+#: userland/programas/configuracion.c:856
+msgid "Guardar"
+msgstr "Salvar"
+
+#: userland/programas/configuracion.c:857
+msgid "Cargar modelos"
+msgstr "Carregar modelos"
+
+#: userland/programas/configuracion.c:859
+msgid "General"
+msgstr "Geral"
+
+#: userland/programas/configuracion.c:878
+msgid "  (actual)"
+msgstr "  (atual)"
+
+#: userland/programas/configuracion.c:878
+msgid "  (al reiniciar)"
+msgstr "  (ao reiniciar)"
+
+#: userland/programas/configuracion.c:888
+#, c-format
+msgid "Principal: %u"
+msgstr "Principal: %u"
+
+#: userland/programas/configuracion.c:889
+#, c-format
+msgid "Lado: %s"
+msgstr "Lado: %s"
+
+#: userland/programas/configuracion.c:889
+msgid "abajo"
+msgstr "abaixo"
+
+#: userland/programas/configuracion.c:889 userland/programas/configuracion.c:1491
+msgid "derecha"
+msgstr "direita"
+
+#: userland/programas/configuracion.c:890
+#, c-format
+msgid "Resolución de: pantalla %d"
+msgstr "Resolução de: tela %d"
+
+#: userland/programas/configuracion.c:943
+msgid "Aplicado. /home no es persistente: no se recordará al reiniciar."
+msgstr "Aplicado. /home não é persistente: não será lembrado ao reiniciar."
+
+#: userland/programas/configuracion.c:944
+#, c-format
+msgid "Aplicado, pero no se pudo guardar: %s"
+msgstr "Aplicado, mas não foi possível salvar: %s"
+
+#: userland/programas/configuracion.c:945
+msgid "Aplicado y guardado en /home/.config/sagui.conf."
+msgstr "Aplicado e salvo em /home/.config/sagui.conf."
+
+#: userland/programas/configuracion.c:956 userland/programas/configuracion.c:990
+msgid "Activar"
+msgstr "Ativar"
+
+#: userland/programas/configuracion.c:957
+msgid "Actualizar listas"
+msgstr "Atualizar listas"
+
+#: userland/programas/configuracion.c:962
+msgid "cambiar el bloqueo de publicidad y rastreadores"
+msgstr "mudar o bloqueio de anúncios e rastreadores"
+
+#: userland/programas/configuracion.c:979
+#, c-format
+msgid "Red: IP %s, DNS %s"
+msgstr "Rede: IP %s, DNS %s"
+
+#: userland/programas/configuracion.c:979
+msgid "ninguno"
+msgstr "nenhum"
+
+#: userland/programas/configuracion.c:980
+msgid "Red: sin dirección IP"
+msgstr "Rede: sem endereço IP"
+
+#: userland/programas/configuracion.c:982
+msgid "Bloqueo de publicidad y rastreo por DNS"
+msgstr "Bloqueio de anúncios e rastreamento por DNS"
+
+#: userland/programas/configuracion.c:986
+#, c-format
+msgid "Activado: %u dominios bloqueados, %u permitidos (%u KB)."
+msgstr "Ativado: %u domínios bloqueados, %u permitidos (%u KB)."
+
+#: userland/programas/configuracion.c:988
+msgid "Desactivado: no hay tabla (pulsa Actualizar listas)."
+msgstr "Desativado: não há tabela (clique em Atualizar listas)."
+
+#: userland/programas/configuracion.c:988
+msgid "Desactivado: se resuelven todos los nombres."
+msgstr "Desativado: todos os nomes são resolvidos."
+
+#: userland/programas/configuracion.c:990
+msgid "Desactivar"
+msgstr "Desativar"
+
+#: userland/programas/configuracion.c:992
+#, c-format
+msgid "Consultas: %u   Bloqueadas: %u"
+msgstr "Consultas: %u   Bloqueadas: %u"
+
+#: userland/programas/configuracion.c:997
+msgid "Últimos bloqueados:"
+msgstr "Últimos bloqueados:"
+
+#: userland/programas/configuracion.c:1000
+msgid "Los dominios de las listas responden 0.0.0.0 a todos los programas."
+msgstr "Os domínios das listas respondem 0.0.0.0 a todos os programas."
+
+#: userland/programas/configuracion.c:1001
+msgid "Permitir o bloquear a mano, y el servidor para la red: bloqueo --ayuda, dnsbloqueo."
+msgstr "Permitir ou bloquear à mão, e o servidor para a rede: bloqueo --ayuda, dnsbloqueo."
+
+#: userland/programas/configuracion.c:1008 userland/programas/configuracion.c:1086
+msgid "Activar y arrancar"
+msgstr "Ativar e iniciar"
+
+#: userland/programas/configuracion.c:1009
+msgid "Reiniciar"
+msgstr "Reiniciar"
+
+#: userland/programas/configuracion.c:1010
+msgid "Fijar contraseña"
+msgstr "Definir senha"
+
+#: userland/programas/configuracion.c:1014
+msgid "Desconectar"
+msgstr "Desconectar"
+
+#: userland/programas/configuracion.c:1082
+#, c-format
+msgid "%s - hace %u:%02u%s"
+msgstr "%s - há %u:%02u%s"
+
+#: userland/programas/configuracion.c:1082
+msgid " - solo ver"
+msgstr " - somente ver"
+
+#: userland/programas/configuracion.c:1086
+msgid "Desactivar y parar"
+msgstr "Desativar e parar"
+
+#: userland/programas/configuracion.c:1087
+msgid "Solo ver: sí"
+msgstr "Somente ver: sim"
+
+#: userland/programas/configuracion.c:1087
+msgid "Solo ver: no"
+msgstr "Somente ver: não"
+
+#: userland/programas/configuracion.c:1088
+msgid "Escuchar: red local (sin cifrar)"
+msgstr "Escutar: rede local (sem criptografia)"
+
+#: userland/programas/configuracion.c:1088
+msgid "Escuchar: solo esta máquina (por SSH)"
+msgstr "Escutar: só esta máquina (por SSH)"
+
+#: userland/programas/configuracion.c:1111
+msgid "Sin permisos de administrador no se puede cambiar el escritorio remoto."
+msgstr "Sem permissões de administrador não é possível mudar o acesso remoto."
+
+#: userland/programas/configuracion.c:1122
+msgid "configurar el escritorio remoto (servidor VNC)"
+msgstr "configurar o acesso remoto (servidor VNC)"
+
+#: userland/programas/configuracion.c:1129
+msgid "Escritorio remoto desactivado y parado."
+msgstr "Acesso remoto desativado e parado."
+
+#: userland/programas/configuracion.c:1131
+msgid "Antes de activarlo, pon una contraseña (nadie podría entrar sin ella)."
+msgstr "Antes de ativar, defina uma senha (ninguém poderia entrar sem ela)."
+
+#: userland/programas/configuracion.c:1135
+msgid "Escritorio remoto activado: arrancará solo y ya está en marcha."
+msgstr "Acesso remoto ativado: iniciará sozinho e já está em execução."
+
+#: userland/programas/configuracion.c:1135
+msgid "Activado, pero no se pudo iniciar (mira /logs/vncd.log)."
+msgstr "Ativado, mas não foi possível iniciar (veja /logs/vncd.log)."
+
+#: userland/programas/configuracion.c:1138
+msgid "Servicio reiniciado."
+msgstr "Serviço reiniciado."
+
+#: userland/programas/configuracion.c:1138
+msgid "No se pudo reiniciar (¿está activado?)."
+msgstr "Não foi possível reiniciar (está ativado?)."
+
+#: userland/programas/configuracion.c:1140
+msgid "Escribe la contraseña en el cuadro."
+msgstr "Digite a senha na caixa."
+
+#: userland/programas/configuracion.c:1145
+#, c-format
+msgid "Contraseña fijada%s."
+msgstr "Senha definida%s."
+
+#: userland/programas/configuracion.c:1145
+msgid " (solo cuentan los 8 primeros caracteres)"
+msgstr " (só contam os 8 primeiros caracteres)"
+
+#: userland/programas/configuracion.c:1148
+msgid "No se pudo fijar la contraseña."
+msgstr "Não foi possível definir a senha."
+
+#: userland/programas/configuracion.c:1156
+#, c-format
+msgid "Guardado: %s%s."
+msgstr "Salvo: %s%s."
+
+#: userland/programas/configuracion.c:1156
+msgid " (servicio reiniciado)"
+msgstr " (serviço reiniciado)"
+
+#: userland/programas/configuracion.c:1158
+msgid "No se pudo guardar la opción."
+msgstr "Não foi possível salvar a opção."
+
+#: userland/programas/configuracion.c:1165
+msgid "Elige a alguien de la lista."
+msgstr "Escolha alguém da lista."
+
+#: userland/programas/configuracion.c:1166
+msgid "desconectar a alguien del escritorio remoto"
+msgstr "desconectar alguém do acesso remoto"
+
+#: userland/programas/configuracion.c:1170
+msgid "Sesión desconectada."
+msgstr "Sessão desconectada."
+
+#: userland/programas/configuracion.c:1170
+msgid "No se pudo desconectar."
+msgstr "Não foi possível desconectar."
+
+#: userland/programas/configuracion.c:1177
+msgid "Servidor de escritorio remoto (VNC)"
+msgstr "Servidor de acesso remoto (VNC)"
+
+#: userland/programas/configuracion.c:1178
+#, c-format
+msgid "Servicio vncd: %s%s, puerto %d, arranque automático: %s"
+msgstr "Serviço vncd: %s%s, porta %d, início automático: %s"
+
+#: userland/programas/configuracion.c:1178
+msgid "en marcha"
+msgstr "em execução"
+
+#: userland/programas/configuracion.c:1178
+msgid "parado"
+msgstr "parado"
+
+#: userland/programas/configuracion.c:1179
+msgid " (iniciando)"
+msgstr " (iniciando)"
+
+#: userland/programas/configuracion.c:1179
+msgid "sí"
+msgstr "sim"
+
+#: userland/programas/configuracion.c:1179
+msgid "no"
+msgstr "não"
+
+#: userland/programas/configuracion.c:1182
+#, c-format
+msgid "Contraseña (como mucho 8 caracteres): %s"
+msgstr "Senha (no máximo 8 caracteres): %s"
+
+#: userland/programas/configuracion.c:1182
+msgid "ya hay una puesta"
+msgstr "já há uma definida"
+
+#: userland/programas/configuracion.c:1182
+msgid "SIN PONER"
+msgstr "NÃO DEFINIDA"
+
+#: userland/programas/configuracion.c:1188
+#, c-format
+msgid "Conectados ahora: %d"
+msgstr "Conectados agora: %d"
+
+#: userland/programas/configuracion.c:1193
+msgid "«Solo esta máquina»: se entra por un túnel SSH (ssh -L 5900:localhost:5900 root@IP) y el"
+msgstr "«Só esta máquina»: entra-se por um túnel SSH (ssh -L 5900:localhost:5900 root@IP) e o"
+
+#: userland/programas/configuracion.c:1194
+msgid "tráfico va cifrado. «Red local» deja entrar sin túnel, pero el tráfico VNC no se cifra."
+msgstr "tráfego vai criptografado. «Rede local» permite entrar sem túnel, mas o tráfego VNC não é criptografado."
+
+#: userland/programas/configuracion.c:1195
+msgid "Mientras haya alguien conectado se ve una ventana «Escritorio remoto» en la barra de tareas."
+msgstr "Enquanto houver alguém conectado, aparece uma janela «Acesso remoto» na barra de tarefas."
+
+#: userland/programas/configuracion.c:1207
+msgid "Buscar joystick"
+msgstr "Procurar joystick"
+
+#: userland/programas/configuracion.c:1208
+msgid "Calibrar puerto"
+msgstr "Calibrar porta"
+
+#: userland/programas/configuracion.c:1209
+msgid "Calibración automática"
+msgstr "Calibração automática"
+
+#: userland/programas/configuracion.c:1267
+msgid "No se ha movido ningún eje: la calibración no cambia."
+msgstr "Nenhum eixo se moveu: a calibração não muda."
+
+#: userland/programas/configuracion.c:1280
+msgid "El joystick del puerto de juegos ha desaparecido."
+msgstr "O joystick da porta de jogos desapareceu."
+
+#: userland/programas/configuracion.c:1299
+msgid "Ahora suelta el joystick en el centro..."
+msgstr "Agora solte o joystick no centro..."
+
+#: userland/programas/configuracion.c:1301
+#, c-format
+msgid "Mueve el joystick hasta las cuatro esquinas, varias veces (%d s)"
+msgstr "Mova o joystick até os quatro cantos, várias vezes (%d s)"
+
+#: userland/programas/configuracion.c:1332
+msgid "Mandos y joysticks conectados"
+msgstr "Controles e joysticks conectados"
+
+#: userland/programas/configuracion.c:1333
+msgid "Ninguno (USB, Xbox 360 o puerto de juegos)."
+msgstr "Nenhum (USB, Xbox 360 ou porta de jogos)."
+
+#: userland/programas/configuracion.c:1336
+msgid "El joystick del puerto de juegos (0x201)"
+msgstr "O joystick da porta de jogos (0x201)"
+
+#: userland/programas/configuracion.c:1337
+msgid "se busca al arrancar y con «Buscar»."
+msgstr "é procurado ao iniciar e com «Procurar»."
+
+#: userland/programas/configuracion.c:1340
+msgid "Prueba en vivo"
+msgstr "Teste ao vivo"
+
+#: userland/programas/configuracion.c:1342
+#, c-format
+msgid "%s, %04x:%04x: %u ejes, %u botones, %u hats"
+msgstr "%s, %04x:%04x: %u eixos, %u botões, %u hats"
+
+#: userland/programas/configuracion.c:1344
+#, c-format
+msgid "%s: %u ejes, %u botones, %u hats"
+msgstr "%s: %u eixos, %u botões, %u hats"
+
+#: userland/programas/configuracion.c:1349
+msgid "Stick izq."
+msgstr "Analógico esq."
+
+#: userland/programas/configuracion.c:1349
+msgid "Stick der."
+msgstr "Analógico dir."
+
+#: userland/programas/configuracion.c:1349
+msgid "Gatillos"
+msgstr "Gatilhos"
+
+#: userland/programas/configuracion.c:1365
+#, c-format
+msgid "Ejes %d y %d"
+msgstr "Eixos %d e %d"
+
+#: userland/programas/configuracion.c:1366
+#, c-format
+msgid "Eje %d"
+msgstr "Eixo %d"
+
+#: userland/programas/configuracion.c:1371
+msgid "Botones:"
+msgstr "Botões:"
+
+#: userland/programas/configuracion.c:1382
+#, c-format
+msgid "Hat %d"
+msgstr "Hat %d"
+
+#: userland/programas/configuracion.c:1390
+msgid "Tiempos (us):"
+msgstr "Tempos (us):"
+
+#: userland/programas/configuracion.c:1395
+#, c-format
+msgid "Calibración %s: X %u-%u-%u, Y %u-%u-%u us"
+msgstr "Calibração %s: X %u-%u-%u, Y %u-%u-%u us"
+
+#: userland/programas/configuracion.c:1395
+msgid "guardada"
+msgstr "salva"
+
+#: userland/programas/configuracion.c:1395
+msgid "automática"
+msgstr "automática"
+
+#: userland/programas/configuracion.c:1409
+msgid "Hay un joystick en el puerto de juegos."
+msgstr "Há um joystick na porta de jogos."
+
+#: userland/programas/configuracion.c:1409
+msgid "No hay joystick en el puerto de juegos."
+msgstr "Não há joystick na porta de jogos."
+
+#: userland/programas/configuracion.c:1415
+msgid "No hay joystick en el puerto de juegos: pulsa «Buscar joystick»."
+msgstr "Não há joystick na porta de jogos: clique em «Procurar joystick»."
+
+#: userland/programas/configuracion.c:1420
+msgid "Mueve el joystick hasta las cuatro esquinas, varias veces (6 s)"
+msgstr "Mova o joystick até os quatro cantos, várias vezes (6 s)"
+
+#: userland/programas/configuracion.c:1439
+msgid "Distribución del teclado"
+msgstr "Layout do teclado"
+
+#: userland/programas/configuracion.c:1442
+msgid "Prueba: la ñ, la ç y los acentos cambian según la distribución."
+msgstr "Teste: o ñ, o ç e os acentos mudam conforme o layout."
+
+#: userland/programas/configuracion.c:1443
+msgid "Idioma de la interfaz"
+msgstr "Idioma da interface"
+
+#: userland/programas/configuracion.c:1444
+msgid "Se aplica a los programas que abras después y al escritorio."
+msgstr "Vale para os programas que você abrir depois e para a área de trabalho."
+
+#: userland/programas/configuracion.c:1451
+#, c-format
+msgid "Zona horaria actual: %s   (%02d:%02d)"
+msgstr "Fuso horário atual: %s   (%02d:%02d)"
+
+#: userland/programas/configuracion.c:1456
+#, c-format
+msgid "Resolución actual: %ux%u, %u bits"
+msgstr "Resolução atual: %ux%u, %u bits"
+
+#: userland/programas/configuracion.c:1464
+#, c-format
+msgid "%u pantallas: escritorio de %ux%u"
+msgstr "%u telas: área de trabalho de %ux%u"
+
+#: userland/programas/configuracion.c:1467
+msgid "Esta tarjeta cambia al reiniciar."
+msgstr "Esta placa muda ao reiniciar."
+
+#: userland/programas/configuracion.c:1471
+msgid "No hay tarjeta de sonido (solo el altavoz del PC)."
+msgstr "Não há placa de som (só o alto-falante do PC)."
+
+#: userland/programas/configuracion.c:1473
+#, c-format
+msgid "Volumen general: %u %%%s"
+msgstr "Volume geral: %u %%%s"
+
+#: userland/programas/configuracion.c:1473
+msgid " (silencio)"
+msgstr " (mudo)"
+
+#: userland/programas/configuracion.c:1479
+#, c-format
+msgid "Tarjeta: %s (%s)"
+msgstr "Placa: %s (%s)"
+
+#: userland/programas/configuracion.c:1483
+msgid "Balance"
+msgstr "Balanço"
+
+#: userland/programas/configuracion.c:1491
+msgid "centro"
+msgstr "centro"
+
+#: userland/programas/configuracion.c:1491
+msgid "izquierda"
+msgstr "esquerda"
+
+#: userland/programas/configuracion.c:1503
+#, c-format
+msgid "Salida: %s (pulsa para cambiar)"
+msgstr "Saída: %s (clique para mudar)"
+
+#: userland/programas/configuracion.c:1510
+#, c-format
+msgid "Latencia: %u ms"
+msgstr "Latência: %u ms"
+
+#: userland/programas/configuracion.c:1513
+msgid "Micrófono"
+msgstr "Microfone"
+
+#: userland/programas/configuracion.c:1515
+msgid "Esta tarjeta no tiene entrada de sonido que podamos usar."
+msgstr "Esta placa não tem entrada de som que possamos usar."
+
+#: userland/programas/configuracion.c:1534
+msgid "Habla para probar el nivel."
+msgstr "Fale para testar o nível."
+
+#: userland/programas/configuracion.c:1534
+msgid "Micrófono en uso por otro programa."
+msgstr "Microfone em uso por outro programa."
+
+#: userland/programas/configuracion.c:1535
+msgid "Activar micrófono"
+msgstr "Ativar microfone"
+
+#: userland/programas/configuracion.c:1538
+msgid "Ecualizador (dB)"
+msgstr "Equalizador (dB)"
+
+#: userland/programas/configuracion.c:1555
+msgid "Carpeta de las capturas de pantalla (Impr Pant)"
+msgstr "Pasta das capturas de tela (Print Screen)"
+
+#: userland/programas/configuracion.c:1556
+msgid "Vacía = /home/capturas (o /tmp/capturas si /home no deja escribir)."
+msgstr "Vazia = /home/capturas (ou /tmp/capturas se /home não aceitar gravação)."
+
+#: userland/programas/configuracion.c:1559
+msgid "Sonido al capturar: sí"
+msgstr "Som ao capturar: sim"
+
+#: userland/programas/configuracion.c:1559
+msgid "Sonido al capturar: no"
+msgstr "Som ao capturar: não"
+
+#: userland/programas/configuracion.c:1575
+msgid "Color de acento (barra de título y barra de tareas)"
+msgstr "Cor de destaque (barra de título e barra de tarefas)"
+
+#: userland/programas/configuracion.c:1583
+msgid "Fondo del escritorio"
+msgstr "Plano de fundo da área de trabalho"
+
+#: userland/programas/configuracion.c:1585
+msgid "Imagen (BMP o PNG de /imagenes y de /home):"
+msgstr "Imagem (BMP ou PNG de /imagenes e de /home):"
+
+#: userland/programas/configuracion.c:1605
+msgid "Aviso: /home no es un disco persistente: los cambios no se recordarán."
+msgstr "Aviso: /home não é um disco persistente: as mudanças não serão lembradas."
+
+#: userland/programas/configuracion.c:1673
+msgid "Proveedor elegido. Escribe la clave y pulsa Guardar."
+msgstr "Provedor escolhido. Digite a chave e clique em Salvar."
+
+#: userland/programas/configuracion.c:1674
+msgid "Proveedor elegido (no necesita clave). Pulsa Guardar."
+msgstr "Provedor escolhido (não precisa de chave). Clique em Salvar."
+
+#: userland/programas/configuracion.c:1677
+msgid "Personalizado: escribe la dirección del servidor."
+msgstr "Personalizado: digite o endereço do servidor."
+
+#: userland/programas/configuracion.c:1685
+msgid "Primero pon la dirección del servidor."
+msgstr "Primeiro informe o endereço do servidor."
+
+#: userland/programas/configuracion.c:1689
+#, c-format
+msgid "No se pudieron pedir los modelos: %s"
+msgstr "Não foi possível pedir os modelos: %s"
+
+#: userland/programas/configuracion.c:1707
+#, c-format
+msgid "%d modelos del servidor. Elige uno: va a la casilla donde está el cursor."
+msgstr "%d modelos do servidor. Escolha um: vai para a caixa onde está o cursor."
+
+#: userland/programas/configuracion.c:1719
+msgid "Modelo puesto. Pulsa Guardar para que lo usen los programas."
+msgstr "Modelo definido. Clique em Salvar para que os programas o usem."
+
+#: userland/programas/configuracion.c:1742
+msgid "Proveedor"
+msgstr "Provedor"
+
+#: userland/programas/configuracion.c:1744
+msgid "Elige uno y pon su URL."
+msgstr "Escolha um e informe a URL."
+
+#: userland/programas/configuracion.c:1747
+msgid "Dirección del servidor (URL)"
+msgstr "Endereço do servidor (URL)"
+
+#: userland/programas/configuracion.c:1749
+#, c-format
+msgid "Clave de API (%s)"
+msgstr "Chave de API (%s)"
+
+#: userland/programas/configuracion.c:1749
+msgid "definida"
+msgstr "definida"
+
+#: userland/programas/configuracion.c:1749
+msgid "sin clave"
+msgstr "sem chave"
+
+#: userland/programas/configuracion.c:1764
+msgid "Modelo para:"
+msgstr "Modelo para:"
+
+#: userland/programas/configuracion.c:1840 userland/programas/configuracion.c:1845
+msgid "Configuración"
+msgstr "Configurações"
+
+#: userland/programas/configuracion.c:1875
+msgid "Sin /home persistente los cambios se aplican, pero no se recordarán."
+msgstr "Sem /home persistente as mudanças são aplicadas, mas não serão lembradas."
+
+#: userland/programas/configuracion.c:1936
+msgid "No se pudo cambiar la zona horaria."
+msgstr "Não foi possível mudar o fuso horário."
+
+#: userland/programas/configuracion.c:1953
+msgid "Pantallas cambiadas y guardadas"
+msgstr "Telas alteradas e salvas"
+
+#: userland/programas/configuracion.c:1954 userland/programas/configuracion.c:1970 userland/programas/configuracion.c:1976 userland/programas/configuracion.c:2264
+#, c-format
+msgid "No se pudo: %s"
+msgstr "Não foi possível: %s"
+
+#: userland/programas/configuracion.c:1969
+#, c-format
+msgid "Pantalla %d: %ux%u"
+msgstr "Tela %d: %ux%u"
+
+#: userland/programas/configuracion.c:1972
+msgid "La pantalla ya está en esa resolución."
+msgstr "A tela já está nessa resolução."
+
+#: userland/programas/configuracion.c:1975
+msgid "Arranque desde CD: no se puede guardar la resolución."
+msgstr "Inicialização pelo CD: não é possível salvar a resolução."
+
+#: userland/programas/configuracion.c:1977
+msgid ", guardada"
+msgstr ", salva"
+
+#: userland/programas/configuracion.c:1978
+#, c-format
+msgid "%ux%u al reiniciar"
+msgstr "%ux%u ao reiniciar"
+
+#: userland/programas/configuracion.c:2116
+msgid "Activar sonido"
+msgstr "Ativar som"
+
+#: userland/programas/configuracion.c:2137
+msgid "Descargando las listas..."
+msgstr "Baixando as listas..."
+
+#: userland/programas/configuracion.c:2137
+msgid "Un momento..."
+msgstr "Um momento..."
+
+#: userland/programas/configuracion.c:2140
+msgid "Listas actualizadas."
+msgstr "Listas atualizadas."
+
+#: userland/programas/configuracion.c:2140
+msgid "No se pudieron actualizar las listas (¿hay red?)."
+msgstr "Não foi possível atualizar as listas (há rede?)."
+
+#: userland/programas/configuracion.c:2141
+msgid "No se pudo cambiar el bloqueo (mira «bloqueo estado» en el terminal)."
+msgstr "Não foi possível mudar o bloqueio (veja «bloqueo estado» no terminal)."
+
+#: userland/programas/configuracion.c:2142
+msgid "Bloqueo desactivado."
+msgstr "Bloqueio desativado."
+
+#: userland/programas/configuracion.c:2142
+msgid "Bloqueo activado."
+msgstr "Bloqueio ativado."
+
+#: userland/programas/configuracion.c:2158
+msgid "Elige una fuente de la lista."
+msgstr "Escolha uma fonte da lista."
+
+#: userland/programas/configuracion.c:2223
+#, c-format
+msgid "No se pudo guardar: %s"
+msgstr "Não foi possível salvar: %s"
+
+#: userland/programas/configuracion.c:2224
+msgid "Guardado solo en esta sesión: /home no es un disco."
+msgstr "Salvo só nesta sessão: /home não é um disco."
+
+#: userland/programas/configuracion.c:2225
+msgid "Guardado en /home/.config/ia. Los programas ya lo usan."
+msgstr "Salvo em /home/.config/ia. Os programas já o usam."
+
+#: userland/programas/configuracion.c:2256
+msgid "Elige una imagen de la lista."
+msgstr "Escolha uma imagem da lista."
+
+#: userland/programas/configuracion.c:2259
+msgid "Aplicando el fondo..."
+msgstr "Aplicando o plano de fundo..."
+

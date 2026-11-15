@@ -85,7 +85,7 @@ def main():
         l = linha_ls(out, "bin/")
         verificar(re.match(r"drwxr-xr-x root +root ", l), f"ls -l /: bin es drwxr-xr-x root root ({l!r})")
         l = linha_ls(out, "sistema/")
-        verificar(re.match(r"drwx------ root +root ", l), f"ls -l /: sistema es drwx------ ({l!r})")
+        verificar(re.match(r"drwx--x--x root +root ", l), f"ls -l /: sistema es drwx--x--x (D313: se atraviesa hasta /sistema/idiomas) ({l!r})")
         l = linha_ls(out, "tmp/")
         verificar(re.match(r"drwxrwxrwt root +root ", l), f"ls -l /: tmp es drwxrwxrwt ({l!r})")
         l = linha_ls(out, "home/")

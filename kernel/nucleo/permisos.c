@@ -52,6 +52,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_REGISTRAR] = L,
     [SIS_HORA] = O,                        /* leer sí; ajustar el reloj, no */
     [SIS_ZONA] = O,                        /* leer sí; cambiar la zona del sistema, no */
+    [SIS_IDIOMA] = L,                      /* D313: el idioma es preferencia del usuario */
     /* Apagar y reiniciar: la sesión local sí (como el botón de encendido); un servicio o SSH, no */
     [SIS_REINICIAR] = O, [SIS_DESLIGAR] = O,
     [SIS_ACPI] = R,
@@ -275,6 +276,10 @@ int permisos_ruta(const char *caminho, int acao)
         dentro(caminho, "/home/.config/vncd.passwd"))
         goto nega;
     if ((acao & PERM_ESCREVER) && dentro(caminho, "/tmp/.servicios/pedidos"))
+        goto nega;
+    /* D313: /sistema es 0711 (se atraviesa para llegar a /sistema/idiomas, legible por todos); la
+     * configuración montada (/sistema/conf: sombra, claves) sigue cerrada a quien no es root */
+    if (dentro(caminho, "/sistema/conf"))
         goto nega;
     return 0;
 nega:

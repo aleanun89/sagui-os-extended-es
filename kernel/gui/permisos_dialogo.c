@@ -16,6 +16,7 @@
 #include "permisos_dialogo.h"
 #include "abi.h"
 #include "gui.h"
+#include "idioma.h"
 #include "console.h"
 #include "mouse.h"
 #include "supervisor.h"
@@ -46,8 +47,8 @@ typedef struct {
 
 static const char *rotulo_senha(int k)
 {
-    if (!vista.primeira) return "Contraseña de administrador (root):";
-    return k == 0 ? "Elige la contraseña de administrador (root):" : "Repítela:";
+    if (!vista.primeira) return _("Contraseña de administrador (root):");
+    return k == 0 ? _("Elige la contraseña de administrador (root):") : _("Repítela:");
 }
 
 /* Parte el motivo en líneas de n columnas: devuelve el número (máx. 3) y los cortes en ini/tam. */
@@ -108,9 +109,9 @@ static void apagar_campos(void)
 static void texto_erro(int e)
 {
     msg[0] = 0;
-    if (e == ERRO_ACESSO) txt_copia_n(msg, "Contraseña incorrecta. Inténtalo otra vez.", sizeof msg);
-    else if (e == ERRO_ESPERA) txt_copia_n(msg, "Demasiados fallos: espera un minuto para volver a intentarlo.", sizeof msg);
-    else if (e) txt_copia_n(msg, "No se pudo comprobar la contraseña.", sizeof msg);
+    if (e == ERRO_ACESSO) txt_copia_n(msg, _("Contraseña incorrecta. Inténtalo otra vez."), sizeof msg);
+    else if (e == ERRO_ESPERA) txt_copia_n(msg, _("Demasiados fallos: espera un minuto para volver a intentarlo."), sizeof msg);
+    else if (e) txt_copia_n(msg, _("No se pudo comprobar la contraseña."), sizeof msg);
 }
 
 static void abrir(const dialogo_vista_t *v)
@@ -165,16 +166,16 @@ static void aceitar(void)
 {
     if (comprobando) return;
     if (vista.primeira) {
-        if (slen[0] < SENHA_MIN) { txt_copia_n(msg, "Elige al menos 4 caracteres.", sizeof msg); tela_toda(); return; }
+        if (slen[0] < SENHA_MIN) { txt_copia_n(msg, _("Elige al menos 4 caracteres."), sizeof msg); tela_toda(); return; }
         if (slen[0] != slen[1] || txt_compara(senha[0], senha[1]) != 0) {
-            txt_copia_n(msg, "Las dos contraseñas no coinciden.", sizeof msg);
+            txt_copia_n(msg, _("Las dos contraseñas no coinciden."), sizeof msg);
             memset(senha, 0, sizeof senha); slen[0] = slen[1] = 0; foco = 0;
             tela_toda();
             return;
         }
         supervisor_dialogo_enviar(id, "", senha[0]);
     } else {
-        if (slen[0] == 0) { txt_copia_n(msg, "Escribe la contraseña de administrador.", sizeof msg); tela_toda(); return; }
+        if (slen[0] == 0) { txt_copia_n(msg, _("Escribe la contraseña de administrador."), sizeof msg); tela_toda(); return; }
         supervisor_dialogo_enviar(id, senha[0], "");
     }
     memset(senha, 0, sizeof senha);
@@ -246,7 +247,7 @@ void pd_desenhar(superficie_t *t)
     sup_moldura(t, c.x - 1, c.y - 1, c.l + 2, c.a + 2, 0x000000);
     sup_moldura(t, c.x, c.y, c.l, c.a, COR_AZUL);
     sup_retangulo(t, c.x, c.y, c.l, 30, COR_AZUL);
-    sup_texto(t, c.x + 14, c.y + 7, "Control de permisos del sistema", 0xFFFFFF);
+    sup_texto(t, c.x + 14, c.y + 7, _("Control de permisos del sistema"), 0xFFFFFF);
     /* Icono y nombre del programa (el nombre lo pone el kernel). */
     const desenho_t *ic = barra_icone_processo(vista.nome);
     int ix = c.x + 24, iy = c.y + 30 + 16;
@@ -257,7 +258,7 @@ void pd_desenhar(superficie_t *t)
     txt_copia_n(l1, vista.nome, sizeof l1);
     sup_texto(t, tx, iy, l1, 0x101820);
     sup_texto(t, tx + 1, iy, l1, 0x101820);   /* negrita */
-    sup_texto(t, tx, iy + 18, "quiere hacer cambios en el sistema.", 0x303840);
+    sup_texto(t, tx, iy + 18, _("quiere hacer cambios en el sistema."), 0x303840);
     if (L.n_motivo) {
         int ini[3], tam[3];
         partir(vista.motivo, (DW - 96) / 8, ini, tam);
@@ -282,9 +283,9 @@ void pd_desenhar(superficie_t *t)
         sup_texto(t, f.x + 6, f.y + 4, n > max ? pts + (n - max) : pts, 0x101820);
         if (k == foco && !comprobando) sup_retangulo(t, f.x + 6 + (n > max ? max : n) * 8, f.y + 4, 2, 16, 0x101820);
     }
-    if (comprobando) sup_texto(t, c.x + 24, L.y_msg, "Comprobando...", COR_AZUL);
+    if (comprobando) sup_texto(t, c.x + 24, L.y_msg, _("Comprobando..."), COR_AZUL);
     else if (msg[0]) sup_texto(t, c.x + 24, L.y_msg, msg, 0xC0261B);
-    botao(t, L.si, "Sí, continuar", 0x2E7D32, !comprobando);
-    botao(t, L.nao, "No", 0x5A6470, !comprobando);
-    sup_texto(t, c.x + 24, c.y + c.a - 22, "Solo el sistema muestra esta ventana. Esc = No.", 0x6A727C);
+    botao(t, L.si, _("Sí, continuar"), 0x2E7D32, !comprobando);
+    botao(t, L.nao, _("No"), 0x5A6470, !comprobando);
+    sup_texto(t, c.x + 24, c.y + c.a - 22, _("Solo el sistema muestra esta ventana. Esc = No."), 0x6A727C);
 }

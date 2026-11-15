@@ -148,7 +148,7 @@ UCFLAGS := -m32 -march=i686 -std=gnu11 $(OTIMIZACAO) \
            -Iuserland/inc -idirafter kernel/inc $(VARIANTE_DEFS)
 ULDFLAGS := -m elf_i386 -nostdlib -T userland/programa.ld --gc-sections -z max-page-size=4096 \
             -z noexecstack --no-warn-rwx-segments
-LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/userland/libsagui/sse1.o $(B)/userland/libsagui/sse3.o $(B)/userland/libsagui/ssse3.o $(B)/userland/libsagui/fuso.o \
+LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/userland/libsagui/sse1.o $(B)/userland/libsagui/sse3.o $(B)/userland/libsagui/ssse3.o $(B)/userland/libsagui/fuso.o $(B)/userland/libsagui/catalogo.o \
                 $(patsubst userland/libsagui/%.c,$(B)/userland/libsagui/%.o,$(filter-out userland/libsagui/sqlite_% $(if $(filter 1,$(SEM_GPL)),userland/libsagui/h264.c userland/libsagui/aac.c),$(wildcard userland/libsagui/*.c))) \
                 $(patsubst userland/libsagui/%.asm,$(B)/userland/libsagui/%.asm.o,$(wildcard userland/libsagui/*.asm))
 USER_HDR  := $(wildcard userland/inc/*.h) kernel/inc/abi.h kernel/inc/sha256.h kernel/inc/fuso.h kernel/inc/versao.h
@@ -485,6 +485,14 @@ include userland/terceros/dosbox/dosbox.mk
 endif
 endif
 
+# rsync (D314, mejora 120): openrsync de OpenBSD (ISC), aislado en userland/terceros/openrsync/.
+# El modo servidor lo lanza el sshd; la copia local es propia. Sin la variante GPL no hace falta
+# distinguirlo: la licencia ISC es compatible. RSYNC=0 lo deja fuera.
+RSYNC ?= 1
+ifeq ($(RSYNC),1)
+include userland/terceros/openrsync/openrsync.mk
+endif
+
 # Game Boy con SDL2-GNUBoy (D235): GPL-2.0, aislado en userland/terceros/gnuboy/ como
 # los anteriores y fuera de la variante sin GPL; es C: no pide g++. Usa la SDL 2
 # (userland/libsdl2) del sistema. GNUBOY=0 lo deja fuera (D259: PUBLICABLE=1 lo pasa; GPL-2.0 solo
@@ -698,6 +706,11 @@ $(B)/userland/libsagui/ssse3.o: kernel/lib/ssse3.c kernel/inc/sse2.h
 
 # O intérprete de regras POSIX TZ (D080) é o mesmo kernel/lib/fuso.c.
 $(B)/userland/libsagui/fuso.o: kernel/lib/fuso.c kernel/inc/fuso.h $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -c -o $@ $<
+
+# D313: el lector de catálogos de traducción es el mismo kernel/lib/catalogo.c.
+$(B)/userland/libsagui/catalogo.o: kernel/lib/catalogo.c kernel/inc/catalogo.h $(USER_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(UCFLAGS) -c -o $@ $<
 
@@ -1096,7 +1109,15 @@ $(B)/userland/testes/%: $(B)/userland/testes/%.o $(LIBSAGUI_OBJ) userland/progra
 # es el MBR de SaguiOS, para instalar con MBR desde un disco GPT (cuyo LBA 0 es el MBR protector).
 # D172: al final la copia queda como $(B)/rootfs (renombrada, no copiada de nuevo):
 # las pruebas (h08, h16, h24, h59...) leen de ahí el contenido exacto de la imagen.
-$(B)/ramdisk.sgfs: $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
+# D313: los catálogos de traducción (.cat) salen de los .po de idiomas/ y de las marcas _()/N_()
+# del código (el pseudo-idioma «xx» se genera de las fuentes). Van a /sistema/idiomas del ramdisk.
+IDIOMAS_FUENTES := $(wildcard idiomas/*/*.po) $(wildcard kernel/gui/*.c kernel/dispositivos/acpi.c kernel/nucleo/supervisor.c kernel/nucleo/energia.c userland/programas/*.c userland/libsagui/*.c userland/inc/*.h)
+$(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
+	@rm -rf $(B)/idiomas && mkdir -p $(B)/idiomas
+	$(PY) tools/extraer_textos.py compilar $(B)/idiomas
+	@touch $@
+
+$(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
                   userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) \
                   $(UEFI_EFI) $(B)/boot/mbr.bin
 	@set -e; \
@@ -1118,7 +1139,8 @@ $(B)/ramdisk.sgfs: $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) too
 	if [ "$(MICROPYTHON)" = "0" ]; then rm -rf "$$d/lib/python" "$$d/bin/lmk" "$$d/bin/chip8-roms" "$$d/bin/chip8-roms-gui"; fi; \
 	if [ -n "$(FIRMWARE_RAMDISK)" ]; then mkdir -p "$$d/lib/firmware"; cp $(FIRMWARE_RAMDISK) "$$d/lib/firmware/"; fi; \
 	if [ -n "$(FIRMWARE_RADEON)" ]; then mkdir -p "$$d/lib/firmware/radeon"; cp $(FIRMWARE_RADEON) "$$d/lib/firmware/radeon/"; fi; \
-	mkdir -p "$$d/sistema/efi/EFI/BOOT" "$$d/sistema/arranque"; \
+	mkdir -p "$$d/sistema/efi/EFI/BOOT" "$$d/sistema/arranque" "$$d/sistema/idiomas"; \
+	cp -r $(B)/idiomas/* "$$d/sistema/idiomas/"; \
 	cp $(UEFI_EFI) "$$d/sistema/efi/EFI/BOOT/"; \
 	cp $(B)/boot/mbr.bin "$$d/sistema/arranque/mbr.bin"; \
 	$(PY) tools/mksgfs.py "$$d" "$@.novo"; \

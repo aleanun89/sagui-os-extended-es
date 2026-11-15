@@ -7,6 +7,7 @@
  * redibujado sólo se copia la parte necesaria. La barra superior (barra.c) se
  * dibuja por encima, porque el reloj y las tareas cambian. */
 #include "gui.h"
+#include "idioma.h"
 #include "arte.h"
 #include "console.h"
 #include "memoria.h"
@@ -38,20 +39,20 @@ typedef struct {
 } icone_t;
 
 static const icone_t icones[] = {
-    { "Archivos",    "/bin/arquivos",    &arte_icone_arquivos,   "archivos",  0 },
-    { "Terminal",    "/bin/terminal",    &arte_icone_terminal,   "terminal",  2 },
-    { "Editor",      "/bin/editor",      &arte_icone_editor,     "editor",    1 },
-    { "Calculadora", "/bin/calculadora", &arte_icone_calculadora, "calculadora", 2 },
-    { "Banana",      "/bin/banana",      &arte_icone_banana,     "banana",    2 },
-    { "Sagui 3D",    "/bin/sagui3d",     &arte_icone_sagui3d,    "sagui3d",   2 },   /* bonus B4 */
-    { "Acerca de",   "/bin/sobre-o-sistema",   &arte_icone_sobre, "acerca",   2 },
-    { "Pendrive",    "/bin/arquivos",    &arte_icone_pendrive,   "pendrive",  0 },   /* sólo aparece con un pendrive conectado (H34) */
-    { "Tareas",      "/bin/tareas",      &arte_icone_tarefas,    "tareas",    2 },   /* segunda columna (D043) */
-    { "Visor",       "/bin/visor",       &arte_icone_visor,      "visor",     1 },   /* "Visor de imágenes" (D055): el nombre entero chocaría con el de la columna 1 */
-    { "Paint",       "/bin/paint",       &arte_icone_paint,      "paint",     1 },   /* D056 */
-    { "CHIP-8",      "/bin/chip8",       &arte_icone_chip8,      "chip8",     2 },   /* D070 */
-    { "Configuración", "/bin/configuracion", &arte_icone_configuracion, "configuracion", 2 },   /* D112 */
-    { "Discos",      "/bin/discos",      &arte_icone_discos,     "discos",    0 },   /* D121: sin argumentos y con salida no-terminal abre la ventana */
+    { N_("Archivos"),    "/bin/arquivos",    &arte_icone_arquivos,   "archivos",  0 },
+    { N_("Terminal"),    "/bin/terminal",    &arte_icone_terminal,   "terminal",  2 },
+    { N_("Editor"),      "/bin/editor",      &arte_icone_editor,     "editor",    1 },
+    { N_("Calculadora"), "/bin/calculadora", &arte_icone_calculadora, "calculadora", 2 },
+    { N_("Banana"),      "/bin/banana",      &arte_icone_banana,     "banana",    2 },
+    { N_("Sagui 3D"),    "/bin/sagui3d",     &arte_icone_sagui3d,    "sagui3d",   2 },   /* bonus B4 */
+    { N_("Acerca de"),   "/bin/sobre-o-sistema",   &arte_icone_sobre, "acerca",   2 },
+    { N_("Pendrive"),    "/bin/arquivos",    &arte_icone_pendrive,   "pendrive",  0 },   /* sólo aparece con un pendrive conectado (H34) */
+    { N_("Tareas"),      "/bin/tareas",      &arte_icone_tarefas,    "tareas",    2 },   /* segunda columna (D043) */
+    { N_("Visor"),       "/bin/visor",       &arte_icone_visor,      "visor",     1 },   /* "Visor de imágenes" (D055): el nombre entero chocaría con el de la columna 1 */
+    { N_("Paint"),       "/bin/paint",       &arte_icone_paint,      "paint",     1 },   /* D056 */
+    { N_("CHIP-8"),      "/bin/chip8",       &arte_icone_chip8,      "chip8",     2 },   /* D070 */
+    { N_("Configuración"), "/bin/configuracion", &arte_icone_configuracion, "configuracion", 2 },   /* D112 */
+    { N_("Discos"),      "/bin/discos",      &arte_icone_discos,     "discos",    0 },   /* D121: sin argumentos y con salida no-terminal abre la ventana */
 };
 #define QTD_ICONES (int)(sizeof icones / sizeof icones[0])
 #define ICONE_PENDRIVE 7
@@ -175,7 +176,12 @@ static bool livre_perto(int c, int f, int exceto, int *oc, int *of)
 
 static int minuscula(int ch) { return ch >= 'A' && ch <= 'Z' ? ch + 32 : ch; }
 
-static const char *nome_do_icone(int i) { return i == ICONE_PENDRIVE ? nome_pendrive : icones[i].nome; }
+/* D313: el rótulo del pendrive es el del volumen; solo el «Pendrive» por defecto se traduce. */
+static const char *nome_do_icone(int i)
+{
+    if (i == ICONE_PENDRIVE) return txt_compara(nome_pendrive, "Pendrive") == 0 ? _("Pendrive") : nome_pendrive;
+    return _(icones[i].nome);
+}
 
 static int compara_nomes(int a, int b)
 {
@@ -585,6 +591,12 @@ void area_fundo_fim(void)
     gui_mostrar();
 }
 
+/* D313: cambió el idioma: los rótulos de los iconos van pintados en el fondo, se pintan de nuevo. */
+void area_idioma_mudou(void)
+{
+    if (fundo) desenhar_fundo();
+}
+
 void area_fundo(superficie_t *s)
 {
     sup_copiar(s, 0, 0, fundo, larg, alt, larg);
@@ -882,7 +894,7 @@ static void remover_pendrive(void)
 {
     disco_t *d = disco_pendrive_montado();
     if (d) disco_desmontar(d);
-    else gui_aviso("El pendrive no está montado: puedes retirarlo.");
+    else gui_aviso(_("El pendrive no está montado: puedes retirarlo."));
 }
 
 /* Respuesta del menú de un ícono (D051): "dado" es el ícono. */
@@ -900,7 +912,9 @@ void area_icone_direito(int i, int x, int y)
 {
     if (i < 0 || i >= QTD_ICONES) return;
     if (!sel[i]) { suja_limpar(); selecionar_so(i); suja_aplicar(); }
-    const char *itens = i == ICONE_PENDRIVE ? "Abrir\n-\nQuitar con seguridad" : "Abrir";
+    char itens[96];
+    if (i == ICONE_PENDRIVE) snformatar(itens, sizeof itens, "%s\n-\n%s", _("Abrir"), _("Quitar con seguridad"));
+    else snformatar(itens, sizeof itens, "%s", _("Abrir"));
     menu_abrir(x, y, itens, resposta_icone, 0, i);
 }
 
@@ -939,7 +953,7 @@ void area_menu_resolucao(menu_lista_t *ml)
     }
     if (k < 2) return;   /* sólo el modo actual: no hay qué elegir */
     char t[MENU_MAX_TEXTO + 1];
-    snformatar(t, sizeof t, ">Resolución\t%ux%u", video_largura(), video_altura());
+    snformatar(t, sizeof t, ">%s\t%ux%u", _("Resolución"), video_largura(), video_altura());
     menu_lista_linha(ml, t, MENU_NADA, NULL);
     for (int i = 0; i < k; i++) {
         modo_video_t *mv = &res_modos[i];
@@ -960,7 +974,7 @@ bool area_resposta_resolucao(int acao)
     if (mv->flags & MODO_ATUAL) return true;
     int r = sis_mudar_modo((uint32_t)mv->largura | (uint32_t)mv->altura << 16, MUDAR_AGORA, 0, 0, 0);
     klog("[GUI] resolucao pelo menu: %ux%u -> %d\n", mv->largura, mv->altura, r);
-    if (r < 0) gui_aviso("No se pudo cambiar la resolución.");
+    if (r < 0) gui_aviso(_("No se pudo cambiar la resolución."));
     return true;
 }
 
@@ -1001,23 +1015,30 @@ void area_menu_fundo(int x, int y)
 {
     menu_lista_t *ml = &menu_fundo;
     menu_lista_iniciar(ml);
-    menu_lista_linha(ml, "Terminal", 1, NULL);
-    menu_lista_linha(ml, "Archivos", 0, NULL);
-    menu_lista_linha(ml, "Editor", 2, NULL);
-    menu_lista_linha(ml, "Calculadora", 3, NULL);
+    char t[MENU_MAX_TEXTO + 1];
+    menu_lista_linha(ml, _("Terminal"), 1, NULL);
+    menu_lista_linha(ml, _("Archivos"), 0, NULL);
+    menu_lista_linha(ml, _("Editor"), 2, NULL);
+    menu_lista_linha(ml, _("Calculadora"), 3, NULL);
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
-    menu_lista_linha(ml, "Administrador de tareas", AF_TAREFAS, NULL);
-    menu_lista_linha(ml, "Configuración de pantalla...", AF_PANTALLA, NULL);
+    menu_lista_linha(ml, _("Administrador de tareas"), AF_TAREFAS, NULL);
+    menu_lista_linha(ml, _("Configuración de pantalla..."), AF_PANTALLA, NULL);
     area_menu_resolucao(ml);
-    menu_lista_linha(ml, ">Ordenar iconos", MENU_NADA, NULL);   /* D268 */
-    menu_lista_linha(ml, criterio == ORD_NOMBRE ? "*Por nombre" : "Por nombre", AF_ORD_NOME, NULL);
-    menu_lista_linha(ml, criterio == ORD_TIPO ? "*Por tipo" : "Por tipo", AF_ORD_TIPO, NULL);
-    menu_lista_linha(ml, criterio == ORD_FECHA ? "*Por fecha" : "Por fecha", AF_ORD_FECHA, NULL);
-    menu_lista_linha(ml, "Alinear a la rejilla", AF_ALINHAR, NULL);
-    menu_lista_linha(ml, automatica ? "*Organización automática" : "Organización automática", AF_AUTO, NULL);
+    snformatar(t, sizeof t, ">%s", _("Ordenar iconos"));
+    menu_lista_linha(ml, t, MENU_NADA, NULL);   /* D268 */
+    snformatar(t, sizeof t, "%s%s", criterio == ORD_NOMBRE ? "*" : "", _("Por nombre"));
+    menu_lista_linha(ml, t, AF_ORD_NOME, NULL);
+    snformatar(t, sizeof t, "%s%s", criterio == ORD_TIPO ? "*" : "", _("Por tipo"));
+    menu_lista_linha(ml, t, AF_ORD_TIPO, NULL);
+    snformatar(t, sizeof t, "%s%s", criterio == ORD_FECHA ? "*" : "", _("Por fecha"));
+    menu_lista_linha(ml, t, AF_ORD_FECHA, NULL);
+    menu_lista_linha(ml, _("Alinear a la rejilla"), AF_ALINHAR, NULL);
+    snformatar(t, sizeof t, "%s%s", automatica ? "*" : "", _("Organización automática"));
+    menu_lista_linha(ml, t, AF_AUTO, NULL);
     menu_lista_linha(ml, "<", MENU_NADA, NULL);
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
-    menu_lista_linha(ml, "Acerca de " SAGUI_NOME, 6, NULL);
+    snformatar(t, sizeof t, _("Acerca de %s"), SAGUI_NOME);
+    menu_lista_linha(ml, t, 6, NULL);
     menu_abrir(x, y, ml->texto, resposta_fundo, 0, 0);
 }
 
@@ -1029,8 +1050,8 @@ void area_icone_abrir(int i)
         disco_t *d = primeiro_disco();
         if (!d) return;
         int r = disco_montar(d);
-        if (r == ERRO_FORMATO) { gui_aviso("Este pendrive no está en FAT32 ni ext2/ext4: formato no soportado."); return; }
-        if (r < 0 && r != ERRO_OCUPADO) { gui_aviso("No se pudo montar el pendrive."); return; }
+        if (r == ERRO_FORMATO) { gui_aviso(_("Este pendrive no está en FAT32 ni ext2/ext4: formato no soportado.")); return; }
+        if (r < 0 && r != ERRO_OCUPADO) { gui_aviso(_("No se pudo montar el pendrive.")); return; }
         /* Abre donde el volumen esté montado (normalmente /usb, D040). */
         static char ponto[CAMINHO_MAX];
         txt_copia_n(ponto, "/usb", sizeof ponto);

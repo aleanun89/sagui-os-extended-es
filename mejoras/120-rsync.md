@@ -23,7 +23,7 @@ que cambió: copias de seguridad de `/home`, llevar juegos y datos a la máquina
 - Opcional: una ventana sencilla de «Copia de seguridad» (origen, destino, programar con el cron).
 
 ## Criterios de aceptación
-- [ ] `rsync -av` desde el anfitrión a SaguiOS por SSH, y de vuelta, con delta comprobado (solo se mandan los cambios)
-- [ ] Copia local con `--delete` y `--dry-run`
-- [ ] Cliente `rsync://` contra un demonio rsync del anfitrión
-- [ ] Test automático en `tests/`; licencia en `docs/terceros.md`; decisión en `docs/decisoes.md`
+- [x] `rsync -av` desde el anfitrión a SaguiOS por SSH, y de vuelta, con delta comprobado (solo se mandan los cambios) (D314, h314)
+- [x] Copia local con `--delete` y `--dry-run` (D314)
+- [ ] Cliente `rsync://` contra un demonio rsync del anfitrión (pendiente: v8.4.1)
+- [x] Test automático en `tests/` (h314); licencia en `docs/terceros.md`; decisión en `docs/decisoes.md` (D314)

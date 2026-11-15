@@ -44,8 +44,9 @@ void boton98(jan_t *j, botao_t *b)
 {
     g_retangulo(j, b->x, b->y, b->l, b->a, W98_FACE);
     g_bisel(j, b->x, b->y, b->l, b->a, b->apertado);
-    int tx = b->x + (b->l - g_largura_texto(b->texto)) / 2 + (b->apertado ? 1 : 0);
-    g_texto(j, tx, b->y + (b->a - LETRA_A) / 2 + (b->apertado ? 1 : 0), b->texto, W98_NEGRO);
+    const char *rot = idioma_traducir_sl(b->texto);   /* D313 */
+    int tx = b->x + (b->l - g_largura_texto(rot)) / 2 + (b->apertado ? 1 : 0);
+    g_texto(j, tx, b->y + (b->a - LETRA_A) / 2 + (b->apertado ? 1 : 0), rot, W98_NEGRO);
     jan_mostrar_area(j, b->x, b->y, b->l, b->a);
     GR_REG(j, "botao", b, b->x, b->y, b->l, b->a, b->texto, b->l - 2, GRF_CONTROL);
 }

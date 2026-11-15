@@ -139,12 +139,14 @@ static void como_root(void)
 {
     anota(meu_uid() == UID_ROOT, "empieza como root (uid %u)", meu_uid());
     unsigned modo = 0, uid = 0, gid = 0, donos = 0;
-    /* El ramdisk: de root; /tmp, 1777; /sistema, 0700. */
+    /* El ramdisk: de root; /tmp, 1777; /sistema, 0711 (D313: se atraviesa hasta /sistema/idiomas). */
     anota(meta("/bin", &modo, &uid, &gid, &donos) && modo == 0755 && uid == 0 && gid == 0 && donos, "/bin root 0755 (%o %u)", modo, uid);
     anota(meta("/bin/ls", &modo, &uid, NULL, NULL) && modo == 0755 && uid == 0, "/bin/ls root 0755 (%o)", modo);
     anota(meta("/etc/usuarios", &modo, &uid, NULL, NULL) && modo == 0644 && uid == 0, "/etc/usuarios root 0644 (%o)", modo);
     anota(meta("/tmp", &modo, &uid, NULL, NULL) && modo == 01777 && uid == 0, "/tmp 1777 (%o)", modo);
-    anota(meta("/sistema", &modo, &uid, NULL, NULL) && modo == 0700 && uid == 0, "/sistema 0700 (%o)", modo);
+    anota(meta("/sistema", &modo, &uid, NULL, NULL) && modo == 0711 && uid == 0, "/sistema 0711 (%o)", modo);
+    anota(meta("/sistema/idiomas", &modo, &uid, NULL, NULL) && modo == 0755 && uid == 0, "/sistema/idiomas 0755 (%o)", modo);
+    anota(meta("/sistema/arranque", &modo, &uid, NULL, NULL) && modo == 0700 && uid == 0, "/sistema/arranque 0700 (%o)", modo);
     /* /home (ext2): de sagui; /logs (ext2): 1777. */
     anota(meta("/home", &modo, &uid, &gid, &donos) && modo == 0755 && uid == UID_SAGUI && gid == GID_SAGUI && donos,
           "/home de sagui 0755 (%o %u %u %u)", modo, uid, gid, donos);
@@ -299,10 +301,14 @@ static void como_sagui(void)
     NEGA(renomear("/etc", "/etc2"), "renombrar /etc");
     ESPERA(rodar("/bin/echo"), 0, "ejecutar /bin/echo");
     NEGA(listar_pasta("/sistema"), "listar /sistema");
-    NEGA(mudar_pasta("/sistema"), "entrar en /sistema");
+    /* D313: /sistema se atraviesa (0711) para leer los catalogos de idioma; lo demas sigue cerrado */
+    PODE(mudar_pasta("/sistema/idiomas"), "entrar en /sistema/idiomas");
+    mudar_pasta("/");
+    PODE(listar_pasta("/sistema/idiomas"), "listar /sistema/idiomas");
+    NEGA(listar_pasta("/sistema/arranque"), "listar /sistema/arranque");
+    NEGA(mudar_pasta("/sistema/conf"), "entrar en /sistema/conf");
     NEGA(ler_arq("/sistema/conf/LEEME"), "leer /sistema/conf/LEEME (SAGUI-CONF)");
-    info_arquivo_t inf;
-    NEGA(info_arquivo("/sistema/conf", &inf), "info de /sistema/conf");
+    NEGA(criar("/sistema/idiomas/nuevo", "x"), "crear en /sistema/idiomas");
     NEGA(ler_arq("/etc/sombra"), "leer la sombra");
     PODE(listar_pasta("/etc"), "listar /etc");
     /* Matriz en RAM (/tmp, pegajosa), ext2 (/home/permisos, de sagui; /logs, pegajosa). */

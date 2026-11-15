@@ -49,7 +49,7 @@ bool sou_root(void);
 /* Modos del fondo. */
 enum { M_DEGRADE, M_CENTRADO, M_AJUSTADO, M_RELLENAR, M_ESTIRADO, M_MOSAICO, M_QTD };
 static const char *const nomes_modo[M_QTD] = { "degradado", "centrado", "ajustado", "rellenar", "estirado", "mosaico" };
-static const char *const rotulos_modo[M_QTD] = { "Degradado", "Centrado", "Ajustado", "Rellenar", "Estirado", "Mosaico" };
+static const char *const rotulos_modo[M_QTD] = { N_("Degradado"), N_("Centrado"), N_("Ajustado"), N_("Rellenar"), N_("Estirado"), N_("Mosaico") };
 
 typedef struct {
     int      teclado;          /* -1 = no elegido */
@@ -71,14 +71,15 @@ typedef struct {
     int      mic_ent, mic_gan, mic_mudo;
     char     salida[48];             /* D292: la tarjeta de salida elegida (su nombre); vacía = la de siempre */
     char     mando_cal[96];          /* D307: calibración del joystick del puerto de juegos; vacía = automática */
+    char     idioma[16];             /* D313: es, pt_BR, en; vacío = el del sistema (/etc/idioma) o el español */
 } conf_t;
 
 static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1 };
 
 #define CORES_QTD 8
 static const struct { const char *nome; uint32_t cor; } cores[CORES_QTD] = {
-    { "Verde", 0x0B7A3E }, { "Azul", 0x2A6FD8 }, { "Rojo", 0xC0392B }, { "Naranja", 0xD97706 },
-    { "Violeta", 0x7B3FA0 }, { "Turquesa", 0x0E8A8A }, { "Rosa", 0xC2437A }, { "Grafito", 0x4A5560 },
+    { N_("Verde"), 0x0B7A3E }, { N_("Azul"), 0x2A6FD8 }, { N_("Rojo"), 0xC0392B }, { N_("Naranja"), 0xD97706 },
+    { N_("Violeta"), 0x7B3FA0 }, { N_("Turquesa"), 0x0E8A8A }, { N_("Rosa"), 0xC2437A }, { N_("Grafito"), 0x4A5560 },
 };
 
 /* ------------------------------------------------------------ el archivo */
@@ -155,6 +156,7 @@ static bool conf_ler(void)
             else if (compara_texto(k, "micro_silencio") == 0) { conf.mic_mudo = texto_para_int(v) != 0; conf.son_def |= 4; }
             else if (compara_texto(k, "silencio") == 0) conf.silencio = texto_para_int(v) != 0;
             else if (compara_texto(k, "zona") == 0) copia_texto(conf.zona, v, sizeof conf.zona);
+            else if (compara_texto(k, "idioma") == 0) idioma_normalizar(v, conf.idioma);
             else if (compara_texto(k, "acento") == 0) { if (ler_cor(v, &c)) conf.acento = c; }
             else if (compara_texto(k, "fondo") == 0) copia_texto(conf.fundo, v, sizeof conf.fundo);
             else if (compara_texto(k, "capturas_carpeta") == 0) copia_texto(conf.capturas, v, sizeof conf.capturas);
@@ -192,7 +194,7 @@ static int conf_gravar(void)
     }
     if (!home_persistente()) return 1;
     criar_pasta(DIR_CONF);
-    char t[1600];
+    char t[1700];
     char cap[NOME_MAX_F + 60];
     formatar_texto(cap, sizeof cap, "capturas_carpeta=%s\ncapturas_sonido=%d\n", conf.capturas, conf.cap_sonido);
     char tec[24] = "";
@@ -217,14 +219,16 @@ static int conf_gravar(void)
     }
     char zon[80] = "";
     if (conf.zona[0]) formatar_texto(zon, sizeof zon, "zona=%s\n", conf.zona);
+    char idi[32] = "";
+    if (conf.idioma[0]) formatar_texto(idi, sizeof idi, "idioma=%s\n", conf.idioma);
     char ace[24] = "";
     if (conf.acento != 0xFFFFFFFFu) formatar_texto(ace, sizeof ace, "acento=%06x\n", conf.acento);
     char fun[NOME_MAX_F + 40] = "";
     if (conf.fundo[0]) formatar_texto(fun, sizeof fun, "fondo=%s\nfondo_modo=%s\n", conf.fundo, nomes_modo[conf.modo]);
     formatar_texto(t, sizeof t,
                    "# Configuración de SaguiOS (la escribe el programa \"configuracion\"; D112).\n"
-                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s",
-                   tec, vol, ecu, son, zon, ace, fun, cap, fnt);
+                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s",
+                   tec, vol, ecu, son, zon, ace, fun, cap, fnt, idi);
     int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
     int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
@@ -284,7 +288,7 @@ static int aplicar_volume(int v, int silencio)
 static int aplicar_zona(const char *nome)
 {
     /* D269: «zona» cambia la hora del sistema (solo root): el hijo hereda el permiso que dé el diálogo. */
-    if (!sou_root() && elevar_grafico("cambiar la zona horaria del sistema") != 0) return ERRO_ACESSO;
+    if (!sou_root() && elevar_grafico(_("cambiar la zona horaria del sistema")) != 0) return ERRO_ACESSO;
     char *av[] = { "zona", (char *)nome, NULL };
     int pid = executar("/bin/zona", av);
     if (pid < 0) { elevacao_soltar(); return pid; }
@@ -395,7 +399,12 @@ static const char *texto_erro(int r)
 static int aplicar_tudo(void)
 {
     aplicar_conectores();
-    if (!conf_ler()) { registrar("configuracion: sin %s, nada que aplicar", ARQ_CONF); return 0; }
+    bool hay = conf_ler();
+    /* D313: el idioma del usuario (sagui.conf) manda sobre el del sistema (/etc/idioma). Aunque no haya
+     * sagui.conf, el del sistema se aplica: el kernel traduce su interfaz con él. */
+    if (!conf.idioma[0]) idioma_sistema_ler(conf.idioma, sizeof conf.idioma);
+    if (conf.idioma[0]) registrar("configuracion: idioma %s -> %d", conf.idioma, idioma_fijar(conf.idioma));
+    if (!hay) { registrar("configuracion: sin %s, nada que aplicar", ARQ_CONF); return 0; }
     if (conf.salida[0]) registrar("configuracion: salida '%s' -> %d", conf.salida, aplicar_salida(conf.salida));
     if (conf.teclado >= 0) registrar("configuracion: teclado %d -> %d", conf.teclado, aplicar_teclado(conf.teclado));
     if (conf.volume >= 0) registrar("configuracion: volumen %d silencio %d -> %d", conf.volume, conf.silencio,
@@ -455,6 +464,7 @@ static int mostrar(void)
     config_zona_t z;
     ler_zona(&z);
     imprimir("Zona:      %s\n", z.nome);
+    imprimir("Idioma:    %s\n", idioma_actual());
     if (tem) {
         imprimir("En el archivo: teclado %d, volumen %d, zona '%s', acento %06x, fondo '%s' (%s)\n", conf.teclado, conf.volume,
                  conf.zona, conf.acento == 0xFFFFFFFFu ? 0 : conf.acento, conf.fundo, nomes_modo[conf.modo]);
@@ -515,6 +525,18 @@ static int linha_de_comandos(int argc, char **argv)
         r = aplicar_zona(argv[2]);
         if (r < 0) { imprimir_em(ERROS, "configuracion: no se pudo poner la zona %s\n", argv[2]); return 1; }
         copia_texto(conf.zona, argv[2], sizeof conf.zona);
+    } else if (compara_texto(c, "idioma") == 0 && (argc == 3 || (argc == 4 && compara_texto(argv[3], "--sistema") == 0))) {
+        char norm[16];
+        idioma_normalizar(argv[2], norm);
+        if (argc == 4) {   /* el idioma del sistema (/etc/idioma): solo root */
+            int g = idioma_sistema_gravar(norm);
+            if (g < 0) { imprimir_em(ERROS, "configuracion: idioma del sistema: %s\n", nome_erro(g)); return 1; }
+            imprimir("Idioma del sistema: %s (se aplica en el próximo arranque)\n", norm);
+            return 0;
+        }
+        copia_texto(conf.idioma, norm, sizeof conf.idioma);
+        r = idioma_fijar(norm);
+        if (r < 0) { imprimir_em(ERROS, "configuracion: no se pudo cambiar el idioma: %s\n", nome_erro(r)); return 1; }
     } else if (compara_texto(c, "acento") == 0 && argc == 3) {
         uint32_t cor;
         if (!ler_cor(argv[2], &cor)) { imprimir_em(ERROS, "configuracion: acento RRGGBB (por ejemplo 2A6FD8)\n"); return 2; }
@@ -541,7 +563,7 @@ static int linha_de_comandos(int argc, char **argv)
             copia_texto(d, argv[3], 96);
         }
     } else {
-        imprimir_em(ERROS, "uso: configuracion [--aplicar | mostrar | teclado es|abnt2 | volumen N | zona NOMBRE |\n"
+        imprimir_em(ERROS, "uso: configuracion [--aplicar | mostrar | teclado es|abnt2 | idioma es|pt_BR|en [--sistema] | volumen N | zona NOMBRE |\n"
                            "                      salida N | balance -100..100 | latencia MS | microfono entrada N|ganancia N|silencio|activar |\n"
                            "                      acento RRGGBB | fondo ARCHIVO [modo] | fondo ninguno |\n"
                            "                      fuente documentos|titulos RUTA|ninguna]\n");
@@ -557,7 +579,7 @@ static int linha_de_comandos(int argc, char **argv)
 #define ALT  500
 #define Y_PAG 50
 enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_MANDOS, P_QTD };
-static const char *const titulos_pag[P_QTD] = { "Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto", "Mandos" };
+static const char *const titulos_pag[P_QTD] = { N_("Teclado"), N_("Fecha y hora"), N_("Pantalla"), N_("Sonido"), N_("Escritorio"), N_("Capturas"), N_("IA"), N_("Fuentes"), N_("Red"), N_("Escritorio remoto"), N_("Mandos") };
 
 static int pagina;
 static char estado[160];
@@ -567,19 +589,24 @@ static botao_t b_pag[P_QTD];
 static int  pos_pag[P_QTD];      /* cada pestaña es del ancho de su título (D145) */
 static int  larg_pag[P_QTD];
 static caixa_t c_capturas;   /* carpeta de las capturas (D125) */
-static botao_t b_cap[2] = { { 24, Y_PAG + 112, 120, 28, "Aplicar", false }, { 24, Y_PAG + 170, 260, 28, "", false } };
-static botao_t b_cerrar = { LARG - 110, ALT - 40, 96, 28, "Cerrar", false };
+static botao_t b_cap[2] = { { 24, Y_PAG + 112, 120, 28, N_("Aplicar"), false }, { 24, Y_PAG + 170, 260, 28, "", false } };
+static botao_t b_cerrar = { LARG - 110, ALT - 40, 96, 28, N_("Cerrar"), false };
 
 /* Teclado */
-static botao_t b_tec[2] = { { 24, Y_PAG + 56, 260, 30, "Español (ES)", false },
-                            { 24, Y_PAG + 96, 260, 30, "Portugués de Brasil (ABNT2)", false } };
+/* D313: el idioma de la interfaz se elige en la misma página (la barra de pestañas no admite una más sin cambiar el ancho). */
+static botao_t b_idi[3] = { { 24, Y_PAG + 226, 200, 30, "Español", false },
+                            { 234, Y_PAG + 226, 200, 30, "Português (Brasil)", false },
+                            { 444, Y_PAG + 226, 200, 30, "English", false } };
+static const char *const codigos_idi[3] = { "es", "pt_BR", "en" };
+static botao_t b_tec[2] = { { 24, Y_PAG + 56, 260, 30, N_("Español (ES)"), false },
+                            { 24, Y_PAG + 96, 260, 30, N_("Portugués de Brasil (ABNT2)"), false } };
 
 /* Fecha y hora */
 #define MAXZ 128
 static char itens_zona[MAXZ][64];
 static int  indice_zona[MAXZ];
 static lista_t lista_zona;
-static botao_t b_zona = { 24, ALT - 100, 120, 28, "Aplicar", false };
+static botao_t b_zona = { 24, ALT - 100, 120, 28, N_("Aplicar"), false };
 
 /* Pantalla */
 #define MAXM 192
@@ -588,13 +615,13 @@ static int qtd_modos;
 static char itens_modo[MAXM][64];
 static int indice_modo_l[MAXM];
 static lista_t lista_modo;
-static botao_t b_tela[2] = { { 24, ALT - 100, 120, 28, "Aplicar", false }, { 154, ALT - 100, 180, 28, "Aplicar y guardar", false } };
+static botao_t b_tela[2] = { { 24, ALT - 100, 120, 28, N_("Aplicar"), false }, { 154, ALT - 100, 180, 28, N_("Aplicar y guardar"), false } };
 static info_tela_t tela;
 /* D290: varias pantallas. Solo se ven si el kernel tiene más de una salida de vídeo. */
 static info_telas_t telas;
 static int sel_res;   /* la pantalla a la que se aplica la resolución de la lista */
 static char rot_prin[32], rot_lado[32], rot_res[40];
-static botao_t b_telas[5] = { { 24, 0, 100, 28, "Extender", false }, { 128, 0, 90, 28, "Espejo", false },
+static botao_t b_telas[5] = { { 24, 0, 100, 28, N_("Extender"), false }, { 128, 0, 90, 28, N_("Espejo"), false },
                               { 222, 0, 120, 28, rot_prin, false }, { 346, 0, 150, 28, rot_lado, false },
                               { 500, 0, 190, 28, rot_res, false } };
 
@@ -604,7 +631,7 @@ static botao_t b_telas[5] = { { 24, 0, 100, 28, "Extender", false }, { 128, 0, 9
 #define BARRA_L 400
 #define BARRA_A 24
 static botao_t b_vol[3] = { { 24, BARRA_Y, 28, 24, "-", false }, { BARRA_X + BARRA_L + 8, BARRA_Y, 28, 24, "+", false },
-                            { 24, BARRA_Y + 50, 140, 28, "Silenciar", false } };
+                            { 24, BARRA_Y + 50, 140, 28, N_("Silenciar"), false } };
 static bool arrastando_vol;
 /* Ecualizador (D201): cinco deslizadores verticales de -12 a +12 dB y los preajustes. */
 #define EQ_Y0   (Y_PAG + 250)     /* arriba del carril: +12 dB (250 y no 290: los rótulos de las bandas pisaban el aviso de /home, v7.4) */
@@ -613,8 +640,8 @@ static bool arrastando_vol;
 #define EQ_PASSO 84
 static const char *const eq_rotulos[EQ_BANDAS] = { "60 Hz", "250 Hz", "1 kHz", "4 kHz", "12 kHz" };
 static const char *const eq_nomes_pre[4] = { "plano", "graves", "voz", "agudos" };
-static botao_t b_eq[4] = { { 500, EQ_Y0 - 14, 150, 26, "Plano", false }, { 500, EQ_Y0 + 16, 150, 26, "Graves", false },
-                           { 500, EQ_Y0 + 46, 150, 26, "Voz", false }, { 500, EQ_Y0 + 76, 150, 26, "Agudos", false } };
+static botao_t b_eq[4] = { { 500, EQ_Y0 - 14, 150, 26, N_("Plano"), false }, { 500, EQ_Y0 + 16, 150, 26, N_("Graves"), false },
+                           { 500, EQ_Y0 + 46, 150, 26, N_("Voz"), false }, { 500, EQ_Y0 + 76, 150, 26, N_("Agudos"), false } };
 static int eq_arrasta = -1;
 
 /* D292: balance, pruebas de altavoz, latencia y micrófono. */
@@ -622,15 +649,15 @@ static int eq_arrasta = -1;
 #define BAL_Y (BARRA_Y + 50)
 #define BAL_L 160
 #define BAL_A 24
-static botao_t b_bal = { 420, BARRA_Y + 50, 76, 28, "Centro", false };
-static botao_t b_prob[2] = { { 24, BARRA_Y + 86, 110, 26, "Probar izq.", false }, { 142, BARRA_Y + 86, 110, 26, "Probar der.", false } };
+static botao_t b_bal = { 420, BARRA_Y + 50, 76, 28, N_("Centro"), false };
+static botao_t b_prob[2] = { { 24, BARRA_Y + 86, 110, 26, N_("Probar izq."), false }, { 142, BARRA_Y + 86, 110, 26, N_("Probar der."), false } };
 static botao_t b_lat[2] = { { 270, BARRA_Y + 86, 24, 26, "-", false }, { 440, BARRA_Y + 86, 24, 26, "+", false } };
 #define MIC_X 540
 #define MIC_GX 568
 #define MIC_GL 148
 static botao_t b_mic[5] = { { MIC_X, Y_PAG + 38, 24, 24, "<", false }, { 732, Y_PAG + 38, 24, 24, ">", false },
                             { MIC_X, Y_PAG + 70, 24, 24, "-", false }, { 722, Y_PAG + 70, 24, 24, "+", false },
-                            { MIC_X, Y_PAG + 146, 216, 26, "Silenciar micrófono", false } };
+                            { MIC_X, Y_PAG + 146, 216, 26, N_("Silenciar micrófono"), false } };
 #define MIC_MY (Y_PAG + 102)
 static botao_t b_sal = { 24, BARRA_Y + 116, 472, 24, "", false };
 static bool arrastando_bal, arrastando_mic;
@@ -700,7 +727,7 @@ static botao_t b_modo[M_QTD];
 #define MAXF 64
 static char itens_img[MAXF][64];
 static lista_t lista_img;
-static botao_t b_fundo = { 24, ALT - 100, 140, 28, "Aplicar fondo", false };
+static botao_t b_fundo = { 24, ALT - 100, 140, 28, N_("Aplicar fondo"), false };
 
 /* ------------------------------------------------------------ las fuentes (D196) */
 
@@ -716,9 +743,9 @@ static lista_t lista_fnt;
 static int     n_fnt = -1;          /* -1 = el catálogo aún no se leyó */
 static fonte_t *vista_fnt;          /* la fuente de la vista previa */
 static int     vista_i = -1;
-static botao_t b_fnt[3] = { { FN_VX, Y_PAG + 276, 150, 28, "Para documentos", false },
-                            { FN_VX + 158, Y_PAG + 276, 120, 28, "Para títulos", false },
-                            { FN_VX + 286, Y_PAG + 276, 90, 28, "Quitar", false } };
+static botao_t b_fnt[3] = { { FN_VX, Y_PAG + 276, 150, 28, N_("Para documentos"), false },
+                            { FN_VX + 158, Y_PAG + 276, 120, 28, N_("Para títulos"), false },
+                            { FN_VX + 286, Y_PAG + 276, 90, 28, N_("Quitar"), false } };
 #define TXT_MUESTRA "El veloz murciélago hindú comía feliz cardillo y kiwi"
 #define TXT_CIFRAS  "ABC abc 0123456789 ¿?¡!"
 
@@ -779,12 +806,16 @@ static void fuentes_desenhar(void)
 {
     char t[160];
     if (n_fnt <= 0) {
-        titulo_pag(24, Y_PAG + 14, "No hay fuentes instaladas.");
-        g_texto(jn, 24, Y_PAG + 40, "Se buscan ficheros .otf y .ttf en " FUENTES_DIR_APPS " y en " FUENTES_DIR_HOME ".", COR_TEXTO_FRACO);
-        g_texto(jn, 24, Y_PAG + 60, "Las de Typodermic (CC0) vienen en la partición SAGUI-APPS.", COR_TEXTO_FRACO);
+        titulo_pag(24, Y_PAG + 14, _("No hay fuentes instaladas."));
+        {
+            char b[160];
+            formatar_texto(b, sizeof b, _("Se buscan ficheros .otf y .ttf en %s y en %s."), FUENTES_DIR_APPS, FUENTES_DIR_HOME);
+            g_texto(jn, 24, Y_PAG + 40, b, COR_TEXTO_FRACO);
+        }
+        g_texto(jn, 24, Y_PAG + 60, _("Las de Typodermic (CC0) vienen en la partición SAGUI-APPS."), COR_TEXTO_FRACO);
         return;
     }
-    formatar_texto(t, sizeof t, "%d fuentes (" FUENTES_DIR_APPS ", " FUENTES_DIR_HOME ")", n_fnt);
+    formatar_texto(t, sizeof t, _("%d fuentes (%s, %s)"), n_fnt, FUENTES_DIR_APPS, FUENTES_DIR_HOME);
     titulo_pag(24, Y_PAG + 8, t);
     lista_desenhar(jn, &lista_fnt);
     g_retangulo(jn, FN_VX, FN_VY, FN_VL, FN_VA, 0xFFFFFF);
@@ -792,10 +823,10 @@ static void fuentes_desenhar(void)
     if (vista_fnt) {
         int y = vista_parrafo(vista_fnt, FN_VX + 8, FN_VY + 6, FN_VL - 16, FN_VY + FN_VA - 4, TXT_MUESTRA, 26);
         vista_parrafo(vista_fnt, FN_VX + 8, y + 6, FN_VL - 16, FN_VY + FN_VA - 4, TXT_CIFRAS, 22);
-    } else g_texto(jn, FN_VX + 8, FN_VY + 8, "No se pudo cargar esta fuente.", 0xB03000);
-    formatar_texto(t, sizeof t, "Documentos: %s", conf.fuente_doc[0] ? nombre_ruta(conf.fuente_doc) : "(ninguna)");
+    } else g_texto(jn, FN_VX + 8, FN_VY + 8, _("No se pudo cargar esta fuente."), 0xB03000);
+    formatar_texto(t, sizeof t, _("Documentos: %s"), conf.fuente_doc[0] ? nombre_ruta(conf.fuente_doc) : _("(ninguna)"));
     g_texto_n(jn, FN_VX, Y_PAG + FN_VA + 36, t, FN_VL / LETRA_L, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Títulos:     %s", conf.fuente_tit[0] ? nombre_ruta(conf.fuente_tit) : "(ninguna)");
+    formatar_texto(t, sizeof t, _("Títulos:     %s"), conf.fuente_tit[0] ? nombre_ruta(conf.fuente_tit) : _("(ninguna)"));
     g_texto_n(jn, FN_VX, Y_PAG + FN_VA + 56, t, FN_VL / LETRA_L, COR_TEXTO);
     for (int i = 0; i < 3; i++) botao_desenhar(jn, &b_fnt[i]);
 }
@@ -813,7 +844,7 @@ static char  itens_mod[MAX_MOD][64];
 static lista_t lista_mod;
 /* Las seis cajas de la página: 0 URL, 1 clave, 2 general, 3 terminal, 4 chat, 5 mico. */
 static caixa_t c_ia[6];
-static const char *const rotulos_uso[4] = { "Modelo por omisión", "Terminal", "Chat", "Mico" };
+static const char *const rotulos_uso[4] = { N_("Modelo por omisión"), N_("Terminal"), N_("Chat"), N_("Mico") };
 static ia_config_t cfg_ia;
 /* La clave de API entera: la caja solo cabe 127 caracteres, así que la clave se
  * guarda aparte y la caja solo la enseña con asteriscos (D145). */
@@ -822,13 +853,13 @@ static char chave_vista[128];
 static int  cx_ativa = -1;    /* la casilla con el foco del teclado (-1 = ninguna) */
 static int  cx_alvo = 2;      /* la casilla donde va el modelo de la lista (2 = la general) */
 static int  lst_ativa = -1;   /* la lista con el foco: 0 proveedores, 1 modelos */
-static botao_t b_ia[2] = { { 250, 0, 120, 28, "Guardar", false },
-                           { 380, 0, 170, 28, "Cargar modelos", false } };
+static botao_t b_ia[2] = { { 250, 0, 120, 28, N_("Guardar"), false },
+                           { 380, 0, 170, 28, N_("Cargar modelos"), false } };
 /* Los botones que eligen dónde va el modelo que se elige en la lista. */
-static botao_t b_alvo[4] = { { 345, 0, 88, 28, "General", false },
-                             { 437, 0, 88, 28, "Terminal", false },
-                             { 529, 0, 88, 28, "Chat", false },
-                             { 621, 0, 88, 28, "Mico", false } };
+static botao_t b_alvo[4] = { { 345, 0, 88, 28, N_("General"), false },
+                             { 437, 0, 88, 28, N_("Terminal"), false },
+                             { 529, 0, 88, 28, N_("Chat"), false },
+                             { 621, 0, 88, 28, N_("Mico"), false } };
 
 static void ia_desenhar(void);
 
@@ -844,7 +875,7 @@ static void ler_modos_video(void)
         modo_video_t *m = &modos[i];
         if (m->bpp != 32) continue;
         formatar_texto(itens_modo[n], sizeof itens_modo[n], "%ux%u%s%s", m->largura, m->altura,
-                       (m->flags & MODO_ATUAL) ? "  (actual)" : "", (m->flags & MODO_A_QUENTE) ? "" : "  (al reiniciar)");
+                       (m->flags & MODO_ATUAL) ? _("  (actual)") : "", (m->flags & MODO_A_QUENTE) ? "" : _("  (al reiniciar)"));
         if (m->flags & MODO_ATUAL) lista_modo.sel = n;
         indice_modo_l[n++] = i;
     }
@@ -854,9 +885,9 @@ static void ler_modos_video(void)
     if (sel_res >= (int)telas.qtd) sel_res = 0;
     /* Con varias pantallas, una fila de botones encima de Aplicar: la lista se acorta. */
     lista_modo.a = ALT - Y_PAG - 34 - 112 - (telas.qtd > 1 ? 38 : 0);
-    formatar_texto(rot_prin, sizeof rot_prin, "Principal: %u", telas.principal + 1);
-    formatar_texto(rot_lado, sizeof rot_lado, "Lado: %s", telas.lado == TELAS_LADO_ABAIXO ? "abajo" : "derecha");
-    formatar_texto(rot_res, sizeof rot_res, "Resolución de: pantalla %d", sel_res + 1);
+    formatar_texto(rot_prin, sizeof rot_prin, _("Principal: %u"), telas.principal + 1);
+    formatar_texto(rot_lado, sizeof rot_lado, _("Lado: %s"), telas.lado == TELAS_LADO_ABAIXO ? _("abajo") : _("derecha"));
+    formatar_texto(rot_res, sizeof rot_res, _("Resolución de: pantalla %d"), sel_res + 1);
 }
 
 static void ler_zonas(void)
@@ -909,9 +940,9 @@ static void dizer(const char *t) { copia_texto(estado, t, sizeof estado); }
 
 static void dizer_gravado(int g)
 {
-    if (g == 1) dizer("Aplicado. /home no es persistente: no se recordará al reiniciar.");
-    else if (g < 0) formatar_texto(estado, sizeof estado, "Aplicado, pero no se pudo guardar: %s", nome_erro(g));
-    else dizer("Aplicado y guardado en /home/.config/sagui.conf.");
+    if (g == 1) dizer(_("Aplicado. /home no es persistente: no se recordará al reiniciar."));
+    else if (g < 0) formatar_texto(estado, sizeof estado, _("Aplicado, pero no se pudo guardar: %s"), nome_erro(g));
+    else dizer(_("Aplicado y guardado en /home/.config/sagui.conf."));
 }
 
 static void titulo_pag(int x, int y, const char *t)
@@ -922,13 +953,13 @@ static void titulo_pag(int x, int y, const char *t)
 
 /* Red (D218): el bloqueo de publicidad y rastreo por DNS. Los botones llaman
  * al programa «bloqueo», que es quien compila la tabla y escribe bloqueo.conf. */
-static botao_t b_bloq[2] = { { 24, Y_PAG + 100, 160, 28, "Activar", false },
-                             { 194, Y_PAG + 100, 180, 28, "Actualizar listas", false } };
+static botao_t b_bloq[2] = { { 24, Y_PAG + 100, 160, 28, N_("Activar"), false },
+                             { 194, Y_PAG + 100, 180, 28, N_("Actualizar listas"), false } };
 
 static int rodar_bloqueo(const char *ordem)
 {
     /* D269: el bloqueo de publicidad es del sistema: permiso con el diálogo para este hijo. */
-    if (!sou_root() && elevar_grafico("cambiar el bloqueo de publicidad y rastreadores") != 0) return ERRO_ACESSO;
+    if (!sou_root() && elevar_grafico(_("cambiar el bloqueo de publicidad y rastreadores")) != 0) return ERRO_ACESSO;
     char *av[] = { "bloqueo", (char *)ordem, NULL };
     int pid = executar("/bin/bloqueo", av);
     if (pid < 0) { elevacao_soltar(); return pid; }
@@ -945,42 +976,42 @@ static void red_desenhar(void)
     memset(&c, 0, sizeof c);
     char a[16], d[16];
     if (config_rede(REDE_CONSULTAR, &c) == 0 && c.ip)
-        formatar_texto(t, sizeof t, "Red: IP %s, DNS %s", ip_para_texto(c.ip, a), c.dns ? ip_para_texto(c.dns, d) : "ninguno");
-    else copia_texto(t, "Red: sin dirección IP", sizeof t);
+        formatar_texto(t, sizeof t, _("Red: IP %s, DNS %s"), ip_para_texto(c.ip, a), c.dns ? ip_para_texto(c.dns, d) : _("ninguno"));
+    else copia_texto(t, _("Red: sin dirección IP"), sizeof t);
     g_texto(jn, 24, Y_PAG + 8, t, COR_TEXTO_FRACO);
-    titulo_pag(24, Y_PAG + 36, "Bloqueo de publicidad y rastreo por DNS");
+    titulo_pag(24, Y_PAG + 36, _("Bloqueo de publicidad y rastreo por DNS"));
     info_bloqueo_t b;
     memset(&b, 0, sizeof b);
     bloqueo_dns(BLOQ_ESTADO, &b, sizeof b);
-    if (b.activo) formatar_texto(t, sizeof t, "Activado: %u dominios bloqueados, %u permitidos (%u KB).",
+    if (b.activo) formatar_texto(t, sizeof t, _("Activado: %u dominios bloqueados, %u permitidos (%u KB)."),
                                  b.bloqueados, b.permitidos, (b.bytes + 1023) / 1024);
-    else copia_texto(t, b.pedido ? "Desactivado: no hay tabla (pulsa Actualizar listas)." : "Desactivado: se resuelven todos los nombres.", sizeof t);
+    else copia_texto(t, b.pedido ? _("Desactivado: no hay tabla (pulsa Actualizar listas).") : _("Desactivado: se resuelven todos los nombres."), sizeof t);
     g_texto(jn, 24, Y_PAG + 64, t, COR_TEXTO);
-    b_bloq[0].texto = b.activo ? "Desactivar" : "Activar";
+    b_bloq[0].texto = b.activo ? _("Desactivar") : _("Activar");
     for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_bloq[i]);
-    formatar_texto(t, sizeof t, "Consultas: %u   Bloqueadas: %u", b.consultas, b.bloqueadas);
+    formatar_texto(t, sizeof t, _("Consultas: %u   Bloqueadas: %u"), b.consultas, b.bloqueadas);
     g_texto(jn, 24, Y_PAG + 144, t, COR_TEXTO);
     static char u[6][64];
     int n = bloqueo_dns(BLOQ_ULTIMOS, u, 6);
     if (n > 0) {
-        g_texto(jn, 24, Y_PAG + 170, "Últimos bloqueados:", COR_TEXTO_FRACO);
+        g_texto(jn, 24, Y_PAG + 170, _("Últimos bloqueados:"), COR_TEXTO_FRACO);
         for (int i = 0; i < n; i++) g_texto_n(jn, 40, Y_PAG + 190 + i * 18, u[i], (LARG - 80) / LETRA_L, COR_TEXTO);
     }
-    g_texto_n(jn, 24, ALT - 110, "Los dominios de las listas responden 0.0.0.0 a todos los programas.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
-    g_texto_n(jn, 24, ALT - 92, "Permitir o bloquear a mano, y el servidor para la red: bloqueo --ayuda, dnsbloqueo.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 110, _("Los dominios de las listas responden 0.0.0.0 a todos los programas."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 92, _("Permitir o bloquear a mano, y el servidor para la red: bloqueo --ayuda, dnsbloqueo."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
 }
 
 /* Escritorio remoto (D273, mejora 104): el servidor VNC `vncd`. Lo de root se hace llamando a
  * «vncd --ajustar/--clave/--desconectar» y «servicio» con el diálogo de permisos (D269): la contraseña
  * pasa por la línea de órdenes del hijo, que es root solo mientras dura. */
 static botao_t b_vnc[5] = {
-    { 24, Y_PAG + 58, 250, 28, "Activar y arrancar", false },
-    { 284, Y_PAG + 58, 130, 28, "Reiniciar", false },
-    { 294, Y_PAG + 122, 170, 28, "Fijar contraseña", false },
+    { 24, Y_PAG + 58, 250, 28, N_("Activar y arrancar"), false },
+    { 284, Y_PAG + 58, 130, 28, N_("Reiniciar"), false },
+    { 294, Y_PAG + 122, 170, 28, N_("Fijar contraseña"), false },
     { 24, Y_PAG + 170, 250, 28, "", false },
     { 284, Y_PAG + 170, 400, 28, "", false },
 };
-static botao_t b_vnc_des = { 0, Y_PAG + 238, 150, 28, "Desconectar", false };
+static botao_t b_vnc_des = { 0, Y_PAG + 238, 150, 28, N_("Desconectar"), false };
 static caixa_t c_vnc_clave;
 static char itens_vnc[VNCD_MAX_SES][64];
 static lista_t lista_vnc;
@@ -1048,13 +1079,13 @@ static void vnc_refrescar(void)
     lista_vnc.sel = -1;
     for (int i = 0; i < vnc_est.n; i++) {
         unsigned s = vnc_est.s[i].seg;
-        formatar_texto(itens_vnc[i], 64, "%s - hace %u:%02u%s", vnc_est.s[i].ip, s / 60, s % 60, vnc_est.s[i].solo_ver ? " - solo ver" : "");
+        formatar_texto(itens_vnc[i], 64, _("%s - hace %u:%02u%s"), vnc_est.s[i].ip, s / 60, s % 60, vnc_est.s[i].solo_ver ? _(" - solo ver") : "");
         vnc_pids[i] = vnc_est.s[i].pid;
         if (vnc_est.s[i].pid == sel_pid) lista_vnc.sel = i;
     }
-    b_vnc[0].texto = vnc_arrancar || vnc_en_marcha ? "Desactivar y parar" : "Activar y arrancar";
-    b_vnc[3].texto = vnc_conf_solo_ver ? "Solo ver: sí" : "Solo ver: no";
-    b_vnc[4].texto = vnc_conf_red ? "Escuchar: red local (sin cifrar)" : "Escuchar: solo esta máquina (por SSH)";
+    b_vnc[0].texto = vnc_arrancar || vnc_en_marcha ? _("Desactivar y parar") : _("Activar y arrancar");
+    b_vnc[3].texto = vnc_conf_solo_ver ? _("Solo ver: sí") : _("Solo ver: no");
+    b_vnc[4].texto = vnc_conf_red ? _("Escuchar: red local (sin cifrar)") : _("Escuchar: solo esta máquina (por SSH)");
 }
 
 /* Ejecuta un programa del sistema y devuelve su código de salida (< 0: no se pudo lanzar). */
@@ -1077,7 +1108,7 @@ static bool vnc_permiso(const char *motivo)
 {
     if (sou_root()) return true;
     if (elevar_grafico(motivo) == 0) return true;
-    dizer("Sin permisos de administrador no se puede cambiar el escritorio remoto.");
+    dizer(_("Sin permisos de administrador no se puede cambiar el escritorio remoto."));
     return false;
 }
 
@@ -1088,33 +1119,33 @@ static void vnc_reiniciar_si_corre(void)
 
 static void vnc_accion(int k)
 {
-    if (!vnc_permiso("configurar el escritorio remoto (servidor VNC)")) return;
+    if (!vnc_permiso(_("configurar el escritorio remoto (servidor VNC)"))) return;
     char t[80];
     if (k == 0) {
         bool apagar_ = vnc_arrancar || vnc_en_marcha;
         if (apagar_) {
             vnc_servicio("desactivar");
             vnc_servicio("parar");
-            dizer("Escritorio remoto desactivado y parado.");
+            dizer(_("Escritorio remoto desactivado y parado."));
         } else if (!vnc_clave_puesta) {
-            dizer("Antes de activarlo, pon una contraseña (nadie podría entrar sin ella).");
+            dizer(_("Antes de activarlo, pon una contraseña (nadie podría entrar sin ella)."));
         } else {
             vnc_servicio("activar");
             int r = vnc_servicio("iniciar");
-            dizer(r == 0 ? "Escritorio remoto activado: arrancará solo y ya está en marcha." : "Activado, pero no se pudo iniciar (mira /logs/vncd.log).");
+            dizer(r == 0 ? _("Escritorio remoto activado: arrancará solo y ya está en marcha.") : _("Activado, pero no se pudo iniciar (mira /logs/vncd.log)."));
         }
     } else if (k == 1) {
-        dizer(vnc_servicio("reiniciar") == 0 ? "Servicio reiniciado." : "No se pudo reiniciar (¿está activado?).");
+        dizer(vnc_servicio("reiniciar") == 0 ? _("Servicio reiniciado.") : _("No se pudo reiniciar (¿está activado?)."));
     } else if (k == 2) {
-        if (!c_vnc_clave.texto[0]) dizer("Escribe la contraseña en el cuadro.");
+        if (!c_vnc_clave.texto[0]) dizer(_("Escribe la contraseña en el cuadro."));
         else {
             char *av[] = { "vncd", "--clave", c_vnc_clave.texto, NULL };
             int r = vnc_ejecutar("/bin/vncd", av);
             if (r == 0) {
-                formatar_texto(t, sizeof t, "Contraseña fijada%s.", tam_texto(c_vnc_clave.texto) > 8 ? " (solo cuentan los 8 primeros caracteres)" : "");
+                formatar_texto(t, sizeof t, _("Contraseña fijada%s."), tam_texto(c_vnc_clave.texto) > 8 ? _(" (solo cuentan los 8 primeros caracteres)") : "");
                 dizer(t);
                 caixa_definir(&c_vnc_clave, "");
-            } else dizer("No se pudo fijar la contraseña.");
+            } else dizer(_("No se pudo fijar la contraseña."));
         }
     } else {
         const char *opc = k == 3 ? (vnc_conf_solo_ver ? "solo_ver=no" : "solo_ver=si")
@@ -1122,46 +1153,46 @@ static void vnc_accion(int k)
         char *av[] = { "vncd", "--ajustar", (char *)opc, NULL };
         if (vnc_ejecutar("/bin/vncd", av) == 0) {
             vnc_reiniciar_si_corre();
-            formatar_texto(t, sizeof t, "Guardado: %s%s.", opc, vnc_en_marcha ? " (servicio reiniciado)" : "");
+            formatar_texto(t, sizeof t, _("Guardado: %s%s."), opc, vnc_en_marcha ? _(" (servicio reiniciado)") : "");
             dizer(t);
-        } else dizer("No se pudo guardar la opción.");
+        } else dizer(_("No se pudo guardar la opción."));
     }
     elevacao_soltar();
 }
 
 static void vnc_desconectar_sel(void)
 {
-    if (lista_vnc.sel < 0 || lista_vnc.sel >= lista_vnc.qtd) { dizer("Elige a alguien de la lista."); return; }
-    if (!vnc_permiso("desconectar a alguien del escritorio remoto")) return;
+    if (lista_vnc.sel < 0 || lista_vnc.sel >= lista_vnc.qtd) { dizer(_("Elige a alguien de la lista.")); return; }
+    if (!vnc_permiso(_("desconectar a alguien del escritorio remoto"))) return;
     char pid[16];
     formatar_texto(pid, sizeof pid, "%d", vnc_pids[lista_vnc.sel]);
     char *av[] = { "vncd", "--desconectar", pid, NULL };
-    dizer(vnc_ejecutar("/bin/vncd", av) == 0 ? "Sesión desconectada." : "No se pudo desconectar.");
+    dizer(vnc_ejecutar("/bin/vncd", av) == 0 ? _("Sesión desconectada.") : _("No se pudo desconectar."));
     elevacao_soltar();
 }
 
 static void vnc_desenhar(void)
 {
     char t[200];
-    titulo_pag(24, Y_PAG + 8, "Servidor de escritorio remoto (VNC)");
-    formatar_texto(t, sizeof t, "Servicio vncd: %s%s, puerto %d, arranque automático: %s", vnc_en_marcha ? "en marcha" : "parado",
-                   vnc_en_marcha && !vnc_hay_estado ? " (iniciando)" : "", vnc_conf_puerto, vnc_arrancar ? "sí" : "no");
+    titulo_pag(24, Y_PAG + 8, _("Servidor de escritorio remoto (VNC)"));
+    formatar_texto(t, sizeof t, _("Servicio vncd: %s%s, puerto %d, arranque automático: %s"), vnc_en_marcha ? _("en marcha") : _("parado"),
+                   vnc_en_marcha && !vnc_hay_estado ? _(" (iniciando)") : "", vnc_conf_puerto, vnc_arrancar ? _("sí") : _("no"));
     g_texto_n(jn, 24, Y_PAG + 34, t, (LARG - 48) / LETRA_L, COR_TEXTO);
     for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_vnc[i]);
-    formatar_texto(t, sizeof t, "Contraseña (como mucho 8 caracteres): %s", vnc_clave_puesta ? "ya hay una puesta" : "SIN PONER");
+    formatar_texto(t, sizeof t, _("Contraseña (como mucho 8 caracteres): %s"), vnc_clave_puesta ? _("ya hay una puesta") : _("SIN PONER"));
     g_texto_n(jn, 24, Y_PAG + 102, t, (LARG - 48) / LETRA_L, COR_TEXTO);
     caixa_desenhar(jn, &c_vnc_clave);
     botao_desenhar(jn, &b_vnc[2]);
     botao_desenhar(jn, &b_vnc[3]);
     botao_desenhar(jn, &b_vnc[4]);
-    formatar_texto(t, sizeof t, "Conectados ahora: %d", vnc_est.n);
+    formatar_texto(t, sizeof t, _("Conectados ahora: %d"), vnc_est.n);
     titulo_pag(24, Y_PAG + 216, t);
     lista_desenhar(jn, &lista_vnc);
     b_vnc_des.x = lista_vnc.x + lista_vnc.l + 10;
     botao_desenhar(jn, &b_vnc_des);
-    g_texto_n(jn, 24, ALT - 116, "«Solo esta máquina»: se entra por un túnel SSH (ssh -L 5900:localhost:5900 root@IP) y el", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
-    g_texto_n(jn, 24, ALT - 98, "tráfico va cifrado. «Red local» deja entrar sin túnel, pero el tráfico VNC no se cifra.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
-    g_texto_n(jn, 24, ALT - 80, "Mientras haya alguien conectado se ve una ventana «Escritorio remoto» en la barra de tareas.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 116, _("«Solo esta máquina»: se entra por un túnel SSH (ssh -L 5900:localhost:5900 root@IP) y el"), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 98, _("tráfico va cifrado. «Red local» deja entrar sin túnel, pero el tráfico VNC no se cifra."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 80, _("Mientras haya alguien conectado se ve una ventana «Escritorio remoto» en la barra de tareas."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
 }
 
 /* ------------------------------------------------------- la página de los mandos (D307) */
@@ -1173,9 +1204,9 @@ static int md_n;
 static unsigned md_gen = 0xFFFFFFFFu;
 static char itens_md[MANDOS_MAX][64];
 static lista_t lista_md;
-static botao_t b_md[3] = { { 24, Y_PAG + 208, 160, 28, "Buscar joystick", false },
-                           { 190, Y_PAG + 208, 150, 28, "Calibrar puerto", false },
-                           { 24, Y_PAG + 242, 316, 28, "Calibración automática", false } };
+static botao_t b_md[3] = { { 24, Y_PAG + 208, 160, 28, N_("Buscar joystick"), false },
+                           { 190, Y_PAG + 208, 150, 28, N_("Calibrar puerto"), false },
+                           { 24, Y_PAG + 242, 316, 28, N_("Calibración automática"), false } };
 static estado_mando_t md_est;
 static unsigned short md_crudo[4];
 static int md_fase;                 /* calibración: 0 nada, 1 esquinas, 2 centro */
@@ -1233,7 +1264,7 @@ static void md_calibrar_fim(void)
         ok = true;
     }
     md_fase = 0;
-    if (!ok) { dizer("No se ha movido ningún eje: la calibración no cambia."); return; }
+    if (!ok) { dizer(_("No se ha movido ningún eje: la calibración no cambia.")); return; }
     mandos_calibrar(md_cal);
     mandos_cal_texto(md_cal, conf.mando_cal, sizeof conf.mando_cal);
     registrar("configuracion: mando_puerto calibrado %s", conf.mando_cal);
@@ -1246,7 +1277,7 @@ static bool md_tique(void)
     bool r = md_listar();
     if (md_fase) {
         int k = md_puerto();
-        if (k < 0) { md_fase = 0; dizer("El joystick del puerto de juegos ha desaparecido."); return true; }
+        if (k < 0) { md_fase = 0; dizer(_("El joystick del puerto de juegos ha desaparecido.")); return true; }
         estado_mando_t e;
         unsigned short t[4];
         if (mando_ler_crudo(k, &e, t) == 0)
@@ -1265,9 +1296,9 @@ static bool md_tique(void)
                 md_fim = tempo_ms() + 2500;
                 for (int i = 0; i < 4; i++) md_soma[i] = 0;
                 md_q = 0;
-                dizer("Ahora suelta el joystick en el centro...");
+                dizer(_("Ahora suelta el joystick en el centro..."));
             } else md_calibrar_fim();
-        } else if (md_fase == 1) formatar_texto(estado, sizeof estado, "Mueve el joystick hasta las cuatro esquinas, varias veces (%d s)", falta / 1000 + 1);
+        } else if (md_fase == 1) formatar_texto(estado, sizeof estado, _("Mueve el joystick hasta las cuatro esquinas, varias veces (%d s)"), falta / 1000 + 1);
         r = true;
     }
     if (md_ler()) r = true;
@@ -1298,24 +1329,24 @@ static void md_hat(int x, int y, unsigned h)
 static void md_desenhar(void)
 {
     char t[160];
-    titulo_pag(24, Y_PAG + 8, "Mandos y joysticks conectados");
-    if (md_n <= 0) g_texto(jn, 30, Y_PAG + 40, "Ninguno (USB, Xbox 360 o puerto de juegos).", COR_TEXTO_FRACO);
+    titulo_pag(24, Y_PAG + 8, _("Mandos y joysticks conectados"));
+    if (md_n <= 0) g_texto(jn, 30, Y_PAG + 40, _("Ninguno (USB, Xbox 360 o puerto de juegos)."), COR_TEXTO_FRACO);
     lista_desenhar(jn, &lista_md);
     for (int i = 0; i < 3; i++) botao_desenhar(jn, &b_md[i]);
-    g_texto(jn, 24, Y_PAG + 282, "El joystick del puerto de juegos (0x201)", COR_TEXTO_FRACO);
-    g_texto(jn, 24, Y_PAG + 300, "se busca al arrancar y con «Buscar».", COR_TEXTO_FRACO);
+    g_texto(jn, 24, Y_PAG + 282, _("El joystick del puerto de juegos (0x201)"), COR_TEXTO_FRACO);
+    g_texto(jn, 24, Y_PAG + 300, _("se busca al arrancar y con «Buscar»."), COR_TEXTO_FRACO);
     if (lista_md.sel < 0 || lista_md.sel >= md_n) return;
     const info_mando_t *m = &md_l[lista_md.sel];
-    titulo_pag(MD_X0, Y_PAG + 8, "Prueba en vivo");
+    titulo_pag(MD_X0, Y_PAG + 8, _("Prueba en vivo"));
     if (m->fabricante || m->produto)
-        formatar_texto(t, sizeof t, "%s, %04x:%04x: %u ejes, %u botones, %u hats", m->via, m->fabricante, m->produto,
+        formatar_texto(t, sizeof t, _("%s, %04x:%04x: %u ejes, %u botones, %u hats"), m->via, m->fabricante, m->produto,
                        m->n_eixos, m->n_botoes, m->n_hats);
-    else formatar_texto(t, sizeof t, "%s: %u ejes, %u botones, %u hats", m->via, m->n_eixos, m->n_botoes, m->n_hats);
+    else formatar_texto(t, sizeof t, _("%s: %u ejes, %u botones, %u hats"), m->via, m->n_eixos, m->n_botoes, m->n_hats);
     g_texto_n(jn, MD_X0, Y_PAG + 28, t, (LARG - MD_X0 - 20) / LETRA_L, COR_TEXTO_FRACO);
     /* Ejes de dos en dos: un cuadro con un punto (X a la derecha, Y hacia abajo). El Xbox 360 tiene
      * el orden de SDL (LX LY LT RX RY RT): se dibujan los sticks y después los gatillos. */
     static const signed char pares_xbox[3][2] = { { 0, 1 }, { 3, 4 }, { 2, 5 } };
-    static const char *const nomes_xbox[3] = { "Stick izq.", "Stick der.", "Gatillos" };
+    static const char *const nomes_xbox[3] = { N_("Stick izq."), N_("Stick der."), N_("Gatillos") };
     bool xbox = m->mapa == MANDO_MAPA_XBOX360 && m->n_eixos >= 6;
     int pares = xbox ? 3 : (m->n_eixos + 1) / 2;
     if (pares > 4) pares = 4;
@@ -1330,14 +1361,14 @@ static void md_desenhar(void)
         int ey = ay < m->n_eixos ? md_est.eixos[ay] : 0;
         int px = x + MD_CX / 2 + ex * (MD_CX / 2 - 6) / 32768, py = y + MD_CX / 2 + ey * (MD_CX / 2 - 6) / 32768;
         g_retangulo(jn, px - 4, py - 4, 9, 9, 0xC0392B);
-        if (xbox) copia_texto(t, nomes_xbox[p], sizeof t);
-        else if (ay < m->n_eixos) formatar_texto(t, sizeof t, "Ejes %d y %d", ax + 1, ay + 1);
-        else formatar_texto(t, sizeof t, "Eje %d", ax + 1);
+        if (xbox) copia_texto(t, _(nomes_xbox[p]), sizeof t);
+        else if (ay < m->n_eixos) formatar_texto(t, sizeof t, _("Ejes %d y %d"), ax + 1, ay + 1);
+        else formatar_texto(t, sizeof t, _("Eje %d"), ax + 1);
         g_texto(jn, x, y + MD_CX + 4, t, COR_TEXTO_FRACO);
     }
     /* Botones: casillas numeradas, de 16 en 16. */
     int yb = Y_PAG + 172;
-    g_texto(jn, MD_X0, yb, "Botones:", COR_TEXTO);
+    g_texto(jn, MD_X0, yb, _("Botones:"), COR_TEXTO);
     for (int b = 0; b < m->n_botoes && b < 32; b++) {
         int x = MD_X0 + (b % 16) * 27, y = yb + 18 + (b / 16) * 26;
         bool on = (md_est.botoes >> b) & 1;
@@ -1348,7 +1379,7 @@ static void md_desenhar(void)
     }
     int yh = yb + 18 + ((m->n_botoes + 15) / 16) * 26 + 8;
     for (int h = 0; h < m->n_hats && h < MANDO_HATS_MAX; h++) {
-        formatar_texto(t, sizeof t, "Hat %d", h + 1);
+        formatar_texto(t, sizeof t, _("Hat %d"), h + 1);
         g_texto(jn, MD_X0 + h * 70, yh, t, COR_TEXTO);
         md_hat(MD_X0 + h * 70, yh + 18, md_est.hats[h]);
     }
@@ -1356,12 +1387,12 @@ static void md_desenhar(void)
         unsigned short c[4][3];
         int manual = 0;
         mandos_calibracao(c, &manual);
-        int u = formatar_texto(t, sizeof t, "Tiempos (us):");
+        int u = formatar_texto(t, sizeof t, _("Tiempos (us):"));
         for (int i = 0; i < 4; i++)
             u += md_crudo[i] == 0xFFFF ? formatar_texto(t + u, sizeof t - (unsigned)u, " -")
                                        : formatar_texto(t + u, sizeof t - (unsigned)u, " %u", md_crudo[i] / 10);
         g_texto(jn, MD_X0, ALT - 128, t, COR_TEXTO_FRACO);
-        formatar_texto(t, sizeof t, "Calibración %s: X %u-%u-%u, Y %u-%u-%u us", manual ? "guardada" : "automática",
+        formatar_texto(t, sizeof t, _("Calibración %s: X %u-%u-%u, Y %u-%u-%u us"), manual ? _("guardada") : _("automática"),
                        c[0][0] / 10, c[0][1] / 10, c[0][2] / 10, c[1][0] / 10, c[1][1] / 10, c[1][2] / 10);
         g_texto_n(jn, MD_X0, ALT - 110, t, (LARG - MD_X0 - 20) / LETRA_L, COR_TEXTO_FRACO);
     }
@@ -1375,18 +1406,18 @@ static bool md_tratar(const evento_t *e)
     if (at) { memset(&md_est, 0, sizeof md_est); md_ler(); mudou = true; }
     if (botao_tratar(jn, &b_md[0], e)) {
         int r = mandos_detectar();
-        dizer(r > 0 ? "Hay un joystick en el puerto de juegos." : "No hay joystick en el puerto de juegos.");
+        dizer(r > 0 ? _("Hay un joystick en el puerto de juegos.") : _("No hay joystick en el puerto de juegos."));
         registrar("configuracion: mandos detectar -> %d", r);
         md_listar();
         mudou = true;
     }
     if (botao_tratar(jn, &b_md[1], e)) {
-        if (md_puerto() < 0) dizer("No hay joystick en el puerto de juegos: pulsa «Buscar joystick».");
+        if (md_puerto() < 0) dizer(_("No hay joystick en el puerto de juegos: pulsa «Buscar joystick»."));
         else {
             for (int i = 0; i < 4; i++) { md_cal[i][0] = 0xFFFF; md_cal[i][1] = 0; md_cal[i][2] = 0; }
             md_fase = 1;
             md_fim = tempo_ms() + 6000;
-            dizer("Mueve el joystick hasta las cuatro esquinas, varias veces (6 s)");
+            dizer(_("Mueve el joystick hasta las cuatro esquinas, varias veces (6 s)"));
         }
         mudou = true;
     }
@@ -1405,21 +1436,24 @@ static void desenhar_pagina(void)
 {
     char t[160];
     if (pagina == P_TECLADO) {
-        titulo_pag(24, Y_PAG + 14, "Distribución del teclado");
+        titulo_pag(24, Y_PAG + 14, _("Distribución del teclado"));
         int cur = teclado_layout(-1);
         for (int i = 0; i < 2; i++) { b_tec[i].apertado = cur == i; botao_desenhar(jn, &b_tec[i]); }
-        g_texto(jn, 24, Y_PAG + 144, "Prueba: la ñ, la ç y los acentos cambian según la distribución.", COR_TEXTO_FRACO);
+        g_texto(jn, 24, Y_PAG + 144, _("Prueba: la ñ, la ç y los acentos cambian según la distribución."), COR_TEXTO_FRACO);
+        titulo_pag(24, Y_PAG + 192, _("Idioma de la interfaz"));
+        g_texto(jn, 24, Y_PAG + 266, _("Se aplica a los programas que abras después y al escritorio."), COR_TEXTO_FRACO);
+        for (int i = 0; i < 3; i++) { b_idi[i].apertado = compara_texto(idioma_actual(), codigos_idi[i]) == 0; botao_desenhar(jn, &b_idi[i]); }
     } else if (pagina == P_ZONA) {
         config_zona_t cz;
         ler_zona(&cz);
         fuso_data_t l;
         agora_local(&l);
-        formatar_texto(t, sizeof t, "Zona horaria actual: %s   (%02d:%02d)", cz.nome, l.hora, l.minuto);
+        formatar_texto(t, sizeof t, _("Zona horaria actual: %s   (%02d:%02d)"), cz.nome, l.hora, l.minuto);
         titulo_pag(24, Y_PAG + 8, t);
         lista_desenhar(jn, &lista_zona);
         botao_desenhar(jn, &b_zona);
     } else if (pagina == P_TELA) {
-        formatar_texto(t, sizeof t, "Resolución actual: %ux%u, %u bits", tela.largura, tela.altura, tela.bpp);
+        formatar_texto(t, sizeof t, _("Resolución actual: %ux%u, %u bits"), tela.largura, tela.altura, tela.bpp);
         titulo_pag(24, Y_PAG + 8, t);
         lista_desenhar(jn, &lista_modo);
         for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_tela[i]);
@@ -1427,26 +1461,26 @@ static void desenhar_pagina(void)
             b_telas[0].apertado = telas.modo == TELAS_MODO_EXTENDER;
             b_telas[1].apertado = telas.modo == TELAS_MODO_ESPELHO;
             for (int i = 0; i < 5; i++) { b_telas[i].y = ALT - 138; botao_desenhar(jn, &b_telas[i]); }
-            formatar_texto(t, sizeof t, "%u pantallas: escritorio de %ux%u", telas.qtd, telas.desk_largura, telas.desk_altura);
+            formatar_texto(t, sizeof t, _("%u pantallas: escritorio de %ux%u"), telas.qtd, telas.desk_largura, telas.desk_altura);
             g_texto(jn, 24, ALT - 154 + 4, t, COR_TEXTO_FRACO);
         }
-        if (!tela.a_quente) g_texto(jn, 350, ALT - 94, "Esta tarjeta cambia al reiniciar.", COR_TEXTO_FRACO);
+        if (!tela.a_quente) g_texto(jn, 350, ALT - 94, _("Esta tarjeta cambia al reiniciar."), COR_TEXTO_FRACO);
     } else if (pagina == P_SOM) {
         info_audio_t ia;
         if (info_sistema(INFO_AUDIO, &ia, sizeof ia) < 0 || ia.estado != AUDIO_FUNCIONANDO) {
-            titulo_pag(24, Y_PAG + 14, "No hay tarjeta de sonido (solo el altavoz del PC).");
+            titulo_pag(24, Y_PAG + 14, _("No hay tarjeta de sonido (solo el altavoz del PC)."));
         } else {
-            formatar_texto(t, sizeof t, "Volumen general: %u %%%s", ia.volume, ia.silencio ? " (silencio)" : "");
+            formatar_texto(t, sizeof t, _("Volumen general: %u %%%s"), ia.volume, ia.silencio ? _(" (silencio)") : "");
             titulo_pag(24, Y_PAG + 14, t);
             g_retangulo(jn, BARRA_X, BARRA_Y, BARRA_L, BARRA_A, COR_BOTAO);
             g_moldura(jn, BARRA_X, BARRA_Y, BARRA_L, BARRA_A, COR_BORDA);
             g_retangulo(jn, BARRA_X + 1, BARRA_Y + 1, (BARRA_L - 2) * ia.volume / 100, BARRA_A - 2, ia.silencio ? COR_BORDA : COR_DESTAQUE);
             for (int i = 0; i < 3; i++) botao_desenhar(jn, &b_vol[i]);
-            formatar_texto(t, sizeof t, "Tarjeta: %s (%s)", ia.placa, ia.driver);
+            formatar_texto(t, sizeof t, _("Tarjeta: %s (%s)"), ia.placa, ia.driver);
             g_texto_n(jn, 24, Y_PAG + 36, t, (MIC_X - 40 - 24) / LETRA_L, COR_TEXTO_FRACO);
             g_texto_n(jn, 24, Y_PAG + 52, ia.codec, (MIC_X - 40 - 24) / LETRA_L, COR_TEXTO_FRACO);
             /* balance */
-            g_texto(jn, 180, BAL_Y + 4, "Balance", COR_TEXTO);
+            g_texto(jn, 180, BAL_Y + 4, _("Balance"), COR_TEXTO);
             g_retangulo(jn, BAL_X, BAL_Y, BAL_L, BAL_A, COR_BOTAO);
             g_moldura(jn, BAL_X, BAL_Y, BAL_L, BAL_A, COR_BORDA);
             {
@@ -1454,7 +1488,7 @@ static void desenhar_pagina(void)
                 g_retangulo(jn, cx, BAL_Y + 2, 1, BAL_A - 4, COR_BORDA);
                 g_retangulo(jn, px - 3, BAL_Y + 2, 7, BAL_A - 4, COR_DESTAQUE);
                 int b = (int)ia.balance - 100;
-                formatar_texto(t, sizeof t, "%s", b == 0 ? "centro" : b < 0 ? "izquierda" : "derecha");
+                formatar_texto(t, sizeof t, "%s", b == 0 ? _("centro") : b < 0 ? _("izquierda") : _("derecha"));
                 g_texto(jn, BAL_X, BAL_Y - 18, t, COR_TEXTO_FRACO);
             }
             botao_desenhar(jn, &b_bal);
@@ -1466,19 +1500,19 @@ static void desenhar_pagina(void)
                     static char txt_sal[80];
                     int act = 0;
                     for (int k = 0; k < AUDIO_SALIDAS; k++) if (ia.salidas[k].actual) act = k;
-                    formatar_texto(txt_sal, sizeof txt_sal, "Salida: %s (pulsa para cambiar)", ia.salidas[act].nombre);
+                    formatar_texto(txt_sal, sizeof txt_sal, _("Salida: %s (pulsa para cambiar)"), ia.salidas[act].nombre);
                     b_sal.texto = txt_sal;
                     botao_desenhar(jn, &b_sal);
                 }
             }
             botao_desenhar(jn, &b_lat[0]);
             botao_desenhar(jn, &b_lat[1]);
-            formatar_texto(t, sizeof t, "Latencia: %u ms", ia.latencia_base_ms);
+            formatar_texto(t, sizeof t, _("Latencia: %u ms"), ia.latencia_base_ms);
             g_texto(jn, 300, BARRA_Y + 91, t, COR_TEXTO);
             /* micrófono */
-            titulo_pag(MIC_X, Y_PAG + 14, "Micrófono");
+            titulo_pag(MIC_X, Y_PAG + 14, _("Micrófono"));
             if (!ia.captura) {
-                g_texto_n(jn, MIC_X, Y_PAG + 42, "Esta tarjeta no tiene entrada de sonido que podamos usar.", 27, COR_TEXTO_FRACO);
+                g_texto_n(jn, MIC_X, Y_PAG + 42, _("Esta tarjeta no tiene entrada de sonido que podamos usar."), 27, COR_TEXTO_FRACO);
             } else {
                 botao_desenhar(jn, &b_mic[0]);
                 botao_desenhar(jn, &b_mic[1]);
@@ -1497,11 +1531,11 @@ static void desenhar_pagina(void)
                 g_retangulo(jn, mx, my, ml, ma, 0x20262C);
                 if (lp > 0) g_retangulo(jn, mx + 2, my + 2, lp, ma - 4, pico > 29000 ? 0xD83A2A : pico > 20000 ? 0xE0B020 : 0x2EB872);
                 g_moldura(jn, mx, my, ml, ma, COR_BORDA);
-                g_texto_n(jn, mx, my + ma + 4, mic_aberto ? "Habla para probar el nivel." : "Micrófono en uso por otro programa.", 27, COR_TEXTO_FRACO);
-                b_mic[4].texto = mic_inf.mudo ? "Activar micrófono" : "Silenciar micrófono";
+                g_texto_n(jn, mx, my + ma + 4, mic_aberto ? _("Habla para probar el nivel.") : _("Micrófono en uso por otro programa."), 27, COR_TEXTO_FRACO);
+                b_mic[4].texto = mic_inf.mudo ? _("Activar micrófono") : _("Silenciar micrófono");
                 botao_desenhar(jn, &b_mic[4]);
             }
-            titulo_pag(24, EQ_Y0 - 32, "Ecualizador (dB)");
+            titulo_pag(24, EQ_Y0 - 32, _("Ecualizador (dB)"));
             for (int i = 0; i < EQ_BANDAS; i++) {
                 int cx = EQ_X0 + i * EQ_PASSO, v = ia.eq_db[i];
                 int ym = EQ_Y0 + EQ_ALT / 2, yv = EQ_Y0 + (12 - v) * EQ_ALT / 24;
@@ -1518,11 +1552,11 @@ static void desenhar_pagina(void)
             for (int i = 0; i < 4; i++) botao_desenhar(jn, &b_eq[i]);
         }
     } else if (pagina == P_CAPTURAS) {
-        titulo_pag(24, Y_PAG + 14, "Carpeta de las capturas de pantalla (Impr Pant)");
-        g_texto(jn, 24, Y_PAG + 40, "Vacía = /home/capturas (o /tmp/capturas si /home no deja escribir).", COR_TEXTO_FRACO);
+        titulo_pag(24, Y_PAG + 14, _("Carpeta de las capturas de pantalla (Impr Pant)"));
+        g_texto(jn, 24, Y_PAG + 40, _("Vacía = /home/capturas (o /tmp/capturas si /home no deja escribir)."), COR_TEXTO_FRACO);
         caixa_desenhar(jn, &c_capturas);
         botao_desenhar(jn, &b_cap[0]);
-        b_cap[1].texto = conf.cap_sonido ? "Sonido al capturar: sí" : "Sonido al capturar: no";
+        b_cap[1].texto = conf.cap_sonido ? _("Sonido al capturar: sí") : _("Sonido al capturar: no");
         botao_desenhar(jn, &b_cap[1]);
     } else if (pagina == P_IA) {
         ia_desenhar();
@@ -1538,17 +1572,17 @@ static void desenhar_pagina(void)
         info_aparencia_t ap;
         memset(&ap, 0, sizeof ap);
         info_sistema(INFO_APARENCIA, &ap, sizeof ap);
-        titulo_pag(24, Y_PAG + 6, "Color de acento (barra de título y barra de tareas)");
+        titulo_pag(24, Y_PAG + 6, _("Color de acento (barra de título y barra de tareas)"));
         for (int i = 0; i < CORES_QTD; i++) {
             int x = SW_X + i * SW_PASSO;
             g_retangulo(jn, x, SW_Y, SW_L, 30, cores[i].cor);
             g_moldura(jn, x, SW_Y, SW_L, 30, cores[i].cor == ap.acento ? 0x000000 : COR_BORDA);
             if (cores[i].cor == ap.acento) g_moldura(jn, x + 1, SW_Y + 1, SW_L - 2, 28, 0xFFFFFF);
-            g_texto(jn, x, SW_Y + 34, cores[i].nome, COR_TEXTO_FRACO);
+            g_texto(jn, x, SW_Y + 34, _(cores[i].nome), COR_TEXTO_FRACO);
         }
-        titulo_pag(24, Y_PAG + 98, "Fondo del escritorio");
+        titulo_pag(24, Y_PAG + 98, _("Fondo del escritorio"));
         for (int i = 0; i < M_QTD; i++) { b_modo[i].apertado = conf.modo == i; botao_desenhar(jn, &b_modo[i]); }
-        g_texto(jn, 24, Y_PAG + 160, "Imagen (BMP o PNG de /imagenes y de /home):", COR_TEXTO_FRACO);
+        g_texto(jn, 24, Y_PAG + 160, _("Imagen (BMP o PNG de /imagenes y de /home):"), COR_TEXTO_FRACO);
         lista_desenhar(jn, &lista_img);
         botao_desenhar(jn, &b_fundo);
     }
@@ -1568,7 +1602,7 @@ static void desenhar(void)
     }
     g_retangulo(jn, 10, Y_PAG - 6, LARG - 20, 1, COR_BORDA);
     desenhar_pagina();
-    if (!persiste) g_texto_n(jn, 14, ALT - 62, "Aviso: /home no es un disco persistente: los cambios no se recordarán.", (LARG - 28) / LETRA_L, 0xB03000);
+    if (!persiste) g_texto_n(jn, 14, ALT - 62, _("Aviso: /home no es un disco persistente: los cambios no se recordarán."), (LARG - 28) / LETRA_L, 0xB03000);
     g_texto_n(jn, 14, ALT - 38, estado, (LARG - 130) / LETRA_L, COR_TEXTO_FRACO);
     /* La barra de progreso del fondo (042): sólo mientras se aplica. */
     if (mostrando_barra && barra_fundo) progresso_desenhar(jn, barra_fundo);
@@ -1636,11 +1670,11 @@ static void ia_escolher_provedor(void)
         /* El proveedor cambia el modelo por omisión: el destino pasa a ser esa
          * casilla, que además queda marcada. */
         cx_alvo = 2;
-        if (p->precisa_chave) dizer("Proveedor elegido. Escribe la clave y pulsa Guardar.");
-        else dizer("Proveedor elegido (no necesita clave). Pulsa Guardar.");
+        if (p->precisa_chave) dizer(_("Proveedor elegido. Escribe la clave y pulsa Guardar."));
+        else dizer(_("Proveedor elegido (no necesita clave). Pulsa Guardar."));
     } else {
         caixa_definir(&c_ia[0], "");
-        dizer("Personalizado: escribe la dirección del servidor.");
+        dizer(_("Personalizado: escribe la dirección del servidor."));
     }
 }
 
@@ -1648,11 +1682,11 @@ static void ia_escolher_provedor(void)
 static void ia_cargar_modelos(void)
 {
     ia_recolher();
-    if (!cfg_ia.url[0]) { dizer("Primero pon la dirección del servidor."); return; }
+    if (!cfg_ia.url[0]) { dizer(_("Primero pon la dirección del servidor.")); return; }
     char erro[192];
     int n = ia_modelos(&cfg_ia, itens_mod, MAX_MOD, erro, (int)sizeof erro);
     if (n < 0) {
-        formatar_texto(estado, sizeof estado, "No se pudieron pedir los modelos: %s", erro);
+        formatar_texto(estado, sizeof estado, _("No se pudieron pedir los modelos: %s"), erro);
         return;
     }
     lista_mod.qtd = n;
@@ -1670,7 +1704,7 @@ static void ia_cargar_modelos(void)
         cfg_ia.modelos[usados] = 0;
     }
     formatar_texto(estado, sizeof estado,
-                    "%d modelos del servidor. Elige uno: va a la casilla donde está el cursor.", n);
+                    _("%d modelos del servidor. Elige uno: va a la casilla donde está el cursor."), n);
 }
 
 /* El modelo elegido va a la casilla de destino (la que está marcada). La
@@ -1682,7 +1716,7 @@ static void ia_poner_modelo(const char *m)
     caixa_definir(&c_ia[cx_alvo], m);
     cx_ativa = cx_alvo;
     for (int i = 0; i < 6; i++) c_ia[i].foco = (i == cx_alvo);
-    dizer("Modelo puesto. Pulsa Guardar para que lo usen los programas.");
+    dizer(_("Modelo puesto. Pulsa Guardar para que lo usen los programas."));
 }
 
 /* El botón del destino del modelo. No se usa el campo "apertado" de los
@@ -1705,21 +1739,21 @@ static void desenhar_alvo(botao_t *b, bool escolhido)
 static void ia_desenhar(void)
 {
     char t[200];
-    titulo_pag(24, Y_PAG + 6, "Proveedor");
+    titulo_pag(24, Y_PAG + 6, _("Proveedor"));
     lista_desenhar(jn, &lista_prov);
-    g_texto_n(jn, 24, Y_PAG + 252, "Elige uno y pon su URL.",
+    g_texto_n(jn, 24, Y_PAG + 252, _("Elige uno y pon su URL."),
                200 / LETRA_L, COR_TEXTO_FRACO);
 
-    g_texto(jn, 250, Y_PAG + 4, "Dirección del servidor (URL)", COR_TEXTO_FRACO);
+    g_texto(jn, 250, Y_PAG + 4, _("Dirección del servidor (URL)"), COR_TEXTO_FRACO);
     caixa_desenhar(jn, &c_ia[0]);
-    formatar_texto(t, sizeof t, "Clave de API (%s)", chave_ia[0] ? "definida" : "sin clave");
+    formatar_texto(t, sizeof t, _("Clave de API (%s)"), chave_ia[0] ? _("definida") : _("sin clave"));
     g_texto(jn, 250, Y_PAG + 42, t, COR_TEXTO_FRACO);
     caixa_desenhar(jn, &c_ia[1]);
 
     for (int i = 0; i < 4; i++) {
         int x = i % 2 == 0 ? 250 : 490;
         int y = Y_PAG + 100 + (i / 2) * 48;
-        g_texto(jn, x, y, rotulos_uso[i], COR_TEXTO_FRACO);
+        g_texto(jn, x, y, _(rotulos_uso[i]), COR_TEXTO_FRACO);
         caixa_desenhar(jn, &c_ia[2 + i]);
         /* La casilla de destino se marca con un marco azul: así se ve de dónde
          * a dónde va el modelo que se elige en la lista. */
@@ -1727,7 +1761,7 @@ static void ia_desenhar(void)
             g_moldura(jn, c_ia[2 + i].x - 2, c_ia[2 + i].y - 2, c_ia[2 + i].l + 4, LETRA_A + 12, COR_SELECAO);
     }
     for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_ia[i]);
-    g_texto(jn, 250, Y_PAG + 244, "Modelo para:", COR_TEXTO_FRACO);
+    g_texto(jn, 250, Y_PAG + 244, _("Modelo para:"), COR_TEXTO_FRACO);
     for (int i = 0; i < 4; i++) desenhar_alvo(&b_alvo[i], 2 + i == cx_alvo);
     lista_desenhar(jn, &lista_mod);
 }
@@ -1789,29 +1823,36 @@ static int eq_coluna(const evento_t *e)
     return -1;
 }
 
+/* Los rótulos que se calculan al abrir la ventana (las pestañas, de ancho el de su título, D145, y los modos
+ * del fondo): se repiten al cambiar el idioma (D313). */
+static void traducir_rotulos(void)
+{
+    int xp = 10;
+    for (int i = 0; i < P_QTD; i++) {
+        int l = g_largura_texto(_(titulos_pag[i])) + 10;
+        pos_pag[i] = xp;
+        larg_pag[i] = l;
+        b_pag[i] = (botao_t){ xp, 10, l, 28, _(titulos_pag[i]), false };
+        xp += l + 2;
+    }
+    int x = 24;
+    for (int i = 0; i < M_QTD; i++) { b_modo[i] = (botao_t){ x, Y_PAG + 118, 90, 28, _(rotulos_modo[i]), false }; x += 94; }
+    if (jn) titulo_janela(jn->id, _("Configuración"));
+}
+
 static int janela(void)
 {
-    jn = jan_abrir("Configuración", LARG, ALT);
+    jn = jan_abrir(_("Configuración"), LARG, ALT);
     if (!jn) { imprimir("configuracion: no se pudo abrir la ventana (¿hay escritorio?)\n"); return 1; }
     barra_fundo = progresso_criar(BARRA_FUNDO_X, BARRA_FUNDO_Y, BARRA_FUNDO_L, BARRA_FUNDO_A, false);
     if (barra_fundo) progresso_texto(barra_fundo, true);
     conf_ler();
     persiste = home_persistente();
-    /* Cada pestaña es del ancho de su título, para que quepan las siete (D145). */
-    int xp = 10;
-    for (int i = 0; i < P_QTD; i++) {
-        int l = g_largura_texto(titulos_pag[i]) + 10;
-        pos_pag[i] = xp;
-        larg_pag[i] = l;
-        b_pag[i] = (botao_t){ xp, 10, l, 28, titulos_pag[i], false };
-        xp += l + 2;
-    }
+    traducir_rotulos();
     c_vnc_clave = (caixa_t){ .x = 24, .y = Y_PAG + 124, .l = 260, .oculta = true, .foco = true };
     lista_vnc = (lista_t){ 24, Y_PAG + 238, LARG - 48 - 170, 80, itens_vnc, 0, -1, 0, NULL };
     c_capturas = (caixa_t){ .x = 24, .y = Y_PAG + 66, .l = LARG - 48, .foco = true };
     caixa_definir(&c_capturas, conf.capturas);
-    int x = 24;
-    for (int i = 0; i < M_QTD; i++) { b_modo[i] = (botao_t){ x, Y_PAG + 118, 90, 28, rotulos_modo[i], false }; x += 94; }
     lista_zona = (lista_t){ 24, Y_PAG + 34, LARG - 48, ALT - Y_PAG - 34 - 112, itens_zona, 0, -1, 0, NULL };
     lista_modo = (lista_t){ 24, Y_PAG + 34, LARG - 48, ALT - Y_PAG - 34 - 112, itens_modo, 0, -1, 0, NULL };
     lista_img = (lista_t){ 24, Y_PAG + 178, LARG - 48, ALT - Y_PAG - 178 - 112, itens_img, 0, -1, 0, NULL };
@@ -1831,7 +1872,7 @@ static int janela(void)
     ler_zonas();
     ler_modos_video();
     listar_imagens();
-    if (!persiste) dizer("Sin /home persistente los cambios se aplican, pero no se recordarán.");
+    if (!persiste) dizer(_("Sin /home persistente los cambios se aplican, pero no se recordarán."));
     desenhar();
     registrar("configuracion: ventana abierta (persistente %d)", persiste);
 
@@ -1875,6 +1916,15 @@ static int janela(void)
                     dizer_gravado(conf_gravar());
                     mudou = true;
                 }
+            for (int i = 0; i < 3; i++)
+                if (botao_tratar(jn, &b_idi[i], &e)) {
+                    copia_texto(conf.idioma, codigos_idi[i], sizeof conf.idioma);
+                    idioma_fijar(codigos_idi[i]);
+                    traducir_rotulos();
+                    ler_modos_video();   /* los textos de las listas llevan palabras traducibles */
+                    dizer_gravado(conf_gravar());
+                    mudou = true;
+                }
         } else if (pagina == P_ZONA) {
             int at = lista_tratar(jn, &lista_zona, &e);
             bool ap = botao_tratar(jn, &b_zona, &e) || at == LISTA_ATIVOU;
@@ -1883,7 +1933,7 @@ static int janela(void)
                 const zona_info_t *z = zona_tabela(&n);
                 const char *nome = z[indice_zona[lista_zona.sel]].nome;
                 int r = aplicar_zona(nome);
-                if (r < 0) dizer("No se pudo cambiar la zona horaria.");
+                if (r < 0) dizer(_("No se pudo cambiar la zona horaria."));
                 else { copia_texto(conf.zona, nome, sizeof conf.zona); dizer_gravado(conf_gravar()); }
                 ler_zonas();
                 mudou = true;
@@ -1900,8 +1950,8 @@ static int janela(void)
                 if (botao_tratar(jn, &b_telas[4], &e)) { sel_res = (sel_res + 1) % n; mudou = true; ler_modos_video(); }
                 if (tocou) {
                     int r = telas_sis(TELAS_OP_CONFIG, (unsigned)modo | (unsigned)lado << 8 | (unsigned)prin << 16, 0);
-                    if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); copia_texto(estado, "Pantallas cambiadas y guardadas", sizeof estado); }
-                    else formatar_texto(estado, sizeof estado, "No se pudo: %s", nome_erro(r));
+                    if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); copia_texto(estado, _("Pantallas cambiadas y guardadas"), sizeof estado); }
+                    else formatar_texto(estado, sizeof estado, _("No se pudo: %s"), nome_erro(r));
                     ler_modos_video();
                     mudou = true;
                 }
@@ -1916,16 +1966,16 @@ static int janela(void)
                 if (gu || !tela.a_quente) op |= MUDAR_GUARDAR;
                 if (sel_res > 0 && telas.qtd > 1) {   /* D290: la resolución de una pantalla extra */
                     int r = telas_sis(TELAS_OP_RESOLUCAO, (unsigned)sel_res, m->largura | (unsigned)m->altura << 16);
-                    if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); formatar_texto(estado, sizeof estado, "Pantalla %d: %ux%u", sel_res + 1, m->largura, m->altura); }
-                    else formatar_texto(estado, sizeof estado, "No se pudo: %s", nome_erro(r));
+                    if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); formatar_texto(estado, sizeof estado, _("Pantalla %d: %ux%u"), sel_res + 1, m->largura, m->altura); }
+                    else formatar_texto(estado, sizeof estado, _("No se pudo: %s"), nome_erro(r));
                 } else
-                if (!op) dizer("La pantalla ya está en esa resolución.");
+                if (!op) dizer(_("La pantalla ya está en esa resolución."));
                 else {
                     int r = trocar_modo_video((int)m->largura, (int)m->altura, op);
-                    if (r == ERRO_SO_LEITURA) dizer("Arranque desde CD: no se puede guardar la resolución.");
-                    else if (r < 0) formatar_texto(estado, sizeof estado, "No se pudo: %s", nome_erro(r));
-                    else if (op & MUDAR_AGORA) formatar_texto(estado, sizeof estado, "%ux%u%s", m->largura, m->altura, (r & MUDAR_GUARDAR) ? ", guardada" : "");
-                    else formatar_texto(estado, sizeof estado, "%ux%u al reiniciar", m->largura, m->altura);
+                    if (r == ERRO_SO_LEITURA) dizer(_("Arranque desde CD: no se puede guardar la resolución."));
+                    else if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo: %s"), nome_erro(r));
+                    else if (op & MUDAR_AGORA) formatar_texto(estado, sizeof estado, "%ux%u%s", m->largura, m->altura, (r & MUDAR_GUARDAR) ? _(", guardada") : "");
+                    else formatar_texto(estado, sizeof estado, _("%ux%u al reiniciar"), m->largura, m->altura);
                 }
                 ler_modos_video();
                 mudou = true;
@@ -2063,7 +2113,7 @@ static int janela(void)
                     mudou = true;
                 }
             }
-            b_vol[2].texto = audio_silencio(-1) > 0 ? "Activar sonido" : "Silenciar";
+            b_vol[2].texto = audio_silencio(-1) > 0 ? _("Activar sonido") : _("Silenciar");
         } else if (pagina == P_CAPTURAS) {
             bool enter = caixa_tratar(jn, &c_capturas, &e);
             if (enter || botao_tratar(jn, &b_cap[0], &e)) {
@@ -2084,12 +2134,12 @@ static int janela(void)
                     memset(&b, 0, sizeof b);
                     bloqueo_dns(BLOQ_ESTADO, &b, sizeof b);
                     const char *ordem = k == 1 ? "actualizar" : b.activo ? "desactivar" : "activar";
-                    dizer(k == 1 ? "Descargando las listas..." : "Un momento...");
+                    dizer(k == 1 ? _("Descargando las listas...") : _("Un momento..."));
                     desenhar();
                     int r = rodar_bloqueo(ordem);
-                    if (k == 1) dizer(r == 0 ? "Listas actualizadas." : "No se pudieron actualizar las listas (¿hay red?).");
-                    else if (r < 0) dizer("No se pudo cambiar el bloqueo (mira «bloqueo estado» en el terminal).");
-                    else dizer(b.activo ? "Bloqueo desactivado." : "Bloqueo activado.");
+                    if (k == 1) dizer(r == 0 ? _("Listas actualizadas.") : _("No se pudieron actualizar las listas (¿hay red?)."));
+                    else if (r < 0) dizer(_("No se pudo cambiar el bloqueo (mira «bloqueo estado» en el terminal)."));
+                    else dizer(b.activo ? _("Bloqueo desactivado.") : _("Bloqueo activado."));
                     mudou = true;
                 }
         } else if (pagina == P_VNC) {
@@ -2105,7 +2155,7 @@ static int janela(void)
                 if (at) { fuentes_vista(); mudou = true; }
                 for (int k = 0; k < 3; k++)
                     if (botao_tratar(jn, &b_fnt[k], &e)) {
-                        if (k < 2 && lista_fnt.sel < 0) dizer("Elige una fuente de la lista.");
+                        if (k < 2 && lista_fnt.sel < 0) dizer(_("Elige una fuente de la lista."));
                         else {
                             char *d = k == 0 ? conf.fuente_doc : conf.fuente_tit;
                             if (k == 2) { conf.fuente_doc[0] = 0; conf.fuente_tit[0] = 0; }
@@ -2170,9 +2220,9 @@ static int janela(void)
             if (botao_tratar(jn, &b_ia[0], &e)) {
                 ia_recolher();
                 int r = ia_config_gravar(&cfg_ia, 1);
-                if (r < 0) formatar_texto(estado, sizeof estado, "No se pudo guardar: %s", nome_erro(r));
-                else if (!persiste) dizer("Guardado solo en esta sesión: /home no es un disco.");
-                else dizer("Guardado en /home/.config/ia. Los programas ya lo usan.");
+                if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo guardar: %s"), nome_erro(r));
+                else if (!persiste) dizer(_("Guardado solo en esta sesión: /home no es un disco."));
+                else dizer(_("Guardado en /home/.config/ia. Los programas ya lo usan."));
                 mudou_ia = true;
             }
             if (botao_tratar(jn, &b_ia[1], &e)) {
@@ -2203,15 +2253,15 @@ static int janela(void)
             int at = lista_tratar(jn, &lista_img, &e);
             bool ap = botao_tratar(jn, &b_fundo, &e) || at == LISTA_ATIVOU;
             if (ap) {
-                if (lista_img.sel < 0) dizer("Elige una imagen de la lista.");
+                if (lista_img.sel < 0) dizer(_("Elige una imagen de la lista."));
                 else {
                     if (conf.modo == M_DEGRADE) conf.modo = M_AJUSTADO;
-                    dizer("Aplicando el fondo...");
+                    dizer(_("Aplicando el fondo..."));
                     mostrando_barra = true;
                     desenhar();
                     int r = fundo_aplicar(itens_img[lista_img.sel], conf.modo);
                     mostrando_barra = false;
-                    if (r < 0) formatar_texto(estado, sizeof estado, "No se pudo: %s", texto_erro(r));
+                    if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo: %s"), texto_erro(r));
                     else {
                         copia_texto(conf.fundo, itens_img[lista_img.sel], sizeof conf.fundo);
                         dizer_gravado(conf_gravar());

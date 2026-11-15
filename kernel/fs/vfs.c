@@ -54,7 +54,7 @@ static no_t *filho_chamado(no_t *pasta, const char *nome, size_t n)
 
 /* D282: los permisos del ramdisk. Todo es de root (carpetas y programas 0755, el
  * resto 0644) salvo: /home y lo de dentro, de sagui; /tmp, 1777 (todos crean,
- * cada uno borra lo suyo); /sistema, 0700 (la configuración del sistema, SAGUI-CONF);
+ * cada uno borra lo suyo); /sistema, 0711 y lo de dentro 0700 (salvo /sistema/idiomas, D313, legible por todos);
  * la sombra, 0600. "c" es la ruta sin la barra inicial, de "n" bytes. */
 static bool prefixo(const char *c, size_t n, const char *p)
 {
@@ -66,7 +66,8 @@ static void meta_inicial(no_t *x, const char *c, size_t n)
 {
     if (prefixo(c, n, "home")) { x->uid = UID_SAGUI; x->gid = GID_SAGUI; }
     if (n == 3 && txt_compara_n(c, "tmp", 3) == 0) x->modo = 01777;
-    if (n == 7 && txt_compara_n(c, "sistema", 7) == 0) x->modo = 0700;
+    if (n == 7 && txt_compara_n(c, "sistema", 7) == 0) x->modo = 0711;       /* D313: se atraviesa, no se lista el contenido... */
+    else if (prefixo(c, n, "sistema") && !prefixo(c, n, "sistema/idiomas")) x->modo = 0700;   /* ...salvo los catalogos de idioma (0755/0644) */
     if (n >= 10 && txt_compara_n(c, "etc/sombra", 10) == 0) x->modo = 0600;
 }
 

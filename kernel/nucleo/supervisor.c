@@ -14,6 +14,7 @@
  *
  * Nada de esto puede impedir que el sistema arranque: si /bin/servicios no
  * existe o no carga, se anota y se sigue. */
+#include "idioma.h"
 #include "supervisor.h"
 #include "abi.h"
 #include "bootinfo.h"
@@ -132,7 +133,7 @@ bool supervisor_parar_servicos(int motivo)
     pronto = false;
     klog("[SERVICOS] %s: parando %d servicio(s) (supervisor pid %d)\n",
          motivo == SERV_MOTIVO_REINICIAR ? "reinicio" : "apagado", ativos, sup_pid);
-    if (gui_ativa()) gui_aviso("Parando los servicios...");
+    if (gui_ativa()) gui_aviso(_("Parando los servicios..."));
     else kprintf("Parando los servicios...\n");
     uint32_t limite = relogio_tiques() + ESPERA_APAGADO_S * TIQUES_POR_SEGUNDO;
     while (!pronto && vivo(sup_pid) && antes(limite))

@@ -243,9 +243,10 @@ void botao_desenhar(jan_t *j, botao_t *b)
     g_retangulo(j, b->x, b->y, b->l, b->a, b->apertado ? COR_BOTAO_APERTADO : COR_BOTAO);
     g_relevo(j, b->x, b->y, b->l, b->a, b->apertado);
     g_moldura(j, b->x - 1, b->y - 1, b->l + 2, b->a + 2, 0x5A6470);
-    int tx = b->x + (b->l - g_largura_texto(b->texto)) / 2 + (b->apertado ? 1 : 0);
+    const char *rot = idioma_traducir_sl(b->texto);   /* D313 */
+    int tx = b->x + (b->l - g_largura_texto(rot)) / 2 + (b->apertado ? 1 : 0);
     int ty = b->y + (b->a - LETRA_A) / 2 + (b->apertado ? 1 : 0);
-    g_texto(j, tx, ty, b->texto, COR_TEXTO);
+    g_texto(j, tx, ty, rot, COR_TEXTO);
     jan_mostrar_area(j, b->x - 1, b->y - 1, b->l + 2, b->a + 2);
     GR_REG(j, "botao", b, b->x, b->y, b->l, b->a, b->texto, b->l - 2, GRF_CONTROL);
 }
@@ -834,6 +835,8 @@ static int largura_dialogo(const char *t)
 
 static int dialogo(const char *titulo, const char *texto, const char *b1, const char *b2, caixa_t *caixa)
 {
+    titulo = idioma_traducir_sl(titulo);   /* D313: los textos que llegan literales de los programas */
+    texto = idioma_traducir_sl(texto);
     int larg = largura_dialogo(texto);
     int cols = (larg - 32) / LETRA_L;
     int alt = 70 + linhas_quebradas(texto, cols) * (LETRA_A + 2) + (caixa ? 34 : 0);
@@ -866,12 +869,12 @@ static int dialogo(const char *titulo, const char *texto, const char *b1, const 
 
 bool confirmar(const char *titulo, const char *pergunta)
 {
-    return dialogo(titulo, pergunta, "Sí", "No", NULL) == 1;
+    return dialogo(titulo, pergunta, _("Sí"), _("No"), NULL) == 1;
 }
 
 void mensagem(const char *titulo, const char *texto)
 {
-    dialogo(titulo, texto, "OK", NULL, NULL);
+    dialogo(titulo, texto, _("OK"), NULL, NULL);
 }
 
 bool pedir_texto(const char *titulo, const char *pergunta, char *resposta, int max)
@@ -879,7 +882,7 @@ bool pedir_texto(const char *titulo, const char *pergunta, char *resposta, int m
     caixa_t c;
     memset(&c, 0, sizeof c);
     caixa_definir(&c, resposta);
-    if (dialogo(titulo, pergunta, "OK", "Cancelar", &c) != 1) return false;
+    if (dialogo(titulo, pergunta, _("OK"), _("Cancelar"), &c) != 1) return false;
     copia_texto(resposta, c.texto, (size_t)max);
     return true;
 }

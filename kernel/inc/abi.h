@@ -187,7 +187,12 @@
 #define SIS_TELAS         136   /* (TELAS_OP_*, a, b) -> según la operación */
 /* D282 (mejora 098, fase 2): permisos de archivos. Operación en el primer argumento (PARQ_*, abajo). */
 #define SIS_PERMISOS_ARQ  137   /* (PARQ_*, a, b, c) -> según la operación */
-#define SIS_MAX           138
+/* D313 (v8.4, mejora 118): idioma de la interfaz. (IDIOMA_*, ptr, n) -> según la operación.
+ * (Era la 137 en la rama de idiomas; pasó a la 138 al chocar con SIS_PERMISOS_ARQ.) */
+#define SIS_IDIOMA        138
+#define IDIOMA_LER        0   /* (buf, n) -> 0: nombre del idioma actual ("es", "pt_BR", "en", "xx") */
+#define IDIOMA_FIXAR      1   /* (texto) -> 0: cambia el idioma, recarga el catálogo del kernel y redibuja el escritorio */
+#define SIS_MAX           139
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que

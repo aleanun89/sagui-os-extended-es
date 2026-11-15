@@ -37,6 +37,7 @@ bool area_tela_mudou(void);                /* fondo nuevo después de cambiar el
 bool area_fundo_personalizado(void);       /* D112: imagen de fondo elegida en la Configuración */
 void area_fundo_padrao(void);
 int  area_fundo_linhas(const uint32_t *px, int y, int n);   /* n líneas de píxeles de ancho de pantalla a partir de la línea y */
+void area_idioma_mudou(void);              /* D313: repinta los rótulos de los iconos con el idioma nuevo */
 void area_fundo_fim(void);                 /* termina la imagen: redibuja el fondo y la pantalla */
 void area_abrir_pantalla(void);            /* "Configuración de pantalla" (D066) */
 void area_menu_resolucao(menu_lista_t *ml);/* submenú "Resolución" con los modos en caliente (D066) */

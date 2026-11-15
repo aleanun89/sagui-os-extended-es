@@ -1,0 +1,167 @@
+# Traducción de SaguiOS: catálogo «libsagui», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/libsagui/gui.c:872 userland/libsagui/gui_arquivos.c:694
+msgid "Sí"
+msgstr "Sim"
+
+#: userland/libsagui/gui.c:872 userland/libsagui/gui_arquivos.c:695
+msgid "No"
+msgstr "Não"
+
+#: userland/libsagui/gui.c:877 userland/libsagui/gui.c:885
+msgid "OK"
+msgstr "OK"
+
+#: userland/libsagui/gui.c:885 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
+msgid "Cancelar"
+msgstr "Cancelar"
+
+#: userland/libsagui/gui_arquivos.c:320
+msgid "Todos los archivos (*.*)"
+msgstr "Todos os arquivos (*.*)"
+
+#: userland/libsagui/gui_arquivos.c:378 userland/libsagui/gui_arquivos.c:948
+msgid "Sin permiso para entrar en esa carpeta."
+msgstr "Sem permissão para entrar nessa pasta."
+
+#: userland/libsagui/gui_arquivos.c:378 userland/libsagui/gui_arquivos.c:948
+msgid "No se puede abrir esa carpeta."
+msgstr "Não é possível abrir essa pasta."
+
+#: userland/libsagui/gui_arquivos.c:393
+msgid "Carpeta"
+msgstr "Pasta"
+
+#: userland/libsagui/gui_arquivos.c:394
+msgid "Programa"
+msgstr "Programa"
+
+#: userland/libsagui/gui_arquivos.c:397
+msgid "Archivo"
+msgstr "Arquivo"
+
+#: userland/libsagui/gui_arquivos.c:402
+#, c-format
+msgid "Archivo %s"
+msgstr "Arquivo %s"
+
+#: userland/libsagui/gui_arquivos.c:436
+msgid "Nombre"
+msgstr "Nome"
+
+#: userland/libsagui/gui_arquivos.c:436
+msgid "Tamaño"
+msgstr "Tamanho"
+
+#: userland/libsagui/gui_arquivos.c:436
+msgid "Tipo"
+msgstr "Tipo"
+
+#: userland/libsagui/gui_arquivos.c:486
+msgid "Buscar en:"
+msgstr "Procurar em:"
+
+#: userland/libsagui/gui_arquivos.c:488
+msgid "Subir"
+msgstr "Subir"
+
+#: userland/libsagui/gui_arquivos.c:489
+msgid "Nueva"
+msgstr "Nova"
+
+#: userland/libsagui/gui_arquivos.c:490
+msgid "Lista"
+msgstr "Lista"
+
+#: userland/libsagui/gui_arquivos.c:490
+msgid "Detalles"
+msgstr "Detalhes"
+
+#: userland/libsagui/gui_arquivos.c:492
+msgid "Nombre de archivo:"
+msgstr "Nome do arquivo:"
+
+#: userland/libsagui/gui_arquivos.c:495
+msgid "Guardar"
+msgstr "Salvar"
+
+#: userland/libsagui/gui_arquivos.c:495
+msgid "Abrir"
+msgstr "Abrir"
+
+#: userland/libsagui/gui_arquivos.c:496
+msgid "Guardar como tipo:"
+msgstr "Salvar como tipo:"
+
+#: userland/libsagui/gui_arquivos.c:496
+msgid "Tipo:"
+msgstr "Tipo:"
+
+#: userland/libsagui/gui_arquivos.c:503
+#, c-format
+msgid "%d elementos"
+msgstr "%d itens"
+
+#: userland/libsagui/gui_arquivos.c:612
+#, c-format
+msgid "Unidad: %s"
+msgstr "Unidade: %s"
+
+#: userland/libsagui/gui_arquivos.c:621
+#, c-format
+msgid "Reciente: %s"
+msgstr "Recente: %s"
+
+#: userland/libsagui/gui_arquivos.c:646 userland/libsagui/gui_arquivos.c:1023 userland/libsagui/gui_arquivos.c:1033
+msgid "Nueva carpeta"
+msgstr "Nova pasta"
+
+#: userland/libsagui/gui_arquivos.c:646 userland/libsagui/gui_arquivos.c:1033
+msgid "Nombre de la carpeta:"
+msgstr "Nome da pasta:"
+
+#: userland/libsagui/gui_arquivos.c:649 userland/libsagui/gui_arquivos.c:1036
+msgid "No se pudo crear la carpeta."
+msgstr "Não foi possível criar a pasta."
+
+#: userland/libsagui/gui_arquivos.c:679
+msgid "Guardar como"
+msgstr "Salvar como"
+
+#: userland/libsagui/gui_arquivos.c:728
+msgid "No se encuentra el archivo."
+msgstr "O arquivo não foi encontrado."
+
+#: userland/libsagui/gui_arquivos.c:730
+msgid "La carpeta no existe."
+msgstr "A pasta não existe."
+
+#: userland/libsagui/gui_arquivos.c:733
+#, c-format
+msgid ""
+"%s ya existe.\n"
+"¿Quieres reemplazarlo?"
+msgstr ""
+"%s já existe.\n"
+"Quer substituí-lo?"
+
+#: userland/libsagui/gui_arquivos.c:991
+msgid "Elige una carpeta:"
+msgstr "Escolha uma pasta:"
+
+#: userland/libsagui/gui_arquivos.c:1018
+msgid "Carpeta:"
+msgstr "Pasta:"
+
+#: userland/libsagui/gui_arquivos.c:1024
+msgid "Aceptar"
+msgstr "OK"
+

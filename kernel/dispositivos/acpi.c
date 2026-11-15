@@ -31,6 +31,7 @@
  * después; este archivo sigue siendo el dueño del modo ACPI, del apagado y del
  * botón. uACPI nunca cambia el modo (UACPI_FLAG_NO_ACPI_MODE) y solo arranca
  * si este archivo ya dejó el sistema en modo ACPI (acpi_modo_ativo). */
+#include "idioma.h"
 #include "acpi.h"
 #include "abi.h"
 #include "bootinfo.h"
@@ -336,7 +337,7 @@ static void tarefa_apagar(void *arg)
         if (!pedido) continue;
         if (pedido == 2) {
             klog("[ACPI] botao de energia apertado: apagado ordenado\n");
-            if (gui_ativa()) gui_aviso("Botón de encendido: apagando el ordenador...");
+            if (gui_ativa()) gui_aviso(_("Botón de encendido: apagando el ordenador..."));
             else {
                 console_cor(COR_AMARELO, COR_PRETO);
                 kprintf("\nBotón de encendido: apagando el ordenador...\n");

@@ -148,7 +148,8 @@ def main():
             # La clave se guarda en su propio fichero: como no se escribió
             # ninguna, el fichero está vacío (solo el salto de línea).
             tam = m.comando("wc -c /tmp/ia/chave")
-            numeros = re.findall(r"\d+", tam)
+            # Sin las secuencias de escape del Terminal (D320 escribe ESC[?7700l tras el prompt).
+            numeros = re.findall(r"\d+", re.sub(r"\x1b?\[\??[0-9;]*[A-Za-z]", "", tam))
             verificar(numeros and int(numeros[-1]) <= 1,
                       f"sin clave, el fichero de la clave está vacío ({tam.strip()[-40:]})")
 

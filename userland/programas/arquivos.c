@@ -152,9 +152,9 @@ static bool eh_oculto(const char *nome)
 static void tamanho_kb(unsigned kb, char *s, size_t max)
 {
     if (kb >= 1024u * 1024u)
-        formatar_texto(s, max, "%u,%u GB", kb / (1024u * 1024u), (kb % (1024u * 1024u)) * 10u / (1024u * 1024u));
+        formatar_texto(s, max, "%u%c%u GB", kb / (1024u * 1024u), regional_decimal(), (kb % (1024u * 1024u)) * 10u / (1024u * 1024u));   /* D313: coma o punto */
     else if (kb >= 1024u)
-        formatar_texto(s, max, "%u,%u MB", kb / 1024u, (kb % 1024u) * 10u / 1024u);
+        formatar_texto(s, max, "%u%c%u MB", kb / 1024u, regional_decimal(), (kb % 1024u) * 10u / 1024u);
     else formatar_texto(s, max, "%u KB", kb);
 }
 
@@ -169,17 +169,17 @@ static void espaco_livre(char *s, size_t max)
             if (!comeca_com(pasta, montagens[i].ponto)) continue;
             char t[24];
             tamanho_kb(montagens[i].livre_kb, t, sizeof t);
-            formatar_texto(s, max, "%s libres", t);
+            formatar_texto(s, max, _("%s libres"), t);
             return;
         }
     info_memoria_t mem;
     if (info_sistema(INFO_MEMORIA, &mem, sizeof mem) == 0) {
         char t[24];
         tamanho_kb(mem.livre_kb, t, sizeof t);
-        formatar_texto(s, max, "%s libres (RAM)", t);
+        formatar_texto(s, max, _("%s libres (RAM)"), t);
         return;
     }
-    copia_texto(s, "espacio desconocido", max);
+    copia_texto(s, _("espacio desconocido"), max);
 }
 
 /* La ruta completa de un elemento (en la búsqueda ya lo está). */
@@ -193,9 +193,9 @@ static void caminho_de(int i, char *saida, size_t max)
 
 static const char *tipo_texto(int i)
 {
-    if (tipos[i] == TIPO_PASTA) return "carpeta";
-    if (tipos[i] == TIPO_PROGRAMA) return "programa";
-    return "archivo";
+    if (tipos[i] == TIPO_PASTA) return _("carpeta");
+    if (tipos[i] == TIPO_PROGRAMA) return _("programa");
+    return _("archivo");
 }
 
 /* La fecha de modificación (UTC) de un elemento; se pide sólo cuando hace falta. */
@@ -421,7 +421,7 @@ static void limpar_marcados(void)
 /* ------------------------------------------------------------ dibujo */
 
 static botao_t bt[8];
-static const char *const ROT_BT[8] = { "Atrás", "Nueva carpeta", "Borrar", "Adelante", "Arriba", "Ocultos", "Vista", "Buscar" };
+static const char *const ROT_BT[8] = { N_("Atrás"), N_("Nueva carpeta"), N_("Borrar"), N_("Adelante"), N_("Arriba"), N_("Ocultos"), N_("Vista"), N_("Buscar") };
 static const char *const IC_BT[8] = { "voltar", "pasta", "excluir", "avancar", "subir", "olho", "lista", "procurar" };
 
 /* El ancho de un botón sale de su texto, no de un número fijo (D136): así
@@ -482,9 +482,9 @@ static void desenhar_barra(void)
     g_retangulo(j, 0, ALT_BARRA - 1, LARG, 1, COR_BORDA);
     int x = 8;
     for (int i = 0; i < 8; i++) {
-        bt[i].x = x; bt[i].y = 7; bt[i].l = largura_botao(ROT_BT[i]); bt[i].a = 26; bt[i].texto = ROT_BT[i]; bt[i].apertado = false;
+        bt[i].x = x; bt[i].y = 7; bt[i].l = largura_botao(_(ROT_BT[i])); bt[i].a = 26; bt[i].texto = _(ROT_BT[i]); bt[i].apertado = false;
         if (x + bt[i].l > LARG) break;   /* ventana estrecha: no caben todos */
-        desenhar_botao(&bt[i], IC_BT[i], ROT_BT[i]);
+        desenhar_botao(&bt[i], IC_BT[i], _(ROT_BT[i]));
         x += bt[i].l + 4;
     }
 }
@@ -508,12 +508,12 @@ static void desenhar_lateral(void)
     g_retangulo(j, LATERAL - 1, ALT_BARRA, 1, ALT - ALT_BARRA - ALT_STATUS, COR_BORDA);
     qtd_lado = 0;
     int y = ALT_BARRA + 8;
-    rotulo(j, 10, y, "LUGARES", COR_TEXTO_FRACO);
+    rotulo(j, 10, y, _("LUGARES"), COR_TEXTO_FRACO);
     y += 20;
     struct { int acao; const char *icone; const char *texto; } itens[] = {
-        { LUG_SISTEMA, "disco", "Sistema" },
-        { LUG_HOME, "casa", "home" },
-        { LUG_TMP, "pasta", "tmp" },
+        { LUG_SISTEMA, "disco", N_("Sistema") },
+        { LUG_HOME, "casa", N_("home") },
+        { LUG_TMP, "pasta", N_("tmp") },
     };
     for (unsigned k = 0; k < sizeof itens / sizeof itens[0]; k++) {
         if (itens[k].acao == LUG_HOME && !existe_pasta("/home")) continue;
@@ -521,7 +521,7 @@ static void desenhar_lateral(void)
         lado_t *l = &lado[qtd_lado++];
         l->acao = itens[k].acao;
         l->icone = itens[k].icone;
-        copia_texto(l->texto, itens[k].texto, sizeof l->texto);
+        copia_texto(l->texto, _(itens[k].texto), sizeof l->texto);
         l->b.x = 8; l->b.y = y; l->b.l = largura_lado(l->texto); l->b.a = 24; l->b.texto = l->texto; l->b.apertado = false;
         desenhar_botao(&l->b, l->icone, l->texto);
         y += 28;
@@ -534,7 +534,7 @@ static void desenhar_lateral(void)
             lado_t *l = &lado[qtd_lado++];
             l->acao = LUG_PEN;
             l->icone = "disco";
-            copia_texto(l->texto, pendrive.montado ? "Retirar" : pendrive.rotulo[0] ? pendrive.rotulo : "Pendrive", sizeof l->texto);
+            copia_texto(l->texto, pendrive.montado ? _("Retirar") : pendrive.rotulo[0] ? pendrive.rotulo : _("Pendrive"), sizeof l->texto);
             l->b.x = 8; l->b.y = y; l->b.l = largura_lado(l->texto); l->b.a = 24; l->b.texto = l->texto; l->b.apertado = false;
             desenhar_botao(&l->b, l->icone, l->texto);
         }
@@ -548,7 +548,7 @@ static void desenhar_lateral(void)
             bool dentro = cdrom.montado && cdrom.ponto[0] && comeca_com(pasta, cdrom.ponto);
             l->acao = LUG_CD;
             l->icone = dentro ? "excluir" : "disco";
-            copia_texto(l->texto, dentro ? "Expulsar" : cdrom.rotulo[0] ? cdrom.rotulo : "CD/DVD", sizeof l->texto);
+            copia_texto(l->texto, dentro ? _("Expulsar") : cdrom.rotulo[0] ? cdrom.rotulo : "CD/DVD", sizeof l->texto);
             l->b.x = 8; l->b.y = y; l->b.l = largura_lado(l->texto); l->b.a = 24; l->b.texto = l->texto; l->b.apertado = false;
             desenhar_botao(&l->b, l->icone, l->texto);
         }
@@ -558,28 +558,28 @@ static void desenhar_lateral(void)
         lado_t *l = &lado[qtd_lado++];
         l->acao = LUG_LIXEIRA;
         l->icone = "excluir";
-        copia_texto(l->texto, "Lixeira", sizeof l->texto);
+        copia_texto(l->texto, _("Lixeira"), sizeof l->texto);
         l->b.x = 8; l->b.y = y; l->b.l = largura_lado(l->texto); l->b.a = 24; l->b.texto = l->texto; l->b.apertado = false;
         desenhar_botao(&l->b, l->icone, l->texto);
         y += 28;
     }
     y += 6;
-    rotulo(j, 10, y, "ACCIONES", COR_TEXTO_FRACO);
+    rotulo(j, 10, y, _("ACCIONES"), COR_TEXTO_FRACO);
     y += 20;
     struct { int acao; const char *icone; const char *texto; } acoes[] = {
-        { ACT_ABRIR_COM, "abrir", "Abrir con..." },
-        { ACT_COPIAR, "copiar", "Copiar" },
-        { ACT_CORTAR, "editar", "Cortar" },
-        { ACT_COLAR, "colar", "Pegar" },
-        { ACT_RENOMEAR, "documento-editar", "Renombrar" },
-        { ACT_PROPS, "informacao", "Propiedades" },
+        { ACT_ABRIR_COM, "abrir", N_("Abrir con...") },
+        { ACT_COPIAR, "copiar", N_("Copiar") },
+        { ACT_CORTAR, "editar", N_("Cortar") },
+        { ACT_COLAR, "colar", N_("Pegar") },
+        { ACT_RENOMEAR, "documento-editar", N_("Renombrar") },
+        { ACT_PROPS, "informacao", N_("Propiedades") },
     };
     for (unsigned k = 0; k < sizeof acoes / sizeof acoes[0]; k++) {
         if (qtd_lado >= MAX_LADO) break;
         lado_t *l = &lado[qtd_lado++];
         l->acao = acoes[k].acao;
         l->icone = acoes[k].icone;
-        copia_texto(l->texto, acoes[k].texto, sizeof l->texto);
+        copia_texto(l->texto, _(acoes[k].texto), sizeof l->texto);
         l->b.x = 8; l->b.y = y; l->b.l = largura_lado(l->texto); l->b.a = 24; l->b.texto = l->texto; l->b.apertado = false;
         desenhar_botao(&l->b, l->icone, l->texto);
         y += 26;
@@ -649,20 +649,20 @@ static void desenhar_cabecalho(void)
     col_tipo = x0 + l - 240;
     col_data = x0 + l - 160;
     uint32_t cor = ordem == ORD_NOME ? COR_DESTAQUE : COR_TEXTO;
-    g_texto(j, x0 + 6, y + 2, "Nombre", cor);
+    g_texto(j, x0 + 6, y + 2, _("Nombre"), cor);
     const char *seta = ordem_desc ? "v" : "^";
     g_texto(j, x0 + 62, y + 2, seta, COR_DESTAQUE);
     char t[16];
-    copia_texto(t, "Tamaño", sizeof t);
+    copia_texto(t, _("Tamaño"), sizeof t);
     int tl = (int)tam_texto(t);
     cor = ordem == ORD_TAMANHO ? COR_DESTAQUE : COR_TEXTO;
     g_texto(j, col_tam - tl * 8, y + 2, t, cor);
     if (ordem == ORD_TAMANHO) g_texto(j, col_tam + 4, y + 2, seta, COR_DESTAQUE);
-    copia_texto(t, "Tipo", sizeof t);
+    copia_texto(t, _("Tipo"), sizeof t);
     cor = ordem == ORD_TIPO ? COR_DESTAQUE : COR_TEXTO;
     g_texto(j, col_tipo, y + 2, t, cor);
     if (ordem == ORD_TIPO) g_texto(j, col_tipo + 34, y + 2, seta, COR_DESTAQUE);
-    copia_texto(t, "Fecha", sizeof t);
+    copia_texto(t, _("Fecha"), sizeof t);
     cor = ordem == ORD_DATA ? COR_DESTAQUE : COR_TEXTO;
     g_texto(j, col_data, y + 2, t, cor);
     if (ordem == ORD_DATA) g_texto(j, col_data + 40, y + 2, seta, COR_DESTAQUE);
@@ -861,19 +861,19 @@ static void desenhar_rodape(const char *msg)
 static void info_item(int i, char *msg, size_t max)
 {
     if (em_busca) { copia_texto(msg, rotas[i], max); return; }
-    if (tipos[i] == TIPO_PASTA) formatar_texto(msg, max, "%s/ (carpeta)", nomes[i]);
-    else formatar_texto(msg, max, "%s: %u bytes%s", nomes[i], tamanhos[i], tipos[i] == TIPO_PROGRAMA ? " (programa)" : "");
+    if (tipos[i] == TIPO_PASTA) formatar_texto(msg, max, _("%s/ (carpeta)"), nomes[i]);
+    else formatar_texto(msg, max, _("%s: %u bytes%s"), nomes[i], tamanhos[i], tipos[i] == TIPO_PROGRAMA ? _(" (programa)") : "");
 }
 
 /* El texto del estado: cuántos elementos hay y qué está seleccionado. */
 static void estado_texto(char *s, size_t max){
-    if (em_busca) formatar_texto(s, max, "%d resultados para %s", n_resultados, padrao_busca);
-    else if (filtro[0]) formatar_texto(s, max, "%d elementos (filtro %s)", lista.qtd, filtro);
-    else if (lista.qtd == 1) formatar_texto(s, max, "1 elemento");
-    else formatar_texto(s, max, "%d elementos", lista.qtd);
+    if (em_busca) formatar_texto(s, max, _("%d resultados para %s"), n_resultados, padrao_busca);
+    else if (filtro[0]) formatar_texto(s, max, _("%d elementos (filtro %s)"), lista.qtd, filtro);
+    else if (lista.qtd == 1) formatar_texto(s, max, "%s", _("1 elemento"));
+    else formatar_texto(s, max, _("%d elementos"), lista.qtd);
     if (n_marcados > 1) {
         char t[64];
-        formatar_texto(t, sizeof t, "%d seleccionados", n_marcados);
+        formatar_texto(t, sizeof t, _("%d seleccionados"), n_marcados);
         if (tam_texto(s) + 2 < max) { junta_texto(s, " - ", max); junta_texto(s, t, max); }
     }
 }
@@ -1128,18 +1128,18 @@ static void abrir_item(int i)
         registrar("arquivos: abrindo no %s %s (pid %d)", prog, c, pid);
     }
     char msg[200];
-    formatar_texto(msg, sizeof msg, pid > 0 ? "Abriendo %s..." : "No se ha podido abrir %s", nomes[i]);
+    formatar_texto(msg, sizeof msg, pid > 0 ? _("Abriendo %s...") : _("No se ha podido abrir %s"), nomes[i]);
     desenhar_rodape(msg);
 }
 
 static void nova_pasta(void)
 {
     char nome[64] = "";
-    if (!pedir_texto("Nueva carpeta", "Nombre de la nueva carpeta:", nome, sizeof nome) || !nome[0]) return;
+    if (!pedir_texto(_("Nueva carpeta"), _("Nombre de la nueva carpeta:"), nome, sizeof nome) || !nome[0]) return;
     char c[200];
     caminho_juntar(c, sizeof c, pasta, nome);
     int r = criar_pasta(c);
-    if (r < 0) { char m[200]; formatar_texto(m, sizeof m, "No se ha podido crear la carpeta:\n%s", nome_erro(r)); mensagem("Archivos", m); return; }
+    if (r < 0) { char m[200]; formatar_texto(m, sizeof m, _("No se ha podido crear la carpeta:\n%s"), nome_erro(r)); mensagem(_("Archivos"), m); return; }
     registrar("arquivos: pasta criada %s", c);
     carregar();
 }
@@ -1147,7 +1147,7 @@ static void nova_pasta(void)
 static void apagar_item(void)
 {
     if (n_marcados <= 0) {
-        desenhar_rodape("No hay nada seleccionado");
+        desenhar_rodape(_("No hay nada seleccionado"));
         return;
     }
     char pergunta[200];
@@ -1156,14 +1156,14 @@ static void apagar_item(void)
         if (i < 0 || i >= lista.qtd) return;
         char c[200];
         caminho_de(i, c, sizeof c);
-        formatar_texto(pergunta, sizeof pergunta, "¿Seguro que quieres borrar\n%s%s?", nomes[i], tipos[i] == TIPO_PASTA ? "/" : "");
-        if (!confirmar("Borrar", pergunta)) return;
+        formatar_texto(pergunta, sizeof pergunta, _("¿Seguro que quieres borrar\n%s%s?"), nomes[i], tipos[i] == TIPO_PASTA ? "/" : "");
+        if (!confirmar(_("Borrar"), pergunta)) return;
         int r = tipos[i] == TIPO_PASTA ? remover_pasta(c) : apagar(c);
-        if (r < 0) { char m[200]; formatar_texto(m, sizeof m, "No se ha podido borrar:\n%s", nome_erro(r)); mensagem("Archivos", m); return; }
+        if (r < 0) { char m[200]; formatar_texto(m, sizeof m, _("No se ha podido borrar:\n%s"), nome_erro(r)); mensagem(_("Archivos"), m); return; }
         registrar("arquivos: apagado %s", c);
     } else {
-        formatar_texto(pergunta, sizeof pergunta, "¿Seguro que quieres borrar\n%d elementos?", n_marcados);
-        if (!confirmar("Borrar", pergunta)) return;
+        formatar_texto(pergunta, sizeof pergunta, _("¿Seguro que quieres borrar\n%d elementos?"), n_marcados);
+        if (!confirmar(_("Borrar"), pergunta)) return;
         for (int i = 0; i < lista.qtd; i++) {
             if (!marcados[i]) continue;
             char c[200];
@@ -1183,13 +1183,13 @@ static void renomear_item(void)
     if (i < 0 || i >= lista.qtd) return;
     char nome[64], antigo[200], novo[200];
     copia_texto(nome, nomes[i], sizeof nome);
-    if (!pedir_texto("Renombrar", "Nuevo nombre:", nome, sizeof nome) || !nome[0]) return;
+    if (!pedir_texto(_("Renombrar"), _("Nuevo nombre:"), nome, sizeof nome) || !nome[0]) return;
     if (compara_texto(nome, nomes[i]) == 0) return;
-    if (acha_char(nome, '/')) { mensagem("Archivos", "El nombre no puede contener '/'."); return; }
+    if (acha_char(nome, '/')) { mensagem(_("Archivos"), _("El nombre no puede contener '/'.")); return; }
     caminho_de(i, antigo, sizeof antigo);
     caminho_juntar(novo, sizeof novo, pasta, nome);
     int r = renomear(antigo, novo);
-    if (r < 0) { char m[200]; formatar_texto(m, sizeof m, "No se ha podido renombrar:\n%s", nome_erro(r)); mensagem("Archivos", m); return; }
+    if (r < 0) { char m[200]; formatar_texto(m, sizeof m, _("No se ha podido renombrar:\n%s"), nome_erro(r)); mensagem(_("Archivos"), m); return; }
     registrar("arquivos: renomeado %s -> %s", antigo, novo);
     em_busca = false;          /* al renombrar se sale de la búsqueda */
     carregar();
@@ -1220,7 +1220,9 @@ static void propriedades_item(void)
     char c[200], m[600];
     caminho_de(i, c, sizeof c);
     const char *tipo = tipo_texto(i);
-    char quando[64] = "desconocida", criado[64] = "desconocida";
+    char quando[64], criado[64];
+    copia_texto(quando, _("desconocida"), sizeof quando);
+    copia_texto(criado, quando, sizeof criado);
     datas_arquivo_t d;
     if (datas_arquivo(c, &d) == 0) {
         fuso_data_t l;
@@ -1230,23 +1232,24 @@ static void propriedades_item(void)
     uint32_t tam = tamanhos[i];
     if (tipos[i] == TIPO_PASTA) tam = tamanho_pasta(c, 0);
     char tamtxt[24];
-    formatar_texto(tamtxt, sizeof tamtxt, "%u bytes", tam);
+    formatar_texto(tamtxt, sizeof tamtxt, _("%u bytes"), tam);
     char livre[64];
     espaco_livre(livre, sizeof livre);
     /* D282: permisos, dueño y grupo (en FAT32, los del montaje). */
-    char perm[120] = "desconocidos";
+    char perm[120];
+    formatar_texto(perm, sizeof perm, "%s", _("desconocidos"));
     info_permisos_t p;
     if (permisos_arquivo(c, &p) == 0) {
         char rwx[10], dono[CONTA_NOME_MAX], grupo[CONTA_NOME_MAX];
         texto_modo(p.modo, rwx);
-        formatar_texto(perm, sizeof perm, "%s (%04o)%s\nDueño: %s\nGrupo: %s", rwx, p.modo,
-                       p.com_donos ? "" : ", los del montaje", conta_nome(p.uid, dono, sizeof dono),
+        formatar_texto(perm, sizeof perm, _("%s (%04o)%s\nDueño: %s\nGrupo: %s"), rwx, p.modo,
+                       p.com_donos ? "" : _(", los del montaje"), conta_nome(p.uid, dono, sizeof dono),
                        conta_nome(p.gid, grupo, sizeof grupo));
     }
-    formatar_texto(m, sizeof m, "Nombre: %s\nTipo: %s\nTamaño: %s\nCreado: %s\nModificado: %s\nPermisos: %s\nRuta: %s\nEspacio libre: %s",
+    formatar_texto(m, sizeof m, _("Nombre: %s\nTipo: %s\nTamaño: %s\nCreado: %s\nModificado: %s\nPermisos: %s\nRuta: %s\nEspacio libre: %s"),
                     nomes[i], tipo, tamtxt, criado, quando, perm, c, livre);
     registrar("arquivos: propriedades de %s (modificado %s)", c, quando);
-    mensagem("Propiedades", m);
+    mensagem(_("Propiedades"), m);
 }
 
 /* ---- comprimir e extrair (mejora 056, D103): chama os comandos zip, tar e unzip na pasta atual */
@@ -1281,16 +1284,16 @@ static void comprimir_item(bool tgz)
     char c[200];
     caminho_juntar(c, sizeof c, pasta, saida);
     if (info_arquivo(c, &inf) == 0) {
-        formatar_texto(msg, sizeof msg, "%s ya existe.\n¿Reemplazarlo?", saida);
-        if (!confirmar("Comprimir", msg)) return;
+        formatar_texto(msg, sizeof msg, _("%s ya existe.\n¿Reemplazarlo?"), saida);
+        if (!confirmar(_("Comprimir"), msg)) return;
     }
-    desenhar_rodape("Comprimiendo...");
+    desenhar_rodape(_("Comprimiendo..."));
     char *a_zip[] = { "zip", "-rq", saida, nomes[i], NULL };
     char *a_tgz[] = { "tar", "-czf", saida, nomes[i], NULL };
     int r = rodar(tgz ? a_tgz : a_zip);
     registrar("arquivos: comprimir %s -> %s (codigo %d)", nomes[i], saida, r);
     carregar();
-    formatar_texto(msg, sizeof msg, r == 0 ? "Creado %s" : "No se ha podido crear %s", saida);
+    formatar_texto(msg, sizeof msg, r == 0 ? _("Creado %s") : _("No se ha podido crear %s"), saida);
     desenhar_rodape(msg);
 }
 
@@ -1300,7 +1303,7 @@ static void comprimir_item(bool tgz)
  * janela nova do explorador). */
 static void abrir_grupo(void)
 {
-    if (n_marcados <= 0) { desenhar_rodape("No hay nada seleccionado"); return; }
+    if (n_marcados <= 0) { desenhar_rodape(_("No hay nada seleccionado")); return; }
     int abertos = 0;
     for (int i = 0; i < lista.qtd; i++) {
         if (!marcados[i]) continue;
@@ -1316,7 +1319,7 @@ static void abrir_grupo(void)
         }
     }
     char msg[120];
-    formatar_texto(msg, sizeof msg, "%d elementos abiertos", abertos);
+    formatar_texto(msg, sizeof msg, _("%d elementos abiertos"), abertos);
     desenhar_rodape(msg);
     registrar("arquivos: abertos %d itens do grupo", abertos);
 }
@@ -1344,15 +1347,15 @@ static void propriedades_grupo(void)
     char livre[64];
     espaco_livre(livre, sizeof livre);
     char m[700];
-    formatar_texto(m, sizeof m, "Elementos: %d\nTama\xf1o total: %u bytes\nEspacio libre: %s\n\n%s", n, total, livre, lista_nomes);
+    formatar_texto(m, sizeof m, _("Elementos: %d\nTama\xf1o total: %u bytes\nEspacio libre: %s\n\n%s"), n, total, livre, lista_nomes);
     registrar("arquivos: propriedades do grupo (%d itens)", n);
-    mensagem("Propiedades", m);
+    mensagem(_("Propiedades"), m);
 }
 
 /* Comprime todos os elementos marcados num unico .zip ou .tar.gz. */
 static void comprimir_grupo(bool tgz)
 {
-    if (n_marcados <= 0) { desenhar_rodape("No hay nada seleccionado"); return; }
+    if (n_marcados <= 0) { desenhar_rodape(_("No hay nada seleccionado")); return; }
     char base[64];
     if (compara_texto(pasta, "/") == 0) copia_texto(base, "seleccion", sizeof base);
     else copia_texto(base, nome_base(pasta), sizeof base);
@@ -1362,10 +1365,10 @@ static void comprimir_grupo(bool tgz)
     char c[200];
     caminho_juntar(c, sizeof c, pasta, saida);
     if (info_arquivo(c, &inf) == 0) {
-        formatar_texto(msg, sizeof msg, "%s ya existe.\n\xbfReemplazarlo?", saida);
-        if (!confirmar("Comprimir", msg)) return;
+        formatar_texto(msg, sizeof msg, _("%s ya existe.\n\xbfReemplazarlo?"), saida);
+        if (!confirmar(_("Comprimir"), msg)) return;
     }
-    desenhar_rodape("Comprimiendo...");
+    desenhar_rodape(_("Comprimiendo..."));
     /* O argv: o programa, a opcao, o ficheiro de saida e os nomes dos
      * elementos marcados. O tar so aceita 64 rotas, por isso o grupo se
      * recorta (e avisa). */
@@ -1386,9 +1389,9 @@ static void comprimir_grupo(bool tgz)
     if (skipped) registrar("arquivos: %d elementos fora do arquivo (limite de %d)", skipped, MAX_ARGS_GRUPO);
     carregar();
     if (r == 0 && skipped)
-        formatar_texto(msg, sizeof msg, "Creado %s (%d de %d elementos)", saida, quantos, quantos + skipped);
+        formatar_texto(msg, sizeof msg, _("Creado %s (%d de %d elementos)"), saida, quantos, quantos + skipped);
     else
-        formatar_texto(msg, sizeof msg, r == 0 ? "Creado %s" : "No se ha podido crear %s", saida);
+        formatar_texto(msg, sizeof msg, r == 0 ? _("Creado %s") : _("No se ha podido crear %s"), saida);
     desenhar_rodape(msg);
 }
 
@@ -1401,9 +1404,9 @@ static void extrair_item(bool em_pasta)
         copia_texto(destino, nomes[i], sizeof destino);
         char *p = acha_char(destino, '.');
         if (p && p != destino) *p = 0;   /* "datos.tar.gz" -> "datos" */
-        if (!pedir_texto("Extraer en carpeta", "Carpeta de destino:", destino, sizeof destino) || !destino[0]) return;
+        if (!pedir_texto(_("Extraer en carpeta"), _("Carpeta de destino:"), destino, sizeof destino) || !destino[0]) return;
     }
-    desenhar_rodape("Extrayendo...");
+    desenhar_rodape(_("Extrayendo..."));
     int r;
     if (termina_em(nomes[i], ".zip")) {
         char *a[] = { "unzip", "-qo", "-d", destino, nomes[i], NULL };
@@ -1417,7 +1420,7 @@ static void extrair_item(bool em_pasta)
     }
     registrar("arquivos: extrair %s em %s (codigo %d)", nomes[i], destino, r);
     carregar();
-    formatar_texto(msg, sizeof msg, r == 0 ? "Extraído %s" : "No se ha podido extraer %s (¿ya existía algo?)", nomes[i]);
+    formatar_texto(msg, sizeof msg, r == 0 ? _("Extraído %s") : _("No se ha podido extraer %s (¿ya existía algo?)"), nomes[i]);
     desenhar_rodape(msg);
 }
 
@@ -1456,7 +1459,7 @@ static bool copiar_ficheiro(const char *origem, const char *destino)
 static void copiar_area(bool mover)
 {
     if (n_marcados <= 0) {
-        desenhar_rodape("No hay nada seleccionado");
+        desenhar_rodape(_("No hay nada seleccionado"));
         return;
     }
     area_n = 0;
@@ -1469,7 +1472,7 @@ static void copiar_area(bool mover)
     area_mover = mover;
     guardar_area();
     char msg[120];
-    formatar_texto(msg, sizeof msg, "%d %s para el portapapeles", area_n, mover ? "cortados" : "copiados");
+    formatar_texto(msg, sizeof msg, _("%d %s para el portapapeles"), area_n, mover ? _("cortados") : _("copiados"));
     desenhar_rodape(msg);
     registrar("arquivos: %s %d itens para a area de transferencia", mover ? "cortados" : "copiados", area_n);
 }
@@ -1478,7 +1481,7 @@ static void copiar_area(bool mover)
 static void colar_area(void)
 {
     if (area_n <= 0) {
-        desenhar_rodape("El portapapeles de archivos está vacío");
+        desenhar_rodape(_("El portapapeles de archivos está vacío"));
         return;
     }
     bool mover = area_mover;
@@ -1490,10 +1493,10 @@ static void colar_area(void)
         info_arquivo_t inf;
         if (info_arquivo(destino, &inf) == 0) {
             char m[200];
-            formatar_texto(m, sizeof m, "%s ya existe.\n¿Reemplazarlo?", nome);
-            if (!confirmar("Pegar", m)) continue;
+            formatar_texto(m, sizeof m, _("%s ya existe.\n¿Reemplazarlo?"), nome);
+            if (!confirmar(_("Pegar"), m)) continue;
         }
-        desenhar_rodape("Copiando...");
+        desenhar_rodape(_("Copiando..."));
         if (!copiar_ficheiro(area_caminhos[i], destino)) continue;
         copiados++;
         if (mover) {   /* el corte borra el original */
@@ -1505,7 +1508,7 @@ static void colar_area(void)
     }
     if (mover) { area_n = 0; area_mover = false; guardar_area(); }
     char msg[120];
-    formatar_texto(msg, sizeof msg, "%d %s pegados", copiados, mover ? "movidos" : "copiados");
+    formatar_texto(msg, sizeof msg, _("%d %s pegados"), copiados, mover ? _("movidos") : _("copiados"));
     desenhar_rodape(msg);
     registrar("arquivos: colados %d itens", copiados);
     carregar();
@@ -1550,7 +1553,7 @@ static void buscar(const char *patrao)
     em_busca = true;
     carregar();
     char msg[160];
-    formatar_texto(msg, sizeof msg, "%d resultados para %s", n_resultados, padrao_busca);
+    formatar_texto(msg, sizeof msg, _("%d resultados para %s"), n_resultados, padrao_busca);
     desenhar_rodape(msg);
     registrar("arquivos: busca %s (%d resultados)", padrao_busca, n_resultados);
 }
@@ -1581,7 +1584,7 @@ static void mudar_ocultos(void)
     guardar_preferencias();
     carregar();
     char msg[120];
-    formatar_texto(msg, sizeof msg, "Ocultos %s", ver_ocultos ? "visibles" : "ocultos");
+    formatar_texto(msg, sizeof msg, _("Ocultos %s"), ver_ocultos ? _("visibles") : _("ocultos"));
     desenhar_rodape(msg);
     registrar("arquivos: ocultos %s", ver_ocultos ? "sim" : "nao");
 }
@@ -1639,7 +1642,7 @@ static void abrir_com(const char *prog, const char *arquivo)
     int pid = executar(bin, argv);
     registrar("arquivos: abrir com %s %s (pid %d)", prog, arquivo, pid);
     char msg[200];
-    formatar_texto(msg, sizeof msg, pid > 0 ? "Abriendo %s con %s..." : "No se ha podido abrir %s", nome_base(arquivo), prog);
+    formatar_texto(msg, sizeof msg, pid > 0 ? _("Abriendo %s con %s...") : _("No se ha podido abrir %s"), nome_base(arquivo), prog);
     desenhar_rodape(msg);
 }
 
@@ -1648,7 +1651,7 @@ static void menu_abrir_com(void)
 {
     int i = lista.sel;
     if (i < 0 || i >= lista.qtd) return;
-    if (tipos[i] == TIPO_PASTA) { mensagem("Abrir con", "Una carpeta se abre, no se abre con un programa."); return; }
+    if (tipos[i] == TIPO_PASTA) { mensagem(_("Abrir con"), _("Una carpeta se abre, no se abre con un programa.")); return; }
     char c[200];
     caminho_de(i, c, sizeof c);
     const char *padrao = programa_padrao(c);
@@ -1701,10 +1704,10 @@ static void abrir_menu(const evento_t *e)
         if (marcados[i] && n_marcados > 1) {   /* o menu do grupo (D139) */
             lista.sel = i;
             desenhar_lista();
-            char itens[160];
-            formatar_texto(itens, sizeof itens,
-                           "Abrir (%d)\nCopiar\nCortar\n-\nBorrar (%d)\nPropiedades (%d)\n-\nComprimir en .zip\nComprimir en .tar.gz",
-                           n_marcados, n_marcados, n_marcados);
+            char itens[240];
+            formatar_texto(itens, sizeof itens, "%s (%d)\n%s\n%s\n-\n%s (%d)\n%s (%d)\n-\n%s\n%s",
+                           _("Abrir"), n_marcados, _("Copiar"), _("Cortar"), _("Borrar"), n_marcados, _("Propiedades"), n_marcados,
+                           _("Comprimir en .zip"), _("Comprimir en .tar.gz"));
             registrar("arquivos: menu do grupo (%d itens)", n_marcados);
             menu_contextual(j->id, e->x, e->y, itens, MENU_GRUPO);
             return;
@@ -1716,13 +1719,18 @@ static void abrir_menu(const evento_t *e)
         ancora = i;
         desenhar_lista();
         registrar("arquivos: menu do item %s", nomes[i]);
-        menu_contextual(j->id, e->x, e->y, eh_comprimido(nomes[i]) && tipos[i] != TIPO_PASTA
-                        ? "Abrir\nRenombrar\nBorrar\n-\nPropiedades\n-\nComprimir en .zip\nComprimir en .tar.gz\nExtraer aquí\nExtraer en carpeta..."
-                        : "Abrir\nRenombrar\nBorrar\n-\nPropiedades\n-\nComprimir en .zip\nComprimir en .tar.gz\n~Extraer aquí\n~Extraer en carpeta...", MENU_ITEM);
+        char itens[320];
+        bool descomp = eh_comprimido(nomes[i]) && tipos[i] != TIPO_PASTA;
+        formatar_texto(itens, sizeof itens, "%s\n%s\n%s\n-\n%s\n-\n%s\n%s\n%s%s\n%s%s", _("Abrir"), _("Renombrar"), _("Borrar"),
+                       _("Propiedades"), _("Comprimir en .zip"), _("Comprimir en .tar.gz"),
+                       descomp ? "" : "~", _("Extraer aquí"), descomp ? "" : "~", _("Extraer en carpeta..."));
+        menu_contextual(j->id, e->x, e->y, itens, MENU_ITEM);
     } else {
         registrar("arquivos: menu do fundo");
-        menu_contextual(j->id, e->x, e->y, compara_texto(pasta, "/") == 0 ? "Nueva carpeta\nActualizar\n-\n~Atrás"
-                                                                         : "Nueva carpeta\nActualizar\n-\nAtrás", MENU_FUNDO);
+        char itens[160];
+        formatar_texto(itens, sizeof itens, "%s\n%s\n-\n%s%s", _("Nueva carpeta"), _("Actualizar"),
+                       compara_texto(pasta, "/") == 0 ? "~" : "", _("Atrás"));
+        menu_contextual(j->id, e->x, e->y, itens, MENU_FUNDO);
     }
 }
 
@@ -1796,8 +1804,8 @@ static void acao_cd(void)
         int r = expulsar_disco(cdrom.nome, 0);
         registrar("arquivos: expulsar %s -> %d", cdrom.nome, r);
         if (r < 0) {
-            mensagem("Archivos", r == ERRO_OCUPADO ? "El CD/DVD está en uso (¿el instalador?): no se expulsa."
-                                                   : "No se ha podido expulsar el CD/DVD.");
+            mensagem(_("Archivos"), r == ERRO_OCUPADO ? _("El CD/DVD está en uso (¿el instalador?): no se expulsa.")
+                                                   : _("No se ha podido expulsar el CD/DVD."));
             return;
         }
         copia_texto(pasta, "/", sizeof pasta);
@@ -1807,7 +1815,7 @@ static void acao_cd(void)
     }
     if (!cdrom.montado) {
         int r = montar_em(cdrom.nome, "/cd", MONTAR_SO_LEITURA);
-        if (r < 0) { char m[120]; formatar_texto(m, sizeof m, "No se ha podido montar el CD/DVD:\n%s", nome_erro(r)); mensagem("Archivos", m); return; }
+        if (r < 0) { char m[120]; formatar_texto(m, sizeof m, _("No se ha podido montar el CD/DVD:\n%s"), nome_erro(r)); mensagem(_("Archivos"), m); return; }
         atualizar_cd();
     }
     entrar(cdrom.ponto[0] ? cdrom.ponto : "/cd", true);
@@ -1831,11 +1839,11 @@ static void acao_lado(int acao)
             if (comeca_com(pasta, onde)) copia_texto(pasta, "/", sizeof pasta);
             atualizar_pendrive();
             desenhar_lateral();
-            mensagem("Archivos", r < 0 ? "No se ha podido desmontar el pendrive." : "Ya puedes retirar el pendrive.");
+            mensagem(_("Archivos"), r < 0 ? _("No se ha podido desmontar el pendrive.") : _("Ya puedes retirar el pendrive."));
             carregar();
         } else {
             int r = montar(pendrive.nome);
-            if (r < 0) { char m[120]; formatar_texto(m, sizeof m, "No se ha podido montar el pendrive:\n%s", nome_erro(r)); mensagem("Archivos", m); }
+            if (r < 0) { char m[120]; formatar_texto(m, sizeof m, _("No se ha podido montar el pendrive:\n%s"), nome_erro(r)); mensagem(_("Archivos"), m); }
             else {
                 atualizar_pendrive();
                 desenhar_lateral();
@@ -1927,7 +1935,7 @@ int principal(int argc, char **argv)
     if (argc > 1) copia_texto(pasta, argv[1], sizeof pasta);
     ler_preferencias();
     ler_area();
-    j = jan_abrir("Archivos", LARG_INICIO, ALT_INICIO);
+    j = jan_abrir(_("Archivos"), LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, 420, 260);
     lista = (lista_t){ LATERAL + 6, Y_LISTA, LARG - LATERAL - 14, ALT - Y_LISTA - 30, nomes, 0, -1, 0, NULL, desenhar_lista_gancho };
@@ -1995,7 +2003,7 @@ int principal(int argc, char **argv)
                     em_busca = false;
                     carregar();
                     char msg[160];
-                    formatar_texto(msg, sizeof msg, "Filtro: %s", filtro);
+                    formatar_texto(msg, sizeof msg, _("Filtro: %s"), filtro);
                     desenhar_rodape(msg);
                 }
             }
@@ -2009,7 +2017,7 @@ int principal(int argc, char **argv)
         bool clic = false;
         for (int i = 0; i < 8; i++) {
             if (bt[i].x + bt[i].l > LARG) break;
-            if (!botao_tratar_icone(&bt[i], IC_BT[i], ROT_BT[i], &e)) continue;
+            if (!botao_tratar_icone(&bt[i], IC_BT[i], _(ROT_BT[i]), &e)) continue;
             clic = true;
             if (i == 0) voltar();
             else if (i == 1) nova_pasta();
@@ -2135,7 +2143,7 @@ int principal(int argc, char **argv)
                 for (int i = 0; i < lista.qtd; i++) { marcados[i] = true; n_marcados++; }
                 desenhar_lista();
                 char msg[80];
-                formatar_texto(msg, sizeof msg, "%d elementos selecionados", n_marcados);
+                formatar_texto(msg, sizeof msg, _("%d elementos selecionados"), n_marcados);
                 desenhar_rodape(msg);
                 registrar("arquivos: selecionados %d itens", n_marcados);
                 continue;

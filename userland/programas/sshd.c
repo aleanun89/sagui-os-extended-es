@@ -1432,6 +1432,9 @@ static void canal_pedido(canal_t *c, ssh_leitor_t *l)
             n = ssh_de_utf8(p, n, (uint8_t *)cmd);   /* el cliente escribe en UTF-8; SaguiOS, en Latin-1 */
             cmd[n] = 0;
             c->utf8 = conf.exec_utf8;
+            /* rsync --server (D314) habla un protocolo binario por la entrada y la salida:
+             * nada de convertir a UTF-8 lo que sale. */
+            if (comeca_com(cmd, "rsync --server")) c->utf8 = false;
             ok = canal_lancar(c, cmd);
             anotar("canal %d: orden%s: %s%s", id, c->pty ? " (con terminal)" : "", cmd_utf, ok ? "" : " (falló)");
         } else anotar("canal %d: orden demasiado larga o mal formada: rechazada", id);

@@ -317,7 +317,7 @@ static void filtros_ler(dlg_t *d, const char *f)
         if (*f) f++;
     }
     if (d->nf == 0) {
-        copia_texto(d->fnome[0], "Todos los archivos (*.*)", sizeof d->fnome[0]);
+        copia_texto(d->fnome[0], _("Todos los archivos (*.*)"), sizeof d->fnome[0]);
         copia_texto(d->fpad[0], "*", sizeof d->fpad[0]);
         d->nf = 1;
     }
@@ -375,7 +375,7 @@ static bool entrar(dlg_t *d, const char *destino)
     entrada_pasta_t *v = NULL;
     int n = listar_tudo(nova, &v);
     if (n < 0) {
-        copia_texto(d->aviso, n == ERRO_ACESSO ? "Sin permiso para entrar en esa carpeta." : "No se puede abrir esa carpeta.", sizeof d->aviso);
+        copia_texto(d->aviso, n == ERRO_ACESSO ? _("Sin permiso para entrar en esa carpeta.") : _("No se puede abrir esa carpeta."), sizeof d->aviso);
         return false;
     }
     if (d->ent) libera(d->ent);
@@ -390,16 +390,16 @@ static bool entrar(dlg_t *d, const char *destino)
 
 static void tipo_texto(const entrada_pasta_t *e, char *s, int max)
 {
-    if (e->tipo == TIPO_PASTA) { copia_texto(s, "Carpeta", (size_t)max); return; }
-    if (e->tipo == TIPO_PROGRAMA) { copia_texto(s, "Programa", (size_t)max); return; }
+    if (e->tipo == TIPO_PASTA) { copia_texto(s, _("Carpeta"), (size_t)max); return; }
+    if (e->tipo == TIPO_PROGRAMA) { copia_texto(s, _("Programa"), (size_t)max); return; }
     const char *pt = NULL;
     for (const char *c = e->nome; *c; c++) if (*c == '.') pt = c;
-    if (!pt || !pt[1]) { copia_texto(s, "Archivo", (size_t)max); return; }
+    if (!pt || !pt[1]) { copia_texto(s, _("Archivo"), (size_t)max); return; }
     char x[12];
     int i = 0;
     for (pt++; *pt && i < 10; pt++, i++) x[i] = (*pt >= 'a' && *pt <= 'z') ? (char)(*pt - 32) : *pt;
     x[i] = 0;
-    formatar_texto(s, (size_t)max, "Archivo %s", x);
+    formatar_texto(s, (size_t)max, _("Archivo %s"), x);
 }
 
 /* ------------------------------------------------------------ dibujo del diálogo */
@@ -433,13 +433,13 @@ static void desenhar_lista(dlg_t *d)
     int y0 = LI_Y + 2;
     if (d->detalhes) {
         static const int cx[3] = { 0, 300, 400 };
-        static const char *const tt[3] = { "Nombre", "Tamaño", "Tipo" };
+        static const char *const tt[3] = { N_("Nombre"), N_("Tamaño"), N_("Tipo") };
         for (int k = 0; k < 3; k++) {
             int x = LI_X + 2 + cx[k];
             int l = k == 2 ? LI_L - 4 - cx[2] : cx[k + 1] - cx[k];
             g_retangulo(j, x, y0, l, FILA, CINZA);
             bisel(j, x, y0, l, FILA, false);
-            g_texto(j, x + 6, y0 + 1, tt[k], 0);
+            g_texto(j, x + 6, y0 + 1, _(tt[k]), 0);
         }
         y0 += FILA;
     }
@@ -483,24 +483,24 @@ static void desenhar_tudo(dlg_t *d)
     jan_t *j = d->j;
     limitar_topo(d);
     g_retangulo(j, 0, 0, DA_L, DA_A, CINZA);
-    g_texto(j, 10, Y_COMBO + 4, "Buscar en:", 0);
+    g_texto(j, 10, Y_COMBO + 4, _("Buscar en:"), 0);
     combo95(j, X_COMBO, Y_COMBO, L_COMBO, d->pasta, true, d->foco == F_COMBO);
-    botao95(j, X_SUBIR, Y_COMBO, 48, 24, "Subir", d->foco == F_SUBIR);
-    botao95(j, X_NOVA, Y_COMBO, 64, 24, "Nueva", d->foco == F_NOVA);
-    botao95(j, X_VISTA, Y_COMBO, 78, 24, d->detalhes ? "Lista" : "Detalles", d->foco == F_VISTA);
+    botao95(j, X_SUBIR, Y_COMBO, 48, 24, _("Subir"), d->foco == F_SUBIR);
+    botao95(j, X_NOVA, Y_COMBO, 64, 24, _("Nueva"), d->foco == F_NOVA);
+    botao95(j, X_VISTA, Y_COMBO, 78, 24, d->detalhes ? _("Lista") : _("Detalles"), d->foco == F_VISTA);
     desenhar_lista(d);
-    g_texto(j, 10, Y_NOME + 4, "Nombre de archivo:", 0);
+    g_texto(j, 10, Y_NOME + 4, _("Nombre de archivo:"), 0);
     d->nome.x = X_NOME; d->nome.y = Y_NOME; d->nome.l = L_NOME;
     d->nome.foco = d->foco == F_NOME;
-    botao95(j, X_BOT, Y_NOME, 88, 24, d->guardar ? "Guardar" : "Abrir", d->foco == F_OK);
-    g_texto(j, 10, Y_TIPO + 4, d->guardar ? "Guardar como tipo:" : "Tipo:", 0);
+    botao95(j, X_BOT, Y_NOME, 88, 24, d->guardar ? _("Guardar") : _("Abrir"), d->foco == F_OK);
+    g_texto(j, 10, Y_TIPO + 4, d->guardar ? _("Guardar como tipo:") : _("Tipo:"), 0);
     combo95(j, X_NOME, Y_TIPO, L_NOME, d->padrao_extra[0] ? d->padrao_extra : d->fnome[d->fsel], false, d->foco == F_TIPO);
-    botao95(j, X_BOT, Y_TIPO, 88, 24, "Cancelar", d->foco == F_CANC);
+    botao95(j, X_BOT, Y_TIPO, 88, 24, _("Cancelar"), d->foco == F_CANC);
     bisel(j, 10, Y_ESTADO - 2, DA_L - 20, 22, true);
     if (d->aviso[0]) g_texto(j, 16, Y_ESTADO + 1, d->aviso, 0x800000);
     else {
         char t[80];
-        formatar_texto(t, sizeof t, "%d elementos", d->nvis);
+        formatar_texto(t, sizeof t, _("%d elementos"), d->nvis);
         g_texto(j, 16, Y_ESTADO + 1, t, 0x404040);
     }
     caixa_desenhar(j, &d->nome);
@@ -609,7 +609,7 @@ static void escolher_pasta_combo(dlg_t *d, int *fim)
             if (!ja) copia_texto(extra[ne++], mt[i].ponto, RUTA_MAX);
         }
         for (int i = 0; i < ne && p->n < 24; i++) {
-            formatar_texto(p->t[p->n], sizeof p->t[0], "Unidad: %s", extra[i]);
+            formatar_texto(p->t[p->n], sizeof p->t[0], _("Unidad: %s"), extra[i]);
             copia_texto(p->p[p->n], extra[i], sizeof p->p[0]);
             p->n++;
         }
@@ -618,7 +618,7 @@ static void escolher_pasta_combo(dlg_t *d, int *fim)
     rec_ler();
     for (int i = 0; i < nrec && p->n < 24; i++) {
         if (!legivel(rec[i])) continue;
-        formatar_texto(p->t[p->n], sizeof p->t[0], "Reciente: %s", rec[i]);
+        formatar_texto(p->t[p->n], sizeof p->t[0], _("Reciente: %s"), rec[i]);
         copia_texto(p->p[p->n], rec[i], sizeof p->p[0]);
         p->n++;
     }
@@ -643,10 +643,10 @@ static void escolher_tipo(dlg_t *d, int *fim)
 static void nova_pasta(dlg_t *d)
 {
     char n[64] = "";
-    if (!pedir_texto("Nueva carpeta", "Nombre de la carpeta:", n, sizeof n) || !n[0]) return;
+    if (!pedir_texto(_("Nueva carpeta"), _("Nombre de la carpeta:"), n, sizeof n) || !n[0]) return;
     char c[RUTA_MAX];
     normalizar(d->pasta, n, c, sizeof c);
-    if (criar_pasta(c) < 0) { copia_texto(d->aviso, "No se pudo crear la carpeta.", sizeof d->aviso); return; }
+    if (criar_pasta(c) < 0) { copia_texto(d->aviso, _("No se pudo crear la carpeta."), sizeof d->aviso); return; }
     entrar(d, d->pasta);
     for (int i = 0; i < d->nvis; i++)
         if (compara_texto(d->ent[d->vis[i]].nome, nome_base(c)) == 0) { d->sel = i; break; }
@@ -676,7 +676,7 @@ static void poner_extensao(const dlg_t *d, char *c, int max)
  * (Intro = No; S o Y = Sí; Esc = No). */
 static bool confirmar95(const char *texto)
 {
-    jan_t *j = jan_abrir("Guardar como", 400, 130);
+    jan_t *j = jan_abrir(_("Guardar como"), 400, 130);
     if (!j) return false;
     jan_estilo(j, JAN_DIALOGO, 0, 0);
     int foco = 1;   /* 0 = Sí, 1 = No */
@@ -691,8 +691,8 @@ static bool confirmar95(const char *texto)
             y += LETRA_A + 2;
             t += n + (t[n] ? 1 : 0);
         }
-        botao95(j, 110, 88, 84, 26, "Sí", foco == 0);
-        botao95(j, 206, 88, 84, 26, "No", foco == 1);
+        botao95(j, 110, 88, 84, 26, _("Sí"), foco == 0);
+        botao95(j, 206, 88, 84, 26, _("No"), foco == 1);
         jan_mostrar(j);
         evento_t e;
         do { } while (proximo_evento(j->id, &e, true) != 1);
@@ -725,12 +725,12 @@ static int aceitar_caminho(dlg_t *d, const char *c)
     if (n > 1) n--;
     pai[n] = 0;
     if (!d->guardar) {
-        if (!existe(c, NULL)) { copia_texto(d->aviso, "No se encuentra el archivo.", sizeof d->aviso); return 0; }
+        if (!existe(c, NULL)) { copia_texto(d->aviso, _("No se encuentra el archivo."), sizeof d->aviso); return 0; }
     } else {
-        if (!eh_pasta(pai)) { copia_texto(d->aviso, "La carpeta no existe.", sizeof d->aviso); return 0; }
+        if (!eh_pasta(pai)) { copia_texto(d->aviso, _("La carpeta no existe."), sizeof d->aviso); return 0; }
         if (existe(c, NULL)) {
             char m[200];
-            formatar_texto(m, sizeof m, "%s ya existe.\n¿Quieres reemplazarlo?", nome_base(c));
+            formatar_texto(m, sizeof m, _("%s ya existe.\n¿Quieres reemplazarlo?"), nome_base(c));
             bool si = confirmar95(m);
             if (!si) return 0;
         }
@@ -828,7 +828,7 @@ static bool dialogo_arquivo(int guardar, const char *titulo, const char *filtros
     for (int i = 0; i < d->nvis; i++)
         if (nome_ini[0] && compara_texto(d->ent[d->vis[i]].nome, nome_ini) == 0) { d->sel = i; break; }
     d->aviso[0] = 0;
-    d->j = jan_abrir(titulo, DA_L, DA_A);
+    d->j = jan_abrir(idioma_traducir_sl(titulo), DA_L, DA_A);   /* D313: el título lo da el programa en español */
     if (!d->j) { if (d->ent) libera(d->ent); if (d->vis) libera(d->vis); libera(d); return false; }
     jan_t *j = d->j;
     jan_estilo(j, JAN_DIALOGO, 0, 0);
@@ -945,7 +945,7 @@ static void arv_expandir(arv_t *a, int i)
     if (no->aberto) return;
     entrada_pasta_t *v = NULL;
     int n = listar_tudo(no->caminho, &v);
-    if (n < 0) { no->semperm = 1; copia_texto(a->aviso, n == ERRO_ACESSO ? "Sin permiso para entrar en esa carpeta." : "No se puede abrir esa carpeta.", sizeof a->aviso); return; }
+    if (n < 0) { no->semperm = 1; copia_texto(a->aviso, n == ERRO_ACESSO ? _("Sin permiso para entrar en esa carpeta.") : _("No se puede abrir esa carpeta."), sizeof a->aviso); return; }
     no->aberto = 1;
     a->aviso[0] = 0;
     int k = 0;
@@ -988,7 +988,7 @@ static void arv_desenhar(arv_t *a)
 {
     jan_t *j = a->j;
     g_retangulo(j, 0, 0, AR_L, AR_A, CINZA);
-    g_texto(j, 10, 8, "Elige una carpeta:", 0);
+    g_texto(j, 10, 8, _("Elige una carpeta:"), 0);
     g_retangulo(j, AR_X, AR_Y, AR_W, AR_H, COR_BRANCO);
     bisel(j, AR_X, AR_Y, AR_W, AR_H, true);
     int v = arv_filas();
@@ -1015,14 +1015,14 @@ static void arv_desenhar(arv_t *a)
         g_retangulo(j, ax, AR_Y + 2 + py, 12, pa, CINZA);
         bisel(j, ax, AR_Y + 2 + py, 12, pa, false);
     }
-    g_texto(j, 10, AR_Y + AR_H + 8, "Carpeta:", 0);
+    g_texto(j, 10, AR_Y + AR_H + 8, _("Carpeta:"), 0);
     bisel(j, 90, AR_Y + AR_H + 4, AR_L - 100, 24, true);
     g_retangulo(j, 92, AR_Y + AR_H + 6, AR_L - 104, 20, COR_BRANCO);
     g_texto_n(j, 96, AR_Y + AR_H + 8, a->n[a->sel].caminho, (AR_L - 112) / LETRA_L, COR_TEXTO);
     int yb = AR_Y + AR_H + 38;
-    botao95(j, 10, yb, 120, 24, "Nueva carpeta", a->foco == A_NOVA);
-    botao95(j, 206, yb, 88, 24, "Aceptar", a->foco == A_OK);
-    botao95(j, 302, yb, 88, 24, "Cancelar", a->foco == A_CANC);
+    botao95(j, 10, yb, 120, 24, _("Nueva carpeta"), a->foco == A_NOVA);
+    botao95(j, 206, yb, 88, 24, _("Aceptar"), a->foco == A_OK);
+    botao95(j, 302, yb, 88, 24, _("Cancelar"), a->foco == A_CANC);
     if (a->aviso[0]) g_texto_n(j, 10, AR_A - 24, a->aviso, (AR_L - 20) / LETRA_L, 0x800000);
     jan_mostrar(j);
 }
@@ -1030,10 +1030,10 @@ static void arv_desenhar(arv_t *a)
 static void arv_nova(arv_t *a)
 {
     char nome[64] = "";
-    if (!pedir_texto("Nueva carpeta", "Nombre de la carpeta:", nome, sizeof nome) || !nome[0]) return;
+    if (!pedir_texto(_("Nueva carpeta"), _("Nombre de la carpeta:"), nome, sizeof nome) || !nome[0]) return;
     char c[RUTA_MAX];
     caminho_juntar(c, sizeof c, a->n[a->sel].caminho, nome);
-    if (criar_pasta(c) < 0) { copia_texto(a->aviso, "No se pudo crear la carpeta.", sizeof a->aviso); return; }
+    if (criar_pasta(c) < 0) { copia_texto(a->aviso, _("No se pudo crear la carpeta."), sizeof a->aviso); return; }
     arv_recolher(a, a->sel);
     arv_expandir(a, a->sel);
     for (int i = a->sel + 1; i < a->qtd && a->n[i].prof > a->n[a->sel].prof; i++)
@@ -1068,7 +1068,7 @@ bool dialogo_carpeta(const char *titulo, const char *inicial, char *saida, int m
         arv_expandir(a, achou);
     }
     a->aviso[0] = 0;
-    a->j = jan_abrir(titulo, AR_L, AR_A);
+    a->j = jan_abrir(idioma_traducir_sl(titulo), AR_L, AR_A);
     if (!a->j) { libera(a->n); libera(a); return false; }
     jan_t *j = a->j;
     jan_estilo(j, JAN_DIALOGO, 0, 0);

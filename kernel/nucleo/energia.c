@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /* energia.c - reiniciar y apagar la máquina. */
+#include "idioma.h"
 #include "acpi.h"
 #include "cpu.h"
 #include "console.h"
@@ -36,7 +37,7 @@ SEM_RETORNO void maquina_apagar(void)
     acpi_apagar();                   /* sólo vuelve si no se apagó */
     klog("[SAGUI] ya se puede apagar el PC\n");
     if (gui_ativa()) {
-        gui_aviso("Ya puedes apagar el ordenador.");
+        gui_aviso(_("Ya puedes apagar el ordenador."));
         int_liga();
         relogio_dormir_ms(500);      /* el gestor de ventanas dibuja el aviso */
     } else {

@@ -183,7 +183,7 @@ Según dónde esté el archivo:
 
 | Dónde | Dueño y permisos |
 |-------|------------------|
-| El sistema (el ramdisk: `/bin`, `/etc`...) | de root (0755 y 0644); `/home` de `sagui`, `/tmp` 1777, `/sistema` 0700 |
+| El sistema (el ramdisk: `/bin`, `/etc`...) | de root (0755 y 0644); `/home` de `sagui`, `/tmp` 1777, `/sistema` 0711 (lo de dentro 0700, salvo `/sistema/idiomas`, que lee cualquiera: D313) |
 | ext2 (`/home` persistente, `/jogos`, `/apps`, pendrives de Linux) | los suyos, como en Linux; se guardan |
 | FAT32, CD y DVD (ISO 9660, UDF) | no los guardan: los da el montaje (`uid=`, `gid=`, `umask=`); de serie, de `sagui` con 022 |
 

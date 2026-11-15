@@ -15,6 +15,7 @@
  * llamadas al sistema tocan las mismas listas; por eso la tarea trabaja
  * con las interrupciones desactivadas (las llamadas ya corren así). */
 #include "gui.h"
+#include "idioma.h"
 #include "avisos.h"
 #include "permisos_dialogo.h"
 #include "aparencia.h"
@@ -1432,10 +1433,10 @@ static void menu_titulo(janela_t *j, int x, int y)
 {
     char itens[160];
     bool red = redimensionavel(j);
-    snformatar(itens, sizeof itens, "%sRestaurar\n%sMinimizar\n%sMaximizar\n%sPantalla completa\tF11\n-\nCerrar",
-               j->maximizada || j->minimizada ? "" : "~", j->minimizada || dialogo(j) ? "~" : "",
-               red && !j->maximizada ? "" : "~",
-               (j->estilo & (JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK)) ? "" : "~");
+    snformatar(itens, sizeof itens, "%s%s\n%s%s\n%s%s\n%s%s\tF11\n-\n%s",
+               j->maximizada || j->minimizada ? "" : "~", _("Restaurar"), j->minimizada || dialogo(j) ? "~" : "", _("Minimizar"),
+               red && !j->maximizada ? "" : "~", _("Maximizar"),
+               (j->estilo & (JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK)) ? "" : "~", _("Pantalla completa"), _("Cerrar"));
     arrastando = redimensionando = captura = -1;
     menu_abrir(x, y, itens, resposta_titulo, j->id, 0);
 }

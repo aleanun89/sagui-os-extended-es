@@ -20,6 +20,7 @@
  * de verano aparece solo, sin reiniciar. */
 #include "aparencia.h"
 #include "gui.h"
+#include "idioma.h"
 #include "arte.h"
 #include "audio.h"
 #include "bateria.h"
@@ -95,25 +96,26 @@ static int minuto_mostrado = -1;
 static uint32_t ajustes_vistos;
 static uint32_t assinatura_vista;
 
-static const char *const semana_curta[] = { "dom", "lun", "mar", "mié", "jue", "vie", "sáb" };
+static const char *const semana_curta[] = { N_("dom"), N_("lun"), N_("mar"), N_("mié"), N_("jue"), N_("vie"), N_("sáb") };
 
 /* La hora en 24 h o en 12 h ("3:05 p. m."), según /etc/zona (D080). */
 static void texto_hora(char *s, int max, const fuso_data_t *d)
 {
     if (hora_24h()) snformatar(s, (uint32_t)max, "%02u:%02u", d->hora, d->minuto);
     else snformatar(s, (uint32_t)max, "%2u:%02u %s", d->hora % 12 ? d->hora % 12 : 12, d->minuto,
-                    d->hora < 12 ? "a. m." : "p. m.");
+                    d->hora < 12 ? _("a. m.") : _("p. m."));
 }
 
 /* El texto del reloj: completo de 800 píxeles para arriba; en una pantalla de 640,
  * sólo el día de la semana y la hora (la fecha entera aparece al hacer clic). */
 static void texto_relogio(char *s, int max, const fuso_data_t *d, bool completo)
 {
-    const char *dia = semana_curta[d->dia_semana % 7];
+    const char *dia = _(semana_curta[d->dia_semana % 7]);
     char h[16];
     texto_hora(h, sizeof h, d);
     if (completo)
-        snformatar(s, (uint32_t)max, "%s %02u/%02u/%u  %s", dia, d->dia, d->mes, d->ano, h);
+        snformatar(s, (uint32_t)max, "%s %02u/%02u/%u  %s", dia, idioma_fecha_mdy() ? d->mes : d->dia,
+                   idioma_fecha_mdy() ? d->dia : d->mes, d->ano, h);   /* D313: mm/dd/aaaa en inglés */
     else
         snformatar(s, (uint32_t)max, "%s %s", dia, h);
 }
@@ -125,8 +127,11 @@ static bool relogio_completo(void) { return largura_barra() >= 800; }
 static int largura_relogio(void)
 {
     /* El formato tiene ancho fijo: el reloj no empuja los botones cada minuto. */
+    /* El ancho se calcula con el texto más ancho de la hora y del día (en cualquier idioma). */
     const char *h = hora_24h() ? "00:00" : "00:00 p. m.";
-    return texto_largura(relogio_completo() ? "dom 00/00/0000  " : "dom ") + texto_largura(h);
+    char dd[24];
+    snformatar(dd, sizeof dd, "%s ", _("dom"));
+    return texto_largura(relogio_completo() ? "dom 00/00/0000  " : dd) + texto_largura(h);
 }
 
 static void calcular(void)
@@ -254,8 +259,8 @@ static void desenhar_inicio(superficie_t *s)
     sup_retangulo(s, INICIO_X, BOTAO_Y, INICIO_L, BOTAO_A, fundo);
     sup_moldura(s, INICIO_X, BOTAO_Y, INICIO_L, BOTAO_A, inicio_aberto ? aparencia_escurecer(aparencia_acento(), 55) : aparencia_clarear(aparencia_acento(), 20));
     sup_desenho(s, INICIO_X + 6, BOTAO_Y + 1, &arte_inicio, 1);
-    sup_texto(s, INICIO_X + 28, BOTAO_Y + 1, "Inicio", 0xFFFFFF);
-    sup_texto(s, INICIO_X + 29, BOTAO_Y + 1, "Inicio", 0xFFFFFF);   /* negrita: la misma letra a un píxel al lado */
+    sup_texto(s, INICIO_X + 28, BOTAO_Y + 1, _("Inicio"), 0xFFFFFF);
+    sup_texto(s, INICIO_X + 29, BOTAO_Y + 1, _("Inicio"), 0xFFFFFF);   /* negrita: la misma letra a un píxel al lado */
 }
 
 static void desenhar_tarefa(superficie_t *s, botao_t *b)
@@ -291,7 +296,9 @@ static void desenhar_mais(superficie_t *s)
 
 static void desenhar_lema(superficie_t *s)
 {
-    static const char *const lemas[] = { SAGUI_NOME_VERSAO ", basado en SaguiOS de Eli Rigobeli", SAGUI_NOME_VERSAO };
+    char lema1[96];
+    snformatar(lema1, sizeof lema1, "%s, %s", SAGUI_NOME_VERSAO, _("basado en SaguiOS de Eli Rigobeli"));
+    const char *const lemas[] = { lema1, SAGUI_NOME_VERSAO };
     int x1 = lay.band_x - 16;
     for (unsigned i = 0; i < sizeof lemas / sizeof lemas[0]; i++) {
         int l = texto_largura(lemas[i]);
@@ -499,26 +506,26 @@ static void dica_texto(int id, char *t, int max)
 {
     char ip[20];
     if (id == IC_VOL) {
-        if (tb.som != AUDIO_FUNCIONANDO) snformatar(t, (uint32_t)max, "Sin sonido");
-        else if (tb.mudo) snformatar(t, (uint32_t)max, "Volumen: silencio");
-        else snformatar(t, (uint32_t)max, "Volumen: %d %%", tb.vol);
+        if (tb.som != AUDIO_FUNCIONANDO) snformatar(t, (uint32_t)max, _("Sin sonido"));
+        else if (tb.mudo) snformatar(t, (uint32_t)max, _("Volumen: silencio"));
+        else snformatar(t, (uint32_t)max, _("Volumen: %d %%"), tb.vol);
     } else if (id == IC_REDE) {
         ip_texto(ip, sizeof ip, rd.ip);
-        if (tb.rede == 2) snformatar(t, (uint32_t)max, "Red: %s (%s, %s)", ip, rd.nome, rd.driver[0] ? rd.driver : "?");
-        else if (tb.rede == 1) snformatar(t, (uint32_t)max, "Sin conexión (%s)", rd.nome);
-        else snformatar(t, (uint32_t)max, "Sin tarjeta de red");
+        if (tb.rede == 2) snformatar(t, (uint32_t)max, _("Red: %s (%s, %s)"), ip, rd.nome, rd.driver[0] ? rd.driver : "?");
+        else if (tb.rede == 1) snformatar(t, (uint32_t)max, _("Sin conexión (%s)"), rd.nome);
+        else snformatar(t, (uint32_t)max, _("Sin tarjeta de red"));
     } else if (id == IC_BAT) {
         char tm[24];
         int pct = tb.bat.porcentagem;
         bateria_texto_tempo(tb.bat.minutos, tm, sizeof tm);
-        if (pct < 0) snformatar(t, (uint32_t)max, "Batería: nivel desconocido");
+        if (pct < 0) snformatar(t, (uint32_t)max, _("Batería: nivel desconocido"));
         else if (tb.bat.estado & BATERIA_CARREGANDO)
-            snformatar(t, (uint32_t)max, tm[0] ? "Batería: %d %% (cargando, %s para llenarse)" : "Batería: %d %% (cargando)", pct, tm);
+            snformatar(t, (uint32_t)max, tm[0] ? _("Batería: %d %% (cargando, %s para llenarse)") : _("Batería: %d %% (cargando)"), pct, tm);
         else if (tb.bat.estado & BATERIA_DESCARREGANDO)
-            snformatar(t, (uint32_t)max, tm[0] ? "Batería: %d %% (quedan %s)" : "Batería: %d %%", pct, tm);
-        else snformatar(t, (uint32_t)max, tb.bat.adaptador == 2 ? "Batería: %d %% (enchufado)" : "Batería: %d %%", pct);
+            snformatar(t, (uint32_t)max, tm[0] ? _("Batería: %d %% (quedan %s)") : _("Batería: %d %%"), pct, tm);
+        else snformatar(t, (uint32_t)max, tb.bat.adaptador == 2 ? _("Batería: %d %% (enchufado)") : _("Batería: %d %%"), pct);
     } else {
-        snformatar(t, (uint32_t)max, "CPU: %d °C%s", tb.temp_mc / 1000, bandeja_limitada_termica() ? " (limitada)" : "");
+        snformatar(t, (uint32_t)max, _("CPU: %d °C%s"), tb.temp_mc / 1000, bandeja_limitada_termica() ? _(" (limitada)") : "");
     }
 }
 
@@ -609,7 +616,7 @@ static void painel_desenhar(superficie_t *s)
     char t[96], ip[20];
     if (pop.tipo == P_VOL) {
         snformatar(t, sizeof t, "%d %%", tb.mudo ? 0 : tb.vol);
-        sup_texto(s, pop.x + 12, pop.y + 10, "Volumen", 0xFFFFFF);
+        sup_texto(s, pop.x + 12, pop.y + 10, _("Volumen"), 0xFFFFFF);
         sup_texto(s, pop.x + pop.l - 12 - texto_largura(t), pop.y + 10, t, 0xD8DEE4);
         int sl = pop.l - 2 * VOL_SX;
         sup_retangulo(s, pop.x + VOL_SX, pop.y + VOL_SY, sl, VOL_SA, COR_TRILHO);
@@ -624,40 +631,40 @@ static void painel_desenhar(superficie_t *s)
         sup_retangulo(s, pop.x + VOL_SX + 5, pop.y + BTN_Y + 3, 12, 12, COR_TRILHO);
         sup_moldura(s, pop.x + VOL_SX + 5, pop.y + BTN_Y + 3, 12, 12, 0x8A96A2);
         if (tb.mudo) sup_retangulo(s, pop.x + VOL_SX + 8, pop.y + BTN_Y + 6, 6, 6, COR_ICO_ERRO);
-        sup_texto(s, pop.x + VOL_SX + 24, pop.y + BTN_Y + 1, "Silenciar", 0xFFFFFF);
+        sup_texto(s, pop.x + VOL_SX + 24, pop.y + BTN_Y + 1, _("Silenciar"), 0xFFFFFF);
     } else if (pop.tipo == P_RED) {
-        sup_texto(s, pop.x + 12, pop.y + 10, "Red", 0xFFFFFF);
+        sup_texto(s, pop.x + 12, pop.y + 10, _("Red"), 0xFFFFFF);
         if (!tb.rede) {
-            sup_texto(s, pop.x + 12, pop.y + 26, "Sin tarjeta de red", COR_MIN_TEXTO);
+            sup_texto(s, pop.x + 12, pop.y + 26, _("Sin tarjeta de red"), COR_MIN_TEXTO);
             return;
         }
-        const char *est = rd.desativada ? "Desactivada" : !rd.cabo ? (bandeja_wifi() ? "Wi-Fi sin conectar" : "Cable desconectado")
-                        : rd.ip ? (rd.metodo == REDE_POR_DHCP ? "Conectado (DHCP)" : "Conectado (fija)")
-                        : (rd.dhcp_estado == 1 || rd.dhcp_estado == 2) ? "Buscando dirección (DHCP)..." : "Sin dirección IP";
+        const char *est = rd.desativada ? _("Desactivada") : !rd.cabo ? (bandeja_wifi() ? _("Wi-Fi sin conectar") : _("Cable desconectado"))
+                        : rd.ip ? (rd.metodo == REDE_POR_DHCP ? _("Conectado (DHCP)") : _("Conectado (fija)"))
+                        : (rd.dhcp_estado == 1 || rd.dhcp_estado == 2) ? _("Buscando dirección (DHCP)...") : _("Sin dirección IP");
         if (bandeja_wifi()) {
             /* D220: WEP y TKIP, con el aviso de que no protegen (o protegen poco) */
             if (wf.estado == WIFI_CONECTADO)
                 snformatar(t, sizeof t, "%s (%u %%)%s", wf.ssid, wf.qualidade,
-                           wf.seguranca == WIFI_WEP ? " WEP: INSEGURA" : (wf.detalhe & WIFI_DET_TKIP) ? " TKIP: débil" :
+                           wf.seguranca == WIFI_WEP ? _(" WEP: INSEGURA") : (wf.detalhe & WIFI_DET_TKIP) ? _(" TKIP: débil") :
                            wf.seguranca == WIFI_WPA3 ? " WPA3" : "");
-            else snformatar(t, sizeof t, "sin conectar (wifi buscar)");
+            else snformatar(t, sizeof t, _("sin conectar (wifi buscar)"));
             linha_painel(s, 28, "Wi-Fi: ", t);
         } else {
-            snformatar(t, sizeof t, "%s (%s)", rd.descricao[0] ? rd.descricao : "eth0", rd.driver[0] ? rd.driver : "sin driver");
-            linha_painel(s, 28, "Tarjeta: ", t);
+            snformatar(t, sizeof t, "%s (%s)", rd.descricao[0] ? rd.descricao : "eth0", rd.driver[0] ? rd.driver : _("sin driver"));
+            linha_painel(s, 28, _("Tarjeta: "), t);
         }
-        linha_painel(s, 44, "Estado: ", est);
+        linha_painel(s, 44, _("Estado: "), est);
         ip_texto(ip, sizeof ip, rd.ip);
         linha_painel(s, 60, "IP: ", rd.ip ? ip : "-");
         ip_texto(ip, sizeof ip, rd.roteador);
-        linha_painel(s, 76, "Puerta de enlace: ", rd.roteador ? ip : "-");
+        linha_painel(s, 76, _("Puerta de enlace: "), rd.roteador ? ip : "-");
         ip_texto(ip, sizeof ip, rd.dns);
         linha_painel(s, 92, "DNS: ", rd.dns ? ip : "-");
-        botao_painel(s, pop.x + 12, pop.y + pop.a - 30, RED_BTN_L, 20, "Renovar DHCP", false);
+        botao_painel(s, pop.x + 12, pop.y + pop.a - 30, RED_BTN_L, 20, _("Renovar DHCP"), false);
     } else if (pop.tipo == P_BAT) {
         const info_bateria_t *b = &tb.bat;
         bool carga = (b->estado & BATERIA_CARREGANDO) != 0;
-        sup_texto(s, pop.x + 12, pop.y + 10, "Batería", 0xFFFFFF);
+        sup_texto(s, pop.x + 12, pop.y + 10, _("Batería"), 0xFFFFFF);
         if (b->porcentagem >= 0) snformatar(t, sizeof t, "%d %%", b->porcentagem);
         else snformatar(t, sizeof t, "?");
         sup_texto(s, pop.x + pop.l - 12 - texto_largura(t), pop.y + 10, t, 0xD8DEE4);
@@ -667,25 +674,25 @@ static void painel_desenhar(superficie_t *s)
         if (b->porcentagem > 0)
             sup_retangulo(s, pop.x + VOL_SX + 1, pop.y + 33, (sl - 2) * b->porcentagem / 100, 6,
                           b->porcentagem < BAT_COR_AVISO && !carga ? COR_BAT_BAIXA : 0x14A055);
-        const char *est = carga ? "Cargando" : (b->estado & BATERIA_DESCARREGANDO) ? "Descargando"
-                        : b->adaptador == 2 ? "Cargada (enchufado)" : "En reposo";
-        linha_painel(s, 48, "Estado: ", (b->estado & BATERIA_CRITICA) ? "Crítica" : est);
+        const char *est = carga ? _("Cargando") : (b->estado & BATERIA_DESCARREGANDO) ? _("Descargando")
+                        : b->adaptador == 2 ? _("Cargada (enchufado)") : _("En reposo");
+        linha_painel(s, 48, _("Estado: "), (b->estado & BATERIA_CRITICA) ? _("Crítica") : est);
         char tm[24];
         bateria_texto_tempo(b->minutos, tm, sizeof tm);
-        linha_painel(s, 64, carga ? "Para llenarse: " : "Tiempo restante: ", tm[0] ? tm : "-");
-        linha_painel(s, 80, "Cargador: ", b->adaptador == 2 ? "enchufado" : b->adaptador == 1 ? "desenchufado" : "no se sabe");
+        linha_painel(s, 64, carga ? _("Para llenarse: ") : _("Tiempo restante: "), tm[0] ? tm : "-");
+        linha_painel(s, 80, _("Cargador: "), b->adaptador == 2 ? _("enchufado") : b->adaptador == 1 ? _("desenchufado") : _("no se sabe"));
         const char *u = b->unidade_ma ? "mAh" : "mWh";
         if (b->restante != BATERIA_DESCONHECIDO && b->total != BATERIA_DESCONHECIDO)
             snformatar(t, sizeof t, "%u de %u %s", b->restante, b->total, u);
         else snformatar(t, sizeof t, "-");
-        linha_painel(s, 96, "Capacidad: ", t);
+        linha_painel(s, 96, _("Capacidad: "), t);
         snformatar(t, sizeof t, "%s%s%s", b->modelo[0] ? b->modelo : "-", b->fabricante[0] ? ", " : "", b->fabricante);
-        linha_painel(s, 112, "Modelo: ", t);
+        linha_painel(s, 112, _("Modelo: "), t);
     } else {
-        sup_texto(s, pop.x + 12, pop.y + 10, "Temperatura de la CPU", 0xFFFFFF);
+        sup_texto(s, pop.x + 12, pop.y + 10, _("Temperatura de la CPU"), 0xFFFFFF);
         snformatar(t, sizeof t, "%d °C", tb.temp_mc / 1000);
         sup_texto(s, pop.x + 12, pop.y + 26, t, cor_temp());
-        if (bandeja_limitada_termica()) sup_texto(s, pop.x + 12, pop.y + 42, "Limitada por temperatura", COR_TEMP_ALTA);
+        if (bandeja_limitada_termica()) sup_texto(s, pop.x + 12, pop.y + 42, _("Limitada por temperatura"), COR_TEMP_ALTA);
     }
 }
 
@@ -766,7 +773,7 @@ bool barra_popup_mouse(int x, int y, unsigned botoes, unsigned mudaram)
     } else if (pop.tipo == P_RED && tb.rede && rx >= 12 && rx < 12 + RED_BTN_L && ry >= pop.a - 30 && ry < pop.a - 10) {
         klog("[GUI] bandeja: renovar DHCP\n");
         rede_renovar_dhcp();
-        gui_aviso("Renovando el DHCP...");
+        gui_aviso(_("Renovando el DHCP..."));
     }
     return true;
 }
@@ -785,7 +792,7 @@ bool barra_popup_tecla(int t)
 
 static void bandeja_clicar(int id)
 {
-    if (id == IC_VOL && tb.som != AUDIO_FUNCIONANDO) { gui_aviso("No hay tarjeta de sonido."); return; }
+    if (id == IC_VOL && tb.som != AUDIO_FUNCIONANDO) { gui_aviso(_("No hay tarjeta de sonido.")); return; }
     painel_abrir(id);
 }
 
@@ -815,7 +822,7 @@ static void bandeja_tique(void)
         if (baja && !tb.bat_avisou) {
             char m[64];
             tb.bat_avisou = true;
-            snformatar(m, sizeof m, "Batería baja: %d %%. Conecta el cargador.", tb.bat.porcentagem);
+            snformatar(m, sizeof m, _("Batería baja: %d %%. Conecta el cargador."), tb.bat.porcentagem);
             klog("[GUI] bandeja: aviso de bateria baja (%d %%)\n", tb.bat.porcentagem);
             gui_aviso(m);
         } else if (!tb.bat_ok || !(tb.bat.estado & BATERIA_DESCARREGANDO) || tb.bat.porcentagem >= BAT_REARMAR) {
@@ -913,7 +920,7 @@ void barra_tique(void)
 /* ------------------------------------------------------------ menú Inicio */
 
 enum { G_ACESSORIOS, G_GRAFICOS, G_INTERNET, G_MULTIMEDIA, G_EDUCACION, G_JUEGOS, G_SISTEMA, QTD_GRUPOS };
-static const char *const nome_grupo[QTD_GRUPOS] = { "Accesorios", "Gráficos", "Internet", "Multimedia", "Educación", "Juegos", "Sistema" };
+static const char *const nome_grupo[QTD_GRUPOS] = { N_("Accesorios"), N_("Gráficos"), N_("Internet"), N_("Multimedia"), N_("Educación"), N_("Juegos"), N_("Sistema") };
 
 typedef struct {
     const char *nome, *caminho, *argumento, *processo;
@@ -923,66 +930,66 @@ typedef struct {
 } programa_t;
 
 static const programa_t programas[] = {
-    { "Archivos",                "/bin/arquivos",    NULL, "arquivos",    G_ACESSORIOS, &arte_icone_arquivos, false },
-    { "Calculadora",             "/bin/calculadora", NULL, "calculadora", G_ACESSORIOS, &arte_icone_calculadora, false },
-    { "Editor de texto",         "/bin/editor",      NULL, "editor",      G_ACESSORIOS, &arte_icone_editor, false },
-    { "Recortes",                "/bin/recortes",    NULL, "recortes",    G_ACESSORIOS, &arte_mini_recortes, true },   /* D125, D139 */
-    { "Iconos",                  "/bin/icones",      NULL, "icones",      G_ACESSORIOS, &arte_mini_icones, false },  /* D135, D139 */
-    { "Música",                  "/bin/musica",      NULL, "musica",      G_ACESSORIOS, &arte_mini_musica, false },
-    { "MIDI",                    "/bin/midi",        NULL, "midi",        G_ACESSORIOS, &arte_mini_musica, false },   /* D190 */
-    { "Sintonía (reproductor)",  "/apps/bin/sintonia", NULL, "sintonia",  G_MULTIMEDIA, &arte_mini_musica, false },   /* D225: en /apps (D194); sólo si está */
-    { "Markdown",                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
-    { "Mico (editor de código)", "/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
-    { "VisualPythonS (diseñador)", "/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
-    { "Explorador de bases de datos", "/bin/python", "/lib/python/basedatos/explorador.py", "exploradorbd", G_ACESSORIOS, &arte_mini_exploradorbd, false },   /* D304: melhoria 127 */
-    { "Pluma (procesador de textos)", "/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
-    { "Macaco (hoja de cálculo)", "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
-    { "Paint",                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
-    { "Visor de imágenes",       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
-    { "PlanoMini (CAD 2D)",      "/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */
-    { "Visor de PDF",            "/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
-    { "Reproductor de vídeo",    "/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
-    { "Grabadora de sonido",     "/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
-    { "Cámara",                  "/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
-    { "Cipó (navegador)",        "/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
-    { "GebraMini (geometría dinámica)", "/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
-    { "Actividades JClic",       "/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
-    { "Actividades JClic (bajar)", "/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
+    { N_("Archivos"),                "/bin/arquivos",    NULL, "arquivos",    G_ACESSORIOS, &arte_icone_arquivos, false },
+    { N_("Calculadora"),             "/bin/calculadora", NULL, "calculadora", G_ACESSORIOS, &arte_icone_calculadora, false },
+    { N_("Editor de texto"),         "/bin/editor",      NULL, "editor",      G_ACESSORIOS, &arte_icone_editor, false },
+    { N_("Recortes"),                "/bin/recortes",    NULL, "recortes",    G_ACESSORIOS, &arte_mini_recortes, true },   /* D125, D139 */
+    { N_("Iconos"),                  "/bin/icones",      NULL, "icones",      G_ACESSORIOS, &arte_mini_icones, false },  /* D135, D139 */
+    { N_("Música"),                  "/bin/musica",      NULL, "musica",      G_ACESSORIOS, &arte_mini_musica, false },
+    { N_("MIDI"),                    "/bin/midi",        NULL, "midi",        G_ACESSORIOS, &arte_mini_musica, false },   /* D190 */
+    { N_("Sintonía (reproductor)"),  "/apps/bin/sintonia", NULL, "sintonia",  G_MULTIMEDIA, &arte_mini_musica, false },   /* D225: en /apps (D194); sólo si está */
+    { N_("Markdown"),                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
+    { N_("Mico (editor de código)"), "/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
+    { N_("VisualPythonS (diseñador)"), "/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
+    { N_("Explorador de bases de datos"), "/bin/python", "/lib/python/basedatos/explorador.py", "exploradorbd", G_ACESSORIOS, &arte_mini_exploradorbd, false },   /* D304: melhoria 127 */
+    { N_("Pluma (procesador de textos)"), "/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
+    { N_("Macaco (hoja de cálculo)"), "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
+    { N_("Paint"),                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
+    { N_("Visor de imágenes"),       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
+    { N_("PlanoMini (CAD 2D)"),      "/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */
+    { N_("Visor de PDF"),            "/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
+    { N_("Reproductor de vídeo"),    "/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
+    { N_("Grabadora de sonido"),     "/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
+    { N_("Cámara"),                  "/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
+    { N_("Cipó (navegador)"),        "/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
+    { N_("GebraMini (geometría dinámica)"), "/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
+    { N_("Actividades JClic"),       "/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
+    { N_("Actividades JClic (bajar)"), "/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
 #ifndef SAGUI_SEM_GPL   /* D184: ni el nombre en la variante sin GPL (la auditoría h81 busca las marcas) */
-    { "NetSurf (navegador)",     "/apps/bin/netsurf", NULL, "netsurf",    G_INTERNET,   &arte_mini_netsurf, false },  /* D184, D194: en /apps; sólo si está */
+    { N_("NetSurf (navegador)"),     "/apps/bin/netsurf", NULL, "netsurf",    G_INTERNET,   &arte_mini_netsurf, false },  /* D184, D194: en /apps; sólo si está */
 #endif
-    { "Sagui Atrapa Bananas",    "/bin/banana",      NULL, "banana",      G_JUEGOS,     &arte_icone_banana, false },
-    { "Solitario Spider",        "/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
-    { "Buscaminas",              "/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
+    { N_("Sagui Atrapa Bananas"),    "/bin/banana",      NULL, "banana",      G_JUEGOS,     &arte_icone_banana, false },
+    { N_("Solitario Spider"),        "/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
+    { N_("Buscaminas"),              "/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
 #ifndef SAGUI_SEM_GPL   /* D184: la h81 encontraba «OpenTyrian» en el kernel sin GPL */
-    { "OpenTyrian",              "/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
-    { "OpenTyrian (pantalla completa)", "/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */
-    { "OpenJazz",                "/apps/bin/openjazz", NULL, "openjazz",  G_JUEGOS,     &arte_mini_openjazz, false },   /* D228: en /apps; sólo si está */
-    { "OpenJazz (pantalla completa)", "/apps/bin/openjazz", "--pantalla-completa", "openjazz-cheia", G_JUEGOS, &arte_mini_openjazz, false },   /* D228 */
-    { "Command & Conquer",       "/apps/bin/conquer", NULL, "conquer",    G_JUEGOS,     &arte_mini_conquer, false },   /* D230: Vanilla Conquer, en /apps; sólo si está */
-    { "Quake",                   "/apps/bin/quake",  NULL, "quake",       G_JUEGOS,     &arte_mini_quake, false },   /* D229: en /apps; sólo si está */
-    { "Quake (pantalla completa)", "/apps/bin/quake", "--pantalla-completa", "quake-cheia", G_JUEGOS, &arte_mini_quake, false },   /* D229 */
-    { "Game Boy (GNUBoy)",       "/apps/bin/gnuboy", NULL, "gnuboy",      G_JUEGOS,     &arte_mini_gnuboy, false },    /* D235: SDL2-GNUBoy, en /apps; sólo si está */
-    { "Recreativa (juegos de DOS)", "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
-    { "DOSBox",                  "/apps/bin/dosbox", NULL, "dosbox",      G_JUEGOS,     &arte_mini_dosbox, false },   /* D294: DOSBox 0.74, en /apps; sólo si está */
-    { "DOSBox (pantalla completa)", "/apps/bin/dosbox", "--pantalla-completa", "dosbox-cheia", G_JUEGOS, &arte_mini_dosbox, false },   /* D294 */
+    { N_("OpenTyrian"),              "/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
+    { N_("OpenTyrian (pantalla completa)"), "/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */
+    { N_("OpenJazz"),                "/apps/bin/openjazz", NULL, "openjazz",  G_JUEGOS,     &arte_mini_openjazz, false },   /* D228: en /apps; sólo si está */
+    { N_("OpenJazz (pantalla completa)"), "/apps/bin/openjazz", "--pantalla-completa", "openjazz-cheia", G_JUEGOS, &arte_mini_openjazz, false },   /* D228 */
+    { N_("Command & Conquer"),       "/apps/bin/conquer", NULL, "conquer",    G_JUEGOS,     &arte_mini_conquer, false },   /* D230: Vanilla Conquer, en /apps; sólo si está */
+    { N_("Quake"),                   "/apps/bin/quake",  NULL, "quake",       G_JUEGOS,     &arte_mini_quake, false },   /* D229: en /apps; sólo si está */
+    { N_("Quake (pantalla completa)"), "/apps/bin/quake", "--pantalla-completa", "quake-cheia", G_JUEGOS, &arte_mini_quake, false },   /* D229 */
+    { N_("Game Boy (GNUBoy)"),       "/apps/bin/gnuboy", NULL, "gnuboy",      G_JUEGOS,     &arte_mini_gnuboy, false },    /* D235: SDL2-GNUBoy, en /apps; sólo si está */
+    { N_("Recreativa (juegos de DOS)"), "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
+    { N_("DOSBox"),                  "/apps/bin/dosbox", NULL, "dosbox",      G_JUEGOS,     &arte_mini_dosbox, false },   /* D294: DOSBox 0.74, en /apps; sólo si está */
+    { N_("DOSBox (pantalla completa)"), "/apps/bin/dosbox", "--pantalla-completa", "dosbox-cheia", G_JUEGOS, &arte_mini_dosbox, false },   /* D294 */
 #endif
-    { "Sagui 3D",                "/bin/sagui3d",     NULL, "sagui3d",     G_JUEGOS,     &arte_icone_sagui3d, false },
-    { "CHIP-8",                  "/bin/chip8",       NULL, "chip8",       G_JUEGOS,     &arte_icone_chip8, false },
-    { "ROM de CHIP-8 (bajar)",   "/bin/python", "/bin/chip8-roms-gui", "python", G_JUEGOS, &arte_icone_chip8, false },   /* D123 */
-    { "Terminal",                "/bin/terminal",    NULL, "terminal",    G_SISTEMA,    &arte_icone_terminal, false },
-    { "Administrador de tareas", "/bin/tareas",      NULL, "tareas",      G_SISTEMA,    &arte_icone_tarefas, true },
-    { "Información del PC",      "/bin/infopc",      NULL, "infopc",      G_SISTEMA,    &arte_mini_infopc, false },
-    { "Pantalla",                "/bin/pantalla",    "--ventana", "pantalla", G_SISTEMA, &arte_mini_pantalla, true },
-    { "Fecha y hora",            "/bin/zona",        "--ventana", "zona",     G_SISTEMA, &arte_mini_relogio, true },
-    { "Configuración",           "/bin/configuracion", NULL, "configuracion", G_SISTEMA, &arte_icone_configuracion, true },
-    { "Discos",                  "/bin/discos",      "--ventana", "discos", G_SISTEMA, &arte_icone_discos, true },   /* D121 */
-    { "Bluetooth",               "/bin/bluetooth",   "--ventana", "bluetooth", G_SISTEMA, &arte_mini_bluetooth, true },   /* D279 */
-    { "Instalar SaguiOS",        "/bin/instalar",    "--ventana", "instalar", G_SISTEMA, &arte_icone_discos, true },   /* D179 */
-    { "IA (chat)",               "/bin/ia",          NULL, "ia",          G_ACESSORIOS, &arte_mini_ia, false },        /* D139: D134 */
-    { "Chat IA",                 "/bin/chatia",      NULL, "chatia",      G_ACESSORIOS, &arte_mini_chatia, false },    /* D143: janela e contexto */
-    { "Correo",                  "/bin/correo",      NULL, "correo",      G_INTERNET,   &arte_mini_correo, false },    /* D146: cliente de correio (082) */
-    { "Escritorio remoto (VNC)", "/bin/vnc",         NULL, "vnc",         G_INTERNET,   &arte_mini_pantalla, false },  /* D254: cliente VNC (097); sin icono propio todavía */
+    { N_("Sagui 3D"),                "/bin/sagui3d",     NULL, "sagui3d",     G_JUEGOS,     &arte_icone_sagui3d, false },
+    { N_("CHIP-8"),                  "/bin/chip8",       NULL, "chip8",       G_JUEGOS,     &arte_icone_chip8, false },
+    { N_("ROM de CHIP-8 (bajar)"),   "/bin/python", "/bin/chip8-roms-gui", "python", G_JUEGOS, &arte_icone_chip8, false },   /* D123 */
+    { N_("Terminal"),                "/bin/terminal",    NULL, "terminal",    G_SISTEMA,    &arte_icone_terminal, false },
+    { N_("Administrador de tareas"), "/bin/tareas",      NULL, "tareas",      G_SISTEMA,    &arte_icone_tarefas, true },
+    { N_("Información del PC"),      "/bin/infopc",      NULL, "infopc",      G_SISTEMA,    &arte_mini_infopc, false },
+    { N_("Pantalla"),                "/bin/pantalla",    "--ventana", "pantalla", G_SISTEMA, &arte_mini_pantalla, true },
+    { N_("Fecha y hora"),            "/bin/zona",        "--ventana", "zona",     G_SISTEMA, &arte_mini_relogio, true },
+    { N_("Configuración"),           "/bin/configuracion", NULL, "configuracion", G_SISTEMA, &arte_icone_configuracion, true },
+    { N_("Discos"),                  "/bin/discos",      "--ventana", "discos", G_SISTEMA, &arte_icone_discos, true },   /* D121 */
+    { N_("Bluetooth"),               "/bin/bluetooth",   "--ventana", "bluetooth", G_SISTEMA, &arte_mini_bluetooth, true },   /* D279 */
+    { N_("Instalar SaguiOS"),        "/bin/instalar",    "--ventana", "instalar", G_SISTEMA, &arte_icone_discos, true },   /* D179 */
+    { N_("IA (chat)"),               "/bin/ia",          NULL, "ia",          G_ACESSORIOS, &arte_mini_ia, false },        /* D139: D134 */
+    { N_("Chat IA"),                 "/bin/chatia",      NULL, "chatia",      G_ACESSORIOS, &arte_mini_chatia, false },    /* D143: janela e contexto */
+    { N_("Correo"),                  "/bin/correo",      NULL, "correo",      G_INTERNET,   &arte_mini_correo, false },    /* D146: cliente de correio (082) */
+    { N_("Escritorio remoto (VNC)"), "/bin/vnc",         NULL, "vnc",         G_INTERNET,   &arte_mini_pantalla, false },  /* D254: cliente VNC (097); sin icono propio todavía */
 };
 #define QTD_PROGRAMAS (int)(sizeof programas / sizeof programas[0])
 #define MAIS_USADOS 4
@@ -1090,7 +1097,7 @@ static void executar_vps(int n)
     char *argv[3] = { "python", l, NULL };
     int pid = processo_executar("/bin/python", 2, argv, NULL);
     klog("[GUI] inicio -> vps %s (pid %d)\n", l, pid);
-    if (pid < 0) gui_aviso("No se pudo abrir la aplicación.");
+    if (pid < 0) gui_aviso(_("No se pudo abrir la aplicación."));
 }
 
 static void executar_programa(const programa_t *p)
@@ -1100,7 +1107,7 @@ static void executar_programa(const programa_t *p)
     if (p->unico) { gui_abrir_unico(p->processo, p->caminho, argc, argv); return; }
     int pid = processo_executar(p->caminho, argc, argv, NULL);
     klog("[GUI] inicio -> %s (pid %d)\n", p->caminho, pid);
-    if (pid < 0) gui_aviso("No se pudo abrir el programa.");
+    if (pid < 0) gui_aviso(_("No se pudo abrir el programa."));
 }
 
 static void executar_ajudante(const char *argumento)
@@ -1133,33 +1140,41 @@ void barra_abrir_inicio(bool teclado)
     menu_lista_t *ml = &menu_inicio;
     menu_lista_iniciar(ml);
     int top[MAIS_USADOS], n = mais_usados(top);
-    for (int i = 0; i < n; i++) menu_lista_linha(ml, programas[top[i]].nome, A_PROGRAMA + top[i], programas[top[i]].icone);
+    for (int i = 0; i < n; i++) menu_lista_linha(ml, _(programas[top[i]].nome), A_PROGRAMA + top[i], programas[top[i]].icone);
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
     for (int g = 0; g < QTD_GRUPOS; g++) {
         char t[MENU_MAX_TEXTO + 1];
-        snformatar(t, sizeof t, ">%s", nome_grupo[g]);
+        snformatar(t, sizeof t, ">%s", _(nome_grupo[g]));
         menu_lista_linha(ml, t, MENU_NADA, NULL);
         for (int i = 0; i < QTD_PROGRAMAS; i++)
-            if (programas[i].grupo == g && programa_disponivel(&programas[i])) menu_lista_linha(ml, programas[i].nome, A_PROGRAMA + i, programas[i].icone);
+            if (programas[i].grupo == g && programa_disponivel(&programas[i])) menu_lista_linha(ml, _(programas[i].nome), A_PROGRAMA + i, programas[i].icone);
         menu_lista_linha(ml, "<", MENU_NADA, NULL);
     }
     vps_cuantas = 0;
     vps_buscar("/apps/vps");
     vps_buscar("/home/vps");
     if (vps_cuantas) {
-        menu_lista_linha(ml, ">Mis aplicaciones", MENU_NADA, NULL);
+        {
+            char t[MENU_MAX_TEXTO + 1];
+            snformatar(t, sizeof t, ">%s", _("Mis aplicaciones"));
+            menu_lista_linha(ml, t, MENU_NADA, NULL);
+        }
         for (int i = 0; i < vps_cuantas; i++) menu_lista_linha(ml, vps_nombre[i], A_VPS + i, &arte_mini_vps);
         menu_lista_linha(ml, "<", MENU_NADA, NULL);
     }
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
-    menu_lista_linha(ml, "Ejecutar...", A_EJECUTAR, &arte_inicio);
-    menu_lista_linha(ml, "Configuración de pantalla", A_PANTALLA, &arte_mini_pantalla);
-    menu_lista_linha(ml, "Acerca de " SAGUI_NOME, A_ACERCA, &arte_icone_sobre);
+    menu_lista_linha(ml, _("Ejecutar..."), A_EJECUTAR, &arte_inicio);
+    menu_lista_linha(ml, _("Configuración de pantalla"), A_PANTALLA, &arte_mini_pantalla);
+    {
+        char t[MENU_MAX_TEXTO + 1];
+        snformatar(t, sizeof t, _("Acerca de %s"), SAGUI_NOME);
+        menu_lista_linha(ml, t, A_ACERCA, &arte_icone_sobre);
+    }
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
     /* D113: "Apagar..." siempre se puede elegir. Sin ACPI utilizable, el
      * apagado graba los discos y avisa de que ya se puede apagar con el botón. */
-    menu_lista_linha(ml, "Apagar...", A_APAGAR, NULL);
-    menu_lista_linha(ml, "Reiniciar...", A_REINICIAR, NULL);
+    menu_lista_linha(ml, _("Apagar..."), A_APAGAR, NULL);
+    menu_lista_linha(ml, _("Reiniciar..."), A_REINICIAR, NULL);
     if (!menu_lista_abrir(INICIO_X, BARRA_SUPERIOR, ml, resposta_inicio, 0, 0)) return;
     inicio_aberto = true;
     gui_redesenhar(0, 0, (int)video_largura(), BARRA_SUPERIOR);
@@ -1199,15 +1214,16 @@ static void menu_ocultas(void)
 
 static void mostrar_data(void)
 {
-    static const char *const dias[] = { "domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado" };
-    static const char *const meses[] = { "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-                                         "agosto", "septiembre", "octubre", "noviembre", "diciembre" };
+    static const char *const dias[] = { N_("domingo"), N_("lunes"), N_("martes"), N_("miércoles"), N_("jueves"), N_("viernes"), N_("sábado") };
+    static const char *const meses[] = { N_("enero"), N_("febrero"), N_("marzo"), N_("abril"), N_("mayo"), N_("junio"), N_("julio"),
+                                         N_("agosto"), N_("septiembre"), N_("octubre"), N_("noviembre"), N_("diciembre") };
     fuso_data_t d;
     hora_local(&d);
     char t[96], h[16];
     texto_hora(h, sizeof h, &d);
-    snformatar(t, sizeof t, "%s, %u de %s de %u, %s %s", dias[d.dia_semana % 7],
-               d.dia, meses[(d.mes >= 1 && d.mes <= 12) ? d.mes - 1 : 0], d.ano, h, d.abrev);
+    const char *dia_s = _(dias[d.dia_semana % 7]), *mes_s = _(meses[(d.mes >= 1 && d.mes <= 12) ? d.mes - 1 : 0]);
+    if (idioma_fecha_mdy()) snformatar(t, sizeof t, "%s, %s %u, %u, %s %s", dia_s, mes_s, d.dia, d.ano, h, d.abrev);   /* D313 */
+    else snformatar(t, sizeof t, _("%s, %u de %s de %u, %s %s"), dia_s, d.dia, mes_s, d.ano, h, d.abrev);
     gui_aviso(t);
 }
 
@@ -1235,7 +1251,7 @@ bool barra_tratar_clique(int x, int y, unsigned botoes)
         if (esq) mostrar_data();
         else if (dir) {   /* D080: botón derecho en el reloj */
             menu_lista_iniciar(&menu_extra);
-            menu_lista_linha(&menu_extra, "Ajustar fecha y hora...", A_FECHA, NULL);
+            menu_lista_linha(&menu_extra, _("Ajustar fecha y hora..."), A_FECHA, NULL);
             menu_lista_abrir(x - 150 > 0 ? x - 150 : 0, BARRA_SUPERIOR, &menu_extra, resposta_extra, 0, 0);
             klog("[GUI] relogio: menu de contexto\n");
         }
@@ -1243,7 +1259,7 @@ bool barra_tratar_clique(int x, int y, unsigned botoes)
     }
     if (dir) {   /* la barra vacía: el atajo del Administrador de tareas */
         menu_lista_iniciar(&menu_extra);
-        menu_lista_linha(&menu_extra, "Administrador de tareas\tCtrl+Mayús+Esc", A_TAREFAS, &arte_icone_tarefas);
+        menu_lista_linha(&menu_extra, _("Administrador de tareas\tCtrl+Mayús+Esc"), A_TAREFAS, &arte_icone_tarefas);
         menu_lista_abrir(x, BARRA_SUPERIOR, &menu_extra, resposta_extra, 0, 0);
     }
     return true;

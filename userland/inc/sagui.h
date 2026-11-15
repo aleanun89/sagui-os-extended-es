@@ -408,6 +408,29 @@ int  registrar_texto(const char *t);
 extern char **environ;
 const char *obter_env(const char *nome);   /* valor de NOME, o NULL */
 
+/* ---- idioma (D313, mejora 118): la cadena en español es la clave ----
+ * _("texto") devuelve la traducción del idioma elegido (LANG del entorno; si no hay, el del
+ * sistema) o el mismo texto en español. N_("texto") solo marca la cadena para
+ * tools/extraer_textos.py (tablas estáticas): se traduce al usarla con _(). Los catálogos
+ * son /sistema/idiomas/<idioma>/<programa>.cat y libsagui.cat (los textos comunes). */
+const char *idioma_traducir(const char *clave);
+const char *idioma_actual(void);                 /* "es", "pt_BR", "en", "xx" (pseudo-idioma de pruebas) */
+int  idioma_fijar(const char *nombre);           /* cambia el idioma de este proceso y del escritorio (SIS_IDIOMA); 0 = bien */
+void idioma_recargar(void);                      /* vuelve a leer LANG o el idioma del sistema (tras un cambio) */
+const char *idioma_traducir_sl(const char *clave);   /* como _() pero sin anotar lo que falta: lo usan los componentes (botones, diálogos) */
+void idioma_normalizar(const char *entrada, char *salida);   /* "pt", "pt_BR.ISO-8859-1", "EN" -> "pt_BR", "pt_BR", "en"; salida de 12 bytes */
+int  idioma_sistema_ler(char *dst, int max);     /* el idioma del sistema (/etc/idioma); 0 = hay, <0 = no */
+int  idioma_sistema_gravar(const char *nombre);  /* solo root: lo escribe en /etc/idioma y en la partición de configuración (D255) */
+#define _(s)  idioma_traducir(s)
+#define N_(s) (s)
+
+/* ---- formatos regionales (D313): decimal, miles y fecha según el idioma ---- */
+char regional_decimal(void);                     /* ',' (es, pt_BR) o '.' (en) */
+char regional_miles(void);                       /* '.' (es, pt_BR) o ',' (en) */
+int  formatar_inteiro_regional(char *dst, size_t max, long n);                              /* 1234567 -> "1.234.567" / "1,234,567" */
+int  formatar_decimal_regional(char *dst, size_t max, long mantisa, int decimales, bool miles);   /* (12345, 2) -> "123,45" / "123.45" */
+int  formatar_data_regional(char *dst, size_t max, int dia, int mes, int ano);              /* dd/mm/aaaa (es, pt_BR) o mm/dd/aaaa (en) */
+
 /* ---- entrada ---- */
 int  ler_linha(int fd, char *buf, unsigned max);   /* tamaño, o -1 al final del archivo */
 

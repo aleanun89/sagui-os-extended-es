@@ -120,7 +120,7 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 115 | [Aceleración de vídeo por GPU (estilo VA-API)](115-video-por-gpu.md) | propuesta (versión por decidir) | media |
 | 116 | [Procesador de textos «Pluma» (Word 97), RTF y exportación a PDF](116-procesador-de-textos.md) | hecha (v8.3) | media |
 | 117 | [Macaco con el estilo de Excel 97](117-macaco-estilo-excel.md) | hecha (v8.3) | media |
-| 118 | [Sistema multiidioma: catálogos, idioma elegible y formatos regionales](118-multiidioma.md) | aprobada (v8.4) | alta |
+| 118 | [Sistema multiidioma: catálogos, idioma elegible y formatos regionales](118-multiidioma.md) | fase 1 hecha (v8.4, D313) | alta |
 | 119 | [DOSBox y un lanzador de juegos de DOS (Recreativa)](119-dosbox.md) | hecha (v8.3.1) | media |
 | 120 | [rsync: sincronizar carpetas y copias de seguridad](120-rsync.md) | aprobada (v8.4) | media |
 | 121 | [Agentes de IA con herramientas, confirmación y registro](121-agentes-ia.md) | hecha (v8.3.1) | alta |

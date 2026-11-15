@@ -1499,6 +1499,12 @@ int principal(int argc, char **argv)
     fonte_aplicar();
     calcular_y0();
     j = jan_abrir("Terminal", conf.cols * celL + 2 * MARGEM, conf.lins * celA + 2 * MARGEM + (conf.barra_siempre ? BARRA_A : 0));
+    /* Con poca RAM (32 MB) el kernel puede no tener un hueco seguido para el búfer de la ventana
+     * (documentado en D313/h95): se reintenta con menos líneas en vez de salir con error. */
+    while (!j && conf.lins > 10) {
+        conf.lins -= 2;
+        j = jan_abrir("Terminal", conf.cols * celL + 2 * MARGEM, conf.lins * celA + 2 * MARGEM + (conf.barra_siempre ? BARRA_A : 0));
+    }
     if (!j) return 1;
     tamanho_minimo();
     g_retangulo(j, 0, 0, j->larg, j->alt, conf.fundo);   /* márgenes también oscuros */
