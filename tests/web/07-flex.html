@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>07 Flexbox</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b{background:#008000;height:16px}
+#f1{display:flex}#f1 b{width:20px}
+#f2{display:flex}#f2 b{width:10px}#f2 .c{flex-grow:1}
+#f3{display:flex}#f3 b{flex:1}
+#f4{display:flex}#f4 b{width:30px}
+#f5{display:flex}#f5 b{flex:0 0 30px}#f5 .c{flex-basis:10px}
+#f6{display:flex;gap:8px}#f6 b{width:16px}
+#f7{display:flex;justify-content:space-between}#f7 b{width:10px}
+#f8{display:flex;justify-content:center}#f8 b{width:20px}
+#f9{display:flex;justify-content:space-evenly}#f9 b{width:8px}
+#f10{display:flex;align-items:center}#f10 b{width:40px;height:8px}
+#f11{display:flex}#f11 b{width:40px;height:auto}
+#f12{display:flex}#f12 b{width:40px;height:8px;align-self:flex-end}
+#f13{display:flex;flex-direction:column}#f13 b{height:8px}
+#f14{display:flex;flex-wrap:wrap}#f14 b{width:20px;height:8px}
+#f15{display:flex}#f15 b{width:20px}#f15 .c{order:2;background:#000080}
+#f16{display:flex;flex-direction:row-reverse}#f16 b{width:20px}#f16 .c{background:#000080}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><b></b><b></b></div><div class="e" style="top:10px">display:flex en fila</div>
+<div class="f" id="f2" style="top:34px"><b></b><b class="c"></b></div><div class="e" style="top:34px">flex-grow</div>
+<div class="f" id="f3" style="top:58px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:58px">flex: 1 (cuatro iguales)</div>
+<div class="f" id="f4" style="top:82px"><b></b><b></b></div><div class="e" style="top:82px">flex-shrink (encogen para caber)</div>
+<div class="f" id="f5" style="top:106px"><b></b><b class="c"></b></div><div class="e" style="top:106px">flex-basis</div>
+<div class="f" id="f6" style="top:130px" data-p="8,8,008000 20,8,ff0000 32,8,008000 38,8,008000"><b></b><b></b></div><div class="e" style="top:130px">gap</div>
+<div class="f" id="f7" style="top:154px" data-p="5,8,008000 20,8,ff0000 35,8,008000"><b></b><b></b></div><div class="e" style="top:154px">justify-content: space-between</div>
+<div class="f" id="f8" style="top:178px" data-p="5,8,ff0000 20,8,008000 35,8,ff0000"><b></b></div><div class="e" style="top:178px">justify-content: center</div>
+<div class="f" id="f9" style="top:202px" data-p="4,8,ff0000 12,8,008000 20,8,ff0000 28,8,008000 36,8,ff0000"><b></b><b></b></div><div class="e" style="top:202px">justify-content: space-evenly</div>
+<div class="f" id="f10" style="top:226px" data-p="20,1,ff0000 20,8,008000 20,14,ff0000"><b></b></div><div class="e" style="top:226px">align-items: center</div>
+<div class="f" id="f11" style="top:250px"><b></b></div><div class="e" style="top:250px">align-items: stretch (de fábrica)</div>
+<div class="f" id="f12" style="top:274px" data-p="20,3,ff0000 20,12,008000"><b></b></div><div class="e" style="top:274px">align-self: flex-end</div>
+<div class="f" id="f13" style="top:298px"><b></b><b></b></div><div class="e" style="top:298px">flex-direction: column</div>
+<div class="f" id="f14" style="top:322px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:322px">flex-wrap: wrap</div>
+<div class="f" id="f15" style="top:346px" data-p="10,8,008000 30,8,000080"><b class="c"></b><b></b></div><div class="e" style="top:346px">order</div>
+<div class="f" id="f16" style="top:370px" data-p="10,8,008000 30,8,000080"><b class="c"></b><b></b></div><div class="e" style="top:370px">flex-direction: row-reverse</div>
+</body></html>

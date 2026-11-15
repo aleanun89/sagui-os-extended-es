@@ -33,6 +33,7 @@
 #include "memoria.h"
 #include "paginacao.h"
 #include "pci.h"
+#include "pci_realoc.h"
 #include "prazo.h"
 #include "texto.h"
 
@@ -326,6 +327,10 @@ static bool iniciar_controlador(nvme_ctl_t *c)
     if (b0 & 1) { klog("[NVME] %x:%x: BAR0 no es de memoria\n", c->pci.fabricante, c->pci.modelo); return false; }
     uint32_t alto = (b0 & 6) == 4 ? pci_le32(&c->pci, 0x14) : 0;
     uint32_t base = b0 & ~0xFu;
+    if (alto) {   /* D283: el kernel es de 32 bits: se baja la BAR a un hueco por debajo de 4 GB */
+        uint32_t nueva = pci_realoc_bar_baixo(&c->pci, 0, "NVMe");
+        if (nueva) { base = nueva; alto = 0; }
+    }
     if (alto || !base) { klog("[NVME] %x:%x: BAR0 inexistente o por encima de 4 GB\n", c->pci.fabricante, c->pci.modelo); return false; }
     /* Memoria y maestro del bus; sin INTx (se sondea). */
     pci_escreve32(&c->pci, 0x04, (pci_le32(&c->pci, 0x04) & 0xFFFFu) | 0x6 | (1u << 10));

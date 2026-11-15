@@ -97,8 +97,12 @@ endif
 # driver dice que falta.
 ifeq ($(SEM_FIRMWARE),1)
 FIRMWARE_RAMDISK :=
+FIRMWARE_RADEON :=
 else
 FIRMWARE_RAMDISK := firmware/realtek/rtl8188eufw.bin firmware/realtek/LICENCE.rtlwifi_firmware.txt
+# D284/D287: microcódigo del procesador de órdenes (CP) de las Radeon (R7xx y R520_cp.bin de las R5xx),
+# de linux-firmware (tools/firmware_radeon.sh y tools/firmware_r5xx.sh), en /lib/firmware/radeon.
+FIRMWARE_RADEON := $(wildcard firmware/radeon/*.bin) firmware/radeon/LICENSE.radeon.txt
 endif
 # D259: PUBLICABLE=1 es lo que pasa gerar_versao.sh sin --con-input-share (lo que se
 # publica). Deja fuera lo que no puede ir en un binario GPL v3: NetSurf y GNUBoy (GPL-2.0
@@ -144,7 +148,7 @@ UCFLAGS := -m32 -march=i686 -std=gnu11 $(OTIMIZACAO) \
 ULDFLAGS := -m elf_i386 -nostdlib -T userland/programa.ld --gc-sections -z max-page-size=4096 \
             -z noexecstack --no-warn-rwx-segments
 LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/userland/libsagui/sse1.o $(B)/userland/libsagui/sse3.o $(B)/userland/libsagui/ssse3.o $(B)/userland/libsagui/fuso.o \
-                $(patsubst userland/libsagui/%.c,$(B)/userland/libsagui/%.o,$(filter-out userland/libsagui/sqlite_%,$(wildcard userland/libsagui/*.c))) \
+                $(patsubst userland/libsagui/%.c,$(B)/userland/libsagui/%.o,$(filter-out userland/libsagui/sqlite_% $(if $(filter 1,$(SEM_GPL)),userland/libsagui/h264.c userland/libsagui/aac.c),$(wildcard userland/libsagui/*.c))) \
                 $(patsubst userland/libsagui/%.asm,$(B)/userland/libsagui/%.asm.o,$(wildcard userland/libsagui/*.asm))
 USER_HDR  := $(wildcard userland/inc/*.h) kernel/inc/abi.h kernel/inc/sha256.h kernel/inc/fuso.h kernel/inc/versao.h
 
@@ -632,6 +636,9 @@ $(B)/userland/programas/simd.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UC
 $(B)/userland/libsagui/saguimark.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS))
 # El ecualizador (D201) calcula los biquads con la x87 (el kernel solo recibe enteros).
 $(B)/userland/libsagui/ecualizador.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387
+# (con SEM_GPL=1 h264.c y aac.c no se compilan: incluyen las tablas de FFmpeg y FAAD2, que son LGPL/GPL de terceros)
+# AAC-LC (mejora 100, D276): coma flotante con la x87, como el ecualizador (vale en cualquier CPU).
+$(B)/userland/libsagui/aac.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -fno-math-errno
 $(B)/userland/bin/saguimark $(B)/userland/bin/infopc: $(B)/userland/libtls/sha256.o
 # D215: el programa wifi calcula la PMK con el mismo kernel/lib/wpa.c del kernel.
 # D220: y el PT y los PWE de SAE (WPA3) con wpa_cifra.c, p256.c y sae.c (y el SHA-256).
@@ -1038,10 +1045,14 @@ $(B)/userland/testes/%: $(B)/userland/testes/%.o $(LIBSAGUI_OBJ) userland/progra
 # construções ao mesmo tempo, uma a apagar a pasta da outra) não deixa um
 # ramdisk pela metade: antes, um SGFS sem entradas chegava à imagem e o
 # kernel arrancava sem nenhum programa, sem que nenhuma aplicação abrisse.
+# D270: /sistema/efi/EFI/BOOT lleva el cargador UEFI (BOOTX64.EFI y BOOTIA32.EFI, unos 60 KB): el
+# instalador copia /sistema/efi a la partición EFI del disco de destino; /sistema/arranque/mbr.bin
+# es el MBR de SaguiOS, para instalar con MBR desde un disco GPT (cuyo LBA 0 es el MBR protector).
 # D172: al final la copia queda como $(B)/rootfs (renombrada, no copiada de nuevo):
 # las pruebas (h08, h16, h24, h59...) leen de ahí el contenido exacto de la imagen.
 $(B)/ramdisk.sgfs: $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
-                  userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK)
+                  userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) \
+                  $(UEFI_EFI) $(B)/boot/mbr.bin
 	@set -e; \
 	d="$$(mktemp -d $(B)/rootfs.XXXXXX)"; \
 	trap 'rm -rf "$$d"' EXIT; \
@@ -1060,6 +1071,10 @@ $(B)/ramdisk.sgfs: $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) too
 	cp litemonkey/python/lmk "$$d/bin/lmk"; \
 	if [ "$(MICROPYTHON)" = "0" ]; then rm -rf "$$d/lib/python" "$$d/bin/lmk" "$$d/bin/chip8-roms" "$$d/bin/chip8-roms-gui"; fi; \
 	if [ -n "$(FIRMWARE_RAMDISK)" ]; then mkdir -p "$$d/lib/firmware"; cp $(FIRMWARE_RAMDISK) "$$d/lib/firmware/"; fi; \
+	if [ -n "$(FIRMWARE_RADEON)" ]; then mkdir -p "$$d/lib/firmware/radeon"; cp $(FIRMWARE_RADEON) "$$d/lib/firmware/radeon/"; fi; \
+	mkdir -p "$$d/sistema/efi/EFI/BOOT" "$$d/sistema/arranque"; \
+	cp $(UEFI_EFI) "$$d/sistema/efi/EFI/BOOT/"; \
+	cp $(B)/boot/mbr.bin "$$d/sistema/arranque/mbr.bin"; \
 	$(PY) tools/mksgfs.py "$$d" "$@.novo"; \
 	mv -f "$@.novo" "$@"; \
 	if [ -e $(B)/rootfs ]; then rm -rf $(B)/rootfs.antigo; mv $(B)/rootfs $(B)/rootfs.antigo; fi; \
@@ -1201,25 +1216,27 @@ help:
 	@echo "  GERAR_OPC=\"--probar\" (opciones de gerar_versao.sh)"
 	@echo "Entorno: . ~/.local/saguitools/env.sh antes de make (ver compilar_versiones.md)"
 
+# D270: todas las imágenes de disco (multinúcleo, uACPI, persistentes, particiones) son híbridas
+# BIOS+UEFI como saguios.img (--uefi, D264); solo la ISO sigue siendo solo BIOS.
 # Imagen multinúcleo (D164): la misma, con los procesadores secundarios
 # encendidos. Sin el IOAPIC (D166): en el Amilo (945) las IRQ PCI del USB no
 # llegaban por él y todo iba lentísimo; hasta que el IOAPIC compruebe al
 # arrancar que llegan las de los dispositivos, va aparte (--ioapic a mano).
 imagem-smp: $(B)/saguios-smp.img
-$(B)/saguios-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+$(B)/saguios-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --smp $(JOGOS_OPC_IMG) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp $(JOGOS_OPC_IMG) $(APPS_OPC)
 
 # Imagen con el intérprete de AML (uACPI) y el indicador de batería (D192):
 # la misma imagen con --uacpi. Por defecto el arranque no ejecuta AML; esta es
 # la que se prueba en los portátiles. Va aparte (como imagem-smp) para que
 # build/saguios.img no cambie según una variable.
 imagem-uacpi: $(B)/saguios-uacpi.img
-$(B)/saguios-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+$(B)/saguios-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --uacpi $(JOGOS_OPC_IMG) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --uacpi $(JOGOS_OPC_IMG) $(APPS_OPC)
 	cd $(B) && sha256sum saguios-uacpi.img > saguios-uacpi.img.sha256
 
 # D077: CD arrancável (El Torito com emulação de disco rígido). A imagem de
@@ -1234,18 +1251,19 @@ $(B)/saguios-cd.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(CD_RAMDISK) \
 	    --saida $@ --vesa --cd
 
-$(B)/saguios.iso: $(B)/saguios-cd.img tools/mkiso.py
-	$(PY) tools/mkiso.py --imagem $< --saida $@
+# D270: la ISO arranca también por UEFI (EFI.IMG con el cargador; el kernel y el ramdisk, de la imagen de dentro).
+$(B)/saguios.iso: $(B)/saguios-cd.img tools/mkiso.py $(UEFI_EFI)
+	$(PY) tools/mkiso.py --imagem $< --saida $@ --efi $(B)/boot/uefi
 	cd $(B) && sha256sum saguios.iso > saguios.iso.sha256
 
 # D040: imagem com partição de dados persistente (precisa do mke2fs do host).
 DATOS_MB ?= 64
 imagem-persistente: $(B)/saguios-persistente.img
 
-$(B)/saguios-persistente.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+$(B)/saguios-persistente.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
 
 # La misma imagen con una partición FAT32 de datos (/home), legible también
 # desde Windows. Sale esparsa: ocupa poco en disco aunque mida DATOS_FAT32_MB.
@@ -1258,24 +1276,24 @@ imagem-persistente-smp: $(B)/saguios-persistente-smp.img $(B)/saguios-persistent
 # Persistente ext2 multinúcleo con uACPI (--uacpi, D192): la de los portátiles, con el
 # indicador de batería; la genera también «make variantes» (gerar_versao.sh --uacpi).
 imagem-persistente-smp-uacpi: $(B)/saguios-persistente-smp-uacpi.img
-$(B)/saguios-persistente-smp-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+$(B)/saguios-persistente-smp-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --smp --uacpi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
-$(B)/saguios-persistente-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --uacpi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
+$(B)/saguios-persistente-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --smp --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
 
-$(B)/saguios-persistente-fat32-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+$(B)/saguios-persistente-fat32-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --smp --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC)
 
-$(B)/saguios-persistente-fat32.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+$(B)/saguios-persistente-fat32.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC)
 
 # D120: imagen con varias particiones de datos (/home, /tmp y /logs) para grabar con Rufus o dd.
 # Tamaños en MB; 0 = sin esa partición. Sale dispersa. Ejemplo:
@@ -1288,7 +1306,7 @@ PART_FS ?= fat32
 PART_EXT ?=            # D213: todas van ya como lógicas en una extendida; PART_EXT=--primarias, el formato de antes
 PART_OPC = --home-mb $(HOME_MB) --tmp-mb $(TMP_MB) --logs-mb $(LOGS_MB) --fs $(PART_FS) $(PART_EXT) --salida $(B)/saguios-particiones.img $(JOGOS_OPC) \
            $(if $(APPS_OPC),--apps $(B)/apps/raiz --apps-mb $(APPS_MB),--sin-apps)
-PART_DEPS = $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py tools/crear-disco.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+PART_DEPS = $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py tools/crear-disco.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 imagem-particoes: $(PART_DEPS)
 	$(PY) tools/crear-disco.py $(PART_OPC)
 

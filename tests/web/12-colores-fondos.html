@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>12 Colores, bordes, sombras y fondos</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1{border-radius:8px}
+#f2 i{display:block;width:16px;height:16px;border-radius:50%;background:#008000}
+#f3{box-shadow:0 0 0 3px #000080}
+#f4{box-shadow:4px 4px 0 #000080}
+#f5{box-shadow:inset 0 0 0 3px #000080}
+#f6{box-shadow:0 0 4px 2px #000080}
+#f7{outline:2px solid #000080}
+#f8{opacity:.5}
+#f9 i{display:block;height:8px}#f9 .c{background:rgba(0,128,0,.5)}#f9 .d{background:hsl(120,100%,25%)}
+#f10 i{display:block;height:8px}#f10 .c{background:rgb(0 128 0 / 50%)}#f10 .d{background:rgb(0 128 0)}
+#f11 i{display:block;height:8px}#f11 .c{background:#00800080}#f11 .d{background:#008000ff}
+#f12{color:#008000}#f12 i{display:block;height:8px;color:red;color:inherit;background:currentColor}
+#f13{background:linear-gradient(to right,#008000,#000080)}
+#f14{background:linear-gradient(90deg,#008000 50%,#000080 50%)}
+#f15{background:radial-gradient(circle,#008000 0,#008000 4px,#000080 5px)}
+#f16{background:green}#f16 i{display:block;height:16px;background:transparent}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f g" id="f1" style="top:10px" data-p="0,0,ffffff 1,1,ffffff 20,8,008000 39,15,ffffff 8,1,008000"></div><div class="e" style="top:10px">border-radius</div>
+<div class="f w" id="f2" style="top:34px" data-p="8,8,008000 0,0,ffffff 15,0,ffffff 0,15,ffffff 8,1,008000 30,8,ffffff"><i></i></div><div class="e" style="top:34px">border-radius: 50% (círculo)</div>
+<div class="f g" id="f3" style="top:58px" data-p="-2,8,000080 42,8,000080 20,-2,000080 20,8,008000"></div><div class="e" style="top:58px">box-shadow con extensión (spread)</div>
+<div class="f g" id="f4" style="top:82px" data-p="42,10,000080 20,18,000080 2,18,ffffff 20,8,008000"></div><div class="e" style="top:82px">box-shadow desplazada</div>
+<div class="f g" id="f5" style="top:106px" data-p="1,8,000080 38,8,000080 20,8,008000"></div><div class="e" style="top:106px">box-shadow inset</div>
+<div class="f g" id="f6" style="top:130px" data-p="-2,8,!ffffff 41,8,!ffffff 20,8,008000 -9,8,ffffff"></div><div class="e" style="top:130px">box-shadow difuminada</div>
+<div class="f g" id="f7" style="top:154px" data-p="-1,8,000080 40,8,000080 20,-2,000080 20,8,008000"></div><div class="e" style="top:154px">outline</div>
+<div class="f g" id="f8" style="top:178px" data-p="20,8,80c080 2,2,80c080"></div><div class="e" style="top:178px">opacity</div>
+<div class="f w" id="f9" style="top:202px" data-p="20,4,80c080 20,12,008000"><i class="c"></i><i class="d"></i></div><div class="e" style="top:202px">rgba() y hsl()</div>
+<div class="f w" id="f10" style="top:226px" data-p="20,4,80c080 20,12,008000"><i class="c"></i><i class="d"></i></div><div class="e" style="top:226px">rgb() moderno: rgb(0 128 0) y rgb(0 128 0 / 50%)</div>
+<div class="f w" id="f11" style="top:250px" data-p="20,4,80c080 20,12,008000"><i class="c"></i><i class="d"></i></div><div class="e" style="top:250px">hexadecimal con alfa (#rrggbbaa y #rgba)</div>
+<div class="f" id="f12" style="top:274px"><i></i><i></i></div><div class="e" style="top:274px">currentColor e inherit</div>
+<div class="f" id="f13" style="top:298px" data-p="1,8,008000~16 38,8,000080~16 20,8,004040~16"></div><div class="e" style="top:298px">linear-gradient</div>
+<div class="f" id="f14" style="top:322px" data-p="10,8,008000 30,8,000080"></div><div class="e" style="top:322px">linear-gradient con paradas duras</div>
+<div class="f" id="f15" style="top:346px" data-p="20,8,008000 2,8,000080 38,2,000080"></div><div class="e" style="top:346px">radial-gradient</div>
+<div class="f" id="f16" style="top:370px"><i></i></div><div class="e" style="top:370px">transparent y color con nombre</div>
+</body></html>

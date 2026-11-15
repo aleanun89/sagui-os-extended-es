@@ -27,7 +27,7 @@ ACENTO = (0x2A, 0x6F, 0xD8)
 DADOS_MB = 16
 
 # As abas da janela «Configuración»: cada uma é da largura do seu título (D145).
-TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red")
+TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto")
 
 
 def pos_paginas():
@@ -35,9 +35,9 @@ def pos_paginas():
     x = 10
     pos = []
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 16
+        l = len(t) * 8 + 10   # como la ventana: anchura del título + 10 (D145)
         pos.append((x, l))
-        x += l + 4
+        x += l + 2
     return pos
 
 

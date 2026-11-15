@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>08 Flexbox (2)</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b{background:#008000;height:16px}
+#f1{display:flex}#f1 b{width:10px;margin-left:auto}
+#f2{display:flex;flex-wrap:wrap;gap:4px 8px}#f2 b{width:16px;height:6px}
+#f3{display:flex;flex-flow:column wrap}#f3 b{width:20px;height:8px}
+#f4{display:flex;justify-content:flex-end}#f4 b{width:10px}
+#f5{display:flex;justify-content:space-around}#f5 b{width:10px}
+#f6{display:flex;flex-direction:column;justify-content:center}#f6 b{height:8px}
+#f7{display:flex;flex-direction:column;align-items:center}#f7 b{width:20px}
+#f8{font-size:0}#f8 span{display:inline-flex;width:40px}#f8 b{flex:1}
+#f9{display:flex}#f9 b{flex:1}#f9 .c{flex:2;background:#000080}
+#f10{display:flex;overflow:hidden}#f10 b{width:30px;min-width:30px}#f10 .c{background:#000080}
+#f11{display:flex;flex-wrap:wrap;align-content:center}#f11 b{width:40px;height:4px}
+#f12{display:flex}#f12 span{display:flex;flex:1;flex-direction:column}#f12 b{flex:1;height:auto}
+#f13{display:flex}#f13 b{width:50%}
+#f14{display:flex}#f14 span{display:contents}#f14 b{flex:1}
+</style></head>
+<body data-filas="14"><div id="o"></div>
+<div class="f" id="f1" style="top:10px" data-p="5,8,ff0000 25,8,ff0000 35,8,008000"><b></b></div><div class="e" style="top:10px">margin-left: auto en un elemento flexible</div>
+<div class="f" id="f2" style="top:34px" data-p="8,3,008000 20,3,ff0000 32,3,008000 8,8,ff0000 8,13,008000 32,13,008000"><b></b><b></b><b></b><b></b></div><div class="e" style="top:34px">gap con flex-wrap (row-gap y column-gap)</div>
+<div class="f" id="f3" style="top:58px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:58px">flex-flow: column wrap</div>
+<div class="f" id="f4" style="top:82px" data-p="5,8,ff0000 35,8,008000"><b></b></div><div class="e" style="top:82px">justify-content: flex-end</div>
+<div class="f" id="f5" style="top:106px" data-p="2,8,ff0000 10,8,008000 20,8,ff0000 30,8,008000 38,8,ff0000"><b></b><b></b></div><div class="e" style="top:106px">justify-content: space-around</div>
+<div class="f" id="f6" style="top:130px" data-p="20,1,ff0000 20,8,008000 20,14,ff0000"><b></b></div><div class="e" style="top:130px">columna con justify-content: center</div>
+<div class="f" id="f7" style="top:154px" data-p="5,8,ff0000 20,8,008000 35,8,ff0000"><b></b></div><div class="e" style="top:154px">columna con align-items: center</div>
+<div class="f" id="f8" style="top:178px"><span><b></b><b></b></span></div><div class="e" style="top:178px">display: inline-flex</div>
+<div class="f" id="f9" style="top:202px" data-p="12,8,000080 24,8,000080 30,8,008000 38,8,008000"><b class="c"></b><b></b></div><div class="e" style="top:202px">flex: 2 y flex: 1 (reparto 2 a 1)</div>
+<div class="f" id="f10" style="top:226px" data-p="28,8,008000 32,8,000080"><b></b><b class="c"></b></div><div class="e" style="top:226px">min-width impide encoger</div>
+<div class="f" id="f11" style="top:250px" data-p="20,2,ff0000 20,6,008000 20,10,008000 20,14,ff0000"><b></b><b></b></div><div class="e" style="top:250px">align-content: center (con wrap)</div>
+<div class="f" id="f12" style="top:274px"><span><b></b><b></b></span><span><b></b></span></div><div class="e" style="top:274px">flex anidado</div>
+<div class="f" id="f13" style="top:298px"><b></b><b></b></div><div class="e" style="top:298px">% de ancho en hijos flexibles</div>
+<div class="f" id="f14" style="top:322px"><span><b></b><b></b></span></div><div class="e" style="top:322px">display: contents</div>
+</body></html>

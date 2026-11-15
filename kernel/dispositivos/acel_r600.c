@@ -46,14 +46,41 @@
  * r500_reg.h, r600_reg.h, r600.c, rv770.c, r600_dma.c, rv770_dma.c y
  * r600_cs.c del driver radeon de Linux 6.6 (todas con la licencia MIT/X11 de
  * AMD y Red Hat en la cabecera) y la lista de modelos de drm_pciids.h
- * (SPDX MIT); el código es propio (docs/terceros.md). */
+ * (SPDX MIT); el código es propio (docs/terceros.md).
+ *
+ * D286: el mismo driver lleva las Evergreen (HD 5000: Cedar, Redwood, Juniper,
+ * Cypress, Hemlock) y las Northern Islands (HD 6000: Barts, Turks, Caicos y
+ * Cayman), generaciones 8 y 9 (evergreen_dma.h dice qué cambia: la lista de
+ * modelos, la cuenta de 20 bits del paquete de copia, los controladores de
+ * pantalla, CONFIG_MEMSIZE en MB, el vaciado del HDP y, en Cayman, sin
+ * DMA_MODE y con CMD_VMID_FORCE). El anillo se enciende con la misma
+ * secuencia (Linux usa r600_dma_resume en Evergreen/Barts/Turks/Caicos) y las
+ * comprobaciones previas son las mismas. SIN PROBAR EN HARDWARE (el objetivo
+ * es la Mobility HD 5000 1002:68e0 del Toshiba L635). */
 #include "acel2d.h"
 #include "console.h"
+#include "evergreen_dma.h"
 #include "paginacao.h"
+#include "r600_base.h"
 #include "r600_dma.h"
 #include "texto.h"
 
 #define MMIO_TAM               0x10000
+#define MMIO_TAM_EVG           0x20000     /* D286: los controladores de pantalla 3 a 6 van por encima de 64 KB */
+/* Pantalla de las Evergreen/NI (D286): se suma evg_crtc_desloc(n). */
+#define EVG_GRPH_ENABLE        0x6800
+#define EVG_GRPH_CONTROL       0x6804
+#define EVG_GRPH_SWAP_CONTROL  0x680C
+#define EVG_GRPH_SUPERFICIE    0x6810
+#define EVG_GRPH_PITCH         0x6818
+#define EVG_GRPH_SUPERFICIE_HI 0x681C
+#define EVG_GRPH_OFF_X         0x6824
+#define EVG_GRPH_OFF_Y         0x6828
+#define EVG_GRPH_X_END         0x6834
+#define EVG_GRPH_Y_END         0x6838
+#define EVG_CUR_CONTROL        0x6998      /* bit 0: cursor por hardware encendido */
+#define EVG_CUR_SUPERFICIE     0x699C
+#define EVG_CRTC_CONTROL       0x6E70      /* bit 0: encendido */
 /* Pantalla (AVIVO; D2 = D1 + 0x800). */
 #define D1CRTC_CONTROL         0x6080
 #define D1GRPH_ENABLE          0x6100
@@ -94,8 +121,9 @@
 #define DMA_SEM_INCOMPLETE_TIMER_CNTL 0xD044   /* D246: Linux los pone a 0 al encender el anillo */
 #define DMA_SEM_WAIT_FAIL_TIMER_CNTL  0xD048
 #define   DMA_IB_ENABLE       0x1u
+#define   DMA_CMD_VMID_FORCE  (1u << 31)   /* D286: Cayman (cayman_dma_resume) */
 #define   DMA_IDLE             0x1u
-#define DMA_MODE               0xD0BC      /* R7xx: 1 (como hace Linux) */
+#define DMA_MODE               0xD0BC      /* R7xx y Evergreen: 1 (como hace Linux); Cayman no lo tiene */
 #define PTR_MASCARA            0x3FFFCu
 
 #define RING_BYTES             (64 * 1024)
@@ -167,6 +195,8 @@ static volatile uint32_t *ring, *ctrl, *linha_cor;
 static uint32_t mc_ring, mc_ctrl, mc_linha_cor;
 static r600_geo_t geo;
 static int gen, larg, alt_util;       /* alt_util: filas que se pueden tocar (pantalla + zona de prueba) */
+static int n_crtc, crtc_tela;         /* D286: controladores de pantalla del chip y el que muestra el VBE */
+static uint32_t mmio_tam;
 static bool agp, programado, pendente;
 static uint32_t wptr, seq;
 static uint32_t cor_atual, cor_largura;   /* lo que tiene pintado la fila del color */
@@ -175,6 +205,8 @@ static uint32_t o_rb_cntl, o_rb_base, o_ib_cntl, o_cntl, o_mode, o_rptr_hi, o_rp
 
 static inline uint32_t rd(uint32_t r)             { return *(volatile uint32_t *)(mmio + r); }
 static inline void     wr(uint32_t r, uint32_t v) { *(volatile uint32_t *)(mmio + r) = v; }
+/* DMA_MODE existe en las R7xx y en las Evergreen/Barts/Turks/Caicos; no en las R6xx ni en Cayman. */
+static inline bool tem_dma_mode(void) { return gen == 7 || gen == EVG_GEN_EVERGREEN; }
 
 /* La lista exacta: NULL si el modelo no está. */
 static const r600_modelo_t *modelo_de(uint16_t id)
@@ -192,7 +224,7 @@ static const r600_modelo_t *modelo_de(uint16_t id)
 static void hdp_vaciar(void)
 {
     __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
-    if (gen >= 7 && !agp) {
+    if (gen == 7 && !agp) {       /* solo las R7xx (fallo de su hardware); Evergreen/NI, por el registro */
         wr(HDP_DEBUG1, 0);
         (void)ctrl[CTRL_HDP];
     } else {
@@ -266,7 +298,9 @@ static bool saida_copia(void *ctx, uint32_t dst, uint32_t src, uint32_t ndw)
 {
     (void)ctx;
     uint32_t p[R600_PKT_MAX];
-    int n = r600_pkt_copiar(p, dst, src, ndw, gen >= 7);   /* 5 palabras en R7xx, 4 en R6xx */
+    /* 5 palabras en R7xx y Evergreen/NI (cuenta de 20 bits), 4 en R6xx. */
+    int n = gen >= EVG_GEN_EVERGREEN ? evg_pkt_copiar(p, dst, src, ndw) : r600_pkt_copiar(p, dst, src, ndw, gen >= 7);
+    if (n <= 0) return false;
     return pacote(p, n);
 }
 
@@ -286,11 +320,18 @@ static void r6_detalle(const char *fase)
     uint32_t fbl = rd(gen >= 7 ? R700_MC_VM_FB_LOCATION : R600_MC_VM_FB_LOCATION);
     klog("[ACEL2D] r600 detalle (%s): MC_VM_FB_LOCATION %x HDP_NONSURFACE_BASE %x VM_CONTEXT0_CNTL %x "
          "CONFIG_MEMSIZE %x APER %x\n", fase, fbl, rd(HDP_NONSURFACE_BASE), rd(VM_CONTEXT0_CNTL), rd(CONFIG_MEMSIZE),
-         rd(CONFIG_APER_SIZE));
+         gen >= EVG_GEN_EVERGREEN ? 0 : rd(CONFIG_APER_SIZE));
     klog("[ACEL2D] r600 detalle (%s): DMA_RB_CNTL %x BASE %x (anillo en MC %x) RPTR %x WPTR %x (escrito %x) "
          "DMA_CNTL %x IB_CNTL %x MODE %x STATUS %x SRBM_STATUS %x\n", fase, rd(DMA_RB_CNTL), rd(DMA_RB_BASE), mc_ring,
          rd(DMA_RB_RPTR), rd(DMA_RB_WPTR), (wptr << 2) & PTR_MASCARA, rd(DMA_CNTL), rd(DMA_IB_CNTL),
-         gen >= 7 ? rd(DMA_MODE) : 0, rd(DMA_STATUS_REG), rd(SRBM_STATUS));
+         tem_dma_mode() ? rd(DMA_MODE) : 0, rd(DMA_STATUS_REG), rd(SRBM_STATUS));
+    if (gen >= EVG_GEN_EVERGREEN && crtc_tela >= 0) {
+        uint32_t o = evg_crtc_desloc(crtc_tela);
+        klog("[ACEL2D] r600 detalle (%s): Evergreen/NI gen %d, controlador %d: CRTC_CONTROL %x GRPH_ENABLE %x GRPH_CONTROL %x "
+             "superficie %x (alta %x) pitch %u fin %ux%u cursor %x\n", fase, gen, crtc_tela + 1, rd(EVG_CRTC_CONTROL + o),
+             rd(EVG_GRPH_ENABLE + o), rd(EVG_GRPH_CONTROL + o), rd(EVG_GRPH_SUPERFICIE + o), rd(EVG_GRPH_SUPERFICIE_HI + o),
+             rd(EVG_GRPH_PITCH + o), rd(EVG_GRPH_X_END + o), rd(EVG_GRPH_Y_END + o), rd(EVG_CUR_CONTROL + o));
+    }
     klog("[ACEL2D] r600 detalle (%s): valla %x (esperada %x), pendiente %d, pantalla en MC %x, pitch %u, zona de paso %d filas\n",
          fase, ctrl ? ctrl[CTRL_VALLA] : 0, seq, pendente, geo.mc_tela, geo.pitch, geo.filas_rascunho);
 }
@@ -336,7 +377,7 @@ static void r6_desligar(void)
     wr(DMA_SEM_INCOMPLETE_TIMER_CNTL, o_sem1);
     wr(DMA_SEM_WAIT_FAIL_TIMER_CNTL, o_sem2);
     wr(DMA_CNTL, o_cntl);
-    if (gen >= 7) wr(DMA_MODE, o_mode);
+    if (tem_dma_mode()) wr(DMA_MODE, o_mode);
     wr(DMA_RB_BASE, o_rb_base);
     wr(DMA_RB_RPTR, 0);
     wr(DMA_RB_WPTR, 0);
@@ -364,40 +405,45 @@ static bool tem_agp(const pci_disp_t *d)
     return false;
 }
 
-static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
+/* D284: la sonda de solo lectura, compartida con el 3D (r600_base.h). */
+bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_base_t *b, char *m, int nm)
 {
-    programado = false;
     const r600_modelo_t *mod = modelo_de(d->modelo);
-    if (!mod || mod->gen != geracao) {
-        snformatar(m, (size_t)nm, "el modelo %04x no esta en la lista exacta de R6xx/R7xx: no se toca", d->modelo);
+    const evg_modelo_t *emod = mod ? NULL : evg_modelo(d->modelo);   /* D286 */
+    if (d->fabricante != 0x1002 || (!mod && !emod) || (mod ? mod->gen : emod->gen) != geracao) {
+        snformatar(m, (size_t)nm, "el modelo %04x no esta en la lista exacta de R6xx/R7xx/Evergreen/NI: no se toca", d->modelo);
         return false;
     }
-    gen = mod->gen;
-    klog("[ACEL2D] r600: %s (%04x), %s, pantalla %x, pitch %u, %ux%u, %u KB del VBE\n", mod->nome, d->modelo,
+    int gen = mod ? mod->gen : emod->gen;
+    const char *nome_mod = mod ? mod->nome : emod->nome;
+    n_crtc = emod ? emod->crtcs : 2;
+    b->gen = gen;
+    b->nome = nome_mod;
+    b->modelo = d->modelo;
+    klog("[ACEL2D] r600: %s (%04x), %s, pantalla %x, pitch %u, %ux%u, %u KB del VBE\n", nome_mod, d->modelo,
+         gen == EVG_GEN_CAYMAN ? "Northern Islands (Cayman)" : gen == EVG_GEN_EVERGREEN ? "Evergreen/Northern Islands" :
          gen >= 7 ? "R7xx" : "R6xx", t->fb_fisico, t->pitch, t->larg, t->alt, t->memoria >> 10);
-    if (gen < 7 && !acel2d_forcado()) {
-        snformatar(m, (size_t)nm, "%s es R6xx: su DMA no es fiable en todas (Linux no lo usa); solo con --acel2d=radeon",
-                   mod->nome);
-        return false;
-    }
-    /* El DMA solo toca la VRAM de la tarjeta: no hace falta el bus maestro. */
+    /* El DMA y el CP solo tocan la VRAM de la tarjeta: no hace falta el bus maestro. */
     uint32_t cmd = pci_le32(d, 0x04);
     if (!(cmd & 0x02)) pci_escreve32(d, 0x04, (cmd & 0xFFFFu) | 0x02);
     bool alto0, alto2;
     uint32_t bar0 = ler_bar(d, 0x10, &alto0), bar2 = ler_bar(d, 0x18, &alto2);
-    agp = tem_agp(d);
-    klog("[ACEL2D] r600: BAR0 %x, BAR2 %x%s\n", bar0, bar2, agp ? ", AGP" : "");
+    b->agp = tem_agp(d);
+    klog("[ACEL2D] r600: BAR0 %x, BAR2 %x%s\n", bar0, bar2, b->agp ? ", AGP" : "");
     if ((bar0 & 1) || alto0) { snformatar(m, (size_t)nm, "BAR 0 no es memoria por debajo de 4 GB (%x)", bar0); return false; }
     if ((bar2 & 1) || alto2 || !(bar2 & ~0xFu)) { snformatar(m, (size_t)nm, "BAR 2 no es MMIO por debajo de 4 GB (%x)", bar2); return false; }
     bar0 &= ~0xFu;
     if (t->fb_fisico < bar0) { snformatar(m, (size_t)nm, "la pantalla (%x) no esta en el BAR 0 (%x)", t->fb_fisico, bar0); return false; }
     if (t->pitch & 3 || t->pitch < (uint32_t)t->larg * 4) { snformatar(m, (size_t)nm, "pitch %u no vale para %u pixeles", t->pitch, t->larg); return false; }
-    if (!mmio || mmio_fis != (bar2 & ~0xFu)) {
+    uint32_t tam_mmio = gen >= EVG_GEN_EVERGREEN ? MMIO_TAM_EVG : MMIO_TAM;
+    if (!mmio || mmio_fis != (bar2 & ~0xFu) || mmio_tam != tam_mmio) {
         mmio_fis = bar2 & ~0xFu;
-        mmio = (volatile uint8_t *)janela_mapear_tipo(mmio_fis, MMIO_TAM, PG_PCD | PG_PWT);
+        mmio_tam = tam_mmio;
+        mmio = (volatile uint8_t *)janela_mapear_tipo(mmio_fis, tam_mmio, PG_PCD | PG_PWT);
     }
     if (!mmio) { snformatar(m, (size_t)nm, "sin ventana para el MMIO"); return false; }
-    uint32_t memsize = rd(CONFIG_MEMSIZE), aper = rd(CONFIG_APER_SIZE);
+    b->mmio = mmio;
+    uint32_t memsize = rd(CONFIG_MEMSIZE), aper = gen >= EVG_GEN_EVERGREEN ? 0 : rd(CONFIG_APER_SIZE);
     if (memsize == 0xFFFFFFFFu) { snformatar(m, (size_t)nm, "el MMIO no responde (CONFIG_MEMSIZE %x)", memsize); return false; }
 
     /* La apertura de la CPU en el MC: dónde está la pantalla para la GPU. */
@@ -407,6 +453,12 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     uint32_t fbloc = rd(gen >= 7 ? R700_MC_VM_FB_LOCATION : R600_MC_VM_FB_LOCATION);
     uint64_t vram_ini = (uint64_t)(fbloc & 0xFFFFu) << 24, vram_fim = ((uint64_t)(fbloc >> 16) << 24) | 0xFFFFFFu;
     uint32_t vm0 = rd(VM_CONTEXT0_CNTL);
+    if (gen >= EVG_GEN_EVERGREEN) {
+        /* D286: CONFIG_MEMSIZE va en MB; no hay registro del tamaño de la apertura (se limita más abajo). */
+        klog("[ACEL2D] r600: CONFIG_MEMSIZE %u MB (registro %x), HDP_NONSURFACE_BASE %x, MC_VM_FB_LOCATION %x, "
+             "VM_CONTEXT0_CNTL %x\n", memsize, memsize, hdp, fbloc, vm0);
+        memsize = evg_memsize_bytes(memsize);
+    } else
     klog("[ACEL2D] r600: CONFIG_MEMSIZE %u MB, CONFIG_APER_SIZE %u MB, HDP_NONSURFACE_BASE %x, MC_VM_FB_LOCATION %x, "
          "VM_CONTEXT0_CNTL %x\n", memsize >> 20, aper >> 20, hdp, fbloc, vm0);
     if (mc64 >> 32) { snformatar(m, (size_t)nm, "la pantalla en el MC pasa de 4 GB (HDP %x)", hdp); return false; }
@@ -414,6 +466,21 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
 
     /* El controlador de pantalla que muestra el framebuffer del VBE. */
     int ctrl_ok = -1;
+    if (gen >= EVG_GEN_EVERGREEN) {
+        /* D286: hasta 6 controladores; solo se leen los que tiene el chip. */
+        for (int c = 0; c < n_crtc && c < EVG_MAX_CRTC; c++) {
+            uint32_t o = evg_crtc_desloc(c);
+            evg_crtc_t e = { rd(EVG_CRTC_CONTROL + o), rd(EVG_GRPH_ENABLE + o), rd(EVG_GRPH_CONTROL + o),
+                             rd(EVG_GRPH_SUPERFICIE + o), rd(EVG_GRPH_SUPERFICIE_HI + o), rd(EVG_GRPH_PITCH + o),
+                             rd(EVG_GRPH_OFF_X + o), rd(EVG_GRPH_OFF_Y + o) };
+            if (!(e.crtc_control & 1) && !(e.grph_enable & 1) && c >= 2) continue;   /* apagado: sin línea en el log */
+            klog("[ACEL2D] r600: controlador %d %s, GRPH %s, control %x, superficie %x (alta %x), pitch %u, "
+                 "desplazamiento %u,%u, fin %ux%u, orden de colores %x\n", c + 1, e.crtc_control & 1 ? "encendido" : "apagado",
+                 e.grph_enable & 1 ? "activo" : "apagado", e.grph_control, e.superficie, e.superficie_alta, e.pitch, e.off_x,
+                 e.off_y, rd(EVG_GRPH_X_END + o), rd(EVG_GRPH_Y_END + o), rd(EVG_GRPH_SWAP_CONTROL + o));
+            if (ctrl_ok < 0 && evg_crtc_mostra(&e, mc_tela, t->pitch / 4)) ctrl_ok = c;
+        }
+    } else
     for (int c = 0; c < 2; c++) {
         uint32_t o = c ? D2_DESLOC : 0;
         uint32_t crtc = rd(D1CRTC_CONTROL + o), en = rd(D1GRPH_ENABLE + o), gc = rd(D1GRPH_CONTROL + o);
@@ -427,10 +494,59 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
             ctrl_ok = c;
     }
     if (ctrl_ok < 0) {
-        snformatar(m, (size_t)nm, "ningun controlador D1/D2 muestra la pantalla del VBE (32 bits, lineal, pitch %u, MC %x)",
-                   t->pitch / 4, mc_tela);
+        snformatar(m, (size_t)nm, "ningun controlador %s muestra la pantalla del VBE (32 bits, lineal, pitch %u, MC %x)",
+                   gen >= EVG_GEN_EVERGREEN ? "de pantalla" : "D1/D2", t->pitch / 4, mc_tela);
         return false;
     }
+    b->bar0 = bar0; b->desloc = desloc; b->mc_tela = mc_tela;
+    b->vram_ini = vram_ini; b->vram_fim = vram_fim;
+    b->fbloc = fbloc; b->hdp = hdp; b->vm0 = vm0;
+    b->memsize = memsize; b->aper = aper;
+    b->controlador = ctrl_ok;
+    return true;
+}
+
+uint32_t r600_fim_2d(const acel_tela_t *t)
+{
+    uint32_t zona_fim = t->pitch * (uint32_t)(t->alt + ACEL2D_ZONA_A);
+    uint32_t area_off = (zona_fim + 0xFFFFu) & ~0xFFFFu;
+    return area_off + RING_BYTES + CTRL_BYTES + t->pitch + t->pitch * (uint32_t)t->alt;
+}
+
+void r600_hdp_vaciar(const r600_base_t *b, volatile uint32_t *leitura)
+{
+    __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
+    if (b->gen >= 7 && !b->agp) {
+        *(volatile uint32_t *)(b->mmio + HDP_DEBUG1) = 0;
+        (void)*leitura;
+    } else {
+        *(volatile uint32_t *)(b->mmio + HDP_MEM_COHERENCY_FLUSH) = 1;
+        (void)*(volatile uint32_t *)(b->mmio + HDP_MEM_COHERENCY_FLUSH);
+    }
+}
+
+static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
+{
+    programado = false;
+    crtc_tela = -1;
+    r600_base_t base;
+    const r600_modelo_t *mod = modelo_de(d->modelo);
+    if (mod && mod->gen == geracao) {
+        gen = mod->gen;
+        if (gen < 7 && !acel2d_forcado()) {
+            snformatar(m, (size_t)nm, "%s es R6xx: su DMA no es fiable en todas (Linux no lo usa); solo con --acel2d=radeon",
+                       mod->nome);
+            return false;
+        }
+    }
+    if (!r600_sondar(d, geracao, t, &base, m, nm)) return false;
+    gen = base.gen;
+    agp = base.agp;
+    uint32_t memsize = base.memsize, aper = base.aper, desloc = base.desloc, mc_tela = base.mc_tela, fbloc = base.fbloc;
+    uint32_t vm0 = base.vm0;
+    uint64_t vram_ini = base.vram_ini, vram_fim = base.vram_fim;
+    int ctrl_ok = base.controlador;
+    crtc_tela = ctrl_ok;
 
     /* Lo que va a tocar el DMA, detrás de la pantalla y de la zona de prueba. */
     uint32_t zona_fim = t->pitch * (uint32_t)(t->alt + ACEL2D_ZONA_A);
@@ -439,6 +555,13 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     uint32_t mem = t->memoria;
     /* CONFIG_MEMSIZE va en bytes en las R6xx/R7xx; si no lo parece, solo cuenta el VBE. */
     if (memsize >= (16u << 20) && memsize < mem) mem = memsize;
+    /* D286: en las Evergreen/NI no hay registro con el tamaño de la apertura de la CPU (BAR 0) y medir el
+     * BAR obligaría a escribirlo: no se usa nada más allá de 64 MB desde su principio (toda tarjeta de
+     * estas tiene 128 MB de apertura o más; la zona de paso se encoge si hace falta). */
+    if (gen >= EVG_GEN_EVERGREEN) {
+        uint32_t lim = desloc < (64u << 20) ? (64u << 20) - desloc : 0;
+        if (mem > lim) mem = lim;
+    }
     int filas = mem > fixo ? (int)((mem - fixo) / t->pitch) : 0;
     if (filas > t->alt) filas = t->alt;
     if (filas < MIN_FILAS_PASO) {
@@ -464,10 +587,17 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     }
     /* Un cursor por hardware encendido (64x64, 16 KB) no puede tener su imagen
      * en la zona de prueba ni donde va el anillo. */
-    for (int c = 0; c < 2; c++) {
-        uint32_t cc = rd(D1CUR_CONTROL + (c ? D2_DESLOC : 0)), cs = rd(D1CUR_SURFACE + (c ? D2_DESLOC : 0));
+    for (int c = 0; c < (gen >= EVG_GEN_EVERGREEN ? n_crtc : 2); c++) {
+        uint32_t cc, cs;
+        if (gen >= EVG_GEN_EVERGREEN) {
+            cc = rd(EVG_CUR_CONTROL + evg_crtc_desloc(c));
+            cs = rd(EVG_CUR_SUPERFICIE + evg_crtc_desloc(c)) & 0xFFFFF000u;
+        } else {
+            cc = rd(D1CUR_CONTROL + (c ? D2_DESLOC : 0));
+            cs = rd(D1CUR_SURFACE + (c ? D2_DESLOC : 0));
+        }
         if ((cc & 1) && cs + 0x4000u > mc_tela + t->pitch * (uint32_t)t->alt && cs < mc_tela + total) {
-            snformatar(m, (size_t)nm, "el cursor por hardware de D%d (MC %x) esta donde iria el anillo", c + 1, cs);
+            snformatar(m, (size_t)nm, "el cursor por hardware del controlador %d (MC %x) esta donde iria el anillo", c + 1, cs);
             return false;
         }
     }
@@ -503,12 +633,12 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     seq = 0x52700000u;
     ctrl[CTRL_VALLA] = seq;
     ctrl[CTRL_TESTE] = 0;
-    klog("[ACEL2D] r600: controlador D%d, pantalla en el MC %x, anillo en %x, zona de paso de %d filas en %x (%u KB)\n",
+    klog("[ACEL2D] r600: controlador %d, pantalla en el MC %x, anillo en %x, zona de paso de %d filas en %x (%u KB)\n",
          ctrl_ok + 1, mc_tela, mc_ring, filas, geo.mc_rascunho, total >> 10);
 
     /* Encender el anillo (como r600_dma_resume, sin escritura de vuelta ni IB). */
     o_rb_cntl = rb; o_rb_base = rd(DMA_RB_BASE); o_ib_cntl = rd(DMA_IB_CNTL); o_cntl = rd(DMA_CNTL);
-    o_mode = gen >= 7 ? rd(DMA_MODE) : 0;
+    o_mode = tem_dma_mode() ? rd(DMA_MODE) : 0;
     o_rptr_hi = rd(DMA_RB_RPTR_ADDR_HI); o_rptr_lo = rd(DMA_RB_RPTR_ADDR_LO);
     o_sem1 = rd(DMA_SEM_INCOMPLETE_TIMER_CNTL); o_sem2 = rd(DMA_SEM_WAIT_FAIL_TIMER_CNTL);
     programado = true;
@@ -527,9 +657,10 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     wr(DMA_RB_RPTR_ADDR_HI, 0);
     wr(DMA_RB_RPTR_ADDR_LO, mc_ctrl + CTRL_RPTR * 4);
     wr(DMA_RB_BASE, mc_ring >> 8);
-    wr(DMA_IB_CNTL, DMA_IB_ENABLE);
+    /* D286: en Cayman, además, CMD_VMID_FORCE (cayman_dma_resume) y sin DMA_MODE. */
+    wr(DMA_IB_CNTL, gen == EVG_GEN_CAYMAN ? DMA_IB_ENABLE | DMA_CMD_VMID_FORCE : DMA_IB_ENABLE);
     wr(DMA_CNTL, o_cntl & ~(DMA_INTERRUPCOES | DMA_TROCA_BYTES));
-    if (gen >= 7) wr(DMA_MODE, 1);
+    if (tem_dma_mode()) wr(DMA_MODE, 1);
     wr(DMA_RB_WPTR, 0);
     hdp_vaciar();
     wr(DMA_RB_CNTL, cntl | DMA_RB_ENABLE);

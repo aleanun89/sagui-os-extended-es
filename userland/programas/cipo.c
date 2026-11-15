@@ -25,6 +25,7 @@
 #include "tls.h"
 #include "gui.h"
 #include "imagem.h"
+#include "video.h"   /* <video> con H.264/AAC (mejora 100, D276) */
 #include "motor.h"
 #include "js.h"
 #include "qjs_bridge.h"   /* D149: o motor de JavaScript da pagina (QuickJS) */
@@ -1031,6 +1032,7 @@ static void desenhar_barra(void)
 /* ---- abas (D148) ---- */
 
 static void carregar(const char *pedido);   /* usado por nova_aba() */
+static void video_parar(void);
 static void nova_aba_com_url(const char *url);
 static void rolar_px(int px);              /* usado por carregar() */
 
@@ -1107,6 +1109,7 @@ static void aba_titulo_janela(void)
 static void trocar_aba(int i)
 {
     if (i < 0 || i >= qtd_abas || i == aba_atual) return;
+    video_parar();
     aba_guardar();
     aba_trocar(i);
     recursos_pendentes = false;
@@ -1379,6 +1382,61 @@ static void js_log(const char *t)
     registrar("cipo: js: %s\n", t);
 }
 
+/* ---- el script cambia la p�gina (D271) ----
+ * El puente avisa de cada atributo (class, style, hidden...) o texto que el
+ * script cambia en un elemento; aqu� se pasa al motor y se apunta que hay que
+ * maquetar otra vez. La maquetaci�n se hace una sola vez, cuando el script (o
+ * el temporizador, o el manejador del clic) ha terminado: js_refrescar(). */
+static bool js_dom_sujo;
+static uint8_t *motor_baixar(const char *url, unsigned *n);
+static void desenhar_pagina(void);
+
+static void js_atributo(int dom, const char *nome, const char *valor)
+{
+    if (!motor || !nome) return;
+    static char b[4100];
+    if (valor) {
+        copia_texto(b, valor, sizeof b);
+        b[utf8_para_latin1(b, tam_texto(b), NULL)] = 0;      /* el motor guarda el texto en Latin-1, como el HTML */
+    }
+    if (motor_dom_atributo(motor, dom, nome, valor ? b : NULL)) js_dom_sujo = true;
+}
+
+static void js_texto(int dom, const char *txt)
+{
+    if (!motor || !txt) return;
+    size_t n = tam_texto(txt);
+    char *b = aloca(n + 1);
+    if (!b) return;
+    memcpy(b, txt, n + 1);
+    b[utf8_para_latin1(b, n, NULL)] = 0;
+    if (motor_dom_texto(motor, dom, b)) js_dom_sujo = true;
+    libera(b);
+}
+
+/* fetch y XMLHttpRequest (solo GET): la direcci�n puede ser relativa a la p�gina. */
+static char *js_baixar(const char *url, int *n)
+{
+    char abs[URL_MAX];
+    *n = 0;
+    if (!url || !juntar_url(url_atual, url, abs, sizeof abs)) return NULL;
+    unsigned tam = 0;
+    uint8_t *d = motor_baixar(abs, &tam);
+    registrar("cipo: js: fetch %s (%u bytes)\n", abs, d ? tam : 0);
+    if (!d) return NULL;
+    *n = (int)tam;
+    return (char *)d;
+}
+
+/* Si el script cambi� algo, maqueta y pinta de nuevo. */
+static void js_refrescar(void)
+{
+    if (!js_dom_sujo || !motor) return;
+    js_dom_sujo = false;
+    motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
+    desenhar_pagina();
+}
+
 /* O script pediu outra pagina (location.href = ... ou location.replace(...)).
  * A navegacao nao se faz aqui: o script ainda esta a correr e o motor nao
  * pode ser destruido a meio. Guarda-se o pedido e o bucle principal trata
@@ -1588,7 +1646,7 @@ static void correr_scripts(void)
     if (js_geracao != js_geracao_rodada) {
         js_geracao_rodada = js_geracao;
         if (js) { qjs_destruir(js); js = NULL; }
-        qjs_ganchos_t g = { js_titulo, js_trocar_corpo, js_alerta, js_log, js_navegar };
+        qjs_ganchos_t g = { js_titulo, js_trocar_corpo, js_alerta, js_log, js_navegar, js_atributo, js_texto, js_baixar };
         js = qjs_criar(&g);
         if (!js) { registrar("cipo: js: sem memoria para o motor\n"); return; }
     }
@@ -1597,6 +1655,8 @@ static void correr_scripts(void)
     qjs_definir_titulo(js, titulo);
     qjs_definir_corpo(js, "");
     qjs_tique(js, tempo_ms());     /* o relogio dos temporizadores */
+    qjs_definir_janela(js, LARG - ROLAGEM, AREA_A);     /* innerWidth, innerHeight y matchMedia (D271) */
+    js_dom_sujo = false;
     /* o DOM da pagina: o script ve a arvore dos elementos (D160) */
     dom_construir();
     if (dom_texto_tam > 0) qjs_definir_dom(js, dom_texto, dom_texto_tam);
@@ -1625,6 +1685,7 @@ static void correr_scripts(void)
         i++;
     }
     if (quantos) registrar("cipo: js: %d script(s) correram\n", quantos);
+    if (quantos) qjs_carga(js);     /* DOMContentLoaded y load (D271) */
     /* Os elementos com um tratador de clique: o motor tem de os saber para
      * que sejam alvo do rato (o alvo se cria no layout). Marca-se e volta a
      * maquetar a pagina (D160). */
@@ -1632,9 +1693,11 @@ static void correr_scripts(void)
         int ids[64];
         int n = qjs_clique_ids(js, ids, 64);
         for (int i = 0; i < n; i++) motor_marcar_clique(motor, ids[i]);
-        if (n > 0) {
+        if (n > 0 || js_dom_sujo) {
+            if (js_dom_sujo) registrar("cipo: js: el script cambio la pagina\n");
+            js_dom_sujo = false;
             motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
-            registrar("cipo: js: %d elemento(s) com tratador de clique\n", n);
+            if (n > 0) registrar("cipo: js: %d elemento(s) com tratador de clique\n", n);
         }
     }
 }
@@ -1673,10 +1736,12 @@ static int codigo_pagina;   /* código HTTP de la página actual (>= 400 = títu
 
 static uint8_t *motor_baixar(const char *url, unsigned *n);
 static bool motor_imagem(const uint8_t *d, unsigned n, uint32_t **px, int *l, int *a);
+static const uint32_t *motor_video(const char *url, int flags, int x, int y, int l, int a, int *fl, int *fa);
 
 /* Se queda con el documento (toma la propiedad del búfer). */
 static void definir_doc(char *corpo, int tam, bool html)
 {
+    video_parar();   /* documento nuevo: el vídeo del anterior se acaba */
     libera(doc);
     doc = corpo;
     doc_tam = tam;
@@ -1712,7 +1777,7 @@ static void diagramar(void)
             }
     }
     if (motor) motor_fim(motor);
-    motor_ganchos_t g = { motor_baixar, motor_imagem, NULL };
+    motor_ganchos_t g = { motor_baixar, motor_imagem, NULL, motor_video };
     motor = motor_novo(&g);
     ms_base = tempo_ms();   /* o relógio das animações começa a zero nesta página */
     if (motor && doc) {
@@ -1889,6 +1954,233 @@ static uint8_t *motor_baixar(const char *url, unsigned *n)
     return (uint8_t *)b.corpo;
 }
 
+/* ------------------------------------------------------------ <video> (mejora 100, D276)
+ *
+ * Un solo vídeo activo a la vez (el decodificador de la libsagui lleva estado
+ * estático): el primero que pide la pintura. El MP4 se baja entero (hasta
+ * VIDEO_MAX_BYTES; mientras baja, la ventana no responde) y se decodifica en el
+ * bucle de eventos con el mismo decodificador que usa el reproductor del
+ * sistema (H.264 Baseline/Main y AAC-LC, video.h). Los cuadros nuevos se
+ * escriben directo en la caja del vídeo, sin repintar la página; si la página se
+ * repinta (scroll, tamaño), el motor pide el cuadro actual por motor_video().
+ * Si el equipo no llega a tiempo real se saltan cuadros (sin convertir color) y el
+ * sonido manda, como en el reproductor. Un clic en el vídeo lo pausa o lo reanuda. */
+#define VIDEO_MAX_BYTES (48 * 1024 * 1024)
+static video_t *vid;                  /* el vídeo activo (NULL = ninguno) */
+static uint8_t *vid_dados;            /* el MP4 entero en memoria */
+static char vid_url[URL_MAX];         /* de dónde se bajó el activo */
+static char vid_quer[URL_MAX];        /* el que pidió la última pintura */
+static char vid_falha[URL_MAX];       /* el que no se pudo abrir (no se reintenta) */
+static int vid_flags, vid_px, vid_py, vid_pl, vid_pa;   /* banderas y caja en la página */
+static imagem_t vid_img;              /* el último cuadro */
+static bool vid_tocando, vid_fim;
+static int vid_fps = 25, vid_prox;    /* cuadro que toca decodificar */
+static int vid_audio = -1;
+static uint32_t vid_taxa, vid_ms_escritos;
+static unsigned vid_t0;
+static int16_t vid_pcm[1024 * 2];
+static int vid_pcm_n, vid_pcm_pos;    /* audio decodificado pendiente de escribir (cuadros estéreo) */
+static unsigned vid_mostrados, vid_saltados, vid_ms_decod;
+
+static const uint32_t *motor_video(const char *url, int flags, int x, int y, int l, int a, int *fl, int *fa)
+{
+    if (!vid_quer[0]) copia_texto(vid_quer, url, sizeof vid_quer);
+    if (compara_texto(vid_quer, url) != 0) return NULL;   /* solo el primero */
+    vid_flags = flags;
+    vid_px = x; vid_py = y; vid_pl = l; vid_pa = a;
+    if (vid && vid_img.px && compara_texto(vid_url, url) == 0) { *fl = vid_img.larg; *fa = vid_img.alt; return vid_img.px; }
+    return NULL;
+}
+
+static unsigned video_relogio(void)
+{
+    if (vid_audio < 0) return tempo_ms() - vid_t0;
+    int pend = audio_pendente(vid_audio);
+    if (pend < 0) pend = 0;
+    return vid_ms_escritos > (uint32_t)pend ? vid_ms_escritos - (uint32_t)pend : 0;
+}
+
+static void video_abrir_som(void)
+{
+    vid_audio = -1;
+    vid_pcm_n = vid_pcm_pos = 0;
+    vid_ms_escritos = 0;
+    const video_info_t *inf = video_info(vid);
+    if (!inf->tem_audio || (vid_flags & VIDEO_MUTED)) return;
+    vid_taxa = inf->taxa_audio;
+    vid_audio = audio_abrir((int)vid_taxa, 2, 16);
+    if (vid_audio < 0) vid_audio = -1;
+}
+
+/* Escribe el audio que toca, sin bloquear la ventana. */
+static void video_escrever_som(void)
+{
+    if (vid_audio < 0) return;
+    for (int vueltas = 0; vueltas < 8; vueltas++) {
+        if (vid_pcm_pos >= vid_pcm_n) {
+            vid_pcm_n = video_audio(vid, vid_pcm, 1024);
+            vid_pcm_pos = 0;
+            if (vid_pcm_n <= 0) { vid_pcm_n = 0; return; }
+        }
+        int r = audio_escrever_sem_bloquear(vid_audio, vid_pcm + vid_pcm_pos * 2, (unsigned)(vid_pcm_n - vid_pcm_pos) * 4);
+        if (r <= 0) return;
+        int cuadros = r / 4;
+        vid_pcm_pos += cuadros;
+        vid_ms_escritos += (uint32_t)cuadros * 1000u / vid_taxa;
+    }
+}
+
+static void video_parar(void)
+{
+    if (vid_audio >= 0) { audio_fechar(vid_audio, 0); vid_audio = -1; }
+    if (vid) {
+        registrar("cipo: video fin: %u cuadros mostrados, %u saltados, %u ms decodificando\n", vid_mostrados, vid_saltados, vid_ms_decod);
+        video_fechar(vid);
+        vid = NULL;
+    }
+    if (vid_img.px) imagem_liberar(&vid_img);
+    libera(vid_dados);
+    vid_dados = NULL;
+    vid_url[0] = vid_quer[0] = vid_falha[0] = 0;
+    vid_tocando = vid_fim = false;
+    vid_mostrados = vid_saltados = vid_ms_decod = 0;
+}
+
+/* Pinta el cuadro actual en la ventana, en la caja del vídeo (la misma cuenta de ajuste que el motor). */
+static void video_blit(void)
+{
+    if (!vid || !vid_img.px || pintura_pendente || vid_pl <= 0 || vid_pa <= 0) return;
+    int tl = vid_img.larg, ta = vid_img.alt, bl, ba;
+    if ((long)tl * vid_pa > (long)ta * vid_pl) { bl = vid_pl; ba = (int)((long)ta * vid_pl / tl); }
+    else { ba = vid_pa; bl = (int)((long)tl * vid_pa / ta); }
+    if (bl < 1 || ba < 1) return;
+    int bx = vid_px + (vid_pl - bl) / 2;
+    int by = ABA_Y + vid_py + (vid_pa - ba) / 2 - rol_px;
+    int x0 = bx < 0 ? 0 : bx, x1 = bx + bl > LARG - ROLAGEM ? LARG - ROLAGEM : bx + bl;
+    int y0 = by < ABA_Y ? ABA_Y : by, y1 = by + ba > ABA_Y + AREA_A ? ABA_Y + AREA_A : by + ba;
+    if (x0 >= x1 || y0 >= y1) return;
+    for (int yy = y0; yy < y1; yy++) {
+        const uint32_t *src = vid_img.px + ((yy - by) * ta / ba) * tl;
+        uint32_t *d = j->px + yy * j->larg;
+        for (int xx = x0; xx < x1; xx++) d[xx] = src[(xx - bx) * tl / bl];
+    }
+    if (!vid_tocando) {   /* en pausa: un triangulo de "play" blanco en el centro */
+        int cx = bx + bl / 2, cy = by + ba / 2;
+        for (int k = -14; k <= 14; k++) {
+            int w = 14 - (k < 0 ? -k : k);
+            int yy = cy + k;
+            if (yy >= y0 && yy < y1 && cx - 6 >= x0 && cx - 6 + w < x1) g_retangulo(j, cx - 6, yy, w + 1, 1, 0xFFFFFF);
+        }
+    }
+    jan_mostrar_area(j, x0, y0, x1 - x0, y1 - y0);
+}
+
+static void video_iniciar(const char *url)
+{
+    static baixa_t vb;
+    char u[URL_MAX];
+    copia_texto(u, url, sizeof u);
+    rodape("Descargando vídeo...");
+    baixar(u, false, VIDEO_MAX_BYTES, &vb);
+    if (vb.erro || vb.truncado || !vb.corpo || vb.tam < 32) {
+        registrar("cipo: video: no se pudo bajar (%s%s)\n", vb.erro ? vb.erro : "", vb.truncado ? ", demasiado grande" : "");
+        libera(vb.corpo);
+        vb.corpo = NULL;
+        copia_texto(vid_falha, url, sizeof vid_falha);
+        rodape("No se pudo descargar el vídeo");
+        return;
+    }
+    vid_dados = (uint8_t *)vb.corpo;
+    vb.corpo = NULL;
+    int erro = 0;
+    vid = video_abrir_memoria(vid_dados, (uint32_t)vb.tam, &erro);
+    if (!vid) {
+        registrar("cipo: video: %s\n", video_erro_texto(erro));
+        libera(vid_dados);
+        vid_dados = NULL;
+        copia_texto(vid_falha, url, sizeof vid_falha);
+        rodape(video_erro_texto(erro));
+        return;
+    }
+    const video_info_t *inf = video_info(vid);
+    copia_texto(vid_url, url, sizeof vid_url);
+    vid_fps = inf->fps > 0 ? inf->fps : 25;
+    if (vid_pl > 0 && inf->larg >= 2 * vid_pl) video_reducao(vid, 2);   /* la caja es pequeña: mitad de tamaño, más rápido */
+    vid_prox = 0;
+    vid_fim = false;
+    registrar("cipo: video %s %dx%d %d fps, %d cuadros, audio %s\n", inf->nome_formato, inf->larg, inf->alt, vid_fps, inf->quadros,
+              inf->tem_audio ? "si" : "no");
+    if (video_quadro(vid, &vid_img) == 0) { vid_prox = 1; vid_mostrados++; }
+    vid_tocando = (vid_flags & VIDEO_AUTOPLAY) != 0;
+    vid_t0 = tempo_ms();
+    if (vid_tocando) video_abrir_som();
+    rodape("");
+    desenhar_pagina();   /* el motor pide el cuadro por motor_video() */
+}
+
+/* Un paso del bucle de eventos: arranca el vídeo que pidió la pintura y saca el cuadro que toca. */
+static void video_tick(void)
+{
+    if (!vid) {
+        if (vid_quer[0] && compara_texto(vid_quer, vid_falha) != 0 && !pintura_pendente) video_iniciar(vid_quer);
+        return;
+    }
+    if (!vid_tocando || vid_fim) return;
+    video_escrever_som();
+    unsigned agora = video_relogio();
+    int debe = (int)(agora * (unsigned)vid_fps / 1000u);
+    if (vid_prox > debe) return;
+    unsigned t0 = tempo_ms();
+    int saltos = 0;
+    while (debe - vid_prox >= 2 && saltos < 4) {   /* atrasado: se decodifican sin convertir color */
+        if (video_quadro(vid, NULL) != 0) break;
+        vid_prox++;
+        saltos++;
+        vid_saltados++;
+        video_escrever_som();
+    }
+    int r = video_quadro(vid, &vid_img);
+    vid_ms_decod += tempo_ms() - t0;
+    if (r == 0) {
+        vid_prox++;
+        vid_mostrados++;
+        video_escrever_som();
+        video_blit();
+    } else if (vid_flags & VIDEO_LOOP) {
+        video_buscar(vid, 0);
+        vid_prox = 0;
+        vid_t0 = tempo_ms();
+        if (vid_audio >= 0) { audio_fechar(vid_audio, 0); vid_audio = -1; }
+        video_abrir_som();
+    } else {
+        vid_fim = true;
+        vid_tocando = false;
+        if (vid_audio >= 0) { audio_fechar(vid_audio, 1); vid_audio = -1; }
+        registrar("cipo: video terminado\n");
+    }
+}
+
+/* Clic sobre el vídeo: pausa o reanuda. true = el clic era del vídeo. */
+static bool video_clique(int x, int y)
+{
+    if (!vid || !vid_img.px) return false;
+    int wy = ABA_Y + vid_py - rol_px;
+    if (x < vid_px || x >= vid_px + vid_pl || y < wy || y >= wy + vid_pa || y < ABA_Y || y >= ABA_Y + AREA_A) return false;
+    if (vid_fim) {   /* terminado: otra vez desde el principio */
+        video_buscar(vid, 0);
+        vid_prox = 0;
+        vid_fim = false;
+    }
+    vid_tocando = !vid_tocando;
+    if (vid_tocando) {
+        vid_t0 = tempo_ms() - (unsigned)(vid_prox * 1000 / vid_fps);
+        if (vid_audio < 0) video_abrir_som();
+    }
+    registrar("cipo: video %s\n", vid_tocando ? "reanudado" : "en pausa");
+    video_blit();
+    return true;
+}
+
 /* Uma imagem maior demais se reduz (o mais perto, sem suavizar: a
  * interpolação custa mais e a diferença quase não se nota). Antes, uma foto
  * de 3 MB simplesmente não aparecia. */
@@ -1944,9 +2236,9 @@ static void processar_recurso(void)
         int fim = rol_px + AREA_A;
         int faixa = fim - pintura_y < FAIXA_PINTURA ? fim - pintura_y : FAIXA_PINTURA;
         if (faixa > 0) {
+            motor_rolagem(motor, rol_px);      /* antes de pintar: fixed y sticky siguen el desplazamiento, no la franja (D271) */
             motor_pintar(motor, j->px + (ABA_Y + pintura_y - rol_px) * j->larg,
                          LARG - ROLAGEM, j->larg, pintura_y, faixa);
-            motor_rolagem(motor, rol_px);
             pintura_y += faixa;
             jan_mostrar_area(j, 0, ABA_Y + pintura_y - rol_px - faixa, LARG - ROLAGEM, faixa);
         }
@@ -2095,6 +2387,7 @@ static void carregar(const char *pedido)
 
 static void navegar(const char *url)
 {
+    video_parar();
     if (url_atual[0] && compara_texto(url, url_atual) != 0) {
         if (qtd_historico == HIST_MAX) {
             memmove(historico[0], historico[1], sizeof historico[0] * (HIST_MAX - 1));
@@ -2272,6 +2565,12 @@ static void guardar_recurso(const char *url)
     char nome[96];
     nome_arquivo_url(url, nome, sizeof nome);
     formatar_texto(caminho, sizeof caminho, "%s/%s", pasta_descarga(), nome);
+    /* Mejora 103: se elige d�nde guardar con el di�logo com�n (Intro acepta la propuesta). */
+    if (!dialogo_guardar("Guardar como", NULL, caminho, caminho, sizeof caminho)) {
+        libera(b.corpo);
+        rodape("Guardado cancelado");
+        return;
+    }
     int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     int r = fd < 0 ? fd : escrever_tudo(fd, b.corpo, (unsigned)b.tam);
     if (fd >= 0) fechar(fd);
@@ -2292,7 +2591,9 @@ static void abrir_alvo_motor(const motor_alvo_t *a)
     /* Un manejador de JavaScript puede atender el clic (D160). Si el script
      * cancela el evento (preventDefault), no se navega. */
     if (a->dom >= 0 && js) {
-        if (qjs_clique(js, a->dom)) {
+        bool cancelado = qjs_clique(js, a->dom);
+        js_refrescar();      /* el manejador pudo cambiar clases o estilos (D271) */
+        if (cancelado) {
             registrar("cipo: js: el clic lo cancelo el script\n");
             return;
         }
@@ -2674,11 +2975,12 @@ int principal(int argc, char **argv)
         /* As animações da página andam com o relógio: se alguma mudou, repinta-se
          * a banda visível (sem recalcular o layout). */
         if (animacoes_tick()) { desenhar_pagina(); continue; }
+        video_tick();
         /* Os temporizadores do script (setTimeout): correm com o relogio do SO. */
-        if (js && qjs_tique(js, tempo_ms()) > 0) desenhar_pagina();
+        if (js && qjs_tique(js, tempo_ms()) > 0) { if (js_dom_sujo) js_refrescar(); else desenhar_pagina(); }
         if (proximo_evento(j->id, &e, false) != 1) {
             if (pintura_pendente || recursos_pendentes) { processar_recurso(); continue; }
-            if (esperar_evento(j->id, &e, 15) != 1) continue;
+            if (esperar_evento(j->id, &e, vid_tocando ? 4 : 15) != 1) continue;
         }
         if (e.tipo == EV_FECHAR) break;
         if (e.tipo == EV_MENU && e.tecla == COD_MENU_CONTEXTUAL) {
@@ -2812,6 +3114,7 @@ int principal(int argc, char **argv)
                 desenhar_pagina();
                 continue;
             }
+            if (video_clique(e.x, e.y)) continue;
             const motor_alvo_t *a = alvo_motor_em(e.x, e.y);
             if (a) {
                 foco_alvo = -1;
@@ -2839,6 +3142,7 @@ int principal(int argc, char **argv)
         posicao_guardar(url_atual, rol_px);
         gravar_posicoes();
     }
+    video_parar();
     liberar_imagens();
     jan_fechar(j);
     return 0;

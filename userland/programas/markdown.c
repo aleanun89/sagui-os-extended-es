@@ -1646,11 +1646,15 @@ static bool salvar(void)
     return true;
 }
 
+/* Diálogos de archivo (D272): guardar pone la extensión .md; abrir acepta md y txt. */
+#define FILTROS_MD_GUARDAR "Markdown (*.md)|*.md"
+#define FILTROS_MD_ABRIR "Markdown y texto (*.md;*.txt)|*.md;*.txt|Todos los archivos (*.*)|*"
+
 static bool salvar_como(void)
 {
     char c[160];
     copia_texto(c, caminho[0] ? caminho : "/tmp/", sizeof c);
-    if (!pedir_texto("Guardar como", "Guardar en (ej.: /tmp/nota.md):", c, sizeof c) || !c[0]) return false;
+    if (!dialogo_guardar("Guardar como", FILTROS_MD_GUARDAR, c, c, sizeof c) || !c[0]) return false;
     copia_texto(caminho, c, sizeof caminho);
     return salvar();
 }
@@ -1911,7 +1915,7 @@ static bool tratar(evento_t *e, bool *redesenhar_ed, bool *redesenhar_vi)
             if (pode_descartar()) {
                 char c[160];
                 copia_texto(c, caminho[0] ? caminho : "/", sizeof c);
-                if (pedir_texto("Abrir", "Ruta del archivo:", c, sizeof c) && abrir_arquivo(c)) { mudar_modo(VISOR); desenhar_tudo(); }
+                if (dialogo_abrir("Abrir", FILTROS_MD_ABRIR, c, c, sizeof c) && abrir_arquivo(c)) { mudar_modo(VISOR); desenhar_tudo(); }
             }
             return true;
         }

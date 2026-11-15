@@ -48,6 +48,7 @@ static bool reserva_minha(disco_t *d)
  * usada tiene que caber en el disco y las primarias no pueden solaparse. */
 static bool mbr_coerente(disco_t *d, const uint8_t *s)
 {
+    const uint64_t esc = d->bloco_fisico == 4096 ? 8 : 1;   /* D283: la tabla cuenta en bloques reales */
     if (s[510] != 0x55 || s[511] != 0xAA) return true;   /* sin firma: no es una tabla */
     uint32_t ini[4], fim[4];
     for (int i = 0; i < 4; i++) {
@@ -56,9 +57,9 @@ static bool mbr_coerente(disco_t *d, const uint8_t *s)
         if (!e[4]) continue;
         if (e[4] == 0xEE) return (d->reservado_flags & DBLOCO_CONF_GPT) != 0;   /* no se crean GPT */
         if (e[0] != 0 && e[0] != 0x80) return false;
-        uint32_t a = le32(e + 8), n = le32(e + 12);
+        uint64_t a = (uint64_t)le32(e + 8) * esc, n = (uint64_t)le32(e + 12) * esc;
         if (!a || !n || a >= d->setores || n > d->setores - a) return false;
-        ini[i] = a; fim[i] = a + n;
+        ini[i] = (uint32_t)a; fim[i] = (uint32_t)(a + n);
     }
     for (int i = 0; i < 4; i++)
         for (int j = i + 1; j < 4; j++)
@@ -66,11 +67,13 @@ static bool mbr_coerente(disco_t *d, const uint8_t *s)
     return true;
 }
 
-/* Zonas de la GPT: los 34 primeros sectores y los 33 últimos. */
+/* Zonas de la GPT: los 34 primeros sectores y los 33 últimos (en 4096: 6 y 5 bloques de 4096). */
 static bool toca_gpt(disco_t *r, uint32_t lba, uint32_t n)
 {
     if (!r->gpt || (r->reservado_flags & DBLOCO_CONF_GPT)) return false;
-    return lba < 34 || lba + n > r->setores - 33;
+    uint32_t esc = r->bloco_fisico == 4096 ? 8 : 1;   /* D283: 34 y 33 bloques reales (en 4096: la cabecera y 4 bloques de entradas) */
+    uint32_t cab = esc == 8 ? 6 * 8 : 34, cola = esc == 8 ? 5 * 8 : 33;
+    return lba < cab || lba + n > r->setores - cola;
 }
 
 static int reservar(disco_t *d, uint32_t flags)
@@ -80,9 +83,6 @@ static int reservar(disco_t *d, uint32_t flags)
     /* Desmontar primero; o, con DBLOCO_CONF_MONTADO (D213), lo montado queda protegido
      * (nunca en un disco GPT, que aquí no se cambia). */
     if (disco_montado(d) && (!(flags & DBLOCO_CONF_MONTADO) || d->gpt)) return ERRO_OCUPADO;
-    /* D265: en un disco de 4096 las tablas cuentan en bloques de 4096 y las comprobaciones de abajo
-     * (MBR, GPT) suponen 512: de momento solo se lee y se monta, no se reparticiona. */
-    if (d->bloco_fisico == 4096) return ERRO_NAO_SUPORTADO;
     if (disco_pode_ser_arranque(d) && !(flags & DBLOCO_CONF_ARRANQUE)) return ERRO_DISCO_ARRANQUE;
     if (!d->escrever) return ERRO_SO_LEITURA;
     d->reservado_pid = meu_pid();
@@ -156,6 +156,8 @@ int32_t sis_disco_blocos(uint32_t op, uint32_t pnome, uint32_t a, uint32_t b, ui
         inf->reservado_pid = disco_reservado(raiz) ? (unsigned)raiz->reservado_pid : 0;
         inf->gpt = raiz->gpt;
         inf->tipo_mbr = d->pai ? d->tipo_mbr : 0;
+        inf->cab_lba = raiz->arranque_real ? raiz->cab_lba : 0;   /* D270 */
+        inf->bloco_fisico = raiz->bloco_fisico == 4096 ? 4096 : 512;   /* D283 */
         return 0;
     }
     case DBLOCO_RESERVAR:

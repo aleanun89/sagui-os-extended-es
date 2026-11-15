@@ -107,6 +107,15 @@ def acel2d_byte(a):
     return modo | ACEL2D_PRUEBA[a.acel2d_prueba]
 
 
+# D285: el byte CAB_GPU3D de la cabecera (kernel/inc/gpu3d.h).
+GPU3D_MODOS = {"auto": 0, "no": 1, "simulado": 2, "intel": 3, "radeon": 4}
+GPU3D_PRUEBA = {"": 0, "pixel": 0x10, "tiempo": 0x20}
+
+
+def gpu3d_byte(a):
+    return GPU3D_MODOS[a.gpu3d] | (0x08 if a.gpu3d_anillo else 0) | GPU3D_PRUEBA[a.gpu3d_prueba]
+
+
 TIPO_PARTICAO = 0xDA  # "datos sin sistema de archivos": ningún sistema intenta montar
 GEOM_CABECAS, GEOM_SETORES = 255, 63
 # D203: disposición del MBR. Por defecto, como un disco duro (USB-HDD): la partición
@@ -206,6 +215,14 @@ def main():
                          "primer-intento (el primer intento de cada conexión falla), siempre (fallan todos)")
     ap.add_argument("--acel2d-prueba", default="", choices=("", "pixel", "tiempo"),
                     help="solo pruebas: la autoprueba del acelerador falla a propósito (un píxel distinto o tiempo agotado)")
+    ap.add_argument("--gpu3d", default="auto", choices=sorted(GPU3D_MODOS),
+                    help="3D por la GPU (D285): auto (por el PCI: Intel Gen3), no (SaguiGL siempre por software), "
+                         "intel (aunque el 2D haya fallado), radeon (D284/D287: el 3D de las Radeon R7xx y R5xx, sin probar en hardware, se prueba "
+                         "con el primer uso; sin esto, solo con «gpu3d probar») o simulado (driver de pruebas por la CPU, para QEMU)")
+    ap.add_argument("--gpu3d-anillo", action="store_true",
+                    help="3D Intel: órdenes escritas en el anillo en vez de lotes (batch buffers); para comparar en hardware")
+    ap.add_argument("--gpu3d-prueba", default="", choices=("", "pixel", "tiempo"),
+                    help="solo pruebas: la autoprueba 3D ve un píxel distinto, o la GPU deja de responder después")
     ap.add_argument("--usb-zip", action="store_true",
                     help="MBR como un disco Zip (USB-ZIP): geometría 64x32 y SaguiOS en la partición 4 (D203)")
     ap.add_argument("--usb-bpb", choices=["cero", "valido", "sin"], default="cero",
@@ -347,6 +364,7 @@ def main():
     cab += struct.pack("<I", sis_mb * 2048)   # CAB_SIS_SETORES (136, D181): sectores de las particiones del sistema
     cab += struct.pack("<B", irq_prueba_byte(a.irq_prueba))   # CAB_IRQ_PRUEBA (140, D211): fallos simulados
     cab += struct.pack("<B", usb_prueba_byte(a.usb_prueba))   # CAB_USB_PRUEBA (141, D227): fallos simulados
+    cab += struct.pack("<B", gpu3d_byte(a))                   # CAB_GPU3D (142, D285): 3D por la GPU
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre
     # desde el LBA 1 hasta el fin del archivo y es la única, marcada como activa (0x80),

@@ -115,3 +115,24 @@ const motor_alvo_t *alvo = motor_alvo(m, x, y);  /* o que há sob o rato */
 
 O programa de teste `userland/testes/cipo-motor.c` faz exactamente isto com um
 HTML pequeno e diz no log quantos nós, comandos de pintura e pixels pintou.
+
+## El reproductor de vídeo (mejora 100, D276)
+
+El vídeo que faltaba en la primera integración (H.264 Baseline y Main con CABAC y cuadros B, AAC-LC y el lector
+de MP4) se trajo después, de la rama `main` de robson-apk (commit `65e3b74`; el PR #6 es el de `cipo-web`,
+commit `8c3b56b`). Vive en la libsagui (`userland/libsagui/h264.c`, `aac.c`, `mp4.c`) y lo comparten el
+`reproductor` y el `<video>` del Cipó; las tablas de FFmpeg y FAAD2 están en `userland/web/terceros/ffmpeg-h264-tablas/`
+y `userland/web/terceros/faad2-huffman/`. Detalles y cambios: D276 y `docs/terceros.md`.
+## Cambios de la D271 (compatibilidad con CSS y HTML5)
+
+Desde la D271 `motor.c` ya no es el de robson byte a byte: se le ha añadido (sobre el mismo
+fichero, que sigue siendo GPL-3.0-only) el evaluador de `calc()`, los selectores modernos
+(`:is()`, `:where()`, `:not()` con listas, `:has()`, `:nth-of-type`…), `@import`, `@supports`
+evaluado, el fondo y el borde de los elementos en línea, `box-shadow`, `outline`,
+`aspect-ratio`, `object-fit`, más grid y flex, texto (`text-indent`, `overflow-wrap`,
+`text-shadow`…), elementos de HTML5 (`<dialog>`, `<picture>`, póster de `<video>`, `<audio>`)
+y dos funciones para que el script cambie la página (`motor_dom_atributo`, `motor_dom_texto`).
+Todo escrito aquí a partir de las especificaciones (W3C, WHATWG) y MDN; no hay código de otros
+navegadores. Los ficheros nuevos son propios: `quickjs/qjs_prelude.h` (GPL-2.0-or-later), las
+páginas de `tests/web/` y `tests/h271_cipo_css.py`. El inventario está en
+`docs/cipo-compatibilidad.md`.

@@ -39,6 +39,7 @@
  * (como en los decodificadores de audio). */
 #include "video.h"
 #include "mpeg1_interno.h"
+#include "video_mp4.h"
 
 #define VID_MAX_QUADRO   (256 * 1024)   /* tamaño máximo de un JPEG */
 #define VID_AUDIO_MAX    (64 * 1024)    /* muestras PCM guardadas (16 bits) */
@@ -71,6 +72,7 @@ typedef struct video {
     int16_t *buf_audio;      /* el PCM pendiente de entregar */
     uint32_t cap_audio;
 
+    vmp4_t  *mp4;            /* el MP4 con H.264/AAC (mejora 100, D276), si el archivo lo es */
     mpeg1_t *mpeg1;          /* el decodificador de MPEG-1 (si el archivo es MPEG-PS) */
     bool     formato_mpeg1;  /* el archivo es un MPEG-PS con vídeo MPEG-1 */
     uint32_t audio_qtd, audio_pos;
@@ -278,6 +280,16 @@ video_t *video_abrir(const char *caminho, int *erro)
     uint8_t cab[12];
     if (!ler_tudo(g_vid.fd, cab, 12)) { e = VIDEO_ERRO_CORROMPIDO; goto falha; }
 
+    if (vmp4_reconhece(cab)) {
+        /* MP4 con H.264 y AAC-LC (D276): lo lleva video_mp4.c. */
+        fechar(g_vid.fd);
+        g_vid.fd = -1;
+        g_vid.mp4 = vmp4_abrir_arquivo(caminho, &g_vid.info, &e);
+        if (!g_vid.mp4) goto falha;
+        g_vid.aberto = true;
+        g_vid.total_quadros = g_vid.info.quadros;
+        return &g_vid;
+    }
     if (vid_formato_mpegps(cab)) {
         /* MPEG-1 dentro de un MPEG-PS: lo lleva el módulo de MPEG-1. */
         fechar(g_vid.fd);
@@ -391,6 +403,7 @@ int video_audio(video_t *v, int16_t *pcm, int max_quadros)
     (void)v;
     if (!g_vid.aberto || !g_vid.info.tem_audio) return 0;
     if (max_quadros <= 0) return 0;
+    if (g_vid.mp4) return vmp4_audio(g_vid.mp4, pcm, max_quadros);
 
     /* Si no hay nada pendiente, se toma el siguiente trozo de audio, si lo
      * hay (sin pasar de largo por un cuadro de vídeo): así el sonido no se
@@ -419,6 +432,12 @@ int video_quadro(video_t *v, imagem_t *img)
 {
     (void)v;
     if (!g_vid.aberto) return VIDEO_ERRO_FORMATO;
+    if (g_vid.mp4) {
+        /* img == NULL: se decodifica y se descarta (saltar un cuadro). */
+        int r = vmp4_quadro(g_vid.mp4, img);
+        if (r == 0) g_vid.quadro = vmp4_quadro_atual(g_vid.mp4);
+        return r;
+    }
     if (!img) return VIDEO_ERRO_FORMATO;
 
     if (g_vid.formato_mpeg1) {
@@ -459,6 +478,11 @@ int video_buscar(video_t *v, int quadro)
 {
     (void)v;
     if (!g_vid.aberto) return VIDEO_ERRO_FORMATO;
+    if (g_vid.mp4) {
+        int r = vmp4_buscar(g_vid.mp4, quadro);
+        if (r == 0) g_vid.quadro = vmp4_quadro_atual(g_vid.mp4);
+        return r;
+    }
     if (quadro < 0) quadro = 0;
     if (quadro >= g_vid.total_quadros) quadro = g_vid.total_quadros - 1;
     /* Se busca el trozo de vídeo que va después del número pedido. */
@@ -485,6 +509,7 @@ void video_fechar(video_t *v)
 {
     (void)v;
     if (!g_vid.aberto) return;
+    if (g_vid.mp4) { vmp4_fechar(g_vid.mp4); g_vid.mp4 = NULL; }
     if (g_vid.mpeg1) { mpeg1_fechar(g_vid.mpeg1); g_vid.mpeg1 = NULL; }
     if (g_vid.fd >= 0) fechar(g_vid.fd);
     if (g_vid.pedacos) libera(g_vid.pedacos);
@@ -500,8 +525,8 @@ void video_fechar(video_t *v)
 const char *video_erro_texto(int erro)
 {
     switch (erro) {
-    case VIDEO_ERRO_FORMATO:       return "no es un AVI con vídeo (se lee el MJPEG de la mejora 048)";
-    case VIDEO_ERRO_NAO_SUPORTADO: return "formato de vídeo que no se descodifica (sólo el MJPEG dentro del AVI y el MPEG-1 en MPEG-PS)";
+    case VIDEO_ERRO_FORMATO:       return "no es un vídeo que se lea (AVI con MJPEG, MPEG-1 o MP4 con H.264/AAC)";
+    case VIDEO_ERRO_NAO_SUPORTADO: return "formato de vídeo que no se descodifica (sólo MJPEG en AVI, MPEG-1 en MPEG-PS y H.264 Baseline/Main con AAC-LC en MP4)";
     case VIDEO_ERRO_CORROMPIDO:    return "archivo de vídeo dañado o incompleto";
     case VIDEO_ERRO_MEMORIA:       return "no hay memoria suficiente";
     case VIDEO_ERRO_FIM:           return "se acabaron los cuadros";
@@ -523,4 +548,28 @@ bool video_extensao(const char *nome)
     if (a == 'm' && b == 'p' && c == '4') return true;                 /* .mp4 */
     if (a == 'm' && b == 'p' && c == 'e' && p[4] && minuscula(p[4]) == 'g') return true;   /* .mpeg */
     return false;
+}
+
+/* Un MP4 que ya está en memoria (el Cipó lo baja entero). Los datos tienen que
+ * seguir vivos hasta video_fechar(). */
+video_t *video_abrir_memoria(const uint8_t *dados, uint32_t n, int *erro)
+{
+    int e = 0;
+    if (erro) *erro = 0;
+    if (g_vid.aberto) { if (erro) *erro = VIDEO_ERRO_NAO_SUPORTADO; return NULL; }
+    memset(&g_vid, 0, sizeof g_vid);
+    g_vid.fd = -1;
+    g_vid.quadro = -1;
+    if (n < 12 || !vmp4_reconhece(dados)) { if (erro) *erro = VIDEO_ERRO_FORMATO; return NULL; }
+    g_vid.mp4 = vmp4_abrir_memoria(dados, n, &g_vid.info, &e);
+    if (!g_vid.mp4) { memset(&g_vid, 0, sizeof g_vid); g_vid.fd = -1; g_vid.quadro = -1; if (erro) *erro = e; return NULL; }
+    g_vid.aberto = true;
+    g_vid.total_quadros = g_vid.info.quadros;
+    return &g_vid;
+}
+
+void video_reducao(video_t *v, int fator)
+{
+    (void)v;
+    if (g_vid.mp4) vmp4_reducao(g_vid.mp4, fator);
 }

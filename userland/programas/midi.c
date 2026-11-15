@@ -710,12 +710,16 @@ static int adicionar(const char *c, bool pasta_do_arquivo)
     return adicionar_arquivo(c) ? qtd - 1 : -1;   /* no está entre los que lista (otra extensión): se añade aparte */
 }
 
+/* Archivo MIDI (diálogo de abrir, D272) o carpeta entera (diálogo de carpeta, según la respuesta). */
+#define FILTROS_MIDI "MIDI (*.mid;*.midi;*.kar;*.rmi)|*.mid;*.midi;*.kar;*.rmi|Todos los archivos (*.*)|*"
+
 static bool preguntar(const char *titulo, char *c, int max)
 {
     bool tocaba = estado == TOCANDO;
     if (tocaba) pausar();
     if (c[0] == 0) copia_texto(c, "/", (size_t)max);
-    bool ok = pedir_texto(titulo, "Ruta de un archivo MIDI o de una carpeta:", c, max) && c[0];
+    bool carpeta = confirmar(titulo, "¿Añadir una carpeta entera?\nSí: elegir una carpeta.  No: elegir un archivo MIDI.");
+    bool ok = (carpeta ? dialogo_carpeta(titulo, c, c, max) : dialogo_abrir(titulo, FILTROS_MIDI, c, c, max)) && c[0];
     if (tocaba && estado == PAUSADO) alternar();
     return ok;
 }

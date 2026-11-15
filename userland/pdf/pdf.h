@@ -66,6 +66,24 @@ bool pdf_necesita_contrasena(pdf_t *d);
  * usuario). La contrasena es la que escribe el usuario; se pasa tal cual. */
 pdf_t *pdf_abrir_com_contrasena(const char *caminho, const char *contrasena, int *erro);
 
+/* Un carácter del texto de una página (mejora 105): su Unicode (Latin-1 y
+ * más) y su caja en décimas de punto, con el origen arriba a la izquierda
+ * de la página (y hacia abajo, sin girar). uni = 32 son los espacios que el
+ * motor intercala entre palabras y líneas (ancho 0). */
+typedef struct { int uni, x, y, l, a; } pdf_car_t;
+
+/* El texto de la página, en el orden del documento. Devuelve 0 y un búfer
+ * (se libera con libera()) con *n caracteres, o un PDF_ERRO_*. */
+int pdf_texto_pagina(pdf_t *d, int pagina, pdf_car_t **cars, int *n);
+
+/* Una entrada del índice (marcadores) del PDF. El título viene en UTF-8
+ * (cortado a 95 bytes); pagina = 0.. o -1 si el destino no se resolvió. */
+typedef struct { char titulo[96]; int pagina; int nivel; } pdf_marca_t;
+
+/* Devuelve el número de marcadores (0 si no hay) y en *marcas un búfer que
+ * se libera con libera(). Orden de lectura, con el nivel de anidación. */
+int pdf_indice(pdf_t *d, pdf_marca_t **marcas);
+
 const char *pdf_erro_texto(int erro);
 
 #endif

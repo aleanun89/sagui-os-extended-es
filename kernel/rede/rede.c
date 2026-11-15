@@ -33,6 +33,7 @@
 #include "texto.h"
 #include "aleatorio.h"
 #include "bloqueo.h"
+#include "wifi.h"
 
 #define ETH_IP   0x0800
 #define ETH_ARP  0x0806
@@ -1038,6 +1039,7 @@ void rede_iniciar(void)
         }
     }
     ligar_tarefa();   /* mesmo sem placa: o loopback (127.0.0.1) precisa dela */
+    wifi_pci_iniciar();   /* D280: Wi-Fi integrada Atheros AR9485 (PCIe), si la hay */
     int_restaura(i0);
 }
 

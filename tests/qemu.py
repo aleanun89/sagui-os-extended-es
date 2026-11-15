@@ -558,6 +558,12 @@ class Maquina:
                 self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+                # D270: esperar a que muera de verdad; si no, la máquina siguiente con el mismo
+                # disco no arranca (el QEMU viejo aún tiene el cerrojo de escritura de la imagen).
+                try:
+                    self.proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
         # O socket em /tmp (quando o caminho é curto demais) fica aí se não se
         # apaga; na pasta de saída não importa, que se borra com ela.
         if os.path.dirname(self.sock_monitor) == tempfile.gettempdir():

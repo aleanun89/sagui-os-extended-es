@@ -11,9 +11,79 @@ static char itens[16][64] = { "Archivos", "Terminal", "Editor", "Calculadora", "
                               "Acerca de SaguiOS", "Pendrive", "Procesos", "Memoria", "Reloj",
                               "Pipes", "Paginación" };
 
+/* ---- demo de los componentes de escritorio (mejora 116, D291): `componentes --escritorio` ---- */
+static void icono_demo(jan_t *j, int x, int y, bool ativo)
+{
+    uint32_t c = ativo ? W98_AZUL : W98_SOMBRA;
+    g_retangulo(j, x + 2, y + 2, 12, 12, c);
+    g_retangulo(j, x + 4, y + 4, 8, 8, COR_BRANCO);
+}
+
+static int demo_escritorio(void)
+{
+    jan_t *j = jan_abrir("Componentes de escritorio", 640, 380);
+    if (!j) return 1;
+    g_retangulo(j, 0, 0, j->larg, j->alt, W98_FACE);
+    static const char *const fontes[3] = { "Arial", "Times New Roman", "Courier New" };
+    barra_menu_t menu;
+    memset(&menu, 0, sizeof menu);
+    menu.nomes[0] = "Archivo"; menu.itens[0] = "Nuevo\nAbrir...\n-\nSalir";
+    menu.nomes[1] = "Ayuda";   menu.itens[1] = "Acerca de";
+    menu.n = 2;
+    barra_menu_iniciar(&menu, 0, 0, j->larg);
+    barra_item_t itens[5] = {
+        { 1, icono_demo, NULL, false, false, false, false, 0 },
+        { 2, NULL, "N", true, true, false, false, 0 },
+        { 0, NULL, NULL, false, false, false, false, 0 },
+        { 3, icono_demo, NULL, false, false, false, true, 0 },
+        { -1, NULL, NULL, false, false, false, false, 150 },
+    };
+    barra_ferr_t ferr;
+    barra_ferr_iniciar(&ferr, 0, 20, j->larg, itens, 5);
+    combo_t combo;
+    combo_iniciar(&combo, barra_ferr_x(&ferr, 4), 23, 146, fontes, 3, false, 7201);
+    combo_definir(&combo, fontes[0]);
+    regua_t regua;
+    regua_iniciar(&regua, 0, 48, j->larg);
+    regua.ox = 40; regua.zoom = 60;
+    rte_t *rte = rte_criar(0, 68, j->larg, j->alt - 68 - 22);
+    if (!rte) return 1;
+    rte_zoom(rte, 60);
+    rte_inserir(rte, "Control de texto con formato de la libsagui.", 44);
+    static const int larg[3] = { 120, 120, 100 };
+    barra_estado_t estado;
+    barra_estado_iniciar(&estado, 0, j->alt - 22, j->larg, 3, larg);
+    barra_estado_texto(&estado, 0, "Sección 1");
+    barra_estado_texto(&estado, 1, "Lin 1");
+    barra_estado_texto(&estado, 2, "Col 45");
+    barra_menu_desenhar(j, &menu);
+    barra_ferr_desenhar(j, &ferr);
+    combo_desenhar(j, &combo);
+    regua_desenhar(j, &regua);
+    rte_desenhar(j, rte);
+    barra_estado_desenhar(j, &estado);
+    jan_mostrar(j);
+    registrar("componentes: escritorio pronto\n");
+    evento_t e;
+    for (;;) {
+        if (proximo_evento(j->id, &e, true) != 1) continue;
+        if (e.tipo == EV_FECHAR) break;
+        int m = barra_menu_tratar(j, &menu, &e);
+        if (m >= 0) registrar("componentes: menu %d item %d\n", m / 100, m % 100);
+        int id = barra_ferr_tratar(j, &ferr, &e);
+        if (id) registrar("componentes: barra boton %d marcado %d\n", id, itens[1].marcado);
+        if (combo_tratar(j, &combo, &e) == COMBO_SELECIONOU) registrar("componentes: combo %s\n", fontes[combo.sel]);
+        regua_tratar(j, &regua, &e);
+        rte_tratar(j, rte, &e);
+    }
+    rte_liberar(rte);
+    jan_fechar(j);
+    return 0;
+}
+
 int principal(int argc, char **argv)
 {
-    (void)argc; (void)argv;
+    if (argc >= 2 && compara_texto(argv[1], "--escritorio") == 0) return demo_escritorio();
     jan_t *j = jan_abrir("Componentes de libsagui", 560, 400);
     if (!j) return 1;
     rotulo(j, 16, 12, "Etiqueta: el kit gráfico corre en el propio programa (anillo 3).", COR_TEXTO);

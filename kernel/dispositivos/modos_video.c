@@ -88,10 +88,10 @@ static void montar_lista(void)
             if (cabe_a_quente(comuns[i][0], comuns[i][1]))
                 acrescentar(comuns[i][0], comuns[i][1], video_bpp_a_quente(), 0, MODO_A_QUENTE);
     if (video_ativo())
-        acrescentar(video_largura(), video_altura(), info_boot.vesa_bpp, 0, 0);
+        acrescentar(video_prim_largura(), video_prim_altura(), info_boot.vesa_bpp, 0, 0);
     for (int i = 0; i < qtd; i++) {
         modo_video_t *m = &lista[i];
-        if (video_ativo() && m->largura == video_largura() && m->altura == video_altura() && m->bpp == info_boot.vesa_bpp)
+        if (video_ativo() && m->largura == video_prim_largura() && m->altura == video_prim_altura() && m->bpp == info_boot.vesa_bpp)
             m->flags |= MODO_ATUAL;
         if (m->largura == pref_l() && m->altura == pref_a()) m->flags |= MODO_PREFERIDO;
     }
@@ -126,10 +126,11 @@ void modos_iniciar(void)
 static disco_t *particao_de_boot(uint32_t *lba)
 {
     /* D179: si se sabe cuál es el disco de arranque de verdad, su LBA 1 (en un disco
-     * instalado en un hueco, la partición del SaguiOS no empieza en el LBA 1). */
+     * instalado en un hueco, la partición del SaguiOS no empieza en el LBA 1). D270: en un
+     * disco instalado con GPT, el primer sector de la partición de SaguiOS (cab_lba). */
     disco_t *r = disco_arranque_real();
     *lba = 1;
-    if (r) return r;
+    if (r) { if (r->cab_lba) *lba = r->cab_lba; return r; }
     *lba = 0;
     for (int k = 0; k < MAX_DISCOS; k++) {
         disco_t *d = disco_indice(k);
@@ -182,7 +183,7 @@ static int trocar(uint32_t l, uint32_t a)
     bool i = int_salva_desliga();
     if (!video_trocar_modo(l, a)) { int_restaura(i); return ERRO_SEM_MEMORIA; }
     console_tela_mudou();
-    mouse_tela_mudou((int)l, (int)a);
+    mouse_tela_mudou((int)video_largura(), (int)video_altura());   /* D290: el escritorio, no solo esta pantalla */
     if (gui_ativa()) {
         area_tela_mudou();
         gui_tela_mudou();
@@ -259,8 +260,8 @@ int32_t modos_info_tela(uint32_t ptr)
     if (!usuario_ok(t, sizeof *t, true)) return ERRO_ENDERECO;
     memset(t, 0, sizeof *t);
     if (video_ativo()) {
-        t->largura = video_largura();
-        t->altura = video_altura();
+        t->largura = video_prim_largura();   /* D290: el modo de la pantalla del arranque */
+        t->altura = video_prim_altura();
         t->bpp = info_boot.vesa_bpp;
         t->pitch = video_pitch();
         t->modo = info_boot.vesa_modo;

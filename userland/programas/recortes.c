@@ -181,7 +181,7 @@ static int previa(const imagem_t *im)
         if (i == 0) {
             char c[200];
             nombre_auto(c, sizeof c, pasta_capturas());
-            if (pedir_texto("Guardar recorte", "Archivo (.png, .bmp):", c, sizeof c) && c[0]) {
+            if (dialogo_guardar("Guardar recorte", "Imagen PNG (*.png)|*.png|Mapa de bits (*.bmp)|*.bmp", c, c, sizeof c) && c[0]) {
                 int n = (int)tam_texto(c);
                 bool bmp = n > 4 && !compara_texto(c + n - 4, ".bmp");
                 int r = bmp ? imagem_gravar_bmp(c, im) : gravar(c, im);

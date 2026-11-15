@@ -1,0 +1,316 @@
+01-variables-calc:1	ok	var() de una variable de :root
+01-variables-calc:2	ok	var() con valor de reserva
+01-variables-calc:3	ok	variable definida con otra var()
+01-variables-calc:4	ok	variable heredada del padre (no de :root)
+01-variables-calc:5	ok	la variable del elemento gana a la de :root
+01-variables-calc:6	FALLA	var() dentro de un atajo (border)
+01-variables-calc:7	ok	var() como medida
+01-variables-calc:8	ok	var() con reserva que es otra var()
+01-variables-calc:9	ok	calc() con px + px
+01-variables-calc:10	FALLA	calc() con % y px
+01-variables-calc:11	FALLA	calc() con resta de % y px
+01-variables-calc:12	ok	calc() con multiplicación, división y paréntesis
+01-variables-calc:13	FALLA	calc() con var()
+01-variables-calc:14	FALLA	min() y max()
+01-variables-calc:15	FALLA	clamp()
+01-variables-calc:16	FALLA	calc() con em
+02-selectores:1	ok	[atributo]
+02-selectores:2	ok	[atributo="valor"]
+02-selectores:3	ok	[atributo^="prefijo"]
+02-selectores:4	ok	[atributo$="sufijo"]
+02-selectores:5	ok	[atributo*="trozo"]
+02-selectores:6	ok	[atributo~="palabra"]
+02-selectores:7	ok	[atributo|="es"]
+02-selectores:8	FALLA	[atributo="VALOR" i] (sin distinguir mayúsculas)
+02-selectores:9	ok	hijo: a > b
+02-selectores:10	ok	hermano adyacente: a + b
+02-selectores:11	ok	hermanos siguientes: a ~ b
+02-selectores:12	ok	dos clases: .a.b
+02-selectores:13	ok	universal: *
+02-selectores:14	ok	lista: a, b
+02-selectores:15	ok	etiqueta y clase sin distinguir mayúsculas en la etiqueta
+02-selectores:16	ok	no deben coincidir (trampas)
+03-pseudoclases:1	ok	:first-child y :last-child
+03-pseudoclases:2	ok	:nth-child(2n+1)
+03-pseudoclases:3	ok	:nth-child(even) y (odd)
+03-pseudoclases:4	ok	:nth-child(n+3) y (-n+2)
+03-pseudoclases:5	FALLA	:nth-last-child(2)
+03-pseudoclases:6	FALLA	:nth-of-type(2)
+03-pseudoclases:7	FALLA	:first-of-type y :last-of-type
+03-pseudoclases:8	FALLA	:only-child
+03-pseudoclases:9	ok	:empty
+03-pseudoclases:10	ok	:not(.x)
+03-pseudoclases:11	ok	:not() con lista
+03-pseudoclases:12	FALLA	:is(.p, .q)
+03-pseudoclases:13	FALLA	:where(.p, .q)
+03-pseudoclases:14	FALLA	:has(> hijo)
+03-pseudoclases:15	FALLA	:has(+ hermano)
+03-pseudoclases:16	ok	:root
+04-pseudoclases-2:1	FALLA	:checked
+04-pseudoclases-2:2	FALLA	:disabled y :enabled
+04-pseudoclases-2:3	FALLA	:required y :optional
+04-pseudoclases-2:4	ok	:link y :any-link
+04-pseudoclases-2:5	ok	::before con content
+04-pseudoclases-2:6	ok	::after con content
+04-pseudoclases-2:7	ok	:before (sintaxis antigua)
+04-pseudoclases-2:8	ok	::before y ::after a la vez
+04-pseudoclases-2:9	ok	content: attr()
+04-pseudoclases-2:10	FALLA	::first-letter
+04-pseudoclases-2:11	FALLA	::marker
+04-pseudoclases-2:12	ok	especificidad: #id gana a .clase
+04-pseudoclases-2:13	ok	!important
+04-pseudoclases-2:14	FALLA	:is() suma especificidad; :where() no
+04-pseudoclases-2:15	ok	no deben coincidir (trampas)
+05-media-reglas:1	ok	@media (min-width: 200px) se aplica
+05-media-reglas:2	ok	@media (max-width: 200px) no se aplica
+05-media-reglas:3	ok	@media screen and (min-width: 200px)
+05-media-reglas:4	ok	@media print no se aplica
+05-media-reglas:5	ok	@media con «and» entre dos condiciones
+05-media-reglas:6	ok	@media con lista (coma)
+05-media-reglas:7	ok	@media con rango: (width >= 200px)
+05-media-reglas:8	ok	@media con rango que no se cumple: (width < 200px)
+05-media-reglas:9	ok	@media not print
+05-media-reglas:10	ok	@media (prefers-color-scheme: light)
+05-media-reglas:11	ok	@media (orientation: landscape) y (min-height)
+05-media-reglas:12	ok	@supports (display: grid)
+05-media-reglas:13	FALLA	@supports not / propiedad desconocida no se aplican
+05-media-reglas:14	FALLA	@import de otra hoja
+05-media-reglas:15	ok	<link rel=stylesheet>
+05-media-reglas:16	ok	@layer
+06-unidades:1	ok	px
+06-unidades:2	ok	em
+06-unidades:3	ok	rem
+06-unidades:4	ok	%
+06-unidades:5	ok	pt (30pt = 40px)
+06-unidades:6	FALLA	in (0.25in = 24px)
+06-unidades:7	FALLA	cm y mm (10mm = 1cm = 37,8px)
+06-unidades:8	ok	vw (10vw, ventana de 400 px o más)
+06-unidades:9	ok	vh (10vh, ventana de 160 px o más)
+06-unidades:10	FALLA	vmin y vmax
+06-unidades:11	FALLA	ch (4ch en monoespaciada de 16px)
+06-unidades:12	ok	ex (aprox. medio em)
+06-unidades:13	ok	dvh, svh, lvh
+06-unidades:14	FALLA	medida sin unidad distinta de 0 no vale
+06-unidades:15	FALLA	números con signo y exponente (+40px, 4e1px)
+07-flex:1	ok	display:flex en fila
+07-flex:2	ok	flex-grow
+07-flex:3	ok	flex: 1 (cuatro iguales)
+07-flex:4	FALLA	flex-shrink (encogen para caber)
+07-flex:5	ok	flex-basis
+07-flex:6	ok	gap
+07-flex:7	ok	justify-content: space-between
+07-flex:8	ok	justify-content: center
+07-flex:9	ok	justify-content: space-evenly
+07-flex:10	ok	align-items: center
+07-flex:11	ok	align-items: stretch (de fábrica)
+07-flex:12	ok	align-self: flex-end
+07-flex:13	ok	flex-direction: column
+07-flex:14	ok	flex-wrap: wrap
+07-flex:15	ok	order
+07-flex:16	ok	flex-direction: row-reverse
+08-flex-2:1	ok	margin-left: auto en un elemento flexible
+08-flex-2:2	ok	gap con flex-wrap (row-gap y column-gap)
+08-flex-2:3	ok	flex-flow: column wrap
+08-flex-2:4	ok	justify-content: flex-end
+08-flex-2:5	ok	justify-content: space-around
+08-flex-2:6	ok	columna con justify-content: center
+08-flex-2:7	ok	columna con align-items: center
+08-flex-2:8	ok	display: inline-flex
+08-flex-2:9	ok	flex: 2 y flex: 1 (reparto 2 a 1)
+08-flex-2:10	ok	min-width impide encoger
+08-flex-2:11	FALLA	align-content: center (con wrap)
+08-flex-2:12	ok	flex anidado
+08-flex-2:13	ok	% de ancho en hijos flexibles
+08-flex-2:14	FALLA	display: contents
+09-grid:1	ok	grid-template-columns en px
+09-grid:2	ok	unidad fr (1fr 3fr)
+09-grid:3	ok	repeat(4, 1fr)
+09-grid:4	ok	gap
+09-grid:5	FALLA	grid-template-rows
+09-grid:6	ok	minmax(0, 1fr)
+09-grid:7	ok	repeat(auto-fill, minmax(20px, 1fr))
+09-grid:8	FALLA	repeat(auto-fit, minmax(10px, 1fr))
+09-grid:9	ok	grid-template-areas y grid-area
+09-grid:10	ok	grid-column: span 2
+09-grid:11	ok	grid-column y grid-row con número
+09-grid:12	ok	grid-column: 1 / -1
+09-grid:13	FALLA	place-items: center
+09-grid:14	FALLA	grid-auto-flow: column
+09-grid:15	FALLA	grid-auto-rows
+09-grid:16	FALLA	áreas en varias filas
+10-posicion-caja:1	ok	position: relative con left
+10-posicion-caja:2	ok	position: absolute con right y bottom
+10-posicion-caja:3	ok	inset: 0
+10-posicion-caja:4	ok	absolute estirado con left+right+top+bottom
+10-posicion-caja:5	ok	z-index
+10-posicion-caja:6	FALLA	position: fixed
+10-posicion-caja:7	ok	position: sticky (sin desplazar queda en su sitio)
+10-posicion-caja:8	ok	float: left y right
+10-posicion-caja:9	ok	clear: both
+10-posicion-caja:10	ok	overflow: hidden recorta
+10-posicion-caja:11	ok	overflow: auto recorta
+10-posicion-caja:12	ok	box-sizing: border-box
+10-posicion-caja:13	ok	margin: 0 auto
+10-posicion-caja:14	ok	max-width y min-height
+10-posicion-caja:15	FALLA	aspect-ratio
+10-posicion-caja:16	ok	display: inline-block
+11-caja-2:1	ok	display: none y visibility: hidden
+11-caja-2:2	FALLA	width: fit-content
+11-caja-2:3	FALLA	width: max-content y min-content
+11-caja-2:4	ok	transform: translate()
+11-caja-2:5	ok	transform: scale()
+11-caja-2:6	FALLA	transform: rotate(180deg)
+11-caja-2:7	ok	propiedades lógicas (inline-size, margin-inline)
+11-caja-2:8	ok	padding-block y padding-inline
+11-caja-2:9	ok	height: 100%
+11-caja-2:10	ok	márgenes negativos
+11-caja-2:11	ok	los márgenes verticales se funden
+11-caja-2:12	FALLA	border por lados y atajo
+11-caja-2:13	ok	width en % de un padre con padding
+11-caja-2:14	ok	overflow-x y overflow-y
+11-caja-2:15	ok	float con texto alrededor (inline-block)
+11-caja-2:16	FALLA	tabla con display: table / table-cell
+12-colores-fondos:1	ok	border-radius
+12-colores-fondos:2	ok	border-radius: 50% (círculo)
+12-colores-fondos:3	FALLA	box-shadow con extensión (spread)
+12-colores-fondos:4	FALLA	box-shadow desplazada
+12-colores-fondos:5	FALLA	box-shadow inset
+12-colores-fondos:6	FALLA	box-shadow difuminada
+12-colores-fondos:7	FALLA	outline
+12-colores-fondos:8	ok	opacity
+12-colores-fondos:9	ok	rgba() y hsl()
+12-colores-fondos:10	ok	rgb() moderno: rgb(0 128 0) y rgb(0 128 0 / 50%)
+12-colores-fondos:11	ok	hexadecimal con alfa (#rrggbbaa y #rgba)
+12-colores-fondos:12	ok	currentColor e inherit
+12-colores-fondos:13	ok	linear-gradient
+12-colores-fondos:14	ok	linear-gradient con paradas duras
+12-colores-fondos:15	ok	radial-gradient
+12-colores-fondos:16	ok	transparent y color con nombre
+13-fondos-imagenes:1	ok	background-image con url()
+13-fondos-imagenes:2	ok	background con data: URI
+13-fondos-imagenes:3	ok	background-repeat, -position y -size
+13-fondos-imagenes:4	ok	background-size: cover
+13-fondos-imagenes:5	ok	background-size: contain
+13-fondos-imagenes:6	FALLA	varios fondos
+13-fondos-imagenes:7	FALLA	object-fit: cover
+13-fondos-imagenes:8	FALLA	object-fit: contain
+13-fondos-imagenes:9	FALLA	object-position
+13-fondos-imagenes:10	ok	img con width/height en CSS
+13-fondos-imagenes:11	ok	img con max-width: 100% y height: auto
+13-fondos-imagenes:12	ok	filter: grayscale()
+13-fondos-imagenes:13	FALLA	background-clip: content-box
+13-fondos-imagenes:14	FALLA	border dashed / dotted se pintan
+13-fondos-imagenes:15	ok	cursor, pointer-events, user-select no molestan
+13-fondos-imagenes:16	ok	propiedad desconocida no rompe la regla
+14-texto:1	ok	text-align: center
+14-texto:2	ok	text-align: right
+14-texto:3	ok	color del texto
+14-texto:4	ok	line-height
+14-texto:5	FALLA	font: tamaño/interlínea familia
+14-texto:6	FALLA	text-indent
+14-texto:7	FALLA	letter-spacing
+14-texto:8	ok	white-space: nowrap
+14-texto:9	FALLA	overflow-wrap: anywhere
+14-texto:10	FALLA	word-break: break-all
+14-texto:11	FALLA	text-decoration con color
+14-texto:12	FALLA	text-shadow
+14-texto:13	FALLA	word-spacing
+14-texto:14	ok	vertical-align: middle
+14-texto:15	ok	@font-face con url()
+14-texto:16	ok	text-overflow: ellipsis (recorta con overflow)
+15-html5:1	ok	<header> y <footer> son bloques
+15-html5:2	ok	<nav> y <main>
+15-html5:3	ok	<section> y <article>
+15-html5:4	ok	<aside> y <figcaption>
+15-html5:5	ok	<hgroup> y <search>
+15-html5:6	ok	<details> cerrado esconde el contenido
+15-html5:7	ok	<details open> lo muestra
+15-html5:8	FALLA	<dialog> cerrado no se ve
+15-html5:9	ok	<dialog open> se ve
+15-html5:10	ok	<template> no se pinta
+15-html5:11	ok	atributo hidden
+15-html5:12	FALLA	<picture> con <source>
+15-html5:13	FALLA	<img srcset>
+15-html5:14	ok	<img> con data: URI y loading=lazy
+15-html5:15	ok	<svg> en línea
+15-html5:16	ok	elemento personalizado con estilo
+16-html5-medios:1	FALLA	<video poster> como marcador con el póster
+16-html5-medios:2	FALLA	<video> sin póster ocupa su caja
+16-html5-medios:3	FALLA	<video> no pinta su contenido alternativo
+16-html5-medios:4	ok	<audio controls> ocupa una caja
+16-html5-medios:5	ok	<audio> sin controls no se ve
+16-html5-medios:6	ok	<canvas> ocupa su tamaño
+16-html5-medios:7	FALLA	<iframe> ocupa su caja
+16-html5-medios:8	ok	<progress> ocupa su caja
+16-html5-medios:9	ok	<meter> ocupa su caja
+16-html5-medios:10	FALLA	<mark> resalta en amarillo
+16-html5-medios:11	ok	<hr> con estilo
+16-html5-medios:12	ok	<table> con atributos antiguos
+16-html5-medios:13	ok	<font color> y <center>
+16-html5-medios:14	ok	<br> y <wbr>
+16-html5-medios:15	ok	<noscript> no se ve con JavaScript
+16-html5-medios:16	ok	<figure> con sus márgenes
+17-formularios:1	FALLA	<input type="text">
+17-formularios:2	FALLA	<input type="search">
+17-formularios:3	FALLA	<input type="email">
+17-formularios:4	FALLA	<input type="url">
+17-formularios:5	FALLA	<input type="tel">
+17-formularios:6	FALLA	<input type="number">
+17-formularios:7	FALLA	<input type="password">
+17-formularios:8	FALLA	<input type="date">
+17-formularios:9	FALLA	<input type="time">
+17-formularios:10	FALLA	<input type="color">
+17-formularios:11	FALLA	<input type="range">
+17-formularios:12	FALLA	<input type="checkbox">
+17-formularios:13	FALLA	<input type="radio">
+17-formularios:14	FALLA	<input type="file">
+17-formularios:15	FALLA	<input type="submit">
+17-formularios:16	FALLA	<input type="datetime-local">
+18-formularios-2:1	FALLA	<button>
+18-formularios-2:2	FALLA	<select>
+18-formularios-2:3	FALLA	<textarea>
+18-formularios-2:4	ok	<input type="month"> y "week"
+18-formularios-2:5	FALLA	<input> de texto: fondo y borde del autor
+18-formularios-2:6	FALLA	<button>: fondo y borde del autor
+18-formularios-2:7	ok	placeholder (se pinta en gris)
+18-formularios-2:8	FALLA	::placeholder con color
+18-formularios-2:9	ok	value de un campo de texto se pinta
+18-formularios-2:10	ok	<fieldset> y <legend>
+18-formularios-2:11	ok	<label> es en línea
+18-formularios-2:12	ok	<datalist> no se ve
+18-formularios-2:13	ok	casilla marcada: accent-color no molesta
+18-formularios-2:14	ok	<output> y <time> son en línea
+18-formularios-2:15	ok	campo deshabilitado conserva su caja
+18-formularios-2:16	FALLA	<input type=hidden> no ocupa
+19-js-dom:1	FALLA	getElementById y style.background
+19-js-dom:2	FALLA	querySelector
+19-js-dom:3	FALLA	querySelectorAll y forEach
+19-js-dom:4	FALLA	classList.add
+19-js-dom:5	FALLA	classList.remove y contains
+19-js-dom:6	FALLA	classList.toggle
+19-js-dom:7	FALLA	className
+19-js-dom:8	FALLA	dataset
+19-js-dom:9	FALLA	setAttribute y getAttribute
+19-js-dom:10	FALLA	createElement y appendChild
+19-js-dom:11	FALLA	textContent de un elemento
+19-js-dom:12	FALLA	innerHTML de un elemento
+19-js-dom:13	FALLA	remove() y removeChild
+19-js-dom:14	FALLA	insertAdjacentHTML
+19-js-dom:15	FALLA	closest y matches
+19-js-dom:16	FALLA	style.cssText y style.setProperty
+20-js-api:1	FALLA	setTimeout
+20-js-api:2	FALLA	requestAnimationFrame
+20-js-api:3	FALLA	DOMContentLoaded
+20-js-api:4	FALLA	window.onload y addEventListener('load')
+20-js-api:5	FALLA	localStorage
+20-js-api:6	FALLA	sessionStorage
+20-js-api:7	FALLA	fetch() de un texto
+20-js-api:8	FALLA	fetch() con json()
+20-js-api:9	FALLA	XMLHttpRequest
+20-js-api:10	FALLA	IntersectionObserver
+20-js-api:11	FALLA	matchMedia
+20-js-api:12	FALLA	getComputedStyle
+20-js-api:13	FALLA	getBoundingClientRect, offsetWidth, innerWidth
+20-js-api:14	FALLA	Promise, async/await y funciones flecha
+20-js-api:15	FALLA	eventos: dispatchEvent y CustomEvent
+20-js-api:16	FALLA	template.content y cloneNode

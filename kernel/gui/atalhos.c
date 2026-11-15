@@ -22,6 +22,7 @@
 #include "teclado.h"
 #include "texto.h"
 #include "video.h"
+#include "telas.h"
 
 #define MAX_LISTA  32
 #define CELDA      64      /* lado de cada casilla del panel de Alt+Tab */
@@ -45,7 +46,8 @@ static void sujar_painel(void) { if (pl > 0) gui_redesenhar(px - 1, py - 1, pl +
 
 static void calcular_painel(void)
 {
-    int L = (int)video_largura(), A = (int)video_altura();
+    int L, A;
+    telas_principal_rect(&L, &A);   /* D290: el panel va en la pantalla principal */
     int max_col = (L - 2 * MARGEN - 32) / CELDA;
     if (max_col < 1) max_col = 1;
     colunas = qtd_lista < max_col ? qtd_lista : max_col;

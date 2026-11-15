@@ -767,6 +767,12 @@ typedef struct {
     bool      tem_atual;
     bool      recorte_pendente;   /* um W/W* a espera de pintar */
     bool      recorte_par;
+    /* Extracción de texto (mejora 105): con so_texto no se pinta nada y
+     * mostrar_texto apunta cada carácter en 'cars'. */
+    bool      so_texto;
+    pdf_car_t *cars;
+    int       n_cars, cap_cars;
+    double    ult_fim_x, ult_y, ult_h;   /* donde acabó el carácter anterior */
 } ctx_t;
 
 /* ------------------------------------------------------------- intervalos */
@@ -982,7 +988,7 @@ static void compor(ctx_t *ctx, int x, int y, const cor_t *cor, double cob)
 
 static void pintar_caminho(ctx_t *ctx, caminho_t *cam, bool par, cor_t cor, double alfa)
 {
-    if (cam->n == 0) return;
+    if (cam->n == 0 || ctx->so_texto) return;
     cor.a = alfa;
 
     /* aplanar todos los subtramos en uno solo */
@@ -2331,6 +2337,51 @@ static void texto_avancar_linha(ctx_t *ctx)
     ctx->est.tm = ctx->est.tlm;
 }
 
+/* Apunta un carácter para la búsqueda de texto: su Unicode y la caja en
+ * décimas de punto (y hacia abajo). Mete un espacio si hay salto de línea o
+ * un hueco grande (los PDF casi nunca llevan espacios entre palabras). */
+static void car_push(ctx_t *ctx, int uni, int x, int y, int l, int a)
+{
+    if (ctx->n_cars >= 400000) return;
+    if (ctx->n_cars >= ctx->cap_cars) {
+        int nc = ctx->cap_cars ? ctx->cap_cars * 2 : 512;
+        pdf_car_t *n = realoca(ctx->cars, (size_t)nc * sizeof(pdf_car_t));
+        if (!n) return;
+        ctx->cars = n;
+        ctx->cap_cars = nc;
+    }
+    pdf_car_t *c = &ctx->cars[ctx->n_cars++];
+    c->uni = uni; c->x = x; c->y = y; c->l = l; c->a = a;
+}
+
+static void anotar_car(ctx_t *ctx, fonte_pdf_t *f, int cod, int w0, const pdf_mat_t *mat)
+{
+    int uni = fonte_tounicode(f, cod);
+    if (uni < 0) uni = f->tipo0 ? 0 : cod;
+    if (uni < 32 && uni != 0) uni = 32;
+    if (uni == 0) return;
+    double x0, y0, x1, y1, x2, y2;
+    pdf_mat_aplica(mat, 0.0, 0.0, &x0, &y0);
+    pdf_mat_aplica(mat, (double)w0, 0.0, &x1, &y1);
+    pdf_mat_aplica(mat, 0.0, 1000.0, &x2, &y2);
+    double alto = fabs_d(y2 - y0) + fabs_d(x2 - x0);     /* el cuerpo de la fuente */
+    double ancho = fabs_d(x1 - x0) + fabs_d(y1 - y0);
+    double xi = x1 < x0 ? x1 : x0;
+    if (alto < 1.0) alto = 1.0;
+    /* Un hueco o un salto de línea entre este y el anterior: un espacio. */
+    if (ctx->n_cars > 0 && uni != 32 && ctx->cars[ctx->n_cars - 1].uni != 32) {
+        double dy = fabs_d(y0 - ctx->ult_y);
+        double hueco = xi - ctx->ult_fim_x;
+        if (dy > ctx->ult_h * 0.5 || hueco > ctx->ult_h * 0.18 || hueco < -ctx->ult_h * 2.0)
+            car_push(ctx, 32, (int)(ctx->ult_fim_x * 10), (int)((ctx->ult_y - ctx->ult_h * 0.8) * 10), 0,
+                     (int)(ctx->ult_h * 10));
+    }
+    car_push(ctx, uni, (int)(xi * 10), (int)((y0 - alto * 0.8) * 10), (int)(ancho * 10), (int)(alto * 10));
+    ctx->ult_fim_x = xi + ancho;
+    ctx->ult_y = y0;
+    ctx->ult_h = alto;
+}
+
 /* Desenha uma sequencia de bytes. */
 static void mostrar_texto(ctx_t *ctx, const uint8_t *bytes, int n)
 {
@@ -2363,7 +2414,9 @@ static void mostrar_texto(ctx_t *ctx, const uint8_t *bytes, int n)
         pdf_glifo_t glifo;
         memset(&glifo, 0, sizeof glifo);
         bool ok;
-        if (f->tipo0 && !f->substituta) {
+        if (ctx->so_texto) {
+            ok = false;   /* solo se quiere el texto: no hace falta el contorno */
+        } else if (f->tipo0 && !f->substituta) {
             int g = cod;
             if (f->cid_tt && f->cid_gid) g = (cod < f->n_cid_gid) ? f->cid_gid[cod] : 0;
             ok = pdf_fonte_glifo_cid(f->fonte, g, &glifo);
@@ -2382,9 +2435,10 @@ static void mostrar_texto(ctx_t *ctx, const uint8_t *bytes, int n)
         }
         if (w0 < 0) w0 = (int)f->largura_padrao;
 
-        if (ok && ctx->est.modo_render != 3)
+        if (ok && ctx->est.modo_render != 3 && !ctx->so_texto)
             desenhar_glifo(ctx, &glifo, &mat, ctx->est.modo_render);
         if (ok) pdf_glifo_liberar(&glifo);
+        if (ctx->so_texto) anotar_car(ctx, f, cod, w0, &mat);
 
         /* o avanco */
         double extra = ctx->est.esp_car;
@@ -2659,6 +2713,7 @@ static bool img_ponto(ctx_t *ctx, img_des_t *im, int iw, int ih, double u, doubl
 /* Desenha uma imagem com a CTM (o quadrado [0,1]x[0,1]). */
 static void desenhar_imagem(ctx_t *ctx, img_des_t *im, cor_t cor_base, bool mascara)
 {
+    if (ctx->so_texto) return;
     int iw = im->tem_jpeg ? im->jpg.larg : im->am.larg;
     int ih = im->tem_jpeg ? im->jpg.alt : im->am.alt;
     if (iw <= 0 || ih <= 0) return;
@@ -3591,9 +3646,10 @@ static pdf_mat_t matriz_base(pdf_doc_t *d, pdf_obj_t *pag, int pagina,
 
 /* -------------------------------------------------------------- render */
 
-int pdf_render(pdf_doc_t *d, int pagina, int largo, int alto, uint8_t *rgba)
+static int render_interno(pdf_doc_t *d, int pagina, int largo, int alto, uint8_t *rgba,
+                          pdf_car_t **cars, int *n_cars)
 {
-    if (!d || !rgba || largo <= 0 || alto <= 0) return PDF_ERRO_PAGINA;
+    if (!d || (!rgba && !cars) || largo <= 0 || alto <= 0) return PDF_ERRO_PAGINA;
     if (pagina < 0 || pagina >= pdf_doc_paginas(d)) return PDF_ERRO_PAGINA;
     pdf_obj_t *pag = pdf_doc_pagina(d, pagina);
     if (!pag) return PDF_ERRO_PAGINA;
@@ -3601,10 +3657,11 @@ int pdf_render(pdf_doc_t *d, int pagina, int largo, int alto, uint8_t *rgba)
     /* se o documento mudou, as fontes da cache ya no valen */
     cache_fontes_outro_doc(d);
 
-    memset(rgba, 0, (size_t)largo * (size_t)alto * 4);
+    if (rgba) memset(rgba, 0, (size_t)largo * (size_t)alto * 4);
 
     ctx_t ctx;
     memset(&ctx, 0, sizeof ctx);
+    ctx.so_texto = (cars != NULL);
     ctx.doc = d;
     ctx.largo = largo;
     ctx.alto = alto;
@@ -3680,5 +3737,27 @@ int pdf_render(pdf_doc_t *d, int pagina, int largo, int alto, uint8_t *rgba)
     if (ctx.crux) libera(ctx.crux);
     if (ctx.crud) libera(ctx.crud);
     if (concat) libera(concat);
+    if (cars) {
+        *cars = ctx.cars;
+        *n_cars = ctx.n_cars;
+    }
     return 0;
+}
+
+int pdf_render(pdf_doc_t *d, int pagina, int largo, int alto, uint8_t *rgba)
+{
+    return render_interno(d, pagina, largo, alto, rgba, NULL, NULL);
+}
+
+/* El texto de una página con la posición de cada carácter (mejora 105). Va a
+ * escala 1 punto = 1 píxel, así que las cajas salen en décimas de punto. */
+int pdf_texto_pagina(pdf_doc_t *d, int pagina, pdf_car_t **cars, int *n_cars)
+{
+    if (!d || !cars || !n_cars) return PDF_ERRO_PAGINA;
+    *cars = NULL;
+    *n_cars = 0;
+    int pl = pdf_doc_pagina_largura(d, pagina);
+    int pa = pdf_doc_pagina_altura(d, pagina);
+    if (pl <= 0 || pa <= 0) return PDF_ERRO_PAGINA;
+    return render_interno(d, pagina, pl, pa, NULL, cars, n_cars);
 }

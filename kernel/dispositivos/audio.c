@@ -58,12 +58,18 @@ struct fluxo {
 };
 typedef struct fluxo fluxo_t;
 
-static placa_som_t placa;
+static placa_som_t placa;            /* la salida actual (copia de placas[atual]) */
+#define PLACAS_MAX AUDIO_SALIDAS
+static placa_som_t placas[PLACAS_MAX];   /* D275: las tarjetas conocidas (PCI y USB) */
+static bool placas_usada[PLACAS_MAX];
+static int atual = -1, idx_pci = -1;     /* salida actual; tarjeta PCI (la de la IRQ) */
 static int estado = AUDIO_SEM_PLACA;
 static pci_disp_t sem_driver;        /* AUDIO_SEM_DRIVER: la tarjeta que quedó sin driver */
 static bool pronta, tocando, com_irq;
 static uint32_t escrito, tocado;     /* cuadros de la salida desde que el DMA se activó */
 static uint32_t pos_ant, latencia;
+static uint32_t lat_base_ms = LATENCIA_MS;   /* D292: la latencia configurada */
+static uint8_t  balance = 100;               /* D292: 0 izquierda, 100 centro, 200 derecha */
 static uint32_t total_tocado, irqs, falhas, salto_max;
 static uint32_t ocioso_desde;
 static uint8_t volume_mestre = 100;
@@ -180,8 +186,13 @@ static void bombear(void)
         if (n > BLOCO) n = BLOCO;
         misturar(n);
         volatile int16_t *d = placa.anel + off * 2;
+        /* balance (D292): el canal del lado contrario se atenúa; centrado no toca nada (bit a bit) */
+        int32_t gb[2] = { balance > 100 ? (int32_t)(200 - balance) * 256 / 100 : 256,
+                          balance < 100 ? (int32_t)balance * 256 / 100 : 256 };
+        bool com_bal = balance != 100;
         for (uint32_t i = 0; i < n * 2; i++) {
             int32_t v = mistura[i];
+            if (com_bal) v = (v * gb[i & 1]) >> 8;
             v = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
             d[i] = eq.etapas ? (int16_t)eq_filtrar(&eq, eq_est[i & 1], v) : (int16_t)v;
         }
@@ -201,68 +212,174 @@ static void bombear(void)
 
 static void ligar(void)
 {
-    if (tocando) return;
+    if (tocando || !pronta) return;
     for (uint32_t i = 0; i < placa.quadros * 2; i++) placa.anel[i] = 0;
     escrito = tocado = pos_ant = 0;
     ocioso_desde = 0;
-    latencia = placa.taxa * LATENCIA_MS / 1000;
+    latencia = placa.taxa * lat_base_ms / 1000;
     placa.ligar();
     tocando = true;
     klog("[AUDIO] tocando\n");
     bombear();
 }
 
+/* La IRQ es de la tarjeta PCI; bombea solo si esa es la salida actual (D275). */
 static bool ao_irq(void)
 {
-    if (!pronta || !placa.atender()) return false;
+    if (idx_pci < 0 || !placas_usada[idx_pci] || !placas[idx_pci].atender || !placas[idx_pci].atender()) return false;
     irqs++;
-    bombear();
+    if (pronta && atual == idx_pci) bombear();
     return true;
+}
+
+/* Sin ninguna tarjeta (se retiró la de USB) los flujos abiertos no se pueden quedar
+ * bloqueados: lo que escriben los programas se tira (D275). */
+static void drenar_sin_tarjeta(void)
+{
+    for (int k = 0; k < AUDIO_FLUXOS; k++) {
+        fluxo_t *f = &fluxos[k];
+        if (!f->usado || !f->qtd) continue;
+        f->qtd = 0;
+        f->fase = 0;
+        acordar(f);
+    }
 }
 
 void audio_tique(void)
 {
+    captura_tique();   /* D292: vacía el anillo de grabación de la tarjeta */
     if (pronta) bombear();
+    else if (estado != AUDIO_FUNCIONANDO) drenar_sin_tarjeta();
 }
 
 /* ------------------------------------------------------------ inicio */
 
 /* D211: la autoprueba de la IRQ (irq_rotas.c). */
-static bool sonda_provocar(void *ctx) { (void)ctx; return pronta && placa.provocar_irq && placa.provocar_irq(); }
+static bool sonda_provocar(void *ctx)
+{
+    (void)ctx;
+    return idx_pci >= 0 && placas_usada[idx_pci] && placas[idx_pci].provocar_irq && placas[idx_pci].provocar_irq();
+}
 static uint32_t sonda_contador(void *ctx) { (void)ctx; return irqs; }
-static void sonda_terminar(void *ctx, bool chegou) { (void)ctx; (void)chegou; if (placa.fim_prova_irq) placa.fim_prova_irq(); }
+static void sonda_terminar(void *ctx, bool chegou)
+{
+    (void)ctx; (void)chegou;
+    if (idx_pci >= 0 && placas_usada[idx_pci] && placas[idx_pci].fim_prova_irq) placas[idx_pci].fim_prova_irq();
+}
+
+/* ------------------------------------------------------------ tarjetas (D275) */
+
+static void recalcular_passos(void)
+{
+    for (int k = 0; k < AUDIO_FLUXOS; k++) {
+        fluxo_t *f = &fluxos[k];
+        if (f->usado) f->passo = (f->taxa / placa.taxa << 16) + ((f->taxa % placa.taxa) << 16) / placa.taxa;
+    }
+}
+
+static void silencio_hw(void)
+{
+    if (pronta && placa.silencio_hw) placa.silencio_hw(calado);
+}
+
+/* Cambia la salida (con las interrupciones apagadas): para la tarjeta vieja, pone la nueva y,
+ * si había flujos sonando, sigue con ellos desde el principio del anillo de la nueva. */
+static void salida_poner(int i)
+{
+    bool i0 = int_salva_desliga();
+    if (tocando && pronta) placa.parar();
+    tocando = false;
+    placa = placas[i];
+    atual = i;
+    pronta = true;
+    estado = AUDIO_FUNCIONANDO;
+    latencia = placa.taxa * lat_base_ms / 1000;
+    recalcular_passos();
+    silencio_hw();
+    bool algum = false;
+    for (int k = 0; k < AUDIO_FLUXOS; k++) algum |= fluxos[k].usado;
+    if (algum) ligar();
+    klog("[AUDIO] salida: %s (%s)\n", placa.placa, placa.driver);
+    int_restaura(i0);
+}
+
+int audio_registrar(const placa_som_t *p)
+{
+    int i = -1;
+    for (int k = 0; k < PLACAS_MAX && i < 0; k++) if (!placas_usada[k]) i = k;
+    if (i < 0) return ERRO_LIMITE;
+    bool i0 = int_salva_desliga();
+    placas[i] = *p;
+    placas_usada[i] = true;
+    /* La tarjeta que llega es la salida (enchufar unos auriculares USB los pone a sonar);
+     * la primera de todas también. La de PCI del arranque no desplaza a una de USB ya enchufada. */
+    if (atual < 0 || (txt_compara(p->driver, "usb") == 0)) salida_poner(i);
+    int_restaura(i0);
+    return i;
+}
+
+void audio_retirar(int i)
+{
+    if (i < 0 || i >= PLACAS_MAX || !placas_usada[i]) return;
+    bool i0 = int_salva_desliga();
+    placas_usada[i] = false;
+    if (i == atual) {
+        if (tocando && pronta) placa.parar();
+        tocando = false;
+        pronta = false;
+        atual = -1;
+        memset(&placa, 0, sizeof placa);
+        int j = -1;
+        for (int k = PLACAS_MAX - 1; k >= 0 && j < 0; k--) if (placas_usada[k]) j = k;
+        if (j >= 0) salida_poner(j);
+        else {
+            estado = sem_driver.fabricante ? AUDIO_SEM_DRIVER : AUDIO_SEM_PLACA;
+            klog("[AUDIO] sin tarjeta de sonido\n");
+        }
+    }
+    int_restaura(i0);
+}
+
+int audio_salida_atual(void) { return atual; }
+
+int audio_selecionar(int i)
+{
+    if (i < 0 || i >= PLACAS_MAX || !placas_usada[i]) return ERRO_INVALIDO;
+    if (i != atual) salida_poner(i);
+    return 0;
+}
 
 void audio_iniciar(void)
 {
-    memset(&placa, 0, sizeof placa);
-    bool ok = hda_procurar(&placa);
-    if (!ok) { memset(&placa, 0, sizeof placa); ok = ac97_procurar(&placa); }
+    placa_som_t nova;
+    memset(&nova, 0, sizeof nova);
+    bool ok = hda_procurar(&nova);
+    if (!ok) { memset(&nova, 0, sizeof nova); ok = ac97_procurar(&nova); }
     if (!ok) {
         pci_disp_t v[4];
         int n = pci_procurar_classe(0x04, 0x03, v, 4);
         if (!n) n = pci_procurar_classe(0x04, 0x01, v, 4);
         if (n) {
-            estado = AUDIO_SEM_DRIVER;
             sem_driver = v[0];
+            if (estado != AUDIO_FUNCIONANDO) estado = AUDIO_SEM_DRIVER;
             klog("[AUDIO] placa de som %04x:%04x sem driver\n", v[0].fabricante, v[0].modelo);
         }
         return;
     }
-    estado = AUDIO_FUNCIONANDO;
-    latencia = placa.taxa * LATENCIA_MS / 1000;
     com_irq = false;
-    if (placa.irq > 0 && placa.irq < 16 && placa.irq != 2) {
-        irq_compartilhar((uint8_t)placa.irq, ao_irq);
+    if (nova.irq > 0 && nova.irq < 16 && nova.irq != 2) {
+        irq_compartilhar((uint8_t)nova.irq, ao_irq);
         com_irq = true;
     }
-    bool i0 = int_salva_desliga();
-    pronta = true;
-    int_restaura(i0);
-    if (com_irq && placa.provocar_irq) {
-        irq_sonda_t s = { "HDA", placa.pci, (uint8_t)placa.irq, sonda_provocar, sonda_contador, sonda_terminar, NULL };
+    int i = audio_registrar(&nova);
+    if (i < 0) return;
+    idx_pci = i;
+    captura_registrar(&nova.cap, nova.placa);   /* D292: la entrada de sonido de la tarjeta PCI */
+    if (com_irq && nova.provocar_irq) {
+        irq_sonda_t s = { "HDA", nova.pci, (uint8_t)nova.irq, sonda_provocar, sonda_contador, sonda_terminar, NULL };
         irq_sonda_registrar(&s);
     }
-    klog("[AUDIO] %s: %s; %s; %u Hz, %s\n", placa.driver, placa.placa, placa.codec, placa.taxa,
+    klog("[AUDIO] %s: %s; %s; %u Hz, %s\n", nova.driver, nova.placa, nova.codec, nova.taxa,
          com_irq ? "com interrupcao" : "por sondagem a cada tique");
 }
 
@@ -326,6 +443,7 @@ int32_t audio_fluxo_escrever(fluxo_t *f, const uint8_t *buf, uint32_t n, bool se
     uint32_t tq = (uint32_t)f->canais * (f->bits / 8u);
     uint32_t quadros = n / tq;
     if (!quadros) return (int32_t)n;
+    if (!pronta) return (int32_t)(quadros * tq);   /* D275: sin tarjeta (se retiró la USB): los datos se tiran */
     uint32_t livres = FLUXO_QUADROS - f->qtd;
     if (!livres) {
         if (sem_bloquear) return 0;
@@ -362,7 +480,7 @@ void audio_fluxo_fechar(fluxo_t *f)
     acordar(f);
     int_restaura(i0);
     klog("[AUDIO] fluxo %d fechado; %u ms sem dados do programa; %u falhas, maior salto %u, latencia %u\n",
-         (int)(f - fluxos), f->fome / (placa.taxa / 1000), falhas, salto_max, latencia);
+         (int)(f - fluxos), f->fome / (placa.taxa >= 1000 ? placa.taxa / 1000 : 1), falhas, salto_max, latencia);
 }
 
 int32_t sis_audio_escrever(uint32_t fd, uint32_t buf, uint32_t n, uint32_t sem_bloquear, uint32_t e)
@@ -382,6 +500,7 @@ int32_t sis_audio_controle(uint32_t fd, uint32_t op, uint32_t valor, uint32_t d,
     if (op == AUDIO_SILENCIO) {
         if (v >= 0) {
             calado = v != 0;
+            silencio_hw();
             klog("[AUDIO] %s\n", calado ? "silencio" : "som ligado");
         }
         return calado;
@@ -392,6 +511,27 @@ int32_t sis_audio_controle(uint32_t fd, uint32_t op, uint32_t valor, uint32_t d,
             klog("[AUDIO] volume mestre %u\n", volume_mestre);
         }
         return volume_mestre;
+    }
+    if (op == AUDIO_SALIDA && (int32_t)fd == -1) {
+        if (v >= 0 && audio_selecionar(v) < 0) return ERRO_INVALIDO;
+        return atual;
+    }
+    if (op == AUDIO_BALANCE && (int32_t)fd == -1) {
+        if (v >= 0) {
+            balance = (uint8_t)(v > 200 ? 200 : v);
+            klog("[AUDIO] balance %u\n", balance);
+        }
+        return balance;
+    }
+    if (op == AUDIO_LATENCIA && (int32_t)fd == -1) {
+        if (v >= 0) {
+            lat_base_ms = v < 20 ? 20 : v > LATENCIA_MAX_MS ? LATENCIA_MAX_MS : (uint32_t)v;
+            bool i0 = int_salva_desliga();
+            if (pronta) latencia = placa.taxa * lat_base_ms / 1000;
+            int_restaura(i0);
+            klog("[AUDIO] latencia %u ms\n", lat_base_ms);
+        }
+        return (int32_t)lat_base_ms;
     }
     if (op == AUDIO_EQ && (int32_t)fd == -1) {
         if (valor) {
@@ -448,7 +588,7 @@ int32_t sis_audio_fechar(uint32_t fd, uint32_t esperar, uint32_t c, uint32_t d, 
 int32_t sis_audio_hda(uint32_t op, uint32_t a, uint32_t b, uint32_t d, uint32_t e)
 {
     (void)d; (void)e;
-    if (estado != AUDIO_FUNCIONANDO || txt_compara(placa.driver, "hda") != 0) return ERRO_NAO_EXISTE;
+    if (idx_pci < 0 || !placas_usada[idx_pci] || txt_compara(placas[idx_pci].driver, "hda") != 0) return ERRO_NAO_EXISTE;
     return hda_chamada(op, a, b);
 }
 
@@ -475,7 +615,7 @@ int32_t audio_info(uint32_t ptr, uint32_t n)
     txt_copia_n(v->codec, placa.codec, sizeof v->codec);
     v->fabricante = placa.pci.fabricante;
     v->modelo = placa.pci.modelo;
-    if (com_irq) v->irq = (unsigned char)placa.irq;
+    if (com_irq && atual == idx_pci) v->irq = (unsigned char)placa.irq;
     v->taxa = placa.taxa;
     v->tocando = tocando;
     v->latencia_ms = latencia * 1000 / placa.taxa;
@@ -494,8 +634,19 @@ int32_t audio_info(uint32_t ptr, uint32_t n)
         s->volume = f->volume;
         s->pendente_ms = pendente_ms(f);
     }
+    for (int k = 0; k < PLACAS_MAX; k++) {
+        info_salida_audio_t *o = &v->salidas[k];
+        o->usada = placas_usada[k];
+        o->actual = placas_usada[k] && k == atual;
+        if (!placas_usada[k]) continue;
+        txt_copia_n(o->driver, placas[k].driver, sizeof o->driver);
+        txt_copia_n(o->nombre, placas[k].placa, sizeof o->nombre);
+    }
     v->eq_etapas = (unsigned char)eq.etapas;
     for (int j = 0; j < EQ_BANDAS; j++) v->eq_db[j] = eq.db[j];
+    v->balance = balance;
+    v->captura = (unsigned char)captura_hay();
+    v->latencia_base_ms = (unsigned short)lat_base_ms;
     int_restaura(i0);
     return 0;
 }
@@ -515,6 +666,6 @@ void audio_mestre_definir(int vol, int mudo)
 {
     if (estado != AUDIO_FUNCIONANDO) return;
     if (vol >= 0) volume_mestre = (uint8_t)(vol > 100 ? 100 : vol);
-    if (mudo >= 0) calado = mudo != 0;
+    if (mudo >= 0) { calado = mudo != 0; silencio_hw(); }
     klog("[AUDIO] bandeja: volume %u%s\n", volume_mestre, calado ? " (silencio)" : "");
 }

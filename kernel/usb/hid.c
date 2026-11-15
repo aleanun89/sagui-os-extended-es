@@ -418,6 +418,97 @@ void hid_desconectar(usb_disp_t *d)
     trava_soltar(&trava_hid);
 }
 
+/* ------------------------------------------------------------ Bluetooth (D279)
+ *
+ * Los dispositivos HID Bluetooth (kernel/bluetooth/) entregan aquí sus informes y siguen el mismo
+ * camino que los USB: el teclado en formato boot por teclado_relatorio (traducción a PS/2, teclas
+ * muertas, atajos y repetición) y el ratón por rato_boot o por el descriptor de informe. No hay
+ * endpoint que consultar: los informes llegan solos desde la pila. La repetición y las luces se
+ * atienden en hid_bt_tic(), que llama la tarea «bluetooth» en cada tic. */
+static hid_t bt_tec, bt_pont;
+static bool bt_tec_activo, bt_pont_activo;
+static uint8_t bt_leds_ult = 0xFF;
+
+int hid_bt_conectar(int tipo, const uint8_t *desc, int n)
+{
+    bool tec = tipo == 1 || tipo == 3 || tipo == 0, rat = tipo == 2 || tipo == 3 || tipo == 0;
+    int normal = 0;
+    if (tec && !bt_tec_activo) {
+        memset(&bt_tec, 0, sizeof bt_tec);
+        bt_tec.tipo = TECLADO;
+        bt_tec.ehci_h = -1;
+        bt_tec_activo = true;
+        bt_leds_ult = 0xFF;
+        teclados++;
+    }
+    if (rat && !bt_pont_activo) {
+        memset(&bt_pont, 0, sizeof bt_pont);
+        bt_pont.ehci_h = -1;
+        if (tipo == 2 && desc && n > 0 && analisar_relatorio(&bt_pont, desc, n)) {
+            bt_pont.tipo = PONTEIRO;
+            normal = 1;
+        } else {
+            memset(&bt_pont, 0, sizeof bt_pont);
+            bt_pont.tipo = RATO_BOOT;
+        }
+        bt_pont_activo = true;
+        ratos++;
+        mouse_usb_presente(bt_pont.tipo == PONTEIRO ? bt_pont.roda.presente : true);
+    }
+    klog("[HID] Bluetooth: %s%s%s\n", tec ? "teclado" : "", tec && rat ? " y " : "", rat ? (normal ? "raton (descriptor)" : "raton (boot)") : "");
+    return normal;
+}
+
+void hid_bt_teclado(const uint8_t *r, int n)
+{
+    if (!bt_tec_activo) return;
+    bt_tec.relatorios++;
+    teclado_relatorio(&bt_tec, r, n);
+}
+
+void hid_bt_raton(const uint8_t *r, int n, bool boot)
+{
+    if (!bt_pont_activo) return;
+    bt_pont.relatorios++;
+    if (!boot && bt_pont.tipo == PONTEIRO) ponteiro_relatorio(&bt_pont, r, n);
+    else rato_boot(r, n);
+}
+
+void hid_bt_soltar(int tipo)
+{
+    bool tec = tipo == 1 || tipo == 3 || tipo == 0, rat = tipo == 2 || tipo == 3 || tipo == 0;
+    if (tec && bt_tec_activo) {
+        teclado_soltar_tudo(&bt_tec);
+        bt_tec_activo = false;
+        if (teclados) teclados--;
+    }
+    if (rat && bt_pont_activo) {
+        bt_pont_activo = false;
+        if (ratos) ratos--;
+    }
+    klog("[HID] Bluetooth desconectado\n");
+}
+
+void hid_bt_tic(void)
+{
+    if (!bt_tec_activo || !bt_tec.repetir) return;
+    uint32_t agora = relogio_tiques();
+    if ((int32_t)(agora - bt_tec.repetir_em) >= 0) {
+        ps2(uso_ps2[bt_tec.repetir], false);
+        bt_tec.repetir_em = agora + REPETIR_CADA;
+    }
+}
+
+bool hid_bt_leds(uint8_t *leds)
+{
+    if (!bt_tec_activo) return false;
+    uint8_t l = teclado_leds_usb();
+    if (l == bt_leds_ult) return false;
+    bt_leds_ult = l;
+    *leds = l;
+    return true;
+}
+
 int hid_relatorio(char *s, int max)
 {
     int k = 0;

@@ -1691,12 +1691,22 @@ static void accion_radio(void)
     }
 }
 
+/* Diálogo de archivo para listas (D272), con el sonido en pausa mientras está abierto. */
+static bool dialogo_lista(bool guardar, const char *titulo, const char *filtros, char *c, int max)
+{
+    bool tocaba = estado == TOCANDO;
+    if (tocaba) pausar();
+    bool ok = (guardar ? dialogo_guardar(titulo, filtros, c, c, max) : dialogo_abrir(titulo, filtros, c, c, max)) && c[0];
+    if (tocaba && estado == PAUSADO) reanudar();
+    return ok;
+}
+
 static void accion_guardar(bool pls)
 {
     char c[200];
     formatar_texto(c, sizeof c, "%s%slista.%s", ult_dir, compara_texto(ult_dir, "/") ? "/" : "", pls ? "pls" : "m3u");
     if (!qtd) { copia_texto(aviso, "No hay nada que guardar: la lista está vacía", sizeof aviso); return; }
-    if (!preguntar(pls ? "Guardar lista PLS" : "Guardar lista M3U", "Ruta del archivo:", c, sizeof c)) return;
+    if (!dialogo_lista(true, pls ? "Guardar lista PLS" : "Guardar lista M3U", pls ? "Lista PLS (*.pls)|*.pls" : "Lista M3U (*.m3u)|*.m3u", c, sizeof c)) return;
     if (guardar_lista(c, pls)) formatar_texto(aviso, sizeof aviso, "Lista guardada en %s", c);
 }
 
@@ -1704,7 +1714,7 @@ static void accion_abrir_lista(void)
 {
     char c[200];
     copia_texto(c, ult_dir, sizeof c);
-    if (!preguntar("Abrir lista", "Archivo .m3u o .pls (se añade a la lista):", c, sizeof c)) return;
+    if (!dialogo_lista(false, "Abrir lista", "Listas (*.m3u;*.pls)|*.m3u;*.pls|Todos los archivos (*.*)|*", c, sizeof c)) return;
     aviso[0] = 0;
     int antes = qtd, n = anadir_ruta(c);
     filtrar();

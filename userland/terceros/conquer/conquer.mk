@@ -103,7 +103,7 @@ SDL2_OBJ := $(B)/userland/libsdl2/sdl2_sagui.o
 OPENAL_OBJ := $(B)/userland/libopenal/openal_sagui.o
 CNC_LANC_OBJ := $(B)/$(CNC_DIR)/plataforma/principal_cnc.o
 
-$(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
+$(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/sdl2gpu.h userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(SDL2_FLAGS) -c -o $@ $<
 

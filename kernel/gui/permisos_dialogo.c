@@ -22,6 +22,7 @@
 #include "teclado.h"
 #include "texto.h"
 #include "video.h"
+#include "telas.h"
 
 #define DW        500
 #define SENHA_MIN 4
@@ -72,7 +73,8 @@ static int partir(const char *t, int cols, int ini[3], int tam[3])
 
 static void layout(lay_t *L)
 {
-    int sw = (int)video_largura(), sh = (int)video_altura();
+    int sw, sh;
+    telas_principal_rect(&sw, &sh);   /* D290: el diálogo va en la pantalla principal */
     L->campos = vista.primeira ? 2 : 1;
     int ini[3], tam[3];
     L->n_motivo = vista.motivo[0] ? partir(vista.motivo, (DW - 96) / 8, ini, tam) : 0;

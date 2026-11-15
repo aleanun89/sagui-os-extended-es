@@ -24,6 +24,7 @@
  * PCI) apaga las SMI con las que la BIOS emula un teclado PS/2 a partir del
  * teclado USB; antes se detiene el controlador y se le da un reinicio global. */
 #include "usb.h"
+#include "isoent.h"
 #include "console.h"
 #include "cpu.h"
 #include "memoria.h"
@@ -475,5 +476,256 @@ void uhci_int_fechar(int h)
     pausa_ms(3);                                         /* el controlador ya no la está leyendo */
     memfisica_liberar(e->pagina);
     e->usado = false;
+    int_restaura(i0);
+}
+
+/* ------------------------------------------------------------ transferencias isócronas (D275) */
+
+/* Un flujo isócrono es un anillo de 64 TD (uno por milisegundo) que cuelgan de la lista de
+ * cuadros: la entrada f de la lista (f mod 64 = k) apunta al TD k y este, a lo que había
+ * (la QH int o la de trabajo). El TD lleva IOS (isócrono) y un paquete de salida de hasta
+ * 1023 bytes. Como en el EHCI, el tiempo es el contador de cuadros del controlador
+ * (FRNUM): se arma el TD del cuadro f unos 32 ms antes; un TD cuyo cuadro ya pasó está
+ * completo (y se desactiva para que no se repita 64 ms más tarde). Un TD isócrono no
+ * se reintenta ni tiene alternancia de datos. */
+#define UISO_N       64
+#define TD_IOS       (1u << 25)
+#define UISO_ANCHO_MAX 1280u     /* bytes isócronos por cuadro (por debajo del 90 % de 1500) */
+
+typedef struct {
+    bool     usado, ligado;
+    uhci_t  *c;
+    uint32_t tds;                  /* físico de los 64 TD */
+    uint8_t  dev, ep;
+    uint16_t mps;
+    uint32_t anel_fis, anel_tam, bytes_s;
+    uint8_t  tam_quadro;
+    uint32_t pos_fila, pos_feito, acc;
+    uint32_t agora, ultimo_f, prox, vel;
+    uint16_t bytes[UISO_N];
+    bool     entrada;              /* D277: flujo de entrada (cámara) */
+    uint8_t  arm[UISO_N];          /* entrada: el TD lleva un paquete puesto */
+    isoent_t re;                   /* entrada: casillas y paquetes recibidos */
+    uint32_t paquetes, completados, subdesb, erros;
+} uhci_iso_t;
+
+static uhci_iso_t isoc[USB_ISO_MAX * USB_MAX_CONTROLADORES];
+static uint32_t uhci_ancho_iso[USB_MAX_CONTROLADORES];
+
+static utd_t *utd_iso(uhci_iso_t *e, uint32_t k) { return (utd_t *)(e->tds + 32u * k); }
+
+static void uiso_relogio(uhci_iso_t *e)
+{
+    uint32_t f = le16(e->c, R_FRNUM) & 0x7FF;
+    e->agora += (f - e->ultimo_f) & 0x7FF;
+    e->ultimo_f = f;
+}
+
+static void uiso_completar(uhci_iso_t *e)
+{
+    while (e->vel != e->prox && (int32_t)(e->agora - e->vel) > 0) {
+        uint32_t k = e->vel % UISO_N;
+        utd_t *t = utd_iso(e, k);
+        if (e->entrada) {
+            if (e->arm[k]) {
+                uint32_t c = t->ctrl;
+                bool mal = (c & TD_ATIVO) || (c & TD_ERROS);
+                if (c & TD_ATIVO) e->subdesb++;
+                else if (c & TD_ERROS) e->erros++;
+                isoent_completar(&e->re, mal ? 0 : ((c + 1) & 0x7FFu), mal);   /* ActLen codificado como n-1 */
+                e->arm[k] = 0;
+            }
+            t->ctrl = TD_IOS;
+            e->completados++;
+            e->vel++;
+            continue;
+        }
+        if (t->ctrl & TD_ATIVO) e->subdesb++;                 /* el controlador no llegó a ejecutarlo */
+        else if (t->ctrl & TD_ERROS) e->erros++;
+        t->ctrl = TD_IOS;                                     /* inactivo */
+        e->pos_feito += e->bytes[k];
+        e->bytes[k] = 0;
+        e->completados++;
+        e->vel++;
+    }
+}
+
+static void uiso_armar(uhci_iso_t *e, uint32_t f)
+{
+    uint32_t k = f % UISO_N;
+    utd_t *t = utd_iso(e, k);
+    if (e->entrada) {
+        if (!isoent_livres(&e->re)) { t->ctrl = TD_IOS; e->paquetes++; return; }   /* el consumidor va atrasado */
+        uint32_t off = isoent_postar(&e->re);
+        t->token = ((uint32_t)(e->mps - 1) << 21) | ((uint32_t)e->ep << 15) | ((uint32_t)e->dev << 8) | PID_ENTRADA;
+        t->buf = e->anel_fis + off;
+        __asm__ volatile("" ::: "memory");
+        t->ctrl = TD_ATIVO | TD_IOS;
+        e->arm[k] = 1;
+        e->paquetes++;
+        return;
+    }
+    uint32_t n = usb_iso_calcular(&e->acc, e->bytes_s, e->tam_quadro, 1000, e->mps);
+    uint32_t lim = e->anel_tam - e->pos_fila;
+    if (n > lim) n = lim - lim % e->tam_quadro;
+    t->token = ((n ? n - 1 : 0x7FFu) << 21) | ((uint32_t)e->ep << 15) | ((uint32_t)e->dev << 8) | PID_SAIDA;
+    t->buf = e->anel_fis + e->pos_fila;
+    __asm__ volatile("" ::: "memory");
+    t->ctrl = TD_ATIVO | TD_IOS;
+    e->bytes[k] = (uint16_t)n;
+    e->pos_fila += n;
+    if (e->pos_fila >= e->anel_tam) e->pos_fila -= e->anel_tam;
+    e->paquetes++;
+}
+
+static void uiso_encher(uhci_iso_t *e)
+{
+    uiso_relogio(e);
+    uiso_completar(e);
+    if (!e->ligado) return;
+    if ((int32_t)(e->prox - e->agora) < 2) {
+        if (e->prox != e->vel) e->subdesb++;                  /* nos quedamos atrás: se salta al futuro */
+        while (e->vel != e->prox) {
+            uint32_t k = e->vel % UISO_N;
+            utd_iso(e, k)->ctrl = TD_IOS;
+            if (e->entrada && e->arm[k]) { isoent_completar(&e->re, 0, true); e->arm[k] = 0; }
+            e->pos_feito += e->bytes[k];
+            e->bytes[k] = 0;
+            e->vel++;
+        }
+        e->prox = e->vel = e->agora + 3;
+    }
+    while ((int32_t)(e->prox - e->agora) < (int32_t)USB_ISO_COLA_MS && e->prox - e->vel < UISO_N - 4) {
+        uiso_armar(e, e->prox);
+        e->prox++;
+    }
+}
+
+int uhci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg)
+{
+    uhci_t *c = d->uctl;
+    if (!c || !cfg->mps || cfg->mps > 1023) return USB_ERRO;
+    if (cfg->entrada ? (cfg->anel_tam % cfg->mps != 0 || cfg->anel_tam / cfg->mps > ISOENT_CASILLAS_MAX)
+                     : (!cfg->tam_quadro || cfg->anel_tam % cfg->tam_quadro)) return USB_ERRO;
+    if (d->velocidade == USB_VEL_BAIXA) return USB_ERRO;   /* la baja velocidad no tiene isócrono */
+    int ci = (int)(c - ctls);
+    bool i0 = int_salva_desliga();
+    int h = -1, r = USB_ERRO;
+    for (int i = 0; i < USB_ISO_MAX * USB_MAX_CONTROLADORES; i++) if (!isoc[i].usado) { h = i; break; }
+    if (h >= 0 && uhci_ancho_iso[ci] + cfg->mps <= UISO_ANCHO_MAX) {
+        uint32_t pg = memfisica_alocar();
+        if (pg) {
+            uhci_iso_t *e = &isoc[h];
+            memset(e, 0, sizeof *e);
+            memset((void *)pg, 0, PAGINA);
+            e->usado = true;
+            e->c = c;
+            e->tds = pg;
+            e->dev = d->endereco;
+            e->ep = cfg->ep;
+            e->mps = cfg->mps;
+            e->anel_fis = cfg->anel_fis;
+            e->anel_tam = cfg->anel_tam;
+            e->bytes_s = cfg->bytes_s;
+            e->tam_quadro = cfg->tam_quadro;
+            e->entrada = cfg->entrada;
+            if (e->entrada && !isoent_iniciar(&e->re, cfg->anel_tam, cfg->mps)) { memfisica_liberar(pg); e->usado = false; int_restaura(i0); return USB_ERRO; }
+            e->ultimo_f = le16(c, R_FRNUM) & 0x7FF;
+            e->agora = e->prox = e->vel = e->ultimo_f;
+            uhci_ancho_iso[ci] += cfg->mps;
+            volatile uint32_t *lista = (volatile uint32_t *)c->quadros;
+            for (uint32_t k = 0; k < UISO_N; k++) {
+                utd_t *t = utd_iso(e, k);
+                t->link = (uint32_t)((k & 7) == 0 ? qh_int(c) : qh_trab(c)) | L_QH;
+                t->ctrl = TD_IOS;
+            }
+            for (uint32_t f = 0; f < 1024; f++) lista[f] = (uint32_t)utd_iso(e, f % UISO_N);   /* TD: sin el bit de QH */
+            r = h;
+        }
+    } else if (h >= 0)
+        klog("[UHCI] isocrono: sin ancho de banda (%u + %u > %u bytes por cuadro)\n", uhci_ancho_iso[ci], cfg->mps, UISO_ANCHO_MAX);
+    int_restaura(i0);
+    return r;
+}
+
+static uhci_iso_t *uiso_h(usb_disp_t *d, int h)
+{
+    if (h < 0 || h >= USB_ISO_MAX * USB_MAX_CONTROLADORES || !isoc[h].usado || isoc[h].c != d->uctl) return NULL;
+    return &isoc[h];
+}
+
+void uhci_iso_ligar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    uhci_iso_t *e = uiso_h(d, h);
+    if (e) {
+        uiso_relogio(e);
+        uiso_completar(e);
+        while (e->vel != e->prox) { e->bytes[e->vel % UISO_N] = 0; e->vel++; }
+        for (uint32_t k = 0; k < UISO_N; k++) { utd_iso(e, k)->ctrl = TD_IOS; e->arm[k] = 0; }
+        if (e->entrada) isoent_reiniciar(&e->re);
+        e->pos_fila = e->pos_feito = e->acc = 0;
+        e->prox = e->vel = e->agora + 3;
+        e->ligado = true;
+        uiso_encher(e);
+    }
+    int_restaura(i0);
+}
+
+void uhci_iso_parar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    uhci_iso_t *e = uiso_h(d, h);
+    if (e) e->ligado = false;
+    int_restaura(i0);
+}
+
+uint32_t uhci_iso_posicao(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    uhci_iso_t *e = uiso_h(d, h);
+    uint32_t r = 0;
+    if (e) { uiso_encher(e); r = e->pos_feito; }
+    int_restaura(i0);
+    return r;
+}
+
+bool uhci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro)
+{
+    bool i0 = int_salva_desliga();
+    uhci_iso_t *e = uiso_h(d, h);
+    bool r = e && e->entrada && isoent_ler(&e->re, off, len, erro);
+    int_restaura(i0);
+    return r;
+}
+
+bool uhci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i)
+{
+    uhci_iso_t *e = uiso_h(d, h);
+    if (!e) return false;
+    i->paquetes = e->paquetes;
+    i->completados = e->completados;
+    i->subdesbordes = e->subdesb;
+    i->errores = e->erros;
+    i->ancho = e->mps;
+    return true;
+}
+
+void uhci_iso_fechar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    uhci_iso_t *e = h >= 0 && h < USB_ISO_MAX * USB_MAX_CONTROLADORES && isoc[h].usado ? &isoc[h] : NULL;
+    if (e) {
+        uhci_t *c = e->c;
+        e->ligado = false;
+        volatile uint32_t *lista = (volatile uint32_t *)c->quadros;
+        for (uint32_t f = 0; f < 1024; f++) lista[f] = (uint32_t)((f & 7) == 0 ? qh_int(c) : qh_trab(c)) | L_QH;
+        pausa_ms(3);                                          /* el controlador ya no los lee */
+        memfisica_liberar(e->tds);
+        int ci = (int)(c - ctls);
+        if (uhci_ancho_iso[ci] >= e->mps) uhci_ancho_iso[ci] -= e->mps;
+        e->usado = false;
+    }
+    (void)d;
     int_restaura(i0);
 }

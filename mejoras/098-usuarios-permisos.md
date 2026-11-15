@@ -1,6 +1,6 @@
 # 098 - Usuarios y permisos
 
-- **Estado:** aprobada (fase 1 en **v8.0b7**; fases 2 y 3 en **v8.5**, decidido por el mantenedor el 2026-11-14)
+- **Estado:** aprobada (fase 1 en **v8.0b7**; fases 2 y 3 en **v8.4**: antes v8.5, agrupada en la v8.4 por el mantenedor el 2026-11-15)
 - **Prioridad:** alta (seguridad; hay `sshd` y `vncd`)
 - **Alta:** 2026-11-14
 - **Relacionadas:** servicios (D216), SSH (D250, D253, 052), VNC (097, D251, D252), sistemas de archivos
@@ -24,7 +24,7 @@ sobre todo robusta**.
    contraseña del VNC, `.conf` de servicios cambiados, red); se superpone al `/etc` de RAM al arrancar.
    La crean `mkimagem`, `gerar_versao` y el instalador. Sin ella (imagen en vivo, ISO): root sin
    contraseña solo en la consola local, con aviso. Con la raíz ext2 de la 035, `/etc` irá en la raíz.
-4. **Versiones:** fase 1 en la v8.0b7; fases 2 y 3 en la v8.5 (después de la v8.0).
+4. **Versiones:** fase 1 en la v8.0b7; fases 2 y 3 en la v8.4 (antes v8.5) (después de la v8.0).
 
 ## Propuesta
 
@@ -40,12 +40,12 @@ sobre todo robusta**.
   falta o está dañado, aviso y nunca bloqueo del arranque.
 - `sshd` y `vncd`: `authorized_keys` por usuario; `SIS_INYECTAR` exige root + permiso del servicio.
 
-### Fase 2 (v8.5): permisos de ficheros
+### Fase 2 (v8.4): permisos de ficheros
 - Dueño, grupo y `rwx` (9 bits, sin ACL), comprobados en el VFS (abrir, crear, borrar, renombrar,
   mkdir, ejecutar). ext2/ext4: los suyos. SGFS: todo de root. FAT32/ISO/UDF: `uid=`, `gid=`,
   `umask=` al montar.
 
-### Fase 3 (v8.5): varios usuarios
+### Fase 3 (v8.4): varios usuarios
 - Pantalla de inicio, `/home/<usuario>` (separados de verdad solo en ext2), «Usuarios» en
   Configuración, SSH por usuario.
 
@@ -56,8 +56,8 @@ sobre todo robusta**.
 
 ## Criterios de aceptación
 - [x] Fase 1: identidades, llamadas privilegiadas, elevación, modo rescate (v8.0b7, D255; falta el diálogo gráfico de contraseña)
-- [ ] Fase 2: permisos de ficheros (v8.5)
-- [ ] Fase 3: varios usuarios (v8.5)
+- [ ] Fase 2: permisos de ficheros (v8.4)
+- [ ] Fase 3: varios usuarios (v8.4)
 - [x] Test automático en `tests/` (`h254_usuarios.py`, fase 1)
 - [x] Decisión registrada en `docs/decisoes.md` (D255, fase 1)
 

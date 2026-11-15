@@ -234,3 +234,78 @@ la captura de pantalla de QEMU píxel a píxel; teclas y clics hacia el servidor
 DesktopSize; caída y reconexión; contraseña mala y pedida en la ventana; 3.3 sin seguridad, 3.7,
 `--color 16`/`8`, `--solo-ver`; escritorio de 1200 x 900 escalado; y contra el `vncd` de la misma
 máquina.
+
+# Interfaz gráfica del VNC (mejora 104, D273)
+
+## Cliente: ventana de conexión
+
+`vnc` sin argumentos abre la ventana «Escritorio remoto (VNC)»: a la izquierda las **conexiones
+guardadas** (doble clic o «Conectar» abre la elegida; «Editar» la pasa al formulario; «Borrar» pide
+confirmación) y a la derecha el formulario: nombre, equipo, puerto, contraseña, «Recordar la contraseña»,
+colores (8, 16 o 32 bits; el botón va rotando), calidad (sin pérdida o JPEG 3, 6, 9), «Solo ver» y
+«Pantalla completa» (F11 la quita). «Guardar» añade o reemplaza (por nombre); «Nueva» limpia el
+formulario; «Conectar» abre lo del formulario sin guardarlo. Tab cambia de caja, Esc cierra.
+`vnc --conexion NOMBRE` abre una guardada directamente (las opciones de la línea de órdenes mandan).
+
+Las conexiones están en `/home/.config/vnc.conf`, una por línea:
+
+```
+nombre|equipo|puerto|colores|calidad|solo_ver|completa|clave
+```
+
+**La contraseña solo se guarda si se marca «Recordar»**, y va **ofuscada, no cifrada**: DES de 8 bytes con
+una clave fija y en hexadecimal. Impide leerla de pasada, pero cualquiera con acceso al archivo puede
+deshacerlo (no hay permisos de archivo hasta la v8.5; mientras, el archivo es del usuario). Si el servidor
+la rechaza, la ventana lo dice y «Reconectar» la vuelve a pedir en un cuadro.
+
+**Barra de herramientas de la sesión** (abajo): `1:1`/`Ajustar`, `Ctrl+Alt+Supr`, `Pantalla completa`
+y `Desconectar` (vuelve a la ventana de conexión, o cierra si se abrió con un equipo en la línea de
+órdenes). Con la conexión caída: `Reconectar` y `Conexiones`.
+
+## Servidor: pestaña «Escritorio remoto» de Configuración
+
+Muestra si `vncd` está en marcha y si arranca solo, y tiene: **Activar y arrancar / Desactivar y parar**
+(no deja activar sin contraseña), **Reiniciar**, la caja de **contraseña** con «Fijar contraseña» (hasta
+8 caracteres), **Solo ver: sí/no**, **Escuchar: solo esta máquina (por SSH) / red local (sin cifrar)** y la
+lista de **conectados ahora** con «Desconectar». Se repinta cada segundo. Todo lo que cambia algo pide
+administrador con el **diálogo de permisos de D269** (se recuerda 5 minutos); la contraseña no pasa por
+el diálogo sino por `vncd --clave`, lanzado como hijo con permisos solo mientras dura.
+
+Los cambios de «Solo ver» y «Escuchar» los guarda `vncd --ajustar` en `/etc/vnc/vncd.conf` (SAGUI-CONF,
+D255) y reinician el servicio si está en marcha.
+
+## Estado del servicio y órdenes nuevas de `vncd`
+
+El servicio escribe `/tmp/.servicios/vncd.estado` (de una vez, con temporal y renombrar) cada vez que
+cambia alguien (`vncd_estado.h` lo documenta y lo lee):
+
+```
+vncd PID PUERTO local|red-local SOLO_VER CLAVE
+sesion PID IP DESDE_S SOLO_VER      (solo los ya autenticados)
+fin
+```
+
+Una sesión avisa de que se autenticó por la tubería que ya tenía hacia quien escucha (mensaje
+`MSG_AUTENTICADO`); ahora esa tubería existe siempre, no solo cuando se puede inyectar entrada.
+
+- `vncd --estado`: lo que hay en ese archivo, en texto.
+- `vncd --desconectar [PID]`: corta una sesión o todas (solo root).
+- `vncd --ajustar clave=valor...`: `escuchar=local|red-local`, `solo_ver`, `aviso` e `indicador` (`si|no`),
+  solo root; hay que reiniciar el servicio.
+- Opción nueva `indicador=si|no` (de serie `si`) en `vncd.conf`.
+
+## Indicador mientras hay alguien conectado
+
+El sistema no tiene iconos de bandeja para programas (la bandeja de `barra.c` es del núcleo: volumen,
+red, temperatura y batería), y tocarlo habría sido núcleo. En su lugar, mientras hay un cliente
+autenticado, `vncd` mantiene una ventana pequeña **«Escritorio remoto»** (`vncd --indicador`) que sale en
+la barra de tareas: dice cuántos hay y desde qué direcciones, con un botón «Desconectar». Se cierra sola al
+irse el último (o con su cruz, y vuelve a salir con la siguiente conexión). `indicador=no` la quita.
+
+## Prueba
+
+`tests/h273_vnc_gui.py`: Configuración > Escritorio remoto (fija contraseña con el diálogo de permisos,
+activa el servicio, cambia «Solo ver» y «Escuchar» y lo comprueba en `/etc/vnc/vncd.conf`); el cliente:
+rellena y guarda una conexión (clave ofuscada, nunca en claro), la reabre desde la lista y conecta con el
+`vncd` local; `vncd --estado`, la ventana indicadora, la lista de la pestaña, «Desconectar» desde el
+servidor, «R» para reconectar y la barra «Desconectar»; capturas `H273-*.png`.

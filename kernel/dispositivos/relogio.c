@@ -15,6 +15,7 @@
 #include "i8042.h"
 #include "som.h"
 #include "audio.h"
+#include "usb.h"
 #include "lapic.h"
 #include "frequencia.h"
 
@@ -32,6 +33,7 @@ static quadro_t *ao_tique(quadro_t *q)
     tiques++;
     som_tique();     /* pitido sin bloquear a nadie (B3) */
     audio_tique();   /* el mezclador también corre aquí: sondeo si la tarjeta no interrumpe (D089) */
+    uvc_tique();     /* cámara UVC: recoge los paquetes isócronos recibidos y monta cuadros (D277) */
     i8042_tique();   /* red de seguridad: ningún byte queda parado en la cola del teclado/touchpad */
     frequencia_tic_cpu();   /* el P-state de esta CPU, si hay algo pendiente (D175) */
     if (!processo_atual())

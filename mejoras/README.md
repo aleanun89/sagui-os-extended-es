@@ -104,11 +104,26 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 095 | [Arrancar del CD/DVD e instalar en el disco interno (ATAPI, ISO 9660, El Torito)](095-instalar-desde-cd.md) | hecha en `v7.2-cd-instalar` (D207); falta probarla en el Amilo | alta |
 | 096 | [OpenLoco (Chris Sawyer's Locomotion) como port](096-openloco.md) | propuesta (v9.0) | media |
 | 097 | [Escritorio remoto VNC (servidor y cliente)](097-vnc.md) | hecha (v8.0b6, D251-D254) | alta |
-| 098 | [Usuarios y permisos](098-usuarios-permisos.md) | aprobada (fase 1 v8.0b7; 2 y 3 v8.5) | alta |
+| 098 | [Usuarios y permisos](098-usuarios-permisos.md) | aprobada (fase 1 v8.0b7; 2 y 3 v8.4) | alta |
 | 099 | [r8169 de sala limpia (sustituir el código de Linux GPL-2.0-only)](099-r8169-sala-limpia.md) | propuesta (v8.4 o cuando toque la red; la opción A, D259, ya hecha) | media |
-| 100 | [Vídeo H.264/AAC en el Cipó (reproductor de robson-apk)](100-cipo-video-h264.md) | aprobada (v8.0.1) | media |
+| 100 | [Vídeo H.264/AAC en el Cipó (reproductor de robson-apk)](100-cipo-video-h264.md) | hecha en la rama `v8.0.1-cipo-video` (v8.0.1, D276; pendiente de fusión) | media |
 | 101 | [Ordenar los iconos del escritorio](101-ordenar-iconos-escritorio.md) | hecha (v8.0, D268) | media |
 | 102 | [Diálogo gráfico de permisos de administrador (y avisos que se leen enteros)](102-dialogo-permisos-admin.md) | aprobada (v8.0) | alta |
-| 103 | [Diálogos de abrir, guardar y elegir carpeta (estilo Windows 95)](103-dialogos-archivo-win95.md) | aprobada (v8.1) | alta |
+| 103 | [Diálogos de abrir, guardar y elegir carpeta (estilo Windows 95)](103-dialogos-archivo-win95.md) | hecha (D272, v8.1; adoptado en las aplicaciones principales) | alta |
 | 104 | [Interfaz gráfica para el VNC (cliente y servidor)](104-vnc-interfaz.md) | aprobada (v8.1) | media |
 | 105 | [Interfaz gráfica completa para el visor de PDF](105-visor-pdf-interfaz.md) | aprobada (v8.1) | media |
+| 106 | [SaguiOS de 64 bits (x86-64)](106-saguios-64-bits.md) | aprobada (v10.0) | alta |
+| 107 | [GPU AMD modernas: capa tipo LinuxKPI y amdgpu](107-amdgpu-linuxkpi.md) | aprobada (v11) | alta |
+| 108 | [Vulkan: Mesa RADV (y OpenGL encima)](108-mesa-radv-vulkan.md) | aprobada (v11) | alta |
+| 109 | [Drivers extra: interfaz estable y repositorio aparte](109-drivers-extra.md) | aprobada (v9.x) | media |
+| 110 | [AMD moderna en 32 bits: aceleración parcial (niveles 1-3)](110-amd-moderna-32bits.md) | aprobada (v11) | media |
+| 111 | [Intel moderna (Gen5-Gen12): aceleración y Vulkan](111-intel-moderna.md) | aprobada (v11, Intel primero) | alta |
+| 112 | [Cámaras web integradas (UVC), isócrono de entrada y aplicación «Cámara»](112-camaras-uvc.md) | hecha (v8.1) | alta |
+| 113 | [Cliente de correo con interfaz al estilo de Outlook clásico](113-correo-estilo-outlook.md) | hecha (v8.3) | media |
+| 114 | [OpenGL con Mesa (Gallium), EGL y SDL 2](114-opengl-mesa.md) | aprobada (v8.6) | alta |
+| 115 | [Aceleración de vídeo por GPU (estilo VA-API)](115-video-por-gpu.md) | propuesta (versión por decidir) | media |
+| 116 | [Procesador de textos «Pluma» (Word 97), RTF y exportación a PDF](116-procesador-de-textos.md) | hecha (v8.3) | media |
+| 117 | [Macaco con el estilo de Excel 97](117-macaco-estilo-excel.md) | hecha (v8.3) | media |
+| 118 | [Sistema multiidioma: catálogos, idioma elegible y formatos regionales](118-multiidioma.md) | aprobada (v8.4) | alta |
+| 120 | [rsync: sincronizar carpetas y copias de seguridad](120-rsync.md) | aprobada (v8.4) | media |
+| 124 | [Componentes y utilidades inspirados en Delphi/Lazarus](124-ideas-delphi-lazarus.md) | aprobada (v8.3.2) | media |

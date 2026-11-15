@@ -63,6 +63,89 @@ int usb_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam)
                      entrada ? &d->alterna_entrada : &d->alterna_saida, dados, tam);
 }
 
+/* ------------------------------------------------------------ isócrono (D275) */
+
+/* Bytes del próximo paquete de un flujo de bytes_s bytes por segundo con paquetes cada
+ * periodo_us microsegundos: se acumulan cuadros de audio en millonésimas y sale un número
+ * entero de cuadros (nunca más que mps). Con 48 kHz y 1 ms: 48 cuadros siempre; con 44,1 kHz:
+ * 44 o 45. El resto pasado de mps se queda en el acumulador. */
+uint32_t usb_iso_calcular(uint32_t *acc, uint32_t bytes_s, uint8_t tam_quadro, uint32_t periodo_us, uint32_t mps)
+{
+    uint32_t taxa = bytes_s / tam_quadro;               /* cuadros por segundo */
+    uint32_t a = *acc + taxa * periodo_us;               /* millonésimas de cuadro: cabe en 32 bits hasta 4294 s*Hz */
+    uint32_t q = a / 1000000u;
+    a -= q * 1000000u;
+    uint32_t n = q * tam_quadro;
+    if (n > mps) {
+        uint32_t max = mps - mps % tam_quadro;
+        a += (n - max) / tam_quadro * 1000000u;
+        n = max;
+    }
+    *acc = a;
+    return n;
+}
+
+/* Isócrono: xHCI, EHCI, UHCI y OHCI (D275). */
+int usb_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg)
+{
+    if (d->tipo_ctl == USB_XHCI) return xhci_iso_abrir(d, cfg);
+    if (d->tipo_ctl == USB_EHCI) return ehci_iso_abrir(d, cfg);
+    if (d->tipo_ctl == USB_UHCI) return uhci_iso_abrir(d, cfg);
+    if (d->tipo_ctl == USB_OHCI) return ohci_iso_abrir(d, cfg);
+    return USB_ERRO;
+}
+
+void usb_iso_ligar(usb_disp_t *d, int h)
+{
+    if (d->tipo_ctl == USB_XHCI) xhci_iso_ligar(d, h);
+    else if (d->tipo_ctl == USB_EHCI) ehci_iso_ligar(d, h);
+    else if (d->tipo_ctl == USB_UHCI) uhci_iso_ligar(d, h);
+    else if (d->tipo_ctl == USB_OHCI) ohci_iso_ligar(d, h);
+}
+
+void usb_iso_parar(usb_disp_t *d, int h)
+{
+    if (d->tipo_ctl == USB_XHCI) xhci_iso_parar(d, h);
+    else if (d->tipo_ctl == USB_EHCI) ehci_iso_parar(d, h);
+    else if (d->tipo_ctl == USB_UHCI) uhci_iso_parar(d, h);
+    else if (d->tipo_ctl == USB_OHCI) ohci_iso_parar(d, h);
+}
+
+uint32_t usb_iso_posicao(usb_disp_t *d, int h)
+{
+    if (d->tipo_ctl == USB_XHCI) return xhci_iso_posicao(d, h);
+    if (d->tipo_ctl == USB_EHCI) return ehci_iso_posicao(d, h);
+    if (d->tipo_ctl == USB_UHCI) return uhci_iso_posicao(d, h);
+    if (d->tipo_ctl == USB_OHCI) return ohci_iso_posicao(d, h);
+    return 0;
+}
+
+void usb_iso_fechar(usb_disp_t *d, int h)
+{
+    if (d->tipo_ctl == USB_XHCI) xhci_iso_fechar(d, h);
+    else if (d->tipo_ctl == USB_EHCI) ehci_iso_fechar(d, h);
+    else if (d->tipo_ctl == USB_UHCI) uhci_iso_fechar(d, h);
+    else if (d->tipo_ctl == USB_OHCI) ohci_iso_fechar(d, h);
+}
+
+bool usb_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i)
+{
+    if (d->tipo_ctl == USB_XHCI) return xhci_iso_info(d, h, i);
+    if (d->tipo_ctl == USB_EHCI) return ehci_iso_info(d, h, i);
+    if (d->tipo_ctl == USB_UHCI) return uhci_iso_info(d, h, i);
+    if (d->tipo_ctl == USB_OHCI) return ohci_iso_info(d, h, i);
+    return false;
+}
+
+bool usb_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro)
+{
+    if (d->tipo_ctl == USB_XHCI) return xhci_iso_ler(d, h, off, len, erro);
+    if (d->tipo_ctl == USB_EHCI) return ehci_iso_ler(d, h, off, len, erro);
+    if (d->tipo_ctl == USB_UHCI) return uhci_iso_ler(d, h, off, len, erro);
+    if (d->tipo_ctl == USB_OHCI) return ohci_iso_ler(d, h, off, len, erro);
+    return false;
+}
+
 /* ------------------------------------------------------------ esperas (D227) */
 
 static processo_t *tarefa;          /* la tarea "usb"; NULL durante el arranque */
@@ -278,6 +361,7 @@ static void anotar_resultado(const usb_disp_t *m, int r)
 static void ler_configuracao(usb_disp_t *d, const uint8_t *b, int n)
 {
     bool primeira = false, em_primeira = false;
+    uint8_t classe_primeira = 0;
     usb_hid_if_t *hid = NULL;
     uint8_t *ultimo_burst = NULL;
     for (int i = 0; i + 1 < n && b[i] >= 2 && i + b[i] <= n; i += b[i]) {
@@ -289,6 +373,7 @@ static void ler_configuracao(usb_disp_t *d, const uint8_t *b, int n)
             if (b[i + 3] != 0) continue;                    /* solo la alternativa 0 */
             if (!primeira) {
                 primeira = em_primeira = true;
+                classe_primeira = b[i + 5];
                 d->interface = b[i + 2];
                 if (d->classe == 0) { d->classe = b[i + 5]; d->subclasse = b[i + 6]; d->protocolo = b[i + 7]; }
             }
@@ -305,6 +390,11 @@ static void ler_configuracao(usb_disp_t *d, const uint8_t *b, int n)
             uint8_t ep = b[i + 2], atr = b[i + 3] & 3;
             uint16_t mps = (uint16_t)((b[i + 4] | (b[i + 5] << 8)) & 0x7FF);
             ultimo_burst = NULL;
+            if (em_primeira && classe_primeira != 3 && atr == 3 && (ep & 0x80) && !d->ep_int) {   /* D279: eventos HCI de un Bluetooth */
+                d->ep_int = ep & 0x0F;
+                d->mps_int = mps;
+                d->int_intervalo = b[i + 6];
+            }
             if (em_primeira && atr == 2) {
                 if (ep & 0x80) {
                     if (!d->ep_entrada) { d->ep_entrada = ep & 0x0F; d->mps_entrada = mps; ultimo_burst = &d->burst_entrada; }
@@ -460,6 +550,9 @@ static usb_disp_t *enumerar(const usb_disp_t *m, int tentativa)
         bool i0 = int_salva_desliga();
         int r = 1;
         if (wifi_usb_reconhecer(d)) { }   /* D215: el pincho Wi-Fi o su CD virtual */
+        else if (bt_usb_reconhecer(d)) { }   /* D279: controlador Bluetooth (0xE0/0x01/0x01) */
+        else if (usbaudio_conectar(d)) { }   /* D275: audio USB (clase Audio 1.0) */
+        else if (uvc_conectar(d)) { }        /* D277: cámara UVC (clase vídeo) */
         else if (d->classe == 0x08 && d->subclasse == 0x06 && d->protocolo == 0x50) r = armaz_conectar(d);
         else if (d->classe == 0x08) klog("[USB] armazenamento com protocolo nao suportado (%x/%x)\n", d->subclasse, d->protocolo);
         int_restaura(i0);
@@ -657,6 +750,9 @@ static void remover(usb_disp_t *d)
     if (d->n_hid) hid_desconectar(d);
     if (d->disco) armaz_desconectar(d);
     if (d->wifi) wifi_usb_retirado(d);
+    if (d->bt) bt_usb_retirado(d);
+    if (d->audio) usbaudio_desconectar(d);
+    if (d->camara) uvc_desconectar(d);
     klog("[USB] removido: %s %s (endereco %u)\n", d->fabricante, d->produto, d->endereco);
     if (d->tipo_ctl == USB_XHCI) xhci_liberar(d);
     d->usado = false;
@@ -1145,6 +1241,15 @@ int usb_relatorio(char *s, int max)
     }
     if (k < max - 1) {
         k += hid_relatorio(s + k, max - k);
+        if (k > max - 1) k = max - 1;
+    }
+    if (k < max - 1) {
+        k += usbaudio_relatorio(s + k, max - k);   /* D275 */
+        k += uvc_relatorio(s + k, max - k);        /* D277 */
+        if (k > max - 1) k = max - 1;
+    }
+    if (k < max - 1) {
+        k += bt_relatorio(s + k, max - k);         /* D279 */
         if (k > max - 1) k = max - 1;
     }
     return k;

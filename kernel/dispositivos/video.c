@@ -11,6 +11,11 @@
  * (video_trocar_modo, bga.c, D059): la ventana ya cubre toda la memoria de
  * vídeo y solo se rehace el búfer de atrás.
  *
+ * Varias pantallas (D290, telas.c): el búfer de atrás es el escritorio entero (larg x alt) y cada
+ * salida de vídeo ("cabeza") recibe el rectángulo que le toca. La cabeza 0 es la del arranque
+ * (con su formato de píxel, más abajo); las demás las registran sus drivers, siempre en 32 bits.
+ * prim_l y prim_a son el modo de la cabeza 0; con una sola pantalla el escritorio es ese modo.
+ *
  * Todo se dibuja en un búfer en RAM ("búfer de atrás"), siempre con 32 bits
  * por píxel en formato 0x00RRGGBB, y solo después se copia a la tarjeta. Así:
  *   - quien dibuja no ve la imagen a medias (sin parpadeo);
@@ -33,9 +38,11 @@
 #include "info_hardware.h"
 #include "acel2d.h"
 #include "cpu.h"
+#include "telas.h"
 
 static bool ativo;
-static uint32_t larg, alt, pitch, bpp, bytes_px;   /* bpp = profundidad (15 ocupa 2 bytes) */
+static uint32_t larg, alt, pitch, bpp, bytes_px;   /* larg y alt: el escritorio; pitch, bpp y bytes_px: la cabeza 0 (bpp = profundidad, 15 ocupa 2 bytes) */
+static uint32_t prim_l, prim_a;   /* modo de la cabeza 0 */
 static uint8_t *tela;          /* framebuffer de la tarjeta (ventana del kernel) */
 static uint32_t *tras;         /* búfer de atrás */
 static uint8_t pos_r, pos_g, pos_b;
@@ -67,6 +74,8 @@ uint8_t *video_placa(void)   { return tela; }
 uint32_t video_pitch(void)   { return pitch; }
 bool video_formato_direto(void) { return formato_direto; }
 uint32_t video_bpp(void) { return bpp; }
+uint32_t video_prim_largura(void) { return prim_l; }
+uint32_t video_prim_altura(void) { return prim_a; }
 
 /* Formato de la tarjeta a partir de boot_info. El VBE 1.2 no informa las máscaras
  * (quedan a cero): valen las de siempre, 8-8-8, 5-6-5 o 5-5-5. */
@@ -101,8 +110,8 @@ bool video_iniciar(void)
     uint32_t p = info_boot.vesa_bpp;
     if (!info_boot.vesa_ativo || (p != 32 && p != 24 && p != 16 && p != 15))
         return false;
-    larg = info_boot.vesa_largura;
-    alt = info_boot.vesa_altura;
+    larg = prim_l = info_boot.vesa_largura;
+    alt = prim_a = info_boot.vesa_altura;
     pitch = info_boot.vesa_pitch;
     bpp = p;
     ler_formato();
@@ -301,11 +310,12 @@ void video_rolar(int y, int altura, int linhas, cor_t fundo)
     video_marcar(0, y, (int)larg, altura);
 }
 
-/* Copia una franja de píxeles del búfer de atrás a la tarjeta, convirtiendo. */
-static void copiar_linha(int y, int x0, int x1)
+/* Copia una franja de píxeles del búfer de atrás a la cabeza 0, convirtiendo. (ox, oy) es donde
+ * empieza esa cabeza dentro del escritorio. */
+static void copiar_linha(int y, int x0, int x1, int ox, int oy)
 {
     uint32_t *o = tras + (uint32_t)y * larg + (uint32_t)x0;
-    uint8_t *d = tela + (uint32_t)y * pitch + (uint32_t)x0 * bytes_px;
+    uint8_t *d = tela + (uint32_t)(y - oy) * pitch + (uint32_t)(x0 - ox) * bytes_px;
     int n = x1 - x0;
     if (formato_direto) { rapido_copiar_tela(d, o, (uint32_t)n * 4); return; }
     if (conv16) { rapido_converter16((uint16_t *)d, o, (uint32_t)n, conv16 == 2); return; }
@@ -317,14 +327,53 @@ static void copiar_linha(int y, int x0, int x1)
     }
 }
 
+/* El rectángulo (x0, y0)-(x1, y1) del escritorio a todas las cabezas que lo muestran. Con una
+ * sola pantalla es la copia de siempre. */
+static void copiar_regiao(int x0, int y0, int x1, int y1)
+{
+    int nc = telas_qtd();
+    if (nc <= 1) {
+        for (int y = y0; y < y1; y++) copiar_linha(y, x0, x1, 0, 0);
+        return;
+    }
+    for (int i = 0; i < nc; i++) {
+        int hx, hy, hl, ha;
+        telas_rect(i, &hx, &hy, &hl, &ha);
+        int ax = x0 > hx ? x0 : hx, ay = y0 > hy ? y0 : hy;
+        int bx = x1 < hx + hl ? x1 : hx + hl, by = y1 < hy + ha ? y1 : hy + ha;
+        if (ax >= bx || ay >= by) continue;
+        if (i == 0) {
+            for (int y = ay; y < by; y++) copiar_linha(y, ax, bx, hx, hy);
+        } else {
+            const saida_t *sa = telas_saida(i);
+            for (int y = ay; y < by; y++)
+                rapido_copiar_tela(sa->fb + (uint32_t)(y - hy) * sa->pitch + (uint32_t)(ax - hx) * 4,
+                                   tras + (uint32_t)y * larg + (uint32_t)ax, (uint32_t)(bx - ax) * 4);
+        }
+    }
+}
+
+/* Un píxel del escritorio en la pantalla (el cursor se dibuja solo ahí, no en el búfer de atrás),
+ * en todas las cabezas que lo muestran. */
 static void escrever_pixel_tela(int x, int y, uint32_t c)
 {
     if ((uint32_t)x >= larg || (uint32_t)y >= alt) return;
-    uint8_t *d = tela + (uint32_t)y * pitch + (uint32_t)x * bytes_px;
-    uint32_t v = formato_direto ? c : na_placa(c);
-    if (bytes_px == 4) *(uint32_t *)d = v;
-    else if (bytes_px == 3) { d[0] = (uint8_t)v; d[1] = (uint8_t)(v >> 8); d[2] = (uint8_t)(v >> 16); }
-    else *(uint16_t *)d = (uint16_t)v;
+    int nc = telas_qtd();
+    for (int i = 0; i < (nc > 0 ? nc : 1); i++) {
+        int hx = 0, hy = 0, hl = (int)larg, ha = (int)alt;
+        if (nc > 1) telas_rect(i, &hx, &hy, &hl, &ha);
+        if (x < hx || y < hy || x >= hx + hl || y >= hy + ha) continue;
+        if (i >= 1) {
+            const saida_t *sa = telas_saida(i);
+            *(uint32_t *)(sa->fb + (uint32_t)(y - hy) * sa->pitch + (uint32_t)(x - hx) * 4) = c;
+            continue;
+        }
+        uint8_t *d = tela + (uint32_t)(y - hy) * pitch + (uint32_t)(x - hx) * bytes_px;
+        uint32_t v = formato_direto ? c : na_placa(c);
+        if (bytes_px == 4) *(uint32_t *)d = v;
+        else if (bytes_px == 3) { d[0] = (uint8_t)v; d[1] = (uint8_t)(v >> 8); d[2] = (uint8_t)(v >> 16); }
+        else *(uint16_t *)d = (uint16_t)v;
+    }
 }
 
 static void desenhar_cursor(int x, int y)
@@ -351,8 +400,7 @@ void video_mostrar(void)
     bool toca_cursor = false;
     if (suj_x0 < suj_x1) {
         bool sse = rapido_inicio();
-        for (int y = suj_y0; y < suj_y1; y++)
-            copiar_linha(y, suj_x0, suj_x1);
+        copiar_regiao(suj_x0, suj_y0, suj_x1, suj_y1);
         rapido_fim(sse);
         acel_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);   /* D195: VMware en modo SVGA */
         toca_cursor = cur_x < suj_x1 && cur_x + CUR_L > suj_x0 && cur_y < suj_y1 && cur_y + CUR_A > suj_y0;
@@ -392,18 +440,21 @@ bool video_zona_sem_cursor(int x, int y, int l, int a)
 bool video_trocar_modo(uint32_t l, uint32_t a)
 {
     if (!ativo || !bga_presente()) return false;
-    if (l == larg && a == alt) return true;
+    if (l == prim_l && a == prim_a) return true;
     uint32_t novo_bpp = video_bpp_a_quente();
     if (l * a * 4 > fb_mapeado) return false;
     if (acel2d_ativo()) acel2d_desligar("cambio de modo de video");   /* D195: el acelerador conoce el modo de antes */
-    uint32_t *novo = kmalloc(l * a * 4);
+    uint32_t dl, da;
+    telas_desktop(0, l, a, &dl, &da);   /* D290: con varias pantallas el escritorio es más que este modo */
+    uint32_t *novo = kmalloc(dl * da * 4);
     if (!novo) return false;
-    uint32_t p = bga_mudar(l, a, novo_bpp, larg, alt, bpp);
+    uint32_t p = bga_mudar(l, a, novo_bpp, prim_l, prim_a, bpp);
     if (!p || p * a > fb_mapeado) { kfree(novo); return false; }
     kfree(tras);
     tras = novo;
-    memset(tras, 0, l * a * 4);
-    larg = l; alt = a; pitch = p; bpp = novo_bpp;
+    memset(tras, 0, dl * da * 4);
+    prim_l = l; prim_a = a; larg = dl; alt = da; pitch = p; bpp = novo_bpp;
+    telas_cabeca0(l, a);
     /* Quien lee boot_info (INFO_VERSAO, infopc) pasa a ver el modo nuevo.
      * La tarjeta de Bochs/QEMU usa siempre el formato por defecto de cada profundidad. */
     info_boot.vesa_largura = l;
@@ -412,11 +463,41 @@ bool video_trocar_modo(uint32_t l, uint32_t a)
     info_boot.vesa_bpp = novo_bpp;
     info_boot.verm_tam = info_boot.verde_tam = info_boot.azul_tam = 0;   /* ler_formato pone el valor por defecto */
     ler_formato();
-    if (cur_x >= (int)l) cur_x = (int)l - 1;
-    if (cur_y >= (int)a) cur_y = (int)a - 1;
+    if (cur_x >= (int)dl) cur_x = (int)dl - 1;
+    if (cur_y >= (int)da) cur_y = (int)da - 1;
     cur_ant_visivel = false;
-    suj_x0 = suj_y0 = 0; suj_x1 = (int)l; suj_y1 = (int)a;
-    klog("[VIDEO] modo trocado: %ux%u, %u bits, pitch %u\n", l, a, bpp, p);
+    suj_x0 = suj_y0 = 0; suj_x1 = (int)dl; suj_y1 = (int)da;
+    klog("[VIDEO] modo trocado: %ux%u, %u bits, pitch %u (escritorio %ux%u)\n", l, a, bpp, p, dl, da);
+    return true;
+}
+
+/* D290: el escritorio cambió de forma (otra disposición, otro modo de una salida extra, espejo):
+ * el búfer de atrás pasa al tamaño nuevo, las salidas se borran y todo se vuelve a copiar. Quien
+ * llama (telas.c) rehace el resto, con las interrupciones desactivadas. false = sin memoria y todo igual. */
+bool video_refazer(void)
+{
+    if (!ativo) return false;
+    uint32_t dl, da;
+    telas_desktop(-1, 0, 0, &dl, &da);
+    if (telas_qtd() > 1 && acel2d_ativo()) acel2d_desligar("varias pantallas");   /* el acelerador solo conoce la cabeza 0 */
+    if (dl != larg || da != alt) {
+        uint32_t *novo = kmalloc(dl * da * 4);
+        if (!novo) return false;
+        kfree(tras);
+        tras = novo;
+        larg = dl; alt = da;
+    }
+    memset(tras, 0, larg * alt * 4);
+    acel_sincronizar();
+    memset(tela, 0, pitch * prim_a);
+    for (int i = 1; i < telas_qtd(); i++) {
+        const saida_t *sa = telas_saida(i);
+        if (sa) memset(sa->fb, 0, sa->pitch * sa->altura);
+    }
+    if (cur_x >= (int)larg) cur_x = (int)larg - 1;
+    if (cur_y >= (int)alt) cur_y = (int)alt - 1;
+    cur_ant_visivel = false;
+    suj_x0 = suj_y0 = 0; suj_x1 = (int)larg; suj_y1 = (int)alt;
     return true;
 }
 

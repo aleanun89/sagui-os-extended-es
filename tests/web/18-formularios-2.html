@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>18 Formularios (2)</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1 button{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0}
+#f2 select{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0}
+#f3 textarea{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0}#f3 textarea{resize:none;overflow:hidden}
+#f4 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0;height:8px;border-width:1px}
+#f5 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:0;background:#008000}
+#f6 button{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:0;background:#008000}
+#f7 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:0;background:#fff;font:bold 12px sans-serif}
+#f8 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:0;background:#fff;font:bold 12px sans-serif}#f8 input::placeholder{color:#008000;opacity:1}
+#f9 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:0;background:#fff;color:#008000;font:bold 12px sans-serif}
+#f10 fieldset{box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;min-width:0}#f10 legend{display:none}
+#f11{font-size:0}#f11 u{display:inline-block;width:20px;height:16px;background:#008000}
+#f12 datalist i{display:block;height:16px;background:red}
+#f13 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0;accent-color:#008000}
+#f14{font-size:0}#f14 u{display:inline-block;width:20px;height:16px;background:#008000}
+#f15 input{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0}
+#f16 input{display:block;width:40px;height:16px;background:red;border:0}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px" data-p="0,8,008000 20,0,008000 39,8,008000 20,15,008000 1,1,008000 38,14,008000 44,8,ffffff 20,19,ffffff"><button></button></div><div class="e" style="top:10px">&lt;button&gt;</div>
+<div class="f" id="f2" style="top:34px" data-p="0,8,008000 20,0,008000 39,8,008000 20,15,008000 1,1,008000 38,14,008000 44,8,ffffff 20,19,ffffff"><select><option>a</option></select></div><div class="e" style="top:34px">&lt;select&gt;</div>
+<div class="f" id="f3" style="top:58px" data-p="0,8,008000 20,0,008000 39,8,008000 20,15,008000 1,1,008000 38,14,008000 44,8,ffffff 20,19,ffffff"><textarea></textarea></div><div class="e" style="top:58px">&lt;textarea&gt;</div>
+<div class="f" id="f4" style="top:82px" data-p="0,4,008000 39,4,008000 0,12,008000 39,12,008000 20,0,008000 20,15,008000"><input type="month"><input type="week"></div><div class="e" style="top:82px">&lt;input type="month"&gt; y "week"</div>
+<div class="f" id="f5" style="top:106px"><input type="text"></div><div class="e" style="top:106px">&lt;input&gt; de texto: fondo y borde del autor</div>
+<div class="f" id="f6" style="top:130px"><button></button></div><div class="e" style="top:130px">&lt;button&gt;: fondo y borde del autor</div>
+<div class="f w" id="f7" style="top:154px" data-p="0,0,40,16,!?ffffff"><input type="text" placeholder="MMMM"></div><div class="e" style="top:154px">placeholder (se pinta en gris)</div>
+<div class="f w" id="f8" style="top:178px" data-p="0,0,40,16,?008000"><input type="text" placeholder="MMMM"></div><div class="e" style="top:178px">::placeholder con color</div>
+<div class="f w" id="f9" style="top:202px" data-p="0,0,40,16,?008000"><input type="text" value="MMMM"></div><div class="e" style="top:202px">value de un campo de texto se pinta</div>
+<div class="f" id="f10" style="top:226px" data-p="0,8,008000 39,8,008000 20,15,008000"><fieldset><legend>x</legend></fieldset></div><div class="e" style="top:226px">&lt;fieldset&gt; y &lt;legend&gt;</div>
+<div class="f" id="f11" style="top:250px"><label><u></u></label><label><u></u></label></div><div class="e" style="top:250px">&lt;label&gt; es en línea</div>
+<div class="f g" id="f12" style="top:274px"><datalist id="dl"><option value="a"><i></i></datalist></div><div class="e" style="top:274px">&lt;datalist&gt; no se ve</div>
+<div class="f" id="f13" style="top:298px" data-p="0,8,008000 39,8,008000 20,0,008000 20,15,008000"><input type="checkbox" checked></div><div class="e" style="top:298px">casilla marcada: accent-color no molesta</div>
+<div class="f" id="f14" style="top:322px"><output><u></u></output><time><u></u></time></div><div class="e" style="top:322px">&lt;output&gt; y &lt;time&gt; son en línea</div>
+<div class="f" id="f15" style="top:346px" data-p="0,8,008000 39,8,008000 20,0,008000 20,15,008000"><input type="text" disabled></div><div class="e" style="top:346px">campo deshabilitado conserva su caja</div>
+<div class="f g" id="f16" style="top:370px"><input type="hidden" value="x"></div><div class="e" style="top:370px">&lt;input type=hidden&gt; no ocupa</div>
+</body></html>

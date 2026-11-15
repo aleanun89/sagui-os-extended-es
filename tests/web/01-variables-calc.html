@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>01 Variables CSS y calc()</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+:root{--verde:#008000;--w:40px}#f1{background:var(--verde)}
+#f2{background:var(--no-existe,#008000)}
+:root{--otra:var(--verde)}#f3{background:var(--otra)}
+#f4{--k:#008000}#f4 i{display:block;height:16px;background:var(--k)}
+:root{--r:red}#f5{--r:#008000;background:var(--r)}
+#f6{box-sizing:border-box;border:8px solid var(--verde)}
+#f7 i{display:block;height:16px;background:#008000;width:0;width:var(--w)}
+#f8{background:var(--nada,var(--verde))}
+#f9 i{display:block;height:16px;background:#008000;width:0;width:calc(15px + 25px)}
+#f10 i{display:block;height:16px;background:#008000;width:0;width:calc(50% + 20px)}
+#f11 i{display:block;height:16px;background:#008000;width:0;margin-left:10px;width:calc(100% - 10px)}
+#f12 i{display:block;height:16px;background:#008000;width:0;width:calc(2 * (10px + 30px) / 2)}
+#f13 i{display:block;height:16px;background:#008000;width:0;width:calc(var(--w) / 2 + 20px)}
+#f14 i{display:block;height:16px;background:#008000;width:0;width:max(10px, min(40px, 100px))}
+#f15 i{display:block;height:16px;background:#008000;width:0;width:clamp(10px, 500px, 40px)}
+#f16{font-size:10px}#f16 i{display:block;height:16px;background:#008000;width:0;width:calc(2em + 20px)}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"></div><div class="e" style="top:10px">var() de una variable de :root</div>
+<div class="f" id="f2" style="top:34px"></div><div class="e" style="top:34px">var() con valor de reserva</div>
+<div class="f" id="f3" style="top:58px"></div><div class="e" style="top:58px">variable definida con otra var()</div>
+<div class="f" id="f4" style="top:82px"><i></i></div><div class="e" style="top:82px">variable heredada del padre (no de :root)</div>
+<div class="f" id="f5" style="top:106px"></div><div class="e" style="top:106px">la variable del elemento gana a la de :root</div>
+<div class="f" id="f6" style="top:130px"></div><div class="e" style="top:130px">var() dentro de un atajo (border)</div>
+<div class="f" id="f7" style="top:154px"><i></i></div><div class="e" style="top:154px">var() como medida</div>
+<div class="f" id="f8" style="top:178px"></div><div class="e" style="top:178px">var() con reserva que es otra var()</div>
+<div class="f" id="f9" style="top:202px"><i></i></div><div class="e" style="top:202px">calc() con px + px</div>
+<div class="f" id="f10" style="top:226px"><i></i></div><div class="e" style="top:226px">calc() con % y px</div>
+<div class="f" id="f11" style="top:250px" data-p="5,8,ff0000 12,8,008000 38,8,008000 44,8,!008000"><i></i></div><div class="e" style="top:250px">calc() con resta de % y px</div>
+<div class="f" id="f12" style="top:274px"><i></i></div><div class="e" style="top:274px">calc() con multiplicación, división y paréntesis</div>
+<div class="f" id="f13" style="top:298px"><i></i></div><div class="e" style="top:298px">calc() con var()</div>
+<div class="f" id="f14" style="top:322px"><i></i></div><div class="e" style="top:322px">min() y max()</div>
+<div class="f" id="f15" style="top:346px"><i></i></div><div class="e" style="top:346px">clamp()</div>
+<div class="f" id="f16" style="top:370px"><i></i></div><div class="e" style="top:370px">calc() con em</div>
+</body></html>

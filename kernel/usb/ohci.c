@@ -26,6 +26,7 @@
  * tiene: se pide la propiedad con OwnershipChangeRequest y se espera a que
  * suelte IR. Después, reinicio del controlador (HCR) y puesta en marcha. */
 #include "usb.h"
+#include "isoent.h"
 #include "console.h"
 #include "cpu.h"
 #include "memoria.h"
@@ -463,5 +464,261 @@ void ohci_int_fechar(int h)
     pausa_ms(3);                                          /* el controlador ya no la está leyendo */
     memfisica_liberar(e->pagina);
     e->usado = false;
+    int_restaura(i0);
+}
+
+/* ------------------------------------------------------------ transferencias isócronas (D275) */
+
+/* Un flujo isócrono es una ED isócrona (bit F) al final de la cadena periódica (detrás de las
+ * de interrupción: el HID) con una cola de TD isócronos de un solo paquete cada uno (FC = 0).
+ * Cada TD lleva el cuadro en el que debe salir (SF, los 16 bits bajos de HcFmNumber) y el
+ * controlador lo ejecuta cuando llega ese cuadro; si ya pasó, lo retira como perdido. Como
+ * en el UHCI y el EHCI, se arma unos 32 ms por delante y lo que ya pasó se cuenta como
+ * completado. La cola se rota en 64 TD: el TD que se rellena era el ficticio de cola y el
+ * siguiente libre pasa a serlo (OHCI 4.2: HeadP/TailP). */
+#define HC_FMNUMBER  15
+#define OISO_N       64
+#define OISO_ANCHO_MAX 1280u
+#define ED_ISO       (1u << 15)
+#define ED_DIR_SAIDA (1u << 11)
+#define ED_DIR_ENTRADA (2u << 11)
+#define OISO_TD0     128u            /* los TD desde el byte 128 de la página (alineados en 32) */
+
+typedef struct { volatile uint32_t flags, bp0, next, be; volatile uint16_t psw[8]; } __attribute__((aligned(32))) oitd_t;
+_Static_assert(sizeof(oitd_t) == 32, "TD isócrono del OHCI: 32 bytes");
+
+typedef struct {
+    bool     usado, ligado;
+    ohci_t  *c;
+    uint32_t pagina;               /* ED (0) y 64 TD isócronos desde 128 */
+    uint16_t mps;
+    uint32_t anel_fis, anel_tam, bytes_s;
+    uint8_t  tam_quadro;
+    uint32_t pos_fila, pos_feito, acc;
+    uint32_t agora, ultimo_f;      /* cuenta absoluta de cuadros y último HcFmNumber visto */
+    uint32_t seq, vel;             /* secuencia del próximo TD a armar y del más antiguo sin completar */
+    uint32_t prox_f;               /* cuadro del próximo TD */
+    uint32_t quadro[OISO_N];
+    uint16_t bytes[OISO_N];
+    bool     entrada;              /* D277: flujo de entrada (cámara) */
+    uint8_t  arm[OISO_N];          /* entrada: el TD lleva un paquete puesto */
+    isoent_t re;
+    uint32_t paquetes, completados, subdesb, erros;
+} ohci_iso_t;
+
+static ohci_iso_t isoc[USB_ISO_MAX * USB_MAX_CONTROLADORES];
+static uint32_t ohci_ancho_iso[USB_MAX_CONTROLADORES];
+
+static oitd_t *oitd(const ohci_iso_t *e, uint32_t k) { return (oitd_t *)(e->pagina + OISO_TD0 + 32u * (k % OISO_N)); }
+
+static void oiso_relogio(ohci_iso_t *e)
+{
+    uint32_t f = le(e->c, HC_FMNUMBER) & 0xFFFF;
+    e->agora += (f - e->ultimo_f) & 0xFFFF;
+    e->ultimo_f = f;
+    esc(e->c, HC_INTSTATUS, INT_WDH);        /* la cola de terminados no se usa: se mira cada TD */
+}
+
+static void oiso_completar(ohci_iso_t *e)
+{
+    while (e->vel != e->seq && (int32_t)(e->agora - e->quadro[e->vel % OISO_N]) > 0) {
+        uint32_t k = e->vel % OISO_N;
+        uint32_t cc = oitd(e, k)->flags >> 28;
+        if (cc == 0xE || cc == 0xF) e->subdesb++;           /* no llegó a ejecutarse */
+        else if (cc && !(e->entrada && cc == 9)) e->erros++;   /* un paquete corto de entrada no es un error */
+        if (e->entrada) {
+            uint16_t psw = oitd(e, k)->psw[0];
+            uint32_t pcc = psw >> 12;
+            bool mal = cc >= 0xE || (cc && cc != 9) || pcc >= 0xE || (pcc && pcc != 9);
+            isoent_completar(&e->re, mal ? 0 : (psw & 0x7FFu), mal);
+            e->arm[k] = 0;
+            e->completados++;
+            e->vel++;
+            continue;
+        }
+        e->pos_feito += e->bytes[k];
+        e->bytes[k] = 0;
+        e->completados++;
+        e->vel++;
+    }
+}
+
+static void oiso_armar(ohci_iso_t *e)
+{
+    uint32_t k = e->seq % OISO_N;
+    oitd_t *t = oitd(e, k), *z = oitd(e, k + 1);
+    uint32_t n, a;
+    if (e->entrada) {
+        n = e->mps;
+        a = e->anel_fis + isoent_postar(&e->re);
+        e->arm[k] = 1;
+    } else {
+        n = usb_iso_calcular(&e->acc, e->bytes_s, e->tam_quadro, 1000, e->mps);
+        uint32_t lim = e->anel_tam - e->pos_fila;
+        if (n > lim) n = lim - lim % e->tam_quadro;
+        a = e->anel_fis + e->pos_fila;
+    }
+    memset((void *)z, 0, sizeof *z);                       /* el nuevo ficticio de cola */
+    t->bp0 = a & ~0xFFFu;
+    t->be = a + n - 1;
+    t->next = (uint32_t)z;
+    t->psw[0] = (uint16_t)(0xE000u | (a & 0xFFFu));
+    t->flags = (0xFu << 28) | (7u << 21) | (e->prox_f & 0xFFFFu);   /* CC "sin tocar", FC 0, sin aviso, SF */
+    oed_t *ed = (oed_t *)e->pagina;
+    e->quadro[k] = e->prox_f;
+    e->bytes[k] = (uint16_t)n;
+    ed->tail = (uint32_t)z;                                /* ahora el controlador ve el TD */
+    if (!e->entrada) {
+        e->pos_fila += n;
+        if (e->pos_fila >= e->anel_tam) e->pos_fila -= e->anel_tam;
+    }
+    e->paquetes++;
+    e->seq++;
+    e->prox_f++;
+}
+
+static void oiso_encher(ohci_iso_t *e)
+{
+    oiso_relogio(e);
+    oiso_completar(e);
+    oed_t *ed = (oed_t *)e->pagina;
+    if (ed->head & 1u) ed->head &= ~1u;                    /* una ED parada por un error vuelve a andar */
+    if (!e->ligado) return;
+    if ((int32_t)(e->prox_f - e->agora) < 2) {
+        if (e->vel != e->seq) e->subdesb++;                /* nos quedamos atrás: se salta al futuro */
+        e->prox_f = e->agora + 3;
+    }
+    while ((int32_t)(e->prox_f - e->agora) < (int32_t)USB_ISO_COLA_MS && e->seq - e->vel < OISO_N - 4) {
+        if (e->entrada ? !isoent_livres(&e->re) : e->anel_tam - e->pos_fila < e->tam_quadro) break;
+        oiso_armar(e);
+    }
+}
+
+int ohci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg)
+{
+    ohci_t *c = d->octl;
+    if (!c || !cfg->mps || cfg->mps > 1023) return USB_ERRO;
+    if (cfg->entrada ? (cfg->anel_tam % cfg->mps != 0 || cfg->anel_tam / cfg->mps > ISOENT_CASILLAS_MAX)
+                     : (!cfg->tam_quadro || cfg->anel_tam % cfg->tam_quadro)) return USB_ERRO;
+    if (d->velocidade == USB_VEL_BAIXA) return USB_ERRO;
+    int ci = (int)(c - ctls);
+    bool i0 = int_salva_desliga();
+    int h = -1, r = USB_ERRO;
+    for (int i = 0; i < USB_ISO_MAX * USB_MAX_CONTROLADORES; i++) if (!isoc[i].usado) { h = i; break; }
+    if (h >= 0 && ohci_ancho_iso[ci] + cfg->mps <= OISO_ANCHO_MAX) {
+        uint32_t pg = memfisica_alocar();
+        if (pg) {
+            ohci_iso_t *e = &isoc[h];
+            memset(e, 0, sizeof *e);
+            memset((void *)pg, 0, PAGINA);
+            e->usado = true;
+            e->c = c;
+            e->pagina = pg;
+            e->mps = cfg->mps;
+            e->anel_fis = cfg->anel_fis;
+            e->anel_tam = cfg->anel_tam;
+            e->bytes_s = cfg->bytes_s;
+            e->tam_quadro = cfg->tam_quadro;
+            e->entrada = cfg->entrada;
+            if (e->entrada && !isoent_iniciar(&e->re, cfg->anel_tam, cfg->mps)) { memfisica_liberar(pg); e->usado = false; int_restaura(i0); return USB_ERRO; }
+            e->ultimo_f = le(c, HC_FMNUMBER) & 0xFFFF;
+            e->agora = e->prox_f = e->ultimo_f;
+            ohci_ancho_iso[ci] += cfg->mps;
+            oed_t *ed = (oed_t *)pg;
+            ed->flags = (uint32_t)d->endereco | ((uint32_t)cfg->ep << 7) | (cfg->entrada ? ED_DIR_ENTRADA : ED_DIR_SAIDA) | ED_ISO | ((uint32_t)cfg->mps << 16);
+            ed->tail = ed->head = (uint32_t)oitd(e, 0);
+            ed->next = 0;
+            oed_t *p = ed_int(c);                          /* al final de la cadena periódica */
+            while (p->next) p = (oed_t *)p->next;
+            p->next = pg;
+            r = h;
+        }
+    } else if (h >= 0)
+        klog("[OHCI] isocrono: sin ancho de banda (%u + %u > %u bytes por cuadro)\n", ohci_ancho_iso[ci], cfg->mps, OISO_ANCHO_MAX);
+    int_restaura(i0);
+    return r;
+}
+
+static ohci_iso_t *oiso_h(usb_disp_t *d, int h)
+{
+    if (h < 0 || h >= USB_ISO_MAX * USB_MAX_CONTROLADORES || !isoc[h].usado || isoc[h].c != d->octl) return NULL;
+    return &isoc[h];
+}
+
+void ohci_iso_ligar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ohci_iso_t *e = oiso_h(d, h);
+    if (e) {
+        oiso_relogio(e);
+        oiso_completar(e);
+        for (uint32_t s = e->vel; s != e->seq; s++) { e->bytes[s % OISO_N] = 0; e->arm[s % OISO_N] = 0; }   /* lo que queda en la cola no cuenta */
+        if (e->entrada) isoent_reiniciar(&e->re);
+        e->pos_fila = e->pos_feito = e->acc = 0;
+        e->prox_f = e->agora + 3;
+        e->ligado = true;
+        oiso_encher(e);
+    }
+    int_restaura(i0);
+}
+
+void ohci_iso_parar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ohci_iso_t *e = oiso_h(d, h);
+    if (e) e->ligado = false;
+    int_restaura(i0);
+}
+
+uint32_t ohci_iso_posicao(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ohci_iso_t *e = oiso_h(d, h);
+    uint32_t r = 0;
+    if (e) { oiso_encher(e); r = e->pos_feito; }
+    int_restaura(i0);
+    return r;
+}
+
+bool ohci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro)
+{
+    bool i0 = int_salva_desliga();
+    ohci_iso_t *e = oiso_h(d, h);
+    bool r = e && e->entrada && isoent_ler(&e->re, off, len, erro);
+    int_restaura(i0);
+    return r;
+}
+
+bool ohci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i)
+{
+    ohci_iso_t *e = oiso_h(d, h);
+    if (!e) return false;
+    i->paquetes = e->paquetes;
+    i->completados = e->completados;
+    i->subdesbordes = e->subdesb;
+    i->errores = e->erros;
+    i->ancho = e->mps;
+    return true;
+}
+
+void ohci_iso_fechar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ohci_iso_t *e = h >= 0 && h < USB_ISO_MAX * USB_MAX_CONTROLADORES && isoc[h].usado ? &isoc[h] : NULL;
+    if (e) {
+        ohci_t *c = e->c;
+        oed_t *ed = (oed_t *)e->pagina;
+        e->ligado = false;
+        ed->flags |= ED_SALTAR;
+        oed_t *p = ed_int(c);
+        while (p->next && p->next != (uint32_t)ed) p = (oed_t *)p->next;
+        if (p->next == (uint32_t)ed) p->next = ed->next;
+        pausa_ms(3);                                       /* el controlador ya no la está leyendo */
+        memfisica_liberar(e->pagina);
+        int ci = (int)(c - ctls);
+        if (ohci_ancho_iso[ci] >= e->mps) ohci_ancho_iso[ci] -= e->mps;
+        e->usado = false;
+    }
+    (void)d;
     int_restaura(i0);
 }

@@ -154,6 +154,7 @@ def _prueba(m, cl, p_ssh, p_vnc, tuneis, visores):
     # --- 1. la receta de SaguiOS, con las órdenes reales
     out = m.comando("vncd --clave " + CLAVE)
     verificar("contraseña guardada" in out, "vncd --clave: contraseña guardada")
+    m.comando("vncd --ajustar indicador=no")   # D273: la ventana indicadora cambiaría la pantalla entre capturas
     for sv in ("sshd", "vncd"):
         out = m.comando(f"servicio activar {sv}", 30)
         verificar("error" not in out.lower() and "no existe" not in out.lower(), f"servicio activar {sv}: {out.strip()[-80:]!r}")

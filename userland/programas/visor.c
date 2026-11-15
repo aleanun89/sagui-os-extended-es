@@ -316,7 +316,7 @@ static void pedir_arquivo(void)
     char c[200];
     if (tem_imagem) copia_texto(c, caminho, sizeof c);
     else { copia_texto(c, pasta, sizeof c); junta_texto(c, "/", sizeof c); }
-    if (pedir_texto("Abrir imagen", "Ruta de la imagen o de una carpeta:", c, sizeof c) && c[0]) {
+    if (dialogo_abrir("Abrir imagen", "Imágenes|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*", c, c, sizeof c) && c[0]) {
         abrir_caminho(c);
         desenhar_tudo();
     }

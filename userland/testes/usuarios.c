@@ -189,6 +189,8 @@ static void llamadas(void)
     for (unsigned i = 0; i < sizeof info_livres / sizeof info_livres[0]; i++) livre(SIS_INFO_SISTEMA, info_livres[i], 0, 0);
     root(SIS_INFO_SISTEMA, INFO_ACEL2D_CTL, 1, 0);
     root(SIS_INFO_SISTEMA, INFO_ACEL2D_PROVA, 0, 0);
+    root(SIS_INFO_SISTEMA, INFO_GPU3D_CTL, 1, 0);      /* D284/D285 */
+    root(SIS_INFO_SISTEMA, INFO_GPU3D_PROVA, 0, 0);
     root(SIS_INFO_SISTEMA, INFO_MSR_PROVA, 0, 0);
     /* SIS_HORA */
     livre(SIS_HORA, HORA_UTC, b, 0);

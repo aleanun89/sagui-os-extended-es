@@ -104,6 +104,7 @@ int      usuario_op(int op, int a, int b);   /* SIS_USUARIO: USU_* en abi.h (D25
 int      desligar(void);           /* apaga el PC (D113): graba los discos y apaga por ACPI; no vuelve (o ERRO_ACESSO, D255) */
 int      acpi_controle(int op);    /* ACPI_OP_DESATIVAR / ACPI_OP_ATIVAR (D113) */
 int      modos_video(modo_video_t *v, int n);   /* lista de modos de vídeo (D058) -> cuántos */
+int      telas_sis(int op, unsigned a, unsigned b);   /* D290: TELAS_OP_INFO (&info_telas_t, sizeof), _CONFIG, _RESOLUCAO, _GUARDAR */
 int      trocar_modo_video(int largura, int altura, int op);   /* MUDAR_AGORA | MUDAR_GUARDAR (D059) -> lo que hizo */
 int      modo_terminal(int modo);
 int      bytes_aleatorios(void *buf, unsigned n);        /* bytes impredecibles del kernel (D061); devuelve n (hasta 4096) */
@@ -234,6 +235,7 @@ int  audio_controle(int fd, int op, int valor);                        /* AUDIO_
 int  audio_volume(int fd, int v);        /* 0-100; -1 = sólo consultar */
 int  audio_volume_mestre(int v);         /* idem, de todo el sonido */
 int  audio_silencio(int v);              /* 1 calla, 0 vuelve, -1 consulta */
+int  audio_salida(int i);               /* salida de sonido (D275): índice actual; i >= 0 la cambia, < 0 consulta */
 int  audio_pendente(int fd);             /* ms que aún faltan por tocar */
 int  audio_livre(int fd);                /* bytes que caben sin bloquear */
 int  audio_fechar(int fd, int esperar);

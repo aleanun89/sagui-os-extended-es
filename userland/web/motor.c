@@ -28,7 +28,10 @@ static void *m_novo(struct motor *m, int n);
 
 enum { D_NONE, D_BLOCK, D_INLINE, D_IBLOCK, D_FLEX, D_IFLEX, D_GRID, D_TABLE, D_ROW, D_CELL, D_LIST, D_CONTENTS, D_ROWGROUP, D_CAPTION };
 enum { P_STATIC, P_RELATIVE, P_ABSOLUTE, P_FIXED, P_STICKY };
-enum { U_AUTO, U_PX, U_PCT, U_EM, U_REM, U_VW, U_VH, U_NONE, U_FR, U_MAXC, U_MINC, U_FIT };
+enum { U_AUTO, U_PX, U_PCT, U_EM, U_REM, U_VW, U_VH, U_NONE, U_FR, U_MAXC, U_MINC, U_FIT,
+       U_CALC };   /* D271: calc() com % e px juntos: v = (décimos de %) << 16 | (px & 0xFFFF) */
+#define CALC_PCT(v) ((int)((int32_t)(v) >> 16) * 10)        /* a parte percentual, x100 */
+#define CALC_PX(v)  ((int)(int16_t)((v) & 0xFFFF))
 
 typedef struct { int32_t v; uint8_t u; } medida_t;   /* v em 1/100 para EM/REM/PCT/VW/VH/FR */
 
@@ -103,6 +106,24 @@ typedef struct {
      * motor (ver trans_m). */
     uint8_t n_tr;
     struct { uint8_t prop, ease; uint16_t dur; int16_t delay; } tr[TRANS_MAX];
+    /* D271 */
+    const char *sombra;                 /* box-shadow (texto; lido na pintura) */
+    const char *sombra_txt;             /* text-shadow (herdado) */
+    int16_t contorno, contorno_des;     /* outline: largura (0 = sem) e outline-offset */
+    uint32_t cor_contorno;              /* 0 = currentColor */
+    uint8_t contorno_sem;               /* outline-style: none */
+    uint8_t encaixe;                    /* object-fit: 0 fill, 1 contain, 2 cover, 3 none, 4 scale-down */
+    const char *encaixe_pos;            /* object-position (texto) */
+    int16_t razao_l, razao_a;           /* aspect-ratio: largura / altura (x100); 0 = auto */
+    medida_t recuo;                     /* text-indent (herdado) */
+    int16_t esp_pal;                    /* word-spacing em px (herdado) */
+    uint8_t parte;                      /* overflow-wrap: anywhere/break-word ou word-break: break-all (herdado) */
+    uint32_t cor_deco; uint8_t tem_cor_deco;   /* text-decoration-color */
+    uint8_t n_lin; medida_t lin[8];     /* grid-template-rows */
+    medida_t lin_auto;                  /* grid-auto-rows */
+    uint8_t fluxo_col;                  /* grid-auto-flow: column */
+    uint8_t just_itens, just_si;        /* justify-items / justify-self: 0 stretch, 1 start, 2 center, 3 end */
+    int8_t g_lfim;                      /* grid-row-end (linha) */
 } estilo_t;
 
 typedef struct atr { char *nome, *valor; struct atr *prox; } atr_t;
@@ -172,12 +193,23 @@ typedef struct {
     char comb;          /* combinador À ESQUERDA deste composto: ' ', '>', '+', '~', 0 */
     const char *nao_tag, *nao_classe;
     uint8_t pseudo;     /* 1 ::before, 2 ::after */
+    /* D271: mais contas de posição (:nth-last-child, :nth-of-type, :first-of-type...),
+     * estado de formulário e as pseudoclasses que levam uma lista de seletores */
+    struct { int16_t a, b; uint8_t modo; } nth2[3]; uint8_t n_nth2;   /* modo: 1 = a contar do fim, 2 = só os do mesmo tipo */
+    uint8_t estado;     /* E_CHECKED... */
+    uint8_t atr_ci;     /* bit i: o atributo i compara sem distinguir maiúsculas ([a="v" i]) */
+    struct subsel *subs;
+    int16_t espec_extra;   /* especificidade (x100) que somam as pseudoclasses novas */
 } composto_t;
+enum { E_CHECKED = 1, E_DISABLED = 2, E_ENABLED = 4, E_REQUIRED = 8, E_OPTIONAL = 16 };
 
-typedef struct {
+typedef struct seletor {
     composto_t c[MAX_COMP]; int n;
     int espec;
 } seletor_t;
+/* :is(), :where(), :not() e :has(): a lista de seletores do argumento */
+enum { SUB_IS = 1, SUB_NOT, SUB_HAS };
+typedef struct subsel { uint8_t tipo; char comb[8]; seletor_t *s; int n; struct subsel *prox; } subsel_t;
 
 typedef struct { int prop; const char *valor; uint8_t importante; } decl_t;
 
@@ -269,6 +301,8 @@ struct motor {
     uint32_t ger_estilo;    /* geração do estilo da cascata (muda quando a cascata corre) */
     unsigned ms_anim;       /* o instante atual (ms) */
     bool tick_ativo;        /* motor_tick já foi chamado */
+    bool rol_def;           /* motor_rolagem foi chamado: a pintura em faixas usa essa rolagem para fixed/sticky (D271) */
+    bool recascata;         /* o JavaScript mudou atributos ou texto: a cascata corre outra vez no próximo layout (D271) */
 };
 
 /* ================================================================ arena */
@@ -642,6 +676,9 @@ enum {
     PR_BGPOS, PR_BGREP, PR_BGPOSX, PR_BGPOSY, PR_FSTRETCH, PR_FVS, PR_LSPACING, PR_FILL, PR_STROKE, PR_SWIDTH, PR_BSPACING, PR_BCOLLAPSE,
     PR_FILTER, PR_ANIM, PR_ANIMNAME, PR_ANIMDUR, PR_ANIMITER, PR_ANIMDELAY, PR_ANIMFILL,
     PR_TRANS, PR_TRANSPROP, PR_TRANSDUR, PR_TRANSDELAY, PR_TRANSEASE,
+    /* D271 */
+    PR_BSHADOW, PR_OUTLINE, PR_OUTW, PR_OUTC, PR_OUTS, PR_OUTO, PR_TSHADOW, PR_OFIT, PR_OPOS, PR_ARATIO, PR_TINDENT, PR_WSPACING,
+    PR_OWRAP, PR_WWRAP, PR_WBREAK, PR_TDCOLOR, PR_GTR, PR_GAF, PR_GAR, PR_JITEMS, PR_JSELF, PR_GRE, PR_PSELF,
     PR_CUSTOM, PR_QTD
 };
 static const char *const nomes_prop[] = {
@@ -658,6 +695,8 @@ static const char *const nomes_prop[] = {
     "background-position", "background-repeat", "background-position-x", "background-position-y", "font-stretch", "font-variation-settings", "letter-spacing", "fill", "stroke", "stroke-width", "border-spacing", "border-collapse",
     "filter", "animation", "animation-name", "animation-duration", "animation-iteration-count", "animation-delay", "animation-fill-mode",
     "transition", "transition-property", "transition-duration", "transition-delay", "transition-timing-function",
+    "box-shadow", "outline", "outline-width", "outline-color", "outline-style", "outline-offset", "text-shadow", "object-fit", "object-position", "aspect-ratio", "text-indent", "word-spacing",
+    "overflow-wrap", "word-wrap", "word-break", "text-decoration-color", "grid-template-rows", "grid-auto-flow", "grid-auto-rows", "justify-items", "justify-self", "grid-row-end", "place-self",
 };
 
 static int achar_prop(const char *p, int n)
@@ -691,8 +730,122 @@ static int num100(const char *s, int n, int *usado)
         while (i < n && eh_dig(s[i])) { if (m) { frac += (s[i] - '0') * m; m /= 10; } i++; dig++; }
     }
     if (!dig) { *usado = 0; return 0; }
+    v += frac;
+    if (i + 1 < n && (s[i] | 32) == 'e' && (eh_dig(s[i + 1]) || (i + 2 < n && (s[i + 1] == '-' || s[i + 1] == '+') && eh_dig(s[i + 2])))) {
+        int j = i + 1, en = 0, ex = 0;      /* 4e1, 2.5e-1 (o «e» de «em» não leva algarismo atrás) */
+        if (s[j] == '-' || s[j] == '+') { en = s[j] == '-'; j++; }
+        while (j < n && eh_dig(s[j])) { if (ex < 100) ex = ex * 10 + (s[j] - '0'); j++; }
+        for (; ex > 0; ex--) { if (en) v /= 10; else if (v < 100000000) v *= 10; }
+        i = j;
+    }
     *usado = i;
-    return neg ? -(v + frac) : v + frac;
+    return neg ? -v : v;
+}
+
+/* O contexto das contas de calc(): o tamanho da fonte do elemento, o da raiz (rem)
+ * e a janela. A cascata põe-nos antes de ler cada declaração. */
+static int cc_tam = 16, rem_px = 16, cc_vw = 1024, cc_vh = 768, cc_ch = 50;
+
+/* Um valor de calc(): px (em 1/64) mais uma percentagem (x100); «num» é um número
+ * sem unidade (para multiplicar e dividir). */
+typedef struct { int32_t px64, pct; uint8_t num, erro; } conta_t;
+static conta_t conta_soma(const char *s, int n, int *i, int prof);
+
+static int32_t conta_ref(const conta_t *c) { return c->px64 + (int32_t)((int64_t)c->pct * cc_vw * 64 / 10000); }   /* para comparar em min()/max() */
+
+static conta_t conta_fator(const char *s, int n, int *i, int prof)
+{
+    conta_t r = { 0, 0, 0, 0 };
+    while (*i < n && eh_esp(s[*i])) (*i)++;
+    if (*i >= n || prof > 8) { r.erro = 1; return r; }
+    if (s[*i] == '-' && *i + 1 < n && (s[*i + 1] == '(' || eh_letra(s[*i + 1]))) { (*i)++; r = conta_fator(s, n, i, prof + 1); r.px64 = -r.px64; r.pct = -r.pct; return r; }
+    int fn = 0;     /* 1 parênteses ou calc(), 2 min(), 3 max(), 4 clamp() */
+    if (s[*i] == '(') { fn = 1; (*i)++; }
+    else if (n - *i > 5 && igual_n(s + *i, "calc(", 5)) { fn = 1; *i += 5; }
+    else if (n - *i > 4 && igual_n(s + *i, "min(", 4)) { fn = 2; *i += 4; }
+    else if (n - *i > 4 && igual_n(s + *i, "max(", 4)) { fn = 3; *i += 4; }
+    else if (n - *i > 6 && igual_n(s + *i, "clamp(", 6)) { fn = 4; *i += 6; }
+    if (fn) {
+        conta_t a[8]; int k = 0;
+        for (;;) {
+            conta_t x = conta_soma(s, n, i, prof + 1);
+            if (x.erro) { r.erro = 1; return r; }
+            if (k < 8) a[k++] = x;
+            while (*i < n && eh_esp(s[*i])) (*i)++;
+            if (*i < n && s[*i] == ',' && fn > 1) { (*i)++; continue; }
+            break;
+        }
+        if (*i < n && s[*i] == ')') (*i)++;
+        if (fn == 4 && k == 3) {     /* clamp(mín, ideal, máx) = max(mín, min(ideal, máx)) */
+            r = conta_ref(&a[1]) > conta_ref(&a[2]) ? a[2] : a[1];
+            if (conta_ref(&a[0]) > conta_ref(&r)) r = a[0];
+            return r;
+        }
+        r = a[0];
+        for (int q = 1; q < k; q++) if (fn == 2 ? conta_ref(&a[q]) < conta_ref(&r) : fn == 3 ? conta_ref(&a[q]) > conta_ref(&r) : 0) r = a[q];
+        return r;
+    }
+    int u; int v = num100(s + *i, n - *i, &u);
+    if (!u) { r.erro = 1; return r; }
+    *i += u;
+    const char *un = s + *i; int nu = 0;
+    while (*i + nu < n && (eh_letra(un[nu]) || un[nu] == '%')) nu++;
+    *i += nu;
+    int64_t x = (int64_t)v * 64;    /* o valor x100 em 1/64 */
+    if (nu == 0) { r.num = 1; r.px64 = (int32_t)(x / 100); }
+    else if (nu == 1 && un[0] == '%') r.pct = v;
+    else if (nu == 2 && igual_n(un, "px", 2)) r.px64 = (int32_t)(x / 100);
+    else if (nu == 2 && igual_n(un, "em", 2)) r.px64 = (int32_t)(x * cc_tam / 100);
+    else if (nu == 3 && igual_n(un, "rem", 3)) r.px64 = (int32_t)(x * rem_px / 100);
+    else if (nu == 2 && igual_n(un, "ch", 2)) r.px64 = (int32_t)(x * cc_tam * cc_ch / 10000);
+    else if (nu == 2 && igual_n(un, "ex", 2)) r.px64 = (int32_t)(x * cc_tam / 200);
+    else if (nu == 2 && igual_n(un, "vw", 2)) r.px64 = (int32_t)(x * cc_vw / 10000);
+    else if (nu >= 2 && nu <= 3 && (un[nu - 2] | 32) == 'v' && (un[nu - 1] | 32) == 'h') r.px64 = (int32_t)(x * cc_vh / 10000);
+    else if (nu == 4 && igual_n(un, "vmin", 4)) r.px64 = (int32_t)(x * (cc_vw < cc_vh ? cc_vw : cc_vh) / 10000);
+    else if (nu == 4 && igual_n(un, "vmax", 4)) r.px64 = (int32_t)(x * (cc_vw > cc_vh ? cc_vw : cc_vh) / 10000);
+    else if (nu == 2 && igual_n(un, "pt", 2)) r.px64 = (int32_t)(x * 4 / 300);
+    else if (nu == 2 && igual_n(un, "pc", 2)) r.px64 = (int32_t)(x * 16 / 100);
+    else if (nu == 2 && igual_n(un, "in", 2)) r.px64 = (int32_t)(x * 96 / 100);
+    else if (nu == 2 && igual_n(un, "cm", 2)) r.px64 = (int32_t)(x * 9600 / 25400);
+    else if (nu == 2 && igual_n(un, "mm", 2)) r.px64 = (int32_t)(x * 960 / 25400);
+    else r.erro = 1;
+    return r;
+}
+
+static conta_t conta_produto(const char *s, int n, int *i, int prof)
+{
+    conta_t r = conta_fator(s, n, i, prof);
+    while (!r.erro) {
+        while (*i < n && eh_esp(s[*i])) (*i)++;
+        if (*i >= n || (s[*i] != '*' && s[*i] != '/')) break;
+        char op = s[(*i)++];
+        conta_t b = conta_fator(s, n, i, prof);
+        if (b.erro) { r.erro = 1; break; }
+        if (op == '*') {
+            if (!b.num) { conta_t z = r; r = b; b = z; }     /* número * medida */
+            if (!b.num) { r.erro = 1; break; }
+            r.px64 = (int32_t)((int64_t)r.px64 * b.px64 / 64); r.pct = (int32_t)((int64_t)r.pct * b.px64 / 64);
+        } else {
+            if (!b.num || !b.px64) { r.erro = 1; break; }
+            r.px64 = (int32_t)((int64_t)r.px64 * 64 / b.px64); r.pct = (int32_t)((int64_t)r.pct * 64 / b.px64);
+        }
+    }
+    return r;
+}
+
+static conta_t conta_soma(const char *s, int n, int *i, int prof)
+{
+    conta_t r = conta_produto(s, n, i, prof);
+    while (!r.erro) {
+        while (*i < n && eh_esp(s[*i])) (*i)++;
+        if (*i >= n || (s[*i] != '+' && s[*i] != '-')) break;
+        char op = s[(*i)++];
+        conta_t b = conta_produto(s, n, i, prof);
+        if (b.erro) { r.erro = 1; break; }
+        if (op == '+') { r.px64 += b.px64; r.pct += b.pct; } else { r.px64 -= b.px64; r.pct -= b.pct; }
+        r.num = r.num && b.num;
+    }
+    return r;
 }
 
 static bool ler_medida_m(const char *s, int n, medida_t *m)
@@ -705,36 +858,20 @@ static bool ler_medida_m(const char *s, int n, medida_t *m)
     if (n >= 11 && igual_n(s, "max-content", 11)) { m->u = U_MAXC; return true; }
     if (n >= 11 && igual_n(s, "min-content", 11)) { m->u = U_MINC; return true; }
     if (n >= 11 && igual_n(s, "fit-content", 11)) { m->u = U_FIT; return true; }
-    if (n > 5 && igual_n(s, "calc(", 5)) {
-        /* calc(A op B): fica com a parte percentual, ou com a soma de px */
-        int pct = 0, px = 0, sinal = 1, tem_pct = 0;
-        for (int i = 5; i < n;) {
-            if (s[i] == '-' && i + 1 < n && eh_esp(s[i + 1])) { sinal = -1; i++; continue; }
-            if (s[i] == '+') { sinal = 1; i++; continue; }
-            int u; int v = num100(s + i, n - i, &u);
-            if (!u) { i++; continue; }
-            i += u;
-            if (i < n && s[i] == '%') { pct += sinal * v; tem_pct = 1; i++; }
-            else if (i + 1 < n && s[i] == 'p' && s[i + 1] == 'x') { px += sinal * v / 100; i += 2; }
-            else if (i + 2 < n && s[i] == 'r' && s[i + 1] == 'e' && s[i + 2] == 'm') { px += sinal * v * 16 / 100; i += 3; }
-            else if (i + 1 < n && s[i] == 'e' && s[i + 1] == 'm') { px += sinal * v * 16 / 100; i += 2; }
-            else if (i + 1 < n && s[i] == 'v' && s[i + 1] == 'w') { pct += sinal * v; tem_pct = 1; i += 2; }
-            sinal = 1;
+    if ((n > 5 && igual_n(s, "calc(", 5)) || (n > 4 && (igual_n(s, "min(", 4) || igual_n(s, "max(", 4))) || (n > 6 && igual_n(s, "clamp(", 6))) {
+        int i = 0;
+        conta_t c = conta_soma(s, n, &i, 0);
+        if (c.erro) return false;
+        int px = (c.px64 + (c.px64 >= 0 ? 32 : -32)) / 64;
+        if (!c.pct) { m->u = U_PX; m->v = px; }
+        else if (!px) { m->u = U_PCT; m->v = c.pct; }
+        else {
+            int d = c.pct / 10;
+            if (d > 32767) d = 32767; else if (d < -32768) d = -32768;
+            if (px > 32767) px = 32767; else if (px < -32768) px = -32768;
+            m->u = U_CALC; m->v = (int32_t)(((uint32_t)d << 16) | ((uint32_t)px & 0xFFFF));
         }
-        if (tem_pct) { m->u = U_PCT; m->v = pct + (px > 0 ? 0 : 0); m->v = pct; if (px < 0) m->v = pct - 1; return true; }
-        m->u = U_PX; m->v = px;
         return true;
-    }
-    if (n > 4 && (igual_n(s, "min(", 4) || igual_n(s, "max(", 4) || igual_n(s, "clamp(", 6))) {
-        /* fica com o primeiro valor em px, ou o percentual */
-        int i = igual_n(s, "clamp(", 6) ? 6 : 4;
-        int fim = i;
-        while (fim < n && s[fim] != ',' && s[fim] != ')') fim++;
-        if (igual_n(s, "clamp(", 6)) {   /* clamp(min, ideal, max): usa o ideal */
-            i = fim + 1; fim = i;
-            while (fim < n && s[fim] != ',' && s[fim] != ')') fim++;
-        }
-        return ler_medida_m(s + i, fim - i, m);
     }
     int u; int v = num100(s, n, &u);
     if (!u) return false;
@@ -750,8 +887,14 @@ static bool ler_medida_m(const char *s, int n, medida_t *m)
     if (nu == 3 && (igual_n(un, "dvh", 3) || igual_n(un, "svh", 3) || igual_n(un, "lvh", 3))) { m->u = U_VH; m->v = v; return true; }
     if (nu == 2 && igual_n(un, "pt", 2)) { m->u = U_PX; m->v = v * 4 / 300; return true; }
     if (nu == 2 && igual_n(un, "fr", 2)) { m->u = U_FR; m->v = v; return true; }
-    if (nu == 2 && igual_n(un, "ch", 2)) { m->u = U_EM; m->v = v / 2; return true; }
+    if (nu == 2 && igual_n(un, "ch", 2)) { m->u = U_EM; m->v = v * cc_ch / 100; return true; }
     if (nu == 2 && igual_n(un, "ex", 2)) { m->u = U_EM; m->v = v / 2; return true; }
+    if (nu == 4 && (igual_n(un, "vmin", 4) || igual_n(un, "vmax", 4))) { m->u = (cc_vw < cc_vh) == ((un[2] | 32) == 'i') ? U_VW : U_VH; m->v = v; return true; }
+    if (nu == 2 && igual_n(un, "in", 2)) { m->u = U_PX; m->v = (v * 96 + 50) / 100; return true; }
+    if (nu == 2 && igual_n(un, "cm", 2)) { m->u = U_PX; m->v = (int)(((int64_t)v * 9600 + 12700) / 25400); return true; }
+    if (nu == 2 && igual_n(un, "mm", 2)) { m->u = U_PX; m->v = (int)(((int64_t)v * 960 + 12700) / 25400); return true; }
+    if (nu == 2 && igual_n(un, "pc", 2)) { m->u = U_PX; m->v = v * 16 / 100; return true; }
+    if (nu == 1 && (un[0] | 32) == 'q') { m->u = U_PX; m->v = (int)((int64_t)v * 96 / 10160); return true; }
     return false;
 }
 
@@ -868,6 +1011,64 @@ static int palavras(const char *s, int n, const char **p, int *t, int max)
 
 static const char *pular_esp(const char *s, const char *f) { while (s < f && eh_esp(*s)) s++; return s; }
 
+static bool ler_seletor(motor_t *m, const char *s, const char *f, seletor_t *sel);
+static int sub_prof;    /* :is(:not(:has(...))): fundo da recursão */
+
+/* A lista de seletores de :is()/:where()/:not()/:has() (até 8, separados por vírgula). */
+static subsel_t *ler_subsel(motor_t *m, int tipo, const char *arg, int na, int *espec)
+{
+    subsel_t *ss = m_novo(m, sizeof *ss);
+    if (!ss || sub_prof >= 3) return NULL;
+    ss->tipo = (uint8_t)tipo;
+    int cabem = 1;      /* um seletor por vírgula de fora (cada um ocupa mais de 1 KB: só os que há) */
+    for (int i = 0, prof = 0; i < na; i++) { if (arg[i] == '(' || arg[i] == '[') prof++; else if (arg[i] == ')' || arg[i] == ']') prof--; else if (arg[i] == ',' && !prof) cabem++; }
+    if (cabem > 8) cabem = 8;
+    ss->s = m_novo(m, cabem * (int)sizeof(seletor_t));
+    if (!ss->s) return NULL;
+    *espec = 0;
+    sub_prof++;
+    const char *f = arg + na;
+    for (const char *a = arg; a < f && ss->n < cabem;) {
+        const char *b = a; int prof = 0;
+        while (b < f && (prof || *b != ',')) { if (*b == '(' || *b == '[') prof++; else if (*b == ')' || *b == ']') prof--; b++; }
+        const char *q = pular_esp(a, b);
+        char comb = ' ';
+        if (tipo == SUB_HAS && q < b && (*q == '>' || *q == '+' || *q == '~')) { comb = *q; q = pular_esp(q + 1, b); }
+        if (ler_seletor(m, q, b, &ss->s[ss->n])) {
+            if (ss->s[ss->n].espec > *espec) *espec = ss->s[ss->n].espec;
+            ss->comb[ss->n] = comb;
+            ss->n++;
+        } else if (tipo == SUB_NOT) { sub_prof--; return NULL; }   /* :not() com algo que não se entende: a regra não vale */
+        a = b + 1;
+    }
+    sub_prof--;
+    return ss;
+}
+
+static void ler_nth(const char *arg, int na, int *pa, int *pb)
+{
+    const char *q = pular_esp(arg, arg + na), *qf = arg + na;
+    while (qf > q && eh_esp(qf[-1])) qf--;
+    if (qf - q >= 3 && igual_n(q, "odd", 3)) { *pa = 2; *pb = 1; return; }
+    if (qf - q >= 4 && igual_n(q, "even", 4)) { *pa = 2; *pb = 0; return; }
+    int u, a = 0, b = 0;
+    int v = num100(q, (int)(qf - q), &u);
+    if (u && q + u < qf && q[u] == 'n') { a = v / 100; q += u + 1; }
+    else if (q < qf && *q == 'n') { a = 1; q++; }
+    else if (q + 1 < qf && (q[0] == '-' || q[0] == '+') && q[1] == 'n') { a = q[0] == '-' ? -1 : 1; q += 2; }
+    else if (u) { b = v / 100; q = qf; }
+    q = pular_esp(q, qf);
+    if (q < qf && (*q == '+' || *q == '-')) { bool neg = *q == '-'; q = pular_esp(q + 1, qf); v = num100(q, (int)(qf - q), &u); b = neg ? -v / 100 : v / 100; }
+    *pa = a; *pb = b;
+}
+
+static void por_nth2(composto_t *c, int a, int b, int modo)
+{
+    if (c->n_nth2 >= 3) { c->nunca = 1; return; }
+    c->nth2[c->n_nth2].a = (int16_t)a; c->nth2[c->n_nth2].b = (int16_t)b; c->nth2[c->n_nth2].modo = (uint8_t)modo;
+    c->n_nth2++; c->espec_extra++;
+}
+
 static bool ler_composto(motor_t *m, const char **ps, const char *f, composto_t *c)
 {
     const char *s = *ps;
@@ -912,9 +1113,11 @@ static bool ler_composto(motor_t *m, const char **ps, const char *f, composto_t 
                     val = m_dup(m, v0, (int)(s - v0));
                 }
             }
-            while (s < f && *s != ']') s++;
+            bool ci = false;   /* [a="v" i] */
+            while (s < f && *s != ']') { if ((*s | 32) == 'i') ci = true; s++; }
             if (s < f) s++;
-            if (c->na < 3) { c->atr_nome[c->na] = nome; c->atr_valor[c->na] = val; c->atr_op[c->na] = op; c->na++; }
+            if (c->na < 3) { c->atr_nome[c->na] = nome; c->atr_valor[c->na] = val; c->atr_op[c->na] = op; if (ci && val) c->atr_ci |= (uint8_t)(1 << c->na); c->na++; }
+            else c->nunca = 1;
             algo = true; continue;
         }
         if (*s == ':') {
@@ -937,38 +1140,52 @@ static bool ler_composto(motor_t *m, const char **ps, const char *f, composto_t 
             else if (np == 10 && igual_n(p0, "last-child", 10)) c->ultimo = 1;
             else if (np == 4 && igual_n(p0, "root", 4)) c->raiz = 1;
             else if (np == 5 && igual_n(p0, "empty", 5)) c->vazio = 1;
-            else if (np == 4 && igual_n(p0, "link", 4)) { if (c->na < 3) { c->atr_nome[c->na] = "href"; c->atr_op[c->na] = 0; c->na++; } }
+            else if ((np == 4 && igual_n(p0, "link", 4)) || (np == 8 && igual_n(p0, "any-link", 8))) {
+                if (c->na < 3) { c->atr_nome[c->na] = "href"; c->atr_op[c->na] = 0; c->na++; }
+            }
             else if (np == 9 && igual_n(p0, "nth-child", 9) && arg) {
                 c->tem_nth = 1;
-                if (na >= 3 && igual_n(arg, "odd", 3)) { c->nth_a = 2; c->nth_b = 1; }
-                else if (na >= 4 && igual_n(arg, "even", 4)) { c->nth_a = 2; c->nth_b = 0; }
-                else {
-                    int u, a = 0, b = 0;
-                    const char *q = arg, *qf = arg + na;
-                    int v = num100(q, (int)(qf - q), &u);
-                    if (u && q + u < qf && q[u] == 'n') { a = v / 100; q += u + 1; }
-                    else if (q < qf && *q == 'n') { a = 1; q++; }
-                    else if (q + 1 < qf && q[0] == '-' && q[1] == 'n') { a = -1; q += 2; }
-                    else if (u) { b = v / 100; q = qf; }
-                    q = pular_esp(q, qf);
-                    if (q < qf && (*q == '+' || *q == '-')) { bool neg = *q == '-'; q = pular_esp(q + 1, qf); v = num100(q, (int)(qf - q), &u); b = neg ? -v / 100 : v / 100; }
-                    c->nth_a = a; c->nth_b = b;
+                ler_nth(arg, na, &c->nth_a, &c->nth_b);
+            }
+            else if (np == 14 && igual_n(p0, "nth-last-child", 14) && arg) { int a, b; ler_nth(arg, na, &a, &b); por_nth2(c, a, b, 1); }
+            else if (np == 11 && igual_n(p0, "nth-of-type", 11) && arg) { int a, b; ler_nth(arg, na, &a, &b); por_nth2(c, a, b, 2); }
+            else if (np == 16 && igual_n(p0, "nth-last-of-type", 16) && arg) { int a, b; ler_nth(arg, na, &a, &b); por_nth2(c, a, b, 3); }
+            else if (np == 13 && igual_n(p0, "first-of-type", 13)) por_nth2(c, 0, 1, 2);
+            else if (np == 12 && igual_n(p0, "last-of-type", 12)) por_nth2(c, 0, 1, 3);
+            else if (np == 12 && igual_n(p0, "only-of-type", 12)) { por_nth2(c, 0, 1, 2); por_nth2(c, 0, 1, 3); c->espec_extra--; }
+            else if (np == 10 && igual_n(p0, "only-child", 10)) { c->primeiro = c->ultimo = 1; c->espec_extra--; }
+            else if (np == 7 && igual_n(p0, "checked", 7)) { c->estado |= E_CHECKED; c->espec_extra++; }
+            else if (np == 8 && igual_n(p0, "disabled", 8)) { c->estado |= E_DISABLED; c->espec_extra++; }
+            else if (np == 7 && igual_n(p0, "enabled", 7)) { c->estado |= E_ENABLED; c->espec_extra++; }
+            else if (np == 8 && igual_n(p0, "required", 8)) { c->estado |= E_REQUIRED; c->espec_extra++; }
+            else if (np == 8 && igual_n(p0, "optional", 8)) { c->estado |= E_OPTIONAL; c->espec_extra++; }
+            else if (arg && ((np == 3 && igual_n(p0, "not", 3)) || (np == 2 && igual_n(p0, "is", 2)) || (np == 5 && igual_n(p0, "where", 5)) ||
+                             (np == 7 && igual_n(p0, "matches", 7)) || (np == 3 && igual_n(p0, "has", 3)))) {
+                bool onde = np == 5;
+                int tipo = np == 3 && (p0[0] | 32) == 'n' ? SUB_NOT : np == 3 ? SUB_HAS : SUB_IS;
+                /* o caso de sempre, :is(.a) e :not(.a) com um só composto simples, fica no próprio composto (e no índice) */
+                const char *q = pular_esp(arg, arg + na), *qf = arg + na;
+                while (qf > q && eh_esp(qf[-1])) qf--;
+                composto_t sub; const char *qq = q;
+                bool simples = tipo != SUB_HAS && sub_prof < 3;
+                if (simples) { sub_prof++; simples = ler_composto(m, &qq, qf, &sub) && qq == qf; sub_prof--; }
+                if (simples && tipo == SUB_IS && !sub.id && !sub.na && !sub.primeiro && !sub.ultimo && !sub.tem_nth && !sub.raiz && !sub.vazio && !sub.nunca &&
+                    !sub.nao_tag && !sub.nao_classe && !sub.pseudo && !sub.n_nth2 && !sub.estado && !sub.subs && (!sub.tag[0] || !c->tag[0]) && c->nc + sub.nc <= 6) {
+                    if (sub.tag[0]) copia_texto(c->tag, sub.tag, sizeof c->tag);
+                    for (int z = 0; z < sub.nc; z++) c->classes[c->nc++] = sub.classes[z];
+                    if (onde) c->espec_extra -= (int16_t)sub.nc;   /* :where() não soma (a etiqueta, sim: fica a diferença de 1) */
+                } else if (simples && tipo == SUB_NOT && !c->nao_classe && sub.nc == 1 && !sub.tag[0] && !sub.id && !sub.na && !sub.primeiro && !sub.ultimo && !sub.tem_nth &&
+                           !sub.raiz && !sub.vazio && !sub.nunca && !sub.nao_tag && !sub.nao_classe && !sub.pseudo && !sub.n_nth2 && !sub.estado && !sub.subs) {
+                    c->nao_classe = sub.classes[0];
+                } else {
+                    int esp = 0;
+                    subsel_t *ss = ler_subsel(m, tipo, arg, na, &esp);
+                    if (!ss || (!ss->n && tipo != SUB_NOT)) c->nunca = 1;
+                    else {
+                        ss->prox = c->subs; c->subs = ss;
+                        if (!onde) c->espec_extra += (int16_t)(esp / 100 > 300 ? 300 : esp / 100);
+                    }
                 }
-            } else if (np == 3 && igual_n(p0, "not", 3) && arg) {
-                const char *q = pular_esp(arg, arg + na);
-                if (*q == '.') c->nao_classe = m_dup(m, q + 1, na - (int)(q + 1 - arg));
-                else if (eh_letra(*q)) c->nao_tag = m_dup(m, q, na - (int)(q - arg));
-            } else if ((np == 2 && igual_n(p0, "is", 2)) || (np == 5 && igual_n(p0, "where", 5))) {
-                /* :is(a, b): aceita se o primeiro for uma classe ou tag simples */
-                const char *q = pular_esp(arg, arg + na);
-                const char *fim = q;
-                while (fim < arg + na && *fim != ',' && *fim != ')') fim++;
-                composto_t sub;
-                const char *qq = q;
-                if (ler_composto(m, &qq, fim, &sub) && qq == fim) {
-                    if (sub.tag[0] && !c->tag[0]) copia_texto(c->tag, sub.tag, sizeof c->tag);
-                    for (int z = 0; z < sub.nc && c->nc < 6; z++) c->classes[c->nc++] = sub.classes[z];
-                } else c->nunca = 1;
             } else if ((np == 7 && igual_n(p0, "visited", 7)) || (np == 4 && igual_n(p0, "lang", 4)) || (np == 3 && igual_n(p0, "dir", 3))) {
             } else c->nunca = 1;   /* :hover, :focus, :checked... */
             algo = true;
@@ -1004,7 +1221,7 @@ static bool ler_seletor(motor_t *m, const char *s, const char *f, seletor_t *sel
         sel->c[i] = tmp[n - 1 - i];
         sel->c[i].comb = tmp[n - 1 - i].comb;
         composto_t *c = &sel->c[i];
-        sel->espec += (c->id ? 10000 : 0) + (c->nc + c->na + c->primeiro + c->ultimo + c->tem_nth + c->raiz + (c->nao_tag || c->nao_classe)) * 100 + (c->tag[0] ? 1 : 0);
+        sel->espec += (c->id ? 10000 : 0) + (c->nc + c->na + c->primeiro + c->ultimo + c->tem_nth + c->raiz + (c->nao_tag || c->nao_classe) + c->espec_extra) * 100 + (c->tag[0] ? 1 : 0);
     }
     sel->n = n;
     return true;
@@ -1026,6 +1243,41 @@ static bool tem_classe(const char *lista, const char *c)
 static no_m *irmao_ant(no_m *n) { for (n = n->ant; n; n = n->ant) if (!n->texto) return n; return NULL; }
 static no_m *irmao_prox(no_m *n) { for (n = n->prox; n; n = n->prox) if (!n->texto) return n; return NULL; }
 
+static bool bate_de(const seletor_t *s, int i, no_m *n);
+static bool igual_ci(const char *a, const char *b) { for (; *a && *b; a++, b++) if (minusc(*a) != minusc(*b)) return false; return *a == *b; }
+
+/* :checked, :disabled...: pelo atributo (o motor não tem estado de formulário além do que diz o HTML) */
+static bool bate_estado(int est, no_m *n)
+{
+    bool campo = igual(n->tag, "input") || igual(n->tag, "select") || igual(n->tag, "textarea") || igual(n->tag, "button");
+    if (est & E_CHECKED) { if (!(igual(n->tag, "input") && atributo_m(n, "checked")) && !(igual(n->tag, "option") && atributo_m(n, "selected"))) return false; }
+    if (est & E_DISABLED) { if (!((campo || igual(n->tag, "option") || igual(n->tag, "fieldset")) && atributo_m(n, "disabled"))) return false; }
+    if (est & E_ENABLED) { if (!campo || atributo_m(n, "disabled")) return false; }
+    if (est & E_REQUIRED) { if (!campo || !atributo_m(n, "required")) return false; }
+    if (est & E_OPTIONAL) { if (!campo || igual(n->tag, "button") || atributo_m(n, "required")) return false; }
+    return true;
+}
+
+static int has_resto;   /* :has(): quantos nós ainda se podem visitar nesta página (a conta não pode explodir) */
+static bool bate_has(const seletor_t *s, char comb, no_m *n)
+{
+    if (comb == '+' || comb == '~') {
+        for (no_m *q = n->prox; q; q = q->prox) {
+            if (q->texto) continue;
+            if (bate_de(s, 0, q)) return true;
+            if (comb == '+') break;
+        }
+        return false;
+    }
+    if (comb == '>') { for (no_m *q = n->filho; q; q = q->prox) if (!q->texto && bate_de(s, 0, q)) return true; return false; }
+    for (no_m *q = n->filho; q && q != n;) {     /* descendentes, sem recursão */
+        if (!q->texto) { if (--has_resto < 0) return false; if (bate_de(s, 0, q)) return true; }
+        if (q->filho) q = q->filho;
+        else { while (q != n && !q->prox) q = q->pai; if (q != n) q = q->prox; }
+    }
+    return false;
+}
+
 static bool bate_composto_m(const composto_t *c, no_m *n)
 {
     if (n->texto || c->nunca || n->tag[0] == '#') return false;   /* o nó do documento não é elemento: `* html` nunca casa */
@@ -1039,7 +1291,7 @@ static bool bate_composto_m(const composto_t *c, no_m *n)
         const char *w = c->atr_valor[i];
         int lv = (int)tam_texto(v), lw = (int)tam_texto(w);
         switch (c->atr_op[i]) {
-        case '=': if (!igual(v, w)) return false; break;
+        case '=': if (!(c->atr_ci & (1 << i) ? igual_ci(v, w) : igual(v, w))) return false; break;
         case '~': if (!tem_classe(v, w)) return false; break;
         case '^': if (lv < lw || memcmp(v, w, (size_t)lw)) return false; break;
         case '$': if (lv < lw || memcmp(v + lv - lw, w, (size_t)lw)) return false; break;
@@ -1061,6 +1313,20 @@ static bool bate_composto_m(const composto_t *c, no_m *n)
     }
     if (c->nao_tag && igual(c->nao_tag, n->tag)) return false;
     if (c->nao_classe && tem_classe(n->classe, c->nao_classe)) return false;
+    for (int k = 0; k < c->n_nth2; k++) {
+        bool fim = c->nth2[k].modo & 1, tipo = c->nth2[k].modo & 2;
+        int pos = 1;
+        for (no_m *q = fim ? irmao_prox(n) : irmao_ant(n); q; q = fim ? irmao_prox(q) : irmao_ant(q)) if (!tipo || igual(q->tag, n->tag)) pos++;
+        int d = pos - c->nth2[k].b, a = c->nth2[k].a;
+        if (a == 0) { if (d) return false; }
+        else if (d % a || d / a < 0) return false;
+    }
+    if (c->estado && !bate_estado(c->estado, n)) return false;
+    for (const subsel_t *ss = c->subs; ss; ss = ss->prox) {
+        bool algum = false;
+        for (int k = 0; k < ss->n && !algum; k++) algum = ss->tipo == SUB_HAS ? bate_has(&ss->s[k], ss->comb[k], n) : bate_de(&ss->s[k], 0, n);
+        if (algum == (ss->tipo == SUB_NOT)) return false;
+    }
     return true;
 }
 
@@ -1163,6 +1429,54 @@ static int ler_decls(motor_t *m, const char *s, int n, decl_t *out, int max)
 static bool media_ok(motor_t *m, const char *s, int n);
 
 static void ler_folha(motor_t *m, const char *s, int n, int prof);
+
+/* @supports: (propriedade: valor) vale se o motor conhece a propriedade; com
+ * not, and, or e parênteses (D271). selector() e o resto que não se entende
+ * contam como verdadeiros, como antes. */
+static bool supports_ok(const char *s, int n, int prof)
+{
+    bool res = true, tem = false, ou = false, nao = false;
+    int i = 0;
+    while (i < n) {
+        while (i < n && eh_esp(s[i])) i++;
+        if (i >= n) break;
+        if (s[i] == '(') {
+            int f = i + 1, p = 1;
+            while (f < n && p) { if (s[f] == '(') p++; else if (s[f] == ')') p--; f++; }
+            const char *q = s + i + 1; int nq = f - i - 2;
+            while (nq > 0 && eh_esp(*q)) { q++; nq--; }
+            bool r = true;
+            if (nq > 0 && (q[0] == '(' || (nq > 4 && igual_n(q, "not", 3) && (eh_esp(q[3]) || q[3] == '(')))) r = prof < 4 ? supports_ok(q, nq, prof + 1) : true;
+            else {
+                int dp = 0;
+                while (dp < nq && q[dp] != ':') dp++;
+                int np = dp;
+                while (np && eh_esp(q[np - 1])) np--;
+                if (dp < nq) r = achar_prop(q, np) != PR_NADA;
+            }
+            if (nao) { r = !r; nao = false; }
+            res = !tem ? r : ou ? (res || r) : (res && r);
+            tem = true;
+            i = f;
+            continue;
+        }
+        int w0 = i;
+        while (i < n && !eh_esp(s[i]) && s[i] != '(') i++;
+        int nw = i - w0;
+        if (nw == 3 && igual_n(s + w0, "not", 3)) nao = true;
+        else if (nw == 2 && igual_n(s + w0, "or", 2)) ou = true;
+        else if (nw == 3 && igual_n(s + w0, "and", 3)) ou = false;
+        else if (i < n && s[i] == '(') {     /* selector(...), font-tech(...): salta o argumento */
+            int p = 1; i++;
+            while (i < n && p) { if (s[i] == '(') p++; else if (s[i] == ')') p--; i++; }
+            bool r = !nao; nao = false;
+            res = !tem ? r : ou ? (res || r) : (res && r);
+            tem = true;
+        }
+        if (i == w0) i++;
+    }
+    return res;
+}
 
 /* @keyframes nome { 0% { ... } 50% { ... } to { ... } }
  * Cada quadro fica com a sua percentagem (x100 de percentagem) e as suas
@@ -1407,7 +1721,8 @@ static void ler_folha(motor_t *m, const char *s, int n, int prof)
             if (nc >= 10 && igual_n(cab, "@keyframes", 10)) { ler_keyframes(m, cab + 10, nc - 10, s + b0, b1 - b0); continue; }
             if (nc >= 10 && igual_n(cab, "@-webkit-keyframes", 17)) { ler_keyframes(m, cab + 17, nc - 17, s + b0, b1 - b0); continue; }
             if (prof < 4 && nc >= 6 && igual_n(cab, "@media", 6)) { if (media_ok(m, cab + 6, nc - 6)) ler_folha(m, s + b0, b1 - b0, prof + 1); }
-            else if (prof < 4 && ((nc >= 9 && igual_n(cab, "@supports", 9)) || (nc >= 6 && igual_n(cab, "@layer", 6)) || (nc >= 10 && igual_n(cab, "@container", 10))))
+            else if (prof < 4 && nc >= 9 && igual_n(cab, "@supports", 9)) { if (supports_ok(cab + 9, nc - 9, 0)) ler_folha(m, s + b0, b1 - b0, prof + 1); }
+            else if (prof < 4 && ((nc >= 6 && igual_n(cab, "@layer", 6)) || (nc >= 10 && igual_n(cab, "@container", 10))))
                 ler_folha(m, s + b0, b1 - b0, prof + 1);
             continue;
         }
@@ -1434,7 +1749,7 @@ static bool media_ok(motor_t *m, const char *s, int n)
                 while (dp < nq && q[dp] != ':' && q[dp] != '<' && q[dp] != '>') dp++;
                 medida_t md = { 0, U_AUTO };
                 int v = 0;
-                if (dp < nq && q[dp] == ':' && ler_medida_m(q + dp + 1, nq - dp - 1, &md)) v = md.u == U_EM || md.u == U_REM ? md.v * 16 / 100 : md.v;
+                if (dp < nq && q[dp] == ':' && ler_medida_m(q + dp + 1, nq - dp - 1, &md)) v = md.u == U_EM || md.u == U_REM ? md.v * rem_px / 100 : md.v;
                 const char *nm = q; int nn = dp;
                 while (nn && eh_esp(nm[nn - 1])) nn--;
                 bool r = true;
@@ -1472,7 +1787,9 @@ static bool media_ok(motor_t *m, const char *s, int n)
 static const char folha_padrao[] =
     "html,body,div,p,h1,h2,h3,h4,h5,h6,ul,ol,dl,dt,dd,form,section,article,header,footer,nav,main,aside,figure,figcaption,"
     "blockquote,pre,address,hr,fieldset,legend,details,summary,center,menu,dialog,hgroup,search,optgroup{display:block}"
-    "head,script,style,link,meta,title,template,noscript,base,datalist,param,source,track,area,map,[hidden],input[type=hidden],option{display:none}"
+    "head,script,style,link,meta,title,template,noscript,base,datalist,param,source,track,area,map,[hidden],option{display:none}"
+    "input[type=hidden],dialog:not([open]),audio:not([controls]),[data-sagui-fuera]{display:none !important}"   /* data-sagui-fuera: elemento.remove() (D271) */
+    "dialog{position:absolute;left:0;right:0;margin:auto;width:fit-content;border:2px solid #000;padding:1em;background-color:#fff;color:#000}"
     "li{display:list-item}table{display:table}thead,tbody,tfoot{display:table-row-group}tr{display:table-row}"
     "td,th{display:table-cell;padding:2px 4px}th{font-weight:bold;text-align:center}caption{display:table-caption;text-align:center}"
     "body{margin:8px;color:#000}p,dl,ul,ol,menu,pre,fieldset{margin:1em 0}blockquote,figure{margin:1em 40px}"
@@ -1483,7 +1800,7 @@ static const char folha_padrao[] =
     "b,strong{font-weight:bold}i,em,cite,var,dfn,address{font-style:italic}u,ins{text-decoration:underline}s,strike,del{text-decoration:line-through}"
     "table{text-align:left}center table{margin-left:auto;margin-right:auto}a:link{color:#0b57d0;text-decoration:underline}small,sub,sup{font-size:.83em}big{font-size:1.17em}pre{white-space:pre}"
     "hr{border:1px solid #c4cbd2;margin:.5em 0}center{text-align:center}mark{background-color:#ff0}"
-    "img,video,canvas,iframe,input,button,select,textarea,object,embed,meter,progress{display:inline-block}"
+    "img,video,audio,canvas,iframe,input,button,select,textarea,object,embed,meter,progress{display:inline-block}"
     /* controles como no html.css do Chromium: fonte própria (não herdada), 13,333px */
     "pre,code,kbd,samp,tt,listing,xmp,plaintext{font-family:monospace;font-size:.8125em}pre code,pre kbd,pre samp,pre tt,code code{font-size:1em}"
     "input,select,textarea,button{font-family:sans-serif;font-size:13.333px;font-weight:normal;font-style:normal;color:#000;text-transform:none;text-indent:0;line-height:normal}"
@@ -1518,6 +1835,14 @@ static const char *subst_vars(motor_t *m, no_m *n, const char *v)
                 for (no_m *q = n; q && !val; q = q->pai)
                     for (var_m_t *x = q->vars; x; x = x->prox)
                         if ((int)tam_texto(x->nome) == b - a && !memcmp(x->nome, a, (size_t)(b - a))) { val = x->valor; break; }
+                if (val) {    /* --x: var(--x, ...) refere-se a si mesma: não vale, fica a reserva (D271) */
+                    for (const char *z = val; *z; z++)
+                        if (z[0] == 'v' && z[1] == 'a' && z[2] == 'r' && z[3] == '(') {
+                            const char *w = z + 4;
+                            while (eh_esp(*w)) w++;
+                            if (!memcmp(w, a, (size_t)(b - a)) && (w[b - a] == ',' || w[b - a] == ')' || eh_esp(w[b - a]))) { val = NULL; break; }
+                        }
+                }
                 if (!val) {   /* reserva: var(--x, reserva) */
                     const char *c = b;
                     while (eh_esp(*c)) c++;
@@ -1605,6 +1930,15 @@ static void fundo_atalho(motor_t *m, estilo_t *e, const char *v, int nv)
             c0 = q + 1;
         }
     }
+    if (achou && c0 > v && fim < v + nv) {      /* D271: várias camadas: a cor é a da última */
+        const char *u0 = v + nv;
+        int pr2 = 0;
+        while (u0 > v) { char ch = u0[-1]; if (ch == ')') pr2++; else if (ch == '(') pr2--; else if (ch == ',' && !pr2) break; u0--; }
+        const char *pp[6]; int tt[6];
+        int kk = palavras(u0, (int)(v + nv - u0), pp, tt, 6);
+        uint32_t cc;
+        for (int i = 0; i < kk; i++) if (!igual_n(pp[i], "url(", 4) && !strstr_m(pp[i], "gradient(") && ler_cor(pp[i], tt[i], &cc, e->cor)) e->fundo = cc;
+    }
     char pos[96] = "", tam[64] = "";
     const char *rp[2]; int rt[2], nr = 0;
     bool barra = false;
@@ -1644,12 +1978,15 @@ static void estilo_inicial(estilo_t *e, const estilo_t *pai)
     e->vao_l.u = e->vao_c.u = U_PX;
     e->g_span = 1; e->g_lspan = 1; e->opac = 255;
     e->dir = 0;
+    e->recuo.u = U_PX; e->lin_auto.u = U_AUTO; e->contorno_sem = 1;
     if (pai) {
         e->cor = pai->cor; e->tam = pai->tam; e->peso = pai->peso; e->italico = pai->italico; e->alinha = pai->alinha;
         e->branco = pai->branco; e->lista = pai->lista; e->visivel = pai->visivel; e->linha = pai->linha; e->maiusc = pai->maiusc;
         e->sublinha = pai->sublinha; e->risca = pai->risca; e->fam = pai->fam;
         e->pesonum = pai->pesonum; e->largura = pai->largura; e->fvs = pai->fvs; e->ls64 = pai->ls64; e->generica = pai->generica; e->esp_cel = pai->esp_cel; e->colapsa = pai->colapsa;
         e->svg_fill = pai->svg_fill; e->svg_stroke = pai->svg_stroke; e->svg_sw = pai->svg_sw;
+        e->sombra_txt = pai->sombra_txt; e->recuo = pai->recuo; e->esp_pal = pai->esp_pal; e->parte = pai->parte;
+        e->cor_deco = pai->cor_deco; e->tem_cor_deco = pai->tem_cor_deco;
     } else { e->cor = 0x000000; e->tam = 16; e->linha.u = U_AUTO; e->fam = -1; e->pesonum = 400; e->largura = 1000; e->generica = 1; }   /* padrão do Chrome: serif */
 }
 
@@ -1658,7 +1995,7 @@ static int px_de(const medida_t *m, int tam)
     switch (m->u) {
     case U_PX: return m->v;
     case U_EM: return m->v * tam / 100;
-    case U_REM: return m->v * 16 / 100;
+    case U_REM: return m->v * rem_px / 100;
     default: return 0;
     }
 }
@@ -1806,9 +2143,9 @@ static void tamanho_fonte(estilo_t *e, const char *v, const estilo_t *pai)
     if (igual(v, "larger")) { e->tam = (int16_t)(pt * 6 / 5); return; }
     medida_t md;
     if (!ler_medida_m(v, (int)tam_texto(v), &md)) return;
-    int t = md.u == U_PX ? md.v : md.u == U_EM ? md.v * pt / 100 : md.u == U_REM ? md.v * 16 / 100 : md.u == U_PCT ? md.v * pt / 10000 :
+    int t = md.u == U_PX ? md.v : md.u == U_EM ? md.v * pt / 100 : md.u == U_REM ? md.v * rem_px / 100 : md.u == U_PCT ? md.v * pt / 10000 :
             md.u == U_VW ? md.v * 1024 / 10000 : (md.u == U_FR ? 16 : pt);
-    if (t < 6) t = 6;
+    if (t < 6 && !(t == 0 && md.u != U_FR)) t = 6;   /* font-size: 0 é de propósito (tira os espaços entre caixas em linha) */
     if (t > 96) t = 96;
     e->tam = (int16_t)t;
 }
@@ -1826,7 +2163,7 @@ static void trilhas(estilo_t *e, const char *v)
             int nr = palavras(q, nq, r, tr, 8);
             if (nr < 2) continue;
             int vezes = 0;
-            if (tr[0] >= 8 && (igual_n(r[0], "auto-fill", 9) || igual_n(r[0], "auto-fit", 8))) { vezes = -1; }
+            if (tr[0] >= 8 && (igual_n(r[0], "auto-fill", 9) || igual_n(r[0], "auto-fit", 8))) { vezes = igual_n(r[0], "auto-fit", 8) ? -2 : -1; }
             else { int u; vezes = num100(r[0], tr[0], &u) / 100; }
             medida_t md;
             const char *alvo = r[1]; int ta = tr[1];
@@ -1840,7 +2177,7 @@ static void trilhas(estilo_t *e, const char *v)
                 }
             }
             if (!ler_medida_m(alvo, ta, &md)) md.u = U_FR, md.v = 100;
-            if (vezes < 0) { e->col_rep_auto = 1; e->col[e->n_col++] = md; continue; }
+            if (vezes < 0) { e->col_rep_auto = (uint8_t)-vezes; e->col[e->n_col++] = md; continue; }     /* 1 auto-fill, 2 auto-fit */
             for (int z = 0; z < vezes && e->n_col < MAX_TRILHAS; z++) e->col[e->n_col++] = md;
             continue;
         }
@@ -2077,6 +2414,8 @@ static void aplicar(motor_t *m, no_m *n, int prop, const char *v0, const estilo_
     estilo_t *e = &n->e;
     const char *v = subst_vars(m, n, v0);
     int nv = (int)tam_texto(v);
+    cc_tam = prop == PR_FSIZE && pai ? pai->tam : e->tam; cc_vw = m->vw > 0 ? m->vw : 1024; cc_vh = m->vh > 0 ? m->vh : 768;
+    cc_ch = e->generica == 2 ? 60 : 50;      /* 1ch: o avanço do «0» (0,6 em nas monoespaçadas) */
     if (nv == 7 && igual_n(v, "inherit", 7)) {
         if (!pai) return;
         switch (prop) {
@@ -2195,7 +2534,7 @@ static void aplicar(motor_t *m, no_m *n, int prop, const char *v0, const estilo_
         if (igual(v, "normal")) e->ls64 = 0;
         else if (ler_medida_m(v, nv, &md) && md.u != U_PCT && md.u != U_AUTO) {
             /* em/rem em 1/64 px: v vem em centésimos */
-            int x = md.u == U_EM ? md.v * e->tam * 64 / 100 : md.u == U_REM ? md.v * 16 * 64 / 100 : md.u == U_PX ? md.v * 64 : 0;
+            int x = md.u == U_EM ? md.v * e->tam * 64 / 100 : md.u == U_REM ? md.v * rem_px * 64 / 100 : md.u == U_PX ? md.v * 64 : 0;
             e->ls64 = (int16_t)(x < -32000 ? -32000 : x > 32000 ? 32000 : x);
         }
         break;
@@ -2224,6 +2563,17 @@ static void aplicar(motor_t *m, no_m *n, int prop, const char *v0, const estilo_
             else if (ler_medida_m(w, (int)tam_texto(w), &md) && md.u != U_PX) tamanho_fonte(e, w, pai);
             else if (ler_medida_m(w, (int)tam_texto(w), &md) && md.u == U_PX && md.v > 0) tamanho_fonte(e, w, pai);
         }
+        {   /* D271: "tamanho/entrelinha"; sem a barra, a entrelinha volta a normal */
+            const char *b = acha_char(v, '/');
+            if (b) {
+                b++;
+                while (*b && eh_esp(*b)) b++;
+                int nb = 0;
+                while (b[nb] && !eh_esp(b[nb])) nb++;
+                char lh[24];
+                if (nb > 0 && nb < 23) { memcpy(lh, b, (size_t)nb); lh[nb] = 0; aplicar(m, n, PR_LHEIGHT, lh, pai); }
+            } else if (k > 1) e->linha.u = U_AUTO;
+        }
         break;
     }
     case PR_TALIGN:
@@ -2231,7 +2581,17 @@ static void aplicar(motor_t *m, no_m *n, int prop, const char *v0, const estilo_
         break;
     case PR_TDECO: case PR_TDLINE:
         e->sublinha = strstr_m(v, "underline"); e->risca = strstr_m(v, "line-through");
+        if (prop == PR_TDECO) {      /* a cor da decoração, se vier no atalho (D271) */
+            int k = palavras(v, nv, p, t, 5);
+            e->tem_cor_deco = 0;
+            for (int i = 0; i < k; i++) if (!igual_n(p[i], "underline", 9) && !igual_n(p[i], "none", 4) && ler_cor(p[i], t[i], &c, e->cor)) { e->cor_deco = c; e->tem_cor_deco = 1; }
+        }
         break;
+    case PR_TDCOLOR: if (ler_cor(v, nv, &c, e->cor)) { e->cor_deco = c; e->tem_cor_deco = 1; } break;
+    case PR_TINDENT: if (ler_medida_m(v, nv, &md)) { if (md.u == U_EM || md.u == U_REM) { md.v = px_de(&md, e->tam); md.u = U_PX; } e->recuo = md; } break;
+    case PR_WSPACING: if (igual(v, "normal")) e->esp_pal = 0; else if (ler_medida_m(v, nv, &md) && (md.u == U_PX || md.u == U_EM || md.u == U_REM)) { int x = px_de(&md, e->tam); e->esp_pal = (int16_t)(x > 2000 ? 2000 : x < -2000 ? -2000 : x); } break;
+    case PR_OWRAP: case PR_WWRAP: e->parte = (uint8_t)((e->parte & 2) | (strstr_m(v, "anywhere") || strstr_m(v, "break-word") ? 1 : 0)); break;
+    case PR_WBREAK: e->parte = (uint8_t)(strstr_m(v, "break-all") ? (e->parte | 2) : strstr_m(v, "break-word") ? ((e->parte & ~2) | 1) : (e->parte & ~2)); break;
     case PR_LHEIGHT:
         if (igual(v, "normal")) e->linha.u = U_AUTO;
         else if (ler_medida_m(v, nv, &md)) {
@@ -2264,10 +2624,34 @@ static void aplicar(motor_t *m, no_m *n, int prop, const char *v0, const estilo_
                        (strstr_m(v, "end") || strstr_m(v, "right")) ? 2 : 0;
         if (prop == PR_PCONTENT) e->alinha_conteudo = e->justifica;
         break;
-    case PR_ACONTENT: e->alinha_conteudo = strstr_m(v, "center") ? 1 : strstr_m(v, "end") ? 2 : strstr_m(v, "space-between") ? 4 : 0; break;
-    case PR_AITEMS: case PR_PITEMS:
-        e->alinha_itens = strstr_m(v, "center") ? 1 : strstr_m(v, "end") ? 2 : (strstr_m(v, "start") || strstr_m(v, "baseline")) ? 3 : 0;
+    case PR_ACONTENT: e->alinha_conteudo = strstr_m(v, "space-between") ? 4 : strstr_m(v, "space-around") ? 5 : strstr_m(v, "space-evenly") ? 6 : strstr_m(v, "center") ? 1 :
+                                           strstr_m(v, "end") ? 2 : strstr_m(v, "start") ? 3 : 0; break;
+    case PR_AITEMS: case PR_PITEMS: {
+        int k = palavras(v, nv, p, t, 2);
+        if (k) e->alinha_itens = igual_n(p[0], "center", 6) && t[0] == 6 ? 1 : strstr_m(p[0], "end") == p[0] || (t[0] > 5 && igual_n(p[0], "flex-end", 8)) ? 2 :
+                                 (strstr_m(v, "start") == p[0] || igual_n(p[0], "flex-start", 10) || igual_n(p[0], "baseline", 8)) ? 3 : 0;
+        if (prop == PR_PITEMS && k) { const char *j = p[k - 1]; e->just_itens = igual_n(j, "center", 6) ? 2 : igual_n(j, "end", 3) || igual_n(j, "flex-end", 8) ? 3 : igual_n(j, "start", 5) || igual_n(j, "flex-start", 10) ? 1 : 0; }
         break;
+    }
+    case PR_JITEMS: e->just_itens = strstr_m(v, "center") ? 2 : strstr_m(v, "end") || strstr_m(v, "right") ? 3 : strstr_m(v, "start") || strstr_m(v, "left") ? 1 : 0; break;
+    case PR_JSELF: e->just_si = strstr_m(v, "center") ? 2 : strstr_m(v, "end") || strstr_m(v, "right") ? 3 : strstr_m(v, "start") || strstr_m(v, "left") ? 1 : strstr_m(v, "stretch") ? 4 : 0; break;
+    case PR_PSELF: {
+        int k = palavras(v, nv, p, t, 2);
+        if (k) { e->alinha_si = strstr_m(p[0], "center") == p[0] ? 2 : strstr_m(p[0], "end") == p[0] ? 3 : strstr_m(p[0], "start") == p[0] ? 4 : strstr_m(p[0], "stretch") == p[0] ? 1 : 0;
+                 const char *j = p[k - 1]; e->just_si = igual_n(j, "center", 6) ? 2 : igual_n(j, "end", 3) ? 3 : igual_n(j, "start", 5) ? 1 : igual_n(j, "stretch", 7) ? 4 : 0; }
+        break;
+    }
+    case PR_GTR: {          /* grid-template-rows: as mesmas regras das colunas, até 8 linhas */
+        estilo_t *tmp = m_novo(m, sizeof(estilo_t));
+        if (!tmp) break;
+        trilhas(tmp, v);
+        e->n_lin = tmp->col_rep_auto ? 0 : (uint8_t)(tmp->n_col > 8 ? 8 : tmp->n_col);
+        for (int i = 0; i < e->n_lin; i++) { e->lin[i] = tmp->col[i]; if (e->lin[i].u == U_EM || e->lin[i].u == U_REM) { e->lin[i].v = px_de(&e->lin[i], e->tam); e->lin[i].u = U_PX; } }
+        break;
+    }
+    case PR_GAR: if (ler_medida_m(v, nv, &md)) { if (md.u == U_EM || md.u == U_REM) { md.v = px_de(&md, e->tam); md.u = U_PX; } e->lin_auto = md; } break;
+    case PR_GAF: e->fluxo_col = strstr_m(v, "column") != NULL; break;
+    case PR_GRE: { int u; int x = num100(v, nv, &u) / 100; if (u && e->g_lin > 0 && x > e->g_lin) e->g_lspan = (int8_t)(x - e->g_lin); else if (nv > 5 && igual_n(v, "span", 4)) { x = num100(v + 5, nv - 5, &u) / 100; if (u && x > 0) e->g_lspan = (int8_t)x; } break; }
     case PR_ASELF: e->alinha_si = strstr_m(v, "center") ? 2 : strstr_m(v, "end") ? 3 : strstr_m(v, "start") ? 4 : strstr_m(v, "stretch") ? 1 : 0; break;
     case PR_GROW: { int u; int x = num100(v, nv, &u); if (u) e->cresce = (int16_t)(x > 30000 ? 30000 : x); break; }
     case PR_SHRINK: { int u; int x = num100(v, nv, &u); if (u) e->encolhe = (int16_t)(x > 30000 ? 30000 : x); break; }
@@ -2327,6 +2711,42 @@ static void aplicar(motor_t *m, no_m *n, int prop, const char *v0, const estilo_
     case PR_CONTENT: e->conteudo = v; break;
     case PR_MASK: { int un; const char *u = ler_url(v, &un); e->mascara = !strstr_m(v, "none") || u; e->mask_url = u ? m_dup(m, u, un) : NULL; break; }
     case PR_OPACITY: { int u; int x = num100(v, nv, &u); if (u) { if (u < nv && v[u] == '%') x /= 100; if (x < 0) x = 0; if (x > 100) x = 100; e->opac = (uint8_t)(x * 255 / 100); e->opaco0 = x <= 0; } break; }
+    case PR_ARATIO: {       /* "16 / 9", "1.5", "auto 4/3" */
+        int k = palavras(v, nv, p, t, 4), nn = 0, u; int16_t r[2] = { 0, 100 };
+        for (int i = 0; i < k && nn < 2; i++) {
+            const char *q = p[i]; int tq = t[i];
+            while (tq > 0) {
+                if (*q == '/') { q++; tq--; continue; }
+                int x = num100(q, tq, &u);
+                if (!u) break;
+                if (nn < 2) r[nn++] = (int16_t)(x > 30000 ? 30000 : x);
+                q += u; tq -= u;
+            }
+        }
+        if (nn && r[0] > 0 && r[1] > 0) { e->razao_l = r[0]; e->razao_a = r[1]; } else { e->razao_l = e->razao_a = 0; }
+        break;
+    }
+    case PR_OFIT: e->encaixe = igual(v, "contain") ? 1 : igual(v, "cover") ? 2 : igual(v, "none") ? 3 : igual(v, "scale-down") ? 4 : 0; break;
+    case PR_OPOS: e->encaixe_pos = v; break;
+    case PR_BSHADOW: e->sombra = (nv == 4 && igual_n(v, "none", 4)) ? NULL : v; break;
+    case PR_TSHADOW: e->sombra_txt = (nv == 4 && igual_n(v, "none", 4)) ? NULL : v; break;
+    case PR_OUTLINE: {       /* largura, estilo e cor em qualquer ordem */
+        int k = palavras(v, nv, p, t, 4);
+        e->contorno = 3; e->contorno_sem = 1; e->cor_contorno = 0;
+        for (int i = 0; i < k; i++) {
+            int w = largura_borda(p[i], t[i], e->tam);
+            if (w >= 0) { e->contorno = (int16_t)w; if (w == 0) e->contorno_sem = 1; }
+            else if ((t[i] == 4 && igual_n(p[i], "none", 4)) || (t[i] == 6 && igual_n(p[i], "hidden", 6))) e->contorno_sem = 1;
+            else if (t[i] >= 4 && (igual_n(p[i], "solid", 5) || igual_n(p[i], "dotted", 6) || igual_n(p[i], "dashed", 6) || igual_n(p[i], "double", 6) ||
+                                   igual_n(p[i], "auto", 4) || igual_n(p[i], "groove", 6) || igual_n(p[i], "ridge", 5) || igual_n(p[i], "inset", 5) || igual_n(p[i], "outset", 6))) e->contorno_sem = 0;
+            else if (ler_cor(p[i], t[i], &c, e->cor)) e->cor_contorno = c;
+        }
+        break;
+    }
+    case PR_OUTW: { int w = largura_borda(v, nv, e->tam); if (w >= 0) e->contorno = (int16_t)w; break; }
+    case PR_OUTC: if (ler_cor(v, nv, &c, e->cor)) e->cor_contorno = c; break;
+    case PR_OUTS: e->contorno_sem = (igual(v, "none") || igual(v, "hidden")); if (!e->contorno_sem && !e->contorno) e->contorno = 3; break;
+    case PR_OUTO: if (ler_medida_m(v, nv, &md)) e->contorno_des = (int16_t)px_de(&md, e->tam); break;
     case PR_TTRANSFORM: e->maiusc = igual(v, "uppercase") ? 1 : igual(v, "lowercase") ? 2 : igual(v, "capitalize") ? 3 : 0; break;
     case PR_VALIGN: e->vert = igual(v, "middle") ? 1 : igual(v, "top") ? 2 : igual(v, "bottom") ? 3 : 0; break;
     case PR_ZINDEX: { int u; int x = num100(v, nv, &u); if (u) { e->z = (int16_t)(x / 100); e->z_def = 1; } else e->z_def = 0; break; }
@@ -2709,7 +3129,7 @@ static const int props_todas[] = { PR_COLOR, PR_BGCOLOR, PR_BCOLOR, PR_OPACITY, 
 /* A medida pode ser interpolada? (auto, none, max-content... não) */
 static bool med_ok(int u)
 {
-    return u == U_PX || u == U_EM || u == U_REM || u == U_PCT || u == U_VW || u == U_VH;
+    return u == U_PX || u == U_EM || u == U_REM || u == U_PCT || u == U_VW || u == U_VH || u == U_CALC;
 }
 
 /* O valor de uma propriedade, em casas. -1 marca "não se pode interpolar"
@@ -2998,6 +3418,7 @@ static void estilizar(motor_t *m, no_m *n)
     estilo_inicial(&n->e, pe);
     if (n->texto) { n->e.display = n->texto == 2 ? D_NONE : D_INLINE; return; }
     if (!pn || igual(n->tag, "#anon")) { n->e.display = D_BLOCK; return; }
+    if (igual(n->tag, "#linha")) { n->e.display = D_ROW; return; }
     static achado_t ach[512];
     static achado_t achps[2][64]; int nps[2] = { 0, 0 };
     int na = 0;
@@ -3067,18 +3488,34 @@ static void estilizar(motor_t *m, no_m *n)
         if (ach[i].d->prop == PR_FSIZE || ach[i].d->prop == PR_FONT) aplicar(m, n, ach[i].d->prop, ach[i].d->valor, pe);
     }
     presentacionais(m, n);
+    bool e_raiz = igual(n->tag, "html");
+    if (e_raiz) rem_px = 16;     /* o rem da própria raiz é o tamanho inicial */
     for (int q = i; q < na; q++) if (ach[q].d->prop == PR_FSIZE || ach[q].d->prop == PR_FONT) aplicar(m, n, ach[q].d->prop, ach[q].d->valor, pe);
+    if (e_raiz) rem_px = n->e.tam > 0 ? n->e.tam : 16;   /* html{font-size:62.5%}: 1rem = 10px */
+    bool autor_caixa = false, autor_raio = false;
     for (int q = 0; q < na; q++) {
         if (q == i) presentacionais(m, n);
         int p = ach[q].d->prop;
         if (m->sem_esconder && ach[q].espec >= 2000000 && ((p == PR_DISPLAY && strstr_m(ach[q].d->valor, "none")) ||
             (p == PR_VISIBILITY && strstr_m(ach[q].d->valor, "hidden")) || (p == PR_OPACITY && ach[q].d->valor[0] == '0'))) continue;
         if (p != PR_FSIZE && p != PR_CUSTOM && p != PR_FONT) aplicar(m, n, p, ach[q].d->valor, pe);
+        if (ach[q].espec >= 2000000) {
+            if (p == PR_RADIUS) autor_raio = true;
+            else if (p == PR_BG || p == PR_BGCOLOR || p == PR_BGIMAGE || (p >= PR_BORDER && p <= PR_BSTYLE)) autor_caixa = true;
+        }
     }
     if (i == na) presentacionais(m, n);
     estilo_t *e = &n->e;
+    /* um controlo a que o autor dá fundo ou borda perde o aspeto nativo: os cantos
+     * redondos da folha do motor só ficam se o autor não tocar na caixa (D271) */
+    if (autor_caixa && !autor_raio && (igual(n->tag, "input") || igual(n->tag, "button") || igual(n->tag, "select") || igual(n->tag, "textarea"))) {
+        const char *tp = atributo_m(n, "type");
+        if (!(tp && igual(tp, "radio"))) e->raio = 0;
+    }
     /* "blockification" (CSS Display 3, 2.7): float, absoluto e filho de flex/grid viram bloco */
-    bool item = pe && (pe->display == D_FLEX || pe->display == D_IFLEX || pe->display == D_GRID);
+    const estilo_t *pc = pe;      /* o contentor de verdade: salta os antepassados com display: contents */
+    for (no_m *q = pn; q && q->e.display == D_CONTENTS && q->pai; q = q->pai) pc = &q->pai->e;
+    bool item = pc && (pc->display == D_FLEX || pc->display == D_IFLEX || pc->display == D_GRID);
     if (e->flutua || e->position == P_ABSOLUTE || e->position == P_FIXED || item) {
         if (e->display == D_INLINE || e->display == D_IBLOCK || e->display == D_ROW || e->display == D_CELL) e->display = D_BLOCK;
         else if (e->display == D_IFLEX) e->display = D_FLEX;
@@ -3086,6 +3523,8 @@ static void estilizar(motor_t *m, no_m *n)
     if (igual(n->tag, "html") || igual(n->tag, "body")) { if (e->display != D_NONE && e->display != D_FLEX && e->display != D_GRID) e->display = D_BLOCK; }
     if (e->display == D_LIST && !e->lista && !atributo_m(n, "style") && pe && pe->lista) e->lista = pe->lista;
     if (pn && igual(pn->tag, "details") && !atributo_m(pn, "open") && !igual(n->tag, "summary")) e->display = D_NONE;
+    /* o conteúdo alternativo de <video>, <audio>, <canvas> e <iframe> não se pinta (D271) */
+    if (pn && (igual(pn->tag, "video") || igual(pn->tag, "audio") || igual(pn->tag, "canvas") || igual(pn->tag, "iframe"))) e->display = D_NONE;
     /* ::before e ::after viram filhos gerados */
     for (int k = 0; k < 2; k++) {
         if (!nps[k] && !n->ps[k]) continue;
@@ -3146,6 +3585,26 @@ static void estilizar(motor_t *m, no_m *n)
     }
 }
 
+/* <video src> o el src de su primer <source> (D276), o NULL */
+static const char *video_src_de(no_m *q)
+{
+    const char *src = atributo_m(q, "src");
+    for (no_m *s = q->filho; !src && s; s = s->prox) if (!s->texto && igual(s->tag, "source")) src = atributo_m(s, "src");
+    return src && src[0] && !comeca_com(src, "data:") ? src : NULL;
+}
+
+/* El hueco de imgs ("video:" + URL) de un <video>, o -1 */
+static int video_slot(motor_t *m, no_m *q)
+{
+    const char *src = video_src_de(q);
+    if (!src) return -1;
+    char v[640];
+    copia_texto(v, "video:", sizeof v);
+    juntar(m->url, src, v + 6, (int)sizeof v - 6);
+    for (int i = 0; i < m->n_imgs; i++) if (m->imgs[i].url && igual(m->imgs[i].url, v)) return i;
+    return -1;
+}
+
 static int imagem_idx(motor_t *m, const char *url)
 {
     for (int i = 0; i < m->n_imgs; i++) if (igual(m->imgs[i].url, url)) return i;
@@ -3175,10 +3634,45 @@ static void estilizar_tudo(motor_t *m, no_m *n)
 
 /* Textos soltos dentro de flex/grid/tabela viram um bloco anônimo; células
  * soltas ganham uma linha. */
+/* Mete os irmãos [ini, fim) de n num nó anónimo com esse display. */
+static no_m *embrulhar(motor_t *m, no_m *n, no_m *ini, no_m *fim, uint8_t display)
+{
+    no_m *a = m_novo(m, sizeof(no_m));
+    if (!a) return NULL;
+    copia_texto(a->tag, "#anon", sizeof a->tag);
+    a->img = -1; a->alvo = -1; a->max_c = a->min_c = -1; a->bg_img = -1; a->mask_img = -1;
+    estilo_inicial(&a->e, &n->e);
+    a->e.display = display;
+    a->pai = n;
+    dom_gerado(a);
+    a->ant = ini->ant; a->prox = fim;
+    if (ini->ant) ini->ant->prox = a; else n->filho = a;
+    if (fim) fim->ant = a; else n->ult = a;
+    a->filho = ini; ini->ant = NULL;
+    no_m *u = ini;
+    while (u->prox != fim) { u->pai = a; u = u->prox; }
+    u->pai = a; u->prox = NULL;
+    a->ult = u;
+    return a;
+}
+
 static void normalizar(motor_t *m, no_m *n)
 {
     for (no_m *c = n->filho; c; c = c->prox) if (!c->texto && c->e.display != D_NONE) normalizar(m, c);
     uint8_t d = n->e.display;
+    if (d == D_TABLE || d == D_ROWGROUP) {
+        /* D271: células (display: table-cell) soltas numa tabela: uma linha anónima por cada série */
+        for (no_m *c = n->filho; c;) {
+            if (c->texto || c->e.display != D_CELL) { c = c->prox; continue; }
+            no_m *fim = c;
+            while (fim && (fim->texto || fim->e.display == D_CELL || fim->e.display == D_NONE)) fim = fim->prox;
+            no_m *a = embrulhar(m, n, c, fim, D_ROW);
+            if (!a) return;
+            copia_texto(a->tag, "#linha", sizeof a->tag);     /* a cascata volta a dar-lhe display: table-row */
+            c = fim;
+        }
+        return;
+    }
     if (d != D_FLEX && d != D_IFLEX && d != D_GRID) return;
     for (no_m *c = n->filho; c;) {
         if (!(c->texto || c->e.display == D_INLINE)) { c = c->prox; continue; }
@@ -3240,8 +3734,9 @@ static int res_med(const medida_t *v, int base, const estilo_t *e)
     switch (v->u) {
     case U_PX: return v->v;
     case U_PCT: return base >= 0 && base < INF ? muldiv(v->v, base, 10000) : -1;
+    case U_CALC: return base >= 0 && base < INF ? muldiv(CALC_PCT(v->v), base, 10000) + CALC_PX(v->v) : -1;
     case U_EM: return v->v * e->tam / 100;
-    case U_REM: return v->v * 16 / 100;
+    case U_REM: return v->v * rem_px / 100;
     case U_VW: return v->v * mo->vw / 10000;
     case U_VH: return v->v * mo->vh / 10000;
     default: return -1;
@@ -3362,6 +3857,7 @@ static bool tamanho_natural(no_m *n, int *l, int *a)
         if ((v = atributo_m(n, "height"))) { int x = num100(v, (int)tam_texto(v), &u) / 100; if (u && !strstr_m(v, "%")) *a = x; }
         return true;
     }
+    if (igual(n->tag, "audio")) { *l = 300; *a = 54; return true; }
     if (igual(n->tag, "video") || igual(n->tag, "iframe") || igual(n->tag, "canvas") || igual(n->tag, "embed") || igual(n->tag, "object")) {
         int u; const char *v;
         *l = 300; *a = 150;
@@ -3758,10 +4254,22 @@ static void colocar_float(no_m *f, no_m *bloco, contexto_t *ctx, int cw, int y)
 
 /* Uma "palavra" (sem espaços): as oportunidades de quebra da UAX #14 dentro
  * dela (CJK, depois de hífen, barras etc.) viram itens de largura zero. */
+static int cw_coleta = INF;    /* a largura disponível do bloco que se está a coletar */
 static void palavra_quebravel(no_m *c, const estilo_t *e, int i, int k, int alvo, bool ascii)
 {
     int n = 0;
     for (int p = i; p < k;) { uint32_t cp; p += utf8_ler(c->t + p, k - p, &cp); n++; }
+    /* D271: word-break: break-all parte em qualquer letra; overflow-wrap: anywhere/break-word, só a palavra que não cabe */
+    if (e->parte && n > 1 && n <= 4000 && e->branco != 2 && e->branco != 1 && cw_coleta >= 3 * e->tam && ((e->parte & 2) || larg_texto(e, c->t + i, k - i) > cw_coleta)) {
+        for (int p = i; p < k;) {
+            uint32_t cp; int nb = utf8_ler(c->t + p, k - p, &cp);
+            item_t it = { c, e, c->t + p, nb, larg_texto(e, c->t + p, nb), altura_linha(e), 0, alvo };
+            por_item(&it);
+            p += nb;
+            if (p < k) { item_t op = { c, e, NULL, 0, 0, altura_linha(e), 8, alvo }; por_item(&op); }
+        }
+        return;
+    }
     uint32_t *cps = n > 1 && e->branco != 2 ? aloca((unsigned)n * 4 + 4) : NULL;
     uint8_t *r = cps ? aloca((unsigned)n + 2) : NULL;
     if (!r) {
@@ -3795,6 +4303,7 @@ static void coletar_no(no_m *c, no_m *n, int alvo, contexto_t *ctx, no_m *bloco_
         if (c->texto) {
             if (c->texto == 2 || !c->nt) return;
             const estilo_t *e = &n->e;
+            cw_coleta = cw;
             if (e->visivel) { item_t it = { c, e, NULL, 0, larg_texto(e, c->t, c->nt), altura_linha(e), 1, -1 }; it.l = 0; (void)it; }
             int i = 0;
             while (i < c->nt) {
@@ -3810,7 +4319,8 @@ static void coletar_no(no_m *c, no_m *n, int alvo, contexto_t *ctx, no_m *bloco_
                 }
                 if (eh_esp(ch)) {
                     while (i < c->nt && eh_esp(c->t[i])) i++;
-                    item_t it = { c, e, " ", 1, larg_car(e, ' '), altura_linha(e), 1, alvo };
+                    item_t it = { c, e, " ", 1, larg_car(e, ' ') + e->esp_pal, altura_linha(e), 1, alvo };
+                    if (it.l < 0) it.l = 0;
                     if (e->branco == 2) it.tipo = 0;
                     por_item(&it);
                     continue;
@@ -3842,10 +4352,10 @@ static void coletar_no(no_m *c, no_m *n, int alvo, contexto_t *ctx, no_m *bloco_
         /* inline comum: margem/padding horizontais viram espaço */
         caixa_modelo(c, cw);
         int esq = c->ml + c->bl[3] + c->pl[3], dir = c->mr + c->bl[1] + c->pl[1];
-        if (esq > 0) { item_t it = { c, e, NULL, 0, esq, 0, 6, al }; por_item(&it); }
+        if (esq > 0) { item_t it = { c, e, NULL, 1, esq, 0, 6, al }; por_item(&it); }     /* nt: 1 = a ponta esquerda, 2 = a direita */
         c->alvo = al;
         coletar(c, al, ctx, bloco_dono, cw, y_flut);
-        if (dir > 0) { item_t it = { c, e, NULL, 0, dir, 0, 6, al }; por_item(&it); }
+        if (dir > 0) { item_t it = { c, e, NULL, 2, dir, 0, 6, al }; por_item(&it); }
         } while (0);
 }
 
@@ -3927,6 +4437,10 @@ static int montar_linhas(no_m *bloco, int i0, int i1, int y, int cw, contexto_t 
         int l, r;
         int h_prev = altura_linha(be);
         bordas_flut(ctx, y, h_prev, x0, x0 + cw, &l, &r);
+        if (primeira && be->recuo.v) {      /* text-indent: só a primeira linha do bloco (D271) */
+            int ind = res_med(&be->recuo, cw, be);
+            if (ind > 0 && ind < r - l) l += ind;
+        }
         int disp = r - l;
         /* junta itens até encher */
         int j = i, w = 0, ult_quebra = -1, w_quebra = 0;
@@ -3982,6 +4496,42 @@ static int montar_linhas(no_m *bloco, int i0, int i1, int y, int cw, contexto_t 
         else if (be->alinha == 2) x += disp - w;
         if (x < l && be->alinha) x = l;
         int base = y + sobe;
+        /* D271: o fundo e a borda dos elementos em linha (<span>, <a>, <mark>, <code>...):
+         * uma caixa por linha, do primeiro ao último item do elemento nela; vai antes do texto. */
+        {
+            struct { no_m *no; int x0, x1; uint8_t pontas; } dec[12]; int nd = 0;
+            int xq = x;
+            for (int q = i; q < fim; q++) {
+                item_t *it = &itens[q];
+                if (it->tipo != 0 && it->tipo != 1 && it->tipo != 2 && it->tipo != 6) continue;
+                no_m *p = it->tipo == 6 ? it->no : it->no->pai;
+                for (int prof = 0; p && p != bloco && prof < 16; p = p->pai, prof++) {
+                    const estilo_t *pe2 = &p->e;
+                    if (pe2->display != D_INLINE) break;
+                    if (!(pe2->fundo || pe2->grad || pe2->bg_url || p->bl[0] || p->bl[1] || p->bl[2] || p->bl[3])) continue;
+                    int k = 0;
+                    while (k < nd && dec[k].no != p) k++;
+                    if (k == nd) { if (nd == 12) continue; dec[nd].no = p; dec[nd].x0 = xq; dec[nd].x1 = xq + it->l; dec[nd].pontas = 0; nd++; }
+                    if (xq < dec[k].x0) dec[k].x0 = xq;
+                    if (xq + it->l > dec[k].x1) dec[k].x1 = xq + it->l;
+                    if (it->tipo == 6 && it->no == p) dec[k].pontas |= (uint8_t)it->nt;
+                }
+                xq += it->l;
+            }
+            for (int k = nd - 1; k >= 0; k--) {      /* os de fora primeiro */
+                no_m *p = dec[k].no;
+                frag_t *f = novo_frag();
+                if (!f) return y;
+                int t = p->e.tam;
+                if (dec[k].pontas & 1) dec[k].x0 += p->ml;
+                if (dec[k].pontas & 2) dec[k].x1 -= p->mr;
+                f->dono = bloco; f->estilo_de = p;
+                f->x = dec[k].x0; f->l = dec[k].x1 - dec[k].x0;
+                f->y = base - t * 17 / 20 - p->pl[0] - p->bl[0]; f->a = t * 23 / 20 + p->pl[0] + p->pl[2] + p->bl[0] + p->bl[2];
+                f->t = NULL; f->nt = -1 - dec[k].pontas; f->alvo = -1;
+                if (f->l > 0) por_frag(bloco, f);
+            }
+        }
         for (int q = i; q < fim; q++) {
             item_t *it = &itens[q];
             if (it->tipo == 0 || it->tipo == 1) {
@@ -4257,6 +4807,27 @@ static void deslocar_conteudo(no_m *n, int dy)
 
 typedef struct { no_m *c; int base, hip, mn, mx, fin, cruz; int linha; } fitem_t;
 
+/* Os itens de um contentor flex ou grid, em ordem: um filho com display:contents
+ * não é item, são-no os filhos dele (D271). c = NULL dá o primeiro. Sem recursão. */
+static no_m *item_seg(no_m *raiz, no_m *c)
+{
+    no_m *q;
+    if (!c) q = raiz->filho;
+    else { q = c->prox; for (no_m *p = c->pai; !q && p && p != raiz; p = p->pai) q = p->prox; }
+    while (q) {
+        if (!q->texto && q->e.display == D_CONTENTS) {
+            q->x = q->y = 0; q->l = q->a = 0;
+            if (q->filho) { q = q->filho; continue; }
+            no_m *s = q->prox;
+            for (no_m *p = q->pai; !s && p && p != raiz; p = p->pai) s = p->prox;
+            q = s;
+            continue;
+        }
+        return q;
+    }
+    return NULL;
+}
+
 static int flex(no_m *n, int cw, int ch)
 {
     estilo_t *e = &n->e;
@@ -4265,12 +4836,12 @@ static int flex(no_m *n, int cw, int ch)
     if (gm < 0) gm = 0;
     if (gc < 0) gc = 0;
     int qtd = 0;
-    for (no_m *c = n->filho; c; c = c->prox) if (!c->texto && c->e.display != D_NONE && !fora_do_fluxo(c)) qtd++;
+    for (no_m *c = item_seg(n, NULL); c; c = item_seg(n, c)) if (!c->texto && c->e.display != D_NONE && !fora_do_fluxo(c)) qtd++;
     if (!qtd) return 0;
     fitem_t *it = m_novo(mo, qtd * (int)sizeof(fitem_t));
     if (!it) return 0;
     int k = 0;
-    for (no_m *c = n->filho; c; c = c->prox) if (!c->texto && c->e.display != D_NONE && !fora_do_fluxo(c)) it[k++].c = c;
+    for (no_m *c = item_seg(n, NULL); c && k < qtd; c = item_seg(n, c)) if (!c->texto && c->e.display != D_NONE && !fora_do_fluxo(c)) it[k++].c = c;
     for (int i = 1; i < k; i++) { fitem_t x = it[i]; int j = i - 1; while (j >= 0 && it[j].c->e.ordem > x.c->e.ordem) { it[j + 1] = it[j]; j--; } it[j + 1] = x; }
     if (e->dir & 2) for (int i = 0; i < k / 2; i++) { fitem_t x = it[i]; it[i] = it[k - 1 - i]; it[k - 1 - i] = x; }
     int x0 = n->bl[3] + n->pl[3], y0 = n->bl[0] + n->pl[0];
@@ -4301,7 +4872,14 @@ static int flex(no_m *n, int cw, int ch)
             /* min-width automático: não encolhe abaixo do conteúdo mínimo */
             int w = res_med(&ce->larg, cw, ce);
             int mc = medir_min(c) - mg;
-            mn = w >= 0 && w < mc ? (ce->caixa_borda ? w : w + ex) : mc;
+            if (w >= 0) {       /* com largura dada, o mínimo é o menor entre ela e o conteúdo (CSS Flexbox 4.5) */
+                medida_t g = ce->larg;
+                ce->larg.u = U_AUTO; c->min_c = c->max_c = -1;
+                int mcc = medir_min(c) - mg;
+                ce->larg = g; c->min_c = c->max_c = -1;
+                int wb = ce->caixa_borda ? w : w + ex;
+                mn = mcc < wb ? mcc : wb;
+            } else mn = mc;
         }
         int mx = res_med(col ? &ce->max_a : &ce->max_l, col ? ch : cw, ce);
         if (mx < 0) mx = INF; else if (!ce->caixa_borda) mx += ex;
@@ -4445,6 +5023,22 @@ static int flex(no_m *n, int cw, int ch)
         cruz_total += cruz_linha + (L ? gc : 0);
         i0 = i1;
     }
+    /* align-content (D271): com várias linhas e o eixo transversal definido, o que sobra reparte-se entre elas */
+    int cruz_dada = col ? cw : ch;
+    if (e->quebra && cruz_dada >= 0 && cruz_dada < INF && cruz_dada > cruz_total) {
+        int sobra = cruz_dada - cruz_total, pos = 0, entre = 0;
+        switch (e->alinha_conteudo) {
+        case 1: pos = sobra / 2; break;
+        case 2: pos = sobra; break;
+        case 3: break;
+        case 4: entre = nlin > 1 ? sobra / (nlin - 1) : 0; break;
+        case 5: entre = sobra / nlin; pos = entre / 2; break;
+        case 6: entre = sobra / (nlin + 1); pos = entre; break;
+        default: entre = sobra / nlin; break;       /* normal/stretch: cada linha fica com a sua parte */
+        }
+        for (int i = 0; i < k; i++) { int d = pos + it[i].linha * entre; if (col) it[i].c->x += d; else it[i].c->y += d; }
+        cruz_total = cruz_dada;
+    }
     return col ? (ch >= 0 ? ch : conteudo_principal) : cruz_total;
 }
 
@@ -4467,8 +5061,17 @@ static int grid(no_m *n, int cw)
     } else if (e->n_col) { nt = e->n_col; memcpy(tr, e->col, sizeof(medida_t) * (size_t)nt); }
     else { nt = 1; tr[0].u = U_FR; tr[0].v = 100; }
     int qtd = 0;
-    for (no_m *c = n->filho; c; c = c->prox) if (!c->texto && c->e.display != D_NONE && !fora_do_fluxo(c)) qtd++;
+    for (no_m *c = item_seg(n, NULL); c; c = item_seg(n, c)) if (!c->texto && c->e.display != D_NONE && !fora_do_fluxo(c)) qtd++;
     if (!qtd) return 0;
+    /* D271: auto-fit não guarda as colunas vazias; grid-auto-flow: column sem colunas dadas faz uma por item */
+    if (e->n_col && e->col_rep_auto == 2 && qtd < nt) nt = qtd;
+    int lin_fluxo = 0;
+    if (e->fluxo_col && !e->n_col && !e->areas) {
+        lin_fluxo = e->n_lin ? e->n_lin : 1;
+        nt = (qtd + lin_fluxo - 1) / lin_fluxo;
+        if (nt > MAX_TRILHAS) nt = MAX_TRILHAS;
+        for (int i = 0; i < nt; i++) { tr[i].u = U_AUTO; tr[i].v = 0; }
+    }
     typedef struct { no_m *c; int lin, col, span, lspan; } gi_t;
     /* áreas nomeadas: "a a b" "c c b" */
     char *anome[24]; int ar0[24], ac0[24], ar1[24], ac1[24], nareas = 0, acols = 0;
@@ -4507,11 +5110,12 @@ static int grid(no_m *n, int cw)
     uint32_t *ocup = m_novo(mo, max_lin * 4);
     if (!it || !ocup) return 0;
     int k = 0, cl = 0, cc = 0;
-    for (no_m *c = n->filho; c; c = c->prox) {
+    for (no_m *c = item_seg(n, NULL); c && k < qtd; c = item_seg(n, c)) {
         if (c->texto || c->e.display == D_NONE || fora_do_fluxo(c)) continue;
         int span = c->e.g_span < 0 ? nt : c->e.g_span;
         int ini = c->e.g_ini > 0 ? c->e.g_ini - 1 : -1;
         int lin_fixa = c->e.g_lin > 0 ? c->e.g_lin - 1 : -1, lspan = c->e.g_lspan > 0 ? c->e.g_lspan : 1;
+        if (lin_fluxo && ini < 0 && lin_fixa < 0 && !c->e.area) { ini = k / lin_fluxo; lin_fixa = k % lin_fluxo; span = 1; }
         if (c->e.area) for (int z = 0; z < nareas; z++) if (igual(anome[z], c->e.area)) {
             ini = ac0[z]; span = ac1[z] - ac0[z] + 1; lin_fixa = ar0[z]; lspan = ar1[z] - ar0[z] + 1;
         }
@@ -4561,6 +5165,11 @@ static int grid(no_m *n, int cw)
         if (autos > 0) for (int i = 0; i < nt; i++) if (tr[i].u == U_AUTO) w[i] += muldiv(sobra, w[i], autos);
     }
     if (fr) for (int i = 0; i < nt; i++) if (tr[i].u == U_FR) { w[i] = sobra > 0 ? muldiv(sobra, tr[i].v, fr) : 0; }
+    else if (sobra > 0 && cw < INF) {     /* sem fr, as colunas auto esticam para encher (justify-content: normal) */
+        int autos = 0;
+        for (int i = 0; i < nt; i++) if (tr[i].u == U_AUTO) autos++;
+        if (autos) for (int i = 0, falta = sobra; i < nt; i++) if (tr[i].u == U_AUTO) { int d = falta / autos; w[i] += d; falta -= d; autos--; }
+    }
     int xs[MAX_TRILHAS + 1];
     xs[0] = n->bl[3] + n->pl[3];
     for (int i = 0; i < nt; i++) xs[i + 1] = xs[i] + w[i] + gcol;
@@ -4576,6 +5185,8 @@ static int grid(no_m *n, int cw)
         int lw = res_med(&c->e.larg, ww, &c->e);
         int lar = lw >= 0 ? (c->e.caixa_borda ? lw : lw + extra_h(c)) : ww - c->ml - c->mr;
         if (lar > ww - c->ml - c->mr && lw < 0) lar = ww - c->ml - c->mr;
+        uint8_t ju = c->e.just_si ? (c->e.just_si == 4 ? 0 : c->e.just_si) : e->just_itens;
+        if (ju && lw < 0) { int mx = medir_max(c) - c->ml - c->mr; if (mx < lar) lar = mx; }     /* justify-items: a largura é a do conteúdo */
         layout_no(c, ww, lar, -1);
         int h = c->a + c->mt + c->mb;
         if (it[q].lspan <= 1 && h > alt[it[q].lin]) alt[it[q].lin] = h;
@@ -4586,6 +5197,29 @@ static int grid(no_m *n, int cw)
         if (ult >= nlin) ult = nlin - 1;
         for (int L = it[q].lin; L <= ult; L++) soma += alt[L] + (L < ult ? glin : 0);
         if (h > soma) alt[ult] += h - soma;
+    }
+    /* D271: grid-template-rows e grid-auto-rows: as linhas com medida dada ficam com ela; as fr repartem a altura do contentor */
+    if (e->n_lin || e->lin_auto.u != U_AUTO) {
+        int H = res_med(&e->alt, -1, e);
+        if (H >= 0 && e->caixa_borda) H -= extra_v(n);
+        if (nlin < e->n_lin && e->n_lin <= nlin + 8) {      /* linhas declaradas e vazias também ocupam */
+            int *a2 = m_novo(mo, (e->n_lin + 1) * 4);
+            if (!a2) return 0;
+            memcpy(a2, alt, (size_t)nlin * 4);
+            alt = a2; nlin = e->n_lin;
+        }
+        int fixo_v = glin * (nlin - 1), fr_v = 0;
+        for (int L = 0; L < nlin; L++) {
+            const medida_t *md = L < e->n_lin ? &e->lin[L] : &e->lin_auto;
+            if (md->u == U_FR) { fr_v += md->v; if (H < 0) fixo_v += alt[L]; continue; }
+            int v = md->u == U_AUTO || md->u == U_MAXC || md->u == U_MINC || md->u == U_FIT ? -1 : res_med(md, H, e);
+            if (v >= 0) alt[L] = v;
+            fixo_v += alt[L];
+        }
+        if (fr_v && H >= 0) {
+            int sob = H - fixo_v;
+            for (int L = 0; L < nlin; L++) { const medida_t *md = L < e->n_lin ? &e->lin[L] : &e->lin_auto; if (md->u == U_FR) { int v = sob > 0 ? muldiv(sob, md->v, fr_v) : 0; if (v > alt[L] || sob > 0) alt[L] = v; } }
+        }
     }
     int y = n->bl[0] + n->pl[0];
     int *ys = m_novo(mo, (nlin + 1) * 4);
@@ -4599,6 +5233,9 @@ static int grid(no_m *n, int cw)
         uint8_t al = c->e.alinha_si ? (c->e.alinha_si == 1 ? 0 : c->e.alinha_si - 1) : e->alinha_itens;
         if (livre > 0 && al == 0 && c->e.alt.u == U_AUTO) { layout_no(c, ww, c->l, alt_area - c->mt - c->mb); livre = 0; }
         int dx = 0;
+        uint8_t ju = c->e.just_si ? (c->e.just_si == 4 ? 0 : c->e.just_si) : e->just_itens;
+        if (ju == 2) dx = (ww - c->l - c->ml - c->mr) / 2;
+        else if (ju == 3) dx = ww - c->l - c->ml - c->mr;
         if (e->justifica == 1 || (c->e.marg[3].u == U_AUTO && c->e.marg[1].u == U_AUTO)) dx = (ww - c->l - c->ml - c->mr) / 2;
         c->x = xs[it[q].col] + c->ml + (dx > 0 ? dx : 0);
         c->y = ys[it[q].lin] + c->mt + (al == 1 ? livre / 2 : al == 2 ? livre : 0);
@@ -4651,7 +5288,7 @@ static int tabela(no_m *n, int cw, int ch)
     int smax = 0, smin = 0;
     for (int i = 0; i < ncol; i++) { if (cmin[i] > cmax[i]) cmax[i] = cmin[i]; smax += cmax[i]; smin += cmin[i]; }
     int disp = cw - esp * (ncol + 1);
-    int largura_def = res_med(&n->e.larg, -1, &n->e) >= 0 || n->e.larg.u == U_PCT;
+    int largura_def = res_med(&n->e.larg, -1, &n->e) >= 0 || n->e.larg.u == U_PCT || n->e.larg.u == U_CALC;
     int w[MAX_COLS];
     if (smax <= disp) {
         int extra = largura_def ? disp - smax : 0;
@@ -4783,6 +5420,10 @@ static int layout_no(no_m *n, int cw, int forca_l, int forca_a)
     else {
         int cwid = res_med(&e->larg, cw, e);
         if (cwid >= 0) w = e->caixa_borda ? cwid : cwid + ex;
+        else if (e->larg.u == U_FIT || e->larg.u == U_MAXC || e->larg.u == U_MINC) {      /* D271: a largura é a do conteúdo */
+            int mx = medir_max(n) - n->ml - n->mr, mn = medir_min(n) - n->ml - n->mr, d = cw - n->ml - n->mr;
+            w = e->larg.u == U_MAXC ? mx : e->larg.u == U_MINC ? mn : (mx < d ? mx : (mn > d ? mn : d));
+        }
         else if (eh_bloco(e->display) && e->display != D_TABLE && e->display != D_IBLOCK && !e->flutua && !fora_do_fluxo(n)) w = cw - n->ml - n->mr;
         else {
             int mx = medir_max(n) - n->ml - n->mr, mn = medir_min(n) - n->ml - n->mr, d = cw - n->ml - n->mr;
@@ -4800,10 +5441,14 @@ static int layout_no(no_m *n, int cw, int forca_l, int forca_a)
     int h = forca_a >= 0 ? forca_a : -1;
     if (h < 0) {
         int hh = res_med(&e->alt, -1, e);
-        if (e->alt.u == U_PCT && n->pai && n->pai->alt_def && !fora_do_fluxo(n)) hh = res_med(&e->alt, n->pai->alt_def - 1, e);
-        else if (e->alt.u == U_PCT && n->pai && n->pai->e.alt.u == U_PX) hh = res_med(&e->alt, n->pai->e.alt.v, e);
-        if (e->alt.u == U_PCT && (igual(n->tag, "html") || igual(n->tag, "body"))) hh = res_med(&e->alt, mo->vh, e);
+        bool alt_pct = e->alt.u == U_PCT || e->alt.u == U_CALC;
+        if (alt_pct && n->pai && n->pai->alt_def && !fora_do_fluxo(n)) hh = res_med(&e->alt, n->pai->alt_def - 1, e);
+        else if (alt_pct && n->pai && n->pai->e.alt.u == U_PX) hh = res_med(&e->alt, n->pai->e.alt.v, e);
+        if (alt_pct && (igual(n->tag, "html") || igual(n->tag, "body"))) hh = res_med(&e->alt, mo->vh, e);
         if (hh >= 0) h = e->caixa_borda ? hh : hh + extra_v(n);
+        else if (e->razao_l > 0 && e->razao_a > 0 && e->alt.u == U_AUTO && !igual(n->tag, "img")) {     /* aspect-ratio (D271) */
+            h = e->caixa_borda ? muldiv(w, e->razao_a, e->razao_l) : muldiv(ccw, e->razao_a, e->razao_l) + extra_v(n);
+        }
     }
     if (h >= 0 && h < extra_v(n)) h = extra_v(n);   /* border-box nunca fica menor que bordas + padding */
     int ch = h >= 0 ? h - extra_v(n) : -1;
@@ -4870,6 +5515,29 @@ static void texto_cmd(no_m *no, int x, int y, int l, int a, const char *t, int n
     c.fo = fonte_de(e);
     c.no = no; c.fonte = 3;
     c.fil = filtro_atual;
+    if (e->tam <= 0) return;      /* font-size: 0: o texto ocupa (o espaçamento) mas não se vê */
+    if (e->tem_cor_deco) c.bc[0] = e->cor_deco | 0xFF000000u;     /* a cor do sublinhado (texto_ttf) */
+    if (e->sombra_txt) {          /* text-shadow (D271): a primeira sombra, "dx dy [desfoque] cor", sem desfocar */
+        const char *p[5]; int tp[5];
+        int fim = 0, prof = 0;
+        while (e->sombra_txt[fim] && (prof || e->sombra_txt[fim] != ',')) { if (e->sombra_txt[fim] == '(') prof++; else if (e->sombra_txt[fim] == ')') prof--; fim++; }
+        int np = palavras(e->sombra_txt, fim, p, tp, 5), v[3] = { 0, 0, 0 }, nvl = 0;
+        uint32_t cs = 0xFF000000u | cor;
+        for (int i = 0; i < np; i++) {
+            medida_t md; uint32_t cc;
+            if (nvl < 3 && ler_medida_m(p[i], tp[i], &md) && (md.u == U_PX || md.u == U_EM || md.u == U_REM)) v[nvl++] = px_de(&md, e->tam);
+            else if (ler_cor(p[i], tp[i], &cc, cor)) cs = cc;
+        }
+        if (nvl >= 2 && (cs >> 24) && (v[0] || v[1])) {
+            cmd_t s = c;
+            s.x += v[0]; s.y += v[1]; s.cor = cs & 0xFFFFFF; s.sublinha = 0; s.fonte = 0; s.no = NULL;
+            if (!s.fil.ativo && ((cs >> 24) < 250 || v[2] > 2)) {    /* translúcida ou difusa: mais clara */
+                unsigned al = (cs >> 24) * (v[2] > 2 ? 150u : 255u) / 255u;
+                memset(&s.fil, 0, sizeof s.fil); s.fil.ativo = 1; s.fil.tem_opac = 1; s.fil.opac = (uint8_t)al; s.fil.brilho = 100;
+            }
+            cmd_novo(&s);
+        }
+    }
     cmd_novo(&c);
 }
 
@@ -5182,10 +5850,91 @@ static uint32_t grad_cor(const grad_m *G, int t)
 }
 
 static void fundo_imagem(no_m *n, int x, int y);
+/* box-shadow (D271): até 3 sombras "[inset] dx dy [desfoque [extensão]] cor". As de fora
+ * pintam-se antes do fundo; as de dentro (inset), depois dele. O desfoque são até 6
+ * anéis de opacidade crescente (só o contorno: a conta não depende da área da caixa). */
+static void sombra_caixa(no_m *n, int x, int y, bool dentro)
+{
+    const estilo_t *e = &n->e;
+    const char *s = e->sombra;
+    const char *ini[3]; int tam[3]; int ns = 0;
+    for (const char *a = s; *a && ns < 3;) {
+        const char *b = a; int prof = 0;
+        while (*b && (prof || *b != ',')) { if (*b == '(') prof++; else if (*b == ')') prof--; b++; }
+        ini[ns] = a; tam[ns] = (int)(b - a); ns++;
+        a = *b ? b + 1 : b;
+    }
+    for (int k = ns - 1; k >= 0; k--) {       /* a primeira da lista fica por cima */
+        const char *p[6]; int t[6];
+        int np = palavras(ini[k], tam[k], p, t, 6), v[4] = { 0, 0, 0, 0 }, nvl = 0;
+        bool inset = false; uint32_t cor = 0xFF000000u | e->cor;
+        for (int i = 0; i < np; i++) {
+            medida_t md; uint32_t c;
+            if (t[i] == 5 && igual_n(p[i], "inset", 5)) inset = true;
+            else if (nvl < 4 && ler_medida_m(p[i], t[i], &md) && (md.u == U_PX || md.u == U_EM || md.u == U_REM)) v[nvl++] = px_de(&md, e->tam);
+            else if (ler_cor(p[i], t[i], &c, e->cor)) cor = c;
+        }
+        if (nvl < 2 || inset != dentro || !(cor >> 24)) continue;
+        int dx = v[0], dy = v[1], B = v[2] < 0 ? 0 : v[2] > 60 ? 60 : v[2], S = v[3];
+        unsigned A = cor >> 24;
+        int raio = e->raio > n->a / 2 ? n->a / 2 : e->raio;
+        cmd_t c; memset(&c, 0, sizeof c);
+        c.no = n; c.fil = filtro_atual;
+        if (inset) {
+            /* dentro da caixa do padding: uma moldura (mais larga do lado para onde a sombra cai) */
+            int px0 = x + n->bl[3], py0 = y + n->bl[0], pl = n->l - n->bl[1] - n->bl[3], pa = n->a - n->bl[0] - n->bl[2];
+            int passos = B ? (B < 4 ? B : 4) : 1;
+            for (int q = 0; q < passos; q++) {
+                int g = S + (B ? B * (passos - q) / passos - B / 2 : 0);
+                int w[4] = { g + dy, g - dx, g - dy, g + dx };
+                bool algo = false;
+                for (int i = 0; i < 4; i++) { if (w[i] < 0) w[i] = 0; if (w[i] > (i & 1 ? pl : pa)) w[i] = i & 1 ? pl : pa; if (w[i]) algo = true; c.bw[i] = (int16_t)w[i]; c.bc[i] = ((A / (unsigned)passos) << 24) | (cor & 0xFFFFFF); }
+                if (passos == 1) for (int i = 0; i < 4; i++) c.bc[i] = cor;
+                if (!algo || pl <= 0 || pa <= 0) continue;
+                c.tipo = C_BORDA; c.x = px0; c.y = py0; c.l = pl; c.a = pa; c.raio = (int16_t)(raio > n->bl[3] ? raio - n->bl[3] : 0);
+                cmd_novo(&c);
+            }
+            continue;
+        }
+        bool opaco = (e->fundo >> 24) >= 250 && !e->mascara;     /* o fundo tapa o miolo da sombra */
+        int passos = B ? (B < 6 ? B : 6) : 0;
+        for (int q = 0; q < passos; q++) {       /* de fora para dentro: anéis cada vez mais opacos */
+            int e0 = S + B / 2 - B * q / passos, e1 = S + B / 2 - B * (q + 1) / passos, g = e0 - e1;
+            if (g <= 0 || n->l + 2 * e0 <= 0 || n->a + 2 * e0 <= 0) continue;
+            if (!opaco && e1 < 0) continue;      /* fundo transparente: os anéis de dentro ver-se-iam através da caixa */
+            c.tipo = C_BORDA; c.x = x + dx - e0; c.y = y + dy - e0; c.l = n->l + 2 * e0; c.a = n->a + 2 * e0;
+            c.raio = (int16_t)(raio + e0 > 0 ? raio + e0 : 0);
+            for (int i = 0; i < 4; i++) { c.bw[i] = (int16_t)g; c.bc[i] = ((A * (unsigned)(q + 1) / (unsigned)(passos + 1)) << 24) | (cor & 0xFFFFFF); }
+            cmd_novo(&c);
+        }
+        int ei = B ? S - B / 2 : S;             /* o miolo: a sombra inteira */
+        if (n->l + 2 * ei <= 0 || n->a + 2 * ei <= 0) continue;
+        memset(c.bw, 0, sizeof c.bw);
+        if (opaco) {
+            c.tipo = C_RET; c.x = x + dx - ei; c.y = y + dy - ei; c.l = n->l + 2 * ei; c.a = n->a + 2 * ei; c.cor = cor;
+            c.raio = (int16_t)(raio + ei > 0 ? raio + ei : 0);
+            cmd_novo(&c);
+        } else {                                /* fundo transparente: só o que sai da caixa (até quatro faixas) */
+            int sx = x + dx - ei, sy = y + dy - ei, sl = n->l + 2 * ei, sa = n->a + 2 * ei;
+            int my0 = sy > y ? sy : y, my1 = sy + sa < y + n->a ? sy + sa : y + n->a;
+            int fx[4] = { sx, sx, sx, x + n->l > sx ? x + n->l : sx };
+            int fy[4] = { sy, y + n->a > sy ? y + n->a : sy, my0, my0 };
+            int fl[4] = { sl, sl, (x < sx + sl ? x : sx + sl) - sx, sx + sl - fx[3] };
+            int fa[4] = { (y < sy + sa ? y : sy + sa) - sy, sy + sa - fy[1], my1 - my0, my1 - my0 };
+            for (int i = 0; i < 4; i++) {
+                if (fl[i] <= 0 || fa[i] <= 0) continue;
+                c.tipo = C_RET; c.x = fx[i]; c.y = fy[i]; c.l = fl[i]; c.a = fa[i]; c.cor = cor; c.raio = 0;
+                cmd_novo(&c);
+            }
+        }
+    }
+}
+
 static void desenhar_caixa(no_m *n, int x, int y)
 {
     estilo_t *e = &n->e;
     if (e->visivel || e->opaco0) return;
+    if (e->sombra && n->l > 0 && n->a > 0) sombra_caixa(n, x, y, false);
     if (e->fundo && e->mascara && n->mask_img >= 0 && mo->imgs[n->mask_img].px && n->l > 0 && n->a > 0) {
         /* mask-image: a cor de fundo só onde a máscara é opaca (ajuste contain, centrada) */
         imagem_m *im = &mo->imgs[n->mask_img];
@@ -5211,6 +5960,18 @@ static void desenhar_caixa(no_m *n, int x, int y)
         }
     }
     if (n->bg_img >= 0 && mo->imgs[n->bg_img].px && n->l > 0 && n->a > 0) fundo_imagem(n, x, y);
+    if (e->sombra && n->l > 0 && n->a > 0) sombra_caixa(n, x, y, true);
+    if (e->contorno > 0 && !e->contorno_sem && n->l > 0 && n->a > 0) {     /* outline: por fora da borda, sem ocupar espaço */
+        int g = e->contorno, d = e->contorno_des + g;
+        if (n->l + 2 * d > 0 && n->a + 2 * d > 0) {
+            cmd_t c; memset(&c, 0, sizeof c);
+            c.tipo = C_BORDA; c.x = x - d; c.y = y - d; c.l = n->l + 2 * d; c.a = n->a + 2 * d;
+            for (int i = 0; i < 4; i++) { c.bw[i] = (int16_t)g; c.bc[i] = e->cor_contorno ? e->cor_contorno : 0xFF000000u | e->cor; }
+            c.raio = (int16_t)(e->raio ? e->raio + d : 0);
+            c.no = n; c.fil = filtro_atual;
+            cmd_novo(&c);
+        }
+    }
     if (n->bl[0] || n->bl[1] || n->bl[2] || n->bl[3]) {
         cmd_t c; memset(&c, 0, sizeof c);
         c.tipo = C_BORDA; c.x = x; c.y = y; c.l = n->l; c.a = n->a;
@@ -5351,6 +6112,7 @@ static void svg_no_tamanho(imagem_m *im, int w, int h, uint32_t cor)
     if (im->px) libera(im->px);
     im->px = px; im->l = w; im->a = h; im->alfa = 1;
 }
+static void fundo_posicao(const estilo_t *e, int livre_x, int livre_y, int *ox, int *oy);
 static void controle(no_m *n, int x, int y)
 {
     estilo_t *e = &n->e;
@@ -5361,6 +6123,27 @@ static void controle(no_m *n, int x, int y)
             cmd_t c; memset(&c, 0, sizeof c);
             svg_no_tamanho(&mo->imgs[n->img], cl, ca, 0xFF000000u | e->cor);
             c.tipo = C_IMG; c.x = cx; c.y = cy; c.l = cl; c.a = ca; c.img = n->img; c.raio = e->raio;
+            imagem_m *im = &mo->imgs[n->img];
+            int il = im->svg ? im->nl : im->l, ia = im->svg ? im->na : im->a;
+            if (e->encaixe && il > 0 && ia > 0 && cl > 0 && ca > 0) {     /* object-fit e object-position (D271) */
+                int dl = il, da = ia;       /* none: o tamanho natural */
+                bool larga = (int64_t)cl * ia > (int64_t)ca * il;   /* a caixa é mais larga que a imagem */
+                int modo = e->encaixe;
+                if (modo == 4) modo = (il <= cl && ia <= ca) ? 3 : 1;
+                if (modo == 1 || modo == 2) { if (larga == (modo == 2)) { dl = cl; da = muldiv(ia, cl, il); } else { da = ca; dl = muldiv(il, ca, ia); } }
+                estilo_t *tmp = m_novo(mo, sizeof(estilo_t));
+                int ox = (cl - dl) / 2, oy = (ca - da) / 2;
+                if (tmp && e->encaixe_pos) { *tmp = *e; tmp->bg_pos = e->encaixe_pos; fundo_posicao(tmp, cl - dl, ca - da, &ox, &oy); }
+                int salvo[4]; memcpy(salvo, mo->clip, sizeof salvo);
+                if (cx > mo->clip[0]) mo->clip[0] = cx;
+                if (cy > mo->clip[1]) mo->clip[1] = cy;
+                if (cx + cl < mo->clip[2]) mo->clip[2] = cx + cl;
+                if (cy + ca < mo->clip[3]) mo->clip[3] = cy + ca;
+                c.x = cx + ox; c.y = cy + oy; c.l = dl; c.a = da;
+                if (dl != cl || da != ca) c.raio = 0;
+                cmd_novo(&c);
+                memcpy(mo->clip, salvo, sizeof salvo);
+            } else
             cmd_novo(&c);
         } else {
             const char *alt = atributo_m(n, "alt");
@@ -5434,11 +6217,43 @@ static void controle(no_m *n, int x, int y)
             else regiao(x, y, n->l, n->a, n->alvo);
             return;
         }
-        c.tipo = C_RET; c.x = cx; c.y = cy; c.l = cl; c.a = ca; c.cor = igual(n->tag, "canvas") ? 0 : 0xFF202428;
+        int vslot = igual(n->tag, "video") && mo->g.video ? video_slot(mo, n) : -1;   /* <video src> (D276) */
+        if (igual(n->tag, "video") && (vslot >= 0 || (n->img >= 0 && mo->imgs[n->img].px))) {     /* o póster (D271) */
+            if (vslot >= 0 && !(n->img >= 0 && mo->imgs[n->img].px) && !e->fundo && !e->grad && n->bg_img < 0) {   /* sin póster ni fondo del autor: negro */
+                c.tipo = C_RET; c.x = cx; c.y = cy; c.l = cl; c.a = ca; c.cor = 0xFF000000;
+                cmd_novo(&c);
+            }
+            if (n->img >= 0 && mo->imgs[n->img].px) {
+                c.tipo = C_IMG; c.x = cx; c.y = cy; c.l = cl; c.a = ca; c.img = n->img;
+                cmd_novo(&c);
+            }
+            if (vslot >= 0) {   /* el cuadro se pinta encima, ajustado a la caja (C_TELA con peso = 'V') */
+                cmd_t cv; memset(&cv, 0, sizeof cv);
+                cv.tipo = C_TELA; cv.x = cx; cv.y = cy; cv.l = cl; cv.a = ca; cv.img = vslot; cv.peso = 'V';
+                cv.cor = (atributo_m(n, "autoplay") ? VIDEO_AUTOPLAY : 0) | (atributo_m(n, "loop") ? VIDEO_LOOP : 0)
+                       | (atributo_m(n, "muted") ? VIDEO_MUTED : 0);   /* las banderas viajan en cor */
+                cmd_novo(&cv);
+            }
+            regiao(x, y, n->l, n->a, n->alvo);
+            return;
+        }
+        /* o marcador escuro com o rótulo só quando o autor não deu fundo à caixa */
+        bool marcador = !igual(n->tag, "canvas") && !e->fundo && !e->grad && n->bg_img < 0;
+        c.tipo = C_RET; c.x = cx; c.y = cy; c.l = cl; c.a = ca; c.cor = marcador ? 0xFF202428 : 0;
         if (c.cor) cmd_novo(&c);
-        if (!igual(n->tag, "canvas")) {
+        if (marcador && cl >= 60 && ca >= 24) {
             const char *rot = igual(n->tag, "video") ? "[ video ]" : "[ quadro ]";
             texto_cmd(n, cx + 8, cy + 8, cl, 16, rot, (int)tam_texto(rot), e, 0xC4CBD2);
+        }
+        regiao(x, y, n->l, n->a, n->alvo);
+        return;
+    }
+    if (igual(n->tag, "audio")) {       /* sem reprodução: uma barra com o rótulo (D271) */
+        if (!e->fundo && !e->grad && n->bg_img < 0) {
+            cmd_t c; memset(&c, 0, sizeof c);
+            c.tipo = C_RET; c.x = cx; c.y = cy; c.l = cl; c.a = ca; c.cor = 0xFFE9ECEF; c.raio = (int16_t)(ca / 2 < 27 ? ca / 2 : 27);
+            cmd_novo(&c);
+            if (cl >= 60 && ca >= 20) texto_cmd(n, cx + 16, cy + (ca - 16) / 2, cl, 16, "[ audio ]", 9, e, 0x202428);
         }
         regiao(x, y, n->l, n->a, n->alvo);
         return;
@@ -5657,6 +6472,10 @@ static void tf_aplicar(int i0, int r0, const int32_t M[6], int ox, int oy)
                 continue;
             }
             c->x = bx; c->y = by; c->l = bl; c->a = ba;
+            if (c->tipo == C_BORDA) {    /* espelhado (escala negativa, rotate(180deg)): os lados trocam de sítio (D271) */
+                if (M[0] < 0) { int16_t w = c->bw[1]; c->bw[1] = c->bw[3]; c->bw[3] = w; uint32_t k = c->bc[1]; c->bc[1] = c->bc[3]; c->bc[3] = k; }
+                if (M[3] < 0) { int16_t w = c->bw[0]; c->bw[0] = c->bw[2]; c->bw[2] = w; uint32_t k = c->bc[0]; c->bc[0] = c->bc[2]; c->bc[2] = k; }
+            }
             if (c->tipo == C_RET || c->tipo == C_IMG || c->tipo == C_BORDA) c->raio = (int16_t)(((int64_t)c->raio * abs32(M[0])) >> 16);
             if (c->tipo == C_BORDA) for (int k = 0; k < 4; k++) c->bw[k] = (int16_t)((((int64_t)c->bw[k] * abs32(k & 1 ? M[0] : M[3])) >> 16) ? (((int64_t)c->bw[k] * abs32(k & 1 ? M[0] : M[3])) >> 16) : (c->bw[k] ? 1 : 0));
             continue;
@@ -5780,7 +6599,9 @@ static void achatar(no_m *n, int ox, int oy, int cb_x, int cb_y, int cb_l, int c
         if (e->display == D_LIST && e->lista && !e->visivel) {
             int lh = altura_linha(e);
             int my = y + n->bl[0] + n->pl[0] + (lh - e->tam) / 2;
-            if (n->frags) my = y + n->frags->y;
+            frag_t *pf = n->frags;
+            while (pf && pf->nt < 0) pf = pf->prox;     /* as caixas em linha não são texto */
+            if (pf) my = y + pf->y;
             if (e->lista == 1) {
                 cmd_t c; memset(&c, 0, sizeof c);
                 int r = e->tam / 5 + 1;
@@ -5806,6 +6627,15 @@ static void achatar(no_m *n, int ox, int oy, int cb_x, int cb_y, int cb_l, int c
     /* linhas de texto */
     for (frag_t *f = n->frags; f; f = f->prox) {
         no_m *tn = f->estilo_de;
+        if (f->nt < 0) {     /* a caixa de um elemento em linha nesta linha (D271) */
+            int pontas = -1 - f->nt, gl = tn->l, ga = tn->a, g1 = tn->bl[1], g3 = tn->bl[3];
+            tn->l = f->l; tn->a = f->a;
+            if (!(pontas & 1)) tn->bl[3] = 0;
+            if (!(pontas & 2)) tn->bl[1] = 0;
+            desenhar_caixa(tn, x + f->x, y + f->y);
+            tn->l = gl; tn->a = ga; tn->bl[1] = g1; tn->bl[3] = g3;
+            continue;
+        }
         const estilo_t *te = tn->texto ? &tn->pai->e : &tn->e;
         uint32_t cor = te->cor;
         /* o filtro do texto: o da cadeia de antepassados até ao nó do texto */
@@ -5964,6 +6794,36 @@ static no_m *proximo_no(no_m *n)
     return n ? n->prox : NULL;
 }
 
+/* O candidato de um srcset que serve a uma tela normal (1x, ou a largura mais
+ * próxima de 800 px por cima), se for de um formato que o motor lê. NULL = usar o src. */
+static const char *srcset_escolher(motor_t *m, const char *ss, const char *tipo)
+{
+    if (!ss || !ss[0]) return NULL;
+    if (tipo && (strstr_m(tipo, "webp") || strstr_m(tipo, "avif") || strstr_m(tipo, "jxl") || strstr_m(tipo, "heic"))) return NULL;
+    const char *melhor = NULL; int nm = 0, nota_m = -1;
+    for (const char *p = ss; *p;) {
+        while (*p && (eh_esp(*p) || *p == ',')) p++;
+        const char *u0 = p;
+        while (*p && !eh_esp(*p)) p++;
+        int nu = (int)(p - u0);
+        while (nu > 0 && u0[nu - 1] == ',') nu--;      /* "a.png, b.png 2x" */
+        while (*p && eh_esp(*p)) p++;
+        int u = 0, v = 100; char d = 'x';
+        if (*p && *p != ',' && nu == (int)(p - u0) - 0) { }
+        if (eh_dig(*p) || *p == '.') { v = num100(p, (int)tam_texto(p), &u); d = (char)(p[u] | 32); }
+        while (*p && *p != ',') p++;
+        if (nu <= 0 || nu > 580) continue;
+        int nota;     /* quanto maior, melhor */
+        if (d == 'w') { int w = v / 100; nota = w >= 800 ? 100000 - (w - 800) : w; }
+        else nota = v == 100 ? 200000 : 100000 - (v > 100 ? v - 100 : (100 - v) * 4);
+        if (nota > nota_m) { nota_m = nota; melhor = u0; nm = nu; }
+    }
+    if (!melhor) return NULL;
+    char *r = m_dup(m, melhor, nm);
+    if (!r || strstr_m(r, ".webp") || strstr_m(r, ".avif")) return NULL;
+    return r;
+}
+
 /* url() relativos de uma folha externa valem a partir da folha: reescreve absolutos */
 static char *absolutizar_urls(motor_t *m, const char *t, int *n, const char *base)
 {
@@ -6003,9 +6863,48 @@ static char *absolutizar_urls(motor_t *m, const char *t, int *n, const char *bas
     *n = k;
     return d;
 }
+static void guardar_folha(motor_t *m, const char *t, int n, const char *base);
+
+/* @import no começo de uma folha (D271): baixa as folhas importadas e guarda-as
+ * antes desta. Conta para o limite de folhas da página (não há ciclos sem fim). */
+static void importar_folhas(motor_t *m, const char *t, int n, const char *base)
+{
+    int i = 0;
+    while (i < n) {
+        while (i < n && (eh_esp(t[i]) || t[i] == ';')) i++;
+        if (i + 1 < n && t[i] == '/' && t[i + 1] == '*') { i += 2; while (i + 1 < n && !(t[i] == '*' && t[i + 1] == '/')) i++; i += 2; continue; }
+        if (i + 4 < n && igual_n(t + i, "<!--", 4)) { i += 4; continue; }
+        if (i + 8 < n && igual_n(t + i, "@charset", 8)) { while (i < n && t[i] != ';') i++; continue; }
+        if (!(i + 7 < n && igual_n(t + i, "@import", 7))) break;      /* os @import só valem antes das regras */
+        i += 7;
+        while (i < n && eh_esp(t[i])) i++;
+        if (i + 4 < n && igual_n(t + i, "url(", 4)) { i += 4; while (i < n && eh_esp(t[i])) i++; }
+        char q = 0;
+        if (i < n && (t[i] == '"' || t[i] == '\'')) q = t[i++];
+        int ini = i;
+        while (i < n && (q ? t[i] != q : (t[i] != ')' && t[i] != ';' && !eh_esp(t[i])))) i++;
+        int len = i - ini;
+        int resto = i;
+        while (i < n && t[i] != ';') i++;
+        bool impressao = false;      /* @import "x.css" print; */
+        for (int k = resto; k + 5 <= i; k++) if (igual_n(t + k, "print", 5)) impressao = true;
+        for (int k = resto; k + 6 <= i; k++) if (igual_n(t + k, "screen", 6) || igual_n(t + k, "all", 3)) impressao = false;
+        if (len <= 0 || len >= 580 || impressao || !m->g.baixar || m->folhas >= 12) continue;
+        char rel[600], u[600];
+        memcpy(rel, t + ini, (size_t)len); rel[len] = 0;
+        juntar(base ? base : m->url, rel, u, sizeof u);
+        unsigned tam = 0;
+        m->folhas++;
+        uint8_t *d = m->g.baixar(u, &tam);
+        if (d) { guardar_folha(m, (const char *)d, (int)tam, u); libera(d); }
+    }
+}
+
 static void guardar_folha(motor_t *m, const char *t, int n, const char *base)
 {
-    if (n_folhas >= 64 || n <= 0) return;
+    if (n <= 0) return;
+    importar_folhas(m, t, n, base);
+    if (n_folhas >= 64) return;
     folhas_base[n_folhas] = base ? m_dup(m, base, (int)tam_texto(base)) : NULL;
     if (base) { folhas_txt[n_folhas] = absolutizar_urls(m, t, &n, base); folhas_n[n_folhas++] = n; return; }
     folhas_txt[n_folhas] = m_dup(m, t, n);
@@ -6046,8 +6945,30 @@ void motor_ler(motor_t *m, const char *html, int n, const char *url)
                 if (d) { guardar_folha(m, (const char *)d, (int)tam, u); libera(d); }
             }
         }
-        if (igual(q->tag, "img") || (igual(q->tag, "input") && atributo_m(q, "src"))) {
-            const char *src = atributo_m(q, "src");
+        if (igual(q->tag, "video") && m->g.video && m->n_imgs < 96) {
+            /* <video src> o su primer <source src> (D276): el hueco de imgs lleva la URL con el
+             * prefijo "video:" y no se descarga (tentou); el cuadro lo da el gancho al pintar.
+             * No toca q->img (es del póster, D271): se encuentra con video_slot(). */
+            const char *vs = video_src_de(q);
+            if (vs) {
+                char v[640];
+                copia_texto(v, "video:", sizeof v);
+                juntar(m->url, vs, v + 6, (int)sizeof v - 6);
+                int idx = m->n_imgs++;
+                m->imgs[idx].url = m_dup(m, v, (int)tam_texto(v));
+                m->imgs[idx].tentou = 1;
+            }
+        }
+        if (igual(q->tag, "img") || (igual(q->tag, "input") && atributo_m(q, "src")) || (igual(q->tag, "video") && atributo_m(q, "poster"))) {
+            const char *src = atributo_m(q, igual(q->tag, "video") ? "poster" : "src");
+            if (igual(q->tag, "img")) {     /* <picture><source srcset> e <img srcset> (D271) */
+                const char *melhor = NULL;
+                if (q->pai && igual(q->pai->tag, "picture"))
+                    for (no_m *f = q->pai->filho; f && f != q && !melhor; f = f->prox)
+                        if (!f->texto && igual(f->tag, "source") && !atributo_m(f, "media")) melhor = srcset_escolher(m, atributo_m(f, "srcset"), atributo_m(f, "type"));
+                if (!melhor) melhor = srcset_escolher(m, atributo_m(q, "srcset"), NULL);
+                if (melhor) src = melhor;
+            }
             if (!src || !src[0] || comeca_com(src, "data:")) { const char *ds = atributo_m(q, "data-src"); if (ds) src = ds; }
             if (!src || !src[0] || comeca_com(src, "data:")) { const char *ss = atributo_m(q, "srcset"); if (ss && ss[0]) { int k = 0; while (ss[k] && !eh_esp(ss[k]) && ss[k] != ',') k++; src = m_dup(m, ss, k); } }
             if (!src || !src[0]) continue;
@@ -6212,12 +7133,23 @@ static int layout_interno(motor_t *m, int largura, int altura_tela)
             if (largura_regras < 0) registrar("cipo: css %d regras\n", m->n_regras - antes);
         }
         largura_regras = largura;
+        has_resto = 200000;
         estilizar_tudo(m, m->raiz);
         normalizar(m, m->raiz);
+        has_resto = 200000;
         estilizar_tudo(m, m->raiz);
         m->ger_estilo++;      /* a cascata mudou: a base das animações é a nova */
         trans_detetar(m, m->ms_anim);   /* as transições começam aqui */
+    } else if (m->recascata) {      /* as mesmas regras, a árvore mudou (motor_dom_atributo, motor_dom_texto) */
+        has_resto = 200000;
+        estilizar_tudo(m, m->raiz);
+        normalizar(m, m->raiz);
+        has_resto = 200000;
+        estilizar_tudo(m, m->raiz);
+        m->ger_estilo++;
+        trans_detetar(m, m->ms_anim);
     }
+    m->recascata = false;
     /* as animações entram no estilo antes do layout e da pintura */
     if (m->tick_ativo && m->n_anims) anim_aplicar(m, m->ms_anim);
     /* as transições em curso também entram no estilo antes do layout */
@@ -6370,8 +7302,22 @@ static void borda_px(alvo_px_t *t, cmd_t *c)
     for (int yy = ya; yy < yb; yy++) {
         int yr = yy - c->y;
         bool linha_toda = yr < fy || yr >= a - fb;
+        if (!linha_toda) {      /* D271: fora das linhas dos cantos, os lados são pixels inteiros (sem subamostrar) */
+            if (c->bc[3] >> 24) for (int xr = 0; xr < bw[3] && xr < l; xr++) { int xm = c->x + xr; if (xm >= t->c0 && xm < t->c2) ponto(t, xm, yy, c->bc[3]); }
+            if (c->bc[1] >> 24) for (int xr = l - bw[1] > bw[3] ? l - bw[1] : bw[3]; xr < l; xr++) { int xm = c->x + xr; if (xm >= t->c0 && xm < t->c2) ponto(t, xm, yy, c->bc[1]); }
+            continue;
+        }
         for (int xr = 0; xr < l; xr++) {
             if (!linha_toda && xr >= fx && xr < l - fd) { xr = l - fd - 1; continue; }   /* miolo: pula para a borda direita */
+            if (xr >= fx && xr < l - fd) {
+                /* D271: nas faixas de cima e de baixo, fora das colunas dos cantos, o pixel é todo do lado de
+                 * cima, todo do de baixo ou do miolo: não é preciso subamostrar (as sombras são muitos anéis) */
+                int lado = yr < bw[0] ? 0 : yr >= a - bw[2] ? 2 : -1;
+                if (lado < 0) { xr = l - fd - 1; continue; }
+                int xm = c->x + xr;
+                if (xm >= t->c0 && xm < t->c2 && (c->bc[lado] >> 24)) ponto(t, xm, yy, c->bc[lado]);
+                continue;
+            }
             int xx = c->x + xr;
             if (xx < t->c0 || xx >= t->c2) continue;
             int cob[4] = { 0, 0, 0, 0 };
@@ -6389,6 +7335,8 @@ static void borda_px(alvo_px_t *t, cmd_t *c)
                     }
                     if (lado >= 0) cob[lado]++;
                 }
+            /* dois lados da mesma cor que se encontram num canto contam juntos (senão a junta fica translúcida) */
+            for (int s2 = 0; s2 < 3; s2++) for (int s3 = s2 + 1; s3 < 4; s3++) if (cob[s2] && cob[s3] && c->bc[s2] == c->bc[s3]) { cob[s2] += cob[s3]; cob[s3] = 0; }
             for (int s2 = 0; s2 < 4; s2++) {
                 if (!cob[s2]) continue;
                 uint32_t k = c->bc[s2];
@@ -6424,8 +7372,9 @@ static void texto_ttf(alvo_px_t *t, cmd_t *c)
             for (int xx = 0; xx < l; xx++) if (lin[xx] > 8) ponto(t, x + ox + xx, py, ((uint32_t)(lin[xx] * op / 255) << 24) | (c->cor & 0xFFFFFF));
         }
     }
-    if (c->sublinha & 1) ret(t, c->x, base + px / 10 + 1, c->l, px >= 24 ? 2 : 1, 0xFF000000u | (c->cor & 0xFFFFFF), 0);
-    if (c->sublinha & 2) ret(t, c->x, base - asc / 3, c->l, 1, 0xFF000000u | (c->cor & 0xFFFFFF), 0);
+    uint32_t cd = c->bc[0] ? c->bc[0] : 0xFF000000u | (c->cor & 0xFFFFFF);      /* text-decoration-color */
+    if (c->sublinha & 1) ret(t, c->x, base + px / 10 + 1, c->l, px >= 24 ? 2 : 1, cd, 0);
+    if (c->sublinha & 2) ret(t, c->x, base - asc / 3, c->l, 1, cd, 0);
 }
 
 static void texto_px(alvo_px_t *t, cmd_t *c)
@@ -6559,7 +7508,10 @@ void motor_pintar(motor_t *m, uint32_t *px, int larg, int passo, int y, int a)
 {
     alvo_px_t t = { px, larg, passo, y, a, 0, y, larg, y + a };
     for (int yy = 0; yy < a; yy++) { uint32_t *l = px + yy * passo; for (int xx = 0; xx < larg; xx++) l[xx] = m->fundo; }
-    m->rolagem = y;
+    /* fixed e sticky seguem a rolagem da página, não o y da faixa que se pinta (D271): quem pinta
+     * em faixas diz a rolagem antes, com motor_rolagem; quem pinta de uma vez não precisa */
+    int rol = m->rol_def ? m->rolagem : y;
+    if (!m->rol_def) m->rolagem = y;
     uint32_t *grupos[8]; int ng = 0;
     for (int i = 0; i < m->n_cmds; i++) {
         cmd_t cc = m->cmds[i], *c = &cc;
@@ -6585,7 +7537,7 @@ void motor_pintar(motor_t *m, uint32_t *px, int larg, int passo, int y, int a)
             continue;
         }
         if (c->cam) {
-            int d = desloc_camada(m, c->cam, y);
+            int d = desloc_camada(m, c->cam, rol);
             c->y += d;
             if (c->cy0 > -INF / 2) c->cy0 += d;
             if (c->cy1 < INF / 2) c->cy1 += d;
@@ -6709,15 +7661,27 @@ void motor_pintar(motor_t *m, uint32_t *px, int larg, int passo, int y, int a)
         }
         case C_TELA: {
             int tl = 0, ta = 0;
-            const uint32_t *tp = m->g.tela ? m->g.tela(c->img, &tl, &ta) : NULL;
-            if (!tp || tl <= 0 || ta <= 0 || c->l <= 0 || c->a <= 0) break;
-            int ya = c->y < t.c1 ? t.c1 : c->y, yb = c->y + c->a > t.c3 ? t.c3 : c->y + c->a;
-            int xa = c->x < t.c0 ? t.c0 : c->x, xb = c->x + c->l > t.c2 ? t.c2 : c->x + c->l;
+            int bx = c->x, by = c->y, bl = c->l, ba = c->a;   /* la caja donde va el cuadro */
+            const uint32_t *tp;
+            if (c->peso == 'V') {   /* <video> (D276): el cuadro se ajusta a la caja sin deformarlo */
+                tp = m->g.video ? m->g.video(m->imgs[c->img].url + 6, (int)c->cor, c->x, c->y, c->l, c->a, &tl, &ta) : NULL;
+                if (tp && tl > 0 && ta > 0 && c->l > 0 && c->a > 0) {
+                    if ((long)tl * c->a > (long)ta * c->l) { bl = c->l; ba = (int)((long)ta * c->l / tl); }
+                    else { ba = c->a; bl = (int)((long)tl * c->a / ta); }
+                    if (bl < 1) bl = 1;
+                    if (ba < 1) ba = 1;
+                    bx = c->x + (c->l - bl) / 2;
+                    by = c->y + (c->a - ba) / 2;
+                }
+            } else tp = m->g.tela ? m->g.tela(c->img, &tl, &ta) : NULL;
+            if (!tp || tl <= 0 || ta <= 0 || bl <= 0 || ba <= 0) break;
+            int ya = by < t.c1 ? t.c1 : by, yb = by + ba > t.c3 ? t.c3 : by + ba;
+            int xa = bx < t.c0 ? t.c0 : bx, xb = bx + bl > t.c2 ? t.c2 : bx + bl;
             for (int yy = ya; yy < yb; yy++) {
-                const uint32_t *src = tp + ((yy - c->y) * ta / c->a) * tl;
+                const uint32_t *src = tp + ((yy - by) * ta / ba) * tl;
                 uint32_t *d = px + (yy - y) * passo;
                 for (int xx = xa; xx < xb; xx++) {
-                    uint32_t p = src[(xx - c->x) * tl / c->l];
+                    uint32_t p = src[(xx - bx) * tl / bl];
                     uint32_t al = p >> 24;
                     if (al) d[xx] = al >= 250 ? p & 0xFFFFFF : misturar(d[xx], p);
                 }
@@ -6754,7 +7718,7 @@ void motor_pintar(motor_t *m, uint32_t *px, int larg, int passo, int y, int a)
 
 void motor_rolagem(motor_t *m, int y)
 {
-    if (m) m->rolagem = y;
+    if (m) { m->rolagem = y; m->rol_def = true; }
 }
 
 /* Avança ou define o relógio do motor. Devolve true se algo mudou e a página
@@ -6889,6 +7853,57 @@ int motor_dom_documento(motor_t *m)
 
 /* Marca o elemento como tendo um tratador de clique do JavaScript. O alvo do
  * rato é criado no proximo layout (o Cipo volta a maquetar a pagina). */
+/* O JavaScript muda um atributo de um elemento (D271): class, style, hidden, id...
+ * valor NULL tira o atributo. O texto vem em Latin-1, como o HTML. Vale no próximo
+ * motor_layout (a cascata corre outra vez). */
+bool motor_dom_atributo(motor_t *m, int dom, const char *nome, const char *valor)
+{
+    if (!m || !m->raiz || dom < 0 || !nome || !nome[0]) return false;
+    no_m *n = m->raiz;
+    for (; n; n = proximo_no(n)) if (n->dom == dom && !n->texto && !n->pseudo) break;
+    if (!n) return false;
+    atr_t *ant = NULL, *a = n->atr;
+    for (; a; ant = a, a = a->prox) if (igual(a->nome, nome)) break;
+    char *v = valor ? m_dup(m, valor, (int)tam_texto(valor)) : NULL;
+    if (valor && !v) return false;
+    if (!valor) { if (a) { if (ant) ant->prox = a->prox; else n->atr = a->prox; } }
+    else if (a) a->valor = v;
+    else {
+        a = m_novo(m, sizeof(atr_t));
+        if (!a) return false;
+        a->nome = m_dup(m, nome, (int)tam_texto(nome)); a->valor = v;
+        if (!a->nome) return false;
+        a->prox = n->atr; n->atr = a;
+    }
+    if (igual(nome, "id")) n->id = v;
+    else if (igual(nome, "class")) n->classe = v;
+    m->recascata = true;
+    return true;
+}
+
+/* O JavaScript troca o conteúdo de um elemento por um texto (textContent = ...). */
+bool motor_dom_texto(motor_t *m, int dom, const char *txt)
+{
+    if (!m || !m->raiz || dom < 0 || !txt) return false;
+    no_m *n = m->raiz;
+    for (; n; n = proximo_no(n)) if (n->dom == dom && !n->texto && !n->pseudo) break;
+    if (!n || n == m->raiz) return false;
+    if (m->foco) for (no_m *q = m->foco; q; q = q->pai) if (q == n) { m->foco = NULL; break; }
+    n->filho = n->ult = NULL; n->ps[0] = n->ps[1] = NULL; n->frags = n->frags_fim = NULL;
+    int nt = (int)tam_texto(txt);
+    if (nt > 0) {
+        no_m *c = m_novo(m, sizeof(no_m));
+        if (!c) return false;
+        c->img = -1; c->alvo = -1; c->max_c = c->min_c = -1; c->bg_img = -1; c->mask_img = -1;
+        c->texto = 1; copia_texto(c->tag, "#texto", sizeof c->tag);
+        c->t = m_dup(m, txt, nt); c->nt = c->t ? nt : 0;
+        c->ordem_doc = n->ordem_doc; c->dom = -1;
+        c->pai = n; n->filho = n->ult = c;
+    }
+    m->recascata = true;
+    return true;
+}
+
 bool motor_marcar_clique(motor_t *m, int dom)
 {
     if (!m || !m->raiz || dom < 0) return false;

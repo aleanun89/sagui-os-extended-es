@@ -5,6 +5,8 @@
   simulado, a falta de la red del mantenedor. El AR9485 sigue para la v8.
   **v7.3.2 (D220, rama `v7.3.2-wifi-seguridad`)**: WEP, WPA/TKIP (y WPA/WPA2 mixto) y WPA3-Personal (SAE)
   con 802.11w, probados en el anfitrión con los vectores de las normas y contra un punto de acceso simulado.
+  **v8.2 (D280, rama `v8.2-wifi-ar9485`)**: driver propio de la **Atheros AR9485** (PCIe, Toshiba L850) sobre la misma pila 802.11, sin
+  firmware, con pruebas de unidad en el anfitrión y QEMU sin la tarjeta; a falta de probarlo en el portátil (`docs/wifi-ar9485.md`).
 - **Antes:** propuesta (**v8**, decidido por el mantenedor el 2026-11-08)
 - **Prioridad:** media-alta
 - **Alta:** 2026-11-08

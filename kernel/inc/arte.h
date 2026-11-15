@@ -16,9 +16,11 @@ extern const desenho_t arte_sagui, arte_icone_arquivos, arte_icone_terminal, art
 /* 16x16 (D065): el botón Inicio y los programas sin icono de 32x32. */
 extern const desenho_t arte_inicio, arte_mini_pantalla, arte_mini_cipo, arte_mini_markdown, arte_mini_infopc;
 extern const desenho_t arte_mini_mico;   /* mejora 037 */
+extern const desenho_t arte_mini_bluetooth;   /* D279 */
 /* 16x16 dos programas que estavam sem icone no menu Inicio (D139). */
 extern const desenho_t arte_mini_recortes, arte_mini_icones, arte_mini_musica, arte_mini_relogio,
                        arte_mini_visorpdf, arte_mini_video, arte_mini_ia;
+extern const desenho_t arte_mini_pluma;   /* mejora 116: el procesador de textos */
 extern const desenho_t arte_mini_macaco;   /* melhoria 078: a folha de calculo */
 extern const desenho_t arte_mini_jclic;   /* D185: actividades JClic */
 extern const desenho_t arte_mini_jclicbajar;   /* D185: bajar actividades JClic */

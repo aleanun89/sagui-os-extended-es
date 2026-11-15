@@ -11,6 +11,13 @@
  *   sonido --auto on|off          callar los altavoces con auriculares enchufados
  *   sonido --verbo NODO VERBO CARGA  manda un verbo y muestra la respuesta
  *   -n (delante de la orden)      sin tono después de cambiar algo
+ *   --guardar (delante de --gpio, --pin, --eapd, --auto o --verbo)
+ *                                 además de hacerlo, lo guarda para este modelo de portátil
+ *                                 (códec + subsistema) en /home/.config/sonido.conf (D292, mejora 075 punto 9)
+ *   sonido --aplicar              aplica lo guardado para este modelo (lo hace solo "configuracion --aplicar"
+ *                                 en cada arranque)
+ *   sonido --guardados            muestra lo guardado para este modelo
+ *   sonido --olvidar              borra lo guardado para este modelo
  *
  * Los NODO, VERBO, CARGA, DATOS y MASCARA van en hexadecimal (con o sin
  * 0x). Los cambios duran hasta reiniciar: sirven para descubrir en un
@@ -19,6 +26,8 @@
 #include "sagui.h"
 
 static bool com_tono = true;
+static bool guardar;                 /* --guardar: recordar la orden para este modelo */
+#define ARQ_CONF "/home/.config/sonido.conf"
 
 static uint32_t v(unsigned no, unsigned verbo, unsigned carga)
 {
@@ -244,12 +253,156 @@ static void depois(void)
     if (com_tono) tono();
 }
 
+/* ------------------------------------------------------------ ajustes guardados por modelo (D292) */
+
+/* sonido.conf: una sección [codec:subsistema PCI:subsistema del códec] por modelo, con una orden por línea:
+ *   pin=NODO,on|off   eapd=NODO,on|off   gpio=DATOS,MASCARA   auto=on|off   verbo=NODO,VERBO,CARGA   (todo en hex) */
+static void clave_modelo(const info_hda_t *i, char *k, size_t n)
+{
+    formatar_texto(k, n, "[%08x:%08x:%08x]", i->id, i->ssid_pci, i->ssid_codec);
+}
+
+static bool home_persistente(void)
+{
+    info_montagem_t m[10];
+    int n = info_sistema(INFO_MONTAGENS, m, 10);
+    for (int i = 0; i < n && i < 10; i++)
+        if (compara_texto(m[i].ponto, "/home") == 0 && !(m[i].opcoes & MONTAR_SO_LEITURA)) return true;
+    return false;
+}
+
+static char conf_buf[4096], conf_out[4400];
+
+static int conf_leer(void)
+{
+    int fd = abrir(ARQ_CONF, ABRIR_LER), n = 0;
+    if (fd >= 0) { n = ler(fd, conf_buf, sizeof conf_buf - 1); fechar(fd); if (n < 0) n = 0; }
+    conf_buf[n] = 0;
+    return n;
+}
+
+static int conf_escribir(const char *t)
+{
+    criar_pasta("/home/.config");
+    int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return fd;
+    int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
+    fechar(fd);
+    return r < 0 ? r : 0;
+}
+
+/* Copia el archivo a conf_out sin la sección del modelo (si quitar) o con "linea" añadida al final de ella. */
+static int conf_reescribir(const info_hda_t *i, const char *linea, bool quitar)
+{
+    char k[40];
+    clave_modelo(i, k, sizeof k);
+    int n = conf_leer(), no = 0;
+    bool en = false, hecho = false, repetida = false;
+    char *p = conf_buf;
+    /* si ya está la orden en la sección, no se duplica */
+    bool en_sec = false;
+    for (char *q = conf_buf; *q;) {
+        char *f = acha_char(q, '\n');
+        if (f) *f = 0;
+        if (q[0] == '[') en_sec = compara_texto(q, k) == 0;
+        else if (en_sec && linea && compara_texto(q, linea) == 0) repetida = true;
+        if (!f) break;
+        *f = '\n';
+        q = f + 1;
+    }
+    if (repetida) return 0;
+    for (; *p && (unsigned)no + 200 < sizeof conf_out;) {
+        char *f = acha_char(p, '\n');
+        if (f) *f = 0;
+        bool sec_nueva = p[0] == '[';
+        if (sec_nueva) {
+            if (en && !hecho && linea) { no += formatar_texto(conf_out + no, sizeof conf_out - (unsigned)no, "%s\n", linea); hecho = true; }
+            en = compara_texto(p, k) == 0;
+        }
+        if (!(quitar && en)) no += formatar_texto(conf_out + no, sizeof conf_out - (unsigned)no, "%s\n", p);
+        if (!f) break;
+        p = f + 1;
+    }
+    if (en && !hecho && linea && !quitar) { no += formatar_texto(conf_out + no, sizeof conf_out - (unsigned)no, "%s\n", linea); hecho = true; }
+    if (!quitar && !hecho && linea)
+        no += formatar_texto(conf_out + no, sizeof conf_out - (unsigned)no, "%s\n%s\n", k, linea);
+    (void)n;
+    conf_out[no] = 0;
+    return conf_escribir(conf_out);
+}
+
+static void guardar_orden(const info_hda_t *i, const char *linea)
+{
+    if (!guardar) return;
+    int r = conf_reescribir(i, linea, false);
+    if (r < 0) imprimir("Aviso: no se pudo guardar en " ARQ_CONF ": %s\n", nome_erro(r));
+    else if (!home_persistente()) imprimir("Aviso: /home no es un disco persistente; se guarda para esta sesión pero no se recordará.\n");
+    else imprimir("Guardado en " ARQ_CONF " para este modelo (se aplicará en cada arranque): %s\n", linea);
+}
+
+/* Aplica una orden guardada; devuelve true si la entendió. */
+static bool aplicar_linea(const char *l)
+{
+    unsigned x, y, z;
+    char a[24], b[24], c[24];
+    int m = 0;
+    char *p = acha_char(l, '=');
+    if (!p) return false;
+    const char *val = p + 1;
+    /* trocea «a,b,c» */
+    a[0] = b[0] = c[0] = 0;
+    char *dst[3] = { a, b, c };
+    int k = 0, u = 0;
+    for (const char *q = val; *q && k < 3; q++) {
+        if (*q == ',') { dst[k][u] = 0; k++; u = 0; continue; }
+        if (u < 23) dst[k][u++] = *q;
+    }
+    if (k < 3) dst[k][u] = 0;
+    m = k + 1;
+    if (comeca_com(l, "pin=") && m == 2 && hex(a, &x) && liga_desliga(b) >= 0) return audio_hda(HDA_OP_PINO, x, (unsigned)liga_desliga(b)) >= 0;
+    if (comeca_com(l, "eapd=") && m == 2 && hex(a, &x) && liga_desliga(b) >= 0) {
+        uint32_t e = v(x, 0xF0C, 0);
+        if (e == 0xFFFFFFFFu) return false;
+        e = liga_desliga(b) ? (e | 2) : (e & ~2u);
+        v(x, 0x70C, e & 0xFF);
+        return true;
+    }
+    if (comeca_com(l, "gpio=") && m == 2 && hex(a, &x) && hex(b, &y) && y) return audio_hda(HDA_OP_GPIO, x, y) >= 0;
+    if (comeca_com(l, "auto=") && m == 1 && liga_desliga(a) >= 0) return audio_hda(HDA_OP_AUTOSILENCIO, (unsigned)liga_desliga(a), 0) >= 0;
+    if (comeca_com(l, "verbo=") && m == 3 && hex(a, &x) && hex(b, &y) && hex(c, &z) && x <= 0x7F) { v(x, y, z); return true; }
+    return false;
+}
+
+/* Recorre la sección del modelo: aplicar (true) o solo mostrar (false). Devuelve cuántas órdenes. */
+static int recorrer(const info_hda_t *i, bool aplicar)
+{
+    char k[40];
+    clave_modelo(i, k, sizeof k);
+    conf_leer();
+    int n = 0, errores = 0;
+    bool en = false;
+    for (char *q = conf_buf; *q;) {
+        char *f = acha_char(q, '\n');
+        if (f) *f = 0;
+        if (q[0] == '[') en = compara_texto(q, k) == 0;
+        else if (en && q[0] && q[0] != '#') {
+            if (aplicar) { if (aplicar_linea(q)) n++; else { errores++; imprimir_em(ERROS, "sonido: no entiendo «%s» en " ARQ_CONF "\n", q); } }
+            else { imprimir("  %s\n", q); n++; }
+        }
+        if (!f) break;
+        q = f + 1;
+    }
+    (void)errores;
+    return n;
+}
+
 /* ------------------------------------------------------------ principal */
 
 static int uso(void)
 {
-    imprimir_em(ERROS, "uso: sonido [-n] [--codec | --tono | --gpio DATOS [MASCARA] | --pin NODO on|off |\n"
+    imprimir_em(ERROS, "uso: sonido [-n] [--guardar] [--codec | --tono | --gpio DATOS [MASCARA] | --pin NODO on|off |\n"
                        "              --eapd NODO on|off | --auto on|off | --verbo NODO VERBO CARGA]\n"
+                       "     sonido --aplicar | --guardados | --olvidar   (ajustes guardados de este modelo)\n"
                        "     (numeros en hexadecimal; -n: sin tono despues de un cambio)\n");
     return 1;
 }
@@ -257,6 +410,8 @@ static int uso(void)
 int principal(int argc, char **argv)
 {
     int a = 1;
+    if (a < argc && compara_texto(argv[a], "-n") == 0) { com_tono = false; a++; }
+    if (a < argc && compara_texto(argv[a], "--guardar") == 0) { guardar = true; a++; }
     if (a < argc && compara_texto(argv[a], "-n") == 0) { com_tono = false; a++; }
     if (a < argc && (compara_texto(argv[a], "--ayuda") == 0 || compara_texto(argv[a], "-h") == 0)) return uso(), 0;
     if (a < argc && compara_texto(argv[a], "--tono") == 0) {
@@ -273,6 +428,23 @@ int principal(int argc, char **argv)
         volcar(&i);
         return 0;
     }
+    if (compara_texto(op, "--aplicar") == 0) {
+        int n = recorrer(&i, true);
+        registrar("sonido: %d ajuste(s) aplicados del modelo %08x:%08x:%08x", n, i.id, i.ssid_pci, i.ssid_codec);
+        imprimir("Aplicados %d ajuste(s) guardados para este modelo.\n", n);
+        return 0;
+    }
+    if (compara_texto(op, "--guardados") == 0) {
+        imprimir("Guardado para el modelo %08x:%08x:%08x:\n", i.id, i.ssid_pci, i.ssid_codec);
+        if (!recorrer(&i, false)) imprimir("  nada\n");
+        return 0;
+    }
+    if (compara_texto(op, "--olvidar") == 0) {
+        int r = conf_reescribir(&i, NULL, true);
+        if (r < 0) { imprimir_em(ERROS, "sonido: no se pudo escribir " ARQ_CONF ": %s\n", nome_erro(r)); return 1; }
+        imprimir("Borrado lo guardado para este modelo.\n");
+        return 0;
+    }
     if (compara_texto(op, "--gpio") == 0) {
         if (a >= argc || !hex(argv[a], &x) || x > 0xFF) return uso();
         y = x;
@@ -281,6 +453,7 @@ int principal(int argc, char **argv)
         audio_hda(HDA_OP_GPIO, x, y);
         estado(&i);
         imprimir("GPIO: mascara %02x dir %02x datos %02x\n", i.gpio_mascara, i.gpio_direcao, i.gpio_dados);
+        { char l[48]; formatar_texto(l, sizeof l, "gpio=%x,%x", x, y); guardar_orden(&i, l); }
         depois();
         return 0;
     }
@@ -294,12 +467,14 @@ int principal(int argc, char **argv)
                 return 1;
             }
             imprimir("Pin %02x %s (ctl %02x)\n", x, on ? "encendido" : "apagado", v(x, 0xF07, 0) & 0xFF);
+            { char l[48]; formatar_texto(l, sizeof l, "pin=%x,%s", x, on ? "on" : "off"); guardar_orden(&i, l); }
         } else {
             uint32_t e = v(x, 0xF0C, 0);
             if (e == 0xFFFFFFFFu) { imprimir_em(ERROS, "sonido: el codec no responde\n"); return 1; }
             e = on ? (e | 2) : (e & ~2u);
             v(x, 0x70C, e & 0xFF);
             imprimir("Pin %02x: EAPD %x\n", x, v(x, 0xF0C, 0) & 0xFF);
+            { char l[48]; formatar_texto(l, sizeof l, "eapd=%x,%s", x, on ? "on" : "off"); guardar_orden(&i, l); }
         }
         depois();
         return 0;
@@ -309,6 +484,7 @@ int principal(int argc, char **argv)
         if (on < 0) return uso();
         audio_hda(HDA_OP_AUTOSILENCIO, (unsigned)on, 0);
         imprimir("Autosilencio: %s\n", on ? "si" : "no");
+        guardar_orden(&i, on ? "auto=on" : "auto=off");
         return 0;
     }
     if (compara_texto(op, "--verbo") == 0) {
@@ -316,6 +492,7 @@ int principal(int argc, char **argv)
             y > 0xFFF || (y > 0xF && z > 0xFF) || z > 0xFFFF)
             return uso();
         imprimir("Nodo %02x verbo %x carga %x -> %08x\n", x, y, z, v(x, y, z));
+        { char l[48]; formatar_texto(l, sizeof l, "verbo=%x,%x,%x", x, y, z); guardar_orden(&i, l); }
         return 0;
     }
     return uso();

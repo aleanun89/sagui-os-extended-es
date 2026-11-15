@@ -41,6 +41,12 @@ typedef struct {
     void (*alerta)(const char *t);      /* alert(...) */
     void (*log)(const char *t);         /* console.log(...) */
     void (*navegar)(const char *url);   /* location.href = ... (D159) */
+    /* D271: o script muda um atributo de um elemento (valor NULL = tira-o) ou o seu texto;
+     * dom e o identificador do no. Textos em UTF-8. */
+    void (*atributo)(int dom, const char *nome, const char *valor);
+    void (*texto)(int dom, const char *txt);
+    /* fetch e XMLHttpRequest (so GET): devolve o corpo (bloco de aloca, o ponte liberta-o) ou NULL */
+    char *(*baixar)(const char *url, int *n);
 } qjs_ganchos_t;
 
 typedef struct qjs_ponte qjs_ponte_t;
@@ -59,6 +65,11 @@ int qjs_executar_texto(qjs_ponte_t *p, const char *codigo, int n, const char *no
 
 /* Corre os temporizadores que ja venceram. Devolve quantos correram. */
 int qjs_tique(qjs_ponte_t *p, unsigned agora_ms);
+
+/* D271: o tamanho da janela (innerWidth, innerHeight e matchMedia) e o fim da carga da
+ * pagina (DOMContentLoaded e load: chamar depois de correr os <script>). */
+void qjs_definir_janela(qjs_ponte_t *p, int larg, int alt);
+void qjs_carga(qjs_ponte_t *p);
 
 /* O que a pagina ja tinha antes do script: o titulo e o HTML do corpo. */
 void qjs_definir_titulo(qjs_ponte_t *p, const char *t);

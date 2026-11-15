@@ -27,9 +27,9 @@ from qemu import Maquina, verificar, imagem_de_teste, opcoes_apps, BUILD  # noqa
 import h57_paint as h57  # noqa: E402
 
 APPS = os.path.join(BUILD, "apps", "raiz")
-TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes")
+TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto")
 Y_PAG = 50
-FN_VX, FN_VY, FN_VL, FN_VA = 24 + 270 + 16, Y_PAG + 24, 740 - (24 + 270 + 16) - 24, 190
+FN_VX, FN_VY, FN_VL, FN_VA = 24 + 270 + 16, Y_PAG + 24, 780 - (24 + 270 + 16) - 24, 190
 BORDA, TITULO = 2, 24
 
 
@@ -161,9 +161,9 @@ def parte_b(m):
     x = 10
     pos = []
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 16
+        l = len(t) * 8 + 10   # como la ventana (D145)
         pos.append((x, l))
-        x += l + 4
+        x += l + 2
     m.clique(ox + pos[7][0] + pos[7][1] // 2, oy + 24)
     time.sleep(1.5)
     png1 = m.captura("H162-2-config-fuentes")

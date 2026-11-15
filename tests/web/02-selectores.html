@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>02 Selectores: atributos y combinadores</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b,.f u,.f s{float:left;width:10px;height:16px;text-decoration:none}
+.v{background:#008000}
+#f1 [title]{background:#008000}
+#f2 [data-k="uno"]{background:#008000}
+#f3 [title^="ab"]{background:#008000}
+#f4 [title$=".pdf"]{background:#008000}
+#f5 [title*="mid"]{background:#008000}
+#f6 [title~="dos"]{background:#008000}
+#f7 [lang|="es"]{background:#008000}
+#f8 [title="UNO" i]{background:#008000}
+#f9 > b{background:#008000}
+#f10 b + b{background:#008000}
+#f11 .p ~ b{background:#008000}
+#f12 .p.q{background:#008000}
+#f13 > *{background:#008000}
+#f14 .p, #f14 .q{background:#008000}
+#f15 B.p{background:#008000}
+#f16 [title="ab"]{background:red}#f16 [title^="b"]{background:red}#f16 [title$="b"]{background:red}#f16 [title~="ab"]{background:red}#f16 b + u{background:red}#f16 > b > b{background:red}#f16 .p.zz{background:red}#f16 [data-k]{background:red}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><b title="a"></b><b class="v"></b><b title=""></b><b class="v"></b></div><div class="e" style="top:10px">[atributo]</div>
+<div class="f" id="f2" style="top:34px"><b data-k="uno"></b><b class="v"></b><b data-k=uno></b><b class="v"></b></div><div class="e" style="top:34px">[atributo="valor"]</div>
+<div class="f" id="f3" style="top:58px"><b title="abc"></b><b class="v"></b><b title="ab"></b><b class="v"></b></div><div class="e" style="top:58px">[atributo^="prefijo"]</div>
+<div class="f" id="f4" style="top:82px"><b title="a.pdf"></b><b class="v"></b><b title=".pdf"></b><b class="v"></b></div><div class="e" style="top:82px">[atributo$="sufijo"]</div>
+<div class="f" id="f5" style="top:106px"><b title="amidb"></b><b class="v"></b><b title="mid"></b><b class="v"></b></div><div class="e" style="top:106px">[atributo*="trozo"]</div>
+<div class="f" id="f6" style="top:130px"><b title="uno dos tres"></b><b class="v"></b><b title="dos"></b><b class="v"></b></div><div class="e" style="top:130px">[atributo~="palabra"]</div>
+<div class="f" id="f7" style="top:154px"><b lang="es-ES"></b><b class="v"></b><b lang="es"></b><b class="v"></b></div><div class="e" style="top:154px">[atributo|="es"]</div>
+<div class="f" id="f8" style="top:178px"><b title="uno"></b><b class="v"></b><b title="Uno"></b><b class="v"></b></div><div class="e" style="top:178px">[atributo="VALOR" i] (sin distinguir mayúsculas)</div>
+<div class="f" id="f9" style="top:202px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:202px">hijo: a &gt; b</div>
+<div class="f" id="f10" style="top:226px"><b class="v"></b><b></b><b></b><b></b></div><div class="e" style="top:226px">hermano adyacente: a + b</div>
+<div class="f" id="f11" style="top:250px"><b class="v p"></b><b></b><u class="v"></u><b></b></div><div class="e" style="top:250px">hermanos siguientes: a ~ b</div>
+<div class="f" id="f12" style="top:274px"><b class="p q"></b><b class="v"></b><b class="q r p"></b><b class="v"></b></div><div class="e" style="top:274px">dos clases: .a.b</div>
+<div class="f" id="f13" style="top:298px"><b></b><u></u><s></s><b></b></div><div class="e" style="top:298px">universal: *</div>
+<div class="f" id="f14" style="top:322px"><b class="p"></b><b class="v"></b><b class="q"></b><b class="v"></b></div><div class="e" style="top:322px">lista: a, b</div>
+<div class="f" id="f15" style="top:346px"><b class="p"></b><b class="v"></b><b class="p"></b><b class="v"></b></div><div class="e" style="top:346px">etiqueta y clase sin distinguir mayúsculas en la etiqueta</div>
+<div class="f g" id="f16" style="top:370px"><b title="abc" class="p"></b><b title="abc"></b></div><div class="e" style="top:370px">no deben coincidir (trampas)</div>
+</body></html>

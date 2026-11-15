@@ -1,0 +1,25 @@
+# Batería reducida y representativa (mantenedor, 2026-11-15): para versiones menores y betas, junto con
+# las pruebas de lo tocado. La batería completa solo al pasar de versión mayor (8 -> 9).
+# Uso: python3 tests/rodar_paralelo.py --kvm -j 6 --repetir-falhas $(grep -v '^#' tests/reducida.txt) <afectadas>
+# arranque y núcleo
+h01_ambiente h02_mbr h03_modo_protegido h04_imagens h05_interrupcoes h06_memoria h10_paginacao h11_escalonador
+h12_anel3 h13_elf h119_ramdisk h133_smp_multinucleo h163_wc_smp h191_cpath h46_memoria h95_ram_minima
+# shell y terminal
+h09_terminal h14_arquivos h15_pipes h16_shell h38_shell_completo h74_comandos h263_terminal_color
+# escritorio
+h20_area_trabalho h21_janelas h22_componentes h24_terminal_janela h28_acabamento h41_tareas h55_menu_contextual
+h60_barra_tareas h83_configuracion h109_menu_inicio h268_iconos_escritorio h269_dialogo_admin h272_dialogos_archivo
+# discos y sistemas de archivos
+h33_fat32_gravacao h50_ext2 h51_ext4 h52_persistencia h54_fstab h92_discos h131_sata_ahci h149_instalador
+h255_conf_particion h265_nvme h266_gpt_esp
+# arranque UEFI
+h264_uefi h270_uefi_gpt
+# red y seguridad
+h44_red h59_tls h248_ssh h250_vnc h254_usuarios
+# USB y sonido
+h29_ehci h214_xhci h227_usb_caliente h267_usb11 h70_sonido h75_codecs_audio
+# aplicaciones y lenguajes
+b5_compilador_c b6_micropython h25_editor h47_cipo h64_mico h69_pascal h87_sqlite h107_visorpdf h271_cipo_css
+h136_opentyrian h229_quake
+# licencias y publicación
+h81_licencias h260_publicar

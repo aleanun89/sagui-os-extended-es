@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>20 JavaScript: API de la ventana</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.lleno{display:block;height:16px;background:#008000}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"></div><div class="e" style="top:10px">setTimeout</div>
+<div class="f" id="f2" style="top:34px"></div><div class="e" style="top:34px">requestAnimationFrame</div>
+<div class="f" id="f3" style="top:58px"></div><div class="e" style="top:58px">DOMContentLoaded</div>
+<div class="f" id="f4" style="top:82px"></div><div class="e" style="top:82px">window.onload y addEventListener('load')</div>
+<div class="f" id="f5" style="top:106px"></div><div class="e" style="top:106px">localStorage</div>
+<div class="f" id="f6" style="top:130px"></div><div class="e" style="top:130px">sessionStorage</div>
+<div class="f" id="f7" style="top:154px"></div><div class="e" style="top:154px">fetch() de un texto</div>
+<div class="f" id="f8" style="top:178px"></div><div class="e" style="top:178px">fetch() con json()</div>
+<div class="f" id="f9" style="top:202px"></div><div class="e" style="top:202px">XMLHttpRequest</div>
+<div class="f" id="f10" style="top:226px"></div><div class="e" style="top:226px">IntersectionObserver</div>
+<div class="f" id="f11" style="top:250px"></div><div class="e" style="top:250px">matchMedia</div>
+<div class="f" id="f12" style="top:274px"></div><div class="e" style="top:274px">getComputedStyle</div>
+<div class="f" id="f13" style="top:298px"></div><div class="e" style="top:298px">getBoundingClientRect, offsetWidth, innerWidth</div>
+<div class="f" id="f14" style="top:322px"></div><div class="e" style="top:322px">Promise, async/await y funciones flecha</div>
+<div class="f" id="f15" style="top:346px"></div><div class="e" style="top:346px">eventos: dispatchEvent y CustomEvent</div>
+<div class="f" id="f16" style="top:370px"><template id="tpl"><i class="lleno"></i></template></div><div class="e" style="top:370px">template.content y cloneNode</div>
+<script>try{(function(el){setTimeout(function(){el.style.background='#008000'},10)})(document.getElementById('f1'))}catch(e){console.log('f1: '+e)}</script>
+<script>try{(function(el){requestAnimationFrame(function(t){if(typeof t==='number')el.style.background='#008000'})})(document.getElementById('f2'))}catch(e){console.log('f2: '+e)}</script>
+<script>try{(function(el){document.addEventListener('DOMContentLoaded',function(){el.style.background='#008000'})})(document.getElementById('f3'))}catch(e){console.log('f3: '+e)}</script>
+<script>try{(function(el){var n=0;window.addEventListener('load',function(){n++;if(n==2)el.style.background='#008000'});window.onload=function(){n++;if(n==2)el.style.background='#008000'}})(document.getElementById('f4'))}catch(e){console.log('f4: '+e)}</script>
+<script>try{(function(el){localStorage.setItem('k','v');if(localStorage.getItem('k')==='v'&&localStorage.getItem('nada')===null){localStorage.removeItem('k');el.style.background='#008000'}})(document.getElementById('f5'))}catch(e){console.log('f5: '+e)}</script>
+<script>try{(function(el){sessionStorage.setItem('k','v');if(sessionStorage.getItem('k')==='v')el.style.background='#008000'})(document.getElementById('f6'))}catch(e){console.log('f6: '+e)}</script>
+<script>try{(function(el){fetch('dato.txt').then(function(r){return r.text()}).then(function(t){if(t.indexOf('verde')>=0)el.style.background='#008000'})})(document.getElementById('f7'))}catch(e){console.log('f7: '+e)}</script>
+<script>try{(function(el){fetch('dato.json').then(function(r){return r.json()}).then(function(o){if(o.color==='verde')el.style.background='#008000'})})(document.getElementById('f8'))}catch(e){console.log('f8: '+e)}</script>
+<script>try{(function(el){var x=new XMLHttpRequest();x.open('GET','dato.txt');x.onload=function(){if(x.status==200&&x.responseText.indexOf('verde')>=0)el.style.background='#008000'};x.send()})(document.getElementById('f9'))}catch(e){console.log('f9: '+e)}</script>
+<script>try{(function(el){new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)e.target.style.background='#008000'})}).observe(el)})(document.getElementById('f10'))}catch(e){console.log('f10: '+e)}</script>
+<script>try{(function(el){if(window.matchMedia('(min-width: 200px)').matches&&!window.matchMedia('(max-width: 200px)').matches)el.style.background='#008000'})(document.getElementById('f11'))}catch(e){console.log('f11: '+e)}</script>
+<script>try{(function(el){if(getComputedStyle(el).position==='absolute')el.style.background='#008000'})(document.getElementById('f12'))}catch(e){console.log('f12: '+e)}</script>
+<script>try{(function(el){var r=el.getBoundingClientRect();if(r.width===40&&r.left===10&&el.offsetWidth===40&&window.innerWidth>=300)el.style.background='#008000'})(document.getElementById('f13'))}catch(e){console.log('f13: '+e)}</script>
+<script>try{(function(el){(async()=>{const v=await Promise.resolve(1);if(v===1)el.style.background='#008000'})()})(document.getElementById('f14'))}catch(e){console.log('f14: '+e)}</script>
+<script>try{(function(el){el.addEventListener('cosa',function(e){if(e.detail===7)el.style.background='#008000'});el.dispatchEvent(new CustomEvent('cosa',{detail:7}))})(document.getElementById('f15'))}catch(e){console.log('f15: '+e)}</script>
+<script>try{(function(el){var t=document.getElementById('tpl');el.appendChild(t.content.cloneNode(true))})(document.getElementById('f16'))}catch(e){console.log('f16: '+e)}</script>
+</body></html>

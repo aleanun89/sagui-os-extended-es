@@ -215,9 +215,35 @@ int smtp_enviar(const smtp_envio_t *e, char *erro, unsigned max)
     formatar_texto(cmd, sizeof cmd, "MAIL FROM:<%s>", e->de);
     c = smtp_cmd(&s, cmd, 250, texto, sizeof texto, NULL, 0);
     if (c) { smtp_err(erro, max, "MAIL FROM", c, texto); goto fim; }
-    formatar_texto(cmd, sizeof cmd, "RCPT TO:<%s>", e->para);
-    c = smtp_cmd(&s, cmd, 250, texto, sizeof texto, NULL, 0);
-    if (c) { smtp_err(erro, max, "RCPT TO", c, texto); goto fim; }
+    /* Un RCPT TO por cada dirección de "para" y de "cc" (separadas por coma o punto y
+     * coma; si trae "Nombre <dir>", vale lo de dentro de los ángulos). */
+    int n_rcpt = 0;
+    for (int lista = 0; lista < 2; lista++) {
+        const char *q = lista == 0 ? e->para : e->cc;
+        while (q && *q) {
+            while (*q == ' ' || *q == ',' || *q == ';') q++;
+            if (!*q) break;
+            char dir[160];
+            unsigned nd = 0;
+            const char *fin = q;
+            while (*fin && *fin != ',' && *fin != ';') fin++;
+            const char *ini = q, *fd = fin;
+            for (const char *k = q; k < fin; k++) {
+                if (*k == '<') ini = k + 1;
+                if (*k == '>') { fd = k; break; }
+            }
+            if (ini == q) { while (ini < fd && *ini == ' ') ini++; while (fd > ini && fd[-1] == ' ') fd--; }
+            for (const char *k = ini; k < fd && nd + 1 < sizeof dir; k++) dir[nd++] = *k;
+            dir[nd] = 0;
+            q = fin;
+            if (!nd) continue;
+            formatar_texto(cmd, sizeof cmd, "RCPT TO:<%s>", dir);
+            c = smtp_cmd(&s, cmd, 250, texto, sizeof texto, NULL, 0);
+            if (c) { smtp_err(erro, max, "RCPT TO", c, texto); goto fim; }
+            n_rcpt++;
+        }
+    }
+    if (!n_rcpt) { copia_texto(erro, "falta el destinatario", max); goto fim; }
 
     /* DATA: responde 354 y espera el mensaje, que acaba con "." en una línea sola. */
     c = smtp_cmd(&s, "DATA", 354, texto, sizeof texto, NULL, 0);
@@ -435,6 +461,70 @@ static int imap_fetch(sessao_t *s, const char *eti, int i, char **dados, unsigne
     }
 }
 
+/* LOGIN con el usuario y la clave entre comillas (se escapan " y \). 0 = bien. */
+static int imap_login(sessao_t *s, const buzon_cfg_t *b, char *erro, unsigned max)
+{
+    static char r[LINHA_MAX];
+    /* Saludo "* OK ...". */
+    if (sessao_linha(s, r, sizeof r) < 0 || r[0] != '*') { formatar_texto(erro, max, "saludo IMAP: %s", r); return -1; }
+    static char cmd[300];
+    char u[128], p[128];
+    unsigned o = 0;
+    for (const char *q = b->usuario ? b->usuario : ""; *q && o + 2 < sizeof u; q++) { if (*q == '"' || *q == '\\') u[o++] = '\\'; u[o++] = *q; }
+    u[o] = 0;
+    o = 0;
+    for (const char *q = b->clave ? b->clave : ""; *q && o + 2 < sizeof p; q++) { if (*q == '"' || *q == '\\') p[o++] = '\\'; p[o++] = *q; }
+    p[o] = 0;
+    formatar_texto(cmd, sizeof cmd, "LOGIN \"%s\" \"%s\"", u, p);
+    if (imap_cmd(s, "A001", cmd, NULL, erro, max) != 0) {
+        if (!erro[0]) copia_texto(erro, "autenticacion", max);
+        return -1;
+    }
+    return 0;
+}
+
+/* Lista las carpetas del buzón (LIST "" "*"), sin INBOX ni las que no se pueden abrir
+ * (\Noselect). nombres[i] es el nombre tal como lo da el servidor. Devuelve cuántas. */
+int imap_listar_pastas(const buzon_cfg_t *b, char (*nomes)[64], int max_nomes, char *erro, unsigned max)
+{
+    sessao_t s;
+    static char r[LINHA_MAX];
+    int n = -1;
+    if (sessao_abrir(&s, b->host, b->porta, b->tls, b->cfg) < 0) { copia_texto(erro, s.erro, max); return -1; }
+    if (imap_login(&s, b, erro, max) != 0) goto fim;
+    if (sessao_escrever_linha(&s, "A010 LIST \"\" \"*\"") < 0) { copia_texto(erro, s.erro, max); goto fim; }
+    n = 0;
+    for (;;) {
+        int k = sessao_linha(&s, r, sizeof r);
+        if (k < 0) { copia_texto(erro, s.erro, max); n = -1; goto fim; }
+        if (compara_texto_n(r, "A010 ", 5) == 0) break;
+        if (compara_texto_n(r, "* LIST ", 7) != 0) continue;
+        if (contem(r, "\\Noselect")) continue;
+        /* El nombre es lo último: entre comillas o un átomo, tras el separador. */
+        char *fim_l = r + k;
+        char *nome;
+        if (fim_l > r && fim_l[-1] == '"') {
+            fim_l--;
+            nome = fim_l;
+            while (nome > r && nome[-1] != '"') nome--;
+        } else {
+            nome = fim_l;
+            while (nome > r && nome[-1] != ' ') nome--;
+        }
+        char tmp[64];
+        unsigned t = (unsigned)(fim_l - nome);
+        if (t >= sizeof tmp) t = sizeof tmp - 1;
+        memcpy(tmp, nome, t);
+        tmp[t] = 0;
+        if (!tmp[0] || compara_texto(tmp, "INBOX") == 0) continue;
+        if (n < max_nomes) { copia_texto(nomes[n], tmp, sizeof nomes[n]); n++; }
+    }
+    imap_cmd(&s, "A999", "LOGOUT", NULL, erro, max);
+fim:
+    sessao_fechar(&s);
+    return n;
+}
+
 int imap_receber(const buzon_cfg_t *b, mensagem_fn f, void *ctx, char *erro, unsigned max)
 {
     sessao_t s;
@@ -443,28 +533,14 @@ int imap_receber(const buzon_cfg_t *b, mensagem_fn f, void *ctx, char *erro, uns
     int entregues = -1;
     if (sessao_abrir(&s, b->host, b->porta, b->tls, b->cfg) < 0) { copia_texto(erro, s.erro, max); return -1; }
 
-    /* Saludo "* OK ...". */
-    if (sessao_linha(&s, r, sizeof r) < 0 || r[0] != '*') { formatar_texto(erro, max, "saludo IMAP: %s", r); goto fim; }
+    if (imap_login(&s, b, erro, max) != 0) goto fim;
 
-    /* LOGIN con el usuario y la clave entre comillas (se escapan " y \). */
+    /* SELECT de la carpeta (INBOX si no se pide otra): la respuesta trae "* n EXISTS". */
     {
-        static char cmd[300];
-        char u[128], p[128];
-        unsigned o = 0;
-        for (const char *q = b->usuario ? b->usuario : ""; *q && o + 2 < sizeof u; q++) { if (*q == '"' || *q == '\\') u[o++] = '\\'; u[o++] = *q; }
-        u[o] = 0;
-        o = 0;
-        for (const char *q = b->clave ? b->clave : ""; *q && o + 2 < sizeof p; q++) { if (*q == '"' || *q == '\\') p[o++] = '\\'; p[o++] = *q; }
-        p[o] = 0;
-        formatar_texto(cmd, sizeof cmd, "LOGIN \"%s\" \"%s\"", u, p);
-        if (imap_cmd(&s, "A001", cmd, NULL, erro, max) != 0) {
-            if (!erro[0]) copia_texto(erro, "autenticacion", max);
-            goto fim;
-        }
+        char sel[140];
+        formatar_texto(sel, sizeof sel, "SELECT \"%s\"", b->pasta && b->pasta[0] ? b->pasta : "INBOX");
+        if (imap_cmd(&s, "A002", sel, &existentes, erro, max) != 0) goto fim;
     }
-
-    /* SELECT INBOX: la respuesta trae "* n EXISTS" con el número de mensajes. */
-    if (imap_cmd(&s, "A002", "SELECT INBOX", &existentes, erro, max) != 0) goto fim;
 
     entregues = 0;
     for (int i = 1; i <= existentes; i++) {

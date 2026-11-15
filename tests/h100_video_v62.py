@@ -115,11 +115,13 @@ def gerar_video():
 
 def compilar_anfitrion():
     """El decodificador de la libsagui, compilado para el anfitrión."""
-    r = subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-DSAGUI_HOST", "-Itools", "-Iuserland/inc",
+    r = subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-DSAGUI_HOST", "-DH264_HOST", "-Wno-unused-function", "-Itools", "-Iuserland/inc",
                         "-Iuserland/libsagui", "-Ikernel/inc", "-o", DECO,
                         "tools/video_testar.c", "tools/video_host.c",
                         "userland/libsagui/video.c", "userland/libsagui/imagem_jpeg.c",
-                        "userland/libsagui/imagem_idct.c", "userland/libsagui/mpeg1.c"],
+                        "userland/libsagui/imagem_idct.c", "userland/libsagui/mpeg1.c",
+           "userland/libsagui/video_mp4.c", "userland/libsagui/h264.c", "userland/libsagui/aac.c",
+           "userland/libsagui/mp4.c", "-lm"],
                        cwd=RAIZ, capture_output=True)
     verificar(r.returncode == 0 and not r.stderr,
               "el decodificador de vídeo compila en el anfitrión sin avisos: " + r.stderr.decode()[:300])

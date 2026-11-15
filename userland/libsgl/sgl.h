@@ -183,6 +183,22 @@ void glLightfv(GLenum luz, GLenum nome, const GLfloat *valor);
 void sgl_motor_simd(int ativo);
 int  sgl_motor_simd_ativo(void);
 
+/* ---- v8.3: 3D por la GPU (D285) ----
+ * Si el kernel tiene un driver 3D para la tarjeta (Intel Gen3...) y el motor
+ * está libre, un contexto de ventana manda sus triángulos a la GPU; si no, o
+ * si la GPU falla, sigue por software sin que el programa haga nada. Con la
+ * GPU el cuadro llega a los píxeles de la ventana en sgl_trocar() o en
+ * glFinish(): quien dibuje encima con la CPU (texto, HUD) llama antes a
+ * glFinish(). Los contextos en memoria (sgl_criar_contexto_mem) son siempre
+ * por software salvo que se pida con sgl_gpu_ligar(). La GPU no da los mismos
+ * píxeles bit a bit que el motor por software (bordes, redondeo). */
+int  sgl_gpu_ligar(sgl_ctx_t *c);      /* 1 = el contexto dibuja por la GPU; 0 = sigue por software */
+void sgl_gpu_desligar(sgl_ctx_t *c);
+int  sgl_gpu_ativa(void);              /* el contexto actual, ahora */
+void sgl_gpu_automatica(int ativa);    /* 1 (por defecto): los contextos de ventana prueban la GPU */
+void glFinish(void);
+void glFlush(void);
+
 /* ---- utilidades deterministas (sin libm) ---- */
 float sgl_sen(float rad);
 float sgl_cos(float rad);

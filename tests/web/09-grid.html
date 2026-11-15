@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>09 Grid</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b{background:#008000;height:16px}
+#f1{display:grid;grid-template-columns:10px 30px}
+#f2{display:grid;grid-template-columns:1fr 3fr}#f2 .c{background:#000080}
+#f3{display:grid;grid-template-columns:repeat(4,1fr)}
+#f4{display:grid;grid-template-columns:16px 16px;gap:8px}
+#f5{display:grid;grid-template-columns:20px 20px;grid-template-rows:8px 8px}#f5 b{height:auto}
+#f6{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+#f7{display:grid;grid-template-columns:repeat(auto-fill,minmax(20px,1fr))}
+#f8{display:grid;grid-template-columns:repeat(auto-fit,minmax(10px,1fr))}#f8 .c{background:#000080}
+#f9{display:grid;grid-template-columns:10px 30px;grid-template-areas:"a b"}#f9 .c{grid-area:b;background:#000080}#f9 .d{grid-area:a}
+#f10{display:grid;grid-template-columns:20px 20px}#f10 b{height:8px}#f10 .c{grid-column:span 2}
+#f11{display:grid;grid-template-columns:20px 20px}#f11 .c{grid-column:2;grid-row:1;background:#000080}#f11 .d{grid-column:1;grid-row:1}
+#f12{display:grid;grid-template-columns:20px 20px}#f12 b{height:8px}#f12 .c{grid-column:1 / -1}
+#f13{display:grid;grid-template-rows:16px;place-items:center}#f13 b{width:20px;height:8px}
+#f14{display:grid;grid-auto-flow:column}#f14 b{width:20px}
+#f15{display:grid;grid-auto-rows:8px}#f15 b{height:auto}
+#f16{display:grid;grid-template-columns:20px 20px;grid-template-rows:8px 8px;grid-template-areas:"c c" "l r"}#f16 b{height:auto}#f16 .c{grid-area:c}#f16 .l{grid-area:l;background:#000080}#f16 .r{grid-area:r}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><b></b><b></b></div><div class="e" style="top:10px">grid-template-columns en px</div>
+<div class="f" id="f2" style="top:34px" data-p="5,8,000080 15,8,008000 38,8,008000"><b class="c"></b><b></b></div><div class="e" style="top:34px">unidad fr (1fr 3fr)</div>
+<div class="f" id="f3" style="top:58px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:58px">repeat(4, 1fr)</div>
+<div class="f" id="f4" style="top:82px" data-p="8,8,008000 20,8,ff0000 32,8,008000"><b></b><b></b></div><div class="e" style="top:82px">gap</div>
+<div class="f" id="f5" style="top:106px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:106px">grid-template-rows</div>
+<div class="f" id="f6" style="top:130px"><b></b><b></b></div><div class="e" style="top:130px">minmax(0, 1fr)</div>
+<div class="f" id="f7" style="top:154px"><b></b><b></b></div><div class="e" style="top:154px">repeat(auto-fill, minmax(20px, 1fr))</div>
+<div class="f" id="f8" style="top:178px" data-p="10,8,008000 30,8,000080"><b></b><b class="c"></b></div><div class="e" style="top:178px">repeat(auto-fit, minmax(10px, 1fr))</div>
+<div class="f" id="f9" style="top:202px" data-p="5,8,008000 25,8,000080"><b class="c"></b><b class="d"></b></div><div class="e" style="top:202px">grid-template-areas y grid-area</div>
+<div class="f" id="f10" style="top:226px"><b class="c"></b><b></b><b></b></div><div class="e" style="top:226px">grid-column: span 2</div>
+<div class="f" id="f11" style="top:250px" data-p="10,8,008000 30,8,000080"><b class="c"></b><b class="d"></b></div><div class="e" style="top:250px">grid-column y grid-row con número</div>
+<div class="f" id="f12" style="top:274px"><b class="c"></b><b></b><b></b></div><div class="e" style="top:274px">grid-column: 1 / -1</div>
+<div class="f" id="f13" style="top:298px" data-p="20,8,008000 5,8,ff0000 35,8,ff0000 20,2,ff0000 20,14,ff0000"><b></b></div><div class="e" style="top:298px">place-items: center</div>
+<div class="f" id="f14" style="top:322px"><b></b><b></b></div><div class="e" style="top:322px">grid-auto-flow: column</div>
+<div class="f" id="f15" style="top:346px"><b></b><b></b></div><div class="e" style="top:346px">grid-auto-rows</div>
+<div class="f" id="f16" style="top:370px" data-p="10,4,008000 30,4,008000 10,12,000080 30,12,008000"><b class="r"></b><b class="l"></b><b class="c"></b></div><div class="e" style="top:370px">áreas en varias filas</div>
+</body></html>

@@ -986,6 +986,9 @@ struct SDL_Texture {
     Uint8 *px;
     SDL_Renderer *r;
     SDL_BlendMode modo;
+    Uint32 mod;             /* SDL_SetTextureColorMod / AlphaMod: 0xAARRGGBB que multiplica (0xFFFFFFFF: nada) */
+    int gpu_vaga;           /* D288: hueco de textura en la GPU (-1: ninguno) */
+    int gpu_sujo;           /* sus pixeles cambiaron desde que se subieron a la GPU */
 };
 
 struct SDL_Renderer {
@@ -996,12 +999,44 @@ struct SDL_Renderer {
     int log_l, log_a;        /* SDL_RenderSetLogicalSize (0 = sin) */
     int limpar_pend;         /* D247: SDL_RenderClear sobre la ventana, aún sin pintar */
     Uint32 limpar_cor;
+    SDL_BlendMode modo_des;  /* SDL_SetRenderDrawBlendMode */
+    struct sdlgpu *gpu;      /* D288: la GPU lleva el lienzo de la ventana (NULL: software) */
 };
+
+#include "sdl2gpu.h"
 
 static const SDL_RendererInfo info_renderer = {
     "saguios", SDL_RENDERER_SOFTWARE | SDL_RENDERER_TARGETTEXTURE, 3,
     { SDL_PIXELFORMAT_ARGB8888, SDL_PIXELFORMAT_RGB888, SDL_PIXELFORMAT_INDEX8 }, 4096, 4096
 };
+static const SDL_RendererInfo info_renderer_gpu = {
+    "saguios-gpu", SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE, 3,
+    { SDL_PIXELFORMAT_ARGB8888, SDL_PIXELFORMAT_RGB888, SDL_PIXELFORMAT_INDEX8 }, GPU3D_MAX_LADO, GPU3D_MAX_LADO
+};
+
+/* D288: vuelta al software de este renderizador (lo dibujado se trae antes al lienzo). */
+static void gpu_cair(SDL_Renderer *r, int preservar, const char *motivo)
+{
+    if (!r->gpu) return;
+    sdlg_fechar(r->gpu, r->w ? r->w->tela : NULL, preservar);
+    r->gpu = NULL;
+    registrar("[%s] renderizador por GPU apagado: %s (sigue por software)", sagui_sdl2_nome, motivo);
+}
+/* rc de una operacion de la GPU: <0 fallo de la GPU, >0 no puede. Siempre cae al software. */
+static void gpu_erro(SDL_Renderer *r, int rc)
+{
+    gpu_cair(r, rc > 0, rc < 0 ? "la GPU fallo" : "la GPU no admite la operacion");
+}
+/* El estado de la GPU si este renderizador dibuja en ella ahora mismo. */
+static sdlgpu_t *gpu_de(SDL_Renderer *r)
+{
+    if (!r->gpu || r->alvo || r->alvo_sup) return NULL;
+    if (!r->w || !r->w->tela || r->w->l != r->gpu->l || r->w->a != r->gpu->a) {
+        gpu_cair(r, 1, "cambio el tamano del lienzo");
+        return NULL;
+    }
+    return r->gpu;
+}
 
 int SDL_GetNumRenderDrivers(void) { return 1; }
 int SDL_GetRenderDriverInfo(int i, SDL_RendererInfo *info)
@@ -1013,7 +1048,7 @@ int SDL_GetRenderDriverInfo(int i, SDL_RendererInfo *info)
 
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *w, int indice, Uint32 flags)
 {
-    (void)indice; (void)flags;
+    (void)indice;
     if (!w) { SDL_SetError("SDL_CreateRenderer sin ventana"); return NULL; }
     if (w->renderer) return w->renderer;
     SDL_Renderer *r = calloc(1, sizeof *r);
@@ -1021,6 +1056,11 @@ SDL_Renderer *SDL_CreateRenderer(SDL_Window *w, int indice, Uint32 flags)
     r->w = w;
     r->ca = 255;
     w->renderer = r;
+    if (sdlg_quiere(flags)) {   /* D288: la GPU 3D si la hay; si no, el software de siempre */
+        r->gpu = w->tela ? sdlg_abrir(w->l, w->a) : NULL;
+        registrar(r->gpu ? "[%s] renderizador por GPU: destino %dx%d" : "[%s] renderizador por software (sin GPU 3D que lo lleve; %dx%d)",
+                  sagui_sdl2_nome, w->l, w->a);
+    }
     return r;
 }
 
@@ -1040,19 +1080,20 @@ void SDL_DestroyRenderer(SDL_Renderer *r)
 {
     if (!r) return;
     if (r->w && r->w->renderer == r) r->w->renderer = NULL;
+    if (r->gpu) { sdlg_fechar(r->gpu, NULL, 0); r->gpu = NULL; }
     free(r);
 }
 
 int SDL_GetRendererInfo(SDL_Renderer *r, SDL_RendererInfo *info)
 {
     if (!r || !info) return -1;
-    *info = info_renderer;
+    *info = r->gpu ? info_renderer_gpu : info_renderer;
     return 0;
 }
 
 /* El lienzo donde dibuja el renderer ahora: la textura destino, la
  * superficie (renderer de software) o el de la ventana. */
-static Uint32 *lienzo_de(SDL_Renderer *r, int *l, int *a, int *pitch_px)
+static Uint32 *lienzo_cru(SDL_Renderer *r, int *l, int *a, int *pitch_px)
 {
     if (r->alvo) { *l = r->alvo->l; *a = r->alvo->a; *pitch_px = r->alvo->pitch / 4; return (Uint32 *)r->alvo->px; }
     if (r->alvo_sup) { *l = r->alvo_sup->w; *a = r->alvo_sup->h; *pitch_px = r->alvo_sup->pitch / 4; return r->alvo_sup->pixels; }
@@ -1067,11 +1108,27 @@ static Uint32 *lienzo_de(SDL_Renderer *r, int *l, int *a, int *pitch_px)
     return NULL;
 }
 
+/* Para escribir en el lienzo de la ventana con la CPU: si lo llevaba la GPU, se le deja
+ * (si no, lo dibujado luego en la GPU pisaria lo de la CPU). */
+static Uint32 *lienzo_de(SDL_Renderer *r, int *l, int *a, int *pitch_px)
+{
+    if (r->gpu && !r->alvo && !r->alvo_sup) gpu_cair(r, 1, "dibujo por software en el lienzo");
+    return lienzo_cru(r, l, a, pitch_px);
+}
+
+/* Para leer el lienzo (ReadPixels): trae antes el cuadro de la GPU. */
+static Uint32 *lienzo_ler(SDL_Renderer *r, int *l, int *a, int *pitch_px)
+{
+    sdlgpu_t *g = gpu_de(r);
+    if (g) { int rc = sdlg_ler(g, r->w->tela); if (rc) gpu_erro(r, rc); }
+    return lienzo_cru(r, l, a, pitch_px);
+}
+
 int SDL_GetRendererOutputSize(SDL_Renderer *r, int *l, int *a)
 {
     if (!r) return -1;
     int ll = 0, aa = 0, p;
-    lienzo_de(r, &ll, &aa, &p);
+    lienzo_cru(r, &ll, &aa, &p);
     if (l) *l = ll;
     if (a) *a = aa;
     return 0;
@@ -1093,7 +1150,7 @@ void SDL_RenderGetLogicalSize(SDL_Renderer *r, int *l, int *a)
 }
 int SDL_RenderSetIntegerScale(SDL_Renderer *r, SDL_bool s) { (void)r; (void)s; return 0; }
 int SDL_RenderSetViewport(SDL_Renderer *r, const SDL_Rect *rect) { (void)r; (void)rect; return 0; }
-int SDL_SetRenderDrawBlendMode(SDL_Renderer *r, SDL_BlendMode m) { (void)r; (void)m; return 0; }
+int SDL_SetRenderDrawBlendMode(SDL_Renderer *r, SDL_BlendMode m) { if (r) r->modo_des = m; return 0; }
 
 int SDL_SetRenderDrawColor(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb, Uint8 ca)
 {
@@ -1118,19 +1175,46 @@ static SDL_Rect para_lienzo(SDL_Renderer *r, const SDL_Rect *rect, int l, int a)
 int SDL_RenderFillRect(SDL_Renderer *r, const SDL_Rect *rect)
 {
     if (!r) return -1;
+    int mezcla = r->modo_des == SDL_BLENDMODE_BLEND && r->ca < 255;
+    sdlgpu_t *g = gpu_de(r);
+    if (g) {
+        SDL_Rect d = para_lienzo(r, rect, g->l, g->a);
+        if (d.w <= 0 || d.h <= 0) return 0;
+        int rc = sdlg_rect(g, d.x, d.y, d.w, d.h, r->cr, r->cg, r->cb, r->ca, mezcla);
+        if (!rc) return 0;
+        gpu_erro(r, rc);
+    }
     int l, a, p;
     Uint32 *t = lienzo_de(r, &l, &a, &p);
     if (!t) return -1;
     SDL_Rect d = para_lienzo(r, rect, l, a), todo = { 0, 0, l, a }, c;
     if (!SDL_IntersectRect(&d, &todo, &c)) return 0;
     Uint32 cor = 0xFF000000u | ((Uint32)r->cr << 16) | ((Uint32)r->cg << 8) | r->cb;
-    for (int y = c.y; y < c.y + c.h; y++) preencher32(t + (size_t)y * p + c.x, cor, (size_t)c.w);
+    if (!mezcla) {
+        for (int y = c.y; y < c.y + c.h; y++) preencher32(t + (size_t)y * p + c.x, cor, (size_t)c.w);
+        return 0;
+    }
+    unsigned al = r->ca;   /* SDL_BLENDMODE_BLEND: color * alfa + fondo * (1 - alfa) */
+    for (int y = c.y; y < c.y + c.h; y++)
+        for (int x = c.x; x < c.x + c.w; x++) {
+            Uint32 f = t[(size_t)y * p + x];
+            unsigned rr = (r->cr * al + ((f >> 16) & 255) * (255 - al)) / 255;
+            unsigned gg = (r->cg * al + ((f >> 8) & 255) * (255 - al)) / 255;
+            unsigned bb = (r->cb * al + (f & 255) * (255 - al)) / 255;
+            t[(size_t)y * p + x] = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
+        }
     return 0;
 }
 int SDL_RenderClear(SDL_Renderer *r)
 {
     if (!r) return -1;
     MEDIR_INI();
+    sdlgpu_t *g = gpu_de(r);
+    if (g) {
+        int rc = sdlg_limpar(g, r->cr, r->cg, r->cb);
+        if (!rc) { MEDIR_FIM(ciclos_escala); return 0; }
+        gpu_erro(r, rc);
+    }
     if (!r->alvo && !r->alvo_sup && r->w) {
         /* D247: sobre la ventana, el borrado espera: casi siempre el RenderCopy siguiente cubre
          * todo el lienzo y pintarlo antes es un relleno de megabytes que no se ve. */
@@ -1153,6 +1237,10 @@ int SDL_RenderDrawPoint(SDL_Renderer *r, int x, int y)
 }
 int SDL_RenderDrawLine(SDL_Renderer *r, int x1, int y1, int x2, int y2)
 {
+    if (y1 == y2 || x1 == x2) {   /* horizontal o vertical: un solo rectangulo */
+        SDL_Rect q = { x1 < x2 ? x1 : x2, y1 < y2 ? y1 : y2, abs(x2 - x1) + 1, abs(y2 - y1) + 1 };
+        return SDL_RenderFillRect(r, &q);
+    }
     int dx = abs(x2 - x1), dy = -abs(y2 - y1), sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1, e = dx + dy;
     for (;;) {
         SDL_RenderDrawPoint(r, x1, y1);
@@ -1187,6 +1275,9 @@ SDL_Texture *SDL_CreateTexture(SDL_Renderer *r, Uint32 formato, int acesso, int 
     t->a = a;
     t->pitch = l * 4;
     t->r = r;
+    t->mod = 0xFFFFFFFFu;
+    t->gpu_vaga = -1;
+    t->gpu_sujo = 1;
     return t;
 }
 
@@ -1207,6 +1298,14 @@ void SDL_DestroyTexture(SDL_Texture *t)
 {
     if (!t) return;
     if (t->r && t->r->alvo == t) t->r->alvo = NULL;
+    if (t->r && t->r->gpu && t->gpu_vaga >= 0) {   /* soltar su hueco en la GPU */
+        sdlgpu_t *g = t->r->gpu;
+        if (g->vaga[t->gpu_vaga] == t) {
+            sdlg_despejar(g);
+            g->vaga[t->gpu_vaga] = NULL;
+            sdlg_chamar(GPU3D_OP_TEXTURA, (unsigned)t->gpu_vaga, 0, 0, 0);
+        }
+    }
     free(t->px);
     free(t);
 }
@@ -1232,6 +1331,7 @@ int SDL_UpdateTexture(SDL_Texture *t, const SDL_Rect *rect, const void *pixels, 
 static int actualizar_textura(SDL_Texture *t, const SDL_Rect *rect, const void *pixels, int pitch)
 {
     if (!t || !pixels) return -1;
+    t->gpu_sujo = 1;
     SDL_Rect r = rect ? *rect : (SDL_Rect){ 0, 0, t->l, t->a };
     SDL_Rect todo = { 0, 0, t->l, t->a }, c;
     if (!SDL_IntersectRect(&r, &todo, &c)) return 0;
@@ -1244,21 +1344,135 @@ static int actualizar_textura(SDL_Texture *t, const SDL_Rect *rect, const void *
 int SDL_LockTexture(SDL_Texture *t, const SDL_Rect *rect, void **pixels, int *pitch)
 {
     if (!t) return -1;
+    t->gpu_sujo = 1;
     int x = rect ? rect->x : 0, y = rect ? rect->y : 0;
     if (pixels) *pixels = t->px + (size_t)y * t->pitch + (size_t)x * 4;
     if (pitch) *pitch = t->pitch;
     return 0;
 }
-void SDL_UnlockTexture(SDL_Texture *t) { (void)t; }
+void SDL_UnlockTexture(SDL_Texture *t) { if (t) t->gpu_sujo = 1; }
 int SDL_SetTextureBlendMode(SDL_Texture *t, SDL_BlendMode m) { if (t) t->modo = m; return 0; }
-int SDL_SetTextureColorMod(SDL_Texture *t, Uint8 r, Uint8 g, Uint8 b) { (void)t; (void)r; (void)g; (void)b; return 0; }
-int SDL_SetTextureAlphaMod(SDL_Texture *t, Uint8 a) { (void)t; (void)a; return 0; }
+int SDL_SetTextureColorMod(SDL_Texture *t, Uint8 r, Uint8 g, Uint8 b)
+{
+    if (!t) return -1;
+    t->mod = (t->mod & 0xFF000000u) | ((Uint32)r << 16) | ((Uint32)g << 8) | b;
+    return 0;
+}
+int SDL_SetTextureAlphaMod(SDL_Texture *t, Uint8 a)
+{
+    if (!t) return -1;
+    t->mod = (t->mod & 0x00FFFFFFu) | ((Uint32)a << 24);
+    return 0;
+}
+
+/* t->mod aplicado a un pixel ARGB (cada canal por mod/255). */
+static inline Uint32 modular_px(Uint32 v, Uint32 m)
+{
+    Uint32 o = 0;
+    for (int s = 0; s < 32; s += 8)
+        o |= (((((v >> s) & 255u) * ((m >> s) & 255u)) + 127u) / 255u) << s;
+    return o;
+}
+
+/* Seno y coseno de un angulo en grados (x87: no hay libm en todos los programas). */
+static void sen_cos(double grados, double *sn, double *cs)
+{
+    double rad = grados * 0.017453292519943295, s, c;
+    __asm__("fsin" : "=t"(s) : "0"(rad));
+    __asm__("fcos" : "=t"(c) : "0"(rad));
+    *sn = s; *cs = c;
+}
+
+/* Un pixel de textura sobre uno del lienzo (modulacion y mezcla de la textura). */
+static inline Uint32 pixel_copia(Uint32 v, Uint32 f, const SDL_Texture *t)
+{
+    if (t->mod != 0xFFFFFFFFu) v = modular_px(v, t->mod);
+    if (t->modo == SDL_BLENDMODE_BLEND) {
+        unsigned al = v >> 24;
+        if (al == 0) return f;
+        if (al < 255) {
+            unsigned rr = (((v >> 16) & 255) * al + ((f >> 16) & 255) * (255 - al)) / 255;
+            unsigned gg = (((v >> 8) & 255) * al + ((f >> 8) & 255) * (255 - al)) / 255;
+            unsigned bb = ((v & 255) * al + (f & 255) * (255 - al)) / 255;
+            v = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
+        }
+    }
+    return v;
+}
+
+/* Copia con giro (SDL_RenderCopyEx con angulo): para cada pixel del destino, el de la textura
+ * que le toca por la rotacion inversa (vecino mas proximo); el giro es en el sentido de las
+ * agujas del reloj alrededor de «centro» (por defecto el centro del destino). */
+static void copia_girada(Uint32 *dst, int l, int a, int p, const SDL_Texture *t, SDL_Rect o, SDL_Rect d,
+                         double angulo, double cx, double cy, SDL_RendererFlip espelho)
+{
+    double sn, cs;
+    sen_cos(angulo, &sn, &cs);
+    /* La caja del destino girado, recortada al lienzo. */
+    double xs[4] = { d.x, d.x + d.w, d.x + d.w, d.x }, ys[4] = { d.y, d.y, d.y + d.h, d.y + d.h };
+    double mx0 = 1e9, my0 = 1e9, mx1 = -1e9, my1 = -1e9;
+    for (int i = 0; i < 4; i++) {
+        double dx = xs[i] - cx, dy = ys[i] - cy;
+        double X = cx + dx * cs - dy * sn, Y = cy + dx * sn + dy * cs;
+        if (X < mx0) mx0 = X;
+        if (X > mx1) mx1 = X;
+        if (Y < my0) my0 = Y;
+        if (Y > my1) my1 = Y;
+    }
+    int x0 = (int)mx0 - 1, y0 = (int)my0 - 1, x1 = (int)mx1 + 2, y1 = (int)my1 + 2;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > l) x1 = l;
+    if (y1 > a) y1 = a;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            double dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+            double px = cx + dx * cs + dy * sn - d.x, py = cy - dx * sn + dy * cs - d.y;
+            if (px < 0 || py < 0 || px >= d.w || py >= d.h) continue;
+            int ix = (int)(px * o.w / d.w), iy = (int)(py * o.h / d.h);
+            if (espelho & SDL_FLIP_HORIZONTAL) ix = o.w - 1 - ix;
+            if (espelho & SDL_FLIP_VERTICAL) iy = o.h - 1 - iy;
+            int sx = o.x + ix, sy = o.y + iy;
+            if (sx < 0 || sx >= t->l || sy < 0 || sy >= t->a) continue;
+            Uint32 *q = dst + (size_t)y * p + x;
+            *q = pixel_copia(((const Uint32 *)(t->px + (size_t)sy * t->pitch))[sx], *q, t);
+        }
+}
 
 int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const SDL_Rect *rd,
                      double angulo, const SDL_Point *centro, SDL_RendererFlip espelho)
 {
-    (void)angulo; (void)centro;
     if (!r || !t) return -1;
+    sdlgpu_t *g = gpu_de(r);
+    if (g) {
+        SDL_Rect o = ro ? *ro : (SDL_Rect){ 0, 0, t->l, t->a };
+        SDL_Rect d = para_lienzo(r, rd, g->l, g->a);
+        if (o.w <= 0 || o.h <= 0 || d.w <= 0 || d.h <= 0) return 0;
+        int v = sdlg_textura(g, t);
+        if (v >= 0) {
+            float u0 = (float)o.x / t->l, u1 = (float)(o.x + o.w) / t->l;
+            float v0 = (float)o.y / t->a, v1 = (float)(o.y + o.h) / t->a, tmp;
+            if (espelho & SDL_FLIP_HORIZONTAL) { tmp = u0; u0 = u1; u1 = tmp; }
+            if (espelho & SDL_FLIP_VERTICAL) { tmp = v0; v0 = v1; v1 = tmp; }
+            double cx = d.x + (centro ? centro->x * (double)d.w / (rd ? rd->w : d.w) : d.w / 2.0);
+            double cy = d.y + (centro ? centro->y * (double)d.h / (rd ? rd->h : d.h) : d.h / 2.0);
+            double sn = 0, cs = 1;
+            if (angulo != 0.0) sen_cos(angulo, &sn, &cs);
+            sdlg_pt_t p[4] = { { (float)d.x, (float)d.y, u0, v0 }, { (float)(d.x + d.w), (float)d.y, u1, v0 },
+                               { (float)(d.x + d.w), (float)(d.y + d.h), u1, v1 }, { (float)d.x, (float)(d.y + d.h), u0, v1 } };
+            if (angulo != 0.0)
+                for (int i = 0; i < 4; i++) {
+                    double dx = p[i].x - cx, dy = p[i].y - cy;
+                    p[i].x = (float)(cx + dx * cs - dy * sn);
+                    p[i].y = (float)(cy + dx * sn + dy * cs);
+                }
+            int rc = sdlg_poligono(g, v, t->modo == SDL_BLENDMODE_BLEND, t->mod, p, 4);
+            if (!rc) return 0;
+            gpu_erro(r, rc);
+        } else {
+            gpu_erro(r, v == -1 ? -1 : 1);
+        }
+    }
     if (r->limpar_pend && !r->alvo && !r->alvo_sup && r->w && t->modo != SDL_BLENDMODE_BLEND) {
         /* ¿La copia cubre todo el lienzo sin dejar huecos? Entonces el borrado aplazado sobra. */
         SDL_Rect dd = para_lienzo(r, rd, r->w->l, r->w->a);
@@ -1274,8 +1488,16 @@ int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const 
     SDL_Rect d = para_lienzo(r, rd, l, a);
     if (o.w <= 0 || o.h <= 0 || d.w <= 0 || d.h <= 0) return 0;
     int mistura = (t->modo == SDL_BLENDMODE_BLEND);
+    int modular = t->mod != 0xFFFFFFFFu;
+    if (angulo != 0.0) {
+        SDL_Rect dd = para_lienzo(r, rd, l, a);
+        double cx = dd.x + (centro ? centro->x * (double)dd.w / (rd ? rd->w : dd.w) : dd.w / 2.0);
+        double cy = dd.y + (centro ? centro->y * (double)dd.h / (rd ? rd->h : dd.h) : dd.h / 2.0);
+        copia_girada(dst, l, a, p, t, o, d, angulo, cx, cy, espelho);
+        return 0;
+    }
     /* El caso de los juegos: la textura entera, del mismo tamaño, sin espejo. */
-    if (!mistura && !espelho && o.w == d.w && o.h == d.h && o.x == 0 && o.y == 0 && d.x == 0 && d.y == 0 &&
+    if (!mistura && !modular && !espelho && o.w == d.w && o.h == d.h && o.x == 0 && o.y == 0 && d.x == 0 && d.y == 0 &&
         d.w <= l && d.h <= a && o.w <= t->l && o.h <= t->a) {
         for (int y = 0; y < d.h; y++)
             memcpy(dst + (size_t)y * p, t->px + (size_t)y * t->pitch, (size_t)d.w * 4);
@@ -1316,17 +1538,7 @@ int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const 
             if (sx < 0) continue;
             int xx = d.x + x;
             Uint32 v = lo[sx];
-            if (mistura) {
-                unsigned al = v >> 24;
-                if (al == 0) continue;
-                if (al < 255) {
-                    Uint32 f = ld[xx];
-                    unsigned rr = (((v >> 16) & 255) * al + ((f >> 16) & 255) * (255 - al)) / 255;
-                    unsigned gg = (((v >> 8) & 255) * al + ((f >> 8) & 255) * (255 - al)) / 255;
-                    unsigned bb = ((v & 255) * al + (f & 255) * (255 - al)) / 255;
-                    v = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
-                }
-            }
+            if (mistura || modular) v = pixel_copia(v, ld[xx], t);
             ld[xx] = v;
         }
         ant_sy = sy;
@@ -1346,6 +1558,7 @@ int SDL_SetRenderTarget(SDL_Renderer *r, SDL_Texture *t)
 {
     if (!r) return -1;
     r->alvo = t;
+    if (t) t->gpu_sujo = 1;   /* se va a dibujar en ella con la CPU */
     return 0;
 }
 
@@ -1354,7 +1567,7 @@ int SDL_RenderReadPixels(SDL_Renderer *r, const SDL_Rect *rect, Uint32 formato, 
     (void)formato;
     if (!r || !pixels) return -1;
     int l, a, p;
-    Uint32 *t = lienzo_de(r, &l, &a, &p);
+    Uint32 *t = lienzo_ler(r, &l, &a, &p);
     if (!t) return -1;
     SDL_Rect q = rect ? *rect : (SDL_Rect){ 0, 0, l, a }, todo = { 0, 0, l, a }, c;
     if (!SDL_IntersectRect(&q, &todo, &c)) return 0;
@@ -1401,7 +1614,12 @@ void SDL_RenderPresent(SDL_Renderer *r)
     if (!r || !r->w) return;
     bombear_audio();
     MEDIR_INI();
-    if (r->limpar_pend && !r->alvo && !r->alvo_sup) { int l, a, p; lienzo_de(r, &l, &a, &p); }
+    sdlgpu_t *g = gpu_de(r);
+    if (g) {   /* D288: el cuadro vuelve de la GPU al lienzo y se presenta como siempre */
+        int rc = sdlg_ler(g, r->w->tela);
+        if (rc) gpu_erro(r, rc);
+    }
+    if (r->limpar_pend && !r->alvo && !r->alvo_sup) { int l, a, p; lienzo_cru(r, &l, &a, &p); }
     apresentar(r->w);
     MEDIR_FIM(ciclos_apres);
     medir_cuadro();

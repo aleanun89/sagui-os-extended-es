@@ -163,9 +163,12 @@ def main():
         marca = len(m.serial())
         m.clique(1024 - 420 - 12 + 100, 28 + 10 + 30)
         fim = time.time() + 15
-        while time.time() < fim and "aviso pulsado: visor /tmp/rec1.png" not in m.serial()[marca:]:
+        # (con el diálogo común de guardar, mejora 103, el aviso de la captura anterior aún puede estar
+        # apilado: vale pulsar cualquiera de los dos)
+        pat_aviso = r"aviso pulsado: visor /tmp/(rec1|capturas/captura-\S+)\.png"
+        while time.time() < fim and not re.search(pat_aviso, m.serial()[marca:]):
             time.sleep(0.3)
-        verificar("aviso pulsado: visor /tmp/rec1.png" in m.serial()[marca:], "pulsar el aviso abre el archivo en el Visor")
+        verificar(re.search(pat_aviso, m.serial()[marca:]) is not None, "pulsar el aviso abre el archivo en el Visor")
         time.sleep(2)
         m.tecla("alt-f4", 0.3)   # cierra el Visor para volver a la vista previa
         time.sleep(1)

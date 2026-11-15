@@ -136,6 +136,17 @@ static const acel_placa_t placas[] = {
     { 0x1002, 0x9580, 0x958F, &acel_r600, 6, "Radeon HD 2600 (RV630)" },
     { 0x1002, 0x9500, 0x9519, &acel_r600, 6, "Radeon HD 3850/3870 (RV670)" },
     { 0x1002, 0x9400, 0x940F, &acel_r600, 6, "Radeon HD 2900 (R600)" },
+    /* D286: Evergreen (HD 5000) y Northern Islands (HD 6000) por el mismo driver (generación 8; Cayman,
+     * con dos motores DMA, la 9). La lista exacta está en evergreen_dma.c. Sin las integradas de las APU. */
+    { 0x1002, 0x68E0, 0x68FE, &acel_r600, 8, "Radeon HD 5400 (Cedar)" },
+    { 0x1002, 0x68C0, 0x68DE, &acel_r600, 8, "Radeon HD 5500/5600 (Redwood)" },
+    { 0x1002, 0x68A0, 0x68BF, &acel_r600, 8, "Radeon HD 5700 (Juniper)" },
+    { 0x1002, 0x6880, 0x689E, &acel_r600, 8, "Radeon HD 5800/5900 (Cypress/Hemlock)" },
+    { 0x1002, 0x6720, 0x673E, &acel_r600, 8, "Radeon HD 6800 (Barts)" },
+    { 0x1002, 0x6740, 0x675F, &acel_r600, 8, "Radeon HD 6500/6600 (Turks)" },
+    { 0x1002, 0x6840, 0x6859, &acel_r600, 8, "Radeon HD 7500M/7600M (Turks)" },
+    { 0x1002, 0x6760, 0x677B, &acel_r600, 8, "Radeon HD 6400 (Caicos)" },
+    { 0x1002, 0x6700, 0x671F, &acel_r600, 9, "Radeon HD 6900 (Cayman)" },
 };
 #define N_PLACAS (int)(sizeof placas / sizeof placas[0])
 
@@ -181,6 +192,15 @@ void acel_prazo(acel_prazo_t *p, uint32_t ms)
     p->fim = khz ? tsc() + (uint64_t)khz * ms : 0;
     p->voltas = 0;
     /* Sin TSC medido: vueltas (cada una lee un registro, ~1 us en hardware real). */
+    p->max_voltas = ms * 1000u;
+}
+
+/* D285: un plazo que la sesión no recorta (las cargas 3D tardan más que una copia). */
+void acel_prazo_longo(acel_prazo_t *p, uint32_t ms)
+{
+    uint32_t khz = hw_tsc_khz();
+    p->fim = khz ? tsc() + (uint64_t)khz * ms : 0;
+    p->voltas = 0;
     p->max_voltas = ms * 1000u;
 }
 
@@ -717,6 +737,16 @@ void acel2d_iniciar(void)
 }
 
 bool acel2d_ativo(void) { return ativo; }
+
+/* D285: la tarjeta que tiene la pantalla y su familia, para la capa 3D (aunque el
+ * 2D haya quedado en la CPU). «suspeito»: el 2D falló o lo apagó el vigilante. */
+bool acel2d_placa(pci_disp_t *d, int *geracao, const acel_driver_t **driver, acel_tela_t *t, bool *suspeito)
+{
+    if (!placa || !drv) return false;
+    *d = disp; *geracao = placa->geracao; *driver = drv; *t = tela;
+    *suspeito = n_falhas != 0 && !ativo;
+    return true;
+}
 const char *acel2d_nome(void) { return ativo ? drv->nome : "cpu"; }
 const char *acel2d_motivo(void) { return motivo; }
 bool acel2d_forcado(void) { return (modo & ACEL2D_MODO_MASCARA) > ACEL2D_CPU; }

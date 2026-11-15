@@ -40,18 +40,20 @@ PORTA_POP3 = 41110
 PORTA_SMTP = 4125
 PORTA_IMAP = 41143
 
-# La ventana principal: 820x540.
-CX_RECEBER, CY_RECEBER = 65, 21
-CX_REDIGIR, CY_REDIGIR = 185, 21
-LISTA_X, LISTA_Y = 10, 70          # la lista de mensajes
-ITEM = 20                          # LISTA_ALTURA_ITEM
+# La ventana principal: 820x540, con la interfaz de Outlook clásico (D289): botones de la barra de
+# herramientas («Nuevo» el primero, «Enviar y recibir» el sexto) y la lista de mensajes en filas
+# de 18 píxeles, lo más reciente primero.
+CX_RECEBER, CY_RECEBER = 520, 42       # centro de «Enviar y recibir»
+CX_REDIGIR, CY_REDIGIR = 32, 42         # centro de «Nuevo»
+LISTA_X, LISTA_Y = 400, 68 + 18 + 2
+ITEM = 18
 
-# La ventana de redacción: 560x440.
-CX_PARA, CY_PARA = 200, 18
-CX_ASSUNTO, CY_ASSUNTO = 200, 50
-CX_CORPO, CY_CORPO = 150, 100
-CX_ADJUNTAR, CY_ADJUNTAR = 65, 393
-CX_ENVIAR, CY_ENVIAR = 420, 393
+# La ventana de redacción: 600x480.
+CX_PARA, CY_PARA = 186, 18
+CX_ASSUNTO, CY_ASSUNTO = 186, 78
+CX_CORPO, CY_CORPO = 200, 200
+CX_ADJUNTAR, CY_ADJUNTAR = 60, 455
+CX_ENVIAR, CY_ENVIAR = 445, 455
 
 
 def janela(serial, titulo):
@@ -76,7 +78,7 @@ def esperar(m, texto, tempo=40):
 
 def item(m, j, indice):
     """Clic en el ítem de la lista (0 = el primero)."""
-    m.clique(*ponto(j, LISTA_X + 50, LISTA_Y + 2 + indice * ITEM + 10))
+    m.clique(*ponto(j, LISTA_X, LISTA_Y + indice * ITEM + 9))
     time.sleep(0.6)
 
 

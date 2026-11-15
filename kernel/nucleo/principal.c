@@ -8,6 +8,7 @@
  * el G470 el mapa de memoria grande empujaba el saludo hacia afuera (error 1). */
 #include "bootinfo.h"
 #include "acel2d.h"
+#include "gpu3d.h"
 #include "console.h"
 #include "texto.h"
 #include "cpu.h"
@@ -26,6 +27,7 @@
 #include "mouse.h"
 #include "i8042.h"
 #include "gui.h"
+#include "telas.h"
 #include "usb.h"
 #include "xhci.h"
 #include "info_hardware.h"
@@ -296,6 +298,9 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         snformatar(linha, sizeof linha, "Aceleración 2D: %s (%s)", acel2d_ativo() ? acel2d_nome() : "CPU", acel2d_motivo());
         etapa(linha);
     }
+    /* D285: 3D por la GPU: aquí solo se mira si hay driver para la tarjeta; se
+     * enciende y se prueba con el primer uso (un fallo no retrasa el arranque). */
+    gpu3d_iniciar();
     {
         char linha[96], rec[64];
         fpu_descrever(rec, sizeof rec);
@@ -535,6 +540,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         console_esconder(true);
         arranque_marca("escritorio");
         klog("[SAGUI] area de trabalho no ar\n");
+        telas_iniciar();   /* D290: otras salidas de vídeo (varias pantallas), si las hay */
         aplicar_configuracao();
         arranque_marca("configuracion");
         if (info_boot.teste[0] == '/') {

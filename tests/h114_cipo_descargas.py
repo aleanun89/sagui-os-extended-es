@@ -204,6 +204,9 @@ def main():
                 menu = abrir_menu(m, pos_img[0], pos_img[1])
                 verificar(menu[4] >= 1, f"el menú contextual de imagen abre ({menu[4]} opciones)")
                 m.clique(*linha(menu, 0))
+                m.esperar_serial("dialogo: guardar en", 25)   # mejora 103: diálogo común de guardar
+                time.sleep(0.6)
+                m.tecla("ret")                                # acepta la propuesta
                 caminho, tam = esperar(m, r"cipo: guardado (\S+) \((\d+) bytes\)", 25)
                 caminhos.append(caminho)
                 verificar(caminho.endswith("foto_uno.png"),
@@ -228,6 +231,9 @@ def main():
                         menu = abrir_menu(m, x, y)
                         verificar(menu[4] >= 1, f"el menú contextual del enlace abre ({menu[4]} opciones)")
                         m.clique(*linha(menu, 0))
+                        esperar(m, r"dialogo: guardar en", 25, desde=antes)
+                        time.sleep(0.6)
+                        m.tecla("ret")
                         caminho, tam = esperar(m, r"cipo: guardado (\S+) \((\d+) bytes\)", 25, desde=antes)
                         caminhos.append(caminho)
                         verificar(caminho.endswith("archivo_uno.bin"),

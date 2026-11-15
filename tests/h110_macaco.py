@@ -24,15 +24,15 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar  # noqa: E402
 
-# La geometría de la hoja (la del programa): la rejilla empieza en x=46 (la
-# franja de los números de fila) y en y=78 (barra + barra de fórmulas +
-# cabecera de columnas); las columnas miden 72 px y las filas 20 px.
-GRID_X, GRID_Y = 46, 78
+# La geometría de la hoja (la del programa, estilo Excel 97, mejora 117): la rejilla
+# empieza en x=40 (la franja de los números de fila) y en y=118 (menús 20 + dos barras
+# de 28 + fórmulas 24 + cabecera de columnas 18); las columnas miden 72 px y las filas 20 px.
+GRID_X, GRID_Y = 40, 118
 COL_W, ROW_H = 72, 20
 
-# La barra de herramientas: los botones van uno detrás de otro desde x=8, y
-# cada uno mide (letras * 8 + 20) de ancho, con 4 px de separación.
-BOTOES = ("Nuevo", "Abrir", "Guardar", "Deshacer", "Gráfico", "Opciones")
+# Barra Estándar: 23 px por botón (8 un separador) desde x=4; el botón de gráficos es
+# el que está tras 4 botones, separador, 3, separador, 1, separador y 3 más.
+X_GRAFICO = 4 + 4 * 23 + 8 + 3 * 23 + 8 + 23 + 8 + 3 * 23 + 8 + 11
 
 
 def janela(serial, titulo):
@@ -50,23 +50,15 @@ def celula(a, l, c):
 
 
 def botao(a, nome):
-    """El centro de un botón de la barra de herramientas."""
-    x = 8
-    for t in BOTOES:
-        larg = len(t) * 8 + 20
-        if t == nome:
-            return a["x"] + x + larg // 2, a["y"] + 6 + 11
-        x += larg + 4
-    raise AssertionError(f"no hay botón {nome!r}")
+    """El centro de un botón de la barra Estándar (solo el de gráficos)."""
+    assert nome == "Gráfico"
+    return a["x"] + X_GRAFICO, a["y"] + 20 + 3 + 11
 
 
 def mais_folha(a):
-    """El botón de hoja nueva, en la barra de abajo (a la derecha de las
-    pestañas)."""
-    x = 4
-    for i in range(1):          # sólo está la primera hoja al principio
-        x += len("Hoja1") * 8 + 20 + 2
-    return a["x"] + x + 12, a["y"] + a["a"] - 11
+    """El botón de hoja nueva, a la derecha de las pestañas (encima de la barra de estado)."""
+    x = 6 + len("Hoja1") * 8 + 22          # sólo está la primera hoja al principio
+    return a["x"] + x + 14, a["y"] + a["a"] - 44 + 10
 
 
 def escrever(m, texto):

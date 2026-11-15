@@ -58,6 +58,14 @@ void imagem_liberar(imagem_t *img)
 
 /* Los dos textos que el decodificador usa para los errores. */
 const char *nome_erro(int erro) { (void)erro; return "erro"; }
+char *copia_texto(char *d, const char *s, size_t n)
+{
+    if (!n) return d;
+    size_t i = 0;
+    for (; i + 1 < n && s[i]; i++) d[i] = s[i];
+    d[i] = 0;
+    return d;
+}
 char *acha_ultimo_char(const char *s, int c)
 {
     const char *ultimo = NULL;

@@ -500,19 +500,21 @@ static void autosilencio_aplicar(void)
 
 /* ------------------------------------------------------------ el flujo */
 
-static void fluxo_reiniciar(void)
+static void sd_reiniciar(uint32_t base)
 {
-    es8(sd + SD_CTL, 0);
+    es8(base + SD_CTL, 0);
     uint32_t lim = relogio_tiques() + 3;
-    while ((le8(sd + SD_CTL) & 2) && antes(lim)) porta_pausa();
-    es8(sd + SD_CTL, 1);                 /* SRST */
+    while ((le8(base + SD_CTL) & 2) && antes(lim)) porta_pausa();
+    es8(base + SD_CTL, 1);               /* SRST */
     lim = relogio_tiques() + 3;
-    while (!(le8(sd + SD_CTL) & 1) && antes(lim)) porta_pausa();
-    es8(sd + SD_CTL, 0);
+    while (!(le8(base + SD_CTL) & 1) && antes(lim)) porta_pausa();
+    es8(base + SD_CTL, 0);
     lim = relogio_tiques() + 3;
-    while ((le8(sd + SD_CTL) & 1) && antes(lim)) porta_pausa();
-    es8(sd + SD_STS, 0x1C);
+    while ((le8(base + SD_CTL) & 1) && antes(lim)) porta_pausa();
+    es8(base + SD_STS, 0x1C);
 }
+
+static void fluxo_reiniciar(void) { sd_reiniciar(sd); }
 
 static void ligar(void)
 {
@@ -576,6 +578,215 @@ static bool atender(void)
     }
     es8(sd + SD_STS, 0x1C);
     return true;
+}
+
+/* ------------------------------------------------------------ captura (D292) */
+
+/* La entrada de sonido: el primer descriptor de flujo de entrada (a 0x80), con su propio anillo de
+ * CAP_QUADROS cuadros de 48 kHz, 16 bits, estéreo. Cada entrada (micrófono interno, externo, línea,
+ * auxiliar) es un pin de entrada con un camino hasta un conversor de entrada (ADC) por selectores y
+ * mezcladores; elegir una activa su camino y calla las demás entradas de los mezcladores del camino. */
+#define CAP_QUADROS 16384
+#define CAP_N_BDL   16
+#define CAP_TAG     2
+#define W_ENTRADA   0x1
+
+typedef struct {
+    uint8_t pino, adc, n;               /* n = nodos del camino (ADC primero, pin al final) */
+    uint8_t cam[8], idx[8];             /* nodos y, en cada uno, la conexión hacia el siguiente */
+} entrada_t;
+
+static entrada_t ents[CAP_ENTRADAS_MAX];
+static int n_ents, ent_atual = -1;
+static uint32_t sd_in, bdl_in_fis, anel_in_fis;
+static uint8_t *anel_in;
+static captura_hw_t cap_hw;
+static int cap_cam[8];
+static int cap_cam_n;
+
+static bool cap_achar(uint32_t n, uint32_t pino, int prof)
+{
+    widget_t *w = widget(n);
+    if (!w || prof >= 6) return false;
+    for (int i = 0; i < prof; i++) if (cap_cam[i] == (int)n) return false;
+    cap_cam[prof] = (int)n;
+    if (n == pino) { cap_cam_n = prof + 1; return true; }
+    if (w->tipo != W_ENTRADA && w->tipo != W_MISTURADOR && w->tipo != W_SELETOR) return false;
+    for (int i = 0; i < w->nconex; i++)
+        if (cap_achar(w->conex[i], pino, prof + 1)) return true;
+    return false;
+}
+
+/* Nombre de la entrada según la configuración por defecto del pin (Latin-1: es texto de la interfaz). */
+static bool cap_nome(uint32_t config, char *nome, int prio_out[1])
+{
+    uint32_t disp = (config >> 20) & 0xF;
+    bool interno = ((config >> 28) & 3) == 1;
+    if (disp == 0xA) { txt_copia_n(nome, interno ? "Micr\xf3" "fono interno" : "Micr\xf3" "fono externo", 24); prio_out[0] = interno ? 0 : 1; }
+    else if (disp == 0x8) { txt_copia_n(nome, "Entrada de l\xednea", 24); prio_out[0] = 2; }
+    else if (disp == 0x9) { txt_copia_n(nome, "Auxiliar", 24); prio_out[0] = 3; }
+    else return false;
+    return true;
+}
+
+static void cap_descobrir(uint32_t cad)
+{
+    n_ents = 0;
+    for (int prio = 0; prio < 4; prio++)
+        for (uint32_t i = 0; i < n_nos && n_ents < CAP_ENTRADAS_MAX; i++) {
+            widget_t *w = &nos[i];
+            if (w->tipo != W_PINO || !(w->pino & (1u << 5))) continue;     /* sabe grabar */
+            if (w->caps & (1u << 9)) continue;                             /* digital */
+            if ((w->config >> 30) == 1) continue;                          /* sin conexión física */
+            char nome[24];
+            int pr[1];
+            if (!cap_nome(w->config, nome, pr) || pr[0] != prio) continue;
+            uint32_t pino = primeiro_no + i;
+            for (uint32_t a = 0; a < n_nos; a++) {
+                widget_t *adc = &nos[a];
+                if (adc->tipo != W_ENTRADA || (adc->caps & (1u << 9))) continue;
+                if (!cap_achar(primeiro_no + a, pino, 0)) continue;
+                entrada_t *e = &ents[n_ents];
+                e->pino = (uint8_t)pino;
+                e->adc = (uint8_t)(primeiro_no + a);
+                e->n = (uint8_t)cap_cam_n;
+                for (int k = 0; k < cap_cam_n; k++) {
+                    e->cam[k] = (uint8_t)cap_cam[k];
+                    e->idx[k] = 0;
+                    widget_t *wk = widget((uint32_t)cap_cam[k]);
+                    if (k + 1 < cap_cam_n && wk)
+                        for (int m = 0; m < wk->nconex; m++)
+                            if (wk->conex[m] == cap_cam[k + 1]) { e->idx[k] = (uint8_t)m; break; }
+                }
+                /* nombre único: si ya hay otra con ese nombre, se añade el número del pin */
+                for (int k = 0; k < n_ents; k++)
+                    if (txt_compara(cap_hw.nombre[k], nome) == 0) {
+                        int u = (int)txt_tamanho(nome);
+                        if (u > 19) u = 19;
+                        snformatar(nome + u, (size_t)(24 - u), " %u", pino);
+                        break;
+                    }
+                txt_copia_n(cap_hw.nombre[n_ents], nome, 24);
+                klog("[HDA] entrada %d: %s, pino %u (config %08x) -> ADC %u, %d widgets\n", n_ents, nome, pino, w->config,
+                     e->adc, e->n);
+                n_ents++;
+                break;
+            }
+        }
+    (void)cad;
+}
+
+/* El amplificador de entrada donde va la ganancia de grabación: el primero del camino (desde el ADC) con pasos. */
+static bool cap_amp_alvo(const entrada_t *e, uint32_t *no, uint32_t *indice, uint32_t *passos)
+{
+    for (int j = 0; j + 1 < e->n; j++) {
+        widget_t *w = widget(e->cam[j]);
+        if (!w || !(w->caps & (1u << 1))) continue;
+        uint32_t p = (amp_caps(cad_uso, e->cam[j], false) >> 8) & 0x7F;
+        if (!p) continue;
+        *no = e->cam[j]; *indice = e->idx[j]; *passos = p;
+        return true;
+    }
+    return false;
+}
+
+static void cap_ganho(unsigned pct)
+{
+    if (ent_atual < 0) return;
+    uint32_t no, idx, passos;
+    if (!cap_amp_alvo(&ents[ent_atual], &no, &idx, &passos)) return;
+    uint32_t g = passos * pct / 100;
+    verbo(cad_uso, no, 0x3, 0x4000u | 0x3000u | (idx & 0xF) << 8 | g);
+}
+
+static bool cap_entrada(int i)
+{
+    if (i < 0 || i >= n_ents) return false;
+    uint32_t cad = cad_uso;
+    if (ent_atual >= 0 && ent_atual != i) verbo(cad, ents[ent_atual].pino, 0x707, 0);   /* apaga el pin anterior */
+    const entrada_t *e = &ents[i];
+    for (int j = 0; j < e->n; j++) {
+        uint32_t n = e->cam[j];
+        widget_t *w = widget(n);
+        if (!w) continue;
+        if (w->caps & (1u << 10)) verbo(cad, n, 0x705, 0);       /* energía D0 */
+        if (j + 1 < e->n) {
+            uint32_t k = e->idx[j];
+            if (w->tipo == W_MISTURADOR) {
+                for (int m = 0; m < w->nconex; m++)
+                    if ((uint32_t)m == k) amp_ligar(cad, n, false, (uint32_t)m); else amp_calar(cad, n, (uint32_t)m);
+            } else {
+                if (w->nconex > 1) verbo(cad, n, 0x701, k);
+                if (w->caps & (1u << 1)) amp_ligar(cad, n, false, k);
+            }
+        }
+        if (w->tipo == W_ENTRADA) {
+            verbo(cad, n, 0x2, FORMATO);
+            verbo(cad, n, 0x706, CAP_TAG << 4);
+        }
+        if (w->tipo == W_PINO) {
+            uint32_t vref = (w->pino >> 8) & 0xFF, ctl = 0x20;
+            if ((w->config >> 20 & 0xF) == 0xA) ctl |= (vref & (1u << 3)) ? 4 : (vref & (1u << 1)) ? 1 : 0;   /* micrófono: VREF 80 % o 50 % */
+            verbo(cad, n, 0x707, ctl);
+            if (w->caps & (1u << 1)) amp_ligar(cad, n, false, 0);
+        }
+    }
+    ent_atual = i;
+    klog("[HDA] captura: entrada %d (%s)\n", i, cap_hw.nombre[i]);
+    return true;
+}
+
+static bool cap_ligar(void)
+{
+    if (!anel_in || ent_atual < 0) return false;
+    sd_reiniciar(sd_in);
+    es8(sd_in + SD_CTL + 2, CAP_TAG << 4);
+    es32(sd_in + SD_CBL, CAP_QUADROS * 4);
+    es16(sd_in + SD_LVI, CAP_N_BDL - 1);
+    es16(sd_in + SD_FMT, FORMATO);
+    es32(sd_in + SD_BDPL, bdl_in_fis);
+    es32(sd_in + SD_BDPU, 0);
+    es8(sd_in + SD_CTL, 0x02);           /* RUN, sin interrupción: el tic del reloj vacía el anillo */
+    return true;
+}
+
+static void cap_parar(void) { sd_reiniciar(sd_in); }
+
+static uint32_t cap_posicao(void) { return (le32(sd_in + SD_LPIB) % (CAP_QUADROS * 4)) / 4; }
+
+/* Prepara la captura del códec ya configurado: anillo, lista de descriptores y entradas. */
+static void cap_preparar(uint32_t cad, uint32_t iss)
+{
+    memset(&cap_hw, 0, sizeof cap_hw);
+    n_ents = 0;
+    ent_atual = -1;
+    if (!iss) { klog("[HDA] sin flujos de entrada: sin captura\n"); return; }
+    cap_descobrir(cad);
+    if (!n_ents) { klog("[HDA] el codec no tiene entradas analogicas: sin captura\n"); return; }
+    void *mem;
+    uint32_t fis = audio_dma_alocar(1 + CAP_QUADROS * 4 / 4096, &mem);
+    if (!fis) { klog("[HDA] sin memoria para la captura\n"); n_ents = 0; return; }
+    sd_in = 0x80;
+    bdl_in_fis = fis;
+    anel_in_fis = fis + 4096;
+    anel_in = (uint8_t *)mem + 4096;
+    uint32_t *bdl = (uint32_t *)mem;
+    for (int i = 0; i < CAP_N_BDL; i++) {
+        bdl[4 * i] = anel_in_fis + (uint32_t)i * (CAP_QUADROS * 4 / CAP_N_BDL);
+        bdl[4 * i + 1] = 0;
+        bdl[4 * i + 2] = CAP_QUADROS * 4 / CAP_N_BDL;
+        bdl[4 * i + 3] = 0;              /* sin IOC: no interrumpe */
+    }
+    sd_reiniciar(sd_in);
+    cap_hw.taxa = 48000;
+    cap_hw.quadros = CAP_QUADROS;
+    cap_hw.anel = (const volatile int16_t *)anel_in;
+    cap_hw.n_entradas = n_ents;
+    cap_hw.ligar = cap_ligar;
+    cap_hw.parar = cap_parar;
+    cap_hw.posicao = cap_posicao;
+    cap_hw.entrada = cap_entrada;
+    cap_hw.ganho = cap_ganho;
 }
 
 /* ------------------------------------------------------------ inicio */
@@ -689,6 +900,9 @@ static bool tentar(pci_disp_t *d, placa_som_t *p)
     p->atender = atender;
     p->provocar_irq = provocar_irq;
     p->fim_prova_irq = fim_prova_irq;
+    p->cap = (captura_hw_t){ 0 };
+    cap_preparar(cad_uso, iss);
+    p->cap = cap_hw;
     fluxo_reiniciar();
     klog("[HDA] %02x:%02x.%x (%04x:%04x) em %x, irq %d, %u fluxos de saida, %s\n", d->barramento, d->dispositivo,
          d->funcao, d->fabricante, d->modelo, bar & ~0xFu, p->irq, oss, descr);

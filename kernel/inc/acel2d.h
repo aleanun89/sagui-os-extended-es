@@ -60,11 +60,14 @@ typedef struct {
 /* Un plazo con el TSC (y, sin TSC medido, con un número de vueltas). */
 typedef struct { uint64_t fim; uint32_t voltas, max_voltas; } acel_prazo_t;
 void acel_prazo(acel_prazo_t *p, uint32_t ms);
+void acel_prazo_longo(acel_prazo_t *p, uint32_t ms);   /* D285: sin el recorte de la sesión */
 bool acel_prazo_esgotado(acel_prazo_t *p);
 
 /* Capa común */
 void        acel2d_iniciar(void);            /* tras video_iniciar: detecta, prueba y activa */
 bool        acel2d_ativo(void);
+/* D285: tarjeta de la pantalla y su acelerador, aunque el 2D esté en la CPU (false: ninguna de la tabla). */
+bool        acel2d_placa(pci_disp_t *d, int *geracao, const acel_driver_t **driver, acel_tela_t *t, bool *suspeito);
 const char *acel2d_nome(void);               /* "vmware", "intel", "radeon" o "cpu" */
 const char *acel2d_motivo(void);             /* por qué la CPU, o qué tarjeta se usa */
 bool        acel2d_forcado(void);            /* se pidió un acelerador concreto (--acel2d=...) */

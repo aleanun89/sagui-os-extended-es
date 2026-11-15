@@ -76,6 +76,8 @@ int  desligar(void)                   { int r = chamar(SIS_DESLIGAR, 0, 0, 0); i
 int  acpi_controle(int op)            { return chamar(SIS_ACPI, (unsigned)op, 0, 0); }
 int  modos_video(modo_video_t *v, int n) { return chamar(SIS_MODOS_VIDEO, (unsigned)v, (unsigned)n, 0); }
 int  trocar_modo_video(int l, int a, int op) { return chamar(SIS_MUDAR_MODO, (unsigned)l | (unsigned)a << 16, (unsigned)op, 0); }
+/* D290: varias pantallas (TELAS_OP_* en abi.h). */
+int  telas_sis(int op, unsigned a, unsigned b) { return chamar(SIS_TELAS, (unsigned)op, a, b); }
 int  modo_terminal(int m)             { return chamar(SIS_MODO_TERMINAL, (unsigned)m, 0, 0); }
 int  limpar_tela(void)                { return chamar(SIS_LIMPAR_TELA, 0, 0, 0); }
 int  registrar_texto(const char *t)   { return chamar(SIS_REGISTRAR, (unsigned)t, 0, 0); }
@@ -132,6 +134,7 @@ int  audio_controle(int fd, int op, int valor) { return chamar(SIS_AUDIO_CONTROL
 int  audio_volume(int fd, int v)      { return audio_controle(fd, AUDIO_VOLUME, v); }
 int  audio_volume_mestre(int v)       { return audio_controle(-1, AUDIO_VOLUME, v); }
 int  audio_silencio(int v)            { return audio_controle(-1, AUDIO_SILENCIO, v); }
+int  audio_salida(int i)              { return audio_controle(-1, AUDIO_SALIDA, i); }
 int  audio_pendente(int fd)           { return audio_controle(fd, AUDIO_PENDENTE, 0); }
 int  audio_livre(int fd)              { return audio_controle(fd, AUDIO_LIVRE, 0); }
 int  audio_fechar(int fd, int esperar) { return chamar(SIS_AUDIO_FECHAR, (unsigned)fd, (unsigned)esperar, 0); }

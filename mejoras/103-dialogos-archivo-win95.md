@@ -1,6 +1,6 @@
 # 103 - Diálogos de abrir, guardar y elegir carpeta (estilo Windows 95)
 
-- **Estado:** aprobada (**v8.1**, pedido del mantenedor el 2026-11-15)
+- **Estado:** hecha (D272, v8.1)
 - **Prioridad:** alta (los usan casi todas las aplicaciones)
 - **Alta:** 2026-11-15
 - **Relacionadas:** componentes de la libsagui (`userland/libsagui/gui.c`, D065 diálogos), explorador
@@ -31,7 +31,8 @@ Tres diálogos modales en la libsagui, iguales para todas las aplicaciones:
 - QEMU: abrir, guardar con sobrescritura, elegir carpeta y filtros en dos o tres aplicaciones (capturas).
 
 ## Criterios de aceptación
-- [ ] Tres diálogos comunes con aspecto Windows 95 y teclado completo
-- [ ] Adoptados por las aplicaciones principales
-- [ ] Test automático en `tests/`
-- [ ] Decisión registrada en `docs/decisoes.md`
+- [x] Tres diálogos comunes con aspecto Windows 95 y teclado completo
+- [x] Adoptados por las aplicaciones principales
+- [x] Test automático en `tests/`
+- [x] Decisión registrada en `docs/decisoes.md`
+- [x] Adoptados también en Macaco, Markdown, CHIP-8, Correo, Chat IA, Visor de PDF (exportar), Música, MIDI y listas de Sintonía (D278); Sintonía conserva el texto para URL

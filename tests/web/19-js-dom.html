@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>19 JavaScript: DOM</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b{float:left;width:10px;height:16px}
+#f5.rojo{background:red !important}
+#f6.rojo{background:red !important}
+.lleno{display:block;height:16px;background:#008000}
+#f11 i{display:block;height:16px;background:red}
+#f13 i{display:block;height:8px;background:red}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"></div><div class="e" style="top:10px">getElementById y style.background</div>
+<div class="f" id="f2" style="top:34px"></div><div class="e" style="top:34px">querySelector</div>
+<div class="f" id="f3" style="top:58px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:58px">querySelectorAll y forEach</div>
+<div class="f" id="f4" style="top:82px"></div><div class="e" style="top:82px">classList.add</div>
+<div class="f rojo" id="f5" style="top:106px"></div><div class="e" style="top:106px">classList.remove y contains</div>
+<div class="f rojo" id="f6" style="top:130px"></div><div class="e" style="top:130px">classList.toggle</div>
+<div class="f" id="f7" style="top:154px"></div><div class="e" style="top:154px">className</div>
+<div class="f f" data-color="verde" data-dos-palabras="si" id="f8" style="top:178px"></div><div class="e" style="top:178px">dataset</div>
+<div class="f" id="f9" style="top:202px"></div><div class="e" style="top:202px">setAttribute y getAttribute</div>
+<div class="f" id="f10" style="top:226px"></div><div class="e" style="top:226px">createElement y appendChild</div>
+<div class="f g" id="f11" style="top:250px"><i></i></div><div class="e" style="top:250px">textContent de un elemento</div>
+<div class="f" id="f12" style="top:274px"></div><div class="e" style="top:274px">innerHTML de un elemento</div>
+<div class="f g" id="f13" style="top:298px"><i class="c"></i><i class="d"></i></div><div class="e" style="top:298px">remove() y removeChild</div>
+<div class="f" id="f14" style="top:322px"></div><div class="e" style="top:322px">insertAdjacentHTML</div>
+<div class="f" id="f15" style="top:346px"><b class="c" style="display:none"></b></div><div class="e" style="top:346px">closest y matches</div>
+<div class="f" id="f16" style="top:370px"></div><div class="e" style="top:370px">style.cssText y style.setProperty</div>
+<script>try{(function(el){el.style.background='#008000'})(document.getElementById('f1'))}catch(e){console.log('f1: '+e)}</script>
+<script>try{(function(el){document.querySelector('#f2').style.backgroundColor='#008000'})(document.getElementById('f2'))}catch(e){console.log('f2: '+e)}</script>
+<script>try{(function(el){document.querySelectorAll('#f3 b').forEach(function(b){b.style.background='#008000'})})(document.getElementById('f3'))}catch(e){console.log('f3: '+e)}</script>
+<script>try{(function(el){el.classList.add('g')})(document.getElementById('f4'))}catch(e){console.log('f4: '+e)}</script>
+<script>try{(function(el){if(el.classList.contains('rojo')){el.classList.remove('rojo');el.classList.add('g')}})(document.getElementById('f5'))}catch(e){console.log('f5: '+e)}</script>
+<script>try{(function(el){el.classList.toggle('g');el.classList.toggle('rojo')})(document.getElementById('f6'))}catch(e){console.log('f6: '+e)}</script>
+<script>try{(function(el){el.className='f g'})(document.getElementById('f7'))}catch(e){console.log('f7: '+e)}</script>
+<script>try{(function(el){if(el.dataset.color==='verde'&&el.dataset.dosPalabras==='si')el.style.background='#008000'})(document.getElementById('f8'))}catch(e){console.log('f8: '+e)}</script>
+<script>try{(function(el){el.setAttribute('title','x');if(el.getAttribute('title')==='x')el.setAttribute('class','f g')})(document.getElementById('f9'))}catch(e){console.log('f9: '+e)}</script>
+<script>try{(function(el){var i=document.createElement('i');i.className='lleno';el.appendChild(i)})(document.getElementById('f10'))}catch(e){console.log('f10: '+e)}</script>
+<script>try{(function(el){el.textContent=''})(document.getElementById('f11'))}catch(e){console.log('f11: '+e)}</script>
+<script>try{(function(el){el.innerHTML='<i class="lleno"></i>'})(document.getElementById('f12'))}catch(e){console.log('f12: '+e)}</script>
+<script>try{(function(el){el.querySelector('.c').remove();el.removeChild(el.querySelector('.d'))})(document.getElementById('f13'))}catch(e){console.log('f13: '+e)}</script>
+<script>try{(function(el){el.insertAdjacentHTML('beforeend','<i class="lleno"></i>')})(document.getElementById('f14'))}catch(e){console.log('f14: '+e)}</script>
+<script>try{(function(el){var b=el.querySelector('b');if(b.matches('.c')&&b.closest('.f')===el)el.style.background='#008000'})(document.getElementById('f15'))}catch(e){console.log('f15: '+e)}</script>
+<script>try{(function(el){el.style.cssText=el.style.cssText+';background:red';el.style.setProperty('background','#008000')})(document.getElementById('f16'))}catch(e){console.log('f16: '+e)}</script>
+</body></html>

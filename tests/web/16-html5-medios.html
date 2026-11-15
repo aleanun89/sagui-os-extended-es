@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>16 Medios y otros elementos</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1 video{display:block}
+#f2 video{display:block;width:40px;height:16px;background:#008000}
+#f3 video{display:block;width:40px;height:16px;background:#008000}#f3 i{display:block;height:16px;background:red}
+#f4 audio{display:block;width:40px;height:16px;background:#008000}
+#f5 audio{background:red;width:40px;height:16px}
+#f6 canvas{display:block;background:#008000}
+#f7 iframe{display:block;box-sizing:border-box;width:40px;height:16px;border:2px solid #008000}
+#f8 progress{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0}
+#f9 meter{display:block;box-sizing:border-box;width:40px;height:16px;margin:0;padding:0;border:2px solid #008000;border-radius:0;appearance:none;-webkit-appearance:none;background:#fff;font-size:0}
+#f10{font:bold 14px sans-serif}
+#f11 hr{margin:0;border:0;height:16px;background:#008000}
+#f13{font:bold 14px sans-serif}
+#f14{font-size:0;line-height:0}#f14 u{display:inline-block;width:40px;height:8px;background:#008000}
+#f15 i{display:block;height:16px;background:red}
+#f16{font-size:0;overflow:hidden}#f16 figure{margin:0 10px}#f16 i{display:block;height:16px;background:#008000}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><video width="40" height="16" poster="verde80.png"></video></div><div class="e" style="top:10px">&lt;video poster&gt; como marcador con el póster</div>
+<div class="f" id="f2" style="top:34px"><video src="no-hay.mp4"></video></div><div class="e" style="top:34px">&lt;video&gt; sin póster ocupa su caja</div>
+<div class="f" id="f3" style="top:58px"><video><i></i></video></div><div class="e" style="top:58px">&lt;video&gt; no pinta su contenido alternativo</div>
+<div class="f" id="f4" style="top:82px" data-p="1,1,!ff0000 20,8,!ff0000 38,14,!ff0000"><audio controls></audio></div><div class="e" style="top:82px">&lt;audio controls&gt; ocupa una caja</div>
+<div class="f g" id="f5" style="top:106px"><audio></audio></div><div class="e" style="top:106px">&lt;audio&gt; sin controls no se ve</div>
+<div class="f" id="f6" style="top:130px"><canvas width="40" height="16"></canvas></div><div class="e" style="top:130px">&lt;canvas&gt; ocupa su tamaño</div>
+<div class="f" id="f7" style="top:154px" data-p="0,8,008000 20,0,008000 39,8,008000 20,15,008000"><iframe src="about:blank"></iframe></div><div class="e" style="top:154px">&lt;iframe&gt; ocupa su caja</div>
+<div class="f" id="f8" style="top:178px" data-p="0,8,!ff0000 20,8,!ff0000 39,8,!ff0000 44,8,ffffff"><progress value="1" max="2"></progress></div><div class="e" style="top:178px">&lt;progress&gt; ocupa su caja</div>
+<div class="f" id="f9" style="top:202px" data-p="0,8,!ff0000 20,8,!ff0000 39,8,!ff0000 44,8,ffffff"><meter value="1" max="2"></meter></div><div class="e" style="top:202px">&lt;meter&gt; ocupa su caja</div>
+<div class="f w" id="f10" style="top:226px" data-p="0,0,40,16,?ffff00~10"><mark>MMM</mark></div><div class="e" style="top:226px">&lt;mark&gt; resalta en amarillo</div>
+<div class="f" id="f11" style="top:250px"><hr></div><div class="e" style="top:250px">&lt;hr&gt; con estilo</div>
+<div class="f" id="f12" style="top:274px"><table cellspacing="0" cellpadding="0" border="0"><tr><td width="20" height="16" bgcolor="#008000"></td><td width="20" bgcolor="#008000"></td></tr></table></div><div class="e" style="top:274px">&lt;table&gt; con atributos antiguos</div>
+<div class="f w" id="f13" style="top:298px" data-p="6,0,34,16,?008000 0,0,3,16,?ffffff"><center><font color="#008000">MM</font></center></div><div class="e" style="top:298px">&lt;font color&gt; y &lt;center&gt;</div>
+<div class="f" id="f14" style="top:322px"><u></u><br><wbr><u></u></div><div class="e" style="top:322px">&lt;br&gt; y &lt;wbr&gt;</div>
+<div class="f g" id="f15" style="top:346px"><noscript><i></i></noscript></div><div class="e" style="top:346px">&lt;noscript&gt; no se ve con JavaScript</div>
+<div class="f" id="f16" style="top:370px" data-p="5,8,ff0000 20,8,008000 35,8,ff0000"><figure><i></i></figure></div><div class="e" style="top:370px">&lt;figure&gt; con sus márgenes</div>
+</body></html>

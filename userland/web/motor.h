@@ -15,7 +15,15 @@ typedef struct {
     bool (*imagem)(const uint8_t *d, unsigned n, uint32_t **px, int *l, int *a);
     /* Pixels atuais de um <canvas> (data-sagui-canvas); NULL se não houver. */
     const uint32_t *(*tela)(int id, int *l, int *a);
+    /* Cuadro actual de un <video> (mejora 100, D276): url = el src ya resuelto, flags = VIDEO_*,
+     * (x, y, l, a) = la caja en coordenadas de la página (el que llama la apunta para pintar
+     * los cuadros nuevos sin repintar la página). Devuelve los píxeles 0x00RRGGBB y su tamaño
+     * (*fl, *fa), o NULL si aún no hay cuadro. Puede ser NULL el gancho entero. */
+    const uint32_t *(*video)(const char *url, int flags, int x, int y, int l, int a, int *fl, int *fa);
 } motor_ganchos_t;
+#define VIDEO_AUTOPLAY 1
+#define VIDEO_LOOP     2
+#define VIDEO_MUTED    4
 
 /* Tipos de alvo de clique. */
 #define MA_LINK  1     /* href */
@@ -102,6 +110,10 @@ int      motor_dom_documento(motor_t *m);
  * do JavaScript: a partir do próximo layout, o elemento é alvo do rato e o
  * clique chama o tratador. */
 bool     motor_marcar_clique(motor_t *m, int dom);
+/* O JavaScript muda a árvore (D271): um atributo de um elemento (valor NULL = tira) ou
+ * o seu texto. Textos em Latin-1. Vale no motor_layout seguinte. */
+bool     motor_dom_atributo(motor_t *m, int dom, const char *nome, const char *valor);
+bool     motor_dom_texto(motor_t *m, int dom, const char *txt);
 fonte_t *motor_fonte_nomeada(motor_t *m, const char *familia, int peso, int italico, int largura);
 void     motor_fontes_limpar(void);   /* nova página: esquece as fontes da web baixadas */
 void     motor_sem_esconder(motor_t *m, bool sim);   /* ignora display:none do autor */   /* quantos links a página tem */

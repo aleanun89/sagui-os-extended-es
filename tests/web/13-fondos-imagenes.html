@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>13 Fondos con imagen, object-fit y varios</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1{background-image:url(verde.png)}
+#f2{background:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEElEQVR42mNgaGDAjoaWBACBfCABP+ifpgAAAABJRU5ErkJggg==)}
+#f3{background:#000080 url(verde.png) no-repeat right center / 20px 16px}
+#f4{background:url(franjas.png) center / cover no-repeat}#f4{width:20px}
+#f5{background:#000080 url(franjas.png) center / contain no-repeat;height:8px}
+#f6{background:url(verde.png) no-repeat 0 0 / 20px 16px, #000080}
+#f7{width:20px}#f7 img{display:block;width:20px;height:16px;object-fit:cover}
+#f8 img{display:block;width:40px;height:16px;object-fit:contain;background:#008000}
+#f9{width:20px}#f9 img{display:block;width:20px;height:16px;object-fit:none;object-position:left top}
+#f10 img{display:block;width:40px;height:16px}
+#f11 img{display:block;max-width:100%;height:auto}
+#f12{filter:grayscale(1)}
+#f13{box-sizing:border-box;padding:0 10px;background-color:#008000;background-clip:content-box}
+#f14{box-sizing:border-box;border:4px dashed #008000}
+#f15{cursor:pointer;pointer-events:none;user-select:none;background:#008000}
+#f16{cosa-rara:1;background:#008000;-webkit-otra:2}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"></div><div class="e" style="top:10px">background-image con url()</div>
+<div class="f" id="f2" style="top:34px"></div><div class="e" style="top:34px">background con data: URI</div>
+<div class="f" id="f3" style="top:58px" data-p="10,8,000080 30,8,008000"></div><div class="e" style="top:58px">background-repeat, -position y -size</div>
+<div class="f" id="f4" style="top:82px" data-p="5,8,000080 15,8,ffffff 30,8,!000080"></div><div class="e" style="top:82px">background-size: cover</div>
+<div class="f" id="f5" style="top:106px" data-p="5,4,000080 12,4,008000 17,4,000080 22,4,ffffff 27,4,000000 35,4,000080"></div><div class="e" style="top:106px">background-size: contain</div>
+<div class="f" id="f6" style="top:130px" data-p="10,8,008000 30,8,000080"></div><div class="e" style="top:130px">varios fondos</div>
+<div class="f" id="f7" style="top:154px" data-p="5,8,000080 15,8,ffffff"><img src="franjas.png" alt=""></div><div class="e" style="top:154px">object-fit: cover</div>
+<div class="f" id="f8" style="top:178px" data-p="4,8,008000 17,8,000080 23,8,ffffff 36,8,008000"><img src="franjas2.png" alt=""></div><div class="e" style="top:178px">object-fit: contain</div>
+<div class="f" id="f9" style="top:202px" data-p="5,8,008000 15,8,000080"><img src="franjas.png" alt=""></div><div class="e" style="top:202px">object-position</div>
+<div class="f" id="f10" style="top:226px"><img src="verde.png" alt=""></div><div class="e" style="top:226px">img con width/height en CSS</div>
+<div class="f" id="f11" style="top:250px"><img src="verde80.png" width="80" height="32" alt=""></div><div class="e" style="top:250px">img con max-width: 100% y height: auto</div>
+<div class="f g" id="f12" style="top:274px" data-p="20,8,555555~24"></div><div class="e" style="top:274px">filter: grayscale()</div>
+<div class="f w" id="f13" style="top:298px" data-p="5,8,!008000 20,8,008000 35,8,!008000"></div><div class="e" style="top:298px">background-clip: content-box</div>
+<div class="f w" id="f14" style="top:322px" data-p="0,0,40,4,?008000 0,0,40,4,?ffffff"></div><div class="e" style="top:322px">border dashed / dotted se pintan</div>
+<div class="f" id="f15" style="top:346px"></div><div class="e" style="top:346px">cursor, pointer-events, user-select no molestan</div>
+<div class="f" id="f16" style="top:370px"></div><div class="e" style="top:370px">propiedad desconocida no rompe la regla</div>
+</body></html>

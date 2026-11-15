@@ -1,6 +1,6 @@
 # 104 - Interfaz gráfica para el VNC (cliente y servidor)
 
-- **Estado:** aprobada (**v8.1**, pedido del mantenedor el 2026-11-15)
+- **Estado:** hecha (**v8.1**, D273, pendiente de integrar)
 - **Prioridad:** media
 - **Alta:** 2026-11-15
 - **Relacionadas:** VNC (mejora 097: `vncd` D252, `vnc` D254, `ssh -L` D253), Configuración (D112),
@@ -22,7 +22,7 @@
   activa el servicio y cambia la contraseña (capturas).
 
 ## Criterios de aceptación
-- [ ] Ventana de conexión con conexiones guardadas
-- [ ] Pestaña del servidor en Configuración
-- [ ] Test automático en `tests/`
-- [ ] Decisión registrada en `docs/decisoes.md`
+- [x] Ventana de conexión con conexiones guardadas
+- [x] Pestaña del servidor en Configuración
+- [x] Test automático en `tests/` (`h273_vnc_gui.py`)
+- [x] Decisión registrada en `docs/decisoes.md` (D273)

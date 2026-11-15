@@ -58,7 +58,8 @@
 #define JOGOS_ORIGEM "/jogos"             /* la partición de juegos montada, o el /jogos del ramdisk (D181, D228) */
 #define JOGOS_INSTALAR_MB 800u            /* D228: sitio para meter la versión completa de un juego */
 #define APPS_ORIGEM  "/apps"               /* las aplicaciones fuera de la base (D194) */
-#define EFI_ORIGEM "/sistema/efi"          /* D266: lo que se copia a la ESP (EFI/BOOT/BOOTX64.EFI...); lo pone la rama UEFI */
+#define EFI_ORIGEM "/sistema/efi"          /* D266: lo que se copia a la ESP (EFI/BOOT/BOOTX64.EFI...); D270: va en el ramdisk */
+#define MBR_ORIGEM "/sistema/arranque/mbr.bin"   /* D270: el MBR de SaguiOS (BIOS), para instalar con MBR desde un disco GPT */
 #define ESP_ROTULO "SAGUI-ESP"
 #define ESP_PUNTO  "/mnt/instalar-esp"
 #define CONF_MB 16u                        /* D256: la partición SAGUI-CONF (configuración del sistema, mejora 098) */
@@ -99,6 +100,8 @@ typedef struct {
     uint32_t esp_ini, esp_set, home_ini, conf_ini;
     char     aviso[240];         /* lo que no será como se esperaba (p. ej. sin cargador UEFI) */
     bool     desde_cd;           /* D207: el origen es la imagen El Torito de un CD */
+    uint32_t cab_origem;         /* D270: sector de la cabecera en el origen: 1, o el de su partición GPT de SaguiOS */
+    bool     tabela_auto;        /* D270: la tabla la eligió el modo automático */
     char     perde[400];         /* qué se borra, dicho para la persona */
 } plano_t;
 
@@ -157,9 +160,14 @@ static bool existe_pasta(const char *c)
     return info_arquivo(c, &i) == 0 && i.tipo == TIPO_PASTA;
 }
 
-/* D266: ¿se arrancó por UEFI? La señal vendrá en bootinfo cuando exista el cargador UEFI (rama
- * v8.0-uefi); de momento, nunca: la tabla GPT se elige con --gpt (o con el disco de más de 2 TB). */
-static bool arrancou_por_uefi(void) { return false; }
+/* D266, D270: ¿se arrancó por UEFI? El cargador UEFI lo dice en la boot_info (campo firmware, D264) y
+ * el kernel lo devuelve en INFO_ARRANQUE. */
+static bool arrancou_por_uefi(void)
+{
+    info_arranque_t a;
+    memset(&a, 0, sizeof a);
+    return info_sistema(INFO_ARRANQUE, &a, sizeof a) == 0 && a.firmware != 0;
+}
 
 /* D266: «automático»: GPT si el disco pasa de 2 TB (el MBR no llega) o se arrancó por UEFI. */
 static int tabela_automatica(uint32_t setores) { return setores >= 0xFFFF0000u || arrancou_por_uefi() ? T_GPT : T_MBR; }
@@ -232,14 +240,24 @@ static bool planejar(plano_t *p, char *erro, int max)
     char por[96];
     if (!destino_valido(&d, por, sizeof por)) { txt(erro, max, "no se instala en %s: %s", p->destino, por); return false; }
     if (compara_texto(p->origem, p->destino) == 0) { txt(erro, max, "%s es el disco de arranque", p->destino); return false; }
-    /* La cabecera y el MBR del origen. */
-    if (blocos_ler(p->origem, 1, 1, p->cab) < 0 || le32(p->cab) != CAB_ASSINATURA || blocos_ler(p->origem, 0, 1, p->mbr_origem) < 0) {
+    /* La cabecera y el MBR del origen. D270: si el sistema arrancó de un disco instalado con GPT, su
+     * cabecera está en el primer sector de la partición de SaguiOS (el kernel dice cuál) y el LBA 0
+     * es el MBR protector: el código de arranque por BIOS se toma del ramdisk. */
+    info_bloco_t bo;
+    p->cab_origem = blocos_info(p->origem, &bo) == 0 && bo.cab_lba ? bo.cab_lba : 1;
+    if (blocos_ler(p->origem, p->cab_origem, 1, p->cab) < 0 || le32(p->cab) != CAB_ASSINATURA) {
         txt(erro, max, "la cabecera de arranque de %s no se puede leer", p->origem);
         return false;
     }
+    bool mbr_ok = false;
+    if (p->cab_origem == 1) mbr_ok = blocos_ler(p->origem, 0, 1, p->mbr_origem) == 0;
+    else {
+        int fd = abrir(MBR_ORIGEM, ABRIR_LER);
+        if (fd >= 0) { mbr_ok = ler(fd, p->mbr_origem, 512) == 512 && p->mbr_origem[510] == 0x55 && p->mbr_origem[511] == 0xAA; fechar(fd); }
+    }
     p->blob_src = le32(p->cab + 8);
     uint32_t total = le32(p->cab + 48);
-    if (p->blob_src < 2 || total <= p->blob_src || total - p->blob_src > 1024u * MB) {
+    if (p->blob_src <= p->cab_origem || total <= p->blob_src || total - p->blob_src > 1024u * MB) {
         txt(erro, max, "la cabecera de arranque de %s es incoherente", p->origem);
         return false;
     }
@@ -254,7 +272,18 @@ static bool planejar(plano_t *p, char *erro, int max)
     p->perde[0] = 0;
     p->aviso[0] = 0;
     /* D266: la tabla que se creará, y la ESP. */
-    if (p->tabela == T_AUTO) p->tabela = tabela_automatica(d.setores);
+    p->tabela_auto = p->tabela == T_AUTO;
+    if (p->tabela == T_AUTO) p->tabela = p->modo == M_ENTERO ? tabela_automatica(d.setores) : T_MBR;   /* D270: una GPT, solo en el disco entero */
+    /* D283: en un NVMe de bloques de 4096 el LBA 1 del arranque por BIOS no existe (la BIOS no arranca de NVMe) y el cargador
+     * UEFI busca la cabecera en la partición de SaguiOS de una GPT: allí solo se instala con GPT. */
+    if (d.flags & DISCO_BLOCO4K) {
+        if (p->tabela_auto && p->modo == M_ENTERO) p->tabela = T_GPT;
+        if (p->tabela != T_GPT) { txt(erro, max, "%s tiene bloques de 4096 bytes: solo se instala con GPT, en el disco entero (--gpt)", p->destino); return false; }
+    }
+    if (p->tabela == T_MBR && !mbr_ok) {
+        txt(erro, max, "no se encuentra el código de arranque por BIOS (%s): instala con --gpt (arranque UEFI)", MBR_ORIGEM);
+        return false;
+    }
     if (p->tabela == T_GPT && p->modo != M_ENTERO) { txt(erro, max, "una GPT solo se crea en el disco entero (no en un hueco ni sustituyendo una partición)"); return false; }
     if (p->tabela == T_GPT) { p->jogos = p->apps = p->copiar_jogos = false; p->esp = true; }
     p->efi_ok = efi_disponivel();
@@ -270,7 +299,7 @@ static bool planejar(plano_t *p, char *erro, int max)
     uint32_t ini, fim;
     if (p->modo == M_ENTERO) {
         p->sys_ini = 1;
-        p->blob_dst = p->blob_src;
+        p->blob_dst = 1 + (p->blob_src - p->cab_origem);   /* la cabecera en el LBA 1 y el resto detrás, como en el origen */
         ini = 1;
         fim = t.setores / MB * MB;
         if (t.esquema == PT_MBR || (t.esquema == PT_GPT && !t.gpt_mala)) {
@@ -301,15 +330,15 @@ static bool planejar(plano_t *p, char *erro, int max)
         else if (t.esquema == PT_VOLUME) txt(p->perde, sizeof p->perde, "el volumen %s que ocupa todo el disco", d.formato);
         if (!p->perde[0]) copia_texto(p->perde, "nada (el disco está vacío)", sizeof p->perde);
     if (p->tabela == T_GPT) {   /* D266: ESP, SaguiOS, /home y SAGUI-CONF, alineadas a 1 MiB, dentro de la zona utilizable */
-        uint32_t blob_total = p->blob_src - 1 + p->blob_set;
+        uint32_t blob_total = p->blob_src - p->cab_origem + p->blob_set;
         uint32_t smb = (blob_total * 2 + MB - 1) / MB;
         if (smb < 64) smb = 64;
         p->esp_ini = MB; p->esp_set = esp_set;
         p->sys_ini = p->esp_ini + p->esp_set;
         p->sys_set = smb * MB;
-        p->blob_dst = p->sys_ini + p->blob_src - 1;   /* la cabecera va en el primer sector de la partición */
+        p->blob_dst = p->sys_ini + (p->blob_src - p->cab_origem);   /* la cabecera va en el primer sector de la partición */
         p->home_ini = p->sys_ini + p->sys_set;
-        uint32_t fim_g = (t.setores - 33) / MB * MB;
+        uint32_t fim_g = (t.setores - ((d.flags & DISCO_BLOCO4K) ? 41u : 33u)) / MB * MB;   /* D283: en 4096 la GPT final ocupa 5 bloques de 4096 */
         p->conf_set = CONF_MB * MB;
         if (fim_g < p->home_ini + p->conf_set + (p->sin_home ? 0u : 16u * MB)) { txt(erro, max, "no cabe: hacen falta al menos %u MB para ESP, sistema, configuración%s", (p->home_ini + p->conf_set) / MB + (p->sin_home ? 0u : 16u), p->sin_home ? "" : " y /home"); return false; }
         p->home_set = p->sin_home ? 0 : fim_g - p->home_ini - p->conf_set;
@@ -922,7 +951,8 @@ static int terminal(int argc, char **argv)
     if (!planejar(&p, e, sizeof e)) { imprimir_em(ERROS, "instalar: %s\n", e); return 1; }
     descrever_plano(&p, d, sizeof d);
     imprimir("Instalar SaguiOS de %s en %s\n  %s\n  Se borra: %s\n", p.origem, p.destino, d, p.perde);
-    imprimir("  Tabla de particiones: %s\n", p.tabela == T_GPT ? "GPT (arranque UEFI; con la BIOS clásica no arranca)" : "MBR (arranque BIOS)");
+    imprimir("  Tabla de particiones: %s%s\n", p.tabela == T_GPT ? "GPT (arranque UEFI; con la BIOS clásica no arranca)" : "MBR (arranque BIOS)",
+             !p.tabela_auto ? "" : arrancou_por_uefi() ? " [automática: se arrancó por UEFI]" : " [automática: se arrancó por BIOS]");
     if (p.aviso[0]) imprimir("  AVISO: %s\n", p.aviso);
     if (p.conf_vieja[0])
         imprimir(p.formatear_conf ? "  AVISO: se BORRA también SAGUI-CONF (%s): contraseñas y claves del sistema\n"

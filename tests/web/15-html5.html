@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>15 Elementos HTML5</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1{font-size:0}#f1 u{display:inline-block;width:20px;height:8px;background:#008000}
+#f2{font-size:0}#f2 u{display:inline-block;width:20px;height:8px;background:#008000}
+#f3{font-size:0}#f3 u{display:inline-block;width:20px;height:8px;background:#008000}
+#f4{font-size:0}#f4 u{display:inline-block;width:20px;height:8px;background:#008000}
+#f5{font-size:0}#f5 u{display:inline-block;width:20px;height:8px;background:#008000}
+#f6{font-size:0}#f6 i{display:block;height:16px;background:red}
+#f7{font-size:0}#f7 i{display:block;height:16px;background:#008000}
+#f8 i{display:block;height:16px;background:red}
+#f9 dialog{position:static;border:0;padding:0;margin:0;width:40px;height:16px;background:#008000}
+#f10 i{display:block;height:16px;background:red}
+#f11 i{height:16px;background:red}
+#f12 img{display:block}
+#f13 img{display:block}
+#f14 img{display:block;float:left}
+#f15 svg{display:block}
+#f16 x-caja{display:block;height:16px;background:#008000}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px" data-p="10,4,008000 10,12,008000 30,4,ff0000 30,12,ff0000"><header><u></u></header><footer><u></u></footer></div><div class="e" style="top:10px">&lt;header&gt; y &lt;footer&gt; son bloques</div>
+<div class="f" id="f2" style="top:34px" data-p="10,4,008000 10,12,008000 30,4,ff0000 30,12,ff0000"><nav><u></u></nav><main><u></u></main></div><div class="e" style="top:34px">&lt;nav&gt; y &lt;main&gt;</div>
+<div class="f" id="f3" style="top:58px" data-p="10,4,008000 10,12,008000 30,4,ff0000 30,12,ff0000"><section><u></u></section><article><u></u></article></div><div class="e" style="top:58px">&lt;section&gt; y &lt;article&gt;</div>
+<div class="f" id="f4" style="top:82px" data-p="10,4,008000 10,12,008000 30,4,ff0000 30,12,ff0000"><aside><u></u></aside><figcaption><u></u></figcaption></div><div class="e" style="top:82px">&lt;aside&gt; y &lt;figcaption&gt;</div>
+<div class="f" id="f5" style="top:106px" data-p="10,4,008000 10,12,008000 30,4,ff0000 30,12,ff0000"><hgroup><u></u></hgroup><search><u></u></search></div><div class="e" style="top:106px">&lt;hgroup&gt; y &lt;search&gt;</div>
+<div class="f g" id="f6" style="top:130px" data-p="30,4,008000 30,12,008000"><details><summary></summary><i></i></details></div><div class="e" style="top:130px">&lt;details&gt; cerrado esconde el contenido</div>
+<div class="f" id="f7" style="top:154px" data-p="30,4,008000 30,12,008000"><details open><summary></summary><i></i></details></div><div class="e" style="top:154px">&lt;details open&gt; lo muestra</div>
+<div class="f g" id="f8" style="top:178px"><dialog><i></i></dialog></div><div class="e" style="top:178px">&lt;dialog&gt; cerrado no se ve</div>
+<div class="f" id="f9" style="top:202px"><dialog open></dialog></div><div class="e" style="top:202px">&lt;dialog open&gt; se ve</div>
+<div class="f g" id="f10" style="top:226px"><template><i></i></template></div><div class="e" style="top:226px">&lt;template&gt; no se pinta</div>
+<div class="f g" id="f11" style="top:250px"><i hidden></i><div hidden><i style="display:block"></i></div></div><div class="e" style="top:250px">atributo hidden</div>
+<div class="f" id="f12" style="top:274px"><picture><source srcset="verde.png" type="image/png"><img src="rojo.png" width="40" height="16" alt=""></picture></div><div class="e" style="top:274px">&lt;picture&gt; con &lt;source&gt;</div>
+<div class="f" id="f13" style="top:298px"><img srcset="verde.png 1x, rojo.png 2x" src="rojo.png" width="40" height="16" alt=""></div><div class="e" style="top:298px">&lt;img srcset&gt;</div>
+<div class="f" id="f14" style="top:322px"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEElEQVR42mNgaGDAjoaWBACBfCABP+ifpgAAAABJRU5ErkJggg==" width="20" height="16" alt=""><img loading="lazy" src="verde.png" width="20" height="16" alt=""></div><div class="e" style="top:322px">&lt;img&gt; con data: URI y loading=lazy</div>
+<div class="f" id="f15" style="top:346px"><svg width="40" height="16" viewBox="0 0 40 16"><rect width="40" height="16" fill="#008000"/></svg></div><div class="e" style="top:346px">&lt;svg&gt; en línea</div>
+<div class="f" id="f16" style="top:370px"><x-caja></x-caja></div><div class="e" style="top:370px">elemento personalizado con estilo</div>
+</body></html>

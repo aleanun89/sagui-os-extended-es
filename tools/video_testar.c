@@ -16,15 +16,16 @@
 
 int main(int argc, char **argv)
 {
-    const char *saida = NULL;
+    const char *saida = NULL, *audio = NULL;
     int desde = 0, quantos = -1, i = 1;
     while (i < argc && argv[i][0] == '-' && argv[i][1] == '-') {
         if (!strcmp(argv[i], "--saida") && i + 1 < argc) { saida = argv[++i]; i++; }
         else if (!strcmp(argv[i], "--desde") && i + 1 < argc) { desde = atoi(argv[++i]); i++; }
         else if (!strcmp(argv[i], "--quadros") && i + 1 < argc) { quantos = atoi(argv[++i]); i++; }
+        else if (!strcmp(argv[i], "--audio") && i + 1 < argc) { audio = argv[++i]; i++; }
         else { fprintf(stderr, "opción desconocida: %s\n", argv[i]); return 2; }
     }
-    if (i >= argc) { fprintf(stderr, "uso: %s [--saida arq.raw] [--desde n] [--quadros n] video\n", argv[0]); return 2; }
+    if (i >= argc) { fprintf(stderr, "uso: %s [--audio arq.pcm] [--saida arq.raw] [--desde n] [--quadros n] video\n", argv[0]); return 2; }
 
     int erro = 0;
     video_t *v = video_abrir(argv[i], &erro);
@@ -40,6 +41,7 @@ int main(int argc, char **argv)
         fprintf(f, "SAGUIV1 %d %d\n", inf->larg, inf->alt);
     }
 
+    FILE *fa = audio ? fopen(audio, "wb") : NULL;   /* PCM estéreo de 16 bits, tal cual lo da video_audio() */
     imagem_t img = { 0 };
     int n = 0, feitos = 0;
     while (video_quadro(v, &img) == 0) {
@@ -61,7 +63,13 @@ int main(int argc, char **argv)
             feitos++;
         }
         n++;
+        if (fa) {
+            static int16_t pcm[4096 * 2];
+            int k;
+            while ((k = video_audio(v, pcm, 4096)) > 0) fwrite(pcm, 4, (size_t)k, fa);
+        }
     }
+    if (fa) fclose(fa);
     if (f) fclose(f);
     fprintf(stderr, "%d cuadros\n", n);
     video_fechar(v);

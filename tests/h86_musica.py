@@ -184,8 +184,10 @@ def sonido(arqs):
         time.sleep(1.0)
         # el diálogo (que pausa el sonido) propone la carpeta de la pista actual: Intro
         marca = len(m.serial())
-        m.tecla("ret")
-        esperar(m, r"musica: 3 pistas añadidas desde /tmp/m/", 30, marca)
+        m.tecla("ret")                 # D278: «¿Añadir una carpeta entera?» Sí (Intro)
+        time.sleep(1.0)
+        m.tecla("ret")                 # el diálogo de carpeta propone /tmp/m/: Intro
+        esperar(m, r"musica: 3 pistas añadidas desde /tmp/m/?", 30, marca)   # D278: el diálogo de carpeta devuelve /tmp/m
         esperar(m, r"musica: pista 1 a_tono.wav: WAV PCM", 20, marca)
         esperar(m, r"musica: reproduciendo a_tono.wav", 15, marca)
         verificar(True, "Abrir con una carpeta llena la lista con las 3 pistas y toca la primera")

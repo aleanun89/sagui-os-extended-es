@@ -40,6 +40,7 @@ typedef struct {
 typedef struct {
     char      disco[12];
     uint32_t  setores;
+    uint32_t  esc;               /* D283: sectores de 512 por bloque real del disco (1, u 8 en un NVMe de 4096): el MBR cuenta en bloques */
     int       esquema;
     uint8_t   setor0[512];       /* el sector 0 leído (el código de arranque se conserva) */
     pt_part_t prim[4];           /* por ranura: número 1 a 4 */

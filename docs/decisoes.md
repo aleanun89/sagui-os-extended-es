@@ -14855,3 +14855,697 @@ persistente y cambio a 800x600 sin iconos fuera; capturas `H268-*.png`.
 **Límites conocidos:** el programa que pide queda como root hasta que llama a `elevacao_soltar()` o muere (los de Discos, Tareas, Configuración y Fecha y hora la sueltan tras cada operación; Instalar no); mientras espera la respuesta el programa no repinta su ventana (la pantalla atenuada muestra su último contenido); la autorización recordada se pierde al reiniciar; no hay icono propio para programas sin icono en la barra (se dibuja un «?»).
 
 **Prueba:** `tests/h269_dialogo_admin.py` con `/testes/dialogo-admin` (Esc, primera contraseña, distintas, mala y buena, Particiones, recordar, instalar, avisos largo y encolado, mensaje y pregunta largos); capturas `H269-*.png`.
+
+## D270. UEFI con el instalador GPT/ESP: discos instalados que arrancan por UEFI (v8.0, mejora 062)
+
+**Contexto.** D264 dejó el cargador UEFI leyendo `\SAGUI\{CABECERA.BIN,KERNEL.BIN,RAMDISK.SGF}` de la ESP de la
+imagen híbrida, y D266 un instalador que crea GPT con ESP y copia a ella lo que haya en `/sistema/efi`, que nadie
+llenaba. Faltaba lo que une las dos piezas: que un disco instalado (sobre todo con GPT, en un NVMe del Ryzen/B450)
+arranque por UEFI, que el instalador sepa si se arrancó por UEFI, y que todas las imágenes de disco sean híbridas.
+
+**Decisión.**
+1. **El cargador busca SaguiOS en el disco, no en la ESP** (`boot/uefi/cargador.c`). Del disco entero de la ESP
+   (Block I/O y Disk I/O, `uefi.h`) lee la cabecera de arranque: el **LBA 1** (imagen híbrida, discos instalados con
+   MBR) o, en una GPT, el **primer sector de la partición de tipo SaguiOS** (`53414755-494F-4F53-8001-534147554953`,
+   D266), o en un CD la imagen de la entrada por defecto de El Torito (punto 6). Si la ESP tiene `SAGUI/CABECERA.BIN`
+   **del mismo sistema** (los campos de `mesma_cabecera`), el kernel y el ramdisk se leen de los ficheros de la ESP
+   (la imagen híbrida, como en D264); si no, **del disco**, en los sectores de la cabecera. Sin cabecera en el disco,
+   la de la ESP (una ESP copiada a mano). Las sumas de la cabecera lo comprueban todo. Se descartó copiar `SAGUI/` a
+   la ESP del disco instalado: dos copias del sistema que hay que mantener iguales (actualizar, `pantalla --guardar`)
+   y la ESP de 64 MB de un MBR+ESP justa; así la ESP de un disco instalado **solo lleva el cargador** y la partición
+   de SaguiOS es la única fuente. Disk I/O admite bloques de 512 o 4096; sin él, Block I/O con un búfer de rebote.
+2. **El cargador va en el ramdisk** (`/sistema/efi/EFI/BOOT/BOOTX64.EFI` y `BOOTIA32.EFI`, unos 31 KB cada uno): el
+   instalador los copia a la ESP (D266, punto 5) aunque se haya arrancado por BIOS o desde un CD. Solo el cargador:
+   el kernel y el ramdisk no se duplican en el ramdisk. También **`/sistema/arranque/mbr.bin`** (el MBR de SaguiOS):
+   instalar con MBR desde un sistema arrancado de un disco GPT (cuyo LBA 0 es el MBR protector).
+3. **El kernel reconoce su disco GPT.** `ler_gpt` da a la partición de tipo SaguiOS el tipo 0xDA (como en el MBR:
+   no se monta, se protege en el disco de arranque, `de_boot`); `detectar_arranque`, si el LBA 1 no es la cabecera
+   y el disco es GPT, compara el primer sector de esa partición y guarda dónde está (`disco_t.cab_lba`). Lo usan
+   `pantalla --guardar` (`modos_video.c` graba la resolución en ese sector: el cargador la lee al arrancar, sin
+   copias que sincronizar) y el instalador (`info_bloco_t.cab_lba`: la cabecera del origen ya no se supone en el LBA 1;
+   las direcciones se recalculan con `blob_src - cab_origem`). No hay actualizaciones del sistema en el instalador
+   (reinstalar copia la partición entera y la cabecera nueva), así que no hay más copias que mantener.
+4. **Modo automático del instalador.** `INFO_ARRANQUE` devuelve el campo `firmware` de la boot_info v2 (D264);
+   `arrancou_por_uefi()` lo usa: GPT si se arrancó por UEFI (o el disco pasa de 2 TB) y se instala en el disco
+   entero; MBR en los demás casos (por BIOS, o en un hueco o una partición, donde no se crea GPT). El terminal dice
+   «[automática: se arrancó por UEFI/BIOS]».
+5. **Todas las imágenes de disco son híbridas** (`--uefi`): `saguios-smp`, `-uacpi`, `-persistente`
+   (ext2 y FAT32, también las `-smp` y `-smp-uacpi`), `saguios-particiones` (`crear-disco.py` añade `--uefi` si el
+   cargador está compilado; `--sin-uefi` o `--primarias` lo quitan) y la sin GPL (es `saguios.img` de `build-sem-gpl`).
+6. **ISO con El Torito UEFI** (`mkiso.py --efi`, ya en `make iso`): una sección del catálogo para la plataforma 0xEF
+   con `EFI.IMG`, un FAT12 de 1,44 MB **solo con el cargador** (2880 sectores: cabe en el contador de 16 bits que
+   frenó D264). El cargador ve el CD entero (bloques de 2048), lee el catálogo, toma la imagen de disco de la entrada
+   por defecto (la de la BIOS, emulación de disco duro) y lee de ella cabecera, kernel y ramdisk; el kernel la
+   reconoce como siempre (`cd0img`, D207). La entrada BIOS no cambia.
+7. **SMP por UEFI:** el trampolín de los secundarios (0x7000) funciona igual: la zona del cargador y los datos del
+   firmware por debajo de 1 MB ya se copiaron al empezar el kernel, y OVMF deja esa memoria como libre en el mapa.
+   Probado con OVMF y 4 CPU.
+
+8. **BAR de 64 bits por encima de 4 GB.** OVMF coloca las BAR de 64 bits de los dispositivos del bus raíz (el
+   NVMe de QEMU) por encima de 4 GB, y el kernel de 32 bits no llega (el driver NVMe lo dice: «BAR0 ... por encima
+   de 4 GB»). La prueba arranca OVMF sin la ventana de 64 bits (`-fw_cfg opt/ovmf/X-PciMmio64Mb=0`). En un PC real un
+   NVMe M.2 cuelga de un puente PCIe y su BAR0 (no prefetchable) tiene que estar en la ventana de 32 bits del puente,
+   así que queda por debajo de 4 GB; aun así, `docs/uefi.md` pide apagar «Above 4G Decoding». **Pendiente:** que el
+   kernel recoloque por debajo de 4 GB una BAR de un dispositivo del bus raíz que el firmware dejó arriba.
+9. **Instalar en NVMe:** `pt_nome_particao` (libsagui) llamaba `nvme01` a la primera partición; el kernel la llama
+   `nvme0p1` (D265). Corregido: hasta ahora no se podía instalar en un NVMe.
+
+**Riesgos.** Que un firmware real no tenga Disk I/O (EDK2 lo pone siempre; queda el camino por Block I/O) o dé la ESP
+de un disco sin la ruta del disco entero (entonces solo vale la imagen híbrida, que lleva `SAGUI/` en la ESP). Un
+cargador viejo (D264) en una ESP no arranca un disco instalado con GPT: el instalador pone siempre el del ramdisk.
+
+**Pruebas.** `tests/h270_uefi_gpt.py`: el ramdisk lleva el cargador y el MBR; por BIOS el automático elige MBR y por
+UEFI, sobre el mismo disco, GPT conservando SAGUI-CONF; ese disco GPT arranca solo con OVMF (cabecera de la partición,
+sistema del disco, `[DISCO] ... es el disco de arranque (GPT...)`, SAGUI-CONF montada con su fichero en `/etc`),
+`pantalla 800x600 --guardar` graba la cabecera de la partición y el arranque siguiente (x64 hasta el escritorio, e
+IA32) usa 800x600; desde ese disco GPT se instala otro con MBR que arranca por BIOS; NVMe: instalar en `nvme0` por UEFI
+y arrancarlo; SMP con OVMF y 4 CPU; la persistente con `--uefi`; la ISO por UEFI x64, IA32 y BIOS. Y h264, h265, h266
+(ajustada: ya no hay aviso de «sin cargador»), h149, h255, h207, h04, h02, h03, h09 y h133: 11/11 con KVM; h270 pasa (477 s con KVM).
+
+## D271. Cipó: compatibilidad con CSS y HTML5 (v8.0)
+
+**Contexto.** El motor de la web del Cipó (`userland/web/motor.c`, D141/D262) ya hacía cascada, flex, grid, tablas, fuentes de la web, filtros, animaciones y transiciones, pero no había una medida de **qué** entendía de la web de hoy ni una prueba que lo vigilara: las pruebas h112…h137 miran funciones sueltas. Páginas corrientes (MDN, Bootstrap) salían rotas por cosas pequeñas: `calc()` aproximado, `:is()`/`:not()` con listas que anulaban la regla, `@supports` sin evaluar, fondos de los elementos en línea sin pintar, sin `box-shadow`…
+
+**Decisión.**
+1. **Inventario con páginas propias (`tests/web/`).** 20 páginas pequeñas, una fila por función (316 filas: 284 de CSS y HTML5 y 32 del DOM y la API de la ventana). Cada fila es una casilla de 40x16 px roja de fábrica; **la función probada es justo la que la pone verde** (o tapa el rojo con cajas verdes en su sitio), así que una función que el motor no entiende se ve en rojo. Las sondas de cada casilla (píxeles y colores) van en el propio HTML (`data-p`) y las mira `tests/web/comprobar.py`, que sirve igual para una captura de QEMU que para cualquier otra imagen. Las páginas se escriben con `tests/web/generar.py` y se guardan generadas. Como referencia de que lo que piden las páginas es lo que dice el estándar, se abrieron con un navegador de escritorio (Firefox sin ventana, como caja negra: todas en verde salvo cinco filas asíncronas de la página 20, que esa captura toma antes de que corran los temporizadores); no se ha copiado código de ningún navegador (D262): solo especificaciones (W3C, WHATWG) y MDN.
+2. **Prueba `tests/h271_cipo_css.py`.** El Cipó abre las 20 páginas en QEMU (servidor HTTP de la prueba; pasa de una a otra con Ctrl+L), hace una captura de cada una y comprueba las sondas; la esquina de la página en la captura se encuentra por una marca magenta de 4x4. Lo que falta está en `tests/web/pendientes.txt` (12 filas): esas pueden fallar, **las demás no**; si una pendiente ya funciona, la prueba lo avisa. El resultado fila a fila queda en `h271-resultado.txt` y con él y `tests/web/resultado-antes.txt` (el motor de la v8.0b8) `tests/web/inventario.py` hace la tabla de `docs/cipo-compatibilidad.md`.
+3. **Mejoras del motor (motor.c)**, por orden de uso en la web real:
+   - **Valores:** `calc()`, `min()`, `max()` y `clamp()` con un evaluador de verdad (suma, resta, producto, cociente, paréntesis, anidados y con `var()`); el resultado es px, % o «% + px» (unidad nueva `U_CALC`). Unidades `in`, `cm`, `mm`, `pc`, `Q`, `vmin`, `vmax`, `ch` (0,6 em en monoespaciadas), números con exponente; `rem` según el `font-size` de `html` (antes siempre 16 px: `html{font-size:62.5%}` es muy común); `font-size: 0` (se subía a 6 px y rompía el truco de quitar los espacios entre cajas en línea). Una variable que se refiere a sí misma (`--x: var(--x, 1rem)`) usa la reserva.
+   - **Selectores:** `:is()`, `:where()` y `:not()` con listas y selectores complejos, `:has()` (hijo, descendiente, hermano; con tope de nodos visitados por página), `:nth-last-child`, `:nth-of-type`, `:nth-last-of-type`, `:first/last/only-of-type`, `:only-child`, `:checked`, `:disabled`, `:enabled`, `:required`, `:optional`, `:any-link`, `[a="v" i]`, y la especificidad de `:is()`/`:not()`/`:where()`.
+   - **Reglas @:** `@import` (cuenta para el límite de 12 hojas), `@supports` evaluado (`not`, `and`, `or`, paréntesis; antes se aplicaban las dos ramas, la de «sí» y la de «no»).
+   - **Caja y pintura:** fondo, borde y radio de los **elementos en línea** (`<span>`, `<a>`, `<mark>`, `<code>`: no se pintaban), `box-shadow` (fuera, `inset`, extensión, difuminado por anillos, varias), `outline` y `outline-offset`, `aspect-ratio`, `width: fit-content/max-content/min-content`, `object-fit` y `object-position`, color de la última capa de varios fondos, las juntas de dos bordes del mismo color, bordes reflejados (`rotate(180deg)`), filas anónimas para `display: table-cell` suelto.
+   - **Flex y grid:** mínimo automático de un elemento flexible con anchura dada (no encogía), `align-content`, `display: contents`, `grid-template-rows`, `grid-auto-rows`, `grid-auto-flow: column`, `auto-fit`, `justify-items`/`justify-self`/`place-items`/`place-self`, `grid-row-end`, columnas `auto` que estiran.
+   - **Texto:** `font: tamaño/interlínea`, `text-indent`, `word-spacing`, `overflow-wrap: anywhere/break-word`, `word-break: break-all`, `text-decoration-color`, `text-shadow` (primera sombra, sin desenfoque).
+   - **HTML5:** `<dialog>` (cerrado no se ve; abierto con el estilo de fábrica), `<picture>`/`<source>` e `<img srcset>` (elige el candidato de 1x o el ancho más cercano a 800 px; salta WebP/AVIF), `<video poster>`, `<video>`/`<audio>`/`<canvas>`/`<iframe>` sin su contenido alternativo y con marcador solo si el autor no les da fondo, `<audio controls>` como barra, `input[type=hidden]` siempre oculto, controles sin las esquinas redondas de fábrica cuando el autor les da fondo o borde.
+   - **`position: fixed`/`sticky` en el Cipó:** al pintar por franjas el motor tomaba la `y` de la franja como desplazamiento y lo fijo no se pintaba; ahora el navegador dice el desplazamiento (`motor_rolagem`) antes de pintar.
+4. **El script cambia la página (`qjs_bridge.c`, `qjs_prelude.h`, `cipo.c`).** Hasta ahora el DOM del QuickJS (D160) era de solo lectura salvo `document.body.innerHTML`. Ahora el script puede cambiar **atributos y texto** de cualquier elemento: `setAttribute`/`removeAttribute`, `className`, `classList`, `style` (propiedades, `cssText`, `setProperty`), `dataset`, `hidden`, `id`, `textContent`. El puente avisa al navegador por dos ganchos nuevos (`atributo`, `texto`), el Cipó los pasa al motor (`motor_dom_atributo`, `motor_dom_texto`) y, cuando el script termina, la cascada corre otra vez con las mismas reglas (sin releer las hojas) y se pinta. **La forma del árbol no cambia:** no hay `createElement`, `appendChild` ni `innerHTML` de un elemento (pendiente; haría falta un DOM propio en el puente), y `remove()`/`removeChild()` solo dejan de pintar el elemento (atributo `data-sagui-fuera`; sigue en el árbol). Lo demás va en JavaScript, en un preludio que el puente corre al crear el motor (`qjs_prelude.h`, propio, GPL-2.0-or-later): `setInterval`, `requestAnimationFrame`, `localStorage`/`sessionStorage` (en memoria), `DOMContentLoaded`/`load`/`window.onload`, `Event`/`CustomEvent`/`dispatchEvent`, `IntersectionObserver` (avisa una vez: todo «se ve»), `ResizeObserver`/`MutationObserver` (vacíos), `matchMedia`, `fetch` y `XMLHttpRequest` (solo GET, por el descargador del Cipó, 16 por página), `matches`/`closest`. Además el puente ejecuta ya las tareas pendientes de las promesas (`then`, `await` no corrían nunca) y libera la función de cada temporizador que corre.
+5. **Robustez y rendimiento.** Nada nuevo es recursivo sin fondo: `calc()` anida hasta 8, las pseudoclases con lista hasta 3, `@supports` hasta 4, `:has()` visita como mucho 200 000 nodos por cascada, `display: contents` se recorre sin recursión, una palabra se parte letra a letra solo hasta 4000 caracteres, los `@import` cuentan para el límite de hojas, las promesas corren con tope por vuelta y `setInterval` no baja de 10 ms. Medido en el PC con el mismo motor (antes/después, misma página): Wikipedia 0,09 s de motor en las dos, MDN de 150 a 30 ms (antes maquetaba 30 000 px de iconos rotos), Bootstrap «Album» 16 ms en las dos aunque ahora pinta las sombras (los lados rectos de los bordes ya no se submuestrean: solo las esquinas), Hacker News, CNN lite y NPR iguales.
+
+**Resultado.** Filas en verde en el Cipó (QEMU): de **188 a 304 de 316** (CSS y HTML5: de 188 a 278 de 284; DOM y API de la ventana: de 0 a 26 de 32). Páginas reales que cambian: MDN (de ilegible a legible), Bootstrap (ejemplo «Album»: tarjetas, botones y sombras), Wikipedia (igual, con los iconos por `mask-image`).
+
+**Límites conocidos.** Los de `tests/web/pendientes.txt`: `::first-letter`, `::marker`, `::placeholder`, `background-clip`, bordes `dashed`/`dotted` (sólidos), medidas sin unidad; y del DOM, cambiar la forma del árbol, `getComputedStyle` y las medidas de la maquetación (`getBoundingClientRect`, `offsetWidth`: devuelven 0). Además: `position: sticky` solo se comprueba sin desplazar; `text-shadow` y `box-shadow` no desenfocan de verdad (anillos); `overflow: auto/scroll` recorta sin barra propia; `@container` y `@layer` se leen sin su orden; no hay anidamiento de CSS (`&`), `color-mix()`, `subgrid` ni columnas (`columns`); `localStorage` no se guarda en disco; `fetch` es síncrono por dentro (la ventana espera) y solo GET; el DOM que ve el script sigue limitado a 256 nodos y 8 atributos por elemento (D160). La tabla del `infobox` de Wikipedia sigue con la segunda columna fuera (fallo anterior del reparto de anchos con `colspan`).
+
+**Prueba.** `tests/h271_cipo_css.py` (20 páginas, capturas `H271-*.png`) y, sin cambios, las del motor y del Cipó: h47, h112, h113, h114, h120…h125, h127, h128, h130, h132, h135, h137.
+
+## D273. Interfaz gráfica del VNC: ventana de conexión, pestaña del servidor e indicador (v8.1, mejora 104)
+
+**Contexto:** el cliente `vnc` (D254) exigía un equipo en la línea de órdenes y el servidor `vncd` (D252) se manejaba con `echo`, `servicio` y `vncd --clave`. El mantenedor pidió una interfaz gráfica para las dos mitades.
+
+**Decisión:**
+1. **Cliente:** `vnc` sin argumentos abre una ventana de conexión (estado `E_MENU` del propio programa, sin biblioteca nueva) con las conexiones guardadas en `/home/.config/vnc.conf` (`nombre|equipo|puerto|colores|calidad|solo_ver|completa|clave`) y un formulario (equipo, puerto, contraseña, colores, calidad JPEG, solo ver, pantalla completa). `vnc --conexion NOMBRE` abre una guardada. La barra de la sesión gana «Pantalla completa» y «Desconectar» (vuelve a la ventana de conexión) y, con la conexión caída, «Conexiones».
+2. **Contraseñas:** solo se guardan con «Recordar» marcado, **ofuscadas** (DES con una clave fija, hexadecimal), **no cifradas**: se dice en la ventana, en la documentación y en la cabecera. Pedir permiso o un llavero no era viable (no hay permisos de archivo hasta la v8.5 ni almacén de secretos); sin «Recordar» la contraseña no toca el disco ni queda en memoria tras guardar.
+3. **Servidor:** pestaña «Escritorio remoto» en Configuración (que pasa de 740 a 780 px y estrecha el relleno de las pestañas para que quepan diez): activar/desactivar y arrancar/parar el servicio, reiniciar, fijar la contraseña, «solo ver», «solo esta máquina (SSH)» / «red local» y la lista de conectados con «Desconectar». Todo lo que cambia algo va por el diálogo de permisos de D269 (`elevar_grafico`) y por programas del sistema como hijos (`vncd --clave`, `vncd --ajustar`, `vncd --desconectar`, `servicio`), igual que el bloqueo de publicidad; la contraseña nunca pasa por el diálogo.
+4. **Estado de `vncd`:** el servicio escribe `/tmp/.servicios/vncd.estado` (sesiones autenticadas con su PID, IP e inicio) cada vez que cambia algo; formato y lector en `userland/programas/vncd_estado.h`, compartido con `vncd --estado`, la ventana indicadora y Configuración. Para saber que una sesión se autenticó, la tubería sesión a servicio existe siempre (antes solo con permiso de inyección) y la sesión manda un mensaje `MSG_AUTENTICADO`. Al cortar una sesión el servicio suelta modificadores y botones. `vncd --ajustar` guarda `escuchar`, `solo_ver`, `aviso` e `indicador` en `/etc/vnc/vncd.conf` (SAGUI-CONF, D255) y, si ya tiene la clave, en `/home/.config/vncd.conf` (que gana).
+5. **Indicador:** el sistema no tiene bandeja para programas (los iconos de `kernel/gui/barra.c` son del núcleo) y añadir uno habría exigido una llamada nueva y tocar el gestor de ventanas, así que no se hizo. En su lugar, mientras hay un cliente autenticado, `vncd` lanza `vncd --indicador`: una ventana pequeña «Escritorio remoto» en la barra de tareas con quién está conectado y un botón «Desconectar»; se cierra sola al irse el último. `indicador=no` la quita. Queda como mejora posible un icono de bandeja real.
+
+**Núcleo tocado:** ninguno. Solo `userland/programas/vnc.c`, `vncd.c`, `configuracion.c` y `vncd_estado.h`.
+
+**Límites conocidos:** la ventana de conexión no cambia el título al conectar (no hay llamada para ello): sigue «Escritorio remoto (VNC)»; la ventana indicadora toma el foco al aparecer; el tiempo de «hace m:ss» de la lista se calcula con el reloj de arranque de esa máquina; la contraseña de VNC viaja por la línea de órdenes del hijo `vncd --clave` mientras dura; las conexiones con el mismo nombre se reemplazan.
+
+**Prueba:** `tests/h273_vnc_gui.py` (capturas `H273-*.png`).
+
+## D274. Interfaz de escritorio completa para el visor de PDF (v8.1, mejora 105)
+
+**Decisión:** `visorpdf` pasa de «una página con cuatro botones» a una aplicación de escritorio, sin tocar el kernel y con dos ampliaciones pequeñas del motor (`userland/pdf/`).
+
+1. **Barra de herramientas con iconos** (biblioteca de iconos de D135 y cuatro dibujados a mano): abrir, exportar la página a imagen (`.png`, `.bmp` o `.ppm` según la extensión; crea la carpeta si no existe), anterior/siguiente, «página N / M» (clic = ir a la página), zoom −/+, porcentaje (clic = escribirlo), ajustar al ancho, ajustar a la página, girar, buscar, panel lateral y presentación. Al pasar el ratón, la ayuda de cada botón sale en el pie.
+2. **Desplazamiento continuo:** todas las páginas se colocan una debajo de otra (`ytop[]`), con rueda, teclado, arrastre con el botón izquierdo y barra de desplazamiento. Solo se dibujan las páginas visibles; el resultado (ya mezclado sobre blanco y girado) va a una **caché de 24 páginas y 64 MB** con expulsión de la menos usada. El zoom conserva el punto que se mira; los ajustes (ancho/página) se recalculan al redimensionar. Giro de 90° en el programa (el motor solo entiende el `/Rotate` del propio PDF).
+3. **Panel lateral plegable (F4)** con dos pestañas: **miniaturas** (solo las visibles, **una por vuelta del bucle de eventos** cuando no hay entrada, máximo 60 en memoria; el panel sigue a la página actual) e **índice** del PDF con sangría por nivel y el marcador actual resaltado.
+4. **Búsqueda (Ctrl+F / F3):** sin distinguir mayúsculas ni acentos (Latin-1); recorre las páginas en los ratos libres (≈40 ms por vuelta, la ventana no se bloquea), resalta todas las coincidencias (amarillo; la actual, naranja), salta a la primera desde la página actual y da la vuelta; Intro/Mayús+Intro, F3 o las flechas de la barra de búsqueda recorren las coincidencias. Frases con espacios funcionan (el motor intercala espacios entre palabras y líneas, porque los PDF casi nunca los llevan).
+5. **Presentación (F5):** pantalla completa, fondo negro, sin barras, una página cada vez ajustada a la pantalla (separación igual a la altura de la ventana para que no se vea la vecina); flechas/clic/Espacio avanzan, Esc sale.
+6. **Recordar por documento** en `/home/.config/visorpdf.conf` (una línea por PDF: página, zoom, modo de ajuste, giro, camino; 40 documentos, el último primero). Se guarda tras 0,8 s sin actividad y al cerrar.
+7. **Contraseña de PDF cifrados** con un diálogo propio (el texto va con asteriscos, «contraseña incorrecta» y reintento hasta cancelar); la contraseña se borra de memoria tras usarla.
+8. **Abrir:** punto único `escolher_arquivo()` en `visorpdf.c`. De momento pide el camino con `pedir_texto`; cuando se fusione el selector de la mejora 103 (`v8.1-dialogos-archivo`) basta cambiar el cuerpo de esa función.
+9. **Arrastrar un PDF a la ventana:** **no existe** en SaguiOS (el gestor de ventanas no envía eventos de archivo soltado); queda anotado como pendiente. Se abre desde Archivos («Abrir con»), con Ctrl+O o por argumento.
+
+**Motor (`userland/pdf/`):** (a) `pdf_texto_pagina()` — el intérprete de contenido corre con la marca `so_texto` (no pinta nada, no pide los contornos de los glifos) y apunta cada carácter con su Unicode (`/ToUnicode` o el código si no lo hay) y su caja en décimas de punto, más espacios virtuales por hueco o salto de línea; (b) `pdf_indice()` (`pdf_indice.c`, nuevo) — recorre `/Outlines` con destinos directos, acciones `/GoTo` y destinos con nombre (`/Dests` y árbol `/Names`). `pdf_render()` no cambia de comportamiento (la ruta de dibujo solo gana un `if (so_texto) return;` en `pintar_caminho` y en `desenhar_imagem`).
+
+**Límites conocidos:** no se puede seleccionar ni copiar texto (la caja de cada carácter ya está, falta la interfaz de selección); en PDF sin `/ToUnicode` con fuentes de codificación propia, la búsqueda ve los códigos de la fuente; las coincidencias partidas en dos líneas se buscan solo si el motor inserta un espacio en el salto; las miniaturas no se giran; no hay vista de dos páginas.
+
+**Modos de prueba nuevos:** `visorpdf --indice arquivo [contraseña]` y `visorpdf --buscar arquivo texto [contraseña]` (cuentan por página y dan el tiempo). En la ventana el programa escribe en la serie `visorpdf: estado pagina=N/M zoom=Z rot=R`, `indice N`, `miniatura N`, `busca '...': N resultados`, `recordado ...`, `presentacion` y `exportada ...`.
+
+**Prueba:** `tests/h274_visorpdf_gui.py` (PDF de seis páginas con índice anidado y los tres tipos de destino, `tests/pdf_exemplos.com_indice()`; el cifrado de H107; `enumitem.pdf` y `rfc9116.pdf` reales de D205: 30 y 45 marcadores, 36 y 152 coincidencias); capturas `H274-*.png`.
+
+## D275. Transferencias isócronas y audio USB (clase Audio 1.0) (v8.1)
+
+**Contexto.** La v8.1 (D257) empieza por la base isócrona del USB y el audio USB, que el QEMU sí emula (`-device usb-audio`:
+UAC 1, salida isócrona de plena velocidad); las cámaras UVC integradas irán después sobre la misma API. Solo se usaron
+las especificaciones públicas (EHCI, xHCI, UHCI, OHCI, USB 2.0 y USB Audio Class 1.0), sin código de Linux ni BSD.
+
+**Decisión.**
+1. **API isócrona común** (`usb.h`, `usb.c`): `usb_iso_abrir(d, &usb_iso_cfg_t)` abre un flujo con un **anillo de datos** físico y
+   contiguo (que el driver del dispositivo escribe o lee), el endpoint, `bInterval`, los bytes por segundo y el tamaño de cuadro;
+   la pila reparte el anillo en paquetes con un acumulador (`usb_iso_calcular`: 48 kHz = 48 cuadros por milisegundo, 44,1 kHz =
+   44 o 45), mantiene `USB_ISO_COLA_MS` = 32 ms de paquetes en cola y cuenta lo completado. `usb_iso_ligar/parar/posicao/fechar/info`.
+   `usb_iso_posicao()` también reabastece la cola: se llama en cada tic y en cada IRQ del audio (el mismo gancho que la HDA),
+   con las interrupciones apagadas y sin el cerrojo del controlador (como el HID). Un hueco (el kernel se quedó sin atender el
+   flujo) se detecta, se cuenta (`huecos`) y el flujo salta al futuro sin desordenar. La API ya lleva `entrada` (las cámaras la
+   usarán); hoy solo está implementada la **salida**.
+2. **xHCI** (`xhci.c`): endpoint isócrono por Configure Endpoint (tipo 1, intervalo en 125 us, CErr 0, ancho de banda lo valida
+   el controlador), un TD de un TRB **Isoch** por milisegundo con **SIA** (empezar en cuanto se pueda; como Linux por omisión), nunca
+   cruzando el final del anillo ni una frontera de 64 KB (el paquete se acorta); evento solo cada 8 TRB (IOC + BEI: sin IRQ) y se
+   cuenta con ellos lo completado; *Ring Underrun* (14) cuenta un hueco. Cierre: Stop Endpoint + baja del endpoint.
+3. **EHCI** (`ehci.c`): anillo de 64 **iTD** (uno por milisegundo, 8 transacciones) colgado de la lista periódica (cada entrada f pasa
+   por el iTD f mod 64 y de ahí a la cabeza de las QH), armado 32 ms por delante con FRINDEX; ancho de banda propio (80 % de
+   7500 bytes por microcuadro, `ancho_iso`). **Sin siTD**: un dispositivo de plena velocidad detrás de un hub de alta velocidad
+   se rechaza con un aviso (`ehci_iso_abrir`). **El iTD no se ha podido probar en QEMU 8.2** (el altavoz es de plena velocidad y el
+   QEMU no lo deja colgar de un EHCI ni de un hub); está pensado para los dispositivos de alta velocidad (las cámaras UVC).
+4. **UHCI y OHCI** (salieron baratos y el QEMU los prueba): UHCI con 64 TD isócronos en la lista de cuadros; OHCI con una ED isócrona
+   al final de la cadena periódica y una cola rotativa de TD de un paquete (FC = 0) con su cuadro de inicio. Son los que usan los
+   altavoces y auriculares de plena velocidad en los PC antiguos (los puertos del EHCI se ceden al UHCI/OHCI compañero).
+5. **Driver UAC 1** (`kernel/usb/usbaudio.c`): al conectar un dispositivo de clase 1 lee el descriptor de configuración completo
+   (AudioControl: unidades de función; AudioStreaming: alternativas, formato PCM, canales, bits, frecuencias discretas o rango, endpoint
+   isócrono de salida y su control de frecuencia), elige la alternativa **PCM de 16 bits y 2 canales** con la frecuencia más cercana a
+   48 kHz y que quepa en el paquete, abre el flujo (anillo de 32768 cuadros, como el de las otras tarjetas), activa la alternativa
+   (SET_INTERFACE después del Configure Endpoint), pone la unidad de función a volumen máximo y sin silencio y se registra en el
+   mezclador. Mono, 24 bits, UAC 2 y entrada (micrófonos) quedan fuera por ahora; una sola tarjeta USB a la vez.
+6. **Varias tarjetas de sonido en el mezclador** (`audio.c`): la tabla `placas[]` (hasta `AUDIO_SALIDAS` = 4) con `audio_registrar`,
+   `audio_retirar` y `audio_selecionar`. Una es la **salida actual**; la tarjeta USB que se enchufa pasa a serlo (como en los demás
+   sistemas) y al retirarla vuelve la anterior; con el flujo sonando se cambia de salida sin cortarlo (los flujos recalculan su paso
+   al nuevo ritmo). `volumen salida [N]` lista y elige; `SIS_AUDIO_CONTROLE` con `AUDIO_SALIDA`; `INFO_AUDIO` trae la lista
+   (`salidas[]`). El silencio del mezclador se manda también por la **unidad de función** (`silencio_hw`); el volumen lo aplica
+   el mezclador (curva cuadrática, como con las otras tarjetas) y el del amplificador se queda en 0 dB.
+7. **Retirada en caliente sin colgar el audio:** `usbaudio_desconectar` quita primero la tarjeta del mezclador y después cierra el flujo.
+   Sin ninguna tarjeta, lo que escriben los programas se tira (en `audio_fluxo_escrever` y en el tic), los flujos abiertos terminan
+   y `reproducir` vuelve; sin tarjeta no se puede abrir otro (ERRO_NAO_EXISTE).
+
+**Núcleo tocado (aviso):** solo la pila USB (`xhci.c`, `ehci.c`, `uhci.c`, `ohci.c`, `usb.c`), el audio (`audio.c`, `audio.h`) y
+`abi.h` (`AUDIO_SALIDA`, `info_audio_t.salidas`, al final). Ni memoria, ni planificador, ni VFS, ni arranque.
+
+**Límites conocidos:** el ancho de banda del xHCI lo valida el controlador y el de UHCI/OHCI es una cuenta simple (1280 bytes por
+cuadro); la cola de 32 ms más el tic de 10 ms deja margen dentro de la latencia del mezclador (100 ms), pero un kernel con
+las interrupciones apagadas más de 60 ms produce un hueco audible (se cuenta, como en la HDA); el dispositivo se queda con la
+alternativa de audio activada mientras esté enchufado (reserva su ancho de banda aunque no suene).
+
+**Qué probar en hardware real:** auriculares USB y una tarjeta de sonido USB de plena velocidad en un puerto xHCI, en un puerto
+EHCI (cedido al UHCI/OHCI compañero) y detrás de un hub (xHCI: sí; EHCI con hub de alta velocidad: no, falta siTD); enchufar y
+retirar con música sonando; cambiar de salida con `volumen salida`; ver `usb` (paquetes, completados, huecos, errores).
+
+**Prueba:** `tests/h275_audio_usb.py` (xhci, uhci, ohci, companero, caliente, mezcla): reconocimiento, tono de 440 Hz con su
+frecuencia, duración y nivel en el WAV capturado, estéreo de 44,1 kHz con cambio de frecuencia, `volumen 50` (~1/4), silencio (y
+silencio de la unidad de función), contadores del flujo sin huecos ni errores, retirada y vuelta a enchufar con un WAV de 8 s
+sonando, y HDA + USB a la vez con cambio de salida en marcha.
+
+## D276. Vídeo H.264/AAC: MP4 en el reproductor y `<video>` en el Cipó (v8.0.1, mejora 100)
+
+**Contexto:** el motor web del Cipó (D141) vino de robson-apk sin su reproductor de vídeo (H.264 Baseline y Main con CAVLC y CABAC, cuadros B; AAC-LC), que está en el PR #6 de `erigobeli/sagui-os`. El mantenedor aprobó traerlo (mejora 100) y que el `reproductor` del sistema abra MP4 con el mismo decodificador.
+
+**Decisión:**
+1. **Origen y licencias (D262).** `h264.c`, `aac.c` y `mp4.c` (y sus cabeceras) vienen de la rama `main` de `robson-apk/sagui-os` (commit `65e3b74`), que ya tenía separado lo que sigue a otros proyectos tras la corrección de robson del 2026-11-14 (commit `8c3b56b` de su rama `cipo-web`, de donde viene el PR #6). Van en `userland/libsagui/` y `userland/inc/` con `SPDX-License-Identifier: GPL-3.0-only` (lista `ROBSON` de `tools/spdx.py` y `tools/auditar_licencias.py`). Lo de terceros, aparte con su licencia y `ORIGEM.md`: `userland/web/terceros/ffmpeg-h264-tablas/` (tablas CABAC y CAVLC, FFmpeg, **LGPL-2.1-o-posterior**) y `userland/web/terceros/faad2-huffman/` (libros de Huffman, FAAD2, **GPL-2.0-o-posterior**, con la frase «Code from FAAD2 is copyright (c) Nero AG, www.nero.com»); filas en `docs/terceros.md`. Cambios al código de robson: cabecera traducida y SPDX, rutas de las tablas y `m_sqrt` del AAC en `fsqrt` de la x87 (con `-fno-builtin` gcc llamaba a `sqrt` de la libm, que la libsagui no tiene).
+2. **Un solo decodificador, en la libsagui.** El pegamento es nuestro (`userland/libsagui/video_mp4.c`, GPL-2.0-or-later) y se pone detrás de la API de `video.h` que ya usaban el AVI y el MPEG-1: `video_abrir()` reconoce el MP4 por la cabecera (no por la extensión), así que `reproductor` lo abre sin cambios de fondo. Novedades de la API: `video_abrir_memoria()` (el Cipó ya tiene el MP4 en un búfer), `video_reducao(v, 2)` (el cuadro sale a la mitad: menos conversión de color) y `video_quadro(v, NULL)` (decodifica y descarta: saltar un cuadro sin gastar la conversión). El archivo se lee con `posicionar`+`leer` (solo el `moov` y cada muestra), no entero; el `moov` puede estar al principio o al final. El audio AAC sale estéreo de 16 bits a la frecuencia del archivo, entregado unos 250 ms por delante del cuadro que se muestra. `aac.o` se compila con la x87 (`-mfpmath=387`, como el ecualizador): vale en cualquier CPU y no hace falta SSE. La búsqueda (`video_buscar`) recrea el decodificador y decodifica desde el principio: barata para volver a 0 (bucle), lenta para saltos largos (el decodificador no tiene «vaciar» ni mira cuadros clave).
+3. **`<video>` del Cipó.** Cambios mínimos en `userland/web/motor.c` (fuera de la maquetación): un gancho nuevo `video` en `motor_ganchos_t` (se pasa el `src` ya resuelto, o el del primer `<source>`, con banderas `autoplay`, `loop` y `muted`, y la caja en la página), un hueco en la tabla de imágenes con la URL con el prefijo `video:` (marcado ya «intentado» para que no se descargue como imagen) y la pintura del cuadro con `C_TELA` (peso `'V'`), ajustado a la caja sin deformarlo, sobre un fondo negro. En `cipo.c`: un único vídeo activo (el primero de la página); el MP4 se baja entero (hasta 48 MB; mientras baja la ventana no responde) y se decodifica en el bucle de eventos; el cuadro nuevo se escribe directo en la caja sin repintar la página; si se repinta (scroll, tamaño), el motor pide el cuadro actual; sin `autoplay` se ve el primer cuadro en pausa con un triángulo de «play»; un clic lo pausa o lo reanuda; `loop` vuelve al principio; el sonido va por la capa de sonido del sistema (`audio_*`, escritura sin bloquear) y es el reloj maestro; si el equipo se retrasa se saltan cuadros (sin convertir color); si la caja es la mitad del vídeo o menos se decodifica a la mitad de tamaño. Se detiene al cargar otro documento, cambiar de pestaña o salir.
+4. **Variante sin GPL (D109, D258).** Las dos carpetas de tablas son LGPL/GPL de terceros: la auditoría de licencias (`tools/auditar_licencias.py`) las trata como «GPL aislada» y `make SEM_GPL=1` no compila `h264.c` ni `aac.c` (ni, por tanto, las incluye): `video_mp4.c` pasa a unos sustitutos vacíos y `video.c` ve el MP4 como un formato que no conoce (AVI y MPEG-1 siguen igual; el `<video>` del Cipó dice que no puede abrirlo).
+5. **Lo que NO hace:** MP4 con H.264 High (transformada 8x8), entrelazado, HE-AAC (SBR/PS) o vídeo sin AAC-LC (sin AAC-LC va mudo; sin H.264 compatible se rechaza); `controls` (no hay barra: solo clic), `poster`, `<audio>`, varios vídeos a la vez, MSE/streaming (el vídeo de YouTube que montan los scripts de la página no se probó); `videoWidth`/`currentTime` del JavaScript siguen siendo los falsos de `js_base.h`; el cuadro se escribe sobre lo que haya encima (un menú o una cabecera fija sobre el vídeo se tapa hasta el próximo repintado).
+
+**Rendimiento (medido con `reproductor -t`, 10 s a 24 cuadros, H.264 Main con ruido, solo decodificar y convertir el color; mismo código i686 sin SIMD que corre en el PC de 2006):**
+
+| Dónde | 640x360 (360p) | 854x480 (480p) |
+| --- | --- | --- |
+| QEMU con KVM (Ryzen 9 9900X) | 73 cuadros/s | 55 cuadros/s |
+| QEMU sin KVM (TCG, mismo PC) | 32 cuadros/s | 22 cuadros/s |
+| El mismo decodificador nativo de 64 bits (referencia) | 585 cuadros/s | 338 cuadros/s |
+
+**Qué esperar en un PC de 2006 (Amilo T2400, dv7: estimación, no medida en el hardware).** El decodificador es C escalar de enteros (sin MMX ni SSE), así que depende del reloj y de la IPC: un Core Duo de 1,8 GHz rinde unas 7-8 veces menos por hilo que el Ryzen del KVM (a 2,3 veces menos de reloj y unas 3 de IPC). Cuentas: ~9 cuadros/s a 360p y ~7 a 480p, o sea **no hay tiempo real a 360p ni a 480p** con contenido de 24-30 cuadros; sí a 320x180 (~35 cuadros/s) y justo a 426x240 (~20). Qué pasa entonces: el sonido manda (es el reloj), los cuadros atrasados se saltan sin convertir el color (el reproductor salta uno por vuelta; el Cipó hasta cuatro), así que se ve el vídeo a pocos cuadros por segundo pero sin perder la sincronía, y el Cipó usa la mitad de resolución cuando la caja es pequeña. Si la decodificación va más despacio que el tiempo real el sonido se corta a ratos (el audio se entrega por delante del cuadro decodificado): en esas máquinas conviene elegir 240p. Posible mejora futura (no hecha): saltar la decodificación de cuadros B no usados como referencia y escribir el bucle de interpolación con MMX/SSE para los CPU que lo tengan.
+
+**Núcleo tocado:** ninguno (solo libsagui, el reproductor, el Cipó y el motor web).
+
+**Pruebas:** `tests/h276_video_h264.py` (MP4 generados con el ffmpeg del anfitrión: Baseline con el `moov` al principio, Main con cuadros B y el `moov` al final): decodificador del anfitrión contra ffmpeg (cuadros con PSNR de 48 dB, es decir solo el redondeo del color, y a nivel de muestras de YUV idéntico bit a bit; audio: el tono de 440 Hz y el mismo nivel que ffmpeg); en SaguiOS, `reproductor -t` da las mismas sumas por cuadro que el anfitrión, y mide los cuadros por segundo a 360p y 480p (`build/h276/rendimiento.txt`); el reproductor con ventana y sonido (`-audiodev wav`: 440 Hz); y el Cipó con una página con `<video autoplay loop>` (cuadro rojo y luego azul en su caja de 320x180, clic que pausa y reanuda, tono de 440 Hz). Capturas `H276-cipo-video-*.png`. Siguen pasando h47, h100, h112-h115, h120-h125, h127, h128, h130, h75 y la auditoría de licencias h81.
+## D272 - Diálogos comunes de abrir, guardar y elegir carpeta (v8.1, mejora 103)
+
+**Decisión:** tres diálogos modales en la libsagui (`userland/libsagui/gui_arquivos.c`, declarados en `gui.h`), con el aspecto de Windows 95 (gris, biseles, selección azul marino): `dialogo_abrir`, `dialogo_guardar` (ambos `(titulo, filtros, inicial, salida, max)`) y `dialogo_carpeta(titulo, inicial, salida, max)`; devuelven `true` y la ruta absoluta.
+
+1. **Abrir/Guardar:** «Buscar en» (desplegable con los niveles de la ruta, unidades `/`, `/home`, `/usb`, `/jogos`, `/apps`, montajes y carpetas recientes; solo las que se pueden leer, D255), «Subir», «Nueva» carpeta, vista de lista o de detalles (nombre, tamaño, tipo; el VFS no da fecha, así que no hay columna de fecha), lista con carpetas primero, «Nombre de archivo», desplegable de tipo. `filtros` = `"Nombre|patrón;patrón|Nombre|patrón"`, NULL = todos; un `>` antes de un nombre lo deja elegido de entrada. Las carpetas ocultas (`.x`) no se muestran.
+2. **Vía por teclado compatible con lo anterior:** en «Nombre de archivo» vale una ruta absoluta o relativa a la carpeta (una carpeta entra en ella) y, al abrir, un patrón con `*` o `?` filtra la lista. Tab/Mayús+Tab cambia de control, flechas/RePág/AvPág/Inicio/Fin mueven la lista (en el nombre también arriba y abajo), Retroceso en la lista o Alt+↑ sube, escribir en la lista salta al nombre, Intro acepta, Esc cancela.
+3. **Guardar:** si el archivo existe pide confirmación con «Sí» a la izquierda y «No» a la derecha, «No» por defecto (S/N como atajo); `confirmar()` no se cambió (sus pruebas pulsan por posición). Añade la extensión del tipo si es un único `*.ext` y el nombre no tiene punto.
+4. **Elegir carpeta:** árbol con `[+]`/`[-]`, Derecha/Izquierda despliegan y pliegan, «Nueva carpeta», línea con la ruta elegida; las carpetas sin permiso se marcan en gris y avisan al intentar abrirlas.
+5. **Carpetas recientes:** hasta 6, en `/home/.config/dialogos.rec` (se ignora si no se puede escribir).
+6. **Adoptados:** Editor, Paint, Visor, Visor de PDF, Mico (abrir, guardar como con filtros por lenguaje y «Todo el código», y abrir carpeta), Reproductor, Recortes (guardar recorte) y Cipó (guardar imagen/enlace, con la ruta propuesta aceptable con Intro). Quedan con `pedir_texto` los demás (Macaco, Markdown, CHIP-8, Correo, Chat IA, Música, MIDI, Sintonía, Discos...).
+7. **Núcleo:** no se tocó.
+
+**Pruebas:** `tests/h272_dialogos_archivo.py` (Editor y Mico; capturas `H272-*.png`). Ajustadas: `h114_cipo_descargas.py` (Intro en el diálogo) y `h97_capturas.py` (puede haber dos avisos apilados).
+
+## D277. Cámaras web integradas (UVC 1.1), isócrono de entrada y aplicación «Cámara» (v8.1, mejora 112)
+
+**Contexto.** La D257 decidió que la v8.1 empezase por el isócrono y las cámaras UVC integradas; la D275 dejó la API isócrona
+solo con salida, el iTD del EHCI sin probar y sin siTD. Solo se usaron especificaciones públicas (USB Video Class 1.1, USB 2.0,
+EHCI, xHCI, UHCI, OHCI); ni una línea de Linux o de otros sistemas.
+
+**Decisión.**
+1. **Isócrono de entrada** en `usb_iso_*` (`usb.h`): `usb_iso_cfg_t.entrada = true` y `mult` (1 a 3 transacciones por microcuadro). El
+   anillo se divide en **casillas** de `mps * mult` bytes; cada paquete recibido cae en la siguiente casilla y `usb_iso_ler()` da, en
+   orden, dónde cayó, cuántos bytes trae y si falló (`kernel/usb/isoent.h`: C puro, probado en el anfitrión). Una casilla se vuelve a
+   poner en cola al leerla; si el consumidor se retrasa, el controlador deja de pedir (huecos) en vez de pisar datos. xHCI: un TRB Isoch por
+   intervalo de servicio con evento propio (residuo = bytes que faltaron), ráfaga = mult-1 y TLBPC; UHCI y OHCI: un TD isócrono de entrada
+   por cuadro (ActLen y PSW); EHCI: iTD con sentido de entrada, `mult` y los ocho microcuadros armados a la vez.
+2. **siTD del EHCI** (plena velocidad tras un hub de alta velocidad, por el traductor del hub): un siTD por cuadro, entrada o salida.
+   Salida: tantos start-split como trozos de 188 bytes (T-count, TP). Entrada: start-split en el microcuadro 0 y complete-split desde el 2;
+   se limita a paquetes de hasta 752 bytes (para que los complete-split quepan en el mismo cuadro). Escrito contra la especificación; **sin
+   probar** (el QEMU 8.2 no reparte los siTD ni deja colgar el altavoz de un hub).
+3. **Driver UVC 1.1** (`kernel/usb/uvc.c`; núcleo puro en `uvc_nucleo.c`): recorre el descriptor (IAD, VideoControl con su unidad de
+   procesamiento, VideoStreaming con formatos **YUY2 sin comprimir y MJPEG**, tamaños, intervalos y alternativas isócronas con su multiplicador),
+   negocia PROBE/COMMIT (34 bytes en UVC 1.1, 26 en 1.0; si la cámara cambia formato o cuadro, no se hace COMMIT), elige la menor alternativa que
+   cabe en la carga útil negociada, abre el flujo (Configure Endpoint antes del SET_INTERFACE, como en el audio) y monta los cuadros con la
+   cabecera de carga útil (FID, EOF, ERR; cuadros sin EOF se cierran con el cambio de FID; se descartan los de tamaño incorrecto, los
+   MJPEG sin SOI/EOI y los que traen el bit ERR). **No enciende nada al conectar**: una cámara integrada no transmite hasta que alguien
+   la abre. Una sola cámara a la vez y de un solo proceso (si el proceso murió, otro la puede tomar); los servicios (`de_servico`) no pueden usarla.
+   Brillo y contraste por la unidad de procesamiento (GET_MIN/MAX/CUR, SET_CUR). Pendiente: balance de blancos, exposición, zoom, H.264/otros formatos
+   (NV12), varias cámaras, cámaras externas con particularidades (D257).
+4. **Interfaz para programas:** una llamada, `INFO_CAMARA = 70` (`info_sistema(INFO_CAMARA, &info_camara_t, sizeof)`), con órdenes `CAM_ESTADO`,
+   `CAM_ABRIR`, `CAM_CUADRO`, `CAM_CERRAR` y `CAM_AJUSTE` (`abi.h`), y la capa `userland/inc/camara.h` + `libsagui/camara.c` (`camara_estado/abrir/
+   cuadro/cerrar/ajuste`, YUY2 a RGB en enteros, MJPEG con el decodificador JPEG de la libsagui, guardar PNG o JPEG). Se eligió una llamada con
+   estructura y no un fichero de dispositivo porque la VFS no tiene aún /dev para dispositivos con modos; la interfaz está documentada en `docs/camara.md`.
+5. **Fuente de prueba:** `CAM_FUENTE_PRUEBA` es una cámara virtual del kernel (barras de color, un cuadro que se mueve y un contador de 16 bits) que
+   genera YUY2, lo parte en paquetes UVC (cabecera de 12 bytes con PTS y SCR, FID alterno) y los pasa por el mismo montador; cada quinto cuadro pierde su último
+   paquete para que se vean los descartados. Sirve para probar la aplicación y la llamada sin hardware.
+6. **Aplicación «Cámara»** (`userland/programas/camara.c`, menú Inicio > Gráficos): vista previa, botón Foto (diálogo de guardar de la D272; PNG siempre, JPEG
+   solo con cámaras MJPEG porque no hay codificador), `<` y `>` para cambiar de tamaño y formato, brillo y contraste si la cámara los tiene, botón Prueba.
+   Sin ventana: `camara --info` y `camara [-p] [--modo N] --foto archivo [--cuadros N]`.
+7. **Núcleo tocado (poco):** una línea en el reloj (`uvc_tique()` en `relogio.c`, que no hace nada con la cámara cerrada), una rama en `sis_info_sistema`
+   y el campo `camara` de `usb_disp_t`. El planificador, la memoria, la VFS y el arranque no se tocaron.
+
+**Pruebas:** `tests/h277_uvc.py`. QEMU 8.2 no emula cámaras UVC ni flujos isócronos de entrada (`usb-redir` no está compilado): la parte **anfitrión** compila
+el núcleo y la libsagui con ASan y UBSan (`tools/uvc_testar.c`) con descriptores y paquetes generados a partir de la especificación (cámara de alta velocidad con
+IAD y multiplicadores 2 y 3, otra de plena velocidad UVC 1.0, JPEG y YUY2 de ffmpeg, paquetes vacíos, FID sin EOF, bit ERR, cuadros rotos, fuzz) y compara
+el decodificador JPEG y la conversión YUY2 con ffmpeg (PSNR); la parte **os** y **ventana** usan la fuente de prueba dentro de SaguiOS. El isócrono de entrada de los
+controladores y el siTD **no se ejercitan** (sin dispositivo): la prueba real es la de `docs/camara.md`. Se repiten h275, h214, h29_ehci, h267 y h227.
+
+## D279. Bluetooth con un controlador USB estándar: HCI, L2CAP, SDP, emparejamiento y HID (v8.2, mejora 059)
+
+**Contexto.** La v8.2 (D257) empieza a la vez por el Bluetooth del pincho CSR8510 y la Wi-Fi Atheros AR9485, los dos sin firmware. Esta decisión es la parte del Bluetooth: primera fase de la mejora 059 (teclado y ratón; el audio, OBEX, BLE y los integrados con firmware, después).
+
+**Decisión.**
+1. **Pila propia en `kernel/bluetooth/`** (HCI, L2CAP, SDP, HIDP y el gestor), escrita desde las especificaciones públicas (Bluetooth Core, HID Profile 1.1, HID Specification 1.11, Assigned Numbers). **Sin código de BlueZ ni de Linux** ni de otras pilas: no hay nada de terceros que anotar en `docs/terceros.md`. No sabe nada del USB: todo lo de fuera entra por `bt_plat_t`, así que se compila también en el PC y se prueba con un controlador simulado.
+2. **Transporte USB en `kernel/usb/usbbt.c`:** clase `0xE0/0x01/0x01`; órdenes por control (`0x20`, `bRequest 0`), eventos por el endpoint de interrupción de la interfaz 0 (reensamblados por la longitud del evento, porque un evento puede venir en varios paquetes de `mps` bytes) y ACL por *bulk* (salida con `usb_bulk`, entrada con la recepción continua `usb_rx_*` del Wi-Fi, D215). Una tarea del kernel `bluetooth` (cada tic) es la única que toca la pila; las llamadas al sistema solo dejan peticiones en una cola de 8, así que nada duerme dentro de una llamada. Cambios mínimos en el USB: `ler_configuracao` apunta el endpoint de interrupción de entrada de la primera interfaz si no es HID (`ep_int`, `mps_int`, `int_intervalo`, `bt` en `usb_disp_t`), `xhci_configurar` lo configura y `usb.c` llama a `bt_usb_reconhecer`/`bt_usb_retirado`.
+3. **Sin recepción ACL en UHCI/OHCI** (no tienen recepción *bulk* continua, D267): allí solo se puede buscar. Con el EHCI comparte la recepción continua con el pincho Wi-Fi RTL8188EU (una por controlador).
+4. **HCI:** inicio Reset, versión, BD_ADDR, búferes ACL (obligatorios), máscara de eventos de 47 bits, modo de búsqueda extendido, SSP, nombre «SaguiOS», clase de ordenador y conectable-no-visible. Los fallos de las órdenes no críticas se anotan y se sigue. Créditos de órdenes (`Num_HCI_Command_Packets`) y de ACL (`Number_Of_Completed_Packets`, con los pendientes de un enlace devueltos al caerse), cola de ACL con **fragmentación** al tamaño del búfer del controlador y reensamblado de lo que llega fragmentado.
+5. **Emparejamiento Secure Simple Pairing sin criptografía en el anfitrión** (la hace el controlador): capacidad DisplayYesNo; *Just Works* se acepta solo si el dispositivo es NoInputNoOutput; comparación numérica con la confirmación de la persona (`BT_CONFIRMAR`, 40 s de plazo); *passkey* mostrado para teclearlo en el teclado; PIN `0000` para dispositivos anteriores a SSP. Solo se empareja con un dispositivo al que hemos conectado nosotros: una petición de emparejamiento o de conexión de un desconocido se rechaza. Una clave que el dispositivo ya no reconoce (autenticación fallida 0x05/0x06) se **borra** y el error pide volver a emparejar.
+6. **Claves de enlace** en `/etc/bluetooth.conf` (RAM) y, si hay SAGUI-CONF (D255, D256), en `SAGUI-CONF/etc/bluetooth.conf`, escrito desde el kernel por las operaciones del sistema de archivos del montaje con `trava_fs`. Formato de texto, una línea por dispositivo (`dispositivo MAC clave-hex tipo-clave tipo nombre`) y `energia 0|1`. Solo root lo lee (`/etc` ya lo protege `permisos.c`; la partición, también). Se guarda cada vez que cambian las claves, el nombre o la energía.
+7. **L2CAP en modo básico** (sin retransmisión ni control de flujo): lo que usan SDP y HID. Se rechazan las configuraciones en otros modos. **SDP:** una sola petición `ServiceSearchAttributeRequest` del servicio HID con seis atributos y continuación; si el dispositivo contesta con error, una lista vacía o no tiene servicio, se prueban los PSM de siempre (0x11 y 0x13); si no contesta, error por tiempo (15 s).
+8. **HID por L2CAP** (PSM 0x11 control, 0x13 interrupción). Los **informes entran por el mismo camino que el HID USB** (`hid_bt_*` en `hid.c`): teclado en formato *boot* de 8 bytes a `teclado_relatorio` (traducción a PS/2, distribuciones, teclas muertas, atajos y mapa de teclas sostenidas), repetición de tecla y luces desde la tarea `bluetooth`, y ratón por el descriptor de informe del SDP (`analisar_relatorio`, protocolo normal, con rueda) o por `rato_boot`. Se pide `SET_PROTOCOL(boot)` salvo que el ratón se entienda por su descriptor. Teclados con informe sin protocolo boot: no.
+9. **Reconexión:** los teclados que reconectan solos llegan como *Connection Request*; se aceptan si tenemos su clave (rol sin cambiar), se autentican con ella y esperan los dos canales L2CAP que abre el dispositivo. La reconexión iniciada por nosotros es `BT_CONECTAR`. No hay reconexión automática por nuestra parte.
+10. **Llamada `SIS_BLUETOOTH` (135):** `BT_ESTADO`, `BT_BUSCAR`, `BT_DISPOSITIVOS` (libres para cualquiera, como el Wi-Fi) y `BT_EMPAREJAR`, `BT_CONECTAR`, `BT_DESCONECTAR`, `BT_OLVIDAR`, `BT_CONFIRMAR`, `BT_ENERGIA` (clase de operación: solo root; los programas piden el **diálogo de permisos** de D269 con `COM_ADMIN`). `info_bt_t` y `disp_bt_t` en `abi.h`. `SIS_MAX` pasa a 136.
+11. **Aplicación «Bluetooth»** (`userland/programas/bluetooth.c`, menú Inicio > Sistema, icono propio de 16x16): estado, lista, *Buscar*, *Emparejar / Conectar*, *Desconectar*, *Olvidar*, *Apagar/Encender*, el código de la comparación numérica con *Sí coincide*/*No* o el *passkey* que hay que teclear, y los errores del dispositivo. La orden `bluetooth` hace lo mismo en el terminal (`estado`, `buscar`, `lista`, `emparejar`, `conectar`, `desconectar`, `olvidar`, `confirmar`, `encender`, `apagar`).
+12. **Núcleo:** no se tocó (memoria, planificador, VFS, arranque). Se tocó `kernel/nucleo/sistema.c` y `permisos.c` solo para registrar la llamada, y `usb.c`/`xhci.c`/`hid.c` como en el punto 2 y el 8.
+
+**Pruebas:** `tests/h279_bluetooth.py`: (a) `unidad`, en el PC con ASan y UBSan, la misma pila contra `tests/bt_sim.c` (controlador HCI simulado con créditos, fragmentación y tres periféricos con L2CAP, SDP fragmentado y HIDP) en `tests/bt_unidad.c`, 156 comprobaciones y 260.000 entradas aleatorias; (b) `consola`, en QEMU con un xHCI y un teclado USB (que no son Bluetooth), el driver no rompe nada y `bluetooth` sin pincho informa bien; (c) `ventana`, la aplicación sin pincho. Ver `docs/bluetooth.md` para el guion con el CSR8510 real.
+
+**Límites conocidos:** sin transporte USB real probado (QEMU 8.2 no emula Bluetooth: `usb-bt-dongle` ya no existe); solo HID clásico; sin BLE ni firmware; ACL solo con EHCI y xHCI; un solo controlador y un emparejamiento a la vez; ver `docs/bluetooth.md`.
+
+## D280. Wi-Fi integrada Atheros AR9485 (PCIe) sobre la pila 802.11 existente (v8.2, mejoras 072 y 079)
+
+**Contexto.** El Toshiba Satellite L850 del mantenedor lleva una **Atheros AR9485** (`168c:0032`, PCIe, 802.11b/g/n 1x1,
+2,4 GHz) sin driver. La D257 decidió empezarla en la v8.2 a la vez que el Bluetooth. Es de la familia AR9003 (como el
+ath9k de Linux) y **no necesita firmware**: el chip se programa por registros. QEMU no la emula: el driver se escribe con
+mucho registro (`[AR9485]` y `[WIFI]` en `dmesg`) y se prueba en la máquina real.
+
+**Decisión.**
+1. **Fuente y licencias.** Driver propio (`kernel/rede/ar9485.c`, lógica pura en `kernel/rede/ar9485_logica.h`), escrito
+   leyendo el **athn(4) de OpenBSD (ISC)**: `athn.c`, `ar9003.c` y `ar9380.c` (orden del encendido, del reinicio, de la
+   lectura de la ROM, de las tablas y de los descriptores). Los registros, la estructura de la EEPROM/OTP, las plantillas
+   de ROM y las tablas del AR9485 1.1 van en `kernel/terceros/bsd/athn/` con su licencia ISC y su fila en
+   `docs/terceros.md`. **No se usó nada del ath9k de Linux.**
+2. **Un solo `wifi.c` para los dos chips.** Las llamadas al chip (enviar, recibir, canal, claves, asociación...) pasan por
+   funciones `drv_*` que van al RTL8188EU (USB, D215) o al AR9485 (PCIe). El camino del RTL8188EU no cambia. La tarea
+   «wifi» enciende el AR9485 (lo lento y lo que puede fallar va ahí, no en el arranque): `rede_iniciar()` llama a
+   `wifi_pci_iniciar()`, que solo mira si hay un `168c:0032` en el PCI. Por ahora **un solo chip a la vez**.
+3. **Encendido** (`ar9485_iniciar`): PCI (memoria y bus maestro, **INTx desactivado**, sin ASPM, ventana de 128 KB),
+   comprobación de que `AR_SREV` es la versión 0x240, reinicio del RTC, despertar, SerDes, **lectura de la ROM**
+   (EEPROM de 4 KB, o OTP) por bloques con suma de control que se superponen a una de las cinco plantillas; la MAC, las
+   máscaras de cadenas, el interruptor de radio y toda la calibración de potencia salen de ahí. Cada **canal es un
+   reinicio completo** (lo que hace athn): tablas de inicio y de ganancias, sintetizador, potencia por tasa (interpolando
+   los puntos de la ROM), pendiente delta, espurias, calibración del AGC y del ruido de fondo.
+4. **Sin interrupciones.** Se programa la máscara como en athn pero `AR_IER` queda a 0 y el INTx apagado: la tarea sondea el
+   anillo de recepción y el de estados de transmisión cada tic. (Es lo que pide el modelo de la pila: la IRQ no hace falta y
+   evita una tormenta si la línea se comparte.)
+5. **DMA.** Recepción: colas LP (64) y HP (8), una página por búfer con el descriptor de estado de 48 bytes delante de
+   la trama (hay que quitar los 2 bytes de relleno tras la cabecera y el FCS). Transmisión: 16 descriptores de 128 bytes
+   con suma de control, un búfer por trama, un anillo de 64 estados de confirmación; cuatro series de tasas con
+   reintentos por hardware (la actual, dos bajadas y CCK 1 Mb/s). La escalera de tasas es la del RTL8188EU
+   (`wn_taxa_subir/descer`), con un control sencillo por reintentos y fallos.
+6. **Cifrado.** Por defecto el **CCMP va por software** en las dos direcciones (`ccmp_cifrar`/`ccmp_decifrar` de
+   `wpa_cifra.c`): el athn de OpenBSD tiene desactivado el CCMP de transmisión por hardware y no conviene fiarse de lo que no se
+   puede probar. La caché de claves del chip está implementada (`ar9485_chave`) y se enciende con la línea
+   `cifrado hw` en `/home/.config/wifi-desempenho.conf`; si en el L850 el tráfico cifrado funciona, se puede dejar así.
+7. **Se asocia como b/g** (sin 802.11n: `ht_possivel` da falso para el AR9485); 5 GHz no existe en este chip.
+8. **Calibraciones:** AGC (al reiniciar), ruido de fondo (al reiniciar y cada 4 minutos, con la mediana de 5 muestras) e IQ de
+   recepción (cada 30 s), la misma lógica de `athn_calib_to`. Se usan las **máscaras de cadenas de la ROM (1)**, no las
+   `0x7`/`0x3` que athn pone en `ar9003_init_calib` (en un chip de una cadena no tienen sentido).
+
+**No se hace (aún):** 802.11n, ahorro de energía, ANI, PA predistortion, calibración IQ de transmisión, temperatura,
+coexistencia con el Bluetooth del combo, varias interfaces ni los dos chips a la vez.
+
+**Aviso de fiabilidad.** El `if_athn_pci.c` de OpenBSD **no tiene el AR9485 en su lista de tarjetas** (solo la familia
+AR5416 a AR9287): el código de la familia AR9003 está en el árbol pero ese BSD no lo enciende por PCI. Aquí se sigue su
+código línea a línea, pero no hay una referencia que se sepa que funcione de punta a punta; por eso las pruebas de
+hardware real son imprescindibles y el driver es **experimental**.
+
+**Pruebas.** `tests/h280_wifi_ar9485.py`: en el anfitrión, `ar9485_logica.h` y las tablas de OpenBSD con ASan/UBSan
+(55 comprobaciones: ROM por bloques con plantillas, sumas malas, trozos fuera de la imagen, 3000 ROM de basura, canales,
+potencias, estructuras, descriptores, tasas y caché de claves) y los números que se vuelven a calcular en Python (pendiente
+delta, suma de los descriptores, duraciones, MAC de la caché de claves, sumas de las tablas); las fuentes; y en QEMU, sin la
+tarjeta y con otra PCI desconocida, que el sistema arranca igual y no hay ningún `[AR9485]` ni `[WIFI]`. Con el RTL8188EU,
+`tests/h215_wifi.py` sigue como estaba.
+
+**Qué probar en el L850** (guía en `docs/wifi-ar9485.md`): `dmesg | grep AR9485` (identidad, ROM, MAC, canal), `wifi buscar`,
+`wifi conectar "SSID" clave`, `ping`; si algo falla, el registro dice el paso.
+
+## D283. Pendientes del NVMe: BAR alta recolocada y bloques de 4096 con particiones e instalador (v8.0.1)
+
+**Contexto.** D265 y D270 dejaron tres cosas: el kernel (32 bits sin PAE) no alcanzaba una BAR de 64 bits por encima de
+4 GB (la prueba UEFI apagaba la ventana de 64 bits de OVMF), el reparticionado de discos con bloques de 4096 se rechazaba
+(`blocos.c` suponía 512) y no había interrupciones ni varias órdenes en curso.
+
+**Decisión.**
+1. **BAR recolocada** (`kernel/dispositivos/pci_realoc.c`, `pci_realoc_bar_baixo`). Si la BAR0 de 64 bits del NVMe tiene
+   parte alta no nula y el dispositivo cuelga del bus 0, se busca un hueco libre por debajo de 4 GB (alineado a su
+   tamaño, de arriba abajo desde 0xFC000000) que no solape el mapa E820 completo, ninguna BAR de memoria ni ventana de
+   puente PCI, ni 0xFEC00000 en adelante; se reescribe la BAR (parte alta a 0) y se comprueba. Sin hueco, o detrás de un
+   puente (la ventana del puente no se reprograma), se avisa por el log y el controlador queda sin usar. No se lee el
+   `_CRS` del puente raíz (uACPI): el hueco se deduce de lo anterior. `h270` ya no usa `X-PciMmio64Mb=0`.
+2. **Bloques de 4096 con particiones.** `info_bloco_t.bloco_fisico` (512 o 4096). Kernel: `reservar` ya no rechaza; la
+   coherencia del MBR, las zonas protegidas de la GPT (6 bloques al principio, 5 al final) y la simulación de tablas
+   cuentan en bloques reales. Userland: `pt_ler`/`montar_setores` (MBR, EBR) y `gpt.c` (cabecera en el bloque 1, entradas
+   en el 2, respaldo en el último, zona utilizable en bloques) traducen entre sectores de 512 (API) y bloques reales
+   (disco); lo no alineado a 4096 se rechaza. El instalador en un disco de 4096 solo usa GPT en el disco entero (el LBA 1
+   del arranque BIOS no tiene sentido ahí; la BIOS no arranca de NVMe).
+3. **Interrupciones: no se hacen.** MSI exige LAPIC/vectores/IDT por dispositivo y el driver ya espera por sondeo con
+   plazo y con las interrupciones del kernel apagadas durante el arranque; no se toca el núcleo para ello. Queda sondeo.
+4. **Varias órdenes en curso: no se hace.** Con un único búfer de rebote y la capa de discos síncrona, una cola de más de
+   una orden no acelera nada medible; exigiría rediseñar rebote y capa de discos.
+
+**Pruebas.** `tests/h283_nvme_fix.py` y `tests/h270_uefi_gpt.py` (sin `X-PciMmio64Mb=0`).
+
+## D284. 3D por la GPU en las Radeon R7xx: driver por el CP sobre la capa común `gpu3d` (v8.3, mejoras 054 y 060)
+
+**Contexto:** primera pieza de la v8.3 (D257: 3D, luego el renderizador por GPU de la SDL 2, luego varias pantallas; Radeon e Intel Gen3 en paralelo). La máquina real es el HP dv7 (Radeon HD 4530/4570, `1002:9553`, RV710), cuyo 2D por DMA (D223/D246) tiene fallos abiertos (issues #1 y #2). QEMU no emula ninguna Radeon: nada de lo que toca la tarjeta se ha podido ejecutar.
+
+**Decisión:**
+
+1. **Una sola capa común: `gpu3d` (D285).** Esta rama había hecho otra («acel3d»: contexto, búferes, autoprueba y vigilante en `kernel/gui/acel3d.c`); el coordinador decidió el 2026-11-15 que la común es la de la rama de Intel, más completa (memoria de GPU por bloques con liberación, direcciones de 64 bits, driver simulado para QEMU, medida). **`acel3d` se quitó entera** (capa, ABI, orden `acel3d` y el camino propio en SaguiGL); no queda fachada porque nada publicado la usaba. El driver de las R7xx es un `gpu3d_driver_t` más (`gpu3d_r600`), con sus diez funciones, y usa las piezas `g3d_*` (arena y búferes). SaguiGL, `gpu3d`, `infopc` y `sgldemo -g` son los de la D285 sin cambios.
+2. **Lo que esta rama añade a `gpu3d` (para fusionar):** (a) la línea que elige `gpu3d_r600` para las R7xx en `gpu3d_iniciar()`, con el estado inicial **apagado** en vez de «sin probar»; (b) en `ligar()`, la comprobación de la tarjeta y del TSC para ese driver, **sin** vetar el 3D porque el 2D haya fallado (en la Intel comparten el ring; aquí el 3D va por el CP y el 2D por el motor DMA); (c) el modo 4 de `CAB_GPU3D`, que la D285 reservó: `mkimagem.py --gpu3d=radeon` deja las R7xx en «sin probar» (se encienden con el primer uso); (d) `INFO_GPU3D_CTL` e `INFO_GPU3D_PROVA` pasan a ser **solo del administrador** en `kernel/nucleo/permisos.c`, como sus equivalentes del 2D (ponen en marcha la GPU; la orden `gpu3d` ya lo exigía, la llamada no). No cambia la interfaz del driver ni la ABI.
+3. **No se enciende solo.** El inicio carga microcódigo y reinicia el procesador de órdenes de una tarjeta en la que nunca se ha ejecutado, y la capa común enciende el motor con el primer programa que lo abre. Para las R7xx eso no vale todavía: arrancan en `GPU3D_APAGADO` y solo `gpu3d probar` o `gpu3d encender` (administrador) inician el motor; si la autoprueba pasa, queda activo. Es la respuesta a «si algo puede colgar la máquina, detrás de una opción». Cuando el dv7 lo confirme bastará quitar esa distinción.
+4. **Driver por el CP** (`kernel/dispositivos/gpu3d_r600.c`): microcódigo PFP y ME de linux-firmware (`firmware/radeon/`, `/lib/firmware/radeon/`; fuera con `SEM_FIRMWARE=1`), cola de 64 KB **en VRAM** (direcciones del controlador de memoria, como el anillo del DMA: sin GART ni bus maestro), sin escritura de vuelta del puntero ni interrupciones (se sondea `CP_RB_RPTR` y un registro de apuntes), sin RLC (solo hace falta para las interrupciones). Destino de color lineal ARGB8888 y Z en mosaico 1D (las R6xx/R7xx no tienen Z lineal). Vallas: un paquete que vacía las cachés, espera al motor y escribe el número en un registro de apuntes. Familias RV710, RV730, RV740 y RV770; **las R6xx quedan fuera** (otro microcódigo y otro inicio; los sombreadores ya se codifican para las dos).
+5. **Tres sombreadores escritos a mano** (`r600_3d_pacotes.c`, lógica pura con prueba en el PC): el de vértices lee el `gpu3d_vert_t` (posición ya en pantalla, color, especular, textura) y lo exporta; el de color hace `saturar(cor + espec)` y el de textura `saturar(saturar(textura × cor) + espec)`, que es el contrato de la capa. Sin compilador de sombreadores.
+6. **Memoria:** la zona 3D (4 a 16 MB) va detrás de todo lo que puede usar el 2D (`r600_fim_2d`), comprobada contra `MC_VM_FB_LOCATION`, la apertura de la CPU y `CONFIG_MEMSIZE`, con la memoria virtual de la GPU apagada y sin cursor por hardware allí. La sonda de solo lectura del 2D pasó a `r600_sondar` (`kernel/inc/r600_base.h`) y la comparten los dos drivers.
+7. **Lo que no se toca, a propósito:** controladores de pantalla, HDP, relojes, energía, DMA, `SRBM_SOFT_RESET`. De la secuencia de inicio de referencia (`rv770_gpu_init`) **no** se hace el borrado de las superficies del HDP ni se escriben `DCP_TILING_CONFIG`, `HDP_TILING_CONFIG` y `DMA_TILING_CONFIG` (pantalla, apertura de la CPU y 2D). Ante un fallo se para el CP y nada más: **no hay recuperación por reinicio del motor** (`GRBM_SOFT_RESET` completo), porque no se ha probado con la pantalla del VBE encendida. Consecuencia: si el motor quedó bloqueado puede no volver hasta reiniciar la máquina.
+8. **Referencias y licencias.** Solo números de registro, formato de paquetes e instrucciones y orden de las secuencias; código propio, nada copiado (por eso no hay nada en `kernel/terceros/`). Fuentes, todas con aviso MIT comprobado fichero a fichero: xf86-video-ati (`r600_reg*.h`, `r600_shader.h/.c`, `r6xx_accel.c`, `r600_exa.c`), Mesa (`r600d.h`, `r600_state.c`), `r600_cp.c` de FreeBSD 9.3 y, del DRM radeon de Linux 6.6, `r600.c`, `rv770.c`, `r600d.h` y `rv770d.h`. El mantenedor autorizó el 2026-11-15 usar los ficheros del DRM de Linux con licencia MIT (los que digan GPL-2.0, no); si algún día se copia código de ellos irá en `kernel/terceros/mit/drm-radeon/` con su aviso y `ORIGEM.md`. El microcódigo es redistribuible solo en binario (`LICENSE.radeon`), no libre.
+9. **De cara a 64 bits, amdgpu y Vulkan** (plan del mantenedor): vale lo dicho en la D285 para la capa. Del driver: las direcciones de GPU ya salen de `g3d_buffer_t` (64 bits) aunque los paquetes de las R7xx solo lleven 32; la cola, las vallas y la memoria están separadas de la CPU (el Z ni siquiera tiene ventana). Lo que habrá que rehacer entonces es lo que hoy es fijo: una cola, un contexto y sombreadores precompilados.
+
+**Límites conocidos:** sin probar en hardware; destino de 1024x1024 y texturas de 1024x1024 como mucho (y lo que quepa en la zona); el cuadro vuelve a la RAM leyendo la VRAM por la apertura de la CPU (lento); solo triángulos.
+
+**Pruebas:** `tests/h284_gpu3d_r600.py`: reglas del driver en las fuentes, `tests/r600_3d_unidad.c` en el PC (sombreadores contra una segunda codificación campo a campo, paquetes PM4 contra bytes, valores de inicio de RV710 y RV770; también con ASan/UBSan) y, en QEMU, que sin esa tarjeta nada cambia y el microcódigo está en la imagen. El camino completo de la capa (autoprueba, vigilante, SaguiGL) lo prueba h285 con el driver simulado. Guía para el dv7: `docs/gpu3d.md`, «Radeon R7xx».
+
+## D285. 3D por la GPU: capa común `gpu3d` y driver de Intel Gen3 (v8.3, mejoras 055 y 060)
+
+**Contexto.** La v8.3 (D257) empieza por el 3D por la GPU en Radeon R6xx/R7xx e Intel Gen3 en paralelo (dos ramas), y después el renderizador de la SDL 2 por GPU y varias pantallas. SaguiGL (`userland/libsgl`) era solo por software; del 3D por GPU había el armazón de AMD en el userland (D158) y el 2D en el kernel (D195), con el ring de Intel ya en marcha para el blitter. QEMU no emula el 3D de ninguna de estas tarjetas. Indicación del mantenedor a mitad del trabajo (2026-11-15): se pueden usar los ficheros del DRM de Linux cuya licencia sea MIT, comprobada fichero a fichero (irían en `kernel/terceros/mit/` con su aviso y `ORIGEM.md`), y la capa común debe pensarse para lo que viene (64 bits en la v10.0; después amdgpu sobre LinuxKPI y Mesa RADV/Vulkan): búferes, colas de órdenes, vallas y memoria de GPU separada.
+
+**Decisión.**
+1. **El 3D va en el kernel, no en el userland** (cambia lo previsto en la D158 para Intel): en Gen3 el ring de órdenes es uno solo para 2D y 3D y ya es del kernel (`acel_intel.c`); dos dueños de un ring no pueden convivir. El programa no ve registros ni memoria de la GPU: pide operaciones (`INFO_GPU3D_OP`, sin llamada nueva al sistema: números `INFO_*` 71 a 74; eran 70 a 73 hasta fusionar main, donde el 70 es `INFO_CAMARA`).
+
+1. **El 3D va en el kernel, no en el userland** (cambia lo previsto en la D158 para Intel): en Gen3 el ring de órdenes es uno solo para 2D y 3D y ya es del kernel (`acel_intel.c`); dos dueños de un ring no pueden convivir. El programa no ve registros ni memoria de la GPU: pide operaciones (`INFO_GPU3D_OP`, sin llamada nueva al sistema: números `INFO_*` 70 a 73).
+2. **Reparto:** SaguiGL sigue haciendo con la CPU matrices, luces, niebla, recorte y descarte de caras (Gen3 no transforma vértices: es justo lo que la tarjeta espera) y manda **triángulos ya en coordenadas del destino** (`gpu3d_vert_t`: x, y, z, 1/w, color, especular, u, v; ocho palabras, que es además el vértice de Gen3 tal cual). El color de un píxel es `saturar(textura × color + especular)`: la luz va en el color y la parte de la niebla que se suma, en el especular; así bastan **dos programas de píxeles** (con y sin textura) y ninguna constante. El kernel no usa coma flotante: copia los bits de los `float` y los valida con enteros (finitos, dentro del destino, z de 0 a 1), porque Gen3 no recorta.
+3. **Capa común** (`kernel/gui/gpu3d.c`, `gpu3d_mem.c`, `kernel/inc/gpu3d.h`; guía en `docs/gpu3d.md`): interfaz de driver mínima (`iniciar`, `alvo`, `limpar`, `textura`, `desenhar` = estado + triángulos, `esperar`, `ler`, `desligar`, `detalle`, `memoria`) y cuatro piezas compartidas con la forma de lo que hará falta después: **memoria de GPU** por bloques con direcciones de GPU propias (`g3d_arena_t`), **búferes** con uso, dirección de GPU y ventana de CPU opcional (`g3d_buffer_t`), **colas de órdenes** que se preparan en RAM y se entregan de una vez (`g3d_fila_t`) y **vallas** por número de secuencia con plazo (`g3d_vala_t`). Direcciones y tamaños en `uint64_t`; estructuras de la ABI con enteros de 32 bits de tamaño fijo; cada entrega lleva su estado completo (no hay estado guardado en el driver que el 2D pueda pisar). Lo que falta para ese futuro (varias colas y contextos, vallas por interrupción, GTT/GART propios, búferes compartidos con el compositor, sombreadores) está listado en `docs/gpu3d.md`. La rama `v8.3-gpu3d-r600` no tenía capa cuando se escribió esta: su driver entra con un `gpu3d_driver_t` y una línea en `gpu3d_iniciar()`; si creó otra, al fusionar se queda una.
+4. **Seguridad en hardware real:** al arrancar **no se toca la GPU** (solo se mira qué tarjeta tiene la pantalla); el driver se enciende y pasa la **autoprueba** con el primer uso (o `gpu3d probar` / `gpu3d encender`): ocho pruebas que leen píxeles concretos (limpiar, color, Z, mezcla, textura, color interpolado, especular, Z de 16 bits). Si falla, o si una espera pasa de 2 s (**vigilante**, el plazo de la D158), el 3D se apaga con el motivo y los registros en el log (`[GPU3D] apagado: …`) y SaguiGL sigue por software. El motor es de **un proceso cada vez**; a los demás se les contesta «sin soporte» y van por software. `SGL_MOTOR=software` (D158) y `--gpu3d=no` lo quitan.
+5. **Driver de Intel Gen3** (`gpu3d_intel.c`, órdenes en `gen3_pacotes.h`): solo los diez modelos de la lista (915G/GM, 945G/GM/GME, Q35, G33, Q33, Pineview); comparte el ring del 2D (si el 2D lo dejó apagado por lento, lo enciende; si el 2D **falló**, no se intenta salvo `--gpu3d=intel`); órdenes por **lotes** (`MI_BATCH_BUFFER_START`) o **en el anillo** (`gpu3d encender anillo`), para comparar en la máquina; limpia con el blitter; **solo usa la memoria que el VBE dejó en el GTT** (entre la zona de prueba del 2D y el ring): no se escribe el GTT ni ningún registro de pantalla, relojes o energía. Mientras haya una carga 3D pendiente, las esperas del 2D usan el plazo largo (un lote puede tardar más que los 30 ms de la D244). Límites conocidos: destino y texturas pequeños (unos 4,5 MB con 8 MB robados), traer el cuadro leyendo memoria de vídeo (lento), y texturas que se repiten solo con lados potencia de 2 (si no, ese programa va por software).
+6. **SaguiGL:** los contextos de **ventana** prueban la GPU solos; los de **memoria** (los de las pruebas de píxeles h77, h99, h101) siguen por software salvo `sgl_gpu_ligar()`, porque la GPU no da los mismos píxeles bit a bit. Nuevos `glFinish`/`glFlush` (traen el cuadro), `sgl_gpu_ligar/desligar/ativa/automatica`. Las líneas van como rectángulos de un píxel.
+7. **Diagnóstico:** `gpu3d` (estado, `probar [--detalle]`, `apagar`, `encender [anillo]`), `sgldemo -g` (cuatro escenas por software y por GPU, píxeles que se apartan y fps de cada camino), pestaña GPU de `infopc` e `infopc --bench-gpu` con la **puntuación 3D** (provisional: triángulos/s ÷ 200 + kpíxeles/s ÷ 200), que se guarda junto a la 2D.
+8. **Pruebas sin la máquina:** un **driver simulado** por la CPU (`gpu3d_sim.c`, solo con `--gpu3d=simulado`) para probar en QEMU el camino entero y los fallos (`--gpu3d-prueba=pixel|tiempo`), y una prueba de unidad en el PC (`tests/gen3_3d_unidad.c`) que recorre las órdenes como la GPU y compara los programas de píxeles con sus palabras escritas a mano.
+9. **Fuentes:** documentación de Intel del 3D de Gen3 y cabeceras de Mesa con licencia MIT (`i915_reg.h`, `intel_reg.h`, rama amber; `src/gallium/drivers/i915/i915_reg.h`, mesa-23.0.0), solo valores y secuencias; código propio, nada copiado (por eso no hay carpeta en `kernel/terceros/`). De Linux solo se consultó un fichero con licencia MIT comprobada en su cabecera (`drivers/gpu/drm/i915/gt/intel_gpu_commands.h`, v6.6) para los bits de `MI_BATCH_BUFFER_START`; ninguno GPL. El permiso para los MIT del DRM queda anotado para Gen4 en adelante.
+
+10. **Capa común única (coordinador, 2026-11-15):** la rama R600 había hecho otra capa («acel3d»); se decide que la única es `gpu3d`. Las ramas `v8.3-gpu3d-r600` y `v8.3-gpu3d-r500` la fusionan y entran con un `gpu3d_driver_t` cada una. Desde ese commit la interfaz (ABI `INFO_GPU3D*` 71 a 74, `gpu3d_vert_t`, `gpu3d_estado_t`, `gpu3d_driver_t`, piezas `g3d_*`, byte 142 de la cabecera con los modos 4 y 5 reservados para las Radeon) es **estable**: se amplía por el final, y cualquier cambio incompatible se anota aquí y en la tabla de `docs/gpu3d.md` («La capa común única y su interfaz estable»), que dice también quién la usa, qué garantiza la capa al driver y qué debe cumplir este.
+
+10. **Capa común única (coordinador, 2026-11-15):** la rama R600 había hecho otra capa («acel3d»); se decide que la única es `gpu3d`. Las ramas `v8.3-gpu3d-r600` y `v8.3-gpu3d-r500` la fusionan y entran con un `gpu3d_driver_t` cada una. Desde ese commit la interfaz (ABI `INFO_GPU3D*` 70 a 73, `gpu3d_vert_t`, `gpu3d_estado_t`, `gpu3d_driver_t`, piezas `g3d_*`, byte 142 de la cabecera con los modos 4 y 5 reservados para las Radeon) es **estable**: se amplía por el final, y cualquier cambio incompatible se anota aquí y en la tabla de `docs/gpu3d.md` («La capa común única y su interfaz estable»), que dice también quién la usa, qué garantiza la capa al driver y qué debe cumplir este.
+
+**Sin probar en hardware.** Todo el driver de Intel. Dudas concretas para la primera prueba (`docs/gpu3d.md`, «Qué probar»): que toda la memoria que anuncia el VBE esté de verdad en el GTT; lotes sin privilegios (`bit 0` de la dirección) frente a órdenes en el anillo; destino sin mosaico (`tiling`) para color y Z; `MI_FLUSH` como única sincronización antes de leer; el formato del Z de 24 bits al limpiarlo con el blitter.
+
+**No hecho (siguientes piezas de la v8.3):** renderizador de la SDL 2 por GPU, varias pantallas (mejora 060), mapear RAM en el GTT (destinos grandes y lectura rápida), Gen4 en adelante.
+
+**Pruebas:** `tests/h285_gpu3d_intel.py` (unidad, fuentes, std, simulado, fallos); `tests/h242_infopc_gpu.py` adaptada (el texto del 3D); h77, h99, h101 y h161 sin cambios.
+
+## D286. 2D por la GPU en las Radeon Evergreen y Northern Islands (HD 5000-6000): el motor DMA (v8.3)
+
+**Contexto:** el Toshiba L635 del mantenedor lleva una Mobility Radeon HD 5000 (`1002:68e0`, Cedar). Las Evergreen y las Northern Islands tienen el mismo motor DMA asíncrono que las R7xx (D223, D246), sin microcódigo, con diferencias pequeñas. Autorizado por el mantenedor el 2026-11-15. **Sin probar en hardware** (QEMU no emula ninguna Radeon).
+
+**Decisión:** se amplía el driver `acel_r600` (`kernel/dispositivos/acel_r600.c`) con dos generaciones nuevas en vez de escribir otro: **8** (Evergreen: Cedar, Redwood, Juniper, Cypress, Hemlock; y las Northern Islands que Linux lleva con el código de Evergreen: Barts, Turks, Caicos) y **9** (Cayman/Antilles, HD 6900). Lo propio de estas familias es lógica pura en `kernel/dispositivos/evergreen_dma.c` y `kernel/inc/evergreen_dma.h`, que se prueba en el PC.
+
+1. **Detección.** Lista exacta de 112 modelos (todos los `CHIP_CEDAR`…`CHIP_CAYMAN` de `drm_pciids.h` de Linux 6.6, contrastada mecánicamente con ese fichero), con la generación y el número de controladores de pantalla (4 en Cedar y Caicos, 6 en el resto). Nueve filas en la tabla de `acel2d.c`. **No están** las integradas de las APU (Palm/Sumo/Aruba: otro mapa de memoria) ni Southern Islands en adelante (otro motor DMA; mejora 110). Se eligen solas (Linux usa el DMA de todas ellas para mover memoria), con la **autoprueba completa** porque ninguna está en `confirmadas[]`.
+2. **Qué cambia respecto de las R7xx** (de `evergreend.h`, `evergreen_reg.h`, `nid.h`, `r600_dma.c`):
+   - **Paquete de copia:** `DMA_PACKET(cmd, sub_cmd, n)` con la cuenta en 20 bits y el subcódigo en 27:20 (0); 5 palabras como en R7xx. Escribir, valla y NOP son los mismos (Linux usa `r600_dma_ring_test` en las dos). El reparto de rectángulos es el de `r600_dma_pacotes.c` (trozos de 0xFFFE palabras como mucho, válidos en las dos).
+   - **Pantalla:** hasta 6 controladores (`EVERGREEN_CRTC_CONTROL` 0x6E70, `EVERGREEN_GRPH_*` 0x6800… más el desplazamiento del controlador: 0, 0xC00, 0x9800, 0xA400, 0xB000, 0xBC00), por eso el MMIO se mapea de 128 KB. La misma comprobación que en R7xx, de solo lectura: uno encendido, de 32 bits ARGB8888, lineal, con el pitch del VBE/GOP, sin desplazamiento, superficie por debajo de 4 GB e **igual a `HDP_NONSURFACE_BASE << 8` + lo que hay entre el BAR 0 y la pantalla**. Si no cuadra (p. ej. gráficos conmutables con el panel en la Intel, o un GOP que ponga la superficie en otro sitio), no se toca nada y copia la CPU; el log dice cada controlador.
+   - **Memoria:** `CONFIG_MEMSIZE` va en MB; `MC_VM_FB_LOCATION` (0x2024) y `VM_CONTEXT0_CNTL` como en R7xx. No hay registro con el tamaño de la apertura de la CPU y medir el BAR obligaría a escribirlo: el driver no usa nada más allá de **64 MB desde el principio del BAR 0** (la zona de paso se encoge si hace falta).
+   - **HDP:** se vacía con `HDP_MEM_COHERENCY_FLUSH_CNTL = 1` (el `HDP_DEBUG1` es un rodeo solo de las R7xx).
+   - **Encendido del anillo:** la misma secuencia (`r600_dma_resume`), con `DMA_MODE = 1`. **Cayman:** dos motores (solo se usa el primero, en 0xD000), sin `DMA_MODE` y con `CMD_VMID_FORCE` en `DMA_IB_CNTL` (`cayman_dma_resume`).
+3. **Seguridad:** igual que D223/D246: nada se escribe antes de comprobar el modelo, el MMIO, la pantalla, que todo cae en la VRAM, que la memoria virtual de la GPU está apagada y que el DMA está parado y su anillo apagado; plazos por TSC; sin interrupciones, sin firmware, sin `SRBM_SOFT_RESET`, sin tocar relojes ni el modo; al apagar se dejan los registros del DMA como estaban. El vigilante (D244) vuelve a la CPU ante cualquier espera agotada. No se usa `DMA_PACKET_CONSTANT_FILL` (existe en Evergreen, pero el driver radeon de Linux no lo emite nunca: no hay secuencia probada que tomar de referencia): los rellenos van como en R7xx, copiando una fila pintada.
+4. **Diagnóstico:** las líneas `[ACEL2D] r600: …` del arranque dicen la familia («Evergreen/Northern Islands»), los BAR, `CONFIG_MEMSIZE`, `HDP_NONSURFACE_BASE`, `MC_VM_FB_LOCATION`, cada controlador de pantalla encendido (control, superficie, pitch, tamaño, orden de colores) y el estado del DMA; `acel2d probar --detalle` añade una línea con el controlador elegido. `acel2d` y la pestaña GPU de Información del PC muestran el acelerador `r600dma`, «por autoprueba» y el motivo si se queda la CPU (sin cambios: salen de la capa común).
+5. **Lo que NO hace:** las APU; resolución nativa; 3D; `userland/inc/gpuid.h` sigue llamando «posterior» a las Northern Islands (es la tabla del plan 3D, no la del 2D).
+
+**Qué probar en el Toshiba L635** (y en cualquier HD 5000/6000): arrancar normal y guardar `dmesg > /home/evg.txt`; mirar `[ACEL2D]`: si pone `activo: Radeon HD 5400 (Cedar)`, ejecutar `acel2d`, `acel2d probar --detalle` (y otro `dmesg`), mover ventanas, desplazar texto en el terminal y abrir un juego; si pone `CPU: …`, el motivo dice qué comprobación falló (enviar el log entero). Si la pantalla es de la Intel (`la pantalla (…) es de la tarjeta 8086:…`), el driver ni se intenta. Ante cualquier problema: `acel2d apagar` o arrancar con `--sin-acel2d`.
+
+**Pruebas:** `tests/h286_acel2d_evergreen.py` (`fuentes`: tabla, lista exacta, reglas de seguridad y documentos; `unidad`: `tests/evergreen_dma_unidad.c` en el PC: paquetes, detección por PCI, controladores de pantalla y rectángulos como memmove con un motor que copia en cualquier orden; `std`: en QEMU nada cambia). Siguen pasando h161, h223, h242, h243, h244 y h245.
+
+## D278 - Diálogos comunes en el resto de aplicaciones (v8.1, mejora 103)
+
+**Decisión:** las aplicaciones que pedían una ruta con `pedir_texto` usan los diálogos de D272 (`dialogo_abrir`, `dialogo_guardar`, `dialogo_carpeta`) con filtros por tipo, cuando la pregunta es una ruta de archivo o de carpeta.
+
+1. **Adoptados:** Macaco (abrir y guardar `.mxs`), Markdown (guardar `.md`; abrir `.md`/`.txt` y Ctrl+O), CHIP-8 (abrir ROM), Correo (adjuntar), Chat IA (adjuntar texto), Visor de PDF (exportar página a imagen, que D272 había dejado) y Sintonía (guardar y abrir listas M3U/PLS).
+2. **Música y MIDI:** la pregunta «archivo o carpeta» se responde con `confirmar()`: Sí elige una carpeta (`dialogo_carpeta`), No elige un archivo (`dialogo_abrir` con filtro de sonido o MIDI).
+3. **Se queda con `pedir_texto`:** la pregunta de Sintonía «archivo, carpeta, lista M3U/PLS o URL» y la dirección de la emisora, porque aceptan URL, que el diálogo no expresa; y las demás preguntas que no piden rutas (nombres, tamaños, etiquetas, URL de jclic, texto de Paint).
+4. **Sin cambios:** Discos no pide ninguna ruta (solo etiquetas y tamaños en MB); Correo no tiene «guardar adjunto» (no se añadió).
+5. **Núcleo y libsagui:** no se tocaron.
+6. **Carpeta inexistente:** el diálogo no crea carpetas. La exportación del Visor de PDF proponía `/home/...`, y en la imagen de prueba `/home` no existe; antes se creaba al exportar. Queda como pendiente decidir si la propuesta por defecto debe ser la carpeta del PDF.
+
+**Pruebas:** `h272_dialogos_archivo`, `h110_macaco`, `h43_markdown`, `h94_chip8_roms`, `h63_chip8`, `h118_correo`, `h116_chatia`, `h239_chatia_conversas`, `h86_musica`, `h157_midi`, `h225_sintonia`, `h107_visorpdf`, `h274_visorpdf_gui` (KVM). Ajustadas por el diálogo: `h86_musica` (un Intro más, el de «¿Añadir una carpeta entera?») y `h274_visorpdf_gui` (exporta a `/tmp/pag.ppm`).
+
+## D287. 3D por la GPU en las Radeon R5xx (X1300-X1950), sobre la capa `gpu3d` (v8.3, mejora 054)
+
+**Contexto (2026-11-15, autorizado por el mantenedor: «3D en R5xx dentro de la v8.3»):** el Amilo tiene una
+Mobility Radeon X1400 (RV515/M54, `1002:7145`) con el 2D por registros de la D195 funcionando (issue #3). A la
+vez se escribían dos capas 3D comunes (`acel3d`, D284, y `gpu3d`, D285); el coordinador fijó **`gpu3d`** como
+la común, y este driver se escribe sobre ella (la rama parte de `v8.3-gpu3d-intel` fusionada).
+
+**Decisión:**
+
+1. **Un driver más de `gpu3d`, sin capa nueva:** `kernel/dispositivos/gpu3d_r500.c` (`gpu3d_r500`) y los
+   constructores de órdenes en `kernel/dispositivos/r500_pacotes.h` (sin hardware, probados en el PC con
+   `tests/r500_3d_unidad.c`). En la capa solo cambian la elección por el PCI (`gpu3d_iniciar`), la
+   comprobación del 2D antes de encender (`ligar`) y la opción `--gpu3d=radeon` (`GPU3D_CAB_RADEON` = 4).
+2. **Por el procesador de órdenes (CP), no por registros directos.** En R5xx el modo inmediato por MMIO
+   (escribir vértices en `SE_PORT_DATA0`) no vale: el driver de X.org lo dice expresamente («EXA Composite
+   requires CP on R5xx/IGP») y solo acelera Render con el CP. Así que hace falta el microcódigo
+   **`R520_cp.bin`** (2048 bytes, el mismo para RV515, R520, RV530, RV560, RV570 y R580), de linux-firmware,
+   redistribuible y no libre: va en `firmware/radeon/` con su licencia, entra en `/lib/firmware/radeon/` y
+   queda fuera con `SEM_FIRMWARE=1` (entonces el driver dice que falta y SaguiGL sigue por software).
+   `tools/firmware_r5xx.sh` lo baja y comprueba (SHA-256).
+3. **La cola del CP en VRAM, sin bus maestro ni GART.** Linux pone la cola en memoria del sistema por el GART;
+   aquí va en la memoria de vídeo (el CP lee direcciones del controlador de memoria y la VRAM es una de sus
+   zonas), con lo que **la tarjeta nunca lee ni escribe memoria del sistema**: no se activa el bus maestro, la
+   escritura de vuelta del puntero de lectura (`RB_NO_UPDATE`) y de los registros de apuntes
+   (`SCRATCH_UMSK` = 0) está apagada y sus direcciones apuntan a una página nuestra de la VRAM. **Es la
+   hipótesis principal que hay que confirmar en el Amilo**: si el CP no pudiera leer la cola desde la VRAM,
+   la etapa 5 del encendido (prueba de la cola) lo dice y no se pasa de ahí; el plan B es el GART PCIE.
+4. **Zona 3D** de hasta 16 MB detrás de la pantalla y de la zona de prueba del 2D, alineada a 1 MB, limitada
+   por `CONFIG_MEMSIZE`, `CONFIG_APER_SIZE` y `MC_FB_LOCATION`, y comprobada contra los cursores por hardware y
+   el otro controlador de pantalla. La pantalla tiene que estar en el mismo desplazamiento en el BAR 0 que en
+   la VRAM del MC (si no, no se sabe dónde cae cada dirección y no se enciende). Dentro: cola (64 KB), una
+   página de reserva y la arena de `gpu3d` (destino de color ARGB8888, Z de 24 o 16 bits, texturas).
+5. **Vértices dentro de las órdenes** (`3D_DRAW_IMMD_2`, hasta 510 por orden), que es lo que hace X.org en
+   R5xx: sin búferes de vértices. El vértice de `gpu3d` (x, y, z, 1/w, color, especular, u, v) va tal cual:
+   `VAP_PROG_STREAM_CNTL` lo describe (4 flotantes, dos colores D3D normalizados, 2 flotantes), el **programa
+   de vértices** (4 instrucciones `ADD` con cero) solo lo copia y `VAP_VTE_CNTL` = `XY_FMT | Z_FMT` dice que
+   ya está dividido y que la cuarta coordenada es 1/w (corrección de perspectiva en el rasterizador). El RS
+   lleva color, especular y textura a los temporales 0, 1 y 2 y los dos **programas de fragmentos de R500**
+   hacen `color * 1 + especular` y `color * textura + especular`. Z, mezcla (`0`, `1`, alfa, 1 − alfa),
+   textura con vecino más próximo o bilineal, sujetar o repetir (repetir solo con lados potencia de 2:
+   `G3D_NAO` si no, y ese dibujo va por software). Borrar es un rectángulo que siempre pasa (con el Z al fondo).
+6. **El 2D por MMIO sigue como está.** `acel_radeon.c` comparte el motor: el CP solo recibe el aviso
+   (`CP_RB_WPTR`) cuando se va a esperar (leer el cuadro, cambiar textura o destino) o si la cola se llena, y
+   en esos puntos se espera a la valla y al motor parado; `ISYNC_CNTL` hace que el propio hardware no cruce 2D
+   y 3D. No se toca `RB2D_DSTCACHE_MODE` ni nada de lo que usa el 2D; `ISYNC_CNTL` se restaura al apagar.
+7. **Seguridad:** lista de modelos por familia comprobada antes de leer nada; el 3D **no se enciende solo**
+   (queda «apagado» hasta `gpu3d encender` / `gpu3d probar`, o `--gpu3d=radeon`), porque no está probado en
+   hardware; si el 2D falló, no se enciende; toda espera con plazo; ante cualquier fallo se para el CP
+   (`CP_CSQ_CNTL` = 0) y **nunca se reinicia el motor** (`RBBM_SOFT_RESET`) con la pantalla del VBE
+   encendida: si el motor quedara ocupado, el vigilante del 2D (D244) pasa a la CPU. El único registro
+   «delicado» es el 0x0D del PLL (reloj de las tuberías de píxeles), que Linux y X.org escriben siempre al
+   iniciar el 3D: se escribe solo si no tiene ya ese valor y se apunta el antes y el después.
+8. **Diagnóstico:** seis etapas `[GPU3D] r500: etapa N …` (memoria y zona; microcódigo; tuberías y PLL; CP en
+   marcha; prueba de la cola; estado fijo), `r5_detalle()` con RBBM_STATUS, CP, punteros, apuntes y zona
+   (sola tras un fallo, y con `gpu3d probar --detalle`), y la autoprueba, la medida y la puntuación de la capa
+   (`gpu3d`, pestaña GPU de Información del PC).
+
+**Alternativas descartadas:** (a) *registros directos sin CP*: no funciona en R5xx (punto 2). (b) *GART PCIE
+con la cola en RAM*, como Linux: obliga al bus maestro y a programar el GART con la pantalla del VBE en uso;
+queda como plan B. (c) *`PVS_BYPASS`* (sin programa de vértices): válido en las tarjetas sin TCL; en R5xx el
+camino probado por X.org es el programa que copia. Queda como variante a probar si la etapa 6 pasa y los
+triángulos no salen. (d) *Búferes de vértices en VRAM* (`3D_LOAD_VBPNTR`): más rápido con muchas órdenes, pero
+añade otra cosa que puede fallar; después de la primera prueba en hardware. (e) *Avisar al CP en cada dibujo*
+(GPU y CPU en paralelo): más rápido, pero el 3D quedaría trabajando mientras el escritorio usa el 2D por MMIO;
+después de confirmar el camino conservador.
+
+**Referencias (solo valores de registros y orden de las secuencias; el código es propio):** `r300_reg.h` de
+Mesa (MIT); `radeon_reg.h`, `radeon_commonfuncs.c` y `radeon_exa_render.c` de xf86-video-ati 6.14.6 (MIT);
+`r100.c` y `rv515.c` del DRM de Linux v6.6 (ficheros con licencia MIT). Registradas en `docs/terceros.md`.
+
+**Pruebas:** `tests/h287_gpu3d_r500.py` (unidad en el PC: 292 comprobaciones; fuentes; microcódigo en la
+imagen; QEMU sin Radeon con y sin `--gpu3d=radeon`: nada cambia). **Sin probar en hardware:** `docs/gpu3d.md`,
+«Qué probar en el Amilo».
+
+**Límites:** sin líneas ni puntos por la GPU, sin tijera del programa, texturas sin mipmaps, un solo destino;
+el cuadro vuelve a la RAM leyendo la VRAM (lento); las integradas RS600/RS690 (otro microcódigo, memoria
+compartida) y las R300/R420 (programa de fragmentos distinto) quedan fuera.
+
+## D288. Renderizador de la SDL 2 por la GPU (v8.3, rama `v8.3-sdl-gpu`)
+
+**Contexto.** D257 fija el orden de la v8.3: 3D por la GPU, renderizador de la SDL 2 por GPU y varias pantallas. La capa 3D común `gpu3d` (D285) ya existe (triángulos con textura, mezcla, destino en la GPU, lectura del cuadro). La SDL 2 de SaguiOS dibujaba solo por software (D247).
+
+**Decisión.**
+1. **Un renderizador por GPU dentro de `sdl2_sagui.c`** (`userland/libsdl2/sdl2gpu.h`, incluido), sobre las llamadas de `gpu3d` (`INFO_GPU3D_OP`): texturas en los 8 huecos de la GPU (con desalojo del menos usado y copia de la CPU siempre válida), `RenderCopy/CopyEx` y rellenos como cuadriláteros recortados al lienzo, mezcla y modulación de color/alfa, y `RenderPresent` trae el cuadro y lo presenta como siempre. Sin cambios en la capa del kernel ni en la ABI.
+2. **Caída silenciosa al software** (autoprueba fallida, no cabe, textura de más de 2048, la GPU rechaza algo, cambio de tamaño, dibujo por CPU sobre el lienzo): se trae lo dibujado al lienzo y se sigue; el camino de software de siempre no se toca para los juegos. Se usa solo con `SDL_RENDERER_ACCELERATED` explícito (o `SAGUI_SDL2_GPU=1`/`sagui_sdl2_gpu = 1` para forzarlo y medir los ports; `=0` lo apaga): un portátil real con una lectura lenta del cuadro no debe empeorar por sorpresa.
+3. **El software gana lo que le faltaba para ser la referencia:** giro de `SDL_RenderCopyEx`, `SetTextureColorMod/AlphaMod`, mezcla de `SetRenderDrawBlendMode` en rellenos y líneas horizontales/verticales como un rectángulo.
+4. **El camino intermedio por el 2D acelerado (D195) no se hace:** el 2D no tiene llamada para programas (solo lo usa el compositor); añadirla tocaría el kernel central. Sin 3D, software.
+
+**Sin probar en hardware.** QEMU solo tiene el driver simulado de `gpu3d`. `docs/sdl-gpu.md` dice qué medir en el dv7/Amilo. Lo que limita en Intel Gen3 será seguramente la lectura del cuadro por la apertura sin caché (no hay búfer compartido con el compositor, pendiente de la capa común).
+
+**Pruebas:** `tests/h288_sdl_gpu.py` (fuentes, std, simulado) con `/apps/bin/sdl2gpu`; h228, h229, h230, h235, h136 y h246 (los ports) sin cambios.
+
+## D289. El cliente de correo con interfaz al estilo de Outlook clásico (mejora 113, v8.3)
+
+**Contexto:** el `correo` de la D146 tenía una lista de asuntos y un cuerpo. El mantenedor pidió (2026-11-15) una interfaz parecida a Outlook de Windows 98 / Office antiguo, simplificada.
+
+**Decisión:**
+
+1. **Tres paneles** con separadores arrastrables: árbol de carpetas, lista en columnas (leído, adjunto, De, Asunto, Recibido; clic en la cabecera ordena, por defecto lo más reciente primero; no leídos en negrita) y vista previa (cabecera De, Para, Asunto, Fecha, y el cuerpo). Barra de herramientas con iconos de la biblioteca D135, menú clásico, menú contextual y barra de estado («N mensajes, M sin leer» y el estado de la conexión). El aspecto es el de Windows 98 (gris, biseles); la libsagui no tiene API de tema, así que los colores van en el programa.
+2. **Carpetas en disco:** la Bandeja de entrada sigue siendo `/home/correo` (compatible con la D146); `Enviados`, `Borradores` y `Eliminados` cuelgan de ella, y cada carpeta IMAP del servidor va en `/home/correo/imap/<nombre>` (el `/` del nombre se guarda como `~`). El estado de leído está en un fichero `.lidos` de cada carpeta. Eliminar mueve a «Elementos eliminados»; ahí, borra definitivamente (con confirmación).
+3. **Recibir sin repetir:** `/home/correo/.vistos` guarda el hash de lo ya descargado; «Enviar y recibir» (F5) no vuelve a guardar un mensaje que ya llegó, aunque se haya borrado. Con IMAP se descargan también las demás carpetas (`imap_listar_pastas`, y `buzon_cfg_t.pasta`).
+4. **Redacción:** Para, CC, Asunto, adjuntos con `dialogo_abrir` (D272), «Borrador» y cerrar con texto (pregunta si guardar). SMTP manda un `RCPT TO` por cada dirección de Para y CC; el mensaje lleva `Cc:` y `Date:`. Responder cita el original con «> »; Responder a todos quita la dirección propia; Reenviar pone el original en el cuerpo (sin sus adjuntos). Los enviados dejan copia en «Enviados».
+5. **Libreta de direcciones:** `/home/.config/correo.libreta` (un contacto por línea, «Nombre <dirección>»). **No** es `/home/.config/correo/` como se pidió: esa ruta ya es el fichero de la cuenta (D146) y cambiarlo rompería las instalaciones existentes.
+6. **Teclado:** Supr, Ctrl+N, Ctrl+R, Ctrl+Mayús+R, Ctrl+F (reenviar), Ctrl+E (buscar), F5 (enviar y recibir), Intro y doble clic (abrir en su ventana; un borrador se abre para seguir editándolo).
+
+**Pruebas:** `tests/h289_correo_outlook.py` (IMAP con la carpeta «Trabajo» del servidor falso: recibir, vista previa, ordenar, carpetas, responder, reenviar, CC y adjunto, enviados, eliminar, borrador, libreta y separador) y `tests/h118_correo.py` adaptada al nuevo aspecto. h272 sigue pasando.
+
+## D290. Varias pantallas, fase 1: escritorio extendido y espejo con salidas de QEMU (v8.3, mejora 060)
+
+**Contexto.** La mejora 060 reparte las varias pantallas entre la v8 (escritorio), la v9 (Intel) y la v10 (AMD); la D257 puso
+la fase 1 en la v8.3, después del 3D y de la SDL 2 por GPU. Hasta ahora el kernel conocía una sola salida (la que deja el VBE)
+y todo el escritorio (búfer de atrás, ratón, barra, maximizar, pantalla completa) daba por hecho que la pantalla era ese modo.
+
+**Decisión.**
+1. **Cabezas y escritorio.** Cada salida de vídeo es una *cabeza*; la 0 es la del arranque (`video.c`, VESA o BGA con cambio en
+   caliente) y las demás las registra su driver con `telas_registrar_saida()` (`kernel/inc/telas.h`, `kernel/dispositivos/telas.c`):
+   framebuffer de 32 bits, pitch, modo y una función `mudar_modo`. El escritorio es **un único búfer de atrás** de
+   `video_largura() x video_altura()` (la suma de las cabezas en extendido); `video_mostrar` copia a cada cabeza el rectángulo que
+   le toca (`copiar_regiao`) y el cursor se dibuja en todas las que lo muestran. `video_prim_largura/altura` son el modo de la
+   cabeza 0 (`INFO_TELA`, `SIS_MUDAR_MODO` y la orden `pantalla WxH` siguen hablando de ella). Con una sola cabeza no se registra
+   nada y el camino es el de siempre.
+2. **Modos.** *Extender*: la **principal** (cualquiera, por defecto la 0) queda en (0,0) y las demás van a su **derecha** o **debajo**
+   (`TELAS_LADO_*`); *espejo*: todas muestran la esquina (0,0) del escritorio, que mide lo que la principal (las demás intentan
+   su modo; si no pueden, se recortan). La principal siempre en (0,0) es lo que permite que la barra de arriba (`barra.c`, 24 px,
+   con sus constantes en coordenadas de pantalla) no cambie: solo mide `telas_principal_rect` de ancho. **No se admite
+   «izquierda» ni «arriba»**: haría falta un desplazamiento en toda la barra; se consigue eligiendo otra principal.
+3. **Gestor de ventanas.** La pantalla de una ventana es la que contiene el centro de su marco (`mon_da` en `janelas.c`):
+   **maximizar** y la **pantalla completa** usan esa pantalla (con la franja de la barra de arriba reservada si cae en (x,0));
+   `EV_TELA` y el tamaño pedido a un programa en pantalla completa son los de su pantalla; las ventanas nuevas, los avisos, el panel de
+   Alt+Tab, el diálogo de permisos, los iconos y la mascota del escritorio, y las posiciones negativas de `SIS_MOVER_JANELA`
+   (desde el borde) van en la principal. El ratón nunca queda en una zona sin pantalla (`telas_prender`). La barra solo está en la
+   principal (en las otras queda una franja de 24 px sin ventanas; una barra por pantalla queda para más adelante).
+4. **Primer driver: segunda tarjeta de Bochs/QEMU** (`bga_extra.c`): `-device bochs-display` o `-device secondary-vga` es otra
+   tarjeta PCI 1234:1111 con BAR 0 de framebuffer y los mismos registros «dispi» del BGA en la ventana MMIO del BAR 2
+   (0x500 + 2·registro; sin puertos de E/S). Elegido en lugar de `virtio-gpu` con `max_outputs` porque `virtio-gpu` obliga a un
+   driver completo (virtqueues, órdenes 2D, «scanouts») y un framebuffer propio no tiene modo; con `bochs-display` el
+   `screendump FICHERO DISPOSITIVO` da una captura por cabeza. `virtio-gpu` y la VMware SVGA con varias pantallas **quedan sin
+   hacer**; los drivers de la v8.3/v11 (y los de Intel de la v9) pueden declarar sus salidas con la misma interfaz. QEMU 8.2 no
+   contesta a «capacidades» en `bochs-display` (máximo 0): se toma 4096x4096 y valen la memoria y la lectura de vuelta.
+5. **Cuándo se aplica.** `telas_iniciar()` se llama justo después de `gui_iniciar` (un `[TELAS]` en el registro): busca las
+   salidas extra, lee `/home/.config/pantallas.conf` (modo, lado, principal y `resN=LxA`) y, si hay más de una, el escritorio
+   cambia de tamaño con la misma cadena que el cambio de resolución en caliente (D059: consola, ratón, fondo, ventanas). **Por
+   defecto, extendido a la derecha.** El arranque, la memoria, el planificador y el VFS no se tocan; video.c y el gestor de
+   ventanas sí (es el núcleo del escritorio, no del kernel).
+6. **Interfaz.** `SIS_TELAS` (136; `SIS_MAX` pasa a 137): `TELAS_OP_INFO` (`info_telas_t`), `_CONFIG` (modo, lado, principal),
+   `_RESOLUCAO` (pantalla N) y `_GUARDAR`. Orden `pantalla salidas | extender [derecha|abajo] | espejo | principal N | salida N
+   WxH` (con `--guardar`) y, en Configuración > Pantalla, una fila de botones (Extender, Espejo, Principal, Lado, «Resolución de:
+   pantalla N»); cada botón se aplica y se guarda al momento.
+7. **Límites conocidos.** El fondo de pantalla personalizado se escala al escritorio entero (en extendido se estira entre las
+   dos); `INFO_APARENCIA` y `INFO_TELA` dicen el escritorio y la cabeza 0 respectivamente; el acelerador 2D se apaga con varias
+   pantallas (solo conoce la cabeza 0); sin «¿Mantener esta configuración?» ni detección de conexión (v9/v10, con EDID).
+
+**Pruebas.** `tests/h290_multipantalla.py` (QEMU con `-device VGA,id=prim -device bochs-display,id=seg`, una captura por cabeza):
+registro de la segunda tarjeta, escritorio de 2048x768, barra solo en la 1, arrastrar el Terminal a la 2 con el ratón, maximizar
+allí (1020x718), espejo con las dos capturas idénticas píxel a píxel, principal 2 (la barra pasa), resolución 800x600 de la 2,
+`extender abajo --guardar`, reinicio con la disposición guardada (1024x1536) y, con una sola tarjeta, nada cambia. Siguen pasando
+h17, h20, h21, h42, h58, h60 y h268.
+
+## D291 - Pluma: procesador de textos con aspecto de Word 97, RTF y exportación a PDF (v8.3, mejora 116)
+
+**Decisión:** un procesador de textos propio, **Pluma** (`/bin/pluma`, Inicio > Accesorios), con el aspecto de un Word 97 simplificado (gris, biseles, barra de menús, barras Estándar y Formato con iconos, regla, vista de página sobre fondo gris, barra de estado) y **sin macros**. Lee y escribe **RTF** (para intercambiar con Word y LibreOffice) y texto plano, y **exporta a PDF** en lugar de imprimir. Para que los componentes se reutilicen, lo genérico se sube a la libsagui.
+
+1. **Componentes nuevos de la libsagui** (declarados en `userland/inc/gui.h`, aspecto Windows 98 con `W98_*` y `g_bisel`):
+   - `barra_menu_*` (barra de menús; los desplegables son el menú del sistema, `menu_contextual`);
+   - `barra_ferr_*` (barra de herramientas con iconos 16x16 dibujados por una función o texto, botones conmutables, separadores y huecos para otros componentes);
+   - `combo_*` (lista desplegable, con texto editable opcional);
+   - `regua_*` (regla horizontal en cm con márgenes y sangrías arrastrables);
+   - `barra_estado_*` (barra de estado con secciones);
+   - `rte_*` (**control de edición de texto con formato**, `userland/libsagui/edicao_rica.c`: vista de página con zoom, formato por carácter y por párrafo, selección con ratón y teclado, portapapeles del sistema con formato propio si el texto no cambió, deshacer/rehacer por instantáneas, buscar y reemplazar, contar, exportación a PDF);
+   - `dialogo_fonte`, `dialogo_paragrafo`, `dialogo_buscar` (`edicao_rica_dialogos.c`);
+   - `rtf_ler`/`rtf_escrever` (`userland/libsagui/rtf.c`, `userland/inc/rtf.h`) y el **escritor de PDF** `pdfw_*` (`userland/libsagui/pdf_escribir.c`, `userland/inc/pdf_escribir.h`).
+2. **Modelo del documento:** texto Latin-1 con `\n` entre párrafos y `\f` como salto de página; un índice de formato por carácter (tabla de hasta 256 formatos: fuente, tamaño, N/C/S/T y color) y los atributos de cada párrafo (alineación izquierda/centro/derecha/justificado, sangrías izquierda, derecha y de primera línea, interlineado, espaciado antes y después, viñeta). Todo en **twips** (1/20 de punto), sin coma flotante.
+3. **Fuentes y métricas:** el documento usa tres familias (sans, serif, mono) que en RTF se escriben como Arial, Times New Roman y Courier New y en el PDF salen como las **14 fuentes estándar** (Helvetica, Times, Courier y variantes; codificación WinAnsi, que coincide con Latin-1 en los acentos). Los anchos son los de las AFM de Adobe (`userland/libsagui/pdf_metricas.h`, generado por `tools/gerar_metricas_pdf.py`; datos públicos, fila en `docs/terceros.md`). **La maquetación en pantalla y en el PDF es la misma** (`maquetar` del control calcula las líneas y las páginas con esos anchos y `rte_exportar_pdf` las vuelca), de modo que paginan igual. En pantalla los glifos se dibujan con la fuente de mapa de bits 8x16 escalada (promediado de 2x2 muestras, negrita por engrosado, cursiva por inclinación): no se enlaza la libfontes (usa la FPU y la libsagui se compila sin ella) y no hay Helvetica/Times en el sistema.
+4. **PDF (`pdfw_*`):** PDF 1.4 con texto, rectángulos y líneas, `/Font` de las 12 variantes estándar, contenido comprimido con Flate (`deflar` + cabecera zlib + Adler-32), tabla xref exacta, título en `/Info`, hoja A4, Carta o de tamaño propio. No incrusta fuentes ni imágenes.
+5. **RTF:** lector de un subconjunto de la especificación pública (fuentes y colores, `\b \i \ul \strike \fs \f \cf \plain`, `\pard \ql \qc \qr \qj \li \ri \fi \sl \slmult \sb \sa`, viñetas `\pntext`/`\pnlvlblt`/`\listtext`, `\page`, `\tab`, `\'hh`, `\uN`, `\paperw \paperh \marg*`); lo que no entiende (imágenes, tablas, estilos, cabeceras, campos, listas numeradas, que pasan a viñetas) se descarta sin fallar. El escritor es **estable**: leer lo que se escribió y volver a escribirlo da el mismo texto.
+6. **No hace:** imágenes (la inserción de imagen queda fuera: no salió barata), tablas, estilos con nombre, cabeceras y pies, columnas, corrector, macros, impresión directa, imprimir en horizontal. La barra de título de la ventana es la del gestor de ventanas del sistema (verde del tema de SaguiOS); no se tocó el kernel.
+7. **Núcleo del kernel:** no se tocó (solo el icono de 16x16 y la entrada del menú Inicio en `kernel/gui/arte.c` y `barra.c`).
+
+**Pruebas:** `tests/h291_pluma.py` (modos sin ventana `pluma --info` y `pluma --convertir`: RTF a PDF validado en el anfitrión con `tests/pdf_validar.py` —estructura, xref, Flate, texto, fuentes, tamaño— y abierto por el Visor de PDF del sistema; ida y vuelta de RTF estable; TXT a PDF en Carta; y con ventana: escribir con Ctrl+B/Ctrl+I, menú Formato, diálogo Fuente, guardar por el diálogo, exportar a PDF, buscar, cerrar y reabrir, documento de dos páginas; capturas `docs/capturas/H291-*.png`). Siguen pasando `h22_componentes`, `h98_componentes_v61` y `h272_dialogos_archivo`.
+
+## D293. Macaco con el estilo de Excel 97: formatos de celda, diálogo, CSV y PDF (v8.3, mejora 117)
+
+**Contexto.** El mantenedor pidió (2026-11-15) que la hoja de cálculo Macaco (D140/D142) tuviera el aspecto de Pluma (D291) y del
+correo (D289): gris, biseles, barra de título azul, iconos de 16x16 propios. Entra en la v8.3.
+
+1. **Reutilizar, no duplicar.** Se fusionó `v8.3-procesador` (hasta `84735578`) y se usan sus componentes: `barra_menu`, `barra_ferr`
+   (botones conmutables y huecos para combos), `combo` y `barra_estado`, y el escritor de PDF `pdfw_*`. Lo que faltaba se añadió a la
+   libsagui de forma genérica: `iconos98.c` (iconos de barra), `gui_pestanas.c` (`pestanas_t`) y la exportación de `boton98`,
+   `casilla98` y `lista_en_marco` (solo se quitó `static`; Pluma no cambia).
+2. **Formato por índice, como los XF de Excel.** `celula_t` gana un byte `fmt`, índice en `livro.fmts[256]`; el 0 es el formato por
+   omisión y se interna por igualdad (`memcmp`). Una celda cuesta un byte más y 100000 celdas iguales no gastan memoria. Más de 255
+   formatos distintos en un libro se rechazan con un aviso. Campos: `nf` (general, número, moneda, porcentaje, miles), `dec`,
+   `moeda`, `al`, `est`, `fam`, `tam`, `bor`, `cor` y `rel`. El porcentaje muestra la centésima como porcentaje (0.25 = 25%): la
+   precisión del modelo es de centésimas (D076, sin coma flotante).
+3. **`.mxs` compatible.** Líneas nuevas `formato REF clave=valor...` (una por celda con formato). Quien no las conozca las ignora, porque
+   el lector salta las líneas desconocidas; los `.mxs` anteriores se leen igual. Quedan sin guardar (de momento) el alto de las filas y
+   los paneles inmovilizados, que no se hicieron.
+4. **Pantalla.** La fuente es de mapa de bits 8x16: el tamaño se consigue ampliando por vecino más próximo y la cursiva inclinando las
+   filas; la negrita es la doble pasada; la **familia** (Arial/Times/Courier) solo afecta al PDF y así lo dice el diálogo. Las
+   celdas seleccionadas se tiñen (mezcla al 50 % con azul) y la activa queda blanca con borde negro grueso.
+5. **Diálogo Formato de celdas** con cinco pestañas; aplica una máscara con lo que el usuario cambió (`FO_MASC`), de modo que formatear
+   un rango con celdas distintas no pisa lo que no se tocó (como Excel).
+6. **CSV y PDF.** CSV: coma, comillas dobles, números sin formato y punto decimal; la entrada detecta `,` `;` y tabulador y convierte
+   UTF-8 a Latin-1; un `.csv` abierto por Archivo > Abrir es un libro de una hoja. PDF: la hoja activa en A4, filas por páginas y luego
+   columnas, con la paginación calculada con las métricas de `pdfw_largura_texto`. `macaco --convertir` hace las dos cosas sin ventana.
+7. **Teclado.** Mayús+flechas dejaba el ancla pisada en cada pulsación (solo se ampliaban dos celdas): se corrigió. F2, F4 (con `$` en
+   el analizador de fórmulas: `$A$1`, `A$1`, `$A1`), Ctrl+A/B/I/U/G/N/P/1.
+8. **No hecho** (queda anotado en la mejora 117): inmovilizar paneles, alto de filas arrastrable, que los formatos acompañen a las
+   filas al ordenar, formato condicional, fuentes reales en pantalla y varias hojas en CSV.
+
+**Pruebas.** `tests/h293_macaco_excel.py` (interfaz y capturas, cuadro de nombre y SUMA, moneda y negrita por la barra, diálogo Formato de
+celdas con Alineación/Tramas, F2/F4/Mayús+flechas, pestañas, guardar y recargar con formatos, CSV de ida y vuelta, PDF por el diálogo y
+por `--convertir` validado en el anfitrión) y `tests/h110_macaco.py` con las coordenadas nuevas.
+
+## D292 - Micrófono y grabación, balance, latencia, conectores guardados y salida recordada (v8.3, mejora 075)
+
+**Contexto.** El mantenedor pidió (2026-11-15) «el soporte del micrófono y mejoras de configuración de poco esfuerzo». No había grabación de ningún tipo (punto 3 de la mejora 075).
+
+**Decisión.**
+1. **Una capa común de captura** (`kernel/dispositivos/captura.c`) sobre un anillo de 48 kHz estéreo de 16 bits que llena la tarjeta: en cada tic se vacía a una cola del kernel de 340 ms, con pico/RMS y conversión de tasa (8000 a 48000 Hz, interpolación lineal en punto fijo) y de canales al leer. Los drivers solo dan anillo, posición, elegir entrada y ganancia (`captura_hw_t` dentro de `placa_som_t`). Sin IRQ: el tic basta.
+2. **HDA:** primer flujo de entrada, entradas descubiertas por la configuración por defecto de los pines (micrófono interno, externo, línea, auxiliar) con su camino hasta un ADC; **AC'97:** canal PCM IN y selector de grabación (micrófono, línea, auxiliar).
+3. **Sin llamada al sistema nueva:** `INFO_CAPTURA` = 75 (`info_sistema`, como la cámara) con `info_captura_t`; `AUDIO_BALANCE` = 8 y `AUDIO_LATENCIA` = 9 en `SIS_AUDIO_CONTROLE`. Así no se toca `SIS_MAX` (136 queda libre para las ramas abiertas). Los servicios no pueden grabar (`ERRO_ACESSO`, como la cámara, D277); una captura a la vez, que cierra el tic si muere su dueño.
+4. **Fuente de prueba** (`CAP_FUENTE_PRUEBA`): tono de 1 kHz generado en el kernel por la misma cola y conversión, porque QEMU 8.2 no inyecta audio de entrada (`-audiodev none` da silencio que avanza; `wav` ni avanza).
+5. **Programas:** `grabar` (WAV por la línea de órdenes), **Grabadora** (ventana: grabar, parar, reproducir, guardar con el diálogo D272, medidor) y `libsagui/captura.c`.
+6. **Configuración > Sonido:** micrófono (entrada, ganancia, silencio, medidor en vivo), balance, probar izquierdo/derecho, latencia y salida elegida, guardados en `sagui.conf` y aplicados por `configuracion --aplicar`.
+7. **Ajustes de conectores por modelo** (075 punto 9): `sonido --guardar` + `--aplicar/--guardados/--olvidar`, en `/home/.config/sonido.conf` por `[codec:ssid PCI:ssid códec]`, aplicado en cada arranque.
+8. **Balance** en el mezclador de salida (antes del ecualizador; centrado = bit a bit igual) y **latencia base** configurable (20 a 300 ms; sigue creciendo sola tras un corte, hasta 300).
+
+**No hecho (anotado en `docs/microfono.md`):** micrófono USB UAC 1 (la entrada isócrona existe desde la D277, pero QEMU no emula un micrófono USB para probarla), volumen por aplicación (grande), sonidos del sistema (no existen aún).
+
+**Sin probar en hardware:** nivel real, ganancia del códec y micrófonos internos (dv7, L850 ALC269, G470): lista en `docs/microfono.md`.
+
+**Pruebas:** `tests/h292_microfono.py` (hda, ac97, sin tarjeta, balance, conectores, ventana; capturas `H292-*.png`).

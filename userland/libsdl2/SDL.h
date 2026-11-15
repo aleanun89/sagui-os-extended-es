@@ -366,6 +366,7 @@ extern const char *sagui_sdl2_nome;
 extern int sagui_sdl2_cheia_inicial;
 extern int sagui_sdl2_escala;
 extern int sagui_sdl2_medir;   /* D247: escribe el tiempo de cada fase por cuadro */
+extern int sagui_sdl2_gpu;     /* D288: renderizador por GPU: 0 solo con SDL_RENDERER_ACCELERATED, 1 siempre, -1 nunca (o SAGUI_SDL2_GPU=0/1) */
 
 /* ---- renderer de software ---- */
 typedef struct SDL_Renderer SDL_Renderer;

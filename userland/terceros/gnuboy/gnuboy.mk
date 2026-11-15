@@ -37,7 +37,7 @@ SDL2_FLAGS := -m32 -march=i686 -std=gnu11 -Os \
   -Iuserland/libsdl2 -I$(LIBC_DIR) -Iuserland/inc -idirafter kernel/inc \
   -finput-charset=UTF-8 -fexec-charset=ISO-8859-1 -Wall -Wextra -Wno-unused-parameter
 SDL2_OBJ := $(B)/userland/libsdl2/sdl2_sagui.o
-$(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
+$(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/sdl2gpu.h userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(SDL2_FLAGS) -c -o $@ $<
 endif

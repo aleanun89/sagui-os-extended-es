@@ -84,7 +84,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `OTIMIZACAO` | `-O2` | nivel de optimización (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` deja fuera lo que no puede ir en un binario GPL v3: NetSurf, GNUBoy y el r8169 derivado de Linux (el driver usa el inicio clásico propio). Lo pasa solo `gerar_versao.sh` si no usas `--con-input-share` |
 | `SEM_GPL` | `0` | `1` deja fuera todos los ports de terceros con licencia GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, Linux). Compila en `build-sem-gpl/` |
-| `SEM_FIRMWARE` | `0` | `1` no mete el firmware binario (`firmware/`, hoy el del pincho Wi-Fi RTL8188EU). Compila en `build-sem-firmware/` |
+| `SEM_FIRMWARE` | `0` | `1` no mete el firmware binario (`firmware/`: el del pincho Wi-Fi RTL8188EU y el microcódigo de las Radeon R7xx para el 3D por la GPU). Compila en `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` genera la imagen sin MicroPython (bastante más pequeña) |
 | `NETSURF` | `1` | navegador NetSurf; solo entra si están las fuentes preparadas y el pegamento (ver 7). `NETSURF=0` lo quita |
 | `GNUBOY` | `1` | emulador de Game Boy; solo entra si está descargado su código (`make priv_descargas` o `bash tools/gnuboy_fuentes.sh`, ver 5 y 7). `GNUBOY=0` lo quita |
@@ -162,7 +162,7 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--part-fs {ext2,fat32}` | `ext2` | sistema de las particiones sin `--*-fs` propio |
 | `--cd` | apagado | imagen para la ISO (la usa `make iso`) |
 
-Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente) o `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`.
+Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente) o `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas las imágenes de disco, arranca por BIOS y por UEFI (D270; `crear-disco.py --sin-uefi`: solo BIOS).
 
 ### 4. Objetivos: qué imagen sale de cada uno
 
@@ -214,7 +214,7 @@ Notas:
 
 - **Typodermic:** `make priv_descargas` (o `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba`) baja el zip a `NEW_FONTS/` si falta. Si la web da 404 (pasó el 2026-11-14), el guion lo dice con claridad y **no rompe nada**: el sistema se construye igual sin esas fuentes. Para tenerlas, baja el zip a mano y ponlo en `NEW_FONTS/typodermic-public-domain-2024-12.zip` (se comprueba el SHA-256). `make` solo mete las fuentes si el zip ya está en `NEW_FONTS/` cuando compilas (esa carpeta no va en el repositorio público).
 - **`make priv_descargas`** ejecuta, por este orden: `tools/netsurf_fuentes.sh` (si no hay fuentes preparadas), `tools/gnuboy_fuentes.sh` (si no está `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` y la descarga de las fuentes Typodermic (si falla, avisa y sigue). Funciona igual con el repositorio público: el pegamento de NetSurf y GNUBoy va en él.
-- **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
+- **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), el microcódigo de las Radeon R7xx para el 3D por la GPU (`firmware/radeon/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_radeon.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Juegos y datos que pones tú (`input_share/`)
 
@@ -308,7 +308,7 @@ Comprueba las descargas con `sha256sum -c SHA256SUMS.txt`. En una máquina real,
 | Una prueba (h34) falla al preparar su disco | Pasa si existe `input_share/`: la compilación mete tus juegos. Para probar, `make all INPUT_SHARE= OPENJAZZ_DATOS=0 QUAKE_DATOS=0` |
 | Pruebas sobre una imagen vieja sin darte cuenta | Encadena con `&&`: `make -j4 && python3 tests/hNNN_xxx.py`; si el enlace falla, la imagen no se regenera y la prueba arranca la anterior |
 | `make` falla con ficheros raros de nombre `*:Zone.Identifier` | Son restos de copiar desde Windows; bórralos |
-| El PC no arranca la imagen | Usa BIOS tradicional (Legacy/CSM), no UEFI. Graba en modo **DD**. Prueba antes `saguios.img` (un núcleo) |
+| El PC no arranca la imagen | Las imágenes de disco y la ISO arrancan por BIOS (Legacy/CSM) y por UEFI (con Secure Boot en «Other OS», `docs/uefi.md`). Graba en modo **DD**. Prueba antes `saguios.img` (un núcleo) |
 
 ---
 
@@ -390,7 +390,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `OTIMIZACAO` | `-O2` | optimization level (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` leaves out what cannot go into a GPL v3 binary: NetSurf, GNUBoy and the Linux-derived r8169 (the driver uses its own classic init). `gerar_versao.sh` sets it for you unless you use `--con-input-share` |
 | `SEM_GPL` | `0` | `1` leaves out every GPL-licensed third-party port (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, Linux). Builds in `build-sem-gpl/` |
-| `SEM_FIRMWARE` | `0` | `1` leaves out the binary firmware (`firmware/`, today the RTL8188EU Wi-Fi dongle's). Builds in `build-sem-firmware/` |
+| `SEM_FIRMWARE` | `0` | `1` leaves out the binary firmware (`firmware/`: the RTL8188EU Wi-Fi dongle's and the Radeon R7xx microcode for GPU 3D). Builds in `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` builds the image without MicroPython (considerably smaller) |
 | `NETSURF` | `1` | the NetSurf browser; only included if the sources are prepared and the glue exists (see 7). `NETSURF=0` removes it |
 | `GNUBOY` | `1` | the Game Boy emulator; only included if its code has been downloaded (`make priv_descargas` or `bash tools/gnuboy_fuentes.sh`, see 5 and 7). `GNUBOY=0` removes it |
@@ -468,7 +468,7 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--part-fs {ext2,fat32}` | `ext2` | file system of the partitions without their own `--*-fs` |
 | `--cd` | off | image for the ISO (used by `make iso`) |
 
-A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`.
+A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Like every disk image, it boots by BIOS and by UEFI (D270; `crear-disco.py --sin-uefi`: BIOS only).
 
 ### 4. Targets: which image each one produces
 
@@ -520,7 +520,7 @@ Notes:
 
 - **Typodermic:** `make priv_descargas` (or `python3 tools/fuentes_typodermic.py seleccion /tmp/fonts-test`) downloads the zip into `NEW_FONTS/` if it is missing. If the website gives 404 (it did on 2026-11-14), the script says so clearly and **breaks nothing**: the system is built anyway without those fonts. To get them, download the zip by hand and put it at `NEW_FONTS/typodermic-public-domain-2024-12.zip` (the SHA-256 is checked). `make` only includes the fonts if the zip is already in `NEW_FONTS/` when you build (that folder is not in the public repository).
 - **`make priv_descargas`** runs, in this order: `tools/netsurf_fuentes.sh` (if there are no prepared sources), `tools/gnuboy_fuentes.sh` (if `jogo/` is missing), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` and the download of the Typodermic fonts (if it fails, it warns and goes on). It works the same with the public repository: the NetSurf and GNUBoy glue is in it.
-- **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
+- **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the Radeon R7xx microcode for GPU 3D (`firmware/radeon/`, from linux-firmware, redistributable unchanged; `tools/firmware_radeon.sh --comprobar` verifies it and without `--comprobar` it downloads it again; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Games and data you provide (`input_share/`)
 
@@ -614,7 +614,7 @@ Check downloads with `sha256sum -c SHA256SUMS.txt`. On a real machine, start wit
 | A test (h34) fails while preparing its disk | It happens if `input_share/` exists: the build adds your games. To test, `make all INPUT_SHARE= OPENJAZZ_DATOS=0 QUAKE_DATOS=0` |
 | Testing an old image without noticing | Chain with `&&`: `make -j4 && python3 tests/hNNN_xxx.py`; if linking fails, the image is not regenerated and the test boots the previous one |
 | `make` fails because of odd files named `*:Zone.Identifier` | They are leftovers from copying from Windows; delete them |
-| The PC will not boot the image | Use traditional BIOS (Legacy/CSM), not UEFI. Write it in **DD** mode. Try `saguios.img` (single core) first |
+| The PC will not boot the image | The disk images and the ISO boot by BIOS (Legacy/CSM) and by UEFI (with Secure Boot set to "Other OS", `docs/uefi.md`). Write it in **DD** mode. Try `saguios.img` (single core) first |
 
 ---
 
@@ -696,7 +696,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `OTIMIZACAO` | `-O2` | nível de otimização (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` deixa de fora o que não pode ir em um binário GPL v3: NetSurf, GNUBoy e o r8169 derivado do Linux (o driver usa o início clássico próprio). O `gerar_versao.sh` passa isso sozinho, a menos que você use `--con-input-share` |
 | `SEM_GPL` | `0` | `1` deixa de fora todos os ports de terceiros com licença GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, Linux). Compila em `build-sem-gpl/` |
-| `SEM_FIRMWARE` | `0` | `1` não inclui o firmware binário (`firmware/`, hoje o do adaptador Wi-Fi RTL8188EU). Compila em `build-sem-firmware/` |
+| `SEM_FIRMWARE` | `0` | `1` não inclui o firmware binário (`firmware/`: o do adaptador Wi-Fi RTL8188EU e o microcódigo das Radeon R7xx para o 3D pela GPU). Compila em `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` gera a imagem sem o MicroPython (bem menor) |
 | `NETSURF` | `1` | o navegador NetSurf; só entra se as fontes estiverem preparadas e a cola existir (veja 7). `NETSURF=0` o remove |
 | `GNUBOY` | `1` | o emulador de Game Boy; só entra se o seu código foi baixado (`make priv_descargas` ou `bash tools/gnuboy_fuentes.sh`, veja 5 e 7). `GNUBOY=0` o remove |
@@ -774,7 +774,7 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--part-fs {ext2,fat32}` | `ext2` | sistema das partições sem `--*-fs` próprio |
 | `--cd` | desligado | imagem para a ISO (usada por `make iso`) |
 
-Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assistente) ou `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`.
+Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assistente) ou `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas as imagens de disco, arranca por BIOS e por UEFI (D270; `crear-disco.py --sin-uefi`: só BIOS).
 
 ### 4. Alvos: qual imagem sai de cada um
 
@@ -826,7 +826,7 @@ Notas:
 
 - **Typodermic:** o `make priv_descargas` (ou `python3 tools/fuentes_typodermic.py seleccion /tmp/fontes-teste`) baixa o zip para `NEW_FONTS/` se faltar. Se o site der 404 (aconteceu em 2026-11-14), o script avisa com clareza e **não quebra nada**: o sistema é construído do mesmo jeito sem essas fontes. Para tê-las, baixe o zip à mão e coloque-o em `NEW_FONTS/typodermic-public-domain-2024-12.zip` (o SHA-256 é verificado). O `make` só inclui as fontes se o zip já estiver em `NEW_FONTS/` quando você compila (essa pasta não está no repositório público).
 - **`make priv_descargas`** executa, nesta ordem: `tools/netsurf_fuentes.sh` (se não houver fontes preparadas), `tools/gnuboy_fuentes.sh` (se faltar `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` e o download das fontes Typodermic (se falhar, avisa e continua). Funciona igual com o repositório público: a cola do NetSurf e do GNUBoy está nele.
-- **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
+- **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), o microcódigo das Radeon R7xx para o 3D pela GPU (`firmware/radeon/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_radeon.sh --comprobar` verifica-o e, sem `--comprobar`, o baixa de novo; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Jogos e dados que você fornece (`input_share/`)
 
@@ -920,4 +920,4 @@ Verifique os downloads com `sha256sum -c SHA256SUMS.txt`. Em uma máquina real, 
 | Um teste (h34) falha ao preparar seu disco | Acontece se existir `input_share/`: a compilação inclui seus jogos. Para testar, `make all INPUT_SHARE= OPENJAZZ_DATOS=0 QUAKE_DATOS=0` |
 | Testar uma imagem velha sem perceber | Encadeie com `&&`: `make -j4 && python3 tests/hNNN_xxx.py`; se a ligação falhar, a imagem não é regenerada e o teste inicia a anterior |
 | O `make` falha com arquivos estranhos chamados `*:Zone.Identifier` | São restos de copiar do Windows; apague-os |
-| O PC não inicia a imagem | Use BIOS tradicional (Legacy/CSM), não UEFI. Grave em modo **DD**. Teste antes a `saguios.img` (um núcleo) |
+| O PC não inicia a imagem | As imagens de disco e a ISO arrancam por BIOS (Legacy/CSM) e por UEFI (com o Secure Boot em «Other OS», `docs/uefi.md`). Grave em modo **DD**. Teste antes a `saguios.img` (um núcleo) |

@@ -4,12 +4,14 @@
  * Hace con los servicios del firmware lo que la etapa 2 hace con la BIOS, y entrega
  * al kernel la misma boot_info (boot/bootinfo.inc), ampliada con lo que solo da UEFI:
  *
- *   [1/6] cabecera   \SAGUI\CABECERA.BIN de la ESP; si el disco de la ESP tiene en el
- *                    LBA 1 la misma cabecera (la imagen híbrida), se usa la del disco,
- *                    que es la que el kernel compara para saber de qué disco arrancó y
- *                    la que "pantalla --guardar" y "instalar" reescriben
- *   [2/6] kernel     \SAGUI\KERNEL.BIN, con la suma de la cabecera
- *   [3/6] ramdisk    \SAGUI\RAMDISK.SGF, idem
+ *   [1/6] cabecera   la del disco de la ESP: su LBA 1 (imagen híbrida, disco instalado con
+ *                    MBR) o, en una GPT, el primer sector de la partición de SaguiOS (disco
+ *                    instalado con GPT, D266/D270); es la que el kernel compara para saber
+ *                    de qué disco arrancó y la que "pantalla --guardar" reescribe. Sin ella,
+ *                    \SAGUI\CABECERA.BIN de la ESP
+ *   [2/6] kernel     \SAGUI\KERNEL.BIN de la ESP si es el mismo sistema que el del disco
+ *                    (imagen híbrida); si no, del disco, en los sectores de la cabecera
+ *   [3/6] ramdisk    \SAGUI\RAMDISK.SGF, idem; las sumas de la cabecera lo comprueban
  *   [4/6] tablas     RSDP de ACPI y SMBIOS de la tabla de configuración (sin BIOS no
  *                    están en 0xE0000-0xFFFFF); la MADT y la HPET para el trampolín
  *   [5/6] vídeo      GOP: el mejor modo con framebuffer lineal (la resolución de la
@@ -80,8 +82,10 @@ typedef struct __attribute__((packed)) {
 /* Cabecera de arranque (boot/cabecalho.inc). */
 #define CAB_ASSINATURA_VAL 0x44484753u
 #define CAB_OPCOES     6
+#define CAB_K_LBA      16
 #define CAB_K_BYTES    24
 #define CAB_K_ENDERECO 28
+#define CAB_R_LBA      32
 #define CAB_R_BYTES    40
 #define CAB_R_ENDERECO 44
 #define CAB_K_ENTRADA  52
@@ -247,12 +251,15 @@ static UINT32 somar(const UINT8 *p, UINT32 n)
 
 /* ------------------------------------------------------------ cabecera */
 
-/* La cabecera del LBA 1 del disco de la ESP, si la tiene. La ruta del dispositivo de la
- * ESP acaba en el nodo de la partición: sin él es la del disco entero, que es la que
- * LocateDevicePath encuentra con Block I/O. Devuelve 0 si la leyó. */
-static int cabecera_do_disco(EFI_HANDLE dispositivo, UINT8 *dest)
+/* D270: el disco entero de la ESP (Block I/O y, si lo hay, Disk I/O). La ruta del dispositivo de
+ * la ESP acaba en el nodo de la partición: sin él es la del disco entero, que es la que
+ * LocateDevicePath encuentra con Block I/O. */
+static EFI_BLOCK_IO_PROTOCOL *disco_bio;
+static EFI_DISK_IO_PROTOCOL *disco_dio;
+
+static int abrir_disco(EFI_HANDLE dispositivo)
 {
-    EFI_GUID gdp = GUID_DEVICE_PATH, gbio = GUID_BLOCK_IO;
+    EFI_GUID gdp = GUID_DEVICE_PATH, gbio = GUID_BLOCK_IO, gdio = GUID_DISK_IO;
     EFI_DEVICE_PATH_PROTOCOL *dp = 0;
     if (EFI_ERROR(BS->HandleProtocol(dispositivo, &gdp, (void **)&dp)) || !dp) return -1;
     UINTN tam = 0;
@@ -275,17 +282,128 @@ static int cabecera_do_disco(EFI_HANDLE dispositivo, UINT8 *dest)
     if (EFI_ERROR(BS->LocateDevicePath(&gbio, &r, &disco)) || !disco) return -1;
     if (r->Type != 0x7F) return -1;   /* no era el disco entero */
     EFI_BLOCK_IO_PROTOCOL *bio = 0;
-    if (EFI_ERROR(BS->HandleProtocol(disco, &gbio, (void **)&bio)) || !bio) return -1;
-    if (bio->Media->LogicalPartition || bio->Media->BlockSize != 512) return -1;
-    EFI_PHYSICAL_ADDRESS pag = 0xFFFFFFFFu;
-    if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, 1, &pag))) return -1;
-    int r2 = -1;
-    if (!EFI_ERROR(bio->ReadBlocks(bio, bio->Media->MediaId, 1, 512, (void *)(UINTN)pag))) {
-        memcpy(dest, (void *)(UINTN)pag, 512);
-        r2 = 0;
+    if (EFI_ERROR(BS->HandleProtocol(disco, &gbio, (void **)&bio)) || !bio || !bio->Media) return -1;
+    UINT32 bs = bio->Media->BlockSize;
+    if (bio->Media->LogicalPartition || bs < 512 || bs > 4096 || (bs & (bs - 1))) return -1;
+    EFI_DISK_IO_PROTOCOL *dio = 0;
+    if (EFI_ERROR(BS->HandleProtocol(disco, &gdio, (void **)&dio))) dio = 0;
+    disco_bio = bio;
+    disco_dio = dio;
+    return 0;
+}
+
+/* Lee n bytes del disco desde el byte 'pos' (múltiplo de 512). Con Disk I/O, directo; sin él, por
+ * bloques enteros a través de un búfer alineado (el Block I/O pide alineación y bloques enteros). */
+#define REBOTE 65536
+static UINT8 *rebote;   /* 16 páginas pedidas al firmware (estáticas, ocuparían 64 KB en el .EFI) */
+
+static int ler_disco(UINT64 pos, UINTN n, void *dest)
+{
+    if (!disco_bio) return -1;
+    UINT32 media = disco_bio->Media->MediaId;
+    if (disco_dio) return EFI_ERROR(disco_dio->ReadDisk(disco_dio, media, pos, n, dest)) ? -1 : 0;
+    UINT32 bs = disco_bio->Media->BlockSize;
+    if (disco_bio->Media->IoAlign > 4096) return -1;   /* el búfer de rebote está alineado a 4 KB */
+    if (!rebote) {
+        EFI_PHYSICAL_ADDRESS a = 0xFFFFFFFFu;
+        if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, REBOTE / 4096, &a))) return -1;
+        rebote = (UINT8 *)(UINTN)a;
     }
-    BS->FreePages(pag, 1);
-    return r2;
+    UINT32 sh = 0;
+    while ((1u << sh) < bs) sh++;   /* bs es potencia de 2: sin divisiones de 64 bits (IA32 no tiene libgcc) */
+    UINT8 *d = dest;
+    while (n) {
+        UINT64 bloco = pos >> sh;
+        UINTN desl = (UINTN)(pos & (bs - 1));
+        UINTN q = REBOTE - desl;
+        if (q > n) q = n;
+        UINTN ler = (desl + q + bs - 1) / bs * bs;
+        if (EFI_ERROR(disco_bio->ReadBlocks(disco_bio, media, bloco, ler, rebote))) return -1;
+        memcpy(d, rebote + desl, q);
+        d += q;
+        pos += q;
+        n -= q;
+    }
+    return 0;
+}
+
+/* Lee del disco una parte del sistema (kernel o ramdisk) por trozos de 1 MB, con un punto
+ * cada 4 MB, como ler_arquivo. 'lba' en sectores de 512 (los de la cabecera). */
+static UINT64 disco_base;   /* D270: en un CD, dónde empieza la imagen de disco de El Torito (bytes) */
+static int disco_cd;
+
+static int ler_do_disco(UINT32 lba, void *dest, UINT64 bytes)
+{
+    UINT8 *p = dest;
+    UINT64 lido = 0;
+    while (lido < bytes) {
+        UINTN trozo = (UINTN)(bytes - lido > 0x100000 ? 0x100000 : bytes - lido);
+        if (ler_disco(disco_base + (UINT64)lba * 512 + lido, trozo, p + lido) != 0) {
+            escrever(L" fallo de lectura del disco en el sector ");
+            escrever_num(lba + lido / 512);
+            return -1;
+        }
+        lido += trozo;
+        if ((lido & 0x3FFFFF) == 0 || lido == bytes) escrever(L".");
+    }
+    return 0;
+}
+
+static UINT64 le64(const UINT8 *p) { return le32(p) | (UINT64)le32(p + 4) << 32; }
+
+/* El GUID de tipo de la partición de SaguiOS en una GPT (D266): 53414755-494F-4F53-8001-534147554953,
+ * con los tres primeros campos en little-endian, como se guarda en la entrada. */
+static const UINT8 GPT_TIPO_SAGUI[16] = { 0x55, 0x47, 0x41, 0x53, 0x4F, 0x49, 0x53, 0x4F,
+                                          0x80, 0x01, 0x53, 0x41, 0x47, 0x55, 0x49, 0x53 };
+#define ENTRADAS_MAX 16384   /* 128 entradas de 128 bytes */
+
+/* D270: la cabecera de arranque del disco de la ESP. Primero el LBA 1 (la imagen híbrida y los
+ * discos instalados con MBR); si no, en un disco GPT, el primer sector de la partición de SaguiOS
+ * (tipo propio: así queda un disco instalado con GPT, D266). Devuelve el sector (de 512) donde
+ * está, o 0 si no hay ninguna. */
+static UINT32 cabecera_do_disco(UINT8 *dest)
+{
+    if (!disco_bio) return 0;
+    if (ler_disco(512, 512, dest) == 0 && le32(dest) == CAB_ASSINATURA_VAL) return 1;
+    UINT32 bs = disco_bio->Media->BlockSize;
+    /* D270: un CD (ISO de tools/mkiso.py): la imagen de disco de SaguiOS es la entrada por defecto
+     * del catálogo de El Torito (emulación de disco duro, la que usa la BIOS); su LBA 1 es la cabecera
+     * y los sectores de la cabecera cuentan desde el inicio de esa imagen. */
+    if (bs == 2048) {
+        static UINT8 cd[2048];
+        if (ler_disco(17 * 2048, 2048, cd) == 0 && memcmp(cd, "\0CD001\1EL TORITO SPECIFICATION", 30) == 0) {
+            UINT32 cat = le32(cd + 71);
+            if (cat && ler_disco((UINT64)cat * 2048, 2048, cd) == 0 && cd[0] == 1 && cd[30] == 0x55 && cd[31] == 0xAA &&
+                cd[32] == 0x88 && (cd[33] & 0x0F) == 4) {
+                UINT64 base = (UINT64)le32(cd + 40) * 2048;
+                if (base && ler_disco(base + 512, 512, dest) == 0 && le32(dest) == CAB_ASSINATURA_VAL) {
+                    disco_base = base;
+                    disco_cd = 1;
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+    static UINT8 cab_gpt[512];
+    if (ler_disco(bs, 512, cab_gpt) != 0 || memcmp(cab_gpt, "EFI PART", 8) != 0) return 0;
+    UINT64 lba_ent = le64(cab_gpt + 72);
+    UINT32 qtd = le32(cab_gpt + 80), tam = le32(cab_gpt + 84);
+    if (tam < 128 || tam > 1024 || (tam & 7) || !qtd || lba_ent < 2) return 0;
+    if ((UINT64)qtd * tam > ENTRADAS_MAX) qtd = ENTRADAS_MAX / tam;
+    UINT8 *ents = 0;
+    if (EFI_ERROR(BS->AllocatePool(EfiLoaderData, ENTRADAS_MAX, (void **)&ents)) || !ents) return 0;
+    UINT32 achado = 0;
+    if (ler_disco(lba_ent * bs, qtd * tam, ents) == 0)
+        for (UINT32 i = 0; i < qtd && !achado; i++) {
+            const UINT8 *e = ents + i * tam;
+            if (memcmp(e, GPT_TIPO_SAGUI, 16) != 0) continue;
+            UINT64 setor = le64(e + 32) * (bs / 512);
+            if (!setor || setor > 0xFFFFFFFFull) continue;   /* el kernel cuenta sectores de 32 bits */
+            if (ler_disco(setor * 512, 512, dest) == 0 && le32(dest) == CAB_ASSINATURA_VAL) achado = (UINT32)setor;
+        }
+    BS->FreePool(ents);
+    return achado;
 }
 
 /* Las dos cabeceras describen el mismo sistema (pueden diferir en lo que se graba
@@ -564,15 +682,35 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
         EFI_ERROR(fs->OpenVolume(fs, &raiz)) || !raiz)
         parar(L"no se puede abrir la particion EFI (ESP) de la que arranco");
 
-    static UINT8 cab[512], cab_disco[512];
+    /* D270: la cabecera buena es la del disco (LBA 1 o, en un disco GPT instalado, el primer sector
+     * de la partición de SaguiOS): es la que el kernel compara para saber de qué disco arrancó y la
+     * que "pantalla --guardar" reescribe. El kernel y el ramdisk se leen de los ficheros de la ESP
+     * si son los mismos (la imagen híbrida) y, si no (un disco instalado: su ESP solo lleva el
+     * cargador), del disco, en los sectores que dice la cabecera. Las sumas lo comprueban todo. */
+    static UINT8 cab[512], cab_esp[512], cab_disco[512];
     escrever(L"[1/6] cabecera: ");
-    if (ler_arquivo(L"\\SAGUI\\CABECERA.BIN", cab, 512) != 0) parar(L"falta \\SAGUI\\CABECERA.BIN en la ESP");
-    if (le32(cab) != CAB_ASSINATURA_VAL) parar(L"\\SAGUI\\CABECERA.BIN no es una cabecera de SaguiOS");
-    if (cabecera_do_disco(li->DeviceHandle, cab_disco) == 0 && mesma_cabecera(cab, cab_disco)) {
+    UINT64 t_esp = 0;
+    EFI_FILE_PROTOCOL *f_esp = abrir(L"\\SAGUI\\CABECERA.BIN", &t_esp);
+    int tem_esp = 0;
+    if (f_esp) {
+        f_esp->Close(f_esp);
+        tem_esp = ler_arquivo(L"\\SAGUI\\CABECERA.BIN", cab_esp, 512) == 0 && le32(cab_esp) == CAB_ASSINATURA_VAL;
+    }
+    UINT32 cab_lba = abrir_disco(li->DeviceHandle) == 0 ? cabecera_do_disco(cab_disco) : 0;
+    int do_disco = 0;   /* 1 = kernel y ramdisk se leen del disco, no de la ESP */
+    if (cab_lba) {
         memcpy(cab, cab_disco, 512);
-        escrever(L" la del disco (LBA 1)\r\n");
-    } else {
+        do_disco = !(tem_esp && mesma_cabecera(cab_esp, cab_disco));
+        if (disco_cd) escrever(L" la de la imagen del CD (El Torito)");
+        else if (cab_lba == 1) escrever(L" la del disco (LBA 1)");
+        else { escrever(L" la de la particion de SaguiOS (GPT, sector "); escrever_num(cab_lba); escrever(L")"); }
+        escrever(do_disco ? L"; sistema leido del disco\r\n" : L"\r\n");
+    } else if (tem_esp) {
+        memcpy(cab, cab_esp, 512);
         escrever(L" la de la ESP\r\n");
+    } else {
+        parar(L"no se encuentra SaguiOS: ni \\SAGUI\\CABECERA.BIN en la ESP ni la cabecera de arranque en el disco "
+              L"(LBA 1 o primer sector de la particion GPT de SaguiOS)");
     }
     UINT32 k_ender = le32(cab + CAB_K_ENDERECO), k_bytes = le32(cab + CAB_K_BYTES);
     UINT32 r_ender = le32(cab + CAB_R_ENDERECO), r_bytes = le32(cab + CAB_R_BYTES);
@@ -626,11 +764,13 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
 
     /* ---------------------------------------------------------- [2/6] y [3/6] */
     escrever(L"[2/6] kernel ");
-    if (ler_arquivo(L"\\SAGUI\\KERNEL.BIN", buf, k_bytes) != 0) parar(L"no se pudo leer \\SAGUI\\KERNEL.BIN");
+    if (do_disco ? ler_do_disco(le32(cab + CAB_K_LBA), buf, k_bytes) != 0 : ler_arquivo(L"\\SAGUI\\KERNEL.BIN", buf, k_bytes) != 0)
+        parar(do_disco ? L"no se pudo leer el kernel del disco" : L"no se pudo leer \\SAGUI\\KERNEL.BIN");
     if (somar(buf, k_bytes) != le32(cab + CAB_K_SOMA)) parar(L"kernel: datos leidos corruptos (la suma no coincide)");
     escrever(L" ok\r\n[3/6] ramdisk ");
-    if (ler_arquivo(L"\\SAGUI\\RAMDISK.SGF", (void *)(UINTN)rd, r_bytes) != 0)
-        parar(L"no se pudo leer \\SAGUI\\RAMDISK.SGF");
+    if (do_disco ? ler_do_disco(le32(cab + CAB_R_LBA), (void *)(UINTN)rd, r_bytes) != 0
+                 : ler_arquivo(L"\\SAGUI\\RAMDISK.SGF", (void *)(UINTN)rd, r_bytes) != 0)
+        parar(do_disco ? L"no se pudo leer el ramdisk del disco" : L"no se pudo leer \\SAGUI\\RAMDISK.SGF");
     if (somar((const UINT8 *)(UINTN)rd, r_bytes) != le32(cab + CAB_R_SOMA))
         parar(L"ramdisk: datos leidos corruptos (la suma no coincide)");
     escrever(L" ok\r\n");

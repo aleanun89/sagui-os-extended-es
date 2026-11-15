@@ -3,7 +3,7 @@
 """H266 (D266, mejora 062) - el instalador y "particiones" con GPT y partición EFI (ESP).
 
 Parte 1 (instalar --gpt): en un disco vacío de 1,5 GB, con un "cargador UEFI" falso en /sistema/efi
-  (un FAT32 de prueba montado ahí), "instalar hdb --gpt -s" crea ESP (256 MB FAT32), SaguiOS, /home y
+  (un FAT32 de prueba montado encima del de verdad que lleva el ramdisk, D270), "instalar hdb --gpt -s" crea ESP (256 MB FAT32), SaguiOS, /home y
   SAGUI-CONF. Desde el anfitrión se comprueba con Python (CRC de las dos cabeceras y de las entradas,
   copia de respaldo al final, MBR protector, GUID de tipo y únicos, alineación a 1 MiB, sin solapes),
   con sgdisk -v y sfdisk --json; la ESP es un FAT32 sano con EFI/BOOT/BOOTX64.EFI igual que el original;
@@ -210,8 +210,9 @@ def partes_instalacion():
         m.esperar_serial("sagui:/$", 180)
         m.digitar("instalar hdb --gpt\n", 0.04)
         m.esperar_serial("para seguir:", 60)
-        verificar("AVISO: no hay cargador UEFI" in m.serial() and "Tabla de particiones: GPT" in m.serial(),
-                  "sin cargador UEFI, el instalador avisa (la ESP quedaría vacía) y dice que la tabla es GPT")
+        # D270: el ramdisk lleva el cargador UEFI de verdad en /sistema/efi: no hay aviso.
+        verificar("AVISO: no hay cargador UEFI" not in m.serial() and "Tabla de particiones: GPT" in m.serial(),
+                  "con el cargador UEFI del ramdisk (/sistema/efi, D270) no hay aviso, y la tabla es GPT")
         out = m.comando("no")
         verificar("No se ha tocado nada" in out, "sin confirmar, no se toca el disco")
         montar_efi(m)

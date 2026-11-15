@@ -17,6 +17,8 @@
 /* ---- usb.c llama a esto al enumerar y al retirar ---- */
 bool wifi_usb_reconhecer(usb_disp_t *d);   /* true = era el pincho (o su CD virtual) y ya está atendido */
 void wifi_usb_retirado(usb_disp_t *d);
+/* D280: busca la Wi-Fi integrada Atheros AR9485 (PCIe) y, si está, la enciende la tarea «wifi». */
+void wifi_pci_iniciar(void);
 
 /* ---- rtl8188eu.c ---- */
 #define R88E_TX_GESTAO 0   /* trama de gestión: cola de gestión, CCK 1 Mb/s */

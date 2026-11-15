@@ -457,7 +457,8 @@ static void pedir_arquivo(void)
     bool estava = pausado;
     pausado = true;
     calar();
-    if (pedir_texto("Abrir ROM", "Ruta de la ROM (.ch8, .sc8, .xo8):", c, sizeof c) && c[0]) abrir_rom(c, -1);
+    if (dialogo_abrir("Abrir ROM", "ROM de CHIP-8 (*.ch8;*.sc8;*.xo8)|*.ch8;*.sc8;*.xo8|Todos los archivos (*.*)|*", c, c, sizeof c) && c[0])
+        abrir_rom(c, -1);
     else pausado = estava;
     reiniciar_relogio();
     desenhar_tudo();

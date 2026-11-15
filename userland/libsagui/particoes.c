@@ -110,7 +110,8 @@ const char *pt_nome_tipo(uint8_t t)
 
 void pt_nome_particao(const char *disco, int numero, char *s, int max)
 {
-    if (disco[0] == 'u') formatar_texto(s, (size_t)max, "%sp%d", disco, numero);
+    /* Como el kernel (discos.c, nome_particao): usb0p1 y, D265/D270, nvme0p1. */
+    if (disco[0] == 'u' || disco[0] == 'n') formatar_texto(s, (size_t)max, "%sp%d", disco, numero);
     else formatar_texto(s, (size_t)max, "%s%d", disco, numero);
 }
 
@@ -178,12 +179,12 @@ static void ler_logicas(pt_tabela_t *t, const pt_part_t *ext)
             pt_part_t *p = &t->log[t->nlog++];
             p->tipo = l[4];
             p->ativa = l[0] == 0x80;
-            p->inicio = ebr + le32(l + 8);
-            p->setores = le32(l + 12);
+            p->inicio = ebr + le32(l + 8) * (t->esc ? t->esc : 1);
+            p->setores = le32(l + 12) * (t->esc ? t->esc : 1);
             p->ebr = ebr;
         }
         if (!en[4] || !pt_tipo_extendida(en[4])) break;
-        uint32_t sig = le32(en + 8);
+        uint32_t sig = le32(en + 8) * (t->esc ? t->esc : 1);
         if (sig <= rel) break;
         rel = sig;
     }
@@ -198,6 +199,7 @@ int pt_ler(const char *disco, pt_tabela_t *t)
     if (r < 0) return r;
     if (inf.inicio) return ERRO_INVALIDO;   /* una partición no tiene tabla */
     t->setores = inf.setores;
+    t->esc = inf.bloco_fisico == 4096 ? 8 : 1;   /* D283 */
     r = blocos_ler(disco, 0, 1, t->setor0);
     if (r < 0) return r;
     const uint8_t *s = t->setor0;
@@ -215,8 +217,8 @@ int pt_ler(const char *disco, pt_tabela_t *t)
         if (e[4] == 0xEE) t->esquema = PT_GPT;
         t->prim[i].tipo = e[4];
         t->prim[i].ativa = e[0] == 0x80;
-        t->prim[i].inicio = le32(e + 8);
-        t->prim[i].setores = le32(e + 12);
+        t->prim[i].inicio = le32(e + 8) * t->esc;
+        t->prim[i].setores = le32(e + 12) * t->esc;
     }
     if (t->esquema == PT_GPT) { ler_gpt(t); return 0; }
     int x = pt_extendida(t);
@@ -436,10 +438,15 @@ static void chs(uint8_t *e, uint32_t lba)
     e[0] = (uint8_t)h; e[1] = (uint8_t)(s | ((c >> 2) & 0xC0)); e[2] = (uint8_t)c;
 }
 
+/* D283: las entradas del MBR van en bloques reales; con bloques de 4096, los sectores se dividen entre 8
+ * (el alineado a 1 MB de pt_* ya lo garantiza; montar_setores lo comprueba antes). */
+static uint32_t esc_montaje = 1;
+
 static void entrada(uint8_t *e, uint8_t tipo, bool ativa, uint32_t inicio_abs, uint32_t rel, uint32_t qtd)
 {
     memset(e, 0, 16);
     if (!tipo) return;
+    inicio_abs /= esc_montaje; rel /= esc_montaje; qtd /= esc_montaje;
     e[0] = ativa ? 0x80 : 0;
     chs(e + 1, inicio_abs);
     e[4] = tipo;
@@ -455,6 +462,13 @@ typedef struct { uint32_t lba; uint8_t depois[512]; } setor_novo_t;
 static int montar_setores(const pt_tabela_t *t, setor_novo_t *v)
 {
     int n = 0, x = pt_extendida(t);
+    esc_montaje = t->esc ? t->esc : 1;
+    if (esc_montaje > 1) {   /* todo tiene que caer en un límite de bloque real */
+        for (int i = 0; i < 4; i++)
+            if (t->prim[i].tipo && ((t->prim[i].inicio | t->prim[i].setores) % esc_montaje)) return -1;
+        for (int k = 0; k < t->nlog; k++)
+            if ((t->log[k].ebr | t->log[k].inicio | t->log[k].setores) % esc_montaje) return -1;
+    }
     if (x >= 0) {
         uint32_t ei = t->prim[x].inicio;
         if (!t->nlog || t->log[0].ebr != ei) {   /* EBR solo de enlace al principio de la extendida */
@@ -599,6 +613,7 @@ int pt_gravar(pt_tabela_t *t, const char *descricao, char *erro, int max)
     static setor_novo_t novos[MAX_SETORES_TAB];
     static dh_setor_t passo[MAX_SETORES_TAB];
     int n = montar_setores(t, novos);
+    if (n < 0) { erro_txt(erro, max, "el disco tiene bloques de %u bytes: las particiones tienen que empezar y acabar en múltiplos de ese bloque", t->esc * 512); return ERRO_INVALIDO; }
     for (int i = 0; i < n; i++) {   /* lo que había antes, para deshacer */
         passo[i].lba = novos[i].lba;
         r = blocos_ler(t->disco, novos[i].lba, 1, passo[i].antes);

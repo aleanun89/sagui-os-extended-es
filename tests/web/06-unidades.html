@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>06 Unidades de medida</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1 i{display:block;height:16px;background:#008000;width:0;width:40px}
+#f2{font-size:10px}#f2 i{display:block;height:16px;background:#008000;width:0;width:4em}
+#f3{font-size:3px}#f3 i{display:block;height:16px;background:#008000;width:0;width:2.5rem}
+#f4 i{display:block;height:16px;background:#008000;width:0;width:100%}
+#f5 i{display:block;height:16px;background:#008000;width:0;width:30pt}
+#f6 i{display:block;height:16px;background:#008000;width:0;width:.25in}
+#f7 i{display:block;height:8px;background:#008000;width:0}#f7 i.c{width:1cm}#f7 i.m{width:10mm}
+#f8 i{display:block;height:16px;background:#008000;width:0;width:10vw}
+#f9 i{display:block;width:40px;background:#008000;height:0;height:10vh;max-height:16px}
+#f10 i{display:block;height:8px;background:#008000;width:0;max-width:40px}#f10 i.c{width:25vmin}#f10 i.m{width:10vmax}
+#f11{font:16px monospace}#f11 i{display:block;height:16px;background:#008000;width:0;width:4ch}
+#f12{font:40px sans-serif}#f12 i{display:block;height:16px;background:#008000;width:0;width:1ex}
+#f13 i{display:block;width:40px;background:#008000;height:0;max-height:16px}#f13 i.c{height:10dvh}
+#f14 i{display:block;height:16px;background:#008000;width:0;width:40px;width:10}
+#f15 i{display:block;height:8px;background:#008000;width:0}#f15 i.c{width:+40px}#f15 i.m{width:4e1px}
+</style></head>
+<body data-filas="15"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><i></i></div><div class="e" style="top:10px">px</div>
+<div class="f" id="f2" style="top:34px"><i></i></div><div class="e" style="top:34px">em</div>
+<div class="f" id="f3" style="top:58px"><i></i></div><div class="e" style="top:58px">rem</div>
+<div class="f" id="f4" style="top:82px"><i></i></div><div class="e" style="top:82px">%</div>
+<div class="f" id="f5" style="top:106px"><i></i></div><div class="e" style="top:106px">pt (30pt = 40px)</div>
+<div class="f" id="f6" style="top:130px" data-p="2,8,008000 22,8,008000 26,8,ff0000"><i></i></div><div class="e" style="top:130px">in (0.25in = 24px)</div>
+<div class="f" id="f7" style="top:154px" data-p="2,4,008000 35,4,008000 39,4,ff0000 2,12,008000 35,12,008000 39,12,ff0000"><i class="c"></i><i class="m"></i></div><div class="e" style="top:154px">cm y mm (10mm = 1cm = 37,8px)</div>
+<div class="f" id="f8" style="top:178px" data-p="2,8,008000 38,8,008000"><i></i></div><div class="e" style="top:178px">vw (10vw, ventana de 400 px o más)</div>
+<div class="f" id="f9" style="top:202px"><i></i></div><div class="e" style="top:202px">vh (10vh, ventana de 160 px o más)</div>
+<div class="f" id="f10" style="top:226px"><i class="c"></i><i class="m"></i></div><div class="e" style="top:226px">vmin y vmax</div>
+<div class="f" id="f11" style="top:250px" data-p="2,8,008000 34,8,008000 44,8,!008000"><i></i></div><div class="e" style="top:250px">ch (4ch en monoespaciada de 16px)</div>
+<div class="f" id="f12" style="top:274px" data-p="2,8,008000 14,8,008000 30,8,ff0000"><i></i></div><div class="e" style="top:274px">ex (aprox. medio em)</div>
+<div class="f" id="f13" style="top:298px"><i class="c"></i></div><div class="e" style="top:298px">dvh, svh, lvh</div>
+<div class="f" id="f14" style="top:322px"><i></i></div><div class="e" style="top:322px">medida sin unidad distinta de 0 no vale</div>
+<div class="f" id="f15" style="top:346px"><i class="c"></i><i class="m"></i></div><div class="e" style="top:346px">números con signo y exponente (+40px, 4e1px)</div>
+</body></html>

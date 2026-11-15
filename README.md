@@ -281,6 +281,9 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
 - **Macaco** (D142, v6.3): hoja de cálculo con cuadrícula, fórmulas típicas (suma, promedio, mínimo,
   máximo, contar, si, redondear…), gráficos de barras y de tarta, y ficheros propios `.mxs`
   (Macaco eXcel Sheet).
+- **Pluma** (D291, v8.3): procesador de textos con el aspecto de un Word 97 simplificado (menús, barras de
+  herramientas con iconos, regla, vista de página, fuentes, párrafos, buscar y reemplazar). Lee y escribe **RTF**
+  y texto, y **exporta a PDF**. Sin macros.
 - **Cliente de correo** (D146, v6.3 y v6.6): recibe por POP3 o IMAP y envía por SMTP, con ventana,
   lista de mensajes, adjuntos y cuerpo en texto plano o en HTML (convertido a texto).
 

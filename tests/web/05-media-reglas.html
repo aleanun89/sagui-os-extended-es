@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>05 @media, @supports, @import, @layer</title>
+<style>@import url("importada.css");</style>
+<link rel="stylesheet" href="enlazada.css">
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+@media (min-width:200px){#f1{background:#008000}}
+@media (max-width:200px){#f2{background:red}}
+@media screen and (min-width:200px){#f3{background:#008000}}
+@media print{#f4{background:red}}
+@media (min-width:200px) and (max-width:9000px){#f5{background:#008000}}
+@media (max-width:200px), (min-width:201px){#f6{background:#008000}}
+@media (width >= 200px){#f7{background:#008000}}
+@media (width < 200px){#f8{background:red}}
+@media not print{#f9{background:#008000}}
+@media (prefers-color-scheme:light){#f10{background:#008000}}@media (prefers-color-scheme:dark){#f10{background:red}}
+@media (orientation:landscape) and (min-height:100px){#f11{background:#008000}}
+@supports (display:grid){#f12{background:#008000}}
+@supports not (display:grid){#f13{background:red}}@supports (cosa-rara:1){#f13{background:red}}
+@layer base{#f16 i{display:block;height:16px;background:#008000}}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"></div><div class="e" style="top:10px">@media (min-width: 200px) se aplica</div>
+<div class="f g" id="f2" style="top:34px"></div><div class="e" style="top:34px">@media (max-width: 200px) no se aplica</div>
+<div class="f" id="f3" style="top:58px"></div><div class="e" style="top:58px">@media screen and (min-width: 200px)</div>
+<div class="f g" id="f4" style="top:82px"></div><div class="e" style="top:82px">@media print no se aplica</div>
+<div class="f" id="f5" style="top:106px"></div><div class="e" style="top:106px">@media con «and» entre dos condiciones</div>
+<div class="f" id="f6" style="top:130px"></div><div class="e" style="top:130px">@media con lista (coma)</div>
+<div class="f" id="f7" style="top:154px"></div><div class="e" style="top:154px">@media con rango: (width &gt;= 200px)</div>
+<div class="f g" id="f8" style="top:178px"></div><div class="e" style="top:178px">@media con rango que no se cumple: (width &lt; 200px)</div>
+<div class="f" id="f9" style="top:202px"></div><div class="e" style="top:202px">@media not print</div>
+<div class="f" id="f10" style="top:226px"></div><div class="e" style="top:226px">@media (prefers-color-scheme: light)</div>
+<div class="f" id="f11" style="top:250px"></div><div class="e" style="top:250px">@media (orientation: landscape) y (min-height)</div>
+<div class="f" id="f12" style="top:274px"></div><div class="e" style="top:274px">@supports (display: grid)</div>
+<div class="f g" id="f13" style="top:298px"></div><div class="e" style="top:298px">@supports not / propiedad desconocida no se aplican</div>
+<div class="f" id="f14" style="top:322px"></div><div class="e" style="top:322px">@import de otra hoja</div>
+<div class="f" id="f15" style="top:346px"></div><div class="e" style="top:346px">&lt;link rel=stylesheet&gt;</div>
+<div class="f" id="f16" style="top:370px"><i></i></div><div class="e" style="top:370px">@layer</div>
+</body></html>

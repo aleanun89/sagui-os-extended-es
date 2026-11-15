@@ -30,6 +30,7 @@
  *
  * Qué hay que comprobar en el hardware: docs/decisoes.md, D195. */
 #include "acel2d.h"
+#include "acel_intel.h"
 #include "console.h"
 #include "paginacao.h"
 #include "texto.h"
@@ -64,6 +65,13 @@ static uint32_t ring_fis;
 static uint32_t ring_gfx, fb_gfx, pitch, tail, base;
 static int gen;
 static bool ligado, acordada;
+/* D285: el 3D de Gen3 comparte este ring. Zona libre de la memoria del VBE (entre
+ * la zona de prueba del 2D y el ring) y si hay una carga 3D pendiente: mientras
+ * la haya, las esperas del 2D usan el plazo largo del 3D (un lote de triángulos
+ * puede tardar más que los 30 ms de una copia). */
+static uint32_t arena_off, arena_bytes, tela_fis;
+static bool carga_3d;
+#define PRAZO_3D_MS 2000
 
 static inline uint32_t rd(uint32_t r)              { return *(volatile uint32_t *)(mmio + r); }
 static inline void     wr(uint32_t r, uint32_t v)  { *(volatile uint32_t *)(mmio + r) = v; }
@@ -82,7 +90,7 @@ static bool reservar(uint32_t palavras)
     if (ring_livre() >= palavras * 4 + 16) return true;
     avancar();   /* lo que ya está escrito tiene que salir para que HEAD avance */
     acel_prazo_t p;
-    acel_prazo(&p, 250);
+    if (carga_3d) acel_prazo_longo(&p, PRAZO_3D_MS); else acel_prazo(&p, 250);
     while (ring_livre() < palavras * 4 + 16)
         if (acel_prazo_esgotado(&p)) return false;
     return true;
@@ -111,12 +119,14 @@ static void emitir_flush(void)
 static bool in_esperar(void)
 {
     acel_prazo_t p;
-    acel_prazo(&p, 250);
+    if (carga_3d) acel_prazo_longo(&p, PRAZO_3D_MS); else acel_prazo(&p, 250);
     while ((rd(base + R_HEAD) & HEAD_MASCARA) != tail)
         if (acel_prazo_esgotado(&p)) {
-            klog("[ACEL2D] intel: tiempo agotado: HEAD %x TAIL %x CTL %x\n", rd(base + R_HEAD), tail, rd(base + R_CTL));
+            klog("[ACEL2D] intel: tiempo agotado%s: HEAD %x TAIL %x CTL %x\n", carga_3d ? " (con carga 3D)" : "",
+                 rd(base + R_HEAD), tail, rd(base + R_CTL));
             return false;
         }
+    carga_3d = false;
     return true;
 }
 
@@ -180,7 +190,9 @@ static void in_desligar(void)
         ligado = false;
     }
     if (acordada) { wr(FORCEWAKE, 0); acordada = false; }
+    carga_3d = false;
     klog("[ACEL2D] intel: ring parado\n");
+    gpu3d_anel_parado();   /* D285: el 3D de Gen3 vivía en este ring */
 }
 
 /* Gen6: la GPU tiene que estar despierta para que sus registros respondan. */
@@ -200,6 +212,11 @@ static bool acordar(char *m, int nm)
 
 static bool in_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
 {
+    /* D285: el 3D ya lo había puesto en marcha (el 2D estaba apagado): se usa tal cual. */
+    if (ligado && mmio && ring && gen == geracao) {
+        klog("[ACEL2D] intel: el ring ya estaba en marcha (lo encendio el 3D): se comparte\n");
+        return true;
+    }
     gen = geracao;
     base = gen >= 6 ? BCS_BASE : RCS_BASE;
     uint32_t bar0 = pci_le32(d, 0x10), gmadr = pci_le32(d, 0x18);
@@ -241,6 +258,7 @@ static bool in_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     }
     if (!mmio || !ring) { snformatar(m, (size_t)nm, "sin ventana para el MMIO o el ring"); return false; }
     ring_gfx = fb_gfx + ring_off;
+    arena_off = usado; arena_bytes = ring_off - usado; tela_fis = t->fb_fisico;
     if (gen >= 6 && !acordar(m, nm)) return false;
     uint32_t ctl = rd(base + R_CTL);
     klog("[ACEL2D] intel: antes: CTL %x HEAD %x TAIL %x START %x MI_MODE %x\n", ctl, rd(base + R_HEAD), rd(base + R_TAIL),
@@ -277,3 +295,70 @@ const acel_driver_t acel_intel = {
     "intel", ACEL2D_INTEL, in_iniciar, in_copiar, in_preencher, in_esperar, NULL, in_desligar,
     true,    /* la zona de prueba va debajo de la pantalla visible */
 };
+
+/* ------------------------------------------------------------ D285: el ring para el 3D de Gen3 */
+
+bool intel_anel_info(intel_anel_t *a)
+{
+    if (!ligado || !mmio || !ring) return false;
+    a->geracao = gen;
+    a->fb_fisico = tela_fis;
+    a->fb_gfx = fb_gfx;
+    a->arena_off = arena_off;
+    a->arena_bytes = arena_bytes;
+    a->ctl = rd(base + R_CTL);
+    a->head = rd(base + R_HEAD);
+    a->tail = tail;
+    return true;
+}
+
+/* Reserva «palavras» seguidas (sin partir una orden en el final del ring: lo que
+ * falte hasta el final se rellena con MI_NOOP) y espera a que haya sitio. */
+bool intel_anel_reservar(uint32_t palavras)
+{
+    if (!ligado || palavras * 4 + 64 > RING_BYTES / 2) return false;
+    uint32_t ate_fim = (RING_BYTES - tail) / 4;
+    if (ate_fim < palavras) {
+        if (!reservar(ate_fim)) return false;
+        while (tail) emitir(MI_NOOP);
+    }
+    return reservar(palavras);
+}
+
+void intel_anel_emitir(uint32_t v) { emitir(v); }
+
+/* Termina con un vaciado (MI_FLUSH: la caché de dibujo llega a la memoria) y avisa a la GPU. */
+void intel_anel_enviar(bool carga)
+{
+    emitir_flush();
+    if (carga) {
+        /* Tras una carga 3D, un segundo vaciado con unas órdenes vacías en medio: cuando
+         * HEAD alcance a TAIL, el primero ya ha tenido tiempo de llegar a la memoria
+         * (lo que dibujó la GPU se lee después con la CPU). */
+        for (int i = 0; i < 6; i++) emitir(MI_NOOP);
+        emitir_flush();
+        carga_3d = true;
+    }
+    avancar();
+}
+
+bool intel_anel_ocioso(void)
+{
+    if (!ligado) return false;
+    if ((rd(base + R_HEAD) & HEAD_MASCARA) != tail) return false;
+    carga_3d = false;
+    return true;
+}
+
+bool intel_anel_esperar(uint32_t ms)
+{
+    if (!ligado) return false;
+    acel_prazo_t p;
+    acel_prazo_longo(&p, ms);
+    while ((rd(base + R_HEAD) & HEAD_MASCARA) != tail)
+        if (acel_prazo_esgotado(&p)) return false;
+    carga_3d = false;
+    return true;
+}
+
+uint32_t intel_anel_reg(uint32_t r) { return mmio ? rd(r) : 0; }

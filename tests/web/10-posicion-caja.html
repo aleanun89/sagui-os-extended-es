@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>10 Posición y modelo de caja</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1 i{display:block;height:16px;background:#008000;width:40px;position:relative;left:10px;margin-left:-10px}
+#f2 i{position:absolute;right:0;bottom:0;width:40px;height:16px;background:#008000}
+#f3 i{position:absolute;inset:0;background:#008000}
+#f4 i{position:absolute;left:0;right:0;top:0;bottom:0;background:#008000}
+#f5 i{position:absolute;inset:0}#f5 .c{z-index:2;background:#008000}#f5 .d{z-index:1;background:red}
+#f6 i{position:fixed;left:10px;top:130px;width:40px;height:16px;background:#008000}
+#f7 i{display:block;height:16px;background:#008000;position:sticky;top:0}
+#f8 i{width:20px;height:16px;background:#008000}#f8 .c{float:left}#f8 .d{float:right}
+#f9 i{display:block;height:8px;background:#008000}#f9 .c{float:left;width:40px}#f9 .d{clear:both}
+#f10{overflow:hidden}#f10 i{display:block;width:80px;height:40px;background:#008000}
+#f11{overflow:auto}#f11 i{display:block;width:40px;height:40px;background:#008000}
+#f12 i{display:block;height:16px;background:#008000;width:40px;padding:0 10px;box-sizing:border-box}
+#f13 i{display:block;height:16px;background:#008000;width:20px;margin:0 auto}
+#f14 i{display:block;background:#008000;width:100px;max-width:40px;height:2px;min-height:16px}
+#f15 i{display:block;background:#008000;width:40px;aspect-ratio:5 / 2}
+#f16{font-size:0}#f16 i{display:inline-block;width:20px;height:16px;background:#008000}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><i></i></div><div class="e" style="top:10px">position: relative con left</div>
+<div class="f" id="f2" style="top:34px"><i></i></div><div class="e" style="top:34px">position: absolute con right y bottom</div>
+<div class="f" id="f3" style="top:58px"><i></i></div><div class="e" style="top:58px">inset: 0</div>
+<div class="f" id="f4" style="top:82px"><i></i></div><div class="e" style="top:82px">absolute estirado con left+right+top+bottom</div>
+<div class="f" id="f5" style="top:106px"><i class="c"></i><i class="d"></i></div><div class="e" style="top:106px">z-index</div>
+<div class="f" id="f6" style="top:130px"><i></i></div><div class="e" style="top:130px">position: fixed</div>
+<div class="f" id="f7" style="top:154px"><i></i></div><div class="e" style="top:154px">position: sticky (sin desplazar queda en su sitio)</div>
+<div class="f" id="f8" style="top:178px"><i class="c"></i><i class="d"></i></div><div class="e" style="top:178px">float: left y right</div>
+<div class="f" id="f9" style="top:202px"><i class="c"></i><i class="d"></i></div><div class="e" style="top:202px">clear: both</div>
+<div class="f" id="f10" style="top:226px"><i></i></div><div class="e" style="top:226px">overflow: hidden recorta</div>
+<div class="f" id="f11" style="top:250px" data-p="2,2,008000 2,14,008000 20,19,!008000"><i></i></div><div class="e" style="top:250px">overflow: auto recorta</div>
+<div class="f" id="f12" style="top:274px"><i></i></div><div class="e" style="top:274px">box-sizing: border-box</div>
+<div class="f" id="f13" style="top:298px" data-p="5,8,ff0000 20,8,008000 35,8,ff0000"><i></i></div><div class="e" style="top:298px">margin: 0 auto</div>
+<div class="f" id="f14" style="top:322px"><i></i></div><div class="e" style="top:322px">max-width y min-height</div>
+<div class="f" id="f15" style="top:346px"><i></i></div><div class="e" style="top:346px">aspect-ratio</div>
+<div class="f" id="f16" style="top:370px"><i></i><i></i></div><div class="e" style="top:370px">display: inline-block</div>
+</body></html>

@@ -33,6 +33,7 @@
 #include "portas.h"
 #include "processo.h"
 #include "video.h"
+#include "telas.h"
 #include "i8042.h"
 #include "relogio.h"
 
@@ -168,6 +169,7 @@ static void mover_para(int x, int y, uint8_t novos, int dz)
     if (my < 0) my = 0;
     if (mx >= larg) mx = larg - 1;
     if (my >= alt) my = alt - 1;
+    telas_prender(&mx, &my);   /* D290: nunca en la zona sin pantalla del escritorio */
     uint8_t mudaram = novos ^ botoes;
     botoes = novos;
     if (mudaram & BOTAO_ESQUERDO)

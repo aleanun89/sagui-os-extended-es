@@ -377,12 +377,28 @@ static bool salvar(doc_t *d)
     return true;
 }
 
+/* Filtros de los diálogos de archivos (mejora 103): uno por lenguaje que reconoce el resaltado
+ * (realce.c) más «Todo el código». "elegido" es el lenguaje que queda marcado de entrada, o -1
+ * para «Todo el código». Los tipos van en el orden de LING_*, tras «Todo el código». */
+static const char *filtros_mico(int elegido)
+{
+    static char f[600];
+    static const char *const nome[QTD_LING] = { "Texto (*.txt)", "C (*.c;*.h)", "Python (*.py)", "Shell (*.sh)",
+                                                "Markdown (*.md)", "Ensamblador CHIP-8 (*.asm;*.c8;*.8o)" };
+    static const char *const pad[QTD_LING] = { "*.txt", "*.c;*.h", "*.py", "*.sh", "*.md;*.markdown", "*.asm;*.c8;*.8o" };
+    int n = formatar_texto(f, sizeof f, "%sTodo el código|*.c;*.h;*.py;*.sh;*.md;*.markdown;*.asm;*.c8;*.8o;*.txt", elegido < 0 ? ">" : "");
+    for (int i = 0; i < QTD_LING; i++)
+        n += formatar_texto(f + n, sizeof f - (size_t)n, "|%s%s|%s", elegido == i ? ">" : "", nome[i], pad[i]);
+    formatar_texto(f + n, sizeof f - (size_t)n, "|Todos los archivos (*.*)|*");
+    return f;
+}
+
 static bool salvar_como(doc_t *d)
 {
     char c[CAMINHO_MAX];
     if (d->caminho[0]) copia_texto(c, d->caminho, sizeof c);
     else formatar_texto(c, sizeof c, "%s/", pasta[0] && !(pasta[0] == '/' && !pasta[1]) ? pasta : "");
-    if (!pedir_texto("Guardar como", "Guardar en (ej.: /tmp/programa.c):", c, sizeof c) || !c[0]) return false;
+    if (!dialogo_guardar("Guardar como", filtros_mico(d->ling), c, c, sizeof c) || !c[0]) return false;
     recup_apagar(d);   /* la copia de recuperación tiene el nombre antiguo */
     caminho_absoluto(c, d->caminho);
     int ling = ling_do_nome(d->caminho, "", 0);
@@ -620,13 +636,13 @@ void executar_acao(int a)
     case A_ABRIR: {
         char c[CAMINHO_MAX];
         formatar_texto(c, sizeof c, "%s/", pasta[0] && pasta[1] ? pasta : "");
-        if (pedir_texto("Abrir archivo", "Ruta del archivo:", c, sizeof c) && c[0]) abrir_arquivo(c, true);
+        if (dialogo_abrir("Abrir archivo", filtros_mico(-1), c, c, sizeof c) && c[0]) abrir_arquivo(c, true);
         break;
     }
     case A_ABRIR_PASTA: {
         char c[CAMINHO_MAX];
         copia_texto(c, pasta[0] ? pasta : "/", sizeof c);
-        if (pedir_texto("Abrir carpeta", "Carpeta:", c, sizeof c) && c[0]) { abrir_pasta(c); painel_cd(pasta); foco = FOCO_EDITOR; }
+        if (dialogo_carpeta("Abrir carpeta", c, c, sizeof c) && c[0]) { abrir_pasta(c); painel_cd(pasta); foco = FOCO_EDITOR; }
         break;
     }
     case A_ABRIR_NOME: paleta_abrir(true); break;

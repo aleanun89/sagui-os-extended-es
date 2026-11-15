@@ -75,6 +75,9 @@ static bool abrir_arquivo(const char *c)
     return true;
 }
 
+/* Filtros de los diálogos de archivos (mejora 103). */
+#define FILTROS_TEXTO "Texto (*.txt)|*.txt|Código y Markdown|*.c;*.h;*.py;*.md;*.sh|Todos los archivos (*.*)|*"
+
 static bool salvar_como(void);
 
 static bool salvar(void)
@@ -99,7 +102,7 @@ static bool salvar_como(void)
 {
     char c[160];
     copia_texto(c, caminho[0] ? caminho : "/tmp/", sizeof c);
-    if (!pedir_texto("Guardar como", "Guardar en (ej.: /tmp/nota.txt):", c, sizeof c) || !c[0])
+    if (!dialogo_guardar("Guardar como", FILTROS_TEXTO, c, c, sizeof c) || !c[0])
         return false;
     copia_texto(caminho, c, sizeof caminho);
     return salvar();
@@ -316,8 +319,9 @@ int principal(int argc, char **argv)
             area_desenhar(j, &area);
         }
         if (acao == 1 && pode_descartar()) {
-            char c[160] = "/";
-            if (pedir_texto("Abrir", "Ruta del archivo:", c, sizeof c)) abrir_arquivo(c);
+            char c[160];
+            copia_texto(c, caminho[0] ? caminho : "/", sizeof c);
+            if (dialogo_abrir("Abrir", FILTROS_TEXTO, c, c, sizeof c)) abrir_arquivo(c);
         }
         if (acao == 2) salvar();
         if (acao == 3) salvar_como();

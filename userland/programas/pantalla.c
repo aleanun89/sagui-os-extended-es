@@ -9,6 +9,15 @@
  *   pantalla auto                 borra la preferencia (vuelve a 1024x768 automático)
  *   pantalla --ventana            la ventana "Pantalla", con la lista y los botones
  *
+ * Varias pantallas (D290, mejora 060; solo si el kernel tiene más de una salida de vídeo, p. ej. QEMU con
+ * -device bochs-display; las resoluciones de arriba son las de la pantalla 1, la del arranque):
+ *   pantalla salidas              las pantallas, su posición y su resolución
+ *   pantalla extender [derecha|abajo]   escritorio extendido (las demás a la derecha o debajo de la principal)
+ *   pantalla espejo               todas muestran lo mismo
+ *   pantalla principal N          la pantalla N lleva la barra de arriba
+ *   pantalla salida N 1024x768    resolución de la pantalla N (la 1 es la del arranque)
+ *   (extender, espejo y principal admiten --guardar: se recuerdan para el próximo arranque)
+ *
  * La preferencia vive en el encabezado de boot del disco de arranque, que el
  * cargador lee antes del kernel (D058). Arrancando desde el CD (D077) no hay dónde
  * grabar: el kernel rechaza con ERRO_SO_LEITURA y aquí se explica. */
@@ -130,6 +139,85 @@ static int aplicar(int l, int a, bool guardar, bool falar)
     return 0;
 }
 
+/* ------------------------------------------------------------ varias pantallas (D290) */
+
+static info_telas_t telas;
+
+static int ler_telas(void)
+{
+    memset(&telas, 0, sizeof telas);
+    int n = telas_sis(TELAS_OP_INFO, (unsigned)&telas, sizeof telas);
+    return n < 0 ? 0 : n;
+}
+
+static void listar_telas(void)
+{
+    if (ler_telas() < 2) { imprimir("Una sola pantalla.\n"); return; }
+    imprimir("Pantallas: %u, modo %s, lado %s, principal %u, escritorio %ux%u\n", telas.qtd,
+             telas.modo == TELAS_MODO_ESPELHO ? "espejo" : "extendido", telas.lado == TELAS_LADO_ABAIXO ? "abajo" : "derecha",
+             telas.principal + 1, telas.desk_largura, telas.desk_altura);
+    for (unsigned i = 0; i < telas.qtd; i++)
+        imprimir("%c %u  %-18s %ux%u en (%d,%d)  máximo %ux%u%s\n", i == telas.principal ? '*' : ' ', i + 1, telas.t[i].nome,
+                 telas.t[i].largura, telas.t[i].altura, telas.t[i].x, telas.t[i].y, telas.t[i].max_largura, telas.t[i].max_altura,
+                 telas.t[i].a_quente ? "" : " (resolución fija)");
+    registrar("pantalla: %u pantallas, modo %u, lado %u, principal %u, escritorio %ux%u", telas.qtd, telas.modo, telas.lado,
+              telas.principal, telas.desk_largura, telas.desk_altura);
+}
+
+/* extender, espejo, principal, salida y salidas. Devuelve el código de salida o -1 si no es de estos. */
+static int telas_cli(int argc, char **argv)
+{
+    const char *c = argv[1];
+    bool guardar = false;
+    int nargs = 0;
+    const char *arg[3] = { NULL, NULL, NULL };
+    for (int i = 2; i < argc; i++) {
+        if (compara_texto(argv[i], "--guardar") == 0 || compara_texto(argv[i], "-g") == 0) guardar = true;
+        else if (nargs < 3) arg[nargs++] = argv[i];
+    }
+    if (compara_texto(c, "salidas") == 0) { listar_telas(); return 0; }
+    int n = ler_telas();
+    bool conhecido = compara_texto(c, "extender") == 0 || compara_texto(c, "espejo") == 0 ||
+                     compara_texto(c, "principal") == 0 || compara_texto(c, "salida") == 0;
+    if (!conhecido) return -1;
+    if (n < 2) { imprimir("pantalla: solo hay una pantalla\n"); return 1; }
+    int modo = (int)telas.modo, lado = (int)telas.lado, prin = (int)telas.principal, r;
+    if (compara_texto(c, "salida") == 0) {
+        int l, a, k = nargs >= 1 ? texto_para_int(arg[0]) : 0;
+        if (nargs < 2 || k < 1 || k > n || !ler_resolucao(arg[1], &l, &a)) {
+            imprimir("uso: pantalla salida N ANCHOxALTO\n");
+            return 2;
+        }
+        r = telas_sis(TELAS_OP_RESOLUCAO, (unsigned)(k - 1), (unsigned)l | (unsigned)a << 16);
+        if (r < 0) { imprimir("pantalla: no se pudo poner %dx%d en la pantalla %d: %s\n", l, a, k, nome_erro(r)); return 1; }
+        imprimir("Pantalla %d: %dx%d.\n", k, l, a);
+    } else {
+        if (compara_texto(c, "extender") == 0) {
+            modo = TELAS_MODO_EXTENDER;
+            if (nargs >= 1) {
+                if (compara_texto(arg[0], "abajo") == 0) lado = TELAS_LADO_ABAIXO;
+                else if (compara_texto(arg[0], "derecha") == 0) lado = TELAS_LADO_DIREITA;
+                else { imprimir("uso: pantalla extender [derecha|abajo]\n"); return 2; }
+            }
+        } else if (compara_texto(c, "espejo") == 0) {
+            modo = TELAS_MODO_ESPELHO;
+        } else {
+            int k = nargs >= 1 ? texto_para_int(arg[0]) : 0;
+            if (k < 1 || k > n) { imprimir("uso: pantalla principal N (1 a %d)\n", n); return 2; }
+            prin = k - 1;
+        }
+        r = telas_sis(TELAS_OP_CONFIG, (unsigned)modo | (unsigned)lado << 8 | (unsigned)prin << 16, 0);
+        if (r < 0) { imprimir("pantalla: no se pudo: %s\n", nome_erro(r)); return 1; }
+    }
+    if (guardar) {
+        r = telas_sis(TELAS_OP_GUARDAR, 0, 0);
+        if (r < 0) { imprimir("pantalla: no se pudo guardar: %s\n", nome_erro(r)); return 1; }
+        imprimir("Guardado en /home/.config/pantallas.conf.\n");
+    }
+    listar_telas();
+    return 0;
+}
+
 /* ------------------------------------------------------------ ventana */
 
 #define JL 440
@@ -247,6 +335,10 @@ int principal(int argc, char **argv)
 {
     bool guardar = false, ventana = false, autom = false, tem_res = false;
     int l = 0, a = 0;
+    if (argc >= 2) {   /* D290: varias pantallas */
+        int r = telas_cli(argc, argv);
+        if (r >= 0) return r;
+    }
     for (int i = 1; i < argc; i++) {
         if (compara_texto(argv[i], "--guardar") == 0 || compara_texto(argv[i], "-g") == 0) guardar = true;
         else if (compara_texto(argv[i], "--ventana") == 0 || compara_texto(argv[i], "-v") == 0) ventana = true;
@@ -267,5 +359,6 @@ int principal(int argc, char **argv)
     if (tem_res) return aplicar(l, a, guardar, true) < 0 ? 1 : 0;
     if (guardar) return aplicar((int)tela.largura, (int)tela.altura, true, true) < 0 ? 1 : 0;
     listar_modos();
+    if (ler_telas() >= 2) { imprimir("\n"); listar_telas(); }
     return 0;
 }

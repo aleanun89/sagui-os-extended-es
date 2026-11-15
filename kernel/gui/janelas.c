@@ -31,6 +31,7 @@
 #include "teclado.h"
 #include "texto.h"
 #include "video.h"
+#include "telas.h"
 #include "disco.h"
 #include "acel2d.h"
 #include "sensores_conv.h"
@@ -443,7 +444,9 @@ static void tratar_mouse(evento_mouse_t *m)
         return;
     }
 
-    if (apertou && m->y < BARRA_SUPERIOR) {   /* ninguna ventana sube hasta la barra (D065) */
+    int bl, ba;
+    telas_principal_rect(&bl, &ba);
+    if (apertou && m->y < BARRA_SUPERIOR && m->x < bl) {   /* D290: la barra solo ocupa la pantalla principal */   /* ninguna ventana sube hasta la barra (D065) */
         barra_tratar_clique(m->x, m->y, m->mudaram & m->botoes);
         captura = -1;
         return;
@@ -705,8 +708,10 @@ int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint
     int n = j->id % 8;
     j->x = 150 + n * 34;
     j->y = BARRA_SUPERIOR + 30 + n * 28;
-    if (j->x + moldura_l(j) > (int)video_largura()) j->x = (int)video_largura() - moldura_l(j);
-    if (j->y + moldura_a(j) > (int)video_altura()) j->y = (int)video_altura() - moldura_a(j);
+    int pl, pa;
+    telas_principal_rect(&pl, &pa);   /* D290: las ventanas nuevas aparecen en la pantalla principal */
+    if (j->x + moldura_l(j) > pl) j->x = pl - moldura_l(j);
+    if (j->y + moldura_a(j) > pa) j->y = pa - moldura_a(j);
     if (j->x < 0) j->x = 0;
     if (j->y < BARRA_SUPERIOR) j->y = BARRA_SUPERIOR;
     janela_t *antes = focada();
@@ -834,8 +839,24 @@ static int red_x0, red_y0, red_l0, red_a0, red_l, red_a, red_modo;   /* modo: 1 
 
 static int tela_l(void) { return (int)video_largura(); }
 static int tela_a(void) { return (int)video_altura(); }
-static int max_conteudo_l(void) { return tela_l() - 2 * BORDA; }
-static int max_conteudo_a(void) { return tela_a() - BARRA_SUPERIOR - BARRA_TITULO - BORDA; }
+
+/* D290: varias pantallas. tela_l y tela_a son el escritorio entero; la pantalla donde está una ventana
+ * (la que contiene el centro de su marco) es la que se usa para maximizarla y para la pantalla completa.
+ * Con una sola pantalla es todo el escritorio, como antes. */
+typedef struct { int x, y, l, a; } mon_t;
+static mon_t mon_da(janela_t *j)
+{
+    mon_t m = { 0, 0, (int)video_largura(), (int)video_altura() };
+    if (telas_qtd() > 1) {
+        int c = telas_da_posicao(j->x + moldura_l(j) / 2, j->y + moldura_a(j) / 2);
+        telas_rect(c, &m.x, &m.y, &m.l, &m.a);
+    }
+    return m;
+}
+/* Donde empieza una ventana maximizada en esa pantalla: ninguna sube hasta la barra de arriba (D065). */
+static int mon_topo(mon_t m) { return m.y > BARRA_SUPERIOR ? m.y : BARRA_SUPERIOR; }
+static int mc_l(mon_t m) { return m.l - 2 * BORDA; }
+static int mc_a(mon_t m) { return m.y + m.a - mon_topo(m) - BARRA_TITULO - BORDA; }
 static int minimo_l(janela_t *j) { return j->min_l > 40 ? j->min_l : 40; }
 static int minimo_a(janela_t *j) { return j->min_a > 20 ? j->min_a : 20; }
 static bool redimensionavel(janela_t *j) { return (j->estilo & JAN_REDIMENSIONAVEL) != 0; }
@@ -976,8 +997,9 @@ static void alternar_maximizar(janela_t *j)
     if (!j->maximizada) {
         j->rest_x = j->x; j->rest_y = j->y; j->rest_l = j->larg; j->rest_a = j->alt;
         j->maximizada = true;
-        j->x = 0; j->y = BARRA_SUPERIOR;
-        pedir_tamanho(j, max_conteudo_l(), max_conteudo_a(), JAN_ESTADO_MAXIMIZADA);
+        mon_t m = mon_da(j);   /* D290: la pantalla donde está */
+        j->x = m.x; j->y = mon_topo(m);
+        pedir_tamanho(j, mc_l(m), mc_a(m), JAN_ESTADO_MAXIMIZADA);
     } else {
         j->maximizada = false;
         j->x = j->rest_x; j->y = j->rest_y;
@@ -1042,11 +1064,12 @@ static bool clique_titulo(janela_t *j, int rx, int ry)
  * proporción, centrado, con franjas negras. */
 static void geometria_tela_cheia(janela_t *j, int *ox, int *oy, int *dl, int *da)
 {
-    int L = tela_l(), A = tela_a();
+    mon_t m = mon_da(j);   /* D290: la pantalla donde está la ventana */
+    int L = m.l, A = m.a;
     if (j->larg == L && j->alt == A) { *dl = L; *da = A; }
     else if (L * j->alt <= A * j->larg) { *dl = L; *da = j->alt * L / j->larg; }
     else { *da = A; *dl = j->larg * A / j->alt; }
-    *ox = (L - *dl) / 2; *oy = (A - *da) / 2;
+    *ox = m.x + (L - *dl) / 2; *oy = m.y + (A - *da) / 2;
 }
 
 static void entrar_tela_cheia(janela_t *j)
@@ -1055,7 +1078,7 @@ static void entrar_tela_cheia(janela_t *j)
     j->tc_x = j->x; j->tc_y = j->y; j->tc_l = j->larg; j->tc_a = j->alt;
     j->tela_cheia = true;
     arrastando = redimensionando = captura = -1;
-    if (redimensionavel(j)) pedir_tamanho(j, tela_l(), tela_a(), JAN_ESTADO_TELA_CHEIA);
+    if (redimensionavel(j)) { mon_t m = mon_da(j); pedir_tamanho(j, m.l, m.a, JAN_ESTADO_TELA_CHEIA); }
     redesenhar_tudo();
     klog("[GUI] janela %d em tela cheia (conteudo %dx%d)\n", j->id, j->larg, j->alt);
 }
@@ -1205,8 +1228,10 @@ int32_t sis_mover_janela(uint32_t id, uint32_t px, uint32_t py, uint32_t d, uint
     if (!j) return ERRO_INVALIDO;
     if (j->tela_cheia || j->maximizada) return ERRO_INVALIDO;
     int x = (int)px, y = (int)py;
-    if (x < 0) x = (int)video_largura() - moldura_l(j) + x + 1;
-    if (y < 0) y = (int)video_altura() - moldura_a(j) + y + 1;
+    int pl, pa;
+    telas_principal_rect(&pl, &pa);   /* D290: las posiciones negativas cuentan desde el borde de la pantalla principal */
+    if (x < 0) x = pl - moldura_l(j) + x + 1;
+    if (y < 0) y = pa - moldura_a(j) + y + 1;
     if (x + moldura_l(j) > (int)video_largura()) x = (int)video_largura() - moldura_l(j);
     if (y + moldura_a(j) > (int)video_altura()) y = (int)video_altura() - moldura_a(j);
     if (x < 0) x = 0;
@@ -1252,8 +1277,9 @@ int32_t sis_estilo_janela(uint32_t id, uint32_t estilo, uint32_t minimo, uint32_
     if (estilo & ~(uint32_t)(JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK | JAN_TELA_CHEIA | JAN_DIALOGO | JAN_ESC_LIVRE |
                              JAN_SEM_CURSOR)) return ERRO_INVALIDO;
     int ml = (int)(minimo & 0xFFFF), ma = (int)(minimo >> 16);
-    j->min_l = ml > max_conteudo_l() ? max_conteudo_l() : ml;
-    j->min_a = ma > max_conteudo_a() ? max_conteudo_a() : ma;
+    mon_t mj = mon_da(j);
+    j->min_l = ml > mc_l(mj) ? mc_l(mj) : ml;
+    j->min_a = ma > mc_a(mj) ? mc_a(mj) : ma;
     j->estilo = estilo & (JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK | JAN_DIALOGO | JAN_ESC_LIVRE | JAN_SEM_CURSOR);
     if (dialogo(j) && j->minimizada) desminimizar(j);
     if (estilo & JAN_TELA_CHEIA) {
@@ -1473,24 +1499,25 @@ void gui_tela_mudou(void)
     for (int i = 0; i < MAX_JANELAS; i++) {
         janela_t *j = &janelas[i];
         if (!j->usada) continue;
-        if (j->min_l > max_conteudo_l()) j->min_l = max_conteudo_l();
-        if (j->min_a > max_conteudo_a()) j->min_a = max_conteudo_a();
-        if (j->rest_l > max_conteudo_l()) j->rest_l = max_conteudo_l();
-        if (j->rest_a > max_conteudo_a()) j->rest_a = max_conteudo_a();
+        mon_t m = mon_da(j);   /* D290: la pantalla donde está la ventana */
+        int ml = mc_l(m), ma = mc_a(m);
+        if (j->min_l > ml) j->min_l = ml;
+        if (j->min_a > ma) j->min_a = ma;
+        if (j->rest_l > ml) j->rest_l = ml;
+        if (j->rest_a > ma) j->rest_a = ma;
         if (j->tela_cheia && redimensionavel(j)) {
-            pedir_tamanho(j, tela_l(), tela_a(), JAN_ESTADO_TELA_CHEIA);
+            pedir_tamanho(j, m.l, m.a, JAN_ESTADO_TELA_CHEIA);
         } else if (j->maximizada) {
-            j->x = 0; j->y = BARRA_SUPERIOR;
-            pedir_tamanho(j, max_conteudo_l(), max_conteudo_a(), JAN_ESTADO_MAXIMIZADA);
-        } else if (redimensionavel(j) && !j->tela_cheia && (j->larg > max_conteudo_l() || j->alt > max_conteudo_a())) {
-            pedir_tamanho(j, j->larg < max_conteudo_l() ? j->larg : max_conteudo_l(),
-                          j->alt < max_conteudo_a() ? j->alt : max_conteudo_a(), JAN_ESTADO_NORMAL);
+            j->x = m.x; j->y = mon_topo(m);
+            pedir_tamanho(j, ml, ma, JAN_ESTADO_MAXIMIZADA);
+        } else if (redimensionavel(j) && !j->tela_cheia && (j->larg > ml || j->alt > ma)) {
+            pedir_tamanho(j, j->larg < ml ? j->larg : ml, j->alt < ma ? j->alt : ma, JAN_ESTADO_NORMAL);
         }
         /* Posición (también la guardada para después de la pantalla completa). */
         int *px = j->tela_cheia ? &j->tc_x : &j->x, *py = j->tela_cheia ? &j->tc_y : &j->y;
         if (!j->maximizada) {
-            int l = (j->larg < max_conteudo_l() ? j->larg : max_conteudo_l()) + 2 * BORDA;
-            int a = (j->alt < max_conteudo_a() ? j->alt : max_conteudo_a()) + BARRA_TITULO + BORDA;
+            int l = (j->larg < ml ? j->larg : ml) + 2 * BORDA;
+            int a = (j->alt < ma ? j->alt : ma) + BARRA_TITULO + BORDA;
             if (*px + l > tela_l()) *px = tela_l() - l;
             if (*py + a > tela_a()) *py = tela_a() - a;
             if (*px < 0) *px = 0;
@@ -1500,7 +1527,7 @@ void gui_tela_mudou(void)
         if (j->rest_y + j->rest_a + BARRA_TITULO + BORDA > tela_a()) j->rest_y = tela_a() - j->rest_a - BARRA_TITULO - BORDA;
         if (j->rest_x < 0) j->rest_x = 0;
         if (j->rest_y < BARRA_SUPERIOR) j->rest_y = BARRA_SUPERIOR;
-        evento_t e = { .tipo = EV_TELA, .x = tela_l(), .y = tela_a() };
+        evento_t e = { .tipo = EV_TELA, .x = m.l, .y = m.a };   /* D290: el programa ve la pantalla donde está */
         entregar(j, &e);
         klog("[GUI] janela %d em (%d,%d) %dx%d depois da troca para %dx%d\n", j->id, j->x, j->y, j->larg, j->alt,
              tela_l(), tela_a());

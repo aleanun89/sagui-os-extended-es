@@ -26,6 +26,7 @@
  * Antes de todo, el sistema pide el controlador a la BIOS (que lo usaba para el
  * pendrive de arranque), por el procedimiento "BIOS/OS handoff" de la especificación. */
 #include "usb.h"
+#include "isoent.h"
 #include "console.h"
 #include "cpu.h"
 #include "memoria.h"
@@ -771,6 +772,443 @@ void ehci_int_fechar(int h)
     ehci_esperar_ms(e->c, 3);       /* el controlador ya no la está leyendo */
     memfisica_liberar(e->pagina);
     e->usado = false;
+    int_restaura(i0);
+}
+
+
+/* ------------------------------------------------------------ transferencias isócronas (D275) */
+
+/* iTD (apartado 3.3 de la especificación EHCI): 8 transacciones, una por microcuadro,
+ * y 7 punteros de página. Con el formato de 64 bits siguen 7 palabras con la parte alta
+ * (en cero). Ocupa 128 bytes, alineada en 32. */
+typedef struct {
+    volatile uint32_t proximo;
+    volatile uint32_t trans[8];
+    volatile uint32_t pagina[7];
+    volatile uint32_t pagina_alta[7];
+    uint32_t preenchimento[9];
+} __attribute__((aligned(32))) itd_t;
+_Static_assert(sizeof(itd_t) == 128, "iTD: 128 bytes");
+
+#define ITD_ATIVO   (1u << 31)
+#define ITD_ERROS   (7u << 28)       /* búfer, "babble", transacción */
+#define ISO_N       64               /* iTD del anillo: un milisegundo cada uno (potencia de 2) */
+#define ISO_ESTRUTURAS 8192u         /* 64 iTD de 128 bytes */
+
+typedef struct {
+    bool     usado, ligado;
+    ehci_t  *c;
+    uint32_t itds;                 /* físico de los 64 iTD */
+    uint8_t  dev, ep, ivl_uf;      /* dirección, endpoint, microcuadros entre transacciones (1, 2, 4 u 8) */
+    uint16_t mps;
+    uint32_t anel_fis, anel_tam, bytes_s;
+    uint8_t  tam_quadro;
+    uint32_t pos_fila, pos_feito, acc;
+    uint32_t agora, ultimo_f;      /* cuenta absoluta de cuadros (1 ms) y el último FRINDEX>>3 visto */
+    uint32_t prox, vel;            /* cuadro del próximo iTD a armar y del más antiguo sin completar */
+    uint16_t bytes[ISO_N];         /* bytes planeados de cada iTD */
+    uint32_t ancho;                /* bytes por microcuadro que reserva */
+    bool     entrada;              /* D277: flujo de entrada (cámara) */
+    bool     sitd;                 /* D277: plena velocidad tras un hub de alta velocidad: siTD en vez de iTD */
+    uint8_t  mult;                 /* transacciones por microcuadro (iTD) */
+    uint8_t  tt_hub, tt_porta;     /* siTD: hub con el traductor y su puerto */
+    uint8_t  arm[ISO_N];           /* entrada: transacciones puestas en el iTD (0 = ninguna) */
+    isoent_t re;
+    uint32_t paquetes, completados, subdesb, erros;
+} ehci_iso_t;
+
+static ehci_iso_t isoc[USB_ISO_MAX * USB_MAX_CONTROLADORES];
+
+static itd_t *itd_de(ehci_iso_t *e, uint32_t k) { return (itd_t *)(e->itds + 128u * k); }
+
+/* siTD (apartado 3.4 de la especificación EHCI): una transacción isócrona de plena
+ * velocidad que el EHCI reparte por el traductor (TT) de un hub de alta velocidad con
+ * "start-split" (S) y "complete-split" (C) en microcuadros concretos del cuadro. Ocupa
+ * 28 bytes (36 con 64 bits); se alinean en 64 y se guardan 64 en la página. */
+typedef struct {
+    volatile uint32_t proximo;
+    volatile uint32_t carac;        /* dirección, endpoint, hub, puerto y sentido (bit 31 = entrada) */
+    volatile uint32_t mascaras;     /* S-mask (7:0) y C-mask (15:8) */
+    volatile uint32_t estado;       /* estado (7:0), C-prog (15:8), bytes (25:16), selector de página (30), IOC (31) */
+    volatile uint32_t pagina0;      /* página 0 y desplazamiento actual */
+    volatile uint32_t pagina1;      /* página 1, TP (4:3) y T-count (2:0) */
+    volatile uint32_t atras;        /* puntero de retroceso */
+    volatile uint32_t pagina0_alta, pagina1_alta;
+    uint32_t preenchimento[7];
+} __attribute__((aligned(64))) sitd_t;
+_Static_assert(sizeof(sitd_t) == 64, "siTD: 64 bytes");
+#define SITD_ATIVO   0x80u
+#define SITD_ERROS   0x7Cu            /* ERR, búfer, babble, transacción y microcuadro perdido */
+#define SITD_TIPO    4u               /* tipo de enlace 2 = siTD */
+#define SITD_SPLIT_MAX 188u           /* bytes por start-split de salida */
+#define SITD_ENTRADA_MAX 752u         /* con S en el microcuadro 0, los C (2 a hs+3) caben en el cuadro */
+
+static sitd_t *sitd_de(ehci_iso_t *e, uint32_t k) { return (sitd_t *)(e->itds + 64u * k); }
+
+/* Actualiza la cuenta absoluta de cuadros con FRINDEX (11 bits de cuadro). */
+static void iso_relogio(ehci_iso_t *e)
+{
+    uint32_t f = (e->c->op[FRINDEX] >> 3) & 0x7FF;
+    e->agora += (f - e->ultimo_f) & 0x7FF;
+    e->ultimo_f = f;
+}
+
+/* Cuenta lo que ya pasó: un iTD está completo cuando su cuadro terminó. */
+/* Entrada: pasa a la cola de recibidos lo que dejó el iTD o el siTD k (no lo que se saltó). */
+static void iso_recibir(ehci_iso_t *e, uint32_t k, bool perdido)
+{
+    if (e->sitd) {
+        sitd_t *t = sitd_de(e, k);
+        if (!e->arm[k]) return;
+        uint32_t st = t->estado;
+        bool mal = perdido || (st & SITD_ATIVO) || (st & SITD_ERROS);
+        uint32_t resto = (st >> 16) & 0x3FF;
+        isoent_completar(&e->re, mal || resto > e->mps ? 0 : e->mps - resto, mal);
+        t->estado = 0;
+        e->arm[k] = 0;
+        return;
+    }
+    itd_t *t = itd_de(e, k);
+    uint32_t cnt = e->arm[k];
+    for (uint32_t i = 0; i < 8 && cnt; i++) {
+        if (i % e->ivl_uf) continue;
+        uint32_t tr = t->trans[i];
+        bool mal = perdido || (tr & ITD_ATIVO) || (tr & ITD_ERROS);
+        isoent_completar(&e->re, mal ? 0 : (tr >> 16) & 0xFFFu, mal);
+    }
+    e->arm[k] = 0;
+}
+
+static void iso_completar(ehci_iso_t *e)
+{
+    while (e->vel != e->prox && (int32_t)(e->agora - e->vel) > 0) {
+        uint32_t k = e->vel % ISO_N;
+        if (e->entrada) {
+            bool ativo = e->arm[k] && (e->sitd ? (sitd_de(e, k)->estado & SITD_ATIVO) != 0 : (itd_de(e, k)->trans[0] & ITD_ATIVO) != 0);
+            if (ativo) e->subdesb++;
+            iso_recibir(e, k, false);
+            if (e->sitd) sitd_de(e, k)->estado = 0;
+            else for (int i = 0; i < 8; i++) itd_de(e, k)->trans[i] = 0;
+            e->completados++;
+            e->vel++;
+            continue;
+        }
+        if (e->sitd) {                       /* salida por siTD: un paquete por cuadro */
+            sitd_t *t = sitd_de(e, k);
+            if (t->estado & SITD_ATIVO) e->subdesb++;
+            else if (t->estado & SITD_ERROS) e->erros++;
+            t->estado = 0;
+            e->pos_feito += e->bytes[k];
+            e->bytes[k] = 0;
+            e->completados++;
+            e->vel++;
+            continue;
+        }
+        itd_t *t = itd_de(e, k);
+        bool ativo = false, erro = false;
+        for (int i = 0; i < 8; i++) { ativo |= (t->trans[i] & ITD_ATIVO) != 0; erro |= (t->trans[i] & ITD_ERROS) != 0; }
+        if (ativo) e->subdesb++;             /* el controlador no llegó a ejecutarlo */
+        if (erro) e->erros++;
+        for (int i = 0; i < 8; i++) t->trans[i] = 0;   /* inactivo: no se repite 64 ms después */
+        e->pos_feito += e->bytes[k];
+        e->bytes[k] = 0;
+        e->completados++;
+        e->vel++;
+    }
+}
+
+/* Arma el siTD del cuadro f (D277). Salida: un paquete de bytes_s/1000 bytes, con tantos
+ * start-split como trozos de 188 bytes. Entrada: una casilla de mps bytes, con un
+ * start-split en el microcuadro 0 y los complete-split desde el 2. Sin probar en
+ * hardware (el QEMU no reparte los siTD por un traductor). */
+static void sitd_armar(ehci_iso_t *e, uint32_t f)
+{
+    uint32_t k = f % ISO_N;
+    sitd_t *t = sitd_de(e, k);
+    uint32_t n, a;
+    if (e->entrada) {
+        if (!isoent_livres(&e->re)) { t->estado = 0; e->arm[k] = 0; return; }
+        n = e->mps;
+        a = e->anel_fis + isoent_postar(&e->re);
+        e->arm[k] = 1;
+    } else {
+        n = usb_iso_calcular(&e->acc, e->bytes_s, e->tam_quadro, 1000, e->mps);
+        uint32_t lim = e->anel_tam - e->pos_fila;
+        if (n > lim) n = lim - lim % e->tam_quadro;
+        a = e->anel_fis + e->pos_fila;
+        e->pos_fila += n;
+        if (e->pos_fila >= e->anel_tam) e->pos_fila -= e->anel_tam;
+    }
+    uint32_t hs = (n + SITD_SPLIT_MAX - 1) / SITD_SPLIT_MAX;
+    if (!hs) hs = 1;
+    uint32_t smask, cmask;
+    if (e->entrada) { smask = 1; cmask = ((1u << (hs + 2)) - 1) << 2; }
+    else { smask = (1u << hs) - 1; cmask = 0; }
+    t->estado = 0;
+    t->carac = (uint32_t)e->dev | ((uint32_t)e->ep << 8) | ((uint32_t)e->tt_hub << 16) | ((uint32_t)e->tt_porta << 24) |
+               (e->entrada ? 1u << 31 : 0);
+    t->mascaras = smask | (cmask << 8);
+    t->pagina0 = a;
+    t->pagina1 = ((a + (n ? n - 1 : 0)) & ~0xFFFu) | (e->entrada ? 0u : (hs > 1 ? 1u << 3 : 0u)) | (e->entrada ? 0u : hs);
+    t->atras = T_TERMINA;
+    t->pagina0_alta = t->pagina1_alta = 0;
+    __asm__ volatile("" ::: "memory");
+    t->estado = SITD_ATIVO | (n << 16);
+    e->bytes[k] = (uint16_t)n;
+    e->paquetes++;
+}
+
+/* Arma el iTD del cuadro f (en su posición k = f mod 64) con los paquetes siguientes. */
+static void iso_armar(ehci_iso_t *e, uint32_t f)
+{
+    if (e->sitd) { sitd_armar(e, f); return; }
+    uint32_t k = f % ISO_N;
+    itd_t *t = itd_de(e, k);
+    uint32_t paginas[7], np = 0, total = 0;
+    uint32_t tr[8];
+    uint32_t cnt = 8 / e->ivl_uf;
+    if (e->entrada && isoent_livres(&e->re) < cnt) {      /* el consumidor va atrasado: este milisegundo queda vacío */
+        for (int i = 0; i < 8; i++) t->trans[i] = 0;
+        e->arm[k] = 0;
+        return;
+    }
+    for (int i = 0; i < 8; i++) {
+        tr[i] = 0;
+        if (i % e->ivl_uf) continue;
+        uint32_t n, a;
+        if (e->entrada) {
+            n = e->mps * e->mult;
+            a = e->anel_fis + isoent_postar(&e->re);
+        } else {
+            n = usb_iso_calcular(&e->acc, e->bytes_s, e->tam_quadro, e->ivl_uf * 125u, e->mps);
+            uint32_t lim = e->anel_tam - e->pos_fila;
+            if (n > lim) n = lim - lim % e->tam_quadro;
+            a = e->anel_fis + e->pos_fila;
+        }
+        uint32_t p0 = a >> 12, p1 = n ? (a + n - 1) >> 12 : p0;
+        /* Una transacción usa la última página anotada (o una nueva) y, si cruza, la
+         * siguiente a continuación en la lista. */
+        int pg = -1;
+        if (np && paginas[np - 1] == p0) pg = (int)np - 1;
+        else if (np < 7) { paginas[np++] = p0; pg = (int)np - 1; }
+        if (pg >= 0 && p1 != p0) {
+            if (np < 7) paginas[np++] = p1;
+            else pg = -1;
+        }
+        if (pg < 0) n = 0;                  /* no cabe en las 7 páginas: este paquete se pierde */
+        tr[i] = ITD_ATIVO | (n << 16) | ((uint32_t)(pg < 0 ? 0 : pg) << 12) | (a & 0xFFFu);
+        if (!e->entrada) {
+            e->pos_fila += n;
+            if (e->pos_fila >= e->anel_tam) e->pos_fila -= e->anel_tam;
+        }
+        total += n;
+    }
+    for (uint32_t i = 0; i < np; i++) t->pagina[i] = paginas[i] << 12;
+    for (uint32_t i = np; i < 7; i++) t->pagina[i] = 0;
+    t->pagina[0] |= (uint32_t)e->dev | ((uint32_t)e->ep << 8);
+    /* tamaño máximo de paquete y sentido (bit 11 = entrada), y las transacciones por microcuadro */
+    t->pagina[1] |= (e->mps & 0x7FFu) | (e->entrada ? 1u << 11 : 0u);
+    t->pagina[2] |= e->entrada ? e->mult : 1u;
+    for (int i = 0; i < 7; i++) t->pagina_alta[i] = 0;
+    __asm__ volatile("" ::: "memory");
+    for (int i = 0; i < 8; i++) t->trans[i] = tr[i];   /* al final: ya activo */
+    if (e->entrada) e->arm[k] = (uint8_t)cnt;
+    e->bytes[k] = (uint16_t)(total > 0xFFFF ? 0xFFFF : total);
+    e->paquetes++;
+}
+
+static void iso_encher(ehci_iso_t *e)
+{
+    iso_relogio(e);
+    iso_completar(e);
+    if (!e->ligado) return;
+    if ((int32_t)(e->prox - e->agora) < 2) {
+        /* Nos quedamos atrás (el kernel estuvo sin atender el flujo): se salta al futuro
+         * y se pierde ese trozo; los iTD atrasados quedaron completados arriba. */
+        if (e->prox != e->vel) { e->subdesb++; }
+        while (e->vel != e->prox) {          /* lo armado para cuadros pasados cuenta como completado */
+            uint32_t k = e->vel % ISO_N;
+            if (e->entrada) iso_recibir(e, k, true);
+            itd_t *t = itd_de(e, k);
+            if (e->sitd) sitd_de(e, k)->estado = 0;
+            else for (int i = 0; i < 8; i++) t->trans[i] = 0;
+            e->pos_feito += e->bytes[k];
+            e->bytes[k] = 0;
+            e->vel++;
+        }
+        e->prox = e->vel = e->agora + 3;
+    }
+    while ((int32_t)(e->prox - e->agora) < (int32_t)USB_ISO_COLA_MS && e->prox - e->vel < ISO_N - 4) {
+        iso_armar(e, e->prox);
+        e->prox++;
+    }
+}
+
+int ehci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg)
+{
+    ehci_t *c = d->ctl;
+    uint32_t mult = cfg->mult ? cfg->mult : 1;
+    if (!c || !cfg->mps || cfg->mps > 1024 || mult > 3) return USB_ERRO;
+    bool sitd = d->velocidade != USB_VEL_ALTA;
+    if (sitd && (d->velocidade != USB_VEL_PLENA || cfg->mps > 1023 || mult > 1 || !d->tt_endereco)) {
+        klog("[EHCI] isocrono de baja velocidad o sin traductor: no se puede\n");
+        return USB_ERRO;
+    }
+    if (sitd && cfg->entrada && cfg->mps > SITD_ENTRADA_MAX) {
+        klog("[EHCI] isocrono de entrada por siTD de %u bytes: demasiado grande (maximo %u)\n", cfg->mps, SITD_ENTRADA_MAX);
+        return USB_ERRO;
+    }
+    if (cfg->entrada ? (cfg->anel_tam % (cfg->mps * mult) != 0 || cfg->anel_tam / (cfg->mps * mult) > ISOENT_CASILLAS_MAX)
+                     : (!cfg->tam_quadro || cfg->anel_tam % cfg->tam_quadro || mult > 1)) return USB_ERRO;
+    bool i0 = int_salva_desliga();
+    int h = -1;
+    for (int i = 0; i < USB_ISO_MAX * USB_MAX_CONTROLADORES; i++) {
+        if (isoc[i].usado && isoc[i].c == c) {     /* la lista periódica solo lleva el anillo de iTD de un flujo */
+            klog("[EHCI] isocrono: ya hay un flujo en este controlador\n");
+            int_restaura(i0);
+            return USB_ERRO;
+        }
+        if (!isoc[i].usado && h < 0) h = i;
+    }
+    /* Un dispositivo "1.x" que el EHCI ve en alta velocidad (el QEMU): un paquete por cuadro. */
+    uint32_t b = cfg->intervalo ? cfg->intervalo : 1, ivl = 1u << (b > 4 ? 3 : b - 1);
+    if (d->bcd_usb < 0x0200) ivl = 8;
+    if (ivl > 8) ivl = 8;
+    if (sitd) ivl = 8;                 /* un paquete por cuadro */
+    if (cfg->entrada && !sitd && (cfg->anel_tam / (cfg->mps * mult)) % (8 / ivl) != 0) { int_restaura(i0); return USB_ERRO; }
+    uint32_t ancho = cfg->mps * mult;
+    int r = USB_ERRO;
+    if (h >= 0 && c->ancho_iso + ancho <= USB_ISO_ANCHO_MAX) {
+        uint32_t it = memfisica_alocar_seguidas(ISO_ESTRUTURAS / PAGINA);
+        if (it && periodica_ligar(c)) {
+            ehci_iso_t *e = &isoc[h];
+            memset(e, 0, sizeof *e);
+            memset((void *)it, 0, ISO_ESTRUTURAS);
+            e->entrada = cfg->entrada;
+            e->sitd = sitd;
+            e->mult = (uint8_t)mult;
+            e->tt_hub = d->tt_endereco;
+            e->tt_porta = d->tt_porta;
+            if (e->entrada && !isoent_iniciar(&e->re, cfg->anel_tam, cfg->mps * mult)) {
+                memfisica_liberar_seguidas(it, ISO_ESTRUTURAS / PAGINA);
+                int_restaura(i0);
+                return USB_ERRO;
+            }
+            e->usado = true;
+            e->c = c;
+            e->itds = it;
+            e->dev = d->endereco;
+            e->ep = cfg->ep;
+            e->ivl_uf = (uint8_t)ivl;
+            e->mps = cfg->mps;
+            e->anel_fis = cfg->anel_fis;
+            e->anel_tam = cfg->anel_tam;
+            e->bytes_s = cfg->bytes_s;
+            e->tam_quadro = cfg->tam_quadro;
+            e->ancho = ancho;
+            e->ultimo_f = (c->op[FRINDEX] >> 3) & 0x7FF;
+            e->agora = e->prox = e->vel = e->ultimo_f;
+            c->ancho_iso += ancho;
+            /* Cada entrada de la lista periódica pasa primero por el iTD (o siTD) de su cuadro (mod 64) */
+            qh_t *cab = periodica_cabeca(c);
+            for (uint32_t k = 0; k < ISO_N; k++) {
+                if (sitd) sitd_de(e, k)->proximo = (uint32_t)cab | T_QH;
+                else itd_de(e, k)->proximo = (uint32_t)cab | T_QH;
+            }
+            volatile uint32_t *lista = (volatile uint32_t *)c->periodica;
+            for (uint32_t f = 0; f < 1024; f++)
+                lista[f] = sitd ? ((uint32_t)sitd_de(e, f % ISO_N) | SITD_TIPO) : (it + 128u * (f % ISO_N));   /* tipo 0 = iTD */
+            r = h;
+        } else if (it) memfisica_liberar_seguidas(it, ISO_ESTRUTURAS / PAGINA);
+    } else if (h >= 0)
+        klog("[EHCI] isocrono: sin ancho de banda (%u + %u > %u bytes por microcuadro)\n", c->ancho_iso, ancho, USB_ISO_ANCHO_MAX);
+    int_restaura(i0);
+    return r;
+}
+
+static ehci_iso_t *iso_h(usb_disp_t *d, int h)
+{
+    if (h < 0 || h >= USB_ISO_MAX * USB_MAX_CONTROLADORES || !isoc[h].usado || isoc[h].c != d->ctl) return NULL;
+    return &isoc[h];
+}
+
+void ehci_iso_ligar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ehci_iso_t *e = iso_h(d, h);
+    if (e) {
+        iso_relogio(e);
+        iso_completar(e);
+        while (e->vel != e->prox) { e->bytes[e->vel % ISO_N] = 0; e->vel++; }
+        for (uint32_t k = 0; k < ISO_N; k++) {
+            if (e->sitd) sitd_de(e, k)->estado = 0;
+            else for (int i = 0; i < 8; i++) itd_de(e, k)->trans[i] = 0;
+            e->arm[k] = 0;
+        }
+        if (e->entrada) isoent_reiniciar(&e->re);
+        e->pos_fila = e->pos_feito = e->acc = 0;
+        e->prox = e->vel = e->agora + 3;
+        e->ligado = true;
+        iso_encher(e);
+    }
+    int_restaura(i0);
+}
+
+void ehci_iso_parar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ehci_iso_t *e = iso_h(d, h);
+    if (e) e->ligado = false;
+    int_restaura(i0);
+}
+
+uint32_t ehci_iso_posicao(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ehci_iso_t *e = iso_h(d, h);
+    uint32_t r = 0;
+    if (e) { iso_encher(e); r = e->pos_feito; }
+    int_restaura(i0);
+    return r;
+}
+
+bool ehci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro)
+{
+    bool i0 = int_salva_desliga();
+    ehci_iso_t *e = iso_h(d, h);
+    bool r = e && e->entrada && isoent_ler(&e->re, off, len, erro);
+    int_restaura(i0);
+    return r;
+}
+
+bool ehci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i)
+{
+    ehci_iso_t *e = iso_h(d, h);
+    if (!e) return false;
+    i->paquetes = e->paquetes;
+    i->completados = e->completados;
+    i->subdesbordes = e->subdesb;
+    i->errores = e->erros;
+    i->ancho = e->ancho;
+    return true;
+}
+
+void ehci_iso_fechar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    ehci_iso_t *e = h >= 0 && h < USB_ISO_MAX * USB_MAX_CONTROLADORES && isoc[h].usado ? &isoc[h] : NULL;
+    if (e) {
+        ehci_t *c = e->c;
+        e->ligado = false;
+        qh_t *cab = periodica_cabeca(c);
+        volatile uint32_t *lista = (volatile uint32_t *)c->periodica;
+        for (uint32_t f = 0; f < 1024; f++) lista[f] = (uint32_t)cab | T_QH;
+        ehci_esperar_ms(c, 3);              /* el controlador ya no los está leyendo */
+        memfisica_liberar_seguidas(e->itds, ISO_ESTRUTURAS / PAGINA);
+        if (c->ancho_iso >= e->ancho) c->ancho_iso -= e->ancho;
+        e->usado = false;
+    }
+    (void)d;
     int_restaura(i0);
 }
 

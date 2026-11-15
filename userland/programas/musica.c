@@ -499,12 +499,16 @@ static int adicionar(const char *c)
 }
 
 /* Pregunta una ruta (con el sonido en pausa mientras el diálogo está abierto). */
+/* Archivo de sonido (diálogo de abrir, D272) o carpeta entera (diálogo de carpeta, según la respuesta). */
+#define FILTROS_SONIDO "Sonido (*.wav;*.mp3;*.flac;*.ogg;*.mid;*.midi;*.kar)|*.wav;*.mp3;*.flac;*.ogg;*.mid;*.midi;*.kar|Todos los archivos (*.*)|*"
+
 static bool preguntar(const char *titulo, char *c, int max)
 {
     bool tocaba = estado == TOCANDO;
     if (tocaba) pausar();
     if (c[0] == 0) copia_texto(c, "/", (size_t)max);
-    bool ok = pedir_texto(titulo, "Ruta de un archivo de sonido o de una carpeta:", c, max) && c[0];
+    bool carpeta = confirmar(titulo, "¿Añadir una carpeta entera?\nSí: elegir una carpeta.  No: elegir un archivo de sonido.");
+    bool ok = (carpeta ? dialogo_carpeta(titulo, c, c, max) : dialogo_abrir(titulo, FILTROS_SONIDO, c, c, max)) && c[0];
     if (tocaba && estado == PAUSADO) alternar();
     return ok;
 }

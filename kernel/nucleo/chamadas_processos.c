@@ -3,6 +3,8 @@
 #include "irq_rotas.h"
 #include "aparencia.h"
 #include "acel2d.h"
+#include "gpu3d.h"
+#include "audio.h"
 #include "sistema.h"
 #include "console.h"
 #include "memoria.h"
@@ -249,10 +251,19 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_ACEL2D) return acel2d_info(ptr, n);         /* D195 */
     if (tipo == INFO_ACEL2D_CTL) return ptr == 0 ? acel2d_apagar() : ptr == 1 ? acel2d_acender() : ERRO_INVALIDO;  /* D244 */
     if (tipo == INFO_ACEL2D_PROVA) return acel2d_prova(ptr, n);  /* D195: acel2d probar */
+    if (tipo == INFO_GPU3D) return gpu3d_info(ptr, n);           /* D285: 3D por la GPU */
+    if (tipo == INFO_GPU3D_OP) return gpu3d_op(ptr, n);
+    if (tipo == INFO_GPU3D_PROVA) return gpu3d_prova(ptr, n);
+    if (tipo == INFO_GPU3D_CTL) return gpu3d_ctl(ptr);
     if (tipo == INFO_MOTOR_GPU) {   /* motor 3D por la GPU (D158) */
         int32_t motor_gpu_info(uint32_t ptr, uint32_t n);
         return motor_gpu_info(ptr, n);
     }
+    if (tipo == INFO_CAMARA) {   /* cámara UVC y fuente de prueba (D277) */
+        int32_t camara_info(uint32_t ptr, uint32_t n);
+        return camara_info(ptr, n);
+    }
+    if (tipo == INFO_CAPTURA) return captura_info(ptr, n);   /* D292: micrófono */
     if (tipo == INFO_BANDEJA) return barra_info_bandeja(ptr, n);   /* D114 */
     if (tipo == INFO_ENERGIA) return acpi_info(ptr, n);   /* D113 */
     if (tipo == INFO_BATERIA) return bateria_info(ptr, n);   /* D192 */

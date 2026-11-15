@@ -110,6 +110,12 @@ typedef struct usb_disp {
     usb_porta_t hub_porta[USB_HUB_MAX_PORTAS];  /* si es hub: estado de cada puerto (D227) */
     void     *disco;                           /* si es almacenamiento */
     bool      wifi;                            /* el pincho Wi-Fi (D215) */
+    bool      audio;                           /* tarjeta de audio USB registrada (D275) */
+    uint8_t   ep_int;                          /* D279: endpoint de interrupción de entrada de la primera interfaz (eventos HCI) */
+    uint16_t  mps_int;
+    uint8_t   int_intervalo;
+    bool      bt;                              /* controlador Bluetooth atendido por kernel/usb/usbbt.c (D279) */
+    bool      camara;                          /* cámara UVC registrada (D277) */
 } usb_disp_t;
 
 /* ---- ehci.c ---- */
@@ -127,6 +133,7 @@ struct ehci {
     uint32_t  estruturas;              /* página con el anillo asíncrono solo de este controlador */
     uint32_t  periodica;               /* lista periódica (HID, D214); 0 = apagada */
     uint32_t  continua;                /* QH de recepción continua (Wi-Fi, D215); 0 = ninguna */
+    uint32_t  ancho_iso;               /* D275: bytes por microcuadro reservados por flujos isócronos */
     uint8_t   irq;                     /* línea PCI del controlador (0 = sin IRQ utilizable) */
     bool      irq_usavel;              /* la IRQ ya llegó y sigue llegando (D095) */
     bool      esperando;               /* un proceso duerme esperando el fin de la transferencia */
@@ -261,6 +268,86 @@ const char *usb_nome_ctl(uint8_t tipo);       /* "EHCI", "xHCI", "UHCI" u "OHCI"
 usb_disp_t *usb_disp(int i);
 void usb_verificar_conexoes(void);             /* conexión y retirada en caliente */
 
+
+/* ---- transferencias isócronas (D275) ----
+ * Un flujo isócrono es un anillo de datos en memoria física (contigua, por debajo
+ * de 4 GB) que el controlador recorre sin parar, un paquete por (micro)cuadro, con
+ * el tamaño que da la cuenta de bytes por segundo: el que escribe (salida) o lee
+ * (entrada) detrás de la posición completada. La pila reparte los paquetes, mantiene
+ * llena una cola de unos USB_ISO_COLA_MS milisegundos y cuenta lo completado; quien
+ * usa el flujo solo mira usb_iso_posicao(), que también reabastece la cola (se llama
+ * en cada tic y en cada IRQ del audio, con las interrupciones encendidas o no).
+ * Entrada (D277, cámaras UVC): el anillo se divide en casillas de mps*mult bytes; cada
+ * paquete cae en la siguiente casilla y usb_iso_ler() devuelve, en orden, dónde cayó y
+ * cuántos bytes trae (isoent.h). Una casilla se reutiliza al leerla. */
+#define USB_ISO_COLA_MS  32       /* milisegundos de paquetes que se mantienen en la cola */
+#define USB_ISO_MAX      2        /* flujos isócronos abiertos a la vez por controlador */
+#define USB_ISO_ANCHO_MAX 6000    /* EHCI: bytes isócronos+periódicos por microcuadro (80 % de 7500) */
+typedef struct {
+    uint8_t  ep;          /* número de endpoint (sin el bit de dirección) */
+    bool     entrada;     /* false = salida (altavoz); true = entrada (cámara, D277): bytes_s y tam_quadro no se usan */
+    uint8_t  mult;        /* transacciones por microcuadro de alta velocidad (0 o 1 = una; hasta 3) */
+    uint16_t mps;         /* bytes máximos por transacción (sin multiplicador) */
+    uint8_t  intervalo;   /* bInterval tal cual */
+    uint32_t anel_fis;    /* anillo de datos (físico, contiguo) */
+    uint32_t anel_tam;    /* bytes; múltiplo de tam_quadro */
+    uint32_t bytes_s;     /* bytes por segundo del flujo */
+    uint8_t  tam_quadro;  /* bytes de un cuadro de audio: cada paquete es un número entero */
+} usb_iso_cfg_t;
+typedef struct {          /* contadores de un flujo (diagnóstico) */
+    uint32_t paquetes, completados, subdesbordes, errores, ancho;
+} usb_iso_info_t;
+/* Reparto de bytes por paquete (acumulador): bytes de este paquete para un periodo en
+ * microsegundos; *acc guarda el resto (en millonésimas de cuadro). */
+uint32_t usb_iso_calcular(uint32_t *acc, uint32_t bytes_s, uint8_t tam_quadro, uint32_t periodo_us, uint32_t mps);
+int  usb_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg);   /* manejador >= 0 o USB_ERRO */
+void usb_iso_ligar(usb_disp_t *d, int h);                      /* empieza por el inicio del anillo */
+void usb_iso_parar(usb_disp_t *d, int h);                      /* deja de poner paquetes nuevos */
+uint32_t usb_iso_posicao(usb_disp_t *d, int h);                /* bytes completados desde ligar (y reabastece) */
+void usb_iso_fechar(usb_disp_t *d, int h);
+bool usb_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i);
+/* Entrada: siguiente paquete recibido y sin leer (llamar antes a usb_iso_posicao, que completa y reabastece). */
+bool usb_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro);
+bool xhci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro);
+bool uhci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro);
+bool ohci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro);
+bool ehci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro);
+int  xhci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg);
+void xhci_iso_ligar(usb_disp_t *d, int h);
+void xhci_iso_parar(usb_disp_t *d, int h);
+uint32_t xhci_iso_posicao(usb_disp_t *d, int h);
+void xhci_iso_fechar(usb_disp_t *d, int h);
+bool xhci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i);
+int  uhci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg);
+void uhci_iso_ligar(usb_disp_t *d, int h);
+void uhci_iso_parar(usb_disp_t *d, int h);
+uint32_t uhci_iso_posicao(usb_disp_t *d, int h);
+void uhci_iso_fechar(usb_disp_t *d, int h);
+bool uhci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i);
+int  ohci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg);
+void ohci_iso_ligar(usb_disp_t *d, int h);
+void ohci_iso_parar(usb_disp_t *d, int h);
+uint32_t ohci_iso_posicao(usb_disp_t *d, int h);
+void ohci_iso_fechar(usb_disp_t *d, int h);
+bool ohci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i);
+int  ehci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg);
+void ehci_iso_ligar(usb_disp_t *d, int h);
+void ehci_iso_parar(usb_disp_t *d, int h);
+uint32_t ehci_iso_posicao(usb_disp_t *d, int h);
+void ehci_iso_fechar(usb_disp_t *d, int h);
+bool ehci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i);
+
+/* ---- usbaudio.c (D275): audio USB, clase Audio 1.0 ---- */
+bool usbaudio_conectar(usb_disp_t *d);      /* ¿tiene interfaces de audio que se usan? */
+void usbaudio_desconectar(usb_disp_t *d);
+int  usbaudio_relatorio(char *s, int max);
+
+/* ---- uvc.c (D277): cámaras UVC 1.1 y la fuente de prueba ---- */
+bool uvc_conectar(usb_disp_t *d);          /* ¿es una cámara UVC que se pueda usar? */
+void uvc_desconectar(usb_disp_t *d);
+void uvc_tique(void);                      /* del reloj: recoge paquetes y monta cuadros */
+int  uvc_relatorio(char *s, int max);
+
 /* ---- armazenamento.c ---- */
 /* >0 = disco registrado; 0 = no se puede usar (sin endpoints, sector raro); <0 = no
  * respondió: vale la pena otro intento con un reset nuevo (D227). */
@@ -271,5 +358,18 @@ void armaz_desconectar(usb_disp_t *d);
 void hid_conectar(usb_disp_t *d);
 void hid_desconectar(usb_disp_t *d);
 int  hid_relatorio(char *s, int max);
+
+/* ---- Bluetooth (D279): kernel/usb/usbbt.c y kernel/bluetooth/ ---- */
+bool bt_usb_reconhecer(usb_disp_t *d);       /* true = es un controlador Bluetooth (clase 0xE0/0x01/0x01) y queda atendido */
+void bt_usb_retirado(usb_disp_t *d);
+int  bt_relatorio(char *s, int max);
+
+/* La entrada de los dispositivos HID Bluetooth sigue el mismo camino que la de los USB (hid.c). */
+int  hid_bt_conectar(int tipo, const uint8_t *desc, int n);   /* 1 = ratón entendido por su descriptor (sin protocolo boot) */
+void hid_bt_teclado(const uint8_t *r, int n);                 /* informe boot de 8 bytes */
+void hid_bt_raton(const uint8_t *r, int n, bool boot);
+void hid_bt_soltar(int tipo);
+void hid_bt_tic(void);                                        /* repetición de tecla (cada tic) */
+bool hid_bt_leds(uint8_t *leds);                              /* true si las luces del teclado cambiaron */
 
 #endif

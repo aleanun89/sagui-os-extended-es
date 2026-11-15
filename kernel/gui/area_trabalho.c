@@ -15,6 +15,7 @@
 #include "texto.h"
 #include "versao.h"
 #include "video.h"
+#include "telas.h"
 #include "disco.h"
 #include "montagem.h"
 #include "sistema.h"
@@ -67,9 +68,14 @@ static bool icone_visivel(int i) { return i != ICONE_PENDRIVE || pendrive_visive
 /* Cuántos íconos caben en una columna (los demás van a la columna de al lado):
  * 8 en 768 líneas, como siempre; depende de la altura porque la pantalla puede
  * cambiar de modo (D059). */
+/* D290: con varias pantallas, los iconos y la mascota viven en la principal (la del origen). */
+static void prim_tam(int *l, int *a) { telas_principal_rect(l, a); }
+
 static int icones_por_coluna(void)
 {
-    int n = (alt - ICONE_Y0) / ICONE_PASSO;
+    int pl, pa;
+    prim_tam(&pl, &pa);
+    int n = (pa - ICONE_Y0) / ICONE_PASSO;
     return n < 1 ? 1 : n;
 }
 
@@ -105,7 +111,9 @@ static bool arr_ctrl;
 
 static int colunas(void)
 {
-    int n = (larg - ICONE_X) / CEL_L;
+    int pl, pa;
+    prim_tam(&pl, &pa);
+    int n = (pl - ICONE_X) / CEL_L;
     return n < 1 ? 1 : n;
 }
 
@@ -279,7 +287,7 @@ static void registrar_casillas(const char *motivo)
  *   orden=manual|nombre|tipo|fecha
  *   auto=si|no
  *   <clave>=<columna>,<fila>        (una línea por icono) */
-static int escrever_atomico(const char *dest, const char *tmp, const void *dados, uint32_t n)
+int escrever_atomico(const char *dest, const char *tmp, const void *dados, uint32_t n)
 {
     const char *rd, *rt;
     montagem_t *m = montagem_de(dest, &rd);
@@ -451,8 +459,10 @@ static void desenhar_fundo_em(int rx, int ry, int rl, int ra)
         for (int x = x0; x < x1; x++) p[x] = c;
     }
     /* La mascota, grande, en la esquina de abajo a la derecha. */
-    int esc = larg >= 1000 ? 5 : 3;
-    int mx = larg - 32 * esc - 30, my = alt - 32 * esc - 40;
+    int pl, pa;
+    prim_tam(&pl, &pa);
+    int esc = pl >= 1000 ? 5 : 3;
+    int mx = pl - 32 * esc - 30, my = pa - 32 * esc - 40;
     sup_desenho(&s, mx, my, &arte_sagui, esc);
     texto_com_sombra(&s, mx + 16 * esc - texto_largura(SAGUI_NOME) / 2, my + 32 * esc + 6, SAGUI_NOME, 0xFFFFFF);
 iconos:

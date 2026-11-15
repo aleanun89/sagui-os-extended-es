@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 2a577c85 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 13bedffe (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -277,6 +277,8 @@ text files, with textures and characters drawn in the code itself. Full explanat
 - **Macaco** (D142, v6.3): spreadsheet with a grid, typical formulas (sum, average, minimum,
   maximum, count, if, round…), bar and pie charts, and its own `.mxs` files
   (Macaco eXcel Sheet).
+- **Pluma** (D291, v8.3): word processor with the look of a simplified Word 97 (menus, toolbars with icons, ruler, page view, fonts, paragraphs, find and replace). Reads and writes **RTF**
+  and plain text, and **exports to PDF**. No macros.
 - **Mail client** (D146, v6.3 and v6.6): receives through POP3 or IMAP and sends through SMTP, with a window,
   message list, attachments and body in plain text or HTML (converted to text).
 

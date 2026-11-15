@@ -21,6 +21,8 @@
 #include "cpu_dados.h"
 #include "planificador.h"
 #include "wifi.h"
+#include "bluetooth.h"
+#include "telas.h"
 #include "bloqueo.h"
 #include "permisos.h"
 
@@ -103,6 +105,8 @@ static const chamada_t tabela[SIS_MAX] = {
     [SIS_INYECTAR] = sis_inyectar,
     /* Usuarios (D255) */
     [SIS_USUARIO] = sis_usuario,
+    [SIS_BLUETOOTH] = sis_bluetooth,
+    [SIS_TELAS] = sis_telas,   /* D290: varias pantallas */
 };
 
 bool sistema_tem_chamada(uint32_t n)

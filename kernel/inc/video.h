@@ -11,6 +11,11 @@ bool     video_iniciar(void);     /* false: sin modo gráfico, el sistema queda 
 bool     video_ativo(void);
 uint32_t video_largura(void);
 uint32_t video_altura(void);
+/* Con varias pantallas (D290, telas.h) video_largura/altura son el escritorio entero; el modo de
+ * la salida del arranque (la que cambia con SIS_MUDAR_MODO) es este: */
+uint32_t video_prim_largura(void);
+uint32_t video_prim_altura(void);
+bool     video_refazer(void);     /* el escritorio cambió de forma: búfer nuevo, salidas en negro (telas.c) */
 uint32_t *video_buffer(void);     /* búfer de atrás, 32 bits por píxel, ancho * alto */
 uint8_t  *video_placa(void);      /* framebuffer de la tarjeta (para la medida del rapido.c) */
 uint32_t  video_pitch(void);

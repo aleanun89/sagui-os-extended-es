@@ -22,6 +22,14 @@
 #include "relogio.h"
 #include "texto.h"
 
+/* NAM (códec): entradas de grabación (D292) */
+#define NAM_FONE_MIC   0x0E
+#define NAM_LINEA      0x10
+#define NAM_AUX        0x16
+#define NAM_REC_SEL    0x1A
+#define NAM_REC_GANHO  0x1C
+/* NABM: canal de entrada PCM (PI, en NABM + 0x00): mismos registros que el PO, 0x10 más abajo */
+#define PI_BASE        0x00
 /* NAM (códec) */
 #define NAM_RESET      0x00
 #define NAM_MESTRE     0x02
@@ -127,6 +135,97 @@ static bool atender(void)
     return true;
 }
 
+/* ------------------------------------------------------------ captura (D292) */
+
+/* Canal PCM IN (PI): 32 descriptores de 512 cuadros = un anillo de 16384 cuadros a 48 kHz, sin interrupción
+ * (el tic del reloj vacía el anillo). Entradas: micrófono, línea y auxiliar, por el selector de grabación. */
+#define CAP_DESC     32
+#define CAP_PEDACO   512
+#define CAP_QUADROS  (CAP_DESC * CAP_PEDACO)
+static uint32_t cap_bdl_fis, cap_anel_fis;
+static uint32_t *cap_bdl;
+static captura_hw_t cap_hw;
+static const uint8_t cap_fonte[3] = { 0, 4, 3 };   /* REC_SEL: micrófono, línea, auxiliar */
+
+static void cap_reiniciar(void)
+{
+    porta_escreve8(nabm + PI_BASE + 0x0B, 0);
+    porta_escreve8(nabm + PI_BASE + 0x0B, CR_RR);
+    uint32_t lim = relogio_tiques() + 3;
+    while ((porta_le8(nabm + PI_BASE + 0x0B) & CR_RR) && antes(lim)) porta_pausa();
+    porta_escreve16(nabm + reg_sr - 0x10, SR_LIMPAR);
+}
+
+static bool cap_ligar(void)
+{
+    cap_reiniciar();
+    porta_escreve32(nabm + PI_BASE + 0x00, cap_bdl_fis);
+    porta_escreve8(nabm + PI_BASE + 0x05, CAP_DESC - 1);
+    porta_escreve8(nabm + PI_BASE + 0x0B, CR_RPBM);
+    return true;
+}
+
+static void cap_parar(void) { cap_reiniciar(); }
+
+static uint32_t cap_posicao(void)
+{
+    uint8_t civ = 0;
+    uint32_t picb = 0;
+    for (int t = 0; t < 4; t++) {
+        civ = porta_le8(nabm + PI_BASE + 0x04) & (CAP_DESC - 1);
+        picb = porta_le16(nabm + reg_picb - 0x10);
+        if ((porta_le8(nabm + PI_BASE + 0x04) & (CAP_DESC - 1)) == civ) break;
+    }
+    porta_escreve8(nabm + PI_BASE + 0x05, (uint8_t)((civ + CAP_DESC - 1) & (CAP_DESC - 1)));
+    uint32_t faltam = picb * unidade / 4;
+    if (!picb || faltam > CAP_PEDACO) faltam = CAP_PEDACO;
+    return civ * CAP_PEDACO + (CAP_PEDACO - faltam);
+}
+
+static bool cap_entrada(int i)
+{
+    if (i < 0 || i > 2) return false;
+    uint16_t f = cap_fonte[i];
+    porta_escreve16(nam + NAM_REC_SEL, (uint16_t)(f << 8 | f));
+    /* la fuente elegida sin silencio y a 0 dB (el micrófono sin el refuerzo de +20 dB) */
+    porta_escreve16(nam + (i == 0 ? NAM_FONE_MIC : i == 1 ? NAM_LINEA : NAM_AUX), i == 0 ? 0x0008 : 0x0808);
+    return true;
+}
+
+static void cap_ganho(unsigned pct)
+{
+    uint16_t g = (uint16_t)(pct * 15 / 100);       /* 0-15 pasos de 1,5 dB */
+    porta_escreve16(nam + NAM_REC_GANHO, (uint16_t)(g << 8 | g));
+}
+
+static void cap_preparar(void)
+{
+    memset(&cap_hw, 0, sizeof cap_hw);
+    void *mem;
+    uint32_t fis = audio_dma_alocar(1 + CAP_QUADROS * 4 / 4096, &mem);
+    if (!fis) return;
+    cap_bdl = (uint32_t *)mem;
+    cap_bdl_fis = fis;
+    cap_anel_fis = fis + 4096;
+    for (int i = 0; i < CAP_DESC; i++) {
+        cap_bdl[2 * i] = cap_anel_fis + (uint32_t)i * CAP_PEDACO * 4;
+        cap_bdl[2 * i + 1] = CAP_PEDACO * 4 / unidade;   /* sin el bit IOC */
+    }
+    cap_hw.taxa = 48000;
+    cap_hw.quadros = CAP_QUADROS;
+    cap_hw.anel = (const volatile int16_t *)((uint8_t *)mem + 4096);
+    cap_hw.n_entradas = 3;
+    txt_copia_n(cap_hw.nombre[0], "Micr\xf3" "fono", 24);
+    txt_copia_n(cap_hw.nombre[1], "Entrada de l\xednea", 24);
+    txt_copia_n(cap_hw.nombre[2], "Auxiliar", 24);
+    cap_hw.ligar = cap_ligar;
+    cap_hw.parar = cap_parar;
+    cap_hw.posicao = cap_posicao;
+    cap_hw.entrada = cap_entrada;
+    cap_hw.ganho = cap_ganho;
+    cap_reiniciar();
+}
+
 bool ac97_procurar(placa_som_t *p)
 {
     pci_disp_t v[4];
@@ -188,6 +287,8 @@ bool ac97_procurar(placa_som_t *p)
     p->parar = parar;
     p->posicao = posicao;
     p->atender = atender;
+    cap_preparar();
+    p->cap = cap_hw;
     canal_reiniciar();
     klog("[AC97] %02x:%02x.%x (%04x:%04x) NAM %x NABM %x, irq %d, %s\n", d->barramento, d->dispositivo,
          d->funcao, d->fabricante, d->modelo, nam, nabm, p->irq, p->codec);

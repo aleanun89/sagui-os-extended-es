@@ -33,6 +33,9 @@ bool sou_root(void);
 #include "imagem.h"
 #include "ia.h"
 #include "fontes.h"
+#include "servicos.h"
+#include "captura.h"
+#include "vncd_estado.h"
 
 #define DIR_CONF   "/home/.config"
 #define ARQ_CONF   "/home/.config/sagui.conf"
@@ -57,6 +60,11 @@ typedef struct {
     char     fuente_tit[96];         /* y para títulos */
     int      eq[EQ_BANDAS];          /* ecualizador (D201): dB de 60 Hz, 250 Hz, 1 kHz, 4 kHz y 12 kHz */
     int      eq_def;                 /* 1 = la clave está en el archivo */
+    /* D292: balance (0-200, 100 = centro), latencia (ms) y micrófono; cada grupo vale si su bit de son_def está a 1 */
+    int      son_def;                /* 1 balance, 2 latencia, 4 micrófono */
+    int      balance, latencia;
+    int      mic_ent, mic_gan, mic_mudo;
+    char     salida[48];             /* D292: la tarjeta de salida elegida (su nombre); vacía = la de siempre */
 } conf_t;
 
 static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1 };
@@ -132,6 +140,12 @@ static bool conf_ler(void)
                                                                 : compara_texto(v, "es") == 0 ? TECLADO_ES : -1;
             else if (compara_texto(k, "volumen") == 0) { int x = texto_para_int(v); conf.volume = x < 0 ? 0 : x > 100 ? 100 : x; }
             else if (compara_texto(k, "ecualizador") == 0) conf.eq_def = eq_texto_ler(v, conf.eq) == 0;
+            else if (compara_texto(k, "salida") == 0) copia_texto(conf.salida, v, sizeof conf.salida);
+            else if (compara_texto(k, "balance") == 0) { int x = texto_para_int(v); conf.balance = x < 0 ? 0 : x > 200 ? 200 : x; conf.son_def |= 1; }
+            else if (compara_texto(k, "latencia") == 0) { int x = texto_para_int(v); conf.latencia = x < 20 ? 20 : x > 300 ? 300 : x; conf.son_def |= 2; }
+            else if (compara_texto(k, "micro_entrada") == 0) { conf.mic_ent = texto_para_int(v); conf.son_def |= 4; }
+            else if (compara_texto(k, "micro_ganancia") == 0) { int x = texto_para_int(v); conf.mic_gan = x < 0 ? 0 : x > 100 ? 100 : x; conf.son_def |= 4; }
+            else if (compara_texto(k, "micro_silencio") == 0) { conf.mic_mudo = texto_para_int(v) != 0; conf.son_def |= 4; }
             else if (compara_texto(k, "silencio") == 0) conf.silencio = texto_para_int(v) != 0;
             else if (compara_texto(k, "zona") == 0) copia_texto(conf.zona, v, sizeof conf.zona);
             else if (compara_texto(k, "acento") == 0) { if (ler_cor(v, &c)) conf.acento = c; }
@@ -171,7 +185,7 @@ static int conf_gravar(void)
     }
     if (!home_persistente()) return 1;
     criar_pasta(DIR_CONF);
-    char t[1100];
+    char t[1400];
     char cap[NOME_MAX_F + 60];
     formatar_texto(cap, sizeof cap, "capturas_carpeta=%s\ncapturas_sonido=%d\n", conf.capturas, conf.cap_sonido);
     char tec[24] = "";
@@ -180,6 +194,16 @@ static int conf_gravar(void)
     if (conf.volume >= 0) formatar_texto(vol, sizeof vol, "volumen=%d\nsilencio=%d\n", conf.volume, conf.silencio);
     char ecu[48] = "";
     if (conf.eq_def) formatar_texto(ecu, sizeof ecu, "ecualizador=%d,%d,%d,%d,%d\n", conf.eq[0], conf.eq[1], conf.eq[2], conf.eq[3], conf.eq[4]);
+    char son[280] = "";
+    {
+        int u = 0;
+        if (conf.salida[0]) u += formatar_texto(son + u, sizeof son - (unsigned)u, "salida=%s\n", conf.salida);
+        if (conf.son_def & 1) u += formatar_texto(son + u, sizeof son - (unsigned)u, "balance=%d\n", conf.balance);
+        if (conf.son_def & 2) u += formatar_texto(son + u, sizeof son - (unsigned)u, "latencia=%d\n", conf.latencia);
+        if (conf.son_def & 4)
+            formatar_texto(son + u, sizeof son - (unsigned)u, "micro_entrada=%d\nmicro_ganancia=%d\nmicro_silencio=%d\n",
+                           conf.mic_ent, conf.mic_gan, conf.mic_mudo);
+    }
     char zon[80] = "";
     if (conf.zona[0]) formatar_texto(zon, sizeof zon, "zona=%s\n", conf.zona);
     char ace[24] = "";
@@ -188,8 +212,8 @@ static int conf_gravar(void)
     if (conf.fundo[0]) formatar_texto(fun, sizeof fun, "fondo=%s\nfondo_modo=%s\n", conf.fundo, nomes_modo[conf.modo]);
     formatar_texto(t, sizeof t,
                    "# Configuración de SaguiOS (la escribe el programa \"configuracion\"; D112).\n"
-                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s",
-                   tec, vol, ecu, zon, ace, fun, cap, fnt);
+                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s",
+                   tec, vol, ecu, son, zon, ace, fun, cap, fnt);
     int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
     int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
@@ -202,6 +226,39 @@ static int conf_gravar(void)
 static int aplicar_teclado(int l)
 {
     return teclado_layout(l) < 0 ? ERRO_INVALIDO : 0;
+}
+
+/* D292: balance, latencia y micrófono (entrada, ganancia y silencio). */
+static int aplicar_balance(int b) { return audio_controle(-1, AUDIO_BALANCE, b) < 0 ? ERRO_NAO_EXISTE : 0; }
+static int aplicar_latencia(int ms) { return audio_controle(-1, AUDIO_LATENCIA, ms) < 0 ? ERRO_NAO_EXISTE : 0; }
+static int aplicar_micro(int ent, int gan, int mudo)
+{
+    info_captura_t i;
+    if (captura_estado(CAP_FUENTE_REAL, &i) < 0 || !i.presente) return ERRO_NAO_EXISTE;
+    if (ent >= 0 && (unsigned)ent < i.n_entradas) captura_entrada((unsigned)ent);
+    return captura_ganancia(gan < 0 ? i.ganancia : (unsigned)gan, mudo != 0) < 0 ? ERRO_INVALIDO : 0;
+}
+
+/* Pone como salida la tarjeta de ese nombre (si está enchufada). */
+static int aplicar_salida(const char *nome)
+{
+    info_audio_t ia;
+    if (info_sistema(INFO_AUDIO, &ia, sizeof ia) < 0 || ia.estado != AUDIO_FUNCIONANDO) return ERRO_NAO_EXISTE;
+    for (int k = 0; k < AUDIO_SALIDAS; k++)
+        if (ia.salidas[k].usada && compara_texto(ia.salidas[k].nombre, nome) == 0) return audio_salida(k) < 0 ? ERRO_INVALIDO : 0;
+    return ERRO_NAO_EXISTE;
+}
+
+/* sonido --aplicar: los ajustes de conectores guardados para este modelo (D292, mejora 075 punto 9). */
+static void aplicar_conectores(void)
+{
+    info_arquivo_t ia;
+    if (info_arquivo("/home/.config/sonido.conf", &ia) < 0) return;
+    char *av[] = { "sonido", "--aplicar", NULL };
+    int pid = executar("/bin/sonido", av), codigo = 0;
+    if (pid < 0) return;
+    esperar(pid, &codigo);
+    registrar("configuracion: ajustes de conectores (sonido --aplicar) -> %d", codigo);
 }
 
 static int aplicar_volume(int v, int silencio)
@@ -326,10 +383,16 @@ static const char *texto_erro(int r)
 /* Lo que hace el arranque. Los errores van al log; nada de esto debe detener el sistema. */
 static int aplicar_tudo(void)
 {
+    aplicar_conectores();
     if (!conf_ler()) { registrar("configuracion: sin %s, nada que aplicar", ARQ_CONF); return 0; }
+    if (conf.salida[0]) registrar("configuracion: salida '%s' -> %d", conf.salida, aplicar_salida(conf.salida));
     if (conf.teclado >= 0) registrar("configuracion: teclado %d -> %d", conf.teclado, aplicar_teclado(conf.teclado));
     if (conf.volume >= 0) registrar("configuracion: volumen %d silencio %d -> %d", conf.volume, conf.silencio,
                                     aplicar_volume(conf.volume, conf.silencio));
+    if (conf.son_def & 1) registrar("configuracion: balance %d -> %d", conf.balance, aplicar_balance(conf.balance));
+    if (conf.son_def & 2) registrar("configuracion: latencia %d ms -> %d", conf.latencia, aplicar_latencia(conf.latencia));
+    if (conf.son_def & 4) registrar("configuracion: micro entrada %d ganancia %d silencio %d -> %d", conf.mic_ent, conf.mic_gan,
+                                    conf.mic_mudo, aplicar_micro(conf.mic_ent, conf.mic_gan, conf.mic_mudo));
     if (conf.eq_def) registrar("configuracion: ecualizador %d,%d,%d,%d,%d -> %d", conf.eq[0], conf.eq[1], conf.eq[2],
                                conf.eq[3], conf.eq[4], eq_aplicar(conf.eq));
     if (conf.zona[0]) {
@@ -363,7 +426,15 @@ static int mostrar(void)
     imprimir("Acento:    %06x\n", ap.acento);
     imprimir("Fondo:     %s\n", ap.fundo_imagem ? "imagen" : "degradado");
     int v = audio_volume_mestre(-1);
-    if (v >= 0) imprimir("Volumen:   %d %%%s\n", v, audio_silencio(-1) > 0 ? " (silencio)" : "");
+    if (v >= 0) {
+        imprimir("Volumen:   %d %%%s\n", v, audio_silencio(-1) > 0 ? " (silencio)" : "");
+        info_audio_t ia;
+        if (info_sistema(INFO_AUDIO, &ia, sizeof ia) == 0)
+            imprimir("Balance:   %d (-100 izquierda, 100 derecha); latencia %u ms\n", (int)ia.balance - 100, ia.latencia_base_ms);
+        info_captura_t ic;
+        if (captura_estado(CAP_FUENTE_REAL, &ic) == 0 && ic.presente)
+            imprimir("Micrófono: %s, ganancia %u %%%s\n", ic.entradas[ic.entrada < CAP_ENTRADAS_MAX ? ic.entrada : 0], ic.ganancia, ic.mudo ? " (en silencio)" : "");
+    }
     config_zona_t z;
     ler_zona(&z);
     imprimir("Zona:      %s\n", z.nome);
@@ -392,6 +463,37 @@ static int linha_de_comandos(int argc, char **argv)
         if (conf.volume < 0) conf.volume = audio_volume_mestre(-1);
         r = aplicar_volume(conf.volume, conf.silencio);
         if (r < 0) { imprimir_em(ERROS, "configuracion: no hay tarjeta de sonido\n"); return 1; }
+    } else if (compara_texto(c, "salida") == 0 && argc == 3) {
+        info_audio_t ia;
+        int k = texto_para_int(argv[2]);
+        if (info_sistema(INFO_AUDIO, &ia, sizeof ia) < 0 || ia.estado != AUDIO_FUNCIONANDO) { imprimir_em(ERROS, "configuracion: no hay tarjeta de sonido\n"); return 1; }
+        if (k < 0 || k >= AUDIO_SALIDAS || !ia.salidas[k].usada) { imprimir_em(ERROS, "configuracion: no existe la salida %s (volumen salida)\n", argv[2]); return 1; }
+        r = audio_salida(k) < 0 ? ERRO_INVALIDO : 0;
+        copia_texto(conf.salida, ia.salidas[k].nombre, sizeof conf.salida);
+    } else if (compara_texto(c, "balance") == 0 && argc == 3) {
+        int b = texto_para_int(argv[2]);   /* -100 (izquierda) a +100 (derecha); 0 = centro */
+        b = b < -100 ? -100 : b > 100 ? 100 : b;
+        conf.balance = b + 100;
+        conf.son_def |= 1;
+        r = aplicar_balance(conf.balance);
+        if (r < 0) { imprimir_em(ERROS, "configuracion: no hay tarjeta de sonido\n"); return 1; }
+    } else if (compara_texto(c, "latencia") == 0 && argc == 3) {
+        int ms = texto_para_int(argv[2]);
+        conf.latencia = ms < 20 ? 20 : ms > 300 ? 300 : ms;
+        conf.son_def |= 2;
+        r = aplicar_latencia(conf.latencia);
+        if (r < 0) { imprimir_em(ERROS, "configuracion: no hay tarjeta de sonido\n"); return 1; }
+    } else if (compara_texto(c, "microfono") == 0 && argc >= 3) {
+        info_captura_t i;
+        if (captura_estado(CAP_FUENTE_REAL, &i) < 0 || !i.presente) { imprimir_em(ERROS, "configuracion: no hay entrada de sonido (micrófono)\n"); return 1; }
+        if (!(conf.son_def & 4)) { conf.mic_ent = (int)i.entrada; conf.mic_gan = (int)i.ganancia; conf.mic_mudo = i.mudo != 0; conf.son_def |= 4; }
+        if (compara_texto(argv[2], "entrada") == 0 && argc == 4) conf.mic_ent = texto_para_int(argv[3]);
+        else if (compara_texto(argv[2], "ganancia") == 0 && argc == 4) { int g = texto_para_int(argv[3]); conf.mic_gan = g < 0 ? 0 : g > 100 ? 100 : g; }
+        else if (compara_texto(argv[2], "silencio") == 0) conf.mic_mudo = 1;
+        else if (compara_texto(argv[2], "activar") == 0) conf.mic_mudo = 0;
+        else { imprimir_em(ERROS, "configuracion: microfono entrada N | ganancia 0-100 | silencio | activar\n"); return 2; }
+        if (conf.mic_ent < 0 || (unsigned)conf.mic_ent >= i.n_entradas) { imprimir_em(ERROS, "configuracion: entrada %d inexistente (grabar --info)\n", conf.mic_ent); return 1; }
+        r = aplicar_micro(conf.mic_ent, conf.mic_gan, conf.mic_mudo);
     } else if (compara_texto(c, "zona") == 0 && argc == 3) {
         r = aplicar_zona(argv[2]);
         if (r < 0) { imprimir_em(ERROS, "configuracion: no se pudo poner la zona %s\n", argv[2]); return 1; }
@@ -423,6 +525,7 @@ static int linha_de_comandos(int argc, char **argv)
         }
     } else {
         imprimir_em(ERROS, "uso: configuracion [--aplicar | mostrar | teclado es|abnt2 | volumen N | zona NOMBRE |\n"
+                           "                      salida N | balance -100..100 | latencia MS | microfono entrada N|ganancia N|silencio|activar |\n"
                            "                      acento RRGGBB | fondo ARCHIVO [modo] | fondo ninguno |\n"
                            "                      fuente documentos|titulos RUTA|ninguna]\n");
         return 2;
@@ -433,11 +536,11 @@ static int linha_de_comandos(int argc, char **argv)
 
 /* ------------------------------------------------------------ la ventana */
 
-#define LARG 740
+#define LARG 780
 #define ALT  500
 #define Y_PAG 50
-enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_QTD };
-static const char *const titulos_pag[P_QTD] = { "Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red" };
+enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_QTD };
+static const char *const titulos_pag[P_QTD] = { "Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto" };
 
 static int pagina;
 static char estado[160];
@@ -470,6 +573,13 @@ static int indice_modo_l[MAXM];
 static lista_t lista_modo;
 static botao_t b_tela[2] = { { 24, ALT - 100, 120, 28, "Aplicar", false }, { 154, ALT - 100, 180, 28, "Aplicar y guardar", false } };
 static info_tela_t tela;
+/* D290: varias pantallas. Solo se ven si el kernel tiene más de una salida de vídeo. */
+static info_telas_t telas;
+static int sel_res;   /* la pantalla a la que se aplica la resolución de la lista */
+static char rot_prin[32], rot_lado[32], rot_res[40];
+static botao_t b_telas[5] = { { 24, 0, 100, 28, "Extender", false }, { 128, 0, 90, 28, "Espejo", false },
+                              { 222, 0, 120, 28, rot_prin, false }, { 346, 0, 150, 28, rot_lado, false },
+                              { 500, 0, 190, 28, rot_res, false } };
 
 /* Sonido */
 #define BARRA_X 60
@@ -489,6 +599,80 @@ static const char *const eq_nomes_pre[4] = { "plano", "graves", "voz", "agudos" 
 static botao_t b_eq[4] = { { 500, EQ_Y0 - 14, 150, 26, "Plano", false }, { 500, EQ_Y0 + 16, 150, 26, "Graves", false },
                            { 500, EQ_Y0 + 46, 150, 26, "Voz", false }, { 500, EQ_Y0 + 76, 150, 26, "Agudos", false } };
 static int eq_arrasta = -1;
+
+/* D292: balance, pruebas de altavoz, latencia y micrófono. */
+#define BAL_X 250
+#define BAL_Y (BARRA_Y + 50)
+#define BAL_L 160
+#define BAL_A 24
+static botao_t b_bal = { 420, BARRA_Y + 50, 76, 28, "Centro", false };
+static botao_t b_prob[2] = { { 24, BARRA_Y + 86, 110, 26, "Probar izq.", false }, { 142, BARRA_Y + 86, 110, 26, "Probar der.", false } };
+static botao_t b_lat[2] = { { 270, BARRA_Y + 86, 24, 26, "-", false }, { 440, BARRA_Y + 86, 24, 26, "+", false } };
+#define MIC_X 540
+#define MIC_GX 568
+#define MIC_GL 148
+static botao_t b_mic[5] = { { MIC_X, Y_PAG + 38, 24, 24, "<", false }, { 732, Y_PAG + 38, 24, 24, ">", false },
+                            { MIC_X, Y_PAG + 70, 24, 24, "-", false }, { 722, Y_PAG + 70, 24, 24, "+", false },
+                            { MIC_X, Y_PAG + 146, 216, 26, "Silenciar micrófono", false } };
+#define MIC_MY (Y_PAG + 102)
+static botao_t b_sal = { 24, BARRA_Y + 116, 472, 24, "", false };
+static bool arrastando_bal, arrastando_mic;
+static info_captura_t mic_inf;
+static bool mic_aberto;
+
+static void mic_cerrar(void)
+{
+    if (mic_aberto) captura_cerrar();
+    mic_aberto = false;
+}
+
+static void mic_refrescar(void)
+{
+    if (!mic_aberto) return;
+    static uint8_t tmp[4096];
+    while (captura_ler(tmp, sizeof tmp) > 0) { }   /* se tira: solo importa el medidor */
+    captura_estado(CAP_FUENTE_REAL, &mic_inf);
+}
+
+/* Al entrar en Sonido: abre la captura para el medidor en vivo (si hay micrófono y nadie más lo usa). */
+static void mic_abrir(void)
+{
+    mic_cerrar();
+    memset(&mic_inf, 0, sizeof mic_inf);
+    if (captura_estado(CAP_FUENTE_REAL, &mic_inf) < 0 || !mic_inf.presente) return;
+    if (captura_abrir(CAP_FUENTE_REAL, 48000, 1) >= 0) mic_aberto = true;
+    captura_estado(CAP_FUENTE_REAL, &mic_inf);
+}
+
+/* seno aproximado (Bhaskara I) en grados, escala 32767 */
+static int seno_g(unsigned g)
+{
+    g %= 360;
+    int sg = 1;
+    if (g >= 180) { g -= 180; sg = -1; }
+    int x = (int)g * (180 - (int)g);
+    return sg * (32767 * 4 * x / (40500 - x));
+}
+
+/* Prueba del altavoz: 1 kHz medio segundo solo por el canal izquierdo o el derecho. */
+static void probar_lado(bool esq)
+{
+    enum { TAXA = 48000, N = 24000 };
+    static int16_t buf[2 * 2400];
+    int fd = audio_abrir(TAXA, 2, 16);
+    if (fd < 0) return;
+    unsigned fase = 0;
+    for (int feito = 0; feito < N; feito += 2400) {
+        for (int k = 0; k < 2400; k++) {
+            int v = seno_g(fase / 1000) / 3;
+            buf[2 * k] = (int16_t)(esq ? v : 0);
+            buf[2 * k + 1] = (int16_t)(esq ? 0 : v);
+            fase = (fase + 1000u * 360000u / TAXA) % 360000u;
+        }
+        audio_escrever(fd, buf, sizeof buf);
+    }
+    audio_fechar(fd, 1);
+}
 
 /* Escritorio */
 #define SW_X 24
@@ -648,6 +832,14 @@ static void ler_modos_video(void)
         indice_modo_l[n++] = i;
     }
     lista_modo.qtd = n;
+    memset(&telas, 0, sizeof telas);
+    if (telas_sis(TELAS_OP_INFO, (unsigned)&telas, sizeof telas) < 0) telas.qtd = 0;
+    if (sel_res >= (int)telas.qtd) sel_res = 0;
+    /* Con varias pantallas, una fila de botones encima de Aplicar: la lista se acorta. */
+    lista_modo.a = ALT - Y_PAG - 34 - 112 - (telas.qtd > 1 ? 38 : 0);
+    formatar_texto(rot_prin, sizeof rot_prin, "Principal: %u", telas.principal + 1);
+    formatar_texto(rot_lado, sizeof rot_lado, "Lado: %s", telas.lado == TELAS_LADO_ABAIXO ? "abajo" : "derecha");
+    formatar_texto(rot_res, sizeof rot_res, "Resolución de: pantalla %d", sel_res + 1);
 }
 
 static void ler_zonas(void)
@@ -761,6 +953,200 @@ static void red_desenhar(void)
     g_texto_n(jn, 24, ALT - 92, "Permitir o bloquear a mano, y el servidor para la red: bloqueo --ayuda, dnsbloqueo.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
 }
 
+/* Escritorio remoto (D273, mejora 104): el servidor VNC `vncd`. Lo de root se hace llamando a
+ * «vncd --ajustar/--clave/--desconectar» y «servicio» con el diálogo de permisos (D269): la contraseña
+ * pasa por la línea de órdenes del hijo, que es root solo mientras dura. */
+static botao_t b_vnc[5] = {
+    { 24, Y_PAG + 58, 250, 28, "Activar y arrancar", false },
+    { 284, Y_PAG + 58, 130, 28, "Reiniciar", false },
+    { 294, Y_PAG + 122, 170, 28, "Fijar contraseña", false },
+    { 24, Y_PAG + 170, 250, 28, "", false },
+    { 284, Y_PAG + 170, 400, 28, "", false },
+};
+static botao_t b_vnc_des = { 0, Y_PAG + 238, 150, 28, "Desconectar", false };
+static caixa_t c_vnc_clave;
+static char itens_vnc[VNCD_MAX_SES][64];
+static lista_t lista_vnc;
+static vnc_estado_t vnc_est;
+static bool vnc_hay_estado, vnc_en_marcha, vnc_arrancar, vnc_clave_puesta, vnc_conf_red, vnc_conf_solo_ver;
+static int  vnc_conf_puerto = 5900;
+static int  vnc_pids[VNCD_MAX_SES];
+
+static void vnc_conf_ler(const char *arq)
+{
+    int fd = abrir(arq, ABRIR_LER);
+    if (fd < 0) return;
+    static char t[1024];
+    int n = ler(fd, t, sizeof t - 1);
+    fechar(fd);
+    if (n <= 0) return;
+    t[n] = 0;
+    for (char *p = t; *p;) {
+        char *fim = acha_char(p, '\n');
+        if (fim) *fim = 0;
+        char *eq = acha_char(p, '=');
+        if (p[0] != '#' && eq) {
+            *eq = 0;
+            const char *v = eq + 1;
+            size_t tv = tam_texto(v);
+            while (tv && (v[tv - 1] == '\r' || v[tv - 1] == ' ')) ((char *)v)[--tv] = 0;
+            if (compara_texto(p, "escuchar") == 0) vnc_conf_red = compara_texto(v, "red-local") == 0;
+            else if (compara_texto(p, "solo_ver") == 0) vnc_conf_solo_ver = compara_texto(v, "si") == 0 || compara_texto(v, "1") == 0;
+            else if (compara_texto(p, "puerto") == 0 && texto_para_int(v) > 0) vnc_conf_puerto = texto_para_int(v);
+        }
+        if (!fim) break;
+        p = fim + 1;
+    }
+}
+
+/* ¿Hay un archivo con ese nombre en la carpeta? (se mira el listado: /etc/vnc/vncd.passwd no se puede abrir como sagui) */
+static bool vnc_existe(const char *pasta, const char *nombre)
+{
+    entrada_pasta_t e;
+    for (int i = 0; listar(pasta, i, &e) == 1; i++)
+        if (compara_texto(e.nome, nombre) == 0) return true;
+    return false;
+}
+
+static void vnc_refrescar(void)
+{
+    servico_info_t sv[32];
+    int n = servicos_ler_estado(sv, 32);
+    vnc_en_marcha = false;
+    vnc_arrancar = false;
+    for (int i = 0; i < n && i < 32; i++)
+        if (compara_texto(sv[i].nome, "vncd") == 0) {
+            vnc_en_marcha = compara_texto(sv[i].estado, SERV_E_MARCHA) == 0;
+            vnc_arrancar = sv[i].arrancar;
+        }
+    vnc_hay_estado = vnc_en_marcha && vncd_estado_ler(&vnc_est);
+    if (!vnc_hay_estado) memset(&vnc_est, 0, sizeof vnc_est);
+    vnc_conf_red = vnc_conf_solo_ver = false;
+    vnc_conf_puerto = 5900;
+    vnc_conf_ler("/etc/vnc/vncd.conf");
+    vnc_conf_ler("/home/.config/vncd.conf");
+    vnc_clave_puesta = vnc_existe("/etc/vnc", "vncd.passwd") || vnc_existe("/home/.config", "vncd.passwd");
+    int sel_pid = lista_vnc.sel >= 0 && lista_vnc.sel < lista_vnc.qtd ? vnc_pids[lista_vnc.sel] : -1;
+    lista_vnc.qtd = vnc_est.n;
+    lista_vnc.sel = -1;
+    for (int i = 0; i < vnc_est.n; i++) {
+        unsigned s = vnc_est.s[i].seg;
+        formatar_texto(itens_vnc[i], 64, "%s - hace %u:%02u%s", vnc_est.s[i].ip, s / 60, s % 60, vnc_est.s[i].solo_ver ? " - solo ver" : "");
+        vnc_pids[i] = vnc_est.s[i].pid;
+        if (vnc_est.s[i].pid == sel_pid) lista_vnc.sel = i;
+    }
+    b_vnc[0].texto = vnc_arrancar || vnc_en_marcha ? "Desactivar y parar" : "Activar y arrancar";
+    b_vnc[3].texto = vnc_conf_solo_ver ? "Solo ver: sí" : "Solo ver: no";
+    b_vnc[4].texto = vnc_conf_red ? "Escuchar: red local (sin cifrar)" : "Escuchar: solo esta máquina (por SSH)";
+}
+
+/* Ejecuta un programa del sistema y devuelve su código de salida (< 0: no se pudo lanzar). */
+static int vnc_ejecutar(const char *prog, char *const *av)
+{
+    int pid = executar(prog, av);
+    if (pid < 0) return pid;
+    int codigo = 0;
+    esperar(pid, &codigo);
+    return codigo;
+}
+
+static int vnc_servicio(const char *orden)
+{
+    char *av[] = { "servicio", (char *)orden, "vncd", NULL };
+    return vnc_ejecutar("/bin/servicio", av);
+}
+
+static bool vnc_permiso(const char *motivo)
+{
+    if (sou_root()) return true;
+    if (elevar_grafico(motivo) == 0) return true;
+    dizer("Sin permisos de administrador no se puede cambiar el escritorio remoto.");
+    return false;
+}
+
+static void vnc_reiniciar_si_corre(void)
+{
+    if (vnc_en_marcha) vnc_servicio("reiniciar");
+}
+
+static void vnc_accion(int k)
+{
+    if (!vnc_permiso("configurar el escritorio remoto (servidor VNC)")) return;
+    char t[80];
+    if (k == 0) {
+        bool apagar_ = vnc_arrancar || vnc_en_marcha;
+        if (apagar_) {
+            vnc_servicio("desactivar");
+            vnc_servicio("parar");
+            dizer("Escritorio remoto desactivado y parado.");
+        } else if (!vnc_clave_puesta) {
+            dizer("Antes de activarlo, pon una contraseña (nadie podría entrar sin ella).");
+        } else {
+            vnc_servicio("activar");
+            int r = vnc_servicio("iniciar");
+            dizer(r == 0 ? "Escritorio remoto activado: arrancará solo y ya está en marcha." : "Activado, pero no se pudo iniciar (mira /logs/vncd.log).");
+        }
+    } else if (k == 1) {
+        dizer(vnc_servicio("reiniciar") == 0 ? "Servicio reiniciado." : "No se pudo reiniciar (¿está activado?).");
+    } else if (k == 2) {
+        if (!c_vnc_clave.texto[0]) dizer("Escribe la contraseña en el cuadro.");
+        else {
+            char *av[] = { "vncd", "--clave", c_vnc_clave.texto, NULL };
+            int r = vnc_ejecutar("/bin/vncd", av);
+            if (r == 0) {
+                formatar_texto(t, sizeof t, "Contraseña fijada%s.", tam_texto(c_vnc_clave.texto) > 8 ? " (solo cuentan los 8 primeros caracteres)" : "");
+                dizer(t);
+                caixa_definir(&c_vnc_clave, "");
+            } else dizer("No se pudo fijar la contraseña.");
+        }
+    } else {
+        const char *opc = k == 3 ? (vnc_conf_solo_ver ? "solo_ver=no" : "solo_ver=si")
+                                 : (vnc_conf_red ? "escuchar=local" : "escuchar=red-local");
+        char *av[] = { "vncd", "--ajustar", (char *)opc, NULL };
+        if (vnc_ejecutar("/bin/vncd", av) == 0) {
+            vnc_reiniciar_si_corre();
+            formatar_texto(t, sizeof t, "Guardado: %s%s.", opc, vnc_en_marcha ? " (servicio reiniciado)" : "");
+            dizer(t);
+        } else dizer("No se pudo guardar la opción.");
+    }
+    elevacao_soltar();
+}
+
+static void vnc_desconectar_sel(void)
+{
+    if (lista_vnc.sel < 0 || lista_vnc.sel >= lista_vnc.qtd) { dizer("Elige a alguien de la lista."); return; }
+    if (!vnc_permiso("desconectar a alguien del escritorio remoto")) return;
+    char pid[16];
+    formatar_texto(pid, sizeof pid, "%d", vnc_pids[lista_vnc.sel]);
+    char *av[] = { "vncd", "--desconectar", pid, NULL };
+    dizer(vnc_ejecutar("/bin/vncd", av) == 0 ? "Sesión desconectada." : "No se pudo desconectar.");
+    elevacao_soltar();
+}
+
+static void vnc_desenhar(void)
+{
+    char t[200];
+    titulo_pag(24, Y_PAG + 8, "Servidor de escritorio remoto (VNC)");
+    formatar_texto(t, sizeof t, "Servicio vncd: %s%s, puerto %d, arranque automático: %s", vnc_en_marcha ? "en marcha" : "parado",
+                   vnc_en_marcha && !vnc_hay_estado ? " (iniciando)" : "", vnc_conf_puerto, vnc_arrancar ? "sí" : "no");
+    g_texto_n(jn, 24, Y_PAG + 34, t, (LARG - 48) / LETRA_L, COR_TEXTO);
+    for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_vnc[i]);
+    formatar_texto(t, sizeof t, "Contraseña (como mucho 8 caracteres): %s", vnc_clave_puesta ? "ya hay una puesta" : "SIN PONER");
+    g_texto_n(jn, 24, Y_PAG + 102, t, (LARG - 48) / LETRA_L, COR_TEXTO);
+    caixa_desenhar(jn, &c_vnc_clave);
+    botao_desenhar(jn, &b_vnc[2]);
+    botao_desenhar(jn, &b_vnc[3]);
+    botao_desenhar(jn, &b_vnc[4]);
+    formatar_texto(t, sizeof t, "Conectados ahora: %d", vnc_est.n);
+    titulo_pag(24, Y_PAG + 216, t);
+    lista_desenhar(jn, &lista_vnc);
+    b_vnc_des.x = lista_vnc.x + lista_vnc.l + 10;
+    botao_desenhar(jn, &b_vnc_des);
+    g_texto_n(jn, 24, ALT - 116, "«Solo esta máquina»: se entra por un túnel SSH (ssh -L 5900:localhost:5900 root@IP) y el", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 98, "tráfico va cifrado. «Red local» deja entrar sin túnel, pero el tráfico VNC no se cifra.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, ALT - 80, "Mientras haya alguien conectado se ve una ventana «Escritorio remoto» en la barra de tareas.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+}
+
 static void desenhar_pagina(void)
 {
     char t[160];
@@ -783,6 +1169,13 @@ static void desenhar_pagina(void)
         titulo_pag(24, Y_PAG + 8, t);
         lista_desenhar(jn, &lista_modo);
         for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_tela[i]);
+        if (telas.qtd > 1) {
+            b_telas[0].apertado = telas.modo == TELAS_MODO_EXTENDER;
+            b_telas[1].apertado = telas.modo == TELAS_MODO_ESPELHO;
+            for (int i = 0; i < 5; i++) { b_telas[i].y = ALT - 138; botao_desenhar(jn, &b_telas[i]); }
+            formatar_texto(t, sizeof t, "%u pantallas: escritorio de %ux%u", telas.qtd, telas.desk_largura, telas.desk_altura);
+            g_texto(jn, 24, ALT - 154 + 4, t, COR_TEXTO_FRACO);
+        }
         if (!tela.a_quente) g_texto(jn, 350, ALT - 94, "Esta tarjeta cambia al reiniciar.", COR_TEXTO_FRACO);
     } else if (pagina == P_SOM) {
         info_audio_t ia;
@@ -796,8 +1189,64 @@ static void desenhar_pagina(void)
             g_retangulo(jn, BARRA_X + 1, BARRA_Y + 1, (BARRA_L - 2) * ia.volume / 100, BARRA_A - 2, ia.silencio ? COR_BORDA : COR_DESTAQUE);
             for (int i = 0; i < 3; i++) botao_desenhar(jn, &b_vol[i]);
             formatar_texto(t, sizeof t, "Tarjeta: %s (%s)", ia.placa, ia.driver);
-            g_texto_n(jn, 24, BARRA_Y + 100, t, (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
-            g_texto_n(jn, 24, BARRA_Y + 120, ia.codec, (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+            g_texto_n(jn, 24, Y_PAG + 36, t, (MIC_X - 40 - 24) / LETRA_L, COR_TEXTO_FRACO);
+            g_texto_n(jn, 24, Y_PAG + 52, ia.codec, (MIC_X - 40 - 24) / LETRA_L, COR_TEXTO_FRACO);
+            /* balance */
+            g_texto(jn, 180, BAL_Y + 4, "Balance", COR_TEXTO);
+            g_retangulo(jn, BAL_X, BAL_Y, BAL_L, BAL_A, COR_BOTAO);
+            g_moldura(jn, BAL_X, BAL_Y, BAL_L, BAL_A, COR_BORDA);
+            {
+                int cx = BAL_X + BAL_L / 2, px = BAL_X + (BAL_L - 2) * ia.balance / 200;
+                g_retangulo(jn, cx, BAL_Y + 2, 1, BAL_A - 4, COR_BORDA);
+                g_retangulo(jn, px - 3, BAL_Y + 2, 7, BAL_A - 4, COR_DESTAQUE);
+                int b = (int)ia.balance - 100;
+                formatar_texto(t, sizeof t, "%s", b == 0 ? "centro" : b < 0 ? "izquierda" : "derecha");
+                g_texto(jn, BAL_X, BAL_Y - 18, t, COR_TEXTO_FRACO);
+            }
+            botao_desenhar(jn, &b_bal);
+            for (int i = 0; i < 2; i++) botao_desenhar(jn, &b_prob[i]);
+            {   /* la salida (tarjetas PCI y USB): un botón que pasa a la siguiente; se recuerda por su nombre */
+                int n_sal = 0;
+                for (int k = 0; k < AUDIO_SALIDAS; k++) n_sal += ia.salidas[k].usada;
+                if (n_sal > 1) {
+                    static char txt_sal[80];
+                    int act = 0;
+                    for (int k = 0; k < AUDIO_SALIDAS; k++) if (ia.salidas[k].actual) act = k;
+                    formatar_texto(txt_sal, sizeof txt_sal, "Salida: %s (pulsa para cambiar)", ia.salidas[act].nombre);
+                    b_sal.texto = txt_sal;
+                    botao_desenhar(jn, &b_sal);
+                }
+            }
+            botao_desenhar(jn, &b_lat[0]);
+            botao_desenhar(jn, &b_lat[1]);
+            formatar_texto(t, sizeof t, "Latencia: %u ms", ia.latencia_base_ms);
+            g_texto(jn, 300, BARRA_Y + 91, t, COR_TEXTO);
+            /* micrófono */
+            titulo_pag(MIC_X, Y_PAG + 14, "Micrófono");
+            if (!ia.captura) {
+                g_texto_n(jn, MIC_X, Y_PAG + 42, "Esta tarjeta no tiene entrada de sonido que podamos usar.", 27, COR_TEXTO_FRACO);
+            } else {
+                botao_desenhar(jn, &b_mic[0]);
+                botao_desenhar(jn, &b_mic[1]);
+                g_texto_n(jn, MIC_X + 30, Y_PAG + 42, mic_inf.n_entradas ? mic_inf.entradas[mic_inf.entrada < CAP_ENTRADAS_MAX ? mic_inf.entrada : 0] : "-", 20, COR_TEXTO);
+                botao_desenhar(jn, &b_mic[2]);
+                botao_desenhar(jn, &b_mic[3]);
+                g_retangulo(jn, MIC_GX, Y_PAG + 70, MIC_GL, 24, COR_BOTAO);
+                g_moldura(jn, MIC_GX, Y_PAG + 70, MIC_GL, 24, COR_BORDA);
+                g_retangulo(jn, MIC_GX + 1, Y_PAG + 71, (MIC_GL - 2) * (int)mic_inf.ganancia / 100, 22, mic_inf.mudo ? COR_BORDA : COR_DESTAQUE);
+                formatar_texto(t, sizeof t, "%u %%", mic_inf.ganancia);
+                g_texto(jn, MIC_GX + 6, Y_PAG + 74, t, COR_BRANCO);
+                /* medidor de nivel en vivo */
+                int mx = MIC_X, my = MIC_MY, ml = 216, ma = 22;
+                unsigned pico = mic_inf.pico > 32767 ? 32767 : mic_inf.pico;
+                int lp = (int)((unsigned long long)pico * (unsigned)(ml - 4) / 32767);
+                g_retangulo(jn, mx, my, ml, ma, 0x20262C);
+                if (lp > 0) g_retangulo(jn, mx + 2, my + 2, lp, ma - 4, pico > 29000 ? 0xD83A2A : pico > 20000 ? 0xE0B020 : 0x2EB872);
+                g_moldura(jn, mx, my, ml, ma, COR_BORDA);
+                g_texto_n(jn, mx, my + ma + 4, mic_aberto ? "Habla para probar el nivel." : "Micrófono en uso por otro programa.", 27, COR_TEXTO_FRACO);
+                b_mic[4].texto = mic_inf.mudo ? "Activar micrófono" : "Silenciar micrófono";
+                botao_desenhar(jn, &b_mic[4]);
+            }
             titulo_pag(24, EQ_Y0 - 32, "Ecualizador (dB)");
             for (int i = 0; i < EQ_BANDAS; i++) {
                 int cx = EQ_X0 + i * EQ_PASSO, v = ia.eq_db[i];
@@ -827,6 +1276,8 @@ static void desenhar_pagina(void)
         fuentes_desenhar();
     } else if (pagina == P_RED) {
         red_desenhar();
+    } else if (pagina == P_VNC) {
+        vnc_desenhar();
     } else {
         info_aparencia_t ap;
         memset(&ap, 0, sizeof ap);
@@ -1034,6 +1485,32 @@ static void definir_volume_pelo_mouse(int x)
     aplicar_volume(v, 0);
 }
 
+static void balance_poner(int b)
+{
+    if (b < 0) b = 0;
+    if (b > 200) b = 200;
+    if (b > 92 && b < 108) b = 100;          /* se «pega» al centro */
+    conf.balance = b;
+    conf.son_def |= 1;
+    aplicar_balance(b);
+}
+
+static void mic_guardar(void)
+{
+    conf.mic_ent = (int)mic_inf.entrada;
+    conf.mic_gan = (int)mic_inf.ganancia;
+    conf.mic_mudo = mic_inf.mudo != 0;
+    conf.son_def |= 4;
+    dizer_gravado(conf_gravar());
+}
+
+static void mic_ganancia_poner(int g, bool mudo)
+{
+    g = g < 0 ? 0 : g > 100 ? 100 : g;
+    captura_ganancia((unsigned)g, mudo);
+    captura_estado(CAP_FUENTE_REAL, &mic_inf);
+}
+
 static void eq_mudar(int banda, int db)
 {
     db = db < -12 ? -12 : db > 12 ? 12 : db;
@@ -1067,12 +1544,14 @@ static int janela(void)
     /* Cada pestaña es del ancho de su título, para que quepan las siete (D145). */
     int xp = 10;
     for (int i = 0; i < P_QTD; i++) {
-        int l = g_largura_texto(titulos_pag[i]) + 16;
+        int l = g_largura_texto(titulos_pag[i]) + 10;
         pos_pag[i] = xp;
         larg_pag[i] = l;
         b_pag[i] = (botao_t){ xp, 10, l, 28, titulos_pag[i], false };
-        xp += l + 4;
+        xp += l + 2;
     }
+    c_vnc_clave = (caixa_t){ .x = 24, .y = Y_PAG + 124, .l = 260, .oculta = true, .foco = true };
+    lista_vnc = (lista_t){ 24, Y_PAG + 238, LARG - 48 - 170, 80, itens_vnc, 0, -1, 0, NULL };
     c_capturas = (caixa_t){ .x = 24, .y = Y_PAG + 66, .l = LARG - 48, .foco = true };
     caixa_definir(&c_capturas, conf.capturas);
     int x = 24;
@@ -1102,7 +1581,15 @@ static int janela(void)
 
     evento_t e;
     for (;;) {
-        if (proximo_evento(jn->id, &e, true) != 1) continue;
+        /* En «Escritorio remoto» se repinta cada segundo: la lista de conectados cambia sola. */
+        int hay = pagina == P_VNC ? esperar_evento(jn->id, &e, 1000)
+                : (pagina == P_SOM && mic_aberto) ? esperar_evento(jn->id, &e, 60)   /* el medidor del micrófono (D292) */
+                : proximo_evento(jn->id, &e, true);
+        if (hay != 1) {
+            if (pagina == P_VNC) { vnc_refrescar(); desenhar(); }
+            if (pagina == P_SOM && mic_aberto) { mic_refrescar(); desenhar(); }
+            continue;
+        }
         if (e.tipo == EV_FECHAR) break;
         if (e.tipo == EV_TELA) { ler_modos_video(); desenhar(); continue; }
         bool mudou = false;
@@ -1111,9 +1598,11 @@ static int janela(void)
             if (botao_tratar(jn, &b_pag[i], &e)) {
                 pagina = i;
                 registrar("configuracion: pagina %s", titulos_pag[i]);
+                if (i == P_SOM) mic_abrir(); else mic_cerrar();   /* D292 */
                 if (i == P_TELA) ler_modos_video();
                 if (i == P_IA) ia_preparar();   /* relee lo guardado (D145) */
                 if (i == P_FUENTES) fuentes_preparar();   /* (D196) */
+                if (i == P_VNC) vnc_refrescar();
                 mudou = true;
             }
         if (pagina == P_TECLADO) {
@@ -1138,6 +1627,23 @@ static int janela(void)
                 mudou = true;
             } else if (at) mudou = true;
         } else if (pagina == P_TELA) {
+            if (telas.qtd > 1) {   /* D290: cada botón se aplica y se guarda al momento */
+                int n = (int)telas.qtd, modo = (int)telas.modo, lado = (int)telas.lado, prin = (int)telas.principal;
+                bool tocou = false;
+                for (int i = 0; i < 5; i++) b_telas[i].y = ALT - 138;
+                if (botao_tratar(jn, &b_telas[0], &e)) { modo = TELAS_MODO_EXTENDER; tocou = true; }
+                if (botao_tratar(jn, &b_telas[1], &e)) { modo = TELAS_MODO_ESPELHO; tocou = true; }
+                if (botao_tratar(jn, &b_telas[2], &e)) { prin = (prin + 1) % n; tocou = true; }
+                if (botao_tratar(jn, &b_telas[3], &e)) { lado = lado == TELAS_LADO_ABAIXO ? TELAS_LADO_DIREITA : TELAS_LADO_ABAIXO; tocou = true; }
+                if (botao_tratar(jn, &b_telas[4], &e)) { sel_res = (sel_res + 1) % n; mudou = true; ler_modos_video(); }
+                if (tocou) {
+                    int r = telas_sis(TELAS_OP_CONFIG, (unsigned)modo | (unsigned)lado << 8 | (unsigned)prin << 16, 0);
+                    if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); copia_texto(estado, "Pantallas cambiadas y guardadas", sizeof estado); }
+                    else formatar_texto(estado, sizeof estado, "No se pudo: %s", nome_erro(r));
+                    ler_modos_video();
+                    mudou = true;
+                }
+            }
             int at = lista_tratar(jn, &lista_modo, &e);
             bool ap = botao_tratar(jn, &b_tela[0], &e) || at == LISTA_ATIVOU;
             bool gu = botao_tratar(jn, &b_tela[1], &e);
@@ -1146,6 +1652,11 @@ static int janela(void)
                 bool igual = m->largura == tela.largura && m->altura == tela.altura;
                 int op = tela.a_quente && !igual ? MUDAR_AGORA : 0;
                 if (gu || !tela.a_quente) op |= MUDAR_GUARDAR;
+                if (sel_res > 0 && telas.qtd > 1) {   /* D290: la resolución de una pantalla extra */
+                    int r = telas_sis(TELAS_OP_RESOLUCAO, (unsigned)sel_res, m->largura | (unsigned)m->altura << 16);
+                    if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); formatar_texto(estado, sizeof estado, "Pantalla %d: %ux%u", sel_res + 1, m->largura, m->altura); }
+                    else formatar_texto(estado, sizeof estado, "No se pudo: %s", nome_erro(r));
+                } else
                 if (!op) dizer("La pantalla ya está en esa resolución.");
                 else {
                     int r = trocar_modo_video((int)m->largura, (int)m->altura, op);
@@ -1214,6 +1725,82 @@ static int janela(void)
                     mudou = true;
                 }
             }
+            /* D292: balance, pruebas, latencia y micrófono */
+            if (e.tipo == EV_CLIQUE && (e.botoes & 1) && dentro(&e, BAL_X, BAL_Y, BAL_L, BAL_A)) {
+                arrastando_bal = true;
+                balance_poner((e.x - BAL_X) * 200 / BAL_L);
+                mudou = true;
+            } else if (e.tipo == EV_MOVER && arrastando_bal && (e.botoes & 1)) {
+                balance_poner((e.x - BAL_X) * 200 / BAL_L);
+                mudou = true;
+            } else if (e.tipo == EV_SOLTOU && arrastando_bal) {
+                arrastando_bal = false;
+                dizer_gravado(conf_gravar());
+                mudou = true;
+            }
+            {
+                info_audio_t is;
+                if (botao_tratar(jn, &b_sal, &e) && info_sistema(INFO_AUDIO, &is, sizeof is) == 0) {
+                    int act = 0, sig;
+                    for (int k = 0; k < AUDIO_SALIDAS; k++) if (is.salidas[k].actual) act = k;
+                    for (sig = (act + 1) % AUDIO_SALIDAS; sig != act && !is.salidas[sig].usada; sig = (sig + 1) % AUDIO_SALIDAS) { }
+                    if (sig != act && audio_salida(sig) >= 0) {
+                        copia_texto(conf.salida, is.salidas[sig].nombre, sizeof conf.salida);
+                        dizer_gravado(conf_gravar());
+                    }
+                    mudou = true;
+                }
+            }
+            if (botao_tratar(jn, &b_bal, &e)) { balance_poner(100); dizer_gravado(conf_gravar()); mudou = true; }
+            for (int i = 0; i < 2; i++)
+                if (botao_tratar(jn, &b_prob[i], &e)) { probar_lado(i == 0); mudou = true; }
+            for (int i = 0; i < 2; i++)
+                if (botao_tratar(jn, &b_lat[i], &e)) {
+                    info_audio_t ia2;
+                    if (info_sistema(INFO_AUDIO, &ia2, sizeof ia2) == 0) {
+                        int ms = (int)ia2.latencia_base_ms + (i ? 20 : -20);
+                        ms = ms < 20 ? 20 : ms > 300 ? 300 : ms;
+                        conf.latencia = ms;
+                        conf.son_def |= 2;
+                        aplicar_latencia(ms);
+                        dizer_gravado(conf_gravar());
+                    }
+                    mudou = true;
+                }
+            if (mic_inf.presente) {
+                if (botao_tratar(jn, &b_mic[0], &e) || botao_tratar(jn, &b_mic[1], &e)) {
+                    unsigned n = mic_inf.n_entradas;
+                    if (n > 1) {
+                        unsigned nueva = e.x < MIC_X + 100 ? (mic_inf.entrada + n - 1) % n : (mic_inf.entrada + 1) % n;
+                        captura_entrada(nueva);
+                        captura_estado(CAP_FUENTE_REAL, &mic_inf);
+                        mic_guardar();
+                    }
+                    mudou = true;
+                }
+                if (botao_tratar(jn, &b_mic[2], &e) || botao_tratar(jn, &b_mic[3], &e)) {
+                    mic_ganancia_poner((int)mic_inf.ganancia + (e.x < MIC_GX ? -5 : 5), mic_inf.mudo != 0);
+                    mic_guardar();
+                    mudou = true;
+                }
+                if (botao_tratar(jn, &b_mic[4], &e)) {
+                    mic_ganancia_poner((int)mic_inf.ganancia, !mic_inf.mudo);
+                    mic_guardar();
+                    mudou = true;
+                }
+                if (e.tipo == EV_CLIQUE && (e.botoes & 1) && dentro(&e, MIC_GX, Y_PAG + 70, MIC_GL, 24)) {
+                    arrastando_mic = true;
+                    mic_ganancia_poner((e.x - MIC_GX) * 100 / MIC_GL, mic_inf.mudo != 0);
+                    mudou = true;
+                } else if (e.tipo == EV_MOVER && arrastando_mic && (e.botoes & 1)) {
+                    mic_ganancia_poner((e.x - MIC_GX) * 100 / MIC_GL, mic_inf.mudo != 0);
+                    mudou = true;
+                } else if (e.tipo == EV_SOLTOU && arrastando_mic) {
+                    arrastando_mic = false;
+                    mic_guardar();
+                    mudou = true;
+                }
+            }
             b_vol[2].texto = audio_silencio(-1) > 0 ? "Activar sonido" : "Silenciar";
         } else if (pagina == P_CAPTURAS) {
             bool enter = caixa_tratar(jn, &c_capturas, &e);
@@ -1243,6 +1830,13 @@ static int janela(void)
                     else dizer(b.activo ? "Bloqueo desactivado." : "Bloqueo activado.");
                     mudou = true;
                 }
+        } else if (pagina == P_VNC) {
+            if (caixa_tratar(jn, &c_vnc_clave, &e)) { vnc_accion(2); vnc_refrescar(); }
+            if (lista_tratar(jn, &lista_vnc, &e)) mudou = true;
+            for (int k = 0; k < 5; k++)
+                if (botao_tratar(jn, &b_vnc[k], &e)) { vnc_accion(k); vnc_refrescar(); mudou = true; }
+            if (botao_tratar(jn, &b_vnc_des, &e)) { vnc_desconectar_sel(); vnc_refrescar(); mudou = true; }
+            mudou = true;
         } else if (pagina == P_FUENTES) {
             if (n_fnt > 0) {
                 int at = lista_tratar(jn, &lista_fnt, &e);
@@ -1366,6 +1960,7 @@ static int janela(void)
         }
         if (mudou) desenhar();
     }
+    mic_cerrar();
     jan_fechar(jn);
     return 0;
 }

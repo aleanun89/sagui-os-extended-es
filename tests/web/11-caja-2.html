@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>11 Caja, visibilidad y transformaciones</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1 i{display:block;height:8px;background:red}#f1 .c{display:none}#f1 .d{visibility:hidden}
+#f2 b{display:block;width:fit-content;margin-left:auto;background:#008000}#f2 u{display:inline-block;width:20px;height:16px}#f2{font-size:0}
+#f3{font-size:0}#f3 b{display:block;height:8px;background:#008000}#f3 .c{width:max-content}#f3 .d{width:min-content}#f3 u{display:inline-block;width:20px;height:8px}#f3{overflow:hidden}
+#f4 i{display:block;height:16px;background:#008000;width:40px;margin-left:-10px;transform:translate(10px,0)}
+#f5 i{display:block;width:20px;height:8px;margin:4px 10px;background:#008000;transform:scale(2)}
+#f6 i{display:block;height:16px;background:#008000;border-left:20px solid #000080;transform:rotate(180deg)}
+#f7 i{display:block;background:#008000;inline-size:20px;block-size:16px;margin-inline:auto}
+#f8 i{display:block;background:#008000;width:0;height:0;padding-block:8px;padding-inline:20px}
+#f9 i{display:block;height:100%;background:#008000}
+#f10 i{display:block;height:16px;background:#008000;margin-left:-10px;margin-right:10px}#f10{overflow:hidden}
+#f11 i{display:block;height:4px;background:#008000;margin:4px 0}#f11{overflow:hidden}
+#f12{box-sizing:border-box;border:8px solid red;border-color:#008000;border-left:20px solid #008000;border-right-width:20px}
+#f13{box-sizing:border-box;padding:0 10px}#f13 i{display:block;height:16px;width:100%;background:#008000}
+#f14{overflow-x:hidden;overflow-y:hidden}#f14 i{display:block;width:80px;height:40px;background:#008000}
+#f15{font-size:0}#f15 i{float:right;width:20px;height:16px;background:#008000}#f15 u{display:inline-block;width:20px;height:16px;background:#000080}
+#f16 span{display:table;width:40px}#f16 b{display:table-cell;height:16px;background:#008000}#f16 .c{background:#000080}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f g" id="f1" style="top:10px"><i class="c"></i><i class="d"></i></div><div class="e" style="top:10px">display: none y visibility: hidden</div>
+<div class="f" id="f2" style="top:34px" data-p="10,8,ff0000 30,8,008000"><b><u></u></b></div><div class="e" style="top:34px">width: fit-content</div>
+<div class="f" id="f3" style="top:58px" data-p="10,4,008000 30,4,008000 10,12,008000 30,12,ff0000"><b class="c"><u></u><u></u></b><b class="d"><u></u><u></u></b></div><div class="e" style="top:58px">width: max-content y min-content</div>
+<div class="f" id="f4" style="top:82px"><i></i></div><div class="e" style="top:82px">transform: translate()</div>
+<div class="f" id="f5" style="top:106px"><i></i></div><div class="e" style="top:106px">transform: scale()</div>
+<div class="f" id="f6" style="top:130px" data-p="10,8,008000 30,8,000080"><i></i></div><div class="e" style="top:130px">transform: rotate(180deg)</div>
+<div class="f" id="f7" style="top:154px" data-p="5,8,ff0000 20,8,008000 35,8,ff0000"><i></i></div><div class="e" style="top:154px">propiedades lógicas (inline-size, margin-inline)</div>
+<div class="f" id="f8" style="top:178px"><i></i></div><div class="e" style="top:178px">padding-block y padding-inline</div>
+<div class="f" id="f9" style="top:202px"><i></i></div><div class="e" style="top:202px">height: 100%</div>
+<div class="f" id="f10" style="top:226px" data-p="2,8,008000 28,8,008000 35,8,ff0000"><i></i></div><div class="e" style="top:226px">márgenes negativos</div>
+<div class="f" id="f11" style="top:250px" data-p="20,2,ff0000 20,6,008000 20,10,ff0000 20,14,008000"><i></i><i></i></div><div class="e" style="top:250px">los márgenes verticales se funden</div>
+<div class="f" id="f12" style="top:274px"></div><div class="e" style="top:274px">border por lados y atajo</div>
+<div class="f" id="f13" style="top:298px" data-p="5,8,ff0000 12,8,008000 28,8,008000 35,8,ff0000"><i></i></div><div class="e" style="top:298px">width en % de un padre con padding</div>
+<div class="f" id="f14" style="top:322px"><i></i></div><div class="e" style="top:322px">overflow-x y overflow-y</div>
+<div class="f" id="f15" style="top:346px" data-p="10,8,000080 30,8,008000"><i></i><u></u></div><div class="e" style="top:346px">float con texto alrededor (inline-block)</div>
+<div class="f" id="f16" style="top:370px" data-p="10,8,008000 30,8,000080"><span><b></b><b class="c"></b></span></div><div class="e" style="top:370px">tabla con display: table / table-cell</div>
+</body></html>

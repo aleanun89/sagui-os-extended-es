@@ -40,7 +40,8 @@ typedef struct {
     const char *usuario;        /* NULL = sin AUTH */
     const char *clave;
     const char *de;             /* MAIL FROM */
-    const char *para;           /* RCPT TO (uno solo, por sencillez) */
+    const char *para;           /* RCPT TO: una o varias direcciones separadas por coma o ";" */
+    const char *cc;             /* más RCPT TO (puede ser NULL); no se pone en el sobre aparte: ya va en el mensaje */
     const char *mensaje;        /* mensaje ya en MIME, con sus cabeceras; el DATA lo punta */
     unsigned    nmensaje;
     const tls_config_t *cfg;
@@ -60,10 +61,13 @@ typedef struct {
     const char *usuario;
     const char *clave;
     const tls_config_t *cfg;
+    const char *pasta;          /* solo IMAP: carpeta a leer (NULL = INBOX) */
 } buzon_cfg_t;
 typedef int (*mensagem_fn)(void *ctx, int i, const char *dados, unsigned n);
 int pop3_receber(const buzon_cfg_t *b, mensagem_fn f, void *ctx, char *erro, unsigned max);
 int imap_receber(const buzon_cfg_t *b, mensagem_fn f, void *ctx, char *erro, unsigned max);
+/* Nombres de las carpetas IMAP del buzón (sin INBOX ni las no seleccionables). Devuelve cuántas. */
+int imap_listar_pastas(const buzon_cfg_t *b, char (*nomes)[64], int max_nomes, char *erro, unsigned max);
 
 /* ---- MIME (mime.c) ---- */
 /* Base64 (RFC 4648, alfabeto estándar, relleno "="). Devuelve el tamaño escrito en dst. */
@@ -79,7 +83,7 @@ unsigned html_para_texto(const char *html, unsigned n, char *dst, unsigned max);
  * salvo "texto" y "html", que son búferes propios (aloca) ya descodificados. */
 #define MIME_MAX_ADJUNTOS 16
 typedef struct {
-    char     de[256], para[256], assunto[256], data[64];
+    char     de[256], para[256], cc[256], assunto[256], data[64];
     char    *texto;          /* text/plain descodificado (aloca), o NULL */
     char    *html;           /* text/html descodificado (aloca), o NULL */
     int      n_anexos;
@@ -96,7 +100,7 @@ void mensagem_analisar_liberar(mensagem_t *m);
 
 /* Construcción de un mensaje para enviar. */
 typedef struct {
-    const char *de, *para, *assunto;
+    const char *de, *para, *cc, *assunto;   /* cc puede ser NULL */
     const char *texto;             /* cuerpo en texto plano (UTF-8 o Latin-1 limpio) */
     int         n_anexos;
     struct { const char *nome; const uint8_t *dados; unsigned n; } anexos[MIME_MAX_ADJUNTOS];

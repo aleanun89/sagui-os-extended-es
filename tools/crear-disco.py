@@ -7,6 +7,8 @@ Disco MBR: partición 1 = el sistema (arranque), la única primaria; las de dato
 solo van como lógicas dentro de una extendida que ocupa el resto (D213, v7.3):
   SAGUI-DATOS -> /home      SAGUI-TMP -> /tmp      SAGUI-LOGS -> /logs
 (con --primarias, el formato de antes: hasta 3 primarias de datos).
+D270: como saguios.img, arranca por BIOS y por UEFI (la partición EFI SAGUI-EFI, D264), salvo con
+--sin-uefi o --primarias (no queda entrada libre para ella).
 El resultado es un .img disperso (ocupa poco en el PC aunque mida GB) que se graba entero en un
 pendrive o disco con Rufus (modo imagen DD) o con dd. Uso:
   python3 tools/crear-disco.py --home-mb 4096 --tmp-mb 512 --logs-mb 256 --fs fat32
@@ -22,7 +24,7 @@ import subprocess
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NOMBRES = {0xDA: "SaguiOS (arranque)", 0x83: "ext2", 0x0C: "FAT32"}
+NOMBRES = {0xDA: "SaguiOS (arranque)", 0x83: "ext2", 0x0C: "FAT32", 0xEF: "EFI (FAT32, UEFI)"}
 
 
 def preguntar(texto, defecto, tipo=int):
@@ -50,6 +52,7 @@ def main():
     ap.add_argument("--extendida", action="store_true", help="(ya es lo de por defecto, D213; se acepta por compatibilidad)")
     ap.add_argument("--primarias", action="store_true", help="el formato de antes de la v7.3: las de datos como primarias")
     ap.add_argument("--xz", action="store_true", help="además, comprime a .img.xz")
+    ap.add_argument("--sin-uefi", action="store_true", help="sin la partición EFI: solo arranque por BIOS (D270)")
     ap.add_argument("-i", "--interactivo", action="store_true")
     ap.add_argument("--build", default=os.path.join(RAIZ, "build"))
     ap.add_argument("--jogos", default=None, metavar="CARPETA",
@@ -74,6 +77,13 @@ def main():
         cmd += ["--extra-mb", str(mb)]
     if a.primarias:
         cmd.append("--primarias")
+    # D270: la partición EFI (arranque UEFI) si el cargador está compilado (make uefi).
+    uefi = os.path.join(b, "boot", "uefi")
+    if not a.sin_uefi and not a.primarias and "--uefi" not in a.mkimagem_extra:
+        if os.path.isfile(os.path.join(uefi, "BOOTX64.EFI")) and os.path.isfile(os.path.join(uefi, "BOOTIA32.EFI")):
+            cmd += ["--uefi", uefi]
+        else:
+            print("crear-disco: AVISO: sin el cargador UEFI (make uefi): la imagen solo arranca por BIOS")
     jogos = a.jogos or f"{b}/jogos/raiz"
     con_jogos = not a.sin_jogos and bool(a.jogos or os.path.isdir(jogos))
     if con_jogos:
@@ -127,6 +137,8 @@ def main():
                     rel = struct.unpack("<I", nx[8:12])[0]
             elif k == 0:
                 fila(1, e[4], ini, qtd, "(arranque)")
+            elif e[4] == 0xEF:
+                fila(k + 1, e[4], ini, qtd, "(arranque UEFI: SAGUI-EFI, D264)")
             else:
                 p, r = next(usados)
                 fila(k + 1, e[4], ini, qtd, f"{p}  (etiqueta {r})")

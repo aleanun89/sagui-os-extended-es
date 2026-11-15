@@ -55,12 +55,14 @@ def ffmpeg():
 
 def compilar():
     """Compila el decodificador del anfitrión (el mismo código que va a la libsagui)."""
-    cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-DSAGUI_HOST",
+    cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-DSAGUI_HOST", "-DH264_HOST", "-Wno-unused-function",
            "-Itools", "-Iuserland/inc", "-Iuserland/libsagui", "-Ikernel/inc",
            "-o", DECO,
            "tools/video_testar.c", "tools/video_host.c",
            "userland/libsagui/video.c", "userland/libsagui/imagem_jpeg.c",
-           "userland/libsagui/imagem_idct.c", "userland/libsagui/mpeg1.c"]
+           "userland/libsagui/imagem_idct.c", "userland/libsagui/mpeg1.c",
+           "userland/libsagui/video_mp4.c", "userland/libsagui/h264.c", "userland/libsagui/aac.c",
+           "userland/libsagui/mp4.c", "-lm"]
     r = subprocess.run(cmd, cwd=RAIZ, capture_output=True, text=True)
     if r.returncode != 0:
         falha("el decodificador no compila:\n" + r.stderr[-2000:])

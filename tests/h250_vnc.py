@@ -269,6 +269,7 @@ def _prueba(m, porta):
     m.comando("echo bloqueo_segundos=10 >> /home/.config/vncd.conf")
     m.comando("echo max_clientes=2 >> /home/.config/vncd.conf")
     m.comando("echo fps_max=15 >> /home/.config/vncd.conf")
+    m.comando("echo indicador=no >> /home/.config/vncd.conf")   # D273: la ventana indicadora cambiaría la pantalla entre capturas
     marca = len(m.serial())
     m.comando("servicio iniciar vncd", 30)
     esperar_log(m, "vncd: escuchando en el puerto 5900", 30, marca)

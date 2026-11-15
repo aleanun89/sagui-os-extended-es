@@ -1,6 +1,6 @@
 # 059 - Bluetooth por adaptador USB
 
-- **Estado:** propuesta, repartida entre la **v9** y la **v11** (ver `docs/ROADMAP.md`)
+- **Estado:** fase 1 (HID por USB) **hecha en la v8.2** (D279, rama `v8.2-bluetooth`, falta probarla con el CSR8510 real: `docs/bluetooth.md`); el audio (v10) y los archivos y la red (v11) siguen propuestos
 - **Prioridad:** media
 - **Alta:** 2026-11-08
 - **Depende de:** 046 (xHCI) y 029 (HID USB), ambas en la v8; 041 (sonido) para el audio
@@ -24,10 +24,12 @@
 
 ## Criterios de aceptación
 
-- [ ] v9: emparejar y usar un teclado y un ratón Bluetooth (clásico y BLE)
+- [x] v8.2 (D279): pila HCI/L2CAP/SDP/HID, emparejamiento seguro simple, claves guardadas y aplicación (probado con un controlador simulado en el PC; **sin probar aún con un pincho real**)
+- [ ] emparejar y usar un teclado y un ratón Bluetooth reales (clásico) con el CSR8510
+- [ ] BLE (SMP, GATT/HOGP) y controladores con firmware (Intel, Realtek)
 - [ ] v10: audio A2DP en unos auriculares Bluetooth
 - [ ] v11: enviar/recibir un archivo por OBEX y navegar por PAN
-- [ ] Decisiones registradas en `docs/decisoes.md`
+- [x] Decisión registrada en `docs/decisoes.md` (D279)
 
 ## Notas
 

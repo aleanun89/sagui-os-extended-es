@@ -93,7 +93,10 @@ comprobar con `ls` o `git ls-files` cuando haya duda.
 
 `especialista-drivers` (Fable, esfuerzo bajo: desarrollar y ampliar drivers, sobre todo de GPU) y
 `depurador-drivers` (Opus, esfuerzo medio: pruebas y corrección de fallos de esos drivers en
-máquinas reales) se usan **solo con autorización expresa del mantenedor en esa conversación**. Nunca
+máquinas reales) se usan **solo con autorización expresa del mantenedor en esa conversación**.
+Desde el 2026-11-15, al lanzar `especialista-drivers` se **pregunta al mantenedor el modelo** (Opus medio, Opus
+alto o Fable bajo; se pasa con `model`/`effort` al lanzarlo); la revisión y la corrección de fallos las hace
+siempre **Opus** (`depurador-drivers`). Nunca
 por iniciativa propia ni «ante la duda»: para lo demás, los trabajadores normales (Sonnet/Haiku por
 defecto mientras la suscripción sea limitada).
 
@@ -147,11 +150,11 @@ además corta el desarrollo. Reglas:
   - **Nunca la batería completa mientras haya agentes trabajando.** Primero terminan o se
     paran los agentes; después, la batería sola.
   - **Como mucho 2 agentes a la vez** que compilen o prueben en QEMU; el resto, esperando.
-    **En el PC principal del mantenedor (16 núcleos, 36 GB) pueden ser 4** (dicho el 2026-11-14), y
-    la batería con `-j 4`. En otro ordenador, 2.
+    **En el PC principal del mantenedor (Ryzen 9 9900X, 96 GB; WSL ve parte) pueden ser 6** (dicho el
+    2026-11-15), hasta **10 agentes** escribiendo código, y la batería con `-j 6`. En otro ordenador, 2.
   - **Escribir código no cuenta:** pueden trabajar más agentes a la vez si solo escriben; el límite
-    es para compilar y probar. El coordinador lo hace cumplir con un guion de turnos (`flock` con 2 a 4
-    huecos, que además espera a que acabe la batería) con el que cada agente envuelve `make` y las pruebas
+    es para compilar y probar. El coordinador lo hace cumplir con `tools/turno.sh` (`flock` con `SAGUI_TURNOS` huecos, el último
+    reservado a `PRIORIDAD=1`, que además espera a que acabe la batería) con el que cada agente envuelve `make` y las pruebas
     (o lanzarlos después).
   - Cada agente con `make -j2` y una prueba QEMU cada vez.
 
@@ -174,3 +177,12 @@ además corta el desarrollo. Reglas:
 - Antes de publicar una versión, `python3 tools/readme_sincronia.py` tiene que salir con 0 (sale con 1 si alguna traducción va por detrás).
 - La línea de idiomas (`[Español](README.md) · [Português](README_PT.md) · [English](README_EN.md)`) va bajo el título de los tres ficheros.
 - **`compilar_versiones.md`** (raíz) es la guía de compilación para usuarios del repositorio público, con tres secciones completas e iguales (Español, English, Português Brasil) y un índice arriba. Se mantiene igual que los README: cuando cambien opciones de compilación (`Makefile`, `gerar_versao.sh`, `tools/mkimagem.py`, `run_in_qemu.sh`), las descargas (`tools/*_datos.sh`, `netsurf_fuentes.sh`, Typodermic) o lo que se publica (`tools/publicar-excluir.txt`), se actualizan **las tres secciones a la vez** (`trabajador-haiku` aplica la traducción). Las órdenes no se traducen.
+
+## Documentos vivos de soporte (GPU y arquitecturas)
+
+- `docs/gpus.md` (tabla de GPU por familia y versión) y `docs/arquitecturas.md` (arquitecturas de procesador)
+  **cambiarán a menudo** (el mantenedor adelantará o retrasará piezas, sobre todo de la v11). Quien cambie el
+  soporte de una GPU o una arquitectura, o su versión prevista, actualiza la tabla **en el mismo commit**, y el
+  coordinador sincroniza las discusiones de GitHub (#19 GPU, la de arquitecturas) con `tools/gh-agentes.sh
+  discusion-editar`.
+

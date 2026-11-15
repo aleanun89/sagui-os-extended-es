@@ -70,6 +70,19 @@ ZXN0byBlcyB1biBhcmNoaXZvIGNvbiBlbCBjb250ZW5pZG8uCg==
 """,
 ]
 
+# Una segunda carpeta IMAP («Trabajo») con un mensaje propio (h289: árbol de carpetas).
+MENSAGENS_TRABALHO = [
+    """From: Dani Jefe <dani@example.org>
+To: eu@example.org
+Cc: equipo@example.org
+Subject: Informe trimestral
+Date: Wed, 12 Nov 2025 09:15:00 +0000
+Content-Type: text/plain; charset=utf-8
+
+Hola: adjunto el informe del trimestre. Revisalo antes del viernes.
+""",
+]
+
 # Lo que el servidor recibió (la prueba lo mira).
 ENVIADOS = []
 CORPO_RECIDO = []
@@ -347,13 +360,18 @@ class Imap(_Sessao):
         self.escrever("%s OK LOGIN completado" % etiqueta)
 
     def cmd_SELECT(self, etiqueta, resto):
-        self.escrever("* %d EXISTS" % len(MENSAGENS))
+        self.pasta = "Trabajo" if "Trabajo" in resto else "INBOX"
+        self.escrever("* %d EXISTS" % len(self.mensajes()))
         self.escrever("* 0 RECENT")
         self.escrever("* OK [UIDVALIDITY 1] UIDs validos")
         self.escrever("%s OK [READ-WRITE] SELECT completado" % etiqueta)
 
+    def mensajes(self):
+        return MENSAGENS_TRABALHO if getattr(self, "pasta", "INBOX") == "Trabajo" else MENSAGENS
+
     def cmd_LIST(self, etiqueta, resto):
         self.escrever('* LIST (\\HasNoChildren) "." "INBOX"')
+        self.escrever('* LIST (\\HasNoChildren) "." "Trabajo"')
         self.escrever("%s OK LIST completado" % etiqueta)
 
     def cmd_FETCH(self, etiqueta, resto):
@@ -369,7 +387,7 @@ class Imap(_Sessao):
                 except ValueError:
                     continue
                 if b == "*" or b == "":
-                    b = len(MENSAGENS)
+                    b = len(self.mensajes())
                 else:
                     try:
                         b = int(b)
@@ -382,9 +400,9 @@ class Imap(_Sessao):
                 except ValueError:
                     continue
         for n in numeros:
-            if n < 1 or n > len(MENSAGENS):
+            if n < 1 or n > len(self.mensajes()):
                 continue
-            msg = MENSAGENS[n - 1].encode("utf-8")
+            msg = self.mensajes()[n - 1].encode("utf-8")
             self.escrever("* %d FETCH (BODY[] {%d}" % (n, len(msg)))
             self.escrever_bruto(msg)
             self.escrever_bruto(b")\r\n")

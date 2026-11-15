@@ -38,6 +38,7 @@
  * Antes de nada se pide el controlador a la BIOS (capacidad extendida "USB
  * Legacy Support"), que lo usaba para el teclado y el pendrive de arranque. */
 #include "xhci.h"
+#include "isoent.h"
 #include "console.h"
 #include "cpu.h"
 #include "irq_rotas.h"
@@ -121,6 +122,7 @@
 #define TRB_NORMAL     1
 #define TRB_SETUP      2
 #define TRB_DATA       3
+#define TRB_ISOCH      5
 #define TRB_STATUS     4
 #define TRB_LINK       6
 #define TRB_NOOP_TR    8
@@ -181,6 +183,7 @@ typedef struct {
     uint16_t int_tam;
     uint32_t int_buf;
     struct xfila *fila;           /* D238: cola de transferencias (NULL = la manera de siempre) */
+    struct xiso  *iso;            /* D275: flujo isócrono (NULL = no es de ese tipo) */
 } xep_t;
 
 typedef struct {
@@ -199,6 +202,7 @@ typedef struct {
  * final del anillo. De salida, se ponen al enviar y se recogen al terminar. Un
  * endpoint con cola no usa td_executar ni la lectura de HID. */
 #define XFILA_MAX     8
+#define XISO_MAX_TOTAL (XHCI_MAX_CTL * USB_ISO_MAX)
 #define XFILAS        4
 #define CC_PARADO     26              /* "Stopped": el TD lo cortó un Stop Endpoint */
 #define CC_PARADO_TAM 27
@@ -427,6 +431,8 @@ static bool fila_evento(xfila_t *f, uint32_t ptr, uint32_t cod, uint32_t resto)
     return false;
 }
 
+static void iso_evento(struct xiso *is, uint32_t ptr, uint32_t cod, uint32_t resto);
+
 /* Consume todo lo que haya en el anillo de eventos y anota el resultado en el
  * endpoint o en la orden a la que pertenece. */
 static void processar(xhci_t *c)
@@ -442,7 +448,9 @@ static void processar(xhci_t *c)
             uint32_t dci = (ctl >> 16) & 0x1F;
             xep_t *ep = s ? &s->ep[dci] : NULL;
             uint32_t resto = e->status & 0xFFFFFF;
-            if (ep && ep->fila) {
+            if (ep && ep->iso) {
+                iso_evento(ep->iso, ptr, cod, resto);   /* D275 */
+            } else if (ep && ep->fila) {
                 if ((ctl & (1u << 2)) || !fila_evento(ep->fila, ptr, cod, resto)) c->soltos++;
             } else if (!ep || !ep->pendente || ep->feito || (ctl & (1u << 2)) || ptr < ep->td_ini || ptr > ep->td_fim) {
                 c->soltos++;    /* de un TD viejo (o cancelado) */
@@ -628,10 +636,13 @@ static int td_executar(xhci_t *c, xslot_t *s, uint32_t dci, const trb_t *v, uint
 
 /* ------------------------------------------------------------ dispositivos */
 
+static void iso_soltar(struct xiso *is);
+
 static void liberar_slot(xhci_t *c, xslot_t *s)
 {
     for (int i = 1; i < 32; i++) {
         if (s->ep[i].fila) { s->ep[i].fila->usado = false; s->ep[i].fila = NULL; }   /* D238 */
+        if (s->ep[i].iso) { iso_soltar(s->ep[i].iso); s->ep[i].iso = NULL; }          /* D275 */
         if (s->ep[i].ativo) { memfisica_liberar(s->ep[i].anel.fis); s->ep[i].ativo = false; }
     }
     if (s->saida) memfisica_liberar(s->saida);
@@ -788,6 +799,8 @@ int xhci_configurar(usb_disp_t *d)
         for (int i = 0; i < d->n_hid; i++)
             ok = ok && ep_preparar(c, s, d->hid[i].ep * 2u + 1, 7, d->hid[i].mps, 0,
                                    intervalo_xhci(d->velocidade, d->hid[i].intervalo), &max_dci);
+        if (d->ep_int)   /* D279: eventos HCI de un controlador Bluetooth */
+            ok = ok && ep_preparar(c, s, d->ep_int * 2u + 1, 7, d->mps_int, 0, intervalo_xhci(d->velocidade, d->int_intervalo), &max_dci);
         volatile uint32_t *sl = ctx_entrada(c, s, 1), *so = ctx_saida(c, s, 0);
         sl[0] = (so[0] & 0x07FFFFFFu) | (max_dci << 27);
         sl[1] = so[1];
@@ -1013,6 +1026,297 @@ int xhci_int_ler(usb_disp_t *d, uint8_t ep, uint8_t *dados, int max)
     }
     int_restaura(i0);
     return r;
+}
+
+/* ------------------------------------------------------------ transferencias isócronas (D275) */
+
+/* Un flujo isócrono por endpoint (el altavoz USB): un TD de un solo TRB "Isoch"
+ * por intervalo de servicio, con SIA (empezar en cuanto se pueda, como hace Linux por
+ * omisión): tras un hueco (el kernel se quedó sin atender el flujo) el siguiente TD
+ * sale en el primer intervalo libre sin cuenta de cuadros. Los datos son un anillo
+ * físico del driver; cada TRB apunta a un trozo (nunca cruza el final del anillo ni
+ * una frontera de 64 KB). Solo cada ISO_IOC_CADA TRB pide evento (sin interrupción:
+ * BEI); como los eventos de un endpoint llegan en orden, el evento de un TRB completa
+ * todos los anteriores: así se cuenta lo completado (pos_feito) sin 1000 eventos por
+ * segundo. Un hueco se anuncia con "Ring Underrun" (14). Todo lo hace el driver con las
+ * interrupciones apagadas y sin el cerrojo (como el HID): aquí solo se escriben TRB, se
+ * toca la campana y se consumen eventos. */
+#define ISO_IOC_CADA   8
+#define ISO_EM_VOO_MAX 200u
+#define CC_SUBDESB     14      /* Ring Underrun */
+#define CC_PERDIDO     23      /* Missed Service Error */
+#define TRB_ISO_SIA    (1u << 31)
+#define TRB_BEI        (1u << 9)
+
+struct xiso {
+    bool     usado, ligado;
+    xhci_t  *c;
+    xslot_t *s;
+    uint8_t  dci;
+    uint32_t anel_fis, anel_tam, bytes_s, mps;
+    uint8_t  tam_quadro;
+    uint32_t pos_fila;       /* desplazamiento del próximo trozo del anillo de datos */
+    uint32_t pos_feito;      /* bytes completados desde ligar */
+    uint32_t acc;
+    uint32_t vel;            /* índice del TRB más antiguo sin completar */
+    uint32_t em_voo;         /* TRB en el anillo sin completar (los que se saben) */
+    uint32_t desde_ioc;
+    uint16_t len[NTRB];
+    bool     entrada;        /* D277: flujo de entrada (cámara): un TRB por paquete, con un evento cada uno */
+    uint8_t  mult;           /* paquetes por intervalo de servicio (1 a 3) */
+    uint32_t ivl_us;         /* microsegundos entre paquetes */
+    uint32_t cola;           /* TRB que se mantienen en el anillo */
+    isoent_t re;
+    uint32_t paquetes, completados, subdesb, erros;
+};
+static struct xiso isos[XISO_MAX_TOTAL];
+
+static void iso_soltar(struct xiso *is) { is->usado = false; is->ligado = false; }
+
+static void iso_evento(struct xiso *is, uint32_t ptr, uint32_t cod, uint32_t resto)
+{
+    if (!is->usado) return;
+    if (cod == CC_SUBDESB) { is->subdesb++; return; }       /* hueco: no completa nada */
+    if (cod == CC_PARADO || cod == CC_PARADO_TAM) return;
+    anel_t *a = &is->s->ep[is->dci].anel;
+    if (ptr < a->fis || ptr >= a->fis + (NTRB - 1) * 16u) return;
+    uint32_t idx = (ptr - a->fis) / 16u;
+    uint32_t dist = (idx + (NTRB - 1) - is->vel) % (NTRB - 1);
+    if (dist >= is->em_voo) return;                         /* evento de un TRB ya contado */
+    if (cod != CC_OK && cod != CC_CURTO) is->erros++;
+    for (uint32_t k = 0; k <= dist; k++) {
+        if (is->entrada) {
+            /* el último TRB de la tanda trae el resultado; los anteriores (sin evento) se dan por perdidos */
+            bool ultimo = k == dist, ok = ultimo && (cod == CC_OK || cod == CC_CURTO);
+            uint32_t n = is->len[is->vel];
+            isoent_completar(&is->re, ok && resto <= n ? n - resto : 0, !ok);
+            is->len[is->vel] = 0;
+            is->completados++;
+            if (++is->vel == NTRB - 1) is->vel = 0;
+            continue;
+        }
+        is->pos_feito += is->len[is->vel];
+        is->len[is->vel] = 0;
+        is->completados++;
+        if (++is->vel == NTRB - 1) is->vel = 0;
+    }
+    is->em_voo -= dist + 1;
+}
+
+/* Pone TRB hasta tener USB_ISO_COLA_MS milisegundos en el anillo. */
+static void iso_encher(struct xiso *is)
+{
+    xhci_t *c = is->c;
+    if (!is->ligado || c->morto) return;
+    anel_t *a = &is->s->ep[is->dci].anel;
+    bool algum = false;
+    while (is->em_voo < (is->entrada ? is->cola : USB_ISO_COLA_MS) && is->em_voo < ISO_EM_VOO_MAX) {
+        if (is->entrada) {
+            if (!isoent_livres(&is->re)) break;                  /* el consumidor va atrasado: no se pide más */
+            uint32_t off = isoent_postar(&is->re), n = is->mps;  /* mps ya incluye el multiplicador */
+            uint32_t npk = (n + is->mps / is->mult - 1) / (is->mps / is->mult);
+            uint32_t idx = a->enq;
+            trb_t v = { is->anel_fis + off, 0, n, (TRB_ISOCH << 10) | TRB_ISO_SIA | TRB_IOC | TRB_BEI | (is->mult > 1 ? (npk - 1) << 12 : 0) };
+            uint32_t ini, fim;
+            anel_td(a, &v, 1, TRB_NOOP_TR, &ini, &fim);
+            is->len[idx] = (uint16_t)n;
+            is->em_voo++;
+            is->paquetes++;
+            algum = true;
+            continue;
+        }
+        uint32_t n = usb_iso_calcular(&is->acc, is->bytes_s, is->tam_quadro, 1000, is->mps);
+        uint32_t fis = is->anel_fis + is->pos_fila;
+        uint32_t lim = is->anel_tam - is->pos_fila, a64 = 0x10000u - (fis & 0xFFFFu);
+        if (lim > a64) lim = a64;
+        if (n > lim) n = lim - lim % is->tam_quadro;
+        uint32_t idx = a->enq;
+        is->desde_ioc++;
+        bool ioc = is->desde_ioc >= ISO_IOC_CADA || is->em_voo + 1 >= USB_ISO_COLA_MS;
+        if (ioc) is->desde_ioc = 0;
+        trb_t v = { fis, 0, n, (TRB_ISOCH << 10) | TRB_ISO_SIA | (ioc ? (TRB_IOC | TRB_BEI) : 0) };
+        uint32_t ini, fim;
+        anel_td(a, &v, 1, TRB_NOOP_TR, &ini, &fim);
+        is->len[idx] = (uint16_t)n;
+        is->em_voo++;
+        is->paquetes++;
+        is->pos_fila += n;
+        if (is->pos_fila >= is->anel_tam) is->pos_fila -= is->anel_tam;
+        algum = true;
+    }
+    if (algum) {
+        barreira();
+        c->db[is->s->id] = is->dci;
+    }
+}
+
+int xhci_iso_abrir(usb_disp_t *d, const usb_iso_cfg_t *cfg)
+{
+    uint32_t mult = cfg->mult ? cfg->mult : 1;
+    if (!cfg->mps || !cfg->anel_fis || mult > 3) return USB_ERRO;
+    if (cfg->entrada ? (cfg->anel_tam % (cfg->mps * mult) != 0 || cfg->anel_tam / (cfg->mps * mult) > ISOENT_CASILLAS_MAX)
+                     : (!cfg->tam_quadro || cfg->anel_tam % cfg->tam_quadro || mult > 1)) return USB_ERRO;
+    trava_pegar(&trava_xhci);
+    bool i0 = int_salva_desliga();
+    int r = USB_ERRO;
+    xslot_t *s = slot_de(d);
+    struct xiso *is = NULL;
+    for (int i = 0; i < XISO_MAX_TOTAL && s; i++) if (!isos[i].usado) { is = &isos[i]; r = i; break; }
+    if (s && is) {
+        xhci_t *c = d->xctl;
+        uint32_t dci = cfg->ep * 2u + (cfg->entrada ? 1 : 0);
+        xep_t *e = &s->ep[dci];
+        r = USB_ERRO;
+        bool ok = true;
+        if (!e->ativo) { ok = anel_novo(&e->anel); e->ativo = ok; }
+        else {
+            memset((void *)e->anel.t, 0, (NTRB - 1) * 16);
+            e->anel.enq = 0;
+            e->anel.ciclo = 1;
+            e->anel.t[NTRB - 1].controle = (TRB_LINK << 10) | TRB_TC;
+        }
+        if (ok) {
+            e->pendente = e->int_armado = e->int_erro = false;
+            if (e->fila) { e->fila->usado = false; e->fila = NULL; }
+            entrada_limpar(c, s);
+            ctx_entrada(c, s, 0)[1] = 1u << dci | 1;        /* A0 (ranura) y la A del endpoint */
+            uint32_t max_dci = (ctx_saida(c, s, 0)[0] >> 27) & 0x1F;
+            if (dci > max_dci) max_dci = dci;
+            volatile uint32_t *sl = ctx_entrada(c, s, 1), *so = ctx_saida(c, s, 0);
+            sl[0] = (so[0] & 0x07FFFFFFu) | (max_dci << 27);
+            sl[1] = so[1];
+            sl[2] = so[2];
+            /* Intervalo en unidades de 125 us: 2^(bInterval-1) ms en plena velocidad, 2^(bInterval-1) microcuadros en alta */
+            uint32_t b = cfg->intervalo ? cfg->intervalo : 1, iv = b - 1;
+            if (d->velocidade <= USB_VEL_PLENA) iv += 3;
+            if (iv > 15) iv = 15;
+            volatile uint32_t *x = ctx_entrada(c, s, 1 + dci);
+            x[0] = iv << 16;
+            x[1] = (cfg->entrada ? 5u : 1u) << 3 | ((mult - 1) << 8) | ((uint32_t)cfg->mps << 16);   /* CErr 0; ráfaga = paquetes por microcuadro - 1 */
+            x[2] = e->anel.fis | 1;
+            x[3] = 0;
+            x[4] = cfg->mps * mult | ((cfg->mps * mult) << 16);
+            if (comando(c, s->entrada, (TRB_CONF_EP << 10) | ((uint32_t)s->id << 24), 2000) == 0) {
+                memset(is, 0, sizeof *is);
+                is->usado = true;
+                is->c = c;
+                is->s = s;
+                is->dci = (uint8_t)dci;
+                is->anel_fis = cfg->anel_fis;
+                is->anel_tam = cfg->anel_tam;
+                is->bytes_s = cfg->bytes_s;
+                is->mps = cfg->mps * mult;          /* tamaño de la transacción completa (todas las ráfagas) */
+                is->tam_quadro = cfg->tam_quadro;
+                is->entrada = cfg->entrada;
+                is->mult = (uint8_t)mult;
+                is->ivl_us = 125u << iv;
+                is->cola = USB_ISO_COLA_MS * 1000u / is->ivl_us;
+                if (is->entrada && !isoent_iniciar(&is->re, cfg->anel_tam, cfg->mps * mult)) { is->usado = false; r = USB_ERRO; }
+                else {
+                e->iso = is;
+                r = (int)(is - isos);
+                }
+            }
+        }
+    }
+    int_restaura(i0);
+    trava_soltar(&trava_xhci);
+    return r;
+}
+
+static struct xiso *iso_de(usb_disp_t *d, int h)
+{
+    if (h < 0 || h >= XISO_MAX_TOTAL || !isos[h].usado) return NULL;
+    xslot_t *s = slot_de(d);
+    return s && isos[h].s == s ? &isos[h] : NULL;
+}
+
+void xhci_iso_ligar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    struct xiso *is = iso_de(d, h);
+    if (is) {
+        processar(is->c);
+        /* Lo que quedaba en el anillo sale con longitud cero para la cuenta */
+        for (uint32_t k = 0, i = is->vel; k < is->em_voo; k++, i = (i + 1) % (NTRB - 1)) is->len[i] = 0;
+        is->pos_fila = is->pos_feito = is->acc = is->desde_ioc = 0;
+        if (is->entrada) isoent_reiniciar(&is->re);
+        is->ligado = true;
+        iso_encher(is);
+    }
+    int_restaura(i0);
+}
+
+void xhci_iso_parar(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    struct xiso *is = iso_de(d, h);
+    if (is) is->ligado = false;
+    int_restaura(i0);
+}
+
+uint32_t xhci_iso_posicao(usb_disp_t *d, int h)
+{
+    bool i0 = int_salva_desliga();
+    struct xiso *is = iso_de(d, h);
+    uint32_t r = 0;
+    if (is) {
+        if (!is->c->morto) processar(is->c);
+        iso_encher(is);
+        r = is->pos_feito;
+    }
+    int_restaura(i0);
+    return r;
+}
+
+bool xhci_iso_ler(usb_disp_t *d, int h, uint32_t *off, uint32_t *len, bool *erro)
+{
+    bool i0 = int_salva_desliga();
+    struct xiso *is = iso_de(d, h);
+    bool r = is && is->entrada && isoent_ler(&is->re, off, len, erro);
+    int_restaura(i0);
+    return r;
+}
+
+bool xhci_iso_info(usb_disp_t *d, int h, usb_iso_info_t *i)
+{
+    struct xiso *is = iso_de(d, h);
+    if (!is) return false;
+    i->paquetes = is->paquetes;
+    i->completados = is->completados;
+    i->subdesbordes = is->subdesb;
+    i->errores = is->erros;
+    i->ancho = is->mps;
+    return true;
+}
+
+/* Cierra el flujo y quita el endpoint del controlador (Configure Endpoint con el
+ * bit de baja) si el dispositivo sigue ahí. */
+void xhci_iso_fechar(usb_disp_t *d, int h)
+{
+    trava_pegar(&trava_xhci);
+    bool i0 = int_salva_desliga();
+    struct xiso *is = h >= 0 && h < XISO_MAX_TOTAL && isos[h].usado ? &isos[h] : NULL;
+    if (is) {
+        is->ligado = false;
+        xslot_t *s = slot_de(d);
+        if (s && is->s == s) {
+            xhci_t *c = d->xctl;
+            cancelar_ep(c, s, is->dci);
+            s->ep[is->dci].iso = NULL;
+            entrada_limpar(c, s);
+            ctx_entrada(c, s, 0)[0] = 1u << is->dci;      /* D: baja del endpoint */
+            ctx_entrada(c, s, 0)[1] = 1;
+            volatile uint32_t *sl = ctx_entrada(c, s, 1), *so = ctx_saida(c, s, 0);
+            sl[0] = so[0];
+            sl[1] = so[1];
+            sl[2] = so[2];
+            comando(c, s->entrada, (TRB_CONF_EP << 10) | ((uint32_t)s->id << 24), 2000);
+        }
+        is->usado = false;
+    }
+    int_restaura(i0);
+    trava_soltar(&trava_xhci);
 }
 
 /* ------------------------------------------------------------ colas de transferencias (D238) */

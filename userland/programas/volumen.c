@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* volumen [0-100 | +N | -N | silencio | activar] - volumen general del sonido (D088).
+/* volumen [0-100 | +N | -N | silencio | activar | salida [N]] - volumen general del sonido (D088).
  *
  * Sin argumentos dice el volumen y la tarjeta. Un número fija el volumen (y
  * quita el silencio); "silencio" calla todo sin olvidar el volumen;
  * "activar" vuelve a sonar. Es el volumen maestro del mezclador del kernel:
- * cada programa tiene además el de su flujo. */
+ * cada programa tiene además el de su flujo. "salida" lista las tarjetas de sonido (PCI y
+ * audio USB, D275) y "salida N" elige por cuál suena. */
 #include "sagui.h"
 
 static void mostrar(void)
@@ -17,6 +18,18 @@ static void mostrar(void)
     imprimir("Volumen: %u %%%s\n", i.volume, i.silencio ? " (silencio)" : "");
     imprimir("Tarjeta: %s (%s), %s\n", i.placa, i.driver, i.codec);
     if (i.nfluxos) imprimir("Sonando: %u flujo(s)\n", i.nfluxos);
+}
+
+static void salidas(void)
+{
+    info_audio_t i;
+    if (info_sistema(INFO_AUDIO, &i, sizeof i) < 0 || i.estado != AUDIO_FUNCIONANDO) {
+        imprimir("Salidas: no hay tarjeta de sonido\n");
+        return;
+    }
+    for (int k = 0; k < AUDIO_SALIDAS; k++)
+        if (i.salidas[k].usada)
+            imprimir("%c %d: %s (%s)\n", i.salidas[k].actual ? '*' : ' ', k, i.salidas[k].nombre, i.salidas[k].driver);
 }
 
 static bool numero(const char *s, int *v)
@@ -41,6 +54,16 @@ int principal(int argc, char **argv)
         imprimir_em(ERROS, "volumen: no hay tarjeta de sonido (solo el altavoz del PC)\n");
         return 1;
     }
+    if (compara_texto(a, "salida") == 0) {
+        if (argc < 3) { salidas(); return 0; }
+        int n;
+        if (!numero(argv[2], &n) || audio_salida(n) < 0) {
+            imprimir_em(ERROS, "volumen: no existe la salida %s (mira \"volumen salida\")\n", argv[2]);
+            return 1;
+        }
+        salidas();
+        return 0;
+    }
     if (compara_texto(a, "silencio") == 0) {
         audio_silencio(1);
         imprimir("Volumen: silencio\n");
@@ -53,7 +76,7 @@ int principal(int argc, char **argv)
     }
     bool rel = a[0] == '+' || a[0] == '-';
     if (!numero(a + rel, &v) || (!rel && v > 100)) {
-        imprimir_em(ERROS, "uso: volumen [0-100 | +N | -N | silencio | activar]\n");
+        imprimir_em(ERROS, "uso: volumen [0-100 | +N | -N | silencio | activar | salida [N]]\n");
         return 1;
     }
     if (rel) v = audio_volume_mestre(-1) + (a[0] == '-' ? -v : v);

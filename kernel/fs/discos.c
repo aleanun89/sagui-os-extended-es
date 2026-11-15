@@ -266,6 +266,11 @@ static disco_t *criar_particao(disco_t *d, int num, uint8_t tipo, uint32_t ini, 
     return p;
 }
 
+/* D266: GUID de tipo de la partición de SaguiOS en una GPT (53414755-494F-4F53-8001-534147554953,
+ * los tres primeros campos en little-endian, como va en la entrada). */
+static const uint8_t GPT_TIPO_SAGUI[16] = { 0x55, 0x47, 0x41, 0x53, 0x4F, 0x49, 0x53, 0x4F,
+                                            0x80, 0x01, 0x53, 0x41, 0x47, 0x55, 0x49, 0x53 };
+
 /* GPT: cabecera en el sector 1 ("EFI PART"), entradas de 128 bytes. Sólo las
  * cuatro primeras usadas y sólo dentro de los primeros 2^32 sectores. */
 static int ler_gpt(disco_t *d, disco_t **filhos, uint8_t *s, uint8_t *buf)
@@ -287,7 +292,10 @@ static int ler_gpt(disco_t *d, disco_t **filhos, uint8_t *s, uint8_t *buf)
         uint32_t ini = le32(x + 32), fim = le32(x + 40);
         if (fim < ini) continue;
         uint64_t qtd64 = ((uint64_t)fim - ini + 1) * escala_tabla(d);   /* D265 */
-        disco_t *p = criar_particao(d, (int)i + 1, 0xEE, escalar(d, ini), qtd64 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)qtd64, s, buf);
+        /* D270: la partición de SaguiOS de un disco instalado con GPT (D266) es como la 0xDA del MBR:
+         * no se monta, se protege en el disco de arranque y su primer sector es la cabecera. */
+        uint8_t tipo = memcmp(x, GPT_TIPO_SAGUI, 16) == 0 ? 0xDA : 0xEE;
+        disco_t *p = criar_particao(d, (int)i + 1, tipo, escalar(d, ini), qtd64 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)qtd64, s, buf);
         if (p) filhos[n++] = p;
     }
     kfree(e);
@@ -418,12 +426,26 @@ fim:
 static void detectar_arranque(disco_t *d)
 {
     d->arranque_real = false;
+    d->cab_lba = 0;
     if (((info_boot.opcoes & OPC_BOOT_CD) && !d->imagem_cd) || d->setores < 2) return;
     uint8_t *s = kmalloc(512);
     if (!s) return;
     if (disco_ler(d, 1, 1, s) == 0 && memcmp(s, cabecalho_boot, 256) == 0) {
         d->arranque_real = true;
+        d->cab_lba = 1;
         klog("[DISCO] %s: es el disco de arranque (cabecera igual a la del arranque)\n", d->nome);
+    } else if (d->gpt) {
+        /* D270: un disco instalado con GPT (D266) lleva la cabecera en el primer sector de la
+         * partición de SaguiOS (el LBA 1 es la cabecera de la GPT); el cargador UEFI la lee de ahí. */
+        for (int i = 0; i < MAX_DISCOS && !d->arranque_real; i++) {
+            disco_t *p = &discos[i];
+            if (!p->usado || p->pai != d || p->tipo_mbr != 0xDA || p->inicio < 2) continue;
+            if (disco_ler(d, p->inicio, 1, s) == 0 && memcmp(s, cabecalho_boot, 256) == 0) {
+                d->arranque_real = true;
+                d->cab_lba = p->inicio;
+                klog("[DISCO] %s: es el disco de arranque (GPT: cabecera en %s, sector %u)\n", d->nome, p->nome, p->inicio);
+            }
+        }
     }
     kfree(s);
 }
@@ -512,7 +534,7 @@ bool disco_tabela_conserva(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *
         for (int p = 0; p < 4; p++) {
             const uint8_t *e = s + 446 + p * 16;
             if (!e[4] || (e[0] != 0 && e[0] != 0x80)) continue;
-            uint32_t ini = le32(e + 8), qtd = le32(e + 12);
+            uint32_t ini = escalar(d, le32(e + 8)), qtd = escalar(d, le32(e + 12));
             if (!qtd || ini >= d->setores) continue;
             if (qtd > d->setores - ini) qtd = d->setores - ini;
             if (tipo_extendida(e[4])) { if (!ext_qtd) { ext_ini = ini; ext_qtd = qtd; } continue; }
@@ -524,12 +546,12 @@ bool disco_tabela_conserva(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *
             uint32_t ebr = ext_ini + rel;
             if (ebr < ext_ini || ebr >= fim || ler_simulado(d, ebr, lba, n, k, s) < 0 || s[510] != 0x55 || s[511] != 0xAA) break;
             const uint8_t *l = s + 446, *en = s + 462;
-            uint32_t lini = ebr + le32(l + 8), lqtd = le32(l + 12);
+            uint32_t lini = ebr + escalar(d, le32(l + 8)), lqtd = escalar(d, le32(l + 12));
             if (l[4] && !tipo_extendida(l[4]) && lqtd && lini >= ebr && lini < fim && lqtd <= fim - lini) {
                 v[nv].ini = lini; v[nv].qtd = lqtd; v[nv].tipo = l[4]; nv++;
             }
             if (!en[4] || !tipo_extendida(en[4])) break;
-            uint32_t sig = le32(en + 8);
+            uint32_t sig = escalar(d, le32(en + 8));
             if (sig <= rel) break;
             rel = sig;
         }

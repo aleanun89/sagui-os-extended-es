@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>03 Pseudoclases y pseudoelementos</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b,.f u,.f s{float:left;width:10px;height:16px;text-decoration:none}
+.v{background:#008000}
+#f1 b:first-child{background:#008000}#f1 b:last-child{background:#008000}
+#f2 b:nth-child(2n+1){background:#008000}
+#f3 b:nth-child(even){background:#008000}#f3 b:nth-child(odd){background:#008000}
+#f4 b:nth-child(n+3){background:#008000}#f4 b:nth-child(-n+2){background:#008000}
+#f5 b:nth-last-child(2){background:#008000}
+#f6 b:nth-of-type(2){background:#008000}
+#f7 b:first-of-type{background:#008000}#f7 b:last-of-type{background:#008000}
+#f8 b:only-child{background:#008000;width:40px}
+#f9 b:empty{background:#008000}
+#f10 b:not(.x){background:#008000}
+#f11 b:not(.x, .y){background:#008000}
+#f12 :is(.p, .q){background:#008000}
+#f13 :where(.p, .q){background:#008000}
+#f14 b:has(> u){background:#008000}
+#f15 b:has(+ .x){background:#008000}
+:root #f16{background:#008000}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><b></b><b class="v"></b><b class="v"></b><b></b></div><div class="e" style="top:10px">:first-child y :last-child</div>
+<div class="f" id="f2" style="top:34px"><b></b><b class="v"></b><b></b><b class="v"></b></div><div class="e" style="top:34px">:nth-child(2n+1)</div>
+<div class="f" id="f3" style="top:58px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:58px">:nth-child(even) y (odd)</div>
+<div class="f" id="f4" style="top:82px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:82px">:nth-child(n+3) y (-n+2)</div>
+<div class="f" id="f5" style="top:106px"><b class="v"></b><b class="v"></b><b></b><b class="v"></b></div><div class="e" style="top:106px">:nth-last-child(2)</div>
+<div class="f" id="f6" style="top:130px"><b class="v"></b><u class="v"></u><b></b><b class="v"></b></div><div class="e" style="top:130px">:nth-of-type(2)</div>
+<div class="f" id="f7" style="top:154px"><u class="v"></u><b></b><b></b><u class="v"></u></div><div class="e" style="top:154px">:first-of-type y :last-of-type</div>
+<div class="f" id="f8" style="top:178px"><b></b></div><div class="e" style="top:178px">:only-child</div>
+<div class="f" id="f9" style="top:202px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:202px">:empty</div>
+<div class="f" id="f10" style="top:226px"><b></b><b class="v x"></b><b></b><b class="v x"></b></div><div class="e" style="top:226px">:not(.x)</div>
+<div class="f" id="f11" style="top:250px"><b></b><b class="v x"></b><b></b><b class="v y"></b></div><div class="e" style="top:250px">:not() con lista</div>
+<div class="f" id="f12" style="top:274px"><b class="p"></b><b class="v"></b><b class="q"></b><b class="v"></b></div><div class="e" style="top:274px">:is(.p, .q)</div>
+<div class="f" id="f13" style="top:298px"><b class="p"></b><b class="v"></b><b class="q"></b><b class="v"></b></div><div class="e" style="top:298px">:where(.p, .q)</div>
+<div class="f" id="f14" style="top:322px"><b><u></u></b><b class="v"></b><b><u></u></b><b class="v"></b></div><div class="e" style="top:322px">:has(&gt; hijo)</div>
+<div class="f" id="f15" style="top:346px"><b></b><b class="v x"></b><b></b><b class="v x"></b></div><div class="e" style="top:346px">:has(+ hermano)</div>
+<div class="f" id="f16" style="top:370px"></div><div class="e" style="top:370px">:root</div>
+</body></html>

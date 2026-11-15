@@ -2,6 +2,7 @@
 
 - **Estado:** opción futura. **NO HACER POR AHORA.** Queda solo apuntada; no lanzar ningún
   hilo ni tocar código para esto sin que se pida de forma explícita.
+- **Versión:** se decide después de la v10 (64 bits y código separado por arquitectura; mantenedor, 2026-11-15)
 - **Prioridad:** baja
 - **Alta:** 2026-11-07
 

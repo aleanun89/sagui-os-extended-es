@@ -271,3 +271,48 @@ if __name__ == "__main__":
     with open(os.path.join(destino, "cifrado.pdf"), "wb") as f:
         f.write(cifrado())
     print("PDF de teste em", destino)
+
+
+def com_indice(paginas=6):
+    """Un documento de varias páginas con texto, un índice anidado y destinos
+    de los tres tipos (array directo, acción GoTo y destino con nombre), para
+    la interfaz del visor (mejora 105).
+
+    Páginas de 300x400 con una frase cada una; la palabra «zorro» sale en las
+    páginas 3 y 5 (dos veces en la 3) y «Atención» lleva tilde, para la
+    búsqueda sin distinguir mayúsculas ni acentos."""
+    frases = [
+        b"Capitulo uno: la introduccion",
+        b"Seccion uno punto uno del manual",
+        b"El zorro rapido salta. Otro zorro corre.",
+        b"Atencion: aviso importante del capitulo tres",
+        b"Capitulo cuatro habla del zorro dormido",
+        b"Ultima pagina del documento",
+    ][:paginas]
+    objetos = [None, None]
+    base = 10
+    ids_pag = [base + 2 * i for i in range(paginas)]
+    kids = b" ".join(b"%d 0 R" % n for n in ids_pag)
+    objetos.append((2, b"<< /Type /Pages /Kids [" + kids + b"] /Count %d >>" % paginas))
+    for i, fr in enumerate(frases):
+        conteudo = (b"BT /F1 20 Tf 30 340 Td (Pagina %d) Tj ET\n"
+                    b"0.2 0.4 0.8 rg 30 250 120 40 re f\n0 g\n"
+                    b"BT /F1 12 Tf 30 200 Td (" % (i + 1)) + fr + b") Tj ET\n"
+        objetos.append((ids_pag[i], b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] "
+                        b"/Contents %d 0 R /Resources << /Font << /F1 5 0 R >> >> >>" % (ids_pag[i] + 1)))
+        objetos.append((ids_pag[i] + 1, b"<< /Length %d >>\nstream\n" % len(conteudo) + conteudo + b"endstream"))
+    objetos.append((5, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"))
+    # El índice: Capitulo 1 (p1) > Seccion 1.1 (p2); Capitulo 2 (destino con
+    # nombre, p3); Capitulo 3 (acción GoTo, p4).
+    objetos.append((6, b"<< /Type /Outlines /First 21 0 R /Last 24 0 R /Count 4 >>"))
+    objetos.append((21, b"<< /Title (Capitulo 1) /Parent 6 0 R /Next 23 0 R /First 22 0 R /Last 22 0 R "
+                        b"/Dest [%d 0 R /Fit] >>" % ids_pag[0]))
+    objetos.append((22, b"<< /Title (Seccion 1.1) /Parent 21 0 R /Dest [%d 0 R /Fit] >>" % ids_pag[1]))
+    objetos.append((23, b"<< /Title (Capitulo 2) /Parent 6 0 R /Prev 21 0 R /Next 24 0 R /Dest /cap2 >>"))
+    objetos.append((24, b"<< /Title (Cap\xedtulo 3) /Parent 6 0 R /Prev 23 0 R "
+                        b"/A << /S /GoTo /D [%d 0 R /XYZ 0 400 0] >> >>" % ids_pag[3]))
+    objetos.append((7, b"<< /cap2 [%d 0 R /Fit] >>" % ids_pag[2]))
+    objetos.append((1, b"<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /Dests 7 0 R >>"))
+    objetos = [o for o in objetos if o]
+    objetos.sort(key=lambda o: o[0])
+    return _montar(objetos, trailer_extra="")

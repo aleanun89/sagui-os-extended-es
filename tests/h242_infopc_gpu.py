@@ -4,7 +4,7 @@
 
 Criterio:
   * QEMU std: `infopc -t gpu` muestra la GPU 1234:1111, la memoria de vídeo, el modo, «por software»
-    y «3D por GPU: no disponible todavía (v8.3)»; `infopc --bench-gpu` termina con las seis pruebas
+    y «3D por GPU: no disponible: ninguna tarjeta con driver 3D» (D285); `infopc --bench-gpu` termina con las seis pruebas
     con suma correcta, una puntuación 2D mayor que cero, y guarda saguimark-gpu-AAAAMMDD-HHMM.txt;
     `infopc --informe` lleva la sección GPU; el resumen de SaguiMark no confunde ese archivo con el suyo.
   * La ventana: la tecla 9 abre la pestaña GPU y la tecla M mide (capturas).
@@ -42,7 +42,8 @@ def main():
         verificar(re.search(r"^Memoria de vídeo:", out, re.M), "std: memoria de vídeo")
         verificar(re.search(r"^Modo de vídeo:\s+1024x768, 32 bits", out, re.M), "std: modo 1024x768")
         verificar(re.search(r"^Acelerador 2D:\s+por software \(CPU\)", out, re.M), "std: acelerador 2D por software (CPU)")
-        verificar(re.search(r"3D por GPU:\s+no disponible", out) and "(v8.3)" in out, "std: 3D por GPU no disponible todavía")
+        verificar(re.search(r"3D por GPU:\s+no disponible", out) and "ninguna tarjeta con driver 3D" in out,
+                  "std: 3D por GPU no disponible (sin tarjeta con driver 3D, D285)")
         verificar("SaguiGL por software" in out, "std: SaguiGL por software")
         out = m.comando("infopc --bench-gpu", 600)
         comprobar_bench(out, "std", "no hay acelerador 2D")

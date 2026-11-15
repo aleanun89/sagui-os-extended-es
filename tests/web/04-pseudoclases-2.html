@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>04 Pseudoclases de formulario y pseudoelementos</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+.f b,.f u,.f s{float:left;width:10px;height:16px;text-decoration:none}
+.v{background:#008000}
+#f1 :checked + b{background:#008000;width:40px}
+#f2 :disabled + b{background:#008000;width:20px}#f2 :enabled + b{background:#008000;width:20px}
+#f3 :required + b{background:#008000;width:20px}#f3 :optional + b{background:#008000;width:20px}
+#f4 a{float:left;width:20px;height:16px}#f4 a:link{background:#008000}#f4 a:any-link{width:20px;background:#008000}
+#f5::before{content:"";display:block;height:16px;background:#008000}
+#f6::after{content:"";display:block;height:16px;background:#008000}
+#f7:before{content:"";display:block;height:16px;background:#008000}
+#f8::before,#f8::after{content:"";display:block;height:8px;background:#008000}
+#f9::before{content:attr(data-t);font:bold 14px sans-serif;color:#008000}
+#f10{font:bold 14px sans-serif;color:#fff}#f10::first-letter{color:#008000}
+#f11 ul{margin:0;padding:0 0 0 20px;font:bold 14px sans-serif;color:#fff}#f11 li::marker{color:#008000}
+#f12{background:#008000}div.f.g4x{background:red}
+#f13{background:#008000 !important}#f13{background:red}div.f.g4y{background:red}
+#f14 :where(#zz, b){background:red}#f14 b{background:#008000}#f14 :is(b, #zz){width:10px}#f14 b{width:0}
+#f15 b:nth-child(5){background:red}#f15 b:first-child:last-child{background:red}#f15 i:empty{background:red}#f15 b:not(b){background:red}#f15 b:has(s){background:red}#f15 :is(.zz){background:red}#f15 b:nth-of-type(3){background:red}#f15 :checked{background:red}#f15 b:only-child{background:red}
+</style></head>
+<body data-filas="15"><div id="o"></div>
+<div class="f" id="f1" style="top:10px"><input type="checkbox" checked style="display:none"><b></b></div><div class="e" style="top:10px">:checked</div>
+<div class="f" id="f2" style="top:34px"><input disabled style="display:none"><b></b><input style="display:none"><b></b></div><div class="e" style="top:34px">:disabled y :enabled</div>
+<div class="f" id="f3" style="top:58px"><input required style="display:none"><b></b><input style="display:none"><b></b></div><div class="e" style="top:58px">:required y :optional</div>
+<div class="f" id="f4" style="top:82px"><a href="#a"></a><a href="#b"></a></div><div class="e" style="top:82px">:link y :any-link</div>
+<div class="f" id="f5" style="top:106px"></div><div class="e" style="top:106px">::before con content</div>
+<div class="f" id="f6" style="top:130px"></div><div class="e" style="top:130px">::after con content</div>
+<div class="f" id="f7" style="top:154px"></div><div class="e" style="top:154px">:before (sintaxis antigua)</div>
+<div class="f" id="f8" style="top:178px"></div><div class="e" style="top:178px">::before y ::after a la vez</div>
+<div class="f w" data-t="MMM" id="f9" style="top:202px" data-p="0,0,40,16,?008000"></div><div class="e" style="top:202px">content: attr()</div>
+<div class="f w" id="f10" style="top:226px" data-p="0,0,14,16,?008000">MMM</div><div class="e" style="top:226px">::first-letter</div>
+<div class="f w" id="f11" style="top:250px" data-p="0,0,20,16,?008000"><ul><li>M</li></ul></div><div class="e" style="top:250px">::marker</div>
+<div class="f g4x" id="f12" style="top:274px"></div><div class="e" style="top:274px">especificidad: #id gana a .clase</div>
+<div class="f g4y" id="f13" style="top:298px"></div><div class="e" style="top:298px">!important</div>
+<div class="f" id="f14" style="top:322px"><b></b><b></b><b></b><b></b></div><div class="e" style="top:322px">:is() suma especificidad; :where() no</div>
+<div class="f g" id="f15" style="top:346px"><b></b><b></b><i style="float:left;width:10px;height:16px"><u></u></i><input type="checkbox" style="float:left;margin:0;width:0;height:0;border:0;padding:0;appearance:none;-webkit-appearance:none"></div><div class="e" style="top:346px">no deben coincidir (trampas)</div>
+</body></html>

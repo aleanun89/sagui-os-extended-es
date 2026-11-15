@@ -32,6 +32,7 @@ void area_foco_perder(void);                               /* otra ventana tomó
 void area_icone_direito(int i, int x, int y);   /* botón derecho en un icono: menú (D051) */
 void area_menu_fundo(int x, int y);             /* botón derecho en el escritorio vacío (D051) */
 bool area_pendrive(bool presente, const char *rotulo);
+int  escrever_atomico(const char *dest, const char *tmp, const void *dados, uint32_t n);   /* /home/.config: escribe y renombra (D268, D290) */
 bool area_tela_mudou(void);                /* fondo nuevo después de cambiar el modo de vídeo (D059) */
 bool area_fundo_personalizado(void);       /* D112: imagen de fondo elegida en la Configuración */
 void area_fundo_padrao(void);

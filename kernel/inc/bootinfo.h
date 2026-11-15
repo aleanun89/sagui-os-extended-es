@@ -98,6 +98,7 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_ACEL2D   135   /* u8 2D por la GPU (D195): ACEL2D_* de acel2d.h; 0 = automático */
 #define CAB_IRQ_PRUEBA 140 /* u8 fallos simulados de la autoprueba de las IRQ (D211, IRQ_PRUEBA_*); 0 = ninguno */
 #define CAB_USB_PRUEBA 141 /* u8 fallos simulados de la enumeración USB (D227, USB_PRUEBA_* de usb.h); 0 = ninguno */
+#define CAB_GPU3D    142   /* u8 3D por la GPU (D285): GPU3D_CAB_* de gpu3d.h; 0 = automático */
 extern uint8_t cabecalho_boot[512];
 
 /* Copia hecha al inicio del kernel; vale durante toda la ejecución. */

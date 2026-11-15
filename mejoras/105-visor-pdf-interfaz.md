@@ -1,6 +1,6 @@
 # 105 - Interfaz gráfica completa para el visor de PDF
 
-- **Estado:** aprobada (**v8.1**, pedido del mantenedor el 2026-11-15)
+- **Estado:** hecha en la rama `v8.1-pdf-gui` (D274), pendiente de fusión; falta enchufar el diálogo de la mejora 103 en `escolher_arquivo()` y el arrastrar y soltar (no existe en el sistema)
 - **Prioridad:** media
 - **Alta:** 2026-11-15
 - **Relacionadas:** visor de PDF (D138, D205, `userland/programas/visorpdf.c`, motor `userland/pdf/`),
@@ -26,7 +26,7 @@ Que `visorpdf` sea una aplicación cómoda de escritorio:
   (capturas y comprobaciones por serie).
 
 ## Criterios de aceptación
-- [ ] Barra de herramientas, miniaturas e índice
-- [ ] Búsqueda, zoom y navegación completos
-- [ ] Test automático en `tests/`
-- [ ] Decisión registrada en `docs/decisoes.md`
+- [x] Barra de herramientas, miniaturas e índice
+- [x] Búsqueda, zoom y navegación completos
+- [x] Test automático en `tests/` (`h274_visorpdf_gui.py`)
+- [x] Decisión registrada en `docs/decisoes.md` (D274)

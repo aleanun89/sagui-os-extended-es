@@ -79,9 +79,13 @@ GPL_AISLADA = "kernel/terceros/linux/"
 # userland/terceros/quake/ es el motor de Quake (el WinQuake de id Software),
 # GPL-2.0 o posterior (D229). userland/terceros/gnuboy/ es SDL2-GNUBoy, el emulador
 # de Game Boy, GPL-2.0 (D235).
+# userland/web/terceros/ffmpeg-h264-tablas/ (LGPL-2.1+) y userland/web/terceros/faad2-huffman/
+# (GPL-2.0+) son las tablas del H.264 y del AAC del reproductor de vídeo (D276): fuera de la
+# variante sin GPL (el MP4 no se decodifica en ella: video_mp4.c y el Makefile lo respetan).
 GPL_AISLADAS = (GPL_AISLADA, "userland/terceros/opentyrian/", "userland/terceros/netsurf/", "userland/terceros/gprolog/",
                 "userland/terceros/openjazz/", "userland/terceros/conquer/", "userland/terceros/quake/",
-                "userland/terceros/gnuboy/")
+                "userland/terceros/gnuboy/", "userland/web/terceros/ffmpeg-h264-tablas/",
+                "userland/web/terceros/faad2-huffman/")
 RE_SPDX = re.compile(r"^\s*(?://|/\*|\*|#|;)\s*SPDX-License-Identifier:\s*(.+?)\s*(?:\*/)?\s*$")
 RE_COPY = re.compile(r"^\s*(?://|/\*|\*|#|;)?\s*Copyright\s*(?:\(c\)|\xa9|©|\d)", re.I)
 RE_GPL_TEXTO = re.compile(r"GNU (?:Lesser |Library |Affero )?General Public License")
@@ -130,6 +134,12 @@ ROBSON = ("userland/web/motor.c",
           "userland/web/quebra.c",
           "userland/web/brotli.c",
           "userland/libfontes/fonte.c",
+          "userland/libsagui/h264.c",
+          "userland/libsagui/aac.c",
+          "userland/libsagui/mp4.c",
+          "userland/inc/h264.h",
+          "userland/inc/aac.h",
+          "userland/inc/mp4.h",
           "userland/web/referencia/cipo_robson.c")
 # Lo que no se redistribuye (opción A del mantenedor): lo descargan los guiones de tools/.
 NO_REDISTRIBUIBLE = ("userland/terceros/netsurf/fuentes", "userland/terceros/gnuboy/jogo", R8169_LINUX.rstrip("/"))

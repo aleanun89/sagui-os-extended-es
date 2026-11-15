@@ -22,13 +22,21 @@
  * botones y rueda (botones 4 y 5). Si el escritorio remoto es mayor que la ventana se escala
  * (botón «1:1» para verlo sin escalar: la vista se desplaza acercando el puntero al borde).
  * F11 es la pantalla completa del sistema. Si el servidor manda la forma del cursor
- * (pseudocodificación Cursor) se dibuja esa y se oculta el puntero local. */
+ * (pseudocodificación Cursor) se dibuja esa y se oculta el puntero local.
+ *
+ * Sin argumentos abre la ventana de conexión (D273, mejora 104): equipo, puerto, contraseña, colores,
+ * calidad, solo ver y pantalla completa, con una lista de conexiones guardadas en
+ * /home/.config/vnc.conf (una por línea: nombre|equipo|puerto|colores|calidad|solo_ver|completa|clave).
+ * La contraseña solo se guarda si se marca «Recordar», ofuscada con DES y una clave fija: impide leerla
+ * de pasada, pero NO es cifrado (cualquiera con acceso al archivo puede deshacerlo). «vnc --conexion
+ * NOMBRE» abre una guardada directamente. */
 #include "sagui.h"
 #include "gui.h"
 #include "imagem.h"
 #include "des.h"
 #include "compressao.h"
 #include "vnc_decod.h"
+#include "servicos.h"
 
 #define LARG_INICIO 800
 #define ALT_INICIO  600
@@ -38,7 +46,7 @@
 #define LEER_MAX    (256u * 1024)
 #define PLAZO_SALUDO 15000u
 
-enum { E_DESC, E_VERSION, E_SEGLIST, E_SEG33, E_RETO, E_PIDE_CLAVE, E_RESULTADO, E_INIT, E_ACTIVO };
+enum { E_DESC, E_VERSION, E_SEGLIST, E_SEG33, E_RETO, E_PIDE_CLAVE, E_RESULTADO, E_INIT, E_ACTIVO, E_MENU };
 
 static jan_t *j;
 static vnc_dec_t *dec;
@@ -87,15 +95,26 @@ static uint8_t cur_mascara[256 * 256];
 
 static botao_t bt[] = {
     { 8, 0, 76, 24, "1:1", false },
-    { 92, 0, 120, 24, "Ctrl+Alt+Supr", false },
-    { 220, 0, 92, 24, "Reconectar", false },
+    { 0, 0, 120, 24, "Ctrl+Alt+Supr", false },
+    { 0, 0, 150, 24, "Pantalla completa", false },
+    { 0, 0, 100, 24, "Desconectar", false },
+    { 0, 0, 100, 24, "Reconectar", false },
+    { 0, 0, 100, 24, "Conexiones", false },
 };
 #define BT_ESCALA 0
 #define BT_CAD    1
-#define BT_RECON  2
-#define QTD_BT    3
+#define BT_COMPL  2
+#define BT_DESC   3
+#define BT_RECON  4
+#define BT_MENU   5
+#define QTD_BT    6
+
+static char conexion_arg[32];
+static bool color_dado;
+static bool desde_menu;      /* se abrió sin equipo: la ventana de conexión es la pantalla de inicio */
 
 static void conectar_servidor(void);
+static void dibujar_menu(void);
 static void desenhar_todo(void);
 
 /* ------------------------------------------------------------ geometría y dibujo */
@@ -171,24 +190,43 @@ static void centrado(int y, const char *t, uint32_t cor)
     g_texto(j, (j->larg - l) / 2 < 4 ? 4 : (j->larg - l) / 2, y, t, cor);
 }
 
+/* Qué botones de la barra de abajo valen en cada estado (D273: barra de herramientas de la sesión). */
+static bool boton_visible(int i)
+{
+    bool conectando = estado == E_VERSION || estado == E_SEGLIST || estado == E_SEG33 || estado == E_RETO ||
+                      estado == E_RESULTADO || estado == E_INIT;
+    switch (i) {
+    case BT_ESCALA: return estado == E_ACTIVO || estado == E_DESC;
+    case BT_CAD: return estado == E_ACTIVO && !solo_ver;
+    case BT_COMPL: return estado == E_ACTIVO;
+    case BT_DESC: return estado == E_ACTIVO || conectando;
+    case BT_RECON: return estado == E_DESC;
+    case BT_MENU: return estado == E_DESC && desde_menu;
+    }
+    return false;
+}
+
 static void dibujar_barra(void)
 {
-    if (completa) return;
+    if (completa || estado == E_MENU) return;
     int y = j->alt - BARRA_A;
     g_retangulo(j, 0, y, j->larg, BARRA_A, COR_FUNDO);
     g_retangulo(j, 0, y, j->larg, 1, COR_BORDA);
-    for (int i = 0; i < QTD_BT; i++) bt[i].y = y + 1;
-    bt[BT_ESCALA].texto = ajustar ? "1:1" : "Ajustar";
-    botao_desenhar(j, &bt[BT_ESCALA]);
-    if (estado == E_ACTIVO && !solo_ver) botao_desenhar(j, &bt[BT_CAD]);
-    if (estado == E_DESC) botao_desenhar(j, &bt[BT_RECON]);
+    int x = 8;
+    for (int i = 0; i < QTD_BT; i++) {
+        if (!boton_visible(i)) continue;
+        bt[i].x = x; bt[i].y = y + 1;
+        x += bt[i].l + 8;
+        if (i == BT_ESCALA) bt[i].texto = ajustar ? "1:1" : "Ajustar";
+        botao_desenhar(j, &bt[i]);
+    }
     char t[160];
     if (estado == E_ACTIVO)
         formatar_texto(t, sizeof t, "%dx%d  %d%%%s  %lu KB", dec->fw, dec->fh, zoom / 10, solo_ver ? "  solo ver" : "", recibidos / 1024);
     else if (estado == E_DESC) copia_texto(t, "desconectado", sizeof t);
+    else if (estado == E_PIDE_CLAVE) copia_texto(t, "esperando la contraseña", sizeof t);
     else copia_texto(t, "conectando...", sizeof t);
-    int x = estado == E_ACTIVO && !solo_ver ? 226 : estado == E_DESC ? 322 : 100;
-    if (x + 80 < j->larg) g_texto_n(j, x, y + 5, t, (j->larg - x - 8) / LETRA_L, COR_TEXTO_FRACO);
+    if (x + 80 < j->larg) g_texto_n(j, x + 4, y + 5, t, (j->larg - x - 12) / LETRA_L, COR_TEXTO_FRACO);
     jan_mostrar_area(j, 0, y, j->larg, BARRA_A);
 }
 
@@ -224,6 +262,7 @@ static void dibujar_estado_conexion(void)
 static void desenhar_todo(void)
 {
     geometria();
+    if (estado == E_MENU) { dibujar_menu(); return; }
     if (estado == E_PIDE_CLAVE) dibujar_clave();
     else if (estado != E_ACTIVO && estado != E_DESC) dibujar_estado_conexion();
     else {
@@ -695,6 +734,408 @@ static void conectar_servidor(void)
     t_estado = tempo_ms();
 }
 
+/* ------------------------------------------------------------ ventana de conexión (D273) */
+
+#define CON_MAX   32
+#define ARQ_CONF  "/home/.config/vnc.conf"
+#define MENU_ANCHO_MIN 720
+#define MENU_ALTO_MIN  440
+
+typedef struct {
+    char nombre[32], host[64];
+    int  puerto, color, calidad;      /* color: 8, 16 o 32; calidad: -1 = sin JPEG, 0 a 9 */
+    bool solo_ver, completa, recordar;
+    char clave[16];                   /* solo cuenta si recordar */
+} con_t;
+
+static con_t cons[CON_MAX];
+static int   ncons;
+static char  itens_con[CON_MAX][64];
+static lista_t lista_con;
+static caixa_t cx_nombre, cx_host, cx_puerto, cx_clave;
+static casilla_t ck_recordar, ck_solo, ck_compl;
+static int   m_color = 32, m_calidad = -1, m_edita = -1;
+static char  m_msg[160];
+static bool  m_primera = true;
+static botao_t bm[8] = {
+    { 0, 0, 96, 28, "Conectar", false },      /* 0..2: sobre la lista */
+    { 0, 0, 96, 28, "Editar", false },
+    { 0, 0, 96, 28, "Borrar", false },
+    { 0, 0, 160, 28, "", false },             /* 3: colores */
+    { 0, 0, 190, 28, "", false },             /* 4: calidad */
+    { 0, 0, 100, 28, "Guardar", false },      /* 5..7: formulario */
+    { 0, 0, 100, 28, "Nueva", false },
+    { 0, 0, 130, 28, "Conectar", false },
+};
+#define M_CONECTAR_LISTA 0
+#define M_EDITAR  1
+#define M_BORRAR  2
+#define M_COLOR   3
+#define M_CALIDAD 4
+#define M_GUARDAR 5
+#define M_NUEVA   6
+#define M_CONECTAR_FORM 7
+
+/* Clave fija de la ofuscación de las contraseñas guardadas: no es un secreto ni da seguridad (ver la cabecera). */
+static const uint8_t CLAVE_OFUSCAR[8] = { 23, 82, 107, 6, 35, 78, 88, 7 };
+
+static void ofuscar_clave(const char *c, char *hexa)
+{
+    uint8_t ent[8], sal[8];
+    memset(ent, 0, sizeof ent);
+    for (int i = 0; i < 8 && c[i]; i++) ent[i] = (uint8_t)c[i];
+    des_bloque(CLAVE_OFUSCAR, ent, sal, true);
+    for (int i = 0; i < 8; i++) { hexa[2 * i] = "0123456789abcdef"[sal[i] >> 4]; hexa[2 * i + 1] = "0123456789abcdef"[sal[i] & 15]; }
+    hexa[16] = 0;
+}
+
+static int hexval(int c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static bool desofuscar_clave(const char *hexa, char *c, size_t max)
+{
+    if (tam_texto(hexa) != 16) return false;
+    uint8_t ent[8], sal[8];
+    for (int i = 0; i < 8; i++) {
+        int a = hexval(hexa[2 * i]), b = hexval(hexa[2 * i + 1]);
+        if (a < 0 || b < 0) return false;
+        ent[i] = (uint8_t)(a << 4 | b);
+    }
+    des_bloque(CLAVE_OFUSCAR, ent, sal, false);
+    size_t n = 0;
+    for (int i = 0; i < 8 && sal[i] && n + 1 < max; i++) c[n++] = (char)sal[i];
+    c[n] = 0;
+    return true;
+}
+
+/* Quita lo que rompería el formato de una línea. */
+static void limpiar_campo(char *t)
+{
+    for (; *t; t++) if (*t == '|' || *t == '\n' || *t == '\r') *t = '_';
+}
+
+static void con_rotulo(int i, char *dst, size_t max)
+{
+    formatar_texto(dst, max, "%s  (%s:%d)", cons[i].nombre, cons[i].host, cons[i].puerto);
+}
+
+static void lista_reconstruir(int sel)
+{
+    for (int i = 0; i < ncons; i++) con_rotulo(i, itens_con[i], sizeof itens_con[i]);
+    lista_con.qtd = ncons;
+    lista_con.sel = sel < ncons ? sel : -1;
+}
+
+static void conexiones_leer(void)
+{
+    ncons = 0;
+    int fd = abrir(ARQ_CONF, ABRIR_LER);
+    if (fd < 0) return;
+    static char t[16 * 1024];
+    int n = ler(fd, t, sizeof t - 1);
+    fechar(fd);
+    if (n <= 0) return;
+    t[n] = 0;
+    for (char *l = t; *l && ncons < CON_MAX;) {
+        char *fin = acha_char(l, '\n');
+        if (fin) *fin = 0;
+        char *c[8];
+        int nc = 0;
+        for (char *q = l; nc < 8;) {
+            c[nc++] = q;
+            q = acha_char(q, '|');
+            if (!q) break;
+            *q++ = 0;
+        }
+        if (nc >= 7 && c[0][0] && l[0] != '#') {
+            con_t *k = &cons[ncons];
+            memset(k, 0, sizeof *k);
+            copia_texto(k->nombre, c[0], sizeof k->nombre);
+            copia_texto(k->host, c[1], sizeof k->host);
+            int v = texto_para_int(c[2]);
+            k->puerto = v > 0 && v < 65536 ? v : 5900;
+            v = texto_para_int(c[3]);
+            k->color = v == 8 || v == 16 ? v : 32;
+            v = texto_para_int(c[4]);
+            k->calidad = v >= 0 && v <= 9 ? v : -1;
+            k->solo_ver = texto_para_int(c[5]) != 0;
+            k->completa = texto_para_int(c[6]) != 0;
+            if (nc >= 8 && c[7][0] && desofuscar_clave(c[7], k->clave, sizeof k->clave)) k->recordar = true;
+            ncons++;
+        }
+        if (!fin) break;
+        l = fin + 1;
+    }
+}
+
+static int conexiones_guardar(void)
+{
+    static char t[16 * 1024];
+    int n = formatar_texto(t, sizeof t, "# conexiones de «vnc» (D273): nombre|equipo|puerto|colores|calidad|solo_ver|completa|clave\n"
+                                          "# la clave, si hay, está ofuscada (no cifrada)\n");
+    for (int i = 0; i < ncons && n < (int)sizeof t - 400; i++) {
+        char h[20] = "";
+        if (cons[i].recordar && cons[i].clave[0]) ofuscar_clave(cons[i].clave, h);
+        n += formatar_texto(t + n, sizeof t - (unsigned)n, "%s|%s|%d|%d|%d|%d|%d|%s\n", cons[i].nombre, cons[i].host, cons[i].puerto,
+                            cons[i].color, cons[i].calidad, cons[i].solo_ver, cons[i].completa, h);
+    }
+    criar_pasta("/home/.config");
+    int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return fd;
+    escrever_tudo(fd, t, (unsigned)n);
+    fechar(fd);
+    return 0;
+}
+
+static void texto_calidad(char *d, size_t max, int q)
+{
+    if (q < 0) copia_texto(d, "Calidad: sin pérdida", max);
+    else formatar_texto(d, max, "Calidad JPEG: %d", q);
+}
+
+static void form_limpiar(void)
+{
+    caixa_definir(&cx_nombre, "");
+    caixa_definir(&cx_host, "");
+    caixa_definir(&cx_puerto, "5900");
+    caixa_definir(&cx_clave, "");
+    ck_recordar.marcada = ck_solo.marcada = ck_compl.marcada = false;
+    m_color = 32; m_calidad = -1; m_edita = -1;
+}
+
+static void form_cargar(int i)
+{
+    caixa_definir(&cx_nombre, cons[i].nombre);
+    caixa_definir(&cx_host, cons[i].host);
+    char t[16];
+    formatar_texto(t, sizeof t, "%d", cons[i].puerto);
+    caixa_definir(&cx_puerto, t);
+    caixa_definir(&cx_clave, cons[i].recordar ? cons[i].clave : "");
+    ck_recordar.marcada = cons[i].recordar;
+    ck_solo.marcada = cons[i].solo_ver;
+    ck_compl.marcada = cons[i].completa;
+    m_color = cons[i].color; m_calidad = cons[i].calidad;
+    m_edita = i;
+}
+
+/* Lo que hay en el formulario, o false (con el motivo en m_msg) si no sirve. */
+static bool form_leer(con_t *k)
+{
+    memset(k, 0, sizeof *k);
+    copia_texto(k->host, cx_host.texto, sizeof k->host);
+    copia_texto(k->nombre, cx_nombre.texto, sizeof k->nombre);
+    limpiar_campo(k->host);
+    limpiar_campo(k->nombre);
+    if (!k->host[0]) { copia_texto(m_msg, "Escribe el equipo (nombre o dirección IP).", sizeof m_msg); return false; }
+    int v;
+    if (!texto_para_numero(cx_puerto.texto, &v) || v < 1 || v > 65535) { copia_texto(m_msg, "El puerto debe ser un número de 1 a 65535.", sizeof m_msg); return false; }
+    k->puerto = v;
+    k->color = m_color; k->calidad = m_calidad;
+    k->solo_ver = ck_solo.marcada; k->completa = ck_compl.marcada; k->recordar = ck_recordar.marcada;
+    copia_texto(k->clave, cx_clave.texto, 9);
+    if (!k->nombre[0]) formatar_texto(k->nombre, sizeof k->nombre, "%s:%d", k->host, k->puerto);
+    return true;
+}
+
+static void conectar_con(const con_t *k)
+{
+    copia_texto(host, k->host, sizeof host);
+    puerto = k->puerto;
+    color_bits = k->color;
+    calidad = k->calidad;
+    solo_ver = k->solo_ver;
+    clave[0] = 0;
+    clave_de_fichero = false;
+    tiene_clave = false;
+    if (k->clave[0]) { copia_texto(clave, k->clave, sizeof clave); tiene_clave = true; }
+    jan_estilo(j, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK, 320, 200);
+    estado = E_DESC;
+    cur_remoto = false;
+    if (k->completa) jan_tela_cheia(j, true);
+    registrar("vnc: conexión «%s» a %s:%d (colores %d, calidad %d%s%s)\n", k->nombre, host, puerto, color_bits, calidad,
+              solo_ver ? ", solo ver" : "", k->completa ? ", pantalla completa" : "");
+    conectar_servidor();
+}
+
+/* Disposición de la ventana de conexión; la usan el dibujo y los clics. */
+static void menu_disponer(void)
+{
+    int W = j->larg, H = j->alt;
+    int lw = 300, x0 = 340, rl = W - x0 - 16;
+    lista_con.x = 16; lista_con.y = 64; lista_con.l = lw; lista_con.a = H - 64 - 84;
+    for (int i = 0; i < 3; i++) { bm[i].x = 16 + i * 102; bm[i].y = H - 74; }
+    cx_nombre.x = x0; cx_nombre.y = 82; cx_nombre.l = rl;
+    cx_host.x = x0; cx_host.y = 138; cx_host.l = rl - 110;
+    cx_puerto.x = W - 16 - 100; cx_puerto.y = 138; cx_puerto.l = 100;
+    cx_clave.x = x0; cx_clave.y = 194; cx_clave.l = rl;
+    cx_clave.oculta = true;
+    ck_recordar.x = x0; ck_recordar.y = 228;
+    bm[M_COLOR].x = x0; bm[M_COLOR].y = 260;
+    bm[M_CALIDAD].x = x0 + 170; bm[M_CALIDAD].y = 260;
+    ck_solo.x = x0; ck_solo.y = 304;
+    ck_compl.x = x0; ck_compl.y = 328;
+    bm[M_GUARDAR].x = x0; bm[M_GUARDAR].y = 366;
+    bm[M_NUEVA].x = x0 + 110; bm[M_NUEVA].y = 366;
+    bm[M_CONECTAR_FORM].x = x0 + 220; bm[M_CONECTAR_FORM].y = 366;
+}
+
+static void dibujar_menu(void)
+{
+    int W = j->larg, H = j->alt, x0 = 340;
+    menu_disponer();
+    g_retangulo(j, 0, 0, W, H, COR_FUNDO);
+    g_texto(j, 16, 14, "Escritorio remoto (VNC)", COR_TEXTO);
+    g_texto(j, 17, 14, "Escritorio remoto (VNC)", COR_TEXTO);
+    g_texto(j, 16, 40, "Conexiones guardadas", COR_TEXTO_FRACO);
+    g_texto(j, x0, 40, "Datos de la conexión", COR_TEXTO_FRACO);
+    g_retangulo(j, x0 - 12, 40, 1, H - 100, COR_BORDA);
+    lista_desenhar(j, &lista_con);
+    if (!ncons) g_texto_n(j, 24, 72, "(ninguna todavía: rellena el formulario y pulsa Guardar)", (lista_con.l - 16) / LETRA_L, COR_TEXTO_FRACO);
+    for (int i = 0; i < 3; i++) botao_desenhar(j, &bm[i]);
+    g_texto(j, x0, 64, "Nombre de la conexión:", COR_TEXTO);
+    caixa_desenhar(j, &cx_nombre);
+    g_texto(j, x0, 120, "Equipo (nombre o dirección IP):", COR_TEXTO);
+    g_texto(j, cx_puerto.x, 120, "Puerto:", COR_TEXTO);
+    caixa_desenhar(j, &cx_host);
+    caixa_desenhar(j, &cx_puerto);
+    g_texto(j, x0, 176, "Contraseña (si el servidor la pide):", COR_TEXTO);
+    caixa_desenhar(j, &cx_clave);
+    casilla_desenhar(j, &ck_recordar);
+    g_texto(j, x0 + 22, ck_recordar.y - 1, "Recordar la contraseña (se guarda ofuscada)", COR_TEXTO);
+    char t[64];
+    formatar_texto(t, sizeof t, "Colores: %d bits", m_color);
+    bm[M_COLOR].texto = t;
+    botao_desenhar(j, &bm[M_COLOR]);
+    char q[48];
+    texto_calidad(q, sizeof q, m_calidad);
+    bm[M_CALIDAD].texto = q;
+    botao_desenhar(j, &bm[M_CALIDAD]);
+    casilla_desenhar(j, &ck_solo);
+    g_texto(j, x0 + 22, ck_solo.y - 1, "Solo ver (sin teclado ni ratón)", COR_TEXTO);
+    casilla_desenhar(j, &ck_compl);
+    g_texto(j, x0 + 22, ck_compl.y - 1, "Pantalla completa (F11 la quita)", COR_TEXTO);
+    for (int i = M_GUARDAR; i <= M_CONECTAR_FORM; i++) botao_desenhar(j, &bm[i]);
+    bm[M_COLOR].texto = "";
+    bm[M_CALIDAD].texto = "";
+    g_texto_n(j, 16, H - 30, m_msg, (W - 32) / LETRA_L, COR_TEXTO_FRACO);
+    jan_mostrar(j);
+    if (m_primera) {
+        m_primera = false;
+        registrar("vnc: menu lista=(%d,%d,%d,%d) conectar=(%d,%d) editar=(%d,%d) borrar=(%d,%d) equipo=(%d,%d) puerto=(%d,%d) clave=(%d,%d) "
+                  "colores=(%d,%d) guardar=(%d,%d) nueva=(%d,%d) conectar2=(%d,%d) recordar=(%d,%d) solover=(%d,%d)\n",
+                  lista_con.x, lista_con.y, lista_con.l, lista_con.a, bm[0].x, bm[0].y, bm[1].x, bm[1].y, bm[2].x, bm[2].y,
+                  cx_host.x, cx_host.y, cx_puerto.x, cx_puerto.y, cx_clave.x, cx_clave.y, bm[M_COLOR].x, bm[M_COLOR].y,
+                  bm[M_GUARDAR].x, bm[M_GUARDAR].y, bm[M_NUEVA].x, bm[M_NUEVA].y, bm[M_CONECTAR_FORM].x, bm[M_CONECTAR_FORM].y,
+                  ck_recordar.x, ck_recordar.y, ck_solo.x, ck_solo.y);
+    }
+}
+
+static void menu_iniciar(void)
+{
+    memset(&lista_con, 0, sizeof lista_con);
+    lista_con.itens = itens_con;
+    lista_con.sel = -1;
+    cx_nombre.foco = false; cx_host.foco = true; cx_puerto.foco = cx_clave.foco = false;
+    form_limpiar();
+    conexiones_leer();
+    lista_reconstruir(-1);
+    estado = E_MENU;
+    jan_estilo(j, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK, MENU_ANCHO_MIN, MENU_ALTO_MIN);
+    m_primera = true;
+    m_msg[0] = 0;
+}
+
+static void guardar_formulario(void)
+{
+    con_t k;
+    if (!form_leer(&k)) return;
+    int i = m_edita;
+    if (i < 0 || i >= ncons || compara_texto(cons[i].nombre, k.nombre) != 0) {
+        i = -1;
+        for (int n = 0; n < ncons; n++) if (compara_texto(cons[n].nombre, k.nombre) == 0) i = n;
+        if (i < 0) {
+            if (ncons >= CON_MAX) { copia_texto(m_msg, "Hay demasiadas conexiones guardadas: borra alguna.", sizeof m_msg); return; }
+            i = ncons++;
+        }
+    }
+    cons[i] = k;
+    if (!k.recordar) cons[i].clave[0] = 0;   /* sin «Recordar» la contraseña no se guarda ni se queda en memoria */
+    int r = conexiones_guardar();
+    m_edita = i;
+    lista_reconstruir(i);
+    if (r < 0) formatar_texto(m_msg, sizeof m_msg, "No se pudo guardar en " ARQ_CONF ": %s", nome_erro(r));
+    else if (!servicos_montado("/home")) copia_texto(m_msg, "Guardada, pero /home no es un disco: se perderá al apagar.", sizeof m_msg);
+    else formatar_texto(m_msg, sizeof m_msg, "Conexión «%s» guardada%s.", k.nombre, k.recordar && k.clave[0] ? " (con la contraseña ofuscada)" : "");
+}
+
+static void menu_cambiar_foco(void)
+{
+    caixa_t *c[4] = { &cx_nombre, &cx_host, &cx_puerto, &cx_clave };
+    int a = 1;
+    for (int i = 0; i < 4; i++) if (c[i]->foco) a = i;
+    for (int i = 0; i < 4; i++) c[i]->foco = false;
+    c[(a + 1) % 4]->foco = true;
+}
+
+/* Eventos de la ventana de conexión. Devuelve false para salir del programa. */
+static bool tratar_menu(evento_t *e)
+{
+    menu_disponer();
+    if (e->tipo == EV_TECLA && e->tecla == TECLA_ESC) return false;
+    if (e->tipo == EV_TECLA && e->tecla == '\t') { menu_cambiar_foco(); dibujar_menu(); return true; }
+    m_msg[0] = 0;
+    caixa_t *cs[4] = { &cx_nombre, &cx_host, &cx_puerto, &cx_clave };
+    bool enter = false;
+    for (int i = 0; i < 4; i++) if (caixa_tratar(j, cs[i], e)) enter = true;
+    casilla_tratar(&ck_recordar, e);
+    casilla_tratar(&ck_solo, e);
+    casilla_tratar(&ck_compl, e);
+    int at = lista_tratar(j, &lista_con, e);
+    int ir = -1;      /* conexión guardada por abrir */
+    if (at == LISTA_ATIVOU && lista_con.sel >= 0) ir = lista_con.sel;
+    if (botao_tratar(j, &bm[M_CONECTAR_LISTA], e)) {
+        if (lista_con.sel < 0) copia_texto(m_msg, "Elige una conexión de la lista (o usa el formulario).", sizeof m_msg);
+        else ir = lista_con.sel;
+    }
+    if (botao_tratar(j, &bm[M_EDITAR], e)) {
+        if (lista_con.sel < 0) copia_texto(m_msg, "Elige una conexión de la lista para editarla.", sizeof m_msg);
+        else { form_cargar(lista_con.sel); formatar_texto(m_msg, sizeof m_msg, "Editando «%s»: cambia lo que quieras y pulsa Guardar.", cons[lista_con.sel].nombre); }
+    }
+    if (botao_tratar(j, &bm[M_BORRAR], e)) {
+        if (lista_con.sel < 0) copia_texto(m_msg, "Elige una conexión de la lista para borrarla.", sizeof m_msg);
+        else {
+            char t[120];
+            formatar_texto(t, sizeof t, "¿Borrar la conexión «%s»?", cons[lista_con.sel].nombre);
+            if (confirmar("Borrar conexión", t)) {
+                int k = lista_con.sel;
+                for (int i = k; i + 1 < ncons; i++) cons[i] = cons[i + 1];
+                ncons--;
+                conexiones_guardar();
+                if (m_edita == k) m_edita = -1;
+                else if (m_edita > k) m_edita--;
+                lista_reconstruir(-1);
+                copia_texto(m_msg, "Conexión borrada.", sizeof m_msg);
+            }
+        }
+    }
+    if (botao_tratar(j, &bm[M_COLOR], e)) m_color = m_color == 32 ? 16 : m_color == 16 ? 8 : 32;
+    if (botao_tratar(j, &bm[M_CALIDAD], e)) m_calidad = m_calidad < 0 ? 3 : m_calidad < 6 ? 6 : m_calidad < 9 ? 9 : -1;
+    if (botao_tratar(j, &bm[M_GUARDAR], e)) guardar_formulario();
+    if (botao_tratar(j, &bm[M_NUEVA], e)) { form_limpiar(); cx_host.foco = true; cx_nombre.foco = cx_puerto.foco = cx_clave.foco = false; lista_con.sel = -1; }
+    if (enter || botao_tratar(j, &bm[M_CONECTAR_FORM], e)) {
+        con_t k;
+        if (form_leer(&k)) { conectar_con(&k); return true; }
+    }
+    if (ir >= 0) { con_t k = cons[ir]; conectar_con(&k); return true; }
+    dibujar_menu();
+    return true;
+}
+
 /* ------------------------------------------------------------ eventos */
 
 static void cambiar_escala(void)
@@ -739,14 +1180,22 @@ static bool tratar(evento_t *e)
         }
         return true;
     }
+    if (estado == E_MENU) return tratar_menu(e);
     if (estado == E_PIDE_CLAVE) return tratar_clave(e);
     if (!completa && (e->tipo == EV_CLIQUE || e->tipo == EV_SOLTOU))
         for (int i = 0; i < QTD_BT; i++) {
-            if (i == BT_CAD && !(estado == E_ACTIVO && !solo_ver)) continue;
-            if (i == BT_RECON && estado != E_DESC) continue;
+            if (!boton_visible(i)) continue;
             if (botao_tratar(j, &bt[i], e)) {
                 if (i == BT_ESCALA) cambiar_escala();
                 else if (i == BT_CAD) ctrl_alt_supr();
+                else if (i == BT_COMPL) jan_tela_cheia(j, true);
+                else if (i == BT_DESC) {
+                    cerrar_red();
+                    registrar("vnc: desconectado por la persona\n");
+                    if (!desde_menu) return false;
+                    menu_iniciar();
+                    desenhar_todo();
+                } else if (i == BT_MENU) { menu_iniciar(); desenhar_todo(); }
                 else conectar_servidor();
                 return true;
             }
@@ -827,7 +1276,9 @@ static void desplazar_borde(void)
 
 static void uso(void)
 {
-    imprimir("uso: vnc [-p puerto] [--solo-ver] [--pantalla-completa] [--color 8|16|32] [--calidad 0-9]\n"
+    imprimir("uso: vnc                    ventana de conexión, con las conexiones guardadas (" ARQ_CONF ")\n"
+             "     vnc --conexion NOMBRE   abre una conexión guardada\n"
+             "     vnc [-p puerto] [--solo-ver] [--pantalla-completa] [--color 8|16|32] [--calidad 0-9]\n"
              "           [--clave-fichero F] [--uno-a-uno] host[:display]\n"
              "Escritorio remoto VNC (RFB 3.8, 3.7 y 3.3). display 1 = puerto 5901; host::5900 da el puerto.\n"
              "Codificaciones: Tight, ZRLE, Hextile, CopyRect y Raw. --color baja los bits por píxel (redes lentas);\n"
@@ -853,18 +1304,19 @@ int principal(int argc, char **argv)
 {
     static const opcao_longa_t largas[] = {
         { "solo-ver", 's' }, { "pantalla-completa", 'f' }, { "color", 'c' }, { "calidad", 'q' },
-        { "clave-fichero", 'k' }, { "uno-a-uno", '1' }, { "puerto", 'p' }, { NULL, 0 }
+        { "clave-fichero", 'k' }, { "uno-a-uno", '1' }, { "puerto", 'p' }, { "conexion", 'n' }, { NULL, 0 }
     };
     opcoes_t o;
     memset(&o, 0, sizeof o);
     o.longas = largas;
     int r;
-    while ((r = obter_opcao(argc, argv, "p:c:q:k:sf1", &o)) != -1) {
+    while ((r = obter_opcao(argc, argv, "p:c:q:k:n:sf1", &o)) != -1) {
         int v;
         switch (r) {
         case OPC_AJUDA: uso(); return 0;
         case 'p': if (!texto_para_numero(o.valor, &v) || v < 1 || v > 65535) { imprimir_em(ERROS, "vnc: puerto no válido\n"); return 2; } puerto = v; break;
-        case 'c': if (!texto_para_numero(o.valor, &v) || (v != 8 && v != 16 && v != 32)) { imprimir_em(ERROS, "vnc: --color admite 8, 16 o 32\n"); return 2; } color_bits = v; break;
+        case 'c': if (!texto_para_numero(o.valor, &v) || (v != 8 && v != 16 && v != 32)) { imprimir_em(ERROS, "vnc: --color admite 8, 16 o 32\n"); return 2; } color_bits = v; color_dado = true; break;
+        case 'n': copia_texto(conexion_arg, o.valor, sizeof conexion_arg); break;
         case 'q': if (!texto_para_numero(o.valor, &v) || v > 9) { imprimir_em(ERROS, "vnc: --calidad admite de 0 a 9\n"); return 2; } calidad = v; break;
         case 'k': leer_clave_fichero(o.valor); break;
         case 's': solo_ver = true; break;
@@ -873,8 +1325,20 @@ int principal(int argc, char **argv)
         default: return opcao_invalida("vnc", r, &o);
         }
     }
-    if (o.indice >= argc) { uso(); return 2; }
-    {
+    if (conexion_arg[0]) {
+        conexiones_leer();
+        int k = -1;
+        for (int i = 0; i < ncons; i++) if (compara_texto(cons[i].nombre, conexion_arg) == 0) k = i;
+        if (k < 0) { imprimir_em(ERROS, "vnc: no hay una conexión guardada llamada «%s» (%s)\n", conexion_arg, ARQ_CONF); return 2; }
+        copia_texto(host, cons[k].host, sizeof host);
+        puerto = cons[k].puerto;
+        if (!color_dado) color_bits = cons[k].color;
+        if (calidad < 0) calidad = cons[k].calidad;
+        solo_ver = solo_ver || cons[k].solo_ver;
+        quiere_completa = quiere_completa || cons[k].completa;
+        if (cons[k].clave[0] && !tiene_clave) { copia_texto(clave, cons[k].clave, sizeof clave); tiene_clave = true; }
+    } else if (o.indice >= argc) desde_menu = true;
+    else {
         const char *a = argv[o.indice];
         copia_texto(host, a, sizeof host);
         char *dp = acha_char(host, ':');
@@ -900,13 +1364,15 @@ int principal(int argc, char **argv)
     vnc_dec_formato(dec, &pf0);
 
     char titulo[160];
-    formatar_texto(titulo, sizeof titulo, "VNC %s:%d", host, puerto);
+    if (desde_menu) copia_texto(titulo, "Escritorio remoto (VNC)", sizeof titulo);
+    else formatar_texto(titulo, sizeof titulo, "VNC %s:%d", host, puerto);
     j = jan_abrir(titulo, LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK, 320, 200);
     if (quiere_completa) jan_tela_cheia(j, true);
     registrar("vnc: pronto\n");
-    conectar_servidor();
+    if (desde_menu) { menu_iniciar(); desenhar_todo(); }
+    else conectar_servidor();
 
     evento_t e;
     bool seguir = true;

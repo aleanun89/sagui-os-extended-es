@@ -388,6 +388,7 @@ int32_t hw_info(uint32_t tipo, uint32_t ptr, uint32_t n)
         a.bpp_pref = info_boot.bpp_pref;
         a.res_pref = info_boot.res_pref;
         a.opcoes = info_boot.opcoes;
+        a.firmware = info_boot.firmware;   /* D270: el instalador elige GPT si se arrancó por UEFI */
         a.fases = qtd_marcas;
         for (uint32_t i = 0; i < qtd_marcas; i++) {
             a.fase_ms[i] = marca_ms(i);

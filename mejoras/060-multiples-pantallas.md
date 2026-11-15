@@ -1,6 +1,6 @@
 # 060 - Varias pantallas (extender y duplicar)
 
-- **Estado:** propuesta, repartida entre la **v8** y la **v10** (ver `docs/ROADMAP.md`)
+- **Estado:** fase 1 (escritorio extendido y espejo con salidas de QEMU) **hecha** en la v8.3 (D290, rama `v8.3-multipantalla`, prueba h290); v9 (Intel) y v10 (AMD) pendientes
 - **Prioridad:** media
 - **Alta:** 2026-11-08
 - **Relacionadas:** 026 (resoluciones, BGA, D057-D059), 055 (motor de pantalla de Intel,
@@ -43,7 +43,7 @@ dos cosas:
 
 ## Criterios de aceptación
 
-- [ ] v8: escritorio extendido y duplicado en QEMU con varias salidas; aplicación «Pantallas»
+- [x] v8.3: escritorio extendido y espejo en QEMU con varias salidas (segunda `bochs-display`); orden `pantalla` y página de Configuración (D290). Pendiente: izquierda/arriba, una barra por pantalla, «¿Mantener esta configuración?», `virtio-gpu`
 - [ ] v9: panel interno más monitor externo en un portátil Intel, con EDID
 - [ ] v10: lo mismo en AMD R6xx/R7xx, o documentado por qué no
 - [ ] Decisiones registradas en `docs/decisoes.md`

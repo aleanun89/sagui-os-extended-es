@@ -24,6 +24,8 @@ enum { GPT_PRINCIPAL = 1, GPT_RESPALDO = 2 };   /* de cuál de las dos cabeceras
 typedef struct {
     char     disco[12];
     uint32_t setores;                /* tamaño del disco */
+    uint32_t esc;                    /* D283: sectores de 512 por bloque real (1; 8 en un NVMe de bloques de 4096). Las
+                                      * direcciones de la API van siempre en sectores de 512; esc solo cuenta al leer y escribir el disco */
     uint8_t  guid[16];               /* GUID del disco */
     uint32_t primeiro, ultimo;       /* primer y último sector utilizables */
     int      origem;                 /* GPT_PRINCIPAL o GPT_RESPALDO */

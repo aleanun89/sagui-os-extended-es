@@ -147,7 +147,7 @@ if ! command -v "$QEMU_BIN" >/dev/null; then
 fi
 OVMF_CODE=""
 if [ -n "$UEFI" ]; then
-    [ "$MODO" = cd ] && { echo "--uefi no se combina con --cd: la ISO aún no arranca por UEFI (D264)" >&2; exit 1; }
+    # D270: la ISO también arranca por UEFI (EFI.IMG en el catálogo de El Torito).
     PREF=OVMF; [ "$UEFI" = ia32 ] && PREF=OVMF32
     for d in "${SAGUI_OVMF:-}" "$HOME/.local/saguitools/root/usr/share/OVMF" /usr/share/OVMF; do
         if [ -n "$d" ] && [ -f "$d/${PREF}_CODE_4M.fd" ] && [ -f "$d/${PREF}_VARS_4M.fd" ]; then

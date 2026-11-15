@@ -2,8 +2,9 @@
 /* reproductor [archivo] - el Reproductor de vídeo de SaguiOS (mejora 048, D129).
  *
  * Abre un vídeo y lo reproduce en una ventana: MJPEG dentro de un AVI (cada
- * cuadro es un JPEG, que decodifica la libsagui). El MPEG-1 en MPEG-PS todavía
- * no se decodifica: se avisa con un error claro (D129).
+ * cuadro es un JPEG, que decodifica la libsagui), MPEG-1 en MPEG-PS y MP4 con
+ * H.264 (Baseline y Main) y AAC-LC (mejora 100, D276: el decodificador es el
+ * mismo que usa el Cipó para el <video>, vive en la libsagui).
  *
  * Controles:
  *   Espacio      pausa y seguir
@@ -329,7 +330,7 @@ static void pedir_arquivo(void)
     char c[200];
     if (caminho_video[0]) copia_texto(c, caminho_video, sizeof c);
     else { copia_texto(c, "/videos", sizeof c); junta_texto(c, "/", sizeof c); }
-    if (!pedir_texto("Abrir vídeo", "Ruta del vídeo (AVI con MJPEG):", c, sizeof c) || !c[0]) return;
+    if (!dialogo_abrir("Abrir vídeo", "Vídeos (*.mp4;*.avi;*.mpg;*.mpeg)|*.mp4;*.avi;*.mpg;*.mpeg|Todos los archivos (*.*)|*", c, c, sizeof c) || !c[0]) return;
     int erro = 0;
     video_t *v = video_abrir(c, &erro);
     if (!v) {
@@ -441,9 +442,13 @@ static int modo_testar(const char *caminho)
     imprimir("video: %s %dx%d %d fps %d cuadros %u ms audio=%s\n", i->nome_formato, i->larg, i->alt, i->fps,
              i->quadros, i->duracao_ms, i->tem_audio ? "si" : "no");
     imagem_t img = { 0 };
-    unsigned t0 = tempo_ms();
+    unsigned t0 = tempo_ms(), ms_dec = 0;
     int n = 0;
-    while (video_quadro(v, &img) == 0) {
+    for (;;) {
+        unsigned td = tempo_ms();
+        int rq = video_quadro(v, &img);
+        ms_dec += tempo_ms() - td;
+        if (rq != 0) break;
         uint32_t sr = 0, sg = 0, sb = 0;
         for (int p = 0; p < img.larg * img.alt; p++) {
             sr += (img.px[p] >> 16) & 255;
@@ -458,6 +463,10 @@ static int modo_testar(const char *caminho)
     unsigned c100 = 0;
     if (ms) c100 = (unsigned)n * 1000 / ms * 100 + (unsigned)n * 1000 % ms * 100 / ms;
     imprimir("%d cuadros en %u ms (%u,%02u cuadros por segundo)\n", n, ms, c100 / 100, c100 % 100);
+    /* Solo decodificar y convertir el color (sin la suma de arriba): lo que mide el rendimiento (D276). */
+    unsigned d100 = 0;
+    if (ms_dec) d100 = (unsigned)n * 1000 / ms_dec * 100 + (unsigned)n * 1000 % ms_dec * 100 / ms_dec;
+    imprimir("decodificando %u ms (%u,%02u cuadros por segundo)\n", ms_dec, d100 / 100, d100 % 100);
     if (img.px) imagem_liberar(&img);
     video_fechar(v);
     return 0;

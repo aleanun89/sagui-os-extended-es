@@ -13,6 +13,7 @@
 #include "relogio.h"
 #include "texto.h"
 #include "video.h"
+#include "telas.h"
 #include "versao.h"
 
 #define AVISO_L        420
@@ -86,7 +87,9 @@ static void quebrar(const char *t)
 
 void avisos_retangulo(int *x, int *y, int *l, int *a)
 {
-    *x = (int)video_largura() - AVISO_L - 12;
+    int pl, pa;
+    telas_principal_rect(&pl, &pa);   /* D290: en la pantalla principal, donde está la barra */
+    *x = pl - AVISO_L - 12;
     *y = BARRA_SUPERIOR + 10;
     *l = AVISO_L;
     *a = alto;

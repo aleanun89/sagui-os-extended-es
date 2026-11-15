@@ -36,6 +36,7 @@
 #include "texto.h"
 #include "versao.h"
 #include "video.h"
+#include "telas.h"
 #include "vfs.h"
 
 #define BOTAO_Y     3
@@ -116,7 +117,9 @@ static void texto_relogio(char *s, int max, const fuso_data_t *d, bool completo)
         snformatar(s, (uint32_t)max, "%s %s", dia, h);
 }
 
-static bool relogio_completo(void) { return video_largura() >= 800; }
+static int largura_barra(void) { int l, a; telas_principal_rect(&l, &a); return l; }   /* D290: la barra vive en la pantalla principal */
+
+static bool relogio_completo(void) { return largura_barra() >= 800; }
 
 static int largura_relogio(void)
 {
@@ -128,7 +131,7 @@ static int largura_relogio(void)
 static void calcular(void)
 {
     njb = janelas_da_barra(jb, MAX_TAREFAS);
-    lay.L = (int)video_largura();
+    lay.L = largura_barra();
     lay.relogio_x = lay.L - largura_relogio() - 10;
     lay.nic = 0;
     if (bandeja_temp_visivel()) lay.ic_id[lay.nic++] = IC_TEMP;   /* temperatura, batería, red y, pegado al reloj, el volumen */
@@ -178,7 +181,7 @@ static uint32_t assinatura(void)
 {
     uint32_t h = 2166136261u;
 #define MISTURA(v) (h = (h ^ (uint32_t)(v)) * 16777619u)
-    MISTURA(video_largura());
+    MISTURA(largura_barra());
     MISTURA(inicio_aberto);
     MISTURA(lay.nic);
     MISTURA(njb);
@@ -227,8 +230,8 @@ static const desenho_t *icone_do_processo(const char *nome)
         /* D139: os programas que estavam sem icone. */
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
-        { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video },
-        { "ia", &arte_mini_ia }, { "macaco", &arte_mini_macaco }, { "spider", &arte_mini_spider },
+        { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica },
+        { "ia", &arte_mini_ia }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
     };
@@ -557,7 +560,7 @@ static void painel_abrir(int id)
     pop.tipo = id == IC_VOL ? P_VOL : id == IC_REDE ? P_RED : id == IC_BAT ? P_BAT : P_TEMP;
     pop.l = id == IC_VOL ? 190 : id == IC_REDE ? (rd_tem && tb.rede ? 376 : 190) : id == IC_BAT ? 300 : 220;
     pop.a = id == IC_VOL ? 80 : id == IC_REDE ? (tb.rede ? 146 : 44) : id == IC_BAT ? 132 : (bandeja_limitada_termica() ? 62 : 44);
-    int L = (int)video_largura();
+    int L = largura_barra();
     pop.x = icone_x(id) + IC_L / 2 - pop.l / 2;
     if (pop.x > L - pop.l - 6) pop.x = L - pop.l - 6;
     if (pop.x < 2) pop.x = 2;
@@ -824,7 +827,7 @@ static void bandeja_tique(void)
         if (ic >= 0) {
             dica_texto(ic, dica.t, sizeof dica.t);
             dica.l = texto_largura(dica.t) + 10;
-            int L = (int)video_largura();
+            int L = largura_barra();
             dica.x = icone_x(ic) + IC_L / 2 - dica.l / 2;
             if (dica.x > L - dica.l - 2) dica.x = L - dica.l - 2;
             if (dica.x < 2) dica.x = 2;
@@ -926,11 +929,14 @@ static const programa_t programas[] = {
     { "Sintonía (reproductor)",  "/apps/bin/sintonia", NULL, "sintonia",  G_MULTIMEDIA, &arte_mini_musica, false },   /* D225: en /apps (D194); sólo si está */
     { "Markdown",                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
     { "Mico (editor de código)", "/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
+    { "Pluma (procesador de textos)", "/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
     { "Macaco (hoja de cálculo)", "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
     { "Paint",                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
     { "Visor de imágenes",       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
     { "Visor de PDF",            "/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
     { "Reproductor de vídeo",    "/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
+    { "Grabadora de sonido",     "/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
+    { "Cámara",                  "/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
     { "Cipó (navegador)",        "/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
     { "Actividades JClic",       "/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
     { "Actividades JClic (bajar)", "/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
@@ -960,6 +966,7 @@ static const programa_t programas[] = {
     { "Fecha y hora",            "/bin/zona",        "--ventana", "zona",     G_SISTEMA, &arte_mini_relogio, true },
     { "Configuración",           "/bin/configuracion", NULL, "configuracion", G_SISTEMA, &arte_icone_configuracion, true },
     { "Discos",                  "/bin/discos",      "--ventana", "discos", G_SISTEMA, &arte_icone_discos, true },   /* D121 */
+    { "Bluetooth",               "/bin/bluetooth",   "--ventana", "bluetooth", G_SISTEMA, &arte_mini_bluetooth, true },   /* D279 */
     { "Instalar SaguiOS",        "/bin/instalar",    "--ventana", "instalar", G_SISTEMA, &arte_icone_discos, true },   /* D179 */
     { "IA (chat)",               "/bin/ia",          NULL, "ia",          G_ACESSORIOS, &arte_mini_ia, false },        /* D139: D134 */
     { "Chat IA",                 "/bin/chatia",      NULL, "chatia",      G_ACESSORIOS, &arte_mini_chatia, false },    /* D143: janela e contexto */

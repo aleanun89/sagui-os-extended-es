@@ -626,7 +626,7 @@ static bool salvar_como(void)
 {
     char c[200];
     copia_texto(c, caminho[0] ? caminho : "/tmp/dibujo.bmp", sizeof c);
-    if (!pedir_texto("Guardar como", "Guardar en (BMP; .ppm para PPM):", c, sizeof c) || !c[0]) return false;
+    if (!dialogo_guardar("Guardar como", "Mapa de bits (*.bmp)|*.bmp|PPM (*.ppm)|*.ppm|Todos los archivos (*.*)|*", c, c, sizeof c) || !c[0]) return false;
     copia_texto(caminho, c, sizeof caminho);
     atualizar_titulo(true);
     return salvar();
@@ -756,7 +756,7 @@ static void abrir_pedindo(void)
     if (!pode_descartar()) return;
     char c[200];
     copia_texto(c, caminho[0] ? caminho : "/imagenes/", sizeof c);
-    if (pedir_texto("Abrir", "Imagen (BMP, PPM/PGM o PNG):", c, sizeof c) && c[0] && abrir_arquivo(c))
+    if (dialogo_abrir("Abrir", "Imágenes|*.bmp;*.ppm;*.pgm;*.png|Todos los archivos (*.*)|*", c, c, sizeof c) && c[0] && abrir_arquivo(c))
         desenhar_tudo();
 }
 

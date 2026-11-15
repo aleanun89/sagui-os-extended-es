@@ -945,8 +945,8 @@ static void erro_adjunto(const char *t)
 static void adjuntar(void)
 {
     if (ocupada) return;
-    char c[128] = "";
-    if (!pedir_texto("Adjuntar archivo", "Ruta del archivo de texto (hasta 16 KB):", c, sizeof c) || !c[0]) {
+    char c[128] = "/home/";
+    if (!dialogo_abrir("Adjuntar archivo", "Texto (*.txt;*.md;*.c;*.h;*.py;*.sh)|*.txt;*.md;*.c;*.h;*.py;*.sh|Todos los archivos (*.*)|*", c, c, sizeof c) || !c[0]) {
         desenhar();
         return;
     }

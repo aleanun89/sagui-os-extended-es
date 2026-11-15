@@ -196,15 +196,15 @@ static void medir_tela(uint32_t *tt)
 {
     uint32_t *tras = video_buffer();
     uint8_t *placa = video_placa();
-    if (video_ativo() && placa && video_formato_direto() && video_pitch() == video_largura() * 4) {
-        uint32_t linhas = video_altura() < 256 ? video_altura() : 256;
-        size_t bytes = (size_t)video_largura() * linhas * 4;
+    if (video_ativo() && placa && video_formato_direto() && video_pitch() == video_prim_largura() * 4) {
+        uint32_t linhas = video_prim_altura() < 256 ? video_prim_altura() : 256;
+        size_t bytes = (size_t)video_prim_largura() * linhas * 4;
         for (int m = 0; m < QTD_METODOS; m++) tt[m] = metodo_existe(m) ? medir_copia(m, placa, tras, bytes) : 0xFFFFFFFFu;
         met_tela = escolher(tt, QTD_METODOS);
-    } else if (video_ativo() && placa && video_bpp() <= 16 && video_pitch() == video_largura() * 2) {
+    } else if (video_ativo() && placa && video_bpp() <= 16 && video_pitch() == video_prim_largura() * 2) {
         /* 16 o 15 bits: C o SSE2 en la conversión (D078); tt[2] queda en 0. */
-        uint32_t linhas = video_altura() < 256 ? video_altura() : 256;
-        size_t px = (size_t)video_largura() * linhas;
+        uint32_t linhas = video_prim_altura() < 256 ? video_prim_altura() : 256;
+        size_t px = (size_t)video_prim_largura() * linhas;
         tt[REP] = medir_conversao(REP, (uint16_t *)placa, tras, px, video_bpp() == 15);
         tt[SSE] = metodo_existe(SSE2) ? medir_conversao(SSE2, (uint16_t *)placa, tras, px, video_bpp() == 15) : 0xFFFFFFFFu;
         met_conv = escolher(tt, 2) ? SSE2 : REP;
@@ -256,7 +256,7 @@ void rapido_medir_tela(void)
     medir_tela(tt);
     char s[96];
     rapido_descrever(s, sizeof s);
-    klog("[RAPIDO] tela %ux%ux%u -> %s\n", video_largura(), video_altura(), video_bpp(), s);
+    klog("[RAPIDO] tela %ux%ux%u -> %s\n", video_prim_largura(), video_prim_altura(), video_bpp(), s);
 }
 
 int rapido_descrever(char *s, int max)

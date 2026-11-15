@@ -15,6 +15,7 @@
 #include "sagui.h"
 #include "quickjs.h"
 #include "qjs_bridge.h"
+#include "qjs_prelude.h"   /* D271: o que se monta em JavaScript por cima do DOM nativo */
 
 #define QJS_MEM_LIMITE (48u * 1024 * 1024)   /* o teto do motor */
 #define QJS_PILHA      (2u * 1024 * 1024)     /* a pilha grande */
@@ -83,6 +84,7 @@ struct qjs_ponte {
     int dom_prox[QJS_DOM_MAX];
     int dom_corpo, dom_documento;
     int evento_cancelado;    /* o preventDefault do ultimo evento */
+    int n_baixados;          /* fetch/XMLHttpRequest desta pagina (D271) */
 };
 
 /* ------------------------------------------------------------ pilha grande */
@@ -470,6 +472,28 @@ void qjs_definir_dom(qjs_ponte_t *p, const char *fonte, int n)
 static JSValue qjs_dom_objeto(qjs_ponte_t *p, int idx);
 static JSValue qjs_el_query(JSContext *ctx, JSValueConst este, int argc, JSValueConst *argv);
 static JSValue qjs_el_query_all(JSContext *ctx, JSValueConst este, int argc, JSValueConst *argv);
+
+/* As tarefas pendentes do motor (as continuacoes das promessas: then, await). Sem isto um
+ * fetch().then() nunca corria. Com teto, para um script nao prender o navegador (D271). */
+static void qjs_tarefas(qjs_ponte_t *p)
+{
+    JSContext *c1;
+    for (int i = 0; i < 2000; i++) {
+        int r = JS_ExecutePendingJob(p->rt, &c1);
+        if (r <= 0) {
+            if (r < 0) { JSValue exc = JS_GetException(c1); JS_FreeValue(c1, exc); }
+            else break;
+        }
+    }
+}
+
+static char *qjs_dup(const char *s)
+{
+    size_t n = strlen(s);
+    char *o = aloca(n + 1);
+    if (o) memcpy(o, s, n + 1);
+    return o;
+}
 
 /* O indice do elemento de um objecto (a propriedade escondida "__dom"). */
 static int qjs_dom_de(JSContext *ctx, JSValueConst este)
@@ -908,7 +932,91 @@ static JSValue qjs_dom_objeto(qjs_ponte_t *p, int idx)
     }
     e->obj = obj;
     e->tem_obj = 1;
+    {   /* D271: o que o prelude poe em cada elemento (classList, style, dataset...) */
+        JSValue gl = JS_GetGlobalObject(ctx);
+        JSValue fn = JS_GetPropertyStr(ctx, gl, "__sagui_el");
+        if (JS_IsFunction(ctx, fn)) {
+            JSValue a[1] = { obj };
+            JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 1, a);
+            if (JS_IsException(r)) { JSValue exc = JS_GetException(ctx); JS_FreeValue(ctx, exc); }
+            JS_FreeValue(ctx, r);
+        }
+        JS_FreeValue(ctx, fn);
+        JS_FreeValue(ctx, gl);
+    }
     return JS_DupValue(ctx, obj);
+}
+
+/* __sagui_atr(elemento, nome, valor|null): o script muda um atributo (D271). O ponte
+ * guarda-o (os seletores veem a classe e o id novos) e avisa o navegador. */
+static JSValue qjs_nat_atr(JSContext *ctx, JSValueConst este, int argc, JSValueConst *argv)
+{
+    qjs_ponte_t *p = JS_GetContextOpaque(ctx);
+    if (!p || argc < 3) return JS_UNDEFINED;
+    int i = qjs_dom_de(ctx, argv[0]);
+    if (i < 0 || i >= QJS_DOM_MAX || !p->dom_existe[i]) return JS_UNDEFINED;
+    const char *nome = JS_ToCString(ctx, argv[1]);
+    const char *valor = (JS_IsNull(argv[2]) || JS_IsUndefined(argv[2])) ? NULL : JS_ToCString(ctx, argv[2]);
+    if (nome && nome[0] && strlen(nome) < 64 && (!valor || strlen(valor) < 4096)) {
+        qjs_dom_el_t *e = &p->dom[i];
+        if (qjs_igual(nome, "class")) { char *n2 = qjs_dup(valor ? valor : ""); if (n2) { if (e->classe) libera(e->classe); e->classe = n2; } }
+        else if (qjs_igual(nome, "id")) { char *n2 = qjs_dup(valor ? valor : ""); if (n2) { if (e->id_attr) libera(e->id_attr); e->id_attr = n2; } }
+        int k = 0;
+        while (k < e->n_atr && !qjs_igual(e->atr_nome[k], nome)) k++;
+        if (!valor) {
+            if (k < e->n_atr) {
+                libera(e->atr_nome[k]); libera(e->atr_valor[k]);
+                for (; k + 1 < e->n_atr; k++) { e->atr_nome[k] = e->atr_nome[k + 1]; e->atr_valor[k] = e->atr_valor[k + 1]; }
+                e->n_atr--;
+                e->atr_nome[e->n_atr] = e->atr_valor[e->n_atr] = NULL;
+            }
+        } else if (k < e->n_atr) { char *n2 = qjs_dup(valor); if (n2) { libera(e->atr_valor[k]); e->atr_valor[k] = n2; } }
+        else if (e->n_atr < QJS_DOM_ATR) {
+            char *a = qjs_dup(nome), *b = qjs_dup(valor);
+            if (a && b) { e->atr_nome[e->n_atr] = a; e->atr_valor[e->n_atr] = b; e->n_atr++; }
+            else { if (a) libera(a); if (b) libera(b); }
+        }
+        if (p->g.atributo) p->g.atributo(e->id, nome, valor);
+    }
+    if (nome) JS_FreeCString(ctx, nome);
+    if (valor) JS_FreeCString(ctx, valor);
+    return JS_UNDEFINED;
+}
+
+/* __sagui_texto(elemento, texto): elemento.textContent = texto (D271). */
+static JSValue qjs_nat_texto(JSContext *ctx, JSValueConst este, int argc, JSValueConst *argv)
+{
+    qjs_ponte_t *p = JS_GetContextOpaque(ctx);
+    if (!p || argc < 2) return JS_UNDEFINED;
+    int i = qjs_dom_de(ctx, argv[0]);
+    if (i < 0 || i >= QJS_DOM_MAX || !p->dom_existe[i] || i == p->dom_corpo || i == p->dom_documento) return JS_UNDEFINED;
+    const char *txt = JS_ToCString(ctx, argv[1]);
+    if (txt && strlen(txt) < 16384) {
+        char *n2 = qjs_dup(txt);
+        if (n2) { if (p->dom[i].conteudo) libera(p->dom[i].conteudo); p->dom[i].conteudo = n2; }
+        if (p->g.texto) p->g.texto(p->dom[i].id, txt);
+    }
+    if (txt) JS_FreeCString(ctx, txt);
+    return JS_UNDEFINED;
+}
+
+/* __sagui_baixar(url): o corpo de um recurso, como texto, ou null (fetch e XMLHttpRequest).
+ * Ate 16 pedidos por pagina, para um script nao prender o navegador a descarregar. */
+static JSValue qjs_nat_baixar(JSContext *ctx, JSValueConst este, int argc, JSValueConst *argv)
+{
+    qjs_ponte_t *p = JS_GetContextOpaque(ctx);
+    if (!p || argc < 1 || !p->g.baixar || p->n_baixados >= 16) return JS_NULL;
+    const char *url = JS_ToCString(ctx, argv[0]);
+    if (!url) return JS_NULL;
+    JSValue r = JS_NULL;
+    if (strlen(url) < 1024) {
+        int n = 0;
+        p->n_baixados++;
+        char *d = p->g.baixar(url, &n);
+        if (d) { r = JS_NewStringLen(ctx, d, n > 0 ? (size_t)n : 0); libera(d); }
+    }
+    JS_FreeCString(ctx, url);
+    return r;
 }
 
 /* O querySelector e o querySelectorAll de um elemento. */
@@ -985,6 +1093,7 @@ int qjs_clique(qjs_ponte_t *p, int dom)
     }
     JS_FreeValue(p->ctx, ev);
     JS_FreeValue(p->ctx, este);
+    qjs_tarefas(p);
     return p->evento_cancelado ? 1 : 0;
 }
 
@@ -1233,6 +1342,20 @@ static void qjs_preparar(qjs_ponte_t *p)
     JS_SetPropertyStr(ctx, nav, "userAgent", JS_NewString(ctx, "SaguiOS/1.0 (Cipo)"));
     JS_SetPropertyStr(ctx, global, "navigator", nav);
 
+    /* D271: os nativos que o prelude usa e o proprio prelude (qjs_prelude.h) */
+    JS_SetPropertyStr(ctx, global, "__sagui_atr", JS_NewCFunction(ctx, qjs_nat_atr, "__sagui_atr", 3));
+    JS_SetPropertyStr(ctx, global, "__sagui_texto", JS_NewCFunction(ctx, qjs_nat_texto, "__sagui_texto", 2));
+    if (p->g.baixar) JS_SetPropertyStr(ctx, global, "__sagui_baixar", JS_NewCFunction(ctx, qjs_nat_baixar, "__sagui_baixar", 1));
+    JSValue pv = JS_Eval(ctx, qjs_prelude, sizeof qjs_prelude - 1, "<prelude>", JS_EVAL_TYPE_GLOBAL);
+    if (JS_IsException(pv)) {
+        JSValue exc = JS_GetException(ctx);
+        const char *msg = JS_ToCString(ctx, exc);
+        registrar("qjs: erro no prelude: %s\n", msg ? msg : "?");
+        if (msg) JS_FreeCString(ctx, msg);
+        JS_FreeValue(ctx, exc);
+    }
+    JS_FreeValue(ctx, pv);
+
     JS_FreeValue(ctx, global);
 }
 
@@ -1308,6 +1431,24 @@ static void qjs_executar_interna(void *arg)
         }
         JS_FreeValue(ctx, v);
     }
+    qjs_tarefas(e->p);
+}
+
+/* O tamanho da janela, para innerWidth, innerHeight e matchMedia (D271). */
+void qjs_definir_janela(qjs_ponte_t *p, int larg, int alt)
+{
+    if (!p || !p->ctx) return;
+    JSValue g = JS_GetGlobalObject(p->ctx);
+    JS_SetPropertyStr(p->ctx, g, "innerWidth", JS_NewInt32(p->ctx, larg));
+    JS_SetPropertyStr(p->ctx, g, "innerHeight", JS_NewInt32(p->ctx, alt));
+    JS_FreeValue(p->ctx, g);
+}
+
+/* A pagina acabou de carregar: DOMContentLoaded e load (D271). */
+void qjs_carga(qjs_ponte_t *p)
+{
+    static const char cod[] = "if (typeof __sagui_carga === 'function') __sagui_carga();";
+    qjs_executar(p, cod, (int)sizeof cod - 1, "<carga>");
 }
 
 int qjs_executar(qjs_ponte_t *p, const char *codigo, int n, const char *nome)
@@ -1343,9 +1484,18 @@ static void qjs_tique_interna(void *arg)
         p->tmp[i] = p->tmp[p->n_tmp - 1];
         p->n_tmp--;
         JSValue r = JS_Call(p->ctx, fn, JS_UNDEFINED, 0, NULL);
+        if (JS_IsException(r)) {
+            JSValue exc = JS_GetException(p->ctx);
+            const char *msg = JS_ToCString(p->ctx, exc);
+            registrar("qjs: erro num temporizador: %s\n", msg ? msg : "?");
+            if (msg) JS_FreeCString(p->ctx, msg);
+            JS_FreeValue(p->ctx, exc);
+        }
         JS_FreeValue(p->ctx, r);
+        JS_FreeValue(p->ctx, fn);
         t->correram++;
     }
+    qjs_tarefas(p);
 }
 
 int qjs_tique(qjs_ponte_t *p, unsigned agora_ms)

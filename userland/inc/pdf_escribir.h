@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* pdf_escribir.h - escritor de PDF mínimo de la libsagui (mejora 116, D291).
+ *
+ * Crea PDF 1.4 con texto, rectángulos y líneas usando las 14 fuentes estándar
+ * (Helvetica, Times y Courier con sus variantes, codificación WinAnsi: los acentos
+ * de Latin-1 salen bien) y el contenido comprimido con Flate (deflar + cabecera
+ * zlib). No incrusta fuentes ni imágenes.
+ *
+ * Todas las medidas van en TWIPS (1/20 de punto, como RTF), con el origen arriba a
+ * la izquierda de la hoja y la "y" creciendo hacia abajo: el escritor lo invierte.
+ * No usa coma flotante (la libsagui se compila sin ella, D076).
+ *
+ *   pdfw_t *w = pdfw_criar(PDFW_A4);
+ *   pdfw_pagina(w);
+ *   pdfw_texto(w, 1440, 1440 + 240, PDFW_SANS, PDFW_NEGRITA, 240, 0x000000, "Hola", 4, 0);
+ *   uint8_t *dados; int n;
+ *   pdfw_finalizar(w, &dados, &n);   // y a escribir; libera(dados) y pdfw_liberar(w)
+ */
+#ifndef SAGUI_PDF_ESCRIBIR_H
+#define SAGUI_PDF_ESCRIBIR_H
+#include "sagui.h"
+
+#define PDFW_A4     0
+#define PDFW_CARTA  1
+/* Familias y estilos (el estilo es una máscara). */
+#define PDFW_SANS   0       /* Helvetica */
+#define PDFW_SERIF  1       /* Times */
+#define PDFW_MONO   2       /* Courier */
+#define PDFW_NEGRITA  1
+#define PDFW_CURSIVA  2
+
+typedef struct pdfw pdfw_t;
+
+/* Tamaño de la hoja en twips (A4 = 11906 x 16838, Carta = 12240 x 15840). */
+void    pdfw_papel_tamanho(int papel, int *largura, int *altura);
+/* Ancho de un carácter Latin-1 en milésimas de em (0 si no se dibuja). */
+int     pdfw_largura_char(int familia, int estilo, unsigned char c);
+/* Ancho de un texto en twips para un cuerpo de "tam" twips. */
+int     pdfw_largura_texto(int familia, int estilo, int tam, const char *t, int n);
+
+pdfw_t *pdfw_criar(int papel);
+void    pdfw_tamanho(pdfw_t *w, int largura, int altura);       /* hoja de tamaño propio (twips) */
+void    pdfw_liberar(pdfw_t *w);
+void    pdfw_titulo(pdfw_t *w, const char *titulo);          /* /Info /Title (Latin-1) */
+bool    pdfw_pagina(pdfw_t *w);                              /* abre una página nueva */
+/* Texto con la línea base en (x, y). "extra" son twips que se suman a cada espacio
+ * (para justificar). */
+void    pdfw_texto(pdfw_t *w, int x, int y, int familia, int estilo, int tam, uint32_t cor,
+                   const char *t, int n, int extra);
+void    pdfw_retangulo(pdfw_t *w, int x, int y, int l, int a, uint32_t cor);   /* relleno */
+void    pdfw_linha(pdfw_t *w, int x0, int y0, int x1, int y1, int espessura, uint32_t cor);
+/* Cierra el documento; *dados se reserva con aloca (libera(*dados)). false = sin memoria
+ * o sin páginas. */
+bool    pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *n);
+int     pdfw_paginas(const pdfw_t *w);
+
+#endif

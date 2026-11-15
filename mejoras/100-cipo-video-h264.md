@@ -1,6 +1,6 @@
 # 100 - Vídeo H.264/AAC en el Cipó (reproductor de robson-apk)
 
-- **Estado:** aprobada (**v8.0.1**, decidido por el mantenedor el 2026-11-14)
+- **Estado:** implementada en la rama `v8.0.1-cipo-video` (**v8.0.1**, D276; pendiente de fusión)
 - **Prioridad:** media
 - **Alta:** 2026-11-14
 - **Relacionadas:** motor web del Cipó (D141, `userland/web/ORIGEM.md`), licencias del motor (D262),
@@ -28,11 +28,11 @@ licencia GPL-3.0. No lo trajimos en D141.
 - Las del Cipó y el motor web siguen pasando.
 
 ## Criterios de aceptación
-- [ ] H.264 Baseline/Main y AAC-LC decodificados igual que ffmpeg (con tolerancia)
-- [ ] Vídeo en el Cipó y MP4 en el reproductor
-- [ ] Licencias de las tablas registradas (D262)
-- [ ] Test automático en `tests/`
-- [ ] Decisión registrada en `docs/decisoes.md`
+- [x] H.264 Baseline/Main y AAC-LC decodificados igual que ffmpeg (con tolerancia)
+- [x] Vídeo en el Cipó y MP4 en el reproductor
+- [x] Licencias de las tablas registradas (D262)
+- [x] Test automático en `tests/`
+- [x] Decisión registrada en `docs/decisoes.md`
 
 ## Notas
 - Modelo sugerido: Sonnet (port y adaptación, con pruebas medibles).

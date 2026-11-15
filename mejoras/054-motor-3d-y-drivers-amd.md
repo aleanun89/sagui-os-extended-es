@@ -57,7 +57,7 @@ motor por software.
 ### B2. Siguientes familias (después de B1, según el hardware disponible)
 
 - **Evergreen (HD 5xxx):** reutiliza mucho de B1 (CP+RLC, cambios de ISA y registros).
-- **R5xx (X1xxx; Amilo):** sin microcódigo obligatorio, se puede programar por registros; ISA
+- **R5xx (X1xxx; Amilo):** **3D escrito en la v8.3 (D287)** sobre la capa `gpu3d`: al final sí necesita el CP y su microcódigo (`R520_cp.bin`) para dibujar triángulos (solo el 2D va por registros); sin probar en hardware. Antes se pensaba: sin microcódigo obligatorio, se puede programar por registros; ISA
   de shaders distinto; documentación oficial.
 - **R300/R420 (X300-X850):** reutiliza parte de R5xx.
 
@@ -80,6 +80,20 @@ leer los registros MMIO de un BAR. Ver «Estado de la B2» más abajo y la mejor
 - Opción de arranque para **desactivar toda aceleración** (y `SGL_MOTOR=software`).
 - Sin emulador posible: cada paso se valida en el dv7 con un programa de prueba que escribe un
   informe en `/home` (persistencia FAT32) para traerlo al PC de desarrollo.
+
+## Estado de B1.2, B1.5 y B1.6 (v8.3, D284): escrito, sin probar en hardware
+
+- **B1.2 (CP):** microcódigo PFP/ME en `firmware/radeon/`, cola de órdenes en VRAM, `ME_INITIALIZE`,
+  prueba de la cola con un registro de apuntes y vallas con plazo (`kernel/dispositivos/gpu3d_r600.c`).
+  Solo R7xx (RV710, RV730, RV740, RV770).
+- **B1.3 (memoria):** no hizo falta GART: todo va en VRAM, detrás de lo del 2D.
+- **B1.5 (3D):** estado de la tubería, superficie de color y Z, vértices, y **tres sombreadores escritos
+  a mano** (vértices, color, textura por color) en `r600_3d_pacotes.c`. En vez de sombreadores por
+  combinación de estado, SaguiGL manda los vértices ya en pantalla con el color y el especular
+  calculados, así que bastan esos tres.
+- **B1.6:** camino por la GPU en `libsgl` con vuelta automática al software; la capa común es
+  `gpu3d` (kernel, D285), no un motor en el userland como se propuso aquí; las R7xx son un driver suyo.
+- **Falta:** la prueba en el dv7 (`docs/gpu3d.md`), las R6xx y el resto de la v8.3.
 
 ## Estado de la v5 (hecha, D104)
 
@@ -182,7 +196,8 @@ lo que B1 traiga después.
       comprobada contra la de referencia (v6)
 - [ ] `sgldemo` (**hecho en la v5**) y Sagui 3D sobre SaguiGL (v7)
 - [ ] B1.1-B1.4 en el dv7: informe, CP con marca, GART y 2D por la GPU en el compositor
-- [ ] B1.5-B1.6: 3D por la GPU en el dv7 igual que el motor por software
+- [ ] B1.5-B1.6: 3D por la GPU en el dv7 igual que el motor por software — **escrito (D284, v8.3), falta
+      probarlo en el dv7**; en QEMU, el camino de SaguiGL y de la capa se prueba con el driver simulado (h285)
 - [ ] B2: la estructura de las familias está hecha (D158, mejora 090); falta el motor por
       hardware de cada familia, que depende de B1
 - [ ] Ningún fallo de la GPU cuelga el sistema (prueba forzando el vigilante) — el vigilante y

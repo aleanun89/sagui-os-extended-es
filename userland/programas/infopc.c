@@ -1386,6 +1386,67 @@ static void gb_texto(texto_t *t, const gb_t *r)
     ad(t, "La CPU incluye escribir el destino en la tarjeta (lo que haría el escritorio sin acelerador).\n");
 }
 
+/* D285: el 3D por la GPU: estado de la capa del kernel y, si se midió, su puntuación. */
+static info_gpu3d_prova_t g3_res;
+static bool g3_tem;
+
+static void g3_texto(texto_t *t)
+{
+    info_gpu3d_t g;
+    memset(&g, 0, sizeof g);
+    ad(t, "\n3D\n");
+    if (info_sistema(INFO_GPU3D, &g, sizeof g) != 0) {
+        ad(t, "  3D por GPU:      no disponible (el kernel no lo sabe)\n");
+        ad(t, "  SaguiGL:         SaguiGL por software (CPU)\n");
+        return;
+    }
+    if (g.estado == GPU3D_ATIVO)
+        ad(t, "  3D por GPU:      activo: driver %s, %s; órdenes %s; memoria de GPU %u KB (%u libres)\n", g.nome, g.placa,
+           g.variante ? "en el anillo" : "por lotes", g.memoria_kb, g.livre_kb);
+    else if (g.estado == GPU3D_SIN_PROBAR)
+        ad(t, "  3D por GPU:      driver %s para %s, sin probar todavía (se prueba con el primer uso o al medir)\n", g.nome, g.placa);
+    else
+        ad(t, "  3D por GPU:      no disponible: %s\n", g.estado == GPU3D_SEM_GPU ? "ninguna tarjeta con driver 3D" :
+           g.estado == GPU3D_DESATIVADO ? "desactivado por la opción de arranque" :
+           g.estado == GPU3D_APAGADO ? "apagado a mano (gpu3d encender)" : "apagado por un fallo (gpu3d encender lo repite)");
+    ad(t, "  Motivo:          %s\n", g.motivo);
+    if (g.estado == GPU3D_ATIVO)
+        ad(t, "  SaguiGL:         por la GPU en las ventanas mientras el motor esté libre%s; si falla, SaguiGL por software\n",
+           g.dono ? " (ahora lo usa un programa)" : "");
+    else
+        ad(t, "  SaguiGL:         SaguiGL por software (CPU)\n");
+    if (g.triangulos || g.falhas)
+        ad(t, "  Uso:             %u triángulos en %u entregas, %u cuadros, %u fallos\n", g.triangulos, g.lotes, g.quadros, g.falhas);
+    if (g3_tem && g3_res.resultado == 1) {
+        ad(t, "  Autoprueba 3D:   las %d pruebas dan los píxeles esperados (%u us)\n", GPU3D_N_PROVAS, g3_res.us_autoprova);
+        ad(t, "  Triángulos:      %u/s (%u de 8x8 en %u us)\n", g3_res.tri_s, g3_res.tri_pequenos, g3_res.us_pequenos);
+        ad(t, "  Relleno:         %u kpíxeles/s con mezcla (%u píxeles en %u us)\n", g3_res.kpix_s, g3_res.pix_grandes, g3_res.us_grandes);
+        ad(t, "  Traer el cuadro: %u us por %u píxeles\n", g3_res.us_leitura, g3_res.pix_leitura);
+        ad(t, "  Puntuación 3D:   %u (provisional: 100 000 triángulos/s y 100 Mpíxeles/s dan 1000)\n", g3_res.pontos);
+    } else if (g3_tem && g3_res.resultado == 0)
+        ad(t, "  Puntuación 3D:   no hay: %s\n", g3_res.texto);
+    else if (g.pontos)
+        ad(t, "  Puntuación 3D:   %u (última medida: %u triángulos/s, %u kpíxeles/s)\n", g.pontos, g.tri_s, g.kpix_s);
+    else if (g.estado == GPU3D_ATIVO || g.estado == GPU3D_SIN_PROBAR)
+        ad(t, "  Puntuación 3D:   sin medir (botón \"Medir\", \"infopc --bench-gpu\" o \"gpu3d probar\")\n");
+    else
+        ad(t, "  Puntuación 3D:   no hay (sin 3D por GPU)\n");
+}
+
+/* Mide el 3D por la GPU si hay driver y el motor está libre (enciende y prueba el driver si hace falta). */
+static void g3_medir(void)
+{
+    info_gpu3d_t g;
+    memset(&g, 0, sizeof g);
+    g3_tem = false;
+    if (info_sistema(INFO_GPU3D, &g, sizeof g) != 0) return;
+    if ((g.estado != GPU3D_ATIVO && g.estado != GPU3D_SIN_PROBAR) || g.dono) return;
+    memset(&g3_res, 0, sizeof g3_res);
+    if (info_sistema(INFO_GPU3D_PROVA, &g3_res, sizeof g3_res) != 0) return;
+    g3_tem = g3_res.resultado >= 0;
+    registrar("infopc: gpu3d bench resultado %d pontos %u", g3_res.resultado, g3_res.pontos);
+}
+
 /* Guarda el resultado en /home (o /tmp si no se puede escribir). */
 static int gb_salvar(const gb_t *r, char *caminho, int max)
 {
@@ -1398,6 +1459,7 @@ static int gb_salvar(const gb_t *r, char *caminho, int max)
                    r->data.dia, r->data.hora, r->data.minuto);
     texto_t t = { 0 };
     gb_texto(&t, r);
+    g3_texto(&t);
     int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     int e = fd < 0 ? fd : escrever_tudo(fd, t.p, (unsigned)t.tam);
     if (fd >= 0) fechar(fd);
@@ -1409,6 +1471,7 @@ static void gb_medir_e_guardar(void)
 {
     registrar("infopc: gpu bench inicio");
     gb_executar(&gb_res);
+    g3_medir();
     gb_tem = true;
     gb_arquivo[0] = 0;
     if (gb_salvar(&gb_res, gb_arquivo, sizeof gb_arquivo) < 0) gb_arquivo[0] = 0;
@@ -1463,10 +1526,7 @@ static void secao_gpu(texto_t *t)
     } else {
         ad(t, "Acelerador 2D:    por software (CPU): sin modo gráfico\n");
     }
-    ad(t, "\n3D\n");
-    ad(t, "  3D por GPU:      no disponible todavía (v8.3)\n");
-    ad(t, "  SaguiGL:         sin aceleración 3D por GPU; SaguiGL por software (CPU)\n");
-    ad(t, "  Puntuación 3D:   pendiente (v8.3: se medirá aquí, junto a la 2D)\n");
+    g3_texto(t);
     ad(t, "\nBenchmark 2D: botón \"Medir\" (tecla M) o \"infopc --bench-gpu\". Compara el acelerador 2D de la GPU\n");
     ad(t, "con el camino por software (CPU) en rellenos, copias, solapes, líneas, texto y ventana.\n\n");
     if (gb_tem) {

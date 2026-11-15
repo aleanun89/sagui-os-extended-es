@@ -4,7 +4,9 @@
   - **v7:** blitter 2D de Intel: **escrito en la v7.2 (D195)**, Gen3 a Gen6, sobre la capa común
     `acel2d` con autoprueba al arrancar; falta probarlo en el G470 y el Amilo (qué comprobar, en la D195);
   - **v6:** AHCI;
-  - **v8:** e1000e y 3D en GMA 900/950/3100;
+  - **v8:** e1000e y 3D en GMA 900/950/3100: **3D Gen3 escrito en la v8.3 (D285)**, sobre la capa común
+    `gpu3d` con autoprueba al primer uso y vigilante; falta probarlo en una máquina con 915/945/G33
+    (qué comprobar, en `docs/gpu3d.md`);
   - **más adelante:** 3D Gen6 y resolución nativa del panel.
 - **Prioridad:** media-alta (AHCI alta)
 - **Alta:** 2026-11-07
@@ -45,5 +47,6 @@ desde 2008.
   la autoprueba del arranque y `acel2d probar` lo comprueban; falta el hardware)
 - [ ] AHCI en QEMU y en un PC real (G470 o Ryzen) respetando la D040
 - [ ] e1000e en QEMU
-- [ ] 3D Gen3 igual que el motor por software (cuando haya hardware)
+- [ ] 3D Gen3 igual que el motor por software (escrito, D285: `gpu3d probar` y `sgldemo -g` lo comprueban;
+  falta el hardware)
 - [ ] Decisiones en `docs/decisoes.md`; código ajeno registrado en `docs/terceros.md`

@@ -63,6 +63,12 @@ ROBSON = ("userland/web/motor.c",
           "userland/web/quebra.c",
           "userland/web/brotli.c",
           "userland/libfontes/fonte.c",
+          "userland/libsagui/h264.c",
+          "userland/libsagui/aac.c",
+          "userland/libsagui/mp4.c",
+          "userland/inc/h264.h",
+          "userland/inc/aac.h",
+          "userland/inc/mp4.h",
           "userland/web/referencia/cipo_robson.c")
 # D261: ficheros propios dentro de carpetas de terceros (van al repositorio público).
 PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/plataforma/",

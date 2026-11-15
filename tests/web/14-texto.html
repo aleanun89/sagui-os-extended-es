@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>14 Texto</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff;color:#000}
+#o{position:absolute;left:0;top:0;width:4px;height:4px;background:#f0f}
+.f{position:absolute;left:10px;width:40px;height:16px;background:red}
+.e{position:absolute;left:64px;height:16px;line-height:16px;white-space:nowrap}
+.g{background:#008000}
+.w{background:#fff}
+#f1{font-size:0;text-align:center}#f1 u{display:inline-block;width:20px;height:16px;background:#008000}
+#f2{font-size:0;text-align:right}#f2 u{display:inline-block;width:20px;height:16px;background:#008000}
+#f3{font:bold 14px sans-serif;color:#008000}
+#f4 i{display:block;font-size:6px;line-height:16px;color:#008000;background:#008000}
+#f5 i{display:block;font:6px/16px sans-serif;color:#008000;background:#008000}
+#f6{font-size:0;text-indent:20px}#f6 u{display:inline-block;width:20px;height:16px;background:#008000}
+#f7{font-size:0}#f7 u{display:inline-block;height:16px;background:#008000;letter-spacing:10px}
+#f8{font-size:8px;white-space:nowrap;overflow:hidden}#f8 u{display:inline-block;width:20px;height:16px;background:#008000;vertical-align:top}
+#f9 i{display:block;font:8px/8px monospace;overflow-wrap:anywhere;color:#008000;background:#008000}
+#f10 i{display:block;font:8px/8px monospace;word-break:break-all;color:#008000;background:#008000}
+#f11{font:bold 12px sans-serif;color:#fff;text-decoration:underline #008000}
+#f12{font:bold 14px sans-serif;color:#fff;text-shadow:1px 1px 0 #008000}
+#f13{font-size:0;word-spacing:20px}#f13 u{display:inline-block;width:10px;height:16px;background:#008000}
+#f14{font-size:0;line-height:0}#f14 u{display:inline-block;width:20px;background:#008000;vertical-align:middle}#f14 .c{height:16px}#f14 .d{height:8px}
+@font-face{font-family:"Prueba";src:url(/fontes/DejaVuSansMono-Bold.ttf) format("truetype")}#f15{font-size:0}#f15 u{display:inline-block;font:16px/16px "Prueba",serif;color:#008000;background:#008000}
+#f16{font:bold 14px sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#008000}
+</style></head>
+<body data-filas="16"><div id="o"></div>
+<div class="f" id="f1" style="top:10px" data-p="5,8,ff0000 20,8,008000 35,8,ff0000"><u></u></div><div class="e" style="top:10px">text-align: center</div>
+<div class="f" id="f2" style="top:34px" data-p="10,8,ff0000 30,8,008000"><u></u></div><div class="e" style="top:34px">text-align: right</div>
+<div class="f w" id="f3" style="top:58px" data-p="0,0,40,16,?008000">MMM</div><div class="e" style="top:58px">color del texto</div>
+<div class="f" id="f4" style="top:82px"><i>x</i></div><div class="e" style="top:82px">line-height</div>
+<div class="f" id="f5" style="top:106px"><i>x</i></div><div class="e" style="top:106px">font: tamaño/interlínea familia</div>
+<div class="f" id="f6" style="top:130px" data-p="10,8,ff0000 30,8,008000"><u></u></div><div class="e" style="top:130px">text-indent</div>
+<div class="f" id="f7" style="top:154px"><u>....</u></div><div class="e" style="top:154px">letter-spacing</div>
+<div class="f" id="f8" style="top:178px" data-p="10,8,008000 38,8,008000 10,19,!008000"><u></u> <u></u></div><div class="e" style="top:178px">white-space: nowrap</div>
+<div class="f" id="f9" style="top:202px"><i>MMMMMMMMMMMMMMMM</i></div><div class="e" style="top:202px">overflow-wrap: anywhere</div>
+<div class="f" id="f10" style="top:226px"><i>MMMMMMMMMMMMMMMM</i></div><div class="e" style="top:226px">word-break: break-all</div>
+<div class="f w" id="f11" style="top:250px" data-p="0,0,40,16,?008000">MMMM</div><div class="e" style="top:250px">text-decoration con color</div>
+<div class="f w" id="f12" style="top:274px" data-p="0,0,40,16,?008000">MMM</div><div class="e" style="top:274px">text-shadow</div>
+<div class="f" id="f13" style="top:298px" data-p="5,8,008000 20,8,ff0000 35,8,008000"><u></u> <u></u></div><div class="e" style="top:298px">word-spacing</div>
+<div class="f" id="f14" style="top:322px" data-p="10,8,008000 30,2,ff0000 30,8,008000 30,14,ff0000"><u class="c"></u><u class="d"></u></div><div class="e" style="top:322px">vertical-align: middle</div>
+<div class="f" id="f15" style="top:346px" data-p="2,8,008000 36,8,008000 44,8,!008000"><u>MMMM</u></div><div class="e" style="top:346px">@font-face con url()</div>
+<div class="f w" id="f16" style="top:370px" data-p="0,0,40,16,?008000 44,8,ffffff">MMMMMMMMMM</div><div class="e" style="top:370px">text-overflow: ellipsis (recorta con overflow)</div>
+</body></html>

@@ -322,8 +322,9 @@ def main():
         # ---- menu da área de trabalho: Configuración de pantalla y Resolución
         p = menu_escritorio(m, 1000, 700)
         verificar(p["linhas"] == ["Terminal", "Archivos", "Editor", "Calculadora", "-", "Administrador de tareas",
-                                  "Configuración de pantalla...", ">Resolución", "-", "Acerca de SaguiOS-Extended"],
-                  "o menu da área de trabalho tem Configuración de pantalla... e o submenu Resolución")
+                                  "Configuración de pantalla...", ">Resolución",
+                                  ">Ordenar iconos", "-", "Acerca de SaguiOS-Extended"],
+                  f"o menu da área de trabalho tem Configuración de pantalla... e o submenu Resolución (D268: submenu «Ordenar iconos») ({p['linhas']})")
         marca = len(m.serial())
         m.mouse_mover(p["x"] + 30, y_linha(p, ">Resolución"))
         s = painel(m, marca, sub="Resolución")

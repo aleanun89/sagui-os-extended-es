@@ -814,6 +814,25 @@ static const char *const macaco[] = {   /* Macaco: uma folha de calculo com a ba
     "................",
 };
 
+static const char *const pluma[] = {   /* Pluma: una hoja con renglones y una pluma azul (D291) */
+    "................",
+    "..PPPPPPPPP.....",
+    "..PBBBBBBBPP....",
+    "..PBPPPPPBPBP...",
+    "..PBBBBBBBPPPP..",
+    "..PBPPPPPPBBBP..",
+    "..PBBBBBBBBBBP..",
+    "..PBPPPPPPPPBP..",
+    "..PBBBBBBBBBBP..",
+    "..PBPPPPPBBVVP..",
+    "..PBBBBBBBVVVP..",
+    "..PBPPPPPVVVVPP.",
+    "..PBBBBBVVVPPVP.",
+    "..PPPPPPVVPP.PP.",
+    ".........PP.....",
+    "................",
+};
+
 static const char *const ia[] = {   /* IA: uma cabeca de robo */
     "................",
     ".......P........",
@@ -1073,7 +1092,27 @@ static const char *const netsurf[] = {   /* NetSurf: un globo azul con la ola bl
 };
 #endif
 
+static const char *const bluetooth[] = {   /* Bluetooth: círculo azul con la runa blanca (D279) */
+    "....PPPPPPPP....",
+    "..PPVVVVVVVVPP..",
+    ".PVVVVVBVVVVVVP.",
+    ".PVVVVVBBVVVVVP.",
+    "PVVVVVVBVBVVVVVP",
+    "PVBVVVVBVVBVVVVP",
+    "PVVBBVVBVBVVVVVP",
+    "PVVVVBBBBVVVVVVP",
+    "PVVVVBBBBVVVVVVP",
+    "PVVBBVVBVBVVVVVP",
+    "PVBVVVVBVVBVVVVP",
+    "PVVVVVVBVBVVVVVP",
+    ".PVVVVVBBVVVVVP.",
+    ".PVVVVVBVVVVVVP.",
+    "..PPVVVVVVVVPP..",
+    "....PPPPPPPP....",
+};
+
 const desenho_t arte_inicio           = { inicio, 16, 16 };
+const desenho_t arte_mini_bluetooth   = { bluetooth, 16, 16 };   /* D279 */
 const desenho_t arte_mini_mico        = { mico, 16, 16 };
 const desenho_t arte_mini_pantalla    = { pantalla, 16, 16 };
 const desenho_t arte_mini_cipo        = { cipo, 16, 16 };
@@ -1087,6 +1126,7 @@ const desenho_t arte_mini_visorpdf    = { visorpdf, 16, 16 };
 const desenho_t arte_mini_video       = { video, 16, 16 };
 const desenho_t arte_mini_ia          = { ia, 16, 16 };
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
+const desenho_t arte_mini_pluma       = { pluma, 16, 16 };   /* mejora 116, D291 */
 const desenho_t arte_mini_spider      = { spider, 16, 16 };   /* D173: el solitario Spider */
 const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Buscaminas */
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */

@@ -52,6 +52,7 @@
 #include "gui.h"
 #define SGL_ALOCAR(n)  aloca_zerado(n)
 #define SGL_LIBERAR(p) libera(p)
+#define SGL_TEM_GPU 1     /* D285: los triángulos pueden ir a la GPU (capa gpu3d del kernel) */
 #endif
 
 #define PILHA_MV   32
@@ -106,6 +107,13 @@ struct sgl_ctx {
     float     fog_cor[3];
     int       luz_on;
     float     luz_pos[4], luz_dif[3], luz_amb[3];
+    /* D285: motor por la GPU. Con gpu = 1 los triángulos ya recortados van al
+     * kernel (gpu_v, de GV_MAX en GV_MAX) y el cuadro vuelve a px con glFinish. */
+    int       gpu;             /* 1: este contexto dibuja por la GPU */
+    int       gpu_n;           /* vértices pendientes en gpu_v */
+    int       gpu_sujo;        /* la GPU tiene dibujo que px todavía no tiene */
+    int       gpu_tex_ok[MAX_TEX];   /* la textura ya está en la GPU */
+    void     *gpu_v;
 };
 
 /* Motor de sombreado: 1 = SIMD (SSE2), 0 = referencia. Las dos rutas dan
@@ -170,6 +178,235 @@ uint32_t sgl_soma(const uint32_t *px, int n)
     return h;
 }
 
+/* ------------------------------------------------------------ motor por la GPU (D285) */
+
+#ifdef SGL_TEM_GPU
+/* El contexto sigue haciendo con la CPU las matrices, las luces, el recorte y
+ * el descarte de caras; a la GPU van triángulos en coordenadas de la ventana
+ * (gpu3d_vert_t de abi.h): el color ya lleva la luz y la niebla (la parte de la
+ * niebla que se suma va en el especular). Si el kernel dice que no (no hay GPU,
+ * el motor es de otro programa, no cabe) o la GPU falla, el contexto sigue por
+ * software: lo que ya estaba dibujado en ese cuadro se pierde, el siguiente
+ * sale entero. Las líneas van como rectángulos de un píxel de ancho. */
+#define GV_MAX 1020
+typedef struct { float x, y, z, rhw; uint32_t cor, espec; float u, v; } gvert_t;   /* = gpu3d_vert_t */
+
+static sgl_ctx_t *gpu_ctx;        /* el contexto que tiene el motor (uno por proceso) */
+static int gpu_auto = 1;          /* los contextos de ventana prueban la GPU */
+
+static int gpu_chamar(unsigned op, unsigned a, unsigned b, unsigned c, const void *ptr)
+{
+    gpu3d_pedido_t q;
+    q.op = op; q.a = a; q.b = b; q.c = c; q.ptr = (unsigned)ptr; q.bytes = 0;
+    return info_sistema(INFO_GPU3D_OP, &q, sizeof q);
+}
+
+/* Vuelta al software (para siempre en este contexto, salvo sgl_gpu_ligar). */
+static void gpu_cair(sgl_ctx_t *c)
+{
+    if (!c->gpu) return;
+    c->gpu = 0; c->gpu_n = 0; c->gpu_sujo = 0;
+    if (gpu_ctx == c) { gpu_chamar(GPU3D_OP_FECHAR, 0, 0, 0, 0); gpu_ctx = 0; }
+    if (c->gpu_v) { SGL_LIBERAR(c->gpu_v); c->gpu_v = 0; }
+    /* El Z por software empieza limpio. */
+    int n = c->larg * c->alt;
+    if (c->zbits == 32) { uint32_t *z = c->zbuf; for (int i = 0; i < n; i++) z[i] = 0x7FFFFFFFu; }
+    else { uint16_t *z = c->zbuf; for (int i = 0; i < n; i++) z[i] = 0xFFFF; }
+}
+
+int sgl_gpu_ligar(sgl_ctx_t *c)
+{
+    if (!c) return 0;
+    if (c->gpu) return 1;
+    if (gpu_ctx && gpu_ctx != c) return 0;
+    if (c->larg < 8 || c->alt < 8) return 0;
+    c->gpu_v = SGL_ALOCAR(GV_MAX * sizeof(gvert_t));
+    if (!c->gpu_v) return 0;
+    if (gpu_chamar(GPU3D_OP_ABRIR, (unsigned)c->larg, (unsigned)c->alt, c->zbits == 16 ? 16 : 24, 0) != 0) {
+        SGL_LIBERAR(c->gpu_v); c->gpu_v = 0;
+        return 0;
+    }
+    c->gpu = 1; c->gpu_n = 0; c->gpu_sujo = 0;
+    for (int i = 0; i < MAX_TEX; i++) c->gpu_tex_ok[i] = 0;
+    gpu_ctx = c;
+    return 1;
+}
+
+void sgl_gpu_desligar(sgl_ctx_t *c) { if (c) gpu_cair(c); }
+int  sgl_gpu_ativa(void) { return C && C->gpu; }
+void sgl_gpu_automatica(int ativa) { gpu_auto = ativa ? 1 : 0; }
+
+static unsigned gpu_fator(int f)
+{
+    return f == GL_ZERO ? G3D_F_ZERO : f == GL_SRC_ALPHA ? G3D_F_ALFA : f == GL_ONE_MINUS_SRC_ALPHA ? G3D_F_UM_MENOS_ALFA : G3D_F_UM;
+}
+
+/* Manda lo pendiente: textura (si cambió), estado y triángulos. */
+static void gpu_despejar(void)
+{
+    if (!C || !C->gpu || !C->gpu_n) return;
+    gpu3d_estado_t e;
+    e.flags = 0; e.textura = 0;
+    if (C->teste_z) e.flags |= G3D_Z_TESTE | G3D_Z_ESCRITA;
+    e.func_z = C->func_z == GL_LEQUAL ? G3D_Z_MENOR_IGUAL : C->func_z == GL_ALWAYS ? G3D_Z_SEMPRE : G3D_Z_MENOR;
+    e.mez_orig = (unsigned char)gpu_fator(C->blend_s); e.mez_dest = (unsigned char)gpu_fator(C->blend_d);
+    if (C->blend) e.flags |= G3D_MEZCLA;
+    int r = 0;
+    if (C->tex_on && C->tex_sel >= 0 && C->tex[C->tex_sel].usada && C->tex[C->tex_sel].px) {
+        textura_t *t = &C->tex[C->tex_sel];
+        e.flags |= G3D_TEXTURA;
+        if (t->wrap_s == GL_REPEAT) e.flags |= G3D_TEX_REPETE_S;
+        if (t->wrap_t == GL_REPEAT) e.flags |= G3D_TEX_REPETE_T;
+        e.textura = (unsigned char)C->tex_sel;
+        if (!C->gpu_tex_ok[C->tex_sel]) {
+            int n = t->larg * t->alt;
+            uint32_t *argb = SGL_ALOCAR((size_t)n * 4);
+            if (!argb) r = 1;
+            else {
+                for (int i = 0; i < n; i++)
+                    argb[i] = ((uint32_t)t->px[i * 4 + 3] << 24) | ((uint32_t)t->px[i * 4] << 16) |
+                              ((uint32_t)t->px[i * 4 + 1] << 8) | t->px[i * 4 + 2];
+                r = gpu_chamar(GPU3D_OP_TEXTURA, (unsigned)C->tex_sel, (unsigned)t->larg, (unsigned)t->alt, argb);
+                SGL_LIBERAR(argb);
+                if (r == 0) C->gpu_tex_ok[C->tex_sel] = 1;
+            }
+        }
+    }
+    if (r == 0) r = gpu_chamar(GPU3D_OP_ESTADO, 0, 0, 0, &e);
+    if (r == 0) r = gpu_chamar(GPU3D_OP_TRIANGULOS, (unsigned)C->gpu_n, 0, 0, C->gpu_v);
+    C->gpu_n = 0;
+    if (r != 0) { gpu_cair(C); return; }
+    C->gpu_sujo = 1;
+}
+
+/* Trae el cuadro de la GPU a los píxeles del contexto. */
+static void gpu_sincronizar(void)
+{
+    if (!C || !C->gpu) return;
+    gpu_despejar();
+    if (!C->gpu || !C->gpu_sujo) return;
+    if (gpu_chamar(GPU3D_OP_LER, (unsigned)C->larg, 0, 0, C->px) != 0) { gpu_cair(C); return; }
+    C->gpu_sujo = 0;
+}
+
+static int gpu_limpar(GLbitfield m)
+{
+    gpu_despejar();
+    if (!C->gpu) return 0;
+    unsigned mm = (m & GL_COLOR_BUFFER_BIT ? 1u : 0u) | (m & GL_DEPTH_BUFFER_BIT ? 2u : 0u);
+    if (!mm) return 1;
+    if (gpu_chamar(GPU3D_OP_LIMPAR, mm, C->cor_limpa, 0, 0) != 0) { gpu_cair(C); return 0; }
+    C->gpu_sujo = 1;
+    return 1;
+}
+
+static inline uint32_t gpu_byte(float v) { return v <= 0.0f ? 0u : v >= 255.0f ? 255u : (uint32_t)(v + 0.5f); }
+
+static void gpu_vertice(const vert_t *v, gvert_t *o)
+{
+    float iw = 1.0f / v->w;
+    float nx = v->x * iw, ny = v->y * iw, nz = v->z * iw;
+    float sx = (float)C->vx + (nx + 1.0f) * 0.5f * (float)C->vw;
+    float sy = (float)(C->alt - C->vy) - (ny + 1.0f) * 0.5f * (float)C->vh;
+    float zw = (nz + 1.0f) * 0.5f;
+    if (zw < 0) zw = 0;
+    if (zw > 1) zw = 1;
+    if (!(sx >= 0)) sx = 0;
+    if (sx > (float)C->larg) sx = (float)C->larg;
+    if (!(sy >= 0)) sy = 0;
+    if (sy > (float)C->alt) sy = (float)C->alt;
+    if (!(iw >= 1.0e-6f)) iw = 1.0e-6f;
+    if (iw > 1.0e6f) iw = 1.0e6f;
+    o->x = sx; o->y = sy; o->z = zw; o->rhw = iw;
+    float r = v->r, g = v->g, b = v->b, a = 255.0f, er = 0, eg = 0, eb = 0;
+    if (C->extras) {
+        float m = v->luz * (1.0f / 255.0f);
+        r *= m * C->luz_dif[0] + C->luz_amb[0];
+        g *= m * C->luz_dif[1] + C->luz_amb[1];
+        b *= m * C->luz_dif[2] + C->luz_amb[2];
+        a = v->a;
+        if (C->fog) {
+            float f = (C->fog_fim - zw) / (C->fog_fim - C->fog_ini);
+            if (!(f >= 0.0f)) f = 0.0f;
+            else if (f > 1.0f) f = 1.0f;
+            r *= f; g *= f; b *= f;
+            er = C->fog_cor[0] * (1.0f - f); eg = C->fog_cor[1] * (1.0f - f); eb = C->fog_cor[2] * (1.0f - f);
+        }
+    }
+    o->cor = (gpu_byte(a) << 24) | (gpu_byte(r) << 16) | (gpu_byte(g) << 8) | gpu_byte(b);
+    o->espec = (gpu_byte(er) << 16) | (gpu_byte(eg) << 8) | gpu_byte(eb);
+    float tu = v->u, tv = v->v;
+    if (!(tu > -100.0f)) tu = -100.0f;
+    if (tu > 100.0f) tu = 100.0f;
+    if (!(tv > -100.0f)) tv = -100.0f;
+    if (tv > 100.0f) tv = 100.0f;
+    o->u = tu; o->v = tv;
+}
+
+static gvert_t *gpu_sitio(int n)
+{
+    if (C->gpu_n + n > GV_MAX) gpu_despejar();
+    if (!C->gpu) return 0;
+    gvert_t *g = (gvert_t *)C->gpu_v + C->gpu_n;
+    C->gpu_n += n;
+    return g;
+}
+
+/* Un polígono convexo ya recortado (abanico desde el primer vértice). */
+static void gpu_poligono(const vert_t *p, int n)
+{
+    gvert_t s[12];
+    if (n > 12) n = 12;
+    for (int i = 0; i < n; i++) gpu_vertice(&p[i], &s[i]);
+    float area = 0;
+    for (int i = 0; i < n; i++) { const gvert_t *a = &s[i], *b = &s[(i + 1) % n]; area += a->x * b->y - b->x * a->y; }
+    if (area == 0) return;
+    int frente = C->frente == GL_CCW ? area < 0 : area > 0;   /* el eje Y de pantalla va hacia abajo */
+    if (C->cull) {
+        if (C->cull_face == GL_BACK && !frente) return;
+        if (C->cull_face == GL_FRONT && frente) return;
+    }
+    gvert_t *g = gpu_sitio((n - 2) * 3);
+    if (!g) return;
+    for (int i = 1; i + 1 < n; i++) { *g++ = s[0]; *g++ = s[i]; *g++ = s[i + 1]; }
+}
+
+/* Una línea ya recortada: un rectángulo de un píxel de ancho. */
+static void gpu_linha(const vert_t *a, const vert_t *b)
+{
+    gvert_t p, q;
+    gpu_vertice(a, &p); gpu_vertice(b, &q);
+    float dx = q.x - p.x, dy = q.y - p.y, d = raiz(dx * dx + dy * dy);
+    float nx = 0.5f, ny = 0.0f;
+    if (d > 0.0f) { nx = -dy / d * 0.5f; ny = dx / d * 0.5f; }
+    else { q.x += 1.0f; nx = 0.0f; ny = 0.5f; }
+    gvert_t c[4] = { p, p, q, q };
+    c[0].x += nx; c[0].y += ny; c[1].x -= nx; c[1].y -= ny;
+    c[2].x -= nx; c[2].y -= ny; c[3].x += nx; c[3].y += ny;
+    for (int i = 0; i < 4; i++) {
+        if (c[i].x < 0) c[i].x = 0;
+        if (c[i].x > (float)C->larg) c[i].x = (float)C->larg;
+        if (c[i].y < 0) c[i].y = 0;
+        if (c[i].y > (float)C->alt) c[i].y = (float)C->alt;
+    }
+    gvert_t *g = gpu_sitio(6);
+    if (!g) return;
+    g[0] = c[0]; g[1] = c[1]; g[2] = c[2]; g[3] = c[0]; g[4] = c[2]; g[5] = c[3];
+}
+
+void glFinish(void) { gpu_sincronizar(); }
+void glFlush(void)  { gpu_sincronizar(); }
+#define GPU_DESPEJAR() gpu_despejar()
+#else
+int  sgl_gpu_ligar(sgl_ctx_t *c) { (void)c; return 0; }
+void sgl_gpu_desligar(sgl_ctx_t *c) { (void)c; }
+int  sgl_gpu_ativa(void) { return 0; }
+void sgl_gpu_automatica(int ativa) { (void)ativa; }
+void glFinish(void) {}
+void glFlush(void) {}
+#define GPU_DESPEJAR() ((void)0)
+#endif
+
 /* ------------------------------------------------------------ contexto */
 
 static void ctx_estado_inicial(sgl_ctx_t *c)
@@ -216,23 +453,30 @@ sgl_ctx_t *sgl_criar_contexto_mem(uint32_t *px, int larg, int alt, int zbits)
 sgl_ctx_t *sgl_criar_contexto(void *janela, int zbits)
 {
     jan_t *j = janela;
-    return criar(j->px, j->larg, j->alt, zbits, j, 0);
+    sgl_ctx_t *c = criar(j->px, j->larg, j->alt, zbits, j, 0);
+    /* D285: si hay 3D por la GPU y está libre, este contexto dibuja con ella. */
+    if (c && gpu_auto) sgl_gpu_ligar(c);
+    return c;
 }
 
 void sgl_redimensionar(sgl_ctx_t *c)
 {
     jan_t *j = c->janela;
     if (!j) return;
+    int tinha_gpu = c->gpu;
+    if (tinha_gpu) gpu_cair(c);   /* el destino de la GPU cambia de tamaño: se vuelve a abrir abajo */
     SGL_LIBERAR(c->zbuf);
     c->px = j->px; c->larg = j->larg; c->alt = j->alt;
     c->zbuf = SGL_ALOCAR((size_t)c->larg * c->alt * (c->zbits / 8));
     c->vx = c->vy = 0;
     c->vw = c->larg > LIM_VIEW ? LIM_VIEW : c->larg;
     c->vh = c->alt > LIM_VIEW ? LIM_VIEW : c->alt;
+    if (tinha_gpu) sgl_gpu_ligar(c);
 }
 
 void sgl_trocar(void)
 {
+    gpu_sincronizar();
     if (C && C->janela) jan_mostrar(C->janela);
 }
 #else
@@ -243,6 +487,7 @@ void sgl_trocar(void) {}
 void sgl_destruir_contexto(sgl_ctx_t *c)
 {
     if (!c) return;
+    sgl_gpu_desligar(c);
     if (C == c) C = 0;
     SGL_LIBERAR(c->zbuf);
     SGL_LIBERAR(c);
@@ -396,6 +641,9 @@ void glClearColor(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
 void glClear(GLbitfield m)
 {
     if (!C) return;
+#ifdef SGL_TEM_GPU
+    if (C->gpu && gpu_limpar(m)) return;
+#endif
     int n = C->larg * C->alt;
     if (m & GL_COLOR_BUFFER_BIT)
         for (int i = 0; i < n; i++) C->px[i] = C->cor_limpa;
@@ -414,6 +662,7 @@ static void refaz_extras(void)
 void glEnable(GLenum cap)
 {
     if (!C) return;
+    GPU_DESPEJAR();
     if (cap == GL_DEPTH_TEST) C->teste_z = 1;
     else if (cap == GL_CULL_FACE) C->cull = 1;
     else if (cap == GL_TEXTURE_2D) { C->tex_on = 1; refaz_extras(); }
@@ -426,6 +675,7 @@ void glEnable(GLenum cap)
 void glDisable(GLenum cap)
 {
     if (!C) return;
+    GPU_DESPEJAR();
     if (cap == GL_DEPTH_TEST) C->teste_z = 0;
     else if (cap == GL_CULL_FACE) C->cull = 0;
     else if (cap == GL_TEXTURE_2D) { C->tex_on = 0; refaz_extras(); }
@@ -438,7 +688,7 @@ void glDisable(GLenum cap)
 void glCullFace(GLenum f) { if (C) { if (f == GL_FRONT || f == GL_BACK) C->cull_face = (int)f; else erro(GL_INVALID_ENUM); } }
 void glFrontFace(GLenum m) { if (C) { if (m == GL_CW || m == GL_CCW) C->frente = (int)m; else erro(GL_INVALID_ENUM); } }
 void glShadeModel(GLenum m) { if (C) { if (m == GL_FLAT) C->plano = 1; else if (m == GL_SMOOTH) C->plano = 0; else erro(GL_INVALID_ENUM); } }
-void glDepthFunc(GLenum f) { if (C) { if (f == GL_LESS || f == GL_LEQUAL || f == GL_ALWAYS) C->func_z = (int)f; else erro(GL_INVALID_ENUM); } }
+void glDepthFunc(GLenum f) { if (C) { GPU_DESPEJAR(); if (f == GL_LESS || f == GL_LEQUAL || f == GL_ALWAYS) C->func_z = (int)f; else erro(GL_INVALID_ENUM); } }
 GLenum glGetError(void) { GLenum e = C ? C->erro : GL_INVALID_OPERATION; if (C) C->erro = GL_NO_ERROR; return e; }
 
 /* ------------------------------------------------------------ rasterizador */
@@ -902,6 +1152,9 @@ static void emitir_triangulo(vert_t t[3])
         n = m; cur ^= 1;
     }
     if (n < 3) return;
+#ifdef SGL_TEM_GPU
+    if (C->gpu) { gpu_poligono(pol[cur], n); return; }
+#endif
     sv_t s[12];
     for (int i = 0; i < n; i++) a_pantalha(&pol[cur][i], &s[i]);
     for (int i = 1; i + 1 < n; i++) {
@@ -922,6 +1175,9 @@ static void emitir_linha(const vert_t *va, const vert_t *vb)
         else if (db < 0) { vert_t r; interpolar(&r, &a, &b, da / (da - db)); b = r; }
     }
     (void)t0; (void)t1;
+#ifdef SGL_TEM_GPU
+    if (C->gpu) { gpu_linha(&a, &b); return; }
+#endif
     sv_t s0, s1;
     a_pantalha(&a, &s0);
     a_pantalha(&b, &s1);
@@ -1204,6 +1460,7 @@ void glBindTexture(GLenum alvo, GLuint id)
 {
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
+    GPU_DESPEJAR();
     if (id == 0) { C->tex_sel = -1; return; }
     textura_t *t = textura_por_id(id);
     if (!t) {
@@ -1224,6 +1481,8 @@ void glTexImage2D(GLenum alvo, GLint nivel, GLint formato_interno, GLsizei larg,
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
     if (C->tex_sel < 0) { erro(GL_INVALID_OPERATION); return; }
     if (larg <= 0 || alt <= 0 || larg > 1024 || alt > 1024) { erro(GL_INVALID_VALUE); return; }
+    GPU_DESPEJAR();
+    C->gpu_tex_ok[C->tex_sel] = 0;
     if (tipo != GL_UNSIGNED_BYTE) { erro(GL_INVALID_ENUM); return; }
     if (formato != GL_RGB && formato != GL_RGBA) { erro(GL_INVALID_ENUM); return; }
     if (!dados) { erro(GL_INVALID_VALUE); return; }
@@ -1248,6 +1507,7 @@ void glTexParameteri(GLenum alvo, GLenum nome, GLint valor)
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
     if (C->tex_sel < 0) { erro(GL_INVALID_OPERATION); return; }
+    GPU_DESPEJAR();
     textura_t *t = &C->tex[C->tex_sel];
     if (nome == GL_TEXTURE_WRAP_S) {
         if (valor != GL_REPEAT && valor != GL_CLAMP_TO_EDGE) { erro(GL_INVALID_ENUM); return; }
@@ -1264,6 +1524,7 @@ void glTexParameteri(GLenum alvo, GLenum nome, GLint valor)
 void glDeleteTextures(GLsizei n, const GLuint *ids)
 {
     if (!C || !ids || n < 0) return;
+    GPU_DESPEJAR();
     for (int i = 0; i < n; i++) {
         textura_t *t = textura_por_id(ids[i]);
         if (!t) continue;
@@ -1295,6 +1556,7 @@ void glBlendFunc(GLenum src, GLenum dst)
     if (!C) return;
     if (src != GL_SRC_ALPHA && src != GL_ONE_MINUS_SRC_ALPHA && src != GL_ONE && src != GL_ZERO) { erro(GL_INVALID_ENUM); return; }
     if (dst != GL_SRC_ALPHA && dst != GL_ONE_MINUS_SRC_ALPHA && dst != GL_ONE && dst != GL_ZERO) { erro(GL_INVALID_ENUM); return; }
+    GPU_DESPEJAR();
     C->blend_s = (int)src; C->blend_d = (int)dst;
 }
 

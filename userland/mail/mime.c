@@ -451,6 +451,7 @@ static void cabeceras_visiveis(const char *p, unsigned n, mensagem_t *m)
         if (p[i] == '\n' && (p[i + 1] == '\n' || (i + 2 < n && p[i + 1] == '\r' && p[i + 2] == '\n'))) { fim_h = i; break; }
     cabecera(p, fim_h, "From", m->de, sizeof m->de);
     cabecera(p, fim_h, "To", m->para, sizeof m->para);
+    cabecera(p, fim_h, "Cc", m->cc, sizeof m->cc);
     cabecera(p, fim_h, "Subject", m->assunto, sizeof m->assunto);
     cabecera(p, fim_h, "Date", m->data, sizeof m->data);
 }
@@ -558,6 +559,7 @@ int mensagem_construir(const mensagem_envio_t *e, char **out, unsigned *n)
     sai_linha(&s, "MIME-Version: 1.0");
     sai(&s, "From: "); sai_linha(&s, e->de);
     sai(&s, "To: "); sai_linha(&s, e->para);
+    if (e->cc && e->cc[0]) { sai(&s, "Cc: "); sai_linha(&s, e->cc); }
     /* Cabecera Subject: si no es ASCII, se manda en UTF-8 con =?UTF-8?B?...?= (RFC 2047). */
     if (solo_ascii(e->assunto)) {
         sai(&s, "Subject: "); sai_linha(&s, e->assunto);
@@ -572,6 +574,16 @@ int mensagem_construir(const mensagem_envio_t *e, char **out, unsigned *n)
         }
     }
     sai_linha(&s, "X-Mailer: SaguiOS correo");
+    {   /* Date: con la hora local del sistema; la zona se declara desconocida (-0000, RFC 5322) */
+        static const char *dias[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+        static const char *meses[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+        fuso_data_t d;
+        agora_local(&d);
+        char fecha[64];
+        formatar_texto(fecha, sizeof fecha, "Date: %s, %d %s %d %02d:%02d:%02d -0000", dias[d.dia_semana % 7], d.dia,
+                       meses[(d.mes + 11) % 12], d.ano, d.hora, d.minuto, d.segundo);
+        sai_linha(&s, fecha);
+    }
 
     static const char limite[] = "sagui-correo-0001";
     bool tem_anexos = e->n_anexos > 0;

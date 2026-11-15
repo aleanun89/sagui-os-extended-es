@@ -180,7 +180,12 @@
 #define SIS_INYECTAR      133   /* (INY_*, a, b) -> 0 o error */
 /* D255 (mejora 098, fase 1): usuarios. Operación en el primer argumento (USU_*, abajo). */
 #define SIS_USUARIO       134   /* (USU_*, a, b) -> según la operación */
-#define SIS_MAX           135
+/* D279 (v8.2, mejora 059): Bluetooth con un controlador USB estándar (p. ej. CSR8510). Operación en el
+ * primer argumento (BT_*, abajo); las que cambian algo piden permisos de administrador (D255, D269). */
+#define SIS_BLUETOOTH     135   /* (BT_*, ptr/indice, n) -> según la operación */
+/* D290 (v8.3, mejora 060): varias pantallas. Operación en el primer argumento (TELAS_OP_*, abajo). */
+#define SIS_TELAS         136   /* (TELAS_OP_*, a, b) -> según la operación */
+#define SIS_MAX           137
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que
@@ -314,7 +319,10 @@ typedef struct {
     unsigned int reservado_pid;    /* quién lo tiene reservado (0 = nadie) */
     unsigned int gpt;              /* 1 = el disco tiene tabla GPT (solo lectura) */
     unsigned int tipo_mbr;         /* tipo de la partición en la tabla (0 en el disco entero) */
-    unsigned int reservado[9];
+    unsigned int cab_lba;          /* D270: en el disco de arranque, dónde está su cabecera: 1, o en un disco
+                                    * instalado con GPT el primer sector de la partición de SaguiOS (0 = no lo es) */
+    unsigned int bloco_fisico;     /* D283: 512, o 4096 en un NVMe de bloques de 4096 (las tablas MBR/GPT cuentan en ellos) */
+    unsigned int reservado[7];
 } info_bloco_t;
 #define TRIM_NAO          0        /* el disco no lo admite (IDENTIFY palabra 169) */
 #define TRIM_SIM          1        /* lo admite y el driver lo manda (AHCI) */
@@ -502,6 +510,10 @@ typedef struct {
 #define AUDIO_LIVRE     4   /* (fd) -> bytes que cabem agora sem bloquear */
 #define AUDIO_DESCARTAR 5   /* (fd) -> 0; joga fora o que ainda não tocou */
 #define AUDIO_EQ        6   /* (-1, _, &eq_audio_t o 0): ecualizador (D201); 0 = consultar -> nº de etapas activas */
+#define AUDIO_SALIDA    7   /* (-1, _, índice | -1): salida de sonido (D275) -> índice actual; ERRO_INVALIDO si no existe */
+
+#define AUDIO_BALANCE   8   /* (-1, _, 0-200 | -1): balance (D292): 0 todo a la izquierda, 100 centro, 200 todo a la derecha -> valor actual */
+#define AUDIO_LATENCIA  9   /* (-1, _, ms 20-300 | -1): cuánto escribe el mezclador por delante de la tarjeta (D292) -> ms actuales */
 
 /* AUDIO_EQ (D201): cascada de hasta 5 biquads por canal, en punto fijo. Los coeficientes
  * (b0 b1 b2 a1 a2, ya divididos por a0) los calcula el userland en Q28; y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2.
@@ -609,6 +621,203 @@ typedef struct {
     unsigned int reservado[2];
 } info_acel2d_t;
 #define INFO_ACEL2D_CTL   69  /* D244: (op, 0): op 0 = apagar, 1 = encender -> 0 / error */
+/* Cámara (D277): INFO_CAMARA (&info_camara_t, sizeof) -> el campo "resultado" y el valor devuelto
+ * (>= 0 bien, < 0 error). La orden va en el primer campo. Una sola cámara a la vez: la UVC integrada
+ * o enchufada, o la fuente de prueba del kernel (un generador de patrón que pasa por el mismo montador
+ * de cuadros, para probar sin cámara). Los servicios (de_servico) no pueden usarla.
+ *   CAM_ESTADO  describe la fuente pedida (fuente 0 = la real, 2 = la de prueba): presente, nombre y modos.
+ *   CAM_ABRIR   empieza a capturar con el modo "modo" (índice de ESTADO); la fuente 0 es la real y la 2 la de prueba.
+ *   CAM_CUADRO  copia el último cuadro completo a buf si su seq es distinta de seq_visto (YUY2: larg*alt*2 bytes
+ *               en orden Y0 U Y1 V; MJPEG: el JPEG tal cual); devuelve los bytes copiados, 0 = no hay cuadro nuevo.
+ *   CAM_CERRAR  deja de capturar.
+ *   CAM_AJUSTE  brillo/contraste de la unidad de procesamiento (control 0 o 1; escribir = 1 pone "valor"). */
+#define INFO_CAMARA       70
+#define CAM_ESTADO  0
+#define CAM_ABRIR   1
+#define CAM_CUADRO  2
+#define CAM_CERRAR  3
+#define CAM_AJUSTE  4
+#define CAM_FUENTE_REAL   0
+#define CAM_FUENTE_PRUEBA 2
+#define CAM_FMT_YUY2   1
+#define CAM_FMT_MJPEG  2
+#define CAM_MODOS_MAX  24
+#define CAM_CTL_BRILLO    0
+#define CAM_CTL_CONTRASTE 1
+typedef struct {
+    unsigned short larg, alt;
+    unsigned char  formato;     /* CAM_FMT_* */
+    unsigned char  fps;
+    unsigned char  reservado[2];
+} info_camara_modo_t;
+typedef struct {
+    unsigned int   orden;       /* CAM_* */
+    int            resultado;   /* lo mismo que devuelve la llamada */
+    unsigned int   fuente;      /* CAM_FUENTE_* */
+    unsigned int   modo;        /* ABRIR: índice del modo; ESTADO: el modo abierto */
+    unsigned int   presente;    /* ESTADO: la fuente existe */
+    unsigned int   abierta;     /* ESTADO: está capturando */
+    unsigned int   n_modos;
+    char           nome[48];
+    info_camara_modo_t modos[CAM_MODOS_MAX];
+    void          *buf;         /* CUADRO: donde copiar */
+    unsigned int   buf_tam;
+    unsigned int   seq_visto;   /* CUADRO: la seq del último cuadro que ya se tenía */
+    unsigned int   seq;         /* CUADRO: seq del cuadro copiado; ESTADO: cuadros completos hasta ahora */
+    unsigned short larg, alt;   /* CUADRO: tamaño del cuadro copiado */
+    unsigned char  formato;     /* CUADRO: CAM_FMT_* del cuadro copiado */
+    unsigned char  controles;   /* ESTADO: bit 0 brillo, bit 1 contraste disponibles */
+    unsigned short reservado;
+    unsigned int   control;     /* AJUSTE: CAM_CTL_* */
+    unsigned int   escribir;    /* AJUSTE: 1 = poner "valor" */
+    int            valor, minimo, maximo, defecto;   /* AJUSTE */
+    unsigned int   descartados, paquetes, errores;   /* ESTADO: diagnóstico del flujo */
+} info_camara_t;
+
+/* 3D por la GPU (D285): la capa común (kernel/gui/gpu3d.c). SaguiGL manda los
+ * triángulos ya recortados y en coordenadas del destino; el kernel los pasa al
+ * driver de la tarjeta (Intel Gen3...) y devuelve el cuadro. Los números 71 a 74
+ * (el 70 es INFO_CAMARA). */
+#define INFO_GPU3D        71  /* (&info_gpu3d_t, sizeof) -> 0 */
+#define INFO_GPU3D_OP     72  /* (&gpu3d_pedido_t, sizeof) -> 0, GPU3D_SEM_SUPORTE (> 0) o error (< 0) */
+#define INFO_GPU3D_PROVA  73  /* (&info_gpu3d_prova_t, sizeof) -> 0: autoprueba y medida, ahora */
+#define INFO_GPU3D_CTL    74  /* (op, 0): 0 = apagar, 1 = encender (lotes), 2 = encender con las órdenes en el anillo */
+
+/* Captura de sonido / micrófono (D292). Una sola llamada, como la cámara: info_sistema(INFO_CAPTURA,
+ * &info_captura_t, sizeof). El campo "orden" dice qué se pide; el resultado va también en "resultado".
+ * Los servicios (de_servico) no pueden grabar (ERRO_ACESSO). Una captura abierta a la vez, de un proceso.
+ * Las muestras son PCM de 16 bits con signo, entrelazadas; el kernel convierte desde la tasa nativa de
+ * la tarjeta (48 kHz) a la pedida (8000 a 48000 Hz, p. ej. 44100) y a mono o estéreo.
+ *   CAP_ESTADO    describe la fuente pedida (CAP_FUENTE_REAL / CAP_FUENTE_PRUEBA): presente, nombre, entradas,
+ *                 entrada elegida, ganancia, silencio, nivel (pico y RMS de los últimos ~50 ms), cuadros perdidos.
+ *   CAP_ABRIR     empieza a capturar (taxa, canais) -> 0 / ERRO_OCUPADO / ERRO_NAO_EXISTE.
+ *   CAP_LER       copia como mucho buf_tam bytes ya convertidos a buf (no bloquea) -> bytes copiados (0 = aún no hay).
+ *   CAP_FECHAR    para la captura.
+ *   CAP_ENTRADA   escribir = 1: elige la entrada "entrada" (índice de ESTADO); vale con la captura cerrada.
+ *   CAP_GANANCIA  escribir = 1: ganancia 0-100 (valor) y silencio (mudo); vale con la captura cerrada.
+ * La fuente de prueba es un tono de 1 kHz (amplitud 8000) generado en el kernel con el mismo
+ * canal de conversión: sirve para probar sin micrófono. */
+#define INFO_CAPTURA      75  /* (&info_captura_t, sizeof) -> 0 / error (< 0) */
+#define CAP_ESTADO    0
+#define CAP_ABRIR     1
+#define CAP_LER       2
+#define CAP_FECHAR    3
+#define CAP_ENTRADA   4
+#define CAP_GANANCIA  5
+#define CAP_FUENTE_REAL   0
+#define CAP_FUENTE_PRUEBA 2
+#define CAP_ENTRADAS_MAX  8
+#define CAP_TONO_PRUEBA   1000   /* Hz */
+#define CAP_TONO_AMPLITUD 8000
+typedef struct {
+    unsigned int   orden;        /* CAP_* */
+    int            resultado;    /* lo mismo que devuelve la llamada */
+    unsigned int   fuente;       /* CAP_FUENTE_* */
+    unsigned int   taxa;         /* ABRIR: Hz pedidos; ESTADO: tasa nativa */
+    unsigned int   canais;       /* ABRIR: 1 o 2 */
+    unsigned int   presente;     /* ESTADO: la fuente existe */
+    unsigned int   abierta;      /* ESTADO: está capturando */
+    unsigned int   n_entradas;   /* ESTADO */
+    unsigned int   entrada;      /* ESTADO: la elegida; ENTRADA: la que se pide */
+    unsigned int   ganancia;     /* ESTADO: 0-100; GANANCIA: la que se pide */
+    unsigned int   mudo;         /* ESTADO: silencio; GANANCIA: el que se pide */
+    unsigned int   escribir;     /* ENTRADA y GANANCIA: 1 = cambiar */
+    char           nome[48];     /* ESTADO: la tarjeta */
+    char           entradas[CAP_ENTRADAS_MAX][24];   /* ESTADO: nombres de las entradas */
+    unsigned int   pico, rms;    /* ESTADO: 0-32767, de los últimos ~50 ms */
+    unsigned int   cuadros;      /* ESTADO: cuadros nativos capturados desde que se abrió */
+    unsigned int   perdidos;     /* ESTADO: cuadros nativos perdidos (nadie leyó a tiempo) */
+    void          *buf;          /* LER */
+    unsigned int   buf_tam;      /* LER */
+} info_captura_t;
+
+/* Estados de la capa. */
+#define GPU3D_SIN_PROBAR   0  /* hay driver; se enciende y se prueba con el primer uso */
+#define GPU3D_ATIVO        1
+#define GPU3D_FALHOU       2  /* la autoprueba falló o el vigilante lo apagó: software */
+#define GPU3D_APAGADO      3  /* a mano («gpu3d apagar») */
+#define GPU3D_SEM_GPU      4  /* ninguna tarjeta con driver 3D */
+#define GPU3D_DESATIVADO   5  /* la opción de arranque (SGL_MOTOR=software) */
+
+#define GPU3D_SEM_SUPORTE  1  /* la GPU no sabe hacer eso (textura grande, destino que no cabe): quien
+                                 llama sigue por software, sin apagar el 3D para los demás */
+#define GPU3D_TEXTURAS     8  /* huecos de textura por dueño */
+#define GPU3D_MAX_LADO  2048  /* lado máximo del destino y de una textura */
+#define GPU3D_MAX_VERT  3072  /* vértices por petición (múltiplo de 3) */
+
+/* Un vértice: ocho palabras de 32 bits. x, y, z, rhw, u y v son los bits de un
+ * float IEEE-754 (el kernel no usa coma flotante: los copia). x e y en píxeles
+ * del destino (origen arriba a la izquierda, centros en .5), z de 0 a 1, rhw =
+ * 1/w (corrección de perspectiva), cor = 0xAARRGGBB, espec = 0x00RRGGBB que se
+ * suma al final (la niebla la calcula quien llama), u y v de 0 a 1. */
+typedef struct { unsigned int x, y, z, rhw, cor, espec, u, v; } gpu3d_vert_t;
+
+#define G3D_Z_TESTE      0x01
+#define G3D_Z_ESCRITA    0x02
+#define G3D_MEZCLA       0x04
+#define G3D_TEXTURA      0x08
+#define G3D_TEX_REPETE_S 0x10   /* si no, se sujeta al borde */
+#define G3D_TEX_REPETE_T 0x20
+#define G3D_TEX_LINEAR   0x40   /* si no, el vecino más próximo */
+#define G3D_Z_MENOR       0
+#define G3D_Z_MENOR_IGUAL 1
+#define G3D_Z_SEMPRE      2
+#define G3D_F_ZERO        0
+#define G3D_F_UM          1
+#define G3D_F_ALFA        2     /* alfa del origen */
+#define G3D_F_UM_MENOS_ALFA 3
+typedef struct {
+    unsigned int  flags;        /* G3D_* */
+    unsigned char func_z;       /* G3D_Z_MENOR... */
+    unsigned char mez_orig, mez_dest;   /* G3D_F_* */
+    unsigned char textura;      /* hueco */
+} gpu3d_estado_t;
+
+#define GPU3D_OP_ABRIR      1   /* a = ancho, b = alto, c = bits de Z (16 o 24): toma el motor para este proceso */
+#define GPU3D_OP_FECHAR     2
+#define GPU3D_OP_LIMPAR     3   /* a = 1 color | 2 Z, b = color 0x00RRGGBB (Z siempre al fondo) */
+#define GPU3D_OP_TEXTURA    4   /* a = hueco, b = ancho, c = alto, ptr = píxeles 0xAARRGGBB (ptr 0: soltarla) */
+#define GPU3D_OP_ESTADO     5   /* ptr = gpu3d_estado_t */
+#define GPU3D_OP_TRIANGULOS 6   /* ptr = gpu3d_vert_t[], a = vértices (múltiplo de 3) */
+#define GPU3D_OP_LER        7   /* ptr = destino 0x00RRGGBB, a = píxeles por fila del destino: espera a la GPU y copia */
+typedef struct { unsigned int op, a, b, c, ptr, bytes; } gpu3d_pedido_t;
+
+typedef struct {
+    unsigned int versao;        /* 1 */
+    unsigned int estado;        /* GPU3D_* */
+    unsigned int fabricante, modelo;
+    char         nome[16];      /* "intel-gen3", "simulado"... o "software" */
+    char         placa[40];
+    char         motivo[160];
+    unsigned int dono;          /* pid que tiene el motor (0 = libre) */
+    unsigned int larg, alt, zbits;   /* destino abierto */
+    unsigned int triangulos, lotes, quadros, falhas, recusas;   /* desde el arranque */
+    unsigned int us_autoprova;
+    unsigned int memoria_kb, livre_kb;   /* memoria de GPU de la capa */
+    unsigned int variante;      /* 0 = lotes (batch buffers), 1 = órdenes en el anillo */
+    unsigned int prazo_ms;      /* plazo del vigilante */
+    unsigned int pontos;        /* última puntuación 3D medida (0 = sin medir) */
+    unsigned int tri_s, kpix_s; /* y sus medidas */
+    unsigned int reservado[6];
+} info_gpu3d_t;
+
+#define GPU3D_N_PROVAS 8
+typedef struct {
+    unsigned int versao;        /* entrada: 2 = con detalle en el log; salida: 1 */
+    int          resultado;     /* 1 = bien, 0 = mal, -1 = sin GPU con 3D */
+    char         texto[160];
+    unsigned int provas;        /* bit n = la prueba n pasó */
+    unsigned int feitas;        /* bit n = la prueba n se hizo */
+    int          falhou;        /* primera que falló (-1 = ninguna) */
+    int          x, y;          /* píxel que no cuadra */
+    unsigned int esperado, obtido;
+    unsigned int us_autoprova;
+    /* medida: triángulos pequeños (transformación y órdenes) y grandes (relleno) */
+    unsigned int tri_pequenos, us_pequenos, tri_grandes, us_grandes, pix_grandes;
+    unsigned int us_leitura, pix_leitura;   /* traer el cuadro a la RAM */
+    unsigned int tri_s, kpix_s, pontos;
+    unsigned int reservado[6];
+} info_gpu3d_prova_t;
 typedef struct {
     unsigned int versao;        /* 1 */
     int          resultado;     /* 1 = la GPU dio los mismos píxeles que la CPU; 0 = no; -1 = sin acelerador */
@@ -677,6 +886,12 @@ typedef struct {
     unsigned char canais, bits, volume, reservado;
     unsigned int  pendente_ms;
 } info_fluxo_audio_t;
+#define AUDIO_SALIDAS 4
+typedef struct {
+    unsigned char usada, actual, reservado[2];   /* hay tarjeta en ese índice; es la salida actual */
+    char          driver[8];                     /* "hda", "ac97" o "usb" */
+    char          nombre[48];
+} info_salida_audio_t;
 typedef struct {
     unsigned char estado;            /* AUDIO_SEM_PLACA, AUDIO_FUNCIONANDO, AUDIO_SEM_DRIVER */
     unsigned char irq;               /* 0xFF = sondagem a cada tique do relógio */
@@ -694,7 +909,74 @@ typedef struct {
     info_fluxo_audio_t fluxo[AUDIO_FLUXOS];
     unsigned char eq_etapas;         /* 0 = ecualizador plano (derivación) */
     signed char   eq_db[EQ_BANDAS];  /* 60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz */
+    info_salida_audio_t salidas[AUDIO_SALIDAS];   /* D275: las tarjetas conocidas (PCI y USB) */
+    unsigned char balance;           /* D292: 0 izquierda, 100 centro, 200 derecha */
+    unsigned char captura;           /* D292: 1 = hay entrada de sonido (micrófono) */
+    unsigned short latencia_base_ms; /* D292: la latencia configurada (latencia_ms puede crecer tras un corte) */
 } info_audio_t;
+
+/* SIS_BLUETOOTH (D279) */
+#define BT_ESTADO        0   /* (&info_bt_t, sizeof) -> 0; ERRO_NAO_EXISTE si no hay controlador */
+#define BT_BUSCAR        1   /* () -> 0: empieza una búsqueda de ~8 s (info_bt_t.buscando) */
+#define BT_DISPOSITIVOS  2   /* (disp_bt_t[], n) -> cuántos */
+#define BT_EMPAREJAR     3   /* (indice) -> 0: solo emparejar (guarda la clave y se desconecta); pide administrador */
+#define BT_CONECTAR      4   /* (indice) -> 0: conectar (y emparejar si hace falta); pide administrador */
+#define BT_DESCONECTAR   5   /* (indice) -> 0; pide administrador */
+#define BT_OLVIDAR       6   /* (indice) -> 0: desconecta y borra la clave; pide administrador */
+#define BT_CONFIRMAR     7   /* (1 = coincide, 0 = no) -> 0: contesta a la comparación numérica; pide administrador */
+#define BT_ENERGIA       8   /* (1 = encender, 0 = apagar) -> 0; pide administrador */
+/* Estados del adaptador (info_bt_t.estado) */
+#define BTA_SEM_ADAPTADOR 0
+#define BTA_INICIANDO     1
+#define BTA_PRONTO        2
+#define BTA_FALHOU        3
+#define BTA_APAGADO       4
+/* Estados de un dispositivo (disp_bt_t.estado) */
+#define BTD_LIVRE         0
+#define BTD_LIGANDO       1
+#define BTD_AUTENTICANDO  2
+#define BTD_CIFRANDO      3
+#define BTD_SDP           4
+#define BTD_HID           5
+#define BTD_CONECTADO     6
+#define BTD_ERRO          7
+/* Tipo de dispositivo (disp_bt_t.tipo) y modo de la confirmación pendiente (info_bt_t.conf_modo) */
+#define BTT_OUTRO   0
+#define BTT_TECLADO 1
+#define BTT_RATO    2
+#define BTT_COMBO   3
+#define BTC_NADA     0
+#define BTC_COMPARAR 1   /* ¿coincide el número con el del dispositivo? BT_CONFIRMAR 1 o 0 */
+#define BTC_MOSTRAR  2   /* escribe el número en el teclado del dispositivo (sin respuesta) */
+
+typedef struct info_bt {
+    unsigned int   estado;         /* BTA_* */
+    char           chip[40];       /* "CSR8510 A10 (0a12:0001)" */
+    unsigned char  addr[6];        /* en orden de lectura: addr[0] es el primer byte de AA:BB:CC:DD:EE:FF */
+    unsigned char  buscando;
+    unsigned char  energia;
+    unsigned char  conf_modo;      /* BTC_* */
+    signed char    conf_disp;      /* índice del dispositivo que pide la confirmación (-1 = ninguno) */
+    unsigned char  n_disp;
+    unsigned int   conf_num;       /* el número de seis cifras de la comparación numérica o del passkey */
+    unsigned char  hci_ver, lmp_ver;
+    unsigned short fabricante, acl_mtu;
+    unsigned char  acl_num, reservado[3];
+    unsigned int   eventos, acl_rx, acl_tx, erros_hci;
+    char           erro[64];       /* último problema del adaptador ("" = ninguno) */
+} info_bt_t;
+
+typedef struct disp_bt {
+    unsigned char  addr[6];        /* en orden de lectura */
+    unsigned char  estado;         /* BTD_* */
+    unsigned char  tipo;           /* BTT_* */
+    unsigned char  pareado;        /* hay clave de enlace guardada */
+    unsigned char  visto;          /* salió en la última búsqueda */
+    signed char    rssi;
+    unsigned int   clase;
+    char           nome[32];
+    char           erro[48];       /* por qué falló el último intento ("" = ninguno) */
+} disp_bt_t;
 
 /* SIS_SOCKET */
 #define SOCK_TCP 1
@@ -988,6 +1270,29 @@ typedef struct {
     char         oem[48], fabricante[32], produto[32], revisao[16];
 } info_video_t;
 
+/* SIS_TELAS (D290, mejora 060): varias pantallas. Una "pantalla" es una salida de vídeo; la 0 es la del
+ * arranque (la de INFO_TELA, SIS_MUDAR_MODO y el programa pantalla). */
+#define TELAS_OP_INFO      0   /* (info_telas_t *, sizeof) -> número de pantallas */
+#define TELAS_OP_CONFIG    1   /* (modo | lado << 8 | principal << 16) -> 0 o error; modo/lado: TELAS_MODO_*, TELAS_LADO_* */
+#define TELAS_OP_RESOLUCAO 2   /* (pantalla, largura | altura << 16) -> 0 o error (la 0 usa SIS_MUDAR_MODO) */
+#define TELAS_OP_GUARDAR   3   /* () -> 0 o error: /home/.config/pantallas.conf */
+#define TELAS_MODO_EXTENDER 0
+#define TELAS_MODO_ESPELHO  1
+#define TELAS_LADO_DIREITA  0  /* las demás a la derecha de la principal */
+#define TELAS_LADO_ABAIXO   1  /* las demás debajo de la principal */
+#define TELAS_NUM_MAX       4
+typedef struct {
+    unsigned int qtd;              /* pantallas presentes */
+    unsigned int modo, lado, principal;
+    unsigned int desk_largura, desk_altura;   /* el escritorio entero */
+    struct {
+        int x, y;                  /* posición en el escritorio */
+        unsigned int largura, altura, max_largura, max_altura;
+        unsigned int a_quente;     /* 1 = cambia de resolución sin reiniciar */
+        char nome[24];
+    } t[TELAS_NUM_MAX];
+} info_telas_t;
+
 /* SIS_MODOS_VIDEO: um modo da lista (os do VBE do boot e, com a placa do
  * Bochs/QEMU, os que ela aceita a quente). */
 typedef struct {
@@ -1054,6 +1359,7 @@ typedef struct {
     unsigned int   fases;
     unsigned int   fase_ms[ARRANQUE_MAX_FASES];
     char           fase_nome[ARRANQUE_MAX_FASES][16];
+    unsigned int   firmware;       /* D270: 0 = BIOS, 1 = UEFI x64, 2 = UEFI IA32 (boot_info v2, D264) */
 } info_arranque_t;
 
 typedef struct {

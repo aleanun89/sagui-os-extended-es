@@ -45,6 +45,7 @@ typedef struct disco {
     int    (*descartar)(struct disco *d, uint32_t lba, uint32_t n);   /* NULL = el driver no manda TRIM */
     uint8_t  trim;                /* TRIM_NAO, TRIM_SIM o TRIM_SEM_DRIVER (abi.h) */
     bool     arranque_real;       /* su LBA 1 es la cabecera con la que arrancó esta vez */
+    uint32_t cab_lba;             /* D270: dónde está esa cabecera: 1, o el primer sector de la partición GPT de SaguiOS */
     bool     nvme;                /* D265: disco NVMe */
     uint16_t bloco_fisico;        /* D265: bloque real del namespace NVMe (512 o 4096); 0 = no se sabe */
     bool     gpt;                 /* la tabla es GPT: no se toca */

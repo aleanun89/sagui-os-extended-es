@@ -8,6 +8,9 @@
  *
  *   vncd              escucha (lo normal es como servicio: servicio activar vncd)
  *   vncd --clave [C]  fija la contraseña (hasta 8 caracteres; sin argumento la pide)
+ *   vncd --estado     quién está conectado (lo escribe el servicio en /tmp/.servicios/vncd.estado)
+ *   vncd --desconectar [PID]   corta una sesión o todas (solo root)
+ *   vncd --ajustar escuchar=local|red-local solo_ver=si|no   guarda opciones (solo root; D273)
  *   vncd --ayuda
  *
  * Seguridad (se elige «VNC Authentication»: DES del reto con la contraseña
@@ -36,12 +39,14 @@
  * Configuración (clave=valor) en /etc/vnc/vncd.conf y /home/.config/vncd.conf
  * (gana la segunda): ver docs/vnc.md. */
 #include "sagui.h"
+#include "gui.h"
 #include "contas.h"
 #include "servicos.h"
 #include "des.h"
 #include "compressao.h"
 #include "sshd_logica.h"
 #include "vnc_codec.h"
+#include "vncd_estado.h"
 
 #define DIR_ETC       "/etc/vnc"
 #define DIR_CASA      "/home/.config"
@@ -52,6 +57,9 @@
 #define SAIR_BEM      0
 #define SAIR_SEM_AUT  10
 #define SAIR_ERRO     11
+
+#define MSG_AUTENTICADO 1000   /* mensaje de la sesión al que escucha por la tubería: ya se autenticó */
+#define ARQ_ESTADO    VNCD_ARQ_ESTADO
 
 #define ENC_RAW       0
 #define ENC_HEXTILE   5
@@ -71,7 +79,8 @@ static struct {
     int  graca_s;         /* segundos para autenticarse */
     int  fps;             /* actualizaciones por segundo como mucho */
     bool aviso;
-} conf = { 5900, false, false, false, 2, 3, 60, 30, 12, true };
+    bool indicador;       /* ventana indicadora mientras hay alguien conectado (D273) */
+} conf = { 5900, false, false, false, 2, 3, 60, 30, 12, true, true };
 
 static bool valor_sim(const char *v)
 {
@@ -108,6 +117,7 @@ static void conf_ler(const char *arq)
         else if (compara_texto(p, "tiempo_entrada") == 0 && n >= 5 && n <= 600) conf.graca_s = n;
         else if (compara_texto(p, "fps_max") == 0 && n >= 1 && n <= 30) conf.fps = n;
         else if (compara_texto(p, "aviso") == 0) conf.aviso = valor_sim(v);
+        else if (compara_texto(p, "indicador") == 0) conf.indicador = valor_sim(v);
     }
     fechar(fd);
 }
@@ -631,6 +641,10 @@ static int sesion(const char *ip, const char *porta, bool inyecta)
     enviar(si, 24);
     enviar(NOMBRE, sizeof NOMBRE - 1);
     anotar("autenticado; pantalla %dx%d%s", W, H, (conf.solo_ver || !puede_inyectar) ? " (solo ver)" : "");
+    {   /* D273: el que escucha lo apunta en su estado (la indicación de «conectado») */
+        int m[3] = { MSG_AUTENTICADO, (conf.solo_ver || !puede_inyectar) ? 1 : 0, 0 };
+        escrever_tudo(SAIDA, m, sizeof m);
+    }
     if (conf.aviso) {
         char t[80];
         formatar_texto(t, sizeof t, "VNC: %s conectado desde %s", (conf.solo_ver || !puede_inyectar) ? "cliente (solo ver)" : "cliente", cliente_ip);
@@ -680,7 +694,9 @@ static int sesion(const char *ip, const char *porta, bool inyecta)
 #define MAX_FILHOS 8
 #define MAX_FALHAS 16
 
-static struct { int pid; uint32_t ip; int tubo; } filhos[MAX_FILHOS];   /* tubo: lo que la sesión pide inyectar */
+static struct { int pid; uint32_t ip; int tubo; bool autent, solo_ver; unsigned desde; } filhos[MAX_FILHOS];   /* tubo: lo que la sesión pide inyectar */
+static bool estado_sucio;
+static int  pid_indicador;
 static bool inyecta_ok;
 static struct { uint32_t ip; int falhas; unsigned ate; bool bloqueado; } falhas[MAX_FALHAS];
 
@@ -740,6 +756,7 @@ static void atender_tubos(void)
         while ((d = disponivel(filhos[i].tubo)) >= 12) {
             int m[3];
             if (ler(filhos[i].tubo, m, sizeof m) != (int)sizeof m) break;
+            if (m[0] == MSG_AUTENTICADO) { filhos[i].autent = true; filhos[i].solo_ver = m[1] != 0; filhos[i].desde = tempo_ms(); estado_sucio = true; continue; }
             if (inyecta_ok && (m[0] == INY_TECLA || m[0] == INY_RATON || m[0] == INY_RUEDA)) inyectar_entrada(m[0], m[1], m[2]);
         }
         if (d < 0) { fechar(filhos[i].tubo); filhos[i].tubo = -1; }
@@ -757,7 +774,190 @@ static void recolher_filhos(void)
                 if (filhos[i].tubo >= 0) fechar(filhos[i].tubo);
                 filhos[i].pid = 0;
                 filhos[i].tubo = -1;
+                filhos[i].autent = false;
+                estado_sucio = true;
+                if (inyecta_ok) inyectar_entrada(INY_TECLA, 0, 0);   /* si cortaron la sesión con teclas pulsadas */
             }
+        else if (pid == pid_indicador) pid_indicador = 0;
+}
+
+/* ------------------------------------------------------------ estado, indicador y órdenes de gestión (D273) */
+
+static int n_autenticados(void)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_FILHOS; i++) n += filhos[i].pid != 0 && filhos[i].autent;
+    return n;
+}
+
+/* Escribe /tmp/.servicios/vncd.estado de una vez (temporal y renombrar): lo leen Configuración,
+ * «vncd --estado» y la ventana indicadora.
+ *   vncd PID PUERTO local|red-local SOLO_VER(0|1) CLAVE(0|1)
+ *   sesion PID IP DESDE_S SOLO_VER(0|1)        (una por cada cliente ya autenticado)
+ *   fin */
+static void estado_escribir(bool tem_clave)
+{
+    static char t[1024];
+    char ip[16];
+    int n = formatar_texto(t, sizeof t, "vncd %d %d %s %d %d\n", meu_pid(), conf.porta,
+                           conf.red_local ? "red-local" : "local", conf.solo_ver ? 1 : 0, tem_clave ? 1 : 0);
+    for (int i = 0; i < MAX_FILHOS && n < (int)sizeof t - 100; i++) {
+        if (!filhos[i].pid || !filhos[i].autent) continue;
+        n += formatar_texto(t + n, sizeof t - (unsigned)n, "sesion %d %s %u %d\n", filhos[i].pid,
+                            ip_para_texto(filhos[i].ip, ip), filhos[i].desde / 1000, filhos[i].solo_ver ? 1 : 0);
+    }
+    n += formatar_texto(t + n, sizeof t - (unsigned)n, "fin\n");
+    servicos_criar_pastas(SERV_DIR_COMUM);
+    int fd = abrir(ARQ_ESTADO ".tmp", ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    escrever_tudo(fd, t, (unsigned)n);
+    fechar(fd);
+    renomear(ARQ_ESTADO ".tmp", ARQ_ESTADO);
+}
+
+static void estado_actualizar(bool tem_clave)
+{
+    estado_sucio = false;
+    estado_escribir(tem_clave);
+    if (conf.indicador && n_autenticados() > 0 && !pid_indicador) {
+        char *argv[] = { "vncd", "--indicador", NULL };
+        int p = executar("/bin/vncd", argv);
+        if (p > 0) pid_indicador = p;
+    }
+}
+
+static int cmd_estado(void)
+{
+    vnc_estado_t e;
+    if (!vncd_estado_ler(&e)) { imprimir("vncd: el servicio no está en marcha\n"); return 1; }
+    imprimir("vncd (pid %d): puerto %d, escucha %s%s, contraseña %s\n", e.pid, e.puerto,
+             e.red_local ? "en la red local" : "solo en esta máquina", e.solo_ver ? ", solo ver" : "",
+             e.clave ? "puesta" : "SIN PONER");
+    if (!e.n) imprimir("nadie conectado\n");
+    for (int i = 0; i < e.n; i++)
+        imprimir("sesion %d: %s, %u s%s\n", e.s[i].pid, e.s[i].ip, e.s[i].seg, e.s[i].solo_ver ? ", solo ver" : "");
+    return 0;
+}
+
+static int cmd_desconectar(int pid)
+{
+    if (falta_admin("vncd")) return 1;
+    vnc_estado_t e;
+    if (!vncd_estado_ler(&e)) { imprimir_em(ERROS, "vncd: el servicio no está en marcha\n"); return 1; }
+    int hechos = 0;
+    for (int i = 0; i < e.n; i++)
+        if ((!pid || pid == e.s[i].pid) && matar(e.s[i].pid) == 0) {
+            hechos++;
+            imprimir("vncd: sesión %d (%s) cortada\n", e.s[i].pid, e.s[i].ip);
+        }
+    if (!hechos) { imprimir_em(ERROS, "vncd: no hay esa sesión\n"); return 1; }
+    return 0;
+}
+
+/* Cambia (o añade) «clave=valor» en el texto de un archivo de opciones; n = bytes escritos en nuevo. */
+static int conf_poner(const char *viejo, const char *clave_, const char *valor, char *nuevo, int max)
+{
+    int n = 0;
+    bool puesto = false;
+    size_t kl = tam_texto(clave_);
+    for (const char *p = viejo; *p;) {
+        const char *fim = acha_char((char *)p, '\n');
+        int l = fim ? (int)(fim - p) : (int)tam_texto(p);
+        const char *q = p;
+        while (q < p + l && eh_espaco(*q)) q++;
+        bool es = (size_t)(p + l - q) > kl && compara_texto_n(q, clave_, kl) == 0 && (q[kl] == '=' || eh_espaco(q[kl]));
+        if (es) {
+            if (!puesto) n += formatar_texto(nuevo + n, (unsigned)(max - n), "%s=%s\n", clave_, valor);
+            puesto = true;
+        } else if (l > 0 && n + l + 2 < max) { memcpy(nuevo + n, p, (size_t)l); n += l; nuevo[n++] = '\n'; }
+        p += l + (fim ? 1 : 0);
+    }
+    if (!puesto) n += formatar_texto(nuevo + n, (unsigned)(max - n), "%s=%s\n", clave_, valor);
+    nuevo[n] = 0;
+    return n;
+}
+
+static int conf_arquivo(const char *arq, const char *clave_, const char *valor, bool sistema)
+{
+    static char viejo[2048], nuevo[2200];
+    int fd = abrir(arq, ABRIR_LER);
+    viejo[0] = 0;
+    if (fd >= 0) { int n = ler(fd, viejo, sizeof viejo - 1); fechar(fd); viejo[n > 0 ? n : 0] = 0; }
+    else if (!sistema) return 0;   /* el de /home solo se toca si ya existe */
+    int n = conf_poner(viejo, clave_, valor, nuevo, sizeof nuevo);
+    if (sistema) return conf_gravar("vnc/vncd.conf", nuevo, n);
+    fd = abrir(arq, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return fd;
+    escrever_tudo(fd, nuevo, (unsigned)n);
+    fechar(fd);
+    return 0;
+}
+
+/* «vncd --ajustar escuchar=red-local solo_ver=si ...»: guarda en /etc/vnc/vncd.conf (SAGUI-CONF, D255) y,
+ * si ya tiene esa clave, también en /home/.config/vncd.conf (que gana). Hay que reiniciar el servicio. */
+static int cmd_ajustar(int argc, char **argv, int desde)
+{
+    if (falta_admin("vncd")) return 1;
+    if (desde >= argc) { imprimir_em(ERROS, "vncd: --ajustar clave=valor...\n"); return 2; }
+    for (int i = desde; i < argc; i++) {
+        char k[24], *v;
+        copia_texto(k, argv[i], sizeof k);
+        v = acha_char(k, '=');
+        if (!v) { imprimir_em(ERROS, "vncd: «%s»: falta =valor\n", argv[i]); return 2; }
+        *v++ = 0;
+        bool ok = (compara_texto(k, "escuchar") == 0 && (compara_texto(v, "local") == 0 || compara_texto(v, "red-local") == 0)) ||
+                  ((compara_texto(k, "solo_ver") == 0 || compara_texto(k, "aviso") == 0 || compara_texto(k, "indicador") == 0) &&
+                   (compara_texto(v, "si") == 0 || compara_texto(v, "no") == 0));
+        if (!ok) { imprimir_em(ERROS, "vncd: opción o valor no admitido: %s\n", argv[i]); return 2; }
+        int r = conf_arquivo(DIR_ETC "/vncd.conf", k, v, true);
+        if (r < 0) { imprimir_em(ERROS, "vncd: no se pudo guardar: %s\n", nome_erro(r)); return 1; }
+        conf_arquivo(DIR_CASA "/vncd.conf", k, v, false);
+        imprimir("vncd: %s=%s guardado (reinicia el servicio para aplicarlo)\n", k, v);
+    }
+    return 0;
+}
+
+/* La ventana que hace de indicador mientras hay alguien conectado (D273): el sistema no tiene iconos de
+ * bandeja para programas, así que es una ventana pequeña en la barra de tareas; se cierra sola al irse el
+ * último cliente. El botón corta todas las sesiones (este proceso lo lanza el servicio, es root). */
+static int cmd_indicador(void)
+{
+    jan_t *jn = jan_abrir("Escritorio remoto", 340, 120);
+    if (!jn) return 1;
+    botao_t bt = { 20, 78, 150, 28, "Desconectar", false };
+    unsigned ult = 0;
+    char linhas[3][64];
+    int nl = 0;
+    bool primera = true;
+    for (;;) {
+        evento_t ev;
+        int hay = esperar_evento(jn->id, &ev, 250);
+        while (hay == 1) {
+            if (ev.tipo == EV_FECHAR) { jan_fechar(jn); return 0; }
+            if (botao_tratar(jn, &bt, &ev)) {
+                vnc_estado_t e;
+                if (vncd_estado_ler(&e)) for (int i = 0; i < e.n; i++) matar(e.s[i].pid);
+            }
+            hay = proximo_evento(jn->id, &ev, false);
+        }
+        unsigned ahora = tempo_ms();
+        if (primera || ahora - ult >= 500) {
+            primera = false;
+            ult = ahora;
+            vnc_estado_t e;
+            if (!vncd_estado_ler(&e) || e.n == 0) break;
+            nl = 0;
+            formatar_texto(linhas[nl++], 64, "%d conectado%s ahora:", e.n, e.n == 1 ? "" : "s");
+            for (int i = 0; i < e.n && nl < 3; i++)
+                formatar_texto(linhas[nl++], 64, "  %s%s", e.s[i].ip, e.s[i].solo_ver ? " (solo ver)" : "");
+            g_retangulo(jn, 0, 0, 340, 120, COR_FUNDO);
+            for (int i = 0; i < nl; i++) g_texto(jn, 20, 12 + i * 20, linhas[i], i ? COR_TEXTO_FRACO : COR_TEXTO);
+            botao_desenhar(jn, &bt);
+            jan_mostrar(jn);
+        }
+    }
+    jan_fechar(jn);
+    return 0;
 }
 
 static int escutar_vnc(int porta_pedida)
@@ -783,6 +983,7 @@ static int escutar_vnc(int porta_pedida)
     else if (!inyecta_ok) anotar("aviso: el kernel no da permiso de inyectar entrada (hay que arrancar como servicio): solo ver");
     else anotar("permiso de inyección de teclado y ratón concedido");
     for (int i = 0; i < MAX_FILHOS; i++) filhos[i].tubo = -1;
+    estado_actualizar(tem_clave);
     bool com_tubo = tipo_descritor(ENTRADA) == TIPO_PIPE;
     unsigned lim = 0;
     for (;;) {
@@ -791,10 +992,12 @@ static int escutar_vnc(int porta_pedida)
         atender_tubos();
         if (com_tubo && disponivel(ENTRADA) == ERRO_PIPE_QUEBRADO) {
             anotar("parada pedida por el gestor de servicios");
+            apagar(ARQ_ESTADO);
             fechar(e);
             return 0;
         }
         recolher_filhos();
+        if (estado_sucio) estado_actualizar(tem_clave);
         endereco_rede_t de;
         int s = aceitar_conexao(e, &de);
         if (s == ERRO_TEMPO) continue;
@@ -813,7 +1016,7 @@ static int escutar_vnc(int porta_pedida)
         int pid = 0, tb[2] = { -1, -1 };
         if (!motivo) {
             char *argv[] = { "vncd", "--sesion", ip, porta, inyecta_ok ? "1" : "0", NULL };
-            if (inyecta_ok && criar_pipe(tb) != 0) { tb[0] = tb[1] = -1; }
+            if (criar_pipe(tb) != 0) { tb[0] = tb[1] = -1; }   /* D273: también para avisar de que se autenticó */
             int g0 = duplicar(ENTRADA, 28), g1 = -1;
             duplicar(s, ENTRADA);
             if (tb[1] >= 0) { g1 = duplicar(SAIDA, 27); duplicar(tb[1], SAIDA); }
@@ -827,7 +1030,7 @@ static int escutar_vnc(int porta_pedida)
         fechar(s);
         if (motivo) { anotar("conexión de %s:%s rechazada: %s", ip, porta, motivo); continue; }
         for (int i = 0; i < MAX_FILHOS; i++)
-            if (!filhos[i].pid) { filhos[i].pid = pid; filhos[i].ip = de.ip; filhos[i].tubo = tb[0]; break; }
+            if (!filhos[i].pid) { filhos[i].pid = pid; filhos[i].ip = de.ip; filhos[i].tubo = tb[0]; filhos[i].autent = false; break; }
     }
 }
 
@@ -836,6 +1039,8 @@ static int escutar_vnc(int porta_pedida)
 static const char AYUDA[] =
     "uso: vncd                 servidor de escritorio remoto VNC (mejora 097, D252)\n"
     "     vncd --clave [TEXTO] fija la contraseña (solo cuentan los 8 primeros caracteres)\n"
+    "     vncd --estado        quién está conectado;  vncd --desconectar [PID]  corta una sesión o todas\n"
+    "     vncd --ajustar escuchar=local|red-local solo_ver=si|no   guarda opciones (reiniciar el servicio)\n"
     "Como servicio (desactivado de serie):  vncd --clave ...; servicio activar vncd ; servicio iniciar vncd\n"
     "Por defecto solo acepta conexiones desde la propia máquina (127.0.0.1): desde el PC,\n"
     "  ssh -L 5900:localhost:5900 root@IP   y el cliente VNC a localhost:5900.\n"
@@ -861,6 +1066,14 @@ int principal(int argc, char **argv)
                 for (int k = 0; k < n; k++) if (t[k] == '\n' || t[k] == '\r') { t[k] = 0; break; }
             }
             return clave_fijar(t);
+        } else if (compara_texto(argv[i], "--estado") == 0) {
+            return cmd_estado();
+        } else if (compara_texto(argv[i], "--desconectar") == 0) {
+            return cmd_desconectar(i + 1 < argc ? texto_para_int(argv[i + 1]) : 0);
+        } else if (compara_texto(argv[i], "--ajustar") == 0) {
+            return cmd_ajustar(argc, argv, i + 1);
+        } else if (compara_texto(argv[i], "--indicador") == 0) {
+            return cmd_indicador();
         } else if (compara_texto(argv[i], "-p") == 0 && i + 1 < argc) {
             porta = texto_para_int(argv[++i]);
             if (porta <= 0 || porta > 65535) { imprimir_em(ERROS, "vncd: puerto no válido\n"); return 2; }

@@ -54,7 +54,7 @@ typedef struct {
     bool     tem_audio;        /* el archivo lleva pista de audio */
     uint32_t taxa_audio;       /* Hz del audio */
     int      canais_audio;     /* 1 o 2 */
-    const char *nome_formato;  /* "MJPEG en AVI" */
+    const char *nome_formato;  /* "MJPEG en AVI", "H.264/AAC en MP4"... */
 } video_info_t;
 
 typedef struct video video_t;
@@ -79,6 +79,15 @@ int  video_quadro_atual(const video_t *v);    /* el cuadro que sale ahora */
 int  video_total_quadros(const video_t *v);
 
 void video_fechar(video_t *v);
+
+/* MP4 (H.264 Baseline/Main + AAC-LC, mejora 100, D276). video_abrir() lo abre por la
+ * cabecera, no por la extensión; video_abrir_memoria() es para quien ya lo tiene en un
+ * búfer (el Cipó): los datos tienen que seguir vivos hasta video_fechar(). Solo MP4.
+ * Con un MP4, video_quadro(v, NULL) decodifica y descarta el cuadro (saltarlo sin
+ * gastar la conversión de color) y video_reducao(v, 2) entrega los cuadros a la mitad
+ * de tamaño (más rápido); el audio sale siempre estéreo de 16 bits a taxa_audio. */
+video_t *video_abrir_memoria(const uint8_t *dados, uint32_t n, int *erro);
+void video_reducao(video_t *v, int fator);
 const char *video_erro_texto(int erro);
 bool video_extensao(const char *nome);   /* .avi .mpg .mpeg (sin distinguir mayúsculas) */
 

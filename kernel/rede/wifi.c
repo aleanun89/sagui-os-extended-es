@@ -31,9 +31,17 @@
  * reordenación). Cada cosa vuelve sola a lo de antes si falla, y se puede
  * apagar en /home/.config/wifi-desempenho.conf («ht 0», «filas 0»).
  *
+ * D280 (v8.2): el mismo programa y la misma pila 802.11 sirven también a la
+ * Wi-Fi integrada Atheros AR9485 (PCIe 168c:0032, kernel/rede/ar9485.c): sin
+ * firmware ni eFuse, el chip se enciende desde la propia tarea y los anillos DMA
+ * se sondean. Las llamadas al chip pasan por las funciones «drv_*», que van al
+ * RTL8188EU o al AR9485 según cuál esté (por ahora solo uno a la vez). El AR9485
+ * se asocia como b/g (sin HT) y su CCMP va por software (ar9485.c lo explica).
+ *
  * No se admiten: Enterprise, A-MPDU, 40 MHz, ahorro de energía ni 5 GHz (el
- * chip no lo tiene). */
+ * RTL8188EU no lo tiene; el AR9485 es de 2,4 GHz). */
 #include "wifi.h"
+#include "ar9485.h"
 #include "wpa.h"
 #include "wpa_cifra.h"
 #include "sae.h"
@@ -62,6 +70,9 @@
 static r88e_t chip = { .rx_h = -1 };
 static usb_disp_t *disp_novo;          /* lo apuntó usb.c: la tarea lo arranca */
 static bool tarefa_criada;
+static bool via_pci;                   /* D280: el chip es el AR9485 (PCIe), no el pincho USB */
+static bool pci_novo;                  /* la tarjeta PCI está por encender: la tarea la arranca */
+static bool ajuste_cifra_hw;           /* «cifrado hw» en wifi-desempenho.conf: CCMP del AR9485 por hardware */
 static const char canal_tarefa = 0;
 
 static uint32_t estado = WIFI_SEM_PINCHO;
@@ -134,6 +145,69 @@ typedef struct { uint16_t n; uint8_t q[ETH_MAX]; } quadro_eth_t;
 static quadro_eth_t fila_tx[FILA], fila_rx[FILA_RX];
 static uint32_t tx_ini, tx_qtd, rx_ini, rx_qtd;
 static placa_t placa_wifi;
+
+/* ------------------------------------------------------------ el chip (D280)
+ * Una sola capa entre la pila 802.11 y los dos drivers. «chip» guarda lo que los dos
+ * comparten (MAC, canal, tasa); lo propio de cada uno está en rtl8188eu.c y ar9485.c. */
+
+static void anotar_erro(const char *s);
+
+static void chip_sincronizar(void)
+{
+    if (!via_pci) return;
+    const ar9485_t *a = ar9485_info();
+    memcpy(chip.mac, a->mac, 6);
+    chip.canal = a->canal;
+    chip.taxa = a->taxa;
+    chip.erros_usb = 0;
+}
+
+static int drv_enviar(r88e_t *c, const uint8_t *q, uint32_t n, int tipo, bool cifrar)
+{
+    if (!via_pci) return r88e_enviar(c, q, n, tipo, cifrar);
+    int r = ar9485_enviar(q, n, tipo == R88E_TX_GESTAO ? AR9485_TX_GESTAO : tipo == R88E_TX_EAPOL ? AR9485_TX_EAPOL : AR9485_TX_DADOS,
+                          cifrar);
+    chip.taxa = ar9485_info()->taxa;
+    return r;
+}
+
+static int drv_receber(r88e_t *c, r88e_rx_t cb)
+{
+    if (!via_pci) return r88e_receber(c, cb);
+    int r = ar9485_receber(cb);
+    ar9485_periodico();
+    chip_sincronizar();
+    return r;
+}
+
+static void drv_canal(r88e_t *c, uint8_t canal)
+{
+    if (!via_pci) { r88e_canal(c, canal); return; }
+    ar9485_canal(canal);
+    chip_sincronizar();
+    if (!ar9485_info()->pronto && estado != WIFI_FALHOU) {   /* el reinicio falló: el registro dice por qué */
+        estado = WIFI_FALHOU;
+        anotar_erro("el chip dejó de responder al cambiar de canal (ver el registro [AR9485])");
+    }
+}
+
+static void drv_modo_busca(r88e_t *c, bool b) { if (via_pci) ar9485_modo_busca(b); else r88e_modo_busca(c, b); }
+static void drv_desassociado(r88e_t *c) { if (via_pci) ar9485_desassociado(); else r88e_desassociado(c); }
+static void drv_limpar_chaves(r88e_t *c) { if (via_pci) ar9485_limpar_chaves(); else r88e_limpar_chaves(c); }
+static void drv_rx_simples(r88e_t *c) { if (!via_pci) r88e_rx_simples(c); }
+static void drv_em_voo(r88e_t *c, uint32_t *rx, uint32_t *tx) { if (via_pci) *rx = *tx = 0; else r88e_em_voo(c, rx, tx); }
+static void drv_chave(r88e_t *c, int entrada, const uint8_t k[16], const uint8_t *mac, uint8_t keyid)
+{
+    if (via_pci) ar9485_chave(entrada, k, mac);
+    else r88e_chave(c, entrada, k, mac, keyid);
+}
+static void drv_ht(r88e_t *c, bool ht, bool sgi, uint8_t mcs)
+{
+    if (via_pci) { c->ht = false; c->sgi = false; c->taxa = ar9485_info()->taxa; }
+    else r88e_ht(c, ht, sgi, mcs);
+}
+/* El CCMP de los datos lo hace el chip (RTL8188EU siempre; AR9485 solo si se pide). */
+static bool ccmp_por_hw(void) { return !via_pci || ar9485_info()->cifra_hw; }
 
 static bool wl_enviar(const void *q, uint32_t n)
 {
@@ -248,7 +322,7 @@ static void enviar_sondeo(const uint8_t *ssid, uint8_t nssid)
     k += nssid;
     k = ies_taxas(k);
     tq[k++] = 3; tq[k++] = 1; tq[k++] = chip.canal;
-    if (r88e_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
+    if (drv_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
 }
 
 /* Autenticación: algoritmo (0 abierta, 1 clave compartida, 3 SAE), paso y
@@ -260,7 +334,7 @@ static void enviar_auth(uint16_t alg, uint16_t seq, uint16_t st, const uint8_t *
     tq[k++] = (uint8_t)seq; tq[k++] = (uint8_t)(seq >> 8);
     tq[k++] = (uint8_t)st; tq[k++] = (uint8_t)(st >> 8);
     if (nresto) { memcpy(tq + k, resto, nresto); k += nresto; }
-    if (r88e_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
+    if (drv_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
 }
 
 static void enviar_assoc(void)
@@ -284,7 +358,7 @@ static void enviar_assoc(void)
         k += wn_ie_ht_cap(tq + k);
         k += wn_ie_wmm(tq + k);
     }
-    if (r88e_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
+    if (drv_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
 }
 
 /* Con la 802.11w activa, las tramas de gestión de unidifusión (desautenticación,
@@ -295,7 +369,7 @@ static bool pmf_ativa(void) { return chaves_ok && par.pmf && modo >= MODO_WPA; }
 static void enviar_gestao(uint32_t k)
 {
     if (pmf_ativa()) k = ccmp_cifrar(tq, 24, k, sup.ptk + 32, ++pn_tx, 0);
-    if (r88e_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
+    if (drv_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
 }
 
 static void enviar_deauth(uint16_t motivo)
@@ -335,6 +409,7 @@ static void ht_vetar(const uint8_t *bssid, const char *motivo)
  * HT de una estación TKIP. */
 static bool ht_possivel(const bss_t *b)
 {
+    if (via_pci) return false;                              /* D280: el AR9485 se asocia como b/g */
     if (!ajuste_ht || !b->n.ht || !b->n.wmm || ht_vetado(b->bssid)) return false;
     if (modo == MODO_ABERTA) return true;
     return modo >= MODO_WPA && par.cifra_par == WPA_CIFRA_CCMP;
@@ -348,6 +423,7 @@ static void ler_ajustes(void)
     uint8_t *txt;
     uint32_t tam;
     ajuste_ht = ajuste_filas = true;
+    ajuste_cifra_hw = false;
     if (!vfs_existe_arquivo(AJUSTES) || vfs_ler_inteiro(AJUSTES, &txt, &tam) < 0) return;
     for (uint32_t i = 0; i < tam;) {
         uint32_t f = i;
@@ -357,6 +433,7 @@ static void ler_ajustes(void)
         while (nl && (l[nl - 1] == '\r' || l[nl - 1] == ' ')) nl--;
         if (nl == 4 && !memcmp(l, "ht 0", 4)) ajuste_ht = false;
         else if (nl == 7 && !memcmp(l, "filas 0", 7)) ajuste_filas = false;
+        else if (nl == 10 && !memcmp(l, "cifrado hw", 10)) ajuste_cifra_hw = true;   /* D280: CCMP del AR9485 por hardware */
         i = f + 1;
     }
     kfree(txt);
@@ -386,13 +463,16 @@ static void recusar_addba(const uint8_t *b, uint32_t nb)
 static void enviar_dados(const uint8_t *eth, uint32_t n, bool eapol)
 {
     if (n < 14 || n > ETH_MAX) return;
-    /* El CCMP lo hace el chip; TKIP y WEP, el software (D220). */
+    /* El CCMP lo hace el chip (el RTL8188EU siempre; el AR9485 solo con «cifrado hw»,
+     * D280); si no, y TKIP y WEP, el software (D220). */
     uint8_t cifra = modo == MODO_WEP ? WPA_CIFRA_WEP40 : par.cifra_par;
-    bool cifrar = chaves_ok && cifra == WPA_CIFRA_CCMP;
+    bool ccmp = chaves_ok && cifra == WPA_CIFRA_CCMP;
+    bool cifrar = ccmp && ccmp_por_hw();
+    bool ccmp_soft = ccmp && !cifrar;
     bool soft = chaves_ok && cifra != WPA_CIFRA_CCMP;
     memset(tq, 0, 24);
     tq[0] = 0x08;                       /* datos */
-    tq[1] = (uint8_t)(0x01 | (cifrar ? 0x40 : 0));   /* hacia el sistema de distribución */
+    tq[1] = (uint8_t)(0x01 | (cifrar ? 0x40 : 0));   /* hacia el sistema de distribución (ccmp_cifrar pone el bit de protegida) */
     memcpy(tq + 4, alvo.bssid, 6);
     memcpy(tq + 10, chip.mac, 6);
     memcpy(tq + 16, eth, 6);
@@ -410,9 +490,10 @@ static void enviar_dados(const uint8_t *eth, uint32_t n, bool eapol)
     k += 6;
     memcpy(tq + k, eth + 12, n - 12);   /* tipo y carga */
     k += n - 12;
-    if (soft && modo == MODO_WEP) k = wep_cifrar(tq, 24, k, chave_wep, nchave_wep, iv_wep++ & 0xFFFFFF, 0);
+    if (ccmp_soft) k = ccmp_cifrar(tq, 24, k, sup.ptk + 32, ++pn_tx, 0);
+    else if (soft && modo == MODO_WEP) k = wep_cifrar(tq, 24, k, chave_wep, nchave_wep, iv_wep++ & 0xFFFFFF, 0);
     else if (soft) k = tkip_cifrar(tq, 24, k, sup.ptk + 32, sup.ptk + 56, ++pn_tx, 0);   /* Michael de la estación */
-    if (r88e_enviar(&chip, tq, k, eapol ? R88E_TX_EAPOL : R88E_TX_DADOS, cifrar) == 0) tx_quadros++;
+    if (drv_enviar(&chip, tq, k, eapol ? R88E_TX_EAPOL : R88E_TX_DADOS, cifrar) == 0) tx_quadros++;
 }
 
 static void enviar_eapol(const uint8_t *e, uint32_t n)
@@ -433,9 +514,9 @@ static void desconectar(const char *motivo, bool avisar_ap);
  * las usa el software (D220). La IGTK (802.11w) también es del software. */
 static void instalar_chaves(bool de_par)
 {
-    if (de_par && par.cifra_par == WPA_CIFRA_CCMP) r88e_chave(&chip, 4, sup.ptk + 32, alvo.bssid, 0);
+    if (de_par && par.cifra_par == WPA_CIFRA_CCMP) drv_chave(&chip, 4, sup.ptk + 32, alvo.bssid, 0);
     if (sup.ngtk == 16 && par.cifra_grupo == WPA_CIFRA_CCMP)
-        r88e_chave(&chip, sup.gtk_id, sup.gtk, (const uint8_t *)0, sup.gtk_id);
+        drv_chave(&chip, sup.gtk_id, sup.gtk, (const uint8_t *)0, sup.gtk_id);
     if (sup.ngtk) {
         pn_rx_grupo = (uint64_t)sup.rsc[0] | (uint64_t)sup.rsc[1] << 8 | (uint64_t)sup.rsc[2] << 16 |
                       (uint64_t)sup.rsc[3] << 24 | (uint64_t)sup.rsc[4] << 32 | (uint64_t)sup.rsc[5] << 40;
@@ -564,14 +645,31 @@ static void dados_chegou(const uint8_t *q, uint32_t n, bool decifrada)
          * las claves en la CAM): una trama con MIC malo llega con ICVERR y
          * rtl8188eu.c ya la tiró. El bit 27 del descriptor (SWDEC en el
          * fabricante: «hay que descifrar por software») solo se cuenta. */
-        if (!decifrada) swdec++;
-        if (!chaves_ok || nc < 16 || !(c[3] & 0x20)) return;
-        uint64_t pn = ccmp_pn(c);
-        uint64_t *ult = grupo ? &pn_rx_grupo : &pn_rx_par[tid];
-        if (pn <= *ult) return;                             /* repetida */
-        *ult = pn;
-        c += 8;
-        nc -= 16;                                           /* cabecera CCMP y MIC */
+        if (!decifrada && via_pci) {
+            /* D280: el AR9485 trae la trama cifrada (el descifrado por hardware va apagado): CCMP
+             * por software, con la clave de par o la de grupo, en una copia. */
+            static uint8_t cq[2400];
+            if (!chaves_ok || n > sizeof cq || nc < 16 || !(c[3] & 0x20)) return;
+            if (grupo && (sup.ngtk != 16 || (c[3] >> 6) != sup.gtk_id)) return;
+            memcpy(cq, q, n);
+            uint64_t pn;
+            uint32_t claro;
+            if (ccmp_decifrar(cq, cab, n, grupo ? sup.gtk : sup.ptk + 32, &pn, &claro) != CIFRA_OK) return;
+            uint64_t *ult = grupo ? &pn_rx_grupo : &pn_rx_par[tid];
+            if (pn <= *ult) return;                         /* repetida */
+            *ult = pn;
+            c = cq + cab + 8;
+            nc = claro;
+        } else {
+            if (!decifrada) swdec++;
+            if (!chaves_ok || nc < 16 || !(c[3] & 0x20)) return;
+            uint64_t pn = ccmp_pn(c);
+            uint64_t *ult = grupo ? &pn_rx_grupo : &pn_rx_par[tid];
+            if (pn <= *ult) return;                         /* repetida */
+            *ult = pn;
+            c += 8;
+            nc -= 16;                                       /* cabecera CCMP y MIC */
+        }
     } else if (protegida) {
         /* TKIP y WEP: el chip no tiene la clave (no va a la CAM) y la trama
          * llega cifrada; se descifra aquí (D220), en una copia. */
@@ -757,7 +855,7 @@ static void escutar(uint32_t tiques, volatile int *parar)
 {
     uint32_t fim = agora() + tiques;
     while (!passou(fim) && chip.presente) {
-        int r = r88e_receber(&chip, chegou);
+        int r = drv_receber(&chip, chegou);
         if (parar && *parar >= 0) return;
         if (r <= 0) dormir_tiques(1);
     }
@@ -772,14 +870,14 @@ static void buscar(const pedido_wifi_t *oculta)
     uint32_t transf0 = chip.rx_transf;
     buscando = true;
     nredes = 0;
-    r88e_modo_busca(&chip, true);
+    drv_modo_busca(&chip, true);
     for (uint8_t c = 1; c <= 13 && chip.presente; c++) {
-        r88e_canal(&chip, c);
+        drv_canal(&chip, c);
         enviar_sondeo((const uint8_t *)"", 0);
         if (oculta && oculta->ssid[0]) enviar_sondeo((const uint8_t *)oculta->ssid, (uint8_t)txt_tamanho(oculta->ssid));
         escutar(TIQUES_POR_SEGUNDO / 5, (volatile int *)0);
     }
-    r88e_modo_busca(&chip, false);
+    drv_modo_busca(&chip, false);
     buscando = false;
     buscas++;
     klog("[WIFI] busqueda: %d redes\n", nredes);
@@ -788,7 +886,7 @@ static void buscar(const pedido_wifi_t *oculta)
          * funciona con este controlador. Se vuelve a una lectura cada vez y se
          * repite la búsqueda. */
         klog("[WIFI] la cola de recepción no trajo nada en la búsqueda: una lectura cada vez (D215)\n");
-        r88e_rx_simples(&chip);
+        drv_rx_simples(&chip);
         buscar(oculta);
     }
 }
@@ -869,7 +967,7 @@ static void desconectar(const char *motivo, bool avisar_ap)
 {
     bool estava = estado == WIFI_CONECTADO;
     if (avisar_ap && estado >= WIFI_CONECTANDO && estado <= WIFI_CONECTADO) enviar_deauth(3);   /* la estación se va */
-    if (estado >= WIFI_CONECTANDO && estado <= WIFI_CONECTADO) r88e_desassociado(&chip);
+    if (estado >= WIFI_CONECTANDO && estado <= WIFI_CONECTADO) drv_desassociado(&chip);
     chaves_ok = false;
     saq_ativa = false;
     wpa_apagar(&sup, sizeof sup);
@@ -917,7 +1015,7 @@ static bool auth_compartida(void)
         memcpy(tq + k, e, 2u + e[1]);
         k += 2u + e[1];
         k = wep_cifrar(tq, 24, k, chave_wep, nchave_wep, iv_wep++ & 0xFFFFFF, 0);
-        if (r88e_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
+        if (drv_enviar(&chip, tq, k, R88E_TX_GESTAO, false) == 0) tx_quadros++;
         if (!esperar_auth(1, 4, TIQUES_POR_SEGUNDO / 2)) continue;
         if (resp_auth == 0) return true;
         anotar_erro("la clave WEP no es correcta (el punto de acceso rechazó el reto)");
@@ -1014,7 +1112,7 @@ static void conectar(void)
 {
     erro[0] = 0;
     ler_ajustes();
-    if (!ajuste_filas && (chip.rx_fila || chip.tx_fila)) r88e_rx_simples(&chip);
+    if (!ajuste_filas && (chip.rx_fila || chip.tx_fila)) drv_rx_simples(&chip);
     int k = melhor(pedido.ssid);
     if (k < 0) { buscar(&pedido); k = melhor(pedido.ssid); }
     if (k < 0) { anotar_erro("no se encuentra la red"); return; }
@@ -1058,9 +1156,9 @@ static void conectar(void)
     aleatorio_bytes(&iv_wep, sizeof iv_wep);
     saudacao_desde = 0;
     sinal = alvo.rssi;
-    r88e_limpar_chaves(&chip);
-    r88e_canal(&chip, alvo.i.canal);
-    r88e_modo_busca(&chip, false);
+    drv_limpar_chaves(&chip);
+    drv_canal(&chip, alvo.i.canal);
+    drv_modo_busca(&chip, false);
     int t;
     if (modo == MODO_SAE) {
         if (!auth_sae()) {
@@ -1124,11 +1222,12 @@ static void conectar(void)
         anotar_erro(m);
         return;
     }
-    r88e_associado(&chip, alvo.bssid, alvo.intervalo, (alvo.capacidade & 0x0400) != 0, (alvo.capacidade & 0x0020) != 0);
+    if (via_pci) ar9485_associado(alvo.bssid, aid, (alvo.capacidade & 0x0400) != 0, (alvo.capacidade & 0x0020) != 0);
+    else r88e_associado(&chip, alvo.bssid, alvo.intervalo, (alvo.capacidade & 0x0400) != 0, (alvo.capacidade & 0x0020) != 0);
     /* D238: tasas HT solo si las anunciamos y el punto de acceso las aceptó
      * (su respuesta trae HT Capabilities); si no, la escalera b/g de siempre. */
     usar_ht = usar_ht && resp_assoc_ht;
-    r88e_ht(&chip, usar_ht, alvo.n.sgi20, alvo.n.mcs);
+    drv_ht(&chip, usar_ht, alvo.n.sgi20, alvo.n.mcs);
     if (usar_ht)
         klog("[WIFI] 802.11n: MCS 0-%d a 20 MHz, GI corto %s, WMM; empieza en MCS %u\n",
              alvo.n.mcs & 0x80 ? 7 : alvo.n.mcs & 0x40 ? 6 : alvo.n.mcs & 0x20 ? 5 : 4, chip.sgi ? "sí" : "no",
@@ -1256,8 +1355,51 @@ static void trocar_modo(usb_disp_t *d)
 
 /* ------------------------------------------------------------ la tarea */
 
+/* Da de alta wlan0 en la pila IP (la usan los dos chips). */
+static void registrar_placa(const char *nome, const char *descricao, uint16_t vid, uint16_t pid)
+{
+    memset(&placa_wifi, 0, sizeof placa_wifi);
+    placa_wifi.nome = nome;
+    placa_wifi.descricao = descricao;
+    memcpy(placa_wifi.mac, chip.mac, 6);
+    placa_wifi.pci.fabricante = vid;
+    placa_wifi.pci.modelo = pid;
+    placa_wifi.irq = -1;
+    placa_wifi.enviar = wl_enviar;
+    placa_wifi.receber = wl_receber;
+    placa_wifi.cabo = wl_cabo;
+    placa_wifi.atender = wl_atender;
+    rede_wifi_registrar(&placa_wifi);
+}
+
+/* D280: la Atheros AR9485 integrada (PCIe). Sin firmware ni eFuse: todo el inicio es ar9485_iniciar. */
+static void arrancar_ar9485(void)
+{
+    estado = WIFI_INICIANDO;
+    erro[0] = 0;
+    nome_chip[0] = 0;
+    chip.fw_versao[0] = 0;
+    ler_ajustes();
+    ar9485_cifra_hw(ajuste_cifra_hw);
+    const char *motivo = "";
+    if (ar9485_iniciar(&motivo) < 0) {
+        estado = WIFI_FALHOU;
+        anotar_erro(motivo);
+        klog("[WIFI] AR9485: no arranca: %s\n", motivo);
+        return;
+    }
+    const ar9485_t *a = ar9485_info();
+    snformatar(nome_chip, sizeof nome_chip, "Atheros AR9485 (revisión %u)", (unsigned)a->mac_rev);
+    chip_sincronizar();
+    klog("[WIFI] %s, MAC %02x:%02x:%02x:%02x:%02x:%02x (ROM), CCMP por %s\n", nome_chip, chip.mac[0], chip.mac[1], chip.mac[2],
+         chip.mac[3], chip.mac[4], chip.mac[5], a->cifra_hw ? "hardware" : "software");
+    estado = WIFI_PRONTO;
+    registrar_placa("ar9485", "Atheros AR9485 (Wi-Fi PCIe)", 0x168C, 0x0032);
+}
+
 static void arrancar_chip(void)
 {
+    if (via_pci) { arrancar_ar9485(); return; }
     estado = WIFI_INICIANDO;
     erro[0] = 0;
     const char *motivo;
@@ -1286,18 +1428,7 @@ static void arrancar_chip(void)
     if (r < 0) { estado = WIFI_FALHOU; anotar_erro(motivo); return; }
     klog("[WIFI] firmware %s cargado; chip listo (%u errores USB)\n", chip.fw_versao, chip.erros_usb);
     estado = WIFI_PRONTO;
-    memset(&placa_wifi, 0, sizeof placa_wifi);
-    placa_wifi.nome = "rtl8188eu";
-    placa_wifi.descricao = "Realtek RTL8188EU (Wi-Fi USB)";
-    memcpy(placa_wifi.mac, chip.mac, 6);
-    placa_wifi.pci.fabricante = 0x0BDA;
-    placa_wifi.pci.modelo = 0x8179;
-    placa_wifi.irq = -1;
-    placa_wifi.enviar = wl_enviar;
-    placa_wifi.receber = wl_receber;
-    placa_wifi.cabo = wl_cabo;
-    placa_wifi.atender = wl_atender;
-    rede_wifi_registrar(&placa_wifi);
+    registrar_placa("rtl8188eu", "Realtek RTL8188EU (Wi-Fi USB)", 0x0BDA, 0x8179);
 #endif
 }
 
@@ -1308,18 +1439,25 @@ static void tarefa_wifi(void *arg)
     uint32_t transf_vistas = 0, transf_em = 0;
     usb_avisar_fila(&canal_tarefa);   /* D238: la IRQ del xHCI despierta a la tarea */
     for (;;) {
-        if (disp_novo) {
+        if (disp_novo || pci_novo) {
             bool i0 = int_salva_desliga();
-            chip.d = disp_novo;
+            if (pci_novo) {
+                via_pci = true;
+                chip.d = (usb_disp_t *)0;
+                pci_novo = false;
+            } else {
+                via_pci = false;
+                chip.d = disp_novo;
+                disp_novo = (usb_disp_t *)0;
+            }
             chip.presente = true;
-            disp_novo = (usb_disp_t *)0;
             int_restaura(i0);
             chip.rx_h = -1;
             nredes = 0;
             arrancar_chip();
             proxima_auto = agora() + TIQUES_POR_SEGUNDO;
         }
-        if (!chip.presente && !disp_novo) estado = WIFI_SEM_PINCHO;   /* se retiró a mitad del inicio */
+        if (!chip.presente && !disp_novo && !pci_novo) estado = WIFI_SEM_PINCHO;   /* se retiró a mitad del inicio */
         if (!chip.presente || estado == WIFI_FALHOU || estado == WIFI_SEM_FIRMWARE || estado == WIFI_SEM_PINCHO) {
             dormir_tiques(TIQUES_POR_SEGUNDO / 2);
             continue;
@@ -1351,7 +1489,7 @@ static void tarefa_wifi(void *arg)
         /* D238: todo lo que haya llegado (con la cola, varias transferencias). */
         int r = 0;
         for (int k = 0; k < 2 * USB_FILA_MAX; k++) {
-            int x = r88e_receber(&chip, chegou);
+            int x = drv_receber(&chip, chegou);
             if (x <= 0) break;
             r += x;
         }
@@ -1360,7 +1498,7 @@ static void tarefa_wifi(void *arg)
             /* Conectado y 5 s sin nada del USB (las balizas llegan 10 veces por
              * segundo): la cola se ha quedado parada. Una lectura cada vez. */
             klog("[WIFI] la cola de recepción no trae nada desde hace 5 s: una lectura cada vez (D215)\n");
-            r88e_rx_simples(&chip);
+            drv_rx_simples(&chip);
             transf_em = agora();
         }
         if (estado == WIFI_CONECTADO && passou(marca_em + 10 * TIQUES_POR_SEGUNDO)) {
@@ -1368,7 +1506,7 @@ static void tarefa_wifi(void *arg)
             uint32_t drx = rx_bytes - marca_rx_bytes, dtx = tx_bytes - marca_tx_bytes;
             if (drx + dtx >= 64 * 1024) {
                 uint32_t vrx, vtx;
-                r88e_em_voo(&chip, &vrx, &vtx);
+                drv_em_voo(&chip, &vrx, &vtx);
                 uint16_t td = wn_taxa_dec(chip.taxa, chip.sgi && chip.taxa >= WN_TAXA_MCS0);
                 klog("[WIFI] rx %u KB/s, tx %u KB/s; tasa %u,%u Mb/s%s; USB rx %u (cola %u, en vuelo %u, hasta %u tramas), "
                      "tx %u (en vuelo %u, llena %u)\n", drx / 10240, dtx / 10240, td / 10, td % 10,
@@ -1432,7 +1570,7 @@ bool wifi_usb_reconhecer(usb_disp_t *d)
     if (d->id_fabricante != 0x0BDA || d->id_produto != 0x8179) return false;
     klog("[WIFI] pincho Realtek RTL8188EU (0bda:8179), %s\n",
          chip.presente ? "ya hay otro: este no se usa" : "se enciende en la tarea wifi");
-    if (chip.presente || disp_novo) return true;
+    if (chip.presente || disp_novo || pci_novo) return true;
     if (!d->ep_entrada || !d->ep_saida) { klog("[WIFI] sin endpoints bulk\n"); return true; }
     d->wifi = true;
     disp_novo = d;
@@ -1440,6 +1578,18 @@ bool wifi_usb_reconhecer(usb_disp_t *d)
     if (!tarefa_criada) { tarefa_criada = true; tarefa_kernel("wifi", tarefa_wifi, (void *)0); }
     acordar(&canal_tarefa);
     return true;
+}
+
+/* D280: rede_iniciar() llama aquí tras buscar la tarjeta de red: si hay una AR9485 en el PCI, la tarea
+ * «wifi» la enciende (lo lento, y lo que puede fallar, va en la tarea y no en el arranque). */
+void wifi_pci_iniciar(void)
+{
+    if (chip.presente || disp_novo || pci_novo) return;
+    if (!ar9485_procurar()) return;
+    pci_novo = true;
+    estado = WIFI_INICIANDO;
+    if (!tarefa_criada) { tarefa_criada = true; tarefa_kernel("wifi", tarefa_wifi, (void *)0); }
+    acordar(&canal_tarefa);
 }
 
 void wifi_usb_retirado(usb_disp_t *d)
@@ -1516,7 +1666,7 @@ void wifi_info(info_wifi_t *v)
     v->tx_cola = chip.tx_fila;
     if (estado != WIFI_SEM_PINCHO && chip.presente) {
         uint32_t vrx, vtx;
-        r88e_em_voo(&chip, &vrx, &vtx);
+        drv_em_voo(&chip, &vrx, &vtx);
         v->rx_en_vuelo = (unsigned char)vrx;
         v->tx_en_vuelo = (unsigned char)vtx;
     }

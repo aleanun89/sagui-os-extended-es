@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 2a577c85 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 13bedffe (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -280,6 +280,9 @@ na seção «Sagui 3D» de [`docs/decisoes.md`](docs/decisoes.md).
 - **Macaco** (D142, v6.3): planilha com grade, fórmulas típicas (soma, média, mínimo,
   máximo, contar, se, arredondar…), gráficos de barras e de pizza, e arquivos próprios `.mxs`
   (Macaco eXcel Sheet).
+- **Pluma** (D291, v8.3): processador de textos com a aparência de um Word 97 simplificado (menus, barras de
+  ferramentas com ícones, régua, visualização de página, fontes, parágrafos, localizar e substituir). Lê e grava **RTF**
+  e texto, e **exporta para PDF**. Sem macros.
 - **Cliente de e-mail** (D146, v6.3 e v6.6): recebe por POP3 ou IMAP e envia por SMTP, com janela,
   lista de mensagens, anexos e corpo em texto puro ou em HTML (convertido em texto).
 

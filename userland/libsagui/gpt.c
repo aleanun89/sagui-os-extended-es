@@ -43,17 +43,21 @@ static bool cero16(const uint8_t *a) { for (int i = 0; i < 16; i++) if (a[i]) re
 static const uint8_t *ent_de(const gpt_t *g, int slot) { return g->ent + (unsigned)slot * GPT_TAM_ENT; }
 bool gpt_usada(const gpt_t *g, int slot) { return slot >= 0 && slot < (int)GPT_ENTRADAS && !cero16(ent_de(g, slot)); }
 const uint8_t *gpt_tipo(const gpt_t *g, int slot) { return ent_de(g, slot); }
+/* D283: las entradas del disco cuentan en bloques reales (esc sectores de 512 cada uno); la API, en sectores. */
+static uint32_t escala(const gpt_t *g) { return g->esc ? g->esc : 1; }
+static uint64_t ent_ini64(const gpt_t *g, const uint8_t *e) { return (((uint64_t)le32(e + 36) << 32) | le32(e + 32)) * escala(g); }
+static uint64_t ent_fim64(const gpt_t *g, const uint8_t *e) { return (((((uint64_t)le32(e + 44) << 32) | le32(e + 40)) + 1) * escala(g)) - 1; }
 bool gpt_alem_32bits(const gpt_t *g, int slot)
 {
     const uint8_t *e = ent_de(g, slot);
-    return le32(e + 36) || le32(e + 44);
+    return ent_ini64(g, e) > 0xFFFFFFFFull || ent_fim64(g, e) > 0xFFFFFFFFull;
 }
-uint32_t gpt_inicio(const gpt_t *g, int slot) { return le32(ent_de(g, slot) + 32); }
+uint32_t gpt_inicio(const gpt_t *g, int slot) { return (uint32_t)ent_ini64(g, ent_de(g, slot)); }
 uint32_t gpt_setores_ent(const gpt_t *g, int slot)
 {
     if (gpt_alem_32bits(g, slot)) return 0;
     const uint8_t *e = ent_de(g, slot);
-    return le32(e + 40) - le32(e + 32) + 1;
+    return (uint32_t)(ent_fim64(g, e) - ent_ini64(g, e) + 1);
 }
 
 void gpt_nome_ent(const gpt_t *g, int slot, char *s, int max)
@@ -137,6 +141,7 @@ static int ler_uma(const char *disco, uint32_t setores, uint32_t lba, bool princ
     uint8_t s[512];
     int r = blocos_ler(disco, lba, 1, s);
     if (r < 0) { txt(erro, max, "no se puede leer el sector %u: %s", lba, nome_erro(r)); return r; }
+    const uint32_t f = escala(g);
     const char *quem = principal ? "la cabecera principal" : "la cabecera de respaldo";
     if (memcmp(s, "EFI PART", 8) != 0) { txt(erro, max, "%s no tiene la firma EFI PART", quem); return ERRO_FORMATO; }
     uint32_t rev = le32(s + 8), hsz = le32(s + 12);
@@ -145,8 +150,8 @@ static int ler_uma(const char *disco, uint32_t setores, uint32_t lba, bool princ
     memcpy(c, s, hsz);
     po32(c + 16, 0);
     if (gpt_crc(c, hsz) != le32(s + 16)) { txt(erro, max, "%s: el CRC no cuadra", quem); return ERRO_FORMATO; }
-    if (le32(s + 24) != lba || le32(s + 28)) { txt(erro, max, "%s: no está en su sitio", quem); return ERRO_FORMATO; }
-    uint32_t n = le32(s + 80), tam = le32(s + 84), lba_ent = le32(s + 72);
+    if (le32(s + 24) * f != lba || le32(s + 28)) { txt(erro, max, "%s: no está en su sitio", quem); return ERRO_FORMATO; }
+    uint32_t n = le32(s + 80), tam = le32(s + 84), lba_ent = le32(s + 72) * f;
     if (le32(s + 76)) { txt(erro, max, "%s: las entradas empiezan más allá de 2 TB", quem); return ERRO_FORMATO; }
     if (tam != GPT_TAM_ENT) { txt(erro, max, "%s: entradas de %u bytes (solo se admiten 128)", quem, tam); return ERRO_FORMATO; }
     if (n == 0 || n > GPT_ENTRADAS) { txt(erro, max, "%s: %u entradas (se admiten hasta %u)", quem, n, GPT_ENTRADAS); return ERRO_FORMATO; }
@@ -157,8 +162,8 @@ static int ler_uma(const char *disco, uint32_t setores, uint32_t lba, bool princ
     if (r < 0) { txt(erro, max, "no se pueden leer las entradas: %s", nome_erro(r)); return r; }
     if (gpt_crc(g->ent, n * tam) != le32(s + 88)) { memset(g->ent, 0, sizeof g->ent); txt(erro, max, "%s: el CRC de las entradas no cuadra", quem); return ERRO_FORMATO; }
     memcpy(g->guid, s + 56, 16);
-    g->primeiro = le32(s + 44) ? 0xFFFFFFFFu : le32(s + 40);
-    g->ultimo = le32(s + 52) ? 0xFFFFFFFFu : le32(s + 48);
+    g->primeiro = le32(s + 44) ? 0xFFFFFFFFu : le32(s + 40) * f;
+    g->ultimo = le32(s + 52) ? 0xFFFFFFFFu : (le32(s + 48) + 1) * f - 1;
     if (g->ultimo >= setores) g->ultimo = setores - 1;
     return 0;
 }
@@ -171,20 +176,22 @@ int gpt_ler(const char *disco, gpt_t *g, char *erro, int max)
     memset(g, 0, sizeof *g);
     copia_texto(g->disco, disco, sizeof g->disco);
     g->setores = inf.setores;
-    if (inf.inicio || inf.setores < 68) { txt(erro, max, "%s no es un disco entero con sitio para una GPT", disco); return ERRO_INVALIDO; }
+    g->esc = inf.bloco_fisico == 4096 ? 8 : 1;   /* D283 */
+    if (inf.inicio || inf.setores < 68 * g->esc) { txt(erro, max, "%s no es un disco entero con sitio para una GPT", disco); return ERRO_INVALIDO; }
     char e1[100], e2[100];
-    r = ler_uma(disco, inf.setores, 1, true, g, e1, sizeof e1);
+    r = ler_uma(disco, inf.setores, g->esc, true, g, e1, sizeof e1);
     if (r == 0) {
         g->origem = GPT_PRINCIPAL;
         gpt_t *t = aloca(sizeof *t);   /* ¿vale también el respaldo? (no se guarda, solo se avisa) */
         if (t) {
             memset(t, 0, sizeof *t);
-            g->respaldo_ok = ler_uma(disco, inf.setores, inf.setores - 1, false, t, e2, sizeof e2) == 0;
+            t->esc = g->esc;
+            g->respaldo_ok = ler_uma(disco, inf.setores, inf.setores - g->esc, false, t, e2, sizeof e2) == 0;
             libera(t);
         }
         return 0;
     }
-    int r2 = ler_uma(disco, inf.setores, inf.setores - 1, false, g, e2, sizeof e2);
+    int r2 = ler_uma(disco, inf.setores, inf.setores - g->esc, false, g, e2, sizeof e2);
     if (r2 == 0) { g->origem = GPT_RESPALDO; return 0; }
     txt(erro, max, "GPT no válida: %s; %s", e1, e2);
     return r;
@@ -197,8 +204,10 @@ void gpt_nova(gpt_t *g, const char *disco, uint32_t setores)
     memset(g, 0, sizeof *g);
     copia_texto(g->disco, disco, sizeof g->disco);
     g->setores = setores;
-    g->primeiro = 34;
-    g->ultimo = setores - 34;
+    info_bloco_t inf;
+    g->esc = blocos_info(disco, &inf) == 0 && inf.bloco_fisico == 4096 ? 8 : 1;   /* D283 */
+    g->primeiro = (2 + GPT_SETORES_ENT / g->esc) * g->esc;
+    g->ultimo = setores - (1 + GPT_SETORES_ENT / g->esc) * g->esc - 1;
     bytes_aleatorios(g->guid, 16);
     g->guid[7] = (uint8_t)((g->guid[7] & 0x0F) | 0x40);   /* versión 4 */
     g->guid[8] = (uint8_t)((g->guid[8] & 0x3F) | 0x80);
@@ -207,21 +216,23 @@ void gpt_nova(gpt_t *g, const char *disco, uint32_t setores)
 
 bool gpt_validar(gpt_t *g, char *erro, int max)
 {
-    if (g->setores < 68) { txt(erro, max, "el disco es demasiado pequeño para una GPT"); return false; }
-    g->primeiro = 34;
-    g->ultimo = g->setores - 34;
+    const uint32_t f = escala(g);
+    if (g->setores < 68 * f) { txt(erro, max, "el disco es demasiado pequeño para una GPT"); return false; }
+    g->primeiro = (2 + GPT_SETORES_ENT / f) * f;                  /* D283: en bloques de 4096, 6 bloques = 48 sectores */
+    g->ultimo = g->setores - (1 + GPT_SETORES_ENT / f) * f - 1;
     for (int i = 0; i < (int)GPT_ENTRADAS; i++) {
         if (!gpt_usada(g, i)) continue;
         const uint8_t *e = ent_de(g, i);
-        if (le32(e + 36) || le32(e + 44)) continue;   /* más allá de 2 TB: se conserva tal cual */
-        uint32_t a = le32(e + 32), b = le32(e + 40);
+        if (gpt_alem_32bits(g, i)) continue;   /* más allá de 2 TB: se conserva tal cual */
+        uint32_t a = (uint32_t)ent_ini64(g, e), b = (uint32_t)ent_fim64(g, e);
+        if (a % f || (b + 1) % f) { txt(erro, max, "la entrada %d no está alineada a los bloques de %u bytes del disco", i + 1, f * 512); return false; }
         if (b < a || a < g->primeiro || b > g->ultimo) {
             txt(erro, max, "la entrada %d (sectores %u a %u) cae fuera de la zona utilizable (%u a %u)", i + 1, a, b, g->primeiro, g->ultimo);
             return false;
         }
         for (int k = i + 1; k < (int)GPT_ENTRADAS; k++) {
             if (!gpt_usada(g, k) || gpt_alem_32bits(g, k)) continue;
-            uint32_t a2 = le32(ent_de(g, k) + 32), b2 = le32(ent_de(g, k) + 40);
+            uint32_t a2 = (uint32_t)ent_ini64(g, ent_de(g, k)), b2 = (uint32_t)ent_fim64(g, ent_de(g, k));
             if (a <= b2 && a2 <= b) { txt(erro, max, "las entradas %d y %d se solapan", i + 1, k + 1); return false; }
         }
     }
@@ -249,8 +260,8 @@ int gpt_adicionar(gpt_t *g, const uint8_t *tipo, uint32_t inicio, uint32_t setor
     bytes_aleatorios(e + 16, 16);
     e[16 + 7] = (uint8_t)((e[16 + 7] & 0x0F) | 0x40);
     e[16 + 8] = (uint8_t)((e[16 + 8] & 0x3F) | 0x80);
-    po32(e + 32, inicio);
-    po32(e + 40, fim);
+    po32(e + 32, inicio / escala(g));            /* D283: en el disco, bloques reales */
+    po32(e + 40, (fim + 1) / escala(g) - 1);
     for (int c = 0; c < 35 && nome && nome[c]; c++) { e[56 + c * 2] = (uint8_t)nome[c]; e[57 + c * 2] = 0; }
     if (!gpt_validar(g, erro, max)) { memcpy(e, copia, sizeof copia); return ERRO_INVALIDO; }
     return slot;
@@ -273,8 +284,8 @@ static void montar_cab(const gpt_t *g, uint32_t mi, uint32_t alt, uint32_t lba_e
     po32(s + 12, 92);
     po32(s + 24, mi);
     po32(s + 32, alt);
-    po32(s + 40, g->primeiro);
-    po32(s + 48, g->ultimo);
+    po32(s + 40, g->primeiro / escala(g));
+    po32(s + 48, (g->ultimo + 1) / escala(g) - 1);
     memcpy(s + 56, g->guid, 16);
     po32(s + 72, lba_ent);
     po32(s + 80, GPT_ENTRADAS);
@@ -283,7 +294,7 @@ static void montar_cab(const gpt_t *g, uint32_t mi, uint32_t alt, uint32_t lba_e
     po32(s + 16, gpt_crc(s, 92));
 }
 
-static bool mbr_protector_ok(const uint8_t *s0, uint32_t setores)
+static bool mbr_protector_ok(const uint8_t *s0, uint32_t setores)   /* "setores" ya en bloques reales */
 {
     if (s0[510] != 0x55 || s0[511] != 0xAA) return false;
     int ee = 0, outras = 0;
@@ -303,13 +314,14 @@ int gpt_gravar(gpt_t *g, bool reescrever_mbr, const uint8_t *codigo, char *erro,
     int r = blocos_info(g->disco, &inf);
     if (r < 0) { txt(erro, max, "%s: %s", g->disco, nome_erro(r)); return r; }
     if (inf.setores != g->setores) { txt(erro, max, "el disco ha cambiado de tamaño"); return ERRO_INVALIDO; }
-    uint32_t ultimo = g->setores - 1, crc_ent = gpt_crc(g->ent, GPT_ENTRADAS * GPT_TAM_ENT);
+    const uint32_t f = escala(g), nblk = g->setores / f;
+    uint32_t ultimo = g->setores - f, crc_ent = gpt_crc(g->ent, GPT_ENTRADAS * GPT_TAM_ENT);
     uint8_t cp[512], cb[512], s0[512];
-    montar_cab(g, 1, ultimo, 2, crc_ent, cp);
-    montar_cab(g, ultimo, 1, ultimo - GPT_SETORES_ENT, crc_ent, cb);
+    montar_cab(g, 1, nblk - 1, 2, crc_ent, cp);
+    montar_cab(g, nblk - 1, 1, nblk - 1 - GPT_SETORES_ENT / f, crc_ent, cb);
     r = blocos_ler(g->disco, 0, 1, s0);
     if (r < 0) { txt(erro, max, "no se puede leer el MBR: %s", nome_erro(r)); return r; }
-    bool mbr = reescrever_mbr || !mbr_protector_ok(s0, g->setores);
+    bool mbr = reescrever_mbr || !mbr_protector_ok(s0, nblk);
     uint8_t m[512];
     if (mbr) {
         memset(m, 0, sizeof m);
@@ -320,14 +332,14 @@ int gpt_gravar(gpt_t *g, bool reescrever_mbr, const uint8_t *codigo, char *erro,
         e[4] = 0xEE;
         e[5] = 0xFF; e[6] = 0xFF; e[7] = 0xFF;
         po32(e + 8, 1);
-        po32(e + 12, g->setores - 1);
+        po32(e + 12, nblk - 1);
         m[510] = 0x55; m[511] = 0xAA;
     }
     /* Respaldo primero, la principal después, el MBR protector al final. */
     if ((r = blocos_escrever(g->disco, ultimo - GPT_SETORES_ENT, GPT_SETORES_ENT, g->ent)) < 0 ||
         (r = blocos_escrever(g->disco, ultimo, 1, cb)) < 0 ||
-        (r = blocos_escrever(g->disco, 2, GPT_SETORES_ENT, g->ent)) < 0 ||
-        (r = blocos_escrever(g->disco, 1, 1, cp)) < 0 ||
+        (r = blocos_escrever(g->disco, 2 * f, GPT_SETORES_ENT, g->ent)) < 0 ||
+        (r = blocos_escrever(g->disco, f, 1, cp)) < 0 ||
         (mbr && (r = blocos_escrever(g->disco, 0, 1, m)) < 0)) {
         txt(erro, max, "error al escribir la GPT de %s (%s): la tabla puede haber quedado a medias", g->disco, nome_erro(r));
         return r;

@@ -61,6 +61,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_COPIAR_TEXTO] = L, [SIS_COLAR_TEXTO] = L, [SIS_COPIAR_IMAGEM] = L, [SIS_COLAR_IMAGEM] = L,
     [SIS_TECLAS_SEGURADAS] = L, [SIS_TECLADO] = L,   /* la distribución del teclado: preferencia del usuario */
     [SIS_MODOS_VIDEO] = L, [SIS_MUDAR_MODO] = L,      /* la resolución: preferencia del usuario */
+    [SIS_TELAS] = L,                       /* D290: varias pantallas, también preferencia del usuario */
     [SIS_FUNDO] = L, [SIS_ACENTO] = L,
     [SIS_ALEATORIO] = L, [SIS_INFO_ALEATORIO] = L,
     /* Sonido */
@@ -89,6 +90,7 @@ static const uint8_t classe[SIS_MAX] = {
     /* Servicios y usuarios */
     [SIS_SERVICOS] = O,                    /* consultar y pedir; ser el supervisor, no */
     [SIS_USUARIO] = O,                     /* consultar; cambiar de identidad, no */
+    [SIS_BLUETOOTH] = O,                   /* D279: estado, dispositivos y buscar; el resto, no */
 };
 
 int permisos_classe(uint32_t n)
@@ -165,7 +167,8 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_MATAR:
         return do_mesmo_usuario(a, eu);
     case SIS_INFO_SISTEMA:
-        return a != INFO_ACEL2D_CTL && a != INFO_ACEL2D_PROVA && a != INFO_MSR_PROVA;
+        return a != INFO_ACEL2D_CTL && a != INFO_ACEL2D_PROVA && a != INFO_MSR_PROVA &&
+               a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA;   /* D284/D285: encender y probar el 3D tocan la GPU */
     case SIS_HORA:
         return a == HORA_UTC || a == HORA_LER_RTC;
     case SIS_ZONA:
@@ -181,6 +184,8 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
         return a == REDE_CONSULTAR;
     case SIS_WIFI:
         return a == WIFI_ESTADO || a == WIFI_REDES || a == WIFI_BUSCAR;
+    case SIS_BLUETOOTH:
+        return a == BT_ESTADO || a == BT_DISPOSITIVOS || a == BT_BUSCAR;
     case SIS_BLOQUEO:
         return a == BLOQ_ESTADO || a == BLOQ_ULTIMOS || a == BLOQ_CONSULTAR;
     case SIS_PLANIFICADOR:
