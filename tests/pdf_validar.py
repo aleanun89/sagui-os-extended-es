@@ -50,8 +50,31 @@ def analizar(datos):
         if b"/FlateDecode" in obj:
             flujo = zlib.decompress(flujo)
         textos.append(flujo)
+    imagenes = []
+    for i, cuerpo in objetos.items():
+        if b"/Subtype /Image" not in cuerpo:
+            continue
+        ln = int(re.search(rb"/Length (\d+)", cuerpo).group(1))
+        ini = cuerpo.index(b"stream\n") + 7
+        flujo = cuerpo[ini:ini + ln]
+        assert cuerpo[ini + ln:].startswith(b"\nendstream"), "Length del flujo de imagen incorrecto"
+        filtro = re.search(rb"/Filter /(\w+)", cuerpo).group(1).decode()
+        w = int(re.search(rb"/Width (\d+)", cuerpo).group(1))
+        h = int(re.search(rb"/Height (\d+)", cuerpo).group(1))
+        cs = re.search(rb"/ColorSpace /(\w+)", cuerpo).group(1).decode()
+        datos_img = flujo
+        if filtro == "FlateDecode":
+            datos_img = zlib.decompress(flujo)
+            assert len(datos_img) == w * h * (1 if cs == "DeviceGray" else 3), "el flujo de la imagen no mide ancho x alto x componentes"
+        else:
+            assert flujo[:2] == b"\xff\xd8", "una imagen DCTDecode debe empezar por FFD8"
+        imagenes.append(dict(obj=i, ancho=w, alto=h, filtro=filtro, espacio=cs, datos=datos_img, bruto=flujo))
+    # cada imagen usada por una página debe estar en su /XObject
+    for p in paginas:
+        for m in re.finditer(rb"/Im(\d+) (\d+) 0 R", objetos[p]):
+            assert int(m.group(2)) in objetos and b"/Subtype /Image" in objetos[int(m.group(2))], "XObject sin imagen"
     mb = re.search(rb"/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]", objetos[paginas[0]])
-    return dict(paginas=len(paginas), objetos=objetos, contenidos=textos,
+    return dict(paginas=len(paginas), objetos=objetos, contenidos=textos, imagenes=imagenes,
                 mediabox=(float(mb.group(1)), float(mb.group(2))),
                 fuentes=sorted(set(re.findall(rb"/BaseFont /([A-Za-z-]+)", datos))))
 

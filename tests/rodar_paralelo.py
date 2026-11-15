@@ -54,6 +54,7 @@ def e_audio(nome):
 
 
 def listar(filtros, regexes):
+    # D301: solo h<dos dígitos>*.py y b<dígito>_*.py; las pruebas de 86Box (emu_*) NUNCA entran en la batería.
     testes = sorted(glob.glob(os.path.join(AQUI, "h[0-9][0-9]*.py"))) + sorted(glob.glob(os.path.join(AQUI, "b[0-9]_*.py")))
     nomes = [os.path.basename(t) for t in testes]
     if filtros:

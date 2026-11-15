@@ -1592,6 +1592,7 @@ typedef struct {
 #define TECLA_INSERT    0x108
 #define TECLA_DELETE    0x109
 #define TECLA_F11       0x114   /* o gerenciador de janelas usa (tela cheia) */
+#define TECLA_F12       0x115   /* Asistente IA en Pluma, Macaco y Correo (D298) */
 #define TECLA_ESC       0x116
 #define TECLA_SUPER     0x117   /* tecla Windows (E0 5B/5C): o gerenciador de janelas usa (menu Inicio) */
 #endif

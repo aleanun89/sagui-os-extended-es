@@ -1,0 +1,30 @@
+diff -ruN a/src/gui/sdlmain.cpp c/src/gui/sdlmain.cpp
+--- a/src/gui/sdlmain.cpp	2019-06-26 16:56:44.000000000 +0200
++++ c/src/gui/sdlmain.cpp	2026-11-15 11:51:53.279967998 +0100
+@@ -1756,7 +1756,7 @@
+ 	}*/
+ 	std::string edit;
+ 	while(control->cmdline->FindString("-editconf",edit,true)) //Loop until one succeeds
+-		execlp(edit.c_str(),edit.c_str(),path.c_str(),(char*) 0);
++		(void)0; /* SaguiOS (D294): no hay exec; se sigue al aviso de que no se pudo lanzar */
+ 	//if you get here the launching failed!
+ 	printf("can't find editor(s) specified at the command line.\n");
+ 	exit(1);
+@@ -1782,7 +1782,7 @@
+ 		exit(1);
+ 	}*/
+ 
+-	execlp(edit.c_str(),edit.c_str(),path.c_str(),(char*) 0);
++	(void)0; /* SaguiOS (D294): no hay exec; se sigue al aviso de que no se pudo lanzar */
+ 	//if you get here the launching failed!
+ 	printf("can't find filemanager %s\n",edit.c_str());
+ 	exit(1);
+@@ -1920,7 +1920,7 @@
+ 	 * with this variable they will work correctly. I've only tested the 1.2.14 behaviour against the windows version
+ 	 * of libsdl
+ 	 */
+-	putenv(const_cast<char*>("SDL_DISABLE_LOCK_KEYS=1"));
++	SDL_putenv("SDL_DISABLE_LOCK_KEYS=1");
+ #endif
+ 	// Don't init timers, GetTicks seems to work fine and they can use a fair amount of power (Macs again) 
+ 	// Please report problems with audio and other things.

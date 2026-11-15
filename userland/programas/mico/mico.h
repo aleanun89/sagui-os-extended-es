@@ -204,7 +204,7 @@ void expl_marcar(const char *caminho);   /* resalta el archivo de la pestaña ac
 int  expl_arquivos(char (*lista)[CAMINHO_MAX], int max);   /* todos los archivos de la carpeta (recursivo) */
 
 /* ------------------------------------------------------------ panel de abajo */
-enum { PAINEL_TERMINAL, PAINEL_PROBLEMAS, PAINEL_BUSCA, PAINEL_ASSISTENTE };
+enum { PAINEL_TERMINAL, PAINEL_PROBLEMAS, PAINEL_BUSCA, PAINEL_ASSISTENTE, PAINEL_AGENTE /* D295 */ };
 extern int painel_aba;
 void painel_iniciar(void);
 void painel_fim(void);

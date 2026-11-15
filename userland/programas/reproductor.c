@@ -125,7 +125,10 @@ static void desenhar_barra(void)
     g_retangulo(j, 0, 0, j->larg, BARRA, COR_FUNDO);
     g_retangulo(j, 0, BARRA - 1, j->larg, 1, COR_BORDA);
     for (int i = 0; i < QTD_BT; i++) botao_desenhar(j, &bt[i]);
-    if (j->larg > 640) g_texto(j, 506, 9, "Espacio: pausa   F11: pantalla completa", COR_TEXTO_FRACO);
+    /* D300: la ayuda se elige según lo que cabe (con 800 px la larga se cortaba por el borde de la ventana) */
+    const char *ayuda = j->larg >= 506 + 40 * LETRA_L + 4 ? "Espacio: pausa   F11: pantalla completa"
+                      : j->larg >= 506 + 29 * LETRA_L + 4 ? "Espacio: pausa  F11: pantalla" : NULL;
+    if (ayuda) g_texto(j, 506, 9, ayuda, COR_TEXTO_FRACO);
     jan_mostrar_area(j, 0, 0, j->larg, BARRA);
 }
 

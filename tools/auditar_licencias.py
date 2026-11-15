@@ -78,13 +78,14 @@ GPL_AISLADA = "kernel/terceros/linux/"
 # Command & Conquer, GPL-3.0 con los términos adicionales de EA (D230).
 # userland/terceros/quake/ es el motor de Quake (el WinQuake de id Software),
 # GPL-2.0 o posterior (D229). userland/terceros/gnuboy/ es SDL2-GNUBoy, el emulador
-# de Game Boy, GPL-2.0 (D235).
+# de Game Boy, GPL-2.0 (D235). userland/terceros/dosbox/ es DOSBox 0.74-3, el emulador de
+# MS-DOS, GPL-2.0 o posterior (D294); sus ficheros de MAME (src/hardware/mame/) son BSD-3-Clause.
 # userland/web/terceros/ffmpeg-h264-tablas/ (LGPL-2.1+) y userland/web/terceros/faad2-huffman/
 # (GPL-2.0+) son las tablas del H.264 y del AAC del reproductor de vídeo (D276): fuera de la
 # variante sin GPL (el MP4 no se decodifica en ella: video_mp4.c y el Makefile lo respetan).
 GPL_AISLADAS = (GPL_AISLADA, "userland/terceros/opentyrian/", "userland/terceros/netsurf/", "userland/terceros/gprolog/",
                 "userland/terceros/openjazz/", "userland/terceros/conquer/", "userland/terceros/quake/",
-                "userland/terceros/gnuboy/", "userland/web/terceros/ffmpeg-h264-tablas/",
+                "userland/terceros/gnuboy/", "userland/terceros/dosbox/", "userland/web/terceros/ffmpeg-h264-tablas/",
                 "userland/web/terceros/faad2-huffman/")
 RE_SPDX = re.compile(r"^\s*(?://|/\*|\*|#|;)\s*SPDX-License-Identifier:\s*(.+?)\s*(?:\*/)?\s*$")
 RE_COPY = re.compile(r"^\s*(?://|/\*|\*|#|;)?\s*Copyright\s*(?:\(c\)|\xa9|©|\d)", re.I)
@@ -516,6 +517,8 @@ def marcas_gpl(carpetas=None):
                 marcas.update(m for m in re.findall(r'"([^"\n]*(?:Vanilla Conquer|Command & Conquer|C&C95)[^"\n]*)"', txt))
                 # Quake (D229): las cadenas con su nombre (el lanzador, la plataforma, el motor).
                 marcas.update(m for m in re.findall(r'"([^"\n]*quake[^"\n]*)"', txt, re.I))
+                # DOSBox (D294): las cadenas con su nombre (el lanzador, Recreativa, el motor).
+                marcas.update(m for m in re.findall(r'"([^"\n]*dosbox[^"\n]*)"', txt, re.I))
                 # SDL2-GNUBoy (D235): las cadenas con el nombre del emulador (el lanzador, el motor).
                 marcas.update(m for m in re.findall(r'"([^"\n]*gnuboy[^"\n]*)"', txt, re.I))
     return sorted(marcas)
@@ -527,7 +530,9 @@ def comprobar_binario(elf, carpetas=None):
         return
     datos = open(elf, "rb").read()
     marcas = marcas_gpl(carpetas)
-    malas = [m for m in marcas if m.encode("latin-1") in datos]
+    # Una marca que forma parte de la ruta de esta copia de trabajo (miniOS_master_os_dosbox) sale en la
+    # información de depuración del binario sin ser del port: no cuenta.
+    malas = [m for m in marcas if m.encode("latin-1") in datos and m.lower() not in RAIZ.lower()]
     for m in malas:
         falla("%s contiene «%s» de %s" % (rel(elf), m, " ni ".join(carpetas or GPL_AISLADAS)))
     print("binario: %s sin ninguna de las %d marcas de %s" % (rel(elf), len(marcas), " ni ".join(carpetas or GPL_AISLADAS)))

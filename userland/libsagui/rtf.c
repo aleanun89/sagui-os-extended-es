@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* rtf.c - lector y escritor de RTF (mejora 116, D291). Ver rtf.h. */
 #include "rtf.h"
+#include "wordart.h"
 
 #define PILHA_MAX 64
 #define FONTES_MAX 64
@@ -21,6 +22,13 @@ typedef struct {
     int fonte_idx, fonte_hint; char fonte_nome[48]; int fonte_nn;
     int cr, cg, cb; bool cor_dada;
     int paperw, paperh, margl, margr, margt, margb;
+    /* imágenes y WordArt (D296) */
+    int pict_prof, pict_tipo, pict_n, pict_cap, picw, pich, picwg, pichg, pic_sx, pic_sy;   /* tipo: 1 PNG, 2 JPEG, 3 otro */
+    uint8_t *pict_d; int pict_nib;                                  /* nib: medio byte pendiente (-1 = ninguno) */
+    int meta_prof, meta_tipo, meta_n; char meta[400];
+    bool pend_wa, pend_obj;
+    int wa_estilo, wa_fam, wa_est, wa_tam, ob_ajuste, ob_borde;
+    char wa_texto[WORDART_TEXTO_MAX], ob_pie[80];
 } lector_t;
 
 static const rte_par_t PAR_BASE = { RTE_ESQ, 0, 0, 0, 0, 100, 0, 0 };
@@ -117,6 +125,107 @@ static bool destino_ignorado(const char *w)
     return false;
 }
 
+/* ------------------------------------------------------------ imágenes */
+
+static int hex(int c);
+
+static int num_meta(const char **p)
+{
+    int v = 0;
+    while (**p >= '0' && **p <= '9') { v = v * 10 + (**p - '0'); (*p)++; }
+    if (**p == ';') (*p)++;
+    return v;
+}
+
+static void hex_a_texto(const char *h, char *d, int max)
+{
+    int k = 0;
+    while (h[0] && h[1] && k < max - 1) {
+        int a = hex(h[0]), b = hex(h[1]);
+        if (a < 0 || b < 0) break;
+        d[k++] = (char)(a * 16 + b);
+        h += 2;
+    }
+    d[k] = 0;
+}
+
+static void fin_meta(lector_t *L)
+{
+    L->meta[L->meta_n] = 0;
+    const char *p = L->meta;
+    while (*p == ' ') p++;
+    if (L->meta_tipo == 1) {            /* estilo;fam;est;tam;texto */
+        L->wa_estilo = num_meta(&p); L->wa_fam = num_meta(&p); L->wa_est = num_meta(&p); L->wa_tam = num_meta(&p);
+        hex_a_texto(p, L->wa_texto, sizeof L->wa_texto);
+        L->pend_wa = L->wa_texto[0] != 0;
+    } else {                            /* ajuste;borde;pie */
+        L->ob_ajuste = num_meta(&p); L->ob_borde = num_meta(&p);
+        hex_a_texto(p, L->ob_pie, sizeof L->ob_pie);
+        L->pend_obj = true;
+    }
+    L->meta_prof = 0;
+}
+
+static void pict_dato(lector_t *L, int c)
+{
+    int h = hex(c);
+    if (h < 0) return;
+    if (L->pict_nib < 0) { L->pict_nib = h; return; }
+    if (L->pict_n + 1 > L->pict_cap) {
+        int nc = L->pict_cap ? L->pict_cap * 2 : 65536;
+        uint8_t *q = realoca(L->pict_d, (size_t)nc);
+        if (!q) return;
+        L->pict_d = q; L->pict_cap = nc;
+    }
+    L->pict_d[L->pict_n++] = (uint8_t)(L->pict_nib * 16 + h);
+    L->pict_nib = -1;
+}
+
+static void pict_palabra(lector_t *L, const char *w, bool tiene, int v)
+{
+    if (compara_texto(w, "pngblip") == 0) L->pict_tipo = 1;
+    else if (compara_texto(w, "jpegblip") == 0) L->pict_tipo = 2;
+    else if (compara_texto(w, "wmetafile") == 0 || compara_texto(w, "emfblip") == 0 || compara_texto(w, "dibitmap") == 0 ||
+             compara_texto(w, "wbitmap") == 0 || compara_texto(w, "macpict") == 0 || compara_texto(w, "pmmetafile") == 0) L->pict_tipo = 3;
+    else if (!tiene) return;
+    else if (compara_texto(w, "picw") == 0) L->picw = v;
+    else if (compara_texto(w, "pich") == 0) L->pich = v;
+    else if (compara_texto(w, "picwgoal") == 0) L->picwg = v;
+    else if (compara_texto(w, "pichgoal") == 0) L->pichg = v;
+    else if (compara_texto(w, "picscalex") == 0) L->pic_sx = v > 0 ? v : 100;
+    else if (compara_texto(w, "picscaley") == 0) L->pic_sy = v > 0 ? v : 100;
+}
+
+static void fin_pict(lector_t *L)
+{
+    descarga(L);
+    int tipo = L->pict_tipo;
+    L->pict_prof = 0;
+    if ((tipo == 1 || tipo == 2) && L->pict_n > 8) {
+        rte_obj_t o;
+        memset(&o, 0, sizeof o);
+        if (rte_obj_de_bytes(&o, L->pict_d, L->pict_n)) {
+            if (L->picwg > 0 && L->pichg > 0) {
+                o.l_tw = (int)((long)L->picwg * L->pic_sx / 100);
+                o.a_tw = (int)((long)L->pichg * L->pic_sy / 100);
+            }
+            if (L->pend_obj) {
+                o.ajuste = L->ob_ajuste == RTE_AJ_CIMA_BAIXO ? RTE_AJ_CIMA_BAIXO : RTE_AJ_LINHA;
+                o.borde = L->ob_borde < 0 ? 0 : L->ob_borde > 3 ? 3 : L->ob_borde;
+                copia_texto(o.pie, L->ob_pie, sizeof o.pie);
+            }
+            if (L->pend_wa) {                 /* se queda con la imagen incrustada; solo se vuelve a dibujar al editarlo */
+                o.tipo = RTE_OBJ_WORDART;
+                o.wa_estilo = L->wa_estilo; o.wa_fam = L->wa_fam; o.wa_est = L->wa_est; o.wa_tam = L->wa_tam;
+                copia_texto(o.wa_texto, L->wa_texto, sizeof o.wa_texto);
+            }
+            rte_doc_obj(L->r, &o);
+        }
+    }
+    L->pend_wa = L->pend_obj = false;
+    L->pict_n = 0; L->pict_tipo = 0;
+}
+
 static void palabra(lector_t *L, const char *w, bool tiene, int v)
 {
     estado_t *s = &L->pilha[L->prof];
@@ -137,6 +246,14 @@ static void palabra(lector_t *L, const char *w, bool tiene, int v)
     }
     if (compara_texto(w, "fonttbl") == 0) { L->fonttbl_prof = L->prof; L->fonte_idx = -1; L->fonte_nn = 0; L->fonte_hint = 0; return; }
     if (compara_texto(w, "colortbl") == 0) { L->colortbl_prof = L->prof; L->ncores = 0; L->cr = L->cg = L->cb = 0; L->cor_dada = false; return; }
+    if (compara_texto(w, "saguiwordart") == 0) { L->meta_prof = L->prof; L->meta_tipo = 1; L->meta_n = 0; return; }
+    if (compara_texto(w, "saguiobj") == 0) { L->meta_prof = L->prof; L->meta_tipo = 2; L->meta_n = 0; return; }
+    if (compara_texto(w, "shppict") == 0) { s->ignora = false; return; }
+    if (compara_texto(w, "pict") == 0 && !s->ignora) {
+        L->pict_prof = L->prof; L->pict_n = 0; L->pict_tipo = 0; L->pict_nib = -1;
+        L->picw = L->pich = L->picwg = L->pichg = 0; L->pic_sx = L->pic_sy = 100;
+        return;
+    }
     if (compara_texto(w, "pnlvlblt") == 0) { L->par.marcador = 1; return; }
     if (compara_texto(w, "pntext") == 0 || compara_texto(w, "listtext") == 0) { L->par.marcador = 1; s->ignora = true; return; }
     if (destino_ignorado(w)) { s->ignora = true; return; }
@@ -212,6 +329,8 @@ int rtf_ler(rte_t *r, const char *d, int n)
         }
         if (c == '}') {
             descarga(L);
+            if (L->meta_prof && L->prof == L->meta_prof) fin_meta(L);
+            if (L->pict_prof && L->prof == L->pict_prof) fin_pict(L);
             if (L->fonttbl_prof && L->prof == L->fonttbl_prof) L->fonttbl_prof = 0;
             if (L->colortbl_prof && L->prof == L->colortbl_prof) L->colortbl_prof = 0;
             if (L->prof > 0) L->prof--;
@@ -219,6 +338,8 @@ int rtf_ler(rte_t *r, const char *d, int n)
         }
         if (c == '\r' || c == '\n') continue;
         if (c != '\\') {
+            if (L->meta_prof) { if (L->meta_n < (int)sizeof L->meta - 1 && L->prof == L->meta_prof) L->meta[L->meta_n++] = (char)c; continue; }
+            if (L->pict_prof) { if (L->prof == L->pict_prof) pict_dato(L, c); continue; }
             if (L->fonttbl_prof) {
                 if (c == ';') fin_fonte(L);
                 else if (L->fonte_nn < (int)sizeof L->fonte_nome - 1) L->fonte_nome[L->fonte_nn++] = (char)c;
@@ -252,6 +373,24 @@ int rtf_ler(rte_t *r, const char *d, int n)
         while (i < n && d[i] >= '0' && d[i] <= '9') { tiene = true; v = v * 10 + (d[i] - '0'); i++; }
         v *= sg;
         if (!(i < n && d[i] == ' ')) i--;   /* un espacio tras la palabra es su delimitador */
+        if (L->meta_prof) continue;
+        if (L->pict_prof) {
+            if (L->prof != L->pict_prof) continue;
+            if (compara_texto(w, "bin") == 0 && tiene && v > 0) {      /* datos binarios en bruto */
+                int s0 = i + 1, m = v < n - s0 ? v : n - s0;
+                if (L->pict_n + m > L->pict_cap) {
+                    int nc = L->pict_cap ? L->pict_cap : 65536;
+                    while (nc < L->pict_n + m) nc *= 2;
+                    uint8_t *q = realoca(L->pict_d, (size_t)nc);
+                    if (q) { L->pict_d = q; L->pict_cap = nc; }
+                }
+                if (L->pict_n + m <= L->pict_cap) { memcpy(L->pict_d + L->pict_n, d + s0, (size_t)m); L->pict_n += m; }
+                i = s0 + m - 1;
+                continue;
+            }
+            pict_palabra(L, w, tiene, v);
+            continue;
+        }
         palabra(L, w, tiene, v);
     }
     (void)dest_ign;
@@ -267,6 +406,7 @@ int rtf_ler(rte_t *r, const char *d, int n)
     if (L->margl > 0 || L->margr > 0) { ml = L->margl; mr = L->margr; }
     if (L->margt > 0 || L->margb > 0) { mt = L->margt; mb = L->margb; }
     rte_papel(r, pw, ph, ml, mr, mt, mb);
+    libera(L->pict_d);
     libera(L);
     return 0;
 }
@@ -299,6 +439,55 @@ static void sf(sal_t *s, const char *fmt, int a, int b, int c)
     sp(s, t, n);
 }
 
+/* Un texto Latin-1 en hexadecimal (para los parámetros propios del RTF). */
+static void sp_hex_texto(sal_t *s, const char *t)
+{
+    static const char H[] = "0123456789abcdef";
+    for (; *t; t++) { char e[2] = { H[((unsigned char)*t) >> 4], H[((unsigned char)*t) & 15] }; sp(s, e, 2); }
+}
+
+/* Una imagen o un WordArt: grupos propios con los parámetros y el \pict que ven Word y LibreOffice. */
+static void escribir_obj(sal_t *s, const rte_obj_t *o)
+{
+    const uint8_t *dat = NULL;
+    int nd = 0, tipo = 0, bl = 0, ba = 0;
+    uint8_t *png = NULL;
+    {
+        int bt;
+        dat = rte_obj_blob(o, &nd, &bt, &bl, &ba);          /* el original (JPEG o PNG), si lo hay */
+        tipo = bt == RTE_BLOB_JPEG ? 2 : bt == RTE_BLOB_PNG ? 1 : 0;
+        if (!dat) tipo = 0;
+    }
+    if (tipo == 0) {                      /* BMP, GIF, portapapeles o WordArt: se codifica como PNG */
+        const imagem_t *im = rte_obj_imagem(o);
+        if (!im || imagem_codificar_png(im, &png, &nd) != 0) { s->fallo = true; return; }
+        dat = png; tipo = 1; bl = im->larg; ba = im->alt;
+    }
+    st(s, "{");
+    sf(s, "{\\*\\saguiobj %d;%d;", o->ajuste, o->borde, 0);
+    sp_hex_texto(s, o->pie);
+    st(s, "}");
+    if (o->tipo == RTE_OBJ_WORDART) {
+        sf(s, "{\\*\\saguiwordart %d;%d;", o->wa_estilo, o->wa_fam, 0);
+        sf(s, "%d;%d;", o->wa_est, o->wa_tam, 0);
+        sp_hex_texto(s, o->wa_texto);
+        st(s, "}");
+    }
+    st(s, tipo == 2 ? "{\\pict\\jpegblip" : "{\\pict\\pngblip");
+    sf(s, "\\picw%d\\pich%d", bl, ba, 0);
+    sf(s, "\\picwgoal%d\\pichgoal%d\\picscalex100\\picscaley100\n", o->l_tw, o->a_tw, 0);
+    static const char H[] = "0123456789abcdef";
+    char lin[130];
+    for (int i = 0; i < nd; ) {
+        int k = 0;
+        for (int q = 0; q < 64 && i < nd; q++, i++) { lin[k++] = H[dat[i] >> 4]; lin[k++] = H[dat[i] & 15]; }
+        lin[k++] = '\n';
+        sp(s, lin, k);
+    }
+    st(s, "}}");
+    libera(png);
+}
+
 int rtf_escrever(rte_t *r, char **saida, int *n)
 {
     sal_t s = { 0, 0, 0, false };
@@ -310,7 +499,7 @@ int rtf_escrever(rte_t *r, char **saida, int *n)
         rte_par_dados(r, p, &a, &b, NULL);
         for (int i = a; i < b; i++) {
             rte_fmt_t f; rte_fmt_em(r, i, &f);
-            if (f.cor == 0) continue;
+            if (f.cor == 0 || rte_obj_em(r, i)) continue;
             bool ja = false;
             for (int k = 0; k < nc; k++) if (cores[k] == f.cor) ja = true;
             if (!ja && nc < CORES_MAX - 1) cores[nc++] = f.cor;
@@ -339,9 +528,12 @@ int rtf_escrever(rte_t *r, char **saida, int *n)
         if (pr.marcador) st(&s, "{\\pntext\\f0\\'B7\\tab}{\\*\\pn\\pnlvlblt\\pnf0\\pnindent360{\\pntxtb\\'B7}}");
         int i = a;
         while (i < b) {
+            const rte_obj_t *ob = rte_obj_em(r, i);
+            if (ob) { escribir_obj(&s, ob); i++; continue; }
             rte_fmt_t f; rte_fmt_em(r, i, &f);
             int k = i + 1;
             while (k < b) {
+                if (rte_obj_em(r, k)) break;
                 rte_fmt_t g; rte_fmt_em(r, k, &g);
                 if (g.fam != f.fam || g.est != f.est || g.tam != f.tam || g.cor != f.cor) break;
                 k++;

@@ -1064,6 +1064,17 @@ static bool gb_extensao(const char *c)
 }
 #endif
 
+#ifndef SAGUI_SEM_GPL
+/* .exe .com .bat: programas de DOS, con DOSBox de /apps (D294; GPL: fuera de la variante sin GPL) */
+static bool dos_extensao(const char *c)
+{
+    unsigned n = tam_texto(c);
+    if (n < 5 || c[n - 4] != '.') return false;
+    char e[4] = { (char)(c[n - 3] | 0x20), (char)(c[n - 2] | 0x20), (char)(c[n - 1] | 0x20), 0 };
+    return compara_texto(e, "exe") == 0 || compara_texto(e, "com") == 0 || compara_texto(e, "bat") == 0;
+}
+#endif
+
 static void abrir_item(int i)
 {
     if (i < 0 || i >= lista.qtd) return;
@@ -1089,6 +1100,7 @@ static void abrir_item(int i)
         formatar_texto(bin, sizeof bin, "/bin/%s", prog);
 #ifndef SAGUI_SEM_GPL
         if (gb_extensao(c)) { prog = "gnuboy"; formatar_texto(bin, sizeof bin, "/apps/bin/gnuboy"); }   /* .gb .gbc: GNUBoy (D235) */
+        if (dos_extensao(c)) { prog = "dosbox"; formatar_texto(bin, sizeof bin, "/apps/bin/dosbox"); }   /* .exe .com .bat: DOSBox (D294) */
 #endif
         argv[0] = (char *)prog; argv[1] = c; argv[2] = NULL;
         pid = executar(bin, argv);

@@ -1,0 +1,60 @@
+// <set> - std::set sobre el mismo árbol que <map> (D294).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_SET
+#define SAGUI_CXX_SET
+#pragma GCC system_header
+
+#include <functional>
+#include <__arvore>
+
+namespace std {
+
+template <class K, class Cmp = less<K>> class set {
+public:
+    typedef K key_type;
+    typedef K value_type;
+    typedef Cmp key_compare;
+
+private:
+    struct chave_de {
+        const K &operator()(const K &v) const { return v; }
+    };
+    typedef detalhe_arvore::arvore<K, chave_de, Cmp> arv;
+    arv a;
+
+public:
+    typedef typename arv::const_iterator iterator;
+    typedef typename arv::const_iterator const_iterator;
+
+    set() {}
+    set(initializer_list<K> l) { for (const K &v : l) a.inserir_valor(v); }
+    template <class I> set(I ini, I fim) { for (; ini != fim; ++ini) a.inserir_valor(K(*ini)); }
+
+    const_iterator begin() const { return a.begin(); }
+    const_iterator end() const { return a.end(); }
+    bool empty() const { return a.vazia(); }
+    size_t size() const { return a.tamanho(); }
+    void clear() { a.limpar(); }
+
+    pair<iterator, bool> insert(const K &v)
+    {
+        auto r = a.inserir_valor(v);
+        return pair<iterator, bool>(iterator(r.first), r.second);
+    }
+    pair<iterator, bool> insert(K &&v)
+    {
+        auto r = a.inserir_valor(std::move(v));
+        return pair<iterator, bool>(iterator(r.first), r.second);
+    }
+    iterator find(const K &k) const { return iterator(a.achar_it(k)); }
+    size_t count(const K &k) const { return a.achar_it(k) == a.end() ? 0 : 1; }
+    iterator lower_bound(const K &k) const { return iterator(a.limite_inferior(k)); }
+    iterator upper_bound(const K &k) const { return iterator(a.limite_superior(k)); }
+    iterator erase(const_iterator i) { return iterator(a.apagar(typename arv::iterator(i.e_()))); }
+    size_t erase(const K &k) { return a.apagar_chave(k); }
+    void swap(set &o) { a.trocar(o.a); }
+};
+
+} // namespace std
+
+#endif

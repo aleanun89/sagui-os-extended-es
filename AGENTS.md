@@ -117,6 +117,12 @@ defecto mientras la suscripción sea limitada).
 - Antes de abrir una issue, buscar si ya existe (`issue list --search`). No cerrar issues del
   mantenedor sin que lo diga. No publicar en ellas datos personales (números de serie, MAC, IP pública).
 
+## 86Box (D301)
+
+- **86Box solo a petición, nunca en la batería; las ROM fuera de git (NO SE PUEDEN SUBIR NUNCA):** viven en
+  `~/.local/saguitools/86box/roms`; `tools/86box_roms_prohibidas.sh` (gancho pre-commit y `publicar.sh`) lo vigila.
+  Instalar y usar: `docs/86box.md`. Las pruebas se llaman `emu_*` y se lanzan con `tools/turno.sh`.
+
 ## SMP y KVM
 
 - **Con KVM la CPU es la del anfitrión (AMD).** Las pruebas que esperan Intel (h39)

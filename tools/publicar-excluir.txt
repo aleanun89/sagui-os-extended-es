@@ -70,3 +70,10 @@
 
 # Borradores de mensajes del mantenedor (internos)
 /docs/borradores/
+
+# --- 86Box (D301): las ROM/BIOS no se publican NUNCA (copyright). Preventivo; además
+# tools/publicar.sh falla si queda alguna (tools/86box_roms_prohibidas.sh).
+/tools/86box/roms/
+/86box-roms/
+/roms/
+*.rom

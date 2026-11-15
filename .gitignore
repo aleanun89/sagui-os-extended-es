@@ -54,3 +54,13 @@ __pycache__/
 # Zip de las fuentes de Typodermic (D196), bajado por «make priv_descargas»
 /NEW_FONTS/
 .env_agents
+# ROM/BIOS de 86Box: con copyright, NO SE PUEDEN SUBIR NUNCA (D301). Viven en
+# ~/.local/saguitools/86box/roms; esto es por si alguien las copia dentro del repositorio.
+/tools/86box/roms/
+/tools/86box/**/*.rom
+/tools/86box/**/*.bin
+/tools/86box/**/*.nvr
+/86box-roms/
+/roms/
+/build/86box/
+*.rom

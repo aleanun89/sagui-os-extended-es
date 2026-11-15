@@ -27,6 +27,7 @@
  * El contexto es la conversación: cada pregunta va con los últimos mensajes
  * (hasta HIST_MAX y CONTEXTO_MAX bytes). Todo está en castellano; la respuesta
  * llega en UTF-8 y se pasa a Latin-1, que es lo que dibuja la pantalla. */
+#include "agentes.h"
 #include "ia.h"
 #include "gui.h"
 
@@ -61,7 +62,9 @@ static ia_config_t cfg;      /* la configuración de la sesión (con la línea d
 static rico_t *visor;        /* la conversación, formateada */
 static area_t entrada;       /* la pregunta */
 static botao_t bt_enviar, bt_deter, bt_adjuntar, bt_quitar, bt_regenerar, bt_prefs;
-static botao_t bt_nova, bt_renomear, bt_apagar;
+static botao_t bt_nova, bt_renomear, bt_apagar, bt_modo;
+static ag_panel_t *panel;      /* D295: el panel de agentes (modo agente) */
+static bool modo_agente;
 static char estado[200];
 static bool estado_erro;
 static bool ocupada;         /* la respuesta está llegando */
@@ -506,6 +509,8 @@ static void maquetar(void)
     pos_botao(&bt_renomear, 8, alt - 36, 100, 28, "Renombrar");
     pos_botao(&bt_apagar, 112, alt - 36, LATERAL - 120, 28, "Borrar");
     pos_botao(&bt_prefs, larg - MARGEM - 120, 4, 120, 24, "Preferencias");
+    pos_botao(&bt_modo, larg - MARGEM - 250, 4, 124, 24, modo_agente ? "Chat normal" : "Agentes");
+    if (panel) ag_panel_mudar_tamanho(panel, x, TOPO, w, alt - TOPO - 6);
     rico_mover(visor, x, TOPO, w, altura_visor());
     pos_botao(&bt_adjuntar, x, alt - BASE + 2, 96, 24, "Adjuntar");
     pos_botao(&bt_regenerar, x + 102, alt - BASE + 2, 100, 24, "Regenerar");
@@ -600,6 +605,8 @@ static void desenhar(void)
     formatar_texto(linha, sizeof linha, "Mensajes: %d", mensagens_reais());
     texto_limitado(larg - MARGEM - 120, 30, linha, 120, COR_TEXTO_FRACO);
 
+    desenhar_botao(&bt_modo, !ocupada);
+    if (modo_agente && panel) { ag_panel_desenhar(panel); jan_mostrar(j); return; }
     if (prefs_abertas) desenhar_prefs();
     else rico_desenhar(j, visor);
 
@@ -1303,6 +1310,8 @@ int principal(int argc, char **argv)
     lista_modelos.itens = modelos;
     lista_modelos.sel = -1;
     cx_chave.oculta = true;
+    panel = ag_panel_criar(j, x0(), TOPO, largura_principal(), j->alt - TOPO - 6, NULL);
+    if (panel) ag_panel_config(panel, &cfg);
     maquetar();
     carregar_lista();
     nova_conversa();
@@ -1326,6 +1335,17 @@ int principal(int argc, char **argv)
             if (seguia) rico_ir_fim(visor);
             desenhar();
             continue;
+        }
+        /* D295: el botón de modo y, en modo agente, todo lo demás va al panel. */
+        if (e.tipo == EV_CLIQUE && (e.botoes & 1) && dentro(e.x, e.y, &bt_modo) && panel) {
+            modo_agente = !modo_agente;
+            registrar("chatia: modo %s\n", modo_agente ? "agente" : "chat");
+            maquetar();
+            desenhar();
+            continue;
+        }
+        if (modo_agente && panel && !(e.tipo == EV_CLIQUE && dentro(e.x, e.y, &bt_prefs)) && e.tipo != EV_MENU) {
+            if (ag_panel_tratar(panel, &e)) continue;
         }
         if (e.tipo == EV_MENU) { tratar_menu(&e); continue; }
         if (e.tipo == EV_TECLA) { tecla(&e); continue; }

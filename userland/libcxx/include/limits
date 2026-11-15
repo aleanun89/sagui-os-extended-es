@@ -1,0 +1,82 @@
+// <limits> - std::numeric_limits de los tipos básicos (D294).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_LIMITS
+#define SAGUI_CXX_LIMITS
+#pragma GCC system_header
+
+#include <climits>
+#include <float.h>
+#include <cstdint>
+
+namespace std {
+
+template <class T> struct numeric_limits {
+    static constexpr bool is_specialized = false;
+    static constexpr T min() noexcept { return T(); }
+    static constexpr T max() noexcept { return T(); }
+};
+
+#define SAGUI_LIM_INT(T, MIN, MAX, SIGNED, DIG)                         \
+    template <> struct numeric_limits<T> {                             \
+        static constexpr bool is_specialized = true;                   \
+        static constexpr bool is_signed = SIGNED;                      \
+        static constexpr bool is_integer = true;                       \
+        static constexpr bool is_exact = true;                         \
+        static constexpr bool has_infinity = false;                    \
+        static constexpr int digits = DIG;                             \
+        static constexpr int radix = 2;                                \
+        static constexpr T min() noexcept { return MIN; }              \
+        static constexpr T lowest() noexcept { return MIN; }           \
+        static constexpr T max() noexcept { return MAX; }              \
+        static constexpr T epsilon() noexcept { return 0; }            \
+        static constexpr T infinity() noexcept { return 0; }           \
+    };
+SAGUI_LIM_INT(bool, false, true, false, 1)
+SAGUI_LIM_INT(char, CHAR_MIN, CHAR_MAX, (CHAR_MIN < 0), (CHAR_MIN < 0 ? 7 : 8))
+SAGUI_LIM_INT(signed char, SCHAR_MIN, SCHAR_MAX, true, 7)
+SAGUI_LIM_INT(unsigned char, 0, UCHAR_MAX, false, 8)
+SAGUI_LIM_INT(short, SHRT_MIN, SHRT_MAX, true, 15)
+SAGUI_LIM_INT(unsigned short, 0, USHRT_MAX, false, 16)
+SAGUI_LIM_INT(int, INT_MIN, INT_MAX, true, 31)
+SAGUI_LIM_INT(unsigned int, 0, UINT_MAX, false, 32)
+SAGUI_LIM_INT(long, LONG_MIN, LONG_MAX, true, 31)
+SAGUI_LIM_INT(unsigned long, 0, ULONG_MAX, false, 32)
+SAGUI_LIM_INT(long long, LLONG_MIN, LLONG_MAX, true, 63)
+SAGUI_LIM_INT(unsigned long long, 0, ULLONG_MAX, false, 64)
+#undef SAGUI_LIM_INT
+
+
+template <> struct numeric_limits<float> {
+    static constexpr bool is_specialized = true;
+    static constexpr bool is_signed = true;
+    static constexpr bool is_integer = false;
+    static constexpr bool is_exact = false;
+    static constexpr bool has_infinity = true;
+    static constexpr int digits = 24;
+    static constexpr int radix = 2;
+    static constexpr float min() noexcept { return FLT_MIN; }
+    static constexpr float lowest() noexcept { return -FLT_MAX; }
+    static constexpr float max() noexcept { return FLT_MAX; }
+    static constexpr float epsilon() noexcept { return FLT_EPSILON; }
+    static constexpr float infinity() noexcept { return __builtin_huge_valf(); }
+};
+template <> struct numeric_limits<double> {
+    static constexpr bool is_specialized = true;
+    static constexpr bool is_signed = true;
+    static constexpr bool is_integer = false;
+    static constexpr bool is_exact = false;
+    static constexpr bool has_infinity = true;
+    static constexpr int digits = 53;
+    static constexpr int radix = 2;
+    static constexpr double min() noexcept { return DBL_MIN; }
+    static constexpr double lowest() noexcept { return -DBL_MAX; }
+    static constexpr double max() noexcept { return DBL_MAX; }
+    static constexpr double epsilon() noexcept { return DBL_EPSILON; }
+    static constexpr double infinity() noexcept { return __builtin_huge_val(); }
+};
+
+template <class T> struct numeric_limits<const T> : numeric_limits<T> {};
+
+} // namespace std
+
+#endif

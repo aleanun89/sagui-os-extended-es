@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 13bedffe (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 36ef0600 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -125,6 +125,20 @@ na seção «Sagui 3D» de [`docs/decisoes.md`](docs/decisoes.md).
   `input_share/games/` ([docs/input_share.md](docs/input_share.md)); ou copiam-se para `/jogos` a partir do SaguiOS.
   Sem os dados, uma janela explica como consegui-los. A configuração e as partidas vão para `/home/openjazz`.
   Teste: `tests/h228_openjazz.py`.
+
+## Extras: DOSBox e Recreativa (jogos de DOS)
+
+- **DOSBox 0.74-3** (D294, v8.3.1): o emulador de PC e de MS-DOS clássico (GPL-2.0 ou posterior), em
+  `userland/terceros/dosbox/` com um patch de três linhas. Núcleo normal e **recompilador dinâmico de x86**
+  (cerca de 9 vezes mais rápido em um laço de 32 bits, medido com KVM), Sound Blaster 16, AdLib, alto-falante,
+  mouse capturado e tela cheia. Para o porte, o runtime de C++ ganhou **RTTI** (`dynamic_cast`, `typeid`),
+  `<map>`, fluxos (`<iostream>`, `<sstream>`, `<fstream>`) e mais. Fica em `/apps/bin/dosbox` e em
+  **Início > Jogos**; um `.exe`, `.com` ou `.bat` abre-se com ele a partir de Arquivos; não entra na variante sem GPL.
+- **Recreativa** é o lançador: uma lista de jogos com a aparência do Windows 98 (grade com capa ou detalhes),
+  que encontra sozinha as pastas de `/home/dos` e `/jogos` com programas de DOS e guarda, para cada jogo, o
+  núcleo, os ciclos, a memória, a placa de som, um CD (pasta ou imagem ISO/CUE) e os comandos prévios.
+  **Os jogos não vêm com o sistema** nem vão para o git. Guia: [docs/dosbox.md](docs/dosbox.md). Teste:
+  `tests/h294_dosbox.py`.
 
 ## Extras: Quake (código de terceiros)
 

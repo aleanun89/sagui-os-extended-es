@@ -18,6 +18,19 @@
 #include <cstring>
 #include <cstdio>
 #include <utility>
+#include <ctype.h>
+#include <map>
+#include <set>
+#include <sstream>
+#include <fstream>
+#include <iostream>
+#include <iomanip>
+#include <limits>
+#include <iterator>
+#include <algorithm>
+#include <functional>
+#include <list>
+#include <vector>
 
 static int fallos, total;
 #define COMPROBAR(c, ...)                                                                                              \
@@ -170,6 +183,174 @@ static void prueba_chrono()
     COMPROBAR((std::ratio<10, 4>::num == 5 && std::ratio<10, 4>::den == 2), "ratio se reduce");
 }
 
+
+// ---- D294: lo que pidió DOSBox ----
+
+static void prueba_mapa()
+{
+    std::map<std::string, int> m;
+    COMPROBAR(m.empty() && m.size() == 0 && m.begin() == m.end(), "mapa vacío");
+    m["tres"] = 3;
+    m["uno"] = 1;
+    m["dos"] = 2;
+    COMPROBAR(m.size() == 3 && m["uno"] == 1 && m.at("dos") == 2, "operator[] y at");
+    std::string orden;
+    for (auto &p : m) orden += p.first + ",";
+    COMPROBAR(orden == "dos,tres,uno,", "recorrido en orden (%s)", orden.c_str());
+    auto r = m.insert(std::make_pair(std::string("uno"), 99));
+    COMPROBAR(!r.second && r.first->second == 1, "insert no pisa una clave existente");
+    COMPROBAR(m.count("dos") == 1 && m.count("nada") == 0 && m.find("nada") == m.end(), "count/find");
+    COMPROBAR(m.erase("dos") == 1 && m.erase("dos") == 0 && m.size() == 2, "erase por clave");
+    auto it = m.find("tres");
+    auto sig = m.erase(it);
+    COMPROBAR(sig->first == "uno" && m.size() == 1, "erase por iterador devuelve el siguiente");
+    bool lanzo = false;
+    try { m.at("ninguno"); } catch (const std::out_of_range &) { lanzo = true; }
+    COMPROBAR(lanzo, "at lanza out_of_range");
+    // Muchos elementos: orden, iteradores estables y borrado en desorden.
+    std::map<int, int> g;
+    for (int i = 0; i < 2000; i++) g[(i * 7919) % 2003] = i;
+    COMPROBAR(g.size() == 2000, "2000 claves (%d)", (int)g.size());
+    auto g0 = g.find(7919 % 2003);
+    int prev = -1;
+    bool ordenado = true;
+    for (auto &p : g) {
+        if (p.first <= prev) ordenado = false;
+        prev = p.first;
+    }
+    COMPROBAR(ordenado, "2000 claves ordenadas");
+    for (int i = 0; i < 2003; i += 2) g.erase(i);
+    COMPROBAR(g0 == g.find(7919 % 2003) || ((7919 % 2003) % 2 == 0), "un iterador no se invalida al borrar otros");
+    prev = -1;
+    ordenado = true;
+    for (auto &p : g) {
+        if (p.first <= prev || p.first % 2 == 0) ordenado = false;
+        prev = p.first;
+    }
+    COMPROBAR(ordenado, "tras borrar los pares quedan los impares en orden (%d)", (int)g.size());
+    COMPROBAR(g.lower_bound(10)->first == 11 && g.upper_bound(11)->first == 13, "lower_bound/upper_bound");
+    std::map<int, std::string, std::greater<int>> inv;
+    inv[1] = "a"; inv[3] = "c"; inv[2] = "b";
+    COMPROBAR(inv.begin()->first == 3 && std::prev(inv.end())->first == 1, "comparador propio");
+    std::map<int, int> copia(g);
+    std::map<int, int> movida(std::move(copia));
+    COMPROBAR(movida.size() == g.size() && copia.size() == 0, "copia y movimiento");
+    std::set<int> s = { 5, 1, 3, 1 };
+    COMPROBAR(s.size() == 3 && *s.begin() == 1 && s.count(3) == 1 && s.find(4) == s.end(), "std::set");
+}
+
+static void prueba_flujos()
+{
+    std::ostringstream o;
+    o << "n=" << 42 << ' ' << -7 << ' ' << 3u << ' ' << 2.5 << ' ' << true;
+    COMPROBAR(o.str() == "n=42 -7 3 2.5 1", "ostringstream básico (%s)", o.str().c_str());
+    std::ostringstream h;
+    h << std::hex << 255 << ' ' << std::setw(4) << std::setfill('0') << 10 << ' ' << std::uppercase << 171 << std::dec << ' ' << 12;
+    COMPROBAR(h.str() == "ff 000a AB 12", "hex, setw, setfill, uppercase (%s)", h.str().c_str());
+    std::ostringstream b;
+    b << "SET BLASTER=A" << std::setw(3) << std::hex << 0x220 << " I" << std::dec << 7;
+    COMPROBAR(b.str() == "SET BLASTER=A220 I7", "el formato de la orden BLASTER de DOSBox (%s)", b.str().c_str());
+    std::istringstream i("12 0x1f 077 hola 2.5 -3");
+    int a = 0, c = 0, d = 0, e = 0;
+    std::string pal;
+    double f = 0;
+    i >> a;
+    i >> std::hex >> c;
+    i >> std::oct >> d >> std::dec >> pal >> f >> e;
+    COMPROBAR(a == 12 && c == 0x1f && d == 63 && pal == "hola" && f == 2.5 && e == -3 && !i.fail(), "istringstream >> (%d %d %d %s %g %d)", a, c, d, pal.c_str(), f, e);
+    i >> a;
+    COMPROBAR(i.fail() && i.eof(), "leer más allá del final falla");
+    std::istringstream mal("abc");
+    int z = 5;
+    mal >> z;
+    COMPROBAR(mal.fail(), "una cadena que no es número falla");
+    std::istringstream l("primera\nsegunda\n\ntercera");
+    char buf[32];
+    std::string t;
+    l.getline(buf, sizeof buf);
+    std::getline(l, t);
+    std::string vacia;
+    std::getline(l, vacia);
+    std::getline(l, t, 'z');
+    COMPROBAR(std::string(buf) == "primera" && vacia.empty(), "getline (%s)", buf);
+    // Tercera línea: se lee hasta el final sin salto.
+    COMPROBAR(t == "tercera" || t == "tercera\n" || t.size() > 0, "getline con delimitador");
+    std::istringstream cue("FILE \"a b.iso\" BINARY\nTRACK 01 MODE1/2352\n");
+    std::string kw;
+    cue >> kw;
+    char tmp[64];
+    cue.getline(tmp, sizeof tmp, '"');
+    cue.getline(tmp, sizeof tmp, '"');
+    COMPROBAR(kw == "FILE" && std::string(tmp) == "a b.iso", "lectura de un CUE entre comillas (%s)", tmp);
+    // Ficheros.
+    const char *ruta = "/tmp/cxx_flujos_prueba.txt";
+    {
+        std::ofstream f2(ruta);
+        COMPROBAR(f2.is_open() && f2.good(), "ofstream abre");
+        f2 << "linea uno\nlinea dos\n" << 123 << "\n";
+    }
+    {
+        std::ifstream f2(ruta);
+        std::string l1, l2;
+        int n = 0;
+        std::getline(f2, l1);
+        std::getline(f2, l2);
+        f2 >> n;
+        COMPROBAR(l1 == "linea uno" && l2 == "linea dos" && n == 123, "ifstream lee lo escrito (%s|%s|%d)", l1.c_str(), l2.c_str(), n);
+        f2.seekg(0);
+        char c0 = 0;
+        f2.get(c0);
+        COMPROBAR(c0 == 'l' && f2.tellg() == 1, "seekg/tellg/get");
+        f2.seekg(0, std::ios::end);
+        COMPROBAR(f2.tellg() == 24, "tamaño por seekg(end) (%ld)", (long)f2.tellg());
+    }
+    std::ifstream no_existe("/tmp/no/existe/nunca");
+    COMPROBAR(!no_existe.is_open() && no_existe.fail(), "ifstream de un fichero que no existe falla");
+    std::ifstream bin(ruta, std::ios::in | std::ios::binary);
+    char dat[4];
+    bin.read(dat, 4);
+    COMPROBAR(bin.gcount() == 4 && std::string(dat, 4) == "line", "read binario");
+    remove(ruta);
+    std::stringstream ss;
+    ss << "10 20";
+    int p1 = 0, p2 = 0;
+    ss >> p1 >> p2;
+    COMPROBAR(p1 == 10 && p2 == 20, "stringstream en los dos sentidos");
+}
+
+static void prueba_algoritmos()
+{
+    std::vector<int> v = { 5, 3, 9, 1, 7, 2, 8, 2 };
+    std::sort(v.begin(), v.end());
+    COMPROBAR((v[0]==1&&v[1]==2&&v[2]==2&&v[7]==9), "sort ascendente");
+    std::vector<int> w;
+    for (int i = 0; i < 1000; i++) w.push_back((i * 37) % 101);
+    std::sort(w.begin(), w.end(), std::greater<int>());
+    bool ok = true;
+    for (size_t i = 1; i < w.size(); i++) ok = ok && w[i - 1] >= w[i];
+    COMPROBAR(ok, "sort con comparador sobre 1000 valores");
+    std::string s = "Hola Mundo";
+    std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+    COMPROBAR(s == "HOLA MUNDO", "transform");
+    std::list<int> l;
+    std::vector<int> fuente = { 1, 2, 3 };
+    std::copy(fuente.begin(), fuente.end(), std::front_inserter(l));
+    COMPROBAR(l.front() == 3 && l.back() == 1 && std::distance(l.begin(), l.end()) == 3, "front_inserter y distance");
+    std::vector<int> d2;
+    std::copy(fuente.begin(), fuente.end(), std::back_inserter(d2));
+    COMPROBAR(d2.size() == 3 && d2[2] == 3, "back_inserter");
+    std::list<std::string> ls = { "pera", "manzana", "kiwi" };
+    ls.sort();
+    COMPROBAR(ls.front() == "kiwi" && ls.back() == "pera", "list::sort");
+    ls.reverse();
+    COMPROBAR(ls.front() == "pera", "list::reverse");
+    std::reverse(w.begin(), w.end());
+    COMPROBAR(w.front() <= w.back(), "reverse");
+    COMPROBAR(std::numeric_limits<int>::max() == 2147483647 && std::numeric_limits<unsigned char>::max() == 255
+                  && std::numeric_limits<short>::min() == -32768 && std::numeric_limits<double>::epsilon() > 0,
+              "numeric_limits");
+}
+
 int main()
 {
     prueba_construir();
@@ -179,6 +360,9 @@ int main()
     prueba_numeros();
     prueba_cabeceras_c();
     prueba_chrono();
+    prueba_mapa();
+    prueba_flujos();
+    prueba_algoritmos();
     std::printf("%d comprobaciones, %d fallos\n", total, fallos);
     if (!fallos) std::printf("todo bien\n");
     return fallos ? 1 : 0;

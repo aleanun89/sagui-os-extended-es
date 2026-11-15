@@ -123,6 +123,20 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
   Sin datos, una ventana explica cómo conseguirlos. La configuración y las partidas van a `/home/openjazz`.
   Prueba: `tests/h228_openjazz.py`.
 
+## Extras: DOSBox y Recreativa (juegos de DOS)
+
+- **DOSBox 0.74-3** (D294, v8.3.1): el emulador de PC y de MS-DOS clásico (GPL-2.0 o posterior), en
+  `userland/terceros/dosbox/` con un parche de tres líneas. Núcleo normal y **recompilador dinámico de x86**
+  (unas 9 veces más rápido en un bucle de 32 bits, medido con KVM), Sound Blaster 16, AdLib, altavoz, ratón
+  capturado y pantalla completa. Para el portado, el runtime de C++ ganó **RTTI** (`dynamic_cast`, `typeid`),
+  `<map>`, flujos (`<iostream>`, `<sstream>`, `<fstream>`) y más. Va en `/apps/bin/dosbox` e **Inicio > Juegos**;
+  un `.exe`, `.com` o `.bat` se abre con él desde Archivos; no entra en la variante sin GPL.
+- **Recreativa** es el lanzador: una lista de juegos con el aspecto de Windows 98 (cuadrícula con portada o
+  detalles), que encuentra sola las carpetas de `/home/dos` y `/jogos` con programas de DOS y guarda, por juego,
+  el núcleo, los ciclos, la memoria, la tarjeta de sonido, un CD (carpeta o imagen ISO/CUE) y las órdenes previas.
+  **Los juegos no vienen con el sistema** ni van a git. Guía: [docs/dosbox.md](docs/dosbox.md). Prueba:
+  `tests/h294_dosbox.py`.
+
 ## Extras: Quake (código de terceros)
 
 - **Quake** (D229, v7.4.1): el motor de *Quake* (1996) que id Software publicó con licencia GPL-2.0, el

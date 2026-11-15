@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 13bedffe (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 36ef0600 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -123,6 +123,20 @@ text files, with textures and characters drawn in the code itself. Full explanat
   `input_share/games/` ([docs/input_share.md](docs/input_share.md)); or the files are copied to `/jogos` from SaguiOS.
   Without the data, a window explains how to get it. The configuration and saved games go to `/home/openjazz`.
   Test: `tests/h228_openjazz.py`.
+
+## Extras: DOSBox and Recreativa (DOS games)
+
+- **DOSBox 0.74-3** (D294, v8.3.1): the classic PC and MS-DOS emulator (GPL-2.0 or later), in
+  `userland/terceros/dosbox/` with a three-line patch. Normal core and **dynamic x86 recompiler** (about 9 times
+  faster in a 32-bit loop, measured with KVM), Sound Blaster 16, AdLib, speaker, captured mouse and full screen.
+  For the port, the C++ runtime gained **RTTI** (`dynamic_cast`, `typeid`), `<map>`, streams (`<iostream>`,
+  `<sstream>`, `<fstream>`) and more. It goes in `/apps/bin/dosbox` and in **Start > Games**; a `.exe`, `.com`
+  or `.bat` opens with it from Files; it is not in the no-GPL variant.
+- **Recreativa** is the launcher: a list of games with the look of Windows 98 (grid with cover art or details),
+  which finds by itself the folders of `/home/dos` and `/jogos` with DOS programs and saves, for each game, the
+  core, the cycles, the memory, the sound card, a CD (folder or ISO/CUE image) and the previous commands.
+  **The games do not come with the system** nor go into git. Guide: [docs/dosbox.md](docs/dosbox.md). Test:
+  `tests/h294_dosbox.py`.
 
 ## Extras: Quake (third-party code)
 

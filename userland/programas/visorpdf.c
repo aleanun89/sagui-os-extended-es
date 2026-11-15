@@ -1056,6 +1056,14 @@ static void desenhar_tudo(void)
         g_retangulo(j, 0, 0, j->larg, j->alt, 0x6A737C);
     }
     desenhar_paginas();
+    if (!doc && !apres) {
+        /* Sin documento: una invitación centrada en la zona de las páginas. */
+        const char *l1 = "Ningún documento abierto";
+        const char *l2 = "Ctrl+O o el botón Abrir para elegir un PDF";
+        int cy = j->alt / 2 - 16;
+        g_texto(j, (j->larg - (int)tam_texto(l1) * LETRA_L) / 2, cy, l1, 0xFFFFFF);
+        g_texto(j, (j->larg - (int)tam_texto(l2) * LETRA_L) / 2, cy + 22, l2, 0xD8DCE0);
+    }
     desenhar_painel();
     desenhar_barra();
     desenhar_barra_busca();
@@ -1749,16 +1757,19 @@ int principal(int argc, char **argv)
         if (i + 2 >= argc) { imprimir_em(ERROS, "uso: visorpdf --buscar arquivo texto [palavra-passe]\n"); return 2; }
         return modo_buscar(argv[i + 1], argv[i + 2], i + 3 < argc ? argv[i + 3] : NULL);
     }
-    if (i >= argc) {
-        imprimir_em(ERROS, "uso: visorpdf [-t|--ppm|--indice|--buscar] arquivo\n");
-        return 2;
-    }
+    /* Sin fichero (abierto desde el menú o el escritorio), la ventana se abre vacía con una
+     * invitación a abrir un PDF (Ctrl+O o el botón Abrir), en vez de terminar con un error. */
+    bool sin_arquivo = i >= argc;
 
     j = jan_abrir("Visor de PDF", LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK | JAN_ESC_LIVRE, LARG_MIN, ALT_MIN);
 
-    if (!abrir_arquivo(argv[i])) {
+    if (sin_arquivo) {
+        registrar("visorpdf: sin documento\n");
+        sujo = true;
+        desenhar_tudo();
+    } else if (!abrir_arquivo(argv[i])) {
         jan_fechar(j);
         return 1;
     }

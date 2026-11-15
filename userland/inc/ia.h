@@ -154,4 +154,54 @@ int ia_chat_conversa_ref(const ia_config_t *c, const ia_mensagem_ref_t *msgs, in
                          int (*deve_parar)(void *ctx), void *ctx_parar,
                          char *erro, int max_erro);
 
+/* ---- D295: llamada a herramientas (function calling) ---- */
+
+/* Una herramienta que el modelo pidió. «args» es el JSON de los argumentos tal como llegó (UTF-8), ya
+ * completo (en streaming llega en trozos y se junta aquí). */
+#define IA_CHAMADAS_MAX 8
+typedef struct {
+    char  id[64];
+    char  nome[48];
+    char *args;                  /* memoria dinámica; siempre terminada en cero */
+    int   nargs, cap;
+    bool  cortados;              /* pasaron de IA_ARGS_MAX: no se usan */
+} ia_chamada_t;
+#define IA_ARGS_MAX        (1024 * 1024)   /* tope de los argumentos de una llamada */
+#define IA_TURNO_TEXTO_MAX (1024 * 1024)   /* tope del texto de un turno */
+
+/* El resultado de un turno: el texto del asistente (UTF-8) y las herramientas pedidas. */
+typedef struct {
+    char        *texto;          /* memoria dinámica ("" si no habló) */
+    int          ntexto, captexto;
+    ia_chamada_t ch[IA_CHAMADAS_MAX];
+    int          n;
+    bool         completa;       /* false = cortado por «parar» o por el servidor */
+    bool         sem_ferramentas;/* el servidor rechazó «tools» y se repitió el turno como chat normal */
+    char         fim[24];        /* finish_reason ("stop", "tool_calls"...) */
+} ia_turno_t;
+void ia_turno_liberar(ia_turno_t *t);
+
+/* Un turno: manda los mensajes (cada uno ya es un objeto JSON de la API, en UTF-8: role, content,
+ * tool_calls, tool_call_id) más el mensaje de sistema de «sistema» (Latin-1, puede ser NULL) y la
+ * lista «tools» (un array JSON, o NULL para chat normal). Lee la respuesta en streaming: el texto
+ * llama a «ao_texto» (UTF-8) y las llamadas a herramientas, que llegan partidas en trozos, se juntan
+ * en «res». Si el servidor no admite herramientas, repite el turno sin ellas (res->sem_ferramentas). */
+int ia_turno(const ia_config_t *c, const char *sistema, const char *const *msgs_json, int nmsgs,
+             const char *tools_json,
+             void (*ao_texto)(const char *t, int n, void *ctx), void *ctx,
+             int (*deve_parar)(void *ctx), void *ctx_parar,
+             ia_turno_t *res, char *erro, int max_erro);
+
+/* Procesa UNA línea «data: ...» del SSE (o un cuerpo entero sin streaming) y la suma a «res».
+ * Es la parte que se prueba con trozos partidos. Devuelve 1 si era [DONE]. */
+int ia_turno_linha(ia_turno_t *res, const char *json, int n,
+                   void (*ao_texto)(const char *t, int n, void *ctx), void *ctx);
+
+/* GET sencillo (HTTP o HTTPS) de una URL completa: el cuerpo (hasta «max»-1 bytes) en «dst». Devuelve los bytes o <0. */
+int ia_http_obter(const char *url, char *dst, int max, char *erro, int max_erro);
+
+/* Utilidades de codificación para quien arma mensajes JSON: Latin-1 <-> UTF-8 y cadena JSON. */
+int ia_json_latin1(char *dst, const char *s);               /* "\"texto\"" desde Latin-1; dst debe tener 6*n+3 */
+int ia_utf8_latin1(const char *s, int n, char *dst, int max);
+
 #endif

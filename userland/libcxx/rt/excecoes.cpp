@@ -241,8 +241,7 @@ void *__cxa_current_exception_type() noexcept
 [[noreturn]] void __cxa_call_unexpected(void *) { std::terminate(); }
 [[noreturn]] void __cxa_call_terminate(void *) noexcept { std::terminate(); }
 [[noreturn]] void __cxa_throw_bad_array_new_length() { parar("C++: new[] con un tamaño imposible"); }
-[[noreturn]] void __cxa_bad_cast() { parar("C++: dynamic_cast imposible"); }
-[[noreturn]] void __cxa_bad_typeid() { parar("C++: typeid de un puntero nulo"); }
+/* __cxa_bad_cast y __cxa_bad_typeid (RTTI) están en rtti.cpp (D294). */
 
 /* ------------------------------------------------------------ la personalidad */
 

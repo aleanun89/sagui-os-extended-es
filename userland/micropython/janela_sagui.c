@@ -49,6 +49,10 @@ int  audio_escrever_sem_bloquear(int fd, const void *buf, unsigned n);
 int  audio_controle(int fd, int op, int valor);
 int  audio_fechar(int fd, int esperar);
 int  info_sistema(int tipo, void *buf, unsigned n);
+/* diálogos de archivos de la D272 (gui_arquivos.c): modales, con su propia ventana */
+_Bool dialogo_abrir(const char *titulo, const char *filtros, const char *inicial, char *saida, int max);
+_Bool dialogo_guardar(const char *titulo, const char *filtros, const char *inicial, char *saida, int max);
+_Bool dialogo_carpeta(const char *titulo, const char *inicial, char *saida, int max);
 void preencher32(uint32_t *d, uint32_t cor, size_t n);
 extern const unsigned char fonte_sagui[256][16];
 
@@ -1300,6 +1304,35 @@ static mp_obj_t mod_portapapeis(size_t n, const mp_obj_t *a)
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_portapapeis_obj, 0, 1, mod_portapapeis);
 
+/* ------------------------------------------------------------ diálogos de archivos (D272, D297) */
+
+/* dialogo(tipo, titulo="", filtros="", inicial=""): el diálogo de archivos de estilo Windows 95 del
+ * sistema. tipo: 0 = abrir, 1 = guardar, 2 = elegir carpeta (esta no usa filtros). filtros =
+ * "Texto (*.txt)|*.txt|Todos|*" (vacío: todos). Devuelve la ruta elegida o None si se cancela.
+ * Una sola función y no tres porque un nombre nuevo pediría regenerar los qstr (D034); vps.py
+ * le pone los nombres bonitos (dialogo_abrir, dialogo_guardar). */
+static mp_obj_t mod_dialogo(size_t n, const mp_obj_t *a)
+{
+    int tipo = mp_obj_get_int(a[0]);
+    char titulo[64] = "", filtros[256] = "", inicial[256] = "", saida[256];
+    if (n > 1 && a[1] != mp_const_none) sagui_str_para_latin1(a[1], titulo, sizeof titulo);
+    if (n > 2 && a[2] != mp_const_none) sagui_str_para_latin1(a[2], filtros, sizeof filtros);
+    if (n > 3 && a[3] != mp_const_none) sagui_str_para_latin1(a[3], inicial, sizeof inicial);
+    saida[0] = 0;
+    _Bool ok;
+    MP_THREAD_GIL_EXIT();
+    if (tipo == 0) ok = dialogo_abrir(titulo[0] ? titulo : "Abrir", filtros[0] ? filtros : NULL, inicial, saida, sizeof saida);
+    else if (tipo == 1) ok = dialogo_guardar(titulo[0] ? titulo : "Guardar como", filtros[0] ? filtros : NULL, inicial, saida, sizeof saida);
+    else ok = dialogo_carpeta(titulo[0] ? titulo : "Elegir carpeta", inicial, saida, sizeof saida);
+    MP_THREAD_GIL_ENTER();
+    if (!ok) return mp_const_none;
+    vstr_t v;
+    vstr_init(&v, 64);
+    sagui_latin1_para_vstr(&v, saida, strlen(saida));
+    return mp_obj_new_str_from_vstr(&v);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_dialogo_obj, 1, 4, mod_dialogo);
+
 static const mp_rom_map_elem_t sagui_globais_tab[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_sagui) },
     { MP_ROM_QSTR(MP_QSTR_Ventana), MP_ROM_PTR(&tipo_janela) },
@@ -1313,6 +1346,7 @@ static const mp_rom_map_elem_t sagui_globais_tab[] = {
     { MP_ROM_QSTR(MP_QSTR_Sonido), MP_ROM_PTR(&tipo_som) },
     { MP_ROM_QSTR(MP_QSTR_volumen), MP_ROM_PTR(&mod_volume_obj) },
     { MP_ROM_QSTR(MP_QSTR_portapapeles), MP_ROM_PTR(&mod_portapapeis_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dialogo), MP_ROM_PTR(&mod_dialogo_obj) },
     /* tipos de evento */
     { MP_ROM_QSTR(MP_QSTR_CLIC), MP_ROM_INT(EV_CLIQUE) },
     { MP_ROM_QSTR(MP_QSTR_SOLTAR), MP_ROM_INT(EV_SOLTOU) },

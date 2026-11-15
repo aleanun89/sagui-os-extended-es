@@ -1,0 +1,27 @@
+// <functional> - los objetos función de comparación y aritmética (D294).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_FUNCTIONAL
+#define SAGUI_CXX_FUNCTIONAL
+#pragma GCC system_header
+
+namespace std {
+
+template <class T = void> struct less {
+    constexpr bool operator()(const T &a, const T &b) const { return a < b; }
+};
+template <> struct less<void> {
+    template <class A, class B> constexpr bool operator()(const A &a, const B &b) const { return a < b; }
+};
+template <class T = void> struct greater {
+    constexpr bool operator()(const T &a, const T &b) const { return b < a; }
+};
+template <class T = void> struct equal_to {
+    constexpr bool operator()(const T &a, const T &b) const { return a == b; }
+};
+template <class T = void> struct plus {
+    constexpr T operator()(const T &a, const T &b) const { return a + b; }
+};
+
+} // namespace std
+
+#endif

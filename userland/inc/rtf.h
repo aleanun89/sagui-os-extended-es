@@ -5,7 +5,8 @@
  * LibreOffice en un texto normal: tablas de fuentes y colores, tamaño, negrita, cursiva,
  * subrayado, tachado, color, alineación, sangrías, interlineado, espaciado, viñetas simples,
  * saltos de página, tabuladores, caracteres \'hh y \uN, tamaño y márgenes de la hoja. Lo demás
- * (imágenes, tablas, listas numeradas, estilos, cabeceras) se descarta; las listas numeradas
+ * (tablas, listas numeradas, estilos, cabeceras) se descarta; las imágenes PNG y JPEG se leen y se
+ * escriben (\pict con \pngblip o \jpegblip, D296); las listas numeradas
  * pasan a viñetas. Sin macros ni campos. */
 #ifndef SAGUI_RTF_H
 #define SAGUI_RTF_H

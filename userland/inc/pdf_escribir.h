@@ -49,6 +49,12 @@ void    pdfw_texto(pdfw_t *w, int x, int y, int familia, int estilo, int tam, ui
                    const char *t, int n, int extra);
 void    pdfw_retangulo(pdfw_t *w, int x, int y, int l, int a, uint32_t cor);   /* relleno */
 void    pdfw_linha(pdfw_t *w, int x0, int y0, int x1, int y1, int espessura, uint32_t cor);
+/* Imágenes (D296): la esquina de arriba a la izquierda en (x, y) y el tamaño l x a, en twips.
+ * pdfw_imagem_rgb: píxeles 0x00RRGGBB (pw x ph), guardados como RGB de 8 bits con Flate.
+ * pdfw_imagem_jpeg: un JPEG baseline tal cual (DCTDecode), con sus píxeles y componentes (1 o 3).
+ * false = sin memoria, sin página abierta o demasiadas imágenes. */
+bool    pdfw_imagem_rgb(pdfw_t *w, int x, int y, int l, int a, const uint32_t *px, int pw, int ph);
+bool    pdfw_imagem_jpeg(pdfw_t *w, int x, int y, int l, int a, const uint8_t *jpg, int n, int pw, int ph, int ncomp);
 /* Cierra el documento; *dados se reserva con aloca (libera(*dados)). false = sin memoria
  * o sin páginas. */
 bool    pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *n);

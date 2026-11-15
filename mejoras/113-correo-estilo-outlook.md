@@ -31,3 +31,10 @@ y sin responder ni reenviar. El mantenedor pidió una interfaz parecida a Outloo
 ## Notas
 
 Límites: sin hilos de conversación ni reglas; al reenviar no se reenvían los adjuntos; al reabrir un borrador no se recuperan sus adjuntos.
+
+## Asistente IA (D298)
+
+**Ver > Asistente IA**, el botón «IA» de la barra o **F12** abren el panel con el «Correo IA»: leer el mensaje abierto y la lista de la carpeta, redactar un borrador de
+respuesta (abre la ventana de redacción rellena; solo al remitente) y mover un mensaje a otra carpeta con confirmación. **Nunca envía** (no existe herramienta de envío) y el contenido
+de los correos se marca como datos externos; el agente no tiene `ejecutar_orden`, `escribir_fichero` ni `buscar_web` y el panel solo ofrece agentes con herramientas `correo_*`.
+Acciones rápidas: Resumir, Proponer respuesta y Clasificar la carpeta. Detalles en `docs/agentes-ia.md` y D298.

@@ -26,7 +26,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | Paquete | Para qué |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar el kernel y los programas en 32 bits |
-| `g++` (con soporte `-m32`) | **opcional**: los programas de C++ (OpenJazz, Command & Conquer). Si no hay, el sistema se construye igual sin ellos |
+| `g++` (con soporte `-m32`) | **opcional**: los programas de C++ (OpenJazz, Command & Conquer, DOSBox). Si no hay, el sistema se construye igual sin ellos |
 | `nasm` | cargador de arranque y partes del kernel |
 | `python3` | todas las herramientas de `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | particiones FAT32 (`mcopy`, `mkfs.vfat`) |
@@ -83,13 +83,13 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `-j N` | (uno) | trabajos en paralelo de `make`. `gerar_versao.sh` usa por defecto todos los núcleos |
 | `OTIMIZACAO` | `-O2` | nivel de optimización (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` deja fuera lo que no puede ir en un binario GPL v3: NetSurf, GNUBoy y el r8169 derivado de Linux (el driver usa el inicio clásico propio). Lo pasa solo `gerar_versao.sh` si no usas `--con-input-share` |
-| `SEM_GPL` | `0` | `1` deja fuera todos los ports de terceros con licencia GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, Linux). Compila en `build-sem-gpl/` |
+| `SEM_GPL` | `0` | `1` deja fuera todos los ports de terceros con licencia GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, DOSBox, Linux). Compila en `build-sem-gpl/` |
 | `SEM_FIRMWARE` | `0` | `1` no mete el firmware binario (`firmware/`: el del pincho Wi-Fi RTL8188EU y el microcódigo de las Radeon R7xx para el 3D por la GPU). Compila en `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` genera la imagen sin MicroPython (bastante más pequeña) |
 | `NETSURF` | `1` | navegador NetSurf; solo entra si están las fuentes preparadas y el pegamento (ver 7). `NETSURF=0` lo quita |
 | `GNUBOY` | `1` | emulador de Game Boy; solo entra si está descargado su código (`make priv_descargas` o `bash tools/gnuboy_fuentes.sh`, ver 5 y 7). `GNUBOY=0` lo quita |
 | `QUAKE` | `1` | motor de Quake (`0` lo quita) |
-| `OPENJAZZ`, `CONQUER`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer) y GNU Prolog (`0` los quita) |
+| `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (con el lanzador Recreativa) y GNU Prolog (`0` los quita) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | meter en `/jogos` los datos shareware que bajaron `tools/quake_datos.sh` y `tools/openjazz_datos.sh`. Si no se bajaron, no entra nada; `0` los ignora aunque estén bajados |
 | `CNC_VIDEOS` | `0` | `1` mete también las películas de C&C (840 MB más: sube `JOGOS_MB`, por ejemplo `JOGOS_MB=2000`) |
 | `INPUT_SHARE` | `input_share` | carpeta con tus juegos y apps (ver 6). `INPUT_SHARE=` (vacío) la ignora; también vale otra ruta |
@@ -299,7 +299,7 @@ Comprueba las descargas con `sha256sum -c SHA256SUMS.txt`. En una máquina real,
 | `CPU you selected does not support x86-64 instruction set` o `gcc: ... no acepta -m32` | Falta `gcc-multilib` (o el soporte de 32 bits en `~/.local/saguitools/root`). Instálalo; no quites `-m32` |
 | Una cabecera «no existe» en el kernel o en un programa | `env.sh` exporta `CPATH` con la glibc del PC y GCC lo añade incluso con `-nostdinc`; el `Makefile` ya lo anula para todo lo que va dentro de SaguiOS. **No lo arregles** volviendo a pasar `CPATH` o `-I` a la glibc del PC: falta una cabecera nuestra o un `-I` |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | `run_in_qemu.sh` usa `set -u`. Dentro de `env.sh`, las variables que pueden no existir se amplían con `${VAR:+:$VAR}` o `${VAR:-}`, nunca con `$VAR` a secas (ya está así en `tools/entorno-local.sh`; si lo editas, mantenlo). Prueba: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
-| Los programas de C++ (OpenJazz, Command & Conquer) no salen | No hay `g++` de 32 bits (`cc1plus`): instala `g++` o ejecuta `tools/entorno-local.sh`. El resto se construye igual |
+| Los programas de C++ (OpenJazz, Command & Conquer, DOSBox) no salen | No hay `g++` de 32 bits (`cc1plus`): instala `g++` o ejecuta `tools/entorno-local.sh`. El resto se construye igual |
 | Sin NetSurf, GNUBoy, fuentes Typodermic o datos de Quake/Jazz | Son opcionales y solo entran si descargaste antes sus datos con `make priv_descargas` (ver 5 y 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Instala `mtools`, `e2fsprogs`, `dosfstools` (o ejecuta `tools/entorno-local.sh`) |
 | QEMU muy lento | Sin KVM usa emulación por software. Comprueba que existe `/dev/kvm` y que estás en el grupo: `sudo usermod -aG kvm $USER` (abre una sesión nueva). Para forzar sin KVM: `--sin-kvm`. |
@@ -332,7 +332,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | Package | What for |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | building the kernel and the programs in 32 bits |
-| `g++` (with `-m32` support) | **optional**: the C++ programs (OpenJazz, Command & Conquer). Without it the system is built anyway, minus those |
+| `g++` (with `-m32` support) | **optional**: the C++ programs (OpenJazz, Command & Conquer, DOSBox). Without it the system is built anyway, minus those |
 | `nasm` | the boot loader and parts of the kernel |
 | `python3` | every tool in `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | FAT32 partitions (`mcopy`, `mkfs.vfat`) |
@@ -389,13 +389,13 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `-j N` | (one) | parallel `make` jobs. `gerar_versao.sh` uses all cores by default |
 | `OTIMIZACAO` | `-O2` | optimization level (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` leaves out what cannot go into a GPL v3 binary: NetSurf, GNUBoy and the Linux-derived r8169 (the driver uses its own classic init). `gerar_versao.sh` sets it for you unless you use `--con-input-share` |
-| `SEM_GPL` | `0` | `1` leaves out every GPL-licensed third-party port (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, Linux). Builds in `build-sem-gpl/` |
+| `SEM_GPL` | `0` | `1` leaves out every GPL-licensed third-party port (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, DOSBox, Linux). Builds in `build-sem-gpl/` |
 | `SEM_FIRMWARE` | `0` | `1` leaves out the binary firmware (`firmware/`: the RTL8188EU Wi-Fi dongle's and the Radeon R7xx microcode for GPU 3D). Builds in `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` builds the image without MicroPython (considerably smaller) |
 | `NETSURF` | `1` | the NetSurf browser; only included if the sources are prepared and the glue exists (see 7). `NETSURF=0` removes it |
 | `GNUBOY` | `1` | the Game Boy emulator; only included if its code has been downloaded (`make priv_descargas` or `bash tools/gnuboy_fuentes.sh`, see 5 and 7). `GNUBOY=0` removes it |
 | `QUAKE` | `1` | the Quake engine (`0` removes it) |
-| `OPENJAZZ`, `CONQUER`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer) and GNU Prolog (`0` removes them) |
+| `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (with the Recreativa launcher) and GNU Prolog (`0` removes them) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | put the shareware data downloaded by `tools/quake_datos.sh` and `tools/openjazz_datos.sh` into `/jogos`. If they were not downloaded, nothing is added; `0` ignores them even if downloaded |
 | `CNC_VIDEOS` | `0` | `1` also adds the C&C movies (840 MB more: raise `JOGOS_MB`, for example `JOGOS_MB=2000`) |
 | `INPUT_SHARE` | `input_share` | folder with your games and apps (see 6). `INPUT_SHARE=` (empty) ignores it; another path also works |
@@ -605,7 +605,7 @@ Check downloads with `sha256sum -c SHA256SUMS.txt`. On a real machine, start wit
 | `CPU you selected does not support x86-64 instruction set` or `gcc: ... does not accept -m32` | `gcc-multilib` is missing (or the 32-bit support in `~/.local/saguitools/root`). Install it; do not remove `-m32` |
 | A header «does not exist» in the kernel or in a program | `env.sh` exports `CPATH` with the PC's glibc and GCC adds it even with `-nostdinc`; the `Makefile` already clears it for everything that goes inside SaguiOS. **Do not fix it** by passing `CPATH` or `-I` to the PC's glibc again: one of our own headers or an `-I` is missing |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | `run_in_qemu.sh` uses `set -u`. Inside `env.sh`, variables that may not exist are extended with `${VAR:+:$VAR}` or `${VAR:-}`, never with a bare `$VAR` (it is already like that in `tools/entorno-local.sh`; keep it if you edit it). Test: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
-| The C++ programs (OpenJazz, Command & Conquer) are missing | There is no 32-bit `g++` (`cc1plus`): install `g++` or run `tools/entorno-local.sh`. Everything else is built anyway |
+| The C++ programs (OpenJazz, Command & Conquer, DOSBox) are missing | There is no 32-bit `g++` (`cc1plus`): install `g++` or run `tools/entorno-local.sh`. Everything else is built anyway |
 | No NetSurf, GNUBoy, Typodermic fonts or Quake/Jazz data | They are optional and only included if you downloaded their data beforehand with `make priv_descargas` (see 5 and 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Install `mtools`, `e2fsprogs`, `dosfstools` (or run `tools/entorno-local.sh`) |
 | QEMU is very slow | Without KVM it uses software emulation. Check that `/dev/kvm` exists and that you are in the group: `sudo usermod -aG kvm $USER` (open a new session). To force no KVM: `--sin-kvm` |
@@ -638,7 +638,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | Pacote | Para quê |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar o kernel e os programas em 32 bits |
-| `g++` (com suporte a `-m32`) | **opcional**: os programas em C++ (OpenJazz, Command & Conquer). Sem ele o sistema é construído do mesmo jeito, sem eles |
+| `g++` (com suporte a `-m32`) | **opcional**: os programas em C++ (OpenJazz, Command & Conquer, DOSBox). Sem ele o sistema é construído do mesmo jeito, sem eles |
 | `nasm` | o carregador de inicialização e partes do kernel |
 | `python3` | todas as ferramentas de `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | partições FAT32 (`mcopy`, `mkfs.vfat`) |
@@ -695,13 +695,13 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `-j N` | (um) | trabalhos em paralelo do `make`. O `gerar_versao.sh` usa todos os núcleos por padrão |
 | `OTIMIZACAO` | `-O2` | nível de otimização (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` deixa de fora o que não pode ir em um binário GPL v3: NetSurf, GNUBoy e o r8169 derivado do Linux (o driver usa o início clássico próprio). O `gerar_versao.sh` passa isso sozinho, a menos que você use `--con-input-share` |
-| `SEM_GPL` | `0` | `1` deixa de fora todos os ports de terceiros com licença GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, Linux). Compila em `build-sem-gpl/` |
+| `SEM_GPL` | `0` | `1` deixa de fora todos os ports de terceiros com licença GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, DOSBox, Linux). Compila em `build-sem-gpl/` |
 | `SEM_FIRMWARE` | `0` | `1` não inclui o firmware binário (`firmware/`: o do adaptador Wi-Fi RTL8188EU e o microcódigo das Radeon R7xx para o 3D pela GPU). Compila em `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` gera a imagem sem o MicroPython (bem menor) |
 | `NETSURF` | `1` | o navegador NetSurf; só entra se as fontes estiverem preparadas e a cola existir (veja 7). `NETSURF=0` o remove |
 | `GNUBOY` | `1` | o emulador de Game Boy; só entra se o seu código foi baixado (`make priv_descargas` ou `bash tools/gnuboy_fuentes.sh`, veja 5 e 7). `GNUBOY=0` o remove |
 | `QUAKE` | `1` | o motor do Quake (`0` o remove) |
-| `OPENJAZZ`, `CONQUER`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer) e GNU Prolog (`0` os remove) |
+| `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (com o lançador Recreativa) e GNU Prolog (`0` os remove) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | colocar em `/jogos` os dados shareware baixados por `tools/quake_datos.sh` e `tools/openjazz_datos.sh`. Se não foram baixados, nada entra; `0` os ignora mesmo que estejam baixados |
 | `CNC_VIDEOS` | `0` | `1` inclui também os filmes do C&C (840 MB a mais: aumente `JOGOS_MB`, por exemplo `JOGOS_MB=2000`) |
 | `INPUT_SHARE` | `input_share` | pasta com seus jogos e apps (veja 6). `INPUT_SHARE=` (vazio) a ignora; outro caminho também serve |
@@ -911,7 +911,7 @@ Verifique os downloads com `sha256sum -c SHA256SUMS.txt`. Em uma máquina real, 
 | `CPU you selected does not support x86-64 instruction set` ou `gcc: ... não aceita -m32` | Falta o `gcc-multilib` (ou o suporte de 32 bits em `~/.local/saguitools/root`). Instale-o; não tire o `-m32` |
 | Um cabeçalho «não existe» no kernel ou em um programa | O `env.sh` exporta `CPATH` com a glibc do PC e o GCC o acrescenta mesmo com `-nostdinc`; o `Makefile` já o anula para tudo o que vai dentro do SaguiOS. **Não conserte** voltando a passar `CPATH` ou `-I` para a glibc do PC: falta um cabeçalho nosso ou um `-I` |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | O `run_in_qemu.sh` usa `set -u`. Dentro do `env.sh`, as variáveis que podem não existir são ampliadas com `${VAR:+:$VAR}` ou `${VAR:-}`, nunca com `$VAR` solto (já está assim em `tools/entorno-local.sh`; mantenha se editar). Teste: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
-| Os programas em C++ (OpenJazz, Command & Conquer) não aparecem | Não há `g++` de 32 bits (`cc1plus`): instale `g++` ou execute `tools/entorno-local.sh`. O resto é construído do mesmo jeito |
+| Os programas em C++ (OpenJazz, Command & Conquer, DOSBox) não aparecem | Não há `g++` de 32 bits (`cc1plus`): instale `g++` ou execute `tools/entorno-local.sh`. O resto é construído do mesmo jeito |
 | Sem NetSurf, GNUBoy, fontes Typodermic ou dados de Quake/Jazz | São opcionais e só entram se você baixou antes os dados com `make priv_descargas` (veja 5 e 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Instale `mtools`, `e2fsprogs`, `dosfstools` (ou execute `tools/entorno-local.sh`) |
 | QEMU muito lento | Sem KVM usa emulação por software. Verifique se `/dev/kvm` existe e se você está no grupo: `sudo usermod -aG kvm $USER` (abra uma sessão nova). Para forçar sem KVM: `--sin-kvm` |

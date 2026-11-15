@@ -11,6 +11,7 @@
  * Deshacer/rehacer por instantáneas del documento (texto + formatos + párrafos). */
 #include "gui.h"
 #include "pdf_escribir.h"
+#include "edicao_rica_obj.h"
 
 extern const unsigned char fonte_sagui[256][16];
 
@@ -19,6 +20,8 @@ extern const unsigned char fonte_sagui[256][16];
 #define BARRA_L    16     /* ancho de las barras de desplazamiento */
 #define UNDO_MAX   48
 #define UNDO_BYTES (6 * 1024 * 1024)
+#define OBJ_MAX    200    /* imágenes y WordArt por documento (cada versión de un objeto cuenta) */
+#define FAM_OBJ    250    /* "familia" de la entrada de formato de un objeto; cor = su índice */
 
 typedef struct { char *t; uint8_t *at; int n; rte_par_t *par; int npar; int cur; } snap_t;
 
@@ -45,12 +48,18 @@ struct rte {
     int topo, esq_px;
     int col_pref;                 /* x preferido (twips) al moverse en vertical; -1 = recalcular */
     linha_t *lin; int nlin, cap_lin; bool sujo; int npag;
+    int grupo;                         /* >0: operaciones agrupadas en un solo paso de deshacer (D298) */
     snap_t und[UNDO_MAX]; int nund;
     snap_t red[UNDO_MAX]; int nred;
     int ult_tipo, ult_pos;
     int drag_barra, drag_off;     /* 1 = barra vertical, 2 = horizontal */
     int vis_l, vis_a;             /* área de texto sin las barras */
     bool hbarra;
+    /* objetos incrustados (D296) */
+    rte_obj_t *obj[OBJ_MAX]; int nobj; int geracao;
+    int om, om_pos, om_h;         /* arrastre: 1 = cambiar tamaño (tirador om_h), 2 = mover */
+    int om_x0, om_y0, om_l0, om_a0, om_nl, om_na, om_drop;
+    bool om_moveu;
 };
 
 /* ------------------------------------------------------------ utilidades */
@@ -64,6 +73,90 @@ static int tw2px(const rte_t *r, int v)
 }
 
 static int em_px(const rte_t *r, int tam) { return (tam * r->zoom + 37) / 75; }
+
+/* ------------------------------------------------------------ objetos (imágenes y WordArt) */
+
+static bool es_obj(const rte_t *r, int i)
+{
+    return i >= 0 && i < r->n && (unsigned char)r->t[i] == RTE_OBJ_CHAR && r->fmts[r->at[i]].fam == FAM_OBJ;
+}
+
+static const rte_obj_t *obj_de(const rte_t *r, int i)
+{
+    if (!es_obj(r, i)) return NULL;
+    unsigned id = r->fmts[r->at[i]].cor;
+    return id < (unsigned)r->nobj ? r->obj[id] : NULL;
+}
+
+const rte_obj_t *rte_obj_em(const rte_t *r, int pos) { return obj_de(r, pos); }
+
+void rte_area_util(const rte_t *r, int *l, int *a)
+{
+    int al = r->pw - r->m_esq - r->m_dir, aa = r->ph - r->m_sup - r->m_inf;
+    if (l) *l = al < 600 ? 600 : al;
+    if (a) *a = aa < 600 ? 600 : aa;
+}
+
+static int obj_larg(const rte_t *r, const rte_obj_t *o)
+{
+    int l; rte_area_util(r, &l, NULL);
+    return o->l_tw > l ? l : o->l_tw;
+}
+
+static int obj_alto(const rte_t *r, const rte_obj_t *o)
+{
+    int a; rte_area_util(r, NULL, &a);
+    int h = rte_obj_alto_total(o);
+    return h > a ? a : h;
+}
+
+/* Ajusta el tamaño de un objeto al hueco de la hoja (imágenes: con su proporción). */
+static void obj_caber(const rte_t *r, rte_obj_t *o)
+{
+    int ml, ma;
+    rte_area_util(r, &ml, &ma);
+    int extra = o->pie[0] ? 320 : 0;
+    if (o->l_tw < 150) o->l_tw = 150;
+    if (o->a_tw < 150) o->a_tw = 150;
+    if (o->l_tw > ml || o->a_tw + extra > ma) {
+        if (o->tipo == RTE_OBJ_IMAGEM) {
+            long l0 = o->l_tw, a0 = o->a_tw;
+            if (o->l_tw > ml) { o->l_tw = ml; o->a_tw = (int)(a0 * ml / l0); }
+            if (o->a_tw + extra > ma) { o->a_tw = ma - extra; o->l_tw = (int)(l0 * o->a_tw / a0); }
+        } else {
+            if (o->l_tw > ml) o->l_tw = ml;
+            if (o->a_tw + extra > ma) o->a_tw = ma - extra;
+        }
+    }
+}
+
+/* Guarda una copia del descriptor y devuelve su índice (-1 = tabla llena). */
+static int obj_registrar(rte_t *r, const rte_obj_t *o)
+{
+    if (r->nobj >= OBJ_MAX) return -1;
+    rte_obj_t *c = obj_clonar(o);
+    if (!c) return -1;
+    r->obj[r->nobj] = c;
+    return r->nobj++;
+}
+
+static int obj_fmt(rte_t *r, int id)
+{
+    for (int i = 0; i < r->nfmt; i++) if (r->fmts[i].fam == FAM_OBJ && r->fmts[i].cor == (uint32_t)id) return i;
+    if (r->nfmt >= 256) return -1;
+    r->fmts[r->nfmt].fam = FAM_OBJ; r->fmts[r->nfmt].est = 0; r->fmts[r->nfmt].tam = 12; r->fmts[r->nfmt].cor = (uint32_t)id;
+    return r->nfmt++;
+}
+
+static void objs_liberar(rte_t *r)
+{
+    for (int i = 0; i < r->nobj; i++) { obj_liberar(r->obj[i]); r->obj[i] = NULL; }
+    r->nobj = 0;
+    int k = 0;
+    for (int i = 0; i < r->nfmt; i++) if (r->fmts[i].fam != FAM_OBJ) r->fmts[k++] = r->fmts[i];
+    r->nfmt = k;
+    r->geracao++;
+}
 
 static int fmt_id(rte_t *r, const rte_fmt_t *f)
 {
@@ -156,6 +249,7 @@ static void und_limpar(rte_t *r) { for (int i = 0; i < r->nund; i++) snap_libera
 static void marcar_undo(rte_t *r, int tipo)
 {
     r->modificado = true;
+    if (r->grupo > 0) return;           /* dentro de un grupo, la foto ya se tomó al abrirlo */
     if (tipo == 1 && r->ult_tipo == 1 && r->ult_pos == r->cur && r->nund > 0) { return; }
     r->ult_tipo = tipo;
     red_limpar(r);
@@ -167,13 +261,38 @@ static void marcar_undo(rte_t *r, int tipo)
     if (snap_tomar(r, &r->und[r->nund])) r->nund++;
 }
 
+/* Agrupa varias operaciones (p. ej. las de un agente de IA) en un solo paso de deshacer. */
+void rte_grupo_iniciar(rte_t *r)
+{
+    if (r->grupo == 0) marcar_undo(r, 0);
+    r->grupo++;
+}
+
+void rte_grupo_fim(rte_t *r)
+{
+    if (r->grupo > 0) r->grupo--;
+    if (r->grupo == 0) r->ult_tipo = 0;
+}
+
 bool rte_pode_desfazer(const rte_t *r) { return r->nund > 0; }
 bool rte_pode_refazer(const rte_t *r) { return r->nred > 0; }
 
 static void fmt_sincronizar(rte_t *r)
 {
-    if (r->cur > 0 && r->t[r->cur - 1] != '\n') r->fmt_ins = r->fmts[r->at[r->cur - 1]];
-    else if (r->cur < r->n) r->fmt_ins = r->fmts[r->at[r->cur]];
+    int k = -1;
+    if (r->cur > 0 && r->t[r->cur - 1] != '\n') k = r->cur - 1;
+    else if (r->cur < r->n) k = r->cur;
+    if (k >= 0 && r->fmts[r->at[k]].fam == FAM_OBJ) {   /* junto a un objeto: el texto normal más cercano */
+        int q = k;
+        while (q >= 0 && r->t[q] != '\n' && r->fmts[r->at[q]].fam == FAM_OBJ) q--;
+        if (q >= 0 && r->t[q] != '\n') k = q;
+        else {
+            q = k;
+            while (q < r->n && r->t[q] != '\n' && r->fmts[r->at[q]].fam == FAM_OBJ) q++;
+            k = (q < r->n && r->t[q] != '\n') ? q : -1;
+        }
+    }
+    if (k >= 0) r->fmt_ins = r->fmts[r->at[k]];
 }
 
 bool rte_desfazer(rte_t *r)
@@ -290,6 +409,7 @@ void rte_liberar(rte_t *r)
 {
     if (!r) return;
     und_limpar(r); red_limpar(r);
+    for (int i = 0; i < r->nobj; i++) obj_liberar(r->obj[i]);
     libera(r->t); libera(r->at); libera(r->par); libera(r->lin);
     libera(r);
 }
@@ -299,6 +419,8 @@ void rte_mover(rte_t *r, int x, int y, int l, int a) { r->x = x; r->y = y; r->l 
 void rte_limpar(rte_t *r)
 {
     und_limpar(r); red_limpar(r);
+    objs_liberar(r);
+    r->om = 0;
     iniciar_doc(r);
     r->modificado = false; r->ult_tipo = 0;
 }
@@ -368,6 +490,7 @@ void rte_fmt_em(const rte_t *r, int pos, rte_fmt_t *f)
 static int larg_char_tw(const rte_t *r, int i)
 {
     unsigned char c = (unsigned char)r->t[i];
+    if (c == RTE_OBJ_CHAR) { const rte_obj_t *o = obj_de(r, i); return o ? obj_larg(r, o) : 0; }
     if (c < 32) return 0;
     const rte_fmt_t *f = &r->fmts[r->at[i]];
     return (pdfw_largura_char(f->fam, f->est, c) * f->tam + 25) / 50;
@@ -393,15 +516,19 @@ static bool linhas_garantir(rte_t *r)
 /* Altura y base de una línea (twips) para el rango [a, b) con el tamaño máximo. */
 static void altura_linha(const rte_t *r, int a, int b, int vazio_fmt, int *alt, int *base)
 {
-    int mx = 0;
+    int mx = 0, ob = 0;
     for (int i = a; i < b; i++) {
+        const rte_obj_t *o = obj_de(r, i);
+        if (o) { int h = obj_alto(r, o); if (h > ob) ob = h; continue; }
         int tm = r->t[i] == '\f' ? 0 : r->fmts[r->at[i]].tam;
         if (tm > mx) mx = tm;
     }
-    if (mx == 0) mx = r->fmts[vazio_fmt].tam;
-    if (mx == 0) mx = 12;
-    *alt = mx * 23;          /* 1,15 x el cuerpo, en twips */
-    *base = mx * 18;         /* 0,9 x el cuerpo sobre la línea base */
+    if (mx == 0 && ob == 0) mx = r->fmts[vazio_fmt].tam;
+    if (mx == 0 && ob == 0) mx = 12;
+    int tb = mx * 18, td = mx * 5;   /* 0,9 y 0,25 x el cuerpo, en twips */
+    if (ob) { if (ob > tb) tb = ob; if (td < 40) td = 40; }
+    *alt = tb + td;          /* con texto solo: 1,15 x el cuerpo */
+    *base = tb;
 }
 
 static void maquetar(rte_t *r)
@@ -434,6 +561,9 @@ static void maquetar(rte_t *r)
             int i = ls;
             for (; i < pe; i++) {
                 if (r->t[i] == '\f') { le = i + 1; duro = true; break; }
+                const rte_obj_t *ob = obj_de(r, i);
+                bool bloco = ob && ob->ajuste == RTE_AJ_CIMA_BAIXO;   /* arriba y abajo: línea propia */
+                if (bloco && i > ls) { le = i; break; }
                 int cw = avance(r, i, sang + w);
                 if (w + cw > disp && i > ls && r->t[i] != ' ') {
                     if (ult_esp > ls) { le = ult_esp; w = ult_w; }
@@ -443,6 +573,7 @@ static void maquetar(rte_t *r)
                 w += cw;
                 if (r->t[i] == ' ') { ult_esp = i + 1; ult_w = w; }
                 le = i + 1;
+                if (bloco) { i++; break; }
             }
             if (i >= pe && !duro) le = pe;
             bool fin = (le >= pe);
@@ -685,6 +816,79 @@ static void barra_desenhar(jan_t *j, int x, int y, int l, int a, bool vertical, 
     g_bisel(j, px, py, vertical ? b : pol, vertical ? pol : b, false);
 }
 
+/* Posición en la ventana de un objeto: arriba a la izquierda de la imagen y su tamaño en píxeles. */
+static void obj_geom(rte_t *r, const linha_t *ln, int i, const rte_obj_t *o, int *x, int *y, int *w, int *h)
+{
+    int ox = pagina_x(r);
+    *x = ox + tw2px(r, r->m_esq + x_de(r, ln, i));
+    int base = linha_y_px(r, ln) + tw2px(r, ln->base);
+    int lw = obj_larg(r, o);
+    int ah = o->a_tw;
+    int tot = obj_alto(r, o);
+    if (ah > tot) ah = tot;
+    *w = tw2px(r, lw) < 4 ? 4 : tw2px(r, lw);
+    *h = tw2px(r, ah) < 4 ? 4 : tw2px(r, ah);
+    *y = base - tw2px(r, tot);
+}
+
+/* Si la selección es exactamente un objeto, su posición; si no, -1. */
+static int obj_sel_pos(const rte_t *r)
+{
+    int a, b;
+    if (!sel_rango(r, &a, &b) || b != a + 1) return -1;
+    return es_obj(r, a) ? a : -1;
+}
+
+/* Centro de cada uno de los 8 tiradores: 0 NO, 1 N, 2 NE, 3 E, 4 SE, 5 S, 6 SO, 7 O. */
+static void tirador_xy(int h, int x, int y, int w, int a, int *tx, int *ty)
+{
+    int xs[8] = { x, x + w / 2, x + w, x + w, x + w, x + w / 2, x, x };
+    int ys[8] = { y, y, y, y + a / 2, y + a, y + a, y + a, y + a / 2 };
+    *tx = xs[h]; *ty = ys[h];
+}
+
+static void obj_dibujar(jan_t *j, rte_t *r, const rte_obj_t *o, int i, int x, int y, int w, int h)
+{
+    obj_blit(j, o->d, x, y, w, h, clip_x0, clip_y0, clip_x1, clip_y1);
+    if (o->borde > 0) {
+        static const int tw[4] = { 0, 15, 30, 60 };
+        int e = tw2px(r, tw[o->borde > 3 ? 3 : o->borde]);
+        if (e < 1) e = 1;
+        retang_clip(j, x, y, w, e, W98_NEGRO); retang_clip(j, x, y + h - e, w, e, W98_NEGRO);
+        retang_clip(j, x, y, e, h, W98_NEGRO); retang_clip(j, x + w - e, y, e, h, W98_NEGRO);
+    }
+    if (o->pie[0]) {
+        int em = em_px(r, 10);
+        int tx = 0, n = (int)tam_texto(o->pie);
+        for (int k = 0; k < n; k++) tx += (pdfw_largura_char(PDFW_SANS, 0, (unsigned char)o->pie[k]) * em + 500) / 1000;
+        int xx = x + (w - tx) / 2;
+        int yb = y + h + tw2px(r, 230);
+        for (int k = 0; k < n; k++) {
+            int adv = (pdfw_largura_char(PDFW_SANS, 0, (unsigned char)o->pie[k]) * em + 500) / 1000;
+            glifo(j, xx, yb, adv, em, (unsigned char)o->pie[k], 0, 0x202020);
+            xx += adv;
+        }
+    }
+    if (obj_sel_pos(r) == i) {
+        retang_clip(j, x - 1, y - 1, w + 2, 1, W98_NEGRO); retang_clip(j, x - 1, y + h, w + 2, 1, W98_NEGRO);
+        retang_clip(j, x - 1, y - 1, 1, h + 2, W98_NEGRO); retang_clip(j, x + w, y - 1, 1, h + 2, W98_NEGRO);
+        for (int k = 0; k < 8; k++) {
+            int tx, ty;
+            tirador_xy(k, x, y, w, h, &tx, &ty);
+            retang_clip(j, tx - 3, ty - 3, 7, 7, COR_BRANCO);
+            retang_clip(j, tx - 2, ty - 2, 5, 5, W98_NEGRO);
+        }
+    }
+    if (r->om == 1 && r->om_pos == i) {          /* tamaño nuevo mientras se arrastra un tirador */
+        int nw = tw2px(r, r->om_nl), nh = tw2px(r, r->om_na);
+        int nx = x, ny = y;
+        if (r->om_h == 0 || r->om_h == 6 || r->om_h == 7) nx = x + w - nw;
+        if (r->om_h == 0 || r->om_h == 1 || r->om_h == 2) ny = y + h - nh;
+        retang_clip(j, nx, ny, nw, 1, 0xFF0000); retang_clip(j, nx, ny + nh - 1, nw, 1, 0xFF0000);
+        retang_clip(j, nx, ny, 1, nh, 0xFF0000); retang_clip(j, nx + nw - 1, ny, 1, nh, 0xFF0000);
+    }
+}
+
 void rte_desenhar(jan_t *j, rte_t *r)
 {
     maquetar(r);
@@ -737,6 +941,14 @@ void rte_desenhar(jan_t *j, rte_t *r)
             (void)xp;
             const rte_fmt_t *f = &r->fmts[r->at[i]];
             unsigned char c = (unsigned char)r->t[i];
+            const rte_obj_t *ob = c == RTE_OBJ_CHAR ? obj_de(r, i) : NULL;
+            if (ob) {
+                int ox2, oy2, ow2, oh2;
+                obj_geom(r, ln, i, ob, &ox2, &oy2, &ow2, &oh2);
+                obj_dibujar(j, r, ob, i, ox2, oy2, ow2, oh2);
+                xc += adv_t;
+                continue;
+            }
             bool sel = tem_sel && i >= s0 && i < s1;
             uint32_t cor = sel ? COR_BRANCO : f->cor;
             int em = em_px(r, f->tam);
@@ -744,6 +956,11 @@ void rte_desenhar(jan_t *j, rte_t *r)
             if ((f->est & RTE_SUBLINHADO) && c >= 32) retang_clip(j, xa, base + 1 + em / 16, xb - xa, em / 14 > 1 ? em / 14 : 1, cor);
             if ((f->est & RTE_RISCADO) && c >= 32) retang_clip(j, xa, base - em / 3, xb - xa, 1, cor);
             xc += adv_t;
+        }
+        /* marca de destino al arrastrar un objeto */
+        if (r->om == 2 && r->om_moveu && r->om_drop >= ln->ini && r->om_drop <= ln->fim && linha_de(r, r->om_drop) == li) {
+            int dx = ox + tw2px(r, r->m_esq + x_de(r, ln, r->om_drop));
+            retang_clip(j, dx, ly, 2, lh > 2 ? lh : 2, 0xFF0000);
         }
         /* cursor */
         if (r->foco && !tem_sel && r->cur >= ln->ini && r->cur <= ln->fim && linha_de(r, r->cur) == li) {
@@ -760,6 +977,7 @@ void rte_desenhar(jan_t *j, rte_t *r)
         g_retangulo(j, r->x + r->vis_l, r->y + r->vis_a, BARRA_L, BARRA_L, W98_FACE);
     }
     jan_mostrar_area(j, r->x, r->y, r->l, r->a);
+    GR_REG(j, "rte", r, r->x, r->y, r->vis_l, r->vis_a, "", 0, 0);
 }
 
 /* ------------------------------------------------------------ ratón */
@@ -861,7 +1079,7 @@ static void arrastar_barra(jan_t *j, rte_t *r, const evento_t *e)
 void rte_fmt_atual(const rte_t *r, rte_fmt_t *f)
 {
     int a, b;
-    if (sel_rango(r, &a, &b)) { *f = r->fmts[r->at[a]]; return; }
+    if (sel_rango(r, &a, &b) && r->fmts[r->at[a]].fam != FAM_OBJ) { *f = r->fmts[r->at[a]]; return; }
     *f = r->fmt_ins;
 }
 
@@ -875,6 +1093,7 @@ static void fmt_mod(rte_t *r, unsigned campos, const rte_fmt_t *f, unsigned est_
         for (int i = 0; i < 256; i++) cache_para[i] = -1;
         for (int i = a; i < b; i++) {
             int id = r->at[i];
+            if (r->fmts[id].fam == FAM_OBJ) continue;      /* las imágenes no tienen fuente */
             if (cache_para[id] < 0) {
                 rte_fmt_t g = r->fmts[id];
                 if (campos & RTE_C_FAM) g.fam = f->fam;
@@ -975,9 +1194,9 @@ void rte_ir_pagina(rte_t *r, int pagina)
 
 /* Portapapeles con formato propio: el texto va al del sistema; si al pegar sigue igual, se
  * pegan también los formatos y los párrafos. */
-static struct { char *t; rte_fmt_t *f; rte_par_t *par; int n, npar; } clip_rico;
+static struct { char *t, *pl; rte_fmt_t *f; rte_par_t *par; int n, npl, npar, ger; } clip_rico;   /* pl: el texto sin los objetos */
 
-static void clip_liberar(void) { libera(clip_rico.t); libera(clip_rico.f); libera(clip_rico.par); memset(&clip_rico, 0, sizeof clip_rico); }
+static void clip_liberar(void) { libera(clip_rico.t); libera(clip_rico.pl); libera(clip_rico.f); libera(clip_rico.par); memset(&clip_rico, 0, sizeof clip_rico); }
 
 bool rte_copiar(rte_t *r)
 {
@@ -987,17 +1206,24 @@ bool rte_copiar(rte_t *r)
     int n = b - a, nl = 0;
     for (int i = a; i < b; i++) if (r->t[i] == '\n') nl++;
     clip_rico.t = aloca((size_t)n + 1);
+    clip_rico.pl = aloca((size_t)n + 1);
     clip_rico.f = aloca((size_t)n * sizeof(rte_fmt_t) + 1);
     clip_rico.par = aloca((size_t)(nl + 1) * sizeof(rte_par_t));
-    if (clip_rico.t && clip_rico.f && clip_rico.par) {
+    if (clip_rico.t && clip_rico.pl && clip_rico.f && clip_rico.par) {
         memcpy(clip_rico.t, r->t + a, (size_t)n);
         clip_rico.t[n] = 0;
+        int np = 0;
+        for (int i = 0; i < n; i++) if (!es_obj(r, a + i)) clip_rico.pl[np++] = r->t[a + i];
+        clip_rico.pl[np] = 0;
+        clip_rico.npl = np;
+        clip_rico.ger = r->geracao;
         for (int i = 0; i < n; i++) clip_rico.f[i] = r->fmts[r->at[a + i]];
         int p0 = par_idx(r, a);
         for (int k = 0; k <= nl; k++) clip_rico.par[k] = r->par[p0 + k];
         clip_rico.n = n; clip_rico.npar = nl + 1;
     } else clip_liberar();
-    copiar_texto(r->t + a, (unsigned)n);
+    if (clip_rico.pl) { if (clip_rico.npl > 0) copiar_texto(clip_rico.pl, (unsigned)clip_rico.npl); }
+    else copiar_texto(r->t + a, (unsigned)n);
     return true;
 }
 
@@ -1011,20 +1237,127 @@ bool rte_cortar(jan_t *j, rte_t *r)
     return true;
 }
 
+/* ------------------------------------------------------------ API de objetos */
+
+bool rte_obj_inserir(rte_t *r, rte_obj_t *o)
+{
+    if (o->tipo == RTE_OBJ_WORDART && !o->d && !rte_obj_wordart_dibujar(o)) return false;
+    if (!o->d) return false;
+    obj_caber(r, o);
+    int id = obj_registrar(r, o);
+    int f = id >= 0 ? obj_fmt(r, id) : -1;
+    rte_obj_liberar(o);
+    if (f < 0) return false;
+    marcar_undo(r, 0);
+    apagar_sel(r);
+    char c = RTE_OBJ_CHAR;
+    if (!ins_raw(r, r->cur, &c, NULL, 1, f)) return false;
+    r->anc = r->cur; r->cur++;
+    r->col_pref = -1;
+    r->ult_tipo = 0;
+    r->sujo = true;
+    return true;
+}
+
+bool rte_obj_selecionado(const rte_t *r, rte_obj_t *o, int *pos)
+{
+    int p = obj_sel_pos(r);
+    if (p < 0) return false;
+    const rte_obj_t *q = obj_de(r, p);
+    if (!q) return false;
+    if (o) *o = *q;
+    if (pos) *pos = p;
+    return true;
+}
+
+bool rte_obj_substituir(rte_t *r, const rte_obj_t *novo)
+{
+    int p = obj_sel_pos(r);
+    const rte_obj_t *ant = p >= 0 ? obj_de(r, p) : NULL;
+    if (!ant) return false;
+    rte_obj_t n = *novo;
+    n.d = ant->d;
+    obj_caber(r, &n);
+    rte_obj_t *c = obj_clonar(&n);
+    if (!c) return false;
+    if (c->tipo == RTE_OBJ_WORDART &&
+        (c->wa_estilo != ant->wa_estilo || c->wa_fam != ant->wa_fam || c->wa_est != ant->wa_est || c->wa_tam != ant->wa_tam ||
+         compara_texto(c->wa_texto, ant->wa_texto) != 0 || c->l_tw != ant->l_tw || c->a_tw != ant->a_tw))
+        rte_obj_wordart_dibujar(c);
+    marcar_undo(r, 0);
+    int id = obj_registrar(r, c);
+    obj_liberar(c);
+    if (id < 0) return false;
+    int f = obj_fmt(r, id);
+    if (f < 0) return false;
+    r->at[p] = (uint8_t)f;
+    r->sujo = true;
+    return true;
+}
+
+void rte_doc_obj(rte_t *r, rte_obj_t *o)
+{
+    if (o->tipo == RTE_OBJ_WORDART && !o->d) rte_obj_wordart_dibujar(o);
+    if (!o->d) return;
+    obj_caber(r, o);
+    int id = obj_registrar(r, o);
+    int f = id >= 0 ? obj_fmt(r, id) : -1;
+    rte_obj_liberar(o);
+    if (f < 0) return;
+    char c = RTE_OBJ_CHAR;
+    ins_raw(r, r->n, &c, NULL, 1, f);
+}
+
+bool rte_obj_retangulo(rte_t *r, int *x, int *y, int *l, int *a)
+{
+    int p = obj_sel_pos(r);
+    const rte_obj_t *o = p >= 0 ? obj_de(r, p) : NULL;
+    if (!o) return false;
+    calc_vista(r);
+    maquetar(r);
+    const linha_t *ln = &r->lin[linha_de(r, p)];
+    int ox, oy, ow, oh;
+    obj_geom(r, ln, p, o, &ox, &oy, &ow, &oh);
+    if (x) *x = ox;
+    if (y) *y = oy;
+    if (l) *l = ow;
+    if (a) *a = oh;
+    return true;
+}
+
+/* Una imagen del portapapeles del sistema (SIS_COLAR_IMAGEM) como objeto. */
+static bool colar_imagem_sistema(rte_t *r)
+{
+    int dim = colar_imagem(NULL, 0);
+    int w = dim & 0xFFFF, h = (dim >> 16) & 0xFFFF;
+    if (w <= 0 || h <= 0) return false;
+    imagem_t img;
+    if (!imagem_criar(&img, w, h, 0xFFFFFF)) return false;
+    if (colar_imagem(img.px, (unsigned)(w * h)) <= 0) { imagem_liberar(&img); return false; }
+    rte_obj_t o;
+    memset(&o, 0, sizeof o);
+    o.tipo = RTE_OBJ_IMAGEM; o.l_tw = w * 15; o.a_tw = h * 15;
+    o.d = rte_obj_dados_criar(&img, NULL, 0, RTE_BLOB_NENHUM, w, h);
+    if (!o.d) { imagem_liberar(&img); return false; }
+    return rte_obj_inserir(r, &o);
+}
+
 bool rte_colar(jan_t *j, rte_t *r)
 {
     (void)j;
     int n = colar_texto(NULL, 0);
-    if (n <= 0) return false;
-    char *b = aloca((size_t)n + 1);
+    bool so_objetos = clip_rico.t && clip_rico.npl == 0 && clip_rico.n > 0 && clip_rico.ger == r->geracao;
+    if (n <= 0 && !so_objetos) return colar_imagem_sistema(r);     /* sin texto: ¿hay una imagen? */
+    char *b = aloca((size_t)(n > 0 ? n : 0) + 1);
     if (!b) return false;
-    n = colar_texto(b, (unsigned)n + 1);
+    n = n > 0 ? colar_texto(b, (unsigned)n + 1) : 0;
     int k = 0;
-    for (int i = 0; i < n; i++) if (b[i] != '\r') b[k++] = b[i];
+    for (int i = 0; i < n; i++) if (b[i] != '\r' && b[i] != RTE_OBJ_CHAR) b[k++] = b[i];
     b[k] = 0;
+    bool rico = clip_rico.t && clip_rico.ger == r->geracao && clip_rico.npl == k && memcmp(clip_rico.pl, b, (size_t)k) == 0;
+    if (rico) { libera(b); b = aloca((size_t)clip_rico.n + 1); if (!b) return false; memcpy(b, clip_rico.t, (size_t)clip_rico.n + 1); k = clip_rico.n; }
     marcar_undo(r, 0);
     apagar_sel(r);
-    bool rico = clip_rico.t && clip_rico.n == k && memcmp(clip_rico.t, b, (size_t)k) == 0;
     int pos = r->cur;
     int p0 = par_idx(r, pos);
     if (rico) {
@@ -1168,6 +1501,62 @@ static int palavra_sig(const rte_t *r, int p)
     return p;
 }
 
+/* Objeto bajo el punto (x, y) de la ventana; -1 si no hay. */
+static int obj_bajo(rte_t *r, int mx, int my)
+{
+    maquetar(r);
+    for (int li = 0; li < r->nlin; li++) {
+        const linha_t *ln = &r->lin[li];
+        int ly = linha_y_px(r, ln), lh = tw2px(r, ln->alt);
+        if (ly + lh < r->y) continue;
+        if (ly > r->y + r->vis_a) break;
+        if (my < ly - 4 || my > ly + lh + 4) continue;
+        for (int i = ln->ini; i < ln->fim; i++) {
+            const rte_obj_t *o = obj_de(r, i);
+            if (!o) continue;
+            int x, y, w, h;
+            obj_geom(r, ln, i, o, &x, &y, &w, &h);
+            if (dentro_r(mx, my, x, y, w, h + (o->pie[0] ? tw2px(r, 320) : 0))) return i;
+        }
+    }
+    return -1;
+}
+
+/* Desplaza un objeto a otra posición del texto (arrastrar y soltar). */
+static void obj_mover(rte_t *r, int de, int a)
+{
+    if (a == de || a == de + 1 || !es_obj(r, de)) return;
+    marcar_undo(r, 0);
+    uint8_t fid = r->at[de];
+    del_raw(r, de, de + 1);
+    if (a > de) a--;
+    char c = RTE_OBJ_CHAR;
+    ins_raw(r, a, &c, NULL, 1, fid);
+    r->anc = a; r->cur = a + 1;
+}
+
+/* Fija un tamaño nuevo al objeto de la posición pos (una versión nueva del descriptor). */
+static bool obj_poner_tamano(rte_t *r, int pos, int l_tw, int a_tw)
+{
+    const rte_obj_t *o = obj_de(r, pos);
+    if (!o) return false;
+    rte_obj_t n = *o;
+    n.l_tw = l_tw; n.a_tw = a_tw;
+    obj_caber(r, &n);
+    rte_obj_t *c = obj_clonar(&n);
+    if (!c) return false;
+    if (c->tipo == RTE_OBJ_WORDART) rte_obj_wordart_dibujar(c);
+    marcar_undo(r, 0);
+    int id = obj_registrar(r, c);
+    obj_liberar(c);
+    if (id < 0) return false;
+    int f = obj_fmt(r, id);
+    if (f < 0) return false;
+    r->at[pos] = (uint8_t)f;
+    r->sujo = true;
+    return true;
+}
+
 int rte_tratar(jan_t *j, rte_t *r, const evento_t *e)
 {
     int res = 0;
@@ -1186,6 +1575,34 @@ int rte_tratar(jan_t *j, rte_t *r, const evento_t *e)
         if (!dentro_r(e->x, e->y, r->x, r->y, r->l, r->a)) { if (r->foco) { r->foco = false; rte_desenhar(j, r); } return 0; }
         r->foco = true;
         if (clic_barra(j, r, e)) return 0;
+        /* objetos: tiradores del seleccionado, o clic sobre uno */
+        {
+            maquetar(r);
+            int op = obj_sel_pos(r);
+            if (op >= 0) {
+                const rte_obj_t *o = obj_de(r, op);
+                const linha_t *ln = &r->lin[linha_de(r, op)];
+                int x, y, w, h;
+                obj_geom(r, ln, op, o, &x, &y, &w, &h);
+                for (int k = 0; k < 8; k++) {
+                    int tx, ty;
+                    tirador_xy(k, x, y, w, h, &tx, &ty);
+                    if (dentro_r(e->x, e->y, tx - 4, ty - 4, 9, 9)) {
+                        r->om = 1; r->om_pos = op; r->om_h = k; r->om_x0 = e->x; r->om_y0 = e->y;
+                        r->om_l0 = obj_larg(r, o); r->om_a0 = o->a_tw; r->om_nl = r->om_l0; r->om_na = r->om_a0;
+                        return 0;
+                    }
+                }
+            }
+            int oi = obj_bajo(r, e->x, e->y);
+            if (oi >= 0) {
+                r->anc = oi; r->cur = oi + 1; r->col_pref = -1;
+                fmt_sincronizar(r);
+                r->om = 2; r->om_pos = oi; r->om_x0 = e->x; r->om_y0 = e->y; r->om_moveu = false; r->om_drop = oi;
+                rte_desenhar(j, r);
+                return RTE_R_CURSOR | (e->cliques >= 2 ? RTE_R_OBJ : 0);
+            }
+        }
         int p = pos_en_pixel(r, e->x, e->y);
         if (e->cliques >= 2) { int a, b; palavra_em(r, p, &a, &b); r->anc = a; r->cur = b; if (a == b) r->anc = -1; }
         else if (e->modificadores & 1) { if (r->anc < 0) r->anc = r->cur; r->cur = p; }
@@ -1196,6 +1613,48 @@ int rte_tratar(jan_t *j, rte_t *r, const evento_t *e)
         fmt_sincronizar(r);
         rte_desenhar(j, r);
         return RTE_R_CURSOR;
+    }
+    if (e->tipo == EV_MOVER && (e->botoes & 1) && r->om) {
+        int dx = (e->x - r->om_x0) * 1500 / (r->zoom ? r->zoom : 100), dy = (e->y - r->om_y0) * 1500 / (r->zoom ? r->zoom : 100);
+        if (r->om == 1) {
+            const rte_obj_t *o = obj_de(r, r->om_pos);
+            if (!o) { r->om = 0; return 0; }
+            int h = r->om_h, nl = r->om_l0, na = r->om_a0;
+            bool izq = h == 0 || h == 6 || h == 7, der = h == 2 || h == 3 || h == 4;
+            bool arr = h == 0 || h == 1 || h == 2, aba = h == 4 || h == 5 || h == 6;
+            if (izq) nl = r->om_l0 - dx;
+            if (der) nl = r->om_l0 + dx;
+            if (arr) na = r->om_a0 - dy;
+            if (aba) na = r->om_a0 + dy;
+            bool esquina = (h == 0 || h == 2 || h == 4 || h == 6);
+            if (esquina && o->tipo == RTE_OBJ_IMAGEM && !(e->modificadores & 1)) na = (int)((long)nl * r->om_a0 / (r->om_l0 ? r->om_l0 : 1));
+            if (nl < 300) nl = 300;
+            if (na < 300) na = 300;
+            r->om_nl = nl; r->om_na = na;
+            rte_desenhar(j, r);
+            return 0;
+        }
+        if (r->om == 2) {
+            int ddx = e->x - r->om_x0, ddy = e->y - r->om_y0;
+            if (ddx * ddx + ddy * ddy > 25) r->om_moveu = true;
+            if (r->om_moveu) { r->om_drop = pos_en_pixel(r, e->x, e->y); rte_desenhar(j, r); }
+            return 0;
+        }
+    }
+    if (e->tipo == EV_SOLTOU && r->om) {
+        int modo = r->om, res2 = 0;
+        r->om = 0;
+        if (modo == 1) {
+            if (r->om_nl != r->om_l0 || r->om_na != r->om_a0) {
+                if (obj_poner_tamano(r, r->om_pos, r->om_nl, r->om_na)) res2 = RTE_R_MUDOU;
+            }
+        } else if (r->om_moveu) {
+            obj_mover(r, r->om_pos, r->om_drop);
+            res2 = RTE_R_MUDOU;
+        }
+        r->arrastando = false;
+        rte_desenhar(j, r);
+        return res2 | RTE_R_CURSOR;
     }
     if (e->tipo == EV_MOVER && (e->botoes & 1)) {
         if (r->drag_barra) { arrastar_barra(j, r, e); return 0; }
@@ -1313,6 +1772,29 @@ fim:
 
 /* ------------------------------------------------------------ exportación a PDF */
 
+/* Un objeto en la página del PDF: la imagen (el JPEG tal cual si lo hay), el borde y el pie. */
+static void pdf_objeto(pdfw_t *w, const rte_obj_t *o, int x, int y, int l, int a)
+{
+    if (!o->d || !o->d->img.px) return;
+    bool hecho = false;
+    int bl, ba, nc;
+    if (o->d->blob && o->d->blob_tipo == RTE_BLOB_JPEG && obj_jpeg_info(o->d->blob, o->d->n_blob, &bl, &ba, &nc))
+        hecho = pdfw_imagem_jpeg(w, x, y, l, a, o->d->blob, o->d->n_blob, bl, ba, nc);
+    if (!hecho) pdfw_imagem_rgb(w, x, y, l, a, o->d->img.px, o->d->img.larg, o->d->img.alt);
+    if (o->borde > 0) {
+        static const int tw[4] = { 0, 15, 30, 60 };
+        int e = tw[o->borde > 3 ? 3 : o->borde];
+        pdfw_retangulo(w, x, y, l, e, 0); pdfw_retangulo(w, x, y + a - e, l, e, 0);
+        pdfw_retangulo(w, x, y, e, a, 0); pdfw_retangulo(w, x + l - e, y, e, a, 0);
+    }
+    if (o->pie[0]) {
+        int n = (int)tam_texto(o->pie);
+        int tw2 = pdfw_largura_texto(PDFW_SANS, 0, 200, o->pie, n);
+        pdfw_texto(w, x + (l - tw2) / 2, y + a + 230, PDFW_SANS, 0, 200, 0x202020, o->pie, n, 0);
+    }
+}
+
+
 int rte_exportar_pdf(rte_t *r, const char *titulo, uint8_t **dados, int *n)
 {
     maquetar(r);
@@ -1336,9 +1818,20 @@ int rte_exportar_pdf(rte_t *r, const char *titulo, uint8_t **dados, int *n)
         int i = ln->ini;
         while (i < ln->fim) {
             if (r->t[i] == '\t' || r->t[i] == '\f') { x += avance(r, i, x); i++; continue; }
+            const rte_obj_t *ob = obj_de(r, i);
+            if (ob) {
+                int ow = obj_larg(r, ob), oh = ob->a_tw;
+                int tot = obj_alto(r, ob);
+                if (oh > tot) oh = tot;
+                int oy = r->m_sup + ln->y + ln->base - tot, ox = r->m_esq + x;
+                pdf_objeto(w, ob, ox, oy, ow, oh);
+                x += ow;
+                i++;
+                continue;
+            }
             int k = i, id = r->at[i];
             int xi = x;
-            while (k < ln->fim && r->at[k] == id && r->t[k] != '\t' && r->t[k] != '\f') { x += avance(r, k, x) + (r->t[k] == ' ' ? ln->extra : 0); k++; }
+            while (k < ln->fim && r->at[k] == id && r->t[k] != '\t' && r->t[k] != '\f' && !es_obj(r, k)) { x += avance(r, k, x) + (r->t[k] == ' ' ? ln->extra : 0); k++; }
             const rte_fmt_t *f = &r->fmts[id];
             /* los espacios finales de una línea no se dibujan: no importan al PDF */
             pdfw_texto(w, r->m_esq + xi, ybase, f->fam, f->est & 3, f->tam * 20, f->cor, r->t + i, k - i, ln->extra);

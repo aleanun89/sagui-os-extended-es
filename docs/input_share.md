@@ -21,6 +21,13 @@ input_share/
   OpenJazz la encuentra sola (busca en todas las carpetas de `/jogos` y prefiere la versión completa
   al shareware). Si la carpeta se llama como una del sistema (`opentyrian`, `openjazz`), su contenido
   se pone encima del de serie.
+- **Juegos de DOS (D294):** cualquier carpeta de `input_share/games/` con un `.exe`, `.com` o `.bat` en su raíz
+  (`input_share/games/DOOM/DOOM.EXE`) acaba en `/jogos/DOOM` y **Recreativa la muestra sola** (con su programa, que
+  puede cambiarse en Propiedades); DOSBox la monta como C:. Otras carpetas conocidas del sistema (`chip8`, `sagui3d`,
+  `jclic`, `opentyrian`, `openjazz`, `quake`, `conquer`, `gnuboy`) no cuentan. Los datos son tuyos: no van a git ni a las
+  imágenes que se publican (`input_share/` está ignorada y la compilación publicable la deja vacía). Para tenerlos
+  en el C: por defecto (`/home/dos`), cópialos a mano o con Archivos; la lista de Recreativa los guarda en
+  `/home/dos/juegos.conf`. Guía: `docs/dosbox.md`.
 - **Quake (D229):** los datos van en `input_share/games/Quake/id1/pak0.pak` (y `pak1.pak` de la
   versión registrada), la estructura de Quake, y acaban en `/jogos/Quake/id1/`. También vale el
   `pak0.pak` suelto, `input_share/games/Quake/pak0.pak`: el lanzador toma la carpeta como el `id1`.

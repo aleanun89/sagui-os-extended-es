@@ -10,6 +10,7 @@ global _inicio
 extern principal
 extern sair
 extern environ
+global __argv_inicial
 extern __init_array_start
 extern __init_array_end
 
@@ -18,6 +19,8 @@ _inicio:
         mov ebx, esp                    ; argc, argv e envp ficam onde o kernel os pôs
         mov edx, [ebx + 8]
         mov [environ], edx
+        mov ecx, [ebx + 4]
+        mov [__argv_inicial], ecx       ; para el detector de la GUI (D300): nombre del programa
         ; Mejora 094 (punto 10): los constructores globales (.init_array) antes
         ; de principal, con la pila alineada a 16 en cada llamada. EBX y ESI
         ; los conserva quien es llamado (ABI de 32 bits).
@@ -40,3 +43,6 @@ _inicio:
         push eax
         call sair
 .nunca: jmp .nunca
+
+section .bss
+__argv_inicial: resd 1

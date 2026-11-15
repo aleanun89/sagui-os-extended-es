@@ -33,6 +33,7 @@ void pestanas_desenhar(jan_t *j, pestanas_t *p)
     g_linha(j, p->x, p->y + 21, xa - 3, p->y + 21, W98_LUZ);
     g_linha(j, xa + la + 2, p->y + 21, p->x + p->l - 1, p->y + 21, W98_LUZ);
     jan_mostrar_area(j, p->x, p->y, p->l, 22);
+    GR_REG(j, "pestanas", p, p->x, p->y, p->l, 22, p->n > 0 ? p->nomes[p->sel] : "", 0, 0);
 }
 
 bool pestanas_tratar(jan_t *j, pestanas_t *p, const evento_t *e)

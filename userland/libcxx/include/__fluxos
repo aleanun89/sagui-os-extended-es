@@ -1,0 +1,806 @@
+// <__fluxos> - los flujos de texto de C++ (iostream, sstream, fstream, iomanip), versión mínima (D294).
+// SPDX-License-Identifier: GPL-2.0-or-later
+//
+// Lo que piden los ports (DOSBox: leer y escribir ficheros de configuración, convertir números y
+// textos con stringstream), no la biblioteca completa: solo «char», sin locales ni excepciones de
+// flujo, y los nombres sin plantillas (std::istream es una clase, no basic_istream<char>).
+//   ios_base/ios        banderas de formato, estado (good/eof/fail/bad) y modos de apertura
+//   streambuf           origen/destino de bytes: stringbuf (std::string), filebuf (FILE *)
+//   istream / ostream   >> y << de los tipos básicos y de std::string, get/getline/read/ignore/peek,
+//                       put/write/flush, seekg/tellg/seekp/tellp
+//   istringstream, ostringstream, stringstream, ifstream, ofstream, fstream
+//   cin/cout/cerr/clog  sobre stdin/stdout/stderr
+//   manipuladores       hex dec oct endl ends flush ws setw setfill setprecision setiosflags
+//                       boolalpha fixed scientific showbase uppercase left right skipws
+#ifndef SAGUI_CXX_FLUXOS
+#define SAGUI_CXX_FLUXOS
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <string>
+
+// Los nombres van en un espacio «en línea» propio para que su nombre mangled no choque con los de la
+// libstdc++ del PC en las pruebas de unidad (std::ios_base, su tabla virtual...).
+namespace std {
+inline namespace sagui_fluxos {
+
+class ios_base {
+public:
+    typedef unsigned fmtflags;
+    typedef unsigned iostate;
+    typedef unsigned openmode;
+    typedef int seekdir;
+    static constexpr fmtflags dec = 1, oct = 2, hex = 4, basefield = 7, left = 8, right = 16, internal = 32,
+                              adjustfield = 56, showbase = 64, showpos = 128, uppercase = 256, fixed = 512,
+                              scientific = 1024, floatfield = 1536, boolalpha = 2048, skipws = 4096, showpoint = 8192,
+                              unitbuf = 16384;
+    static constexpr iostate goodbit = 0, badbit = 1, eofbit = 2, failbit = 4;
+    static constexpr openmode app = 1, ate = 2, binary = 4, in = 8, out = 16, trunc = 32;
+    static constexpr seekdir beg = 0, cur = 1, end = 2;
+
+    fmtflags flags() const { return fl; }
+    fmtflags flags(fmtflags f) { fmtflags v = fl; fl = f; return v; }
+    fmtflags setf(fmtflags f) { fmtflags v = fl; fl |= f; return v; }
+    fmtflags setf(fmtflags f, fmtflags mascara) { fmtflags v = fl; fl = (fl & ~mascara) | (f & mascara); return v; }
+    void unsetf(fmtflags f) { fl &= ~f; }
+    int precision() const { return prec; }
+    int precision(int p) { int v = prec; prec = p; return v; }
+    int width() const { return larg; }
+    int width(int w) { int v = larg; larg = w; return v; }
+    virtual ~ios_base() {}
+
+protected:
+    ios_base() : fl(dec | skipws), prec(6), larg(0) {}
+    fmtflags fl;
+    int prec, larg;
+};
+
+// Origen y destino de los bytes de un flujo.
+class streambuf {
+public:
+    virtual ~streambuf() {}
+    virtual int ler() { return -1; }                  // consume un byte (-1 = fin)
+    virtual int espiar() { return -1; }               // mira el siguiente sin consumirlo
+    virtual bool devolver(int) { return false; }      // deshace la última lectura
+    virtual bool escrever(int) { return false; }      // 
+    virtual bool descarregar() { return true; }
+    virtual long buscar(long desl, int de, bool escrita) { (void)desl; (void)de; (void)escrita; return -1; }
+};
+
+class ios : public ios_base {
+public:
+    ios() : sb(nullptr), est(badbit), f(' ') {}
+    explicit ios(streambuf *b) : sb(b), est(b ? goodbit : badbit), f(' ') {}
+    iostate rdstate() const { return est; }
+    void clear(iostate e = goodbit) { est = sb ? e : (e | badbit); }
+    void setstate(iostate e) { clear(est | e); }
+    bool good() const { return est == goodbit; }
+    bool eof() const { return (est & eofbit) != 0; }
+    bool fail() const { return (est & (failbit | badbit)) != 0; }
+    bool bad() const { return (est & badbit) != 0; }
+    bool operator!() const { return fail(); }
+    explicit operator bool() const { return !fail(); }
+    char fill() const { return f; }
+    char fill(char c) { char v = f; f = c; return v; }
+    streambuf *rdbuf() const { return sb; }
+    streambuf *rdbuf(streambuf *b) { streambuf *v = sb; sb = b; clear(); return v; }
+
+protected:
+    void iniciar(streambuf *b) { sb = b; est = b ? goodbit : badbit; }
+    streambuf *sb;
+    iostate est;
+    char f;
+};
+
+typedef long streamsize;
+
+// ---- entrada ----
+class istream : virtual public ios {
+public:
+    explicit istream(streambuf *b = nullptr) { iniciar(b); cont = 0; }
+    ~istream() override {}
+
+    // Sin formato.
+    int get()
+    {
+        cont = 0;
+        if (!sb) { setstate(failbit); return -1; }
+        int c = sb->ler();
+        if (c < 0) { setstate(eofbit | failbit); return -1; }
+        cont = 1;
+        return c;
+    }
+    istream &get(char &c)
+    {
+        int x = get();
+        if (x >= 0) c = (char)x;
+        return *this;
+    }
+    int peek()
+    {
+        if (!sb) { setstate(failbit); return -1; }
+        int c = sb->espiar();
+        if (c < 0) setstate(eofbit);
+        return c;
+    }
+    istream &unget()
+    {
+        if (!sb || !sb->devolver(0)) setstate(badbit);
+        return *this;
+    }
+    istream &putback(char c)
+    {
+        if (!sb || !sb->devolver((unsigned char)c)) setstate(badbit);
+        return *this;
+    }
+    istream &read(char *p, streamsize n)
+    {
+        cont = 0;
+        for (; cont < n; cont++) {
+            int c = sb ? sb->ler() : -1;
+            if (c < 0) { setstate(eofbit | failbit); break; }
+            p[cont] = (char)c;
+        }
+        return *this;
+    }
+    streamsize gcount() const { return cont; }
+    // Lee hasta «delim» (que se consume, se cuenta y no se guarda) o hasta n-1 caracteres.
+    istream &getline(char *p, streamsize n, char delim = '\n')
+    {
+        cont = 0;
+        if (!sb || n <= 0) { setstate(failbit); return *this; }
+        streamsize k = 0;
+        for (;;) {
+            int c = sb->espiar();
+            if (c < 0) {
+                setstate(eofbit);
+                if (cont == 0) setstate(failbit);
+                break;
+            }
+            if (c == (unsigned char)delim) { sb->ler(); cont++; break; }
+            if (k >= n - 1) { setstate(failbit); break; }   // no cabe: se deja el resto
+            sb->ler();
+            p[k++] = (char)c;
+            cont++;
+        }
+        p[k] = 0;
+        return *this;
+    }
+    istream &ignore(streamsize n = 1, int delim = -1)
+    {
+        cont = 0;
+        for (; n > 0; n--) {
+            int c = sb ? sb->ler() : -1;
+            if (c < 0) { setstate(eofbit); break; }
+            cont++;
+            if (delim >= 0 && c == delim) break;
+        }
+        return *this;
+    }
+    long tellg() { return sb ? sb->buscar(0, cur, false) : -1; }
+    istream &seekg(long p)
+    {
+        clear(rdstate() & ~eofbit);
+        if (!sb || sb->buscar(p, beg, false) < 0) setstate(failbit);
+        return *this;
+    }
+    istream &seekg(long d, seekdir de)
+    {
+        clear(rdstate() & ~eofbit);
+        if (!sb || sb->buscar(d, de, false) < 0) setstate(failbit);
+        return *this;
+    }
+    int sync() { return 0; }
+
+    // Con formato.
+    istream &operator>>(char &c)
+    {
+        saltar_blancos();
+        if (!fail()) get(c);
+        return *this;
+    }
+    istream &operator>>(unsigned char &c) { return *this >> reinterpret_cast<char &>(c); }
+    istream &operator>>(char *s)
+    {
+        saltar_blancos();
+        if (fail()) return *this;
+        int k = 0;
+        for (;;) {
+            int c = sb->espiar();
+            if (c < 0) { setstate(eofbit); break; }
+            if (e_blanco(c)) break;
+            s[k++] = (char)sb->ler();
+        }
+        s[k] = 0;
+        if (k == 0) setstate(failbit);
+        return *this;
+    }
+    istream &operator>>(string &s)
+    {
+        saltar_blancos();
+        if (fail()) return *this;
+        s.clear();
+        for (;;) {
+            int c = sb->espiar();
+            if (c < 0) { setstate(eofbit); break; }
+            if (e_blanco(c)) break;
+            s.push_back((char)sb->ler());
+        }
+        if (s.empty()) setstate(failbit);
+        return *this;
+    }
+    istream &operator>>(bool &b)
+    {
+        long v;
+        if (flags() & boolalpha) {
+            string t;
+            *this >> t;
+            b = (t == "true");
+            if (!(t == "true" || t == "false")) setstate(failbit);
+            return *this;
+        }
+        *this >> v;
+        if (!fail()) b = v != 0;
+        return *this;
+    }
+    istream &operator>>(short &v) { return inteiro_com_sinal(v, -32768L, 32767L); }
+    istream &operator>>(int &v) { return inteiro_com_sinal(v, -2147483647L - 1, 2147483647L); }
+    istream &operator>>(long &v)
+    {
+        long long x;
+        inteiro_longo(x, true);
+        if (!fail()) v = (long)x;
+        return *this;
+    }
+    istream &operator>>(long long &v) { inteiro_longo(v, true); return *this; }
+    istream &operator>>(unsigned short &v) { return inteiro_sem_sinal(v, 65535UL); }
+    istream &operator>>(unsigned int &v) { return inteiro_sem_sinal(v, 4294967295UL); }
+    istream &operator>>(unsigned long &v) { return inteiro_sem_sinal(v, 4294967295UL); }
+    istream &operator>>(unsigned long long &v)
+    {
+        long long x;
+        inteiro_longo(x, false);
+        if (!fail()) v = (unsigned long long)x;
+        return *this;
+    }
+    istream &operator>>(float &v)
+    {
+        double d;
+        *this >> d;
+        if (!fail()) v = (float)d;
+        return *this;
+    }
+    istream &operator>>(double &v)
+    {
+        saltar_blancos();
+        if (fail()) return *this;
+        char buf[80];
+        int k = 0;
+        for (;;) {
+            int c = sb->espiar();
+            if (c < 0) { setstate(eofbit); break; }
+            bool ok = (c >= '0' && c <= '9') || c == '.' || ((c == '+' || c == '-') && (k == 0 || buf[k - 1] == 'e' || buf[k - 1] == 'E'))
+                      || c == 'e' || c == 'E';
+            if (!ok || k >= 78) break;
+            buf[k++] = (char)sb->ler();
+        }
+        buf[k] = 0;
+        char *fin;
+        double d = strtod(buf, &fin);
+        if (k == 0 || fin == buf) setstate(failbit);
+        else v = d;
+        return *this;
+    }
+    istream &operator>>(istream &(*m)(istream &)) { return m(*this); }
+    istream &operator>>(ios_base &(*m)(ios_base &)) { m(*this); return *this; }
+    istream &operator>>(ios &(*m)(ios &)) { m(*this); return *this; }
+
+    void saltar_blancos()
+    {
+        if (!sb) { setstate(failbit); return; }
+        if (!(flags() & skipws)) return;
+        for (;;) {
+            int c = sb->espiar();
+            if (c < 0) { setstate(eofbit | failbit); return; }
+            if (!e_blanco(c)) return;
+            sb->ler();
+        }
+    }
+
+protected:
+    static bool e_blanco(int c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
+    streamsize cont;
+
+    // Lee los dígitos de un entero según la base de las banderas (dec/oct/hex; ninguna = detectar).
+    bool ler_digitos(char *buf, int max, bool &negativo, int &base)
+    {
+        saltar_blancos();
+        if (fail()) return false;
+        negativo = false;
+        int k = 0;
+        int c = sb->espiar();
+        if (c == '+' || c == '-') { negativo = (c == '-'); sb->ler(); c = sb->espiar(); }
+        fmtflags b = flags() & basefield;
+        base = b == hex ? 16 : b == oct ? 8 : b == dec ? 10 : 0;
+        if (c == '0' && (base == 0 || base == 16 || base == 8)) {
+            sb->ler();
+            buf[k++] = '0';
+            int d = sb->espiar();
+            if ((base == 0 || base == 16) && (d == 'x' || d == 'X')) {
+                sb->ler();
+                base = 16;
+                k = 0;
+            } else if (base == 0) {
+                base = 8;
+            }
+        }
+        if (base == 0) base = 10;
+        for (;;) {
+            c = sb->espiar();
+            if (c < 0) { setstate(eofbit); break; }
+            int v = (c >= '0' && c <= '9') ? c - '0' : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : 99;
+            if (v >= base || k >= max - 1) break;
+            buf[k++] = (char)sb->ler();
+        }
+        buf[k] = 0;
+        if (k == 0) { setstate(failbit); return false; }
+        return true;
+    }
+    void inteiro_longo(long long &v, bool com_sinal)
+    {
+        char buf[72];
+        bool neg;
+        int base;
+        if (!ler_digitos(buf, sizeof buf, neg, base)) return;
+        unsigned long long x = strtoull(buf, nullptr, base);
+        if (com_sinal) v = neg ? -(long long)x : (long long)x;
+        else v = (long long)(neg ? 0 - x : x);
+    }
+    template <class T> istream &inteiro_com_sinal(T &v, long lo, long hi)
+    {
+        long long x;
+        inteiro_longo(x, true);
+        if (fail()) return *this;
+        if (x < lo || x > hi) { setstate(failbit); v = (T)(x < lo ? lo : hi); }
+        else v = (T)x;
+        return *this;
+    }
+    template <class T> istream &inteiro_sem_sinal(T &v, unsigned long hi)
+    {
+        long long x;
+        inteiro_longo(x, false);
+        if (fail()) return *this;
+        if ((unsigned long long)x > hi) { setstate(failbit); v = (T)hi; }
+        else v = (T)x;
+        return *this;
+    }
+};
+
+inline istream &ws(istream &is)
+{
+    ios_base::fmtflags f = is.flags();
+    is.setf(ios_base::skipws);
+    is.saltar_blancos();
+    is.flags(f);
+    if (is.eof()) is.clear(is.rdstate() & ~ios_base::failbit);
+    return is;
+}
+
+inline istream &getline(istream &is, string &s, char delim = '\n')
+{
+    s.clear();
+    streambuf *b = is.rdbuf();
+    bool algo = false;
+    for (;;) {
+        int c = b ? b->ler() : -1;
+        if (c < 0) { is.setstate(ios_base::eofbit | (algo ? 0 : ios_base::failbit)); break; }
+        algo = true;
+        if (c == (unsigned char)delim) break;
+        s.push_back((char)c);
+    }
+    return is;
+}
+
+// ---- salida ----
+class ostream : virtual public ios {
+public:
+    explicit ostream(streambuf *b = nullptr) { iniciar(b); }
+    ~ostream() override {}
+
+    ostream &put(char c)
+    {
+        if (!sb || !sb->escrever((unsigned char)c)) setstate(badbit);
+        return *this;
+    }
+    ostream &write(const char *p, streamsize n)
+    {
+        for (streamsize i = 0; i < n; i++) put(p[i]);
+        return *this;
+    }
+    ostream &flush()
+    {
+        if (sb && !sb->descarregar()) setstate(badbit);
+        return *this;
+    }
+    long tellp() { return sb ? sb->buscar(0, cur, true) : -1; }
+    ostream &seekp(long p)
+    {
+        if (!sb || sb->buscar(p, beg, true) < 0) setstate(failbit);
+        return *this;
+    }
+    ostream &seekp(long d, seekdir de)
+    {
+        if (!sb || sb->buscar(d, de, true) < 0) setstate(failbit);
+        return *this;
+    }
+
+    ostream &operator<<(char c) { char t[2] = { c, 0 }; return texto(t, 1); }
+    ostream &operator<<(signed char c) { return *this << (char)c; }
+    ostream &operator<<(unsigned char c) { return *this << (char)c; }
+    ostream &operator<<(const char *s)
+    {
+        if (!s) { setstate(badbit); return *this; }
+        return texto(s, strlen(s));
+    }
+    ostream &operator<<(const string &s) { return texto(s.data(), s.size()); }
+    ostream &operator<<(bool b)
+    {
+        if (flags() & boolalpha) return *this << (b ? "true" : "false");
+        return *this << (int)b;
+    }
+    ostream &operator<<(short v) { return num_sinal(v); }
+    ostream &operator<<(unsigned short v) { return num_sem_sinal(v); }
+    ostream &operator<<(int v) { return num_sinal(v); }
+    ostream &operator<<(unsigned int v) { return num_sem_sinal(v); }
+    ostream &operator<<(long v) { return num_sinal(v); }
+    ostream &operator<<(unsigned long v) { return num_sem_sinal(v); }
+    ostream &operator<<(long long v) { return num_sinal(v); }
+    ostream &operator<<(unsigned long long v) { return num_sem_sinal(v); }
+    ostream &operator<<(float v) { return *this << (double)v; }
+    ostream &operator<<(double v)
+    {
+        char fmt[16], buf[400];
+        int k = 0;
+        fmt[k++] = '%';
+        if (flags() & showpos) fmt[k++] = '+';
+        if (flags() & showpoint) fmt[k++] = '#';
+        fmt[k++] = '.';
+        fmt[k++] = '*';
+        fmtflags ff = flags() & floatfield;
+        fmt[k++] = ff == fixed ? 'f' : ff == scientific ? ((flags() & uppercase) ? 'E' : 'e') : ((flags() & uppercase) ? 'G' : 'g');
+        fmt[k] = 0;
+        int n = snprintf(buf, sizeof buf, fmt, precision(), v);
+        if (n < 0) { setstate(badbit); return *this; }
+        if (n >= (int)sizeof buf) n = sizeof buf - 1;
+        return texto(buf, n);
+    }
+    ostream &operator<<(const void *p)
+    {
+        char buf[24];
+        int n = snprintf(buf, sizeof buf, "0x%lx", (unsigned long)(size_t)p);
+        return texto(buf, n);
+    }
+    ostream &operator<<(decltype(nullptr)) { return *this << "nullptr"; }
+    ostream &operator<<(ostream &(*m)(ostream &)) { return m(*this); }
+    ostream &operator<<(ios_base &(*m)(ios_base &)) { m(*this); return *this; }
+    ostream &operator<<(ios &(*m)(ios &)) { m(*this); return *this; }
+
+protected:
+    // Escribe con la anchura y el relleno pedidos (la anchura vale una sola vez).
+    ostream &texto(const char *s, size_t n, size_t prefijo = 0)
+    {
+        int w = width();
+        width(0);
+        size_t pad = (w > 0 && (size_t)w > n) ? (size_t)w - n : 0;
+        fmtflags adj = flags() & adjustfield;
+        if (adj != left && adj != internal)
+            for (size_t i = 0; i < pad; i++) put(f);
+        if (adj == internal) {
+            write(s, prefijo);
+            for (size_t i = 0; i < pad; i++) put(f);
+            write(s + prefijo, n - prefijo);
+        } else {
+            write(s, n);
+        }
+        if (adj == left)
+            for (size_t i = 0; i < pad; i++) put(f);
+        return *this;
+    }
+    ostream &digitos(unsigned long long v, bool negativo)
+    {
+        char buf[80];
+        int p = sizeof buf;
+        fmtflags b = flags() & basefield;
+        unsigned base = b == hex ? 16 : b == oct ? 8 : 10;
+        const char *tab = (flags() & uppercase) ? "0123456789ABCDEF" : "0123456789abcdef";
+        if (v == 0) buf[--p] = '0';
+        while (v) { buf[--p] = tab[v % base]; v /= base; }
+        size_t prefijo = 0;
+        if (base == 10) {
+            if (negativo) buf[--p] = '-';
+            else if (flags() & showpos) buf[--p] = '+';
+            prefijo = (negativo || (flags() & showpos)) ? 1 : 0;
+        } else if (flags() & showbase) {
+            if (base == 16) { buf[--p] = (flags() & uppercase) ? 'X' : 'x'; buf[--p] = '0'; prefijo = 2; }
+            else if (buf[p] != '0') { buf[--p] = '0'; prefijo = 1; }
+        }
+        return texto(buf + p, sizeof buf - p, prefijo);
+    }
+    template <class T> ostream &num_sinal(T v)
+    {
+        // En octal y hexadecimal se muestra el valor sin signo (como la biblioteca estándar).
+        if ((flags() & basefield) == hex || (flags() & basefield) == oct)
+            return digitos(sizeof(T) <= 4 ? (unsigned long long)(unsigned long)(v) & (sizeof(T) == 2 ? 0xFFFFULL : 0xFFFFFFFFULL)
+                                          : (unsigned long long)v, false);
+        bool neg = v < 0;
+        unsigned long long m = neg ? 0ULL - (unsigned long long)(long long)v : (unsigned long long)v;
+        return digitos(m, neg);
+    }
+    template <class T> ostream &num_sem_sinal(T v) { return digitos((unsigned long long)v, false); }
+};
+
+inline ostream &endl(ostream &os) { os.put('\n'); return os.flush(); }
+inline ostream &ends(ostream &os) { return os.put('\0'); }
+inline ostream &flush(ostream &os) { return os.flush(); }
+
+inline ios_base &dec(ios_base &b) { b.setf(ios_base::dec, ios_base::basefield); return b; }
+inline ios_base &hex(ios_base &b) { b.setf(ios_base::hex, ios_base::basefield); return b; }
+inline ios_base &oct(ios_base &b) { b.setf(ios_base::oct, ios_base::basefield); return b; }
+inline ios_base &left(ios_base &b) { b.setf(ios_base::left, ios_base::adjustfield); return b; }
+inline ios_base &right(ios_base &b) { b.setf(ios_base::right, ios_base::adjustfield); return b; }
+inline ios_base &internal(ios_base &b) { b.setf(ios_base::internal, ios_base::adjustfield); return b; }
+inline ios_base &fixed(ios_base &b) { b.setf(ios_base::fixed, ios_base::floatfield); return b; }
+inline ios_base &scientific(ios_base &b) { b.setf(ios_base::scientific, ios_base::floatfield); return b; }
+inline ios_base &showbase(ios_base &b) { b.setf(ios_base::showbase); return b; }
+inline ios_base &noshowbase(ios_base &b) { b.unsetf(ios_base::showbase); return b; }
+inline ios_base &uppercase(ios_base &b) { b.setf(ios_base::uppercase); return b; }
+inline ios_base &nouppercase(ios_base &b) { b.unsetf(ios_base::uppercase); return b; }
+inline ios_base &boolalpha(ios_base &b) { b.setf(ios_base::boolalpha); return b; }
+inline ios_base &noboolalpha(ios_base &b) { b.unsetf(ios_base::boolalpha); return b; }
+inline ios_base &skipws(ios_base &b) { b.setf(ios_base::skipws); return b; }
+inline ios_base &noskipws(ios_base &b) { b.unsetf(ios_base::skipws); return b; }
+
+// Manipuladores con argumento (iomanip).
+struct detalhe_setw { int n; };
+struct detalhe_setfill { char c; };
+struct detalhe_setprecision { int n; };
+struct detalhe_setiosflags { ios_base::fmtflags f; };
+inline detalhe_setw setw(int n) { return { n }; }
+inline detalhe_setfill setfill(char c) { return { c }; }
+inline detalhe_setprecision setprecision(int n) { return { n }; }
+inline detalhe_setiosflags setiosflags(ios_base::fmtflags f) { return { f }; }
+inline ostream &operator<<(ostream &os, detalhe_setw m) { os.width(m.n); return os; }
+inline ostream &operator<<(ostream &os, detalhe_setfill m) { os.fill(m.c); return os; }
+inline ostream &operator<<(ostream &os, detalhe_setprecision m) { os.precision(m.n); return os; }
+inline ostream &operator<<(ostream &os, detalhe_setiosflags m) { os.setf(m.f); return os; }
+inline istream &operator>>(istream &is, detalhe_setw m) { is.width(m.n); return is; }
+inline istream &operator>>(istream &is, detalhe_setfill m) { is.fill(m.c); return is; }
+inline istream &operator>>(istream &is, detalhe_setprecision m) { is.precision(m.n); return is; }
+inline istream &operator>>(istream &is, detalhe_setiosflags m) { is.setf(m.f); return is; }
+
+class iostream : public istream, public ostream {
+public:
+    explicit iostream(streambuf *b = nullptr) { iniciar(b); }
+    ~iostream() override {}
+};
+
+// ---- los búferes ----
+class stringbuf : public streambuf {
+public:
+    explicit stringbuf(ios_base::openmode m = ios_base::in | ios_base::out) : modo(m), pl(0), pe(0) {}
+    explicit stringbuf(const string &s, ios_base::openmode m = ios_base::in | ios_base::out) : modo(m), dados(s), pl(0), pe(0)
+    {
+        if (m & ios_base::ate) { pe = dados.size(); }
+    }
+    string str() const { return dados; }
+    void str(const string &s) { dados = s; pl = 0; pe = (modo & ios_base::ate) ? dados.size() : 0; }
+    int ler() override
+    {
+        if (pl >= dados.size()) return -1;
+        return (unsigned char)dados[pl++];
+    }
+    int espiar() override { return pl >= dados.size() ? -1 : (unsigned char)dados[pl]; }
+    bool devolver(int) override
+    {
+        if (pl == 0) return false;
+        pl--;
+        return true;
+    }
+    bool escrever(int c) override
+    {
+        if (modo & ios_base::app) pe = dados.size();
+        if (pe >= dados.size()) dados.resize(pe + 1);
+        dados[pe++] = (char)c;
+        return true;
+    }
+    long buscar(long desl, int de, bool escrita) override
+    {
+        long base = de == ios_base::beg ? 0 : de == ios_base::cur ? (long)(escrita ? pe : pl) : (long)dados.size();
+        long p = base + desl;
+        if (p < 0 || p > (long)dados.size()) return -1;
+        if (escrita) pe = (size_t)p;
+        else pl = (size_t)p;
+        return p;
+    }
+
+private:
+    ios_base::openmode modo;
+    string dados;
+    size_t pl, pe;
+};
+
+class filebuf : public streambuf {
+public:
+    filebuf() : fp(nullptr), propio(false) {}
+    explicit filebuf(FILE *f) : fp(f), propio(false) {}
+    ~filebuf() override { fechar(); }
+    bool aberto() const { return fp != nullptr; }
+    filebuf *abrir(const char *nome, ios_base::openmode m)
+    {
+        if (fp) return nullptr;
+        const char *modo;
+        bool in = m & ios_base::in, out = m & ios_base::out, app = m & ios_base::app, tr = m & ios_base::trunc;
+        if (app) modo = in ? "a+b" : "ab";
+        else if (out && in) modo = tr ? "w+b" : "r+b";
+        else if (out) modo = "wb";
+        else if (in) modo = "rb";
+        else return nullptr;
+        fp = fopen(nome, modo);
+        if (!fp) return nullptr;
+        propio = true;
+        if (m & ios_base::ate) fseek(fp, 0, SEEK_END);
+        return this;
+    }
+    bool fechar()
+    {
+        if (!fp) return false;
+        int r = propio ? fclose(fp) : fflush(fp);
+        fp = nullptr;
+        return r == 0;
+    }
+    int ler() override
+    {
+        if (!fp) return -1;
+        int c = fgetc(fp);
+        return c == EOF ? -1 : c;
+    }
+    int espiar() override
+    {
+        if (!fp) return -1;
+        int c = fgetc(fp);
+        if (c == EOF) return -1;
+        ungetc(c, fp);
+        return c;
+    }
+    bool devolver(int c) override
+    {
+        if (!fp) return false;
+        if (c) return ungetc(c, fp) != EOF;
+        return fseek(fp, -1, SEEK_CUR) == 0;
+    }
+    bool escrever(int c) override { return fp && fputc(c, fp) != EOF; }
+    bool descarregar() override { return !fp || fflush(fp) == 0; }
+    long buscar(long desl, int de, bool) override
+    {
+        if (!fp) return -1;
+        if (fseek(fp, desl, de == ios_base::beg ? SEEK_SET : de == ios_base::cur ? SEEK_CUR : SEEK_END) != 0) return -1;
+        return ftell(fp);
+    }
+
+private:
+    FILE *fp;
+    bool propio;
+};
+
+// ---- flujos de cadenas ----
+class istringstream : public istream {
+public:
+    explicit istringstream(ios_base::openmode m = ios_base::in) : buf(m | ios_base::in) { iniciar(&buf); }
+    explicit istringstream(const string &s, ios_base::openmode m = ios_base::in) : buf(s, m | ios_base::in) { iniciar(&buf); }
+    string str() const { return buf.str(); }
+    void str(const string &s) { buf.str(s); clear(); }
+    stringbuf *rdbuf() { return &buf; }
+private:
+    stringbuf buf;
+};
+
+class ostringstream : public ostream {
+public:
+    explicit ostringstream(ios_base::openmode m = ios_base::out) : buf(m | ios_base::out) { iniciar(&buf); }
+    explicit ostringstream(const string &s, ios_base::openmode m = ios_base::out) : buf(s, m | ios_base::out) { iniciar(&buf); }
+    string str() const { return buf.str(); }
+    void str(const string &s) { buf.str(s); clear(); }
+    stringbuf *rdbuf() { return &buf; }
+private:
+    stringbuf buf;
+};
+
+class stringstream : public iostream {
+public:
+    explicit stringstream(ios_base::openmode m = ios_base::in | ios_base::out) : buf(m) { iniciar(&buf); }
+    explicit stringstream(const string &s, ios_base::openmode m = ios_base::in | ios_base::out) : buf(s, m) { iniciar(&buf); }
+    string str() const { return buf.str(); }
+    void str(const string &s) { buf.str(s); clear(); }
+    stringbuf *rdbuf() { return &buf; }
+private:
+    stringbuf buf;
+};
+
+// ---- flujos de ficheros ----
+class ifstream : public istream {
+public:
+    ifstream() { iniciar(&buf); clear(failbit); }
+    explicit ifstream(const char *nome, ios_base::openmode m = ios_base::in) { iniciar(&buf); open(nome, m); }
+    explicit ifstream(const string &nome, ios_base::openmode m = ios_base::in) { iniciar(&buf); open(nome.c_str(), m); }
+    void open(const char *nome, ios_base::openmode m = ios_base::in)
+    {
+        clear(buf.abrir(nome, m | ios_base::in) ? goodbit : failbit);
+    }
+    void open(const string &nome, ios_base::openmode m = ios_base::in) { open(nome.c_str(), m); }
+    bool is_open() const { return buf.aberto(); }
+    void close() { if (!buf.fechar()) setstate(failbit); }
+    filebuf *rdbuf() { return &buf; }
+private:
+    filebuf buf;
+};
+
+class ofstream : public ostream {
+public:
+    ofstream() { iniciar(&buf); clear(failbit); }
+    explicit ofstream(const char *nome, ios_base::openmode m = ios_base::out | ios_base::trunc) { iniciar(&buf); open(nome, m); }
+    explicit ofstream(const string &nome, ios_base::openmode m = ios_base::out | ios_base::trunc) { iniciar(&buf); open(nome.c_str(), m); }
+    void open(const char *nome, ios_base::openmode m = ios_base::out | ios_base::trunc)
+    {
+        clear(buf.abrir(nome, m | ios_base::out) ? goodbit : failbit);
+    }
+    void open(const string &nome, ios_base::openmode m = ios_base::out | ios_base::trunc) { open(nome.c_str(), m); }
+    bool is_open() const { return buf.aberto(); }
+    void close() { if (!buf.fechar()) setstate(failbit); }
+    filebuf *rdbuf() { return &buf; }
+private:
+    filebuf buf;
+};
+
+class fstream : public iostream {
+public:
+    fstream() { iniciar(&buf); clear(failbit); }
+    explicit fstream(const char *nome, ios_base::openmode m = ios_base::in | ios_base::out) { iniciar(&buf); open(nome, m); }
+    void open(const char *nome, ios_base::openmode m = ios_base::in | ios_base::out)
+    {
+        clear(buf.abrir(nome, m) ? goodbit : failbit);
+    }
+    bool is_open() const { return buf.aberto(); }
+    void close() { if (!buf.fechar()) setstate(failbit); }
+    filebuf *rdbuf() { return &buf; }
+private:
+    filebuf buf;
+};
+
+// ---- los flujos estándar (se crean la primera vez, sin objetos globales) ----
+namespace detalhe_fluxos {
+struct padrao {
+    filebuf bin, bout, berr;
+    istream cin_;
+    ostream cout_, cerr_;
+    padrao() : bin(stdin), bout(stdout), berr(stderr), cin_(&bin), cout_(&bout), cerr_(&berr) {}
+};
+inline padrao &p()
+{
+    static padrao x;
+    return x;
+}
+} // namespace detalhe_fluxos
+
+// Con enlace interno: no hay símbolo _ZSt4cout que choque con el de la libstdc++ del PC.
+[[maybe_unused]] static istream &cin = detalhe_fluxos::p().cin_;
+[[maybe_unused]] static ostream &cout = detalhe_fluxos::p().cout_;
+[[maybe_unused]] static ostream &cerr = detalhe_fluxos::p().cerr_;
+[[maybe_unused]] static ostream &clog = detalhe_fluxos::p().cerr_;
+
+} // namespace sagui_fluxos
+} // namespace std
+
+#endif

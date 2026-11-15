@@ -20,6 +20,7 @@ extern const desenho_t arte_mini_bluetooth;   /* D279 */
 /* 16x16 dos programas que estavam sem icone no menu Inicio (D139). */
 extern const desenho_t arte_mini_recortes, arte_mini_icones, arte_mini_musica, arte_mini_relogio,
                        arte_mini_visorpdf, arte_mini_video, arte_mini_ia;
+extern const desenho_t arte_mini_vps;     /* mejora 123: VisualPythonS */
 extern const desenho_t arte_mini_pluma;   /* mejora 116: el procesador de textos */
 extern const desenho_t arte_mini_macaco;   /* melhoria 078: a folha de calculo */
 extern const desenho_t arte_mini_jclic;   /* D185: actividades JClic */
@@ -29,6 +30,8 @@ extern const desenho_t arte_mini_tyrian;   /* D180: o OpenTyrian */
 extern const desenho_t arte_mini_openjazz;   /* D228: OpenJazz */
 extern const desenho_t arte_mini_conquer;    /* D230: Command & Conquer (Vanilla Conquer) */
 extern const desenho_t arte_mini_quake;      /* D229: Quake */
+extern const desenho_t arte_mini_dosbox;     /* D294: DOSBox */
+extern const desenho_t arte_mini_recreativa; /* D294: Recreativa */
 extern const desenho_t arte_mini_gnuboy;     /* D235: Game Boy (SDL2-GNUBoy) */
 extern const desenho_t arte_mini_netsurf;  /* D184: el navegador NetSurf */
 #endif

@@ -22,6 +22,7 @@ jan_t *jan_abrir(const char *titulo, int largura, int altura)
     j->alt = altura;
     j->estilo = 0;
     j->min_l = j->min_a = 0;
+    gr_janela_aberta(j, titulo);
     g_retangulo(j, 0, 0, largura, altura, COR_FUNDO);
     return j;
 }
@@ -29,16 +30,22 @@ jan_t *jan_abrir(const char *titulo, int largura, int altura)
 void jan_fechar(jan_t *j)
 {
     if (!j) return;
+    if (gr_modo) gr_janela_fechada(j);
     fechar_janela(j->id);
     libera(j);
 }
 
-void jan_mostrar(jan_t *j) { atualizar_janela(j->id, NULL); }
+void jan_mostrar(jan_t *j)
+{
+    atualizar_janela(j->id, NULL);
+    if (__builtin_expect(gr_modo, 0)) gr_analizar(j, true);
+}
 
 void jan_mostrar_area(jan_t *j, int x, int y, int l, int a)
 {
     retangulo_t r = { x, y, l, a };
     atualizar_janela(j->id, &r);
+    if (__builtin_expect(gr_modo, 0)) gr_analizar(j, false);
 }
 
 /* ------------------------------------------------------------ tamaño variable (D044) */
@@ -77,6 +84,7 @@ bool jan_tela_cheia(jan_t *j, bool ligar)
 
 void g_retangulo(jan_t *j, int x, int y, int l, int a, uint32_t cor)
 {
+    if (__builtin_expect(gr_modo, 0)) gr_pintado(j, x, y, l, a);
     int x1 = x + l, y1 = y + a;
     if (x < 0) x = 0;
     if (y < 0) y = 0;
@@ -175,6 +183,7 @@ void g_copiar_area(jan_t *j, int sx, int sy, int l, int a, int dx, int dy)
 
 void g_texto_n(jan_t *j, int x, int y, const char *t, int n, uint32_t cor)
 {
+    if (__builtin_expect(gr_modo, 0)) gr_texto_fuera(j, x, y, t, n);
     for (int k = 0; k < n && t[k]; k++, x += LETRA_L) {
         if (x >= j->larg) break;
         const unsigned char *g = fonte_sagui[(uint8_t)t[k]];
@@ -224,6 +233,7 @@ static bool dentro(int px, int py, int x, int y, int l, int a)
 void rotulo(jan_t *j, int x, int y, const char *texto, uint32_t cor)
 {
     g_texto(j, x, y, texto, cor);
+    GR_REG(j, "rotulo", NULL, x, y, g_largura_texto(texto), LETRA_A, texto, j->larg - x, 0);
 }
 
 /* ------------------------------------------------------------ botón */
@@ -237,6 +247,7 @@ void botao_desenhar(jan_t *j, botao_t *b)
     int ty = b->y + (b->a - LETRA_A) / 2 + (b->apertado ? 1 : 0);
     g_texto(j, tx, ty, b->texto, COR_TEXTO);
     jan_mostrar_area(j, b->x - 1, b->y - 1, b->l + 2, b->a + 2);
+    GR_REG(j, "botao", b, b->x, b->y, b->l, b->a, b->texto, b->l - 2, GRF_CONTROL);
 }
 
 /* Clic = apretó y soltó dentro del botón (soltar fuera cancela). */
@@ -292,6 +303,7 @@ void caixa_desenhar(jan_t *j, caixa_t *c)
     if (c->foco)
         g_retangulo(j, c->x + 5 + (c->cursor - ini) * LETRA_L, c->y + 4, 2, LETRA_A, COR_TEXTO);
     jan_mostrar_area(j, c->x, c->y, c->l, a);
+    GR_REG(j, "caixa", c, c->x, c->y, c->l, a, "", 0, GRF_CONTROL);
 }
 
 bool caixa_tratar(jan_t *j, caixa_t *c, const evento_t *e)
@@ -475,6 +487,7 @@ void area_desenhar(jan_t *j, area_t *a)
     if (pol_y < 0) pol_y = 0;
     g_retangulo(j, bx + 2, a->y + 2 + pol_y, BARRA_ROLAGEM - 5, pol_a, 0x9AA3AC);
     jan_mostrar_area(j, a->x, a->y, a->l, a->a);
+    GR_REG(j, "area", a, a->x, a->y, a->l, a->a, "", 0, 0);
 }
 
 static void inserir(area_t *a, const char *t, int n)
@@ -704,6 +717,7 @@ void lista_desenhar(jan_t *j, lista_t *l)
         g_retangulo(j, l->x + l->l - 6, l->y + 2 + pol_y, 4, pol_a, 0x9AA3AC);
     }
     jan_mostrar_area(j, l->x, l->y, l->l, l->a);
+    GR_REG(j, "lista", l, l->x, l->y, l->l, l->a, "", 0, 0);
 }
 
 /* Redibuja con el dibujo propio de la lista si lo tiene (D217). */

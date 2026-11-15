@@ -118,7 +118,7 @@ compila para quien lo ejecuta; esas imágenes **no se redistribuyen**.
 
 Ya no significa «sin nada GPL» (el código propio es GPL v3). Significa **sin ports de terceros con
 licencia GPL**: deja fuera `kernel/terceros/linux/` (mientras exista), OpenTyrian, NetSurf, GNU Prolog,
-OpenJazz, Vanilla Conquer, Quake y GNUBoy. Sirve para una imagen mínima cuyo único código de terceros
+OpenJazz, Vanilla Conquer, Quake, GNUBoy y DOSBox. Sirve para una imagen mínima cuyo único código de terceros
 es permisivo (MIT, BSD, dominio público) y para comprobar que lo propio no depende de esos ports
 (`tests/h81_licencias.py`). La carpeta es `build-sem-gpl/` y `make entrega-sin-gpl` la prepara.
 
@@ -130,6 +130,7 @@ es permisivo (MIT, BSD, dominio público) y para comprobar que lo propio no depe
 | GNUBoy (SDL2-GNUBoy) | GPL-2.0; solo unos pocos ficheros dicen «or later», casi todos no tienen cabecera y `COPYING`/README dicen v2 | **Dudosa: tratada como solo v2** | **Decidido (D259): fuera de lo publicable, dentro de lo privado** |
 | Quake (WinQuake) | GPL-2.0-or-later (cada fichero) | Sí | |
 | OpenJazz | GPL-2.0-or-later (cabeceras y `licenses.txt`) | Sí | miniz, argparse, stb: MIT; psmplug: dominio público |
+| DOSBox 0.74-3 (D294) | GPL-2.0-or-later (cabecera de cada fichero: «either version 2 of the License, or (at your option) any later version»; `COPYING`) | Sí | `src/hardware/mame/` (SAA1099, SN76496): BSD-3-Clause (MAME) y `src/hardware/dbopl.cpp`: GPL-2.0-or-later |
 | GNU Prolog 1.5.0 | LGPL-3.0-or-later o GPL-2.0-or-later, a elegir | Sí (se elige la v3) | |
 | Vanilla Conquer | GPL-3.0-or-later con términos adicionales de EA (sección 7) | Sí | |
 | NetSurf 3.11 | GPL-2.0 solo la v2 (unos 390 ficheros; solo uno dice «or later») | **No** | fuera de lo publicado |
@@ -147,7 +148,7 @@ lo que es GPL-2.0 solo la v2; `make priv_variantes` y el `make all` de desarroll
 | Códec IDT y desvío Tctl/Tdie (`kernel/terceros/linux/{hda,hwmon}/`) | GPL-2.0-or-later | Sí | Sí | |
 | TjMax de FreeBSD (`kernel/terceros/bsd/coretemp/`) | BSD-2-Clause | Sí | Sí | |
 | Código de M4R4G0N (e1000, pila TCP/IP, Cipó) | GPL-3.0-only | Sí | Sí | |
-| OpenTyrian, OpenJazz, Quake, GNU Prolog, Vanilla Conquer | or-later / GPL-3.0 | Sí | Sí | |
+| OpenTyrian, OpenJazz, Quake, GNU Prolog, Vanilla Conquer, DOSBox | or-later / GPL-3.0 | Sí | Sí | |
 
 El repositorio público excluye `kernel/terceros/linux/r8169/` y `userland/terceros/gnuboy/`
 (`tools/publicar-excluir.txt`). Sustituto limpio del r8169: mejora 099.

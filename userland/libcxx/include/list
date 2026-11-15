@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <new>
 #include <utility>
+#include <iterator>
 #include <initializer_list>
 
 namespace std {
@@ -32,6 +33,26 @@ template <class T> class list {
         return x;
     }
 
+    // Cadena simple de k nodos desde «c» (el último no se mira: se corta aquí).
+    template <class C> static elo *ordenar_cadena(elo *c, size_t k, C &cmp)
+    {
+        if (k < 2) { if (c) c->prox = nullptr; return c; }
+        size_t m = k / 2;
+        elo *b = c;
+        for (size_t i = 1; i < m; i++) b = b->prox;
+        elo *resto = b->prox;
+        b->prox = nullptr;
+        elo *x = ordenar_cadena(c, m, cmp);
+        elo *y = ordenar_cadena(resto, k - m, cmp);
+        elo *res = nullptr, **cola = &res;
+        while (x && y) {
+            if (cmp(static_cast<no *>(y)->valor, static_cast<no *>(x)->valor)) { *cola = y; y = y->prox; }
+            else { *cola = x; x = x->prox; }
+            cola = &(*cola)->prox;
+        }
+        *cola = x ? x : y;
+        return res;
+    }
 public:
     typedef T value_type;
     typedef T &reference;
@@ -44,6 +65,7 @@ public:
         friend class const_iterator;
         elo *e;
     public:
+        typedef bidirectional_iterator_tag iterator_category;
         typedef T value_type;
         typedef T &reference;
         typedef T *pointer;
@@ -63,6 +85,7 @@ public:
         friend class list;
         const elo *e;
     public:
+        typedef bidirectional_iterator_tag iterator_category;
         typedef T value_type;
         typedef const T &reference;
         typedef const T *pointer;
@@ -119,6 +142,12 @@ public:
     const_iterator end() const { return const_iterator(&cab); }
     const_iterator cbegin() const { return begin(); }
     const_iterator cend() const { return end(); }
+    typedef std::reverse_iterator<iterator> reverse_iterator;
+    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    reverse_iterator rbegin() { return reverse_iterator(end()); }
+    reverse_iterator rend() { return reverse_iterator(begin()); }
+    const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
+    const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
 
     bool empty() const { return n == 0; }
     size_t size() const { return n; }
@@ -157,6 +186,57 @@ public:
         }
         iniciar();
     }
+
+    iterator erase(const_iterator a, const_iterator b)
+    {
+        while (a != b) a = erase(a);
+        return iterator(const_cast<elo *>(b.e));
+    }
+    void remove(const T &v)
+    {
+        for (iterator i = begin(); i != end();) {
+            if (*i == v) i = erase(i);
+            else ++i;
+        }
+    }
+    void unique()
+    {
+        if (n < 2) return;
+        for (iterator i = begin(); i != end();) {
+            iterator j = i;
+            ++j;
+            if (j != end() && *i == *j) erase(j);
+            else ++i;
+        }
+    }
+    void reverse() noexcept
+    {
+        elo *x = &cab;
+        do {
+            elo *t = x->prox;
+            x->prox = x->ant;
+            x->ant = t;
+            x = t;
+        } while (x != &cab);
+    }
+    void swap(list &o) noexcept
+    {
+        list t(std::move(o));
+        o = std::move(*this);
+        *this = std::move(t);
+    }
+    // Ordena por mezcla (estable) enlazando los mismos nodos, sin copiar valores.
+    template <class C> void sort(C cmp)
+    {
+        if (n < 2) return;
+        cab.ant->prox = nullptr;
+        elo *cabeza = ordenar_cadena(cab.prox, n, cmp);
+        elo *ant = &cab;
+        for (elo *x = cabeza; x; x = x->prox) { x->ant = ant; ant->prox = x; ant = x; }
+        ant->prox = &cab;
+        cab.ant = ant;
+    }
+    void sort() { sort([](const T &a, const T &b) { return a < b; }); }
     template <class P> void remove_if(P pred)
     {
         for (iterator i = begin(); i != end();) {

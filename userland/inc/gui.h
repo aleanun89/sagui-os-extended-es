@@ -385,6 +385,7 @@ typedef struct {
 /* lo que devuelve rte_tratar (máscara) */
 #define RTE_R_MUDOU   1      /* cambió el documento */
 #define RTE_R_CURSOR  2      /* se movió el cursor o la selección (actualizar barra y estado) */
+#define RTE_R_OBJ     4      /* doble clic en una imagen o un WordArt: el programa abre su diálogo (D296) */
 typedef struct rte rte_t;
 rte_t *rte_criar(int x, int y, int l, int a);
 void   rte_liberar(rte_t *r);
@@ -432,6 +433,8 @@ bool   rte_colar(jan_t *j, rte_t *r);
 void   rte_selecionar_tudo(rte_t *r);
 bool   rte_desfazer(rte_t *r);
 bool   rte_refazer(rte_t *r);
+void   rte_grupo_iniciar(rte_t *r);                  /* lo que se haga hasta rte_grupo_fim es un solo paso de deshacer */
+void   rte_grupo_fim(rte_t *r);
 bool   rte_pode_desfazer(const rte_t *r);
 bool   rte_pode_refazer(const rte_t *r);
 /* buscar y reemplazar */
@@ -439,11 +442,61 @@ bool   rte_buscar(rte_t *r, const char *t, bool maiusculas, bool adiante);   /* 
 bool   rte_substituir(rte_t *r, const char *por);                            /* si la selección es la coincidencia */
 int    rte_substituir_tudo(rte_t *r, const char *t, const char *por, bool maiusculas);
 void   rte_contar(const rte_t *r, int *palavras, int *caracteres, int *paragrafos);
+/* ---- objetos incrustados: imágenes y WordArt (mejora 122, D296) ----
+ * Un objeto ocupa un carácter (RTE_OBJ_CHAR) del texto, con su propia entrada en la tabla de
+ * formatos. Se selecciona con un clic (tiradores para cambiar el tamaño; con Mayús, libre), se mueve
+ * arrastrándolo y su doble clic devuelve RTE_R_OBJ. Los datos pesados (píxeles, JPEG o PNG
+ * originales) se comparten entre las versiones de un objeto, así que deshacer cambia también el
+ * tamaño y las propiedades. */
+#define RTE_OBJ_CHAR     1
+#define RTE_OBJ_IMAGEM   1
+#define RTE_OBJ_WORDART  2
+#define RTE_AJ_LINHA     0        /* en línea con el texto */
+#define RTE_AJ_QUADRADO  1        /* (reservado: el texto rodea la imagen; no está hecho) */
+#define RTE_AJ_CIMA_BAIXO 2       /* arriba y abajo: la imagen ocupa su propia línea */
+#define RTE_BLOB_NENHUM  0
+#define RTE_BLOB_JPEG    1
+#define RTE_BLOB_PNG     2
+typedef struct rte_obj_dados rte_obj_dados_t;
+typedef struct rte_obj {
+    int  tipo;                    /* RTE_OBJ_IMAGEM o RTE_OBJ_WORDART */
+    int  l_tw, a_tw;              /* tamaño de la imagen en twips (sin el pie) */
+    int  ajuste;                  /* RTE_AJ_* */
+    int  borde;                   /* 0 sin borde, 1 fino, 2 medio, 3 grueso */
+    char pie[80];                 /* pie de imagen (Latin-1; vacío = sin pie) */
+    int  wa_estilo, wa_fam, wa_est, wa_tam;   /* WordArt: estilo de la galería, fuente, N/C y cuerpo en pt */
+    char wa_texto[96];
+    rte_obj_dados_t *d;           /* datos compartidos (píxeles y originales) */
+} rte_obj_t;
+/* Una imagen: se queda con los píxeles de *img y copia "blob" (el JPEG o PNG original, o NULL). */
+rte_obj_dados_t *rte_obj_dados_criar(imagem_t *img, const uint8_t *blob, int n_blob, int blob_tipo, int blob_l, int blob_a);
+/* Rellena o (imagen) desde archivo o bytes: decodifica y fija el tamaño natural a 96 ppp.
+ * false = formato no reconocido o sin memoria. */
+bool   rte_obj_de_bytes(rte_obj_t *o, const uint8_t *dados, int n);
+bool   rte_obj_de_arquivo(rte_obj_t *o, const char *caminho);
+void   rte_obj_liberar(rte_obj_t *o);                 /* suelta los datos de un objeto que no se insertó */
+const imagem_t *rte_obj_imagem(const rte_obj_t *o);   /* los píxeles (pueden estar reducidos) */
+const uint8_t *rte_obj_blob(const rte_obj_t *o, int *n, int *tipo, int *larg, int *alt);
+int    rte_obj_alto_total(const rte_obj_t *o);        /* imagen + pie, en twips */
+/* En el documento. rte_obj_inserir se queda con o->d (no lo liberes). Un WordArt sin datos se dibuja aquí. */
+bool   rte_obj_inserir(rte_t *r, rte_obj_t *o);
+bool   rte_obj_selecionado(const rte_t *r, rte_obj_t *o, int *pos);   /* copia superficial */
+bool   rte_obj_substituir(rte_t *r, const rte_obj_t *novo);           /* reemplaza el seleccionado */
+const rte_obj_t *rte_obj_em(const rte_t *r, int pos);                 /* NULL si en pos no hay objeto */
+void   rte_doc_obj(rte_t *r, rte_obj_t *o);                           /* carga (RTF): añade al final */
+void   rte_area_util(const rte_t *r, int *l_tw, int *a_tw);           /* hueco máximo de un objeto */
+bool   rte_obj_retangulo(rte_t *r, int *x, int *y, int *l, int *a);   /* del objeto seleccionado, en la ventana (px) */
+bool   rte_obj_wordart_dibujar(rte_obj_t *o);                         /* (re)genera los píxeles de un WordArt */
 /* Vista previa de un formato en un rectángulo (diálogo Fuente). */
 void   rte_amostra(jan_t *j, int x, int y, int l, int a, const rte_fmt_t *f, const char *texto);
 /* Exporta a PDF con la paginación de la pantalla; *dados se libera con libera(). 0 = bien. */
 int    rte_exportar_pdf(rte_t *r, const char *titulo, uint8_t **dados, int *n);
 /* Diálogos (ventanas modales): true = Aceptar. */
+/* Diálogos de objetos (D296; dialogos_objeto.c): true = Aceptar. WordArt: la galería de 20 estilos con
+ * texto, fuente y tamaño (si o->wa_texto está vacío es uno nuevo y se calcula su tamaño). Formato de
+ * imagen: tamaño en cm y %, ajuste, alineación (0 izq, 1 centro, 2 der; la del párrafo), borde y pie. */
+bool   dialogo_wordart(rte_obj_t *o);
+bool   dialogo_formato_imagem(rte_obj_t *o, int *alinhamento);
 bool   dialogo_fonte(rte_fmt_t *f);
 bool   dialogo_paragrafo(rte_par_t *p);
 /* Buscar/Reemplazar: devuelve DLG_BUSCAR_* (0 = cerrado). com_substituir muestra el campo y los botones de reemplazo. */
@@ -487,5 +540,25 @@ bool boton98_tratar(jan_t *j, botao_t *b, const evento_t *e);
 void casilla98(jan_t *j, casilla_t *c, const char *texto);
 bool casilla98_tratar(jan_t *j, casilla_t *c, const char *texto, const evento_t *e);
 void lista_en_marco(jan_t *j, lista_t *l);
+
+/* ---- detector de problemas de la GUI (D300; guía en docs/gui-revisar.md) ----
+ * Ayuda para depurar, no criterio de fallo: con SAGUI_GUI_REVISAR=1 (o 2: además dibuja un borde rojo)
+ * o con el fichero /etc/gui-revisar.modo, cada componente anota su rectángulo al dibujarse y, al
+ * terminar un redibujo, se avisa por el registro serie de solapes entre hermanos, componentes fuera
+ * de la ventana, textos que no caben y controles demasiado pequeños. Apagado, cada dibujo paga un
+ * solo "if" sobre gr_modo. */
+#define GRF_CONTROL 1      /* botón, casilla, caja...: se avisa si es más bajo que la fuente */
+extern int gr_modo;        /* 0 apagado, 1 avisos, 2 avisos + borde rojo */
+void gr_registrar(jan_t *j, const char *tipo, const void *obj, int x, int y, int l, int a,
+                  const char *texto, int disp, unsigned flags);
+#define GR_REG(...) do { if (__builtin_expect(gr_modo, 0)) gr_registrar(__VA_ARGS__); } while (0)
+/* internos de la libsagui */
+void gr_janela_aberta(jan_t *j, const char *titulo);
+void gr_janela_fechada(jan_t *j);
+void gr_pintado(jan_t *j, int x, int y, int l, int a);
+void gr_texto_fuera(jan_t *j, int x, int y, const char *t, int n);
+void gr_analizar(jan_t *j, bool completo);
+void gui_revisar_ignorar(const void *componente);   /* este componente se solapa a propósito */
+void gui_revisar_rect(jan_t *j, const char *tipo, int x, int y, int l, int a, const char *texto, int disp);
 
 #endif

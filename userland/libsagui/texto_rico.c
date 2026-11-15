@@ -803,6 +803,7 @@ void rico_desenhar(jan_t *j, rico_t *r)
         g_retangulo(j, bxr + 2, r->y + 1 + py, RC_BARRA - 4, pa, RC_BLOCO_BORDA);
     }
     jan_mostrar_area(j, r->x, r->y, r->l, r->a);
+    GR_REG(j, "rico", r, r->x, r->y, r->l, r->a, "", 0, 0);
 }
 
 int rico_tratar(jan_t *j, rico_t *r, const evento_t *e)

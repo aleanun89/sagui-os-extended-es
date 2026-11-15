@@ -1,0 +1,20 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Visor de imágenes'
+  ancho = 384
+  alto = 318
+control Boton Boton1
+  x = 8
+  y = 8
+  ancho = 100
+  texto = 'Abrir imagen...'
+control Etiqueta Etiqueta1
+  x = 116
+  y = 12
+  ancho = 260
+  texto = 'Ninguna imagen'
+control Imagen Imagen1
+  x = 8
+  y = 42
+  ancho = 368
+  alto = 268

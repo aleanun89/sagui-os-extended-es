@@ -15,8 +15,14 @@
 #   <cstdlib> <cmath> <cstring> <cstdio> <cctype> <ctime> <cstdint> <cstddef>
 #   <cstdarg> <cassert> <cerrno> <climits>: las de C, con sus nombres también
 #   en std:: (std::abs con todas sus sobrecargas, std::pow, std::memcpy...).
-# Lo que no hay (iostream, map, set, unordered_*, thread, regex...) se añade
-# cuando lo pida un port, general y probado en tests/cxx_biblioteca_unidad.cpp.
+#   <map> <set> (D294: un treap con lista enlazada, <__arvore>), <limits>, <iterator>,
+#   <functional> (less, greater...), más algoritmos (sort, transform, reverse, remove...)
+#   y list::sort; los flujos <iostream> <sstream> <fstream> <iomanip> <ios> <istream>
+#   <ostream> (mínimos, solo char: <__fluxos>); y <typeinfo> con RTTI (D294: typeid y
+#   dynamic_cast con herencia simple, múltiple y virtual en rt/rtti.cpp; el C++ del
+#   sistema se compila con -fno-rtti y solo el port que lo pide, DOSBox, usa -frtti).
+# Lo que no hay (unordered_*, thread, regex...) se añade cuando lo pida un port, general
+# y probado en tests/cxx_biblioteca_unidad.cpp (cabeceras) y tests/cxx_rtti_unidad.cpp (RTTI).
 #
 # El compilador: $(CXX) (g++). El entorno local (tools/entorno-local.sh) trae
 # el cc1plus de g++-13 y un envoltorio g++ como el de gcc. Si no hay
@@ -45,7 +51,7 @@ CXXFLAGS_SAGUI := -m32 -march=i686 -std=gnu++17 -Os \
 
 ULDFLAGS_CXX := $(subst userland/programa.ld,userland/programa_cxx.ld,$(ULDFLAGS))
 
-CXXRT_OBJ := $(addprefix $(B)/$(CXXRT_DIR)/rt/,desenrolar.o abi_tipos.o cxxrt_sistema.o excecoes.o abi.o)
+CXXRT_OBJ := $(addprefix $(B)/$(CXXRT_DIR)/rt/,desenrolar.o abi_tipos.o cxxrt_sistema.o excecoes.o abi.o rtti.o)
 
 # Las cabeceras de la libc con «extern "C"» (tools/cxx_envoltorios.py).
 $(CXXRT_ENVOLT)/.feito: $(LIBC_HDR) tools/cxx_envoltorios.py

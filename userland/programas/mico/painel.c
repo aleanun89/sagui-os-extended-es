@@ -19,6 +19,7 @@
  * Búsqueda: los resultados de "Buscar en la carpeta" (buscar.c), con la
  * misma lista y el mismo clic. */
 #include "mico.h"
+#include "agentes.h"
 
 #define IA_TEXTO_MAX 8192
 #define IA_PERGUNTA_MAX 128
@@ -424,11 +425,32 @@ static void desenhar_lista(item_t *v, int n, int sel, int topo, const char *vazi
     }
 }
 
+/* D295: la pestaña «Agente» aloja el panel de agentes de la libreria ia (el modo agente del asistente: lee y edita
+ * el proyecto con las herramientas y el permiso de la persona en cada cambio). */
+static ag_panel_t *ag_p;
+
+static ag_panel_t *agente_panel(void)
+{
+    ret_t r = r_term();
+    if (!ag_p) {
+        ag_p = ag_panel_criar(j, r.x + 4, r.y, r.l - 8, r.a, NULL);
+        if (ag_p) {
+            ia_config_t c;
+            ia_config_carregar(&c);
+            ia_config_escolher(&c, IA_USO_MICO);
+            ag_panel_config(ag_p, &c);
+            ag_panel_escolher(ag_p, "Programador");
+        }
+    } else ag_panel_mudar_tamanho(ag_p, r.x + 4, r.y, r.l - 8, r.a);
+    return ag_p;
+}
+
 static void rotulo_aba(int i, char *b)
 {
     if (i == PAINEL_TERMINAL) copia_texto(b, "Terminal", 40);
     else if (i == PAINEL_PROBLEMAS) formatar_texto(b, 40, "Problemas (%d)", nprobs);
     else if (i == PAINEL_BUSCA) formatar_texto(b, 40, "Búsqueda (%d)", nres);
+    else if (i == PAINEL_AGENTE) copia_texto(b, "Agente", 40);
     else copia_texto(b, "Asistente", 40);
 }
 
@@ -666,6 +688,13 @@ bool painel_ia_em_curso(void) { return ia_ocupada; }
 
 bool painel_ia_tecla(unsigned t, unsigned mods)
 {
+    if (painel_aba == PAINEL_AGENTE && foco == FOCO_ASISTENTE) {
+        if (t == TECLA_ESC) { foco = FOCO_EDITOR; sujo |= R_PAINEL; return true; }
+        ag_panel_t *p = agente_panel();
+        evento_t e = { .tipo = EV_TECLA, .tecla = t, .modificadores = mods };
+        if (p) ag_panel_tratar(p, &e);
+        return true;
+    }
     if (painel_aba != PAINEL_ASSISTENTE || foco != FOCO_ASISTENTE) return false;
     if (t == TECLA_ESC) { if (ia_ocupada) painel_ia_deter(); else foco = FOCO_EDITOR; return true; }
     if (ia_ocupada) return true;
@@ -682,10 +711,10 @@ void painel_desenhar(void)
     recorte = r_painel;
     d_ret(r_painel.x, r_painel.y, r_painel.l, ABAS_A, tema->barra);
     d_ret(r_painel.x, r_painel.y, r_painel.l, 1, tema->barra_borda);
-    char t[4][40];
-    for (int i = 0; i < 4; i++) rotulo_aba(i, t[i]);
+    char t[5][40];
+    for (int i = 0; i < 5; i++) rotulo_aba(i, t[i]);
     int x = r_painel.x + 8;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         int w = (int)tam_texto(t[i]) * LETRA_L + 16;
         bool at = painel_aba == i;
         if (at) { d_ret(x, r_painel.y + 1, w, ABAS_A - 1, tema->painel); d_ret(x, r_painel.y + ABAS_A - 3, w, 3, tema->aba_marca); }
@@ -703,6 +732,7 @@ void painel_desenhar(void)
         suj0 = T_LINS_MAX; suj1 = -1;
     } else if (painel_aba == PAINEL_PROBLEMAS) desenhar_lista(probs, nprobs, sel_prob, topo_prob, "Sin problemas. F5 compila y ejecuta el archivo actual.");
     else if (painel_aba == PAINEL_BUSCA) desenhar_lista(res, nres, sel_res, topo_res, "Sin resultados. Ctrl+Mayús+F busca en todos los archivos de la carpeta.");
+    else if (painel_aba == PAINEL_AGENTE) { ag_panel_t *p = agente_panel(); if (p) ag_panel_desenhar(p); }
     else ia_desenhar_resposta();
     d_mostrar(r_painel);
 }
@@ -723,7 +753,7 @@ static int aba_em(int x)
 {
     int cx = r_painel.x + 8;
     char b[40];
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         rotulo_aba(i, b);
         int w = (int)tam_texto(b) * LETRA_L + 16;
         if (x >= cx && x < cx + w) return i;
@@ -738,7 +768,15 @@ void painel_clique(int x, int y, int botoes, int cliques)
     if (y < r_painel.y + ABAS_A) {
         if (x >= r_painel.x + r_painel.l - 28) { ver_painel = false; if (foco == FOCO_TERMINAL) foco = FOCO_EDITOR; layout(); return; }
         int a = aba_em(x);
-        if (a >= 0) { painel_aba = a; if (a == PAINEL_TERMINAL) foco = FOCO_TERMINAL; else if (a == PAINEL_ASSISTENTE) foco = FOCO_ASISTENTE; sujo |= R_PAINEL; }
+        if (a >= 0) { painel_aba = a; if (a == PAINEL_TERMINAL) foco = FOCO_TERMINAL; else if (a == PAINEL_ASSISTENTE || a == PAINEL_AGENTE) foco = FOCO_ASISTENTE; sujo |= R_PAINEL; }
+        return;
+    }
+    if (painel_aba == PAINEL_AGENTE) {
+        ag_panel_t *p = agente_panel();
+        foco = FOCO_ASISTENTE;
+        evento_t e = { .tipo = EV_CLIQUE, .x = x, .y = y, .botoes = (unsigned)botoes };
+        if (p) ag_panel_tratar(p, &e);
+        sujo |= R_PAINEL;
         return;
     }
     if (painel_aba == PAINEL_TERMINAL) {

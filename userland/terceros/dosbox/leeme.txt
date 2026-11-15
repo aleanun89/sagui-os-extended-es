@@ -1,0 +1,13 @@
+DOSBox 0.74-3 en el SaguiOS
+===========================
+
+DOSBox (https://www.dosbox.com) es el emulador de PC con MS-DOS: ejecuta juegos y programas
+de DOS. Esta es la versión 0.74-3 clásica, con unos parches para el SaguiOS
+(licencia GNU GPL v2 o posterior: COPYING).
+
+Los juegos no vienen con el sistema: copie su carpeta a /home/dos (C: en DOSBox) o monte
+una carpeta de un pendrive con la orden «mount c /ruta» dentro de DOSBox. Abra el lanzador
+«Recreativa» (Inicio > Juegos) para añadirlos a una lista, con su núcleo, ciclos, sonido y CD.
+Un .exe, .com o .bat se abre con DOSBox desde Archivos.
+
+La configuración está en /home/.config/dosbox.conf. Guía completa: docs/dosbox.md.

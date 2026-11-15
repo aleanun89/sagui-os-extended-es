@@ -12,6 +12,7 @@
  * las secuencias de escape; el resto del objeto se ignora. */
 #include "ia.h"
 #include "tls.h"
+#include "json.h"
 
 #define IA_PRAZO_PADRAO 30000
 
@@ -669,4 +670,298 @@ int ia_chat_conversa_ref(const ia_config_t *c, const ia_mensagem_ref_t *msgs, in
     int r = chat_corpo(c, corpo, n, ao_texto, ctx, ao_fim, ctx_fim, deve_parar, ctx_parar, erro, max_erro);
     libera(corpo);
     return r;
+}
+
+/* ============================================================ D295: herramientas */
+
+int ia_json_latin1(char *dst, const char *s) { return json_latin1(dst, s); }
+
+/* UTF-8 -> Latin-1 (lo que no cabe, «?»). Devuelve los bytes escritos. */
+int ia_utf8_latin1(const char *s, int n, char *dst, int max)
+{
+    int k = 0;
+    for (int i = 0; i < n && k < max - 1; ) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80) { dst[k++] = (char)c; i++; }
+        else if ((c & 0xE0) == 0xC0 && i + 1 < n) {
+            unsigned cp = ((c & 0x1Fu) << 6) | ((unsigned char)s[i + 1] & 0x3Fu);
+            /* Revisión de seguridad (D295): C0 80 y demás formas largas de ASCII no valen (C0 80 sería un NUL). */
+            dst[k++] = cp >= 0x80 && cp < 0x100 ? (char)cp : '?';
+            i += 2;
+        } else if ((c & 0xF0) == 0xE0) { dst[k++] = '?'; i += 3; }
+        else if ((c & 0xF8) == 0xF0) { dst[k++] = '?'; i += 4; }
+        else { dst[k++] = (char)c; i++; }      /* ya era Latin-1 suelto */
+    }
+    dst[k] = 0;
+    return k;
+}
+
+void ia_turno_liberar(ia_turno_t *t)
+{
+    if (t->texto) libera(t->texto);
+    for (int i = 0; i < IA_CHAMADAS_MAX; i++) if (t->ch[i].args) libera(t->ch[i].args);
+    memset(t, 0, sizeof *t);
+}
+
+/* Añade bytes a un búfer dinámico terminado en cero. */
+static bool juntar(char **b, int *n, int *cap, const char *d, int k)
+{
+    if (k <= 0) return true;
+    if (*n + k + 1 > *cap) {
+        int nc = *cap ? *cap : 256;
+        while (nc < *n + k + 1) nc *= 2;
+        char *nb = realoca(*b, (size_t)nc);
+        if (!nb) return false;
+        *b = nb;
+        *cap = nc;
+    }
+    memcpy(*b + *n, d, (size_t)k);
+    *n += k;
+    (*b)[*n] = 0;
+    return true;
+}
+
+/* La cadena JSON del token i, descodificada (UTF-8), en memoria dinámica. */
+static char *cadeia_dyn(const char *t, const json_tok_t *tk, int i, int *n)
+{
+    char *d = aloca((size_t)(tk[i].fim - tk[i].ini) + 8);
+    if (!d) return NULL;
+    *n = json_texto(t, tk, i, d, tk[i].fim - tk[i].ini + 8);
+    return d;
+}
+
+int ia_turno_linha(ia_turno_t *res, const char *json, int n,
+                   void (*ao_texto)(const char *t, int n, void *ctx), void *ctx)
+{
+    while (n > 0 && (*json == ' ' || *json == '\n' || *json == '\r' || *json == '\t')) { json++; n--; }
+    if (n >= 6 && memcmp(json, "[DONE]", 6) == 0) return 1;
+    static json_tok_t tk[640];
+    int nt = json_analisar(json, n, tk, 640);
+    if (nt < 1) return 0;
+    int ch = json_campo(json, tk, 0, "choices");
+    int c0 = json_elem(tk, ch, 0);
+    if (c0 < 0) return 0;
+    int obj = json_campo(json, tk, c0, "delta");
+    if (obj < 0) obj = json_campo(json, tk, c0, "message");
+    int fr = json_campo(json, tk, c0, "finish_reason");
+    if (fr >= 0 && tk[fr].tipo == JSON_STR) json_texto(json, tk, fr, res->fim, sizeof res->fim);
+    if (obj < 0) return 0;
+    int ct = json_campo(json, tk, obj, "content");
+    if (ct >= 0 && tk[ct].tipo == JSON_STR) {
+        int nn;
+        char *d = cadeia_dyn(json, tk, ct, &nn);
+        if (d) {
+            /* Revisión de seguridad (D295): un servidor que no para no agota la memoria. */
+            if (nn > 0 && res->ntexto + nn <= IA_TURNO_TEXTO_MAX) {
+                juntar(&res->texto, &res->ntexto, &res->captexto, d, nn);
+                if (ao_texto) ao_texto(d, nn, ctx);
+            }
+            libera(d);
+        }
+    }
+    int tc = json_campo(json, tk, obj, "tool_calls");
+    if (tc >= 0 && tk[tc].tipo == JSON_ARR) {
+        for (int k = 0; k < tk[tc].n; k++) {
+            int e = json_elem(tk, tc, k);
+            if (e < 0 || tk[e].tipo != JSON_OBJ) continue;
+            int idx = json_int(json, tk, json_campo(json, tk, e, "index"), -1);
+            if (idx < 0) idx = k;
+            char id[64] = "";
+            int ii = json_campo(json, tk, e, "id");
+            if (ii >= 0 && tk[ii].tipo == JSON_STR) json_texto(json, tk, ii, id, sizeof id);
+            /* Algunos servidores repiten el índice 0 en cada llamada: una «id» nueva abre otra. */
+            if (idx < IA_CHAMADAS_MAX && id[0] && res->ch[idx].id[0] && compara_texto(res->ch[idx].id, id) != 0 && res->n < IA_CHAMADAS_MAX)
+                idx = res->n;
+            if (idx >= IA_CHAMADAS_MAX) continue;
+            ia_chamada_t *c = &res->ch[idx];
+            if (idx + 1 > res->n) res->n = idx + 1;
+            if (id[0] && !c->id[0]) copia_texto(c->id, id, sizeof c->id);
+            int fn = json_campo(json, tk, e, "function");
+            if (fn < 0) continue;
+            int nm = json_campo(json, tk, fn, "name");
+            if (nm >= 0 && tk[nm].tipo == JSON_STR && !c->nome[0]) json_texto(json, tk, nm, c->nome, sizeof c->nome);
+            int ar = json_campo(json, tk, fn, "arguments");
+            if (ar >= 0 && tk[ar].tipo == JSON_STR) {
+                int nn;
+                char *d = cadeia_dyn(json, tk, ar, &nn);
+                /* Unos argumentos que pasan del tope se quedan cortados: no son JSON válido y se rechazan. */
+                if (d) { if (c->nargs + nn <= IA_ARGS_MAX) juntar(&c->args, &c->nargs, &c->cap, d, nn); else c->cortados = true; libera(d); }
+            } else if (ar >= 0 && (tk[ar].tipo == JSON_OBJ || tk[ar].tipo == JSON_ARR)) {
+                /* Ollama nativo manda el objeto ya hecho. */
+                if (c->nargs + (tk[ar].fim - tk[ar].ini) <= IA_ARGS_MAX) juntar(&c->args, &c->nargs, &c->cap, json + tk[ar].ini, tk[ar].fim - tk[ar].ini);
+                else c->cortados = true;
+            }
+        }
+    }
+    return 0;
+}
+
+static int ultimo_http;
+
+/* Una petición de turno. Devuelve 0, o <0 con el mensaje en «erro» (y ultimo_http con el código). */
+static int turno_http(const ia_config_t *c, const char *corpo, int ncorpo,
+                      void (*ao_texto)(const char *t, int n, void *ctx), void *ctx,
+                      int (*deve_parar)(void *ctx), void *ctx_parar,
+                      ia_turno_t *res, char *erro, int max_erro)
+{
+    conexao_t con;
+    url_t u;
+    char cab[512];
+    ultimo_http = 0;
+    cabecalhos(c, "application/json", ncorpo, cab, sizeof cab);
+    if (ligar(c, "/chat/completions", "POST", cab, corpo, ncorpo, &con, &u, erro, max_erro) < 0) return -1;
+    http_resposta_t resp;
+    if (http_ler_cabecalho_de(&resp, conexao_ler, &con) < 0) {
+        conexao_fechar(&con);
+        formatar_texto(erro, (size_t)max_erro, "resposta invalida do servidor");
+        return -1;
+    }
+    ultimo_http = resp.codigo;
+    if (resp.codigo < 200 || resp.codigo > 299) {
+        char *txt = aloca(4096);
+        int n = 0;
+        while (txt && n < 4095) {
+            int k = http_ler_corpo(&resp, txt + n, 4095 - n);
+            if (k <= 0) break;
+            n += k;
+        }
+        if (txt) txt[n] = 0;
+        conexao_fechar(&con);
+        char msg[200];
+        json_tok_t tk[64];
+        msg[0] = 0;
+        if (txt && json_analisar(txt, n, tk, 64) > 0) {
+            int e = json_campo(txt, tk, 0, "error");
+            int m = e >= 0 && tk[e].tipo == JSON_OBJ ? json_campo(txt, tk, e, "message") : e;
+            if (m < 0) m = json_campo(txt, tk, 0, "message");
+            if (m >= 0 && tk[m].tipo == JSON_STR) json_texto(txt, tk, m, msg, sizeof msg);
+        }
+        if (!msg[0]) formatar_texto(msg, sizeof msg, "HTTP %d", resp.codigo);
+        if (txt) libera(txt);
+        formatar_texto(erro, (size_t)max_erro, "%s", msg);
+        return -1;
+    }
+    enum { LINHA_MAX = 256 * 1024 };
+    char rd[2048];
+    char *linha = NULL, *cru = NULL;
+    int nl = 0, cl = 0, ncru = 0, ccru = 0;
+    bool descarta = false, feito = false;
+    res->completa = true;
+    while (!feito) {
+        if (deve_parar && deve_parar(ctx_parar)) { res->completa = false; break; }
+        int k = http_ler_corpo(&resp, rd, sizeof rd);
+        if (k < 0) { res->completa = false; break; }
+        bool fim = k == 0;
+        for (int i = 0; i <= k && !feito; i++) {
+            char ch = i < k ? rd[i] : (fim ? '\n' : 0);
+            if (i == k && !fim) break;
+            if (ch != '\n') {
+                if (nl < LINHA_MAX) juntar(&linha, &nl, &cl, &ch, 1); else descarta = true;
+                continue;
+            }
+            /* Línea completa. */
+            if (nl && linha[nl - 1] == '\r') linha[--nl] = 0;
+            if (!descarta && nl > 0) {
+                if (comeca_com(linha, "data:")) {
+                    const char *d = linha + 5;
+                    int nd = nl - 5;
+                    while (nd > 0 && *d == ' ') { d++; nd--; }
+                    if (ia_turno_linha(res, d, nd, ao_texto, ctx)) feito = true;
+                } else if (!comeca_com(linha, ":") && !comeca_com(linha, "event:") && !comeca_com(linha, "id:") && !comeca_com(linha, "retry:")) {
+                    if (ncru < 512 * 1024) juntar(&cru, &ncru, &ccru, linha, nl);   /* sin streaming: cuerpo JSON */
+                }
+            }
+            nl = 0;
+            descarta = false;
+        }
+        if (fim) break;
+    }
+    conexao_fechar(&con);
+    if (cru && ncru) ia_turno_linha(res, cru, ncru, ao_texto, ctx);
+    if (linha) libera(linha);
+    if (cru) libera(cru);
+    return 0;
+}
+
+static bool erro_de_ferramentas(const char *e)
+{
+    static const char *const claves[] = { "tool", "jinja", "function", "Tool", "TOOL", 0 };
+    for (int i = 0; claves[i]; i++)
+        for (const char *p = e; *p; p++) if (comeca_com(p, claves[i])) return true;
+    return false;
+}
+
+int ia_turno(const ia_config_t *c, const char *sistema, const char *const *msgs_json, int nmsgs,
+             const char *tools_json,
+             void (*ao_texto)(const char *t, int n, void *ctx), void *ctx,
+             int (*deve_parar)(void *ctx), void *ctx_parar,
+             ia_turno_t *res, char *erro, int max_erro)
+{
+    if (!c->url[0]) { formatar_texto(erro, (size_t)max_erro, "sem endereco: defina IA_URL"); return -1; }
+    const char *modelo = c->modelo[0] ? c->modelo : "gpt-3.5-turbo";
+    unsigned max = 256 + 6 * (unsigned)tam_texto(modelo) + (sistema ? 6 * (unsigned)tam_texto(sistema) + 48 : 0) +
+                   (tools_json ? (unsigned)tam_texto(tools_json) : 0);
+    for (int i = 0; i < nmsgs; i++) max += (unsigned)tam_texto(msgs_json[i]) + 2;
+    if (max > IA_CORPO_MAX) { formatar_texto(erro, (size_t)max_erro, "conversa demasiado longa"); return -1; }
+    char *corpo = aloca(max);
+    if (!corpo) { formatar_texto(erro, (size_t)max_erro, "sem memoria para o pedido"); return -1; }
+    int r = -1;
+    for (int intento = 0; intento < 2; intento++) {
+        const char *tools = intento == 0 ? tools_json : NULL;
+        int n = formatar_texto(corpo, max, "{\"model\":");
+        n += json_latin1(corpo + n, modelo);
+        n += formatar_texto(corpo + n, max - (unsigned)n, ",\"messages\":[");
+        bool primeira = true;
+        if (sistema && sistema[0]) {
+            n += formatar_texto(corpo + n, max - (unsigned)n, "{\"role\":\"system\",\"content\":");
+            n += json_latin1(corpo + n, sistema);
+            corpo[n++] = '}';
+            primeira = false;
+        }
+        for (int i = 0; i < nmsgs; i++) {
+            if (!primeira) corpo[n++] = ',';
+            int l = (int)tam_texto(msgs_json[i]);
+            memcpy(corpo + n, msgs_json[i], (size_t)l);
+            n += l;
+            primeira = false;
+        }
+        corpo[n++] = ']';
+        if (tools && tools[0]) n += formatar_texto(corpo + n, max - (unsigned)n, ",\"tools\":%s,\"tool_choice\":\"auto\"", tools);
+        n += formatar_texto(corpo + n, max - (unsigned)n, ",\"stream\":true}");
+        r = turno_http(c, corpo, n, ao_texto, ctx, deve_parar, ctx_parar, res, erro, max_erro);
+        if (r == 0) break;
+        if (intento == 0 && tools && tools[0] && ultimo_http >= 400 && erro_de_ferramentas(erro)) { res->sem_ferramentas = true; continue; }
+        break;
+    }
+    libera(corpo);
+    return r;
+}
+
+int ia_http_obter(const char *url, char *dst, int max, char *erro, int max_erro)
+{
+    ia_config_t c;
+    ia_config_inicial(&c);
+    if (tam_texto(url) >= sizeof c.url) { formatar_texto(erro, (size_t)max_erro, "endereco demasiado longo"); return -1; }
+    copia_texto(c.url, url, sizeof c.url);
+    conexao_t con;
+    url_t u;
+    char cab[128];
+    formatar_texto(cab, sizeof cab, "User-Agent: SaguiOS-agente\r\nAccept: text/html,*/*\r\n");
+    if (ligar(&c, "", "GET", cab, NULL, 0, &con, &u, erro, max_erro) < 0) return -1;
+    http_resposta_t resp;
+    if (http_ler_cabecalho_de(&resp, conexao_ler, &con) < 0) {
+        conexao_fechar(&con);
+        formatar_texto(erro, (size_t)max_erro, "resposta invalida do servidor");
+        return -1;
+    }
+    int n = 0;
+    while (n < max - 1) {
+        int k = http_ler_corpo(&resp, dst + n, max - 1 - n);
+        if (k <= 0) break;
+        n += k;
+    }
+    dst[n] = 0;
+    conexao_fechar(&con);
+    if (resp.codigo < 200 || resp.codigo > 299) { formatar_texto(erro, (size_t)max_erro, "HTTP %d", resp.codigo); return -1; }
+    return n;
 }

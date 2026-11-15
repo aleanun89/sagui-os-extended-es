@@ -41,6 +41,8 @@ int  imagem_ler_jpeg(const uint8_t *dados, int n, imagem_t *img);      /* 0 = ok
 int  imagem_ler_gif(const uint8_t *dados, int n, imagem_t *img);       /* 0 = ok */
 int  imagem_gravar_bmp(const char *caminho, const imagem_t *img);     /* 24 bits; 0 = ok */
 int  imagem_gravar_png(const char *caminho, const imagem_t *img);     /* RGB 8 bits, sin comprimir (D125) */
+/* PNG en memoria (RGB 8 bits, filtro Sub y Flate): *dados se libera con libera(). 0 = ok (D296). */
+int  imagem_codificar_png(const imagem_t *img, uint8_t **dados, int *n);
 int  imagem_gravar_ppm(const char *caminho, const imagem_t *img);     /* P6 */
 const char *imagem_erro(int erro);                                    /* texto en español */
 bool imagem_extensao(const char *nome);   /* .bmp .ppm .pgm .pbm .pnm .png (sin distinguir mayúsculas) */

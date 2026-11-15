@@ -45,9 +45,9 @@ def pos_paginas():
     x = 10
     pos = []
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 16
+        l = len(t) * 8 + 10   # como la ventana y h83: anchura del título + 10
         pos.append((x, l))
-        x += l + 4
+        x += l + 2
     return pos
 
 
@@ -83,7 +83,7 @@ def main():
             esperar(m, '"Configuración"')
             time.sleep(1.0)
             j = janela(m.serial(), "Configuración")
-            verificar(j["l"] == 740 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
+            verificar(j["l"] == 780 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
 
             # La pestaña «IA» es la séptima.
             pos = pos_paginas()

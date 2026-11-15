@@ -1,0 +1,3 @@
+// <iosfwd> - flujos de texto de C++ (D294); todo está en <__fluxos>.
+// SPDX-License-Identifier: GPL-2.0-or-later
+#include <__fluxos>

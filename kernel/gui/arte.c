@@ -833,6 +833,25 @@ static const char *const pluma[] = {   /* Pluma: una hoja con renglones y una pl
     "................",
 };
 
+static const char *const vps[] = {   /* VisualPythonS: un formulario con barra azul, un botón y la serpiente amarilla (D297) */
+    "................",
+    ".PPPPPPPPPPPPPP.",
+    ".PVVVVVVVVVVVVP.",
+    ".PBBBBBBBBBBBBP.",
+    ".PBPPPPPPPPBBBP.",
+    ".PBPBBBBBBPBBBP.",
+    ".PBPPPPPPPPBBBP.",
+    ".PBBBBBBBBBBBBP.",
+    ".PBBBPPPPPBBBBP.",
+    ".PBBBPBBBBBBBBP.",
+    ".PBBBPPPPPPBBBP.",
+    ".PBBBBBBBBPBBBP.",
+    ".PBBBPPPPPPBBBP.",
+    ".PBBBBBBBBBBBBP.",
+    ".PPPPPPPPPPPPPP.",
+    "................",
+};
+
 static const char *const ia[] = {   /* IA: uma cabeca de robo */
     "................",
     ".......P........",
@@ -987,6 +1006,46 @@ static const char *const tyrian[] = {   /* OpenTyrian: una nave blanca y gris so
 };
 #endif
 
+#ifndef SAGUI_SEM_GPL   /* D294: DOSBox y Recreativa */
+static const char *const dosbox[] = {   /* DOSBox: un monitor con el indicador de DOS (D294) */
+    "................",
+    ".PPPPPPPPPPPPPP.",
+    ".PCCCCCCCCCCCCP.",
+    ".PCPPPPPPPPPPCP.",
+    ".PCPGPPPPPPPPCP.",
+    ".PCPPGPPPPPPPCP.",
+    ".PCPGPPGGGPPPCP.",
+    ".PCPPPPPPPPPPCP.",
+    ".PCPPPPPPPPPPCP.",
+    ".PCCCCCCCCCCCCP.",
+    ".PPPPPPPPPPPPPP.",
+    ".....PCCCCP.....",
+    "...PPPPPPPPPP...",
+    "...PCCCCCCCCP...",
+    "...PPPPPPPPPP...",
+    "................",
+};
+
+static const char *const recreativa[] = {   /* Recreativa: la palanca roja de una máquina arcade (D294) */
+    "................",
+    ".......PPPP.....",
+    "......PWWWWP....",
+    ".....PWrWWWWP...",
+    ".....PWWWWWWP...",
+    "......PWWWWP....",
+    ".......PPPP.....",
+    ".......PCCP.....",
+    ".......PCCP.....",
+    "...PPPPPCCPPPPP.",
+    "..PVVVVVVVVVVVVP",
+    "..PVYVVVrVVVVVVP",
+    "..PVVVVVVVVVVVVP",
+    "..PPPPPPPPPPPPPP",
+    "................",
+    "................",
+};
+#endif
+
 #ifndef SAGUI_SEM_GPL   /* D228: OpenJazz es GPL */
 static const char *const openjazz[] = {   /* OpenJazz: Jazz, el conejo verde con la cinta roja y el arma azul (D228) */
     "....PP....PP....",
@@ -1127,6 +1186,7 @@ const desenho_t arte_mini_video       = { video, 16, 16 };
 const desenho_t arte_mini_ia          = { ia, 16, 16 };
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
 const desenho_t arte_mini_pluma       = { pluma, 16, 16 };   /* mejora 116, D291 */
+const desenho_t arte_mini_vps         = { vps, 16, 16 };   /* mejora 123, D297: VisualPythonS */
 const desenho_t arte_mini_spider      = { spider, 16, 16 };   /* D173: el solitario Spider */
 const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Buscaminas */
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */
@@ -1138,6 +1198,8 @@ const desenho_t arte_mini_openjazz    = { openjazz, 16, 16 }; /* D228: OpenJazz 
 const desenho_t arte_mini_conquer     = { conquer, 16, 16 };  /* D230: Command & Conquer */
 const desenho_t arte_mini_quake       = { quake, 16, 16 };    /* D229: Quake */
 const desenho_t arte_mini_gnuboy      = { gnuboy, 16, 16 };   /* D235: Game Boy (SDL2-GNUBoy) */
+const desenho_t arte_mini_dosbox      = { dosbox, 16, 16 };   /* D294: DOSBox */
+const desenho_t arte_mini_recreativa  = { recreativa, 16, 16 };   /* D294: Recreativa */
 #endif
 const desenho_t arte_mini_chatia      = { chatia, 16, 16 };
 const desenho_t arte_mini_correo      = { correu, 16, 16 };   /* 082: o cliente de correio */

@@ -1,0 +1,101 @@
+// <map> - std::map sobre un treap con lista enlazada (D294, ver <__arvore>).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_MAP
+#define SAGUI_CXX_MAP
+#pragma GCC system_header
+
+#include <functional>
+#include <__arvore>
+#include <stdexcept>
+
+namespace std {
+
+template <class K, class V, class Cmp = less<K>> class map {
+public:
+    typedef K key_type;
+    typedef V mapped_type;
+    typedef pair<const K, V> value_type;
+    typedef size_t size_type;
+    typedef Cmp key_compare;
+
+private:
+    struct chave_de {
+        const K &operator()(const value_type &v) const { return v.first; }
+    };
+    typedef detalhe_arvore::arvore<value_type, chave_de, Cmp> arv;
+    arv a;
+
+public:
+    typedef typename arv::iterator iterator;
+    typedef typename arv::const_iterator const_iterator;
+
+    map() {}
+    map(const Cmp &c) { a.cmp = c; }
+    map(initializer_list<value_type> l) { for (const value_type &v : l) a.inserir_valor(v); }
+    template <class I> map(I ini, I fim) { for (; ini != fim; ++ini) a.inserir_valor(value_type(*ini)); }
+
+    iterator begin() { return a.begin(); }
+    iterator end() { return a.end(); }
+    const_iterator begin() const { return a.begin(); }
+    const_iterator end() const { return a.end(); }
+    const_iterator cbegin() const { return a.begin(); }
+    const_iterator cend() const { return a.end(); }
+    bool empty() const { return a.vazia(); }
+    size_t size() const { return a.tamanho(); }
+    void clear() { a.limpar(); }
+    key_compare key_comp() const { return a.cmp; }
+
+    pair<iterator, bool> insert(const value_type &v) { return a.inserir_valor(v); }
+    pair<iterator, bool> insert(value_type &&v) { return a.inserir_valor(std::move(v)); }
+    template <class I> void insert(I ini, I fim) { for (; ini != fim; ++ini) a.inserir_valor(value_type(*ini)); }
+    iterator insert(const_iterator, const value_type &v) { return a.inserir_valor(v).first; }
+    template <class... A> pair<iterator, bool> emplace(A &&...args) { return a.emplace(std::forward<A>(args)...); }
+
+    V &operator[](const K &k)
+    {
+        iterator i = a.achar_it(k);
+        if (i == a.end()) i = a.emplace(k, V()).first;
+        return i->second;
+    }
+    V &operator[](K &&k)
+    {
+        iterator i = a.achar_it(k);
+        if (i == a.end()) i = a.emplace(std::move(k), V()).first;
+        return i->second;
+    }
+    V &at(const K &k)
+    {
+        iterator i = a.achar_it(k);
+        if (i == a.end()) throw out_of_range("map::at");
+        return i->second;
+    }
+    const V &at(const K &k) const
+    {
+        const_iterator i = a.achar_it(k);
+        if (i == a.end()) throw out_of_range("map::at");
+        return i->second;
+    }
+
+    iterator find(const K &k) { return a.achar_it(k); }
+    const_iterator find(const K &k) const { return a.achar_it(k); }
+    size_t count(const K &k) const { return a.achar_it(k) == a.end() ? 0 : 1; }
+    iterator lower_bound(const K &k) { return a.limite_inferior(k); }
+    const_iterator lower_bound(const K &k) const { return a.limite_inferior(k); }
+    iterator upper_bound(const K &k) { return a.limite_superior(k); }
+    const_iterator upper_bound(const K &k) const { return a.limite_superior(k); }
+    pair<iterator, iterator> equal_range(const K &k) { return pair<iterator, iterator>(lower_bound(k), upper_bound(k)); }
+
+    iterator erase(iterator i) { return a.apagar(i); }
+    iterator erase(const_iterator i) { return a.apagar(iterator(i.e_())); }
+    size_t erase(const K &k) { return a.apagar_chave(k); }
+    iterator erase(const_iterator ini, const_iterator fim)
+    {
+        while (ini != fim) ini = erase(ini);
+        return iterator(fim.e_());
+    }
+    void swap(map &o) { a.trocar(o.a); }
+};
+
+} // namespace std
+
+#endif

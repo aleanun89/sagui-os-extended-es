@@ -1,0 +1,41 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Calculadora'
+  ancho = 250
+  alto = 190
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  texto = 'Primero:'
+control CuadroTexto CuadroTexto1
+  x = 104
+  y = 12
+  texto = '0'
+control Etiqueta Etiqueta2
+  x = 16
+  y = 48
+  texto = 'Segundo:'
+control CuadroTexto CuadroTexto2
+  x = 104
+  y = 44
+  texto = '0'
+control Etiqueta Etiqueta3
+  x = 16
+  y = 80
+  texto = 'Operación:'
+control Combo Combo1
+  x = 104
+  y = 76
+  elementos = ['+', '-', '*', '/']
+  texto = '+'
+control Boton Boton1
+  x = 16
+  y = 112
+  ancho = 100
+  alto = 28
+  texto = 'Calcular'
+control Etiqueta Etiqueta4
+  x = 16
+  y = 152
+  ancho = 210
+  texto = 'Resultado: '

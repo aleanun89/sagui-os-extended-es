@@ -1,0 +1,29 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Cronómetro'
+  ancho = 260
+  alto = 100
+control Etiqueta Etiqueta1
+  x = 40
+  y = 16
+  ancho = 180
+  alto = 24
+  texto = '00:00.0'
+  alineacion = 'centro'
+control Boton Boton1
+  x = 12
+  y = 52
+  ancho = 80
+  alto = 28
+  texto = 'Iniciar'
+control Boton Boton2
+  x = 100
+  y = 52
+  ancho = 80
+  alto = 28
+  texto = 'Reiniciar'
+control Temporizador Temporizador1
+  x = 190
+  y = 52
+  activo = False
+  intervalo = 100

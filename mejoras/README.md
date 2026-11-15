@@ -72,27 +72,23 @@ Copia [`_plantilla.md`](_plantilla.md) para crear una nueva.
 | 053 | [Formatos de audio libres: IMA ADPCM, MP3, FLAC y Ogg Vorbis](053-formatos-audio-libres.md) | propuesta | media |
 | 054 | [Motor 3D con aceleración por software (SaguiGL) y plan de drivers 3D de AMD](054-motor-3d-y-drivers-amd.md) | propuesta (v7) | media |
 | 055 | [Gráficas integradas y chipsets Intel: blitter 2D, AHCI, e1000e, 3D Gen3 y resolución nativa](055-intel-igpu-y-chipsets.md) | propuesta (AHCI v6; resto v7-v8) | media-alta |
-| 056 | [Compresor y descompresor multiformato: tar, gzip (.tar.gz) y zip](056-compresor-tar-gzip-zip.md) | propuesta (v5) | media |
-| 057 | [Compilación con GPL y sin GPL (dos variantes de la imagen)](057-compilacion-con-y-sin-gpl.md) | hecha en `licencias-build` (D109; v5.1) | alta |
 | 056 | [Compresor y descompresor multiformato: tar, gzip (.tar.gz) y zip](056-compresor-tar-gzip-zip.md) | hecha (D103; sin visor de contenido ni barra de progreso) | media |
-| 057 | [Compilación con GPL y sin GPL (dos variantes de la imagen)](057-compilacion-con-y-sin-gpl.md) | propuesta (v5.1) | alta |
+| 057 | [Compilación con GPL y sin GPL (dos variantes de la imagen)](057-compilacion-con-y-sin-gpl.md) | hecha en `licencias-build` (D109; v5.1) | alta |
 | 058 | [Mejoras de interfaz y del explorador de archivos (ocultos, vistas, copiar/pegar, ajuste de ventanas...)](058-interfaz-y-explorador.md) | propuesta (v6) | media-alta |
 | 059 | [Bluetooth por adaptador USB (HID, audio A2DP, OBEX/PAN)](059-bluetooth-usb.md) | propuesta (v9-v11) | media |
 | 060 | [Varias pantallas (extender y duplicar)](060-multiples-pantallas.md) | propuesta (v8-v10) | media |
-| 061 | [Control de la frecuencia de la CPU (P-states) con límite de 79 °C](061-frecuencia-cpu.md) | hecha en `licencias-build` (D109; v5.1) | alta |
 | 061 | [Control de la frecuencia de la CPU (P-states) con límite de 79 °C](061-frecuencia-cpu.md) | hecha en QEMU (simulada, D106); falta el dv7 | alta |
 | 062 | [Arranque UEFI](062-arranque-uefi.md) | propuesta (v10) | media |
 | 063 | [Mejoras del navegador Cipó](063-navegador.md) | hecha (D110; quedan JPEG, pestañas, caché) | media |
-| 012a | Memoria del kernel hasta ~1,9 GB, frontera en 2 GB (D049, primera parte de [012](012-memoria-alta.md)) | hecha | alta |
-
-Al crear o cerrar una mejora, actualiza esta tabla.
 | 064 | [SQLite 3 para C y Python](064-sqlite3.md) | hecha (v5.3; rama `sqlite`) | media |
 | 065 | [Framework web para Python (Microdot) y capa compatible con Bottle](065-bottle-web-python.md) | propuesta (v8) | media |
 | 066 | [Clientes de MySQL/MariaDB y MongoDB para Python](066-clientes-mysql-mongodb.md) | propuesta (mucho más adelante) | media |
-| 067 | [lite-monkey: motor NoSQL propio en C (puerto 7979) y cliente Python](067-lite-monkey.md) | en curso (v5.4) | media-alta |
-| 069 | [Que el sistema no muera sin RAM: OOM, swap comprimida en RAM y partición de swap](069-memoria-swap.md) | idea (mucho más adelante) | media |
+| 012a | Memoria del kernel hasta ~1,9 GB, frontera en 2 GB (D049, primera parte de [012](012-memoria-alta.md)) | hecha | alta |
+
+Al crear o cerrar una mejora, actualiza esta tabla.
 | 067 | [lite-monkey: motor NoSQL propio en C (puerto 7979) y cliente Python](067-lite-monkey.md) | hecha (v5.4, D117) | media-alta |
 | 068 | [Imagen de disco con varias particiones (/home, /tmp, /logs) y extendidas](068-imagen-varias-particiones.md) | hecha (v5.4; rama `imagen-particiones`) | media |
+| 069 | [Que el sistema no muera sin RAM: OOM, swap comprimida en RAM y partición de swap](069-memoria-swap.md) | idea (mucho más adelante) | media |
 | 070 | [Aplicaciones extra en /app, repositorio en red y SDK para crear apps (también con IA)](070-apps-repositorio-sdk.md) | idea (futuro) | media-alta |
 | 071 | [Emulador de NES](071-emulador-nes.md) | propuesta (v6.2) | media |
 | 072 | [Wi-Fi: Realtek RTL8188EU (USB), Atheros AR9485 (PCIe) y pila 802.11 con WPA2](072-wifi-rtl8188eu.md) | propuesta (v8) | media-alta |
@@ -125,5 +121,10 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 116 | [Procesador de textos «Pluma» (Word 97), RTF y exportación a PDF](116-procesador-de-textos.md) | hecha (v8.3) | media |
 | 117 | [Macaco con el estilo de Excel 97](117-macaco-estilo-excel.md) | hecha (v8.3) | media |
 | 118 | [Sistema multiidioma: catálogos, idioma elegible y formatos regionales](118-multiidioma.md) | aprobada (v8.4) | alta |
+| 119 | [DOSBox y un lanzador de juegos de DOS (Recreativa)](119-dosbox.md) | hecha (v8.3.1) | media |
 | 120 | [rsync: sincronizar carpetas y copias de seguridad](120-rsync.md) | aprobada (v8.4) | media |
+| 121 | [Agentes de IA con herramientas, confirmación y registro](121-agentes-ia.md) | hecha (v8.3.1) | alta |
+| 122 | [Pluma: WordArt e imágenes mejoradas](122-pluma-wordart-imagenes.md) | hecha (v8.3.1) | media |
+| 123 | [VisualPythonS: entorno al estilo del Visual Basic con Python](123-visualpythons.md) | hecha (v8.3.1) | media |
 | 124 | [Componentes y utilidades inspirados en Delphi/Lazarus](124-ideas-delphi-lazarus.md) | aprobada (v8.3.2) | media |
+| 125 | [Más RAM en 32 bits: PAE (hasta 64 GB), memoria alta y NX](125-pae-memoria.md) | aprobada (v8.5) | alta |

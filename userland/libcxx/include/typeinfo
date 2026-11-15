@@ -1,0 +1,61 @@
+// <typeinfo> - std::type_info, bad_cast y bad_typeid para typeid y dynamic_cast (D294).
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Los typeinfo los genera g++ (con -frtti); el runtime (rt/rtti.cpp) pone __dynamic_cast
+// para el dynamic_cast entre clases (base única, múltiple y virtual). El resto del C++
+// del sistema se compila con -fno-rtti: solo el que pide RTTI (DOSBox) lo enciende.
+#ifndef SAGUI_CXX_TYPEINFO
+#define SAGUI_CXX_TYPEINFO
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <exception>
+
+namespace std {
+
+class type_info {
+public:
+    virtual ~type_info();
+    const char *name() const noexcept { return __nome[0] == '*' ? __nome + 1 : __nome; }
+    bool before(const type_info &o) const noexcept { return __cmp(o) < 0; }
+    bool operator==(const type_info &o) const noexcept { return __cmp(o) == 0; }
+    bool operator!=(const type_info &o) const noexcept { return __cmp(o) != 0; }
+    size_t hash_code() const noexcept
+    {
+        size_t h = 5381;
+        for (const char *p = __nome; *p; p++) h = h * 33 + (unsigned char)*p;
+        return h;
+    }
+    type_info(const type_info &) = delete;
+    type_info &operator=(const type_info &) = delete;
+
+protected:
+    const char *__nome;
+    explicit type_info(const char *n) : __nome(n) {}
+
+private:
+    // Misma dirección o mismo nombre (un nombre con '*' es local al fichero: solo la dirección).
+    int __cmp(const type_info &o) const noexcept
+    {
+        if (this == &o || __nome == o.__nome) return 0;
+        if (__nome[0] == '*' || o.__nome[0] == '*') return __nome < o.__nome ? -1 : 1;
+        const char *a = __nome, *b = o.__nome;
+        while (*a && *a == *b) { a++; b++; }
+        return (unsigned char)*a - (unsigned char)*b;
+    }
+};
+
+class bad_cast : public exception {
+public:
+    bad_cast() noexcept {}
+    const char *what() const noexcept override { return "std::bad_cast"; }
+};
+
+class bad_typeid : public exception {
+public:
+    bad_typeid() noexcept {}
+    const char *what() const noexcept override { return "std::bad_typeid"; }
+};
+
+} // namespace std
+
+#endif

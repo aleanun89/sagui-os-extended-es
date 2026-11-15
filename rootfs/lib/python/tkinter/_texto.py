@@ -36,6 +36,9 @@ class Text(Widget, XView, YView):
         self._tags = {}
         self._modificado = False
         self._segmentos = []           # [(y, linha, col_inicial, n)] do último desenho
+        self._realce = None            # D297: f(linea) -> lista de colores, uno por carácter (resaltado)
+        self._fondo_linea = {}         # D297: {n de línea: color de fondo} (la línea del error)
+        self._cache_realce = {}
 
     def _foca_tab(self):
         return True
@@ -508,6 +511,9 @@ class Text(Widget, XView, YView):
             for c0, parte in self._pedacos(linha):
                 if ty >= fim_y:
                     break
+                fl = self._fondo_linea.get(l)
+                if fl is not None:
+                    v.rect(x + b, ty, w - 2 * b, LETRA_A, fl)
                 self._segmentos.append((ty, l, c0, len(parte)))
                 if sel and sel[0] <= (l, c0 + len(parte)) and (l, c0) <= sel[1]:
                     a = c0 if sel[0] < (l, c0) else sel[0][1]
@@ -517,6 +523,8 @@ class Text(Widget, XView, YView):
                     v.rect(tx + (a - c0) * LETRA_L, ty, larg_sel, LETRA_A, sb)
                     v.texto(tx + (a - c0) * LETRA_L, ty, parte[a - c0:z - c0], sf)
                     v.texto(tx + (z - c0) * LETRA_L, ty, parte[z - c0:], frente)
+                elif self._realce is not None:
+                    self._texto_realce(v, tx, ty, linha, c0, parte, frente)
                 else:
                     v.texto(tx, ty, parte, frente)
                 if focado and not desativado and cur[0] == l and c0 <= cur[1] <= c0 + len(parte):
@@ -526,6 +534,29 @@ class Text(Widget, XView, YView):
                 ty += LETRA_A
             l += 1
         v.recorte(*ant)
+
+    def _texto_realce(self, v, tx, ty, linha, c0, parte, frente):
+        """Dibuja `parte` (que empieza en la columna c0 de `linha`) con los colores que da _realce."""
+        cols = self._cache_realce.get(linha)
+        if cols is None:
+            if len(self._cache_realce) > 400:
+                self._cache_realce = {}
+            try:
+                cols = self._realce(linha)
+            except Exception:
+                cols = None
+            if not cols or len(cols) < len(linha):
+                cols = [frente] * len(linha)
+            self._cache_realce[linha] = cols
+        i = 0
+        n = len(parte)
+        while i < n:
+            c = cols[c0 + i]
+            j = i + 1
+            while j < n and cols[c0 + j] == c:
+                j += 1
+            v.texto(tx + i * LETRA_L, ty, parte[i:j], c)
+            i = j
 
     def _pos_xy(self, xa, ya):
         """Posição (linha, coluna) no ponto (x, y) da janela."""

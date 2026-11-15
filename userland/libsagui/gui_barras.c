@@ -61,6 +61,7 @@ void barra_menu_desenhar(jan_t *j, barra_menu_t *b)
         g_texto(j, b->x_item[i] + 7 + (ab ? 1 : 0), b->y + 2 + (ab ? 1 : 0), b->nomes[i], W98_NEGRO);
     }
     jan_mostrar_area(j, b->x, b->y, b->l, b->a);
+    GR_REG(j, "barra_menu", b, b->x, b->y, b->l, b->a, "", 0, 0);
 }
 
 int barra_menu_tratar(jan_t *j, barra_menu_t *b, const evento_t *e)
@@ -148,6 +149,7 @@ void barra_ferr_desenhar(jan_t *j, barra_ferr_t *b)
     g_retangulo(j, b->x, b->y + b->a - 1, b->l, 1, W98_SOMBRA);
     for (int i = 0; i < b->n; i++) ferr_item(j, b, i);
     jan_mostrar_area(j, b->x, b->y, b->l, b->a);
+    GR_REG(j, "barra_ferr", b, b->x, b->y, b->l, b->a, "", 0, 0);
 }
 
 static int ferr_em(const barra_ferr_t *b, int mx, int my)
@@ -225,6 +227,7 @@ void combo_desenhar(jan_t *j, combo_t *c)
     g_bisel(j, bx, c->y + 2, 16, c->a - 4, false);
     g_flecha(j, bx + 5, c->y + c->a / 2 - 2, 1, W98_NEGRO);
     jan_mostrar_area(j, c->x, c->y, c->l, c->a);
+    GR_REG(j, "combo", c, c->x, c->y, c->l, c->a, c->texto, c->l - 4 - 17 - 4, GRF_CONTROL);
 }
 
 static void combo_abrir(jan_t *j, combo_t *c)
@@ -344,6 +347,7 @@ void regua_desenhar(jan_t *j, regua_t *r)
     marcador(j, rpx(r, r->m_esq + r->sang_esq) - 4, ty + ta - 3, true);
     marcador(j, rpx(r, r->pagina - r->m_dir - r->sang_dir) - 4, ty + ta - 3, true);
     jan_mostrar_area(j, r->x, r->y, r->l, r->a);
+    GR_REG(j, "regua", r, r->x, r->y, r->l, r->a, "", 0, 0);
 }
 
 static int snap57(int v) { return (v + (v >= 0 ? 28 : -28)) / 57 * 57; }
@@ -411,7 +415,9 @@ void barra_estado_desenhar(jan_t *j, barra_estado_t *b)
         g_retangulo(j, x, b->y + 2, l, 1, W98_SOMBRA); g_retangulo(j, x, b->y + 2, 1, b->a - 3, W98_SOMBRA);
         g_retangulo(j, x, b->y + b->a - 2, l, 1, W98_LUZ); g_retangulo(j, x + l - 1, b->y + 2, 1, b->a - 3, W98_LUZ);
         g_texto_n(j, x + 4, b->y + 3, b->texto[i], (l - 6) / LETRA_L, W98_NEGRO);
+        GR_REG(j, "seccion", NULL, x, b->y + 2, l, b->a - 3, b->texto[i], l - 6, 0);
         x += l + 2;
     }
     jan_mostrar_area(j, b->x, b->y, b->l, b->a);
+    GR_REG(j, "barra_estado", b, b->x, b->y, b->l, b->a, "", 0, 0);
 }

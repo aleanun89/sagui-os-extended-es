@@ -50,6 +50,7 @@ const char *sagui_sdl_titulo = NULL;
 int  sagui_sdl_escala = 2;
 int  sagui_cheia_inicial = 0;
 void (*sagui_sdl_ao_mudar_cheia)(int cheia) = NULL;
+int  sagui_sdl_foco_ao_soltar = 0;
 
 /* ---- la ventana ---- */
 /* D230: SDL_ShowCursor(SDL_DISABLE) oculta el puntero del sistema sobre la ventana
@@ -966,6 +967,16 @@ static void tratar_evento(evento_t *pe)
     case EV_CAPTURA_SOLTA:
         captura_ativa = 0;
         registrar("[%s] el sistema solto el raton", sagui_sdl_nome);
+        /* D294: DOSBox sigue creyendo que tiene el ratón (su «locked») hasta que ve que pierde el foco:
+         * con este aviso lo suelta y el siguiente clic lo vuelve a capturar. */
+        if (sagui_sdl_foco_ao_soltar) {
+            SDL_Event af;
+            memset(&af, 0, sizeof af);
+            af.type = SDL_ACTIVEEVENT;
+            af.active.gain = 0;
+            af.active.state = SDL_APPINPUTFOCUS;
+            enfileirar(&af);
+        }
         break;
     case EV_CLIQUE:
     case EV_SOLTOU: {
@@ -1157,3 +1168,85 @@ Uint8 SDL_JoystickGetButton(SDL_Joystick *joy, int botao) { (void)joy; (void)bot
 Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu) { (void)joy; (void)chapeu; return SDL_HAT_CENTERED; }
 void SDL_JoystickUpdate(void) {}
 int SDL_JoystickEventState(int estado) { (void)estado; return 0; }
+
+/* ------------------------------------------------------------------ D294: lo que pide DOSBox */
+
+/* Mira o saca de la cola los eventos cuyo tipo está en la máscara. */
+int SDL_PeepEvents(SDL_Event *eventos, int n, SDL_eventaction accion, Uint32 mascara)
+{
+    if (accion == SDL_ADDEVENT) {
+        for (int i = 0; i < n; i++) enfileirar(&eventos[i]);
+        return n;
+    }
+    SDL_PumpEvents();
+    int achados = 0;
+    SDL_Event resto[TAM_FILA];
+    int n_resto = 0;
+    for (int i = 0; i < fila_n; i++) {
+        SDL_Event *e = &fila[(fila_ini + i) % TAM_FILA];
+        if (achados < n && (mascara & (1u << e->type))) {
+            if (eventos) eventos[achados] = *e;
+            achados++;
+            if (accion == SDL_PEEKEVENT) resto[n_resto++] = *e;
+        } else {
+            resto[n_resto++] = *e;
+        }
+    }
+    if (accion == SDL_GETEVENT) {
+        for (int i = 0; i < n_resto; i++) fila[i] = resto[i];
+        fila_ini = 0;
+        fila_n = n_resto;
+    }
+    return achados;
+}
+
+void SDL_WM_SetIcon(SDL_Surface *icone, Uint8 *mascara) { (void)icone; (void)mascara; }
+
+char *SDL_VideoDriverName(char *destino, int tamanho)
+{
+    if (!destino || tamanho <= 0) return NULL;
+    strncpy(destino, "sagui", (size_t)tamanho - 1);
+    destino[tamanho - 1] = 0;
+    return destino;
+}
+
+/* Las variables de entorno de la SDL no hacen nada aquí: se guardan en el entorno de C. */
+int SDL_putenv(const char *texto)
+{
+    char *copia = strdup(texto);
+    if (!copia) return -1;
+    char *igual = strchr(copia, '=');
+    if (!igual) { free(copia); return -1; }
+    *igual = 0;
+    int r = setenv(copia, igual + 1, 1);
+    free(copia);
+    return r;
+}
+
+SDL_Overlay *SDL_CreateYUVOverlay(int l, int a, Uint32 formato, SDL_Surface *tela)
+{
+    (void)l; (void)a; (void)formato; (void)tela;
+    SDL_SetError("no hay superposicion YUV");
+    return NULL;
+}
+int SDL_LockYUVOverlay(SDL_Overlay *o) { (void)o; return -1; }
+void SDL_UnlockYUVOverlay(SDL_Overlay *o) { (void)o; }
+int SDL_DisplayYUVOverlay(SDL_Overlay *o, SDL_Rect *destino) { (void)o; (void)destino; return -1; }
+void SDL_FreeYUVOverlay(SDL_Overlay *o) { (void)o; }
+
+int SDL_CDNumDrives(void) { return 0; }
+const char *SDL_CDName(int unidade) { (void)unidade; return NULL; }
+SDL_CD *SDL_CDOpen(int unidade) { (void)unidade; return NULL; }
+CDstatus SDL_CDStatus(SDL_CD *cd) { (void)cd; return CD_ERROR; }
+int SDL_CDPlay(SDL_CD *cd, int inicio, int quadros) { (void)cd; (void)inicio; (void)quadros; return -1; }
+int SDL_CDPause(SDL_CD *cd) { (void)cd; return -1; }
+int SDL_CDResume(SDL_CD *cd) { (void)cd; return -1; }
+int SDL_CDStop(SDL_CD *cd) { (void)cd; return -1; }
+int SDL_CDEject(SDL_CD *cd) { (void)cd; return -1; }
+void SDL_CDClose(SDL_CD *cd) { (void)cd; }
+
+struct SDL_mutex { int ocupado; };
+SDL_mutex *SDL_CreateMutex(void) { return calloc(1, sizeof(SDL_mutex)); }
+void SDL_DestroyMutex(SDL_mutex *m) { free(m); }
+int SDL_mutexP(SDL_mutex *m) { if (m) m->ocupado++; return 0; }
+int SDL_mutexV(SDL_mutex *m) { if (m && m->ocupado > 0) m->ocupado--; return 0; }

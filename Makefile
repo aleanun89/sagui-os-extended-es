@@ -12,6 +12,7 @@
 #   Tamaños por variable de entorno o de make (D181): HOME_MB TMP_MB LOGS_MB PART_FS
 #   PART_EXT DATOS_MB DATOS_FAT32_MB JOGOS_MB (800; 0 = el justo) JOGOS_IMG_MB (saguios.img: 0)
 #   JOGOS=0 (sin juegos) INPUT_SHARE (input_share; vacío = sin él, D228) OPENJAZZ_DATOS=0 OPENJAZZ=0
+#   DOSBOX=0 (sin DOSBox ni el lanzador Recreativa, D294)
 #   GNUBOY=0 (sin el emulador de Game Boy, D235) CONQUER=0 (sin Command & Conquer, D230) CNC_VIDEOS=1 (con las películas de C&C: ~880 MB más en
 #   /jogos; súbase JOGOS_MB, p. ej. JOGOS_MB=2000)
 #   QUAKE_DATOS=0 QUAKE=0 (D229)
@@ -179,11 +180,12 @@ COMPILACAO_H := $(B)/gerado/compilacao.h
 # libtls (D060-D063): criptografia, X.509 e TLS, só nos programas que usam rede cifrada.
 TLS_OBJ   := $(patsubst userland/libtls/%.c,$(B)/userland/libtls/%.o,$(wildcard userland/libtls/*.c)) \
              $(B)/userland/libtls/sha256.o
-TLS_PROGS := sshd curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia
+TLS_PROGS := sshd curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco
 # O cliente de IA (D134): a biblioteca da API compativel com a da OpenAI, que
 # o `ia` do terminal e o assistente do Mico partilham. Fica numa pasta propria
 # (como a libtls) porque so os programas que falam com a IA a ligam.
-IA_OBJ   := $(B)/userland/ia/ia.o
+IA_OBJ   := $(patsubst userland/ia/%.c,$(B)/userland/ia/%.o,$(filter-out userland/ia/agente_panel.c,$(wildcard userland/ia/*.c)))
+IA_GUI_OBJ := $(B)/userland/ia/agente_panel.o
 # O cliente de correio (082): os protocolos (SMTP, POP3, IMAP) e o MIME, numa
 # pasta propria (como a libtls), porque so o programa `correo` os liga.
 CORREO_OBJ := $(patsubst userland/mail/%.c,$(B)/userland/mail/%.o,$(wildcard userland/mail/*.c))
@@ -461,6 +463,12 @@ include userland/terceros/conquer/conquer.mk
 endif
 endif
 
+# DOSBox 0.74-3 (D294): el emulador de MS-DOS (GPL-2.0 o posterior), aislado en
+# userland/terceros/dosbox/ como OpenJazz, fuera de la variante sin GPL y solo si hay
+# compilador de C++ (con RTTI en el runtime). DOSBOX=0 lo deja fuera. Se incluye detrás de
+# Quake: comparten la SDL 1.2 (SDL12_OBJ).
+DOSBOX ?= 1
+
 # Quake (D229): el motor de id Software (GPL-2.0), aislado en userland/terceros/quake/
 # como OpenJazz, fuera de la variante sin GPL. Es C: no necesita el compilador de C++.
 # QUAKE=0 lo deja fuera.
@@ -468,6 +476,12 @@ QUAKE ?= 1
 ifneq ($(SEM_GPL),1)
 ifeq ($(QUAKE),1)
 include userland/terceros/quake/quake.mk
+endif
+endif
+
+ifneq ($(SEM_GPL),1)
+ifeq ($(DOSBOX)$(CXX_OK),11)
+include userland/terceros/dosbox/dosbox.mk
 endif
 endif
 
@@ -704,7 +718,9 @@ $(addprefix $(B)/userland/bin/,$(TLS_PROGS)) $(B)/userland/testes/pruebacripto: 
 
 # O `ia`, o Mico e o chatia ligam a biblioteca do cliente de IA (D134).
 $(B)/userland/bin/ia: $(IA_OBJ)
-$(B)/userland/bin/chatia: $(IA_OBJ)
+$(B)/userland/bin/chatia: $(IA_OBJ) $(IA_GUI_OBJ)
+# Pluma, Macaco y el correo integran el panel de agentes de IA (D298).
+$(B)/userland/bin/pluma $(B)/userland/bin/macaco $(B)/userland/bin/correo: $(IA_OBJ) $(IA_GUI_OBJ)
 # A janela de Configuração também fala com o servidor de IA para pedir os modelos (D145).
 $(B)/userland/bin/configuracion: $(IA_OBJ)
 # O `correo` liga a biblioteca dos protocolos de correio e a libtls (D082).
@@ -877,9 +893,9 @@ $(B)/userland/programas/mico/%.o: userland/programas/mico/%.c userland/programas
 	@mkdir -p $(dir $@)
 	$(CC) $(UCFLAGS) -c -o $@ $<
 
-$(B)/userland/bin/mico: $(MICO_OBJ) $(IA_OBJ) $(TLS_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
+$(B)/userland/bin/mico: $(MICO_OBJ) $(IA_OBJ) $(IA_GUI_OBJ) $(TLS_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
-	$(LD) $(ULDFLAGS) -o $@.elf $(MICO_OBJ) $(IA_OBJ) $(TLS_OBJ) $(LIBSAGUI_OBJ)
+	$(LD) $(ULDFLAGS) -o $@.elf $(MICO_OBJ) $(IA_OBJ) $(IA_GUI_OBJ) $(TLS_OBJ) $(LIBSAGUI_OBJ)
 	objcopy --strip-all $@.elf $@
 
 # -Os: o sagsh vai duas vezes para a imagem (/bin/sagsh e /bin/sh).
@@ -1092,7 +1108,7 @@ $(B)/$(FONTES_DIR)/%.o: $(FONTES_DIR)/%.c userland/inc/fontes.h $(USER_HDR)
 	$(CC) $(FONTES_FLAGS) -c -o $@ $<
 
 # Los programas que usan fuentes vectoriales enlazan la libfontes.
-$(B)/userland/bin/configuracion $(B)/userland/bin/editor $(B)/userland/bin/paint $(B)/userland/bin/terminal $(B)/userland/testes/pruebafuentes: $(FONTES_OBJ)
+$(B)/userland/bin/pluma $(B)/userland/bin/configuracion $(B)/userland/bin/editor $(B)/userland/bin/paint $(B)/userland/bin/terminal $(B)/userland/testes/pruebafuentes: $(FONTES_OBJ)
 
 # ---------- /apps (D194) ----------
 # D228: lo de $(INPUT_SHARE)/apps (docs/input_share.md) va encima, tal cual; la marca
@@ -1102,7 +1118,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # El árbol de la partición SAGUI-APPS: /bin con los ejecutables de las apps y
 # una carpeta por app con sus datos, más el leeme.txt. Se monta en una carpeta
 # temporal que solo al final se renombra (como el ramdisk, D147).
-$(APPS_DEP): $(APPS_BINS) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \
@@ -1212,7 +1228,7 @@ help:
 	@echo "                        input_share/: para uso PROPIO, no se distribuyen (NetSurf y GNUBoy son GPL v2)"
 	@echo "  make test | rodar | limpar | entrega FASE=N | help"
 	@echo "Variables: B (carpeta de compilacion) INPUT_SHARE (vacio = sin juegos propios) JOGOS=0 GNUBOY=0 NETSURF=0 CONQUER=0 QUAKE=0"
-	@echo "  OPENJAZZ=0 APPS=0 HOME_MB TMP_MB LOGS_MB JOGOS_MB DATOS_MB PART_FS FUENTES_RED=1 (baja Typodermic si falta) SEM_GPL=1"
+	@echo "  OPENJAZZ=0 DOSBOX=0 APPS=0 HOME_MB TMP_MB LOGS_MB JOGOS_MB DATOS_MB PART_FS FUENTES_RED=1 (baja Typodermic si falta) SEM_GPL=1"
 	@echo "  GERAR_OPC=\"--probar\" (opciones de gerar_versao.sh)"
 	@echo "Entorno: . ~/.local/saguitools/env.sh antes de make (ver compilar_versiones.md)"
 

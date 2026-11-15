@@ -5,6 +5,10 @@
 #include "pdf_metricas.h"
 
 #define MAX_PAGINAS 2000
+#define MAX_IMAGENES 256
+
+/* Una imagen del documento (D296): RGB comprimido con Flate o un JPEG tal cual (DCTDecode). */
+typedef struct { uint8_t *d; int n, pw, ph, ncomp; bool jpeg; int pag; } imgpdf_t;
 
 typedef struct { char *d; int n, cap; } bufer_t;
 
@@ -15,6 +19,8 @@ struct pdfw {
     int      npag;
     bool     fuente_usada[12];
     bool     fallo;
+    imgpdf_t img[MAX_IMAGENES];
+    int      nimg;
     /* Estado gráfico de la página en curso: evita repetir fuente y color. */
     int      f_actual, tam_actual;
     uint32_t cor_actual;
@@ -101,6 +107,7 @@ void pdfw_liberar(pdfw_t *w)
 {
     if (!w) return;
     for (int i = 0; i < w->npag; i++) libera(w->pag[i].d);
+    for (int i = 0; i < w->nimg; i++) libera(w->img[i].d);
     libera(w);
 }
 
@@ -183,6 +190,60 @@ void pdfw_linha(pdfw_t *w, int x0, int y0, int x1, int y1, int esp, uint32_t cor
     }
 }
 
+
+/* Coloca la imagen n en la página actual: x, y (arriba a la izquierda), l, a en twips. */
+static bool img_colocar(pdfw_t *w, int x, int y, int l, int a, int k)
+{
+    bufer_t *b = &w->pag[w->npag - 1];
+    char num[48];
+    b_texto(b, "q\n", &w->fallo);
+    /* matriz: l 0 0 a x y cm (el origen del PDF está abajo a la izquierda) */
+    int n = fmt_tw(num, l); b_poner(b, num, n, &w->fallo); b_texto(b, " 0 0 ", &w->fallo);
+    n = fmt_tw(num, a); b_poner(b, num, n, &w->fallo); b_texto(b, " ", &w->fallo);
+    n = fmt_tw(num, x); b_poner(b, num, n, &w->fallo); b_texto(b, " ", &w->fallo);
+    n = fmt_tw(num, w->alt - y - a); b_poner(b, num, n, &w->fallo); b_texto(b, " cm\n", &w->fallo);
+    n = formatar_texto(num, sizeof num, "/Im%d Do\nQ\n", k + 1);
+    b_poner(b, num, n, &w->fallo);
+    return !w->fallo;
+}
+
+bool pdfw_imagem_rgb(pdfw_t *w, int x, int y, int l, int a, const uint32_t *px, int pw, int ph)
+{
+    if (w->npag == 0 || w->nimg >= MAX_IMAGENES || pw <= 0 || ph <= 0 || !px || l <= 0 || a <= 0) return false;
+    long bruto = 3L * pw * ph;
+    if (bruto > 0x3FFFFFFF) return false;
+    uint8_t *raw = aloca((size_t)bruto);
+    if (!raw) return false;
+    for (long i = 0, k = 0; i < (long)pw * ph; i++) {
+        raw[k++] = (uint8_t)(px[i] >> 16); raw[k++] = (uint8_t)(px[i] >> 8); raw[k++] = (uint8_t)px[i];
+    }
+    int lim = deflar_limite((int)bruto) + 16;
+    uint8_t *z = aloca((size_t)lim);
+    if (!z) { libera(raw); return false; }
+    z[0] = 0x78; z[1] = 0x9C;
+    int r = deflar(raw, (int)bruto, z + 2, lim - 6, 6);
+    if (r < 0) { libera(raw); libera(z); return false; }
+    int nz = 2 + r;
+    uint32_t ad = adler32_somar(1, raw, (size_t)bruto);
+    libera(raw);
+    z[nz++] = (uint8_t)(ad >> 24); z[nz++] = (uint8_t)(ad >> 16); z[nz++] = (uint8_t)(ad >> 8); z[nz++] = (uint8_t)ad;
+    imgpdf_t *im = &w->img[w->nimg];
+    im->d = z; im->n = nz; im->pw = pw; im->ph = ph; im->ncomp = 3; im->jpeg = false; im->pag = w->npag - 1;
+    return img_colocar(w, x, y, l, a, w->nimg++);
+}
+
+bool pdfw_imagem_jpeg(pdfw_t *w, int x, int y, int l, int a, const uint8_t *jpg, int n, int pw, int ph, int ncomp)
+{
+    if (w->npag == 0 || w->nimg >= MAX_IMAGENES || n <= 0 || !jpg || l <= 0 || a <= 0) return false;
+    if (ncomp != 1 && ncomp != 3) return false;
+    uint8_t *c = aloca((size_t)n);
+    if (!c) return false;
+    memcpy(c, jpg, (size_t)n);
+    imgpdf_t *im = &w->img[w->nimg];
+    im->d = c; im->n = n; im->pw = pw; im->ph = ph; im->ncomp = ncomp; im->jpeg = true; im->pag = w->npag - 1;
+    return img_colocar(w, x, y, l, a, w->nimg++);
+}
+
 /* Escribe un objeto "N 0 obj ... endobj" y apunta su posición. */
 static void obj_ini(bufer_t *o, int *pos, int num, bool *fallo)
 {
@@ -195,7 +256,8 @@ static void obj_ini(bufer_t *o, int *pos, int num, bool *fallo)
 bool pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *tam)
 {
     if (w->npag == 0 || w->fallo) return false;
-    int nobj = 3 + 12 + 2 * w->npag;   /* 1 catálogo, 2 páginas, 3 info, 4..15 fuentes, luego contenido+página */
+    int img_base = 16 + 2 * w->npag;       /* las imágenes van después de las páginas */
+    int nobj = 3 + 12 + 2 * w->npag + w->nimg;   /* 1 catálogo, 2 páginas, 3 info, 4..15 fuentes, luego contenido+página */
     int *pos = aloca_zerado(sizeof(int) * (size_t)(nobj + 1));
     if (!pos) return false;
     bufer_t o = { 0, 0, 0 };
@@ -254,8 +316,28 @@ bool pdfw_finalizar(pdfw_t *w, uint8_t **dados, int *tam)
             k = formatar_texto(t, sizeof t, "/F%d %d 0 R ", i + 1, 4 + i);
             b_poner(&o, t, k, f);
         }
-        k = formatar_texto(t, sizeof t, ">> >> /Contents %d 0 R >>\nendobj\n", 16 + 2 * p);
+        b_texto(&o, ">> ", f);
+        bool hay_img = false;
+        for (int q = 0; q < w->nimg; q++) if (w->img[q].pag == p) hay_img = true;
+        if (hay_img) {
+            b_texto(&o, "/XObject << ", f);
+            for (int q = 0; q < w->nimg; q++) if (w->img[q].pag == p) {
+                k = formatar_texto(t, sizeof t, "/Im%d %d 0 R ", q + 1, img_base + q);
+                b_poner(&o, t, k, f);
+            }
+            b_texto(&o, ">> ", f);
+        }
+        k = formatar_texto(t, sizeof t, ">> /Contents %d 0 R >>\nendobj\n", 16 + 2 * p);
         b_poner(&o, t, k, f);
+    }
+    for (int q = 0; q < w->nimg && !*f; q++) {
+        const imgpdf_t *im = &w->img[q];
+        obj_ini(&o, pos, img_base + q, f);
+        k = formatar_texto(t, sizeof t, "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /%s /BitsPerComponent 8 /Filter /%s /Length %d >>\nstream\n",
+                           im->pw, im->ph, im->ncomp == 1 ? "DeviceGray" : "DeviceRGB", im->jpeg ? "DCTDecode" : "FlateDecode", im->n);
+        b_poner(&o, t, k, f);
+        b_poner(&o, (const char *)im->d, im->n, f);
+        b_texto(&o, "\nendstream\nendobj\n", f);
     }
     int xref = o.n;
     k = formatar_texto(t, sizeof t, "xref\n0 %d\n0000000000 65535 f \n", nobj + 1);

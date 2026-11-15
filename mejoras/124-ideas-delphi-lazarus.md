@@ -32,9 +32,20 @@ Configuración, Descargar HTTP, Cifrado/Hash, Sonido, Correo, **Agente IA**); co
 texto con formato de Pluma, gráfico, visor HTML); autocompletado de propiedades en el editor; imprimir a PDF;
 componentes de terceros que aparecen en la caja de herramientas.
 
+## VisualPythonS más avanzado (v8.3.2, pedido del mantenedor del 2026-11-15)
+Superar los «Límites actuales» de `docs/visualpythons.md`:
+- **Fuentes:** varias fuentes y tamaños de verdad en los controles (la libfontes ya la usa el WordArt de Pluma).
+- **Diseño fiel:** el diseñador dibuja los controles igual que en ejecución (mismo código de dibujo, WYSIWYG).
+- **Formularios secundarios** con su tamaño propio, modales y no modales (`f.mostrar(modal=True)`), y paso de datos entre formularios.
+- **Renombrar un control** actualiza su código (`Boton1_click` → `Aceptar_click`) y sus referencias.
+- **Deshacer/rehacer** en el diseñador y en el editor.
+- Más: autocompletado de propiedades y métodos (`Boton1.`), depurador sencillo (puntos de parada, paso a paso, ver variables), menú de diseño visual, anclajes y redimensionado automático de controles, orden de tabulación, gestor de recursos (imágenes, iconos), empaquetar la app como un solo fichero.
+- Junto con la fase 2 de arriba: rejilla de datos, componentes no visuales (SQLite, HTTP, Agente IA), gráfico, pestañas, árbol.
+
 ## Criterios de aceptación
 - [ ] Cifrar y descifrar archivos desde Archivos y el terminal, revisado por Opus
 - [ ] Tabla virtual usada por el correo (sin límite de 400) y por Archivos
 - [ ] Al menos los puntos 3, 4 y 9; el resto según el tiempo
 - [ ] Fase 2 de VisualPythonS con la rejilla de datos y los componentes no visuales
+- [ ] VisualPythonS sin los «Límites actuales»: fuentes, WYSIWYG, formularios modales, renombrar con refactorización, deshacer, autocompletado y depurador
 - [ ] Tests automáticos y decisiones en `docs/decisoes.md`

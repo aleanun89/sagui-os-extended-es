@@ -35,6 +35,7 @@
 #include "teclado.h"
 #include "texto.h"
 #include "versao.h"
+#include "montagem.h"
 #include "video.h"
 #include "telas.h"
 #include "vfs.h"
@@ -231,9 +232,12 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica },
-        { "ia", &arte_mini_ia }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "spider", &arte_mini_spider },
+        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
+#ifndef SAGUI_SEM_GPL
+        { "dosbox", &arte_mini_dosbox }, { "recreativa", &arte_mini_recreativa },   /* D294 */
+#endif
     };
     for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++)
         if (txt_compara(nome, t[i].nome) == 0) return t[i].d;
@@ -929,6 +933,7 @@ static const programa_t programas[] = {
     { "Sintonía (reproductor)",  "/apps/bin/sintonia", NULL, "sintonia",  G_MULTIMEDIA, &arte_mini_musica, false },   /* D225: en /apps (D194); sólo si está */
     { "Markdown",                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
     { "Mico (editor de código)", "/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
+    { "VisualPythonS (diseñador)", "/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
     { "Pluma (procesador de textos)", "/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
     { "Macaco (hoja de cálculo)", "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
     { "Paint",                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
@@ -955,6 +960,9 @@ static const programa_t programas[] = {
     { "Quake",                   "/apps/bin/quake",  NULL, "quake",       G_JUEGOS,     &arte_mini_quake, false },   /* D229: en /apps; sólo si está */
     { "Quake (pantalla completa)", "/apps/bin/quake", "--pantalla-completa", "quake-cheia", G_JUEGOS, &arte_mini_quake, false },   /* D229 */
     { "Game Boy (GNUBoy)",       "/apps/bin/gnuboy", NULL, "gnuboy",      G_JUEGOS,     &arte_mini_gnuboy, false },    /* D235: SDL2-GNUBoy, en /apps; sólo si está */
+    { "Recreativa (juegos de DOS)", "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
+    { "DOSBox",                  "/apps/bin/dosbox", NULL, "dosbox",      G_JUEGOS,     &arte_mini_dosbox, false },   /* D294: DOSBox 0.74, en /apps; sólo si está */
+    { "DOSBox (pantalla completa)", "/apps/bin/dosbox", "--pantalla-completa", "dosbox-cheia", G_JUEGOS, &arte_mini_dosbox, false },   /* D294 */
 #endif
     { "Sagui 3D",                "/bin/sagui3d",     NULL, "sagui3d",     G_JUEGOS,     &arte_icone_sagui3d, false },
     { "CHIP-8",                  "/bin/chip8",       NULL, "chip8",       G_JUEGOS,     &arte_icone_chip8, false },
@@ -1038,9 +1046,49 @@ static int mais_usados(int *v)
     return n;
 }
 
-enum { A_PROGRAMA = 0, A_EJECUTAR = 100, A_PANTALLA, A_ACERCA, A_REINICIAR, A_APAGAR, A_TAREFAS, A_FECHA, A_JANELA = 1000 };
+enum { A_PROGRAMA = 0, A_EJECUTAR = 100, A_PANTALLA, A_ACERCA, A_REINICIAR, A_APAGAR, A_TAREFAS, A_FECHA, A_VPS = 200, A_JANELA = 1000 };
+#define VPS_MAX 24   /* aplicaciones generadas por VisualPythonS que caben en el menú (D297) */
 
 static menu_lista_t menu_inicio;
+
+/* D297: las aplicaciones que genera VisualPythonS (mejora 123) viven en /apps/vps/<Nombre>/ (o en
+ * /home/vps/<Nombre>/ si no hay partición de apps) con un lanzador.py: cada carpeta que lo tiene
+ * es una entrada de «Mis aplicaciones». El menú las lee cada vez que se abre. */
+static char vps_ruta[VPS_MAX][NOME_MAX + 16];
+static char vps_nombre[VPS_MAX][NOME_MAX];
+static int  vps_cuantas;
+
+static bool vps_listar(const char *caminho, int i, entrada_pasta_t *e)
+{
+    const char *rel;
+    montagem_t *m = montagem_de(caminho, &rel);   /* /apps es una partición montada, no el árbol del ramdisk */
+    if (m) return m->fs->listar(m->priv, rel, i, e) == 1;
+    return vfs_listar(caminho, i, e) == 1;
+}
+
+static void vps_buscar(const char *base)
+{
+    entrada_pasta_t e;
+    for (int i = 0; vps_cuantas < VPS_MAX && vps_listar(base, i, &e); i++) {
+        if (e.tipo != TIPO_PASTA) continue;
+        char l[2 * NOME_MAX + 32];
+        snformatar(l, sizeof l, "%s/%s/lanzador.py", base, e.nome);
+        if (!vfs_existe_arquivo(l)) continue;
+        snformatar(vps_ruta[vps_cuantas], sizeof vps_ruta[0], "%s/%s", base, e.nome);
+        txt_copia_n(vps_nombre[vps_cuantas], e.nome, NOME_MAX);
+        vps_cuantas++;
+    }
+}
+
+static void executar_vps(int n)
+{
+    char l[2 * NOME_MAX + 32];
+    snformatar(l, sizeof l, "%s/lanzador.py", vps_ruta[n]);
+    char *argv[3] = { "python", l, NULL };
+    int pid = processo_executar("/bin/python", 2, argv, NULL);
+    klog("[GUI] inicio -> vps %s (pid %d)\n", l, pid);
+    if (pid < 0) gui_aviso("No se pudo abrir la aplicación.");
+}
 
 static void executar_programa(const programa_t *p)
 {
@@ -1065,6 +1113,7 @@ static void resposta_inicio(int indice, int janela, int dado)
     inicio_aberto = false;
     int a = menu_lista_acao(&menu_inicio, indice);
     if (a >= A_PROGRAMA && a < A_PROGRAMA + QTD_PROGRAMAS) executar_programa(&programas[a - A_PROGRAMA]);
+    else if (a >= A_VPS && a < A_VPS + VPS_MAX) executar_vps(a - A_VPS);
     else if (a == A_EJECUTAR) executar_ajudante(NULL);
     else if (a == A_PANTALLA) area_abrir_pantalla();
     else if (a == A_ACERCA) {
@@ -1089,6 +1138,14 @@ void barra_abrir_inicio(bool teclado)
         menu_lista_linha(ml, t, MENU_NADA, NULL);
         for (int i = 0; i < QTD_PROGRAMAS; i++)
             if (programas[i].grupo == g && programa_disponivel(&programas[i])) menu_lista_linha(ml, programas[i].nome, A_PROGRAMA + i, programas[i].icone);
+        menu_lista_linha(ml, "<", MENU_NADA, NULL);
+    }
+    vps_cuantas = 0;
+    vps_buscar("/apps/vps");
+    vps_buscar("/home/vps");
+    if (vps_cuantas) {
+        menu_lista_linha(ml, ">Mis aplicaciones", MENU_NADA, NULL);
+        for (int i = 0; i < vps_cuantas; i++) menu_lista_linha(ml, vps_nombre[i], A_VPS + i, &arte_mini_vps);
         menu_lista_linha(ml, "<", MENU_NADA, NULL);
     }
     menu_lista_linha(ml, "-", MENU_NADA, NULL);

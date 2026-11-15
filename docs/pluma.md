@@ -17,11 +17,33 @@ simplificado y sin macros. Lee y escribe **RTF** y texto plano y **exporta a PDF
   Párrafo, viñetas, alineación, sangrías), Herramientas (contar palabras), Ayuda.
 - Guardar: el tipo del diálogo decide el formato (`.rtf` por defecto, `.txt` para texto plano).
 
+## Imágenes y WordArt (D296, mejora 122)
+
+- **Insertar > Imagen...** (BMP, PNG, JPEG baseline, GIF) y **Insertar > WordArt...** (también en la barra Dibujo, que se oculta con Ver).
+- Un clic selecciona el objeto (tiradores: arrastrar cambia el tamaño; en las esquinas de una imagen se conserva la proporción salvo con
+  Mayús); arrastrarlo desde dentro lo mueve; **doble clic** abre Formato de imagen (o la galería, si es un WordArt).
+- **Formato de imagen** (menú Formato o doble clic): tamaño en cm y en %, proporción, ajuste (en línea o arriba y abajo),
+  alineación, borde y pie. «Cuadrado» y recortar no están hechos.
+- **WordArt:** 20 estilos, texto, fuente, tamaño, negrita y cursiva. Ctrl+V pega también imágenes del portapapeles del sistema.
+- RTF: `\pict` con `\pngblip`/`\jpegblip` (Word y LibreOffice las ven); PDF: imágenes como XObject (el JPEG con DCTDecode).
+
+## Asistente IA (D298, mejora 121)
+
+**Ver > Asistente IA** (o el botón del robot de la barra Estándar, o **F12**) abre a la derecha el panel de agentes con el «Pluma IA». Sus herramientas:
+leer el documento o la selección (texto plano o estructura de párrafos y estilos), insertar texto en el cursor, reemplazar la selección, aplicar formato a la selección
+(negrita, cursiva, subrayado, tamaño, alineación, viñetas) e insertar un título WordArt. Lo que modifica el documento pide confirmación mostrando el texto, y se
+deshace con **un solo Ctrl+Z** (`rte_grupo_iniciar` / `rte_grupo_fim` en la libsagui agrupan las operaciones).
+
+Clic derecho sobre el documento (o menú Herramientas): **Asistente IA: Resumir, Corregir, Traducir al inglés, Reescribir más formal / más informal** sobre la selección.
+Opciones para pruebas: `pluma --url http://host:puerto/v1 --modelo m archivo`. Detalles en `docs/agentes-ia.md`.
+
 ## Modos sin ventana (para las pruebas)
 
 ```
 pluma --convertir entrada.rtf salida.pdf [--carta]     # .rtf/.txt -> .rtf/.txt/.pdf
-pluma --info archivo.rtf                               # páginas, palabras, caracteres, párrafos
+pluma --info archivo.rtf                               # páginas, palabras, caracteres, párrafos, objetos
+pluma --wordart salida.rtf|pdf "texto" estilo [pt]    # documento con un WordArt
+pluma --imagem imagen salida.rtf|pdf [cm]              # documento con una imagen centrada
 ```
 
 ## Formatos

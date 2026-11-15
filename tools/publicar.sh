@@ -155,6 +155,13 @@ comp_tamano() {
     info "  tamaño total: $(du -sh "$a" | cut -f1), $(cd "$a" && find . -type f | wc -l) ficheros"
 }
 
+# D301: las ROM/BIOS de 86Box no se publican nunca (tools/86box_roms_prohibidas.sh).
+comp_roms_86box() {
+    local a="$1" r
+    if r="$("$AQUI/86box_roms_prohibidas.sh" --arbol "$a" 2>&1)"; then ok "sin ROM de 86Box"
+    else fallo "ROM de 86Box en el árbol público (NO SE PUEDEN SUBIR NUNCA):"; echo "$r" | tail -8 | sed 's/^/      /'; fi
+}
+
 # D261: ni código de NetSurf (y sus bibliotecas) ni de GNUBoy en lo público: solo el pegamento propio.
 comp_terceros_v2() {
     local a="$1" r
@@ -276,6 +283,7 @@ cmd_preparar() {
     comp_correos "$parcial"
     comp_mac_ip_serie "$parcial"
     comp_tamano "$parcial"
+    comp_roms_86box "$parcial"
     comp_terceros_v2 "$parcial"
     comp_licencia "$parcial"
     [ "$compilar" -eq 1 ] && comp_compilar "$parcial"

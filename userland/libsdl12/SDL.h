@@ -54,6 +54,10 @@ typedef struct SDL_version { Uint8 major, minor, patch; } SDL_version;
 #define SDL_MAJOR_VERSION 1
 #define SDL_MINOR_VERSION 2
 #define SDL_PATCHLEVEL    15
+#define SDLCALL
+#define SDL_VERSION_ATLEAST(X, Y, Z) \
+    ((SDL_MAJOR_VERSION >= (X)) && (SDL_MAJOR_VERSION > (X) || SDL_MINOR_VERSION >= (Y)) && \
+     (SDL_MAJOR_VERSION > (X) || SDL_MINOR_VERSION > (Y) || SDL_PATCHLEVEL >= (Z)))
 #define SDL_VERSION(x) do { (x)->major = SDL_MAJOR_VERSION; (x)->minor = SDL_MINOR_VERSION; \
                             (x)->patch = SDL_PATCHLEVEL; } while (0)
 const SDL_version *SDL_Linked_Version(void);
@@ -391,6 +395,77 @@ Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu);
 void SDL_JoystickUpdate(void);
 int  SDL_JoystickEventState(int estado);
 
+/* ---- D294 (DOSBox): lo que pide y el SaguiOS no tiene o no hace falta ---- */
+typedef enum { SDL_ADDEVENT, SDL_PEEKEVENT, SDL_GETEVENT } SDL_eventaction;
+#define SDL_EVENTMASK(X)        (1u << (X))
+#define SDL_ACTIVEEVENTMASK     SDL_EVENTMASK(SDL_ACTIVEEVENT)
+#define SDL_KEYDOWNMASK         SDL_EVENTMASK(SDL_KEYDOWN)
+#define SDL_KEYUPMASK           SDL_EVENTMASK(SDL_KEYUP)
+#define SDL_MOUSEMOTIONMASK     SDL_EVENTMASK(SDL_MOUSEMOTION)
+#define SDL_QUITMASK            SDL_EVENTMASK(SDL_QUIT)
+#define SDL_ALLEVENTS           0xFFFFFFFFu
+int  SDL_PeepEvents(SDL_Event *eventos, int n, SDL_eventaction accion, Uint32 mascara);
+void SDL_WM_SetIcon(SDL_Surface *icone, Uint8 *mascara);
+char *SDL_VideoDriverName(char *destino, int tamanho);
+int  SDL_putenv(const char *texto);
+
+/* Superposición YUV: no hay; SDL_CreateYUVOverlay da NULL y el programa usa otra salida. */
+#define SDL_YV12_OVERLAY 0x32315659
+#define SDL_YUY2_OVERLAY 0x32595559
+#define SDL_UYVY_OVERLAY 0x59565955
+#define SDL_YVYU_OVERLAY 0x55595659
+typedef struct SDL_cond SDL_cond;
+typedef struct SDL_Overlay {
+    Uint32 format;
+    int w, h, planes;
+    Uint16 *pitches;
+    Uint8 **pixels;
+    Uint32 hw_overlay : 1;
+} SDL_Overlay;
+SDL_Overlay *SDL_CreateYUVOverlay(int l, int a, Uint32 formato, SDL_Surface *tela);
+int  SDL_LockYUVOverlay(SDL_Overlay *o);
+void SDL_UnlockYUVOverlay(SDL_Overlay *o);
+int  SDL_DisplayYUVOverlay(SDL_Overlay *o, SDL_Rect *destino);
+void SDL_FreeYUVOverlay(SDL_Overlay *o);
+
+/* Los CD de audio de la SDL: no hay unidad que la SDL maneje (los CD se montan por imagen). */
+typedef enum { CD_TRAYEMPTY, CD_STOPPED, CD_PLAYING, CD_PAUSED, CD_ERROR = -1 } CDstatus;
+#define CD_INDRIVE(status) ((int)(status) > 0)
+#define SDL_MAX_TRACKS 99
+#define SDL_AUDIO_TRACK 0x00
+#define SDL_DATA_TRACK  0x04
+#define CD_FPS 75
+#define FRAMES_TO_MSF(f, M, S, F) \
+    { int value = (f); *(F) = value % CD_FPS; value /= CD_FPS; *(S) = value % 60; value /= 60; *(M) = value; }
+#define MSF_TO_FRAMES(M, S, F) ((M) * 60 * CD_FPS + (S) * CD_FPS + (F))
+typedef struct SDL_CDtrack { Uint8 id, type; Uint16 unused; Uint32 length, offset; } SDL_CDtrack;
+typedef struct SDL_CD {
+    int id;
+    CDstatus status;
+    int numtracks, cur_track, cur_frame;
+    SDL_CDtrack track[SDL_MAX_TRACKS + 1];
+} SDL_CD;
+int  SDL_CDNumDrives(void);
+const char *SDL_CDName(int unidade);
+SDL_CD *SDL_CDOpen(int unidade);
+CDstatus SDL_CDStatus(SDL_CD *cd);
+int  SDL_CDPlay(SDL_CD *cd, int inicio, int quadros);
+int  SDL_CDPause(SDL_CD *cd);
+int  SDL_CDResume(SDL_CD *cd);
+int  SDL_CDStop(SDL_CD *cd);
+int  SDL_CDEject(SDL_CD *cd);
+void SDL_CDClose(SDL_CD *cd);
+
+/* Los cerrojos: el SaguiOS usa la SDL en un solo hilo (el sonido se mezcla en SDL_PollEvent,
+ * SDL_Delay y SDL_Flip), así que no hay nada que cerrar; solo la interfaz (SDL_thread.h). */
+typedef struct SDL_mutex SDL_mutex;
+SDL_mutex *SDL_CreateMutex(void);
+void SDL_DestroyMutex(SDL_mutex *m);
+int  SDL_mutexP(SDL_mutex *m);
+int  SDL_mutexV(SDL_mutex *m);
+#define SDL_LockMutex(m)   SDL_mutexP(m)
+#define SDL_UnlockMutex(m) SDL_mutexV(m)
+
 /* ---- lo que es solo del SaguiOS ----
  * El programa los ajusta antes de abrir el vídeo (ver sdl_sagui.c). */
 extern const char *sagui_sdl_nome;      /* prefijo del registro: "OPENJAZZ" */
@@ -398,6 +473,9 @@ extern const char *sagui_sdl_titulo;    /* título de la ventana al crearla (NUL
 extern int  sagui_sdl_escala;           /* la ventana es la superficie por este factor (1 = tal cual) */
 extern int  sagui_cheia_inicial;        /* 1: la primera ventana nace a pantalla completa */
 extern void (*sagui_sdl_ao_mudar_cheia)(int cheia);   /* aviso al programa (puede ser NULL) */
+/* 1: cuando el sistema suelta el ratón (Ctrl+Alt) se avisa al programa con un SDL_ACTIVEEVENT de foco
+ * perdido (D294: DOSBox lo necesita para soltar su captura). */
+extern int  sagui_sdl_foco_ao_soltar;
 int  sagui_sdl_em_cheia(void);          /* 1 si la ventana está a pantalla completa */
 
 #ifdef __cplusplus

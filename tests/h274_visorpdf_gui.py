@@ -185,6 +185,14 @@ def main():
         total = int(re.search(r"total: (\d+)", out).group(1))
         verificar(total > 5, "«security» sale en el RFC 9116 (%d)" % total)
 
+        # Sin fichero (desde el menú o el escritorio): se abre vacío y no termina con error.
+        pos = lanzar(m, "visorpdf")
+        esperar_desde(m, "visorpdf: sin documento", pos, 30)
+        time.sleep(1.0)
+        m.captura("H274-0-sin-documento")
+        verificar(True, "visorpdf sin argumento abre la ventana vacía")
+        cerrar(m)
+
         # ---------------------------------------------------- la ventana
         pos = lanzar(m, "visorpdf /usb/indice.pdf")
         esperar_desde(m, "visorpdf: pronto (6 páginas)", pos, 60)

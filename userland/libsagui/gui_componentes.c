@@ -420,6 +420,7 @@ void lenzo_desenhar(jan_t *j, lenzo_t *c)
         }
     }
     g_moldura(j, c->x, c->y, c->l, c->a, COR_BORDA);
+    GR_REG(j, "lenzo", c, c->x, c->y, c->l, c->a, "", 0, 0);
 }
 
 /* Trata un evento del lienzo. Devuelve true si el lienzo cambió (hay que
@@ -572,6 +573,7 @@ void progresso_desenhar(jan_t *j, progresso_t *p)
         g_retangulo(j, tx - 2, ty - 1, n * LETRA_L + 4, LETRA_A + 2, p->cor_fundo);
         g_texto(j, tx, ty, buf, p->cor_texto);
     }
+    GR_REG(j, "progresso", p, p->x, p->y, p->l, p->a, "", 0, 0);
 }
 
 /* Avanza la fase de la barra indeterminada; se llama en el bucle de eventos.
@@ -608,6 +610,7 @@ void casilla_desenhar(jan_t *j, casilla_t *c)
         g_linha(j, c->x + 3, c->y + 7, c->x + 6, c->y + 10, COR_DESTAQUE);
         g_linha(j, c->x + 6, c->y + 10, c->x + 11, c->y + 3, COR_DESTAQUE);
     }
+    GR_REG(j, "casilla", c, c->x, c->y, 14, 14, "", 0, 0);
 }
 
 bool casilla_tratar(casilla_t *c, const evento_t *e)

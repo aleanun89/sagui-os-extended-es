@@ -52,3 +52,9 @@ de textos y del cliente de correo: Excel 97 / Office clásico simplificado (gris
   acompañen a las filas al ordenar, y las fuentes reales en pantalla (con la libfontes).
 - Las iconos de Pluma y de Macaco son copias del mismo dibujo (`pluma.c` conserva los suyos); `pluma.c` puede pasar a usar los
   `ic98_*` cuando se quiera quitar la duplicación.
+
+## Asistente IA (D298)
+
+**Ver > Asistente IA**, el botón del robot o **F12** abren el panel de agentes con el «Macaco IA»: leer un rango (valores y fórmulas, hasta 400 celdas), escribir
+valores o fórmulas (hasta 80 celdas por llamada, con confirmación que lista las celdas), dar formato a un rango, crear una hoja y ordenar. Las escrituras se deshacen con un
+Ctrl+Z. Acciones rápidas en el menú Herramientas y en el clic derecho: «Explicar estos datos» y «Crear fórmula para...». Detalles en `docs/agentes-ia.md`.

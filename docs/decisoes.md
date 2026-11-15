@@ -14947,6 +14947,20 @@ y arrancarlo; SMP con OVMF y 4 CPU; la persistente con `--uefi`; la ISO por UEFI
 
 **Prueba.** `tests/h271_cipo_css.py` (20 páginas, capturas `H271-*.png`) y, sin cambios, las del motor y del Cipó: h47, h112, h113, h114, h120…h125, h127, h128, h130, h132, h135, h137.
 
+## D272 - Diálogos comunes de abrir, guardar y elegir carpeta (v8.1, mejora 103)
+
+**Decisión:** tres diálogos modales en la libsagui (`userland/libsagui/gui_arquivos.c`, declarados en `gui.h`), con el aspecto de Windows 95 (gris, biseles, selección azul marino): `dialogo_abrir`, `dialogo_guardar` (ambos `(titulo, filtros, inicial, salida, max)`) y `dialogo_carpeta(titulo, inicial, salida, max)`; devuelven `true` y la ruta absoluta.
+
+1. **Abrir/Guardar:** «Buscar en» (desplegable con los niveles de la ruta, unidades `/`, `/home`, `/usb`, `/jogos`, `/apps`, montajes y carpetas recientes; solo las que se pueden leer, D255), «Subir», «Nueva» carpeta, vista de lista o de detalles (nombre, tamaño, tipo; el VFS no da fecha, así que no hay columna de fecha), lista con carpetas primero, «Nombre de archivo», desplegable de tipo. `filtros` = `"Nombre|patrón;patrón|Nombre|patrón"`, NULL = todos; un `>` antes de un nombre lo deja elegido de entrada. Las carpetas ocultas (`.x`) no se muestran.
+2. **Vía por teclado compatible con lo anterior:** en «Nombre de archivo» vale una ruta absoluta o relativa a la carpeta (una carpeta entra en ella) y, al abrir, un patrón con `*` o `?` filtra la lista. Tab/Mayús+Tab cambia de control, flechas/RePág/AvPág/Inicio/Fin mueven la lista (en el nombre también arriba y abajo), Retroceso en la lista o Alt+↑ sube, escribir en la lista salta al nombre, Intro acepta, Esc cancela.
+3. **Guardar:** si el archivo existe pide confirmación con «Sí» a la izquierda y «No» a la derecha, «No» por defecto (S/N como atajo); `confirmar()` no se cambió (sus pruebas pulsan por posición). Añade la extensión del tipo si es un único `*.ext` y el nombre no tiene punto.
+4. **Elegir carpeta:** árbol con `[+]`/`[-]`, Derecha/Izquierda despliegan y pliegan, «Nueva carpeta», línea con la ruta elegida; las carpetas sin permiso se marcan en gris y avisan al intentar abrirlas.
+5. **Carpetas recientes:** hasta 6, en `/home/.config/dialogos.rec` (se ignora si no se puede escribir).
+6. **Adoptados:** Editor, Paint, Visor, Visor de PDF, Mico (abrir, guardar como con filtros por lenguaje y «Todo el código», y abrir carpeta), Reproductor, Recortes (guardar recorte) y Cipó (guardar imagen/enlace, con la ruta propuesta aceptable con Intro). Quedan con `pedir_texto` los demás (Macaco, Markdown, CHIP-8, Correo, Chat IA, Música, MIDI, Sintonía, Discos...).
+7. **Núcleo:** no se tocó.
+
+**Pruebas:** `tests/h272_dialogos_archivo.py` (Editor y Mico; capturas `H272-*.png`). Ajustadas: `h114_cipo_descargas.py` (Intro en el diálogo) y `h97_capturas.py` (puede haber dos avisos apilados).
+
 ## D273. Interfaz gráfica del VNC: ventana de conexión, pestaña del servidor e indicador (v8.1, mejora 104)
 
 **Contexto:** el cliente `vnc` (D254) exigía un equipo en la línea de órdenes y el servidor `vncd` (D252) se manejaba con `echo`, `servicio` y `vncd --clave`. El mantenedor pidió una interfaz gráfica para las dos mitades.
@@ -15070,19 +15084,6 @@ sonando, y HDA + USB a la vez con cambio de salida en marcha.
 **Núcleo tocado:** ninguno (solo libsagui, el reproductor, el Cipó y el motor web).
 
 **Pruebas:** `tests/h276_video_h264.py` (MP4 generados con el ffmpeg del anfitrión: Baseline con el `moov` al principio, Main con cuadros B y el `moov` al final): decodificador del anfitrión contra ffmpeg (cuadros con PSNR de 48 dB, es decir solo el redondeo del color, y a nivel de muestras de YUV idéntico bit a bit; audio: el tono de 440 Hz y el mismo nivel que ffmpeg); en SaguiOS, `reproductor -t` da las mismas sumas por cuadro que el anfitrión, y mide los cuadros por segundo a 360p y 480p (`build/h276/rendimiento.txt`); el reproductor con ventana y sonido (`-audiodev wav`: 440 Hz); y el Cipó con una página con `<video autoplay loop>` (cuadro rojo y luego azul en su caja de 320x180, clic que pausa y reanuda, tono de 440 Hz). Capturas `H276-cipo-video-*.png`. Siguen pasando h47, h100, h112-h115, h120-h125, h127, h128, h130, h75 y la auditoría de licencias h81.
-## D272 - Diálogos comunes de abrir, guardar y elegir carpeta (v8.1, mejora 103)
-
-**Decisión:** tres diálogos modales en la libsagui (`userland/libsagui/gui_arquivos.c`, declarados en `gui.h`), con el aspecto de Windows 95 (gris, biseles, selección azul marino): `dialogo_abrir`, `dialogo_guardar` (ambos `(titulo, filtros, inicial, salida, max)`) y `dialogo_carpeta(titulo, inicial, salida, max)`; devuelven `true` y la ruta absoluta.
-
-1. **Abrir/Guardar:** «Buscar en» (desplegable con los niveles de la ruta, unidades `/`, `/home`, `/usb`, `/jogos`, `/apps`, montajes y carpetas recientes; solo las que se pueden leer, D255), «Subir», «Nueva» carpeta, vista de lista o de detalles (nombre, tamaño, tipo; el VFS no da fecha, así que no hay columna de fecha), lista con carpetas primero, «Nombre de archivo», desplegable de tipo. `filtros` = `"Nombre|patrón;patrón|Nombre|patrón"`, NULL = todos; un `>` antes de un nombre lo deja elegido de entrada. Las carpetas ocultas (`.x`) no se muestran.
-2. **Vía por teclado compatible con lo anterior:** en «Nombre de archivo» vale una ruta absoluta o relativa a la carpeta (una carpeta entra en ella) y, al abrir, un patrón con `*` o `?` filtra la lista. Tab/Mayús+Tab cambia de control, flechas/RePág/AvPág/Inicio/Fin mueven la lista (en el nombre también arriba y abajo), Retroceso en la lista o Alt+↑ sube, escribir en la lista salta al nombre, Intro acepta, Esc cancela.
-3. **Guardar:** si el archivo existe pide confirmación con «Sí» a la izquierda y «No» a la derecha, «No» por defecto (S/N como atajo); `confirmar()` no se cambió (sus pruebas pulsan por posición). Añade la extensión del tipo si es un único `*.ext` y el nombre no tiene punto.
-4. **Elegir carpeta:** árbol con `[+]`/`[-]`, Derecha/Izquierda despliegan y pliegan, «Nueva carpeta», línea con la ruta elegida; las carpetas sin permiso se marcan en gris y avisan al intentar abrirlas.
-5. **Carpetas recientes:** hasta 6, en `/home/.config/dialogos.rec` (se ignora si no se puede escribir).
-6. **Adoptados:** Editor, Paint, Visor, Visor de PDF, Mico (abrir, guardar como con filtros por lenguaje y «Todo el código», y abrir carpeta), Reproductor, Recortes (guardar recorte) y Cipó (guardar imagen/enlace, con la ruta propuesta aceptable con Intro). Quedan con `pedir_texto` los demás (Macaco, Markdown, CHIP-8, Correo, Chat IA, Música, MIDI, Sintonía, Discos...).
-7. **Núcleo:** no se tocó.
-
-**Pruebas:** `tests/h272_dialogos_archivo.py` (Editor y Mico; capturas `H272-*.png`). Ajustadas: `h114_cipo_descargas.py` (Intro en el diálogo) y `h97_capturas.py` (puede haber dos avisos apilados).
 
 ## D277. Cámaras web integradas (UVC 1.1), isócrono de entrada y aplicación «Cámara» (v8.1, mejora 112)
 
@@ -15128,6 +15129,19 @@ el núcleo y la libsagui con ASan y UBSan (`tools/uvc_testar.c`) con descriptore
 IAD y multiplicadores 2 y 3, otra de plena velocidad UVC 1.0, JPEG y YUY2 de ffmpeg, paquetes vacíos, FID sin EOF, bit ERR, cuadros rotos, fuzz) y compara
 el decodificador JPEG y la conversión YUY2 con ffmpeg (PSNR); la parte **os** y **ventana** usan la fuente de prueba dentro de SaguiOS. El isócrono de entrada de los
 controladores y el siTD **no se ejercitan** (sin dispositivo): la prueba real es la de `docs/camara.md`. Se repiten h275, h214, h29_ehci, h267 y h227.
+
+## D278 - Diálogos comunes en el resto de aplicaciones (v8.1, mejora 103)
+
+**Decisión:** las aplicaciones que pedían una ruta con `pedir_texto` usan los diálogos de D272 (`dialogo_abrir`, `dialogo_guardar`, `dialogo_carpeta`) con filtros por tipo, cuando la pregunta es una ruta de archivo o de carpeta.
+
+1. **Adoptados:** Macaco (abrir y guardar `.mxs`), Markdown (guardar `.md`; abrir `.md`/`.txt` y Ctrl+O), CHIP-8 (abrir ROM), Correo (adjuntar), Chat IA (adjuntar texto), Visor de PDF (exportar página a imagen, que D272 había dejado) y Sintonía (guardar y abrir listas M3U/PLS).
+2. **Música y MIDI:** la pregunta «archivo o carpeta» se responde con `confirmar()`: Sí elige una carpeta (`dialogo_carpeta`), No elige un archivo (`dialogo_abrir` con filtro de sonido o MIDI).
+3. **Se queda con `pedir_texto`:** la pregunta de Sintonía «archivo, carpeta, lista M3U/PLS o URL» y la dirección de la emisora, porque aceptan URL, que el diálogo no expresa; y las demás preguntas que no piden rutas (nombres, tamaños, etiquetas, URL de jclic, texto de Paint).
+4. **Sin cambios:** Discos no pide ninguna ruta (solo etiquetas y tamaños en MB); Correo no tiene «guardar adjunto» (no se añadió).
+5. **Núcleo y libsagui:** no se tocaron.
+6. **Carpeta inexistente:** el diálogo no crea carpetas. La exportación del Visor de PDF proponía `/home/...`, y en la imagen de prueba `/home` no existe; antes se creaba al exportar. Queda como pendiente decidir si la propuesta por defecto debe ser la carpeta del PDF.
+
+**Pruebas:** `h272_dialogos_archivo`, `h110_macaco`, `h43_markdown`, `h94_chip8_roms`, `h63_chip8`, `h118_correo`, `h116_chatia`, `h239_chatia_conversas`, `h86_musica`, `h157_midi`, `h225_sintonia`, `h107_visorpdf`, `h274_visorpdf_gui` (KVM). Ajustadas por el diálogo: `h86_musica` (un Intro más, el de «¿Añadir una carpeta entera?») y `h274_visorpdf_gui` (exporta a `/tmp/pag.ppm`).
 
 ## D279. Bluetooth con un controlador USB estándar: HCI, L2CAP, SDP, emparejamiento y HID (v8.2, mejora 059)
 
@@ -15302,19 +15316,6 @@ tarjeta y con otra PCI desconocida, que el sistema arranca igual y no hay ningú
 **Qué probar en el Toshiba L635** (y en cualquier HD 5000/6000): arrancar normal y guardar `dmesg > /home/evg.txt`; mirar `[ACEL2D]`: si pone `activo: Radeon HD 5400 (Cedar)`, ejecutar `acel2d`, `acel2d probar --detalle` (y otro `dmesg`), mover ventanas, desplazar texto en el terminal y abrir un juego; si pone `CPU: …`, el motivo dice qué comprobación falló (enviar el log entero). Si la pantalla es de la Intel (`la pantalla (…) es de la tarjeta 8086:…`), el driver ni se intenta. Ante cualquier problema: `acel2d apagar` o arrancar con `--sin-acel2d`.
 
 **Pruebas:** `tests/h286_acel2d_evergreen.py` (`fuentes`: tabla, lista exacta, reglas de seguridad y documentos; `unidad`: `tests/evergreen_dma_unidad.c` en el PC: paquetes, detección por PCI, controladores de pantalla y rectángulos como memmove con un motor que copia en cualquier orden; `std`: en QEMU nada cambia). Siguen pasando h161, h223, h242, h243, h244 y h245.
-
-## D278 - Diálogos comunes en el resto de aplicaciones (v8.1, mejora 103)
-
-**Decisión:** las aplicaciones que pedían una ruta con `pedir_texto` usan los diálogos de D272 (`dialogo_abrir`, `dialogo_guardar`, `dialogo_carpeta`) con filtros por tipo, cuando la pregunta es una ruta de archivo o de carpeta.
-
-1. **Adoptados:** Macaco (abrir y guardar `.mxs`), Markdown (guardar `.md`; abrir `.md`/`.txt` y Ctrl+O), CHIP-8 (abrir ROM), Correo (adjuntar), Chat IA (adjuntar texto), Visor de PDF (exportar página a imagen, que D272 había dejado) y Sintonía (guardar y abrir listas M3U/PLS).
-2. **Música y MIDI:** la pregunta «archivo o carpeta» se responde con `confirmar()`: Sí elige una carpeta (`dialogo_carpeta`), No elige un archivo (`dialogo_abrir` con filtro de sonido o MIDI).
-3. **Se queda con `pedir_texto`:** la pregunta de Sintonía «archivo, carpeta, lista M3U/PLS o URL» y la dirección de la emisora, porque aceptan URL, que el diálogo no expresa; y las demás preguntas que no piden rutas (nombres, tamaños, etiquetas, URL de jclic, texto de Paint).
-4. **Sin cambios:** Discos no pide ninguna ruta (solo etiquetas y tamaños en MB); Correo no tiene «guardar adjunto» (no se añadió).
-5. **Núcleo y libsagui:** no se tocaron.
-6. **Carpeta inexistente:** el diálogo no crea carpetas. La exportación del Visor de PDF proponía `/home/...`, y en la imagen de prueba `/home` no existe; antes se creaba al exportar. Queda como pendiente decidir si la propuesta por defecto debe ser la carpeta del PDF.
-
-**Pruebas:** `h272_dialogos_archivo`, `h110_macaco`, `h43_markdown`, `h94_chip8_roms`, `h63_chip8`, `h118_correo`, `h116_chatia`, `h239_chatia_conversas`, `h86_musica`, `h157_midi`, `h225_sintonia`, `h107_visorpdf`, `h274_visorpdf_gui` (KVM). Ajustadas por el diálogo: `h86_musica` (un Intro más, el de «¿Añadir una carpeta entera?») y `h274_visorpdf_gui` (exporta a `/tmp/pag.ppm`).
 
 ## D287. 3D por la GPU en las Radeon R5xx (X1300-X1950), sobre la capa `gpu3d` (v8.3, mejora 054)
 
@@ -15496,6 +15497,26 @@ h17, h20, h21, h42, h58, h60 y h268.
 
 **Pruebas:** `tests/h291_pluma.py` (modos sin ventana `pluma --info` y `pluma --convertir`: RTF a PDF validado en el anfitrión con `tests/pdf_validar.py` —estructura, xref, Flate, texto, fuentes, tamaño— y abierto por el Visor de PDF del sistema; ida y vuelta de RTF estable; TXT a PDF en Carta; y con ventana: escribir con Ctrl+B/Ctrl+I, menú Formato, diálogo Fuente, guardar por el diálogo, exportar a PDF, buscar, cerrar y reabrir, documento de dos páginas; capturas `docs/capturas/H291-*.png`). Siguen pasando `h22_componentes`, `h98_componentes_v61` y `h272_dialogos_archivo`.
 
+## D292 - Micrófono y grabación, balance, latencia, conectores guardados y salida recordada (v8.3, mejora 075)
+
+**Contexto.** El mantenedor pidió (2026-11-15) «el soporte del micrófono y mejoras de configuración de poco esfuerzo». No había grabación de ningún tipo (punto 3 de la mejora 075).
+
+**Decisión.**
+1. **Una capa común de captura** (`kernel/dispositivos/captura.c`) sobre un anillo de 48 kHz estéreo de 16 bits que llena la tarjeta: en cada tic se vacía a una cola del kernel de 340 ms, con pico/RMS y conversión de tasa (8000 a 48000 Hz, interpolación lineal en punto fijo) y de canales al leer. Los drivers solo dan anillo, posición, elegir entrada y ganancia (`captura_hw_t` dentro de `placa_som_t`). Sin IRQ: el tic basta.
+2. **HDA:** primer flujo de entrada, entradas descubiertas por la configuración por defecto de los pines (micrófono interno, externo, línea, auxiliar) con su camino hasta un ADC; **AC'97:** canal PCM IN y selector de grabación (micrófono, línea, auxiliar).
+3. **Sin llamada al sistema nueva:** `INFO_CAPTURA` = 75 (`info_sistema`, como la cámara) con `info_captura_t`; `AUDIO_BALANCE` = 8 y `AUDIO_LATENCIA` = 9 en `SIS_AUDIO_CONTROLE`. Así no se toca `SIS_MAX` (136 queda libre para las ramas abiertas). Los servicios no pueden grabar (`ERRO_ACESSO`, como la cámara, D277); una captura a la vez, que cierra el tic si muere su dueño.
+4. **Fuente de prueba** (`CAP_FUENTE_PRUEBA`): tono de 1 kHz generado en el kernel por la misma cola y conversión, porque QEMU 8.2 no inyecta audio de entrada (`-audiodev none` da silencio que avanza; `wav` ni avanza).
+5. **Programas:** `grabar` (WAV por la línea de órdenes), **Grabadora** (ventana: grabar, parar, reproducir, guardar con el diálogo D272, medidor) y `libsagui/captura.c`.
+6. **Configuración > Sonido:** micrófono (entrada, ganancia, silencio, medidor en vivo), balance, probar izquierdo/derecho, latencia y salida elegida, guardados en `sagui.conf` y aplicados por `configuracion --aplicar`.
+7. **Ajustes de conectores por modelo** (075 punto 9): `sonido --guardar` + `--aplicar/--guardados/--olvidar`, en `/home/.config/sonido.conf` por `[codec:ssid PCI:ssid códec]`, aplicado en cada arranque.
+8. **Balance** en el mezclador de salida (antes del ecualizador; centrado = bit a bit igual) y **latencia base** configurable (20 a 300 ms; sigue creciendo sola tras un corte, hasta 300).
+
+**No hecho (anotado en `docs/microfono.md`):** micrófono USB UAC 1 (la entrada isócrona existe desde la D277, pero QEMU no emula un micrófono USB para probarla), volumen por aplicación (grande), sonidos del sistema (no existen aún).
+
+**Sin probar en hardware:** nivel real, ganancia del códec y micrófonos internos (dv7, L850 ALC269, G470): lista en `docs/microfono.md`.
+
+**Pruebas:** `tests/h292_microfono.py` (hda, ac97, sin tarjeta, balance, conectores, ventana; capturas `H292-*.png`).
+
 ## D293. Macaco con el estilo de Excel 97: formatos de celda, diálogo, CSV y PDF (v8.3, mejora 117)
 
 **Contexto.** El mantenedor pidió (2026-11-15) que la hoja de cálculo Macaco (D140/D142) tuviera el aspecto de Pluma (D291) y del
@@ -15530,22 +15551,385 @@ correo (D289): gris, biseles, barra de título azul, iconos de 16x16 propios. En
 celdas con Alineación/Tramas, F2/F4/Mayús+flechas, pestañas, guardar y recargar con formatos, CSV de ida y vuelta, PDF por el diálogo y
 por `--convertir` validado en el anfitrión) y `tests/h110_macaco.py` con las coordenadas nuevas.
 
-## D292 - Micrófono y grabación, balance, latencia, conectores guardados y salida recordada (v8.3, mejora 075)
+## D294. DOSBox 0.74-3 y el lanzador de juegos Recreativa; RTTI y más C++ en el runtime (v8.3.1, mejora 119)
 
-**Contexto.** El mantenedor pidió (2026-11-15) «el soporte del micrófono y mejoras de configuración de poco esfuerzo». No había grabación de ningún tipo (punto 3 de la mejora 075).
+El mantenedor pidió (2026-11-15) **portar DOSBox con un lanzador de juegos**. Resultado: `/apps/bin/dosbox` (el emulador de
+PC y de MS-DOS), `/apps/bin/recreativa` (la lista de juegos) y, de paso, un runtime de C++ bastante más completo.
+
+1. **Qué DOSBox.** La **0.74-3 clásica** (GPL-2.0-or-later, compatible con la GPL v3 del proyecto; SDL 1.2), no DOSBox Staging
+   (C++17 y SDL 2 con meson, mucho más pesado) ni DOSBox-X. Las fuentes **van en git** como las de OpenJazz, con 3 líneas de
+   parche: `tools/dosbox_fuentes.sh` baja el tarball (versión y SHA-256 fijos), le aplica `userland/terceros/dosbox/parches/sagui.patch`
+   y `--comprobar` verifica que lo que hay en git es eso (`--regenerar` rehace el parche si se edita `jogo/`). El parche solo
+   toca `src/gui/sdlmain.cpp`: sin `execlp` (no hay `exec`) y `SDL_putenv` en vez de `putenv`. Todo lo demás es el upstream
+   byte a byte, y lo nuestro vive fuera de `jogo/`: `plataforma/config.h` (el de `./configure`: i686, x87, sin OpenGL, depurador,
+   libpng, módem ni IPX), `plataforma/principal_dosbox.c` (el lanzador), `dosbox.mk`. Licencia **GPL-2.0-or-later** en cada
+   fichero (`COPYING`, `AUTHORS`; fila en `docs/terceros.md` y `docs/licencia.md`): **publicable** (no es «solo v2»), no entra en
+   `SEM_GPL=1` y se quita con `DOSBOX=0`.
+2. **Runtime de C++ (general, probado en `tests/cxx_biblioteca_unidad.cpp` y `tests/cxx_rtti_unidad.cpp`).**
+   - **RTTI**: `userland/libcxx/rt/rtti.cpp` (`__dynamic_cast`, `__cxa_bad_cast`, `__cxa_bad_typeid`, `std::type_info`) escrito
+     del ABI de Itanium, sin libsupc++: `dynamic_cast` hacia abajo, en cruz, con herencia simple, múltiple y virtual, con bases
+     privadas y ambiguas, `typeid` (de tipos, de expresiones y de tipos básicos), `std::bad_cast` y `std::bad_typeid`. Se prefirió al
+     parche de los ~20 `dynamic_cast` de DOSBox (varios son cruces de bases de `gui_tk` que un `static_cast` no sustituye) y servirá
+     a futuros ports. El resto del sistema sigue con `-fno-rtti`: solo DOSBox compila con `-frtti` (los typeinfo ya los daba
+     `abi_tipos.c`). Las excepciones siguen igual; `std::bad_cast` es una `std::exception` y se captura por su base.
+   - **`<map>` y `<set>`** (un «treap» para buscar y una lista enlazada de los mismos nodos para recorrer en orden: los
+     iteradores no se invalidan al insertar ni borrar otros y `++`/`--` cuestan O(1)), **flujos** `<iostream> <sstream> <fstream>
+     <iomanip> <ios> <istream> <ostream>` (solo `char`; `ios_base`/banderas, `>>` y `<<` de los tipos básicos y de `std::string`,
+     `hex/dec/oct/setw/setfill/setprecision/fixed/endl...`, `getline`, `get/peek/read/ignore/seekg/tellg`, ficheros por `FILE *`),
+     **`<limits>`, `<iterator>`** (`back_inserter`, `front_inserter`, `distance`, `reverse_iterator`...), **`<functional>`**
+     (`less`, `greater`...), **`<typeinfo>`** y más **`<algorithm>`** (`sort` con montículo de reserva, `stable_sort`, `transform`,
+     `reverse`, `remove`, `unique`, `lower_bound`...) y `list::sort/reverse/unique/remove/rbegin`. Los flujos van en un espacio
+     de nombres `inline` propio para no chocar con los nombres mangled de la libstdc++ del PC en las pruebas de unidad.
+   - C&C (h230) y OpenJazz (h228) siguen compilando y pasando.
+3. **SDL 1.2 del sistema (`userland/libsdl12`).** DOSBox pedía lo que faltaba: `SDL_PeepEvents`, `SDL_WM_SetIcon`,
+   `SDL_VideoDriverName`, `SDL_putenv`, `SDL_VERSION_ATLEAST`, `SDLCALL`, la interfaz de los cerrojos (`SDL_thread.h`; un solo hilo: no hacen
+   nada), `SDL_CD*` (devuelven que no hay unidades; los CD se montan por carpeta o imagen), `SDL_Overlay` (sin superposición YUV: da
+   `NULL` y DOSBox usa `output=surface`). Además, un aviso opcional (`sagui_sdl_foco_ao_soltar`): cuando el sistema suelta el
+   ratón (Ctrl+Alt) se manda un `SDL_ACTIVEEVENT` de foco perdido y DOSBox suelta también su captura (si no, creía seguir
+   con el ratón y el siguiente clic no lo recapturaba). OpenJazz, Quake y OpenTyrian no lo activan.
+4. **Núcleos de CPU.** El intérprete (`normal`, siempre) y el **recompilador dinámico de x86** (`C_DYNAMIC_X86`): funciona, porque
+   la memoria de usuario de SaguiOS (i686 sin PAE, sin bit NX) **es ejecutable** (el caché de código sale de `malloc`; no se
+   define `C_HAVE_MPROTECT`). **Medido** con `BENCH.COM` (`tests/dosbox_com.py`, un bucle de 7 instrucciones de 32 bits durante 3 s de
+   DOS, `cycles=max`) en QEMU con KVM: **normal ~4 000-4 200 vueltas, dynamic ~36 600 (x8,7)**. `core=auto` (por defecto):
+   intérprete en modo real y recompilador al pasar a modo protegido (Doom, Descent, DOS4GW). FPU en ensamblador x87 (`C_FPU_X86`).
+5. **Sonido.** Sound Blaster 16 (puerto 220, IRQ 7, DMA 1, HDMA 5), AdLib (OPL3), altavoz del PC, Disney y Tandy, por la salida
+   SDL (44100 Hz, estéreo, 16 bits; el mezclador entrega a `audio_abrir`). La prueba oye el tono de 1 kHz del altavoz y el DSP de la
+   SB contesta 0xAA. **MIDI (mpu401) no**: `audio_midi` (D190) es un sintetizador de *archivos* (lee todo el MIDI, ordena las pistas
+   y sintetiza); no tiene API de eventos en directo (nota, programa, controlador). Añadirla es una mejora aparte; `mididevice=default`
+   queda en «none» y los juegos usan la AdLib/SB, que casi todos traen.
+6. **Vídeo.** `output=surface` (la superficie de DOSBox es la de nuestra SDL 1.2, que la convierte y escala a la ventana; con los
+   escaladores de DOSBox: `normal2x` por defecto). No se usa el renderizador de la SDL 2 por la GPU (D288): DOSBox 0.74 es de la
+   SDL 1.2 y portarlo a la SDL 2 sería rehacer el vídeo (queda para un port de DOSBox Staging). En ventana la imagen se escala con
+   la ventana redimensionable; **pantalla completa** con `dosbox --pantalla-completa` (pasa `-fullscreen` a DOSBox y pide la
+   pantalla completa al sistema, 4:3 con bandas) o con F11.
+7. **Teclado y ratón.** El mapa de teclas es el de la SDL del sistema (las mismas sym que con Quake, D229, D242; `usescancodes=false`).
+   El ratón se **captura en modo relativo** (D242: `SDL_WM_GrabInput`) al hacer clic cuando el programa de DOS usa el ratón (INT 33h) y,
+   a pantalla completa, solo; Ctrl+Alt lo suelta. `Ctrl+F1` abre el asignador de teclas de DOSBox y `Ctrl+F10` su asistente.
+8. **Configuración.** `/home/.config/dosbox.conf` (se crea la primera vez con los valores del sistema: SVGA S3, SB16, `core=auto`,
+   `cycles=auto`, `[autoexec]` con `mount c /home/dos`); `/home/dos` es el C: por defecto (se crea solo). El lanzador fija `HOME` y la
+   carpeta actual a `/home/.config` (mapa de teclas, capturas...). Un `.exe`, `.com` o `.bat` pasado por la línea de órdenes
+   se convierte en `-noautoexec -c "mount c <su carpeta>" -c c: -c <programa> -c exit`; **Archivos** abre esos tres tipos con DOSBox.
+9. **Recreativa** (`userland/terceros/dosbox/plataforma/recreativa.c`, propio, en C con los componentes de la libsagui; aspecto de
+   Windows 98 como Correo, D289): menú Juego/Ver/Ayuda, barra de herramientas (Jugar, Añadir, Propiedades, Configurar, Quitar, Carpeta),
+   cuadrícula con portada opcional o lista, barra de estado y menú contextual. La lista va en `/home/dos/juegos.conf` (una sección
+   `[Nombre]` por juego: `carpeta`, `programa`, `nucleo`, `ciclos`, `memoria`, `sonido`, `cd`, `antes`, `setup`). **Aparecen solas** las
+   carpetas de `/home/dos` y `/jogos` con un `.exe/.com/.bat` en la raíz (los juegos de `input_share/games`, que se copian a `/jogos`
+   y nunca van a git ni a la imagen pública: `docs/input_share.md`); «Quitar» las anota como ocultas sin tocar archivos. **Añadir** usa el
+   diálogo de carpeta común (D272), detecta los programas, propone nombre y programa (el mejor que no parece un instalador) y abre las
+   **Propiedades** (núcleo, ciclos, memoria, tarjeta de sonido, CD como carpeta o `.iso/.cue`, órdenes previas, setup). **Jugar**,
+   **Configurar** (el setup del juego), **Quitar** y **Carpeta** (abre Archivos). Sustituye al elegante «combo» de la rama del procesador
+   (aún sin fusionar) por un selector de clic. El nombre «Recreativa» es una propuesta: el mantenedor decide.
+10. **Interfaz de Inicio.** *Inicio > Juegos*: «Recreativa (juegos de DOS)», «DOSBox» y «DOSBox (pantalla completa)», con iconos propios.
+11. **Límites.** Sin red de DOSBox (módem, IPX), sin MIDI en directo, sin captura de pantalla de DOSBox (pide libpng), sin joystick, sin
+    CD de audio de la unidad real, sin renderizador de GPU (SDL 1.2). El núcleo del kernel (memoria, planificador, VFS, arranque) **no se toca**:
+    solo la SDL de userland, la tabla del menú Inicio (`kernel/gui/barra.c`, `arte.c`) y Archivos.
+
+**Pruebas.** `tests/h294_dosbox.py` (partes `unidad`, `fuentes`, `juego`, `nucleos`, `lanzador`, `completa`, `archivos`):
+- `unidad`: RTTI a -Os/-O0/-O2 y las cabeceras nuevas (88 comprobaciones).
+- `juego`: un `.COM` hecho a mano (`tests/dosbox_com.py`) que escribe en modo texto, pasa al modo 13h y pinta un degradado (249 colores), toca el
+  altavoz a 1 kHz (el .wav del QEMU: 1000 Hz) y reinicia el DSP de la SB (SB=1), capturas `H294-1` a `H294-5`.
+- `nucleos`: normal frente a dynamic (x8,7).
+- `lanzador`: Recreativa desde el menú, encuentra sola las carpetas, cuadrícula/lista, Propiedades, Añadir con el diálogo de carpeta, guarda
+  `juegos.conf`, Jugar, cerrar y que Recreativa lo note (`H294-6` a `H294-14`).
+- `completa`: pantalla completa, captura del ratón y Ctrl+Alt (`H294-15`).
+- `archivos`: Archivos abre un `.COM` con DOSBox (`H294-16`, `H294-17`).
+
+## D295. Agentes de IA con herramientas: llamadas a funciones, confirmación en cada acción y registro (v8.3.1, mejora 121)
+
+**Contexto:** el cliente de IA (D134, D145) solo conversaba. El mantenedor pidió **agentes**: que el modelo pueda leer ficheros, mirar el sistema, buscar, ejecutar órdenes o escribir, siempre con el control de la persona. Rama `v8.3.1-agentes`.
+
+**Decisiones:**
+
+1. **Function calling de la API OpenAI (`userland/ia/ia.c`, `ia_turno`).** Se envían `tools` (+ `tool_choice:auto`), se lee `delta.tool_calls` en streaming (índice, `id`, nombre y **argumentos partidos en trozos**, también por la mitad de un `é`; si un servidor repite el índice 0 con otra `id`, abre otra llamada; si manda el objeto de argumentos ya hecho, como Ollama nativo, se toma tal cual) y también la respuesta sin streaming. Los resultados vuelven como mensajes `role:"tool"`. Un servidor que rechaza `tools` (HTTP 4xx/5xx cuyo mensaje nombra tool/jinja/function: Ollama «does not support tools», llama.cpp sin `--jinja`) **se degrada a chat normal**: se repite el turno sin herramientas y se avisa (`sem_ferramentas`). Funciona con llama.cpp (`--jinja`), Ollama (qwen2.5, llama3.1…), LM Studio y OpenRouter.
+2. **Lector de JSON propio (`userland/ia/json.c`).** Tabla plana de tokens, sin memoria dinámica, profundidad máxima 24; objetos y listas anidados, escapes, `\uXXXX` con pares sustitutos (sustituto suelto = U+FFFD), errores de sintaxis detectados (coma final, escape inválido, texto detrás). Se prueba en el PC (`tests/agentes_unidad.c`).
+3. **Bucle del agente (`agente.c`).** Mensajes como JSON de la API; límite de pasos (rondas de herramientas; por omisión el del agente, 1..24, `ia --pasos N`), de tiempo (5 min) y de salida (8 KB por herramienta, truncada con aviso). Una conversación se puede continuar (`ag_hist_t`). Todo pasa por `ag_ui_t`: el bucle no sabe dibujar; el terminal, el panel gráfico y Mico lo usan igual.
+4. **Herramientas (`herramientas.c`)**, cada una con `preparar` (valida y escribe lo que se le enseña a la persona) y `executar`: `leer_fichero`, `listar_carpeta`, `buscar_texto`, `info_sistema` (programas fijos con argumentos fijos: `free`, `df`, `ifconfig`, `ps`, `lscpu`, `lspci`, `uname`), `ejecutar_orden` (`sagsh -c`, con tope de tiempo), `escribir_fichero`, `editar_fichero` (fragmento único), `abrir_aplicacion` (solo `/bin/<nombre>` simple), `buscar_web` (buscador configurable con `AGENTE_BUSCADOR` o `/home/.config/agentes/buscador`; por omisión DuckDuckGo HTML) y `leer_correo` (solo lectura de `/home/correo`). Las aplicaciones registran las suyas con `ag_herr_registrar()` (`docs/agentes-ia.md`, «Integrar agentes en una aplicación»).
+5. **Agentes como ficheros** `*.agente` (cabecera `clave=valor`, línea `---` y las instrucciones): `nombre`, `descripcion`, `modelo`, `pasos`, `herramientas`. De serie en `/etc/agentes` (`rootfs/etc/agentes`: Asistente del sistema, Organizador de archivos, Programador, Redactor), del usuario en `/home/.config/agentes` (o `/tmp/agentes` sin `/home` persistente, como la configuración de la IA); el del usuario pisa al de serie con el mismo nombre. Cada agente solo ve las herramientas que lista.
+6. **Interfaces.** `ia --agente NOMBRE "tarea"` (`--agentes`, `--registro`, `--pasos`); **panel reutilizable** `ag_panel_*` (`userland/ia/agente_panel.c`, aspecto Windows 98): conversación en Markdown, un paso por herramienta (lista; elegirlo despliega argumentos y resultado, otro clic lo pliega), selector de agente, **Nuevo/Editar** (los de serie se copian, no se editan) y **Registro**. Se usa en **Chat IA** (botón «Agentes») y en **Mico** (pestaña «Agente» del panel inferior, agente «Programador»). Está en `userland/ia/` y no en libsagui porque depende del cliente de IA (con TLS); lo enlazan solo los programas que lo usan (`IA_GUI_OBJ`). La integración en Pluma, Macaco y Correo queda para la siguiente rama, con la API de herramientas registrables.
+
+**Diseño de seguridad** (todo en `userland/ia/agente_politica.c`, sin llamadas al sistema para poder probarlo en el PC, y aplicado en `agente.c`):
+
+- **Identidad.** El agente corre con el uid de la persona; nunca se eleva. `ag_orden_pide_admin` rechaza cualquier orden con una **palabra** `admin`, `sudo`, `su`, `doas`, `pkexec`, `elevar`, `passwd`, `servicio(s)`, `ia` o `chatia` (también tras `;`, `&&`, `|`, `$(`, comillas, con ruta `/bin/admin` o en mayúsculas): mejor un falso positivo. El agente no llama a `elevar_grafico` ni al diálogo de permisos. **Los servicios no pueden usar agentes** (`USU_EST_SERVICIO`), ni un agente puede lanzar otro: las órdenes llevan `SAGUI_AGENTE=1` en el entorno y `ag_permitido` lo rechaza.
+- **Qué pregunta.** Solo lectura (`leer_fichero`, `listar_carpeta`, `buscar_texto`, `leer_correo`, `info_sistema`): sin preguntar. Escribir, editar, ejecutar, abrir aplicaciones y la web preguntan **en cada acción**, con un diálogo propio con la orden exacta o el diff y los botones «Permitir una vez / Siempre en esta sesión / Denegar» (la opción por omisión es denegar: Enter y Esc deniegan). Sin terminal delante (servicio, tubería) se deniega. Un «DENEGADO» vuelve al modelo con la orden de no insistir.
+- **Inyección de instrucciones.** Todo resultado de lectura, web, correo u orden va entre `[DATOS EXTERNOS de X: …]` y `[FIN DE DATOS EXTERNOS]` (el contenido no puede cerrar el bloque: se neutraliza el cierre falso) y el mensaje de sistema lleva las reglas. Además, haber recibido contenido externo **«mancha» la conversación**: mientras dure, ninguna herramienta que pregunta puede dejarse en «Siempre» (se pregunta siempre y no se ofrece «Siempre»), y el diálogo avisa en rojo. Se limpia con una conversación nueva (en el panel, al cambiar de agente); al principio se limpiaba con cada tarea, ver «Revisión de seguridad», punto 3.
+- **Rutas.** Se normalizan (`..`, `//`, `.`, relativas contra la carpeta actual) antes de decidir. **Prohibido leer** aunque el sistema lo deje: `/etc/sombra`, `/etc/shadow`, toda `/sistema/conf` (guarda la sombra y la clave del sshd), claves privadas (`ssh_host*`, `id_*`, `*.pem`, `*.key`, `.netrc`…), `.env*`, la clave de la IA (`ia/chave`), las cuentas de correo (`/home/.config/correo*`) y `/dev`. **Solo se escribe** en `/home` y `/tmp`, y no en `/home/.config/agentes` (un agente no se amplía permisos ni borra su registro), `/home/.config/ia`, `/home/.ssh`, `crontab`, `vncd.conf`. Las órdenes se comprueban además por palabras clave (`ag_orden_toca_prohibido`): es **mejor esfuerzo** (un shell se puede ofuscar); lo que decide es la persona viendo la orden exacta.
+- **Límites y rastro.** Pasos (≤ 24), tiempo (5 min), salida (8 KB), lectura (256 KB) y tope de tiempo de las órdenes (≤ 120 s, se matan por PID). Antes de pisar un fichero se guarda un **respaldo** en `/tmp/agentes/respaldo`. Todo (inicio, tarea, permitido/denegado/rechazado con argumentos, resultado, fin) va a `registro.log` (una línea por anotación: los saltos de línea se sustituyen para que nada falsifique el registro; rotación a 256 KB) y a la serie del sistema.
+- **Límite conocido.** Si la sesión es de administrador (imágenes de prueba, modo rescate) el agente lee y escribe con sus permisos (dentro de la lista de rutas); lo que **lanza** corre como `sagui` (revisión de seguridad, punto 6). Hasta que haya permisos de archivos (D282, rama `v8.5-permisos`) la separación depende de esta política y no del kernel.
+
+
+**Núcleo tocado:** ninguno (solo userland, `rootfs/etc/agentes` y el Makefile: `IA_OBJ` pasa a ser todos los `.c` de `userland/ia/` salvo el panel gráfico).
+
+**Pruebas.** `tests/h295_agentes_ia.py` con `tests/servidor_falso_agentes.py` (servidor falso de la API con `tool_calls` guionizados) y `tests/agentes_unidad.c` (JSON y política, en el PC): lectura sin preguntar, escribir pide confirmación y al denegar no escribe, al permitir escribe y edita con diff y respaldo, `admin`/`sudo` rechazados, rutas prohibidas (con `..`) rechazadas, límite de pasos, `tool_calls` partidos en streaming, modelo sin herramientas, inyección con «Siempre» perdido, web como dato externo, agente anidado, registro, y Chat IA en modo agente con el diálogo y capturas `H295-*.png`.
+
+**No hecho:** el panel de agentes en Pluma, Macaco y Correo (siguiente rama; la API está lista), entrada de menú y atajo en Mico para la pestaña Agente, rueda del ratón sobre el panel dentro de Mico, y guardar las conversaciones de agentes como las del chat.
+
+## D295. Agentes de IA con herramientas: llamadas a funciones, confirmación en cada acción y registro (v8.3.1, mejora 121)
+
+## D296 - Pluma: WordArt e imágenes (v8.3.1, mejora 122)
+
+**Decisión:** Pluma incrusta imágenes y títulos WordArt como objetos del texto, los guarda en RTF y los exporta a PDF.
+
+1. **Objeto = un carácter.** `RTE_OBJ_CHAR` (0x01) con una entrada de la tabla de formatos (`fam` 250, `cor` = índice en la tabla de
+   objetos). Los datos pesados (`rte_obj_dados`: píxeles, JPEG/PNG original, caché escalada) llevan cuenta de referencias; el
+   descriptor (tamaño, ajuste, borde, pie, parámetros del WordArt) es pequeño y cada cambio crea uno nuevo, de modo que deshacer y
+   rehacer lo cubren sin tocar la maquetación del deshacer. Máximo 200 versiones por documento.
+2. **Maquetación.** Un objeto en línea es un carácter ancho que sube la línea (base = alto de la imagen más el pie); «arriba y abajo»
+   fuerza una línea propia. **«Cuadrado» no se hizo:** exigiría líneas de ancho variable y rehacer `maquetar`. La alineación es la del
+   párrafo.
+3. **Letras del WordArt.** Se eligió la libfontes con DejaVu (`/fontes`, `/apps/fuentes`) sobre ampliar la 8x16: los contornos
+   vectoriales se ven limpios a cualquier tamaño y la libfontes ya la enlazan otros programas. La libsagui no usa FPU, así que el
+   texto llega por un **proveedor de máscaras** (`wordart_provedor`); sin proveedor se usa la 8x16 ampliada con interpolación
+   bilineal y escalón suave, que sirve de respaldo. La máscara se recorta a la tinta para que el texto llene el cuadro.
+4. **Transformaciones** sobre la máscara con muestreo bilineal en enteros: arco (coordenadas polares con raíz entera y arcotangente
+   CORDIC), onda (seno de Bhaskara), subida, cursiva y perspectiva. Después sombra, extrusión 3D, contorno (dilatación) y relleno.
+   Se dibuja al doble de la resolución y se reduce al mostrarla.
+5. **RTF.** `\pict` con `\pngblip` o `\jpegblip`; PNG y JPEG originales se escriben tal cual (sin recomprimir), el resto se codifica
+   con `imagem_codificar_png` (filtro Sub y Flate). Grupos propios `{\*\saguiobj ajuste;borde;pie}` y `{\*\saguiwordart
+   estilo;fam;est;tam;texto}` en hexadecimal que Word y LibreOffice ignoran; al leer, un WordArt conserva su imagen incrustada y solo se
+   vuelve a dibujar al editarlo. Se leen `\shppict`, `
+onshppict`, `\picscale`, `\picwgoal` y `in`.
+6. **PDF.** `pdfw_imagem_rgb` (Flate) y `pdfw_imagem_jpeg` (DCTDecode tal cual, solo baseline: el que decodificamos).
+7. **No hecho:** ajuste cuadrado, recortar, vista previa al abrir imagen, pie visible en Word.
+8. **Núcleo del kernel:** no se tocó.
+
+**Pruebas:** `tests/h296_pluma_wordart.py` (ver mejora 122) más `h291`, `h293`, `h22`, `h98` y `h272`.
+
+## D296 - Pluma: WordArt e imágenes (v8.3.1, mejora 122)
+
+**Decisión:** Pluma incrusta imágenes y títulos WordArt como objetos del texto, los guarda en RTF y los exporta a PDF.
+
+1. **Objeto = un carácter.** `RTE_OBJ_CHAR` (0x01) con una entrada de la tabla de formatos (`fam` 250, `cor` = índice en la tabla de
+   objetos). Los datos pesados (`rte_obj_dados`: píxeles, JPEG/PNG original, caché escalada) llevan cuenta de referencias; el
+   descriptor (tamaño, ajuste, borde, pie, parámetros del WordArt) es pequeño y cada cambio crea uno nuevo, de modo que deshacer y
+   rehacer lo cubren sin tocar la maquetación del deshacer. Máximo 200 versiones por documento.
+2. **Maquetación.** Un objeto en línea es un carácter ancho que sube la línea (base = alto de la imagen más el pie); «arriba y abajo»
+   fuerza una línea propia. **«Cuadrado» no se hizo:** exigiría líneas de ancho variable y rehacer `maquetar`. La alineación es la del
+   párrafo.
+3. **Letras del WordArt.** Se eligió la libfontes con DejaVu (`/fontes`, `/apps/fuentes`) sobre ampliar la 8x16: los contornos
+   vectoriales se ven limpios a cualquier tamaño y la libfontes ya la enlazan otros programas. La libsagui no usa FPU, así que el
+   texto llega por un **proveedor de máscaras** (`wordart_provedor`); sin proveedor se usa la 8x16 ampliada con interpolación
+   bilineal y escalón suave, que sirve de respaldo. La máscara se recorta a la tinta para que el texto llene el cuadro.
+4. **Transformaciones** sobre la máscara con muestreo bilineal en enteros: arco (coordenadas polares con raíz entera y arcotangente
+   CORDIC), onda (seno de Bhaskara), subida, cursiva y perspectiva. Después sombra, extrusión 3D, contorno (dilatación) y relleno.
+   Se dibuja al doble de la resolución y se reduce al mostrarla.
+5. **RTF.** `\pict` con `\pngblip` o `\jpegblip`; PNG y JPEG originales se escriben tal cual (sin recomprimir), el resto se codifica
+   con `imagem_codificar_png` (filtro Sub y Flate). Grupos propios `{\*\saguiobj ajuste;borde;pie}` y `{\*\saguiwordart
+   estilo;fam;est;tam;texto}` en hexadecimal que Word y LibreOffice ignoran; al leer, un WordArt conserva su imagen incrustada y solo se
+   vuelve a dibujar al editarlo. Se leen `\shppict`, `
+onshppict`, `\picscale`, `\picwgoal` y `in`.
+6. **PDF.** `pdfw_imagem_rgb` (Flate) y `pdfw_imagem_jpeg` (DCTDecode tal cual, solo baseline: el que decodificamos).
+7. **No hecho:** ajuste cuadrado, recortar, vista previa al abrir imagen, pie visible en Word.
+8. **Núcleo del kernel:** no se tocó.
+
+**Pruebas:** `tests/h296_pluma_wordart.py` (ver mejora 122) más `h291`, `h293`, `h22`, `h98` y `h272`.
+
+## D297. VisualPythonS: un entorno al estilo del Visual Basic clásico con Python (v8.3.1, mejora 123)
+
+**Petición (mantenedor, 2026-11-15).** Un entorno como el Visual Basic clásico pero con Python (el MicroPython del sistema), más
+sencillo que el VB y pensado para aplicaciones simples que recogen eventos de forma fácil: diseñador con caja de herramientas,
+formulario con rejilla y ventana de propiedades; doble clic en un control para escribir su evento; ejecutar con F5; guardar el proyecto
+y generar una aplicación que se abre desde el menú Inicio.
+
+**Decisión: todo en Python sobre el `tkinter` del sistema, sin código nuevo de controles en C.**
+1. **El módulo `vps`** (`rootfs/lib/python/vps/`) envuelve los componentes de `tkinter` (D084) con propiedades en español: `Formulario`,
+   `Etiqueta`, `Boton`, `CuadroTexto` (una línea o multilínea), `Casilla`, `Opcion` (grupos excluyentes), `Lista`, `Combo`, `Imagen`,
+   `Marco` (contenedor), `Deslizador`/`BarraDesplazamiento`, `BarraProgreso`, `Temporizador` (sin ventana) y `Menu`. Las propiedades son
+   de Python (`property`): `.texto`, `.x`, `.y`, `.ancho`, `.alto`, `.visible`, `.activo`, `.color`, `.colorfondo`, `.valor`,
+   `.elementos`, `.intervalo`... Se descartó escribir los controles de nuevo con `sagui` en C o en Python: `tkinter` ya trae edición de
+   texto, listas, deslizadores, menús, `messagebox`, `simpledialog` y el bucle de eventos probados (h68), y una aplicación de `vps`
+   puede usar `Control.w` para llegar al componente.
+2. **Eventos al estilo VB, sin parámetros.** Una función `Nombre_evento()` (`Boton1_click`, `CuadroTexto1_cambio`, `Formulario_cargar`,
+   `Temporizador1_tic`, `Lista1_seleccion`, `Formulario_tecla`...) se conecta sola, **buscada en el momento de disparar** (así vale
+   también lo definido o redefinido después); o `@evento(control, "click")` / `control.conectar(...)`. Los manejadores no llevan
+   parámetros: los datos están en el control (`Formulario.tecla`, `Lista1.valor`), porque MicroPython no sabe cuántos parámetros
+   tiene una función y adivinarlo por `TypeError` taparía errores de verdad. Un error en un manejador se informa y la aplicación sigue
+   (`vps.error_hook` lo cambia: el diseñador lo usa para saltar a la línea).
+3. **Proyecto = carpeta** con `formulario.vpf` (texto legible: `formulario N` y `control Tipo Nombre [en Padre]` con líneas
+   `propiedad = literal de Python`; solo lo que no vale lo de por defecto; varios formularios en el mismo archivo, el primero es el
+   principal) y `codigo.py`. El código se ejecuta con los controles ya creados como variables globales (el formulario se llama
+   `Formulario`, que dentro del código tapa a la clase). Se lee con `eval` de literales: es el mismo nivel de confianza que ejecutar el
+   `codigo.py` de al lado.
+4. **El diseñador** (`vps/disenador.py`, componentes en `_superficie.py`, editor en `_editor.py`) es un programa de Python con
+   `tkinter`: tres componentes propios (`tkinter.Widget` con `_desenhar` sobre `sagui`: caja de herramientas, superficie con la rejilla
+   —una `sagui.Imagen` que se pinta de una vez— y ventana de propiedades), con aspecto Win98 (biseles, barra de título azul). Crear
+   arrastrando o con un clic, mover, 8 tiradores, selección múltiple (Mayús/Ctrl+clic y recuadro), alinear, copiar y pegar (con los
+   hijos de un Marco), borrar y flechas. El editor de código usa el `Text` de `tkinter`, al que se añadió un resaltado opcional
+   (`Text._realce`, una función línea -> colores) y el fondo de una línea (`Text._fondo_linea`), y lleva los combos Control y Evento.
+   F5 construye y ejecuta **dentro del propio proceso** (un `Toplevel` por formulario): el error de compilación o de un manejador sale
+   como traceback de MicroPython (`File "codigo.py", line N`), se lee la última línea de `codigo.py` y el editor salta a ella
+   marcándola. No se reutilizó el editor de Mico (`realce.c`): es de C y de otro proceso; el resaltado se hizo en Python (~50 líneas).
+5. **Diálogos de la D272 desde Python.** `sagui.dialogo(tipo, titulo, filtros, inicial)` (0 abrir, 1 guardar, 2 carpeta) llama a
+   `dialogo_abrir`/`dialogo_guardar`/`dialogo_carpeta` de la libsagui; `vps.dialogo_abrir` y `vps.dialogo_guardar` ponen los nombres
+   y convierten los tipos. Una sola función porque un nombre nuevo del módulo pide regenerar los qstr de MicroPython (D034), que no se
+   puede sin el repositorio de MicroPython. Sin la función, caen a `tkinter.filedialog`. El diseñador abre y guarda con ellos (guardar
+   pide un nombre: es la carpeta del proyecto).
+6. **Generar aplicación.** Copia `formulario.vpf` y `codigo.py` y escribe un `lanzador.py` (cuatro líneas: `proyecto.lanzar(carpeta)`)
+   en **`/apps/vps/<Nombre>/`** (la partición de aplicaciones, D194; sin ella, `/home/vps/<Nombre>/`). El menú Inicio (`barra.c`)
+   lee esas dos carpetas cada vez que se abre y muestra **Mis aplicaciones** con una entrada por carpeta que tenga `lanzador.py`
+   (hasta 24); al elegirla lanza `python lanzador.py`, sin el diseñador. El escritorio no tiene iconos propios de aplicaciones, así que
+   el icono va en el menú. El diseñador sale en **Inicio > Accesorios** con su icono (`arte_mini_vps`); su proceso es `python`
+   y por eso el menú le da el nombre `vps` en la tabla (no cuenta en «más usados», que cuenta por nombre de proceso).
+7. **Plantillas y ejemplos** (`vps/plantillas.py`, `tools/vps_ejemplos.py`, `/ejemplos/vps/`): Hola mundo, Calculadora sencilla,
+   Lista de tareas (guarda en `tareas.txt`), Cronómetro (temporizador) y Visor de imágenes, más `hola.py` (solo código). Los
+   archivos de los ejemplos van en Latin-1, como los que escribe el propio sistema (`open` convierte).
+8. **Cosas de MicroPython que se descubrieron:** sin `str.isalnum`; sin `setattr` de propiedades en una clase que ya tiene subclases
+   (se aplican con un decorador al definir cada clase); `Text` sin deshacer; una sola fuente de 8x16 (la propiedad `fuente` se guarda y
+   se ignora); los programas de `tkinter` no pasan de 1000x700.
+
+**No hecho** (anotado en la mejora 123): deshacer, ayuda contextual, tabla de controles en la propia ventana de propiedades con
+combos desplegables a medida, `fuente` real, arrastrar desde la caja con previsualización, icono propio en el escritorio, formularios
+secundarios con tamaño de la plantilla y refactorización del código al renombrar un control.
+
+**Pruebas.** `tests/h297_visualpython.py`: `hola.py` por nombre y por decorador con clics; la autoprueba del módulo
+(`python /lib/python/vps/autoprueba.py`: 21 comprobaciones sobre los cinco ejemplos, el formato `.vpf`, la calculadora 6 x 7 = 42, la
+lista de tareas guardada y recuperada, el temporizador, el error de un manejador y el resaltado); el diseñador por el ratón y el
+teclado (arrastrar un botón, clic para una etiqueta, doble clic, escribir el evento, F5, pulsar, el error `1/0` con salto a su línea,
+guardar con el diálogo D272, generar la aplicación, reabrir el proyecto) y la aplicación generada lanzada desde Inicio > Mis aplicaciones.
+Capturas `docs/capturas/H297-*.png`. Guía: `docs/visualpythons.md` (y `/ayuda/visualpythons.md`).
+
+## D298 - Agentes de IA en Pluma, Macaco y el Correo (v8.3.1, mejora 121)
+
+**Decisión:** las tres aplicaciones llevan un panel lateral de agente (el de la D295) y registran herramientas propias con `ag_herr_registrar`. El panel
+se muestra y oculta con **Ver > Asistente IA**, un botón de la barra (icono del robot) y **F12** (`TECLA_F12` = 0x115 en `abi.h`). Cada una trae su agente
+de serie en `/etc/agentes`: «Pluma IA», «Macaco IA» y «Correo IA».
+
+1. **Pluma** (`pluma_leer`, `pluma_insertar_texto`, `pluma_reemplazar_seleccion`, `pluma_formato_seleccion`, `pluma_insertar_wordart`). Leer es clase `LEER`
+   (texto plano o *estructura*: un renglón por párrafo con alineación, viñeta y estilos entre llaves, `{N C S 14pt}texto{/}`); lo demás es `ESCRIBIR` y
+   enseña el texto (antes y después) en la confirmación. **Un solo Ctrl+Z:** `rte_grupo_iniciar/rte_grupo_fim` (libsagui) agrupan varias operaciones del
+   texto rico en un paso de deshacer. Acciones rápidas en el menú contextual de la selección (clic derecho) y en Herramientas: Resumir, Corregir, Traducir
+   al inglés, Reescribir más formal o más informal; lanzan el agente con una tarea predefinida (`ag_panel_tarea`).
+2. **Macaco** (`macaco_leer_rango` hasta 400 celdas, `macaco_escribir_rango` hasta 80 celdas por llamada, `macaco_formato_rango`, `macaco_crear_hoja`,
+   `macaco_ordenar`). Las escrituras guardan la hoja entera una vez (`desfazer_guardar_folha`), así que Ctrl+Z las deshace de una vez; la confirmación lista
+   las celdas con el valor nuevo y el anterior. Acciones rápidas: «Explicar estos datos» y «Crear fórmula para...». Crear una hoja no se deshace (el deshacer
+   de Macaco es por hoja). El panel se dibuja sobre la parte derecha de la cuadrícula.
+3. **Correo** (`correo_leer_mensaje`, `correo_leer_carpeta`, `correo_redactar_borrador`, `correo_mover`). El contenido de los correos es de un tercero y
+   puede ser hostil, así que:
+   - **No existe herramienta de envío.** El borrador abre la ventana de redacción rellena y la persona lo revisa y lo envía ella (o lo cierra).
+   - **El borrador solo puede ir al remitente del mensaje abierto** (o sin destinatario): un correo no puede elegir a quién se escribe.
+   - Leer es clase `LEER`: la API lo marca `[DATOS EXTERNOS ...]`, mancha la tarea y desde entonces todo lo que cambia algo pregunta y no ofrece «Siempre».
+   - El agente de serie no tiene `ejecutar_orden`, `escribir_fichero` ni `buscar_web` (tampoco `abrir_aplicacion` ni `leer_correo`), y **el panel del correo solo
+     ofrece agentes cuyas herramientas son todas `correo_*`** (`ag_panel_filtro`): un agente con la lista vacía (= todas) o con herramientas del sistema no
+     aparece, ni siquiera una copia editada.
+   - Mover (solo local, nunca desde ni hacia Enviados o Borradores) pide confirmación con remitente, asunto y carpetas.
+   - Acciones rápidas: Resumir, Proponer respuesta, Clasificar la carpeta.
+4. **Reglas de la revisión de seguridad (D295) aplicadas:** la confirmación enseña todo lo que se hará (sin recortes: los textos de más de 6000 caracteres y las escrituras de
+   más de 80 celdas se rechazan), los argumentos de texto que no caben se tratan como error (`ag_arg_opc`), y cada herramienta que cambia algo guarda la huella del
+   documento, la hoja o el correo en `preparar` (`c->huella`) y la comprueba en `executar`: si algo cambió mientras la persona decidía, no se hace. Los resultados de las
+   herramientas se marcan como datos externos y manchan la conversación. Ninguna herramienta lanza programas.
+4b. **API pública ampliada de forma compatible** (solo `agente_panel.c`, `agentes.h` y `gui.h`; no se tocó `agente.c`, `herramientas.c` ni `agente_politica.c`):
+   `ag_panel_tarea(p, agente, tarea)`, `ag_panel_filtro(p, ok)`, `ag_panel_ocupado(p)`, `ag_app_opciones(&argc, argv)` (quita `--url` y `--modelo` de la línea
+   de órdenes para las pruebas) y el auxiliar `ag_arg_bool` en `agentes.h`.
+5. **Enlace:** `pluma`, `macaco` y `correo` enlazan ahora `IA_OBJ` y `IA_GUI_OBJ` (y la libtls, como `chatia`); el binario de cada una crece unos 150-250 KB.
+6. **Núcleo del kernel:** no se tocó (solo la constante `TECLA_F12` de `abi.h`, que usa el userland).
+7. **No hecho:** ajuste «cuadrado» no aplica; en Macaco no se puede elegir la hoja al escribir (solo la activa) ni deshacer «crear hoja»; la lista de carpetas del
+   correo es la local (los movimientos no se reflejan en el servidor IMAP); el panel mide 380 px fijos.
+
+**Pruebas:** `tests/h298_agentes_apps.py` (con `servidor_falso_agentes.py` ampliado y `servidor_falso_correo.py`) más `h295`, `h291`, `h296`, `h293`, `h110`,
+`h289`, `h118` y `h272`. Capturas `H298-*.png`.
+### Revisión de seguridad (v8.3.1, rama `v8.3.1-agentes`)
+
+**Contexto:** revisión del diseño anterior antes de integrar los agentes en Pluma, Macaco y Correo (el correo trae contenido hostil de terceros). Se buscó, con pruebas, si el modelo (o un texto que el modelo lee) podía hacer algo distinto de lo que la persona confirma, salir de las rutas permitidas, tomar el control escribiendo en `/home`, sacar datos o agotar recursos. Todo lo que sigue está en `agente_politica.c` (probado en el PC), `herramientas.c`, `agente.c`, `agente_panel.c`, `ia.c` y `programas/ia.c`; nada en el kernel.
+
+**Hallazgos y cambios**, de más a menos grave:
+
+1. **Lo confirmado no era siempre lo que se ejecutaba (alta).** (a) El terminal escribía la descripción con `imprimir_em`, que formatea en 512 bytes y calla el resto: un diff o un contenido nuevo de más de ~470 bytes se ejecutaba entero tras enseñar solo el principio. Ahora va con `escrever_tudo`. (b) El cuadro del diálogo gráfico no parte líneas: corta a unas 70 columnas. `ls` + 300 espacios + `; rm -rf /home/x` se veía como `ls`. (c) El diff cortaba cada línea a 100 caracteres, el contenido de «Crear» a 1500 bytes y la descripción a 3000, todo en silencio. (d) Los caracteres de control llegaban tal cual: un `\u001b[2K\r` en la orden borraba en el terminal lo que iba delante. **Ahora:** todo lo que se enseña pasa por `ag_texto_visible` (controles, DEL y C1 de Latin-1 a `?`, CR LF a LF, líneas partidas a 68 columnas con `  ... ` delante de la continuación); la descripción puede tener 24 KB; el diff y «Crear» enseñan las líneas enteras y, si algo no cabe, escriben `[NO CABE ENTERO` y el diálogo lo dice en rojo («lo que falta también se haría»); el diálogo gráfico dice cuántas líneas hay si no caben a la vista. Las órdenes de `ejecutar_orden` deben ser **una línea de caracteres visibles de 480 como mucho** (`ag_orden_validar`): un salto de línea, un ESC o un CR se rechazan (no hay razón legítima para mandarlos y no se pueden enseñar de forma inequívoca). Un argumento que no cabe en su búfer es un error (`ag_arg_texto` devuelve -2), no un recorte (recortar una orden o una ruta cambia su sentido). `\u0000` y la forma larga `C0 80` dejaban un NUL en medio (se enseñaba hasta el NUL y se escribían todos los bytes): ahora son U+FFFD / `?` y un NUL que quede se rechaza.
+2. **Tomar el control escribiendo en `/home` (alta).** La lista de lo prohibido se quedaba corta: `/home/.config/servicios/*.conf` (servicios del usuario que arrancan solos en cada arranque), `/home/.config/cron`, `/home/.certificados` (una raíz de TLS propia permite espiar hasta la conexión con la IA, clave incluida), `/home/.config/bloqueo`, `sagui.conf`, `terminal.conf`, `/home/.mico`, y `/tmp/.servicios/pedidos` (los pedidos al gestor de servicios: en una sesión de administrador el agente escribía ahí como root). **Ahora** se niega escribir **cualquier entrada oculta del primer nivel de `/home` o `/tmp`** (`/home/.X`, `/tmp/.X`), además de `/tmp/ia`, `/tmp/agentes` y `/tmp/instalar-conf`; los ficheros ocultos más adentro (`/home/proyecto/.gitignore`) siguen permitidos. Es una regla que no hay que ampliar con cada configuración nueva. Para leer se añaden las contraseñas de la Wi-Fi y del VNC (`/home/.config/wifi*`, `vnc*`, `/etc/vnc`, `*.passwd`), el historial del shell (guarda lo tecleado), copias de la sombra con cualquier nombre (`sombra*`, `shadow*`), la copia de SAGUI-CONF del instalador y `/tmp/.servicios`.
+3. **La mancha se limpiaba por tarea, pero el contenido seguía en la historia (alta).** En el panel, un correo hostil leído en la tarea 1 seguía en los mensajes que se mandan al modelo en la tarea 2, con la mancha limpia: «Siempre» volvía a valer y sin aviso. **Ahora** la mancha dura la **conversación** (solo se limpia cuando la historia está vacía) y, en el panel, cambiar de agente empieza una conversación nueva (historia, mancha y «Siempre» a cero: el agente nuevo puede tener otras herramientas). El terminal (`ia --agente`) ya era una conversación por orden. Coste de uso: tras leer algo, «Siempre» no vuelve hasta una conversación nueva; se aceptó porque las lecturas son justamente las que traen texto ajeno.
+4. **`abrir_aplicacion` era un `ejecutar_orden` sin la orden a la vista (alta).** Valía cualquier `/bin/X` salvo el shell y `admin`: `rm` con `documento=/home/tesis.txt` borraba; `qjs`, `micropython`, `cc`, `ejecutar`, `terminal`, `xargs`... con un documento escrito antes por el agente ejecutaban código; y el programa heredaba la entrada del terminal (podía leer la respuesta de la siguiente confirmación) y su salida (podía imitar el diálogo). **Ahora** solo aplicaciones con ventana que abren documentos (`ag_app_abrible`: pluma, macaco, calculadora, paint, visor, visorpdf, reproductor, musica, arquivos, cipo, correo, mico, editor, markdown, midi, recortes, camara, sintonia, buscaminas, banana, spider, jclic, infopc, sobre-o-sistema; las demás se abren a mano) y nacen sueltas del terminal (entrada vacía, salida a un tubo sin lector).
+5. **El marcador de datos externos se podía cerrar (media).** Solo se neutralizaba `[FIN DE DATOS EXTERNOS` en mayúsculas exactas: `[fin de datos externos]`, dos espacios o un `_` pasaban, y el contenido podía abrir un bloque falso. **Ahora** cada resultado lleva un **código aleatorio** (`bytes_aleatorios`, 8 hex) en la apertura y en el cierre, el mensaje de sistema dice que solo ese cierre termina el bloque, y dentro cualquier «datos externos» (sin distinguir mayúsculas, con espacios, `_`, `-` o `.` entre las palabras) pasa a `DATOS_EXTERNOS` (`ag_marcar_externo`). Los resultados de las herramientas `ESCRIBIR` que registren las aplicaciones también se marcan y manchan (pueden traer la respuesta de un servidor); solo `escribir_fichero` y `editar_fichero` (que devuelven texto propio) no.
+6. **Sesión de administrador (media; punto que dejaba el autor).** El agente heredaba root: `ejecutar_orden` corría como root y el filtro de palabras de `admin` era lo único entre medias. **Ahora** todo lo que lanza el agente (`ag_lanzar`: órdenes, `info_sistema`, aplicaciones) nace como `sagui` con `USU_COMO` (D255), que solo puede usar root; las herramientas de leer y escribir siguen en el proceso, con la lista de rutas. El diálogo lo dice. No se rechaza al agente como root porque las imágenes de prueba y el modo rescate son sesiones de root.
+7. **Exfiltración por `buscar_web` (media).** Con la tarea limpia, «Siempre» valía también para la web, y la consulta puede llevar lo que el modelo haya leído (o la salida de `info_sistema`, que no mancha: IP, MAC, procesos). **Ahora** la red **nunca** admite «Siempre» (`ag_debe_preguntar`), la consulta tiene 200 caracteres como mucho y sin controles, y el diálogo enseña la consulta y la **dirección completa** a la que se conectará, con el aviso de que el buscador la verá. Se descartó detectar «datos del usuario» en la consulta: preguntar siempre es más simple y no tiene falsos negativos.
+8. **La clave de la IA en el entorno de las órdenes (media).** `IA_CHAVE` (y cualquier token del entorno) pasaba a los hijos: `env` la enseñaba al modelo, al registro y al proveedor. **Ahora** los hijos nacen sin variables cuyo nombre contenga `CHAVE`, `CLAVE`, `KEY`, `TOKEN`, `SECRET`, `SENHA`, `PASS`, `CONTRASE`, `CREDENC` o `AUTH` (`ag_env_secreta`). La clave no va nunca en el registro (solo el modelo) ni en la petición a la web (`ia_http_obter` usa una configuración vacía).
+9. **TOCTOU y pérdida de datos al escribir (media).** El diff se calculaba en `preparar` y el fichero se volvía a leer en `executar`: si cambiaba mientras la persona decidía, se aplicaba otra cosa. Además, `editar_fichero` sobre un fichero de más de 256 KB lo dejaba **truncado** (leía 256 KB y escribía eso), el respaldo de uno grande quedaba incompleto, y si el respaldo fallaba se escribía igual. **Ahora** `preparar` guarda una huella (FNV-1a del contenido y el tamaño, o «no existe») en `ag_ctx_t` y `executar` no escribe si cambió; no se pisan ni editan ficheros de más de 256 KB ni los que no se pudieron leer; y sin respaldo no hay escritura. Si el diff no se puede calcular, se enseña el contenido nuevo entero en vez de «muchas diferencias».
+10. **Diálogo (baja).** Los clics de los primeros 0,4 s no cuentan (el diálogo sale cuando el modelo quiere, y un clic que iba al panel no debe permitir nada); los avisos tienen sitio para 7 líneas (antes se cortaban a 3); el texto del modelo que va al terminal y el registro (`ia --registro`) van sin caracteres de control.
+11. **Recursos y JSON (baja).** La historia de una conversación del panel crecía sin tope: antes de cada tarea se olvidan las tareas más antiguas enteras hasta quedar en 320 KB (nunca una llamada sin su respuesta). Un servidor que no para ya no agota la memoria: 1 MB de texto por turno y 1 MB de argumentos por llamada (lo que pasa se rechaza). `json_int` satura en vez de desbordar (era indefinido). La profundidad (24) y los tokens (96 por llamada) ya estaban acotados.
+
+**Lo que se decidió no cambiar:**
+- **El filtro de órdenes por palabras** (`admin`, `sudo`... y las rutas prohibidas en una orden) sigue siendo de mejor esfuerzo: `X=adm; ${X}in` lo salta. No es la barrera: como `sagui`, `admin` necesita la contraseña (la entrada de la orden es un tubo vacío) o el diálogo de permisos del gestor de ventanas, que la persona ve; como root, el hijo ya es `sagui`. El diálogo avisa de variables, sustituciones y órdenes encadenadas para que la persona mire dos veces.
+- **La salida de `ejecutar_orden` mancha**, también si la orden falla: se mantiene (la salida trae contenido de ficheros o de la red).
+- **«Siempre» para `ejecutar_orden` en una conversación limpia**: se mantiene a elección de la persona; con la mancha por conversación solo vale antes de leer nada.
+- **Teclas adelantadas en el terminal**: lo tecleado antes de la pregunta podría contestarla; no hay forma de vaciar la entrada del terminal (`disponivel` solo mira tubos). Riesgo bajo (hace falta teclear `u` + Intro por adelantado).
+- **«Recordar 5 minutos» del diálogo de permisos (D269)**: un programa de `/bin` que la persona elevó hace menos de 5 minutos se eleva sin diálogo, también si lo lanza el agente. Hoy solo afecta a aplicaciones con ventana que el agente ya no puede abrir; si alguna orden de terminal pasa a usar `elevar_grafico`, habrá que excluir los procesos con `SAGUI_AGENTE` en el kernel.
+- **Leer ficheros manda su contenido al proveedor de la IA**: es el uso. La lista de prohibidos protege los secretos; el resto lo decide la persona al elegir un modelo local o remoto.
+- **El VFS** no tiene enlaces simbólicos ni duros, el FAT32 busca por el nombre largo (un alias `8.3` no salta las reglas) y las reglas de rutas no distinguen mayúsculas; la normalización coincide con la del kernel (`caminho_resolver`).
+
+**Pruebas:** `tests/agentes_unidad.c` (211 comprobaciones: vista con controles y líneas largas, órdenes, marcador falso, rutas ocultas, secretos del entorno, aplicaciones, la web sin «Siempre», enteros enormes y `\u0000`) y `h295` (consola: órdenes con ESC/CR/salto rechazadas, la cola de una orden de 346 caracteres a la vista, seis intentos de tomar el control rechazados, marcador falso neutralizado, la clave fuera de `env`, la orden como `sagui` en la sesión de root, el diff de una línea de 1500 caracteres entero; gráfico: la mancha sigue en la tarea siguiente y cambiar de agente la limpia).
+
+## D300. Detector de componentes gráficos que se tapan o se cortan (v8.3.1)
+
+**Petición (mantenedor, 2026-11-15).** En algunas aplicaciones los componentes se tapan entre sí. Un detector automático en la
+libsagui, como **ayuda para depurar**, no como criterio de fallo: un aviso no es siempre un error (marco con controles, menú
+desplegado, tirador sobre un objeto).
 
 **Decisión.**
-1. **Una capa común de captura** (`kernel/dispositivos/captura.c`) sobre un anillo de 48 kHz estéreo de 16 bits que llena la tarjeta: en cada tic se vacía a una cola del kernel de 340 ms, con pico/RMS y conversión de tasa (8000 a 48000 Hz, interpolación lineal en punto fijo) y de canales al leer. Los drivers solo dan anillo, posición, elegir entrada y ganancia (`captura_hw_t` dentro de `placa_som_t`). Sin IRQ: el tic basta.
-2. **HDA:** primer flujo de entrada, entradas descubiertas por la configuración por defecto de los pines (micrófono interno, externo, línea, auxiliar) con su camino hasta un ADC; **AC'97:** canal PCM IN y selector de grabación (micrófono, línea, auxiliar).
-3. **Sin llamada al sistema nueva:** `INFO_CAPTURA` = 75 (`info_sistema`, como la cámara) con `info_captura_t`; `AUDIO_BALANCE` = 8 y `AUDIO_LATENCIA` = 9 en `SIS_AUDIO_CONTROLE`. Así no se toca `SIS_MAX` (136 queda libre para las ramas abiertas). Los servicios no pueden grabar (`ERRO_ACESSO`, como la cámara, D277); una captura a la vez, que cierra el tic si muere su dueño.
-4. **Fuente de prueba** (`CAP_FUENTE_PRUEBA`): tono de 1 kHz generado en el kernel por la misma cola y conversión, porque QEMU 8.2 no inyecta audio de entrada (`-audiodev none` da silencio que avanza; `wav` ni avanza).
-5. **Programas:** `grabar` (WAV por la línea de órdenes), **Grabadora** (ventana: grabar, parar, reproducir, guardar con el diálogo D272, medidor) y `libsagui/captura.c`.
-6. **Configuración > Sonido:** micrófono (entrada, ganancia, silencio, medidor en vivo), balance, probar izquierdo/derecho, latencia y salida elegida, guardados en `sagui.conf` y aplicados por `configuracion --aplicar`.
-7. **Ajustes de conectores por modelo** (075 punto 9): `sonido --guardar` + `--aplicar/--guardados/--olvidar`, en `/home/.config/sonido.conf` por `[codec:ssid PCI:ssid códec]`, aplicado en cada arranque.
-8. **Balance** en el mezclador de salida (antes del ecualizador; centrado = bit a bit igual) y **latencia base** configurable (20 a 300 ms; sigue creciendo sola tras un corte, hasta 300).
+1. **Dónde se engancha.** Los programas de SaguiOS dibujan a mano sobre los píxeles de la ventana, pero casi todo pasa por los
+   componentes de la libsagui. Cada función de dibujo (botón y `boton98`, etiqueta `rotulo`, caja, área, lista, combo, casilla,
+   pestañas, barras de menús/herramientas/estado, regla, progreso, lienzo, `rico_`, `rte_`) llama al final a `GR_REG(...)` (`gui.h`),
+   que no cuesta más que un `if (gr_modo)`; apagado no hace nada más. `g_retangulo` (relleno que tapa lo anterior) y `g_texto_n`
+   (texto que sale por el borde) también avisan al detector. El código está en `userland/libsagui/gui_revisar.c`.
+2. **Activación.** `SAGUI_GUI_REVISAR=1` (avisos) o `=2` (avisos y borde rojo en lo marcado) en el entorno, o el fichero
+   `/etc/gui-revisar.modo` con un 1 o un 2 (sirve a lo lanzado desde el escritorio sin tocar nada). Se lee una vez, en el primer
+   `jan_abrir`. `inicio.asm` guarda `argv` en `__argv_inicial` para poner el nombre del programa en los avisos.
+3. **Registro por ventana.** Una entrada por componente (tipo, objeto, rectángulo, texto, ancho disponible). Una entrada nueva sustituye
+   a la anterior del mismo objeto; un relleno posterior que cubre un rectángulo entero lo saca (lo pintado después tapa lo anterior,
+   así un cambio de pestaña no deja fantasmas). Hasta 512 entradas por proceso, 16 ventanas.
+4. **Avisos** (registro serie, `[GUI-REVISAR] programa ventana: ...`, con coordenadas, sin repetir; hasta 80 por ventana): solape entre
+   hermanos (el que está dentro de otro, con 1 px de tolerancia, es hijo y no cuenta; borde compartido de 1 px tampoco), fuera del
+   área cliente, texto que no cabe (ancho medido contra ancho disponible), texto escrito más allá del borde de la ventana, control más
+   bajo que la fuente. Se analiza al terminar `jan_mostrar` y, como mucho cada 250 ms, en `jan_mostrar_area`. Además, una línea
+   `cobertura` dice cuántos componentes de la libsagui tiene la ventana: lo dibujado a mano sin componentes no se ve.
+5. **Excepciones.** `gui_revisar_ignorar(&componente)` (por puntero) y `/etc/gui-revisar.ignorar` con líneas `programa:tipo:texto`
+   (`*` comodín, `#` comentario). `gui_revisar_rect(j, tipo, x, y, l, a, texto, disp)` permite a un programa que dibuja a mano
+   registrar sus propias piezas.
+6. **Herramienta.** `tests/gui_revisar.py` abre 20 aplicaciones y diálogos (Configuración con todas las pestañas, Archivos, Pluma con
+   sus diálogos, Macaco, Correo, Chat IA, Mico, Recreativa, VisualPythonS, Grabadora, Cámara, Visor de PDF, Reproductor, Música,
+   Terminal, Calculadora, Paint, Información del PC, Discos y Particiones), con el detector en modo 2, saca capturas y escribe
+   `build/gui-revisar/informe.md`. No falla por los avisos; sale con 0 y resume «N avisos en M aplicaciones».
+7. **Corregido a raíz del primer uso:** Macaco muestra `###` (como Excel) en un número que no cabe en la columna en vez de truncarlo
+   («$1,234.5» engañaba); el Reproductor elige el texto de ayuda según lo que cabe (se cortaba por el borde).
+8. **No hecho** (docs/gui-revisar.md, lista priorizada): el `tkinter` de MicroPython (VisualPythonS y las aplicaciones Python
+   dibujan con su propia capa, `janela_sagui.c`, sin pasar por la libsagui: no tienen detector); más cobertura en lo dibujado a mano
+   (Paint, Mico, Terminal, Archivos, Información del PC); recorte de vistas con desplazamiento (los avisos «fuera de la ventana» de
+   la lista de Discos son filas ocultas por el desplazamiento).
 
-**No hecho (anotado en `docs/microfono.md`):** micrófono USB UAC 1 (la entrada isócrona existe desde la D277, pero QEMU no emula un micrófono USB para probarla), volumen por aplicación (grande), sonidos del sistema (no existen aún).
+**Pruebas.** `tests/h300_gui_revisar.py` con `/testes/gui-revisar` (`userland/testes/gui-revisar.c`): apagado no avisa; con dos
+botones solapados, un texto que no cabe y un botón bajo avisa de los tres, con coordenadas y sin repetir; el caso limpio no avisa;
+`gui_revisar_ignorar` y el patrón de `/etc/gui-revisar.ignorar` silencian el solape; la variable de entorno también lo activa;
+captura del modo visual `docs/capturas/H300-1-modo-visual.png`. Guía: `docs/gui-revisar.md`.
 
-**Sin probar en hardware:** nivel real, ganancia del códec y micrófonos internos (dv7, L850 ALC269, G470): lista en `docs/microfono.md`.
+## D301 - 86Box como entorno de pruebas de PC antiguos, solo a petición (2026-11-15)
 
-**Pruebas:** `tests/h292_microfono.py` (hda, ac97, sin tarjeta, balance, conectores, ventana; capturas `H292-*.png`).
+**Decisión del mantenedor.** Se prepara 86Box (GPL v2) para probar SaguiOS en hardware de la época que no hay
+(Pentium, Pentium II, K6; 3dfx, S3, ATI, Matrox; Sound Blaster, NE2000; IDE PIIX/VIA). **Solo en pruebas concretas, a
+petición; nunca en la batería** (las pruebas se llaman `emu_*`, que `rodar_todos.py` y `rodar_paralelo.py` no
+recogen). **Las ROM/BIOS no se pueden subir nunca** (copyright): viven en `~/.local/saguitools/86box/roms`, se leen
+con `-R` sin copiarlas al repositorio, y hay reglas en `.gitignore`, `tools/publicar-excluir.txt`, un gancho
+`pre-commit` y una comprobación que hace fallar `tools/publicar.sh` (`tools/86box_roms_prohibidas.sh`).
+
+**Elecciones.** 86Box v6.0 (b9001) por AppImage extraída (sin FUSE), ROM v6.0 de `86Box/roms`, ambos con SHA-256
+fijo (`tools/86box_instalar.sh`); Xvfb y xdotool sin sudo con `apt-get download` + `dpkg-deb -x` y un espacio de
+nombres de usuario para el `xkbcomp` de Xvfb. El serie va por un pty del anfitrión (el dispositivo «File (COM)» de
+86Box escribe en bloques de 4 KB y llega con retraso). Máquinas en `tools/86box/maquinas/`; límites de 86Box 6.0:
+sin Pentium III/SSE, sin Rage 128/Rage Pro, sin 3Com 3c905, sin Socket A. Detalles y primera ejecución: `docs/86box.md`.
+
+### D301 (adenda, 2026-11-15): `run_in_86box.sh --windows`
+
+86Box solo emula un ratón PS/2 relativo con captura y WSLg (Weston/RDP) no admite bien el bloqueo del puntero:
+el cursor va a saltos. Para trastear se añade `./run_in_86box.sh --windows`, que arranca el **86Box nativo de
+Windows** (mismo v6.0 b9001, zip portable `86Box-Windows-64-b9001.zip` con SHA-256 fijo) desde WSL por la
+interoperabilidad, con el mismo preset y la misma imagen. Se instala con `bash tools/86box_instalar.sh --windows`
+en `%LOCALAPPDATA%\saguitools\86box\` (fuera del repositorio, con una copia de las mismas ROM: tampoco se suben
+nunca). El serie va al dispositivo «File (COM)» de 86Box (sin pty en Windows) a `serie.txt`, con retraso por el
+búfer. Es uso manual: no pasa por `tools/turno.sh`. Detalles en `docs/86box.md`, «Ratón».
+
+## D306. La meta de 38 MB es la del arranque (kernel y ramdisk), no la de las aplicaciones (v8.3.1)
+
+**Contexto.** Desde la v7.4 (D228) la meta del sistema base (D181) contaba «arranque + /apps», y la
+partición SAGUI-APPS se crea con el doble de su contenido (`justo + max(4, justo)`). Con DOSBox (D294) la
+partición pasó de 16 a 26 MB y h28 falló («sistema base de 46 MB, 115,6 % de la meta»).
+
+**Decisión (mantenedor, 2026-11-15).** «La meta es del kernel, no de las apps: las apps pueden ocupar más;
+esa meta es para que no se pase de RAM al arrancar.» `tools/mkimagem.py` cuenta para la meta
+(`tamanho-base.txt`, que vigila h28) **solo el arranque**: etapa 2, kernel y ramdisk, lo que se carga en la
+RAM. Las aplicaciones de SAGUI-APPS se leen del disco al usarlas y no cuentan; la partición se sigue
+creando con el mismo margen. `tamanho.txt` («Acerca de») no cambia. Corrige la regla de D228 para /apps.

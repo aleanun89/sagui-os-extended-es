@@ -1,0 +1,287 @@
+// <__arvore> - el árbol ordenado de std::map y std::set (D294).
+// SPDX-License-Identifier: GPL-2.0-or-later
+//
+// Un «treap» (árbol binario de búsqueda con prioridades al azar, equilibrado en promedio) para
+// buscar, más una lista doblemente enlazada de los mismos nodos en orden para recorrer: los
+// iteradores son punteros a nodo de esa lista, así que no se invalidan al insertar ni al borrar
+// otros elementos (como pide el estándar) y begin/end/++/-- cuestan O(1). Claves únicas.
+#ifndef SAGUI_CXX_ARVORE
+#define SAGUI_CXX_ARVORE
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <new>
+#include <utility>
+#include <iterator>
+#include <initializer_list>
+
+namespace std {
+namespace detalhe_arvore {
+
+inline unsigned sortear()
+{
+    static unsigned x = 2463534242u;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return x;
+}
+
+template <class T, class Chave, class Cmp> class arvore {
+public:
+    struct elo { elo *ant, *prox; };
+    struct no : elo {
+        no *esq, *dir;
+        unsigned prio;
+        T valor;
+        template <class... A> no(A &&...args) : esq(nullptr), dir(nullptr), prio(sortear()), valor(std::forward<A>(args)...) {}
+    };
+
+    template <class P, class R> class iter_t {
+        friend class arvore;
+        elo *e;
+    public:
+        typedef bidirectional_iterator_tag iterator_category;
+        typedef T value_type;
+        typedef ptrdiff_t difference_type;
+        typedef P pointer;
+        typedef R reference;
+        iter_t() : e(nullptr) {}
+        explicit iter_t(elo *x) : e(x) {}
+        template <class P2, class R2> iter_t(const iter_t<P2, R2> &o) : e(o.e_()) {}
+        elo *e_() const { return e; }
+        R operator*() const { return static_cast<no *>(e)->valor; }
+        P operator->() const { return &static_cast<no *>(e)->valor; }
+        iter_t &operator++() { e = e->prox; return *this; }
+        iter_t operator++(int) { iter_t t = *this; e = e->prox; return t; }
+        iter_t &operator--() { e = e->ant; return *this; }
+        iter_t operator--(int) { iter_t t = *this; e = e->ant; return t; }
+        bool operator==(const iter_t &o) const { return e == o.e; }
+        bool operator!=(const iter_t &o) const { return e != o.e; }
+    };
+    typedef iter_t<T *, T &> iterator;
+    typedef iter_t<const T *, const T &> const_iterator;
+
+    arvore() : raiz(nullptr), n(0) { cab.ant = cab.prox = &cab; }
+    ~arvore() { limpar(); }
+    arvore(const arvore &o) : raiz(nullptr), n(0), cmp(o.cmp)
+    {
+        cab.ant = cab.prox = &cab;
+        for (elo *x = o.cab.prox; x != &o.cab; x = x->prox) inserir_valor(static_cast<no *>(x)->valor);
+    }
+    arvore(arvore &&o) noexcept : raiz(nullptr), n(0), cmp(o.cmp)
+    {
+        cab.ant = cab.prox = &cab;
+        roubar(o);
+    }
+    arvore &operator=(const arvore &o)
+    {
+        if (this != &o) {
+            limpar();
+            cmp = o.cmp;
+            for (elo *x = o.cab.prox; x != &o.cab; x = x->prox) inserir_valor(static_cast<no *>(x)->valor);
+        }
+        return *this;
+    }
+    arvore &operator=(arvore &&o) noexcept
+    {
+        if (this != &o) {
+            limpar();
+            cmp = o.cmp;
+            roubar(o);
+        }
+        return *this;
+    }
+
+    iterator begin() { return iterator(cab.prox); }
+    iterator end() { return iterator(&cab); }
+    const_iterator begin() const { return const_iterator(const_cast<elo *>(cab.prox)); }
+    const_iterator end() const { return const_iterator(const_cast<elo *>(&cab)); }
+    bool vazia() const { return n == 0; }
+    size_t tamanho() const { return n; }
+
+    void limpar()
+    {
+        elo *x = cab.prox;
+        while (x != &cab) {
+            elo *seg = x->prox;
+            delete static_cast<no *>(x);
+            x = seg;
+        }
+        cab.ant = cab.prox = &cab;
+        raiz = nullptr;
+        n = 0;
+    }
+
+    // Inserta si la clave no existe. Devuelve el nodo y si lo creó.
+    template <class... A> pair<iterator, bool> emplace(A &&...args)
+    {
+        no *x = new no(std::forward<A>(args)...);
+        return inserir_no(x);
+    }
+    pair<iterator, bool> inserir_valor(const T &v)
+    {
+        no *p = achar(Chave()(v));
+        if (p) return pair<iterator, bool>(iterator(p), false);
+        return inserir_no(new no(v));
+    }
+    pair<iterator, bool> inserir_valor(T &&v)
+    {
+        no *p = achar(Chave()(v));
+        if (p) return pair<iterator, bool>(iterator(p), false);
+        return inserir_no(new no(std::move(v)));
+    }
+
+    template <class K> iterator achar_it(const K &k) const
+    {
+        no *p = achar(k);
+        return iterator(p ? static_cast<elo *>(p) : const_cast<elo *>(&cab));
+    }
+    template <class K> iterator limite_inferior(const K &k) const
+    {
+        no *p = raiz;
+        elo *res = const_cast<elo *>(&cab);
+        while (p) {
+            if (!cmp(Chave()(p->valor), k)) { res = p; p = p->esq; }
+            else p = p->dir;
+        }
+        return iterator(res);
+    }
+    template <class K> iterator limite_superior(const K &k) const
+    {
+        no *p = raiz;
+        elo *res = const_cast<elo *>(&cab);
+        while (p) {
+            if (cmp(k, Chave()(p->valor))) { res = p; p = p->esq; }
+            else p = p->dir;
+        }
+        return iterator(res);
+    }
+
+    iterator apagar(iterator it)
+    {
+        no *x = static_cast<no *>(it.e);
+        elo *seg = x->prox;
+        raiz = retirar(raiz, x);
+        x->ant->prox = x->prox;
+        x->prox->ant = x->ant;
+        delete x;
+        n--;
+        return iterator(seg);
+    }
+    template <class K> size_t apagar_chave(const K &k)
+    {
+        no *p = achar(k);
+        if (!p) return 0;
+        apagar(iterator(p));
+        return 1;
+    }
+
+    void trocar(arvore &o)
+    {
+        arvore t(std::move(o));
+        o = std::move(*this);
+        *this = std::move(t);
+    }
+
+    Cmp cmp;
+
+private:
+    no *raiz;
+    elo cab;
+    size_t n;
+
+    void roubar(arvore &o)
+    {
+        if (o.n) {
+            raiz = o.raiz;
+            n = o.n;
+            cab.prox = o.cab.prox;
+            cab.ant = o.cab.ant;
+            cab.prox->ant = &cab;
+            cab.ant->prox = &cab;
+            o.raiz = nullptr;
+            o.n = 0;
+            o.cab.ant = o.cab.prox = &o.cab;
+        }
+    }
+
+    template <class K> no *achar(const K &k) const
+    {
+        no *p = raiz;
+        while (p) {
+            if (cmp(k, Chave()(p->valor))) p = p->esq;
+            else if (cmp(Chave()(p->valor), k)) p = p->dir;
+            else return p;
+        }
+        return nullptr;
+    }
+
+    static no *giro_dir(no *t)
+    {
+        no *l = t->esq;
+        t->esq = l->dir;
+        l->dir = t;
+        return l;
+    }
+    static no *giro_esq(no *t)
+    {
+        no *r = t->dir;
+        t->dir = r->esq;
+        r->esq = t;
+        return r;
+    }
+    no *meter(no *t, no *x)
+    {
+        if (!t) return x;
+        if (cmp(Chave()(x->valor), Chave()(t->valor))) {
+            t->esq = meter(t->esq, x);
+            if (t->esq->prio > t->prio) t = giro_dir(t);
+        } else {
+            t->dir = meter(t->dir, x);
+            if (t->dir->prio > t->prio) t = giro_esq(t);
+        }
+        return t;
+    }
+    static no *juntar(no *a, no *b)
+    {
+        if (!a) return b;
+        if (!b) return a;
+        if (a->prio > b->prio) {
+            a->dir = juntar(a->dir, b);
+            return a;
+        }
+        b->esq = juntar(a, b->esq);
+        return b;
+    }
+    no *retirar(no *t, no *x)
+    {
+        if (t == x) return juntar(t->esq, t->dir);
+        if (cmp(Chave()(x->valor), Chave()(t->valor))) t->esq = retirar(t->esq, x);
+        else t->dir = retirar(t->dir, x);
+        return t;
+    }
+
+    pair<iterator, bool> inserir_no(no *x)
+    {
+        no *ja = achar(Chave()(x->valor));
+        if (ja) {
+            delete x;
+            return pair<iterator, bool>(iterator(ja), false);
+        }
+        // El sucesor: el primero mayor; el nodo se enlaza antes de él.
+        elo *suc = limite_superior(Chave()(x->valor)).e;
+        x->prox = suc;
+        x->ant = suc->ant;
+        suc->ant->prox = x;
+        suc->ant = x;
+        raiz = meter(raiz, x);
+        n++;
+        return pair<iterator, bool>(iterator(x), true);
+    }
+};
+
+} // namespace detalhe_arvore
+} // namespace std
+
+#endif

@@ -456,7 +456,10 @@ def main():
     # sistema). tamanho-base.txt: la meta de 38 MB (D181), que desde la v7.4 es la del
     # sistema base (arranque y /apps): la partición de juegos no cuenta (D228), porque es
     # de 800 MB de lectura y escritura o lleva lo que el que compila mete en input_share.
-    util_base = util + apps_mb * 1024 * 1024
+    # D306 (mantenedor, 2026-11-15): la meta de 38 MB es la del ARRANQUE (lo que se carga en la RAM al
+    # arrancar: etapa 2, kernel y ramdisk), para que no se pase de RAM. Las aplicaciones de SAGUI-APPS
+    # se leen del disco al usarlas y pueden ocupar lo que haga falta: no cuentan.
+    util_base = util
     pasta = os.path.dirname(os.path.abspath(a.saida))
     with open(os.path.join(pasta, "tamanho.txt"), "w") as f:
         f.write(str(util_sis))

@@ -47,6 +47,7 @@ void boton98(jan_t *j, botao_t *b)
     int tx = b->x + (b->l - g_largura_texto(b->texto)) / 2 + (b->apertado ? 1 : 0);
     g_texto(j, tx, b->y + (b->a - LETRA_A) / 2 + (b->apertado ? 1 : 0), b->texto, W98_NEGRO);
     jan_mostrar_area(j, b->x, b->y, b->l, b->a);
+    GR_REG(j, "botao", b, b->x, b->y, b->l, b->a, b->texto, b->l - 2, GRF_CONTROL);
 }
 
 bool boton98_tratar(jan_t *j, botao_t *b, const evento_t *e)
@@ -66,6 +67,7 @@ void casilla98(jan_t *j, casilla_t *c, const char *texto)
     }
     rotulo(j, c->x + 20, c->y - 2, texto, W98_NEGRO);
     jan_mostrar_area(j, c->x, c->y - 2, 20 + g_largura_texto(texto), 18);
+    GR_REG(j, "casilla", c, c->x, c->y, 13, 13, "", 0, 0);
 }
 
 bool casilla98_tratar(jan_t *j, casilla_t *c, const char *texto, const evento_t *e)
