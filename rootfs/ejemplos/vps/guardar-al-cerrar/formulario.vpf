@@ -1,0 +1,25 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Guardar al cerrar'
+  ancho = 350
+  alto = 184
+control Etiqueta Etiqueta1
+  x = 8
+  y = 8
+  ancho = 330
+  texto = 'Escribe algo y cierra la ventana'
+control CuadroTexto CuadroTexto1
+  x = 8
+  y = 32
+  ancho = 330
+  alto = 100
+  multilinea = True
+control Boton Boton1
+  x = 8
+  y = 142
+  ancho = 100
+  texto = 'Guardar'
+control Etiqueta Etiqueta2
+  x = 120
+  y = 146
+  ancho = 220

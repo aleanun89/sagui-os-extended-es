@@ -108,6 +108,22 @@ static int32_t ler_bruto(char *destino, uint32_t n)
     return SIS_REPETIR;
 }
 
+/* D317: disponivel() sobre la consola. En bruto, si hay teclas en el búfer (o
+ * el ESC 'R' pendiente); en modo línea, solo cuando la línea está entera (las
+ * teclas que se están escribiendo aún no se pueden leer). Una tecla sin
+ * carácter que el modo bruto descarta puede hacer que una lectura tras un «sí»
+ * espere a la siguiente: quien llama lo tolera (el ssh lee solo lo que hay). */
+int32_t terminal_disponivel(void)
+{
+    if (modo == TERM_BRUTO) {
+        if (pendente >= 0 || redesenhar) return 1;
+        return teclado_pendentes();
+    }
+    if (linha_pronta) return (int32_t)(tam_linha - entregue);
+    /* un Intro o un Ctrl+D ya tecleados: la lectura terminará la línea (o dará fin de archivo) sin esperar */
+    return (teclado_contem('\n') || teclado_contem(4)) ? 1 : 0;
+}
+
 int32_t terminal_ler(char *destino, uint32_t n)
 {
     if (n == 0) return 0;

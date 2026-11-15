@@ -180,7 +180,7 @@ COMPILACAO_H := $(B)/gerado/compilacao.h
 # libtls (D060-D063): criptografia, X.509 e TLS, só nos programas que usam rede cifrada.
 TLS_OBJ   := $(patsubst userland/libtls/%.c,$(B)/userland/libtls/%.o,$(wildcard userland/libtls/*.c)) \
              $(B)/userland/libtls/sha256.o
-TLS_PROGS := sshd curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco
+TLS_PROGS := sshd ssh ssh-keygen curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco
 # O cliente de IA (D134): a biblioteca da API compativel com a da OpenAI, que
 # o `ia` do terminal e o assistente do Mico partilham. Fica numa pasta propria
 # (como a libtls) porque so os programas que falam com a IA a ligam.
@@ -568,9 +568,11 @@ $(B)/boot/uefi/x64/cargador.o: boot/uefi/cargador.c boot/uefi/uefi.h
 	@mkdir -p $(dir $@)
 	$(CC) -m64 -march=x86-64 -mno-red-zone $(UEFI_CFLAGS) -c -o $@ $<
 
+# D310: el cargador IA32 se compila para i586, para que pueda avisar (sin CMOV de por medio)
+# de que la CPU no es i686 antes de cargar un kernel que sí lo es.
 $(B)/boot/uefi/ia32/cargador.o: boot/uefi/cargador.c boot/uefi/uefi.h
 	@mkdir -p $(dir $@)
-	$(CC) -m32 -march=i686 $(UEFI_CFLAGS) -c -o $@ $<
+	$(CC) -m32 -march=i586 $(UEFI_CFLAGS) -c -o $@ $<
 
 $(B)/boot/uefi/BOOTX64.EFI: $(B)/boot/uefi/x64/cargador.o $(B)/boot/uefi/x64/blob.o boot/uefi/ligacao.ld tools/mkefi.py
 	$(LD) -m elf_x86_64 $(UEFI_LDFLAGS) -o $(B)/boot/uefi/x64/cargador.elf $(B)/boot/uefi/x64/cargador.o $(B)/boot/uefi/x64/blob.o
@@ -813,7 +815,22 @@ $(B)/$(GBM_DIR)/%.o: $(GBM_DIR)/%.c $(GBM_HDR) $(USER_HDR)
 	$(CC) $(GBM_FLAGS) -c -o $@ $<
 $(B)/userland/programas/gebramini.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -I$(GBM_DIR)
 $(B)/userland/programas/gebramini.o: $(GBM_HDR)
+# El catálogo de funciones de Macaco (D311) es una cabecera propia: al cambiarla hay que recompilar macaco.o.
+$(B)/userland/programas/macaco.o: userland/programas/macaco_funciones.h
 $(B)/userland/bin/gebramini: $(GBM_OBJ)
+
+# PlanoMini (D312, mejora 129): el motor del CAD 2D (órdenes, geometría, .pmini, DXF) con la x87 como GebraMini
+# (gbm_mat.h, sin libm). Solo el programa planomini lo liga.
+PM_DIR  := userland/planomini
+PM_OBJ  := $(patsubst $(PM_DIR)/%.c,$(B)/$(PM_DIR)/%.o,$(wildcard $(PM_DIR)/*.c))
+PM_HDR  := $(wildcard $(PM_DIR)/*.h)
+PM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -I$(PM_DIR) -I$(GBM_DIR)
+$(B)/$(PM_DIR)/%.o: $(PM_DIR)/%.c $(PM_HDR) $(GBM_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(PM_FLAGS) -c -o $@ $<
+$(B)/userland/programas/planomini.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -I$(PM_DIR) -I$(GBM_DIR)
+$(B)/userland/programas/planomini.o: $(PM_HDR) $(GBM_HDR)
+$(B)/userland/bin/planomini: $(PM_OBJ)
 
 # O motor da web do Cipó (081): compila com a x87 (sem -mgeneral-regs-only), como o
 # motor de PDF. O Cipó liga com ele.

@@ -99,6 +99,11 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_IRQ_PRUEBA 140 /* u8 fallos simulados de la autoprueba de las IRQ (D211, IRQ_PRUEBA_*); 0 = ninguno */
 #define CAB_USB_PRUEBA 141 /* u8 fallos simulados de la enumeración USB (D227, USB_PRUEBA_* de usb.h); 0 = ninguno */
 #define CAB_GPU3D    142   /* u8 3D por la GPU (D285): GPU3D_CAB_* de gpu3d.h; 0 = automático */
+#define CAB_DISCO_OPC  143 /* u8 D281 (mkimagem.py): bit 0 --sem-dma (todo por PIO), bit 1 --sem-cache-disco, bit 2 --sin-escritura-diferida */
+#define CAB_DISCO_SEM_DMA     1
+#define CAB_DISCO_SEM_CACHE   2
+#define CAB_DISCO_SEM_DIFERIDA 4
+#define CAB_MANDOS_PRUEBA 156 /* u8 D307 (no 144: 144-155 es CAB_ID_INSTALACAO, D179): bit 0 = mandos de prueba y MANDOS_INYECTAR (mkimagem.py --mandos-prueba) */
 extern uint8_t cabecalho_boot[512];
 
 /* Copia hecha al inicio del kernel; vale durante toda la ejecución. */

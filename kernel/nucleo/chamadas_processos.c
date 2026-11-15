@@ -4,6 +4,7 @@
 #include "aparencia.h"
 #include "acel2d.h"
 #include "gpu3d.h"
+#include "mandos.h"
 #include "audio.h"
 #include "sistema.h"
 #include "console.h"
@@ -230,6 +231,10 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         v->altura = info_boot.vesa_ativo ? info_boot.vesa_altura : 25;
         return 0;
     }
+    if (tipo == INFO_ISA) {   /* D302 */
+        int32_t isa_info(uint32_t ptr, uint32_t n);
+        return isa_info(ptr, n);
+    }
     if (tipo == INFO_AUDIO) {   /* D088 */
         int32_t audio_info(uint32_t ptr, uint32_t n);
         return audio_info(ptr, n);
@@ -264,6 +269,7 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         return camara_info(ptr, n);
     }
     if (tipo == INFO_CAPTURA) return captura_info(ptr, n);   /* D292: micrófono */
+    if (tipo == INFO_MANDOS) return mandos_info(ptr, n);     /* D307: mandos y joysticks */
     if (tipo == INFO_BANDEJA) return barra_info_bandeja(ptr, n);   /* D114 */
     if (tipo == INFO_ENERGIA) return acpi_info(ptr, n);   /* D113 */
     if (tipo == INFO_BATERIA) return bateria_info(ptr, n);   /* D192 */

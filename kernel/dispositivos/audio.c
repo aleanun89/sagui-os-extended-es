@@ -35,6 +35,7 @@
 #include "portas.h"
 #include "processo.h"
 #include "relogio.h"
+#include "sb16.h"
 #include "sistema.h"
 #include "texto.h"
 
@@ -355,6 +356,9 @@ void audio_iniciar(void)
     memset(&nova, 0, sizeof nova);
     bool ok = hda_procurar(&nova);
     if (!ok) { memset(&nova, 0, sizeof nova); ok = ac97_procurar(&nova); }
+    /* D302: la Sound Blaster 16 (ISA) solo se busca sin tarjeta PCI con driver: en un equipo con HDA
+     * o AC'97 no se toca ningún puerto ISA. */
+    if (!ok) { memset(&nova, 0, sizeof nova); ok = sb16_procurar(&nova); }
     if (!ok) {
         pci_disp_t v[4];
         int n = pci_procurar_classe(0x04, 0x03, v, 4);
@@ -584,11 +588,13 @@ int32_t sis_audio_fechar(uint32_t fd, uint32_t esperar, uint32_t c, uint32_t d, 
     return sis_fechar(fd, 0, 0, 0, 0);
 }
 
-/* SIS_AUDIO_HDA (D107): diagnóstico del códec; solo con el driver hda. */
+/* SIS_AUDIO_HDA (D107): diagnóstico del códec; con el driver hda, o las órdenes SB16_OP_* con el sb16 (D302). */
 int32_t sis_audio_hda(uint32_t op, uint32_t a, uint32_t b, uint32_t d, uint32_t e)
 {
     (void)d; (void)e;
-    if (idx_pci < 0 || !placas_usada[idx_pci] || txt_compara(placas[idx_pci].driver, "hda") != 0) return ERRO_NAO_EXISTE;
+    if (idx_pci < 0 || !placas_usada[idx_pci]) return ERRO_NAO_EXISTE;
+    if (txt_compara(placas[idx_pci].driver, "sb16") == 0) return sb16_chamada(op, a, b);   /* D302 */
+    if (txt_compara(placas[idx_pci].driver, "hda") != 0) return ERRO_NAO_EXISTE;
     return hda_chamada(op, a, b);
 }
 

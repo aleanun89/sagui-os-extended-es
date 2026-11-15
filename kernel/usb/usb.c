@@ -377,12 +377,16 @@ static void ler_configuracao(usb_disp_t *d, const uint8_t *b, int n)
                 d->interface = b[i + 2];
                 if (d->classe == 0) { d->classe = b[i + 5]; d->subclasse = b[i + 6]; d->protocolo = b[i + 7]; }
             }
-            if (b[i + 5] == 3 && d->n_hid < USB_MAX_HID) {
+            /* D307: el mando de Xbox 360 con cable no es HID (0xFF/0x5D/0x01), pero se lee igual:
+             * un endpoint de interrupción de entrada con informes de 20 bytes. */
+            bool xbox = b[i + 5] == 0xFF && b[i + 6] == 0x5D && b[i + 7] == 0x01;
+            if ((b[i + 5] == 3 || xbox) && d->n_hid < USB_MAX_HID) {
                 hid = &d->hid[d->n_hid];
                 memset(hid, 0, sizeof *hid);
                 hid->interface = b[i + 2];
                 hid->subclasse = b[i + 6];
                 hid->protocolo = b[i + 7];
+                hid->xbox360 = xbox;
             }
         } else if (tipo == 0x21 && hid && b[i] >= 9) {      /* descriptor HID: longitud del informe */
             hid->tam_relatorio = (uint16_t)(b[i + 7] | (b[i + 8] << 8));

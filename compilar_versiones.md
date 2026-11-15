@@ -146,7 +146,7 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--resolucion LxA`, `--bpp N` | automática (1024x768, 32 bpp) | resolución y profundidad de color preferidas |
 | `--sem-wc` | apagado | no activar write-combining en el framebuffer |
 | `--sgl-motor software` | `auto` | desactiva toda la aceleración 3D por hardware |
-| `--acel2d {auto,cpu,intel,nvidia,radeon,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D de la GPU; `cpu` o `--sin-acel2d` = solo CPU |
+| `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D de la GPU; `cpu` o `--sin-acel2d` = solo CPU |
 | `--sin-servicios` | apagado | no lanzar el gestor de servicios ni el cron al arrancar |
 | `--rescate` | apagado | arrancar en modo rescate: consola con un shell de root, sin escritorio |
 | `--sesion-root` / `--sesion-sagui` | `--sesion-sagui` | escritorio como root o como el usuario `sagui` |
@@ -452,7 +452,7 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--resolucion LxA`, `--bpp N` | automatic (1024x768, 32 bpp) | preferred resolution and colour depth |
 | `--sem-wc` | off | do not enable write-combining on the framebuffer |
 | `--sgl-motor software` | `auto` | disables all hardware 3D acceleration |
-| `--acel2d {auto,cpu,intel,nvidia,radeon,vmware}`, `--sin-acel2d` | `auto` | the GPU's 2D accelerator; `cpu` or `--sin-acel2d` = CPU only |
+| `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | the GPU's 2D accelerator; `cpu` or `--sin-acel2d` = CPU only |
 | `--sin-servicios` | off | do not start the service manager or cron at boot |
 | `--rescate` | off | boot in rescue mode: a console with a root shell, no desktop |
 | `--sesion-root` / `--sesion-sagui` | `--sesion-sagui` | desktop as root or as the `sagui` user |
@@ -758,7 +758,7 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--resolucion LxA`, `--bpp N` | automática (1024x768, 32 bpp) | resolução e profundidade de cor preferidas |
 | `--sem-wc` | desligado | não ativar o write-combining no framebuffer |
 | `--sgl-motor software` | `auto` | desativa toda a aceleração 3D por hardware |
-| `--acel2d {auto,cpu,intel,nvidia,radeon,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D da GPU; `cpu` ou `--sin-acel2d` = só CPU |
+| `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D da GPU; `cpu` ou `--sin-acel2d` = só CPU |
 | `--sin-servicios` | desligado | não iniciar o gerenciador de serviços nem o cron na inicialização |
 | `--rescate` | desligado | iniciar em modo de resgate: console com shell de root, sem área de trabalho |
 | `--sesion-root` / `--sesion-sagui` | `--sesion-sagui` | área de trabalho como root ou como o usuário `sagui` |

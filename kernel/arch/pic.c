@@ -83,3 +83,16 @@ bool pic_em_servico(uint8_t irq)
     porta_escreve8(PIC1_CMD, 0x0B);
     return (porta_le8(PIC1_CMD) & (1u << irq)) != 0;
 }
+
+/* D302: las peticiones pendientes (IRR) de los dos 8259, para saber en qué línea pide una tarjeta
+ * ISA sin tener que atenderla (el IRR se enciende aunque la línea esté enmascarada). Deja el 8259
+ * leyendo el ISR, como pic_espuria(). */
+uint16_t pic_pedidos(void)
+{
+    porta_escreve8(PIC1_CMD, 0x0A);
+    porta_escreve8(PIC2_CMD, 0x0A);
+    uint16_t r = (uint16_t)(porta_le8(PIC1_CMD) | porta_le8(PIC2_CMD) << 8);
+    porta_escreve8(PIC1_CMD, 0x0B);
+    porta_escreve8(PIC2_CMD, 0x0B);
+    return r;
+}

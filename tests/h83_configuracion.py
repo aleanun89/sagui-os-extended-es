@@ -27,7 +27,7 @@ ACENTO = (0x2A, 0x6F, 0xD8)
 DADOS_MB = 16
 
 # As abas da janela «Configuración»: cada uma é da largura do seu título (D145).
-TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto")
+TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto", "Mandos")
 
 
 def pos_paginas():

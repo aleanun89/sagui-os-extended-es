@@ -65,6 +65,12 @@ int  escrever(int fd, const void *buf, unsigned n);
 int  fechar(int fd);
 int  posicionar(int fd, int desloc, int origem);
 int  info_arquivo(const char *caminho, info_arquivo_t *info);
+/* ---- permisos (D282): dueño, grupo y rwx; ver SIS_PERMISOS_ARQ en abi.h ---- */
+int  permisos_arquivo(const char *caminho, info_permisos_t *p);
+int  mudar_permisos(const char *caminho, unsigned modo);          /* chmod: el dueño o root */
+int  mudar_dono(const char *caminho, int uid, int gid);       /* chown/chgrp: -1 = no cambia */
+int  mascara_criacao(int nova);                               /* umask: -1 = solo consultar; devuelve la anterior */
+void texto_modo(unsigned modo, char saida[10]);               /* "rwxr-xr-x" */
 /* ---- carpetas ---- */
 int  criar_pasta(const char *caminho);
 int  remover_pasta(const char *caminho);
@@ -216,6 +222,7 @@ int  colar_texto(char *buf, unsigned max);      /* -> tamaño guardado; copia ha
 int  listar_discos(int indice, info_disco_t *d);   /* 1 = encontró, 0 = terminó */
 int  montar(const char *nome);                     /* "usb0" -> /usb */
 int  montar_em(const char *nome, const char *ponto, int opcoes);   /* MONTAR_* en abi.h (D040) */
+int  montar_dono(const char *nome, const char *ponto, int opcoes, int uid, int gid);   /* D282: uid=, gid= */
 int  desmontar(const char *nome);                  /* nombre del disco o carpeta montada */
 int  expulsar_disco(const char *nome, int fechar);  /* D233: CD/DVD: desmontar y abrir (1: cerrar) la bandeja */
 

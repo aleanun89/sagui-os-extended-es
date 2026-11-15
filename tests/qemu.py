@@ -533,7 +533,8 @@ class Maquina:
             cmd += ["-audiodev", f"wav,id=som0,path={self.wav},out.frequency=48000"]
             cmd += {"ac97": ["-device", "AC97,audiodev=som0"],
                     "hda": ["-device", "intel-hda", "-device", "hda-duplex,audiodev=som0"],
-                    "hda-output": ["-device", "intel-hda", "-device", "hda-output,audiodev=som0"]}[self.som]
+                    "hda-output": ["-device", "intel-hda", "-device", "hda-output,audiodev=som0"],
+                    "sb16": ["-device", "sb16,audiodev=som0"]}[self.som]   # D302: puerto 220h, IRQ 5, DMA 1 y 5
         cmd += self.extras
         self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         for _ in range(100):

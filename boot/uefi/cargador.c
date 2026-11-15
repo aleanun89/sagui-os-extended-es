@@ -197,6 +197,31 @@ static void parar(const CHAR16 *msg)
     }
 }
 
+/* ------------------------------------------------------------ CPU (D310) */
+
+#if defined(__i386__)
+/* El kernel y los programas son i686 (CMOV/FCMOV). Casi toda CPU con UEFI de 32 bits
+ * lo es, pero no todas: el Intel Quark X1000 (Galileo) es de clase Pentium y no tiene
+ * CMOV. Por eso este cargador IA32 se compila con -march=i586 (Makefile): así nada de
+ * lo que corre antes de esta comprobación lleva CMOV. Devuelve la causa o 0 si vale. */
+static const CHAR16 *cpu_nao_i686(void)
+{
+    UINT32 antes, depois, a, b, c, d;
+    __asm__ volatile("pushfl; popl %0; movl %0, %1; xorl $0x200000, %1; pushl %1; popfl;"
+                     "pushfl; popl %1; pushl %0; popfl"
+                     : "=&r"(antes), "=&r"(depois));
+    if (!((antes ^ depois) & 0x200000))
+        return L"no tiene CPUID, y por tanto tampoco CMOV";
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(0), "c"(0));
+    if (a < 1)
+        return L"no tiene CPUID, y por tanto tampoco CMOV";
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
+    if (!(d & (1u << 15)))
+        return L"falta la instruccion CMOV";
+    return 0;
+}
+#endif
+
 /* ------------------------------------------------------------ archivos de la ESP */
 
 static EFI_FILE_PROTOCOL *raiz;
@@ -654,6 +679,22 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
     BS = st->BootServices;
     BS->SetWatchdogTimer(0, 0, 0, 0);   /* sin el reinicio de los 5 minutos */
     escrever(L"\r\nSaguiOS - cargador UEFI " ARQUITETURA L"\r\n");
+
+#if defined(__i386__)
+    /* D310: como la etapa 2 de la BIOS. En x86-64 no hace falta: toda CPU de 64 bits
+     * tiene CMOV. Se para sin volver al firmware y sin reiniciar. */
+    {
+        const CHAR16 *causa = cpu_nao_i686();
+        if (causa) {
+            escrever(L"[0/6] CPU: Esta CPU no es i686 (");
+            escrever(causa);
+            escrever(L"): SaguiOS necesita un Pentium Pro / Pentium II / AMD Athlon o posterior. "
+                     L"Las AMD K6, K6-2, K6-III y los Pentium/Pentium MMX no son compatibles.\r\n"
+                     L"La maquina queda detenida; ya se puede apagar.\r\n");
+            for (;;) __asm__ volatile("cli; hlt");
+        }
+    }
+#endif
 
     /* D255: Ctrl pulsado al arrancar = modo rescate. UEFI solo da el estado de Ctrl con
      * una tecla en la cola: se mira si la hay, sin esperar. */

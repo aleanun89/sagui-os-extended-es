@@ -51,10 +51,30 @@ static int i_pwd(int argc, char **argv)
     return 0;
 }
 
+/* D282: la máscara de creación del shell (la heredan los programas que lanza). */
+static int i_umask(int argc, char **argv)
+{
+    if (argc < 2) {
+        char t[8];
+        int m = mascara_criacao(-1);
+        if (m < 0) return 1;
+        formatar_texto(t, sizeof t, "%04o\n", (unsigned)m);
+        sai(t);
+        return 0;
+    }
+    unsigned m = 0;
+    for (const char *p = argv[1]; *p; p++) {
+        if (*p < '0' || *p > '7' || m > 0777) { imprimir_em(ERROS, "umask: máscara no válida (en octal: 022, 077)\n"); return 1; }
+        m = m * 8 + (unsigned)(*p - '0');
+    }
+    if (m > 0777) { imprimir_em(ERROS, "umask: máscara no válida (en octal: 022, 077)\n"); return 1; }
+    return mascara_criacao((int)m) < 0 ? 1 : 0;
+}
+
 static int i_limpar(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    sai("\x1b[J");   /* funciona en el terminal de pantalla completa y en el Terminal en ventana */
+    sai("\x1b[H\x1b[2J");   /* funciona en el terminal de pantalla completa y en el Terminal en ventana */
     return 0;
 }
 
@@ -1124,6 +1144,7 @@ static const interno_t internos[] = {
     { "ajuda", interno_ajuda, false }, { "reiniciar", i_reiniciar, false }, { "trap", i_trap, true },
     { "apagar-pc", i_apagar_pc, false }, { "acpi", i_acpi, false }, { "bateria", i_bateria, false },
     { "exec", i_exec, true },        { ".sagsh_estado", i_estado, true },
+    { "umask", i_umask, false },
     { NULL, NULL, false }
 };
 

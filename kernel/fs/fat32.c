@@ -705,12 +705,27 @@ static void liberar_volume(volume_t *x)
 
 static int fat_montar(disco_t *d, uint32_t *opcoes, void **priv)
 {
-    (void)opcoes;
     volume_t *x = kcalloc(sizeof(volume_t));
     if (!x) return ERRO_SEM_MEMORIA;
     vp = x;
     int r = ler_volume(d, true);
     if (r < 0) { liberar_volume(x); return r; }
+    /* D281: comprobación ligera. La entrada 1 de la FAT lleva en el bit 27 la marca de "desmontado
+     * limpio" (la que usa Windows). Con escritura se mira y se pone "en uso"; al desmontar se vuelve
+     * a poner limpia. Si al montar no estaba limpia, el volumen no se desmontó bien (corte de luz,
+     * pendrive arrancado): se anota y se avisa. Como la caché de bloques graba en orden, esta marca
+     * llega al disco antes que cualquier cambio posterior. */
+    if (!(*opcoes & MONTAR_SO_LEITURA)) {
+        uint32_t e1 = fat_ler_entrada(1);
+        if (!(e1 & 0x08000000u)) {
+            klog("[FAT32] %s: no se desmonto limpio la ultima vez (la marca de la FAT no esta puesta)\n", d->nome);
+            disco_avisar(AVISO_INFO, "%s: no se desmontó bien la última vez; conviene comprobarlo (fsck.vfat) en otro equipo.", d->nome);
+        }
+        if (e1 & 0x08000000u) {
+            fat_gravar_entrada(1, e1 & ~0x08000000u);
+            if (descarregar() < 0) { liberar_volume(x); return ERRO_ACESSO; }
+        }
+    }
     *priv = x;
     return 0;
 }
@@ -733,6 +748,7 @@ static int fat_desmontar(void *priv, bool gravar)
             if (disco_escrever(v.disco, v.setor_fsinfo, 1, s) < 0) r = ERRO_ACESSO;
         }
         if (s) kfree(s);
+        fat_gravar_entrada(1, fat_ler_entrada(1) | 0x08000000u);   /* D281: desmontado limpio */
         if (descarregar() < 0) r = ERRO_ACESSO;
     }
     esquecer_cache();

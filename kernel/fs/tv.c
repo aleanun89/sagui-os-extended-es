@@ -149,6 +149,19 @@ int32_t tv_mestre_disponivel(tv_t *t)
     return t->escravo_aberto ? 0 : ERRO_PIPE_QUEBRADO;
 }
 
+/* D317: cuánto puede leer el programa sin bloquearse (disponivel sobre el
+ * esclavo). Lo usan el cliente ssh, que atiende a la vez el teclado y la red,
+ * y el keypressed del Pascal. Mismo orden que tv_ler: si dice que hay algo, la
+ * lectura vuelve en el acto (con datos o con fin de archivo). */
+int32_t tv_escravo_disponivel(tv_t *t)
+{
+    if (t->pendente >= 0) return 1;
+    if (t->modo == TERM_BRUTO && t->redesenhar && processo_atual() && processo_recursos()->pid == t->dono_bruto) return 2;
+    if (t->entrada->qtd) return (int32_t)t->entrada->qtd;
+    if (t->fim_pendente || t->cancelar_leitura) return 1;   /* la lectura devolverá 0 (fin de archivo) */
+    return t->mestre_aberto ? 0 : ERRO_PIPE_QUEBRADO;
+}
+
 int32_t tv_ler(tv_t *t, char *destino, uint32_t n)
 {
     if (n == 0) return 0;

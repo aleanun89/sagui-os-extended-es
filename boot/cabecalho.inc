@@ -66,6 +66,9 @@ CAB_IRQ_PRUEBA      equ 140        ; u8 fallos simulados de la autoprueba de las
                                    ; del _PRT equivocada, bit 1 = la entrada ISA no entrega. Solo lo lee el kernel
 CAB_USB_PRUEBA      equ 141        ; u8 fallos simulados de la enumeración USB (D227, pruebas): bit 0 = el primer
                                    ; intento de cada conexión falla, bit 1 = fallan todos. Solo lo lee el kernel
+CAB_DISCO_OPC       equ 143        ; u8 opciones del disco (D281, pruebas): bit 0 sin DMA IDE, bit 1 sin caché de
+                                   ; bloques, bit 2 sin escritura diferida. Solo lo lee el kernel
 CAB_ID_INSTALACAO   equ 144        ; u32 "SGIN", u32 aleatorio, u32 hora (144-155): lo escribe "instalar" (D179) en
+CAB_MANDOS_PRUEBA   equ 156        ; u8 mandos de prueba (D307; lo pone mkimagem.py --mandos-prueba): no 144, que es CAB_ID_INSTALACAO
                                    ; cada disco instalado; mkimagem.py lo deja a cero. El kernel compara los 256
                                    ; primeros bytes de la cabecera para saber de qué disco arrancó

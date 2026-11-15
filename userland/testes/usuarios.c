@@ -250,6 +250,11 @@ static void llamadas(void)
     livre(SIS_USUARIO, USU_CONSULTAR, 0, 0);
     livre(SIS_USUARIO, USU_DE_PID, 0, 0);
     livre(SIS_USUARIO, USU_ESTADO, 0, 0);
+    /* SIS_PERMISOS_ARQ (D282): libre; quién puede cambiar qué se mira dentro */
+    livre(SIS_PERMISOS_ARQ, PARQ_UMASK, (unsigned)-1, 0);
+    livre(SIS_PERMISOS_ARQ, PARQ_CONSULTAR, 0, 0);
+    livre(SIS_PERMISOS_ARQ, PARQ_MODO, 0, 0);
+    livre(SIS_PERMISOS_ARQ, PARQ_DONO, 0, 0);
     root(SIS_USUARIO, USU_FIJAR, 0, 0);
     root(SIS_USUARIO, USU_COMO, 0, 0);
     /* Y sigue siendo quien era. */

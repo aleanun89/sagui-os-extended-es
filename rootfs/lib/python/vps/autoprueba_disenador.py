@@ -169,6 +169,7 @@ def principal():
     comprobar(dibujado and distintos > 400, "diseño fiel: el Boton se dibuja con el código de ejecución (%d píxeles)" % distintos)
     sup.vista.podar()
 
+    explorador(app)
     componentes_y_sintaxis(app)
     app.proy["modificado"] = False
     app.raiz.destroy()
@@ -336,6 +337,118 @@ def componentes_y_sintaxis(app):
     comprobar(ed._sug is not None and len(ed._sug_items) > 3, "editor: Ctrl+Espacio ofrece con un carácter")
     ed._cerrar_sug()
     ed.poner("")
+
+
+def _nodo(app, id):
+    for n, nodo in app.arbol.filas:
+        if nodo["id"] == id:
+            return nodo
+    return None
+
+
+def _accion(app, nodo, texto):
+    for a in app.acciones_explorador(nodo):
+        if a is not None and a[0] == texto:
+            return a[1]
+    return None
+
+
+def explorador(app):
+    """El explorador del proyecto (D315): árbol, clic que salta de formulario y de página, doble clic al
+    código, filtro, menú contextual (renombrar, borrar, orden z, agregar formulario) y sincronía con
+    deshacer."""
+    ed = app.editor
+    app.nuevo(plantillas.vacia)
+    app.confirmar_auto = True
+    comprobar(not app.expl_visible, "explorador: oculto al empezar")
+    app.alternar_explorador()
+    comprobar(app.expl_visible, "explorador: Ctrl+R lo muestra")
+    app.crear_control("Marco", 8, 8, 160, 100)
+    marco = app.form["controles"][0]
+    app.crear_control("Boton", 16, 24, None, None, marco["nombre"])
+    app.crear_control("Pestanas", 8, 120, 200, 100)
+    pest = M.por_nombre(app.form, "Pestanas1")
+    pest["props"]["seleccion"] = 1
+    app.crear_control("Etiqueta", 8, 8, None, None, "Pestanas1")
+    etiqueta = M.por_nombre(app.form, "Etiqueta1")
+    pest["props"]["seleccion"] = 0
+    app.crear_control("Temporizador", 250, 8)
+    ed.poner("def Boton1_click():\n    pass\n\ndef Formulario_cargar():\n    pass\n")
+    app.agregar_formulario()
+    app.crear_control("Casilla", 8, 8)
+    app.ir_a_form(0)
+    app.refrescar_explorador()
+    filas = app.arbol.texto_filas()
+    comprobar(filas[:3] == ["Proyecto1", "  Formularios", "    Formulario"], "explorador: Proyecto > Formularios > formulario %r" % (filas,))
+    comprobar("      Marco1" in filas and "        Boton1" in filas and "        Opciones" in filas and "          Etiqueta1" in filas
+              and "      Temporizador1" in filas and "    Formulario2" in filas and "      Casilla1" in filas,
+              "explorador: contenedores, páginas de las Pestanas y controles sin ventana %r" % (filas,))
+    comprobar(filas[-3:] == ["  Código", "    Boton1_click()", "    Formulario_cargar()"], "explorador: Código con los manejadores %r" % (filas[-3:],))
+    # un clic salta a un control de otro formulario
+    app.explorador_nodo(_nodo(app, "c:Casilla1"), False)
+    comprobar(app.proy["idx"] == 1 and app.sel and app.sel[0]["nombre"] == "Casilla1", "explorador: un clic cambia de formulario y selecciona el control")
+    comprobar(app.props.filas and app.arbol.sel == "c:Casilla1", "explorador: sus propiedades en la ventana de propiedades")
+    # ... y a un control de otra pestaña
+    pest["props"]["seleccion"] = 0
+    etiqueta["props"]["pagina"] = 1
+    app.refrescar_explorador()
+    app.explorador_nodo(_nodo(app, "c:Etiqueta1"), False)
+    comprobar(app.proy["idx"] == 0 and int(M.val(pest, "seleccion")) == 1 and app.sel[0]["nombre"] == "Etiqueta1",
+              "explorador: un clic cambia de formulario y de pestaña")
+    app.explorador_nodo(_nodo(app, "pg:Pestanas1/0"), False)
+    comprobar(int(M.val(pest, "seleccion")) == 0, "explorador: un clic en una página la muestra")
+    # doble clic: el evento por defecto en el editor
+    ed.ocultar()
+    app.explorador_nodo(_nodo(app, "c:Boton1"), True)
+    comprobar(ed.visible() and ed.cb_ctl.get() == "Boton1" and ed.t.index("insert").startswith("2."), "explorador: doble clic abre Boton1_click en el editor %r" % (ed.t.index("insert"),))
+    ed.ocultar()
+    app.explorador_nodo(_nodo(app, "m:Formulario_cargar"), True)
+    comprobar(ed.visible() and ed.t.index("insert").startswith("5."), "explorador: doble clic en un manejador salta a su línea %r" % (ed.t.index("insert"),))
+    ed.ocultar()
+    # el filtro
+    app.filtro_var.set("cas")
+    filas = app.arbol.texto_filas()
+    comprobar("Casilla1" in " ".join(filas) and "Boton1" not in " ".join(filas), "explorador: el filtro por nombre %r" % (filas,))
+    app.filtro_var.set("")
+    comprobar("Boton1" in " ".join(app.arbol.texto_filas()), "explorador: sin filtro vuelve todo")
+    # contraer un nodo
+    app.explorador_nodo(_nodo(app, "c:Marco1"), False)      # con un hijo elegido la rama se abre sola
+    app.arbol.alternar(_nodo(app, "c:Marco1"))
+    comprobar("        Boton1" not in app.arbol.texto_filas(), "explorador: un nodo contraído esconde a sus hijos")
+    app.arbol.alternar(_nodo(app, "c:Marco1"))
+    # menú contextual: renombrar con la refactorización de D299
+    nodo = _nodo(app, "c:Boton1")
+    app.texto_auto = "Salir"
+    _accion(app, nodo, "Renombrar")()
+    app.texto_auto = None
+    comprobar(M.por_nombre(app.form, "Salir") is not None and "def Salir_click():" in ed.texto() and "Salir" in " ".join(app.arbol.texto_filas())
+              and "Salir_click()" in " ".join(app.arbol.texto_filas()), "explorador: renombrar desde el menú cambia el código y el árbol")
+    app.deshacer()
+    comprobar(M.por_nombre(app.form, "Boton1") is not None and "def Boton1_click():" in ed.texto() and "        Boton1" in app.arbol.texto_filas(),
+              "explorador: deshacer lo sincroniza")
+    # traer al frente y enviar atrás
+    marco = M.por_nombre(app.form, "Marco1")
+    _accion(app, _nodo(app, "c:Marco1"), "Traer al frente")()
+    comprobar(app.form["controles"][-1]["nombre"] == "Boton1" and app.form["controles"][-2]["nombre"] == "Marco1", "explorador: traer al frente")
+    _accion(app, _nodo(app, "c:Marco1"), "Enviar atrás")()
+    comprobar(app.form["controles"][0]["nombre"] == "Marco1", "explorador: enviar atrás")
+    # borrar desde el menú y deshacer
+    n0 = n_ctl(app)
+    _accion(app, _nodo(app, "c:Temporizador1"), "Eliminar")()
+    comprobar(n_ctl(app) == n0 - 1 and _nodo(app, "c:Temporizador1") is None, "explorador: eliminar desde el menú")
+    app.deshacer()
+    comprobar(_nodo(app, "c:Temporizador1") is not None, "explorador: deshacer devuelve el nodo")
+    # agregar formulario desde el menú
+    nf = len(app.proy["forms"])
+    _accion(app, _nodo(app, "c:Marco1"), "Agregar formulario")()
+    comprobar(len(app.proy["forms"]) == nf + 1 and _nodo(app, "f:Formulario3") is not None, "explorador: agregar formulario desde el menú")
+    # al añadir un control desde el diseñador, el árbol se actualiza
+    app.ir_a_form(0)
+    app.crear_control("Lista", 150, 150)
+    comprobar(_nodo(app, "c:Lista1") is not None, "explorador: se sincroniza al añadir un control")
+    app.mostrar_explorador(False)
+    comprobar(not app.expl_visible, "explorador: Ctrl+R lo oculta")
+    app.confirmar_auto = True
 
 
 if __name__ == "__main__":

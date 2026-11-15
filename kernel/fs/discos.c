@@ -18,6 +18,7 @@
 #include "abi.h"
 #include "bootinfo.h"
 #include "caminho.h"
+#include "cache_disco.h"
 #include "console.h"
 #include "fat32.h"
 #include "iso9660.h"
@@ -107,6 +108,7 @@ int disco_ler(disco_t *d, uint32_t lba, uint32_t n, void *buf)
 {
     if (!d->presente || lba >= d->setores || n > d->setores - lba) return ERRO_ACESSO;
     if (d->pai) return disco_ler(d->pai, d->inicio + lba, n, buf);
+    if (cache_disco_aplica(d)) return cache_disco_ler(d, lba, n, buf);   /* D281 */
     return d->ler(d, lba, n, buf) < 0 ? ERRO_ACESSO : 0;
 }
 
@@ -126,7 +128,16 @@ int disco_escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf)
         return r;
     }
     if (!d->escrever) return ERRO_ACESSO;
+    /* D281: por la caché; solo se difiere lo que escribe un sistema de archivos montado (un disco
+     * reservado para el acceso en bruto -formateo, particiones, instalador- graba al instante). */
+    if (cache_disco_aplica(d)) return cache_disco_escrever(d, lba, n, buf, !disco_reservado(d));
     return d->escrever(d, lba, n, buf) < 0 ? ERRO_ACESSO : 0;
+}
+
+/* D281: graba lo que la caché tiene pendiente de ese disco (o de todos, con NULL). */
+int disco_sincronizar(disco_t *d)
+{
+    return cache_disco_sincronizar(d ? disco_raiz(d) : NULL);
 }
 
 static void tamanho_legivel(uint32_t setores, char *s, size_t max)
@@ -772,6 +783,7 @@ disco_t *disco_registrar_nvme(const char *produto, uint32_t setores, uint16_t bl
 void disco_removido(disco_t *d)
 {
     bool perdeu = false;
+    cache_disco_descartar(d);   /* D281: lo pendiente de un disco que ya no está no se puede grabar */
     for (int i = 0; i < MAX_DISCOS; i++) {
         disco_t *x = &discos[i];
         if (!x->usado || (x != d && x->pai != d)) continue;
@@ -868,10 +880,12 @@ int32_t sis_listar_discos(uint32_t indice, uint32_t pinfo, uint32_t c, uint32_t 
     return 0;
 }
 
-/* montar(nombre, punto, opciones). punto 0: la forma antigua, en /usb. */
+/* montar(nombre, punto, opciones, dueño). punto 0: la forma antigua, en /usb.
+ * D282: con MONTAR_DONO, "dd" es uid | gid << 16; con MONTAR_COM_UMASK, la máscara
+ * va en las opciones. */
 int32_t sis_montar(uint32_t pnome, uint32_t pponto, uint32_t opcoes, uint32_t dd, uint32_t e)
 {
-    (void)dd; (void)e;
+    (void)e;
     char nome[40];
     int r = usuario_texto((const char *)pnome, nome, sizeof nome);
     if (r < 0) return r;
@@ -893,7 +907,9 @@ int32_t sis_montar(uint32_t pnome, uint32_t pponto, uint32_t opcoes, uint32_t dd
     static const char *const tipos[] = { "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf" };
     uint32_t t = MONTAR_TIPO(opcoes);
     if (t > 6) return ERRO_INVALIDO;
-    return montagem_montar(v, ponto, tipos[t], opcoes & (MONTAR_SO_LEITURA | MONTAR_LEITURA_ESCRITA));
+    return montagem_montar_dono(v, ponto, tipos[t],
+                                opcoes & (MONTAR_SO_LEITURA | MONTAR_LEITURA_ESCRITA | MONTAR_DONO | MONTAR_COM_UMASK | 0777u << 16),
+                                dd);
 }
 
 /* desmontar(nombre del disco o carpeta montada). */
@@ -903,6 +919,9 @@ int32_t sis_desmontar(uint32_t pnome, uint32_t b, uint32_t c, uint32_t dd, uint3
     char nome[CAMINHO_MAX];
     int r = usuario_texto((const char *)pnome, nome, sizeof nome);
     if (r < 0) return r;
+    /* D281: "sync" (nombre "*") vacía la caché de bloques de todos los discos; "?cache" anota sus cifras. */
+    if (txt_compara(nome, "*") == 0) return disco_sincronizar(NULL);
+    if (txt_compara(nome, "?cache") == 0) { cache_disco_registar(); return 0; }
     disco_t *d = nome[0] != '/' && nome[0] != '.' ? disco_resolver(nome) : NULL;
     if (d) return disco_desmontar(d);
     char ponto[CAMINHO_MAX];

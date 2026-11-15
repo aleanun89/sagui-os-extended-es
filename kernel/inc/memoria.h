@@ -10,6 +10,7 @@
 void     memfisica_iniciar(void);
 uint32_t memfisica_alocar(void);              /* 0 si se acabó */
 uint32_t memfisica_alocar_seguidas(uint32_t n);
+uint32_t memfisica_alocar_baixa(uint32_t n, uint32_t alinhamento, uint32_t limite);   /* D302: DMA ISA */
 void     memfisica_liberar(uint32_t endereco);
 void     memfisica_liberar_seguidas(uint32_t endereco, uint32_t n);
 uint32_t memfisica_livres(void);

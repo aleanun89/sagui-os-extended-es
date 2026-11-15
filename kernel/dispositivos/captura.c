@@ -178,7 +178,9 @@ void captura_tique(void)
 /* Copia a "dst" cuadros convertidos a (taxa, canais); devuelve cuántos cuadros salieron. */
 static uint32_t ler(int16_t *dst, uint32_t maximo)
 {
-    uint32_t passo = (TAXA_MAX << 16) / c.taxa, pos = c.fase, i;
+    /* D302: la cola va a la tasa de la tarjeta (48 kHz en HDA y AC'97, 44,1 kHz en la SB16) */
+    uint32_t nativa = c.prova || !hw.taxa ? TAXA_MAX : hw.taxa;
+    uint32_t passo = (nativa << 16) / c.taxa, pos = c.fase, i;
     uint32_t qtd = c.fim - c.ini;
     for (i = 0; i < maximo; i++) {
         uint32_t k = pos >> 16, fr = (pos & 0xFFFF) >> 1;
@@ -220,7 +222,7 @@ int32_t captura_info(uint32_t ptr, uint32_t n)
     case CAP_ESTADO: {
         s->presente = prova ? 1 : hw_ok;
         s->abierta = c.aberta && c.prova == prova;
-        s->taxa = TAXA_MAX;
+        s->taxa = prova || !hw_ok || !hw.taxa ? TAXA_MAX : hw.taxa;   /* D302: la nativa */
         txt_copia_n(s->nome, prova ? "Fuente de prueba (tono 1 kHz)" : hw_ok ? hw_nome : "", sizeof s->nome);
         if (prova) {
             s->n_entradas = 1;

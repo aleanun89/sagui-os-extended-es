@@ -47,8 +47,12 @@ Plantillas de configuración de 86Box, sin ROM. Llevan `@IMAGEN@`, `@PISTAS@` (c
 |---|---|---|---|---|---|---|
 | `p1-s3` | ASUS P/I-P55T2P4, i430HX (PIIX3) | Pentium MMX 200 | 64 MB | S3 Trio64 PCI | SB16 ISA | NE2000 ISA |
 | `p2-voodoo3` | ASUS P2B-LS, i440BX (PIIX4) | Pentium II 350 | 128 MB | 3dfx Voodoo3 2000 AGP | SB16 | NE2000 PCI (RTL8029) |
+| `p2-sb16pnp` | como `p2-voodoo3` | Pentium II 350 | 128 MB | 3dfx Voodoo3 2000 AGP | SB16 PnP (CTL0025; la BIOS la configura) | NE2000 PCI |
 | `p3-rage` | ASUS P3B-F, i440BX | Pentium II 450 (Deschutes) | 256 MB | ATI Mach64 VT2 (Rage II) | ES1371 | NE2000 PCI |
 | `k6-matrox` | AOpen AX59 Pro, VIA MVP3 (Super 7) | AMD K6-2 350 | 128 MB | Matrox Mystique 220 | SB16 | NE2000 PCI |
+| `p2-mach64` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | ATI Mach64 VT2 PCI (`mach64vt2`) | SB16 | NE2000 PCI |
+| `p2-s3virge` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | S3 ViRGE/DX PCI (`virge_dx_pci`, BIOS Diamond Stealth 3D 2000 Pro) | SB16 | NE2000 PCI |
+| `p2-s3trio64` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | S3 Trio64V2/DX PCI (`s3_trio64v2dx_pci`) | SB16 | NE2000 PCI |
 
 Límites de 86Box 6.0 (comprobados en su código): **no emula Pentium III** (ni Katmai ni Coppermine, así que
 tampoco SSE; `p3-rage` es una placa de P3 con un Deschutes), **no tiene ATI Rage 128 ni Rage Pro** (Mach64 VT2/VT3
@@ -83,6 +87,14 @@ tools/turno.sh python3 tests/emu_86box_arranque.py p2-voodoo3 p1-s3
 
 El nombre de la prueba debe empezar por `emu_` (nunca `hNN`) para que ninguna batería la recoja.
 
+`digitar()` escribe los signos `- _ / . , : ; =` por su sitio en el teclado español (SaguiOS usa la distribución ES y
+el X de 86Box manda la posición de la tecla de un teclado estadounidense; D307).
+
+**Joystick del puerto de juegos (D307):** `tests/emu_86box_mandos.py` copia la máquina con `joystick_type`
+(`2axis_2button`, `4axis_4button`) y `joystick_0_nr = 1` en `[Input devices]`: el joystick del PC emulado va al primer
+mando del anfitrión; sin mando, 86Box da los ejes a 0 (centrados), que basta para la detección, la lectura y la
+calibración. Con `joystick_0_nr = 0` los ejes «no están» y el puerto se porta como sin joystick enchufado.
+
 ## Primera ejecución (2026-11-15, SaguiOS v8.3 de `main`, 86Box v6.0 b9001)
 
 | Máquina | Resultado |
@@ -109,6 +121,23 @@ Registrados como issues de GitHub (etiqueta `86box`):
 - [#36](https://github.com/aleanun89/miniOS/issues/36) 86Box p2-voodoo3: el driver ATA ignora el disco IDE del PIIX4 (sem LBA) y no se montan las particiones
 - [#37](https://github.com/aleanun89/miniOS/issues/37) 86Box p2-voodoo3: UHCI del PIIX4 «el reinicio no terminó» y ningún controlador USB
 - [#38](https://github.com/aleanun89/miniOS/issues/38) 86Box p2-voodoo3: sin driver para la NE2000 PCI (RTL8029) ni la NE2000 ISA
+
+## 2D por la GPU en las gráficas de la época (D308)
+
+Las tres máquinas `p2-mach64`, `p2-s3virge` y `p2-s3trio64` son la `p2-voodoo3` (la placa que arranca) con otra
+gráfica, para los drivers `acel_mach64.c` y `acel_s3.c`:
+
+```
+tools/turno.sh python3 tests/emu_86box_acel2d_epoca.py [maquina ...] [--solo-escritorio] [--bpp16]
+```
+
+- La **Mach64 VT2** de 86Box (la Mach64 más alta que trae: no hay Rage II+, Rage Pro ni Rage 128) solo ofrece modos
+  VESA de 15, 16 y 24 bits: el escritorio va a 1024x768x24 y el motor dibuja en 8 bits con las coordenadas por 3.
+- Las BIOS de la **Trio64** y la **Trio64V+** de 86Box, y la «Generic» de la **ViRGE/DX**, son VBE 1.2: sin modos
+  lineales, SaguiOS se queda en modo texto ([#40](https://github.com/aleanun89/miniOS/issues/40)). Por eso los presets usan
+  la **Trio64V2/DX** (misma familia y mismo motor, BIOS VBE 2.0) y la ViRGE/DX con la BIOS de la **Diamond Stealth 3D
+  2000 Pro**; las dos dan 1024x768x32. También llega al escritorio la ViRGE/GX (`virge385_pci`).
+- Arrastrar ventanas no se puede automatizar (#39): a mano con `./run_in_86box.sh --windows p2-mach64`.
 
 ## Lo que 86Box no es
 
@@ -163,3 +192,24 @@ sale del preset con rutas de Windows. La NVR de la BIOS se conserva entre sesion
 - **Recomendación:** para trastear con ratón, usa `./run_in_86box.sh --windows`: en Windows la captura funciona bien.
   En modo Linux el script avisa de esto al arrancar bajo WSL.
 
+
+## Aceleración 2D de la Voodoo3 (D305): `tests/emu_86box_voodoo2d.py`
+
+```
+tools/turno.sh python3 tests/emu_86box_voodoo2d.py [p2-voodoo3] [p2-450-voodoo3500] [--solo-escritorio]
+```
+
+Arranca la imagen con escritorio y comprueba por el serie que la pantalla es de la Voodoo3 (`121a:0005`), que la
+autoprueba completa del 2D da «IGUAL que la CPU» y que queda activo el acelerador `tdfx`; en el Terminal lanza
+`acel2d probar --detalle` (medida GPU frente a CPU, tandas con la misma suma, tiempos de cada copia) y `acel2d`. Después
+arranca la imagen de consola, desplaza texto con `ls /bin` y mira que la GPU haya copiado y rellenado sin fallos.
+Capturas `docs/capturas/86box-voodoo2d-<máquina>-{escritorio,probar,consola}.png` (las de la primera máquina) e
+informe en `build/86box/informe-voodoo2d-<máquina>.txt`. Dura unos 4 minutos por máquina.
+
+La máquina `p2-450-voodoo3500` es la `p2-voodoo3` con un Pentium II a 450 MHz y una Voodoo3 3500 TV AGP. Las dos BIOS
+de la Voodoo3 que trae 86Box solo ofrecen modos VESA de 16 y 24 bits (1024x768x24 con pitch 4096).
+
+**Ratón:** con el 86Box de Linux bajo Xvfb, el ratón por XTEST no mueve el cursor del invitado (86Box toma el puntero
+XTEST como absoluto y lo devuelve al centro de la ventana tras cada evento), así que el arrastre de ventanas no se
+automatiza ([#39](https://github.com/aleanun89/miniOS/issues/39)); se prueba a mano con `./run_in_86box.sh --windows`. El teclado sí funciona: `emu86box.py` teclea «-»
+y «/» con el mapa ES del kernel (la tecla «slash» de EE. UU. es el «-»; el «/» es Mayús+7).

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* permisos.c - quién puede hacer qué (D255, mejora 098, fase 1).
+/* permisos.c - quién puede hacer qué (D255 y D282, mejora 098, fases 1 y 2).
  *
  * SaguiOS tiene dos clases de procesos: los de root (uid 0: el kernel, el
  * gestor de servicios y lo que este lanza como root, lo elevado con la
@@ -16,7 +16,9 @@
  *     punteros, así que otro hilo no puede cambiarlos entre la comprobación y
  *     el uso;
  *   - las rutas se comprueban dentro de cada llamada, ya copiadas al kernel y
- *     resueltas (permisos_ruta), por la misma razón.
+ *     resueltas, por la misma razón: desde D282 con los permisos de cada archivo
+ *     (dueño, grupo, rwx y el pegajoso; permisos_acesso, permisos_criar,
+ *     permisos_remover) y, además, unos pocos secretos por su ruta (permisos_ruta).
  * Cada negativa se anota en el registro del kernel, con un límite para no
  * llenarlo (y con él /logs). */
 #include "permisos.h"
@@ -26,6 +28,8 @@
 #include "relogio.h"
 #include "sistema.h"
 #include "texto.h"
+#include "vfs.h"
+#include "caminho.h"
 
 #define L PERM_LIVRE
 #define R PERM_ROOT
@@ -36,7 +40,7 @@ static const uint8_t classe[SIS_MAX] = {
     /* Procesos */
     [SIS_EXECUTAR] = L, [SIS_ESPERAR] = L, [SIS_SAIR] = L, [SIS_PID] = L,
     [SIS_MATAR] = O,                       /* los suyos (mismo uid) */
-    /* Ficheros: las rutas protegidas se miran dentro (permisos_ruta) */
+    /* Ficheros: los permisos de cada ruta se miran dentro (D282) */
     [SIS_ABRIR] = L, [SIS_LER] = L, [SIS_ESCREVER] = L, [SIS_FECHAR] = L, [SIS_POSICIONAR] = L,
     [SIS_INFO_ARQUIVO] = L, [SIS_CRIAR_PASTA] = L, [SIS_REMOVER_PASTA] = L, [SIS_APAGAR] = L,
     [SIS_LISTAR] = L, [SIS_MUDAR_PASTA] = L, [SIS_PASTA_ATUAL] = L, [SIS_RENOMEAR] = L,
@@ -91,6 +95,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_SERVICOS] = O,                    /* consultar y pedir; ser el supervisor, no */
     [SIS_USUARIO] = O,                     /* consultar; cambiar de identidad, no */
     [SIS_BLUETOOTH] = O,                   /* D279: estado, dispositivos y buscar; el resto, no */
+    [SIS_PERMISOS_ARQ] = L,                /* D282: quién puede cambiar qué se mira dentro */
 };
 
 int permisos_classe(uint32_t n)
@@ -253,29 +258,190 @@ static bool comeca(const char *c, const char *pre)
     return true;
 }
 
-/* Provisional (fase 1): sin permisos de ficheros, unas pocas rutas fijas.
- *   - no se leen: la sombra (contraseñas), la clave privada del sshd, la
- *     contraseña del VNC y nada de /sistema (la partición SAGUI-CONF);
- *   - no se escriben: /etc (la configuración del sistema, también la de los
- *     servicios que corren como root) y /bin (sus programas), y las órdenes
- *     al gestor de servicios (/tmp/.servicios/pedidos).
- * Las rutas llegan resueltas: sin "..", "." ni barras repetidas. */
+/* Secretos que se protegen también por la ruta (D255, y D282 los mantiene): en un
+ * /home FAT32 todo es de sagui y no se pueden expresar con permisos, y así una
+ * escritura atómica a medias ("sombra.tmp") o un archivo creado con una máscara
+ * equivocada tampoco se leen.
+ *   - no se leen: la sombra (contraseñas), la clave privada del sshd y la
+ *     contraseña del VNC (en /etc o, sin SAGUI-CONF, en /home);
+ *   - no se escriben: las órdenes al gestor de servicios (/tmp/.servicios/pedidos),
+ *     que pueden estar en un /tmp FAT32 donde todos escriben. */
 int permisos_ruta(const char *caminho, int acao)
 {
     processo_t *eu = processo_recursos();
-    if (eu->uid == 0 || !eu->usuario) return 0;
+    if (!eu || eu->uid == 0 || !eu->usuario || !acao) return 0;   /* ver sus datos (stat) sí */
     if (comeca(caminho, CONTAS_ARQ_SOMBRA) || dentro(caminho, "/home/.ssh/ssh_host_ed25519_key") ||
         dentro(caminho, "/etc/ssh/ssh_host_ed25519_key") || dentro(caminho, "/etc/vnc/vncd.passwd") ||
-        dentro(caminho, "/home/.config/vncd.passwd") || dentro(caminho, "/sistema"))
+        dentro(caminho, "/home/.config/vncd.passwd"))
         goto nega;
-    if (acao & PERM_ESCREVER) {
-        if (dentro(caminho, "/etc") || dentro(caminho, "/bin") || dentro(caminho, "/tmp/.servicios/pedidos"))
-            goto nega;
-    }
+    if ((acao & PERM_ESCREVER) && dentro(caminho, "/tmp/.servicios/pedidos"))
+        goto nega;
     return 0;
 nega:
     if (pode_anotar())
-        klog("[PERMISOS] denegado a %s (pid %d, uid %u): %s %s\n", eu->nome, eu->pid, eu->uid,
+        klog("[PERMISOS] denegado a %s (pid %d, uid %u): %s %s (secreto)\n", eu->nome, eu->pid, eu->uid,
              acao & PERM_ESCREVER ? "escribir" : "leer", caminho);
     return ERRO_ACESSO;
+}
+
+/* ---------------------------------------------------------------- D282: permisos de archivos */
+
+void permisos_dono_novo(bool pasta, uint32_t *uid, uint32_t *gid, uint16_t *modo)
+{
+    processo_t *eu = processo_recursos();
+    bool kernel = !eu || !eu->usuario;
+    *uid = kernel ? UID_ROOT : eu->uid;
+    *gid = kernel ? GID_ROOT : eu->gid;
+    uint16_t mascara = kernel ? UMASK_PADRAO : eu->umask;
+    *modo = (uint16_t)((pasta ? 0777 : 0666) & ~mascara);
+}
+
+/* ¿Tiene "eu" los permisos "quer" (PERM_*) sobre algo con estos dueños y modo? */
+static bool pode(const processo_t *eu, const meta_t *m, int quer)
+{
+    uint32_t bits = eu->uid == m->uid ? (uint32_t)m->modo >> 6 : eu->gid == m->gid ? (uint32_t)m->modo >> 3 : m->modo;
+    return ((bits & 7) & (uint32_t)quer) == (uint32_t)quer;
+}
+
+static bool livre_de_controle(const processo_t *eu) { return !eu || eu->uid == 0 || !eu->usuario; }
+
+static int negar(const processo_t *eu, const char *que, const char *caminho)
+{
+    if (pode_anotar())
+        klog("[PERMISOS] denegado a %s (pid %d, uid %u): %s %s\n", eu->nome, eu->pid, eu->uid, que, caminho);
+    return ERRO_ACESSO;
+}
+
+/* Entrar (x) en "/" y en cada carpeta de la ruta hasta "fim" bytes (sin incluir
+ * el último nombre). */
+static int recorrer(const processo_t *eu, const char *caminho, size_t fim)
+{
+    char parcial[CAMINHO_MAX];
+    meta_t m;
+    for (size_t i = 0; i < fim; i++) {
+        if (caminho[i] != '/') continue;
+        size_t n = i ? i : 1;   /* "/" para la raíz */
+        if (n >= sizeof parcial) return ERRO_INVALIDO;
+        memcpy(parcial, caminho, n);
+        parcial[n] = 0;
+        if (vfs_meta_rapida(parcial, &m) < 0) return 0;   /* no existe: la operación fallará sola */
+        if (!pode(eu, &m, PERM_EXECUTAR)) return negar(eu, "entrar en", parcial);
+    }
+    return 0;
+}
+
+/* Bytes de la carpeta de "caminho" ("/a/b" -> 2, "/a" -> 0: la raíz). */
+static size_t fim_da_pasta(const char *caminho)
+{
+    size_t ult = 0;
+    for (size_t i = 0; caminho[i]; i++)
+        if (caminho[i] == '/') ult = i;
+    return ult;
+}
+
+int permisos_acesso(const char *caminho, int quer)
+{
+    processo_t *eu = processo_recursos();
+    if (livre_de_controle(eu)) return 0;
+    int r = permisos_ruta(caminho, quer);
+    if (r < 0) return r;
+    if (caminho[0] == '/' && caminho[1]) {
+        if ((r = recorrer(eu, caminho, fim_da_pasta(caminho) + 1)) < 0) return r;
+    }
+    if (!quer) return 0;
+    meta_t m;
+    if (vfs_meta(caminho, &m) < 0) return 0;
+    if (!pode(eu, &m, quer))
+        return negar(eu, quer & PERM_ESCREVER ? "escribir" : quer & PERM_LER ? "leer" : "ejecutar o entrar en", caminho);
+    return 0;
+}
+
+/* La carpeta de "caminho" en "pasta" ("/" para la raíz). */
+static void pasta_de(const char *caminho, char *pasta)
+{
+    size_t n = fim_da_pasta(caminho);
+    if (n >= CAMINHO_MAX) n = CAMINHO_MAX - 1;
+    if (!n) { pasta[0] = '/'; pasta[1] = 0; return; }
+    memcpy(pasta, caminho, n);
+    pasta[n] = 0;
+}
+
+int permisos_criar(const char *caminho)
+{
+    processo_t *eu = processo_recursos();
+    if (livre_de_controle(eu)) return 0;
+    int r = permisos_ruta(caminho, PERM_ESCREVER);
+    if (r < 0) return r;
+    char pasta[CAMINHO_MAX];
+    pasta_de(caminho, pasta);
+    return permisos_acesso(pasta, PERM_ESCREVER | PERM_EXECUTAR);
+}
+
+int permisos_remover(const char *caminho)
+{
+    processo_t *eu = processo_recursos();
+    if (livre_de_controle(eu)) return 0;
+    int r = permisos_criar(caminho);
+    if (r < 0) return r;
+    char pasta[CAMINHO_MAX];
+    pasta_de(caminho, pasta);
+    meta_t mp, mx;
+    if (vfs_meta(pasta, &mp) < 0 || !(mp.modo & MODO_PEGAJOSO) || mp.uid == eu->uid) return 0;
+    if (vfs_meta(caminho, &mx) < 0 || mx.uid == eu->uid) return 0;
+    return negar(eu, "borrar (carpeta pegajosa)", caminho);
+}
+
+/* ---------------------------------------------------------------- SIS_PERMISOS_ARQ */
+
+static int caminho_do_usuario(uint32_t ptr, char *saida)
+{
+    char bruto[CAMINHO_MAX];
+    int r = usuario_texto((const char *)ptr, bruto, sizeof bruto);
+    if (r < 0) return r;
+    if (r == 0) return ERRO_INVALIDO;
+    if (!caminho_resolver(processo_recursos()->pasta, bruto, saida, CAMINHO_MAX)) return ERRO_INVALIDO;
+    return 0;
+}
+
+int32_t sis_permisos_arq(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+{
+    (void)d;
+    processo_t *eu = processo_recursos();
+    if (op == PARQ_UMASK) {
+        uint16_t antes = eu->umask;
+        if ((int32_t)a != -1) eu->umask = (uint16_t)(a & 0777);
+        return antes;
+    }
+    if (op != PARQ_CONSULTAR && op != PARQ_MODO && op != PARQ_DONO) return ERRO_INVALIDO;
+    char caminho[CAMINHO_MAX];
+    int r = caminho_do_usuario(a, caminho);
+    if (r < 0) return r;
+    if ((r = permisos_acesso(caminho, 0)) < 0) return r;   /* entrar en sus carpetas */
+    meta_t m;
+    if ((r = vfs_meta(caminho, &m)) < 0) return r;
+    bool root = livre_de_controle(eu);
+    if (op == PARQ_CONSULTAR) {
+        info_permisos_t *v = (info_permisos_t *)b;
+        if (!usuario_ok(v, sizeof *v, true)) return ERRO_ENDERECO;
+        memset(v, 0, sizeof *v);
+        v->uid = m.uid;
+        v->gid = m.gid;
+        v->modo = m.modo;
+        v->tipo = m.tipo;
+        v->com_donos = m.com_donos;
+        return 0;
+    }
+    if (op == PARQ_MODO) {
+        if (!root && m.uid != eu->uid) return negar(eu, "cambiar los permisos de", caminho);
+        return vfs_fixar_meta(caminho, -1, -1, (int32_t)(b & MODO_PERMISOS));
+    }
+    /* PARQ_DONO: el dueño solo lo cambia root; el grupo, root o el dueño (al suyo). */
+    int32_t uid = (int32_t)b, gid = (int32_t)c;
+    if (uid < -1 || uid > UID_MAX || gid < -1 || gid > UID_MAX) return ERRO_INVALIDO;
+    if (!root) {
+        if (uid != -1 && (uint32_t)uid != m.uid) return negar(eu, "cambiar el dueño de", caminho);
+        if (gid != -1 && (m.uid != eu->uid || ((uint32_t)gid != eu->gid && (uint32_t)gid != m.gid)))
+            return negar(eu, "cambiar el grupo de", caminho);
+    }
+    return vfs_fixar_meta(caminho, uid, gid, -1);
 }

@@ -56,7 +56,7 @@ sobre todo robusta**.
 
 ## Criterios de aceptación
 - [x] Fase 1: identidades, llamadas privilegiadas, elevación, modo rescate (v8.0b7, D255; falta el diálogo gráfico de contraseña)
-- [ ] Fase 2: permisos de ficheros (v8.4)
+- [x] Fase 2: permisos de ficheros (v8.4, D282, `h282_permisos.py`)
 - [ ] Fase 3: varios usuarios (v8.4)
 - [x] Test automático en `tests/` (`h254_usuarios.py`, fase 1)
 - [x] Decisión registrada en `docs/decisoes.md` (D255, fase 1)
@@ -65,3 +65,7 @@ sobre todo robusta**.
 - Fase 1 hecha (D255, `docs/usuarios.md`): configuración persistente en la partición SAGUI-CONF (opción A del
   mantenedor), montada en `/sistema/conf` y copiada sobre `/etc` al arrancar.
 - Modelo: kernel y seguridad con Opus; revisión con otro agente; userland (su, diálogos) con Sonnet.
+- Fase 2 hecha (D282, rama `v8.5-permisos`): dueño, grupo, `rwx` y pegajoso comprobados en el VFS;
+  ext2 con los suyos, ramdisk de root (`/home` de sagui, `/tmp` 1777, `/sistema` 0700), FAT32/ISO/UDF
+  con `uid=`/`gid=`/`umask=`; `chmod`, `chown`, `chgrp`, `umask`, `ls -l` y Propiedades en Archivos;
+  las rutas de D255 pasan a permisos, salvo unos pocos secretos que se protegen además por la ruta.

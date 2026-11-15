@@ -69,4 +69,14 @@ Pedido del mantenedor: señalar celdas al escribir `=` (con colores), arrastrar 
 - [x] Agente `macaco_crear_grafico`
 - Pendiente: rangos de gráficos que sigan a las filas/columnas insertadas, gráfico vectorial en el PDF, tipo fecha para las series, deshacer de gráficos.
 
-Guía con capturas: `docs/macaco.md`. Prueba: `tests/h311_macaco_formulas.py`.
+### v8.3.3: asistente de funciones (D311)
+
+- [x] Catálogo único de 41 funciones (`macaco_funciones.h`): evaluador, asistente y ayudas salen de la misma tabla
+- [x] Funciones nuevas: ABS (ya estaba), ENTERO, RAIZ, POTENCIA, RESIDUO, PI, ALEATORIO, MEDIANA, CONTARA, CONTAR.SI, SUMAR.SI, Y, O, NO,
+  SI.ERROR, CONCATENAR y `&`, LARGO, IZQUIERDA, DERECHA, EXTRAE, MAYUSC, MINUSC, ESPACIOS, TEXTO, HOY, AHORA, AÑO, MES, DIA, FECHA,
+  BUSCARV, INDICE, COINCIDIR (fechas como números de serie de Excel)
+- [x] Insertar > Función... / botón fx / Mayús+F3: dos pasos, valores en vivo, contraer y señalar en la hoja, anidar, reabrir en el paso 2
+- [x] Autocompletado de nombres (Tab) y ayuda de argumentos al escribir a mano; el agente de IA lee el catálogo
+- Pendiente: «usadas recientemente» no se guarda entre sesiones; sin tipo fecha ni formato de fecha; más de 8 argumentos solo a mano.
+
+Guía con capturas: `docs/macaco.md`. Pruebas: `tests/h311_macaco_formulas.py`, `tests/h313_macaco_fx.py`.

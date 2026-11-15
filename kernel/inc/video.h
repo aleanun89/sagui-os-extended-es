@@ -21,6 +21,7 @@ uint8_t  *video_placa(void);      /* framebuffer de la tarjeta (para la medida d
 uint32_t  video_pitch(void);
 bool      video_formato_direto(void);   /* 32 bits 0x00RRGGBB: la copia no convierte */
 uint32_t  video_bpp(void);              /* profundidad de la tarjeta: 15, 16, 24 o 32 (D078) */
+uint32_t  video_cor_placa(cor_t c);     /* D305: un color 0x00RRGGBB en el formato de la tarjeta (los rellenos de la GPU) */
 
 void video_pixel(int x, int y, cor_t c);
 void video_retangulo(int x, int y, int l, int a, cor_t c);

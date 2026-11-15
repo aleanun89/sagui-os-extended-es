@@ -293,6 +293,24 @@ int teclado_tentar_mods(uint32_t *m)
 
 int teclado_tentar(void) { return teclado_tentar_mods(NULL); }
 
+/* D317: ¿hay en el búfer, sin sacarla, la tecla "t"? */
+bool teclado_contem(int t)
+{
+    bool i = int_salva_desliga(), achou = false;
+    for (uint32_t k = ini; k != fim; k = (k + 1) % TAM_BUFFER)
+        if (buffer[k] == t) { achou = true; break; }
+    int_restaura(i);
+    return achou;
+}
+
+int teclado_pendentes(void)
+{
+    bool i = int_salva_desliga();
+    int n = (fim - ini + TAM_BUFFER) % TAM_BUFFER;
+    int_restaura(i);
+    return n;
+}
+
 int teclado_ler(void)
 {
     for (;;) {

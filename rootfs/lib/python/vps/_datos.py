@@ -12,7 +12,7 @@
 # la biblioteca `basedatos` (parámetros enlazados, nunca SQL concatenado).
 import vps
 import tkinter as tk
-from vps import Control, _props
+from vps import Control, _props, _ev
 import basedatos
 from basedatos import ErrorBD
 
@@ -496,7 +496,7 @@ class RejillaDatos(Control):
     """Rejilla de datos enlazada a un ConectorBD: paginada, ordenable por columna y editable."""
     tipo = "RejillaDatos"
     PROPS = (("editable", "bool", False), ("barra", "bool", True))
-    EVENTOS = ("seleccion", "cambio")
+    EVENTOS = _ev("seleccion", "cambio")
     EVENTO_DEFECTO = "seleccion"
     TAM = (400, 200)
     NAV = 24

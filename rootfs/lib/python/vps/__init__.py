@@ -120,6 +120,29 @@ def _props(c):
     return c
 
 
+# Eventos comunes a todos los controles con ventana (v8.4.1, D315). Los datos del evento quedan en el
+# propio control (D297): raton_x, raton_y y boton (ratón), rueda_delta (rueda), tecla, caracter, ctrl y
+# mayus (teclado). Solo se calculan si hay un manejador conectado (ver Control._hay).
+EVENTOS_COMUNES = ("doble_click", "raton_abajo", "raton_arriba", "raton_entra", "raton_sale", "raton_mueve",
+                   "rueda", "foco_gana", "foco_pierde", "tecla_abajo", "tecla_arriba", "menu_contextual")
+
+
+_cableado = [False]
+
+
+def _despachar(metodo):
+    def f(ev):
+        c = getattr(ev.widget, "_vps", None)
+        if c is not None:
+            getattr(c, metodo)(ev)
+    return f
+
+
+def _ev(*propios):
+    """Los eventos propios de un control seguidos de los comunes (sin repetir)."""
+    return tuple(propios) + tuple(e for e in EVENTOS_COMUNES if e not in propios)
+
+
 @_props
 class Control:
     """Base de los controles. PROPS = (nombre, tipo, valor por defecto); los tipos son
@@ -133,6 +156,17 @@ class Control:
     ORDEN = ("texto", "x", "y", "ancho", "alto")   # argumentos sin nombre
     TAM = (100, 24)
     CONTENEDOR = False
+    DOBLE_PROPIO = False      # True si el control ya dispara doble_click por su cuenta (Lista, Tabla)
+    # datos de los eventos comunes (D297: los datos del evento están en el control)
+    raton_x = 0
+    raton_y = 0
+    boton = 0                 # 1 izquierdo, 2 central, 3 derecho
+    rueda_delta = 0           # entalles de la rueda: positivo hacia arriba, negativo hacia abajo
+    tecla = ""
+    caracter = ""
+    ctrl = False
+    mayus = False
+    cancelar = False          # en «validar»: ponerlo a True devuelve el foco al control
 
     def __init__(self, padre, *args, **kw):
         if isinstance(padre, Formulario):
@@ -156,6 +190,7 @@ class Control:
             self._p[n] = list(v) if isinstance(v, list) else v
         self.w = None
         self._crear()
+        self._cablear()
         self._aplicar_todo()
         self.form._registrar(self)
 
@@ -258,6 +293,98 @@ class Control:
     def conectar(self, nombre, f):
         self._eventos.setdefault(nombre, []).append(f)
 
+    def _hay(self, nombre):
+        """True si el evento tiene algún manejador (conectado o con el nombre Control_evento): los
+        eventos de ratón y teclado no hacen nada más si nadie los escucha."""
+        if nombre in self._eventos:
+            return True
+        ns = self.form._ns
+        return ns is not None and ("%s_%s" % (self.nombre, nombre)) in ns
+
+    def _cablear(self):
+        """Engancha los eventos comunes (D315). Los enlaces son de `bind_all` y no de cada componente:
+        tkinter entrega solo el enlace más específico de cada tabla, y así no pisan a los propios
+        del control (Button-1, Return...). Cada componente apunta a su control en `_vps`."""
+        w = self.w
+        if w is None:
+            return
+        w._vps = self
+        if _cableado[0]:
+            return
+        _cableado[0] = True
+        for seq, metodo in (("<ButtonPress>", "_e_abajo"), ("<ButtonRelease>", "_e_arriba"),
+                            ("<Enter>", "_e_entra"), ("<Leave>", "_e_sale"), ("<Motion>", "_e_mueve"),
+                            ("<MouseWheel>", "_e_rueda"), ("<FocusIn>", "_e_foco_gana"),
+                            ("<FocusOut>", "_e_foco_pierde"), ("<KeyPress>", "_e_tecla")):
+            w.bind_all(seq, _despachar(metodo), add="+")
+
+    def _pos(self, ev):
+        self.raton_x, self.raton_y = ev.x, ev.y
+
+    def _e_abajo(self, ev):
+        n = ev.num if isinstance(ev.num, int) else 1
+        if n == 1 and getattr(ev, "_duplo", False) and not self.DOBLE_PROPIO and self._hay("doble_click"):
+            self._pos(ev)
+            self.boton = 1
+            self._disparar("doble_click")
+        if n == 3 and self._hay("menu_contextual"):
+            self._pos(ev)
+            self.boton = 3
+            self._disparar("menu_contextual")
+        if self._hay("raton_abajo"):
+            self._pos(ev)
+            self.boton = n
+            self._disparar("raton_abajo")
+
+    def _e_arriba(self, ev):
+        if self._hay("raton_arriba"):
+            self._pos(ev)
+            self.boton = ev.num if isinstance(ev.num, int) else 1
+            self._disparar("raton_arriba")
+
+    def _e_entra(self, ev):
+        if self._hay("raton_entra"):
+            self._pos(ev)
+            self._disparar("raton_entra")
+
+    def _e_sale(self, ev):
+        if self._hay("raton_sale"):
+            self._pos(ev)
+            self._disparar("raton_sale")
+
+    def _e_mueve(self, ev):
+        if self._hay("raton_mueve"):
+            self._pos(ev)
+            self._disparar("raton_mueve")
+
+    def _e_rueda(self, ev):
+        if self._hay("rueda"):
+            self._pos(ev)
+            self.rueda_delta = ev.delta // 120
+            self._disparar("rueda")
+
+    def _e_foco_gana(self, ev):
+        if self._hay("foco_gana"):
+            self._disparar("foco_gana")
+
+    def _e_foco_pierde(self, ev):
+        if self._hay("foco_pierde"):
+            self._disparar("foco_pierde")
+
+    def _e_tecla(self, ev):
+        abajo, arriba = self._hay("tecla_abajo"), self._hay("tecla_arriba")
+        if abajo or arriba:
+            self.tecla = ev.keysym
+            self.caracter = ev.char
+            self.ctrl = bool(ev.state & 4)
+            self.mayus = bool(ev.state & 1)
+            if abajo:
+                self._disparar("tecla_abajo")
+            if arriba:
+                # el sistema no avisa de cuándo se suelta una tecla: tecla_arriba se dispara justo
+                # después de tecla_abajo, con los mismos datos (D315)
+                self._disparar("tecla_arriba")
+
     def _disparar(self, nombre, *a):
         for f in self._eventos.get(nombre, ()):
             _llamar(f, "%s_%s" % (self.nombre, nombre))
@@ -309,6 +436,7 @@ class Etiqueta(Control):
     FONDO_HEREDADO = True
     tipo = "Etiqueta"
     PROPS = (("texto", "str", ""), ("alineacion", "enum:izquierda|centro|derecha", "izquierda"))
+    EVENTOS = _ev("click")
     TAM = (80, 20)
 
     def _crear(self):
@@ -341,7 +469,7 @@ class Etiqueta(Control):
 class Boton(Control):
     tipo = "Boton"
     PROPS = (("texto", "str", ""), ("defecto", "bool", False))
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click")
     TAM = (88, 26)
 
     def _crear(self):
@@ -370,7 +498,7 @@ class CuadroTexto(Control):
     tipo = "CuadroTexto"
     PROPS = (("texto", "str", ""), ("multilinea", "bool", False), ("clave", "bool", False),
              ("solo_lectura", "bool", False), ("campo", "str", ""))
-    EVENTOS = ("cambio", "tecla", "click")
+    EVENTOS = _ev("cambio", "tecla", "click", "intro", "validar")
     TAM = (120, 22)
     _ignorar = False
 
@@ -386,11 +514,31 @@ class CuadroTexto(Control):
             self._var.trace_add("write", lambda *a: self._texto_cambio())
         self.w.bind("<Button-1>", lambda e: self._disparar("click"))
         self.w.bind("<Key>", self._tecla, add="+")
+        self.w.bind("<FocusOut>", self._validar)
+
+    def _intro(self, ev):
+        """Intro (en un cuadro de varias líneas, Ctrl+Intro) dispara «intro»."""
+        if self._p["multilinea"] and not ev.state & 4:
+            return
+        if self._hay("intro"):
+            self._disparar("intro")
+
+    def _validar(self, ev):
+        """Al perder el foco: «validar». Si el manejador pone `cancelar = True`, el foco vuelve al cuadro."""
+        if self.form._cerrado or not self._hay("validar"):
+            return
+        self.cancelar = False
+        self._disparar("validar")
+        if self.cancelar:
+            self.cancelar = False
+            self.w.after_idle(self.enfocar)
 
     def _tecla(self, ev):
         self.tecla = ev.keysym
         self.caracter = ev.char
         self._disparar("tecla")
+        if ev.keysym == "Return":
+            self._intro(ev)
 
     tecla = ""
     caracter = ""
@@ -445,7 +593,7 @@ class Casilla(Control):
     FONDO_HEREDADO = True
     tipo = "Casilla"
     PROPS = (("texto", "str", ""), ("valor", "bool", False), ("campo", "str", ""))
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click", "cambio")
     TAM = (120, 20)
 
     def _crear(self):
@@ -456,6 +604,7 @@ class Casilla(Control):
     def _pulsado(self):
         self._p["valor"] = bool(self._var.get())
         self._disparar("click")
+        self._disparar("cambio")
 
     def _leer(self, n):
         if n == "valor" and self.w is not None:
@@ -478,7 +627,7 @@ class Opcion(Control):
     marco son excluyentes."""
     tipo = "Opcion"
     PROPS = (("texto", "str", ""), ("valor", "bool", False), ("grupo", "str", "1"))
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click", "cambio")
     TAM = (120, 20)
 
     def _crear(self):
@@ -493,6 +642,7 @@ class Opcion(Control):
     def _pulsado(self):
         self._p["valor"] = True
         self._disparar("click")
+        self._disparar("cambio")
 
     def _leer(self, n):
         if n == "valor" and self.w is not None:
@@ -515,7 +665,8 @@ class Opcion(Control):
 class Lista(Control):
     tipo = "Lista"
     PROPS = (("elementos", "lista", []), ("seleccion", "int", -1))
-    EVENTOS = ("seleccion", "doble_click", "click")
+    EVENTOS = _ev("seleccion", "doble_click", "click")
+    DOBLE_PROPIO = True
     EVENTO_DEFECTO = "seleccion"
     TAM = (120, 90)
 
@@ -570,7 +721,7 @@ class Lista(Control):
 class Combo(Control):
     tipo = "Combo"
     PROPS = (("elementos", "lista", []), ("texto", "str", ""), ("editable", "bool", False), ("campo", "str", ""))
-    EVENTOS = ("seleccion", "cambio")
+    EVENTOS = _ev("seleccion", "cambio")
     EVENTO_DEFECTO = "seleccion"
     TAM = (120, 22)
 
@@ -627,7 +778,7 @@ class Combo(Control):
 class Imagen(Control):
     tipo = "Imagen"
     PROPS = (("archivo", "str", ""), ("ajustar", "bool", True))
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click")
     TAM = (96, 96)
 
     def _crear(self):
@@ -668,7 +819,7 @@ class Marco(Control):
     FONDO_HEREDADO = True
     tipo = "Marco"
     PROPS = (("texto", "str", ""),)
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click")
     TAM = (160, 100)
     CONTENEDOR = True
 
@@ -694,7 +845,7 @@ class Deslizador(Control):
     tipo = "Deslizador"
     PROPS = (("valor", "int", 0), ("minimo", "int", 0), ("maximo", "int", 100),
              ("vertical", "bool", False))
-    EVENTOS = ("cambio",)
+    EVENTOS = _ev("cambio")
     EVENTO_DEFECTO = "cambio"
     TAM = (160, 36)
 
@@ -733,7 +884,7 @@ BarraDesplazamiento = Deslizador
 class BarraProgreso(Control):
     tipo = "BarraProgreso"
     PROPS = (("valor", "int", 0), ("maximo", "int", 100))
-    EVENTOS = ()
+    EVENTOS = _ev()
     TAM = (160, 20)
 
     def _crear(self):
@@ -947,7 +1098,7 @@ class Pestanas(Control):
     FONDO_HEREDADO = True
     tipo = "Pestanas"
     PROPS = (("elementos", "lista", ["General", "Opciones"]), ("seleccion", "int", 0))
-    EVENTOS = ("cambio", "click")
+    EVENTOS = _ev("cambio", "click")
     EVENTO_DEFECTO = "cambio"
     ORDEN = ("x", "y", "ancho", "alto")
     TAM = (240, 160)
@@ -1013,11 +1164,14 @@ class Tabla(Control):
     tipo = "Tabla"
     PROPS = (("columnas", "lista", ["A", "B"]), ("filas", "lista", []), ("seleccion", "int", -1),
              ("editable", "bool", False), ("ordenable", "bool", True))
-    EVENTOS = ("seleccion", "cambio", "doble_click", "click")
+    EVENTOS = _ev("seleccion", "cambio", "doble_click", "click", "celda_cambio", "ordenar")
+    DOBLE_PROPIO = True
     EVENTO_DEFECTO = "seleccion"
     ORDEN = ("x", "y", "ancho", "alto")
     TAM = (260, 120)
-    columna = -1       # la columna de la última celda pulsada
+    columna = -1       # la columna de la última celda pulsada (o de la celda editada, u ordenada)
+    fila = -1          # la fila de la última celda editada (evento celda_cambio)
+    descendente = False   # el sentido del último orden (evento ordenar)
 
     def _crear(self):
         from vps import _widgets
@@ -1143,6 +1297,9 @@ class Tabla(Control):
                 if f is elegida:
                     self.w.sel = i
         self.w._redesenhar()
+        self.columna = columna
+        self.descendente = bool(descendente)
+        self._disparar("ordenar")
 
     def cargar_csv(self, ruta, separador=";", encabezado=True):
         """Lee un archivo CSV: la primera línea son las columnas (con encabezado=True)."""
@@ -1172,7 +1329,7 @@ class Numerico(Control):
     tipo = "Numerico"
     PROPS = (("valor", "num", 0), ("minimo", "num", 0), ("maximo", "num", 100), ("paso", "num", 1),
              ("decimales", "int", 0), ("campo", "str", ""))
-    EVENTOS = ("cambio",)
+    EVENTOS = _ev("cambio")
     EVENTO_DEFECTO = "cambio"
     ORDEN = ("x", "y", "ancho", "alto")
     TAM = (80, 22)
@@ -1240,7 +1397,7 @@ class Lienzo(Control):
     en píxeles del lienzo."""
     tipo = "Lienzo"
     PROPS = ()
-    EVENTOS = ("click", "arrastrar", "soltar", "mover")
+    EVENTOS = _ev("click", "arrastrar", "soltar", "mover")
     ORDEN = ("x", "y", "ancho", "alto")
     TAM = (200, 140)
     raton_x = 0
@@ -1300,7 +1457,7 @@ class Enlace(Control):
     FONDO_HEREDADO = True
     tipo = "Enlace"
     PROPS = (("texto", "str", ""), ("url", "str", ""))
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click")
     TAM = (100, 20)
 
     def _crear(self):
@@ -1327,7 +1484,7 @@ class BarraEstado(Control):
     FONDO_HEREDADO = True
     tipo = "BarraEstado"
     PROPS = (("texto", "str", ""), ("elementos", "lista", []))
-    EVENTOS = ("click",)
+    EVENTOS = _ev("click")
     TAM = (320, 22)
 
     def _crear(self):
@@ -1371,7 +1528,7 @@ class SelectorColor(Control):
     el color (0xRRGGBB); el evento `cambio` salta al elegirlo."""
     tipo = "SelectorColor"
     PROPS = (("valor", "color", 0x2A6FD8),)
-    EVENTOS = ("cambio", "click")
+    EVENTOS = _ev("cambio", "click")
     EVENTO_DEFECTO = "cambio"
     ORDEN = ("x", "y", "ancho", "alto")
     TAM = (112, 24)
@@ -1545,7 +1702,9 @@ class Formulario:
     tipo = "Formulario"
     PROPS = (("texto", "str", "Formulario"), ("ancho", "int", 320), ("alto", "int", 200),
              ("color", "color", 0xC0C0C0), ("redimensionable", "bool", False))
-    EVENTOS = ("cargar", "cerrar", "tecla", "click", "redimensionar")
+    # «cerrar» es el evento antiguo (devolver False cancelaba el cierre); «cerrando» lo sustituye (D315).
+    # No hay «soltar_archivo»: el sistema aún no tiene arrastrar y soltar archivos sobre las ventanas.
+    EVENTOS = ("cargar", "cerrando", "cerrado", "redimensionar", "activar", "desactivar", "tecla", "click", "cerrar")
     EVENTO_DEFECTO = "cargar"
     ORDEN = ("texto", "ancho", "alto")
 
@@ -1574,6 +1733,8 @@ class Formulario:
         self._grupos = {}
         self.tecla = ""
         self.caracter = ""
+        self.cancelar = False     # en «cerrando»: ponerlo a True cancela el cierre
+        self._activo_f = False    # el formulario está activo (tiene el foco): eventos activar y desactivar
         if tk._raiz is None:
             self.win = tk.Tk()
             self.principal = True
@@ -1584,6 +1745,8 @@ class Formulario:
         self.win.bind("<Key>", self._tecla)
         self.win.bind("<Button-1>", lambda e: self._disparar("click") if e.widget is self.win else None)
         self.win.bind("<Configure>", self._configurado)
+        self.win.bind("<FocusIn>", self._foco_dentro, add="+")
+        self.win.bind("<FocusOut>", self._foco_fuera, add="+")
         for n in self._p:
             self._aplicar(n)
         _formularios.append(self)
@@ -1675,6 +1838,39 @@ class Formulario:
         self.caracter = ev.char
         self._disparar("tecla")
 
+    # activar y desactivar: el sistema no avisa de ello, así que se deducen del foco de los controles
+    def _hay(self, nombre):
+        return nombre in self._eventos or (self._ns is not None and ("%s_%s" % (self.nombre, nombre)) in self._ns)
+
+    def _activar(self):
+        if not self._activo_f and not self._cerrado:
+            self._activo_f = True
+            if self._cargado and self._hay("activar"):
+                self._disparar("activar")
+
+    def _desactivar(self):
+        if self._activo_f:
+            self._activo_f = False
+            if not self._cerrado and self._hay("desactivar"):
+                self._disparar("desactivar")
+
+    def _foco_dentro(self, ev):
+        self._activar()
+
+    def _foco_fuera(self, ev):
+        self.win.after_idle(self._comprobar_foco)
+
+    def _comprobar_foco(self):
+        if self._cerrado or not self._activo_f:
+            return
+        try:
+            f = self.win.focus_get()
+            dentro = f is not None and f._top() is self.win
+        except Exception:
+            dentro = True
+        if not dentro:
+            self._desactivar()
+
     # ciclo de vida
     def mostrar(self, modal=False, datos=None):
         """Abre el formulario. Con modal=True no vuelve hasta que se cierre (como ShowDialog) y
@@ -1687,6 +1883,7 @@ class Formulario:
         self._ordenar_tabulacion()
         self.win.deiconify()
         self._arrancar()
+        self._activar()
         if modal and not self.principal:
             try:
                 self.win.grab_set()
@@ -1713,6 +1910,7 @@ class Formulario:
 
     def ocultar(self):
         self._oculto = True
+        self._desactivar()
         try:
             self.win.withdraw()
         except Exception:
@@ -1747,6 +1945,11 @@ class Formulario:
         if self._cerrado:
             return
         donde = "%s_cerrar" % self.nombre
+        self.cancelar = False
+        self._disparar("cerrando")
+        if self.cancelar:
+            self.cancelar = False
+            return
         for f in self._eventos.get("cerrar", ()):
             try:
                 if f() is False:
@@ -1772,6 +1975,7 @@ class Formulario:
         if not self.principal and not self._cerrado and not _saliendo[0]:
             self._cargado = False
             self.ocultar()
+            self._disparar("cerrado")
             return
         self._destruir()
 
@@ -1780,6 +1984,7 @@ class Formulario:
             return
         self._cerrado = True
         self._oculto = True
+        self._disparar("cerrado")
         for c in list(self.controles.values()):
             if isinstance(c, Temporizador):
                 c.destruir()

@@ -28,6 +28,7 @@ int32_t tv_mestre_ler(tv_t *t, char *destino, uint32_t n);         /* la pantall
 int32_t tv_mestre_escrever(tv_t *t, const char *origem, uint32_t n); /* teclas pulsadas */
 int32_t tv_mestre_disponivel(tv_t *t);
 int32_t tv_ler(tv_t *t, char *destino, uint32_t n);                 /* el programa lee */
+int32_t tv_escravo_disponivel(tv_t *t);                             /* D317: cuánto lee sin bloquearse */
 int32_t tv_escrever(tv_t *t, const char *origem, uint32_t n);       /* el programa escribe */
 void    tv_modo(tv_t *t, int modo);
 void    tv_limpar(tv_t *t);

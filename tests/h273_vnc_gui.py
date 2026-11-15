@@ -224,7 +224,7 @@ def main():
         vcfg = dict(l=int(g[0]), a=int(g[1]), x=int(g[2]) + BORDA, y=int(g[3]) + TITULO)
         clic(m, vcfg, 24 + 100, Y_PAG + 238 + 10)      # primera fila de la lista
         pos = len(m.serial())
-        clic(m, vcfg, 24 + 562 + 10 + 40, Y_PAG + 238 + 14)   # Desconectar
+        clic(m, vcfg, 24 + (vcfg["l"] - 48 - 170) + 10 + 40, Y_PAG + 238 + 14)   # Desconectar (a la derecha de la lista, que crece con la ventana)
         esperar(m, r"vnc: desconectado: ", 30, pos)
         time.sleep(1)
         m.captura("H273-12-desconectado-desde-servidor")

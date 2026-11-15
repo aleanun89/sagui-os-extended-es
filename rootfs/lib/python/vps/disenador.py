@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk
 import vps
 from vps import proyecto as P, plantillas, _modelo as M, _historial as H, _refactor as R, _depurador as D
-from vps import _datos
+from vps import _datos, _explorador as EX
 from vps._superficie import Superficie, Caja, Propiedades, GRIS
 from vps._editor import Editor, nombres_de_codigo, eventos_de, evento_defecto
 
@@ -143,6 +143,9 @@ class App:
         self.sesion = None            # la ejecución depurada en curso
         self.mapa_lineas = None
         self.ejecutando = False
+        self.expl_visible = False
+        self._cod_visto = None
+        self.texto_auto = None        # para las pruebas: el texto que devuelve pedir_texto en vez de preguntar
         self._crear_menus()
         self._crear_ventana()
         self.editor = Editor(self)
@@ -150,7 +153,7 @@ class App:
         self.raiz.protocol("WM_DELETE_WINDOW", self.salir)
         for k, f in (("<F5>", self.ejecutar), ("<F7>", self.ver_codigo), ("<F12>", self.sonda_f12),
                      ("<F8>", self.depurar_paso), ("<F9>", self.punto_parada),
-                     ("<Control-s>", self.guardar), ("<Control-o>", self.abrir),
+                     ("<Control-s>", self.guardar), ("<Control-o>", self.abrir), ("<Control-r>", self.alternar_explorador),
                      ("<Control-z>", self.deshacer), ("<Control-y>", self.rehacer)):
             self.raiz.bind(k, lambda e, f=f: f())
         self.nuevo(plantillas.vacia)
@@ -160,6 +163,7 @@ class App:
             except Exception as e:
                 self.aviso("No se pudo abrir el proyecto:\n%s: %s" % (type(e).__name__, e))
         self.raiz.after(300, self.imprimir_sonda)
+        self.raiz.after(800, self._tic_explorador)
 
     # ------------------------------------------------------------ propiedades del proyecto
     @property
@@ -266,6 +270,7 @@ class App:
         barra.add_cascade(label="Edición", menu=e)
         v = tk.Menu(barra, tearoff=0)
         v.add_command(label="Ver código", command=self.ver_codigo, accelerator="F7")
+        v.add_command(label="Explorador", command=self.alternar_explorador, accelerator="Ctrl+R")
         v.add_command(label="Orden de tabulación...", command=self.orden_tabulacion)
         v.add_command(label="Formulario siguiente", command=self.formulario_siguiente)
         barra.add_cascade(label="Ver", menu=v)
@@ -322,6 +327,18 @@ class App:
         self.entrada.bind("<Return>", lambda e: self.aplicar_entrada())
         self.btn_mas = tk.Button(fila, text="...", padx=2, command=self.mas_prop)
         self.btn_mas.pack(side="left", padx=2)
+        # el explorador del proyecto (D315): oculto hasta Ver > Explorador o Ctrl+R
+        self.expl = tk.Frame(der, height=232)
+        self.expl.pack_propagate(False)
+        busca = tk.Frame(self.expl)
+        busca.pack(side="top", fill="x")
+        tk.Label(busca, text="Buscar:", anchor="w").pack(side="left", padx=2)
+        self.filtro_var = tk.StringVar()
+        self.filtro_ent = tk.Entry(busca, textvariable=self.filtro_var, width=16)
+        self.filtro_ent.pack(side="left", fill="x", expand=True, padx=2)
+        self.filtro_var.trace_add("write", lambda *a: self._filtro_cambiado())
+        self.arbol = EX.Arbol(self.expl, self)
+        self.arbol.pack(side="top", fill="both", expand=True, padx=2, pady=2)
         self.props = Propiedades(der, self)
         self.props.pack(side="top", fill="both", expand=True, padx=2)
         self.superficie = Superficie(cuerpo, self)
@@ -341,6 +358,7 @@ class App:
             self.refrescar_props()
             self.caja._redesenhar()
             self.editor.actualizar_combos()
+            self.refrescar_explorador()
         elif self.sel:
             self.refrescar_props()
 
@@ -359,6 +377,7 @@ class App:
         self.refrescar_props()
         self.superficie._redesenhar()
         self.caja._redesenhar()
+        self.refrescar_explorador()
 
     def alternar(self, c):
         if any(c is s for s in self.sel):
@@ -702,6 +721,7 @@ class App:
         self.seleccionar([])
         self.editor.actualizar_combos()
         self.marcar_modificado()
+        self.refrescar_explorador()
 
     def quitar_formulario(self):
         if len(self.proy["forms"]) < 2:
@@ -716,11 +736,203 @@ class App:
         self.seleccionar([])
         self.editor.actualizar_combos()
         self.marcar_modificado()
+        self.refrescar_explorador()
 
     def formulario_siguiente(self):
         self.proy["idx"] = (self.proy["idx"] + 1) % len(self.proy["forms"])
         self.seleccionar([])
         self.editor.actualizar_combos()
+
+    # ------------------------------------------------------------ explorador del proyecto (D315)
+    def alternar_explorador(self, ev=None):
+        self.mostrar_explorador(not self.expl_visible)
+
+    def mostrar_explorador(self, visible=True):
+        """Muestra u oculta el explorador (encima de las propiedades)."""
+        if visible == self.expl_visible:
+            return
+        self.expl_visible = visible
+        if visible:
+            self.props.pack_forget()
+            self.expl.pack(side="top", fill="x", padx=2)
+            self.props.pack(side="top", fill="both", expand=True, padx=2)
+            self.refrescar_explorador()
+        else:
+            self.expl.pack_forget()
+        self.estado("Explorador " + ("visible" if visible else "oculto"))
+        print("vps: explorador %s" % ("visible" if visible else "oculto"))
+
+    def _id_sel(self):
+        return "c:" + self.sel[0]["nombre"] if self.sel else "f:" + self.form["nombre"]
+
+    def _abrir_hasta(self, c):
+        """Quita de «cerrados» los nodos que esconden al control `c` del formulario actual."""
+        ab = self.arbol.cerrados
+        for i in ("p", "fs", "f:" + self.form["nombre"]):
+            ab.discard(i)
+        hijo, pad = c, c["padre"]
+        while pad:
+            p = M.por_nombre(self.form, pad)
+            if p is None:
+                break
+            ab.discard("c:" + p["nombre"])
+            if p["tipo"] == "Pestanas":
+                ab.discard("pg:%s/%d" % (p["nombre"], int(M.val(hijo, "pagina") or 0)))
+            hijo, pad = p, p["padre"]
+
+    def refrescar_explorador(self):
+        """Vuelve a construir el árbol (solo si se ve) con el estado actual del proyecto."""
+        if not self.expl_visible or not hasattr(self, "editor"):
+            return
+        if self.sel:
+            self._abrir_hasta(self.sel[0])
+        codigo = self.editor.texto()
+        self._cod_visto = codigo
+        self.arbol.reconstruir(self.proy["forms"], self.titulo_proyecto(), codigo, self._id_sel())
+        self.arbol.ver(self._id_sel())
+
+    def _tic_explorador(self):
+        """Cada poco, mira si cambió el código para actualizar la lista de manejadores."""
+        try:
+            if self.expl_visible and self.editor.texto() != self._cod_visto:
+                self.refrescar_explorador()
+            self.raiz.after(800, self._tic_explorador)
+        except Exception:
+            pass
+
+    def _filtro_cambiado(self):
+        self.arbol.filtro = self.filtro_var.get()
+        self.arbol.arriba = 0
+        self.refrescar_explorador()
+
+    def ir_a_form(self, i):
+        """Cambia al formulario número i del proyecto (con su selección vacía)."""
+        if 0 <= i < len(self.proy["forms"]):
+            if i != self.proy["idx"]:
+                self.proy["idx"] = i
+                self.editor.actualizar_combos()
+            self.seleccionar([])
+
+    def ir_a_control(self, fi, nombre):
+        """Selecciona un control en el diseñador: cambia de formulario y, si está dentro de unas
+        Pestanas, de página; sus propiedades pasan a la ventana de propiedades."""
+        if fi != self.proy["idx"]:
+            self.proy["idx"] = fi
+            self.editor.actualizar_combos()
+        c = M.por_nombre(self.form, nombre)
+        if c is None:
+            return None
+        hijo, pad, cambiada = c, c["padre"], False
+        while pad:
+            p = M.por_nombre(self.form, pad)
+            if p is None:
+                break
+            if p["tipo"] == "Pestanas":
+                pg = int(M.val(hijo, "pagina") or 0)
+                if int(M.val(p, "seleccion") or 0) != pg:
+                    if not cambiada:
+                        self.punto()
+                        cambiada = True
+                    p["props"]["seleccion"] = pg
+            hijo, pad = p, p["padre"]
+        if cambiada:
+            self.cambio(True)
+        self.seleccionar([c])
+        return c
+
+    def explorador_nodo(self, nodo, doble):
+        """Lo que pasa al pulsar un nodo del explorador (un clic selecciona; doble clic abre el código)."""
+        k = nodo["k"]
+        if k == "form":
+            self.ir_a_form(nodo["f"])
+            if doble:
+                self.codigo_de(None)
+        elif k == "ctl":
+            c = self.ir_a_control(nodo["f"], nodo["c"])
+            if doble and c is not None:
+                self.codigo_de(c)
+        elif k == "pagina":
+            c = self.ir_a_control(nodo["f"], nodo["c"])
+            if c is not None and int(M.val(c, "seleccion") or 0) != nodo["pag"]:
+                self.punto()
+                c["props"]["seleccion"] = nodo["pag"]
+                self.cambio(True)
+        elif k == "codigo":
+            if doble:
+                self.ver_codigo()
+        elif k == "manejador" and doble:
+            self.editor.actualizar_combos()
+            self.editor.mostrar()
+            self.editor.ir_a_linea(nodo["linea"] + 1, 4)
+        self.arbol.sel = nodo["id"]
+        self.arbol._redesenhar()
+        print("vps: explorador %s|%s|%s" % ("doble" if doble else "clic", k, nodo["t"]))
+
+    def acciones_explorador(self, nodo):
+        """[(texto, función) | None] del menú contextual de un nodo."""
+        k = nodo["k"]
+        r = []
+        if k in ("form", "ctl"):
+            r.append(("Ver código", lambda: self.explorador_nodo(nodo, True)))
+            r.append(("Renombrar", lambda: self.renombrar_desde_explorador(nodo)))
+            r.append(("Eliminar", lambda: self.borrar_desde_explorador(nodo)))
+        if k == "ctl":
+            r.append(None)
+            r.append(("Traer al frente", lambda: self.orden_z_explorador(nodo, True)))
+            r.append(("Enviar atrás", lambda: self.orden_z_explorador(nodo, False)))
+        if k == "manejador":
+            r.append(("Ir al código", lambda: self.explorador_nodo(nodo, True)))
+        if r:
+            r.append(None)
+        r.append(("Agregar formulario", self.agregar_formulario))
+        return r
+
+    def menu_explorador(self, nodo, x, y):
+        m = tk.Menu(self.raiz, tearoff=0)
+        for a in self.acciones_explorador(nodo):
+            if a is None:
+                m.add_separator()
+            else:
+                m.add_command(label=a[0], command=a[1])
+        m.tk_popup(x, y)
+
+    def pedir_texto(self, texto, titulo, defecto=""):
+        if self.texto_auto is not None:
+            return self.texto_auto
+        return vps.inputbox(texto, titulo, defecto)
+
+    def renombrar_desde_explorador(self, nodo):
+        if nodo is None or nodo["k"] not in ("form", "ctl"):
+            return False
+        if nodo["k"] == "form":
+            self.ir_a_form(nodo["f"])
+            o = self.form
+        else:
+            o = self.ir_a_control(nodo["f"], nodo["c"])
+        if o is None:
+            return False
+        nuevo = self.pedir_texto("Nuevo nombre de «%s»:" % o["nombre"], "Renombrar", o["nombre"])
+        if not nuevo:
+            return False
+        return self.renombrar(o, nuevo.strip())
+
+    def borrar_desde_explorador(self, nodo):
+        if nodo is None:
+            return
+        if nodo["k"] == "ctl":
+            if self.ir_a_control(nodo["f"], nodo["c"]) is not None:
+                self.borrar_seleccion()
+        elif nodo["k"] == "form":
+            self.ir_a_form(nodo["f"])
+            self.quitar_formulario()
+
+    def orden_z_explorador(self, nodo, frente):
+        c = self.ir_a_control(nodo["f"], nodo["c"])
+        if c is None:
+            return
+        self.punto()
+        M.mover_z(self.form, c, frente)
+        self.cambio(True)
 
     # ------------------------------------------------------------ código
     def ver_codigo(self):
@@ -1007,6 +1219,15 @@ class App:
         for c in self.form["controles"]:
             x, y = s.centro_control(c)
             print("vps-sonda: ctl|%s|%d|%d" % (c["nombre"], x, y))
+            if c["tipo"] == "Pestanas":
+                print("vps-sonda: pest|%s|%d|0" % (c["nombre"], int(M.val(c, "seleccion") or 0)))
+        if self.expl_visible:
+            for n, nodo in self.arbol.filas:
+                xy = self.arbol.fila_centro(nodo["id"])
+                if xy:
+                    print("vps-sonda: nodo|%s|%d|%d" % (nodo["id"], xy[0], xy[1]))
+            fe = self.filtro_ent
+            print("vps-sonda: filtro|%d|%d" % (fe.winfo_rootx() + 20, fe.winfo_rooty() + 8))
         e = self.entrada
         print("vps-sonda: entrada|%d|%d" % (e.winfo_rootx() + 20, e.winfo_rooty() + 8))
         print("vps-sonda: fin")

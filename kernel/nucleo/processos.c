@@ -129,6 +129,7 @@ processo_t *processo_novo(const char *nome, int pai)
         p->mmio_fim = USUARIO_MMIO;   /* los mapas de dispositivos empiezan aquí (D158) */
         txt_copia_n(p->pasta, "/", sizeof p->pasta);
         p->como_uid = p->como_gid = -1;   /* D255: sin identidad pendiente para los hijos */
+        p->umask = 022;                   /* D282: UMASK_PADRAO; los hijos heredan la del padre */
         planificador_herdar(p, pai);   /* D174: máscara de CPU y nice del padre */
         return p;
     }

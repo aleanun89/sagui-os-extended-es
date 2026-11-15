@@ -1,0 +1,30 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Validar al perder el foco'
+  ancho = 330
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  ancho = 300
+  texto = 'Tu edad (de 0 a 120):'
+control CuadroTexto CuadroTexto1
+  x = 16
+  y = 40
+  ancho = 100
+control Etiqueta Etiqueta2
+  x = 16
+  y = 76
+  ancho = 300
+  texto = 'Tu nombre (acaba con Intro):'
+control CuadroTexto CuadroTexto2
+  x = 16
+  y = 100
+  ancho = 200
+control Etiqueta Etiqueta3
+  x = 16
+  y = 136
+  ancho = 300
+control Etiqueta Etiqueta4
+  x = 16
+  y = 160
+  ancho = 300

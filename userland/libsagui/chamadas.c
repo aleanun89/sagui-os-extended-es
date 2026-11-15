@@ -183,3 +183,23 @@ int  inyectar_entrada(int op, int a, int b) { return chamar(SIS_INYECTAR, (unsig
 int  aviso_tela(const char *texto, const char *arquivo) { return chamar(SIS_AVISAR, (unsigned)texto, (unsigned)arquivo, 0); }
 int  copiar_imagem(int l, int a, const uint32_t *px) { return chamar(SIS_COPIAR_IMAGEM, (unsigned)(l | (a << 16)), (unsigned)px, 0); }
 int  colar_imagem(uint32_t *destino, unsigned max_px) { return chamar(SIS_COLAR_IMAGEM, (unsigned)destino, max_px, 0); }
+
+/* ---- D282: permisos de archivos y dueño en el montaje ---- */
+int  permisos_arquivo(const char *c, info_permisos_t *p) { return chamar4(SIS_PERMISOS_ARQ, PARQ_CONSULTAR, (unsigned)c, (unsigned)p, 0); }
+int  mudar_permisos(const char *c, unsigned modo)          { return chamar4(SIS_PERMISOS_ARQ, PARQ_MODO, (unsigned)c, modo, 0); }
+int  mudar_dono(const char *c, int uid, int gid)       { return chamar4(SIS_PERMISOS_ARQ, PARQ_DONO, (unsigned)c, (unsigned)uid, (unsigned)gid); }
+int  mascara_criacao(int nova)                         { return chamar4(SIS_PERMISOS_ARQ, PARQ_UMASK, (unsigned)nova, 0, 0); }
+int  montar_dono(const char *nome, const char *ponto, int opcoes, int uid, int gid)
+{
+    return chamar4(SIS_MONTAR, (unsigned)nome, (unsigned)ponto, (unsigned)opcoes | MONTAR_DONO,
+                   (unsigned)(uid & 0xFFFF) | (unsigned)(gid & 0xFFFF) << 16);
+}
+
+/* "rwxr-xr-x" (9 letras y el 0; con el pegajoso, "t" o "T" en la última). */
+void texto_modo(unsigned modo, char saida[10])
+{
+    static const char l[] = "rwxrwxrwx";
+    for (int i = 0; i < 9; i++) saida[i] = (modo & (0400u >> i)) ? l[i] : '-';
+    if (modo & MODO_PEGAJOSO) saida[8] = saida[8] == 'x' ? 't' : 'T';
+    saida[9] = 0;
+}

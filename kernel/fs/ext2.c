@@ -24,6 +24,7 @@
  * al disco. Los nombres se graban en UTF-8 (como Linux) y se muestran en
  * Latin-1 (D027). */
 #include "montagem.h"
+#include "permisos.h"
 #include "console.h"
 #include "memoria.h"
 #include "relogio.h"
@@ -106,6 +107,9 @@ static inline void st32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uin
 #define I_FLAGS(i)    le32((i)->b + 32)
 #define I_BLOCO(i)    (&(i)->w[10])           /* i_block[15], byte 40 */
 #define I_ACL(i)      le32((i)->b + 104)
+/* D282: dueño y grupo de 32 bits (los 16 altos en el osd2 de Linux). */
+#define I_UID(i)      ((uint32_t)le16((i)->b + 2) | (uint32_t)le16((i)->b + 120) << 16)
+#define I_GID(i)      ((uint32_t)le16((i)->b + 24) | (uint32_t)le16((i)->b + 122) << 16)
 #define EH_PASTA(i)   ((I_MODO(i) & MODO_TIPO) == MODO_PASTA)
 #define EH_ARQUIVO(i) ((I_MODO(i) & MODO_TIPO) == MODO_ARQUIVO)
 
@@ -857,6 +861,34 @@ static int e2_info(void *priv, const char *rel, info_arquivo_t *inf)
     return terminar_dados(v, 0);
 }
 
+/* D282: dueño, grupo y permisos del inodo (sin setuid ni setgid: SaguiOS no los usa). */
+static int e2_meta(void *priv, const char *rel, meta_t *m)
+{
+    e2_t *v = priv;
+    inode_t i;
+    int r = achar(v, rel, &i);
+    if (r < 0) return terminar_dados(v, r);
+    m->uid = I_UID(&i);
+    m->gid = I_GID(&i);
+    m->modo = (uint16_t)(I_MODO(&i) & MODO_PERMISOS);
+    m->tipo = EH_PASTA(&i) ? TIPO_PASTA : TIPO_ARQUIVO;
+    return terminar_dados(v, 0);
+}
+
+static int e2_fixar_meta(void *priv, const char *rel, int32_t uid, int32_t gid, int32_t modo)
+{
+    e2_t *v = priv;
+    if (v->so_leitura) return ERRO_SO_LEITURA;
+    inode_t i;
+    int r = achar(v, rel, &i);
+    if (r < 0) return terminar(v, r);
+    if (uid >= 0) { st16(i.b + 2, (uint32_t)uid & 0xFFFF); st16(i.b + 120, (uint32_t)uid >> 16); }
+    if (gid >= 0) { st16(i.b + 24, (uint32_t)gid & 0xFFFF); st16(i.b + 122, (uint32_t)gid >> 16); }
+    if (modo >= 0) st16(i.b + 0, (I_MODO(&i) & ~(uint32_t)07777) | ((uint32_t)modo & MODO_PERMISOS));
+    st32(i.b + 12, agora());   /* i_ctime: cambió el inodo */
+    return terminar(v, inode_gravar(v, &i));
+}
+
 static int e2_datas(void *priv, const char *rel, datas_arquivo_t *d)
 {
     e2_t *v = priv;
@@ -915,7 +947,15 @@ static int criar(e2_t *v, inode_t *pai, const char *nome, bool pasta, inode_t *n
     sujar(v, b);
     memset(novo, 0, sizeof *novo);
     novo->num = num;
-    st16(novo->b + 0, pasta ? (MODO_PASTA | 0755) : (MODO_ARQUIVO | 0644));
+    /* D282: los de quien crea (su uid, su gid y su umask). */
+    uint32_t uid, gid;
+    uint16_t perm;
+    permisos_dono_novo(pasta, &uid, &gid, &perm);
+    st16(novo->b + 0, (pasta ? MODO_PASTA : MODO_ARQUIVO) | (perm & MODO_PERMISOS));
+    st16(novo->b + 2, uid & 0xFFFF);
+    st16(novo->b + 120, uid >> 16);
+    st16(novo->b + 24, gid & 0xFFFF);
+    st16(novo->b + 122, gid >> 16);
     st16(novo->b + 26, pasta ? 2 : 1);
     inode_tempos(novo, true, true);
     if (v->tam_inode > 128) st16(novo->b + 128, v->tam_inode >= 160 ? 32 : 0);   /* i_extra_isize */
@@ -942,12 +982,14 @@ static int e2_abrir(void *priv, const char *rel, int modo, void *arq, uint32_t *
     inode_t i;
     v->lst_ino = 0;
     int r = achar(v, rel, &i);
+    bool criou = false;
     if (r == ERRO_NAO_EXISTE && (modo & ABRIR_CRIAR)) {
         if (v->so_leitura) return terminar(v, ERRO_SO_LEITURA);
         inode_t pai;
         const char *nome;
         r = separar(v, rel, &pai, &nome);
         if (r == 0) r = criar(v, &pai, nome, false, &i);
+        criou = r == 0;
     }
     if (r < 0) return terminar(v, r);
     if (EH_PASTA(&i)) return terminar(v, ERRO_E_PASTA);
@@ -962,7 +1004,7 @@ static int e2_abrir(void *priv, const char *rel, int modo, void *arq, uint32_t *
     if (r < 0) return terminar(v, r);
     f->ino = i.num;
     *tamanho = I_TAM(&i);
-    return terminar(v, 0);
+    return terminar(v, criou ? 1 : 0);   /* D282: 1 = lo creó esta llamada (con el dueño de quien llama) */
 }
 
 static int e2_ler(void *priv, void *arq, uint32_t pos, void *buf, uint32_t n)
@@ -1333,4 +1375,5 @@ const sistema_arquivos_t fs_ext2 = {
     .abrir = e2_abrir, .ler = e2_ler, .escrever = e2_escrever, .truncar = e2_truncar, .fechar = e2_fechar, .sincronizar = e2_sincronizar,
     .criar_pasta = e2_criar_pasta, .remover_pasta = e2_remover_pasta, .apagar = e2_apagar,
     .renomear = e2_renomear, .espaco = e2_espaco,
+    .meta = e2_meta, .fixar_meta = e2_fixar_meta,   /* D282 */
 };

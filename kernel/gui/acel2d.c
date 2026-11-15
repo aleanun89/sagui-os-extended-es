@@ -9,7 +9,7 @@
  *
  * Al arrancar:
  *   1. se busca en el PCI una tarjeta de la tabla (VMware SVGA II, Intel Gen3 a
- *      Gen6, Radeon R100-R500 y R6xx/R7xx); la cabecera de arranque puede pedir la CPU
+ *      Gen6, Radeon R100-R500 y R6xx/R7xx, 3dfx Banshee/Voodoo3/VSA-100, ATI Mach64/Rage, S3 Trio64/ViRGE); la cabecera de arranque puede pedir la CPU
  *      (--sin-acel2d) o forzar un acelerador concreto (--acel2d=...);
  *   2. el acelerador se inicia y se pone a prueba: copias solapadas en las
  *      cuatro direcciones y rellenos en una zona de la memoria de vídeo (debajo
@@ -22,8 +22,12 @@
  * vuelve a la CPU, que redibuja la pantalla entera desde el búfer de atrás:
  * un fallo de la GPU nunca deja la máquina sin pantalla ni colgada.
  *
- * Solo con 32 bits por píxel en el orden 0x00RRGGBB (video_formato_direto):
- * en 15, 16 y 24 bits la conversión la hace la copia de la CPU y nada cambia. */
+ * Con 32 bits por píxel en el orden 0x00RRGGBB (video_formato_direto). En 24 bits
+ * (0xRRGGBB empaquetado) y 16 (RGB565), solo los aceleradores que lo declaran
+ * (outras_profundidades, D305: la 3dfx; D308: Mach64 y S3); en los demás casos la conversión la hace
+ * la copia de la CPU y nada cambia. La zona de prueba se lee y se escribe con los
+ * bytes por píxel de la tarjeta; la referencia de la CPU guarda los mismos valores
+ * (en el formato de la tarjeta) en un uint32_t por píxel. */
 #include "acel2d.h"
 #include "abi.h"
 #include "bootinfo.h"
@@ -56,6 +60,35 @@ typedef struct {
 
 static const acel_placa_t placas[] = {
     { 0x15AD, 0x0405, 0x0405, &acel_vmware, 2, "VMware SVGA II" },
+    /* D305: 3dfx con motor 2D (Banshee, Voodoo3, VSA-100). La generación: 0 = Banshee,
+     * 1 = Voodoo3, 2 = Voodoo4/5 (VSA-100). Los modelos exactos; acel_tdfx.c los vuelve a mirar. */
+    { 0x121A, 0x0003, 0x0003, &acel_tdfx, 0, "3dfx Voodoo Banshee" },
+    { 0x121A, 0x0005, 0x0005, &acel_tdfx, 1, "3dfx Voodoo3 (y Velocity 100/200)" },
+    { 0x121A, 0x0009, 0x0009, &acel_tdfx, 2, "3dfx Voodoo4/5 (VSA-100)" },
+    /* D308: ATI Mach64 y Rage (hasta la Rage XL/Mobility) y S3 Trio64/ViRGE. Los intervalos
+     * cubren las familias; acel_mach64.c y acel_s3.c solo siguen con los modelos exactos de
+     * su lista (y si el identificador que da el propio chip coincide). La generación: Mach64
+     * 0 = GX/CX, 1 = CT/VT/GT (Rage II), 2 = Rage Pro/LT Pro/XL/Mobility; S3 0 = ViRGE, 1 = Trio64. */
+    { 0x1002, 0x4358, 0x4358, &acel_mach64, 0, "ATI Mach64 CX" },
+    { 0x1002, 0x4758, 0x4758, &acel_mach64, 0, "ATI Mach64 GX" },
+    { 0x1002, 0x4354, 0x4354, &acel_mach64, 1, "ATI Mach64 CT" },
+    { 0x1002, 0x4554, 0x4554, &acel_mach64, 1, "ATI Mach64 ET" },
+    { 0x1002, 0x5654, 0x5656, &acel_mach64, 1, "ATI Mach64 VT" },
+    { 0x1002, 0x4754, 0x4757, &acel_mach64, 1, "ATI 3D Rage / Rage II" },
+    { 0x1002, 0x4759, 0x475A, &acel_mach64, 1, "ATI 3D Rage IIC" },
+    { 0x1002, 0x4C47, 0x4C47, &acel_mach64, 1, "ATI 3D Rage LT" },
+    { 0x1002, 0x4C54, 0x4C54, &acel_mach64, 1, "ATI 3D Rage LT" },
+    { 0x1002, 0x4742, 0x4751, &acel_mach64, 2, "ATI Rage Pro / Rage XL" },
+    { 0x1002, 0x4752, 0x4753, &acel_mach64, 2, "ATI Rage XL/XC" },
+    { 0x1002, 0x4C42, 0x4C53, &acel_mach64, 2, "ATI Rage LT Pro / Mobility" },
+    { 0x5333, 0x5631, 0x5631, &acel_s3, 0, "S3 ViRGE" },
+    { 0x5333, 0x883D, 0x883D, &acel_s3, 0, "S3 ViRGE/VX" },
+    { 0x5333, 0x8A01, 0x8A01, &acel_s3, 0, "S3 ViRGE/DX/GX" },
+    { 0x5333, 0x8A10, 0x8A10, &acel_s3, 0, "S3 ViRGE/GX2" },
+    { 0x5333, 0x8904, 0x8904, &acel_s3, 0, "S3 Trio3D" },
+    { 0x5333, 0x8A13, 0x8A13, &acel_s3, 0, "S3 Trio3D/2X" },
+    { 0x5333, 0x8811, 0x8814, &acel_s3, 1, "S3 Trio64/Trio64V+" },
+    { 0x5333, 0x8901, 0x8901, &acel_s3, 1, "S3 Trio64V2" },
     /* NVIDIA GeForce 6/7 (NV4x/G7x) y las integradas de los nForce (D224): los
      * intervalos de cada familia; acel_nv.c solo sigue con los identificadores
      * exactos de su lista y si PMC_BOOT_0 dice el chip esperado. */
@@ -171,7 +204,8 @@ static char motivo[160] = "sin iniciar";
 static acel_tela_t tela;
 static uint32_t n_copias, n_rellenos, n_falhas, n_arrastos, n_quadros;
 static uint64_t ciclos_arrasto;
-static uint32_t *zona;               /* zona de prueba en la memoria de vídeo (ventana del kernel) */
+static uint8_t *zona;                /* zona de prueba en la memoria de vídeo (ventana del kernel) */
+static uint32_t px_mascara = 0x00FFFFFF;   /* D305: los bits de un píxel de la tarjeta (0xFFFF en RGB565) */
 static int zona_y;                   /* su primera fila */
 static uint32_t cmd_original;        /* registro de órdenes del PCI de la tarjeta antes de tocarla */
 static uint32_t us_autoprova, us_gpu_boot, us_cpu_boot;   /* medidas del arranque (infopc, acel2d) */
@@ -215,6 +249,35 @@ bool acel_prazo_esgotado(acel_prazo_t *p)
 static inline void vaciar_wc(void)
 {
     __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
+}
+
+/* D305: píxeles de la zona de prueba con los bytes por píxel de la tarjeta (4, 3 o 2). */
+static inline uint8_t *zona_px(int x, int y)
+{
+    return zona + (uint32_t)y * tela.pitch + (uint32_t)x * (uint32_t)tela.bytes_px;
+}
+
+static inline uint32_t zona_ler(int x, int y)
+{
+    const uint8_t *p = zona_px(x, y);
+    if (tela.bytes_px == 4) return *(const uint32_t *)p;
+    if (tela.bytes_px == 3) return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
+    return *(const uint16_t *)p;
+}
+
+static inline void zona_escrever(int x, int y, uint32_t v)
+{
+    uint8_t *p = zona_px(x, y);
+    if (tela.bytes_px == 4) *(uint32_t *)p = v;
+    else if (tela.bytes_px == 3) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); }
+    else *(uint16_t *)p = (uint16_t)v;
+}
+
+/* Un color 0x00RRGGBB en el formato de la tarjeta, como lo escribiría la copia de la CPU. */
+static uint32_t cor_placa(uint32_t c)
+{
+    if (tela.bytes_px == 4) return c & 0x00FFFFFF;
+    return video_cor_placa(c & 0x00FFFFFF) & px_mascara;
 }
 
 /* ------------------------------------------------------------ la CPU de referencia */
@@ -291,24 +354,23 @@ static void ordem_aleatoria(ordem_t *o, int L, int A)
 
 static bool executar_gpu(const ordem_t *o)
 {
-    if (o->tipo) return drv->preencher(o->ox, zona_y + o->oy, o->l, o->a, o->cor);
+    if (o->tipo) return drv->preencher(o->ox, zona_y + o->oy, o->l, o->a, cor_placa(o->cor));
     return drv->copiar(o->ox, zona_y + o->oy, o->dx, zona_y + o->dy, o->l, o->a);
 }
 
 static void executar_cpu(uint32_t *ref, int L, const ordem_t *o)
 {
-    if (o->tipo) cpu_preencher(ref, L, o->ox, o->oy, o->l, o->a, o->cor);
+    if (o->tipo) cpu_preencher(ref, L, o->ox, o->oy, o->l, o->a, cor_placa(o->cor));
     else cpu_copiar(ref, L, o->ox, o->oy, o->dx, o->dy, o->l, o->a);
 }
 
 /* Pone la zona y la referencia en el mismo dibujo (que cambia en cada píxel). */
 static void zona_padrao(uint32_t *ref, int L, int A)
 {
-    uint32_t passo = tela.pitch / 4;
     for (int y = 0; y < A; y++)
         for (int x = 0; x < L; x++) {
-            uint32_t v = ((uint32_t)x * 2654435761u ^ (uint32_t)y * 40503u ^ ((uint32_t)(x + y) << 13)) & 0x00FFFFFF;
-            zona[(uint32_t)y * passo + (uint32_t)x] = v;
+            uint32_t v = ((uint32_t)x * 2654435761u ^ (uint32_t)y * 40503u ^ ((uint32_t)(x + y) << 13)) & px_mascara;
+            zona_escrever(x, y, v);
             ref[y * L + x] = v;
         }
     vaciar_wc();
@@ -345,13 +407,13 @@ static bool autoprova(bool completa, bool simular, info_acel2d_prova_t *r, char 
     }
     bool tempo = ok && simular && (modo & ACEL2D_PROVA_TEMPO);
     if (ok && (tempo || !drv->esperar())) { snformatar(m, (size_t)nm, "tiempo agotado al final%s", tempo ? " (simulado)" : ""); ok = false; }
-    uint32_t passo = tela.pitch / 4, dif = 0, sg = 0, sc = 0;
+    uint32_t dif = 0, sg = 0, sc = 0;
     int px = -1, py = -1;
     if (ok) {
-        if (simular && (modo & ACEL2D_PROVA_PIXEL)) zona[(uint32_t)(A / 2) * passo + (uint32_t)(L / 3)] ^= 0x00FF00;
+        if (simular && (modo & ACEL2D_PROVA_PIXEL)) zona_escrever(L / 3, A / 2, zona_ler(L / 3, A / 2) ^ 0x00FF00);
         for (int y = 0; y < A; y++)
             for (int x = 0; x < L; x++) {
-                uint32_t g = zona[(uint32_t)y * passo + (uint32_t)x] & 0x00FFFFFF, c = ref[y * L + x];
+                uint32_t g = zona_ler(x, y) & px_mascara, c = ref[y * L + x];
                 sg = sg * 31 + g; sc = sc * 31 + c;
                 if (g != c) { if (!dif) { px = x; py = y; klog("[ACEL2D] primer pixel distinto: gpu %x cpu %x\n", g, c); } dif++; }
             }
@@ -385,13 +447,12 @@ static void medir(info_acel2d_prova_t *r)
         ok = (k & 1) ? drv->copiar(4, zona_y + 2, 0, zona_y, l, a) : drv->copiar(0, zona_y, 4, zona_y + 2, l, a);
     if (ok) ok = drv->esperar();
     uint64_t t1 = tsc();
-    uint32_t passo = tela.pitch / 4;
     bool sse = rapido_inicio();
     for (int k = 0; k < VOLTAS_BENCH; k++) {
         int ox = (k & 1) ? 4 : 0, oy = (k & 1) ? 2 : 0, dx = 4 - ox, dy = 2 - oy;
         cpu_copiar(ref, L, ox, oy, dx, dy, l, a);
         for (int j = 0; j < a; j++)
-            rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ref + (dy + j) * L + dx, (uint32_t)l * 4);
+            rapido_copiar_tela(zona_px(dx, dy + j), ref + (dy + j) * L + dx, (uint32_t)(l * tela.bytes_px));
     }
     rapido_fim(sse);
     vaciar_wc();
@@ -413,7 +474,16 @@ static uint32_t soma_zona(const uint32_t *b, int passo, int L, int A)
 {
     uint32_t h = 0;
     for (int y = 0; y < A; y++)
-        for (int x = 0; x < L; x++) h = h * 31 + (b[y * passo + x] & 0x00FFFFFF);
+        for (int x = 0; x < L; x++) h = h * 31 + (b[y * passo + x] & px_mascara);
+    return h;
+}
+
+/* D305: la misma suma sobre la zona de la tarjeta, con sus bytes por píxel. */
+static uint32_t soma_placa(int L, int A)
+{
+    uint32_t h = 0;
+    for (int y = 0; y < A; y++)
+        for (int x = 0; x < L; x++) h = h * 31 + (zona_ler(x, y) & px_mascara);
     return h;
 }
 
@@ -424,7 +494,6 @@ static void medir_tandas(info_acel2d_prova_t *r)
     uint32_t *ref = kmalloc((uint32_t)(L * A) * 4);
     ordem_t *os = kmalloc(OPS_BENCH * sizeof(ordem_t));
     if (!ref || !os || !khz) { if (ref) kfree(ref); if (os) kfree(os); return; }
-    uint32_t passo = tela.pitch / 4;
     for (int t = 0; t < 3; t++) {
         semente = 0xBE7C0u + (uint32_t)t;
         uint32_t pix = 0;
@@ -458,7 +527,7 @@ static void medir_tandas(info_acel2d_prova_t *r)
         if (ok) ok = drv->esperar();
         uint64_t t1 = tsc();
         r->b[t].us_gpu = ok ? (uint32_t)sconv_div64((t1 - t0) * 1000, khz) : 0;
-        r->b[t].soma_gpu = ok ? soma_zona(zona, (int)passo, L, A) : 0;
+        r->b[t].soma_gpu = ok ? soma_placa(L, A) : 0;
         zona_padrao(ref, L, A);
         bool sse = rapido_inicio();
         uint64_t t2 = tsc();
@@ -467,7 +536,7 @@ static void medir_tandas(info_acel2d_prova_t *r)
             executar_cpu(ref, L, o);
             int dx = o->tipo ? o->ox : o->dx, dy = o->tipo ? o->oy : o->dy;
             for (int j = 0; j < o->a; j++)
-                rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ref + (dy + j) * L + dx, (uint32_t)o->l * 4);
+                rapido_copiar_tela(zona_px(dx, dy + j), ref + (dy + j) * L + dx, (uint32_t)(o->l * tela.bytes_px));
         }
         rapido_fim(sse);
         vaciar_wc();
@@ -502,12 +571,11 @@ static bool comparar_velocidade(uint32_t *ug, uint32_t *uc)
         ok = (k & 1) ? drv->copiar(4, zona_y + 2, 0, zona_y, l, a) : drv->copiar(0, zona_y, 4, zona_y + 2, l, a);
     if (ok) ok = drv->esperar();
     uint64_t t1 = tsc();
-    uint32_t passo = tela.pitch / 4;
     bool sse = rapido_inicio();
     for (int k = 0; k < VOLTAS_BOOT; k++) {
         int dx = (k & 1) ? 0 : 4, dy = (k & 1) ? 0 : 2;
         for (int j = 0; j < a; j++)
-            rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ram + (dy + j) * L + dx, (uint32_t)l * 4);
+            rapido_copiar_tela(zona_px(dx, dy + j), ram + (dy + j) * L + dx, (uint32_t)(l * tela.bytes_px));
         if (drv->atualizar) drv->atualizar(dx, zona_y + dy, l, a);   /* la VMware lo pide también con la CPU */
     }
     rapido_fim(sse);
@@ -577,6 +645,9 @@ static const char *nome_modo(int m)
     case ACEL2D_INTEL: return "intel";
     case ACEL2D_RADEON: return "radeon";
     case ACEL2D_NVIDIA: return "nvidia";
+    case ACEL2D_TDFX: return "tdfx";
+    case ACEL2D_MACH64: return "mach64";
+    case ACEL2D_S3: return "s3";
     default: return "auto";
     }
 }
@@ -587,11 +658,11 @@ static bool preparar_zona(void)
     bool cabe = tela.memoria >= tela.pitch * (uint32_t)(tela.alt + A);
     if (drv->fora_da_tela && cabe) {
         zona_y = tela.alt;
-        if (!zona) zona = (uint32_t *)janela_mapear_tipo(tela.fb_fisico + tela.pitch * (uint32_t)zona_y,
+        if (!zona) zona = (uint8_t *)janela_mapear_tipo(tela.fb_fisico + tela.pitch * (uint32_t)zona_y,
                                                           tela.pitch * (uint32_t)A, PG_PCD | PG_PWT);
     } else {
         zona_y = tela.alt - A;
-        zona = (uint32_t *)(video_placa() + tela.pitch * (uint32_t)zona_y);
+        zona = video_placa() + tela.pitch * (uint32_t)zona_y;
     }
     return zona != NULL;
 }
@@ -612,7 +683,18 @@ void acel2d_iniciar(void)
         klog("[ACEL2D] desactivado: %s\n", motivo);
         return;
     }
-    if (!video_formato_direto() || tela.larg < 320 || tela.alt < 2 * ZONA_A) {
+    /* D305: además de 32 bits 0x00RRGGBB, 24 bits 0xRRGGBB empaquetado y RGB565, pero estos dos
+     * solo con un acelerador que los acepte (se mira al elegirlo, más abajo). */
+    bool direto = video_formato_direto();
+    uint32_t bpp = video_bpp();
+    bool outra = !direto &&
+        ((bpp == 24 && video_cor_placa(0xFF0000) == 0xFF0000 && video_cor_placa(0x00FF00) == 0x00FF00 &&
+          video_cor_placa(0x0000FF) == 0x0000FF) ||
+         (bpp == 16 && video_cor_placa(0xFF0000) == 0xF800 && video_cor_placa(0x00FF00) == 0x07E0 &&
+          video_cor_placa(0x0000FF) == 0x001F));
+    tela.bytes_px = direto ? 4 : (int)(bpp + 7) / 8;
+    px_mascara = tela.bytes_px == 2 ? 0xFFFFu : 0x00FFFFFFu;
+    if ((!direto && !outra) || tela.larg < 320 || tela.alt < 2 * ZONA_A) {
         snformatar(motivo, sizeof motivo, "la pantalla no es de 32 bits 0x00RRGGBB (%u bits): copia la CPU", video_bpp());
         klog("[ACEL2D] CPU: %s\n", motivo);
         return;
@@ -654,6 +736,14 @@ void acel2d_iniciar(void)
     }
     klog("[ACEL2D] %s (%04x:%04x, generacion %d): acelerador %s%s\n", placa->nome, disp.fabricante, disp.modelo,
          placa->geracao, drv->nome, pedido != ACEL2D_AUTO ? " (forzado)" : "");
+    if (!direto && !drv->outras_profundidades) {
+        snformatar(motivo, sizeof motivo, "la pantalla no es de 32 bits 0x00RRGGBB (%u bits): copia la CPU", bpp);
+        klog("[ACEL2D] CPU: %s\n", motivo);
+        placa = NULL; drv = NULL;
+        return;
+    }
+    if (!direto) klog("[ACEL2D] pantalla de %u bits (%d bytes por pixel): el acelerador %s la acepta (D305)\n", bpp,
+                      tela.bytes_px, drv->nome);
     /* Los plazos de la GPU se miden con el TSC: sin él no se arriesga nada. */
     if (!hw_tsc_khz()) {
         snformatar(motivo, sizeof motivo, "%s: sin TSC medido para los plazos de la GPU: copia la CPU", placa->nome);
@@ -829,7 +919,7 @@ bool acel_rellenar(int x, int y, int l, int a, uint32_t cor)
     if (!recortar(&x, &y, &dx, &dy, &l, &a)) return true;
     bool sim = int_salva_desliga();
     vaciar_wc();
-    bool ok = drv->preencher(x, y, l, a, cor & 0x00FFFFFF);
+    bool ok = drv->preencher(x, y, l, a, cor_placa(cor));
     int_restaura(sim);
     if (!ok) { acel2d_desligar("la GPU rechazo un relleno"); return false; }
     n_rellenos++;
@@ -907,7 +997,6 @@ static void detalhar(void)
 {
     uint32_t khz = hw_tsc_khz();
     int L = tela.larg, A = ZONA_A;
-    uint32_t passo = tela.pitch / 4;
     uint32_t *ref = kmalloc((uint32_t)(L * A) * 4);
     if (!ref || !khz) { klog("[ACEL2D] detalle: sin memoria o sin TSC medido\n"); if (ref) kfree(ref); return; }
     zona_padrao(ref, L, A);
@@ -930,7 +1019,7 @@ static void detalhar(void)
         uint64_t t2 = tsc();
         executar_cpu(ref, L, &(ordem_t){ 0, ox, oy, dx, dy, l, a, 0 });
         for (int j = 0; j < a; j++)
-            rapido_copiar_tela(zona + (uint32_t)(dy + j) * passo + (uint32_t)dx, ref + (dy + j) * L + dx, (uint32_t)l * 4);
+            rapido_copiar_tela(zona_px(dx, dy + j), ref + (dy + j) * L + dx, (uint32_t)(l * tela.bytes_px));
         uint64_t t3 = tsc();
         klog("[ACEL2D] detalle: copia %dx%d%s (%u px)%s: GPU %u ns (cola %u + espera %u), CPU %u ns\n", l, a,
              t[i].l ? "" : " ancho completo", (uint32_t)(l * a), ok ? "" : " FALLO", (uint32_t)sconv_div64((t2 - t0) * 1000000, khz),

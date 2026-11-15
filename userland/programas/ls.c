@@ -6,6 +6,7 @@
  * solo los nombres, uno por línea: así "ls | grep x" y "ls | wc -l" funcionan
  * como en Unix. Las carpetas se ordenan por nombre salvo -t o -S. */
 #include "sagui.h"
+#include "contas.h"
 
 typedef struct { entrada_pasta_t e; uint32_t mt; } item_t;
 
@@ -14,7 +15,7 @@ static int cuantos_args;
 
 static const char *AYUDA =
     "uso: ls [-1ahlRrSt] [-d] [archivo|carpeta...]\n"
-    "  -l  formato largo: fecha de modificación, tamaño y nombre\n"
+    "  -l  formato largo: permisos, dueño y grupo, fecha de modificación, tamaño y nombre\n"
     "  -a  incluye los nombres que empiezan por punto\n"
     "  -h  tamaños legibles (1.5K, 3M) con -l\n"
     "  -R  recursivo: entra en las subcarpetas\n"
@@ -83,6 +84,36 @@ static int cmp_tamanho(const void *a, const void *b)
     return compara_texto(x->e.nome, y->e.nome);
 }
 
+/* D282: el nombre de un uid o gid, recordando los últimos (leer /etc/usuarios por
+ * cada archivo sería lento). Un gid se nombra por la cuenta con ese número. */
+static const char *nome_de(unsigned id)
+{
+    static struct { unsigned id; char nome[CONTA_NOME_MAX]; } cache[4];
+    static int prox, usados;
+    for (int i = 0; i < usados; i++) if (cache[i].id == id) return cache[i].nome;
+    int i = prox;
+    prox = (prox + 1) % 4;
+    if (usados < 4) usados++;
+    cache[i].id = id;
+    conta_nome(id, cache[i].nome, sizeof cache[i].nome);
+    return cache[i].nome;
+}
+
+/* "drwxr-xr-x sagui    sagui   " de la ruta (o interrogaciones si no se puede saber). */
+static void permisos_de(const char *caminho, const char *nome, unsigned tipo, char *dst, size_t max)
+{
+    char c[256], m[10];
+    if (caminho) caminho_juntar(c, sizeof c, caminho, nome);
+    else copia_texto(c, nome, sizeof c);
+    info_permisos_t p;
+    char t = tipo == TIPO_PASTA ? 'd' : '-';
+    if (permisos_arquivo(c, &p) < 0) { formatar_texto(dst, max, "%c????????? %-8s %-8s ", t, "?", "?"); return; }
+    texto_modo(p.modo, m);
+    formatar_texto(dst, max, "%c%s %-8s ", t, m, nome_de(p.uid));
+    size_t n = tam_texto(dst);
+    formatar_texto(dst + n, max - n, "%-8s ", nome_de(p.gid));
+}
+
 static void mostrar(const char *caminho, const char *nome, unsigned tipo, unsigned tamanho, uint32_t mt)
 {
     char linha[420], tam[16], np[200];
@@ -100,8 +131,8 @@ static void mostrar(const char *caminho, const char *nome, unsigned tipo, unsign
         saida_linha(linha, -1);
         return;
     }
-    (void)caminho;
-    char data[32];
+    char perm[64], data[32];
+    permisos_de(caminho, nome, tipo, perm, sizeof perm);
     if (mt) {
         fuso_data_t l;
         hora_local(mt, &l);
@@ -110,8 +141,8 @@ static void mostrar(const char *caminho, const char *nome, unsigned tipo, unsign
     if (humano) formatar_tamanho(tam, sizeof tam, tamanho);
     else formatar_texto(tam, sizeof tam, "%u", tamanho);
     nome_pintado(np, sizeof np, nome, tipo, tipo == TIPO_PASTA ? "/" : "", 0);
-    if (tipo == TIPO_PASTA) formatar_texto(linha, sizeof linha, "%s  %9s  %s", data, "<carpeta>", np);
-    else formatar_texto(linha, sizeof linha, "%s  %9s  %s%s", data, tam, np, tipo == TIPO_PROGRAMA ? "  (programa)" : "");
+    if (tipo == TIPO_PASTA) formatar_texto(linha, sizeof linha, "%s%s  %9s  %s", perm, data, "<carpeta>", np);
+    else formatar_texto(linha, sizeof linha, "%s%s  %9s  %s%s", perm, data, tam, np, tipo == TIPO_PROGRAMA ? "  (programa)" : "");
     saida_linha(linha, -1);
 }
 

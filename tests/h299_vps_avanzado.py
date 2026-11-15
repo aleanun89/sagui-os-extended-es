@@ -99,7 +99,7 @@ def pantalla(j, xy):
 def autoprueba(m, script, minimo):
     marca = len(m.serial())
     m.digitar("python /lib/python/vps/%s\n" % script, 0.03)
-    esperar(m, "vps-autoprueba: fin", marca, 150)
+    esperar(m, "vps-autoprueba: fin", marca, 240)
     s = m.serial()[marca:]
     fallos = re.findall(r"vps-autoprueba: FALLO (.*)", s)
     oks = re.findall(r"vps-autoprueba: ok (.*)", s)

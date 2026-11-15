@@ -22,11 +22,27 @@ static inline bool permisos_root(const processo_t *p) { return processo_lider((p
 /* La llamada "n" con sus argumentos: 0 si puede, ERRO_ACESSO si no (y lo anota). */
 int permisos_chamada(uint32_t n, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e);
 
-/* Rutas (ya resueltas y absolutas). Provisional hasta la fase 2 (permisos de
- * ficheros): unas pocas rutas fijas del sistema. */
-#define PERM_LER      1
+/* D282: permisos de archivos. Las rutas llegan ya resueltas y absolutas (sin
+ * "..", "." ni barras repetidas). Todas devuelven 0 si se puede (root y las
+ * tareas del kernel siempre) o ERRO_ACESSO (y lo anotan). Si algo de la ruta no
+ * existe, 0: la operación dará su error de siempre. */
+#define PERM_EXECUTAR 1   /* en una carpeta: entrar (recorrerla) */
 #define PERM_ESCREVER 2
+#define PERM_LER      4
+/* Entrar en todas las carpetas de la ruta y "quer" (PERM_*) sobre ella. */
+int permisos_acesso(const char *caminho, int quer);
+/* Crear "caminho": escribir y entrar en su carpeta. */
+int permisos_criar(const char *caminho);
+/* Borrar o mover "caminho": escribir y entrar en su carpeta, y si es pegajosa
+ * (/tmp), ser el dueño del archivo o de la carpeta. */
+int permisos_remover(const char *caminho);
+/* Los pocos secretos que se protegen por la ruta además de por sus permisos
+ * (también en FAT32, que no los tiene): la sombra, la clave privada del sshd, la
+ * contraseña del VNC y las órdenes al gestor de servicios. "acao": PERM_*. */
 int permisos_ruta(const char *caminho, int acao);
+/* El dueño, el grupo y el modo de lo que crea el proceso actual (umask aplicada;
+ * las tareas del kernel, root y 022). */
+void permisos_dono_novo(bool pasta, uint32_t *uid, uint32_t *gid, uint16_t *modo);
 
 /* Para el registro: lo que se hizo como root (elevaciones) y las denegaciones. */
 void permisos_anotar_negacao(const char *que, uint32_t n, uint32_t op);

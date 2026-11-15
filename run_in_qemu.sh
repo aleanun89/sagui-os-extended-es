@@ -331,6 +331,46 @@ else
     ARGS+=(-display vnc=127.0.0.1:0)
 fi
 
+# Información de depuración al arrancar (pedido del mantenedor, 2026-11-15): qué imagen se usa, de
+# qué versión y commit sale, qué aplicaciones lleva y la orden exacta de QEMU.
+mostrar_debug() {
+    local img="${IMAGEM_USADA:-$IMAGEM}" real tam fecha ver commit dir
+    real="$(readlink -f "$img" 2>/dev/null || echo "$img")"
+    echo "─── SaguiOS en QEMU ─────────────────────────────────────────────"
+    if [ -f "$real" ]; then
+        tam=$(( $(stat -c %s "$real") / 1048576 ))
+        fecha="$(stat -c %y "$real" | cut -d. -f1)"
+        echo "Imagen:     $real (${tam} MB, $fecha)"
+    else
+        echo "Imagen:     $real"
+    fi
+    dir="$(dirname "$real")"
+    # Con --imagen X.img.xz se arranca una copia descomprimida en build/: los datos, del original.
+    if [ -n "${IMAGEM_PEDIDA:-}" ] && [ "$(readlink -f "$IMAGEM_PEDIDA")" != "$real" ]; then
+        echo "            (copia de $(readlink -f "$IMAGEM_PEDIDA"))"
+        dir="$(dirname "$(readlink -f "$IMAGEM_PEDIDA")")"
+    fi
+    if [ -f "$dir/VERSION.txt" ]; then
+        # Imagen de una entrega (make variantes / priv_variantes): sus datos vienen en VERSION.txt.
+        grep -E '^(Versión|Commit|Generado|Variante|input_share|Aplicaciones):' "$dir/VERSION.txt" | sed 's/^/            /'
+    else
+        ver="$(sed -n 's/^#define SAGUI_VERSAO *"\(.*\)"/\1/p' "$RAIZ/kernel/inc/versao.h" 2>/dev/null)"
+        commit="$(git -C "$RAIZ" log -1 --format='%h %cd' --date=format:'%Y-%m-%d %H:%M' 2>/dev/null || echo '?')"
+        echo "Versión:    ${ver:-?} (código fuente actual; commit $commit)"
+        if [ -n "$(git -C "$RAIZ" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+            echo "            AVISO: hay cambios sin commitear en el árbol"
+        fi
+        if [ -d "$RAIZ/build/apps/raiz/bin" ]; then
+            echo "Apps:       $(ls "$RAIZ/build/apps/raiz/bin" 2>/dev/null | tr '\n' ' ')"
+        fi
+        [ -f "$RAIZ/build/tamanho-base.txt" ] && echo "Arranque:   $(( $(cat "$RAIZ/build/tamanho-base.txt") / 1048576 )) MB en RAM al arrancar (meta 38 MB, D306)"
+    fi
+    echo "Máquina:    $MODO, ${MEM} MB${CPU:+, CPU $CPU}${UEFI:+, UEFI $UEFI}, $ACEL"
+    if [ "$SERIE" = 1 ]; then echo "Serie:      en esta terminal"; else echo "Serie:      $RAIZ/build/qemu-serie.log  (tail -f en otra terminal)"; fi
+    echo "Orden:      $QEMU_BIN $(printf '%q ' "${ARGS[@]}")"
+    echo "──────────────────────────────────────────────────────────────────"
+}
+
 # KVM: la CPU del PC ejecuta SaguiOS directamente (10-50 veces más rápido que
 # la emulación por software, TCG). Si /dev/kvm no está disponible, TCG.
 # "-accel kvm -accel tcg": si KVM falla al arrancar, QEMU sigue con TCG.
@@ -342,6 +382,7 @@ if [ "${KVM:-1}" = 1 ] && [ -e /dev/kvm ]; then
         # Ya estás en el grupo kvm, pero esta sesión del WSL se abrió antes:
         # sg abre una con el grupo, sin tener que reiniciar el WSL.
         ARGS+=(-accel kvm -accel tcg); ACEL="KVM (vía sg)"
+        mostrar_debug
         echo "Arrancando SaguiOS ($MODO, ${MEM} MB${CPU:+, CPU $CPU}, $ACEL)..."
         exec sg kvm -c "$(printf '%q ' env ${PULSE_SERVER:+PULSE_SERVER="$PULSE_SERVER"} ${XDG_RUNTIME_DIR:+XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"} ${LD_LIBRARY_PATH:+LD_LIBRARY_PATH="$LD_LIBRARY_PATH"} "$(command -v "$QEMU_BIN")" "${ARGS[@]}")"
     else
@@ -349,5 +390,6 @@ if [ "${KVM:-1}" = 1 ] && [ -e /dev/kvm ]; then
     fi
 fi
 
+mostrar_debug
 echo "Arrancando SaguiOS ($MODO, ${MEM} MB${CPU:+, CPU $CPU}${UEFI:+, UEFI $UEFI}, $ACEL)..."
 exec "$QEMU_BIN" "${ARGS[@]}"

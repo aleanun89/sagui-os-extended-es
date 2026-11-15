@@ -117,6 +117,9 @@ void termgraf_char(char ch)
     if (estado_esc == 1) {
         estado_esc = c == '[' ? 2 : 0;
     } else if (estado_esc == 2) {
+        /* D317: los parámetros (ESC [ 1 ; 32 m, ESC [ 18 t...) se saltan hasta la letra
+         * final; antes se veían en pantalla. Solo se atienden las letras de siempre. */
+        if ((c >= '0' && c <= '9') || c == ';' || c == '?') { mostrar_cursor(true); return; }
         estado_esc = 0;
         if (c == 'D' && col > 0) col--;
         else if (c == 'C' && col < colunas - 1) col++;

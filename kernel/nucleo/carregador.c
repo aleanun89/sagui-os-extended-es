@@ -172,6 +172,7 @@ static void dar_identidade(processo_t *p, processo_t *pai)
         /* Lo que lanza el gestor de servicios (y sus descendientes) no es la
          * sesión local: SSH, cron, VNC... Se hereda aunque el padre muera. */
         p->de_servico = l->de_servico || l->exe_sistema == EXE_SERVICIOS;
+        p->umask = l->umask;   /* D282 */
     } else if (identidade_kernel >= 0) {
         p->uid = (uint32_t)identidade_kernel & 0xFFFF;
         p->gid = (uint32_t)identidade_kernel >> 16;
@@ -259,6 +260,7 @@ int32_t sis_executar(uint32_t ptr_caminho, uint32_t ptr_argv, uint32_t ptr_envp,
     int r = usuario_texto((const char *)ptr_caminho, bruto, sizeof bruto);
     if (r < 0) return r;
     if (!caminho_resolver(processo_recursos()->pasta, bruto, caminho, sizeof caminho)) return ERRO_INVALIDO;
+    if ((r = permisos_acesso(caminho, PERM_LER | PERM_EXECUTAR)) < 0) return r;   /* D282 */
 
     char **argv = kmalloc((MAX_ARGS + 1 + MAX_ENV + 1) * sizeof(char *));
     char *textos = kmalloc(MAX_ARGS_BYTES);

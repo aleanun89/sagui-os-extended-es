@@ -4,7 +4,7 @@
 
 Criterio:
   unidad (PC): tests/terminal_unidad.c: OSC con el texto del título y 256 colores -> 16 ANSI;
-  QEMU (escritorio, sesión como sagui, Terminal con TERM=xterm-16color):
+  QEMU (escritorio, sesión como sagui, Terminal con TERM=xterm-256color):
   - el prompt sale con color: «sagui@saguios:/$» con el usuario en verde y la carpeta en azul;
   - la copia del Terminal a la serial no lleva secuencias de color ni de título;
   - «ls /»: las carpetas en azul y los programas en verde (píxeles de la captura);

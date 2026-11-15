@@ -55,20 +55,24 @@ static TL_USADA bool tl_comeca(const char *s, const char *p)
 
 /* ------------------------------------------------------------ secuencias de escape */
 
-#define TL_PAR 8
+#define TL_PAR 16
 #define TL_ESC_NAO   0   /* un carácter normal: hay que imprimirlo */
 #define TL_ESC_COMER 1   /* consumido por la secuencia */
 #define TL_ESC_CSI   2   /* secuencia CSI completa: final, par[0..n-1], privado */
 #define TL_ESC_OSC   3   /* secuencia OSC completa: el texto está en osc[] (D263: título de la ventana) */
+#define TL_ESC_ESC   4   /* D320: ESC + (intermedio) + final completa: inter (0 si no hay) y final (ESC 7, ESC M, ESC ( 0...) */
 #define TL_OSC_MAX   80
 
 typedef struct {
-    int  estado;          /* 0 normal, 1 tras ESC, 2 parámetros CSI, 3 OSC, 4 ESC dentro de OSC */
+    int  estado;          /* 0 normal, 1 tras ESC, 2 parámetros CSI, 3 OSC, 4 ESC dentro de OSC, 5 ESC + intermedio */
     int  par[TL_PAR];
     int  n;               /* parámetros recibidos (0 si no hubo ninguno) */
     bool tem;             /* el parámetro actual ya tiene algún dígito */
     bool privado;         /* ESC [ ? ... */
     char final;
+    char marca;           /* D320: «<», «=», «>» o «?» tras «ESC [» (0 si no hay) */
+    char inter;           /* D320: último byte intermedio (0x20-0x2F: «!», «$», espacio...) */
+    char osc_tipo;        /* D320: «]» OSC (se entrega); P X ^ _ (DCS, SOS, PM, APC): se descartan */
     char osc[TL_OSC_MAX];  /* texto de la OSC en curso («0;título») */
     int  osc_n;
 } tl_esc_t;
@@ -81,11 +85,21 @@ static TL_USADA int tl_esc_alimentar(tl_esc_t *e, unsigned char c)
         return TL_ESC_NAO;
     case 1:
         if (c == '[') {
-            e->estado = 2; e->n = 0; e->tem = false; e->privado = false; e->final = 0;
+            e->estado = 2; e->n = 0; e->tem = false; e->privado = false; e->final = 0; e->marca = 0; e->inter = 0;
             for (int i = 0; i < TL_PAR; i++) e->par[i] = 0;
-        } else if (c == ']') { e->estado = 3; e->osc_n = 0; e->osc[0] = 0; }
-        else e->estado = 0;   /* ESC + otra letra: se descarta, como siempre */
+        } else if (c == ']' || c == 'P' || c == 'X' || c == '^' || c == '_') {
+            e->estado = 3; e->osc_n = 0; e->osc[0] = 0; e->osc_tipo = (char)c;
+        } else if (c >= 0x20 && c <= 0x2F) { e->estado = 5; e->inter = (char)c; }
+        else if (c == 27) e->estado = 1;
+        else if (c >= 0x30 && c <= 0x7E) { e->estado = 0; e->inter = 0; e->final = (char)c; return TL_ESC_ESC; }
+        else e->estado = 0;
         return TL_ESC_COMER;
+    case 5:   /* ESC ( 0, ESC # 8...: un último byte */
+        if (c == 27) { e->estado = 1; return TL_ESC_COMER; }
+        e->estado = 0;
+        if (c < 0x20) return TL_ESC_COMER;
+        e->final = (char)c;
+        return TL_ESC_ESC;
     case 2:
         if (c >= '0' && c <= '9') {
             if (e->n == 0) e->n = 1;
@@ -94,25 +108,27 @@ static TL_USADA int tl_esc_alimentar(tl_esc_t *e, unsigned char c)
                 if (*p < 10000) *p = *p * 10 + (c - '0');
             }
             e->tem = true;
-        } else if (c == ';') {
+        } else if (c == ';' || c == ':') {   /* «38:5:n» se lee como «38;5;n» */
             if (e->n == 0) e->n = 1;
             if (e->n < TL_PAR) e->n++;
             e->tem = false;
-        } else if (c == '?') e->privado = true;
+        } else if (c >= '<' && c <= '?') { e->marca = (char)c; e->privado = c == '?'; }
+        else if (c >= 0x20 && c <= 0x2F) e->inter = (char)c;
         else if (c >= 0x40 && c <= 0x7E) {
             e->estado = 0;
             e->final = (char)c;
             return TL_ESC_CSI;
         } else if (c == 27) e->estado = 1;   /* secuencia cortada por otra */
-        /* lo demás (intermedios 0x20-0x2F, controles): se ignora */
+        else if (c == 0x18 || c == 0x1A) e->estado = 0;   /* CAN y SUB la cancelan */
+        /* lo demás (otros controles): se ignora */
         return TL_ESC_COMER;
     case 3:   /* OSC: hasta BEL o ESC \ ; se guarda el texto (el título de la ventana, D263) */
-        if (c == 7) { e->estado = 0; return TL_ESC_OSC; }
+        if (c == 7) { e->estado = 0; return e->osc_tipo == ']' ? TL_ESC_OSC : TL_ESC_COMER; }
         if (c == 27) e->estado = 4;
         else if (e->osc_n < TL_OSC_MAX - 1) { e->osc[e->osc_n++] = (char)c; e->osc[e->osc_n] = 0; }
         return TL_ESC_COMER;
     default:
-        if (c == '\\') { e->estado = 0; return TL_ESC_OSC; }
+        if (c == '\\') { e->estado = 0; return e->osc_tipo == ']' ? TL_ESC_OSC : TL_ESC_COMER; }
         e->estado = 3;
         return TL_ESC_COMER;
     }
@@ -128,17 +144,29 @@ static TL_USADA int tl_par(const tl_esc_t *e, int i, int def)
 /* ------------------------------------------------------------ atributos de celda */
 
 /* 16 bits: bits 0-4 color de letra (0 = el de la tema, 1..16 = ANSI 0..15), bits 5-9 el de fondo,
- * bit 10 negrita, bit 11 inverso. Cero es el atributo por defecto: la memoria a cero ya vale. */
+ * bit 10 negrita, bit 11 inverso, y (D320) bit 12 tenue, 13 subrayado, 14 oculto y 15 «dibujo de línea DEC»
+ * (la letra guardada es la del juego ESC ( 0: «q» = línea horizontal...). Cero es el atributo por defecto:
+ * la memoria a cero ya vale. */
 #define TL_AT_NEGRITA (1u << 10)
 #define TL_AT_INVERSO (1u << 11)
+#define TL_AT_TENUE   (1u << 12)
+#define TL_AT_SUBRAYA (1u << 13)
+#define TL_AT_OCULTO  (1u << 14)
+#define TL_AT_DEC     (1u << 15)
+#define TL_AT_FONDO   (31u << 5)
 #define TL_AT_FG(a)   ((a) & 31u)
 #define TL_AT_BG(a)   (((a) >> 5) & 31u)
 
 static TL_USADA uint16_t tl_sgr(uint16_t at, int p)
 {
-    if (p == 0) return 0;
+    if (p == 0) return (uint16_t)(at & TL_AT_DEC);   /* el «dibujo DEC» es del juego de caracteres, no del SGR */
     if (p == 1) return (uint16_t)(at | TL_AT_NEGRITA);
-    if (p == 22) return (uint16_t)(at & ~TL_AT_NEGRITA);
+    if (p == 2) return (uint16_t)(at | TL_AT_TENUE);
+    if (p == 22) return (uint16_t)(at & ~(TL_AT_NEGRITA | TL_AT_TENUE));
+    if (p == 4) return (uint16_t)(at | TL_AT_SUBRAYA);
+    if (p == 24) return (uint16_t)(at & ~TL_AT_SUBRAYA);
+    if (p == 8) return (uint16_t)(at | TL_AT_OCULTO);
+    if (p == 28) return (uint16_t)(at & ~TL_AT_OCULTO);
     if (p == 7) return (uint16_t)(at | TL_AT_INVERSO);
     if (p == 27) return (uint16_t)(at & ~TL_AT_INVERSO);
     if (p >= 30 && p <= 37) return (uint16_t)((at & ~31u) | (unsigned)(p - 30 + 1));
@@ -174,7 +202,7 @@ static TL_USADA int tl_256_a_16(int n)
 /* Aplica ESC [ ... m entera. 38/48 con ;5;n (256 colores) y ;2;r;g;b (RGB) se llevan a la paleta de 16. */
 static TL_USADA uint16_t tl_sgr_todo(uint16_t at, const tl_esc_t *e)
 {
-    if (e->n == 0) return 0;
+    if (e->n == 0) return (uint16_t)(at & TL_AT_DEC);
     for (int i = 0; i < e->n && i < TL_PAR; i++) {
         int p = e->par[i];
         if (p == 38 || p == 48) {
@@ -409,6 +437,8 @@ static TL_USADA void tl_cores_da_celula(const tl_conf_t *c, uint16_t at, uint32_
     else if (at & TL_AT_NEGRITA) cf = tl_misturar(c->letra, 0xFFFFFF, 35);
     if (b) cb = c->ansi[(b - 1) & 15];
     if (at & TL_AT_INVERSO) { uint32_t t = cf; cf = cb; cb = t; }
+    if (at & TL_AT_TENUE) cf = tl_misturar(cf, cb, 45);
+    if (at & TL_AT_OCULTO) cf = cb;
     *fg = cf; *bg = cb;
 }
 

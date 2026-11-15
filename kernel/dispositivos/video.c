@@ -105,6 +105,9 @@ static inline uint32_t na_placa(uint32_t c)
            (((c & 255) >> (8 - tam_b)) << pos_b);
 }
 
+/* D305: lo mismo para la capa del 2D por la GPU, que rellena directamente en la tarjeta. */
+uint32_t video_cor_placa(cor_t c) { return na_placa(c); }
+
 bool video_iniciar(void)
 {
     uint32_t p = info_boot.vesa_bpp;

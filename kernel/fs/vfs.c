@@ -17,6 +17,7 @@
 #include "sgfs.h"
 #include "texto.h"
 #include "montagem.h"
+#include "permisos.h"
 #include "relogio.h"
 
 static no_t raiz;
@@ -32,6 +33,7 @@ static no_t *novo_no(no_t *pai, const char *nome, size_t n, uint8_t tipo)
     x->tipo = tipo;
     x->pai = pai;
     x->modificado = hora_utc();   /* D080: los del ramdisk quedan con la hora del arranque */
+    x->modo = tipo == TIPO_ARQUIVO ? 0644 : 0755;   /* D282: de root; vfs_criar pone los de quien crea */
     /* Inserta en orden alfabético: el ls sale ordenado sin necesidad de ordenar. */
     no_t **p = &pai->filho;
     while (*p && txt_compara((*p)->nome, x->nome) < 0)
@@ -50,10 +52,29 @@ static no_t *filho_chamado(no_t *pasta, const char *nome, size_t n)
     return NULL;
 }
 
+/* D282: los permisos del ramdisk. Todo es de root (carpetas y programas 0755, el
+ * resto 0644) salvo: /home y lo de dentro, de sagui; /tmp, 1777 (todos crean,
+ * cada uno borra lo suyo); /sistema, 0700 (la configuración del sistema, SAGUI-CONF);
+ * la sombra, 0600. "c" es la ruta sin la barra inicial, de "n" bytes. */
+static bool prefixo(const char *c, size_t n, const char *p)
+{
+    size_t k = txt_tamanho(p);
+    return n >= k && txt_compara_n(c, p, k) == 0 && (n == k || c[k] == '/');
+}
+
+static void meta_inicial(no_t *x, const char *c, size_t n)
+{
+    if (prefixo(c, n, "home")) { x->uid = UID_SAGUI; x->gid = GID_SAGUI; }
+    if (n == 3 && txt_compara_n(c, "tmp", 3) == 0) x->modo = 01777;
+    if (n == 7 && txt_compara_n(c, "sistema", 7) == 0) x->modo = 0700;
+    if (n >= 10 && txt_compara_n(c, "etc/sombra", 10) == 0) x->modo = 0600;
+}
+
 void vfs_iniciar(void)
 {
     memset(&raiz, 0, sizeof raiz);
     raiz.tipo = TIPO_PASTA;
+    raiz.modo = 0755;
     for (uint32_t i = 0; i < sgfs_quantidade(); i++) {
         const sgfs_entrada_t *e = sgfs_entrada(i);
         /* Recorre la ruta creando las carpetas intermedias que falten. */
@@ -69,6 +90,7 @@ void vfs_iniciar(void)
                                          e->tipo == SGFS_PROGRAMA ? TIPO_PROGRAMA : TIPO_ARQUIVO) : TIPO_PASTA;
                 x = novo_no(atual, c, (size_t)(fim - c), tipo);
                 if (!x) return;
+                meta_inicial(x, e->caminho, (size_t)(fim - e->caminho));
                 if (ultimo && tipo != TIPO_PASTA) {
                     x->tamanho = e->tamanho;
                     x->original = e->tamanho ? sgfs_dados(e) : NULL;
@@ -129,6 +151,7 @@ int vfs_criar(const char *caminho, uint8_t tipo, no_t **saida)
     if (filho_chamado(pasta, nome, txt_tamanho(nome))) return ERRO_JA_EXISTE;
     no_t *x = novo_no(pasta, nome, txt_tamanho(nome), tipo);
     if (!x) return ERRO_SEM_MEMORIA;
+    permisos_dono_novo(tipo == TIPO_PASTA, &x->uid, &x->gid, &x->modo);   /* D282 */
     if (saida) *saida = x;
     return 0;
 }
@@ -339,5 +362,66 @@ int vfs_ler_inteiro(const char *caminho, uint8_t **dados, uint32_t *tam)
     if (!buf) return ERRO_SEM_MEMORIA;
     *tam = vfs_ler(x, 0, buf, x->tamanho);
     *dados = buf;
+    return 0;
+}
+
+/* ------------------------------------------------------------ D282: permisos */
+
+static bool em_home(const char *c)
+{
+    return txt_compara_n(c, "/home", 5) == 0 && (c[5] == 0 || c[5] == '/');
+}
+
+/* Dueño, grupo y modo de una ruta. "olhar" = comprobar también que existe en un
+ * sistema sin dueños (FAT32...), donde los permisos salen del montaje y son los
+ * mismos para todo: para recorrer las carpetas de una ruta no hace falta leer el disco. */
+static int meta_de(const char *caminho, meta_t *m, bool olhar)
+{
+    memset(m, 0, sizeof *m);
+    const char *rel;
+    montagem_t *mt = montagem_de(caminho, &rel);
+    if (mt) {
+        int r = montagem_meta(mt, rel, m, olhar);
+        if (r < 0) return r;
+    } else {
+        no_t *x = vfs_achar(caminho);
+        if (!x) return ERRO_NAO_EXISTE;
+        m->uid = x->uid;
+        m->gid = x->gid;
+        m->modo = x->modo;
+        m->tipo = x->tipo;
+        m->com_donos = true;
+    }
+    /* Hasta la fase 3 hay un solo usuario: lo que es de root en /home se ve como
+     * de sagui (lo que se creó antes de D282 en un ext2 era todo de root, y lo
+     * que root crea ahí, como «zona» o un programa elevado, sigue siendo de la
+     * persona). Lo de antes en un ext2 era 0644: se ve también ejecutable. */
+    if (em_home(caminho)) {
+        if (m->uid == UID_ROOT) {
+            m->uid = UID_SAGUI;
+            if (mt && m->com_donos && m->tipo != TIPO_PASTA) m->modo |= (uint16_t)((m->modo & 0444) >> 2);
+        }
+        if (m->gid == GID_ROOT) m->gid = GID_SAGUI;
+    }
+    return 0;
+}
+
+int vfs_meta(const char *caminho, meta_t *m) { return meta_de(caminho, m, true); }
+int vfs_meta_rapida(const char *caminho, meta_t *m) { return meta_de(caminho, m, false); }
+
+int vfs_fixar_meta(const char *caminho, int32_t uid, int32_t gid, int32_t modo)
+{
+    const char *rel;
+    montagem_t *mt = montagem_de(caminho, &rel);
+    if (mt) {
+        if (!mt->fs->fixar_meta) return ERRO_NAO_SUPORTADO;
+        if (mt->opcoes & MONTAR_SO_LEITURA) return ERRO_SO_LEITURA;
+        return mt->fs->fixar_meta(mt->priv, rel, uid, gid, modo);
+    }
+    no_t *x = vfs_achar(caminho);
+    if (!x) return ERRO_NAO_EXISTE;
+    if (uid >= 0) x->uid = (uint32_t)uid;
+    if (gid >= 0) x->gid = (uint32_t)gid;
+    if (modo >= 0) x->modo = (uint16_t)(modo & MODO_PERMISOS);
     return 0;
 }

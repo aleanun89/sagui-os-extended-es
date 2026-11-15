@@ -12,13 +12,16 @@
 #include "pci.h"
 
 /* Lo que pide la cabecera de arranque (CAB_ACEL2D, byte 135; mkimagem.py). */
-#define ACEL2D_MODO_MASCARA 0x07
+#define ACEL2D_MODO_MASCARA 0x0F  /* D308: 4 bits (antes 3); 0x10 y 0x20 siguen siendo las pruebas */
 #define ACEL2D_AUTO         0     /* elección automática por el PCI (lo normal) */
 #define ACEL2D_CPU          1     /* --sin-acel2d o --acel2d=cpu: siempre la CPU */
 #define ACEL2D_VMWARE       2     /* --acel2d=vmware: solo ese acelerador */
 #define ACEL2D_INTEL        3     /* --acel2d=intel */
 #define ACEL2D_RADEON       4     /* --acel2d=radeon (R100-R500 y, D223, R6xx/R7xx) */
 #define ACEL2D_NVIDIA       6     /* --acel2d=nvidia (GeForce 6/7, D224) */
+#define ACEL2D_TDFX         7     /* --acel2d=tdfx (3dfx Banshee, Voodoo3, Voodoo4/5; D305) */
+#define ACEL2D_MACH64       8     /* --acel2d=mach64 (ATI Mach64 y Rage hasta la XL, D308) */
+#define ACEL2D_S3           9     /* --acel2d=s3 (S3 Trio64 y ViRGE, D308) */
 #define ACEL2D_PROVA_PIXEL  0x10  /* pruebas: la autoprueba del arranque ve un píxel distinto */
 #define ACEL2D_PROVA_TEMPO  0x20  /* pruebas: la autoprueba del arranque no termina a tiempo */
 
@@ -33,6 +36,8 @@ typedef struct {
     uint32_t pitch;          /* bytes por línea */
     int      larg, alt;      /* píxeles visibles */
     uint32_t memoria;        /* bytes de memoria de vídeo que anunció el VBE */
+    int      bytes_px;       /* D305: 4 (32 bits 0x00RRGGBB); 3 (24 bits) o 2 (RGB565) solo con
+                                los aceleradores que lo aceptan (outras_profundidades) */
 } acel_tela_t;
 
 /* Un acelerador. Las coordenadas son píxeles del framebuffer, con el mismo pitch
@@ -55,6 +60,10 @@ typedef struct {
     bool        assincrono;           /* el motor sigue trabajando tras copiar(): hay que esperar antes de que
                                          la CPU toque la pantalla (acel_sincronizar) */
     void (*detalle)(const char *fase);   /* vuelca al log [ACEL2D] los registros clave («acel2d probar --detalle») */
+    /* D305 (opcional; false en los demás): el acelerador también trabaja con pantallas de 24 bits
+     * (0xRRGGBB empaquetado) y de 16 (RGB565). Los colores de preencher() le llegan ya en el formato
+     * de la tarjeta (los bits bajos de un uint32_t) y las coordenadas siguen en píxeles. */
+    bool        outras_profundidades;
 } acel_driver_t;
 
 /* Un plazo con el TSC (y, sin TSC medido, con un número de vueltas). */
@@ -68,7 +77,7 @@ void        acel2d_iniciar(void);            /* tras video_iniciar: detecta, pru
 bool        acel2d_ativo(void);
 /* D285: tarjeta de la pantalla y su acelerador, aunque el 2D esté en la CPU (false: ninguna de la tabla). */
 bool        acel2d_placa(pci_disp_t *d, int *geracao, const acel_driver_t **driver, acel_tela_t *t, bool *suspeito);
-const char *acel2d_nome(void);               /* "vmware", "intel", "radeon" o "cpu" */
+const char *acel2d_nome(void);               /* "vmware", "intel", "radeon", "tdfx", "mach64", "s3"... o "cpu" */
 const char *acel2d_motivo(void);             /* por qué la CPU, o qué tarjeta se usa */
 bool        acel2d_forcado(void);            /* se pidió un acelerador concreto (--acel2d=...) */
 void        acel2d_desligar(const char *motivo);   /* vuelve a la CPU para siempre */
@@ -94,5 +103,8 @@ extern const acel_driver_t acel_intel;
 extern const acel_driver_t acel_radeon;
 extern const acel_driver_t acel_r600;      /* R6xx/R7xx por el motor DMA (D223) */
 extern const acel_driver_t acel_nv;
+extern const acel_driver_t acel_tdfx;      /* 3dfx Banshee/Voodoo3/Voodoo4/5 (D305) */
+extern const acel_driver_t acel_mach64;   /* ATI Mach64/Rage (D308) */
+extern const acel_driver_t acel_s3;       /* S3 Trio64 y ViRGE (D308) */
 
 #endif

@@ -171,3 +171,20 @@ def renombrar_valido(forms, c, nuevo, es_form=False):
     if nuevo != c["nombre"] and nuevo in todos_los_nombres(forms):
         return "ya hay otro control o formulario con ese nombre"
     return None
+
+
+def mover_z(form, c, frente):
+    """Trae `c` (con lo que contiene) al frente o lo envía atrás entre los controles de su mismo
+    contenedor. Los controles se dibujan en el orden de la lista: el último queda encima."""
+    bloque = [c] + descendientes(form, c)
+    resto = [x for x in form["controles"] if not any(x is b for b in bloque)]
+    if frente:
+        resto += bloque
+    else:
+        pos = 0
+        if c["padre"]:
+            for i, x in enumerate(resto):
+                if x["nombre"] == c["padre"]:
+                    pos = i + 1
+        resto[pos:pos] = bloque
+    form["controles"] = resto

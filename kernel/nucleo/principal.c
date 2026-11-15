@@ -29,10 +29,12 @@
 #include "gui.h"
 #include "telas.h"
 #include "usb.h"
+#include "mandos.h"
 #include "xhci.h"
 #include "info_hardware.h"
 #include "montagem.h"
 #include "ata.h"
+#include "cache_disco.h"
 #include "atapi.h"
 #include "rede.h"
 #include "wc.h"
@@ -46,6 +48,7 @@
 #include "bateria.h"
 #include "smp.h"
 #include "trava_geral.h"
+#include "isa.h"
 #include "ioapic.h"
 #include "irq_rotas.h"
 #include "cpu_dados.h"
@@ -226,6 +229,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     int_liga();
     hw_medir_tsc();       /* 100 ms: TSC contra el PIT (D041) */
     memfisica_iniciar();
+    isa_dma_reservar();   /* D302: 128 KB bajo 16 MB para el DMA ISA, antes de que se gaste la memoria baja */
     paginacao_iniciar();
     wc_iniciar();         /* PAT con una entrada write-combining, antes de mapear el framebuffer (D057) */
 
@@ -399,6 +403,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     /* H29-H31: USB 2.0 (EHCI), hubs y pendrives de datos. */
     usb_iniciar();
     arranque_marca("usb");
+    mandos_iniciar();   /* D307: el puerto de juegos (y los mandos de prueba); los USB llegan por hid.c */
     {
         char linha[96];
         int n = ehci_quantidade(), nx = xhci_quantidade(), nu = uhci_quantidade(), no = ohci_quantidade();
@@ -520,6 +525,8 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
      * esperando el DMA en vez de girar con el sistema detenido. Antes (y en el
      * pánico) la espera sigue siendo síncrona. */
     ehci_modo_assincrono(true);
+    ata_modo_assincrono(true);    /* D281: el DMA del IDE duerme esperando su IRQ */
+    cache_disco_tarefa_iniciar(); /* D281: vaciado periódico de la escritura diferida */
     xhci_modo_assincrono(true);   /* D214: la IRQ del xHCI, con su sonda para la autoprueba */
     /* D211: con el IOAPIC, cada driver que sabe provocar una interrupción de
      * su dispositivo comprueba que llega; si no, esa línea vuelve al 8259. */

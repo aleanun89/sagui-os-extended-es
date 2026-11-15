@@ -37,6 +37,24 @@ static bool listar(const char *caminho, int i, entrada_pasta_t *e)
     return vfs_listar(caminho, i, e) == 1;
 }
 
+/* D282: lo copiado a /etc es siempre de root; de SAGUI-CONF solo se toman los
+ * permisos, sin escritura para el grupo ni los otros (un archivo de otro dueño
+ * en la partición no puede dar a nadie la configuración del sistema). Los
+ * secretos, 0600 aunque en la partición estén mal. */
+static void fixar_meta(no_t *x, const char *de, const char *para)
+{
+    meta_t m;
+    uint16_t modo = x->tipo == TIPO_PASTA ? 0755 : 0644;
+    if (vfs_meta(de, &m) == 0) modo = (uint16_t)(m.modo & 0755);
+    if (x->tipo == TIPO_PASTA) modo |= 0700;
+    if (txt_comeca_com(para, "/etc/sombra") || txt_comeca_com(para, "/etc/ssh/ssh_host_") ||
+        txt_comeca_com(para, "/etc/vnc/vncd.passwd"))
+        modo &= 0700;
+    x->uid = UID_ROOT;
+    x->gid = GID_ROOT;
+    x->modo = modo;
+}
+
 static void copiar_arquivo(const char *de, const char *para)
 {
     uint8_t *dados;
@@ -53,6 +71,7 @@ static void copiar_arquivo(const char *de, const char *para)
     if (!x && vfs_criar(para, TIPO_ARQUIVO, &x) < 0) { kfree(dados); saltados++; return; }
     vfs_truncar(x);
     if (tam) vfs_escrever(x, 0, dados, tam);
+    fixar_meta(x, de, para);
     kfree(dados);
     copiados++;
     copiados_bytes += tam;
@@ -62,8 +81,9 @@ static void copiar_pasta(const char *de, const char *para, int nivel)
 {
     if (nivel > NIVEIS_MAX) return;
     no_t *p = vfs_achar(para);
-    if (!p && vfs_criar(para, TIPO_PASTA, NULL) < 0) return;
-    if (p && p->tipo != TIPO_PASTA) return;
+    if (!p && vfs_criar(para, TIPO_PASTA, &p) < 0) return;
+    if (p->tipo != TIPO_PASTA) return;
+    fixar_meta(p, de, para);
     entrada_pasta_t e;
     for (int i = 0; i < 512 && listar(de, i, &e); i++) {
         if (txt_compara(e.nome, ".") == 0 || txt_compara(e.nome, "..") == 0 || txt_compara(e.nome, "lost+found") == 0)

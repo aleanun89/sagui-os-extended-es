@@ -13,6 +13,9 @@
  * kernel (ESC [ D / C / K / J) y algunas más (D231): cursor (A B C D G H f d), borrar (J K),
  * colores y negrita (ESC [ n m, los 16 colores ANSI de la tema), guardar y restaurar
  * el cursor (s u) y ocultarlo (ESC [ ? 25 l / h). Las secuencias OSC se descartan.
+ * D320: el emulador está en terminal_vt.h (un subconjunto de xterm/VT220 para vim, less, htop, nano y mc por
+ * ssh: regiones de desplazamiento, IL/DL, pantalla alternativa, 256 colores aproximados, cajas DEC, DSR/DA); este
+ * archivo le pone la rejilla, el historial y el dibujo, y manda las teclas como xterm cuando ssh lo pide.
  *
  * Todo lo que escribe el shell también va a la salida del propio Terminal
  * (que, con el escritorio en marcha, es la serial): es lo que leen los tests.
@@ -56,6 +59,7 @@
 #include "gui.h"
 #include "fontes.h"
 #include "terminal_logica.h"
+#include "terminal_vt.h"
 
 #define COLS_MAX TL_COLS_MAX
 #define LINS_MAX TL_LINS_MAX
@@ -67,16 +71,10 @@
 
 typedef struct {
     int       shell, mestre;
-    char     *g;                 /* grilla: LINS_MAX x COLS_MAX letras */
-    uint16_t *a;                 /* y sus atributos */
+    vt_t      vt;                /* el emulador (D320): grilla, atributos, cursor, modos y secuencias */
     unsigned char **hist;        /* anillo de líneas: [n lo, n hi, letras, atributos de 2 bytes] */
     int       hmax, hist_ini, hist_n;
     int       volta;             /* líneas arriba del fin (0 = viendo la grilla) */
-    int       col, lin;
-    tl_esc_t  esc;
-    uint16_t  at;                /* atributo con el que se escribe */
-    int       salvo_col, salvo_lin;
-    bool      cur_oculto;
     bool      sel_ativa, selecionando;   /* selección (D074), en líneas y columnas de la ventana */
     int       sel_al, sel_ac, sel_l, sel_c;
     char      titulo[28], dir[28];
@@ -87,8 +85,8 @@ typedef struct {
     bool      raiz;              /* el shell avisó (OSC 0 «[root] ...») de que es root (D263) */
 } sessao_t;
 
-#define GR(s, l, c) ((s)->g[(l) * COLS_MAX + (c)])
-#define AT(s, l, c) ((s)->a[(l) * COLS_MAX + (c)])
+#define GR(s, l, c) ((s)->vt.g[(l) * COLS_MAX + (c)])
+#define AT(s, l, c) ((s)->vt.a[(l) * COLS_MAX + (c)])
 
 static jan_t *j;
 static tl_conf_t conf;
@@ -244,9 +242,10 @@ static void linha_doc(sessao_t *s, int idx, const char **ch, int *n)
 
 static void sessao_limpar(sessao_t *s)
 {
-    memset(s->g, ' ', (size_t)COLS_MAX * LINS_MAX);
-    memset(s->a, 0, (size_t)COLS_MAX * LINS_MAX * 2);
-    s->col = s->lin = 0;
+    memset(s->vt.g, ' ', (size_t)COLS_MAX * LINS_MAX);
+    memset(s->vt.a, 0, (size_t)COLS_MAX * LINS_MAX * 2);
+    s->vt.col = s->vt.lin = 0;
+    s->vt.pend = false;
     if (s == sa) sujar_tudo();
 }
 
@@ -302,9 +301,55 @@ static void cores(int l, int c, uint16_t at, uint32_t *fg, uint32_t *bg)
     if (busca_ok && sa->hist_n - sa->volta + l == busca_idx && c >= busca_col && c < busca_col + (int)tl_len(busca)) {
         *fg = 0x1E2328; *bg = COR_BUSCA;
     } else if (selecionada(sa, l, c)) { *fg = conf.fundo; *bg = conf.selecao; }
-    else if (!sa->volta && l == sa->lin && c == sa->col && conf.cursor == TL_CUR_BLOCO && !sa->cur_oculto &&
+    else if (!sa->volta && l == sa->vt.lin && c == sa->vt.col && conf.cursor == TL_CUR_BLOCO && !sa->vt.cur_oculto &&
              (!conf.parpadeo || cursor_aceso)) { *fg = conf.fundo; *bg = conf.cursor_cor; }
     if (inverso) { uint32_t t = *fg; *fg = *bg; *bg = t; }
+}
+
+/* D320: el dibujo de línea del juego ESC ( 0. Las cajas se trazan con rectángulos (así se ven en cualquier
+ * fuente, también en la interna 8x16); lo demás se aproxima con una letra Latin-1. Devuelve la letra a
+ * escribir (' ' si lo traza dibujar_dec) y en *brazos los lados de la línea: 1 izq, 2 der, 4 arriba, 8 abajo,
+ * 16 relleno completo, 32 trama. */
+static char dec_letra(char c, int *brazos)
+{
+    *brazos = 0;
+    switch (c) {
+    case 'j': *brazos = 1 | 4; return ' ';
+    case 'k': *brazos = 1 | 8; return ' ';
+    case 'l': *brazos = 2 | 8; return ' ';
+    case 'm': *brazos = 2 | 4; return ' ';
+    case 'n': *brazos = 15; return ' ';
+    case 'q': *brazos = 3; return ' ';
+    case 't': *brazos = 2 | 4 | 8; return ' ';
+    case 'u': *brazos = 1 | 4 | 8; return ' ';
+    case 'v': *brazos = 3 | 4; return ' ';
+    case 'w': *brazos = 3 | 8; return ' ';
+    case 'x': *brazos = 12; return ' ';
+    case '0': *brazos = 16; return ' ';
+    case 'a': *brazos = 32; return ' ';
+    case '`': return '*';
+    case 'f': return (char)0xB0;
+    case 'g': return (char)0xB1;
+    case '~': return (char)0xB7;
+    case '}': return (char)0xA3;
+    case '{': return 'p';
+    case '|': return '!';
+    case 'y': return '<';
+    case 'z': return '>';
+    case 'o': case 'p': case 'r': case 's': return '-';
+    default: return ' ';
+    }
+}
+
+static void dibujar_dec(int x, int y, int brazos, uint32_t fg, uint32_t bg)
+{
+    int cx = celL / 2, cy = celA / 2;
+    if (brazos & 16) { g_retangulo(j, x, y, celL, celA, fg); return; }
+    if (brazos & 32) { g_retangulo(j, x, y, celL, celA, tl_misturar(bg, fg, 40)); return; }
+    if (brazos & 1) g_retangulo(j, x, y + cy, cx + 1, 1, fg);
+    if (brazos & 2) g_retangulo(j, x + cx, y + cy, celL - cx, 1, fg);
+    if (brazos & 4) g_retangulo(j, x + cx, y, 1, cy + 1, fg);
+    if (brazos & 8) g_retangulo(j, x + cx, y + cy, 1, celA - cy, fg);
 }
 
 static void desenhar_linha(int l)
@@ -312,6 +357,15 @@ static void desenhar_linha(int l)
     const char *ch;
     const uint16_t *at;
     linha_vis(sa, l, &ch, &at);
+    const char *orig = ch;
+    char lc[COLS_MAX];   /* las letras, con las del dibujo DEC ya traducidas */
+    bool especial = false;
+    for (int c = 0; c < COLS; c++) {
+        lc[c] = ch[c];
+        if (at[c] & (TL_AT_DEC | TL_AT_SUBRAYA)) especial = true;
+        if (at[c] & TL_AT_DEC) { int b; lc[c] = dec_letra(ch[c], &b); }
+    }
+    ch = lc;
     int y = y0 + l * celA;
     uint32_t fundo = inverso ? conf.letra : conf.fundo;
     g_retangulo(j, 0, y, j->larg, celA, fundo);
@@ -328,9 +382,18 @@ static void desenhar_linha(int l)
         cel_texto(MARGEM + c * celL, y, ch + c, e - c, fg);
         c = e;
     }
-    if (!sa->volta && l == sa->lin && sa->col < COLS && !sa->cur_oculto && (!conf.parpadeo || cursor_aceso)) {
-        if (conf.cursor == TL_CUR_SUBLINHADO) g_retangulo(j, MARGEM + sa->col * celL, y + celA - 2, celL, 2, conf.cursor_cor);
-        else if (conf.cursor == TL_CUR_BARRA) g_retangulo(j, MARGEM + sa->col * celL, y, 2, celA, conf.cursor_cor);
+    if (especial) {
+        for (int c = 0; c < COLS; c++) {
+            if (!(at[c] & (TL_AT_DEC | TL_AT_SUBRAYA))) continue;
+            uint32_t fg, bg;
+            cores(l, c, at[c], &fg, &bg);
+            if (at[c] & TL_AT_DEC) { int b; dec_letra(orig[c], &b); if (b) dibujar_dec(MARGEM + c * celL, y, b, fg, bg); }
+            if (at[c] & TL_AT_SUBRAYA) g_retangulo(j, MARGEM + c * celL, y + celA - 1, celL, 1, fg);
+        }
+    }
+    if (!sa->volta && l == sa->vt.lin && sa->vt.col < COLS && !sa->vt.cur_oculto && (!conf.parpadeo || cursor_aceso)) {
+        if (conf.cursor == TL_CUR_SUBLINHADO) g_retangulo(j, MARGEM + sa->vt.col * celL, y + celA - 2, celL, 2, conf.cursor_cor);
+        else if (conf.cursor == TL_CUR_BARRA) g_retangulo(j, MARGEM + sa->vt.col * celL, y, 2, celA, conf.cursor_cor);
     }
     if (sa->volta && l == 0) {   /* aviso en la esquina: cuánto se volvió */
         char t[40];
@@ -452,80 +515,13 @@ static void mostrar(void)
 
 /* ------------------------------------------------------------ salida del shell */
 
-static void rolar(sessao_t *s)
-{
-    guardar_historico(s, 0);
-    memmove(&GR(s, 0, 0), &GR(s, 1, 0), (size_t)(LINS - 1) * COLS_MAX);
-    memmove(&AT(s, 0, 0), &AT(s, 1, 0), (size_t)(LINS - 1) * COLS_MAX * 2);
-    memset(&GR(s, LINS - 1, 0), ' ', COLS_MAX);
-    memset(&AT(s, LINS - 1, 0), 0, COLS_MAX * 2);
-    s->lin = LINS - 1;
-    if (s == sa) sujar_tudo();
-}
-
 static void campana(void)
 {
     if (conf.campana == TL_CAMP_SOM) bip(880, 70);
     else if (conf.campana == TL_CAMP_VISUAL) { inverso = true; t_campana = tempo_ms() + 110; sujar_tudo(); }
 }
 
-static void limpar_trecho(sessao_t *s, int l, int c0, int c1)   /* c1 exclusivo */
-{
-    if (c0 < 0) c0 = 0;
-    if (c1 > COLS_MAX) c1 = COLS_MAX;
-    if (c1 <= c0) return;
-    memset(&GR(s, l, c0), ' ', (size_t)(c1 - c0));
-    memset(&AT(s, l, c0), 0, (size_t)(c1 - c0) * 2);
-}
-
 static int limitar(int v, int a, int b) { return v < a ? a : v > b ? b : v; }
-
-/* Una secuencia ESC [ ... completa. */
-static void csi(sessao_t *s)
-{
-    const tl_esc_t *e = &s->esc;
-    int n1 = tl_par(e, 0, 1);
-    if (e->privado) {
-        if ((e->final == 'l' || e->final == 'h') && tl_par(e, 0, 0) == 25) s->cur_oculto = e->final == 'l';
-        return;
-    }
-    switch (e->final) {
-    case 'A': s->lin = limitar(s->lin - n1, 0, LINS - 1); break;
-    case 'B': s->lin = limitar(s->lin + n1, 0, LINS - 1); break;
-    case 'C': s->col = limitar(s->col + n1, 0, COLS - 1); break;
-    case 'D': s->col = limitar(s->col - n1, 0, COLS - 1); break;
-    case 'G': s->col = limitar(n1 - 1, 0, COLS - 1); break;
-    case 'd': s->lin = limitar(n1 - 1, 0, LINS - 1); break;
-    case 'H': case 'f':
-        s->lin = limitar(tl_par(e, 0, 1) - 1, 0, LINS - 1);
-        s->col = limitar(tl_par(e, 1, 1) - 1, 0, COLS - 1);
-        break;
-    case 'J': {
-        int m = e->n ? e->par[0] : 2;
-        if (m == 0) {
-            limpar_trecho(s, s->lin, s->col, COLS_MAX);
-            for (int l = s->lin + 1; l < LINS; l++) limpar_trecho(s, l, 0, COLS_MAX);
-        } else if (m == 1) {
-            for (int l = 0; l < s->lin; l++) limpar_trecho(s, l, 0, COLS_MAX);
-            limpar_trecho(s, s->lin, 0, s->col + 1);
-        } else sessao_limpar(s);   /* sin parámetro o 2: limpia todo y va al origen, como siempre */
-        if (s == sa) sujar_tudo();
-        break;
-    }
-    case 'K': {
-        int m = e->n ? e->par[0] : 0;
-        if (m == 1) limpar_trecho(s, s->lin, 0, s->col + 1);
-        else if (m == 2) limpar_trecho(s, s->lin, 0, COLS_MAX);
-        else limpar_trecho(s, s->lin, s->col, COLS_MAX);
-        break;
-    }
-    case 'X': limpar_trecho(s, s->lin, s->col, s->col + n1); break;
-    case 'm': s->at = tl_sgr_todo(s->at, e); break;
-    case 's': s->salvo_col = s->col; s->salvo_lin = s->lin; break;
-    case 'u': s->col = limitar(s->salvo_col, 0, COLS - 1); s->lin = limitar(s->salvo_lin, 0, LINS - 1); break;
-    default: break;
-    }
-}
 
 static void tamanho_minimo(void);
 static void novo_tamanho(bool avisar);
@@ -544,7 +540,7 @@ static void reavaliar_barra(bool tinha_barra)
  * cada prompt, así que al salir de «su» la marca se quita sola. Sirve igual por SSH. */
 static void osc(sessao_t *s)
 {
-    const char *t = s->esc.osc;
+    const char *t = s->vt.esc.osc;
     if (!((t[0] == '0' || t[0] == '2') && t[1] == ';')) return;
     bool raiz = tl_comeca(t + 2, "[root]");
     if (raiz == s->raiz) return;
@@ -585,29 +581,28 @@ static void copiar_serie(sessao_t *s, const char *b, int n)
     if (m > 0) escrever(SAIDA, o, (unsigned)m);
 }
 
+/* Callbacks del emulador (terminal_vt.h): u es la sesión. */
+static void cb_hist(void *u, int l) { guardar_historico(u, l); }
+static void cb_suja(void *u, int l0, int l1) { if (u == sa) for (int l = l0; l <= l1 && l < LINS; l++) sujar(l); }
+static void cb_resp(void *u, const char *b, int n) { sessao_t *s = u; if (s->mestre >= 0) escrever_tudo(s->mestre, b, (unsigned)n); }
+static void cb_sino(void *u) { (void)u; campana(); }
+static void cb_osc(void *u) { osc(u); }
+static void cb_limpar_hist(void *u)
+{
+    sessao_t *s = u;
+    for (int i = 0; i < s->hist_n; i++) { int k = (s->hist_ini + i) % s->hmax; if (s->hist[k]) { libera(s->hist[k]); s->hist[k] = NULL; } }
+    s->hist_n = 0; s->hist_ini = 0; s->volta = 0;
+    if (s == sa) sujar_tudo();
+}
+
 static void receber(sessao_t *s, unsigned char c)
 {
-    bool viva = s == sa;
-    if (viva) {
+    if (s == sa) {
         sem_selecao(s);
         if (!busca_ativa) voltar_para_baixo(s);
         else busca_ok = false;
-        sujar(s->lin);
     } else s->sel_ativa = s->selecionando = false;
-    int r = tl_esc_alimentar(&s->esc, c);
-    if (r == TL_ESC_COMER) return;
-    if (r == TL_ESC_CSI) { csi(s); if (viva) sujar(s->lin); return; }
-    if (r == TL_ESC_OSC) { osc(s); return; }
-    if (c == 7) { campana(); return; }
-    if (c == '\n') { s->col = 0; s->lin++; }
-    else if (c == '\r') s->col = 0;
-    else if (c == '\t') s->col = (s->col + 8) & ~7;
-    else if (c == '\b') { if (s->col > 0) { s->col--; GR(s, s->lin, s->col) = ' '; AT(s, s->lin, s->col) = 0; } }
-    else if (c >= 0x20) { GR(s, s->lin, s->col) = (char)c; AT(s, s->lin, s->col) = s->at; s->col++; }
-    else return;   /* otros controles no se dibujan */
-    if (s->col >= COLS) { s->col = 0; s->lin++; }
-    if (s->lin >= LINS) rolar(s);
-    if (viva) sujar(s->lin);
+    vt_byte(&s->vt, c);
 }
 
 /* ------------------------------------------------------------ tamaño de la ventana */
@@ -621,17 +616,7 @@ static void novo_tamanho(bool avisar)
     nl = limitar(nl, 1, LINS_MAX);
     for (int i = 0; i < nsess; i++) {
         sessao_t *s = sess[i];
-        if (s->lin >= nl) {   /* el cursor quedaría afuera: el texto sube */
-            int d = s->lin - nl + 1;
-            for (int k = 0; k < d; k++) guardar_historico(s, k);
-            memmove(&GR(s, 0, 0), &GR(s, d, 0), (size_t)(LINS_MAX - d) * COLS_MAX);
-            memmove(&AT(s, 0, 0), &AT(s, d, 0), (size_t)(LINS_MAX - d) * COLS_MAX * 2);
-            memset(&GR(s, LINS_MAX - d, 0), ' ', (size_t)d * COLS_MAX);
-            memset(&AT(s, LINS_MAX - d, 0), 0, (size_t)d * COLS_MAX * 2);
-            s->lin -= d;
-        }
-        for (int l = nl; l < LINS_MAX; l++) { memset(&GR(s, l, 0), ' ', COLS_MAX); memset(&AT(s, l, 0), 0, COLS_MAX * 2); }
-        if (s->col >= nc) s->col = nc - 1;
+        vt_redimensionar(&s->vt, nc, nl);
         s->sel_ativa = s->selecionando = false;
         if (s->volta > s->hist_n) s->volta = s->hist_n;
     }
@@ -658,12 +643,16 @@ static sessao_t *sessao_nova(void)
     if (nsess >= MAX_SESSOES) return NULL;
     sessao_t *s = aloca_zerado(sizeof *s);
     if (!s) return NULL;
-    s->g = aloca((size_t)COLS_MAX * LINS_MAX);
-    s->a = aloca_zerado((size_t)COLS_MAX * LINS_MAX * 2);
+    s->vt.g = aloca((size_t)COLS_MAX * LINS_MAX);
+    s->vt.a = aloca_zerado((size_t)COLS_MAX * LINS_MAX * 2);
+    s->vt.cols = COLS; s->vt.lins = LINS;
+    s->vt.u = s; s->vt.hist = cb_hist; s->vt.suja = cb_suja; s->vt.resp = cb_resp;
+    s->vt.sino = cb_sino; s->vt.osc = cb_osc; s->vt.limpar_hist = cb_limpar_hist;
+    vt_iniciar(&s->vt);
     s->hmax = conf.hist;
     if (s->hmax > 0) s->hist = aloca_zerado((size_t)s->hmax * sizeof *s->hist);
-    if (!s->g || !s->a || (s->hmax > 0 && !s->hist)) goto falta;
-    memset(s->g, ' ', (size_t)COLS_MAX * LINS_MAX);
+    if (!s->vt.g || !s->vt.a || (s->hmax > 0 && !s->hist)) goto falta;
+    memset(s->vt.g, ' ', (size_t)COLS_MAX * LINS_MAX);
     s->shell = -1;
     int tv[2];
     if (abrir_tv(tv) < 0) goto falta;
@@ -678,7 +667,7 @@ static sessao_t *sessao_nova(void)
     int ne = 0;
     for (int e = 0; environ && environ[e] && ne < 90; e++)
         if (compara_texto_n(environ[e], "TERM=", 5) != 0) envp[ne++] = environ[e];
-    envp[ne++] = "TERM=xterm-16color";
+    envp[ne++] = "TERM=xterm-256color";   /* D320: 256 colores (aproximados a la paleta de 16), bce, regiones, pantalla alternativa */
     envp[ne] = NULL;
     int shell = executar_env("/bin/sagsh", args, envp);
     duplicar(g0, ENTRADA); duplicar(g1, SAIDA); duplicar(g2, ERROS);
@@ -696,7 +685,7 @@ static sessao_t *sessao_nova(void)
     return s;
 falta:
     if (s->hist) libera(s->hist);
-    libera(s->g); libera(s->a); libera(s);
+    libera(s->vt.g); libera(s->vt.a); libera(s);
     return NULL;
 }
 
@@ -704,7 +693,9 @@ static void sessao_liberar(sessao_t *s)
 {
     for (int i = 0; i < s->hmax && s->hist; i++) if (s->hist[i]) libera(s->hist[i]);
     if (s->hist) libera(s->hist);
-    libera(s->g); libera(s->a);
+    libera(s->vt.g); libera(s->vt.a);
+    if (s->vt.g2) libera(s->vt.g2);
+    if (s->vt.a2) libera(s->vt.a2);
     fechar(s->mestre);
     libera(s);
 }
@@ -762,7 +753,7 @@ static void atualizar_titulos(void)
         else {
             const char *ch;
             int nn;
-            linha_doc(s, s->hist_n + s->lin, &ch, &nn);
+            linha_doc(s, s->hist_n + s->vt.lin, &ch, &nn);
             char d[28];
             if (tl_titulo_do_prompt(ch, nn, d, sizeof d)) tl_copiar(s->dir, sizeof s->dir, d);
             tl_copiar(novo, sizeof novo, s->dir[0] ? s->dir : "sagsh");
@@ -831,7 +822,7 @@ static void copiar(void)
         int a = sa->sel_al * COLS_MAX + sa->sel_ac, b = sa->sel_l * COLS_MAX + sa->sel_c;
         if (a > b) { int x = a; a = b; b = x; }
         l0 = a / COLS_MAX; c0 = a % COLS_MAX; l1 = b / COLS_MAX; c1 = b % COLS_MAX;
-    } else { l0 = l1 = sa->volta ? LINS - 1 : sa->lin; c0 = 0; c1 = COLS - 1; }
+    } else { l0 = l1 = sa->volta ? LINS - 1 : sa->vt.lin; c0 = 0; c1 = COLS - 1; }
     for (int l = l0; l <= l1 && l < LINS; l++) {
         const char *s;
         const uint16_t *at;
@@ -859,7 +850,9 @@ static void colar(void)
     for (int i = 0; i < n; i++) if (b[i] != '\r') b[k++] = b[i];
     sem_selecao(sa);
     voltar_para_baixo(sa);
+    if (sa->vt.colar_cor) escrever_tudo(sa->mestre, "\033[200~", 6);   /* D320: pegado entre corchetes (?2004) */
     escrever_tudo(sa->mestre, b, (unsigned)k);
+    if (sa->vt.colar_cor) escrever_tudo(sa->mestre, "\033[201~", 6);
     libera(b);
     registrar("terminal: pegado %d bytes", k);
 }
@@ -1006,13 +999,67 @@ static void zoom(int delta)
 
 /* ------------------------------------------------------------ teclas hacia el shell */
 
-/* Tecla de la ventana -> bytes para el shell, en el formato del modo crudo. */
-static void enviar_tecla(unsigned t)
+/* D320: la tecla como la manda un xterm (solo cuando el cliente ssh lo pidió con CSI ? 7700 h).
+ * Devuelve los bytes, o 0 si la tecla no tiene secuencia. */
+static int tecla_xterm(const vt_t *v, unsigned t, unsigned m, char *b)
 {
-    char b[2];
+    int mod = 1 + ((m & 1) ? 1 : 0) + ((m & 4) ? 2 : 0) + ((m & 2) ? 4 : 0);   /* Mayús 1, Alt 2, Ctrl 4 */
+    char fin = 0;
+    int num = 0;
+    switch (t) {
+    case TECLA_CIMA: fin = 'A'; break;
+    case TECLA_BAIXO: fin = 'B'; break;
+    case TECLA_DIREITA: fin = 'C'; break;
+    case TECLA_ESQUERDA: fin = 'D'; break;
+    case TECLA_HOME: fin = 'H'; break;
+    case TECLA_END: fin = 'F'; break;
+    case TECLA_INSERT: num = 2; break;
+    case TECLA_DELETE: num = 3; break;
+    case TECLA_PGUP: num = 5; break;
+    case TECLA_PGDN: num = 6; break;
+    case TECLA_ESC: b[0] = 27; return 1;
+    default:
+        if (t >= 0x10A && t <= 0x115) {   /* F1..F12 */
+            static const char fn[12] = { 'P', 'Q', 'R', 'S', 15, 17, 18, 19, 20, 21, 23, 24 };
+            int f = (int)(t - 0x10A);
+            if (f < 4) fin = fn[f]; else num = fn[f];
+            if (f < 4 && mod == 1) { b[0] = 27; b[1] = 'O'; b[2] = fin; return 3; }
+            break;
+        }
+        return 0;
+    }
+    int n = 0;
+    b[n++] = 27;
+    if (fin) {
+        if (mod == 1) { b[n++] = v->app_cur && (fin <= 'D' || fin == 'H' || fin == 'F') ? 'O' : '['; b[n++] = fin; return n; }
+        b[n++] = '['; b[n++] = '1'; b[n++] = ';'; b[n++] = (char)('0' + mod); b[n++] = fin; return n;
+    }
+    b[n++] = '[';
+    if (num >= 10) { b[n++] = (char)('0' + num / 10); }
+    b[n++] = (char)('0' + num % 10);
+    if (mod != 1) { b[n++] = ';'; b[n++] = (char)('0' + mod); }
+    b[n++] = '~';
+    return n;
+}
+
+/* Tecla de la ventana -> bytes para el shell, en el formato del modo crudo. */
+static void enviar_tecla(unsigned t, unsigned m)
+{
+    char b[16];
     int n = 1;
     sem_selecao(sa);
     voltar_para_baixo(sa);
+    if (sa->vt.xterm) {
+        n = tecla_xterm(&sa->vt, t, m, b);
+        if (!n && t < 0x100) {
+            int k = 0;
+            if (m & 4) b[k++] = 27;   /* Alt+tecla = ESC + tecla */
+            b[k++] = (char)t;
+            n = k;
+        }
+        if (n) escrever_tudo(sa->mestre, b, (unsigned)n);
+        return;
+    }
     if (t < 0x100) b[0] = (char)t;
     else {
         b[0] = 27;
@@ -1430,7 +1477,7 @@ static void menu_resposta(const evento_t *e)
         return;
     }
     registrar("terminal: menu -> %d", k);
-    if (k == 0) enviar_tecla(12);
+    if (k == 0) enviar_tecla(12, 0);
     else if (k == 1) copiar();
     else if (k == 2) colar();
     else if (k == 3) selecionar_tudo();
@@ -1495,7 +1542,7 @@ int principal(int argc, char **argv)
             }
             if (e.tipo == EV_TECLA) {
                 cursor_aceso = true; t_cursor = tempo_ms();
-                if (!atalho(&e)) enviar_tecla(e.tecla);
+                if (!atalho(&e)) enviar_tecla(e.tecla, e.modificadores);
                 if (nsess == 0) break;
                 continue;
             }
@@ -1513,7 +1560,7 @@ int principal(int argc, char **argv)
         if (inverso && agora >= t_campana) { inverso = false; sujar_tudo(); }
         if (conf.parpadeo && agora - t_cursor >= 530) {
             cursor_aceso = !cursor_aceso; t_cursor = agora;
-            sujar(sa->lin);
+            sujar(sa->vt.lin);
         }
         if (agora - t_titulos >= 500) {
             t_titulos = agora;

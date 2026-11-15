@@ -706,6 +706,18 @@ static void secao_pci(texto_t *t)
            p->fabricante, p->modelo, nome_classe(p->classe, p->subclasse, p->interface),
            f ? f : "?", d ? " " : "", d ? d : "");
     }
+    /* D302: los dispositivos ISA que detectó el kernel */
+    static info_isa_t isa[8];
+    int ni = info_sistema(INFO_ISA, isa, 8);
+    if (ni > 0) ad(t, "%d dispositivo(s) ISA (puerto, IRQ, DMA de 8 y de 16 bits):\n", ni);
+    for (int i = 0; i < ni && i < 8; i++) {
+        const info_isa_t *e = &isa[i];
+        char q[8] = "-", d8[8] = "-", d16[8] = "-";
+        if (e->irq != 0xFF) formatar_texto(q, sizeof q, "%u", e->irq);
+        if (e->dma8 != 0xFF) formatar_texto(d8, sizeof d8, "%u", e->dma8);
+        if (e->dma16 != 0xFF) formatar_texto(d16, sizeof d16, "%u", e->dma16);
+        ad(t, "  %03xh  IRQ %-2s DMA %s/%s  %s%s%s\n", e->porta, q, d8, d16, e->nome, e->detalhe[0] ? "; " : "", e->detalhe);
+    }
     secao_irq(t);
 }
 

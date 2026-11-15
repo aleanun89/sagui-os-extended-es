@@ -70,6 +70,7 @@ void pic_desabilitar(uint8_t irq);
 void pic_fim(uint8_t irq);
 bool pic_espuria(uint8_t irq);
 bool pic_em_servico(uint8_t irq);   /* D211: el bit de la IRQ en el ISR del 8259 */
+uint16_t pic_pedidos(void);         /* D302: el IRR de los dos 8259 (bit = línea) */
 
 SEM_RETORNO void excecao_fatal(quadro_t *q);
 quadro_t *excecao_usuario(quadro_t *q);

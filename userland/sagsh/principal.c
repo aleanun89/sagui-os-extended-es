@@ -71,7 +71,7 @@ static void titulo_ventana(void)
     char n[32], pasta[256];
     if (pasta_atual(pasta, sizeof pasta) < 0) copia_texto(pasta, "?", sizeof pasta);
     texto_t t = {0};
-    tx_junta(&t, "\x1b]0;");
+    tx_junta(&t, "\x1b[?7700l\x1b]0;");   /* D320: el Terminal vuelve a su modo de siempre si un ssh se quedó a medias */
     if (sh_raiz_visivel()) tx_junta(&t, "[root] ");
     tx_formatar(&t, "%s@saguios:%s\a", conta_nome(meu_uid(), n, sizeof n), pasta);
     escrever_texto(SAIDA, t.s);

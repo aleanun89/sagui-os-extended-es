@@ -185,7 +185,9 @@
 #define SIS_BLUETOOTH     135   /* (BT_*, ptr/indice, n) -> según la operación */
 /* D290 (v8.3, mejora 060): varias pantallas. Operación en el primer argumento (TELAS_OP_*, abajo). */
 #define SIS_TELAS         136   /* (TELAS_OP_*, a, b) -> según la operación */
-#define SIS_MAX           137
+/* D282 (mejora 098, fase 2): permisos de archivos. Operación en el primer argumento (PARQ_*, abajo). */
+#define SIS_PERMISOS_ARQ  137   /* (PARQ_*, a, b, c) -> según la operación */
+#define SIS_MAX           138
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que
@@ -205,6 +207,28 @@
 #define USU_EST_SERVICIO 0x02   /* el proceso viene de un servicio (sshd, vncd, cron...): no es la sesión local */
 #define USU_EST_PRUEBA   0x04   /* imagen de prueba con la sesión como root (mkimagem.py --sesion-root) */
 #define USU_EST_EN_VIVO  0x08   /* sin la partición SAGUI-CONF: la configuración del sistema no se guarda */
+
+/* SIS_PERMISOS_ARQ (D282). Cada archivo y carpeta tiene dueño (uid), grupo (gid)
+ * y 9 bits rwx (dueño, grupo, otros) más el pegajoso; sin ACL. El kernel los
+ * comprueba en todas las llamadas de archivos (permisos.c); root lo puede todo.
+ * ext2: los del inodo. Árbol en RAM: todo de root salvo /home (de sagui) y /tmp
+ * (1777). FAT32, ISO 9660, UDF: los de las opciones del montaje (uid=, gid=,
+ * umask=). En /home, lo que es de root se ve como de sagui (un solo usuario). */
+#define PARQ_CONSULTAR 0   /* (caminho, &info_permisos_t) -> 0 */
+#define PARQ_MODO      1   /* (caminho, modo) -> 0; el dueño o root; modo & 07777 (sin setuid: 01777) */
+#define PARQ_DONO      2   /* (caminho, uid o -1, gid o -1) -> 0; el dueño solo root; el grupo, root o el
+                            * dueño (a su propio grupo) */
+#define PARQ_UMASK     3   /* (nueva o -1) -> la anterior; del proceso, la heredan los hijos (022 al arrancar) */
+#define MODO_PEGAJOSO  01000   /* en una carpeta: solo el dueño de cada archivo (o de la carpeta) lo borra */
+#define MODO_PERMISOS  01777
+#define UMASK_PADRAO   022
+typedef struct {
+    unsigned int uid, gid;
+    unsigned int modo;             /* 01777: rwx de dueño, grupo y otros, y el pegajoso */
+    unsigned int tipo;             /* TIPO_ARQUIVO, TIPO_PASTA... */
+    unsigned int com_donos;        /* 1 = el sistema de archivos los guarda (ext2, RAM); 0 = del montaje */
+    unsigned int reservado[3];
+} info_permisos_t;
 
 /* SIS_INYECTAR (mejora 097).
  * INY_TECLA:  a = código de tecla como en EV_TECLA (Latin-1, o TECLA_* desde 0x100);
@@ -381,6 +405,14 @@ typedef struct {
  * (leitura e escrita nos pendrives; só leitura nos discos internos). */
 #define MONTAR_SO_LEITURA      0x01
 #define MONTAR_LEITURA_ESCRITA 0x02   /* pedido explícito: único jeito de gravar num disco interno */
+/* D282: dueño y permisos de los sistemas sin dueños (FAT32, ISO 9660, UDF), como
+ * uid=, gid= y umask= de Linux. Con MONTAR_DONO, el cuarto argumento de SIS_MONTAR es
+ * uid | gid << 16; con MONTAR_COM_UMASK, la máscara va en los bits 16-24 de las
+ * opciones. Sin ellos: sagui (1000) y 022; en /tmp y /logs, root y 0 (todos escriben). */
+#define MONTAR_DONO            0x04
+#define MONTAR_COM_UMASK       0x08
+#define MONTAR_UMASK(o)        (((o) >> 16) & 0777)
+#define MONTAR_COM_MASCARA(m)  (MONTAR_COM_UMASK | ((unsigned)(m) & 0777) << 16)
 #define MONTAR_TIPO(o)   (((o) >> 8) & 0xF)
 #define MONTAR_AUTO      0x000
 #define MONTAR_FAT32     0x100
@@ -534,6 +566,28 @@ typedef struct {
 #define HDA_OP_GPIO    4   /* (op, datos, máscara): los bits de la máscara pasan a salidas con esos datos;
                               máscara 0 = volver a escribir los GPIO del ajuste (no apaga otros) -> 0 */
 #define HDA_OP_AUTOSILENCIO 5  /* (op, 1/0/-1): callar los altavoces con auriculares enchufados -> estado */
+/* D302: con el driver sb16, la misma llamada (SIS_AUDIO_HDA) lleva estas órdenes para la Sound Blaster 16. */
+#define SB16_OP_ESTADO 0x40  /* (op, &info_sb16_t, sizeof) -> 0 */
+#define SB16_OP_CANAL  0x41  /* (op, canal SB16_CANAL_*, 0-100 o -1): nivel del mezclador CT1745 -> nivel actual */
+#define SB16_CANAL_MAESTRO 0
+#define SB16_CANAL_PCM     1
+#define SB16_CANAL_LINEA   2
+#define SB16_CANAL_CD      3
+#define SB16_CANAL_MICRO   4   /* el micrófono hacia la salida (0 = apagado: evita el acople) */
+#define SB16_CANAL_ALTAVOZ 5   /* la entrada del altavoz del PC */
+#define SB16_CANALES       6
+typedef struct {
+    unsigned short puerto, opl_puerto;      /* 0x220...; OPL: 0 = no hay */
+    unsigned char  irq, dma8, dma16;        /* 0xFF = ninguno */
+    unsigned char  dsp_mayor, dsp_menor;    /* versión del DSP (4.xx = SB16) */
+    unsigned char  opl;                     /* 0 ninguno, 2 OPL2, 3 OPL3 */
+    unsigned char  pnp;                     /* 1 = la configuró SaguiOS por ISA PnP */
+    unsigned char  modo;                    /* 0 parada, 1 reproduciendo, 2 grabando */
+    unsigned char  nivel[SB16_CANALES];     /* 0-100 */
+    unsigned char  reservado[2];
+    unsigned int   irqs, irqs_8, irqs_16;   /* IRQ atendidas: total, de 8 y de 16 bits */
+    char           pnp_id[12];              /* "CTL0070" si vino de ISA PnP */
+} info_sb16_t;
 #define HDA_MAX_PINOS  8
 typedef struct {
     unsigned char  codec, afg, primeiro_no, n_nos;   /* dirección del códec en el enlace; nodos */
@@ -698,6 +752,14 @@ typedef struct {
  * La fuente de prueba es un tono de 1 kHz (amplitud 8000) generado en el kernel con el mismo
  * canal de conversión: sirve para probar sin micrófono. */
 #define INFO_CAPTURA      75  /* (&info_captura_t, sizeof) -> 0 / error (< 0) */
+#define INFO_ISA          76  /* (info_isa_t[], n) -> cuántos: dispositivos ISA detectados (D302) */
+typedef struct {
+    char           nome[48];               /* "Sound Blaster 16" */
+    char           detalhe[64];            /* "DSP 4.05, OPL3 en 388h" */
+    unsigned short porta;                  /* puerto base */
+    unsigned char  irq, dma8, dma16;       /* 0xFF = ninguno */
+    unsigned char  reservado[3];
+} info_isa_t;
 #define CAP_ESTADO    0
 #define CAP_ABRIR     1
 #define CAP_LER       2
@@ -730,6 +792,79 @@ typedef struct {
     void          *buf;          /* LER */
     unsigned int   buf_tam;      /* LER */
 } info_captura_t;
+
+/* Mandos y joysticks (D307): USB HID (joystick 0x04, mando 0x05, multieje 0x08), el mando de
+ * Xbox 360 con cable y el joystick analógico del puerto de juegos (0x201). Se leen por sondeo,
+ * como el estado del teclado de los juegos: info_sistema(INFO_MANDOS, &info_mandos_t, sizeof).
+ * El campo "orden" dice qué se pide; el resultado va también en "resultado".
+ *   MANDOS_LISTA     rellena "lista" (n mandos) y "geracao", que cambia con cada conexión o
+ *                    desconexión: quien la guarda sabe si tiene que volver a listar.
+ *   MANDOS_ESTADO    el estado del mando "indice" de la lista (ejes de -32768 a 32767, X a la
+ *                    derecha y Y hacia abajo positivos; botones bit a bit; hats MANDO_HAT_*).
+ *                    Si es el del puerto de juegos, se mide en ese momento (como mucho cada
+ *                    20 ms) y "crudo" trae los tiempos de cada eje (décimas de us).
+ *   MANDOS_DETECTAR  vuelve a buscar el joystick del puerto de juegos -> 1 si lo hay, 0 si no.
+ *   MANDOS_CALIBRAR  "cal": calibración de los 4 ejes del puerto (mínimo, centro y máximo en
+ *                    décimas de us); escribir = 1 la pone (0 = la lee); escribir = 2 vuelve a
+ *                    la automática.
+ *   MANDOS_INYECTAR  solo con la imagen de prueba (mkimagem.py --mandos-prueba): un informe
+ *                    crudo para el mando de prueba "indice", por el mismo camino que los USB.
+ * El número 77 (el 76 es INFO_ISA de la v8.3.3-sb16). */
+#define INFO_MANDOS       77  /* (&info_mandos_t, sizeof) -> 0 / ERRO_* (< 0) */
+#define MANDOS_LISTA      0
+#define MANDOS_ESTADO     1
+#define MANDOS_DETECTAR   2
+#define MANDOS_CALIBRAR   3
+#define MANDOS_INYECTAR   4
+#define MANDOS_MAX        8
+#define MANDO_EIXOS_MAX   8
+#define MANDO_BOTOES_MAX  32
+#define MANDO_HATS_MAX    4
+#define MANDO_TIPO_HID     1   /* USB HID */
+#define MANDO_TIPO_XBOX360 2   /* mando de Xbox 360 con cable (clase 0xFF/0x5D/0x01) */
+#define MANDO_TIPO_PUERTO  3   /* joystick analógico del puerto de juegos */
+#define MANDO_TIPO_PRUEBA  4   /* mando de prueba (--mandos-prueba): "via" dice qué decodificador usa */
+#define MANDO_HAT_CENTRO   0
+#define MANDO_HAT_CIMA     1
+#define MANDO_HAT_DIREITA  2
+#define MANDO_HAT_BAIXO    4
+#define MANDO_HAT_ESQUERDA 8
+/* Distribución conocida de los botones, para el mapeo de SDL_GameController. */
+#define MANDO_MAPA_NENHUM      0
+#define MANDO_MAPA_XBOX360     1   /* A B X Y LB RB Back Start Guía L3 R3; ejes LX LY LT RX RY RT */
+#define MANDO_MAPA_DUALACTION  2   /* Logitech Dual Action / F310 en modo D: 1=X 2=A 3=B 4=Y 5=LB 6=RB 7=LT 8=RT 9=Back 10=Start 11=L3 12=R3 */
+typedef struct {
+    unsigned int   id;           /* único: cambia al desconectar y volver a conectar */
+    unsigned char  tipo;         /* MANDO_TIPO_* */
+    unsigned char  n_eixos, n_botoes, n_hats;
+    unsigned short fabricante, produto;   /* USB: VID y PID; puerto: 0 */
+    unsigned char  mapa;         /* MANDO_MAPA_* */
+    unsigned char  reservado[3];
+    char           nome[48];
+    char           via[16];      /* "USB xHCI", "puerto 0x201"... */
+} info_mando_t;
+typedef struct {
+    unsigned int   id;           /* el del mando leído */
+    unsigned int   informes;     /* informes recibidos (o lecturas del puerto) */
+    short          eixos[MANDO_EIXOS_MAX];
+    unsigned int   botoes;       /* bit 0 = botón 1 */
+    unsigned char  hats[MANDO_HATS_MAX];
+} estado_mando_t;
+typedef struct {
+    unsigned int   orden;        /* MANDOS_* */
+    int            resultado;    /* lo mismo que devuelve la llamada */
+    unsigned int   indice;       /* ESTADO e INYECTAR: el mando */
+    unsigned int   geracao;      /* LISTA */
+    unsigned int   n;            /* LISTA: cuántos */
+    info_mando_t   lista[MANDOS_MAX];
+    estado_mando_t estado;       /* ESTADO */
+    unsigned short crudo[4];     /* ESTADO del puerto: tiempo de cada eje (décimas de us; 0xFFFF = sin eje) */
+    unsigned short cal[4][3];    /* CALIBRAR: mínimo, centro y máximo de cada eje (décimas de us) */
+    unsigned int   escribir;     /* CALIBRAR */
+    unsigned int   calibrado;    /* CALIBRAR: 1 = puesta a mano; 0 = la automática */
+    unsigned int   informe_n;    /* INYECTAR */
+    unsigned char  informe[64];  /* INYECTAR */
+} info_mandos_t;
 
 /* Estados de la capa. */
 #define GPU3D_SIN_PROBAR   0  /* hay driver; se enciende y se prueba con el primer uso */

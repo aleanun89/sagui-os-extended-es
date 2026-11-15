@@ -103,6 +103,27 @@ uint32_t memfisica_alocar_seguidas(uint32_t n)
     return 0;
 }
 
+/* D302: n páginas seguidas por debajo de "limite" (bytes) que empiezan en un múltiplo de "alinhamento"
+ * (bytes, potencia de 2). Para el DMA ISA (8237): debajo de 16 MB y sin cruzar 64/128 KB. */
+uint32_t memfisica_alocar_baixa(uint32_t n, uint32_t alinhamento, uint32_t limite)
+{
+    if (n == 0 || alinhamento < PAGINA) return 0;
+    uint32_t passo = alinhamento / PAGINA, fim = limite / PAGINA;
+    if (fim > TOTAL_PAGINAS) fim = TOTAL_PAGINAS;
+    bool i = int_salva_desliga();
+    for (uint32_t p = 0; p + n <= fim; p += passo) {
+        uint32_t k = 0;
+        while (k < n && !ocupada(p + k)) k++;
+        if (k < n) continue;
+        for (k = 0; k < n; k++) ocupar(p + k);
+        livres -= n;
+        int_restaura(i);
+        return p * PAGINA;
+    }
+    int_restaura(i);
+    return 0;
+}
+
 void memfisica_liberar_seguidas(uint32_t endereco, uint32_t n)
 {
     bool i = int_salva_desliga();

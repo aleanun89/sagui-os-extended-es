@@ -814,6 +814,25 @@ static const char *const macaco[] = {   /* Macaco: uma folha de calculo com a ba
     "................",
 };
 
+static const char *const planomini[] = {   /* PlanoMini: un marco azul y una diagonal roja sobre el papel (D312) */
+    "................",
+    ".PPPPPPPPPPPPPP.",
+    ".PBBBBBBBBBBBBP.",
+    ".PBVVVVVVVVVBBP.",
+    ".PBVBBBBBBBVBBP.",
+    ".PBVBBBBBBBVrBP.",
+    ".PBVBBBBBBrVBBP.",
+    ".PBVBBBBBrBVBBP.",
+    ".PBVBBBBrBBVBBP.",
+    ".PBVBBBrBBBVBBP.",
+    ".PBVBBrBBBBVBBP.",
+    ".PBVVVVVVVVVBBP.",
+    ".PBBBBBBBBBBBBP.",
+    ".PBBBBBBBBBBBBP.",
+    ".PPPPPPPPPPPPPP.",
+    "................",
+};
+
 static const char *const gebramini[] = {   /* GebraMini: ejes, una circunferencia azul y un punto rojo (D309) */
     "................",
     ".PPPPPPPPPPPPPP.",
@@ -1225,6 +1244,7 @@ const desenho_t arte_mini_ia          = { ia, 16, 16 };
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
 const desenho_t arte_mini_pluma       = { pluma, 16, 16 };   /* mejora 116, D291 */
 const desenho_t arte_mini_gebramini   = { gebramini, 16, 16 };   /* mejora 128, D309 */
+const desenho_t arte_mini_planomini   = { planomini, 16, 16 };   /* mejora 129, D312 */
 const desenho_t arte_mini_vps         = { vps, 16, 16 };   /* mejora 123, D297: VisualPythonS */
 const desenho_t arte_mini_exploradorbd = { exploradorbd, 16, 16 };   /* mejora 127, D304: Explorador de bases de datos */
 const desenho_t arte_mini_spider      = { spider, 16, 16 };   /* D173: el solitario Spider */

@@ -37,6 +37,7 @@
 
 #include "sagui.h"
 #include "gui.h"
+#include "mandos.h"
 
 #include <stdarg.h>
 
@@ -2104,10 +2105,13 @@ static void eventos_do_sistema(void)
     teclas_do_mapa();
 }
 
+static void joy_atualizar(int forcar);
+
 void SDL_PumpEvents(void)
 {
     bombear_audio();
     eventos_do_sistema();
+    joy_atualizar(0);   /* D307: conexiones y estado de los mandos */
 }
 
 int SDL_PollEvent(SDL_Event *e)
@@ -2392,20 +2396,259 @@ static void bombear_audio(void)
     }
 }
 
-/* ------------------------------------------------------------------ mandos */
+/* ------------------------------------------------------------------ mandos (D307) */
 
-int SDL_NumJoysticks(void) { return 0; }
-SDL_Joystick *SDL_JoystickOpen(int i) { (void)i; SDL_SetError("no hay joystick"); return NULL; }
-void SDL_JoystickClose(SDL_Joystick *j) { (void)j; }
-SDL_bool SDL_IsGameController(int i) { (void)i; return SDL_FALSE; }
-SDL_GameController *SDL_GameControllerOpen(int i) { (void)i; SDL_SetError("no hay mando"); return NULL; }
-void SDL_GameControllerClose(SDL_GameController *c) { (void)c; }
-SDL_GameController *SDL_GameControllerFromInstanceID(SDL_JoystickID id) { (void)id; return NULL; }
-SDL_bool SDL_GameControllerGetAttached(SDL_GameController *c) { (void)c; return SDL_FALSE; }
-Sint16 SDL_GameControllerGetAxis(SDL_GameController *c, SDL_GameControllerAxis e) { (void)c; (void)e; return 0; }
-Uint8 SDL_GameControllerGetButton(SDL_GameController *c, SDL_GameControllerButton b) { (void)c; (void)b; return 0; }
-const char *SDL_GameControllerName(SDL_GameController *c) { (void)c; return NULL; }
-const char *SDL_GameControllerNameForIndex(int i) { (void)i; return NULL; }
+/* Los mandos del sistema (libsagui mandos.h) se leen por sondeo en SDL_PumpEvents (como mucho
+ * cada 4 ms). Con SDL_INIT_JOYSTICK o SDL_INIT_GAMECONTROLLER se avisa de la conexión y la
+ * desconexión (SDL_JOYDEVICEADDED/REMOVED y SDL_CONTROLLERDEVICEADDED/REMOVED; al empezar, uno
+ * por cada mando ya conectado, como la SDL 2). El identificador de instancia es el del kernel
+ * (cambia al reconectar). Un SDL_GameController es el mismo joystick con un mapeo: el del
+ * Xbox 360, el de los Logitech Dual Action / F310 en modo D, o uno genérico. */
+#define JOY_MAX MANDOS_MAX
+
+struct SDL_Joystick {
+    int      abertos;            /* SDL_JoystickOpen y SDL_GameControllerOpen cuentan */
+    int      controlador;        /* abierto también como SDL_GameController */
+    SDL_JoystickID id;
+    info_mando_t info;
+    estado_mando_t est;
+    int      ligado;             /* sigue conectado */
+};
+struct SDL_GameController { SDL_Joystick *j; };
+
+static info_mando_t joy_lista[JOY_MAX];
+static int joy_n;
+static unsigned joy_gen = 0xFFFFFFFFu;
+static SDL_Joystick joys[JOY_MAX];
+static SDL_GameController ctls[JOY_MAX];
+static int joy_ev = SDL_ENABLE, ctl_ev = SDL_ENABLE;
+static unsigned joy_ultimo, joy_ultima_lista;
+static SDL_JoystickID joy_avisados[JOY_MAX];   /* los que ya tuvieron su DEVICEADDED */
+static int joy_n_avisados, joy_avisos_ligados;
+
+/* Mapeo para SDL_GameController: índice de botón o de eje del joystick, o -1. */
+typedef struct {
+    signed char botao[SDL_CONTROLLER_BUTTON_MAX];   /* los 4 de la cruceta: -1 = por el hat 0 */
+    signed char eixo[SDL_CONTROLLER_AXIS_MAX];
+    signed char gatilho_botao[2];                   /* gatillos que son botones (Logitech) */
+    int         gatilho_eixo;                       /* 1 = los gatillos son ejes de -32768 a 32767 */
+} mapa_t;
+
+static void mapa_de(const info_mando_t *m, mapa_t *p)
+{
+    memset(p, -1, sizeof *p);
+    p->gatilho_eixo = 0;
+    if (m->mapa == MANDO_MAPA_XBOX360) {
+        static const signed char b[] = { 0, 1, 2, 3, 6, 8, 7, 9, 10, 4, 5 };
+        for (int i = 0; i < 11; i++) p->botao[i] = b[i];
+        p->eixo[SDL_CONTROLLER_AXIS_LEFTX] = 0; p->eixo[SDL_CONTROLLER_AXIS_LEFTY] = 1;
+        p->eixo[SDL_CONTROLLER_AXIS_RIGHTX] = 3; p->eixo[SDL_CONTROLLER_AXIS_RIGHTY] = 4;
+        p->eixo[SDL_CONTROLLER_AXIS_TRIGGERLEFT] = 2; p->eixo[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] = 5;
+        p->gatilho_eixo = 1;
+        return;
+    }
+    if (m->mapa == MANDO_MAPA_DUALACTION) {
+        /* 1=X 2=A 3=B 4=Y 5=LB 6=RB 7=LT 8=RT 9=Back 10=Start 11=L3 12=R3 */
+        static const signed char b[] = { 1, 2, 0, 3, 8, -1, 9, 10, 11, 4, 5 };
+        for (int i = 0; i < 11; i++) p->botao[i] = b[i];
+        p->gatilho_botao[0] = 6; p->gatilho_botao[1] = 7;
+    } else {
+        /* Genérico: 1-4 A B X Y, 5-6 hombros, 7-8 gatillos, 9 Back, 10 Start, 11-12 sticks. */
+        static const signed char b[] = { 0, 1, 2, 3, 8, -1, 9, 10, 11, 4, 5 };
+        for (int i = 0; i < 11; i++) p->botao[i] = b[i] < m->n_botoes ? b[i] : -1;
+        if (m->n_botoes > 6) p->gatilho_botao[0] = 6;
+        if (m->n_botoes > 7) p->gatilho_botao[1] = 7;
+    }
+    for (int i = 0; i < 4 && i < m->n_eixos; i++) p->eixo[i] = (signed char)i;
+}
+
+static void joy_listar(void)
+{
+    unsigned gen = 0;
+    int n = mandos_listar(joy_lista, JOY_MAX, &gen);
+    joy_n = n < 0 ? 0 : n;
+    joy_gen = gen;
+}
+
+static int joy_indice_de(SDL_JoystickID id)
+{
+    for (int i = 0; i < joy_n; i++) if ((SDL_JoystickID)joy_lista[i].id == id) return i;
+    return -1;
+}
+
+static SDL_Joystick *joy_por_id(SDL_JoystickID id)
+{
+    for (int i = 0; i < JOY_MAX; i++) if (joys[i].abertos && joys[i].id == id) return &joys[i];
+    return NULL;
+}
+
+int SDL_NumJoysticks(void) { joy_listar(); return joy_n; }
+
+const char *SDL_JoystickNameForIndex(int i)
+{
+    if (i < 0 || i >= joy_n) joy_listar();
+    return i >= 0 && i < joy_n ? joy_lista[i].nome : NULL;
+}
+
+SDL_JoystickID SDL_JoystickGetDeviceInstanceID(int i)
+{
+    if (i < 0 || i >= joy_n) joy_listar();
+    return i >= 0 && i < joy_n ? (SDL_JoystickID)joy_lista[i].id : -1;
+}
+
+static SDL_Joystick *joy_abrir(int i)
+{
+    joy_listar();
+    if (i < 0 || i >= joy_n) { SDL_SetError("no hay mando %d", i); return NULL; }
+    SDL_Joystick *j = joy_por_id((SDL_JoystickID)joy_lista[i].id);
+    if (!j) {
+        for (int k = 0; k < JOY_MAX && !j; k++) if (!joys[k].abertos) j = &joys[k];
+        if (!j) { SDL_SetError("demasiados mandos abiertos"); return NULL; }
+        memset(j, 0, sizeof *j);
+        j->info = joy_lista[i];
+        j->id = (SDL_JoystickID)joy_lista[i].id;
+        j->ligado = 1;
+        if (mando_ler(i, &j->est) < 0 || (SDL_JoystickID)j->est.id != j->id) memset(&j->est, 0, sizeof j->est);
+        registrar("[%s] joystick abierto: %s (%d ejes, %d botones, %d hats)", sagui_sdl2_nome, j->info.nome,
+                  j->info.n_eixos, j->info.n_botoes, j->info.n_hats);
+    }
+    j->abertos++;
+    return j;
+}
+
+SDL_Joystick *SDL_JoystickOpen(int i) { return joy_abrir(i); }
+
+void SDL_JoystickClose(SDL_Joystick *j)
+{
+    if (!j || !j->abertos) return;
+    if (--j->abertos == 0) j->controlador = 0;
+}
+
+const char *SDL_JoystickName(SDL_Joystick *j) { return j ? j->info.nome : NULL; }
+int SDL_JoystickNumAxes(SDL_Joystick *j) { return j ? j->info.n_eixos : -1; }
+int SDL_JoystickNumButtons(SDL_Joystick *j) { return j ? j->info.n_botoes : -1; }
+int SDL_JoystickNumHats(SDL_Joystick *j) { return j ? j->info.n_hats : -1; }
+int SDL_JoystickNumBalls(SDL_Joystick *j) { (void)j; return 0; }
+Sint16 SDL_JoystickGetAxis(SDL_Joystick *j, int e) { return j && e >= 0 && e < j->info.n_eixos ? j->est.eixos[e] : 0; }
+Uint8 SDL_JoystickGetButton(SDL_Joystick *j, int b) { return j && b >= 0 && b < j->info.n_botoes ? (j->est.botoes >> b) & 1 : 0; }
+Uint8 SDL_JoystickGetHat(SDL_Joystick *j, int h) { return j && h >= 0 && h < j->info.n_hats ? j->est.hats[h] : SDL_HAT_CENTERED; }
+SDL_JoystickID SDL_JoystickInstanceID(SDL_Joystick *j) { return j ? j->id : -1; }
+SDL_bool SDL_JoystickGetAttached(SDL_Joystick *j) { return j && j->ligado ? SDL_TRUE : SDL_FALSE; }
+SDL_Joystick *SDL_JoystickFromInstanceID(SDL_JoystickID id) { return joy_por_id(id); }
+Uint16 SDL_JoystickGetVendor(SDL_Joystick *j) { return j ? j->info.fabricante : 0; }
+Uint16 SDL_JoystickGetProduct(SDL_Joystick *j) { return j ? j->info.produto : 0; }
+
+/* GUID como el de la SDL 2 para USB: bus 0x03, fabricante y producto en little endian. */
+static SDL_JoystickGUID guid_de(const info_mando_t *m)
+{
+    SDL_JoystickGUID g;
+    memset(&g, 0, sizeof g);
+    g.data[0] = m->tipo == MANDO_TIPO_PUERTO ? 0 : 0x03;
+    g.data[4] = (Uint8)m->fabricante; g.data[5] = (Uint8)(m->fabricante >> 8);
+    g.data[8] = (Uint8)m->produto; g.data[9] = (Uint8)(m->produto >> 8);
+    return g;
+}
+SDL_JoystickGUID SDL_JoystickGetGUID(SDL_Joystick *j)
+{
+    if (j) return guid_de(&j->info);
+    SDL_JoystickGUID g;
+    memset(&g, 0, sizeof g);
+    return g;
+}
+SDL_JoystickGUID SDL_JoystickGetDeviceGUID(int i)
+{
+    if (i < 0 || i >= joy_n) joy_listar();
+    if (i >= 0 && i < joy_n) return guid_de(&joy_lista[i]);
+    return SDL_JoystickGetGUID(NULL);
+}
+void SDL_JoystickGetGUIDString(SDL_JoystickGUID g, char *t, int max)
+{
+    static const char h[] = "0123456789abcdef";
+    int k = 0;
+    for (int i = 0; i < 16 && k + 2 < max; i++) { t[k++] = h[g.data[i] >> 4]; t[k++] = h[g.data[i] & 15]; }
+    if (max > 0) t[k < max ? k : max - 1] = 0;
+}
+
+/* ---- SDL_GameController ---- */
+
+SDL_bool SDL_IsGameController(int i)
+{
+    if (i < 0 || i >= joy_n) joy_listar();
+    if (i < 0 || i >= joy_n) return SDL_FALSE;
+    const info_mando_t *m = &joy_lista[i];
+    return m->mapa != MANDO_MAPA_NENHUM || (m->n_botoes >= 2 && (m->n_eixos >= 2 || m->n_hats >= 1)) ? SDL_TRUE : SDL_FALSE;
+}
+
+SDL_GameController *SDL_GameControllerOpen(int i)
+{
+    if (!SDL_IsGameController(i)) { SDL_SetError("el mando %d no se puede usar como SDL_GameController", i); return NULL; }
+    SDL_Joystick *j = joy_abrir(i);
+    if (!j) return NULL;
+    if (!j->controlador)
+        registrar("[%s] mando abierto como SDL_GameController: %s (mapeo %s)", sagui_sdl2_nome, j->info.nome,
+                  j->info.mapa == MANDO_MAPA_XBOX360 ? "Xbox 360" : j->info.mapa == MANDO_MAPA_DUALACTION ? "Logitech" : "generico");
+    j->controlador = 1;
+    SDL_GameController *c = &ctls[j - joys];
+    c->j = j;
+    return c;
+}
+
+void SDL_GameControllerClose(SDL_GameController *c) { if (c && c->j) SDL_JoystickClose(c->j); }
+SDL_Joystick *SDL_GameControllerGetJoystick(SDL_GameController *c) { return c ? c->j : NULL; }
+
+SDL_GameController *SDL_GameControllerFromInstanceID(SDL_JoystickID id)
+{
+    SDL_Joystick *j = joy_por_id(id);
+    return j && j->controlador ? &ctls[j - joys] : NULL;
+}
+
+SDL_bool SDL_GameControllerGetAttached(SDL_GameController *c) { return c && c->j ? SDL_JoystickGetAttached(c->j) : SDL_FALSE; }
+const char *SDL_GameControllerName(SDL_GameController *c) { return c && c->j ? c->j->info.nome : NULL; }
+const char *SDL_GameControllerNameForIndex(int i) { return SDL_IsGameController(i) ? SDL_JoystickNameForIndex(i) : NULL; }
+
+static Sint16 ctl_eixo(const SDL_Joystick *j, const estado_mando_t *e, SDL_GameControllerAxis a)
+{
+    mapa_t p;
+    mapa_de(&j->info, &p);
+    if (a < 0 || a >= SDL_CONTROLLER_AXIS_MAX) return 0;
+    bool gatilho = a == SDL_CONTROLLER_AXIS_TRIGGERLEFT || a == SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+    if (gatilho && p.gatilho_botao[a - SDL_CONTROLLER_AXIS_TRIGGERLEFT] >= 0)
+        return ((e->botoes >> p.gatilho_botao[a - SDL_CONTROLLER_AXIS_TRIGGERLEFT]) & 1) ? 32767 : 0;
+    int k = p.eixo[a];
+    if (k < 0 || k >= j->info.n_eixos) return 0;
+    int v = e->eixos[k];
+    if (gatilho && p.gatilho_eixo) v = (v + 32768) / 2;   /* los gatillos van de 0 a 32767 */
+    return (Sint16)v;
+}
+
+static Uint8 ctl_botao(const SDL_Joystick *j, const estado_mando_t *e, SDL_GameControllerButton b)
+{
+    if (b < 0 || b >= SDL_CONTROLLER_BUTTON_MAX) return 0;
+    if (b >= SDL_CONTROLLER_BUTTON_DPAD_UP) {
+        unsigned h = j->info.n_hats ? e->hats[0] : 0;
+        static const unsigned bit[4] = { SDL_HAT_UP, SDL_HAT_DOWN, SDL_HAT_LEFT, SDL_HAT_RIGHT };
+        return (h & bit[b - SDL_CONTROLLER_BUTTON_DPAD_UP]) ? 1 : 0;
+    }
+    mapa_t p;
+    mapa_de(&j->info, &p);
+    int k = p.botao[b];
+    return k >= 0 && k < j->info.n_botoes ? (e->botoes >> k) & 1 : 0;
+}
+
+Sint16 SDL_GameControllerGetAxis(SDL_GameController *c, SDL_GameControllerAxis e) { return c && c->j ? ctl_eixo(c->j, &c->j->est, e) : 0; }
+Uint8 SDL_GameControllerGetButton(SDL_GameController *c, SDL_GameControllerButton b) { return c && c->j ? ctl_botao(c->j, &c->j->est, b) : 0; }
+
+char *SDL_GameControllerMapping(SDL_GameController *c)
+{
+    static char t[160];
+    if (!c || !c->j) return NULL;
+    formatar_texto(t, sizeof t, "%s,%s", c->j->info.nome,
+                   c->j->info.mapa == MANDO_MAPA_XBOX360 ? "xbox360" : c->j->info.mapa == MANDO_MAPA_DUALACTION ? "logitech" : "generico");
+    return t;
+}
+int SDL_GameControllerAddMapping(const char *m) { (void)m; return 0; }          /* los mapeos son fijos */
+int SDL_GameControllerAddMappingsFromFile(const char *a) { (void)a; return 0; }
+
 int SDL_GameControllerRumble(SDL_GameController *c, Uint16 b, Uint16 a, Uint32 ms)
 {
     (void)c; (void)b; (void)a; (void)ms;
@@ -2422,8 +2665,127 @@ const char *SDL_GameControllerGetStringForAxis(SDL_GameControllerAxis e)
     static const char *const n[] = { "leftx", "lefty", "rightx", "righty", "lefttrigger", "righttrigger" };
     return e >= 0 && e < SDL_CONTROLLER_AXIS_MAX ? n[e] : NULL;
 }
-int SDL_GameControllerEventState(int e) { (void)e; return 0; }
-int SDL_JoystickEventState(int e) { (void)e; return 0; }
+int SDL_GameControllerEventState(int e)
+{
+    if (e == SDL_ENABLE || e == SDL_IGNORE) ctl_ev = e;
+    return ctl_ev;
+}
+int SDL_JoystickEventState(int e)
+{
+    if (e == SDL_ENABLE || e == SDL_IGNORE) joy_ev = e;
+    return joy_ev;
+}
+
+/* Conexiones y desconexiones: compara la lista con los ya avisados. */
+static void joy_avisos(void)
+{
+    if (!(sub_sistemas & (SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER))) { joy_avisos_ligados = 0; return; }
+    unsigned agora = tempo_ms();
+    if (joy_avisos_ligados && agora - joy_ultima_lista < 250) return;
+    joy_ultima_lista = agora;
+    unsigned gen_antes = joy_gen;
+    joy_listar();
+    if (joy_avisos_ligados && joy_gen == gen_antes) return;
+    joy_avisos_ligados = 1;
+    SDL_Event ev;
+    /* Los que se fueron. */
+    for (int k = 0; k < joy_n_avisados;) {
+        SDL_JoystickID id = joy_avisados[k];
+        if (joy_indice_de(id) >= 0) { k++; continue; }
+        SDL_Joystick *j = joy_por_id(id);
+        if (j) { j->ligado = 0; memset(&j->est, 0, sizeof j->est); }
+        if (joy_ev == SDL_ENABLE) { memset(&ev, 0, sizeof ev); ev.type = SDL_JOYDEVICEREMOVED; ev.jdevice.which = id; enfileirar(&ev); }
+        if (ctl_ev == SDL_ENABLE && (sub_sistemas & SDL_INIT_GAMECONTROLLER)) {
+            memset(&ev, 0, sizeof ev); ev.type = SDL_CONTROLLERDEVICEREMOVED; ev.cdevice.which = id; enfileirar(&ev);
+        }
+        joy_avisados[k] = joy_avisados[--joy_n_avisados];
+    }
+    /* Los nuevos (al empezar, todos). */
+    for (int i = 0; i < joy_n; i++) {
+        SDL_JoystickID id = (SDL_JoystickID)joy_lista[i].id;
+        bool ja = false;
+        for (int k = 0; k < joy_n_avisados; k++) if (joy_avisados[k] == id) ja = true;
+        if (ja || joy_n_avisados >= JOY_MAX) continue;
+        joy_avisados[joy_n_avisados++] = id;
+        if (joy_ev == SDL_ENABLE) { memset(&ev, 0, sizeof ev); ev.type = SDL_JOYDEVICEADDED; ev.jdevice.which = i; enfileirar(&ev); }
+        if (ctl_ev == SDL_ENABLE && (sub_sistemas & SDL_INIT_GAMECONTROLLER) && SDL_IsGameController(i)) {
+            memset(&ev, 0, sizeof ev); ev.type = SDL_CONTROLLERDEVICEADDED; ev.cdevice.which = i; enfileirar(&ev);
+        }
+    }
+}
+
+/* Lee los abiertos y avisa de los cambios. */
+static void joy_atualizar(int forcar)
+{
+    int alguno = (sub_sistemas & (SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER)) != 0;
+    for (int k = 0; k < JOY_MAX && !alguno; k++) alguno = joys[k].abertos;
+    if (!alguno) return;   /* nadie usa mandos: no se pregunta nada al sistema */
+    unsigned agora = tempo_ms();
+    joy_avisos();
+    if (!forcar && agora - joy_ultimo < 4) return;
+    joy_ultimo = agora;
+    for (int k = 0; k < JOY_MAX; k++) {
+        SDL_Joystick *j = &joys[k];
+        if (!j->abertos || !j->ligado) continue;
+        int i = joy_indice_de(j->id);
+        estado_mando_t e;
+        if (i < 0 || mando_ler(i, &e) < 0 || (SDL_JoystickID)e.id != j->id) continue;
+        SDL_Event ev;
+        if (joy_ev == SDL_ENABLE) {
+            for (int a = 0; a < j->info.n_eixos && a < MANDO_EIXOS_MAX; a++)
+                if (e.eixos[a] != j->est.eixos[a]) {
+                    memset(&ev, 0, sizeof ev);
+                    ev.jaxis.type = SDL_JOYAXISMOTION; ev.jaxis.timestamp = agora; ev.jaxis.which = j->id;
+                    ev.jaxis.axis = (Uint8)a; ev.jaxis.value = e.eixos[a];
+                    enfileirar(&ev);
+                }
+            for (int h = 0; h < j->info.n_hats && h < MANDO_HATS_MAX; h++)
+                if (e.hats[h] != j->est.hats[h]) {
+                    memset(&ev, 0, sizeof ev);
+                    ev.jhat.type = SDL_JOYHATMOTION; ev.jhat.timestamp = agora; ev.jhat.which = j->id;
+                    ev.jhat.hat = (Uint8)h; ev.jhat.value = e.hats[h];
+                    enfileirar(&ev);
+                }
+            Uint32 mudou = e.botoes ^ j->est.botoes;
+            for (int b = 0; b < j->info.n_botoes && b < 32; b++)
+                if (mudou & (1u << b)) {
+                    memset(&ev, 0, sizeof ev);
+                    bool p = (e.botoes >> b) & 1;
+                    ev.jbutton.type = p ? SDL_JOYBUTTONDOWN : SDL_JOYBUTTONUP; ev.jbutton.timestamp = agora;
+                    ev.jbutton.which = j->id; ev.jbutton.button = (Uint8)b; ev.jbutton.state = p ? SDL_PRESSED : SDL_RELEASED;
+                    enfileirar(&ev);
+                }
+        }
+        if (j->controlador && ctl_ev == SDL_ENABLE) {
+            for (int a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++) {
+                Sint16 v = ctl_eixo(j, &e, (SDL_GameControllerAxis)a);
+                if (v == ctl_eixo(j, &j->est, (SDL_GameControllerAxis)a)) continue;
+                memset(&ev, 0, sizeof ev);
+                ev.caxis.type = SDL_CONTROLLERAXISMOTION; ev.caxis.timestamp = agora; ev.caxis.which = j->id;
+                ev.caxis.axis = (Uint8)a; ev.caxis.value = v;
+                enfileirar(&ev);
+            }
+            for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++) {
+                Uint8 v = ctl_botao(j, &e, (SDL_GameControllerButton)b);
+                if (v == ctl_botao(j, &j->est, (SDL_GameControllerButton)b)) continue;
+                memset(&ev, 0, sizeof ev);
+                ev.cbutton.type = v ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP; ev.cbutton.timestamp = agora;
+                ev.cbutton.which = j->id; ev.cbutton.button = (Uint8)b; ev.cbutton.state = v ? SDL_PRESSED : SDL_RELEASED;
+                enfileirar(&ev);
+                static int avisados;
+                if (avisados < 4) {   /* para el registro de las pruebas: las primeras pulsaciones */
+                    avisados++;
+                    registrar("[%s] mando: boton %s %s", sagui_sdl2_nome, SDL_GameControllerGetStringForButton((SDL_GameControllerButton)b),
+                              v ? "pulsado" : "suelto");
+                }
+            }
+        }
+        j->est = e;
+    }
+}
+
+void SDL_JoystickUpdate(void) { joy_atualizar(1); }
+void SDL_GameControllerUpdate(void) { joy_atualizar(1); }
 
 /* ------------------------------------------------------------------ mensajes, portapapeles, rutas */
 

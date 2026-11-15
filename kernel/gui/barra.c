@@ -232,7 +232,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica },
-        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "gebramini", &arte_mini_gebramini }, { "spider", &arte_mini_spider },
+        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
@@ -939,6 +939,7 @@ static const programa_t programas[] = {
     { "Macaco (hoja de cálculo)", "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
     { "Paint",                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
     { "Visor de imágenes",       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
+    { "PlanoMini (CAD 2D)",      "/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */
     { "Visor de PDF",            "/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
     { "Reproductor de vídeo",    "/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
     { "Grabadora de sonido",     "/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */

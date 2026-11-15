@@ -6,7 +6,8 @@ static const char *AYUDA =
     "uso: lspci [-n] [-v]\n"
     "  Una línea por función PCI: bus:dispositivo.función Clase: Fabricante [vendor:device] (rev NN).\n"
     "  -n  solo números (sin nombres)   -v  añade la IRQ y la interfaz de programación\n"
-    "  Para los nombres de dispositivo concretos y el driver que usa cada uno: infopc -t pci.\n";
+    "  Para los nombres de dispositivo concretos y el driver que usa cada uno: infopc -t pci.\n"
+    "  Al final, los dispositivos ISA que detectó el kernel (puerto, IRQ y DMA), si hay.\n";
 
 static const char *clase(uint8_t c, uint8_t s)
 {
@@ -66,6 +67,21 @@ int principal(int argc, char **argv)
         if (numeros || !f) imprimir("%02x:%02x.%u %s: %04x:%04x%s\n", p->barramento, p->dispositivo, p->funcao, cl, p->fabricante, p->modelo, rev);
         else imprimir("%02x:%02x.%u %s: %s Device [%04x:%04x]%s\n", p->barramento, p->dispositivo, p->funcao, cl, f, p->fabricante, p->modelo, rev);
         if (verboso) imprimir("\tIRQ %u, interfaz de programación %02x\n", p->irq, p->interface);
+    }
+    /* D302: los dispositivos ISA (no están en el PCI: los detecta su driver) */
+    static info_isa_t isa[8];
+    int ni = info_sistema(INFO_ISA, isa, 8);
+    for (int i = 0; i < ni && i < 8; i++) {
+        const info_isa_t *d = &isa[i];
+        char rec[48] = "";
+        int k = 0;
+        if (d->irq != 0xFF) k += formatar_texto(rec + k, sizeof rec - (unsigned)k, ", IRQ %u", d->irq);
+        if (d->dma8 != 0xFF) k += formatar_texto(rec + k, sizeof rec - (unsigned)k, ", DMA %u", d->dma8);
+        if (d->dma16 != 0xFF) k += formatar_texto(rec + k, sizeof rec - (unsigned)k, "%s %u", d->dma8 != 0xFF ? " y" : ", DMA", d->dma16);
+        char det[72] = "";
+        if (d->detalhe[0]) formatar_texto(det, sizeof det, " [%s]", d->detalhe);
+        if (d->porta) imprimir("ISA %03xh %s%s%s\n", d->porta, d->nome, rec, det);
+        else imprimir("ISA ---- %s%s\n", d->nome, det);
     }
     return 0;
 }

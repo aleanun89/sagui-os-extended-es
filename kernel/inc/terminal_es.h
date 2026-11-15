@@ -8,5 +8,6 @@ int32_t terminal_ler(char *destino, uint32_t n);          /* puede devolver SIS_
 int32_t terminal_escrever(const char *origem, uint32_t n);
 void    terminal_modo(int modo);
 void    terminal_limpar(void);
+int32_t terminal_disponivel(void);                         /* D317: > 0 si una lectura no se bloquearía */
 
 #endif

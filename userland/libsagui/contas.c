@@ -226,14 +226,26 @@ static void criar_pais(const char *caminho)
         if (*p == '/') { *p = 0; criar_pasta(c); *p = '/'; }
 }
 
+/* D282: lo que solo debe leer root (las contraseñas y las claves privadas) nace
+ * ya con 0600; el resto, con la máscara de siempre (0644). */
+static bool secreto(const char *rel)
+{
+    return compara_texto(rel, "sombra") == 0 || compara_texto(rel, "vnc/vncd.passwd") == 0 ||
+           comeca_com(rel, "ssh/ssh_host_");
+}
+
 /* Escribe "arq" de una vez: temporal al lado y renombrar encima. */
-static int gravar_atomico(const char *arq, const void *dados, int n)
+static int gravar_atomico(const char *arq, const void *dados, int n, bool privado)
 {
     char tmp[176];
     formatar_texto(tmp, sizeof tmp, "%s.tmp", arq);
     criar_pais(arq);
+    apagar(tmp);   /* uno viejo podría tener otros permisos */
+    int antes = privado ? mascara_criacao(077) : -1;
     int fd = abrir(tmp, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (privado && antes >= 0) mascara_criacao(antes);
     if (fd < 0) return fd;
+    if (privado) mudar_permisos(tmp, 0600);   /* por si el sistema de archivos no usa la máscara al crear */
     int r = escrever_todo(fd, (const char *)dados, n);
     if (r == 0) sincronizar(fd);
     fechar(fd);
@@ -252,8 +264,8 @@ int conf_gravar(const char *rel, const void *dados, int n)
     formatar_texto(ram, sizeof ram, "/etc/%s", rel);
     formatar_texto(disco, sizeof disco, "%s/etc/%s", CONF_SISTEMA_PONTO, rel);
     int rd = 0;
-    if (conf_persistente()) rd = gravar_atomico(disco, dados, n);
-    int rr = gravar_atomico(ram, dados, n);
+    if (conf_persistente()) rd = gravar_atomico(disco, dados, n, secreto(rel));
+    int rr = gravar_atomico(ram, dados, n, secreto(rel));
     return rd < 0 ? rd : rr;
 }
 

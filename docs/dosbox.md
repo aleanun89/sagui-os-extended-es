@@ -121,7 +121,11 @@ QEMU con KVM (un Ryzen), BENCH.COM de `tests/dosbox_com.py` (bucle de 32 bits co
 - Sin MIDI en directo (ver arriba) ni CD de audio por la unidad real: los CD se montan como carpeta o imagen
   `.iso`/`.cue` (las pistas de audio de un `.cue` suenan por el mezclador de DOSBox).
 - Sin captura de pantalla de DOSBox (`Ctrl+F5`: pide libpng); usa **Captura** del sistema.
-- Sin joystick: el sistema no tiene (la SDL dice que ninguno).
+- Joystick (D307): con `joysticktype=auto` (lo que escribe el `dosbox.conf` nuevo desde la v8.3.3) DOSBox emula el
+  joystick del PC (puerto 0x201) con el primer mando del sistema: USB, Xbox 360 con cable o el del puerto de juegos
+  real ([mandos.md](mandos.md)). Un `dosbox.conf` anterior tiene `joysticktype=none`: hay que cambiar esa línea a
+  `auto` (o borrar el fichero para que se escriba otra vez). En Recreativa, cada juego tiene su «Joystick» (auto,
+  2axis, 4axis, fcs, ch o none) en Propiedades.
 - El renderizador de la SDL 2 por la GPU (D288) **no se usa**: DOSBox 0.74 es SDL 1.2, que dibuja la superficie
   por software y la copia escalada a la ventana (rápido en 640x480; si la ventana es muy grande el escalado
   cuesta). Pasarlo a SDL 2 es trabajo de un port nuevo (DOSBox Staging, que no se ha usado).

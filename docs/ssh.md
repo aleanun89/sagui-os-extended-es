@@ -7,7 +7,8 @@ interactivo y traer o llevar archivos (registros, capturas, programas).
 
 Es un acceso de **administración**: quien entra ve el sistema entero, como en el Terminal.
 No es el servidor de *jails* (cuentas encerradas en una carpeta) de la mejora 052, que
-sigue pendiente. Tampoco hay todavía cliente `ssh` en SaguiOS (segunda fase).
+sigue pendiente. Para ir en el otro sentido, de SaguiOS a otra máquina, está el **cliente `ssh`**
+(D317, v8.4.1): ver [Cliente ssh](#cliente-ssh-de-saguios-a-otra-máquina-d317).
 
 ## En dos minutos
 
@@ -137,6 +138,65 @@ ssh -L 5901:localhost:5900 -L 8080:localhost:80 root@192.168.1.50   # varios a l
 - Límites: el fin de envío de un lado pasa al otro (FIN), pero si el servicio de destino no
   lee, sus datos esperan en el túnel (64 KB) y el PC deja de mandar hasta que haya sitio; el
   kernel tiene 32 conexiones TCP en total y cada túnel local usa dos.
+
+## Cliente ssh: de SaguiOS a otra máquina (D317)
+
+Desde la v8.4.1, SaguiOS trae `ssh`, `ssh-keygen` y `scp` para entrar en otra máquina (un Linux,
+un Mac o un Windows con OpenSSH, u otro SaguiOS con `sshd`).
+
+```
+ssh-keygen -t ed25519                      # una vez: crea /home/.ssh/id_ed25519 y .pub
+cat /home/.ssh/id_ed25519.pub              # esa línea va en ~/.ssh/authorized_keys del servidor
+ssh usuario@192.168.1.10                   # sesión interactiva (terminal remoto)
+ssh usuario@192.168.1.10 'df -h'           # una orden: su salida y su código de salida
+ssh -p 2222 -i /home/.ssh/otra usuario@pc  # otro puerto, otra clave
+echo hola | ssh usuario@pc 'cat > /tmp/x'  # por tuberías, desde otros programas
+scp usuario@pc:/var/log/syslog /home/      # traer un archivo
+scp informe.txt usuario@pc:/home/usuario/  # llevarlo
+ssh-keygen -l                              # la huella de tu clave
+ssh-keygen -R 192.168.1.10                 # olvidar una máquina (si cambió de clave a propósito)
+```
+
+**La primera vez** que se entra en una máquina, `ssh` enseña la huella de su clave
+(`SHA256:...`) y pregunta «¿Seguro que quieres conectar? (sí/no)». Compárala con la que da el
+servidor (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` en un Linux, `sshd --huella` en
+SaguiOS) antes de decir «sí»: queda guardada en `/home/.ssh/known_hosts`. Si otro día la
+máquina presenta **otra clave**, la conexión se **rechaza** con un aviso grande: puede ser un
+ataque, o la máquina se reinstaló. No hay opción para saltárselo: si el cambio es legítimo,
+borra su línea de `known_hosts` a mano (el aviso dice cuál) o con `ssh-keygen -R máquina`.
+
+Si el servidor admite contraseña, `ssh` la pide sin eco cuando la clave no basta (o no hay).
+Las claves con **frase de paso** todavía no se admiten (`ssh-keygen` las crea sin ella: guarda
+la privada como guardarías una contraseña).
+
+**En la sesión:** Ctrl+C y Ctrl+D van a la otra máquina; `~.` al principio de una línea corta
+la conexión (si el otro lado no responde), `~?` enseña la ayuda. El tamaño del terminal remoto
+es el de la ventana del Terminal y cambia con ella. Colores, flechas, Inicio/Fin, RePág/AvPág y
+la edición de bash funcionan; los programas de pantalla completa (`vim`, `less`, `htop`) aún se
+ven mal (al Terminal le faltan regiones de desplazamiento y la pantalla alternativa) y las
+teclas de función no se mandan.
+
+**Algoritmos:** los del `sshd` de SaguiOS (curve25519-sha256 con el modo estricto, ssh-ed25519,
+chacha20-poly1305@openssh.com), que tiene cualquier OpenSSH desde la 6.5. Un servidor que solo
+tenga claves RSA o ECDSA (muy antiguo, o configurado así) se rechaza con el motivo.
+
+**Opciones:** `-p PUERTO`, `-i CLAVE`, `-l USUARIO`, `-t`/`-T` (pedir o no terminal remoto),
+`-n` (no leer la entrada), `-q`, `-o StrictHostKeyChecking=ask|accept-new|yes` (`accept-new`
+añade sin preguntar las máquinas nuevas pero sigue rechazando las cambiadas; útil en scripts)
+y `-o BatchMode=yes` (no preguntar nada). Sin usuario, el de la cuenta de SaguiOS (`sagui` o `root`).
+
+`scp` copia **un archivo** cada vez (sin `-r`) usando `cat` en el otro lado: no necesita `scp`
+ni `sftp` en el servidor. Lo que se trae se escribe primero en `ARCHIVO.scp-parcial` y solo
+toma su nombre si la copia terminó bien.
+
+### vim, less, htop, nano y mc desde el Terminal (D320)
+
+Desde la D320 el Terminal de ventana entiende lo que esas aplicaciones necesitan: regiones de desplazamiento, insertar y
+borrar líneas, pantalla alternativa (al salir de vim vuelve lo que había), 256 colores aproximados a la paleta, cajas,
+atributos, DSR/DA, teclas de función, Inicio/Fin/RePág/AvPág/Insert/Supr, Ctrl+flechas y Alt+tecla. `ssh` anuncia
+`TERM=xterm-256color` y, al empezar la sesión con terminal, enciende el modo xterm del Terminal (`CSI ? 7700 h`); lo apaga al
+salir. Las cajas que mandan htop y mc en UTF-8 las pasa al juego de dibujo de líneas DEC. La tabla de secuencias y lo que
+falta (ratón, caracteres anchos, color real) está en `docs/terminal.md`.
 
 ## Seguridad
 

@@ -525,6 +525,16 @@ static int copiar_blob(plano_t *p, bool verificar, char *erro, int max)
 /* ---- copia de archivos (los datos de juegos) ---- */
 static uint32_t bytes_copiados, arquivos_copiados;
 
+/* D282: la copia conserva dueño, grupo y permisos (el instalador corre como root).
+ * En FAT32 (la ESP) no se puede y no importa. */
+static void copiar_permisos(const char *de, const char *para)
+{
+    info_permisos_t p;
+    if (permisos_arquivo(de, &p) < 0 || !p.com_donos) return;
+    mudar_dono(para, (int)p.uid, (int)p.gid);
+    mudar_permisos(para, p.modo);
+}
+
 static int copiar_arquivo(const char *de, const char *para, char *erro, int max)
 {
     int fi = abrir(de, ABRIR_LER);
@@ -555,6 +565,7 @@ static int copiar_arquivo(const char *de, const char *para, char *erro, int max)
     }
     fechar(fi);
     fechar(fo);
+    if (r == 0) copiar_permisos(de, para);
     bytes_copiados += total;
     arquivos_copiados++;
     return r;
@@ -564,6 +575,7 @@ static int copiar_pasta(const char *de, const char *para, char *erro, int max, i
 {
     if (nivel > 12) return 0;
     criar_pasta(para);
+    copiar_permisos(de, para);
     entrada_pasta_t e;
     for (int i = 0; listar(de, i, &e) > 0; i++) {
         if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
@@ -619,6 +631,7 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
             }
         }
         arquivos_jogos += arquivos_copiados - antes;
+        if (r == 0) mudar_dono(ponto, UID_SAGUI, GID_SAGUI);   /* D282: la persona añade juegos ahí */
     } else if (r == 0 && apps) {
         /* D194: las aplicaciones van con el sistema (con su leeme.txt, si lo traen). */
         if (ha_apps()) {

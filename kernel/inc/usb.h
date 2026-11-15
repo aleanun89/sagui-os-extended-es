@@ -42,6 +42,7 @@ typedef struct {
     uint16_t mps;
     uint8_t  intervalo;         /* bInterval tal cual */
     uint16_t tam_relatorio;     /* longitud del descriptor de informe (0x22) */
+    bool     xbox360;           /* D307: no es HID sino el mando de Xbox 360 con cable (0xFF/0x5D/0x01) */
 } usb_hid_if_t;
 
 /* D227: estado de un puerto (del controlador o de un hub) en la conexión en
@@ -354,7 +355,7 @@ int  uvc_relatorio(char *s, int max);
 int  armaz_conectar(usb_disp_t *d);
 void armaz_desconectar(usb_disp_t *d);
 
-/* ---- hid.c (D214): teclados y ratones USB ---- */
+/* ---- hid.c (D214): teclados y ratones USB; mandos y joysticks (D307) ---- */
 void hid_conectar(usb_disp_t *d);
 void hid_desconectar(usb_disp_t *d);
 int  hid_relatorio(char *s, int max);

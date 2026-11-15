@@ -1,6 +1,6 @@
 # Soporte de tarjetas gráficas (GPU) por versión
 
-Estado a 2026-11-15 (v8.0). **Leyenda:** ✅ funciona y probado · 🟡 hecho, falta confirmarlo en hardware real ·
+Estado a 2026-11-15 (v8.0; 3dfx, Mach64 y S3, v8.3.3). **Leyenda:** ✅ funciona y probado · 🟡 hecho, falta confirmarlo en hardware real ·
 🔧 en desarrollo · 📅 planificado · — no previsto. El 3D por software (SaguiGL) funciona en **todas** las tarjetas.
 
 ## Lo que hay hoy y lo que viene
@@ -22,6 +22,9 @@ Estado a 2026-11-15 (v8.0). **Leyenda:** ✅ funciona y probado · 🟡 hecho, f
 | **Radeon RDNA 1/2/3** RX 5000-7000 | ✅ (GOP) | 📅 v11 (110, tras GCN) | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | (por definir) |
 | **NVIDIA GeForce 6/7**, nForce 6100-7050 | ✅ | 🟡 v7.4 (D226), sin probar en hardware | — | — | — |
 | **NVIDIA posteriores** (8000 en adelante) | ✅ (VESA/GOP) | — | — | — | — |
+| **3dfx Banshee/Voodoo3/4/5** (Banshee, Voodoo3 1000-3500, Velocity, Voodoo4/5 VSA-100) | ✅ (VESA) | 🟡 **v8.3.3** (D305), motor 2D por MMIO, también a 16 y 24 bits; probado solo en 86Box | — | — | 86Box (`p2-voodoo3`, `p2-450-voodoo3500`) |
+| **ATI Mach64 / Rage** GX, CT, VT, 3D Rage II/IIC, Rage Pro, LT Pro, XL, Mobility | ✅ (VESA) | 🟡 **v8.3.3** (D308), motor 2D por MMIO; en 24 bits con x3; probado solo en 86Box (VT2) | — | — | 86Box `p2-mach64` |
+| **S3 Trio64 / ViRGE** Trio64, V+, UV+, V2; ViRGE, VX, DX/GX, GX2, Trio3D, Trio3D/2X | ✅ (VESA con BIOS VBE 2.0; las VBE 1.2 se quedan en modo texto, #40) | 🟡 **v8.3.3** (D308): Trio64 por puertos, ViRGE por MMIO; probado solo en 86Box (Trio64V2/DX y ViRGE/DX) | — | — | 86Box `p2-s3trio64`, `p2-s3virge` |
 
 ## Otras piezas gráficas por versión
 
@@ -33,14 +36,37 @@ Estado a 2026-11-15 (v8.0). **Leyenda:** ✅ funciona y probado · 🟡 hecho, f
 | v8.0 | Arranque UEFI con **GOP**: imagen en cualquier GPU moderna sin BIOS (D264) |
 | **v8.3** (en desarrollo) | **3D por GPU** en R5xx, R6xx/R7xx e Intel Gen3, **2D en Radeon Evergreen/NI** con una **capa 3D común** (pensada ya para amdgpu/Vulkan), renderizador de la SDL 2 por GPU, varias pantallas (fase 1), puntuación 3D |
 | v8.3.1 | Ejemplos y benchmarks 3D, monitor de uso de la GPU |
+| v8.3.3 | Drivers de la época (mejora 126): **2D en las 3dfx** Banshee/Voodoo3/Voodoo4/5 (D305), con la capa 2D común ya en 16 y 24 bits, y **2D en ATI Mach64/Rage y S3 Trio64/ViRGE** (D308); probados en 86Box |
 | v10.0 | SaguiOS de **64 bits** (base para Vulkan), sin quitar los 32 bits |
 | **v11** | **GPU modernas, Intel primero**: Intel Gen5-Gen12 (111) y luego AMD GCN/RDNA (107, 110): pantalla nativa, 2D, 3D en 32 bits y **Vulkan** en 64 bits (ANV/hasvk, RADV) (108) |
+
+## Qué probar en una Mach64/Rage o una S3 Trio64/ViRGE de verdad (D308)
+
+1. Arrancar normal y guardar el registro: `dmesg > /home/acel.txt` (o una foto de las líneas `[ACEL2D]`).
+2. Si pone `[ACEL2D] activo: ATI …` o `S3 …`: `acel2d`, `acel2d probar --detalle`, otro `dmesg`, la pestaña GPU de
+   Información del PC, mover ventanas y desplazar texto en el terminal.
+3. Si pone `[ACEL2D] CPU: …`, el motivo dice qué no cuadró (registros que no responden, pitch o formato del CRTC
+   distinto del VBE, otra tarjeta en los puertos de la VGA…): enviar el registro entero.
+4. Ante cualquier problema de imagen: `acel2d apagar`, o arrancar con `--sin-acel2d`.
 
 ## Qué probar en el Toshiba L635 (Radeon Evergreen, D286)
 
 1. Arrancar normal y guardar el registro: `dmesg > /home/evg.txt` (o una foto de las líneas `[ACEL2D]`).
 2. Si pone `[ACEL2D] activo: Radeon HD 5400 (Cedar) …`: `acel2d`, `acel2d probar --detalle`, otro `dmesg`, y la pestaña GPU de Información del PC (benchmark 2D). Mover ventanas, desplazar texto en el terminal, abrir un juego.
 3. Si pone `[ACEL2D] CPU: …`, el motivo dice qué comprobación no cuadró (controlador de pantalla, memoria, DMA ocupado…): enviar el registro entero. Si la pantalla es de la Intel del portátil (`es de la tarjeta 8086:…`), el driver de la Radeon ni se intenta.
+4. Ante cualquier problema de imagen: `acel2d apagar`, o arrancar con `--sin-acel2d`.
+
+## Qué probar en una 3dfx Voodoo3 (o Banshee, Voodoo4/5) real (D305)
+
+Hasta ahora solo se ha probado en 86Box (Voodoo3 2000 y 3500 AGP con un Pentium II, a 1024x768 y 24 bits).
+
+1. Arrancar normal y guardar el registro: `dmesg > /home/tdfx.txt` (o una foto de las líneas `[ACEL2D]`).
+2. Si pone `[ACEL2D] activo: 3dfx Voodoo3 …`: `acel2d`, `acel2d probar --detalle` (los tiempos de cada copia por la
+   GPU y por la CPU dicen desde qué tamaño compensa: hoy la CPU hace las de menos de 64x64), otro `dmesg`, y la
+   pestaña GPU de Información del PC. Mover ventanas despacio y deprisa, desplazar texto en el terminal (`ls /bin`) y
+   mirar que no queden letras rotas ni copias del cursor.
+3. Si pone `[ACEL2D] CPU: …`, el motivo dice qué no cuadró (formato del escritorio, stride, inicio, BAR); enviar el
+   registro entero. Probar también con `mkimagem.py --bpp 16` y `--bpp 32` si la BIOS los ofrece.
 4. Ante cualquier problema de imagen: `acel2d apagar`, o arrancar con `--sin-acel2d`.
 
 Más detalle: mejoras 054, 055, 060, 106-111 y la discusión de GitHub sobre v9.x/v10/v11.

@@ -24,7 +24,8 @@ def main():
     hd, _ = criar_disco("h244-hd", [dict(tipo="ext2", mb=40, rotulo="GRANDE",
                                          arquivos={"grande.bin": os.urandom(1 << 20) * 24})])
     disco = ["-drive", f"file={hd},if=ide,index=1,format=raw"]
-    with Maquina("h244-ata", "ide", imagem=imagem_console(), extras=disco) as m:
+    # D281: este apartado vigila las cesiones de CPU del PIO; el IDE por DMA (lo normal) tiene h281.
+    with Maquina("h244-ata", "ide", imagem=imagem_de_teste("", ["--vesa", "--console", "--sem-dma"]), extras=disco) as m:
         m.esperar_serial("sagui:/$", 120)
         s = m.serial()
         r = re.search(r"\[VIDEO\] framebuffer: WC por (PAT|MTRR|ninguno), (\d+) MB/s", s)

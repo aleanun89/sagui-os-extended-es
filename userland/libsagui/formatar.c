@@ -61,6 +61,7 @@ int formatar_lista(char *dst, size_t max, const char *fmt, va_list ap)
         }
         case 'u': t = digitos(buf + 15, va_arg(ap, uint32_t), 10); campo(&s, t, tam_texto(t), larg, esq, pre); break;
         case 'x': t = digitos(buf + 15, va_arg(ap, uint32_t), 16); campo(&s, t, tam_texto(t), larg, esq, pre); break;
+        case 'o': t = digitos(buf + 15, va_arg(ap, uint32_t), 8); campo(&s, t, tam_texto(t), larg, esq, pre); break;   /* D282: permisos */
         case 'p': t = digitos(buf + 15, (uint32_t)va_arg(ap, void *), 16); poe(&s, '0'); poe(&s, 'x'); campo(&s, t, tam_texto(t), 8, false, '0'); break;
         case '%': poe(&s, '%'); break;
         case 0: fmt--; break;

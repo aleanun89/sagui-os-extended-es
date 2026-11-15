@@ -12,7 +12,8 @@
  * «Quitar» una de ellas se anota como oculta, sin borrar ningún archivo.
  *
  * Por juego (Propiedades): programa, núcleo de la CPU (auto, normal, dynamic), ciclos, memoria, tarjeta de
- * sonido, un CD (carpeta o imagen ISO/CUE, como D:), órdenes previas y el programa de configuración (setup).
+ * sonido, joystick (D307: el tipo que emula DOSBox a partir del mando del sistema), un CD (carpeta o imagen
+ * ISO/CUE, como D:), órdenes previas y el programa de configuración (setup).
  * Jugar escribe /home/.config/recreativa-juego.conf con eso y lanza «dosbox -conf dosbox.conf -conf juego.conf
  * -noautoexec -c "mount c ..." ...»: el C: es la carpeta del juego y, al acabar, DOSBox se cierra.
  * La portada es opcional: portada.png|jpg|bmp en la carpeta del juego, o /home/dos/portadas/<nombre>.png.
@@ -172,6 +173,7 @@ typedef struct {
     char nucleo[12];     /* auto, normal, dynamic */
     char ciclos[12];     /* auto, max o un número */
     char sonido[12];     /* sb16, sbpro2, sb2, sb1, adlib, gus, none */
+    char joystick[8];    /* D307: auto, 2axis, 4axis, fcs, ch, none (el joysticktype de DOSBox) */
     char cd[128];
     char antes[128];
     char setup[64];
@@ -193,6 +195,8 @@ static const char *const SONIDOS_NOMBRE[] = { "Sound Blaster 16", "Sound Blaster
 #define N_CICLOS   9
 #define N_MEMORIAS 5
 #define N_SONIDOS  7
+static const char *const JOYSTICKS[] = { "auto", "2axis", "4axis", "fcs", "ch", "none" };
+#define N_JOYSTICKS 6
 
 static void juego_defecto(juego_t *g)
 {
@@ -200,6 +204,7 @@ static void juego_defecto(juego_t *g)
     copiar(g->nucleo, sizeof g->nucleo, "auto");
     copiar(g->ciclos, sizeof g->ciclos, "auto");
     copiar(g->sonido, sizeof g->sonido, "sb16");
+    copiar(g->joystick, sizeof g->joystick, "auto");
     g->memoria = 16;
 }
 
@@ -253,6 +258,7 @@ static void cargar_conf(void)
                 else if (!compara_texto(p, "nucleo")) copiar(g->nucleo, sizeof g->nucleo, v);
                 else if (!compara_texto(p, "ciclos")) copiar(g->ciclos, sizeof g->ciclos, v);
                 else if (!compara_texto(p, "sonido")) copiar(g->sonido, sizeof g->sonido, v);
+                else if (!compara_texto(p, "joystick")) copiar(g->joystick, sizeof g->joystick, v);
                 else if (!compara_texto(p, "cd")) copiar(g->cd, sizeof g->cd, v);
                 else if (!compara_texto(p, "antes")) copiar(g->antes, sizeof g->antes, v);
                 else if (!compara_texto(p, "setup")) copiar(g->setup, sizeof g->setup, v);
@@ -283,9 +289,9 @@ static void guardar_conf(void)
             continue;
         }
         n += formatar_texto(buf + n, sizeof buf - (unsigned)n,
-                            "[%s]\ncarpeta=%s\nprograma=%s\nnucleo=%s\nciclos=%s\nmemoria=%d\nsonido=%s\ncd=%s\nantes=%s\nsetup=%s\n\n",
-                            g->nombre, g->carpeta, g->programa, g->nucleo, g->ciclos, g->memoria, g->sonido, g->cd, g->antes,
-                            g->setup);
+                            "[%s]\ncarpeta=%s\nprograma=%s\nnucleo=%s\nciclos=%s\nmemoria=%d\nsonido=%s\njoystick=%s\ncd=%s\nantes=%s\nsetup=%s\n\n",
+                            g->nombre, g->carpeta, g->programa, g->nucleo, g->ciclos, g->memoria, g->sonido, g->joystick, g->cd,
+                            g->antes, g->setup);
     }
     criar_pasta("/home");
     criar_pasta(DIR_DOS);
@@ -410,8 +416,9 @@ static bool escribir_conf_juego(const juego_t *g)
     else if (!compara_texto(g->sonido, "none")) { sb = "none"; opl = "none"; }
     n += formatar_texto(buf + n, sizeof buf - (unsigned)n,
                         "# Generado por Recreativa para %s: se reescribe en cada partida.\n[cpu]\ncore=%s\ncycles=%s\n\n"
-                        "[dosbox]\nmemsize=%d\n\n[sblaster]\nsbtype=%s\noplmode=%s\n\n[gus]\ngus=%s\n",
-                        g->nombre, g->nucleo, g->ciclos, g->memoria, sb, opl, gus ? "true" : "false");
+                        "[dosbox]\nmemsize=%d\n\n[sblaster]\nsbtype=%s\noplmode=%s\n\n[gus]\ngus=%s\n\n[joystick]\njoysticktype=%s\n",
+                        g->nombre, g->nucleo, g->ciclos, g->memoria, sb, opl, gus ? "true" : "false",
+                        g->joystick[0] ? g->joystick : "auto");
     criar_pasta("/home");
     criar_pasta("/home/.config");
     int fd = abrir(CONF_JUEGO, ABRIR_CRIAR | ABRIR_TRUNCAR | ABRIR_ESCREVER);
@@ -767,6 +774,7 @@ static bool dialogo_propiedades(juego_t *g, bool nuevo)
     formatar_texto(mtxt, sizeof mtxt, "%d", g->memoria);
     selector_t mem = { 160, 142, 180, MEMORIAS, NULL, N_MEMORIAS, indice_de(MEMORIAS, N_MEMORIAS, mtxt) };
     selector_t son = { 160, 172, 260, SONIDOS, SONIDOS_NOMBRE, N_SONIDOS, indice_de(SONIDOS, N_SONIDOS, g->sonido) };
+    selector_t joy = { 440, 82, 100, JOYSTICKS, NULL, N_JOYSTICKS, indice_de(JOYSTICKS, N_JOYSTICKS, g->joystick) };
     botao_t b_prog = { 468, 46, 72, 24, "Elegir...", false };
     botao_t b_cdc = { 468, 260, 72, 24, "Carpeta", false };
     botao_t b_cdi = { 468, 286, 72, 24, "Imagen", false };   /* debajo: ocupa también la línea de órdenes previas, que baja */
@@ -786,6 +794,7 @@ static bool dialogo_propiedades(juego_t *g, bool nuevo)
         g_texto(d, 16, 116, "Ciclos:", C_NEGRO);
         g_texto(d, 16, 146, "Memoria (MB):", C_NEGRO);
         g_texto(d, 16, 176, "Sonido:", C_NEGRO);
+        g_texto(d, 356, 86, "Joystick:", C_NEGRO);
         g_texto(d, 16, 212, "Núcleo: «auto» usa el recompilador dinámico en los juegos de 32 bits.", C_SOMBRA);
         g_texto(d, 16, 230, "Ciclos: «max» da toda la velocidad; «auto» ajusta solo.", C_SOMBRA);
         g_texto(d, 16, 266, "CD (D:):", C_NEGRO);
@@ -798,6 +807,7 @@ static bool dialogo_propiedades(juego_t *g, bool nuevo)
         selector_dibujar(d, &cic);
         selector_dibujar(d, &mem);
         selector_dibujar(d, &son);
+        selector_dibujar(d, &joy);
         botao_desenhar(d, &b_prog);
         botao_desenhar(d, &b_cdc);
         botao_desenhar(d, &b_cdi);
@@ -844,7 +854,8 @@ static bool dialogo_propiedades(juego_t *g, bool nuevo)
             if (dialogo_abrir("Imagen de CD", "Imágenes de CD (*.iso;*.cue)|*.iso;*.cue|Todos|*", "/", r, sizeof r)) caixa_definir(&cd, r);
             continue;
         }
-        if (selector_tratar(&nuc, &e) || selector_tratar(&cic, &e) || selector_tratar(&mem, &e) || selector_tratar(&son, &e)) continue;
+        if (selector_tratar(&nuc, &e) || selector_tratar(&cic, &e) || selector_tratar(&mem, &e) || selector_tratar(&son, &e)
+            || selector_tratar(&joy, &e)) continue;
         if (e.tipo == EV_CLIQUE) {
             for (int i = 0; i < 5; i++) campos[i]->foco = false;
         }
@@ -867,6 +878,7 @@ static bool dialogo_propiedades(juego_t *g, bool nuevo)
         copiar(g->nucleo, sizeof g->nucleo, NUCLEOS[nuc.cual]);
         copiar(g->ciclos, sizeof g->ciclos, CICLOS[cic.cual]);
         copiar(g->sonido, sizeof g->sonido, SONIDOS[son.cual]);
+        copiar(g->joystick, sizeof g->joystick, JOYSTICKS[joy.cual]);
         int m = 0;
         for (const char *p = MEMORIAS[mem.cual]; *p; p++) m = m * 10 + (*p - '0');
         g->memoria = m;

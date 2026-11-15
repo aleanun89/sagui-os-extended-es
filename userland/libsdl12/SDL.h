@@ -381,7 +381,7 @@ int  SDL_BuildAudioCVT(SDL_AudioCVT *cvt, Uint16 formato_origem, Uint8 canais_or
                        Uint16 formato_destino, Uint8 canais_destino, int freq_destino);
 int  SDL_ConvertAudio(SDL_AudioCVT *cvt);
 
-/* ---- joystick (no hay: se dice que ninguno) ---- */
+/* ---- joystick (D307): los mandos del sistema (USB HID, Xbox 360, puerto de juegos) ---- */
 int  SDL_NumJoysticks(void);
 SDL_Joystick *SDL_JoystickOpen(int indice);
 void SDL_JoystickClose(SDL_Joystick *joy);
@@ -394,6 +394,10 @@ Uint8 SDL_JoystickGetButton(SDL_Joystick *joy, int botao);
 Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu);
 void SDL_JoystickUpdate(void);
 int  SDL_JoystickEventState(int estado);
+int  SDL_JoystickOpened(int indice);
+int  SDL_JoystickIndex(SDL_Joystick *joy);
+int  SDL_JoystickNumBalls(SDL_Joystick *joy);
+int  SDL_JoystickGetBall(SDL_Joystick *joy, int bola, int *dx, int *dy);
 
 /* ---- D294 (DOSBox): lo que pide y el SaguiOS no tiene o no hace falta ---- */
 typedef enum { SDL_ADDEVENT, SDL_PEEKEVENT, SDL_GETEVENT } SDL_eventaction;

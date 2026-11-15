@@ -20,7 +20,18 @@ typedef struct no {
     uint32_t       refs;           /* cuántos archivos abiertos apuntan a él */
     bool           removido;       /* borrado mientras está abierto: desaparece al último cierre */
     uint32_t       modificado;     /* UTC (D080) */
+    uint32_t       uid, gid;       /* D282: dueño y grupo */
+    uint16_t       modo;           /* D282: 01777 (rwx de dueño, grupo y otros y el pegajoso) */
 } no_t;
+
+/* D282: dueño, grupo y permisos de una ruta, venga de donde venga (árbol en RAM,
+ * ext2, o las opciones del montaje en FAT32/ISO/UDF). */
+typedef struct {
+    uint32_t uid, gid;
+    uint16_t modo;                 /* 01777 */
+    uint8_t  tipo;                 /* TIPO_*; 0 si el sistema no lo dice (FAT32: no hace falta mirarlo) */
+    bool     com_donos;            /* el sistema de archivos los guarda (RAM, ext2) */
+} meta_t;
 
 void     vfs_iniciar(void);
 no_t    *vfs_raiz(void);
@@ -40,6 +51,13 @@ void     vfs_soltar(no_t *x);
 int      vfs_ler_inteiro(const char *caminho, uint8_t **dados, uint32_t *tam);
 /* D194: ¿existe el archivo (no carpeta)? También dentro de un volumen montado (/apps...). */
 bool     vfs_existe_arquivo(const char *caminho);
+/* D282: los permisos de una ruta absoluta resuelta (0, o ERRO_NAO_EXISTE...), y
+ * cambiarlos (sin comprobar quién: eso es de permisos.c). uid o gid -1 = no cambia. */
+int      vfs_meta(const char *caminho, meta_t *m);
+/* Lo mismo sin leer el disco en FAT32/ISO/UDF (todo tiene los permisos del montaje;
+ * no dice si existe): para las carpetas de una ruta. */
+int      vfs_meta_rapida(const char *caminho, meta_t *m);
+int      vfs_fixar_meta(const char *caminho, int32_t uid, int32_t gid, int32_t modo);
 
 void arquivos_herdar(struct processo *filho, struct processo *pai);
 void arquivos_fechar_todos(struct processo *p);

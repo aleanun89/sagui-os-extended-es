@@ -493,6 +493,103 @@ def Boton3_click():
 
 
 # nombre del menú -> función (los nombres son los de Archivo > Nuevo desde plantilla)
+def ejemplo_guardar_cerrar():
+    c = [_c("Etiqueta", "Etiqueta1", 8, 8, 330, 20, texto="Escribe algo y cierra la ventana"),
+         _c("CuadroTexto", "CuadroTexto1", 8, 32, 330, 100, multilinea=True),
+         _c("Boton", "Boton1", 8, 142, 100, 26, texto="Guardar"),
+         _c("Etiqueta", "Etiqueta2", 120, 146, 220, 20, texto="")]
+    codigo = '''# Guardar al cerrar: «cerrando» salta al pulsar la X y se puede cancelar con Formulario.cancelar = True.
+guardado = True
+
+
+def CuadroTexto1_cambio():
+    global guardado
+    guardado = False
+    Etiqueta2.texto = "Hay cambios sin guardar"
+
+
+def Boton1_click():
+    global guardado
+    guardado = True
+    Etiqueta2.texto = "Guardado"
+
+
+def Formulario_cerrando():
+    if not guardado:
+        r = msgbox("¿Guardar los cambios?", "Cerrar", botones="si_no_cancelar", icono="pregunta")
+        if r == "cancelar":
+            Formulario.cancelar = True      # no se cierra
+        elif r == "si":
+            Boton1_click()
+
+
+def Formulario_cerrado():
+    print("cerrado")
+'''
+    return _f("Guardar al cerrar", 350, 184, c), codigo
+
+
+def ejemplo_boton_raton():
+    c = [_c("Boton", "Boton1", 24, 24, 160, 40, texto="Pasa el ratón por aquí"),
+         _c("Etiqueta", "Etiqueta1", 24, 80, 300, 20, texto=""),
+         _c("Etiqueta", "Etiqueta2", 24, 104, 300, 20, texto=""),
+         _c("Etiqueta", "Etiqueta3", 24, 128, 300, 20, texto="")]
+    codigo = '''# Un botón que cambia de color con el ratón: raton_entra y raton_sale.
+# Los datos del evento están en el control: raton_x, raton_y, boton y rueda_delta.
+clics = 0
+
+
+def Boton1_raton_entra():
+    Boton1.colorfondo = AMARILLO
+    Etiqueta1.texto = "El ratón entró"
+
+
+def Boton1_raton_sale():
+    Boton1.colorfondo = 0xE2E6EA
+    Etiqueta1.texto = "El ratón salió"
+
+
+def Boton1_click():
+    global clics
+    clics += 1
+    Etiqueta2.texto = "Clics: %d" % clics
+
+
+def Boton1_doble_click():
+    Etiqueta2.texto = "Doble clic en %d, %d" % (Boton1.raton_x, Boton1.raton_y)
+
+
+def Boton1_rueda():
+    Etiqueta3.texto = "Rueda: %d" % Boton1.rueda_delta
+'''
+    return _f("Botón y ratón", 350, 170, c), codigo
+
+
+def ejemplo_validar_foco():
+    c = [_c("Etiqueta", "Etiqueta1", 16, 16, 300, 20, texto="Tu edad (de 0 a 120):"),
+         _c("CuadroTexto", "CuadroTexto1", 16, 40, 100, 22),
+         _c("Etiqueta", "Etiqueta2", 16, 76, 300, 20, texto="Tu nombre (acaba con Intro):"),
+         _c("CuadroTexto", "CuadroTexto2", 16, 100, 200, 22),
+         _c("Etiqueta", "Etiqueta3", 16, 136, 300, 20, texto=""),
+         _c("Etiqueta", "Etiqueta4", 16, 160, 300, 20, texto="")]
+    codigo = '''# Validar al perder el foco: «validar» se puede cancelar y el foco vuelve al cuadro.
+# «intro» salta al pulsar Intro dentro de un cuadro de texto.
+
+def CuadroTexto1_validar():
+    t = CuadroTexto1.texto.strip()
+    if not t.isdigit() or int(t) > 120:
+        Etiqueta3.texto = "«%s» no es una edad válida" % t
+        CuadroTexto1.cancelar = True        # el foco vuelve al cuadro
+    else:
+        Etiqueta3.texto = "Edad correcta: %s" % t
+
+
+def CuadroTexto2_intro():
+    Etiqueta4.texto = "Hola, " + CuadroTexto2.texto
+'''
+    return _f("Validar al perder el foco", 330, 200, c), codigo
+
+
 PLANTILLAS = [("Proyecto vacío", vacia), ("Hola mundo", hola_mundo),
               ("Calculadora sencilla", calculadora), ("Lista de tareas", lista_tareas),
               ("Cronómetro", cronometro), ("Visor de imágenes", visor_imagenes),
@@ -500,4 +597,6 @@ PLANTILLAS = [("Proyecto vacío", vacia), ("Hola mundo", hola_mundo),
               ("Validar una entrada", validar_entrada), ("Abrir y guardar", abrir_guardar),
               ("Pestañas", ejemplo_pestanas), ("Tabla", ejemplo_tabla), ("Numérico", ejemplo_numerico),
               ("Lienzo", ejemplo_lienzo), ("Enlace", ejemplo_enlace), ("Barra de estado", ejemplo_barra_estado),
-              ("Selector de color", ejemplo_selector_color), ("Reloj", ejemplo_reloj), ("Archivo", ejemplo_archivo)]
+              ("Selector de color", ejemplo_selector_color), ("Reloj", ejemplo_reloj), ("Archivo", ejemplo_archivo),
+              ("Guardar al cerrar", ejemplo_guardar_cerrar), ("Botón y ratón", ejemplo_boton_raton),
+              ("Validar al perder el foco", ejemplo_validar_foco)]

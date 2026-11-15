@@ -13,6 +13,7 @@
 #include "caminho.h"
 #include "disco.h"
 #include "trava.h"
+#include "vfs.h"
 
 #define MAX_MONTAGENS 8
 
@@ -36,6 +37,10 @@ typedef struct sistema_arquivos {
     int  (*renomear)(void *priv, const char *de, const char *para);
     void (*espaco)(void *priv, uint32_t *total_kb, uint32_t *livre_kb);
     int  (*datas)(void *priv, const char *rel, datas_arquivo_t *d);   /* D080; NULL = no guarda fechas */
+    /* D282: dueño, grupo y modo (solo los que los guardan: ext2). NULL = los del montaje.
+     * Al crear, el driver pone los de quien crea (permisos_dono_novo). */
+    int  (*meta)(void *priv, const char *rel, meta_t *m);
+    int  (*fixar_meta)(void *priv, const char *rel, int32_t uid, int32_t gid, int32_t modo);   /* -1 = no cambia */
 } sistema_arquivos_t;
 
 typedef struct montagem {
@@ -49,6 +54,7 @@ typedef struct montagem {
     uint32_t geracao;                 /* cambia con cada montaje/desmontaje */
     bool     criou_ponto;             /* la carpeta la creó el montaje: desaparece al desmontar */
     char     tipo[8];                 /* "fat32", "ext4", "iso9660", "udf" (D233: el que se usó) */
+    uint32_t uid, gid, umask;         /* D282: dueño y máscara en los sistemas sin dueños (FAT32, ISO, UDF) */
 } montagem_t;
 
 /* Un archivo abierto en un montaje (arquivos.c). */
@@ -72,6 +78,11 @@ bool        montagem_abaixo(const char *caminho);
 
 /* tipo: "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf" (NULL = auto). */
 int  montagem_montar(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes);
+/* D282: con dueño (uid | gid << 16) si opcoes lleva MONTAR_DONO, y la máscara si lleva MONTAR_COM_UMASK. */
+int  montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes, uint32_t dono);
+/* D282: los permisos de "rel" dentro del montaje "m". Sin "olhar", en los sistemas
+ * sin dueños no se lee el disco (no se sabe si existe ni el tipo). */
+int  montagem_meta(montagem_t *m, const char *rel, meta_t *saida, bool olhar);
 int  montagem_desmontar(montagem_t *m, bool gravar);
 void montagem_desmontar_tudo(void);           /* antes de reiniciar */
 void logs_disco_gravar(const char *motivo);   /* D120: anillo de klog -> /logs/kernel-*.log (si hay /logs) */

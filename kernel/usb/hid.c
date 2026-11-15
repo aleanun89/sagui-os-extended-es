@@ -20,12 +20,19 @@
  *     QEMU (posición absoluta). Si el descriptor no se entiende y el ratón es
  *     "boot", se pasa al protocolo boot (botones, X, Y y quizá la rueda). Los
  *     movimientos entran por mouse_usb() en la misma cola que el ratón PS/2.
+ *   - MANDOS y JOYSTICKS (D307): si el descriptor de informe tiene una colección de
+ *     aplicación Joystick, Game Pad o Multi-axis, el analizador general (kernel/lib/
+ *     hid_informe.c) saca los ejes, los hats y los botones, y cada informe se normaliza y
+ *     pasa a la capa de mandos (kernel/dispositivos/mandos.c). El mando de Xbox 360 con
+ *     cable no es HID (clase 0xFF/0x5D/0x01) pero se lee igual, con su informe fijo.
  * El informe llega por el endpoint de interrupción de entrada: en el xHCI
  * queda una lectura armada en su anillo; en el EHCI, una QH en la lista
  * periódica. Una tarea del kernel ("usb-hid") los mira cada tic (10 ms) o al
  * llegar la IRQ del xHCI. */
 #include "usb.h"
 #include "console.h"
+#include "hid_informe.h"
+#include "mandos.h"
 #include "cpu.h"
 #include "mouse.h"
 #include "processo.h"
@@ -35,10 +42,12 @@
 #include "trava.h"
 #include "xhci.h"
 
-#define HID_MAX 6
+#define HID_MAX 8
 #define TECLADO 1
 #define PONTEIRO 2     /* ratón o tableta por el descriptor de informe */
 #define RATO_BOOT 3
+#define MANDO 4        /* D307: joystick o mando HID */
+#define XBOX360 5      /* D307: mando de Xbox 360 con cable */
 
 #define REPETIR_ATRASO (TIQUES_POR_SEGUNDO / 2)     /* 500 ms */
 #define REPETIR_CADA   3                            /* 30 ms */
@@ -68,6 +77,10 @@ typedef struct {
     campo_t  x, y, roda;
     uint16_t bit_botoes;
     uint8_t  n_botoes;
+    /* mando (D307) */
+    hid_mando_t  mando;
+    hid_estado_t est;
+    int          mando_h;          /* manejador en la capa de mandos */
 } hid_t;
 
 static hid_t hids[HID_MAX];
@@ -266,12 +279,19 @@ static int ler(hid_t *h, uint8_t *b, int max)
     return usb_int_ler(h->d, h->ehci_h, b, max);
 }
 
+static const char *nome_tipo(const hid_t *h)
+{
+    return h->tipo == TECLADO ? "teclado" : h->tipo == MANDO || h->tipo == XBOX360 ? "mando" : "raton";
+}
+
 static void tratar(hid_t *h, const uint8_t *b, int n)
 {
     h->relatorios++;
     if (h->relatorios == 1)
-        klog("[HID] primer informe del %s USB (%d bytes)\n", h->tipo == TECLADO ? "teclado" : "raton", n);
-    if (h->tipo == TECLADO) teclado_relatorio(h, b, n);
+        klog("[HID] primer informe del %s USB (%d bytes)\n", nome_tipo(h), n);
+    if (h->tipo == MANDO) { if (hid_mando_decodificar(&h->mando, b, n, &h->est)) mando_atualizar(h->mando_h, &h->est); }
+    else if (h->tipo == XBOX360) { if (xbox360_decodificar(b, n, &h->est)) mando_atualizar(h->mando_h, &h->est); }
+    else if (h->tipo == TECLADO) teclado_relatorio(h, b, n);
     else if (h->tipo == PONTEIRO) ponteiro_relatorio(h, b, n);
     else rato_boot(b, n);
 }
@@ -338,7 +358,10 @@ static void conectar_interface(usb_disp_t *d, usb_hid_if_t *f)
     h.ep = f->ep;
     h.tam = f->mps > 64 ? 64 : f->mps;
     h.ehci_h = -1;
-    if (f->subclasse == 1 && f->protocolo == 1) {
+    h.mando_h = -1;
+    if (f->xbox360) {
+        h.tipo = XBOX360;
+    } else if (f->subclasse == 1 && f->protocolo == 1) {
         h.tipo = TECLADO;
         usb_controle(d, 0x21, 0x0B, 0, f->interface, NULL, 0);   /* SET_PROTOCOL: boot */
         usb_controle(d, 0x21, 0x0A, 0, f->interface, NULL, 0);   /* SET_IDLE: solo los cambios */
@@ -347,7 +370,11 @@ static void conectar_interface(usb_disp_t *d, usb_hid_if_t *f)
         uint16_t n = f->tam_relatorio ? f->tam_relatorio : 256;
         if (n > sizeof desc) n = sizeof desc;
         int r = usb_controle(d, 0x81, 6, 0x2200, f->interface, desc, n);
-        if (r > 0 && analisar_relatorio(&h, desc, r)) {
+        static hid_desc_t campos;   /* la tarea "usb" conecta de uno en uno */
+        if (r > 0 && hid_analisar(desc, r, &campos) > 0 && hid_mando_extrair(&campos, &h.mando)) {
+            h.tipo = MANDO;            /* D307: antes que el ratón, que también tiene X e Y */
+            usb_controle(d, 0x21, 0x0A, 0, f->interface, NULL, 0);   /* SET_IDLE: solo los cambios */
+        } else if (r > 0 && analisar_relatorio(&h, desc, r)) {
             h.tipo = PONTEIRO;
             if (f->subclasse == 1) usb_controle(d, 0x21, 0x0B, 1, f->interface, NULL, 0);   /* protocolo normal */
             usb_controle(d, 0x21, 0x0A, 0, f->interface, NULL, 0);
@@ -378,9 +405,29 @@ static void conectar_interface(usb_disp_t *d, usb_hid_if_t *f)
         klog("[HID] demasiados dispositivos HID\n");
         return;
     }
-    if (h.tipo == TECLADO) teclados++;
+    if (h.tipo == MANDO || h.tipo == XBOX360) {
+        char nome[48];
+        if (h.tipo == XBOX360 && d->id_fabricante == 0x045E) txt_copia_n(nome, "Mando de Xbox 360", sizeof nome);
+        else snformatar(nome, sizeof nome, "%s %s", d->fabricante, d->produto);
+        char via[16];
+        snformatar(via, sizeof via, "USB %s", usb_nome_ctl(d->tipo_ctl));
+        bool logitech_d = d->id_fabricante == 0x046D &&
+                          (d->id_produto == 0xC216 || d->id_produto == 0xC218 || d->id_produto == 0xC219);
+        int mh = h.tipo == XBOX360
+            ? mando_registrar(MANDO_TIPO_XBOX360, nome, via, d->id_fabricante, d->id_produto,
+                              XBOX360_EIXOS, XBOX360_BOTOES, 1, MANDO_MAPA_XBOX360)
+            : mando_registrar(MANDO_TIPO_HID, nome, via, d->id_fabricante, d->id_produto, h.mando.n_eixos,
+                              h.mando.n_botoes, h.mando.n_hats, logitech_d ? MANDO_MAPA_DUALACTION : MANDO_MAPA_NENHUM);
+        trava_pegar(&trava_hid);
+        hids[k].mando_h = mh;
+        trava_soltar(&trava_hid);
+        klog("[HID] mando USB: %s %s (%04x:%04x, interfaz %u, endpoint %u, %s) por %s\n", d->fabricante, d->produto,
+             d->id_fabricante, d->id_produto, h.interface, h.ep, h.tipo == XBOX360 ? "Xbox 360" : "HID",
+             usb_nome_ctl(d->tipo_ctl));
+    } else if (h.tipo == TECLADO) teclados++;
     else { ratos++; mouse_usb_presente(h.tipo == PONTEIRO ? h.roda.presente : true); }
-    if (h.tipo == PONTEIRO)
+    if (h.tipo == MANDO || h.tipo == XBOX360) { }
+    else if (h.tipo == PONTEIRO)
         klog("[HID] %s USB: %s %s (interfaz %u, endpoint %u, %s, X %u bits, rueda %s, %u botones) por %s\n",
              h.x.absoluto ? "tableta" : "raton", d->fabricante, d->produto, h.interface, h.ep,
              h.x.absoluto ? "posicion absoluta" : "relativo", h.x.tam, h.roda.presente ? "si" : "no", h.n_botoes,
@@ -410,10 +457,11 @@ void hid_desconectar(usb_disp_t *d)
         hid_t *h = &hids[i];
         if (!h->usado || h->d != d) continue;
         if (h->tipo == TECLADO) { teclado_soltar_tudo(h); teclados--; }
+        else if (h->tipo == MANDO || h->tipo == XBOX360) mando_retirar(h->mando_h);
         else ratos--;
         if (h->ehci_h >= 0) usb_int_fechar(h->d, h->ehci_h);
         h->usado = false;
-        klog("[HID] %s USB desconectado\n", h->tipo == TECLADO ? "teclado" : "raton");
+        klog("[HID] %s USB desconectado\n", nome_tipo(h));
     }
     trava_soltar(&trava_hid);
 }
@@ -516,7 +564,8 @@ int hid_relatorio(char *s, int max)
         hid_t *h = &hids[i];
         if (!h->usado) continue;
         k += snformatar(s + k, (size_t)(max - k), "HID: %s USB %s %s por %s, %u informes, %u errores\n",
-                        h->tipo == TECLADO ? "teclado" : h->tipo == PONTEIRO && h->x.absoluto ? "tableta" : "ratón",
+                        h->tipo == TECLADO ? "teclado" : h->tipo == PONTEIRO && h->x.absoluto ? "tableta"
+                        : h->tipo == MANDO || h->tipo == XBOX360 ? "mando" : "ratón",
                         h->d->fabricante, h->d->produto, usb_nome_ctl(h->d->tipo_ctl),
                         h->relatorios, h->erros);
     }

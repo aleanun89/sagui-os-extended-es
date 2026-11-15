@@ -20,6 +20,7 @@
 #include "gui.h"
 #include "icones.h"
 #include "imagem.h"
+#include "contas.h"
 
 #define LARG_INICIO 720
 #define ALT_INICIO  440
@@ -1232,8 +1233,18 @@ static void propriedades_item(void)
     formatar_texto(tamtxt, sizeof tamtxt, "%u bytes", tam);
     char livre[64];
     espaco_livre(livre, sizeof livre);
-    formatar_texto(m, sizeof m, "Nombre: %s\nTipo: %s\nTamaño: %s\nCreado: %s\nModificado: %s\nAtributos: -\nRuta: %s\nEspacio libre: %s",
-                    nomes[i], tipo, tamtxt, criado, quando, c, livre);
+    /* D282: permisos, dueño y grupo (en FAT32, los del montaje). */
+    char perm[120] = "desconocidos";
+    info_permisos_t p;
+    if (permisos_arquivo(c, &p) == 0) {
+        char rwx[10], dono[CONTA_NOME_MAX], grupo[CONTA_NOME_MAX];
+        texto_modo(p.modo, rwx);
+        formatar_texto(perm, sizeof perm, "%s (%04o)%s\nDueño: %s\nGrupo: %s", rwx, p.modo,
+                       p.com_donos ? "" : ", los del montaje", conta_nome(p.uid, dono, sizeof dono),
+                       conta_nome(p.gid, grupo, sizeof grupo));
+    }
+    formatar_texto(m, sizeof m, "Nombre: %s\nTipo: %s\nTamaño: %s\nCreado: %s\nModificado: %s\nPermisos: %s\nRuta: %s\nEspacio libre: %s",
+                    nomes[i], tipo, tamtxt, criado, quando, perm, c, livre);
     registrar("arquivos: propriedades de %s (modificado %s)", c, quando);
     mensagem("Propiedades", m);
 }

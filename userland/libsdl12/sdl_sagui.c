@@ -23,7 +23,7 @@
  *   - audio:    el juego mezcla en un callback; aquí se le llama cuando cabe
  *               otro bloque en el flujo de sonido del sistema (en cada
  *               SDL_PollEvent, SDL_Delay y SDL_Flip). Sin placa, mudo.
- *   - joystick: no hay; se dice que ninguno.
+ *   - joystick (D307): los mandos del sistema por sondeo, con sus eventos (libsagui mandos.h).
  *
  * Lo que es solo del SaguiOS (sagui_sdl_nome, sagui_sdl_titulo, sagui_sdl_escala,
  * sagui_cheia_inicial, sagui_sdl_ao_mudar_cheia) lo ajusta el programa antes
@@ -33,6 +33,7 @@
 
 #include "sagui.h"
 #include "gui.h"
+#include "mandos.h"
 
 #include <stdarg.h>
 
@@ -1012,10 +1013,14 @@ static void eventos_do_sistema(void)
     teclas_do_mapa();
 }
 
+static void joy_atualizar(int forcar);
+static int joy_eventos;
+
 void SDL_PumpEvents(void)
 {
     bombear_audio();
     eventos_do_sistema();
+    if (joy_eventos == SDL_ENABLE) joy_atualizar(0);   /* D307: los eventos de los joysticks abiertos */
 }
 
 int SDL_PollEvent(SDL_Event *evento)
@@ -1152,22 +1157,136 @@ static void bombear_audio(void)
     }
 }
 
-/* ------------------------------------------------------------------ joystick */
+/* ------------------------------------------------------------------ joystick (D307) */
 
-struct _SDL_Joystick { int indice; };
+/* Los mandos del sistema (libsagui mandos.h): se leen por sondeo y, como en la SDL 1.2, con los
+ * eventos activados (por defecto) SDL_PumpEvents genera SDL_JOYAXISMOTION, SDL_JOYHATMOTION y
+ * SDL_JOYBUTTONDOWN/UP de los joysticks abiertos al cambiar su estado. La SDL 1.2 no conoce la
+ * conexión en caliente: los índices son los de la lista del sistema al abrir. */
+struct _SDL_Joystick {
+    int indice;
+    unsigned id;
+    int abierto;
+    int n_eixos, n_botoes, n_hats;
+    estado_mando_t est;
+};
+static info_mando_t joy_lista[MANDOS_MAX];
+static int joy_n;
+static struct _SDL_Joystick joys[MANDOS_MAX];
+static int joy_eventos = SDL_ENABLE;
+static unsigned joy_ultimo;
 
-int SDL_NumJoysticks(void) { return 0; }
-SDL_Joystick *SDL_JoystickOpen(int indice) { (void)indice; SDL_SetError("no hay joystick"); return NULL; }
-void SDL_JoystickClose(SDL_Joystick *joy) { (void)joy; }
-const char *SDL_JoystickName(int indice) { (void)indice; return ""; }
-int SDL_JoystickNumAxes(SDL_Joystick *joy) { (void)joy; return 0; }
-int SDL_JoystickNumButtons(SDL_Joystick *joy) { (void)joy; return 0; }
-int SDL_JoystickNumHats(SDL_Joystick *joy) { (void)joy; return 0; }
-Sint16 SDL_JoystickGetAxis(SDL_Joystick *joy, int eixo) { (void)joy; (void)eixo; return 0; }
-Uint8 SDL_JoystickGetButton(SDL_Joystick *joy, int botao) { (void)joy; (void)botao; return 0; }
-Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu) { (void)joy; (void)chapeu; return SDL_HAT_CENTERED; }
-void SDL_JoystickUpdate(void) {}
-int SDL_JoystickEventState(int estado) { (void)estado; return 0; }
+static void joy_listar(void)
+{
+    int n = mandos_listar(joy_lista, MANDOS_MAX, NULL);
+    joy_n = n < 0 ? 0 : n;
+}
+
+int SDL_NumJoysticks(void) { joy_listar(); return joy_n; }
+
+const char *SDL_JoystickName(int indice)
+{
+    if (indice < 0 || indice >= joy_n) joy_listar();
+    if (indice < 0 || indice >= joy_n) return NULL;
+    return joy_lista[indice].nome;
+}
+
+SDL_Joystick *SDL_JoystickOpen(int indice)
+{
+    joy_listar();
+    if (indice < 0 || indice >= joy_n) { SDL_SetError("no hay joystick %d", indice); return NULL; }
+    struct _SDL_Joystick *j = &joys[indice];
+    if (!j->abierto) {
+        memset(j, 0, sizeof *j);
+        j->indice = indice;
+        j->id = joy_lista[indice].id;
+        j->n_eixos = joy_lista[indice].n_eixos;
+        j->n_botoes = joy_lista[indice].n_botoes;
+        j->n_hats = joy_lista[indice].n_hats;
+        mando_ler(indice, &j->est);   /* el estado de partida: sin eventos falsos al empezar */
+        registrar("[%s] joystick abierto: %s (%d ejes, %d botones, %d hats)", sagui_sdl_nome, joy_lista[indice].nome,
+                  j->n_eixos, j->n_botoes, j->n_hats);
+    }
+    j->abierto++;
+    return j;
+}
+
+void SDL_JoystickClose(SDL_Joystick *joy) { if (joy && joy->abierto) joy->abierto--; }
+int SDL_JoystickOpened(int indice) { return indice >= 0 && indice < MANDOS_MAX && joys[indice].abierto; }
+int SDL_JoystickIndex(SDL_Joystick *joy) { return joy ? joy->indice : -1; }
+int SDL_JoystickNumAxes(SDL_Joystick *joy) { return joy ? joy->n_eixos : 0; }
+int SDL_JoystickNumButtons(SDL_Joystick *joy) { return joy ? joy->n_botoes : 0; }
+int SDL_JoystickNumHats(SDL_Joystick *joy) { return joy ? joy->n_hats : 0; }
+int SDL_JoystickNumBalls(SDL_Joystick *joy) { (void)joy; return 0; }
+int SDL_JoystickGetBall(SDL_Joystick *joy, int b, int *dx, int *dy) { (void)joy; (void)b; if (dx) *dx = 0; if (dy) *dy = 0; return -1; }
+
+Sint16 SDL_JoystickGetAxis(SDL_Joystick *joy, int eixo)
+{
+    if (!joy || eixo < 0 || eixo >= joy->n_eixos) return 0;
+    return joy->est.eixos[eixo];
+}
+
+Uint8 SDL_JoystickGetButton(SDL_Joystick *joy, int botao)
+{
+    if (!joy || botao < 0 || botao >= joy->n_botoes) return 0;
+    return (joy->est.botoes >> botao) & 1;
+}
+
+Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu)
+{
+    if (!joy || chapeu < 0 || chapeu >= joy->n_hats) return SDL_HAT_CENTERED;
+    return joy->est.hats[chapeu];   /* MANDO_HAT_* son los mismos bits que SDL_HAT_* */
+}
+
+/* Lee los abiertos (como mucho cada 4 ms) y, con los eventos activados, avisa de los cambios. */
+static void joy_atualizar(int forcar)
+{
+    int alguno = 0;
+    for (int i = 0; i < MANDOS_MAX && !alguno; i++) alguno = joys[i].abierto;
+    if (!alguno) return;   /* sin joysticks abiertos no se pregunta nada al sistema */
+    unsigned agora = tempo_ms();
+    if (!forcar && agora - joy_ultimo < 4) return;
+    joy_ultimo = agora;
+    for (int i = 0; i < MANDOS_MAX; i++) {
+        struct _SDL_Joystick *j = &joys[i];
+        if (!j->abierto) continue;
+        estado_mando_t e;
+        if (mando_ler(j->indice, &e) < 0 || e.id != j->id) memset(&e, 0, sizeof e);   /* desconectado: en reposo */
+        if (joy_eventos == SDL_ENABLE) {
+            SDL_Event ev;
+            for (int k = 0; k < j->n_eixos && k < MANDO_EIXOS_MAX; k++)
+                if (e.eixos[k] != j->est.eixos[k]) {
+                    memset(&ev, 0, sizeof ev);
+                    ev.jaxis.type = SDL_JOYAXISMOTION; ev.jaxis.which = (Uint8)i; ev.jaxis.axis = (Uint8)k; ev.jaxis.value = e.eixos[k];
+                    enfileirar(&ev);
+                }
+            for (int k = 0; k < j->n_hats && k < MANDO_HATS_MAX; k++)
+                if (e.hats[k] != j->est.hats[k]) {
+                    memset(&ev, 0, sizeof ev);
+                    ev.jhat.type = SDL_JOYHATMOTION; ev.jhat.which = (Uint8)i; ev.jhat.hat = (Uint8)k; ev.jhat.value = e.hats[k];
+                    enfileirar(&ev);
+                }
+            uint32_t mudou = e.botoes ^ j->est.botoes;
+            for (int k = 0; k < j->n_botoes && k < 32; k++)
+                if (mudou & (1u << k)) {
+                    memset(&ev, 0, sizeof ev);
+                    bool p = (e.botoes >> k) & 1;
+                    ev.jbutton.type = p ? SDL_JOYBUTTONDOWN : SDL_JOYBUTTONUP; ev.jbutton.which = (Uint8)i;
+                    ev.jbutton.button = (Uint8)k; ev.jbutton.state = p ? SDL_PRESSED : SDL_RELEASED;
+                    enfileirar(&ev);
+                }
+        }
+        j->est = e;
+    }
+}
+
+void SDL_JoystickUpdate(void) { joy_atualizar(1); }
+
+int SDL_JoystickEventState(int estado)
+{
+    if (estado == SDL_ENABLE || estado == SDL_IGNORE) joy_eventos = estado;
+    return joy_eventos;
+}
 
 /* ------------------------------------------------------------------ D294: lo que pide DOSBox */
 

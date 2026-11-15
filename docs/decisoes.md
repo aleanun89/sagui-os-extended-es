@@ -15223,6 +15223,63 @@ tarjeta y con otra PCI desconocida, que el sistema arranca igual y no hay ningú
 **Qué probar en el L850** (guía en `docs/wifi-ar9485.md`): `dmesg | grep AR9485` (identidad, ROM, MAC, canal), `wifi buscar`,
 `wifi conectar "SSID" clave`, `ping`; si algo falla, el registro dice el paso.
 
+## D281. IDE por DMA Bus Master y caché de bloques con lectura anticipada y escritura diferida (v8.4, mejoras 013 y 035)
+
+**Problema.** El ATA era PIO puro: la CPU copiaba cada sector por `rep insw` y, como las llamadas al sistema corren con las interrupciones apagadas (D165), una lectura grande congelaba el tic y el escritorio (D245 lo mitigó con esperas por tiempo y cesiones, pero solo «parcial»). Además no había caché común: FAT32 y ext2 tenían las suyas pequeñas por volumen, y cada lectura repetida volvía al disco.
+
+**Decisión 1: DMA Bus Master (`kernel/dispositivos/ata.c`).**
+- BAR4 del controlador IDE (PIIX/ICH y compatibles), 8 puertos por canal, Bus Master activado en el PCI. Tabla PRD de una entrada y búfer de 64 KB contiguo y alineado a 64 KB por canal; órdenes READ/WRITE DMA (C8/CA, y 25/35 en LBA48) de hasta 128 sectores, con copia desde/hacia ese búfer (sin hacer suposiciones sobre dónde está el búfer del llamante).
+- Si el disco no tiene un modo DMA seleccionado se elige uno prudente por SET FEATURES (UDMA hasta el 2, o MWDMA).
+- Interrupción: el manipulador de la IRQ 14/15 (o la línea PCI en modo nativo) anota el estado, quita la IRQ del Bus Master y del disco y despierta a quien espera; si corría el ocioso, cambia de proceso al instante. Se registra con `ata_modo_assincrono(true)` (junto al EHCI/xHCI), cuando ya hay planificador.
+- **El que lee duerme y el resto corre:** `bloquear(canal)` + `ceder()` (el `int 0x81` funciona con IF apagado, como el EHCI). Si la IRQ no llega tres veces seguidas, el canal pasa a «ceder la CPU» sin dormir. Antes del arranque o dentro de una IRQ se sondea.
+- **Cerrojo por canal (`trava_t`)**: dos procesos no mezclan órdenes en el mismo canal (la espera cede el cerrojo general de D165).
+- **Vuelta a PIO:** si una orden de DMA falla (error del Bus Master, del disco o tiempo agotado) el disco queda en PIO para siempre y la orden se repite por PIO. `mkimagem.py --sem-dma` (byte `CAB_DISCO_OPC`, 143 de la cabecera) fuerza PIO: sirve para comparar y como salida de emergencia.
+- ATAPI sigue por PIO (la orden PACKET), pero toma el mismo cerrojo.
+
+**Decisión 2: caché de bloques (`kernel/fs/cache_disco.c`, `kernel/inc/cache_disco.h`).**
+- Entre `disco_ler`/`disco_escrever` y el driver, solo para discos **internos** (ATA, SATA, NVMe). Los pendrives y CD quedan fuera: se retiran o cambian de medio sin avisar, y para ellos la escritura directa es lo seguro.
+- Bloques de 4 KB, hash + LRU, límite = 1/16 de la RAM entre 1 y 64 MB. Los pedidos de 128 KB o más no se cachean (se vacía lo sucio que solape y van directos).
+- **Lectura anticipada**: pedido que empieza donde acabó el anterior del mismo disco: en cada fallo se leen 8 bloques de más, la ventana se duplica hasta 32 (128 KB).
+- **Escritura diferida**: lo que escribe un sistema de archivos montado queda sucio con un número de orden. Se vacía cada 3 s (tarea `sync-disco`), con más de la cuarta parte de la caché sucia, al desmontar, al apagar/reiniciar (`montagem_desmontar_tudo`) y con `sync` (el programa llama `desmontar("*")`; `sync -v` anota con `desmontar("?cache")` una línea `[CACHE]` con aciertos, fallos, etc.; no se añadió llamada al sistema para no tocar `abi.h`). El acceso en bruto (discos **reservados**: formateo, particiones, instalador) graba al instante. `--sem-cache-disco` y `--sin-escritura-diferida` (bits 1 y 2 del mismo byte) apagan lo uno o lo otro.
+- **Orden y barreras:** el vaciado graba en el mismo orden en que se escribió y junta los bloques contiguos en una sola orden al driver, que en ATA termina con FLUSH CACHE. Un corte de luz deja, por tanto, un prefijo de lo escrito (el mismo tipo de estado que dejaba la escritura directa, solo que con unos segundos menos). No hay API de barrera aparte: la marca «en uso» al montar (ext2: estado del superbloque, que ya existía; FAT32: bit 27 de FAT[1], nuevo) llega al disco antes que cualquier cambio posterior porque el orden se respeta.
+- Un error al grabar un bloque se anota y el bloque se descarta (si no, un disco retirado repetiría el error eternamente); `disco_removido` descarta lo suyo sin grabar.
+- Orden de cerrojos: `trava_fs` -> `trava_cache` -> cerrojo del canal.
+
+**Decisión 3: montajes robustos.** FAT32 con escritura: se mira el bit 27 de FAT[1] (marca de «desmontado limpio» de Windows); si no estaba puesto se anota y se avisa («no se desmontó bien la última vez»); se pone «en uso» al montar y «limpio» al desmontar. ext2/3/4 ya hacían lo equivalente (estado, diario pendiente, errores: solo lectura).
+
+**Núcleo tocado (aviso):** el planificador solo se usa por sus llamadas públicas (`bloquear`, `acordar`, `ceder`, `escalonar` desde la IRQ); no se cambió su código. Se añadió un manipulador de IRQ (14/15) y un cerrojo por canal. `disco_ler`/`disco_escrever` pasan por la caché (VFS y FS no cambian).
+
+**Límites conocidos.** AHCI y NVMe usan la caché pero siguen sondeando (sin sueño por IRQ): pendiente. La caché no se reduce sola bajo presión de memoria (solo tiene un tope fijo). El DMA solo está probado en el PIIX de QEMU: en hardware real hay que probar con y sin `--sem-dma`.
+
+**Medidas (QEMU con KVM, 20 MB de un ext2 del segundo disco IDE, `cat > /dev/null`):** PIO (`--sem-dma`) 2,8 a 3,0 MB/s, latencia máxima del escritorio (`latencia`, bucle de 10 ms) 40 a 50 ms; DMA 12 a 14 MB/s (el tope es `cat`, no el disco: la misma lectura repetida desde la caché da lo mismo), latencia máxima 10 ms. Con 3,5 a 4 veces menos tiempo de lectura la caché sube de 172 fallos a miles de aciertos en la segunda pasada. Corte brusco: tras `sync` el ext2 queda íntegro y la copia entera; sin `sync` (matar QEMU a los 6 s de una copia) el fsck de la diferida y el de la directa dan lo mismo (código 0, 7 líneas). `tests/h281_disco_dma_cache.py`; h244 usa ahora `--sem-dma` en su apartado de cesiones de PIO.
+
+## D282. Permisos de archivos: dueño, grupo y `rwx` (v8.4, antes v8.5; mejora 098, fase 2)
+
+**Contexto:** la fase 1 (D255) dio identidad a los procesos y cerró las llamadas de administración, pero dejó los archivos sin permisos: `sagui` leía y escribía todo salvo unas rutas fijas en `permisos.c` (la sombra, las claves, `/etc`, `/bin`, `/sistema`, las órdenes al gestor). El mantenedor pidió permisos **sencillos, útiles y sobre todo robustos**: dueño, grupo y 9 bits sin ACL, comprobados en el VFS; ext2 con los suyos; el ramdisk de root; FAT32/ISO/UDF con `uid=`, `gid=`, `umask=` al montar.
+
+**Decisión:**
+1. **Modelo Unix mínimo.** Cada archivo y carpeta tiene dueño (uid), grupo (gid) y `rwx` para dueño, grupo y otros, más el bit **pegajoso** (en una carpeta, solo el dueño de cada archivo o de la carpeta lo borra o lo mueve). Sin setuid ni setgid (la elevación sigue siendo la de D255) ni ACL. Se mira la clase del dueño si el uid coincide, si no la del grupo si coincide el gid, si no la de otros. **Root y las tareas del kernel lo pueden todo** (como en Unix, también ejecutar sin `x`).
+2. **Qué se comprueba (un solo módulo, `permisos.c`, con las rutas ya copiadas y resueltas):** en todas las operaciones, `x` en `/` y en cada carpeta de la ruta (entrar); **abrir** `r`/`w` sobre el archivo (truncar y añadir son escribir); **crear** archivo o carpeta, `w`+`x` en la carpeta; **borrar**, **rmdir** y **renombrar**, `w`+`x` en la carpeta de origen y en la de destino, y el pegajoso; **listar**, `r` en la carpeta; **cd**, `x`; **ejecutar**, `r`+`x`; `info` y fechas (stat), solo entrar. Lo que no existe pasa la comprobación y la operación da su error de siempre. Si un archivo que no existía al comprobar aparece al crearlo (otro proceso lo creó mientras el disco esperaba), se vuelven a mirar sus permisos y, si no alcanzan, se cierra y se niega (`ext2` dice si lo creó él: `abrir` devuelve 1).
+3. **Llamada nueva `SIS_PERMISOS_ARQ` (137; `SIS_MAX` 138; la 135 es la del Bluetooth, D279, y la 136 la de `SIS_TELAS`, D290: al fusionar con la v8.3 la 136 chocaba y pasó a la 137)**, libre en la tabla de D255 (quién puede qué se mira dentro): `PARQ_CONSULTAR` (`info_permisos_t`: uid, gid, modo, tipo y si el sistema de archivos guarda dueños), `PARQ_MODO` (chmod: el dueño o root), `PARQ_DONO` (chown/chgrp: el dueño **solo root**; el grupo, root o el dueño a su propio grupo), `PARQ_UMASK`. Se eligió una llamada nueva y no ampliar `info_arquivo_t`: el kernel escribe `sizeof` del struct en la memoria del programa y un binario viejo con el struct corto se habría corrompido la pila.
+4. **`umask` por proceso** (`processo_t.umask`, 022 al arrancar), heredada por los hijos y los lanzados con `USU_COMO`. Lo nuevo nace `0666 & ~umask` (archivos) o `0777 & ~umask` (carpetas) con el uid y el gid de quien lo crea; lo que crea el kernel, de root con 022.
+5. **Un programa recién creado se puede ejecutar sin `chmod`:** si lo primero que se escribe en un archivo que **creó esa misma apertura** es la cabecera ELF, recibe la `x` donde tiene la `r` (como el enlazador de Unix). Así `cc`, `cp`, `tar`, `wget` o el instalador no cambian; un archivo que ya existía nunca gana la `x` por esto.
+6. **Dónde se guardan:**
+   - **Ramdisk (SGFS) y árbol en RAM:** campos nuevos en `no_t`. Todo de root (carpetas y programas 0755, el resto 0644) salvo `/home` y lo de dentro (de `sagui`), `/tmp` (1777), `/sistema` (0700: SAGUI-CONF y todo lo del sistema, ni se recorre) y la sombra (0600).
+   - **ext2:** los del inodo (`i_mode`, `i_uid`/`i_gid` con sus 16 bits altos de Linux); al crear, los de quien crea (con su umask), en la misma operación del driver, sin hueco.
+   - **FAT32, ISO 9660, UDF y CD de audio:** no tienen dueños; todo tiene los del montaje: `uid=`, `gid=` y `umask=` (en `/etc/fstab` y en `mount -o`, como en Linux; nombres `root`/`sagui` o números). Sin ellas, **de `sagui` con 022** (un pendrive o el `/home` FAT32 son de la persona, como en un escritorio de Linux); montados en `/tmp` o `/logs`, de root con 0 (todos escriben). `chmod`/`chown` ahí dan «no soportado». Para recorrer una ruta en estos sistemas no se lee el disco (todo tiene los mismos permisos).
+   - **Carpetas de montaje fijas:** la raíz de lo montado en `/home` es siempre de `sagui` 0755, y la de `/tmp` y `/logs` en un ext2, root 1777 (sean cuales sean los del volumen: así las imágenes y discos de antes funcionan).
+7. **`/home` es de `sagui` mientras haya un solo usuario (hasta la fase 3):** lo que es de root en `/home` se **ve** como de `sagui` (sin escribir nada en el disco). Razón: los ext2 de antes de D282 lo tienen todo de root (el driver no ponía dueño) con 0644, y lo que crea root ahí (un programa elevado que guarda una preferencia, `zona`) dejaría a la persona sin poder cambiar su propia configuración. Esos archivos de antes se ven además con la `x` donde tienen la `r` (los programas compilados en `/home` siguen ejecutándose). Se descartó cambiar los dueños en el disco al montar (escribir miles de inodos al arrancar en un volumen de la persona es justo lo que hay que evitar). La fase 3 (varios usuarios) lo migrará de verdad.
+8. **Las reglas de rutas de D255 pasan a permisos reales**, con una lista corta de **secretos** que se protege además por la ruta (también en un FAT32, que no tiene permisos, y con cualquier mayúscula): no se leen la sombra (y `sombra.tmp`), la clave privada del `sshd` (en `/etc/ssh` o, sin SAGUI-CONF, en `/home/.ssh`) ni la contraseña del VNC; no se escribe en `/tmp/.servicios/pedidos`. Ver los datos (stat) de esas rutas sí se puede. Lo demás que protegía D255 sale de los permisos: `/etc` y `/bin` son de root 0755/0644 (no se escriben, no se crea, no se borra, no se renombra, ni `/etc` entero); `/sistema` es 0700 (ni se lee, ni se lista, ni se entra: tampoco se llega a `/sistema/conf`). Además se cierra un hueco de D255: `mv archivo carpeta` se comprueba con el nombre final (`carpeta/archivo`), que puede ser un secreto.
+9. **SAGUI-CONF:** lo que se copia a `/etc` al arrancar es siempre de root y conserva el modo de la partición sin escritura para grupo ni otros; los secretos, 0600 aunque en la partición estén mal. `conf_gravar()` crea la sombra, las claves del `sshd` y la contraseña del VNC con umask 077 (nacen 0600, también el temporal).
+10. **Imágenes e instalador:** `mkimagem.py` da dueño a las particiones ext2 (`-E root_owner` y, con `debugfs`, lo copiado con `-d`: carpetas 0755, archivos 0755 o 0644): `/home` y `/jogos` de `sagui`, el resto (`/apps`, SAGUI-CONF, `/tmp`, `/logs`) de root; sin `debugfs`, los archivos quedan con el uid de quien compila (aviso). El formateador ext2 de SaguiOS (`fs_formatar_ext2`) deja la raíz de `sagui` salvo en SAGUI-CONF, -APPS, -TMP y -LOGS. El instalador conserva dueño, grupo y modo al copiar y deja `/jogos` de `sagui`.
+11. **Programas:** `ls -l` (`drwxr-xr-x dueño grupo` delante de la fecha), `chmod` (octal y `[ugoa][+-=][rwxt]`, `-R`), `chown DUEÑO[:GRUPO]`, `chgrp`, `umask` (interno del `sagsh`), `mount -o uid=,gid=,umask=`; Archivos muestra en Propiedades «Permisos: rwxr-xr-x (0755), Dueño, Grupo» (o «los del montaje»). `printf` de la libsagui aprende `%o`. El servicio `litemonkey` pasa a `usuario=sagui`: guarda sus datos en `/home/litemonkey` y la cuenta `servicio` ya no puede escribir en `/home` (en un `/home` FAT32 nadie más que su dueño puede).
+
+**Núcleo tocado (aviso):** VFS (`vfs.c`, `arquivos.c`: permisos en cada llamada de archivos), `montagem.c` (permisos de los montajes, opciones del fstab), `ext2.c` (dueño y modo del inodo, `abrir` devuelve 1 al crear), `carregador.c` (ejecutar), `processo.h`/`processos.c` (umask), `permisos.c`, `abi.h`. Ni memoria, ni planificador, ni arranque.
+
+**Límites conocidos:** sin setuid/setgid ni ACL; un solo grupo por proceso (el de su cuenta); en `/home`, root no puede tener nada suyo (se ve de `sagui`) hasta la fase 3; un pendrive ext2 formateado por SaguiOS antes de D282 es todo de root (sagui lo lee pero no escribe: `admin chown -R sagui /usb`); la `libc` de los ports (`stat`, `chmod`, `access`) no usa todavía los permisos reales; un archivo abierto conserva el acceso aunque luego cambien sus permisos (como en Unix); los ext2 con uid de Linux distintos de 0 y 1000 se respetan tal cual.
+
+**Prueba:** `tests/h282_permisos.py` con `/testes/permisos --matriz` (imagen de consola con `/home` y `/logs` en ext2 y dos FAT32 por el fstab con y sin `uid=root,gid=root,umask=022`): root prepara y lo puede todo; como `sagui`, la matriz de leer, escribir, crear, borrar, renombrar, mkdir, rmdir, listar, entrar, ejecutar, chmod, chown, chgrp, umask y el pegajoso en RAM, ext2 y FAT32, y lo de D255 sigue cerrado; en el shell, `ls -l`, `umask` (heredada), `chmod`, `chown`, `chgrp`; tras reiniciar, el ext2 conserva dueño, grupo y modo. `h254` amplía `--llamadas` con la llamada nueva y sus `--rutas` siguen igual.
+
 ## D283. Pendientes del NVMe: BAR alta recolocada y bloques de 4096 con particiones e instalador (v8.0.1)
 
 **Contexto.** D265 y D270 dejaron tres cosas: el kernel (32 bits sin PAE) no alcanzaba una BAR de 64 bits por encima de
@@ -15984,6 +16041,67 @@ en `%LOCALAPPDATA%\saguitools\86box\` (fuera del repositorio, con una copia de l
 nunca). El serie va al dispositivo «File (COM)» de 86Box (sin pty en Windows) a `serie.txt`, con retraso por el
 búfer. Es uso manual: no pasa por `tools/turno.sh`. Detalles en `docs/86box.md`, «Ratón».
 
+## D302 - Driver de la Sound Blaster 16 y DMA ISA 8237 (2026-11-15)
+
+**Encargo del mantenedor** (v8.3.3, mejora 126 «Drivers de la época»): SaguiOS se centra en equipos antiguos y no tenía
+sonido en los PC ISA. Primer driver de la serie: la **Sound Blaster 16** (DSP 4.xx). Guía: `docs/sb16.md`.
+
+1. **DMA ISA reutilizable** (`kernel/dispositivos/isa.c`, `isa.h`): el 8237 con canales de 8 bits (0-3) y de 16 (5-7),
+   modo auto-init, página y contador, lectura del contador por pares hasta que se estabiliza, y el bit TC del estado.
+   **128 KB alineados a 128 KB por debajo de 16 MB se reservan justo después de `memfisica_iniciar`**: entre 1 y 16 MB
+   si queda (`memfisica_alocar_baixa`) y si no (lo normal: el ramdisk, de 17 MB, va justo detrás del kernel) en la
+   **memoria convencional**, en 60000h o 40000h si el E820 dice libre todo el bloque. El mapa de bits da por ocupado
+   el primer MB y después del arranque el kernel solo usa ahí el trampolín de los AP (7000h) y lo que hay por debajo
+   de 20000h; el EBDA va por encima de 80000h. Los drivers piden trozos que no cruzan 64 KB (128 KB en los canales de
+   16 bits). Se reserva siempre: es poco y evita que la tarjeta se quede sin DMA.
+2. **Cuándo se busca**: solo si no hay tarjeta de sonido PCI con driver (HDA o AC'97 ganan). Así en los equipos
+   modernos no se toca ningún puerto ISA, y un PC con AC'97 integrado y una SB16 usa el AC'97 (anotado; registrar la
+   SB16 como segunda salida es posible con la D275 pero no hace falta ahora).
+3. **Sondas seguras**: en cada puerto (220h, 240h, 260h, 280h) se lee antes de escribir (el DSP tiene que decir
+   «listo»; un bus vacío da FFh). Todas las esperas del DSP son por vueltas acotadas (valen con las interrupciones
+   apagadas). La IRQ del mezclador (80h) se comprueba pidiendo una al DSP (F2h) con las interrupciones apagadas y
+   mirando el IRR del 8259 (`pic_pedidos`, nueva); el DMA (81h), con una transferencia de 32 bytes de silencio; si
+   falla, reset del DSP. Sin datos del mezclador se prueban las líneas y canales habituales.
+4. **ISA PnP** (`isapnp.c`, especificación 1.0a): solo si no contestó ninguna en los puertos fijos y hay un puente ISA
+   (clase 06/01). Aísla las tarjetas (corta en 8 bits si nadie compite: ~5 ms sin tarjetas), anota cada una y configura
+   la primera de Creative (vendedor CTL) en el dispositivo lógico 0: puerto libre, una IRQ que no usa nadie (ni driver,
+   ni PCI, ni marcada por nivel en el ELCR), DMA 1 y 5, MPU en 330h y OPL en 388h. No reinicia la configuración de las
+   que la BIOS ya activó (solo los CSN). Las de otros fabricantes quedan «sin driver» en la lista ISA.
+5. **Reproducción**: 44,1 kHz (la máxima del SB16; el mezclador convierte), 16 bits estéreo, auto-init en el canal de
+   16 bits (o en el de 8 si no hay: el SB16 lo permite), anillo de 16384 cuadros (64 KB, 371 ms) e IRQ cada medio
+   anillo, reconocida en base+0Fh/0Eh según el registro 82h. La posición sale del contador del 8237. Es una tarjeta más
+   de la D275 (`audio_registrar`), con la IRQ por el camino de la tarjeta principal (`ao_irq`); sin sonda D211.
+6. **Grabación semidúplex** (D292): el SB16 hace una transferencia a la vez por canal; dúplex de verdad exige un canal
+   de 8 bits para una dirección y el de 16 para la otra, y el SB16 de QEMU no lo emula (ni graba). Se graba en 16 bits
+   estéreo a 44,1 kHz por el canal de 16 bits; mientras, la salida se calla y su posición avanza con el reloj (los
+   programas que reproducen no se bloquean) y al acabar vuelve a sonar. `captura.c` usa ahora la tasa nativa de la
+   tarjeta (48 kHz en HDA/AC'97, igual que antes bit a bit; 44,1 kHz en la SB16).
+7. **Mezclador CT1745**: maestro y PCM a 0 dB (el volumen es del mezclador del kernel, como en HDA y AC'97), línea y CD
+   a -14 dB hacia la salida, micrófono fuera de la salida (acople), altavoz del PC a -6 dB. `sonido --mezclador CANAL N`
+   por `SIS_AUDIO_HDA` con las órdenes nuevas `SB16_OP_ESTADO`/`SB16_OP_CANAL` (la llamada despacha por driver).
+8. **OPL**: prueba del temporizador de AdLib en 388h (OPL2/OPL3); solo se dice. FM por MIDI, MPU-401 y SB 1.x/2.0/Pro
+   (DSP 1-3) quedan en la mejora 126.
+9. **Información**: `INFO_ISA` (76, `info_isa_t`) con los dispositivos ISA detectados; `lspci` los lista al final
+   («ISA 220h ...») e `infopc -t pci` en una sección; `sonido`, `infopc` y `volumen` dicen puerto, IRQ y DMA.
+
+**Pruebas.** `tests/h302_sb16.py` en QEMU (`-device sb16`, salida a WAV): detección, `sonido`/`lspci`/`infopc`/`grabar
+--info`, un tono de 1 kHz con la misma frecuencia, nivel y canales (RMS 11565 de 11585), estéreo separado,
+`volumen 50` (0,249) y `silencio`, 10 s sin cortes (0 ventanas de 10 ms bajas), IRQ de 16 bits atendidas, `grabar`
+acaba y la salida vuelve después (el SB16 de QEMU no emula el ADC: graba 0 cuadros); y sin `-device sb16`, nada.
+**86Box** (`tests/emu_86box_sb16.py`, a petición, fuera de la batería; `p2-voodoo3`): detecta `220h: DSP 4.05, IRQ 5,
+DMA 1 y 5, OPL3`, la reproducción trae IRQ de 16 bits, la grabación trae cuadros (66346 en 1,5 s: 86Box sí emula el
+ADC) y la salida vuelve después. 86Box no graba su audio a un fichero: la forma del sonido solo se mide en QEMU. El
+mezclador cuenta algunos cortes en 86Box (la emulación va a saltos de ~30 ms) y uno, a propósito, al volver la salida
+tras grabar (el anillo empieza de cero). Arreglado de paso: `emu86box.digitar` manda los signos por la tecla del
+teclado español (un `-` salía como `'`).
+
+**ISA PnP en 86Box** (`p2-sb16pnp`, la SB16 PnP): la BIOS de la P2B ya la configura, así que contesta en 220h; si
+contesta, el aislamiento se hace igual **solo para listar** (no cambia la configuración de las activas: solo los CSN),
+para decir su identificador. Lee `CTL0025` con la suma correcta y la tarjeta sigue sonando y grabando después. Un fallo
+encontrado así: el puerto READ_DATA es `(registro 00h << 2) | 3`, con los dos bits bajos a 1 (se leía 274h y la
+tarjeta contestaba en 277h); ahora 20Bh y 273h. **El camino que configura** (tarjeta sin activar por la BIOS, «PnP OS:
+Yes») queda sin probar en emulación: hay que probarlo en hardware (`docs/sb16.md`). 86Box `p2-voodoo3` (SB16 en 220h/5/1/5) a mano.
+
 ## D303. VisualPythonS: manual para empezar, nueve componentes nuevos y autocompletado de sintaxis (v8.3.2, mejora 124)
 
 **Petición (mantenedor, 2026-11-15).** Un manual de VisualPythonS para quien empieza, con ejemplos completos y capturas; componentes
@@ -16062,6 +16180,73 @@ lite-monkey (D117), con su documentación (`docs/bases-de-datos.md`).
   abrir un fichero solo lee el esquema; el conector y el explorador escriben con parámetros enlazados.
 - **Pruebas:** `tests/basedatos_unidad.py` (PC) y `tests/h304_bd_visual.py` (QEMU, con capturas `H304-*.png`).
 
+## D305 - Aceleración 2D de las 3dfx Banshee, Voodoo3 y Voodoo4/5 (v8.3.3, 2026-11-15)
+
+**Encargo del mantenedor** (drivers de la época, mejora 126): 2D por la GPU en las 3dfx con motor 2D. Nuevo
+acelerador `acel_tdfx.c` sobre la capa común `acel2d` (D195, D244, D246), con la misma regla que los demás: **solo se
+activa si su autoprueba completa coincide píxel a píxel con la CPU y termina a tiempo**, y el vigilante lo apaga si
+después no responde. **SIN PROBAR EN HARDWARE REAL: solo en 86Box** (QEMU no emula ninguna 3dfx).
+
+**Tarjetas.** Lista exacta por PCI (fabricante `121a`): Banshee `0003`, Voodoo3 `0005` (también las Velocity 100/200,
+que son Voodoo3) y VSA-100 `0009` (Voodoo4/5; el motor 2D es el mismo, pero 86Box no la emula y de la Voodoo5 solo se
+usa el primer chip, el que saca la pantalla). `--acel2d=tdfx` en `mkimagem.py` la fuerza (modo 7 de `CAB_ACEL2D`).
+
+**Sonda de solo lectura.** Antes de escribir nada: BAR 0 (registros, 32 MB) y BAR 1 (memoria de vídeo) de 32 bits; el
+framebuffer del VBE dentro del BAR 1 y alcanzable por el 2D (24 bits de dirección); y lo que dejó el VBE en el
+procesador de vídeo: `vgaInit0` con la salida extendida, `vidProcCfg` activo, sin mosaico y con el **formato de la
+pantalla del VBE**, `vidDesktopOverlayStride` = el pitch del VBE y `vidDesktopStartAddr` = el desplazamiento del
+framebuffer en el BAR 1. Si algo no cuadra, el motivo va a `[ACEL2D]` y a infopc y no se toca la tarjeta.
+
+**El motor.** Registros del 2D por MMIO (BAR 0 + 0x100000), **sin la CMDFIFO** (no hace falta: la orden son 4
+escrituras): relleno = orden 5 con `colorFore` y ROP 0xCC; copia = orden 1 con ROP 0xCC y los bits 14/15 de dirección
+(de derecha a izquierda / de abajo arriba, con las esquinas en la última columna/fila), así los solapes salen como
+`memmove`. Antes de cada orden, huecos en la FIFO del PCI (`status`, bits 4:0). **Esperar = FIFO del PCI vacía
+(0x1F) y el bit 9 (ocupado) apagado, tres lecturas seguidas.** Lo de la FIFO vacía se añadió tras ver en 86Box letras
+rotas y copias del cursor al desplazar la consola: allí el bit de ocupado no cuenta las órdenes del 2D que aún
+esperan en la FIFO y la CPU escribía mientras el motor seguía copiando; la autoprueba no lo vio porque compara al
+final, cuando ya ha terminado todo. El blit desde la CPU (host-to-screen) **no** se hace: la capa común no tiene esa
+orden (el escritorio se compone en RAM) y habría que cambiar `video.c`; queda para cuando se mida que compensa.
+
+**16 y 24 bits en la capa común.** La BIOS de la Voodoo3 que trae 86Box (2000 y 3500) solo ofrece modos VESA de 16 y
+**24 bits** (1024x768x24, pitch 4096), y `acel2d` solo aceptaba 32 bits 0x00RRGGBB. Se generaliza sin cambiar nada en
+32 bits: `acel_tela_t.bytes_px` (4, 3 o 2) y un campo opcional `outras_profundidades` en `acel_driver_t` (solo la tdfx
+lo pone). La zona de prueba se lee y se escribe con los bytes por píxel de la tarjeta, la referencia de la CPU guarda
+los mismos valores en un `uint32_t` por píxel y los colores de los rellenos llegan al acelerador ya en el formato de
+la tarjeta (`video_cor_placa`, lo mismo que hace la copia de la CPU, así la GPU y la CPU dejan los mismos bits). En
+24 bits se exige 0xRRGGBB y en 16, RGB565. Los demás aceleradores siguen solo en 32 bits con el mismo mensaje de
+siempre. Las medidas de la CPU en 16/24 bits copian los bytes sin convertir: **subestiman** lo que cuesta de verdad.
+
+**Copias pequeñas.** `acel2d probar --detalle` en 86Box: cada orden tarda ~0,2 ms en empezar (es el hilo del 2D del
+emulador, que se despierta) y la CPU gana por debajo de ~8000 píxeles; por eso `min_pixeis = 4096` (64x64), como la
+R6xx. En una Voodoo3 real el corte será más bajo; se ajustará con la foto de `--detalle`.
+
+**Resultados en 86Box 6.0** (`tests/emu_86box_voodoo2d.py`, a petición; 1024x768 a 24 bits, autoprueba completa del
+arranque de 176 órdenes **IGUAL que la CPU**, ~0,19 s):
+
+| Máquina | Al arrancar (8 copias 1016x44) | `acel2d probar` (60 copias 1016x60) | Tandas D243 (120 órdenes) | Consola (`ls /bin` x3) |
+| --- | --- | --- | --- | --- |
+| `p2-voodoo3` (Pentium II 350, Voodoo3 2000) | GPU 1,1-2,5 ms, CPU 10,0 ms | GPU 16-20 ms, CPU 134 ms (6,7-8,4x) | GPU 7-10 ms, CPU 115-126 ms | 543 copias, 543 rellenos, 0 fallos |
+| `p2-450-voodoo3500` (Pentium II 450, Voodoo3 3500) | GPU 1,5-2,8 ms, CPU 9,0 ms | GPU 16-20 ms, CPU 117 ms (5,8-7,1x) | GPU 7-9 ms, CPU 108-118 ms | 543 copias, 543 rellenos, 0 fallos |
+
+Las sumas de la zona de las tres tandas coinciden GPU/CPU en las dos. Son medidas de un emulador (el Pentium II
+emulado escribe el framebuffer a ~111 MB/s y el blitter de 86Box corre en un hilo nativo): dicen que el driver es
+correcto y que compensa, no cuánto ganará una Voodoo3 real.
+
+**Lo que no se ha podido automatizar.** Arrastrar una ventana con el ratón: con el 86Box de Linux bajo Xvfb el ratón por
+XTEST no mueve el cursor del invitado (86Box toma las coordenadas del puntero XTEST como absolutas y lo recoloca en el
+centro de la ventana tras cada evento). El arrastre se prueba a mano con `./run_in_86box.sh --windows` (D301); la
+prueba usa en su lugar el desplazamiento de la consola, que también pasa por la GPU (copias y rellenos). Issue
+[#39](https://github.com/aleanun89/miniOS/issues/39) (etiqueta `86box`).
+
+**Pruebas.** QEMU: `h161`, `h242`, `h81`, `h245`, `h223`, `h226`, `h286` y `h243` siguen pasando (sin 3dfx no cambia
+nada). 86Box: `tools/turno.sh python3 tests/emu_86box_voodoo2d.py [máquina...] [--solo-escritorio]`, con capturas
+`docs/capturas/86box-voodoo2d-p2-voodoo3-{escritorio,probar,consola}.png`. Nueva máquina `p2-450-voodoo3500`. De paso,
+`tests/emu86box.py` teclea «-» y «/» con el mapa ES del kernel (antes «--detalle» llegaba como «detalle»).
+
+**Qué probar en una Voodoo3 real** (`docs/gpus.md`): arrancar, `dmesg > /home/tdfx.txt` (las líneas `[ACEL2D] tdfx`),
+`acel2d probar --detalle`, mover ventanas y desplazar texto. Si la imagen se estropea: `acel2d apagar` o
+`--sin-acel2d`. Cuando funcione en una real, la tarjeta pasa a la lista de confirmadas de `acel2d.c` con su fecha.
+
 ## D306. La meta de 38 MB es la del arranque (kernel y ramdisk), no la de las aplicaciones (v8.3.1)
 
 **Contexto.** Desde la v7.4 (D228) la meta del sistema base (D181) contaba «arranque + /apps», y la
@@ -16073,6 +16258,131 @@ esa meta es para que no se pase de RAM al arrancar.» `tools/mkimagem.py` cuenta
 (`tamanho-base.txt`, que vigila h28) **solo el arranque**: etapa 2, kernel y ramdisk, lo que se carga en la
 RAM. Las aplicaciones de SAGUI-APPS se leen del disco al usarlas y no cuentan; la partición se sigue
 creando con el mismo margen. `tamanho.txt` («Acerca de») no cambia. Corrige la regla de D228 para /apps.
+
+## D307. Mandos y joysticks: USB HID, Xbox 360 con cable y puerto de juegos (v8.3.3, mejora 126)
+
+**Contexto.** Encargo del mantenedor (2026-11-15): soporte de joysticks USB y antiguos. Hasta ahora el HID solo
+llevaba teclado y ratón (D214, D267), las SDL decían «ningún joystick» y DOSBox tenía `joysticktype=none`.
+
+**Decisión.**
+- **Analizador general de descriptores de informe HID** (`kernel/lib/hid_informe.c`, escrito a partir de HID 1.11 y
+  HID Usage Tables; items globales con Push/Pop, locales, colecciones, Report ID): da los campos de entrada con su
+  posición, tamaño, rango lógico y colección de aplicación. Sin memoria dinámica ni dependencias del kernel: se
+  compila también en el anfitrión para la prueba de unidad con descriptores reales. Un mando es una colección de
+  aplicación Joystick (0x04), Game Pad (0x05) o Multi-axis (0x08); los ejes se ordenan por uso (X, Y, Z, Rx...) como
+  los numera SDL; el hat se normaliza a 4 bits (arriba, derecha, abajo, izquierda, como `SDL_HAT_*`).
+  `kernel/usb/hid.c` lo prueba **antes** que el ratón (un mando también tiene X e Y). El viejo `analisar_relatorio`
+  del ratón se queda como estaba (no se toca lo que funciona en hardware real).
+- **Xbox 360 con cable**: no es HID (0xFF/0x5D/0x01); `usb.c` lo apunta como una interfaz HID más (`xbox360`) y
+  `hid.c` lo lee con su informe fijo de 20 bytes; Y de los sticks invertida y gatillos como ejes. Sin las luces ni la
+  vibración (harían falta transferencias de interrupción de salida, que la pila aún no tiene).
+- **Puerto de juegos 0x201** (`kernel/dispositivos/portajogos.c`, cuentas en `kernel/lib/portajogos_conv.c`): medida
+  RC con el TSC y las interrupciones apagadas solo durante la medida (plazo de 3 ms y tope de vueltas por si el TSC
+  no avanzara), solo cuando un programa lee el estado y como mucho cada 20 ms; detección al arrancar y a petición
+  (no avisa de la conexión), retirada sola tras 100 medidas sin ejes. Calibración automática (centro = primera
+  lectura, extremos que se amplían) o a mano, guardada en `sagui.conf` (`mando_puerto=`) y aplicada por
+  `configuracion --aplicar`.
+- **Interfaz por sondeo, no por eventos del kernel**: `INFO_MANDOS` (**77**; el 76 es `INFO_ISA` de la v8.3.3-sb16)
+  con `MANDOS_LISTA` (y una `geracao` que cambia al conectar o desconectar), `MANDOS_ESTADO`, `MANDOS_DETECTAR`,
+  `MANDOS_CALIBRAR` y `MANDOS_INYECTAR`. Los juegos y las SDL leen el estado en cada cuadro, igual que el teclado de
+  los juegos; unos `EV_MANDO_*` en la cola de la ventana obligarían a decidir qué ventana recibe un mando, y SDL los
+  genera igualmente comparando estados. API en la libsagui (`mandos.h`).
+- **SDL**: `SDL_Joystick` completo en la 1.2 y la 2 (eventos al cambiar el estado, con `SDL_JoystickEventState`); en
+  la 2, instancias con el id del kernel, conexión en caliente y `SDL_GameController` para **todos** los mandos: mapeo
+  conocido del Xbox 360 y de los Logitech Dual Action/F310 en modo D, y uno genérico para los demás (mejor que dejar
+  sin mando a los juegos que solo usan `SDL_GameController`, como GNUBoy). Sin vibración ni mapeos editables.
+- **DOSBox**: `joysticktype=auto` en el `dosbox.conf` nuevo (los que ya existen no se tocan: docs/dosbox.md);
+  Recreativa con una propiedad «Joystick» por juego.
+- **Pruebas sin hardware**: el QEMU no emula ningún joystick USB (`usb-host` no sirve), así que la imagen de prueba
+  (`mkimagem.py --mandos-prueba`, byte 144 de la cabecera; el 143 es de la v8.4) registra dos mandos de prueba en el
+  kernel: un Dual Action cuyo descriptor real pasa por el analizador y un Xbox 360; `MANDOS_INYECTAR` les da informes
+  crudos por el mismo decodificador que los USB. Solo falta el transporte, que es el de teclado y ratón.
+- **Configuración** pasa de 780 a 840 px de ancho para que quepa la pestaña Mandos (h117 y h162 cambian con ella).
+
+**Límites.** Sin Bluetooth (el HID Bluetooth sigue siendo teclado y ratón), sin el receptor inalámbrico del Xbox
+360, sin Xbox One (GIP) ni joysticks digitales del puerto de juegos. Referencias: HID 1.11 y HID Usage Tables
+(USB-IF), IBM PC Technical Reference (Game Control Adapter), joy(4) y uhid(4) de FreeBSD como consulta; nada de
+código de Linux. Detalles en `docs/mandos.md`.
+
+## D308. 2D por la GPU en las ATI Mach64/Rage y las S3 Trio64/ViRGE (v8.3.3, mejora 126)
+
+**Encargo (mantenedor, 2026-11-15).** «Drivers de la época»: aceleración 2D de la capa común `acel2d` (D195, D223,
+D244) para las ATI Mach64 y Rage (hasta la Rage XL/Mobility) y las S3 Trio64 y ViRGE, probada en 86Box (D301).
+**Sin probar en hardware real**: ninguna tarjeta de estas consta como confirmada (`confirmadas[]` de `acel2d.c`), así
+que en una tarjeta de verdad solo se activan si pasan la **autoprueba completa** del arranque (y el vigilante las
+apaga si después dejan de responder).
+
+**Qué se hizo.**
+
+1. **La capa común en 24 bits y RGB565** para los aceleradores que lo declaran (`outras_profundidades`). La BIOS de
+   la Mach64 VT2 de 86Box solo da 15/16/24 bits, y las tarjetas de la época a menudo no dan 32. La zona de prueba
+   se lee y se escribe con los bytes por píxel de la tarjeta (`acel_tela_t.bytes_px`) y la referencia de la CPU
+   guarda los valores en el formato de la tarjeta (`video_cor_placa`); 15 bits sigue siendo siempre la CPU. Es la
+   **misma interfaz que la D305** (rama `v8.3.3-voodoo2d`, la 3dfx), escrita aparte: al fusionar las dos ramas se
+   queda una sola implementación (las dos tienen los mismos nombres y el mismo comportamiento).
+2. **`kernel/dispositivos/acel_mach64.c`.** Lista exacta de identificadores (GX, CX, CT, ET, VT/VT3/VT4, 3D Rage,
+   Rage II+/IIC, LT, Rage Pro GB/GD/GI/GP/GQ, LT Pro LB/LD/LI/LP/LQ, XL/XC GL/GM/GN/GO/GR/GS, Mobility LM/LN/LR/LS).
+   Registros: el bloque 0 en BAR 2 + 0x400 (Rage Pro y posteriores), al final de los primeros 8 MB de la apertura
+   (CT en adelante) o, en la GX/CX, al final de la apertura de 4 u 8 MB que dice CONFIG_CNTL (leído por el puerto
+   de E/S 0x6AEC, para no leer fuera del BAR). Antes de tocar nada comprueba que `CONFIG_CHIP_ID` es el del chip y
+   que el CRTC (`CRTC_OFF_PITCH`, `CRTC_GEN_CNTL`) saca la pantalla del VBE (pitch, formato, inicio). Relleno
+   (`DP_FRGD_CLR`), copia con solapes (sentido en `DST_CNTL`), espera por `FIFO_STAT` y `GUI_STAT`. En 24 bits el
+   motor dibuja en 8 con las coordenadas por 3 y, en los rellenos, `DST_24_ROT_EN` con `DST_24_ROT = (x*3/4) % 6`
+   (como el driver mach64 de X.Org). Si la BIOS dejó el motor apagado (`GEN_TEST_CNTL` bit 8), lo enciende.
+3. **`kernel/dispositivos/acel_s3.c`**, con dos motores:
+   - **ViRGE** (325, VX, DX/GX, GX2, Trio3D, Trio3D/2X), por MMIO (BAR 0 + 16 MB; si CR53 bit 3 está apagado se
+     enciende y se deja como estaba al apagar). El motor no tiene 32 bits: en una pantalla de 32 se trabaja en 16
+     bits con las x por 2 (copiar es exacto) y el relleno es un BitBLT de patrón monocromo 0xAA (columnas pares la
+     palabra baja con `PAT_FG_CLR`, impares la alta con `PAT_BG_CLR`). El pitch de 1024x768x32 (4096 bytes) no cabe
+     en `DEST_SRC_STR` (12 bits, como mucho 4088): entonces cada fila es una orden con su `SRC_BASE`/`DEST_BASE`.
+   - **Trio64** (Trio64, V+, UV+, Aurora64V+, V2/DX/GX), el motor clásico de S3 por **puertos de E/S** (todas lo
+     tienen; la ventana MMIO no), en 16 y 32 bits (en 32, los colores y la máscara en dos mitades de 16). Exige que
+     la pantalla empiece en la dirección 0 de la memoria de vídeo y que el ancho del motor (CR50) sea el pitch del
+     VBE; abre CR40 bit 0 si hace falta (y lo deja como estaba). 24 bits: la CPU.
+   - Las dos comprueban con CR2D/CR2E (abriendo CR38/CR39 y cerrándolos como estaban) que la VGA de los puertos es
+     la tarjeta del PCI.
+4. `--acel2d=mach64` (8) y `--acel2d=s3` (9) en `mkimagem.py`; `ACEL2D_MODO_MASCARA` pasa a 4 bits (el 5 sigue
+   reservado para el Radeon de la D223 y el 7 lo usa la D305). `acel2d`, `acel2d probar --detalle` (con el volcado
+   de registros de cada driver) y la pestaña GPU de Información del PC no cambian: muestran el nombre y el motivo.
+5. **86Box:** presets `p2-mach64` (Mach64 VT2), `p2-s3virge` (ViRGE/DX con la BIOS Diamond Stealth 3D 2000 Pro) y
+   `p2-s3trio64` (Trio64V2/DX) sobre la ASUS P2B-LS. La Trio64 y la Trio64V+ de 86Box, y la ViRGE/DX con la BIOS
+   «Generic», no llegan al escritorio (BIOS VBE 1.2 sin modos lineales: issue #40). Prueba a petición
+   `tests/emu_86box_acel2d_epoca.py` (escritorio, consola y, con `--bpp16`, 16 bits). `tests/emu86box.py` teclea
+   «-» y «/» con el mapa ES (como `qemu.py`).
+
+**Resultados en 86Box (Pentium II 350, 2026-11-15), `tests/emu_86box_acel2d_epoca.py --bpp16`: BIEN en las tres.**
+Autoprueba completa del arranque (176 órdenes) igual que la CPU, 2D activo, `acel2d probar --detalle` BIEN, las tres
+tandas con la misma suma, y en la consola cientos de copias y rellenos por la GPU con 0 fallos. Medida de `acel2d
+probar` (60 copias de 1016x60):
+
+| Máquina | Pantalla | GPU | CPU |
+| --- | --- | --- | --- |
+| `p2-mach64` (Mach64 VT2) | 1024x768x24 | 4,9 ms | 134 ms |
+| `p2-mach64` | 1024x768x16 | 1,6 ms | 100 ms |
+| `p2-s3virge` (ViRGE/DX) | 1024x768x32 (una orden por fila) | 17,7 ms | 387 ms |
+| `p2-s3virge` | 1024x768x16 | 7,1 ms | 210 ms |
+| `p2-s3trio64` (Trio64V2/DX) | 1024x768x32 | 12,3 ms | 502 ms |
+| `p2-s3trio64` | 1024x768x16 | 10,2 ms | 267 ms |
+
+(86Box no reproduce los tiempos de un Pentium II real; sirven para comparar.) Con `--acel2d-prueba=pixel` la Mach64
+en 24 bits vuelve a la CPU y el escritorio sigue. En QEMU, h161, h242, h81 y h226 siguen pasando (sin estas tarjetas
+no se toca nada). Capturas `docs/capturas/86box-mach64-*.png` y `86box-s3-{virge,trio64}-*.png`.
+
+**Sin probar en 86Box:** la Mach64 en 32 bits (la BIOS de la VT2 no da ese modo), la GX/CX y las Rage Pro/XL por el
+BAR 2 (86Box no tiene Rage Pro), la ViRGE en 24 bits y con varias filas por orden en 32 bits (pitch menor de 4096),
+las GX2/Trio3D (sus bits de FIFO son otros), y arrastrar ventanas (#39: a mano con `./run_in_86box.sh --windows`).
+
+**Qué probar en tarjetas reales:** `dmesg` con las líneas `[ACEL2D]` al arrancar, `acel2d probar --detalle` y mover
+ventanas. Lo más dudoso: en la Mach64 real, `DST_24_ROT` en 24 bits y si `GUI_STAT` cuenta el trabajo pendiente; en
+la ViRGE real, que el patrón monocromo vaya alineado a la x de la pantalla (el relleno de 32 bits depende de ello) y el
+estado de la FIFO de las GX2/Trio3D; en la Trio64 real, las dos mitades de los colores en 32 bits. Si algo no cuadra,
+la autoprueba lo rechaza y la CPU sigue.
+
+**Fusión con la D305 (2026-11-15, v8.4.1).** Al fusionar `main` (que ya traía la `v8.3.3-voodoo2d`) se quedó la
+implementación de la capa común de la D305 (`acel2d.c`, `acel2d.h`, `video_cor_placa` en `video.c`/`video.h`) y se
+descartó la de esta rama: los nombres y el comportamiento eran los mismos, así que `acel_mach64.c` y `acel_s3.c` no
+cambian. De esta rama se añadieron a la de la D305 solo las filas de la tabla de tarjetas, los modos 8 (`mach64`) y
+9 (`s3`), la máscara del modo a 4 bits (`ACEL2D_MODO_MASCARA` 0x0F; el 5 sigue reservado y el 7 es `tdfx`) y sus nombres.
 
 ## D309. GebraMini: geometría dinámica y funciones, nativo y propio (v8.3.2, mejora 128)
 
@@ -16153,6 +16463,41 @@ punto y ver cómo lo sigue el punto medio, `f(x)=x^2-2` y sus raíces, guardar, 
 todas las herramientas de la barra. `h22`, `h98`, `h272` y `h300` (afectadas) y el detector
 `SAGUI_GUI_REVISAR` sobre la ventana (0 avisos).
 
+## D310. CPU sin CMOV: la etapa 2 avisa y se para, sin reiniciar (v8.3.3, issue #35)
+
+**Contexto.** El kernel y el userland se compilan con `-march=i686` y llevan CMOV/FCMOV (unas 1400 en
+`kernel.elf`). En una CPU i586 (AMD K6/K6-2/K6-III, Pentium, Pentium MMX) la primera CMOV del kernel da #UD
+antes de que haya IDT, triple fallo, y la máquina se reinicia en bucle justo después de «[SAGUI] compilacion».
+Probado en 86Box (preset `k6-3-sis5591`).
+
+**Decisión (mantenedor, 2026-11-15).** La solución barata: no hay versión i586; el cargador lo comprueba y lo dice.
+- **BIOS** (`boot/estagio2.asm`, `conferir_cpu`): lo primero, tras el título y antes de la A20 y de leer nada
+  del disco. Si el bit ID (21) del EFLAGS no se puede cambiar (386, 486 sin CPUID), o la hoja máxima es 0, o la
+  hoja 1 no tiene `EDX` bit 15 (CMOV), escribe una línea `[0/6] CPU: Esta CPU no es i686 (...)` con lo que hace
+  falta y hace `cli; hlt` en bucle. En una i686 no escribe nada: cuesta dos CPUID.
+- **UEFI IA32** (`boot/uefi/cargador.c`, `cpu_nao_i686`): lo mismo, por la consola del firmware (que OVMF copia
+  al serie). Hay al menos una CPU con UEFI de 32 bits sin CMOV, el Intel Quark X1000 (Galileo), así que sí hace
+  falta; y para que el aviso pueda salir, el cargador IA32 se compila con `-march=i586` (antes `i686`): ninguna
+  CMOV antes de la comprobación. El cargador no hace nada caro, así que no se nota. En x86-64 no se comprueba:
+  toda CPU de 64 bits tiene CMOV.
+- **Qué no se exige.** Solo CMOV. Toda CPU con CMOV (familia 6 o posterior, también los VIA C3 Nehemiah o los
+  Geode LX) tiene FPU y TSC; FXSR y SSE no se exigen porque el kernel los mira por CPUID (`fpu.c`, D032, D208).
+  Un VIA C3 Samuel/Ezra (sin CMOV) o un Cyrix con el CPUID apagado reciben el aviso, y está bien: tampoco
+  arrancarían.
+- **Serie.** La etapa 2 de la BIOS no escribe en COM1 (el G470 no tiene serie y nunca lo ha usado), así que el
+  aviso va solo a la pantalla; el cargador UEFI sale por donde el firmware mande su consola.
+- **Texto.** «Esta CPU no es i686 (falta la instrucción CMOV): SaguiOS necesita un Pentium Pro / Pentium II / AMD
+  Athlon o posterior. Las AMD K6, K6-2, K6-III y los Pentium/Pentium MMX no son compatibles.» y «La maquina queda
+  detenida; ya se puede apagar.» La «ó» va como 0xA2 (página de códigos 437 de la BIOS).
+
+**Prueba.** `tests/h310_cpu_sin_cmov.py` (QEMU, en la batería): `-cpu pentium` y `-cpu 486` muestran el aviso
+y 30 s después la máquina sigue encendida (`-no-reboot`) sin un solo arranque del kernel en el serie;
+`-cpu pentium2` arranca como siempre; por OVMF IA32 con `-cpu pentium`, el cargador avisa si el OVMF llega a él.
+Resultado: 9/9 afectadas (h01, h02, h03, h208, h65, h264, h270, h81, h310). En 86Box, `k6-3-sis5591` y `p1-s3`
+(Pentium MMX) muestran el aviso y se quedan parados; en `p1-s3` el fallo de la etapa 2 de la issue #33 no llega a
+verse, porque la comprobación va antes de la A20 y del disco. QEMU 486 tiene CPUID, así que la rama «sin CPUID» solo
+se ha revisado leyendo el código.
+
 ## D311. Macaco: señalar celdas al escribir fórmulas, controlador de relleno y gráficos incrustados (v8.3.2, mejora 117)
 
 **Contexto.** El mantenedor pidió (2026-11-15), de los Excel modernos: que al escribir «=» y pulsar una celda se nombre y se
@@ -16194,3 +16539,282 @@ coloree, poder arrastrar, usar `$D$4` al clonar fórmulas y gráficas incrustada
 **Pruebas.** `tests/h311_macaco_formulas.py`: señalar (clic, arrastre, flechas, F4, otra hoja), relleno (fórmula con `$D$4`, serie
 1,2, doble clic, Ctrl+D, pegado, deshacer en un paso) y gráficos (asistente, columnas y tarta, cambio de datos con captura antes y
 después, mover, redimensionar, copiar, guardar y reabrir, PDF validado), con `SAGUI_GUI_REVISAR` (D300). Capturas `H311-*.png`.
+
+## D312. PlanoMini: mini CAD 2D, nativo y propio (v8.3.3, mejora 129)
+
+**Contexto.** El mantenedor pidió «una especie de Mini AutoCAD» a partir de su prototipo **PlanoMini** (C++/SDL,
+GPL-3.0-or-later, © 2026 Alejandro Anuncibay): consola de órdenes (`LINE`, `CIRCLE`, `RECTANGLE`, `POINT`,
+`ERASE`, `UNDO`, `GRID`, `SNAP`, `SAVE`, `OPEN`, `ZOOM`, `PAN`, `HELP`), formato de texto `.pmini` v1, F2-F4,
+botón derecho para desplazar y rueda para el zoom.
+
+**Decisión.** Aplicación nativa `planomini` (C sobre la libsagui, estilo Win98), reescrita desde cero a partir de
+las ideas del prototipo, con el enfoque de GebraMini (D309): motor separado y probado en el anfitrión,
+matemáticas x87 sin libm (`gbm_mat.h` compartido, sin duplicarlo), antialias, PDF vectorial (`pdf_escribir`),
+PNG, diálogos D272 y deshacer. SPDX GPL-3.0-or-later con el copyright del mantenedor. **Independiente:** inspirado
+en los CAD de órdenes clásicos; nada de código, iconos, marcas ni formatos propietarios (no hay DWG); DXF es un
+formato de intercambio documentado públicamente y se lee y escribe.
+
+1. **Motor** (`userland/planomini/`: `pm_geo.c` entidades, piezas y primitivas de dibujo; `pm_mod.c` selección,
+   pinzamientos, REFENT y modificaciones; `pm_cmd.c` línea de órdenes; `pm_io.c` ficheros). Toda entidad se reduce a
+   piezas (segmento o arco; los arcos de las polilíneas son *bulges*) y a primitivas (segmentos, triángulos,
+   polígonos, textos): lo mismo sirve para la pantalla, el PDF, el DXF, la selección y las ayudas.
+2. **Órdenes.** Cada una es una máquina de estados que pide punto, número, objeto, selección u opción. Nombres en
+   español e inglés con alias (`LINEA`/`LINE`/`L`...), prefijo único de 3 letras, Intro repite la última, Esc cancela.
+   Entrada: `x,y`, `@dx,dy`, `@d<ang` y solo la distancia con ORTO o POLAR (en la dirección del cursor). Opciones
+   `[Deshacer/Cerrar]`, selección previa (nombre-verbo) o dentro de la orden, `#n` para elegir por índice (pruebas).
+   Compatibilidad con el prototipo: `LINE 0 0 10 10`, `CIRCLE x y r`, `RECTANGLE`, `POINT`, `PAN dx dy`, `ZOOM f`, `GRID`,
+   `SNAP`, `UNDO`, `SAVE`/`OPEN`. **Desvíos:** F3 es REFENT (pedido) y ya no `CIRCLE`; F2 = LINEA y F4 = RECTANG se
+   conservan; `O` es `EQUIDIST` (OFFSET) como en los CAD, no OPEN.
+3. **Referencia a objetos** (REFENT, F3): punto final, medio, centro, intersección, perpendicular, tangente,
+   cuadrante y cercano, en tres niveles (por la posición del cursor; por pasar sobre el objeto; el cercano si no hay
+   otro) y con marcador. ORTO (F8), POLAR (F10, 15/30/45/90 grados), FORZC (F9) y rejilla (F7).
+4. **Entidades:** punto, línea, polilínea con arcos tangentes, rectángulo, polígono regular (inscrito, circunscrito y
+   por arista), círculo (centro-radio, centro-diámetro, 2P, 3P), arco (3 puntos; centro-inicio-fin), texto de una línea
+   con altura y giro, cotas (horizontal, vertical, alineada, radio, diámetro, angular; estilo: altura, flechas y
+   decimales; el texto admite `<>`), sombreado de contornos cerrados (líneas a 45 grados o sólido). Elipse: no.
+5. **Modificar:** `MOVER`, `COPIAR`, `GIRAR`, `ESCALA`, `SIMETRIA`, `EQUIDIST` (líneas, círculos, arcos y polilíneas con
+   uniones), `RECORTA` y `ALARGA` (bordes designados o todos; recortar una polilínea la explota), `EMPALME` (radio;
+   entre dos líneas y todas las esquinas de una polilínea), `CHAFLAN`, `EXPLOTA` (polilíneas, cotas y sombreados),
+   `MATRIZ` rectangular y polar, `IGUALAPROP`. Pinzamientos para estirar y mover con el ratón; ventana (izquierda a
+   derecha: lo que queda dentro) y captura (derecha a izquierda: lo que toca); Mayús quita.
+6. **Capas** con nombre, color, tipo de línea (continua, trazos, puntos, trazo y punto), visible y bloqueada, capa
+   actual; las entidades pueden ser «PorCapa». Administrador de capas, combos de capa/color/tipo y la orden `CAPA`.
+7. **Ficheros.** `.pmini` v2 (texto, capas, estilo de cotas y vista; abre los v1). DXF ASCII: se escribe R12 (el más
+   compatible; polilíneas con `VERTEX`/bulge, capas, tipos de línea; las cotas y sombreados salen **explotados**) y se
+   lee R12/2000: `LINE`, `CIRCLE`, `ARC`, `TEXT`/`MTEXT`, `POINT`, `LWPOLYLINE`, `POLYLINE`, `SOLID` y `DIMENSION` con su
+   bloque; lo demás se cuenta como omitido. PDF vectorial a escala (1:1...1:500 o «Ajustar», A4/A3 apaisado, cajetín;
+   la unidad del dibujo es el milímetro) y PNG de la extensión.
+8. **Interfaz.** Barras de dibujo/modificación con 28 iconos propios, propiedades en combos, área con cursor en cruz,
+   fondo oscuro o claro, línea de órdenes con historial y autocompletado (Tab), barra de estado con coordenadas y los
+   cinco botones. Doble clic = propiedades (capa, color, tipo de línea y geometría editables). Deshacer y rehacer de
+   hasta 100 pasos (instantáneas en texto). Entrada en el menú Inicio (Gráficos) con icono propio.
+9. **Límites conocidos.** Sin elipse, spline, bloques `INSERT`, cotas asociadas ni empalme de línea con arco; el texto
+   girado en PDF va letra a letra; los ángulos del cursor solo se ajustan a múltiplos del incremento polar.
+
+**Créditos.** Prototipo PlanoMini: © 2026 Alejandro Anuncibay, GPL-3.0-or-later (`AUTORES.md`, `docs/planomini.md`).
+La raster antialias reutiliza el enfoque de `gebramini` pero está escrita aparte (pendiente: compartirla en una cabecera).
+
+**Archivos.** `userland/planomini/{pm.h,pm_geo.c,pm_mod.c,pm_cmd.c,pm_io.c}`, `userland/programas/planomini.c`, reglas en el
+`Makefile`, `rootfs/ejemplos/planomini/*` (generados con `tools/planomini_ejemplos.py`), icono y entrada de menú en
+`kernel/gui/`, `tests/planomini_unidad.c`, `tests/h312_planomini.py`, `docs/planomini.md`, `mejoras/129-planomini.md`.
+
+**Pruebas.** `h312`: unidad en el PC (más de 500 comprobaciones; DXF con validador propio y `ezdxf` si está);
+dentro de SaguiOS, el `.pmini` del prototipo, órdenes sin ventana, DXF y PDF (validados con `pdf_validar`); con
+ventana, dibujar por órdenes y con el ratón con REFENT, recortar, empalmar, acotar, capas, selección, pinzamientos,
+propiedades, guardar, reabrir y exportar. `h22`, `h98`, `h272`, `h300` y `h309` (afectadas) y `SAGUI_GUI_REVISAR`.
+
+## D315. VisualPythonS: explorador del proyecto y más eventos (v8.4.1)
+
+**Petición (mantenedor, 2026-11-15).** Para VisualPythonS, un explorador de elementos (formularios y controles) para saltar más
+rápido y más eventos. Todo es Python sobre el `tkinter` del sistema: ni C ni kernel. Amplía D297, D299, D303 y D304.
+
+**Decisiones.**
+
+1. **Explorador (`vps/_explorador.py`).** Un árbol dibujado a mano (como las propiedades, aspecto Win98) con **Proyecto >
+   Formularios > controles**, respetando los Marcos y las páginas de las Pestanas, con los controles sin ventana, y al final
+   **Código** con los manejadores `Control_evento` que existen en `codigo.py` (con su línea). La construcción del árbol, el filtro y
+   la lista de manejadores son funciones puras (`arbol`, `filtrar`, `aplanar`, `manejadores`), probables sin pantalla. Va en el panel
+   derecho, encima de las propiedades, y **empieza oculto** (Ver > Explorador o Ctrl+R) para no quitar sitio a las propiedades a
+   quien no lo usa. Clic: `ir_a_control` (cambia de formulario y de pestaña y selecciona); doble clic: el evento por defecto o la
+   línea del manejador; menú contextual: ver código, renombrar (la refactorización de D299), eliminar, traer al frente, enviar atrás
+   (`_modelo.mover_z`: mueve el contenedor con sus hijos) y agregar formulario; F2 y Supr; cuadro «Buscar» (deja los nodos que
+   coinciden y sus ascendientes). Se refresca en `cambio`, `seleccionar`, al añadir o quitar formularios y, para los manejadores, por
+   una comprobación cada 0,8 s del texto del código (solo con el explorador visible). Deshacer lo sincroniza porque pasa por
+   `cambio`. **No se hizo** arrastrar en el árbol para reordenar o cambiar de contenedor (opcional): queda para más adelante.
+2. **Eventos comunes** a todo control con ventana (`EVENTOS_COMUNES`): `doble_click`, `raton_abajo`, `raton_arriba`, `raton_entra`,
+   `raton_sale`, `raton_mueve`, `rueda`, `foco_gana`, `foco_pierde`, `tecla_abajo`, `tecla_arriba`, `menu_contextual`. Los datos
+   siguen en el control (D297): `raton_x`, `raton_y`, `boton`, `rueda_delta`, `tecla`, `caracter`, `ctrl`, `mayus`. **Cableado:** el
+   `tkinter` del sistema entrega solo el enlace más específico de cada tabla (como el Tk real), así que un `bind("<ButtonPress>")`
+   en el componente se perdería ante `<Button-1>`, `<Return>`... Por eso los comunes van por **`bind_all`** (una vez por proceso,
+   nueve secuencias genéricas) y cada componente apunta a su control en `_vps`. Cada manejador empieza con `_hay(evento)` (un
+   diccionario y una búsqueda en el espacio de nombres): **sin manejador conectado no se calcula nada**, ni siquiera en
+   `raton_mueve`. Los controles sin ventana (`Temporizador`, `Reloj`, `Menu`, `Archivo`, `ConectorBD`) no los llevan.
+3. **Formulario:** `cerrando` (cancelable con `Formulario.cancelar = True`; salta al pulsar la X, no con `cerrar()` por código),
+   `cerrado`, `activar` y `desactivar`, y los que ya tenía (`redimensionar`...). El `cerrar` antiguo (devolver `False`) se mantiene.
+   **`activar`/`desactivar` se deducen del foco** de los controles (el sistema no avisa de cuándo una ventana se activa), y
+   `activar` también salta al mostrarlo. **`soltar_archivo` no existe**: el sistema no tiene arrastrar y soltar archivos sobre
+   ventanas (no hay evento en la ABI de ventanas), así que no se define; anotado en el manual y en la referencia.
+4. **`tecla_arriba` es una aproximación:** el sistema no entrega la suelta de tecla (solo `EV_TECLA`), así que se dispara justo
+   después de `tecla_abajo` con los mismos datos. Anotado en el manual.
+5. **Controles concretos:** `CuadroTexto` (`intro`, en multilínea con Ctrl+Intro; `validar` al perder el foco, cancelable con
+   `cancelar = True`, que devuelve el foco), `Casilla` y `Opcion` (`cambio` junto a `click`, solo por acción del usuario), `Tabla`
+   (`celda_cambio` con `fila` y `columna`, y `ordenar` con `columna` y `descendente`; `cambio` sigue disparándose), `Lista` y `Tabla`
+   (su `doble_click` propio, sin duplicar), `Combo` (el común), `Lienzo` (sus `click`, `arrastrar`, `soltar`, `mover` más los
+   comunes: `raton_x` y `raton_y` ya eran los nombres comunes). `Deslizador`, `Numerico`, `Pestanas`, `Temporizador`, `Reloj`,
+   `RejillaDatos` y `ConectorBD` ya los tenían.
+6. **Autocompletado, combos del editor y renombrado** leen `EVENTOS` de cada clase, así que los nuevos aparecen solos (y
+   `Boton1_raton_entra` se renombra con el control). Las tablas del manual (`eventos-comunes`, `eventos-tabla`) las genera
+   `tools/vps_manual.py` desde el código; la comprobación está en h303 y h316.
+7. **Ejemplos nuevos** (`/ejemplos/vps/`, Latin-1, sin SPDX como los demás): `guardar-al-cerrar` («¿Guardar los cambios?» al
+   cerrar), `boton-raton` (`raton_entra`/`raton_sale`, `doble_click`, `rueda`) y `validar-foco` (`validar` e `intro`).
+
+**Pruebas.** `autoprueba.py` y `autoprueba_disenador.py` (todos los eventos con `event_generate`, el árbol, el filtro, el menú, el
+orden z y la sincronía con deshacer) y `tests/h316_vps_explorador.py` en QEMU: Ctrl+R, clic que salta a otro formulario y a otra
+pestaña, doble clic al código, filtro, renombrar con F2; y con el ratón real `raton_entra`/`raton_sale` (color del botón), doble
+clic, rueda, `cerrando` cancelado con Esc y luego aceptado (`cerrado`), `validar` cancelado (el foco vuelve) e `intro`. Capturas
+`H316-*.png`.
+
+## D317. Cliente ssh, ssh-keygen y scp en SaguiOS (v8.4.1, segunda fase de D250)
+
+**Contexto.** El mantenedor pidió (2026-11-15) el cliente SSH ya, adelantado de la segunda fase de D250: entrar desde
+SaguiOS en otra máquina (un Linux con OpenSSH, otro SaguiOS), ejecutar órdenes y copiar archivos, y que otros programas
+(rsync, D314) puedan usarlo por tuberías.
+
+1. **Transporte común.** Lo que no toca el sistema y no depende del lado sale de `sshd.c` a
+   `userland/programas/ssh_transporte.h` (cabecera de funciones `static inline`, como `sshd_logica.h`): montar y cifrar un
+   paquete, sacarlo de un búfer con todas las comprobaciones (la etiqueta antes de mirar el contenido), el resumen H de
+   curve25519-sha256 y la derivación de claves. El `sshd` los usa sin cambiar su comportamiento (h248 lo comprueba con
+   paquetes manipulados). Lo propio del cliente (known_hosts, claves privadas de OpenSSH, mensajes del servidor, «~.»,
+   teclas y UTF-8) está en `ssh_cliente_logica.h`. Las dos se prueban en el anfitrión (`tests/ssh_cliente_unidad.c`).
+2. **Algoritmos: los del servidor.** `curve25519-sha256` (y `@libssh.org`) con el modo estricto de OpenSSH 9.6
+   (`kex-strict-c-v00@openssh.com`, contra «Terrapin»), `ssh-ed25519` y `chacha20-poly1305@openssh.com`, sin compresión.
+   No se ha escrito ninguna primitiva criptográfica nueva: todo es de la libtls (D060-D063, D250). Sin RSA ni ECDSA para la
+   clave del servidor (la libtls solo verifica RSA de X.509; `rsa-sha2-256/512` se añadirá si hace falta un servidor sin
+   ed25519, que en OpenSSH ≥ 6.5 no existe), ni AES-CTR + HMAC (OpenSSH prefiere chacha20-poly1305; cualquier OpenSSH
+   moderno la tiene). Renovación de claves cuando la pide el servidor (con la misma clave de servidor; si cambia, se corta).
+3. **Seguridad (lo más importante).**
+   - **known_hosts** en `/home/.ssh/known_hosts`, formato de OpenSSH (`máquina` o `[máquina]:puerto`, patrones `*`, `?`,
+     `!`, `@revoked`). Máquina desconocida: se enseña la huella `SHA256:` y se pregunta «sí/no»; la línea se añade al
+     aceptar. **Clave distinta: se rechaza siempre**, con un aviso que da la huella nueva y la línea guardada; no hay opción
+     para saltárselo (`StrictHostKeyChecking=no` no existe: solo `ask`, `accept-new` y `yes`); hay que borrar la línea a
+     mano (o con `ssh-keygen -R máquina`, que es lo mismo y a propósito). Sin terminal (tuberías, `BatchMode=yes`) no se
+     pregunta: una máquina desconocida se rechaza salvo con `accept-new`. La clave se comprueba **antes** de mandar nada
+     cifrado (antes del NEWKEYS). Los nombres cifrados (`|1|`, HashKnownHosts) no se reconocen (no hay SHA-1 en la libtls).
+   - **Autenticación:** clave ed25519 (`/home/.ssh/id_ed25519`, formato «openssh-key-v1» de OpenSSH, compatible en los dos
+     sentidos), y si el servidor lo admite, `password` o `keyboard-interactive` con el eco apagado (`ler_senha`), solo con
+     terminal. Las claves privadas con frase de paso se reconocen y se rechazan con un mensaje (haría falta bcrypt_pbkdf,
+     criptografía nueva). Las contraseñas y las semillas se borran de la memoria (`cripto_apagar`) en cuanto se usan
+     (también el mensaje montado con la contraseña) y nunca se escriben en un registro: el cliente no tiene registro.
+   - **Todo lo que llega se lee con límites:** el lector `sl_*` (D250) en todos los mensajes, paquetes de hasta 35000 bytes
+     (con cifrado, un tamaño imposible corta la conexión sin esperar a esos datos), identificación de hasta 255 bytes y 50
+     líneas previas, ventana de canal respetada (datos fuera de ella: desconexión), KEXINIT y ECDH_REPLY sin bytes de más.
+     Los textos del servidor que se enseñan (motivos, avisos, preguntas) pasan por `texto_limpo`: sin secuencias de control,
+     para que un servidor hostil no pueda mover el cursor ni escribir en el título. h317 lo prueba con un servidor hostil.
+   - **Archivos de claves:** bajo `/home/.ssh`; `ssh-keygen` nunca sobrescribe una clave existente. Cuando los permisos de
+     D282 lleguen a `main` (rama `v8.5-permisos`), la privada se crea con modo 0600 (pendiente: hoy no hay modos).
+4. **Órdenes.** `ssh [-p] [-i] [-l] [-t|-T] [-n] [-q] [-o StrictHostKeyChecking=…|BatchMode=yes|Port|User|IdentityFile]
+   [usuario@]máquina [orden…]`: sin orden, sesión con `pty-req` (TERM, columnas y filas) y `shell`; con orden, `exec` y su
+   código de salida (`exit-status`; 255 si falla la conexión, como OpenSSH). `ssh-keygen -t ed25519 [-f] [-C] [-N ""]`, `-l`,
+   `-y` y `-R`. `scp [-P] [-i] [-q] origen destino` (un archivo, sin `-r`) usa el modo tubería con `cat` en el otro lado:
+   no necesita scp ni sftp en el servidor; lo que se trae va a `ARCHIVO.scp-parcial` y solo se renombra si terminó bien.
+   Las tres van en `/bin` (86 KB, 41 KB y 11 KB): son herramientas de administración, como el `sshd`.
+5. **Modo tubería.** Con la entrada o la salida en tuberías no se toca nada (binario), para `executar()` desde otros
+   programas. Las opciones internas `--entrada-de ARCHIVO` / `--salida-a ARCHIVO` llevan los datos del canal a archivos y
+   dejan el terminal libre para preguntar la huella o la contraseña (las usa scp).
+6. **Terminal.** El Terminal de SaguiOS es Latin-1 con sus teclas (ESC + letra): el cliente traduce las teclas a las de un
+   xterm (flechas, Inicio, Fin, Supr, RePág, AvPág, Esc; Intro = CR; borrar = DEL) y la salida de UTF-8 a Latin-1 (los
+   dibujos de cajas a `- | +`), y cambia el `\b` remoto (en xterm solo mueve el cursor) por `ESC [ D` (en SaguiOS borraba).
+   Ctrl+C y Ctrl+D van al otro lado (el cliente es el dueño del modo bruto); «~.» al principio de una línea corta, «~~»
+   manda «~», «~?» ayuda. **Tamaño:** el Terminal contesta ahora a `ESC [ 18 t` con `ESC [ 8 ; filas ; columnas t` (el
+   cliente pregunta al empezar y cada segundo, solo si `TERM` es xterm*; si cambia, `window-change`); la consola del kernel
+   no contesta y se usa `COLUMNS`/`LINES` o 80x24. El Terminal entiende además `ESC [ @` y `ESC [ P` (insertar y borrar
+   caracteres, que bash usa al editar a mitad de línea) y la consola del kernel se salta los parámetros de las secuencias
+   CSI (antes los pintaba). Quedan sin hacer: teclas de función (el Terminal no las manda), regiones de desplazamiento,
+   insertar/borrar líneas y la pantalla alternativa (vim, less y htop se verán mal).
+7. **Kernel: `disponivel()` sobre el terminal.** Para atender a la vez el teclado y la red, `disponivel(0)` funciona ahora
+   sobre el esclavo del terminal virtual (`tv_escravo_disponivel`) y sobre la consola (`terminal_disponivel`, con
+   `teclado_pendentes`): en bruto, las teclas que esperan; en modo línea, la línea terminada. Antes devolvía
+   `ERRO_INVALIDO`; ningún programa dependía de eso (el `keypressed` del Pascal, D087, empieza a funcionar). El cliente
+   duerme con `esperar_rede(visto, 20 ms)` cuando no hay nada.
+8. **rsync (D314) como cliente,** sin fusionar aquí: openrsync en modo cliente hace `fork` + `exec ssh` con un `socketpair`.
+   En SaguiOS sería `executar("/bin/ssh", {"ssh", "-T", "-q", máquina, "rsync --server …"})` con dos tuberías como 0 y 1
+   del hijo (como hace `sshd` con sus procesos), y el emisor/receptor de openrsync leyendo y escribiendo esas tuberías con
+   el `poll` de `compat_sagui.c`. Las tuberías del kernel son de 512 bytes: hay que vaciar la salida antes de bloquearse
+   escribiendo (o agrandarlas) para no interbloquearse. Queda para cuando se fusione v8.4-rsync.
+
+**Pruebas.** `tests/h317_ssh_cliente.py`: en el anfitrión, `ssh_cliente_unidad.c` (330 comprobaciones; también con
+ASan/UBSan: 20000 paquetes y mensajes al azar, cada bit de un paquete cifrado cambiado, cortes en cada byte) y las claves
+contra el `ssh-keygen` de OpenSSH en los dos sentidos. En QEMU, contra un servidor SSH escrito en la prueba con la
+biblioteca «cryptography» (otra implementación, con modo estricto, contraseña y clave pública, y modos hostiles: tamaño
+absurdo, etiqueta mala, firma mala, datos fuera de la ventana, KEXINIT roto) y contra el `sshd` de SaguiOS por 127.0.0.1
+(orden, código, scp y sesión interactiva con sagsh); y desde el Terminal en ventana (tamaño por `ESC [ 18 t`). El anfitrión
+no tiene `sshd` de OpenSSH sin root (no está instalado); la compatibilidad con OpenSSH queda cubierta de forma indirecta:
+el `sshd` de SaguiOS, contra el que conecta el cliente, ya se prueba con el `ssh` de OpenSSH (h248). Pendiente: una prueba
+en una máquina real contra un OpenSSH (Linux del mantenedor).
+
+**Asistente de funciones (v8.3.3, 2026-11-15).** El mantenedor pidió Insertar > Función... «como el de Excel». Amplía D311 y la mejora 117.
+
+1. **Catálogo único.** `userland/programas/macaco_funciones.h` (`fx_t`: nombre en español, alias en inglés, categoría, descripción,
+   argumentos `nombre|descripción` con `[opcional]` y `repite+`, ejemplo y resultado esperado). El evaluador despacha por el `id` del
+   catálogo (lo que no está, no existe: función desconocida = error), comprueba el número de argumentos con él, y el asistente, el
+   autocompletado, la ayuda de argumentos, la lista del agente (D298) y `docs/macaco.md` (`tools/macaco_funciones_doc.py`, que compila
+   el mismo `.h` con el compilador del PC) salen de la misma tabla. 41 funciones en seis categorías.
+2. **Evaluador.** Se mantiene el punto fijo en centésimas (D076). Cambios de paso: el operador `&`; precedencia de Excel (antes `=1+2>2`
+   se leía `1+(2>2)`); comparación de textos sin distinguir mayúsculas; nombres con punto (`CONTAR.SI`) y la Ñ de `AÑO`; los
+   argumentos suben a 16; una fórmula que da **texto** ya se ve (antes la celda enseñaba la fórmula y el `.mxs` la guardaba como
+   texto: ahora un caché `tcache` por recálculo y el guardado la respeta); el error de una fórmula se ve como `#VALOR!`, se propaga por
+   las celdas y `SI.ERROR` lo recoge. Fechas: números de serie como en Excel (`dias_civil`), sin tipo fecha en el modelo de celdas.
+   `macaco --fx` (sin ventana) evalúa el ejemplo de cada función y unas fórmulas extra.
+3. **Asistente** (`dialogo_funcao`, ventana `Insertar función`): paso 1 (buscador, categoría con *Usadas recientemente* y *Todas*,
+   lista, sintaxis y descripción) y paso 2 (un cuadro por argumento con su valor en vivo, cuadros nuevos para los que se repiten,
+   resultado en vivo). **Contraer** cierra la ventana y deja una barra sobre la hoja (`fx_senalar`) que reutiliza el modo señalar de
+   D311 con sus colores (se guarda y se restaura el estado de edición de la celda; solo pasan al modo señalar los clics de la cuadrícula
+   y de las pestañas, nunca los de menús o cabeceras, para no confirmar la celda sin querer). Aceptar escribe la fórmula o la inserta en
+   el cursor; sobre una celda con una sola función se abre en el paso 2. Botón **fx** (la caja del contenido pasa a x=138), menú
+   Insertar y **Mayús+F3**.
+4. **Ayudas al escribir:** autocompletado tras `=` o un operador (Tab acepta, ↑↓ eligen, Esc cierra) y etiqueta de sintaxis con el
+   argumento actual en negrita al abrir el paréntesis (`ayuda_llamada` recorre el texto contando paréntesis, `;` y comillas).
+5. **Agente (D298):** la acción rápida «Crear fórmula» lista las funciones del catálogo (alias en inglés, ASCII).
+
+**Pruebas.** `tests/h313_macaco_fx.py`: autoprueba del catálogo, fx, buscar «suma», contraer y señalar `B1:B3`, valor en vivo,
+anidar `SI(SUMA(...)>10;"alto";"bajo")`, reabrir en el paso 2, `=BUS` + Tab, ayuda de argumentos y `SAGUI_GUI_REVISAR` (D300).
+Capturas `H313-*.png`.
+
+## D317. Cliente ssh, ssh-keygen y scp en SaguiOS (v8.4.1, segunda fase de D250)
+
+## D320. El Terminal de ventana, a un subconjunto de xterm/VT220 para vim, less, htop, nano y mc por ssh (v8.4.1)
+
+El cliente ssh (D317) dejó anotado lo que faltaba: regiones de desplazamiento, insertar y borrar líneas, pantalla alternativa y
+teclas de función. Quien interpreta las secuencias que salen del `ssh` en una ventana es **el emulador del propio Terminal**
+(`userland/programas/terminal.c`): la terminal virtual (`kernel/fs/tv.c`) solo pasa bytes, y el emulador de la consola del
+kernel (`terminal_grafico.c`, `terminal_es.c`) es otro, mínimo, que no recibe estas aplicaciones; no se duplica nada.
+
+**Pruebas.** `tests/h317_ssh_cliente.py`: en el anfitrión, `ssh_cliente_unidad.c` (330 comprobaciones; también con
+ASan/UBSan: 20000 paquetes y mensajes al azar, cada bit de un paquete cifrado cambiado, cortes en cada byte) y las claves
+contra el `ssh-keygen` de OpenSSH en los dos sentidos. En QEMU, contra un servidor SSH escrito en la prueba con la
+biblioteca «cryptography» (otra implementación, con modo estricto, contraseña y clave pública, y modos hostiles: tamaño
+absurdo, etiqueta mala, firma mala, datos fuera de la ventana, KEXINIT roto) y contra el `sshd` de SaguiOS por 127.0.0.1
+(orden, código, scp y sesión interactiva con sagsh); y desde el Terminal en ventana (tamaño por `ESC [ 18 t`). El anfitrión
+no tiene `sshd` de OpenSSH sin root (no está instalado); la compatibilidad con OpenSSH queda cubierta de forma indirecta:
+el `sshd` de SaguiOS, contra el que conecta el cliente, ya se prueba con el `ssh` de OpenSSH (h248). Pendiente: una prueba
+en una máquina real contra un OpenSSH (Linux del mantenedor).
+
+1. **El emulador pasa a `terminal_vt.h`**, lógica pura (rejilla, cursor, modos, secuencias) con callbacks hacia `terminal.c`
+   (historial, líneas sucias, respuestas, campana, título). Se compila en el PC: `tests/terminal_vt_unidad.c` (70
+   expectativas escritas a mano) y una comparación con **tmux** como emulador de referencia sobre flujos grabados de
+   vim, less, htop y nano reales. `terminal_logica.h` sigue siendo el analizador de secuencias y el SGR, ahora con
+   intermedios (`ESC ( 0`, `CSI ! p`), marcas (`CSI > c`), cadenas DCS/APC descartadas y `:` como `;`.
+2. **Qué entiende:** CUP/CUU/CUD/CUF/CUB/CNL/CPL/CHA/VPA/HPA, DECSC/DECRC, IND/RI/NEL, ED 0-3, EL, ECH/ICH/DCH, IL/DL, REP,
+   DECSTBM con SU/SD, DECOM, DECAWM con **salto pendiente** (escribir en la última celda ya no hace scroll), pantalla
+   alternativa (`?47 ?1047 ?1048 ?1049`), DECCKM, DECKPAM, `?25`, `?2004` (el pegado va entre corchetes), SGR completo, DEC
+   line drawing, DSR 5/6, DA 1/2 y `CSI 18 t`. El ratón y lo demás se aceptan sin efecto. Tabla en `docs/terminal.md`.
+3. **Atributos:** los 16 bits de la celda guardan ahora además tenue, subrayado, oculto y «dibujo DEC»; 256 colores y
+   truecolor se aproximan a los 16 ANSI del tema (`tl_256_a_16`). Ampliar a 32 bits obligaba a tocar el historial y no
+   mejoraba nada que se vea en una pantalla de 16 colores de tema; queda como mejora. Borrar y desplazar usan el fondo
+   actual (**bce**).
+4. **Cajas:** las del juego DEC se trazan con rectángulos (cualquier fuente, también la interna 8x16 de Latin-1, que no
+   tiene cajas). `ssh` convierte las cajas Unicode (U+2500..257F, sombreados, bloque) en `ESC ( 0` + letra al pasarlas al
+   Terminal (flag `caixas` de `ssh_utf8_t`; sin él, como antes, `+ - |`).
+5. **Modo xterm (`CSI ? 7700 h`, privado de SaguiOS).** El Terminal tiene que seguir sirviendo al sagsh local, que cuenta con
+   LF = CR+LF, BS que borra y teclas como `ESC` + letra. `ssh` enciende el modo al empezar una sesión con terminal y lo
+   apaga al salir; el sagsh lo apaga además en cada prompt (por si un `ssh` murió). En modo xterm: LF no vuelve a la columna
+   0, BS solo mueve, y el Terminal manda **las teclas ya como xterm** (F1-F12, Inicio/Fin/RePág/AvPág/Insert/Supr, DECCKM
+   `ESC O A`, Ctrl/Alt/Mayús + cursor `ESC [ 1 ; m A`, Alt+tecla = ESC + tecla, Esc solo); `ssh` entonces solo traduce
+   Intro a CR, borrar a DEL y Latin-1 a UTF-8 (`ssh_teclas_xterm_cru`), sin esperar al byte siguiente de un ESC.
+6. **ED ya es el de xterm:** `ESC [ J` borra desde el cursor, `ESC [ 2 J` no mueve el cursor. Antes el Terminal borraba todo
+   y volvía al origen con cualquiera de las dos, y el sagsh (`clear`, Ctrl+L) se apoyaba en eso. Ahora manda
+   `ESC [ H ESC [ 2 J`, que sirve también en la consola del kernel (ignora la `H`, borra con la `J`).
+7. **TERM = `xterm-256color`** (antes `xterm-16color`): es el que mejor corresponde a lo implementado (colores 256, bce,
+   regiones, pantalla alternativa). El `TERM` del sagsh local cambia también; el sagsh solo mira que exista.
+8. **Rendimiento:** el desplazamiento de una región mueve solo las filas de la región en la rejilla y marca sucias solo esas
+   líneas; el redibujado es por líneas sucias con un solo `jan_mostrar_area`. No se usa copia de bloques de pantalla: con
+   las 28 filas del Terminal el redibujado por texto sigue siendo fluido (vim al hacer scroll).
+
+**Qué no hay y por qué:** ratón para las aplicaciones (hace falta decidir el reparto con la selección de texto y la rueda
+del historial); caracteres anchos (CJK, emojis: la celda es de un ancho); color real de 256/24 bits (la paleta del tema
+manda); tabulaciones configurables; sixel. mc no está en el anfitrión de pruebas: sus cajas y colores se cubren con el
+juego DEC y el SGR comprobados, pero no se ha grabado una sesión suya.
+
+**Pruebas.** `tests/h320_terminal_vt.py`: unidad del emulador y de ssh (cajas, teclas), vim/less/htop/nano contra tmux, y en
+QEMU `/testes/vtprova` (región, IL/DL, pantalla alternativa, 256 colores, atributos, cajas DEC, bce, DSR/DA, 19 teclas) y
+una sesión grabada de vim por ssh contra el servidor de h317 (pantalla alternativa y vuelta). Capturas `H320-*.png`.

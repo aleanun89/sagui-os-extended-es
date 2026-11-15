@@ -12,6 +12,11 @@
 ;   [5/6] vídeo             (INT 10h VBE: elegir modo; cambiar solo si se pide)
 ;   [6/6] modo protegido    (GDT propia y salto al kernel)
 ;
+; Antes de todo eso, conferir_cpu (D310): el kernel y los programas se compilan
+; para i686 y llevan CMOV/FCMOV; en una CPU i586 o anterior la primera CMOV daba
+; #UD, triple fallo y un reinicio en bucle. Si falta, se avisa y la máquina se queda
+; parada (sin reiniciar). En una i686 no se escribe nada.
+;
 ; Cada etapa muestra una línea en pantalla. En el G470 no hay serie: si se bloquea, la
 ; foto de la pantalla muestra en qué etapa se detuvo.
 ;
@@ -77,6 +82,11 @@ inicio:
 
         mov si, msg_titulo
         call escrever
+
+        ; D310: la CPU tiene que ser i686 (CMOV). Se mira lo primero, antes de leer
+        ; nada del disco, para que el aviso salga enseguida.
+        call conferir_cpu
+        jc .falha_cpu
 
         ; D255: Ctrl pulsado al arrancar = modo rescate (consola con un shell de
         ; root, sin escritorio ni servicios). Solo se mira el estado del teclado
@@ -213,6 +223,62 @@ inicio:
 .falha_soma:
         mov si, msg_falha_soma
         jmp parar
+.falha_cpu:
+        ; SI = la causa (sin CPUID o sin CMOV); después, lo que hace falta.
+        call escrever
+        mov si, msg_cpu_requisito
+        call escrever
+        cli                             ; sin interrupciones: nada puede despertarla
+.parada_cpu:
+        hlt
+        jmp .parada_cpu
+
+; ============================================================================
+; CPU (D310)
+; ============================================================================
+
+; conferir_cpu: comprueba que la CPU tiene CPUID y, en la hoja 1, CMOV (EDX bit 15).
+; Toda CPU con CMOV (familia 6 o posterior) tiene también TSC y FPU; FXSR/SSE no
+; se exigen (el kernel los mira por CPUID). Salida: CF=0 vale; CF=1 no vale, con
+; SI apuntando a la causa. Conserva todos los registros salvo SI y los indicadores.
+conferir_cpu:
+        pushad
+        ; El CPUID existe si el bit ID (21) del EFLAGS se puede cambiar (un 386 o un
+        ; 486 antiguo no lo deja).
+        pushfd
+        pop eax
+        mov ecx, eax
+        xor eax, 0x00200000
+        push eax
+        popfd
+        pushfd
+        pop eax
+        push ecx
+        popfd                           ; deja el EFLAGS como estaba
+        xor eax, ecx
+        test eax, 0x00200000
+        jz .sem_cpuid
+        xor eax, eax                    ; hoja 0: la hoja más alta que hay
+        cpuid
+        cmp eax, 1
+        jb .sem_cpuid
+        mov eax, 1
+        cpuid
+        test edx, 1 << 15               ; CMOV
+        jz .sem_cmov
+        popad
+        clc
+        ret
+.sem_cpuid:
+        popad
+        mov si, msg_cpu_sem_cpuid
+        stc
+        ret
+.sem_cmov:
+        popad
+        mov si, msg_cpu_sem_cmov
+        stc
+        ret
 
 ; ============================================================================
 ; A20
@@ -969,6 +1035,12 @@ msg_video:      db "[5/6] video: ", 0
 msg_sem_vesa:   db "VESA no encontrado, sigue en modo texto", 13, 10, 0
 msg_crlf:       db 13, 10, 0
 msg_pm:         db "[6/6] entrando en modo protegido", 13, 10, 0
+; D310. La etapa 2 escribe con la fuente de la BIOS (página de códigos 437): 0xA2 es la «ó».
+msg_cpu_sem_cmov:  db "[0/6] CPU: Esta CPU no es i686 (falta la instrucci", 0xA2, "n CMOV): ", 0
+msg_cpu_sem_cpuid: db "[0/6] CPU: Esta CPU no es i686 (no tiene CPUID, y por tanto tampoco CMOV): ", 0
+msg_cpu_requisito: db "SaguiOS necesita un Pentium Pro / Pentium II / AMD Athlon o posterior. "
+                   db "Las AMD K6, K6-2, K6-III y los Pentium/Pentium MMX no son compatibles.", 13, 10
+                   db "La maquina queda detenida; ya se puede apagar.", 13, 10, 0
 msg_falha_a20:  db "ERROR: no se pudo activar la linea A20", 0
 msg_falha_mem:  db "ERROR: la BIOS no dio el mapa de memoria (E820)", 0
 msg_falha_leitura: db 13, 10, "ERROR: fallo de lectura del disco (INT 13h)", 0

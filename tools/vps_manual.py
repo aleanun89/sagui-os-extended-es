@@ -57,12 +57,50 @@ def tabla_controles(nombre):
             q = c["props"]
             tam = cls.TAM
             pos = "%s, %s, %s, %s" % (q.get("x", 0), q.get("y", 0), q.get("ancho", tam[0]), q.get("alto", tam[1]))
-            if c["tipo"] in ("Temporizador", "Menu", "Reloj", "Archivo"):
+            if c["tipo"] in ("Temporizador", "Menu", "Reloj", "Archivo", "ConectorBD"):
                 pos = "(sin ventana)"
             extra = ", ".join("`%s = %s`" % (k, _val(v)) for k, v in q.items() if k not in ("x", "y", "ancho", "alto"))
             if c["padre"]:
                 extra = ("dentro de `%s`; " % c["padre"]) + extra
             filas.append("| %s | `%s` | %s | %s |" % (c["tipo"], c["nombre"], pos, extra))
+    return "\n".join(filas)
+
+
+SIN_VENTANA = ("Temporizador", "Reloj", "Menu", "Archivo", "ConectorBD")
+DATO_COMUN = {"doble_click": "`raton_x`, `raton_y`", "raton_abajo": "`raton_x`, `raton_y`, `boton`",
+              "raton_arriba": "`raton_x`, `raton_y`, `boton`", "raton_entra": "`raton_x`, `raton_y`",
+              "raton_sale": "`raton_x`, `raton_y`", "raton_mueve": "`raton_x`, `raton_y`",
+              "rueda": "`rueda_delta`, `raton_x`, `raton_y`", "foco_gana": "", "foco_pierde": "",
+              "tecla_abajo": "`tecla`, `caracter`, `ctrl`, `mayus`",
+              "tecla_arriba": "`tecla`, `caracter`, `ctrl`, `mayus` (se dispara tras `tecla_abajo`)",
+              "menu_contextual": "`raton_x`, `raton_y`, `boton` (3)"}
+CUANDO_COMUN = {"doble_click": "Doble clic", "raton_abajo": "Se pulsa un botón del ratón sobre el control",
+                "raton_arriba": "Se suelta el botón", "raton_entra": "El puntero entra en el control",
+                "raton_sale": "El puntero sale del control", "raton_mueve": "El puntero se mueve sobre el control",
+                "rueda": "Gira la rueda con el puntero encima", "foco_gana": "El control recibe el foco",
+                "foco_pierde": "El control pierde el foco", "tecla_abajo": "Se pulsa una tecla con el foco en el control",
+                "tecla_arriba": "Tras `tecla_abajo` (el sistema no avisa de soltar la tecla)",
+                "menu_contextual": "Clic derecho"}
+
+
+def tabla_comunes():
+    filas = ["| Evento | Cuándo | Datos en el control |", "| --- | --- | --- |"]
+    for e in vps.EVENTOS_COMUNES:
+        filas.append("| `%s` | %s | %s |" % (e, CUANDO_COMUN[e], DATO_COMUN[e]))
+    return "\n".join(filas)
+
+
+def tabla_eventos():
+    """Los eventos propios de cada tipo de control, sacados de vps.TIPOS (EVENTOS menos los comunes)."""
+    filas = ["| Control | Eventos propios | Comunes |", "| --- | --- | --- |"]
+    filas.append("| `Formulario` | %s | no |" % ", ".join("`%s`" % e for e in vps.Formulario.EVENTOS))
+    for t, cls in vps.TIPOS.items():
+        if t in ("Menu",):
+            filas.append("| `Menu` | uno por opción: `MnuAbrir_click` | no |")
+            continue
+        propios = [e for e in cls.EVENTOS if e not in vps.EVENTOS_COMUNES or (cls.DOBLE_PROPIO and e == "doble_click")]
+        comunes = "no" if t in SIN_VENTANA else "sí"
+        filas.append("| `%s` | %s | %s |" % (t, ", ".join("`%s`" % e for e in propios) or "(ninguno)", comunes))
     return "\n".join(filas)
 
 
@@ -74,6 +112,10 @@ def reescribir(texto):
         return "<!-- controles:%s -->\n%s\n<!-- /controles -->" % (m.group(1), tabla_controles(m.group(1)))
     texto = re.sub(r"<!-- ejemplo:([a-z0-9-]+) -->\n.*?\n<!-- /ejemplo -->", uno, texto, flags=re.S)
     texto = re.sub(r"<!-- controles:([a-z0-9-]+) -->\n.*?\n<!-- /controles -->", dos, texto, flags=re.S)
+    texto = re.sub(r"<!-- eventos-comunes -->\n.*?<!-- /eventos-comunes -->",
+                   lambda m: "<!-- eventos-comunes -->\n%s\n<!-- /eventos-comunes -->" % tabla_comunes(), texto, flags=re.S)
+    texto = re.sub(r"<!-- eventos-tabla -->\n.*?<!-- /eventos-tabla -->",
+                   lambda m: "<!-- eventos-tabla -->\n%s\n<!-- /eventos-tabla -->" % tabla_eventos(), texto, flags=re.S)
     return texto
 
 

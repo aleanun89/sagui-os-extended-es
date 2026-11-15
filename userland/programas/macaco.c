@@ -25,10 +25,12 @@
 #include "pdf_escribir.h"
 #include "agentes.h"
 #include "icones.h"
+#include "macaco_funciones.h"   /* catálogo único de funciones (evaluador, asistente y autocompletado) */
 
 /* Teclas de función que la ABI no nombra (D293). */
 #ifndef TECLA_F2
 #define TECLA_F2 0x10B
+#define TECLA_F3 0x10C
 #define TECLA_F4 0x10D
 #endif
 #ifndef TECLA_F12
@@ -126,6 +128,7 @@ typedef struct {
     int32_t num;
     bool    eh_texto;
     bool    vazia;        /* la celda estaba vacía (COUNT no la cuenta) */
+    bool    erro;         /* la celda de origen dio error (se propaga, SI.ERROR lo coge) */
     char    texto[64];
 } res_t;
 
@@ -302,6 +305,7 @@ static res_t res_zero(void)
     r.num = 0;
     r.eh_texto = false;
     r.vazia = true;
+    r.erro = false;
     r.texto[0] = 0;
     return r;
 }
@@ -658,6 +662,40 @@ static const char *inicio_formula(const char *p)
     return p;
 }
 
+/* El texto que da una fórmula (la celda solo guarda la fórmula y el número). Se rehace entero en cada recalcular;
+ * si no está, la celda se ve vacía hasta el próximo cálculo. */
+static res_t res_txt(const char *s);
+#define TC_MAX 512
+static struct { const celula_t *ce; char t[64]; } tcache[TC_MAX];
+static int n_tcache;
+
+static void tc_limpar(void) { n_tcache = 0; }
+
+static void tc_guardar(const celula_t *ce, const char *t)
+{
+    for (int i = 0; i < n_tcache; i++)
+        if (tcache[i].ce == ce) { copia_texto(tcache[i].t, t, sizeof tcache[i].t); return; }
+    if (n_tcache >= TC_MAX) return;
+    tcache[n_tcache].ce = ce;
+    copia_texto(tcache[n_tcache].t, t, sizeof tcache[n_tcache].t);
+    n_tcache++;
+}
+
+static const char *tc_buscar(const celula_t *ce)
+{
+    for (int i = 0; i < n_tcache; i++) if (tcache[i].ce == ce) return tcache[i].t;
+    return "";
+}
+
+/* Deja en la celda el resultado de evaluar su fórmula. */
+static void celula_guardar_resultado(celula_t *ce, res_t *r, bool erro)
+{
+    if (erro) { *r = res_txt("#VALOR!"); r->erro = true; }
+    ce->valor = r->num;
+    ce->flags = (uint8_t)((ce->flags & ~(CEL_NUMERO | CEL_TEXTO)) | (r->eh_texto ? CEL_TEXTO : CEL_NUMERO));
+    if (r->eh_texto) tc_guardar(ce, r->texto);
+}
+
 /* El valor de una celda: si tiene fórmula, la evalúa (y guarda el
  * resultado en la celda). */
 static res_t valor_celula(int f, int l, int c, int prof)
@@ -674,9 +712,7 @@ static res_t valor_celula(int f, int l, int c, int prof)
         ce->flags |= CEL_CALC;
         res_t r = avaliar_expr(&ps);
         ce->flags &= (uint8_t)~CEL_CALC;
-        ce->valor = r.num;
-        ce->flags = (uint8_t)((ce->flags & ~(CEL_NUMERO | CEL_TEXTO)) |
-                              (r.eh_texto ? CEL_TEXTO : CEL_NUMERO));
+        celula_guardar_resultado(ce, &r, ps.erro);
         return r;
     }
     res_t r = res_zero();
@@ -844,47 +880,298 @@ static int32_t arredondar(int32_t x, int n)
 static bool nome_igual(const char *a, const char *b)
 {
     while (*a && *b) {
-        char ca = *a, cb = *b;
-        if (ca >= 'a' && ca <= 'z') ca = (char)(ca - 'a' + 'A');
-        if (cb >= 'a' && cb <= 'z') cb = (char)(cb - 'a' + 'A');
+        unsigned char ca = (unsigned char)*a, cb = (unsigned char)*b;
+        if ((ca >= 'a' && ca <= 'z') || (ca >= 0xE0 && ca <= 0xFE && ca != 0xF7)) ca = (unsigned char)(ca - 32);
+        if ((cb >= 'a' && cb <= 'z') || (cb >= 0xE0 && cb <= 0xFE && cb != 0xF7)) cb = (unsigned char)(cb - 32);
         if (ca != cb) return false;
         a++; b++;
     }
     return !*a && !*b;
 }
 
-/* Llama a una función. */
+/* Busca una función por su nombre en español o su alias en inglés (y los alias antiguos). */
+static const fx_t *fx_buscar(const char *nome)
+{
+    for (int i = 0; i < FX_N; i++)
+        if (nome_igual(nome, FX_TABELA[i].nome) || (FX_TABELA[i].alias && nome_igual(nome, FX_TABELA[i].alias)))
+            return &FX_TABELA[i];
+    if (nome_igual(nome, "AVG")) return fx_buscar("PROMEDIO");
+    return NULL;
+}
+
+/* Llama a una función. El catálogo (macaco_funciones.h) es la fuente: lo que no esté en él, no existe. */
+
+static res_t res_num(int32_t v)
+{
+    res_t r = res_zero();
+    r.num = v;
+    r.vazia = false;
+    return r;
+}
+
+static res_t res_txt(const char *s)
+{
+    res_t r = res_zero();
+    r.eh_texto = true;
+    r.vazia = false;
+    copia_texto(r.texto, s, sizeof r.texto);
+    return r;
+}
+
+static int arg_n(const ref_t *r) { return r->intervalo ? (r->l2 - r->l1 + 1) * (r->c2 - r->c1 + 1) : 1; }
+
+/* La celda k (por filas) de un argumento: un valor suelto es una sola celda. */
+static res_t arg_k(const ref_t *r, const res_t *v, int k, int prof)
+{
+    if (!r->intervalo) return *v;
+    int w = r->c2 - r->c1 + 1;
+    return valor_celula(r->folha, r->l1 + k / w, r->c1 + k % w, prof);
+}
+
+/* Un valor como número: el número, el texto que lo parece o la celda vacía (0). */
+static bool res_a_num(const res_t *v, int32_t *out)
+{
+    if (!v->eh_texto) { *out = v->num; return true; }
+    if (v->texto[0] == 0) { *out = 0; return true; }
+    return parse_numero(v->texto, out);
+}
+
+static void res_a_texto(const res_t *v, char *dst, int max)
+{
+    if (v->eh_texto) copia_texto(dst, v->texto, (size_t)max);
+    else if (v->vazia) dst[0] = 0;
+    else formatar_numero(dst, max, v->num);
+}
+
+static bool arg_num(const ref_t *r, const res_t *v, int prof, int32_t *out)
+{
+    res_t x = arg_k(r, v, 0, prof);
+    return res_a_num(&x, out);
+}
+
+static char fx_maiuscula(char c)
+{
+    unsigned char u = (unsigned char)c;
+    if ((u >= 'a' && u <= 'z') || (u >= 0xE0 && u <= 0xFE && u != 0xF7)) return (char)(u - 32);
+    return c;
+}
+
+static char fx_minuscula(char c)
+{
+    unsigned char u = (unsigned char)c;
+    if ((u >= 'A' && u <= 'Z') || (u >= 0xC0 && u <= 0xDE && u != 0xD7)) return (char)(u + 32);
+    return c;
+}
+
+/* Iguales sin distinguir mayúsculas. */
+static bool texto_igual_ci(const char *a, const char *b)
+{
+    while (*a && *b) {
+        if (fx_maiuscula(*a) != fx_maiuscula(*b)) return false;
+        a++; b++;
+    }
+    return !*a && !*b;
+}
+
+/* ¿Coincide un valor con otro (búsquedas y criterios)? Un número solo con un número; un texto solo con un texto. */
+static bool res_igual(const res_t *a, const res_t *b)
+{
+    if (a->vazia || b->vazia) {          /* una celda vacía vale 0 y "" */
+        const res_t *o = a->vazia ? b : a;
+        if (o->vazia) return true;
+        return o->eh_texto ? o->texto[0] == 0 : o->num == 0;
+    }
+    if (a->eh_texto != b->eh_texto) return false;
+    if (a->eh_texto) return texto_igual_ci(a->texto, b->texto);
+    return a->num == b->num;
+}
+
+/* ¿Cumple la celda `c` el criterio de CONTAR.SI / SUMAR.SI? Número, texto o «>5», «<=3», «<>x», «=a». */
+static bool criterio_cumple(const res_t *c, const res_t *crit)
+{
+    if (!crit->eh_texto) return res_igual(c, crit);
+    const char *s = crit->texto;
+    int op = 5;                 /* 1 <, 2 >, 3 <=, 4 >=, 5 =, 6 <> */
+    int k = 0;
+    if (s[0] == '<' && s[1] == '=') { op = 3; k = 2; }
+    else if (s[0] == '>' && s[1] == '=') { op = 4; k = 2; }
+    else if (s[0] == '<' && s[1] == '>') { op = 6; k = 2; }
+    else if (s[0] == '<') { op = 1; k = 1; }
+    else if (s[0] == '>') { op = 2; k = 1; }
+    else if (s[0] == '=') { op = 5; k = 1; }
+    int32_t n;
+    if (parse_numero(s + k, &n)) {
+        if (c->eh_texto || c->vazia) return op == 6;
+        switch (op) {
+        case 1: return c->num < n;
+        case 2: return c->num > n;
+        case 3: return c->num <= n;
+        case 4: return c->num >= n;
+        case 5: return c->num == n;
+        default: return c->num != n;
+        }
+    }
+    char t[64];
+    res_a_texto(c, t, sizeof t);
+    bool eq = texto_igual_ci(t, s + k);
+    if (c->vazia && s[k] == 0) eq = true;
+    return op == 6 ? !eq : (op == 5 ? eq : false);
+}
+
+static int64_t raiz_entera64(int64_t x)
+{
+    if (x <= 0) return 0;
+    int64_t r = 0, bit = (int64_t)1 << 62;
+    while (bit > x) bit >>= 2;
+    while (bit) {
+        if (x >= r + bit) { x -= r + bit; r = (r >> 1) + bit; }
+        else r >>= 1;
+        bit >>= 2;
+    }
+    return r;
+}
+
+/* ---- fechas: números de serie como en Excel (1900-01-01 = 1; 2000-01-01 = 36526) ---- */
+
+static int dias_civil(int a, int m, int d)     /* días desde 1970-01-01 (algoritmo de Hinnant) */
+{
+    a -= m <= 2;
+    int era = (a >= 0 ? a : a - 399) / 400;
+    int yoe = a - era * 400;
+    int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+static void civil_dias(int z, int *a, int *m, int *d)
+{
+    z += 719468;
+    int era = (z >= 0 ? z : z - 146096) / 146097;
+    int doe = z - era * 146097;
+    int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int y = yoe + era * 400;
+    int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int mp = (5 * doy + 2) / 153;
+    *d = doy - (153 * mp + 2) / 5 + 1;
+    *m = mp + (mp < 10 ? 3 : -9);
+    *a = y + (*m <= 2);
+}
+
+#define SERIE_1970 25569
+
+static int serie_de(int a, int m, int d)
+{
+    int mm = m - 1;
+    a += (mm >= 0 ? mm / 12 : -((11 - mm) / 12));
+    mm = ((mm % 12) + 12) % 12;
+    return dias_civil(a, mm + 1, 1) + (d - 1) + SERIE_1970;
+}
+
+/* TEXTO(valor; formato): cuenta los decimales del formato, el «%» y las comas de miles. */
+static void fx_formatar(int32_t v, const char *fmt, char *dst, int max)
+{
+    int dec = 0;
+    bool pct = false, mil = false, ponto = false;
+    for (int i = 0; fmt[i]; i++) {
+        if (fmt[i] == '.') ponto = true;
+        else if (ponto && (fmt[i] == '0' || fmt[i] == '#')) dec++;
+        else if (fmt[i] == '%') pct = true;
+        else if (fmt[i] == ',') mil = true;
+    }
+    int64_t x = v;
+    if (pct) x *= 100;
+    bool neg = x < 0;
+    if (neg) x = -x;
+    int escala = dec >= 2 ? 1 : (dec == 1 ? 10 : 100);
+    if (escala > 1) x = (x + escala / 2) / escala * escala;
+    int64_t inteiro = div64_64(x, 100);
+    int frac = (int)(x - inteiro * 100);
+    char ib[24];
+    int ni = 0;
+    char rev[24];
+    int nr = 0;
+    if (inteiro == 0) rev[nr++] = '0';
+    int dig = 0;
+    while (inteiro > 0 && nr < 22) {
+        int64_t q = div64_64(inteiro, 10);
+        if (mil && dig && dig % 3 == 0 && nr < 21) rev[nr++] = ',';
+        rev[nr++] = (char)('0' + (int)(inteiro - q * 10));
+        inteiro = q;
+        dig++;
+    }
+    while (nr > 0) ib[ni++] = rev[--nr];
+    ib[ni] = 0;
+    char fb[8];
+    int nf = 0;
+    if (dec > 0) {
+        fb[nf++] = '.';
+        char d2[3] = { (char)('0' + frac / 10), (char)('0' + frac % 10), 0 };
+        for (int i = 0; i < dec && nf < 6; i++) fb[nf++] = i < 2 ? d2[i] : '0';
+    }
+    fb[nf] = 0;
+    formatar_texto(dst, max, "%s%s%s%s", neg && x ? "-" : "", ib, fb, pct ? "%" : "");
+}
+
+#define FX_MAXARG 16
+
 static res_t chamar_funcao(ps_t *ps, const char *nome)
 {
     res_t r = res_zero();
     ps->p++;   /* el '(' */
     pular_espacos(ps);
 
-    if ((nome_igual(nome, "IF") || nome_igual(nome, "SI"))) {
-        res_t cond = avaliar_expr(ps);
-        pular_espacos(ps);
-        if ((*ps->p == ',' || *ps->p == ';')) ps->p++;
+    const fx_t *fx = fx_buscar(nome);
+    int id = fx ? fx->id : -1;
+
+    /* SI y SI.ERROR solo evalúan lo que hace falta: el error de la rama no elegida no pasa adelante. */
+    if (id == FX_SI || id == FX_SIERROR) {
+        bool previo = ps->erro;
+        ps->erro = false;
         res_t a = avaliar_expr(ps);
         bool erro_a = ps->erro;
         pular_espacos(ps);
-        if ((*ps->p == ',' || *ps->p == ';')) ps->p++;
+        bool sep1 = (*ps->p == ',' || *ps->p == ';');
+        if (sep1) ps->p++;
+        ps->erro = false;
         res_t b = avaliar_expr(ps);
         bool erro_b = ps->erro;
+        res_t c = res_zero();
+        bool erro_c = false, tem_c = false;
         pular_espacos(ps);
+        if (id == FX_SI && (*ps->p == ',' || *ps->p == ';')) {
+            ps->p++;
+            ps->erro = false;
+            c = avaliar_expr(ps);
+            erro_c = ps->erro;
+            tem_c = true;
+            pular_espacos(ps);
+        }
+        bool sint = false;
         if (*ps->p == ')') ps->p++;
-        else ps->erro = true;
-        /* Sólo cuenta la rama elegida; el error de la otra no pasa adelante. */
-        if (cond.num != 0) { r = a; ps->erro = erro_a; }
-        else { r = b; ps->erro = erro_b; }
+        else sint = true;
+        if (!sep1) sint = true;
+        if (id == FX_SI) {
+            bool certo = (!a.eh_texto && a.num != 0);
+            if (erro_a) { r = res_zero(); ps->erro = true; }
+            else if (certo) { r = b; ps->erro = erro_b; }
+            else if (tem_c) { r = c; ps->erro = erro_c; }
+            else { r = res_num(0); ps->erro = false; }
+            if (!erro_a && !certo && !tem_c) r = res_num(0);
+        } else {
+            if (erro_a) { r = b; ps->erro = erro_b; }
+            else { r = a; ps->erro = false; }
+        }
+        ps->erro = ps->erro || previo || sint;
+        r.erro = false;
         return r;
     }
 
-    ref_t  refs[8];
-    res_t  vals[8];
+    ref_t  refs[FX_MAXARG];
+    res_t  vals[FX_MAXARG];
     int    n = 0;
     bool   fecha = false;
     if (*ps->p != ')') {
-        while (n < 8) {
+        while (n < FX_MAXARG) {
             parse_argumento(ps, &refs[n], &vals[n]);
             n++;
             pular_espacos(ps);
@@ -896,91 +1183,333 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
     if (*ps->p == ')') { ps->p++; fecha = true; }
     else ps->erro = true;
     if (!fecha) return r;
+    if (!fx) { ps->erro = true; return r; }   /* función desconocida */
 
-    int64_t soma = 0;
-    int32_t vmin = 2000000000, vmax = -2000000000;
-    int cont = 0;
+    /* el número de argumentos según el catálogo */
+    {
+        fx_arg_t da[8];
+        int nd = fx_args_ler(fx, da, 8);
+        int minimo = 0;
+        bool repite = false;
+        for (int i = 0; i < nd && i < 8; i++) { if (!da[i].opcional) minimo = i + 1; if (da[i].repite) repite = true; }
+        if (n < minimo || (!repite && n > nd)) { ps->erro = true; return r; }
+    }
+    for (int i = 0; i < n; i++)
+        if (!refs[i].intervalo && vals[i].erro) { ps->erro = true; return r; }
 
-    if ((nome_igual(nome, "SUM") || nome_igual(nome, "SUMA")) || nome_igual(nome, "AVERAGE") || nome_igual(nome, "AVG") || nome_igual(nome, "PROMEDIO") ||
-        nome_igual(nome, "MIN") || nome_igual(nome, "MAX") || (nome_igual(nome, "COUNT") || nome_igual(nome, "CONTAR"))) {
+    int prof = ps->prof;
+    int32_t a = 0, b = 0, c = 0;
+    char t1[64], t2[64];
+
+    switch (id) {
+    case FX_SUMA: case FX_PROMEDIO: case FX_MIN: case FX_MAX: case FX_CONTAR: {
+        int64_t soma = 0;
+        int32_t vmin = 2000000000, vmax = -2000000000;
+        int cont = 0;
         for (int i = 0; i < n; i++) {
-            if ((nome_igual(nome, "COUNT") || nome_igual(nome, "CONTAR"))) {
-                /* COUNT sólo cuenta las celdas con número. */
+            if (id == FX_CONTAR) {
                 if (refs[i].intervalo) {
                     for (int l = refs[i].l1; l <= refs[i].l2; l++)
-                        for (int c = refs[i].c1; c <= refs[i].c2; c++) {
-                            res_t x = valor_celula(refs[i].folha, l, c, ps->prof);
+                        for (int cc = refs[i].c1; cc <= refs[i].c2; cc++) {
+                            res_t x = valor_celula(refs[i].folha, l, cc, prof);
                             if (!x.eh_texto && !x.vazia) cont++;
                         }
                 } else if (!vals[i].eh_texto && !vals[i].vazia) cont++;
                 continue;
             }
-            agregar_numero(&refs[i], &vals[i], &soma, &vmin, &vmax, &cont, ps->prof);
+            agregar_numero(&refs[i], &vals[i], &soma, &vmin, &vmax, &cont, prof);
         }
-        if ((nome_igual(nome, "SUM") || nome_igual(nome, "SUMA"))) { r.num = (int32_t)soma; r.vazia = false; return r; }
-        if ((nome_igual(nome, "COUNT") || nome_igual(nome, "CONTAR"))) { r.num = cont * 100; r.vazia = false; return r; }
-        if (nome_igual(nome, "MIN")) { r.num = (cont > 0) ? vmin : 0; r.vazia = false; return r; }
-        if (nome_igual(nome, "MAX")) { r.num = (cont > 0) ? vmax : 0; r.vazia = false; return r; }
-        /* AVERAGE: divide la suma por las celdas, redondeando. */
-        if (cont == 0) { r.num = 0; r.vazia = false; return r; }
+        if (id == FX_SUMA) return res_num((int32_t)soma);
+        if (id == FX_CONTAR) return res_num(cont * 100);
+        if (id == FX_MIN) return res_num(cont > 0 ? vmin : 0);
+        if (id == FX_MAX) return res_num(cont > 0 ? vmax : 0);
+        if (cont == 0) return res_num(0);
         int64_t q = div64_64(soma, cont);
         int64_t resto = soma - q * (int64_t)cont;
         if (resto < 0) resto = -resto;
         if (resto * 2 >= cont) q += (soma < 0) ? -1 : 1;
-        r.num = (int32_t)q;
-        r.vazia = false;
-        return r;
+        return res_num((int32_t)q);
     }
-
-    if ((nome_igual(nome, "PRODUCT") || nome_igual(nome, "PRODUCTO"))) {
+    case FX_PRODUCTO: {
         int64_t prod = 100;    /* 1,00 en centésimas */
         for (int i = 0; i < n; i++) {
-            if (refs[i].intervalo) {
-                for (int l = refs[i].l1; l <= refs[i].l2; l++)
-                    for (int c = refs[i].c1; c <= refs[i].c2; c++) {
-                        res_t v = valor_celula(refs[i].folha, l, c, ps->prof);
-                        if (v.eh_texto || v.vazia) continue;
-                        if (prod > div64_64(900000000000000LL, v.num ? v.num : 1))
-                            prod = 900000000000000LL;
-                        else
-                            prod = div64_64(prod * v.num, 100);
-                    }
-            } else {
-                if (vals[i].eh_texto || vals[i].vazia) continue;
-                if (prod > div64_64(900000000000000LL, vals[i].num ? vals[i].num : 1))
+            int tot = arg_n(&refs[i]);
+            for (int k = 0; k < tot; k++) {
+                res_t v = arg_k(&refs[i], &vals[i], k, prof);
+                if (v.eh_texto || v.vazia) continue;
+                if (prod > div64_64(900000000000000LL, v.num ? (v.num < 0 ? -v.num : v.num) : 1))
                     prod = 900000000000000LL;
                 else
-                    prod = div64_64(prod * vals[i].num, 100);
+                    prod = div64_64(prod * v.num, 100);
             }
         }
-        r.num = (int32_t)prod;
-        r.vazia = false;
-        return r;
+        if (prod > 2000000000LL) prod = 2000000000LL;
+        if (prod < -2000000000LL) prod = -2000000000LL;
+        return res_num((int32_t)prod);
     }
-
-    if (nome_igual(nome, "ABS")) {
-        res_t v = vals[0];
-        if (refs[0].intervalo) v = valor_intervalo(&refs[0], ps->prof);
-        r.num = v.eh_texto ? 0 : (v.num < 0 ? -v.num : v.num);
-        r.vazia = false;
-        return r;
+    case FX_CONTARA: {
+        int cont = 0;
+        for (int i = 0; i < n; i++) {
+            int tot = arg_n(&refs[i]);
+            for (int k = 0; k < tot; k++) {
+                res_t v = arg_k(&refs[i], &vals[i], k, prof);
+                if (!v.vazia) cont++;
+            }
+        }
+        return res_num(cont * 100);
     }
-
-    if ((nome_igual(nome, "ROUND") || nome_igual(nome, "REDONDEAR"))) {
-        res_t v = vals[0];
-        if (refs[0].intervalo) v = valor_intervalo(&refs[0], ps->prof);
+    case FX_MEDIANA: {
+        int total = 0;
+        for (int i = 0; i < n; i++) total += arg_n(&refs[i]);
+        if (total > 4096) total = 4096;
+        int32_t *v = aloca((size_t)(total + 1) * sizeof(int32_t));
+        if (!v) { ps->erro = true; return r; }
+        int cont = 0;
+        for (int i = 0; i < n && cont < total; i++) {
+            int tot = arg_n(&refs[i]);
+            for (int k = 0; k < tot && cont < total; k++) {
+                res_t x = arg_k(&refs[i], &vals[i], k, prof);
+                if (x.eh_texto || x.vazia) continue;
+                int j = cont++;
+                while (j > 0 && v[j - 1] > x.num) { v[j] = v[j - 1]; j--; }
+                v[j] = x.num;
+            }
+        }
+        if (cont == 0) { libera(v); ps->erro = true; return r; }
+        int32_t m = (cont & 1) ? v[cont / 2] : (int32_t)div64_64((int64_t)v[cont / 2 - 1] + v[cont / 2], 2);
+        libera(v);
+        return res_num(m);
+    }
+    case FX_CONTARSI: case FX_SUMARSI: {
+        if (!refs[0].intervalo) { ps->erro = true; return r; }
+        res_t crit = arg_k(&refs[1], &vals[1], 0, prof);
+        int tot = arg_n(&refs[0]);
+        int64_t soma = 0;
+        int cont = 0;
+        for (int k = 0; k < tot; k++) {
+            res_t x = arg_k(&refs[0], &vals[0], k, prof);
+            if (!criterio_cumple(&x, &crit)) continue;
+            cont++;
+            if (id == FX_SUMARSI) {
+                res_t s = x;
+                if (n > 2 && refs[2].intervalo) s = arg_k(&refs[2], &vals[2], k, prof);
+                if (!s.eh_texto && !s.vazia) soma += s.num;
+            }
+        }
+        if (id == FX_CONTARSI) return res_num(cont * 100);
+        if (soma > 2000000000LL) soma = 2000000000LL;
+        if (soma < -2000000000LL) soma = -2000000000LL;
+        return res_num((int32_t)soma);
+    }
+    case FX_ABS:
+        if (!arg_num(&refs[0], &vals[0], prof, &a)) { ps->erro = true; return r; }
+        return res_num(a < 0 ? -a : a);
+    case FX_ENTERO:
+        if (!arg_num(&refs[0], &vals[0], prof, &a)) { ps->erro = true; return r; }
+        {
+            int32_t q = a / 100;
+            if (a < 0 && a % 100) q--;
+            return res_num(q * 100);
+        }
+    case FX_RAIZ:
+        if (!arg_num(&refs[0], &vals[0], prof, &a) || a < 0) { ps->erro = true; return r; }
+        return res_num((int32_t)raiz_entera64((int64_t)a * 100));
+    case FX_POTENCIA: {
+        if (!arg_num(&refs[0], &vals[0], prof, &a) || !arg_num(&refs[1], &vals[1], prof, &b)) { ps->erro = true; return r; }
+        if (b == 50) {
+            if (a < 0) { ps->erro = true; return r; }
+            return res_num((int32_t)raiz_entera64((int64_t)a * 100));
+        }
+        if (b % 100) { ps->erro = true; return r; }
+        int e = b / 100;
+        bool inv = e < 0;
+        if (inv) e = -e;
+        if (e > 64) { ps->erro = true; return r; }
+        int64_t p = 100;
+        for (int i = 0; i < e; i++) {
+            p = div64_64(p * a, 100);
+            if (p > 2000000000LL) p = 2000000000LL;
+            if (p < -2000000000LL) p = -2000000000LL;
+        }
+        if (inv) { if (p == 0) { ps->erro = true; return r; } p = div64_64(10000, p); }
+        return res_num((int32_t)p);
+    }
+    case FX_RESIDUO: {
+        if (!arg_num(&refs[0], &vals[0], prof, &a) || !arg_num(&refs[1], &vals[1], prof, &b) || b == 0) { ps->erro = true; return r; }
+        int32_t q = a / b;
+        if ((a % b != 0) && ((a < 0) != (b < 0))) q--;
+        return res_num(a - q * b);
+    }
+    case FX_PI: return res_num(314);
+    case FX_ALEATORIO: {
+        uint32_t x = 0;
+        bytes_aleatorios(&x, sizeof x);
+        return res_num((int32_t)(x % 100));
+    }
+    case FX_REDONDEAR: {
+        if (!arg_num(&refs[0], &vals[0], prof, &a)) { ps->erro = true; return r; }
         int casas = 0;
         if (n > 1) {
-            res_t d = vals[1];
-            if (refs[1].intervalo) d = valor_intervalo(&refs[1], ps->prof);
-            if (!d.eh_texto) casas = d.num / 100;
+            if (!arg_num(&refs[1], &vals[1], prof, &b)) { ps->erro = true; return r; }
+            casas = b / 100;
         }
-        r.num = arredondar(v.eh_texto ? 0 : v.num, casas);
-        r.vazia = false;
-        return r;
+        return res_num(arredondar(a, casas));
     }
-
-    ps->erro = true;   /* función desconocida */
+    case FX_Y: case FX_O: {
+        bool todo = true, algum = false;
+        for (int i = 0; i < n; i++) {
+            int tot = arg_n(&refs[i]);
+            for (int k = 0; k < tot; k++) {
+                res_t v = arg_k(&refs[i], &vals[i], k, prof);
+                if (v.eh_texto || v.vazia) continue;
+                if (v.num != 0) algum = true; else todo = false;
+            }
+        }
+        return res_num((id == FX_Y ? todo : algum) ? 100 : 0);
+    }
+    case FX_NO: {
+        res_t v = arg_k(&refs[0], &vals[0], 0, prof);
+        return res_num((!v.eh_texto && v.num == 0) ? 100 : 0);
+    }
+    case FX_CONCATENAR: {
+        char buf[64];
+        int k = 0;
+        buf[0] = 0;
+        for (int i = 0; i < n; i++) {
+            int tot = arg_n(&refs[i]);
+            for (int q = 0; q < tot; q++) {
+                res_t v = arg_k(&refs[i], &vals[i], q, prof);
+                res_a_texto(&v, t1, sizeof t1);
+                for (int z = 0; t1[z] && k < 63; z++) buf[k++] = t1[z];
+            }
+        }
+        buf[k] = 0;
+        return res_txt(buf);
+    }
+    case FX_LARGO: {
+        res_t v = arg_k(&refs[0], &vals[0], 0, prof);
+        res_a_texto(&v, t1, sizeof t1);
+        return res_num((int32_t)tam_texto(t1) * 100);
+    }
+    case FX_IZQUIERDA: case FX_DERECHA: {
+        res_t v = arg_k(&refs[0], &vals[0], 0, prof);
+        res_a_texto(&v, t1, sizeof t1);
+        int q = 1;
+        if (n > 1) { if (!arg_num(&refs[1], &vals[1], prof, &b) || b < 0) { ps->erro = true; return r; } q = b / 100; }
+        int len = (int)tam_texto(t1);
+        if (q > len) q = len;
+        if (id == FX_IZQUIERDA) { t1[q] = 0; return res_txt(t1); }
+        return res_txt(t1 + (len - q));
+    }
+    case FX_EXTRAE: {
+        res_t v = arg_k(&refs[0], &vals[0], 0, prof);
+        res_a_texto(&v, t1, sizeof t1);
+        if (!arg_num(&refs[1], &vals[1], prof, &a) || !arg_num(&refs[2], &vals[2], prof, &b) || a < 100 || b < 0) { ps->erro = true; return r; }
+        int ini = a / 100 - 1, q = b / 100, len = (int)tam_texto(t1);
+        if (ini >= len) return res_txt("");
+        if (ini + q > len) q = len - ini;
+        memcpy(t2, t1 + ini, (size_t)q);
+        t2[q] = 0;
+        return res_txt(t2);
+    }
+    case FX_MAYUSC: case FX_MINUSC: {
+        res_t v = arg_k(&refs[0], &vals[0], 0, prof);
+        res_a_texto(&v, t1, sizeof t1);
+        for (int i = 0; t1[i]; i++) t1[i] = (id == FX_MAYUSC) ? fx_maiuscula(t1[i]) : fx_minuscula(t1[i]);
+        return res_txt(t1);
+    }
+    case FX_ESPACIOS: {
+        res_t v = arg_k(&refs[0], &vals[0], 0, prof);
+        res_a_texto(&v, t1, sizeof t1);
+        int k = 0;
+        bool pend = false;
+        for (int i = 0; t1[i]; i++) {
+            if (t1[i] == ' ') { pend = k > 0; continue; }
+            if (pend) { t2[k++] = ' '; pend = false; }
+            t2[k++] = t1[i];
+        }
+        t2[k] = 0;
+        return res_txt(t2);
+    }
+    case FX_TEXTO: {
+        if (!arg_num(&refs[0], &vals[0], prof, &a)) { ps->erro = true; return r; }
+        res_t f = arg_k(&refs[1], &vals[1], 0, prof);
+        res_a_texto(&f, t2, sizeof t2);
+        fx_formatar(a, t2, t1, sizeof t1);
+        return res_txt(t1);
+    }
+    case FX_HOY: case FX_AHORA: {
+        fuso_data_t d;
+        agora_local(&d);
+        int32_t serie = serie_de(d.ano, d.mes, d.dia) * 100;
+        if (id == FX_AHORA) serie += (int32_t)div64_64((int64_t)(d.hora * 3600 + d.minuto * 60 + d.segundo) * 100, 86400);
+        return res_num(serie);
+    }
+    case FX_ANO: case FX_MES: case FX_DIA: {
+        if (!arg_num(&refs[0], &vals[0], prof, &a) || a < 0) { ps->erro = true; return r; }
+        int an, me, di;
+        civil_dias(a / 100 - SERIE_1970, &an, &me, &di);
+        return res_num((id == FX_ANO ? an : id == FX_MES ? me : di) * 100);
+    }
+    case FX_FECHA: {
+        int32_t y, m, d;
+        if (!arg_num(&refs[0], &vals[0], prof, &y) || !arg_num(&refs[1], &vals[1], prof, &m) || !arg_num(&refs[2], &vals[2], prof, &d)) { ps->erro = true; return r; }
+        return res_num(serie_de(y / 100, m / 100, d / 100) * 100);
+    }
+    case FX_BUSCARV: {
+        if (!refs[1].intervalo) { ps->erro = true; return r; }
+        res_t chave = arg_k(&refs[0], &vals[0], 0, prof);
+        if (!arg_num(&refs[2], &vals[2], prof, &a)) { ps->erro = true; return r; }
+        int col = a / 100;
+        int w = refs[1].c2 - refs[1].c1 + 1;
+        if (col < 1 || col > w) { ps->erro = true; return r; }
+        bool exato = false;
+        if (n > 3) { if (!arg_num(&refs[3], &vals[3], prof, &b)) { ps->erro = true; return r; } exato = (b == 0); }
+        int achada = -1;
+        for (int l = refs[1].l1; l <= refs[1].l2; l++) {
+            res_t k = valor_celula(refs[1].folha, l, refs[1].c1, prof);
+            if (exato || chave.eh_texto) {
+                if (res_igual(&k, &chave)) { achada = l; break; }
+            } else if (!k.eh_texto && !k.vazia) {
+                if (k.num == chave.num) { achada = l; break; }
+                if (k.num > chave.num) break;
+                achada = l;
+            }
+        }
+        if (achada < 0) { ps->erro = true; return r; }
+        return valor_celula(refs[1].folha, achada, refs[1].c1 + col - 1, prof);
+    }
+    case FX_INDICE: {
+        if (!refs[0].intervalo) { ps->erro = true; return r; }
+        if (!arg_num(&refs[1], &vals[1], prof, &a)) { ps->erro = true; return r; }
+        int w = refs[0].c2 - refs[0].c1 + 1, h = refs[0].l2 - refs[0].l1 + 1;
+        int fila = a / 100, col = 1;
+        if (n > 2) {
+            if (!arg_num(&refs[2], &vals[2], prof, &b)) { ps->erro = true; return r; }
+            col = b / 100;
+        } else if (h == 1 && w > 1) { col = fila; fila = 1; }
+        if (fila < 1 || fila > h || col < 1 || col > w) { ps->erro = true; return r; }
+        return valor_celula(refs[0].folha, refs[0].l1 + fila - 1, refs[0].c1 + col - 1, prof);
+    }
+    case FX_COINCIDIR: {
+        if (!refs[1].intervalo) { ps->erro = true; return r; }
+        res_t chave = arg_k(&refs[0], &vals[0], 0, prof);
+        int tipo = 1;
+        if (n > 2) { if (!arg_num(&refs[2], &vals[2], prof, &c)) { ps->erro = true; return r; } tipo = c < 0 ? -1 : (c == 0 ? 0 : 1); }
+        int tot = arg_n(&refs[1]), achada = -1;
+        for (int k = 0; k < tot; k++) {
+            res_t x = arg_k(&refs[1], &vals[1], k, prof);
+            if (tipo == 0 || chave.eh_texto) { if (res_igual(&x, &chave)) { achada = k; break; } continue; }
+            if (x.eh_texto || x.vazia) continue;
+            if (tipo == 1) { if (x.num <= chave.num) achada = k; else break; }
+            else { if (x.num >= chave.num) achada = k; else break; }
+        }
+        if (achada < 0) { ps->erro = true; return r; }
+        return res_num((achada + 1) * 100);
+    }
+    default: break;
+    }
+    ps->erro = true;
     return r;
 }
 
@@ -1025,15 +1554,20 @@ static res_t avaliar_primario(ps_t *ps)
             return r;
         }
     }
-    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$') {
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$' || (unsigned char)c == 0xD1 || (unsigned char)c == 0xF1) {
         ps_t copia = *ps;
         ref_t rf;
-        if (parse_ref(ps, &rf)) return valor_intervalo(&rf, ps->prof);
+        if (parse_ref(ps, &rf)) {
+            res_t v = valor_intervalo(&rf, ps->prof);
+            if (v.erro) ps->erro = true;
+            return v;
+        }
         *ps = copia;
-        /* ¿Es el nombre de una función? */
+        /* ¿Es el nombre de una función? (letras, «.» como en CONTAR.SI, y la Ñ de AÑO) */
         char nome[24];
         int n = 0;
-        while ((*ps->p >= 'A' && *ps->p <= 'Z') || (*ps->p >= 'a' && *ps->p <= 'z')) {
+        while ((*ps->p >= 'A' && *ps->p <= 'Z') || (*ps->p >= 'a' && *ps->p <= 'z') || *ps->p == '.' ||
+               (unsigned char)*ps->p == 0xD1 || (unsigned char)*ps->p == 0xF1) {
             if (n < 23) nome[n++] = *ps->p;
             ps->p++;
         }
@@ -1080,11 +1614,48 @@ static res_t avaliar_termo(ps_t *ps)
     return r;
 }
 
+/* Suma y resta. */
+static res_t avaliar_soma(ps_t *ps)
+{
+    res_t r = avaliar_termo(ps);
+    for (;;) {
+        pular_espacos(ps);
+        char c = *ps->p;
+        if (c != '+' && c != '-') break;
+        ps->p++;
+        res_t d = avaliar_termo(ps);
+        if (r.eh_texto || d.eh_texto) { r.num = 0; r.eh_texto = false; continue; }
+        r.num = (c == '+') ? (r.num + d.num) : (r.num - d.num);
+    }
+    return r;
+}
+
+/* El operador & une textos (los números se escriben tal cual). Va por debajo de la suma y por encima de las
+ * comparaciones, como en Excel. */
+static res_t avaliar_concat(ps_t *ps)
+{
+    res_t r = avaliar_soma(ps);
+    for (;;) {
+        pular_espacos(ps);
+        if (*ps->p != '&') break;
+        ps->p++;
+        res_t d = avaliar_soma(ps);
+        char a[64], b[64], j[128];
+        res_a_texto(&r, a, sizeof a);
+        res_a_texto(&d, b, sizeof b);
+        formatar_texto(j, sizeof j, "%s%s", a, b);
+        bool e = r.erro || d.erro;
+        r = res_txt(j);
+        r.erro = e;
+    }
+    return r;
+}
+
 /* Las comparaciones (=, <>, <, >, <=, >=): devuelven 1,00 si son ciertas y
- * 0 si no (como en cualquier hoja de cálculo). */
+ * 0 si no (como en cualquier hoja de cálculo). Los textos se comparan sin distinguir mayúsculas. */
 static res_t avaliar_comparar(ps_t *ps)
 {
-    res_t a = avaliar_termo(ps);
+    res_t a = avaliar_concat(ps);
     pular_espacos(ps);
     char c1 = ps->p[0], c2 = ps->p[1];
     int tipo;      /* 1 = <, 2 = >, 3 = <=, 4 = >=, 5 = =, 6 = <> */
@@ -1095,9 +1666,20 @@ static res_t avaliar_comparar(ps_t *ps)
     else if (c1 == '>') { tipo = 2; ps->p += 1; }
     else if (c1 == '=') { tipo = 5; ps->p += 1; }
     else return a;
-    res_t b = avaliar_termo(ps);
-    if (a.eh_texto || b.eh_texto) { a.num = 0; a.eh_texto = false; return a; }
-    int cmp = (a.num < b.num) ? -1 : (a.num > b.num) ? 1 : 0;
+    res_t b = avaliar_concat(ps);
+    int cmp;
+    if (a.eh_texto && b.eh_texto) {
+        const char *x = a.texto, *y = b.texto;
+        while (*x && *y && fx_maiuscula(*x) == fx_maiuscula(*y)) { x++; y++; }
+        unsigned char ux = (unsigned char)fx_maiuscula(*x), uy = (unsigned char)fx_maiuscula(*y);
+        cmp = (ux < uy) ? -1 : (ux > uy) ? 1 : 0;
+    } else if (a.eh_texto || b.eh_texto) {
+        cmp = 1;                       /* un texto nunca es igual a un número */
+        if (tipo == 5) { a.num = 0; a.eh_texto = false; return a; }
+        if (tipo == 6) { res_t r6 = res_zero(); r6.num = 100; r6.vazia = false; return r6; }
+        a.num = 0; a.eh_texto = false; return a;
+    } else
+        cmp = (a.num < b.num) ? -1 : (a.num > b.num) ? 1 : 0;
     bool certo = false;
     switch (tipo) {
     case 1: certo = cmp < 0; break;
@@ -1116,23 +1698,14 @@ static res_t avaliar_comparar(ps_t *ps)
 
 static res_t avaliar_expr(ps_t *ps)
 {
-    res_t r = avaliar_comparar(ps);
-    for (;;) {
-        pular_espacos(ps);
-        char c = *ps->p;
-        if (c != '+' && c != '-') break;
-        ps->p++;
-        res_t d = avaliar_comparar(ps);
-        if (r.eh_texto || d.eh_texto) { r.num = 0; r.eh_texto = false; continue; }
-        r.num = (c == '+') ? (r.num + d.num) : (r.num - d.num);
-    }
-    return r;
+    return avaliar_comparar(ps);
 }
 
 /* Evalúa todas las fórmulas del libro y guarda los resultados en las
  * celdas. */
 static void recalcular(void)
 {
+    tc_limpar();
     for (int f = 0; f < livro.n; f++) {
         folha_t *fo = &livro.folha[f];
         for (int l = 0; l < fo->linhas; l++)
@@ -1147,9 +1720,7 @@ static void recalcular(void)
                 ce->flags |= CEL_CALC;
                 res_t r = avaliar_expr(&ps);
                 ce->flags &= (uint8_t)~CEL_CALC;
-                ce->valor = r.num;
-                ce->flags = (uint8_t)((ce->flags & ~(CEL_NUMERO | CEL_TEXTO)) |
-                                      (r.eh_texto ? CEL_TEXTO : CEL_NUMERO));
+                celula_guardar_resultado(ce, &r, ps.erro);
             }
     }
 }
@@ -1833,7 +2404,7 @@ static bool guardar_ficheiro(const char *destino)
                 if (!ce->texto) continue;
                 char ref[16];
                 nome_ref(ref, sizeof ref, l, c);
-                if (ce->flags & CEL_TEXTO) {
+                if ((ce->flags & CEL_TEXTO) && !(ce->flags & CEL_FORMULA)) {
                     char t[MAC_TEXTO_CEL + 4];
                     int n = 0;
                     t[n++] = '"';
@@ -1972,6 +2543,7 @@ static char *csv_texto(folha_t *fo, int *tam)
             v[0] = 0;
             if (ce->texto) {
                 if ((ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO)) formatar_numero(v, sizeof v, ce->valor);
+                else if ((ce->flags & CEL_TEXTO) && (ce->flags & CEL_FORMULA)) copia_texto(v, tc_buscar(ce), sizeof v);
                 else copia_texto(v, ce->texto, sizeof v);
             }
             if (c) txt_add(&buf, &n, &cap, ",");
@@ -2591,7 +3163,8 @@ static void celula_exibida(char *dst, int max, celula_t *ce)
 {
     if (!ce) { dst[0] = 0; return; }
     if (ce->flags & CEL_TEXTO) {
-        copia_texto(dst, ce->texto ? ce->texto : "", (size_t)max);
+        if (ce->flags & CEL_FORMULA) copia_texto(dst, tc_buscar(ce), (size_t)max);   /* el texto que dio la fórmula */
+        else copia_texto(dst, ce->texto ? ce->texto : "", (size_t)max);
         return;
     }
     if (ce->flags & CEL_NUMERO) { fmt_numero(dst, max, ce->valor, fmt_de(ce)); return; }
@@ -3026,7 +3599,7 @@ enum {
     A_CELULAS, A_NEGRITA, A_CURSIVA, A_SUBLIN, A_ESQ, A_CENTRO, A_DIR,
     A_MOEDA, A_PERCENT, A_MILHAR, A_DEC_MAIS, A_DEC_MENOS, A_BORDAS, A_RELLENO, A_COR_TXT,
     A_LARG, A_ORD_A, A_ORD_Z, A_SOMA, A_RECALC, A_GRADE, A_FORMULAS, A_ACERCA, A_IGUAL,
-    A_ASISTENTE, A_IA_EXPLICAR, A_IA_FORMULA,
+    A_ASISTENTE, A_IA_EXPLICAR, A_IA_FORMULA, A_FUNCAO,
     /* elecciones de colores y bordes (menús desplegables de los botones) */
     A_REL_0 = 100, A_COR_0 = 120, A_BOR_0 = 140
 };
@@ -3231,7 +3804,7 @@ static const mi_t M_VER[] = {
 };
 static const mi_t M_INSERIR[] = {
     { "Fila", A_LINHA_INS }, { "Columna", A_COL_INS }, { "Hoja", A_FOLHA_NOVA }, { "-", 0 },
-    { "Gráfico...", A_GRAFICO }, { "-", 0 },
+    { "Función...\tMayús+F3", A_FUNCAO }, { "Gráfico...", A_GRAFICO }, { "-", 0 },
     { "Gráfico de barras", A_GRAF_B }, { "Gráfico de barras horizontales", A_GRAF_H }, { "Gráfico de tarta", A_GRAF_T },
 };
 static const mi_t M_FORMATO[] = {
@@ -3537,6 +4110,215 @@ static void desenhar_previa_relleno(void)
     for (int i = 0; i < h; i += 4) { g_retangulo(jan, x, y + i, 1, 2, 0x606060); g_retangulo(jan, x + w - 1, y + i, 1, 2, 0x606060); }
 }
 
+static bool substituir_edit(int ini, int fim, const char *novo);
+
+/* ------------------------------------------------------------ ayudas al escribir fórmulas (D311, asistente de funciones) */
+
+/* Todas salen del catálogo (macaco_funciones.h): el autocompletado de nombres tras «=» o un operador y la
+ * ayuda de argumentos al abrir el paréntesis. */
+
+static bool fx_letra(char c)
+{
+    unsigned char u = (unsigned char)c;
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '.' || u == 0xD1 || u == 0xF1;
+}
+
+/* ¿Empieza `nome` por los `n` caracteres de `pref` (sin distinguir mayúsculas)? */
+static bool fx_prefijo(const char *nome, const char *pref, int n)
+{
+    for (int i = 0; i < n; i++) {
+        if (!nome[i]) return false;
+        if (fx_maiuscula(nome[i]) != fx_maiuscula(pref[i])) return false;
+    }
+    return true;
+}
+
+#define AC_MAX 8
+static int  ac_sel;                       /* la función elegida de la lista */
+static bool ac_oculto;                    /* Esc cerró la lista; vuelve al escribir otra letra */
+static const fx_t *ac_fx[AC_MAX];
+static const char *ac_nome[AC_MAX];
+static int  ac_n;
+
+/* El nombre que se está escribiendo bajo el cursor: tras «=» o un operador, sin comillas ni referencia.
+ * Devuelve su longitud (0 = ninguno) y el inicio en *ini. */
+static int ac_prefijo(int *ini)
+{
+    if (!edit_e_formula() || senalando) return 0;
+    int comillas = 0;
+    for (int i = 0; i < edit_cur; i++) if (edit_buf[i] == '"') comillas++;
+    if (comillas & 1) return 0;
+    int fim = edit_cur, i = fim;
+    while (i > 0 && fx_letra(edit_buf[i - 1])) i--;
+    if (i == fim) return 0;
+    if (carac_ident(edit_buf[fim]) || edit_buf[fim] == '(') return 0;      /* el cursor está dentro de una palabra */
+    int k = i - 1;
+    while (k >= 0 && edit_buf[k] == ' ') k--;
+    if (k < 0 || !acha_char("=+-*/^&<>,(;", edit_buf[k])) return 0;
+    *ini = i;
+    return fim - i;
+}
+
+/* Rehace la lista de coincidencias (catálogo, por nombre en español o por alias en inglés). */
+static int ac_atualizar(void)
+{
+    ac_n = 0;
+    int ini, len = ac_prefijo(&ini);
+    if (len <= 0 || ac_oculto) return 0;
+    for (int i = 0; i < FX_N && ac_n < AC_MAX; i++) {
+        const fx_t *f = &FX_TABELA[i];
+        if (fx_prefijo(f->nome, edit_buf + ini, len)) { ac_fx[ac_n] = f; ac_nome[ac_n++] = f->nome; }
+        else if (f->alias && fx_prefijo(f->alias, edit_buf + ini, len)) { ac_fx[ac_n] = f; ac_nome[ac_n++] = f->alias; }
+    }
+    if (ac_sel >= ac_n) ac_sel = 0;
+    return ac_n;
+}
+
+/* Tab: completa el nombre elegido y abre el paréntesis. */
+static bool ac_aceitar(void)
+{
+    int ini, len = ac_prefijo(&ini);
+    if (len <= 0 || ac_atualizar() == 0) return false;
+    char nome[40];
+    formatar_texto(nome, sizeof nome, "%s(", ac_nome[ac_sel]);
+    if (!substituir_edit(ini, ini + len, nome)) return false;
+    edit_cur = ini + (int)tam_texto(nome);
+    registrar("macaco: autocompletado %s", ac_fx[ac_sel]->alias ? ac_fx[ac_sel]->alias : ac_fx[ac_sel]->nome);
+    ac_sel = 0;
+    return true;
+}
+
+/* Dibuja (o solo mide, con j NULL) «NOMBRE(arg1; [arg2]; ...)» con el argumento `cur` en negrita.
+ * Devuelve el ancho. */
+static int fx_sintaxe(jan_t *j, int x, int y, const fx_t *f, int cur, uint32_t cor)
+{
+    fx_arg_t da[8];
+    int nd = fx_args_ler(f, da, 8);
+    if (nd > 8) nd = 8;
+    int marca = cur;
+    if (cur >= nd) marca = (nd > 0 && da[nd - 1].repite) ? nd - 1 : -1;
+    int px = x;
+#define PEDACO(txt, neg) do { const char *t_ = (txt); if (j) { g_texto(j, px, y, t_, cor); if (neg) g_texto(j, px + 1, y, t_, cor); } \
+                              px += g_largura_texto(t_) + ((neg) ? 1 : 0); } while (0)
+    PEDACO(f->nome, false);
+    PEDACO("(", false);
+    for (int i = 0; i < nd; i++) {
+        if (i) PEDACO("; ", false);
+        char b[48];
+        formatar_texto(b, sizeof b, da[i].opcional ? "[%s]" : "%s", da[i].nome);
+        PEDACO(b, i == marca);
+        if (da[i].repite) PEDACO("; ...", false);
+    }
+    PEDACO(")", false);
+#undef PEDACO
+    return px - x;
+}
+
+/* La llamada abierta bajo el cursor: la función (por el nombre antes del «(») y el argumento actual. */
+static const fx_t *ayuda_llamada(int *argn)
+{
+    int ini_n[24], fim_n[24], arg[24], prof = 0;
+    bool aspas = false;
+    for (int i = 0; i < edit_cur && edit_buf[i]; i++) {
+        char c = edit_buf[i];
+        if (c == '"') { aspas = !aspas; continue; }
+        if (aspas) continue;
+        if (c == '(' && prof < 24) {
+            int j = i;
+            while (j > 0 && fx_letra(edit_buf[j - 1])) j--;
+            ini_n[prof] = j; fim_n[prof] = i; arg[prof] = 0; prof++;
+        } else if ((c == ';' || c == ',') && prof > 0) arg[prof - 1]++;
+        else if (c == ')' && prof > 0) prof--;
+    }
+    for (int d = prof - 1; d >= 0; d--) {
+        char nome[24];
+        int n = fim_n[d] - ini_n[d];
+        if (n <= 0 || n >= 24) continue;
+        memcpy(nome, edit_buf + ini_n[d], (size_t)n);
+        nome[n] = 0;
+        const fx_t *f = fx_buscar(nome);
+        if (f) { *argn = arg[d]; return f; }
+    }
+    return NULL;
+}
+
+/* El desplegable de nombres y la etiqueta de ayuda, bajo la celda que se edita. */
+static void desenhar_ayudas_formula(void)
+{
+    static const fx_t *ult_f;
+    static int ult_arg = -2;
+    if (!editando || livro.ativa != edit_folha || !edit_e_formula()) { ult_f = NULL; ult_arg = -2; return; }
+    int x0 = x_coluna(cel_c), y0 = y_linha(cel_l) + MAC_ALTLINHA;
+    int gy = grelha_y(), ga = grelha_a();
+    if (y0 < gy || y0 > gy + ga) return;
+    int y = y0 + 1;
+
+    int argn = 0;
+    const fx_t *f = senalando ? NULL : ayuda_llamada(&argn);
+    if (f) {
+        int w = fx_sintaxe(NULL, 0, 0, f, argn, W98_NEGRO) + 10;
+        int x = x0;
+        if (x + w > jan->larg - 4) x = jan->larg - 4 - w;
+        if (x < MAC_LARGC) x = MAC_LARGC;
+        g_retangulo(jan, x, y, w, 20, 0xFFFFE1);
+        g_moldura(jan, x, y, w, 20, W98_NEGRO);
+        fx_sintaxe(jan, x + 5, y + 2, f, argn, W98_NEGRO);
+        y += 22;
+        if (f != ult_f || argn != ult_arg) {
+            registrar("macaco: ayuda %s argumento %d", f->alias ? f->alias : f->nome, argn + 1);
+            ult_f = f; ult_arg = argn;
+        }
+    } else { ult_f = NULL; ult_arg = -2; }
+
+    if (ac_atualizar() > 0) {
+        int w = 0;
+        for (int i = 0; i < ac_n; i++) { int a = g_largura_texto(ac_nome[i]); if (a > w) w = a; }
+        w += 16;
+        if (w < 120) w = 120;
+        int h = ac_n * 18 + 4;
+        int x = x0;
+        if (x + w > jan->larg - 4) x = jan->larg - 4 - w;
+        g_retangulo(jan, x, y, w, h, COR_BRANCO);
+        g_moldura(jan, x, y, w, h, W98_NEGRO);
+        for (int i = 0; i < ac_n; i++) {
+            bool sel = i == ac_sel;
+            if (sel) g_retangulo(jan, x + 2, y + 2 + i * 18, w - 4, 18, 0x000080);
+            g_texto(jan, x + 8, y + 3 + i * 18, ac_nome[i], sel ? COR_BRANCO : W98_NEGRO);
+        }
+    }
+}
+
+/* ---- el asistente contraído: señalar un argumento en la hoja (reutiliza el modo señalar de D311) ---- */
+
+static bool fx_colapsado;
+static char fx_col_texto[96];            /* «SUMA: número1» */
+static botao_t fx_col_ok = { 0, 0, 80, 24, "Aceptar", false }, fx_col_cancelar = { 0, 0, 80, 24, "Cancelar", false };
+
+static int fx_painel_y(void) { return grelha_y() + grelha_a() - 36; }
+
+static void desenhar_painel_colapsado(void)
+{
+    if (!fx_colapsado) return;
+    int y = fx_painel_y();
+    g_retangulo(jan, 0, y, jan->larg, 36, W98_FACE);
+    g_linha(jan, 0, y, jan->larg, y, W98_SOMBRA);
+    g_linha(jan, 0, y + 1, jan->larg, y + 1, COR_BRANCO);
+    rotulo(jan, 8, y + 4, fx_col_texto, W98_NEGRO);
+    rotulo(jan, 8, y + 20, "Señale las celdas con el ratón; Intro acepta, Esc cancela.", 0x404040);
+    int bx = jan->larg - 2 * 80 - 20;
+    int bw = g_largura_texto("Señale las celdas con el ratón; Intro acepta, Esc cancela.") + 24;
+    int cx = 8 + bw, cw = bx - cx - 8;
+    if (cw > 60) {
+        g_retangulo(jan, cx, y + 6, cw, 24, COR_BRANCO);
+        g_bisel(jan, cx, y + 6, cw, 24, true);
+        g_texto_n(jan, cx + 4, y + 10, edit_buf + 1, (cw - 8) / LETRA_L, W98_NEGRO);
+    }
+    fx_col_ok.x = bx; fx_col_ok.y = y + 6;
+    fx_col_cancelar.x = bx + 84; fx_col_cancelar.y = y + 6;
+    boton98(jan, &fx_col_ok);
+    boton98(jan, &fx_col_cancelar);
+}
+
 static void desenhar_grelha(void)
 {
     folha_t *fo = folha_ativa();
@@ -3676,6 +4458,7 @@ static void desenhar_grelha(void)
     /* La esquina izquierda de la cabecera cubre lo que desbordó por la izquierda. */
     g_retangulo(jan, 0, hy, MAC_LARGC, MAC_CABECALH, W98_FACE);
     g_relevo(jan, 0, hy, MAC_LARGC, MAC_CABECALH, false);
+    desenhar_ayudas_formula();         /* autocompletado y ayuda de argumentos (D311) */
 }
 
 static void desenhar_formula(void)
@@ -3694,8 +4477,13 @@ static void desenhar_formula(void)
     g_retangulo(jan, 84, y + 2, 22, MAC_FORMULA - 4, W98_FACE);
     g_bisel(jan, 84, y + 2, 22, MAC_FORMULA - 4, false);
     ic_igual(jan, 87, y + 4, true);
+    /* El botón «fx»: abre Insertar función (D311). */
+    g_retangulo(jan, 110, y + 2, 24, MAC_FORMULA - 4, W98_FACE);
+    g_bisel(jan, 110, y + 2, 24, MAC_FORMULA - 4, false);
+    g_texto(jan, 114, y + 4, "fx", 0x000080);
+    g_texto(jan, 115, y + 4, "fx", 0x000080);
     /* La caja del contenido. */
-    int cx = 110, cw = jan->larg - cx - 4;
+    int cx = 138, cw = jan->larg - cx - 4;
     if (cw < 20) cw = 20;
     g_retangulo(jan, cx, y + 2, cw, MAC_FORMULA - 4, COR_BRANCO);
     g_bisel(jan, cx, y + 2, cw, MAC_FORMULA - 4, true);
@@ -3835,6 +4623,7 @@ static void desenhar_tudo(void)
     estado_atualizar();
     titulo_atualizar();
     if (ag_visible && ag) ag_panel_desenhar(ag);
+    desenhar_painel_colapsado();       /* el asistente de funciones contraído (D311) */
     jan_mostrar(jan);
 }
 
@@ -3877,6 +4666,7 @@ static void confirmar_edicao(void)
     nome_ref(ref, sizeof ref, cel_l, cel_c);
     celula_t *novo = celula_de(fo, cel_l, cel_c);
     formatar_numero(val, sizeof val, novo ? novo->valor : 0);
+    if (novo && (novo->flags & CEL_FORMULA) && (novo->flags & CEL_TEXTO)) copia_texto(val, tc_buscar(novo), sizeof val);
     if (novo && (novo->flags & CEL_FORMULA))
         registrar("macaco: celula %s = %s (%s)", ref, val, novo->texto);
     else if (novo && (novo->flags & CEL_TEXTO))
@@ -5613,16 +6403,29 @@ static void ag_quitar_herramientas(void)
 }
 
 /* Acciones rápidas del menú: lanzan el agente con una tarea predefinida. */
+/* La lista de funciones para el agente: sale del catálogo (D311), con los alias en inglés (ASCII). */
+static void ag_lista_funciones(char *dst, int max)
+{
+    int k = 0;
+    dst[0] = 0;
+    for (int i = 0; i < FX_N && k < max - 24; i++) {
+        const fx_t *f = &FX_TABELA[i];
+        k += formatar_texto(dst + k, max - k, "%s%s", i ? ", " : "", f->alias ? f->alias : f->nome);
+    }
+}
+
 static void ag_rapida(int a)
 {
-    char tarea[600];
+    char tarea[1400];
     if (a == A_IA_EXPLICAR) {
         copia_texto(tarea, "Explica en el chat que contienen los datos de la seleccion actual de la hoja (leelos con macaco_leer_rango sin rango): que representan, totales o tendencias evidentes y posibles errores. No modifiques la hoja.", sizeof tarea);
     } else {
         char t[120];
         t[0] = 0;
         if (!pedir_texto("Asistente IA", "Describe la fórmula que necesitas:", t, sizeof t) || !t[0]) return;
-        formatar_texto(tarea, sizeof tarea, "Crea una formula de Macaco para: %s. Mira los datos con macaco_leer_rango (la seleccion actual y la celda activa) y escribe la formula en la celda activa con macaco_escribir_rango. Funciones disponibles: SUM, AVERAGE, MIN, MAX, COUNT, IF, ROUND, ABS, PRODUCT.", t);
+        char fs[900];
+        ag_lista_funciones(fs, sizeof fs);
+        formatar_texto(tarea, sizeof tarea, "Crea una formula de Macaco para: %s. Mira los datos con macaco_leer_rango (la seleccion actual y la celda activa) y escribe la formula en la celda activa con macaco_escribir_rango. Funciones disponibles (tambien con su nombre en espanol, argumentos separados por ;): %s. El operador & une textos.", t, fs);
     }
     if (!ag_visible) { ag_alternar(); layout(); desenhar_tudo(); }
     if (!ag) return;
@@ -5658,6 +6461,8 @@ static bool ag_evento(const evento_t *e)
     return false;
 }
 
+
+static void funcao_assistente(void);
 
 static void executar_acao(int a)
 {
@@ -5741,6 +6546,7 @@ static void executar_acao(int a)
     case A_IGUAL:
         if (!editando) comecar_edicao("=");
         break;
+    case A_FUNCAO: funcao_assistente(); break;
     default: break;
     }
 }
@@ -5774,6 +6580,15 @@ static void tratar_tecla_edicao(const evento_t *e)
 {
     unsigned t = e->tecla;
     int n = (int)tam_texto(edit_buf);
+    /* D311: la lista de autocompletado (Tab acepta, flechas eligen, Esc la cierra) */
+    if (t == TECLA_F3 && (e->modificadores & 1)) { executar_acao(A_FUNCAO); return; }
+    if (!senalando && ac_atualizar() > 0) {
+        if (t == '\t') { if (ac_aceitar()) return; }
+        else if (t == TECLA_BAIXO) { ac_sel = (ac_sel + 1) % ac_n; return; }
+        else if (t == TECLA_CIMA) { ac_sel = (ac_sel + ac_n - 1) % ac_n; return; }
+        else if (t == 27 || t == TECLA_ESC) { ac_oculto = true; return; }
+    }
+    if (t != TECLA_ESC && t != 27) ac_oculto = false;
     if (t == '\n') { confirmar_edicao(); mover_para(cel_l + 1, cel_c, false); return; }
     if (t == '\t') { confirmar_edicao(); mover_para(cel_l, cel_c + 1, false); return; }
     if (t == 27 || t == TECLA_ESC) { cancelar_edicao(); return; }
@@ -5856,6 +6671,7 @@ static void tratar_tecla(const evento_t *e)
     }
 
     switch (t) {
+    case TECLA_F3: if (shift) executar_acao(A_FUNCAO); return;
     case TECLA_F2: comecar_edicao(NULL); return;
     case TECLA_CIMA:
         if (ctrl) {
@@ -6290,9 +7106,10 @@ static void tratar_evento(const evento_t *e)
                 nome_foco = true;
                 nome_buf[0] = 0;       /* el texto anterior se reemplaza al escribir, como en Excel */
             } else if (e->x >= 84 && e->x < 106) executar_acao(A_IGUAL);
-            else if (e->x >= 110) {
+            else if (e->x >= 110 && e->x < 134) executar_acao(A_FUNCAO);
+            else if (e->x >= 138) {
                 if (!editando) comecar_edicao(NULL);
-                int cur = (e->x - 114 + LETRA_L / 2) / LETRA_L;      /* el cursor va donde se hizo clic */
+                int cur = (e->x - 142 + LETRA_L / 2) / LETRA_L;      /* el cursor va donde se hizo clic */
                 int nn = (int)tam_texto(edit_buf);
                 edit_cur = cur < 0 ? 0 : (cur > nn ? nn : cur);
                 senalando = false;
@@ -6398,6 +7215,580 @@ static void tratar_evento(const evento_t *e)
     }
 }
 
+/* ------------------------------------------------------------ asistente «Insertar función» (D311) */
+
+/* Dos pasos, como el de Excel 97: elegir la función (buscador, categoría, lista) y rellenar sus argumentos
+ * (un cuadro por argumento, con su valor en vivo y un botón para contraer el diálogo y señalar en la hoja).
+ * Aceptar escribe =FUNCION(arg1;arg2...) en la celda, o la inserta en el cursor si se estaba editando. */
+
+#define FXW_ARGS  8            /* cuadros de argumentos que caben */
+#define FXW_FILA  30           /* alto de una fila de argumento */
+#define FXW_REC   8            /* funciones usadas recientemente */
+#define FXW_COMBO 7501
+
+typedef struct {
+    int      passo;                       /* 0 = elegir, 1 = argumentos */
+    int      cat;                         /* 0 = usadas recientemente, 1 = todas, 2.. = categorías */
+    int      fi;                          /* función elegida (índice en FX_TABELA) */
+    int      foco;                        /* cuadro de argumento con el foco */
+    bool     reemplazar;                  /* abierto sobre una función ya escrita: Aceptar la sustituye entera */
+    caixa_t  busca;
+    caixa_t  cx[FXW_ARGS];
+    combo_t  combo;
+    lista_t  lista;
+    char     it[FX_N + 1][64];
+    int      fl[FX_N + 1];                /* la función de cada ítem de la lista */
+    int      nfl;
+    char     ult_busca[128];
+    const char *cats[2 + FXC_N];
+} fxw_t;
+
+static fxw_t fxw;
+static char  fx_ult_vivo[240];              /* lo último que se escribió en el registro (solo cuando cambia) */
+static int   fx_recientes[FXW_REC];
+static int   fx_n_recientes;
+
+static void fx_reciente(int fi)
+{
+    int k = 0;
+    while (k < fx_n_recientes && fx_recientes[k] != fi) k++;
+    if (k == fx_n_recientes) { if (fx_n_recientes < FXW_REC) fx_n_recientes++; else k = FXW_REC - 1; }
+    for (; k > 0; k--) fx_recientes[k] = fx_recientes[k - 1];
+    fx_recientes[0] = fi;
+}
+
+static int fx_indice(const fx_t *f) { return (int)(f - FX_TABELA); }
+
+/* ¿Contiene `t` el texto `p` (sin distinguir mayúsculas)? */
+static bool fx_contiene(const char *t, const char *p)
+{
+    int n = (int)tam_texto(p);
+    if (n == 0) return true;
+    for (int i = 0; t[i]; i++) if (fx_prefijo(t + i, p, n)) return true;
+    return false;
+}
+
+/* Rehace la lista de funciones según el buscador y la categoría. */
+static void fxw_filtrar(void)
+{
+    fxw.nfl = 0;
+    bool busca = fxw.busca.texto[0] != 0;
+    if (!busca && fxw.cat == 0) {
+        for (int k = 0; k < fx_n_recientes; k++) fxw.fl[fxw.nfl++] = fx_recientes[k];
+    } else {
+        for (int i = 0; i < FX_N; i++) {
+            const fx_t *f = &FX_TABELA[i];
+            if (busca) {
+                if (!(fx_contiene(f->nome, fxw.busca.texto) || (f->alias && fx_contiene(f->alias, fxw.busca.texto)) ||
+                      fx_contiene(f->desc, fxw.busca.texto))) continue;
+            } else if (fxw.cat >= 2 && f->cat != fxw.cat - 2) continue;
+            fxw.fl[fxw.nfl++] = i;
+        }
+    }
+    for (int k = 0; k < fxw.nfl; k++) copia_texto(fxw.it[k], FX_TABELA[fxw.fl[k]].nome, 64);
+    fxw.lista.itens = fxw.it;
+    fxw.lista.qtd = fxw.nfl;
+    fxw.lista.sel = fxw.nfl > 0 ? 0 : -1;
+    fxw.lista.topo = 0;
+}
+
+/* ¿Es el contenido una sola llamada «=NOMBRE(...)» completa? Si lo es, la desmonta en función y argumentos. */
+static const fx_t *fx_desmontar(const char *s, char args[][128], int *n)
+{
+    while (*s == ' ') s++;
+    if (*s != '=') return NULL;
+    s++;
+    while (*s == ' ') s++;
+    char nome[24];
+    int k = 0;
+    while (fx_letra(*s) && k < 23) nome[k++] = *s++;
+    nome[k] = 0;
+    if (!k || *s != '(') return NULL;
+    const fx_t *f = fx_buscar(nome);
+    if (!f) return NULL;
+    s++;
+    int prof = 1, na = 0, c = 0;
+    bool aspas = false;
+    char cur[128];
+    for (; *s; s++) {
+        char ch = *s;
+        if (ch == '"') aspas = !aspas;
+        if (!aspas) {
+            if (ch == '(') prof++;
+            else if (ch == ')') {
+                prof--;
+                if (prof == 0) {
+                    cur[c] = 0;
+                    if (na < FXW_ARGS * 2) { int q = c; while (q > 0 && cur[q - 1] == ' ') q--; cur[q] = 0; copia_texto(args[na], cur, 128); }
+                    na++;
+                    s++;
+                    while (*s == ' ') s++;
+                    if (*s) return NULL;                 /* sigue algo después de la llamada */
+                    *n = (c == 0 && na == 1) ? 0 : na;
+                    return f;
+                }
+            } else if (prof == 1 && (ch == ';' || ch == ',')) {
+                cur[c] = 0;
+                int q = c; while (q > 0 && cur[q - 1] == ' ') q--; cur[q] = 0;
+                if (na < FXW_ARGS * 2) copia_texto(args[na], cur, 128);
+                na++;
+                c = 0;
+                continue;
+            }
+        }
+        if (c == 0 && ch == ' ') continue;
+        if (c < 127) cur[c++] = ch;
+    }
+    return NULL;                                          /* paréntesis sin cerrar */
+}
+
+/* Cuántos cuadros de argumento se ven: los declarados y, si el último se repite, uno más que el último relleno. */
+static int fxw_filas(void)
+{
+    fx_arg_t da[8];
+    const fx_t *f = &FX_TABELA[fxw.fi];
+    int nd = fx_args_ler(f, da, 8);
+    if (nd > 8) nd = 8;
+    int n = nd;
+    if (nd > 0 && da[nd - 1].repite) {
+        int ult = -1;
+        for (int i = 0; i < FXW_ARGS; i++) if (fxw.cx[i].texto[0]) ult = i;
+        if (ult + 2 > n) n = ult + 2;
+    }
+    if (n > FXW_ARGS) n = FXW_ARGS;
+    return n;
+}
+
+/* Cuántos cuadros caben como máximo (el alto de la ventana es fijo para la función). */
+static int fxw_filas_max(void)
+{
+    fx_arg_t da[8];
+    int nd = fx_args_ler(&FX_TABELA[fxw.fi], da, 8);
+    if (nd > 8) nd = 8;
+    return (nd > 0 && da[nd - 1].repite) ? FXW_ARGS : nd;
+}
+
+static int fxw_alto(void)
+{
+    if (fxw.passo == 0) return 410;
+    int a = 58 + fxw_filas_max() * FXW_FILA + 6 + 42 + 24 + 52;
+    return a < 230 ? 230 : a;
+}
+
+/* La descripción de un argumento como texto C. */
+static void fx_arg_desc(const fx_arg_t *a, char *dst, int max)
+{
+    int n = a->desc_n < max - 1 ? a->desc_n : max - 1;
+    memcpy(dst, a->desc, (size_t)n);
+    dst[n] = 0;
+}
+
+/* El nombre del argumento de la fila i (los que se repiten siguen la numeración: número3, número4...). */
+static void fxw_nome_arg(int i, char *dst, int max)
+{
+    fx_arg_t da[8];
+    int nd = fx_args_ler(&FX_TABELA[fxw.fi], da, 8);
+    if (nd > 8) nd = 8;
+    if (i < nd) { copia_texto(dst, da[i].nome, (size_t)max); return; }
+    char base[32];
+    copia_texto(base, da[nd - 1].nome, sizeof base);
+    int n = (int)tam_texto(base);
+    while (n > 0 && base[n - 1] >= '0' && base[n - 1] <= '9') n--;
+    base[n] = 0;
+    formatar_texto(dst, max, "%s%d", base, i + 1);
+}
+
+/* El texto de la fórmula con los argumentos de los cuadros. */
+static void fxw_formula(char *dst, int max, bool *faltan)
+{
+    const fx_t *f = &FX_TABELA[fxw.fi];
+    fx_arg_t da[8];
+    int nd = fx_args_ler(f, da, 8);
+    if (nd > 8) nd = 8;
+    int ult = -1;
+    for (int i = 0; i < FXW_ARGS; i++) if (fxw.cx[i].texto[0]) ult = i;
+    *faltan = false;
+    for (int i = 0; i < nd; i++) if (!da[i].opcional && !fxw.cx[i].texto[0]) *faltan = true;
+    int tot = ult + 1;
+    int minimo = 0;
+    for (int i = 0; i < nd; i++) if (!da[i].opcional) minimo = i + 1;
+    if (tot < minimo) tot = minimo;
+    int k = formatar_texto(dst, max, "=%s(", f->nome);
+    for (int i = 0; i < tot && k < max - 2; i++) k += formatar_texto(dst + k, max - k, "%s%s", i ? ";" : "", fxw.cx[i].texto);
+    if (k < max - 1) { dst[k++] = ')'; dst[k] = 0; }
+}
+
+/* El valor de un argumento, para ponerlo junto a su cuadro: «= 15», «= {10;20;30}» o el error. */
+static void fx_valor_arg(const char *txt, char *out, int max)
+{
+    out[0] = 0;
+    if (!txt[0]) return;
+    char buf[160];
+    formatar_texto(buf, sizeof buf, "%s)", txt);          /* el «)» hace de final de argumento, como dentro de una llamada */
+    ps_t ps = { buf, livro.ativa, 1, false };
+    ref_t rf;
+    res_t v;
+    parse_argumento(&ps, &rf, &v);
+    pular_espacos(&ps);
+    if (ps.erro || ps.p[0] != ')' || ps.p[1]) { copia_texto(out, "= error", (size_t)max); return; }
+    if (rf.intervalo && (rf.l1 != rf.l2 || rf.c1 != rf.c2)) {
+        char acc[96];
+        int k = formatar_texto(acc, sizeof acc, "= {");
+        int tot = arg_n(&rf);
+        for (int i = 0; i < tot && i < 4; i++) {
+            res_t x = arg_k(&rf, &v, i, 1);
+            char t[40];
+            if (x.eh_texto) formatar_texto(t, sizeof t, "\"%s\"", x.texto); else res_a_texto(&x, t, sizeof t);
+            k += formatar_texto(acc + k, (int)sizeof acc - k, "%s%s", i ? ";" : "", t);
+        }
+        formatar_texto(acc + k, (int)sizeof acc - k, "%s}", tot > 4 ? ";..." : "");
+        copia_texto(out, acc, (size_t)max);
+        return;
+    }
+    res_t x = rf.intervalo ? valor_celula(rf.folha, rf.l1, rf.c1, 1) : v;
+    if (x.erro) { copia_texto(out, "= error", (size_t)max); return; }
+    char t[64];
+    if (x.eh_texto) formatar_texto(t, sizeof t, "\"%s\"", x.texto); else res_a_texto(&x, t, sizeof t);
+    formatar_texto(out, max, "= %s", t);
+}
+
+/* El resultado de la fórmula completa. true = sin error. */
+static bool fx_valor_formula(const char *formula, char *out, int max)
+{
+    ps_t ps = { inicio_formula(formula), livro.ativa, 1, false };
+    res_t r = avaliar_expr(&ps);
+    pular_espacos(&ps);
+    if (ps.erro || *ps.p || r.erro) { copia_texto(out, "error", (size_t)max); return false; }
+    res_a_texto(&r, out, max);
+    return true;
+}
+
+/* El asistente contraído: la ventana se cierra y la hoja queda para señalar (modo señalar de D311).
+ * true = se aceptó y `dst` lleva la referencia. */
+static bool fx_senalar(const char *rotulo_arg, char *dst, int max)
+{
+    bool s_edit = editando, s_sen = senalando;
+    char s_buf[MAC_TEXTO_CEL];
+    copia_texto(s_buf, edit_buf, sizeof s_buf);
+    int s_cur = edit_cur, s_folha = edit_folha, s_ativa = livro.ativa;
+    editando = true;
+    senalando = false;
+    rf_modo = 0;
+    sen_arrasto = false;
+    edit_folha = livro.ativa;
+    copia_texto(edit_buf, "=", sizeof edit_buf);
+    edit_cur = 1;
+    formatar_texto(fx_col_texto, sizeof fx_col_texto, "Argumentos de función - %s", rotulo_arg);
+    fx_colapsado = true;
+    registrar("macaco: funcion contraido %s", rotulo_arg);
+    desenhar_tudo();
+    bool acepto = false;
+    evento_t e;
+    for (;;) {
+        if (esperar_evento(jan->id, &e, 50) != 1) continue;
+        if (e.tipo == EV_FECHAR) break;
+        if (e.tipo == EV_TECLA) {
+            if (e.tecla == '\n') { acepto = true; break; }
+            if (e.tecla == TECLA_ESC || e.tecla == 27) break;
+            bool seta = e.tecla == TECLA_CIMA || e.tecla == TECLA_BAIXO || e.tecla == TECLA_ESQUERDA || e.tecla == TECLA_DIREITA;
+            if (!seta && e.tecla != TECLA_F4) continue;
+        }
+        if (boton98_tratar(jan, &fx_col_ok, &e)) { acepto = true; break; }
+        if (boton98_tratar(jan, &fx_col_cancelar, &e)) break;
+        if (e.tipo == EV_CLIQUE) {
+            if (!(e.botoes & 1)) continue;
+            if (e.y >= Y_PEST && e.y < Y_ESTADO) {            /* otra hoja: se señala allí (la referencia lleva su nombre) */
+                int p = pestana_em(e.x, e.y);
+                if (p >= 0 && p < livro.n) {
+                    livro.ativa = p;
+                    desl_x = desl_y = 0;
+                    senalando = false;
+                    copia_texto(edit_buf, "=", sizeof edit_buf);
+                    edit_cur = 1;
+                }
+                desenhar_tudo();
+                continue;
+            }
+            bool en_grelha = e.x >= MAC_LARGC && e.y >= grelha_y() && e.y < fx_painel_y();
+            if (!en_grelha) continue;                          /* el panel, las barras y los menús no cuentan */
+        }
+        tratar_evento(&e);
+        desenhar_tudo();
+    }
+    char ref[MAC_TEXTO_CEL];
+    copia_texto(ref, edit_buf + 1, sizeof ref);
+    fx_colapsado = false;
+    editando = s_edit;
+    senalando = false;
+    sen_arrasto = false;
+    rf_modo = 0;
+    copia_texto(edit_buf, s_buf, sizeof edit_buf);
+    edit_cur = s_cur;
+    edit_folha = s_folha;
+    livro.ativa = s_ativa;
+    (void)s_sen;
+    desenhar_tudo();
+    if (!acepto || !ref[0]) return false;
+    copia_texto(dst, ref, (size_t)max);
+    registrar("macaco: funcion senalado %s", ref);
+    return true;
+}
+
+/* Un dibujo pequeño para el botón de contraer: una cuadrícula con una flecha roja. */
+static void fx_icono_contraer(jan_t *j, int x, int y)
+{
+    g_retangulo(j, x + 4, y + 5, 14, 12, COR_BRANCO);
+    g_moldura(j, x + 4, y + 5, 14, 12, W98_NEGRO);
+    g_linha(j, x + 4, y + 9, x + 17, y + 9, 0x808080);
+    g_linha(j, x + 4, y + 13, x + 17, y + 13, 0x808080);
+    g_linha(j, x + 11, y + 5, x + 11, y + 16, 0x808080);
+    g_retangulo(j, x + 8, y + 9, 7, 4, 0xC00000);
+}
+
+/* Prepara los cuadros del paso 2 (posiciones, foco). */
+static void fxw_cuadros_iniciar(void)
+{
+    for (int i = 0; i < FXW_ARGS; i++) {
+        fxw.cx[i].x = 184;
+        fxw.cx[i].y = 58 + i * FXW_FILA;
+        fxw.cx[i].l = 190;
+        fxw.cx[i].foco = false;
+    }
+}
+
+/* Dibuja los dos pasos. */
+static void fxw_desenhar(jan_t *j, botao_t *b_ant, botao_t *b_ok, botao_t *b_can, botao_t *b_col)
+{
+    g_retangulo(j, 0, 0, j->larg, j->alt, W98_FACE);
+    const fx_t *f = fxw.passo == 1 || fxw.lista.sel >= 0 ? &FX_TABELA[fxw.passo == 1 ? fxw.fi : fxw.fl[fxw.lista.sel]] : NULL;
+    if (fxw.passo == 0) {
+        rotulo(j, 12, 8, "Buscar una función:", W98_NEGRO);
+        fxw.busca.x = 12; fxw.busca.y = 26; fxw.busca.l = 536;
+        caixa_desenhar(j, &fxw.busca);
+        rotulo(j, 12, 62, "O seleccionar una categoría:", W98_NEGRO);
+        combo_desenhar(j, &fxw.combo);
+        rotulo(j, 12, 112, "Seleccionar una función:", W98_NEGRO);
+        lista_en_marco(j, &fxw.lista);
+        g_linha(j, 8, 312, j->larg - 8, 312, 0x808080);
+        g_linha(j, 8, 313, j->larg - 8, 313, COR_BRANCO);
+        if (f) {
+            fx_sintaxe(j, 12, 320, f, -1, W98_NEGRO);
+            rotulo(j, 12, 342, f->desc, W98_NEGRO);
+        } else rotulo(j, 12, 320, "No hay funciones que coincidan.", W98_NEGRO);
+    } else {
+        rotulo(j, 12, 8, f->nome, W98_NEGRO);
+        g_texto(j, 13, 8, f->nome, W98_NEGRO);
+        rotulo(j, 12, 28, f->desc, W98_NEGRO);
+        int nf = fxw_filas();
+        fx_arg_t da[8];
+        int nd = fx_args_ler(f, da, 8);
+        char val0[96];
+        val0[0] = 0;
+        if (nd > 8) nd = 8;
+        for (int i = 0; i < nf; i++) {
+            int y = 58 + i * FXW_FILA;
+            char nome[40], val[96];
+            fxw_nome_arg(i, nome, sizeof nome);
+            rotulo(j, 12, y + 4, nome, W98_NEGRO);
+            int di = i < nd ? i : nd - 1;
+            if (!da[di].opcional) g_texto(j, 13, y + 4, nome, W98_NEGRO);   /* los obligatorios, en negrita */
+            fxw.cx[i].foco = (i == fxw.foco);
+            caixa_desenhar(j, &fxw.cx[i]);
+            b_col[i].x = 378; b_col[i].y = y; b_col[i].l = 26; b_col[i].a = 24; b_col[i].texto = "";
+            boton98(j, &b_col[i]);
+            fx_icono_contraer(j, b_col[i].x + 1, b_col[i].y + 1);
+            fx_valor_arg(fxw.cx[i].texto, val, sizeof val);
+            if (val[0]) rotulo(j, 410, y + 4, val, W98_NEGRO);
+            if (i == 0) copia_texto(val0, val, sizeof val0);
+        }
+        int yd = 58 + fxw_filas_max() * FXW_FILA + 6;
+        int di = fxw.foco < nd ? fxw.foco : nd - 1;
+        g_linha(j, 8, yd - 2, j->larg - 8, yd - 2, 0x808080);
+        g_linha(j, 8, yd - 1, j->larg - 8, yd - 1, COR_BRANCO);
+        if (nd > 0) {
+            char nome[40];
+            fxw_nome_arg(fxw.foco < nf ? fxw.foco : 0, nome, sizeof nome);
+            char d[200], dd[160];
+            fx_arg_desc(&da[di], dd, sizeof dd);
+            formatar_texto(d, sizeof d, "%s: %s", nome, dd);
+            int cab = (j->larg - 24) / LETRA_L;                      /* lo que cabe en una línea; el resto, debajo */
+            if ((int)tam_texto(d) > cab) {
+                int k = cab;
+                while (k > 0 && d[k] != ' ') k--;
+                if (k == 0) k = cab;
+                char l1[200];
+                memcpy(l1, d, (size_t)k);
+                l1[k] = 0;
+                rotulo(j, 12, yd + 4, l1, W98_NEGRO);
+                rotulo(j, 12, yd + 20, d + k + (d[k] == ' ' ? 1 : 0), W98_NEGRO);
+            } else rotulo(j, 12, yd + 4, d, W98_NEGRO);
+        }
+        char formula[MAC_TEXTO_CEL], res[96], lin[160];
+        bool faltan;
+        fxw_formula(formula, sizeof formula, &faltan);
+        if (faltan) copia_texto(res, "(faltan argumentos)", sizeof res);
+        else if (!fx_valor_formula(formula, res, sizeof res)) copia_texto(res, "error", sizeof res);
+        formatar_texto(lin, sizeof lin, "Resultado de la fórmula = %s", res);
+        {   /* al registro, solo cuando cambia (la prueba lo lee) */
+            char vivo[240];
+            formatar_texto(vivo, sizeof vivo, "%s -> %s | arg1 %s", formula, res, val0);
+            if (compara_texto(vivo, fx_ult_vivo) != 0) { copia_texto(fx_ult_vivo, vivo, sizeof fx_ult_vivo); registrar("macaco: funcion vivo %s", vivo); }
+        }
+        rotulo(j, 12, yd + 42, lin, W98_NEGRO);
+        g_linha(j, 8, j->alt - 46, j->larg - 8, j->alt - 46, 0x808080);
+        g_linha(j, 8, j->alt - 45, j->larg - 8, j->alt - 45, COR_BRANCO);
+    }
+    if (fxw.passo == 1) boton98(j, b_ant);
+    boton98(j, b_ok);
+    boton98(j, b_can);
+    jan_mostrar(j);
+}
+
+/* Abre el asistente. `inicial` = contenido actual (si es una sola función, se abre en el paso 2 con sus
+ * argumentos). Devuelve true si se aceptó y deja la fórmula en `saida`. */
+static bool dialogo_funcao(const char *inicial, char *saida, int max)
+{
+    memset(&fxw, 0, sizeof fxw);
+    fxw.cats[0] = "Usadas recientemente";
+    fxw.cats[1] = "Todas";
+    for (int i = 0; i < FXC_N; i++) fxw.cats[2 + i] = FX_CATS[i];
+    combo_iniciar(&fxw.combo, 12, 80, 250, fxw.cats, 2 + FXC_N, false, FXW_COMBO);
+    fxw.cat = fx_n_recientes ? 0 : 1;
+    fxw.combo.sel = fxw.cat;
+    combo_definir(&fxw.combo, fxw.cats[fxw.cat]);
+    fxw.lista.x = 12; fxw.lista.y = 130; fxw.lista.l = 536; fxw.lista.a = 174;
+    fxw.busca.foco = true;
+    fxw_cuadros_iniciar();
+    fxw_filtrar();
+
+    char args[FXW_ARGS * 2][128];
+    int na = 0;
+    const fx_t *pre = (inicial && inicial[0]) ? fx_desmontar(inicial, args, &na) : NULL;
+    if (pre) {
+        fxw.passo = 1;
+        fxw.fi = fx_indice(pre);
+        fxw.reemplazar = true;
+        for (int i = 0; i < na && i < FXW_ARGS; i++) caixa_definir(&fxw.cx[i], args[i]);
+        fxw.foco = 0;
+        fxw.cx[0].foco = true;
+    }
+
+    bool aceptar = false, salir = false;
+    int colapsar = -1;
+    while (!salir && !aceptar) {
+        int alto = fxw_alto();
+        jan_t *j = jan_abrir("Insertar función", 560, alto);
+        if (!j) return false;
+        jan_estilo(j, JAN_DIALOGO, 0, 0);
+        fx_ult_vivo[0] = 0;
+        registrar("macaco: funcion paso %d %s", fxw.passo + 1, fxw.passo == 1 ? (FX_TABELA[fxw.fi].alias ? FX_TABELA[fxw.fi].alias : FX_TABELA[fxw.fi].nome) : "elegir");
+        botao_t b_ant = { 300, alto - 36, 84, 26, "< Atrás", false }, b_ok = { 392, alto - 36, 76, 26, "Aceptar", false },
+                b_can = { 474, alto - 36, 76, 26, "Cancelar", false }, b_col[FXW_ARGS];
+        for (int i = 0; i < FXW_ARGS; i++) { b_col[i].apertado = false; b_col[i].texto = ""; b_col[i].x = 378; b_col[i].y = 58 + i * FXW_FILA; b_col[i].l = 26; b_col[i].a = 24; }
+        bool redib = true;
+        colapsar = -1;
+        evento_t e;
+        for (;;) {
+            if (redib) {
+                fxw_desenhar(j, &b_ant, &b_ok, &b_can, b_col);
+                redib = false;
+            }
+            if (proximo_evento(j->id, &e, true) != 1) continue;
+            redib = true;
+            if (e.tipo == EV_FECHAR) { salir = true; break; }
+            if (e.tipo == EV_TECLA && e.tecla == TECLA_ESC) { salir = true; break; }
+            if (boton98_tratar(j, &b_can, &e)) { salir = true; break; }
+            if (fxw.passo == 0) {
+                bool ir = false;
+                if (boton98_tratar(j, &b_ok, &e)) ir = true;
+                if (e.tipo == EV_TECLA && e.tecla == '\n') ir = true;
+                if (!ir && combo_tratar(j, &fxw.combo, &e) == COMBO_SELECIONOU) { fxw.cat = fxw.combo.sel; fxw.busca.texto[0] = 0; fxw.busca.cursor = 0; fxw.ult_busca[0] = 0; fxw_filtrar(); continue; }
+                if (!ir && e.tipo == EV_TECLA && (e.tecla == TECLA_CIMA || e.tecla == TECLA_BAIXO || e.tecla == TECLA_PGUP || e.tecla == TECLA_PGDN)) {
+                    lista_tratar(j, &fxw.lista, &e);
+                    continue;
+                }
+                if (!ir && (e.tipo == EV_CLIQUE || e.tipo == EV_RODA)) {
+                    int r = lista_tratar(j, &fxw.lista, &e);
+                    if (r == LISTA_ATIVOU) ir = true;
+                }
+                if (!ir && e.tipo == EV_TECLA) {
+                    caixa_tratar(j, &fxw.busca, &e);
+                    if (compara_texto(fxw.busca.texto, fxw.ult_busca) != 0) {
+                        copia_texto(fxw.ult_busca, fxw.busca.texto, sizeof fxw.ult_busca);
+                        fxw_filtrar();
+                    }
+                }
+                if (e.tipo == EV_CLIQUE) caixa_tratar(j, &fxw.busca, &e);
+                fxw.busca.foco = true;
+                if (ir && fxw.lista.sel >= 0 && fxw.lista.sel < fxw.nfl) {
+                    fxw.fi = fxw.fl[fxw.lista.sel];
+                    fxw.passo = 1;
+                    fxw.foco = 0;
+                    for (int i = 0; i < FXW_ARGS; i++) { fxw.cx[i].texto[0] = 0; fxw.cx[i].cursor = 0; fxw.cx[i].foco = false; }
+                    fxw.cx[0].foco = true;
+                    break;                                       /* otra ventana, de otro tamaño */
+                }
+                continue;
+            }
+            /* paso 2 */
+            int nf = fxw_filas();
+            if (boton98_tratar(j, &b_ant, &e)) { fxw.passo = 0; fxw.busca.foco = true; fxw_filtrar(); break; }
+            if (boton98_tratar(j, &b_ok, &e)) { aceptar = true; break; }
+            bool hubo_col = false;
+            for (int i = 0; i < nf; i++) if (boton98_tratar(j, &b_col[i], &e)) { colapsar = i; hubo_col = true; }
+            if (hubo_col) break;
+            if (e.tipo == EV_TECLA && e.tecla == '\t') {
+                fxw.cx[fxw.foco].foco = false;
+                fxw.foco = (fxw.foco + 1) % nf;
+                fxw.cx[fxw.foco].foco = true;
+                continue;
+            }
+            bool enter = false;
+            for (int i = 0; i < nf; i++) if (caixa_tratar(j, &fxw.cx[i], &e)) enter = true;
+            for (int i = 0; i < nf; i++) if (fxw.cx[i].foco) fxw.foco = i;
+            for (int i = 0; i < FXW_ARGS; i++) fxw.cx[i].foco = (i == fxw.foco);
+            if (enter) { aceptar = true; break; }
+        }
+        jan_fechar(j);
+        if (colapsar >= 0) {
+            char nome[40], rot[96], ref[MAC_TEXTO_CEL];
+            fxw_nome_arg(colapsar, nome, sizeof nome);
+            formatar_texto(rot, sizeof rot, "%s: %s", FX_TABELA[fxw.fi].nome, nome);
+            if (fx_senalar(rot, ref, sizeof ref)) { caixa_definir(&fxw.cx[colapsar], ref); }
+            fxw.foco = colapsar;
+        }
+    }
+    if (!aceptar) return false;
+    bool faltan;
+    fxw_formula(saida, max, &faltan);
+    fx_reciente(fxw.fi);
+    registrar("macaco: funcion aceptada %s", saida);
+    return true;
+}
+
+/* Insertar > Función...: la abre sobre la celda activa (o sobre lo que se está editando) y escribe el resultado. */
+static void funcao_assistente(void)
+{
+    if (fx_colapsado) return;
+    char atual[MAC_TEXTO_CEL];
+    if (editando) copia_texto(atual, edit_buf, sizeof atual);
+    else celula_conteudo(atual, sizeof atual, celula_de(folha_ativa(), cel_l, cel_c));
+    char formula[MAC_TEXTO_CEL];
+    if (!dialogo_funcao(atual, formula, sizeof formula)) { desenhar_tudo(); return; }
+    if (editando) {
+        if (fxw.reemplazar || !edit_e_formula()) {
+            copia_texto(edit_buf, formula, sizeof edit_buf);
+            edit_cur = (int)tam_texto(edit_buf);
+        } else if (substituir_edit(edit_cur, edit_cur, formula + 1)) {
+            edit_cur += (int)tam_texto(formula + 1);
+        }
+        senalando = false;
+        return;
+    }
+    comecar_edicao(formula);
+    confirmar_edicao();
+}
+
 /* ------------------------------------------------------------ modo de prueba */
 
 /* Escribe en el registro el contenido del libro (para la prueba automática). */
@@ -6413,6 +7804,7 @@ static void dump(void)
                 char ref[16], val[32];
                 nome_ref(ref, sizeof ref, l, c);
                 formatar_numero(val, sizeof val, ce->valor);
+                if ((ce->flags & CEL_FORMULA) && (ce->flags & CEL_TEXTO)) copia_texto(val, tc_buscar(ce), sizeof val);
                 if (ce->flags & CEL_FORMULA)
                     registrar("macaco: celula %s!%s = %s [%s]", fo->nome, ref, val, ce->texto);
                 else if (ce->flags & CEL_TEXTO)
@@ -6443,6 +7835,73 @@ static void dump(void)
     }
 }
 
+/* ------------------------------------------------------------ autoprueba del catálogo de funciones (D311) */
+
+/* `macaco --fx`: evalúa el ejemplo de cada función del catálogo sobre unos datos fijos y comprueba el resultado,
+ * más unas cuantas fórmulas de precedencia, texto y errores. Sin ventana: lo usa tests/h313_macaco_fx.py. */
+static void fx_resultado_texto(folha_t *fo, int l, int c, char *dst, int max)
+{
+    celula_t *ce = celula_de(fo, l, c);
+    if (!ce) { copia_texto(dst, "", (size_t)max); return; }
+    if (ce->flags & CEL_TEXTO) copia_texto(dst, (ce->flags & CEL_FORMULA) ? tc_buscar(ce) : (ce->texto ? ce->texto : ""), (size_t)max);
+    else formatar_numero(dst, max, ce->valor);
+}
+
+static int modo_fx(void)
+{
+    memset(&livro, 0, sizeof livro);
+    livro.n_fmts = 1;
+    folha_nova("Hoja1");
+    folha_t *fo = &livro.folha[0];
+    static const char *const tx[5] = { "a", "b", "a", "c", "a" };
+    for (int i = 0; i < 5; i++) {
+        char v[8];
+        formatar_texto(v, sizeof v, "%d", (i + 1) * 10);
+        celula_definir(fo, i, 0, v);
+        celula_definir(fo, i, 1, tx[i]);
+    }
+    registrar("macaco: fx catalogo %d funciones", FX_N);
+    int ok = 0, mal = 0;
+    for (int i = 0; i < FX_N; i++) {
+        const fx_t *f = &FX_TABELA[i];
+        celula_definir(fo, 0, 3, f->ejemplo);
+        recalcular();
+        char got[64];
+        fx_resultado_texto(fo, 0, 3, got, sizeof got);
+        bool bien = (compara_texto(got, "#VALOR!") != 0) && (!f->res || compara_texto(got, f->res) == 0);
+        fx_arg_t da[12];
+        int nd = fx_args_ler(f, da, 12);
+        for (int k = 0; k < nd && k < 12; k++) if (!da[k].nome[0] || da[k].desc_n == 0) bien = false;   /* declaración mal escrita */
+        if (bien) ok++; else mal++;
+        registrar("macaco: fx %s %s %s = [%s] esperado [%s]", f->alias, f->ejemplo, bien ? "ok" : "FALLO", got, f->res ? f->res : "(variable)");
+    }
+    static const struct { const char *f, *res; } EXTRA[] = {
+        { "=1+2>2", "1" }, { "=\"a\"&\"b\"=\"AB\"", "1" }, { "=B1&A1", "a10" },
+        { "=SI(SUMA(A1:A5)>100;\"alto\";\"bajo\")", "alto" }, { "=SI(SUMA(A1:A2)>100;\"alto\";\"bajo\")", "bajo" },
+        { "=MAX(A1:A5)-MIN(A1:A5)", "40" }, { "=suma(A1:A2)", "30" }, { "=SI.ERROR(RAIZ(-4);7)", "7" },
+        { "=SI.ERROR(RAIZ(16);7)", "4" }, { "=RAIZ(-1)", "#VALOR!" }, { "=NOEXISTE(1)", "#VALOR!" }, { "=SUMA()", "#VALOR!" },
+        { "=CONTAR.SI(A1:A5;\">=30\")", "3" }, { "=SUMAR.SI(B1:B5;\"a\";A1:A5)", "90" },
+        { "=BUSCARV(35;A1:B5;2)", "a" }, { "=BUSCARV(99;A1:B5;2;0)", "#VALOR!" }, { "=SI.ERROR(BUSCARV(99;A1:B5;2;0);\"no\")", "no" },
+        { "=INDICE(A1:B5;2;2)", "b" }, { "=COINCIDIR(\"c\";B1:B5;0)", "4" }, { "=COINCIDIR(35;A1:A5;1)", "3" },
+        { "=TEXTO(1234.5;\"#,##0.0\")", "1,234.5" }, { "=TEXTO(0.25;\"0%\")", "25%" }, { "=RESIDUO(-7;3)", "2" },
+        { "=POTENCIA(2;-2)", "0.25" }, { "=POTENCIA(9;0.5)", "3" }, { "=ENTERO(-2.5)", "-3" }, { "=YEAR(FECHA(2024;2;29))", "2024" },
+        { "=MES(FECHA(2024;14;1))", "2" }, { "=DIA(FECHA(2024;3;1)-1)", "29" }, { "=YEAR(HOY())>2024", "1" },
+        { "=LARGO(MAYUSC(\"ab\")&1)", "3" }, { "=Y(A1>5;B1=\"A\")", "1" }, { "=O(A1>50;B1=\"z\")", "0" },
+        { "=MEDIANA(10;20;30;40)", "25" }, { "=PROMEDIO(A1:A5)", "30" }, { "=CONTARA(B1:B6)", "5" }, { "=ALEATORIO()<1", "1" },
+    };
+    for (int i = 0; i < (int)(sizeof EXTRA / sizeof EXTRA[0]); i++) {
+        celula_definir(fo, 0, 3, EXTRA[i].f);
+        recalcular();
+        char got[64];
+        fx_resultado_texto(fo, 0, 3, got, sizeof got);
+        bool bien = compara_texto(got, EXTRA[i].res) == 0;
+        if (bien) ok++; else mal++;
+        registrar("macaco: fx extra %s %s = [%s] esperado [%s]", EXTRA[i].f, bien ? "ok" : "FALLO", got, EXTRA[i].res);
+    }
+    registrar("macaco: fx total ok=%d fallos=%d", ok, mal);
+    return mal ? 1 : 0;
+}
+
 /* ------------------------------------------------------------ principal */
 
 int principal(int argc, char **argv)
@@ -6461,6 +7920,7 @@ int principal(int argc, char **argv)
         registrar("macaco: pronto");
         return 0;
     }
+    if (argc > 1 && compara_texto(argv[1], "--fx") == 0) return modo_fx();
     if (argc >= 4 && compara_texto(argv[1], "--convertir") == 0) return modo_converter(argv[2], argv[3]);
 
     folha_nova("Hoja1");

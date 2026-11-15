@@ -107,6 +107,7 @@ static const chamada_t tabela[SIS_MAX] = {
     [SIS_USUARIO] = sis_usuario,
     [SIS_BLUETOOTH] = sis_bluetooth,
     [SIS_TELAS] = sis_telas,   /* D290: varias pantallas */
+    [SIS_PERMISOS_ARQ] = sis_permisos_arq,   /* D282 */
 };
 
 bool sistema_tem_chamada(uint32_t n)

@@ -165,3 +165,79 @@ if __name__ == "__main__":
     open(sys.argv[1] if len(sys.argv) > 1 else "PRUEBA.COM", "wb").write(generar())
     if len(sys.argv) > 2:
         open(sys.argv[2], "wb").write(generar_bench())
+
+
+def generar_joystick():
+    """JOY.COM (D307, h307): espera ~1 s (INT 15h AH=86h), lee el joystick por la BIOS (INT 15h
+    AH=84h: DX=0 los botones del puerto 0x201 en AL, bits 4-7 a 0 al pulsar; DX=1 las posiciones
+    de 1 a 255 del joystick A en AX y BX) y escribe «B=hh X=hh Y=hh C=hh» en JOY.TXT (C = 01 si
+    la BIOS dice que no hay joystick, con el acarreo)."""
+    code = bytearray()
+    etiquetas = {}
+    rel8 = []
+    abs16 = []
+    rel16 = []
+
+    def emite(*b):
+        code.extend(b)
+
+    def etiqueta(n):
+        etiquetas[n] = len(code)
+
+    def salto(op, n):
+        code.append(op)
+        rel8.append((len(code), n))
+        code.append(0)
+
+    def dir16(n):
+        abs16.append((len(code), n))
+        code.extend(b"\0\0")
+
+    def chamar(n):
+        code.append(0xE8)
+        rel16.append((len(code), n))
+        code.extend(b"\0\0")
+
+    emite(0xB4, 0x86, 0xB9, 0x0F, 0x00, 0xBA, 0x40, 0x42, 0xCD, 0x15)   # esperar 1 s (CX:DX = 1000000 us)
+    emite(0xB8, 0x00, 0x84, 0x31, 0xD2, 0xCD, 0x15)                     # INT 15h AX=8400h DX=0: botones
+    emite(0xA2); dir16("b")                                             # mov [b],al
+    emite(0x18, 0xC0, 0xA2); dir16("c")                                 # sbb al,al; mov [c],al
+    emite(0xB8, 0x00, 0x84, 0xBA, 0x01, 0x00, 0xCD, 0x15)               # DX=1: posiciones
+    emite(0xA2); dir16("x")                                             # mov [x],al
+    emite(0x88, 0x1E); dir16("y")                                       # mov [y],bl
+    for campo, desloc in (("b", 2), ("x", 7), ("y", 12), ("c", 17)):
+        emite(0xBF); dir16("texto")                                     # mov di,texto+desloc
+        abs16[-1] = (abs16[-1][0], "texto", desloc)
+        emite(0xA0); dir16(campo)                                       # mov al,[campo]
+        chamar("hex")
+    emite(0xB4, 0x3C, 0x31, 0xC9, 0xBA); dir16("nombre"); emite(0xCD, 0x21)     # crear JOY.TXT
+    emite(0x89, 0xC3, 0xB4, 0x40, 0xB9, 0x15, 0x00, 0xBA); dir16("texto"); emite(0xCD, 0x21)
+    emite(0xB4, 0x3E, 0xCD, 0x21)
+    emite(0xB8, 0x00, 0x4C, 0xCD, 0x21)
+    # hex: AL -> dos cifras en [DI]
+    etiqueta("hex")
+    emite(0x50, 0xC0, 0xE8, 0x04); chamar("cifra")                     # push ax; shr al,4
+    emite(0x58, 0x24, 0x0F); chamar("cifra")                           # pop ax; and al,0Fh
+    emite(0xC3)
+    etiqueta("cifra")
+    emite(0x3C, 0x0A); salto(0x72, "dig")                              # cmp al,10; jb
+    emite(0x04, 0x07)                                                  # add al,7
+    etiqueta("dig")
+    emite(0x04, 0x30, 0xAA, 0xC3)                                      # add al,'0'; stosb; ret
+    etiqueta("nombre"); code.extend(b"JOY.TXT\0")
+    etiqueta("b"); code.append(0)
+    etiqueta("c"); code.append(0)
+    etiqueta("x"); code.append(0)
+    etiqueta("y"); code.append(0)
+    etiqueta("texto"); code.extend(b"B=?? X=?? Y=?? C=??\r\n")
+    for item in abs16:
+        pos, n = item[0], item[1]
+        extra = item[2] if len(item) > 2 else 0
+        struct.pack_into("<H", code, pos, 0x100 + etiquetas[n] + extra)
+    for pos, n in rel8:
+        d = etiquetas[n] - (pos + 1)
+        assert -128 <= d <= 127, (n, d)
+        code[pos] = d & 0xFF
+    for pos, n in rel16:
+        struct.pack_into("<h", code, pos, etiquetas[n] - (pos + 2))
+    return bytes(code)

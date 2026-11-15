@@ -14,6 +14,10 @@
  *   configuracion fondo ninguno      vuelve al degradado
  *   configuracion fuente documentos|titulos RUTA|ninguna   fuente por defecto (D196)
  *
+ * La sección Mandos (D307) lista los mandos y joysticks, los dibuja en vivo (ejes, botones y
+ * hats) y calibra el joystick del puerto de juegos; la calibración va en sagui.conf (clave
+ * mando_puerto=, la misma que escribe «mandos --calibrar») y se aplica al arrancar.
+ *
  * Todo se guarda en /home/.config/sagui.conf (texto «clave=valor») cuando /home es un disco
  * persistente (D040). Sin él, los cambios valen hasta apagar y el programa lo avisa.
  * La sección Fuentes (D196) lista las fuentes de /apps/fuentes y /home/fuentes, enseña una vista
@@ -36,6 +40,7 @@ bool sou_root(void);
 #include "servicos.h"
 #include "captura.h"
 #include "vncd_estado.h"
+#include "mandos.h"
 
 #define DIR_CONF   "/home/.config"
 #define ARQ_CONF   "/home/.config/sagui.conf"
@@ -65,6 +70,7 @@ typedef struct {
     int      balance, latencia;
     int      mic_ent, mic_gan, mic_mudo;
     char     salida[48];             /* D292: la tarjeta de salida elegida (su nombre); vacía = la de siempre */
+    char     mando_cal[96];          /* D307: calibración del joystick del puerto de juegos; vacía = automática */
 } conf_t;
 
 static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1 };
@@ -141,6 +147,7 @@ static bool conf_ler(void)
             else if (compara_texto(k, "volumen") == 0) { int x = texto_para_int(v); conf.volume = x < 0 ? 0 : x > 100 ? 100 : x; }
             else if (compara_texto(k, "ecualizador") == 0) conf.eq_def = eq_texto_ler(v, conf.eq) == 0;
             else if (compara_texto(k, "salida") == 0) copia_texto(conf.salida, v, sizeof conf.salida);
+            else if (compara_texto(k, "mando_puerto") == 0) copia_texto(conf.mando_cal, v, sizeof conf.mando_cal);
             else if (compara_texto(k, "balance") == 0) { int x = texto_para_int(v); conf.balance = x < 0 ? 0 : x > 200 ? 200 : x; conf.son_def |= 1; }
             else if (compara_texto(k, "latencia") == 0) { int x = texto_para_int(v); conf.latencia = x < 20 ? 20 : x > 300 ? 300 : x; conf.son_def |= 2; }
             else if (compara_texto(k, "micro_entrada") == 0) { conf.mic_ent = texto_para_int(v); conf.son_def |= 4; }
@@ -185,7 +192,7 @@ static int conf_gravar(void)
     }
     if (!home_persistente()) return 1;
     criar_pasta(DIR_CONF);
-    char t[1400];
+    char t[1600];
     char cap[NOME_MAX_F + 60];
     formatar_texto(cap, sizeof cap, "capturas_carpeta=%s\ncapturas_sonido=%d\n", conf.capturas, conf.cap_sonido);
     char tec[24] = "";
@@ -194,7 +201,7 @@ static int conf_gravar(void)
     if (conf.volume >= 0) formatar_texto(vol, sizeof vol, "volumen=%d\nsilencio=%d\n", conf.volume, conf.silencio);
     char ecu[48] = "";
     if (conf.eq_def) formatar_texto(ecu, sizeof ecu, "ecualizador=%d,%d,%d,%d,%d\n", conf.eq[0], conf.eq[1], conf.eq[2], conf.eq[3], conf.eq[4]);
-    char son[280] = "";
+    char son[400] = "";
     {
         int u = 0;
         if (conf.salida[0]) u += formatar_texto(son + u, sizeof son - (unsigned)u, "salida=%s\n", conf.salida);
@@ -203,6 +210,10 @@ static int conf_gravar(void)
         if (conf.son_def & 4)
             formatar_texto(son + u, sizeof son - (unsigned)u, "micro_entrada=%d\nmicro_ganancia=%d\nmicro_silencio=%d\n",
                            conf.mic_ent, conf.mic_gan, conf.mic_mudo);
+    }
+    if (conf.mando_cal[0]) {   /* D307: va con el sonido (mismo búfer, sitio de sobra) */
+        size_t l = tam_texto(son);
+        formatar_texto(son + l, sizeof son - l, "mando_puerto=%s\n", conf.mando_cal);
     }
     char zon[80] = "";
     if (conf.zona[0]) formatar_texto(zon, sizeof zon, "zona=%s\n", conf.zona);
@@ -395,6 +406,12 @@ static int aplicar_tudo(void)
                                     conf.mic_mudo, aplicar_micro(conf.mic_ent, conf.mic_gan, conf.mic_mudo));
     if (conf.eq_def) registrar("configuracion: ecualizador %d,%d,%d,%d,%d -> %d", conf.eq[0], conf.eq[1], conf.eq[2],
                                conf.eq[3], conf.eq[4], eq_aplicar(conf.eq));
+    if (conf.mando_cal[0]) {   /* D307: la calibración del joystick del puerto de juegos */
+        unsigned short c[4][3];
+        int r = mandos_cal_de_texto(conf.mando_cal, c);
+        if (r == 0) r = mandos_calibrar(c);
+        registrar("configuracion: mando_puerto %s -> %d", conf.mando_cal, r);
+    }
     if (conf.zona[0]) {
         config_zona_t z;
         ler_zona(&z);
@@ -536,11 +553,11 @@ static int linha_de_comandos(int argc, char **argv)
 
 /* ------------------------------------------------------------ la ventana */
 
-#define LARG 780
+#define LARG 840   /* 780 hasta la v8.3.2: la pestaña Mandos (D307) no cabía */
 #define ALT  500
 #define Y_PAG 50
-enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_QTD };
-static const char *const titulos_pag[P_QTD] = { "Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto" };
+enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_MANDOS, P_QTD };
+static const char *const titulos_pag[P_QTD] = { "Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto", "Mandos" };
 
 static int pagina;
 static char estado[160];
@@ -1147,6 +1164,243 @@ static void vnc_desenhar(void)
     g_texto_n(jn, 24, ALT - 80, "Mientras haya alguien conectado se ve una ventana «Escritorio remoto» en la barra de tareas.", (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
 }
 
+/* ------------------------------------------------------- la página de los mandos (D307) */
+
+#define MD_X0   380                 /* la prueba en vivo, a la derecha de la lista */
+#define MD_CX   96                  /* lado del cuadro de cada par de ejes */
+static info_mando_t md_l[MANDOS_MAX];
+static int md_n;
+static unsigned md_gen = 0xFFFFFFFFu;
+static char itens_md[MANDOS_MAX][64];
+static lista_t lista_md;
+static botao_t b_md[3] = { { 24, Y_PAG + 208, 160, 28, "Buscar joystick", false },
+                           { 190, Y_PAG + 208, 150, 28, "Calibrar puerto", false },
+                           { 24, Y_PAG + 242, 316, 28, "Calibración automática", false } };
+static estado_mando_t md_est;
+static unsigned short md_crudo[4];
+static int md_fase;                 /* calibración: 0 nada, 1 esquinas, 2 centro */
+static unsigned md_fim;
+static unsigned short md_cal[4][3];
+static unsigned md_soma[4], md_q;
+
+/* Vuelve a leer la lista si se ha conectado o desconectado algo. true = cambió. */
+static bool md_listar(void)
+{
+    unsigned gen = 0;
+    int n = mandos_listar(md_l, MANDOS_MAX, &gen);
+    if (n < 0) n = 0;
+    if (gen == md_gen && n == md_n) return false;
+    md_gen = gen;
+    md_n = n;
+    for (int i = 0; i < n; i++) formatar_texto(itens_md[i], 64, "%s", md_l[i].nome);
+    lista_md.qtd = n;
+    if (lista_md.sel >= n) lista_md.sel = n - 1;
+    if (lista_md.sel < 0 && n > 0) lista_md.sel = 0;
+    return true;
+}
+
+static int md_puerto(void)
+{
+    for (int i = 0; i < md_n; i++) if (md_l[i].tipo == MANDO_TIPO_PUERTO) return i;
+    return -1;
+}
+
+/* Lee el mando elegido; true = el estado cambió (hay que repintar). */
+static bool md_ler(void)
+{
+    if (lista_md.sel < 0 || lista_md.sel >= md_n) return false;
+    estado_mando_t e;
+    unsigned short c[4];
+    if (mando_ler_crudo(lista_md.sel, &e, c) < 0) return false;
+    unsigned inf = e.informes;
+    e.informes = md_est.informes;
+    bool mudou = memcmp(&e, &md_est, sizeof e) != 0 || memcmp(c, md_crudo, sizeof c) != 0;
+    md_est = e;
+    md_est.informes = inf;
+    memcpy(md_crudo, c, sizeof c);
+    return mudou;
+}
+
+static void md_calibrar_fim(void)
+{
+    bool ok = false;
+    for (int i = 0; i < 4; i++) {
+        md_cal[i][1] = md_q ? (unsigned short)(md_soma[i] / md_q) : 0;
+        if (md_cal[i][0] == 0xFFFF || !(md_cal[i][0] < md_cal[i][1] && md_cal[i][1] < md_cal[i][2])) {
+            md_cal[i][0] = md_cal[i][1] = md_cal[i][2] = 0;
+            continue;
+        }
+        ok = true;
+    }
+    md_fase = 0;
+    if (!ok) { dizer("No se ha movido ningún eje: la calibración no cambia."); return; }
+    mandos_calibrar(md_cal);
+    mandos_cal_texto(md_cal, conf.mando_cal, sizeof conf.mando_cal);
+    registrar("configuracion: mando_puerto calibrado %s", conf.mando_cal);
+    dizer_gravado(conf_gravar());
+}
+
+/* Cada 50 ms en la página: la lista, el estado y la calibración. true = repintar. */
+static bool md_tique(void)
+{
+    bool r = md_listar();
+    if (md_fase) {
+        int k = md_puerto();
+        if (k < 0) { md_fase = 0; dizer("El joystick del puerto de juegos ha desaparecido."); return true; }
+        estado_mando_t e;
+        unsigned short t[4];
+        if (mando_ler_crudo(k, &e, t) == 0)
+            for (int i = 0; i < 4; i++) {
+                if (t[i] == 0xFFFF) continue;
+                if (md_fase == 1) {
+                    if (t[i] < md_cal[i][0]) md_cal[i][0] = t[i];
+                    if (t[i] > md_cal[i][2]) md_cal[i][2] = t[i];
+                } else if (i == 0) md_q++;
+                if (md_fase == 2) md_soma[i] += t[i];
+            }
+        int falta = (int)(md_fim - tempo_ms());
+        if (falta <= 0) {
+            if (md_fase == 1) {
+                md_fase = 2;
+                md_fim = tempo_ms() + 2500;
+                for (int i = 0; i < 4; i++) md_soma[i] = 0;
+                md_q = 0;
+                dizer("Ahora suelta el joystick en el centro...");
+            } else md_calibrar_fim();
+        } else if (md_fase == 1) formatar_texto(estado, sizeof estado, "Mueve el joystick hasta las cuatro esquinas, varias veces (%d s)", falta / 1000 + 1);
+        r = true;
+    }
+    if (md_ler()) r = true;
+    return r;
+}
+
+static void md_preparar(void)
+{
+    lista_md = (lista_t){ 24, Y_PAG + 30, MD_X0 - 24 - 40, 170, itens_md, 0, -1, 0, NULL };
+    md_gen = 0xFFFFFFFFu;
+    md_n = -1;
+    md_listar();
+    memset(&md_est, 0, sizeof md_est);
+    md_ler();
+}
+
+static void md_hat(int x, int y, unsigned h)
+{
+    static const int dx[5] = { 1, 1, 2, 1, 0 }, dy[5] = { 1, 0, 1, 2, 1 };
+    static const unsigned bit[5] = { 0, MANDO_HAT_CIMA, MANDO_HAT_DIREITA, MANDO_HAT_BAIXO, MANDO_HAT_ESQUERDA };
+    for (int i = 0; i < 5; i++) {
+        bool on = i == 0 ? h == 0 : (h & bit[i]) != 0;
+        g_retangulo(jn, x + dx[i] * 15, y + dy[i] * 15, 14, 14, on ? 0x2A6FD8 : 0xE4E4E4);
+        g_moldura(jn, x + dx[i] * 15, y + dy[i] * 15, 14, 14, COR_BORDA);
+    }
+}
+
+static void md_desenhar(void)
+{
+    char t[160];
+    titulo_pag(24, Y_PAG + 8, "Mandos y joysticks conectados");
+    if (md_n <= 0) g_texto(jn, 30, Y_PAG + 40, "Ninguno (USB, Xbox 360 o puerto de juegos).", COR_TEXTO_FRACO);
+    lista_desenhar(jn, &lista_md);
+    for (int i = 0; i < 3; i++) botao_desenhar(jn, &b_md[i]);
+    g_texto(jn, 24, Y_PAG + 282, "El joystick del puerto de juegos (0x201)", COR_TEXTO_FRACO);
+    g_texto(jn, 24, Y_PAG + 300, "se busca al arrancar y con «Buscar».", COR_TEXTO_FRACO);
+    if (lista_md.sel < 0 || lista_md.sel >= md_n) return;
+    const info_mando_t *m = &md_l[lista_md.sel];
+    titulo_pag(MD_X0, Y_PAG + 8, "Prueba en vivo");
+    if (m->fabricante || m->produto)
+        formatar_texto(t, sizeof t, "%s, %04x:%04x: %u ejes, %u botones, %u hats", m->via, m->fabricante, m->produto,
+                       m->n_eixos, m->n_botoes, m->n_hats);
+    else formatar_texto(t, sizeof t, "%s: %u ejes, %u botones, %u hats", m->via, m->n_eixos, m->n_botoes, m->n_hats);
+    g_texto_n(jn, MD_X0, Y_PAG + 28, t, (LARG - MD_X0 - 20) / LETRA_L, COR_TEXTO_FRACO);
+    /* Ejes de dos en dos: un cuadro con un punto (X a la derecha, Y hacia abajo). El Xbox 360 tiene
+     * el orden de SDL (LX LY LT RX RY RT): se dibujan los sticks y después los gatillos. */
+    static const signed char pares_xbox[3][2] = { { 0, 1 }, { 3, 4 }, { 2, 5 } };
+    static const char *const nomes_xbox[3] = { "Stick izq.", "Stick der.", "Gatillos" };
+    bool xbox = m->mapa == MANDO_MAPA_XBOX360 && m->n_eixos >= 6;
+    int pares = xbox ? 3 : (m->n_eixos + 1) / 2;
+    if (pares > 4) pares = 4;
+    for (int p = 0; p < pares; p++) {
+        int x = MD_X0 + p * (MD_CX + 12), y = Y_PAG + 48;
+        int ax = xbox ? pares_xbox[p][0] : 2 * p, ay = xbox ? pares_xbox[p][1] : 2 * p + 1;
+        g_retangulo(jn, x, y, MD_CX, MD_CX, 0xFFFFFF);
+        g_moldura(jn, x, y, MD_CX, MD_CX, COR_BORDA);
+        g_retangulo(jn, x + MD_CX / 2, y + 2, 1, MD_CX - 4, 0xD0D0D0);
+        g_retangulo(jn, x + 2, y + MD_CX / 2, MD_CX - 4, 1, 0xD0D0D0);
+        int ex = md_est.eixos[ax];
+        int ey = ay < m->n_eixos ? md_est.eixos[ay] : 0;
+        int px = x + MD_CX / 2 + ex * (MD_CX / 2 - 6) / 32768, py = y + MD_CX / 2 + ey * (MD_CX / 2 - 6) / 32768;
+        g_retangulo(jn, px - 4, py - 4, 9, 9, 0xC0392B);
+        if (xbox) copia_texto(t, nomes_xbox[p], sizeof t);
+        else if (ay < m->n_eixos) formatar_texto(t, sizeof t, "Ejes %d y %d", ax + 1, ay + 1);
+        else formatar_texto(t, sizeof t, "Eje %d", ax + 1);
+        g_texto(jn, x, y + MD_CX + 4, t, COR_TEXTO_FRACO);
+    }
+    /* Botones: casillas numeradas, de 16 en 16. */
+    int yb = Y_PAG + 172;
+    g_texto(jn, MD_X0, yb, "Botones:", COR_TEXTO);
+    for (int b = 0; b < m->n_botoes && b < 32; b++) {
+        int x = MD_X0 + (b % 16) * 27, y = yb + 18 + (b / 16) * 26;
+        bool on = (md_est.botoes >> b) & 1;
+        g_retangulo(jn, x, y, 24, 22, on ? 0x2A6FD8 : 0xF2F2F2);
+        g_moldura(jn, x, y, 24, 22, COR_BORDA);
+        formatar_texto(t, sizeof t, "%d", b + 1);
+        g_texto(jn, x + (b + 1 >= 10 ? 4 : 8), y + 4, t, on ? 0xFFFFFF : COR_TEXTO);
+    }
+    int yh = yb + 18 + ((m->n_botoes + 15) / 16) * 26 + 8;
+    for (int h = 0; h < m->n_hats && h < MANDO_HATS_MAX; h++) {
+        formatar_texto(t, sizeof t, "Hat %d", h + 1);
+        g_texto(jn, MD_X0 + h * 70, yh, t, COR_TEXTO);
+        md_hat(MD_X0 + h * 70, yh + 18, md_est.hats[h]);
+    }
+    if (m->tipo == MANDO_TIPO_PUERTO) {
+        unsigned short c[4][3];
+        int manual = 0;
+        mandos_calibracao(c, &manual);
+        int u = formatar_texto(t, sizeof t, "Tiempos (us):");
+        for (int i = 0; i < 4; i++)
+            u += md_crudo[i] == 0xFFFF ? formatar_texto(t + u, sizeof t - (unsigned)u, " -")
+                                       : formatar_texto(t + u, sizeof t - (unsigned)u, " %u", md_crudo[i] / 10);
+        g_texto(jn, MD_X0, ALT - 128, t, COR_TEXTO_FRACO);
+        formatar_texto(t, sizeof t, "Calibración %s: X %u-%u-%u, Y %u-%u-%u us", manual ? "guardada" : "automática",
+                       c[0][0] / 10, c[0][1] / 10, c[0][2] / 10, c[1][0] / 10, c[1][1] / 10, c[1][2] / 10);
+        g_texto_n(jn, MD_X0, ALT - 110, t, (LARG - MD_X0 - 20) / LETRA_L, COR_TEXTO_FRACO);
+    }
+}
+
+/* Los eventos de la página; true = repintar. */
+static bool md_tratar(const evento_t *e)
+{
+    bool mudou = false;
+    int at = lista_tratar(jn, &lista_md, e);
+    if (at) { memset(&md_est, 0, sizeof md_est); md_ler(); mudou = true; }
+    if (botao_tratar(jn, &b_md[0], e)) {
+        int r = mandos_detectar();
+        dizer(r > 0 ? "Hay un joystick en el puerto de juegos." : "No hay joystick en el puerto de juegos.");
+        registrar("configuracion: mandos detectar -> %d", r);
+        md_listar();
+        mudou = true;
+    }
+    if (botao_tratar(jn, &b_md[1], e)) {
+        if (md_puerto() < 0) dizer("No hay joystick en el puerto de juegos: pulsa «Buscar joystick».");
+        else {
+            for (int i = 0; i < 4; i++) { md_cal[i][0] = 0xFFFF; md_cal[i][1] = 0; md_cal[i][2] = 0; }
+            md_fase = 1;
+            md_fim = tempo_ms() + 6000;
+            dizer("Mueve el joystick hasta las cuatro esquinas, varias veces (6 s)");
+        }
+        mudou = true;
+    }
+    if (botao_tratar(jn, &b_md[2], e)) {
+        md_fase = 0;
+        mandos_calibrar(NULL);
+        conf.mando_cal[0] = 0;
+        registrar("configuracion: mando_puerto automatico");
+        dizer_gravado(conf_gravar());
+        mudou = true;
+    }
+    return mudou;
+}
+
 static void desenhar_pagina(void)
 {
     char t[160];
@@ -1278,6 +1532,8 @@ static void desenhar_pagina(void)
         red_desenhar();
     } else if (pagina == P_VNC) {
         vnc_desenhar();
+    } else if (pagina == P_MANDOS) {
+        md_desenhar();
     } else {
         info_aparencia_t ap;
         memset(&ap, 0, sizeof ap);
@@ -1584,10 +1840,12 @@ static int janela(void)
         /* En «Escritorio remoto» se repinta cada segundo: la lista de conectados cambia sola. */
         int hay = pagina == P_VNC ? esperar_evento(jn->id, &e, 1000)
                 : (pagina == P_SOM && mic_aberto) ? esperar_evento(jn->id, &e, 60)   /* el medidor del micrófono (D292) */
+                : pagina == P_MANDOS ? esperar_evento(jn->id, &e, 50)   /* la prueba en vivo de los mandos (D307) */
                 : proximo_evento(jn->id, &e, true);
         if (hay != 1) {
             if (pagina == P_VNC) { vnc_refrescar(); desenhar(); }
             if (pagina == P_SOM && mic_aberto) { mic_refrescar(); desenhar(); }
+            if (pagina == P_MANDOS && md_tique()) desenhar();
             continue;
         }
         if (e.tipo == EV_FECHAR) break;
@@ -1603,9 +1861,13 @@ static int janela(void)
                 if (i == P_IA) ia_preparar();   /* relee lo guardado (D145) */
                 if (i == P_FUENTES) fuentes_preparar();   /* (D196) */
                 if (i == P_VNC) vnc_refrescar();
+                if (i == P_MANDOS) md_preparar();
+                else md_fase = 0;
                 mudou = true;
             }
-        if (pagina == P_TECLADO) {
+        if (pagina == P_MANDOS) {
+            if (md_tratar(&e)) mudou = true;
+        } else if (pagina == P_TECLADO) {
             for (int i = 0; i < 2; i++)
                 if (botao_tratar(jn, &b_tec[i], &e)) {
                     aplicar_teclado(i);

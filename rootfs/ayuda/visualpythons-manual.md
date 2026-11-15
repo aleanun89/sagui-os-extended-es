@@ -15,8 +15,9 @@ ejemplos (lo comprueba la prueba `tests/h303_vps_manual.py`). La referencia cort
 4. [Ejemplos completos](#4-ejemplos-completos)
    (calculadora, lista de tareas, cronómetro, formulario modal, validar con `msgbox`, abrir y guardar,
    pestañas, tabla, numérico, lienzo, enlace, barra de estado, selector de color, reloj, archivo)
+   y, de la v8.4.1, guardar al cerrar, un botón con el ratón y validar al perder el foco
 5. [Los componentes nuevos de la v8.3.2](#5-los-componentes-nuevos-de-la-v832)
-6. [Herramientas del entorno](#6-herramientas-del-entorno)
+6. [Herramientas del entorno](#6-herramientas-del-entorno) (incluye el [explorador del proyecto](#el-explorador-del-proyecto))
 7. [Referencia de la API `vps`](#7-referencia-de-la-api-vps)
 8. [Errores frecuentes y trucos](#8-errores-frecuentes-y-trucos)
 
@@ -206,6 +207,15 @@ Los manejadores **no llevan parámetros**. Lo que el evento sabe se lee del cont
 | `Lienzo1_click`, `_arrastrar`, `_soltar`, `_mover` | `Lienzo1.raton_x` y `Lienzo1.raton_y` |
 | `Pestanas1_cambio` | `Pestanas1.seleccion` y `Pestanas1.valor` |
 | `SelectorColor1_cambio`, `Numerico1_cambio` | `SelectorColor1.valor`, `Numerico1.valor` |
+| `_doble_click`, `_raton_abajo`, `_raton_arriba`, `_raton_entra`, `_raton_sale`, `_raton_mueve`, `_menu_contextual` (v8.4.1) | `Control.raton_x`, `Control.raton_y` (en píxeles del control) y, en los de pulsar y soltar, `Control.boton` (1 izquierdo, 2 central, 3 derecho) |
+| `_rueda` | `Control.rueda_delta` (entalles: positivo hacia arriba, negativo hacia abajo) y `raton_x`, `raton_y` |
+| `_tecla_abajo`, `_tecla_arriba` | `Control.tecla` (nombre de la tecla), `Control.caracter`, `Control.ctrl` y `Control.mayus` (`True` si se pulsa Ctrl o Mayús) |
+| `Formulario_cerrando` | `Formulario.cancelar`: ponerlo a `True` impide que se cierre |
+| `CuadroTexto1_validar` | `CuadroTexto1.cancelar`: ponerlo a `True` devuelve el foco al cuadro |
+| `CuadroTexto1_intro` | `CuadroTexto1.texto` |
+| `Tabla1_celda_cambio` | `Tabla1.fila`, `Tabla1.columna` (la celda editada) y `Tabla1.celda(fila, columna)` |
+| `Tabla1_ordenar` | `Tabla1.columna` (por la que se ordenó) y `Tabla1.descendente` |
+| `Casilla1_cambio`, `Opcion1_cambio` | `Casilla1.valor`, `Opcion1.valor` |
 
 ### Otras dos formas de conectar
 
@@ -221,10 +231,83 @@ Boton2.conectar("click", otra)      # o con conectar
 
 Se pueden mezclar y un mismo evento puede tener varias funciones.
 
+### Eventos comunes a todos los controles visibles (v8.4.1)
+
+Todos los controles con ventana (los que no son `Temporizador`, `Reloj`, `Menu`, `Archivo` ni `ConectorBD`)
+tienen estos eventos, además de los suyos. Se escriben como siempre, `Control_evento`:
+
+<!-- eventos-comunes -->
+| Evento | Cuándo | Datos en el control |
+| --- | --- | --- |
+| `doble_click` | Doble clic | `raton_x`, `raton_y` |
+| `raton_abajo` | Se pulsa un botón del ratón sobre el control | `raton_x`, `raton_y`, `boton` |
+| `raton_arriba` | Se suelta el botón | `raton_x`, `raton_y`, `boton` |
+| `raton_entra` | El puntero entra en el control | `raton_x`, `raton_y` |
+| `raton_sale` | El puntero sale del control | `raton_x`, `raton_y` |
+| `raton_mueve` | El puntero se mueve sobre el control | `raton_x`, `raton_y` |
+| `rueda` | Gira la rueda con el puntero encima | `rueda_delta`, `raton_x`, `raton_y` |
+| `foco_gana` | El control recibe el foco |  |
+| `foco_pierde` | El control pierde el foco |  |
+| `tecla_abajo` | Se pulsa una tecla con el foco en el control | `tecla`, `caracter`, `ctrl`, `mayus` |
+| `tecla_arriba` | Tras `tecla_abajo` (el sistema no avisa de soltar la tecla) | `tecla`, `caracter`, `ctrl`, `mayus` (se dispara tras `tecla_abajo`) |
+| `menu_contextual` | Clic derecho | `raton_x`, `raton_y`, `boton` (3) |
+<!-- /eventos-comunes -->
+
+`raton_mueve`, `raton_entra`, `raton_sale`, `rueda` y los demás solo calculan algo **si hay un manejador
+conectado**: una aplicación que no los usa no pierde rendimiento. Dos límites del sistema, que se anotan aquí
+para no buscarlos: el sistema **no avisa de cuándo se suelta una tecla**, así que `tecla_arriba` se dispara justo
+después de `tecla_abajo` con los mismos datos; y **no hay arrastrar y soltar archivos sobre las ventanas**, así que
+el formulario no tiene `soltar_archivo` por ahora.
+
+### Eventos del formulario (v8.4.1)
+
+| Evento | Cuándo | Datos |
+| --- | --- | --- |
+| `cargar` | Al abrirse | |
+| `cerrando` | Al pulsar la X (o cerrar desde el sistema), **antes** de cerrar | `Formulario.cancelar = True` cancela el cierre (por ejemplo para preguntar «¿Guardar cambios?») |
+| `cerrado` | Cuando ya se cerró | |
+| `redimensionar` | Al cambiar de tamaño | `Formulario.ancho`, `Formulario.alto` |
+| `activar`, `desactivar` | El formulario recibe o pierde el foco (un control suyo pasa a tenerlo, o lo pierde hacia otra ventana) | |
+| `tecla`, `click` | | `Formulario.tecla`, `Formulario.caracter` |
+| `cerrar` | El evento antiguo: devolver `False` impedía cerrar. Se mantiene por compatibilidad; usa `cerrando` | |
+
+`Formulario.cerrar()` (por código) cierra sin preguntar: `cerrando` es solo para el cierre del usuario.
+
 ### Eventos de cada control
 
-| Control | Eventos |
-| --- | --- |
+La tabla sale del código (`tools/vps_manual.py`). A los propios se suman los comunes de arriba.
+
+<!-- eventos-tabla -->
+| Control | Eventos propios | Comunes |
+| --- | --- | --- |
+| `Formulario` | `cargar`, `cerrando`, `cerrado`, `redimensionar`, `activar`, `desactivar`, `tecla`, `click`, `cerrar` | no |
+| `Etiqueta` | `click` | sí |
+| `Boton` | `click` | sí |
+| `CuadroTexto` | `cambio`, `tecla`, `click`, `intro`, `validar` | sí |
+| `Casilla` | `click`, `cambio` | sí |
+| `Opcion` | `click`, `cambio` | sí |
+| `Lista` | `seleccion`, `doble_click`, `click` | sí |
+| `Combo` | `seleccion`, `cambio` | sí |
+| `Imagen` | `click` | sí |
+| `Marco` | `click` | sí |
+| `Deslizador` | `cambio` | sí |
+| `BarraProgreso` | (ninguno) | sí |
+| `Temporizador` | `tic` | no |
+| `Menu` | uno por opción: `MnuAbrir_click` | no |
+| `Pestanas` | `cambio`, `click` | sí |
+| `Tabla` | `seleccion`, `cambio`, `doble_click`, `click`, `celda_cambio`, `ordenar` | sí |
+| `Numerico` | `cambio` | sí |
+| `Lienzo` | `click`, `arrastrar`, `soltar`, `mover` | sí |
+| `Enlace` | `click` | sí |
+| `BarraEstado` | `click` | sí |
+| `SelectorColor` | `cambio`, `click` | sí |
+| `Reloj` | `tic` | no |
+| `Archivo` | (ninguno) | no |
+| `ConectorBD` | `conectado`, `error`, `registro`, `datos` | no |
+| `RejillaDatos` | `seleccion`, `cambio` | sí |
+<!-- /eventos-tabla -->
+
+--- | --- |
 | `Formulario` | `cargar`, `cerrar` (devolver `False` impide cerrar), `tecla`, `click`, `redimensionar` |
 | `Etiqueta`, `Imagen`, `Marco` | `click` |
 | `Boton`, `Casilla`, `Opcion` | `click` |
@@ -394,6 +477,70 @@ Carpeta: `/ejemplos/vps/selector-color`.
 <!-- /controles -->
 
 <!-- ejemplo:archivo -->
+```python
+# Archivo: sin ventana; lee y escribe el archivo de su propiedad `ruta` (texto, líneas o CSV).
+
+def Formulario_cargar():
+    if Archivo1.existe():
+        CuadroTexto1.texto = Archivo1.leer()
+        Etiqueta1.texto = "Cargado de " + Archivo1.ruta
+
+
+def Boton1_click():
+    Archivo1.escribir(CuadroTexto1.texto)
+    Etiqueta1.texto = "Guardado (%d letras)" % len(CuadroTexto1.texto)
+
+
+def Boton2_click():
+    CuadroTexto1.texto = Archivo1.leer()
+    Etiqueta1.texto = "Cargado"
+
+
+def Boton3_click():
+    Etiqueta1.texto = "El archivo tiene %d líneas" % len(Archivo1.leer_lineas())
+```
+<!-- /ejemplo -->
+
+### 4.17 Un botón que cambia de color con el ratón
+
+*Aprendes:* `raton_entra`, `raton_sale`, `doble_click`, `rueda` y los datos `raton_x`, `raton_y` y `rueda_delta`.
+Carpeta: `/ejemplos/vps/boton-raton`.
+
+*[captura: El botón en amarillo con el ratón encima]*
+
+<!-- controles:boton-raton -->
+<!-- /controles -->
+
+<!-- ejemplo:boton-raton -->
+```python
+# Un botón que cambia de color con el ratón: raton_entra y raton_sale.
+# Los datos del evento están en el control: raton_x, raton_y, boton y rueda_delta.
+clics = 0
+
+
+def Boton1_raton_entra():
+    Boton1.colorfondo = AMARILLO
+    Etiqueta1.texto = "El ratón entró"
+
+
+def Boton1_raton_sale():
+    Boton1.colorfondo = 0xE2E6EA
+    Etiqueta1.texto = "El ratón salió"
+
+
+def Boton1_click():
+    global clics
+    clics += 1
+    Etiqueta2.texto = "Clics: %d" % clics
+
+
+def Boton1_doble_click():
+    Etiqueta2.texto = "Doble clic en %d, %d" % (Boton1.raton_x, Boton1.raton_y)
+
+
+def Boton1_rueda():
+    Etiqueta3.texto = "Rueda: %d" % Boton1.rueda_delta
+```
 <!-- /ejemplo -->
 
 ---
@@ -468,6 +615,31 @@ del CSV), `escribir_csv(filas)` y `borrar()`.
 propiedad, borrar, pegar, renombrar...) y también, aparte, dentro del editor de código.
 
 *[captura: Ctrl+Z quita el botón que se acababa de colocar]*
+
+### El explorador del proyecto
+
+**Ver > Explorador** (o **Ctrl+R**) muestra, encima de las propiedades, un árbol **Proyecto > Formularios >
+controles** con el icono y el nombre de cada uno, respetando los contenedores (un `Marco`, las páginas de unas
+`Pestanas`) y con los controles sin ventana (`Temporizador`, `Reloj`, `Archivo`, `ConectorBD`). Al final, **Código**
+lista los manejadores de eventos que ya existen en `codigo.py`.
+
+*[captura: El explorador con un proyecto de dos formularios]*
+
+| Gesto | Qué hace |
+| --- | --- |
+| Clic en un control | Lo selecciona en el diseñador: cambia de formulario y de pestaña si hace falta y enseña sus propiedades |
+| Doble clic en un control o un formulario | Abre su evento por defecto en el editor |
+| Doble clic en un manejador | Salta a su línea en el editor |
+| `+` / `-` del nodo | Abre o cierra la rama |
+| Clic derecho | Menú: Ver código, Renombrar (con la refactorización del código), Eliminar, Traer al frente, Enviar atrás y Agregar formulario |
+| **F2** / **Supr** | Renombrar / eliminar el nodo elegido |
+| Flechas arriba y abajo, Intro | Recorrer el árbol |
+| Cuadro **Buscar** | Deja solo los nodos cuyo nombre contiene el texto (y sus ascendientes) |
+
+El árbol se mantiene al día al colocar, borrar, renombrar, deshacer o escribir código (la lista de manejadores
+se actualiza a los pocos instantes de escribir).
+
+*[captura: Con el filtro «etiq»]*
 
 ### Renombrar un control
 
@@ -604,3 +776,7 @@ Trucos:
 - Para una tecla rápida en cualquier parte: `def Formulario_tecla():` y mira `Formulario.tecla`.
 
 Más: [visualpythons.md](visualpythons.md) (referencia), decisiones D297, D299 y D303, mejoras 123 y 124.
+
+## Bases de datos
+
+Para enseñar y editar una tabla de SQLite o lite-monkey hay `ConectorBD`, `RejillaDatos` y los controles enlazados (`fuente` y `campo`); la `Tabla` de este manual es para datos en memoria. Guía con una agenda paso a paso: [bases-de-datos.md](bases-de-datos.md).

@@ -690,4 +690,5 @@ const acel_driver_t acel_r600 = {
     4096,    /* D246: menos de 64x64 píxeles lo hace la CPU (sin medida en hardware; «acel2d probar --detalle» da los tiempos) */
     true,    /* D246: el DMA sigue copiando tras copiar() */
     r6_detalle,
+    false,   /* D305: solo 32 bits */
 };

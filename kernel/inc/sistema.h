@@ -123,6 +123,7 @@ int32_t sis_memoria(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D209
 int32_t sis_servicos(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D216 */
 int32_t sis_inyectar(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D251 */
 int32_t sis_usuario(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);    /* D255 */
+int32_t sis_permisos_arq(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D282 */
 int32_t sis_desejar_bar(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 
 #endif

@@ -17,7 +17,7 @@
  *   - audio:    el motor mezcla en un callback; aqui se llama al callback y
  *               el resultado se escribe en el flujo de sonido del sistema.
  *               Sin placa de sonido, el juego funciona igual (mudo).
- *   - joystick: no hay joystick en el SaguiOS: se informa que no hay ninguno.
+ *   - joystick (D307): los mandos del sistema, por sondeo (libsagui mandos.h).
  *
  * Ver ORIGEM.md: esto es codigo nuestro, no de la SDL.
  */
@@ -25,6 +25,7 @@
 
 #include "sagui.h"
 #include "gui.h"
+#include "mandos.h"
 
 /* O teclado.h do kernel (com TECLA_F1..TECLA_F12) nao entra no userland, e
  * o abi.h so declara TECLA_F11. Os valores sao os do enum do kernel. */
@@ -858,25 +859,67 @@ static void bombear_audio(void)
     audio_escrever(audio_fd, audio_buf, sizeof audio_buf);
 }
 
-/* ------------------------------------------------------------------ joystick */
+/* ------------------------------------------------------------------ joystick (D307) */
 
-struct _SDL_Joystick { int indice; };
+/* Los mandos del sistema (libsagui mandos.h), por sondeo: el motor llama a SDL_JoystickUpdate
+ * en cada cuadro y lee los ejes, botones y hats (joystick.c pone SDL_IGNORE: sin eventos). */
+struct _SDL_Joystick { int indice; int abierto; info_mando_t info; estado_mando_t est; };
+static info_mando_t joy_lista[MANDOS_MAX];
+static int joy_n;
+static struct _SDL_Joystick joys[MANDOS_MAX];
 
-int SDL_NumJoysticks(void) { return 0; }
+int SDL_NumJoysticks(void)
+{
+    int n = mandos_listar(joy_lista, MANDOS_MAX, NULL);
+    joy_n = n < 0 ? 0 : n;
+    return joy_n;
+}
 
 SDL_Joystick *SDL_JoystickOpen(int indice)
 {
-    (void)indice;
-    return NULL;
+    SDL_NumJoysticks();
+    if (indice < 0 || indice >= joy_n) return NULL;
+    struct _SDL_Joystick *j = &joys[indice];
+    j->indice = indice;
+    j->abierto = 1;
+    j->info = joy_lista[indice];
+    memset(&j->est, 0, sizeof j->est);
+    registrar("[OPENTYRIAN] joystick abierto: %s", j->info.nome);
+    return j;
 }
 
-void SDL_JoystickClose(SDL_Joystick *joy) { (void)joy; }
-const char *SDL_JoystickName(SDL_Joystick *joy) { (void)joy; return ""; }
-int SDL_JoystickNumAxes(SDL_Joystick *joy) { (void)joy; return 0; }
-int SDL_JoystickNumButtons(SDL_Joystick *joy) { (void)joy; return 0; }
-int SDL_JoystickNumHats(SDL_Joystick *joy) { (void)joy; return 0; }
-Sint16 SDL_JoystickGetAxis(SDL_Joystick *joy, int eixo) { (void)joy; (void)eixo; return 0; }
-Uint8 SDL_JoystickGetButton(SDL_Joystick *joy, int botao) { (void)joy; (void)botao; return 0; }
-Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu) { (void)joy; (void)chapeu; return SDL_HAT_CENTERED; }
-void SDL_JoystickUpdate(void) { }
+void SDL_JoystickClose(SDL_Joystick *joy) { if (joy) joy->abierto = 0; }
+
+/* El motor la llama con el índice (como la SDL 1.2) aunque la cabecera diga SDL_Joystick *. */
+const char *SDL_JoystickName(SDL_Joystick *joy)
+{
+    unsigned long v = (unsigned long)joy;
+    if (v < MANDOS_MAX) return (int)v < joy_n ? joy_lista[v].nome : "";
+    return joy->info.nome;
+}
+int SDL_JoystickNumAxes(SDL_Joystick *joy) { return joy ? joy->info.n_eixos : 0; }
+int SDL_JoystickNumButtons(SDL_Joystick *joy) { return joy ? joy->info.n_botoes : 0; }
+int SDL_JoystickNumHats(SDL_Joystick *joy) { return joy ? joy->info.n_hats : 0; }
+Sint16 SDL_JoystickGetAxis(SDL_Joystick *joy, int eixo)
+{
+    return joy && eixo >= 0 && eixo < joy->info.n_eixos ? joy->est.eixos[eixo] : 0;
+}
+Uint8 SDL_JoystickGetButton(SDL_Joystick *joy, int botao)
+{
+    return joy && botao >= 0 && botao < joy->info.n_botoes ? (joy->est.botoes >> botao) & 1 : 0;
+}
+Uint8 SDL_JoystickGetHat(SDL_Joystick *joy, int chapeu)
+{
+    return joy && chapeu >= 0 && chapeu < joy->info.n_hats ? joy->est.hats[chapeu] : SDL_HAT_CENTERED;
+}
+void SDL_JoystickUpdate(void)
+{
+    for (int i = 0; i < MANDOS_MAX; i++) {
+        struct _SDL_Joystick *j = &joys[i];
+        if (!j->abierto) continue;
+        estado_mando_t e;
+        if (mando_ler(j->indice, &e) == 0 && e.id == j->info.id) j->est = e;
+        else memset(&j->est, 0, sizeof j->est);
+    }
+}
 int SDL_JoystickEventState(int estado) { (void)estado; return 0; }

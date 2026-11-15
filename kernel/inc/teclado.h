@@ -27,6 +27,8 @@ enum {
 void     teclado_iniciar(void);
 int      teclado_ler(void);      /* espera una tecla */
 int      teclado_tentar(void);   /* -1 si no hay tecla en el búfer */
+int      teclado_pendentes(void); /* D317: cuántas teclas esperan en el búfer, sin sacarlas */
+bool     teclado_contem(int t);   /* D317: ¿está la tecla t en el búfer? (sin sacarla) */
 int      teclado_tentar_mods(uint32_t *m);   /* igual, y los modificadores de cuando se pulsó (D119) */
 uint32_t teclado_modificadores(void);
 int      teclado_layout(int novo);   /* TECLADO_ES o TECLADO_ABNT2; -1 solo consulta. Devuelve el actual. */

@@ -133,6 +133,10 @@ static int t_apagar(void *priv, const char *rel)
 { ENTRAR(); int r = E->ativo ? E->orig->apagar(E->priv, rel) : ERRO_NAO_EXISTE; SAIR(); return r; }
 static int t_renomear(void *priv, const char *de, const char *para)
 { ENTRAR(); int r = E->ativo ? E->orig->renomear(E->priv, de, para) : ERRO_NAO_EXISTE; SAIR(); return r; }
+static int t_meta(void *priv, const char *rel, meta_t *m)
+{ ENTRAR(); int r = E->ativo ? E->orig->meta(E->priv, rel, m) : ERRO_NAO_EXISTE; SAIR(); return r; }
+static int t_fixar_meta(void *priv, const char *rel, int32_t uid, int32_t gid, int32_t modo)
+{ ENTRAR(); int r = E->ativo ? E->orig->fixar_meta(E->priv, rel, uid, gid, modo) : ERRO_NAO_EXISTE; SAIR(); return r; }
 static void t_espaco(void *priv, uint32_t *total, uint32_t *livre)
 { ENTRAR(); if (E->ativo) E->orig->espaco(E->priv, total, livre); SAIR(); }
 static int t_desmontar(void *priv, bool gravar)
@@ -168,6 +172,8 @@ static void envolver(int i, const sistema_arquivos_t *fs, void *priv)
     e->tabela.renomear = t_renomear;
     e->tabela.espaco = fs->espaco ? t_espaco : NULL;
     e->tabela.datas = fs->datas ? t_datas : NULL;
+    e->tabela.meta = fs->meta ? t_meta : NULL;
+    e->tabela.fixar_meta = fs->fixar_meta ? t_fixar_meta : NULL;
 }
 
 /* Crea las carpetas que falten en la ruta (en la RAM). Devuelve si creó la última. */
@@ -191,7 +197,47 @@ static int criar_ponto(const char *ponto, bool *criou)
     }
 }
 
+/* D282: /tmp y /logs son de todos (cada uno escribe lo suyo); /home, de sagui. */
+static bool ponto_comum(const char *ponto)
+{
+    return txt_compara(ponto, "/tmp") == 0 || txt_compara(ponto, "/logs") == 0;
+}
+
+int montagem_meta(montagem_t *m, const char *rel, meta_t *s, bool olhar)
+{
+    memset(s, 0, sizeof *s);
+    if (m->fs->meta) {
+        int r = m->fs->meta(m->priv, rel, s);
+        if (r < 0) return r;
+        s->com_donos = true;
+    } else {
+        /* FAT32, ISO 9660, UDF, CD de audio: todo con los permisos del montaje. */
+        if (olhar && *rel) {
+            info_arquivo_t inf;
+            int r = m->fs->info(m->priv, rel, &inf);
+            if (r < 0) return r;
+            s->tipo = (uint8_t)inf.tipo;
+        } else {
+            s->tipo = TIPO_PASTA;
+        }
+        s->uid = m->uid;
+        s->gid = m->gid;
+        s->modo = (uint16_t)(0777 & ~m->umask);
+    }
+    if (!*rel) {   /* la carpeta del montaje */
+        s->tipo = TIPO_PASTA;
+        if (txt_compara(m->ponto, "/home") == 0) { s->uid = UID_SAGUI; s->gid = GID_SAGUI; s->modo = 0755; }
+        else if (ponto_comum(m->ponto) && s->com_donos) { s->uid = UID_ROOT; s->gid = GID_ROOT; s->modo = 01777; }
+    }
+    return 0;
+}
+
 int montagem_montar(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes)
+{
+    return montagem_montar_dono(d, ponto, tipo, opcoes & ~(uint32_t)MONTAR_DONO, 0);
+}
+
+int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes, uint32_t dono)
 {
     if (!d->presente) return ERRO_NAO_EXISTE;
     if (!d->tipo_fs[0]) return ERRO_FORMATO;
@@ -240,6 +286,12 @@ int montagem_montar(disco_t *d, const char *ponto, const char *tipo, uint32_t op
     m->opcoes = opcoes;
     m->geracao = ++geracao;
     m->criou_ponto = criou;
+    /* D282: el dueño de lo que hay en un sistema sin dueños. Por defecto, de sagui
+     * (los pendrives y el /home FAT32); /tmp y /logs, de todos. */
+    if (opcoes & MONTAR_DONO) { m->uid = dono & 0xFFFF; m->gid = dono >> 16; }
+    else if (ponto_comum(ponto)) { m->uid = UID_ROOT; m->gid = GID_ROOT; }
+    else { m->uid = UID_SAGUI; m->gid = GID_SAGUI; }
+    m->umask = (opcoes & MONTAR_COM_UMASK) ? MONTAR_UMASK(opcoes) : ponto_comum(ponto) ? 0 : UMASK_PADRAO;
     txt_copia_n(m->tipo, d->cd ? fs->nome : d->tipo_fs, sizeof m->tipo);   /* D233: el que se usó */
     d->montagem = m;
     bool so_leitura = (opcoes & MONTAR_SO_LEITURA) != 0;
@@ -271,8 +323,9 @@ int montagem_desmontar(montagem_t *m, bool gravar)
         no_t *x = vfs_achar(m->ponto);
         if (x && !x->filho) vfs_remover_pasta(m->ponto);
     }
-    klog("[MONTAGEM] %s desmontado de %s%s\n", d->nome, m->ponto, gravar ? "" : " sem gravar");
     disco_t *raiz = disco_raiz(d);
+    if (gravar) disco_sincronizar(raiz);   /* D281: lo diferido de la caché de bloques, antes de dar el volumen por libre */
+    klog("[MONTAGEM] %s desmontado de %s%s\n", d->nome, m->ponto, gravar ? "" : " sem gravar");
     if (gravar && raiz->removivel && !raiz->de_boot && !disco_montado(raiz))
         disco_avisar(AVISO_DESMONTADO, "Ya puedes retirar el pendrive.");
     return r;
@@ -283,6 +336,7 @@ void montagem_desmontar_tudo(void)
     logs_disco_gravar("apagado o reinicio");   /* D120: antes de soltar nada */
     for (int i = 0; i < MAX_MONTAGENS; i++)
         if (tabela[i].usado) montagem_desmontar(&tabela[i], tabela[i].disco->presente);
+    disco_sincronizar(NULL);   /* D281: apagar o reiniciar: nada diferido se queda en la caché */
 }
 
 /* ------------------------------------------------------------ /etc/fstab */
@@ -300,6 +354,20 @@ static bool proxima_palavra(const char **p, char *saida, size_t max)
     }
     saida[n] = 0;
     return true;
+}
+
+/* D282: el valor de "uid=1000", "gid=sagui", "umask=022" (base 10 u 8). -1 si no se entiende. */
+static int32_t valor_opcao(const char *v, size_t n, int base)
+{
+    if (n == 4 && txt_compara_n(v, "root", 4) == 0) return 0;
+    if (n == 5 && txt_compara_n(v, "sagui", 5) == 0) return UID_SAGUI;
+    if (!n || n > 7) return -1;
+    int32_t x = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (v[i] < '0' || v[i] >= '0' + base) return -1;
+        x = x * base + (v[i] - '0');
+    }
+    return x;
 }
 
 /* Formato de cada línea: dispositivo carpeta tipo opciones. El dispositivo es un
@@ -322,7 +390,7 @@ void fstab_aplicar(disco_t *so_este)
         if (proxima_palavra(&p, disp, sizeof disp) && proxima_palavra(&p, ponto, sizeof ponto)) {
             proxima_palavra(&p, tipo, sizeof tipo);
             proxima_palavra(&p, opc, sizeof opc);
-            uint32_t opcoes = 0;
+            uint32_t opcoes = 0, dono = UID_SAGUI | GID_SAGUI << 16;
             bool pular = false;
             for (const char *o = opc; *o; ) {
                 const char *fim = o;
@@ -331,6 +399,20 @@ void fstab_aplicar(disco_t *so_este)
                 if (n == 2 && txt_compara_n(o, "ro", 2) == 0) opcoes |= MONTAR_SO_LEITURA;
                 if (n == 2 && txt_compara_n(o, "rw", 2) == 0) opcoes |= MONTAR_LEITURA_ESCRITA;
                 if (n == 6 && txt_compara_n(o, "noauto", 6) == 0) pular = true;
+                /* D282: uid=, gid=, umask= (FAT32, ISO 9660, UDF; el ext2 tiene los suyos). */
+                int32_t v;
+                if (n > 4 && txt_compara_n(o, "uid=", 4) == 0 && (v = valor_opcao(o + 4, n - 4, 10)) >= 0 && v <= UID_MAX) {
+                    if (!(opcoes & MONTAR_DONO)) dono = (uint32_t)v | (uint32_t)v << 16;   /* el grupo, el suyo si no se dice */
+                    else dono = (dono & 0xFFFF0000u) | (uint32_t)v;
+                    opcoes |= MONTAR_DONO;
+                }
+                if (n > 4 && txt_compara_n(o, "gid=", 4) == 0 && (v = valor_opcao(o + 4, n - 4, 10)) >= 0 && v <= UID_MAX) {
+                    if (!(opcoes & MONTAR_DONO)) dono = (uint32_t)v << 16 | UID_SAGUI;
+                    else dono = (dono & 0xFFFF) | (uint32_t)v << 16;
+                    opcoes |= MONTAR_DONO;
+                }
+                if (n > 6 && txt_compara_n(o, "umask=", 6) == 0 && (v = valor_opcao(o + 6, n - 6, 8)) >= 0)
+                    opcoes |= MONTAR_COM_MASCARA(v);
                 o = *fim ? fim + 1 : fim;
             }
             disco_t *d = disco_resolver(disp);
@@ -338,7 +420,7 @@ void fstab_aplicar(disco_t *so_este)
             if (!d && !pular && !so_este && txt_comeca_com(disp, "LABEL=SAGUI-"))   /* D179: el arranque sigue sin ella */
                 klog("[FSTAB] %s (%s): no esta en el disco de arranque, se sigue sin ella\n", disp, ponto);
             if (!pular && d && !d->montagem && (!so_este || disco_raiz(d) == so_este) && ponto[0] == '/') {
-                int r = montagem_montar(d, ponto, tipo, opcoes);
+                int r = montagem_montar_dono(d, ponto, tipo, opcoes, dono);
                 klog("[FSTAB] %s -> %s (%s, %s): %d\n", disp, ponto, tipo, opc, r);
             }
         }

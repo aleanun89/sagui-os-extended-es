@@ -1,4 +1,4 @@
-# Usuarios y administrador (D255, mejora 098, fase 1)
+# Usuarios y administrador (D255 y D282, mejora 098, fases 1 y 2)
 
 SaguiOS tiene dos cuentas de persona y una de servicio:
 
@@ -6,15 +6,15 @@ SaguiOS tiene dos cuentas de persona y una de servicio:
 |------------|------|----------|
 | `root`     | 0    | El administrador. Tiene contraseña (o la tendrá la primera vez que se use). |
 | `sagui`    | 1000 | El usuario del escritorio. Entra solo al arrancar: el escritorio, el Terminal y todo lo que se abre desde el menú son `sagui`. |
-| `servicio` | 100  | Servicios que no necesitan ser root (`litemonkey`, `dnsbloqueo`). |
+| `servicio` | 100  | Servicios que no necesitan ser root ni escribir en `/home` (`dnsbloqueo`). `litemonkey`, que guarda sus datos en `/home`, corre como `sagui` (D282). |
 
 `id` y `whoami` dicen con qué cuenta corre cada programa.
 
 ## Qué puede hacer `sagui` y qué no
 
-Todo lo normal: programas, ventanas, archivos (en esta fase no hay permisos de
-archivos: ver más abajo), red, sonido, imprimir capturas, cambiar el fondo, el
-teclado o la resolución, apagar y reiniciar desde el escritorio.
+Todo lo normal: programas, ventanas, sus archivos (los de `/home`, `/tmp`, los
+pendrives; ver «Permisos de archivos»), red, sonido, imprimir capturas, cambiar el
+fondo, el teclado o la resolución, apagar y reiniciar desde el escritorio.
 
 Hace falta ser administrador para: montar y desmontar discos, particionar,
 formatear e instalar, leer o escribir discos en crudo, configurar la red, el
@@ -153,13 +153,58 @@ Cada `.conf` de `/etc/servicios` dice con qué cuenta corre (`usuario=root`,
   `--sin-servicios`): `admin` y `su` no pueden comprobar contraseñas y lo dicen;
   queda el modo rescate.
 
-## Límites de esta fase (pendiente: fases 2 y 3, v8.5)
+## Permisos de archivos (D282, fase 2)
 
-- **No hay permisos de archivos.** `sagui` puede leer y escribir todo menos unas
-  rutas fijas que el kernel protege: no lee la sombra, la clave del servidor SSH,
-  la contraseña del VNC ni `/sistema`; no escribe en `/etc`, `/bin`, `/sistema` ni
-  en las órdenes del gestor de servicios. El resto de `/home`, `/logs`, `/tmp`,
-  `/apps`, `/jogos` y los pendrives, sin barreras.
+Cada archivo y carpeta tiene **dueño**, **grupo** y permisos `rwx` para el dueño,
+el grupo y los demás (más el bit **pegajoso** de `/tmp`: cada uno borra solo lo
+suyo). `ls -l` los muestra y Archivos, en «Propiedades»:
+
+```
+drwxr-xr-x root     root      15/11/2026 10:00  <carpeta>  bin/
+drwx------ root     root      15/11/2026 10:00  <carpeta>  sistema/
+drwxrwxrwt root     root      15/11/2026 10:00  <carpeta>  tmp/
+-rw-r--r-- sagui    sagui     15/11/2026 10:02         5  nota.txt
+```
+
+- **Para leer** un archivo hace falta `r`; **para cambiarlo**, `w`; **para
+  ejecutarlo**, `x`. En una carpeta, `r` deja **ver** lo que hay, `x` deja
+  **entrar** (y llegar a lo de dentro) y `w` deja **crear, borrar y renombrar**.
+- **root lo puede todo.** `sagui` no puede cambiar `/etc`, `/bin` ni el resto del
+  sistema, ni entrar en `/sistema`; sí todo lo de `/home`, `/tmp` y los pendrives.
+- **Lo nuevo** nace `rw-r--r--` (archivos) o `rwxr-xr-x` (carpetas) con la máscara
+  de serie, `umask 022`. `umask 077` en el Terminal hace que nazcan privados
+  (`rw-------`); la heredan los programas que se lanzan desde ahí. Un programa
+  recién compilado o copiado (un ELF) nace ya ejecutable.
+- **Cambiarlos:** `chmod 640 nota.txt`, `chmod u+x,go-w script`, `chmod -R ...`
+  (el dueño o root); `chgrp` (al grupo propio); `chown` solo root
+  (`admin chown sagui:sagui archivo`).
+
+Según dónde esté el archivo:
+
+| Dónde | Dueño y permisos |
+|-------|------------------|
+| El sistema (el ramdisk: `/bin`, `/etc`...) | de root (0755 y 0644); `/home` de `sagui`, `/tmp` 1777, `/sistema` 0700 |
+| ext2 (`/home` persistente, `/jogos`, `/apps`, pendrives de Linux) | los suyos, como en Linux; se guardan |
+| FAT32, CD y DVD (ISO 9660, UDF) | no los guardan: los da el montaje (`uid=`, `gid=`, `umask=`); de serie, de `sagui` con 022 |
+
+En el `/etc/fstab` o con `mount`:
+
+```
+LABEL=DATOS   /datos   auto   rw,uid=root,gid=root,umask=022
+admin mount -o rw,uid=sagui,umask=077 usb0p1 /privado
+```
+
+Mientras haya un solo usuario, **todo lo de `/home` es de `sagui`**: lo que creó root
+ahí (o lo que se guardó antes de esta versión, cuando todo era de root) se ve como
+de `sagui`. Unos pocos secretos se protegen además por su ruta, también en un
+`/home` FAT32: la sombra, la clave privada del servidor SSH y la contraseña del VNC.
+
+## Límites (pendiente: fase 3, v8.4.3)
+
+- Sin setuid, setgid ni ACL; un solo grupo por cuenta.
+- Un pendrive ext2 formateado con SaguiOS antes de la v8.4 es todo de root: `sagui`
+  lo lee pero no escribe en él hasta un `admin chown -R sagui /usb`.
+- Los programas portados (su `libc`: `stat`, `chmod`) aún no ven los permisos reales.
 - Un solo usuario de escritorio y un solo `/home`.
 - Puertos de red bajos (< 1024): cualquiera puede escuchar en ellos.
 - La configuración de red del sistema (DNS, IP fija) sigue donde estaba.

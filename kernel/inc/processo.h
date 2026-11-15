@@ -40,6 +40,7 @@ typedef struct processo {
     uint32_t    uid, gid;
     int32_t     como_uid, como_gid;   /* USU_COMO: identidad del próximo hijo (-1 = la propia) */
     bool        de_servico;       /* desciende del gestor de servicios: no es la sesión local */
+    uint16_t    umask;            /* D282: lo que se quita a los permisos de lo que crea (022) */
     espaco_t    espaco;
     uint32_t    pilha_kernel;     /* base (física = virtual) */
     quadro_t   *quadro;           /* donde quedaron guardados los registros */

@@ -27,7 +27,9 @@ NOMBRES = {"Hola mundo": "hola-mundo", "Calculadora sencilla": "calculadora", "L
            "Formularios modales": "formularios-modales", "Validar una entrada": "validar-entrada",
            "Abrir y guardar": "abrir-guardar", "Pestañas": "pestanas", "Tabla": "tabla", "Numérico": "numerico",
            "Lienzo": "lienzo", "Enlace": "enlace", "Barra de estado": "barra-estado",
-           "Selector de color": "selector-color", "Reloj": "reloj", "Archivo": "archivo"}
+           "Selector de color": "selector-color", "Reloj": "reloj", "Archivo": "archivo",
+           "Guardar al cerrar": "guardar-al-cerrar", "Botón y ratón": "boton-raton",
+           "Validar al perder el foco": "validar-foco"}
 
 
 def main():

@@ -36,6 +36,7 @@ typedef struct arquivo {
     tv_t    *tv;         /* terminal virtual (D036) */
     socket_t *sock;      /* socket de red (D046) */
     struct fluxo *fluxo; /* flujo de audio (D088) */
+    char    *criado;     /* D282: ruta, si esta apertura lo creó y aún no se escribió el principio */
     int      refs;
 } arquivo_t;
 
@@ -62,7 +63,33 @@ static void arquivo_soltar(arquivo_t *a)
     else if (a->tipo == A_TV_MESTRE || a->tipo == A_TV_ESCRAVO) tv_fechar(a->tv, a->tipo == A_TV_MESTRE);
     else if (a->tipo == A_SOCKET) socket_fechar(a->sock);
     else if (a->tipo == A_AUDIO) audio_fluxo_fechar(a->fluxo);
+    if (a->criado) kfree(a->criado);
     kfree(a);
+}
+
+/* D282: un programa recién creado (compilado, copiado, descargado) se puede
+ * ejecutar sin chmod: si lo primero que se escribe en un archivo que creó esta
+ * misma apertura es la cabecera ELF, recibe la x donde tenga la r. Solo una
+ * vez, y solo en lo creado aquí (nunca en un archivo que ya existía). */
+static void talvez_executavel(arquivo_t *a, const uint8_t *buf, uint32_t n)
+{
+    if (!a->criado) return;
+    char *c = a->criado;
+    a->criado = NULL;
+    if (a->pos == 0 && n >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F') {
+        meta_t m;
+        if (vfs_meta(c, &m) == 0 && m.com_donos)
+            vfs_fixar_meta(c, -1, -1, m.modo | ((m.modo & 0444) >> 2));
+    }
+    kfree(c);
+}
+
+static char *copiar_caminho(const char *c)
+{
+    size_t n = txt_tamanho(c) + 1;
+    char *x = kmalloc(n);
+    if (x) memcpy(x, c, n);
+    return x;
 }
 
 static int fd_livre(processo_t *p)
@@ -142,8 +169,7 @@ int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t 
     if (r < 0) return r;
     if (!(modo & (ABRIR_LER | ABRIR_ESCREVER))) modo |= ABRIR_LER;
     if (modo & (ABRIR_CRIAR | ABRIR_TRUNCAR | ABRIR_ACRESCENTAR)) modo |= ABRIR_ESCREVER;
-    r = permisos_ruta(caminho, (modo & ABRIR_LER ? PERM_LER : 0) | (modo & ABRIR_ESCREVER ? PERM_ESCREVER : 0));   /* D255 */
-    if (r < 0) return r;
+    int quer = (modo & ABRIR_LER ? PERM_LER : 0) | (modo & ABRIR_ESCREVER ? PERM_ESCREVER : 0);
     /* /dev/urandom y /dev/random (D061): el generador del kernel como archivo,
      * para scripts y programas portados. Los dos son lo mismo (no bloquean). */
     if (txt_compara(caminho, "/dev/urandom") == 0 || txt_compara(caminho, "/dev/random") == 0) {
@@ -154,6 +180,11 @@ int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t 
         processo_recursos()->arquivos[fd] = a;
         return fd;
     }
+    /* D282: si existe, sus permisos; si no y se crea, escribir en su carpeta. */
+    meta_t mt;
+    bool existia = !permisos_root(processo_recursos()) ? vfs_meta(caminho, &mt) == 0 : true;
+    r = existia || !(modo & ABRIR_CRIAR) ? permisos_acesso(caminho, quer) : permisos_criar(caminho);
+    if (r < 0) return r;
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) {
@@ -169,14 +200,24 @@ int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t 
         r = m->fs->abrir(m->priv, rel, (int)modo, f->dados, &f->tamanho);
         if (r < 0) { kfree(a); kfree(f); return r; }
         a->mnt = f;
+        /* D282: el ext2 dice 1 si lo creó (con el dueño de quien llama). Si no, y no
+         * existía al comprobarlo, otro lo creó mientras tanto: sus permisos mandan. */
+        if (r != 1 && !existia && permisos_acesso(caminho, quer) < 0) {
+            m->fs->fechar(m->priv, f->dados);
+            kfree(a); kfree(f);
+            return ERRO_ACESSO;
+        }
+        if (r == 1 && m->fs->fixar_meta) a->criado = copiar_caminho(caminho);
         processo_recursos()->arquivos[fd] = a;
         return fd;
     }
     no_t *x = vfs_achar(caminho);
+    bool criou = false;
     if (!x) {
         if (!(modo & ABRIR_CRIAR)) return ERRO_NAO_EXISTE;
         r = vfs_criar(caminho, TIPO_ARQUIVO, &x);
         if (r < 0) return r;
+        criou = true;
     }
     if (x->tipo == TIPO_PASTA) return ERRO_E_PASTA;
     int fd = fd_livre(processo_recursos());
@@ -184,6 +225,7 @@ int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t 
     arquivo_t *a = arquivo_novo(A_NO, (int)modo);
     if (!a) return ERRO_SEM_MEMORIA;
     if (modo & ABRIR_TRUNCAR) vfs_truncar(x);
+    if (criou) a->criado = copiar_caminho(caminho);
     a->no = x;
     vfs_segurar(x);
     processo_recursos()->arquivos[fd] = a;
@@ -245,6 +287,7 @@ static int32_t escrever_em(arquivo_t *a, uint32_t buf, uint32_t n)
     case A_NO: {
         if (!(a->modo & ABRIR_ESCREVER)) return ERRO_ACESSO;
         if (a->modo & ABRIR_ACRESCENTAR) a->pos = a->no->tamanho;
+        talvez_executavel(a, (const uint8_t *)buf, n);
         int r = vfs_escrever(a->no, a->pos, (const void *)buf, n);
         if (r > 0) a->pos += (uint32_t)r;
         return r;
@@ -254,6 +297,7 @@ static int32_t escrever_em(arquivo_t *a, uint32_t buf, uint32_t n)
         if (!mnt_vivo(a)) return ERRO_NAO_EXISTE;
         if (so_leitura(a->mnt->m)) return ERRO_SO_LEITURA;
         if (a->modo & ABRIR_ACRESCENTAR) a->pos = a->mnt->tamanho;
+        talvez_executavel(a, (const uint8_t *)buf, n);
         int r = a->mnt->m->fs->escrever(a->mnt->m->priv, a->mnt->dados, a->pos, (const void *)buf, n, &a->mnt->tamanho);
         if (r > 0) a->pos += (uint32_t)r;
         return r;
@@ -347,6 +391,7 @@ int32_t sis_info_arquivo(uint32_t ptr, uint32_t pinfo, uint32_t c, uint32_t d, u
     if (r < 0) return r;
     info_arquivo_t *info = (info_arquivo_t *)pinfo;
     if (!usuario_ok(info, sizeof *info, true)) return ERRO_ENDERECO;
+    if ((r = permisos_acesso(caminho, 0)) < 0) return r;   /* D282: entrar en sus carpetas */
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) {
@@ -372,6 +417,7 @@ int32_t sis_datas_arquivo(uint32_t ptr, uint32_t pdatas, uint32_t c, uint32_t d,
     datas_arquivo_t *v = (datas_arquivo_t *)pdatas;
     if (!usuario_ok(v, sizeof *v, true)) return ERRO_ENDERECO;
     datas_arquivo_t t = { 0, 0, 0 };
+    if ((r = permisos_acesso(caminho, 0)) < 0) return r;   /* D282 */
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) {
@@ -394,7 +440,7 @@ int32_t sis_criar_pasta(uint32_t ptr, uint32_t b, uint32_t c, uint32_t d, uint32
     char caminho[CAMINHO_MAX];
     int r = caminho_do_usuario(ptr, caminho);
     if (r < 0) return r;
-    if ((r = permisos_ruta(caminho, PERM_ESCREVER)) < 0) return r;   /* D255 */
+    if ((r = permisos_criar(caminho)) < 0) return r;   /* D282 */
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) return !*rel ? ERRO_JA_EXISTE : so_leitura(m) ? ERRO_SO_LEITURA : m->fs->criar_pasta(m->priv, rel);
@@ -407,7 +453,7 @@ int32_t sis_remover_pasta(uint32_t ptr, uint32_t b, uint32_t c, uint32_t d, uint
     char caminho[CAMINHO_MAX];
     int r = caminho_do_usuario(ptr, caminho);
     if (r < 0) return r;
-    if ((r = permisos_ruta(caminho, PERM_ESCREVER)) < 0) return r;   /* D255 */
+    if ((r = permisos_remover(caminho)) < 0) return r;   /* D282 */
     /* No deja eliminar la carpeta en la que algún proceso está. */
     for (int i = 0; i < MAX_PROCESSOS; i++) {
         processo_t *p = processo_indice(i);
@@ -426,7 +472,7 @@ int32_t sis_apagar(uint32_t ptr, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
     char caminho[CAMINHO_MAX];
     int r = caminho_do_usuario(ptr, caminho);
     if (r < 0) return r;
-    if ((r = permisos_ruta(caminho, PERM_ESCREVER)) < 0) return r;   /* D255 */
+    if ((r = permisos_remover(caminho)) < 0) return r;   /* D282 */
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) return !*rel ? ERRO_E_PASTA : so_leitura(m) ? ERRO_SO_LEITURA : m->fs->apagar(m->priv, rel);
@@ -440,6 +486,7 @@ int32_t sis_listar(uint32_t ptr, uint32_t indice, uint32_t pent, uint32_t d, uin
     int r = caminho_do_usuario(ptr, caminho);
     if (r < 0) return r;
     if (!usuario_ok((void *)pent, sizeof(entrada_pasta_t), true)) return ERRO_ENDERECO;
+    if ((r = permisos_acesso(caminho, PERM_LER)) < 0) return r;   /* D282: leer la carpeta */
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) return m->fs->listar(m->priv, rel, (int)indice, (entrada_pasta_t *)pent);
@@ -452,6 +499,7 @@ int32_t sis_mudar_pasta(uint32_t ptr, uint32_t b, uint32_t c, uint32_t d, uint32
     char caminho[CAMINHO_MAX];
     int r = caminho_do_usuario(ptr, caminho);
     if (r < 0) return r;
+    if ((r = permisos_acesso(caminho, PERM_EXECUTAR)) < 0) return r;   /* D282: entrar */
     const char *rel;
     montagem_t *m = montagem_de(caminho, &rel);
     if (m) {
@@ -489,8 +537,26 @@ int32_t sis_renomear(uint32_t po, uint32_t pd, uint32_t c, uint32_t d, uint32_t 
     if (r < 0) return r;
     r = caminho_do_usuario(pd, destino);
     if (r < 0) return r;
-    if ((r = permisos_ruta(origem, PERM_ESCREVER)) < 0 || (r = permisos_ruta(destino, PERM_ESCREVER)) < 0)
-        return r;   /* D255 */
+    /* D282: quitarlo de su carpeta (y si es pegajosa, ser su dueño) y ponerlo en la
+     * otra: dentro de "destino" si es una carpeta, o en su lugar (reemplazándolo). */
+    if ((r = permisos_remover(origem)) < 0) return r;
+    meta_t mdest;
+    if (vfs_meta(destino, &mdest) == 0 && mdest.tipo == TIPO_PASTA) {
+        if ((r = permisos_acesso(destino, PERM_ESCREVER | PERM_EXECUTAR)) < 0) return r;
+        /* "mv a carpeta" = "carpeta/a": si ya hay uno, se reemplaza (y puede ser un secreto). */
+        char final[CAMINHO_MAX];
+        const char *base = origem;
+        for (const char *p = origem; *p; p++) if (*p == '/') base = p + 1;
+        size_t n = txt_tamanho(destino);
+        if (n + 1 + txt_tamanho(base) + 1 > sizeof final) return ERRO_INVALIDO;
+        txt_copia_n(final, destino, sizeof final);
+        if (n > 1) final[n++] = '/';
+        txt_copia_n(final + n, base, sizeof final - n);
+        r = vfs_meta(final, &mdest) == 0 ? permisos_remover(final) : permisos_ruta(final, PERM_ESCREVER);
+    } else {
+        r = vfs_meta(destino, &mdest) == 0 ? permisos_remover(destino) : permisos_criar(destino);
+    }
+    if (r < 0) return r;
     const char *ro, *rd;
     montagem_t *mo = montagem_de(origem, &ro), *md = montagem_de(destino, &rd);
     if (mo && mo == md) {
@@ -554,6 +620,8 @@ int32_t sis_disponivel(uint32_t fd, uint32_t b, uint32_t c, uint32_t d, uint32_t
     arquivo_t *a = pegar(fd);
     if (!a) return ERRO_DESCRITOR;
     if (a->tipo == A_TV_MESTRE) return tv_mestre_disponivel(a->tv);
+    if (a->tipo == A_TV_ESCRAVO) return tv_escravo_disponivel(a->tv);   /* D317 */
+    if (a->tipo == A_TERMINAL) return terminal_disponivel();            /* D317 */
     if (a->tipo == A_SOCKET) return socket_disponivel(a->sock);
     if (a->tipo != A_PIPE_LER) return ERRO_INVALIDO;
     if (a->pipe->qtd) return (int32_t)a->pipe->qtd;

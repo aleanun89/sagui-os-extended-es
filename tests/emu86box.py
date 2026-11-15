@@ -89,6 +89,13 @@ def xwd_a_png(origen, destino):
     return ancho, alto
 
 
+# xdotool manda la tecla de un teclado de EE. UU. y SaguiOS la lee con la distribución española: los signos
+# van por la tecla que los da en el teclado español (un "-" a secas salía como "'").
+TECLAS_SIGNOS = {" ": "space", "\n": "Return", "\t": "Tab", "-": "slash", "_": "shift+slash", "/": "shift+7",
+                 ".": "period", ",": "comma", ":": "shift+period", "=": "shift+0", "&": "shift+6",
+                 "<": "less", ">": "shift+less"}
+
+
 class Maquina86Box:
     """Una máquina de tools/86box/maquinas arrancando una imagen de SaguiOS (disco IDE raw)."""
 
@@ -294,9 +301,14 @@ class Maquina86Box:
         self._xdo("key", nome)
         time.sleep(self.ritmo if espera is None else espera)
 
+    # D307: SaguiOS lee el teclado con la distribución española y el X de 86Box manda la posición
+    # de la tecla de un teclado estadounidense: los signos se escriben por su sitio en el ES.
+    TECLAS_ES = {" ": "space", "\n": "Return", "\t": "Tab", "-": "slash", "_": "shift+slash", "/": "shift+7",
+                 ".": "period", ",": "comma", ":": "shift+period", ";": "shift+comma", "=": "shift+0"}
+
     def digitar(self, texto, espera=None):
         for c in texto:
-            self.tecla({" ": "space", "\n": "Return", "\t": "Tab"}.get(c, c), espera)
+            self.tecla(TECLAS_SIGNOS.get(c, c), espera)
 
     def comando(self, texto, tempo=60):
         """Escribe una orden en el terminal y espera el prompt siguiente (por el serie)."""

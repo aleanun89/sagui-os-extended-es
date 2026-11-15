@@ -1,0 +1,23 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Botón y ratón'
+  ancho = 350
+  alto = 170
+control Boton Boton1
+  x = 24
+  y = 24
+  ancho = 160
+  alto = 40
+  texto = 'Pasa el ratón por aquí'
+control Etiqueta Etiqueta1
+  x = 24
+  y = 80
+  ancho = 300
+control Etiqueta Etiqueta2
+  x = 24
+  y = 104
+  ancho = 300
+control Etiqueta Etiqueta3
+  x = 24
+  y = 128
+  ancho = 300

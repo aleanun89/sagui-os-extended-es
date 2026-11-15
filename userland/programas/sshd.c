@@ -48,6 +48,7 @@
 #include "cripto.h"
 #include "servicos.h"
 #include "sshd_logica.h"
+#include "ssh_transporte.h"   /* D317: paquetes, H y claves, comunes con el cliente ssh */
 
 #define VERSAO_SSH     "SSH-2.0-SaguiOS_sshd_1.0"
 #define PKT_MAX        35000u            /* tamaño máximo de un paquete (RFC 4253, 6.1) */
@@ -472,18 +473,11 @@ static void fatal(const char *motivo)
 static void enviar(const uint8_t *pl, unsigned n)
 {
     if (n > MSG_MAX) fatal("mensaje propio demasiado grande");
-    unsigned base = cif_tx ? 1 + n : 5 + n;
-    unsigned pad = 8 - base % 8;
-    if (pad < 4) pad += 8;
-    unsigned tam = 1 + n + pad;
-    tx[0] = (uint8_t)(tam >> 24); tx[1] = (uint8_t)(tam >> 16); tx[2] = (uint8_t)(tam >> 8); tx[3] = (uint8_t)tam;
-    tx[4] = (uint8_t)pad;
-    memcpy(tx + 5, pl, n);
+    unsigned pad = ssh_pacote_relleno(n, cif_tx);
     if (enchimento_pos + pad > sizeof enchimento) { cripto_aleatorio(enchimento, sizeof enchimento); enchimento_pos = 0; }
-    memcpy(tx + 5 + n, enchimento + enchimento_pos, pad);
+    unsigned total = ssh_pacote_montar(tx, PKT_MAX + 64, pl, n, enchimento + enchimento_pos, cif_tx ? ch_tx : NULL, seq_tx);
     enchimento_pos += pad;
-    unsigned total = 4 + tam;
-    if (cif_tx) { ssh_chapoly_selar(ch_tx, seq_tx, tx, tam); total += 16; }
+    if (!total) fatal("mensaje propio demasiado grande");
     seq_tx++;
     pacotes_chave++;
     if (escrever_tudo(sk, tx, total) != (int)total) {
@@ -541,27 +535,17 @@ static int rx_encher(unsigned ms)
  * mirar nada más que el tamaño. */
 static int pacote_tentar(const uint8_t **pl, unsigned *pn)
 {
-    unsigned tem = rx_fim - rx_ini;
-    if (tem < 4) return 0;
-    uint8_t *p = rx + rx_ini;
-    uint32_t tam;
-    if (cif_rx) {
-        if (!rx_tam_ok) { rx_tam = ssh_chapoly_tamanho(ch_rx, seq_rx, p); rx_tam_ok = true; }
-        tam = rx_tam;
-    } else tam = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
-    if (tam < 8 || tam > PKT_MAX || (cif_rx ? tam : tam + 4) % 8 || (!cif_rx && tam < 12)) {
+    unsigned total;
+    int r = ssh_pacote_extrair(rx + rx_ini, rx_fim - rx_ini, cif_rx ? ch_rx : NULL, seq_rx, PKT_MAX,
+                               &rx_tam_ok, &rx_tam, pl, pn, &total);
+    if (r == SSH_PKT_FALTA) return 0;
+    if (r == SSH_PKT_TAMANHO) {
         /* con cifrado, un tamaño absurdo es un paquete manipulado: se corta sin más */
         if (cif_rx) fatal("tamaño de paquete no válido");
         desconectar(D_PROTOCOLO, "tamaño de paquete no válido");
     }
-    unsigned total = 4 + tam + (cif_rx ? 16 : 0);
-    if (tem < total) return 0;
-    if (cif_rx && !ssh_chapoly_abrir(ch_rx, seq_rx, p, tam)) fatal("la etiqueta (MAC) de un paquete no coincide");
-    rx_tam_ok = false;
-    unsigned pad = p[4];
-    if (pad < 4 || pad + 1 >= tam) desconectar(D_PROTOCOLO, "relleno de paquete no válido");
-    *pl = p + 5;
-    *pn = tam - pad - 1;
+    if (r == SSH_PKT_MAC) fatal("la etiqueta (MAC) de un paquete no coincide");
+    if (r == SSH_PKT_RELLENO) desconectar(D_PROTOCOLO, "relleno de paquete no válido");
     rx_ini += total;
     seq_rx++;
     pacotes_chave++;
@@ -577,28 +561,10 @@ static void pacote_esperar(const uint8_t **pl, unsigned *pn, unsigned ms)
     }
 }
 
-static void h_texto(sha256_t *h, const void *p, unsigned n)
-{
-    uint8_t t[4] = { (uint8_t)(n >> 24), (uint8_t)(n >> 16), (uint8_t)(n >> 8), (uint8_t)n };
-    sha256_somar(h, t, 4);
-    sha256_somar(h, p, n);
-}
-
-/* Claves de 64 bytes (RFC 4253, 7.2): HASH(K || H || letra || id) y su prolongación. */
+/* Claves de 64 bytes (RFC 4253, 7.2), con el id de esta sesión. */
 static void derivar(uint8_t saida[64], const uint8_t *k_mp, unsigned nk, const uint8_t hh[32], char letra)
 {
-    sha256_t h;
-    sha256_iniciar(&h);
-    sha256_somar(&h, k_mp, nk);
-    sha256_somar(&h, hh, 32);
-    sha256_somar(&h, &letra, 1);
-    sha256_somar(&h, sessao_id, 32);
-    sha256_fim(&h, saida);
-    sha256_iniciar(&h);
-    sha256_somar(&h, k_mp, nk);
-    sha256_somar(&h, hh, 32);
-    sha256_somar(&h, saida, 32);
-    sha256_fim(&h, saida + 32);
+    ssh_derivar(saida, k_mp, nk, hh, letra, sessao_id);
 }
 
 /* Durante un intercambio solo pueden llegar sus mensajes; fuera del modo
@@ -697,17 +663,7 @@ static void trocar_chaves(const uint8_t *ic, unsigned nic)
     ssh_blob_montar(blob, srv_publica);
 
     /* H = SHA-256(V_C, V_S, I_C, I_S, K_S, Q_C, Q_S, K)   (RFC 5656, 4 / RFC 8731) */
-    sha256_t h;
-    sha256_iniciar(&h);
-    h_texto(&h, v_cliente, (unsigned)tam_texto(v_cliente));
-    h_texto(&h, VERSAO_SSH, sizeof VERSAO_SSH - 1);
-    h_texto(&h, ic, nic);
-    h_texto(&h, is, e.n);
-    h_texto(&h, blob, sizeof blob);
-    h_texto(&h, qc, 32);
-    h_texto(&h, qs, 32);
-    sha256_somar(&h, k_mp, ek.n);
-    sha256_fim(&h, hh);
+    ssh_hash_troca(hh, v_cliente, VERSAO_SSH, ic, nic, is, e.n, blob, sizeof blob, qc, qs, k_mp, ek.n);
     if (!tem_sessao) { memcpy(sessao_id, hh, 32); tem_sessao = true; }
     ed25519_assinar(assin, hh, 32, srv_semente, srv_publica);
 

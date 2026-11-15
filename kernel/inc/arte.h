@@ -25,6 +25,7 @@ extern const desenho_t arte_mini_exploradorbd;   /* mejora 127: Explorador de ba
 extern const desenho_t arte_mini_pluma;   /* mejora 116: el procesador de textos */
 extern const desenho_t arte_mini_macaco;   /* melhoria 078: a folha de calculo */
 extern const desenho_t arte_mini_gebramini;   /* mejora 128: geometría dinámica */
+extern const desenho_t arte_mini_planomini;   /* mejora 129: mini CAD 2D */
 extern const desenho_t arte_mini_jclic;   /* D185: actividades JClic */
 extern const desenho_t arte_mini_jclicbajar;   /* D185: bajar actividades JClic */
 #ifndef SAGUI_SEM_GPL

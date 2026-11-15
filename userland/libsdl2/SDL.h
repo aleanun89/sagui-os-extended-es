@@ -624,6 +624,23 @@ typedef struct SDL_MouseWheelEvent {
     float preciseX, preciseY;
 } SDL_MouseWheelEvent;
 typedef struct SDL_JoyDeviceEvent { Uint32 type, timestamp; Sint32 which; } SDL_JoyDeviceEvent;
+typedef struct SDL_JoyAxisEvent {
+    Uint32 type, timestamp;
+    SDL_JoystickID which;
+    Uint8 axis, padding1, padding2, padding3;
+    Sint16 value;
+    Uint16 padding4;
+} SDL_JoyAxisEvent;
+typedef struct SDL_JoyHatEvent {
+    Uint32 type, timestamp;
+    SDL_JoystickID which;
+    Uint8 hat, value, padding1, padding2;
+} SDL_JoyHatEvent;
+typedef struct SDL_JoyButtonEvent {
+    Uint32 type, timestamp;
+    SDL_JoystickID which;
+    Uint8 button, state, padding1, padding2;
+} SDL_JoyButtonEvent;
 typedef struct SDL_ControllerDeviceEvent { Uint32 type, timestamp; Sint32 which; } SDL_ControllerDeviceEvent;
 typedef struct SDL_ControllerAxisEvent {
     Uint32 type, timestamp;
@@ -655,6 +672,9 @@ typedef union SDL_Event {
     SDL_MouseButtonEvent button;
     SDL_MouseWheelEvent wheel;
     SDL_JoyDeviceEvent jdevice;
+    SDL_JoyAxisEvent jaxis;
+    SDL_JoyHatEvent jhat;
+    SDL_JoyButtonEvent jbutton;
     SDL_ControllerDeviceEvent cdevice;
     SDL_ControllerAxisEvent caxis;
     SDL_ControllerButtonEvent cbutton;
@@ -746,7 +766,10 @@ int  SDL_GetNumAudioDevices(int captura);
 const char *SDL_GetAudioDeviceName(int indice, int captura);
 const char *SDL_GetCurrentAudioDriver(void);
 
-/* ---- mandos y joysticks: no hay ninguno ---- */
+/* ---- mandos y joysticks (D307): los del sistema (USB HID, Xbox 360, puerto de juegos) ----
+ * Todos se pueden abrir como SDL_GameController: el Xbox 360 y los Logitech con su mapeo
+ * conocido; los demás, con uno genérico (botones 1-4 = A B X Y, 5-6 hombros, 7-8 gatillos,
+ * 9 Back, 10 Start; ejes 1-2 stick izquierdo, 3-4 derecho; hat 1 = cruceta). */
 typedef struct SDL_Joystick SDL_Joystick;
 typedef struct SDL_GameController SDL_GameController;
 typedef enum {
@@ -787,6 +810,31 @@ Uint8 SDL_GameControllerGetButton(SDL_GameController *c, SDL_GameControllerButto
 const char *SDL_GameControllerName(SDL_GameController *c);
 int SDL_GameControllerEventState(int estado);
 int SDL_JoystickEventState(int estado);
+typedef struct { Uint8 data[16]; } SDL_JoystickGUID;
+const char *SDL_JoystickName(SDL_Joystick *j);
+const char *SDL_JoystickNameForIndex(int indice);
+int SDL_JoystickNumAxes(SDL_Joystick *j);
+int SDL_JoystickNumButtons(SDL_Joystick *j);
+int SDL_JoystickNumHats(SDL_Joystick *j);
+int SDL_JoystickNumBalls(SDL_Joystick *j);
+Sint16 SDL_JoystickGetAxis(SDL_Joystick *j, int eixo);
+Uint8 SDL_JoystickGetButton(SDL_Joystick *j, int botao);
+Uint8 SDL_JoystickGetHat(SDL_Joystick *j, int chapeu);
+void SDL_JoystickUpdate(void);
+SDL_JoystickID SDL_JoystickInstanceID(SDL_Joystick *j);
+SDL_JoystickID SDL_JoystickGetDeviceInstanceID(int indice);
+SDL_bool SDL_JoystickGetAttached(SDL_Joystick *j);
+SDL_Joystick *SDL_JoystickFromInstanceID(SDL_JoystickID id);
+Uint16 SDL_JoystickGetVendor(SDL_Joystick *j);
+Uint16 SDL_JoystickGetProduct(SDL_Joystick *j);
+SDL_JoystickGUID SDL_JoystickGetGUID(SDL_Joystick *j);
+SDL_JoystickGUID SDL_JoystickGetDeviceGUID(int indice);
+void SDL_JoystickGetGUIDString(SDL_JoystickGUID guid, char *texto, int max);
+SDL_Joystick *SDL_GameControllerGetJoystick(SDL_GameController *c);
+void SDL_GameControllerUpdate(void);
+char *SDL_GameControllerMapping(SDL_GameController *c);
+int SDL_GameControllerAddMapping(const char *mapeo);
+int SDL_GameControllerAddMappingsFromFile(const char *arquivo);
 
 /* ---- caja de mensaje, portapapeles, rutas ---- */
 #define SDL_MESSAGEBOX_ERROR       0x00000010

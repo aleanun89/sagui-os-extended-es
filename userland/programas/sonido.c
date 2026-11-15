@@ -19,6 +19,11 @@
  *   sonido --guardados            muestra lo guardado para este modelo
  *   sonido --olvidar              borra lo guardado para este modelo
  *
+ * Con la Sound Blaster 16 (D302):
+ *   sonido                        resumen: puerto, IRQ, DMA, DSP, OPL y el mezclador CT1745
+ *   sonido --mezclador [CANAL N]  muestra o cambia (0-100) un canal del CT1745: maestro, pcm,
+ *                                 linea, cd, micro (hacia la salida) o altavoz (el del PC)
+ *
  * Los NODO, VERBO, CARGA, DATOS y MASCARA van en hexadecimal (con o sin
  * 0x). Los cambios duran hasta reiniciar: sirven para descubrir en un
  * portátil qué pin o GPIO enciende cada altavoz sin recompilar el kernel.
@@ -100,7 +105,7 @@ static bool estado(info_hda_t *i)
 {
     int r = audio_hda(HDA_OP_ESTADO, (unsigned)i, sizeof *i);
     if (r < 0) {
-        imprimir_em(ERROS, "sonido: no hay tarjeta HDA con driver (solo AC'97, el altavoz del PC o nada)\n");
+        imprimir_em(ERROS, "sonido: no hay tarjeta HDA ni Sound Blaster 16 con driver (solo AC'97, el altavoz del PC o nada)\n");
         return false;
     }
     return true;
@@ -398,11 +403,65 @@ static int recorrer(const info_hda_t *i, bool aplicar)
 
 /* ------------------------------------------------------------ principal */
 
+/* ------------------------------------------------------------ Sound Blaster 16 (D302) */
+
+static const char *const sb_canal[SB16_CANALES] = { "maestro", "pcm", "linea", "cd", "micro", "altavoz" };
+
+static void sb_niveles(const info_sb16_t *s)
+{
+    imprimir("Mezclador CT1745:");
+    for (int c = 0; c < SB16_CANALES; c++) imprimir("%s %s %u", c ? "," : "", sb_canal[c], s->nivel[c]);
+    imprimir("\n");
+}
+
+static void sb_dma(char *t, unsigned n, unsigned c)
+{
+    if (c == 0xFF) copia_texto(t, "ninguno", n);
+    else formatar_texto(t, n, "%u", c);
+}
+
+static int sonido_sb16(info_sb16_t *s, int argc, char **argv, int a)
+{
+    if (a >= argc) {
+        char d8[12], d16[12];
+        sb_dma(d8, sizeof d8, s->dma8);
+        sb_dma(d16, sizeof d16, s->dma16);
+        imprimir("Sound Blaster 16: puerto %xh, IRQ %s%u, DMA %s (8 bits) y %s (16 bits), DSP %u.%02u\n", s->puerto,
+                 s->irq == 0xFF ? "ninguna " : "", s->irq == 0xFF ? 0 : s->irq, d8, d16, s->dsp_mayor, s->dsp_menor);
+        if (s->opl) imprimir("FM: OPL%u en %xh (detectado; la musica MIDI por FM aun no tiene sintetizador)\n", s->opl, s->opl_puerto);
+        else imprimir("FM: no se detecto un OPL\n");
+        if (s->pnp) imprimir("ISA PnP: %s, configurada por SaguiOS\n", s->pnp_id);
+        else if (s->pnp_id[0]) imprimir("ISA PnP: %s, ya configurada (BIOS)\n", s->pnp_id);
+        imprimir("Estado: %s; IRQ atendidas %u (de 8 bits %u, de 16 bits %u)\n",
+                 s->modo == 1 ? "reproduciendo" : s->modo == 2 ? "grabando" : "parada", s->irqs, s->irqs_8, s->irqs_16);
+        sb_niveles(s);
+        return 0;
+    }
+    const char *op = argv[a++];
+    if (compara_texto(op, "--mezclador") == 0) {
+        if (a >= argc) { sb_niveles(s); return 0; }
+        int c = -1;
+        for (int k = 0; k < SB16_CANALES; k++) if (compara_texto(argv[a], sb_canal[k]) == 0) c = k;
+        int n = a + 1 < argc && argv[a + 1][0] >= '0' && argv[a + 1][0] <= '9' ? texto_para_int(argv[a + 1]) : -1;
+        if (c < 0 || n < 0 || n > 100) {
+            imprimir_em(ERROS, "uso: sonido --mezclador [maestro|pcm|linea|cd|micro|altavoz 0-100]\n");
+            return 1;
+        }
+        audio_hda(SB16_OP_CANAL, (unsigned)c, (unsigned)n);
+        audio_hda(SB16_OP_ESTADO, (unsigned)s, sizeof *s);
+        sb_niveles(s);
+        return 0;
+    }
+    imprimir_em(ERROS, "sonido: con la Sound Blaster 16 solo hay: sonido, sonido --mezclador [CANAL N] y sonido --tono\n");
+    return 1;
+}
+
 static int uso(void)
 {
     imprimir_em(ERROS, "uso: sonido [-n] [--guardar] [--codec | --tono | --gpio DATOS [MASCARA] | --pin NODO on|off |\n"
                        "              --eapd NODO on|off | --auto on|off | --verbo NODO VERBO CARGA]\n"
                        "     sonido --aplicar | --guardados | --olvidar   (ajustes guardados de este modelo)\n"
+                       "     sonido --mezclador [maestro|pcm|linea|cd|micro|altavoz 0-100]   (Sound Blaster 16)\n"
                        "     (numeros en hexadecimal; -n: sin tono despues de un cambio)\n");
     return 1;
 }
@@ -418,6 +477,10 @@ int principal(int argc, char **argv)
         if (audio_volume_mestre(-1) < 0) { imprimir_em(ERROS, "sonido: no hay tarjeta de sonido\n"); return 1; }
         tono();
         return 0;
+    }
+    {
+        static info_sb16_t sb;
+        if (audio_hda(SB16_OP_ESTADO, (unsigned)&sb, sizeof sb) == 0) return sonido_sb16(&sb, argc, argv, a);
     }
     info_hda_t i;
     if (!estado(&i)) return 1;

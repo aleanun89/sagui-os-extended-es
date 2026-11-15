@@ -312,7 +312,7 @@ ext2 no tiene journal; se compensa con disciplina:
       medido en el G470 y sin crecer al añadir programas
 - [ ] La RAM ocupada en reposo no crece con el tamaño de `/usr/share`
 - [ ] Dos instancias de un programa comparten su código; las bibliotecas se cargan una vez
-- [ ] Caché de disco con lectura anticipada y escritura diferida; `sync` y desmontaje seguros
+- [x] Caché de disco con lectura anticipada y escritura diferida; `sync` y desmontaje seguros (D281, bloques de 4 KB; la caché de páginas queda pendiente)
 - [ ] Modo rescate, solo lectura automática ante una raíz sucia o dañada, y `fsck` propio
 - [ ] Todas las pruebas de robustez de 5.6 en verde
 - [ ] Decisiones registradas en `docs/decisoes.md` (una por fase)

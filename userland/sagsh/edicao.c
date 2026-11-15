@@ -333,7 +333,7 @@ int ler_linha_editada(const char *texto_prompt, char **saida)
                 reescrever_de(linha, n, cur, cur);
             }
         } else if (t == 12) {                             /* Ctrl+L: limpia la pantalla */
-            mostrar("\x1b[J");
+            mostrar("\x1b[H\x1b[2J");   /* D320: ED 2 ya no lleva el cursor al origen; la consola del kernel ignora «H» */
             prompt();
             reescrever_de(linha, n, 0, cur);
         } else if (t == (0x100 | TECLA_B_CIMA)) {

@@ -83,7 +83,7 @@ def main():
             esperar(m, '"Configuración"')
             time.sleep(1.0)
             j = janela(m.serial(), "Configuración")
-            verificar(j["l"] == 780 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
+            verificar(j["l"] == 840 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
 
             # La pestaña «IA» es la séptima.
             pos = pos_paginas()

@@ -142,7 +142,9 @@ class _TablaW(tk.Frame):
         e.destroy()
         if aceptar and self.ctl is not None:
             self.ctl.poner_celda(f, c, texto)
+            self.ctl.fila, self.ctl.columna = f, c
             self.ctl._disparar("cambio")
+            self.ctl._disparar("celda_cambio")
         self.focus_set()
         self._redesenhar()
 

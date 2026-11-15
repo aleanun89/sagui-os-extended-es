@@ -29,7 +29,7 @@ import h57_paint as h57  # noqa: E402
 APPS = os.path.join(BUILD, "apps", "raiz")
 TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto")
 Y_PAG = 50
-FN_VX, FN_VY, FN_VL, FN_VA = 24 + 270 + 16, Y_PAG + 24, 780 - (24 + 270 + 16) - 24, 190
+FN_VX, FN_VY, FN_VL, FN_VA = 24 + 270 + 16, Y_PAG + 24, 840 - (24 + 270 + 16) - 24, 190
 BORDA, TITULO = 2, 24
 
 

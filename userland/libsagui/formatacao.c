@@ -280,6 +280,18 @@ static void inodo_pasta(uint8_t *in, uint32_t modo, uint32_t links, uint32_t blo
     po32(in + 40, bloco);
 }
 
+/* D282: la carpeta raíz de lo que formatea SaguiOS es de sagui (un pendrive, /home,
+ * los juegos: la persona escribe ahí), salvo las particiones del sistema
+ * (configuración, aplicaciones, /tmp y /logs, que el kernel deja en 1777). */
+static void dono_raiz(uint8_t *in, const char *rotulo)
+{
+    bool sistema = rotulo && (comeca_com(rotulo, "SAGUI-CONF") || comeca_com(rotulo, "SAGUI-APPS") ||
+                              comeca_com(rotulo, "SAGUI-TMP") || comeca_com(rotulo, "SAGUI-LOGS"));
+    uint32_t id = sistema ? 0 : 1000;
+    po16(in + 2, id);
+    po16(in + 24, id);
+}
+
 static void entrada_dir(uint8_t *e, uint32_t inodo, uint32_t rec, const char *nome)
 {
     uint32_t n = (uint32_t)tam_texto(nome);
@@ -333,10 +345,11 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     uint32_t it0 = g.fdb + 1 + g.gdt + 2;
     memset(b, 0, g.bs);
     inodo_pasta(b + 1 * 128, 040755, 3, raiz_blk, g.bs, agora);
+    dono_raiz(b + 1 * 128, rotulo);
     if ((r = escrever_bloco(vol, &g, it0, b)) < 0) goto falha;
     memset(b, 0, g.bs);
     uint32_t bloco_lf = (11 - 1) * 128 / g.bs, desl_lf = (11 - 1) * 128 % g.bs;
-    if (bloco_lf == 0) inodo_pasta(b + 1 * 128, 040755, 3, raiz_blk, g.bs, agora);
+    if (bloco_lf == 0) { inodo_pasta(b + 1 * 128, 040755, 3, raiz_blk, g.bs, agora); dono_raiz(b + 1 * 128, rotulo); }
     inodo_pasta(b + desl_lf, 040700, 2, lf_blk, g.bs, agora);
     if ((r = escrever_bloco(vol, &g, it0 + bloco_lf, b)) < 0) goto falha;
     memset(b, 0, g.bs);

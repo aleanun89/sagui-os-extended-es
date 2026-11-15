@@ -98,7 +98,8 @@ def usb_prueba_byte(texto):
 
 
 # D195: el byte CAB_ACEL2D de la cabecera (kernel/inc/acel2d.h).
-ACEL2D_MODOS = {"auto": 0, "cpu": 1, "vmware": 2, "intel": 3, "radeon": 4, "nvidia": 6}
+ACEL2D_MODOS = {"auto": 0, "cpu": 1, "vmware": 2, "intel": 3, "radeon": 4, "nvidia": 6, "tdfx": 7,
+                "mach64": 8, "s3": 9}
 ACEL2D_PRUEBA = {"": 0, "pixel": 0x10, "tiempo": 0x20}
 
 
@@ -205,14 +206,24 @@ def main():
     ap.add_argument("--sin-acel2d", action="store_true",
                     help="2D del escritorio siempre con la CPU, sin acelerador de la GPU (D195)")
     ap.add_argument("--acel2d", default="auto", choices=sorted(ACEL2D_MODOS),
-                    help="acelerador 2D: auto (por el PCI, lo normal), cpu, o forzar vmware, intel, radeon o nvidia "
-                         "(D195; radeon incluye las R6xx, que solas no se eligen, D223; nvidia, D224)")
+                    help="acelerador 2D: auto (por el PCI, lo normal), cpu, o forzar vmware, intel, radeon, nvidia, "
+                         "tdfx, mach64 o s3 (D195; radeon incluye las R6xx, que solas no se eligen, D223; nvidia, D224; "
+                         "tdfx: 3dfx Banshee/Voodoo3/Voodoo4/5, D305; mach64: ATI Mach64/Rage, s3: S3 Trio64/ViRGE, D308)")
     ap.add_argument("--irq-prueba", default="",
                     help="D211 (solo pruebas): fallos simulados de la autoprueba de las IRQ, separados por comas: "
                          "prt-errada (GSI del _PRT equivocada), isa-errada (la entrada ISA no entrega), tormenta (D244: simula una en la IRQ 11 a los 2 s)")
+    ap.add_argument("--mandos-prueba", action="store_true",
+                    help="D307: registra dos mandos de prueba (Dual Action por el analizador HID y Xbox 360) "
+                         "y acepta informes inyectados (solo para las pruebas)")
     ap.add_argument("--usb-prueba", default="",
                     help="D227 (solo pruebas): fallos simulados de la enumeración USB, separados por comas: "
                          "primer-intento (el primer intento de cada conexión falla), siempre (fallan todos)")
+    ap.add_argument("--sem-dma", action="store_true",
+                    help="D281: el IDE por PIO aunque el controlador tenga Bus Master (para comparar y por si falla)")
+    ap.add_argument("--sem-cache-disco", action="store_true",
+                    help="D281: sin caché de bloques común (cada lectura y grabación va al disco)")
+    ap.add_argument("--sin-escritura-diferida", action="store_true",
+                    help="D281: la caché de bloques graba al instante (sin escritura diferida)")
     ap.add_argument("--acel2d-prueba", default="", choices=("", "pixel", "tiempo"),
                     help="solo pruebas: la autoprueba del acelerador falla a propósito (un píxel distinto o tiempo agotado)")
     ap.add_argument("--gpu3d", default="auto", choices=sorted(GPU3D_MODOS),
@@ -365,6 +376,11 @@ def main():
     cab += struct.pack("<B", irq_prueba_byte(a.irq_prueba))   # CAB_IRQ_PRUEBA (140, D211): fallos simulados
     cab += struct.pack("<B", usb_prueba_byte(a.usb_prueba))   # CAB_USB_PRUEBA (141, D227): fallos simulados
     cab += struct.pack("<B", gpu3d_byte(a))                   # CAB_GPU3D (142, D285): 3D por la GPU
+    assert len(cab) == 143, "CAB_DISCO_OPC tiene que caer en el byte 143"
+    cab += struct.pack("<B", (1 if a.sem_dma else 0) | (2 if a.sem_cache_disco else 0) | (4 if a.sin_escritura_diferida else 0))   # CAB_DISCO_OPC (143, D281)
+    # 144-155 = CAB_ID_INSTALACAO (D179: lo escribe «instalar»).
+    cab = cab.ljust(156, b"\0")
+    cab += struct.pack("<B", 1 if a.mandos_prueba else 0)    # CAB_MANDOS_PRUEBA (156, D307): mandos de prueba
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre
     # desde el LBA 1 hasta el fin del archivo y es la única, marcada como activa (0x80),
@@ -582,6 +598,57 @@ def texto_leeme(ponto, tipo):
             "Lo que guardes aquí sigue aquí después de reiniciar SaguiOS.\n")
 
 
+# D282: dueños de las particiones ext2 (mke2fs -d copia el uid de quien compila, que
+# en otro PC no es 1000). /home y /jogos son de sagui (la persona escribe ahí); el
+# resto, de root (/apps: solo root instala programas). El kernel da a /tmp y /logs el
+# 1777 por su cuenta, sea cual sea el sistema de archivos.
+def dono_da_particao(ponto):
+    return (1000, 1000) if ponto in ("/home", "/jogos") else (0, 0)
+
+
+# D282: carpetas de sagui dentro de una partición de root (VisualPythonS genera en /apps/vps, D297).
+PASTAS_DE_SAGUI = {"/apps": ("/vps",)}
+
+
+def normalizar_donos(saida, inicio, conteudo, uid, gid, ponto=""):
+    """D282: deja lo copiado con -d con el dueño de la partición y permisos limpios
+    (carpetas 0755; archivos 0755 si eran ejecutables, si no 0644), con debugfs. Si
+    no está, se queda como lo dejó mke2fs (el uid de quien compila) y se avisa."""
+    debugfs = achar_ferramenta("debugfs")
+    if not debugfs:
+        print("mkimagem: aviso: sin debugfs, los archivos de la partición quedan con el dueño de quien compila")
+        return
+    ordens = []
+    for raiz, pastas, arqs in os.walk(conteudo):
+        for n in sorted(pastas) + sorted(arqs):
+            real = os.path.join(raiz, n)
+            if os.path.islink(real):
+                continue
+            rel = "/" + os.path.relpath(real, conteudo).replace(os.sep, "/")
+            if '"' in rel or "\n" in rel:
+                continue
+            if os.path.isdir(real):
+                modo = 0o40755
+            else:
+                modo = 0o100755 if os.stat(real).st_mode & 0o111 else 0o100644
+            ordens += [f'sif "{rel}" uid {uid}', f'sif "{rel}" gid {gid}', f'sif "{rel}" mode 0{modo:o}']
+    # /apps es de root, pero VisualPythonS (D297) guarda ahí, como sagui, las aplicaciones que genera:
+    # /apps/vps se crea ya de sagui (si no existe, «mkdir» falla sin más y el «sif» lo corrige).
+    for rel in PASTAS_DE_SAGUI.get(ponto, ()):
+        ordens += [f'mkdir "{rel}"', f'sif "{rel}" uid 1000', f'sif "{rel}" gid 1000', f'sif "{rel}" mode 040755']
+    if not ordens:
+        return
+    with tempfile.NamedTemporaryFile("w", suffix=".debugfs", delete=False) as g:
+        g.write("\n".join(ordens) + "\n")
+        nome = g.name
+    try:
+        subprocess.run([debugfs, "-w", "-f", nome, f"{saida}?offset={inicio * SETOR}"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       env=dict(os.environ, E2FSPROGS_FAKE_TIME=os.environ.get("SOURCE_DATE_EPOCH", "1762905600")))
+    finally:
+        os.unlink(nome)
+
+
 def formatar_particao(saida, inicio, mb, fs, etiqueta, ponto, mke2fs, mkfs_vfat, mcopy, conteudo_pronto=None):
     """Formatea una partición dentro del archivo (desplazamiento en sectores) y copia su leeme.txt.
     Con conteudo_pronto (solo ext2, las particiones del sistema: juegos, D181, y aplicaciones,
@@ -592,14 +659,16 @@ def formatar_particao(saida, inicio, mb, fs, etiqueta, ponto, mke2fs, mkfs_vfat,
     with open(saida, "r+b") as f:
         f.truncate(max(os.path.getsize(saida), (inicio + qtd) * SETOR))
     with tempfile.TemporaryDirectory() as tmp:
+        uid, gid = dono_da_particao(ponto)
         if fs == "ext2" and conteudo_pronto:
             uuid, semente = UUIDS_SISTEMA[etiqueta]
             subprocess.run([mke2fs, "-q", "-F", "-t", "ext2", "-L", etiqueta, "-m", "0", "-b", "1024",
                             "-U", uuid, "-d", conteudo_pronto,
-                            "-E", f"offset={inicio * SETOR},hash_seed={semente},"
+                            "-E", f"offset={inicio * SETOR},hash_seed={semente},root_owner={uid}:{gid},"
                                   "lazy_itable_init=0,nodiscard", saida, f"{mb * 1024}k"],
                            check=True, stdout=subprocess.DEVNULL,
                            env=dict(os.environ, E2FSPROGS_FAKE_TIME=os.environ.get("SOURCE_DATE_EPOCH", "1762905600")))
+            normalizar_donos(saida, inicio, conteudo_pronto, uid, gid, ponto)
             return 0x83
         if fs == "ext2":
             conteudo = os.path.join(tmp, "conteudo")
@@ -607,8 +676,10 @@ def formatar_particao(saida, inicio, mb, fs, etiqueta, ponto, mke2fs, mkfs_vfat,
             with open(os.path.join(conteudo, "leeme.txt"), "w", encoding="utf-8") as g:
                 g.write(texto_leeme(ponto, "ext2"))
             subprocess.run([mke2fs, "-q", "-F", "-t", "ext2", "-L", etiqueta, "-m", "0", "-d", conteudo,
-                            "-E", f"offset={inicio * SETOR},lazy_itable_init=1,nodiscard", saida, f"{mb * 1024}k"],
+                            "-E", f"offset={inicio * SETOR},root_owner={uid}:{gid},lazy_itable_init=1,nodiscard",
+                            saida, f"{mb * 1024}k"],
                            check=True, stdout=subprocess.DEVNULL)
+            normalizar_donos(saida, inicio, conteudo, uid, gid, ponto)
             return 0x83
         leeme = os.path.join(tmp, "leeme.txt")
         with open(leeme, "w", encoding="latin-1", newline="\r\n") as g:

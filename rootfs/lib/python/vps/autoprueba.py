@@ -139,6 +139,8 @@ def principal():
     comprobar(c[0] == AZUL and c[9] == NEGRO and c[-1] == VERDE and ROJO in c, "editor: resaltado de Python")
     avanzado()
     componentes()
+    eventos()
+    explorador()
     print("vps-autoprueba: fin")
 
 
@@ -458,6 +460,165 @@ def componentes():
     comprobar(set(AC.SNIPPETS) >= set(["def", "if", "for", "while", "try", "class"]), "sintaxis: plantillas def if for while try class")
     comprobar("tecla" in [m[0] for m in AC.miembros("Formulario")] and "raton_x" in [m[0] for m in AC.miembros("Lienzo")]
               and "cargar_csv" in [m[0] for m in AC.miembros("Tabla")], "autocompletar: miembros de los componentes nuevos")
+
+
+def eventos():
+    """Los eventos nuevos de la v8.4.1 (D315): ratón, foco, teclado, menú contextual, Intro y validar,
+    cambio de Casilla y Opcion, celda_cambio y ordenar de Tabla, y los del formulario (cerrando
+    cancelable, cerrado, activar y desactivar). Se disparan con event_generate sobre los componentes."""
+    f = vps.Formulario("Ev", 320, 220, nombre="FormEv")
+    b = vps.Boton(f, "b", 10, 10, nombre="B1")
+    t = vps.CuadroTexto(f, 10, 50, 150, 22, nombre="T1")
+    t2 = vps.CuadroTexto(f, 10, 80, 150, 22, nombre="T2")
+    ca = vps.Casilla(f, "c", 10, 110, nombre="Ca1")
+    op = vps.Opcion(f, "o", 100, 110, nombre="Op1")
+    tb = vps.Tabla(f, 10, 140, 200, 60, nombre="Tb1")
+    tb.columnas = ["A", "B"]
+    tb.filas = ["2;x", "1;y"]
+    reg = []
+    comunes = vps.EVENTOS_COMUNES
+    comprobar(len(comunes) == 12 and "raton_entra" in comunes and "menu_contextual" in comunes, "eventos: los doce comunes")
+    comprobar(all(e in vps.Boton.EVENTOS for e in comunes) and "intro" in vps.CuadroTexto.EVENTOS
+              and "validar" in vps.CuadroTexto.EVENTOS and "celda_cambio" in vps.Tabla.EVENTOS
+              and "ordenar" in vps.Tabla.EVENTOS and "cambio" in vps.Casilla.EVENTOS and "cambio" in vps.Opcion.EVENTOS,
+              "eventos: las listas EVENTOS de las clases incluyen los nuevos")
+    comprobar(all(e in vps.Formulario.EVENTOS for e in ("redimensionar", "activar", "desactivar", "cerrando", "cerrado")),
+              "eventos: los del formulario")
+    comprobar(vps.Temporizador.EVENTOS == ("tic",) and vps.Reloj.EVENTOS == ("tic",) and "raton_mueve" in vps.RejillaDatos.EVENTOS
+              and vps.ConectorBD.EVENTOS[0] == "conectado", "eventos: sin ventana no llevan los comunes; RejillaDatos y ConectorBD siguen")
+    # sin manejador no se calcula nada (y no hay error)
+    b.w.event_generate("<Motion>", x=3, y=4)
+    comprobar(b.raton_x == 0, "eventos: raton_mueve sin manejador no calcula nada")
+    for e in comunes:
+        b.conectar(e, lambda e=e: reg.append(e))
+    b.w.event_generate("<ButtonPress-1>", x=5, y=6, _duplo=True)
+    comprobar(reg == ["doble_click", "raton_abajo"] and b.raton_x == 5 and b.raton_y == 6 and b.boton == 1,
+              "eventos: doble_click y raton_abajo con boton, raton_x y raton_y %r" % (reg,))
+    del reg[:]
+    b.w.event_generate("<ButtonRelease-1>", x=7, y=8)
+    comprobar(reg == ["raton_arriba"] and b.raton_x == 7, "eventos: raton_arriba")
+    del reg[:]
+    b.w.event_generate("<ButtonPress-3>", x=9, y=2)
+    comprobar(reg == ["menu_contextual", "raton_abajo"] and b.boton == 3, "eventos: menu_contextual con el botón derecho %r" % (reg,))
+    del reg[:]
+    b.w.event_generate("<Enter>", x=1, y=1)
+    b.w.event_generate("<Motion>", x=11, y=12)
+    b.w.event_generate("<Leave>", x=0, y=0)
+    comprobar(reg == ["raton_entra", "raton_mueve", "raton_sale"] and b.raton_x == 0 and b.raton_y == 0,
+              "eventos: raton_entra, raton_mueve y raton_sale %r" % (reg,))
+    del reg[:]
+    b.w.event_generate("<MouseWheel>", x=1, y=1, delta=-240)
+    comprobar(reg == ["rueda"] and b.rueda_delta == -2, "eventos: rueda con rueda_delta %r %r" % (reg, b.rueda_delta))
+    del reg[:]
+    b.w.event_generate("<FocusIn>")
+    b.w.event_generate("<FocusOut>")
+    comprobar(reg == ["foco_gana", "foco_pierde"], "eventos: foco_gana y foco_pierde")
+    del reg[:]
+    b.w.event_generate("<KeyPress-q>")
+    comprobar(reg == ["tecla_abajo", "tecla_arriba"] and b.tecla == "q" and b.caracter == "q" and b.ctrl is False and b.mayus is False,
+              "eventos: tecla_abajo y tecla_arriba con tecla y caracter %r" % (reg,))
+    # por el nombre de la función, con el espacio de nombres
+    llamadas = []
+    f._ns = {"B1_raton_entra": lambda: llamadas.append("entra")}
+    b.conectar("click", lambda: None)
+    b.w.event_generate("<Enter>", x=0, y=0)
+    comprobar("entra" in llamadas, "eventos: B1_raton_entra por el nombre")
+    f._ns = None
+    # CuadroTexto: intro y validar
+    t.conectar("intro", lambda: reg.append("intro"))
+    t.conectar("tecla", lambda: reg.append("tecla"))
+    del reg[:]
+    t.w.event_generate("<KeyPress-Return>")
+    comprobar(reg == ["tecla", "intro"], "eventos: intro al pulsar Intro (y tecla sigue disparándose) %r" % (reg,))
+    veces = []
+
+    def validar():
+        veces.append(t.texto)
+        if t.texto == "mal":
+            t.cancelar = True
+    t.conectar("validar", validar)
+    t.texto = "bien"
+    t.w.event_generate("<FocusOut>")
+    comprobar(veces == ["bien"] and t.cancelar is False, "eventos: validar al perder el foco")
+    t.texto = "mal"
+    t.w.event_generate("<FocusOut>")
+    comprobar(veces[-1] == "mal" and t.cancelar is False, "eventos: validar cancelable (el foco vuelve)")
+    # Casilla y Opcion: cambio
+    ca.conectar("cambio", lambda: reg.append("ca"))
+    op.conectar("cambio", lambda: reg.append("op"))
+    del reg[:]
+    ca._pulsado()
+    op._pulsado()
+    comprobar(reg == ["ca", "op"], "eventos: cambio en Casilla y Opcion")
+    # Tabla: ordenar y celda_cambio
+    tb.conectar("ordenar", lambda: reg.append("ordenar"))
+    tb.conectar("celda_cambio", lambda: reg.append("celda"))
+    del reg[:]
+    tb._pulsado(-1, 0)
+    comprobar(reg == ["ordenar"] and tb.columna == 0 and tb.celda(0, 0) == "1", "eventos: ordenar al pulsar la cabecera %r" % (reg,))
+    del reg[:]
+    tb.w.editar(0, 1)
+    tb.w.ent[0].delete(0, "end")
+    tb.w.ent[0].insert(0, "nuevo")
+    tb.w.cerrar_edicion(True)
+    comprobar(reg == ["celda"] and tb.fila == 0 and tb.columna == 1 and tb.celda(0, 1) == "nuevo", "eventos: celda_cambio con fila y columna %r" % (reg,))
+    # formulario: cerrando cancelable, cerrado, activar y desactivar
+    f.conectar("cerrando", lambda: (reg.append("cerrando"), setattr(f, "cancelar", True)))
+    f.conectar("cerrado", lambda: reg.append("cerrado"))
+    f.conectar("activar", lambda: reg.append("activar"))
+    f.conectar("desactivar", lambda: reg.append("desactivar"))
+    del reg[:]
+    f._cargado = True
+    f._activo_f = False
+    f._activar()
+    f._desactivar()
+    comprobar(reg == ["activar", "desactivar"], "eventos: activar y desactivar %r" % (reg,))
+    del reg[:]
+    f._cerrar()
+    comprobar(reg == ["cerrando"] and not f._cerrado and f.cancelar is False, "eventos: cerrando cancelado con cancelar = True %r" % (reg,))
+    f._eventos["cerrando"] = []
+    f.conectar("cerrando", lambda: reg.append("cerrando2"))
+    del reg[:]
+    f._cerrar()
+    comprobar(reg == ["cerrando2", "cerrado"], "eventos: cerrando sin cancelar cierra y dispara cerrado %r" % (reg,))
+    cerrar_todo()
+
+
+def explorador():
+    """El árbol del explorador del proyecto (sin pantalla): estructura, filtro y manejadores."""
+    from vps import _explorador as EX
+    forms = [{"nombre": "Form1", "props": {}, "controles": [
+                {"tipo": "Marco", "nombre": "Marco1", "padre": None, "props": {}},
+                {"tipo": "Boton", "nombre": "Boton1", "padre": "Marco1", "props": {}},
+                {"tipo": "Pestanas", "nombre": "Pestanas1", "padre": None, "props": {"elementos": ["Uno", "Dos"]}},
+                {"tipo": "Etiqueta", "nombre": "Etiqueta1", "padre": "Pestanas1", "props": {"pagina": 1}},
+                {"tipo": "Temporizador", "nombre": "Temporizador1", "padre": None, "props": {}}]},
+             {"nombre": "Form2", "props": {}, "controles": [
+                {"tipo": "Boton", "nombre": "Boton2", "padre": None, "props": {}}]}]
+    codigo = "def Boton1_click():\n    pass\n\ndef ayuda():\n    pass\n\ndef Form2_cargar():\n    pass\ndef Boton2_raton_entra():\n    pass\n"
+    raiz = EX.arbol(forms, "Proj", codigo)
+    filas = [("  " * n) + nodo["t"] for n, nodo in EX.aplanar(raiz, set())]
+    esperado = ["Proj", "  Formularios", "    Form1", "      Marco1", "        Boton1", "      Pestanas1", "        Uno",
+                "        Dos", "          Etiqueta1", "      Temporizador1", "    Form2", "      Boton2", "  Código",
+                "    Boton1_click()", "    Form2_cargar()", "    Boton2_raton_entra()"]
+    comprobar(filas == esperado, "explorador: árbol Proyecto > Formularios > controles, páginas y manejadores %r" % (filas,))
+    comprobar([m[0] for m in EX.manejadores(forms, codigo)] == ["Boton1_click", "Form2_cargar", "Boton2_raton_entra"]
+              and EX.manejadores(forms, codigo)[1][1] == 7, "explorador: solo los manejadores de eventos, con su línea")
+    f = EX.filtrar(raiz, "boton")
+    filas = [nodo["t"] for n, nodo in EX.aplanar(f, set(), True)]
+    comprobar(filas == ["Proj", "Formularios", "Form1", "Marco1", "Boton1", "Form2", "Boton2", "Código", "Boton1_click()",
+                        "Boton2_raton_entra()"], "explorador: el filtro deja los nodos que coinciden y sus ascendientes %r" % (filas,))
+    cerr = set(["f:Form1"])
+    comprobar(len(EX.aplanar(raiz, cerr)) == 9, "explorador: un nodo cerrado esconde a sus hijos")
+    comprobar(EX.filtrar(raiz, "zzzz") is None, "explorador: un filtro sin resultados")
+    M.mover_z(forms[0], forms[0]["controles"][0], True)
+    comprobar([c["nombre"] for c in forms[0]["controles"]] == ["Pestanas1", "Etiqueta1", "Temporizador1", "Marco1", "Boton1"],
+              "explorador: traer al frente mueve el contenedor con sus hijos")
+    M.mover_z(forms[0], forms[0]["controles"][4], False)
+    comprobar([c["nombre"] for c in forms[0]["controles"]] == ["Pestanas1", "Etiqueta1", "Temporizador1", "Marco1", "Boton1"],
+              "explorador: enviar atrás un hijo lo deja justo detrás de su contenedor")
+    M.mover_z(forms[0], forms[0]["controles"][3], False)
+    comprobar(forms[0]["controles"][0]["nombre"] == "Marco1" and forms[0]["controles"][1]["nombre"] == "Boton1", "explorador: enviar atrás")
 
 
 if __name__ == "__main__":
