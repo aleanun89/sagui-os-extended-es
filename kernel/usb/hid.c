@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* hid.c - teclados y ratones USB (clase HID) por el xHCI y por el EHCI (D214).
+/* hid.c - teclados y ratones USB (clase HID) por xHCI, EHCI, UHCI y OHCI (D214, D267).
  *
  * En un PC moderno sin emulación PS/2 en la BIOS, el teclado y el ratón USB
  * son la única forma de manejar el sistema. Aquí:
@@ -263,7 +263,7 @@ static void rato_boot(const uint8_t *r, int n)
 static int ler(hid_t *h, uint8_t *b, int max)
 {
     if (h->d->tipo_ctl == USB_XHCI) return xhci_int_ler(h->d, h->ep, b, max);
-    return ehci_int_ler(h->ehci_h, b, max);
+    return usb_int_ler(h->d, h->ehci_h, b, max);
 }
 
 static void tratar(hid_t *h, const uint8_t *b, int n)
@@ -363,8 +363,8 @@ static void conectar_interface(usb_disp_t *d, usb_hid_if_t *f)
     if (d->tipo_ctl == USB_XHCI) {
         if (xhci_int_armar(d, h.ep, h.tam) < 0) { klog("[HID] no se ha podido armar el endpoint %u\n", h.ep); return; }
     } else {
-        h.ehci_h = ehci_int_abrir(d, h.ep, h.tam);
-        if (h.ehci_h < 0) { klog("[HID] no hay sitio en la lista periodica del EHCI\n"); return; }
+        h.ehci_h = usb_int_abrir(d, h.ep, h.tam);   /* EHCI, UHCI u OHCI (el handle sigue llamándose ehci_h) */
+        if (h.ehci_h < 0) { klog("[HID] no hay sitio en la lista periodica del controlador\n"); return; }
     }
     h.leds = 0xFF;   /* manda las luces en la primera vuelta */
     h.usado = true;
@@ -374,7 +374,7 @@ static void conectar_interface(usb_disp_t *d, usb_hid_if_t *f)
     if (k >= 0) hids[k] = h;
     trava_soltar(&trava_hid);
     if (k < 0) {
-        if (h.ehci_h >= 0) ehci_int_fechar(h.ehci_h);
+        if (h.ehci_h >= 0) usb_int_fechar(d, h.ehci_h);
         klog("[HID] demasiados dispositivos HID\n");
         return;
     }
@@ -384,11 +384,11 @@ static void conectar_interface(usb_disp_t *d, usb_hid_if_t *f)
         klog("[HID] %s USB: %s %s (interfaz %u, endpoint %u, %s, X %u bits, rueda %s, %u botones) por %s\n",
              h.x.absoluto ? "tableta" : "raton", d->fabricante, d->produto, h.interface, h.ep,
              h.x.absoluto ? "posicion absoluta" : "relativo", h.x.tam, h.roda.presente ? "si" : "no", h.n_botoes,
-             d->tipo_ctl == USB_XHCI ? "xHCI" : "EHCI");
+             usb_nome_ctl(d->tipo_ctl));
     else
         klog("[HID] %s USB: %s %s (interfaz %u, endpoint %u, protocolo boot) por %s\n",
              h.tipo == TECLADO ? "teclado" : "raton", d->fabricante, d->produto, h.interface, h.ep,
-             d->tipo_ctl == USB_XHCI ? "xHCI" : "EHCI");
+             usb_nome_ctl(d->tipo_ctl));
     if (!tarefa_criada) {
         tarefa_criada = true;
         xhci_avisar_hid(&canal);
@@ -411,7 +411,7 @@ void hid_desconectar(usb_disp_t *d)
         if (!h->usado || h->d != d) continue;
         if (h->tipo == TECLADO) { teclado_soltar_tudo(h); teclados--; }
         else ratos--;
-        if (h->ehci_h >= 0) ehci_int_fechar(h->ehci_h);
+        if (h->ehci_h >= 0) usb_int_fechar(h->d, h->ehci_h);
         h->usado = false;
         klog("[HID] %s USB desconectado\n", h->tipo == TECLADO ? "teclado" : "raton");
     }
@@ -426,7 +426,7 @@ int hid_relatorio(char *s, int max)
         if (!h->usado) continue;
         k += snformatar(s + k, (size_t)(max - k), "HID: %s USB %s %s por %s, %u informes, %u errores\n",
                         h->tipo == TECLADO ? "teclado" : h->tipo == PONTEIRO && h->x.absoluto ? "tableta" : "ratón",
-                        h->d->fabricante, h->d->produto, h->d->tipo_ctl == USB_XHCI ? "xHCI" : "EHCI",
+                        h->d->fabricante, h->d->produto, usb_nome_ctl(h->d->tipo_ctl),
                         h->relatorios, h->erros);
     }
     return k;

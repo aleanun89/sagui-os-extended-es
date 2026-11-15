@@ -23,6 +23,7 @@ typedef enum { P_LIVRE, P_PRONTO, P_EXECUTANDO, P_BLOQUEADO, P_ZUMBI } estado_t;
 #define EXE_COMUM      0
 #define EXE_SERVICIOS  1   /* /bin/servicios */
 #define EXE_VNCD       2   /* /bin/vncd o /apps/bin/vncd */
+#define EXE_BIN        3   /* D269: cualquier otro programa de /bin (solo root escribe ahí): el diálogo de permisos recuerda su autorización */
 
 struct arquivo;
 

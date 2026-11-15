@@ -58,7 +58,14 @@ RAIZ = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 EXT = {".c", ".h", ".asm", ".inc", ".s", ".S", ".py", ".ld", ".sh", ".txt", ".cfg", ".mk"}
 NOMBRES = {"Makefile", "README", "LICENSE", "COPYING"}
 # Carpetas que no son fuentes del proyecto (salida de compilación, entregas, fotos).
-IGNORAR = ("build", "entrega", ".git", "testes_hw", "__pycache__", "dashboard")
+IGNORAR = ("build", "entrega", ".git", "testes_hw", "__pycache__", "dashboard",
+           # datos privados de quien compila, fuera de git (D228): no son fuentes del proyecto
+           "input_share", "NEW_FONTS", "data_extra")
+
+
+def ignorada(nombre):
+    """Carpeta que no se audita: las de IGNORAR y cualquier salida build-* (build-sem-gpl...)."""
+    return nombre in IGNORAR or nombre.startswith("build-")
 GPL_AISLADA = "kernel/terceros/linux/"
 # Carpetas donde puede vivir el codigo GPL: aisladas del resto y fuera de la
 # variante sin GPL (D109). El kernel/terceros/linux/ es el codigo derivado de
@@ -163,11 +170,11 @@ def archivos_del_arbol():
     except Exception:
         lista = []
         for d, ds, fs in os.walk(RAIZ):
-            ds[:] = [x for x in ds if x not in IGNORAR]
+            ds[:] = [x for x in ds if not ignorada(x)]
             lista += [rel(os.path.join(d, f)) for f in fs]
     r = []
     for l in lista:
-        if l.split("/")[0] in IGNORAR or l == "tools/auditar_licencias.py":
+        if ignorada(l.split("/")[0]) or l == "tools/auditar_licencias.py":
             continue
         b = os.path.basename(l)
         if l in ARCHIVOS_DE_LICENCIA:
@@ -352,7 +359,7 @@ def comprobar_publico():
             falla("árbol público: existe %s (código de terceros solo v2: se descarga, no se publica; D261)" % d)
     n = 0
     for pasta, ds, fs in os.walk(RAIZ):
-        ds[:] = [x for x in ds if x not in IGNORAR and x != "docs"]
+        ds[:] = [x for x in ds if not ignorada(x) and x != "docs"]
         for f in fs:
             r = rel(os.path.join(pasta, f))
             if r in CITAN_MARCAS or f.endswith(".md"):

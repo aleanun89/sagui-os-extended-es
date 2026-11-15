@@ -1,6 +1,6 @@
 # 102 - Diálogo gráfico de permisos de administrador (y avisos que se leen enteros)
 
-- **Estado:** aprobada (**v8.0**, prioridad alta, pedido del mantenedor el 2026-11-14)
+- **Estado:** implementada en la rama `v8.0-dialogo-admin` (**v8.0**, D269; pendiente de fusión)
 - **Prioridad:** alta
 - **Alta:** 2026-11-14
 - **Relacionadas:** usuarios fase 1 (D255, mejora 098: `SERV_PEDIR`, `pedir_conta`, `admin`, `su`),
@@ -42,11 +42,11 @@ Además, los avisos emergentes cortan el texto (issue #16).
 - Aviso largo (varias líneas) completo en la captura; dos avisos seguidos se ven los dos.
 
 ## Criterios de aceptación
-- [ ] Diálogo modal del sistema que pide la contraseña de root a las apps gráficas
-- [ ] Las apps de administración lo usan
-- [ ] Avisos con el texto completo (issue #16 cerrada)
-- [ ] Test automático en `tests/`
-- [ ] Decisión registrada en `docs/decisoes.md`
+- [x] Diálogo modal del sistema que pide la contraseña de root a las apps gráficas
+- [x] Las apps de administración lo usan
+- [x] Avisos con el texto completo (issue #16 cerrada)
+- [x] Test automático en `tests/`
+- [x] Decisión registrada en `docs/decisoes.md`
 
 ## Notas
 - Modelo sugerido: Sonnet (gestor de ventanas y userland), con la interfaz de D255 ya hecha.

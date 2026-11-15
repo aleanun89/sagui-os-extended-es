@@ -45,7 +45,20 @@ typedef struct EMPACOTADO {
     uint32_t res_pref;    /* resolución preferida de la cabecera: anchura | altura << 16 (0 = automática) */
     uint32_t bpp_pref;    /* profundidad preferida de la cabecera (D078): 15, 16, 24, 32; 0 = automática */
     uint32_t leitura_chs; /* 1 = la BIOS no tenía las extensiones del INT 13h y el cargador leyó por CHS (D077) */
+    /* D264: versión 2 (cargador UEFI). La etapa 2 pone toda la boot_info a cero: 0 = como siempre. */
+    uint32_t firmware;    /* FIRMWARE_BIOS, FIRMWARE_UEFI_X64 o FIRMWARE_UEFI_IA32 */
+    uint32_t cab_end;     /* copia de la cabecera de arranque (0 = 0x7E00, donde la deja el MBR) */
+    uint32_t rsdp;        /* RSDP de ACPI dado por el firmware (0 = buscarlo en la EBDA y 0xE0000) */
+    uint32_t smbios;      /* punto de entrada "_SM_" o "_SM3_" dado por el firmware (0 = buscarlo en 0xF0000) */
+    uint32_t reservado2;
 } info_boot_t;
+
+#define FIRMWARE_BIOS      0
+#define FIRMWARE_UEFI_X64  1
+#define FIRMWARE_UEFI_IA32 2
+
+/* La cabecera de arranque que dejó el cargador: 0x7E00 por BIOS, la zona del cargador UEFI. */
+#define CABECALHO_BOOT_END(bi) ((bi)->cab_end ? (bi)->cab_end : 0x7E00u)
 
 #define OPC_BOOT_CONSOLE 2
 #define OPC_BOOT_SEM_WC  4   /* D057: no activar write-combining (mkimagem.py --sem-wc) */

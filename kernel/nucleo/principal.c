@@ -191,10 +191,14 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     /* La boot_info y el mapa están en la memoria baja, que más tarde se convierte en área
      * libre. Copiamos hacia dentro del kernel antes de cualquier otra cosa. */
     info_boot = *bi;
-    imagem_bytes = *(const uint32_t *)(0x7E00 + 48) * 512;   /* CAB_IMG_SETORES, todavía en la memoria baja */
+    /* D264: el cargador UEFI deja la cabecera en su zona y lo dice en cab_end; la etapa 2
+     * por BIOS deja cab_end a cero y la cabecera en 0x7E00, como siempre. */
+    if (info_boot.versao < 2) { info_boot.firmware = FIRMWARE_BIOS; info_boot.cab_end = 0; info_boot.rsdp = 0; info_boot.smbios = 0; }
+    const uint8_t *cab = (const uint8_t *)CABECALHO_BOOT_END(&info_boot);
+    imagem_bytes = *(const uint32_t *)(cab + 48) * 512;   /* CAB_IMG_SETORES, todavía en la memoria baja */
     /* D181: más las particiones del sistema (la de juegos), CAB_SIS_SETORES. Una imagen
      * anterior tiene ahí un cero (la cabecera se rellena con ceros). */
-    uint32_t sis = *(const uint32_t *)(0x7E00 + 136);
+    uint32_t sis = *(const uint32_t *)(cab + 136);
     if (sis < 0x01000000u) imagem_bytes += sis * 512;
     info_boot.teste[63] = 0;
     if (info_boot.mapa_qtd > MAPA_MAX)
@@ -203,7 +207,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     if (info_boot.modos_qtd > MODOS_MAX || !info_boot.modos_end)
         info_boot.modos_qtd = 0;
     memcpy(modos_vbe, (const void *)info_boot.modos_end, info_boot.modos_qtd * sizeof(modo_vbe_t));
-    memcpy(cabecalho_boot, (const void *)0x7E00, sizeof cabecalho_boot);
+    memcpy(cabecalho_boot, cab, sizeof cabecalho_boot);
     hw_capturar_boot();   /* VBE y SMBIOS para el infopc (D041), con toda la memoria física a la vista */
     cpu_lapic_capturar();   /* D157: los APIC locales de la MADT, antes de la paginación */
     ioapic_capturar();      /* D166: los IOAPIC y las overrides de la MADT, también antes */
@@ -255,6 +259,15 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
      * por CHS. Las dos cosas ayudan a entender un informe (infopc --informe). */
     if (info_boot.opcoes & OPC_BOOT_CD)
         kprintf("Arranque desde CD (El Torito): el disco de arranque es de solo lectura.\n");
+    if (info_boot.firmware != FIRMWARE_BIOS) {
+        kprintf("Arranque UEFI (%s): video GOP %ux%u, sin servicios de la BIOS.\n",
+                info_boot.firmware == FIRMWARE_UEFI_X64 ? "x64" : "IA32", info_boot.vesa_largura, info_boot.vesa_altura);
+        klog("[BOOT] firmware=uefi-%s gop=%ux%u pitch=%u fb=%x rsdp=%x smbios=%x modos=%u\n",
+             info_boot.firmware == FIRMWARE_UEFI_X64 ? "x64" : "ia32", info_boot.vesa_largura, info_boot.vesa_altura,
+             info_boot.vesa_pitch, info_boot.vesa_fb, info_boot.rsdp, info_boot.smbios, info_boot.modos_qtd);
+    } else {
+        klog("[BOOT] firmware=bios\n");
+    }
     klog("[BOOT] cd=%u leitura_chs=%u bpp_pref=%u\n", (info_boot.opcoes & OPC_BOOT_CD) ? 1 : 0,
          info_boot.leitura_chs, info_boot.bpp_pref);
 
@@ -383,8 +396,11 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     arranque_marca("usb");
     {
         char linha[96];
-        int n = ehci_quantidade(), nx = xhci_quantidade();
-        if (n || nx) {
+        int n = ehci_quantidade(), nx = xhci_quantidade(), nu = uhci_quantidade(), no = ohci_quantidade();
+        if (!n && !nx && (nu || no)) {
+            snformatar(linha, sizeof linha, "USB 1.1: %d UHCI y %d OHCI; pendrives en /usb, teclado y ratón USB", nu, no);
+            etapa(linha);
+        } else if (n || nx) {
             if (nx)
                 snformatar(linha, sizeof linha, "USB: %d xHCI (USB 3.0) y %d EHCI; pendrives en /usb, teclado y ratón USB", nx, n);
             else

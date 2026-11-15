@@ -7,13 +7,16 @@
  * montado, disco de arranque, GPT, tabla coherente en el sector 0); aquí se
  * repiten y se amplían antes de escribir nada (pt_validar).
  *
- * Los sectores son de 512 bytes y absolutos dentro del disco, salvo donde se dice. */
+ * Los sectores son de 512 bytes y absolutos dentro del disco, salvo donde se dice.
+ * D266: una GPT se lee con comprobación de CRC (gpt.h) y se edita (crear, borrar, formatear): sus
+ * entradas de las ranuras 0 a 3 aparecen también como primarias 1 a 4 (tipo MBR equivalente), así
+ * que la ventana y el terminal las tratan como las del MBR. */
 #ifndef SAGUI_PARTICOES_H
 #define SAGUI_PARTICOES_H
 #include "sagui.h"
 
 #define PT_MAX_LOG   16          /* como el kernel (MAX_LOGICAS) */
-#define PT_MAX_GPT   16
+#define PT_MAX_GPT   32
 #define PT_MB        2048u       /* sectores en 1 MB: la alineación de todo */
 
 enum { PT_SEM_TABELA, PT_MBR, PT_GPT, PT_VOLUME };   /* esquema del disco (PT_VOLUME = FAT32/ext sin tabla) */
@@ -29,6 +32,9 @@ typedef struct {
     uint32_t inicio, setores;
     char     tipo[40];           /* el GUID de tipo, conocido o en texto */
     char     nome[40];           /* el nombre de la entrada (UTF-16 -> Latin-1) */
+    int      slot;               /* la entrada de la tabla (0..127); el número de partición es slot + 1 */
+    int      numero;             /* el número con que la ve el kernel (hdb2 = 2), 0 si no la ve (D266) */
+    uint8_t  tipo_mbr;           /* el tipo equivalente del MBR (0xEF = ESP, 0xDA = SaguiOS...) */
 } pt_gpt_t;
 
 typedef struct {
@@ -40,7 +46,11 @@ typedef struct {
     int       nlog;
     pt_part_t log[PT_MAX_LOG];   /* en el orden de la cadena: números 5, 6... */
     int       ngpt;
-    pt_gpt_t  gpt[PT_MAX_GPT];
+    pt_gpt_t  gpt[PT_MAX_GPT];   /* GPT (D266): todas las entradas; las de las ranuras 0 a 3 también van en prim[] */
+    bool      gpt_mala;          /* el MBR dice GPT pero no hay una GPT válida (ni la principal ni el respaldo) */
+    bool      gpt_respaldo;      /* se leyó el respaldo: la cabecera principal está dañada */
+    bool      gpt_sem_respaldo;  /* la principal vale, pero el respaldo no */
+    char      gpt_aviso[160];    /* el motivo si gpt_mala */
 } pt_tabela_t;
 
 typedef struct {
@@ -108,7 +118,8 @@ uint32_t fs_ext2_minimo(const char *volume);
  * SaguiOS del disco de arranque) no se toca, pero el resto del disco sí; una operación sobre
  * una partición montada se niega con un mensaje que dice cuál desmontar. */
 enum { PA_CRIAR, PA_APAGAR, PA_REDIMENSIONAR, PA_FORMATAR, PA_ATIVAR, PA_TRIM, PA_DESHACER, PA_TABELA_NOVA,
-       PA_AMPLIAR };   /* D213: la extendida hasta el final del disco */
+       PA_AMPLIAR,     /* D213: la extendida hasta el final del disco */
+       PA_TABELA_GPT };   /* D266: una tabla GPT vacía (con su MBR protector) */
 enum { PA_FS_NENHUM, PA_FS_FAT32, PA_FS_EXT2 };
 typedef struct {
     int      op;

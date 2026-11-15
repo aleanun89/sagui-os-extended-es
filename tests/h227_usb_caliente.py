@@ -218,9 +218,9 @@ def parte_companero():
         cedido = "porta 0 (EHCI 0): USB 1.x, cedido al controlador companero" in s
         verificar(cedido or "porta 0 (EHCI 0): sin reconocer tras 4 intentos (paso 9" in s,
                   "el USB 1.1 se cede al compañero o se deja tras sus intentos (paso 9), sin colgar nada")
-        verificar("QEMU USB Keyboard" not in s, "el EHCI no intenta llevar un USB 1.1")
-        # Mientras el teclado está enchufado, el QEMU le manda a él las teclas de
-        # sendkey (y la UHCI no tiene driver): «responde» se mira después de quitarlo.
+        verificar(not re.search(r"conectado: QEMU QEMU USB Keyboard .*EHCI", s), "el EHCI no intenta llevar un USB 1.1")
+        # Con el driver UHCI (D267) el compañero lo enumera y el teclado funciona; mientras
+        # esté enchufado el QEMU le manda a él las teclas de sendkey: «responde» se mira después.
         monitor(m, "device_del kbd11")
         m.esperar_serial("el USB 1.x se ha retirado, el puerto vuelve al EHCI" if cedido
                          else "desconectado sin haberse reconocido", 15)

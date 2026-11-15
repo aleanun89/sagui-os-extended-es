@@ -251,6 +251,12 @@ def main():
     ap.add_argument("--sin-conf", action="store_true",
                     help="sin la partición de configuración SAGUI-CONF (ext2, 16 MB, con un LEEME; D256): por "
                          "defecto va en todas las imágenes de disco, la última; la ISO (--cd) no la lleva")
+    ap.add_argument("--uefi", default=None, metavar="CARPETA",
+                    help="imagen híbrida BIOS+UEFI (D264): añade una ESP FAT32 (SAGUI-EFI, tipo 0xEF, primaria) "
+                         "con EFI/BOOT/BOOTX64.EFI y BOOTIA32.EFI de la CARPETA y el kernel, el ramdisk y la "
+                         "cabecera en SAGUI/; el arranque por BIOS no cambia")
+    ap.add_argument("--esp-mb", type=int, default=0,
+                    help="tamaño de la ESP en MB (D264); 0 = lo justo más 8 MB (al menos 40: FAT32)")
     ap.add_argument("--mke2fs", default="/usr/sbin/mke2fs")
     ap.add_argument("--mkfs-vfat", default=achar_ferramenta("mkfs.vfat"))
     a = ap.parse_args()
@@ -403,8 +409,29 @@ def main():
     esquema = a.esquema
     if esquema == "primarias" and a.extendida:
         esquema = "mixto"           # --primarias --extendida: el antiguo --extendida
-    acrescentar_particoes(a.saida, len(img), [t for t in tabela if t[1] > 0], a.mke2fs, a.mkfs_vfat,
+    # D264: la ESP va justo detrás del área de arranque (alineada a 1 MB) y antes de la
+    # extendida; su entrada, en la primera libre de la tabla tras las de datos.
+    fim_arranque = len(img)
+    esp = None
+    if a.uefi:
+        if a.cd:
+            sys.exit("mkimagem: --uefi no combina con --cd todavía (la ISO híbrida UEFI está pendiente, D264)")
+        esp = montar_esp(a, a.saida, len(img), preencher_setores(cab), kern, rd)
+        fim_arranque = (esp[0] + esp[1]) * SETOR
+    acrescentar_particoes(a.saida, fim_arranque, [t for t in tabela if t[1] > 0], a.mke2fs, a.mkfs_vfat,
                           esquema, conteudos=conteudos)
+    if esp:
+        with open(a.saida, "r+b") as f:
+            tab = bytearray(f.read(512))
+            livres = [o for o in (0x1BE, 0x1CE, 0x1DE, 0x1EE) if o != SLOT_SAGUIOS and tab[o + 4] == 0 and o > SLOT_DADOS - 1]
+            livres += [o for o in (0x1BE, 0x1CE, 0x1DE, 0x1EE) if o != SLOT_SAGUIOS and tab[o + 4] == 0 and o not in livres]
+            if not livres:
+                sys.exit("mkimagem: --uefi necesita una entrada libre en la tabla MBR para la ESP "
+                         "(con --esquema primarias y 3 particiones de datos no queda ninguna)")
+            f.seek(livres[0])
+            f.write(entrada_mbr(0xEF, esp[0], esp[1]))
+        print(f"mkimagem: ESP SAGUI-EFI (FAT32, tipo 0xEF) de {esp[1] // 2048} MB en el LBA {esp[0]}, "
+              f"entrada {(livres[0] - 0x1BE) // 16 + 1} (D264)")
     tmp_conf.cleanup()
     util_sis = util + sis_mb * 1024 * 1024
     # tamanho.txt: la imagen entera que cuenta «Acerca de» (arranque y particiones del
@@ -426,6 +453,59 @@ def main():
           f"{f' ({ROTULO_JOGOS} {jogos_mb} MB)' if jogos_mb else ''}"
           f"{f' ({ROTULO_APPS} {apps_mb} MB)' if apps_mb else ''}"
           f"{f' ({ROTULO_CONF} {conf_mb} MB)' if conf_mb else ''}; arquivo {len(img)} bytes -> {a.saida}")
+
+
+ESP_ROTULO = "SAGUI-EFI"
+ESP_VOLUME_ID = "5A6AEF10"   # fijo: dos compilaciones dan la misma ESP
+
+
+def montar_esp(a, saida, tam, cab, kern, rd):
+    """D264: la partición del sistema EFI de la imagen híbrida. FAT32 (lo que todo firmware
+    UEFI lee) con:
+        EFI/BOOT/BOOTX64.EFI    cargador para firmware de 64 bits
+        EFI/BOOT/BOOTIA32.EFI   cargador para firmware de 32 bits
+        SAGUI/CABECERA.BIN      la cabecera de arranque (512 bytes, igual que el LBA 1)
+        SAGUI/KERNEL.BIN        el kernel (binario plano, el mismo que va tras la etapa 2)
+        SAGUI/RAMDISK.SGF       el ramdisk SGFS
+    Se monta aparte y se copia en su sitio (disperso). Devuelve (LBA de inicio, sectores)."""
+    efis = [os.path.join(a.uefi, n) for n in ("BOOTX64.EFI", "BOOTIA32.EFI")]
+    for e in efis:
+        if not os.path.isfile(e):
+            sys.exit(f"mkimagem: --uefi: falta {e} (make uefi)")
+    mkfs_vfat = exigir_ferramenta(a.mkfs_vfat, "mkfs.vfat", "dosfstools")
+    mcopy = exigir_ferramenta(achar_ferramenta("mcopy"), "mcopy", "mtools")
+    mmd = exigir_ferramenta(achar_ferramenta("mmd"), "mmd", "mtools")
+    conteudo = sum(os.path.getsize(e) for e in efis) + len(cab) + len(kern) + len(rd)
+    mb = a.esp_mb or max(40, (conteudo + (1 << 20) - 1) // (1 << 20) + 8)
+    if mb < 34:
+        sys.exit("mkimagem: --esp-mb: una FAT32 necesita al menos 34 MB")
+    inicio = (tam // SETOR + 2047) // 2048 * 2048
+    qtd = mb * 2048
+    env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
+    with tempfile.TemporaryDirectory() as tmp:
+        vol = os.path.join(tmp, "esp.img")
+        with open(vol, "wb") as f:
+            f.truncate(qtd * SETOR)
+        # -s 1: clústeres de 512 bytes, para que haya más de 65525 (si no, no sería FAT32 de verdad);
+        # -h: sectores ocultos = el inicio de la partición, como un FAT32 hecho en el disco.
+        subprocess.run([mkfs_vfat, "-F", "32", "-s", "1", "-h", str(inicio), "-n", ESP_ROTULO, "-i", ESP_VOLUME_ID, vol],
+                       check=True, stdout=subprocess.DEVNULL)
+        for d in ("::/EFI", "::/EFI/BOOT", "::/SAGUI"):
+            subprocess.run([mmd, "-i", vol, d], check=True, env=env)
+        arq_cab = os.path.join(tmp, "CABECERA.BIN")
+        arq_k = os.path.join(tmp, "KERNEL.BIN")
+        arq_r = os.path.join(tmp, "RAMDISK.SGF")
+        for caminho, dados in ((arq_cab, cab), (arq_k, kern), (arq_r, rd)):
+            with open(caminho, "wb") as f:
+                f.write(dados)
+        for origem, destino in ((efis[0], "::/EFI/BOOT/BOOTX64.EFI"), (efis[1], "::/EFI/BOOT/BOOTIA32.EFI"),
+                                (arq_cab, "::/SAGUI/CABECERA.BIN"), (arq_k, "::/SAGUI/KERNEL.BIN"),
+                                (arq_r, "::/SAGUI/RAMDISK.SGF")):
+            subprocess.run([mcopy, "-i", vol, origem, destino], check=True, env=env)
+        with open(saida, "r+b") as f:
+            f.truncate(max(os.path.getsize(saida), (inicio + qtd) * SETOR))
+        copiar_disperso(vol, saida, inicio * SETOR)
+    return inicio, qtd
 
 
 def mb_para_conteudo(pasta):

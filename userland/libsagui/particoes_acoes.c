@@ -9,8 +9,12 @@
  * D213: se reserva con DBLOCO_CONF_MONTADO, así se puede cambiar el disco de arranque
  * (crear una lógica, ampliar la extendida, redimensionar una partición desmontada)
  * con /home y /apps montados: el kernel no deja tocar nada montado ni la partición de
- * SaguiOS. Aquí se mira antes, para dar un mensaje claro en vez de un error de E/S. */
+ * SaguiOS. Aquí se mira antes, para dar un mensaje claro en vez de un error de E/S.
+ * D266: en un disco GPT se puede crear, borrar y formatear (gpt.c escribe la cabecera de
+ * respaldo, la principal y el MBR protector, y comprueba los CRC); se reserva con
+ * DBLOCO_CONF_GPT y sin nada montado (el kernel no admite GPT con particiones montadas). */
 #include "particoes.h"
+#include "gpt.h"
 
 static void txt(char *m, int max, const char *fmt, ...)
 {
@@ -51,12 +55,12 @@ static int comprobar_uso(pt_acao_t *a, char *m, int max)
 {
     pt_tabela_t t;
     char ponto[64], vol[16];
-    if (pt_ler(a->disco, &t) < 0 || t.esquema != PT_MBR) return 0;
+    if (pt_ler(a->disco, &t) < 0 || (t.esquema != PT_MBR && t.esquema != PT_GPT)) return 0;
     info_disco_t d;
     bool arranque = false;
     for (int i = 0; listar_discos(i, &d) == 1; i++)
         if (compara_texto(d.nome, a->disco) == 0) arranque = (d.flags & DISCO_ARRANQUE_REAL) != 0;
-    if (a->op == PA_TABELA_NOVA) {
+    if (a->op == PA_TABELA_NOVA || a->op == PA_TABELA_GPT) {
         for (int n = 1; n < 5 + t.nlog; n++)
             if (pt_achar(&t, n) && montada(a->disco, n, ponto, sizeof ponto)) {
                 pt_nome_particao(a->disco, n, vol, sizeof vol);
@@ -89,13 +93,17 @@ static int comprobar_uso(pt_acao_t *a, char *m, int max)
 
 static int reservar(pt_acao_t *a, char *m, int max)
 {
-    int r = blocos_reservar(a->disco, a->conf | DBLOCO_CONF_MONTADO);
+    /* D266: una GPT (la que hay o la que se va a crear) se reserva con DBLOCO_CONF_GPT; sin
+     * DBLOCO_CONF_MONTADO, porque el kernel no deja tocar una GPT con particiones montadas. */
+    pt_tabela_t t0;
+    bool gpt = a->op == PA_TABELA_GPT || (pt_ler(a->disco, &t0) == 0 && t0.esquema == PT_GPT);
+    int r = blocos_reservar(a->disco, a->conf | (gpt ? DBLOCO_CONF_GPT : DBLOCO_CONF_MONTADO));
     if (r == ERRO_OCUPADO) {
         info_bloco_t i;
         if (blocos_info(a->disco, &i) == 0 && i.reservado_pid)
             txt(m, max, "%s está en uso por otro programa (pid %u)", a->disco, i.reservado_pid);
         else
-            txt(m, max, "%s tiene particiones montadas y una tabla GPT: desmóntalas antes (umount)", a->disco);
+            txt(m, max, "%s tiene particiones montadas%s: desmóntalas antes (umount)", a->disco, gpt ? " y una tabla GPT" : "");
     } else if (r == ERRO_DISCO_ARRANQUE)
         txt(m, max, "%s es el disco de arranque de SaguiOS: hace falta confirmarlo dos veces", a->disco);
     else if (r < 0)
@@ -115,12 +123,80 @@ static int formatar_acao(pt_acao_t *a, int numero, char *m, int max)
     uint8_t tipo = a->fs == PA_FS_FAT32 ? 0x0C : 0x83;
     if ((r = pt_ler(a->disco, &t)) < 0) return r;
     pt_part_t *p = pt_achar(&t, numero);
-    if (p && p->tipo != tipo) {
+    if (t.esquema == PT_MBR && p && p->tipo != tipo && p->tipo != 0xEF) {   /* la ESP (0xEF) conserva su tipo (D266) */
         if ((r = pt_mudar_tipo(&t, numero, tipo, m, max)) < 0) return r;
         if ((r = pt_gravar(&t, "tipo tras formatear", m, max)) < 0) return r;
     }
     txt(m, max, "%s formateada en %s%s%s%s", vol, pt_nome_fs(a->fs), a->rotulo[0] ? " (\"" : "", a->rotulo, a->rotulo[0] ? "\")" : "");
     return 0;
+}
+
+/* D266: crear y borrar en una GPT. Se relee la GPT entera (con las entradas que no vemos), se
+ * cambia en memoria, se valida y solo entonces se escribe (respaldo, principal y comprobación). */
+static int gpt_carregar(pt_acao_t *a, gpt_t **g, char *m, int max)
+{
+    *g = aloca(sizeof **g);
+    if (!*g) { txt(m, max, "sin memoria"); return ERRO_SEM_MEMORIA; }
+    char e[120];
+    int r = gpt_ler(a->disco, *g, e, sizeof e);
+    if (r < 0) { txt(m, max, "la GPT de %s no es válida (%s): no se toca; usa una tabla nueva si quieres empezar de cero", a->disco, e); libera(*g); *g = NULL; }
+    return r;
+}
+
+static int executar_gpt(pt_acao_t *a, pt_tabela_t *t, char *m, int max)
+{
+    char d[64], vol[16];
+    gpt_t *g;
+    int r;
+    if (t->gpt_mala) { txt(m, max, "%s: la GPT no es válida (%s): solo vale una tabla nueva", a->disco, t->gpt_aviso); return ERRO_FORMATO; }
+    if (a->op == PA_CRIAR) {
+        if (a->logica) { txt(m, max, "una GPT no tiene particiones lógicas"); return ERRO_INVALIDO; }
+        uint8_t tipo = a->tipo ? a->tipo : a->fs == PA_FS_FAT32 ? 0x0C : 0x83;
+        const uint8_t *guid = gpt_guid_de_tipo_mbr(tipo);
+        if (!guid) { txt(m, max, "ese tipo de partición no existe en una GPT (usa fat32, ext2, tipo=0xEF para la ESP, 0xDA, 0x83 o 0x07)"); return ERRO_INVALIDO; }
+        pt_livre_t v[24];
+        int n = pt_livres(t, v, 24), k = -1;
+        for (int i = 0; i < n && k < 0; i++) {
+            if (a->inicio && (a->inicio < v[i].inicio || a->inicio >= v[i].inicio + v[i].setores)) continue;
+            k = i;
+        }
+        if (k < 0) { txt(m, max, "no hay espacio libre en %s%s", a->disco, a->inicio ? " en esa posición" : ""); return ERRO_LIMITE; }
+        uint32_t ini = a->inicio ? a->inicio : v[k].inicio;
+        uint32_t cabe = v[k].inicio + v[k].setores - ini, qtd = a->setores ? a->setores : cabe;
+        if (qtd > cabe) { txt(m, max, "no cabe: en ese hueco hay %u MB libres", cabe / PT_MB); return ERRO_LIMITE; }
+        qtd = qtd / PT_MB * PT_MB;
+        if (!qtd) { txt(m, max, "la partición tiene que tener al menos 1 MB"); return ERRO_INVALIDO; }
+        if ((r = gpt_carregar(a, &g, m, max)) < 0) return r;
+        int slot = gpt_adicionar(g, guid, ini, qtd, a->rotulo, m, max);
+        if (slot < 0) { libera(g); return slot; }
+        int num = gpt_numero_kernel(g, slot);
+        if (!num) { txt(m, max, "la entrada nueva no quedaría entre las cuatro que ve el sistema: no se crea"); libera(g); return ERRO_LIMITE; }
+        r = gpt_gravar(g, false, NULL, m, max);
+        libera(g);
+        if (r < 0) return r;
+        a->resultado = num;
+        if (a->fs != PA_FS_NENHUM && (r = formatar_acao(a, num, m, max)) < 0) return r;
+        pt_nome_particao(a->disco, num, vol, sizeof vol);
+        txt(m, max, "creada %s: %u MB, %s%s%s", vol, qtd / PT_MB, gpt_nome_tipo(guid), a->fs ? ", formateada en " : "", a->fs ? pt_nome_fs(a->fs) : "");
+        return 0;
+    }
+    if (a->op == PA_APAGAR) {
+        int slot = a->numero - 1;
+        pt_nome_particao(a->disco, a->numero, vol, sizeof vol);
+        if (a->trim) {
+            r = blocos_descartar(vol, 0, pt_achar(t, a->numero) ? pt_achar(t, a->numero)->setores : 0);
+            if (r < 0 && r != ERRO_NAO_SUPORTADO) { txt(m, max, "TRIM de %s: %s", vol, nome_erro(r)); return r; }
+        }
+        if ((r = gpt_carregar(a, &g, m, max)) < 0) return r;
+        if ((r = gpt_remover(g, slot, m, max)) < 0) { libera(g); return r; }
+        formatar_texto(d, sizeof d, "borrar la partición %d", a->numero);
+        r = gpt_gravar(g, false, NULL, m, max);
+        libera(g);
+        if (r < 0) return r;
+        txt(m, max, "borrada %s%s", vol, a->trim ? " y descartado su contenido (TRIM)" : "");
+        return 0;
+    }
+    return ERRO_INVALIDO;
 }
 
 static int executar_acao(pt_acao_t *a, char *m, int max)
@@ -129,10 +205,25 @@ static int executar_acao(pt_acao_t *a, char *m, int max)
     char d[64];
     int r = pt_ler(a->disco, &t);
     if (r < 0) { txt(m, max, "no se puede leer la tabla de %s: %s", a->disco, nome_erro(r)); return r; }
-    /* GPT: solo lectura. Lo único que vale es empezar de cero (tabla nueva, confirmada aparte). */
-    if (t.esquema == PT_GPT && a->op != PA_TABELA_NOVA) {
-        txt(m, max, "%s tiene tabla GPT: aquí solo se muestra, no se cambia (D179)", a->disco);
-        return ERRO_ACESSO;
+    if (a->op == PA_TABELA_GPT) {   /* D266: una GPT vacía, con su MBR protector */
+        gpt_t *g = aloca(sizeof *g);
+        if (!g) { txt(m, max, "sin memoria"); return ERRO_SEM_MEMORIA; }
+        gpt_nova(g, a->disco, t.setores);
+        r = gpt_gravar(g, true, NULL, m, max);
+        libera(g);
+        if (r < 0) return r;
+        txt(m, max, "%s tiene ahora una tabla GPT vacía (con MBR protector)", a->disco);
+        return 0;
+    }
+    if (t.esquema == PT_GPT) {   /* D266: crear, borrar y formatear; lo demás (activa, tamaño, deshacer...) no */
+        switch (a->op) {
+        case PA_CRIAR: case PA_APAGAR: return executar_gpt(a, &t, m, max);
+        case PA_FORMATAR: case PA_TRIM: case PA_TABELA_NOVA: break;
+        default:
+            txt(m, max, "%s tiene tabla GPT: esta operación no está disponible en GPT (se puede crear, borrar y formatear)", a->disco);
+            return ERRO_NAO_SUPORTADO;
+        }
+        if (t.gpt_mala && a->op != PA_TABELA_NOVA) { txt(m, max, "%s: la GPT no es válida (%s): solo vale una tabla nueva", a->disco, t.gpt_aviso); return ERRO_FORMATO; }
     }
     if (t.esquema == PT_VOLUME && a->op != PA_TABELA_NOVA && a->op != PA_DESHACER) {
         txt(m, max, "%s es un volumen sin tabla de particiones: crea antes una tabla nueva", a->disco);

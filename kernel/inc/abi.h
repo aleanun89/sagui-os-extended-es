@@ -249,11 +249,18 @@
 #define PED_ELEVAR      1   /* pasar a ser uid_alvo (root, normalmente) con su contraseña */
 #define PED_SENHA       2   /* cambiar la contraseña de uid_alvo (la actual en senha, la nueva en senha_nova) */
 #define PED_SENHA_MAX   64
+/* D269: con PED_GRAFICO (se suma a PED_ELEVAR) el kernel no espera una contraseña del programa: el
+ * gestor de ventanas pinta el diálogo de permisos (atenúa el escritorio), pide la contraseña de
+ * root a la persona y la entrega él mismo al supervisor. El programa solo espera el resultado
+ * con SERV_RESULTADO (1 = ya es root; ERRO_ACESSO = «No» o contraseña mala; ERRO_ESPERA = bloqueo). */
+#define PED_GRAFICO     0x100
+#define PED_MOTIVO_MAX  80
 typedef struct {
     unsigned int tipo;                   /* PED_* */
     unsigned int uid_alvo;
     char         senha[PED_SENHA_MAX];   /* la contraseña actual de uid_alvo */
     char         senha_nova[PED_SENHA_MAX];   /* PED_SENHA, o la primera contraseña de root si no tenía */
+    char         motivo[PED_MOTIVO_MAX];      /* PED_GRAFICO: qué quiere hacer el programa (lo muestra el diálogo) */
 } pedido_conta_t;
 typedef struct {
     unsigned int id;
@@ -1170,6 +1177,8 @@ typedef struct {
 #define DISCO_CD          128      /* D207: lector de CD/DVD ("cd0") o la imagen El Torito de su disco ("cd0img"): solo lectura */
 #define DISCO_XHCI        256      /* D214: pendrive conectado por el controlador xHCI */
 #define DISCO_USB3        512      /* D214: pendrive USB 3.x (SuperSpeed) */
+#define DISCO_NVME        1024     /* D265: disco NVMe */
+#define DISCO_BLOCO4K     2048     /* D265: su bloque real es de 4096 bytes (se presenta en sectores de 512) */
 
 typedef struct {
     char         dispositivo[12];

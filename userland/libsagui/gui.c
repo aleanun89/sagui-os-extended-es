@@ -759,37 +759,78 @@ int lista_tratar(jan_t *j, lista_t *l, const evento_t *e)
 
 /* ------------------------------------------------------------ diálogos */
 
-/* Escribe un texto con '\n' en varias líneas. */
-static void texto_multilinha(jan_t *j, int x, int y, const char *t)
+/* Issue #16: los diálogos parten el texto por palabras según el ancho real (la fuente es de 8 px
+ * por carácter) y la ventana crece, hasta DLG_MAX_L, para que nada se salga por la derecha. */
+#define DLG_MIN_L 380
+#define DLG_MAX_L 640
+
+/* Longitud de la línea que empieza en t cuando caben cols letras: corta en '\n' o en el último
+ * espacio que quepa (si una palabra es más larga que la línea, en seco). *salto = cuántos
+ * caracteres se saltan después (el '\n' o los espacios del corte). */
+static int linha_ate_quebra(const char *t, int cols, int *salto)
+{
+    int n = 0;
+    while (t[n] && t[n] != '\n' && n < cols) n++;
+    *salto = 0;
+    if (!t[n]) return n;
+    if (t[n] == '\n') { *salto = 1; return n; }
+    int k = n;   /* se llenó la línea: buscar el último espacio */
+    while (k > 0 && t[k] != ' ') k--;
+    if (k == 0) return n;   /* palabra enorme: corte en seco */
+    n = k;
+    while (n > 0 && t[n - 1] == ' ') n--;
+    *salto = k - n;
+    while (t[n + *salto] == ' ') (*salto)++;
+    return n;
+}
+
+static int linhas_quebradas(const char *t, int cols)
+{
+    int n = 0;
+    while (*t) {
+        int salto, c = linha_ate_quebra(t, cols, &salto);
+        n++;
+        t += c + salto;
+        if (!c && !salto) break;
+    }
+    return n ? n : 1;
+}
+
+static void texto_multilinha(jan_t *j, int x, int y, const char *t, int cols)
 {
     while (*t) {
-        const char *fim = acha_char(t, '\n');
-        int n = fim ? (int)(fim - t) : (int)tam_texto(t);
+        int salto, n = linha_ate_quebra(t, cols, &salto);
         g_texto_n(j, x, y, t, n, COR_TEXTO);
         y += LETRA_A + 2;
-        t += n;
-        if (*t == '\n') t++;
+        t += n + salto;
+        if (!n && !salto) break;
     }
 }
 
-static int linhas_de(const char *t)
+/* Ancho que pide el texto: el de su párrafo más largo, entre DLG_MIN_L y DLG_MAX_L. */
+static int largura_dialogo(const char *t)
 {
-    int n = 1;
-    for (; *t; t++) if (*t == '\n') n++;
-    return n;
+    int max = 0, n = 0;
+    for (;; t++) {
+        if (*t == '\n' || !*t) { if (n > max) max = n; n = 0; if (!*t) break; } else n++;
+    }
+    int l = max * LETRA_L + 32;
+    return l < DLG_MIN_L ? DLG_MIN_L : l > DLG_MAX_L ? DLG_MAX_L : l;
 }
 
 static int dialogo(const char *titulo, const char *texto, const char *b1, const char *b2, caixa_t *caixa)
 {
-    int alt = 70 + linhas_de(texto) * (LETRA_A + 2) + (caixa ? 34 : 0);
-    jan_t *j = jan_abrir(titulo, 380, alt);
+    int larg = largura_dialogo(texto);
+    int cols = (larg - 32) / LETRA_L;
+    int alt = 70 + linhas_quebradas(texto, cols) * (LETRA_A + 2) + (caixa ? 34 : 0);
+    jan_t *j = jan_abrir(titulo, larg, alt);
     if (!j) return 0;
     jan_estilo(j, JAN_DIALOGO, 0, 0);   /* fuera de la barra de tareas y sin minimizar (D065) */
-    texto_multilinha(j, 16, 16, texto);
-    botao_t bs[2] = { { 380 - 16 - 90, alt - 40, 90, 26, b1, false }, { 380 - 16 - 190, alt - 40, 90, 26, b2, false } };
+    texto_multilinha(j, 16, 16, texto, cols);
+    botao_t bs[2] = { { larg - 16 - 90, alt - 40, 90, 26, b1, false }, { larg - 16 - 190, alt - 40, 90, 26, b2, false } };
     int qtd = b2 ? 2 : 1;
     if (caixa) {
-        caixa->x = 16; caixa->y = alt - 40 - 36; caixa->l = 348; caixa->foco = true;
+        caixa->x = 16; caixa->y = alt - 40 - 36; caixa->l = larg - 32; caixa->foco = true;
         caixa_desenhar(j, caixa);
     }
     for (int i = 0; i < qtd; i++) botao_desenhar(j, &bs[i]);

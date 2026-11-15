@@ -26,6 +26,10 @@
  * (SIS_FUNDO), sin necesitar un búfer del tamaño de la pantalla. */
 #include "sagui.h"
 #include "gui.h"
+/* contas.h choca con el conf_gravar propio de este programa: solo lo que hace falta (D269). */
+int  elevar_grafico(const char *motivo);
+void elevacao_soltar(void);
+bool sou_root(void);
 #include "imagem.h"
 #include "ia.h"
 #include "fontes.h"
@@ -211,11 +215,14 @@ static int aplicar_volume(int v, int silencio)
 /* Cambia la zona con el programa "zona" (que ya sabe aplicar y grabar /etc/zona y /home/.zona). */
 static int aplicar_zona(const char *nome)
 {
+    /* D269: «zona» cambia la hora del sistema (solo root): el hijo hereda el permiso que dé el diálogo. */
+    if (!sou_root() && elevar_grafico("cambiar la zona horaria del sistema") != 0) return ERRO_ACESSO;
     char *av[] = { "zona", (char *)nome, NULL };
     int pid = executar("/bin/zona", av);
-    if (pid < 0) return pid;
+    if (pid < 0) { elevacao_soltar(); return pid; }
     int codigo = 0;
     esperar(pid, &codigo);
+    elevacao_soltar();
     return codigo == 0 ? 0 : ERRO_INVALIDO;
 }
 
@@ -711,11 +718,14 @@ static botao_t b_bloq[2] = { { 24, Y_PAG + 100, 160, 28, "Activar", false },
 
 static int rodar_bloqueo(const char *ordem)
 {
+    /* D269: el bloqueo de publicidad es del sistema: permiso con el diálogo para este hijo. */
+    if (!sou_root() && elevar_grafico("cambiar el bloqueo de publicidad y rastreadores") != 0) return ERRO_ACESSO;
     char *av[] = { "bloqueo", (char *)ordem, NULL };
     int pid = executar("/bin/bloqueo", av);
-    if (pid < 0) return pid;
+    if (pid < 0) { elevacao_soltar(); return pid; }
     int codigo = 0;
     esperar(pid, &codigo);
+    elevacao_soltar();
     return codigo == 0 ? 0 : ERRO_INVALIDO;
 }
 

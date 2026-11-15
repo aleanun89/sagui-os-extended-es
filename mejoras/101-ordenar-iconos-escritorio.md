@@ -1,6 +1,6 @@
 # 101 - Ordenar los iconos del escritorio
 
-- **Estado:** aprobada (**v8.0**, decidido por el mantenedor el 2026-11-14)
+- **Estado:** hecha en la rama `v8.0-iconos` (D268, prueba h268); pendiente de fusionar (v8.0)
 - **Prioridad:** media
 - **Alta:** 2026-11-14
 - **Relacionadas:** escritorio y sus iconos (`kernel/gui/janelas.c`, `kernel/gui/arte.c`), menú
@@ -29,11 +29,11 @@ Los iconos del escritorio salen en un orden fijo. El mantenedor quiere poder ord
   tipo, reiniciar y comprobar que se conserva, cambiar de resolución y comprobar que nada queda fuera.
 
 ## Criterios de aceptación
-- [ ] Arrastrar con rejilla, sin solapes
-- [ ] Ordenar por nombre, tipo y fecha; alinear; organización automática
-- [ ] Posiciones guardadas entre arranques y tras cambiar de resolución
-- [ ] Test automático en `tests/`
-- [ ] Decisión registrada en `docs/decisoes.md`
+- [x] Arrastrar con rejilla, sin solapes
+- [x] Ordenar por nombre, tipo y fecha; alinear; organización automática
+- [x] Posiciones guardadas entre arranques y tras cambiar de resolución
+- [x] Test automático en `tests/`
+- [x] Decisión registrada en `docs/decisoes.md`
 
 ## Notas
 - Modelo sugerido: Sonnet (escritorio en el gestor de ventanas, con pruebas medibles).

@@ -889,10 +889,11 @@ static void secao_sistema(texto_t *t)
     for (int i = 0; listar_discos(i, &d) == 1; i++, k++) {
         if (d.particao) continue;
         /* D207: el tipo, como en el informe ([CD] para los lectores de CD/DVD). */
-        const char *tipo = (d.flags & DISCO_CD) ? "[CD]" : (d.flags & DISCO_INTERNO) ? "[ATA]" : (d.flags & DISCO_REMOVIVEL) ? "[USB]" : "[?]";
+        const char *tipo = (d.flags & DISCO_CD) ? "[CD]" : (d.flags & DISCO_NVME) ? "[NVMe]" : (d.flags & DISCO_INTERNO) ? "[ATA]" : (d.flags & DISCO_REMOVIVEL) ? "[USB]" : "[?]";
         bool mt = d.montado && d.ponto[0];
-        ad(t, "  %s %s: %s %s, %s, %s%s%s%s\n", d.nome, tipo, d.fabricante, d.produto,
-           tamanho(a, sizeof a, (uint64_t)d.setores * 512), d.formato, mt ? " (montado en " : "", mt ? d.ponto : "", mt ? ")" : "");
+        ad(t, "  %s %s: %s %s, %s%s, %s%s%s%s\n", d.nome, tipo, d.fabricante, d.produto,
+           tamanho(a, sizeof a, (uint64_t)d.setores * 512), (d.flags & DISCO_BLOCO4K) ? ", bloque 4096" : (d.flags & DISCO_NVME) ? ", bloque 512" : "",
+           d.formato, mt ? " (montado en " : "", mt ? d.ponto : "", mt ? ")" : "");
     }
     if (!k) ad(t, "  ninguno\n");
     static char usb[2048];
@@ -1580,6 +1581,7 @@ static const conhecido_t conhecidos[] = {
     /* Por clase. */
     { 0xFFFF, 0, 0x01, 0x01, 0xFF, SUPORTADO, "ata (PIO; DMA: mejora 036)" },
     { 0xFFFF, 0, 0x01, 0x06, 0x01, SUPORTADO, "ahci (SATA; D155)" },
+    { 0xFFFF, 0, 0x01, 0x08, 0x02, SUPORTADO, "nvme (D265)" },
     { 0xFFFF, 0, 0x03, 0xFF, 0xFF, SUPORTADO, "vesa (framebuffer de la BIOS)" },
     { 0xFFFF, 0, 0x0C, 0x03, 0x20, SUPORTADO, "ehci" },
     { 0xFFFF, 0, 0x0C, 0x03, 0x00, PLANEJADO, "mejora 029 (UHCI)" },
@@ -1687,13 +1689,14 @@ static void informe_discos(texto_t *t)
     char a[24];
     int k = 0;
     for (int i = 0; listar_discos(i, &d) == 1; i++, k++) {
-        const char *tipo = (d.flags & DISCO_CD) ? "[CD]" : (d.flags & DISCO_INTERNO) ? "[ATA]" : (d.flags & DISCO_REMOVIVEL) ? "[USB]" : "[?]";
+        const char *tipo = (d.flags & DISCO_CD) ? "[CD]" : (d.flags & DISCO_NVME) ? "[NVMe]" : (d.flags & DISCO_INTERNO) ? "[ATA]" : (d.flags & DISCO_REMOVIVEL) ? "[USB]" : "[?]";
         if (d.particao)
             ad(t, "    %-8s %s, %s%s%s%s\n", d.nome, tamanho(a, sizeof a, (uint64_t)d.setores * 512), d.formato,
                d.rotulo[0] ? ", \"" : "", d.rotulo, d.rotulo[0] ? "\"" : "");
         else
-            ad(t, "  %-10s %s %s %s, %s, %s%s\n", d.nome, tipo, d.fabricante, d.produto,
-               tamanho(a, sizeof a, (uint64_t)d.setores * 512), d.formato, (d.flags & DISCO_BOOT) ? " (arranque)" : "");
+            ad(t, "  %-10s %s %s %s, %s%s, %s%s\n", d.nome, tipo, d.fabricante, d.produto,
+               tamanho(a, sizeof a, (uint64_t)d.setores * 512), (d.flags & DISCO_BLOCO4K) ? ", bloque 4096" : (d.flags & DISCO_NVME) ? ", bloque 512" : "",
+               d.formato, (d.flags & DISCO_BOOT) ? " (arranque)" : "");
         if (d.montado && d.ponto[0])
             ad(t, "             montado en %s%s\n", d.ponto, (d.flags & DISCO_SO_LEITURA) ? " (solo lectura)" : "");
     }

@@ -92,6 +92,19 @@ if [ ! -x "$CC1PLUS_SIS" ] && [ ! -x "$CC1PLUS" ]; then
     [ -x "$CC1PLUS" ] || echo "AVISO: sin cc1plus; los programas de C++ (OpenJazz) no se compilarán."
 fi
 
+# OVMF (D264): el firmware UEFI libre para QEMU, de 64 bits (ovmf) y de 32 (ovmf-ia32),
+# para las pruebas del arranque UEFI (h264) y run_in_qemu.sh --uefi. Queda en
+# $ROOT/usr/share/OVMF, donde lo buscan tests/qemu.py y run_in_qemu.sh.
+if { [ ! -f /usr/share/OVMF/OVMF_CODE_4M.fd ] && [ ! -f "$ROOT/usr/share/OVMF/OVMF_CODE_4M.fd" ]; } ||
+   { [ ! -f /usr/share/OVMF/OVMF32_CODE_4M.fd ] && [ ! -f "$ROOT/usr/share/OVMF/OVMF32_CODE_4M.fd" ]; }; then
+    echo "Descargando el firmware UEFI de QEMU (ovmf, ovmf-ia32)..."
+    if ( cd "$PKGS" && apt-get download ovmf ovmf-ia32 ); then
+        for d in "$PKGS"/ovmf_*.deb "$PKGS"/ovmf-ia32_*.deb; do [ -f "$d" ] && dpkg-deb -x "$d" "$ROOT/"; done
+    fi
+    [ -f "$ROOT/usr/share/OVMF/OVMF_CODE_4M.fd" ] || [ -f /usr/share/OVMF/OVMF_CODE_4M.fd ] ||
+        echo "AVISO: sin OVMF; la prueba h264 (arranque UEFI) no podrá correr."
+fi
+
 # ------------------------------------------------------- 2. datos de QEMU
 # El BIOS (seabios) y las ROM de iPXE: QEMU los busca en /usr/share/qemu.
 for f in "$ROOT"/usr/share/seabios/*.bin "$ROOT"/usr/share/qemu/*.bin; do
@@ -184,6 +197,11 @@ export QEMU_MODULE_DIR="$S/root/usr/lib/x86_64-linux-gnu/qemu"
 exec "$S/root/usr/bin/qemu-system-i386" -L "$S/dados" "$@"
 EOF
 chmod +x "$BIN/qemu-system-i386"
+
+# D264: el mismo envoltorio para qemu-system-x86_64 (el OVMF de 64 bits necesita una CPU
+# de 64 bits; las pruebas del arranque UEFI x64 lo usan).
+sed 's/qemu-system-i386/qemu-system-x86_64/g' "$BIN/qemu-system-i386" > "$BIN/qemu-system-x86_64"
+chmod +x "$BIN/qemu-system-x86_64"
 
 # convert e identify: sustitutos mínimos del ImageMagick, en el repositorio.
 # Se COPIAN, no se enlazan: un enlace simbólico se queda colgando en cuanto el

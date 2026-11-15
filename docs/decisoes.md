@@ -14575,3 +14575,283 @@ color y no había forma de ver que un shell era de root (`su`, modo rescate).
    no hecho).
 
 **Pruebas.** `tests/h263_terminal_color.py` (con unidad en `terminal_unidad.c`); capturas `H263-*.png`.
+
+## D264. Arranque UEFI (x64 e IA32, GOP) e imagen híbrida BIOS+UEFI (v8.0, mejora 062)
+
+**Contexto.** SaguiOS solo arrancaba por BIOS (MBR, etapa 2 en modo real, VBE). Los PC modernos
+vienen sin CSM o con él apagado; el mantenedor prueba en un Ryzen / ASUS B450 (con y sin CSM). El
+kernel es de 32 bits, sin PAE ni modo largo, y no se toca: el cargador se adapta a él.
+
+**Decisión.**
+1. **Cargador propio, sin GRUB, gnu-efi ni EDK2** (`boot/uefi/`). C freestanding con las
+   definiciones mínimas de la especificación UEFI escritas a mano (`uefi.h`: tablas, protocolos y
+   GUID públicos de la especificación) y un trampolín en NASM. Un solo `cargador.c` para las dos
+   arquitecturas: `BOOTX64.EFI` (gcc del sistema en x86-64, `ms_abi` para los servicios del firmware,
+   `-mno-red-zone`) y `BOOTIA32.EFI` (`-m32`, cdecl).
+2. **El PE lo genera `tools/mkefi.py`.** Se enlaza un ELF independiente de la posición (`-pie`,
+   `boot/uefi/ligacao.ld`: imagen desde 0x1000, segmentos de código y datos alineados a página); el
+   guion copia los segmentos a un PE32+/PE32 en las mismas direcciones relativas y convierte las
+   reubicaciones `R_*_RELATIVE` en la sección `.reloc` (DIR64/HIGHLOW); cualquier otra reubicación hace
+   fallar la compilación con el motivo. Se descartó `objcopy --target=efi-app-*`: no pasa las
+   reubicaciones (gnu-efi lo arregla con código que se reubica solo, que es justo lo que no queremos).
+3. **Qué hace el cargador** (lo que la etapa 2 hace con la BIOS): lee `\SAGUI\CABECERA.BIN`,
+   `\SAGUI\KERNEL.BIN` y `\SAGUI\RAMDISK.SGF` de la ESP y comprueba las sumas de la cabecera; si el
+   disco de la ESP tiene en el LBA 1 la misma cabecera (la imagen híbrida), usa la del disco (el kernel
+   reconoce así su disco de arranque, y `pantalla --guardar`/`instalar` siguen valiendo); toma el RSDP y
+   el SMBIOS de la tabla de configuración; elige el modo GOP (la resolución de la cabecera, la nativa
+   del panel por EDID hasta 1920x1200, 1024x768, 800x600, 640x480, otra), siempre de 32 bits, en un
+   adaptador con framebuffer (la GOP del «divisor de consola» del firmware solo sabe Blt); convierte el
+   mapa de memoria de UEFI a E820 con los tipos de ACPI (Loader/BootServices/Conventional = 1, ACPI
+   reclaim = 3, NVS = 4, lo demás reservado), ordenado y unido, máximo 64 entradas (sobran primero las de
+   encima de 4 GB); y sale de los servicios de arranque (reintento con el mapa nuevo si la clave caducó).
+4. **El kernel sigue en 1 MB; el ramdisk, donde haya sitio.** Solo la imagen del kernel y su BSS (de 1 MB
+   a la dirección del ramdisk de la cabecera) tienen que estar en su sitio: se intenta reservar esa
+   memoria al firmware (`AllocateAddress`) y leer allí; si el firmware la tiene ocupada, se lee por
+   debajo de 4 GB en otro sitio y, antes de salir, se comprueba que el destino sea memoria que queda libre
+   tras `ExitBootServices` (si no, error con el tipo UEFI y la dirección); el trampolín lo mueve con la
+   paginación apagada, en el sentido seguro si se solapan. El ramdisk **no se mueve**: va a la dirección
+   de la etapa 2 si está libre o donde el firmware dé memoria por debajo de 0x78000000 (lo que el kernel
+   mapea, D049), fuera del destino del kernel; el kernel lo encuentra por `boot_info.ramdisk_inicio` (ya
+   era así: lo reserva y lo mapea por esa dirección). Motivo: OVMF tiene memoria ACPI NVS en 8 MB, en
+   medio de donde la etapa 2 pone el ramdisk; un firmware real puede tener huecos parecidos.
+5. **Trampolín** (`trampolim.asm`, binario plano independiente de la posición, copiado a una zona de 4
+   páginas propia de tipo LoaderCode, por debajo de 1 MB si se puede): en x64 carga una GDT propia, pasa
+   al código de 32 bits con un retorno lejano (modo de compatibilidad), apaga la paginación (sale del modo
+   largo) y borra `EFER.LME/NXE`; en IA32 carga la GDT y apaga la paginación. Después, como la BIOS:
+   CR4 = 0, sin IDT, **APIC local en «cable virtual»** (LINT0 ExtINT, LINT1 NMI; de x2APIC a xAPIC si
+   hiciera falta), **IOAPIC enmascarados** (direcciones de la MADT) y **HPET sin la ruta heredada**, para
+   que el 8259 y el PIT (lo que usa el kernel sin `--ioapic`) funcionen; salto al kernel con
+   `EAX = BOOT_MAGICO`, `EBX = boot_info`. La zona guarda boot_info, mapa, lista de modos, cabecera,
+   parámetros, trampolín y pila: no pisa nunca el destino del kernel.
+6. **`boot_info` versión 2** (compatible: la etapa 2 pone a cero los 192 bytes): `firmware` (0 BIOS, 1
+   UEFI x64, 2 UEFI IA32), `cab_end` (la copia de la cabecera; 0 = 0x7E00), `rsdp` y `smbios` (0 =
+   buscarlos en la memoria de la BIOS). El kernel solo cambia en eso (`principal.c`, `info_hardware.c`):
+   no lee el bloque VBE de 0x6000 por UEFI y deja en el registro `[BOOT] firmware=uefi-x64 gop=...`.
+   Después del arranque el kernel ya no usaba la BIOS (ni VBE ni INT 13h ni modo v86): nada más que
+   cambiar. Lista de modos = modos GOP; el cambio en caliente sigue siendo por driver (BGA, VMware...).
+7. **Imagen híbrida, con MBR** (`mkimagem.py --uefi CARPETA`, y `make` ya hace así `saguios.img`): una
+   ESP FAT32 «SAGUI-EFI» (tipo 0xEF, primaria, en la primera entrada libre: la 3 con el esquema de
+   lógicas de D213), justo después del área de arranque y antes de la extendida, con
+   `EFI/BOOT/BOOTX64.EFI`, `EFI/BOOT/BOOTIA32.EFI`, `SAGUI/CABECERA.BIN` (igual que el LBA 1),
+   `SAGUI/KERNEL.BIN` y `SAGUI/RAMDISK.SGF` (clústeres de 512 bytes para ser FAT32 de verdad; lo justo
+   más 8 MB, mínimo 40). El kernel y el ramdisk van dos veces (tras la etapa 2 para la BIOS y en la ESP):
+   así la ESP es autosuficiente y es la misma que pondrá el instalador con GPT. La ESP no cuenta en la meta
+   de 38 MB (D181: es una copia). Por BIOS no cambia nada (la partición 1, activa, y el LBA 1).
+   **GPT híbrido descartado:** el LBA 1 es la cabecera de SaguiOS y en GPT es la cabecera GPT.
+   **ISO:** sigue solo BIOS; la entrada El Torito UEFI queda pendiente (la ESP con el ramdisk pasa de los
+   32 MB que caben en el contador de sectores de 16 bits de El Torito; habría que leer el kernel y el
+   ramdisk del ISO 9660, que el firmware no sabe leer).
+8. **Secure Boot no**: no firmamos; hay que ponerlo en «Other OS» (docs/uefi.md). Framebuffer por encima
+   de 4 GB (Above 4G Decoding/Resizable BAR): el cargador avisa y sigue sin vídeo.
+9. **Pruebas:** `tests/h264_uefi.py` con OVMF x64 y OVMF IA32 (paquetes `ovmf` y `ovmf-ia32`; sin sudo
+   los baja `tools/entorno-local.sh`, que crea también el envoltorio `qemu-system-x86_64`) hasta el
+   escritorio, y la misma imagen por BIOS; `run_in_qemu.sh --uefi [x64|ia32]`; `tests/qemu.py`
+   (`Maquina(..., firmware="x64")`) para otras pruebas.
+
+## D265. Driver NVMe (v8.0, mejora 062)
+
+**Contexto.** Los PC modernos (y la placa B450 con M.2) llevan el disco en NVMe (PCIe, clase 01h,
+subclase 08h, interfaz 02h), que ni el IDE ni el AHCI ven. Sin él, SaguiOS no ve el disco interno.
+
+**Decisión.**
+1. **Driver propio** (`kernel/dispositivos/nvme.c`, `kernel/inc/nvme.h`, GPL-2.0-or-later) escrito
+   solo desde la especificación pública NVM Express 1.4/2.0, sin código de Linux ni BSD. Pasos: BAR0
+   (por debajo de 4 GB, mapeada sin caché), `CAP`/`VS`, parar (`CC.EN = 0`), colas Admin (16 entradas),
+   `CC` con entradas de 64/16 bytes y páginas de 4 KB, `Identify Controller` (modelo `MN`, `NN`, `MDTS`),
+   `Create I/O CQ` y `Create I/O SQ` (una cola de E/S de 64 entradas), `Identify Namespace` de cada
+   namespace activo (hasta 4), lectura, escritura y `Flush`.
+2. **Sin interrupciones: sondeo con plazo.** El kernel no tiene MSI ni MSI-X (solo INTx y el IOAPIC), así
+   que se apagan las del controlador (`INTMS` y el bit 10 del comando PCI) y se mira la cola de finalización
+   (bit de fase) con plazo por TSC (`prazo.h`, como AHCI D155/D199): 5 s por orden, 15 s el `Flush`. Una orden
+   a la vez (el kernel solo tiene una CPU en la capa de discos y `trava_fs`). Si vence el plazo, hay fallo
+   fatal (`CSTS.CFS`) o la respuesta trae otro identificador, el controlador se apaga (`CC.EN = 0`), la orden
+   falla y el disco deja de contestar: nada cuelga el arranque. MSI/MSI-X quedan como mejora si algún día
+   hace falta rendimiento (y para varias órdenes en curso).
+3. **Datos por PRP.** Un búfer de rebote contiguo de 128 KB (como los demás drivers con DMA): una página
+   = PRP1; dos = PRP1 y PRP2; más de dos = PRP2 apunta a una **lista PRP** de una página. El máximo por
+   orden respeta `MDTS`. Cada escritura termina con `Flush` (como AHCI, D179).
+4. **Un disco más.** Cada namespace es un disco entero **«nvme0», «nvme1»...** con particiones
+   **«nvme0p1»...** (como `usb0p1`), de fabricante «NVMe» y producto el modelo. Es un disco **interno**: se
+   monta solo para lectura salvo `mount -o rw` (D040). **El número de serie no se lee ni se muestra**
+   (ni en el log ni en `infopc`). `infopc` lo lista como `[NVMe]` con capacidad y bloque (el controlador sale
+   en el PCI como soportado). Flags nuevos de `info_disco_t`: `DISCO_NVME`, `DISCO_BLOCO4K`.
+5. **Bloques de 512 y de 4096.** La capa de discos (y todos los sistemas de archivos) trabajan en sectores
+   de 512: un namespace de 4096 se presenta en unidades de 512 (el driver traduce y hace lee-modifica-escribe
+   en escrituras parciales). Las **tablas de particiones** de un disco de 4096 cuentan en bloques de 4096 (LBA
+   de MBR, EBR, cabecera y entradas de GPT): `discos.c` multiplica por 8 lo que lee de ellas
+   (`disco_t.bloco_fisico`). Se admiten formatos de metadatos separados; los intercalados se rechazan.
+6. **GPT.** La lectura de GPT que ya tenía `discos.c` (D179: protección GPT, primeras 4 entradas, cabecera
+   en el LBA 1) sirve tal cual para el NVMe; solo se añadió la escala de 4096. No se tocó el formato ni la
+   escritura (eso es del instalador GPT/ESP, otra rama). **Pendiente conocido:** el reparticionado
+   (`DBLOCO_RESERVAR`) se rechaza en discos de 4096 (`ERRO_NAO_SUPORTADO`), porque las comprobaciones de MBR/GPT de
+   `blocos.c` suponen 512; leer y montar sí funcionan. Sin TRIM (Dataset Management) todavía.
+7. **Arranque desde NVMe:** fuera de esta decisión (lo da el cargador UEFI, otra pieza de la v8.0): aquí
+   solo se leen y escriben discos NVMe una vez arrancado el sistema.
+
+**Pruebas.** `tests/h265_nvme.py`: QEMU con `-device nvme`; FAT32 + ext2 hechas en el anfitrión: `discos`,
+`infopc`, lectura, fichero de 5 MB con suma (listas PRP), escritura y relectura tras reiniciar (también desde
+el anfitrión), dos namespaces, namespace de 4096 con tabla en bloques de 4096, GPT y controlador sin disco.
+
+## D266. Instalador y «particiones» con GPT y partición EFI (ESP) (v8.0, mejora 062)
+
+**Contexto.** La v8.0 arranca por UEFI (rama `v8.0-uefi`: `BOOTX64.EFI`/`BOOTIA32.EFI`, imagen híbrida) y
+lee NVMe (`v8.0-nvme`). Hacía falta que SaguiOS **cree** discos GPT con ESP, no solo los lea; hasta ahora
+(D179) una GPT era de solo lectura y solo el instalador podía borrarla entera.
+
+**Decisión.**
+1. **`userland/libsagui/gpt.c` (`gpt.h`), reutilizable.** Lectura con validación completa (firma,
+   revisión, CRC de la cabecera con su campo a cero, MyLBA, CRC de las 128 entradas; si la principal no vale se
+   lee el respaldo y se avisa) y escritura entera: entradas y cabecera de **respaldo** primero, después las de la
+   **principal** y por último el **MBR protector** (tipo 0xEE, LBA 1, tamaño `min(disco-1, 2^32-1)`); al
+   acabar se relee, se comprueban los CRC de las dos cabeceras y que las entradas sean las escritas, y se manda
+   al kernel releer. Antes de escribir nada se valida todo (zona utilizable 34..disco-34, sin solapes). Todo
+   lo que el programa no entiende (entradas más allá de la cuarta, atributos, GUID únicos) se **conserva**
+   tal cual al editar. GUID de disco y de partición: aleatorios (versión 4). Alineación: 1 MiB.
+2. **El kernel no se toca.** Ya lee la GPT (las cuatro primeras entradas usadas, número = entrada + 1, tipo
+   0xEE) y deja escribir en una GPT solo a quien reserva el disco con `DBLOCO_CONF_GPT` (D179); eso basta.
+   Límites que hereda: sectores de 32 bits (2 TB) y solo cuatro particiones visibles. La NVMe, si añade su propia
+   lectura de GPT al kernel, no choca: aquí solo se escribe desde el espacio de usuario.
+3. **Qué crea el instalador.**
+   - **MBR (BIOS)**, como hasta ahora (SaguiOS 0xDA desde el LBA 1, extendida con /home, juegos, /apps y
+     SAGUI-CONF). Con `--esp` (o la casilla de la ventana), además una **partición EFI primaria** (0xEF, 64 MB,
+     FAT32 `SAGUI-ESP`) entre SaguiOS y la extendida (imagen híbrida). Sin cargador UEFI (ver 5) la ESP **no
+     se crea** y se avisa de que es solo para BIOS.
+   - **GPT (UEFI)**, solo en disco entero (`--gpt`): 1 **ESP** (256 MB; 64 MB si el disco es de menos de
+     1 GB; FAT32 `SAGUI-ESP`, tipo EFI System), 2 **SaguiOS** (tipo propio
+     `53414755-494F-4F53-8001-534147554953`, **su primer sector es la cabecera de arranque** y detrás van etapa 2,
+     kernel y ramdisk, con las direcciones de la cabecera desplazadas a su sitio: el LBA 1 es de la GPT),
+     3 **/home** (ext2 `SAGUI-DATOS`, opcional con `--sin-home`) y 4 **SAGUI-CONF** (ext2, 16 MB, D256). Sin
+     juegos ni /apps (no caben en las cuatro entradas que ve el kernel). El MBR protector lleva el código
+     «int 18h»: con la BIOS clásica esa GPT **no arranca**; hace falta el cargador UEFI de la ESP.
+   - **Automático** (`--auto`, por defecto): GPT si el disco pasa de 2 TB o se arrancó por UEFI (la señal vendrá
+     en `bootinfo` con la rama UEFI: `arrancou_por_uefi()` en `instalar.c` es el único sitio que hay que tocar;
+     hoy devuelve falso), MBR si no. En la ventana hay dos opciones de «disco entero» (MBR y GPT) y la
+     automática preselecciona una.
+4. **SAGUI-CONF se conserva al reinstalar también con GPT** (y al pasar de GPT a MBR y al revés): se busca por
+   etiqueta en el destino, se copia a la RAM y se devuelve a la nueva (D256, sin cambios en la lógica).
+5. **Ruta acordada con la rama UEFI: `/sistema/efi/`.** El instalador copia **todo lo que haya ahí** (recursivo)
+   a la raíz de la ESP: `EFI/BOOT/BOOTX64.EFI`, `EFI/BOOT/BOOTIA32.EFI` y lo que más haga falta
+   (kernel y ramdisk si el cargador los quiere en la ESP). La rama UEFI debe **poner esa carpeta en el
+   ramdisk** (o, si el cargador viene en la partición EFI de la imagen de arranque, copiarla a `/sistema/efi`
+   al arrancar). Sin carpeta o vacía: con MBR se instala solo para BIOS (aviso); con GPT la ESP queda vacía
+   (aviso fuerte: no arrancará hasta copiar el cargador). El cargador puede localizar SaguiOS por el GUID de
+   tipo de su partición (punto 3) y leer su primer sector.
+6. **`particiones` y la ventana de Discos editan GPT**: crear (`fat32`, `ext2`, `esp` = EFI FAT32, `tipo=0xEF`,
+   0xDA, 0x83, 0x07), borrar y formatear; `tabla-nueva <disco> [mbr|gpt]` (en la ventana, dos entradas del
+   menú). Las entradas 1 a 4 se ven como las primarias 1 a 4 (tipo MBR equivalente), así que la barra, la lista
+   y los avisos son los del MBR; activa, tamaño, ampliar y deshacer solo existen en MBR. El kernel no deja tocar
+   una GPT con particiones montadas: se pide desmontar. **Avisos fuertes** (terminal y ventana) al borrar o
+   formatear **SAGUI-CONF** (D256) y la **ESP** («lleva el cargador UEFI; sin ella este disco no arranca por UEFI»).
+   Al formatear una ESP del MBR no se cambia su tipo 0xEF a 0x0C.
+7. **Robustez.** Nada se escribe a medias (validar todo antes; respaldo, principal, MBR protector; releer y
+   comprobar CRC y contenido); un fallo a medias del instalador en una GPT borra la cabecera de arranque de la
+   partición de SaguiOS (no el LBA 1, que es de la GPT); un disco GPT ajeno (Windows/Linux) se lee **sin
+   escribir ni un byte** (la prueba compara el hash del disco); con la cabecera principal dañada se lee el
+   respaldo y solo se avisa (se repara al cambiar algo); una GPT inválida solo admite «tabla nueva».
+
+**Pruebas.** `tests/h266_gpt_esp.py` (la GPT creada por SaguiOS se valida en el anfitrión con Python, `sgdisk -v` y
+`sfdisk --json`; la ESP con `fsck.vfat` y `mtype`; reinstalar conservando SAGUI-CONF; GPT -> MBR+ESP; GPT hecha
+con `sgdisk` leída sin tocarla y editada) y las de siempre (h149, h148, h91, h93, h255).
+
+## D267. USB 1.1: controladores UHCI y OHCI propios, compañeros del EHCI (v8.0)
+
+**Contexto.** En los PC con chipset anterior al xHCI, los dispositivos de baja y plena velocidad (teclados,
+ratones, hubs USB 1.1, pendrives viejos) van por controladores *compañeros* del EHCI (UHCI en Intel/VIA, OHCI en
+AMD/NVIDIA/SiS) cuando el EHCI les cede el puerto (`PORTSC.PORT_OWNER`). SaguiOS cedía el puerto y nadie lo
+recogía: en el Fujitsu Amilo Pi 1536 (945: un EHCI y cuatro UHCI) no había teclado, ratón ni pendrive USB.
+
+**Decisión.**
+1. **Drivers nuevos `kernel/usb/uhci.c` y `kernel/usb/ohci.c`**, escritos desde las especificaciones públicas
+   (UHCI Design Guide 1.1 de Intel, OpenHCI 1.0a), sin código de Linux ni BSD. Control, bulk e interrupción;
+   isócrono no (v8.1). Misma interfaz que el EHCI (`*_controle`, `*_bulk`, `*_int_abrir/ler/fechar`); `usb.c`
+   despacha por `tipo_ctl` (`USB_UHCI`, `USB_OHCI`) y los drivers de clase (hub, HID, masivo) no cambian. El HID usa
+   `usb_int_abrir/ler/fechar` para todo menos el xHCI. Sin recepción continua (el Wi-Fi sigue en EHCI/xHCI).
+2. **Diseño simple y previsible, como el EHCI:** una transferencia por vez (cerrojo, buffer común de 8 KB), sin
+   interrupciones del controlador (se consulta el estado de los TD cediendo la CPU, tiempo por TSC con `prazo.h`),
+   endpoints de interrupción consultados cada 8 ms (UHCI) o cada cuadro (OHCI). UHCI: TD en profundidad (`Vf`),
+   paquete corto con SPD y paso explícito a la etapa de estado. OHCI: una ED de trabajo por lista (control y bulk)
+   con el bit «saltar» cuando no hay nada, alternancia de datos explícita en cada TD, TD con redondeo.
+3. **Traspaso BIOS->SO:** UHCI: se detiene el controlador, se borran las SMI y avisos de `USBLEGSUP` (PCI 0xC0) y se
+   hace un reinicio global y de controlador. OHCI: si `HcControl.IR` está a 1 se pide la propiedad con
+   `OwnershipChangeRequest` y se espera a que lo suelte; después `HCR`.
+4. **Compañeros del EHCI:** el EHCI cede el puerto (baja velocidad por la línea en estado K; plena velocidad porque no
+   se habilita tras el reset) **solo si hay un UHCI/OHCI funcionando** (`companheiro_usavel`); si el chipset
+   declara compañeros y no hay driver, no se cede (como antes). El UHCI/OHCI enumera lo cedido por sus propios
+   puertos (conexión, retirada y reintentos de la D227 iguales que en los demás). Orden de arranque: xHCI, EHCI,
+   UHCI, OHCI. Al retirar el dispositivo, el puerto vuelve solo al EHCI.
+5. **Direcciones por controlador** (`endereco_livre` ya no es solo del EHCI) y `ponto_t` con los cuatro tipos.
+6. **Herramientas:** `run_in_qemu.sh --uhci` y `--ohci`; `usb` muestra los controladores y puertos USB 1.1;
+   `docs/usb11.md` (diseño y qué probar en el Amilo).
+
+**Pruebas.** `tests/h267_usb11.py` (QEMU `piix3-usb-uhci`, `pci-ohci`, `ich9-usb-ehci1` con `ich9-usb-uhci1..3`):
+teclado y ratón (el terminal escribe, el cursor se mueve y hace clic), hub USB 1.1, pendrive (lectura y escritura
+con SHA-256 igual en el PC), conexión y retirada en caliente, y el cedido del EHCI al UHCI (teclado, hub con
+pendrive) con uno de alta velocidad que sigue por el EHCI. `h227` adaptada (el compañero ya enumera el teclado).
+
+**Límites.** QEMU no emula dispositivos de baja velocidad (1,5 Mb/s): el bit LS del UHCI y el S del OHCI no están
+probados; tampoco el `USBLEGSUP` ni la SMI de una BIOS real. Falta probarlo en el Amilo.
+
+## D268. Ordenar los iconos del escritorio (mejora 101, v8.0)
+
+**Decisión.** Los iconos del escritorio ocupan casillas de una rejilla (104 x 84 px) y se pueden mover,
+ordenar y seleccionar en grupo. Todo vive en `kernel/gui/area_trabalho.c`; `janelas.c` solo le pasa el ratón
+y el teclado (cuatro llamadas) y no toca memoria, planificador ni VFS.
+
+1. **Casillas.** Cada icono tiene una casilla efectiva (`ic_*`) y una pedida (`id_*`, la que se guarda). Sin
+   archivo ni acciones, valen las casillas de siempre (por índice, con la del pendrive reservada).
+2. **Arrastre.** Se agarra el icono (umbral de 4 px) y se ve moverse a su casilla más cercana; al soltar, un
+   icono solo que cae encima de otro **se intercambia** con él, y un grupo desplaza a los ocupantes a la
+   **casilla libre más cercana**. Un grupo no sale de la rejilla. El Pendrive, al aparecer, vuelve a su
+   casilla o a la libre más próxima.
+3. **Selección.** Rectángulo con el ratón en el fondo y Ctrl+clic; el icono seleccionado se aclara (28 %).
+   Con el teclado (tras pulsar en el escritorio; lo pierde cualquier ventana que tome el foco): flechas
+   mueven el foco al icono más cercano en esa dirección, Intro lo abre y Esc suelta el foco.
+4. **Menú del escritorio.** Submenú «Ordenar iconos»: por nombre (sin distinguir mayúsculas), por tipo
+   (carpetas y unidades, documentos, programas; luego nombre), por fecha (la del programa, lo más reciente
+   primero; el ramdisk las tiene iguales, así que desempata el nombre), «Alinear a la rejilla» (quita los
+   huecos conservando el orden por columnas) y «Organización automática» (marcada cuando está activa: tras
+   cada cambio se reordena por el criterio, o por nombre si era manual).
+5. **Persistencia.** `/home/.config/escritorio.conf`, texto, escrito de forma atómica (archivo `.nuevo`,
+   `sincronizar` y `renomear` sobre el definitivo, por el sistema de archivos del montaje o por el VFS en
+   RAM). Formato: `orden=manual|nombre|tipo|fecha`, `auto=si|no` y una línea `clave=columna,fila` por icono
+   (`archivos`, `terminal`, `editor`, `calculadora`, `banana`, `sagui3d`, `acerca`, `pendrive`, `tareas`,
+   `visor`, `paint`, `chip8`, `configuracion`, `discos`). Las claves desconocidas y las casillas repetidas se
+   ignoran; los iconos que faltan van a la primera casilla libre por columnas. Se guarda tras cada arrastre
+   u orden.
+6. **Cambio de resolución (D059).** Si las casillas pedidas siguen cabiendo todas, se usan tal cual (volver a
+   la resolución grande recupera la disposición); si no, se recolocan todas conservando el orden relativo
+   por columnas. La casilla pedida no se pierde.
+7. **Rendimiento.** `desenhar_fundo_em` repinta solo un rectángulo del fondo (degradado o imagen) y los
+   iconos que lo tocan; cada movimiento marca como sucio solo las casillas viejas y nuevas (y el rectángulo
+   de selección), como el resto del gestor. Antes cualquier cambio repintaba todo el fondo.
+8. **Registro** para las pruebas: `[ICONOS] casillas...: clave=c,f ...`, `arrastre`, `ordenar`, `foco`,
+   `guardado en ... : r`, `cargado ...`.
+
+**Límites.** El monitor de QEMU no mantiene teclas pulsadas: el Ctrl+clic y las flechas con modificador no
+se prueban por ahí (el código usa `teclado_modificadores`). El menú del escritorio ahora tiene 11 líneas
+(h55 ajustada).
+
+**Pruebas.** `tests/h268_iconos_escritorio.py`: arrastre a casilla libre, intercambio, orden por nombre, tipo,
+fecha y alinear, selección por rectángulo y mover el grupo, flechas e Intro, guardado, reinicio con `/home`
+persistente y cambio a 800x600 sin iconos fuera; capturas `H268-*.png`.
+
+## D269. Diálogo de permisos de administrador y avisos completos (v8.0, mejora 102, issue #16)
+
+**Contexto:** desde la D255 las aplicaciones con ventana que necesitan ser root (Discos/Particiones, instalar, Configuración, Administrador de tareas) solo decían «hace falta ser administrador» y mandaban al Terminal. El mantenedor pidió una ventana al estilo del Control de cuentas de usuario de Windows. Además, la issue #16: los avisos emergentes y los cuadros de diálogo de los programas cortaban el texto.
+
+**Decisión:**
+1. **Mecanismo sobre la interfaz de D255, sin llamadas nuevas:** `SERV_PEDIR` admite el indicador `PED_GRAFICO` (se suma a `PED_ELEVAR`, solo hacia root) y un campo `motivo[80]` al final de `pedido_conta_t`. Con el indicador **el programa no da la contraseña**: el kernel (`supervisor.c`) guarda el pedido en estado «diálogo», lo sondea él mismo ante el supervisor sin contraseña (¿root tiene contraseña?, ¿bloqueo?) y el diálogo lo pinta el **gestor de ventanas** (`kernel/gui/permisos_dialogo.c`, el componente de confianza). La persona escribe la contraseña ahí y el kernel se la entrega al supervisor (`SERV_PROXIMO`, como siempre); un fallo (`ERRO_ACESSO` mala, `ERRO_ESPERA` bloqueo) vuelve al diálogo sin contestar al programa; solo llega el definitivo (`SERV_RESULTADO`: 1 concedido, `ERRO_ACESSO` No o mala, `ERRO_ESPERA`). El supervisor no cambia: sigue aplicando la sombra, los 2 s y el bloqueo de 5 fallos. Si el supervisor responde 1 al sondeo (modo en vivo, sin contraseña en la sesión local) se concede sin diálogo, igual que `admin`.
+2. **Seguridad.** (a) La contraseña nunca pasa por el programa que pide: sale de las teclas del gestor al búfer del pedido y de ahí al supervisor, que lo borra al recogerlo; ni la ve ni la puede leer (`SERV_PROXIMO` es solo del supervisor). (b) Mientras el diálogo está abierto, **todo el teclado y el ratón son suyos** (incluido Alt+Tab); se suelta cualquier arrastre o captura del ratón. (c) El **nombre del programa lo pone el kernel** (`processo_t.nome`), nunca el programa; el `motivo` es texto del programa (sin caracteres de control, 80 bytes) y se muestra aparte. (d) **No se puede imitar del todo:** el diálogo atenúa todo el escritorio, incluida la barra superior y los avisos, que ninguna ventana puede cubrir, y se pinta por encima de ventanas, avisos y menús; una ventana falsa no puede atenuar la barra ni quedar por encima del menú Inicio. Sigue siendo posible que una app dibuje algo parecido dentro de su ventana y la persona escriba ahí una contraseña (como en cualquier sistema: la defensa es no teclearla si la barra de arriba no se atenúa); lo que no puede es **obtener root con el diálogo real** ni leer lo escrito en él. (e) Un servicio (SSH, cron) no puede pedir el diálogo (`ERRO_ACESSO`: nadie delante del escritorio); sin escritorio, `ERRO_NAO_SUPORTADO`. (f) El tiempo de espera de un diálogo sin atender es de 5 min y se cierra solo si el programa muere.
+3. **Recordar 5 minutos por programa:** tras conceder, el kernel anota (nombre del programa, uid) 5 min, y un pedido gráfico del mismo programa en ese plazo se concede sin diálogo (`ELEVACION recordada` en el registro). Solo vale para programas cargados de **`/bin/`** (`EXE_BIN`, nuevo en `exe_do_caminho`: ruta absoluta que empieza por `/bin/` y sin `..`; solo root escribe ahí), así que un programa del usuario con el mismo nombre no hereda la autorización.
+4. **Primera vez:** si root no tiene contraseña, el diálogo pide elegirla dos veces (al menos 4 caracteres) y la fija por el mismo camino de D255 (`senha_nova`).
+5. **Aspecto:** ventana centrada de 500 px con barra azul «Control de permisos del sistema», icono (el de la barra de tareas para ese programa) y nombre, «quiere hacer cambios en el sistema.», el motivo (hasta 3 líneas), campos de contraseña con asteriscos (Tab cambia de campo), errores en rojo (incorrecta, no coinciden, bloqueo con minuto de espera), «Sí, continuar» / «No» y Esc = No.
+6. **Biblioteca:** `elevar_grafico(motivo)` (0 = ya es root; espera a la persona) y `elevacao_soltar()` (vuelve a `sagui` con `USU_FIJAR`), y la macro `COM_ADMIN(motivo, llamada)`, que repite una llamada que dio `ERRO_ACESSO` tras pedir permisos y suelta la elevación (`libsagui/contas.c`, `contas.h`).
+7. **Programas que lo usan:** Discos (montar, desmontar, expulsar; la vista de Particiones pide permisos al abrirse o al leer el disco y los suelta al salir de ella), Instalar SaguiOS (`--ventana`, root durante toda la instalación), Administrador de tareas (finalizar procesos de otra cuenta; iniciar, parar y activar servicios), Configuración (zona horaria, bloqueo de publicidad), Fecha y hora (`zona`: zona y hora del sistema). Los programas de terminal siguen con `admin`/`su`.
+8. **Avisos (issue #16):** módulo nuevo `kernel/gui/avisos.c`. Búfer de 512 bytes (antes 96; la llamada `SIS_AVISAR` acepta 511 y la cola de avisos de pendrives 255); el corte de línea se calcula **midiendo el texto con la fuente del sistema** (`texto_largura`), respetando las palabras (y sin partir un carácter UTF-8 si hay que cortar en seco); la caja crece en alto hasta 14 líneas (si hay más, la última acaba en «...»); duración 5 s más 1 s por cada 25 letras (tope 25 s; 5 s si hay cola larga); **cola de 6 avisos** (no se pisan: cada uno espera al anterior). Se mantiene el aviso pulsable de D125/D233 (`gui_aviso_ex`). Interfaz: `gui_aviso()` sigue igual.
+9. **Cuadros de diálogo de los programas (issue #16):** `dialogo()` de `libsagui/gui.c` (`mensagem`, `confirmar`, `pedir_texto`): ancho de 380 a 640 px según el párrafo más largo, corte por palabras según el ancho real de la fuente, alto según las líneas resultantes; botones y cuadro de texto recolocados.
+
+**Núcleo tocado (aviso):** `kernel/nucleo/supervisor.c` (pedidos gráficos: unos 150 líneas, con la misma tabla de pedidos de D255), `kernel/nucleo/carregador.c` (`EXE_BIN`), `kernel/inc/abi.h` (indicador y campo `motivo` al final de `pedido_conta_t`) y el gestor de ventanas (`janelas.c`: ganchos de dibujo, ratón, teclado y tic; el código del aviso se sacó a `avisos.c`). Ni memoria, ni planificador, ni VFS, ni arranque.
+
+**Límites conocidos:** el programa que pide queda como root hasta que llama a `elevacao_soltar()` o muere (los de Discos, Tareas, Configuración y Fecha y hora la sueltan tras cada operación; Instalar no); mientras espera la respuesta el programa no repinta su ventana (la pantalla atenuada muestra su último contenido); la autorización recordada se pierde al reiniciar; no hay icono propio para programas sin icono en la barra (se dibuja un «?»).
+
+**Prueba:** `tests/h269_dialogo_admin.py` con `/testes/dialogo-admin` (Esc, primera contraseña, distintas, mala y buena, Particiones, recordar, instalar, avisos largo y encolado, mensaje y pregunta largos); capturas `H269-*.png`.

@@ -19,6 +19,7 @@
  * icono del escritorio); desde un terminal o un script sigue saliendo el texto de siempre. */
 #include "sagui.h"
 #include "gui.h"
+#include "contas.h"
 #include "particoes.h"
 
 #define TECLA_F5_ 0x10E
@@ -444,12 +445,12 @@ static bool montar_volume(const linha_t *v, bool rw)
     if (rw && !v->interno) rw = false;   /* los pendrives ya montan con escritura */
     if (v->cd) {   /* D233: un CD/DVD en /cd, como al meterlo; si está ocupado, en /mnt/cdN */
         rw = false;
-        r = montar_em(v->nome, "/cd", MONTAR_SO_LEITURA);
-        if (r == ERRO_OCUPADO) r = montar_em(v->nome, ponto, MONTAR_SO_LEITURA);
-    } else if (v->interno) r = montar_em(v->nome, ponto, rw ? MONTAR_LEITURA_ESCRITA : MONTAR_SO_LEITURA);
+        r = COM_ADMIN("montar un disco", montar_em(v->nome, "/cd", MONTAR_SO_LEITURA));
+        if (r == ERRO_OCUPADO) r = COM_ADMIN("montar un disco", montar_em(v->nome, ponto, MONTAR_SO_LEITURA));
+    } else if (v->interno) r = COM_ADMIN("montar un disco", montar_em(v->nome, ponto, rw ? MONTAR_LEITURA_ESCRITA : MONTAR_SO_LEITURA));
     else {
-        r = montar_em(v->nome, "/usb", 0);
-        if (r == ERRO_OCUPADO) r = montar_em(v->nome, ponto, 0);
+        r = COM_ADMIN("montar un disco", montar_em(v->nome, "/usb", 0));
+        if (r == ERRO_OCUPADO) r = COM_ADMIN("montar un disco", montar_em(v->nome, ponto, 0));
     }
     if (r < 0) formatar_texto(aviso, sizeof aviso, "No se pudo montar %s: %s", v->nome, r == ERRO_FORMATO ? "formato no soportado" : nome_erro(r));
     else formatar_texto(aviso, sizeof aviso, "%s montado%s", v->nome, v->interno && !rw ? " (solo lectura)" : "");
@@ -460,7 +461,7 @@ static bool montar_volume(const linha_t *v, bool rw)
 /* D233: desmonta el CD/DVD y abre la bandeja. */
 static void expulsar(const linha_t *v)
 {
-    int r = expulsar_disco(v->nome, 0);
+    int r = COM_ADMIN("expulsar un disco", expulsar_disco(v->nome, 0));
     if (r == ERRO_OCUPADO) formatar_texto(aviso, sizeof aviso, "%s está en uso (¿el instalador?): no se expulsa", v->nome);
     else if (r < 0) formatar_texto(aviso, sizeof aviso, "No se pudo expulsar %s: %s", v->nome, nome_erro(r));
     else formatar_texto(aviso, sizeof aviso, "%s expulsado: ya puedes sacar el disco", v->nome);
@@ -471,7 +472,7 @@ static void alternar_montaje(const linha_t *v)
 {
     if (bt_expulsar(v)) expulsar(v);
     else if (v->montado) {
-        int r = desmontar(v->nome);
+        int r = COM_ADMIN("desmontar un disco", desmontar(v->nome));
         if (r < 0) formatar_texto(aviso, sizeof aviso, "No se pudo desmontar %s: %s", v->nome, nome_erro(r));
         else formatar_texto(aviso, sizeof aviso, "%s desmontado", v->nome);
         registrar("discos: desmontar %s -> %d", v->nome, r);
@@ -515,7 +516,7 @@ static void tratar_menu(int indice)
         if (confirmar("Montar con escritura", "Este disco es interno. ¿Montarlo con escritura? Podría dañarse su contenido.")) montar_volume(&v, true);
         atualizar(true);
     } else if (indice == 3 && v.montado) {
-        int r = desmontar(v.nome);
+        int r = COM_ADMIN("desmontar un disco", desmontar(v.nome));
         if (r < 0) formatar_texto(aviso, sizeof aviso, "No se pudo desmontar %s: %s", v.nome, nome_erro(r));
         else formatar_texto(aviso, sizeof aviso, "%s desmontado", v.nome);
         registrar("discos: desmontar %s -> %d", v.nome, r);
@@ -535,7 +536,9 @@ static void tratar_menu(int indice)
  * D213 (v7.3): con particiones montadas (el disco de arranque, con /home y /apps) se puede
  * cambiar el resto: solo se ofrece desmontar la partición que se va a tocar. "Ampliar"
  * lleva la extendida hasta el final del disco, y "Tamaño" hace crecer o encoger también
- * el ext2 (y crecer el FAT32), con una comprobación del sistema de archivos antes. */
+ * el ext2 (y crecer el FAT32), con una comprobación del sistema de archivos antes.
+ * D266 (v8.0): también discos GPT (crear, borrar y formatear; sus entradas 1 a 4 se ven como las
+ * primarias del MBR), la partición EFI (ESP) con su aviso fuerte y «Tabla nueva» MBR o GPT. */
 #define MENU_PART   4
 #define MENU_CRIAR  5
 #define MENU_FMT    6
@@ -576,6 +579,7 @@ static uint32_t pv_cor(uint8_t t)
     case 0x0B: case 0x0C: return 0x3A7BD5;
     case 0x83: return 0x2E9E4F;
     case 0xDA: return 0xE8891C;
+    case 0xEF: return 0xC9A60C;   /* D266: la partición EFI (ESP) */
     case 0x07: return 0x8E5CC2;
     case 0x82: return 0x95A0A8;
     case 0x01: case 0x04: case 0x06: case 0x0E: return 0x5DADE2;
@@ -616,6 +620,8 @@ static void pv_mensagem(const char *titulo, const char *texto)
     mensagem(titulo, q);
 }
 
+static int pv_pedir_admin(void);
+
 static void pv_ler(void)
 {
     pv_ndiscos = 0;
@@ -629,7 +635,13 @@ static void pv_ler(void)
     }
     pv_nseg = 0;
     memset(&pv_t, 0, sizeof pv_t);
-    if (!pv_disco[0] || !pv_info_de(pv_disco, &pv_info) || pt_ler(pv_disco, &pv_t) < 0) return;
+    if (!pv_disco[0] || !pv_info_de(pv_disco, &pv_info)) return;
+    int rl = pt_ler(pv_disco, &pv_t);
+    if (rl == ERRO_ACESSO && pv_pedir_admin() == 0) rl = pt_ler(pv_disco, &pv_t);   /* D269: diálogo de permisos */
+    if (rl < 0) {
+        if (rl == ERRO_ACESSO) copia_texto(pv_msg, "Hacen falta permisos de administrador para ver los discos.", sizeof pv_msg);
+        return;
+    }
     blocos_info(pv_disco, &pv_bloco);
     pv_passos = pt_passos_deshacer(pv_disco);
     /* Los segmentos, por orden: primarias y huecos; dentro de la extendida, sus lógicas y huecos. */
@@ -728,6 +740,13 @@ static bool pv_es_conf(const pv_seg_t *s)
     return pv_info_de(n, &d) && compara_texto(d.rotulo, "SAGUI-CONF") == 0;
 }
 
+/* D266: ¿es la partición EFI (ESP)? Aviso fuerte, como el de SAGUI-CONF. */
+static bool pv_es_esp(const pv_seg_t *s)
+{
+    if (!s || !s->num || s->num > 4) return false;
+    return pv_t.prim[s->num - 1].tipo == 0xEF;
+}
+
 static void pv_tamanho(uint32_t setores, char *s, int max)
 {
     uint32_t mb = setores / 2048;
@@ -778,13 +797,14 @@ static bool pv_pode(int bt)
 {
     pv_seg_t *s = pv_sel >= 0 ? &pv_seg[pv_sel] : NULL;
     const pt_part_t *p = s ? pv_part(s) : NULL;
-    bool tabela_ok = pv_t.esquema == PT_MBR || pv_t.esquema == PT_SEM_TABELA;
+    bool mbr_ok = pv_t.esquema == PT_MBR || pv_t.esquema == PT_SEM_TABELA;
+    bool tabela_ok = mbr_ok || (pv_t.esquema == PT_GPT && !pv_t.gpt_mala);   /* D266 */
     switch (bt) {
     case PV_CRIAR: return tabela_ok && s && !s->num;
     case PV_BORRAR: return tabela_ok && p;
-    case PV_REDIM: return tabela_ok && p;
+    case PV_REDIM: return mbr_ok && p;
     case PV_FORMATEAR: return tabela_ok && p && !pt_tipo_extendida(p->tipo);
-    case PV_ACTIVA: return tabela_ok && p && s->num <= 4 && !pt_tipo_extendida(p->tipo) && !p->ativa;
+    case PV_ACTIVA: return mbr_ok && p && s->num <= 4 && !pt_tipo_extendida(p->tipo) && !p->ativa;
     case PV_TRIM: return tabela_ok && pv_bloco.trim == TRIM_SIM && s && !(p && pt_tipo_extendida(p->tipo));
     case PV_DESHACER: return pv_passos > 0;
     case PV_AMPLIAR: return pv_t.esquema == PT_MBR && pv_fim_ampliar() != 0;
@@ -822,7 +842,14 @@ static void pv_desenhar(void)
     formatar_texto(c, sizeof c, "%s  -  %s %s  -  %s  -  %s", pv_disco, pv_info.fabricante, pv_info.produto, tam, esq[pv_t.esquema]);
     g_texto(j, 14, PV_CAB_Y, c, COR_TEXTO);
     uint32_t cor_aviso = COR_TEXTO_FRACO;
-    if (pv_t.esquema == PT_GPT) { copia_texto(c, "GPT: se muestra en solo lectura; SaguiOS no cambia esta tabla.", sizeof c); cor_aviso = 0xB9770E; }
+    if (pv_t.esquema == PT_GPT && pv_t.gpt_mala) { formatar_texto(c, sizeof c, "GPT no válida (%s): no se toca; solo vale una tabla nueva.", pv_t.gpt_aviso); cor_aviso = 0xC0392B; }
+    else if (pv_t.esquema == PT_GPT && pv_t.gpt_respaldo) { copia_texto(c, "GPT: la cabecera principal está dañada, se lee el respaldo (se repara al cambiar algo).", sizeof c); cor_aviso = 0xC0392B; }
+    else if (pv_t.esquema == PT_GPT && pv_info.montado) { copia_texto(c, "GPT con particiones montadas: desmóntalas para cambiar la tabla (el kernel no deja tocarla montada).", sizeof c); cor_aviso = 0xB9770E; }
+    else if (pv_t.esquema == PT_GPT) {
+        formatar_texto(c, sizeof c, "GPT: se puede crear, borrar y formatear (hasta cuatro particiones). Una GPT ajena no se toca hasta que lo pidas.%s",
+                       pv_t.ngpt > 4 ? " Las entradas más allá de la cuarta no se gestionan." : "");
+        cor_aviso = 0xB9770E;
+    }
     else if (pv_info.flags & DISCO_ARRANQUE_REAL) { copia_texto(c, "Es el disco de arranque de SaguiOS: cualquier cambio pide confirmarlo dos veces.", sizeof c); cor_aviso = 0xC0392B; }
     else if (pv_info.montado) { copia_texto(c, "Tiene particiones montadas: no se tocan; para cambiar una se ofrecerá desmontarla.", sizeof c); cor_aviso = 0xB9770E; }
     else if (pv_t.esquema == PT_VOLUME) copia_texto(c, "El disco entero es un volumen: para particionarlo, crea antes una tabla nueva (menú).", sizeof c);
@@ -834,18 +861,7 @@ static void pv_desenhar(void)
     /* La barra del disco. */
     pv_geometria();
     int bx = 12, bw = j->larg - 24, by = PV_BARRA_Y, ba2 = PV_BARRA_A;
-    if (pv_t.esquema == PT_GPT) {
-        g_retangulo(j, bx, by, bw, ba2, 0xE4E7EA);
-        uint32_t total = pv_mb(pv_t.setores) ? pv_mb(pv_t.setores) : 1;
-        for (int i = 0; i < pv_t.ngpt; i++) {
-            int x = bx + (int)(pv_mb(pv_t.gpt[i].inicio) * (uint32_t)bw / total);
-            int l = (int)(pv_mb(pv_t.gpt[i].setores) * (uint32_t)bw / total);
-            if (l < 4) l = 4;
-            g_retangulo(j, x, by, l, ba2, 0x7F8C8D);
-            g_moldura(j, x, by, l, ba2, 0xFFFFFF);
-            if (l > g_largura_texto(pv_t.gpt[i].tipo) + 8) g_texto(j, x + 4, by + 24, pv_t.gpt[i].tipo, 0xFFFFFF);
-        }
-    } else if (pv_t.esquema == PT_VOLUME) {
+    if (pv_t.esquema == PT_VOLUME) {
         g_retangulo(j, bx, by, bw, ba2, 0x3A7BD5);
         g_texto(j, bx + 8, by + 24, pv_info.formato, 0xFFFFFF);
     } else {
@@ -867,7 +883,7 @@ static void pv_desenhar(void)
 
     /* Leyenda. */
     static const struct { uint8_t t; const char *n; } ley[] = {
-        { 0x0C, "FAT32" }, { 0x83, "Linux/ext2" }, { 0xDA, "SaguiOS" }, { 0x07, "NTFS" }, { 0x0F, "extendida" }, { 0x01, "otras" }, { 0, "libre" } };
+        { 0x0C, "FAT32" }, { 0x83, "Linux/ext2" }, { 0xDA, "SaguiOS" }, { 0xEF, "EFI" }, { 0x07, "NTFS" }, { 0x0F, "extendida" }, { 0x01, "otras" }, { 0, "libre" } };
     int lx = 14;
     for (unsigned i = 0; i < sizeof ley / sizeof ley[0]; i++) {
         if (ley[i].t) g_retangulo(j, lx, PV_LEG_Y + 3, 12, 12, ley[i].t == 0x01 ? pv_cor(0x99) : pv_cor(ley[i].t));
@@ -885,16 +901,7 @@ static void pv_desenhar(void)
     for (int k = 0; k < 8; k++) if (col[k] < j->larg - 20) g_texto(j, col[k], ty + 1, tit[k], COR_TEXTO);
     ty += PV_LIN_A;
     int max_lin = (pv_bt_y() - 8 - ty) / PV_LIN_A;
-    if (pv_t.esquema == PT_GPT) {
-        for (int i = 0; i < pv_t.ngpt && i < max_lin; i++, ty += PV_LIN_A) {
-            char a[16], b[16], d[16];
-            formatar_texto(a, sizeof a, "%d", i + 1);
-            formatar_texto(d, sizeof d, "%u MB", pv_t.gpt[i].inicio / 2048);
-            pv_tamanho(pv_t.gpt[i].setores, b, sizeof b);
-            g_texto(j, col[0], ty, a, COR_TEXTO); g_texto(j, col[2], ty, d, COR_TEXTO); g_texto(j, col[3], ty, b, COR_TEXTO);
-            g_texto(j, col[4], ty, pv_t.gpt[i].tipo, COR_TEXTO); g_texto(j, col[6], ty, pv_t.gpt[i].nome, COR_TEXTO);
-        }
-    } else
+    {
         for (int i = 0; i < pv_nseg && i < max_lin; i++, ty += PV_LIN_A) {
             pv_seg_t *s = &pv_seg[i];
             const pt_part_t *p = pv_part(s);
@@ -925,6 +932,7 @@ static void pv_desenhar(void)
             }
             g_retangulo(j, 12, ty + PV_LIN_A - 4, j->larg - 24, 1, 0xE4E7EA);
         }
+    }
 
     /* Botones y estado. */
     for (int i = 0; i < PV_NBT; i++) botao_fila_l(pv_bt_x(i), pv_bt_y(), PV_W_BT, pv_bt_texto[i], pv_pode(i));
@@ -972,7 +980,7 @@ static void pv_progresso(int pc, void *ctx)
 /* ¿Hay que desmontar la partición n para esta operación? (D213: solo lo que se toca.) */
 static bool pv_afeta(const pt_acao_t *a, int n)
 {
-    if (a->op == PA_TABELA_NOVA) return true;
+    if (a->op == PA_TABELA_NOVA || a->op == PA_TABELA_GPT) return true;
     if (a->op != PA_APAGAR && a->op != PA_REDIMENSIONAR && a->op != PA_FORMATAR && a->op != PA_TRIM) return false;
     if (!a->numero) return false;
     if (n == a->numero) return true;
@@ -1009,7 +1017,7 @@ static bool pv_preparar(pt_acao_t *a)
         formatar_texto(t, sizeof t, "Para esto hay que desmontar antes: %s. ¿Desmontar ahora?", lista);
         if (!pv_confirmar("Particiones montadas", t)) return false;
         for (int i = 0; i < nn; i++) {
-            int r = desmontar(nomes[i]);
+            int r = COM_ADMIN("desmontar para particionar", desmontar(nomes[i]));
             registrar("discos: desmontar %s para particionar -> %d", nomes[i], r);
             if (r < 0) {
                 formatar_texto(t, sizeof t, "No se pudo desmontar %s: %s. No se ha cambiado nada.", nomes[i], nome_erro(r));
@@ -1021,9 +1029,18 @@ static bool pv_preparar(pt_acao_t *a)
     return true;
 }
 
+/* D269: la vista de particiones lee y escribe los discos en crudo: pide permisos con el diálogo del sistema
+ * y sigue siendo administrador mientras esté abierta (se suelta al salir de ella). */
+static int pv_pedir_admin(void)
+{
+    if (sou_root()) return 0;
+    return elevar_grafico("leer y modificar las particiones y los discos");
+}
+
 static void pv_executar(pt_acao_t *a)
 {
     copia_texto(a->disco, pv_disco, sizeof a->disco);
+    if (pv_pedir_admin() < 0) { copia_texto(pv_msg, "Cancelado: hacen falta permisos de administrador.", sizeof pv_msg); pv_msg_erro = true; pv_atualizar(); return; }
     if (!pv_preparar(a)) { copia_texto(pv_msg, "Cancelado: no se ha cambiado nada.", sizeof pv_msg); pv_msg_erro = false; pv_atualizar(); return; }
     a->progresso = pv_progresso;
     pv_prog = -1;
@@ -1075,21 +1092,23 @@ static void pv_criar(int escolha)
     a.op = PA_CRIAR;
     a.logica = s.logica;
     a.inicio = s.inicio;
-    a.fs = escolha == 0 ? PA_FS_FAT32 : escolha == 1 ? PA_FS_EXT2 : PA_FS_NENHUM;
+    a.fs = escolha == 0 || escolha == 4 ? PA_FS_FAT32 : escolha == 1 ? PA_FS_EXT2 : PA_FS_NENHUM;
     if (escolha == 3) a.tipo = 0x0F;
+    if (escolha == 4) a.tipo = 0xEF;   /* D266: partición EFI (ESP), FAT32 */
     char p[200];
     formatar_texto(p, sizeof p, "Tamaño de la partición nueva en MB (hay %u MB libres aquí):", pv_mb(s.setores));
     int mb = pv_pedir_mb("Crear partición", p, pv_mb(s.setores));
     if (mb < 0) return;
     if (a.fs != PA_FS_NENHUM) {
         char r[20] = "DATOS";
+        if (escolha == 4) copia_texto(r, "SAGUI-ESP", sizeof r);
         if (!pedir_texto("Crear partición", "Etiqueta del volumen (puede quedar vacía):", r, sizeof r)) return;
         copia_texto(a.rotulo, r, sizeof a.rotulo);
     }
     a.setores = (uint32_t)mb * 2048;
     char t[300];
     formatar_texto(t, sizeof t, "Se creará una partición %s de %d MB%s%s en el espacio libre que empieza en %u MB de %s. No se borra nada que esté en uso.",
-                   escolha == 3 ? "extendida" : a.logica ? "lógica" : "primaria", mb,
+                   escolha == 3 ? "extendida" : escolha == 4 ? "EFI (ESP, para el cargador UEFI)" : a.logica ? "lógica" : pv_t.esquema == PT_GPT ? "GPT" : "primaria", mb,
                    a.fs ? ", formateada en " : "", a.fs ? pt_nome_fs(a.fs) : "", s.inicio / 2048, pv_disco);
     if (!pv_confirmar("Crear partición", t)) return;
     pv_executar(&a);
@@ -1115,7 +1134,8 @@ static void pv_formatear(int escolha)
     pv_descrever(&s, q, sizeof q);
     formatar_texto(t, sizeof t, "Se va a formatear %s en %s. SE BORRA TODO LO QUE HAY DENTRO y no se puede deshacer.%s%s",
                    q, pt_nome_fs(a.fs), pv_bloco.trim == TRIM_SIM ? " (El disco admite TRIM: el contenido viejo se descarta.)" : "",
-                   pv_es_conf(&s) ? " ATENCION: es SAGUI-CONF, la configuración del sistema: se pierden usuarios, contraseñas y claves." : "");
+                   pv_es_conf(&s) ? " ATENCION: es SAGUI-CONF, la configuración del sistema: se pierden usuarios, contraseñas y claves."
+                   : pv_es_esp(&s) ? " ATENCION: es la partición EFI (ESP): lleva el cargador UEFI; sin él este disco no arranca por UEFI." : "");
     if (!pv_confirmar("Formatear", t)) return;
     pv_executar(&a);
 }
@@ -1130,9 +1150,9 @@ static void pv_acao(int bt)
     if (s) { a.numero = s->num; pv_descrever(s, q, sizeof q); }
     switch (bt) {
     case PV_CRIAR: {
-        bool ext_ok = s && !s->logica && pt_extendida(&pv_t) < 0;
-        char m[96];
-        formatar_texto(m, sizeof m, "Crear FAT32\nCrear ext2\nCrear sin formato\n%sCrear extendida", ext_ok ? "" : "~");
+        bool ext_ok = s && !s->logica && pt_extendida(&pv_t) < 0 && pv_t.esquema != PT_GPT;
+        char m[128];
+        formatar_texto(m, sizeof m, "Crear FAT32\nCrear ext2\nCrear sin formato\n%sCrear extendida\nCrear partición EFI (ESP)", ext_ok ? "" : "~");
         menu_contextual(j->id, pv_bt_x(PV_CRIAR), pv_bt_y() - 4, m, MENU_CRIAR);
         return;
     }
@@ -1146,7 +1166,8 @@ static void pv_acao(int bt)
             formatar_texto(t, sizeof t, "Se borrará %s Y TODAS SUS LÓGICAS. Lo que tienen dentro deja de verse. Se puede deshacer mientras no se escriba en ese espacio.", q);
         else
             formatar_texto(t, sizeof t, "Se borrará %s. Lo que tiene dentro deja de verse. Se puede deshacer (botón Deshacer) mientras no se escriba en ese espacio.%s", q,
-                           pv_es_conf(s) ? " ATENCION: es SAGUI-CONF, la configuración del sistema: sin ella se pierden usuarios, contraseñas y claves." : "");
+                           pv_es_conf(s) ? " ATENCION: es SAGUI-CONF, la configuración del sistema: sin ella se pierden usuarios, contraseñas y claves."
+                           : pv_es_esp(s) ? " ATENCION: es la partición EFI (ESP): lleva el cargador UEFI; sin ella este disco no arranca por UEFI." : "");
         if (!pv_confirmar("Borrar partición", t)) return;
         break;
     }
@@ -1213,27 +1234,26 @@ static void pv_acao(int bt)
 
 static void pv_menu_contexto(const evento_t *e)
 {
-    char m[300];
-    formatar_texto(m, sizeof m, "%sCrear...\n%sBorrar\n%sRedimensionar...\n%sFormatear...\n%sMarcar como activa\n%sDescartar (TRIM)\n-\n%sDeshacer el último cambio\n%sTabla nueva (vacía)...\n%sAmpliar la extendida hasta el final",
+    char m[360];
+    formatar_texto(m, sizeof m, "%sCrear...\n%sBorrar\n%sRedimensionar...\n%sFormatear...\n%sMarcar como activa\n%sDescartar (TRIM)\n-\n%sDeshacer el último cambio\n%sTabla nueva MBR (vacía)...\n%sTabla nueva GPT (vacía)...\n%sAmpliar la extendida hasta el final",
                    pv_pode(PV_CRIAR) ? "" : "~", pv_pode(PV_BORRAR) ? "" : "~", pv_pode(PV_REDIM) ? "" : "~",
                    pv_pode(PV_FORMATEAR) ? "" : "~", pv_pode(PV_ACTIVA) ? "" : "~", pv_pode(PV_TRIM) ? "" : "~",
-                   pv_pode(PV_DESHACER) ? "" : "~", pv_disco[0] ? "" : "~", pv_pode(PV_AMPLIAR) ? "" : "~");
+                   pv_pode(PV_DESHACER) ? "" : "~", pv_disco[0] ? "" : "~", pv_disco[0] ? "" : "~", pv_pode(PV_AMPLIAR) ? "" : "~");
     menu_contextual(j->id, e->x, e->y, m, MENU_PART);
 }
 
-static void pv_tabela_nova(void)
+static void pv_tabela_nova(bool gpt)
 {
-    char t[300];
-    formatar_texto(t, sizeof t, "Se creará una tabla MBR vacía en %s: TODAS sus particiones desaparecen (se puede deshacer mientras no se escriba nada).%s",
-                   pv_disco, pv_t.esquema == PT_GPT ? " El disco es GPT: también se borra la GPT." : "");
+    char t[420];
+    formatar_texto(t, sizeof t, "Se creará una tabla %s vacía en %s: TODAS sus particiones desaparecen.%s%s",
+                   gpt ? "GPT (con MBR protector)" : "MBR", pv_disco,
+                   pv_t.esquema == PT_GPT ? " El disco es GPT: también se borra la GPT." : " (Con MBR se puede deshacer mientras no se escriba nada.)",
+                   gpt ? " Una GPT necesita un cargador UEFI para arrancar (la BIOS clásica no la usa)." : "");
     if (!pv_confirmar("Tabla nueva", t)) return;
     pt_acao_t a;
     memset(&a, 0, sizeof a);
-    a.op = PA_TABELA_NOVA;
-    if (pv_t.esquema == PT_GPT) {
-        if (!pv_confirmar("Tabla nueva", "El disco es GPT. ¿Seguro que quieres borrar la GPT entera?")) return;
-        a.conf |= DBLOCO_CONF_GPT;
-    }
+    a.op = gpt ? PA_TABELA_GPT : PA_TABELA_NOVA;
+    if (pv_t.esquema == PT_GPT && !pv_confirmar("Tabla nueva", "El disco es GPT. ¿Seguro que quieres borrar la GPT entera?")) return;
     pv_executar(&a);
 }
 
@@ -1243,9 +1263,10 @@ static void pv_tratar_menu(int codigo, int indice)
     if (codigo == MENU_CRIAR) { pv_criar(indice); return; }
     if (codigo == MENU_FMT) { pv_formatear(indice); return; }
     if (codigo != MENU_PART) return;
-    static const int mapa[] = { PV_CRIAR, PV_BORRAR, PV_REDIM, PV_FORMATEAR, PV_ACTIVA, PV_TRIM, -1, PV_DESHACER, -2, PV_AMPLIAR };
+    static const int mapa[] = { PV_CRIAR, PV_BORRAR, PV_REDIM, PV_FORMATEAR, PV_ACTIVA, PV_TRIM, -1, PV_DESHACER, -2, -3, PV_AMPLIAR };
     if (indice >= (int)(sizeof mapa / sizeof mapa[0])) return;
-    if (mapa[indice] == -2) pv_tabela_nova();
+    if (mapa[indice] == -2) pv_tabela_nova(false);
+    else if (mapa[indice] == -3) pv_tabela_nova(true);
     else if (mapa[indice] >= 0) pv_acao(mapa[indice]);
 }
 
@@ -1254,7 +1275,7 @@ static void pv_clique(const evento_t *e)
 {
     if (e->y < BARRA_TOPO) {
         if (e->botoes != 1 || e->y < 6 || e->y >= 6 + BT_A) return;
-        if (e->x >= 8 && e->x < 92) { vista_part = false; atualizar(true); registrar("discos: vista de uso"); return; }
+        if (e->x >= 8 && e->x < 92) { vista_part = false; elevacao_soltar(); atualizar(true); registrar("discos: vista de uso"); return; }
         if (e->x >= 98 && e->x < 198) { pv_msg[0] = 0; pv_atualizar(); return; }
         for (int i = 0; i < pv_ndiscos; i++) {
             int x = 262 + i * 68;
@@ -1342,7 +1363,7 @@ static int janela(const char *disco_part, bool part)
             if (e.tipo == EV_CLIQUE) { pv_clique(&e); continue; }
             if (e.tipo == EV_TECLA) {
                 if (e.tecla == TECLA_F5_) { pv_msg[0] = 0; pv_atualizar(); }
-                else if (e.tecla == TECLA_ESC) { vista_part = false; atualizar(true); }
+                else if (e.tecla == TECLA_ESC) { vista_part = false; elevacao_soltar(); atualizar(true); }
                 else if (e.tecla == TECLA_DELETE) pv_acao(PV_BORRAR);
                 else if ((e.tecla == TECLA_CIMA || e.tecla == TECLA_BAIXO) && pv_nseg) {
                     pv_sel = pv_sel < 0 ? 0 : pv_sel + (e.tecla == TECLA_BAIXO ? 1 : -1);
@@ -1397,6 +1418,7 @@ static int janela(const char *disco_part, bool part)
             y += h;
         }
     }
+    elevacao_soltar();
     jan_fechar(j);
     return 0;
 }

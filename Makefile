@@ -506,7 +506,7 @@ CD_RAMDISK := $(B)/ramdisk-cd.sgfs
 APPS_IMG_DEP := $(APPS_DEP)
 endif
 
-.PHONY: help variantes priv_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
+.PHONY: help uefi variantes priv_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
 
 all: $(B)/saguios.img $(B)/host/chip8
 
@@ -521,6 +521,48 @@ $(B)/boot/mbr.bin: boot/mbr.asm boot/cabecalho.inc
 $(B)/boot/estagio2.bin: boot/estagio2.asm $(wildcard boot/*.inc)
 	@mkdir -p $(dir $@)
 	$(AS) -f bin -I boot/ -o $@ $<
+
+# ---------- cargador UEFI (D264): BOOTX64.EFI y BOOTIA32.EFI ----------
+# C freestanding con el gcc del sistema (x86-64 y -m32), enlazado como ELF independiente
+# de la posición y convertido a PE32+/PE32 por tools/mkefi.py (sin gnu-efi ni EDK2).
+# El trampolín a 32 bits es un binario plano de NASM que el cargador lleva dentro.
+UEFI_CFLAGS  := -std=gnu11 -O2 -ffreestanding -fno-builtin -nostdlib -fpie -fvisibility=hidden \
+                -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables \
+                -fno-tree-loop-distribute-patterns -mgeneral-regs-only -fshort-wchar \
+                -Wall -Wextra -finput-charset=UTF-8 -Iboot/uefi
+UEFI_LDFLAGS := -pie --no-dynamic-linker -Bsymbolic -z norelro -z noexecstack -z max-page-size=0x1000 \
+                --no-warn-rwx-segments -T boot/uefi/ligacao.ld
+UEFI_EFI     := $(B)/boot/uefi/BOOTX64.EFI $(B)/boot/uefi/BOOTIA32.EFI
+
+$(B)/boot/uefi/trampolim.bin: boot/uefi/trampolim.asm
+	@mkdir -p $(dir $@)
+	$(AS) -f bin -o $@ $<
+
+$(B)/boot/uefi/x64/blob.o: boot/uefi/trampolim_blob.asm $(B)/boot/uefi/trampolim.bin
+	@mkdir -p $(dir $@)
+	$(AS) -f elf64 -DTRAMPOLIM_BIN='"$(B)/boot/uefi/trampolim.bin"' -o $@ $<
+
+$(B)/boot/uefi/ia32/blob.o: boot/uefi/trampolim_blob.asm $(B)/boot/uefi/trampolim.bin
+	@mkdir -p $(dir $@)
+	$(AS) -f elf32 -DTRAMPOLIM_BIN='"$(B)/boot/uefi/trampolim.bin"' -o $@ $<
+
+$(B)/boot/uefi/x64/cargador.o: boot/uefi/cargador.c boot/uefi/uefi.h
+	@mkdir -p $(dir $@)
+	$(CC) -m64 -march=x86-64 -mno-red-zone $(UEFI_CFLAGS) -c -o $@ $<
+
+$(B)/boot/uefi/ia32/cargador.o: boot/uefi/cargador.c boot/uefi/uefi.h
+	@mkdir -p $(dir $@)
+	$(CC) -m32 -march=i686 $(UEFI_CFLAGS) -c -o $@ $<
+
+$(B)/boot/uefi/BOOTX64.EFI: $(B)/boot/uefi/x64/cargador.o $(B)/boot/uefi/x64/blob.o boot/uefi/ligacao.ld tools/mkefi.py
+	$(LD) -m elf_x86_64 $(UEFI_LDFLAGS) -o $(B)/boot/uefi/x64/cargador.elf $(B)/boot/uefi/x64/cargador.o $(B)/boot/uefi/x64/blob.o
+	$(PY) tools/mkefi.py $(B)/boot/uefi/x64/cargador.elf $@
+
+$(B)/boot/uefi/BOOTIA32.EFI: $(B)/boot/uefi/ia32/cargador.o $(B)/boot/uefi/ia32/blob.o boot/uefi/ligacao.ld tools/mkefi.py
+	$(LD) -m elf_i386 $(UEFI_LDFLAGS) -o $(B)/boot/uefi/ia32/cargador.elf $(B)/boot/uefi/ia32/cargador.o $(B)/boot/uefi/ia32/blob.o
+	$(PY) tools/mkefi.py $(B)/boot/uefi/ia32/cargador.elf $@
+
+uefi: $(UEFI_EFI)
 
 # ---------- kernel ----------
 $(B)/kernel/%.o: kernel/%.c $(KERNEL_HDR)
@@ -1105,10 +1147,11 @@ $(B)/jogos/.feito: $(OT_DIR)/dados.img.xz $(OT_DIR)/dados-leeme.txt $(JOGOS_MARC
 	touch $@
 
 # ---------- imagem final ----------
-$(B)/saguios.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP)
+# D264: la imagen normal es híbrida: arranca por BIOS (MBR) y por UEFI (la ESP SAGUI-EFI).
+$(B)/saguios.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
 	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa $(JOGOS_OPC_IMG) $(APPS_OPC)
+	    --saida $@ --vesa --uefi $(B)/boot/uefi $(JOGOS_OPC_IMG) $(APPS_OPC)
 	cd $(B) && sha256sum saguios.img > saguios.img.sha256
 
 # Todas las variantes en una carpeta, con SHA256SUMS.txt y VERSION.txt

@@ -13,7 +13,11 @@
  *   particiones activa <partición>
  *   particiones trim <partición|disco>     descarta (SSD) el contenido o el espacio libre
  *   particiones deshacer <disco>           vuelve a la tabla de antes del último cambio
- *   particiones tabla-nueva <disco>        una tabla MBR vacía (borra todas las particiones)
+ *   particiones tabla-nueva <disco> [mbr|gpt]   una tabla vacía, MBR (por defecto) o GPT (borra todas las particiones)
+ *
+ * D266: los discos GPT se leen con comprobación de CRC (también el respaldo) y se pueden editar: crear
+ * (fat32, ext2, "esp" = partición EFI FAT32 o tipo=0xEF), borrar y formatear. Una GPT ajena (Windows,
+ * Linux) se muestra sin tocarla; solo se escribe cuando se pide un cambio y se confirma.
  *
  * Antes de cambiar nada dice exactamente qué se pierde y pregunta (salvo -s/--si).
  * El disco del que arrancó el sistema solo se toca con --arranque y una segunda
@@ -63,15 +67,35 @@ static int mostrar(const char *disco)
     info_de(disco, &d);
     blocos_info(disco, &b);
     tamanho(t.setores, tam, sizeof tam);
-    static const char *const esq[] = { "sin tabla", "MBR", "GPT (solo lectura)", "volumen sin tabla" };
+    static const char *const esq[] = { "sin tabla", "MBR", "GPT", "volumen sin tabla" };
     imprimir("%s  %s %s  %s  %s  TRIM: %s%s\n", disco, d.fabricante, d.produto, tam, esq[t.esquema],
              b.trim == TRIM_SIM ? "sí" : b.trim == TRIM_SEM_DRIVER ? "el disco sí, el driver no" : "no",
              (d.flags & DISCO_ARRANQUE_REAL) ? "  [disco de arranque]" : "");
     if (t.esquema == PT_GPT) {
-        imprimir("  La tabla es GPT: se muestra pero no se cambia.\n");
+        if (t.gpt_mala) {
+            imprimir("  El MBR dice que es GPT, pero no hay una GPT válida: %s.\n  No se toca; \"particiones tabla-nueva %s gpt\" empieza de cero.\n", t.gpt_aviso, disco);
+            return 0;
+        }
+        if (t.gpt_respaldo) imprimir("  AVISO: la cabecera principal de la GPT está dañada; se lee la copia de respaldo (se repara al cambiar algo).\n");
+        else if (t.gpt_sem_respaldo) imprimir("  AVISO: la copia de respaldo de la GPT no es válida (no está al final del disco, o está dañada).\n");
+        imprimir("  Nº  Disp.      inicio MB   tamaño  tipo                   formato        etiqueta     montada   nombre\n");
         for (int i = 0; i < t.ngpt; i++) {
+            char vol[16], tp[40];
+            info_disco_t dv;
             tamanho(t.gpt[i].setores, tam, sizeof tam);
-            imprimir("  %-3d inicio %u MB  %9s  %-24s \"%s\"\n", i + 1, t.gpt[i].inicio / 2048, tam, t.gpt[i].tipo, t.gpt[i].nome);
+            if (t.gpt[i].numero) pt_nome_particao(disco, t.gpt[i].numero, vol, sizeof vol);
+            else copia_texto(vol, "-", sizeof vol);
+            bool tem = t.gpt[i].numero && info_de(vol, &dv);
+            copia_texto(tp, t.gpt[i].tipo, sizeof tp);
+            imprimir("  %-3d %-8s %c %8u  %9s  %-22s %-14s %-12s %-9s \"%s\"%s\n", t.gpt[i].slot + 1, vol, ' ', t.gpt[i].inicio / 2048, tam, tp,
+                     tem ? (dv.suportado ? dv.formato : "-") : "-", tem && dv.suportado ? dv.rotulo : "", tem && dv.montado ? dv.ponto : "",
+                     t.gpt[i].nome, t.gpt[i].numero ? "" : "  (SaguiOS solo ve las cuatro primeras: no la gestiona)");
+        }
+        pt_livre_t v[24];
+        int n = pt_livres(&t, v, 24);
+        for (int i = 0; i < n; i++) {
+            tamanho(v[i].setores, tam, sizeof tam);
+            imprimir("  libre          %8u  %9s\n", v[i].inicio / 2048, tam);
         }
         return 0;
     }
@@ -147,7 +171,7 @@ static int usar(void)
 {
     imprimir_em(ERROS,
         "uso: particiones [disco]\n"
-        "     particiones crear <disco> <MB|todo> [fat32|ext2|extendida|tipo=0xNN] [--logica] [--inicio MB] [--etiqueta X]\n"
+        "     particiones crear <disco> <MB|todo> [fat32|ext2|esp|extendida|tipo=0xNN] [--logica] [--inicio MB] [--etiqueta X]\n"
         "     particiones borrar <partición> [--trim]\n"
         "     particiones redimensionar <partición> <MB>\n"
         "     particiones ampliar <disco>\n"
@@ -156,7 +180,7 @@ static int usar(void)
         "     particiones activa <partición>\n"
         "     particiones trim <partición|disco>\n"
         "     particiones deshacer <disco>\n"
-        "     particiones tabla-nueva <disco>\n"
+        "     particiones tabla-nueva <disco> [mbr|gpt]\n"
         "opciones: -s/--si (no preguntar), --arranque (permitir el disco de arranque)\n");
     return 2;
 }
@@ -164,10 +188,11 @@ static int usar(void)
 static void ayuda(void)
 {
     imprimir(
-        "particiones: la tabla de particiones de los discos (MBR: primarias, extendida y lógicas).\n\n"
+        "particiones: la tabla de particiones de los discos (MBR: primarias, extendida y lógicas; GPT: hasta\n"
+        "cuatro entradas, con la partición EFI).\n\n"
         "  particiones [disco]                 la tabla y los huecos libres\n"
-        "  particiones crear <disco> <MB|todo> [fat32|ext2|extendida|tipo=0xNN] [--logica]\n"
-        "              [--inicio MB] [--etiqueta X]   una partición nueva en un hueco libre\n"
+        "  particiones crear <disco> <MB|todo> [fat32|ext2|esp|extendida|tipo=0xNN] [--logica]\n"
+        "              [--inicio MB] [--etiqueta X]   una partición nueva en un hueco libre (esp = EFI, FAT32)\n"
         "  particiones borrar <partición> [--trim]    quita la partición de la tabla (se puede deshacer)\n"
         "  particiones redimensionar <partición> <MB> mueve su final; un ext2 crece o encoge con ella\n"
         "              (encoger solo si lo que se corta está libre: no se mueven datos); un FAT32\n"
@@ -176,7 +201,8 @@ static void ayuda(void)
         "              imagen en un pendrive más grande); luego, \"crear ... --logica\" en el hueco\n"
         "  particiones comprobar <partición>   comprueba el FAT32 o el ext2 sin cambiar nada\n"
         "  particiones formatear <partición> fat32|ext2 [etiqueta]\n"
-        "  particiones activa | trim | deshacer | tabla-nueva ...\n\n"
+        "  particiones activa | trim | deshacer | tabla-nueva <disco> [mbr|gpt] ...\n"
+        "  En un disco GPT se puede crear, borrar y formatear; el resto (activa, tamaño, deshacer) solo en MBR.\n\n"
         "Lo montado no se toca: desmóntalo antes (umount). La partición de SaguiOS del disco de\n"
         "arranque, nunca. El disco de arranque pide --arranque y escribir su nombre (o -s).\n"
         "Opciones: -s/--si (no preguntar), --arranque (permitir el disco de arranque).\n");
@@ -223,8 +249,16 @@ int principal(int argc, char **argv)
         return 1;
     }
     a.numero = num;
-    char que[120];
+    char que[360];
     descrever(pos[1], que, sizeof que);
+    if (num) {   /* D266: aviso fuerte para la partición EFI (ESP), como el de SAGUI-CONF (D256) */
+        pt_tabela_t tt;
+        if (pt_ler(a.disco, &tt) == 0 && (tt.esquema == PT_MBR || tt.esquema == PT_GPT)) {
+            pt_part_t *pp = pt_achar(&tt, num);
+            if (pp && pp->tipo == 0xEF)
+                junta_texto(que, "  ATENCION: es la PARTICION EFI (ESP): lleva el cargador UEFI; sin ella este disco no arranca por UEFI", sizeof que);
+        }
+    }
 
     if (compara_texto(orden, "crear") == 0) {
         if (np < 3 || num) return usar();
@@ -238,6 +272,7 @@ int principal(int argc, char **argv)
             if (compara_texto(pos[3], "fat32") == 0) a.fs = PA_FS_FAT32;
             else if (compara_texto(pos[3], "ext2") == 0) a.fs = PA_FS_EXT2;
             else if (compara_texto(pos[3], "extendida") == 0) a.tipo = 0x0F;
+            else if (compara_texto(pos[3], "esp") == 0) { a.fs = PA_FS_FAT32; a.tipo = 0xEF; if (!etiqueta) etiqueta = "SAGUI-ESP"; }   /* D266 */
             else if (comeca_com(pos[3], "tipo=")) {
                 const char *h = pos[3] + 5;
                 if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X')) h += 2;
@@ -297,12 +332,15 @@ int principal(int argc, char **argv)
     } else if (compara_texto(orden, "tabla-nueva") == 0) {
         if (num) return usar();
         a.op = PA_TABELA_NOVA;
-        imprimir("Se va a crear una tabla vacía en %s: TODAS sus particiones desaparecen.\n", que);
+        if (np >= 3) {
+            if (compara_texto(pos[2], "gpt") == 0) a.op = PA_TABELA_GPT;
+            else if (compara_texto(pos[2], "mbr") != 0) return usar();
+        }
+        imprimir("Se va a crear una tabla %s vacía en %s: TODAS sus particiones desaparecen.\n", a.op == PA_TABELA_GPT ? "GPT" : "MBR", que);
         if (!perguntar("¿Tabla nueva?")) { imprimir("No se ha cambiado nada.\n"); return 1; }
         pt_tabela_t t;
         if (pt_ler(a.disco, &t) == 0 && t.esquema == PT_GPT) {
             if (!perguntar("El disco es GPT: se borrará la GPT entera. ¿Seguro?")) { imprimir("No se ha cambiado nada.\n"); return 1; }
-            a.conf |= DBLOCO_CONF_GPT;
         }
     } else return usar();
 

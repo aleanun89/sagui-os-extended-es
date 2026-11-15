@@ -25,6 +25,10 @@ int  area_icone_em(int x, int y);          /* índice del icono bajo el punto, o
 void area_icone_abrir(int i);
 int  area_qtd_icones(void);
 void area_icone_retangulo(int i, int *x, int *y, int *l, int *a);
+void area_icone_clique(int ic, int x, int y, bool ctrl);   /* botón izquierdo en el escritorio: selección y arrastre (D268) */
+bool area_icone_arrasto(int x, int y, uint8_t botoes);     /* movimiento/soltado con un arrastre en marcha; true = consumido */
+bool area_icone_tecla(int t, uint32_t mods);               /* flechas, Intro y Esc con el foco en el escritorio */
+void area_foco_perder(void);                               /* otra ventana tomó el foco del teclado */
 void area_icone_direito(int i, int x, int y);   /* botón derecho en un icono: menú (D051) */
 void area_menu_fundo(int x, int y);             /* botón derecho en el escritorio vacío (D051) */
 bool area_pendrive(bool presente, const char *rotulo);

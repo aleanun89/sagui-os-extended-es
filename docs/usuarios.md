@@ -55,9 +55,31 @@ terminal), se lee una línea.
 - **Registro:** cada elevación y cada negativa quedan en el registro del
   sistema (`dmesg`, líneas `[USUARIOS]` y `[PERMISOS]`) y en
   `/logs/servicios.log`; nunca las contraseñas.
-- **Diálogo gráfico:** todavía no hay ventana para la contraseña (pendiente);
-  los programas con ventana que necesitan ser root lo dicen y se abren con
-  `admin programa` desde el Terminal.
+- **Diálogo gráfico:** ver la sección siguiente. Los programas con ventana de administración
+  ya no mandan al Terminal: piden permisos con una ventana del sistema.
+
+## El diálogo de permisos (D269)
+
+Cuando un programa con ventana necesita ser administrador (abrir Particiones o formatear en Discos,
+Instalar SaguiOS, finalizar un proceso de otra cuenta o manejar servicios en el Administrador de tareas,
+cambiar la zona horaria o el bloqueo de publicidad en Configuración), el sistema **atenúa el escritorio**
+y muestra la ventana «Control de permisos del sistema»: el icono y el nombre del programa, qué quiere
+hacer, un campo para la **contraseña de administrador (root)** y los botones «Sí, continuar» / «No»
+(Esc = No; Tab cambia de campo).
+
+- **Primera vez:** si root aún no tiene contraseña, el diálogo pide elegirla dos veces (al menos 4
+  caracteres).
+- **Errores:** «contraseña incorrecta» (se puede reintentar; cada fallo tarda 2 s), «las dos contraseñas no
+  coinciden» y, tras 5 fallos, «espera un minuto» (el mismo bloqueo que `admin`).
+- **Recordar 5 minutos:** si acabas de autorizar un programa del sistema, abrirlo otra vez en los
+  siguientes 5 minutos no vuelve a preguntar. Se pierde al reiniciar.
+- **Seguridad:** lo pinta el propio gestor de ventanas, no el programa; el programa no recibe ni ve la
+  contraseña (se la entrega el sistema al gestor de servicios), mientras está abierto el teclado y el ratón
+  son solo suyos, y atenúa también la barra superior, que ninguna ventana puede cubrir. **Desconfía de
+  cualquier ventana que te pida la contraseña de administrador sin que se atenúe toda la pantalla.**
+- Sin escritorio, por SSH o desde un servicio no hay diálogo: se sigue usando `admin` y `su`.
+- Para programadores: `elevar_grafico("qué quiere hacer")` y `elevacao_soltar()` (libsagui, `contas.h`),
+  o `COM_ADMIN("motivo", llamada)` que repite una llamada denegada tras pedir permisos.
 
 ## Dónde se guarda: la partición SAGUI-CONF
 
@@ -141,5 +163,4 @@ Cada `.conf` de `/etc/servicios` dice con qué cuenta corre (`usuario=root`,
 - Un solo usuario de escritorio y un solo `/home`.
 - Puertos de red bajos (< 1024): cualquiera puede escuchar en ellos.
 - La configuración de red del sistema (DNS, IP fija) sigue donde estaba.
-- No hay diálogo gráfico de contraseña (la interfaz `SERV_PEDIR`/`pedir_conta`
-  ya está para él).
+- El diálogo gráfico (D269) eleva solo al programa que lo pide y mientras no suelte la elevación.

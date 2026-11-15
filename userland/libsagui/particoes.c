@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* particoes.c - la tabla de particiones MBR (primarias, extendida y lógicas), la
- * GPT en solo lectura y el deshacer (D179). Ver particoes.h.
+ * GPT (lectura aquí, escritura en gpt.c: D266) y el deshacer (D179). Ver particoes.h.
  *
  * Reglas que se cumplen siempre antes de escribir (pt_validar):
  *   - todo dentro del disco, nada en el sector 0, sin solapes entre primarias;
@@ -17,6 +17,7 @@
  * quedan) en /tmp/particiones/<disco>.deshacer; deshacer solo restaura si el disco
  * sigue exactamente como lo dejó ese cambio. */
 #include "particoes.h"
+#include "gpt.h"
 
 /* ------------------------------------------------------------ acceso en bruto */
 
@@ -136,56 +137,31 @@ static bool eh_fat32(const uint8_t *s)
     return s[510] == 0x55 && s[511] == 0xAA && memcmp(s + 82, "FAT32   ", 8) == 0 && s[11] == 0 && s[12] == 2;
 }
 
-static void guid_texto(const uint8_t *g, char *s, int max)
-{
-    formatar_texto(s, (size_t)max, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                   g[3], g[2], g[1], g[0], g[5], g[4], g[7], g[6], g[8], g[9], g[10], g[11], g[12], g[13], g[14], g[15]);
-}
-
-static const char *guid_nome(const char *g)
-{
-    static const struct { const char *guid, *nome; } conhecidos[] = {
-        { "c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "EFI (sistema)" },
-        { "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7", "datos de Windows" },
-        { "e3c9e316-0b5c-4db8-817d-f92df00215ae", "reservada de Microsoft" },
-        { "de94bba4-06d1-4d40-a16a-bfd50179d6ac", "recuperación de Windows" },
-        { "0fc63daf-8483-4772-8e79-3d69d8477de4", "Linux" },
-        { "0657fd6d-a4ab-43c4-84e5-0933c84b4f4f", "swap de Linux" },
-        { "21686148-6449-6e6f-744e-656564454649", "arranque BIOS" },
-        { NULL, NULL } };
-    for (int i = 0; conhecidos[i].guid; i++) if (compara_texto(g, conhecidos[i].guid) == 0) return conhecidos[i].nome;
-    return NULL;
-}
-
 static void ler_gpt(pt_tabela_t *t)
 {
-    uint8_t s[512], e[512];
     t->ngpt = 0;
-    if (blocos_ler(t->disco, 1, 1, s) < 0 || memcmp(s, "EFI PART", 8) != 0) return;
-    uint32_t lba = le32(s + 72), qtd = le32(s + 80), tam = le32(s + 84);
-    if (tam < 128 || tam > 512 || qtd > 256) return;
-    for (uint32_t i = 0; i < qtd && t->ngpt < PT_MAX_GPT; i++) {
-        uint32_t b = i * tam;
-        if (blocos_ler(t->disco, lba + b / 512, 1, e) < 0) break;
-        const uint8_t *x = e + b % 512;
-        bool vazia = true;
-        for (int k = 0; k < 16; k++) if (x[k]) vazia = false;
-        if (vazia) continue;
-        pt_gpt_t *g = &t->gpt[t->ngpt++];
-        g->inicio = le32(x + 32);
-        g->setores = (le32(x + 36) || le32(x + 44)) ? 0 : le32(x + 40) - le32(x + 32) + 1;
-        char guid[40];
-        guid_texto(x, guid, sizeof guid);
-        const char *n = guid_nome(guid);
-        copia_texto(g->tipo, n ? n : guid, sizeof g->tipo);
-        int k = 0;
-        for (int c = 0; c < 36 && k < (int)sizeof g->nome - 1; c++) {
-            uint16_t u = (uint16_t)(x[56 + c * 2] | x[57 + c * 2] << 8);
-            if (!u) break;
-            g->nome[k++] = u < 256 ? (char)u : '?';
-        }
-        g->nome[k] = 0;
+    memset(t->prim, 0, sizeof t->prim);   /* la entrada del MBR protector no es una partición */
+    gpt_t *g = aloca(sizeof *g);
+    if (!g) { t->gpt_mala = true; copia_texto(t->gpt_aviso, "sin memoria", sizeof t->gpt_aviso); return; }
+    if (gpt_ler(t->disco, g, t->gpt_aviso, sizeof t->gpt_aviso) < 0) { t->gpt_mala = true; libera(g); return; }
+    t->gpt_respaldo = g->origem == GPT_RESPALDO;
+    t->gpt_sem_respaldo = g->origem == GPT_PRINCIPAL && !g->respaldo_ok;
+    for (int i = 0; i < (int)GPT_ENTRADAS && t->ngpt < PT_MAX_GPT; i++) {
+        if (!gpt_usada(g, i)) continue;
+        pt_gpt_t *x = &t->gpt[t->ngpt++];
+        x->slot = i;
+        x->inicio = gpt_inicio(g, i);
+        x->setores = gpt_setores_ent(g, i);
+        x->numero = gpt_numero_kernel(g, i);
+        x->tipo_mbr = gpt_tipo_mbr(gpt_tipo(g, i));
+        const char *n = gpt_nome_tipo(gpt_tipo(g, i));
+        if (n) copia_texto(x->tipo, n, sizeof x->tipo);
+        else gpt_guid_texto(gpt_tipo(g, i), x->tipo, sizeof x->tipo);
+        gpt_nome_ent(g, i, x->nome, sizeof x->nome);
+        if (i < 4 && x->numero == i + 1 && x->setores)
+            t->prim[i] = (pt_part_t){ x->tipo_mbr, false, x->inicio, x->setores, 0 };
     }
+    libera(g);
 }
 
 /* La cadena de EBR, como la lee el kernel (discos.c, ler_logicas). */
@@ -329,6 +305,13 @@ static int huecos(uint32_t (*occ)[2], int n, uint32_t ini, uint32_t fim, bool lo
 
 int pt_livres(const pt_tabela_t *t, pt_livre_t *v, int max)
 {
+    if (t->esquema == PT_GPT && !t->gpt_mala) {   /* D266: lo libre entre las entradas, dentro de lo utilizable */
+        uint32_t occ[PT_MAX_GPT][2];
+        int n = 0;
+        for (int i = 0; i < t->ngpt; i++)
+            if (t->gpt[i].setores) { occ[n][0] = t->gpt[i].inicio; occ[n][1] = t->gpt[i].inicio + t->gpt[i].setores; n++; }
+        return huecos(occ, n, PT_MB, t->setores > 34 ? t->setores - 34 : 0, false, v, 0, max);
+    }
     if (t->esquema != PT_MBR && t->esquema != PT_SEM_TABELA) return 0;
     uint32_t occ[4 + PT_MAX_LOG][2];
     int n = 0, k;

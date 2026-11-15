@@ -21,6 +21,7 @@
  * "mount -o rw" explícito (montagem.c). disco_escrever también comprueba. */
 #include "ata.h"
 #include "ahci.h"
+#include "nvme.h"
 #include "atapi.h"
 #include "abi.h"
 #include "console.h"
@@ -506,7 +507,9 @@ int ata_iniciar(void)
     /* D155: los discos SATA (controladores AHCI) entran en la misma capa de
      * discos, con el mismo prefijo ("hda", "hdb"...). */
     int sata = ahci_iniciar();
-    return qtd_unidades + sata;
+    /* D265: los discos NVMe (PCIe), también por la capa de discos ("nvme0"...). */
+    int nvme = nvme_iniciar();
+    return qtd_unidades + sata + nvme;
 }
 
 /* Cuántos controladores AHCI se han visto en el PCI. */

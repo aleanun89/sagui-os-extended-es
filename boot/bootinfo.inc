@@ -43,3 +43,8 @@ BI_MODOS_END        equ 156        ; dirección de la lista (VBE_MODOS): u16 mod
 BI_RES_PREF         equ 160        ; u32 anchura | altura << 16 copiado de CAB_RES_* (0 = automática)
 BI_BPP_PREF         equ 164        ; u32 profundidad preferida copiada de CAB_BPP_PREF (D078)
 BI_CHS              equ 168        ; u32 1 = la BIOS no tiene las extensiones del INT 13h: lectura por CHS (D077)
+; D264 (versión 2): los rellena el cargador UEFI (boot/uefi/cargador.c); la etapa 2 los deja a cero.
+BI_FIRMWARE         equ 172        ; u32 0 BIOS, 1 UEFI x64, 2 UEFI IA32
+BI_CAB_END          equ 176        ; u32 dirección de la copia de la cabecera (0 = CAB_ENDERECO)
+BI_RSDP             equ 180        ; u32 RSDP de ACPI (0 = buscarlo en la memoria de la BIOS)
+BI_SMBIOS           equ 184        ; u32 punto de entrada SMBIOS (0 = buscarlo)

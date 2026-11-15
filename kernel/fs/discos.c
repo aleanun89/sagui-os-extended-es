@@ -30,10 +30,10 @@
 #include "vfs.h"
 
 static disco_t discos[MAX_DISCOS];
-static int contador_usb, contador_ata, contador_cd;
+static int contador_usb, contador_ata, contador_cd, contador_nvme;
 
 #define MAX_AVISOS 8
-static struct { int tipo; char texto[96]; char caminho[64]; } avisos[MAX_AVISOS];
+static struct { int tipo; char texto[256]; char caminho[64]; } avisos[MAX_AVISOS];
 static int av_ini, av_fim;
 
 static void avisar(int tipo, const char *caminho, const char *fmt, va_list ap)
@@ -197,8 +197,18 @@ static disco_t *novo_registro(void)
 
 static void nome_particao(disco_t *d, int num, char *nome, size_t max)
 {
-    if (d->nome[0] == 'u') snformatar(nome, max, "%sp%d", d->nome, num);
+    if (d->nome[0] == 'u' || d->nome[0] == 'n') snformatar(nome, max, "%sp%d", d->nome, num);
     else snformatar(nome, max, "%s%d", d->nome, num);
+}
+
+/* D265: en un disco con bloques reales de 4096 (NVMe), las tablas de particiones cuentan en bloques
+ * de 4096 aunque la capa de discos trabaje en sectores de 512: hay que multiplicar por 8 todo LBA
+ * que se lea de una tabla (MBR, EBR, cabecera y entradas de la GPT). Saturado a 32 bits. */
+static uint32_t escala_tabla(const disco_t *d) { return d->bloco_fisico == 4096 ? 8 : 1; }
+static uint32_t escalar(const disco_t *d, uint32_t v)
+{
+    uint32_t e = escala_tabla(d);
+    return v > 0xFFFFFFFFu / e ? 0xFFFFFFFFu : v * e;
 }
 
 static disco_t *criar_particao(disco_t *d, int num, uint8_t tipo, uint32_t ini, uint32_t qtd, uint8_t *s, uint8_t *buf)
@@ -261,8 +271,8 @@ static disco_t *criar_particao(disco_t *d, int num, uint8_t tipo, uint32_t ini, 
 static int ler_gpt(disco_t *d, disco_t **filhos, uint8_t *s, uint8_t *buf)
 {
     int n = 0;
-    if (disco_ler(d, 1, 1, s) < 0 || memcmp(s, "EFI PART", 8) != 0) return 0;
-    uint32_t lba_ent = le32(s + 72), qtd = le32(s + 80), tam = le32(s + 84);
+    if (disco_ler(d, escalar(d, 1), 1, s) < 0 || memcmp(s, "EFI PART", 8) != 0) return 0;
+    uint32_t lba_ent = escalar(d, le32(s + 72)), qtd = le32(s + 80), tam = le32(s + 84);
     if (tam < 128 || tam > 512 || qtd > 128) return 0;
     uint8_t *e = kmalloc(512);
     if (!e) return 0;
@@ -276,7 +286,8 @@ static int ler_gpt(disco_t *d, disco_t **filhos, uint8_t *s, uint8_t *buf)
         if (le32(x + 36) || le32(x + 44)) continue;   /* más allá de 2 TB */
         uint32_t ini = le32(x + 32), fim = le32(x + 40);
         if (fim < ini) continue;
-        disco_t *p = criar_particao(d, (int)i + 1, 0xEE, ini, fim - ini + 1, s, buf);
+        uint64_t qtd64 = ((uint64_t)fim - ini + 1) * escala_tabla(d);   /* D265 */
+        disco_t *p = criar_particao(d, (int)i + 1, 0xEE, escalar(d, ini), qtd64 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)qtd64, s, buf);
         if (p) filhos[n++] = p;
     }
     kfree(e);
@@ -305,7 +316,7 @@ static int ler_logicas(disco_t *d, disco_t *ext, disco_t **filhos, int n, uint8_
             break;
         }
         const uint8_t *l = e + 446, *enlace = e + 446 + 16;
-        uint32_t lini = ebr + le32(l + 8), lqtd = le32(l + 12);
+        uint32_t lini = ebr + escalar(d, le32(l + 8)), lqtd = escalar(d, le32(l + 12));
         if (l[4] && !tipo_extendida(l[4])) {
             if (!lqtd || lini < ebr || lini >= fim || lqtd > fim - lini) {
                 klog("[DISCO] %s: partición lógica incoherente (inicio %u, %u sectores), se ignora\n", d->nome, lini, lqtd);
@@ -315,7 +326,7 @@ static int ler_logicas(disco_t *d, disco_t *ext, disco_t **filhos, int n, uint8_
             }
         }
         if (!enlace[4] || !tipo_extendida(enlace[4])) break;   /* fin de la cadena */
-        uint32_t sig = le32(enlace + 8);
+        uint32_t sig = escalar(d, le32(enlace + 8));
         if (sig <= rel) { klog("[DISCO] %s: bucle en la cadena de EBR, se ignora el resto\n", d->nome); break; }
         rel = sig;
     }
@@ -341,7 +352,7 @@ static void reconhecer(disco_t *d)
         uint8_t tipos[4]; uint32_t inis[4], qtds[4]; bool ativas[4];
         for (int p = 0; p < 4; p++) {
             const uint8_t *e = s + 446 + p * 16;
-            tipos[p] = e[4]; inis[p] = le32(e + 8); qtds[p] = le32(e + 12);
+            tipos[p] = e[4]; inis[p] = escalar(d, le32(e + 8)); qtds[p] = escalar(d, le32(e + 12));
             ativas[p] = e[4] && (e[0] == 0 || e[0] == 0x80);
         }
         d->gpt = ativas[0] && tipos[0] == 0xEE;   /* D179: una GPT no se toca */
@@ -369,7 +380,8 @@ static void reconhecer(disco_t *d)
          * D194: lo mismo con la de aplicaciones (SAGUI-APPS), que va en /apps. */
         for (int k = 0; k < n && !d->volume; k++)
             if (filhos[k]->tipo_fs[0] && txt_compara(filhos[k]->rotulo, "SAGUI-JOGOS") != 0 &&
-                txt_compara(filhos[k]->rotulo, "SAGUI-APPS") != 0 && txt_compara(filhos[k]->rotulo, "SAGUI-CONF") != 0) d->volume = filhos[k];
+                txt_compara(filhos[k]->rotulo, "SAGUI-APPS") != 0 && txt_compara(filhos[k]->rotulo, "SAGUI-CONF") != 0 &&
+                txt_compara(filhos[k]->rotulo, "SAGUI-EFI") != 0 && txt_compara(filhos[k]->rotulo, "SAGUI-ESP") != 0) d->volume = filhos[k];   /* D264, D266: la ESP tampoco */
         /* Disco de arranque: tiene la partición del SaguiOS y ninguna FAT32 (una FAT32
          * lo convierte también en un pendrive de datos, error 18). Una partición ext de
          * datos en el disco de arranque (D040) no cambia eso, ni una FAT32 con etiqueta SAGUI-*
@@ -680,15 +692,18 @@ disco_t *disco_registrar_imagem_cd(disco_t *cd, uint32_t setores, void *dono,
     return d;
 }
 
-disco_t *disco_registrar(const char *prefixo, const char *fabricante, const char *produto, uint32_t setores,
-                         uint32_t tam_setor, void *dono, bool removivel,
-                         int (*ler)(disco_t *, uint32_t, uint32_t, void *),
-                         int (*escrever)(disco_t *, uint32_t, uint32_t, const void *))
+static disco_t *registrar_comum(const char *prefixo, const char *fabricante, const char *produto, uint32_t setores,
+                                uint32_t tam_setor, void *dono, bool removivel, uint16_t bloco_fisico,
+                                int (*ler)(disco_t *, uint32_t, uint32_t, void *),
+                                int (*escrever)(disco_t *, uint32_t, uint32_t, const void *))
 {
     disco_t *d = novo_registro();
     if (!d) return NULL;
     d->presente = true;
-    if (removivel) snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_usb++);
+    d->nvme = bloco_fisico != 0;        /* D265: solo el NVMe pasa su bloque real */
+    d->bloco_fisico = bloco_fisico;
+    if (prefixo[0] == 'n') snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_nvme++);   /* D265: nvme0, nvme1... */
+    else if (removivel) snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_usb++);
     else snformatar(d->nome, sizeof d->nome, "%s%c", prefixo, 'a' + contador_ata++);
     txt_copia_n(d->fabricante, fabricante, sizeof d->fabricante);
     txt_copia_n(d->produto, produto, sizeof d->produto);
@@ -714,6 +729,22 @@ disco_t *disco_registrar(const char *prefixo, const char *fabricante, const char
     }
     fstab_aplicar(d);   /* después del arranque: lo que el /etc/fstab manda montar de este disco */
     return d;
+}
+
+disco_t *disco_registrar(const char *prefixo, const char *fabricante, const char *produto, uint32_t setores,
+                         uint32_t tam_setor, void *dono, bool removivel,
+                         int (*ler)(disco_t *, uint32_t, uint32_t, void *),
+                         int (*escrever)(disco_t *, uint32_t, uint32_t, const void *))
+{
+    return registrar_comum(prefixo, fabricante, produto, setores, tam_setor, dono, removivel, 0, ler, escrever);
+}
+
+/* D265: un namespace NVMe ("nvme0"...), visto en sectores de 512 aunque su bloque real sea de 4096. */
+disco_t *disco_registrar_nvme(const char *produto, uint32_t setores, uint16_t bloco_fisico, void *dono,
+                              int (*ler)(disco_t *, uint32_t, uint32_t, void *),
+                              int (*escrever)(disco_t *, uint32_t, uint32_t, const void *))
+{
+    return registrar_comum("nvme", "NVMe", produto, setores, 512, dono, false, bloco_fisico, ler, escrever);
 }
 
 void disco_removido(disco_t *d)
@@ -780,7 +811,8 @@ static void preencher_info(disco_t *d, info_disco_t *inf)
     inf->flags = (d->removivel ? DISCO_REMOVIVEL : 0) | (d->interno ? DISCO_INTERNO : 0) | (raiz->de_boot ? DISCO_BOOT : 0) |
                  (disco_pode_ser_arranque(raiz) ? DISCO_ARRANQUE_REAL : 0) | (raiz->trim == TRIM_SIM ? DISCO_TRIM : 0) |
                  (disco_reservado(raiz) ? DISCO_RESERVADO : 0) | ((raiz->cd || raiz->imagem_cd || raiz->audio_cd) ? DISCO_CD : 0) |
-                 ((uint32_t)raiz->usb << 8);
+                 ((uint32_t)raiz->usb << 8) |
+                 (raiz->nvme ? DISCO_NVME : 0) | (raiz->nvme && raiz->bloco_fisico == 4096 ? DISCO_BLOCO4K : 0);
     /* El punto: el del propio volumen o, en el disco entero, el del volumen por defecto
      * o el de cualquier partición montada. */
     montagem_t *m = d->montagem;

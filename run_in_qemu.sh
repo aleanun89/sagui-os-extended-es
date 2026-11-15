@@ -30,6 +30,8 @@
 #   --wifi-usb          atajo: el pincho Wi-Fi RTL8188EU (0bda:8179 y su modo CD 1111:1111)
 #   --xhci              el pendrive de datos, los dispositivos reales y el teclado/ratón USB van
 #                       por un controlador USB 3.0 (xHCI, qemu-xhci) en vez del EHCI (D214)
+#   --uhci / --ohci     los dispositivos USB de datos van por un controlador USB 1.1 (UHCI, de Intel/VIA,
+#                       2 puertos; OHCI, de AMD/NVIDIA, 3 puertos) en vez del EHCI (D267)
 #   --hid-usb           además del PS/2, un teclado y una tableta (ratón absoluto) USB
 #   --serie             muestra el log del kernel (puerto serie) en este terminal
 #   --vnc               sin ventana: servidor VNC en localhost:5900
@@ -43,6 +45,9 @@
 #                       por defecto)
 #   (con --smp, --ioapic, --planificador o --uacpi se arranca build/saguios-opciones.img, creada
 #    al momento a partir de la compilación; build/saguios.img no se toca)
+#   --uefi [x64|ia32]   arranca por UEFI con el firmware OVMF (por defecto x64) en vez de por
+#                       BIOS: la imagen híbrida (D264) lleva la ESP con BOOTX64.EFI y BOOTIA32.EFI.
+#                       OVMF: sudo apt install ovmf ovmf-ia32, o bash tools/entorno-local.sh
 #   --sin-kvm           sin aceleración KVM (por defecto se usa si /dev/kvm está disponible)
 #   -h, --help          esta ayuda
 #
@@ -61,6 +66,8 @@ MODO=ide
 PENDRIVE=""
 USB_REAL=()
 XHCI=0
+UHCI=0
+OHCI=0
 HID_USB=0
 GPU=""
 VRAM=64
@@ -75,6 +82,7 @@ COMPILAR=0
 OPC_IMAGEM=()
 NUCLEOS_PIDO=0
 IMAGEM_PEDIDA=""
+UEFI=""
 
 ajuda() { sed -n '2,/^set -e/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
@@ -86,6 +94,8 @@ while [ $# -gt 0 ]; do
         --usb-real) USB_REAL+=("${2:?falta VID:PID}"); shift ;;
         --wifi-usb) USB_REAL+=(0bda:8179 1111:1111) ;;
         --xhci) XHCI=1 ;;
+        --uhci) UHCI=1 ;;
+        --ohci) OHCI=1 ;;
         --hid-usb) HID_USB=1 ;;
         --pendrive) PENDRIVE="${2:?falta el archivo del pendrive}"; shift ;;
         --mem) MEM="${2:?falta o tamanho em MB}"; shift ;;
@@ -104,6 +114,9 @@ while [ $# -gt 0 ]; do
         --ioapic) OPC_IMAGEM+=(--ioapic) ;;
         --uacpi) OPC_IMAGEM+=(--uacpi) ;;
         --planificador) OPC_IMAGEM+=(--planificador "${2:?falta el planificador}"); shift ;;
+        --uefi)
+            UEFI=x64
+            if [ $# -gt 1 ] && { [ "$2" = x64 ] || [ "$2" = ia32 ]; }; then UEFI="$2"; shift; fi ;;
         --sin-kvm) KVM=0 ;;
         -h|--help) ajuda; exit 0 ;;
         *) echo "Opción desconocida: $1 (usa --help)" >&2; exit 1 ;;
@@ -125,9 +138,26 @@ if [ -f "$HOME/.local/saguitools/env.sh" ]; then
     # shellcheck disable=SC1091
     . "$HOME/.local/saguitools/env.sh"
 fi
-if ! command -v qemu-system-i386 >/dev/null; then
-    echo "No se encuentra qemu-system-i386. Instálalo con: sudo apt install qemu-system-x86 qemu-system-gui" >&2
+# D264: el OVMF de 64 bits necesita una CPU de 64 bits (qemu-system-x86_64); BIOS e IA32, la de siempre.
+QEMU_BIN=qemu-system-i386
+[ "$UEFI" = x64 ] && QEMU_BIN=qemu-system-x86_64
+if ! command -v "$QEMU_BIN" >/dev/null; then
+    echo "No se encuentra $QEMU_BIN. Instálalo con: sudo apt install qemu-system-x86 qemu-system-gui" >&2
     exit 1
+fi
+OVMF_CODE=""
+if [ -n "$UEFI" ]; then
+    [ "$MODO" = cd ] && { echo "--uefi no se combina con --cd: la ISO aún no arranca por UEFI (D264)" >&2; exit 1; }
+    PREF=OVMF; [ "$UEFI" = ia32 ] && PREF=OVMF32
+    for d in "${SAGUI_OVMF:-}" "$HOME/.local/saguitools/root/usr/share/OVMF" /usr/share/OVMF; do
+        if [ -n "$d" ] && [ -f "$d/${PREF}_CODE_4M.fd" ] && [ -f "$d/${PREF}_VARS_4M.fd" ]; then
+            OVMF_CODE="$d/${PREF}_CODE_4M.fd"; OVMF_VARS_ORIG="$d/${PREF}_VARS_4M.fd"; break
+        fi
+    done
+    if [ -z "$OVMF_CODE" ]; then
+        echo "No se encuentra el OVMF ($PREF). Instálalo con: sudo apt install ovmf ovmf-ia32 (o bash tools/entorno-local.sh)" >&2
+        exit 1
+    fi
 fi
 
 if [ "$COMPILAR" = 1 ] || [ ! -f "$IMAGEM" ]; then
@@ -146,7 +176,7 @@ if [ ${#OPC_IMAGEM[@]} -gt 0 ]; then
     IMAGEM="$B/saguios-opciones.img"
     python3 "$RAIZ/tools/mkimagem.py" --mbr "$B/boot/mbr.bin" --estagio2 "$B/boot/estagio2.bin" \
         --kernel "$B/kernel.bin" --kernel-elf "$B/kernel.elf" --ramdisk "$B/ramdisk.sgfs" \
-        --saida "$IMAGEM" --vesa "${OPC_IMAGEM[@]}" >/dev/null
+        --saida "$IMAGEM" --vesa ${UEFI:+--uefi "$B/boot/uefi"} "${OPC_IMAGEM[@]}" >/dev/null
     echo "Imagen con ${OPC_IMAGEM[*]}: build/saguios-opciones.img"
     if [ "$NUCLEOS_PIDO" = 0 ] && [[ " ${OPC_IMAGEM[*]} " == *" --smp "* ]]; then
         NUCLEOS=$(nproc); [ "$NUCLEOS" -gt 4 ] && NUCLEOS=4
@@ -180,6 +210,13 @@ SNAP=",snapshot=on"
 [ "$GUARDAR" = 1 ] && SNAP=""
 
 ARGS=(-m "$MEM" -name SaguiOS)
+if [ -n "$UEFI" ]; then
+    # Las variables del firmware (orden de arranque...) en una copia propia en build/.
+    OVMF_VARS="$RAIZ/build/ovmf-vars-$UEFI.fd"
+    [ -f "$OVMF_VARS" ] || cp "$OVMF_VARS_ORIG" "$OVMF_VARS"
+    ARGS+=(-drive "if=pflash,format=raw,unit=0,readonly=on,file=$OVMF_CODE"
+           -drive "if=pflash,format=raw,unit=1,file=$OVMF_VARS")
+fi
 [ -n "$CPU" ] && ARGS+=(-cpu "$CPU")
 # Los procesadores de la máquina: el sistema los usa si la imagen lleva --smp (D164).
 [ "$NUCLEOS" -gt 1 ] && ARGS+=(-smp "$NUCLEOS")
@@ -211,6 +248,10 @@ fi
 # USB, si lo hay) o, con --xhci, un xHCI aparte (D214).
 if [ "$XHCI" = 1 ]; then
     CTL_USB="qemu-xhci,id=xhci"; BUS_USB=xhci.0; CTL_PUESTO=0
+elif [ "$UHCI" = 1 ]; then
+    CTL_USB="piix3-usb-uhci,id=uhci"; BUS_USB=uhci.0; CTL_PUESTO=0
+elif [ "$OHCI" = 1 ]; then
+    CTL_USB="pci-ohci,id=ohci"; BUS_USB=ohci.0; CTL_PUESTO=0
 else
     CTL_USB="usb-ehci,id=ehci"; BUS_USB=ehci.0; CTL_PUESTO=0
     [ "$MODO" = usb ] && CTL_PUESTO=1
@@ -302,11 +343,11 @@ if [ "${KVM:-1}" = 1 ] && [ -e /dev/kvm ]; then
         # sg abre una con el grupo, sin tener que reiniciar el WSL.
         ARGS+=(-accel kvm -accel tcg); ACEL="KVM (vía sg)"
         echo "Arrancando SaguiOS ($MODO, ${MEM} MB${CPU:+, CPU $CPU}, $ACEL)..."
-        exec sg kvm -c "$(printf '%q ' env ${PULSE_SERVER:+PULSE_SERVER="$PULSE_SERVER"} ${XDG_RUNTIME_DIR:+XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"} ${LD_LIBRARY_PATH:+LD_LIBRARY_PATH="$LD_LIBRARY_PATH"} "$(command -v qemu-system-i386)" "${ARGS[@]}")"
+        exec sg kvm -c "$(printf '%q ' env ${PULSE_SERVER:+PULSE_SERVER="$PULSE_SERVER"} ${XDG_RUNTIME_DIR:+XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR"} ${LD_LIBRARY_PATH:+LD_LIBRARY_PATH="$LD_LIBRARY_PATH"} "$(command -v "$QEMU_BIN")" "${ARGS[@]}")"
     else
         echo "Sin acceso a /dev/kvm: emulación por software (más lenta). Para KVM: sudo usermod -aG kvm \$USER" >&2
     fi
 fi
 
-echo "Arrancando SaguiOS ($MODO, ${MEM} MB${CPU:+, CPU $CPU}, $ACEL)..."
-exec qemu-system-i386 "${ARGS[@]}"
+echo "Arrancando SaguiOS ($MODO, ${MEM} MB${CPU:+, CPU $CPU}${UEFI:+, UEFI $UEFI}, $ACEL)..."
+exec "$QEMU_BIN" "${ARGS[@]}"

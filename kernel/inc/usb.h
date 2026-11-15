@@ -17,10 +17,14 @@
 
 typedef struct ehci ehci_t;
 typedef struct xhci xhci_t;
+typedef struct uhci uhci_t;   /* D267: USB 1.1 de Intel/VIA (puertos de E/S) */
+typedef struct ohci ohci_t;   /* D267: USB 1.1 de AMD/NVIDIA/SiS... (MMIO) */
 
 /* Controlador al que está conectado un dispositivo (D214). */
 #define USB_EHCI 0
 #define USB_XHCI 1
+#define USB_UHCI 2
+#define USB_OHCI 3
 
 /* Velocidades: los números son los del xHCI (Protocol Speed ID por omisión). */
 #define USB_VEL_PLENA   1   /* 12 Mb/s (USB 1.1) */
@@ -76,6 +80,8 @@ typedef struct usb_disp {
     uint8_t   tipo_ctl;        /* USB_EHCI o USB_XHCI */
     ehci_t   *ctl;             /* si es EHCI */
     xhci_t   *xctl;            /* si es xHCI */
+    uhci_t   *uctl;            /* si es UHCI (D267) */
+    ohci_t   *octl;            /* si es OHCI (D267) */
     uint8_t   slot;            /* xHCI: ranura del dispositivo */
     uint8_t   velocidade;      /* USB_VEL_* */
     uint8_t   porta_raiz;      /* puerto del controlador (desde 0) por el que se llega */
@@ -161,6 +167,58 @@ void ehci_rx_fechar(int h);
 int  ehci_rx_abrir_fila(usb_disp_t *d, uint8_t ep, uint16_t mps, uint32_t buffer_fis, uint32_t tam, int n);
 bool ehci_rx_info(int h, uint32_t *emvoo, uint32_t *completadas, uint32_t *erros);
 
+/* ---- uhci.c y ohci.c (D267): USB 1.1, baja y plena velocidad ----
+ * Misma interfaz que el EHCI: control, bulk (con su alternancia) y endpoints
+ * de interrupción para el HID. Sin isócrono (v8.1) ni transferencias continuas
+ * (el Wi-Fi no va por aquí). Los puertos devuelven la velocidad (USB_VEL_*). */
+struct uhci {
+    pci_disp_t pci;
+    uint16_t  io;              /* base de los puertos de E/S (BAR 4) */
+    int       portas;
+    bool      ok;
+    uint8_t   proximo_endereco;
+    int       bios;            /* 0 = no lo usaba, 1 = lo soltó */
+    int       resultado[USB_MAX_PORTAS];
+    uint32_t  quadros;         /* lista de 1024 cuadros */
+    uint32_t  pagina;          /* QH, paquete de setup y 256 TD */
+};
+int  uhci_iniciar_todos(void);
+int  uhci_quantidade(void);
+uhci_t *uhci_controlador(int i);
+uint32_t uhci_porta_estado(uhci_t *c, int porta);
+bool uhci_porta_conectada(uhci_t *c, int porta);
+bool uhci_porta_mudou(uhci_t *c, int porta);
+int  uhci_porta_resetar(uhci_t *c, int porta);      /* velocidad USB_VEL_* o <0 */
+int  uhci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, bool entrada);
+int  uhci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam);
+int  uhci_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);
+int  uhci_int_ler(int h, uint8_t *dados, int max);
+void uhci_int_fechar(int h);
+
+struct ohci {
+    pci_disp_t pci;
+    volatile uint32_t *r;      /* registros (MMIO) */
+    int       portas;
+    bool      ok;
+    uint8_t   proximo_endereco;
+    int       bios;            /* 0 = no lo usaba, 1 = lo soltó (SMM), 2 = lo usaba sin SMM, -1 = no lo soltó */
+    int       resultado[USB_MAX_PORTAS];
+    uint32_t  pagina;          /* HCCA, ED de trabajo y 220 TD */
+};
+int  ohci_iniciar_todos(void);
+int  ohci_quantidade(void);
+ohci_t *ohci_controlador(int i);
+uint32_t ohci_porta_estado(ohci_t *c, int porta);
+bool ohci_porta_conectada(ohci_t *c, int porta);
+bool ohci_porta_mudou(ohci_t *c, int porta);
+int  ohci_porta_resetar(ohci_t *c, int porta);      /* velocidad USB_VEL_* o <0 */
+int  ohci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, bool entrada);
+int  ohci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam);
+int  ohci_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);
+int  ohci_int_ler(int h, uint8_t *dados, int max);
+void ohci_int_fechar(int h);
+bool ehci_pode_dormir(void);   /* las esperas de UHCI/OHCI ceden la CPU con las mismas reglas que el EHCI */
+
 /* ---- usb.c ---- */
 void usb_iniciar(void);
 int  usb_controle(usb_disp_t *d, uint8_t tipo, uint8_t pedido, uint16_t valor, uint16_t indice, void *dados, uint16_t tam);
@@ -168,6 +226,10 @@ int  usb_controle(usb_disp_t *d, uint8_t tipo, uint8_t pedido, uint16_t valor, u
  * por el controlador que sea (D214). Bytes transferidos o USB_ERRO_*. */
 int  usb_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam);
 void usb_esperar_ms(usb_disp_t *d, uint32_t ms);
+/* Endpoints de interrupción de los controladores que no son xHCI (HID). */
+int  usb_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);
+int  usb_int_ler(usb_disp_t *d, int h, uint8_t *dados, int max);
+void usb_int_fechar(usb_disp_t *d, int h);
 /* D227: espera de los puertos (reset, antirrebote). En la tarea "usb" duerme con
  * las interrupciones encendidas; en el arranque gira con el reloj del controlador
  * (c = EHCI) o con el TSC (c = NULL). */
@@ -195,6 +257,7 @@ void usb_tx_fechar_fila(usb_disp_t *d);
 bool usb_fila_info(usb_disp_t *d, int h, bool entrada, uint32_t *emvoo, uint32_t *completadas, uint32_t *perdidas);
 void usb_avisar_fila(const void *canal);
 const char *usb_nome_velocidade(int v);
+const char *usb_nome_ctl(uint8_t tipo);       /* "EHCI", "xHCI", "UHCI" u "OHCI" */
 usb_disp_t *usb_disp(int i);
 void usb_verificar_conexoes(void);             /* conexión y retirada en caliente */
 

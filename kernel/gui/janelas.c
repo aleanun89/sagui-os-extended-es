@@ -15,6 +15,8 @@
  * llamadas al sistema tocan las mismas listas; por eso la tarea trabaja
  * con las interrupciones desactivadas (las llamadas ya corren así). */
 #include "gui.h"
+#include "avisos.h"
+#include "permisos_dialogo.h"
 #include "aparencia.h"
 #include "abi.h"
 #include "console.h"
@@ -102,54 +104,7 @@ static void geometria_tela_cheia(janela_t *j, int *ox, int *oy, int *dl, int *da
 
 bool gui_ativa(void) { return ativa; }
 
-/* ------------------------------------------------------------ notificación (H34) */
-#define AVISO_L 420
-#define AVISO_A 62
-#define AVISO_COLUNAS 49   /* letras por línea dentro de la caja */
-static char aviso_texto[96];
-static uint32_t aviso_ate;   /* tic en que desaparece; 0 = sin aviso */
-static char aviso_caminho[160];   /* archivo que abre el Visor al pulsar el aviso (D125); vacío = no es pulsable */
-static bool aviso_audio;          /* D233: el aviso es de un CD de audio: al pulsarlo se reproduce aviso_caminho */
-
-static void aviso_retangulo(int *x, int *y) { *x = (int)video_largura() - AVISO_L - 12; *y = BARRA_SUPERIOR + 10; }
-
-void gui_aviso(const char *texto)
-{
-    aviso_caminho[0] = 0;
-    aviso_audio = false;
-    txt_copia_n(aviso_texto, texto, sizeof aviso_texto);
-    aviso_ate = relogio_tiques() + 5 * TIQUES_POR_SEGUNDO;
-    int x, y;
-    aviso_retangulo(&x, &y);
-    gui_redesenhar(x - 2, y - 2, AVISO_L + 4, AVISO_A + 4);
-    klog("[GUI] notificacao: %s\n", texto);
-}
-
-static void desenhar_aviso(superficie_t *t)
-{
-    if (!aviso_ate) return;
-    int x, y;
-    aviso_retangulo(&x, &y);
-    sup_retangulo(t, x, y, AVISO_L, AVISO_A, 0x18202A);
-    sup_moldura(t, x, y, AVISO_L, AVISO_A, 0xFFDF4A);
-    sup_retangulo(t, x, y, 6, AVISO_A, 0xFFDF4A);
-    sup_texto(t, x + 16, y + 6, SAGUI_NOME, 0xFFDF4A);
-    /* Hasta dos líneas, cortando en el último espacio que quepa. */
-    const char *p = aviso_texto;
-    for (int l = 0; l < 2 && *p; l++) {
-        int n = (int)txt_tamanho(p);
-        if (n > AVISO_COLUNAS) {
-            n = AVISO_COLUNAS;
-            while (n > 0 && p[n] != ' ') n--;
-            if (n == 0) n = AVISO_COLUNAS;
-        }
-        char linha[AVISO_COLUNAS + 1];
-        txt_copia_n(linha, p, (size_t)n + 1);
-        sup_texto(t, x + 16, y + 24 + l * 17, linha, 0xFFFFFF);
-        p += n;
-        while (*p == ' ') p++;
-    }
-}
+/* Las notificaciones (H34, D125, D233) viven en avisos.c (issue #16); el diálogo de permisos (D269) en permisos_dialogo.c. */
 
 static int moldura_l(janela_t *j) { return j->larg + 2 * BORDA; }
 static int moldura_a(janela_t *j) { return j->alt + BARRA_TITULO + BORDA; }
@@ -229,6 +184,7 @@ void gui_mostrar(void)
     if (desenhar_tela_cheia()) {
         atalhos_desenhar(&tela);
         menu_desenhar(&tela);
+        pd_desenhar(&tela);   /* D269 */
         video_marcar(tela.cx0, tela.cy0, tela.cx1 - tela.cx0, tela.cy1 - tela.cy0);
         video_mostrar();
         rapido_fim(sse);
@@ -246,11 +202,12 @@ void gui_mostrar(void)
         desenhar_alca(j);
     }
     desenhar_contorno_redimensionar();
-    desenhar_aviso(&tela);
+    avisos_desenhar(&tela);
     if (tela.cy0 < BARRA_SUPERIOR) barra_desenhar(&tela);   /* Inicio, tareas y reloj (D065) */
     barra_popup_desenhar(&tela);   /* panel o ayuda de la bandeja (D114) */
     atalhos_desenhar(&tela);       /* panel de Alt+Tab (D119) */
     menu_desenhar(&tela);   /* el menú contextual queda por encima de todo (D051) */
+    pd_desenhar(&tela);     /* D269: el diálogo de permisos, sobre todo lo demás, atenúa también la barra */
     video_marcar(tela.cx0, tela.cy0, tela.cx1 - tela.cx0, tela.cy1 - tela.cy0);
     video_mostrar();
     rapido_fim(sse);
@@ -287,7 +244,7 @@ static void atualizar_zona_cursor(void)
 {
     janela_t *j = ativa ? focada() : NULL;
     int x = 0, y = 0, l = 0, a = 0;
-    if (j && (j->estilo & JAN_SEM_CURSOR) && !menu_aberto() && !barra_popup_visivel() && !atalhos_visivel() &&
+    if (j && (j->estilo & JAN_SEM_CURSOR) && !pd_ativo() && !menu_aberto() && !barra_popup_visivel() && !atalhos_visivel() &&
         arrastando < 0 && redimensionando < 0) {
         if (j->tela_cheia) {
             geometria_tela_cheia(j, &x, &y, &l, &a);
@@ -295,10 +252,10 @@ static void atualizar_zona_cursor(void)
             x = j->x + BORDA; y = j->y + BARRA_TITULO; l = j->larg; a = j->alt;
             if (y < BARRA_SUPERIOR) { a -= BARRA_SUPERIOR - y; y = BARRA_SUPERIOR; }   /* la barra de arriba va encima */
         }
-        if (aviso_ate) {   /* el aviso (que se puede pulsar) va encima: con él, el cursor se ve */
-            int ax, ay;
-            aviso_retangulo(&ax, &ay);
-            if (ax < x + l && ax + AVISO_L > x && ay < y + a && ay + AVISO_A > y) l = a = 0;
+        if (avisos_visivel()) {   /* el aviso (que se puede pulsar) va encima: con él, el cursor se ve */
+            int ax, ay, al, aa;
+            avisos_retangulo(&ax, &ay, &al, &aa);
+            if (ax < x + l && ax + al > x && ay < y + a && ay + aa > y) l = a = 0;
         }
     }
     if (video_zona_sem_cursor(x, y, l, a)) {
@@ -320,6 +277,7 @@ static int janela_em(int x, int y)   /* índice en ordem[], de arriba hacia abaj
 
 static void trazer_para_cima(int k)
 {
+    area_foco_perder();   /* D268: el teclado deja de ser del escritorio */
     if (k == qtd - 1) return;
     janela_t *antes = focada();
     int i = ordem[k];
@@ -341,7 +299,7 @@ static int imax(int a, int b) { return a > b ? a : b; }
 static bool mover_com_gpu(janela_t *j, int nx, int ny)
 {
     if (!acel2d_ativo() || j->tela_cheia || j->minimizada || qtd == 0 || &janelas[ordem[qtd - 1]] != j) return false;
-    if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || aviso_ate || redimensionando >= 0) return false;
+    if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || avisos_visivel() || pd_ativo() || redimensionando >= 0) return false;
     gui_mostrar();   /* lo pendiente primero: la pantalla tiene que ser lo que se compuso */
     int L = (int)video_largura(), A = (int)video_altura();
     int ox = j->x - 1, oy = j->y - 1, l = moldura_l(j) + 2, a = moldura_a(j) + 2;
@@ -401,7 +359,7 @@ static void verificar_captura(void)
     if (!j) { soltar_captura("ventana cerrada"); return; }
     if ((teclado_modificadores() & (MOD_CTRL | MOD_ALT)) == (MOD_CTRL | MOD_ALT)) soltar_captura("Ctrl+Alt");
     else if (j != focada() || j->minimizada) soltar_captura("perdio el foco");
-    else if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || arrastando >= 0) soltar_captura("menu o panel");
+    else if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || pd_ativo() || arrastando >= 0) soltar_captura("menu o panel");
 }
 
 /* Con la captura, el ratón es solo de la ventana: deltas crudos, botones en el centro, rueda. */
@@ -429,6 +387,11 @@ static bool tratar_captura(evento_mouse_t *m)
 
 static void tratar_mouse(evento_mouse_t *m)
 {
+    if (pd_ativo()) {   /* D269: el diálogo de permisos es modal: todo el ratón es suyo */
+        arrastando = -1; captura = -1; redimensionando = -1;
+        pd_mouse(m->x, m->y, m->botoes, m->mudaram);
+        return;
+    }
     if (cap_id >= 0 && tratar_captura(m)) return;
     bool apertou = (m->mudaram & m->botoes) != 0;
     bool soltou = (m->mudaram & ~m->botoes) != 0;
@@ -436,34 +399,7 @@ static void tratar_mouse(evento_mouse_t *m)
     /* Con un menú contextual abierto, todo el ratón es suyo (D051). */
     if (menu_tratar_mouse(m->x, m->y, m->botoes, m->mudaram)) return;
     if (barra_popup_mouse(m->x, m->y, m->botoes, m->mudaram)) return;   /* panel de la bandeja abierto (D114) */
-    if (apertou && aviso_ate && aviso_caminho[0]) {   /* aviso pulsable: «Captura guardada en …» abre el Visor (D125) */
-        int ax, ay;
-        aviso_retangulo(&ax, &ay);
-        if (m->x >= ax && m->x < ax + AVISO_L && m->y >= ay && m->y < ay + AVISO_A) {
-            int pid;
-            if (aviso_audio) {   /* D233: Sintonía con la lista del CD; sin /apps, el reproductor del sistema con la carpeta */
-                char *av[] = { "sintonia", aviso_caminho, NULL };
-                pid = processo_executar("/apps/bin/sintonia", 2, av, NULL);
-                if (pid < 0) {
-                    char pasta[160];
-                    txt_copia_n(pasta, aviso_caminho, sizeof pasta);
-                    for (int k = (int)txt_tamanho(pasta) - 1; k > 0; k--) if (pasta[k] == '/') { pasta[k] = 0; break; }
-                    char *am[] = { "musica", pasta, NULL };
-                    pid = processo_executar("/bin/musica", 2, am, NULL);
-                }
-                klog("[GUI] aviso pulsado: reproducir %s (pid %d)\n", aviso_caminho, pid);
-            } else {
-                char *av[] = { "visor", aviso_caminho, NULL };
-                pid = processo_executar("/bin/visor", 2, av, NULL);
-                klog("[GUI] aviso pulsado: visor %s (pid %d)\n", aviso_caminho, pid);
-            }
-            aviso_audio = false;
-            aviso_ate = 0;
-            aviso_caminho[0] = 0;
-            gui_redesenhar(ax - 2, ay - 2, AVISO_L + 4, AVISO_A + 4);
-            return;
-        }
-    }
+    if (apertou && avisos_clique(m->x, m->y)) return;   /* aviso pulsable: abre el Visor o reproduce el CD (D125, D233) */
     if (m->dz && barra_roda(m->x, m->y, m->dz)) {   /* rueda sobre el icono del volumen */
         m->dz = 0;
         if (!m->mudaram && !m->dx && !m->dy) return;
@@ -473,6 +409,7 @@ static void tratar_mouse(evento_mouse_t *m)
         if (!m->mudaram && !m->dx && !m->dy) return;
     }
     if (tratar_mouse_extras(m)) return;   /* pantalla completa, redimensionar */
+    if (area_icone_arrasto(m->x, m->y, m->botoes)) return;   /* D268: arrastre de iconos o rectángulo de selección */
     if (arrastando >= 0) {
         janela_t *j = &janelas[arrastando];
         if (!j->usada || !(m->botoes & BOTAO_ESQUERDO)) {
@@ -520,6 +457,7 @@ static void tratar_mouse(evento_mouse_t *m)
             bool duplo = ic >= 0 && ult_clique_alvo == 1000 + ic && agora - ult_clique_tique < DUPLO_CLIQUE;
             ult_clique_alvo = ic >= 0 ? 1000 + ic : -999;
             ult_clique_tique = agora;
+            if (m->mudaram & BOTAO_ESQUERDO) area_icone_clique(ic, m->x, m->y, (teclado_modificadores() & MOD_CTRL) != 0);   /* D268 */
             if (duplo && (m->mudaram & BOTAO_ESQUERDO)) { area_icone_abrir(ic); ult_clique_alvo = -999; }
             if (m->mudaram & BOTAO_DIREITO) {   /* menú del ícono o del escritorio (D051) */
                 if (ic >= 0) area_icone_direito(ic, m->x, m->y);
@@ -629,6 +567,7 @@ static void tarefa_gerenciador(void *arg)
         int t;
         uint32_t mods;   /* los modificadores de cuando se pulsó la tecla, no los de ahora (D119) */
         while ((t = teclado_tentar_mods(&mods)) >= 0) {
+            if (pd_tecla(t)) continue;   /* D269: el diálogo de permisos se queda con todo el teclado */
             if (atalhos_tecla(t, mods)) continue;   /* Alt+Tab, Alt+F4, Windows, Ctrl+Alt+Supr (D119) */
             if (menu_tratar_tecla(t)) continue;   /* menú contextual abierto: el teclado es suyo (D051) */
             if (barra_popup_tecla(t)) continue;   /* panel de la bandeja (D114) */
@@ -640,6 +579,7 @@ static void tarefa_gerenciador(void *arg)
                 barra_abrir_inicio(true);
                 continue;
             }
+            if (area_icone_tecla(t, mods)) continue;   /* D268: flechas e Intro con el foco en el escritorio */
             janela_t *j = focada();
             if (!j) continue;
             if (tecla_do_gerenciador(j, t)) continue;   /* F11 y Esc de la pantalla completa */
@@ -651,25 +591,16 @@ static void tarefa_gerenciador(void *arg)
         barra_tique();   /* reloj y botones de las tareas: sólo ensucia lo que cambió */
         /* Pendrive: los avisos del kernel se convierten en notificaciones; el ícono acompaña. */
         int tipo;
-        char texto[96], caminho[64];
-        while (disco_proximo_aviso(&tipo, texto, sizeof texto, caminho, sizeof caminho)) {
-            gui_aviso(texto);
-            if (tipo == AVISO_AUDIO && caminho[0]) {   /* D233: pulsable, reproduce el CD */
-                txt_copia_n(aviso_caminho, caminho, sizeof aviso_caminho);
-                aviso_audio = true;
-                aviso_ate = relogio_tiques() + 10 * TIQUES_POR_SEGUNDO;
-            }
-        }
+        char texto[256], caminho[64];
+        while (disco_proximo_aviso(&tipo, texto, sizeof texto, caminho, sizeof caminho))
+            gui_aviso_ex(texto, tipo == AVISO_AUDIO && caminho[0] ? caminho : NULL, tipo == AVISO_AUDIO,
+                         tipo == AVISO_AUDIO && caminho[0] ? 10 : 0);   /* D233: pulsable, reproduce el CD */
+        pd_tique();      /* D269: ¿hay un programa pidiendo permisos de administrador? */
+        avisos_tique();  /* caduca el aviso y muestra el siguiente de la cola */
         disco_t *pd = NULL;
         for (int k = 0; k < MAX_DISCOS && !pd; k++) { disco_t *d = disco_indice(k); if (d && d->presente && !d->pai && d->removivel && !d->de_boot) pd = d; }
         if (area_pendrive(pd != NULL, pd ? (pd->rotulo[0] ? pd->rotulo : "Pendrive") : NULL))
-            gui_redesenhar(0, BARRA_SUPERIOR, 140, (int)video_altura() - BARRA_SUPERIOR);
-        if (aviso_ate && (int32_t)(relogio_tiques() - aviso_ate) >= 0) {
-            aviso_ate = 0;
-            int x, y;
-            aviso_retangulo(&x, &y);
-            gui_redesenhar(x - 2, y - 2, AVISO_L + 4, AVISO_A + 4);
-        }
+            gui_redesenhar(0, BARRA_SUPERIOR, (int)video_largura(), (int)video_altura() - BARRA_SUPERIOR);   /* D268: el icono puede estar en cualquier casilla */
         gui_mostrar();
         atualizar_zona_cursor();   /* D230 */
         if (arr_moveu && arrastando >= 0) { arr_quadros++; arr_ciclos += ler_tsc() - t_volta; }
@@ -760,6 +691,7 @@ int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint
     memset(j, 0, sizeof *j);
     j->usada = true;
     j->id = proximo_id++;
+    area_foco_perder();   /* D268: una ventana nueva toma el teclado */
     j->pid = processo_recursos()->pid;   /* D167: la ventana es del proceso */
     j->larg = l; j->alt = a;
     j->px = (uint32_t *)fis;
@@ -1173,7 +1105,7 @@ static bool desenhar_tela_cheia(void)
     sup_retangulo(&tela, ox + dl, oy, L - ox - dl, da, 0);
     if (dl == j->larg && da == j->alt) sup_copiar(&tela, ox, oy, j->px, j->larg, j->alt, j->larg);
     else sup_escalar(&tela, ox, oy, dl, da, j->px, j->larg, j->alt);
-    desenhar_aviso(&tela);
+    avisos_desenhar(&tela);
     return true;
 }
 
@@ -1727,11 +1659,11 @@ bool janela_quer_imprpant(void)
 int32_t sis_avisar(uint32_t ptexto, uint32_t pcaminho, uint32_t c, uint32_t d, uint32_t e)
 {
     (void)c; (void)d; (void)e;
-    char t[96], cam[160];
+    char t[512], cam[160];
     int r = usuario_texto((const char *)ptexto, t, sizeof t);
-    if (r < 0) return r;
+    if (r < 0 && r != ERRO_INVALIDO) return r;   /* demasiado largo: se muestra recortado a 511 bytes */
     cam[0] = 0;
     if (pcaminho) { r = usuario_texto((const char *)pcaminho, cam, sizeof cam); if (r < 0) return r; }
-    if (ativa) { gui_aviso(t); txt_copia_n(aviso_caminho, cam, sizeof aviso_caminho); }
+    if (ativa) gui_aviso_ex(t, cam, false, 0);
     return 0;
 }

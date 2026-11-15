@@ -7,7 +7,8 @@ Parte 1 (terminal, IDE): un segundo disco vacío (hdb) y uno GPT (hdc).
   - redimensionar: un ext2 encoge y vuelve a crecer con su partición (D213); agrandar un FAT32 vale;
   - crear y borrar una primaria, deshacer (vuelve) y borrar otra vez;
   - una partición montada no se toca (D213: el resto del disco sí); el disco de arranque, sin --arranque, tampoco;
-  - la GPT se muestra y no se toca (el fichero no cambia ni un byte);
+  - la GPT se muestra y no se toca salvo que se pida crear, borrar o formatear (D266, h266): aquí solo se leen
+    y se rechaza redimensionar (el fichero no cambia ni un byte);
   - desde el anfitrión: la tabla con sfdisk, los FAT32 con fsck.vfat y mtools, el ext2 con e2fsck,
     y los archivos que SaguiOS escribió en ellos.
 Parte 2 (AHCI con discard=unmap): el disco empieza lleno de 0xAB; formatear manda TRIM (la zona
@@ -108,10 +109,11 @@ def parte1():
         verificar("disco de arranque" in out and "creada" not in out, "el disco de arranque se niega sin --arranque")
         # GPT
         out = m.comando("particiones hdc")
-        verificar("GPT (solo lectura)" in out and "datos linux" in out and "datos de Windows" in out,
+        verificar("GPT" in out and "datos linux" in out and "datos de Windows" in out,
                   "la GPT se muestra con sus dos entradas, su tipo y su nombre")
-        out = m.comando("particiones crear hdc 10 -s")
-        verificar("GPT" in out and "creada" not in out, "en un disco GPT no se crea nada")
+        # D266: en una GPT se puede crear, borrar y formatear (h266); lo demás sigue sin estar disponible
+        out = m.comando("particiones redimensionar hdc1 20 -s")
+        verificar("GPT" in out and "no está disponible" in out and "pasa de" not in out, "en un disco GPT no se redimensiona (D266: solo crear, borrar y formatear)")
         m.captura("H148-1-terminal")
         out = m.comando("particiones hdb")
         print(out)

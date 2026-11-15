@@ -3,7 +3,7 @@
  *
  *   instalar                         los discos donde se puede instalar
  *   instalar <disco> [--entero | --hueco MB | --particion N] [--sin-jogos] [--sin-apps]
- *            [--copiar-jogos] [-s]
+ *            [--copiar-jogos] [--mbr | --gpt | --auto] [--esp] [--sin-home] [-s]
  *   instalar --ventana               el asistente gráfico (Inicio > Sistema)
  *
  * Qué queda en el disco de destino (arranca por BIOS):
@@ -24,6 +24,16 @@
  * Con "disco entero" la partición de SaguiOS empieza en el LBA 1, como en las imágenes de
  * mkimagem.py; en un hueco libre empieza en el hueco y la cabecera del LBA 1 apunta allí.
  *
+ * D266 (v8.0): tabla MBR (BIOS, como arriba) o GPT (UEFI). Con --esp, el MBR lleva además una partición
+ * EFI (tipo 0xEF, FAT32) para la imagen híbrida. Con --gpt (solo disco entero) se crea una GPT con su MBR
+ * protector, cabecera de respaldo y CRC, y cuatro particiones alineadas a 1 MiB:
+ *   1 ESP (256 MB, FAT32 "SAGUI-ESP", tipo EFI)  con lo que haya en /sistema/efi (EFI/BOOT/BOOTX64.EFI...)
+ *   2 SaguiOS (tipo propio): primer sector = la cabecera de arranque, luego etapa 2, kernel y ramdisk
+ *   3 /home (ext2 "SAGUI-DATOS", opcional: --sin-home)   4 SAGUI-CONF (ext2, 16 MB, D256)
+ * Sin juegos ni /apps (el kernel solo ve las cuatro primeras entradas de una GPT). --auto (por defecto) elige
+ * GPT si el disco pasa de 2 TB o se arrancó por UEFI, y MBR si no. Una GPT con la BIOS clásica no arranca: hace
+ * falta el cargador UEFI de la ESP. Si no hay /sistema/efi, un MBR se instala solo para BIOS (con aviso).
+ *
  * Desde un CD (D207): el disco de origen es la imagen El Torito de dentro del CD ("cd0img",
  * que el kernel ve como un disco entero de solo lectura y reconoce por la cabecera); se
  * copia igual, y la cabecera escrita pierde el bit OPC_CD (el disco instalado no es un CD).
@@ -37,6 +47,7 @@
 #include "contas.h"
 #include "gui.h"
 #include "particoes.h"
+#include "gpt.h"
 
 #define MB 2048u
 #define CAB_ASSINATURA 0x44484753u
@@ -47,6 +58,9 @@
 #define JOGOS_ORIGEM "/jogos"             /* la partición de juegos montada, o el /jogos del ramdisk (D181, D228) */
 #define JOGOS_INSTALAR_MB 800u            /* D228: sitio para meter la versión completa de un juego */
 #define APPS_ORIGEM  "/apps"               /* las aplicaciones fuera de la base (D194) */
+#define EFI_ORIGEM "/sistema/efi"          /* D266: lo que se copia a la ESP (EFI/BOOT/BOOTX64.EFI...); lo pone la rama UEFI */
+#define ESP_ROTULO "SAGUI-ESP"
+#define ESP_PUNTO  "/mnt/instalar-esp"
 #define CONF_MB 16u                        /* D256: la partición SAGUI-CONF (configuración del sistema, mejora 098) */
 #define CONF_RESPALDO "/tmp/instalar-conf" /* donde se guarda (en RAM) la SAGUI-CONF vieja mientras se reparte el disco */
 /* UTF-8 explícito (octal): el mismo texto y codificación que el LEEME de mkimagem.py */
@@ -59,6 +73,7 @@
     "f\303\241brica y se pierden las contrase\303\261as y las claves.\n"
 
 enum { M_ENTERO, M_HUECO, M_PARTICION };
+enum { T_AUTO, T_MBR, T_GPT };   /* D266: la tabla que se crea */
 
 typedef struct {
     char     destino[12];
@@ -75,7 +90,14 @@ typedef struct {
     uint32_t blob_dst;
     uint32_t sys_ini, sys_set, ext_ini, ext_set;
     uint32_t home_set, jogos_set, apps_set, conf_set;
-    bool     gpt;
+    bool     gpt;                /* el destino ya tiene una GPT */
+    /* D266 */
+    int      tabela;             /* T_AUTO (se resuelve en planejar), T_MBR o T_GPT */
+    bool     esp;                /* crear la partición EFI (siempre con GPT; con MBR, si se pide y hay cargador) */
+    bool     sin_home;           /* GPT: sin /home (la configuración va justo detrás del sistema) */
+    bool     efi_ok;             /* hay algo que copiar en EFI_ORIGEM */
+    uint32_t esp_ini, esp_set, home_ini, conf_ini;
+    char     aviso[240];         /* lo que no será como se esperaba (p. ej. sin cargador UEFI) */
     bool     desde_cd;           /* D207: el origen es la imagen El Torito de un CD */
     char     perde[400];         /* qué se borra, dicho para la persona */
 } plano_t;
@@ -135,6 +157,13 @@ static bool existe_pasta(const char *c)
     return info_arquivo(c, &i) == 0 && i.tipo == TIPO_PASTA;
 }
 
+/* D266: ¿se arrancó por UEFI? La señal vendrá en bootinfo cuando exista el cargador UEFI (rama
+ * v8.0-uefi); de momento, nunca: la tabla GPT se elige con --gpt (o con el disco de más de 2 TB). */
+static bool arrancou_por_uefi(void) { return false; }
+
+/* D266: «automático»: GPT si el disco pasa de 2 TB (el MBR no llega) o se arrancó por UEFI. */
+static int tabela_automatica(uint32_t setores) { return setores >= 0xFFFF0000u || arrancou_por_uefi() ? T_GPT : T_MBR; }
+
 /* KB que ocupan los archivos de una carpeta (y sus subcarpetas). */
 static uint32_t kb_pasta(const char *c, int nivel)
 {
@@ -183,6 +212,8 @@ static uint32_t kb_jogos(bool todo)
 /* ¿Hay datos de juegos que copiar (algo más que los juegos de la base)? */
 static bool ha_jogos(void) { return existe_pasta(JOGOS_ORIGEM) && kb_jogos(true) > kb_jogos(false); }
 /* ¿Hay aplicaciones en /apps (la partición SAGUI-APPS o, con APPS=0, el ramdisk)? D194 */
+/* D266: ¿hay un cargador UEFI que copiar a la ESP? (la ruta acordada con la rama UEFI: D266) */
+static bool efi_disponivel(void) { return existe_pasta(EFI_ORIGEM) && kb_pasta(EFI_ORIGEM, 0) > 0; }
 static bool ha_apps(void) { return existe_pasta(APPS_ORIGEM) && kb_pasta(APPS_ORIGEM, 0) > 0; }
 
 /* ------------------------------------------------------------ el plan */
@@ -221,14 +252,29 @@ static bool planejar(plano_t *p, char *erro, int max)
     if (r < 0) { txt(erro, max, "no se puede leer %s: %s", p->destino, nome_erro(r)); return false; }
     p->gpt = t.esquema == PT_GPT;
     p->perde[0] = 0;
+    p->aviso[0] = 0;
+    /* D266: la tabla que se creará, y la ESP. */
+    if (p->tabela == T_AUTO) p->tabela = tabela_automatica(d.setores);
+    if (p->tabela == T_GPT && p->modo != M_ENTERO) { txt(erro, max, "una GPT solo se crea en el disco entero (no en un hueco ni sustituyendo una partición)"); return false; }
+    if (p->tabela == T_GPT) { p->jogos = p->apps = p->copiar_jogos = false; p->esp = true; }
+    p->efi_ok = efi_disponivel();
+    if (p->esp && !p->efi_ok) {
+        if (p->tabela == T_MBR) {
+            p->esp = false;
+            txt(p->aviso, sizeof p->aviso, "no hay cargador UEFI en " EFI_ORIGEM ": se instala solo para BIOS, sin partición EFI");
+        } else
+            txt(p->aviso, sizeof p->aviso, "no hay cargador UEFI en " EFI_ORIGEM ": la ESP queda vacía y el disco GPT no arrancará hasta que copies BOOTX64.EFI en EFI/BOOT");
+    }
+    uint32_t esp_set = (p->tabela == T_GPT && d.setores >= 1024u * MB ? 256u : 64u) * MB;
+    if (p->esp && p->efi_ok && kb_pasta(EFI_ORIGEM, 0) > esp_set / 2 - 4096) { txt(erro, max, "el cargador UEFI de " EFI_ORIGEM " no cabe en la partición EFI (%u MB)", esp_set / MB); return false; }
     uint32_t ini, fim;
     if (p->modo == M_ENTERO) {
         p->sys_ini = 1;
         p->blob_dst = p->blob_src;
         ini = 1;
         fim = t.setores / MB * MB;
-        if (t.esquema == PT_MBR) {
-            /* D256: ¿ya hay una SAGUI-CONF (reinstalación)? Su contenido se conserva. */
+        if (t.esquema == PT_MBR || (t.esquema == PT_GPT && !t.gpt_mala)) {
+            /* D256: ¿ya hay una SAGUI-CONF (reinstalación)? Su contenido se conserva (también en una GPT, D266). */
             p->conf_vieja[0] = 0;
             for (int i = 0; i < 4 + t.nlog && !p->conf_vieja[0]; i++) {
                 const pt_part_t *x = i < 4 ? &t.prim[i] : &t.log[i - 4];
@@ -249,11 +295,32 @@ static bool planejar(plano_t *p, char *erro, int max)
                 junta_texto(p->perde, x, sizeof p->perde);
             }
             if (t.nlog) { char x[40]; txt(x, sizeof x, " y %d lógica%s", t.nlog, t.nlog == 1 ? "" : "s"); junta_texto(p->perde, x, sizeof p->perde); }
-        } else if (t.esquema == PT_GPT) txt(p->perde, sizeof p->perde, "toda la GPT y sus %d particiones", t.ngpt);
+            if (t.esquema == PT_GPT && t.ngpt > 4) { char x[48]; txt(x, sizeof x, " y %d más", t.ngpt - 4); junta_texto(p->perde, x, sizeof p->perde); }
+            if (t.esquema == PT_GPT && p->perde[0]) { char x[48]; txt(x, sizeof x, " (todo en una GPT)"); junta_texto(p->perde, x, sizeof p->perde); }
+        } else if (t.esquema == PT_GPT) txt(p->perde, sizeof p->perde, "toda la GPT (dañada) y lo que contenga");
         else if (t.esquema == PT_VOLUME) txt(p->perde, sizeof p->perde, "el volumen %s que ocupa todo el disco", d.formato);
         if (!p->perde[0]) copia_texto(p->perde, "nada (el disco está vacío)", sizeof p->perde);
+    if (p->tabela == T_GPT) {   /* D266: ESP, SaguiOS, /home y SAGUI-CONF, alineadas a 1 MiB, dentro de la zona utilizable */
+        uint32_t blob_total = p->blob_src - 1 + p->blob_set;
+        uint32_t smb = (blob_total * 2 + MB - 1) / MB;
+        if (smb < 64) smb = 64;
+        p->esp_ini = MB; p->esp_set = esp_set;
+        p->sys_ini = p->esp_ini + p->esp_set;
+        p->sys_set = smb * MB;
+        p->blob_dst = p->sys_ini + p->blob_src - 1;   /* la cabecera va en el primer sector de la partición */
+        p->home_ini = p->sys_ini + p->sys_set;
+        uint32_t fim_g = (t.setores - 33) / MB * MB;
+        p->conf_set = CONF_MB * MB;
+        if (fim_g < p->home_ini + p->conf_set + (p->sin_home ? 0u : 16u * MB)) { txt(erro, max, "no cabe: hacen falta al menos %u MB para ESP, sistema, configuración%s", (p->home_ini + p->conf_set) / MB + (p->sin_home ? 0u : 16u), p->sin_home ? "" : " y /home"); return false; }
+        p->home_set = p->sin_home ? 0 : fim_g - p->home_ini - p->conf_set;
+        if (p->home_set > 0xFFFFFFFFu - MB) p->home_set = 0xFFFFFFFFu - MB;
+        p->home_set = p->home_set / MB * MB;
+        p->conf_ini = p->home_ini + p->home_set;
+            return true;
+    }
         p->sys_set = sys_mb * MB - 1;
         p->ext_ini = sys_mb * MB;
+        if (p->esp) { p->esp_ini = p->ext_ini; p->esp_set = esp_set; p->ext_ini += esp_set; }
     } else {
         if (t.esquema != PT_MBR && t.esquema != PT_SEM_TABELA) {
             txt(erro, max, "%s no tiene tabla MBR: solo se puede instalar en el disco entero", p->destino);
@@ -279,7 +346,7 @@ static bool planejar(plano_t *p, char *erro, int max)
         }
         int libres = 0;
         for (int i = 0; i < 4; i++) if (!t.prim[i].tipo) libres++;
-        if (libres < 2) { txt(erro, max, "hacen falta dos entradas libres en la tabla de %s (SaguiOS y la extendida)", p->destino); return false; }
+        if (libres < (p->esp ? 3 : 2)) { txt(erro, max, "hacen falta %s entradas libres en la tabla de %s (SaguiOS%s y la extendida)", p->esp ? "tres" : "dos", p->destino, p->esp ? ", EFI" : ""); return false; }
         for (int i = 0; i < 4; i++)
             if (t.prim[i].tipo && t.prim[i].inicio <= 1) { txt(erro, max, "la partición %d empieza en el sector 1, donde va la cabecera de arranque", i + 1); return false; }
         pt_livre_t v[24];
@@ -293,6 +360,7 @@ static bool planejar(plano_t *p, char *erro, int max)
         p->blob_dst = ini;
         p->sys_set = sys_mb * MB;
         p->ext_ini = ini + sys_mb * MB;
+        if (p->esp) { p->esp_ini = p->ext_ini; p->esp_set = esp_set; p->ext_ini += esp_set; }
         if (!p->perde[0]) copia_texto(p->perde, "nada: solo se usa espacio libre", sizeof p->perde);
     }
     if (p->ext_ini >= fim) { txt(erro, max, "no cabe: SaguiOS necesita al menos %u MB más espacio para los datos", sys_mb); return false; }
@@ -335,14 +403,19 @@ static bool planejar(plano_t *p, char *erro, int max)
 
 static void descrever_plano(const plano_t *p, char *s, int max)
 {
-    char a[16], h[16], j[16], x[16];
+    char a[16], h[16], j[16], x[16], e[16], parte[96];
     tamanho(p->sys_set + 1, a, sizeof a);
     tamanho(p->home_set, h, sizeof h);
     tamanho(p->jogos_set, j, sizeof j);
     tamanho(p->apps_set, x, sizeof x);
-    txt(s, max, "SaguiOS %s  |  /home %s (ext2)%s%s%s%s%s%s  |  SAGUI-CONF 16 MB", a, h,
-        p->jogos ? "  |  juegos " : "", p->jogos ? j : "", p->jogos ? " (ext2)" : "",
-        p->apps ? "  |  /apps " : "", p->apps ? x : "", p->apps ? " (ext2)" : "");
+    tamanho(p->esp_set, e, sizeof e);
+    txt(s, max, "SaguiOS %s", a);
+    if (p->home_set) { txt(parte, sizeof parte, "  |  /home %s (ext2)", h); junta_texto(s, parte, (size_t)max); }
+    if (p->jogos) { txt(parte, sizeof parte, "  |  juegos %s (ext2)", j); junta_texto(s, parte, (size_t)max); }
+    if (p->apps) { txt(parte, sizeof parte, "  |  /apps %s (ext2)", x); junta_texto(s, parte, (size_t)max); }
+    junta_texto(s, "  |  SAGUI-CONF 16 MB", (size_t)max);
+    if (p->esp) { txt(parte, sizeof parte, "  |  EFI %s (FAT32)", e); junta_texto(s, parte, (size_t)max); }
+    if (p->tabela == T_GPT) junta_texto(s, "  |  tabla GPT (UEFI)", (size_t)max);
 }
 
 /* ------------------------------------------------------------ la instalación */
@@ -373,6 +446,17 @@ static void marcar_nao_arrancavel(const char *disco)
 }
 
 /* El código de arranque provisional: "int 18h" (la BIOS pasa al siguiente disco) y parar. */
+/* D266: tras un fallo en una GPT no se toca el LBA 1 (es la cabecera de la GPT): se borra la cabecera
+ * de arranque, que va en el primer sector de la partición de SaguiOS. */
+static void marcar_nao_arrancavel_gpt(const plano_t *p, bool reservado)
+{
+    static const uint8_t zero[512];
+    if (!reservado && blocos_reservar(p->destino, DBLOCO_CONF_GPT) < 0) return;
+    blocos_escrever(p->destino, p->sys_ini, 1, zero);
+    if (!reservado) blocos_liberar(p->destino);
+    registrar("instalar: %s (GPT): cabecera de arranque borrada, no arrancable", p->destino);
+}
+
 static void mbr_provisional(uint8_t *s)
 {
     memset(s, 0, 446);
@@ -525,14 +609,35 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
     return r;
 }
 
+/* D266: la ESP: se monta, se le copia lo que haya en EFI_ORIGEM (EFI/BOOT/BOOTX64.EFI...) y se desmonta. */
+static int preparar_esp(plano_t *p, int num, char *erro, int max)
+{
+    if (!p->efi_ok) return 0;
+    char vol[16];
+    pt_nome_particao(p->destino, num, vol, sizeof vol);
+    criar_pasta(ESP_PUNTO);
+    int r = montar_em(vol, ESP_PUNTO, MONTAR_LEITURA_ESCRITA);
+    if (r < 0) { txt(erro, max, "no se puede montar la partición EFI %s (recién formateada): %s", vol, nome_erro(r)); return r; }
+    fase(fase_atual, 0, "Copiando el cargador UEFI a la partición EFI...");
+    uint32_t antes = arquivos_copiados;
+    r = copiar_pasta(EFI_ORIGEM, ESP_PUNTO, erro, max, 0);
+    registrar("instalar: ESP: %u archivos copiados de " EFI_ORIGEM, arquivos_copiados - antes);
+    int d = desmontar(ESP_PUNTO);
+    if (r == 0 && d < 0) { txt(erro, max, "no se puede desmontar la partición EFI %s: %s", vol, nome_erro(d)); r = d; }
+    return r;
+}
+
 static int instalar(plano_t *p, char *erro, int max)
 {
     char e[200];
     int r;
+    int num_sys = 0, num_ext = 0, num_home = 0, num_jogos = 0, num_apps = 0, num_conf = 0, num_esp = 0;
+    bool gpt_novo = p->tabela == T_GPT;
     bool reservado = false, tocado = false;
     bytes_copiados = arquivos_copiados = arquivos_jogos = arquivos_apps = 0;
-    registrar("instalar: de %s a %s, modo %d, sistema %u+%u, extendida %u+%u, home %u jogos %u apps %u",
-              p->origem, p->destino, p->modo, p->sys_ini, p->sys_set, p->ext_ini, p->ext_set, p->home_set, p->jogos_set, p->apps_set);
+    registrar("instalar: de %s a %s, modo %d, tabla %s, sistema %u+%u, extendida %u+%u, home %u jogos %u apps %u, esp %u+%u",
+              p->origem, p->destino, p->modo, gpt_novo ? "GPT" : "MBR", p->sys_ini, p->sys_set, p->ext_ini, p->ext_set, p->home_set, p->jogos_set, p->apps_set,
+              p->esp_ini, p->esp_set);
 
     /* 0. D256: una SAGUI-CONF que ya hay en el destino se conserva: se copia a la RAM antes de
      * tocar nada (y se devuelve a la nueva); solo se pierde si se pidió formatear todo. */
@@ -553,7 +658,7 @@ static int instalar(plano_t *p, char *erro, int max)
 
     /* 1. Reservar y dejar el disco no arrancable. */
     fase(0, 0, NULL);
-    r = blocos_reservar(p->destino, p->gpt && p->modo == M_ENTERO ? DBLOCO_CONF_GPT : 0);
+    r = blocos_reservar(p->destino, (p->gpt || gpt_novo) && p->modo == M_ENTERO ? DBLOCO_CONF_GPT : 0);
     if (r < 0) {
         txt(erro, max, r == ERRO_OCUPADO ? "%s tiene particiones montadas o lo usa otro programa: no se ha tocado nada"
                                          : "no se puede usar %s: %s; no se ha tocado nada", p->destino, nome_erro(r));
@@ -573,6 +678,30 @@ static int instalar(plano_t *p, char *erro, int max)
     /* 2. La tabla nueva y los sistemas de archivos. */
     fase(1, 0, NULL);
     pt_tabela_t t;
+    if (gpt_novo) {   /* D266: la GPT entera, validada antes de escribir; respaldo, principal y MBR protector; CRC releídos */
+        gpt_t *g = aloca(sizeof *g);
+        if (!g) { txt(erro, max, "sin memoria"); r = ERRO_SEM_MEMORIA; goto falha; }
+        uint8_t cod[512];
+        mbr_provisional(cod);
+        info_bloco_t ib;
+        blocos_info(p->destino, &ib);
+        gpt_nova(g, p->destino, ib.setores);
+        int sl;
+        if ((sl = gpt_adicionar(g, GPT_TIPO_ESP, p->esp_ini, p->esp_set, "EFI System", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (ESP): %s", e); r = sl; goto falha; }
+        num_esp = gpt_numero_kernel(g, sl);
+        if ((sl = gpt_adicionar(g, GPT_TIPO_SAGUI, p->sys_ini, p->sys_set, "SaguiOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (sistema): %s", e); r = sl; goto falha; }
+        num_sys = gpt_numero_kernel(g, sl);
+        if (p->home_set) {
+            if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->home_ini, p->home_set, "SAGUI-DATOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (/home): %s", e); r = sl; goto falha; }
+            num_home = gpt_numero_kernel(g, sl);
+        }
+        if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->conf_ini, p->conf_set, "SAGUI-CONF", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (SAGUI-CONF): %s", e); r = sl; goto falha; }
+        num_conf = gpt_numero_kernel(g, sl);
+        r = gpt_gravar(g, true, cod, e, sizeof e);
+        libera(g);
+        if (r < 0) { txt(erro, max, "la tabla GPT: %s", e); goto falha; }
+        goto tabela_pronta;
+    }
     if ((r = pt_ler(p->destino, &t)) < 0) { txt(erro, max, "no se puede leer la tabla: %s", nome_erro(r)); goto falha; }
     if (p->modo == M_ENTERO) { memset(t.prim, 0, sizeof t.prim); t.nlog = 0; t.esquema = PT_MBR; }
     else if (p->modo == M_PARTICION && pt_apagar(&t, p->particao, e, sizeof e) < 0) { txt(erro, max, "%s", e); r = ERRO_INVALIDO; goto falha; }
@@ -582,11 +711,15 @@ static int instalar(plano_t *p, char *erro, int max)
     for (int i = 0; i < 4; i++) { t.prim[i].ativa = false; if (!t.prim[i].tipo && slot < 0) slot = i; }
     if (slot < 0) { txt(erro, max, "no queda ninguna entrada libre en la tabla"); r = ERRO_LIMITE; goto falha; }
     t.prim[slot] = (pt_part_t){ 0xDA, true, p->sys_ini, p->sys_set, 0 };
-    int num_sys = slot + 1;
-    int num_ext = pt_criar(&t, p->ext_ini, p->ext_set, 0x0F, false, e, sizeof e);
+    num_sys = slot + 1;
+    if (p->esp) {   /* D266: partición EFI primaria (0xEF) entre SaguiOS y la extendida */
+        num_esp = pt_criar(&t, p->esp_ini, p->esp_set, 0xEF, false, e, sizeof e);
+        if (num_esp < 0) { txt(erro, max, "la partición EFI: %s", e); r = num_esp; goto falha; }
+    }
+    num_ext = pt_criar(&t, p->ext_ini, p->ext_set, 0x0F, false, e, sizeof e);
     if (num_ext < 0) { txt(erro, max, "la extendida: %s", e); r = num_ext; goto falha; }
     uint32_t pos = p->ext_ini + MB;
-    int num_home = pt_criar(&t, pos, p->home_set, 0x83, true, e, sizeof e), num_jogos = 0, num_apps = 0, num_conf = 0;
+    num_home = pt_criar(&t, pos, p->home_set, 0x83, true, e, sizeof e);
     if (num_home < 0) { txt(erro, max, "/home: %s", e); r = num_home; goto falha; }
     pos += p->home_set + MB;
     if (p->jogos) {
@@ -603,10 +736,18 @@ static int instalar(plano_t *p, char *erro, int max)
     num_conf = pt_criar(&t, pos, p->conf_set, 0x83, true, e, sizeof e);
     if (num_conf < 0) { txt(erro, max, "SAGUI-CONF: %s", e); r = num_conf; goto falha; }
     if ((r = pt_gravar(&t, "instalar SaguiOS", e, sizeof e)) < 0) { txt(erro, max, "la tabla: %s", e); goto falha; }
+tabela_pronta: ;
     char vol[16];
-    pt_nome_particao(p->destino, num_home, vol, sizeof vol);
-    fase(1, 0, "Formateando /home (ext2)...");
-    if ((r = fs_formatar_ext2(vol, "SAGUI-DATOS", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
+    if (num_esp) {   /* D266 */
+        pt_nome_particao(p->destino, num_esp, vol, sizeof vol);
+        fase(1, 0, "Formateando la partición EFI (FAT32)...");
+        if ((r = fs_formatar_fat32(vol, ESP_ROTULO, prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
+    }
+    if (num_home) {
+        pt_nome_particao(p->destino, num_home, vol, sizeof vol);
+        fase(1, 0, "Formateando /home (ext2)...");
+        if ((r = fs_formatar_ext2(vol, "SAGUI-DATOS", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
+    }
     if (num_jogos) {
         pt_nome_particao(p->destino, num_jogos, vol, sizeof vol);
         fase(1, 0, "Formateando la partición de juegos (ext2)...");
@@ -632,7 +773,8 @@ static int instalar(plano_t *p, char *erro, int max)
     fase(4, 0, NULL);
     blocos_liberar(p->destino);
     reservado = false;
-    if ((r = preparar_dados(p, num_home, "/mnt/instalar-home",
+    if (num_esp && (r = preparar_esp(p, num_esp, erro, max)) < 0) goto falha;
+    if (num_home && (r = preparar_dados(p, num_home, "/mnt/instalar-home",
                             "Esta es la carpeta personal (/home) de SaguiOS instalado en este disco.\n"
                             "Lo que guardes aquí sigue aquí al reiniciar.\n", false, false, erro, max, false)) < 0) goto falha;
     if (num_jogos && (r = preparar_dados(p, num_jogos, "/mnt/instalar-jogos",
@@ -645,7 +787,7 @@ static int instalar(plano_t *p, char *erro, int max)
 
     /* 6. Arrancable: primero la cabecera, luego el código del MBR, y se relee todo. */
     fase(5, 0, NULL);
-    if ((r = blocos_reservar(p->destino, 0)) < 0) { txt(erro, max, "no se puede volver a reservar %s: %s", p->destino, nome_erro(r)); goto falha; }
+    if ((r = blocos_reservar(p->destino, gpt_novo ? DBLOCO_CONF_GPT : 0)) < 0) { txt(erro, max, "no se puede volver a reservar %s: %s", p->destino, nome_erro(r)); goto falha; }
     reservado = true;
     uint8_t cab[512], s[512];
     memcpy(cab, p->cab, 512);
@@ -667,12 +809,26 @@ static int instalar(plano_t *p, char *erro, int max)
     po32(cab + CAB_ID_INSTALACAO, 0x4E494753u);   /* "SGIN" */
     po32(cab + CAB_ID_INSTALACAO + 4, id ? id : tempo_ms());
     po32(cab + CAB_ID_INSTALACAO + 8, hora_utc(NULL));
-    if ((r = blocos_escrever(p->destino, 1, 1, cab)) < 0 || (r = blocos_ler(p->destino, 1, 1, s)) < 0 || memcmp(s, cab, 512) != 0) {
+    uint32_t cab_lba = gpt_novo ? p->sys_ini : 1;   /* D266: en una GPT, el LBA 1 es su cabecera */
+    if ((r = blocos_escrever(p->destino, cab_lba, 1, cab)) < 0 || (r = blocos_ler(p->destino, cab_lba, 1, s)) < 0 || memcmp(s, cab, 512) != 0) {
         txt(erro, max, "la cabecera de arranque no se ha podido escribir");
         if (r >= 0) r = ERRO_FORMATO;
         goto falha;
     }
     fase(5, 50, NULL);
+    if (gpt_novo) {   /* D266: la GPT, otra vez entera y con sus CRC, y el MBR protector tal como se escribió */
+        gpt_t *g = aloca(sizeof *g);
+        if (!g) { txt(erro, max, "sin memoria"); r = ERRO_SEM_MEMORIA; goto falha; }
+        bool ok = gpt_ler(p->destino, g, e, sizeof e) == 0 && g->origem == GPT_PRINCIPAL && g->respaldo_ok &&
+                  gpt_num_usadas(g) == (num_esp ? 1 : 0) + 1 + (num_home ? 1 : 0) + 1;
+        libera(g);
+        if (!ok) { txt(erro, max, "la GPT releída al final no es la esperada"); r = ERRO_FORMATO; goto falha; }
+        blocos_liberar(p->destino);
+        reservado = false;
+        fase(5, 100, NULL);
+        registrar("instalar: terminado en %s (GPT), %u archivos de /apps copiados", p->destino, arquivos_apps);
+        return 0;
+    }
     if ((r = pt_ler(p->destino, &t)) < 0) goto falha;
     memcpy(t.setor0, p->mbr_origem, 440);
     po32(t.setor0 + 440, id ^ 0x53414755u);   /* firma del disco propia */
@@ -681,7 +837,7 @@ static int instalar(plano_t *p, char *erro, int max)
     if (blocos_ler(p->destino, 0, 1, s) < 0 || memcmp(s, p->mbr_origem, 440) != 0) { txt(erro, max, "el MBR releído no coincide"); r = ERRO_FORMATO; goto falha; }
     blocos_liberar(p->destino);
     fase(5, 100, NULL);
-    (void)num_sys;
+    (void)num_sys; (void)num_ext;
     registrar("instalar: terminado en %s (id %x), %u archivos de juegos y %u de /apps copiados", p->destino, id,
               arquivos_jogos, arquivos_apps);
     return 0;
@@ -691,7 +847,9 @@ falha:
         static const char *const c[] = { NULL, "/mnt/instalar-home", "/mnt/instalar-jogos", "/mnt/instalar-apps" };
         desmontar(c[i]);
     }
-    if (tocado) marcar_nao_arrancavel(p->destino);
+    desmontar(ESP_PUNTO);
+    if (tocado && gpt_novo) marcar_nao_arrancavel_gpt(p, reservado);
+    else if (tocado) marcar_nao_arrancavel(p->destino);
     if (reservado) blocos_liberar(p->destino);
     registrar("instalar: FALLO en la fase %d: %s", fase_atual + 1, erro);
     return r < 0 ? r : ERRO_INVALIDO;
@@ -745,19 +903,27 @@ static int terminal(int argc, char **argv)
         else if (compara_texto(argv[i], "--sin-apps") == 0) p.apps = false;
         else if (compara_texto(argv[i], "--copiar-jogos") == 0) p.copiar_jogos = true;
         else if (compara_texto(argv[i], "--formatear-conf") == 0) p.formatear_conf = true;
+        else if (compara_texto(argv[i], "--mbr") == 0) p.tabela = T_MBR;       /* D266 */
+        else if (compara_texto(argv[i], "--gpt") == 0) p.tabela = T_GPT;
+        else if (compara_texto(argv[i], "--auto") == 0) p.tabela = T_AUTO;
+        else if (compara_texto(argv[i], "--esp") == 0) p.esp = true;
+        else if (compara_texto(argv[i], "--sin-home") == 0) p.sin_home = true;
         else if (compara_texto(argv[i], "-s") == 0 || compara_texto(argv[i], "--si") == 0) sim = true;
         else if (argv[i][0] == '-') {
-            imprimir_em(ERROS, "uso: instalar [disco [--entero | --hueco MB | --particion N] [--sin-jogos] [--sin-apps] [--copiar-jogos] [--formatear-conf] [-s]]\n"
+            imprimir_em(ERROS, "uso: instalar [disco [--entero | --hueco MB | --particion N] [--sin-jogos] [--sin-apps] [--copiar-jogos] [--formatear-conf]\n"
+                               "                      [--mbr | --gpt | --auto] [--esp] [--sin-home] [-s]]\n"
                                "     instalar --ventana\n");
             return 2;
         } else copia_texto(p.destino, argv[i], sizeof p.destino);
     }
     if (!p.destino[0]) return listar_destinos();
     if (falta_admin("instalar")) return 1;   /* D255 */
-    char e[300], d[200];
+    char e[300], d[300];
     if (!planejar(&p, e, sizeof e)) { imprimir_em(ERROS, "instalar: %s\n", e); return 1; }
     descrever_plano(&p, d, sizeof d);
     imprimir("Instalar SaguiOS de %s en %s\n  %s\n  Se borra: %s\n", p.origem, p.destino, d, p.perde);
+    imprimir("  Tabla de particiones: %s\n", p.tabela == T_GPT ? "GPT (arranque UEFI; con la BIOS clásica no arranca)" : "MBR (arranque BIOS)");
+    if (p.aviso[0]) imprimir("  AVISO: %s\n", p.aviso);
     if (p.conf_vieja[0])
         imprimir(p.formatear_conf ? "  AVISO: se BORRA también SAGUI-CONF (%s): contraseñas y claves del sistema\n"
                                   : "  Se conserva el contenido de SAGUI-CONF (%s): contraseñas y claves (--formatear-conf lo borra)\n", p.conf_vieja);
@@ -779,7 +945,10 @@ static int terminal(int argc, char **argv)
     if (p.copiar_jogos) imprimir("  Datos de juegos copiados: %u archivos\n", arquivos_jogos);
     if (p.apps) imprimir("  Aplicaciones de " APPS_ORIGEM " copiadas: %u archivos\n", arquivos_apps);
     imprimir("  SAGUI-CONF (configuración del sistema, %u MB)%s\n", CONF_MB, conf_respaldada ? ": contenido anterior conservado" : "");
+    if (p.esp) imprimir("  Partición EFI (%u MB, FAT32): %s\n", p.esp_set / MB, p.efi_ok ? "con el cargador UEFI de " EFI_ORIGEM : "vacía (no había cargador UEFI)");
+    if (p.tabela == T_GPT) imprimir("  Tabla GPT verificada (principal y respaldo, CRC releídos).\n");
     imprimir(p.desde_cd ? "Apaga, saca el CD y arranca desde %s.\n" : "Apaga, quita el disco de arranque y arranca desde %s.\n", p.destino);
+    if (p.tabela == T_GPT) imprimir("Recuerda: el disco es GPT y arranca por UEFI (activa UEFI en la BIOS del PC).\n");
     return 0;
 }
 
@@ -795,11 +964,11 @@ static char destinos[12][12];
 static bool destino_ok[12];
 static char destino_por[12][96];
 static int ndest, sel_dest = -1;
-typedef struct { int modo; uint32_t ini; int part; char texto[120]; } opcao_t;
+typedef struct { int modo; uint32_t ini; int part; int tabela; char texto[120]; } opcao_t;
 static opcao_t ops[12];
 static int nops, sel_op;
-static casilla_t cas_copiar = { 24, 0, true }, cas_apps = { 24, 0, true };
-static char plano_txt[200], plano_erro[300], resultado[400];
+static casilla_t cas_copiar = { 24, 0, true }, cas_apps = { 24, 0, true }, cas_esp = { 24, 0, false };   /* D266: cas_esp = ESP con MBR */
+static char plano_txt[300], plano_erro[300], resultado[400];
 static bool resultado_ok;
 static int prog_fase, prog_pc;
 static char prog_txt[96];
@@ -860,8 +1029,12 @@ static void ler_opcoes(void)
     if (pt_ler(destinos[sel_dest], &t) < 0) return;
     char tm[16];
     tamanho(t.setores, tm, sizeof tm);
-    ops[nops].modo = M_ENTERO;
-    txt(ops[nops].texto, sizeof ops[nops].texto, "Usar el disco entero (%s): se borra todo lo que tiene", tm);
+    ops[nops].modo = M_ENTERO; ops[nops].tabela = T_MBR;
+    txt(ops[nops].texto, sizeof ops[nops].texto, "Usar el disco entero (%s), tabla MBR (BIOS): se borra todo", tm);
+    nops++;
+    /* D266: el disco entero con GPT (UEFI): ESP + SaguiOS + /home + SAGUI-CONF */
+    ops[nops].modo = M_ENTERO; ops[nops].tabela = T_GPT;
+    txt(ops[nops].texto, sizeof ops[nops].texto, "Usar el disco entero (%s), tabla GPT (UEFI): se borra todo", tm);
     nops++;
     if (t.esquema == PT_MBR || t.esquema == PT_SEM_TABELA) {
         pt_livre_t v[24];
@@ -869,7 +1042,7 @@ static void ler_opcoes(void)
         for (int i = 0; i < n && nops < 12; i++) {
             if (v[i].logica || v[i].setores < 160 * MB) continue;
             tamanho(v[i].setores, tm, sizeof tm);
-            ops[nops].modo = M_HUECO; ops[nops].ini = v[i].inicio;
+            ops[nops].modo = M_HUECO; ops[nops].ini = v[i].inicio; ops[nops].tabela = T_MBR;
             txt(ops[nops].texto, sizeof ops[nops].texto, "Espacio libre de %s (desde %u MB): no se borra nada", tm, v[i].inicio / MB);
             nops++;
         }
@@ -879,13 +1052,14 @@ static void ler_opcoes(void)
             info_disco_t q;
             pt_nome_particao(destinos[sel_dest], i + 1, n, sizeof n);
             tamanho(t.prim[i].setores, tm, sizeof tm);
-            ops[nops].modo = M_PARTICION; ops[nops].part = i + 1;
+            ops[nops].modo = M_PARTICION; ops[nops].part = i + 1; ops[nops].tabela = T_MBR;
             if (info_de(n, &q) && q.suportado) txt(ops[nops].texto, sizeof ops[nops].texto, "Sustituir %s (%s, %s \"%s\"): se borra", n, tm, q.formato, q.rotulo);
             else txt(ops[nops].texto, sizeof ops[nops].texto, "Sustituir %s (%s, %s): se borra", n, tm, pt_nome_tipo(t.prim[i].tipo));
             nops++;
         }
     }
     if (sel_op >= nops) sel_op = 0;
+    if (tabela_automatica(t.setores) == T_GPT) sel_op = 1;   /* «automático»: GPT si pasa de 2 TB o se arrancó por UEFI */
 }
 
 static void recalcular(void)
@@ -897,6 +1071,8 @@ static void recalcular(void)
     pl.modo = ops[sel_op].modo;
     pl.hueco_ini = ops[sel_op].ini;
     pl.particao = ops[sel_op].part;
+    pl.tabela = ops[sel_op].tabela;
+    pl.esp = pl.tabela == T_GPT || cas_esp.marcada;
     pl.jogos = true;
     pl.apps = cas_apps.marcada;
     pl.copiar_jogos = cas_copiar.marcada && ha_jogos();
@@ -968,17 +1144,23 @@ static void desenhar(void)
             g_texto(j, 44, y + 2, ops[i].texto, ops[i].modo == M_HUECO ? COR_TEXTO : sel ? 0xC0392B : COR_TEXTO);
         }
         y += 8;
+        bool gpt_sel = ops[sel_op].tabela == T_GPT;
         cas_apps.y = y;
         casilla_desenhar(j, &cas_apps);
         g_texto(j, 46, y, ha_apps() ? "Crear también la partición /apps, con las aplicaciones de este sistema"
-                                    : "Crear también la partición /apps (para aplicaciones)", COR_TEXTO);
+                                    : "Crear también la partición /apps (para aplicaciones)", gpt_sel ? COR_TEXTO_FRACO : COR_TEXTO);
         y += 26;
         cas_copiar.y = y;
         bool hay = ha_jogos();
         casilla_desenhar(j, &cas_copiar);
         g_texto(j, 46, y, hay ? "Copiar también los datos de juegos de /jogos (OpenTyrian, OpenJazz...)"
-                              : "Copiar los datos de juegos (no hay en este sistema)", hay ? COR_TEXTO : COR_TEXTO_FRACO);
-        y += 34;
+                              : "Copiar los datos de juegos (no hay en este sistema)", hay && !gpt_sel ? COR_TEXTO : COR_TEXTO_FRACO);
+        y += 26;
+        cas_esp.y = y;
+        casilla_desenhar(j, &cas_esp);
+        g_texto(j, 46, y, gpt_sel ? "Con GPT, la partición EFI (ESP) y /home van siempre; sin juegos ni /apps"
+                                  : "Crear también la partición EFI (para la imagen híbrida BIOS+UEFI)", gpt_sel ? COR_TEXTO_FRACO : COR_TEXTO);
+        y += 30;
         g_retangulo(j, 20, y, j->larg - 40, bh - 20 - y, 0xFFFFFF);
         g_moldura(j, 20, y, j->larg - 40, bh - 20 - y, 0xC9CED3);
         if (plano_erro[0]) texto_linhas(32, y + 10, plano_erro, 74, 0xC0392B);
@@ -986,12 +1168,12 @@ static void desenhar(void)
             g_texto(j, 32, y + 10, "Lo que va a quedar en el disco:", COR_TEXTO);
             /* Mini barra del plan. */
             int bx = 32, bw = j->larg - 64, by2 = y + 32;
-            uint32_t tot = pl.sys_set + pl.ext_set;
-            uint32_t partes[4] = { pl.sys_set, pl.home_set, pl.jogos ? pl.jogos_set : 0, pl.apps ? pl.apps_set : 0 };
-            uint32_t cores[4] = { 0xE8891C, 0x2E9E4F, 0x3A7BD5, 0x8E5CC2 };
-            const char *nomes[4] = { "SaguiOS", "/home", "juegos", "/apps" };
+            uint32_t tot = pl.sys_set + pl.ext_set + (pl.tabela == T_GPT ? pl.home_set + pl.conf_set : 0) + pl.esp_set;
+            uint32_t partes[5] = { pl.esp ? pl.esp_set : 0, pl.sys_set, pl.home_set, pl.jogos ? pl.jogos_set : 0, pl.apps ? pl.apps_set : 0 };
+            uint32_t cores[5] = { 0xC9A60C, 0xE8891C, 0x2E9E4F, 0x3A7BD5, 0x8E5CC2 };
+            const char *nomes[5] = { "EFI", "SaguiOS", "/home", "juegos", "/apps" };
             int x = bx;
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 5; i++) {
                 if (!partes[i]) continue;
                 int l = (int)(partes[i] / MB * (uint32_t)bw / (tot / MB + 1));
                 if (l < 40) l = 40;
@@ -1004,7 +1186,8 @@ static void desenhar(void)
             int yy = texto_linhas(32, by2 + 40, plano_txt, 74, COR_TEXTO);
             char p2[460];
             txt(p2, sizeof p2, "Se borra: %s", pl.perde);
-            texto_linhas(32, yy + 4, p2, 74, pl.modo == M_HUECO ? COR_TEXTO_FRACO : 0xC0392B);
+            yy = texto_linhas(32, yy + 4, p2, 74, pl.modo == M_HUECO ? COR_TEXTO_FRACO : 0xC0392B);
+            if (pl.aviso[0]) texto_linhas(32, yy + 2, pl.aviso, 74, 0xB9770E);
         }
         botao(20, bh, 100, "< Atrás", true);
         botao(j->larg - 120, bh, 100, "Instalar", !plano_erro[0]);
@@ -1053,6 +1236,12 @@ static void comecar(void)
     char q[800];
     quebrar(t, q, sizeof q, 42);
     if (!confirmar("Instalar SaguiOS", q)) return;
+    if (pl.tabela == T_GPT) {
+        txt(t, sizeof t, "El disco %s quedará con tabla GPT (arranque UEFI): ESP, SaguiOS, /home y configuración.%s%s\n\n¿Seguir?", pl.destino,
+            pl.aviso[0] ? " AVISO: " : "", pl.aviso);
+        quebrar(t, q, sizeof q, 42);
+        if (!confirmar("Instalar SaguiOS (GPT)", q)) return;
+    }
     if (pl.modo != M_HUECO) {
         txt(t, sizeof t, "Última confirmación: TODO lo que se ha dicho de %s se borra y no se puede recuperar.", pl.destino);
         quebrar(t, q, sizeof q, 42);
@@ -1074,7 +1263,7 @@ static void comecar(void)
     registrar("instalar: comienza en %s", pl.destino);
     int r = instalar(&pl, e, sizeof e);
     resultado_ok = r >= 0;
-    char d2[200];
+    char d2[300];
     descrever_plano(&pl, d2, sizeof d2);
     if (resultado_ok)
         txt(resultado, sizeof resultado, "SaguiOS se ha instalado en %s.\n%s\n%s\nPara usarlo: apaga, %s y arranca desde %s.",
@@ -1093,16 +1282,16 @@ static void registrar_layout(void)
     if (pagina == P_DISCO) for (int i = 0; i < ndest; i++) registrar("instalar: disco %s ok=%d y=%d", destinos[i], destino_ok[i], 106 + i * 46 + 20);
     if (pagina == P_MODO) {
         for (int i = 0; i < nops; i++) registrar("instalar: opcion %d y=%d %s", i, 80 + i * 28 + 10, ops[i].texto);
-        registrar("instalar: casillas apps=%d copiar=%d plan=%s erro=%s", cas_apps.y, cas_copiar.y, plano_txt, plano_erro);
+        registrar("instalar: casillas apps=%d copiar=%d esp=%d plan=%s erro=%s", cas_apps.y, cas_copiar.y, cas_esp.y, plano_txt, plano_erro);
     }
     registrar("instalar: pagina %d botones y=%d", pagina, j->alt - 46);
 }
 
 static int janela(void)
 {
-    if (!sou_root()) {   /* D255: escribe discos enteros: solo el administrador */
-        mensagem("Instalar SaguiOS", "Instalar SaguiOS necesita permisos de administrador.\n"
-                 "Abre el Terminal y escribe:  admin instalar --ventana");
+    if (!sou_root() && elevar_grafico("instalar SaguiOS: escribe y borra discos enteros") != 0) {   /* D255, D269: diálogo de permisos */
+        mensagem("Instalar SaguiOS", "Instalar SaguiOS necesita permisos de administrador y no se concedieron.\n"
+                 "Ábrelo otra vez y escribe la contraseña de administrador, o usa el Terminal:  admin instalar --ventana");
         return 1;
     }
     j = jan_abrir("Instalar SaguiOS", JL, JA);
@@ -1137,7 +1326,7 @@ static int janela(void)
         } else if (pagina == P_MODO) {
             if (b_esq) { pagina = P_DISCO; ler_destinos(); desenhar(); registrar_layout(); continue; }
             if (e.tipo == EV_CLIQUE && e.y >= 80 && e.y < 80 + nops * 28) { sel_op = (e.y - 80) / 28; recalcular(); desenhar(); registrar_layout(); continue; }
-            if (casilla_tratar(&cas_apps, &e) || casilla_tratar(&cas_copiar, &e)) { recalcular(); desenhar(); registrar_layout(); continue; }
+            if (ops[sel_op].tabela != T_GPT && (casilla_tratar(&cas_apps, &e) || casilla_tratar(&cas_copiar, &e) || casilla_tratar(&cas_esp, &e))) { recalcular(); desenhar(); registrar_layout(); continue; }
             if (b_dir && !plano_erro[0]) comecar();
         } else if (pagina == P_FIM) {
             if (b_dir) break;

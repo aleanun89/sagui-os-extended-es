@@ -17,6 +17,7 @@
  * elección se pierde al reiniciar. */
 #include "sagui.h"
 #include "gui.h"
+#include "contas.h"
 
 #define ARQ_RAM         "/etc/zona"
 #define ARQ_PERSISTENTE "/home/.zona"
@@ -53,13 +54,16 @@ static int gravar_arquivo(const char *caminho)
  * solo en la RAM, <0 si el kernel rechazó. */
 static int aplicar_e_gravar(void)
 {
+    /* D269: la zona y /etc/zona son del sistema: se pide permiso con el diálogo y se suelta al acabar. */
+    if (!sou_root() && elevar_grafico("cambiar la zona horaria del sistema") != 0) return ERRO_ACESSO;
     int r = fixar_zona(&cfg);
-    if (r < 0) return r;
+    if (r < 0) { elevacao_soltar(); return r; }
     ler_zona(&cfg);
     gravar_arquivo(ARQ_RAM);
     bool persistente = home_persistente() && gravar_arquivo(ARQ_PERSISTENTE) == 0;
     registrar("zona: aplicada %s (%s), rtc %s, %s h, %s", cfg.nome, cfg.tz, cfg.rtc_local ? "local" : "utc",
               cfg.formato_24h ? "24" : "12", persistente ? "gravada em " ARQ_PERSISTENTE : "so na RAM");
+    elevacao_soltar();
     return persistente ? 1 : 0;
 }
 
@@ -231,7 +235,7 @@ static int ajustar(const char *texto, char *msg, int max)
     }
     int situacao;
     uint32_t utc = local_para_utc(local, &situacao);
-    int r = ajustar_hora(utc, HORA_GRAVAR_RTC);
+    int r = COM_ADMIN("cambiar la fecha y la hora del sistema", ajustar_hora(utc, HORA_GRAVAR_RTC));
     if (r < 0) { formatar_texto(msg, (size_t)max, "No se pudo ajustar la hora: %s", nome_erro(r)); return 1; }
     fuso_data_t l;
     hora_local(utc, &l);

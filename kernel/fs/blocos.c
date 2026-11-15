@@ -80,6 +80,9 @@ static int reservar(disco_t *d, uint32_t flags)
     /* Desmontar primero; o, con DBLOCO_CONF_MONTADO (D213), lo montado queda protegido
      * (nunca en un disco GPT, que aquí no se cambia). */
     if (disco_montado(d) && (!(flags & DBLOCO_CONF_MONTADO) || d->gpt)) return ERRO_OCUPADO;
+    /* D265: en un disco de 4096 las tablas cuentan en bloques de 4096 y las comprobaciones de abajo
+     * (MBR, GPT) suponen 512: de momento solo se lee y se monta, no se reparticiona. */
+    if (d->bloco_fisico == 4096) return ERRO_NAO_SUPORTADO;
     if (disco_pode_ser_arranque(d) && !(flags & DBLOCO_CONF_ARRANQUE)) return ERRO_DISCO_ARRANQUE;
     if (!d->escrever) return ERRO_SO_LEITURA;
     d->reservado_pid = meu_pid();

@@ -20,6 +20,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
     mtools dosfstools e2fsprogs xz-utils curl perl \
     qemu-system-x86 qemu-utils
 # opcional, solo para las pruebas automáticas: imagemagick ffmpeg zip sqlite3
+# opcional, para probar el arranque UEFI (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
 | Paquete | Para qué |
@@ -32,6 +33,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | `e2fsprogs` | particiones ext2 (`mke2fs`) |
 | `xz-utils` | imágenes `.xz` y los datos comprimidos de OpenTyrian |
 | `qemu-system-x86`, `qemu-utils` | arrancar el sistema (`qemu-system-i386`) y crear el `.vdi` (`qemu-img`) |
+| `ovmf`, `ovmf-ia32` (opcional) | firmware UEFI de QEMU de 64 y 32 bits, para probar el arranque UEFI (`run_in_qemu.sh --uefi`, prueba h264; D264). `tools/entorno-local.sh` los baja sin sudo |
 | `curl`, `perl` | solo los guiones de descarga (`curl`) y la preparación de NetSurf (`perl`, ver 7) |
 
 - **Sin permisos de administrador (`sudo`):** `bash tools/entorno-local.sh` descarga con `apt-get download` los paquetes que falten (nasm, soporte de 32 bits de gcc, QEMU, mtools, dosfstools, e2fsprogs, g++...), los extrae en `~/.local/saguitools/root` y crea `~/.local/saguitools/env.sh`. Se usa así, en cada terminal nueva:
@@ -324,6 +326,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
     mtools dosfstools e2fsprogs xz-utils curl perl \
     qemu-system-x86 qemu-utils
 # optional, only for the automated tests: imagemagick ffmpeg zip sqlite3
+# optional, to test UEFI boot (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
 | Package | What for |
@@ -336,6 +339,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | `e2fsprogs` | ext2 partitions (`mke2fs`) |
 | `xz-utils` | `.xz` images and the compressed OpenTyrian data |
 | `qemu-system-x86`, `qemu-utils` | running the system (`qemu-system-i386`) and creating the `.vdi` (`qemu-img`) |
+| `ovmf`, `ovmf-ia32` (optional) | 64- and 32-bit UEFI firmware for QEMU, to test UEFI boot (`run_in_qemu.sh --uefi`, test h264; D264). `tools/entorno-local.sh` fetches them without sudo |
 | `curl`, `perl` | only the download scripts (`curl`) and the NetSurf preparation (`perl`, see 7) |
 
 - **Without administrator rights (`sudo`):** `bash tools/entorno-local.sh` downloads the missing packages with `apt-get download` (nasm, gcc's 32-bit support, QEMU, mtools, dosfstools, e2fsprogs, g++...), extracts them into `~/.local/saguitools/root` and creates `~/.local/saguitools/env.sh`. Use it like this, in every new terminal:
@@ -628,6 +632,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
     mtools dosfstools e2fsprogs xz-utils curl perl \
     qemu-system-x86 qemu-utils
 # opcional, só para os testes automáticos: imagemagick ffmpeg zip sqlite3
+# opcional, para testar o arranque UEFI (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
 | Pacote | Para quê |
@@ -640,6 +645,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | `e2fsprogs` | partições ext2 (`mke2fs`) |
 | `xz-utils` | imagens `.xz` e os dados comprimidos do OpenTyrian |
 | `qemu-system-x86`, `qemu-utils` | executar o sistema (`qemu-system-i386`) e criar o `.vdi` (`qemu-img`) |
+| `ovmf`, `ovmf-ia32` (opcional) | firmware UEFI do QEMU de 64 e 32 bits, para testar o arranque UEFI (`run_in_qemu.sh --uefi`, teste h264; D264). `tools/entorno-local.sh` baixa-os sem sudo |
 | `curl`, `perl` | só os scripts de download (`curl`) e a preparação do NetSurf (`perl`, veja 7) |
 
 - **Sem permissões de administrador (`sudo`):** `bash tools/entorno-local.sh` baixa com `apt-get download` os pacotes que faltam (nasm, o suporte de 32 bits do gcc, QEMU, mtools, dosfstools, e2fsprogs, g++...), extrai-os em `~/.local/saguitools/root` e cria `~/.local/saguitools/env.sh`. Use assim, em cada terminal novo:

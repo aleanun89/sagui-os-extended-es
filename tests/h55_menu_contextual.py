@@ -71,7 +71,7 @@ def main():
 
         # ---- área de trabalho vazia: o menu abre para cima perto da borda de baixo
         menu = abrir_menu(m, 600, 730)
-        verificar(menu[4] == 10 and menu[1] + menu[3] <= 768 and menu[1] < 730,
+        verificar(menu[4] == 11 and menu[1] + menu[3] <= 768 and menu[1] < 730,
                   f"botão direito no fundo abre o menu da área de trabalho ({menu[4]} linhas, com Configuración de pantalla y Resolución desde D066), recolocado em y={menu[1]} para caber")
         m.mouse_mover(*linha(menu, 1))          # passa o mouse sobre "Archivos": destaque verde
         time.sleep(0.4)

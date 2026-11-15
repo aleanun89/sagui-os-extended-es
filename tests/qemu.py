@@ -18,6 +18,7 @@ Tempo máximo de qualquer espera: 3 minutos (PRD seção 7).
 import hashlib
 import os
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -376,7 +377,7 @@ def particao_dados_img(img):
     """(inicio, sectores) de la primera partición de datos (la de /home, D040): la primera que no
     es la de SaguiOS (0xDA), sea primaria (imágenes de antes de la v7.3) o lógica (D213)."""
     for _num, tipo, ini, qtd in particoes_img(img):
-        if tipo != 0xDA:
+        if tipo not in (0xDA, 0xEF):   # ni la de arranque ni la ESP (D264)
             return ini, qtd
     raise AssertionError(f"{img} no tiene partición de datos")
 
@@ -415,14 +416,50 @@ def imagem_console(apps=False):
     return imagem_de_teste("", ["--vesa", "--console"] + (opcoes_apps() if apps else []))
 
 
+def achar_ovmf(firmware):
+    """D264: (CODE, VARS) del OVMF de 64 bits ("x64") o de 32 ("ia32"). Se buscan en
+    SAGUI_OVMF, en el entorno local (tools/entorno-local.sh los extrae de los paquetes ovmf y
+    ovmf-ia32 sin sudo) y en el sistema. None si no está."""
+    prefixo = "OVMF32" if firmware == "ia32" else "OVMF"
+    pastas = [os.environ.get("SAGUI_OVMF", ""), os.path.expanduser("~/.local/saguitools/root/usr/share/OVMF"),
+              "/usr/share/OVMF"]
+    for p in pastas:
+        code, vars_ = os.path.join(p, f"{prefixo}_CODE_4M.fd"), os.path.join(p, f"{prefixo}_VARS_4M.fd")
+        if p and os.path.isfile(code) and os.path.isfile(vars_):
+            return code, vars_
+    return None
+
+
+def qemu_binario(firmware):
+    """BIOS e IA32: qemu-system-i386 (el de siempre). x64: qemu-system-x86_64 (el OVMF de 64
+    bits necesita una CPU de 64 bits); en el entorno local hay un envoltorio con el mismo nombre."""
+    return "qemu-system-x86_64" if firmware == "x64" else "qemu-system-i386"
+
+
+def ovmf_argumentos(firmware, nome):
+    """Argumentos del QEMU para arrancar con OVMF: el código de solo lectura y una copia de
+    las variables para cada máquina (el firmware escribe en ella)."""
+    par = achar_ovmf(firmware)
+    if not par:
+        raise FalhaTeste(f"no se encuentra el OVMF {firmware} (bash tools/entorno-local.sh o apt install ovmf ovmf-ia32)")
+    os.makedirs(SAIDA, exist_ok=True)
+    vars_ = os.path.join(SAIDA, f"{nome}-ovmf-vars.fd")
+    shutil.copyfile(par[1], vars_)
+    return ["-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={par[0]}",
+            "-drive", f"if=pflash,format=raw,unit=1,file={vars_}"]
+
+
 class FalhaTeste(Exception):
     pass
 
 
 class Maquina:
     def __init__(self, nome, modo="ide", imagem=IMAGEM, memoria=None, extras=None, formato="raw", vmmouse=False,
-                 snapshot=True, som=None, nucleos=1):
+                 snapshot=True, som=None, nucleos=1, firmware=None):
         self.nome = f"{nome}-{modo}"
+        # D264: firmware=None arranca por BIOS (SeaBIOS, lo de siempre); "x64" o "ia32" con
+        # OVMF (UEFI de 64 o 32 bits), que solo arranca la imagen híbrida (--uefi).
+        self.firmware = firmware
         self.modo = modo
         if OPCOES_IMAGEM and imagem == IMAGEM:
             imagem = imagem_de_teste("", ["--vesa"])   # la normal, con las opciones de SAGUI_OPCOES_IMAGEM
@@ -461,7 +498,7 @@ class Maquina:
         for f in (self.arq_serial, self.sock_monitor):
             if os.path.exists(f):
                 os.remove(f)
-        cmd = ["qemu-system-i386", "-m", self.memoria, "-display", "none",
+        cmd = [qemu_binario(self.firmware), "-m", self.memoria, "-display", "none",
                "-serial", "file:" + self.arq_serial,
                "-monitor", f"unix:{self.sock_monitor},server,nowait",
                "-no-reboot"]
@@ -478,6 +515,8 @@ class Maquina:
         # Por defecto TCG, que es con lo que se escribieron las pruebas.
         if os.environ.get("SAGUI_KVM") == "1":
             cmd += ["-accel", "kvm"]
+        if self.firmware:
+            cmd += ovmf_argumentos(self.firmware, self.nome)
         if self.modo == "ide":
             cmd += ["-drive", f"format={self.formato},file={self.imagem},if=ide,index=0,snapshot={self.snapshot}"]
         elif self.modo == "usb":

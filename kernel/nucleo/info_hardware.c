@@ -63,6 +63,8 @@ static void capturar_vbe(void)
     video.verm_tam = info_boot.verm_tam;   video.verm_pos = info_boot.verm_pos;
     video.verde_tam = info_boot.verde_tam; video.verde_pos = info_boot.verde_pos;
     video.azul_tam = info_boot.azul_tam;   video.azul_pos = info_boot.azul_pos;
+    /* D264: por UEFI no hay bloque VBE en 0x6000 (lo que haya ahí es del firmware). */
+    if (info_boot.firmware != FIRMWARE_BIOS) return;
     if (!info_boot.vesa_ok || memcmp(vi, "VESA", 4) != 0) return;
     video.vbe_versao = *(const uint16_t *)(vi + 4);
     video.memoria_kb = (uint32_t)*(const uint16_t *)(vi + 18) * 64;
@@ -124,7 +126,17 @@ static void copiar_tabela(uint32_t endereco, uint32_t tamanho)
 static void capturar_smbios(void)
 {
     const uint8_t *achou2 = NULL, *achou3 = NULL;
-    for (uint32_t a = 0xF0000; a < 0x100000; a += 16) {
+    /* D264: por UEFI el punto de entrada viene de la tabla de configuración del firmware
+     * (no tiene por qué estar en 0xF0000); se comprueba igual que el encontrado. */
+    if (info_boot.smbios) {
+        const uint8_t *p = (const uint8_t *)info_boot.smbios;
+        if (memcmp(p, "_SM3_", 5) == 0 && p[6] >= 0x18 && p[6] <= 0x20 && soma_ok(p, p[6]))
+            achou3 = p;
+        else if (memcmp(p, "_SM_", 4) == 0 && p[5] >= 0x1F && p[5] <= 0x20 && soma_ok(p, p[5])
+                 && memcmp(p + 0x10, "_DMI_", 5) == 0 && soma_ok(p + 0x10, 15))
+            achou2 = p;
+    }
+    for (uint32_t a = 0xF0000; a < 0x100000 && !achou2 && !achou3; a += 16) {
         const uint8_t *p = (const uint8_t *)a;
         if (!achou3 && memcmp(p, "_SM3_", 5) == 0 && p[6] >= 0x18 && p[6] <= 0x20 && soma_ok(p, p[6]))
             achou3 = p;
@@ -187,10 +199,18 @@ static void capturar_acpi(void)
 {
     /* El segmento de la EBDA queda en el área de datos de la BIOS (0x40E). El asm vacío
      * oculta al GCC que la dirección es baja (él la tomaría por NULL + 0x40E). */
-    const uint16_t *bda;
-    __asm__("" : "=r"(bda) : "0"(0x40E));
-    uint32_t ebda = (uint32_t)*bda << 4;
-    const uint8_t *r = (ebda >= 0x80000 && ebda < 0xA0000) ? achar_rsdp(ebda, ebda + 1024) : NULL;
+    const uint8_t *r = NULL;
+    /* D264: por UEFI el RSDP lo da el firmware (tabla de configuración); sin BIOS no
+     * tiene por qué estar en la EBDA ni en 0xE0000-0xFFFFF. */
+    if (info_boot.rsdp && memcmp((const void *)info_boot.rsdp, "RSD PTR ", 8) == 0 &&
+        soma_ok((const uint8_t *)info_boot.rsdp, 20))
+        r = (const uint8_t *)info_boot.rsdp;
+    if (!r && info_boot.firmware == FIRMWARE_BIOS) {
+        const uint16_t *bda;
+        __asm__("" : "=r"(bda) : "0"(0x40E));
+        uint32_t ebda = (uint32_t)*bda << 4;
+        r = (ebda >= 0x80000 && ebda < 0xA0000) ? achar_rsdp(ebda, ebda + 1024) : NULL;
+    }
     if (!r) r = achar_rsdp(0xE0000, 0x100000);
     if (!r) return;
     acpi.achou = 1;

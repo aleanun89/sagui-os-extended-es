@@ -64,6 +64,19 @@ bool     sou_root(void);
 /* Para los programas de administración: si no es root, escribe
  * «programa: hace falta ser administrador: usa «admin programa ...»» y devuelve true. */
 bool     falta_admin(const char *programa);
+/* D269: un programa con ventana pide ser administrador con el diálogo de permisos del sistema (la
+ * contraseña la escribe la persona en el diálogo que pinta el gestor de ventanas: el programa no la ve).
+ * Devuelve 0 si ya es root o lo concedieron (desde entonces corre como root) y un ERRO_* si dijeron «No»
+ * (ERRO_ACESSO), hay bloqueo (ERRO_ESPERA) o no hay escritorio/gestor de servicios. Espera sin límite
+ * práctico a la persona (hasta 5 min). `motivo` dice qué quiere hacer («modificar los discos»). */
+int      elevar_grafico(const char *motivo);
+/* Vuelve a la cuenta de antes de elevar_grafico (si la hubo). Dentro de 5 min, volver a elevar un programa
+ * de /bin no vuelve a preguntar. */
+void     elevacao_soltar(void);
+/* Ejecuta expr (una llamada que da ERRO_ACESSO a quien no es root); si se niega, pide permisos con el
+ * diálogo del sistema y repite la llamada una vez, volviendo después a la cuenta normal (D269). */
+#define COM_ADMIN(motivo, expr) ({ int _ca = (expr); \
+    if (_ca == ERRO_ACESSO && !sou_root() && elevar_grafico(motivo) == 0) { _ca = (expr); elevacao_soltar(); } _ca; })
 
 /* Elevación sin setuid (D255): el gestor de servicios comprueba la contraseña.
  * ler_senha: pregunta sin eco (o lee una línea si la entrada no es un terminal);

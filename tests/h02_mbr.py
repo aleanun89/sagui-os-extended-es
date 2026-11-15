@@ -46,6 +46,14 @@ def main():
             fim = ini + cnt
         verificar(logicas and fim == i2 + q2, "la extendida acaba con la última lógica")
         n = 1
+    # D264: la imagen híbrida lleva la ESP (0xEF, FAT32) en la entrada siguiente, entre el área
+    # de arranque y la extendida, alineada en 1 MB y no activa.
+    e = mbr[0x1BE + 16 * (n + 1):0x1BE + 16 * (n + 2)]
+    if e[4] == 0xEF:
+        ie, qe = struct.unpack("<II", e[8:16])
+        verificar(e[0] == 0 and ie % 2048 == 0 and ie >= inicio + qtd and qe >= 34 * 2048,
+                  f"entrada {n + 2}: la ESP (0xEF, LBA {ie}, {qe // 2048} MB, D264)")
+        n += 1
     verificar(mbr[0x1BE + 16 * (n + 1):0x1FE] == bytes(16 * (3 - n)), "demais entradas da tabela vazias")
 
     os.makedirs(SAIDA, exist_ok=True)

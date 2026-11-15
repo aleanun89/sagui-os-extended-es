@@ -31,6 +31,7 @@
  * sola pasada (útil en las pruebas). */
 #include "sagui.h"
 #include "gui.h"
+#include "contas.h"
 #include "sensores.h"
 #include "servicos.h"
 
@@ -736,7 +737,7 @@ static void ordem_servico(const char *ordem)
     if (!s) { mensagem("Servicios", "Selecciona primero un servicio de la lista."); return; }
     char nome[32], r[160];
     copia_texto(nome, s->nome, sizeof nome);
-    int c = servicos_pedir(ordem, nome, r, sizeof r);
+    int c = COM_ADMIN("manejar los servicios del sistema", servicos_pedir(ordem, nome, r, sizeof r));   /* D269 */
     registrar("tareas: servicio %s %s -> %d (%s)", ordem, nome, c, r);
     if (c < 0) mensagem("Servicios", c == ERRO_NAO_EXISTE ? "El supervisor de servicios no está en marcha."
                                      : c == ERRO_ACESSO ? "Hace falta ser administrador para manejar los servicios.\n"
@@ -1403,7 +1404,7 @@ static void finalizar_selecionado(void)
     copia_texto(nome, p->p.nome, sizeof nome);
     registrar("tareas: confirmar finalizar pid %d (%s)", pid, nome);
     if (!confirmar("Finalizar proceso", t)) { registrar("tareas: cancelado"); return; }
-    int r = matar(pid);
+    int r = COM_ADMIN("finalizar un proceso de otra cuenta", matar(pid));   /* D269 */
     registrar("tareas: finalizar pid %d (%s) -> %d", pid, nome, r);
     if (r < 0) {
         formatar_texto(t, sizeof t, "No se pudo finalizar el proceso %d:\n%s", pid, nome_erro(r));

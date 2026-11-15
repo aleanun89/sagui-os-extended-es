@@ -23,4 +23,18 @@ bool supervisor_ativo(void);
 /* D251: pid del supervisor registrado si vive y es /bin/servicios; si no, 0. */
 int supervisor_pid_confiavel(void);
 
+/* D269: lo que el diálogo de permisos (gestor de ventanas) ve de un pedido gráfico. */
+typedef struct {
+    uint32_t id;
+    int      pid;
+    char     nome[32];      /* el nombre real del programa, puesto por el kernel */
+    char     motivo[80];    /* lo que el programa dice que quiere hacer (texto suyo, no de confianza) */
+    bool     comprobando;   /* la contraseña ya está en manos del supervisor */
+    int      erro;          /* último fallo (ERRO_ACESSO mala, ERRO_ESPERA bloqueo) o 0 */
+    bool     primeira;      /* root aún no tiene contraseña: hay que elegirla */
+} dialogo_vista_t;
+bool supervisor_dialogo_vista(dialogo_vista_t *v);   /* el primer pedido gráfico que espera a la persona */
+void supervisor_dialogo_enviar(uint32_t id, const char *senha, const char *nova);
+void supervisor_dialogo_negar(uint32_t id);
+
 #endif

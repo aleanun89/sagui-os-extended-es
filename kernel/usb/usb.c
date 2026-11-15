@@ -45,12 +45,20 @@ int usb_controle(usb_disp_t *d, uint8_t tipo, uint8_t pedido, uint16_t valor, ui
     uint8_t setup[8] = { tipo, pedido, (uint8_t)valor, (uint8_t)(valor >> 8),
                          (uint8_t)indice, (uint8_t)(indice >> 8), (uint8_t)tam, (uint8_t)(tam >> 8) };
     if (d->tipo_ctl == USB_XHCI) return xhci_controle(d, setup, dados, tam, (tipo & 0x80) != 0);
+    if (d->tipo_ctl == USB_UHCI) return uhci_controle(d, setup, dados, tam, (tipo & 0x80) != 0);
+    if (d->tipo_ctl == USB_OHCI) return ohci_controle(d, setup, dados, tam, (tipo & 0x80) != 0);
     return ehci_controle(d, setup, dados, tam, (tipo & 0x80) != 0);
 }
 
 int usb_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam)
 {
     if (d->tipo_ctl == USB_XHCI) return xhci_bulk(d, entrada, dados, tam);
+    if (d->tipo_ctl == USB_UHCI)
+        return uhci_bulk(d, entrada ? d->ep_entrada : d->ep_saida, entrada ? d->mps_entrada : d->mps_saida, entrada,
+                         entrada ? &d->alterna_entrada : &d->alterna_saida, dados, tam);
+    if (d->tipo_ctl == USB_OHCI)
+        return ohci_bulk(d, entrada ? d->ep_entrada : d->ep_saida, entrada ? d->mps_entrada : d->mps_saida, entrada,
+                         entrada ? &d->alterna_entrada : &d->alterna_saida, dados, tam);
     return ehci_bulk(d, entrada ? d->ep_entrada : d->ep_saida, entrada ? d->mps_entrada : d->mps_saida, entrada,
                      entrada ? &d->alterna_entrada : &d->alterna_saida, dados, tam);
 }
@@ -90,6 +98,28 @@ void usb_esperar_ms(usb_disp_t *d, uint32_t ms)
     usb_pausa_ms(d && d->tipo_ctl == USB_EHCI ? d->ctl : NULL, ms);
 }
 
+/* Endpoints de interrupción de los controladores que no son xHCI (HID, D214 y D267). */
+int usb_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps)
+{
+    if (d->tipo_ctl == USB_UHCI) return uhci_int_abrir(d, ep, mps);
+    if (d->tipo_ctl == USB_OHCI) return ohci_int_abrir(d, ep, mps);
+    return ehci_int_abrir(d, ep, mps);
+}
+
+int usb_int_ler(usb_disp_t *d, int h, uint8_t *dados, int max)
+{
+    if (d->tipo_ctl == USB_UHCI) return uhci_int_ler(h, dados, max);
+    if (d->tipo_ctl == USB_OHCI) return ohci_int_ler(h, dados, max);
+    return ehci_int_ler(h, dados, max);
+}
+
+void usb_int_fechar(usb_disp_t *d, int h)
+{
+    if (d->tipo_ctl == USB_UHCI) uhci_int_fechar(h);
+    else if (d->tipo_ctl == USB_OHCI) ohci_int_fechar(h);
+    else ehci_int_fechar(h);
+}
+
 /* D215: recepción continua del endpoint bulk de entrada (el pincho Wi-Fi). En
  * el xHCI la lectura armada se queda en el anillo hasta que se retire el
  * dispositivo: el buffer no se puede liberar (el driver lo guarda para siempre). */
@@ -97,6 +127,7 @@ int usb_rx_abrir(usb_disp_t *d, uint32_t buffer_fis, uint32_t tam)
 {
     if (!d->ep_entrada || tam > 16384) return USB_ERRO;
     if (d->tipo_ctl == USB_XHCI) return xhci_rx_abrir(d, buffer_fis, (uint16_t)tam);
+    if (d->tipo_ctl != USB_EHCI) return USB_ERRO;   /* UHCI/OHCI: sin recepción continua (D267) */
     return ehci_rx_abrir(d, d->ep_entrada, d->mps_entrada, buffer_fis, tam);
 }
 
@@ -110,6 +141,7 @@ int usb_rx_ler(usb_disp_t *d, int h, uint8_t *dados, int max)
         if (h == USB_FILA_XHCI) return xhci_fila_ler(d, dados, max);
         return xhci_int_ler(d, d->ep_entrada, dados, max);
     }
+    if (d->tipo_ctl != USB_EHCI) return USB_ERRO;
     return ehci_rx_ler(h, dados, max);
 }
 
@@ -123,6 +155,7 @@ int usb_rx_abrir_fila(usb_disp_t *d, uint32_t base_fis, uint32_t tam, int n)
 {
     if (!d->ep_entrada || n < 1 || n > USB_FILA_MAX || tam > 16384) return USB_ERRO;
     if (d->tipo_ctl == USB_XHCI) return xhci_fila_abrir(d, true, base_fis, tam, n) < 0 ? USB_ERRO : USB_FILA_XHCI;
+    if (d->tipo_ctl != USB_EHCI) return USB_ERRO;
     return ehci_rx_abrir_fila(d, d->ep_entrada, d->mps_entrada, base_fis, tam, n);
 }
 
@@ -145,7 +178,7 @@ void usb_tx_fechar_fila(usb_disp_t *d)
 bool usb_fila_info(usb_disp_t *d, int h, bool entrada, uint32_t *emvoo, uint32_t *completadas, uint32_t *perdidas)
 {
     if (d->tipo_ctl == USB_XHCI) return xhci_fila_info(d, entrada, emvoo, completadas, perdidas);
-    return entrada && ehci_rx_info(h, emvoo, completadas, perdidas);
+    return d->tipo_ctl == USB_EHCI && entrada && ehci_rx_info(h, emvoo, completadas, perdidas);
 }
 
 void usb_avisar_fila(const void *canal)
@@ -191,10 +224,12 @@ static usb_disp_t *novo(void)
 
 /* Un puerto donde puede conectarse algo (D227): del EHCI, del xHCI o de un hub. */
 typedef struct {
-    uint8_t      tipo;     /* USB_EHCI o USB_XHCI */
+    uint8_t      tipo;     /* USB_EHCI, USB_XHCI, USB_UHCI o USB_OHCI */
     uint8_t      k;        /* número del controlador (para el log) */
     ehci_t      *e;
     xhci_t      *x;
+    uhci_t      *u;
+    ohci_t      *o;
     usb_disp_t  *hub;      /* NULL = puerto del controlador */
     uint8_t      porta;    /* del controlador: desde 0; de un hub: desde 1 */
     usb_porta_t *st;
@@ -231,6 +266,8 @@ static void anotar_resultado(const usb_disp_t *m, int r)
 {
     if (m->hub) return;
     if (m->tipo_ctl == USB_XHCI) xhci_porta_resultado(m->xctl, m->porta, r);
+    else if (m->tipo_ctl == USB_UHCI) m->uctl->resultado[m->porta] = r;
+    else if (m->tipo_ctl == USB_OHCI) m->octl->resultado[m->porta] = r;
     else m->ctl->resultado[m->porta] = r;
 }
 
@@ -284,21 +321,41 @@ static void ler_configuracao(usb_disp_t *d, const uint8_t *b, int n)
     }
 }
 
-/* EHCI: una dirección que no tenga ya otro dispositivo del mismo controlador
- * (con los reintentos de la D227 se gastan más deprisa y la cuenta da la vuelta). */
-static uint8_t endereco_livre(ehci_t *c)
+/* Los dispositivos de un mismo controlador (D267: sirve para EHCI, UHCI y OHCI). */
+static bool mismo_ctl(const usb_disp_t *a, const usb_disp_t *b)
 {
+    if (a->tipo_ctl != b->tipo_ctl) return false;
+    switch (a->tipo_ctl) {
+    case USB_UHCI: return a->uctl == b->uctl;
+    case USB_OHCI: return a->octl == b->octl;
+    case USB_XHCI: return a->xctl == b->xctl;
+    default: return a->ctl == b->ctl;
+    }
+}
+
+/* Una dirección que no tenga ya otro dispositivo del mismo controlador (con los
+ * reintentos de la D227 se gastan más deprisa y la cuenta da la vuelta). */
+static uint8_t endereco_livre(const usb_disp_t *m)
+{
+    uint8_t *prox = m->tipo_ctl == USB_UHCI ? &m->uctl->proximo_endereco
+                  : m->tipo_ctl == USB_OHCI ? &m->octl->proximo_endereco : &m->ctl->proximo_endereco;
     for (int t = 0; t < 127; t++) {
-        uint8_t e = c->proximo_endereco++;
-        if (c->proximo_endereco > 127 || c->proximo_endereco == 0) c->proximo_endereco = 1;
+        uint8_t e = (*prox)++;
+        if (*prox > 127 || *prox == 0) *prox = 1;
         if (e == 0 || e > 127) continue;
         bool usado = false;
         for (int i = 0; i < USB_MAX_DISP && !usado; i++)
-            usado = disps[i].usado && disps[i].tipo_ctl == USB_EHCI && disps[i].ctl == c && disps[i].endereco == e;
+            usado = disps[i].usado && mismo_ctl(&disps[i], m) && disps[i].endereco == e;
         if (!usado) return e;
     }
     return 0;
 }
+
+const char *usb_nome_ctl(uint8_t t)
+{
+    return t == USB_XHCI ? "xHCI" : t == USB_UHCI ? "UHCI" : t == USB_OHCI ? "OHCI" : "EHCI";
+}
+#define nome_ctl usb_nome_ctl
 
 /* Enumera el dispositivo que acaba de aparecer donde dice "m" (controlador,
  * hub y puerto, velocidad, ruta). "tentativa" es el número de intento en esta
@@ -313,6 +370,8 @@ static usb_disp_t *enumerar(const usb_disp_t *m, int tentativa)
     d->tipo_ctl = m->tipo_ctl;
     d->ctl = m->ctl;
     d->xctl = m->xctl;
+    d->uctl = m->uctl;
+    d->octl = m->octl;
     d->hub = m->hub;
     d->porta = m->porta;
     d->porta_raiz = m->porta_raiz;
@@ -343,10 +402,10 @@ static usb_disp_t *enumerar(const usb_disp_t *m, int tentativa)
             d->mps0 = b[7] ? b[7] : 64;
         }
         ultimo_passo = 2;
-        uint8_t endereco = endereco_livre(d->ctl);
+        uint8_t endereco = endereco_livre(d);
         if (!endereco || usb_controle(d, 0x00, 5, endereco, 0, NULL, 0) < 0) goto falhou;
         d->endereco = endereco;
-        usb_pausa_ms(d->ctl, 10);
+        usb_esperar_ms(d, 10);
         if (antigo) {
             /* Con la dirección ya puesta: 8 bytes caben en un paquete de cualquier tamaño. */
             ultimo_passo = 1;
@@ -392,7 +451,7 @@ static usb_disp_t *enumerar(const usb_disp_t *m, int tentativa)
          d->fabricante, d->produto, d->id_fabricante, d->id_produto, d->classe, nome_classe(d->classe),
          d->endereco, d->hub ? "hub" : "raiz", d->hub ? d->hub->endereco : 0,
          d->tipo_ctl == USB_XHCI && !d->hub ? d->porta + 1u : d->porta,
-         d->tipo_ctl == USB_XHCI ? "xHCI" : "EHCI", usb_nome_velocidade(d->velocidade));
+         nome_ctl(d->tipo_ctl), usb_nome_velocidade(d->velocidade));
     if (d->classe == 0x09) {
         if (!configurar_hub(d)) { ultimo_passo = 6; goto falhou; }
     } else {
@@ -438,6 +497,33 @@ static usb_disp_t *enumerar_xhci(xhci_t *c, int p, int tentativa)
     memset(&m, 0, sizeof m);
     m.tipo_ctl = USB_XHCI;
     m.xctl = c;
+    m.porta = m.porta_raiz = (uint8_t)p;
+    m.velocidade = (uint8_t)vel;
+    return enumerar(&m, tentativa);
+}
+
+/* D267: los puertos de un UHCI y de un OHCI (reset, velocidad por el estado del puerto). */
+static usb_disp_t *enumerar_uhci(uhci_t *c, int p, int tentativa)
+{
+    int vel = uhci_porta_resetar(c, p);
+    if (vel < 0) { ultimo_passo = 9; c->resultado[p] = 9; return NULL; }
+    usb_disp_t m;
+    memset(&m, 0, sizeof m);
+    m.tipo_ctl = USB_UHCI;
+    m.uctl = c;
+    m.porta = m.porta_raiz = (uint8_t)p;
+    m.velocidade = (uint8_t)vel;
+    return enumerar(&m, tentativa);
+}
+
+static usb_disp_t *enumerar_ohci(ohci_t *c, int p, int tentativa)
+{
+    int vel = ohci_porta_resetar(c, p);
+    if (vel < 0) { ultimo_passo = 9; c->resultado[p] = 9; return NULL; }
+    usb_disp_t m;
+    memset(&m, 0, sizeof m);
+    m.tipo_ctl = USB_OHCI;
+    m.octl = c;
     m.porta = m.porta_raiz = (uint8_t)p;
     m.velocidade = (uint8_t)vel;
     return enumerar(&m, tentativa);
@@ -493,6 +579,8 @@ static usb_disp_t *hub_porta_conectou(usb_disp_t *h, uint8_t p, int tentativa)
     m.tipo_ctl = h->tipo_ctl;
     m.ctl = h->ctl;
     m.xctl = h->xctl;
+    m.uctl = h->uctl;
+    m.octl = h->octl;
     m.hub = h;
     m.porta = p;
     m.porta_raiz = h->porta_raiz;
@@ -587,22 +675,37 @@ static void remover(usb_disp_t *d)
 
 static usb_porta_t portas_ehci[USB_MAX_CONTROLADORES][USB_MAX_PORTAS];
 static usb_porta_t portas_xhci[XHCI_MAX_CTL][XHCI_MAX_PORTAS];
+static usb_porta_t portas_uhci[USB_MAX_CONTROLADORES][USB_MAX_PORTAS];
+static usb_porta_t portas_ohci[USB_MAX_CONTROLADORES][USB_MAX_PORTAS];
 
 static ponto_t ponto_ehci(int k, int p)
 {
-    ponto_t pt = { USB_EHCI, (uint8_t)k, ehci_controlador(k), NULL, NULL, (uint8_t)p, &portas_ehci[k][p] };
+    ponto_t pt = { .tipo = USB_EHCI, .k = (uint8_t)k, .e = ehci_controlador(k), .porta = (uint8_t)p, .st = &portas_ehci[k][p] };
     return pt;
 }
 
 static ponto_t ponto_xhci(int k, int p)
 {
-    ponto_t pt = { USB_XHCI, (uint8_t)k, NULL, xhci_controlador(k), NULL, (uint8_t)p, &portas_xhci[k][p] };
+    ponto_t pt = { .tipo = USB_XHCI, .k = (uint8_t)k, .x = xhci_controlador(k), .porta = (uint8_t)p, .st = &portas_xhci[k][p] };
+    return pt;
+}
+
+static ponto_t ponto_uhci(int k, int p)
+{
+    ponto_t pt = { .tipo = USB_UHCI, .k = (uint8_t)k, .u = uhci_controlador(k), .porta = (uint8_t)p, .st = &portas_uhci[k][p] };
+    return pt;
+}
+
+static ponto_t ponto_ohci(int k, int p)
+{
+    ponto_t pt = { .tipo = USB_OHCI, .k = (uint8_t)k, .o = ohci_controlador(k), .porta = (uint8_t)p, .st = &portas_ohci[k][p] };
     return pt;
 }
 
 static ponto_t ponto_hub(usb_disp_t *h, uint8_t p)
 {
-    ponto_t pt = { h->tipo_ctl, 0, h->ctl, h->xctl, h, p, &h->hub_porta[p - 1] };
+    ponto_t pt = { .tipo = h->tipo_ctl, .e = h->ctl, .x = h->xctl, .u = h->uctl, .o = h->octl, .hub = h, .porta = p,
+                   .st = &h->hub_porta[p - 1] };
     return pt;
 }
 
@@ -612,6 +715,8 @@ static const char *ponto_nome(const ponto_t *pt, char *s, int n)
 {
     if (pt->hub) snformatar(s, (size_t)n, "%u (hub %u)", pt->porta, pt->hub->endereco);
     else if (pt->tipo == USB_XHCI) snformatar(s, (size_t)n, "%u (xHCI %u)", pt->porta + 1u, pt->k);
+    else if (pt->tipo == USB_UHCI) snformatar(s, (size_t)n, "%u (UHCI %u)", pt->porta, pt->k);
+    else if (pt->tipo == USB_OHCI) snformatar(s, (size_t)n, "%u (OHCI %u)", pt->porta, pt->k);
     else snformatar(s, (size_t)n, "%u (EHCI %u)", pt->porta, pt->k);
     return s;
 }
@@ -627,7 +732,13 @@ static usb_disp_t *ponto_disp(const ponto_t *pt)
     for (int i = 0; i < USB_MAX_DISP; i++) {
         usb_disp_t *d = &disps[i];
         if (!d->usado || d->hub != pt->hub || d->porta != pt->porta || d->tipo_ctl != pt->tipo) continue;
-        if (!pt->hub && (pt->tipo == USB_EHCI ? d->ctl != pt->e : d->xctl != pt->x)) continue;
+        if (!pt->hub) {
+            void *a = pt->tipo == USB_EHCI ? (void *)d->ctl : pt->tipo == USB_XHCI ? (void *)d->xctl
+                    : pt->tipo == USB_UHCI ? (void *)d->uctl : (void *)d->octl;
+            void *b = pt->tipo == USB_EHCI ? (void *)pt->e : pt->tipo == USB_XHCI ? (void *)pt->x
+                    : pt->tipo == USB_UHCI ? (void *)pt->u : (void *)pt->o;
+            if (a != b) continue;
+        }
         return d;
     }
     return NULL;
@@ -645,6 +756,12 @@ static int ponto_ler(const ponto_t *pt, bool *mudou, bool *conectado)
     } else if (pt->tipo == USB_EHCI) {
         *mudou = ehci_porta_mudou(pt->e, pt->porta);
         *conectado = (ehci_porta_estado(pt->e, pt->porta) & 1) != 0;
+    } else if (pt->tipo == USB_UHCI) {
+        *mudou = uhci_porta_mudou(pt->u, pt->porta);
+        *conectado = uhci_porta_conectada(pt->u, pt->porta);
+    } else if (pt->tipo == USB_OHCI) {
+        *mudou = ohci_porta_mudou(pt->o, pt->porta);
+        *conectado = ohci_porta_conectada(pt->o, pt->porta);
     } else {
         *mudou = xhci_porta_mudou(pt->x, pt->porta);
         *conectado = xhci_porta_conectada(pt->x, pt->porta);
@@ -679,6 +796,8 @@ static usb_disp_t *ponto_enumerar(const ponto_t *pt, int tentativa)
 {
     if (pt->hub) return hub_porta_conectou(pt->hub, pt->porta, tentativa);
     if (pt->tipo == USB_XHCI) return enumerar_xhci(pt->x, pt->porta, tentativa);
+    if (pt->tipo == USB_UHCI) return enumerar_uhci(pt->u, pt->porta, tentativa);
+    if (pt->tipo == USB_OHCI) return enumerar_ohci(pt->o, pt->porta, tentativa);
     int r = ehci_porta_resetar(pt->e, pt->porta);
     if (r == 0) return enumerar_ehci(pt->e, pt->porta, tentativa);
     if (r == USB_PORTA_CEDIDA) { ultimo_passo = 8; falha = FALHA_CEDIDA; }
@@ -792,6 +911,16 @@ void usb_verificar_conexoes(void)
             ponto_atender(&pt);
         }
     }
+    for (int k = 0; k < uhci_quantidade(); k++)
+        for (int p = 0; p < uhci_controlador(k)->portas; p++) {
+            ponto_t pt = ponto_uhci(k, p);
+            ponto_atender(&pt);
+        }
+    for (int k = 0; k < ohci_quantidade(); k++)
+        for (int p = 0; p < ohci_controlador(k)->portas; p++) {
+            ponto_t pt = ponto_ohci(k, p);
+            ponto_atender(&pt);
+        }
     for (int i = 0; i < USB_MAX_DISP; i++) {
         usb_disp_t *h = &disps[i];
         if (!h->usado || h->classe != 0x09) continue;
@@ -829,7 +958,12 @@ void usb_iniciar(void)
     if (nx) klog("[USB] %d controlador(es) xHCI\n", nx);
     int n = ehci_iniciar_todos();
     klog("[USB] %d controlador(es) EHCI\n", n);
-    if (!n && !nx) return;
+    /* D267: los de USB 1.1 después del EHCI (que se queda con todos los puertos y
+     * cede al compañero lo que es de baja o plena velocidad). */
+    int nu = uhci_iniciar_todos();
+    int no = ohci_iniciar_todos();
+    if (nu || no) klog("[USB] %d controlador(es) UHCI, %d OHCI\n", nu, no);
+    if (!n && !nx && !nu && !no) return;
     /* Lo que ya está enchufado entra ahora (sin antirrebote: el controlador
      * acaba de encender los puertos y ya esperó), no como "cambió". Si algo
      * falla, la tarea lo reintenta. */
@@ -852,6 +986,20 @@ void usb_iniciar(void)
             if (conectado) { iniciar_conexao(pt.st); ponto_tentar(&pt); }
         }
     }
+    for (int k = 0; k < nu; k++)
+        for (int p = 0; p < uhci_controlador(k)->portas; p++) {
+            ponto_t pt = ponto_uhci(k, p);
+            bool mudou, conectado;
+            ponto_ler(&pt, &mudou, &conectado);
+            if (conectado) { iniciar_conexao(pt.st); ponto_tentar(&pt); }
+        }
+    for (int k = 0; k < no; k++)
+        for (int p = 0; p < ohci_controlador(k)->portas; p++) {
+            ponto_t pt = ponto_ohci(k, p);
+            bool mudou, conectado;
+            ponto_ler(&pt, &mudou, &conectado);
+            if (conectado) { iniciar_conexao(pt.st); ponto_tentar(&pt); }
+        }
     int_restaura(i0);
     xhci_avisar_usb(&canal_usb);
     tarefa_kernel("usb", tarefa_usb, NULL);
@@ -910,7 +1058,7 @@ static int relatorio_porta(char *s, int k, int max, const ponto_t *pt, bool cone
                st->tentativas, st->passo, usb_nome_passo(st->passo));
         break;
     case USB_PORTA_COMPANHEIRO:
-        JUNTAR("  puerto %s: USB 1.x, cedido al controlador compañero (sin driver: mejora 029)\n", nome);
+        JUNTAR("  puerto %s: USB 1.x, cedido al controlador compañero (UHCI/OHCI)\n", nome);
         break;
     default:
         JUNTAR("  puerto %s: conectado, aún sin mirar\n", nome);
@@ -940,6 +1088,19 @@ int usb_relatorio(char *s, int max)
             JUNTAR("  puerto %d: dispositivo conectado, %s (PORTSC %x)\n", p, usb_nome_passo(e->resultado[p]), v);
         }
     }
+    JUNTAR("Controladores USB 1.1: %d UHCI, %d OHCI\n", uhci_quantidade(), ohci_quantidade());
+    for (int c = 0; c < uhci_quantidade() && k < max - 1; c++) {
+        uhci_t *u = uhci_controlador(c);
+        JUNTAR("UHCI %d: PCI %02x:%02x.%x, %04x:%04x, E/S %x, %d puertos, BIOS %s\n", c,
+               u->pci.barramento, u->pci.dispositivo, u->pci.funcao, u->pci.fabricante, u->pci.modelo, u->io,
+               u->portas, u->bios ? "lo usaba" : "no lo usaba");
+    }
+    for (int c = 0; c < ohci_quantidade() && k < max - 1; c++) {
+        ohci_t *o = ohci_controlador(c);
+        JUNTAR("OHCI %d: PCI %02x:%02x.%x, %04x:%04x, %d puertos, BIOS %s\n", c,
+               o->pci.barramento, o->pci.dispositivo, o->pci.funcao, o->pci.fabricante, o->pci.modelo, o->portas,
+               o->bios < 0 ? "no lo soltó" : o->bios == 1 ? "lo soltó (SMM)" : o->bios == 2 ? "lo usaba" : "no lo usaba");
+    }
     /* D227: estado de la conexión en caliente de cada puerto con algo. */
     JUNTAR("Puertos (conexión en caliente: hasta %u intentos):\n", USB_INTENTOS_MAX);
     for (int c = 0; c < xhci_quantidade(); c++) {
@@ -956,6 +1117,16 @@ int usb_relatorio(char *s, int max)
             k = relatorio_porta(s, k, max, &pt, (ehci_porta_estado(e, p) & 1) != 0);
         }
     }
+    for (int c = 0; c < uhci_quantidade(); c++)
+        for (int p = 0; p < uhci_controlador(c)->portas; p++) {
+            ponto_t pt = ponto_uhci(c, p);
+            k = relatorio_porta(s, k, max, &pt, uhci_porta_conectada(pt.u, p));
+        }
+    for (int c = 0; c < ohci_quantidade(); c++)
+        for (int p = 0; p < ohci_controlador(c)->portas; p++) {
+            ponto_t pt = ponto_ohci(c, p);
+            k = relatorio_porta(s, k, max, &pt, ohci_porta_conectada(pt.o, p));
+        }
     for (int i = 0; i < USB_MAX_DISP; i++) {
         usb_disp_t *h = &disps[i];
         if (!h->usado || h->classe != 0x09) continue;
@@ -969,7 +1140,7 @@ int usb_relatorio(char *s, int max)
         if (!d->usado) continue;
         JUNTAR("Dispositivo %u: %s %s (%04x:%04x), clase %s, %s por %s%s\n", d->endereco,
                d->fabricante, d->produto, d->id_fabricante, d->id_produto, nome_classe(d->classe),
-               usb_nome_velocidade(d->velocidade), d->tipo_ctl == USB_XHCI ? "xHCI" : "EHCI",
+               usb_nome_velocidade(d->velocidade), nome_ctl(d->tipo_ctl),
                d->hub ? ", detrás de un hub" : "");
     }
     if (k < max - 1) {

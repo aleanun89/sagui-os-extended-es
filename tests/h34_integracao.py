@@ -137,7 +137,10 @@ def main():
     with open(img, "rb") as f:
         mbr = f.read(512)
     fin = (os.path.getsize(img) + 511) // 512
+    libre = None   # primera entrada primaria libre (la 3 la ocupa la ESP de UEFI desde D264)
     for i in range(4):
+        if not mbr[446 + 16 * i + 4] and libre is None:
+            libre = i + 1
         e = mbr[446 + 16 * i:462 + 16 * i]
         ini, tam = struct.unpack("<II", e[8:16])
         if e[4]:
@@ -145,7 +148,7 @@ def main():
     inicio = (fin + 2047) // 2048 * 2048
     with open(unico, "r+b") as f:
         f.truncate(inicio * 512 + 32 * 1024 * 1024)
-    subprocess.run(["sfdisk", "-q", "-N", "3", unico], input=f"start={inicio}, type=c\n", text=True, check=True,
+    subprocess.run(["sfdisk", "-q", "-N", str(libre), unico], input=f"start={inicio}, type=c\n", text=True, check=True,
                    stderr=subprocess.DEVNULL)
     subprocess.run(["mkfs.vfat", "-F", "32", "-n", "DADOS", "--offset", str(inicio), unico], check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["mcopy", "-i", f"{unico}@@{inicio * 512}", os.path.join(RAIZ, "rootfs", "sobre.txt"), "::/do-pc.txt"], check=True)

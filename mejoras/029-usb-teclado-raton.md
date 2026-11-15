@@ -1,6 +1,6 @@
 # 029 - Teclado y ratón USB (HID, OHCI, UHCI, split transactions)
 
-- **Estado:** propuesta
+- **Estado:** UHCI y OHCI hechos en la v8.0 (D267, rama `v8.0-usb11`); falta probar en hardware real
 - **Prioridad:** media
 - **Alta:** 2026-11-07
 
@@ -37,15 +37,16 @@ se pierde y no hay driver. Faltan:
 
 ## Criterios de aceptación
 
-- [ ] En QEMU: `usb-kbd` y `usb-mouse` funcionan con `-device piix3-usb-uhci`, `pci-ohci`
-      y detrás de `usb-ehci` con un hub (split)
+- [x] En QEMU: `usb-kbd` y `usb-mouse` funcionan con `-device piix3-usb-uhci`, `pci-ohci`
+      y cedidos por `usb-ehci` al UHCI compañero (hecho en D267, `h267`; el split por hub con TT
+      ya estaba en D214)
 - [ ] Teclado USB con ES/ABNT2, teclas muertas, Ctrl+C y repetición
 - [ ] Ratón USB con botones y rueda; tablet absoluto si se hace
-- [ ] Conexión y desconexión en caliente
+- [x] Conexión y desconexión en caliente
 - [ ] El teclado y touchpad PS/2 siguen funcionando a la vez
 - [ ] Test automático en `tests/` (QMP envía teclas y movimientos a los dispositivos USB)
-- [ ] Decisión registrada en `docs/decisoes.md`
-- [ ] Probado en el HP dv7 (OHCI) y en el G470 (split)
+- [x] Decisión registrada en `docs/decisoes.md` (D214 y D267)
+- [ ] Probado en el HP dv7 (OHCI), en el G470 (split) y en el Amilo (UHCI, `docs/usb11.md`)
 
 ## Notas
 

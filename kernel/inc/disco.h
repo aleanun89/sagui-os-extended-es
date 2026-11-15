@@ -45,6 +45,8 @@ typedef struct disco {
     int    (*descartar)(struct disco *d, uint32_t lba, uint32_t n);   /* NULL = el driver no manda TRIM */
     uint8_t  trim;                /* TRIM_NAO, TRIM_SIM o TRIM_SEM_DRIVER (abi.h) */
     bool     arranque_real;       /* su LBA 1 es la cabecera con la que arrancó esta vez */
+    bool     nvme;                /* D265: disco NVMe */
+    uint16_t bloco_fisico;        /* D265: bloque real del namespace NVMe (512 o 4096); 0 = no se sabe */
     bool     gpt;                 /* la tabla es GPT: no se toca */
     int      reservado_pid;       /* proceso con el acceso en bruto (0 = nadie) */
     uint32_t reservado_flags;     /* DBLOCO_CONF_* con que se reservó */
@@ -69,6 +71,11 @@ disco_t *disco_registrar(const char *prefixo, const char *fabricante, const char
                          uint32_t tam_setor, void *dono, bool removivel,
                          int (*ler)(disco_t *, uint32_t, uint32_t, void *),
                          int (*escrever)(disco_t *, uint32_t, uint32_t, const void *));
+/* D265: namespace NVMe: "nvme0", "nvme1"...; bloco_fisico = 512 o 4096 (las tablas de particiones de
+ * un disco de 4096 cuentan en bloques de 4096). */
+disco_t *disco_registrar_nvme(const char *produto, uint32_t setores, uint16_t bloco_fisico, void *dono,
+                              int (*ler)(disco_t *, uint32_t, uint32_t, void *),
+                              int (*escrever)(disco_t *, uint32_t, uint32_t, const void *));
 void     disco_removido(disco_t *d);
 /* D207: un lector de CD/DVD ("cd0", "cd1"...) y la imagen El Torito de su disco ("cd0img").
  * Los dos son de solo lectura (sin función de escritura). */

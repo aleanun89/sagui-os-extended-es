@@ -188,6 +188,11 @@ static uint8_t exe_do_caminho(const char *caminho)
 {
     if (txt_compara(caminho, "/bin/servicios") == 0) return EXE_SERVICIOS;
     if (txt_compara(caminho, "/bin/vncd") == 0 || txt_compara(caminho, "/apps/bin/vncd") == 0) return EXE_VNCD;
+    if (caminho[0] == '/' && caminho[1] == 'b' && caminho[2] == 'i' && caminho[3] == 'n' && caminho[4] == '/') {   /* D269 */
+        for (const char *c = caminho; c[0]; c++)
+            if (c[0] == '.' && c[1] == '.') return EXE_COMUM;   /* «/bin/../home/...» no es de /bin */
+        return EXE_BIN;
+    }
     return EXE_COMUM;
 }
 

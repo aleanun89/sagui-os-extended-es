@@ -297,6 +297,14 @@ bool ehci_porta_mudou(ehci_t *c, int p)
     return true;
 }
 
+/* D267: el puerto solo se cede si hay un driver UHCI u OHCI que lo recoja; si el
+ * chipset declara compañeros y no tenemos controlador para ellos, ceder el
+ * puerto lo dejaría inútil. */
+static bool companheiro_usavel(const ehci_t *c)
+{
+    return c->companheiros && (uhci_quantidade() || ohci_quantidade());
+}
+
 /* D227: las esperas largas (los 50 ms del reset y los 10 de recuperación) van por
  * usb_pausa_ms: en la tarea "usb" duermen con las interrupciones encendidas, en vez
  * de congelar el sistema cada vez que se enchufa algo. Los milisegundos de comprobar
@@ -308,8 +316,8 @@ int ehci_porta_resetar(ehci_t *c, int p)
     if (v & P_PO) return USB_PORTA_CEDIDA;         /* ya es del compañero */
     if ((v & P_LS) == (1u << 10)) {                /* estado K: baja velocidad -> compañero */
         klog("[EHCI] porta %d: dispositivo USB 1.x de baixa velocidade -> %s\n", p,
-             c->companheiros ? "companheiro UHCI/OHCI (sem driver: mejora 029)" : "sem companheiro, ignorado");
-        if (!c->companheiros) return USB_PORTA_USB1;
+             companheiro_usavel(c) ? "companheiro UHCI/OHCI" : "sem companheiro, ignorado");
+        if (!companheiro_usavel(c)) return USB_PORTA_USB1;
         c->op[PORTSC + p] = (v & ~P_MUDANCAS) | P_PO;
         return USB_PORTA_CEDIDA;
     }
@@ -324,9 +332,9 @@ int ehci_porta_resetar(ehci_t *c, int p)
          * entregar el puerto a nadie lo dejaría inútil: se desiste de este intento
          * (D227: puede ser un contacto que aún no estaba firme, y se vuelve a probar). */
         klog("[EHCI] porta %d: dispositivo USB 1.x (velocidade completa) -> %s\n", p,
-             c->companheiros ? "companheiro UHCI/OHCI (sem driver: mejora 029)" : "sem companheiro, ignorado");
+             companheiro_usavel(c) ? "companheiro UHCI/OHCI" : "sem companheiro, ignorado");
         if (!(v & P_CCS)) return USB_ERRO;         /* se ha ido durante el reset */
-        if (!c->companheiros) return USB_ERRO;
+        if (!companheiro_usavel(c)) return USB_ERRO;
         c->op[PORTSC + p] = (v & ~P_MUDANCAS) | P_PO;
         return USB_PORTA_CEDIDA;
     }
@@ -467,6 +475,8 @@ static bool pode_dormir(void)
 {
     return assincrono && processo_atual() && !contexto_irq();
 }
+
+bool ehci_pode_dormir(void) { return pode_dormir(); }
 
 /* Una vuelta de espera: duerme hasta la IRQ del controlador (con el reloj como
  * red de seguridad, como mucho un tic) o, sin IRQ, sólo cede el turno. */

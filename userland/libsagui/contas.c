@@ -376,3 +376,38 @@ int elevar_interativo(unsigned uid_alvo, const char *programa)
         imprimir_em(ERROS, "%s: no se concedió\n", programa);
     return r < 0 ? r : ERRO_ACESSO;
 }
+
+/* ---------------------------------------------------------------- diálogo de permisos (D269) */
+
+static unsigned uid_antes_grafico = (unsigned)-1, gid_antes_grafico;
+
+int elevar_grafico(const char *motivo)
+{
+    if (sou_root()) return 0;
+    unsigned uid0 = meu_uid(), gid0 = meu_gid();
+    pedido_conta_t p;
+    memset(&p, 0, sizeof p);
+    p.tipo = PED_ELEVAR | PED_GRAFICO;
+    p.uid_alvo = UID_ROOT;
+    if (motivo) copia_texto(p.motivo, motivo, sizeof p.motivo);
+    int id = servicos_kernel(SERV_PEDIR, (int)&p);
+    if (id < 0) return id;
+    unsigned fim = tempo_ms() + 310000;   /* el diálogo caduca solo a los 5 min */
+    for (;;) {
+        int r = servicos_kernel(SERV_RESULTADO, id);
+        if (r == 1) {
+            if (uid_antes_grafico == (unsigned)-1) { uid_antes_grafico = uid0; gid_antes_grafico = gid0; }
+            return 0;
+        }
+        if (r != 0) return r;
+        if ((int)(tempo_ms() - fim) >= 0) return ERRO_TEMPO;
+        dormir(30);
+    }
+}
+
+void elevacao_soltar(void)
+{
+    if (uid_antes_grafico == (unsigned)-1 || !sou_root()) return;
+    usuario_op(USU_FIJAR, (int)uid_antes_grafico, (int)gid_antes_grafico);
+    uid_antes_grafico = (unsigned)-1;
+}
