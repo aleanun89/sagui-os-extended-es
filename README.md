@@ -13,6 +13,29 @@ Hecho por Claude (Anthropic) para el proyecto de **Eli Rigobeli**,
 y mantenido por **Alejandro Anuncibay**, con mejoras escritas con Claude
 (Anthropic) y con un agente de IA (MiniMax Code).
 
+</div>
+
+## Empezar en 5 minutos
+
+1. **Descarga** `saguios.img` (o `saguios-smp.img`, multinúcleo) de la última
+   [publicación](https://github.com/aleanun89/sagui-os-extended-es/releases) y comprueba la suma con
+   `sha256sum -c SHA256SUMS.txt`.
+2. **Pruébalo en QEMU** (Linux, WSL, macOS o Windows):
+   ```
+   qemu-system-i386 -m 1024 -drive file=saguios.img,format=raw
+   ```
+3. **O en un PC de verdad:** graba la imagen en un pendrive con **Rufus (modo DD)**, **balenaEtcher** o
+   `dd` (se borra todo lo que tenga) y arranca desde USB, por BIOS o UEFI. Requisitos: CPU **i686** (Pentium
+   Pro/II, AMD Athlon o posterior), **64 MB** de RAM y una gráfica con VESA. Detalles en
+   [docs/imagenes.md](docs/imagenes.md).
+4. **Primeros pasos:** el menú **Inicio** abre las aplicaciones (Pluma, Macaco, Correo, VisualPythonS, GebraMini,
+   DOSBox…); en el **Terminal**, `ajuda` lista las órdenes; **Configuración** cambia teclado, pantalla, sonido
+   e IA; `instalar` lo instala en el disco duro.
+5. **Compilarlo tú:** `make` y `./run_in_qemu.sh`. Guía completa en
+   [compilar_versiones.md](compilar_versiones.md).
+
+<div align="center">
+
 `562 KB` · `sin GRUB` · `sin libc` · `sin código de otros sistemas (salvo drivers, D073)` · `más de 130 pruebas automáticas`
 
 <img src="docs/capturas/B4-3-fase1-corredor.png" width="49%" alt="Sagui 3D, el juego en primera persona de SaguiOS">

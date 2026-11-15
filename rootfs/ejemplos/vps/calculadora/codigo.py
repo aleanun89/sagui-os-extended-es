@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # Calculadora sencilla: dos números, una operación y el botón Calcular.
 
 def Boton1_click():

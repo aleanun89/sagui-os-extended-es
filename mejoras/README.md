@@ -128,3 +128,5 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 123 | [VisualPythonS: entorno al estilo del Visual Basic con Python](123-visualpythons.md) | hecha (v8.3.1) | media |
 | 124 | [Componentes y utilidades inspirados en Delphi/Lazarus](124-ideas-delphi-lazarus.md) | aprobada (v8.3.2) | media |
 | 125 | [Más RAM en 32 bits: PAE (hasta 64 GB), memoria alta y NX](125-pae-memoria.md) | aprobada (v8.5) | alta |
+| 127 | [Bases de datos visuales: conector y rejilla en VisualPythonS y Explorador de bases de datos](127-bases-de-datos-visual.md) | hecha (v8.3.2, D304) | media |
+| 128 | [GebraMini: geometría dinámica y funciones](128-gebramini.md) | hecha (v8.3.2) | media |

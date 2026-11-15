@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # Hola, VisualPythonS: una aplicación hecha solo con código, sin el diseñador.
 # Los manejadores se conectan solos por el nombre (Nombre_evento) o con @evento(control, "evento").
 #

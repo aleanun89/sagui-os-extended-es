@@ -150,7 +150,11 @@ def principal():
         marca = len(m.serial())
         m.arrastar(*celula(a, 0, 0), *celula(a, 2, 1))
         time.sleep(0.3)
-        m.clique(*botao(a, "Gráfico"))
+        # D311: el botón de la barra abre ahora el asistente de gráficos incrustados; el gráfico en ventana
+        # sigue en el menú contextual
+        m.clique(*celula(a, 1, 1), botao=2)
+        m.esperar_serial("menu linhas:", 15)
+        escolher_menu(m, "Gráfico de barras")
         m.esperar_serial("macaco: gráfico Gráfico de barras con 3 series", 20)
         verificar("macaco: gráfico Gráfico de barras con 3 series" in m.serial()[marca:],
                   "el gráfico de barras sale del rango A1:B3")

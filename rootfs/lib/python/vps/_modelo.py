@@ -8,6 +8,32 @@ import vps
 
 GRID = 8
 _cache = {}
+SIN_VENTANA = ("Temporizador", "Menu", "Reloj", "Archivo", "ConectorBD")    # componentes sin ventana: solo un icono
+CONTENEDORES = ("Marco", "Pestanas")
+
+
+def es_contenedor(c):
+    return c["tipo"] in CONTENEDORES
+
+
+def desplazamiento_hijos(c):
+    """(dx, dy) del rincón de dentro de un contenedor respecto al suyo: el borde y, en el Marco, el
+    título; en las Pestanas, la tira de pestañas."""
+    if c["tipo"] == "Pestanas":
+        return 2, 2 + vps.TAB_H
+    return 2, 2 + (8 if val(c, "texto") else 0)
+
+
+def en_pagina(form, c):
+    """False si `c` está en una página de unas Pestanas que no es la elegida (o en un hijo de ella)."""
+    while c["padre"]:
+        p = por_nombre(form, c["padre"])
+        if p is None:
+            return True
+        if p["tipo"] == "Pestanas" and int(val(c, "pagina") or 0) != int(val(p, "seleccion") or 0):
+            return False
+        c = p
+    return True
 
 
 def defectos(tipo):
@@ -37,10 +63,10 @@ def props_de(tipo):
     if tipo == "Formulario":
         return list(vps.Formulario.PROPS)
     cls = vps.TIPOS[tipo]
-    propias = [p for p in cls.todas() if p[0] not in ("x", "y", "ancho", "alto", "visible", "activo",
-                                                     "color", "colorfondo", "fuente")]
-    comunes = [p for p in cls.todas() if p[0] in ("x", "y", "ancho", "alto", "visible", "activo",
-                                                  "color", "colorfondo", "fuente")]
+    _comunes = ("x", "y", "ancho", "alto", "visible", "activo", "color", "colorfondo", "fuente",
+                "anclaje", "orden_tab", "pagina")
+    propias = [p for p in cls.todas() if p[0] not in _comunes]
+    comunes = [p for p in cls.todas() if p[0] in _comunes]
     return propias + comunes
 
 
@@ -73,8 +99,12 @@ def crear(forms, form, tipo, x, y, ancho=None, alto=None, padre=None):
     tam = cls.TAM
     p["ancho"] = int(ancho if ancho else tam[0])
     p["alto"] = int(alto if alto else tam[1])
-    if "texto" in defectos(tipo) and tipo not in ("CuadroTexto", "Combo"):
+    if "texto" in defectos(tipo) and tipo not in ("CuadroTexto", "Combo", "BarraEstado"):
         p["texto"] = nombre
+    if padre:
+        pa = por_nombre(form, padre)
+        if pa is not None and pa["tipo"] == "Pestanas" and int(val(pa, "seleccion") or 0):
+            p["pagina"] = int(val(pa, "seleccion"))      # el control nuevo va a la página que se ve
     c = {"tipo": tipo, "nombre": nombre, "padre": padre, "props": p}
     form["controles"].append(c)
     return c
@@ -99,8 +129,8 @@ def descendientes(form, c):
 def origen_hijos(form, c):
     """(x, y) del rincón de dentro de un Marco, en coordenadas del cliente del formulario."""
     x, y = _rect_local(form, c)[:2]
-    extra = 8 if val(c, "texto") else 0
-    return x + 2, y + 2 + extra
+    dx, dy = desplazamiento_hijos(c)
+    return x + dx, y + dy
 
 
 def _rect_local(form, c):
@@ -111,8 +141,9 @@ def _rect_local(form, c):
         p = por_nombre(form, pad)
         if p is None:
             break
-        x += int(val(p, "x")) + 2
-        y += int(val(p, "y")) + 2 + (8 if val(p, "texto") else 0)
+        dx, dy = desplazamiento_hijos(p)
+        x += int(val(p, "x")) + dx
+        y += int(val(p, "y")) + dy
         pad = p["padre"]
     return x, y, int(val(c, "ancho")), int(val(c, "alto"))
 
@@ -125,15 +156,18 @@ def borrar(form, c):
     form["controles"] = [x for x in form["controles"] if not any(x is q for q in quitar)]
 
 
-def renombrar_valido(forms, c, nuevo):
-    """None si `nuevo` sirve de nombre para `c`; si no, el motivo."""
+def renombrar_valido(forms, c, nuevo, es_form=False):
+    """None si `nuevo` sirve de nombre para `c` (un control o, con es_form, un formulario); si no,
+    el motivo."""
     if not nuevo or not (nuevo[0].isalpha() or nuevo[0] == "_"):
         return "el nombre tiene que empezar por una letra"
     for ch in nuevo:
         if not (ch.isalpha() or ch.isdigit() or ch == "_") or ord(ch) > 127:
             return "solo letras sin acento, cifras y _"
-    if nuevo in ("Formulario", "vps") or nuevo in vps.__all__:
+    if nuevo == "vps" or nuevo in vps.__all__ or (nuevo == "Formulario" and not es_form):
         return "ese nombre ya lo usa VisualPythonS"
+    if nuevo in ("None", "True", "False", "def", "class", "if", "else", "for", "while", "import", "from", "return"):
+        return "es una palabra reservada de Python"
     if nuevo != c["nombre"] and nuevo in todos_los_nombres(forms):
-        return "ya hay otro control con ese nombre"
+        return "ya hay otro control o formulario con ese nombre"
     return None

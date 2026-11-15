@@ -23,7 +23,11 @@ proyecto.lanzar(carpeta)
 '''
 
 NOMBRES = {"Hola mundo": "hola-mundo", "Calculadora sencilla": "calculadora", "Lista de tareas": "lista-de-tareas",
-           "Cronómetro": "cronometro", "Visor de imágenes": "visor-de-imagenes"}
+           "Cronómetro": "cronometro", "Visor de imágenes": "visor-de-imagenes",
+           "Formularios modales": "formularios-modales", "Validar una entrada": "validar-entrada",
+           "Abrir y guardar": "abrir-guardar", "Pestañas": "pestanas", "Tabla": "tabla", "Numérico": "numerico",
+           "Lienzo": "lienzo", "Enlace": "enlace", "Barra de estado": "barra-estado",
+           "Selector de color": "selector-color", "Reloj": "reloj", "Archivo": "archivo"}
 
 
 def main():
@@ -35,12 +39,12 @@ def main():
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "formulario.vpf"), "w", encoding="latin-1") as f:
             f.write(proyecto.escribir_vpf(forms))
-        # Cabecera de licencia (D258): los ejemplos se publican y la auditoría la exige.
-        spdx = "# SPDX-License-Identifier: GPL-2.0-or-later\n"
+        # Sin línea SPDX a propósito: es código para el usuario y las pruebas (h299, h303) y el manual
+        # lo leen por números de línea (tools/spdx.py y auditar_licencias.py los excluyen).
         with open(os.path.join(d, "codigo.py"), "w", encoding="latin-1") as f:
-            f.write(codigo if codigo.startswith(spdx) else spdx + codigo)
+            f.write(codigo)
         with open(os.path.join(d, "lanzador.py"), "w", encoding="latin-1") as f:
-            f.write(LANZADOR if LANZADOR.startswith(spdx) else spdx + LANZADOR)
+            f.write(LANZADOR)
         print("ejemplo:", d)
 
 

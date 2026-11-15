@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # Visor de imágenes: el diálogo de abrir del sistema y un control Imagen.
 
 def Boton1_click():

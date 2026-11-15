@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # Cronómetro: un Temporizador que dispara «tic» cada 100 ms.
 import sagui
 

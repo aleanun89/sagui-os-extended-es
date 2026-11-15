@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 36ef0600 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 35e8e905 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -13,6 +13,29 @@ for 32-bit x86 PCs, running for real on a 2011 laptop.
 Made by Claude (Anthropic) for the project of **Eli Rigobeli**,
 and maintained by **Alejandro Anuncibay**, with improvements written with Claude
 (Anthropic) and with an AI agent (MiniMax Code).
+
+</div>
+
+## Get started in 5 minutes
+
+1. **Download** `saguios.img` (or `saguios-smp.img`, multicore) from the latest
+   [release](https://github.com/aleanun89/sagui-os-extended-es/releases) and check the checksum with
+   `sha256sum -c SHA256SUMS.txt`.
+2. **Try it in QEMU** (Linux, WSL, macOS or Windows):
+   ```
+   qemu-system-i386 -m 1024 -drive file=saguios.img,format=raw
+   ```
+3. **Or on a real PC:** write the image to a USB stick with **Rufus (DD mode)**, **balenaEtcher** or
+   `dd` (everything on it is erased) and boot from USB, via BIOS or UEFI. Requirements: **i686** CPU (Pentium
+   Pro/II, AMD Athlon or later), **64 MB** of RAM and a VESA graphics card. Details in
+   [docs/imagenes.md](docs/imagenes.md).
+4. **First steps:** the **Start** menu opens the applications (Pluma, Macaco, Mail, VisualPythonS, GebraMini,
+   DOSBox…); in the **Terminal**, `ajuda` lists the commands; **Settings** changes keyboard, screen, sound
+   and AI; `instalar` installs it on the hard disk.
+5. **Build it yourself:** `make` and `./run_in_qemu.sh`. Full guide in
+   [compilar_versiones.md](compilar_versiones.md).
+
+<div align="center">
 
 `562 KB` · `no GRUB` · `no libc` · `no code from other systems (except drivers, D073)` · `more than 130 automated tests`
 

@@ -1,0 +1,42 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Formularios modales'
+  alto = 130
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  ancho = 280
+  texto = 'Pulsa para pedir un nombre'
+control Boton Boton1
+  x = 16
+  y = 48
+  ancho = 130
+  alto = 28
+  texto = 'Preguntar...'
+control Etiqueta Etiqueta2
+  x = 16
+  y = 88
+  ancho = 280
+formulario Formulario2
+  texto = '¿Cómo te llamas?'
+  ancho = 280
+  alto = 130
+control Etiqueta Etiqueta3
+  x = 16
+  y = 12
+  ancho = 240
+  texto = 'Escribe tu nombre:'
+control CuadroTexto CuadroTexto1
+  x = 16
+  y = 38
+  ancho = 240
+control Boton Boton2
+  x = 40
+  y = 80
+  alto = 28
+  texto = 'Aceptar'
+control Boton Boton3
+  x = 148
+  y = 80
+  alto = 28
+  texto = 'Cancelar'

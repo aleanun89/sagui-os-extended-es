@@ -1,0 +1,23 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Validar una entrada'
+  ancho = 290
+  alto = 120
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  ancho = 260
+  texto = 'Tu edad (de 0 a 120):'
+control CuadroTexto CuadroTexto1
+  x = 16
+  y = 40
+  ancho = 100
+control Boton Boton1
+  x = 128
+  y = 38
+  ancho = 100
+  texto = 'Comprobar'
+control Etiqueta Etiqueta2
+  x = 16
+  y = 80
+  ancho = 260

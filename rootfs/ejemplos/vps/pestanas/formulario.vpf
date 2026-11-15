@@ -1,0 +1,41 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Pestañas'
+  ancho = 316
+control Pestanas Pestanas1
+  x = 12
+  y = 12
+  ancho = 290
+  alto = 150
+  elementos = ['Datos', 'Opciones', 'Acerca de']
+control Etiqueta Etiqueta1 en Pestanas1
+  x = 12
+  y = 14
+  texto = 'Nombre:'
+control CuadroTexto CuadroTexto1 en Pestanas1
+  x = 96
+  y = 10
+  ancho = 160
+control Casilla Casilla1 en Pestanas1
+  x = 12
+  y = 20
+  ancho = 200
+  pagina = 1
+  texto = 'Recibir avisos'
+control Casilla Casilla2 en Pestanas1
+  x = 12
+  y = 48
+  ancho = 200
+  pagina = 1
+  texto = 'Modo oscuro'
+control Etiqueta Etiqueta2 en Pestanas1
+  x = 12
+  y = 20
+  ancho = 240
+  pagina = 2
+  texto = 'VisualPythonS 8.3.2'
+control Etiqueta Etiqueta3
+  x = 12
+  y = 172
+  ancho = 290
+  texto = 'Página: Datos'

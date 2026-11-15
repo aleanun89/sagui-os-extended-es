@@ -814,6 +814,25 @@ static const char *const macaco[] = {   /* Macaco: uma folha de calculo com a ba
     "................",
 };
 
+static const char *const gebramini[] = {   /* GebraMini: ejes, una circunferencia azul y un punto rojo (D309) */
+    "................",
+    ".PPPPPPPPPPPPPP.",
+    ".PBBBPBBBBBBBBP.",
+    ".PBBBPBBVVVBBBP.",
+    ".PBBBPBVBBBVBBP.",
+    ".PBBBPVBBBBBVBP.",
+    ".PBBBPVBBBBBVBP.",
+    ".PBBBPVBBBBBrBP.",
+    ".PBBBPBVBBBVBBP.",
+    ".PBBBPBBVVVBBBP.",
+    ".PBBBPBBBBBBBBP.",
+    ".PPPPPPPPPPPPPP.",
+    ".PBBBPBBBBBBBBP.",
+    ".PBBBPBBBBBBBBP.",
+    ".PPPPPPPPPPPPPP.",
+    "................",
+};
+
 static const char *const pluma[] = {   /* Pluma: una hoja con renglones y una pluma azul (D291) */
     "................",
     "..PPPPPPPPP.....",
@@ -849,6 +868,25 @@ static const char *const vps[] = {   /* VisualPythonS: un formulario con barra a
     ".PBBBPPPPPPBBBP.",
     ".PBBBBBBBBBBBBP.",
     ".PPPPPPPPPPPPPP.",
+    "................",
+};
+
+static const char *const exploradorbd[] = {   /* Explorador de bases de datos: un cilindro amarillo (mejora 127, D304) */
+    "................",
+    "....PPPPPPPP....",
+    "..PPAAAAAAAAPP..",
+    "..PAYYYYYYYYAP..",
+    "..PPAAAAAAAAPP..",
+    "..PYYYYYYYYYYP..",
+    "..PPPPPPPPPPPP..",
+    "..PAAAAAAAAAAP..",
+    "..PYYYYYYYYYYP..",
+    "..PPPPPPPPPPPP..",
+    "..PAAAAAAAAAAP..",
+    "..PYYYYYYYYYYP..",
+    "..PPPPPPPPPPPP..",
+    "..PPAAAAAAAAPP..",
+    "....PPPPPPPP....",
     "................",
 };
 
@@ -1186,7 +1224,9 @@ const desenho_t arte_mini_video       = { video, 16, 16 };
 const desenho_t arte_mini_ia          = { ia, 16, 16 };
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
 const desenho_t arte_mini_pluma       = { pluma, 16, 16 };   /* mejora 116, D291 */
+const desenho_t arte_mini_gebramini   = { gebramini, 16, 16 };   /* mejora 128, D309 */
 const desenho_t arte_mini_vps         = { vps, 16, 16 };   /* mejora 123, D297: VisualPythonS */
+const desenho_t arte_mini_exploradorbd = { exploradorbd, 16, 16 };   /* mejora 127, D304: Explorador de bases de datos */
 const desenho_t arte_mini_spider      = { spider, 16, 16 };   /* D173: el solitario Spider */
 const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Buscaminas */
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */

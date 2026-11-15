@@ -1,0 +1,17 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Barra de estado'
+  ancho = 360
+  alto = 180
+control CuadroTexto CuadroTexto1
+  x = 8
+  y = 8
+  ancho = 344
+  alto = 130
+  multilinea = True
+control BarraEstado BarraEstado1
+  y = 158
+  ancho = 360
+  anclaje = 'izq|der|abj'
+  texto = 'Listo'
+  elementos = ['0 letras', '1 línea']

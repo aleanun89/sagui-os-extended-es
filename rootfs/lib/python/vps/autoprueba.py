@@ -137,7 +137,327 @@ def principal():
     from vps._editor import realzar, AZUL, VERDE, ROJO, NEGRO
     c = realzar('def f(x): print("a") # fin')
     comprobar(c[0] == AZUL and c[9] == NEGRO and c[-1] == VERDE and ROJO in c, "editor: resaltado de Python")
+    avanzado()
+    componentes()
     print("vps-autoprueba: fin")
+
+
+def avanzado():
+    """Lo de la v8.3.2 (D299): formularios modales, anclajes, orden de tabulación, fuentes,
+    autocompletado, refactorización y depurador."""
+    import tkinter as tk
+    from vps import _refactor, _autocompletar as AC, _depurador as D, _fuente, _historial
+
+    # --- formulario modal: devuelve un valor y recibe datos
+    ns = proyecto_de("formularios-modales")
+    ns["Formulario"].mostrar()
+    f2 = ns["Formulario2"]
+    comprobar(f2.CuadroTexto1 is ns["CuadroTexto1"], "formulario: los controles son atributos (Formulario2.CuadroTexto1)")
+    vistos = []
+
+    def aceptar():
+        vistos.append(ns["CuadroTexto1"].texto)       # lo que puso Formulario2_cargar desde `datos`
+        ns["CuadroTexto1"].texto = "Luis"
+        ns["Boton2"].pulsar()
+    tk._raiz_padrao().after(300, aceptar)
+    ns["Boton1"].pulsar()                                  # Boton1_click abre Formulario2 como modal
+    comprobar(vistos == ["Ana"], "modal: los datos de ida llegan a Formulario2_cargar %r" % (vistos,))
+    comprobar(ns["Etiqueta2"].texto == "Hola, Luis", "modal: mostrar(modal=True) devuelve lo de cerrar(valor): %r" % ns["Etiqueta2"].texto)
+    tk._raiz_padrao().after(300, lambda: ns["Boton3"].pulsar())
+    ns["Boton1"].pulsar()
+    comprobar(ns["Etiqueta2"].texto == "(cancelado)", "modal: cerrar() sin valor devuelve None y se puede volver a abrir")
+    tk._raiz_padrao().after(300, lambda: f2._cerrar())
+    comprobar(f2.mostrar(modal=True) is None, "modal: la X de la ventana devuelve None")
+    comprobar(f2._oculto and not f2._cerrado, "modal: un formulario secundario se oculta, no se destruye")
+    cerrar_todo()
+
+    # --- anclajes: el formulario crece y los controles se ajustan
+    f = vps.Formulario("Anclas", 300, 200)
+    marco = vps.Marco(f, "M", 10, 10, 200, 100, nombre="M1", anclaje="izq|arr|der|abj")
+    dentro = vps.Boton(marco, "ok", 150, 70, 40, 20, nombre="BD", anclaje="der|abj")
+    abajo = vps.Boton(f, "abajo", 10, 170, 80, 24, nombre="B1", anclaje="izq|abj")
+    ancho = vps.CuadroTexto(f, "", 10, 150, 280, 20, nombre="T1", anclaje="izq|der|arr")
+    quieto = vps.Etiqueta(f, "q", 5, 5, 40, 16, nombre="Q")
+    f.ancho = 400
+    f.alto = 300
+    comprobar((marco.ancho, marco.alto) == (300, 200), "anclaje: el Marco con las cuatro se estira %r" % ((marco.ancho, marco.alto),))
+    comprobar((dentro.x, dentro.y) == (250, 170), "anclaje: el hijo del Marco sigue la esquina %r" % ((dentro.x, dentro.y),))
+    comprobar((abajo.x, abajo.y) == (10, 270), "anclaje: izq|abj baja con el borde %r" % ((abajo.x, abajo.y),))
+    comprobar((ancho.ancho, ancho.y) == (380, 150), "anclaje: izq|der|arr se estira a lo ancho %r" % ((ancho.ancho, ancho.y),))
+    comprobar((quieto.x, quieto.y, quieto.ancho) == (5, 5, 40), "anclaje: sin anclaje no cambia")
+    f.ancho = 300
+    f.alto = 200
+    comprobar((abajo.y, ancho.ancho, dentro.x) == (170, 280, 150), "anclaje: al volver a achicar vuelve donde estaba")
+    cerrar_todo()
+
+    # --- orden de tabulación
+    f = vps.Formulario("Tab", 300, 120)
+    b1 = vps.Boton(f, "uno", 10, 10, nombre="B1", orden_tab=2)
+    b2 = vps.Boton(f, "dos", 100, 10, nombre="B2", orden_tab=1)
+    b3 = vps.Boton(f, "tres", 190, 10, nombre="B3", orden_tab=3)
+    f.mostrar()
+    orden = [c.nombre for w in tk._focaveis(f.win, []) for c in (b1, b2, b3) if c.w is w]
+    comprobar(orden == ["B2", "B1", "B3"], "orden de tabulación: por orden_tab %r" % (orden,))
+    cerrar_todo()
+
+    # --- fuentes: tamaño con escalado suave, negrita
+    comprobar(_fuente.es_nativa("") and _fuente.es_nativa("DejaVu Sans 12") and not _fuente.es_nativa("DejaVu Sans 14"),
+              "fuente: 12 es la normal")
+    fam, tam, neg, cur, sub = _fuente.analizar("DejaVu Sans 18 negrita subrayado")
+    comprobar((fam, tam, neg, sub) == ("DejaVu Sans", 18, True, True), "fuente: se analiza familia, tamaño y estilo")
+    f = vps.Formulario("Fuentes", 300, 120)
+    e0 = vps.Etiqueta(f, "Hola", 10, 10, 120, 40, nombre="E0")
+    e1 = vps.Etiqueta(f, "Hola", 10, 50, 120, 40, nombre="E1", fuente="DejaVu Sans 24 negrita")
+    b = vps.Boton(f, "Grande", 140, 10, 140, 50, nombre="B", fuente="Sans 20")
+    comprobar(e0._foto is None and e1._foto is not None, "fuente: la Etiqueta con fuente usa una imagen")
+    comprobar(e1._foto.width() == 2 * (4 * 8 + 1) and e1._foto.height() == 32,
+              "fuente: 24 duplica el tamaño (%dx%d)" % (e1._foto.width(), e1._foto.height()))
+    comprobar(b._foto is not None and b._foto.height() > 16, "fuente: el Boton escala su texto")
+    e1.fuente = ""
+    comprobar(e1._foto is None, "fuente: vaciarla devuelve el texto normal")
+    cerrar_todo()
+
+    # --- refactorización por tokens
+    cod = ('def Boton1_click():\n    Boton1.texto = "Boton1 listo"  # Boton1\n    otro.Boton1 = 3\n'
+           '    print(f"{Boton1.texto} {{Boton1}}")\n    g(Boton1=2)\n')
+    nuevo, cambios, conf = _refactor.renombrar(cod, "Boton1", "Aceptar", ["click"])
+    comprobar("def Aceptar_click():" in nuevo and "Aceptar.texto = " in nuevo, "renombrar: manejador y referencia")
+    comprobar('"Boton1 listo"' in nuevo and "# Boton1" in nuevo, "renombrar: respeta cadenas y comentarios")
+    comprobar("otro.Boton1" in nuevo and "g(Boton1=2)" in nuevo and "{{Boton1}}" in nuevo, "renombrar: respeta atributos, argumentos y llaves dobles")
+    comprobar('f"{Aceptar.texto}' in nuevo, "renombrar: cambia lo de dentro de una f-cadena")
+    comprobar([c[0] for c in cambios] == [1, 2, 4], "renombrar: lista de líneas cambiadas %r" % ([c[0] for c in cambios],))
+    comprobar(_refactor.renombrar("Boton1.x = 1\n", "Boton1", "Aceptar", ["click"])[2] == [], "renombrar: sin conflicto")
+    comprobar(_refactor.renombrar("Aceptar.x = 1\nBoton1.x = 2\n", "Boton1", "Aceptar", [])[2] == ["Aceptar"],
+              "renombrar: avisa si el nombre nuevo ya existe")
+    comprobar(_refactor.renombrar("def Aceptar_click(): pass\ndef Boton1_click(): pass\n", "Boton1", "Aceptar", ["click"])[2] == ["Aceptar_click"],
+              "renombrar: avisa si el manejador nuevo ya existe")
+
+    # --- autocompletado
+    forms = [{"nombre": "Formulario", "props": {}, "controles": [
+        {"tipo": "Boton", "nombre": "Boton1", "padre": None, "props": {}},
+        {"tipo": "Lista", "nombre": "Lista1", "padre": None, "props": {}}]}]
+    pre, cand = AC.candidatos("    Boton1.", forms, "Formulario")
+    nombres = [c[0] for c in cand]
+    comprobar(pre == "" and "texto" in nombres and "pulsar" in nombres and "conectar(\"click\", " in nombres,
+              "autocompletar: Boton1. ofrece propiedades, métodos y eventos")
+    pre, cand = AC.candidatos("x = Boton1.te", forms, "Formulario")
+    comprobar(pre == "te" and [c[0] for c in cand] == ["texto"], "autocompletar: filtra por lo escrito")
+    pre, cand = AC.candidatos("vps.ms", forms, "Formulario")
+    comprobar([c[0] for c in cand] == ["msgbox"], "autocompletar: vps. ofrece la API")
+    pre, cand = AC.candidatos("    Formulario.", forms, "Formulario")
+    comprobar("Boton1" in [c[0] for c in cand] and "mostrar" in [c[0] for c in cand], "autocompletar: un formulario ofrece sus controles y métodos")
+    comprobar("agregar(texto)" in AC.ayuda_llamada("Lista1.agregar(", forms), "ayuda: la firma de Lista1.agregar")
+    comprobar("msgbox(texto" in AC.ayuda_llamada("x = vps.msgbox(", forms), "ayuda: la firma de vps.msgbox")
+    comprobar(AC.candidatos("# Boton1.", forms, "Formulario")[1] == [], "autocompletar: nada en un comentario")
+
+    # --- depurador: instrumentar, parar en un punto y paso a paso
+    fuente = ('def f(a):\n    b = a * 2\n    c = (b +\n         1)\n    """texto\n    largo"""\n    return c\n'
+              '\nr = f(3)\ns = r + 1\n')
+    marcadas = D.lineas_de_sentencia(fuente)
+    comprobar(marcadas == [2, 3, 5, 7, 9, 10], "depurador: solo las sentencias, no las continuaciones %r" % (marcadas,))
+    ses = D.Sesion(fuente, puntos=(3,), decisor=lambda n, v: "continuar")
+    ns2 = {D.NOMBRE: ses.hook}
+    exec(compile(ses.codigo, "codigo.py", "exec"), ns2)
+    comprobar(ns2["s"] == 8 and [p[0] for p in ses.paradas] == [3], "depurador: el código instrumentado funciona y para en la línea 3")
+    vs = dict(ses.paradas[0][1])
+    comprobar(vs.get("a") == "3" and vs.get("b") == "6", "depurador: enseña las variables locales %r" % (vs,))
+    ses = D.Sesion(fuente, paso=True, decisor=lambda n, v: "paso")
+    ns2 = {D.NOMBRE: ses.hook}
+    exec(compile(ses.codigo, "codigo.py", "exec"), ns2)
+    comprobar([p[0] for p in ses.paradas] == [9, 2, 3, 5, 7, 10], "depurador: paso a paso recorre las sentencias en orden %r" % ([p[0] for p in ses.paradas],))
+    ses = D.Sesion(fuente)
+    comprobar(D.linea_original(ses.mapa, 3) == 2 and D.linea_original(ses.mapa, 1) == 1, "depurador: el mapa devuelve las líneas originales")
+    h = _historial.Historial()
+    h.punto("a")
+    h.punto("b")
+    comprobar(h.paso_atras("c") == "b" and h.paso_adelante("b") == "c" and h.paso_atras("d") == "b", "historial: deshacer y rehacer")
+
+
+class _Ev:
+    """Un evento de ratón falso para llamar a los manejadores de los controles sin el ratón."""
+    def __init__(self, x, y):
+        self.x, self.y, self.delta, self.keysym, self.char, self.state = x, y, 0, "", "", 0
+
+
+def componentes():
+    """Los componentes de la v8.3.2 (D303): Pestanas, Tabla, Numerico, Lienzo, Enlace, BarraEstado,
+    SelectorColor, Reloj y Archivo, sus ejemplos y el autocompletado de sintaxis."""
+    from vps import _autocompletar as AC
+    # --- el cronómetro: el Temporizador hace avanzar la hora
+    import sagui
+    import tkinter
+    ns = proyecto_de("cronometro")
+    ns["Formulario"].mostrar()
+    ns["Boton1"].pulsar()
+    fin = sagui.ticks_ms() + 700
+    while sagui.ticks_ms() < fin:
+        tkinter._iteracao(False)
+        sagui.dormir(20)
+    comprobar(ns["Etiqueta1"].texto != "00:00.0" and ns["Boton1"].texto == "Parar", "cronómetro: el Temporizador dispara tic %r" % ns["Etiqueta1"].texto)
+    cerrar_todo()
+
+    # --- Pestanas: solo se ven los controles de la página elegida
+    ns = proyecto_de("pestanas")
+    p = ns["Pestanas1"]
+    comprobar(p.seleccion == 0 and ns["CuadroTexto1"].w._gestor is not None and ns["Casilla1"].w._gestor is None,
+              "pestañas: al principio solo se ve la página 0")
+    tr = vps._pest_tramos(p.elementos)
+    p._clic(_Ev(tr[1][0] + 4, 8))
+    comprobar(p.seleccion == 1 and ns["Casilla1"].w._gestor is not None and ns["CuadroTexto1"].w._gestor is None,
+              "pestañas: un clic en la segunda cambia de página")
+    comprobar(ns["Etiqueta3"].texto == "Página: Opciones (1)", "pestañas: el evento cambio %r" % ns["Etiqueta3"].texto)
+    p.seleccion = 2
+    comprobar(p.valor == "Acerca de" and ns["Etiqueta2"].w._gestor is not None, "pestañas: seleccion por código")
+    p.seleccion = 9
+    comprobar(p.seleccion == 2, "pestañas: la selección se limita a las páginas que hay")
+    p._clic(_Ev(20, 80))        # un clic en el cuerpo no cambia nada
+    comprobar(p.seleccion == 2, "pestañas: un clic en el cuerpo no cambia de página")
+    cerrar_todo()
+
+    # --- Tabla
+    ns = proyecto_de("tabla")
+    t = ns["Tabla1"]
+    comprobar(t.contar() == 4 and t.columnas == ["Nombre", "Edad", "Ciudad"] and t.filas[1] == ["Luis", "25", "Sevilla"],
+              "tabla: columnas y filas desde el diseñador")
+    t._pulsado(2, 1)
+    comprobar(t.seleccion == 2 and t.valor[0] == "Marta" and ns["Etiqueta1"].texto == "Elegida: Marta, 42, Bilbao",
+              "tabla: un clic elige la fila y dispara seleccion %r" % ns["Etiqueta1"].texto)
+    t._pulsado(-1, 1)
+    comprobar([f[0] for f in t.filas] == ["Pablo", "Luis", "Ana", "Marta"] and t.seleccion == 3, "tabla: clic en la cabecera ordena (la elegida se sigue) %r" % ([f[0] for f in t.filas],))
+    t._pulsado(-1, 1)
+    comprobar(t.filas[0][0] == "Marta", "tabla: otro clic ordena al revés")
+    t.agregar(["Eva", 7, "Leon"])
+    t.poner_celda(0, 2, "Vigo")
+    comprobar(t.contar() == 5 and t.celda(0, 2) == "Vigo", "tabla: agregar y poner_celda")
+    t.w.editar(1, 0)
+    t.w.ent[0].delete(0, "end")
+    t.w.ent[0].insert(0, "Zoe")
+    t.w.cerrar_edicion(True)
+    comprobar(t.celda(1, 0) == "Zoe" and ns["Etiqueta1"].texto == "Celda cambiada", "tabla: editar una celda y evento cambio")
+    t.quitar(0)
+    comprobar(t.contar() == 4, "tabla: quitar")
+    ns["Boton3"].pulsar()
+    t.limpiar()
+    t.cargar_csv("/tmp/personas.csv")
+    comprobar(t.columnas == ["Nombre", "Edad", "Ciudad"] and t.contar() == 4, "tabla: guardar_csv y cargar_csv dan lo mismo %r" % (t.filas,))
+    cerrar_todo()
+
+    # --- Numerico
+    ns = proyecto_de("numerico")
+    n1, n2 = ns["Numerico1"], ns["Numerico2"]
+    ns["Formulario"].mostrar()
+    comprobar(n1.valor == 2 and n2.valor == 9.5 and ns["Etiqueta3"].texto == "Total: 19.00", "numerico: valores iniciales y total %r" % ns["Etiqueta3"].texto)
+    n1.w.invoke("buttonup")
+    comprobar(n1.valor == 3 and ns["Etiqueta3"].texto == "Total: 28.50", "numerico: la flecha de arriba sube y dispara cambio %r" % ns["Etiqueta3"].texto)
+    n1.valor = 99
+    comprobar(n1.w.get() == "99", "numerico: por código se escribe el valor tal cual")
+    n1.w.invoke("buttonup")
+    comprobar(n1.valor == 10, "numerico: no pasa del máximo")
+    n2.w.invoke("buttondown")
+    comprobar(n2.valor == 9.0, "numerico: paso 0.5 con decimales %r" % (n2.valor,))
+    cerrar_todo()
+
+    # --- Lienzo
+    ns = proyecto_de("lienzo")
+    ns["Formulario"].mostrar()
+    lz = ns["Lienzo1"]
+    antes = len(lz.w.find_all())
+    lz.raton_x, lz.raton_y = 10, 10
+    lz._raton(_Ev(10, 10), "click")
+    lz._raton(_Ev(50, 60), "arrastrar")
+    comprobar(len(lz.w.find_all()) == antes + 1 and lz.raton_x == 50, "lienzo: click y arrastrar dibujan una línea %d" % (len(lz.w.find_all()) - antes))
+    lz._raton(_Ev(50, 60), "soltar")
+    lz._raton(_Ev(80, 80), "arrastrar")
+    comprobar(len(lz.w.find_all()) == antes + 1, "lienzo: tras soltar no se sigue dibujando")
+    lz.imagen(4, 4, "/imagenes/sagui.bmp")
+    lz.limpiar()
+    comprobar(len(lz.w.find_all()) == 0, "lienzo: limpiar")
+    ns["Boton1"].pulsar()
+    comprobar(len(lz.w.find_all()) == 4, "lienzo: el botón Borrar vuelve al dibujo inicial")
+    cerrar_todo()
+
+    # --- Enlace, BarraEstado, SelectorColor
+    ns = proyecto_de("enlace")
+    ns["Enlace1"]._disparar("click")
+    comprobar(ns["Etiqueta1"].texto == "Abrirías: /ayuda/visualpythons.md", "enlace: click y url")
+    cerrar_todo()
+    ns = proyecto_de("barra-estado")
+    ns["CuadroTexto1"].texto = "hola\nmundo"
+    comprobar(ns["BarraEstado1"].elementos == ["10 letras", "2 líneas"] and ns["BarraEstado1"].texto == "Editando",
+              "barra de estado: poner cambia los paneles %r" % (ns["BarraEstado1"].elementos,))
+    ns["BarraEstado1"].poner(3, "x")
+    comprobar(len(ns["BarraEstado1"].elementos) == 4, "barra de estado: poner amplía los paneles")
+    cerrar_todo()
+    ns = proyecto_de("selector-color")
+    s = ns["SelectorColor1"]
+    comprobar(s.valor == 0x0000FF, "selector de color: valor inicial")
+    s._p["valor"] = 0xFF0000
+    s._aplicar("valor")
+    s._disparar("cambio")
+    comprobar(ns["Etiqueta3"].color == 0xFF0000 and s.valor == 0xFF0000, "selector de color: el evento cambio")
+    cerrar_todo()
+
+    # --- Reloj y Archivo
+    ns = proyecto_de("reloj")
+    r = ns["Reloj1"]
+    comprobar(r.anio >= 2024 and 1 <= r.mes <= 12 and len(r.hora_texto) == 8 and len(r.fecha) == 10, "reloj: fecha y hora %s %s" % (r.fecha, r.hora_texto))
+    comprobar(r.formatear("%d/%m/%Y").count("/") == 2 and r.nombre_dia in ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"),
+              "reloj: formatear y nombre_dia")
+    ns["Formulario"].mostrar()
+    comprobar(len(ns["Etiqueta1"].texto) == 8 and ns["Etiqueta1"].texto[2] == ":", "reloj: Formulario_cargar muestra la hora")
+    cerrar_todo()
+    ns = proyecto_de("archivo")
+    a = ns["Archivo1"]
+    a.borrar()
+    comprobar(not a.existe() and a.leer() == "", "archivo: sin archivo, leer da texto vacío")
+    ns["CuadroTexto1"].texto = "uno\ndos\ntres"
+    ns["Boton1"].pulsar()
+    comprobar(a.existe() and a.leer() == "uno\ndos\ntres" and ns["Etiqueta1"].texto == "Guardado (12 letras)", "archivo: escribir y leer")
+    ns["Boton3"].pulsar()
+    comprobar(ns["Etiqueta1"].texto == "El archivo tiene 3 líneas", "archivo: leer_lineas")
+    a.agregar("\ncuatro")
+    comprobar(a.leer_lineas() == ["uno", "dos", "tres", "cuatro"], "archivo: agregar")
+    a.escribir_csv([["a", "b;c", "d"], [1, 2, 3]])
+    comprobar(a.leer_csv() == [["a", "b;c", "d"], ["1", "2", "3"]], "archivo: CSV con comillas %r" % (a.leer_csv(),))
+    a.borrar()
+    cerrar_todo()
+    for nombre in ("validar-entrada", "abrir-guardar"):
+        ns = proyecto_de(nombre)
+        comprobar(len(ns["Formulario"].controles) >= 4, "ejemplo %s: se construye" % nombre)
+        cerrar_todo()
+
+    # --- autocompletado de sintaxis
+    forms = [{"nombre": "Formulario", "props": {}, "controles": [
+        {"tipo": "Boton", "nombre": "Boton1", "padre": None, "props": {}}]}]
+    codigo = 'def sumar(a, b):\n    """Suma dos numeros"""\n    total = a + b\n    return total\n\nresultado = 5\nclass Perro:\n    pass\n'
+    pre, cand = AC.candidatos("wh", forms, "Formulario", codigo, 99)
+    comprobar([c[0] for c in cand] == ["while"] and cand[0][1] == "palabra", "sintaxis: una palabra clave (wh -> while)")
+    pre, cand = AC.candidatos("    pri", forms, "Formulario", codigo, 99)
+    comprobar([c[0] for c in cand] == ["print"] and cand[0][1] == "integrada", "sintaxis: una función integrada (pri -> print)")
+    pre, cand = AC.candidatos("x = res", forms, "Formulario", codigo, 99)
+    comprobar([c[0] for c in cand] == ["resultado"] and cand[0][1] == "variable", "sintaxis: una variable del propio código")
+    pre, cand = AC.candidatos("su", forms, "Formulario", codigo, 99)
+    comprobar("sumar" in [c[0] for c in cand], "sintaxis: funciones del programa")
+    pre, cand = AC.candidatos("Pe", forms, "Formulario", codigo, 99)
+    comprobar([c[0] for c in cand] == ["Perro"], "sintaxis: una clase del propio código")
+    pre, cand = AC.candidatos("t", forms, "Formulario", codigo, 99)
+    comprobar(cand == [], "sintaxis: con un solo carácter no se ofrece nada")
+    pre, cand = AC.candidatos("t", forms, "Formulario", codigo, 99, 0)
+    comprobar(len(cand) > 3, "sintaxis: Ctrl+Espacio ofrece con un carácter")
+    pre, cand = AC.candidatos('x = "while', forms, "Formulario", codigo, 99)
+    comprobar(cand == [], "sintaxis: nada dentro de un texto")
+    pre, cand = AC.candidatos("Boton1", forms, "Formulario", codigo, 99)
+    comprobar(cand == [], "sintaxis: lo ya escrito entero no se vuelve a ofrecer")
+    comprobar("sumar(a, b)" in AC.ayuda_llamada("x = sumar(", forms, codigo) and "Suma dos numeros" in AC.ayuda_llamada("sumar(1,", forms, codigo),
+              "sintaxis: la firma de una función del usuario con su ayuda")
+    comprobar("len(x)" in AC.ayuda_llamada("n = len(", forms, codigo), "sintaxis: la firma de una integrada")
+    t, desp = AC.expandir_snippet("def", "    ")
+    comprobar(t == "def ():\n        pass" and desp == 4, "sintaxis: la plantilla def deja el cursor en el nombre %r" % (t,))
+    comprobar(AC.expandir_snippet("for", "")[0].startswith("for  in range(10):") and AC.expandir_snippet("xyz") is None, "sintaxis: plantillas for y desconocida")
+    comprobar(AC.en_texto("a = 'b") and AC.en_texto("a # c") and not AC.en_texto("a = 'b'"), "sintaxis: dentro de un texto o comentario")
+    comprobar(set(AC.SNIPPETS) >= set(["def", "if", "for", "while", "try", "class"]), "sintaxis: plantillas def if for while try class")
+    comprobar("tecla" in [m[0] for m in AC.miembros("Formulario")] and "raton_x" in [m[0] for m in AC.miembros("Lienzo")]
+              and "cargar_csv" in [m[0] for m in AC.miembros("Tabla")], "autocompletar: miembros de los componentes nuevos")
 
 
 if __name__ == "__main__":

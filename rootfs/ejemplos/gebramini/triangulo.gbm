@@ -1,0 +1,45 @@
+# GebraMini - Triángulo y sus rectas notables (D309)
+# Mueve A, B o C con la herramienta «Mover»: circuncentro (O), baricentro (G), ortocentro (H) e
+# incentro (I) se recalculan. Los cuatro puntos notables están en una misma recta (la de Euler)
+# cuando el triángulo no es equilátero: O, G y H.
+vista 1.5 1.5 44
+A = (-2, -1)
+B = (5, 0)
+C = (1, 5)
+t = Poligono(A, B, C)
+# mediatrices y circuncentro
+ma1 = Mediatriz(A, B)
+ma2 = Mediatriz(B, C)
+O = Interseca(ma1, ma2, 1)
+c = Circunferencia(O, A)
+# medianas y baricentro
+Ma = PuntoMedio(B, C)
+Mb = PuntoMedio(A, C)
+mA = Segmento(A, Ma)
+mB = Segmento(B, Mb)
+G = Interseca(mA, mB, 1)
+# alturas y ortocentro
+rBC = Recta(B, C)
+rAC = Recta(A, C)
+hA = Perpendicular(A, rBC)
+hB = Perpendicular(B, rAC)
+H = Interseca(hA, hB, 1)
+# bisectrices e incentro
+bA = Bisectriz(B, A, C)
+bB = Bisectriz(C, B, A)
+I = Interseca(bA, bB, 1)
+euler = Recta(O, H)
+propiedades ma1: color=2255cc grosor=1 estilo=1 rotulo=0 visible=1
+propiedades ma2: color=2255cc grosor=1 estilo=1 rotulo=0 visible=1
+propiedades mA: color=228822 grosor=2 estilo=0 rotulo=0 visible=1
+propiedades mB: color=228822 grosor=2 estilo=0 rotulo=0 visible=1
+propiedades hA: color=cc2222 grosor=1 estilo=1 rotulo=0 visible=1
+propiedades hB: color=cc2222 grosor=1 estilo=1 rotulo=0 visible=1
+propiedades bA: color=e07000 grosor=1 estilo=2 rotulo=0 visible=1
+propiedades bB: color=e07000 grosor=1 estilo=2 rotulo=0 visible=1
+propiedades rBC: color=808080 grosor=1 estilo=1 rotulo=0 visible=0
+propiedades rAC: color=808080 grosor=1 estilo=1 rotulo=0 visible=0
+propiedades euler: color=6a2ab0 grosor=2 estilo=0 rotulo=0 visible=1
+propiedades c: color=2255cc grosor=1 estilo=0 rotulo=0 visible=1
+propiedades Ma: color=444444 grosor=2 estilo=0 rotulo=0 visible=1
+propiedades Mb: color=444444 grosor=2 estilo=0 rotulo=0 visible=1

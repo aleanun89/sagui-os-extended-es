@@ -15,11 +15,12 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 import vps
-from vps import proyecto as P, plantillas, _modelo as M
+from vps import proyecto as P, plantillas, _modelo as M, _historial as H, _refactor as R, _depurador as D
+from vps import _datos
 from vps._superficie import Superficie, Caja, Propiedades, GRIS
 from vps._editor import Editor, nombres_de_codigo, eventos_de, evento_defecto
 
-VERSION = "1.0"
+VERSION = "2.0"
 NOMBRES_COLOR = [("Negro", 0x000000), ("Blanco", 0xFFFFFF), ("Gris", 0x808080), ("Plata", 0xC0C0C0),
                  ("Rojo", 0xFF0000), ("Verde", 0x008000), ("Azul", 0x0000FF), ("Amarillo", 0xFFFF00),
                  ("Naranja", 0xFFA500), ("Morado", 0x800080), ("Marrón", 0x804020), ("Rosa", 0xFFC0CB),
@@ -100,6 +101,8 @@ def analizar(texto, tipo):
     t = texto.strip()
     if tipo == "int":
         return int(t)
+    if tipo == "num":
+        return float(t) if ("." in t or "e" in t.lower()) else int(t)
     if tipo == "bool":
         if t.lower() in ("si", "sí", "true", "verdadero", "1"):
             return True
@@ -135,13 +138,20 @@ class App:
         self.proy = {"forms": [], "carpeta": None, "modificado": False, "idx": 0}
         self.sonda = sonda
         self._f12 = False
+        self.hist = H.Historial()
+        self.confirmar_auto = None    # para las pruebas: True o False en vez de preguntar
+        self.sesion = None            # la ejecución depurada en curso
+        self.mapa_lineas = None
+        self.ejecutando = False
         self._crear_menus()
         self._crear_ventana()
         self.editor = Editor(self)
         vps.error_hook = self.error_en_ejecucion
         self.raiz.protocol("WM_DELETE_WINDOW", self.salir)
         for k, f in (("<F5>", self.ejecutar), ("<F7>", self.ver_codigo), ("<F12>", self.sonda_f12),
-                     ("<Control-s>", self.guardar), ("<Control-o>", self.abrir)):
+                     ("<F8>", self.depurar_paso), ("<F9>", self.punto_parada),
+                     ("<Control-s>", self.guardar), ("<Control-o>", self.abrir),
+                     ("<Control-z>", self.deshacer), ("<Control-y>", self.rehacer)):
             self.raiz.bind(k, lambda e, f=f: f())
         self.nuevo(plantillas.vacia)
         if abrir:
@@ -159,6 +169,50 @@ class App:
     def titulo_proyecto(self):
         c = self.proy["carpeta"]
         return c.rstrip("/").rpartition("/")[2] if c else "Proyecto1"
+
+    # ------------------------------------------------------------ deshacer y rehacer (D299)
+    def foto(self):
+        """Una copia de todo lo editable: formularios, formulario actual, selección y código."""
+        return {"forms": H.copiar_forms(self.proy["forms"]), "idx": self.proy["idx"],
+                "sel": [c["nombre"] for c in self.sel], "codigo": self.editor.texto()}
+
+    def punto(self):
+        """Se llama ANTES de cada cambio: guarda la foto a la que volverá Ctrl+Z."""
+        self.hist.punto(self.foto())
+
+    def descartar_si_igual(self):
+        """Tras arrastrar: si no se movió nada, quita el paso vacío del historial."""
+        u = self.hist.ultimo()
+        if u is not None and u["forms"] == self.proy["forms"] and u["codigo"] == self.editor.texto():
+            self.hist.descartar_ultimo()
+
+    def _restaurar(self, f):
+        self.proy["forms"] = f["forms"]
+        self.proy["idx"] = min(f["idx"], len(f["forms"]) - 1)
+        if f["codigo"] != self.editor.texto():
+            self.editor.poner(f["codigo"], registrar=True)
+        self.sel = [c for c in self.form["controles"] if c["nombre"] in f["sel"]]
+        self.cerrar_edicion()
+        self.cambio(True)
+        self.refrescar_props()
+
+    def deshacer(self, ev=None):
+        f = self.hist.paso_atras(self.foto())
+        if f is None:
+            self.estado("No hay nada que deshacer")
+            return False
+        self._restaurar(f)
+        self.estado("Deshacer")
+        return True
+
+    def rehacer(self, ev=None):
+        f = self.hist.paso_adelante(self.foto())
+        if f is None:
+            self.estado("No hay nada que rehacer")
+            return False
+        self._restaurar(f)
+        self.estado("Rehacer")
+        return True
 
     def marcar_modificado(self):
         self.proy["modificado"] = True
@@ -194,6 +248,9 @@ class App:
         m.add_command(label="Salir", command=self.salir)
         barra.add_cascade(label="Archivo", menu=m)
         e = tk.Menu(barra, tearoff=0)
+        e.add_command(label="Deshacer", command=self.deshacer, accelerator="Ctrl+Z")
+        e.add_command(label="Rehacer", command=self.rehacer, accelerator="Ctrl+Y")
+        e.add_separator()
         e.add_command(label="Cortar", command=self.cortar, accelerator="Ctrl+X")
         e.add_command(label="Copiar", command=self.copiar, accelerator="Ctrl+C")
         e.add_command(label="Pegar", command=self.pegar, accelerator="Ctrl+V")
@@ -207,6 +264,11 @@ class App:
             a.add_command(label=etiqueta, command=lambda modo=modo: self.alinear(modo))
         e.add_cascade(label="Alinear", menu=a)
         barra.add_cascade(label="Edición", menu=e)
+        v = tk.Menu(barra, tearoff=0)
+        v.add_command(label="Ver código", command=self.ver_codigo, accelerator="F7")
+        v.add_command(label="Orden de tabulación...", command=self.orden_tabulacion)
+        v.add_command(label="Formulario siguiente", command=self.formulario_siguiente)
+        barra.add_cascade(label="Ver", menu=v)
         p = tk.Menu(barra, tearoff=0)
         p.add_command(label="Ver código", command=self.ver_codigo, accelerator="F7")
         p.add_command(label="Agregar formulario", command=self.agregar_formulario)
@@ -215,6 +277,10 @@ class App:
         barra.add_cascade(label="Proyecto", menu=p)
         x = tk.Menu(barra, tearoff=0)
         x.add_command(label="Ejecutar", command=self.ejecutar, accelerator="F5")
+        x.add_command(label="Paso a paso", command=self.depurar_paso, accelerator="F8")
+        x.add_command(label="Punto de parada", command=self.punto_parada, accelerator="F9")
+        x.add_command(label="Quitar los puntos de parada", command=lambda: self.editor.quitar_puntos())
+        x.add_separator()
         x.add_command(label="Detener", command=self.detener)
         barra.add_cascade(label="Ejecutar", menu=x)
         h = tk.Menu(barra, tearoff=0)
@@ -278,6 +344,15 @@ class App:
         elif self.sel:
             self.refrescar_props()
 
+    def crear_control(self, tipo, x, y, ancho=None, alto=None, padre=None):
+        """Coloca un control nuevo en el formulario actual (con su paso de deshacer)."""
+        self.punto()
+        c = M.crear(self.proy["forms"], self.form, tipo, x, y, ancho, alto, padre)
+        self.herramienta = "Puntero"
+        self.seleccionar([c])
+        self.cambio(True)
+        return c
+
     def seleccionar(self, lista):
         self.sel = list(lista)
         self.cerrar_edicion()
@@ -308,7 +383,11 @@ class App:
         o = self.objeto()
         tipo = "Formulario" if o is self.form else o["tipo"]
         filas = [("nombre", "str", o["nombre"])]
+        en_pestanas = o is not self.form and o["padre"] and \
+            M.por_nombre(self.form, o["padre"])["tipo"] == "Pestanas"
         for n, t, d in M.props_de(tipo):
+            if n == "pagina" and not en_pestanas:
+                continue        # solo tiene sentido para los controles que están dentro de unas Pestanas
             filas.append((n, t, texto_de(M.val(o, n, tipo), t.split(":")[0])))
         self.props.poner(filas)
         nombres = ["%s %s" % (self.form["nombre"], "Formulario")] + ["%s %s" % (c["nombre"], c["tipo"]) for c in self.form["controles"]]
@@ -344,6 +423,8 @@ class App:
         self.entrada.delete(0, "end")
         self.entrada.insert(0, texto if not texto.startswith("(") else "")
         o = self.objeto()
+        if _datos.editar_propiedad(self, nombre, o):      # mejora 127: origen, tabla, fuente y campo
+            return
         if t == "bool":
             self.aplicar(nombre, not M.val(o, nombre, "Formulario" if o is self.form else o["tipo"]))
         elif t.startswith("enum:"):
@@ -387,25 +468,85 @@ class App:
             return
         self.aplicar(nombre, valor)
 
+    def renombrar(self, o, valor):
+        """Renombra un control (o el formulario) y actualiza su código: los manejadores
+        (Boton1_click -> Aceptar_click) y las referencias (Boton1.texto -> Aceptar.texto), con un
+        análisis de tokens. Antes de aplicar, enseña la lista de cambios. True si se hizo."""
+        viejo = o["nombre"]
+        if valor == viejo:
+            return False
+        if o is self.form:
+            motivo = M.renombrar_valido(self.proy["forms"], o, valor, es_form=True)
+            eventos = list(vps.Formulario.EVENTOS)
+        else:
+            motivo = M.renombrar_valido(self.proy["forms"], o, valor)
+            eventos = list(vps.TIPOS[o["tipo"]].EVENTOS)
+        if motivo:
+            self.estado("Nombre no válido: " + motivo, True)
+            return False
+        codigo = self.editor.texto()
+        nuevo, cambios, conflictos = R.renombrar(codigo, viejo, valor, eventos)
+        if conflictos:
+            self.estado("El código ya tiene %s: elige otro nombre" % ", ".join(conflictos), True)
+            return False
+        if cambios and not self.confirmar_cambios(viejo, valor, cambios):
+            self.estado("Renombrado cancelado")
+            return False
+        self.punto()
+        if o is not self.form:
+            for h in self.form["controles"]:
+                if h["padre"] == viejo:
+                    h["padre"] = valor
+        o["nombre"] = valor
+        if cambios:
+            self.editor.poner(nuevo, registrar=True)
+        self.cambio(True)
+        print("vps: renombrado %s -> %s (%d líneas)" % (viejo, valor, len(cambios)))
+        return True
+
+    def confirmar_cambios(self, viejo, nuevo, cambios):
+        """La lista de cambios que hará el renombrado, para aceptarla o cancelarla."""
+        if self.confirmar_auto is not None:
+            self.ultima_lista = cambios
+            return self.confirmar_auto
+        d = tk.Toplevel(self.raiz, _dialogo=True)
+        d.title("Renombrar %s" % viejo)
+        d.transient(self.raiz)
+        d.resizable(False, False)
+        tk.Label(d, text="«%s» pasa a llamarse «%s». Se cambian %d líneas del código:" % (viejo, nuevo, len(cambios)),
+                 anchor="w").pack(fill="x", padx=8, pady=4)
+        t = tk.Text(d, width=72, height=14)
+        t.pack(padx=8)
+        for n, antes, despues in cambios:
+            t.insert("end", "%3d: %s\n   -> %s\n" % (n, antes.strip()[:64], despues.strip()[:64]))
+        res = []
+
+        def ok():
+            res.append(True)
+            d.destroy()
+        fila = tk.Frame(d, pady=6)
+        fila.pack()
+        b = tk.Button(fila, text="Aceptar", width=10, command=ok)
+        b.pack(side="left", padx=4)
+        tk.Button(fila, text="Cancelar", width=10, command=d.destroy).pack(side="left", padx=4)
+        d.bind("<Return>", lambda e: ok())
+        d.bind("<Escape>", lambda e: d.destroy())
+        d.focus_set()
+        d.grab_set()
+        print("vps: lista de cambios|%d" % len(cambios))
+        d.wait_window(d)
+        return bool(res)
+
     def aplicar(self, nombre, valor):
         objs = self.sel if self.sel else [self.form]
         if nombre == "nombre":
-            o = objs[0]
-            if o is self.form:
-                if valor == "" or not (valor[0].isalpha() or valor[0] == "_"):
-                    self.estado("El nombre no es válido", True)
-                    return
-                o["nombre"] = valor
-            else:
-                motivo = M.renombrar_valido(self.proy["forms"], o, valor)
-                if motivo:
-                    self.estado("Nombre no válido: " + motivo, True)
-                    return
-                for h in self.form["controles"]:
-                    if h["padre"] == o["nombre"]:
-                        h["padre"] = valor
-                o["nombre"] = valor
+            if not self.renombrar(objs[0], valor):
+                return
+        elif nombre == "anclaje" and not self._anclaje_valido(valor):
+            self.estado("Anclaje no válido: usa izq, der, arr, abj separados por |", True)
+            return
         else:
+            self.punto()
             for o in objs:
                 tipo = "Formulario" if o is self.form else o["tipo"]
                 if any(n == nombre for n, t, d in M.props_de(tipo)):
@@ -420,6 +561,11 @@ class App:
             tipo = "Formulario" if o is self.form else o["tipo"]
             v = o["nombre"] if nombre == "nombre" else M.val(o, nombre, tipo)
             self.entrada.insert(0, texto_de(v, self.prop_actual[1].split(":")[0]) if not isinstance(v, bool) else "")
+
+    @staticmethod
+    def _anclaje_valido(v):
+        return all(p in ("izq", "der", "arr", "abj") for p in str(v).replace(",", "|").replace(" ", "").split("|") if p) \
+            and str(v).strip() != ""
 
     def cerrar_edicion(self):
         self.prop_actual = None
@@ -459,6 +605,7 @@ class App:
     def borrar_seleccion(self, ev=None):
         if not self.sel:
             return
+        self.punto()
         for c in list(self.sel):
             M.borrar(self.form, c)
         self.seleccionar([])
@@ -483,6 +630,7 @@ class App:
     def pegar(self, ev=None):
         if not self.portapapeles:
             return
+        self.punto()
         nombres = set(c["nombre"] for c in self.portapapeles)
         mapa = {}
         nuevos = []
@@ -507,6 +655,7 @@ class App:
     def empujar(self, dx, dy, fino):
         if not self.sel:
             return
+        self.punto()
         paso = 1 if fino else M.GRID
         for c in self.sel:
             c["props"]["x"] = max(0, int(M.val(c, "x")) + dx * paso)
@@ -517,6 +666,7 @@ class App:
         if len(self.sel) < 2:
             self.estado("Selecciona dos o más controles (Mayús+clic) para alinear")
             return
+        self.punto()
         ref = self.sel[0]
         rx, ry, rw, rh = int(M.val(ref, "x")), int(M.val(ref, "y")), int(M.val(ref, "ancho")), int(M.val(ref, "alto"))
         for c in self.sel[1:]:
@@ -542,6 +692,7 @@ class App:
 
     # ------------------------------------------------------------ formularios
     def agregar_formulario(self):
+        self.punto()
         n = len(self.proy["forms"]) + 1
         nombres = M.todos_los_nombres(self.proy["forms"])
         while "Formulario%d" % n in nombres:
@@ -559,6 +710,7 @@ class App:
         if self.proy["idx"] == 0:
             self.estado("El formulario principal no se puede quitar", True)
             return
+        self.punto()
         del self.proy["forms"][self.proy["idx"]]
         self.proy["idx"] = 0
         self.seleccionar([])
@@ -601,6 +753,7 @@ class App:
         forms, codigo = fabrica()
         self.proy = {"forms": forms, "carpeta": None, "modificado": False, "idx": 0}
         self.sel = []
+        self.hist.vaciar()
         self.editor.poner(codigo)
         self.editor.actualizar_combos()
         self.seleccionar([])
@@ -615,6 +768,7 @@ class App:
             codigo = ""
         self.detener()
         self.proy = {"forms": forms, "carpeta": carpeta, "modificado": False, "idx": 0}
+        self.hist.vaciar()
         self.editor.poner(codigo)
         self.editor.actualizar_combos()
         self.seleccionar([])
@@ -683,30 +837,124 @@ class App:
         print("vps: generada %s" % destino)
         self.aviso("Aplicación generada en %s.\nAparece en Inicio > Mis aplicaciones." % destino)
 
-    # ------------------------------------------------------------ ejecutar
-    def ejecutar(self):
+    # ------------------------------------------------------------ ejecutar y depurar
+    def ejecutar(self, paso=False):
+        """F5: construye y ejecuta la aplicación dentro de este proceso. Con puntos de parada
+        (F9) o con paso=True (F8), el código se instrumenta y para donde toca."""
         self.detener()
         self.editor.quitar_error()
         ns = P.espacio_nombres()
+        fuente = self.editor.texto()
+        self.sesion = None
+        self.mapa_lineas = None
+        a_ejecutar = fuente
+        if paso or self.editor.puntos:
+            ses = D.Sesion(fuente, self.editor.puntos, paso, self.raiz, getattr(self, "decisor_depurador", None))
+            ses.al_parar = self.editor.marcar_actual
+            ses.globales = ns
+            self.sesion = ses
+            ns[D.NOMBRE] = ses.hook
+            a_ejecutar = ses.codigo
+            self.mapa_lineas = ses.mapa
         try:
             todos = P.construir(self.proy["forms"], ns)
-            fuente = self.editor.texto()
-            exec(compile(fuente, "codigo.py", "exec"), ns)
+            exec(compile(a_ejecutar, "codigo.py", "exec"), ns)
             for f in todos:
                 f._ns = ns
             todos[0].principal = True
             todos[0].mostrar()
+            self.ejecutando = True
             self.estado("Ejecutando...  (cierra la ventana de la aplicación para volver)")
-            print("vps: ejecutando")
+            print("vps: ejecutando" + (" (depurando)" if self.sesion else ""))
         except Exception as e:
             vps.salir()
             self.error(e, "al arrancar")
+
+    def depurar_paso(self):
+        """F8: ejecuta parando en la primera sentencia y sigue paso a paso."""
+        self.ejecutar(paso=True)
+
+    def punto_parada(self):
+        """F9: punto de parada en la línea del cursor del editor de código."""
+        self.editor.alternar_punto()
+        self.ver_codigo()
 
     def detener(self):
         try:
             vps.salir()
         except Exception:
             pass
+        if self.sesion is not None:
+            self.sesion.cerrar()
+            self.sesion = None
+        self.ejecutando = False
+        if hasattr(self, "editor"):
+            self.editor.marcar_actual(None)
+
+    # ------------------------------------------------------------ orden de tabulación
+    def orden_tab_lista(self):
+        """Los nombres de los controles del formulario actual en su orden de tabulación."""
+        cs = self.form["controles"]
+        par = sorted([(int(M.val(c, "orden_tab") or 0), i, c["nombre"]) for i, c in enumerate(cs)],
+                     key=lambda t: (t[0], t[1]))
+        return [t[2] for t in par]
+
+    def fijar_orden_tab(self, nombres):
+        """Asigna orden_tab = 1, 2, 3... según la lista de nombres (los que falten, al final)."""
+        self.punto()
+        resto = [c["nombre"] for c in self.form["controles"] if c["nombre"] not in nombres]
+        for i, n in enumerate(list(nombres) + resto):
+            c = M.por_nombre(self.form, n)
+            if c is not None:
+                c["props"]["orden_tab"] = i + 1
+        self.cambio(True)
+
+    def orden_tabulacion(self):
+        """Ver > Orden de tabulación: una lista de los controles que se sube y se baja."""
+        nombres = self.orden_tab_lista()
+        if not nombres:
+            self.estado("El formulario no tiene controles")
+            return
+        d = tk.Toplevel(self.raiz, _dialogo=True)
+        d.title("Orden de tabulación")
+        d.transient(self.raiz)
+        d.resizable(False, False)
+        tk.Label(d, text="El orden en que el Tab recorre los controles:", anchor="w").pack(fill="x", padx=8, pady=4)
+        lb = tk.Listbox(d, width=34, height=12)
+        lb.pack(padx=8)
+        tipos = dict((c["nombre"], c["tipo"]) for c in self.form["controles"])
+
+        def llenar(sel=0):
+            lb.delete(0, "end")
+            for i, n in enumerate(nombres):
+                lb.insert("end", "%2d  %s (%s)" % (i + 1, n, tipos[n]))
+            lb.selection_set(sel)
+
+        def mover(dd):
+            sel = lb.curselection()
+            if not sel:
+                return
+            i = sel[0]
+            j = i + dd
+            if 0 <= j < len(nombres):
+                nombres[i], nombres[j] = nombres[j], nombres[i]
+                llenar(j)
+        res = []
+
+        def ok():
+            res.append(True)
+            d.destroy()
+        fila = tk.Frame(d, pady=6)
+        fila.pack()
+        tk.Button(fila, text="Subir", width=8, command=lambda: mover(-1)).pack(side="left", padx=3)
+        tk.Button(fila, text="Bajar", width=8, command=lambda: mover(1)).pack(side="left", padx=3)
+        tk.Button(fila, text="Aceptar", width=8, command=ok).pack(side="left", padx=3)
+        tk.Button(fila, text="Cancelar", width=8, command=d.destroy).pack(side="left", padx=3)
+        llenar()
+        d.grab_set()
+        d.wait_window(d)
+        if res:
+            self.fijar_orden_tab(nombres)
 
     def error_en_ejecucion(self, e, donde):
         self.error(e, donde)
@@ -714,6 +962,8 @@ class App:
     def error(self, e, donde):
         t = traza(e)
         n = linea_del_error(t)
+        if n is not None:
+            n = D.linea_original(self.mapa_lineas, n)
         msg = "%s: %s" % (type(e).__name__, e)
         sys.stderr.write("Error en %s:\n%s" % (donde, t))
         print("vps: error|%s|%s|%s" % (donde, n, msg))
@@ -745,8 +995,8 @@ class App:
         s = self.superficie
         ox, oy = s.origen_cliente()
         print("vps-sonda: cliente|%d|%d" % (ox, oy))
-        for t in ("Puntero", "Etiqueta", "Boton", "CuadroTexto", "Casilla", "Opcion", "Lista", "Combo", "Imagen",
-                  "Marco", "Deslizador", "BarraProgreso", "Temporizador", "Menu"):
+        from vps._superficie import HERRAMIENTAS
+        for t in HERRAMIENTAS:
             x, y = self.caja.centro(t)
             print("vps-sonda: herr|%s|%d|%d" % (t, x, y))
         for n, b in self.botones.items():

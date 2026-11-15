@@ -802,6 +802,19 @@ $(B)/userland/bin/visorpdf: $(B)/userland/programas/visorpdf.o $(PDF_OBJ) $(LIBS
 	objcopy --strip-all $@.elf $@
 	@$(PY) $(CHECK_ELF32) $@.elf
 
+# GebraMini (D309, mejora 128): el motor de geometría dinámica y de expresiones con dobles de la
+# FPU x87 (fsin, fpatan...; sin libm), como el motor de PDF. Solo el programa gebramini lo liga.
+GBM_DIR  := userland/gebramini
+GBM_OBJ  := $(patsubst $(GBM_DIR)/%.c,$(B)/$(GBM_DIR)/%.o,$(wildcard $(GBM_DIR)/*.c))
+GBM_HDR  := $(wildcard $(GBM_DIR)/*.h)
+GBM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -I$(GBM_DIR)
+$(B)/$(GBM_DIR)/%.o: $(GBM_DIR)/%.c $(GBM_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(GBM_FLAGS) -c -o $@ $<
+$(B)/userland/programas/gebramini.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -I$(GBM_DIR)
+$(B)/userland/programas/gebramini.o: $(GBM_HDR)
+$(B)/userland/bin/gebramini: $(GBM_OBJ)
+
 # O motor da web do Cipó (081): compila com a x87 (sem -mgeneral-regs-only), como o
 # motor de PDF. O Cipó liga com ele.
 $(B)/$(WEB_DIR)/%.o: $(WEB_DIR)/%.c $(WEB_HDR) $(USER_HDR)
@@ -1083,7 +1096,7 @@ $(B)/ramdisk.sgfs: $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) too
 	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; fi; \
 	mkdir -p "$$d/lib/python"; \
 	cp -r litemonkey/python/litemonkey "$$d/lib/python/"; \
-	rm -rf "$$d/lib/python/litemonkey/__pycache__"; \
+	find "$$d" -type d -name __pycache__ -prune -exec rm -rf {} +; \
 	cp litemonkey/python/lmk "$$d/bin/lmk"; \
 	if [ "$(MICROPYTHON)" = "0" ]; then rm -rf "$$d/lib/python" "$$d/bin/lmk" "$$d/bin/chip8-roms" "$$d/bin/chip8-roms-gui"; fi; \
 	if [ -n "$(FIRMWARE_RAMDISK)" ]; then mkdir -p "$$d/lib/firmware"; cp $(FIRMWARE_RAMDISK) "$$d/lib/firmware/"; fi; \

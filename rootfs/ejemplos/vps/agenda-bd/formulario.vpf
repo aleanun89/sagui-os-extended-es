@@ -1,0 +1,69 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Agenda de contactos'
+  ancho = 540
+  alto = 372
+control ConectorBD ConectorBD1
+  x = 500
+  y = 330
+  tabla = 'contactos'
+control RejillaDatos RejillaDatos1
+  x = 8
+  y = 8
+  ancho = 520
+  alto = 200
+  editable = True
+  fuente = 'ConectorBD1'
+control Marco Marco1
+  x = 8
+  y = 216
+  ancho = 520
+  alto = 112
+  texto = 'Ficha'
+control Etiqueta Etiqueta1 en Marco1
+  x = 10
+  y = 16
+  ancho = 70
+  texto = 'Nombre:'
+control CuadroTexto CuadroTexto1 en Marco1
+  x = 84
+  y = 14
+  ancho = 170
+  fuente = 'ConectorBD1'
+  campo = 'nombre'
+control Etiqueta Etiqueta2 en Marco1
+  x = 10
+  y = 46
+  ancho = 70
+  texto = 'Telefono:'
+control CuadroTexto CuadroTexto2 en Marco1
+  x = 84
+  y = 44
+  ancho = 170
+  fuente = 'ConectorBD1'
+  campo = 'telefono'
+control Etiqueta Etiqueta3 en Marco1
+  x = 270
+  y = 16
+  ancho = 60
+  texto = 'Ciudad:'
+control Combo Combo1 en Marco1
+  x = 334
+  y = 14
+  ancho = 170
+  elementos = ['Madrid', 'Sevilla', 'Lima', 'Bogota']
+  editable = True
+  fuente = 'ConectorBD1'
+  campo = 'ciudad'
+control Casilla Casilla1 en Marco1
+  x = 270
+  y = 46
+  ancho = 120
+  texto = 'Favorito'
+  fuente = 'ConectorBD1'
+  campo = 'favorito'
+control Etiqueta Etiqueta4
+  x = 8
+  y = 336
+  ancho = 480
+  texto = 'Doble clic en una celda para editarla; la barra guarda.'

@@ -1,0 +1,15 @@
+# GebraMini - Parábola con deslizadores (D309)
+# f(x) = a x² + b x + c: mueve los deslizadores a, b y c y mira cómo cambian la gráfica,
+# las raíces (R1, R2) y el vértice (V).
+vista 0 1 38
+a = Deslizador(-3, 3, 0.1, 1)
+b = Deslizador(-5, 5, 0.1, -2)
+c = Deslizador(-6, 6, 0.1, -3)
+f(x) = a * x^2 + b * x + c
+R1 = Raiz(f, 1)
+R2 = Raiz(f, 2)
+V = Extremo(f, 1)
+df(x) = 2 * a * x + b
+propiedades f: color=cc2222 grosor=3 estilo=0 rotulo=0 visible=1
+propiedades df: color=228822 grosor=1 estilo=1 rotulo=0 visible=1
+propiedades V: color=6a2ab0 grosor=4 estilo=0 rotulo=1 visible=1

@@ -58,3 +58,15 @@ de textos y del cliente de correo: Excel 97 / Office clásico simplificado (gris
 **Ver > Asistente IA**, el botón del robot o **F12** abren el panel de agentes con el «Macaco IA»: leer un rango (valores y fórmulas, hasta 400 celdas), escribir
 valores o fórmulas (hasta 80 celdas por llamada, con confirmación que lista las celdas), dar formato a un rango, crear una hoja y ordenar. Las escrituras se deshacen con un
 Ctrl+Z. Acciones rápidas en el menú Herramientas y en el clic derecho: «Explicar estos datos» y «Crear fórmula para...». Detalles en `docs/agentes-ia.md`.
+
+## Fórmulas con ratón, relleno y gráficos incrustados (D311, v8.3.2)
+
+Pedido del mantenedor: señalar celdas al escribir `=` (con colores), arrastrar con `$D$4`, y gráficas embebidas.
+
+- [x] Modo señalar (clic, arrastre, flechas, pestañas de otra hoja), referencias coloreadas con marco y cuadradito, mover y redimensionar el marco, F4
+- [x] Controlador de relleno (4 sentidos, series, listas de días y meses, doble clic), Ctrl+D/Ctrl+R, pegar ajusta relativas, un paso de deshacer
+- [x] Gráficos incrustados: asistente de 3 pasos, 6 tipos, mover/redimensionar, guardar en `.mxs`, PDF como imagen, copiar como imagen
+- [x] Agente `macaco_crear_grafico`
+- Pendiente: rangos de gráficos que sigan a las filas/columnas insertadas, gráfico vectorial en el PDF, tipo fecha para las series, deshacer de gráficos.
+
+Guía con capturas: `docs/macaco.md`. Prueba: `tests/h311_macaco_formulas.py`.

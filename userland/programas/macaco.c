@@ -162,6 +162,8 @@ typedef struct {
     char   **conteudos;
     uint8_t *fmts;          /* formatos de las celdas copiadas */
     bool     vazio;
+    int      l0, c0;        /* de dónde se copió (para ajustar las referencias relativas al pegar, D311) */
+    bool     cortou;        /* se cortó: al pegar las referencias no se ajustan, como en Excel */
 } copia_t;
 
 /* Una serie de un gráfico. */
@@ -170,6 +172,28 @@ typedef struct {
     int32_t valor;
     uint32_t cor;
 } serie_t;
+
+/* Un gráfico incrustado (D311): flota sobre una hoja y se redibuja solo con los datos de su rango. */
+#define GT_COLUMNAS 0
+#define GT_BARRAS   1
+#define GT_LINEAS   2
+#define GT_AREA     3
+#define GT_TARTA    4
+#define GT_XY       5
+#define GT_N        6
+#define GR_MAX      16
+typedef struct {
+    bool ativo;
+    int  folha;                /* la hoja sobre la que flota */
+    int  tipo;                 /* GT_* */
+    int  x, y, w, h;           /* en píxeles de la hoja, desde la esquina de A1 */
+    int  rf, l1, c1, l2, c2;   /* la hoja y el rango de los datos */
+    bool por_filas;            /* las series están en filas (si no, en columnas) */
+    bool tit_ser;              /* la primera fila (o columna) lleva los nombres de las series */
+    bool tit_cat;              /* la primera columna (o fila) lleva los rótulos de las categorías */
+    bool leyenda;
+    char titulo[48];
+} grafico_t;
 
 /* ------------------------------------------------------------ estado */
 
@@ -184,6 +208,19 @@ static bool arrastrando;        /* el ratón está eligiendo el intervalo */
 static bool editando;          /* la celda activa se está escribiendo */
 static char edit_buf[MAC_TEXTO_CEL];
 static int  edit_cur;
+static int  edit_folha;        /* la hoja de la celda que se edita (al señalar puede verse otra, D311) */
+static bool senalando;         /* modo «señalar»: hay una referencia insertada con el ratón o las flechas */
+static int  sen_ini, sen_fim;  /* tramo de edit_buf que ocupa esa referencia */
+static int  sen_l, sen_c;      /* el extremo móvil de lo señalado */
+static int  sen_al, sen_ac;    /* el ancla de lo señalado */
+static int  sen_folha;
+static bool sen_arrasto;       /* el botón sigue apretado: arrastrar amplía el rango */
+static int  rf_modo;           /* arrastre de un marco de referencia: 1 mover, 2 cambiar el tamaño */
+static int  rf_idx, rf_dl, rf_dc;
+static bool preenchendo;       /* se arrastra el controlador de relleno */
+static int  pre_dir, pre_n;    /* hacia dónde (0 abajo, 1 arriba, 2 derecha, 3 izquierda) y cuántas celdas */
+static unsigned pre_ult_ms;    /* instante del último clic en el controlador (para el doble clic) */
+static bool pre_ctrl;          /* Ctrl pulsado al arrastrar el controlador */
 static char caminho[256];
 static bool modificado;
 static char estado[96];        /* el mensaje de la barra de abajo */
@@ -192,6 +229,23 @@ static bool sair_pedido;
 static undo_t desfazer[MAC_UNDO_MAX];
 static int    n_desfazer;
 static copia_t copia;
+
+static grafico_t graficos[GR_MAX];
+static int  graf_sel = -1;      /* el gráfico seleccionado (índice), o -1 */
+static int  gx_modo;            /* arrastre de un gráfico: 1 mover, 2 cambiar el tamaño */
+static int  gr_asa, gr_idx;     /* asa agarrada (0..7) y gráfico */
+static int  gr_mx0, gr_my0;     /* posición del ratón al agarrar */
+static int  gr_ox, gr_oy, gr_ow, gr_oh;   /* el rectángulo original */
+static bool gr_cambio;
+static unsigned gr_ult_ms;      /* para el doble clic sobre un gráfico */
+static int  gr_ult_idx = -1;
+
+static void graficos_limpar(void)
+{
+    memset(graficos, 0, sizeof graficos);
+    graf_sel = -1;
+    gx_modo = 0;
+}
 
 static serie_t series[MAC_SERIE_MAX];
 static int     n_series;
@@ -396,6 +450,8 @@ static bool folha_redimensionar(folha_t *fo, int linhas, int colunas)
     libera(fo->celulas);
     fo->celulas = novo;
     fo->linhas = linhas;
+    for (int c = fo->colunas; c < colunas; c++)      /* D311: las columnas nuevas salían de ancho cero */
+        if (fo->larg_col[c] < 16) fo->larg_col[c] = MAC_LARGCOL;
     fo->colunas = colunas;
     return true;
 }
@@ -442,6 +498,151 @@ static void folha_nova(const char *nome)
     for (int c = 0; c < fo->colunas; c++) fo->larg_col[c] = MAC_LARGCOL;
     livro.n++;
     livro.ativa = livro.n - 1;
+}
+
+/* ------------------------------------------------------------ referencias dentro del texto de una fórmula (D311) */
+
+/* Una referencia («Hoja2!$B$3:D7») tal como está escrita en el texto de una fórmula, con sus «$».
+ * Sirve para colorearlas al editar, moverlas con el ratón, F4 y ajustarlas al rellenar o pegar. */
+typedef struct {
+    int  ini, fim;               /* tramo del texto: [ini, fim) */
+    char folha[MAC_NOME_FOLHA];  /* prefijo «Hoja!» (vacío = sin prefijo) */
+    int  l1, c1, l2, c2;
+    bool ac1, al1, ac2, al2;     /* «$» delante de la columna / de la fila de cada extremo */
+    bool intervalo;
+} reftok_t;
+
+static bool carac_ident(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+/* Lee «[$]COL[$]FILA» en s desde *i. */
+static bool token_celula(const char *s, int *i, int *c, bool *ac, int *l, bool *al)
+{
+    int p = *i;
+    bool a1 = false, a2 = false;
+    if (s[p] == '$') { a1 = true; p++; }
+    int cc = 0, n = 0;
+    while ((s[p] >= 'A' && s[p] <= 'Z') || (s[p] >= 'a' && s[p] <= 'z')) {
+        char ch = (s[p] >= 'a') ? (char)(s[p] - 32) : s[p];
+        cc = cc * 26 + (ch - 'A' + 1);
+        if (++n > 3 || cc > MAC_MAX_COLUNAS) return false;
+        p++;
+    }
+    if (n == 0) return false;
+    if (s[p] == '$') { a2 = true; p++; }
+    int ll = 0, m = 0;
+    while (s[p] >= '0' && s[p] <= '9') {
+        ll = ll * 10 + (s[p] - '0');
+        if (++m > 4 || ll > MAC_MAX_LINHAS) return false;
+        p++;
+    }
+    if (m == 0 || ll < 1) return false;
+    *c = cc - 1; *l = ll - 1; *ac = a1; *al = a2; *i = p;
+    return true;
+}
+
+static bool reftok_ler(const char *s, int i, reftok_t *t)
+{
+    memset(t, 0, sizeof *t);
+    t->ini = i;
+    int p = i;
+    if ((s[p] >= 'A' && s[p] <= 'Z') || (s[p] >= 'a' && s[p] <= 'z') || s[p] == '_') {
+        int q = p, n = 0;
+        while (carac_ident(s[q])) { if (n < MAC_NOME_FOLHA - 1) t->folha[n++] = s[q]; q++; }
+        t->folha[n] = 0;
+        if (s[q] == '!') p = q + 1;
+        else t->folha[0] = 0;
+    }
+    if (!token_celula(s, &p, &t->c1, &t->ac1, &t->l1, &t->al1)) return false;
+    t->c2 = t->c1; t->l2 = t->l1; t->ac2 = t->ac1; t->al2 = t->al1;
+    if (s[p] == ':') {
+        int q = p + 1;
+        if (!token_celula(s, &q, &t->c2, &t->ac2, &t->l2, &t->al2)) return false;
+        t->intervalo = true;
+        p = q;
+    }
+    t->fim = p;
+    return true;
+}
+
+static void reftok_celula(char *dst, int max, int c, bool ac, int l, bool al)
+{
+    char col[8];
+    nome_coluna(col, sizeof col, c);
+    formatar_texto(dst, max, "%s%s%s%d", ac ? "$" : "", col, al ? "$" : "", l + 1);
+}
+
+static void reftok_escrever(char *dst, int max, const reftok_t *t)
+{
+    char a[24], b[24];
+    reftok_celula(a, sizeof a, t->c1, t->ac1, t->l1, t->al1);
+    if (t->intervalo) {
+        reftok_celula(b, sizeof b, t->c2, t->ac2, t->l2, t->al2);
+        formatar_texto(dst, max, "%s%s%s:%s", t->folha, t->folha[0] ? "!" : "", a, b);
+    } else
+        formatar_texto(dst, max, "%s%s%s", t->folha, t->folha[0] ? "!" : "", a);
+}
+
+/* Deja los extremos en orden (arriba-izquierda, abajo-derecha). */
+static void reftok_normalizar(reftok_t *t)
+{
+    if (t->l1 > t->l2) { int x = t->l1; t->l1 = t->l2; t->l2 = x; bool b = t->al1; t->al1 = t->al2; t->al2 = b; }
+    if (t->c1 > t->c2) { int x = t->c1; t->c1 = t->c2; t->c2 = x; bool b = t->ac1; t->ac1 = t->ac2; t->ac2 = b; }
+}
+
+/* Busca las referencias de una fórmula (fuera de las comillas y sin confundirlas con nombres de
+ * función). Devuelve cuántas halló. */
+static int refs_da_formula(const char *s, reftok_t *out, int max)
+{
+    int n = 0;
+    for (int i = 0; s[i] && n < max;) {
+        if (s[i] == '"') { i++; while (s[i] && s[i] != '"') i++; if (s[i]) i++; continue; }
+        char ch = s[i];
+        bool inicio = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || ch == '$';
+        if (inicio && (i == 0 || !(carac_ident(s[i - 1]) || s[i - 1] == '$' || s[i - 1] == '.' || s[i - 1] == '!'))) {
+            reftok_t t;
+            if (reftok_ler(s, i, &t) && !carac_ident(s[t.fim]) && s[t.fim] != '(' && s[t.fim] != '!') {
+                out[n++] = t;
+                i = t.fim;
+                continue;
+            }
+            while (carac_ident(s[i]) || s[i] == '$') i++;
+            continue;
+        }
+        i++;
+    }
+    return n;
+}
+
+/* Copia una fórmula desplazada (dl filas, dc columnas): las referencias relativas se mueven y las
+ * absolutas («$D$4», «D$4», «$D4») se quedan donde están, como al copiar o rellenar en Excel.
+ * Si una referencia se sale de la hoja queda «#REF!». */
+static void ajustar_formula(const char *src, char *dst, int max, int dl, int dc)
+{
+    reftok_t tk[48];
+    int n = refs_da_formula(src, tk, 48);
+    int k = 0, pos = 0;
+    for (int i = 0; i < n && k < max - 1; i++) {
+        int ate = tk[i].ini;
+        while (pos < ate && k < max - 1) dst[k++] = src[pos++];
+        reftok_t t = tk[i];
+        if (!t.ac1) t.c1 += dc;
+        if (!t.al1) t.l1 += dl;
+        if (!t.ac2) t.c2 += dc;
+        if (!t.al2) t.l2 += dl;
+        char txt[64];
+        if (t.c1 < 0 || t.l1 < 0 || t.c2 < 0 || t.l2 < 0 || t.c1 >= MAC_MAX_COLUNAS || t.c2 >= MAC_MAX_COLUNAS ||
+            t.l1 >= MAC_MAX_LINHAS || t.l2 >= MAC_MAX_LINHAS)
+            copia_texto(txt, "#REF!", sizeof txt);
+        else
+            reftok_escrever(txt, sizeof txt, &t);
+        for (int q = 0; txt[q] && k < max - 1; q++) dst[k++] = txt[q];
+        pos = tk[i].fim;
+    }
+    while (src[pos] && k < max - 1) dst[k++] = src[pos++];
+    dst[k] = 0;
 }
 
 /* ------------------------------------------------------------ fórmulas */
@@ -622,7 +823,7 @@ static void parse_argumento(ps_t *ps, ref_t *r, res_t *v)
     *v = res_zero();
     if (parse_ref(ps, r)) {
         pular_espacos(ps);
-        if (*ps->p == ',' || *ps->p == ')') return;   /* es de verdad una referencia */
+        if (*ps->p == ',' || *ps->p == ';' || *ps->p == ')') return;   /* es de verdad una referencia */
     }
     *ps = copia;
     r->intervalo = false;      /* era una expresión, no un intervalo */
@@ -659,14 +860,14 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
     ps->p++;   /* el '(' */
     pular_espacos(ps);
 
-    if (nome_igual(nome, "IF")) {
+    if ((nome_igual(nome, "IF") || nome_igual(nome, "SI"))) {
         res_t cond = avaliar_expr(ps);
         pular_espacos(ps);
-        if (*ps->p == ',') ps->p++;
+        if ((*ps->p == ',' || *ps->p == ';')) ps->p++;
         res_t a = avaliar_expr(ps);
         bool erro_a = ps->erro;
         pular_espacos(ps);
-        if (*ps->p == ',') ps->p++;
+        if ((*ps->p == ',' || *ps->p == ';')) ps->p++;
         res_t b = avaliar_expr(ps);
         bool erro_b = ps->erro;
         pular_espacos(ps);
@@ -687,7 +888,7 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
             parse_argumento(ps, &refs[n], &vals[n]);
             n++;
             pular_espacos(ps);
-            if (*ps->p == ',') { ps->p++; continue; }
+            if ((*ps->p == ',' || *ps->p == ';')) { ps->p++; continue; }
             break;
         }
     }
@@ -700,10 +901,10 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
     int32_t vmin = 2000000000, vmax = -2000000000;
     int cont = 0;
 
-    if (nome_igual(nome, "SUM") || nome_igual(nome, "AVERAGE") || nome_igual(nome, "AVG") ||
-        nome_igual(nome, "MIN") || nome_igual(nome, "MAX") || nome_igual(nome, "COUNT")) {
+    if ((nome_igual(nome, "SUM") || nome_igual(nome, "SUMA")) || nome_igual(nome, "AVERAGE") || nome_igual(nome, "AVG") || nome_igual(nome, "PROMEDIO") ||
+        nome_igual(nome, "MIN") || nome_igual(nome, "MAX") || (nome_igual(nome, "COUNT") || nome_igual(nome, "CONTAR"))) {
         for (int i = 0; i < n; i++) {
-            if (nome_igual(nome, "COUNT")) {
+            if ((nome_igual(nome, "COUNT") || nome_igual(nome, "CONTAR"))) {
                 /* COUNT sólo cuenta las celdas con número. */
                 if (refs[i].intervalo) {
                     for (int l = refs[i].l1; l <= refs[i].l2; l++)
@@ -716,8 +917,8 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
             }
             agregar_numero(&refs[i], &vals[i], &soma, &vmin, &vmax, &cont, ps->prof);
         }
-        if (nome_igual(nome, "SUM")) { r.num = (int32_t)soma; r.vazia = false; return r; }
-        if (nome_igual(nome, "COUNT")) { r.num = cont * 100; r.vazia = false; return r; }
+        if ((nome_igual(nome, "SUM") || nome_igual(nome, "SUMA"))) { r.num = (int32_t)soma; r.vazia = false; return r; }
+        if ((nome_igual(nome, "COUNT") || nome_igual(nome, "CONTAR"))) { r.num = cont * 100; r.vazia = false; return r; }
         if (nome_igual(nome, "MIN")) { r.num = (cont > 0) ? vmin : 0; r.vazia = false; return r; }
         if (nome_igual(nome, "MAX")) { r.num = (cont > 0) ? vmax : 0; r.vazia = false; return r; }
         /* AVERAGE: divide la suma por las celdas, redondeando. */
@@ -731,7 +932,7 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
         return r;
     }
 
-    if (nome_igual(nome, "PRODUCT")) {
+    if ((nome_igual(nome, "PRODUCT") || nome_igual(nome, "PRODUCTO"))) {
         int64_t prod = 100;    /* 1,00 en centésimas */
         for (int i = 0; i < n; i++) {
             if (refs[i].intervalo) {
@@ -765,7 +966,7 @@ static res_t chamar_funcao(ps_t *ps, const char *nome)
         return r;
     }
 
-    if (nome_igual(nome, "ROUND")) {
+    if ((nome_igual(nome, "ROUND") || nome_igual(nome, "REDONDEAR"))) {
         res_t v = vals[0];
         if (refs[0].intervalo) v = valor_intervalo(&refs[0], ps->prof);
         int casas = 0;
@@ -1082,6 +1283,9 @@ static void copiar_intervalo(void)
             copia.conteudos[l * copia.colunas + c] = duplicar_texto(ce && ce->texto ? ce->texto : "");
         }
     copia.vazio = false;
+    copia.l0 = l1;
+    copia.c0 = c1;
+    copia.cortou = false;
     char ref[16];
     nome_ref(ref, sizeof ref, l1, c1);
     registrar("macaco: copiadas %d filas x %d columnas desde %s", copia.linhas, copia.colunas, ref);
@@ -1095,6 +1299,11 @@ static void colar_intervalo(void)
     for (int l = 0; l < copia.linhas; l++)
         for (int c = 0; c < copia.colunas; c++) {
             const char *t = copia.conteudos[l * copia.colunas + c];
+            char ajustada[MAC_TEXTO_CEL];
+            if (t && t[0] == '=' && !copia.cortou) {      /* D311: las referencias relativas se ajustan al sitio nuevo */
+                ajustar_formula(t, ajustada, sizeof ajustada, cel_l - copia.l0, cel_c - copia.c0);
+                t = ajustada;
+            }
             celula_definir(fo, cel_l + l, cel_c + c, t ? t : "");
             celula_t *nc = celula_de(fo, cel_l + l, cel_c + c);
             if (nc && copia.fmts) nc->fmt = copia.fmts[l * copia.colunas + c];
@@ -1103,6 +1312,269 @@ static void colar_intervalo(void)
     recalcular();
     registrar("macaco: pegadas %d filas x %d columnas en %d,%d",
               copia.linhas, copia.colunas, cel_l + 1, cel_c + 1);
+}
+
+/* ------------------------------------------------------------ rellenar (D311) */
+
+/* Listas que se continúan al arrastrar el controlador de relleno: días y meses, en español y en inglés. */
+typedef struct { const char *const *items; int n; } lista_serie_t;
+static const char *const LS_DIAS[]  = { "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo" };
+static const char *const LS_DIAS3[] = { "lun", "mar", "mié", "jue", "vie", "sáb", "dom" };
+static const char *const LS_MESES[] = { "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+                                        "septiembre", "octubre", "noviembre", "diciembre" };
+static const char *const LS_MES3[]  = { "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic" };
+static const char *const LS_DAYS[]  = { "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday" };
+static const char *const LS_DAY3[]  = { "mon", "tue", "wed", "thu", "fri", "sat", "sun" };
+static const char *const LS_MONTHS[] = { "january", "february", "march", "april", "may", "june", "july", "august",
+                                         "september", "october", "november", "december" };
+static const char *const LS_MON3[]  = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
+static const lista_serie_t LISTAS_SERIE[] = {
+    { LS_DIAS, 7 }, { LS_DIAS3, 7 }, { LS_MESES, 12 }, { LS_MES3, 12 },
+    { LS_DAYS, 7 }, { LS_DAY3, 7 }, { LS_MONTHS, 12 }, { LS_MON3, 12 },
+};
+#define N_LISTAS_SERIE ((int)(sizeof LISTAS_SERIE / sizeof LISTAS_SERIE[0]))
+
+static char minuscula(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+
+/* ¿El texto es un elemento de alguna lista? Devuelve la lista y la posición. */
+static bool lista_serie_de(const char *t, int *lista, int *pos)
+{
+    for (int li = 0; li < N_LISTAS_SERIE; li++)
+        for (int i = 0; i < LISTAS_SERIE[li].n; i++) {
+            const char *a = t, *b = LISTAS_SERIE[li].items[i];
+            while (*a && *b && minuscula(*a) == minuscula(*b)) { a++; b++; }
+            if (!*a && !*b) { *lista = li; *pos = i; return true; }
+        }
+    return false;
+}
+
+/* Escribe el elemento i de la lista copiando las mayúsculas del modelo (lunes / Lunes / LUNES). */
+static void lista_serie_texto(char *dst, int max, int lista, int pos, const char *modelo)
+{
+    const lista_serie_t *ls = &LISTAS_SERIE[lista];
+    pos %= ls->n;
+    if (pos < 0) pos += ls->n;
+    copia_texto(dst, ls->items[pos], (size_t)max);
+    bool maius1 = modelo[0] >= 'A' && modelo[0] <= 'Z';
+    bool todo = maius1 && modelo[1] >= 'A' && modelo[1] <= 'Z';
+    if (maius1 && dst[0] >= 'a' && dst[0] <= 'z') dst[0] = (char)(dst[0] - 32);
+    if (todo) for (int i = 1; dst[i]; i++) if (dst[i] >= 'a' && dst[i] <= 'z') dst[i] = (char)(dst[i] - 32);
+}
+
+/* Texto con un número al final («Item 3»): separa el prefijo y el número. */
+static bool texto_con_numero(const char *t, char *pref, int max, int *num)
+{
+    int n = (int)tam_texto(t);
+    int i = n;
+    while (i > 0 && t[i - 1] >= '0' && t[i - 1] <= '9') i--;
+    if (i == n || n - i > 6 || i >= max) return false;
+    memcpy(pref, t, (size_t)i);
+    pref[i] = 0;
+    *num = texto_para_int(t + i);
+    return true;
+}
+
+/* Lo que se rellena: tipo de serie de un tramo de celdas origen. */
+enum { SER_COPIA, SER_NUMERO, SER_LISTA, SER_TEXTNUM };
+typedef struct {
+    int     tipo;
+    int32_t paso;         /* SER_NUMERO: centésimas; SER_TEXTNUM: unidades; SER_LISTA: posiciones */
+    int     lista;
+    int     pos0, pos1;   /* primera y última posición de la lista / número final */
+    int32_t v0, v1;       /* primer y último valor numérico */
+    char    pref[MAC_TEXTO_CEL];
+    char    modelo[24];
+} serie_info_t;
+
+/* Decide cómo se continúa un tramo (n celdas, que empieza en la posición s0 del eje). Con «copiar_forzado»
+ * (Ctrl+D, Ctrl+R) o Ctrl al arrastrar se invierte lo normal, como en Excel: con un solo valor se incrementa
+ * si se pulsa Ctrl y con varios se copia. Los números sin Ctrl: con 1 valor se repite, con 2 o más continúan. */
+static void serie_analizar(folha_t *fo, bool vert, int fixo, int s0, int n, bool ctrl, bool copiar_forzado, serie_info_t *si)
+{
+    memset(si, 0, sizeof *si);
+    si->tipo = SER_COPIA;
+    if (copiar_forzado) return;
+    celula_t *cs[64];
+    if (n > 64) return;
+    for (int i = 0; i < n; i++) {
+        cs[i] = vert ? celula_de(fo, s0 + i, fixo) : celula_de(fo, fixo, s0 + i);
+        if (!cs[i] || !cs[i]->texto) return;
+    }
+    bool todos_num = true;
+    for (int i = 0; i < n; i++)
+        if (!(cs[i]->flags & CEL_NUMERO) || (cs[i]->flags & (CEL_FORMULA | CEL_TEXTO))) todos_num = false;
+    if (todos_num) {
+        bool serie = (n >= 2) != ctrl;      /* 2 o más: serie; con Ctrl se invierte */
+        if (!serie) return;
+        si->tipo = SER_NUMERO;
+        si->v0 = cs[0]->valor;
+        si->v1 = cs[n - 1]->valor;
+        si->paso = (n >= 2) ? (int32_t)div64_64((int64_t)si->v1 - si->v0, n - 1) : 100;
+        return;
+    }
+    bool todos_txt = true;
+    for (int i = 0; i < n; i++)
+        if ((cs[i]->flags & CEL_FORMULA) || !(cs[i]->flags & CEL_TEXTO)) todos_txt = false;
+    if (!todos_txt) return;
+    bool serie = (n >= 2) != ctrl;
+    if (n == 1) serie = !ctrl;               /* un lunes continúa solo; con Ctrl se copia */
+    if (!serie) return;
+    int li, p0, p1;
+    if (lista_serie_de(cs[0]->texto, &li, &p0)) {
+        int lj;
+        if (!lista_serie_de(cs[n - 1]->texto, &lj, &p1) || lj != li) return;
+        si->tipo = SER_LISTA;
+        si->lista = li;
+        si->pos0 = p0; si->pos1 = p1;
+        int len = LISTAS_SERIE[li].n;
+        si->paso = 1;
+        if (n >= 2) {
+            int pb, lx;
+            if (lista_serie_de(cs[1]->texto, &lx, &pb) && lx == li) {
+                int d = ((pb - p0) % len + len) % len;
+                si->paso = d ? d : 1;
+            }
+        }
+        copia_texto(si->modelo, cs[0]->texto, sizeof si->modelo);
+        return;
+    }
+    char pref0[MAC_TEXTO_CEL], pref1[MAC_TEXTO_CEL];
+    int n0, n1;
+    if (texto_con_numero(cs[0]->texto, pref0, sizeof pref0, &n0) &&
+        texto_con_numero(cs[n - 1]->texto, pref1, sizeof pref1, &n1) && compara_texto(pref0, pref1) == 0) {
+        si->tipo = SER_TEXTNUM;
+        copia_texto(si->pref, pref0, sizeof si->pref);
+        si->pos0 = n0; si->pos1 = n1;
+        si->paso = (n >= 2) ? (n1 - n0) / (n - 1) : 1;
+    }
+}
+
+/* El contenido de la celda k del eje, según el tipo de serie. s0..s0+n-1 es el origen. */
+static bool serie_contenido(const serie_info_t *si, int s0, int n, int k, char *dst, int max)
+{
+    int s1 = s0 + n - 1;
+    int64_t pasos = (k > s1) ? (k - s1) : (k - s0);          /* hacia delante, o hacia atrás desde el primero */
+    if (si->tipo == SER_NUMERO) {
+        int64_t v = ((k > s1) ? (int64_t)si->v1 : (int64_t)si->v0) + (int64_t)si->paso * pasos;
+        if (v > 2000000000LL) v = 2000000000LL;
+        if (v < -2000000000LL) v = -2000000000LL;
+        formatar_numero(dst, max, (int32_t)v);
+        return true;
+    }
+    if (si->tipo == SER_LISTA) {
+        int base = (k > s1) ? si->pos1 : si->pos0;
+        lista_serie_texto(dst, max, si->lista, base + si->paso * (int)pasos, si->modelo);
+        return true;
+    }
+    if (si->tipo == SER_TEXTNUM) {
+        int base = (k > s1) ? si->pos1 : si->pos0;
+        int v = base + si->paso * (int)pasos;
+        if (v < 0) v = 0;
+        formatar_texto(dst, (size_t)max, "%s%d", si->pref, v);
+        return true;
+    }
+    return false;
+}
+
+/* El núcleo: rellena a lo largo de un eje (vert = hacia abajo/arriba; si no, derecha/izquierda).
+ * Para cada línea fija f0..f1, el origen es s0..s1 y se llenan «cuantas» celdas hacia delante (adelante)
+ * o hacia atrás. Copia también el formato. Es UN solo paso de deshacer. */
+static void preencher_nucleo(bool vert, int f0, int f1, int s0, int s1, bool adelante, int cuantas, bool ctrl, bool copiar_forzado)
+{
+    folha_t *fo = folha_ativa();
+    int n = s1 - s0 + 1;
+    if (n < 1 || cuantas < 1) return;
+    desfazer_guardar_folha(livro.ativa);
+    for (int f = f0; f <= f1; f++) {
+        serie_info_t si;
+        serie_analizar(fo, vert, f, s0, n, ctrl, copiar_forzado, &si);
+        for (int q = 1; q <= cuantas; q++) {
+            int k = adelante ? s1 + q : s0 - q;
+            if (k < 0 || k >= (vert ? MAC_MAX_LINHAS : MAC_MAX_COLUNAS)) break;
+            int dl = vert ? k : f, dc = vert ? f : k;
+            int j = (((k - s0) % n) + n) % n;               /* qué celda del origen se repite */
+            int ol = vert ? s0 + j : f, oc = vert ? f : s0 + j;
+            celula_t *orig = celula_de(fo, ol, oc);
+            char nuevo[MAC_TEXTO_CEL];
+            nuevo[0] = 0;
+            if (!serie_contenido(&si, s0, n, k, nuevo, sizeof nuevo)) {
+                const char *t = (orig && orig->texto) ? orig->texto : "";
+                if (t[0] == '=') ajustar_formula(t, nuevo, sizeof nuevo, dl - ol, dc - oc);
+                else copia_texto(nuevo, t, sizeof nuevo);
+            }
+            uint8_t fm = orig ? orig->fmt : 0;
+            celula_definir(fo, dl, dc, nuevo);
+            celula_t *dest = celula_de(fo, dl, dc);
+            if (dest) dest->fmt = fm;
+        }
+    }
+    modificado = true;
+    recalcular();
+}
+
+/* Ejecuta un relleno desde la selección actual: dir 0 abajo, 1 arriba, 2 derecha, 3 izquierda. */
+static void preencher_selecao(int dir, int cuantas, bool ctrl)
+{
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    bool vert = dir < 2;
+    bool adelante = (dir == 0 || dir == 2);
+    if (vert) preencher_nucleo(true, c1, c2, l1, l2, adelante, cuantas, ctrl, false);
+    else preencher_nucleo(false, l1, l2, c1, c2, adelante, cuantas, ctrl, false);
+    /* la selección crece hasta cubrir lo rellenado */
+    if (dir == 0) { cel_l = l2 + cuantas; anc_l = l1; }
+    else if (dir == 1) { anc_l = l2; cel_l = l1 - cuantas; if (cel_l < 0) cel_l = 0; }
+    else if (dir == 2) { cel_c = c2 + cuantas; anc_c = c1; }
+    else { anc_c = c2; cel_c = c1 - cuantas; if (cel_c < 0) cel_c = 0; }
+    if (cel_l >= MAC_MAX_LINHAS) cel_l = MAC_MAX_LINHAS - 1;
+    if (cel_c >= MAC_MAX_COLUNAS) cel_c = MAC_MAX_COLUNAS - 1;
+    registrar("macaco: relleno dir=%d cuantas=%d ctrl=%d", dir, cuantas, ctrl ? 1 : 0);
+}
+
+/* Ctrl+D / Ctrl+R: copia la primera fila (columna) de la selección sobre el resto; con una sola fila
+ * (columna) copia la de arriba (la de la izquierda), como Excel. Siempre copia, sin continuar series. */
+static void preencher_teclado(bool vert)
+{
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    if (vert) {
+        if (l1 == l2) {
+            if (l1 == 0) return;
+            preencher_nucleo(true, c1, c2, l1 - 1, l1 - 1, true, 1, false, true);
+        } else preencher_nucleo(true, c1, c2, l1, l1, true, l2 - l1, false, true);
+    } else {
+        if (c1 == c2) {
+            if (c1 == 0) return;
+            preencher_nucleo(false, l1, l2, c1 - 1, c1 - 1, true, 1, false, true);
+        } else preencher_nucleo(false, l1, l2, c1, c1, true, c2 - c1, false, true);
+    }
+    registrar("macaco: %s", vert ? "rellenar hacia abajo (Ctrl+D)" : "rellenar hacia la derecha (Ctrl+R)");
+}
+
+/* Doble clic en el controlador: rellena hacia abajo hasta donde llegan los datos de la columna vecina
+ * (la de la izquierda; si está vacía, la de la derecha). */
+static void preencher_duplo(void)
+{
+    folha_t *fo = folha_ativa();
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    int viz = -1;
+    if (c1 > 0) {
+        celula_t *ce = celula_de(fo, l2 + 1, c1 - 1);
+        if (ce && ce->texto) viz = c1 - 1;
+    }
+    if (viz < 0) {
+        celula_t *ce = celula_de(fo, l2 + 1, c2 + 1);
+        if (ce && ce->texto) viz = c2 + 1;
+    }
+    if (viz < 0) { por_aqui(estado, sizeof estado, "No hay datos al lado para rellenar"); return; }
+    int fim = l2;
+    for (;;) {
+        celula_t *ce = celula_de(fo, fim + 1, viz);
+        if (!ce || !ce->texto) break;
+        fim++;
+    }
+    if (fim > l2) preencher_selecao(0, fim - l2, false);
 }
 
 /* ------------------------------------------------------------ filas y columnas */
@@ -1389,6 +1861,16 @@ static bool guardar_ficheiro(const char *destino)
                          (unsigned)ft->cor, (unsigned)ft->rel);
             }
     }
+    /* Los gráficos incrustados (D311): una línea por gráfico, tras las de su hoja; los lectores antiguos las ignoran. */
+    for (int i = 0; i < GR_MAX; i++) {
+        const grafico_t *g = &graficos[i];
+        if (!g->ativo) continue;
+        char tit[2 * 48 + 4];
+        txt_nome(tit, sizeof tit, g->titulo);
+        txt_addf(&buf, &tam, &cap, "grafico hoja=%d tipo=%d x=%d y=%d w=%d h=%d rf=%d l1=%d c1=%d l2=%d c2=%d fil=%d ts=%d tc=%d ley=%d tit=%s\n",
+                 g->folha, g->tipo, g->x, g->y, g->w, g->h, g->rf, g->l1, g->c1, g->l2, g->c2, g->por_filas ? 1 : 0,
+                 g->tit_ser ? 1 : 0, g->tit_cat ? 1 : 0, g->leyenda ? 1 : 0, tit);
+    }
     if (!buf) return false;
 
     int fd = abrir(destino, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
@@ -1588,6 +2070,7 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
         }
         memset(&livro, 0, sizeof livro);
         livro.n_fmts = 1;
+        graficos_limpar();
         desfazer_limpar();
         copia_limpar();
         folha_nova("Hoja1");
@@ -1610,6 +2093,7 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
     }
     memset(&livro, 0, sizeof livro);
     livro.n_fmts = 1;
+    graficos_limpar();
     desfazer_limpar();
     copia_limpar();
 
@@ -1699,6 +2183,45 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
             int idx = fmt_internar_livro(&ft);
             celula_t *ce = celula_de(fo, lin2, col);
             if (ce && idx >= 0) ce->fmt = (uint8_t)idx;
+        } else if (comeca_com(lin, "grafico ") && folha_atual >= 0) {
+            const char *q = lin + 8;
+            grafico_t gt;
+            memset(&gt, 0, sizeof gt);
+            gt.ativo = true;
+            gt.w = 360; gt.h = 240;
+            while (*q) {
+                while (*q == ' ') q++;
+                const char *k = q;
+                while (*q && *q != '=' && *q != ' ') q++;
+                if (*q != '=') break;
+                int kl = (int)(q - k);
+                q++;
+                if (kl == 3 && memcmp(k, "tit", 3) == 0) {
+                    if (*q == '"') ler_aspas(&q, gt.titulo, sizeof gt.titulo);
+                    break;
+                }
+                int v = texto_para_int(q);
+                while (*q && *q != ' ') q++;
+                if (kl == 4 && memcmp(k, "hoja", 4) == 0) gt.folha = v;
+                else if (kl == 4 && memcmp(k, "tipo", 4) == 0) gt.tipo = v;
+                else if (kl == 1 && k[0] == 'x') gt.x = v;
+                else if (kl == 1 && k[0] == 'y') gt.y = v;
+                else if (kl == 1 && k[0] == 'w') gt.w = v;
+                else if (kl == 1 && k[0] == 'h') gt.h = v;
+                else if (kl == 2 && memcmp(k, "rf", 2) == 0) gt.rf = v;
+                else if (kl == 2 && memcmp(k, "l1", 2) == 0) gt.l1 = v;
+                else if (kl == 2 && memcmp(k, "c1", 2) == 0) gt.c1 = v;
+                else if (kl == 2 && memcmp(k, "l2", 2) == 0) gt.l2 = v;
+                else if (kl == 2 && memcmp(k, "c2", 2) == 0) gt.c2 = v;
+                else if (kl == 3 && memcmp(k, "fil", 3) == 0) gt.por_filas = v != 0;
+                else if (kl == 2 && memcmp(k, "ts", 2) == 0) gt.tit_ser = v != 0;
+                else if (kl == 2 && memcmp(k, "tc", 2) == 0) gt.tit_cat = v != 0;
+                else if (kl == 3 && memcmp(k, "ley", 3) == 0) gt.leyenda = v != 0;
+            }
+            if (gt.tipo < 0 || gt.tipo >= GT_N || gt.w < 120 || gt.h < 80) continue;
+            int libre = -1;
+            for (int i = 0; i < GR_MAX; i++) if (!graficos[i].ativo) { libre = i; break; }
+            if (libre >= 0) graficos[libre] = gt;
         } else if (comeca_com(lin, MAC_KW_LARGU) && folha_atual >= 0) {
             const char *q = lin + (int)sizeof(MAC_KW_LARGU) - 1;
             folha_t *fo = &livro.folha[folha_atual];
@@ -1715,6 +2238,9 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
     }
     libera(buf);
     if (livro.n == 0) return false;
+    for (int i = 0; i < GR_MAX; i++)           /* gráficos que apuntan a hojas que no existen */
+        if (graficos[i].ativo && (graficos[i].folha >= livro.n || graficos[i].rf < 0 || graficos[i].rf >= livro.n))
+            memset(&graficos[i], 0, sizeof graficos[i]);
     livro.ativa = 0;
     recalcular();
     registrar("macaco: leídas %d celdas de %d hojas", n_celulas, livro.n);
@@ -2081,6 +2607,389 @@ static void celula_conteudo(char *dst, int max, celula_t *ce)
 
 /* ------------------------------------------------------------ geometría y estado de la interfaz */
 
+/* ------------------------------------------------------------ gráficos incrustados (D311) */
+
+static const char *const NOMES_GT[GT_N] = { "Columnas", "Barras", "Líneas", "Área", "Circular (tarta)", "Dispersión (XY)" };
+
+/* Los colores de serie de Excel 97. */
+static const uint32_t CORES_G97[8] = { 0x9999FF, 0x993366, 0xFFFFCC, 0xCCFFFF, 0x660066, 0xFF8080, 0x0066CC, 0xCCCCFF };
+
+#define GD_PTS 48
+#define GD_SER 8
+typedef struct {
+    int      n_ser, n_pts;
+    char     cat[GD_PTS][16];
+    char     nome[GD_SER][24];
+    int32_t  val[GD_SER][GD_PTS];
+    int32_t  xv[GD_PTS];
+} gdados_t;
+
+static gdados_t gd_buf;
+
+
+
+/* Lee los datos de un gráfico: series y puntos según la orientación y los títulos. */
+static bool graf_dados(const grafico_t *g, gdados_t *d)
+{
+    memset(d, 0, sizeof *d);
+    if (g->rf < 0 || g->rf >= livro.n) return false;
+    folha_t *fo = &livro.folha[g->rf];
+    int R = g->l2 - g->l1 + 1, C = g->c2 - g->c1 + 1;
+    if (R < 1 || C < 1) return false;
+    int NP = g->por_filas ? C : R, NS = g->por_filas ? R : C;
+    int p0 = g->tit_ser ? 1 : 0;
+    int s0 = (g->tipo == GT_XY) ? (NS >= 2 ? 1 : 0) : (g->tit_cat ? 1 : 0);
+    int ns = NS - s0, np = NP - p0;
+    if (ns < 1 || np < 1) return false;
+    if (ns > GD_SER) ns = GD_SER;
+    if (np > GD_PTS) np = GD_PTS;
+    d->n_ser = ns;
+    d->n_pts = np;
+#define GCEL(i_, j_) (g->por_filas ? celula_de(fo, g->l1 + (j_), g->c1 + (i_)) : celula_de(fo, g->l1 + (i_), g->c1 + (j_)))
+    for (int s = 0; s < ns; s++) {
+        d->nome[s][0] = 0;
+        if (g->tit_ser) {
+            celula_t *ce = GCEL(0, s0 + s);
+            if (ce && ce->texto) celula_exibida(d->nome[s], sizeof d->nome[s], ce);
+        }
+        if (!d->nome[s][0]) formatar_texto(d->nome[s], sizeof d->nome[s], "Serie%d", s + 1);
+    }
+    for (int i = 0; i < np; i++) {
+        d->cat[i][0] = 0;
+        if (g->tipo != GT_XY && g->tit_cat) {
+            celula_t *ce = GCEL(p0 + i, 0);
+            if (ce && ce->texto) celula_exibida(d->cat[i], sizeof d->cat[i], ce);
+        }
+        if (!d->cat[i][0]) formatar_texto(d->cat[i], sizeof d->cat[i], "%d", i + 1);
+        d->xv[i] = (i + 1) * 100;
+        if (g->tipo == GT_XY && NS >= 2) {
+            celula_t *cx = GCEL(p0 + i, 0);
+            d->xv[i] = (cx && (cx->flags & CEL_NUMERO) && !(cx->flags & CEL_TEXTO)) ? cx->valor : 0;
+        }
+        for (int s = 0; s < ns; s++) {
+            celula_t *ce = GCEL(p0 + i, s0 + s);
+            d->val[s][i] = (ce && (ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO)) ? ce->valor : 0;
+        }
+    }
+#undef GCEL
+    return true;
+}
+
+static int64_t div_piso(int64_t a, int64_t b)      /* b > 0 */
+{
+    int64_t q = div64_64(a, b);
+    if (a < 0 && q * b != a) q--;
+    return q;
+}
+
+/* Una escala «bonita» (pasos de 1, 2, 5 o 10 por una potencia de diez) que cubre [vmin, vmax]. */
+static void escala_bonita(int64_t vmin, int64_t vmax, int64_t *lo, int64_t *hi, int64_t *paso)
+{
+    int64_t span = vmax - vmin;
+    if (span <= 0) span = 100;
+    int64_t raw = div64_64(span, 5);
+    if (raw < 1) raw = 1;
+    int64_t pot = 1;
+    while (pot * 10 <= raw) pot *= 10;
+    int64_t st = pot;
+    if (st < raw) st = 2 * pot;
+    if (st < raw) st = 5 * pot;
+    if (st < raw) st = 10 * pot;
+    *paso = st;
+    *lo = div_piso(vmin, st) * st;
+    *hi = -div_piso(-vmax, st) * st;
+    if (*hi <= *lo) *hi = *lo + st;
+}
+
+static int mapear(int64_t v, int64_t lo, int64_t hi, int p0, int p1)
+{
+    if (hi <= lo) return p0;
+    return p0 + (int)div64_64((v - lo) * (int64_t)(p1 - p0), hi - lo);
+}
+
+static void texto_centrado(jan_t *j, int cx, int y, const char *t, uint32_t cor)
+{
+    g_texto(j, cx - g_largura_texto(t) / 2, y, t, cor);
+}
+
+/* Dibuja un gráfico en el rectángulo (X, Y, W, H) de la ventana j: lo usan la hoja, el asistente,
+ * el PDF y el portapapeles. Estilo Excel 97: fondo blanco con marco, área de trazado gris,
+ * ejes con marcas y valores, cuadrícula suave, leyenda y colores clásicos. */
+static void graf_desenhar(jan_t *j, int X, int Y, int W, int H, const grafico_t *g)
+{
+    gdados_t *d = &gd_buf;
+    preparar_senos();
+    g_retangulo(j, X, Y, W, H, COR_BRANCO);
+    g_moldura(j, X, Y, W, H, 0x000000);
+    if (!graf_dados(g, d)) {
+        texto_centrado(j, X + W / 2, Y + H / 2 - 8, "Sin datos", 0x808080);
+        return;
+    }
+    bool tarta = g->tipo == GT_TARTA;
+    int topo = 8;
+    if (g->titulo[0]) {
+        texto_centrado(j, X + W / 2, Y + 6, g->titulo, 0x000000);
+        texto_centrado(j, X + W / 2 + 1, Y + 6, g->titulo, 0x000000);
+        topo = 28;
+    }
+    /* La leyenda: series (o categorías en la tarta), a la derecha. */
+    int n_leg = tarta ? d->n_pts : d->n_ser;
+    int larg_leg = 0;
+    if (g->leyenda) {
+        int mx = 0;
+        for (int i = 0; i < n_leg; i++) {
+            const char *t = tarta ? d->cat[i] : d->nome[i];
+            int n = (int)tam_texto(t);
+            if (n > 12) n = 12;
+            if (n > mx) mx = n;
+        }
+        larg_leg = mx * LETRA_L + 30;
+        if (larg_leg > W / 2) larg_leg = W / 2;
+    }
+    int px1 = X + W - 10 - larg_leg;
+    int py0 = Y + topo;
+    int base_h = tarta ? 8 : 24;
+    int py1 = Y + H - base_h;
+    if (px1 - X < 60 || py1 - py0 < 30) return;
+
+    if (tarta) {
+        int cx = (X + 8 + px1) / 2, cy = (py0 + py1) / 2;
+        int raio = ((px1 - X - 8) < (py1 - py0) ? (px1 - X - 8) : (py1 - py0)) / 2 - 12;
+        if (raio < 8) raio = 8;
+        int64_t total = 0;
+        for (int i = 0; i < d->n_pts; i++) if (d->val[0][i] > 0) total += d->val[0][i];
+        if (total <= 0) {
+            texto_centrado(j, cx, cy - 8, "Sin valores", 0x808080);
+        } else {
+            static int pontos[600];
+            int ang = -90000;
+            for (int i = 0; i < d->n_pts; i++) {
+                if (d->val[0][i] <= 0) continue;
+                int pedaco = (int)div64_64((int64_t)d->val[0][i] * 360000, total);
+                if (pedaco <= 0) continue;
+                int np = 0;
+                pontos[np * 2] = cx; pontos[np * 2 + 1] = cy; np++;
+                int passos = pedaco / 3000 + 1;
+                for (int q = 0; q <= passos; q++) {
+                    int px, py;
+                    ponto_circulo(cx, cy, raio, ang + (int)div64_64((int64_t)pedaco * q, passos), &px, &py);
+                    pontos[np * 2] = px; pontos[np * 2 + 1] = py; np++;
+                    if (np >= 290) break;
+                }
+                preencher_poligono(j, pontos, np, CORES_G97[i % 8]);
+                for (int q = 1; q < np; q++)
+                    g_linha(j, pontos[(q - 1) * 2], pontos[(q - 1) * 2 + 1], pontos[q * 2], pontos[q * 2 + 1], 0x000000);
+                g_linha(j, pontos[(np - 1) * 2], pontos[(np - 1) * 2 + 1], cx, cy, 0x000000);
+                /* el porcentaje, dentro de la rebanada si cabe */
+                if (pedaco >= 14000) {
+                    char pc[12];
+                    formatar_texto(pc, sizeof pc, "%d%%", (int)div64_64((int64_t)d->val[0][i] * 100, total));
+                    int mx2, my2;
+                    ponto_circulo(cx, cy, raio * 2 / 3, ang + pedaco / 2, &mx2, &my2);
+                    texto_centrado(j, mx2, my2 - 8, pc, 0x000000);
+                }
+                ang += pedaco;
+            }
+        }
+    } else {
+        bool horiz = g->tipo == GT_BARRAS;
+        bool xy = g->tipo == GT_XY;
+        int64_t vmin = 0, vmax = 0;
+        bool prim = true;
+        for (int s = 0; s < d->n_ser; s++)
+            for (int i = 0; i < d->n_pts; i++) {
+                int64_t v = d->val[s][i];
+                if (xy && prim) { vmin = vmax = v; prim = false; }
+                if (v < vmin) vmin = v;
+                if (v > vmax) vmax = v;
+            }
+        int64_t lo, hi, st;
+        escala_bonita(vmin, vmax, &lo, &hi, &st);
+        int64_t xlo = 0, xhi = 0, xst = 0;
+        if (xy) {
+            int64_t xmin = d->xv[0], xmax = d->xv[0];
+            for (int i = 0; i < d->n_pts; i++) { if (d->xv[i] < xmin) xmin = d->xv[i]; if (d->xv[i] > xmax) xmax = d->xv[i]; }
+            escala_bonita(xmin, xmax, &xlo, &xhi, &xst);
+        }
+        /* el ancho de los valores del eje (vertical) o de los rótulos de categoría (barras) */
+        int lw = 0;
+        if (horiz) {
+            for (int i = 0; i < d->n_pts; i++) { int w2 = (int)tam_texto(d->cat[i]) * LETRA_L; if (w2 > lw) lw = w2; }
+            if (lw > 96) lw = 96;
+        } else {
+            for (int64_t v = lo; v <= hi; v += st) {
+                char t[24];
+                formatar_numero(t, sizeof t, (int32_t)v);
+                int w2 = (int)tam_texto(t) * LETRA_L;
+                if (w2 > lw) lw = w2;
+            }
+        }
+        int px0 = X + 8 + lw + 6;
+        if (px1 - px0 < 30) return;
+        g_retangulo(j, px0, py0, px1 - px0, py1 - py0, 0xC0C0C0);
+        int pw = px1 - px0, ph = py1 - py0;
+        int n = d->n_pts;
+
+        /* cuadrícula y marcas del eje de valores */
+        for (int64_t v = lo; v <= hi; v += st) {
+            char t[24];
+            formatar_numero(t, sizeof t, (int32_t)v);
+            if (horiz) {
+                int x = mapear(v, lo, hi, px0, px1);
+                g_linha(j, x, py0, x, py1, 0xE0E0E0);
+                g_linha(j, x, py1, x, py1 + 3, 0x000000);
+                texto_centrado(j, x, py1 + 5, t, 0x000000);
+            } else {
+                int y = mapear(v, lo, hi, py1, py0);
+                g_linha(j, px0, y, px1, y, 0xE0E0E0);
+                g_linha(j, px0 - 3, y, px0, y, 0x000000);
+                g_texto(j, px0 - 5 - (int)tam_texto(t) * LETRA_L, y - LETRA_A / 2, t, 0x000000);
+            }
+        }
+        if (xy) {
+            for (int64_t v = xlo; v <= xhi; v += xst) {
+                char t[24];
+                formatar_numero(t, sizeof t, (int32_t)v);
+                int x = mapear(v, xlo, xhi, px0, px1);
+                g_linha(j, x, py0, x, py1, 0xE0E0E0);
+                g_linha(j, x, py1, x, py1 + 3, 0x000000);
+                texto_centrado(j, x, py1 + 5, t, 0x000000);
+            }
+        }
+
+        if (xy) {
+            for (int s = 0; s < d->n_ser; s++)
+                for (int i = 0; i < n; i++) {
+                    int x = mapear(d->xv[i], xlo, xhi, px0, px1), y = mapear(d->val[s][i], lo, hi, py1, py0);
+                    g_retangulo(j, x - 3, y - 3, 7, 7, CORES_G97[s % 8]);
+                    g_moldura(j, x - 3, y - 3, 7, 7, 0x000000);
+                }
+        } else if (horiz) {
+            int y0 = mapear(0, lo, hi, px0, px1);       /* aquí, x del cero */
+            int slot = ph / n;
+            if (slot < 1) slot = 1;
+            for (int i = 0; i < n; i++) {
+                int sy1 = py1 - i * ph / n, sy0 = py1 - (i + 1) * ph / n;   /* la primera categoría abajo, como Excel */
+                int gh = sy1 - sy0;
+                int inner = gh * 8 / 10, bh = inner / d->n_ser;
+                if (bh < 1) bh = 1;
+                int start = sy0 + (gh - bh * d->n_ser) / 2;
+                for (int s = 0; s < d->n_ser; s++) {
+                    int xv = mapear(d->val[s][i], lo, hi, px0, px1);
+                    int xa = xv < y0 ? xv : y0, wd = xv < y0 ? y0 - xv : xv - y0;
+                    int by = start + (d->n_ser - 1 - s) * bh;
+                    g_retangulo(j, xa, by, wd ? wd : 1, bh, CORES_G97[s % 8]);
+                    g_moldura(j, xa, by, wd ? wd : 1, bh, 0x000000);
+                }
+                g_linha(j, px0 - 3, sy0, px0, sy0, 0x000000);
+                char t[16];
+                copia_texto(t, d->cat[i], sizeof t);
+                int maxc = (lw) / LETRA_L;
+                if (maxc < 1) maxc = 1;
+                if ((int)tam_texto(t) > maxc) t[maxc] = 0;
+                g_texto(j, px0 - 5 - (int)tam_texto(t) * LETRA_L, sy0 + (gh - LETRA_A) / 2, t, 0x000000);
+            }
+            g_linha(j, y0, py0, y0, py1, 0x000000);
+        } else {
+            int y0 = mapear(0, lo, hi, py1, py0);
+            int ns = d->n_ser;
+            if (g->tipo == GT_AREA) {
+                static int pts[200];
+                for (int s = ns - 1; s >= 0; s--) {
+                    int np2 = 0;
+                    pts[np2 * 2] = px0 + pw / (2 * n); pts[np2 * 2 + 1] = y0; np2++;
+                    for (int i = 0; i < n; i++) {
+                        pts[np2 * 2] = px0 + (2 * i + 1) * pw / (2 * n);
+                        pts[np2 * 2 + 1] = mapear(d->val[s][i], lo, hi, py1, py0);
+                        np2++;
+                    }
+                    pts[np2 * 2] = px0 + (2 * (n - 1) + 1) * pw / (2 * n); pts[np2 * 2 + 1] = y0; np2++;
+                    preencher_poligono(j, pts, np2, CORES_G97[s % 8]);
+                    for (int q = 1; q < np2; q++) g_linha(j, pts[(q - 1) * 2], pts[(q - 1) * 2 + 1], pts[q * 2], pts[q * 2 + 1], 0x000000);
+                }
+            } else if (g->tipo == GT_LINEAS) {
+                for (int s = 0; s < ns; s++) {
+                    int ux = 0, uy = 0;
+                    uint32_t cor = CORES_G97[s % 8];
+                    if (cor == 0xFFFFCC || cor == 0xCCFFFF || cor == 0xCCCCFF) cor = 0x808000 + (uint32_t)s * 0x100;
+                    for (int i = 0; i < n; i++) {
+                        int x = px0 + (2 * i + 1) * pw / (2 * n), y = mapear(d->val[s][i], lo, hi, py1, py0);
+                        if (i) { g_linha(j, ux, uy, x, y, cor); g_linha(j, ux, uy + 1, x, y + 1, cor); }
+                        ux = x; uy = y;
+                    }
+                    for (int i = 0; i < n; i++) {
+                        int x = px0 + (2 * i + 1) * pw / (2 * n), y = mapear(d->val[s][i], lo, hi, py1, py0);
+                        g_retangulo(j, x - 2, y - 2, 5, 5, CORES_G97[s % 8]);
+                        g_moldura(j, x - 2, y - 2, 5, 5, 0x000000);
+                    }
+                }
+            } else {
+                for (int i = 0; i < n; i++) {
+                    int gx0 = px0 + i * pw / n, gx1 = px0 + (i + 1) * pw / n;
+                    int gw = gx1 - gx0;
+                    int inner = gw * 8 / 10, bw = inner / ns;
+                    if (bw < 1) bw = 1;
+                    int start = gx0 + (gw - bw * ns) / 2;
+                    for (int s = 0; s < ns; s++) {
+                        int yv = mapear(d->val[s][i], lo, hi, py1, py0);
+                        int ya = yv < y0 ? yv : y0, hh = yv < y0 ? y0 - yv : yv - y0;
+                        g_retangulo(j, start + s * bw, ya, bw, hh ? hh : 1, CORES_G97[s % 8]);
+                        g_moldura(j, start + s * bw, ya, bw, hh ? hh : 1, 0x000000);
+                    }
+                }
+            }
+            g_linha(j, px0, y0, px1, y0, 0x000000);
+        }
+        /* ejes y rótulos de las categorías */
+        g_linha(j, px0, py0, px0, py1, 0x000000);
+        g_linha(j, px0, py1, px1, py1, 0x000000);
+        if (!horiz && !xy) {
+            int slot = pw / n;
+            int salto = 1;
+            while (slot * salto < 28 && salto < n) salto++;
+            for (int i = 0; i <= n; i += 1) {
+                int x = px0 + i * pw / n;
+                g_linha(j, x, py1, x, py1 + 3, 0x000000);
+            }
+            for (int i = 0; i < n; i += salto) {
+                char t[16];
+                copia_texto(t, d->cat[i], sizeof t);
+                int maxc = (slot * salto) / LETRA_L;
+                if (maxc < 1) maxc = 1;
+                if ((int)tam_texto(t) > maxc) t[maxc] = 0;
+                texto_centrado(j, px0 + (2 * i + 1) * pw / (2 * n), py1 + 5, t, 0x000000);
+            }
+        }
+    }
+
+    /* La leyenda. */
+    if (g->leyenda) {
+        int ly = py0 + 2, lx = px1 + 10;
+        if (!tarta) lx = px1 + 10;
+        for (int i = 0; i < n_leg && ly + 16 < py1 + base_h; i++) {
+            g_retangulo(j, lx, ly + 2, 10, 10, CORES_G97[i % 8]);
+            g_moldura(j, lx, ly + 2, 10, 10, 0x000000);
+            const char *t = tarta ? d->cat[i] : d->nome[i];
+            g_texto_n(j, lx + 15, ly, t, 12, 0x000000);
+            ly += 18;
+        }
+    }
+}
+
+/* Dibuja un gráfico en un buffer propio (para el PDF y el portapapeles); el llamante libera el buffer. */
+static uint32_t *graf_imagem(const grafico_t *g, int *pw, int *ph)
+{
+    int w = g->w, h = g->h;
+    uint32_t *px = aloca((size_t)w * h * sizeof(uint32_t));
+    if (!px) return NULL;
+    jan_t sj;
+    sj.id = -1; sj.px = px; sj.larg = w; sj.alt = h; sj.estilo = 0; sj.min_l = sj.min_a = 0;
+    for (int i = 0; i < w * h; i++) px[i] = 0xFFFFFF;
+    graf_desenhar(&sj, 0, 0, w, h, g);
+    *pw = w; *ph = h;
+    return px;
+}
+
 static int off_col[MAC_MAX_COLUNAS + 1];
 
 static void calcular_offsets(void)
@@ -2090,7 +2999,15 @@ static void calcular_offsets(void)
     for (int c = 0; c < fo->colunas; c++) off_col[c + 1] = off_col[c] + fo->larg_col[c];
 }
 
-static int x_coluna(int c) { return MAC_LARGC + off_col[c] - desl_x; }
+/* El desplazamiento de la columna c (también de las que aún no existen, con el ancho por omisión). */
+static int off_col_x(int c)
+{
+    folha_t *fo = folha_ativa();
+    if (c <= fo->colunas) return off_col[c];
+    return off_col[fo->colunas] + (c - fo->colunas) * MAC_LARGCOL;
+}
+
+static int x_coluna(int c) { return MAC_LARGC + off_col_x(c) - desl_x; }
 static int y_linha(int l) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH + l * MAC_ALTLINHA - desl_y; }
 static int grelha_y(void) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH; }
 static int grelha_a(void) { return jan->alt - grelha_y() - MAC_RODAPE; }
@@ -2105,7 +3022,7 @@ enum {
     A_NOVO = 1, A_ABRIR, A_GUARDAR, A_GUARDAR_COMO, A_PDF, A_CSV_IMP, A_CSV_EXP, A_SAIR,
     A_DESFAZER, A_CORTAR, A_COPIAR, A_COLAR, A_BORRAR, A_BORRAR_FMT, A_TUDO, A_IR,
     A_LINHA_INS, A_LINHA_DEL, A_COL_INS, A_COL_DEL, A_FOLHA_NOVA, A_FOLHA_DEL, A_FOLHA_REN,
-    A_GRAF_B, A_GRAF_H, A_GRAF_T,
+    A_GRAF_B, A_GRAF_H, A_GRAF_T, A_GRAFICO,
     A_CELULAS, A_NEGRITA, A_CURSIVA, A_SUBLIN, A_ESQ, A_CENTRO, A_DIR,
     A_MOEDA, A_PERCENT, A_MILHAR, A_DEC_MAIS, A_DEC_MENOS, A_BORDAS, A_RELLENO, A_COR_TXT,
     A_LARG, A_ORD_A, A_ORD_Z, A_SOMA, A_RECALC, A_GRADE, A_FORMULAS, A_ACERCA, A_IGUAL,
@@ -2249,7 +3166,7 @@ static void itens_iniciar(void)
         IT(A_SOMA, ic_soma, NULL, false, false, 0), IT(A_ORD_A, ic_ord_a, NULL, false, false, 0),
         IT(A_ORD_Z, ic_ord_z, NULL, false, false, 0),
         IT(0, NULL, NULL, false, false, 0),
-        IT(A_GRAF_B, ic_grafico, NULL, false, false, 0),
+        IT(A_GRAFICO, ic_grafico, NULL, false, false, 0),
         IT(0, NULL, NULL, false, false, 0),
         IT(A_ASISTENTE, ic_ia, NULL, false, true, 0),
     };
@@ -2314,6 +3231,7 @@ static const mi_t M_VER[] = {
 };
 static const mi_t M_INSERIR[] = {
     { "Fila", A_LINHA_INS }, { "Columna", A_COL_INS }, { "Hoja", A_FOLHA_NOVA }, { "-", 0 },
+    { "Gráfico...", A_GRAFICO }, { "-", 0 },
     { "Gráfico de barras", A_GRAF_B }, { "Gráfico de barras horizontales", A_GRAF_H }, { "Gráfico de tarta", A_GRAF_T },
 };
 static const mi_t M_FORMATO[] = {
@@ -2339,6 +3257,7 @@ static const mi_t M_CONTEXTO[] = {
     { "Insertar columna", A_COL_INS }, { "Eliminar columna", A_COL_DEL }, { "-", 0 },
     { "Borrar contenido\tSupr", A_BORRAR }, { "Formato de celdas...\tCtrl+1", A_CELULAS }, { "-", 0 },
     { "Ordenar de A a Z", A_ORD_A }, { "Ordenar de Z a A", A_ORD_Z }, { "-", 0 },
+    { "Gráfico...", A_GRAFICO },
     { "Gráfico de barras", A_GRAF_B }, { "Gráfico de barras horizontales", A_GRAF_H }, { "Gráfico de tarta", A_GRAF_T },
     { "-", 0 }, { "Ancho de las columnas...", A_LARG }, { "-", 0 },
     { "Asistente IA: Explicar estos datos", A_IA_EXPLICAR }, { "Asistente IA: Crear fórmula para...", A_IA_FORMULA },
@@ -2482,6 +3401,142 @@ static bool na_selecao(int l, int c)
     return l >= l1 && l <= l2 && c >= c1 && c <= c2;
 }
 
+static const uint32_t COR_REFS[8] = { 0x2040FF, 0x009000, 0x9030B0, 0xE02020, 0xFF8000, 0x00A0A0, 0xA0A000, 0x808080 };
+
+static bool edit_e_formula(void) { return editando && edit_buf[0] == '='; }
+
+/* Pinta de color las referencias del texto que se edita (azul, verde, morado...), como Excel moderno. */
+static void texto_edit_cores(int tx, int ty, int maxchars, bool negrita)
+{
+    reftok_t tk[16];
+    int n = refs_da_formula(edit_buf, tk, 16);
+    for (int i = 0; i < n; i++) {
+        if (tk[i].ini >= maxchars) break;
+        int fim = tk[i].fim < maxchars ? tk[i].fim : maxchars;
+        g_texto_n(jan, tx + tk[i].ini * LETRA_L, ty, edit_buf + tk[i].ini, fim - tk[i].ini, COR_REFS[i % 8]);
+        if (negrita) g_texto_n(jan, tx + tk[i].ini * LETRA_L + 1, ty, edit_buf + tk[i].ini, fim - tk[i].ini, COR_REFS[i % 8]);
+    }
+}
+
+/* La hoja a la que apunta una referencia (la de la celda que se edita si no lleva prefijo); -1 = no existe. */
+static int ref_folha(const reftok_t *t)
+{
+    if (!t->folha[0]) return edit_folha;
+    return procurar_folha(t->folha);
+}
+
+/* El rectángulo (en la ventana) de una referencia ya normalizada. */
+static void ref_rect(const reftok_t *t, int *x, int *y, int *w, int *h)
+{
+    *x = x_coluna(t->c1);
+    *w = off_col_x(t->c2 + 1) - off_col_x(t->c1);
+    *y = y_linha(t->l1);
+    *h = (t->l2 - t->l1 + 1) * MAC_ALTLINHA;
+}
+
+/* Cada referencia de la fórmula que se edita rodea su celda o rango con un borde de su color,
+ * con un cuadradito en la esquina inferior derecha (para cambiar el tamaño). */
+static void desenhar_marcos_refs(void)
+{
+    if (!edit_e_formula()) return;
+    calcular_offsets();
+    reftok_t tk[16];
+    int n = refs_da_formula(edit_buf, tk, 16);
+    int gy = grelha_y(), ga = grelha_a();
+    for (int i = 0; i < n; i++) {
+        if (ref_folha(&tk[i]) != livro.ativa) continue;
+        reftok_t t = tk[i];
+        reftok_normalizar(&t);
+        int x, y, w, h;
+        ref_rect(&t, &x, &y, &w, &h);
+        if (y + h <= gy || y >= gy + ga || x + w <= MAC_LARGC || x >= jan->larg) continue;
+        uint32_t cor = COR_REFS[i % 8];
+        g_moldura(jan, x - 1, y - 1, w + 2, h + 2, cor);
+        g_moldura(jan, x, y, w, h, cor);
+        g_retangulo(jan, x + w - 3, y + h - 3, 6, 6, cor);
+    }
+}
+
+/* El cuadradito del controlador de relleno, en la esquina inferior derecha de la selección. */
+static bool asa_relleno_pos(int *hx, int *hy)
+{
+    if (editando || arrastrando) return false;
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    calcular_offsets();
+    *hx = x_coluna(c2 + 1);
+    *hy = y_linha(l2 + 1);
+    int gy = grelha_y(), ga = grelha_a();
+    return *hx > MAC_LARGC + 2 && *hx < jan->larg && *hy > gy + 2 && *hy <= gy + ga;
+}
+
+static void desenhar_asa_relleno(void)
+{
+    int hx, hy;
+    if (!asa_relleno_pos(&hx, &hy)) return;
+    g_retangulo(jan, hx - 4, hy - 4, 7, 7, COR_BRANCO);
+    g_retangulo(jan, hx - 3, hy - 3, 5, 5, W98_NEGRO);
+}
+
+/* El rectángulo de un gráfico en la ventana. */
+static void graf_rect(const grafico_t *g, int *x, int *y, int *w, int *h)
+{
+    *x = MAC_LARGC - desl_x + g->x;
+    *y = grelha_y() - desl_y + g->y;
+    *w = g->w;
+    *h = g->h;
+}
+
+static const int GA_X[8] = { 0, 1, 2, 2, 2, 1, 0, 0 }, GA_Y[8] = { 0, 0, 0, 1, 2, 2, 2, 1 };
+
+/* Las 8 asas de un gráfico seleccionado: esquinas y mitades de los lados. */
+static void graf_asa_pos(int x, int y, int w, int h, int i, int *ax, int *ay)
+{
+    int cx = x + w / 2, cy = y + h / 2;
+    *ax = GA_X[i] == 0 ? x : (GA_X[i] == 1 ? cx : x + w);
+    *ay = GA_Y[i] == 0 ? y : (GA_Y[i] == 1 ? cy : y + h);
+}
+
+/* Los gráficos de la hoja activa flotan sobre las celdas; el seleccionado lleva marco y asas. */
+static void desenhar_graficos(void)
+{
+    for (int i = 0; i < GR_MAX; i++) {
+        grafico_t *g = &graficos[i];
+        if (!g->ativo || g->folha != livro.ativa) continue;
+        int x, y, w, h;
+        graf_rect(g, &x, &y, &w, &h);
+        if (x >= jan->larg || y >= jan->alt || x + w <= MAC_LARGC || y + h <= grelha_y()) continue;
+        graf_desenhar(jan, x, y, w, h, g);
+        if (i == graf_sel) {
+            g_moldura(jan, x - 1, y - 1, w + 2, h + 2, 0x000000);
+            for (int k = 0; k < 8; k++) {
+                int ax, ay;
+                graf_asa_pos(x, y, w, h, k, &ax, &ay);
+                g_retangulo(jan, ax - 3, ay - 3, 7, 7, COR_BRANCO);
+                g_retangulo(jan, ax - 2, ay - 2, 5, 5, 0x000000);
+            }
+        }
+    }
+}
+
+/* Mientras se arrastra el controlador de relleno, un marco gris punteado muestra hasta dónde llegará. */
+static void desenhar_previa_relleno(void)
+{
+    if (!preenchendo || pre_n < 1) return;
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    if (pre_dir == 0) l2 += pre_n;
+    else if (pre_dir == 1) l1 -= pre_n;
+    else if (pre_dir == 2) c2 += pre_n;
+    else c1 -= pre_n;
+    if (l1 < 0) l1 = 0;
+    if (c1 < 0) c1 = 0;
+    int x = x_coluna(c1), y = y_linha(l1);
+    int w = off_col_x(c2 + 1) - off_col_x(c1), h = (l2 - l1 + 1) * MAC_ALTLINHA;
+    for (int i = 0; i < w; i += 4) { g_retangulo(jan, x + i, y, 2, 1, 0x606060); g_retangulo(jan, x + i, y + h - 1, 2, 1, 0x606060); }
+    for (int i = 0; i < h; i += 4) { g_retangulo(jan, x, y + i, 1, 2, 0x606060); g_retangulo(jan, x + w - 1, y + i, 1, 2, 0x606060); }
+}
+
 static void desenhar_grelha(void)
 {
     folha_t *fo = folha_ativa();
@@ -2537,9 +3592,12 @@ static void desenhar_grelha(void)
             celula_t *ce = &fo->celulas[(size_t)l * ncol + c];
             const fmt_t *f = fmt_de(ce);
             char t[MAC_TEXTO_CEL];
-            if (editando && l == cel_l && c == cel_c) {
+            if (editando && livro.ativa == edit_folha && l == cel_l && c == cel_c) {
                 copia_texto(t, edit_buf, sizeof t);
                 texto_celda(x, y, lcol, MAC_ALTLINHA, t, f, false, f->cor);
+                if (edit_buf[0] == '=' && (f->tam == 0 || f->tam == 10) && !(f->est & EST_CURSIVA) &&
+                    (f->al == AL_AUTO || f->al == AL_ESQ))
+                    texto_edit_cores(x + 3, y + (MAC_ALTLINHA - LETRA_A) / 2, (lcol - 4) / LETRA_L, (f->est & EST_NEGRITA) != 0);
                 continue;
             }
             if (mostrar_formulas && (ce->flags & CEL_FORMULA)) copia_texto(t, ce->texto, sizeof t);
@@ -2556,12 +3614,14 @@ static void desenhar_grelha(void)
         }
     }
 
+    desenhar_graficos();
+
     /* El marco de la selección (negro y grueso, como en Excel) y el cursor de edición. */
     int l1, c1, l2, c2;
     intervalo_selecionado(&l1, &c1, &l2, &c2);
-    int sx = x_coluna(c1), sw = off_col[c2 + 1] - off_col[c1];
+    int sx = x_coluna(c1), sw = off_col_x(c2 + 1) - off_col_x(c1);
     int sy = y_linha(l1), sh = (l2 - l1 + 1) * MAC_ALTLINHA;
-    if (sw > 0 && sh > 0) {
+    if (sw > 0 && sh > 0 && !(editando && livro.ativa != edit_folha)) {
         int y0 = sy, y1 = sy + sh;
         if (y0 < gy) y0 = gy;
         if (y1 > gy + ga) y1 = gy + ga;
@@ -2570,13 +3630,16 @@ static void desenhar_grelha(void)
             g_moldura(jan, sx, y0, sw, y1 - y0, W98_NEGRO);
         }
     }
-    if (editando) {
+    if (editando && livro.ativa == edit_folha) {
         int ax = x_coluna(cel_c), ay = y_linha(cel_l);
         const fmt_t *f = fmt_de(celula_de(fo, cel_l, cel_c));
         int tam = f->tam ? f->tam : 10;
         int cx = ax + 3 + edit_cur * LETRA_L * tam / 10;
         g_retangulo(jan, cx, ay + 2, 1, MAC_ALTLINHA - 4, W98_NEGRO);
     }
+    desenhar_marcos_refs();
+    desenhar_asa_relleno();
+    desenhar_previa_relleno();
 
     /* La cabecera de las columnas: botones biselados, con la seleccionada hundida. */
     int hy = gy - MAC_CABECALH;
@@ -2642,6 +3705,7 @@ static void desenhar_formula(void)
     int maxc = (cw - 8) / LETRA_L;
     if (maxc > MAC_TEXTO_CEL - 1) maxc = MAC_TEXTO_CEL - 1;
     g_texto_n(jan, cx + 4, y + 4, texto, maxc, W98_NEGRO);
+    if (edit_e_formula()) texto_edit_cores(cx + 4, y + 4, maxc, false);
     if (editando) g_retangulo(jan, cx + 4 + edit_cur * LETRA_L, y + 4, 1, LETRA_A, W98_NEGRO);
 }
 
@@ -2761,11 +3825,11 @@ static ag_panel_t *ag;
 static void desenhar_tudo(void)
 {
     g_retangulo(jan, 0, 0, jan->larg, jan->alt, W98_FACE);
+    desenhar_grelha();                  /* primero la hoja: un gráfico que desborda por arriba lo tapan las barras */
     menus_atualizar();
     barra_menu_desenhar(jan, &menu);
     barra_ferr_desenhar(jan, &ferr1);
     desenhar_formula();
-    desenhar_grelha();
     desenhar_pestanas();
     ui_atualizar();
     estado_atualizar();
@@ -2781,6 +3845,9 @@ static void comecar_edicao(const char *inicial)
     folha_t *fo = folha_ativa();
     celula_t *ce = celula_de(fo, cel_l, cel_c);
     editando = true;
+    senalando = false;
+    rf_modo = 0;
+    edit_folha = livro.ativa;
     if (inicial) {
         copia_texto(edit_buf, inicial, sizeof edit_buf);
         edit_cur = (int)tam_texto(inicial);
@@ -2794,6 +3861,9 @@ static void confirmar_edicao(void)
 {
     if (!editando) return;
     editando = false;
+    senalando = false;
+    rf_modo = 0;
+    livro.ativa = edit_folha;          /* al señalar se pudo cambiar de hoja */
     folha_t *fo = folha_ativa();
     celula_t *ce = celula_de(fo, cel_l, cel_c);
     char antigo[MAC_TEXTO_CEL];
@@ -2817,72 +3887,110 @@ static void confirmar_edicao(void)
 
 static void cancelar_edicao(void)
 {
+    if (editando) livro.ativa = edit_folha;
     editando = false;
+    senalando = false;
+    rf_modo = 0;
 }
 
-/* F4: da la vuelta a las referencias absolutas de la que está bajo el cursor
- * (A1 -> $A$1 -> A$1 -> $A1 -> A1). */
+/* Cambia el tramo [ini, fim) de la edición por un texto (sin pasarse del límite). */
+static bool substituir_edit(int ini, int fim, const char *novo)
+{
+    int n = (int)tam_texto(edit_buf), nl = (int)tam_texto(novo);
+    if (n - (fim - ini) + nl >= MAC_TEXTO_CEL) return false;
+    memmove(edit_buf + ini + nl, edit_buf + fim, (size_t)(n - fim + 1));
+    memcpy(edit_buf + ini, novo, (size_t)nl);
+    return true;
+}
+
+/* F4: da la vuelta a las referencias absolutas de la que está bajo el cursor (o la señalada)
+ * (A1 -> $A$1 -> A$1 -> $A1 -> A1). En un rango cambian los dos extremos a la vez. */
 static void alternar_absoluta(void)
 {
-    int n = (int)tam_texto(edit_buf);
-    int a = edit_cur, b = edit_cur;
-    while (a > 0 && ((edit_buf[a - 1] >= 'A' && edit_buf[a - 1] <= 'Z') || (edit_buf[a - 1] >= 'a' && edit_buf[a - 1] <= 'z') ||
-                     (edit_buf[a - 1] >= '0' && edit_buf[a - 1] <= '9') || edit_buf[a - 1] == '$')) a--;
-    while (b < n && ((edit_buf[b] >= 'A' && edit_buf[b] <= 'Z') || (edit_buf[b] >= 'a' && edit_buf[b] <= 'z') ||
-                     (edit_buf[b] >= '0' && edit_buf[b] <= '9') || edit_buf[b] == '$')) b++;
-    char tok[24];
-    int tl = b - a;
-    if (tl <= 0 || tl > 12) return;
-    memcpy(tok, edit_buf + a, (size_t)tl);
-    tok[tl] = 0;
-    int i = 0;
-    bool ac = false, al = false;
-    if (tok[i] == '$') { ac = true; i++; }
-    int ls = i;
-    while ((tok[i] >= 'A' && tok[i] <= 'Z') || (tok[i] >= 'a' && tok[i] <= 'z')) i++;
-    int le = i;
-    if (le == ls) return;
-    if (tok[i] == '$') { al = true; i++; }
-    int ds = i;
-    while (tok[i] >= '0' && tok[i] <= '9') i++;
-    if (i == ds || tok[i]) return;
-    char letras[8], digs[8];
-    memcpy(letras, tok + ls, (size_t)(le - ls)); letras[le - ls] = 0;
-    memcpy(digs, tok + ds, (size_t)(i - ds)); digs[i - ds] = 0;
-    /* ciclo */
-    if (!ac && !al) { ac = true; al = true; }
-    else if (ac && al) { ac = false; al = true; }
-    else if (!ac && al) { ac = true; al = false; }
-    else { ac = false; al = false; }
-    char novo[32];
-    formatar_texto(novo, sizeof novo, "%s%s%s%s", ac ? "$" : "", letras, al ? "$" : "", digs);
-    int nl = (int)tam_texto(novo);
-    if (n - tl + nl >= MAC_TEXTO_CEL) return;
-    memmove(edit_buf + a + nl, edit_buf + b, (size_t)(n - b + 1));
-    memcpy(edit_buf + a, novo, (size_t)nl);
-    edit_cur = a + nl;
+    reftok_t tk[24];
+    int n = refs_da_formula(edit_buf, tk, 24);
+    int k = -1;
+    for (int i = 0; i < n; i++)
+        if (edit_cur >= tk[i].ini && edit_cur <= tk[i].fim) { k = i; break; }
+    if (k < 0) return;
+    reftok_t t = tk[k];
+    bool ac = t.ac1 && t.ac2 == t.ac1, al = t.al1;
+    /* ciclo: relativa -> $A$1 -> A$1 -> $A1 -> relativa */
+    bool nac, nal;
+    if (!t.ac1 && !t.al1) { nac = true; nal = true; }
+    else if (t.ac1 && t.al1) { nac = false; nal = true; }
+    else if (!t.ac1 && t.al1) { nac = true; nal = false; }
+    else { nac = false; nal = false; }
+    (void)ac; (void)al;
+    t.ac1 = t.ac2 = nac;
+    t.al1 = t.al2 = nal;
+    char novo[64];
+    reftok_escrever(novo, sizeof novo, &t);
+    if (!substituir_edit(t.ini, t.fim, novo)) return;
+    edit_cur = t.ini + (int)tam_texto(novo);
+    if (senalando && t.ini == sen_ini) sen_fim = edit_cur;
+}
+
+/* ------------------------------------------------------------ señalar celdas al escribir fórmulas (D311) */
+
+/* ¿Un clic o una flecha insertan una referencia ahora? Sí tras «=», un operador, «(», «,» o «;»
+ * (el cursor, saltando espacios), y mientras ya se está señalando. */
+static bool senalar_posible(void)
+{
+    if (!edit_e_formula()) return false;
+    if (senalando) return true;
+    int comillas = 0;
+    for (int i = 0; i < edit_cur; i++) if (edit_buf[i] == '"') comillas++;
+    if (comillas & 1) return false;
+    int i = edit_cur - 1;
+    while (i >= 0 && edit_buf[i] == ' ') i--;
+    if (i < 0) return false;
+    return acha_char("=+-*/^&<>,(;", edit_buf[i]) != NULL;
+}
+
+/* Pone (o reemplaza) la referencia señalada en el texto de la edición. */
+static void senalar_texto(int folha, int l1, int c1, int l2, int c2)
+{
+    if (l1 > l2) { int t = l1; l1 = l2; l2 = t; }
+    if (c1 > c2) { int t = c1; c1 = c2; c2 = t; }
+    char a[16], b[16], t[96];
+    nome_ref(a, sizeof a, l1, c1);
+    nome_ref(b, sizeof b, l2, c2);
+    const char *pre = (folha != edit_folha) ? livro.folha[folha].nome : "";
+    if (l1 == l2 && c1 == c2) formatar_texto(t, sizeof t, "%s%s%s", pre, pre[0] ? "!" : "", a);
+    else formatar_texto(t, sizeof t, "%s%s%s:%s", pre, pre[0] ? "!" : "", a, b);
+    int ini = senalando ? sen_ini : edit_cur;
+    int fim = senalando ? sen_fim : edit_cur;
+    if (!substituir_edit(ini, fim, t)) return;
+    sen_ini = ini;
+    sen_fim = ini + (int)tam_texto(t);
+    edit_cur = sen_fim;
+    senalando = true;
+    sen_folha = folha;
 }
 
 /* ------------------------------------------------------------ desplazamiento */
 
-static void assure_visivel(void)
+static void assure_visivel_cel(int cl, int cc)
 {
     folha_t *fo = folha_ativa();
     calcular_offsets();
     int ga = grelha_a();
     /* La columna. */
-    if (cel_c < fo->colunas) {
-        int x = off_col[cel_c], fim = off_col[cel_c + 1];
+    if (cc < fo->colunas) {
+        int x = off_col[cc], fim = off_col[cc + 1];
         if (x < desl_x) desl_x = x;
         else if (fim > desl_x + (jan->larg - MAC_LARGC)) desl_x = fim - (jan->larg - MAC_LARGC);
     }
     if (desl_x < 0) desl_x = 0;
     /* La fila. */
-    int y = cel_l * MAC_ALTLINHA, fim = y + MAC_ALTLINHA;
+    int y = cl * MAC_ALTLINHA, fim = y + MAC_ALTLINHA;
     if (y < desl_y) desl_y = y;
     else if (fim > desl_y + ga) desl_y = fim - ga;
     if (desl_y < 0) desl_y = 0;
 }
+
+static void assure_visivel(void) { assure_visivel_cel(cel_l, cel_c); }
 
 static void mover_para(int l, int c, bool extender)
 {
@@ -2939,6 +4047,7 @@ static void libro_vaciar(void)
     }
     memset(&livro, 0, sizeof livro);
     livro.n_fmts = 1;
+    graficos_limpar();
     desfazer_limpar();
     copia_limpar();
 }
@@ -3110,6 +4219,15 @@ static void apagar_folha(int f)
     for (int i = f; i < livro.n - 1; i++) livro.folha[i] = livro.folha[i + 1];
     memset(&livro.folha[livro.n - 1], 0, sizeof(folha_t));
     livro.n--;
+    for (int i = 0; i < GR_MAX; i++) {         /* D311: los gráficos de la hoja se van con ella */
+        if (!graficos[i].ativo) continue;
+        if (graficos[i].folha == f) memset(&graficos[i], 0, sizeof graficos[i]);
+        else {
+            if (graficos[i].folha > f) graficos[i].folha--;
+            if (graficos[i].rf > f) graficos[i].rf--;
+        }
+    }
+    graf_sel = -1;
     desfazer_limpar();
     if (livro.ativa >= livro.n) livro.ativa = livro.n - 1;
     cel_l = cel_c = anc_l = anc_c = 0;
@@ -3242,6 +4360,7 @@ static void apagar_conteudo(void)
 static void cortar(void)
 {
     copiar_intervalo();
+    copia.cortou = true;
     apagar_conteudo();
     registrar("macaco: cortadas las celdas");
 }
@@ -3422,6 +4541,23 @@ static bool pdf_gerar(const char *titulo, uint8_t **dados, int *n)
             l0 = l1 + 1;
         }
         c0 = c1 + 1;
+    }
+    /* D311: los gráficos de la hoja, cada uno en su página, como imagen (con sus datos de ahora). */
+    for (int i = 0; i < GR_MAX; i++) {
+        const grafico_t *g = &graficos[i];
+        if (!g->ativo || g->folha != livro.ativa) continue;
+        int gw, gh;
+        uint32_t *px = graf_imagem(g, &gw, &gh);
+        if (!px) continue;
+        if (!pdfw_pagina(w)) { libera(px); pdfw_liberar(w); return false; }
+        int ancho = util_l;                          /* a todo el ancho útil, con la proporción del gráfico */
+        int alto = (int)div64_64((int64_t)ancho * gh, gw);
+        if (alto > util_a) { alto = util_a; ancho = (int)div64_64((int64_t)alto * gw, gh); }
+        pdfw_imagem_rgb(w, PDF_MARGEN, PDF_MARGEN, ancho, alto, px, gw, gh);
+        libera(px);
+        char rod[96];
+        formatar_texto(rod, sizeof rod, "%s - gráfico %d", fo->nome, i + 1);
+        pdfw_texto(w, PDF_MARGEN, PDF_PAPEL_A - PDF_MARGEN + 200, PDFW_SANS, 0, 160, 0x808080, rod, (int)tam_texto(rod), 0);
     }
     bool ok = pdfw_finalizar(w, dados, n);
     pdfw_liberar(w);
@@ -3688,6 +4824,314 @@ static void dialogo_celulas(void)
     if (!mask) return;
     formato_aplicar(FO_MASC, mask, &r);
     registrar("macaco: formato de celdas aplicado (máscara %x)", mask);
+}
+
+/* ------------------------------------------------------------ asistente de gráficos (D311) */
+
+/* Lee un rango «A1:C5» o «Hoja2!A1:C5» (relativo a la hoja activa). */
+static bool graf_rango_ler(const char *t, int *rf, int *l1, int *c1, int *l2, int *c2)
+{
+    if (!t[0]) return false;
+    ps_t ps = { t, livro.ativa, 0, false };
+    ref_t r;
+    if (!parse_ref(&ps, &r) || ps.erro || *ps.p) return false;
+    if (r.l1 < 0 || r.c1 < 0 || r.l2 >= MAC_MAX_LINHAS || r.c2 >= MAC_MAX_COLUNAS) return false;
+    *rf = r.folha; *l1 = r.l1; *c1 = r.c1; *l2 = r.l2; *c2 = r.c2;
+    return true;
+}
+
+static void graf_rango_texto(const grafico_t *g, char *dst, int max)
+{
+    char a[16], b[16];
+    nome_ref(a, sizeof a, g->l1, g->c1);
+    nome_ref(b, sizeof b, g->l2, g->c2);
+    formatar_texto(dst, max, "%s%s%s:%s", g->rf != livro.ativa ? livro.folha[g->rf].nome : "", g->rf != livro.ativa ? "!" : "", a, b);
+}
+
+/* La región de datos que rodea a una celda: crece mientras haya celdas con datos en el borde. */
+static void regiao_atual(int l, int c, int *l1, int *c1, int *l2, int *c2)
+{
+    folha_t *fo = folha_ativa();
+    int a = l, b = c, d = l, e = c;
+    bool mudou = true;
+#define TEM(l_, c_) ({ celula_t *x_ = celula_de(fo, (l_), (c_)); (x_ && x_->texto) ? 1 : 0; })
+    while (mudou) {
+        mudou = false;
+        bool arriba = false, abajo = false, izq = false, der = false;
+        for (int k = b - 1; k <= e + 1; k++) { if (a > 0 && TEM(a - 1, k)) arriba = true; if (TEM(d + 1, k)) abajo = true; }
+        for (int k = a - 1; k <= d + 1; k++) { if (b > 0 && TEM(k, b - 1)) izq = true; if (TEM(k, e + 1)) der = true; }
+        if (arriba && a > 0) { a--; mudou = true; }
+        if (abajo && d < fo->linhas - 1) { d++; mudou = true; }
+        if (izq && b > 0) { b--; mudou = true; }
+        if (der && e < fo->colunas - 1) { e++; mudou = true; }
+    }
+#undef TEM
+    *l1 = a; *c1 = b; *l2 = d; *c2 = e;
+}
+
+/* Adivina si la primera fila (o columna) son títulos: si todo lo que hay en ella es texto. */
+static void graf_autodetectar(grafico_t *g)
+{
+    if (g->rf < 0 || g->rf >= livro.n) return;
+    folha_t *fo = &livro.folha[g->rf];
+    int R = g->l2 - g->l1 + 1, C = g->c2 - g->c1 + 1;
+    int NP = g->por_filas ? C : R, NS = g->por_filas ? R : C;
+#define ETXT(i_, j_) ({ celula_t *x_ = g->por_filas ? celula_de(fo, g->l1 + (j_), g->c1 + (i_)) : celula_de(fo, g->l1 + (i_), g->c1 + (j_)); \
+                        (x_ && x_->texto && (x_->flags & CEL_TEXTO)) ? 1 : 0; })
+    g->tit_cat = false;
+    g->tit_ser = false;
+    if (NS >= 2 && NP >= 2) {
+        bool todo = true;
+        for (int i = 1; i < NP; i++) if (!ETXT(i, 0)) todo = false;
+        g->tit_cat = todo;
+    }
+    int s0 = g->tit_cat ? 1 : 0;
+    if (NP >= 2 && NS - s0 >= 1) {
+        bool todo = true;
+        for (int j = s0; j < NS; j++) if (!ETXT(0, j)) todo = false;
+        g->tit_ser = todo;
+    }
+#undef ETXT
+}
+
+static const char *rot_ser(bool filas) { return filas ? "Primera col.: nombres de series" : "Primera fila: nombres de series"; }
+static const char *rot_cat(bool filas) { return filas ? "Primera fila: categorías" : "Primera col.: categorías"; }
+
+/* El asistente en tres pasos. Devuelve true si se aceptó (g queda con los valores nuevos). */
+static bool dialogo_grafico(grafico_t *g)
+{
+    static char it_tipo[GT_N][64];
+    for (int i = 0; i < GT_N; i++) copia_texto(it_tipo[i], NOMES_GT[i], 64);
+    jan_t *j = jan_abrir("Asistente para gráficos", 640, 410);
+    if (!j) return false;
+    jan_estilo(j, JAN_DIALOGO, 0, 0);
+
+    grafico_t w = *g;
+    lista_t l_tipo = { 14, 64, 290, GT_N * LISTA_ALTURA_ITEM + 4, it_tipo, GT_N, w.tipo, 0, NULL, NULL };
+    caixa_t c_rango, c_tit;
+    memset(&c_rango, 0, sizeof c_rango);
+    memset(&c_tit, 0, sizeof c_tit);
+    c_rango.x = 14; c_rango.y = 66; c_rango.l = 220;
+    c_tit.x = 14; c_tit.y = 66; c_tit.l = 290;
+    char rt[64];
+    graf_rango_texto(&w, rt, sizeof rt);
+    caixa_definir(&c_rango, rt);
+    caixa_definir(&c_tit, w.titulo);
+    casilla_t k_col = { 14, 132, !w.por_filas }, k_fil = { 14, 156, w.por_filas };
+    casilla_t k_ser = { 14, 196, w.tit_ser }, k_cat = { 14, 220, w.tit_cat }, k_ley = { 14, 108, w.leyenda };
+    botao_t b_ant = { 278, 368, 84, 26, "< Atrás", false }, b_sig = { 366, 368, 96, 26, "Siguiente >", false },
+            b_fin = { 470, 368, 80, 26, "Finalizar", false }, b_can = { 556, 368, 76, 26, "Cancelar", false };
+    int passo = 0;
+    bool manual = false, ok_rango = true, aceptar = false, redib = true;
+    char ult_rango[64];
+    copia_texto(ult_rango, rt, sizeof ult_rango);
+    evento_t e;
+    static const char *const DESC[GT_N] = {
+        "Compara valores entre categorías con columnas verticales.",
+        "Como las columnas, pero con barras horizontales.",
+        "Muestra la evolución de los valores con líneas y marcadores.",
+        "Muestra la evolución como áreas rellenas.",
+        "Reparte un total en porciones (usa solo la primera serie).",
+        "Muestra pares de valores (X, Y) como puntos.",
+    };
+
+    for (;;) {
+        if (redib) {
+            /* lo que se ha tecleado en los cuadros */
+            w.tipo = l_tipo.sel < 0 ? 0 : l_tipo.sel;
+            if (compara_texto(c_rango.texto, ult_rango) != 0) {
+                copia_texto(ult_rango, c_rango.texto, sizeof ult_rango);
+                int rf, l1, c1, l2, c2;
+                ok_rango = graf_rango_ler(c_rango.texto, &rf, &l1, &c1, &l2, &c2);
+                if (ok_rango) {
+                    w.rf = rf; w.l1 = l1; w.c1 = c1; w.l2 = l2; w.c2 = c2;
+                    if (!manual) graf_autodetectar(&w);
+                    k_ser.marcada = w.tit_ser;
+                    k_cat.marcada = w.tit_cat;
+                }
+            }
+            copia_texto(w.titulo, c_tit.texto, sizeof w.titulo);
+            w.leyenda = k_ley.marcada;
+            w.por_filas = k_fil.marcada;
+            w.tit_ser = k_ser.marcada;
+            w.tit_cat = k_cat.marcada;
+            g_retangulo(j, 0, 0, j->larg, j->alt, W98_FACE);
+            char cab[80];
+            static const char *const PASOS[3] = { "tipo de gráfico", "datos de origen", "título y leyenda" };
+            formatar_texto(cab, sizeof cab, "Paso %d de 3: %s", passo + 1, PASOS[passo]);
+            rotulo(j, 14, 14, cab, W98_NEGRO);
+            g_linha(j, 8, 36, j->larg - 8, 36, 0x808080);
+            g_linha(j, 8, 37, j->larg - 8, 37, COR_BRANCO);
+            /* la vista previa */
+            g_bisel(j, 330, 52, 302, 296, true);
+            if (ok_rango) {
+                grafico_t pv = w;
+                pv.w = 296; pv.h = 290;
+                graf_desenhar(j, 333, 55, 296, 290, &pv);
+            } else {
+                g_retangulo(j, 332, 54, 298, 292, COR_BRANCO);
+                rotulo(j, 400, 190, "Rango no válido", 0xC00000);
+            }
+            if (passo == 0) {
+                rotulo(j, 14, 44, "Tipo:", W98_NEGRO);
+                lista_en_marco(j, &l_tipo);
+                rotulo(j, 14, 200, DESC[l_tipo.sel < 0 ? 0 : l_tipo.sel], W98_NEGRO);
+            } else if (passo == 1) {
+                rotulo(j, 14, 46, "Rango de datos:", W98_NEGRO);
+                c_rango.foco = true;
+                caixa_desenhar(j, &c_rango);
+                rotulo(j, 14, 96, ok_rango ? "El rango es válido." : "Rango no válido (ej. A1:C5).", ok_rango ? 0x206020 : 0xC00000);
+                rotulo(j, 14, 114, "Series en:", W98_NEGRO);
+                casilla98(j, &k_col, "Columnas");
+                casilla98(j, &k_fil, "Filas");
+                casilla98(j, &k_ser, rot_ser(w.por_filas));
+                casilla98(j, &k_cat, rot_cat(w.por_filas));
+            } else {
+                rotulo(j, 14, 46, "Título del gráfico:", W98_NEGRO);
+                c_tit.foco = true;
+                caixa_desenhar(j, &c_tit);
+                casilla98(j, &k_ley, "Mostrar leyenda");
+            }
+            if (passo > 0) boton98(j, &b_ant);
+            if (passo < 2) boton98(j, &b_sig);
+            boton98(j, &b_fin);
+            boton98(j, &b_can);
+            jan_mostrar(j);
+            redib = false;
+        }
+        if (proximo_evento(j->id, &e, true) != 1) continue;
+        if (e.tipo == EV_FECHAR) break;
+        if (e.tipo == EV_TECLA && e.tecla == TECLA_ESC) break;
+        if (boton98_tratar(j, &b_can, &e)) break;
+        if (boton98_tratar(j, &b_fin, &e)) { if (ok_rango) { aceptar = true; break; } redib = true; continue; }
+        if (passo > 0 && boton98_tratar(j, &b_ant, &e)) { passo--; redib = true; continue; }
+        bool avanzar = (passo < 2 && boton98_tratar(j, &b_sig, &e));
+        if (e.tipo == EV_TECLA && e.tecla == '\n' && passo != 2 && passo != 1) avanzar = true;
+        if (avanzar) { if (passo == 1 && !ok_rango) { redib = true; continue; } passo++; redib = true; continue; }
+        if (passo == 0) {
+            int r = lista_tratar(j, &l_tipo, &e);
+            if (r != LISTA_NADA) redib = true;
+            if (r == LISTA_ATIVOU) { passo = 1; }
+        } else if (passo == 1) {
+            if (e.tipo == EV_TECLA) {
+                if (caixa_tratar(j, &c_rango, &e)) { if (ok_rango) passo = 2; }
+                redib = true;
+            } else if (e.tipo == EV_CLIQUE) {
+                if (casilla98_tratar(j, &k_col, "Columnas", &e)) { k_col.marcada = true; k_fil.marcada = false; redib = true; }
+                if (casilla98_tratar(j, &k_fil, "Filas", &e)) { k_fil.marcada = true; k_col.marcada = false; redib = true; }
+                if (casilla98_tratar(j, &k_ser, rot_ser(w.por_filas), &e)) { manual = true; redib = true; }
+                if (casilla98_tratar(j, &k_cat, rot_cat(w.por_filas), &e)) { manual = true; redib = true; }
+                if (redib && !manual) {
+                    /* otra orientación: se vuelven a adivinar los títulos */
+                    w.por_filas = k_fil.marcada;
+                    graf_autodetectar(&w);
+                    k_ser.marcada = w.tit_ser;
+                    k_cat.marcada = w.tit_cat;
+                }
+            }
+        } else {
+            if (e.tipo == EV_TECLA) {
+                if (caixa_tratar(j, &c_tit, &e)) { aceptar = ok_rango; if (aceptar) break; }
+                redib = true;
+            } else if (e.tipo == EV_CLIQUE) {
+                if (casilla98_tratar(j, &k_ley, "Mostrar leyenda", &e)) redib = true;
+            }
+        }
+    }
+    jan_fechar(j);
+    if (!aceptar) return false;
+    w.tipo = l_tipo.sel < 0 ? 0 : l_tipo.sel;
+    copia_texto(w.titulo, c_tit.texto, sizeof w.titulo);
+    w.leyenda = k_ley.marcada;
+    w.por_filas = k_fil.marcada;
+    w.tit_ser = k_ser.marcada;
+    w.tit_cat = k_cat.marcada;
+    *g = w;
+    return true;
+}
+
+/* Prepara un gráfico nuevo con la selección (o la región de datos que rodea la celda activa). */
+static void graf_nuevo_de_seleccion(grafico_t *g, int tipo)
+{
+    memset(g, 0, sizeof *g);
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    if (l1 == l2 && c1 == c2) regiao_atual(cel_l, cel_c, &l1, &c1, &l2, &c2);
+    g->ativo = true;
+    g->folha = livro.ativa;
+    g->rf = livro.ativa;
+    g->tipo = tipo;
+    g->l1 = l1; g->c1 = c1; g->l2 = l2; g->c2 = c2;
+    g->por_filas = (c2 - c1) > (l2 - l1) + 2 && (l2 - l1) >= 1;
+    g->leyenda = true;
+    g->w = 360;
+    g->h = 240;
+    graf_autodetectar(g);
+    calcular_offsets();
+    g->x = off_col_x(c2 + 1) + 20;
+    g->y = l1 * MAC_ALTLINHA;
+    if (g->x - desl_x + g->w > jan->larg - MAC_LARGC) { g->x = desl_x + 20; g->y = (l2 + 2) * MAC_ALTLINHA; }
+}
+
+static int graf_libre(void)
+{
+    for (int i = 0; i < GR_MAX; i++) if (!graficos[i].ativo) return i;
+    return -1;
+}
+
+static void graf_registrar(const char *que, int i)
+{
+    const grafico_t *g = &graficos[i];
+    char rt[64];
+    graf_rango_texto(g, rt, sizeof rt);
+    registrar("macaco: gráfico %s tipo=%d rango=%s en %d,%d %dx%d título=[%s] series=%s", que, g->tipo, rt, g->x, g->y, g->w, g->h,
+              g->titulo, g->por_filas ? "filas" : "columnas");
+}
+
+/* Insertar > Gráfico...: abre el asistente y deja el gráfico flotando sobre la hoja. */
+static void inserir_grafico(int tipo)
+{
+    int k = graf_libre();
+    if (k < 0) { mensagem("Macaco", "Ya hay demasiados gráficos en el libro."); return; }
+    grafico_t g;
+    graf_nuevo_de_seleccion(&g, tipo);
+    if (!dialogo_grafico(&g)) return;
+    graficos[k] = g;
+    graf_sel = k;
+    modificado = true;
+    graf_registrar("creado", k);
+}
+
+static void editar_grafico(int i)
+{
+    if (i < 0 || !graficos[i].ativo) return;
+    grafico_t g = graficos[i];
+    if (!dialogo_grafico(&g)) return;
+    graficos[i] = g;
+    modificado = true;
+    graf_registrar("editado", i);
+}
+
+static void borrar_grafico(int i)
+{
+    if (i < 0 || !graficos[i].ativo) return;
+    memset(&graficos[i], 0, sizeof graficos[i]);
+    if (graf_sel == i) graf_sel = -1;
+    modificado = true;
+    registrar("macaco: gráfico borrado");
+}
+
+/* Copia el gráfico seleccionado al portapapeles de imágenes (se puede pegar en Pluma). */
+static void copiar_grafico(int i)
+{
+    if (i < 0 || !graficos[i].ativo) return;
+    int w, h;
+    uint32_t *px = graf_imagem(&graficos[i], &w, &h);
+    if (!px) return;
+    int r = copiar_imagem(w, h, px);
+    libera(px);
+    por_aqui(estado, sizeof estado, r == 0 ? "Gráfico copiado como imagen" : "No se ha podido copiar el gráfico");
+    registrar("macaco: gráfico copiado como imagen %dx%d (%s)", w, h, r == 0 ? "bien" : "ERROR");
 }
 
 /* ------------------------------------------------------------ asistente IA (D298) */
@@ -4066,6 +5510,70 @@ static int exe_ordenar(ag_ctx_t *c, const ag_args_t *a, char *saida, int max)
     return formatar_texto(saida, (size_t)max, "rango ordenado %s", asc == 0 ? "de Z a A" : "de A a Z");
 }
 
+/* macaco_crear_grafico (D311): tipo, rango y título; el gráfico queda flotando en la hoja activa. */
+static int tipo_grafico_de(const char *t)
+{
+    static const char *const N[GT_N] = { "columnas", "barras", "lineas", "area", "circular", "dispersion" };
+    for (int i = 0; i < GT_N; i++) if (nome_igual(t, N[i])) return i;
+    if (nome_igual(t, "tarta")) return GT_TARTA;
+    if (nome_igual(t, "líneas")) return GT_LINEAS;
+    if (nome_igual(t, "área")) return GT_AREA;
+    if (nome_igual(t, "dispersión") || nome_igual(t, "xy")) return GT_XY;
+    return -1;
+}
+
+static int prep_grafico(ag_ctx_t *c, const ag_args_t *a, char *desc, int md, char *erro, int me)
+{
+    char t[24];
+    if (ag_arg_texto(a, "tipo", t, sizeof t) < 0) { formatar_texto(erro, (size_t)me, "falta el tipo (columnas, barras, lineas, area, circular o dispersion)"); return -1; }
+    if (tipo_grafico_de(t) < 0) { formatar_texto(erro, (size_t)me, "tipo no valido: «%s»", t); return -1; }
+    ref_t r;
+    if (!rango_de(a, "rango", &r, erro, me)) return -1;
+    if (graf_libre() < 0) { formatar_texto(erro, (size_t)me, "ya hay demasiados graficos en el libro"); return -1; }
+    char ti[48];
+    if (ag_arg_opc(a, "titulo", ti, sizeof ti, erro, me) < 0) return -1;
+    char rt[40];
+    ref_texto(rt, sizeof rt, &r);
+    formatar_texto(desc, (size_t)md, "Crear un grafico de %s con los datos del rango %s%s%s%s en la hoja activa (no se deshace con Ctrl+Z; se borra seleccionandolo y pulsando Supr).",
+                   t, rt, ti[0] ? " y el titulo «" : "", ti, ti[0] ? "»" : "");
+    c->huella = huella_livro();
+    c->con_huella = true;
+    return 0;
+}
+
+static int exe_grafico(ag_ctx_t *c, const ag_args_t *a, char *saida, int max)
+{
+    if (cambio_livro(c, saida, max) < 0) return -1;
+    char erro[100], t[24];
+    ref_t r;
+    if (!rango_de(a, "rango", &r, erro, sizeof erro)) return formatar_texto(saida, (size_t)max, "error: %s", erro), -1;
+    ag_arg_texto(a, "tipo", t, sizeof t);
+    int k = graf_libre();
+    if (k < 0) return formatar_texto(saida, (size_t)max, "error: demasiados graficos"), -1;
+    grafico_t g;
+    memset(&g, 0, sizeof g);
+    g.ativo = true;
+    g.folha = livro.ativa;
+    g.rf = r.folha;
+    g.tipo = tipo_grafico_de(t) < 0 ? GT_COLUMNAS : tipo_grafico_de(t);
+    g.l1 = r.l1; g.c1 = r.c1; g.l2 = r.l2; g.c2 = r.c2;
+    g.por_filas = (r.c2 - r.c1) > (r.l2 - r.l1) + 2 && (r.l2 - r.l1) >= 1;
+    g.leyenda = true;
+    g.w = 360; g.h = 240;
+    ag_arg_texto(a, "titulo", g.titulo, sizeof g.titulo);
+    graf_autodetectar(&g);
+    calcular_offsets();
+    g.x = off_col_x(r.c2 + 1) + 20;
+    g.y = r.l1 * MAC_ALTLINHA;
+    graficos[k] = g;
+    graf_sel = k;
+    modificado = true;
+    desenhar_tudo();
+    ag_version++;
+    graf_registrar("creado por el agente", k);
+    return formatar_texto(saida, (size_t)max, "grafico creado (%s) con el rango indicado", NOMES_GT[g.tipo]);
+}
+
 static int prep_leer(ag_ctx_t *c, const ag_args_t *a, char *d, int md, char *e, int me)
 {
     (void)c; (void)a; (void)d; (void)md; (void)e; (void)me;
@@ -4085,6 +5593,9 @@ static const ag_herr_t H_MACACO[] = {
     { "macaco_crear_hoja", "Crea una hoja nueva en el libro de Macaco (nombre opcional: letras, cifras y _). Pide confirmacion.",
       "{\"type\":\"object\",\"properties\":{\"nombre\":{\"type\":\"string\"}}}",
       AG_CL_ESCRIBIR, prep_hoja, exe_hoja },
+    { "macaco_crear_grafico", "Crea un grafico incrustado en la hoja activa de Macaco. tipo = columnas, barras, lineas, area, circular o dispersion; rango = A1:C5 (la primera fila y la primera columna se toman como titulos si son texto); titulo opcional. Pide confirmacion; no se deshace con Ctrl+Z (el usuario lo borra con Supr).",
+      "{\"type\":\"object\",\"properties\":{\"tipo\":{\"type\":\"string\",\"enum\":[\"columnas\",\"barras\",\"lineas\",\"area\",\"circular\",\"dispersion\"]},\"rango\":{\"type\":\"string\"},\"titulo\":{\"type\":\"string\"}},\"required\":[\"tipo\",\"rango\"]}",
+      AG_CL_ESCRIBIR, prep_grafico, exe_grafico },
     { "macaco_ordenar", "Ordena las filas de un rango de la hoja activa por su primera columna (ascendente = true por omision). Pide confirmacion; se deshace con Ctrl+Z.",
       "{\"type\":\"object\",\"properties\":{\"rango\":{\"type\":\"string\"},\"ascendente\":{\"type\":\"boolean\"}}}",
       AG_CL_ESCRIBIR, prep_ordenar, exe_ordenar },
@@ -4181,6 +5692,7 @@ static void executar_acao(int a)
     case A_FOLHA_NOVA: nova_folha(); break;
     case A_FOLHA_DEL: apagar_folha(pest_ctx >= 0 ? pest_ctx : livro.ativa); pest_ctx = -1; break;
     case A_FOLHA_REN: renomear_folha(pest_ctx >= 0 ? pest_ctx : livro.ativa); pest_ctx = -1; break;
+    case A_GRAFICO: inserir_grafico(GT_COLUMNAS); break;
     case A_GRAF_B: abrir_grafico(GRAF_BARRAS); break;
     case A_GRAF_H: abrir_grafico(GRAF_BARRAS_H); break;
     case A_GRAF_T: abrir_grafico(GRAF_TARTA); break;
@@ -4235,6 +5747,29 @@ static void executar_acao(int a)
 
 /* ------------------------------------------------------------ eventos */
 
+/* Las flechas señalan celdas, como en Excel; con Mayús amplían el rango. */
+static void senalar_seta(unsigned t, bool shift)
+{
+    if (!senalando) {
+        bool aqui = (livro.ativa == edit_folha);
+        sen_folha = livro.ativa;
+        sen_l = aqui ? cel_l : 0;
+        sen_c = aqui ? cel_c : 0;
+        sen_al = sen_l; sen_ac = sen_c;
+    }
+    if (t == TECLA_CIMA) sen_l--;
+    else if (t == TECLA_BAIXO) sen_l++;
+    else if (t == TECLA_ESQUERDA) sen_c--;
+    else sen_c++;
+    if (sen_l < 0) sen_l = 0;
+    if (sen_c < 0) sen_c = 0;
+    if (sen_l >= MAC_MAX_LINHAS) sen_l = MAC_MAX_LINHAS - 1;
+    if (sen_c >= MAC_MAX_COLUNAS) sen_c = MAC_MAX_COLUNAS - 1;
+    if (!shift) { sen_al = sen_l; sen_ac = sen_c; }
+    senalar_texto(sen_folha, sen_al, sen_ac, sen_l, sen_c);
+    assure_visivel_cel(sen_l, sen_c);
+}
+
 static void tratar_tecla_edicao(const evento_t *e)
 {
     unsigned t = e->tecla;
@@ -4243,6 +5778,9 @@ static void tratar_tecla_edicao(const evento_t *e)
     if (t == '\t') { confirmar_edicao(); mover_para(cel_l, cel_c + 1, false); return; }
     if (t == 27 || t == TECLA_ESC) { cancelar_edicao(); return; }
     if (t == TECLA_F4) { alternar_absoluta(); return; }
+    bool seta = (t == TECLA_CIMA || t == TECLA_BAIXO || t == TECLA_ESQUERDA || t == TECLA_DIREITA);
+    if (seta && senalar_posible()) { senalar_seta(t, (e->modificadores & 1) != 0); return; }
+    senalando = false;          /* cualquier otra tecla acaba el modo señalar */
     if (t == TECLA_CIMA) { confirmar_edicao(); mover_para(cel_l - 1, cel_c, false); return; }
     if (t == TECLA_BAIXO) { confirmar_edicao(); mover_para(cel_l + 1, cel_c, false); return; }
     if (t == '\b') {
@@ -4288,6 +5826,12 @@ static void tratar_tecla(const evento_t *e)
 
     if (nome_foco) { tratar_tecla_nome(e); return; }
     if (editando) { tratar_tecla_edicao(e); return; }
+    if (graf_sel >= 0 && graficos[graf_sel].ativo) {                   /* un gráfico seleccionado (D311) */
+        if (t == TECLA_DELETE || t == '\b') { borrar_grafico(graf_sel); return; }
+        if (t == TECLA_ESC || t == 27) { graf_sel = -1; return; }
+        if (ctrl && t == 3) { copiar_grafico(graf_sel); return; }       /* Ctrl+C: como imagen */
+        if (t == '\n') { editar_grafico(graf_sel); return; }
+    }
 
     if (ctrl) {
         switch (t) {
@@ -4299,6 +5843,8 @@ static void tratar_tecla(const evento_t *e)
         case 3: copiar_intervalo(); return;                              /* Ctrl+C */
         case 22: colar_intervalo(); return;                              /* Ctrl+V */
         case 24: cortar(); return;                                       /* Ctrl+X */
+        case 4: preencher_teclado(true); return;                         /* Ctrl+D: rellenar hacia abajo (D311) */
+        case 18: preencher_teclado(false); return;                       /* Ctrl+R: rellenar hacia la derecha */
         case 1: selecionar_tudo(); return;                               /* Ctrl+A */
         case 7: executar_acao(A_IR); return;                                  /* Ctrl+G */
         case 2: alternar_estilo(EST_NEGRITA); return;                    /* Ctrl+B */
@@ -4391,6 +5937,191 @@ static void clique_grelha(int mx, int my)
     assure_visivel();
 }
 
+/* ---- señalar con el ratón (D311) ---- */
+
+/* ¿El punto cae en el borde de una referencia de la fórmula (mover) o en su cuadradito (redimensionar)? */
+static bool ref_marco_em(int mx, int my, int *idx, int *modo)
+{
+    if (!edit_e_formula()) return false;
+    calcular_offsets();
+    reftok_t tk[16];
+    int n = refs_da_formula(edit_buf, tk, 16);
+    for (int i = n - 1; i >= 0; i--) {
+        if (ref_folha(&tk[i]) != livro.ativa) continue;
+        reftok_t t = tk[i];
+        reftok_normalizar(&t);
+        int x, y, w, h;
+        ref_rect(&t, &x, &y, &w, &h);
+        if (mx >= x + w - 5 && mx <= x + w + 4 && my >= y + h - 5 && my <= y + h + 4) { *idx = i; *modo = 2; return true; }
+        bool fuera = mx < x - 3 || mx > x + w + 3 || my < y - 3 || my > y + h + 3;
+        bool dentro = mx >= x + 3 && mx < x + w - 3 && my >= y + 3 && my < y + h - 3;
+        if (!fuera && !dentro) { *idx = i; *modo = 1; return true; }
+    }
+    return false;
+}
+
+/* Clic en la cuadrícula mientras se escribe una fórmula. true = lo consumió (señalar o agarrar un marco). */
+static bool clique_edicao_grelha(int mx, int my)
+{
+    int idx, modo;
+    if (ref_marco_em(mx, my, &idx, &modo)) {
+        reftok_t tk[16];
+        refs_da_formula(edit_buf, tk, 16);
+        reftok_t t = tk[idx];
+        reftok_normalizar(&t);
+        int l, c;
+        celula_em(mx, my, &l, &c);
+        rf_modo = modo;
+        rf_idx = idx;
+        rf_dl = l - t.l1;
+        rf_dc = c - t.c1;
+        senalando = false;
+        return true;
+    }
+    if (!senalar_posible()) return false;
+    int l, c;
+    celula_em(mx, my, &l, &c);
+    sen_folha = livro.ativa;
+    sen_al = sen_l = l;
+    sen_ac = sen_c = c;
+    senalar_texto(livro.ativa, l, c, l, c);
+    sen_arrasto = true;
+    registrar("macaco: señalada %s", edit_buf);
+    return true;
+}
+
+/* Arrastre del ratón con el botón apretado durante la edición (ampliar lo señalado, mover o redimensionar un marco). */
+static bool arrastrar_edicao(int mx, int my)
+{
+    int l, c;
+    celula_em(mx, my, &l, &c);
+    if (sen_arrasto) {
+        sen_l = l; sen_c = c;
+        senalar_texto(sen_folha, sen_al, sen_ac, l, c);
+        return true;
+    }
+    if (rf_modo) {
+        reftok_t tk[16];
+        int n = refs_da_formula(edit_buf, tk, 16);
+        if (rf_idx >= n) { rf_modo = 0; return true; }
+        reftok_t t = tk[rf_idx];
+        reftok_normalizar(&t);
+        if (rf_modo == 1) {
+            int hh = t.l2 - t.l1, ww = t.c2 - t.c1;
+            int nl = l - rf_dl, nc = c - rf_dc;
+            if (nl < 0) nl = 0;
+            if (nc < 0) nc = 0;
+            if (nl + hh >= MAC_MAX_LINHAS) nl = MAC_MAX_LINHAS - 1 - hh;
+            if (nc + ww >= MAC_MAX_COLUNAS) nc = MAC_MAX_COLUNAS - 1 - ww;
+            t.l1 = nl; t.l2 = nl + hh; t.c1 = nc; t.c2 = nc + ww;
+        } else {
+            t.l2 = l < t.l1 ? t.l1 : l;
+            t.c2 = c < t.c1 ? t.c1 : c;
+            t.intervalo = (t.l2 != t.l1 || t.c2 != t.c1);
+            t.ac2 = t.ac1; t.al2 = t.al1;
+        }
+        char txt[64];
+        reftok_escrever(txt, sizeof txt, &t);
+        if (substituir_edit(tk[rf_idx].ini, tk[rf_idx].fim, txt)) edit_cur = tk[rf_idx].ini + (int)tam_texto(txt);
+        return true;
+    }
+    return false;
+}
+
+/* ---- controlador de relleno (D311) ---- */
+
+static bool clique_asa(int mx, int my)
+{
+    int hx, hy;
+    if (!asa_relleno_pos(&hx, &hy)) return false;
+    return mx >= hx - 5 && mx <= hx + 4 && my >= hy - 5 && my <= hy + 4;
+}
+
+/* ---- gráficos incrustados (D311) ---- */
+
+static void editar_grafico(int i);
+
+/* Clic en la cuadrícula: un gráfico se selecciona y se agarra (mover), sus asas lo redimensionan y el doble
+ * clic abre el asistente. true = el clic era del gráfico. Si no, se quita la selección. */
+static bool clique_grafico(int mx, int my)
+{
+    if (graf_sel >= 0 && graficos[graf_sel].ativo && graficos[graf_sel].folha == livro.ativa) {
+        int x, y, w, h;
+        graf_rect(&graficos[graf_sel], &x, &y, &w, &h);
+        for (int k = 0; k < 8; k++) {
+            int ax, ay;
+            graf_asa_pos(x, y, w, h, k, &ax, &ay);
+            if (mx >= ax - 4 && mx <= ax + 4 && my >= ay - 4 && my <= ay + 4) {
+                gx_modo = 2; gr_asa = k; gr_idx = graf_sel;
+                gr_mx0 = mx; gr_my0 = my;
+                gr_ox = graficos[graf_sel].x; gr_oy = graficos[graf_sel].y; gr_ow = graficos[graf_sel].w; gr_oh = graficos[graf_sel].h;
+                gr_cambio = false;
+                return true;
+            }
+        }
+    }
+    for (int i = GR_MAX - 1; i >= 0; i--) {
+        grafico_t *g = &graficos[i];
+        if (!g->ativo || g->folha != livro.ativa) continue;
+        int x, y, w, h;
+        graf_rect(g, &x, &y, &w, &h);
+        if (mx < x || mx >= x + w || my < y || my >= y + h) continue;
+        unsigned agora = tempo_ms();
+        graf_sel = i;
+        if (i == gr_ult_idx && gr_ult_ms && agora - gr_ult_ms < 500) {
+            gr_ult_ms = 0;
+            gx_modo = 0;
+            editar_grafico(i);
+            return true;
+        }
+        gr_ult_ms = agora;
+        gr_ult_idx = i;
+        gx_modo = 1; gr_idx = i;
+        gr_mx0 = mx; gr_my0 = my;
+        gr_ox = g->x; gr_oy = g->y; gr_ow = g->w; gr_oh = g->h;
+        gr_cambio = false;
+        return true;
+    }
+    graf_sel = -1;
+    return false;
+}
+
+static void arrastrar_grafico(int mx, int my)
+{
+    grafico_t *g = &graficos[gr_idx];
+    int dx = mx - gr_mx0, dy = my - gr_my0;
+    if (gx_modo == 1) {
+        g->x = gr_ox + dx;
+        g->y = gr_oy + dy;
+        if (g->x < 0) g->x = 0;
+        if (g->y < 0) g->y = 0;
+    } else {
+        int x = gr_ox, y = gr_oy, w = gr_ow, h = gr_oh;
+        if (GA_X[gr_asa] == 0) { x += dx; w -= dx; } else if (GA_X[gr_asa] == 2) w += dx;
+        if (GA_Y[gr_asa] == 0) { y += dy; h -= dy; } else if (GA_Y[gr_asa] == 2) h += dy;
+        if (w < 120) { if (GA_X[gr_asa] == 0) x -= 120 - w; w = 120; }
+        if (h < 80) { if (GA_Y[gr_asa] == 0) y -= 80 - h; h = 80; }
+        if (x < 0) { w += x; x = 0; }
+        if (y < 0) { h += y; y = 0; }
+        g->x = x; g->y = y; g->w = w; g->h = h;
+    }
+    if (dx || dy) gr_cambio = true;
+}
+
+/* Calcula hasta dónde llega el arrastre: el eje en el que el ratón se aleja más de la selección. */
+static void preenchendo_alvo(int mx, int my)
+{
+    int l1, c1, l2, c2, l, c;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    celula_em(mx, my, &l, &c);
+    int dv = (l > l2) ? l - l2 : (l < l1 ? l - l1 : 0);
+    int dh = (c > c2) ? c - c2 : (c < c1 ? c - c1 : 0);
+    int av = dv < 0 ? -dv : dv, ah = dh < 0 ? -dh : dh;
+    if (av >= ah && av > 0) { pre_dir = dv > 0 ? 0 : 1; pre_n = av; }
+    else if (ah > 0) { pre_dir = dh > 0 ? 2 : 3; pre_n = ah; }
+    else pre_n = 0;
+}
+
 /* Durante el arrastre sólo se mueve la celda activa: el ancla se queda donde
  * se empezó, para que la selección sea el rango entero. */
 static void arrastrar_para(int mx, int my)
@@ -4459,6 +6190,7 @@ static void clique_pestana(int p)
     if (p == -2) { nova_folha(); return; }
     if (p < 0) return;
     livro.ativa = p;
+    graf_sel = -1;
     cel_l = cel_c = anc_l = anc_c = 0;
     desl_x = desl_y = 0;
     registrar("macaco: hoja %s", livro.folha[p].nome);
@@ -4558,7 +6290,13 @@ static void tratar_evento(const evento_t *e)
                 nome_foco = true;
                 nome_buf[0] = 0;       /* el texto anterior se reemplaza al escribir, como en Excel */
             } else if (e->x >= 84 && e->x < 106) executar_acao(A_IGUAL);
-            else if (e->x >= 110) { if (!editando) comecar_edicao(NULL); edit_cur = (int)tam_texto(edit_buf); }
+            else if (e->x >= 110) {
+                if (!editando) comecar_edicao(NULL);
+                int cur = (e->x - 114 + LETRA_L / 2) / LETRA_L;      /* el cursor va donde se hizo clic */
+                int nn = (int)tam_texto(edit_buf);
+                edit_cur = cur < 0 ? 0 : (cur > nn ? nn : cur);
+                senalando = false;
+            }
             return;
         }
         nome_foco = false;
@@ -4570,6 +6308,12 @@ static void tratar_evento(const evento_t *e)
         }
         if (e->y >= Y_PEST && e->y < Y_ESTADO) {
             int p = pestana_em(e->x, e->y);
+            if (editando && p >= 0 && !(e->botoes & 2) && edit_e_formula() && !senalando && senalar_posible()) {
+                livro.ativa = p;               /* D311: cambia de hoja para señalar una celda de otra (el contenido se confirma en la suya) */
+                desl_x = desl_y = 0;
+                registrar("macaco: hoja %s (señalando desde %s)", livro.folha[p].nome, livro.folha[edit_folha].nome);
+                return;
+            }
             confirmar_edicao();
             if (e->botoes & 2) {
                 if (p >= 0) { pest_ctx = p; clique_pestana(p); menu_lista(e->x, Y_PEST - 4 * 20, M_PESTANA, NM(M_PESTANA), COD_PEST); }
@@ -4577,10 +6321,23 @@ static void tratar_evento(const evento_t *e)
             return;
         }
         if (e->y >= Y_ESTADO) return;
+        if (editando && (e->botoes & 1) && e->y >= grelha_y() && e->x >= MAC_LARGC && edit_e_formula() &&
+            clique_edicao_grelha(e->x, e->y))
+            return;
         confirmar_edicao();
         if (e->y < grelha_y()) { clique_cabecalho(e->x, e->y); return; }
         if (e->botoes & 1) {
             if (e->x < MAC_LARGC) { clique_cabecalho_linha(e->y); return; }
+            if (clique_grafico(e->x, e->y)) return;
+            if (clique_asa(e->x, e->y)) {
+                unsigned agora = tempo_ms();
+                if (pre_ult_ms && agora - pre_ult_ms < 500) { pre_ult_ms = 0; preencher_duplo(); return; }
+                pre_ult_ms = agora;
+                preenchendo = true;
+                pre_n = 0;
+                pre_ctrl = (e->modificadores & 2) != 0;
+                return;
+            }
             clique_grelha(e->x, e->y);
             arrastrando = true;
         }
@@ -4594,11 +6351,40 @@ static void tratar_evento(const evento_t *e)
         folha_ativa()->larg_col[redim_col] = w;
         return;
     }
+    if (e->tipo == EV_MOVER && (e->botoes & 1) && editando && (sen_arrasto || rf_modo)) {
+        arrastrar_edicao(e->x, e->y);
+        return;
+    }
+    if (e->tipo == EV_MOVER && gx_modo && (e->botoes & 1)) {
+        arrastrar_grafico(e->x, e->y);
+        return;
+    }
+    if (e->tipo == EV_MOVER && preenchendo && (e->botoes & 1)) {
+        preenchendo_alvo(e->x, e->y);
+        if (e->modificadores & 2) pre_ctrl = true;
+        return;
+    }
     if (e->tipo == EV_MOVER && arrastrando && (e->botoes & 1)) {
         arrastrar_para(e->x, e->y);
         return;
     }
     if (e->tipo == EV_SOLTOU) {
+        if (gx_modo) {
+            gx_modo = 0;
+            if (gr_cambio) { modificado = true; graf_registrar("movido", gr_idx); }
+            gr_cambio = false;
+            return;
+        }
+        sen_arrasto = false;
+        if (rf_modo) { rf_modo = 0; registrar("macaco: referencia movida: %s", edit_buf); }
+        if (preenchendo) {
+            preenchendo = false;
+            if (e->modificadores & 2) pre_ctrl = true;
+            if (pre_n > 0) preencher_selecao(pre_dir, pre_n, pre_ctrl);
+            pre_n = 0;
+            pre_ctrl = false;
+            return;
+        }
         if (arrastrando) assure_visivel();
         if (redim_col >= 0) { modificado = true; registrar("macaco: anchura de la columna %d = %d", redim_col + 1, folha_ativa()->larg_col[redim_col]); }
         arrastrando = false;
@@ -4633,6 +6419,13 @@ static void dump(void)
                     registrar("macaco: celula %s!%s = %s", fo->nome, ref, ce->texto);
                 else
                     registrar("macaco: celula %s!%s = %s", fo->nome, ref, val);
+            }
+        for (int i = 0; i < GR_MAX; i++)
+            if (graficos[i].ativo && graficos[i].folha == f) {
+                const grafico_t *g = &graficos[i];
+                registrar("macaco: grafico %s tipo=%d rango=%d:%d,%d:%d,%d x=%d y=%d w=%d h=%d fil=%d ts=%d tc=%d ley=%d tit=[%s]",
+                          fo->nome, g->tipo, g->rf, g->l1, g->c1, g->l2, g->c2, g->x, g->y, g->w, g->h,
+                          g->por_filas ? 1 : 0, g->tit_ser ? 1 : 0, g->tit_cat ? 1 : 0, g->leyenda ? 1 : 0, g->titulo);
             }
         /* los formatos, para la prueba */
         for (int l = 0; l < fo->linhas; l++)

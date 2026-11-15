@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 36ef0600 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 35e8e905 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -13,6 +13,29 @@ para PC x86 de 32 bits, funcionando de verdade em um notebook de 2011.
 Feito pelo Claude (Anthropic) para o projeto de **Eli Rigobeli**,
 e mantido por **Alejandro Anuncibay**, com melhorias escritas com o Claude
 (Anthropic) e com um agente de IA (MiniMax Code).
+
+</div>
+
+## Começar em 5 minutos
+
+1. **Baixe** `saguios.img` (ou `saguios-smp.img`, multinúcleo) da última
+   [publicação](https://github.com/aleanun89/sagui-os-extended-es/releases) e confira a soma com
+   `sha256sum -c SHA256SUMS.txt`.
+2. **Teste no QEMU** (Linux, WSL, macOS ou Windows):
+   ```
+   qemu-system-i386 -m 1024 -drive file=saguios.img,format=raw
+   ```
+3. **Ou em um PC de verdade:** grave a imagem em um pendrive com **Rufus (modo DD)**, **balenaEtcher** ou
+   `dd` (apaga tudo o que houver nele) e inicie pelo USB, por BIOS ou UEFI. Requisitos: CPU **i686** (Pentium
+   Pro/II, AMD Athlon ou posterior), **64 MB** de RAM e uma placa de vídeo com VESA. Detalhes em
+   [docs/imagenes.md](docs/imagenes.md).
+4. **Primeiros passos:** o menu **Início** abre os aplicativos (Pluma, Macaco, Correio, VisualPythonS, GebraMini,
+   DOSBox…); no **Terminal**, `ajuda` lista os comandos; **Configurações** muda teclado, tela, som
+   e IA; `instalar` instala no disco rígido.
+5. **Compile você mesmo:** `make` e `./run_in_qemu.sh`. Guia completo em
+   [compilar_versiones.md](compilar_versiones.md).
+
+<div align="center">
 
 `562 KB` · `sem GRUB` · `sem libc` · `sem código de outros sistemas (exceto drivers, D073)` · `mais de 130 testes automáticos`
 

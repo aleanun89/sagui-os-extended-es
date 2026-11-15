@@ -1,0 +1,20 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Reloj'
+  ancho = 272
+  alto = 108
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  ancho = 240
+  alto = 30
+  texto = '00:00:00'
+  alineacion = 'centro'
+control Etiqueta Etiqueta2
+  x = 16
+  y = 54
+  ancho = 240
+  alineacion = 'centro'
+control Reloj Reloj1
+  x = 240
+  y = 80

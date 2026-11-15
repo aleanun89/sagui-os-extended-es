@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
 # Lista de tareas: se guarda en tareas.txt (en /home, o en /tmp si no hay /home) cada vez que cambia.
 import os
 

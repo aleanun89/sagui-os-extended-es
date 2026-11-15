@@ -1,0 +1,20 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Lienzo'
+  ancho = 360
+  alto = 272
+control Lienzo Lienzo1
+  x = 8
+  y = 8
+  ancho = 344
+  alto = 220
+control Boton Boton1
+  x = 8
+  y = 236
+  ancho = 80
+  texto = 'Borrar'
+control Etiqueta Etiqueta1
+  x = 96
+  y = 240
+  ancho = 250
+  texto = 'Arrastra el ratón para dibujar'

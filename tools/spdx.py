@@ -77,7 +77,8 @@ PEGAMENTO = ("userland/terceros/netsurf/netsurf.mk", "userland/terceros/netsurf/
 EXCLUIDOS = ("userland/terceros/", "kernel/terceros/", "userland/micropython/", "userland/web/quickjs/", "userland/web/terceros/",
              "build/", "entrega/", "testes_hw/", "dashboard/", "firmware/",
              # Ejemplos que la prueba h64 (Mico) lee por números de línea: una cabecera los desplazaría.
-             "rootfs/ejemplos/mico/")
+             # Los de VisualPythonS (h299, h303, el manual) igual: son código para el usuario.
+             "rootfs/ejemplos/mico/", "rootfs/ejemplos/vps/")
 # extensión -> prefijo de comentario
 COMENTARIO = {".c": "//", ".h": "//", ".cpp": "//", ".hpp": "//", ".cc": "//", ".ld": "/*",
               ".asm": ";", ".inc": ";", ".s": "#", ".S": "#", ".py": "#", ".sh": "#", ".mk": "#"}

@@ -9,9 +9,12 @@ from vps import _modelo as M
 GRIS, BLANCO, SOMBRA, NEGRO = 0xC0C0C0, 0xFFFFFF, 0x808080, 0x000000
 LUZ, AZUL, AZUL2 = 0xDFDFDF, 0x000080, 0x1084D0
 AMARILLO = 0xFFFFE1
+ROJO_I = 0xC00000
 
 HERRAMIENTAS = ["Puntero", "Etiqueta", "Boton", "CuadroTexto", "Casilla", "Opcion", "Lista", "Combo",
-                "Imagen", "Marco", "Deslizador", "BarraProgreso", "Temporizador", "Menu"]
+                "Imagen", "Marco", "Deslizador", "BarraProgreso", "Temporizador", "Menu",
+                "Pestanas", "Tabla", "Numerico", "Lienzo", "Enlace", "BarraEstado", "SelectorColor",
+                "Reloj", "Archivo", "ConectorBD", "RejillaDatos"]
 NOMBRES_HERR = {"Puntero": "Puntero (seleccionar)"}
 
 # geometría de la superficie: el formulario se dibuja en (OX, OY); su cliente en (FX, FY)
@@ -134,11 +137,80 @@ def icono(v, tipo, x, y):
         v.elipse(x + 3, y + 3, 18, 18, NEGRO, relleno=False)
         v.linea(x + 12, y + 12, x + 12, y + 6, NEGRO)
         v.linea(x + 12, y + 12, x + 16, y + 14, NEGRO)
+    elif tipo == "ConectorBD":      # mejora 127: un cilindro de base de datos
+        for k in range(3):
+            v.elipse(x + 4, y + 4 + k * 5, 16, 7, 0xE8E8A0)
+            v.elipse(x + 4, y + 4 + k * 5, 16, 7, NEGRO, relleno=False)
+        v.rect(x + 4, y + 8, 16, 10, 0xE8E8A0)
+        v.linea(x + 4, y + 8, x + 4, y + 18, NEGRO)
+        v.linea(x + 19, y + 8, x + 19, y + 18, NEGRO)
+        v.elipse(x + 4, y + 4, 16, 7, 0xF4F4C0)
+        v.elipse(x + 4, y + 4, 16, 7, NEGRO, relleno=False)
+        v.elipse(x + 4, y + 15, 16, 7, 0xE8E8A0)
+        v.elipse(x + 4, y + 15, 16, 7, NEGRO, relleno=False)
+    elif tipo == "RejillaDatos":    # mejora 127: una rejilla con cabecera
+        hundido(v, x + 2, y + 4, 20, 16)
+        v.rect(x + 3, y + 5, 18, 4, GRIS)
+        for k in range(3):
+            v.linea(x + 3, y + 12 + k * 3, x + 20, y + 12 + k * 3, SOMBRA)
+        v.linea(x + 10, y + 5, x + 10, y + 19, SOMBRA)
+        v.linea(x + 16, y + 5, x + 16, y + 19, SOMBRA)
     elif tipo == "Menu":
         v.rect(x + 2, y + 4, 20, 4, AZUL)
         elevado(v, x + 5, y + 8, 14, 11, BLANCO)
         v.rect(x + 7, y + 11, 10, 1, NEGRO)
         v.rect(x + 7, y + 14, 10, 1, NEGRO)
+    elif tipo == "Pestanas":
+        v.rect(x + 2, y + 9, 20, 11, GRIS)
+        v.rect(x + 2, y + 9, 20, 11, SOMBRA, relleno=False)
+        elevado(v, x + 3, y + 5, 9, 6)
+        v.rect(x + 12, y + 7, 8, 3, SOMBRA)
+        v.linea(x + 4, y + 12, x + 19, y + 12, BLANCO)
+    elif tipo == "Tabla":
+        hundido(v, x + 2, y + 4, 20, 16)
+        v.rect(x + 3, y + 5, 18, 4, 0xE0E0E0)
+        v.linea(x + 3, y + 12, x + 20, y + 12, SOMBRA)
+        v.linea(x + 3, y + 16, x + 20, y + 16, SOMBRA)
+        v.linea(x + 9, y + 5, x + 9, y + 19, SOMBRA)
+        v.linea(x + 15, y + 5, x + 15, y + 19, SOMBRA)
+    elif tipo == "Numerico":
+        hundido(v, x + 2, y + 6, 20, 13)
+        v.texto(x + 4, y + 4, "7", NEGRO)
+        elevado(v, x + 15, y + 7, 6, 5)
+        elevado(v, x + 15, y + 12, 6, 6)
+        v.poligono([(x + 16, y + 10), (x + 20, y + 10), (x + 18, y + 8)], NEGRO)
+        v.poligono([(x + 16, y + 14), (x + 20, y + 14), (x + 18, y + 16)], NEGRO)
+    elif tipo == "Lienzo":
+        hundido(v, x + 2, y + 3, 20, 18)
+        v.linea(x + 5, y + 17, x + 11, y + 8, ROJO_I)
+        v.linea(x + 11, y + 8, x + 18, y + 15, ROJO_I)
+        v.elipse(x + 13, y + 6, 6, 6, AZUL, relleno=False)
+    elif tipo == "Enlace":
+        v.texto(x + 3, y + 3, "Ab", 0x0000EE)
+        v.linea(x + 3, y + 18, x + 20, y + 18, 0x0000EE)
+        v.linea(x + 3, y + 19, x + 20, y + 19, 0x0000EE)
+    elif tipo == "BarraEstado":
+        v.rect(x + 2, y + 14, 20, 7, GRIS)
+        hundido(v, x + 3, y + 15, 11, 5, None)
+        hundido(v, x + 15, y + 15, 6, 5, None)
+    elif tipo == "SelectorColor":
+        elevado(v, x + 2, y + 6, 20, 13)
+        v.rect(x + 5, y + 9, 6, 7, 0xFF0000)
+        v.rect(x + 11, y + 9, 5, 7, 0x00A000)
+        v.rect(x + 16, y + 9, 3, 7, 0x0000FF)
+    elif tipo == "Reloj":
+        v.rect(x + 3, y + 4, 18, 16, BLANCO)
+        v.rect(x + 3, y + 4, 18, 16, NEGRO, relleno=False)
+        v.rect(x + 3, y + 4, 18, 4, 0xB22222)
+        v.texto(x + 6, y + 6, "15", NEGRO)
+    elif tipo == "Archivo":
+        v.poligono([(x + 6, y + 3), (x + 15, y + 3), (x + 19, y + 7), (x + 19, y + 21), (x + 6, y + 21)], BLANCO)
+        v.linea(x + 6, y + 3, x + 6, y + 21, NEGRO)
+        v.linea(x + 6, y + 21, x + 19, y + 21, NEGRO)
+        v.linea(x + 19, y + 7, x + 19, y + 21, NEGRO)
+        v.linea(x + 15, y + 3, x + 19, y + 7, NEGRO)
+        for k in range(3):
+            v.rect(x + 9, y + 10 + k * 3, 7, 1, SOMBRA)
 
 
 # ------------------------------------------------------------ pintar un control del formulario
@@ -219,10 +291,87 @@ def pintar_control(v, c, x, y, w, h, form):
         n = n * max(0, min(int(M.val(c, "valor") or 0), mx)) // mx
         for i in range(n):
             v.rect(x + 3 + i * 9, y + 3, 7, h - 6, AZUL)
-    elif tipo in ("Temporizador", "Menu"):
+    elif tipo not in M.SIN_VENTANA:
+        hundido(v, x, y, w, h, 0xF4F4F0)
+        v.texto(x + 4, y + 2, tipo, NEGRO)
+    elif tipo in M.SIN_VENTANA:
         elevado(v, x, y, 32, 32)
         icono(v, tipo, x + 4, y + 4)
     v.recorte(*ant)
+
+
+class Vista:
+    """Diseño fiel (mejora 124, D299): el diseñador dibuja cada control con el MISMO código que
+    la aplicación al ejecutarse. Para eso crea los controles reales de `vps` en un formulario
+    oculto y llama a su `_desenhar` sobre la superficie, con el rectángulo del diseño. Si algo
+    falla con un control, se cae al dibujo aproximado de `pintar_control`."""
+
+    def __init__(self):
+        self.form = None
+        self.ctl = {}
+        self.color = None
+        self.vistos = set()
+        self.fallos = 0
+
+    def _asegurar(self, form_modelo):
+        import vps
+        if self.form is None or self.form.win._destruido:
+            f = vps.Formulario(nombre="__vista__", ancho=1000, alto=700)
+            if f in vps._formularios:
+                vps._formularios.remove(f)      # no se cierra con vps.salir()
+            f.win.withdraw()
+            self.form = f
+            self.ctl = {}
+            self.color = None
+        col = M.val(form_modelo, "color", "Formulario")
+        if col != self.color:
+            self.form._escribir("color", col)
+            self.color = col
+        return self.form
+
+    def pintar(self, v, c, x, y, w, h, form_modelo):
+        """True si lo dibujó el control real."""
+        import vps
+        tipo = c["tipo"]
+        if tipo in M.SIN_VENTANA:
+            return False
+        try:
+            f = self._asegurar(form_modelo)
+            props = dict((k, val) for k, val in c["props"].items() if k not in ("x", "y", "ancho", "alto"))
+            clave = tipo + repr(sorted(props.items(), key=lambda kv: kv[0]))
+            nombre = "%s.%s" % (form_modelo["nombre"], c["nombre"])
+            self.vistos.add(nombre)
+            ent = self.ctl.get(nombre)
+            if ent is None or ent[0] != clave:
+                if ent is not None:
+                    ent[1].destruir()
+                ctl = vps.TIPOS[tipo](f, nombre=nombre, **props)
+                self.ctl[nombre] = ent = (clave, ctl)
+            wd = ent[1].w
+            wd._ax, wd._ay, wd._wl, wd._wa = x, y, w, h
+            ant = recortar(v, x, y, w, h)
+            try:
+                wd._desenhar(v)
+            finally:
+                v.recorte(*ant)
+            return True
+        except Exception as e:
+            self.fallos += 1
+            if self.fallos < 3:
+                import sys
+                sys.print_exception(e)
+            return False
+
+    def podar(self):
+        """Quita los controles de la vista que ya no están en el modelo."""
+        for n in list(self.ctl.keys()):
+            if n not in self.vistos:
+                try:
+                    self.ctl[n][1].destruir()
+                except Exception:
+                    pass
+                del self.ctl[n]
+        self.vistos = set()
 
 
 def etiqueta_nombre(v, x, y, nombre):
@@ -235,9 +384,9 @@ def etiqueta_nombre(v, x, y, nombre):
 class Caja(tk.Widget):
     _classe = "Caja"
     _foca_no_clique = False
-    _padrao = {"width": 76, "height": 300, "takefocus": 0, "cursor": "", "highlightthickness": 0,
+    _padrao = {"width": 104, "height": 300, "takefocus": 0, "cursor": "", "highlightthickness": 0,
                "borderwidth": 0}
-    COL, FIL, TAM = 2, 6, 32
+    COL, FIL, TAM = 3, 8, 32
     X0, Y0 = 4, 22
 
     def __init__(self, master, dis):
@@ -247,7 +396,7 @@ class Caja(tk.Widget):
         self.bind("<Motion>", self._mover)
 
     def _natural(self):
-        return (self.X0 * 2 + self.COL * self.TAM, self.Y0 + 7 * self.TAM + 8)
+        return (self.X0 * 2 + self.COL * self.TAM, self.Y0 + ((len(HERRAMIENTAS) + self.COL - 1) // self.COL) * self.TAM + 8)
 
     def _caja(self, i):
         return (self.X0 + (i % self.COL) * self.TAM, self.Y0 + (i // self.COL) * self.TAM)
@@ -366,6 +515,11 @@ class Propiedades(tk.Widget):
         v.recorte(*ant)
 
 
+def vps_tab_h():
+    import vps
+    return vps.TAB_H
+
+
 def _int(v, d=0):
     try:
         return int(v)
@@ -395,6 +549,8 @@ class Superficie(tk.Widget):
         self.tir = -1
         self._rejilla = None
         self._rejilla_clave = None
+        self.vista = Vista()
+        self.fiel = True        # diseño fiel: los controles reales; False, el dibujo aproximado
         self.bind("<Button-1>", self._pulsar)
         self.bind("<B1-Motion>", self._arrastrar)
         self.bind("<ButtonRelease-1>", self._soltar)
@@ -438,12 +594,14 @@ class Superficie(tk.Widget):
     def control_en(self, fx, fy):
         f = self.form()
         for c in reversed(f["controles"]):
-            if c["tipo"] in ("Temporizador", "Menu"):
+            if c["tipo"] in M.SIN_VENTANA:
                 x, y, w, h = M.rect_abs(f, c)
                 w = h = 32
             else:
                 x, y, w, h = M.rect_abs(f, c)
             if M.val(c, "visible") is False and not self.dis.mostrar_ocultos:
+                continue
+            if not M.en_pagina(f, c):
                 continue
             if x <= fx < x + w and y <= fy < y + h:
                 return c
@@ -452,8 +610,10 @@ class Superficie(tk.Widget):
     def marco_en(self, fx, fy):
         f = self.form()
         for c in reversed(f["controles"]):
-            if c["tipo"] == "Marco":
+            if M.es_contenedor(c) and M.en_pagina(f, c):
                 x, y, w, h = M.rect_abs(f, c)
+                if c["tipo"] == "Pestanas":
+                    y, h = y + vps_tab_h(), h - vps_tab_h()     # solo el cuerpo, no la tira de pestañas
                 if x <= fx < x + w and y <= fy < y + h:
                     return c
         return None
@@ -464,7 +624,7 @@ class Superficie(tk.Widget):
             return -1
         c = sel[0]
         x, y, w, h = M.rect_abs(self.form(), c)
-        if c["tipo"] in ("Temporizador", "Menu"):
+        if c["tipo"] in M.SIN_VENTANA:
             return -1
         for i, (gx, gy) in enumerate(self.TIR):
             tx = x + gx * (w // 2) - self.TIR_L // 2
@@ -488,11 +648,14 @@ class Superficie(tk.Widget):
         t = self.tirador_en(fx, fy)
         if t >= 0:
             self.modo = "redim"
+            dis.punto()
             self.tir = t
             self.orig = [(dis.sel[0], M.rect_abs(self.form(), dis.sel[0])[2:], (int(M.val(dis.sel[0], "x")), int(M.val(dis.sel[0], "y"))))]
             return
         c = self.control_en(fx, fy)
         if c is not None:
+            if c["tipo"] == "Pestanas":
+                self._clic_pestana(c, fx, fy)
             multi = bool(ev.state & 1) or bool(ev.state & 4)
             if multi:
                 dis.alternar(c)
@@ -503,6 +666,7 @@ class Superficie(tk.Widget):
                 self.modo = None
                 return
             self.modo = "mover"
+            dis.punto()
             self.orig = [(s, (int(M.val(s, "x")), int(M.val(s, "y")))) for s in dis.sel]
             return
         # vacío: el formulario (o la marquesina)
@@ -513,6 +677,19 @@ class Superficie(tk.Widget):
             self.modo = None
             return
         self.modo = "marq" if dentro else None
+
+    def _clic_pestana(self, c, fx, fy):
+        """Un clic en la tira de pestañas de unas Pestanas elige esa página (para colocar controles en ella)."""
+        import vps
+        x, y, w, h = M.rect_abs(self.form(), c)
+        if not (y <= fy < y + vps.TAB_H):
+            return
+        for i, (a, b) in enumerate(vps._pest_tramos(M.val(c, "elementos") or [])):
+            if x + a <= fx < x + b and i != int(M.val(c, "seleccion") or 0):
+                self.dis.punto()
+                c["props"]["seleccion"] = i
+                self.dis.cambio(True)
+                return
 
     def _arrastrar(self, ev):
         if self.modo is None:
@@ -566,11 +743,8 @@ class Superficie(tk.Widget):
             w, h = abs(x1 - x0), abs(y1 - y0)
             if w < 8 or h < 8:
                 w = h = 0
-            c = M.crear(dis.proy["forms"], self.form(), dis.herramienta, min(x0, x1) - ox, min(y0, y1) - oy,
-                        w or None, h or None, marco["nombre"] if marco else None)
-            dis.herramienta = "Puntero"
-            dis.seleccionar([c])
-            dis.cambio(True)
+            dis.crear_control(dis.herramienta, min(x0, x1) - ox, min(y0, y1) - oy,
+                              w or None, h or None, marco["nombre"] if marco else None)
         elif modo == "marq":
             x0, y0 = self.p0
             x1, y1 = fx, fy
@@ -580,13 +754,14 @@ class Superficie(tk.Widget):
                 r = []
                 for c in self.form()["controles"]:
                     x, y, w, h = M.rect_abs(self.form(), c)
-                    if c["tipo"] in ("Temporizador", "Menu"):
+                    if c["tipo"] in M.SIN_VENTANA:
                         w = h = 32
                     if x >= a and y >= b and x + w <= z and y + h <= d:
                         r.append(c)
                 dis.seleccionar(r)
             self._redesenhar()
         else:
+            dis.descartar_si_igual()
             dis.cambio(True)
         self._redesenhar()
 
@@ -629,23 +804,25 @@ class Superficie(tk.Widget):
         ant2 = recortar(v, x + FX, y + FY, fw, fh)
         for c in form["controles"]:
             rx, ry, rw, rh = M.rect_abs(form, c)
-            if c["tipo"] in ("Temporizador", "Menu"):
+            if c["tipo"] in M.SIN_VENTANA:
                 rw = rh = 32
-            if M.val(c, "visible") is False:
+            if M.val(c, "visible") is False or not M.en_pagina(form, c):
                 continue
-            pintar_control(v, c, x + FX + rx, y + FY + ry, rw, rh, form)
-            if c["tipo"] in ("Temporizador", "Menu"):
+            if not (self.fiel and self.vista.pintar(v, c, x + FX + rx, y + FY + ry, rw, rh, form)):
+                pintar_control(v, c, x + FX + rx, y + FY + ry, rw, rh, form)
+            if c["tipo"] in M.SIN_VENTANA:
                 etiqueta_nombre(v, x + FX + rx, y + FY + ry, c["nombre"])
         v.recorte(*ant2)
+        self.vista.podar()
         # selección
         sel = dis.sel
         for c in sel:
             rx, ry, rw, rh = M.rect_abs(form, c)
-            if c["tipo"] in ("Temporizador", "Menu"):
+            if c["tipo"] in M.SIN_VENTANA:
                 rw = rh = 32
             bx, by = x + FX + rx, y + FY + ry
             col = NEGRO if len(sel) == 1 else SOMBRA
-            if len(sel) == 1 and c["tipo"] not in ("Temporizador", "Menu"):
+            if len(sel) == 1 and c["tipo"] not in M.SIN_VENTANA:
                 for gx, gy in self.TIR:
                     tx = bx + gx * (rw // 2) - self.TIR_L // 2
                     ty = by + gy * (rh // 2) - self.TIR_L // 2

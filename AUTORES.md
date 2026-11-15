@@ -32,7 +32,7 @@ Por eso este proyecto mantiene la GPL v3 y enlaza de vuelta al original desde el
 
 | Autor | Contribución |
 | --- | --- |
-| **Alejandro Anuncibay** | mantenedor del fork; dirección de las mejoras (ver [`mejoras/`](mejoras/README.md)) |
+| **Alejandro Anuncibay** | mantenedor del fork; dirección de las mejoras (ver [`mejoras/`](mejoras/README.md)); autor del prototipo **GebraMini** (C++/SDL, GPL-3.0-or-later) del que nace la aplicación nativa `gebramini` (D309, [`docs/gebramini.md`](docs/gebramini.md)) |
 | **Claude (Anthropic)** | herramienta con la que se ha escrito el código de las mejoras, bajo la dirección del mantenedor; los commits lo indican con `Co-Authored-By` |
 
 El historial de git conserva la autoría de cada cambio.

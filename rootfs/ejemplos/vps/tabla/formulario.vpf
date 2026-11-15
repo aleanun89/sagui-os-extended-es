@@ -1,0 +1,33 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Tabla'
+  ancho = 400
+  alto = 232
+control Tabla Tabla1
+  x = 8
+  y = 8
+  ancho = 384
+  alto = 150
+  columnas = ['Nombre', 'Edad', 'Ciudad']
+  filas = ['Ana;31;Madrid', 'Luis;25;Sevilla', 'Marta;42;Bilbao', 'Pablo;19;Cadiz']
+  editable = True
+control Boton Boton1
+  x = 8
+  y = 166
+  ancho = 80
+  texto = 'Añadir'
+control Boton Boton2
+  x = 96
+  y = 166
+  ancho = 80
+  texto = 'Quitar'
+control Boton Boton3
+  x = 184
+  y = 166
+  ancho = 100
+  texto = 'Guardar CSV'
+control Etiqueta Etiqueta1
+  x = 8
+  y = 200
+  ancho = 384
+  texto = 'Elige una fila'

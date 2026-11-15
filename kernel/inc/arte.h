@@ -21,8 +21,10 @@ extern const desenho_t arte_mini_bluetooth;   /* D279 */
 extern const desenho_t arte_mini_recortes, arte_mini_icones, arte_mini_musica, arte_mini_relogio,
                        arte_mini_visorpdf, arte_mini_video, arte_mini_ia;
 extern const desenho_t arte_mini_vps;     /* mejora 123: VisualPythonS */
+extern const desenho_t arte_mini_exploradorbd;   /* mejora 127: Explorador de bases de datos */
 extern const desenho_t arte_mini_pluma;   /* mejora 116: el procesador de textos */
 extern const desenho_t arte_mini_macaco;   /* melhoria 078: a folha de calculo */
+extern const desenho_t arte_mini_gebramini;   /* mejora 128: geometría dinámica */
 extern const desenho_t arte_mini_jclic;   /* D185: actividades JClic */
 extern const desenho_t arte_mini_jclicbajar;   /* D185: bajar actividades JClic */
 #ifndef SAGUI_SEM_GPL

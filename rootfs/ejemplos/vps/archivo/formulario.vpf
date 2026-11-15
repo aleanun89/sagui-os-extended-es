@@ -1,0 +1,33 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Archivo'
+  alto = 198
+control CuadroTexto CuadroTexto1
+  x = 8
+  y = 8
+  ancho = 304
+  alto = 120
+  multilinea = True
+control Boton Boton1
+  x = 8
+  y = 136
+  ancho = 80
+  texto = 'Guardar'
+control Boton Boton2
+  x = 96
+  y = 136
+  ancho = 80
+  texto = 'Cargar'
+control Boton Boton3
+  x = 184
+  y = 136
+  ancho = 128
+  texto = 'Contar líneas'
+control Etiqueta Etiqueta1
+  x = 8
+  y = 170
+  ancho = 304
+control Archivo Archivo1
+  x = 270
+  y = 200
+  ruta = '/tmp/nota-vps.txt'

@@ -1,0 +1,32 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Numérico'
+  ancho = 270
+  alto = 124
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  ancho = 90
+  texto = 'Cantidad:'
+control Numerico Numerico1
+  x = 112
+  y = 12
+  valor = 2
+  minimo = 1
+  maximo = 10
+control Etiqueta Etiqueta2
+  x = 16
+  y = 48
+  ancho = 90
+  texto = 'Precio:'
+control Numerico Numerico2
+  x = 112
+  y = 44
+  valor = 9.5
+  paso = 0.5
+  decimales = 2
+control Etiqueta Etiqueta3
+  x = 16
+  y = 84
+  ancho = 240
+  alto = 24

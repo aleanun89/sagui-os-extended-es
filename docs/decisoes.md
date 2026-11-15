@@ -15855,6 +15855,68 @@ de serie en `/etc/agentes`: «Pluma IA», «Macaco IA» y «Correo IA».
 
 **Pruebas:** `tests/agentes_unidad.c` (211 comprobaciones: vista con controles y líneas largas, órdenes, marcador falso, rutas ocultas, secretos del entorno, aplicaciones, la web sin «Siempre», enteros enormes y `\u0000`) y `h295` (consola: órdenes con ESC/CR/salto rechazadas, la cola de una orden de 346 caracteres a la vista, seis intentos de tomar el control rechazados, marcador falso neutralizado, la clave fuera de `env`, la orden como `sagui` en la sesión de root, el diff de una línea de 1500 caracteres entero; gráfico: la mancha sigue en la tarea siguiente y cambiar de agente la limpia).
 
+## D299. VisualPythonS más avanzado: deshacer, refactorización, formularios modales, autocompletado, depurador y diseño fiel (v8.3.2, mejora 124)
+
+**Petición (mantenedor, 2026-11-15).** Que VisualPythonS (D297) supere sus «Límites actuales»: deshacer, renombrar con su código,
+formularios secundarios modales, autocompletado, fuentes, diseño fiel, depurador, anclajes y orden de tabulación. Todo sigue
+siendo Python sobre el `tkinter` del sistema, sin código de controles nuevo en C ni cambios en el kernel.
+
+**Decisiones.**
+1. **Deshacer/rehacer por fotos** (`vps/_historial.py`). Cada cambio del diseñador llama antes a `punto()`, que guarda una copia
+   profunda de los formularios, el formulario actual, la selección **y el texto de `codigo.py`**; deshacer restaura la foto. Se
+   descartó escribir la operación inversa de cada acción: con fotos, renombrar (modelo y código a la vez) y pegar se deshacen sin
+   casos especiales. Arrastrar guarda la foto al pulsar y la descarta al soltar si no se movió nada. Hasta 100 pasos. El editor
+   tiene su historial propio (el `Text` no lo trae): las teclas seguidas del mismo tipo se agrupan en un paso (1 s), Intro y pegar
+   no.
+2. **Renombrar por tokens** (`vps/_refactor.py`): un tokenizador de Python (nombres, cadenas con prefijo y triples, comentarios,
+   números) y, de las f-cadenas, los nombres de dentro de las llaves. Se renombran la referencia y `Nombre_evento` para cada
+   evento del tipo; se respetan cadenas, comentarios, atributos (`x.Boton1`), argumentos con nombre y `{{ }}`. La lista de
+   cambios (línea, antes, después) se enseña antes de aplicar; si el código ya tiene el nombre nuevo o el manejador nuevo, se
+   rechaza. Vale también para renombrar un formulario.
+3. **Formularios secundarios.** `mostrar(modal=False, datos=None)` / `cerrar(resultado=None)`: el modal entra en un bucle de
+   eventos (con `grab_set`, que bloquea las demás ventanas) hasta que se oculta y devuelve `resultado`, como `ShowDialog`. Un
+   secundario **se esconde en vez de destruirse** al cerrar (y vuelve a disparar `cargar` al abrirse); el principal termina la
+   aplicación (`_saliendo` hace que `salir()` los destruya a todos). Los controles son atributos del formulario
+   (`__getattr__`). El bucle de `tkinter` solo comprueba la condición entre eventos: si el formulario se cerrara desde un
+   temporizador, ningún evento lo despertaría, así que el modal arma un latido de 50 ms (descubierto con la autoprueba, que lo
+   cierra con `after`).
+4. **Autocompletado** (`vps/_autocompletar.py`, funciones puras; la lista es un `Listbox` colocado sobre el `Text`, no un menú
+   emergente, para poder seguir escribiendo): propiedades, métodos y eventos tras `Boton1.`, la API tras `vps.`, controles
+   y métodos tras el nombre de un formulario, y la firma al abrir un paréntesis. Las firmas de los métodos están en una tabla
+   (`METODOS`); lo demás sale de `PROPS` y `EVENTOS` de las clases.
+5. **Fuentes** (`vps/_fuente.py`): la libfontes es de C y `sagui` no la expone; añadir un nombre al módulo pide regenerar los qstr
+   de MicroPython (D034), que no se puede sin su repositorio. Se hizo lo que cabe en Python: **tamaño** (se pinta a 8x16 en una
+   `sagui.Imagen` y se escala con `escalar(.., suave=True)`), **negrita** (se pinta dos veces con un píxel de desplazamiento) y
+   **subrayado**, para Etiqueta y Boton (la imagen va a un `PhotoImage`). La familia se guarda y no cambia el dibujo. Cuando
+   `sagui` exponga la libfontes, `imagen_texto` es el único sitio que hay que cambiar.
+6. **Diseño fiel** (`Vista` en `_superficie.py`): el diseñador crea los controles reales de `vps` en un formulario oculto
+   (fuera de `vps._formularios`, para que `salir()` no lo cierre) y llama a su `_desenhar` sobre la superficie con el rectángulo
+   del diseño. Es el mismo código de dibujo que en ejecución. Sin él (Temporizador, Menu, o ante un fallo) queda el dibujo
+   aproximado.
+7. **Depurador por instrumentación** (`vps/_depurador.py`): el MicroPython del sistema no tiene `sys.settrace`
+   (`MICROPY_PY_SYS_SETTRACE` es 0: activarlo pide recompilar el intérprete con el perfilador). Se añade delante de cada
+   sentencia simple `__vps_dbg__(N, variables)`, que para si hay punto de parada o paso a paso. Hace falta saber qué variables
+   existen: el `locals()` de MicroPython **no devuelve las locales de una función** (devuelve las globales), así que se
+   calculan por análisis de tokens (parámetros y lo asignado antes en bloques que encierran la sentencia: `=`, `for`,
+   `with .. as`, `except .. as`, `import`) y se pasan como diccionario. Las líneas de los errores se traducen a las originales
+   con un mapa. F9, F8, la ventana «Depurador» y `vps.depurar()`.
+8. **Anclajes y tabulación.** `anclaje` (`izq|der|arr|abj`, por defecto `izq|arr`) y `orden_tab` son propiedades de todos los
+   controles. El anclaje es **incremental**: cada cambio de tamaño del formulario (o del Marco) mueve o estira según la
+   diferencia con el tamaño anterior, así no se guarda un tamaño base que se quedaría viejo. El orden del Tab reordena los
+   hijos del contenedor con una clave que incluye la posición (la ordenación de MicroPython no es estable).
+9. **Plantilla y ejemplo** «Formularios modales» (`/ejemplos/vps/formularios-modales`).
+
+**No hecho** (siguen en la mejora 124): rejilla de datos, componentes no visuales (BaseDatos, Descarga, AgenteIA), familia de
+fuente real, cursiva y tamaño en los cuadros de texto, listas y combos; anclajes y orden de tabulación no se previsualizan en
+el diseñador (se ven al ejecutar).
+
+**Pruebas.** `tests/h299_vps_avanzado.py`: la autoprueba de Python (`vps/autoprueba.py`, ahora con modales, anclajes, tabulación,
+fuentes, renombrar, autocompletar y depurador) y la del diseñador sin ratón (`vps/autoprueba_disenador.py`: deshacer y rehacer
+de cada operación, renombrar con su lista, sugerencias y puntos de parada del editor, depurar un clic, tabulación y diseño fiel);
+el diseñador con ratón y teclado (Ctrl+Z/Ctrl+Y, autocompletado con Tab, renombrar con la lista de cambios, deshacer el renombrado,
+fuente grande, guardar y comprobar `codigo.py`), el depurador (F9, F5, parada con variables) y el ejemplo modal. Capturas
+`docs/capturas/H299-*.png`. Guía: `docs/visualpythons.md` (y `/ayuda/visualpythons.md`).
+
 ## D300. Detector de componentes gráficos que se tapan o se cortan (v8.3.1)
 
 **Petición (mantenedor, 2026-11-15).** En algunas aplicaciones los componentes se tapan entre sí. Un detector automático en la
@@ -15922,6 +15984,84 @@ en `%LOCALAPPDATA%\saguitools\86box\` (fuera del repositorio, con una copia de l
 nunca). El serie va al dispositivo «File (COM)» de 86Box (sin pty en Windows) a `serie.txt`, con retraso por el
 búfer. Es uso manual: no pasa por `tools/turno.sh`. Detalles en `docs/86box.md`, «Ratón».
 
+## D303. VisualPythonS: manual para empezar, nueve componentes nuevos y autocompletado de sintaxis (v8.3.2, mejora 124)
+
+**Petición (mantenedor, 2026-11-15).** Un manual de VisualPythonS para quien empieza, con ejemplos completos y capturas; componentes
+útiles nuevos (al menos cinco) con icono, diseño fiel, autocompletado y manual; y un autocompletado de sintaxis que no moleste.
+Todo es Python sobre el `tkinter` del sistema: ni C ni kernel (las fuentes de C y el núcleo no se tocan).
+
+**Decisiones.**
+1. **Componentes** (en `vps/__init__.py`; los componentes de `tkinter` que dibujan ellos mismos, en `vps/_widgets.py`, que se importa
+   al crear el primer control de cada tipo para que `import vps` no necesite el `tkinter` del sistema):
+   `Pestanas`, `Tabla`, `Numerico`, `Lienzo`, `Enlace`, `BarraEstado`, `SelectorColor`, `Reloj` (no visual, hereda de `Temporizador`) y
+   `Archivo` (no visual). El `tkinter` del sistema no tiene `ttk.Notebook` ni `ttk.Treeview`, así que `Pestanas` y `Tabla` son
+   subclases de `tkinter.Frame` con su propio `_desenhar` (el diseñador, que dibuja el control real, las ve igual que la aplicación).
+   `Numerico` usa el `Spinbox` del sistema y `Lienzo` su `Canvas`.
+2. **`Pestanas` es un contenedor con páginas** sin una ventana por página: todos los hijos cuelgan del mismo `Frame` y cada uno lleva
+   una propiedad `pagina` (nueva en `Control.PROPS`, 0 por defecto, solo visible en el diseñador dentro de unas Pestanas); `_colocar`
+   solo coloca el control si su página es la elegida (`Control._en_pagina`). El diseñador la trata como un `Marco` (desplazamiento
+   de los hijos de 2 + la tira de pestañas), un clic en una pestaña elige la página y un control nuevo va a la que se ve.
+3. **`Tabla`:** `filas` admite listas o líneas «a;b;c» (el diseñador edita una línea por fila); el clic en la cabecera ordena (números
+   como números), el doble clic edita con un `Entry` colocado sobre la celda (con `editable`), `cargar_csv`/`guardar_csv` con comillas.
+   Nuevo tipo de propiedad `num` (entero o decimal) en el diseñador para `Numerico`.
+4. **Un fallo antiguo arreglado:** `Temporizador1.activo = True` desde el código **no arrancaba** el temporizador (`Control._escribir`
+   solo llama a `_aplicar` si hay ventana y el `Temporizador` no la tiene), de modo que el ejemplo del cronómetro no avanzaba.
+   `Temporizador._escribir` lo corrige (y `Reloj` lo hereda); la autoprueba lo cubre.
+5. **Autocompletado de sintaxis** (`vps/_autocompletar.py`, `vps/_editor.py`): tras dos caracteres (con Ctrl+Espacio, uno) ofrece las palabras
+   clave, las funciones integradas que de verdad tiene el MicroPython (`dir(builtins)`), los nombres del propio código (funciones,
+   clases, variables, parámetros y módulos, por análisis de líneas sin `re`) y, como siempre, controles, formularios y la API de `vps`.
+   No ofrece dentro de un texto o comentario ni lo que ya está escrito entero, y Esc la cierra hasta la palabra siguiente. Plantillas
+   (`def`, `if`, `elif`, `else`, `for`, `while`, `try`, `class`, `with` + Tab; el cursor queda en el primer hueco; aceptar la palabra clave
+   de la lista también expande), sangría automática (tras `:` aunque haya comentario; quita un nivel tras `return`, `pass`...; el cierre
+   baja entre `()`), cierre de `([{"'` con salto del cierre ya escrito y borrado del par vacío, y firma de las funciones del usuario con
+   la primera línea de su texto de ayuda. Solo un hueco por plantilla: navegar entre varios huecos pediría marcas que sigan al texto.
+6. **Manual** `docs/visualpythons-manual.md` (copia sin enlaces a capturas en `rootfs/ayuda/visualpythons-manual.md`). El código y la tabla
+   de controles de cada ejemplo están **generados** desde `rootfs/ejemplos/vps/` por `tools/vps_manual.py` (marcas `<!-- ejemplo:n -->`),
+   para que el manual y los ejemplos no se separen; `tools/vps_ejemplos.py` genera los ejemplos desde `vps/plantillas.py` (once nuevos).
+   Las capturas `docs/capturas/VPS-manual-*.png` las hace `tests/h303_vps_manual.py` recortadas a la ventana, sin ImageMagick (el recorte
+   se hace en el propio test).
+
+**No hecho:** `Calendario`/`SelectorFecha` y `Arbol` (se dejaron para después: el `Arbol` pide una lista plegable con teclado y el
+`Calendario` un cálculo de calendario propio; ninguno exige C). Pestanas anidadas en un Marco de otra página se esconden bien al
+ejecutar, pero el diseñador solo cambia de página las de primer nivel.
+
+**Pruebas.** `tests/h303_vps_manual.py`: la autoprueba de `vps` (componentes, ejemplos, autocompletado de sintaxis, cronómetro) y la del
+diseñador (caja de herramientas, Pestanas en el modelo, diseño fiel de los nuevos, palabra clave, plantillas, sangría, cierre automático),
+los quince ejemplos del manual con **clics reales** (Pestanas cambia de página, Tabla ordena y se edita, Numerico sube con sus flechas,
+Lienzo dibuja al arrastrar, SelectorColor elige en su paleta...), el diseñador con ratón y teclado (colocar, propiedad, código con
+autocompletado, F5; «wh» y `def` + Tab; unas Pestanas en el diseñador) y la comprobación `tools/vps_manual.py --comprobar`.
+
+## D304. Bases de datos visuales: `basedatos`, conector y rejilla en VisualPythonS y Explorador (mejora 127, v8.3.2)
+
+**Decisión (mantenedor, 2026-11-15):** un conector visual, un componente y un explorador de bases de datos para SQLite (D116) y
+lite-monkey (D117), con su documentación (`docs/bases-de-datos.md`).
+
+- **Biblioteca `basedatos`** (`rootfs/lib/python/basedatos/`): una API pequeña y la misma para los dos motores
+  (`conectar`, `tablas`/`colecciones`, `esquema`, `consultar(tabla, filtro, orden, limite, desplazamiento)`, `contar`, `insertar`,
+  `actualizar`, `borrar`; en SQLite, `ejecutar`/`sql` y transacciones). Python puro: el mismo código corre en MicroPython y en
+  CPython (pruebas de unidad en el PC con `sqlite3` y el servidor `litemonkey`). **Parámetros siempre enlazados**; nombres entre
+  comillas; `actualizar`/`borrar` sin filtro ni clave se niegan. El filtro es el diccionario de lite-monkey (`$gt`, `$in`, `$or`...),
+  que en SQLite se traduce a `WHERE ... ?`. Un error de sentencia deshace la transacción implícita que abrió el módulo `sqlite3`.
+  En lite-monkey el esquema se deduce de una muestra de 200 documentos.
+- **Componentes de VisualPythonS** en `vps/_datos.py` (ficheros nuevos para no pisar la rama de los componentes de la D303):
+  `ConectorBD` (sin ventana; propiedades y métodos del encargo, más navegación, `poner` y `nuevo`), `RejillaDatos` y el enlace
+  `fuente`/`campo` de `CuadroTexto`, `Casilla`, `Numerico` y `Combo`. **`fuente` ya era la tipografía** de los controles; en los
+  controles de datos pasa a ser el conector (nombre en el diseñador, objeto en código) porque ahí no se usaba. De `vps/__init__.py` solo
+  cambian: una propiedad `campo` en esos controles, una rama en `Control._aplicar` que llama a `_datos.enlazar` y el registro de los
+  dos tipos nuevos al final. Moverse guarda lo pendiente. El conector escanea los controles de su formulario para difundir los cambios
+  (no hay registro de oyentes que mantener).
+- **Rejilla propia, no la `Tabla` de la D303:** la `Tabla` ordena en memoria y reparte el ancho a partes iguales; una rejilla de bases de
+  datos tiene que pedir al motor el orden y la página (miles de filas), desplazarse en horizontal, poder rechazar una edición y marcar
+  la columna ordenada. `basedatos/_cuadricula.py` es un componente de `tkinter` dibujado con el módulo `sagui` que comparten
+  `RejillaDatos` y el Explorador.
+- **Explorador** (`basedatos/explorador.py`, Python y `tkinter`, no C: SQLite y el cliente de lite-monkey ya están en el
+  `python`): Inicio > Accesorios y doble clic en `.db`, `.sqlite` o `.sqlite3` en Archivos (`arquivos.c` lanza `python
+  explorador.py FICHERO`). Árbol de conexiones, pestañas Datos/Estructura/Consulta, CSV y Macaco, y arranque del servicio
+  `litemonkey` con `servicio iniciar`. El árbol es un `Listbox` con sangría (el `tkinter` del sistema no tiene `Treeview` ni `Notebook`).
+- **Seguridad:** `DROP` y `DELETE`/`UPDATE` sin `WHERE` piden confirmación (`basedatos/_seguridad.py`, que ignora cadenas y comentarios);
+  abrir un fichero solo lee el esquema; el conector y el explorador escriben con parámetros enlazados.
+- **Pruebas:** `tests/basedatos_unidad.py` (PC) y `tests/h304_bd_visual.py` (QEMU, con capturas `H304-*.png`).
+
 ## D306. La meta de 38 MB es la del arranque (kernel y ramdisk), no la de las aplicaciones (v8.3.1)
 
 **Contexto.** Desde la v7.4 (D228) la meta del sistema base (D181) contaba «arranque + /apps», y la
@@ -15933,3 +16073,124 @@ esa meta es para que no se pase de RAM al arrancar.» `tools/mkimagem.py` cuenta
 (`tamanho-base.txt`, que vigila h28) **solo el arranque**: etapa 2, kernel y ramdisk, lo que se carga en la
 RAM. Las aplicaciones de SAGUI-APPS se leen del disco al usarlas y no cuentan; la partición se sigue
 creando con el mismo margen. `tamanho.txt` («Acerca de») no cambia. Corrige la regla de D228 para /apps.
+
+## D309. GebraMini: geometría dinámica y funciones, nativo y propio (v8.3.2, mejora 128)
+
+**Contexto.** El mantenedor pidió «una especie de GeoGebra propio» y partió de su prototipo **GebraMini**
+(`input_share/GebraMini.zip`, que no se versiona): unas 150 líneas de C++ con SDL 2, con plano cartesiano y
+cuadrícula, puntos que se arrastran, segmentos, circunferencias (centro y punto), zoom con la rueda y
+desplazamiento con el botón derecho. Licencia **GPL-3.0-or-later**, © 2026 Alejandro Anuncibay. Es «inspirado
+en GeoGebra, independiente, sin su código».
+
+**Decisión.** Una aplicación **nativa** en C sobre la libsagui, `gebramini`, escrita desde cero a partir de las
+ideas del prototipo (no se enlaza SDL ni se copia código; el prototipo se cita como origen). **GPL-3.0-or-later**
+con el aviso del mantenedor en cada fichero. **Independencia:** nada de código, iconos ni nombres de marca de
+GeoGebra (solo se puede mencionar como inspiración de la idea); los iconos de las 22 herramientas son
+dibujos propios en estilo Win98 y el icono del menú Inicio es propio.
+
+1. **Estructura.** El motor vive aparte, en `userland/gebramini/` (no dibuja ni toca el sistema), para
+   poder probarlo en el anfitrión: `gbm_mat.h` (funciones sobre la FPU x87), `gbm_expr.c` (analizador,
+   evaluador, derivada simbólica, escritor y ceros numéricos) y `gbm_motor.c` (objetos, grafo de dependencias,
+   órdenes y fichero `.gbm`). El programa (`userland/programas/gebramini.c`) trae la interfaz, el dibujo
+   y la exportación.
+2. **Coma flotante sí, libm no.** El motor usa `double` de la FPU (D032: los programas pueden usar x87; el
+   kernel guarda el estado de forma perezosa). No hay libm: `sin`, `cos`, `atan2`, `exp`, `ln`, `pow`...
+   son una o dos instrucciones x87 (`fsin`, `fpatan`, `fyl2x`, `f2xm1`/`fscale`) con la reducción de argumento
+   que hace falta, en `gbm_mat.h`; la prueba de unidad las compara con la libm del PC (error < 1e-11). Se
+   compila con `-mfpmath=387` y sin `-mgeneral-regs-only`, como el motor de PDF (D138); la libsagui sigue sin FPU.
+3. **El evaluador de Macaco no se reutiliza.** El de Macaco (D142) es de punto fijo entero con centésimas y sin
+   puntos ni funciones de una variable; GebraMini necesita dobles, valores que son puntos `(x, y)`, funciones de
+   `x` evaluadas miles de veces y derivadas, así que tiene su propio analizador (precedencia, `^` asociativo
+   por la derecha, `-x^2 = -(x^2)`, producto implícito `2x`, `²` y `³` de Latin-1, funciones en español e
+   inglés).
+4. **Geometría dinámica.** Cada objeto guarda de quién depende (`pai`, los puntos u objetos de los que sale) y/o
+   una expresión (cuyas referencias a otros objetos van por índice). El recálculo es **perezoso y con memoria**
+   (`calc(i)` calcula antes lo que `i` necesita), así que el orden de creación no importa y un ciclo se detecta
+   al vuelo (la orden se rechaza). Los puntos libres se arrastran; los puntos sobre una recta, circunferencia,
+   polígono o función guardan un parámetro y se **deslizan** sobre su objeto; las rectas y polígonos de puntos
+   libres se trasladan arrastrándolos. Intersecciones: recta, semirrecta y segmento (con sus límites),
+   circunferencia, función (numérica en [-30, 30]) y polígono (lado a lado).
+5. **Órdenes en español** (barra de entrada): `A = (1, 2)`, `B = A + (3, 0)`, `f(x) = sin(x) + x^2/4`, `a = 2`
+   (crea un deslizador), `Recta`, `Semirrecta`, `Segmento`, `Vector`, `Circunferencia` (centro y punto, centro y
+   radio, tres puntos), `PuntoMedio`, `Interseca`, `Perpendicular`, `Paralela`, `Mediatriz`, `Bisectriz`,
+   `Poligono` (con `n` = regular), `Angulo`, `Distancia`, `Area`, `Texto`, `Deslizador`, `Derivada`, `Raiz`,
+   `Extremo`, `Punto`/`PuntoEn`. Se reconocen sin distinguir mayúsculas ni tildes (`Raíz`, `Raiz`), se
+   pueden anidar (`Perpendicular(P, Recta(A, B))`) y se completan con Tab. **El separador decimal es el
+   punto** (`1.5`): la coma separa argumentos.
+6. **Derivada simbólica** con simplificación (`x^2 - 2` da `2 * x`), regla de la cadena y de las funciones
+   llamadas (se copia su cuerpo con la `x` sustituida); si una función no se sabe derivar (`atan2`, `mod`...)
+   cae a una derivada **numérica** de cinco puntos. Raíces y extremos: búsqueda numérica por cambios de signo y
+   bisección en [-30, 30] (con la raíz doble detectada y las asíntotas rechazadas).
+7. **Fichero `.gbm`:** texto legible, una orden por línea (las mismas de la barra de entrada), en orden
+   topológico, con `vista x y escala` y líneas `propiedades NOMBRE: color=... grosor=... estilo=... rotulo=...
+   visible=...` solo cuando difieren de lo normal. Cargar un `.gbm` es ejecutar sus líneas; un error indica la
+   línea. **Deshacer y rehacer** guardan el texto de la construcción tras cada cambio (40 pasos).
+8. **Dibujo.** Una sola escena (`escena()`) con varios destinos: la ventana, una imagen (PNG, con
+   `imagem_codificar_png`) y el PDF (`pdf_escribir`, **vectorial**: las líneas, curvas y circunferencias son
+   polilíneas finas; los puntos y rellenos, rectángulos; el texto, Helvetica). En pantalla las líneas, curvas y
+   puntos llevan **antialias** (cobertura por distancia al segmento, sin coste notable); la cuadrícula va
+   sin él. Las funciones se muestrean de forma **adaptativa** y se cortan donde no existen o saltan
+   (asíntotas).
+9. **Interfaz (Win98, D291/D293).** Barra de menús, barra de herramientas con 22 botones conmutables, vista
+   algebraica a la izquierda (visibilidad, selección, doble clic = propiedades, divisor arrastrable), vista
+   gráfica con deslizadores sobre ella, barra de entrada (Tab completa, flechas recorren el historial) y barra
+   de estado. Propiedades: nombre, color, grosor, estilo, etiqueta, visible (y texto o límites del
+   deslizador). Diálogos de archivo comunes (D272). Entrada en el menú Inicio, «Educación», con icono
+   propio (`kernel/gui/barra.c` y `arte.c`: solo la tabla de programas y un icono; nada del núcleo).
+10. **Límites de esta primera versión.** Cónicas por ecuaciones implícitas, tangentes, transformaciones,
+    cálculo simbólico más allá de la derivada, hoja de cálculo y vista 3D no están. Las raíces, extremos y
+    cortes de funciones se buscan solo en x ∈ [-30, 30]. Las coordenadas de las medidas se muestran con 2
+    decimales (menú Ver → Decimales).
+
+**Archivos.** `userland/gebramini/{gbm.h,gbm_mat.h,gbm_expr.c,gbm_motor.c}`,
+`userland/programas/gebramini.c`, reglas en el `Makefile`, `rootfs/ejemplos/gebramini/*.gbm` (los cuatro
+ejemplos), icono y entrada de menú en `kernel/gui/`, `tests/gebramini_unidad.c` (unidad en el anfitrión, más de
+700 comprobaciones), `tests/h309_gebramini.py`, `docs/gebramini.md`, `mejoras/128-gebramini.md`.
+
+**Pruebas.** `h309`: unidad en el PC; ejemplos y órdenes por línea de comandos (`gebramini --abrir`,
+`--orden`), PDF (validado) y PNG en el sistema; la ventana con el ratón (segmento, punto medio, arrastrar un
+punto y ver cómo lo sigue el punto medio, `f(x)=x^2-2` y sus raíces, guardar, reabrir, deshacer, PDF) y
+todas las herramientas de la barra. `h22`, `h98`, `h272` y `h300` (afectadas) y el detector
+`SAGUI_GUI_REVISAR` sobre la ventana (0 avisos).
+
+## D311. Macaco: señalar celdas al escribir fórmulas, controlador de relleno y gráficos incrustados (v8.3.2, mejora 117)
+
+**Contexto.** El mantenedor pidió (2026-11-15), de los Excel modernos: que al escribir «=» y pulsar una celda se nombre y se
+coloree, poder arrastrar, usar `$D$4` al clonar fórmulas y gráficas incrustadas. Amplía D293 (estilo Excel 97) y D298 (agentes).
+
+1. **Un solo motor de referencias.** `reftok_t` (`macaco.c`) lee y escribe referencias dentro del texto de una fórmula con sus `$`
+   y su prefijo de hoja (`Hoja2!$B$3:D7`), fuera de las comillas y sin confundirlas con nombres de función. Lo usan el color, el
+   mover y redimensionar marcos, F4 (ahora también en rangos) y `ajustar_formula` (relleno y pegado).
+2. **Modo «señalar».** Tras `=`, un operador (`+ - * / ^ & < > =`), `(`, `,` o `;`, un clic inserta la referencia; arrastrar inserta
+   un rango; las flechas señalan (Mayús amplía) y Intro confirma; escribir otra tecla lo termina. Una pestaña de otra hoja cambia
+   la hoja mostrada y el clic siguiente inserta `Hoja2!B3` (el contenido se confirma en la celda de origen, `edit_folha`). Cada
+   referencia sale del color de `COR_REFS` en el texto (celda y barra de fórmulas) y rodea su celda con un borde del mismo color y
+   un cuadradito; arrastrar el borde **mueve** la referencia y el cuadradito cambia el **tamaño** del rango. Las funciones aceptan
+   también `;` como separador y los nombres en español `SUMA`, `PROMEDIO`, `CONTAR`, `SI`, `PRODUCTO`, `REDONDEAR`.
+3. **Controlador de relleno.** El cuadradito de la selección se arrastra en los cuatro sentidos (eje dominante), con vista previa
+   punteada. Copia fórmulas ajustando las referencias **relativas** (las absolutas, `$D$4`, `D$4`, `$D4`, no) y el formato; fuera de
+   la hoja la referencia queda `#REF!`. Series: con **dos o más números** continúa la progresión (paso medio); con **uno solo** lo
+   repite; **con Ctrl se invierte** (un número se incrementa de uno en uno; varios se copian), como Excel. Listas: días y meses en
+   español e inglés, enteros y abreviados, respetando mayúsculas (un solo «lunes» ya continúa); texto con número final («Item 1» →
+   «Item 2»). **No hay tipo fecha** en el modelo de celdas (solo número o texto), así que las fechas con formato no se continúan.
+   Doble clic en el cuadradito: rellena hacia abajo hasta donde hay datos en la columna vecina (izquierda, si no la derecha).
+   **Ctrl+D / Ctrl+R** copian (nunca continúan series) la primera fila/columna de la selección, o la de arriba/izquierda si es una
+   sola. Todo es **un solo paso** de deshacer. **Copiar y pegar** una fórmula ajusta ahora las relativas; **cortar y pegar** no
+   (como Excel).
+4. **Gráficos incrustados.** `grafico_t`: objeto flotante por hoja (hasta 16), en píxeles de hoja, con rango, orientación,
+   títulos de serie/categoría, título y leyenda. Tipos: columnas, barras, líneas, área, circular y dispersión XY. Se redibuja en cada
+   pintado, así que se actualiza solo. Asistente de 3 pasos (Insertar > Gráfico..., botón de la barra Estándar, clic derecho) con
+   vista previa; el doble clic sobre el gráfico lo reabre; se selecciona, se mueve arrastrando, se redimensiona con 8 asas y
+   Supr lo borra (**no** entra en el deshacer de celdas). Aspecto Excel 97: marco, área gris, cuadrícula suave, ejes con marcas y
+   valores con escala 1-2-5, leyenda y la paleta clásica. Los gráficos de ventana de D142 siguen en el menú (por compatibilidad,
+   h110). Una orden de filas o columnas insertadas/borradas **no** mueve los rangos de los gráficos (pendiente).
+5. **Archivos.** El `.mxs` lleva una línea `grafico hoja=.. tipo=.. x=.. y=.. w=.. h=.. rf=.. l1=.. c1=.. l2=.. c2=.. fil=.. ts=.. tc=..
+   ley=.. tit="..."` por gráfico, tras las de las hojas: los lectores antiguos la ignoran. **PDF:** cada gráfico va como imagen RGB
+   (`pdfw_imagem_rgb`, D296) en su página tras la hoja; vectorial queda para más adelante. **Portapapeles:** Ctrl+C con el gráfico
+   seleccionado lo copia como imagen (`copiar_imagem`) para pegarlo en Pluma.
+6. **Agentes (D298).** Herramienta `macaco_crear_grafico` (tipo, rango, título) con confirmación; no se deshace con Ctrl+Z.
+7. **Arreglo de paso.** Las columnas que aparecían al escribir más allá del borde de la hoja nacían con ancho cero.
+
+**Pruebas.** `tests/h311_macaco_formulas.py`: señalar (clic, arrastre, flechas, F4, otra hoja), relleno (fórmula con `$D$4`, serie
+1,2, doble clic, Ctrl+D, pegado, deshacer en un paso) y gráficos (asistente, columnas y tarta, cambio de datos con captura antes y
+después, mover, redimensionar, copiar, guardar y reabrir, PDF validado), con `SAGUI_GUI_REVISAR` (D300). Capturas `H311-*.png`.

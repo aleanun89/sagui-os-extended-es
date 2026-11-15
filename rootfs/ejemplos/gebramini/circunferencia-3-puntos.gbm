@@ -1,0 +1,20 @@
+# GebraMini - La circunferencia que pasa por tres puntos (D309)
+# El centro es el punto donde se cortan las mediatrices de AB y BC. Arrastra A, B o C.
+vista 0 0.5 48
+A = (-2, 0)
+B = (2, -1)
+C = (0, 3)
+c = Circunferencia(A, B, C)
+ab = Segmento(A, B)
+bc = Segmento(B, C)
+m1 = Mediatriz(ab)
+m2 = Mediatriz(bc)
+O = Interseca(m1, m2, 1)
+radio = Segmento(O, A)
+r = Distancia(O, A)
+t = Texto("El centro O equidista de A, B y C", -3.5, 4.4)
+propiedades m1: color=cc2222 grosor=1 estilo=1 rotulo=0 visible=1
+propiedades m2: color=228822 grosor=1 estilo=1 rotulo=0 visible=1
+propiedades radio: color=808080 grosor=1 estilo=2 rotulo=0 visible=1
+propiedades O: color=cc2222 grosor=4 estilo=0 rotulo=1 visible=1
+propiedades c: color=2255cc grosor=2 estilo=0 rotulo=0 visible=1

@@ -232,7 +232,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica },
-        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "spider", &arte_mini_spider },
+        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "gebramini", &arte_mini_gebramini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
@@ -934,6 +934,7 @@ static const programa_t programas[] = {
     { "Markdown",                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
     { "Mico (editor de código)", "/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
     { "VisualPythonS (diseñador)", "/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
+    { "Explorador de bases de datos", "/bin/python", "/lib/python/basedatos/explorador.py", "exploradorbd", G_ACESSORIOS, &arte_mini_exploradorbd, false },   /* D304: melhoria 127 */
     { "Pluma (procesador de textos)", "/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
     { "Macaco (hoja de cálculo)", "/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
     { "Paint",                   "/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
@@ -943,6 +944,7 @@ static const programa_t programas[] = {
     { "Grabadora de sonido",     "/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
     { "Cámara",                  "/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
     { "Cipó (navegador)",        "/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
+    { "GebraMini (geometría dinámica)", "/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
     { "Actividades JClic",       "/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
     { "Actividades JClic (bajar)", "/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
 #ifndef SAGUI_SEM_GPL   /* D184: ni el nombre en la variante sin GPL (la auditoría h81 busca las marcas) */

@@ -998,6 +998,19 @@ static bool pdf_extensao(const char *c)
     return compara_texto(e, ".pdf") == 0;
 }
 
+/* .db .sqlite .sqlite3: bases de datos, para el Explorador de bases de datos (mejora 127, D304). */
+static bool bd_extensao(const char *c)
+{
+    size_t n = tam_texto(c);
+    char e[9];
+    size_t k = 0;
+    if (n < 4) return false;
+    for (size_t i = n - (n > 8 ? 8 : n); i < n; i++) e[k++] = (char)(c[i] | 0x20);
+    e[k] = 0;
+    return (k >= 3 && compara_texto(e + k - 3, ".db") == 0) || (k >= 7 && compara_texto(e + k - 7, ".sqlite") == 0) ||
+           (k >= 8 && compara_texto(e + k - 8, ".sqlite3") == 0);
+}
+
 /* .avi .mpg .mpeg: el reproductor de video (mejora 048). */
 static bool video_extensao(const char *c)
 {
@@ -1103,6 +1116,13 @@ static void abrir_item(int i)
         if (dos_extensao(c)) { prog = "dosbox"; formatar_texto(bin, sizeof bin, "/apps/bin/dosbox"); }   /* .exe .com .bat: DOSBox (D294) */
 #endif
         argv[0] = (char *)prog; argv[1] = c; argv[2] = NULL;
+        char *argv_bd[4];
+        if (bd_extensao(c)) {   /* .db: el Explorador de bases de datos (Python); no ejecuta nada al abrir */
+            prog = "exploradorbd";
+            formatar_texto(bin, sizeof bin, "/bin/python");
+            argv_bd[0] = "python"; argv_bd[1] = "/lib/python/basedatos/explorador.py"; argv_bd[2] = c; argv_bd[3] = NULL;
+            pid = executar(bin, argv_bd);
+        } else
         pid = executar(bin, argv);
         registrar("arquivos: abrindo no %s %s (pid %d)", prog, c, pid);
     }

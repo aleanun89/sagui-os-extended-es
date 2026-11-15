@@ -1,0 +1,26 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Abrir y guardar'
+  ancho = 416
+  alto = 262
+control Boton Boton1
+  x = 8
+  y = 8
+  ancho = 110
+  texto = 'Abrir...'
+control Boton Boton2
+  x = 126
+  y = 8
+  ancho = 130
+  texto = 'Guardar como...'
+control Etiqueta Etiqueta1
+  x = 8
+  y = 40
+  ancho = 400
+  texto = 'Sin archivo'
+control CuadroTexto CuadroTexto1
+  x = 8
+  y = 64
+  ancho = 400
+  alto = 190
+  multilinea = True

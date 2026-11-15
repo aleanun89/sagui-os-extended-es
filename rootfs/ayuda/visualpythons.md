@@ -7,8 +7,13 @@ manejadores sin parámetros.
 
 - Diseñador: **Inicio > Accesorios > VisualPythonS** (o `python /lib/python/vps/disenador.py`).
 - Aplicaciones hechas: **Inicio > Mis aplicaciones**.
-- Ejemplos: `/ejemplos/vps/` (cinco proyectos y `hola.py`, una aplicación solo con código).
-- Decisión D297, mejora 123, prueba `tests/h297_visualpython.py`.
+- **Manual para empezar, con capturas: [visualpythons-manual.md](visualpythons-manual.md)**
+  (en el sistema, `/ayuda/visualpythons-manual.md`): primeros pasos, propiedades, eventos, quince ejemplos
+  completos, herramientas y errores frecuentes.
+- Ejemplos: `/ejemplos/vps/` (veintiún proyectos y `hola.py`, una aplicación solo con código).
+- Decisiones D297 (el entorno), D299 (la versión avanzada) y D303 (componentes nuevos y autocompletado de
+  sintaxis), mejoras 123 y 124, pruebas `tests/h297_visualpython.py`, `tests/h299_vps_avanzado.py` y
+  `tests/h303_vps_manual.py`.
 
 ## Tutorial de 5 minutos: una calculadora
 
@@ -54,9 +59,131 @@ manejadores sin parámetros.
 | Código (F7, o doble clic en un control) | Editor de Python con resaltado y, encima, los combos **Control** y **Evento**: elegir uno crea `def Control_evento():` si no existe y lleva el cursor allí. El doble clic en un control abre su evento por defecto (`click`, `cambio`, `seleccion`, `tic`...); en el formulario, `Formulario_cargar`. |
 
 Teclas: **Supr** borra, **Ctrl+C/X/V** copia, corta y pega (con los hijos de un Marco), **Ctrl+A**
-selecciona todo, las **flechas** mueven el control (una rejilla; con Ctrl, un píxel), **F5**
-ejecuta, **F7** abre el código, **Ctrl+S** guarda, **Ctrl+O** abre. **Edición > Alinear** iguala
+selecciona todo, las **flechas** mueven el control (una rejilla; con Ctrl, un píxel), **Ctrl+Z** y
+**Ctrl+Y** deshacen y rehacen, **F5** ejecuta, **F8** ejecuta paso a paso, **F9** pone un punto de
+parada, **F7** abre el código, **Ctrl+S** guarda, **Ctrl+O** abre. **Edición > Alinear** iguala
 izquierda, derecha, arriba, abajo, centros, ancho o alto respecto al primer control seleccionado.
+
+### Deshacer y rehacer
+
+**Ctrl+Z** y **Ctrl+Y** (o **Edición > Deshacer / Rehacer**) valen para todo lo que se hace en el
+diseñador: colocar, mover, redimensionar, cambiar una propiedad, alinear, borrar, cortar, pegar,
+agregar o quitar un formulario y renombrar. Hasta 100 pasos. Cada paso guarda una copia de los
+formularios **y** del código, así que deshacer un renombrado devuelve el control y el código a la vez.
+
+El editor de código tiene su propio **Ctrl+Z / Ctrl+Y**: las teclas seguidas del mismo tipo (escribir,
+borrar) forman un solo paso mientras no pase más de un segundo; Intro y pegar son pasos aparte.
+
+### Renombrar un control
+
+Cambiar la propiedad `nombre` actualiza el código: los manejadores (`Boton1_click` pasa a
+`Aceptar_click`) y las referencias (`Boton1.texto` pasa a `Aceptar.texto`), con un análisis de
+tokens de Python, **no** un reemplazo ciego: no toca las cadenas (`"Boton1 listo"`), los
+comentarios, los atributos de otros objetos (`otro.Boton1`) ni los argumentos con nombre
+(`f(Boton1=2)`); sí cambia lo que haya dentro de las llaves de una f-cadena. Antes de aplicar se
+enseña **la lista de líneas que cambian** (antes y después) para aceptarla o cancelar. Si el código
+ya usa el nombre nuevo (una variable `Aceptar`, un `def Aceptar_click`), se rechaza el cambio. Con el
+formulario seleccionado vale igual (`Formulario_cargar` pasa a `Principal_cargar`).
+
+### Formularios secundarios y modales
+
+**Proyecto > Agregar formulario** añade un formulario con **su propio tamaño** (propiedades `ancho` y
+`alto`, hasta 1000x700). Cada formulario es una variable del código y sus controles son atributos
+suyos (`Formulario2.CuadroTexto1.texto`).
+
+```python
+def Boton1_click():
+    nombre = Formulario2.mostrar(modal=True, datos={"sugerido": "Ana"})   # espera
+    Etiqueta2.texto = "Hola, " + nombre if nombre else "(cancelado)"
+
+def Formulario2_cargar():                       # se dispara cada vez que se abre
+    CuadroTexto1.texto = Formulario2.datos.get("sugerido", "")
+
+def Boton2_click():
+    Formulario2.cerrar(CuadroTexto1.texto)      # el valor que devuelve mostrar(modal=True)
+```
+
+- `mostrar(modal=False, datos=None)`: abre el formulario. Con `modal=True` no vuelve hasta que se
+  cierra (el resto de ventanas no responde, como `ShowDialog`) y **devuelve el valor de
+  `cerrar(valor)`**, o `None` si se cerró con la X o con `cerrar()` a secas. Sin `modal`, el
+  formulario es independiente.
+- `cerrar(resultado=None)`: un formulario **secundario solo se esconde** (se puede volver a abrir y
+  se vuelve a disparar `cargar`); cerrar el principal termina la aplicación. `ocultar()` esconde
+  sin devolver valor.
+- `datos` es un diccionario del formulario para pasar datos de ida (`mostrar(datos=...)`) y de vuelta
+  (`Formulario2.datos["x"] = 1` antes de cerrar); `resultado` guarda lo último devuelto.
+- Ejemplo: **Nuevo > Formularios modales** (`/ejemplos/vps/formularios-modales`).
+
+### Autocompletado y ayuda en el editor
+
+Al escribir un punto tras un nombre, el editor abre una lista: tras `Boton1.` las **propiedades**
+(`p`), **métodos** (`m`) y **eventos** (`e`, que insertan `conectar("click", `) del control; tras
+`vps.` la API del módulo; tras el nombre de un formulario, sus controles y métodos. Se sigue escribiendo
+para filtrar; **Tab** o **Intro** aceptan, **Flechas** eligen y **Esc** cierra. **Ctrl+Espacio** la
+abre a mano. La barra de estado enseña la firma y una ayuda breve de la opción marcada; al abrir un
+paréntesis aparece la firma de la función (`Lista1.agregar(texto) - Añade un elemento al final`).
+
+Desde la v8.3.2 (D303) también ofrece, **tras dos caracteres** (o con Ctrl+Espacio con uno):
+
+- las **palabras clave** de Python (`k`) y las **funciones integradas** que tiene el MicroPython del
+  sistema (`i`: `print`, `len`, `range`...);
+- los **nombres del propio código** (`v` variables y parámetros, `f` funciones, `C` clases, `M` módulos
+  importados), con la firma y la primera línea del texto de ayuda (`"""..."""` bajo el `def`);
+- la **firma de las funciones del usuario** al abrir el paréntesis (`sumar(a, b) - Suma dos numeros`).
+
+No molesta: no sale dentro de un texto entre comillas ni de un comentario, no ofrece lo que ya está
+escrito entero y **Esc** la cierra hasta que se empiece otra palabra.
+
+**Plantillas:** `def`, `if`, `elif`, `else`, `for`, `while`, `try`, `class` o `with` + **Tab** escriben el bloque
+(con la sangría de la línea) y dejan el cursor en el primer hueco (`def |():`). Aceptar la palabra clave de
+la lista también la expande.
+
+**Sangría automática:** Intro tras `:` sangra cuatro espacios (aunque haya un comentario detrás); tras
+`return`, `pass`, `break`, `continue` o `raise` quita un nivel; entre `(` y `)` el cierre baja a su línea.
+**Cierre automático:** `(`, `[`, `{`, `"` y `'` escriben el par con el cursor en medio; escribir el cierre salta
+el que ya está y BackSpace entre un par vacío borra los dos (no cierra comillas tras una letra ni en un
+comentario).
+
+### Depurador
+
+Dos teclas y una ventana, sin salir del diseñador:
+
+- **F9** pone o quita un **punto de parada** en la línea del cursor del editor (se marca en amarillo).
+- **F5** ejecuta y, si hay puntos de parada, **para** en ellos; **F8** ejecuta **paso a paso**: para en
+  la primera sentencia y en cada una de las siguientes.
+- Al parar, el editor marca la línea en azul y se abre la ventana **Depurador** con las **variables
+  locales** de la función (y, debajo, las globales) y los botones **Continuar (F5)**, **Paso (F8)** y
+  **Detener**.
+- `vps.depurar()` en el propio código para el programa en ese punto y enseña las variables
+  globales (`vps.depurar(locals())` enseña las de la función).
+
+No usa `sys.settrace`: el MicroPython del sistema se compila sin él. En su lugar el código se
+**instrumenta**: delante de cada sentencia simple se añade una llamada que decide si hay que parar
+(los números de línea de los errores se traducen a los del código original).
+
+### Anclajes y orden de tabulación
+
+- `anclaje="izq|der|arr|abj"` (propiedad de todos los controles): al **redimensionar el formulario**
+  (o el Marco que lo contiene) el control se mueve o se estira. Por defecto `izq|arr` (no cambia).
+  `der` solo: sigue al borde derecho; `izq|der`: se estira a lo ancho; `abj` y `arr|abj` hacen lo
+  mismo en vertical. Pon `redimensionable` en el formulario para que el usuario pueda cambiarlo.
+- **Ver > Orden de tabulación...**: una lista de los controles que se sube y se baja; fija la propiedad
+  `orden_tab` (1, 2, 3...). El Tab recorre los controles en ese orden (los que no la tienen siguen el
+  orden de creación).
+
+### Fuentes
+
+La propiedad `fuente` de **Etiqueta** y **Boton** admite un tamaño y estilos:
+`fuente="DejaVu Sans 18 negrita subrayado"`. El tamaño normal es **12**; con otro, el texto se pinta
+a 8x16 y se escala con suavizado (9 lo reduce, 24 lo duplica); `negrita` engorda el trazo y
+`subrayado` lo subraya. Ver «Límites actuales» para la familia.
+
+### Diseño fiel
+
+El diseñador dibuja cada control **con el mismo código que la aplicación al ejecutarse**: crea
+los controles reales de `vps` en un formulario oculto y los pinta sobre la superficie, así que
+lo que se ve (colores, relieves, fuentes, texto) es lo que saldrá. Si algo falla con un control, usa
+el dibujo aproximado de siempre (Win98).
 
 Un **Marco** contiene a los controles que se dibujen dentro de él (sus coordenadas son relativas
 al Marco). **Proyecto > Agregar formulario** añade otro formulario (el principal es el primero;
@@ -134,7 +261,10 @@ el editor salta a la línea.
 | `visible`, `activo` | Si se ve y si responde |
 | `color` | Color del texto (`0xRRGGBB`, `"#rrggbb"` o un nombre: `NEGRO`, `ROJO`...) |
 | `colorfondo` | Color de fondo |
-| `fuente` | Se guarda (para futuras fuentes); hoy hay una sola fuente 8x16 |
+| `fuente` | Tamaño y estilo del texto (Etiqueta y Boton): `"DejaVu Sans 18 negrita"`. Ver «Fuentes» |
+| `anclaje` | `izq|der|arr|abj`: qué hace el control al redimensionar el formulario. Por defecto `izq|arr` |
+| `orden_tab` | Posición en el orden del Tab (la fija Ver > Orden de tabulación) |
+| `pagina` | Solo dentro de unas `Pestanas`: la página del control (0 es la primera) |
 
 Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el resto por nombre.
 
@@ -142,7 +272,7 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 
 | Control | Propiedades propias | Eventos | Notas |
 | --- | --- | --- | --- |
-| `Formulario(texto, ancho, alto)` | `texto` (título), `ancho`, `alto`, `color`, `redimensionable` | `cargar`, `cerrar`, `tecla`, `click`, `redimensionar` | `mostrar()`, `ocultar()`, `cerrar()`. En `Formulario_cerrar`, devolver `False` impide cerrar |
+| `Formulario(texto, ancho, alto)` | `texto` (título), `ancho`, `alto`, `color`, `redimensionable`, `resultado`, `datos` | `cargar`, `cerrar`, `tecla`, `click`, `redimensionar` | `mostrar(modal=False, datos=None)`, `ocultar()`, `cerrar(resultado=None)`. Los controles son atributos (`Formulario2.Boton1`). En `Formulario_cerrar`, devolver `False` impide cerrar |
 | `Etiqueta` | `texto`, `alineacion` (izquierda, centro, derecha) | `click` | |
 | `Boton` | `texto`, `defecto` (Intro lo pulsa) | `click` | `pulsar()` simula la pulsación |
 | `CuadroTexto` | `texto`, `multilinea`, `clave` (muestra `*`), `solo_lectura` | `cambio`, `tecla`, `click` | `multilinea` se fija al crearlo |
@@ -156,6 +286,15 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 | `BarraProgreso` | `valor`, `maximo` | | |
 | `Temporizador` | `intervalo` (ms), `activo` | `tic` | Sin ventana: dispara `tic` cada `intervalo` mientras `activo` |
 | `Menu` | `elementos`: una línea por título (sin sangría) y por opción (con sangría, `Abrir\|MnuAbrir`; `-` es una línea) | cada opción: `MnuAbrir_click` | Barra de menús del formulario |
+| `Pestanas` | `elementos` (títulos), `seleccion` (página que se ve), `valor` (su título) | `cambio`, `click` | Contenedor con páginas: los controles hijos eligen página con `pagina` |
+| `Tabla` | `columnas`, `filas` (listas de celdas; en el diseñador una línea `a;b;c` por fila), `seleccion`, `editable`, `ordenable`, `valor` (fila elegida), `columna` | `seleccion`, `cambio`, `doble_click`, `click` | Clic en la cabecera ordena; doble clic edita. `agregar(fila)`, `quitar(i)`, `limpiar()`, `contar()`, `celda(f, c)`, `poner_celda(f, c, v)`, `ordenar(col, descendente)`, `cargar_csv(ruta)`, `guardar_csv(ruta)` |
+| `Numerico` | `valor`, `minimo`, `maximo`, `paso`, `decimales` | `cambio` | Cuadro con flechas; `valor` siempre queda entre el mínimo y el máximo |
+| `Lienzo` | `raton_x`, `raton_y` (solo lectura) | `click`, `arrastrar`, `soltar`, `mover` | `linea`, `rectangulo`, `circulo`, `texto`, `imagen`, `limpiar` |
+| `Enlace` | `texto`, `url` | `click` | Etiqueta azul y subrayada |
+| `BarraEstado` | `texto`, `elementos` (paneles de la derecha) | `click` | `poner(i, texto)` |
+| `SelectorColor` | `valor` (`0xRRGGBB`) | `cambio`, `click` | Abre una paleta; `elegir()` la abre por código |
+| `Reloj` | `intervalo`, `activo`; solo lectura: `anio`, `mes`, `dia`, `hora`, `minuto`, `segundo`, `dia_semana`, `fecha`, `hora_texto`, `nombre_dia`, `nombre_mes` | `tic` | Sin ventana. `ahora()`, `formatear("%d/%m/%Y %H:%M")` |
+| `Archivo` | `ruta`, `separador` | | Sin ventana. `existe()`, `leer()`, `escribir(t)`, `agregar(t)`, `leer_lineas()`, `escribir_lineas(l)`, `leer_csv()`, `escribir_csv(filas)`, `borrar()` |
 
 ### Funciones
 
@@ -169,18 +308,44 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 | `dialogo_guardar(titulo, carpeta, tipos, nombre)` | El de guardar (pregunta al sobrescribir) |
 | `dialogo_carpeta(titulo, carpeta)` | El de elegir carpeta |
 | `pausa(ms)` | Espera sin congelar la ventana |
+| `depurar(variables=None)` | Para el programa y enseña las variables en la ventana del depurador |
 
 ### Sobre tkinter
 
 `vps` está hecho sobre el `tkinter` del sistema: cada control tiene su componente en `.w`
-(`Boton1.w`) por si hace falta algo que `vps` no ofrece. Lo que `tkinter` no tiene (varias
-fuentes, colores por trozos de texto) tampoco está en `vps`.
+(`Boton1.w`) por si hace falta algo que `vps` no ofrece. Lo que `tkinter` no tiene (colores por
+trozos de texto, tipos de letra vectoriales) tampoco está en `vps`.
 
 ## Límites actuales
 
-- Una sola fuente (8x16): `fuente` se guarda pero no cambia nada.
-- El diseñador dibuja los controles de forma aproximada (con aspecto Win98); en la ejecución los
-  componentes son los de `tkinter` del sistema.
-- Un formulario secundario no hereda el tamaño máximo: como cualquier ventana, hasta 1000x700.
-- Renombrar un control no actualiza el código (como en el Visual Basic antiguo).
-- Sin deshacer en el diseñador ni en el editor.
+- **Familia de fuente:** el sistema tiene una sola tipografía de mapa de bits (8x16). `fuente`
+  cambia el **tamaño** (escalado suave), la **negrita** y el **subrayado**, pero no la familia
+  (se guarda y se ve en el diseñador, y no cambia el dibujo), y no hay cursiva. Las fuentes
+  vectoriales de la libfontes (las del WordArt de Pluma) son de C y no llegan a `sagui`: enseñarlas
+  pide un nombre nuevo en el módulo y regenerar los qstr de MicroPython (D034), que no se puede sin
+  su repositorio. Solo **Etiqueta** y **Boton** aceptan tamaño; el texto de un cuadro de texto, una
+  lista o un combo es siempre 8x16.
+- **Depurador:** instrumenta `codigo.py`, así que solo para en el código del proyecto (no entra
+  en `vps` ni en las bibliotecas), enseña las variables de la función en la que está (no las de las
+  funciones que la encierran) y los puntos de parada siguen a las líneas que se añaden o se quitan
+  con el teclado pero no a lo que se pega o a lo que cambia un deshacer. No hay «ver expresión».
+- **Orden de tabulación:** se aplica reordenando los hijos del contenedor, así que también cambia
+  qué control se dibuja encima si dos se solapan.
+- Los formularios no pasan de 1000x700 (el tamaño máximo de las ventanas de los programas de
+  `tkinter`).
+- La `Tabla` (v8.3.2) es una rejilla sencilla de texto: sin columnas redimensionables, sin tipos de dato
+  por columna y sin enlace a una base de datos (para eso está la `RejillaDatos`, ver «Bases de datos» al final; BaseDatos, Descarga
+  y AgenteIA son de la fase 2, mejora 124). Todavía no hay `Calendario`, `Arbol` ni `Pestanas` anidadas dentro de un `Marco` que
+  esté en otra página (los controles de una página oculta se esconden con ella, pero el diseñador solo
+  deja elegir la página de las Pestanas de primer nivel).
+- Las **Pestanas** y la **Tabla** no están hechas con ventanas del sistema sino con componentes de
+  `tkinter` que dibujan ellos mismos (`vps/_widgets.py`): no hay `ttk.Notebook` ni `ttk.Treeview` en el
+  `tkinter` del sistema.
+
+## Bases de datos (SQLite y lite-monkey)
+
+Tres componentes de datos (mejora 127, D304): **`ConectorBD`** (sin ventana: `origen`, `tabla`, `filtro`; métodos `abrir`,
+`cerrar`, `recargar`, `guardar`; eventos `conectado` y `error`), **`RejillaDatos`** (`fuente=ConectorBD1`: paginación, orden por
+columna, edición de celdas y barra de navegación) y los controles enlazados **`CuadroTexto`**, **`Casilla`**, **`Numerico`** y
+**`Combo`** con `fuente` y `campo` (fichas «maestro»). Guía con una agenda de contactos paso a paso: [`docs/bases-de-datos.md`](bases-de-datos.md);
+el proyecto terminado está en `/ejemplos/vps/agenda-bd`.

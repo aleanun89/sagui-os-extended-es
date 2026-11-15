@@ -350,7 +350,7 @@ def comprobar_estricto(archivos):
     sin = [a for a in archivos if (os.path.splitext(a)[1] in EXT_SPDX or os.path.basename(a) == "Makefile")
            and (not a.startswith(NO_PROPIO) or es_pegamento(a))
            # ejemplos que el usuario abre en Mico: sin línea SPDX a propósito (tools/spdx.py, EXCLUIDOS)
-           and not a.startswith("rootfs/ejemplos/mico/")]
+           and not a.startswith(("rootfs/ejemplos/mico/", "rootfs/ejemplos/vps/"))]
     n = 0
     for a in sin:
         spdx, _, _ = analizar(a)

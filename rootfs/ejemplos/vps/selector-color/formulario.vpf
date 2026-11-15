@@ -1,0 +1,34 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Selector de color'
+  ancho = 270
+  alto = 136
+control Etiqueta Etiqueta1
+  x = 16
+  y = 16
+  ancho = 90
+  texto = 'Texto:'
+control SelectorColor SelectorColor1
+  x = 112
+  y = 12
+  ancho = 120
+  valor = 255
+control Etiqueta Etiqueta2
+  x = 16
+  y = 48
+  ancho = 90
+  texto = 'Fondo:'
+control SelectorColor SelectorColor2
+  x = 112
+  y = 44
+  ancho = 120
+  valor = 16776960
+control Etiqueta Etiqueta3
+  x = 16
+  y = 84
+  ancho = 240
+  alto = 36
+  color = 255
+  colorfondo = 16776960
+  texto = 'Texto de ejemplo'
+  alineacion = 'centro'
