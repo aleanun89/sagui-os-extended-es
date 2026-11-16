@@ -134,6 +134,8 @@ int32_t sis_mapear_bar(uint32_t ptr, uint32_t saida, uint32_t c, uint32_t d, uin
     /* Un BAR sobre la RAM del sistema le daría al programa la memoria del
      * kernel: no se mapea. */
     if (ini < paginacao_fim_mapa()) return ERRO_ACESSO;
+    /* D348: ni la RAM alta, que es de otros programas. */
+    if (memfisica_sobre_ram(ini, fim)) return ERRO_ACESSO;
 
     uint32_t bytes = fim - ini;
     uint32_t virt = mmio_proximo(bytes);
@@ -144,7 +146,7 @@ int32_t sis_mapear_bar(uint32_t ptr, uint32_t saida, uint32_t c, uint32_t d, uin
         if (!atual->bar_mapas[i].bytes) { livre = i; break; }
     if (livre < 0) return ERRO_LIMITE;
 
-    uint32_t flags = PG_USUARIO | PG_PCD | PG_EMPRESTADA;   /* sin caché: son registros */
+    uint32_t flags = PG_USUARIO | PG_PCD | PG_EMPRESTADA | PG_NX;   /* sin caché: son registros; no ejecutables (D349) */
     if (p.permissao == BAR_ESCRITA) flags |= PG_ESCRITA;
     uint32_t v = virt;
     for (uint32_t f = ini; v < virt + bytes; v += PAGINA, f = f + PAGINA) {

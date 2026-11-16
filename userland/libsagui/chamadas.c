@@ -107,6 +107,8 @@ static inline int chamar4(unsigned n, unsigned a, unsigned b, unsigned c, unsign
     __asm__ volatile("int $0x80" : "=a"(r) : "a"(n), "b"(a), "c"(b), "d"(c), "S"(d) : "memory");
     return r;
 }
+int  memoria_proteger(void *e, unsigned n, int prot)   /* D349 */
+                                      { return chamar4(SIS_MEMORIA, MEM_PROTEGER, (unsigned)e, n, (unsigned)prot); }
 int  fundo_enviar(int op, const uint32_t *px, int y, int n)
                                       { return chamar4(SIS_FUNDO, (unsigned)op, (unsigned)px, (unsigned)y, (unsigned)n); }
 int  audio_abrir(int taxa, int canais, int bits)

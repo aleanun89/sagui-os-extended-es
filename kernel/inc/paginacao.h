@@ -41,25 +41,84 @@
 #define HILO_VAGAS       64u
 #define HILO_GUARDA      0x00010000u   /* 64 KB */
 
-/* Un espacio de direcciones se identifica por la dirección física de su
- * directorio de páginas (que, por el mapeo 1:1, también es el virtual). */
+/* Un espacio de direcciones se identifica por lo que va en el CR3: sin PAE, la
+ * dirección física de su directorio de páginas; con PAE (D349), la de su PDPT.
+ * Los dos están en la memoria baja, así que el kernel los ve 1:1. */
 typedef uint32_t espaco_t;
 
+/* D349: una dirección física. Con PAE llega a 64 GB (36 bits): las páginas de
+ * los programas pueden estar por encima de 4 GB. Nunca convertir en puntero una
+ * que no sea de la zona baja (ver memalta.h). */
+typedef uint64_t fis_t;
+
+/* D348/D349: el valor de una entrada de tabla de páginas en los dos modos. Sin
+ * PAE la entrada mide 4 bytes (solo cuenta la mitad baja); con PAE, 8 (bit 63 =
+ * NX). Quien escribe entradas fuera de paginacao.c lo hace con pte_escrever(),
+ * que sabe el tamaño y, con PAE, el orden seguro de las dos mitades. */
+typedef uint64_t pte_t;
+
+/* D349: bandera del API, no del hardware: página que no se puede ejecutar. Con
+ * NX activo se convierte en el bit 63 de la entrada; sin NX (o sin PAE) se
+ * ignora. espaco_traduzir() la devuelve si la página la tiene. */
+#define PG_NX        0x400
+
+extern bool paginacao_com_pae;    /* D349: tablas de 3 niveles con entradas de 8 bytes */
+extern uint64_t paginacao_bit_nx; /* bit 63 si NX está activo; 0 si no */
+
+/* Escribe una entrada (de tabla o de directorio que apunta a tabla). Con PAE,
+ * en tres pasos para que ninguna otra CPU vea nunca una entrada presente a
+ * medias: primero la mitad baja a cero (sin P), después la alta, y al final la
+ * baja (que lleva P). */
+static inline void pte_escrever(void *e, fis_t fis, uint32_t flags)
+{
+    uint32_t baixa = ((uint32_t)fis & 0xFFFFF000u) | (flags & 0xFFFu & ~(uint32_t)PG_NX);
+    if (paginacao_com_pae) {
+        volatile uint32_t *m = (volatile uint32_t *)e;
+        uint32_t alta = (uint32_t)(fis >> 32) & 0x000FFFFFu;
+        if (flags & PG_NX) alta |= (uint32_t)(paginacao_bit_nx >> 32);
+        m[0] = 0;
+        __asm__ volatile("" ::: "memory");
+        m[1] = alta;
+        __asm__ volatile("" ::: "memory");
+        m[0] = baixa;
+    } else {
+        *(volatile uint32_t *)e = baixa;
+    }
+}
+static inline void pagina_invalidar(uint32_t virt)
+{
+    __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+}
+
+/* D349: elige el modo (PAE o no, NX o no) según la CPU y la cabecera de
+ * arranque. Antes de memfisica_iniciar(), que necesita saber si hay PAE. */
+void     paginacao_escolher_modo(void);
+bool     paginacao_pae_cpu(void);     /* la CPU anuncia PAE (aunque no se use) */
+bool     paginacao_nx_cpu(void);      /* la CPU anuncia NX */
+bool     paginacao_nx(void);          /* NX activo (solo con PAE) */
+bool     paginacao_xd_liberado(void); /* la principal quitó XD_DISABLE de IA32_MISC_ENABLE (Intel) */
+uint64_t paginacao_limite_fisico(void);   /* hasta dónde puede llegar la RAM usada (4 GB sin PAE) */
 void     paginacao_iniciar(void);
 uint32_t paginacao_fim_mapa(void);   /* hasta dónde ve el kernel la RAM 1:1 */
-bool     paginacao_pse(void);        /* mapa del kernel en páginas de 4 MB */
+bool     paginacao_pse(void);        /* mapa del kernel en páginas grandes (4 MB, o 2 MB con PAE) */
 espaco_t espaco_kernel(void);
 espaco_t espaco_criar(void);
 void     espaco_destruir(espaco_t e);
 void     espaco_ativar(espaco_t e);
 espaco_t espaco_atual(void);
-bool     espaco_mapear(espaco_t e, uint32_t virt, uint32_t fis, uint32_t flags);
-uint32_t espaco_traduzir(espaco_t e, uint32_t virt, uint32_t *flags);   /* 0 si no está mapeado */
+bool     espaco_mapear(espaco_t e, uint32_t virt, fis_t fis, uint32_t flags);
+fis_t    espaco_traduzir(espaco_t e, uint32_t virt, uint32_t *flags);   /* 0 si no está mapeado */
+/* D349: cambia los permisos de las páginas propias ya asignadas de [virt,
+ * virt+bytes) del programa: añade las banderas "por" y quita las de "tirar"
+ * (solo PG_ESCRITA y PG_NX). Lo que no está asignado se deja (quien llama
+ * comprueba antes, si le importa). Atómico por entrada: nunca pasa por P=0 y
+ * conserva A/D. */
+void     espaco_ajustar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t por, uint32_t tirar);
 uint32_t espaco_paginas_usuario(espaco_t e);
 void     espaco_desmapear(espaco_t e, uint32_t virt);
 /* D209: quita una página propia del programa (no prestada) y devuelve su
  * dirección física para liberarla después; 0 si no había o es prestada. */
-uint32_t espaco_tirar(espaco_t e, uint32_t virt);
+fis_t    espaco_tirar(espaco_t e, uint32_t virt);
 
 /* Asigna páginas nuevas y a cero para [virt, virt+bytes) en el espacio del usuario. */
 bool     espaco_alocar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t flags);
@@ -71,7 +130,11 @@ uint32_t janela_mapear_tipo(uint32_t fis, uint32_t bytes, uint32_t tipo);   /* t
 /* D192: franja de ventanas sin mapear (devuelve la dirección virtual, 0 si no
  * cabe) y páginas sueltas dentro de ella, para quien mapea y desmapea a menudo. */
 uint32_t janela_reservar(uint32_t bytes);
-void     janela_pagina(uint32_t virt, uint32_t fis, uint32_t tipo);
+void     janela_pagina(uint32_t virt, fis_t fis, uint32_t tipo);
 void     janela_soltar(uint32_t virt);
+/* D348: la entrada de la tabla de páginas de una dirección de la franja de
+ * ventanas (NULL si no es de ella), para las ventanas temporales de memalta.c.
+ * Se escribe con pte_escrever(): mide 4 u 8 bytes según el modo (D349). */
+void    *janela_entrada(uint32_t virt);
 
 #endif

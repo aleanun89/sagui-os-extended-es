@@ -41,6 +41,8 @@ extern uint32_t _ap_gdt_base[];
 extern uint32_t _ap_cr0[];
 extern uint32_t _ap_cr3[];
 extern uint32_t _ap_cr4[];
+extern uint32_t _ap_nxe[];
+extern uint32_t _ap_xd[];
 extern uint32_t _ap_pilha[];
 extern uint32_t _ap_entrada[];
 extern uint32_t _ap_indice[];
@@ -149,6 +151,7 @@ static const char *passo_nome(uint32_t p)
     case 3: return "CR4 y CR3 cargados";
     case 4: return "paginación activa";
     case 5: return "saltando a C";
+    case 9: return "sin NX en esta CPU (XD desactivado): se deja parada";   /* D349 */
     default: return "?";
     }
 }
@@ -186,7 +189,9 @@ uint32_t smp_iniciar(void)
     *buraco(_ap_gdt_base) = SMP_TRAMPOLIM + (uint32_t)(_ap_gdt_local - _ap_trampolim);
     *buraco(_ap_cr0) = ler_cr0();
     *buraco(_ap_cr4) = ler_cr4();
-    *buraco(_ap_cr3) = espaco_kernel();
+    *buraco(_ap_cr3) = espaco_kernel();   /* con PAE, el PDPT (D349) */
+    *buraco(_ap_nxe) = paginacao_nx() ? 1 : 0;   /* D349: EFER.NXE en cada CPU */
+    *buraco(_ap_xd) = paginacao_xd_liberado() ? 1 : 0;
     *buraco(_ap_entrada) = (uint32_t)smp_ap_entrada;
 
     /* El vector del tic de cada procesador: el mismo para todos, porque la IDT

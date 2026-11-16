@@ -19,6 +19,9 @@
 #define C_FPU 1
 #define C_FPU_X86 1
 #define C_DYNAMIC_X86 1
+/* D349: con NX el montón no es ejecutable: el recompilador pide su caché de
+ * código como ejecutable con mprotect (userland/libc/posix.c). */
+#define C_HAVE_MPROTECT 1
 #define C_CORE_INLINE 1
 
 #define HAVE_INTTYPES_H 1

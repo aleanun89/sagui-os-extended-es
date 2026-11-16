@@ -16,7 +16,7 @@ Documento vivo (se actualiza cuando cambia el plan; ver también `docs/gpus.md`)
 | Pieza | Para qué arquitectura | Cuándo |
 | --- | --- | --- |
 | Arranque UEFI x64 e IA32 (D264) | x86-64, i686 | ✅ v8.0 |
-| PAE: más de 4 GB de RAM y NX en 32 bits (mejora 125) | i686 con PAE (casi todas desde el Pentium Pro; sin PAE, como hoy) | 🔧 v8.5 |
+| PAE: más de 4 GB de RAM y NX en 32 bits (mejora 125) | i686 con PAE (casi todas desde el Pentium Pro; sin PAE, como hoy) | ✅ v8.5 (D349; falta probarlo en hardware real con más de 4 GB) |
 | Separar el código dependiente de la arquitectura (`kernel/arch/<arq>/`: arranque, cambio de contexto, paginación, interrupciones, llamadas al sistema) | x86-64 y futuras (ARM) | 📅 v10.0 |
 | Compiladores propios (`cc`, Pascal) con otro destino | x86-64 (y ARM si llega) | 📅 v10.0 |
 | Drivers sin suposiciones de 32 bits (punteros, DMA, BAR de 64 bits) | x86-64 | 📅 v10.0 |

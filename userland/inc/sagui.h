@@ -108,6 +108,11 @@ void    *aumentar_memoria(unsigned bytes);
 /* D209: páginas del área de datos (MEM_RESERVAR, MEM_DEVOLVER, MEM_ASIGNAR en
  * abi.h). Es la base del malloc; los programas normales usan aloca o mapear_memoria. */
 int      memoria_paginas(int op, void *endereco, unsigned bytes);
+/* D349: permisos de páginas ya asignadas del área de datos (MEM_PROT_ESCRITA,
+ * MEM_PROT_EXEC; como mprotect). Con NX, el montón no es ejecutable: quien
+ * genere código y lo ejecute (un recompilador, un JIT) lo pide aquí. Las páginas
+ * tienen que estar asignadas (MEM_ASIGNAR o malloc): si no, ERRO_SEM_MEMORIA. */
+int      memoria_proteger(void *endereco, unsigned bytes, int prot);
 int      reiniciar(void);          /* no vuelve (con servicios, el kernel los para antes, D216); ERRO_ACESSO si no se puede (D255) */
 int      servicos_kernel(int op, int arg);   /* SIS_SERVICOS: SERV_* en abi.h (D216); lo usan servicios y servicio */
 int      servicos_kernel3(int op, int a, int b);   /* lo mismo con dos argumentos (SERV_RESPONDER, D255) */

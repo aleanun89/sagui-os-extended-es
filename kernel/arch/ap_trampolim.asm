@@ -8,8 +8,9 @@
 ;   1. carga una GDT plana local y pasa a modo protegido de 32 bits;
 ;   2. carga DS, ES, FS, GS y SS con el segmento de datos de esa GDT local
 ;      (base 0, límite 4 GB);
-;   3. copia el CR4 y el CR0 del principal (PSE, PGE, OSFXSR, caché activa...),
-;      carga el CR3 del kernel y activa la paginación;
+;   3. copia el CR4 y el CR0 del principal (PSE, PAE, PGE, OSFXSR, caché activa...),
+;      pone EFER.NXE si el principal usa NX (D349), carga el CR3 del kernel (el
+;      directorio, o el PDPT con PAE) y activa la paginación;
 ;   4. salta a smp_ap_entrada() con la pila de kernel de esta CPU.
 ;
 ; La GDT propia de la CPU, su TSS, su GS, la IDT y la FPU se preparan después,
@@ -37,6 +38,8 @@ global _ap_gdt_base
 global _ap_cr0
 global _ap_cr3
 global _ap_cr4
+global _ap_nxe
+global _ap_xd
 global _ap_pilha
 global _ap_entrada
 global _ap_indice
@@ -92,6 +95,43 @@ protegido:
         ; OSFXSR y OSXMMEXCPT. Tiene que ir antes que la paginación.
         mov eax, [ebx + OFF(_ap_cr4)]
         mov cr4, eax
+        ; D349: con NX las tablas del kernel llevan el bit 63, que sin EFER.NXE es
+        ; un bit reservado: hay que ponerlo antes de encender la paginación.
+        ; Esta CPU puede no tener NX aunque la principal sí (la BIOS puede dejar
+        ; XD_DISABLE puesto solo en algunas): el wrmsr de NXE daría un #GP sin IDT
+        ; (triple fallo, reinicio). Se mira CPUID antes y, si falta, la CPU se
+        ; queda parada en el paso 9 y el kernel no la cuenta.
+        cmp dword [ebx + OFF(_ap_nxe)], 0
+        je .sem_nx
+        cmp dword [ebx + OFF(_ap_xd)], 0
+        je .ver_nx
+        ; La principal quitó XD_DISABLE (IA32_MISC_ENABLE bit 34, Intel): lo mismo
+        ; aquí. El MSR existe: es el mismo modelo de CPU que la principal.
+        mov ecx, 0x1A0               ; IA32_MISC_ENABLE
+        rdmsr
+        and edx, 0xFFFFFFFB          ; bit 34 = bit 2 de EDX
+        wrmsr
+.ver_nx:
+        push ebx                     ; CPUID pisa EBX (la base del bloque)
+        mov eax, 0x80000000
+        cpuid
+        cmp eax, 0x80000001
+        jb .nx_falta
+        mov eax, 0x80000001
+        cpuid
+        test edx, 0x100000           ; bit 20 = NX
+        jz .nx_falta
+        pop ebx
+        mov ecx, 0xC0000080          ; IA32_EFER
+        rdmsr
+        or eax, 0x800                ; NXE
+        wrmsr
+        jmp .sem_nx
+.nx_falta:
+        pop ebx
+        PASO 9                       ; sin NX en esta CPU: no se arranca
+        jmp parado
+.sem_nx:
         mov eax, [ebx + OFF(_ap_cr3)]
         mov cr3, eax
         PASO 3                       ; CR4 y CR3 cargados
@@ -122,6 +162,8 @@ align 4
 _ap_cr0:       dd 0                   ; el CR0 del principal
 _ap_cr3:       dd 0                   ; el CR3 (directorio de páginas del kernel)
 _ap_cr4:       dd 0                   ; el CR4 del principal
+_ap_nxe:       dd 0                   ; D349: 1 = poner EFER.NXE (el principal usa NX)
+_ap_xd:        dd 0                   ; D349: 1 = quitar XD_DISABLE antes (la principal lo hizo)
 _ap_pilha:     dd 0                   ; el tope de la pila de kernel de la CPU
 _ap_entrada:   dd 0                   ; la función de entrada del kernel
 _ap_indice:    dd 0                   ; el número de esta CPU

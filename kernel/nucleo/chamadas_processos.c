@@ -9,6 +9,7 @@
 #include "sistema.h"
 #include "console.h"
 #include "memoria.h"
+#include "memalta.h"
 #include "processo.h"
 #include "relogio.h"
 #include "texto.h"
@@ -113,13 +114,27 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     (void)d; (void)e;
     if (tipo == INFO_MEMORIA) {
         info_memoria_t *m = (info_memoria_t *)ptr;
-        if (!usuario_ok(m, sizeof *m, true)) return ERRO_ENDERECO;
+        /* D348/D349: los campos de la memoria alta y la superior solo si el programa los pide (n). */
+        bool v2 = n >= INFO_MEMORIA_V2, v3 = n >= sizeof *m;
+        if (!usuario_ok(m, v3 ? sizeof *m : v2 ? INFO_MEMORIA_V2 : INFO_MEMORIA_V1, true)) return ERRO_ENDERECO;
         estat_memoria_t est;
         memoria_estatisticas(&est);
         m->ram_total_kb = (uint32_t)(est.ram_total >> 10);
         m->gerida_kb = est.paginas_geridas * 4;
         m->livre_kb = est.paginas_livres * 4;
         m->usada_kb = m->gerida_kb - m->livre_kb;
+        if (v2) {
+            m->alta_gerida_kb = est.altas_geridas * 4;
+            m->alta_livre_kb = est.altas_livres * 4;
+            m->janelas_usos = memalta_usos();
+            m->modo = (paginacao_com_pae ? MEM_MODO_PAE : 0) | (paginacao_nx() ? MEM_MODO_NX : 0) |
+                      (paginacao_pae_cpu() ? MEM_MODO_CPU_PAE : 0) | (paginacao_nx_cpu() ? MEM_MODO_CPU_NX : 0);
+        }
+        if (v3) {
+            m->superior_gerida_kb = est.superiores_geridas * 4;
+            m->superior_livre_kb = est.superiores_livres * 4;
+            m->reservado[0] = m->reservado[1] = 0;
+        }
         return 0;
     }
     if (tipo == INFO_PROCESSOS) {
@@ -296,7 +311,7 @@ int32_t sis_aumentar_memoria(uint32_t n, uint32_t b, uint32_t c, uint32_t d, uin
     if (n > DADOS_LIMITE - antigo) return ERRO_SEM_MEMORIA;
     /* Solo se añaden páginas: las otras CPU no tienen nada que olvidar en
      * su TLB (una entrada no presente no se guarda en ella). */
-    if (!espaco_alocar(l->espaco, antigo, n, PG_ESCRITA | PG_USUARIO)) return ERRO_SEM_MEMORIA;
+    if (!espaco_alocar(l->espaco, antigo, n, PG_ESCRITA | PG_USUARIO | PG_NX)) return ERRO_SEM_MEMORIA;   /* D349 */
     l->dados_fim = antigo + n;
     return (int32_t)antigo;
 }
@@ -328,7 +343,7 @@ static bool rango_de_dados(const processo_t *l, uint32_t ini, uint32_t n)
 
 int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t e)
 {
-    (void)d; (void)e;
+    (void)e;
     processo_t *l = processo_recursos();
     if (op == MEM_RESERVAR) {
         uint32_t base = (l->dados_fim + PAGINA - 1) & ~(PAGINA - 1);
@@ -339,16 +354,34 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
     }
     if (!rango_de_dados(l, ini, n)) return ERRO_INVALIDO;
     if (op == MEM_ASIGNAR)
-        return espaco_alocar(l->espaco, ini, n, PG_ESCRITA | PG_USUARIO) ? 0 : ERRO_SEM_MEMORIA;
+        return espaco_alocar(l->espaco, ini, n, PG_ESCRITA | PG_USUARIO | PG_NX) ? 0 : ERRO_SEM_MEMORIA;   /* D349 */
+    if (op == MEM_PROTEGER) {
+        /* D349: como mprotect, sobre lo ya asignado. Quitar permisos (escritura,
+         * ejecución) y también darlos se sincroniza con las demás CPU: un hilo
+         * en otra CPU con la entrada vieja en su TLB fallaría (o seguiría
+         * escribiendo) con los permisos de antes. */
+        if (d & ~(uint32_t)(MEM_PROT_ESCRITA | MEM_PROT_EXEC | 1)) return ERRO_INVALIDO;
+        /* Como mprotect (ENOMEM): todas las páginas del rango tienen que estar
+         * asignadas. Si no, unas quedarían con los permisos nuevos y las que se
+         * asignaran después (MEM_ASIGNAR) con NX: mejor un error claro. */
+        for (uint32_t v = ini; v < ini + n; v += PAGINA)
+            if (!espaco_traduzir(l->espaco, v, NULL)) return ERRO_SEM_MEMORIA;
+        uint32_t por = ((d & MEM_PROT_ESCRITA) ? PG_ESCRITA : 0) | ((d & MEM_PROT_EXEC) ? 0 : PG_NX);
+        uint32_t tirar = ((d & MEM_PROT_ESCRITA) ? 0 : PG_ESCRITA) | ((d & MEM_PROT_EXEC) ? PG_NX : 0);
+        espaco_ajustar(l->espaco, ini, n, por, tirar);
+        espaco_sincronizar(l->espaco);
+        return 0;
+    }
     if (op != MEM_DEVOLVER) return ERRO_INVALIDO;
-    uint32_t fisicas[MEM_LOTE], devolvidas = 0;
+    fis_t fisicas[MEM_LOTE];
+    uint32_t devolvidas = 0;
     uint32_t v = ini, fim = ini + n;
     while (v < fim) {
         uint32_t k = 0;
         for (; v < fim && k < MEM_LOTE; v += PAGINA) {
             /* Una página prestada (de otro dueño) no se quita: espaco_tirar
              * devuelve 0. En el área de datos no debería haber ninguna. */
-            uint32_t f = espaco_tirar(l->espaco, v);
+            fis_t f = espaco_tirar(l->espaco, v);
             if (f) fisicas[k++] = f;
         }
         if (!k) continue;

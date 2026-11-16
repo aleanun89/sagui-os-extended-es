@@ -16,6 +16,7 @@
 #include "console.h"
 #include "memoria.h"
 #include "paginacao.h"
+#include "memalta.h"
 #include "processo.h"
 #include "permisos.h"
 #include "texto.h"
@@ -39,23 +40,25 @@ typedef struct EMPACOTADO {
 } elf_programa_t;
 
 #define PT_LOAD 1
+#define PF_X    1
 #define PF_W    2
 
 /* Copia bytes dentro de otro espacio de direcciones. El kernel escribe en
- * las páginas por la dirección física (mapeo 1:1). Las de los segmentos ya
- * están asignadas; las de la pila se asignan aquí al llegar a ellas (D186). */
+ * las páginas por su dirección física, a través de una ventana temporal
+ * (pueden ser de la memoria alta, D348). Las de los segmentos ya están
+ * asignadas; las de la pila se asignan aquí al llegar a ellas (D186). */
 static bool copiar_para(espaco_t e, uint32_t virt, const void *origem, uint32_t n)
 {
     const uint8_t *o = origem;
     while (n) {
-        uint32_t fis = espaco_traduzir(e, virt, NULL);
+        fis_t fis = espaco_traduzir(e, virt, NULL);
         if (!fis) {
-            if (!espaco_alocar(e, virt & ~(PAGINA - 1), PAGINA, PG_USUARIO | PG_ESCRITA)) return false;
+            if (!espaco_alocar(e, virt & ~(PAGINA - 1), PAGINA, PG_USUARIO | PG_ESCRITA | PG_NX)) return false;
             fis = espaco_traduzir(e, virt, NULL);
         }
         uint32_t cabe = PAGINA - (virt & 0xFFF);
         if (cabe > n) cabe = n;
-        memcpy((void *)fis, o, cabe);
+        fisica_escrever(fis, o, cabe);
         virt += cabe; o += cabe; n -= cabe;
     }
     return true;
@@ -78,9 +81,13 @@ static int carregar_segmentos(espaco_t e, const uint8_t *img, uint32_t tam, uint
         if (p->virt < USUARIO_INICIO || p->virt >= DADOS_LIMITE || p->tam_memoria > DADOS_LIMITE - p->virt ||
             p->tam_arquivo > p->tam_memoria || p->desloc > tam || p->tam_arquivo > tam - p->desloc)
             return ERRO_FORMATO;   /* segmento fuera del área de los programas o más allá del archivo */
-        uint32_t flags = PG_USUARIO | ((p->flags & PF_W) ? PG_ESCRITA : 0);
+        /* D349: sin PF_X, no ejecutable (con NX). Si dos segmentos comparten una
+         * página, la página queda con la suma de los permisos: espaco_alocar no
+         * toca lo que ya existe, así que se ajusta después. */
+        uint32_t flags = PG_USUARIO | ((p->flags & PF_W) ? PG_ESCRITA : 0) | ((p->flags & PF_X) ? 0 : PG_NX);
         if (!espaco_alocar(e, p->virt, p->tam_memoria, flags))
             return ERRO_SEM_MEMORIA;
+        espaco_ajustar(e, p->virt, p->tam_memoria, flags & PG_ESCRITA, (p->flags & PF_X) ? PG_NX : 0);
         copiar_para(e, p->virt, img + p->desloc, p->tam_arquivo);
         if (p->virt + p->tam_memoria > *fim) *fim = p->virt + p->tam_memoria;
         algum = true;
@@ -134,7 +141,7 @@ static uint32_t montar_pilha(espaco_t e, int argc, char *const argv[], int envc,
     uint32_t cab[3] = { c, v_arg, v_env };
     if (!copiar_para(e, sp, cab, sizeof cab)) return 0;
     uint32_t margem = (sp & ~(PAGINA - 1)) - PILHA_USUARIO_INICIAL;
-    if (!espaco_alocar(e, margem, sp - margem, PG_USUARIO | PG_ESCRITA)) return 0;
+    if (!espaco_alocar(e, margem, sp - margem, PG_USUARIO | PG_ESCRITA | PG_NX)) return 0;
     return sp;
 }
 

@@ -1,6 +1,6 @@
 # 125 - Más RAM en 32 bits: PAE (hasta 64 GB), memoria alta y NX
 
-- **Estado:** aprobada (**v8.5**, propuesta del coordinador tras la decisión del mantenedor del 2026-11-15)
+- **Estado:** en curso: fases 1 y 2 hechas (D348, D349); falta la 3 (**v8.5**, propuesta del coordinador tras la decisión del mantenedor del 2026-11-15)
 - **Prioridad:** alta
 - **Alta:** 2026-11-15
 - **Relacionadas:** 069 (OOM, swap comprimida en RAM), 035 (almacenamiento), caché de disco (D281, v8.4), 106 (64 bits, v10), SMP (D164), DOSBox (D294, recompilador)
@@ -39,8 +39,35 @@ demás igual (la v10 x86-64 sigue como camino aparte).
 **Opus** (núcleo: memoria y paginación), con pruebas en hardware real; revisión de otro Opus antes de fusionar.
 
 ## Criterios de aceptación
-- [ ] Memoria alta: más de 1,875 GB útiles sin PAE (hasta lo que deje el hueco PCI)
-- [ ] PAE: más de 4 GB en total con varios procesos; doble modo con y sin PAE
-- [ ] NX activo donde exista, sin romper DOSBox ni el JIT
-- [ ] Caché de disco y swap comprimida usando la RAM alta
-- [ ] Tests automáticos y decisión en `docs/decisoes.md`
+- [x] Memoria alta: más de 1,875 GB útiles sin PAE (hasta lo que deje el hueco PCI) — D348, h350
+- [x] PAE: más de 4 GB en total con varios procesos; doble modo con y sin PAE — D349, h351
+- [x] NX activo donde exista, sin romper DOSBox ni el JIT — D349, h351 (DOSBox pide su caché con mprotect)
+- [ ] Caché de disco y swap comprimida usando la RAM alta (pendiente: D348 deja la caché en la baja)
+- [x] Tests automáticos y decisión en `docs/decisoes.md` (D348/h350, D349/h351)
+
+## Fase 1 hecha (v8.5, D348)
+- Zona alta en `kernel/mem/fisica.c` (de 0x78000000 al fin de la RAM bajo 4 GB, según E820/UEFI), solo para
+  páginas de programas (`memfisica_alocar_usuario`); kernel, tablas y DMA en la baja.
+- Ventanas temporales por CPU (`kernel/mem/memalta.c`, estilo `kmap_atomic`) para poner a cero, cargar ELF y
+  preparar pilas; auditor `tools/auditar_memalta.py`.
+- `free`, `mem` e `infopc` muestran total, baja y alta. `SIS_MAPEAR_BAR` no deja mapear RAM.
+- Prueba `tests/h350_memoria_alta.py` (3G, 4G, SMP, UEFI, 512M, 1G; TCG y KVM).
+
+## Fase 2 hecha (v8.5, D349)
+- Doble modo elegido al arrancar: PAE (3 niveles, PDPT por proceso con los directorios del kernel compartidos,
+  mapa 1:1 en páginas de 2 MB) si la CPU lo anuncia; el modo clásico de 2 niveles si no, o con `mkimagem.py
+  --sem-pae`. Un solo `paginacao.c` para los dos (geometría en variables, `pte_t`/`fis_t` de 64 bits, escritura de
+  las entradas de 8 bytes en el orden seguro).
+- Zona superior (de 4 GB a 64 GB) solo para programas; direcciones físicas de 64 bits en `memfisica_*`,
+  `espaco_traduzir`/`tirar`, futex, ventanas de `memalta` y cargador.
+- NX (`EFER.NXE` en todas las CPU, también en el trampolín SMP): pila, montón, datos ELF, ventanas, BAR y el mapa
+  1:1 del kernel por encima de la imagen no ejecutables; `MEM_PROTEGER`/`mprotect`/`mmap(PROT_EXEC)` para el código
+  generado (DOSBox `core=dynamic`). `--sem-nx` lo desactiva.
+- `free`, `mem` e `infopc` dicen el modo y la memoria por encima de 4 GB. Prueba `tests/h351_pae_nx.py`.
+
+## Falta (fase 3)
+- Caché de disco y swap comprimida en la alta/superior (necesitan ventanas en todos los usos de sus bloques).
+- W^X: los binarios C++ con `.init_array` tienen el primer segmento RWX (`programa_cxx.ld`).
+- `usuario_ok` y la pila que crece mientras otra CPU duerme en el mismo proceso (hallazgo de la revisión, anterior a la D349).
+- Probar en hardware el camino de XD_DISABLE (Intel con NX apagado en la BIOS) y el de una CPU secundaria sin NX.
+- Hardware real con más de 4 GB (mini PC i3-1220P, Ryzen B450) y con PAE sin NX.

@@ -1,81 +1,214 @@
 // SPDX-License-Identifier: GPL-3.0-only
-/* fisica.c - gestor de páginas físicas (mapa de bits). Ver D008. */
+/* fisica.c - gestor de páginas físicas (mapas de bits). Ver D008, D348 y D349.
+ *
+ * Tres zonas, cada una con su mapa de bits (1 = ocupada):
+ *   baja     de 0 a MEMFIS_LIMITE: mapa estático en la BSS (60 KB), como siempre;
+ *   alta     de MEMFIS_LIMITE hasta el fin de la RAM libre por debajo de 4 GB: mapa
+ *            del tamaño justo, pedido a la zona baja al arrancar (nada si no hay alta);
+ *   superior (D349, solo con PAE) de 4 GB hasta el fin de la RAM libre, como mucho
+ *            64 GB (o lo que permitan los bits físicos de la CPU): igual que la alta
+ *            (mapa de hasta 1,9 MB, pedido a la baja).
+ * Las páginas de las zonas alta y superior no tienen dirección dentro del kernel:
+ * solo valen para los programas (memfisica_alocar_usuario) y el kernel las toca
+ * por las ventanas de memalta.c. Todo lo demás (memfisica_alocar*) sale de la baja. */
 #include "memoria.h"
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
 #include "texto.h"
+#include "paginacao.h"
 
 #define TOTAL_PAGINAS (MEMFIS_LIMITE / PAGINA)
 #define PALAVRAS      (TOTAL_PAGINAS / 32)
+#define LIMITE_32     0x100000000ull
 
 extern char _kernel_inicio[], _kernel_fim[];
 
-static uint32_t mapa_bits[PALAVRAS];   /* 1 = ocupada */
-static uint32_t livres, geridas;
-static uint32_t dica;                  /* palabra donde la última búsqueda se detuvo */
+typedef struct {
+    uint32_t *bits;      /* 1 = ocupada */
+    uint32_t base;       /* primera página (número de página física) */
+    uint32_t paginas;    /* páginas que cubre el mapa (múltiplo de 32) */
+    uint32_t livres, geridas;
+    uint32_t dica;       /* palabra donde la última búsqueda se detuvo */
+} zona_t;
 
-static inline bool ocupada(uint32_t p)  { return mapa_bits[p >> 5] & (1u << (p & 31)); }
-static inline void ocupar(uint32_t p)   { mapa_bits[p >> 5] |= 1u << (p & 31); }
-static inline void desocupar(uint32_t p){ mapa_bits[p >> 5] &= ~(1u << (p & 31)); }
+static uint32_t mapa_bits[PALAVRAS];
+static zona_t baixa = { mapa_bits, 0, TOTAL_PAGINAS, 0, 0, 0 };
+static zona_t alta;      /* paginas = 0: no hay zona alta */
+static zona_t superior;  /* D349: paginas = 0: no hay (sin PAE o sin RAM por encima de 4 GB) */
 
-/* Marca [ini, fin) con el estado dado, página a página, manteniendo la cuenta. */
-static void marcar(uint64_t ini, uint64_t fim, bool como_ocupada)
+static inline bool ocupada(zona_t *z, uint32_t p)  { return z->bits[p >> 5] & (1u << (p & 31)); }
+static inline void ocupar(zona_t *z, uint32_t p)   { z->bits[p >> 5] |= 1u << (p & 31); }
+static inline void desocupar(zona_t *z, uint32_t p){ z->bits[p >> 5] &= ~(1u << (p & 31)); }
+
+/* La zona de una página física (número de página), o NULL si ninguna la gestiona. */
+static zona_t *zona_de(uint32_t pag)
 {
-    if (fim > MEMFIS_LIMITE) fim = MEMFIS_LIMITE;
-    for (uint64_t a = ini; a < fim; a += PAGINA) {
-        uint32_t p = (uint32_t)(a / PAGINA);
-        if (como_ocupada && !ocupada(p)) { ocupar(p); livres--; }
-        else if (!como_ocupada && ocupada(p)) { desocupar(p); livres++; }
+    if (pag < TOTAL_PAGINAS) return &baixa;
+    if (alta.paginas && pag >= alta.base && pag - alta.base < alta.paginas) return &alta;
+    if (superior.paginas && pag >= superior.base && pag - superior.base < superior.paginas) return &superior;
+    return NULL;
+}
+
+/* Marca [ini, fin) de la zona con el estado dado, página a página, manteniendo la cuenta. */
+static void marcar(zona_t *z, uint64_t ini, uint64_t fim, bool como_ocupada)
+{
+    uint64_t z_ini = (uint64_t)z->base * PAGINA, z_fim = z_ini + (uint64_t)z->paginas * PAGINA;
+    if (ini < z_ini) ini = z_ini;
+    if (fim > z_fim) fim = z_fim;
+    for (uint64_t a = ini & ~(uint64_t)(PAGINA - 1); a < fim; a += PAGINA) {
+        uint32_t p = (uint32_t)(a / PAGINA) - z->base;
+        if (como_ocupada && !ocupada(z, p)) { ocupar(z, p); z->livres--; }
+        else if (!como_ocupada && ocupada(z, p)) { desocupar(z, p); z->livres++; }
     }
+}
+
+/* Libera las regiones "libres" del E820 dentro de la zona (redondeadas hacia
+ * dentro) y vuelve a ocupar lo reservado que se solape: en BIOS mal hechas una
+ * región libre puede pisar una reservada, y lo reservado gana. */
+static void preencher(zona_t *z)
+{
+    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
+        regiao_e820_t *r = &mapa_memoria[i];
+        if (r->tipo != E820_LIVRE || !(r->extra & 1)) continue;
+        uint64_t ini = (r->base + PAGINA - 1) & ~(uint64_t)(PAGINA - 1);
+        uint64_t fim = (r->base + r->tamanho) & ~(uint64_t)(PAGINA - 1);
+        if (fim > ini) marcar(z, ini, fim, false);
+    }
+    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
+        regiao_e820_t *r = &mapa_memoria[i];
+        if (r->tipo != E820_LIVRE)
+            marcar(z, r->base, r->base + r->tamanho, true);
+    }
+    /* El kernel y el disco en RAM están en la baja, pero se marcan en las dos:
+     * con UEFI el ramdisk va donde dé el firmware (D264). */
+    marcar(z, 0, 0x100000, true);                                      /* primer 1 MB */
+    marcar(z, (uint32_t)_kernel_inicio, (uint32_t)_kernel_fim, true);   /* kernel + BSS */
+    marcar(z, info_boot.ramdisk_inicio, (uint64_t)info_boot.ramdisk_inicio + info_boot.ramdisk_bytes, true);
+}
+
+/* n páginas seguidas de la baja, buscando desde la más alta (solo en el arranque). */
+static uint32_t alocar_seguidas_do_topo(uint32_t n)
+{
+    uint32_t seguidas = 0;
+    for (uint32_t p = TOTAL_PAGINAS; p-- > 0x100000 / PAGINA;) {
+        if (ocupada(&baixa, p)) { seguidas = 0; continue; }
+        if (++seguidas == n) {
+            for (uint32_t k = p; k < p + n; k++) ocupar(&baixa, k);
+            baixa.livres -= n;
+            return p * PAGINA;
+        }
+    }
+    return 0;
+}
+
+/* El fin de la RAM libre del E820 entre "ini" y "lim" (0 si no hay). */
+static uint64_t fim_ram(uint64_t ini, uint64_t lim)
+{
+    uint64_t fim = 0;
+    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
+        regiao_e820_t *r = &mapa_memoria[i];
+        if (r->tipo != E820_LIVRE || !(r->extra & 1) || r->base >= lim) continue;
+        uint64_t f = (r->base + r->tamanho) & ~(uint64_t)(PAGINA - 1);
+        if (f > lim) f = lim;
+        if (f > ini && f > fim) fim = f;
+    }
+    return fim;
+}
+
+/* Prepara una zona solo para programas de [ini, fim) (alta o superior): el mapa
+ * de bits sale de la baja, del tamaño justo. */
+static void iniciar_zona(zona_t *z, uint64_t ini, uint64_t fim, const char *nome)
+{
+    if (fim <= ini) return;
+    uint32_t paginas = (uint32_t)((fim - ini) / PAGINA);
+    paginas = (paginas + 31) & ~31u;
+    uint32_t bytes = paginas / 8;
+    uint32_t pags_mapa = (bytes + PAGINA - 1) / PAGINA;
+    /* El mapa sale de la baja: la paginación aún no está encendida, pero después
+     * el kernel lo sigue viendo por el mapeo 1:1. Se pide desde arriba, para no
+     * partir los huecos bajos (los 128 KB del DMA ISA bajo 16 MB, D302). */
+    uint32_t m = alocar_seguidas_do_topo(pags_mapa);
+    if (!m) { klog("[SAGUI] memoria %s: sin sitio para el mapa (%u KB): no se usa\n", nome, pags_mapa * 4); return; }
+    z->bits = (uint32_t *)m;
+    z->base = (uint32_t)(ini / PAGINA);
+    z->paginas = paginas;
+    z->livres = 0;
+    z->dica = 0;
+    memset(z->bits, 0xFF, pags_mapa * PAGINA);
+    preencher(z);
+    z->geridas = z->livres;
+    if (!z->geridas) { memfisica_liberar_seguidas(m, pags_mapa); z->paginas = 0; return; }
+    klog("[SAGUI] memoria %s: %u paginas livres (%u MB) de %x%08x a %x%08x, mapa de %u KB\n",
+         nome, z->livres, z->livres / 256, (uint32_t)(ini >> 32), (uint32_t)ini,
+         (uint32_t)((fim - 1) >> 32), (uint32_t)(fim - 1), pags_mapa * 4);
 }
 
 void memfisica_iniciar(void)
 {
     memset(mapa_bits, 0xFF, sizeof mapa_bits);
-    livres = 0;
-    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
-        regiao_e820_t *r = &mapa_memoria[i];
-        if (r->tipo != E820_LIVRE || !(r->extra & 1) || r->base >= MEMFIS_LIMITE)
+    baixa.livres = 0;
+    preencher(&baixa);
+    baixa.dica = 0;
+    /* D348: la alta, hasta el fin de la RAM bajo 4 GB (sin PAE no se ve más allá). */
+    iniciar_zona(&alta, MEMFIS_LIMITE, fim_ram(MEMFIS_LIMITE, LIMITE_32), "alta");
+    /* D349: con PAE, la superior: de 4 GB al fin de la RAM, sin pasar del límite físico. */
+    if (paginacao_com_pae) {
+        uint64_t lim = paginacao_limite_fisico();
+        iniciar_zona(&superior, LIMITE_32, fim_ram(LIMITE_32, lim), "superior");
+        uint64_t mais = fim_ram(lim, ~0ull);
+        if (mais > lim)
+            klog("[SAGUI] memoria: %u MB por encima de %u GB no se usan (limite fisico)\n",
+                 (uint32_t)((mais - lim) >> 20), (uint32_t)(lim >> 30));
+    } else if (fim_ram(LIMITE_32, ~0ull)) {
+        klog("[SAGUI] memoria: %u MB por encima de 4 GB no se usan (sin PAE)\n",
+             (uint32_t)((fim_ram(LIMITE_32, ~0ull) - LIMITE_32) >> 20));
+    }
+    baixa.geridas = baixa.livres;   /* sin los mapas de la alta y la superior */
+    klog("[SAGUI] memoria fisica: %u paginas livres (%u KB)\n", baixa.livres, baixa.livres * 4);
+}
+
+/* Una página libre de la zona (número de página relativo a la zona), o -1. */
+static int32_t buscar(zona_t *z)
+{
+    uint32_t palavras = z->paginas / 32;
+    for (uint32_t n = 0; n < palavras; n++) {
+        uint32_t w = (z->dica + n) % palavras;
+        if (z->bits[w] == 0xFFFFFFFFu)
             continue;
-        /* Hacia dentro: inicio redondeado hacia arriba, fin hacia abajo. */
-        uint64_t ini = (r->base + PAGINA - 1) & ~(uint64_t)(PAGINA - 1);
-        uint64_t fim = (r->base + r->tamanho) & ~(uint64_t)(PAGINA - 1);
-        if (fim > ini)
-            marcar(ini, fim, false);
+        uint32_t bit = (uint32_t)__builtin_ctz(~z->bits[w]);   /* primer bit 0 */
+        uint32_t p = w * 32 + bit;
+        ocupar(z, p);
+        z->livres--;
+        z->dica = w;
+        return (int32_t)p;
     }
-    /* Una región "libre" puede solaparse con una reservada en BIOS mal
-     * hechas: lo reservado gana. */
-    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
-        regiao_e820_t *r = &mapa_memoria[i];
-        if (r->tipo != E820_LIVRE && r->base < MEMFIS_LIMITE)
-            marcar(r->base & ~(uint64_t)(PAGINA - 1), r->base + r->tamanho, true);
-    }
-    marcar(0, 0x100000, true);                                   /* primer 1 MB */
-    marcar((uint32_t)_kernel_inicio, (uint32_t)_kernel_fim, true);  /* kernel + BSS (incluye este mapa de bits) */
-    marcar(info_boot.ramdisk_inicio, info_boot.ramdisk_inicio + info_boot.ramdisk_bytes, true);
-    geridas = livres;
-    dica = 0;
-    klog("[SAGUI] memoria fisica: %u paginas livres (%u KB)\n", livres, livres * 4);
+    return -1;
 }
 
 uint32_t memfisica_alocar(void)
 {
     bool i = int_salva_desliga();
-    for (uint32_t n = 0; n < PALAVRAS; n++) {
-        uint32_t w = (dica + n) % PALAVRAS;
-        if (mapa_bits[w] == 0xFFFFFFFFu)
-            continue;
-        uint32_t bit = (uint32_t)__builtin_ctz(~mapa_bits[w]);   /* primer bit 0 */
-        uint32_t p = w * 32 + bit;
-        ocupar(p);
-        livres--;
-        dica = w;
-        int_restaura(i);
-        return p * PAGINA;
+    int32_t p = baixa.livres ? buscar(&baixa) : -1;
+    int_restaura(i);
+    return p < 0 ? 0 : (uint32_t)p * PAGINA;
+}
+
+/* D348/D349: para las páginas de los programas. Primero la superior y la alta,
+ * que el kernel no puede usar para otra cosa; la baja solo cuando se acabaron. */
+uint64_t memfisica_alocar_usuario(void)
+{
+    zona_t *ordem[3] = { &superior, &alta, &baixa };
+    bool i = int_salva_desliga();
+    uint64_t r = 0;
+    for (uint32_t k = 0; k < 3 && !r; k++) {
+        zona_t *z = ordem[k];
+        if (!z->paginas || !z->livres) continue;
+        int32_t p = buscar(z);
+        if (p >= 0) r = (uint64_t)(z->base + (uint32_t)p) * PAGINA;
     }
     int_restaura(i);
-    return 0;
+    return r;
 }
 
 uint32_t memfisica_alocar_seguidas(uint32_t n)
@@ -90,11 +223,11 @@ uint32_t memfisica_alocar_seguidas(uint32_t n)
             p += 31;
             continue;
         }
-        if (ocupada(p)) { seguidas = 0; continue; }
+        if (ocupada(&baixa, p)) { seguidas = 0; continue; }
         if (++seguidas == n) {
             uint32_t ini = p + 1 - n;
-            for (uint32_t k = ini; k <= p; k++) ocupar(k);
-            livres -= n;
+            for (uint32_t k = ini; k <= p; k++) ocupar(&baixa, k);
+            baixa.livres -= n;
             int_restaura(i);
             return ini * PAGINA;
         }
@@ -113,10 +246,10 @@ uint32_t memfisica_alocar_baixa(uint32_t n, uint32_t alinhamento, uint32_t limit
     bool i = int_salva_desliga();
     for (uint32_t p = 0; p + n <= fim; p += passo) {
         uint32_t k = 0;
-        while (k < n && !ocupada(p + k)) k++;
+        while (k < n && !ocupada(&baixa, p + k)) k++;
         if (k < n) continue;
-        for (k = 0; k < n; k++) ocupar(p + k);
-        livres -= n;
+        for (k = 0; k < n; k++) ocupar(&baixa, p + k);
+        baixa.livres -= n;
         int_restaura(i);
         return p * PAGINA;
     }
@@ -124,25 +257,42 @@ uint32_t memfisica_alocar_baixa(uint32_t n, uint32_t alinhamento, uint32_t limit
     return 0;
 }
 
-void memfisica_liberar_seguidas(uint32_t endereco, uint32_t n)
+void memfisica_liberar_seguidas(uint64_t endereco, uint32_t n)
 {
     bool i = int_salva_desliga();
     for (uint32_t k = 0; k < n; k++) {
-        uint32_t p = endereco / PAGINA + k;
-        if (p >= TOTAL_PAGINAS || !ocupada(p)) {
-            klog("[SAGUI] AVISO: liberando pagina fisica invalida ou livre: %x\n", p * PAGINA);
+        uint32_t p = (uint32_t)(endereco / PAGINA) + k;
+        zona_t *z = zona_de(p);
+        if (!z || !ocupada(z, p - z->base)) {
+            klog("[SAGUI] AVISO: liberando pagina fisica invalida ou livre: %x%08x\n",
+                 (uint32_t)((uint64_t)p * PAGINA >> 32), p * PAGINA);
             continue;
         }
-        desocupar(p);
-        livres++;
+        desocupar(z, p - z->base);
+        z->livres++;
     }
     int_restaura(i);
 }
 
-void memfisica_liberar(uint32_t endereco)
+void memfisica_liberar(uint64_t endereco)
 {
     memfisica_liberar_seguidas(endereco, 1);
 }
 
-uint32_t memfisica_livres(void)  { return livres; }
-uint32_t memfisica_geridas(void) { return geridas; }
+/* D348: ¿algo de [ini, fim) es RAM libre del E820 (de cualquier zona, o por
+ * encima de 4 GB)? Para no dejar que un programa mapee RAM como si fuera un BAR. */
+bool memfisica_sobre_ram(uint64_t ini, uint64_t fim)
+{
+    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
+        regiao_e820_t *r = &mapa_memoria[i];
+        if (r->tipo == E820_LIVRE && r->base < fim && r->base + r->tamanho > ini) return true;
+    }
+    return false;
+}
+
+uint32_t memfisica_livres(void)       { return baixa.livres; }
+uint32_t memfisica_geridas(void)      { return baixa.geridas; }
+uint32_t memfisica_livres_alta(void)  { return alta.livres + superior.livres; }
+uint32_t memfisica_geridas_alta(void) { return alta.geridas + superior.geridas; }
+uint32_t memfisica_livres_superior(void)  { return superior.livres; }
+uint32_t memfisica_geridas_superior(void) { return superior.geridas; }

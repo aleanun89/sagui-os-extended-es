@@ -18241,3 +18241,203 @@ pseudo-idioma `xx` no queda nada marcado sin traducir. `h315` se adapta al títu
   nuevos no van con `_()` (Macaco aún no lo usa).
 - Sin tocar el núcleo del kernel. Prueba: `tests/h347_macaco_fase2.py` (formato propio, XLSX y ODS en consola; ventana en modo
   clásico con capturas y colores de píxel; cinta). Capturas `docs/capturas/H347-*`.
+
+## D348. Memoria alta sin PAE: zona alta para los programas y ventanas temporales del kernel (v8.5, mejora 125 fase 1)
+
+**Problema.** El kernel solo gestionaba 1,875 GB (`MEMFIS_LIMITE` = 0x78000000, D008/D049) porque toca la memoria
+física por su propia dirección (mapeo 1:1). En un PC de 32 bits sin PAE con 3 o 4 GB, todo lo que hay entre
+0x78000000 y el hueco PCI (en QEMU con `-m 3G`, ~1,1 GB más) se quedaba sin usar.
+
+**Decisión.** Como el «highmem» de Linux, pero mínimo:
+
+1. **Dos zonas en el gestor de páginas físicas** (`kernel/mem/fisica.c`). La **baja** (0 a 0x78000000) es la de
+   siempre, con su mapa de bits en la BSS. La **alta** va de 0x78000000 hasta el fin de la RAM libre del E820 por
+   debajo de 4 GB (así respeta el hueco PCI/MMIO del firmware, por BIOS o UEFI); su mapa de bits se pide a la zona
+   baja al arrancar, del tamaño justo (68 KB como mucho; nada si no hay alta, así que en equipos pequeños no cuesta
+   memoria). Se rellena igual que la baja: regiones libres hacia dentro, lo reservado gana, y el kernel, el primer MB
+   y el ramdisk se marcan ocupados en las dos.
+2. **Quién usa cada zona.** `memfisica_alocar*()` (kmalloc, tablas de páginas, DMA, caché de disco, píxeles de las
+   ventanas) **solo da memoria baja**: todo el código que usa esa dirección como puntero sigue igual. La única
+   puerta a la alta es `memfisica_alocar_usuario()`, que usa `espaco_alocar()` para las páginas de los programas
+   (código, datos, pila, `aumentar_memoria`, `memoria(MEM_ASIGNAR)`): primero la alta y, cuando se acaba, la baja,
+   como antes (sin reserva para el kernel, para no cambiar nada en equipos con menos de 1,875 GB).
+   `memfisica_liberar()` sirve para las dos. `memfisica_livres()/geridas()` siguen contando solo la baja (la caché de
+   disco se dimensiona con ellas y vive en la baja); `memfisica_*_alta()` cuentan la alta.
+3. **Ventanas temporales** (`kernel/mem/memalta.c`, `kernel/inc/memalta.h`), al estilo de `kmap_atomic`:
+   `fisica_mapear(fis)` / `fisica_soltar(p)` y los atajos `fisica_zerar`, `fisica_escrever`, `fisica_ler` y
+   `fisica_copiar_pagina` (este último para un futuro copy-on-write: SaguiOS no tiene `fork`). Una página baja
+   devuelve su propia dirección (sin coste: en equipos de hasta 1,875 GB nada cambia). Una alta se pone en una de
+   las **4 ventanas de la CPU que ejecuta** (32 páginas reservadas con `janela_reservar`, D192, a 4 por CPU), con
+   las interrupciones apagadas hasta soltarla y `invlpg` al poner y al quitar; se anidan como una pila y soltar
+   fuera de orden detiene el kernel con un mensaje claro (es un fallo de programación, que las pruebas verían).
+   **SMP:** desde la D165 el kernel puede correr en cualquier CPU (con el cerrojo general), por ejemplo el fallo de
+   página que hace crecer la pila de un hilo en una CPU secundaria; por eso cada CPU tiene sus ventanas y no hay
+   que avisar a las demás (sin TLB shootdown): las entradas no son globales, ninguna CPU usa las direcciones de
+   otra, y una traducción especulativa en otro TLB nunca se usaría.
+4. **Sitios convertidos.** Solo tres lugares tocaban páginas de programa por su dirección física: el cargador ELF
+   (`copiar_para`: segmentos y pila inicial), la pila de un hilo nuevo (`pilha_de_hilo`: retorno y argumento) y la
+   autoprueba del anillo 3; más la puesta a cero de cada página nueva en `espaco_alocar`. Lo que el kernel lee o
+   escribe del programa **actual** en una llamada al sistema va por la dirección virtual del programa
+   (`usuario_ok`), con el CR3 del programa, y no cambia. El futex usa la dirección física solo como clave.
+   **Auditor:** `tools/auditar_memalta.py` busca en el kernel moldes a puntero de `espaco_traduzir()`,
+   `espaco_tirar()` o `memfisica_alocar_usuario()`, directos o a través de una variable en la misma función; con el
+   código de antes encuentra los tres sitios y ahora ninguno (lo pasa la h350).
+5. **Seguridad.** `SIS_MAPEAR_BAR` ya no dejaba mapear RAM por debajo del fin del mapa 1:1; ahora tampoco ninguna
+   región libre del E820 (`memfisica_sobre_ram`), para que un programa no pueda ver la memoria alta de otros.
+6. **Información.** `info_memoria_t` crece con `alta_gerida_kb`, `alta_livre_kb` y `janelas_usos` (el kernel solo
+   los escribe si el programa pide el tamaño nuevo: `INFO_MEMORIA_V1`). `gerida_kb`/`livre_kb`/`usada_kb` pasan a ser
+   baja + alta. `free` muestra `Mem:` y debajo `baja:` y `alta:`; `mem` y `infopc` (sección de memoria), lo mismo, y
+   el arranque dice cuántos MB son altos.
+
+**Lo que no se hizo (todavía).** La caché de disco y una swap comprimida en la alta: la caché guarda punteros a sus
+bloques y todos sus usos tendrían que pasar por ventanas (ahora está limitada a 64 MB en la baja). Las ventanas de
+las aplicaciones (píxeles que el compositor lee) siguen en la baja. No hay OOM killer: si la alta y la baja se
+acaban, `aumentar_memoria` devuelve error como antes.
+
+**Pensado para la fase 2 (PAE de 3 niveles y NX).**
+- Las entradas de tabla que se escriben fuera de `paginacao.c` pasan por `pte_t` y `pte_escrever()`
+  (`paginacao.h`): con PAE, `pte_t` será `uint64_t` (bit 63 = NX) y `pte_escrever` escribirá la mitad alta antes que
+  la baja. Dentro de `paginacao.c` aún se usan `uint32_t *` para directorio y tablas: la fase 2 los pasa a `pte_t`.
+- Toda dirección física de página de programa ya pasa por `memfisica_alocar_usuario`, `espaco_traduzir`/`espaco_tirar`
+  y las ventanas: con PAE solo hay que ensanchar ese tipo (hoy `uint32_t`) a 64 bits en esos puntos, en
+  `memfisica_*` (una tercera zona por encima de 4 GB, solo para programas), en la clave del futex y en `memalta`.
+  Lo que ya es alta no cambia de forma de acceso: las páginas por encima de 4 GB se usarán igual que las altas de hoy.
+- Directorios y tablas siguen en la zona baja (el kernel los toca 1:1); el PDPT de PAE también (CR3 de 32 bits).
+- El mapa 1:1 del kernel pasará de páginas de 4 MB (PSE) a 2 MB; las CPU secundarias tendrán que poner `CR4.PAE`
+  en el trampolín antes de encender la paginación, y `EFER.NXE` si hay NX (y con él, `PROT_EXEC` para DOSBox/JIT).
+
+**Riesgos en hardware real.** El firmware puede dejar cosas en RAM «libre» por encima de 1,875 GB que antes nadie
+tocaba y ahora usan los programas: por BIOS, el E820 manda; por UEFI, el cargador marca como libres los datos del
+propio cargador y de los servicios de arranque (ya pasaba en la baja), y la zona de transferencia y el ramdisk
+se copian o se marcan ocupados antes. Las tablas ACPI están en regiones ACPI/NVS/reservadas, que no se tocan.
+
+**Pruebas.** `tests/h350_memoria_alta.py`: el auditor; con `-m 3G` y `-m 4G` (BIOS), con `--smp` y 4 CPU, y con UEFI
+(OVMF de 64 bits), el kernel gestiona ~3 GB (1,9 GB bajos + 1,1 GB altos), cuatro procesos de 600-650 MB llenan a la
+vez más de 2,4 GB, esperan a que todo esté en uso, comprueban el patrón y una suma FNV de cada palabra (iguales antes
+y después), y la memoria vuelve entera al terminar; sin excepciones ni errores de las ventanas; con `-m 512M` y `-m 1G`
+no hay zona alta y todo sigue igual. TCG y KVM. h46 y h74 se adaptan (`free` y la memoria gestionada con 2 y 3 GB).
+
+## D349. PAE (hasta 64 GB) con doble modo, y NX (v8.5, mejora 125 fase 2)
+
+**Problema.** Con la fase 1 (D348) un SaguiOS de 32 bits usa la RAM hasta el hueco PCI bajo 4 GB; los portátiles
+de 2010-2016 con 8 o 16 GB dejaban más de la mitad sin usar. Además, la pila y el montón de los programas eran
+ejecutables: un desbordamiento que salta a la pila se ejecutaba sin más.
+
+**Decisión.**
+
+1. **Doble modo, elegido al arrancar** (`paginacao_escolher_modo()`, antes de `memfisica_iniciar()`): PAE si CPUID 1
+   anuncia PAE (EDX bit 6) y la cabecera no lo prohíbe; si no, el modo clásico de 2 niveles, **exactamente** el de la
+   fase 1. NX si además CPUID 0x80000001 EDX bit 20 y no se pidió quitarlo. La cabecera de arranque tiene el byte
+   `CAB_MEM_OPC` (159): bit 0 `--sem-pae` (forzar el modo clásico, para probar o para hardware con problemas) y bit 1
+   `--sem-nx` (`mkimagem.py`). Un Pentium M que no anuncia PAE (Banias, algunos Dothan) queda en el modo clásico: no
+   se fuerza PAE en CPU que no lo dicen (Linux tiene `forcepae` para eso; aquí no hace falta).
+2. **Un solo código para los dos modos** (`kernel/mem/paginacao.c`). El código ve un «directorio» de 1024 entradas de
+   4 MB (sin PAE) o de 2048 de 2 MB (PAE: la entrada i está en el directorio `PDPT[i/512]`, posición `i%512`) y tablas
+   de 1024 o 512 entradas; `d_desl`, `n_tab` y `t_ent` (22/21, 1024/512, 4/8 bytes) se fijan al elegir el modo, y
+   todas las entradas se leen y escriben con `ent_ler`/`ent_escrever`/`pte_escrever`, que saben el tamaño. El tipo
+   del API es común: `pte_t` y `fis_t` son `uint64_t` en los dos modos (sin PAE solo cuenta la mitad baja). No hay
+   dos implementaciones que mantener: el coste de los condicionales es despreciable frente al recorrido de tablas.
+3. **Estructura con PAE.** El `espaco_t` sigue siendo lo que va en el CR3: con PAE, la dirección del PDPT (una
+   página de la zona baja, alineada; solo las 4 primeras entradas, con P y sin R/W ni U/S, que son reservados).
+   Los directorios 0 y 1 (0-2 GB: mapa 1:1 y ventanas) son del kernel y **compartidos** por todos los procesos (su
+   PDPT apunta a ellos); el 2 y el 3 son de cada proceso, copiados de los del kernel (vacíos salvo la entrada del
+   APIC en 0xFFC00000). Los PDPT no cambian nunca después de crearse (el CPU los copia al cargar el CR3). El mapa
+   1:1 usa páginas de 2 MB (con PAE no hace falta PSE); `bloco_so_ram` comprueba bloques de 2 MB.
+4. **Escritura segura de las entradas de 8 bytes.** `pte_escrever` y `ent_escrever` escriben primero la mitad baja a
+   cero (sin P), después la alta y al final la baja con P: ninguna CPU (ni el recorrido de tablas de otra) ve nunca
+   una entrada presente con las mitades mezcladas. Las lecturas leen baja y alta; el hardware solo toca A/D (mitad
+   baja).
+5. **Tercera zona física** (`kernel/mem/fisica.c`): la **superior**, de 4 GB al fin de la RAM libre del E820/UEFI,
+   como mucho 64 GB (36 bits) o lo que digan los bits físicos de la CPU (CPUID 0x80000008). Igual que la alta: mapa
+   de bits pedido a la baja (384 KB con 16 GB, 1,9 MB con 64 GB), solo para páginas de programas
+   (`memfisica_alocar_usuario`, que ahora da superior, luego alta, luego baja). Lo que pase del límite se anuncia en
+   el registro y no se usa; sin PAE, la RAM por encima de 4 GB se anuncia y no se usa. Las cuentas «alta» incluyen la
+   superior; `memfisica_*_superior()` cuentan solo la de encima de 4 GB.
+6. **Direcciones físicas de 64 bits** donde pueden ser de un programa: `memfisica_alocar_usuario`/`liberar`,
+   `espaco_mapear`/`traduzir`/`tirar`, la clave del futex (`processo_t.futex`), las ventanas de `memalta`
+   (`fisica_mapear(uint64_t)` y compañía: las páginas de encima de 4 GB se tocan igual que las altas), el cargador
+   ELF, `MEM_DEVOLVER` y `janela_pagina` (uACPI). El auditor `tools/auditar_memalta.py` sigue sin encontrar ninguna
+   dirección física de programa usada como puntero, y compilar con `-Wconversion` no da ningún estrechamiento de
+   `fis_t` a 32 bits. Directorios, tablas y PDPT siguen en la baja (el kernel los ve 1:1; CR3 de 32 bits).
+7. **Arranque y SMP.** BIOS y UEFI entregan el kernel sin paginación, así que todo se hace en `paginacao_iniciar`:
+   CR4.PAE, EFER.NXE (si NX) y luego CR3 y CR0.PG. El trampolín de las CPU secundarias ya copiaba el CR4 del principal
+   (que lleva PAE) y carga el mismo CR3 (el PDPT); ahora además pone **EFER.NXE antes de la paginación** si el
+   principal usa NX (hueco `_ap_nxe`): sin él, el bit 63 de las tablas del kernel es un bit reservado y la CPU
+   secundaria fallaría al encender la paginación.
+8. **NX.** Solo con PAE (las entradas de 4 bytes no tienen bit NX). En el API es la bandera `PG_NX` (0x400, nunca
+   llega al hardware tal cual: con NX activo se convierte en el bit 63; sin NX se ignora). **Por defecto una página
+   es ejecutable**; ponen `PG_NX`: la pila (inicial, crecimiento bajo demanda, pilas de hilos), el montón
+   (`aumentar_memoria`, `MEM_ASIGNAR`), los segmentos ELF sin `PF_X` (si dos segmentos comparten una página, queda
+   con la suma de permisos: `espaco_ajustar` después de `espaco_alocar`), los píxeles de las ventanas, los BAR
+   mapeados y, en el kernel, el mapa 1:1 por encima de `_kernel_fim`, la franja de ventanas (framebuffer, MMIO,
+   ventanas temporales) y el APIC. El primer MB (trampolín de las CPU secundarias en 0x7000) y la imagen del kernel
+   siguen ejecutables. Un programa que salta a la pila o al montón recibe un #PF con P=1 e I/D=1 y muere con
+   «Fallo de página: ejecutar memoria no ejecutable (NX) en 0x...» (y `[SAGUI] NX: proceso ...` en el registro).
+9. **Memoria ejecutable a propósito.** Nueva operación `MEM_PROTEGER` de `SIS_MEMORIA` (`memoria_proteger()` en la
+   libsagui; `mprotect()` en la libc; `mmap` con `PROT_EXEC` la usa): cambia escritura y ejecución de páginas ya
+   asignadas del área de datos y **sincroniza las demás CPU** (`espaco_sincronizar`), porque una entrada vieja en el
+   TLB de otro hilo provocaría un fallo espurio (que mataría el programa). El repaso del userland encontró **un solo**
+   programa que ejecuta código generado: el recompilador de DOSBox (`core_dyn_x86`), cuya caché sale de `malloc`;
+   basta con `C_HAVE_MPROTECT 1` en `plataforma/config.h` (el `mprotect` ya estaba en el código de DOSBox). No hay
+   JIT en QuickJS, MicroPython (sin emisor nativo), mGBA ni los demás emuladores; el `cc` y el `pascal` escriben un
+   ELF (código con R+X, datos RW) y no ejecutan en memoria; las pilas propias de gprolog, NetSurf o QuickJS en el
+   montón solo guardan datos; el kernel no entrega señales (no hay trampolines en la pila). Los segmentos RWX de los
+   binarios con `.init_array` (C++) siguen ejecutables: es una limpieza W^X pendiente, no un fallo.
+10. **Información.** `info_memoria_t` usa el antiguo `reservado` como `modo` (`MEM_MODO_PAE`, `_NX`, `_CPU_PAE`,
+    `_CPU_NX`) y crece con `superior_gerida_kb`/`superior_livre_kb` (los rellena el kernel si el programa pide el
+    tamaño nuevo; `INFO_MEMORIA_V2` = 32 bytes es la versión de la D348). `free` añade la fila `>4 GB:` y una línea
+    `Paginacion:`; `mem` e `infopc` dicen el modo y la memoria de encima de 4 GB; el arranque dice «Paginación PAE con
+    NX ... en páginas de 2 MB».
+
+**Por qué no un tipo de entrada distinto por modo o dos ficheros.** Duplicar `paginacao.c` (o incluirlo dos veces con
+macros) da dos copias que divergen y que hay que probar por separado; un `pte_t` de 64 bits común y tres variables de
+geometría dejan un solo camino, y el modo sin PAE sigue siendo exactamente el de antes (mismas entradas de 4 bytes,
+mismas páginas de 4 MB; lo comprueban las pruebas con `-cpu qemu32,-pae` y con `--sem-pae`).
+
+**Riesgos en hardware real.**
+- **CPU con PAE defectuoso o mal anunciado:** algunos Pentium M (Dothan) tienen PAE y no lo anuncian (quedan sin PAE:
+  como hasta ahora); si alguna CPU o hipervisor falla con PAE, `--sem-pae` devuelve el modo de siempre. NX en CPU
+  Intel antiguas puede estar desactivado en la BIOS («XD bit», «Execute Disable»): entonces CPUID no lo anuncia y no
+  se usa.
+- **Firmware:** la RAM por encima de 4 GB solo existe si el E820 (BIOS) o el mapa UEFI la dan. El cargador UEFI
+  conserva 64 regiones y, si sobran, quita las más altas (las de encima de 4 GB): en una placa con un mapa muy
+  troceado se perdería parte de esa RAM (se vería en `free`). Las regiones reservadas por encima de 4 GB (ventana PCI
+  de 64 bits) se respetan. La memoria superior solo la usan los programas.
+- **NX:** un programa de terceros que ejecute código del montón sin pedirlo moriría con el mensaje de NX; hoy no hay
+  ninguno (repaso completo del userland), y `--sem-nx` lo desactiva para todo el sistema.
+- **TCG no prueba hardware real:** las pruebas pasan también con KVM (CPU del anfitrión, AMD), pero falta el
+  hardware: el mini PC i3-1220P (UEFI, más de 4 GB) y el Ryzen son los primeros candidatos.
+
+**Correcciones de la revisión.**
+- `espaco_ajustar` (permisos de `MEM_PROTEGER` y del cargador) ya no reescribe la entrada pasando por P=0: con
+  `--smp`, otro hilo del mismo proceso en otra CPU podía fallar en la TLB justo en esa ventana, ver «no presente» y
+  morir. Ahora `ent_trocar()` cambia solo los bits de permiso con `lock cmpxchg8b` (con PAE; toda CPU con PAE tiene
+  CX8) o `lock cmpxchg` de 32 bits sin PAE, en bucle, y así tampoco se pierden los bits A/D que el hardware ponga a la
+  vez.
+- `MEM_PROTEGER` sobre un rango con alguna página sin asignar devuelve `ERRO_SEM_MEMORIA` sin cambiar nada (como el
+  `ENOMEM` de `mprotect`; antes devolvía 0 y la página asignada después quedaba con NX).
+- Trampolín: antes del `wrmsr` de EFER.NXE, la CPU secundaria mira su propio CPUID 0x80000001 (EDX bit 20); si no
+  tiene NX (la BIOS puede dejar XD_DISABLE puesto solo en algunas), se queda parada en el paso 9 y el kernel no la
+  cuenta ni la usa («no arrancó: se quedó en el paso 9 (sin NX en esta CPU...)»), en vez de un #GP sin IDT que sería
+  un triple fallo. Además, en Intel, si CPUID no anuncia NX y la CPU tiene PAE, la principal quita XD_DISABLE
+  (IA32_MISC_ENABLE bit 34; lectura y escritura protegidas contra #GP), como Linux, y vuelve a mirar CPUID; si lo
+  hizo, las secundarias hacen lo mismo en el trampolín antes de mirar el suyo. `--sem-nx` (y `--sem-pae`) lo evitan.
+  El QEMU no emula XD_DISABLE ni CPU distintas entre sí: estos dos caminos no están probados en máquina virtual.
+
+**Pendiente (anotado en la revisión).** `usuario_ok` puede asignar páginas de pila mientras otra CPU duerme en el
+mismo proceso (hallazgo previo a la D349, no tocado). W^X: los binarios C++ con `.init_array` tienen el primer segmento
+RWX (mover `.init_array` tras el `ALIGN(4096)` de `programa.ld`/`programa_cxx.ld`).
+
+**Lo que no se hizo (fase 3).** La caché de disco y una swap comprimida en la RAM alta/superior (D348 ya lo dejaba
+pendiente): con 16 GB, unos 13 GB solo los pueden usar los programas, y ningún programa de 32 bits pasa de ~1,4 GB de
+datos. Tampoco W^X para los segmentos RWX de los binarios C++ (mover `.init_array` tras el `ALIGN(4096)` de
+`programa.ld`/`programa_cxx.ld`).
+
+**Pruebas.** `tests/h351_pae_nx.py` (TCG y KVM): con `-m 6G`, `12G` y `16G` el arranque elige PAE, ve 3, 9 y 13 GB
+por encima de 4 GB, y 5, 9 y 12 procesos de 1-1,1 GB llenan a la vez más de 4 GB (13 GB con 16G), con el patrón y la
+suma FNV iguales antes y después y la memoria de vuelta al terminar; con `--smp` y 4 CPU con NX; con UEFI (OVMF de
+64 bits, CPU con NX); CPU sin PAE (`qemu32,-pae`, 3G: el QEMU no da más de 4 GB sin PAE) y `--sem-pae` con 6G: modo de
+siempre; NX (`qemu32,+nx`): saltar a la pila o al montón mata el programa con el mensaje de NX, el código generado tras
+`MEM_PROT_EXEC` funciona, el `cc` y su ejecutable también, y con `--sem-nx` la pila vuelve a ejecutarse; autopruebas
+`memoria`, `paginacao` y `anel3` con 6G y NX. `tests/qemu.py` acepta `SAGUI_CPU` (p. ej. `qemu32,+nx`) para pasar
+cualquier prueba con otra CPU (h294 `nucleos`: DOSBox con `core=dynamic` bajo NX).

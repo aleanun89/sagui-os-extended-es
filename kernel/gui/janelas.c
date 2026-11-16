@@ -731,7 +731,7 @@ int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint
     txt_copia_n(j->titulo, titulo, sizeof j->titulo);
     for (uint32_t k = 0; k < (uint32_t)(l * a); k++) j->px[k] = 0xF4F4F0;
     for (uint32_t k = 0; k < paginas; k++)
-        espaco_mapear(processo_atual()->espaco, j->virt + k * PAGINA, fis + k * PAGINA, PG_USUARIO | PG_ESCRITA | PG_EMPRESTADA);
+        espaco_mapear(processo_atual()->espaco, j->virt + k * PAGINA, fis + k * PAGINA, PG_USUARIO | PG_ESCRITA | PG_EMPRESTADA | PG_NX);
     /* Posición en cascada, sin pasar de la pantalla. */
     int n = j->id % 8;
     j->x = 150 + n * 34;
@@ -1355,7 +1355,7 @@ int32_t sis_redimensionar_janela(uint32_t id, uint32_t dims, uint32_t ppixels, u
         espaco_sincronizar(processo_atual()->espaco);   /* D167: otro hilo en otra CPU las tiene en la TLB */
         memfisica_liberar_seguidas((uint32_t)j->px, j->paginas);
         for (uint32_t k = 0; k < paginas; k++)
-            espaco_mapear(processo_atual()->espaco, j->virt + k * PAGINA, fis + k * PAGINA, PG_USUARIO | PG_ESCRITA | PG_EMPRESTADA);
+            espaco_mapear(processo_atual()->espaco, j->virt + k * PAGINA, fis + k * PAGINA, PG_USUARIO | PG_ESCRITA | PG_EMPRESTADA | PG_NX);
         j->px = novo;
         j->paginas = paginas;
         j->larg = l; j->alt = a;

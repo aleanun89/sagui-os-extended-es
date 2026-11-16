@@ -25,6 +25,7 @@
 #include "video.h"
 #include "disco.h"
 #include "memoria.h"
+#include "memalta.h"
 
 static int falhas;
 
@@ -116,7 +117,8 @@ static void teste_memoria(void)
         if (*(volatile uint32_t *)paginas[i] != 0xCAFE0000u + i) ok = false;
     confere(ok, "1000 páginas válidas, distintas e graváveis");
     for (int i = 0; i < 1000; i++) memfisica_liberar(paginas[i]);
-    confere(memfisica_livres() == e0.paginas_livres, "páginas avulsas voltam ao bitmap");
+    /* D348: paginas_livres cuenta baja + alta. */
+    confere(memfisica_livres() + memfisica_livres_alta() == e0.paginas_livres, "páginas avulsas voltam ao bitmap");
 
     uint32_t seq = memfisica_alocar_seguidas(16);
     confere(seq != 0 && (seq & 0xFFF) == 0, "16 páginas seguidas");
@@ -259,7 +261,7 @@ static uint32_t valor_global = 0x5A6E1234;
 
 static void teste_paginacao(void)
 {
-    uint32_t livres0 = memfisica_livres();
+    uint32_t livres0 = memfisica_livres() + memfisica_livres_alta();   /* D348: las dos zonas */
     espaco_t e1 = espaco_criar(), e2 = espaco_criar();
     confere(e1 && e2 && e1 != e2, "dois diretórios criados");
     const uint32_t v = USUARIO_INICIO;
@@ -277,15 +279,16 @@ static void teste_paginacao(void)
     espaco_ativar(e2);
     uint32_t lido2 = *(volatile uint32_t *)v;
     espaco_ativar(espaco_kernel());
-    klog("[TESTE] endereco virtual %x: espaco 1 = %x (fisico %x), espaco 2 = %x (fisico %x)\n",
-         v, lido1, espaco_traduzir(e1, v, NULL), lido2, espaco_traduzir(e2, v, NULL));
+    fis_t f1 = espaco_traduzir(e1, v, NULL), f2 = espaco_traduzir(e2, v, NULL);
+    klog("[TESTE] endereco virtual %x: espaco 1 = %x (fisico %x%08x), espaco 2 = %x (fisico %x%08x)\n",
+         v, lido1, (uint32_t)(f1 >> 32), (uint32_t)f1, lido2, (uint32_t)(f2 >> 32), (uint32_t)f2);
     kprintf("Misma dirección 0x%08x: el espacio 1 lee 0x%08x, el espacio 2 lee 0x%08x\n", v, lido1, lido2);
     confere(lido1 == 0x11111111 && lido2 == 0x22222222, "cada espaço lê o próprio valor");
     confere(espaco_traduzir(e1, v, NULL) != espaco_traduzir(e2, v, NULL), "páginas físicas diferentes");
 
     espaco_destruir(e1);
     espaco_destruir(e2);
-    confere(memfisica_livres() == livres0, "destruir os espaços devolve todas as páginas");
+    confere(memfisica_livres() + memfisica_livres_alta() == livres0, "destruir os espaços devolve todas as páginas");
 }
 
 /* H10: el acceso a una dirección no mapeada tiene que generar la pantalla de falta de página. */
@@ -343,8 +346,8 @@ static processo_t *rodar_no_anel3(const char *nome, const uint8_t *ini, const ui
     p->espaco = espaco_criar();
     espaco_alocar(p->espaco, USUARIO_INICIO, PAGINA, PG_USUARIO | PG_ESCRITA);
     espaco_alocar(p->espaco, USUARIO_FIM - PAGINA, PAGINA, PG_USUARIO | PG_ESCRITA);
-    /* El kernel ve la página física por el mapeo 1:1 (D008). */
-    memcpy((void *)espaco_traduzir(p->espaco, USUARIO_INICIO, NULL), ini, (uint32_t)(fim - ini));
+    /* La página puede ser alta (D348): se escribe por una ventana temporal. */
+    fisica_escrever(espaco_traduzir(p->espaco, USUARIO_INICIO, NULL), ini, (uint32_t)(fim - ini));
     arquivos_herdar(p, NULL);   /* terminal como entrada 0 y salidas 1 y 2 */
     processo_preparar_usuario(p, USUARIO_INICIO, USUARIO_FIM);
     return p;

@@ -8,7 +8,16 @@
  *   memoria estres   prueba de estrés de aloca/libera/realoca (D209): tiempo de
  *                    cada fase y memoria usada del sistema antes, en el pico y
  *                    después de liberarlo todo (lo liberado debe volver)
- *   memoria mmap     mapas de memoria anónimos y de fichero (D209) */
+ *   memoria mmap     mapas de memoria anónimos y de fichero (D209)
+ *   memoria varios K N   (D348) K procesos a la vez, cada uno con N MB: todos
+ *                    llenan su memoria, esperan a que el sistema tenga en uso
+ *                    lo de todos juntos (más de 1,875 GB con -m 3G) y vuelven a
+ *                    comprobar el patrón y la suma de todo su contenido
+ *   memoria retener N OBJ   lo que hace cada uno de esos procesos (OBJ en MB)
+ *   memoria nxpila   (D349) ejecuta código copiado en la pila: con NX, muere
+ *   memoria nxmonton (D349) lo mismo en el montón (aumentar_memoria)
+ *   memoria exec     (D349) código generado en el montón tras pedir MEM_PROT_EXEC:
+ *                    tiene que funcionar siempre (con NX y sin él) */
 #include "sagui.h"
 
 #define BLOCO   (16u * 1024u * 1024u)
@@ -179,8 +188,131 @@ static int mapas(void)
     return erros ? 1 : 0;
 }
 
+/* ---- D348: varios procesos que juntos pasan de la memoria baja ---- */
+
+/* Suma de todo el contenido (cada palabra, incluidos los ceros entre las del patrón). */
+static uint32_t soma(const uint32_t *a, const uint32_t *z)
+{
+    uint32_t h = 2166136261u;
+    for (const uint32_t *p = a; p < z; p++) h = (h ^ *p) * 16777619u;
+    return h;
+}
+
+static int retener(unsigned mb, unsigned objetivo_mb)
+{
+    uint8_t *ini = NULL;
+    unsigned feito = 0;
+    while (feito < mb) {
+        uint8_t *b = aumentar_memoria(BLOCO);
+        if (!b) break;
+        if (!ini) ini = b;
+        feito += BLOCO / (1024u * 1024u);
+    }
+    int pid = meu_pid();
+    if (!ini || feito < mb) { imprimir("retener %d: el kernel solo dio %u de %u MB\n", pid, feito, mb); return 2; }
+    uint32_t *a = (uint32_t *)ini, *z = (uint32_t *)(ini + (size_t)feito * 1024u * 1024u);
+    uint32_t semente = (uint32_t)pid * 0x9E3779B9u;
+    for (uint32_t *p = a; p < z; p += PASSO) *p = padrao(p, semente);
+    uint32_t s1 = soma(a, z);
+    info_memoria_t m;
+    info_sistema(INFO_MEMORIA, &m, sizeof m);
+    imprimir("retener %d: %u MB llenos, suma %08x; sistema: usada %u MB, alta usada %u MB\n", pid, feito, s1,
+             m.usada_kb / 1024, (m.alta_gerida_kb - m.alta_livre_kb) / 1024);
+    /* Esperar a los demás: hasta que el sistema tenga en uso lo de todos (o 300 s). */
+    unsigned t0 = tempo_ms(), pico = 0;
+    while (tempo_ms() - t0 < 300000) {
+        info_sistema(INFO_MEMORIA, &m, sizeof m);
+        if (m.usada_kb / 1024 > pico) pico = m.usada_kb / 1024;
+        if (m.usada_kb / 1024 >= objetivo_mb) break;
+        dormir(200);
+    }
+    dormir(1000);   /* que los demás también lo vean antes de que alguien acabe */
+    unsigned erros = 0;
+    for (uint32_t *p = a; p < z; p += PASSO)
+        if (*p != padrao(p, semente)) erros++;
+    for (uint32_t *p = a + 1; p < z; p += 4093)
+        if ((p - a) % PASSO && *p) erros++;
+    uint32_t s2 = soma(a, z);
+    imprimir("retener %d: pico del sistema %u MB, alta usada %u MB, janelas %u, superior usada %u MB, suma %08x %s, %u errores\n",
+             pid, pico, (m.alta_gerida_kb - m.alta_livre_kb) / 1024, m.janelas_usos,
+             (m.superior_gerida_kb - m.superior_livre_kb) / 1024, s2, s1 == s2 ? "igual" : "DISTINTA", erros);
+    return erros || s1 != s2 ? 3 : 0;
+}
+
+static int varios(unsigned k, unsigned mb)
+{
+    if (k < 1 || k > 16) return 1;
+    char n_mb[12], obj[12];
+    formatar_texto(n_mb, sizeof n_mb, "%u", mb);
+    formatar_texto(obj, sizeof obj, "%u", k * mb);   /* lo de todos juntos, sin contar el sistema */
+    char *argv[] = { "/testes/memoria", "retener", n_mb, obj, NULL };
+    int pids[16];
+    for (unsigned i = 0; i < k; i++) {
+        pids[i] = executar("/testes/memoria", argv);
+        if (pids[i] < 0) { imprimir("varios: no se pudo lanzar el proceso %u (%d)\n", i, pids[i]); return 1; }
+    }
+    unsigned ok = 0;
+    for (unsigned i = 0; i < k; i++) {
+        int c = -1;
+        esperar(pids[i], &c);
+        if (c == 0) ok++;
+        else imprimir("varios: el proceso %d termino con %d\n", pids[i], c);
+    }
+    imprimir("varios: %u de %u procesos con %u MB cada uno: %s\n", ok, k, mb, ok == k ? "todos ok" : "FALLO");
+    return ok == k ? 0 : 1;
+}
+
+/* ---- D349: NX ---- */
+
+/* mov eax, 42; ret */
+static const uint8_t CODIGO[6] = { 0xB8, 42, 0, 0, 0, 0xC3 };
+
+static int executar_em(const char *onde, uint8_t *p)
+{
+    for (unsigned i = 0; i < sizeof CODIGO; i++) p[i] = CODIGO[i];
+    info_memoria_t m;
+    info_sistema(INFO_MEMORIA, &m, sizeof m);
+    imprimir("%s: NX %s; saltando a 0x%08x\n", onde, (m.modo & MEM_MODO_NX) ? "activo" : "no activo", (uint32_t)p);
+    int (*f)(void) = (int (*)(void))(void *)p;
+    int r = f();
+    imprimir("%s: el codigo devolvio %d (%s)\n", onde, r, (m.modo & MEM_MODO_NX) ? "NX NO FUNCIONA" : "sin NX, se ejecuta");
+    return (m.modo & MEM_MODO_NX) ? 5 : 0;
+}
+
+static int exec_gerado(void)
+{
+    int base = memoria_paginas(MEM_RESERVAR, 0, 4096);   /* dirección (>= 0x80000000) o error (-1..-4095) */
+    uint8_t *p = (uint8_t *)base;
+    if ((unsigned)base >= 0xFFFFF000u || memoria_paginas(MEM_ASIGNAR, p, 4096) < 0) { imprimir("exec: sin memoria\n"); return 2; }
+    for (unsigned i = 0; i < sizeof CODIGO; i++) p[i] = CODIGO[i];
+    int e = memoria_proteger(p, 4096, MEM_PROT_ESCRITA | MEM_PROT_EXEC);
+    int (*f)(void) = (int (*)(void))(void *)p;
+    int r = f();
+    imprimir("exec: memoria_proteger %d, el codigo generado devolvio %d: %s\n", e, r, r == 42 && e == 0 ? "ok" : "FALLO");
+    /* Como mprotect: un rango con páginas sin asignar es un error y no cambia nada. */
+    int b2 = memoria_paginas(MEM_RESERVAR, 0, 8192);
+    int e2 = (unsigned)b2 >= 0xFFFFF000u ? -1 : memoria_paginas(MEM_ASIGNAR, (void *)b2, 4096);
+    int e3 = e2 < 0 ? 0 : memoria_proteger((void *)b2, 8192, MEM_PROT_ESCRITA | MEM_PROT_EXEC);
+    imprimir("exec: rango con una pagina sin asignar -> %d: %s\n", e3, e3 < 0 ? "error, ok" : "FALLO");
+    return r == 42 && e == 0 && e3 < 0 ? 0 : 3;
+}
+
 int principal(int argc, char **argv)
 {
+    if (argc > 1 && !compara_texto(argv[1], "nxpila")) {
+        volatile uint8_t pila[64];
+        return executar_em("nxpila", (uint8_t *)pila);
+    }
+    if (argc > 1 && !compara_texto(argv[1], "nxmonton")) {
+        uint8_t *p = aumentar_memoria(4096);
+        if (!p) return 2;
+        return executar_em("nxmonton", p);
+    }
+    if (argc > 1 && !compara_texto(argv[1], "exec")) return exec_gerado();
+    if (argc > 3 && !compara_texto(argv[1], "varios"))
+        return varios((unsigned)texto_para_int(argv[2]), (unsigned)texto_para_int(argv[3]));
+    if (argc > 3 && !compara_texto(argv[1], "retener"))
+        return retener((unsigned)texto_para_int(argv[2]), (unsigned)texto_para_int(argv[3]));
     if (argc > 1 && !compara_texto(argv[1], "mmap")) return mapas();
     if (argc > 1 && !compara_texto(argv[1], "estres")) return estres();
     if (argc > 2 && !compara_texto(argv[1], "ler")) {

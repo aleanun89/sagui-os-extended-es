@@ -426,11 +426,27 @@ static void secao_memoria(texto_t *t)
     ad(t, "Usable por debajo de 4 GB:   %s\n", tamanho(a, sizeof a, abaixo));
     ad(t, "Gestionada por el kernel:    %s (usada %s, libre %s)\n", tamanho(a, sizeof a, (uint64_t)m.gerida_kb << 10),
        tamanho(b, sizeof b, (uint64_t)m.usada_kb << 10), tamanho(c, sizeof c, (uint64_t)m.livre_kb << 10));
-    ad(t, "\nPor qué el kernel gestiona como mucho ~1,9 GB (D008, D049): el kernel accede\n"
-          "a la memoria física por su propia dirección (mapeo 1:1 de los 2 primeros GB\n"
-          "virtuales, en páginas de 4 MB) y los programas empiezan en 0x80000000; de esos\n"
-          "2 GB, los últimos 128 MB son ventanas para el framebuffer y el USB. Usar el\n"
-          "resto: mejoras/012-memoria-alta.md.\n");
+    ad(t, "  memoria baja:              %s (libre %s): kernel, DMA y programas\n",
+       tamanho(a, sizeof a, (uint64_t)(m.gerida_kb - m.alta_gerida_kb) << 10),
+       tamanho(b, sizeof b, (uint64_t)(m.livre_kb - m.alta_livre_kb) << 10));
+    ad(t, "  memoria alta:              %s (libre %s): solo programas\n",
+       tamanho(a, sizeof a, (uint64_t)m.alta_gerida_kb << 10), tamanho(b, sizeof b, (uint64_t)m.alta_livre_kb << 10));
+    if (m.superior_gerida_kb)   /* D349 */
+        ad(t, "    por encima de 4 GB:      %s (libre %s)\n",
+           tamanho(a, sizeof a, (uint64_t)m.superior_gerida_kb << 10), tamanho(b, sizeof b, (uint64_t)m.superior_livre_kb << 10));
+    ad(t, "Paginación:                  %s; NX %s\n",
+       (m.modo & MEM_MODO_PAE) ? "PAE (3 niveles, hasta 64 GB)" :
+       (m.modo & MEM_MODO_CPU_PAE) ? "clásica sin PAE (desactivado al arrancar; hasta 4 GB)" :
+                                     "clásica sin PAE (la CPU no lo anuncia; hasta 4 GB)",
+       (m.modo & MEM_MODO_NX) ? "activo (pila y montón no ejecutables)" :
+       (m.modo & MEM_MODO_CPU_NX) ? "no activo (la CPU lo tiene)" : "no (la CPU no lo tiene)");
+    ad(t, "\nMemoria baja y alta (D008, D049, D348, D349): el kernel ve por su propia dirección\n"
+          "los primeros 1,875 GB de la RAM (mapeo 1:1, en páginas de 4 MB, o de 2 MB con PAE);\n"
+          "los 128 MB siguientes de direcciones son ventanas para el framebuffer y el USB, y\n"
+          "los programas empiezan en 0x80000000. La RAM por encima (memoria alta, hasta el\n"
+          "hueco de los dispositivos PCI bajo 4 GB, y con PAE la de encima de 4 GB, hasta\n"
+          "64 GB) es solo para los programas: el kernel la toca por ventanas temporales.\n"
+          "Cada programa sigue teniendo 32 bits de direcciones, pero entre todos usan toda la RAM.\n");
 }
 
 /* ------------------------------------------------------------ SMBIOS */

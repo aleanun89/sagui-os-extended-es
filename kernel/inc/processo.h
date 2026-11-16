@@ -64,7 +64,7 @@ typedef struct processo {
      * compartido (ficheros, carpeta, área de datos, mapas, ventanas, pid
      * que ven los demás) se lee siempre del líder: processo_lider(). */
     struct processo *lider;       /* NULL en el hilo principal (el proceso) */
-    uint32_t    futex;            /* D167: dirección física que espera en futex_esperar */
+    uint64_t    futex;            /* D167: dirección física que espera en futex_esperar (64 bits con PAE, D349) */
     uint64_t    vagas_hilos;      /* D186: en el líder, huecos de pila de hilos ocupados (bit n = hueco n) */
     uint8_t     vaga_pilha;       /* D186: en un hilo, su hueco de pila + 1 (0 = la pila es del programa) */
     /* D174: lo que usan los planificadores (planificadores.c). */

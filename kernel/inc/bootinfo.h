@@ -108,6 +108,9 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_MANDOS_PRUEBA 156 /* u8 D307 (no 144: 144-155 es CAB_ID_INSTALACAO, D179): bit 0 = mandos de prueba y MANDOS_INYECTAR (mkimagem.py --mandos-prueba) */
 #define CAB_NE2K_OPC 157   /* u8 D329 (mkimagem.py): bit 0 = sondear NE2000 ISA (--ne2k-isa); sin él no se tocan esos puertos */
 #define CAB_NE2K_IRQ 158   /* u8 D329 (mkimagem.py --ne2k-irq N): IRQ de la NE2000 ISA; 0 = autodetectarla */
+#define CAB_MEM_OPC  159   /* u8 D349 (mkimagem.py): bit 0 --sem-pae (paginación clásica aunque haya PAE), bit 1 --sem-nx */
+#define CAB_MEM_SEM_PAE 1
+#define CAB_MEM_SEM_NX  2
 extern uint8_t cabecalho_boot[512];
 
 /* Copia hecha al inicio del kernel; vale durante toda la ejecución. */

@@ -117,8 +117,12 @@ void memoria_estatisticas(estat_memoria_t *e)
     for (uint32_t i = 0; i < info_boot.mapa_qtd; i++)
         if (mapa_memoria[i].tipo == E820_LIVRE && (mapa_memoria[i].extra & 1))
             e->ram_total += mapa_memoria[i].tamanho;
-    e->paginas_geridas = memfisica_geridas();
-    e->paginas_livres = memfisica_livres();
+    e->altas_geridas = memfisica_geridas_alta();   /* D348 */
+    e->altas_livres = memfisica_livres_alta();
+    e->superiores_geridas = memfisica_geridas_superior();   /* D349 */
+    e->superiores_livres = memfisica_livres_superior();
+    e->paginas_geridas = memfisica_geridas() + e->altas_geridas;
+    e->paginas_livres = memfisica_livres() + e->altas_livres;
     e->heap_paginas = paginas_classes;
     e->heap_blocos_usados = blocos_usados;
     e->heap_grandes = grandes_usados;

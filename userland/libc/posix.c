@@ -604,12 +604,25 @@ void *mmap(void *dir, size_t n, int prot, int flags, int fd, off_t desloc)
         posicionar(fd, antes, POS_INICIO);
     }
     if (!p) { errno = ENOMEM; return MAP_FAILED; }
+    /* D349: con NX, los mapas no son ejecutables salvo que se pida. */
+    if (prot & PROT_EXEC) mprotect(p, n, prot);
     return p;
 }
 
 int munmap(void *dir, size_t n)
 {
     if (desmapear_memoria(dir, n) < 0) { errno = EINVAL; return -1; }
+    return 0;
+}
+
+/* D349: cambia los permisos de páginas ya asignadas (lo usa el recompilador
+ * de DOSBox para su caché de código). La dirección, alineada a página. */
+int mprotect(void *dir, size_t n, int prot)
+{
+    if (((unsigned)dir & 4095) || (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))) { errno = EINVAL; return -1; }
+    n = (n + 4095) & ~(size_t)4095;
+    if (!n) return 0;
+    if (memoria_proteger(dir, (unsigned)n, prot & (PROT_WRITE | PROT_EXEC)) < 0) { errno = ENOMEM; return -1; }
     return 0;
 }
 

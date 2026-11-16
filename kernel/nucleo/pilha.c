@@ -66,7 +66,7 @@ bool pilha_crescer(processo_t *p, uint32_t virt)
     if (l->estado == P_ZUMBI || l->estado == P_LIVRE || l->espaco == espaco_kernel()) return false;
     /* espaco_alocar no toca lo que ya existe: el segundo de dos hilos que
      * fallaron en la misma página no asigna otra. */
-    return espaco_alocar(l->espaco, virt & ~(PAGINA - 1), PAGINA, PG_USUARIO | PG_ESCRITA);
+    return espaco_alocar(l->espaco, virt & ~(PAGINA - 1), PAGINA, PG_USUARIO | PG_ESCRITA | PG_NX);   /* D349: pila no ejecutable */
 }
 
 int pilha_vaga_reservar(processo_t *lider)

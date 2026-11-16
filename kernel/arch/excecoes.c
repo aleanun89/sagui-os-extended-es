@@ -59,7 +59,8 @@ SEM_RETORNO void excecao_fatal(quadro_t *q)
         /* Bits del código de error del fallo de página (manual de Intel):
          * 0 = página presente (violación de protección) o ausente,
          * 1 = escritura o lectura, 2 = en modo usuario o kernel. */
-        kprintf("\n  Fallo de página: %s en la dirección 0x%08x,\n", q->erro & 2 ? "escritura" : "lectura", cr2);
+        kprintf("\n  Fallo de página: %s en la dirección 0x%08x,\n",
+                (q->erro & 0x10) ? "ejecución (NX)" : q->erro & 2 ? "escritura" : "lectura", cr2);
         kprintf("  %s, en modo %s.\n", q->erro & 1 ? "página protegida" : "página no asignada",
                 q->erro & 4 ? "usuario" : "kernel");
     }
@@ -72,9 +73,15 @@ SEM_RETORNO void excecao_fatal(quadro_t *q)
  * en acción: el kernel y los demás programas siguen normalmente. */
 quadro_t *excecao_usuario(quadro_t *q)
 {
-    char motivo[64];
+    char motivo[96];
     snformatar(motivo, sizeof motivo, "%s en EIP=0x%08x", nome_excecao(q->vetor), q->eip);
-    if (q->vetor == 14)
+    if (q->vetor == 14 && (q->erro & 0x11) == 0x11) {
+        /* D349: bit 4 (I/D) = al buscar una instrucción, y la página estaba
+         * presente: es NX (pila, montón o datos que no son código). */
+        snformatar(motivo, sizeof motivo, "%s: ejecutar memoria no ejecutable (NX) en 0x%08x", nome_excecao(14), le_cr2());
+        klog("[SAGUI] NX: proceso %d (%s) intento ejecutar 0x%08x (pila o datos)\n", processo_recursos()->pid,
+             processo_atual()->nome, le_cr2());
+    } else if (q->vetor == 14)
         snformatar(motivo, sizeof motivo, "%s: %s 0x%08x", nome_excecao(14),
                    q->erro & 2 ? "escritura" : "lectura", le_cr2());
     kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: %s\n", processo_recursos()->pid, processo_atual()->nome, motivo);

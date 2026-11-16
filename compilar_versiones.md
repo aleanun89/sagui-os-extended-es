@@ -150,6 +150,8 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--planificador P` | `rr` | planificador al arrancar: `rr`, `afinidad`, `equilibrio` o `prioridad` |
 | `--resolucion LxA`, `--bpp N` | automática (1024x768, 32 bpp) | resolución y profundidad de color preferidas |
 | `--sem-wc` | apagado | no activar write-combining en el framebuffer |
+| `--sem-pae` | apagado | paginación clásica de 2 niveles aunque la CPU tenga PAE: hasta 4 GB de RAM y sin NX (para probar o para hardware con problemas) |
+| `--sem-nx` | apagado | no activar NX (pila y montón no ejecutables) aunque la CPU lo tenga |
 | `--sgl-motor software` | `auto` | desactiva toda la aceleración 3D por hardware |
 | `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D de la GPU; `cpu` o `--sin-acel2d` = solo CPU |
 | `--sin-servicios` | apagado | no lanzar el gestor de servicios ni el cron al arrancar |
@@ -464,6 +466,8 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--planificador P` | `rr` | scheduler at boot: `rr`, `afinidad`, `equilibrio` or `prioridad` |
 | `--resolucion LxA`, `--bpp N` | automatic (1024x768, 32 bpp) | preferred resolution and colour depth |
 | `--sem-wc` | off | do not enable write-combining on the framebuffer |
+| `--sem-pae` | off | classic 2-level paging even if the CPU has PAE: up to 4 GB of RAM and no NX (for testing or for troublesome hardware) |
+| `--sem-nx` | off | do not enable NX (non-executable stack and heap) even if the CPU has it |
 | `--sgl-motor software` | `auto` | disables all hardware 3D acceleration |
 | `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | the GPU's 2D accelerator; `cpu` or `--sin-acel2d` = CPU only |
 | `--sin-servicios` | off | do not start the service manager or cron at boot |
@@ -778,6 +782,8 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--planificador P` | `rr` | escalonador na inicialização: `rr`, `afinidad`, `equilibrio` ou `prioridad` |
 | `--resolucion LxA`, `--bpp N` | automática (1024x768, 32 bpp) | resolução e profundidade de cor preferidas |
 | `--sem-wc` | desligado | não ativar o write-combining no framebuffer |
+| `--sem-pae` | desligado | paginação clássica de 2 níveis mesmo que a CPU tenha PAE: até 4 GB de RAM e sem NX (para testar ou para hardware com problemas) |
+| `--sem-nx` | desligado | não ativar o NX (pilha e heap não executáveis) mesmo que a CPU o tenha |
 | `--sgl-motor software` | `auto` | desativa toda a aceleração 3D por hardware |
 | `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D da GPU; `cpu` ou `--sin-acel2d` = só CPU |
 | `--sin-servicios` | desligado | não iniciar o gerenciador de serviços nem o cron na inicialização |

@@ -175,6 +175,9 @@ def main():
     ap.add_argument("--teste", default="", help="nome de um autoteste do kernel (só para os testes automáticos)")
     ap.add_argument("--resolucao", default="", help="resolução preferida LxA (D058); vazio = automática (1024x768)")
     ap.add_argument("--sem-wc", action="store_true", help="não ligar write-combining no framebuffer (D057)")
+    ap.add_argument("--sem-pae", action="store_true",
+                    help="paginación clásica de 2 niveles aunque la CPU tenga PAE (D349): hasta 4 GB, sin NX")
+    ap.add_argument("--sem-nx", action="store_true", help="no activar NX aunque la CPU lo tenga (D349)")
     ap.add_argument("--bpp", type=int, default=0, choices=(0, 15, 16, 24, 32),
                     help="profundidade de cor preferida (D078); 0 = automática (32 > 24 > 16 > 15)")
     ap.add_argument("--smp", action="store_true",
@@ -390,6 +393,8 @@ def main():
     cab = cab.ljust(156, b"\0")
     cab += struct.pack("<B", 1 if a.mandos_prueba else 0)    # CAB_MANDOS_PRUEBA (156, D307): mandos de prueba
     cab += struct.pack("<BB", 1 if a.ne2k_isa else 0, a.ne2k_irq)   # CAB_NE2K_OPC (157), CAB_NE2K_IRQ (158) (D329)
+    assert len(cab) == 159, "CAB_MEM_OPC tiene que caer en el byte 159"
+    cab += struct.pack("<B", (1 if a.sem_pae else 0) | (2 if a.sem_nx else 0))   # CAB_MEM_OPC (159, D349)
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre
     # desde el LBA 1 hasta el fin del archivo y es la única, marcada como activa (0x80),

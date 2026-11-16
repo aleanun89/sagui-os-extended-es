@@ -19,4 +19,8 @@
  * de fichero, una copia privada leída al mapear (MAP_SHARED con escritura no). */
 void *mmap(void *dir, size_t n, int prot, int flags, int fd, off_t desloc);
 int   munmap(void *dir, size_t n);
+/* D349: sobre memoria del área de datos (malloc, mmap anónimo), en páginas
+ * enteras. Con NX, PROT_EXEC es lo que deja ejecutar código generado ahí.
+ * Si alguna página del rango no está asignada: -1 con ENOMEM (nada cambia). */
+int   mprotect(void *dir, size_t n, int prot);
 #endif

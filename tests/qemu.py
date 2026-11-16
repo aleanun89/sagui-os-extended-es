@@ -520,6 +520,10 @@ class Maquina:
         # Por defecto TCG, que es con lo que se escribieron las pruebas.
         if os.environ.get("SAGUI_KVM") == "1":
             cmd += ["-accel", "kvm"]
+        # D349: SAGUI_CPU=modelo (p. ej. "qemu32,+nx" para probar con NX, o "qemu32,-pae"):
+        # la CPU de todas las máquinas que no elijan la suya con extras.
+        if os.environ.get("SAGUI_CPU") and "-cpu" not in self.extras:
+            cmd += ["-cpu", os.environ["SAGUI_CPU"]]
         if self.firmware:
             cmd += ovmf_argumentos(self.firmware, self.nome)
         if self.modo == "ide":

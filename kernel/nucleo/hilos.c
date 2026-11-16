@@ -32,6 +32,7 @@
 #include "relogio.h"
 #include "console.h"
 #include "texto.h"
+#include "memalta.h"
 
 /* El canal de todos los que duermen en un futex; cuál es la palabra lo dice
  * processo_t.futex. */
@@ -48,9 +49,9 @@ static uint32_t pilha_de_hilo(processo_t *l, processo_t *t, uint32_t arg)
     uint32_t fim = USUARIO_HILOS + (uint32_t)(vaga + 1) * HILO_VAGA;
     uint32_t topo = fim - 16u - 4u;
     if (!pilha_crescer(t, topo)) return 0;   /* la primera página; las demás, al tocarlas */
-    uint32_t *fis = (uint32_t *)espaco_traduzir(l->espaco, topo, NULL);
-    fis[0] = 0;     /* retorno: la función del hilo no vuelve */
-    fis[1] = arg;   /* su argumento */
+    /* D348: la página puede ser alta: se escribe por una ventana temporal. */
+    uint32_t palavras[2] = { 0, arg };   /* retorno (la función del hilo no vuelve) y su argumento */
+    fisica_escrever(espaco_traduzir(l->espaco, topo, NULL), palavras, sizeof palavras);
     return topo;
 }
 
@@ -131,7 +132,7 @@ int32_t sis_hilo_id(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 }
 
 /* La dirección física de una palabra alineada del programa (0 si no vale). */
-static uint32_t palavra_fisica(uint32_t ptr)
+static uint64_t palavra_fisica(uint32_t ptr)
 {
     if ((ptr & 3) || !usuario_ok((void *)ptr, 4, false)) return 0;
     return espaco_traduzir(processo_atual()->espaco, ptr, NULL);
@@ -141,7 +142,7 @@ static uint32_t palavra_fisica(uint32_t ptr)
 int32_t sis_futex_esperar(uint32_t ptr, uint32_t valor, uint32_t ms, uint32_t d, uint32_t e)
 {
     (void)d; (void)e;
-    uint32_t fis = palavra_fisica(ptr);
+    uint64_t fis = palavra_fisica(ptr);
     if (!fis) return ERRO_ENDERECO;
     if (*(volatile uint32_t *)ptr != valor) return 1;   /* cambió: quien llama vuelve a mirar */
     processo_t *eu = processo_atual();
@@ -155,7 +156,7 @@ int32_t sis_futex_esperar(uint32_t ptr, uint32_t valor, uint32_t ms, uint32_t d,
 int32_t sis_futex_acordar(uint32_t ptr, uint32_t n, uint32_t c, uint32_t d, uint32_t e)
 {
     (void)c; (void)d; (void)e;
-    uint32_t fis = palavra_fisica(ptr);
+    uint64_t fis = palavra_fisica(ptr);
     if (!fis) return ERRO_ENDERECO;
     int32_t acordados = 0;
     for (int i = 1; i < MAX_PROCESSOS && (uint32_t)acordados < n; i++) {

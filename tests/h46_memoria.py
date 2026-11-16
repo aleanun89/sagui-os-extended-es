@@ -7,7 +7,8 @@ autoprueba de memoria pasa; con 2 GB gestiona ~1,9 GB y un programa reserva
 más de 1 GB (lo que obliga a usar páginas físicas por encima de 1 GB) y
 comprueba un patrón en todas ellas; con 3 GB el mapa 1:1 se queda en 1920 MB
 (las ventanas empiezan en 0x78000000) y el sistema arranca y ejecuta
-programas. El cc genera ejecutables en 0x80000000 que funcionan, y un programa
+programas. Desde la D348 lo que pasa de 1920 MB es memoria alta para los
+programas: con 2 GB se gestionan ~2 GB y con 3 GB, ~3 GB (h350 lo prueba a fondo). El cc genera ejecutables en 0x80000000 que funcionan, y un programa
 que lee la antigua zona de usuario (0x40000000) termina con "Fallo de página"
 sin afectar al resto.
 """
@@ -55,7 +56,9 @@ def main():
     with Maquina("h46-512M", "ide", imagem=console, memoria="512M") as m:
         m.esperar_serial("sagui:/$", 120)
         s = m.serial()
-        verificar("1:1 ate 20000000 (512 MB), paginas de 4 MB" in s, "[512M] mapa 1:1 en páginas de 4 MB hasta 512 MB")
+        # D349: páginas de 4 MB sin PAE, de 2 MB con PAE (la CPU del QEMU lo tiene).
+        verificar(re.search(r"1:1 ate 20000000 \(512 MB\), paginas de [24] MB", s) is not None,
+                  "[512M] mapa 1:1 en páginas grandes hasta 512 MB")
         out = m.comando("cc /ejemplos/hola.c -o /tmp/hola", tempo=120)
         verificar("(cc) terminou com codigo 0" in out, "cc compila /ejemplos/hola.c")
         out = m.comando("/tmp/hola Tito")
@@ -75,7 +78,7 @@ def main():
         verificar("1:1 ate 78000000 (1920 MB)" in s, "[2G] mapa 1:1 hasta las ventanas (0x78000000)")
         out = m.comando("mem")
         g, l0 = gestionada(out), libre(out)
-        verificar(1850 <= g <= 1920, f"[2G] mem: {g} MB gestionados (~1,9 GB)")
+        verificar(1850 <= g <= 2048, f"[2G] mem: {g} MB gestionados (~1,9 GB bajos + la alta, D348)")
         out = m.comando("/testes/memoria 1300", 600)
         r = re.search(r"usada (\d+) MB", out)
         usada = int(r.group(1)) if r else -1
@@ -93,7 +96,7 @@ def main():
         verificar("1:1 ate 78000000 (1920 MB)" in s, "[3G] mapa 1:1 limitado a 0x78000000")
         out = m.comando("mem")
         g = gestionada(out)
-        verificar(1850 <= g <= 1920, f"[3G] mem: {g} MB gestionados (no pasa de 2 GB)")
+        verificar(2900 <= g <= 3072, f"[3G] mem: {g} MB gestionados (con la memoria alta, D348)")
         r = re.search(r"Memoria RAM total \(E820\):\s+(\d+) MB", out)
         verificar(r and int(r.group(1)) > 3000, "[3G] el E820 ve los 3 GB")
         out = m.comando("/testes/memoria 256", 300)

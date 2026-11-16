@@ -6,7 +6,7 @@
 #define SAGUI_VERSAO_H
 
 #define SAGUI_NOME         "SaguiOS-Extended"
-#define SAGUI_VERSAO       "v8.4.5"
+#define SAGUI_VERSAO       "v8.5"
 #define SAGUI_NOME_VERSAO  SAGUI_NOME " " SAGUI_VERSAO
 
 

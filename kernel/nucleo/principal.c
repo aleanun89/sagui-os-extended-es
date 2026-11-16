@@ -20,6 +20,7 @@
 #include "fpu.h"
 #include "sgfs.h"
 #include "paginacao.h"
+#include "memalta.h"
 #include "processo.h"
 #include "rapido.h"
 #include "sistema.h"
@@ -246,9 +247,11 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     hora_iniciar();      /* D080: UTC a partir del RTC; la zona viene después del fstab */
     int_liga();
     hw_medir_tsc();       /* 100 ms: TSC contra el PIT (D041) */
+    paginacao_escolher_modo();   /* D349: PAE o no y NX, antes de las zonas de memoria (la superior solo con PAE) */
     memfisica_iniciar();
     isa_dma_reservar();   /* D302: 128 KB bajo 16 MB para el DMA ISA, antes de que se gaste la memoria baja */
     paginacao_iniciar();
+    memalta_iniciar();    /* D348: ventanas temporales para las páginas altas de los programas */
     wc_iniciar();         /* PAT con una entrada write-combining, antes de mapear el framebuffer (D057) */
 
     /* H17/H18: terminal gráfica con la fuente propia. Si no hay modo
@@ -297,15 +300,20 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
 
     etapa("Interrupciones: GDT e IDT propias, PIC reasignado, reloj a 100 Hz");
     {
-        char linha[96];
-        snformatar(linha, sizeof linha, "Memoria física: %u MB gestionados en páginas de 4 KB, kmalloc listo",
-                   memfisica_livres() / 256);
+        char linha[112];
+        if (memfisica_geridas_alta())   /* D348 */
+            snformatar(linha, sizeof linha, "Memoria física: %u MB gestionados (%u MB altos, para programas), kmalloc listo",
+                       (memfisica_livres() + memfisica_livres_alta()) / 256, memfisica_livres_alta() / 256);
+        else
+            snformatar(linha, sizeof linha, "Memoria física: %u MB gestionados en páginas de 4 KB, kmalloc listo",
+                       memfisica_livres() / 256);
         etapa(linha);
     }
     {
         char linha[96];
-        snformatar(linha, sizeof linha, "Paginación: 1:1 hasta %u MB%s, un espacio por proceso",
-                   paginacao_fim_mapa() >> 20, paginacao_pse() ? " en páginas de 4 MB" : "");
+        snformatar(linha, sizeof linha, "Paginación%s%s: 1:1 hasta %u MB%s, un espacio por proceso",
+                   paginacao_com_pae ? " PAE" : "", paginacao_nx() ? " con NX" : "", paginacao_fim_mapa() >> 20,
+                   !paginacao_pse() ? "" : paginacao_com_pae ? " en páginas de 2 MB" : " en páginas de 4 MB");
         etapa(linha);
     }
     fpu_iniciar();

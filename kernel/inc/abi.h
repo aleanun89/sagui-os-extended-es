@@ -331,6 +331,15 @@ typedef struct {
 #define MEM_RESERVAR  1   /* (0, bytes) -> fin antiguo del área; la alarga SIN asignar páginas */
 #define MEM_DEVOLVER  2   /* (endereço, bytes) -> páginas devueltas; quedan sin asignar (tocarlas = fallo) */
 #define MEM_ASIGNAR   3   /* (endereço, bytes) -> 0; asigna (a cero) las páginas que falten */
+/* D349: (endereço, bytes, MEM_PROT_*) -> 0; cambia los permisos de las páginas ya
+ * asignadas (como mprotect). Con NX, el área de datos (montón) y la pila no son
+ * ejecutables: quien genere código (el recompilador de DOSBox, un JIT) pide aquí
+ * MEM_PROT_EXEC. Sin NX (CPU sin él, o sin PAE) la ejecución no se puede impedir.
+ * Todas las páginas del rango tienen que estar ya asignadas: si falta alguna,
+ * ERRO_SEM_MEMORIA y no se cambia nada (como el ENOMEM de mprotect). */
+#define MEM_PROTEGER  4
+#define MEM_PROT_ESCRITA 2   /* = PROT_WRITE */
+#define MEM_PROT_EXEC    4   /* = PROT_EXEC */
 
 /* SIS_DISCO_BLOCOS (D179). El nombre es el de "discos" (hdb, usb0, hdb1...).
  * Leer no pide nada; escribir, descartar y releer la tabla solo valen para el
@@ -1539,10 +1548,26 @@ typedef struct {
 
 typedef struct {
     unsigned int ram_total_kb;
-    unsigned int gerida_kb;
+    unsigned int gerida_kb;      /* baja + alta (D348) */
     unsigned int livre_kb;
     unsigned int usada_kb;
+    /* D348: memoria alta (por encima de 1,875 GB, solo para los programas). Un
+     * programa anterior que pide solo los 16 bytes de arriba no los recibe. */
+    unsigned int alta_gerida_kb;
+    unsigned int alta_livre_kb;
+    unsigned int janelas_usos;   /* veces que el kernel usó una ventana temporal (memalta) */
+    unsigned int modo;           /* D349: MEM_MODO_* (era «reservado», a cero) */
+    /* D349: de la alta, la que está por encima de 4 GB (solo con PAE). */
+    unsigned int superior_gerida_kb;
+    unsigned int superior_livre_kb;
+    unsigned int reservado[2];
 } info_memoria_t;
+#define INFO_MEMORIA_V1 16       /* bytes de la versión sin memoria alta */
+#define INFO_MEMORIA_V2 32       /* bytes de la versión sin memoria superior (D348) */
+#define MEM_MODO_PAE      1      /* paginación PAE (3 niveles, hasta 64 GB) */
+#define MEM_MODO_NX       2      /* NX activo: pila y montón no ejecutables */
+#define MEM_MODO_CPU_PAE  4      /* la CPU tiene PAE (aunque no se use: --sem-pae) */
+#define MEM_MODO_CPU_NX   8      /* la CPU tiene NX */
 
 typedef struct {
     int          pid;

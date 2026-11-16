@@ -267,7 +267,7 @@ def principal():
         out = m.comando("tree -L 2 /tmp/w")
         verificar("|-- a/" in out and "`-- x.md" in out and "carpetas" in out, "tree")
         out = m.comando("free -m")
-        verificar("Mem (kernel):" in out, "free -m")
+        verificar("Mem:" in out and "alta:" in out, "free -m")   # D348: total, baja y alta
         out = m.comando("uptime")
         verificar(re.search(r"hasta .+, \d+ procesos", out) is not None, "uptime")
         out = m.comando("uname -s; uname -m")

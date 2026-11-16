@@ -1,18 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-only
-/* paginacao.c - paginación de 2 niveles. Ver D010 y D049.
+/* paginacao.c - paginación en dos modos: clásica de 2 niveles o PAE de 3 (D010, D049, D349).
  *
- * Directorio (1024 entradas de 4 MB) -> tabla (1024 entradas de 4 KB) ->
- * página. Las 512 primeras entradas del directorio (0 a 2 GB) son del kernel y
- * son las mismas en todos los procesos. Las siguientes son del programa de cada
- * proceso.
+ * Sin PAE: directorio (1024 entradas de 4 MB) -> tabla (1024 entradas de 4 KB)
+ * -> página, con entradas de 4 bytes. Con PAE (D349): PDPT (4 entradas de 1 GB)
+ * -> 4 directorios (512 entradas de 2 MB cada uno) -> tabla (512 entradas de
+ * 4 KB), con entradas de 8 bytes (dirección física de hasta 36 bits y NX en el
+ * bit 63). Para no escribir todo dos veces, el código ve los dos modos igual:
+ * un "directorio" de 1024 o 2048 entradas indexado por virt >> d_desl (22 o 21)
+ * y tablas de n_tab entradas (1024 o 512); con PAE la entrada i del directorio
+ * está en el directorio PDPT[i / 512], posición i % 512. Las entradas se leen y
+ * escriben con ent_ler()/ent_escrever(), que saben el tamaño.
+ *
+ * La mitad baja del espacio (0 a 2 GB) es del kernel y es la misma en todos los
+ * procesos: sin PAE se copian sus entradas del directorio al crear el espacio;
+ * con PAE las dos primeras entradas del PDPT de cada proceso apuntan a los dos
+ * directorios del kernel (compartidos). La mitad alta es del programa.
  *
  * El kernel ve la RAM por la propia dirección (1:1) sólo hasta el fin real de la RAM
  * (redondeado a 4 MB): lo que la BIOS pone justo encima (MMIO) queda sin mapa.
- * Si la CPU tiene PSE, ese mapa usa páginas de 4 MB directo en el directorio (bit
- * PS), sin tablas; con PGE quedan globales (no salen del TLB al cambiar de
- * proceso). Los primeros 4 MB usan siempre una tabla de 4 KB, para que la página
- * 0 quede ausente (puntero nulo), y la franja de ventanas también, porque
- * janela_mapear() mapea página a página. */
+ * Ese mapa usa páginas grandes (4 MB con PSE; 2 MB con PAE) directo en el
+ * directorio (bit PS), sin tablas; con PGE quedan globales (no salen del TLB al
+ * cambiar de proceso). El primer bloque usa siempre una tabla de 4 KB, para que
+ * la página 0 quede ausente (puntero nulo), y la franja de ventanas también,
+ * porque janela_mapear() mapea página a página.
+ *
+ * NX (D349, solo con PAE y si la CPU lo tiene): el mapa 1:1 por encima del fin
+ * del kernel, la franja de ventanas y el APIC no son ejecutables; en los
+ * programas lo deciden los llamadores con PG_NX (pila, montón, datos del ELF). */
 #include "paginacao.h"
 #include "bootinfo.h"
 #include "console.h"
@@ -21,31 +35,135 @@
 #include "texto.h"
 #include "cpu_dados.h"
 #include "ioapic.h"
+#include "memalta.h"
+#include "msr.h"
 
-#define ENTRADAS      1024
-#define PDE_KERNEL    (USUARIO_INICIO >> 22)      /* 512 */
-#define PDE_USUARIO_FIM (USUARIO_FIM >> 22)       /* 1023 */
-#define MASCARA_END   0xFFFFF000u
-#define MASCARA_4MB   0xFFC00000u
-#define PG_4MB        0x080   /* PDE: página de 4 MB (PS) */
+#define PG_GRANDE     0x080   /* PDE: página grande (PS): 4 MB sin PAE, 2 MB con PAE */
 #define PG_GLOBAL     0x100   /* queda en el TLB al cambiar el CR3 (con CR4.PGE) */
 #define CR4_PSE       0x10
+#define CR4_PAE       0x20
 #define CR4_PGE       0x80
+#define MSR_EFER      0xC0000080u
+#define EFER_NXE      0x800u
+#define END_32        0xFFFFF000ull            /* dirección en una entrada de 4 bytes */
+#define END_PAE       0x000FFFFFFFFFF000ull    /* en una de 8 bytes (bits 12 a 51) */
+#define APIC_VIRT     0xFFC00000u              /* APIC local e IOAPIC (D157, D166) */
+
+bool     paginacao_com_pae;
+uint64_t paginacao_bit_nx;
 
 static espaco_t dir_kernel;
 static uint32_t janela_proxima = KERNEL_JANELAS;
 static uint32_t fim_mapa;              /* fin del mapa 1:1 del kernel */
-static bool     com_pse, com_pge;
+static bool     com_pse, com_pge, cpu_pae, cpu_nx, cpu_intel, xd_liberado;
+static uint32_t max_ext;               /* la hoja extendida más alta de CPUID */
+static uint32_t bits_fisicos = 32;     /* MAXPHYADDR de la CPU */
+static uint64_t limite_fisico = 0x100000000ull;
 
-static inline bool grande(uint32_t pde) { return (pde & (PG_PRESENTE | PG_4MB)) == (PG_PRESENTE | PG_4MB); }
-/* Sólo para entradas que apuntan a tabla (nunca una de 4 MB). */
-static inline uint32_t *tabela_de(uint32_t entrada) { return (uint32_t *)(entrada & MASCARA_END); }
+/* La geometría del modo elegido (paginacao_escolher_modo). */
+static uint32_t d_desl = 22;           /* bits de la dirección que cubre una entrada del directorio */
+static uint32_t n_tab = 1024;          /* entradas por tabla */
+static uint32_t t_ent = 4;             /* bytes por entrada */
+static uint64_t mascara_end = END_32;
 
-static inline void invalidar(uint32_t virt)
+#define PAE           paginacao_com_pae
+#define PDE_KERNEL    (USUARIO_INICIO >> d_desl)     /* 512 o 1024 */
+#define PDE_USUARIO_FIM (USUARIO_FIM >> d_desl)      /* 1023 o 2046 */
+#define PDE_APIC      (APIC_VIRT >> d_desl)
+#define BLOCO         (1u << d_desl)                 /* lo que cubre una entrada del directorio */
+
+/* ------------------------------------------------------------------ entradas */
+
+static inline pte_t ent_ler(const void *p)
 {
-    __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+    const volatile uint32_t *m = (const volatile uint32_t *)p;
+    if (!PAE) return m[0];
+    uint32_t baixa = m[0], alta = m[1];
+    return (uint64_t)alta << 32 | baixa;
 }
 
+/* Escribe el valor ya hecho de una entrada; con PAE, en el orden seguro de pte_escrever. */
+static inline void ent_escrever(void *p, pte_t v)
+{
+    volatile uint32_t *m = (volatile uint32_t *)p;
+    if (!PAE) { m[0] = (uint32_t)v; return; }
+    m[0] = 0;
+    __asm__ volatile("" ::: "memory");
+    m[1] = (uint32_t)(v >> 32);
+    __asm__ volatile("" ::: "memory");
+    m[0] = (uint32_t)v;
+}
+
+/* Valor de una entrada a partir de la dirección y las banderas del API (PG_NX incluida). */
+static inline pte_t ent_valor(fis_t fis, uint32_t flags)
+{
+    pte_t v = (fis & mascara_end) | (flags & 0xFFFu & ~(uint32_t)PG_NX);
+    if (flags & PG_NX) v |= paginacao_bit_nx;
+    return v;
+}
+
+/* Las banderas del API de una entrada (PG_NX si tiene el bit 63). */
+static inline uint32_t ent_flags(pte_t v)
+{
+    uint32_t f = (uint32_t)v & 0xFFFu & ~(uint32_t)PG_NX;
+    if (paginacao_bit_nx && (v & paginacao_bit_nx)) f |= PG_NX;
+    return f;
+}
+
+static inline fis_t ent_end(pte_t v) { return v & mascara_end; }
+
+/* Cambia bits de una entrada PRESENTE sin pasar nunca por P=0 y sin perder los
+ * bits A/D que el hardware ponga a la vez: un cmpxchg atómico (cmpxchg8b con PAE;
+ * toda CPU con PAE lo tiene). Para permisos (mprotect): otro hilo del mismo
+ * proceso en otra CPU puede estar recorriendo la tabla en ese instante. */
+static void ent_trocar(void *p, pte_t por, pte_t tirar)
+{
+    if (PAE) {
+        /* lock cmpxchg8b a mano: el gcc de 32 bits lo dejaría en una llamada a la libatomic. */
+        uint32_t lo = ((volatile uint32_t *)p)[0], hi = ((volatile uint32_t *)p)[1];
+        bool igual;
+        do {
+            uint64_t novo = (((uint64_t)hi << 32 | lo) | por) & ~tirar;
+            __asm__ volatile("lock cmpxchg8b %1"
+                             : "=@ccz"(igual), "+m"(*(volatile uint64_t *)p), "+a"(lo), "+d"(hi)
+                             : "b"((uint32_t)novo), "c"((uint32_t)(novo >> 32))
+                             : "memory");
+        } while (!igual);   /* si otro (el hardware, con A/D) cambió la entrada, lo y hi traen la nueva */
+    } else {
+        uint32_t *e = (uint32_t *)p;
+        uint32_t velho = *(volatile uint32_t *)e;
+        while (!__atomic_compare_exchange_n(e, &velho, (velho | (uint32_t)por) & ~(uint32_t)tirar, false,
+                                            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+            ;
+    }
+}
+
+/* Banderas del API (PG_ESCRITA, PG_NX) a bits de la entrada. */
+static inline pte_t bits_hw(uint32_t f)
+{
+    return (f & PG_ESCRITA) | ((f & PG_NX) ? paginacao_bit_nx : 0);
+}
+static inline bool grande(pte_t pde) { return (pde & (PG_PRESENTE | PG_GRANDE)) == (PG_PRESENTE | PG_GRANDE); }
+
+/* La entrada i del directorio de un espacio. Con PAE, el directorio PDPT[i / 512]
+ * (los cuatro existen siempre, en la memoria baja). */
+static inline void *pde_de(espaco_t e, uint32_t i)
+{
+    if (!PAE) return (uint32_t *)e + i;
+    const uint64_t *pdpt = (const uint64_t *)e;
+    return (uint64_t *)(uint32_t)(pdpt[i >> 9] & END_32) + (i & 511);
+}
+
+/* La entrada k de la tabla a la que apunta una entrada de directorio (nunca una grande). */
+static inline void *pte_de(pte_t pde, uint32_t k)
+{
+    return (uint8_t *)(uint32_t)ent_end(pde) + k * t_ent;
+}
+
+static inline void invalidar(uint32_t virt) { pagina_invalidar(virt); }
+
+/* Una página a cero de la zona baja: directorios, tablas y PDPT, que el
+ * kernel lee y escribe por su dirección (mapeo 1:1). */
 static uint32_t pagina_zerada(void)
 {
     uint32_t p = memfisica_alocar();
@@ -53,8 +171,25 @@ static uint32_t pagina_zerada(void)
     return p;
 }
 
-/* CPUID 1, EDX: bit 3 = PSE, bit 13 = PGE. Toda CPU con CPUID que corre
- * SaguiOS (i686) tiene los dos; sin CPUID, todo queda en tablas de 4 KB. */
+/* D348: una página a cero para un programa: de la zona alta si queda, puesta
+ * a cero por una ventana temporal (el kernel no la ve por su dirección). */
+static fis_t pagina_usuario_zerada(void)
+{
+    fis_t p = memfisica_alocar_usuario();
+    if (p) fisica_zerar(p);
+    return p;
+}
+
+/* ------------------------------------------------------------- el modo */
+
+static inline void cpuid(uint32_t f, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
+{
+    __asm__ volatile("cpuid" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "a"(f), "c"(0));
+}
+
+/* CPUID 1, EDX: bit 3 = PSE, bit 6 = PAE, bit 13 = PGE. CPUID 0x80000001, EDX:
+ * bit 20 = NX. CPUID 0x80000008, EAX[7:0] = bits de dirección física. Sin
+ * CPUID (486 antiguos), tablas de 4 KB y nada más. */
 static void conferir_cpu(void)
 {
     uint32_t antes, depois;
@@ -62,12 +197,71 @@ static void conferir_cpu(void)
                      : "=&r"(antes), "=&r"(depois));
     if (!((antes ^ depois) & 0x200000)) return;
     uint32_t a, b, c, d;
-    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(0), "c"(0));
+    cpuid(0, &a, &b, &c, &d);
+    cpu_intel = b == 0x756E6547u && d == 0x49656E69u && c == 0x6C65746Eu;   /* "GenuineIntel" */
     if (a < 1) return;
-    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
+    cpuid(1, &a, &b, &c, &d);
     com_pse = (d >> 3) & 1;
+    cpu_pae = (d >> 6) & 1;
     com_pge = (d >> 13) & 1;
+    bits_fisicos = cpu_pae ? 36 : 32;
+    cpuid(0x80000000u, &a, &b, &c, &d);
+    max_ext = a;
+    if (max_ext >= 0x80000001u && max_ext < 0x8000FFFFu) {
+        cpuid(0x80000001u, &a, &b, &c, &d);
+        cpu_nx = (d >> 20) & 1;
+    }
+    if (cpu_pae && max_ext >= 0x80000008u && max_ext < 0x8000FFFFu) {
+        cpuid(0x80000008u, &a, &b, &c, &d);
+        if ((a & 0xFF) >= 32 && (a & 0xFF) <= 52) bits_fisicos = a & 0xFF;
+    }
 }
+
+/* D349: PAE si la CPU lo anuncia y la cabecera no lo prohíbe (mkimagem.py
+ * --sem-pae); NX si además la CPU lo tiene y no se pidió --sem-nx. */
+void paginacao_escolher_modo(void)
+{
+    conferir_cpu();
+    uint8_t opc = cabecalho_boot[CAB_MEM_OPC];
+    /* D349: en Intel, la BIOS puede apagar NX con XD_DISABLE (IA32_MISC_ENABLE bit 34)
+     * y entonces CPUID no lo anuncia. Como Linux, se vuelve a encender (lectura y
+     * escritura protegidas contra #GP: si el MSR no existe no pasa nada), salvo con
+     * --sem-nx. Las CPU secundarias hacen lo mismo en el trampolín. */
+    if (cpu_intel && cpu_pae && !cpu_nx && !(opc & (CAB_MEM_SEM_PAE | CAB_MEM_SEM_NX)) &&
+        max_ext >= 0x80000001u && max_ext < 0x8000FFFFu) {
+        uint64_t misc;
+        if (msr_ler_seguro(0x1A0, &misc) && (misc & (1ull << 34)) &&
+            msr_escrever_seguro(0x1A0, misc & ~(1ull << 34))) {
+            uint32_t a, b, c, d;
+            cpuid(0x80000001u, &a, &b, &c, &d);
+            cpu_nx = (d >> 20) & 1;
+            xd_liberado = cpu_nx;
+            klog("[SAGUI] paginacao: XD_DISABLE estaba puesto por la BIOS: quitado, NX %s\n", cpu_nx ? "disponible" : "sigue sin estar");
+        }
+    }
+    PAE = cpu_pae && !(opc & CAB_MEM_SEM_PAE);
+    paginacao_bit_nx = (PAE && cpu_nx && !(opc & CAB_MEM_SEM_NX)) ? (1ull << 63) : 0;
+    if (PAE) {
+        d_desl = 21;
+        n_tab = 512;
+        t_ent = 8;
+        mascara_end = END_PAE;
+        /* Hasta 64 GB (36 bits), o menos si la CPU tiene menos bits. */
+        uint32_t bits = bits_fisicos > 36 ? 36 : bits_fisicos;
+        limite_fisico = 1ull << bits;
+    }
+    klog("[SAGUI] paginacao: modo %s, NX %s (CPU: PAE %s, NX %s, %u bits fisicos%s%s)\n",
+         PAE ? "PAE" : "sem PAE", paginacao_bit_nx ? "sim" : "nao", cpu_pae ? "sim" : "nao", cpu_nx ? "sim" : "nao",
+         bits_fisicos, (opc & CAB_MEM_SEM_PAE) ? ", --sem-pae" : "", (opc & CAB_MEM_SEM_NX) ? ", --sem-nx" : "");
+}
+
+bool     paginacao_pae_cpu(void)        { return cpu_pae; }
+bool     paginacao_nx_cpu(void)         { return cpu_nx; }
+bool     paginacao_nx(void)             { return paginacao_bit_nx != 0; }
+bool     paginacao_xd_liberado(void)    { return xd_liberado; }
+uint64_t paginacao_limite_fisico(void)  { return limite_fisico; }
+
+/* --------------------------------------------------------- el mapa del kernel */
 
 /* Fin de la RAM que el kernel necesita ver: el mayor fin de región libre del E820,
  * y como mínimo el kernel y el ramdisk; redondeado hacia arriba a 4 MB y limitado
@@ -87,14 +281,14 @@ static uint32_t calcular_fim_mapa(void)
     return fim > KERNEL_JANELAS ? KERNEL_JANELAS : (uint32_t)fim;
 }
 
-/* Una página de 4 MB sólo cubre RAM "libre" entera del E820: un bloque que
+/* Una página grande sólo cubre RAM "libre" entera del E820: un bloque que
  * toca región reservada (o el primer MB, con las franjas de tipos de memoria
  * fijos del MTRR) puede tener tipos de memoria mezclados, y una página grande
  * en esas condiciones es indefinida en el manual de Intel (D010). Esos bloques
  * quedan con tabla de 4 KB. */
-static bool bloco_so_ram(uint32_t base)
+static bool bloco_so_ram(uint32_t base, uint32_t tam)
 {
-    uint64_t ini = base, fim = (uint64_t)base + 0x400000;
+    uint64_t ini = base, fim = (uint64_t)base + tam;
     bool coberto = false;
     for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
         regiao_e820_t *r = &mapa_memoria[i];
@@ -116,33 +310,61 @@ static uint32_t tabela_nova(void)
     return t;
 }
 
+static inline uint64_t ler_msr(uint32_t msr)
+{
+    uint32_t a, d;
+    __asm__ volatile("rdmsr" : "=a"(a), "=d"(d) : "c"(msr));
+    return ((uint64_t)d << 32) | a;
+}
+
+static inline void gravar_msr(uint32_t msr, uint64_t v)
+{
+    __asm__ volatile("wrmsr" : : "c"(msr), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)) : "memory");
+}
+
 void paginacao_iniciar(void)
 {
-    conferir_cpu();
+    extern char _kernel_fim[];
     fim_mapa = calcular_fim_mapa();
+    bool grandes_ok = PAE || com_pse;   /* con PAE las páginas de 2 MB no necesitan PSE */
     uint32_t global = com_pge ? PG_GLOBAL : 0;
-    dir_kernel = pagina_zerada();
-    uint32_t *dir = (uint32_t *)dir_kernel;
-    /* Debajo de fim_mapa: 1:1 (4 MB por entrada con PSE). En la franja de
+    /* D349: el mapa 1:1 deja de ser ejecutable a partir del fin del kernel. Lo
+     * de debajo (el primer MB con el trampolín de las CPU secundarias y el
+     * propio kernel) sigue ejecutable. ent_valor() ignora PG_NX sin NX. */
+    uint32_t nx_desde = ((uint32_t)_kernel_fim + PAGINA - 1) & ~(PAGINA - 1);
+
+    dir_kernel = tabela_nova();
+    if (PAE) {
+        /* El PDPT y sus cuatro directorios, todos en la baja. */
+        uint64_t *pdpt = (uint64_t *)dir_kernel;
+        for (uint32_t j = 0; j < 4; j++)
+            pdpt[j] = tabela_nova() | PG_PRESENTE;   /* en el PDPT solo P (R/W y U/S son reservados) */
+    }
+    /* Debajo de fim_mapa: 1:1 (páginas grandes si se puede). En la franja de
      * ventanas: tablas vacías (pero existentes), para que todo proceso las
      * herede desde ya. Entre las dos: nada. */
     uint32_t grandes = 0, tabelas = 0;
     for (uint32_t i = 0; i < PDE_KERNEL; i++) {
-        uint32_t base = i << 22;
-        if (base < fim_mapa && com_pse && i > 0 && bloco_so_ram(base)) {
-            dir[i] = base | PG_4MB | global | PG_PRESENTE | PG_ESCRITA;
+        uint32_t base = i << d_desl;
+        void *pd = pde_de(dir_kernel, i);
+        if (base < fim_mapa && grandes_ok && i > 0 && bloco_so_ram(base, BLOCO)) {
+            ent_escrever(pd, ent_valor(base, PG_GRANDE | global | PG_PRESENTE | PG_ESCRITA |
+                                             (base >= nx_desde ? PG_NX : 0)));
             grandes++;
         } else if (base < fim_mapa) {
             tabelas++;
-            uint32_t *tab = (uint32_t *)tabela_nova();
-            for (uint32_t k = 0; k < ENTRADAS; k++)
-                tab[k] = (base + (k << 12)) | global | PG_PRESENTE | PG_ESCRITA;
-            dir[i] = (uint32_t)tab | PG_PRESENTE | PG_ESCRITA;
+            uint32_t tab = tabela_nova();
+            for (uint32_t k = 0; k < n_tab; k++) {
+                uint32_t a = base + (k << 12);
+                ent_escrever((uint8_t *)tab + k * t_ent,
+                             ent_valor(a, global | PG_PRESENTE | PG_ESCRITA | (a >= nx_desde ? PG_NX : 0)));
+            }
+            ent_escrever(pd, ent_valor(tab, PG_PRESENTE | PG_ESCRITA));
         } else if (base >= KERNEL_JANELAS) {
-            dir[i] = tabela_nova() | PG_PRESENTE | PG_ESCRITA;
+            ent_escrever(pd, ent_valor(tabela_nova(), PG_PRESENTE | PG_ESCRITA));
         }
     }
-    tabela_de(dir[0])[0] = 0;   /* página 0 ausente: puntero nulo genera falta */
+    ent_escrever(pte_de(ent_ler(pde_de(dir_kernel, 0)), 0), 0);   /* página 0 ausente: puntero nulo genera falta */
 
     /* El APIC local (D157): está en la memoria del sistema, fuera de la
      * RAM, así que necesita un mapa propio. Se mapea al final del espacio
@@ -151,17 +373,25 @@ void paginacao_iniciar(void)
      * cuando corre en el contexto de un programa (el planificador, por
      * ejemplo). */
     {
-        uint32_t *tab = (uint32_t *)tabela_nova();
-        tab[0] = (cpu_lapic_fisico() & MASCARA_END) | PG_PRESENTE | PG_ESCRITA;
+        uint32_t tab = tabela_nova();
+        ent_escrever((void *)tab, ent_valor(cpu_lapic_fisico(), PG_PRESENTE | PG_ESCRITA | PG_NX));
         /* Los IOAPIC (D166), en las páginas siguientes y sin caché. Mapear
          * no toca el hardware: sin --ioapic nadie los lee. */
         for (uint32_t i = 0; i < ioapic_quantidade() && i < IOAPIC_MAX; i++)
-            tab[1 + i] = (ioapic_fisico(i) & MASCARA_END) | PG_PCD | PG_PWT | PG_PRESENTE | PG_ESCRITA;
-        dir[1023] = (uint32_t)tab | PG_PRESENTE | PG_ESCRITA;
+            ent_escrever((uint8_t *)tab + (1 + i) * t_ent,
+                         ent_valor(ioapic_fisico(i), PG_PCD | PG_PWT | PG_PRESENTE | PG_ESCRITA | PG_NX));
+        ent_escrever(pde_de(dir_kernel, PDE_APIC), ent_valor(tab, PG_PRESENTE | PG_ESCRITA));
     }
 
-    if (com_pse)
-        __asm__ volatile("mov %%cr4, %%eax; or %0, %%eax; mov %%eax, %%cr4" : : "i"(CR4_PSE) : "eax", "memory");
+    uint32_t cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    if (com_pse) cr4 |= CR4_PSE;
+    if (PAE) cr4 |= CR4_PAE;
+    __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+    /* D349: EFER.NXE antes de la paginación: las tablas ya llevan el bit 63 y,
+     * sin NXE, es un bit reservado (fallo de página). Las CPU secundarias lo
+     * ponen en el trampolín. */
+    if (paginacao_bit_nx) gravar_msr(MSR_EFER, ler_msr(MSR_EFER) | EFER_NXE);
     espaco_ativar(dir_kernel);
     /* PG enciende la paginación; WP hace que el kernel también respete páginas sólo de
      * lectura; EM hace que cualquier instrucción de punto flotante genere excepción
@@ -171,25 +401,49 @@ void paginacao_iniciar(void)
     __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
     if (com_pge)
         __asm__ volatile("mov %%cr4, %%eax; or %0, %%eax; mov %%eax, %%cr4" : : "i"(CR4_PGE) : "eax", "memory");
-    klog("[SAGUI] paginacao: 1:1 ate %x (%u MB), %s, %u paginas de 4 MB e %u tabelas, PGE %s\n",
-         fim_mapa, fim_mapa >> 20, com_pse ? "paginas de 4 MB" : "tabelas de 4 KB", grandes, tabelas,
-         com_pge ? "sim" : "nao");
+    klog("[SAGUI] paginacao: 1:1 ate %x (%u MB), %s, %u grandes e %u tabelas, PGE %s, %s%s\n",
+         fim_mapa, fim_mapa >> 20, !grandes_ok ? "tabelas de 4 KB" : PAE ? "paginas de 2 MB" : "paginas de 4 MB",
+         grandes, tabelas,
+         com_pge ? "sim" : "nao", PAE ? "PAE (3 niveis)" : "2 niveis", paginacao_bit_nx ? ", NX ativo" : "");
 }
 
 uint32_t paginacao_fim_mapa(void) { return fim_mapa; }
-bool     paginacao_pse(void)      { return com_pse; }
+bool     paginacao_pse(void)      { return PAE || com_pse; }
 
 espaco_t espaco_kernel(void) { return dir_kernel; }
 
+/* ------------------------------------------------------------ los espacios */
+
 espaco_t espaco_criar(void)
 {
-    espaco_t e = pagina_zerada();
-    if (!e) return 0;
-    /* Se copia el directorio entero del kernel: las 512 primeras entradas son
-     * el mapa 1:1 y las ventanas, y la última (1023) es el APIC local (D157).
-     * Las entradas del programa (512 a 1022) están a cero. */
-    memcpy((void *)e, (void *)dir_kernel, 1024 * sizeof(uint32_t));
-    return e;
+    if (!PAE) {
+        espaco_t e = pagina_zerada();
+        if (!e) return 0;
+        /* Se copia el directorio entero del kernel: las 512 primeras entradas son
+         * el mapa 1:1 y las ventanas, y la última (1023) es el APIC local (D157).
+         * Las entradas del programa (512 a 1022) están a cero. */
+        memcpy((void *)e, (void *)dir_kernel, 1024 * sizeof(uint32_t));
+        return e;
+    }
+    /* D349: PDPT propio; los directorios 0 y 1 (0 a 2 GB) son los del kernel,
+     * compartidos; el 2 y el 3 son del programa, copiados de los del kernel
+     * (vacíos salvo la entrada del APIC). */
+    uint32_t pdpt = pagina_zerada(), d2 = pagina_zerada(), d3 = pagina_zerada();
+    if (!pdpt || !d2 || !d3) {
+        if (pdpt) memfisica_liberar(pdpt);
+        if (d2) memfisica_liberar(d2);
+        if (d3) memfisica_liberar(d3);
+        return 0;
+    }
+    const uint64_t *k = (const uint64_t *)dir_kernel;
+    memcpy((void *)d2, (void *)(uint32_t)(k[2] & END_32), PAGINA);
+    memcpy((void *)d3, (void *)(uint32_t)(k[3] & END_32), PAGINA);
+    uint64_t *n = (uint64_t *)pdpt;
+    n[0] = k[0];
+    n[1] = k[1];
+    n[2] = d2 | PG_PRESENTE;
+    n[3] = d3 | PG_PRESENTE;
+    return pdpt;
 }
 
 void espaco_destruir(espaco_t e)
@@ -197,14 +451,20 @@ void espaco_destruir(espaco_t e)
     if (!e || e == dir_kernel) return;
     if (espaco_atual() == e)
         espaco_ativar(dir_kernel);   /* nunca borrar el directorio en uso */
-    uint32_t *dir = (uint32_t *)e;
     for (uint32_t i = PDE_KERNEL; i < PDE_USUARIO_FIM; i++) {
-        if (!(dir[i] & PG_PRESENTE)) continue;
-        uint32_t *tab = tabela_de(dir[i]);
-        for (uint32_t k = 0; k < ENTRADAS; k++)
-            if ((tab[k] & PG_PRESENTE) && !(tab[k] & PG_EMPRESTADA))   /* las prestadas tienen otro dueño */
-                memfisica_liberar(tab[k] & MASCARA_END);
-        memfisica_liberar((uint32_t)tab);
+        pte_t pde = ent_ler(pde_de(e, i));
+        if (!(pde & PG_PRESENTE)) continue;
+        for (uint32_t k = 0; k < n_tab; k++) {
+            pte_t pte = ent_ler(pte_de(pde, k));
+            if ((pte & PG_PRESENTE) && !(pte & PG_EMPRESTADA))   /* las prestadas tienen otro dueño */
+                memfisica_liberar(ent_end(pte));
+        }
+        memfisica_liberar(ent_end(pde));
+    }
+    if (PAE) {
+        const uint64_t *pdpt = (const uint64_t *)e;
+        memfisica_liberar(pdpt[2] & END_32);
+        memfisica_liberar(pdpt[3] & END_32);
     }
     memfisica_liberar(e);
 }
@@ -216,45 +476,51 @@ void espaco_ativar(espaco_t e)
 
 espaco_t espaco_atual(void) { return le_cr3(); }
 
-bool espaco_mapear(espaco_t e, uint32_t virt, uint32_t fis, uint32_t flags)
+bool espaco_mapear(espaco_t e, uint32_t virt, fis_t fis, uint32_t flags)
 {
-    uint32_t *dir = (uint32_t *)e;
-    uint32_t i = virt >> 22, k = (virt >> 12) & 0x3FF;
-    if (grande(dir[i])) return false;   /* mapa 1:1 del kernel en 4 MB: no se toca */
-    if (!(dir[i] & PG_PRESENTE)) {
+    uint32_t i = virt >> d_desl, k = (virt >> 12) & (n_tab - 1);
+    void *pd = pde_de(e, i);
+    pte_t pde = ent_ler(pd);
+    if (grande(pde)) return false;   /* mapa 1:1 del kernel en páginas grandes: no se toca */
+    if (fis >= limite_fisico) return false;
+    if (!(pde & PG_PRESENTE)) {
         if (i < PDE_KERNEL) return false;   /* las tablas del kernel ya existen todas */
         uint32_t t = pagina_zerada();
         if (!t) return false;
-        dir[i] = t | PG_PRESENTE | PG_ESCRITA | PG_USUARIO;
+        pde = ent_valor(t, PG_PRESENTE | PG_ESCRITA | PG_USUARIO);
+        ent_escrever(pd, pde);
     }
-    tabela_de(dir[i])[k] = (fis & MASCARA_END) | flags | PG_PRESENTE;
+    pte_escrever(pte_de(pde, k), fis, flags | PG_PRESENTE);
     if (espaco_atual() == e || i < PDE_KERNEL)
         invalidar(virt);
     return true;
 }
 
-uint32_t espaco_traduzir(espaco_t e, uint32_t virt, uint32_t *flags)
+fis_t espaco_traduzir(espaco_t e, uint32_t virt, uint32_t *flags)
 {
-    uint32_t *dir = (uint32_t *)e;
-    uint32_t pde = dir[virt >> 22];
+    pte_t pde = ent_ler(pde_de(e, virt >> d_desl));
     if (!(pde & PG_PRESENTE)) return 0;
     if (grande(pde)) {
-        if (flags) *flags = pde & 0xFFF & ~PG_4MB;
-        return (pde & MASCARA_4MB) | (virt & ~MASCARA_4MB);
+        if (flags) *flags = ent_flags(pde) & ~(uint32_t)PG_GRANDE;
+        return (ent_end(pde) & ~(fis_t)(BLOCO - 1)) | (virt & (BLOCO - 1));
     }
-    uint32_t pte = tabela_de(pde)[(virt >> 12) & 0x3FF];
+    pte_t pte = ent_ler(pte_de(pde, (virt >> 12) & (n_tab - 1)));
     if (!(pte & PG_PRESENTE)) return 0;
-    if (flags) *flags = pte & pde & 0xFFF;   /* permiso efectivo: las dos tienen que permitir */
-    return (pte & MASCARA_END) | (virt & 0xFFF);
+    /* Permiso efectivo: las dos tienen que permitir (y NX en cualquiera de las dos prohíbe). */
+    if (flags) {
+        uint32_t fp = ent_flags(pte), fd = ent_flags(pde);
+        *flags = (fp & fd & ~(uint32_t)PG_NX) | ((fp | fd) & PG_NX);
+    }
+    return ent_end(pte) | (virt & 0xFFF);
 }
 
 bool espaco_alocar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t flags)
 {
-    uint32_t ini = virt & MASCARA_END, fim = (virt + bytes + PAGINA - 1) & MASCARA_END;
+    uint32_t ini = virt & ~(PAGINA - 1), fim = (virt + bytes + PAGINA - 1) & ~(PAGINA - 1);
     if (ini < USUARIO_INICIO || fim > USUARIO_FIM || fim < ini) return false;
     for (uint32_t v = ini; v < fim; v += PAGINA) {
         if (espaco_traduzir(e, v, NULL)) continue;   /* ya existe: mantiene */
-        uint32_t p = pagina_zerada();
+        fis_t p = pagina_usuario_zerada();
         if (!p || !espaco_mapear(e, v, p, flags)) {
             if (p) memfisica_liberar(p);
             return false;
@@ -263,41 +529,59 @@ bool espaco_alocar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t flags)
     return true;
 }
 
+void espaco_ajustar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t por, uint32_t tirar)
+{
+    uint32_t ini = virt & ~(PAGINA - 1), fim = (virt + bytes + PAGINA - 1) & ~(PAGINA - 1);
+    if (ini < USUARIO_INICIO || fim > USUARIO_FIM || fim < ini) return;
+    por &= PG_ESCRITA | PG_NX;
+    tirar &= PG_ESCRITA | PG_NX;
+    for (uint32_t v = ini; v < fim; v += PAGINA) {
+        pte_t pde = ent_ler(pde_de(e, v >> d_desl));
+        if (!(pde & PG_PRESENTE) || grande(pde)) continue;
+        void *p = pte_de(pde, (v >> 12) & (n_tab - 1));
+        pte_t pte = ent_ler(p);
+        if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) continue;
+        ent_trocar(p, bits_hw(por), bits_hw(tirar));   /* el marco no cambia: nunca P=0 */
+        if (espaco_atual() == e) invalidar(v);
+    }
+}
+
 void espaco_desmapear(espaco_t e, uint32_t virt)
 {
-    uint32_t *dir = (uint32_t *)e;
-    uint32_t pde = dir[virt >> 22];
+    pte_t pde = ent_ler(pde_de(e, virt >> d_desl));
     if (!(pde & PG_PRESENTE) || grande(pde)) return;
-    tabela_de(pde)[(virt >> 12) & 0x3FF] = 0;
+    ent_escrever(pte_de(pde, (virt >> 12) & (n_tab - 1)), 0);
     if (espaco_atual() == e) invalidar(virt);
 }
 
-uint32_t espaco_tirar(espaco_t e, uint32_t virt)
+fis_t espaco_tirar(espaco_t e, uint32_t virt)
 {
-    uint32_t *dir = (uint32_t *)e;
-    uint32_t pde = dir[virt >> 22];
-    if (!(pde & PG_PRESENTE) || grande(pde) || (virt >> 22) < PDE_KERNEL) return 0;
-    uint32_t *pte = &tabela_de(pde)[(virt >> 12) & 0x3FF];
+    if ((virt >> d_desl) < PDE_KERNEL) return 0;
+    pte_t pde = ent_ler(pde_de(e, virt >> d_desl));
+    if (!(pde & PG_PRESENTE) || grande(pde)) return 0;
+    void *p = pte_de(pde, (virt >> 12) & (n_tab - 1));
+    pte_t pte = ent_ler(p);
     /* La marca de prestada solo está en la PTE (espaco_traduzir la pierde al
      * combinarla con la PDE): por eso se mira aquí. */
-    if (!(*pte & PG_PRESENTE) || (*pte & PG_EMPRESTADA)) return 0;
-    uint32_t fis = *pte & MASCARA_END;
-    *pte = 0;
+    if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) return 0;
+    ent_escrever(p, 0);
     if (espaco_atual() == e) invalidar(virt);
-    return fis;
+    return ent_end(pte);
 }
 
 uint32_t espaco_paginas_usuario(espaco_t e)
 {
-    uint32_t *dir = (uint32_t *)e, n = 0;
+    uint32_t n = 0;
     for (uint32_t i = PDE_KERNEL; i < PDE_USUARIO_FIM; i++) {
-        if (!(dir[i] & PG_PRESENTE)) continue;
-        uint32_t *tab = tabela_de(dir[i]);
-        for (uint32_t k = 0; k < ENTRADAS; k++)
-            if (tab[k] & PG_PRESENTE) n++;
+        pte_t pde = ent_ler(pde_de(e, i));
+        if (!(pde & PG_PRESENTE)) continue;
+        for (uint32_t k = 0; k < n_tab; k++)
+            if (ent_ler(pte_de(pde, k)) & PG_PRESENTE) n++;
     }
     return n;
 }
+
+/* --------------------------------------------------------- las ventanas */
 
 uint32_t janela_mapear(uint32_t fis, uint32_t bytes)
 {
@@ -306,7 +590,8 @@ uint32_t janela_mapear(uint32_t fis, uint32_t bytes)
 
 /* "tipo" son los bits de tipo de memoria de la PTE (PG_PWT, PG_PCD, PG_PAT).
  * La franja de ventanas usa siempre tablas de 4 KB, así que cada página tiene su
- * propio tipo y nunca hay página grande con tipos mezclados (D010, D057). */
+ * propio tipo y nunca hay página grande con tipos mezclados (D010, D057).
+ * Nada de la franja se ejecuta: con NX, no ejecutable (D349). */
 uint32_t janela_mapear_tipo(uint32_t fis, uint32_t bytes, uint32_t tipo)
 {
     uint32_t desloc = fis & 0xFFF;
@@ -314,7 +599,7 @@ uint32_t janela_mapear_tipo(uint32_t fis, uint32_t bytes, uint32_t tipo)
     if (janela_proxima + paginas * PAGINA > USUARIO_INICIO) return 0;
     uint32_t virt = janela_proxima;
     for (uint32_t i = 0; i < paginas; i++)
-        espaco_mapear(dir_kernel, virt + i * PAGINA, (fis & MASCARA_END) + i * PAGINA, PG_ESCRITA | tipo);
+        espaco_mapear(dir_kernel, virt + i * PAGINA, (fis & ~(PAGINA - 1)) + i * PAGINA, PG_ESCRITA | PG_NX | tipo);
     janela_proxima += paginas * PAGINA;
     return virt + desloc;
 }
@@ -334,18 +619,25 @@ uint32_t janela_reservar(uint32_t bytes)
     return virt;
 }
 
-void janela_pagina(uint32_t virt, uint32_t fis, uint32_t tipo)
+void janela_pagina(uint32_t virt, fis_t fis, uint32_t tipo)
 {
     if (virt < KERNEL_JANELAS || virt >= USUARIO_INICIO) return;
-    espaco_mapear(dir_kernel, virt & MASCARA_END, fis & MASCARA_END, PG_ESCRITA | tipo);
+    espaco_mapear(dir_kernel, virt & ~(PAGINA - 1), fis & ~(fis_t)(PAGINA - 1), PG_ESCRITA | PG_NX | tipo);
+}
+
+void *janela_entrada(uint32_t virt)
+{
+    if (virt < KERNEL_JANELAS || virt >= USUARIO_INICIO) return NULL;
+    pte_t pde = ent_ler(pde_de(dir_kernel, virt >> d_desl));
+    if (!(pde & PG_PRESENTE) || grande(pde)) return NULL;
+    return pte_de(pde, (virt >> 12) & (n_tab - 1));
 }
 
 void janela_soltar(uint32_t virt)
 {
     if (virt < KERNEL_JANELAS || virt >= USUARIO_INICIO) return;
-    uint32_t *dir = (uint32_t *)dir_kernel;
-    uint32_t pde = dir[virt >> 22];
+    pte_t pde = ent_ler(pde_de(dir_kernel, virt >> d_desl));
     if (!(pde & PG_PRESENTE) || grande(pde)) return;
-    tabela_de(pde)[(virt >> 12) & 0x3FF] = 0;
-    invalidar(virt & MASCARA_END);   /* la tabla es de todos los espacios: siempre */
+    ent_escrever(pte_de(pde, (virt >> 12) & (n_tab - 1)), 0);
+    invalidar(virt & ~(PAGINA - 1));   /* la tabla es de todos los espacios: siempre */
 }
