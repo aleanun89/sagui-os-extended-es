@@ -1,0 +1,124 @@
+# Traducción de SaguiOS: catálogo «grabadora», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/grabadora.c:38 userland/programas/grabadora.c:81
+msgid "Grabar"
+msgstr "Gravar"
+
+#: userland/programas/grabadora.c:39 userland/programas/grabadora.c:82
+msgid "Reproducir"
+msgstr "Reproduzir"
+
+#: userland/programas/grabadora.c:40
+msgid "Guardar"
+msgstr "Salvar"
+
+#: userland/programas/grabadora.c:43 userland/programas/grabadora.c:83
+msgid "Prueba"
+msgstr "Teste"
+
+#: userland/programas/grabadora.c:59
+msgid "Los servicios no pueden grabar"
+msgstr "Os serviços não podem gravar"
+
+#: userland/programas/grabadora.c:59
+msgid "No hay micrófono (ninguna tarjeta con entrada de sonido). Prueba la fuente de prueba"
+msgstr "Não há microfone (nenhuma placa com entrada de som). Experimente a fonte de teste"
+
+#: userland/programas/grabadora.c:64
+msgid "Otro programa está usando el micrófono"
+msgstr "Outro programa está usando o microfone"
+
+#: userland/programas/grabadora.c:64
+#, c-format
+msgid "No se pudo abrir el micrófono (error %d)"
+msgstr "Não foi possível abrir o microfone (erro %d)"
+
+#: userland/programas/grabadora.c:81
+msgid "Parar"
+msgstr "Parar"
+
+#: userland/programas/grabadora.c:82
+msgid "Detener"
+msgstr "Parar"
+
+#: userland/programas/grabadora.c:83
+msgid "Micrófono"
+msgstr "Microfone"
+
+#: userland/programas/grabadora.c:86
+#, c-format
+msgid "Entrada: %s"
+msgstr "Entrada: %s"
+
+#: userland/programas/grabadora.c:99
+#, c-format
+msgid "Nivel: %u %%"
+msgstr "Nível: %u %%"
+
+#: userland/programas/grabadora.c:117
+#, c-format
+msgid "%s / %s   %s"
+msgstr "%s / %s   %s"
+
+#: userland/programas/grabadora.c:117
+msgid "grabando..."
+msgstr "gravando..."
+
+#: userland/programas/grabadora.c:117
+msgid "reproduciendo..."
+msgstr "reproduzindo..."
+
+#: userland/programas/grabadora.c:117
+msgid "guardada"
+msgstr "salva"
+
+#: userland/programas/grabadora.c:117
+msgid "sin guardar"
+msgstr "não salva"
+
+#: userland/programas/grabadora.c:135
+msgid "Sin memoria"
+msgstr "Sem memória"
+
+#: userland/programas/grabadora.c:148
+msgid "No hay tarjeta de sonido para reproducir"
+msgstr "Não há placa de som para reproduzir"
+
+#: userland/programas/grabadora.c:161
+msgid "Guardar grabación"
+msgstr "Salvar gravação"
+
+#: userland/programas/grabadora.c:161
+msgid "WAV (*.wav)|*.wav"
+msgstr "WAV (*.wav)|*.wav"
+
+#: userland/programas/grabadora.c:163
+#, c-format
+msgid "No se pudo crear %s (%d)"
+msgstr "Não foi possível criar %s (%d)"
+
+#: userland/programas/grabadora.c:173
+#, c-format
+msgid "Error al escribir %s"
+msgstr "Erro ao gravar %s"
+
+#: userland/programas/grabadora.c:182
+msgid "No se pudo cambiar de entrada"
+msgstr "Não foi possível trocar de entrada"
+
+#: userland/programas/grabadora.c:199
+msgid "Se alcanzó el máximo de 120 s"
+msgstr "Atingido o máximo de 120 s"
+
+#: userland/programas/grabadora.c:259
+msgid "Grabadora"
+msgstr "Gravador"
+

@@ -1101,6 +1101,7 @@ typedef struct {
 } gb_t;
 
 static gb_t gb_res;
+static bool gb_admin;   /* D346: pedir ser administrador para la autoprueba del acelerador (la medida por la GPU) */
 static bool gb_tem;
 static char gb_arquivo[96];
 
@@ -1291,11 +1292,16 @@ static void gb_executar(gb_t *r)
     memset(&k, 0, sizeof k);
     /* La autoprueba toca la GPU: el kernel solo la deja al administrador (ERRO_ACESSO si no). Antes no se miraba el
      * resultado de la llamada y, sin permisos, k quedaba a cero: «resultado 0» = «FALLÓ la autoprueba ()» (issue #43). */
-    int ra = COM_ADMIN("medir el 2D por la GPU", info_sistema(INFO_ACEL2D_PROVA, &k, sizeof k));
+    /* D346: sin pedir nada por defecto. La autoprueba escribe en la memoria de vídeo, enciende el motor y puede
+     * colgar la GPU, así que sigue siendo cosa del administrador; pero medir no la necesita: el banco corre
+     * fuera de pantalla (búfer propio) y en la ventana de infopc. Solo con «--admin» (o el botón «Medir con
+     * la GPU») se pide ser administrador; root la hace siempre. */
+    int ra = gb_admin ? COM_ADMIN("medir el 2D por la GPU", info_sistema(INFO_ACEL2D_PROVA, &k, sizeof k))
+                      : sou_root() ? info_sistema(INFO_ACEL2D_PROVA, &k, sizeof k) : ERRO_ACESSO;
     if (ra != 0) {
         memset(&k, 0, sizeof k);
         k.resultado = -1;
-        copia_texto(k.texto, ra == ERRO_ACESSO ? "medir con la GPU pide ser administrador: se mide solo por software"
+        copia_texto(k.texto, ra == ERRO_ACESSO ? "medir con la GPU pide ser administrador (--admin o «Medir con la GPU»): se mide solo por software, fuera de pantalla"
                                                 : "el kernel no da la autoprueba del acelerador", sizeof k.texto);
     }
     copia_texto(r->motivo, k.texto, sizeof r->motivo);
@@ -1527,6 +1533,12 @@ static void secao_gpu(texto_t *t)
         if (ac.apagado) ad(t, "  Apagado:         %s (acel2d encender lo repite)\n", ac.apagado == 2 ? "a mano" : "por el vigilante: la GPU no respondió a tiempo");
         if (ac.ativo)
             ad(t, "  Órdenes de la GPU: %u copias, %u rellenos, %u fallos\n", ac.copias, ac.rellenos, ac.falhas);
+        /* D346: el reparto (sin ser administrador) */
+        ad(t, "  Reparto GPU / software (desde el arranque; copias y rellenos son lo único que acelera la GPU):\n");
+        ad(t, "    GPU:      %u copias (%u kpíxeles), %u rellenos (%u kpíxeles)\n", ac.copias, ac.kpx_gpu_copias, ac.rellenos, ac.kpx_gpu_rellenos);
+        ad(t, "    Software: %u mover ventanas (%u kpx), %u desplazar consola (%u kpx), %u rellenos (%u kpx), %u volcados a pantalla (%u kpx)\n",
+           ac.sw_ops[0], ac.sw_kpx[0], ac.sw_ops[1], ac.sw_kpx[1], ac.sw_ops[2], ac.sw_kpx[2], ac.sw_ops[3], ac.sw_kpx[3]);
+        ad(t, "    Líneas, texto, mezclas y el dibujo dentro de cada ventana: siempre por software (ninguna GPU soportada los acelera).\n");
         if (ac.us_gpu || ac.us_cpu) ad(t, "  Velocidad al arrancar: GPU %u us, CPU %u us\n", ac.us_gpu, ac.us_cpu);
     } else {
         ad(t, "Acelerador 2D:    por software (CPU): sin modo gráfico\n");
@@ -2007,6 +2019,7 @@ static botao_t b_rapido = { 10, BASE_Y + 6, 150, 28, "Medir (rápido)", false };
 static botao_t b_preciso = { 170, BASE_Y + 6, 150, 28, "Medir (preciso)", false };
 static botao_t b_um = { 10, BASE_Y + 6, 190, 28, "Prueba de un núcleo", false };
 static botao_t b_gpu = { 10, BASE_Y + 6, 150, 28, "Medir", false };
+static botao_t b_gpua = { 170, BASE_Y + 6, 190, 28, "Medir con la GPU", false };   /* D346: pide ser administrador */
 static botao_t b_multi = { 210, BASE_Y + 6, 190, 28, "Prueba multinúcleo", false };
 
 static void desenhar_base(jan_t *j, int sel)
@@ -2018,7 +2031,8 @@ static void desenhar_base(jan_t *j, int sel)
         g_texto(j, 340, BASE_Y + 12, "Teclas: R rápido, P preciso", COR_TEXTO_FRACO);
     } else if (sel == ABA_GPU) {
         botao_desenhar(j, &b_gpu);
-        g_texto(j, 180, BASE_Y + 12, "Tecla: M mide el 2D (GPU y CPU)", COR_TEXTO_FRACO);
+        botao_desenhar(j, &b_gpua);
+        g_texto(j, 370, BASE_Y + 12, "M mide sin permisos; G con la GPU (admin)", COR_TEXTO_FRACO);
     } else if (sel == ABA_REND) {
         botao_desenhar(j, &b_um);
         botao_desenhar(j, &b_multi);
@@ -2087,8 +2101,9 @@ static void medir(jan_t *j, area_t *a, texto_t *t, int modo)
     mostrar_secao(j, a, t, ABA_BENCH);
 }
 
-static void medir_gpu(jan_t *j, area_t *a, texto_t *t)
+static void medir_gpu(jan_t *j, area_t *a, texto_t *t, bool admin)
 {
+    gb_admin = admin;
     static const char aviso[] = "Midiendo el 2D (GPU y CPU)... no toques nada hasta que termine.\n";
     area_definir(a, aviso, (int)sizeof aviso - 1);
     area_desenhar(j, a);
@@ -2107,6 +2122,7 @@ static const struct { const char *nome, *grupo; } rd_nomes[RD_CARGAS] = {
 
 static struct {
     bool     tem, multi, correndo;
+    bool     x87[RD_CARGAS];                /* variante x87 (CPU sin SSE2, D343) */
     int      estado[RD_CARGAS];             /* 0 = n/d, 1 = ok, 2 = error */
     unsigned mono[RD_CARGAS], var[RD_CARGAS], mp[RD_CARGAS], mh[RD_CARGAS];
     unsigned tmono, tmp, tmh, esc, efi;     /* esc = escala x100, efi = % */
@@ -2166,7 +2182,11 @@ static void rd_desenhar(jan_t *j)
     for (int i = 0; i < RD_CARGAS; i++) {
         int y = yf + i * paso;
         g_texto(j, 14, y + 8, rd_nomes[i].nome, COR_TEXTO);
-        g_texto(j, 96, y + 8, rd_nomes[i].grupo, COR_TEXTO_FRACO);
+        if (rd.x87[i]) {   /* CPU sin SSE2: la carga corrió con la FPU x87 (D343) */
+            char gx[24];
+            formatar_texto(gx, sizeof gx, "%s x87", rd_nomes[i].grupo);
+            g_texto(j, 96, y + 8, gx, COR_TEXTO_FRACO);
+        } else g_texto(j, 96, y + 8, rd_nomes[i].grupo, COR_TEXTO_FRACO);
         if (rd.correndo) {
             int sw = 240 / fases;
             for (int f = 0; f < fases; f++) {
@@ -2262,6 +2282,7 @@ static void rd_linha(char *l)
                 if (compara_texto(w[1], rd_nomes[i].nome) == 0) {
                     rd.estado[i] = v[2]; rd.mono[i] = (unsigned)v[3]; rd.var[i] = (unsigned)v[4];
                     rd.mp[i] = (unsigned)v[5]; rd.mh[i] = (unsigned)v[6];
+                    rd.x87[i] = n >= 9 && v[7] == 1;
                 }
         break;
     case 'T':
@@ -2389,7 +2410,8 @@ static int modo_janela(void)
             else if (e.tecla >= '1' && e.tecla < '1' + (unsigned)QTD_SECOES) nova = (int)(e.tecla - '1');
             else if (sel == ABA_BENCH && (e.tecla == 'r' || e.tecla == 'R')) { medir(j, &a, &t, SM_RAPIDO); continue; }
             else if (sel == ABA_BENCH && (e.tecla == 'p' || e.tecla == 'P')) { medir(j, &a, &t, SM_PRECISO); continue; }
-            else if (sel == ABA_GPU && (e.tecla == 'm' || e.tecla == 'M')) { medir_gpu(j, &a, &t); continue; }
+            else if (sel == ABA_GPU && (e.tecla == 'm' || e.tecla == 'M')) { medir_gpu(j, &a, &t, false); continue; }
+            else if (sel == ABA_GPU && (e.tecla == 'g' || e.tecla == 'G')) { medir_gpu(j, &a, &t, true); continue; }
             else if (sel == ABA_REND && (e.tecla == 'u' || e.tecla == 'U')) { if (rd_correr(j, false)) break; continue; }
             else if (sel == ABA_REND && (e.tecla == 'm' || e.tecla == 'M')) { if (rd_correr(j, true)) break; continue; }
         }
@@ -2398,7 +2420,8 @@ static int modo_janela(void)
             mostrar_secao(j, &a, &t, sel);
             continue;
         }
-        if (sel == ABA_GPU && botao_tratar(j, &b_gpu, &e)) { medir_gpu(j, &a, &t); continue; }
+        if (sel == ABA_GPU && botao_tratar(j, &b_gpu, &e)) { medir_gpu(j, &a, &t, false); continue; }
+        if (sel == ABA_GPU && botao_tratar(j, &b_gpua, &e)) { medir_gpu(j, &a, &t, true); continue; }
         if (sel == ABA_REND && botao_tratar(j, &b_um, &e)) { if (rd_correr(j, false)) break; continue; }
         if (sel == ABA_REND && botao_tratar(j, &b_multi, &e)) { if (rd_correr(j, true)) break; continue; }
         if (sel == ABA_REND) continue;
@@ -2417,7 +2440,7 @@ static void uso(void)
              "     infopc --informe [archivo]\n"
              "                          escribe un informe de compatibilidad (.txt) en /home,\n"
              "                          en el pendrive (/usb) o en /tmp; ver docs/compatibilidad.md\n"
-             "     infopc --bench-gpu   mide el 2D por la GPU y por software y lo guarda en /home/saguimark-gpu-*.txt\n"
+             "     infopc --bench-gpu [--admin]   mide el 2D por la GPU y por software y lo guarda en /home/saguimark-gpu-*.txt\n"
              "Secciones: cpu, memoria, placa, pci, video, sistema, benchmark, rendimiento, gpu\n");
 }
 
@@ -2432,6 +2455,7 @@ int principal(int argc, char **argv)
         return informe(argc >= 3 ? argv[2] : NULL);
     if (argc >= 2 && compara_texto(argv[1], "--bench-gpu") == 0) {
         texto_t t = { 0 };
+        gb_admin = argc >= 3 && compara_texto(argv[2], "--admin") == 0;
         gb_medir_e_guardar();
         secao_gpu(&t);
         escrever_tudo(SAIDA, t.p, (unsigned)t.tam);

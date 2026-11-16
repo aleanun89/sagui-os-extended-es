@@ -1,0 +1,105 @@
+# Traducción de SaguiOS: catálogo «musica», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/musica.c:72 userland/programas/musica.c:161
+msgid "Reproducir"
+msgstr "Play"
+
+#: userland/programas/musica.c:73
+msgid "Parar"
+msgstr "Stop"
+
+#: userland/programas/musica.c:161
+msgid "Pausa"
+msgstr "Pause"
+
+#: userland/programas/musica.c:227
+msgid "estéreo"
+msgstr "stereo"
+
+#: userland/programas/musica.c:229
+msgid " (VBR)"
+msgstr " (VBR)"
+
+#: userland/programas/musica.c:242
+msgid "Lista vacía"
+msgstr "Empty list"
+
+#: userland/programas/musica.c:243
+#, c-format
+msgid "%s  |  pista %d de %d"
+msgstr "%s  |  track %d of %d"
+
+#: userland/programas/musica.c:243
+msgid "Reproduciendo"
+msgstr "Playing"
+
+#: userland/programas/musica.c:243
+msgid "En pausa"
+msgstr "Paused"
+
+#: userland/programas/musica.c:243
+msgid "Detenido"
+msgstr "Stopped"
+
+#: userland/programas/musica.c:252
+#, c-format
+msgid "%s - Música"
+msgstr "%s - Music"
+
+#: userland/programas/musica.c:253 userland/programas/musica.c:688
+msgid "Música"
+msgstr "Music"
+
+#: userland/programas/musica.c:272
+msgid "La lista está vacía."
+msgstr "The list is empty."
+
+#: userland/programas/musica.c:306
+msgid "No hay tarjeta de sonido (solo el altavoz del PC): no se puede reproducir"
+msgstr "No sound card (only the PC speaker): cannot play"
+
+#: userland/programas/musica.c:307
+#, c-format
+msgid "No se puede abrir el sonido: %s"
+msgstr "Cannot open the sound device: %s"
+
+#: userland/programas/musica.c:328
+#, c-format
+msgid "%s: Ogg Vorbis todavía no está soportado"
+msgstr "%s: Ogg Vorbis is not supported yet"
+
+#: userland/programas/musica.c:400
+#, c-format
+msgid "No se puede saltar: %s"
+msgstr "Cannot seek: %s"
+
+#: userland/programas/musica.c:469
+msgid "Lista llena"
+msgstr "List full"
+
+#: userland/programas/musica.c:479
+#, c-format
+msgid "%s: no existe"
+msgstr "%s: does not exist"
+
+#: userland/programas/musica.c:498
+#, c-format
+msgid "No hay archivos de sonido en %s"
+msgstr "There are no sound files in %s"
+
+#: userland/programas/musica.c:511
+msgid ""
+"¿Añadir una carpeta entera?\n"
+"Sí: elegir una carpeta.  No: elegir un archivo de sonido."
+msgstr ""
+"Add a whole folder?\n"
+"Yes: choose a folder.  No: choose a sound file."
+

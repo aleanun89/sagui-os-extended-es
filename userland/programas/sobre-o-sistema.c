@@ -45,27 +45,27 @@ static void informacoes(jan_t *j)
     int procs = info_sistema(INFO_PROCESSOS, p, 64);
     char t[96];
     g_retangulo(j, 20, 128, 400, 164, COR_FUNDO);
-    formatar_texto(t, sizeof t, "Versión:             %s", v.versao);
+    formatar_texto(t, sizeof t, _("Versión:             %s"), v.versao);
     g_texto(j, 20, 128, t, COR_TEXTO);
     /* Tamaño en KB con una cifra decimal, solo con enteros. */
     /* meta de 38 MB = 39845888 bytes (D181): arranque + particiones del sistema; décimas de % */
     unsigned kb10 = v.imagem_bytes / 1024 * 10 + v.imagem_bytes % 1024 * 10 / 1024, pct10 = v.imagem_bytes / 39846;
-    formatar_texto(t, sizeof t, "Tamaño de imagen:    %u,%u KB (%u,%u%% de 38 MB)", kb10 / 10, kb10 % 10, pct10 / 10, pct10 % 10);
+    formatar_texto(t, sizeof t, _("Tamaño de imagen:    %u,%u KB (%u,%u%% de 38 MB)"), kb10 / 10, kb10 % 10, pct10 / 10, pct10 % 10);
     g_texto(j, 20, 146, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Procesos activos:    %d", procs);
+    formatar_texto(t, sizeof t, _("Procesos activos:    %d"), procs);
     g_texto(j, 20, 164, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Memoria libre:       %u MB de %u MB", mem.livre_kb / 1024, mem.gerida_kb / 1024);
+    formatar_texto(t, sizeof t, _("Memoria libre:       %u MB de %u MB"), mem.livre_kb / 1024, mem.gerida_kb / 1024);
     g_texto(j, 20, 182, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Pantalla:            %ux%u", v.largura, v.altura);
+    formatar_texto(t, sizeof t, _("Pantalla:            %ux%u"), v.largura, v.altura);
     g_texto(j, 20, 200, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Encendido hace:      %u min %02u s", v.segundos_ligado / 60, v.segundos_ligado % 60);
+    formatar_texto(t, sizeof t, _("Encendido hace:      %u min %02u s"), v.segundos_ligado / 60, v.segundos_ligado % 60);
     g_texto(j, 20, 218, t, COR_TEXTO);
     /* Datos de la compilación (D126): fecha y hora, commit y variante. */
-    formatar_texto(t, sizeof t, "Compilación:         %s %s", SAGUI_BUILD_DATA, SAGUI_BUILD_HORA);
+    formatar_texto(t, sizeof t, _("Compilación:         %s %s"), SAGUI_BUILD_DATA, SAGUI_BUILD_HORA);
     g_texto(j, 20, 236, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Commit:              %s", SAGUI_BUILD_COMMIT);
+    formatar_texto(t, sizeof t, _("Commit:              %s"), SAGUI_BUILD_COMMIT);
     g_texto(j, 20, 254, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Variante:            %s", SAGUI_VARIANTE);
+    formatar_texto(t, sizeof t, _("Variante:            %s"), SAGUI_VARIANTE);
     g_texto(j, 20, 272, t, COR_TEXTO);
     jan_mostrar_area(j, 20, 128, 400, 164);
     static bool registrado;
@@ -79,22 +79,22 @@ static void informacoes(jan_t *j)
 /* Las líneas de los créditos. El número de líneas sale del propio array, para
  * no tener que contarlas a mano: si se contaran mal, el bucle leería de más y
  * el programa se iría al traste (D126). */
-static const char *const creditos[] = {
-    "Basado en SaguiOS, proyecto original de",
+static const char *const creditos[] = {   /* se traducen al dibujarlos (las que llevan # son nombres propios) */
+    N_("Basado en SaguiOS, proyecto original de"),
     "#Eli Rigobeli (github.com/erigobeli/sagui-os),",
-    "escrito por Claude (Anthropic).",
+    N_("escrito por Claude (Anthropic)."),
     "",
-    "Red (driver e1000, TCP/IP) y navegador Cipó:",
+    N_("Red (driver e1000, TCP/IP) y navegador Cipó:"),
     "#M4R4G0N",
     "",
     SAGUI_NOME ": mantenido por",
     "#Alejandro Anuncibay,",
-    "con mejoras escritas con Claude (Anthropic)",
-    "y con un agente de IA (MiniMax Code).",
+    N_("con mejoras escritas con Claude (Anthropic)"),
+    N_("y con un agente de IA (MiniMax Code)."),
     "",
-    "Código de terceros: MicroPython (MIT), libm",
-    "(musl/FreeBSD), partes de drivers de Linux",
-    "(GPLv2). Ver docs/terceros.md.",
+    N_("Código de terceros: MicroPython (MIT), libm"),
+    N_("(musl/FreeBSD), partes de drivers de Linux"),
+    N_("(GPLv2). Ver docs/terceros.md."),
     "",
 };
 
@@ -105,10 +105,11 @@ static void pagina_creditos(jan_t *j)
     const char *const *l = creditos;
     int n_linhas = (int)(sizeof creditos / sizeof creditos[0]);
     g_retangulo(j, 0, 112, 440, 300, COR_FUNDO);
-    g_texto(j, 20, 118, "Créditos", COR_DESTAQUE);
+    g_texto(j, 20, 118, _("Créditos"), COR_DESTAQUE);
     int y = 140;
     for (int i = 0; i < n_linhas; i++) {
         const char *t = l[i];
+        if (t[0] && t[0] != '#') t = _(t);
         uint32_t cor = COR_TEXTO;
         if (t[0] == '#') { t++; cor = COR_DESTAQUE; }
         if (t[0]) g_texto(j, 20, y, t, cor);
@@ -120,12 +121,12 @@ static void pagina_creditos(jan_t *j)
 static void pagina_info(jan_t *j)
 {
     g_retangulo(j, 0, 112, 440, 300, COR_FUNDO);
-    g_texto(j, 20, 302, "Créditos", COR_DESTAQUE);
-    g_texto(j, 20, 320, "Basado en SaguiOS, de Eli Rigobeli (Claude,", COR_TEXTO);
-    g_texto(j, 20, 338, "Anthropic). Mantenido por Alejandro Anuncibay,", COR_TEXTO);
-    g_texto(j, 20, 356, "con mejoras escritas con Claude (Anthropic)", COR_TEXTO);
-    g_texto(j, 20, 374, "y con un agente de IA (MiniMax Code).", COR_TEXTO);
-    g_texto(j, 20, 392, "Pulsa \"Créditos\" para ver los créditos", COR_TEXTO);
+    g_texto(j, 20, 302, _("Créditos"), COR_DESTAQUE);
+    g_texto(j, 20, 320, _("Basado en SaguiOS, de Eli Rigobeli (Claude,"), COR_TEXTO);
+    g_texto(j, 20, 338, _("Anthropic). Mantenido por Alejandro Anuncibay,"), COR_TEXTO);
+    g_texto(j, 20, 356, _("con mejoras escritas con Claude (Anthropic)"), COR_TEXTO);
+    g_texto(j, 20, 374, _("y con un agente de IA (MiniMax Code)."), COR_TEXTO);
+    g_texto(j, 20, 392, _("Pulsa \"Créditos\" para ver los créditos"), COR_TEXTO);
     informacoes(j);
     jan_mostrar_area(j, 0, 112, 440, 300);
 }
@@ -133,17 +134,17 @@ static void pagina_info(jan_t *j)
 int principal(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    jan_t *j = jan_abrir("Acerca de " SAGUI_NOME, 440, 460);
+    jan_t *j = jan_abrir(_("Acerca de SaguiOS-Extended"), 440, 460);
     if (!j) return 1;
     g_retangulo(j, 0, 0, 440, 110, 0x0B7A3E);
     g_desenho(j, 20, 14, cabeca, 32, 16, paleta, 5);
     g_texto(j, 200, 22, SAGUI_NOME, 0xFFDF4A);
     g_texto(j, 200, 42, SAGUI_VERSAO, 0xFFDF4A);
-    g_texto(j, 200, 64, "un sistema operativo", 0xFFFFFF);
-    g_texto(j, 200, 82, "escrito desde cero", 0xFFFFFF);
+    g_texto(j, 200, 64, _("un sistema operativo"), 0xFFFFFF);
+    g_texto(j, 200, 82, _("escrito desde cero"), 0xFFFFFF);
     bool creditos = false;
-    botao_t fechar = { 440 - 110, 420, 90, 26, "Cerrar", false };
-    botao_t trocar = { 20, 420, 110, 26, "Créditos", false };
+    botao_t fechar = { 440 - 110, 420, 90, 26, _("Cerrar"), false };
+    botao_t trocar = { 20, 420, 110, 26, _("Créditos"), false };
     botao_desenhar(j, &fechar);
     botao_desenhar(j, &trocar);
     pagina_info(j);
@@ -156,7 +157,7 @@ int principal(int argc, char **argv)
             if (botao_tratar(j, &fechar, &e)) break;
             if (botao_tratar(j, &trocar, &e)) {
                 creditos = !creditos;
-                trocar.texto = creditos ? "Información" : "Créditos";
+                trocar.texto = creditos ? _("Información") : _("Créditos");
                 g_retangulo(j, 20, 420, 110, 26, COR_FUNDO);
                 botao_desenhar(j, &trocar);
                 jan_mostrar_area(j, 20, 420, 110, 26);

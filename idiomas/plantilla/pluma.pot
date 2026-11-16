@@ -1,0 +1,746 @@
+# Traducción de SaguiOS: catálogo «pluma», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/pluma.c:252
+msgid "Documento1"
+msgstr ""
+
+#: userland/programas/pluma.c:260
+#, c-format
+msgid "%s - Pluma%s"
+msgstr ""
+
+#: userland/programas/pluma.c:272
+#, c-format
+msgid "Pág. %d/%d"
+msgstr ""
+
+#: userland/programas/pluma.c:274
+#, c-format
+msgid "Lín %d"
+msgstr ""
+
+#: userland/programas/pluma.c:276
+#, c-format
+msgid "Col %d"
+msgstr ""
+
+#: userland/programas/pluma.c:280 userland/programas/pluma_cinta.h:65
+msgid "Carta"
+msgstr ""
+
+#: userland/programas/pluma.c:280
+msgid "Personal."
+msgstr ""
+
+#: userland/programas/pluma.c:282
+msgid "Modificado"
+msgstr ""
+
+#: userland/programas/pluma.c:433
+msgid "Archivo"
+msgstr ""
+
+#: userland/programas/pluma.c:433 userland/programas/pluma_cinta.h:94
+msgid "Edición"
+msgstr ""
+
+#: userland/programas/pluma.c:433
+msgid "Ver"
+msgstr ""
+
+#: userland/programas/pluma.c:433 userland/programas/pluma_cinta.h:116
+msgid "Insertar"
+msgstr ""
+
+#: userland/programas/pluma.c:433 userland/programas/pluma_cinta.h:103
+msgid "Formato"
+msgstr ""
+
+#: userland/programas/pluma.c:433
+msgid "Herramientas"
+msgstr ""
+
+#: userland/programas/pluma.c:433
+msgid "Ayuda"
+msgstr ""
+
+#: userland/programas/pluma.c:435
+msgid "Nuevo"
+msgstr ""
+
+#: userland/programas/pluma.c:435
+msgid "Abrir..."
+msgstr ""
+
+#: userland/programas/pluma.c:435 userland/programas/pluma_cinta.h:16
+msgid "Guardar"
+msgstr ""
+
+#: userland/programas/pluma.c:435
+msgid "Guardar como..."
+msgstr ""
+
+#: userland/programas/pluma.c:435
+msgid "Exportar a PDF..."
+msgstr ""
+
+#: userland/programas/pluma.c:435 userland/programas/pluma_cinta.h:64
+msgid "Papel A4"
+msgstr ""
+
+#: userland/programas/pluma.c:435 userland/programas/pluma_cinta.h:65
+msgid "Papel Carta"
+msgstr ""
+
+#: userland/programas/pluma.c:435
+msgid "Salir"
+msgstr ""
+
+#: userland/programas/pluma.c:436 userland/programas/pluma_cinta.h:17
+msgid "Deshacer"
+msgstr ""
+
+#: userland/programas/pluma.c:436 userland/programas/pluma_cinta.h:18
+msgid "Rehacer"
+msgstr ""
+
+#: userland/programas/pluma.c:436 userland/programas/pluma.c:1125 userland/programas/pluma_cinta.h:23
+msgid "Cortar"
+msgstr ""
+
+#: userland/programas/pluma.c:436 userland/programas/pluma.c:1125 userland/programas/pluma_cinta.h:24
+msgid "Copiar"
+msgstr ""
+
+#: userland/programas/pluma.c:436 userland/programas/pluma.c:1125 userland/programas/pluma_cinta.h:22
+msgid "Pegar"
+msgstr ""
+
+#: userland/programas/pluma.c:436 userland/programas/pluma_cinta.h:50
+msgid "Seleccionar todo"
+msgstr ""
+
+#: userland/programas/pluma.c:436
+msgid "Buscar..."
+msgstr ""
+
+#: userland/programas/pluma.c:436
+msgid "Reemplazar..."
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Zoom 50%"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Zoom 75%"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Zoom 100%"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Zoom 150%"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Zoom 200%"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Mostrar u ocultar la regla"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Mostrar u ocultar la barra Dibujo"
+msgstr ""
+
+#: userland/programas/pluma.c:437 userland/programas/pluma_cinta.h:53
+msgid "Asistente IA"
+msgstr ""
+
+#: userland/programas/pluma.c:437
+msgid "Cinta (estilo moderno)"
+msgstr ""
+
+#: userland/programas/pluma.c:438 userland/programas/pluma_cinta.h:60
+msgid "Fecha"
+msgstr ""
+
+#: userland/programas/pluma.c:438 userland/programas/pluma_cinta.h:61
+msgid "Salto de página"
+msgstr ""
+
+#: userland/programas/pluma.c:438
+msgid "Imagen..."
+msgstr ""
+
+#: userland/programas/pluma.c:438
+msgid "WordArt..."
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:68
+msgid "Fuente..."
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:69
+msgid "Párrafo..."
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:40
+msgid "Viñetas"
+msgstr ""
+
+#: userland/programas/pluma.c:439
+msgid "Negrita"
+msgstr ""
+
+#: userland/programas/pluma.c:439
+msgid "Cursiva"
+msgstr ""
+
+#: userland/programas/pluma.c:439
+msgid "Subrayado"
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:36
+msgid "Alinear a la izquierda"
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:37
+msgid "Centrar"
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:38
+msgid "Alinear a la derecha"
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:39 userland/programas/pluma_cinta.h:39
+msgid "Justificar"
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:42
+msgid "Aumentar sangría"
+msgstr ""
+
+#: userland/programas/pluma.c:439 userland/programas/pluma_cinta.h:41
+msgid "Disminuir sangría"
+msgstr ""
+
+#: userland/programas/pluma.c:439
+msgid "Formato de imagen..."
+msgstr ""
+
+#: userland/programas/pluma.c:439
+msgid "Editar WordArt..."
+msgstr ""
+
+#: userland/programas/pluma.c:440
+msgid "Contar palabras..."
+msgstr ""
+
+#: userland/programas/pluma.c:440
+msgid "Asistente IA: Resumir la selección"
+msgstr ""
+
+#: userland/programas/pluma.c:440
+msgid "Asistente IA: Corregir la selección"
+msgstr ""
+
+#: userland/programas/pluma.c:440 userland/programas/pluma.c:1125
+msgid "Asistente IA: Traducir al inglés"
+msgstr ""
+
+#: userland/programas/pluma.c:440 userland/programas/pluma.c:1125
+msgid "Asistente IA: Reescribir más formal"
+msgstr ""
+
+#: userland/programas/pluma.c:440 userland/programas/pluma.c:1125
+msgid "Asistente IA: Reescribir más informal"
+msgstr ""
+
+#: userland/programas/pluma.c:441 userland/programas/pluma.c:1302
+msgid "Acerca de Pluma"
+msgstr ""
+
+#: userland/programas/pluma.c:453
+msgid "Documentos (*.rtf;*.txt)|*.rtf;*.txt|Todos los archivos (*.*)|*"
+msgstr ""
+
+#: userland/programas/pluma.c:454
+msgid "Documento RTF (*.rtf)|*.rtf|Texto (*.txt)|*.txt"
+msgstr ""
+
+#: userland/programas/pluma.c:455
+msgid "Documento PDF (*.pdf)|*.pdf"
+msgstr ""
+
+#: userland/programas/pluma.c:518
+#, c-format
+msgid "Fuente no instalada, sustituida: %s"
+msgstr ""
+
+#: userland/programas/pluma.c:567
+msgid "Dibujo"
+msgstr ""
+
+#: userland/programas/pluma.c:578
+msgid "Guardar como"
+msgstr ""
+
+#: userland/programas/pluma.c:579 userland/programas/pluma.c:589
+msgid "No se ha podido guardar el documento."
+msgstr ""
+
+#: userland/programas/pluma.c:598
+msgid ""
+"El documento tiene cambios sin guardar.\n"
+"¿Guardarlos antes de continuar?"
+msgstr ""
+
+#: userland/programas/pluma.c:611
+msgid "Exportar a PDF"
+msgstr ""
+
+#: userland/programas/pluma.c:612
+msgid "No se ha podido exportar el PDF."
+msgstr ""
+
+#: userland/programas/pluma.c:615
+#, c-format
+msgid ""
+"PDF creado: %s\n"
+"%d página(s)."
+msgstr ""
+
+#: userland/programas/pluma.c:629
+msgid "No se encuentra el texto buscado."
+msgstr ""
+
+#: userland/programas/pluma.c:639
+#, c-format
+msgid "Se han hecho %d reemplazos."
+msgstr ""
+
+#: userland/programas/pluma.c:695
+msgid "Imágenes (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*"
+msgstr ""
+
+#: userland/programas/pluma.c:701
+msgid "Insertar imagen"
+msgstr ""
+
+#: userland/programas/pluma.c:704
+msgid ""
+"No se ha podido leer la imagen.\n"
+"Se aceptan BMP, PNG, JPEG baseline y GIF."
+msgstr ""
+
+#: userland/programas/pluma.c:707
+msgid "No hay sitio para más imágenes en el documento."
+msgstr ""
+
+#: userland/programas/pluma.c:722
+msgid "No se ha podido crear el WordArt."
+msgstr ""
+
+#: userland/programas/pluma.c:730
+msgid "Seleccione primero una imagen o un WordArt (clic sobre ella)."
+msgstr ""
+
+#: userland/programas/pluma.c:744
+msgid "Seleccione primero un WordArt (clic sobre él)."
+msgstr ""
+
+#: userland/programas/pluma.c:804
+msgid "No se ha podido crear el panel del asistente."
+msgstr ""
+
+#: userland/programas/pluma.c:1118
+msgid "Seleccione primero el texto con el que trabajar."
+msgstr ""
+
+#: userland/programas/pluma.c:1125
+msgid "Asistente IA: Resumir"
+msgstr ""
+
+#: userland/programas/pluma.c:1125
+msgid "Asistente IA: Corregir"
+msgstr ""
+
+#: userland/programas/pluma.c:1227
+msgid "Abrir"
+msgstr ""
+
+#: userland/programas/pluma.c:1228 userland/programas/pluma.c:1560
+msgid "No se ha podido abrir el archivo."
+msgstr ""
+
+#: userland/programas/pluma.c:1296
+#, c-format
+msgid ""
+"Páginas: %d\n"
+"Palabras: %d\n"
+"Caracteres (sin espacios): %d\n"
+"Párrafos: %d"
+msgstr ""
+
+#: userland/programas/pluma.c:1297 userland/programas/pluma_cinta.h:79
+msgid "Contar palabras"
+msgstr ""
+
+#: userland/programas/pluma.c:1302
+msgid ""
+"Pluma - procesador de textos de SaguiOS\n"
+"Leer y escribir RTF y texto,\n"
+"exportar a PDF. Sin macros."
+msgstr ""
+
+#: userland/programas/pluma.c:1527
+msgid "Documento1 - Pluma"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:13
+msgid "Normal"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:13
+msgid "Título"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:13
+msgid "Subtít."
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:13
+msgid "Cita"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:16
+msgid ""
+"Guardar\n"
+"Guarda el documento\n"
+"Ctrl+S"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:17
+msgid ""
+"Deshacer\n"
+"Deshace la última acción"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:18
+msgid ""
+"Rehacer\n"
+"Repite lo deshecho"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:22
+msgid ""
+"Pegar\n"
+"Inserta el contenido del portapapeles\n"
+"Ctrl+V"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:23
+msgid ""
+"Cortar\n"
+"Quita la selección y la guarda en el portapapeles"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:24
+msgid ""
+"Copiar\n"
+"Guarda la selección en el portapapeles"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:27
+msgid ""
+"Fuente\n"
+"Familia de la letra"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:28
+msgid ""
+"Tamaño\n"
+"Tamaño de la letra en puntos"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:30
+msgid ""
+"Negrita\n"
+"Pone la selección en negrita\n"
+"Ctrl+B"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:31
+msgid ""
+"Cursiva\n"
+"Pone la selección en cursiva"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:32
+msgid ""
+"Subrayado\n"
+"Subraya la selección"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:33
+msgid "Color de la letra"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:33
+msgid ""
+"Color de la letra\n"
+"Cambia el color del texto elegido"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:36
+msgid "Izquierda"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:37
+msgid "Centro"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:38
+msgid "Derecha"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:40
+msgid ""
+"Viñetas\n"
+"Lista con viñetas"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:41
+msgid "Menos sangría"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:42
+msgid "Más sangría"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:45
+msgid ""
+"Estilos\n"
+"Aplica un estilo de texto"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:48
+msgid "Buscar"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:48
+msgid ""
+"Buscar\n"
+"Busca texto en el documento\n"
+"Ctrl+F"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:49
+msgid "Reemplazar"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:49
+msgid ""
+"Reemplazar\n"
+"Busca y cambia texto\n"
+"Ctrl+H"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:50
+msgid ""
+"Seleccionar todo\n"
+"Selecciona el documento entero"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:53
+msgid ""
+"Asistente IA\n"
+"Abre el panel del asistente\n"
+"F12"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:56
+msgid "Imagen"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:56
+msgid ""
+"Imagen\n"
+"Inserta una imagen en el documento"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:57
+msgid "WordArt"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:57
+msgid ""
+"WordArt\n"
+"Inserta un texto decorativo"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:60
+msgid ""
+"Fecha\n"
+"Inserta la fecha de hoy"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:61
+msgid ""
+"Salto de página\n"
+"Empieza una página nueva\n"
+"Ctrl+Intro"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:68
+msgid ""
+"Fuente\n"
+"Abre el diálogo de fuente"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:69
+msgid ""
+"Párrafo\n"
+"Abre el diálogo de párrafo"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:72 userland/programas/pluma_cinta.h:106
+msgid "Zoom"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:72
+msgid ""
+"Zoom\n"
+"Cambia el tamaño de la hoja en pantalla"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:74
+msgid ""
+"Porcentaje\n"
+"Zoom en porcentaje"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:77
+msgid "Regla"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:77
+msgid ""
+"Regla\n"
+"Muestra u oculta la regla"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:78
+msgid "Barra Dibujo"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:78
+msgid ""
+"Barra Dibujo\n"
+"Muestra u oculta la barra de dibujo"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:79
+msgid ""
+"Contar palabras\n"
+"Páginas, palabras y párrafos"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:82
+msgid "Menús clásicos"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:82
+msgid ""
+"Menús clásicos\n"
+"Vuelve a los menús y barras de herramientas de siempre"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:85
+msgid "Formato de imagen"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:85
+msgid ""
+"Formato de imagen\n"
+"Tamaño, borde y pie de la imagen"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:86
+msgid "Editar WordArt"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:86
+msgid ""
+"Editar WordArt\n"
+"Cambia el texto y el estilo"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:90
+msgid "Portapapeles"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:91
+msgid "Fuente"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:92
+msgid "Párrafo"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:93
+msgid "Estilos"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:95
+msgid "Asistente"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:98
+msgid "Ilustraciones"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:99
+msgid "Texto"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:102
+msgid "Papel"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:107
+msgid "Mostrar"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:108
+msgid "Interfaz"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:111 userland/programas/pluma_cinta.h:119
+msgid "Objeto"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:115
+msgid "Inicio"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:117
+msgid "Diseño"
+msgstr ""
+
+#: userland/programas/pluma_cinta.h:118
+msgid "Vista"
+msgstr ""
+

@@ -64,17 +64,17 @@ static bool calcular(fixo_t a, char op, fixo_t b, fixo_t *r)
     case '+': *r = a + b; break;
     case '-': *r = a - b; break;
     case '*':
-        if (!multiplica(a, b, &t)) { copia_texto(erro, "Número demasiado grande", sizeof erro); return false; }
+        if (!multiplica(a, b, &t)) { copia_texto(erro, _("Número demasiado grande"), sizeof erro); return false; }
         *r = div_s64(t, ESCALA);
         break;
     case '/':
-        if (b == 0) { copia_texto(erro, "No se puede dividir por cero", sizeof erro); return false; }
-        if (!multiplica(a, ESCALA, &t)) { copia_texto(erro, "Número demasiado grande", sizeof erro); return false; }
+        if (b == 0) { copia_texto(erro, _("No se puede dividir por cero"), sizeof erro); return false; }
+        if (!multiplica(a, ESCALA, &t)) { copia_texto(erro, _("Número demasiado grande"), sizeof erro); return false; }
         *r = div_s64(t, b);
         break;
     default: *r = b;
     }
-    if (absoluto(*r) > LIMITE) { copia_texto(erro, "Número demasiado grande", sizeof erro); return false; }
+    if (absoluto(*r) > LIMITE) { copia_texto(erro, _("Número demasiado grande"), sizeof erro); return false; }
     return true;
 }
 
@@ -137,7 +137,7 @@ static void desenhar_visor(void)
     g_moldura(j, 10, 10, LARG - 20, 70, 0x5A6470);
     char texto[48], op[4] = { 0 };
     if (erro[0]) {
-        g_texto(j, 18, 18, "Aviso:", 0xB02020);
+        g_texto(j, 18, 18, _("Aviso:"), 0xB02020);
         g_texto(j, 18, 40, erro, 0xB02020);
     } else {
         if (digitando) copia_texto(texto, entrada[0] ? entrada : "0", sizeof texto);
@@ -252,7 +252,7 @@ static void executar_acao(char a)
 int principal(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    j = jan_abrir("Calculadora", LARG, ALT);
+    j = jan_abrir(_("Calculadora"), LARG, ALT);
     if (!j) return 1;
     static const char *const nomes_num[] = { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
     nova_tecla(0, 0, 1, 1, "C", 'C');  nova_tecla(1, 0, 1, 1, "<-", 'B');

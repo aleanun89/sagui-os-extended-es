@@ -18137,3 +18137,107 @@ lista arrastrando (hoy, con Subir/Bajar). Núcleo: no se tocó (solo programa de
 lista .m3u que pasa sola de una pista a otra, arrastrar la barra de posición, pantalla completa con ocultado de controles,
 espectro del .mp3 y carátula (ID3 y FLAC), atajos y menú Propiedades. `h100` se adapta al nuevo reparto de la ventana (20 px de
 menú, 72 de panel) y al ejemplo en `/apps/videos` (D324).
+
+## D343. Benchmark: cargas de coma flotante con x87 en CPU sin SSE2 (v8.4.5)
+
+`mandel` y `ncuerpos` (grupo Flotante de `benchmark`, D176) solo corrían con SSE2: en un Pentium II/III o un Athlon antiguo salían «n/d». Ahora tienen una variante x87 (`c_mandel_x87`, `c_ncuerpos_x87`, compiladas con `target("no-sse,fpmath=387")`; la raíz es `fsqrt`; el ensamblado no lleva ninguna instrucción SSE) que se elige solo si el CPUID no da SSE2. Con SSE2 todo sigue igual (mismo código, referencias y puntos).
+- Antes de medir, la variante x87 fija la palabra de control a 0x027F (doble precisión, excepciones enmascaradas) y la restaura al terminar. Con ella las sumas de comprobación coinciden con las de SSE2 (0x0271ec36 y 0x00028508): no hacen falta referencias propias.
+- Misma referencia de tiempo (`ref_us`): la x87 es más lenta y puntúa menos. Se ve en todas las salidas: la tabla de texto dice `mandel (x87)` y una nota al pie; `--sumas` igual; la línea `R` de `--maquina` y el registro llevan un último campo `x87=0|1`; la pestaña Rendimiento de Información del sistema escribe «Flotante x87» en el grupo.
+- Kernel: sin FXSR el estado se guarda con `fnsave`/`frstor` (`kernel/arch/fpu.c`), con el #NM perezoso y el estado limpio en 0x027F; se revisó y no se tocó.
+**Prueba:** `tests/h345_bench_x87.py` (QEMU TCG con `-cpu pentium2`): sumas x87 iguales, ambas cargas OK con `x87=1` y «(x87)» en el texto, y con la CPU por defecto siguen con SSE2 (`x87=0`). En TCG: x87 18/8 puntos (mandel/ncuerpos) frente a 60/43 con SSE2.
+
+## D346. La aceleración 2D sin ser administrador: contadores de reparto GPU/software y banco sin permisos (v8.4.5)
+
+**Contexto:** el mantenedor desconfiaba de que la 2D por la GPU se aplicara bien a todo, porque medirla en infopc (pestaña GPU) o en Configuración pedía permisos de administrador.
+
+**Por qué pedía root.** Solo una llamada: `INFO_ACEL2D_PROVA` (autoprueba completa y medida; `permisos.c`, `operacion_livre`), igual que `INFO_ACEL2D_CTL` (encender/apagar). La autoprueba **reinicia el acelerador si estaba apagado, pinta en la zona de prueba de la memoria de vídeo, programa el motor de la GPU (anillo, DMA, FIFO) y puede colgar la tarjeta** (de ahí el vigilante de D244). Con la sesión de un usuario normal es un riesgo real y se mantiene. Lo que no hace falta era pedirlo para medir: `INFO_ACEL2D` (estado y contadores) ya era de lectura, y el banco por software dibuja en un búfer propio. `COM_ADMIN` de infopc abría el diálogo de permisos en cada «Medir».
+
+**Qué se hizo:**
+1. **Contadores de reparto** (`acel2d_contar_sw`, `kernel/gui/acel2d.c`; sin cerrojo, un incremento: el kernel corre en la CPU 0), expuestos en `INFO_ACEL2D` (campos nuevos al final de `info_acel2d_t`): lo de la GPU (copias y rellenos, con kilopíxeles) y lo que hizo la CPU (mover rectángulos, desplazar la consola, rellenos del escritorio, volcados del búfer de atrás a la pantalla; operaciones y kilopíxeles). Cuentan siempre, con o sin acelerador.
+2. **infopc**: «Medir» (tecla M) y `infopc --bench-gpu` ya **no piden nada**: banco por software fuera de pantalla (búfer de 512x64 y ventana propia) más el kernel en lectura; el motivo dice que la medida con la GPU pide ser administrador. «Medir con la GPU» (tecla G) y `--bench-gpu --admin` piden el diálogo de permisos y hacen la autoprueba (root la hace sin preguntar, como antes). La sección GPU y Configuración (Pantalla > Aceleración gráfica y `configuracion aceleracion`) y `acel2d` (sin argumentos) enseñan el reparto a cualquier usuario.
+3. Siguen siendo de administrador: `acel2d probar|apagar|encender` y la autoprueba del kernel.
+
+**¿La 2D se aplica a todo?** No, y es lo esperado: ningún acelerador soporta más que **copiar y rellenar rectángulos**, y el kernel solo los usa en **mover una ventana arrastrándola** (con la ventana arriba y sin menú, panel, aviso o Alt+Tab encima: un aviso visible, como el de «root sin contraseña», manda el arrastre a la CPU) y en el **desplazamiento de la consola**. Todo lo demás es software: el dibujo dentro de cada ventana (libsagui: rellenos, líneas, texto, mezclas con transparencia), la composición del escritorio (`video_retangulo`), el volcado del búfer de atrás a la pantalla (`video_mostrar`, siempre por la CPU salvo VMware, que además recibe la orden de actualizar) y las copias menores que `min_pixeis` del driver. Los contadores lo hacen visible. Ampliar la 2D a otras operaciones (blit con alfa, texto) sería trabajo de cada driver y no se ha hecho.
+
+**Núcleo tocado (aviso):** solo contadores en `video.c` (retángulo, mover, rolar, mostrar) y `acel2d.c`: sin cerrojos ni cambios de ruta; ni memoria, ni planificador, ni VFS, ni arranque.
+
+**Pruebas.** `tests/h348_acel2d_sin_root.py` (VMware SVGA II, sesión sagui): `acel2d` da el estado y el reparto; arrastrar una ventana hace crecer las copias por la GPU (0 a 15, 5,5 millones de píxeles) y los volcados por la CPU; `acel2d probar|apagar` siguen negados y el estado no cambia; `infopc --bench-gpu` sin diálogo, sumas bien, y el reparto en su sección GPU. `h332` pasa sin cambios.
+
+## D347. Cipó: portada de as.com legible (v8.4.5, prueba h349)
+
+- **Qué rompía** (medido con la portada real descargada del anfitrión y servida por HTTP local, sin DataDome): no era el JS (los `SyntaxError` de 11 scripts son de terceros y no afectan al contenido) ni la compresión ni la codificación. Tres causas en el motor (`userland/web/motor.c`):
+  1. **Límite de 96 imágenes distintas por página** (`imagem_idx`): as.com tiene más de 300 (`<img>`, `srcset`, fondos). Las que no cabían se quedaban sin registrar, entre ellas el **fondo del `::before` de la cabecera** (`background:url(...)`). La cabecera lleva texto blanco encima de esa imagen, así que salía blanco sobre blanco y la página parecía en blanco. Ahora `MAX_IMGS_M` = 400.
+  2. **Orden de descarga**: las imágenes se bajan de una en una por orden de documento; las fotos tardaban en llegar y los fondos de CSS (cabeceras, iconos) esperaban detrás. Ahora los fondos de CSS (`imagem_m.prio`) van antes que las fotos.
+  3. **`visibility:hidden` no se aplicaba a imágenes ni SVG** (`controle()` pintaba igual): el menú de ediciones (oculto hasta pulsar) dejaba sus banderas flotando sobre la página. Ahora `controle()` sale si el nodo está oculto.
+  4. **Iconos `<use href="#x">` hacia un `<symbol>` de otro `<svg>`** (sprite oculto de la página): el rasterizador solo resolvía símbolos del mismo SVG y salía un cuadrado gris. Ahora, al rasterizar un `<svg>` inline, se copian los `<symbol>` referenciados desde los demás `<svg>` de la página (`simbolo_externo`, máx. 4 de 6 KB).
+- `cipo.c` registra en el serie cada imagen/recurso que baja (`cipo: baixando URL`), para depurar el orden de descarga.
+- **Prueba h349** (`tests/h349_cipo_diario.py`, `tests/paginas/diario-portada.html`): portada **sintética** (sin contenido de terceros, por eso no va a `publicar-excluir.txt`) con 120 imágenes, cabecera con `::before`, icono `<use>` a un sprite aparte, menú con `visibility:hidden` con imágenes y `container-type`. Comprueba en la captura: carga sin cuelgue, fondo rojo de la cabecera, icono blanco, ni un píxel de las imágenes ocultas, titulares legibles. h47, h121, h123, h128 y h271 siguen pasando (h271: 304/316, las mismas pendientes).
+- **Pendiente** (anotado en `docs/cipo-compatibilidad.md`): en as.com las fotos grandes llegan tarde (HTTPS una a una, 1 s cada una en QEMU) y la zona entre el aviso de newsletter y el primer titular queda en blanco hasta que baja la foto de apertura; no se bajan primero las imágenes visibles en pantalla; se descargan imágenes de contenedores ocultos (banderas); DataDome puede servir un captcha a clientes sin JS (cabecera `x-datadome`); los scripts de terceros con sintaxis moderna siguen dando `SyntaxError` (sin efecto en el contenido). Núcleo del kernel: no se tocó.
+
+## D344. Multiidioma, fase 2: las aplicaciones gráficas principales con catálogos (v8.4.5, mejora 118)
+
+**Decisión.** Se llevan los catálogos `_()` (D313) a las aplicaciones gráficas del menú que aún no los usaban: Calculadora,
+Pluma (menús, cinta, diálogos, barra de estado), Paint, Editor, Visor de imágenes, Música, Grabadora, Cámara, Recortes, Buscaminas,
+Administrador de tareas y Acerca de; el Reproductor (D342) ya estaba marcado y se le añaden sus .po (pt_BR y en). El texto español
+no cambia (sigue siendo la clave).
+
+1. **Menús de una pieza: `MENU_()`.** Los menús de la libsagui (`barra_menu_t`, `menu_contextual`) son un texto con líneas separadas
+   por `\n` y el atajo tras `\t`. `MENU_("Nuevo\tCtrl+N\n-\nAbrir...")` llama a `idioma_traducir_menu()`, que traduce **cada línea**
+   por separado (lo anterior al tabulador; el atajo y los separadores `-` se dejan) y devuelve el menú entero en un búfer rotatorio.
+   `NMENU_()` solo marca (tablas estáticas). El extractor saca cada línea como una cadena del catálogo del programa, sin atajo: así
+   «Guardar» de un menú y de un botón son la misma cadena. Menús montados con `formatar_texto` (el menú contextual del Editor, con
+   el prefijo `~` de desactivado) traducen cada línea con `_()`.
+2. **Cabeceras de un programa.** `tools/extraer_textos.py` manda `userland/programas/X_y.h` al catálogo `X` si existe `X.c`
+   (`pluma_cinta.h` -> `pluma`), para que la cinta se extraiga en el catálogo que el programa carga. `cinta_traducir()` ya pasaba por
+   `_()` los textos, ayudas y galerías; solo faltaba marcarlos (`N_()`). Los textos de la cinta que son una letra («N», «K», «S»)
+   se marcan para poder adaptarlos (en inglés B, I, U).
+3. **Tablas y `#define`.** Las tablas estáticas (botones `botao_t`, nombres de herramientas, columnas, pestañas) llevan `N_()` y se
+   traducen al usarlas con `_()`. El extractor salta las líneas de preprocesador: los filtros de los diálogos de archivos de Pluma
+   pasan de `#define` a `static const char *const` con `N_()`. Cuidado con comparar un texto traducido con el español
+   (`compara_texto(b->texto, "Parar")` pasa a `_("Parar")`).
+4. **No se traduce** lo que no es interfaz: registros, las herramientas y las instrucciones del asistente de IA de Pluma
+   (texto dirigido al modelo), rutas, órdenes de línea de comandos.
+5. **Etiquetas alineadas con espacios** (Acerca de: «Versión:             %s»): la clave lleva el relleno hasta la columna 21 y cada
+   traducción lo repite, para que los valores sigan alineados.
+6. Arreglados dos huecos que arrastraba la fase 1: `Recreativa (juegos y consolas)` (kernel) y `Más` (libsagui) sin traducir.
+
+**Pendiente (fase 2b).** Quedan sin catálogo: Macaco (lo toca otro trabajo), Correo, Archivos > Cipó (navegador, `cipo.c`, Latin-1),
+Terminal, Visor de PDF, Chat IA, Discos/particiones, Información del PC, Sintonía, Planomini, Gebramini, JClic, MIDI, VNC, Spider,
+Pantalla, Ampliar /home, Markdown y los instaladores. Las herramientas de línea de comandos (`ls`, `grep`...) siguen en español.
+
+**Pruebas.** `tests/h346_multiidioma_apps.py`: los .po de las 13 aplicaciones completos en pt_BR y en (con los `%d/%s` intactos), el
+extractor (`MENU_`, `pluma_cinta.h`), y en QEMU las ocho aplicaciones abren con el título traducido en en y pt_BR, y con el
+pseudo-idioma `xx` no queda nada marcado sin traducir. `h315` se adapta al título traducido del Editor en `xx`.
+
+## D345. Macaco, fase 2: barras de desplazamiento, buscar y reemplazar, ajustar texto, brocha, autofiltro, formato condicional, comentarios y validación (v8.4.5, mejora 130)
+
+- **Barras de desplazamiento** vertical y horizontal (16 px, `MAC_SB`; `sb_calc`, `sb_evento`, `sb_desenhar`): flechas
+  (una fila o columna, saltando las ocultas), clic en el cauce (una página) y arrastre de la guía. La hoja tiene 65 536 filas,
+  así que el recorrido de la barra es **lo usado más un margen** (30 filas, 6 columnas; mínimo 60 y 26) y crece al avanzar,
+  como Excel; mientras se arrastra el recorrido se congela. La cuadrícula perdió 16 px a la derecha y abajo
+  (`grelha_x1()`, `grelha_l()`, `grelha_a()`). Registro: `barra vertical: primera fila N`, `barra horizontal: primera columna X`.
+- **Buscar y reemplazar**: se reutiliza `dialogo_buscar` de la libsagui (el de Pluma y Mico, con «Distinguir mayúsculas»).
+  Ctrl+F busca, Ctrl+H reemplaza, F3 repite; no se usó Ctrl+B (es negrita) ni Ctrl+L. Busca en el texto que se ve, da la
+  vuelta a la hoja, reemplaza en el contenido (también en fórmulas) y se puede deshacer.
+- **Ajustar texto** (`fmt_t.aj`, línea `aj=1` en `formato`, `wrapText` en XLSX): `quebra_linhas` parte por palabras y la
+  altura de la fila se **ajusta sola** al aplicarlo y al editar (`autoajustar_linha_q`, que guarda el alto en la fila). Los
+  números no se parten.
+- **Copiar formato** (brocha): botón/menú, o Ctrl+Mayús+C y Ctrl+Mayús+V; con el botón, lo que se elija a continuación con el
+  ratón recibe el formato (`FO_COPIA`).
+- **Autofiltro** (Ctrl+Mayús+L o Datos): sobre la región de datos de la celda activa (o la selección); flechas en la fila de
+  encabezado con la lista de valores distintos; las filas que no pasan se ocultan con `oculta = 2` (distinto de «ocultar filas»
+  = 1, así «Quitar filtros» no destapa lo oculto a mano). Un valor por columna (hasta 32 columnas).
+- **Formato condicional** (`condic_t`, hasta 16 reglas por hoja): mayor, menor, igual (número o texto) o entre; fondo y color de
+  letra (nombre de la paleta o `RRGGBB`). Se escribe como `>10`, `<5`, `=7`, `=texto`, `10..20` o `entre 10 y 20`.
+- **Comentarios** (`coment_t`, hasta 64 por hoja): Mayús+F2 o Insertar; triángulo rojo en la esquina y recuadro amarillo al pasar
+  el ratón (`EV_MOVER`).
+- **Validación de datos** (`valid_t`, hasta 16): lista `a;b;c` (flecha desplegable en la celda activa) o rango numérico
+  `mín..máx`; al confirmar, un valor no válido se rechaza con aviso (`val_comprobar`).
+- **Formato propio**: líneas nuevas `comentario`, `validacion`, `condicional`, `autofiltro` (rango con la última fila de datos) y
+  `filtro`; los lectores antiguos las ignoran. **XLSX**: solo `wrapText` (y las filas filtradas como ocultas); **ODS y XLSX no
+  llevan** comentarios, reglas, validación ni el filtro (no se rompen: se pierden al exportar).
+- **Interfaz**: botones en la cinta (Inicio: copiar formato, ajustar texto, buscar; Insertar: comentarios; Datos: filtro,
+  validación y formato condicional) y en los menús Edición, Insertar, Formato (ajustar texto), Datos y contextual. Los textos
+  nuevos no van con `_()` (Macaco aún no lo usa).
+- Sin tocar el núcleo del kernel. Prueba: `tests/h347_macaco_fase2.py` (formato propio, XLSX y ODS en consola; ventana en modo
+  clásico con capturas y colores de píxel; cinta). Capturas `docs/capturas/H347-*`.

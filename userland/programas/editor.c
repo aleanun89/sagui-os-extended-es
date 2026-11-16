@@ -31,7 +31,7 @@ static bool modificado_mostrado = true;
 
 static const char *nome_curto(void)
 {
-    if (!caminho[0]) return "sin nombre";
+    if (!caminho[0]) return _("sin nombre");
     const char *b = acha_ultimo_char(caminho, '/');
     return b ? b + 1 : caminho;
 }
@@ -41,7 +41,7 @@ static void atualizar_titulo(void)
     if (modificado_mostrado == area.modificado) return;
     modificado_mostrado = area.modificado;
     char t[96];
-    formatar_texto(t, sizeof t, "Editor - %s%s", nome_curto(), area.modificado ? " *" : "");
+    formatar_texto(t, sizeof t, _("Editor - %s%s"), nome_curto(), area.modificado ? " *" : "");
     titulo_janela(j->id, t);
     registrar("editor: titulo %s\n", t);
 }
@@ -57,7 +57,7 @@ static bool abrir_arquivo(const char *c)
     int fd = abrir(c, ABRIR_LER);
     if (fd < 0) {
         char m[200];
-        formatar_texto(m, sizeof m, "No se ha podido abrir\n%s\n(%s)", c, nome_erro(fd));
+        formatar_texto(m, sizeof m, _("No se ha podido abrir\n%s\n(%s)"), c, nome_erro(fd));
         mensagem("Editor", m);
         return false;
     }
@@ -76,7 +76,7 @@ static bool abrir_arquivo(const char *c)
 }
 
 /* Filtros de los diálogos de archivos (mejora 103). */
-#define FILTROS_TEXTO "Texto (*.txt)|*.txt|Código y Markdown|*.c;*.h;*.py;*.md;*.sh|Todos los archivos (*.*)|*"
+static const char *const filtros_texto = N_("Texto (*.txt)|*.txt|Código y Markdown|*.c;*.h;*.py;*.md;*.sh|Todos los archivos (*.*)|*");
 
 static bool salvar_como(void);
 
@@ -87,7 +87,7 @@ static bool salvar(void)
     if (fd < 0 || escrever_tudo(fd, area.buf, (unsigned)area.tam) != area.tam) {
         if (fd >= 0) fechar(fd);
         char m[200];
-        formatar_texto(m, sizeof m, "No se ha podido guardar\n%s", caminho);
+        formatar_texto(m, sizeof m, _("No se ha podido guardar\n%s"), caminho);
         mensagem("Editor", m);
         return false;
     }
@@ -102,7 +102,7 @@ static bool salvar_como(void)
 {
     char c[160];
     copia_texto(c, caminho[0] ? caminho : "/tmp/", sizeof c);
-    if (!dialogo_guardar("Guardar como", FILTROS_TEXTO, c, c, sizeof c) || !c[0])
+    if (!dialogo_guardar(_("Guardar como"), _(filtros_texto), c, c, sizeof c) || !c[0])
         return false;
     copia_texto(caminho, c, sizeof caminho);
     return salvar();
@@ -113,16 +113,16 @@ static bool salvar_como(void)
 static bool pode_descartar(void)
 {
     if (!area.modificado) return true;
-    if (confirmar("Editor", "El texto tiene cambios sin guardar.\n¿Guardar antes?"))
+    if (confirmar("Editor", _("El texto tiene cambios sin guardar.\n¿Guardar antes?")))
         return salvar();
     return true;
 }
 
 #define NBT 7   /* Nuevo, Abrir, Guardar, Guardar como, Vista/Edición, A-, A+ */
 static botao_t bt[NBT] = {
-    { 8, 7, 80, 26, "Nuevo", false }, { 96, 7, 80, 26, "Abrir", false },
-    { 184, 7, 80, 26, "Guardar", false }, { 272, 7, 110, 26, "Guardar como", false },
-    { 390, 7, 80, 26, "Vista", false }, { 478, 7, 36, 26, "A-", false }, { 518, 7, 36, 26, "A+", false },
+    { 8, 7, 80, 26, N_("Nuevo"), false }, { 96, 7, 80, 26, N_("Abrir"), false },
+    { 184, 7, 80, 26, N_("Guardar"), false }, { 272, 7, 110, 26, N_("Guardar como"), false },
+    { 390, 7, 80, 26, N_("Vista"), false }, { 478, 7, 36, 26, "A-", false }, { 518, 7, 36, 26, "A+", false },
 };
 
 /* La vista con fuentes vectoriales (D196). */
@@ -184,7 +184,7 @@ static void vista_desenhar(void)
     g_retangulo(j, 6, BARRA + 4, LARG - 12, ALT - BARRA - 10, 0xFFFFFF);
     g_moldura(j, 6, BARRA + 4, LARG - 12, ALT - BARRA - 10, COR_BORDA);
     if (!fdoc) {
-        g_texto(j, 16, BARRA + 16, "No hay ninguna fuente elegida: Configuración > Fuentes.", 0xB03000);
+        g_texto(j, 16, BARRA + 16, _("No hay ninguna fuente elegida: Configuración > Fuentes."), 0xB03000);
         return;
     }
     int total = vista_lineas(false);
@@ -196,8 +196,8 @@ static void desenhar_barra(void)
 {
     g_retangulo(j, 0, 0, LARG, BARRA, 0xE6E9EC);
     g_retangulo(j, 0, BARRA - 1, LARG, 1, COR_BORDA);
-    if (LARG >= 700) rotulo(j, LARG - 120, 12, "Ctrl+S guarda", COR_TEXTO_FRACO);
-    bt[4].texto = vista ? "Edición" : "Vista";
+    if (LARG >= 700) rotulo(j, LARG - 120, 12, _("Ctrl+S guarda"), COR_TEXTO_FRACO);
+    bt[4].texto = vista ? _("Edición") : _("Vista");
     for (int i = 0; i < (vista ? NBT : 5); i++) botao_desenhar(j, &bt[i]);
 }
 
@@ -221,7 +221,7 @@ static void novo_tamanho(void)
 
 int principal(int argc, char **argv)
 {
-    j = jan_abrir("Editor - sin nombre", LARG_INICIO, ALT_INICIO);
+    j = jan_abrir(_("Editor - sin nombre"), LARG_INICIO, ALT_INICIO);
     if (!j || !area_iniciar(&area, 6, BARRA + 4, LARG - 12, ALT - BARRA - 10)) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, 400, 160);
     desenhar_barra();
@@ -286,16 +286,17 @@ int principal(int argc, char **argv)
             }
         }
         /* Menú contextual (D051): las líneas son las mismas acciones de los botones,
-         * con un separador entre "Abrir" y "Guardar" (que cuenta como línea). */
+         * con un separador entre _("Abrir") y _("Guardar") (que cuenta como línea). */
         if (e.tipo == EV_CLIQUE && (e.botoes & 2) && e.y >= BARRA) {
             /* Las líneas 0-4 son las de antes (los tests cuentan con ellas); las de
              * edición vienen después de otro separador. Sin selección, Cortar y
              * Copiar aparecen desactivadas. */
             bool sel = area.ancora >= 0 && area.ancora != area.cursor;
             char itens[200];
-            formatar_texto(itens, sizeof itens, "Nuevo\nAbrir...\n-\nGuardar\tCtrl+S\nGuardar como...\n-\n"
-                           "%sCortar\tCtrl+X\n%sCopiar\tCtrl+C\nPegar\tCtrl+V\nSeleccionar todo\tCtrl+A",
-                           sel ? "" : "~", sel ? "" : "~");
+            formatar_texto(itens, sizeof itens, "%s\n%s\n-\n%s\tCtrl+S\n%s\n-\n"
+                           "%s%s\tCtrl+X\n%s%s\tCtrl+C\n%s\tCtrl+V\n%s\tCtrl+A",
+                           _("Nuevo"), _("Abrir..."), _("Guardar"), _("Guardar como..."),
+                           sel ? "" : "~", _("Cortar"), sel ? "" : "~", _("Copiar"), _("Pegar"), _("Seleccionar todo"));
             menu_contextual(j->id, e.x, e.y, itens, 0);
             continue;
         }
@@ -321,7 +322,7 @@ int principal(int argc, char **argv)
         if (acao == 1 && pode_descartar()) {
             char c[160];
             copia_texto(c, caminho[0] ? caminho : "/", sizeof c);
-            if (dialogo_abrir("Abrir", FILTROS_TEXTO, c, c, sizeof c)) abrir_arquivo(c);
+            if (dialogo_abrir(_("Abrir"), _(filtros_texto), c, c, sizeof c)) abrir_arquivo(c);
         }
         if (acao == 2) salvar();
         if (acao == 3) salvar_como();

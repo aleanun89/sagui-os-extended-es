@@ -92,6 +92,13 @@ bool acel_esperar(void);                     /* antes de que la CPU toque lo que
 void acel_sincronizar(void);                 /* D246: espera solo si el motor es asíncrono y hay algo pendiente */
 void acel_atualizar(int x, int y, int l, int a);   /* la CPU escribió en la pantalla */
 
+/* D346: contadores del reparto GPU / software (solo lectura por INFO_ACEL2D, sin ser administrador).
+ * Lo que la CPU hace en el kernel y la GPU podría haber hecho: mover rectángulos y desplazar la consola
+ * (copias), rellenos del gestor de ventanas, y lo que la CPU vuelca del búfer de atrás a la pantalla.
+ * Cuentan siempre, con o sin acelerador (un incremento, sin cerrojo: el kernel corre en la CPU 0). */
+enum { ACEL_SW_MOVER, ACEL_SW_ROLAR, ACEL_SW_RELLENO, ACEL_SW_MOSTRAR, ACEL_SW_N };
+void acel2d_contar_sw(int tipo, uint32_t pixeis);
+
 /* Medidas (INFO_ACEL2D) y la orden de prueba (acel2d probar, INFO_ACEL2D_PROVA). */
 void    acel2d_contar_arrasto(uint32_t quadros, uint64_t ciclos);
 int32_t acel2d_info(uint32_t ptr, uint32_t n);

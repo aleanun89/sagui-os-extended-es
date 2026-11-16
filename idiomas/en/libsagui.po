@@ -16,11 +16,11 @@ msgstr "Yes"
 msgid "No"
 msgstr "No"
 
-#: userland/libsagui/gui.c:877 userland/libsagui/gui.c:885
+#: userland/libsagui/gui.c:877 userland/libsagui/gui.c:886 userland/libsagui/gui.c:897
 msgid "OK"
 msgstr "OK"
 
-#: userland/libsagui/gui.c:885 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
+#: userland/libsagui/gui.c:886 userland/libsagui/gui.c:897 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
 msgid "Cancelar"
 msgstr "Cancel"
 
@@ -44,7 +44,7 @@ msgstr "Folder"
 msgid "Programa"
 msgstr "Program"
 
-#: userland/libsagui/gui_arquivos.c:397
+#: userland/libsagui/gui_arquivos.c:397 userland/libsagui/gui_cinta.c:187 userland/libsagui/gui_cinta.c:379
 msgid "Archivo"
 msgstr "File"
 
@@ -165,14 +165,7 @@ msgstr "Folder:"
 msgid "Aceptar"
 msgstr "OK"
 
-#: userland/programas/macaco_cinta.h
-msgid "Combinar y centrar"
-msgstr "Merge and center"
+#: userland/libsagui/gui_cinta.c:434 userland/libsagui/gui_cinta.c:434
+msgid "Más"
+msgstr "More"
 
-#: userland/programas/macaco_cinta.h
-msgid "Separar celdas"
-msgstr "Unmerge cells"
-
-#: userland/programas/macaco_cinta.h
-msgid "Inmovilizar paneles"
-msgstr "Freeze panes"

@@ -41,3 +41,15 @@ filas por defecto se me hacen raras comparado con las versiones reales; funciona
   - compruebe la memoria con una hoja casi vacía (no puede crecer con el tamaño teórico).
 - Capturas de la cuadrícula comparables a Calc.
 - Las pruebas de Macaco existentes (h29x/h30x) siguen pasando.
+
+## Estado (fase 2, v8.4.5, D345)
+
+Hecho: barras de desplazamiento, buscar y reemplazar (Ctrl+F / Ctrl+H / F3), ajustar texto con altura automática, copiar
+formato (brocha), autofiltro por valor, formato condicional (mayor, menor, igual, entre), comentarios con marca y recuadro al
+pasar el ratón, validación de datos (lista o rango numérico). Todo en el formato propio, con botones en la cinta y en los menús.
+Prueba: `tests/h347_macaco_fase2.py`.
+
+Queda: exportar/importar a XLSX y ODS los comentarios, las reglas condicionales, la validación y el filtro (hoy se pierden);
+alineación vertical; autofiltro con varios valores, por condición u ordenar desde la flecha; que insertar o borrar filas y
+columnas desplace comentarios, reglas, validaciones y el rango del filtro; formato condicional con barras de datos o escalas
+de color; deshacer de comentarios, reglas y validación; hojas de 1 048 576 x 16 384; buscar en todas las hojas.

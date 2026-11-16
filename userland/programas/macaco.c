@@ -67,6 +67,7 @@ static bool macaco_cinta_desenhar(void);
 static bool macaco_cinta_evento(const evento_t *e);
 static void macaco_cinta_args(int *argc, char **argv);
 static void macaco_cinta_iniciar(void);
+static void autoajustar_linha_q(int l, bool log);   /* D345: ajusta el alto de una fila a su contenido */
 static void macaco_cinta_alternar(void);
 #define MAC_FORMULA    24    /* barra de fórmulas */
 #define MAC_CABECALH   18    /* cabecera de las columnas */
@@ -111,6 +112,7 @@ static int larg_cab = MAC_LARGC_MIN;
 typedef struct {
     uint8_t  nf, dec, moeda, al;
     uint8_t  est, fam, tam, bor;     /* tam = 0: 10 pt */
+    uint8_t  aj, res1, res2, res3;   /* aj: ajustar el texto en la celda (varias líneas, D345); el resto, relleno */
     uint32_t cor;                    /* color del texto (0 = negro) */
     uint32_t rel;                    /* REL_ATIVO | RGB del relleno */
 } fmt_t;
@@ -127,6 +129,21 @@ typedef struct { int l; uint16_t alt; uint8_t oculta; } linha_prop_t;
 /* Un rango de celdas combinadas. */
 typedef struct { int l1, c1, l2, c2; } fusao_t;
 
+/* Fase 2 (D345): comentarios, validación de datos, formato condicional y autofiltro, por hoja. */
+#define MAC_MAX_COM    64
+#define MAC_MAX_VAL    16
+#define MAC_MAX_CF     16
+#define MAC_AF_COLS    32      /* columnas con filtro de una hoja */
+typedef struct { int l, c; char txt[160]; } coment_t;
+#define VAL_LISTA  1           /* solo valores de una lista «a;b;c» */
+#define VAL_RANGO  2           /* número entre un mínimo y un máximo */
+typedef struct { int l1, c1, l2, c2; int tipo; char lista[128]; int32_t min, max; } valid_t;
+#define CF_MAYOR  1
+#define CF_MENOR  2
+#define CF_IGUAL  3
+#define CF_ENTRE  4
+typedef struct { int l1, c1, l2, c2; int op; int32_t v1, v2; char txt[24]; uint32_t fondo, cor; } condic_t;   /* fondo/cor: 0 = no cambia */
+
 /* La hoja es dispersa: las celdas viven en páginas de PAG_L x PAG_C que solo se reservan al escribir
  * en ellas. bandas[l / PAG_L] apunta a MAC_MAX_COLUNAS / PAG_C páginas; una hoja casi vacía ocupa
  * un puñado de kilobytes, no el tamaño teórico. */
@@ -140,6 +157,12 @@ typedef struct {
     linha_prop_t *lp;  int n_lp, cap_lp;   /* alturas y filas ocultas, ordenadas por fila */
     fusao_t  *fu;      int n_fu, cap_fu;   /* celdas combinadas */
     int       cong_l, cong_c;          /* filas y columnas inmovilizadas */
+    coment_t  com[MAC_MAX_COM];  int n_com;         /* comentarios de celda */
+    valid_t   val[MAC_MAX_VAL];  int n_val;         /* validación de datos */
+    condic_t  cf[MAC_MAX_CF];    int n_cf;          /* formato condicional */
+    bool      af_ativo;                             /* autofiltro: fila de encabezado y columnas */
+    int       af_l, af_l2, af_c1, af_c2;            /* encabezado, última fila de datos y columnas */
+    char      af_val[MAC_AF_COLS][32];              /* valor elegido por columna (vacío = todos) */
 } folha_t;
 
 typedef struct {
@@ -2718,6 +2741,9 @@ static const fmt_t *fmt_de_livro(const celula_t *ce)
     return &livro.fmts[ce->fmt];
 }
 
+static void f2_guardar(folha_t *fo, char **buf, int *tam, int *cap);
+static bool f2_leer_linea(folha_t *fo, const char *lin);
+
 static bool guardar_ficheiro(const char *destino)
 {
     char *buf = NULL;
@@ -2781,11 +2807,12 @@ static bool guardar_ficheiro(const char *destino)
                 char ref[16];
                 nome_ref(ref, sizeof ref, l, c);
                 txt_addf(&buf, &tam, &cap,
-                         "formato %s nf=%d dec=%d mo=%d al=%d est=%d fam=%d tam=%d bor=%d cor=%x rel=%x\n",
+                         "formato %s nf=%d dec=%d mo=%d al=%d est=%d fam=%d tam=%d bor=%d cor=%x rel=%x aj=%d\n",
                          ref, ft->nf, ft->dec, ft->moeda, ft->al, ft->est, ft->fam, ft->tam, ft->bor,
-                         (unsigned)ft->cor, (unsigned)ft->rel);
+                         (unsigned)ft->cor, (unsigned)ft->rel, ft->aj);
         }
         }
+        f2_guardar(fo, &buf, &tam, &cap);
     }
     /* Los gráficos incrustados (D311): una línea por gráfico, tras las de su hoja; los lectores antiguos las ignoran. */
     for (int i = 0; i < GR_MAX; i++) {
@@ -3098,6 +3125,7 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
                 else if (kl == 3 && memcmp(k, "bor", 3) == 0) ft.bor = (uint8_t)v;
                 else if (kl == 3 && memcmp(k, "cor", 3) == 0) ft.cor = v;
                 else if (kl == 3 && memcmp(k, "rel", 3) == 0) ft.rel = v;
+                else if (kl == 2 && memcmp(k, "aj", 2) == 0) ft.aj = (uint8_t)(v != 0);
             }
             folha_t *fo = &livro.folha[folha_atual];
             int idx = fmt_internar_livro(&ft);
@@ -3155,7 +3183,7 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
             if (x) ocu = texto_para_int(x + 7);
             if (l >= 0 && l < MAC_MAX_LINHAS && (alt || ocu)) {
                 linha_prop_t *lp = lp_obter(&livro.folha[folha_atual], l);
-                if (lp) { lp->alt = (uint16_t)(alt < 0 ? 0 : (alt > 1000 ? 1000 : alt)); lp->oculta = (uint8_t)(ocu != 0); }
+                if (lp) { lp->alt = (uint16_t)(alt < 0 ? 0 : (alt > 1000 ? 1000 : alt)); lp->oculta = (uint8_t)(ocu == 2 ? 2 : (ocu != 0)); }
             }
         } else if (comeca_com(lin, "combinar ") && folha_atual >= 0) {
             const char *q = lin + 9;
@@ -3172,6 +3200,8 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
             fo->cong_c = r ? texto_para_int(r + 1) : 0;
             if (fo->cong_l < 0 || fo->cong_l > 1000) fo->cong_l = 0;
             if (fo->cong_c < 0 || fo->cong_c > 100) fo->cong_c = 0;
+        } else if (folha_atual >= 0 && f2_leer_linea(&livro.folha[folha_atual], lin)) {
+            /* comentarios, validación, formato condicional y autofiltro (D345) */
         } else if (comeca_com(lin, MAC_KW_LARGU) && folha_atual >= 0) {
             const char *q = lin + (int)sizeof(MAC_KW_LARGU) - 1;
             folha_t *fo = &livro.folha[folha_atual];
@@ -3554,6 +3584,427 @@ static void celula_conteudo(char *dst, int max, celula_t *ce)
 {
     if (!ce) { dst[0] = 0; return; }
     copia_texto(dst, ce->texto ? ce->texto : "", (size_t)max);
+}
+
+/* ------------------------------------------------------------ fase 2: comentarios, validación, formato condicional, autofiltro (D345) */
+
+static void regiao_atual(int l, int c, int *l1, int *c1, int *l2, int *c2);   /* más abajo */
+
+/* Lee el siguiente par clave=valor de una línea del .mxs (el valor puede ir entre comillas). */
+static bool kv_siguiente(const char **q, char *k, int kmax, char *v, int vmax)
+{
+    const char *p = *q;
+    while (*p == ' ') p++;
+    int n = 0;
+    while (*p && *p != '=' && *p != ' ') { if (n < kmax - 1) k[n++] = *p; p++; }
+    k[n] = 0;
+    if (*p != '=' || n == 0) return false;
+    p++;
+    n = 0;
+    if (*p == '"') {
+        p++;
+        while (*p && *p != '"') {
+            if (*p == '\\' && p[1]) p++;
+            if (n < vmax - 1) v[n++] = *p;
+            p++;
+        }
+        if (*p == '"') p++;
+    } else {
+        while (*p && *p != ' ') { if (n < vmax - 1) v[n++] = *p; p++; }
+    }
+    v[n] = 0;
+    *q = p;
+    return true;
+}
+
+static unsigned f2_hex(const char *s)
+{
+    unsigned v = 0;
+    for (; (*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'f') || (*s >= 'A' && *s <= 'F'); s++)
+        v = v * 16u + (unsigned)((*s <= '9') ? *s - '0' : ((*s | 32) - 'a' + 10));
+    return v;
+}
+
+/* El texto entre comillas con \" y \\ escapadas (dst = "texto"). */
+static void f2_cita(char *dst, int max, const char *s)
+{
+    int n = 0;
+    dst[n++] = '"';
+    for (int i = 0; s[i] && n < max - 3; i++) {
+        if (s[i] == '"' || s[i] == '\\') dst[n++] = '\\';
+        dst[n++] = s[i];
+    }
+    dst[n++] = '"';
+    dst[n] = 0;
+}
+
+/* «A1» o «A1:C5» -> índices (normalizados). */
+static bool f2_leer_rango(const char **q, int *l1, int *c1, int *l2, int *c2)
+{
+    int c, l;
+    while (**q == ' ') (*q)++;
+    if (!ler_coluna(q, &c) || !ler_numero_linha(q, &l)) return false;
+    *l1 = *l2 = l;
+    *c1 = *c2 = c;
+    if (**q == ':') {
+        const char *r = *q + 1;
+        int cc, ll;
+        if (ler_coluna(&r, &cc) && ler_numero_linha(&r, &ll)) { *c2 = cc; *l2 = ll; *q = r; }
+    }
+    if (*l1 > *l2) { int t = *l1; *l1 = *l2; *l2 = t; }
+    if (*c1 > *c2) { int t = *c1; *c1 = *c2; *c2 = t; }
+    return true;
+}
+
+static void f2_rango_texto(char *dst, int max, int l1, int c1, int l2, int c2)
+{
+    char a[16], b[16];
+    nome_ref(a, sizeof a, l1, c1);
+    if (l1 == l2 && c1 == c2) { copia_texto(dst, a, (size_t)max); return; }
+    nome_ref(b, sizeof b, l2, c2);
+    formatar_texto(dst, max, "%s:%s", a, b);
+}
+
+/* ---- comentarios ---- */
+
+static coment_t *com_buscar(folha_t *fo, int l, int c)
+{
+    for (int i = 0; i < fo->n_com; i++) if (fo->com[i].l == l && fo->com[i].c == c) return &fo->com[i];
+    return NULL;
+}
+
+/* t vacío o NULL: borra el comentario. */
+static bool com_definir(folha_t *fo, int l, int c, const char *t)
+{
+    coment_t *x = com_buscar(fo, l, c);
+    if (!t || !t[0]) {
+        if (!x) return false;
+        *x = fo->com[--fo->n_com];
+        return true;
+    }
+    if (!x) {
+        if (fo->n_com >= MAC_MAX_COM) return false;
+        x = &fo->com[fo->n_com++];
+        x->l = l; x->c = c;
+    }
+    copia_texto(x->txt, t, sizeof x->txt);
+    return true;
+}
+
+/* ---- validación de datos ---- */
+
+static valid_t *val_en(folha_t *fo, int l, int c)
+{
+    for (int i = fo->n_val - 1; i >= 0; i--) {
+        valid_t *v = &fo->val[i];
+        if (l >= v->l1 && l <= v->l2 && c >= v->c1 && c <= v->c2) return v;
+    }
+    return NULL;
+}
+
+/* El elemento k (desde 0) de una lista «a;b;c» (también vale la coma). Devuelve false si no hay tantos. */
+static bool val_elemento(const char *lista, int k, char *dst, int max)
+{
+    const char *p = lista;
+    for (int i = 0; ; i++) {
+        const char *ini = p;
+        while (*p && *p != ';' && *p != ',') p++;
+        if (i == k) {
+            int n = (int)(p - ini);
+            while (n > 0 && *ini == ' ') { ini++; n--; }
+            while (n > 0 && ini[n - 1] == ' ') n--;
+            if (n > max - 1) n = max - 1;
+            memcpy(dst, ini, (size_t)n);
+            dst[n] = 0;
+            return true;
+        }
+        if (!*p) return false;
+        p++;
+    }
+}
+
+/* ¿Vale el texto en esa celda? Si no, err lleva el motivo. */
+static bool val_comprobar(folha_t *fo, int l, int c, const char *txt, char *err, int max)
+{
+    valid_t *v = val_en(fo, l, c);
+    if (!v || !txt[0]) return true;
+    if (v->tipo == VAL_LISTA) {
+        char it[64];
+        for (int k = 0; val_elemento(v->lista, k, it, sizeof it); k++)
+            if (texto_igual_ci(it, txt)) return true;
+        formatar_texto(err, max, "El valor no está en la lista (%s)", v->lista);
+        return false;
+    }
+    if (txt[0] == '=') return true;                  /* una fórmula no se valida */
+    int32_t n;
+    if (!parse_numero(txt, &n)) { copia_texto(err, "Se esperaba un número", (size_t)max); return false; }
+    if (n < v->min || n > v->max) {
+        char a[24], b[24];
+        formatar_numero(a, sizeof a, v->min);
+        formatar_numero(b, sizeof b, v->max);
+        formatar_texto(err, max, "El número debe estar entre %s y %s", a, b);
+        return false;
+    }
+    return true;
+}
+
+/* ---- formato condicional ---- */
+
+static bool cf_cumple(const condic_t *r, celula_t *ce)
+{
+    if (r->op == CF_IGUAL && r->txt[0]) {
+        char t[MAC_TEXTO_CEL];
+        celula_exibida(t, sizeof t, ce);
+        return texto_igual_ci(t, r->txt);
+    }
+    if (!(ce->flags & CEL_NUMERO) || (ce->flags & CEL_TEXTO)) return false;
+    int32_t v = ce->valor;
+    switch (r->op) {
+    case CF_MAYOR: return v > r->v1;
+    case CF_MENOR: return v < r->v1;
+    case CF_IGUAL: return v == r->v1;
+    case CF_ENTRE: return v >= r->v1 && v <= r->v2;
+    }
+    return false;
+}
+
+/* El fondo y el color de letra que imponen las reglas a una celda (con el bit REL_ATIVO si hay). */
+static bool cf_estilo(folha_t *fo, int l, int c, celula_t *ce, uint32_t *fondo, uint32_t *cor)
+{
+    bool r = false;
+    *fondo = 0; *cor = 0;
+    for (int i = 0; i < fo->n_cf; i++) {
+        const condic_t *k = &fo->cf[i];
+        if (l < k->l1 || l > k->l2 || c < k->c1 || c > k->c2 || !cf_cumple(k, ce)) continue;
+        if (k->fondo & REL_ATIVO) *fondo = k->fondo;
+        if (k->cor & REL_ATIVO) *cor = k->cor;
+        r = true;
+    }
+    return r;
+}
+
+/* Lee «>10», «<5», «=7», «=texto», «10..20» o «entre 10 y 20». */
+static bool cf_ler_condicion(const char *s, condic_t *r)
+{
+    char a[40], b[40];
+    while (*s == ' ') s++;
+    r->txt[0] = 0; r->v1 = r->v2 = 0;
+    if (*s == '>' || *s == '<' || *s == '=') {
+        char op = *s++;
+        while (*s == ' ') s++;
+        int n = (int)tam_texto(s);
+        while (n > 0 && s[n - 1] == ' ') n--;
+        if (n <= 0 || n > 39) return false;
+        memcpy(a, s, (size_t)n); a[n] = 0;
+        r->op = op == '>' ? CF_MAYOR : (op == '<' ? CF_MENOR : CF_IGUAL);
+        if (parse_numero(a, &r->v1)) return true;
+        if (op != '=' || n > 23) return false;
+        copia_texto(r->txt, a, sizeof r->txt);
+        return true;
+    }
+    const char *y = NULL, *ini = s;
+    int salto = 2;
+    if (comeca_com(s, "entre")) { ini = s + 5; y = acha_texto(ini, " y "); salto = 3; }
+    else y = acha_texto(s, "..");
+    if (!y) return false;
+    int na = (int)(y - ini);
+    int nb = (int)tam_texto(y + salto);
+    if (na <= 0 || na > 39 || nb <= 0 || nb > 39) return false;
+    memcpy(a, ini, (size_t)na); a[na] = 0;
+    memcpy(b, y + salto, (size_t)nb); b[nb] = 0;
+    r->op = CF_ENTRE;
+    return parse_numero(a, &r->v1) && parse_numero(b, &r->v2);
+}
+
+static void cf_condicion_texto(char *dst, int max, const condic_t *r)
+{
+    char a[24], b[24];
+    formatar_numero(a, sizeof a, r->v1);
+    formatar_numero(b, sizeof b, r->v2);
+    if (r->op == CF_IGUAL && r->txt[0]) formatar_texto(dst, max, "=%s", r->txt);
+    else if (r->op == CF_MAYOR) formatar_texto(dst, max, ">%s", a);
+    else if (r->op == CF_MENOR) formatar_texto(dst, max, "<%s", a);
+    else if (r->op == CF_IGUAL) formatar_texto(dst, max, "=%s", a);
+    else formatar_texto(dst, max, "%s..%s", a, b);
+}
+
+/* Un color por su nombre (los de las paletas), «RRGGBB» en hexadecimal o «ninguno». */
+static bool f2_ler_color(const char *s, uint32_t *rgb)
+{
+    while (*s == ' ') s++;
+    for (int i = 0; i < 9; i++)
+        if (texto_igual_ci(s, NOMES_REL[i])) { *rgb = REL_ATIVO | PALETA_REL[i]; return true; }
+    for (int i = 0; i < 9; i++)
+        if (texto_igual_ci(s, NOMES_COR[i])) { *rgb = REL_ATIVO | PALETA_COR[i]; return true; }
+    int n = 0;
+    while ((s[n] >= '0' && s[n] <= '9') || (s[n] >= 'a' && s[n] <= 'f') || (s[n] >= 'A' && s[n] <= 'F')) n++;
+    if (n == 6 && !s[n]) { *rgb = REL_ATIVO | f2_hex(s); return true; }
+    return false;
+}
+
+/* ---- autofiltro ---- */
+
+static int f2_ultima_fila(folha_t *fo)
+{
+    int ul, uc;
+    folha_extremos(fo, &ul, &uc, false);
+    return ul;
+}
+
+static bool af_pasa(folha_t *fo, int l)
+{
+    for (int k = 0; k <= fo->af_c2 - fo->af_c1 && k < MAC_AF_COLS; k++) {
+        if (!fo->af_val[k][0]) continue;
+        char t[MAC_TEXTO_CEL];
+        celula_exibida(t, sizeof t, celula_de(fo, l, fo->af_c1 + k));
+        if (!texto_igual_ci(t, fo->af_val[k])) return false;
+    }
+    return true;
+}
+
+/* Oculta (oculta = 2, distinto de «ocultar filas») las filas de datos que no pasan los filtros y muestra las demás. */
+static int af_aplicar(folha_t *fo)
+{
+    int ul = fo->af_l2, n = 0;
+    if (!fo->af_ativo) return 0;
+    for (int l = fo->af_l + 1; l <= ul; l++) {
+        bool pasa = af_pasa(fo, l);
+        linha_prop_t *lp = lp_buscar(fo, l);
+        if (!pasa) {
+            if (!lp) lp = lp_obter(fo, l);
+            if (lp && !lp->oculta) lp->oculta = 2;
+            if (lp && lp->oculta == 2) n++;
+        } else if (lp && lp->oculta == 2) lp->oculta = 0;
+    }
+    return n;
+}
+
+static void af_quitar(folha_t *fo)
+{
+    for (int i = 0; i < fo->n_lp; i++) if (fo->lp[i].oculta == 2) fo->lp[i].oculta = 0;
+    fo->af_ativo = false;
+    memset(fo->af_val, 0, sizeof fo->af_val);
+}
+
+/* Los valores distintos de una columna bajo el encabezado (ordenados). */
+static int af_valores(folha_t *fo, int c, char (*dst)[32], int max)
+{
+    int ul = fo->af_l2, n = 0;
+    for (int l = fo->af_l + 1; l <= ul; l++) {
+        char t[MAC_TEXTO_CEL];
+        celula_exibida(t, sizeof t, celula_de(fo, l, c));
+        if (!t[0] || tam_texto(t) > 31) continue;
+        int i = 0;
+        while (i < n && compara_texto(dst[i], t) < 0) i++;
+        if (i < n && compara_texto(dst[i], t) == 0) continue;
+        if (n >= max) continue;
+        for (int k = n; k > i; k--) copia_texto(dst[k], dst[k - 1], 32);
+        copia_texto(dst[i], t, 32);
+        n++;
+    }
+    return n;
+}
+
+/* ---- guardado y lectura en el formato propio (las líneas nuevas las ignoran los lectores antiguos) ---- */
+
+static void f2_guardar(folha_t *fo, char **buf, int *tam, int *cap)
+{
+    char rg[40], q[360];
+    for (int i = 0; i < fo->n_com; i++) {
+        char ref[16];
+        nome_ref(ref, sizeof ref, fo->com[i].l, fo->com[i].c);
+        f2_cita(q, sizeof q, fo->com[i].txt);
+        txt_addf(buf, tam, cap, "comentario %s %s\n", ref, q);
+    }
+    for (int i = 0; i < fo->n_val; i++) {
+        const valid_t *v = &fo->val[i];
+        f2_rango_texto(rg, sizeof rg, v->l1, v->c1, v->l2, v->c2);
+        f2_cita(q, sizeof q, v->lista);
+        txt_addf(buf, tam, cap, "validacion %s tipo=%d min=%d max=%d lista=%s\n", rg, v->tipo, (int)v->min, (int)v->max, q);
+    }
+    for (int i = 0; i < fo->n_cf; i++) {
+        const condic_t *k = &fo->cf[i];
+        f2_rango_texto(rg, sizeof rg, k->l1, k->c1, k->l2, k->c2);
+        f2_cita(q, sizeof q, k->txt);
+        txt_addf(buf, tam, cap, "condicional %s op=%d v1=%d v2=%d fondo=%x cor=%x txt=%s\n", rg, k->op, (int)k->v1, (int)k->v2,
+                 (unsigned)k->fondo, (unsigned)k->cor, q);
+    }
+    if (fo->af_ativo) {
+        f2_rango_texto(rg, sizeof rg, fo->af_l, fo->af_c1, fo->af_l2, fo->af_c2);
+        txt_addf(buf, tam, cap, "autofiltro %s\n", rg);
+        for (int k = 0; k <= fo->af_c2 - fo->af_c1 && k < MAC_AF_COLS; k++) {
+            if (!fo->af_val[k][0]) continue;
+            char cn[8];
+            nome_coluna(cn, sizeof cn, fo->af_c1 + k);
+            f2_cita(q, sizeof q, fo->af_val[k]);
+            txt_addf(buf, tam, cap, "filtro %s %s\n", cn, q);
+        }
+    }
+}
+
+/* Una línea del .mxs de la fase 2 (comentario, validacion, condicional, autofiltro, filtro). false = no es de las nuestras. */
+static bool f2_leer_linea(folha_t *fo, const char *lin)
+{
+    const char *q;
+    int l1, c1, l2, c2;
+    char k[16], v[160];
+    if (comeca_com(lin, "comentario ")) {
+        q = lin + 11;
+        if (!f2_leer_rango(&q, &l1, &c1, &l2, &c2)) return true;
+        while (*q == ' ') q++;
+        char t[160];
+        if (*q == '"') { if (ler_aspas(&q, t, sizeof t)) com_definir(fo, l1, c1, t); }
+        return true;
+    }
+    if (comeca_com(lin, "validacion ")) {
+        q = lin + 11;
+        if (!f2_leer_rango(&q, &l1, &c1, &l2, &c2) || fo->n_val >= MAC_MAX_VAL) return true;
+        valid_t x;
+        memset(&x, 0, sizeof x);
+        x.l1 = l1; x.c1 = c1; x.l2 = l2; x.c2 = c2;
+        while (kv_siguiente(&q, k, sizeof k, v, sizeof v)) {
+            if (compara_texto(k, "tipo") == 0) x.tipo = texto_para_int(v);
+            else if (compara_texto(k, "min") == 0) x.min = texto_para_int(v);
+            else if (compara_texto(k, "max") == 0) x.max = texto_para_int(v);
+            else if (compara_texto(k, "lista") == 0) copia_texto(x.lista, v, sizeof x.lista);
+        }
+        if (x.tipo == VAL_LISTA || x.tipo == VAL_RANGO) fo->val[fo->n_val++] = x;
+        return true;
+    }
+    if (comeca_com(lin, "condicional ")) {
+        q = lin + 12;
+        if (!f2_leer_rango(&q, &l1, &c1, &l2, &c2) || fo->n_cf >= MAC_MAX_CF) return true;
+        condic_t x;
+        memset(&x, 0, sizeof x);
+        x.l1 = l1; x.c1 = c1; x.l2 = l2; x.c2 = c2;
+        while (kv_siguiente(&q, k, sizeof k, v, sizeof v)) {
+            if (compara_texto(k, "op") == 0) x.op = texto_para_int(v);
+            else if (compara_texto(k, "v1") == 0) x.v1 = texto_para_int(v);
+            else if (compara_texto(k, "v2") == 0) x.v2 = texto_para_int(v);
+            else if (compara_texto(k, "fondo") == 0) x.fondo = f2_hex(v);
+            else if (compara_texto(k, "cor") == 0) x.cor = f2_hex(v);
+            else if (compara_texto(k, "txt") == 0) copia_texto(x.txt, v, sizeof x.txt);
+        }
+        if (x.op >= CF_MAYOR && x.op <= CF_ENTRE) fo->cf[fo->n_cf++] = x;
+        return true;
+    }
+    if (comeca_com(lin, "autofiltro ")) {
+        q = lin + 11;
+        if (!f2_leer_rango(&q, &l1, &c1, &l2, &c2)) return true;
+        fo->af_ativo = true;
+        fo->af_l = l1; fo->af_l2 = l2; fo->af_c1 = c1; fo->af_c2 = (c2 - c1 >= MAC_AF_COLS) ? c1 + MAC_AF_COLS - 1 : c2;
+        return true;
+    }
+    if (comeca_com(lin, "filtro ")) {
+        q = lin + 7;
+        int col;
+        if (!ler_coluna(&q, &col) || !fo->af_ativo || col < fo->af_c1 || col > fo->af_c2) return true;
+        while (*q == ' ') q++;
+        char t[32];
+        if (*q == '"' && ler_aspas(&q, t, sizeof t)) copia_texto(fo->af_val[col - fo->af_c1], t, 32);
+        return true;
+    }
+    return false;
 }
 
 /* ------------------------------------------------------------ geometría y estado de la interfaz */
@@ -3969,7 +4420,10 @@ static int cong_h(void) { return off_lin(folha_ativa(), folha_ativa()->cong_l); 
 static int x_coluna(int c) { return MAC_LARGC + off_col_x(c) - (c < folha_ativa()->cong_c ? 0 : desl_x); }
 static int y_linha(int l) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH + off_lin(folha_ativa(), l) - (l < folha_ativa()->cong_l ? 0 : desl_y); }
 static int grelha_y(void) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH; }
-static int grelha_a(void) { return jan->alt - grelha_y() - MAC_RODAPE; }
+#define MAC_SB 16        /* grosor de las barras de desplazamiento (D345) */
+static int grelha_a(void) { return jan->alt - grelha_y() - MAC_RODAPE - MAC_SB; }
+static int grelha_x1(void) { return jan->larg - MAC_SB; }           /* borde derecho de la cuadrícula */
+static int grelha_l(void) { return jan->larg - MAC_LARGC - MAC_SB; }   /* ancho de la cuadrícula */
 
 #define Y_FERR1  MENU_A
 #define Y_FERR2  (MENU_A + FERR_A)
@@ -3988,6 +4442,8 @@ enum {
     A_ASISTENTE, A_IA_EXPLICAR, A_IA_FORMULA, A_FUNCAO, A_CLASICO,
     A_COMBINAR, A_COMB_CENTRAR, A_COMB_H, A_SEPARAR, A_OCULTAR_FILAS, A_MOSTRAR_FILAS, A_OCULTAR_COLS, A_MOSTRAR_COLS,
     A_AUTO_COL, A_AUTO_FILA, A_INMOV,
+    A_BUSCAR, A_REEMPLAZAR, A_AJUSTAR, A_BROCHA, A_AUTOFILTRO, A_FILTRO_QUITAR, A_FORMATO_COND, A_COND_BORRAR,
+    A_COMENTARIO, A_COM_BORRAR, A_VALIDACION,
     /* elecciones de colores y bordes (menús desplegables de los botones) */
     A_REL_0 = 100, A_COR_0 = 120, A_BOR_0 = 140
 };
@@ -3997,6 +4453,8 @@ enum {
 #define COD_BOR   8203
 #define COD_PEST  8204
 #define COD_CTX   8205
+#define COD_AF    8206   /* menú del filtro de una columna */
+#define COD_VAL   8207   /* lista desplegable de una celda con validación */
 
 static barra_menu_t   menu;
 static barra_ferr_t   ferr1, ferr2;
@@ -4120,6 +4578,22 @@ static void ic_igual(jan_t *j, int x, int y, bool a)
     R(3, 5, 9, 2, W98_NEGRO); R(3, 9, 9, 2, W98_NEGRO);
 }
 
+/* Ajustar texto: líneas que se pliegan dentro de una caja. */
+static void ic_ajustar(jan_t *j, int x, int y, bool a)
+{
+    (void)a;
+    R(2, 2, 12, 1, W98_NEGRO); R(2, 13, 12, 1, W98_NEGRO); R(2, 2, 1, 12, W98_NEGRO); R(13, 2, 1, 12, W98_NEGRO);
+    R(4, 5, 8, 1, W98_NEGRO); R(4, 8, 5, 1, W98_NEGRO); R(4, 11, 7, 1, W98_NEGRO);
+}
+
+/* Copiar formato: una brocha. */
+static void ic_brocha(jan_t *j, int x, int y, bool a)
+{
+    (void)a;
+    R(9, 1, 5, 3, 0x806000); R(7, 4, 6, 3, 0xC0C0C0);
+    R(3, 7, 7, 3, 0xFFD060); R(2, 10, 4, 3, 0xFFD060); R(2, 13, 3, 2, 0xC08000);
+}
+
 static void itens_iniciar(void)
 {
 #define IT(id_, ic_, tx_, neg_, con_, lg_) { id_, ic_, tx_, neg_, con_, false, false, lg_ }
@@ -4195,7 +4669,8 @@ static const mi_t M_EDICAO[] = {
     { "Deshacer\tCtrl+Z", A_DESFAZER }, { "-", 0 },
     { "Cortar\tCtrl+X", A_CORTAR }, { "Copiar\tCtrl+C", A_COPIAR }, { "Pegar\tCtrl+V", A_COLAR }, { "-", 0 },
     { "Borrar contenido\tSupr", A_BORRAR }, { "Borrar formato", A_BORRAR_FMT }, { "-", 0 },
-    { "Seleccionar todo\tCtrl+A", A_TUDO }, { "Ir a...\tCtrl+G", A_IR },
+    { "Seleccionar todo\tCtrl+A", A_TUDO }, { "Ir a...\tCtrl+G", A_IR }, { "-", 0 },
+    { "Buscar...\tCtrl+F", A_BUSCAR }, { "Reemplazar...\tCtrl+H", A_REEMPLAZAR }, { "Copiar formato\tCtrl+Mayús+C", A_BROCHA },
 };
 static const mi_t M_VER[] = {
     { "Líneas de la cuadrícula", A_GRADE }, { "Mostrar fórmulas en las celdas", A_FORMULAS }, { "-", 0 },
@@ -4204,7 +4679,8 @@ static const mi_t M_VER[] = {
 static const mi_t M_INSERIR[] = {
     { "Fila", A_LINHA_INS }, { "Columna", A_COL_INS }, { "Hoja", A_FOLHA_NOVA }, { "-", 0 },
     { "Función...\tMayús+F3", A_FUNCAO }, { "Gráfico...", A_GRAFICO }, { "-", 0 },
-    { "Gráfico de barras", A_GRAF_B }, { "Gráfico de barras horizontales", A_GRAF_H }, { "Gráfico de tarta", A_GRAF_T },
+    { "Gráfico de barras", A_GRAF_B }, { "Gráfico de barras horizontales", A_GRAF_H }, { "Gráfico de tarta", A_GRAF_T }, { "-", 0 },
+    { "Comentario...\tMayús+F2", A_COMENTARIO }, { "Eliminar comentario", A_COM_BORRAR },
 };
 static const mi_t M_FORMATO[] = {
     { "Celdas...\tCtrl+1", A_CELULAS }, { "-", 0 },
@@ -4217,7 +4693,7 @@ static const mi_t M_FORMATO[] = {
     { "Autoajustar el alto de la fila", A_AUTO_FILA }, { "-", 0 },
     { "Ocultar filas", A_OCULTAR_FILAS }, { "Mostrar filas", A_MOSTRAR_FILAS },
     { "Ocultar columnas", A_OCULTAR_COLS }, { "Mostrar columnas", A_MOSTRAR_COLS }, { "-", 0 },
-    { "Inmovilizar paneles", A_INMOV }, { "Cambiar nombre de la hoja...", A_FOLHA_REN },
+    { "Inmovilizar paneles", A_INMOV }, { "Cambiar nombre de la hoja...", A_FOLHA_REN }, { "Ajustar texto", A_AJUSTAR },
 };
 static const mi_t M_FERRAMENTAS[] = {
     { "Recalcular", A_RECALC }, { "Autosuma", A_SOMA }, { "-", 0 },
@@ -4225,7 +4701,10 @@ static const mi_t M_FERRAMENTAS[] = {
 };
 static const mi_t M_DADOS[] = {
     { "Ordenar de A a Z", A_ORD_A }, { "Ordenar de Z a A", A_ORD_Z }, { "-", 0 },
-    { "Importar CSV...", A_CSV_IMP }, { "Exportar CSV...", A_CSV_EXP },
+    { "Importar CSV...", A_CSV_IMP }, { "Exportar CSV...", A_CSV_EXP }, { "-", 0 },
+    { "Autofiltro\tCtrl+Mayús+L", A_AUTOFILTRO }, { "Quitar filtros", A_FILTRO_QUITAR }, { "-", 0 },
+    { "Validación de datos...", A_VALIDACION }, { "Formato condicional...", A_FORMATO_COND },
+    { "Borrar formato condicional", A_COND_BORRAR },
 };
 static const mi_t M_AJUDA[] = { { "Acerca de Macaco", A_ACERCA } };
 
@@ -4242,6 +4721,7 @@ static const mi_t M_CONTEXTO[] = {
     { "Ocultar columnas", A_OCULTAR_COLS }, { "Mostrar columnas", A_MOSTRAR_COLS },
     { "-", 0 }, { "Ancho de las columnas...", A_LARG }, { "-", 0 },
     { "Asistente IA: Explicar estos datos", A_IA_EXPLICAR }, { "Asistente IA: Crear fórmula para...", A_IA_FORMULA },
+    { "-", 0 }, { "Comentario...", A_COMENTARIO },
 };
 static const mi_t M_PESTANA[] = {
     { "Insertar hoja", A_FOLHA_NOVA }, { "Eliminar hoja", A_FOLHA_DEL }, { "Cambiar nombre...", A_FOLHA_REN },
@@ -4254,7 +4734,7 @@ static const struct { const char *nome; const mi_t *l; int n; } MENUS[8] = {
     { "Herramientas", M_FERRAMENTAS, NM(M_FERRAMENTAS) }, { "Datos", M_DADOS, NM(M_DADOS) },
     { "Ayuda", M_AJUDA, NM(M_AJUDA) },
 };
-static char menu_buf[8][900];
+static char menu_buf[8][1400];
 
 static bool tem_selecao(void) { return anc_l != cel_l || anc_c != cel_c; }
 
@@ -4276,7 +4756,9 @@ static void menu_construir(char *dst, int max, const mi_t *l, int n)
     for (int i = 0; i < n; i++) {
         const char *t = l[i].t;
         bool off = l[i].a && !acao_ativa(l[i].a);
-        bool marca = (l[i].a == A_GRADE && grade_visivel) || (l[i].a == A_FORMULAS && mostrar_formulas) || (l[i].a == A_ASISTENTE && ag_visible);
+        bool marca = (l[i].a == A_GRADE && grade_visivel) || (l[i].a == A_FORMULAS && mostrar_formulas) || (l[i].a == A_ASISTENTE && ag_visible) ||
+                     (l[i].a == A_AUTOFILTRO && folha_ativa()->af_ativo) ||
+                     (l[i].a == A_AJUSTAR && fmt_de(celula_de(folha_ativa(), cel_l, cel_c))->aj);
         int tl = (int)tam_texto(t);
         if (k + tl + 6 >= max) break;
         if (i) dst[k++] = '\n';
@@ -4300,7 +4782,7 @@ static void menus_atualizar(void)
 
 static void menu_lista(int x, int y, const mi_t *l, int n, int codigo)
 {
-    static char buf[1200];
+    static char buf[1700];
     menu_construir(buf, sizeof buf, l, n);
     menu_contextual(jan->id, x, y, buf, codigo);
 }
@@ -4323,7 +4805,7 @@ static uint32_t mezclar(uint32_t a, uint32_t b)
 #define TXT_CLAVE 0x010203
 static uint32_t txt_buf[256 * 8 * 17];
 
-static void texto_celda(int x, int y, int w, int h, const char *t, const fmt_t *f, bool numero, uint32_t cor)
+static void texto_celda_1(int x, int y, int w, int h, const char *t, const fmt_t *f, bool numero, uint32_t cor)
 {
     int tam = f->tam ? f->tam : 10;
     int n = (int)tam_texto(t);
@@ -4372,6 +4854,62 @@ static void texto_celda(int x, int y, int w, int h, const char *t, const fmt_t *
             uint32_t v = txt_buf[sy * sw + dx * 10 / tam];
             if (v != TXT_CLAVE) jan->px[py * jan->larg + px] = v;
         }
+    }
+}
+
+/* Parte un texto en líneas de como mucho cols caracteres (por palabras si se puede; respeta los saltos «\n»).
+ * Devuelve cuántas líneas salen; ini[k] y len[k] dicen dónde está cada una (hasta max). */
+static int quebra_linhas(const char *t, int cols, int *ini, int *len, int max)
+{
+    int n = 0, i = 0, tl = (int)tam_texto(t);
+    if (cols < 1) cols = 1;
+    while (n < max) {
+        int k = 0;
+        while (i + k < tl && k < cols && t[i + k] != '\n') k++;
+        if (i + k >= tl) { ini[n] = i; len[n] = k; n++; break; }       /* lo que queda cabe */
+        if (t[i + k] == '\n' || t[i + k] == ' ') {                     /* la línea acaba justo en un salto o en un espacio */
+            ini[n] = i; len[n] = k; n++;
+            i += k + 1;
+        } else {                                                       /* se cortaría una palabra: retrocede al último espacio */
+            int b = k;
+            while (b > 0 && t[i + b] != ' ') b--;
+            if (b == 0) b = k;
+            ini[n] = i; len[n] = b; n++;
+            i += b;
+            while (i < tl && t[i] == ' ') i++;
+        }
+        if (i >= tl) break;
+    }
+    return n ? n : 1;
+}
+
+/* Cuántas líneas ocupa el texto de una celda con «ajustar texto» en una columna de ancho w. */
+static int lineas_ajustadas(const char *t, const fmt_t *f, int w)
+{
+    int tam = f->tam ? f->tam : 10;
+    int cols = (w - 6) * 10 / (LETRA_L * tam);
+    int ini[40], len[40];
+    return quebra_linhas(t, cols, ini, len, 40);
+}
+
+/* El texto de una celda con formato, con «ajustar texto» (D345): varias líneas dentro de la celda. */
+static void texto_celda(int x, int y, int w, int h, const char *t, const fmt_t *f, bool numero, uint32_t cor)
+{
+    if (!f->aj || numero) { texto_celda_1(x, y, w, h, t, f, numero, cor); return; }
+    int tam = f->tam ? f->tam : 10;
+    int dh = LETRA_A * tam / 10;
+    int cols = (w - 6) * 10 / (LETRA_L * tam);
+    int ini[40], len[40];
+    int n = quebra_linhas(t, cols, ini, len, 40);
+    for (int k = 0; k < n; k++) {
+        int ly = y + 2 + k * dh;
+        if (ly + dh > y + h + 1) break;
+        char lin[MAC_TEXTO_CEL];
+        int ll = len[k] < (int)sizeof lin - 1 ? len[k] : (int)sizeof lin - 1;
+        memcpy(lin, t + ini[k], (size_t)ll);
+        lin[ll] = 0;
+        if (!lin[0]) continue;
+        texto_celda_1(x, ly, w, dh, lin, f, false, cor);
     }
 }
 
@@ -4430,7 +4968,7 @@ static void desenhar_marcos_refs(void)
         reftok_normalizar(&t);
         int x, y, w, h;
         ref_rect(&t, &x, &y, &w, &h);
-        if (y + h <= gy || y >= gy + ga || x + w <= MAC_LARGC || x >= jan->larg) continue;
+        if (y + h <= gy || y >= gy + ga || x + w <= MAC_LARGC || x >= grelha_x1()) continue;
         uint32_t cor = COR_REFS[i % 8];
         g_moldura(jan, x - 1, y - 1, w + 2, h + 2, cor);
         g_moldura(jan, x, y, w, h, cor);
@@ -4448,7 +4986,7 @@ static bool asa_relleno_pos(int *hx, int *hy)
     *hx = x_coluna(c2 + 1);
     *hy = y_linha(l2 + 1);
     int gy = grelha_y(), ga = grelha_a();
-    return *hx > MAC_LARGC + 2 && *hx < jan->larg && *hy > gy + 2 && *hy <= gy + ga;
+    return *hx > MAC_LARGC + 2 && *hx < grelha_x1() && *hy > gy + 2 && *hy <= gy + ga;
 }
 
 static void desenhar_asa_relleno(void)
@@ -4486,7 +5024,7 @@ static void desenhar_graficos(void)
         if (!g->ativo || g->folha != livro.ativa) continue;
         int x, y, w, h;
         graf_rect(g, &x, &y, &w, &h);
-        if (x >= jan->larg || y >= jan->alt || x + w <= MAC_LARGC || y + h <= grelha_y()) continue;
+        if (x >= grelha_x1() || y >= jan->alt || x + w <= MAC_LARGC || y + h <= grelha_y()) continue;
         graf_desenhar(jan, x, y, w, h, g);
         if (i == graf_sel) {
             g_moldura(jan, x - 1, y - 1, w + 2, h + 2, 0x000000);
@@ -4762,7 +5300,12 @@ static void desenhar_celula(folha_t *fo, int l, int c, int x, int y, int lc, int
     if (mostrar_formulas && (ce->flags & CEL_FORMULA)) copia_texto(t, ce->texto, sizeof t);
     else celula_exibida(t, sizeof t, ce);
     bool numero = (ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO) && !(mostrar_formulas && (ce->flags & CEL_FORMULA));
-    if (t[0]) texto_celda(x, y, lc, h, t, f, numero, f->cor);
+    uint32_t cor_txt = f->cor;
+    if (fo->n_cf) {
+        uint32_t cf_fondo, cf_cor;
+        if (cf_estilo(fo, l, c, ce, &cf_fondo, &cf_cor) && (cf_cor & REL_ATIVO)) cor_txt = cf_cor & 0xFFFFFF;
+    }
+    if (t[0]) texto_celda(x, y, lc, h, t, f, numero, cor_txt);
     /* bordes de la celda */
     if (f->bor) {
         if (f->bor & BOR_CIMA) g_linha(jan, x, y, x + lc - 1, y, W98_NEGRO);
@@ -4780,7 +5323,7 @@ static void desenhar_zona(folha_t *fo, int la, int lb, int ca, int cb)
     if (la >= lb || ca >= cb) return;
     int gy = grelha_y(), ga = grelha_a();
     int zx0 = x_coluna(ca), zx1 = x_coluna(cb);
-    if (zx1 > jan->larg) zx1 = jan->larg;
+    if (zx1 > grelha_x1()) zx1 = grelha_x1();
     for (int l = la; l < lb; l++) {
         int y = y_linha(l), h = linha_alt(fo, l);
         if (h <= 0) continue;
@@ -4795,6 +5338,10 @@ static void desenhar_zona(folha_t *fo, int la, int lb, int ca, int cb)
             const fmt_t *f = fmt_de(ce);
             uint32_t fundo = (f->rel & REL_ATIVO) ? (f->rel & 0xFFFFFF) : COR_BRANCO;
             bool ativa = (l == cel_l && c == cel_c);
+            if (fo->n_cf) {                                   /* formato condicional (D345) */
+                uint32_t cf_fondo, cf_cor;
+                if (cf_estilo(fo, l, c, ce, &cf_fondo, &cf_cor) && (cf_fondo & REL_ATIVO)) fundo = cf_fondo & 0xFFFFFF;
+            }
             if (tem_selecao() && !ativa && na_selecao(l, c)) fundo = mezclar(fundo, 0x6080D0);
             if (fundo != COR_BRANCO) g_retangulo(jan, x, y, lc, h, fundo);
         }
@@ -4806,7 +5353,7 @@ static void desenhar_zona(folha_t *fo, int la, int lb, int ca, int cb)
         if (zy1 > gy + ga) zy1 = gy + ga;
         for (int c = ca; c <= cb && c <= MAC_MAX_COLUNAS; c++) {
             int x = x_coluna(c);
-            if (x < MAC_LARGC || x > jan->larg || x > zx1) continue;
+            if (x < MAC_LARGC || x > grelha_x1() || x > zx1) continue;
             g_linha(jan, x, zy0, x, zy1 - 1, 0xC0C0C0);
         }
         for (int l = la; l <= lb && l <= MAC_MAX_LINHAS; l++) {
@@ -4852,7 +5399,7 @@ static void desenhar_cab_col(folha_t *fo, int c, int l1, int c1, int c2)
     (void)l1;
     int hy = grelha_y() - MAC_CABECALH;
     int x = x_coluna(c), lcol = coluna_larg(fo, c);
-    if (lcol <= 0 || x >= jan->larg) return;
+    if (lcol <= 0 || x >= grelha_x1()) return;
     bool sel = c >= c1 && c <= c2;
     g_retangulo(jan, x, hy, lcol, MAC_CABECALH, W98_FACE);
     g_relevo(jan, x, hy, lcol, MAC_CABECALH, sel);
@@ -4877,12 +5424,282 @@ static void desenhar_cab_linha(folha_t *fo, int l, int l1, int l2)
     g_texto(jan, tx, y + (h - LETRA_A) / 2 + (sel ? 1 : 0), n, W98_NEGRO);
 }
 
+/* ---- barras de desplazamiento, marcas de comentario, flechas del filtro y de la validación (D345) ---- */
+
+static void celula_em(int mx, int my, int *l, int *c);
+
+typedef struct { int x, y, l, a, ini, len, th_ini, th_len, top, vis, rng; } sb_t;
+static int sb_arrasto;       /* 0 = ninguna, 1 = vertical, 2 = horizontal */
+static int sb_off;           /* dónde dentro de la guía se agarró */
+static int sb_rango_f;       /* rango de la barra congelado mientras se arrastra */
+
+/* Geometría de una barra. top = primera fila (o columna) que se ve; vis = cuántas caben; rng = el recorrido
+ * total (lo usado más un margen: la hoja entera tiene 65 536 filas y la guía sería un punto). */
+static void sb_calc(bool vert, sb_t *s)
+{
+    folha_t *fo = folha_ativa();
+    int ga = grelha_a(), gy = grelha_y();
+    int top, vis, ext;
+    calcular_offsets();
+    if (vert) {
+        top = linha_em_y(fo, desl_y + cong_h());
+        if (top < fo->cong_l) top = fo->cong_l;
+        vis = linha_em_y(fo, desl_y + ga) - top;
+        if (vis < 1) vis = 1;
+        ext = fo->linhas;
+        s->x = jan->larg - MAC_SB; s->y = gy; s->l = MAC_SB; s->a = ga;
+        s->ini = gy + MAC_SB; s->len = ga - 2 * MAC_SB;
+    } else {
+        top = coluna_em_x(desl_x + cong_w());
+        if (top < fo->cong_c) top = fo->cong_c;
+        int px = 0, c = top;
+        while (c < MAC_MAX_COLUNAS && px < grelha_l() - cong_w()) px += coluna_larg(fo, c++);
+        vis = c - top;
+        if (vis < 1) vis = 1;
+        ext = fo->colunas;
+        s->x = MAC_LARGC; s->y = gy + ga; s->l = jan->larg - MAC_LARGC - MAC_SB; s->a = MAC_SB;
+        s->ini = s->x + MAC_SB; s->len = s->l - 2 * MAC_SB;
+    }
+    int rng = (ext > top + vis ? ext : top + vis) + (vert ? 30 : 6);
+    if (rng < (vert ? 60 : 26)) rng = vert ? 60 : 26;
+    if (sb_arrasto == (vert ? 1 : 2) && sb_rango_f > 0) rng = sb_rango_f;
+    int max = vert ? MAC_MAX_LINHAS : MAC_MAX_COLUNAS;
+    if (rng > max) rng = max;
+    if (s->len < 8) s->len = 8;
+    s->top = top; s->vis = vis; s->rng = rng;
+    int tl = s->len * vis / rng;
+    if (tl < 14) tl = 14;
+    if (tl > s->len) tl = s->len;
+    s->th_len = tl;
+    int den = rng - vis, t = top;
+    if (t > den) t = den;
+    s->th_ini = s->ini + (den > 0 ? (s->len - tl) * t / den : 0);
+}
+
+/* Pone la fila (o columna) v como primera visible. */
+static void sb_ir(bool vert, int v)
+{
+    folha_t *fo = folha_ativa();
+    calcular_offsets();
+    if (vert) {
+        if (v < fo->cong_l) v = fo->cong_l;
+        if (v > MAC_MAX_LINHAS - 1) v = MAC_MAX_LINHAS - 1;
+        desl_y = off_lin(fo, v) - cong_h();
+        if (desl_y < 0) desl_y = 0;
+    } else {
+        if (v < fo->cong_c) v = fo->cong_c;
+        if (v > MAC_MAX_COLUNAS - 1) v = MAC_MAX_COLUNAS - 1;
+        desl_x = off_col_x(v) - cong_w();
+        if (desl_x < 0) desl_x = 0;
+    }
+}
+
+/* Un paso de flecha, saltando las filas y columnas ocultas. */
+static int sb_paso(bool vert, int top, int dir)
+{
+    folha_t *fo = folha_ativa();
+    int v = top + dir;
+    while (v > 0 && v < (vert ? MAC_MAX_LINHAS : MAC_MAX_COLUNAS) - 1 && (vert ? linha_alt(fo, v) : coluna_larg(fo, v)) == 0) v += dir;
+    return v;
+}
+
+static void sb_registrar(bool vert)
+{
+    sb_t s;
+    sb_calc(vert, &s);
+    if (vert) registrar("macaco: barra vertical: primera fila %d", s.top + 1);
+    else {
+        char cn[8];
+        nome_coluna(cn, sizeof cn, s.top);
+        registrar("macaco: barra horizontal: primera columna %s", cn);
+    }
+}
+
+/* true si el evento era de una barra. */
+static bool sb_evento(const evento_t *e)
+{
+    if (e->tipo == EV_CLIQUE && (e->botoes & 1) && !(e->botoes & 2)) {
+        for (int k = 0; k < 2; k++) {
+            bool vert = k == 0;
+            sb_t s;
+            sb_calc(vert, &s);
+            if (e->x < s.x || e->x >= s.x + s.l || e->y < s.y || e->y >= s.y + s.a) continue;
+            int pos = vert ? e->y : e->x, top = s.top;
+            if (pos < s.ini) top = sb_paso(vert, s.top, -1);
+            else if (pos >= s.ini + s.len) top = sb_paso(vert, s.top, 1);
+            else if (pos < s.th_ini) top = s.top - s.vis;
+            else if (pos >= s.th_ini + s.th_len) top = s.top + s.vis;
+            else { sb_arrasto = vert ? 1 : 2; sb_off = pos - s.th_ini; sb_rango_f = s.rng; return true; }
+            if (top < 0) top = 0;
+            sb_ir(vert, top);
+            sb_registrar(vert);
+            return true;
+        }
+        return false;
+    }
+    if (e->tipo == EV_MOVER && sb_arrasto && (e->botoes & 1)) {
+        bool vert = sb_arrasto == 1;
+        sb_t s;
+        sb_calc(vert, &s);
+        int span = s.len - s.th_len, den = s.rng - s.vis, top = 0;
+        if (span > 0 && den > 0) {
+            int d = (vert ? e->y : e->x) - sb_off - s.ini;
+            if (d < 0) d = 0;
+            if (d > span) d = span;
+            top = (d * den + span / 2) / span;
+        }
+        sb_ir(vert, top);
+        return true;
+    }
+    if (e->tipo == EV_SOLTOU && sb_arrasto) {
+        bool vert = sb_arrasto == 1;
+        sb_arrasto = 0;
+        sb_rango_f = 0;
+        sb_registrar(vert);
+        return true;
+    }
+    return false;
+}
+
+/* Un botón de flecha de una barra (dir: 0 arriba, 1 abajo, 2 izquierda, 3 derecha). */
+static void sb_flecha(int x, int y, int dir)
+{
+    g_retangulo(jan, x, y, MAC_SB, MAC_SB, W98_FACE);
+    g_bisel(jan, x, y, MAC_SB, MAC_SB, false);
+    int cx = x + MAC_SB / 2, cy = y + MAC_SB / 2;
+    for (int r = 0; r < 4; r++) {
+        if (dir == 0) g_retangulo(jan, cx - r, cy - 2 + r, 2 * r + 1, 1, W98_NEGRO);
+        else if (dir == 1) g_retangulo(jan, cx - 3 + r, cy - 2 + r, 7 - 2 * r, 1, W98_NEGRO);
+        else if (dir == 2) g_retangulo(jan, cx - 2 + r, cy - r, 1, 2 * r + 1, W98_NEGRO);
+        else g_retangulo(jan, cx - 2 + r, cy - 3 + r, 1, 7 - 2 * r, W98_NEGRO);
+    }
+}
+
+static void sb_desenhar_uma(bool vert)
+{
+    sb_t s;
+    sb_calc(vert, &s);
+    if (s.len < 20 || (vert ? s.a : s.l) < 3 * MAC_SB) return;
+    g_retangulo(jan, s.x, s.y, s.l, s.a, mezclar(W98_FACE, COR_BRANCO));
+    if (vert) {
+        sb_flecha(s.x, s.y, 0);
+        sb_flecha(s.x, s.y + s.a - MAC_SB, 1);
+        g_retangulo(jan, s.x, s.th_ini, MAC_SB, s.th_len, W98_FACE);
+        g_bisel(jan, s.x, s.th_ini, MAC_SB, s.th_len, false);
+    } else {
+        sb_flecha(s.x, s.y, 2);
+        sb_flecha(s.x + s.l - MAC_SB, s.y, 3);
+        g_retangulo(jan, s.th_ini, s.y, s.th_len, MAC_SB, W98_FACE);
+        g_bisel(jan, s.th_ini, s.y, s.th_len, MAC_SB, false);
+    }
+}
+
+static void sb_desenhar(void)
+{
+    sb_desenhar_uma(true);
+    sb_desenhar_uma(false);
+    g_retangulo(jan, jan->larg - MAC_SB, grelha_y() + grelha_a(), MAC_SB, MAC_SB, W98_FACE);
+}
+
+/* El botoncito desplegable de una celda (filtro o lista de validación): su esquina y si cabe en pantalla. */
+static bool f2_boton_pos(int l, int c, int *bx, int *by)
+{
+    folha_t *fo = folha_ativa();
+    int x = x_coluna(c), y = y_linha(l), w = coluna_larg(fo, c), h = linha_alt(fo, l);
+    int gy = grelha_y(), ga = grelha_a();
+    if (w < 30 || h < 14 || x < MAC_LARGC || y < gy || x + w > grelha_x1() || y + h > gy + ga) return false;
+    *bx = x + w - 16;
+    *by = y + (h - 14) / 2;
+    return true;
+}
+
+static void f2_boton_desenhar(int bx, int by, uint32_t cor)
+{
+    g_retangulo(jan, bx, by, 14, 14, W98_FACE);
+    g_bisel(jan, bx, by, 14, 14, false);
+    for (int r = 0; r < 3; r++) g_retangulo(jan, bx + 4 + r, by + 5 + r, 7 - 2 * r, 1, cor);
+}
+
+static int hov_idx = -1, hov_x, hov_y;   /* comentario bajo el ratón */
+
+/* Marcas rojas de comentario, flechas del autofiltro y de la lista de validación. */
+static void desenhar_f2(void)
+{
+    folha_t *fo = folha_ativa();
+    int gy = grelha_y(), ga = grelha_a();
+    for (int i = 0; i < fo->n_com; i++) {
+        int l = fo->com[i].l, c = fo->com[i].c;
+        int x = x_coluna(c), y = y_linha(l), w = coluna_larg(fo, c), h = linha_alt(fo, l);
+        if (w <= 0 || h <= 0 || x < MAC_LARGC || y < gy || x + w > grelha_x1() || y + h > gy + ga) continue;
+        for (int r = 0; r < 6; r++) g_retangulo(jan, x + w - 6 + r, y + 1 + r, 6 - r, 1, 0xC00000);
+    }
+    if (fo->af_ativo) {
+        for (int c = fo->af_c1; c <= fo->af_c2; c++) {
+            int bx, by;
+            if (!f2_boton_pos(fo->af_l, c, &bx, &by)) continue;
+            bool activo = c - fo->af_c1 < MAC_AF_COLS && fo->af_val[c - fo->af_c1][0];
+            f2_boton_desenhar(bx, by, activo ? 0x0000C0 : W98_NEGRO);
+        }
+    }
+    valid_t *v = (!editando) ? val_en(fo, cel_l, cel_c) : NULL;
+    if (v && v->tipo == VAL_LISTA) {
+        int bx, by;
+        if (f2_boton_pos(cel_l, cel_c, &bx, &by)) f2_boton_desenhar(bx, by, W98_NEGRO);
+    }
+}
+
+/* El ratón se mueve: ¿hay un comentario debajo? (se ve al pasar el ratón, como en Excel). */
+static void hover_actualizar(int mx, int my)
+{
+    int idx = -1;
+    folha_t *fo = folha_ativa();
+    if (fo->n_com && !arrastrando && mx >= MAC_LARGC && mx < grelha_x1() && my >= grelha_y() && my < grelha_y() + grelha_a()) {
+        int l, c;
+        celula_em(mx, my, &l, &c);
+        for (int i = 0; i < fo->n_com; i++) if (fo->com[i].l == l && fo->com[i].c == c) idx = i;
+    }
+    if (idx != hov_idx && idx >= 0) {
+        char r[16];
+        nome_ref(r, sizeof r, fo->com[idx].l, fo->com[idx].c);
+        registrar("macaco: comentario visible en %s: %s", r, fo->com[idx].txt);
+    }
+    hov_idx = idx;
+    hov_x = mx; hov_y = my;
+}
+
+static void comentario_desenhar(void)
+{
+    folha_t *fo = folha_ativa();
+    if (hov_idx < 0 || hov_idx >= fo->n_com) return;
+    const char *t = fo->com[hov_idx].txt;
+    char lin[8][32];
+    int n = 0, i = 0, tl = (int)tam_texto(t), maxl = 0;
+    while (i < tl && n < 8) {
+        int k = tl - i > 28 ? 28 : tl - i;
+        if (k == 28) { int b = k; while (b > 10 && t[i + b] != ' ') b--; if (t[i + b] == ' ') k = b; }
+        memcpy(lin[n], t + i, (size_t)k);
+        lin[n][k] = 0;
+        if (k > maxl) maxl = k;
+        i += k;
+        while (t[i] == ' ') i++;
+        n++;
+    }
+    if (n == 0) return;
+    int w = maxl * LETRA_L + 10, h = n * LETRA_A + 6;
+    int x = hov_x + 14, y = hov_y + 14;
+    if (x + w > jan->larg - 2) x = jan->larg - 2 - w;
+    if (y + h > jan->alt - 2) y = hov_y - h - 4;
+    g_retangulo(jan, x, y, w, h, 0xFFFFE1);
+    g_moldura(jan, x, y, w, h, W98_NEGRO);
+    for (int k = 0; k < n; k++) g_texto(jan, x + 5, y + 3 + k * LETRA_A, lin[k], W98_NEGRO);
+}
+
 static void desenhar_grelha(void)
 {
     folha_t *fo = folha_ativa();
     int gy = grelha_y(), ga = grelha_a();
     calcular_offsets();
-    int gl = jan->larg - MAC_LARGC;
+    int gl = grelha_l();
     int Hf = cong_h(), Wf = cong_w();
 
     g_retangulo(jan, MAC_LARGC, gy, gl, ga, COR_BRANCO);
@@ -4894,7 +5711,7 @@ static void desenhar_grelha(void)
     int c_ini = coluna_em_x(desl_x + Wf);
     if (c_ini < fo->cong_c) c_ini = fo->cong_c;
     int c_fim = c_ini;
-    while (c_fim < MAC_MAX_COLUNAS && x_coluna(c_fim) < jan->larg) c_fim++;
+    while (c_fim < MAC_MAX_COLUNAS && x_coluna(c_fim) < grelha_x1()) c_fim++;
 
     desenhar_zona(fo, l_ini, l_fim, c_ini, c_fim);
     if (fo->cong_l) {                                    /* las filas inmovilizadas tapan lo que se desplaza bajo ellas */
@@ -4906,7 +5723,7 @@ static void desenhar_grelha(void)
         desenhar_zona(fo, l_ini, l_fim, 0, fo->cong_c);
         desenhar_zona(fo, 0, fo->cong_l, 0, fo->cong_c);
     }
-    if (fo->cong_l) g_linha(jan, MAC_LARGC, gy + Hf - 1, jan->larg, gy + Hf - 1, W98_SOMBRA);
+    if (fo->cong_l) g_linha(jan, MAC_LARGC, gy + Hf - 1, grelha_x1(), gy + Hf - 1, W98_SOMBRA);
     if (fo->cong_c) g_linha(jan, MAC_LARGC + Wf - 1, gy, MAC_LARGC + Wf - 1, gy + ga - 1, W98_SOMBRA);
 
     desenhar_graficos();
@@ -4920,7 +5737,7 @@ static void desenhar_grelha(void)
         int y0 = sy, y1 = sy + sh;
         if (y0 < gy) y0 = gy;
         if (y1 > gy + ga) y1 = gy + ga;
-        if (y1 > y0 && sx < jan->larg && sx + sw > MAC_LARGC) {
+        if (y1 > y0 && sx < grelha_x1() && sx + sw > MAC_LARGC) {
             g_moldura(jan, sx - 1, y0 - 1, sw + 2, y1 - y0 + 2, W98_NEGRO);
             g_moldura(jan, sx, y0, sw, y1 - y0, W98_NEGRO);
         }
@@ -4935,6 +5752,7 @@ static void desenhar_grelha(void)
     desenhar_marcos_refs();
     desenhar_asa_relleno();
     desenhar_previa_relleno();
+    desenhar_f2();
 
     /* La cabecera de las columnas: botones biselados, con la seleccionada hundida. */
     int hy = gy - MAC_CABECALH;
@@ -4957,6 +5775,7 @@ static void desenhar_grelha(void)
     /* La esquina izquierda de la cabecera cubre lo que desbordó por la izquierda. */
     g_retangulo(jan, 0, hy, MAC_LARGC, MAC_CABECALH, W98_FACE);
     g_relevo(jan, 0, hy, MAC_LARGC, MAC_CABECALH, false);
+    sb_desenhar();                     /* barras de desplazamiento (D345) */
     desenhar_ayudas_formula();         /* autocompletado y ayuda de argumentos (D311) */
 }
 
@@ -5123,6 +5942,7 @@ static void desenhar_tudo(void)
     titulo_atualizar();
     if (ag_visible && ag) ag_panel_desenhar(ag);
     desenhar_painel_colapsado();       /* el asistente de funciones contraído (D311) */
+    comentario_desenhar();             /* el comentario bajo el ratón (D345) */
     jan_mostrar(jan);
 }
 
@@ -5157,9 +5977,19 @@ static void confirmar_edicao(void)
     char antigo[MAC_TEXTO_CEL];
     celula_conteudo(antigo, sizeof antigo, ce);
     if (compara_texto(antigo, edit_buf) == 0) return;   /* no ha cambiado nada */
+    char verr[200];
+    if (!val_comprobar(fo, cel_l, cel_c, edit_buf, verr, sizeof verr)) {      /* validación de datos (D345) */
+        char r[16];
+        nome_ref(r, sizeof r, cel_l, cel_c);
+        por_aqui(estado, sizeof estado, "Valor no válido");
+        registrar("macaco: validación rechazó %s: %s", r, verr);
+        mensagem("Validación de datos", verr);
+        return;
+    }
     desfazer_guardar_celula(livro.ativa, cel_l, cel_c, antigo);
     celula_definir(fo, cel_l, cel_c, edit_buf);
     modificado = true;
+    if (fmt_de(celula_de(fo, cel_l, cel_c))->aj) autoajustar_linha_q(cel_l, false);
     recalcular();
     char ref[16], val[32];
     nome_ref(ref, sizeof ref, cel_l, cel_c);
@@ -5269,7 +6099,7 @@ static void assure_visivel_cel(int cl, int cc)
     if (cc >= fo->cong_c && cc < MAC_MAX_COLUNAS) {
         int x = off_col[cc], fim = off_col[cc + 1], Wf = off_col_x(fo->cong_c);
         if (x < desl_x + Wf) desl_x = x - Wf;
-        else if (fim > desl_x + (jan->larg - MAC_LARGC)) desl_x = fim - (jan->larg - MAC_LARGC);
+        else if (fim > desl_x + grelha_l()) desl_x = fim - grelha_l();
     }
     if (desl_x < 0) desl_x = 0;
     /* La fila. */
@@ -5563,7 +6393,7 @@ static void renomear_folha(int f)
 
 /* ---- formato de las celdas seleccionadas ---- */
 
-enum { FO_NF, FO_DEC, FO_AL, FO_EST_LIGAR, FO_EST_DESLIGAR, FO_COR, FO_REL, FO_BOR, FO_TAM, FO_FAM, FO_LIMPAR, FO_MASC };
+enum { FO_NF, FO_DEC, FO_AL, FO_EST_LIGAR, FO_EST_DESLIGAR, FO_COR, FO_REL, FO_BOR, FO_TAM, FO_FAM, FO_LIMPAR, FO_MASC, FO_AJ, FO_COPIA };
 
 static void aplicar_formato_celula(celula_t *ce, int op, uint32_t v, const fmt_t *completo)
 {
@@ -5587,6 +6417,8 @@ static void aplicar_formato_celula(celula_t *ce, int op, uint32_t v, const fmt_t
     case FO_TAM: f.tam = (uint8_t)(v == 10 ? 0 : v); break;
     case FO_FAM: f.fam = (uint8_t)v; break;
     case FO_LIMPAR: memset(&f, 0, sizeof f); break;
+    case FO_AJ: f.aj = (uint8_t)(v != 0); break;
+    case FO_COPIA: f = *completo; break;
     case FO_MASC:
         if (v & 1) { f.nf = completo->nf; f.dec = completo->dec; f.moeda = completo->moeda; }
         if (v & 2) f.al = completo->al;
@@ -5612,6 +6444,8 @@ static void formato_aplicar(int op, uint32_t v, const fmt_t *completo)
     for (int l = l1; l <= l2; l++)
         for (int c = c1; c <= c2; c++)
             aplicar_formato_celula(celula_obter(fo, l, c), op, v, completo);
+    if (op == FO_AJ || op == FO_COPIA)                  /* con «ajustar texto» la altura de la fila sigue al contenido (D345) */
+        for (int l = l1; l <= l2 && l - l1 < 500; l++) autoajustar_linha_q(l, false);
     modificado = true;
 }
 
@@ -6487,7 +7321,7 @@ static void graf_nuevo_de_seleccion(grafico_t *g, int tipo)
     calcular_offsets();
     g->x = off_col_x(c2 + 1) + 20;
     g->y = off_lin(folha_ativa(), l1);
-    if (g->x - desl_x + g->w > jan->larg - MAC_LARGC) { g->x = desl_x + 20; g->y = off_lin(folha_ativa(), l2 + 2); }
+    if (g->x - desl_x + g->w > grelha_l()) { g->x = desl_x + 20; g->y = off_lin(folha_ativa(), l2 + 2); }
 }
 
 static int graf_libre(void)
@@ -7092,6 +7926,461 @@ static bool ag_evento(const evento_t *e)
 }
 
 
+/* ------------------------------------------------------------ fase 2: buscar y reemplazar, brocha, filtro, comentarios... (D345) */
+
+/* Un formulario modal: nc cuadros de texto (val[i] es el valor inicial y el final) y nb botones.
+ * Devuelve el botón pulsado (Intro en un cuadro = el primero) o -1 si se cancela (Esc o cerrar). */
+#define F2_CAMPOS 4
+static int f2_formulario(const char *titulo, const char *nota, int nc, const char *const *rot, char (*val)[128],
+                         int nb, const char *const *bot, int foco_ini)
+{
+    int larg = 530, notal = 0;
+    if (nc > F2_CAMPOS) nc = F2_CAMPOS;
+    if (nb > 4) nb = 4;
+    if (nota) { notal = 1; for (const char *p = nota; *p; p++) if (*p == '\n') notal++; }
+    int fy = 12 + notal * 18 + (notal ? 6 : 0);
+    int alt = fy + nc * 52 + 52;
+    jan_t *j = jan_abrir(titulo, larg, alt);
+    if (!j) return -1;
+    jan_estilo(j, JAN_DIALOGO, 0, 0);
+    caixa_t cx[F2_CAMPOS];
+    botao_t bs[4];
+    for (int i = 0; i < nc; i++) {
+        memset(&cx[i], 0, sizeof cx[i]);
+        cx[i].x = 16; cx[i].y = fy + i * 52 + 18; cx[i].l = larg - 32;
+        caixa_definir(&cx[i], val[i]);
+    }
+    for (int b = 0; b < nb; b++) { bs[b].x = larg - 8 - (nb - b) * 128 + 4; bs[b].y = alt - 40; bs[b].l = 124; bs[b].a = 26; bs[b].texto = bot[b]; bs[b].apertado = false; }
+    int foco = (foco_ini >= 0 && foco_ini < nc) ? foco_ini : 0;
+    int res = -1;
+    for (;;) {
+        g_retangulo(j, 0, 0, j->larg, j->alt, W98_FACE);
+        if (nota) {
+            char lin[160];
+            int k = 0, y = 12;
+            for (const char *p = nota; ; p++) {
+                if (*p == '\n' || !*p) { lin[k] = 0; rotulo(j, 16, y, lin, W98_NEGRO); y += 18; k = 0; if (!*p) break; }
+                else if (k < (int)sizeof lin - 1) lin[k++] = *p;
+            }
+        }
+        for (int i = 0; i < nc; i++) {
+            rotulo(j, 16, fy + i * 52, rot[i], W98_NEGRO);
+            cx[i].foco = (i == foco);
+            caixa_desenhar(j, &cx[i]);
+        }
+        for (int b = 0; b < nb; b++) boton98(j, &bs[b]);
+        jan_mostrar(j);
+        evento_t e;
+        if (proximo_evento(j->id, &e, true) != 1) continue;
+        if (e.tipo == EV_FECHAR || (e.tipo == EV_TECLA && e.tecla == TECLA_ESC)) break;
+        bool hecho = false;
+        for (int b = 0; b < nb; b++) if (boton98_tratar(j, &bs[b], &e)) { res = b; hecho = true; break; }
+        if (hecho) break;
+        if (e.tipo == EV_TECLA && e.tecla == '\t' && nc) { foco = (foco + 1) % nc; continue; }
+        if (e.tipo == EV_CLIQUE)
+            for (int i = 0; i < nc; i++)
+                if (e.x >= cx[i].x && e.x < cx[i].x + cx[i].l && e.y >= cx[i].y - 2 && e.y < cx[i].y + 24) foco = i;
+        if (nc && (e.tipo == EV_TECLA || e.tipo == EV_CLIQUE) && caixa_tratar(j, &cx[foco], &e)) { res = 0; break; }
+    }
+    for (int i = 0; i < nc; i++) copia_texto(val[i], cx[i].texto, 128);
+    jan_fechar(j);
+    return res;
+}
+
+/* ---- buscar y reemplazar ---- */
+
+static char busc_txt[128], busc_sust[128];
+static bool busc_maius;          /* distinguir mayúsculas */
+
+static bool busc_contiene(const char *h)
+{
+    int na = (int)tam_texto(busc_txt);
+    if (na == 0) return false;
+    for (; *h; h++) {
+        int i = 0;
+        while (i < na && h[i] && (busc_maius ? h[i] == busc_txt[i] : fx_maiuscula(h[i]) == fx_maiuscula(busc_txt[i]))) i++;
+        if (i == na) return true;
+    }
+    return false;
+}
+
+static bool busc_siguiente(void)
+{
+    folha_t *fo = folha_ativa();
+    if (!busc_txt[0]) return false;
+    int l = 0, c = -1, pl = -1, pc = -1, sl = -1, sc = -1;
+    celula_t *ce;
+    while (it_proximo(fo, &l, &c, &ce)) {
+        char t[MAC_TEXTO_CEL];
+        celula_exibida(t, sizeof t, ce);
+        if (!busc_contiene(t)) continue;
+        if (pl < 0) { pl = l; pc = c; }
+        if (l > cel_l || (l == cel_l && c > cel_c)) { sl = l; sc = c; break; }
+    }
+    if (sl < 0) { sl = pl; sc = pc; }                    /* da la vuelta al principio de la hoja */
+    if (sl < 0) {
+        formatar_texto(estado, sizeof estado, "No se ha encontrado «%s»", busc_txt);
+        registrar("macaco: buscar «%s»: no encontrado", busc_txt);
+        return false;
+    }
+    mover_para(sl, sc, false);
+    char r[16];
+    nome_ref(r, sizeof r, sl, sc);
+    registrar("macaco: encontrado «%s» en %s", busc_txt, r);
+    return true;
+}
+
+/* Cambia todas las apariciones del texto buscado en el contenido de la celda. */
+static bool busc_reemplazar_en(folha_t *fo, int l, int c)
+{
+    celula_t *ce = celula_de(fo, l, c);
+    if (!ce || !ce->texto || !busc_txt[0]) return false;
+    char nuevo[MAC_TEXTO_CEL];
+    int n = 0, na = (int)tam_texto(busc_txt), nr = (int)tam_texto(busc_sust);
+    const char *p = ce->texto;
+    bool cambio = false;
+    while (*p) {
+        int i = 0;
+        while (i < na && p[i] && (busc_maius ? p[i] == busc_txt[i] : fx_maiuscula(p[i]) == fx_maiuscula(busc_txt[i]))) i++;
+        if (i == na) {
+            if (n + nr >= MAC_TEXTO_CEL - 1) break;
+            memcpy(nuevo + n, busc_sust, (size_t)nr);
+            n += nr; p += na; cambio = true;
+        } else {
+            if (n >= MAC_TEXTO_CEL - 1) break;
+            nuevo[n++] = *p++;
+        }
+    }
+    nuevo[n] = 0;
+    if (cambio) celula_definir(fo, l, c, nuevo);
+    return cambio;
+}
+
+static void busc_reemplazar_uno(void)
+{
+    folha_t *fo = folha_ativa();
+    celula_t *ce = celula_de(fo, cel_l, cel_c);
+    char t[MAC_TEXTO_CEL];
+    celula_conteudo(t, sizeof t, ce);
+    if (busc_contiene(t)) {
+        desfazer_guardar_folha(livro.ativa);
+        if (busc_reemplazar_en(fo, cel_l, cel_c)) {
+            char r[16];
+            nome_ref(r, sizeof r, cel_l, cel_c);
+            modificado = true;
+            recalcular();
+            registrar("macaco: reemplazado en %s", r);
+        }
+    }
+    busc_siguiente();
+}
+
+static void busc_reemplazar_todo(void)
+{
+    folha_t *fo = folha_ativa();
+    if (!busc_txt[0]) return;
+    desfazer_guardar_folha(livro.ativa);
+    int l = 0, c = -1, n = 0;
+    celula_t *ce;
+    while (it_proximo(fo, &l, &c, &ce)) if (busc_reemplazar_en(fo, l, c)) n++;
+    if (n) { modificado = true; recalcular(); }
+    formatar_texto(estado, sizeof estado, "%d celdas reemplazadas", n);
+    registrar("macaco: reemplazadas %d celdas de «%s» por «%s»", n, busc_txt, busc_sust);
+}
+
+/* El diálogo de buscar y reemplazar del sistema (el mismo de Pluma y Mico). */
+static void accion_buscar(bool reemplazar)
+{
+    int r = dialogo_buscar(busc_txt, sizeof busc_txt, busc_sust, sizeof busc_sust, &busc_maius, reemplazar);
+    if (r == DLG_BUSCAR_SEGUINTE) busc_siguiente();
+    else if (r == DLG_BUSCAR_SUBSTITUIR) busc_reemplazar_uno();
+    else if (r == DLG_BUSCAR_TUDO) busc_reemplazar_todo();
+}
+
+/* ---- ajustar texto y brocha ---- */
+
+static bool brocha_ativa;       /* esperando que se elijan las celdas de destino con el ratón */
+static bool brocha_tiene;       /* hay un formato copiado */
+static fmt_t brocha_fmt;
+
+static void alternar_ajuste(void)
+{
+    const fmt_t *f = fmt_de(celula_de(folha_ativa(), cel_l, cel_c));
+    bool nuevo = !f->aj;
+    formato_aplicar(FO_AJ, nuevo ? 1 : 0, NULL);
+    registrar("macaco: ajustar texto %s", nuevo ? "activado" : "desactivado");
+}
+
+static void brocha_copiar(void)
+{
+    char r[16];
+    brocha_fmt = *fmt_de(celula_de(folha_ativa(), cel_l, cel_c));
+    brocha_tiene = true;
+    brocha_ativa = true;
+    nome_ref(r, sizeof r, cel_l, cel_c);
+    por_aqui(estado, sizeof estado, "Copiar formato: elija las celdas de destino");
+    registrar("macaco: brocha: formato copiado de %s", r);
+}
+
+static void brocha_aplicar(void)
+{
+    if (!brocha_tiene) return;
+    int l1, c1, l2, c2;
+    char rg[40];
+    intervalo_util(&l1, &c1, &l2, &c2);
+    formato_aplicar(FO_COPIA, 0, &brocha_fmt);
+    brocha_ativa = false;
+    por_aqui(estado, sizeof estado, "Formato copiado");
+    f2_rango_texto(rg, sizeof rg, l1, c1, l2, c2);
+    registrar("macaco: brocha: formato aplicado a %s", rg);
+}
+
+/* ---- autofiltro ---- */
+
+static int  af_menu_col;
+static char af_menu_vals[24][32];
+static int  af_menu_n;
+
+static void accion_autofiltro(void)
+{
+    folha_t *fo = folha_ativa();
+    char rg[40];
+    if (fo->af_ativo) {
+        af_quitar(fo);
+        modificado = true;
+        registrar("macaco: autofiltro quitado");
+        return;
+    }
+    int l1, c1, l2, c2;
+    if (tem_selecao()) intervalo_selecionado(&l1, &c1, &l2, &c2);
+    else regiao_atual(cel_l, cel_c, &l1, &c1, &l2, &c2);
+    fo->af_ativo = true;
+    fo->af_l = l1; fo->af_l2 = l2; fo->af_c1 = c1;
+    fo->af_c2 = (c2 - c1 >= MAC_AF_COLS) ? c1 + MAC_AF_COLS - 1 : c2;
+    memset(fo->af_val, 0, sizeof fo->af_val);
+    modificado = true;
+    f2_rango_texto(rg, sizeof rg, fo->af_l, fo->af_c1, fo->af_l, fo->af_c2);
+    registrar("macaco: autofiltro activado en %s", rg);
+}
+
+static void accion_filtro_quitar(void)
+{
+    folha_t *fo = folha_ativa();
+    if (!fo->af_ativo) return;
+    memset(fo->af_val, 0, sizeof fo->af_val);
+    af_aplicar(fo);
+    modificado = true;
+    registrar("macaco: filtros quitados");
+}
+
+static void af_abrir_menu(int c, int x, int y)
+{
+    folha_t *fo = folha_ativa();
+    static char buf[24 * 36 + 40];
+    const char *act = fo->af_val[c - fo->af_c1];
+    af_menu_col = c;
+    af_menu_n = af_valores(fo, c, af_menu_vals, 24);
+    int k = formatar_texto(buf, (int)sizeof buf, "%s(Todos)", act[0] ? "" : "* ");
+    for (int i = 0; i < af_menu_n && k < (int)sizeof buf - 40; i++)
+        k += formatar_texto(buf + k, (int)sizeof buf - k, "\n%s%s", texto_igual_ci(act, af_menu_vals[i]) ? "* " : "", af_menu_vals[i]);
+    menu_contextual(jan->id, x, y, buf, COD_AF);
+}
+
+/* Se eligió una línea del menú del filtro: 0 = todos, i = el valor i-1. */
+static void af_elegir(int i)
+{
+    folha_t *fo = folha_ativa();
+    char cn[8];
+    int k = af_menu_col - fo->af_c1;
+    if (k < 0 || k >= MAC_AF_COLS) return;
+    if (i <= 0) fo->af_val[k][0] = 0;
+    else if (i - 1 < af_menu_n) copia_texto(fo->af_val[k], af_menu_vals[i - 1], 32);
+    else return;
+    int ocultas = af_aplicar(fo);
+    modificado = true;
+    nome_coluna(cn, sizeof cn, af_menu_col);
+    registrar("macaco: filtro columna %s = %s: %d filas ocultas", cn, fo->af_val[k][0] ? fo->af_val[k] : "(todos)", ocultas);
+}
+
+/* ---- validación de datos: lista desplegable en la celda ---- */
+
+static char val_menu_lista[128];
+static int  val_menu_l, val_menu_c;
+
+static void val_abrir_menu(int x, int y)
+{
+    valid_t *v = val_en(folha_ativa(), cel_l, cel_c);
+    if (!v || v->tipo != VAL_LISTA) return;
+    static char buf[200];
+    char it[64];
+    int k = 0;
+    copia_texto(val_menu_lista, v->lista, sizeof val_menu_lista);
+    val_menu_l = cel_l; val_menu_c = cel_c;
+    for (int i = 0; val_elemento(v->lista, i, it, sizeof it) && k < (int)sizeof buf - 70; i++)
+        k += formatar_texto(buf + k, (int)sizeof buf - k, "%s%s", i ? "\n" : "", it);
+    menu_contextual(jan->id, x, y, buf, COD_VAL);
+}
+
+static void val_elegir(int i)
+{
+    char it[64], antigo[MAC_TEXTO_CEL], r[16];
+    folha_t *fo = folha_ativa();
+    if (i < 0 || !val_elemento(val_menu_lista, i, it, sizeof it)) return;
+    celula_conteudo(antigo, sizeof antigo, celula_de(fo, val_menu_l, val_menu_c));
+    desfazer_guardar_celula(livro.ativa, val_menu_l, val_menu_c, antigo);
+    celula_definir(fo, val_menu_l, val_menu_c, it);
+    modificado = true;
+    recalcular();
+    nome_ref(r, sizeof r, val_menu_l, val_menu_c);
+    registrar("macaco: lista de validación: %s = %s", r, it);
+}
+
+/* ¿Se hizo clic en la flecha del filtro o de la lista de validación? */
+static bool f2_clic_flechas(int mx, int my)
+{
+    folha_t *fo = folha_ativa();
+    int l, c, bx, by;
+    celula_em(mx, my, &l, &c);
+    if (fo->af_ativo && l == fo->af_l && c >= fo->af_c1 && c <= fo->af_c2 && f2_boton_pos(l, c, &bx, &by) &&
+        mx >= bx && mx < bx + 14 && my >= by && my < by + 14) {
+        af_abrir_menu(c, bx, by + 14);
+        return true;
+    }
+    valid_t *v = val_en(fo, cel_l, cel_c);
+    if (v && v->tipo == VAL_LISTA && l == cel_l && c == cel_c && f2_boton_pos(l, c, &bx, &by) &&
+        mx >= bx && mx < bx + 14 && my >= by && my < by + 14) {
+        val_abrir_menu(bx, by + 14);
+        return true;
+    }
+    return false;
+}
+
+/* ---- comentarios ---- */
+
+static void accion_comentario(void)
+{
+    folha_t *fo = folha_ativa();
+    coment_t *x = com_buscar(fo, cel_l, cel_c);
+    char v[1][128], r[16];
+    static const char *const rot[1] = { "Comentario de la celda:" };
+    static const char *const bot[3] = { "Aceptar", "Eliminar", "Cancelar" };
+    copia_texto(v[0], x ? x->txt : "", 128);
+    nome_ref(r, sizeof r, cel_l, cel_c);
+    int b = f2_formulario("Comentario", NULL, 1, rot, v, 3, bot, 0);
+    if (b == 0 && v[0][0]) {
+        if (com_definir(fo, cel_l, cel_c, v[0])) { modificado = true; registrar("macaco: comentario %s = %s", r, v[0]); }
+    } else if (b == 1 || (b == 0 && !v[0][0])) {
+        if (com_definir(fo, cel_l, cel_c, "")) { modificado = true; registrar("macaco: comentario %s eliminado", r); }
+    }
+}
+
+static void accion_com_borrar(void)
+{
+    char r[16];
+    nome_ref(r, sizeof r, cel_l, cel_c);
+    if (com_definir(folha_ativa(), cel_l, cel_c, "")) { modificado = true; registrar("macaco: comentario %s eliminado", r); }
+}
+
+/* ---- validación de datos ---- */
+
+static void accion_validacion(void)
+{
+    folha_t *fo = folha_ativa();
+    char v[2][128], rg[40];
+    static const char *const rot[2] = { "Rango (A1:A10):", "Lista (a;b;c) o números entre (mín..máx):" };
+    static const char *const bot[3] = { "Aceptar", "Quitar", "Cancelar" };
+    int l1, c1, l2, c2;
+    intervalo_util(&l1, &c1, &l2, &c2);
+    valid_t *ex = val_en(fo, l1, c1);
+    f2_rango_texto(v[0], 128, l1, c1, l2, c2);
+    v[1][0] = 0;
+    if (ex) {
+        if (ex->tipo == VAL_LISTA) copia_texto(v[1], ex->lista, 128);
+        else {
+            char a[24], b[24];
+            formatar_numero(a, sizeof a, ex->min);
+            formatar_numero(b, sizeof b, ex->max);
+            formatar_texto(v[1], 128, "%s..%s", a, b);
+        }
+    }
+    int b = f2_formulario("Validación de datos", NULL, 2, rot, v, 3, bot, 1);
+    if (b != 0 && b != 1) return;
+    const char *q = v[0];
+    if (!f2_leer_rango(&q, &l1, &c1, &l2, &c2)) { mensagem("Validación de datos", "Rango no válido."); return; }
+    f2_rango_texto(rg, sizeof rg, l1, c1, l2, c2);
+    /* quita lo que se solape con el rango (así Aceptar sobre un rango lo sustituye) */
+    for (int i = fo->n_val - 1; i >= 0; i--) {
+        valid_t *o = &fo->val[i];
+        if (o->l1 <= l2 && o->l2 >= l1 && o->c1 <= c2 && o->c2 >= c1) fo->val[i] = fo->val[--fo->n_val];
+    }
+    if (b == 1) { modificado = true; registrar("macaco: validación quitada en %s", rg); return; }
+    valid_t x;
+    memset(&x, 0, sizeof x);
+    x.l1 = l1; x.c1 = c1; x.l2 = l2; x.c2 = c2;
+    const char *pp = acha_texto(v[1], "..");
+    char a[40], bb[40];
+    int32_t n1, n2;
+    if (pp && (int)(pp - v[1]) < 39 && (int)tam_texto(pp + 2) < 39) {
+        int na = (int)(pp - v[1]);
+        memcpy(a, v[1], (size_t)na); a[na] = 0;
+        copia_texto(bb, pp + 2, sizeof bb);
+        if (parse_numero(a, &n1) && parse_numero(bb, &n2)) { x.tipo = VAL_RANGO; x.min = n1; x.max = n2; }
+    }
+    if (!x.tipo && v[1][0]) { x.tipo = VAL_LISTA; copia_texto(x.lista, v[1], sizeof x.lista); }
+    if (!x.tipo) { mensagem("Validación de datos", "Escriba una lista (a;b;c) o un rango (1..10)."); return; }
+    if (fo->n_val >= MAC_MAX_VAL) { mensagem("Validación de datos", "Demasiadas reglas de validación."); return; }
+    fo->val[fo->n_val++] = x;
+    modificado = true;
+    registrar("macaco: validación en %s: %s", rg, x.tipo == VAL_LISTA ? x.lista : v[1]);
+}
+
+/* ---- formato condicional ---- */
+
+static void accion_cond_borrar(void)
+{
+    folha_t *fo = folha_ativa();
+    int l1, c1, l2, c2, n = 0;
+    intervalo_util(&l1, &c1, &l2, &c2);
+    for (int i = fo->n_cf - 1; i >= 0; i--) {
+        condic_t *o = &fo->cf[i];
+        if (o->l1 <= l2 && o->l2 >= l1 && o->c1 <= c2 && o->c2 >= c1) { fo->cf[i] = fo->cf[--fo->n_cf]; n++; }
+    }
+    if (n) modificado = true;
+    registrar("macaco: reglas de formato condicional borradas: %d", n);
+}
+
+static void accion_formato_cond(void)
+{
+    folha_t *fo = folha_ativa();
+    char v[4][128];
+    static const char *const rot[4] = { "Rango (A1:A10):", "Condición (>10, <5, =7, =texto, 10..20 o entre 10 y 20):",
+                                         "Color de fondo (nombre o RRGGBB):", "Color de letra (nombre o RRGGBB):" };
+    static const char *const bot[3] = { "Aceptar", "Borrar reglas", "Cancelar" };
+    int l1, c1, l2, c2;
+    intervalo_util(&l1, &c1, &l2, &c2);
+    f2_rango_texto(v[0], 128, l1, c1, l2, c2);
+    copia_texto(v[1], ">0", 128);
+    copia_texto(v[2], "Rosa", 128);
+    copia_texto(v[3], "Rojo oscuro", 128);
+    int b = f2_formulario("Formato condicional", NULL, 4, rot, v, 3, bot, 1);
+    if (b == 1) { accion_cond_borrar(); return; }
+    if (b != 0) return;
+    const char *q = v[0];
+    condic_t x;
+    memset(&x, 0, sizeof x);
+    if (!f2_leer_rango(&q, &x.l1, &x.c1, &x.l2, &x.c2)) { mensagem("Formato condicional", "Rango no válido."); return; }
+    if (!cf_ler_condicion(v[1], &x)) { mensagem("Formato condicional", "Condición no válida."); return; }
+    if (v[2][0] && !f2_ler_color(v[2], &x.fondo)) { mensagem("Formato condicional", "Color de fondo no válido."); return; }
+    if (v[3][0] && !f2_ler_color(v[3], &x.cor)) { mensagem("Formato condicional", "Color de letra no válido."); return; }
+    if (fo->n_cf >= MAC_MAX_CF) { mensagem("Formato condicional", "Demasiadas reglas."); return; }
+    fo->cf[fo->n_cf++] = x;
+    modificado = true;
+    char rg[40], cd[48];
+    f2_rango_texto(rg, sizeof rg, x.l1, x.c1, x.l2, x.c2);
+    cf_condicion_texto(cd, sizeof cd, &x);
+    registrar("macaco: formato condicional en %s: %s fondo=%x cor=%x", rg, cd, (unsigned)x.fondo, (unsigned)x.cor);
+}
+
 static void funcao_assistente(void);
 
 static void autoajustar_coluna(int c);
@@ -7180,6 +8469,17 @@ static void executar_acao(int a)
     case A_AUTO_COL: { int l1, c1, l2, c2; intervalo_selecionado(&l1, &c1, &l2, &c2); for (int c = c1; c <= c2 && c - c1 < 64; c++) autoajustar_coluna(c); break; }
     case A_AUTO_FILA: { int l1, c1, l2, c2; intervalo_selecionado(&l1, &c1, &l2, &c2); for (int l = l1; l <= l2 && l - l1 < 256; l++) autoajustar_linha(l); break; }
     case A_INMOV: inmovilizar_paneles(); break;
+    case A_BUSCAR: accion_buscar(false); break;
+    case A_REEMPLAZAR: accion_buscar(true); break;
+    case A_AJUSTAR: alternar_ajuste(); break;
+    case A_BROCHA: brocha_copiar(); break;
+    case A_AUTOFILTRO: accion_autofiltro(); break;
+    case A_FILTRO_QUITAR: accion_filtro_quitar(); break;
+    case A_FORMATO_COND: accion_formato_cond(); break;
+    case A_COND_BORRAR: accion_cond_borrar(); break;
+    case A_COMENTARIO: accion_comentario(); break;
+    case A_COM_BORRAR: accion_com_borrar(); break;
+    case A_VALIDACION: accion_validacion(); break;
     case A_ORD_A: ordenar_intervalo(true); break;
     case A_ORD_Z: ordenar_intervalo(false); break;
     case A_SOMA: autosoma(); break;
@@ -7301,8 +8601,11 @@ static void tratar_tecla(const evento_t *e)
         case 14: executar_acao(A_NOVO); return;                               /* Ctrl+N */
         case 16: exportar_pdf_dialogo(); return;                         /* Ctrl+P */
         case 26: desfazer_acao(); return;                                /* Ctrl+Z */
-        case 3: copiar_intervalo(); return;                              /* Ctrl+C */
-        case 22: colar_intervalo(); return;                              /* Ctrl+V */
+        case 3: if (shift) brocha_copiar(); else copiar_intervalo(); return;    /* Ctrl+C (con Mayús: copiar formato, D345) */
+        case 22: if (shift) brocha_aplicar(); else colar_intervalo(); return;  /* Ctrl+V (con Mayús: pegar formato) */
+        case 6: executar_acao(A_BUSCAR); return;                         /* Ctrl+F */
+        case 8: executar_acao(A_REEMPLAZAR); return;                     /* Ctrl+H */
+        case 12: if (shift) executar_acao(A_AUTOFILTRO); return;         /* Ctrl+Mayús+L */
         case 24: cortar(); return;                                       /* Ctrl+X */
         case 4: preencher_teclado(true); return;                         /* Ctrl+D: rellenar hacia abajo (D311) */
         case 18: preencher_teclado(false); return;                       /* Ctrl+R: rellenar hacia la derecha */
@@ -7317,8 +8620,8 @@ static void tratar_tecla(const evento_t *e)
     }
 
     switch (t) {
-    case TECLA_F3: if (shift) executar_acao(A_FUNCAO); return;
-    case TECLA_F2: comecar_edicao(NULL); return;
+    case TECLA_F3: if (shift) executar_acao(A_FUNCAO); else if (busc_txt[0]) busc_siguiente(); else executar_acao(A_BUSCAR); return;
+    case TECLA_F2: if (shift) executar_acao(A_COMENTARIO); else comecar_edicao(NULL); return;
     case TECLA_CIMA:
         if (ctrl) salto_ctrl(-1, 0, shift);
         else mover_para(cel_l - 1, cel_c, shift);
@@ -7633,7 +8936,7 @@ static void autoajustar_coluna(int c)
 }
 
 /* Ajusta el alto de la fila l al texto más grande que lleva. */
-static void autoajustar_linha(int l)
+static void autoajustar_linha_q(int l, bool log)
 {
     folha_t *fo = folha_ativa();
     int h = MAC_ALTLINHA;
@@ -7643,13 +8946,20 @@ static void autoajustar_linha(int l)
         if (!ce->texto) continue;
         const fmt_t *f = fmt_de(ce);
         int t = LETRA_A * (f->tam ? f->tam : 10) / 10 + 4;
+        if (f->aj && !((ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO))) {   /* ajustar texto: varias líneas */
+            char tx[MAC_TEXTO_CEL];
+            celula_exibida(tx, sizeof tx, ce);
+            t = lineas_ajustadas(tx, f, coluna_larg(fo, c)) * (LETRA_A * (f->tam ? f->tam : 10) / 10) + 4;
+        }
         if (t > h) h = t;
     }
     linha_prop_t *lp = lp_obter(fo, l);
     if (lp) lp->alt = (uint16_t)(h == MAC_ALTLINHA ? 0 : h);
     modificado = true;
-    registrar("macaco: autoajuste de la fila %d = %d", l + 1, h);
+    if (log) registrar("macaco: autoajuste de la fila %d = %d", l + 1, h);
 }
+
+static void autoajustar_linha(int l) { autoajustar_linha_q(l, true); }
 
 static int redim_lin = -1, redim_y0, redim_h0;   /* arrastre del borde de una fila */
 static unsigned borde_ult_ms;                    /* instante del último clic en un borde (doble clic) */
@@ -7766,12 +9076,15 @@ static bool tratar_menus_proprios(const evento_t *e)
         return true;
     }
     if (cod == COD_BOR) { if (i >= 0) bordas_aplicar(i); return true; }
+    if (cod == COD_AF) { if (i >= 0) af_elegir(i); return true; }
+    if (cod == COD_VAL) { if (i >= 0) val_elegir(i); return true; }
     return false;
 }
 
 static void tratar_evento(const evento_t *e)
 {
     if (e->tipo == EV_FECHAR) return;
+    if (e->tipo == EV_MOVER) hover_actualizar(e->x, e->y);      /* comentarios bajo el ratón (D345) */
     if (e->tipo == EV_REDIMENSIONAR) { jan_redimensionar(jan, e); layout(); return; }
     /* asistente IA: F12 y los eventos del panel */
     if (e->tipo == EV_TECLA && e->tecla == TECLA_F12) { confirmar_edicao(); executar_acao(A_ASISTENTE); return; }
@@ -7821,6 +9134,8 @@ static void tratar_evento(const evento_t *e)
         }
         return;
     }
+
+    if (sb_evento(e)) return;                                       /* barras de desplazamiento (D345) */
 
     if (e->tipo == EV_CLIQUE) {
         if (e->y < MAC_BARRA) return;
@@ -7872,6 +9187,7 @@ static void tratar_evento(const evento_t *e)
         if (e->botoes & 1) {
             if (e->x < MAC_LARGC) { clique_cabecalho_linha(e->y); return; }
             if (clique_grafico(e->x, e->y)) return;
+            if (f2_clic_flechas(e->x, e->y)) return;
             if (clique_asa(e->x, e->y)) {
                 unsigned agora = tempo_ms();
                 if (pre_ult_ms && agora - pre_ult_ms < 500) { pre_ult_ms = 0; preencher_duplo(); return; }
@@ -7936,6 +9252,7 @@ static void tratar_evento(const evento_t *e)
             pre_ctrl = false;
             return;
         }
+        if (arrastrando && brocha_ativa) brocha_aplicar();            /* la brocha pega el formato en lo elegido (D345) */
         if (arrastrando) assure_visivel();
         if (redim_col >= 0) { modificado = true; registrar("macaco: anchura de la columna %d = %d", redim_col + 1, folha_ativa()->larg_col[redim_col]); }
         if (redim_lin >= 0) { modificado = true; registrar("macaco: altura de la fila %d = %d", redim_lin + 1, linha_alt(folha_ativa(), redim_lin)); }
@@ -8559,6 +9876,34 @@ static void dump(void)
                 if (fo->lp[i].alt || fo->lp[i].oculta)
                     registrar("macaco: fila %s!%d alto=%d oculta=%d", fo->nome, fo->lp[i].l + 1, fo->lp[i].alt ? fo->lp[i].alt : MAC_ALTLINHA, fo->lp[i].oculta);
             if (fo->cong_l || fo->cong_c) registrar("macaco: inmovilizado %s filas=%d columnas=%d", fo->nome, fo->cong_l, fo->cong_c);
+            for (int i = 0; i < fo->n_com; i++) {
+                char r[16];
+                nome_ref(r, sizeof r, fo->com[i].l, fo->com[i].c);
+                registrar("macaco: comentario %s!%s = %s", fo->nome, r, fo->com[i].txt);
+            }
+            for (int i = 0; i < fo->n_val; i++) {
+                char r[40];
+                f2_rango_texto(r, sizeof r, fo->val[i].l1, fo->val[i].c1, fo->val[i].l2, fo->val[i].c2);
+                registrar("macaco: validacion %s!%s tipo=%d min=%d max=%d lista=[%s]", fo->nome, r, fo->val[i].tipo,
+                          (int)fo->val[i].min, (int)fo->val[i].max, fo->val[i].lista);
+            }
+            for (int i = 0; i < fo->n_cf; i++) {
+                char r[40], cd[48];
+                f2_rango_texto(r, sizeof r, fo->cf[i].l1, fo->cf[i].c1, fo->cf[i].l2, fo->cf[i].c2);
+                cf_condicion_texto(cd, sizeof cd, &fo->cf[i]);
+                registrar("macaco: condicional %s!%s %s fondo=%x cor=%x", fo->nome, r, cd, (unsigned)fo->cf[i].fondo, (unsigned)fo->cf[i].cor);
+            }
+            if (fo->af_ativo) {
+                char r[40];
+                f2_rango_texto(r, sizeof r, fo->af_l, fo->af_c1, fo->af_l2, fo->af_c2);
+                registrar("macaco: autofiltro %s!%s", fo->nome, r);
+                for (int k = 0; k <= fo->af_c2 - fo->af_c1 && k < MAC_AF_COLS; k++)
+                    if (fo->af_val[k][0]) {
+                        char cn[8];
+                        nome_coluna(cn, sizeof cn, fo->af_c1 + k);
+                        registrar("macaco: filtro %s!%s = %s", fo->nome, cn, fo->af_val[k]);
+                    }
+            }
         }
         int dl = 0, dc = -1;
         celula_t *ce;
@@ -8592,9 +9937,9 @@ static void dump(void)
                 char ref[16], vis[64];
                 nome_ref(ref, sizeof ref, l, c);
                 celula_exibida(vis, sizeof vis, ce);
-                registrar("macaco: formato %s!%s nf=%d dec=%d al=%d est=%d tam=%d bor=%d cor=%x rel=%x vis=[%s]",
+                registrar("macaco: formato %s!%s nf=%d dec=%d al=%d est=%d tam=%d bor=%d cor=%x rel=%x aj=%d vis=[%s]",
                           fo->nome, ref, ft->nf, ft->dec, ft->al, ft->est, ft->tam ? ft->tam : 10, ft->bor,
-                          (unsigned)ft->cor, (unsigned)ft->rel, vis);
+                          (unsigned)ft->cor, (unsigned)ft->rel, ft->aj, vis);
             }
     }
 }

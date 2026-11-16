@@ -426,8 +426,11 @@ const char *idioma_traducir_sl(const char *clave);   /* como _() pero sin anotar
 void idioma_normalizar(const char *entrada, char *salida);   /* "pt", "pt_BR.ISO-8859-1", "EN" -> "pt_BR", "pt_BR", "en"; salida de 12 bytes */
 int  idioma_sistema_ler(char *dst, int max);     /* el idioma del sistema (/etc/idioma); 0 = hay, <0 = no */
 int  idioma_sistema_gravar(const char *nombre);  /* solo root: lo escribe en /etc/idioma y en la partición de configuración (D255) */
+const char *idioma_traducir_menu(const char *menu);   /* menú de líneas separadas por \n (y atajo tras \t): traduce cada línea */
 #define _(s)  idioma_traducir(s)
 #define N_(s) (s)
+#define MENU_(s)  idioma_traducir_menu(s)   /* el extractor saca cada línea del menú como una cadena */
+#define NMENU_(s) (s)                       /* solo marca (tablas estáticas); se traduce con MENU_() al usarlo */
 
 /* ---- formatos regionales (D313): decimal, miles y fecha según el idioma ---- */
 char regional_decimal(void);                     /* ',' (es, pt_BR) o '.' (en) */

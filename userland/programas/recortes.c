@@ -75,7 +75,7 @@ static void desenhar_sel(int x, int y, int l, int a, int ox, int oy, int ol, int
 /* true = hay recorte en (x, y, l, a). */
 static bool seleccionar(int *rx, int *ry, int *rl, int *ra)
 {
-    ov = jan_abrir("Recortes", 640, 480);
+    ov = jan_abrir(_("Recortes"), 640, 480);
     if (!ov) return false;
     jan_estilo(ov, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK, 100, 100);
     jan_tela_cheia(ov, true);
@@ -159,12 +159,12 @@ static int previa(const imagem_t *im)
     if (pl < 1) pl = 1;
     if (pa < 1) pa = 1;
     int W = pl + 24 < 480 ? 480 : pl + 24, H = pa + 24 + 48;
-    jan_t *j = jan_abrir("Recortes", W, H);
+    jan_t *j = jan_abrir(_("Recortes"), W, H);
     if (!j) return A_SALIR;
     jan_estilo(j, JAN_DIALOGO, W, H);
     botao_t bt[4] = {
-        { 12, H - 40, 90, 28, "Guardar", false }, { 110, H - 40, 90, 28, "Copiar", false },
-        { 208, H - 40, 130, 28, "Abrir en Paint", false }, { 346, H - 40, 120, 28, "Nuevo recorte", false } };
+        { 12, H - 40, 90, 28, N_("Guardar"), false }, { 110, H - 40, 90, 28, N_("Copiar"), false },
+        { 208, H - 40, 130, 28, N_("Abrir en Paint"), false }, { 346, H - 40, 120, 28, N_("Nuevo recorte"), false } };
     g_retangulo(j, 0, 0, W, H, COR_FUNDO);
     imagem_desenhar(j->px, j->larg, 0, 0, W, H, im, 12, 12, pl, pa, true);
     g_moldura(j, 11, 11, pl + 2, pa + 2, COR_BORDA);
@@ -181,23 +181,23 @@ static int previa(const imagem_t *im)
         if (i == 0) {
             char c[200];
             nombre_auto(c, sizeof c, pasta_capturas());
-            if (dialogo_guardar("Guardar recorte", "Imagen PNG (*.png)|*.png|Mapa de bits (*.bmp)|*.bmp", c, c, sizeof c) && c[0]) {
+            if (dialogo_guardar(_("Guardar recorte"), _("Imagen PNG (*.png)|*.png|Mapa de bits (*.bmp)|*.bmp"), c, c, sizeof c) && c[0]) {
                 int n = (int)tam_texto(c);
                 bool bmp = n > 4 && !compara_texto(c + n - 4, ".bmp");
                 int r = bmp ? imagem_gravar_bmp(c, im) : gravar(c, im);
-                formatar_texto(msg, sizeof msg, r < 0 ? "No se pudo guardar." : "Guardado en %s", c);
+                formatar_texto(msg, sizeof msg, r < 0 ? _("No se pudo guardar.") : _("Guardado en %s"), c);
                 if (r >= 0) aviso_tela(msg, c);
             }
         } else if (i == 1) {
             int r = copiar_imagem(im->larg, im->alt, im->px);
-            copia_texto(msg, r < 0 ? "No se pudo copiar." : "Imagen copiada (Ctrl+V en Paint)", sizeof msg);
+            copia_texto(msg, r < 0 ? _("No se pudo copiar.") : _("Imagen copiada (Ctrl+V en Paint)"), sizeof msg);
             if (r >= 0) aviso_tela(msg, NULL);
         } else if (i == 2) {
             criar_pasta("/tmp/recortes");
             char c[200];
             nombre_auto(c, sizeof c, "/tmp/recortes");
             if (gravar(c, im) >= 0) { char *av[] = { "paint", c, NULL }; executar("/apps/bin/paint", av); }
-            else copia_texto(msg, "No se pudo guardar para Paint.", sizeof msg);
+            else copia_texto(msg, _("No se pudo guardar para Paint."), sizeof msg);
         } else if (i == 3) acao = A_NUEVO;
         if (msg[0] || i < 4) {
             g_retangulo(j, 0, H - 64, W, 22, COR_FUNDO);
@@ -213,13 +213,13 @@ static int previa(const imagem_t *im)
 /* ventanita inicial: retardo. Devuelve los segundos, o -1 para salir. */
 static int lanzador(void)
 {
-    jan_t *j = jan_abrir("Recortes", 360, 110);
+    jan_t *j = jan_abrir(_("Recortes"), 360, 110);
     if (!j) return -1;
     jan_estilo(j, JAN_DIALOGO, 360, 110);
-    botao_t bt[4] = { { 12, 50, 76, 30, "Ahora", false }, { 96, 50, 76, 30, "3 s", false },
-                      { 180, 50, 76, 30, "5 s", false }, { 264, 50, 76, 30, "10 s", false } };
+    botao_t bt[4] = { { 12, 50, 76, 30, N_("Ahora"), false }, { 96, 50, 76, 30, N_("3 s"), false },
+                      { 180, 50, 76, 30, N_("5 s"), false }, { 264, 50, 76, 30, N_("10 s"), false } };
     static const int seg[4] = { 0, 3, 5, 10 };
-    rotulo(j, 12, 14, "Nuevo recorte (el retardo sirve para menús abiertos):", COR_TEXTO);
+    rotulo(j, 12, 14, _("Nuevo recorte (el retardo sirve para menús abiertos):"), COR_TEXTO);
     for (int i = 0; i < 4; i++) botao_desenhar(j, &bt[i]);
     jan_mostrar(j);
     evento_t e;

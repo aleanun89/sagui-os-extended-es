@@ -4,7 +4,7 @@
  * Graba el micrófono (HDA o AC'97; en QEMU, silencio) en memoria a 44100 Hz mono, 16 bits; permite
  * escucharlo y guardarlo en WAV con el diálogo de guardar común (D272). El medidor de nivel
  * funciona también sin grabar («habla para probar»): la captura está abierta mientras la ventana
- * lo está. Con "<" y ">" se elige la entrada (micrófono interno, externo, línea) y con "Prueba" la fuente de prueba del
+ * lo está. Con "<" y ">" se elige la entrada (micrófono interno, externo, línea) y con _("Prueba") la fuente de prueba del
  * kernel (un tono de 1 kHz), que sirve para probar sin micrófono.
  *   -p, --prueba   empieza con la fuente de prueba
  * Los servicios no pueden grabar. Una grabación dura como mucho 120 s (10 MB). */
@@ -35,12 +35,12 @@ static char aviso[160];
 static bool guardado;
 
 static botao_t bt[] = {
-    { 12, 12, 92, 28, "Grabar", false },
-    { 112, 12, 92, 28, "Reproducir", false },
-    { 212, 12, 92, 28, "Guardar", false },
+    { 12, 12, 92, 28, N_("Grabar"), false },
+    { 112, 12, 92, 28, N_("Reproducir"), false },
+    { 212, 12, 92, 28, N_("Guardar"), false },
     { 340, 12, 28, 28, "<", false },
     { 372, 12, 28, 28, ">", false },
-    { 408, 12, 100, 28, "Prueba", false },
+    { 408, 12, 100, 28, N_("Prueba"), false },
 };
 #define QTD_BT (int)(sizeof bt / sizeof bt[0])
 enum { B_GRABAR, B_TOCAR, B_GUARDAR, B_ANT, B_SIG, B_PRUEBA };
@@ -56,12 +56,12 @@ static void abrir_captura(void)
     aviso[0] = 0;
     int r = captura_estado(fuente, &inf);
     if (r < 0 || !inf.presente) {
-        copia_texto(aviso, r == ERRO_ACESSO ? "Los servicios no pueden grabar" : "No hay micrófono (ninguna tarjeta con entrada de sonido). Prueba la fuente de prueba", sizeof aviso);
+        copia_texto(aviso, r == ERRO_ACESSO ? _("Los servicios no pueden grabar") : _("No hay micrófono (ninguna tarjeta con entrada de sonido). Prueba la fuente de prueba"), sizeof aviso);
         return;
     }
     r = captura_abrir(fuente, TAXA, 1);
     if (r < 0) {
-        formatar_texto(aviso, sizeof aviso, r == ERRO_OCUPADO ? "Otro programa está usando el micrófono" : "No se pudo abrir el micrófono (error %d)", r);
+        formatar_texto(aviso, sizeof aviso, r == ERRO_OCUPADO ? _("Otro programa está usando el micrófono") : _("No se pudo abrir el micrófono (error %d)"), r);
         return;
     }
     aberta = true;
@@ -78,12 +78,12 @@ static void formato_tempo(char *s, size_t max, unsigned bytes)
 static void desenhar_tudo(void)
 {
     g_retangulo(j, 0, 0, j->larg, j->alt, COR_FUNDO);
-    bt[B_GRABAR].texto = estado == GRABANDO ? "Parar" : "Grabar";
-    bt[B_TOCAR].texto = estado == TOCANDO ? "Detener" : "Reproducir";
-    bt[B_PRUEBA].texto = fuente == CAP_FUENTE_PRUEBA ? "Micrófono" : "Prueba";
+    bt[B_GRABAR].texto = estado == GRABANDO ? _("Parar") : _("Grabar");
+    bt[B_TOCAR].texto = estado == TOCANDO ? _("Detener") : _("Reproducir");
+    bt[B_PRUEBA].texto = fuente == CAP_FUENTE_PRUEBA ? _("Micrófono") : _("Prueba");
     for (int i = 0; i < QTD_BT; i++) botao_desenhar(j, &bt[i]);
     char t[160];
-    formatar_texto(t, sizeof t, "Entrada: %s", inf.presente && inf.n_entradas ? inf.entradas[inf.entrada < CAP_ENTRADAS_MAX ? inf.entrada : 0] : "-");
+    formatar_texto(t, sizeof t, _("Entrada: %s"), inf.presente && inf.n_entradas ? inf.entradas[inf.entrada < CAP_ENTRADAS_MAX ? inf.entrada : 0] : "-");
     g_texto(j, 12, 52, t, COR_TEXTO);
 
     /* medidor: barra con el pico y marca del RMS */
@@ -96,7 +96,7 @@ static void desenhar_tudo(void)
     if (lp > 0) g_retangulo(j, mx + 2, my + 2, lp, ma - 4, cor);
     if (lr > 0) g_retangulo(j, mx + 2 + lr, my + 2, 2, ma - 4, 0xFFFFFF);
     g_moldura(j, mx, my, ml, ma, COR_BORDA);
-    formatar_texto(t, sizeof t, "Nivel: %u %%", pico * 100 / 32767);
+    formatar_texto(t, sizeof t, _("Nivel: %u %%"), pico * 100 / 32767);
     g_texto(j, 12, my + ma + 4, t, COR_TEXTO_FRACO);
 
     /* historial de niveles (lo último a la derecha) */
@@ -114,7 +114,7 @@ static void desenhar_tudo(void)
     char a[24], b[24];
     formato_tempo(a, sizeof a, estado == TOCANDO ? tocado : dados_n);
     formato_tempo(b, sizeof b, dados_n);
-    formatar_texto(t, sizeof t, "%s / %s   %s", a, b, estado == GRABANDO ? "grabando..." : estado == TOCANDO ? "reproduciendo..." : dados_n ? (guardado ? "guardada" : "sin guardar") : "");
+    formatar_texto(t, sizeof t, _("%s / %s   %s"), a, b, estado == GRABANDO ? _("grabando...") : estado == TOCANDO ? _("reproduciendo...") : dados_n ? (guardado ? _("guardada") : _("sin guardar")) : "");
     g_texto(j, 12, hy + ha + 8, t, COR_TEXTO);
     if (aviso[0]) g_texto_n(j, 12, j->alt - 22, aviso, (j->larg - 24) / LETRA_L, 0xA02020);
     jan_mostrar_area(j, 0, 0, j->larg, j->alt);
@@ -132,7 +132,7 @@ static void gravar_ou_parar(void)
     if (!dados) {
         dados_cap = TAXA * 2u * MAX_S;
         dados = aloca(dados_cap);
-        if (!dados) { copia_texto(aviso, "Sin memoria", sizeof aviso); return; }
+        if (!dados) { copia_texto(aviso, _("Sin memoria"), sizeof aviso); return; }
     }
     dados_n = 0;
     guardado = false;
@@ -145,7 +145,7 @@ static void reproducir(void)
     if (estado == TOCANDO) { parar_audio(); estado = PARADO; return; }
     if (estado == GRABANDO || !dados_n) return;
     fd_audio = audio_abrir(TAXA, 1, 16);
-    if (fd_audio < 0) { copia_texto(aviso, "No hay tarjeta de sonido para reproducir", sizeof aviso); return; }
+    if (fd_audio < 0) { copia_texto(aviso, _("No hay tarjeta de sonido para reproducir"), sizeof aviso); return; }
     tocado = 0;
     estado = TOCANDO;
 }
@@ -158,9 +158,9 @@ static void guardar(void)
     char ini[120], ruta[200];
     criar_pasta("/home/grabaciones");
     formatar_texto(ini, sizeof ini, "/home/grabaciones/grabacion-%04u%02u%02u-%02u%02u%02u.wav", d.ano, d.mes, d.dia, d.hora, d.minuto, d.segundo);
-    if (!dialogo_guardar("Guardar grabación", "WAV (*.wav)|*.wav", ini, ruta, sizeof ruta)) return;
+    if (!dialogo_guardar(_("Guardar grabación"), _("WAV (*.wav)|*.wav"), ini, ruta, sizeof ruta)) return;
     int fd = abrir(ruta, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
-    if (fd < 0) { formatar_texto(aviso, sizeof aviso, "No se pudo crear %s (%d)", ruta, fd); return; }
+    if (fd < 0) { formatar_texto(aviso, sizeof aviso, _("No se pudo crear %s (%d)"), ruta, fd); return; }
     uint8_t cab[44];
     captura_wav_cabecera(cab, TAXA, 1, dados_n);
     bool ok = escrever(fd, cab, sizeof cab) == (int)sizeof cab;
@@ -170,7 +170,7 @@ static void guardar(void)
         o += n;
     }
     fechar(fd);
-    if (!ok) formatar_texto(aviso, sizeof aviso, "Error al escribir %s", ruta);
+    if (!ok) formatar_texto(aviso, sizeof aviso, _("Error al escribir %s"), ruta);
     else { guardado = true; formatar_texto(aviso, sizeof aviso, "Guardada en %s", ruta); registrar("grabadora: guardada %s (%u bytes)\n", ruta, dados_n); }
 }
 
@@ -179,7 +179,7 @@ static void cambiar_entrada(int d)
     if (!inf.presente || inf.n_entradas < 2 || fuente != CAP_FUENTE_REAL) return;
     unsigned n = inf.n_entradas;
     unsigned nueva = d < 0 ? (inf.entrada + n - 1) % n : (inf.entrada + 1) % n;
-    if (captura_entrada(nueva) < 0) copia_texto(aviso, "No se pudo cambiar de entrada", sizeof aviso);
+    if (captura_entrada(nueva) < 0) copia_texto(aviso, _("No se pudo cambiar de entrada"), sizeof aviso);
     captura_estado(fuente, &inf);
 }
 
@@ -196,7 +196,7 @@ static bool ciclo(void)
                 if (dados_n + c > dados_cap) c = dados_cap - dados_n;
                 memcpy(dados + dados_n, tmp, c);
                 dados_n += c;
-                if (dados_n >= dados_cap) { estado = PARADO; copia_texto(aviso, "Se alcanzó el máximo de 120 s", sizeof aviso); }
+                if (dados_n >= dados_cap) { estado = PARADO; copia_texto(aviso, _("Se alcanzó el máximo de 120 s"), sizeof aviso); }
             }
         }
         captura_estado(fuente, &inf);
@@ -256,7 +256,7 @@ int principal(int argc, char **argv)
     for (int i = 1; i < argc; i++)
         if (!compara_texto(argv[i], "-p") || !compara_texto(argv[i], "--prueba")) fuente = CAP_FUENTE_PRUEBA;
         else { imprimir("uso: grabadora [-p]\n"); return 1; }
-    j = jan_abrir("Grabadora", LARG, ALT);
+    j = jan_abrir(_("Grabadora"), LARG, ALT);
     if (!j) return 1;
     abrir_captura();
     desenhar_tudo();

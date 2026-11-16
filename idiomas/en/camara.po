@@ -1,0 +1,82 @@
+# Traducción de SaguiOS: catálogo «camara», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/camara.c:37
+msgid "Foto"
+msgstr "Photo"
+
+#: userland/programas/camara.c:40
+msgid "Prueba"
+msgstr "Test"
+
+#: userland/programas/camara.c:77
+msgid "Sin cámara. Pulsa Prueba para usar la fuente de prueba"
+msgstr "No camera. Press Test to use the test source"
+
+#: userland/programas/camara.c:78
+#, c-format
+msgid "%s | %u cuadros | %u descartados"
+msgstr "%s | %u frames | %u dropped"
+
+#: userland/programas/camara.c:95
+msgid "No se detecta ninguna cámara USB (UVC)."
+msgstr "No USB (UVC) camera detected."
+
+#: userland/programas/camara.c:97
+msgid "La cámara no está abierta."
+msgstr "The camera is not open."
+
+#: userland/programas/camara.c:141
+#, c-format
+msgid "No se pudo abrir la cámara (error %d)"
+msgstr "Could not open the camera (error %d)"
+
+#: userland/programas/camara.c:147
+msgid "Sin memoria"
+msgstr "Out of memory"
+
+#: userland/programas/camara.c:175
+msgid "No hay ningún cuadro que guardar"
+msgstr "There is no frame to save"
+
+#: userland/programas/camara.c:185
+msgid "Guardar foto"
+msgstr "Save photo"
+
+#: userland/programas/camara.c:185
+msgid "PNG (*.png)|*.png|JPEG (*.jpg)|*.jpg"
+msgstr "PNG (*.png)|*.png|JPEG (*.jpg)|*.jpg"
+
+#: userland/programas/camara.c:185
+msgid "PNG (*.png)|*.png"
+msgstr "PNG (*.png)|*.png"
+
+#: userland/programas/camara.c:192
+#, c-format
+msgid "No se pudo guardar la foto (%d)"
+msgstr "Could not save the photo (%d)"
+
+#: userland/programas/camara.c:206
+#, c-format
+msgid "%s: %d (de %d a %d)"
+msgstr "%s: %d (from %d to %d)"
+
+#: userland/programas/camara.c:206
+msgid "Brillo"
+msgstr "Brightness"
+
+#: userland/programas/camara.c:206
+msgid "Contraste"
+msgstr "Contrast"
+
+#: userland/programas/camara.c:297
+msgid "Cámara"
+msgstr "Camera"
+

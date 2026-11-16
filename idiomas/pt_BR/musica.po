@@ -1,0 +1,105 @@
+# Traducción de SaguiOS: catálogo «musica», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/musica.c:72 userland/programas/musica.c:161
+msgid "Reproducir"
+msgstr "Reproduzir"
+
+#: userland/programas/musica.c:73
+msgid "Parar"
+msgstr "Parar"
+
+#: userland/programas/musica.c:161
+msgid "Pausa"
+msgstr "Pausar"
+
+#: userland/programas/musica.c:227
+msgid "estéreo"
+msgstr "estéreo"
+
+#: userland/programas/musica.c:229
+msgid " (VBR)"
+msgstr " (VBR)"
+
+#: userland/programas/musica.c:242
+msgid "Lista vacía"
+msgstr "Lista vazia"
+
+#: userland/programas/musica.c:243
+#, c-format
+msgid "%s  |  pista %d de %d"
+msgstr "%s  |  faixa %d de %d"
+
+#: userland/programas/musica.c:243
+msgid "Reproduciendo"
+msgstr "Reproduzindo"
+
+#: userland/programas/musica.c:243
+msgid "En pausa"
+msgstr "Em pausa"
+
+#: userland/programas/musica.c:243
+msgid "Detenido"
+msgstr "Parado"
+
+#: userland/programas/musica.c:252
+#, c-format
+msgid "%s - Música"
+msgstr "%s - Música"
+
+#: userland/programas/musica.c:253 userland/programas/musica.c:688
+msgid "Música"
+msgstr "Música"
+
+#: userland/programas/musica.c:272
+msgid "La lista está vacía."
+msgstr "A lista está vazia."
+
+#: userland/programas/musica.c:306
+msgid "No hay tarjeta de sonido (solo el altavoz del PC): no se puede reproducir"
+msgstr "Não há placa de som (apenas o alto-falante do PC): não é possível reproduzir"
+
+#: userland/programas/musica.c:307
+#, c-format
+msgid "No se puede abrir el sonido: %s"
+msgstr "Não é possível abrir o som: %s"
+
+#: userland/programas/musica.c:328
+#, c-format
+msgid "%s: Ogg Vorbis todavía no está soportado"
+msgstr "%s: Ogg Vorbis ainda não é suportado"
+
+#: userland/programas/musica.c:400
+#, c-format
+msgid "No se puede saltar: %s"
+msgstr "Não é possível saltar: %s"
+
+#: userland/programas/musica.c:469
+msgid "Lista llena"
+msgstr "Lista cheia"
+
+#: userland/programas/musica.c:479
+#, c-format
+msgid "%s: no existe"
+msgstr "%s: não existe"
+
+#: userland/programas/musica.c:498
+#, c-format
+msgid "No hay archivos de sonido en %s"
+msgstr "Não há arquivos de som em %s"
+
+#: userland/programas/musica.c:511
+msgid ""
+"¿Añadir una carpeta entera?\n"
+"Sí: elegir una carpeta.  No: elegir un archivo de sonido."
+msgstr ""
+"Adicionar uma pasta inteira?\n"
+"Sim: escolher uma pasta.  Não: escolher um arquivo de som."
+

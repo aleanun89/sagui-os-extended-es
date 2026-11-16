@@ -1858,6 +1858,7 @@ static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
     for (int redirecoes = 0; redirecoes < 5; redirecoes++) {
         url_t u;
         if (!url_separar(url, &u)) { b->erro = "Dirección no válida"; return; }
+        if (!pagina) registrar("cipo: baixando %s\n", url);
         char st[160];
         formatar_texto(st, sizeof st, "%s %s%s...", pagina ? "Conectando con" : "Descargando imagen de", u.host, u.https ? " (HTTPS)" : "");
         rodape(st);

@@ -204,6 +204,17 @@ static char motivo[160] = "sin iniciar";
 static acel_tela_t tela;
 static uint32_t n_copias, n_rellenos, n_falhas, n_arrastos, n_quadros;
 static uint64_t ciclos_arrasto;
+static uint32_t sw_ops[ACEL_SW_N], sw_kpx[ACEL_SW_N];   /* D346: lo que hizo la CPU (operaciones y miles de píxeles) */
+static uint32_t gpu_kpx_copia, gpu_kpx_relleno;          /* D346: píxeles movidos por la GPU (en miles) */
+static uint32_t gpu_px_resto_c, gpu_px_resto_r;
+void acel2d_contar_sw(int tipo, uint32_t px)
+{
+    static uint32_t resto[ACEL_SW_N];
+    if ((unsigned)tipo >= ACEL_SW_N) return;
+    sw_ops[tipo]++;
+    resto[tipo] += px;
+    sw_kpx[tipo] += resto[tipo] / 1000; resto[tipo] %= 1000;
+}
 static uint8_t *zona;                /* zona de prueba en la memoria de vídeo (ventana del kernel) */
 static uint32_t px_mascara = 0x00FFFFFF;   /* D305: los bits de un píxel de la tarjeta (0xFFFF en RGB565) */
 static int zona_y;                   /* su primera fila */
@@ -912,6 +923,7 @@ bool acel_copiar(int ox, int oy, int dx, int dy, int l, int a)
     int_restaura(sim);
     if (!ok) { acel2d_desligar("la GPU rechazo una copia"); return false; }
     n_copias++;
+    gpu_px_resto_c += (uint32_t)l * (uint32_t)a; gpu_kpx_copia += gpu_px_resto_c / 1000; gpu_px_resto_c %= 1000;
     return true;
 }
 
@@ -926,6 +938,7 @@ bool acel_rellenar(int x, int y, int l, int a, uint32_t cor)
     int_restaura(sim);
     if (!ok) { acel2d_desligar("la GPU rechazo un relleno"); return false; }
     n_rellenos++;
+    gpu_px_resto_r += (uint32_t)l * (uint32_t)a; gpu_kpx_relleno += gpu_px_resto_r / 1000; gpu_px_resto_r %= 1000;
     return true;
 }
 
@@ -991,6 +1004,8 @@ int32_t acel2d_info(uint32_t ptr, uint32_t n)
     v->confirmada = confirmada;
     v->apagado = !ativo && (n_falhas || apagado_a_mano) ? (apagado_a_mano ? 2u : 1u) : 0;
     v->prazo_ms = PRAZO_SESION_MS;
+    v->kpx_gpu_copias = gpu_kpx_copia; v->kpx_gpu_rellenos = gpu_kpx_relleno;
+    for (int i = 0; i < ACEL_SW_N; i++) { v->sw_ops[i] = sw_ops[i]; v->sw_kpx[i] = sw_kpx[i]; }
     return 0;
 }
 

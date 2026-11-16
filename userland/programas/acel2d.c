@@ -2,7 +2,8 @@
 /* acel2d - el 2D por la GPU del escritorio (D195).
  *
  *   acel2d            estado: qué acelerador se usa (o por qué la CPU), cuántas
- *                     copias y rellenos ha hecho la GPU y la medida del arrastre
+ *                     copias y rellenos ha hecho la GPU, el reparto con el software
+ *                     (D346) y la medida del arrastre. Sin ser administrador.
  *   acel2d probar     autoprueba completa ahora: copias solapadas en todas las
  *                     direcciones, rellenos, los bordes y muchas órdenes al azar,
  *                     comparadas píxel a píxel con la CPU, y una medida de la GPU
@@ -77,6 +78,10 @@ int principal(int argc, char **argv)
         imprimir("  velocidad al arrancar: GPU %u us, CPU %u us\n", v.us_gpu, v.us_cpu);
     if (v.modelo) imprimir("  tarjeta %04x:%04x\n", v.fabricante, v.modelo);
     imprimir("  copias %u, rellenos %u por la GPU, fallos %u\n", v.copias, v.rellenos, v.falhas);
+    /* D346: el reparto GPU / software, de solo lectura (sin ser administrador) */
+    imprimir("  GPU: copias %u (%u kpx), rellenos %u (%u kpx)\n", v.copias, v.kpx_gpu_copias, v.rellenos, v.kpx_gpu_rellenos);
+    imprimir("  software: mover %u (%u kpx), consola %u (%u kpx), rellenos %u (%u kpx), volcados %u (%u kpx)\n",
+             v.sw_ops[0], v.sw_kpx[0], v.sw_ops[1], v.sw_kpx[1], v.sw_ops[2], v.sw_kpx[2], v.sw_ops[3], v.sw_kpx[3]);
     if (v.quadros)
         imprimir("  arrastre: %u ventanas, %u cuadros, %u kciclos por cuadro\n", v.arrastos, v.quadros, v.kciclos_quadro);
     return 0;

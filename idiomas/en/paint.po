@@ -1,0 +1,217 @@
+# Traducción de SaguiOS: catálogo «paint», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/paint.c:54
+msgid "Lápiz"
+msgstr "Pencil"
+
+#: userland/programas/paint.c:54
+msgid "Pincel"
+msgstr "Brush"
+
+#: userland/programas/paint.c:54
+msgid "Goma"
+msgstr "Eraser"
+
+#: userland/programas/paint.c:54
+msgid "Aerógrafo"
+msgstr "Airbrush"
+
+#: userland/programas/paint.c:54
+msgid "Línea"
+msgstr "Line"
+
+#: userland/programas/paint.c:54
+msgid "Rectángulo"
+msgstr "Rectangle"
+
+#: userland/programas/paint.c:54
+msgid "Rectángulo relleno"
+msgstr "Filled rectangle"
+
+#: userland/programas/paint.c:54
+msgid "Elipse"
+msgstr "Ellipse"
+
+#: userland/programas/paint.c:55
+msgid "Elipse rellena"
+msgstr "Filled ellipse"
+
+#: userland/programas/paint.c:55
+msgid "Relleno"
+msgstr "Fill"
+
+#: userland/programas/paint.c:55
+msgid "Cuentagotas"
+msgstr "Color picker"
+
+#: userland/programas/paint.c:55 userland/programas/paint.c:872
+msgid "Texto"
+msgstr "Text"
+
+#: userland/programas/paint.c:94
+msgid "Nuevo"
+msgstr "New"
+
+#: userland/programas/paint.c:95 userland/programas/paint.c:759
+msgid "Abrir"
+msgstr "Open"
+
+#: userland/programas/paint.c:96
+msgid "Guardar"
+msgstr "Save"
+
+#: userland/programas/paint.c:97 userland/programas/paint.c:629
+msgid "Guardar como"
+msgstr "Save as"
+
+#: userland/programas/paint.c:98
+msgid "Deshacer"
+msgstr "Undo"
+
+#: userland/programas/paint.c:99
+msgid "Tamaño"
+msgstr "Size"
+
+#: userland/programas/paint.c:241
+msgid "Ctrl+Z deshace"
+msgstr "Ctrl+Z undoes"
+
+#: userland/programas/paint.c:260
+msgid "Grosor"
+msgstr "Thickness"
+
+#: userland/programas/paint.c:288
+msgid "Izq.: color principal"
+msgstr "Left: main color"
+
+#: userland/programas/paint.c:289
+msgid "Der.: color secundario"
+msgstr "Right: secondary color"
+
+#: userland/programas/paint.c:296
+msgid "sin nombre"
+msgstr "untitled"
+
+#: userland/programas/paint.c:309
+#, c-format
+msgid "%s  |  %s  |  %d x %d  |  %s%s"
+msgstr "%s  |  %s  |  %d x %d  |  %s%s"
+
+#: userland/programas/paint.c:321
+#, c-format
+msgid "Paint - %s%s"
+msgstr "Paint - %s%s"
+
+#: userland/programas/paint.c:565
+msgid "Nada que deshacer"
+msgstr "Nothing to undo"
+
+#: userland/programas/paint.c:571
+#, c-format
+msgid "Deshecho (quedan %d niveles)"
+msgstr "Undone (%d levels left)"
+
+#: userland/programas/paint.c:613
+#, c-format
+msgid ""
+"No se ha podido guardar\n"
+"%s\n"
+"(%s)"
+msgstr ""
+"Could not save\n"
+"%s\n"
+"(%s)"
+
+#: userland/programas/paint.c:618
+#, c-format
+msgid "Guardado: %s"
+msgstr "Saved: %s"
+
+#: userland/programas/paint.c:629
+msgid "Mapa de bits (*.bmp)|*.bmp|PPM (*.ppm)|*.ppm|Todos los archivos (*.*)|*"
+msgstr "Bitmap (*.bmp)|*.bmp|PPM (*.ppm)|*.ppm|All files (*.*)|*"
+
+#: userland/programas/paint.c:638
+msgid ""
+"El dibujo tiene cambios sin guardar.\n"
+"¿Guardar antes?"
+msgstr ""
+"The drawing has unsaved changes.\n"
+"Save first?"
+
+#: userland/programas/paint.c:645 userland/programas/paint.c:742
+msgid "No hay memoria para un lienzo de ese tamaño."
+msgstr "Not enough memory for a canvas of that size."
+
+#: userland/programas/paint.c:660
+#, c-format
+msgid ""
+"No se ha podido abrir\n"
+"%s\n"
+"(%s)"
+msgstr ""
+"Could not open\n"
+"%s\n"
+"(%s)"
+
+#: userland/programas/paint.c:696
+msgid "Nuevo dibujo"
+msgstr "New drawing"
+
+#: userland/programas/paint.c:696
+msgid "Tamaño del lienzo (ancho x alto):"
+msgstr "Canvas size (width x height):"
+
+#: userland/programas/paint.c:698 userland/programas/paint.c:740
+msgid "Tamaño no válido (de 1x1 a 2048x2048)."
+msgstr "Invalid size (from 1x1 to 2048x2048)."
+
+#: userland/programas/paint.c:712
+msgid "No hay ninguna imagen copiada."
+msgstr "There is no copied image."
+
+#: userland/programas/paint.c:714
+msgid "No se pudo pegar la imagen."
+msgstr "Could not paste the image."
+
+#: userland/programas/paint.c:716
+msgid "La imagen es demasiado grande."
+msgstr "The image is too large."
+
+#: userland/programas/paint.c:720
+msgid "No hay memoria."
+msgstr "Out of memory."
+
+#: userland/programas/paint.c:738
+msgid "Tamaño del lienzo"
+msgstr "Canvas size"
+
+#: userland/programas/paint.c:738
+msgid "Nuevo tamaño (ancho x alto):"
+msgstr "New size (width x height):"
+
+#: userland/programas/paint.c:759
+msgid "Imágenes|*.bmp;*.ppm;*.pgm;*.png|Todos los archivos (*.*)|*"
+msgstr "Images|*.bmp;*.ppm;*.pgm;*.png|All files (*.*)|*"
+
+#: userland/programas/paint.c:872
+msgid "Texto a escribir en el dibujo:"
+msgstr "Text to write on the drawing:"
+
+#: userland/programas/paint.c:997
+msgid "Paint - sin nombre"
+msgstr "Paint - untitled"
+
+#: userland/programas/paint.c:1006
+#, c-format
+msgid "Archivo nuevo: %s"
+msgstr "New file: %s"
+

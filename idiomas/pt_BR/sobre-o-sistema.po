@@ -1,0 +1,123 @@
+# Traducción de SaguiOS: catálogo «sobre-o-sistema», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/sobre-o-sistema.c:48
+#, c-format
+msgid "Versión:             %s"
+msgstr "Versão:              %s"
+
+#: userland/programas/sobre-o-sistema.c:53
+#, c-format
+msgid "Tamaño de imagen:    %u,%u KB (%u,%u%% de 38 MB)"
+msgstr "Tamanho da imagem:   %u,%u KB (%u,%u%% de 38 MB)"
+
+#: userland/programas/sobre-o-sistema.c:55
+#, c-format
+msgid "Procesos activos:    %d"
+msgstr "Processos ativos:    %d"
+
+#: userland/programas/sobre-o-sistema.c:57
+#, c-format
+msgid "Memoria libre:       %u MB de %u MB"
+msgstr "Memória livre:       %u MB de %u MB"
+
+#: userland/programas/sobre-o-sistema.c:59
+#, c-format
+msgid "Pantalla:            %ux%u"
+msgstr "Tela:                %ux%u"
+
+#: userland/programas/sobre-o-sistema.c:61
+#, c-format
+msgid "Encendido hace:      %u min %02u s"
+msgstr "Ligado há:           %u min %02u s"
+
+#: userland/programas/sobre-o-sistema.c:64
+#, c-format
+msgid "Compilación:         %s %s"
+msgstr "Compilação:          %s %s"
+
+#: userland/programas/sobre-o-sistema.c:66
+#, c-format
+msgid "Commit:              %s"
+msgstr "Commit:              %s"
+
+#: userland/programas/sobre-o-sistema.c:68
+#, c-format
+msgid "Variante:            %s"
+msgstr "Variante:            %s"
+
+#: userland/programas/sobre-o-sistema.c:83
+msgid "Basado en SaguiOS, proyecto original de"
+msgstr "Baseado no SaguiOS, projeto original de"
+
+#: userland/programas/sobre-o-sistema.c:85
+msgid "escrito por Claude (Anthropic)."
+msgstr "escrito pelo Claude (Anthropic)."
+
+#: userland/programas/sobre-o-sistema.c:87
+msgid "Red (driver e1000, TCP/IP) y navegador Cipó:"
+msgstr "Rede (driver e1000, TCP/IP) e navegador Cipó:"
+
+#: userland/programas/sobre-o-sistema.c:92 userland/programas/sobre-o-sistema.c:127
+msgid "con mejoras escritas con Claude (Anthropic)"
+msgstr "com melhorias escritas com o Claude (Anthropic)"
+
+#: userland/programas/sobre-o-sistema.c:93 userland/programas/sobre-o-sistema.c:128
+msgid "y con un agente de IA (MiniMax Code)."
+msgstr "e com um agente de IA (MiniMax Code)."
+
+#: userland/programas/sobre-o-sistema.c:95
+msgid "Código de terceros: MicroPython (MIT), libm"
+msgstr "Código de terceiros: MicroPython (MIT), libm"
+
+#: userland/programas/sobre-o-sistema.c:96
+msgid "(musl/FreeBSD), partes de drivers de Linux"
+msgstr "(musl/FreeBSD), partes de drivers do Linux"
+
+#: userland/programas/sobre-o-sistema.c:97
+msgid "(GPLv2). Ver docs/terceros.md."
+msgstr "(GPLv2). Veja docs/terceros.md."
+
+#: userland/programas/sobre-o-sistema.c:108 userland/programas/sobre-o-sistema.c:124 userland/programas/sobre-o-sistema.c:147 userland/programas/sobre-o-sistema.c:160
+msgid "Créditos"
+msgstr "Créditos"
+
+#: userland/programas/sobre-o-sistema.c:125
+msgid "Basado en SaguiOS, de Eli Rigobeli (Claude,"
+msgstr "Baseado no SaguiOS, de Eli Rigobeli (Claude,"
+
+#: userland/programas/sobre-o-sistema.c:126
+msgid "Anthropic). Mantenido por Alejandro Anuncibay,"
+msgstr "Anthropic). Mantido por Alejandro Anuncibay,"
+
+#: userland/programas/sobre-o-sistema.c:129
+msgid "Pulsa \"Créditos\" para ver los créditos"
+msgstr "Clique em \"Créditos\" para ver os créditos"
+
+#: userland/programas/sobre-o-sistema.c:137
+msgid "Acerca de SaguiOS-Extended"
+msgstr "Sobre o SaguiOS-Extended"
+
+#: userland/programas/sobre-o-sistema.c:143
+msgid "un sistema operativo"
+msgstr "um sistema operacional"
+
+#: userland/programas/sobre-o-sistema.c:144
+msgid "escrito desde cero"
+msgstr "escrito do zero"
+
+#: userland/programas/sobre-o-sistema.c:146
+msgid "Cerrar"
+msgstr "Fechar"
+
+#: userland/programas/sobre-o-sistema.c:160
+msgid "Información"
+msgstr "Informações"
+

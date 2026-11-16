@@ -51,8 +51,8 @@ extern const unsigned char fonte_sagui[256][16];
 enum { F_LAPIS, F_PINCEL, F_BORRACHA, F_SPRAY, F_LINHA, F_RET, F_RET_CHEIO, F_ELIPSE, F_ELIPSE_CHEIA,
        F_BALDE, F_CONTA_GOTAS, F_TEXTO, QTD_FERRAMENTAS };
 static const char *const nome_ferr[QTD_FERRAMENTAS] = {
-    "Lápiz", "Pincel", "Goma", "Aerógrafo", "Línea", "Rectángulo", "Rectángulo relleno", "Elipse",
-    "Elipse rellena", "Relleno", "Cuentagotas", "Texto" };
+    N_("Lápiz"), N_("Pincel"), N_("Goma"), N_("Aerógrafo"), N_("Línea"), N_("Rectángulo"), N_("Rectángulo relleno"), N_("Elipse"),
+    N_("Elipse rellena"), N_("Relleno"), N_("Cuentagotas"), N_("Texto") };
 static const char *const id_ferr[QTD_FERRAMENTAS] = {   /* para el log */
     "lapiz", "pincel", "goma", "aerografo", "linea", "rectangulo", "rectangulo_relleno", "elipse",
     "elipse_rellena", "relleno", "cuentagotas", "texto" };
@@ -91,12 +91,12 @@ static int suj_x0, suj_y0, suj_x1, suj_y1;
 static bool sujo;
 
 static botao_t bt[] = {
-    { 8, 5, 64, 24, "Nuevo", false },
-    { 78, 5, 64, 24, "Abrir", false },
-    { 148, 5, 72, 24, "Guardar", false },
-    { 226, 5, 112, 24, "Guardar como", false },
-    { 344, 5, 84, 24, "Deshacer", false },
-    { 434, 5, 76, 24, "Tamaño", false },
+    { 8, 5, 64, 24, N_("Nuevo"), false },
+    { 78, 5, 64, 24, N_("Abrir"), false },
+    { 148, 5, 72, 24, N_("Guardar"), false },
+    { 226, 5, 112, 24, N_("Guardar como"), false },
+    { 344, 5, 84, 24, N_("Deshacer"), false },
+    { 434, 5, 76, 24, N_("Tamaño"), false },
 };
 #define QTD_BT (int)(sizeof bt / sizeof bt[0])
 
@@ -238,7 +238,7 @@ static void desenhar_barra(void)
     g_retangulo(j, 0, 0, j->larg, BARRA, COR_FUNDO);
     g_retangulo(j, 0, BARRA - 1, j->larg, 1, COR_BORDA);
     for (int i = 0; i < QTD_BT; i++) botao_desenhar(j, &bt[i]);
-    if (j->larg > 700) g_texto(j, 522, 9, "Ctrl+Z deshace", COR_TEXTO_FRACO);
+    if (j->larg > 700) g_texto(j, 522, 9, _("Ctrl+Z deshace"), COR_TEXTO_FRACO);
     jan_mostrar_area(j, 0, 0, j->larg, BARRA);
 }
 
@@ -257,7 +257,7 @@ static void desenhar_lateral(void)
         g_desenho(j, x + 8 + sel, y + 8 + sel, ic[i], 16, 16, paleta_icone, 1);
     }
     int yg = grossura_y(0) - 18;
-    g_texto(j, 6, yg, "Grosor", COR_TEXTO);
+    g_texto(j, 6, yg, _("Grosor"), COR_TEXTO);
     for (int i = 0; i < 4; i++) {
         int y = grossura_y(i);
         bool sel = i == grossura;
@@ -285,15 +285,15 @@ static void desenhar_paleta(void)
         g_moldura(j, x, yy, 18, 18, 0x5A6470);
     }
     if (j->larg > 360 + 140) {
-        g_texto(j, 352, y + 6, "Izq.: color principal", COR_TEXTO_FRACO);
-        g_texto(j, 352, y + 24, "Der.: color secundario", COR_TEXTO_FRACO);
+        g_texto(j, 352, y + 6, _("Izq.: color principal"), COR_TEXTO_FRACO);
+        g_texto(j, 352, y + 24, _("Der.: color secundario"), COR_TEXTO_FRACO);
     }
     jan_mostrar_area(j, 0, y, j->larg, PALETA);
 }
 
 static const char *nome_curto(void)
 {
-    if (!caminho[0]) return "sin nombre";
+    if (!caminho[0]) return _("sin nombre");
     const char *b = acha_ultimo_char(caminho, '/');
     return b ? b + 1 : caminho;
 }
@@ -306,7 +306,7 @@ static void desenhar_estado(void)
     char t[240], pos[24] = "";
     if (cursor_x >= 0) formatar_texto(pos, sizeof pos, "%d, %d", cursor_x, cursor_y);
     if (aviso[0]) formatar_texto(t, sizeof t, "%s", aviso);
-    else formatar_texto(t, sizeof t, "%s  |  %s  |  %d x %d  |  %s%s", nome_ferr[ferr], pos[0] ? pos : "-",
+    else formatar_texto(t, sizeof t, _("%s  |  %s  |  %d x %d  |  %s%s"), _(nome_ferr[ferr]), pos[0] ? pos : "-",
                         tela.larg, tela.alt, nome_curto(), modificado ? " *" : "");
     g_texto_n(j, 8, y + 2, t, (j->larg - 16) / LETRA_L, COR_TEXTO);
     jan_mostrar_area(j, 0, y, j->larg, ESTADO);
@@ -318,7 +318,7 @@ static void atualizar_titulo(bool forcar)
     if (!forcar && titulo_modificado == modificado) return;
     titulo_modificado = modificado;
     char t[120];
-    formatar_texto(t, sizeof t, "Paint - %s%s", nome_curto(), modificado ? " *" : "");
+    formatar_texto(t, sizeof t, _("Paint - %s%s"), nome_curto(), modificado ? " *" : "");
     titulo_janela(j->id, t);
 }
 
@@ -562,13 +562,13 @@ static void esquecer_desfazer(void)
 static void desfazer(void)
 {
     if (desenhando) return;
-    if (niveis == 0) { copia_texto(aviso, "Nada que deshacer", sizeof aviso); desenhar_estado(); return; }
+    if (niveis == 0) { copia_texto(aviso, _("Nada que deshacer"), sizeof aviso); desenhar_estado(); return; }
     bool mudou_tamanho = pilha[niveis - 1].larg != tela.larg || pilha[niveis - 1].alt != tela.alt;
     imagem_liberar(&tela);
     tela = pilha[--niveis];
     modificado = true;
     registrar("paint: deshacer (quedan %d niveles)\n", niveis);
-    formatar_texto(aviso, sizeof aviso, "Deshecho (quedan %d niveles)", niveis);
+    formatar_texto(aviso, sizeof aviso, _("Deshecho (quedan %d niveles)"), niveis);
     if (mudou_tamanho) desenhar_area();
     else mostrar_tela(0, 0, tela.larg - 1, tela.alt - 1);
     desenhar_estado();
@@ -610,12 +610,12 @@ static bool salvar(void)
     int r = ppm ? imagem_gravar_ppm(caminho, &tela) : imagem_gravar_bmp(caminho, &tela);
     if (r < 0) {
         char m[260];
-        formatar_texto(m, sizeof m, "No se ha podido guardar\n%s\n(%s)", caminho, imagem_erro(r));
+        formatar_texto(m, sizeof m, _("No se ha podido guardar\n%s\n(%s)"), caminho, imagem_erro(r));
         mensagem("Paint", m);
         return false;
     }
     modificado = false;
-    formatar_texto(aviso, sizeof aviso, "Guardado: %s", caminho);
+    formatar_texto(aviso, sizeof aviso, _("Guardado: %s"), caminho);
     registrar("paint: guardado %s %dx%d %s\n", caminho, tela.larg, tela.alt, ppm ? "PPM" : "BMP 24 bits");
     atualizar_titulo(false);
     desenhar_estado();
@@ -626,7 +626,7 @@ static bool salvar_como(void)
 {
     char c[200];
     copia_texto(c, caminho[0] ? caminho : "/tmp/dibujo.bmp", sizeof c);
-    if (!dialogo_guardar("Guardar como", "Mapa de bits (*.bmp)|*.bmp|PPM (*.ppm)|*.ppm|Todos los archivos (*.*)|*", c, c, sizeof c) || !c[0]) return false;
+    if (!dialogo_guardar(_("Guardar como"), _("Mapa de bits (*.bmp)|*.bmp|PPM (*.ppm)|*.ppm|Todos los archivos (*.*)|*"), c, c, sizeof c) || !c[0]) return false;
     copia_texto(caminho, c, sizeof caminho);
     atualizar_titulo(true);
     return salvar();
@@ -635,14 +635,14 @@ static bool salvar_como(void)
 static bool pode_descartar(void)
 {
     if (!modificado) return true;
-    if (confirmar("Paint", "El dibujo tiene cambios sin guardar.\n¿Guardar antes?")) return salvar();
+    if (confirmar("Paint", _("El dibujo tiene cambios sin guardar.\n¿Guardar antes?"))) return salvar();
     return true;
 }
 
 static void nova_tela(int l, int a)
 {
     imagem_t n;
-    if (!imagem_criar(&n, l, a, 0xFFFFFF)) { mensagem("Paint", "No hay memoria para un lienzo de ese tamaño."); return; }
+    if (!imagem_criar(&n, l, a, 0xFFFFFF)) { mensagem("Paint", _("No hay memoria para un lienzo de ese tamaño.")); return; }
     imagem_liberar(&tela);
     tela = n;
     esquecer_desfazer();
@@ -657,7 +657,7 @@ static bool abrir_arquivo(const char *c)
     if (r == 0 && (n.larg > TELA_LADO_MAX || n.alt > TELA_LADO_MAX)) { imagem_liberar(&n); r = IMG_ERRO_GRANDE; }
     if (r < 0) {
         char m[260];
-        formatar_texto(m, sizeof m, "No se ha podido abrir\n%s\n(%s)", c, imagem_erro(r));
+        formatar_texto(m, sizeof m, _("No se ha podido abrir\n%s\n(%s)"), c, imagem_erro(r));
         mensagem("Paint", m);
         return false;
     }
@@ -693,9 +693,9 @@ static void novo(void)
     if (!pode_descartar()) return;
     char t[32];
     formatar_texto(t, sizeof t, "%dx%d", tela.larg, tela.alt);
-    if (!pedir_texto("Nuevo dibujo", "Tamaño del lienzo (ancho x alto):", t, sizeof t)) return;
+    if (!pedir_texto(_("Nuevo dibujo"), _("Tamaño del lienzo (ancho x alto):"), t, sizeof t)) return;
     int l, a;
-    if (!ler_tamanho(t, &l, &a)) { mensagem("Paint", "Tamaño no válido (de 1x1 a 2048x2048)."); return; }
+    if (!ler_tamanho(t, &l, &a)) { mensagem("Paint", _("Tamaño no válido (de 1x1 a 2048x2048).")); return; }
     nova_tela(l, a);
     caminho[0] = 0;
     modificado = false;
@@ -709,15 +709,15 @@ static void colar_imagem_pintura(void)
 {
     int d = colar_imagem(NULL, 0);
     int l = d & 0xFFFF, a = (d >> 16) & 0xFFFF;
-    if (d <= 0 || l == 0 || a == 0) { copia_texto(aviso, "No hay ninguna imagen copiada.", sizeof aviso); return; }
+    if (d <= 0 || l == 0 || a == 0) { copia_texto(aviso, _("No hay ninguna imagen copiada."), sizeof aviso); return; }
     uint32_t *px = aloca((size_t)l * (size_t)a * 4);
-    if (!px || colar_imagem(px, (unsigned)(l * a)) <= 0) { libera(px); copia_texto(aviso, "No se pudo pegar la imagen.", sizeof aviso); return; }
+    if (!px || colar_imagem(px, (unsigned)(l * a)) <= 0) { libera(px); copia_texto(aviso, _("No se pudo pegar la imagen."), sizeof aviso); return; }
     int nl = l > tela.larg ? l : tela.larg, na = a > tela.alt ? a : tela.alt;
-    if (nl > TELA_LADO_MAX || na > TELA_LADO_MAX) { libera(px); copia_texto(aviso, "La imagen es demasiado grande.", sizeof aviso); return; }
+    if (nl > TELA_LADO_MAX || na > TELA_LADO_MAX) { libera(px); copia_texto(aviso, _("La imagen es demasiado grande."), sizeof aviso); return; }
     guardar_desfazer();
     if (nl != tela.larg || na != tela.alt) {
         imagem_t n;
-        if (!imagem_criar(&n, nl, na, 0xFFFFFF)) { libera(px); copia_texto(aviso, "No hay memoria.", sizeof aviso); return; }
+        if (!imagem_criar(&n, nl, na, 0xFFFFFF)) { libera(px); copia_texto(aviso, _("No hay memoria."), sizeof aviso); return; }
         for (int y = 0; y < tela.alt; y++) memcpy(n.px + y * nl, tela.px + y * tela.larg, (size_t)tela.larg * 4);
         imagem_liberar(&tela);
         tela = n;
@@ -735,11 +735,11 @@ static void mudar_tamanho(void)
 {
     char t[32];
     formatar_texto(t, sizeof t, "%dx%d", tela.larg, tela.alt);
-    if (!pedir_texto("Tamaño del lienzo", "Nuevo tamaño (ancho x alto):", t, sizeof t)) return;
+    if (!pedir_texto(_("Tamaño del lienzo"), _("Nuevo tamaño (ancho x alto):"), t, sizeof t)) return;
     int l, a;
-    if (!ler_tamanho(t, &l, &a)) { mensagem("Paint", "Tamaño no válido (de 1x1 a 2048x2048)."); return; }
+    if (!ler_tamanho(t, &l, &a)) { mensagem("Paint", _("Tamaño no válido (de 1x1 a 2048x2048).")); return; }
     imagem_t n;
-    if (!imagem_criar(&n, l, a, 0xFFFFFF)) { mensagem("Paint", "No hay memoria para un lienzo de ese tamaño."); return; }
+    if (!imagem_criar(&n, l, a, 0xFFFFFF)) { mensagem("Paint", _("No hay memoria para un lienzo de ese tamaño.")); return; }
     guardar_desfazer();
     int cl = l < tela.larg ? l : tela.larg, ca = a < tela.alt ? a : tela.alt;
     for (int y = 0; y < ca; y++) memcpy(n.px + y * l, tela.px + y * tela.larg, (size_t)cl * 4);
@@ -756,7 +756,7 @@ static void abrir_pedindo(void)
     if (!pode_descartar()) return;
     char c[200];
     copia_texto(c, caminho[0] ? caminho : "/imagenes/", sizeof c);
-    if (dialogo_abrir("Abrir", "Imágenes|*.bmp;*.ppm;*.pgm;*.png|Todos los archivos (*.*)|*", c, c, sizeof c) && c[0] && abrir_arquivo(c))
+    if (dialogo_abrir(_("Abrir"), _("Imágenes|*.bmp;*.ppm;*.pgm;*.png|Todos los archivos (*.*)|*"), c, c, sizeof c) && c[0] && abrir_arquivo(c))
         desenhar_tudo();
 }
 
@@ -869,7 +869,7 @@ static void comecar(int x, int y, int botoes, unsigned mods)
     }
     if (ferr == F_TEXTO) {
         char t[100] = "";
-        if (!pedir_texto("Texto", "Texto a escribir en el dibujo:", t, sizeof t) || !t[0]) return;
+        if (!pedir_texto(N_("Texto"), _("Texto a escribir en el dibujo:"), t, sizeof t) || !t[0]) return;
         guardar_desfazer();
         texto(x, y, t, grossura + 1, c);
         modificado = true;
@@ -994,7 +994,7 @@ static bool tratar(evento_t *e)
 
 int principal(int argc, char **argv)
 {
-    j = jan_abrir("Paint - sin nombre", LARG_INICIO, ALT_INICIO);
+    j = jan_abrir(_("Paint - sin nombre"), LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, LARG_MIN, ALT_MIN);
     if (!imagem_criar(&tela, TELA_PADRAO_L, TELA_PADRAO_A, 0xFFFFFF)) return 1;
@@ -1003,7 +1003,7 @@ int principal(int argc, char **argv)
         if (info_arquivo(argv[1], &inf) >= 0) abrir_arquivo(argv[1]);
         else {
             copia_texto(caminho, argv[1], sizeof caminho);   /* archivo nuevo: graba ahí */
-            formatar_texto(aviso, sizeof aviso, "Archivo nuevo: %s", caminho);
+            formatar_texto(aviso, sizeof aviso, _("Archivo nuevo: %s"), caminho);
         }
     }
     desenhar_tudo();

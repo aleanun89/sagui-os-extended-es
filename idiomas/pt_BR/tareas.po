@@ -1,0 +1,411 @@
+# Traducción de SaguiOS: catálogo «tareas», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/tareas.c:211 userland/programas/tareas.c:703 userland/programas/tareas.c:849
+msgid "PID"
+msgstr "PID"
+
+#: userland/programas/tareas.c:211 userland/programas/tareas.c:703
+msgid "Nombre"
+msgstr "Nome"
+
+#: userland/programas/tareas.c:211
+msgid "Padre"
+msgstr "Pai"
+
+#: userland/programas/tareas.c:211 userland/programas/tareas.c:703 userland/programas/tareas.c:849
+msgid "Estado"
+msgstr "Estado"
+
+#: userland/programas/tareas.c:212
+msgid "CPU %"
+msgstr "CPU %"
+
+#: userland/programas/tareas.c:212
+msgid "T. CPU"
+msgstr "T. CPU"
+
+#: userland/programas/tareas.c:212 userland/programas/tareas.c:703
+msgid "Memoria"
+msgstr "Memória"
+
+#: userland/programas/tareas.c:212
+msgid "Ventana"
+msgstr "Janela"
+
+#: userland/programas/tareas.c:213
+msgid "Núcleo"
+msgstr "Núcleo"
+
+#: userland/programas/tareas.c:293
+#, c-format
+msgid " (%u hilos)"
+msgstr " (%u threads)"
+
+#: userland/programas/tareas.c:327
+msgid "Procesos"
+msgstr "Processos"
+
+#: userland/programas/tareas.c:327
+msgid "Rendimiento"
+msgstr "Desempenho"
+
+#: userland/programas/tareas.c:327
+msgid "Ventanas"
+msgstr "Janelas"
+
+#: userland/programas/tareas.c:327
+msgid "Red"
+msgstr "Rede"
+
+#: userland/programas/tareas.c:327 userland/programas/tareas.c:737
+msgid "Servicios"
+msgstr "Serviços"
+
+#: userland/programas/tareas.c:331 userland/programas/tareas.c:1259
+msgid "Pausar"
+msgstr "Pausar"
+
+#: userland/programas/tareas.c:332 userland/programas/tareas.c:1271 userland/programas/tareas.c:1386 userland/programas/tareas.c:1391
+msgid "Finalizar proceso"
+msgstr "Finalizar processo"
+
+#: userland/programas/tareas.c:333
+msgid "Reiniciar"
+msgstr "Reiniciar"
+
+#: userland/programas/tareas.c:334 userland/programas/tareas.c:1266
+msgid "Desactivar"
+msgstr "Desativar"
+
+#: userland/programas/tareas.c:404
+#, c-format
+msgid "sí (%u)"
+msgstr "sim (%u)"
+
+#: userland/programas/tareas.c:404 userland/programas/tareas.c:688
+msgid "sí"
+msgstr "sim"
+
+#: userland/programas/tareas.c:515
+#, c-format
+msgid "CPU: %u,%u %%"
+msgstr "CPU: %u,%u %%"
+
+#: userland/programas/tareas.c:517 userland/programas/tareas.c:517 userland/programas/tareas.c:970 userland/programas/tareas.c:970
+msgid "últimos 60 s"
+msgstr "últimos 60 s"
+
+#: userland/programas/tareas.c:520
+#, c-format
+msgid "Memoria: %u de %u MB (%u %%)"
+msgstr "Memória: %u de %u MB (%u %%)"
+
+#: userland/programas/tareas.c:532
+#, c-format
+msgid "Temperatura: %s%s"
+msgstr "Temperatura: %s%s"
+
+#: userland/programas/tareas.c:532
+msgid " LIMITANDO"
+msgstr " LIMITANDO"
+
+#: userland/programas/tareas.c:535
+#, c-format
+msgid "máx. %s"
+msgstr "máx. %s"
+
+#: userland/programas/tareas.c:540
+msgid "Temperatura: no disponible"
+msgstr "Temperatura: indisponível"
+
+#: userland/programas/tareas.c:550
+#, c-format
+msgid "Frecuencia: %s (%s)"
+msgstr "Frequência: %s (%s)"
+
+#: userland/programas/tareas.c:556
+#, c-format
+msgid "Frecuencia: %u MHz (nominal)"
+msgstr "Frequência: %u MHz (nominal)"
+
+#: userland/programas/tareas.c:568
+#, c-format
+msgid "Procesos: %d    Ventanas: %d    Encendido: %u:%02u:%02u    RAM física: %u MB"
+msgstr "Processos: %d    Janelas: %d    Ligado: %u:%02u:%02u    RAM física: %u MB"
+
+#: userland/programas/tareas.c:575
+#, c-format
+msgid "Multiplicador: %s    Turbo: %s    VID: %s"
+msgstr "Multiplicador: %s    Turbo: %s    VID: %s"
+
+#: userland/programas/tareas.c:578
+#, c-format
+msgid "Multiplicador: %s    Turbo: %s    VID: %u,%03u V"
+msgstr "Multiplicador: %s    Turbo: %s    VID: %u,%03u V"
+
+#: userland/programas/tareas.c:584
+#, c-format
+msgid "Control de frecuencia: %s, %s, límite %d °C"
+msgstr "Controle de frequência: %s, %s, limite %d °C"
+
+#: userland/programas/tareas.c:591
+#, c-format
+msgid "Núcleos: %d"
+msgstr "Núcleos: %d"
+
+#: userland/programas/tareas.c:647
+msgid "Ventana                        Proceso"
+msgstr "Janela                         Processo"
+
+#: userland/programas/tareas.c:699 userland/programas/tareas.c:742
+msgid "El supervisor de servicios no está en marcha."
+msgstr "O supervisor de serviços não está em execução."
+
+#: userland/programas/tareas.c:703
+msgid "Tiempo"
+msgstr "Tempo"
+
+#: userland/programas/tareas.c:704
+msgid "Rein."
+msgstr "Reini."
+
+#: userland/programas/tareas.c:704
+msgid "Auto"
+msgstr "Auto"
+
+#: userland/programas/tareas.c:713
+msgid "Selecciona un servicio de la lista."
+msgstr "Selecione um serviço da lista."
+
+#: userland/programas/tareas.c:737
+msgid "Selecciona primero un servicio de la lista."
+msgstr "Selecione primeiro um serviço da lista."
+
+#: userland/programas/tareas.c:743
+msgid ""
+"Hace falta ser administrador para manejar los servicios.\n"
+"Usa «admin servicio ...» en el Terminal."
+msgstr ""
+"É preciso ser administrador para gerenciar os serviços.\n"
+"Use «admin servicio ...» no Terminal."
+
+#: userland/programas/tareas.c:745
+msgid "El supervisor de servicios no contesta."
+msgstr "O supervisor de serviços não responde."
+
+#: userland/programas/tareas.c:772 userland/programas/tareas.c:1128
+msgid "Renovar DHCP"
+msgstr "Renovar DHCP"
+
+#: userland/programas/tareas.c:773 userland/programas/tareas.c:995 userland/programas/tareas.c:1136
+msgid "Desactivar interfaz"
+msgstr "Desativar interface"
+
+#: userland/programas/tareas.c:849
+msgid "Proto"
+msgstr "Proto"
+
+#: userland/programas/tareas.c:849
+msgid "Local"
+msgstr "Local"
+
+#: userland/programas/tareas.c:849
+msgid "Remoto"
+msgstr "Remoto"
+
+#: userland/programas/tareas.c:849
+msgid "Proceso"
+msgstr "Processo"
+
+#: userland/programas/tareas.c:986
+msgid "No hay interfaces de red."
+msgstr "Não há interfaces de rede."
+
+#: userland/programas/tareas.c:995 userland/programas/tareas.c:1181
+msgid "Activar interfaz"
+msgstr "Ativar interface"
+
+#: userland/programas/tareas.c:1002
+#, c-format
+msgid "Estado: %s"
+msgstr "Estado: %s"
+
+#: userland/programas/tareas.c:1004
+#, c-format
+msgid "Driver: %s%s%s"
+msgstr "Driver: %s%s%s"
+
+#: userland/programas/tareas.c:1013
+#, c-format
+msgid "IPv4: %s/%d (%s)"
+msgstr "IPv4: %s/%d (%s)"
+
+#: userland/programas/tareas.c:1017
+msgid "Configuración: fija (127.0.0.1)"
+msgstr "Configuração: fixa (127.0.0.1)"
+
+#: userland/programas/tareas.c:1021
+#, c-format
+msgid "Configuración: %s"
+msgstr "Configuração: %s"
+
+#: userland/programas/tareas.c:1021
+msgid "estática"
+msgstr "estática"
+
+#: userland/programas/tareas.c:1021
+msgid "sin dirección"
+msgstr "sem endereço"
+
+#: userland/programas/tareas.c:1023
+#, c-format
+msgid "Puerta: %s  DNS: %s"
+msgstr "Gateway: %s  DNS: %s"
+
+#: userland/programas/tareas.c:1029
+#, c-format
+msgid "Enviado: %s (%u paquetes)"
+msgstr "Enviado: %s (%u pacotes)"
+
+#: userland/programas/tareas.c:1031
+#, c-format
+msgid "Recibido: %s (%u paquetes)"
+msgstr "Recebido: %s (%u pacotes)"
+
+#: userland/programas/tareas.c:1037
+#, c-format
+msgid "Envío: %s/s"
+msgstr "Envio: %s/s"
+
+#: userland/programas/tareas.c:1040
+#, c-format
+msgid "Recepción: %s/s"
+msgstr "Recepção: %s/s"
+
+#: userland/programas/tareas.c:1042
+#, c-format
+msgid "Errores: %u  Descartes: %u"
+msgstr "Erros: %u  Descartes: %u"
+
+#: userland/programas/tareas.c:1063
+msgid "Sin conexiones."
+msgstr "Sem conexões."
+
+#: userland/programas/tareas.c:1079
+msgid "(sin dueño)"
+msgstr "(sem dono)"
+
+#: userland/programas/tareas.c:1127
+#, c-format
+msgid ""
+"No se pudo renovar la concesión DHCP:\n"
+"%s"
+msgstr ""
+"Não foi possível renovar a concessão DHCP:\n"
+"%s"
+
+#: userland/programas/tareas.c:1136
+msgid ""
+"¿Desactivar eth0?\n"
+"\n"
+"Se cortará el tráfico de red hasta\n"
+"que la vuelvas a activar."
+msgstr ""
+"Desativar a eth0?\n"
+"\n"
+"O tráfego de rede será cortado até\n"
+"que você a ative de novo."
+
+#: userland/programas/tareas.c:1146 userland/programas/tareas.c:1148 userland/programas/tareas.c:1159 userland/programas/tareas.c:1165
+msgid "Cerrar conexión"
+msgstr "Fechar conexão"
+
+#: userland/programas/tareas.c:1146
+msgid "Selecciona primero una conexión de la lista."
+msgstr "Selecione primeiro uma conexão da lista."
+
+#: userland/programas/tareas.c:1148
+msgid ""
+"Solo se pueden cerrar conexiones TCP.\n"
+"Un socket UDP se cierra finalizando su proceso."
+msgstr ""
+"Só é possível fechar conexões TCP.\n"
+"Um socket UDP é fechado finalizando o seu processo."
+
+#: userland/programas/tareas.c:1164
+#, c-format
+msgid ""
+"No se pudo cerrar la conexión:\n"
+"%s"
+msgstr ""
+"Não foi possível fechar a conexão:\n"
+"%s"
+
+#: userland/programas/tareas.c:1181
+msgid "Desactivar interfaz..."
+msgstr "Desativar interface..."
+
+#: userland/programas/tareas.c:1254
+#, c-format
+msgid "Procesos: %d  CPU: %u%%  Mem.: %u%%%s"
+msgstr "Processos: %d  CPU: %u%%  Mem.: %u%%%s"
+
+#: userland/programas/tareas.c:1259
+msgid "Reanudar"
+msgstr "Retomar"
+
+#: userland/programas/tareas.c:1265 userland/programas/tareas.c:1534
+msgid "Parar"
+msgstr "Parar"
+
+#: userland/programas/tareas.c:1265
+msgid "Iniciar"
+msgstr "Iniciar"
+
+#: userland/programas/tareas.c:1266 userland/programas/tareas.c:1536
+msgid "Activar"
+msgstr "Ativar"
+
+#: userland/programas/tareas.c:1271 userland/programas/tareas.c:1418
+msgid "Cerrar ventana"
+msgstr "Fechar janela"
+
+#: userland/programas/tareas.c:1276
+#, c-format
+msgid "Política: %s"
+msgstr "Política: %s"
+
+#: userland/programas/tareas.c:1386
+msgid "Selecciona primero un proceso de la lista."
+msgstr "Selecione primeiro um processo da lista."
+
+#: userland/programas/tareas.c:1401
+#, c-format
+msgid "¿Finalizar el proceso \"%s\" (PID %d)?%s"
+msgstr "Finalizar o processo \"%s\" (PID %d)?%s"
+
+#: userland/programas/tareas.c:1410
+#, c-format
+msgid ""
+"No se pudo finalizar el proceso %d:\n"
+"%s"
+msgstr ""
+"Não foi possível finalizar o processo %d:\n"
+"%s"
+
+#: userland/programas/tareas.c:1418
+msgid "Selecciona primero una ventana de la lista."
+msgstr "Selecione primeiro uma janela da lista."
+
+#: userland/programas/tareas.c:1486
+msgid "Administrador de tareas"
+msgstr "Gerenciador de tarefas"
+

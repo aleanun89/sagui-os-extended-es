@@ -1,0 +1,79 @@
+# Traducción de SaguiOS: catálogo «recortes», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/recortes.c:78 userland/programas/recortes.c:162 userland/programas/recortes.c:216
+msgid "Recortes"
+msgstr "Snips"
+
+#: userland/programas/recortes.c:166
+msgid "Guardar"
+msgstr "Save"
+
+#: userland/programas/recortes.c:166
+msgid "Copiar"
+msgstr "Copy"
+
+#: userland/programas/recortes.c:167
+msgid "Abrir en Paint"
+msgstr "Open in Paint"
+
+#: userland/programas/recortes.c:167
+msgid "Nuevo recorte"
+msgstr "New snip"
+
+#: userland/programas/recortes.c:184
+msgid "Guardar recorte"
+msgstr "Save snip"
+
+#: userland/programas/recortes.c:184
+msgid "Imagen PNG (*.png)|*.png|Mapa de bits (*.bmp)|*.bmp"
+msgstr "PNG image (*.png)|*.png|Bitmap (*.bmp)|*.bmp"
+
+#: userland/programas/recortes.c:188
+msgid "No se pudo guardar."
+msgstr "Could not save."
+
+#: userland/programas/recortes.c:188
+#, c-format
+msgid "Guardado en %s"
+msgstr "Saved to %s"
+
+#: userland/programas/recortes.c:193
+msgid "No se pudo copiar."
+msgstr "Could not copy."
+
+#: userland/programas/recortes.c:193
+msgid "Imagen copiada (Ctrl+V en Paint)"
+msgstr "Image copied (Ctrl+V in Paint)"
+
+#: userland/programas/recortes.c:200
+msgid "No se pudo guardar para Paint."
+msgstr "Could not save for Paint."
+
+#: userland/programas/recortes.c:219
+msgid "Ahora"
+msgstr "Now"
+
+#: userland/programas/recortes.c:219
+msgid "3 s"
+msgstr "3 s"
+
+#: userland/programas/recortes.c:220
+msgid "5 s"
+msgstr "5 s"
+
+#: userland/programas/recortes.c:220
+msgid "10 s"
+msgstr "10 s"
+
+#: userland/programas/recortes.c:222
+msgid "Nuevo recorte (el retardo sirve para menús abiertos):"
+msgstr "New snip (the delay is for open menus):"
+

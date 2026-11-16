@@ -19,7 +19,7 @@
  *      benchmark --sumas      (diagnóstico: suma de comprobación y tiempo de cada carga)
  *
  * Se compila sin -mgeneral-regs-only (Makefile): las cargas de coma flotante llevan
- * __attribute__((target("sse2"))) y sólo corren si el CPUID confirma SSE2. */
+ * __attribute__((target("sse2"))) y corren si el CPUID confirma SSE2; sin SSE2 usan su variante x87 (D343). */
 #include "sagui.h"
 #include "sha256.h"
 
@@ -202,6 +202,78 @@ static uint32_t c_ncuerpos(ctx_t *c)
     return (uint32_t)(e * 1.0e6);
 }
 
+/* Variantes x87 de las dos cargas de coma flotante (D343), para CPU sin SSE2 (Pentium II/III, Athlon antiguos).
+ * Mismo cálculo que las de SSE2, compilado con la pila x87 (sin una sola instrucción SSE). Antes de medir se fija
+ * la palabra de control a precisión doble (53 bits) y excepciones enmascaradas (0x27F): así los intermedios no
+ * van en 80 bits y la suma de comprobación sale igual que con SSE2. Al terminar se restaura la palabra de control
+ * anterior. Puntúan con la misma referencia de tiempo: salen más lentas y, por tanto, con menos puntos. */
+static uint16_t x87_fijar(void)
+{
+    uint16_t antes, nueva = 0x027F;
+    __asm__ volatile("fnstcw %0" : "=m"(antes));
+    __asm__ volatile("fldcw %0" : : "m"(nueva));
+    return antes;
+}
+static void x87_restaurar(uint16_t antes) { __asm__ volatile("fldcw %0" : : "m"(antes)); }
+
+__attribute__((target("no-sse,fpmath=387")))
+static uint32_t c_mandel_x87(ctx_t *c)
+{
+    (void)c;
+    uint16_t cw = x87_fijar();
+    double dx = 3.2 / MANDEL_L, dy = 2.4 / MANDEL_A;
+    uint32_t soma = 0;
+    for (int v = 0; v < MANDEL_V; v++)
+      for (int py = 0; py < MANDEL_A; py++)
+        for (int px = 0; px < MANDEL_L; px++) {
+            double off = (double)(semente & 0);
+            double cr = -2.2 + px * dx + off, ci = -1.2 + py * dy, zr = 0, zi = 0;
+            int it = 0;
+            while (it < MANDEL_IT && zr * zr + zi * zi <= 4.0) {
+                double t = zr * zr - zi * zi + cr;
+                zi = 2.0 * zr * zi + ci;
+                zr = t;
+                it++;
+            }
+            soma += (uint32_t)it;
+        }
+    x87_restaurar(cw);
+    return soma + (semente & 0);
+}
+
+__attribute__((target("no-sse,fpmath=387")))
+static double raiz_x87(double x)
+{
+    double r;
+    __asm__("fsqrt" : "=t"(r) : "0"(x));
+    return r;
+}
+__attribute__((target("no-sse,fpmath=387")))
+static uint32_t c_ncuerpos_x87(ctx_t *c)
+{
+    (void)c;
+    uint16_t cw = x87_fijar();
+    double x[5] = { 0, 4.84, 8.34, 12.89, 15.37 }, y[5] = { 0, -1.16, 4.12, -15.11, -25.9 }, z[5] = { 0, -0.10, -0.4, -0.22, 0.17 };
+    double vx[5] = { 0, 0.606, -1.01, 1.08, 0.979 }, vy[5] = { 0, 2.81, 1.82, 0.868, 0.594 }, vz[5] = { 0, -0.02, 0.008, -0.01, -0.034 };
+    static const double m[5] = { 39.47, 0.037, 0.011, 0.0017, 0.002 };
+    const double dt = 0.01;
+    for (int s = 0; s < NC_PASOS + (int)(semente & 0); s++) {
+        for (int i = 0; i < 5; i++)
+            for (int j = i + 1; j < 5; j++) {
+                double ddx = x[i] - x[j], ddy = y[i] - y[j], ddz = z[i] - z[j];
+                double d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+                double mag = dt / (d2 * raiz_x87(d2));
+                vx[i] -= ddx * m[j] * mag; vy[i] -= ddy * m[j] * mag; vz[i] -= ddz * m[j] * mag;
+                vx[j] += ddx * m[i] * mag; vy[j] += ddy * m[i] * mag; vz[j] += ddz * m[i] * mag;
+            }
+        for (int i = 0; i < 5; i++) { x[i] += dt * vx[i]; y[i] += dt * vy[i]; z[i] += dt * vz[i]; }
+    }
+    double e = 0;
+    for (int i = 0; i < 5; i++) e += 0.5 * m[i] * (vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]);
+    x87_restaurar(cw);
+    return (uint32_t)(e * 1.0e6);
+}
+
 /* Memoria 1: copia y lectura secuencial de dos bloques de 32 MB (no caben en la caché). */
 #define MEM_BYTES (32u << 20)
 #define MEM_N     (MEM_BYTES / 4)
@@ -285,21 +357,22 @@ typedef struct {
     const char *nome;
     int         grupo;
     fn_carga_t  fn;
-    bool        sse2;       /* necesita SSE2 */
+    bool        sse2;       /* necesita SSE2 (salvo que tenga variante x87) */
+    fn_carga_t  fn_x87;     /* variante x87 para CPU sin SSE2 (D343), o NULL */
     uint32_t    esperado;   /* suma de comprobación correcta */
     unsigned    ref_us;     /* microsegundos por unidad en la máquina de referencia (1000 puntos) */
 } carga_t;
 
 /* REF_US: QEMU con KVM, una CPU, máquina de desarrollo (D176). */
 static const carga_t cargas[] = {
-    { "hash",     G_ENTERO,   c_hash,     false, 0x087f476au, 83300 },
-    { "criba",    G_ENTERO,   c_criba,    false, 0x0077c748u, 83400 },
-    { "mandel",   G_FLOTANTE, c_mandel,   true,  0x0271ec36u, 78900 },
-    { "ncuerpos", G_FLOTANTE, c_ncuerpos, true,  0x00028508u, 79400 },
-    { "copia",    G_MEMORIA,  c_copia,    false, 0xda000000u, 81500 },
-    { "aleat",    G_MEMORIA,  c_aleat,    false, 0x00004bb5u, 86600 },
-    { "sha256",   G_CIFRADO,  c_sha,      false, 0x9dc5baa3u, 92500 },
-    { "llamadas", G_SISTEMA,  c_chamadas, false, 0x36aab438u, 80200 },
+    { "hash",     G_ENTERO,   c_hash,     false, NULL, 0x087f476au, 83300 },
+    { "criba",    G_ENTERO,   c_criba,    false, NULL, 0x0077c748u, 83400 },
+    { "mandel",   G_FLOTANTE, c_mandel,   true,  c_mandel_x87,   0x0271ec36u, 78900 },
+    { "ncuerpos", G_FLOTANTE, c_ncuerpos, true,  c_ncuerpos_x87, 0x00028508u, 79400 },
+    { "copia",    G_MEMORIA,  c_copia,    false, NULL, 0xda000000u, 81500 },
+    { "aleat",    G_MEMORIA,  c_aleat,    false, NULL, 0x00004bb5u, 86600 },
+    { "sha256",   G_CIFRADO,  c_sha,      false, NULL, 0x9dc5baa3u, 92500 },
+    { "llamadas", G_SISTEMA,  c_chamadas, false, NULL, 0x36aab438u, 80200 },
 };
 #define QTD_CARGAS ((int)(sizeof cargas / sizeof cargas[0]))
 
@@ -314,7 +387,19 @@ static void ctx_liberar(ctx_t *c)
 }
 
 static bool tem_sse2;
-static bool carga_disponivel(int i) { return !cargas[i].sse2 || tem_sse2; }
+static bool carga_disponivel(int i) { return !cargas[i].sse2 || tem_sse2 || cargas[i].fn_x87; }
+/* Sin SSE2, las cargas con variante x87 usan ésa (D343). */
+static bool usa_x87(int i) { return cargas[i].sse2 && !tem_sse2 && cargas[i].fn_x87; }
+static fn_carga_t fn_de(int i) { return usa_x87(i) ? cargas[i].fn_x87 : cargas[i].fn; }
+static const char *nome_de(int i)
+{
+    static char b[2][24];
+    static int k;
+    if (!usa_x87(i)) return cargas[i].nome;
+    k ^= 1;
+    formatar_texto(b[k], sizeof b[k], "%s (x87)", cargas[i].nome);
+    return b[k];
+}
 
 /* ------------------------------------------------------------ resultados */
 
@@ -354,13 +439,13 @@ static void medir_mono(int i)
     res_t *r = &res[i];
     ctx_t c;
     memset(&c, 0, sizeof c);
-    cargas[i].fn(&c);   /* calentamiento: reserva y toca la memoria, llena cachés */
+    fn_de(i)(&c);   /* calentamiento: reserva y toca la memoria, llena cachés */
     uint64_t t[16];
     int n = reps < 16 ? reps : 16;
     uint32_t obtido = 0;
     for (int k = 0; k < n; k++) {
         uint64_t a = rdtsc();
-        obtido = cargas[i].fn(&c);
+        obtido = fn_de(i)(&c);
         t[k] = rdtsc() - a;
         if (obtido != cargas[i].esperado) break;
     }
@@ -399,7 +484,7 @@ static void *hilo_trabalhador(void *arg)
         int carga = hl.carga;
         if (carga < 0) break;
         uint64_t a = rdtsc();
-        uint32_t o = cargas[carga].fn(&c);
+        uint32_t o = fn_de(carga)(&c);
         uint64_t b = rdtsc();
         hl.t0[idx] = a;
         hl.t1[idx] = b;
@@ -509,7 +594,7 @@ static int trabalhador(int idx)
         int carga = ord;
         if (carga >= QTD_CARGAS) break;
         uint64_t a = rdtsc();
-        uint32_t o = cargas[carga].fn(&c);
+        uint32_t o = fn_de(carga)(&c);
         uint64_t b = rdtsc();
         m.tipo = 2; m.obtido = o; m.t0 = a; m.t1 = b;
         if (escrever(fd_resp, &m, sizeof m) != (int)sizeof m) break;
@@ -653,17 +738,17 @@ static void mostrar(totais_t t, bool mono, bool mp, bool mh, int erros, unsigned
 {
     if (maquina) {
         for (int i = 0; i < QTD_CARGAS; i++)
-            imprimir("R %s %d %d %u %u %u %u\n", cargas[i].nome, cargas[i].grupo, res[i].estado, res[i].pts_mono,
-                     res[i].var_x10, res[i].pts_mp, res[i].pts_mh);
+            imprimir("R %s %d %d %u %u %u %u %d\n", cargas[i].nome, cargas[i].grupo, res[i].estado, res[i].pts_mono,
+                     res[i].var_x10, res[i].pts_mp, res[i].pts_mh, usa_x87(i) ? 1 : 0);   /* último campo: 1 = variante x87 (D343) */
     } else {
-        imprimir("\n%-9s %-9s", "Carga", "Grupo");
+        imprimir("\n%-13s %-9s", "Carga", "Grupo");
         if (mono) imprimir(" %7s %6s", "Mono", "+-%");
         if (mp) imprimir(" | %7s %6s %5s", "Procs", "Escala", "Efic");
         if (mh) imprimir(" | %7s %6s %5s", "Hilos", "Escala", "Efic");
         imprimir("\n");
         for (int i = 0; i < QTD_CARGAS; i++) {
             res_t *r = &res[i];
-            imprimir("%-9s %-9s", cargas[i].nome, nomes_grupo[cargas[i].grupo]);
+            imprimir("%-13s %-9s", nome_de(i), nomes_grupo[cargas[i].grupo]);
             if (r->estado != E_OK) {
                 imprimir(" %s\n", r->estado == E_ERRO ? "ERROR (suma de comprobacion distinta)" : "n/d (la CPU no tiene SSE2)");
                 continue;
@@ -681,10 +766,12 @@ static void mostrar(totais_t t, bool mono, bool mp, bool mh, int erros, unsigned
             imprimir("\n");
         }
         imprimir("\n");
+        for (int i = 0; i < QTD_CARGAS; i++)
+            if (usa_x87(i)) { imprimir("(x87) = la CPU no tiene SSE2: esas cargas usan la FPU x87 y puntúan menos (D343).\n\n"); break; }
     }
     for (int i = 0; i < QTD_CARGAS; i++)   /* una línea por carga en el registro: las pruebas la leen */
-        registrar("benchmark: carga %s estado=%d mono=%u var=%u.%u procesos=%u hilos=%u\n", cargas[i].nome, res[i].estado,
-                  res[i].pts_mono, res[i].var_x10 / 10, res[i].var_x10 % 10, res[i].pts_mp, res[i].pts_mh);
+        registrar("benchmark: carga %s estado=%d mono=%u var=%u.%u procesos=%u hilos=%u x87=%d\n", cargas[i].nome, res[i].estado,
+                  res[i].pts_mono, res[i].var_x10 / 10, res[i].var_x10 % 10, res[i].pts_mp, res[i].pts_mh, usa_x87(i) ? 1 : 0);
     unsigned melhor = t.mp > t.mh ? t.mp : t.mh;
     unsigned esc = (mono && t.mono && melhor) ? melhor * 100 / t.mono : 0;   /* x100 */
     unsigned efi = esc / (unsigned)n_nucleos;
@@ -717,11 +804,11 @@ static int sumas(void)
     memset(&c, 0, sizeof c);
     for (int i = 0; i < QTD_CARGAS; i++) {
         if (!carga_disponivel(i)) continue;
-        cargas[i].fn(&c);
+        fn_de(i)(&c);
         uint64_t a = rdtsc();
-        uint32_t o = cargas[i].fn(&c);
+        uint32_t o = fn_de(i)(&c);
         unsigned us = us_de(rdtsc() - a);
-        imprimir("SUMA %s 0x%08x %u us\n", cargas[i].nome, o, us);
+        imprimir("SUMA %s 0x%08x %u us\n", nome_de(i), o, us);
         registrar("benchmark: SUMA %s 0x%08x %u us\n", cargas[i].nome, o, us);
     }
     ctx_liberar(&c);
@@ -796,7 +883,7 @@ int principal(int argc, char **argv)
         progresso("mono", cargas[i].nome);
         medir_mono(i);
         if (!maquina)
-            imprimir("  mono %-9s %s\n", cargas[i].nome, res[i].estado == E_OK ? "ok" : "ERROR");
+            imprimir("  mono %-13s %s\n", nome_de(i), res[i].estado == E_OK ? "ok" : "ERROR");
     }
     if (faz_mp) {
         if (!maquina) imprimir("  multinúcleo con procesos (%d)...\n", n_nucleos);

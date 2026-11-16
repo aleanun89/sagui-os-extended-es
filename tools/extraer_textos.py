@@ -41,7 +41,15 @@ def catalogo_de(ruta):
     if ruta.startswith("kernel/"):
         return "kernel"
     if ruta.startswith("userland/programas/"):
-        return os.path.splitext(os.path.basename(ruta))[0]
+        base = os.path.splitext(os.path.basename(ruta))[0]
+        if ruta.endswith(".h"):
+            # una cabecera de un programa (pluma_cinta.h -> pluma): va a su catálogo si existe el .c
+            b = base
+            while "_" in b:
+                b = b.rsplit("_", 1)[0]
+                if os.path.exists(os.path.join(RAIZ, "userland/programas", b + ".c")):
+                    return b
+        return base
     return "libsagui"
 
 
@@ -134,9 +142,13 @@ def extraer_fuente(ruta):
             while j < n and not (t[j] == "\n" and t[j - 1] != "\\"):
                 j += 1
             i = j
-        elif c == "_" or c == "N":
+        elif c in "_NM":
             ini = i
-            ident = "N_" if t.startswith("N_", i) else "_" if c == "_" else None
+            ident = None
+            for cand in ("NMENU_", "MENU_", "N_", "_"):
+                if t.startswith(cand, i):
+                    ident = cand
+                    break
             antes = t[i - 1] if i else " "
             if ident and not (antes.isalnum() or antes == "_"):
                 k = i + len(ident)
@@ -160,7 +172,15 @@ def extraer_fuente(ruta):
                                 cad = cad.encode("latin-1").decode("utf-8")
                             except UnicodeDecodeError:
                                 pass
-                        res.append((cad, t.count("\n", 0, ini) + 1))
+                        lin_c = t.count("\n", 0, ini) + 1
+                        if ident.endswith("MENU_"):
+                            # menú de líneas: cada una (sin el atajo tras \t) es una cadena del catálogo
+                            for una in cad.split("\n"):
+                                una = una.split("\t")[0]
+                                if una and una != "-":
+                                    res.append((una, lin_c))
+                        else:
+                            res.append((cad, lin_c))
                     i = k
                     continue
             i = ini + 1

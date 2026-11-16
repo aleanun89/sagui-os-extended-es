@@ -1,0 +1,71 @@
+# Traducción de SaguiOS: catálogo «visor», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/visor.c:58
+msgid "Abrir"
+msgstr "Open"
+
+#: userland/programas/visor.c:61
+msgid "Ajustar"
+msgstr "Fit"
+
+#: userland/programas/visor.c:153
+msgid "Rueda: zoom  F11: pantalla completa"
+msgstr "Wheel: zoom  F11: full screen"
+
+#: userland/programas/visor.c:165
+#, c-format
+msgid "Ninguna imagen abierta (%s)"
+msgstr "No image open (%s)"
+
+#: userland/programas/visor.c:167
+#, c-format
+msgid "%s  |  %d x %d  |  %s  |  %d%%%s  |  %d de %d"
+msgstr "%s  |  %d x %d  |  %s  |  %d%%%s  |  %d of %d"
+
+#: userland/programas/visor.c:168 userland/programas/visor.c:171
+msgid " (ajustada)"
+msgstr " (fitted)"
+
+#: userland/programas/visor.c:180
+msgid "Ninguna imagen abierta. Elige una (doble clic o Intro), pulsa Abrir"
+msgstr "No image open. Pick one (double click or Enter), press Open"
+
+#: userland/programas/visor.c:181
+msgid "(Ctrl+O) o usa en el terminal: visor archivo.bmp"
+msgstr "(Ctrl+O) or use in the terminal: visor file.bmp"
+
+#: userland/programas/visor.c:188 userland/programas/visor.c:288
+#, c-format
+msgid "No hay imágenes en %s"
+msgstr "There are no images in %s"
+
+#: userland/programas/visor.c:209
+#, c-format
+msgid "%s - Visor de imágenes"
+msgstr "%s - Image viewer"
+
+#: userland/programas/visor.c:210 userland/programas/visor.c:477
+msgid "Visor de imágenes"
+msgstr "Image viewer"
+
+#: userland/programas/visor.c:254
+#, c-format
+msgid "No se ha podido abrir %s: %s"
+msgstr "Could not open %s: %s"
+
+#: userland/programas/visor.c:319
+msgid "Abrir imagen"
+msgstr "Open image"
+
+#: userland/programas/visor.c:319
+msgid "Imágenes|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*"
+msgstr "Images|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|All files (*.*)|*"
+

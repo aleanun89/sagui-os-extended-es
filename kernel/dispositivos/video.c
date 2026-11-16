@@ -166,6 +166,7 @@ void video_retangulo(int x, int y, int l, int a, cor_t c)
     if (x1 > (int)larg) x1 = (int)larg;
     if (y1 > (int)alt) y1 = (int)alt;
     if (x >= x1 || y >= y1) return;
+    acel2d_contar_sw(ACEL_SW_RELLENO, (uint32_t)((x1 - x) * (y1 - y)));   /* D346 */
     bool sse = (x1 - x) * (y1 - y) >= 4096 && rapido_inicio();
     for (int j = y; j < y1; j++)
         rapido_preencher32(tras + (uint32_t)j * larg + (uint32_t)x, c, (size_t)(x1 - x));
@@ -287,7 +288,7 @@ bool video_mover(int x, int y, int l, int a, int ddx, int ddy)
     mover_tras(ox, oy, dx, dy, l, a);
     if (gpu) gpu = acel_copiar(ox, oy, dx, dy, l, a) && acel_esperar();
     if (gpu) cursor_depois_da_gpu(dx, dy, l, a, ddx, ddy);
-    else video_marcar(dx, dy, l, a);
+    else { acel2d_contar_sw(ACEL_SW_MOVER, (uint32_t)(l * a)); video_marcar(dx, dy, l, a); }
     int_restaura(sim);
     return gpu;
 }
@@ -304,10 +305,11 @@ void video_rolar(int y, int altura, int linhas, cor_t fundo)
         bool gpu = acel_copiar(0, y + linhas, 0, y, (int)larg, altura - linhas) &&
                    acel_rellenar(0, y + altura - linhas, (int)larg, linhas, fundo) && acel_esperar();
         if (gpu) cursor_depois_da_gpu(0, y, (int)larg, altura, 0, -linhas);
-        else video_marcar(0, y, (int)larg, altura);
+        else { acel2d_contar_sw(ACEL_SW_ROLAR, larg * (uint32_t)altura); video_marcar(0, y, (int)larg, altura); }
         int_restaura(sim);
         return;
     }
+    acel2d_contar_sw(ACEL_SW_ROLAR, larg * (uint32_t)altura);   /* D346 */
     memmove(tras + (uint32_t)y * larg, tras + (uint32_t)(y + linhas) * larg, (uint32_t)(altura - linhas) * larg * 4);
     video_retangulo(0, y + altura - linhas, (int)larg, linhas, fundo);
     video_marcar(0, y, (int)larg, altura);
@@ -404,6 +406,7 @@ void video_mostrar(void)
     if (suj_x0 < suj_x1) {
         bool sse = rapido_inicio();
         copiar_regiao(suj_x0, suj_y0, suj_x1, suj_y1);
+        acel2d_contar_sw(ACEL_SW_MOSTRAR, (uint32_t)((suj_x1 - suj_x0) * (suj_y1 - suj_y0)));   /* D346 */
         rapido_fim(sse);
         acel_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);   /* D195: VMware en modo SVGA */
         toca_cursor = cur_x < suj_x1 && cur_x + CUR_L > suj_x0 && cur_y < suj_y1 && cur_y + CUR_A > suj_y0;

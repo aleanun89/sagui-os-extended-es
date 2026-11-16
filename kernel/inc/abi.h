@@ -698,6 +698,11 @@ typedef struct {
     unsigned int prazo_ms;                   /* D244: plazo máximo de cada espera de la GPU en sesión */
     unsigned int reservado[2];
     char         placa[48];                  /* nombre de la tarjeta según la tabla del acelerador (vacío si no es de ella) */
+    /* D346 (solo lectura, sin ser administrador): reparto GPU / software desde el arranque. Los índices de sw_* son
+     * ACEL_SW_* de acel2d.h: 0 mover rectángulos, 1 desplazar la consola, 2 rellenos del escritorio, 3 volcado del
+     * búfer de atrás a la pantalla (regiones). Operaciones y miles de píxeles. */
+    unsigned int kpx_gpu_copias, kpx_gpu_rellenos;
+    unsigned int sw_ops[4], sw_kpx[4];
 } info_acel2d_t;
 #define INFO_ACEL2D_CTL   69  /* D244: (op, 0): op 0 = apagar, 1 = encender -> 0 / error */
 /* Cámara (D277): INFO_CAMARA (&info_camara_t, sizeof) -> el campo "resultado" y el valor devuelto

@@ -483,3 +483,7 @@ Capturas (del Cipó en QEMU): `docs/capturas/H271-01-variables-calc.png`, `H271-
 | 14 | Promise, async/await y funciones flecha | no | **sí** |
 | 15 | eventos: dispatchEvent y CustomEvent | no | **sí** |
 | 16 | template.content y cloneNode | no | no |
+
+## as.com (D347, v8.4.5)
+
+La portada de as.com se ve (cabecera roja con logo e iconos, avisos, titulares y entradillas legibles); la prueba h349 reproduce sus tres causas con una página sintética. Pendiente: las fotos tardan en llegar (descarga HTTPS una a una, sin priorizar las visibles en pantalla), por lo que hay huecos en blanco hasta que bajan; se descargan también imágenes de contenedores ocultos; DataDome puede devolver un captcha (403 con `x-datadome`) a clientes sin JS, algo que Cipó no puede resolver; los scripts de terceros con sintaxis moderna (11 `SyntaxError`) no afectan al contenido.

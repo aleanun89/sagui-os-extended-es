@@ -393,3 +393,12 @@ microcódigo en la imagen) y `std` (QEMU sin Radeon, con y sin `--gpu3d=radeon`:
   vídeo, y texturas grandes). Hay que escribir el GTT: irá detrás de una opción.
 - Renderizador de la SDL 2 por GPU y varias pantallas (siguientes piezas de la v8.3, D257).
 - Gen4 en adelante (X3100, GM45, HD Graphics): otra tubería.
+
+
+## 2D por la GPU sin ser administrador (D346)
+
+La 2D acelerada (`acel2d`, solo copiar y rellenar rectángulos) se usa al arrastrar ventanas y al desplazar la consola; el resto es software.
+El estado y el reparto GPU/software (contadores en `INFO_ACEL2D`) los ve cualquier usuario: `acel2d`, `infopc` (sección GPU) y
+Configuración (Pantalla > Aceleración gráfica). `infopc --bench-gpu` mide fuera de pantalla sin permisos; `--admin` (o el botón
+«Medir con la GPU») añade la autoprueba del acelerador, que sigue siendo del administrador igual que `acel2d probar|apagar|encender`.
+Detalle en `docs/decisoes.md` (D346).

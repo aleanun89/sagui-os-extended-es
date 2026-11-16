@@ -127,6 +127,36 @@ const char *idioma_traducir_sl(const char *clave)
     return t ? t : clave;
 }
 
+/* Menús de una pieza («Nuevo\tCtrl+N\n-\nAbrir...»): cada línea se traduce por separado (lo que va antes
+ * del tabulador; el atajo se deja) y se devuelve el menú entero en un búfer rotatorio. Con el español
+ * (o sin catálogo) devuelve el mismo texto. Cada línea es una cadena del catálogo del programa. */
+const char *idioma_traducir_menu(const char *menu)
+{
+    if (!iniciado) iniciar();
+    if (!menu || !activo) return menu;
+    static char buf[4][1536];
+    static int turno;
+    char *dst = buf[turno++ & 3];
+    int k = 0, max = (int)sizeof buf[0];
+    const char *p = menu;
+    while (*p && k < max - 1) {
+        const char *fin = p;
+        while (*fin && *fin != '\n' && *fin != '\t') fin++;
+        char linha[96];
+        int n = (int)(fin - p);
+        if (n >= (int)sizeof linha) { copia_texto(dst, menu, (size_t)max); return dst; }
+        for (int i = 0; i < n; i++) linha[i] = p[i];
+        linha[n] = 0;
+        const char *t = (n && !(n == 1 && linha[0] == '-')) ? idioma_traducir(linha) : linha;
+        for (; *t && k < max - 1; t++) dst[k++] = *t;
+        p = fin;
+        while (*p && *p != '\n' && k < max - 1) dst[k++] = *p++;   /* el atajo (\tCtrl+N) */
+        if (*p == '\n' && k < max - 1) { dst[k++] = '\n'; p++; }
+    }
+    dst[k] = 0;
+    return dst;
+}
+
 void idioma_normalizar(const char *entrada, char *salida) { catalogo_idioma_norm(entrada, salida); }
 
 int idioma_sistema_ler(char *dst, int max)

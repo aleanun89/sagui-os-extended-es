@@ -1,0 +1,71 @@
+# Traducción de SaguiOS: catálogo «visor», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/visor.c:58
+msgid "Abrir"
+msgstr "Abrir"
+
+#: userland/programas/visor.c:61
+msgid "Ajustar"
+msgstr "Ajustar"
+
+#: userland/programas/visor.c:153
+msgid "Rueda: zoom  F11: pantalla completa"
+msgstr "Roda: zoom  F11: tela cheia"
+
+#: userland/programas/visor.c:165
+#, c-format
+msgid "Ninguna imagen abierta (%s)"
+msgstr "Nenhuma imagem aberta (%s)"
+
+#: userland/programas/visor.c:167
+#, c-format
+msgid "%s  |  %d x %d  |  %s  |  %d%%%s  |  %d de %d"
+msgstr "%s  |  %d x %d  |  %s  |  %d%%%s  |  %d de %d"
+
+#: userland/programas/visor.c:168 userland/programas/visor.c:171
+msgid " (ajustada)"
+msgstr " (ajustada)"
+
+#: userland/programas/visor.c:180
+msgid "Ninguna imagen abierta. Elige una (doble clic o Intro), pulsa Abrir"
+msgstr "Nenhuma imagem aberta. Escolha uma (duplo clique ou Enter), clique em Abrir"
+
+#: userland/programas/visor.c:181
+msgid "(Ctrl+O) o usa en el terminal: visor archivo.bmp"
+msgstr "(Ctrl+O) ou use no terminal: visor arquivo.bmp"
+
+#: userland/programas/visor.c:188 userland/programas/visor.c:288
+#, c-format
+msgid "No hay imágenes en %s"
+msgstr "Não há imagens em %s"
+
+#: userland/programas/visor.c:209
+#, c-format
+msgid "%s - Visor de imágenes"
+msgstr "%s - Visualizador de imagens"
+
+#: userland/programas/visor.c:210 userland/programas/visor.c:477
+msgid "Visor de imágenes"
+msgstr "Visualizador de imagens"
+
+#: userland/programas/visor.c:254
+#, c-format
+msgid "No se ha podido abrir %s: %s"
+msgstr "Não foi possível abrir %s: %s"
+
+#: userland/programas/visor.c:319
+msgid "Abrir imagen"
+msgstr "Abrir imagem"
+
+#: userland/programas/visor.c:319
+msgid "Imágenes|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*"
+msgstr "Imagens|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|Todos os arquivos (*.*)|*"
+

@@ -710,6 +710,8 @@ static void acel_mostrar(void)
     else imprimir("  Tarjeta:   %s\n", ac3.placa[0] ? ac3.placa : "sin acelerador reconocido");
     imprimir("  2D (%s): %s\n", ac2.nome, acel_texto_2d());
     imprimir("  3D (%s): %s\n", ac3.nome, acel_texto_3d());
+    imprimir("  Reparto 2D: GPU %u copias y %u rellenos; software %u mover, %u consola, %u rellenos, %u volcados\n",
+             ac2.copias, ac2.rellenos, ac2.sw_ops[0], ac2.sw_ops[1], ac2.sw_ops[2], ac2.sw_ops[3]);   /* D346 */
     if (ac3.pontos) imprimir("  Puntuación 3D: %u\n", ac3.pontos);
     if (acel_3d_experimental()) imprimir("  Aviso: el 3D de esta tarjeta es experimental (sin probar en hardware)\n");
     conf_ler();
@@ -2065,10 +2067,12 @@ static void acel_desenhar(void)
     g_texto_n(jn, 24, y, t, (LARG - 48) / LETRA_L, COR_TEXTO);
     formatar_texto(t, sizeof t, "2D (driver %s): %s", ac2.nome, acel_texto_2d());
     g_texto_n(jn, 24, y + 18, t, (LARG - 48) / LETRA_L, COR_TEXTO);
-    formatar_texto(t, sizeof t, "3D (driver %s): %s", ac3.nome, acel_texto_3d());
+    if (ac3.pontos) formatar_texto(t, sizeof t, "3D (driver %s): %s; puntuación %u", ac3.nome, acel_texto_3d(), ac3.pontos);
+    else formatar_texto(t, sizeof t, "3D (driver %s): %s", ac3.nome, acel_texto_3d());
     g_texto_n(jn, 24, y + 36, t, (LARG - 48) / LETRA_L, COR_TEXTO);
-    if (ac3.pontos) formatar_texto(t, sizeof t, "Puntuación 3D (infopc): %u; autoprueba 2D: GPU %u us, CPU %u us", ac3.pontos, ac2.us_gpu, ac2.us_cpu);
-    else formatar_texto(t, sizeof t, "Puntuación: sin medir (Probar ahora, o la pestaña GPU de infopc)");
+    /* D346: el reparto GPU / software, para cualquier usuario (INFO_ACEL2D es de lectura) */
+    formatar_texto(t, sizeof t, "2D: GPU %u copias y %u rellenos; software %u mover, %u consola, %u rellenos, %u volcados",
+                   ac2.copias, ac2.rellenos, ac2.sw_ops[0], ac2.sw_ops[1], ac2.sw_ops[2], ac2.sw_ops[3]);
     g_texto_n(jn, 24, y + 54, t, (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
     g_retangulo(jn, 24, Y_PAG + 112, LARG - 48, 1, COR_BORDA);
     for (int f = 0; f < 4; f++) {

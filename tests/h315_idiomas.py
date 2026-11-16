@@ -294,7 +294,7 @@ def parte2():
         # el diálogo común de archivos (D272), desde el Editor
         k = marca(m)
         m.comando("editor &")
-        ed = esperar_ventana(m, "Editor - sin nombre", k)
+        ed = esperar_ventana(m, X.pseudo("Editor - sin nombre"), k)
         k = marca(m)
         m.clique(ed["x"] + 2 + 136, ed["y"] + 24 + 20)
         esperar_ventana(m, X.pseudo("Abrir"), k)

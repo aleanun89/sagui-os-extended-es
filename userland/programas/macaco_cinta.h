@@ -31,6 +31,7 @@ static cinta_ctrl_t mcc_portapapeles[] = {
       .icone = ic98_colar, .menu = "Pegar\nSeleccionar todo", .ids = mc_ids_pegar },
     CT(A_CORTAR, CC_BOTON, 0, "Cortar", "Cortar\nQuita las celdas y las guarda\nCtrl+X", "X", ic98_cortar),
     CT(A_COPIAR, CC_BOTON, 0, "Copiar", "Copiar\nGuarda las celdas en el portapapeles\nCtrl+C", "C", ic98_copiar),
+    CT(A_BROCHA, CC_BOTON, CCF_SIN_TEXTO | CCF_SIGUE, "Copiar formato", "Copiar formato\nCopia el formato de la celda y lo pega en las que elija\nCtrl+Mayús+C", "FB", ic_brocha),
 };
 static cinta_ctrl_t mcc_fuente[] = {
     { .id = A_C_FONTE, .tipo = CC_COMBO, .tip = "Fuente\nFamilia de la letra", .kt = "FF", .lista = NOMES_FONTE, .n_lista = 3, .ancho = 140 },
@@ -50,6 +51,7 @@ static cinta_ctrl_t mcc_alineacion[] = {
     { .id = A_ESQ, .tipo = CC_EXCL, .flags = CCF_SIN_TEXTO, .texto = "Izquierda", .tip = "Alinear a la izquierda", .kt = "AI", .icone = ic98_esq, .excl = 1 },
     { .id = A_CENTRO, .tipo = CC_EXCL, .flags = CCF_SIN_TEXTO | CCF_SIGUE, .texto = "Centro", .tip = "Centrar", .kt = "AC", .icone = ic98_centro, .excl = 1 },
     { .id = A_DIR, .tipo = CC_EXCL, .flags = CCF_SIN_TEXTO | CCF_SIGUE, .texto = "Derecha", .tip = "Alinear a la derecha", .kt = "AD", .icone = ic98_dir, .excl = 1 },
+    CT(A_AJUSTAR, CC_CONMUT, CCF_SIN_TEXTO | CCF_SIGUE, "Ajustar texto", "Ajustar texto\nMuestra el texto largo en varias líneas dentro de la celda", "AJ", ic_ajustar),
 };
 static cinta_ctrl_t mcc_numero[] = {
     CT(A_MOEDA, CC_BOTON, 0, "Moneda", "Estilo de moneda\nMuestra el número como moneda", "M", NULL),
@@ -70,10 +72,15 @@ static cinta_ctrl_t mcc_edicion[] = {
     CT(A_SOMA, CC_BOTON, CCF_GRANDE, "Autosuma", "Autosuma\nSuma las celdas de encima o de la izquierda", "AS", ic_soma),
     CT(A_ORD_A, CC_BOTON, 0, "Ordenar A-Z", "Ordenar de A a Z", "OA", ic_ord_a),
     CT(A_ORD_Z, CC_BOTON, 0, "Ordenar Z-A", "Ordenar de Z a A", "OZ", ic_ord_z),
+    CT(A_BUSCAR, CC_BOTON, 0, "Buscar", "Buscar y reemplazar\nBusca un texto en la hoja y lo cambia por otro\nCtrl+F", "SB", NULL),
 };
 static cinta_ctrl_t mcc_graficos[] = {
     { .id = A_GRAFICO, .tipo = CC_DIVIDIDO, .flags = CCF_GRANDE, .texto = "Gráfico", .tip = "Gráfico\nCrea un gráfico con las celdas elegidas", .kt = "G",
       .icone = ic_grafico, .menu = "Gráfico de barras\nGráfico de barras horizontales\nGráfico de tarta", .ids = mc_ids_graf },
+};
+static cinta_ctrl_t mcc_comentarios[] = {
+    CT(A_COMENTARIO, CC_BOTON, CCF_GRANDE, "Comentario", "Comentario\nAñade o edita el comentario de la celda\nMayús+F2", "CN", NULL),
+    CT(A_COM_BORRAR, CC_BOTON, 0, "Eliminar comentario", "Eliminar comentario", "CQ", NULL),
 };
 static cinta_ctrl_t mcc_hojas[] = {
     CT(A_FOLHA_NOVA, CC_BOTON, 0, "Hoja nueva", "Hoja nueva\nAñade una hoja al libro", "HN", NULL),
@@ -91,6 +98,17 @@ static cinta_ctrl_t mcc_calculo[] = {
 static cinta_ctrl_t mcc_datos[] = {
     CT(A_ORD_A, CC_BOTON, CCF_GRANDE, "Ordenar A-Z", "Ordenar de A a Z", "OA", ic_ord_a),
     CT(A_ORD_Z, CC_BOTON, CCF_GRANDE, "Ordenar Z-A", "Ordenar de Z a A", "OZ", ic_ord_z),
+};
+static cinta_ctrl_t mcc_filtro[] = {
+    CT(A_AUTOFILTRO, CC_CONMUT, CCF_GRANDE, "Autofiltro", "Autofiltro\nPone flechas de filtro en la fila de encabezado\nCtrl+Mayús+L", "AF", NULL),
+    CT(A_FILTRO_QUITAR, CC_BOTON, 0, "Quitar filtros", "Quitar filtros\nMuestra todas las filas otra vez", "QF", NULL),
+};
+static cinta_ctrl_t mcc_herram[] = {
+    CT(A_VALIDACION, CC_BOTON, CCF_GRANDE, "Validación de datos", "Validación de datos\nLimita lo que se puede escribir: una lista o un rango de números", "VD", NULL),
+};
+static cinta_ctrl_t mcc_condicional[] = {
+    CT(A_FORMATO_COND, CC_BOTON, CCF_GRANDE, "Formato condicional", "Formato condicional\nColorea las celdas según su valor (mayor, menor, igual, entre)", "FC", NULL),
+    CT(A_COND_BORRAR, CC_BOTON, 0, "Borrar reglas", "Borrar las reglas de formato condicional", "BC", NULL),
 };
 static cinta_ctrl_t mcc_csv[] = {
     CT(A_CSV_IMP, CC_BOTON, 0, "Importar CSV...", "Importar CSV\nLee un archivo de valores separados", "CI", NULL),
@@ -110,7 +128,7 @@ static cinta_ctrl_t mcc_ventana[] = {
 
 static cinta_grupo_t mcg_inicio[] = {
     CINTA_GRUPO("Portapapeles", mcc_portapapeles, 0, 6),
-    CINTA_GRUPO("Fuente", mcc_fuente, A_CELULAS, 4),
+    CINTA_GRUPO("Fuente", mcc_fuente, A_CELULAS, 7),
     CINTA_GRUPO("Alineación", mcc_alineacion, 0, 3),
     CINTA_GRUPO("Número", mcc_numero, 0, 2),
     CINTA_GRUPO("Celdas", mcc_celdas, 0, 1),
@@ -119,6 +137,7 @@ static cinta_grupo_t mcg_inicio[] = {
 static cinta_grupo_t mcg_insertar[] = {
     CINTA_GRUPO("Gráficos", mcc_graficos, 0, 1),
     CINTA_GRUPO("Hojas", mcc_hojas, 0, 2),
+    CINTA_GRUPO("Comentarios", mcc_comentarios, 0, 3),
 };
 static cinta_grupo_t mcg_formulas[] = {
     CINTA_GRUPO("Funciones", mcc_funciones, 0, 1),
@@ -127,6 +146,9 @@ static cinta_grupo_t mcg_formulas[] = {
 static cinta_grupo_t mcg_datos[] = {
     CINTA_GRUPO("Ordenar", mcc_datos, 0, 1),
     CINTA_GRUPO("Archivos y celdas", mcc_csv, 0, 2),
+    CINTA_GRUPO("Filtro", mcc_filtro, 0, 3),
+    CINTA_GRUPO("Herramientas", mcc_herram, 0, 4),
+    CINTA_GRUPO("Formato condicional", mcc_condicional, 0, 5),
 };
 static cinta_grupo_t mcg_vista[] = {
     CINTA_GRUPO("Mostrar", mcc_mostrar, 0, 1),
@@ -134,9 +156,9 @@ static cinta_grupo_t mcg_vista[] = {
 };
 static cinta_pest_t mcp[] = {
     { .nome = "Inicio", .kt = "I", .grupos = mcg_inicio, .n = 6 },
-    { .nome = "Insertar", .kt = "N", .grupos = mcg_insertar, .n = 2 },
+    { .nome = "Insertar", .kt = "N", .grupos = mcg_insertar, .n = 3 },
     { .nome = "Fórmulas", .kt = "M", .grupos = mcg_formulas, .n = 2 },
-    { .nome = "Datos", .kt = "D", .grupos = mcg_datos, .n = 2 },
+    { .nome = "Datos", .kt = "D", .grupos = mcg_datos, .n = 5 },
     { .nome = "Vista", .kt = "V", .grupos = mcg_vista, .n = 2 },
 };
 
@@ -204,6 +226,8 @@ static bool macaco_cinta_desenhar(void)
     if (f->al == AL_ESQ) cinta_marcar(&mc, A_ESQ, true);
     else if (f->al == AL_CENTRO) cinta_marcar(&mc, A_CENTRO, true);
     else if (f->al == AL_DIR) cinta_marcar(&mc, A_DIR, true);
+    cinta_marcar(&mc, A_AJUSTAR, f->aj != 0);
+    cinta_marcar(&mc, A_AUTOFILTRO, folha_ativa()->af_ativo);
     cinta_marcar(&mc, A_GRADE, grade_visivel);
     cinta_marcar(&mc, A_FORMULAS, mostrar_formulas);
     cinta_marcar(&mc, A_ASISTENTE, ag_visible);

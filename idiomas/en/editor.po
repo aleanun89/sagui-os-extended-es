@@ -1,0 +1,111 @@
+# Traducción de SaguiOS: catálogo «editor», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/editor.c:34
+msgid "sin nombre"
+msgstr "untitled"
+
+#: userland/programas/editor.c:44
+#, c-format
+msgid "Editor - %s%s"
+msgstr "Editor - %s%s"
+
+#: userland/programas/editor.c:60
+#, c-format
+msgid ""
+"No se ha podido abrir\n"
+"%s\n"
+"(%s)"
+msgstr ""
+"Could not open\n"
+"%s\n"
+"(%s)"
+
+#: userland/programas/editor.c:79
+msgid "Texto (*.txt)|*.txt|Código y Markdown|*.c;*.h;*.py;*.md;*.sh|Todos los archivos (*.*)|*"
+msgstr "Text (*.txt)|*.txt|Code and Markdown|*.c;*.h;*.py;*.md;*.sh|All files (*.*)|*"
+
+#: userland/programas/editor.c:90
+#, c-format
+msgid ""
+"No se ha podido guardar\n"
+"%s"
+msgstr ""
+"Could not save\n"
+"%s"
+
+#: userland/programas/editor.c:105 userland/programas/editor.c:124
+msgid "Guardar como"
+msgstr "Save as"
+
+#: userland/programas/editor.c:116
+msgid ""
+"El texto tiene cambios sin guardar.\n"
+"¿Guardar antes?"
+msgstr ""
+"The text has unsaved changes.\n"
+"Save first?"
+
+#: userland/programas/editor.c:123 userland/programas/editor.c:298
+msgid "Nuevo"
+msgstr "New"
+
+#: userland/programas/editor.c:123 userland/programas/editor.c:325
+msgid "Abrir"
+msgstr "Open"
+
+#: userland/programas/editor.c:124 userland/programas/editor.c:298
+msgid "Guardar"
+msgstr "Save"
+
+#: userland/programas/editor.c:125 userland/programas/editor.c:200
+msgid "Vista"
+msgstr "View"
+
+#: userland/programas/editor.c:187
+msgid "No hay ninguna fuente elegida: Configuración > Fuentes."
+msgstr "No font chosen: Settings > Fonts."
+
+#: userland/programas/editor.c:199
+msgid "Ctrl+S guarda"
+msgstr "Ctrl+S saves"
+
+#: userland/programas/editor.c:200
+msgid "Edición"
+msgstr "Edit"
+
+#: userland/programas/editor.c:224
+msgid "Editor - sin nombre"
+msgstr "Editor - untitled"
+
+#: userland/programas/editor.c:298
+msgid "Abrir..."
+msgstr "Open..."
+
+#: userland/programas/editor.c:298
+msgid "Guardar como..."
+msgstr "Save as..."
+
+#: userland/programas/editor.c:299
+msgid "Cortar"
+msgstr "Cut"
+
+#: userland/programas/editor.c:299
+msgid "Copiar"
+msgstr "Copy"
+
+#: userland/programas/editor.c:299
+msgid "Pegar"
+msgstr "Paste"
+
+#: userland/programas/editor.c:299
+msgid "Seleccionar todo"
+msgstr "Select all"
+

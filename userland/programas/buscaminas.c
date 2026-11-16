@@ -41,7 +41,7 @@ extern const unsigned char fonte_sagui[256][16];
 enum { E_ESPERA, E_JOGO, E_PERDIDA, E_GANADA };
 enum { M_JOGO, M_RECORDS };
 
-static const char *const nomes_nivel[4] = { "Principiante", "Intermedio", "Experto", "Personal" };
+static const char *const nomes_nivel[4] = { N_("Principiante"), N_("Intermedio"), N_("Experto"), N_("Personal") };
 static const char *const chaves[3] = { "principiante", "intermedio", "experto" };
 
 static jan_t *jan;
@@ -226,10 +226,10 @@ static void ganar(void)
         if (recorde[k] == 0 || seg < recorde[k]) {
             recorde[k] = seg;
             conf_escrever();
-            formatar_texto(msg, sizeof msg, "¡Nuevo récord de %s: %d s!", nomes_nivel[k], seg);
+            formatar_texto(msg, sizeof msg, _("¡Nuevo récord de %s: %d s!"), _(nomes_nivel[k]), seg);
             registrar("buscaminas: record %s %d", chaves[k], seg);
-        } else formatar_texto(msg, sizeof msg, "¡Ganaste en %d s!", seg);
-    } else formatar_texto(msg, sizeof msg, "¡Ganaste en %d s!", seg);
+        } else formatar_texto(msg, sizeof msg, _("¡Ganaste en %d s!"), seg);
+    } else formatar_texto(msg, sizeof msg, _("¡Ganaste en %d s!"), seg);
 }
 
 static void perder(int bx, int by)
@@ -241,7 +241,7 @@ static void perder(int bx, int by)
         if (!(cel[i] & F_MINA) && (cel[i] & F_BAND)) cel[i] |= F_ERRO;
     }
     cel[IDX(bx, by)] |= F_BOOM;
-    formatar_texto(msg, sizeof msg, "¡Boom! F2 para otra partida");
+    formatar_texto(msg, sizeof msg, _("¡Boom! F2 para otra partida"));
 }
 
 /* Descubre desde (x,y) con una cola (sin recursión). */
@@ -513,12 +513,12 @@ static void desenhar_cabecera(void)
 }
 
 /* Las posiciones (x0,ancho) de los rótulos de la franja de niveles. */
-static const char *const rot_faixa[5] = { "Principiante", "Intermedio", "Experto", "Personal", "Récords" };
+static const char *const rot_faixa[5] = { N_("Principiante"), N_("Intermedio"), N_("Experto"), N_("Personal"), N_("Récords") };
 static void faixa_pos(int k, int *x, int *l)
 {
     int xx = 8;
-    for (int i = 0; i < k; i++) xx += g_largura_texto(rot_faixa[i]) + 22;
-    *x = xx; *l = g_largura_texto(rot_faixa[k]) + 12;
+    for (int i = 0; i < k; i++) xx += g_largura_texto(_(rot_faixa[i])) + 22;
+    *x = xx; *l = g_largura_texto(_(rot_faixa[k])) + 12;
 }
 
 static void desenhar_faixa(void)
@@ -529,7 +529,7 @@ static void desenhar_faixa(void)
         faixa_pos(k, &x, &l);
         bool sel = k == nivel - 1 && k < 4;
         if (sel) g_retangulo(jan, x - 4, 2, l, FAIXA - 4, 0x2E8B57);
-        g_texto(jan, x + 2, 4, rot_faixa[k], sel ? 0xFFFFFF : 0xCFEBD9);
+        g_texto(jan, x + 2, 4, _(rot_faixa[k]), sel ? 0xFFFFFF : 0xCFEBD9);
     }
 }
 
@@ -538,14 +538,14 @@ static void desenhar_records(void)
     int tx, ty;
     tab_geom(&tx, &ty);
     g_retangulo(jan, 0, TAB_Y - 4, ancho_v, alto_v - TAB_Y + 4, 0xEFE6CC);
-    g_texto(jan, 24, TAB_Y + 8, "Mejores tiempos", 0x155C36);
+    g_texto(jan, 24, TAB_Y + 8, _("Mejores tiempos"), 0x155C36);
     for (int k = 0; k < 3; k++) {
         char t[64];
-        if (recorde[k]) formatar_texto(t, sizeof t, "%-14s %d s", nomes_nivel[k], recorde[k]);
-        else formatar_texto(t, sizeof t, "%-14s --", nomes_nivel[k]);
+        if (recorde[k]) formatar_texto(t, sizeof t, "%-14s %d s", _(nomes_nivel[k]), recorde[k]);
+        else formatar_texto(t, sizeof t, "%-14s --", _(nomes_nivel[k]));
         g_texto(jan, 24, TAB_Y + 36 + k * 22, t, COR_TEXTO);
     }
-    g_texto(jan, 24, TAB_Y + 36 + 3 * 22 + 8, "Clic o tecla para volver", COR_TEXTO_FRACO);
+    g_texto(jan, 24, TAB_Y + 36 + 3 * 22 + 8, _("Clic o tecla para volver"), COR_TEXTO_FRACO);
 }
 
 static void redesenhar(void)
@@ -557,7 +557,7 @@ static void redesenhar(void)
     else {
         for (int y = 0; y < filas; y++)
             for (int x = 0; x < cols; x++) desenhar_casilla(x, y);
-        g_texto(jan, MARG, alto_v - 20, msg[0] ? msg : "Clic der: bandera. F2: nueva. 1-3: nivel.", COR_TEXTO);
+        g_texto(jan, MARG, alto_v - 20, msg[0] ? msg : _("Clic der: bandera. F2: nueva. 1-3: nivel."), COR_TEXTO);
     }
     jan_mostrar(jan);
 }
@@ -612,7 +612,7 @@ static void pedir_personal(void)
 {
     char r[40];
     formatar_texto(r, sizeof r, "%d,%d,%d", c_cols, c_filas, c_minas);
-    if (!pedir_texto("Personalizado", "Columnas,filas,minas (ej. 20,12,40):", r, sizeof r)) return;
+    if (!pedir_texto(_("Personalizado"), _("Columnas,filas,minas (ej. 20,12,40):"), r, sizeof r)) return;
     int v[3] = { c_cols, c_filas, c_minas }, k = 0;
     const char *p = r;
     while (*p && k < 3) {

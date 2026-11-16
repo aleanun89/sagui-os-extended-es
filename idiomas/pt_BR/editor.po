@@ -1,0 +1,111 @@
+# Traducción de SaguiOS: catálogo «editor», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/editor.c:34
+msgid "sin nombre"
+msgstr "sem nome"
+
+#: userland/programas/editor.c:44
+#, c-format
+msgid "Editor - %s%s"
+msgstr "Editor - %s%s"
+
+#: userland/programas/editor.c:60
+#, c-format
+msgid ""
+"No se ha podido abrir\n"
+"%s\n"
+"(%s)"
+msgstr ""
+"Não foi possível abrir\n"
+"%s\n"
+"(%s)"
+
+#: userland/programas/editor.c:79
+msgid "Texto (*.txt)|*.txt|Código y Markdown|*.c;*.h;*.py;*.md;*.sh|Todos los archivos (*.*)|*"
+msgstr "Texto (*.txt)|*.txt|Código e Markdown|*.c;*.h;*.py;*.md;*.sh|Todos os arquivos (*.*)|*"
+
+#: userland/programas/editor.c:90
+#, c-format
+msgid ""
+"No se ha podido guardar\n"
+"%s"
+msgstr ""
+"Não foi possível salvar\n"
+"%s"
+
+#: userland/programas/editor.c:105 userland/programas/editor.c:124
+msgid "Guardar como"
+msgstr "Salvar como"
+
+#: userland/programas/editor.c:116
+msgid ""
+"El texto tiene cambios sin guardar.\n"
+"¿Guardar antes?"
+msgstr ""
+"O texto tem alterações não salvas.\n"
+"Salvar antes?"
+
+#: userland/programas/editor.c:123 userland/programas/editor.c:298
+msgid "Nuevo"
+msgstr "Novo"
+
+#: userland/programas/editor.c:123 userland/programas/editor.c:325
+msgid "Abrir"
+msgstr "Abrir"
+
+#: userland/programas/editor.c:124 userland/programas/editor.c:298
+msgid "Guardar"
+msgstr "Salvar"
+
+#: userland/programas/editor.c:125 userland/programas/editor.c:200
+msgid "Vista"
+msgstr "Exibir"
+
+#: userland/programas/editor.c:187
+msgid "No hay ninguna fuente elegida: Configuración > Fuentes."
+msgstr "Nenhuma fonte escolhida: Configurações > Fontes."
+
+#: userland/programas/editor.c:199
+msgid "Ctrl+S guarda"
+msgstr "Ctrl+S salva"
+
+#: userland/programas/editor.c:200
+msgid "Edición"
+msgstr "Edição"
+
+#: userland/programas/editor.c:224
+msgid "Editor - sin nombre"
+msgstr "Editor - sem nome"
+
+#: userland/programas/editor.c:298
+msgid "Abrir..."
+msgstr "Abrir..."
+
+#: userland/programas/editor.c:298
+msgid "Guardar como..."
+msgstr "Salvar como..."
+
+#: userland/programas/editor.c:299
+msgid "Cortar"
+msgstr "Recortar"
+
+#: userland/programas/editor.c:299
+msgid "Copiar"
+msgstr "Copiar"
+
+#: userland/programas/editor.c:299
+msgid "Pegar"
+msgstr "Colar"
+
+#: userland/programas/editor.c:299
+msgid "Seleccionar todo"
+msgstr "Selecionar tudo"
+

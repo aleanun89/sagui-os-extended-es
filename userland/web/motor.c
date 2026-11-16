@@ -259,7 +259,8 @@ typedef struct { int x, y, l, a; int alvo; ctx_m *ctx; uint16_t b; int seq; int 
 /* fixed: desloca pela rolagem; sticky: desloca até prender no topo, sem sair do pai */
 typedef struct { uint8_t fixo; int y0, topo, lim; } camada_t;
 
-typedef struct { char *url; uint32_t *px; int l, a; uint8_t tentou, alfa;
+#define MAX_IMGS_M 400   /* imágenes distintas por página (as.com pasa de 300; antes 96 y el fondo de la cabecera quedaba fuera) */
+typedef struct { char *url; uint32_t *px; int l, a; uint8_t tentou, alfa, prio;
                  const char *svg; int svg_n, nl, na; } imagem_m;   /* SVG: o texto (rasteriza no tamanho exibido) e o tamanho natural */
 bool svg_tamanho(const char *xml, int n, int *l, int *a);
 uint32_t *svg_rasterizar(const char *xml, int n, int l, int a, uint32_t cor);
@@ -277,7 +278,7 @@ struct motor {
     cmd_t *cmds; int n_cmds, cap_cmds;
     regiao_t *regs; int n_regs, cap_regs;
     motor_alvo_t *alvos; int n_alvos, cap_alvos;
-    imagem_m imgs[96]; int n_imgs;
+    imagem_m imgs[MAX_IMGS_M]; int n_imgs;
     int vw, vh;
     int altura;
     uint32_t fundo;
@@ -3608,7 +3609,7 @@ static int video_slot(motor_t *m, no_m *q)
 static int imagem_idx(motor_t *m, const char *url)
 {
     for (int i = 0; i < m->n_imgs; i++) if (igual(m->imgs[i].url, url)) return i;
-    if (m->n_imgs >= 96) return -1;
+    if (m->n_imgs >= MAX_IMGS_M) return -1;
     m->imgs[m->n_imgs].url = m_dup(m, url, (int)tam_texto(url));
     return m->n_imgs++;
 }
@@ -3623,10 +3624,13 @@ static int url_img(motor_t *m, const char *rel)
 static void estilizar_tudo(motor_t *m, no_m *n)
 {
     for (; n; n = n->prox) {
-        if (n->pseudo) { n->bg_img = url_img(m, n->e.bg_url); n->mask_img = url_img(m, n->e.mask_url); continue; }
+        if (n->pseudo) { n->bg_img = url_img(m, n->e.bg_url); n->mask_img = url_img(m, n->e.mask_url); if (n->bg_img >= 0) m->imgs[n->bg_img].prio = 1; continue; }
         estilizar(m, n);
         n->bg_img = -1; n->mask_img = -1;
-        if (!n->texto) { n->bg_img = url_img(m, n->e.bg_url); n->mask_img = url_img(m, n->e.mask_url); }
+        if (!n->texto) {
+            n->bg_img = url_img(m, n->e.bg_url); n->mask_img = url_img(m, n->e.mask_url);
+            if (n->bg_img >= 0) m->imgs[n->bg_img].prio = 1;   /* los fondos de CSS (cabeceras, iconos) se bajan antes que las fotos */
+        }
         if (n->e.display == D_NONE) continue;
         if (n->filho) estilizar_tudo(m, n->filho);
     }
@@ -6112,10 +6116,32 @@ static void svg_no_tamanho(imagem_m *im, int w, int h, uint32_t cor)
     if (im->px) libera(im->px);
     im->px = px; im->l = w; im->a = h; im->alfa = 1;
 }
+
+/* Busca "<symbol id=ID ...>...</symbol>" en el texto de los demás <svg> de la página: los sprites
+ * (as.com: iconos con <use href="#svg-menu"> y los símbolos en otro <svg> oculto) viven fuera del icono.
+ * Devuelve el trozo (sin copiar) o NULL. */
+static const char *simbolo_externo(const no_m *excepto, const char *id, int nid, int *largo)
+{
+    for (no_m *q = mo->raiz; q; q = proximo_no(q)) {
+        if (q == excepto || q->texto || !q->t || q->nt < 20 || !igual(q->tag, "svg")) continue;
+        const char *t = q->t; int nt = q->nt;
+        for (int i = 0; i + nid + 8 < nt; i++) {
+            if (t[i] != 'i' || t[i + 1] != 'd' || t[i + 2] != '=' || (t[i + 3] != '"' && t[i + 3] != '\'')) continue;
+            if (memcmp(t + i + 4, id, (size_t)nid) != 0 || t[i + 4 + nid] != t[i + 3]) continue;
+            int ini = i;
+            while (ini > 0 && t[ini] != '<') ini--;
+            if (memcmp(t + ini, "<symbol", 7) != 0) continue;
+            for (int j = i; j + 9 <= nt; j++)
+                if (memcmp(t + j, "</symbol>", 9) == 0) { *largo = j + 9 - ini; return t + ini; }
+        }
+    }
+    return NULL;
+}
 static void fundo_posicao(const estilo_t *e, int livre_x, int livre_y, int *ox, int *oy);
 static void controle(no_m *n, int x, int y)
 {
     estilo_t *e = &n->e;
+    if (e->visivel || e->opaco0) return;   /* visibility:hidden se hereda: ni imagen, ni SVG, ni control (as.com: las banderas del menú) */
     int cx = x + n->bl[3] + n->pl[3], cy = y + n->bl[0] + n->pl[0];
     int cl = n->l - extra_h(n), ca = n->a - extra_v(n);
     if (igual(n->tag, "img")) {
@@ -6171,11 +6197,21 @@ static void controle(no_m *n, int x, int y)
     if (igual(n->tag, "svg")) {
         if (!n->t || cl <= 0 || ca <= 0) return;
         if (n->img < 0 || mo->imgs[n->img].l != cl || mo->imgs[n->img].a != ca) {
-            if (n->img < 0) { if (mo->n_imgs >= 96) return; n->img = mo->n_imgs++; mo->imgs[n->img].url = (char *)"svg"; mo->imgs[n->img].tentou = 1; mo->imgs[n->img].alfa = 1; }
+            if (n->img < 0) { if (mo->n_imgs >= MAX_IMGS_M) return; n->img = mo->n_imgs++; mo->imgs[n->img].url = (char *)"svg"; mo->imgs[n->img].tentou = 1; mo->imgs[n->img].alfa = 1; }
             imagem_m *im = &mo->imgs[n->img];
             if (im->px) libera(im->px);
             /* o <svg> embutido volta a ser texto (atributos + conteúdo cru) para o renderizador */
             int tam = 8 + n->nt;
+            /* <use href="#x"> hacia un <symbol> de otro <svg>: se copian (hasta 4, 6 KB cada uno) al final */
+            const char *sim[4]; int sim_n[4], n_sim = 0;
+            for (int i = 0; i + 8 < n->nt && n_sim < 4; i++) {
+                if (n->t[i] != 'h' || memcmp(n->t + i, "href=", 5) != 0 || n->t[i + 6] != '#') continue;
+                int ini = i + 7, fim = ini;
+                while (fim < n->nt && n->t[fim] != n->t[i + 5] && fim - ini < 60) fim++;
+                int largo = 0;
+                const char *r = simbolo_externo(n, n->t + ini, fim - ini, &largo);
+                if (r && largo > 0 && largo < 6144) { sim[n_sim] = r; sim_n[n_sim++] = largo; tam += largo; }
+            }
             for (atr_t *a = n->atr; a; a = a->prox) tam += (int)tam_texto(a->nome) + (int)tam_texto(a->valor) + 4;
             char *xml = aloca((unsigned)tam + 16);
             im->px = NULL;
@@ -6193,6 +6229,7 @@ static void controle(no_m *n, int x, int y)
                 for (atr_t *a = n->atr; a; a = a->prox) if (!igual(a->nome, "style")) k += formatar_texto(xml + k, (size_t)(tam + 16 - k), " %s=\"%s\"", a->nome, a->valor);
                 xml[k++] = '>';
                 memcpy(xml + k, n->t, (size_t)n->nt); k += n->nt;
+                for (int q = 0; q < n_sim; q++) { memcpy(xml + k, sim[q], (size_t)sim_n[q]); k += sim_n[q]; }
                 memcpy(xml + k, "</svg>", 6); k += 6;
                 im->px = svg_rasterizar(xml, k, cl, ca, 0xFF000000u | e->cor);
                 libera(xml);
@@ -6945,7 +6982,7 @@ void motor_ler(motor_t *m, const char *html, int n, const char *url)
                 if (d) { guardar_folha(m, (const char *)d, (int)tam, u); libera(d); }
             }
         }
-        if (igual(q->tag, "video") && m->g.video && m->n_imgs < 96) {
+        if (igual(q->tag, "video") && m->g.video && m->n_imgs < MAX_IMGS_M) {
             /* <video src> o su primer <source src> (D276): el hueco de imgs lleva la URL con el
              * prefijo "video:" y no se descarga (tentou); el cuadro lo da el gancho al pintar.
              * No toca q->img (es del póster, D271): se encuentra con video_slot(). */
@@ -7053,9 +7090,10 @@ int motor_imagens(motor_t *m, int max)
         k++;
         m->faces[i].f = fonte_da_url(m, m->faces[i].url, m->fams[m->faces[i].fam]);
     }
+    for (int pas = 1; pas >= 0 && k < max; pas--)      /* primero los fondos (prio), luego las fotos */
     for (int i = 0; i < m->n_imgs && k < max; i++) {
         imagem_m *im = &m->imgs[i];
-        if (im->tentou) continue;
+        if (im->tentou || im->prio != pas) continue;
         im->tentou = 1;
         k++;
         unsigned n = 0;

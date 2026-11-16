@@ -1,0 +1,209 @@
+# Traducción de SaguiOS: catálogo «paint», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/paint.c:54
+msgid "Lápiz"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Pincel"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Goma"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Aerógrafo"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Línea"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Rectángulo"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Rectángulo relleno"
+msgstr ""
+
+#: userland/programas/paint.c:54
+msgid "Elipse"
+msgstr ""
+
+#: userland/programas/paint.c:55
+msgid "Elipse rellena"
+msgstr ""
+
+#: userland/programas/paint.c:55
+msgid "Relleno"
+msgstr ""
+
+#: userland/programas/paint.c:55
+msgid "Cuentagotas"
+msgstr ""
+
+#: userland/programas/paint.c:55 userland/programas/paint.c:872
+msgid "Texto"
+msgstr ""
+
+#: userland/programas/paint.c:94
+msgid "Nuevo"
+msgstr ""
+
+#: userland/programas/paint.c:95 userland/programas/paint.c:759
+msgid "Abrir"
+msgstr ""
+
+#: userland/programas/paint.c:96
+msgid "Guardar"
+msgstr ""
+
+#: userland/programas/paint.c:97 userland/programas/paint.c:629
+msgid "Guardar como"
+msgstr ""
+
+#: userland/programas/paint.c:98
+msgid "Deshacer"
+msgstr ""
+
+#: userland/programas/paint.c:99
+msgid "Tamaño"
+msgstr ""
+
+#: userland/programas/paint.c:241
+msgid "Ctrl+Z deshace"
+msgstr ""
+
+#: userland/programas/paint.c:260
+msgid "Grosor"
+msgstr ""
+
+#: userland/programas/paint.c:288
+msgid "Izq.: color principal"
+msgstr ""
+
+#: userland/programas/paint.c:289
+msgid "Der.: color secundario"
+msgstr ""
+
+#: userland/programas/paint.c:296
+msgid "sin nombre"
+msgstr ""
+
+#: userland/programas/paint.c:309
+#, c-format
+msgid "%s  |  %s  |  %d x %d  |  %s%s"
+msgstr ""
+
+#: userland/programas/paint.c:321
+#, c-format
+msgid "Paint - %s%s"
+msgstr ""
+
+#: userland/programas/paint.c:565
+msgid "Nada que deshacer"
+msgstr ""
+
+#: userland/programas/paint.c:571
+#, c-format
+msgid "Deshecho (quedan %d niveles)"
+msgstr ""
+
+#: userland/programas/paint.c:613
+#, c-format
+msgid ""
+"No se ha podido guardar\n"
+"%s\n"
+"(%s)"
+msgstr ""
+
+#: userland/programas/paint.c:618
+#, c-format
+msgid "Guardado: %s"
+msgstr ""
+
+#: userland/programas/paint.c:629
+msgid "Mapa de bits (*.bmp)|*.bmp|PPM (*.ppm)|*.ppm|Todos los archivos (*.*)|*"
+msgstr ""
+
+#: userland/programas/paint.c:638
+msgid ""
+"El dibujo tiene cambios sin guardar.\n"
+"¿Guardar antes?"
+msgstr ""
+
+#: userland/programas/paint.c:645 userland/programas/paint.c:742
+msgid "No hay memoria para un lienzo de ese tamaño."
+msgstr ""
+
+#: userland/programas/paint.c:660
+#, c-format
+msgid ""
+"No se ha podido abrir\n"
+"%s\n"
+"(%s)"
+msgstr ""
+
+#: userland/programas/paint.c:696
+msgid "Nuevo dibujo"
+msgstr ""
+
+#: userland/programas/paint.c:696
+msgid "Tamaño del lienzo (ancho x alto):"
+msgstr ""
+
+#: userland/programas/paint.c:698 userland/programas/paint.c:740
+msgid "Tamaño no válido (de 1x1 a 2048x2048)."
+msgstr ""
+
+#: userland/programas/paint.c:712
+msgid "No hay ninguna imagen copiada."
+msgstr ""
+
+#: userland/programas/paint.c:714
+msgid "No se pudo pegar la imagen."
+msgstr ""
+
+#: userland/programas/paint.c:716
+msgid "La imagen es demasiado grande."
+msgstr ""
+
+#: userland/programas/paint.c:720
+msgid "No hay memoria."
+msgstr ""
+
+#: userland/programas/paint.c:738
+msgid "Tamaño del lienzo"
+msgstr ""
+
+#: userland/programas/paint.c:738
+msgid "Nuevo tamaño (ancho x alto):"
+msgstr ""
+
+#: userland/programas/paint.c:759
+msgid "Imágenes|*.bmp;*.ppm;*.pgm;*.png|Todos los archivos (*.*)|*"
+msgstr ""
+
+#: userland/programas/paint.c:872
+msgid "Texto a escribir en el dibujo:"
+msgstr ""
+
+#: userland/programas/paint.c:997
+msgid "Paint - sin nombre"
+msgstr ""
+
+#: userland/programas/paint.c:1006
+#, c-format
+msgid "Archivo nuevo: %s"
+msgstr ""
+

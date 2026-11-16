@@ -4,11 +4,11 @@
  * Cinco pestañas:
  *   Procesos     tabla con PID, nombre, padre, estado, % de CPU, tiempo de CPU,
  *                memoria y ventanas; ordena por la columna pulsada en la cabecera;
- *                "Finalizar proceso" (con confirmación) usa SIS_MATAR.
+ *                _("Finalizar proceso") (con confirmación) usa SIS_MATAR.
  *   Rendimiento  gráficos de los últimos 60 s de CPU, memoria, temperatura y
  *                frecuencia de la CPU (monitor de hardware, D092: sólo consulta
  *                los sensores con la pestaña visible, una vez por segundo).
- *   Ventanas     las ventanas abiertas y "Cerrar ventana" (SIS_PEDIR_FECHAR,
+ *   Ventanas     las ventanas abiertas y _("Cerrar ventana") (SIS_PEDIR_FECHAR,
  *                lo mismo que pulsar la X).
  *   Red          cada interfaz (eth0, lo): estado, driver, MAC, direcciones,
  *                contadores y velocidad; el gráfico del último minuto; las
@@ -208,9 +208,9 @@ enum { C_PID, C_NOME, C_PAI, C_ESTADO, C_CPU, C_TEMPO, C_MEM, C_JAN, C_NUCLEO, Q
 
 typedef struct { const char *titulo; int l; bool direita; } coluna_t;
 static const coluna_t colunas[QTD_COLUNAS] = {
-    { "PID", 48, true }, { "Nombre", 100, false }, { "Padre", 56, true }, { "Estado", 96, false },
-    { "CPU %", 64, true }, { "T. CPU", 72, true }, { "Memoria", 72, true }, { "Ventana", 64, false },
-    { "Núcleo", 56, true },
+    { N_("PID"), 48, true }, { N_("Nombre"), 100, false }, { N_("Padre"), 56, true }, { N_("Estado"), 96, false },
+    { N_("CPU %"), 64, true }, { N_("T. CPU"), 72, true }, { N_("Memoria"), 72, true }, { N_("Ventana"), 64, false },
+    { N_("Núcleo"), 56, true },
 };
 
 static int ordem_col = C_PID;
@@ -290,7 +290,7 @@ static int modo_texto(void)
         char t[16];
         fmt_tempo(t, sizeof t, p->p.cpu_ms);
         char h[16] = "";
-        if (p->p.n_hilos > 1) formatar_texto(h, sizeof h, " (%u hilos)", p->p.n_hilos);   /* D167 */
+        if (p->p.n_hilos > 1) formatar_texto(h, sizeof h, _(" (%u hilos)"), p->p.n_hilos);   /* D167 */
         imprimir("%5d %5d %-10s %3u,%u %9s %5u KB %4u KB %5u %5u %s%s%s\n", p->p.pid, p->p.pai, nome_estado(p->p.estado),
                  p->cpu10 / 10, p->cpu10 % 10, t, p->p.memoria_kb, pilha_de(p->p.pid), p->p.janelas, p->p.cpu, p->p.nome, h,
                  p->p.usuario ? "" : " (kernel)");
@@ -324,14 +324,14 @@ static int sel_jan = -1;            /* id de la ventana seleccionada */
 
 #define QTD_ABAS 5
 #define ABA_SERV 4
-static const char *nomes_abas[QTD_ABAS] = { "Procesos", "Rendimiento", "Ventanas", "Red", "Servicios" };
+static const char *nomes_abas[QTD_ABAS] = { N_("Procesos"), N_("Rendimiento"), N_("Ventanas"), N_("Red"), N_("Servicios") };
 static const char *nomes_log[QTD_ABAS] = { "procesos", "rendimiento", "ventanas", "red", "servicios" };
 static const int abas_x[QTD_ABAS] = { 10, 112, 230, 328, 394 }, abas_l[QTD_ABAS] = { 100, 116, 96, 64, 92 };
 
-static botao_t b_pausa  = { 12, 0, 110, 28, "Pausar", false };
-static botao_t b_acao   = { 0, 0, 170, 28, "Finalizar proceso", false };
-static botao_t b_serv_rein = { 0, 0, 96, 28, "Reiniciar", false };    /* D216: pestaña Servicios */
-static botao_t b_serv_auto = { 0, 0, 110, 28, "Desactivar", false };
+static botao_t b_pausa  = { 12, 0, 110, 28, N_("Pausar"), false };
+static botao_t b_acao   = { 0, 0, 170, 28, N_("Finalizar proceso"), false };
+static botao_t b_serv_rein = { 0, 0, 96, 28, N_("Reiniciar"), false };    /* D216: pestaña Servicios */
+static botao_t b_serv_auto = { 0, 0, 110, 28, N_("Desactivar"), false };
 
 static int linhas_visiveis(void) { return (TAB_A - CAB_A - 4) / LIN_A; }
 
@@ -347,8 +347,8 @@ static void desenhar_abas(void)
         g_retangulo(j, x, y, 1, a - (s ? 3 : 0), COR_BORDA);
         g_retangulo(j, x + abas_l[i] - 1, y, 1, a - (s ? 3 : 0), COR_BORDA);
         if (s) g_retangulo(j, x, y, abas_l[i], 3, COR_DESTAQUE);
-        g_texto(j, x + (abas_l[i] - g_largura_texto(nomes_abas[i])) / 2, y + (a - LETRA_A) / 2 + 1,
-                nomes_abas[i], s ? COR_DESTAQUE : COR_TEXTO);
+        g_texto(j, x + (abas_l[i] - g_largura_texto(_(nomes_abas[i]))) / 2, y + (a - LETRA_A) / 2 + 1,
+                _(nomes_abas[i]), s ? COR_DESTAQUE : COR_TEXTO);
     }
     jan_mostrar_area(j, 0, 0, LARG, PAINEL_Y + 1);
 }
@@ -372,7 +372,7 @@ static void desenhar_tabela(void)
         g_retangulo(j, x, TAB_Y + 1, colunas[c].l, CAB_A, atual ? 0xD6E4D9 : COR_BOTAO);
         g_relevo(j, x, TAB_Y + 1, colunas[c].l, CAB_A, false);
         char t[24];
-        formatar_texto(t, sizeof t, atual ? "%s %s" : "%s", colunas[c].titulo, ordem_desc ? "v" : "^");
+        formatar_texto(t, sizeof t, atual ? "%s %s" : "%s", _(colunas[c].titulo), ordem_desc ? "v" : "^");
         texto_coluna(x, TAB_Y + 3, colunas[c].l, t, colunas[c].direita, COR_TEXTO);
         x += colunas[c].l;
     }
@@ -401,7 +401,7 @@ static void desenhar_tabela(void)
             case C_TEMPO:  fmt_tempo(t, sizeof t, p->p.cpu_ms); break;
             case C_MEM:    formatar_texto(t, sizeof t, "%u KB", p->p.memoria_kb); break;
             case C_JAN:    if (!p->p.janelas) t[0] = 0;
-                           else formatar_texto(t, sizeof t, p->p.janelas > 1 ? "sí (%u)" : "sí", p->p.janelas);
+                           else formatar_texto(t, sizeof t, p->p.janelas > 1 ? _("sí (%u)") : _("sí"), p->p.janelas);
                            break;
             case C_NUCLEO: formatar_texto(t, sizeof t, "%u", p->p.cpu); break;
             }
@@ -512,12 +512,12 @@ static void desenhar_rendimento(void)
     if (ga < 40) ga = 40;
     int y1 = TAB_Y, y2 = TAB_Y + 20 + ga + 6;
 
-    formatar_texto(t, sizeof t, "CPU: %u,%u %%", cpu_total10 / 10, cpu_total10 % 10);
+    formatar_texto(t, sizeof t, _("CPU: %u,%u %%"), cpu_total10 / 10, cpu_total10 % 10);
     g_texto(j, x1, y1, t, COR_TEXTO);
-    g_texto(j, x1 + gl - g_largura_texto("últimos 60 s"), y1, "últimos 60 s", COR_TEXTO_FRACO);
+    g_texto(j, x1 + gl - g_largura_texto(_("últimos 60 s")), y1, _("últimos 60 s"), COR_TEXTO_FRACO);
     desenhar_grafico(x1, y1 + 18, gl, ga, hist_cpu, qtd_hist, 0x3CDC6E, 0x165C32);
     unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
-    formatar_texto(t, sizeof t, "Memoria: %u de %u MB (%u %%)", mem.usada_kb / 1024, mem.gerida_kb / 1024, (m10 + 5) / 10);
+    formatar_texto(t, sizeof t, _("Memoria: %u de %u MB (%u %%)"), mem.usada_kb / 1024, mem.gerida_kb / 1024, (m10 + 5) / 10);
     g_texto_n(j, x2, y1, t, gl / LETRA_L, COR_TEXTO);
     desenhar_grafico(x2, y1 + 18, gl, ga, hist_mem, qtd_hist, 0x7EB6FF, 0x1E3E78);
 
@@ -529,15 +529,15 @@ static void desenhar_rendimento(void)
         bool perto = sens.max_mili_c > 0 && tm >= sens.max_mili_c - 10000;
         uint32_t cor = limita ? 0xFF5050 : perto ? 0xFFD040 : 0x3CDC6E;
         uint32_t fundo = limita ? 0x5C1616 : perto ? 0x5C4A10 : 0x165C32;
-        formatar_texto(t, sizeof t, "Temperatura: %s%s", sensores_grau(g, sizeof g, tm), limita ? " LIMITANDO" : "");
+        formatar_texto(t, sizeof t, _("Temperatura: %s%s"), sensores_grau(g, sizeof g, tm), limita ? _(" LIMITANDO") : "");
         g_texto_n(j, x1, y2, t, gl / LETRA_L, limita ? 0xC02020 : perto ? 0x9A7000 : COR_TEXTO);
         if (sens.max_mili_c) {
-            formatar_texto(t, sizeof t, "máx. %s", sensores_grau(g, sizeof g, sens.max_mili_c));
+            formatar_texto(t, sizeof t, _("máx. %s"), sensores_grau(g, sizeof g, sens.max_mili_c));
             g_texto(j, x1 + gl - g_largura_texto(t), y2, t, COR_TEXTO_FRACO);
         }
         desenhar_grafico(x1, y2 + 18, gl, ga, hist_temp, qtd_hist_sens, cor, fundo);
     } else {
-        g_texto(j, x1, y2, "Temperatura: no disponible", COR_TEXTO);
+        g_texto(j, x1, y2, _("Temperatura: no disponible"), COR_TEXTO);
         sem_dados(x1, y2 + 18, gl, ga, sens_ok && sens.hipervisor ? "sin sensor (máquina virtual)" : "sin sensor conocido");
     }
     const char *orig = "";
@@ -547,13 +547,13 @@ static void desenhar_rendimento(void)
      * temperatura (y el gráfico en rojo). */
     bool limitada = freq_ok && freq.limitada;
     if (f) {
-        formatar_texto(t, sizeof t, "Frecuencia: %s (%s)", sensores_mhz(g, sizeof g, f), orig);
+        formatar_texto(t, sizeof t, _("Frecuencia: %s (%s)"), sensores_mhz(g, sizeof g, f), orig);
         g_texto_n(j, x2, y2, t, gl / LETRA_L, COR_TEXTO);
         desenhar_grafico(x2, y2 + 18, gl, ga, hist_freq, qtd_hist_sens, limitada ? 0xFF5050 : 0xFFA94D,
                          limitada ? 0x5C1616 : 0x5C3A10);
     } else {
         formatar_texto(t, sizeof t, "Frecuencia: %s MHz nominal", sens.tsc_khz ? "" : "?");
-        if (sens.tsc_khz) formatar_texto(t, sizeof t, "Frecuencia: %u MHz (nominal)", (sens.tsc_khz + 500) / 1000);
+        if (sens.tsc_khz) formatar_texto(t, sizeof t, _("Frecuencia: %u MHz (nominal)"), (sens.tsc_khz + 500) / 1000);
         g_texto_n(j, x2, y2, t, gl / LETRA_L, COR_TEXTO);
         sem_dados(x2, y2 + 18, gl, ga, "sin APERF/MPERF");
     }
@@ -565,30 +565,30 @@ static void desenhar_rendimento(void)
 
     int yt = y2 + 18 + ga + 8;
     unsigned s = versao.segundos_ligado;
-    formatar_texto(t, sizeof t, "Procesos: %d    Ventanas: %d    Encendido: %u:%02u:%02u    RAM física: %u MB", qtd_procs,
+    formatar_texto(t, sizeof t, _("Procesos: %d    Ventanas: %d    Encendido: %u:%02u:%02u    RAM física: %u MB"), qtd_procs,
                    qtd_jans, s / 3600, s / 60 % 60, s % 60, mem.ram_total_kb / 1024);
     g_texto_n(j, x1, yt, t, (TAB_L - (x1 - TAB_X)) / LETRA_L, COR_TEXTO);
     if (sens_ok) {
         static const char *const turbo[] = { "n/d", "no", "desactivado", "activo" };
         char mult[24] = "n/d";
         if (sens.mult_x10) formatar_texto(mult, sizeof mult, "x%u,%u", sens.mult_x10 / 10, sens.mult_x10 % 10);
-        formatar_texto(t, sizeof t, "Multiplicador: %s    Turbo: %s    VID: %s", mult, turbo[sens.turbo <= 3 ? sens.turbo : 0],
+        formatar_texto(t, sizeof t, _("Multiplicador: %s    Turbo: %s    VID: %s"), mult, turbo[sens.turbo <= 3 ? sens.turbo : 0],
                        sens.vid_mv ? "" : "n/d");
         if (sens.vid_mv)
-            formatar_texto(t, sizeof t, "Multiplicador: %s    Turbo: %s    VID: %u,%03u V", mult,
+            formatar_texto(t, sizeof t, _("Multiplicador: %s    Turbo: %s    VID: %u,%03u V"), mult,
                            turbo[sens.turbo <= 3 ? sens.turbo : 0], sens.vid_mv / 1000, sens.vid_mv % 1000);
         g_texto_n(j, x1, yt + 20, t, (TAB_L - (x1 - TAB_X)) / LETRA_L, COR_TEXTO_FRACO);
     }
     if (freq_ok && freq.estado != FREQ_EST_NAO_DISPONIVEL) {
         static const char *const est[] = { "no disponible", "activo", "desactivado", "desactivado (fallo)" };
-        formatar_texto(t, sizeof t, "Control de frecuencia: %s, %s, límite %d °C", est[freq.estado <= 3 ? freq.estado : 0],
+        formatar_texto(t, sizeof t, _("Control de frecuencia: %s, %s, límite %d °C"), est[freq.estado <= 3 ? freq.estado : 0],
                        frequencia_politica(freq.politica), freq.limite_mc / 1000);
         g_texto_n(j, x1, yt + 40, t, (TAB_L - (x1 - TAB_X)) / LETRA_L, limitada ? 0xC02020 : COR_TEXTO_FRACO);
     }
 
     /* Sección "Núcleos": una fila por CPU con su estado, una barra y el % de uso. */
     int yn = yt + 20 * (1 + (sens_ok ? 1 : 0) + (freq_ok && freq.estado != FREQ_EST_NAO_DISPONIVEL ? 1 : 0));
-    formatar_texto(t, sizeof t, "Núcleos: %d", qtd_nuc);
+    formatar_texto(t, sizeof t, _("Núcleos: %d"), qtd_nuc);
     g_texto(j, x1, yn, t, COR_TEXTO);
     int cl = (TAB_L - (x1 - TAB_X)) / ncols;
     for (int i = 0; i < qtd_nuc; i++) {
@@ -644,7 +644,7 @@ static void preparar_lista_janelas(void)
 static void desenhar_janelas(void)
 {
     g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_FUNDO);
-    g_texto(j, TAB_X, TAB_Y + 2, "Ventana                        Proceso", COR_TEXTO_FRACO);
+    g_texto(j, TAB_X, TAB_Y + 2, _("Ventana                        Proceso"), COR_TEXTO_FRACO);
     preparar_lista_janelas();
     lista_desenhar(j, &lista_jan);
 }
@@ -685,7 +685,7 @@ static void preparar_lista_servicos(void)
         if (compara_texto(s->estado, SERV_E_MARCHA) == 0) fmt_tempo(t, sizeof t, agora - s->desde_ms);
         else copia_texto(t, "-", sizeof t);
         formatar_texto(itens_serv[i], sizeof itens_serv[i], "%-14s %-11s %6s %8s %9s %4u  %s", s->nome,
-                       servicos_texto_estado(s->estado), pid, mem, t, s->reinicios, s->arrancar ? "sí" : "no");
+                       servicos_texto_estado(s->estado), pid, mem, t, s->reinicios, s->arrancar ? _("sí") : "no");
         if (compara_texto(s->nome, sel_serv) == 0) lista_serv.sel = i;
     }
     lista_serv.qtd = n;
@@ -696,12 +696,12 @@ static void desenhar_servicos(void)
 {
     g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_FUNDO);
     if (qtd_servs < 0) {
-        g_texto(j, TAB_X, TAB_Y + 2, "El supervisor de servicios no está en marcha.", COR_TEXTO);
+        g_texto(j, TAB_X, TAB_Y + 2, _("El supervisor de servicios no está en marcha."), COR_TEXTO);
         return;
     }
     char cab[80];
-    formatar_texto(cab, sizeof cab, "%-14s %-11s %6s %8s %9s %4s  %s", "Nombre", "Estado", "PID", "Memoria", "Tiempo",
-                   "Rein.", "Auto");
+    formatar_texto(cab, sizeof cab, "%-14s %-11s %6s %8s %9s %4s  %s", _("Nombre"), _("Estado"), _("PID"), _("Memoria"), _("Tiempo"),
+                   _("Rein."), _("Auto"));
     g_texto(j, TAB_X + 4, TAB_Y + 2, cab, COR_TEXTO_FRACO);
     preparar_lista_servicos();
     lista_desenhar(j, &lista_serv);
@@ -710,7 +710,7 @@ static void desenhar_servicos(void)
     char t[160];
     if (s) formatar_texto(t, sizeof t, "%s%s%s", s->descricao[0] ? s->descricao : s->nome,
                           s->detalhe[0] ? " - " : "", s->detalhe);
-    else copia_texto(t, aviso_serv[0] ? aviso_serv : "Selecciona un servicio de la lista.", sizeof t);
+    else copia_texto(t, aviso_serv[0] ? aviso_serv : _("Selecciona un servicio de la lista."), sizeof t);
     g_texto_n(j, TAB_X, lista_serv.y + lista_serv.a + 4, t, TAB_L / LETRA_L, COR_TEXTO_FRACO);
 }
 
@@ -734,15 +734,15 @@ static void registrar_servicos(void)
 static void ordem_servico(const char *ordem)
 {
     const servico_info_t *s = serv_selecionado();
-    if (!s) { mensagem("Servicios", "Selecciona primero un servicio de la lista."); return; }
+    if (!s) { mensagem(N_("Servicios"), _("Selecciona primero un servicio de la lista.")); return; }
     char nome[32], r[160];
     copia_texto(nome, s->nome, sizeof nome);
     int c = COM_ADMIN("manejar los servicios del sistema", servicos_pedir(ordem, nome, r, sizeof r));   /* D269 */
     registrar("tareas: servicio %s %s -> %d (%s)", ordem, nome, c, r);
-    if (c < 0) mensagem("Servicios", c == ERRO_NAO_EXISTE ? "El supervisor de servicios no está en marcha."
-                                     : c == ERRO_ACESSO ? "Hace falta ser administrador para manejar los servicios.\n"
-                                                          "Usa «admin servicio ...» en el Terminal."   /* D255 */
-                                                        : "El supervisor de servicios no contesta.");
+    if (c < 0) mensagem("Servicios", c == ERRO_NAO_EXISTE ? _("El supervisor de servicios no está en marcha.")
+                                     : c == ERRO_ACESSO ? _("Hace falta ser administrador para manejar los servicios.\n"
+                                                          "Usa «admin servicio ...» en el Terminal.")   /* D255 */
+                                                        : _("El supervisor de servicios no contesta."));
     else if (c > 0) mensagem("Servicios", r);
     else copia_texto(aviso_serv, r, sizeof aviso_serv);
 }
@@ -769,8 +769,8 @@ static unsigned sel_sock = 0;                         /* id del kernel + 1000 * 
 static int topo_socks;
 
 static botao_t b_if[MAXIF];
-static botao_t b_renovar  = { 0, 0, 120, 22, "Renovar DHCP", false };
-static botao_t b_ativar   = { 0, 0, 168, 22, "Desactivar interfaz", false };
+static botao_t b_renovar  = { 0, 0, 120, 22, N_("Renovar DHCP"), false };
+static botao_t b_ativar   = { 0, 0, 168, 22, N_("Desactivar interfaz"), false };
 
 static const char *nome_estado_tcp(const info_socket_t *s)
 {
@@ -846,7 +846,7 @@ static void amostrar_red(void)
 
 /* ---- ordenación de las conexiones, como la tabla de procesos */
 enum { S_PROTO, S_LOCAL, S_REMOTO, S_ESTADO, S_PID, S_PROC, QTD_COL_S };
-static const char *titulos_s[QTD_COL_S] = { "Proto", "Local", "Remoto", "Estado", "PID", "Proceso" };
+static const char *titulos_s[QTD_COL_S] = { N_("Proto"), N_("Local"), N_("Remoto"), N_("Estado"), N_("PID"), N_("Proceso") };
 static int larg_s[QTD_COL_S];
 static int ordem_s = S_PROTO;
 static bool desc_s;
@@ -967,7 +967,7 @@ static void desenhar_grafico_red(int x, int y, int l, int a)
     fmt_bytes(e, sizeof e, escala);
     formatar_texto(t, sizeof t, "%s/s", e);
     g_texto(j, x + 4, y + 2, t, 0x9AA8B8);
-    g_texto(j, x + l - 4 - g_largura_texto("últimos 60 s"), y + 2, "últimos 60 s", 0x9AA8B8);
+    g_texto(j, x + l - 4 - g_largura_texto(_("últimos 60 s")), y + 2, _("últimos 60 s"), 0x9AA8B8);
     static unsigned escala_registrada, n_registrado;
     if (escala != escala_registrada || (n != (int)n_registrado && n % 10 == 0)) {
         unsigned soma_rx = 0, soma_tx = 0;
@@ -983,7 +983,7 @@ static void desenhar_red(void)
 {
     g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_FUNDO);
     char t[160], a[16], b[16], c[24], d[24];
-    if (!qtd_ifs) { g_texto(j, TAB_X, TAB_Y + 4, "No hay interfaces de red.", COR_TEXTO); return; }
+    if (!qtd_ifs) { g_texto(j, TAB_X, TAB_Y + 4, _("No hay interfaces de red."), COR_TEXTO); return; }
     /* Selector de la interfaz y sus acciones. */
     for (int i = 0; i < qtd_ifs && i < MAXIF; i++) {
         b_if[i].texto = ifs[i].nome;
@@ -992,16 +992,16 @@ static void desenhar_red(void)
     }
     const info_rede_t *r = &ifs[if_sel];
     if (!r->loopback) {
-        b_ativar.texto = r->desativada ? "Activar interfaz" : "Desactivar interfaz";
+        b_ativar.texto = r->desativada ? _("Activar interfaz") : _("Desactivar interfaz");
         botao_desenhar(j, &b_ativar);
         if (r->metodo != REDE_ESTATICO || !r->ip) botao_desenhar(j, &b_renovar);
     }
     int x1 = TAB_X, x2 = TAB_X + (TAB_L > 700 ? TAB_L / 2 : 320), y = RED_INFO_Y;
     const char *estado = !r->ativa ? "sin driver activo" : r->desativada ? "Desactivada" : r->loopback ? "Activa" :
                          r->cabo ? "Conectada" : "Desconectada (sin cable)";
-    formatar_texto(t, sizeof t, "Estado: %s", estado);
+    formatar_texto(t, sizeof t, _("Estado: %s"), estado);
     g_texto(j, x1, y, t, r->desativada || (!r->cabo && !r->loopback) ? 0xB03A2E : COR_TEXTO);
-    formatar_texto(t, sizeof t, "Driver: %s%s%s", r->driver[0] ? r->driver : "-", r->descricao[0] ? " - " : "", r->descricao);
+    formatar_texto(t, sizeof t, _("Driver: %s%s%s"), r->driver[0] ? r->driver : "-", r->descricao[0] ? " - " : "", r->descricao);
     g_texto_n(j, x2, y, t, (TAB_X + TAB_L - x2) / LETRA_L, COR_TEXTO);
     y += RED_LINHA;
     if (r->loopback) copia_texto(t, "MAC: -", sizeof t);
@@ -1010,36 +1010,36 @@ static void desenhar_red(void)
     g_texto(j, x1, y, t, COR_TEXTO);
     int bits = 0;
     for (uint32_t m = r->mascara; m & 0x80000000u; m <<= 1) bits++;
-    if (r->ip) formatar_texto(t, sizeof t, "IPv4: %s/%d (%s)", ip_para_texto(r->ip, a), bits, ip_para_texto(r->mascara, b));
+    if (r->ip) formatar_texto(t, sizeof t, _("IPv4: %s/%d (%s)"), ip_para_texto(r->ip, a), bits, ip_para_texto(r->mascara, b));
     else copia_texto(t, "IPv4: -", sizeof t);
     g_texto_n(j, x2, y, t, (TAB_X + TAB_L - x2) / LETRA_L, COR_TEXTO);
     y += RED_LINHA;
-    if (r->loopback) copia_texto(t, "Configuración: fija (127.0.0.1)", sizeof t);
+    if (r->loopback) copia_texto(t, _("Configuración: fija (127.0.0.1)"), sizeof t);
     else if (r->metodo == REDE_POR_DHCP)
         formatar_texto(t, sizeof t, "Configuración: DHCP (quedan %u:%02u:%02u)", r->concessao_s / 3600, r->concessao_s / 60 % 60,
                        r->concessao_s % 60);
-    else formatar_texto(t, sizeof t, "Configuración: %s", r->metodo == REDE_ESTATICO ? "estática" : "sin dirección");
+    else formatar_texto(t, sizeof t, _("Configuración: %s"), r->metodo == REDE_ESTATICO ? _("estática") : _("sin dirección"));
     g_texto(j, x1, y, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Puerta: %s  DNS: %s", r->roteador ? ip_para_texto(r->roteador, a) : "-",
+    formatar_texto(t, sizeof t, _("Puerta: %s  DNS: %s"), r->roteador ? ip_para_texto(r->roteador, a) : "-",
                    r->dns ? ip_para_texto(r->dns, b) : "-");
     g_texto_n(j, x2, y, t, (TAB_X + TAB_L - x2) / LETRA_L, COR_TEXTO);
     y += RED_LINHA;
     fmt_bytes(c, sizeof c, r->tx_bytes);
     fmt_bytes(d, sizeof d, r->rx_bytes);
-    formatar_texto(t, sizeof t, "Enviado: %s (%u paquetes)", c, r->tx_pacotes);
+    formatar_texto(t, sizeof t, _("Enviado: %s (%u paquetes)"), c, r->tx_pacotes);
     g_texto(j, x1, y, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Recibido: %s (%u paquetes)", d, r->rx_pacotes);
+    formatar_texto(t, sizeof t, _("Recibido: %s (%u paquetes)"), d, r->rx_pacotes);
     g_texto_n(j, x2, y, t, (TAB_X + TAB_L - x2) / LETRA_L, COR_TEXTO);
     y += RED_LINHA;
     fmt_bytes(c, sizeof c, vel_tx[if_sel]);
     fmt_bytes(d, sizeof d, vel_rx[if_sel]);
     g_retangulo(j, x1, y + 5, 10, 4, 0xFFA94D);
-    formatar_texto(t, sizeof t, "Envío: %s/s", c);
+    formatar_texto(t, sizeof t, _("Envío: %s/s"), c);
     g_texto(j, x1 + 14, y, t, COR_TEXTO);
     g_retangulo(j, x1 + 200, y + 5, 10, 4, 0x3CDC6E);
-    formatar_texto(t, sizeof t, "Recepción: %s/s", d);
+    formatar_texto(t, sizeof t, _("Recepción: %s/s"), d);
     g_texto(j, x1 + 214, y, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "Errores: %u  Descartes: %u", r->rx_erros + r->tx_erros, r->descartados);
+    formatar_texto(t, sizeof t, _("Errores: %u  Descartes: %u"), r->rx_erros + r->tx_erros, r->descartados);
     g_texto_n(j, x2 + (x2 - x1 < 420 ? 110 : 0), y, t, (TAB_X + TAB_L - x2) / LETRA_L, COR_TEXTO);
     desenhar_grafico_red(TAB_X, RED_GRAF_Y, TAB_L, red_graf_a());
 
@@ -1052,7 +1052,7 @@ static void desenhar_red(void)
         bool atual = k == ordem_s;
         g_retangulo(j, x, ty + 1, larg_s[k], CAB_A, atual ? 0xD6E4D9 : COR_BOTAO);
         g_relevo(j, x, ty + 1, larg_s[k], CAB_A, false);
-        formatar_texto(t, sizeof t, atual ? "%s %s" : "%s", titulos_s[k], desc_s ? "v" : "^");
+        formatar_texto(t, sizeof t, atual ? "%s %s" : "%s", _(titulos_s[k]), desc_s ? "v" : "^");
         texto_coluna(x, ty + 3, larg_s[k], t, k == S_PID, COR_TEXTO);
         x += larg_s[k];
     }
@@ -1060,7 +1060,7 @@ static void desenhar_red(void)
     int vis = linhas_socks();
     if (topo_socks > qtd_socks - vis) topo_socks = qtd_socks - vis;
     if (topo_socks < 0) topo_socks = 0;
-    if (!qtd_socks) g_texto(j, TAB_X + 8, ty + CAB_A + 6, "Sin conexiones.", COR_TEXTO_FRACO);
+    if (!qtd_socks) g_texto(j, TAB_X + 8, ty + CAB_A + 6, _("Sin conexiones."), COR_TEXTO_FRACO);
     for (int k = 0; k < vis && topo_socks + k < qtd_socks; k++) {
         const info_socket_t *s = &socks[ordem_socks[topo_socks + k]];
         int ly = ty + 1 + CAB_A + 2 + k * LIN_A;
@@ -1076,7 +1076,7 @@ static void desenhar_red(void)
             case S_REMOTO: endereco(t, sizeof t, s->c.ip_remoto, s->c.porta_remota); break;
             case S_ESTADO: copia_texto(t, nome_estado_tcp(s), sizeof t); break;
             case S_PID:    if (s->c.pid) formatar_texto(t, sizeof t, "%d", s->c.pid); else copia_texto(t, "-", sizeof t); break;
-            case S_PROC:   copia_texto(t, p ? p->p.nome : s->c.pid ? "?" : "(sin dueño)", sizeof t); break;
+            case S_PROC:   copia_texto(t, p ? p->p.nome : s->c.pid ? "?" : _("(sin dueño)"), sizeof t); break;
             }
             texto_coluna(x, ly + 1, larg_s[col], t, col == S_PID, cor);
             x += larg_s[col];
@@ -1124,8 +1124,8 @@ static void renovar_dhcp(void)
     red_mudou = true;
     if (r < 0) {
         char t[128];
-        formatar_texto(t, sizeof t, "No se pudo renovar la concesión DHCP:\n%s", nome_erro(r));
-        mensagem("Renovar DHCP", t);
+        formatar_texto(t, sizeof t, _("No se pudo renovar la concesión DHCP:\n%s"), nome_erro(r));
+        mensagem(_("Renovar DHCP"), t);
     }
 }
 
@@ -1133,7 +1133,7 @@ static void alternar_interface(void)
 {
     if (!qtd_ifs || ifs[if_sel].loopback || !ifs[if_sel].pode_desativar) return;
     bool desligar = !ifs[if_sel].desativada;
-    if (desligar && !confirmar("Desactivar interfaz", "¿Desactivar eth0?\n\nSe cortará el tráfico de red hasta\nque la vuelvas a activar."))
+    if (desligar && !confirmar(_("Desactivar interfaz"), _("¿Desactivar eth0?\n\nSe cortará el tráfico de red hasta\nque la vuelvas a activar.")))
         return;
     int r = config_rede(desligar ? REDE_DESATIVAR : REDE_ATIVAR, NULL);
     registrar("tareas: %s %s -> %d", ifs[if_sel].nome, desligar ? "desactivar" : "activar", r);
@@ -1143,9 +1143,9 @@ static void alternar_interface(void)
 static void fechar_conexao(void)
 {
     const info_socket_t *s = sock_selecionado();
-    if (!s) { mensagem("Cerrar conexión", "Selecciona primero una conexión de la lista."); return; }
+    if (!s) { mensagem(_("Cerrar conexión"), _("Selecciona primero una conexión de la lista.")); return; }
     if (s->c.tipo != SOCK_TCP || !s->id) {
-        mensagem("Cerrar conexión", "Solo se pueden cerrar conexiones TCP.\nUn socket UDP se cierra finalizando su proceso.");
+        mensagem(_("Cerrar conexión"), _("Solo se pueden cerrar conexiones TCP.\nUn socket UDP se cierra finalizando su proceso."));
         return;
     }
     char t[256], l[24], r[24];
@@ -1156,13 +1156,13 @@ static void fechar_conexao(void)
     formatar_texto(t, sizeof t, "¿Cerrar la conexión TCP\n%s -> %s\nde \"%s\" (PID %d)?\n\nEl otro extremo recibirá un RST y el\nprograma, un error al leer o escribir.",
                    l, r, p ? p->p.nome : "?", s->c.pid);
     registrar("tareas: confirmar cerrar conexion id %u", id);
-    if (!confirmar("Cerrar conexión", t)) { registrar("tareas: cancelado"); return; }
+    if (!confirmar(_("Cerrar conexión"), t)) { registrar("tareas: cancelado"); return; }
     int res = config_rede(REDE_FECHAR, (config_rede_t *)id);
     registrar("tareas: cerrar conexion id %u -> %d", id, res);
     red_mudou = true;
     if (res < 0) {
-        formatar_texto(t, sizeof t, "No se pudo cerrar la conexión:\n%s", nome_erro(res));
-        mensagem("Cerrar conexión", t);
+        formatar_texto(t, sizeof t, _("No se pudo cerrar la conexión:\n%s"), nome_erro(res));
+        mensagem(_("Cerrar conexión"), t);
     }
     sel_sock = 0;
 }
@@ -1178,7 +1178,7 @@ static void menu_red(const evento_t *e)
     formatar_texto(itens, sizeof itens, "%sCerrar conexión...\n-\n%sRenovar DHCP\n%s%s",
                    s && s->c.tipo == SOCK_TCP && s->id ? "" : "~", r && !r->loopback ? "" : "~",
                    r && !r->loopback && r->pode_desativar ? "" : "~",
-                   r && r->desativada ? "Activar interfaz" : "Desactivar interfaz...");
+                   r && r->desativada ? _("Activar interfaz") : _("Desactivar interfaz..."));
     registrar("tareas: menu red");
     menu_contextual(j->id, e->x, e->y, itens, MENU_RED);
 }
@@ -1251,29 +1251,29 @@ static void desenhar_rodape(void)
     g_retangulo(j, 0, BOT_Y - 6, LARG, ALT - BOT_Y + 6, COR_FUNDO);
     char t[96];
     unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
-    formatar_texto(t, sizeof t, "Procesos: %d  CPU: %u%%  Mem.: %u%%%s", qtd_procs,
+    formatar_texto(t, sizeof t, _("Procesos: %d  CPU: %u%%  Mem.: %u%%%s"), qtd_procs,
                    (cpu_total10 + 5) / 10, (m10 + 5) / 10, pausado ? "  (pausa)" : "");
     int x = b_pausa.x + b_pausa.l + 12;
     int x_fim = aba == ABA_SERV ? b_serv_auto.x : b_acao.x;
     g_texto_n(j, x, BOT_Y + 6, t, (x_fim - 8 - x) / LETRA_L, COR_TEXTO_FRACO);
-    b_pausa.texto = pausado ? "Reanudar" : "Pausar";
+    b_pausa.texto = pausado ? _("Reanudar") : _("Pausar");
     botao_desenhar(j, &b_pausa);
     if (aba == ABA_SERV) {
         const servico_info_t *s = serv_selecionado();
         bool marcha = s && (compara_texto(s->estado, SERV_E_MARCHA) == 0 || compara_texto(s->estado, SERV_E_ESPERANDO) == 0 ||
                             compara_texto(s->estado, SERV_E_REINICIANDO) == 0);
-        b_acao.texto = marcha ? "Parar" : "Iniciar";
-        b_serv_auto.texto = s && !s->arrancar ? "Activar" : "Desactivar";
+        b_acao.texto = marcha ? _("Parar") : _("Iniciar");
+        b_serv_auto.texto = s && !s->arrancar ? _("Activar") : _("Desactivar");
         botao_desenhar(j, &b_serv_auto);
         botao_desenhar(j, &b_serv_rein);
         botao_desenhar(j, &b_acao);
     } else if (aba != 1) {
-        b_acao.texto = aba == 0 ? "Finalizar proceso" : aba == 2 ? "Cerrar ventana" : "Cerrar conexión";
+        b_acao.texto = aba == 0 ? _("Finalizar proceso") : aba == 2 ? _("Cerrar ventana") : _("Cerrar conexión");
         botao_desenhar(j, &b_acao);
     } else if (freq_controlavel()) {
         /* Rendimiento: la política del driver de frecuencia (D106); cada clic pasa a la siguiente. */
         static char rot[40];
-        formatar_texto(rot, sizeof rot, "Política: %s", frequencia_politica(freq.politica));
+        formatar_texto(rot, sizeof rot, _("Política: %s"), frequencia_politica(freq.politica));
         b_acao.texto = rot;
         botao_desenhar(j, &b_acao);
     }
@@ -1383,12 +1383,12 @@ static void atualizar(void)
 static void finalizar_selecionado(void)
 {
     const proc_t *p = proc_por_pid(sel_pid);
-    if (!p) { mensagem("Finalizar proceso", "Selecciona primero un proceso de la lista."); return; }
+    if (!p) { mensagem(_("Finalizar proceso"), _("Selecciona primero un proceso de la lista.")); return; }
     char t[256];
     if (p->p.pid == 0 || !p->p.usuario) {
         registrar("tareas: no se puede finalizar pid %d (%s)", p->p.pid, p->p.nome);
         formatar_texto(t, sizeof t, "\"%s\" (PID %d) es parte del kernel.\nNo se puede finalizar.", p->p.nome, p->p.pid);
-        mensagem("Finalizar proceso", t);
+        mensagem(_("Finalizar proceso"), t);
         return;
     }
     const char *aviso = "";
@@ -1398,24 +1398,24 @@ static void finalizar_selecionado(void)
         aviso = "\n\nAtención: es el Terminal. Se cerrará su\nventana y el shell que contiene.";
     else if (p->p.pid == meu_pid())
         aviso = "\n\nEs este mismo Administrador de tareas.";
-    formatar_texto(t, sizeof t, "¿Finalizar el proceso \"%s\" (PID %d)?%s", p->p.nome, p->p.pid, aviso);
+    formatar_texto(t, sizeof t, _("¿Finalizar el proceso \"%s\" (PID %d)?%s"), p->p.nome, p->p.pid, aviso);
     int pid = p->p.pid;
     char nome[32];
     copia_texto(nome, p->p.nome, sizeof nome);
     registrar("tareas: confirmar finalizar pid %d (%s)", pid, nome);
-    if (!confirmar("Finalizar proceso", t)) { registrar("tareas: cancelado"); return; }
+    if (!confirmar(_("Finalizar proceso"), t)) { registrar("tareas: cancelado"); return; }
     int r = COM_ADMIN("finalizar un proceso de otra cuenta", matar(pid));   /* D269 */
     registrar("tareas: finalizar pid %d (%s) -> %d", pid, nome, r);
     if (r < 0) {
-        formatar_texto(t, sizeof t, "No se pudo finalizar el proceso %d:\n%s", pid, nome_erro(r));
-        mensagem("Finalizar proceso", t);
+        formatar_texto(t, sizeof t, _("No se pudo finalizar el proceso %d:\n%s"), pid, nome_erro(r));
+        mensagem(_("Finalizar proceso"), t);
     }
     sel_pid = -1;
 }
 
 static void cerrar_ventana(void)
 {
-    if (sel_jan < 0) { mensagem("Cerrar ventana", "Selecciona primero una ventana de la lista."); return; }
+    if (sel_jan < 0) { mensagem(_("Cerrar ventana"), _("Selecciona primero una ventana de la lista.")); return; }
     int r = pedir_fechar_janela(sel_jan);
     registrar("tareas: cerrar ventana %d -> %d", sel_jan, r);
     sel_jan = -1;
@@ -1483,7 +1483,7 @@ static void tratar_tabela(const evento_t *e)
 int principal(int argc, char **argv)
 {
     if (argc > 1 && compara_texto(argv[1], "-t") == 0) return modo_texto();
-    j = jan_abrir("Administrador de tareas", LARG, ALT);
+    j = jan_abrir(_("Administrador de tareas"), LARG, ALT);
     if (!j) { imprimir_em(ERROS, "tareas: no se pudo abrir la ventana (usa \"tareas -t\" en modo texto)\n"); return 1; }
     jan_estilo(j, JAN_REDIMENSIONAVEL, LARG_MIN, ALT_MIN);
     layout();
@@ -1531,9 +1531,9 @@ int principal(int argc, char **argv)
             }
             if (aba == ABA_SERV) {
                 const char *o = NULL;
-                if (botao_tratar(j, &b_acao, &e)) o = compara_texto(b_acao.texto, "Parar") == 0 ? "parar" : "iniciar";
+                if (botao_tratar(j, &b_acao, &e)) o = compara_texto(b_acao.texto, _("Parar")) == 0 ? "parar" : "iniciar";
                 else if (botao_tratar(j, &b_serv_rein, &e)) o = "reiniciar";
-                else if (botao_tratar(j, &b_serv_auto, &e)) o = compara_texto(b_serv_auto.texto, "Activar") == 0 ? "activar" : "desactivar";
+                else if (botao_tratar(j, &b_serv_auto, &e)) o = compara_texto(b_serv_auto.texto, _("Activar")) == 0 ? "activar" : "desactivar";
                 if (o) {
                     ordem_servico(o);
                     dormir(300);   /* deja que el supervisor lo aplique antes de mirar de nuevo */

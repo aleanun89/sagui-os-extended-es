@@ -249,7 +249,7 @@ static void ic_formato_imagem(jan_t *j, int x, int y, bool a)
 
 static const char *nome_curto(void)
 {
-    if (!caminho[0]) return "Documento1";
+    if (!caminho[0]) return _("Documento1");
     const char *b = acha_ultimo_char(caminho, '/');
     return b ? b + 1 : caminho;
 }
@@ -257,7 +257,7 @@ static const char *nome_curto(void)
 static void titulo(void)
 {
     char t[160];
-    formatar_texto(t, sizeof t, "%s - Pluma%s", nome_curto(), rte_modificado(doc) ? " *" : "");
+    formatar_texto(t, sizeof t, _("%s - Pluma%s"), nome_curto(), rte_modificado(doc) ? " *" : "");
     if (compara_texto(t, ult_titulo) == 0) return;
     copia_texto(ult_titulo, t, sizeof ult_titulo);
     titulo_janela(j->id, t);
@@ -269,17 +269,17 @@ static void estado_atualizar(void)
     char t[64];
     int lin, col;
     rte_linha_coluna(doc, &lin, &col);
-    formatar_texto(t, sizeof t, "Pág. %d/%d", rte_pagina_atual(doc), rte_paginas(doc));
+    formatar_texto(t, sizeof t, _("Pág. %d/%d"), rte_pagina_atual(doc), rte_paginas(doc));
     barra_estado_texto(&estado, 0, t);
-    formatar_texto(t, sizeof t, "Lín %d", lin);
+    formatar_texto(t, sizeof t, _("Lín %d"), lin);
     barra_estado_texto(&estado, 1, t);
-    formatar_texto(t, sizeof t, "Col %d", col);
+    formatar_texto(t, sizeof t, _("Col %d"), col);
     barra_estado_texto(&estado, 2, t);
     int pw, ph;
     rte_papel_obter(doc, &pw, &ph, NULL, NULL, NULL, NULL);
-    barra_estado_texto(&estado, 3, pw == 12240 ? "Carta" : pw == 11906 ? "A4" : "Personal.");
+    barra_estado_texto(&estado, 3, pw == 12240 ? _("Carta") : pw == 11906 ? "A4" : _("Personal."));
     if (rte_modificado(doc)) aviso[0] = 0;
-    barra_estado_texto(&estado, 4, aviso[0] ? aviso : rte_modificado(doc) ? "Modificado" : "");
+    barra_estado_texto(&estado, 4, aviso[0] ? aviso : rte_modificado(doc) ? _("Modificado") : "");
     barra_estado_desenhar(j, &estado);
 }
 
@@ -430,15 +430,15 @@ static void itens_iniciar(void)
 
 /* ------------------------------------------------------------ menús */
 
-static const char *const menu_nomes[7] = { "Archivo", "Edición", "Ver", "Insertar", "Formato", "Herramientas", "Ayuda" };
+static const char *const menu_nomes[7] = { N_("Archivo"), N_("Edición"), N_("Ver"), N_("Insertar"), N_("Formato"), N_("Herramientas"), N_("Ayuda") };
 static const char *const menu_textos[7] = {
-    "Nuevo\tCtrl+N\nAbrir...\tCtrl+O\n-\nGuardar\tCtrl+S\nGuardar como...\n-\nExportar a PDF...\tCtrl+P\n-\nPapel A4\nPapel Carta\n-\nSalir",
-    "Deshacer\tCtrl+Z\nRehacer\tCtrl+Y\n-\nCortar\tCtrl+X\nCopiar\tCtrl+C\nPegar\tCtrl+V\n-\nSeleccionar todo\tCtrl+A\n-\nBuscar...\tCtrl+F\nReemplazar...\tCtrl+H",
-    "Zoom 50%\nZoom 75%\nZoom 100%\nZoom 150%\nZoom 200%\n-\nMostrar u ocultar la regla\nMostrar u ocultar la barra Dibujo\n-\nAsistente IA\tF12\n-\nCinta (estilo moderno)",
-    "Fecha\nSalto de página\tCtrl+Intro\n-\nImagen...\nWordArt...",
-    "Fuente...\nPárrafo...\nViñetas\n-\nNegrita\tCtrl+B\nCursiva\tCtrl+I\nSubrayado\tCtrl+U\n-\nAlinear a la izquierda\nCentrar\nAlinear a la derecha\nJustificar\n-\nAumentar sangría\nDisminuir sangría\n-\nFormato de imagen...\nEditar WordArt...",
-    "Contar palabras...\n-\nAsistente IA: Resumir la selección\nAsistente IA: Corregir la selección\nAsistente IA: Traducir al inglés\nAsistente IA: Reescribir más formal\nAsistente IA: Reescribir más informal",
-    "Acerca de Pluma",
+    NMENU_("Nuevo\tCtrl+N\nAbrir...\tCtrl+O\n-\nGuardar\tCtrl+S\nGuardar como...\n-\nExportar a PDF...\tCtrl+P\n-\nPapel A4\nPapel Carta\n-\nSalir"),
+    NMENU_("Deshacer\tCtrl+Z\nRehacer\tCtrl+Y\n-\nCortar\tCtrl+X\nCopiar\tCtrl+C\nPegar\tCtrl+V\n-\nSeleccionar todo\tCtrl+A\n-\nBuscar...\tCtrl+F\nReemplazar...\tCtrl+H"),
+    NMENU_("Zoom 50%\nZoom 75%\nZoom 100%\nZoom 150%\nZoom 200%\n-\nMostrar u ocultar la regla\nMostrar u ocultar la barra Dibujo\n-\nAsistente IA\tF12\n-\nCinta (estilo moderno)"),
+    NMENU_("Fecha\nSalto de página\tCtrl+Intro\n-\nImagen...\nWordArt..."),
+    NMENU_("Fuente...\nPárrafo...\nViñetas\n-\nNegrita\tCtrl+B\nCursiva\tCtrl+I\nSubrayado\tCtrl+U\n-\nAlinear a la izquierda\nCentrar\nAlinear a la derecha\nJustificar\n-\nAumentar sangría\nDisminuir sangría\n-\nFormato de imagen...\nEditar WordArt..."),
+    NMENU_("Contar palabras...\n-\nAsistente IA: Resumir la selección\nAsistente IA: Corregir la selección\nAsistente IA: Traducir al inglés\nAsistente IA: Reescribir más formal\nAsistente IA: Reescribir más informal"),
+    NMENU_("Acerca de Pluma"),
 };
 static const int menu_acoes[7][20] = {
     { A_NOVO, A_ABRIR, 0, A_GUARDAR, A_GUARDAR_COMO, 0, A_PDF, 0, A_PAPEL_A4, A_PAPEL_CARTA, 0, A_SAIR },
@@ -450,9 +450,9 @@ static const int menu_acoes[7][20] = {
     { A_ACERCA },
 };
 
-#define FILTROS_ABRIR "Documentos (*.rtf;*.txt)|*.rtf;*.txt|Todos los archivos (*.*)|*"
-#define FILTROS_GUARDAR "Documento RTF (*.rtf)|*.rtf|Texto (*.txt)|*.txt"
-#define FILTROS_PDF "Documento PDF (*.pdf)|*.pdf"
+static const char *const filtros_abrir = N_("Documentos (*.rtf;*.txt)|*.rtf;*.txt|Todos los archivos (*.*)|*");
+static const char *const filtros_guardar = N_("Documento RTF (*.rtf)|*.rtf|Texto (*.txt)|*.txt");
+static const char *const filtros_pdf = N_("Documento PDF (*.pdf)|*.pdf");
 
 /* ------------------------------------------------------------ archivos */
 
@@ -515,7 +515,7 @@ static int abrir_documento(rte_t *r, const char *c)
         if (rtf_ler(r, b, n) != 0) { libera(b); return -1; }
         char lista[100];
         if (rtf_fuentes_sustituidas(lista, sizeof lista) > 0)
-            formatar_texto(aviso, sizeof aviso, "Fuente no instalada, sustituida: %s", lista);
+            formatar_texto(aviso, sizeof aviso, _("Fuente no instalada, sustituida: %s"), lista);
         if (aviso[0]) registrar("pluma: aviso %s\n", aviso);
     } else carregar_texto(r, b, n);
     libera(b);
@@ -564,7 +564,7 @@ static void tudo_redesenhar(void)
         barra_ferr_desenhar(j, &ferr1);
         combo_desenhar(j, &c_zoom);
     }
-    if (dibujo_visible) { barra_ferr_desenhar(j, &ferr3); rotulo(j, 120, a_dibujo_y(), "Dibujo", W98_NEGRO); }
+    if (dibujo_visible) { barra_ferr_desenhar(j, &ferr3); rotulo(j, 120, a_dibujo_y(), _("Dibujo"), W98_NEGRO); }
     ui_atualizar();
     rte_desenhar(j, doc);
     if (ag_visible) ag_panel_desenhar(ag);
@@ -575,8 +575,8 @@ static bool guardar_como(void)
 {
     char c[200];
     copia_texto(c, caminho[0] ? caminho : "/home/documento", sizeof c);
-    if (!dialogo_guardar("Guardar como", FILTROS_GUARDAR, c, c, sizeof c) || !c[0]) return false;
-    if (gravar_documento(doc, c) != 0) { mensagem("Pluma", "No se ha podido guardar el documento."); return false; }
+    if (!dialogo_guardar(_("Guardar como"), _(filtros_guardar), c, c, sizeof c) || !c[0]) return false;
+    if (gravar_documento(doc, c) != 0) { mensagem("Pluma", _("No se ha podido guardar el documento.")); return false; }
     copia_texto(caminho, c, sizeof caminho);
     rte_marcar_limpo(doc);
     registrar("pluma: guardado %s\n", caminho);
@@ -586,7 +586,7 @@ static bool guardar_como(void)
 static bool guardar(void)
 {
     if (!caminho[0]) return guardar_como();
-    if (gravar_documento(doc, caminho) != 0) { mensagem("Pluma", "No se ha podido guardar el documento."); return false; }
+    if (gravar_documento(doc, caminho) != 0) { mensagem("Pluma", _("No se ha podido guardar el documento.")); return false; }
     rte_marcar_limpo(doc);
     registrar("pluma: guardado %s\n", caminho);
     return true;
@@ -595,7 +595,7 @@ static bool guardar(void)
 static bool pode_descartar(void)
 {
     if (!rte_modificado(doc)) return true;
-    return confirmar("Pluma", "El documento tiene cambios sin guardar.\n¿Guardarlos antes de continuar?") ? guardar() : true;
+    return confirmar("Pluma", _("El documento tiene cambios sin guardar.\n¿Guardarlos antes de continuar?")) ? guardar() : true;
 }
 
 static void exportar_pdf_dialogo(void)
@@ -608,11 +608,11 @@ static void exportar_pdf_dialogo(void)
         if (p && (!b || p > b)) *p = 0;
         copia_texto(c + tam_texto(c), ".pdf", sizeof c - tam_texto(c));
     } else copia_texto(c, "/home/documento.pdf", sizeof c);
-    if (!dialogo_guardar("Exportar a PDF", FILTROS_PDF, c, c, sizeof c) || !c[0]) return;
-    if (exportar_pdf(doc, c, nome_curto()) != 0) mensagem("Pluma", "No se ha podido exportar el PDF.");
+    if (!dialogo_guardar(_("Exportar a PDF"), _(filtros_pdf), c, c, sizeof c) || !c[0]) return;
+    if (exportar_pdf(doc, c, nome_curto()) != 0) mensagem("Pluma", _("No se ha podido exportar el PDF."));
     else {
         char m[260];
-        formatar_texto(m, sizeof m, "PDF creado: %s\n%d página(s).", c, rte_paginas(doc));
+        formatar_texto(m, sizeof m, _("PDF creado: %s\n%d página(s)."), c, rte_paginas(doc));
         mensagem("Pluma", m);
     }
 }
@@ -626,7 +626,7 @@ static void buscar_dialogo(bool subst)
         int r = dialogo_buscar(b, sizeof b, p, sizeof p, &maius, subst);
         if (r == DLG_BUSCAR_NADA) break;
         if (r == DLG_BUSCAR_SEGUINTE) {
-            if (!rte_buscar(doc, b, maius, true)) { mensagem("Pluma", "No se encuentra el texto buscado."); break; }
+            if (!rte_buscar(doc, b, maius, true)) { mensagem("Pluma", _("No se encuentra el texto buscado.")); break; }
             registrar("pluma: buscar '%s' encontrado\n", b);
         } else if (r == DLG_BUSCAR_SUBSTITUIR) {
             int a, c2;
@@ -636,7 +636,7 @@ static void buscar_dialogo(bool subst)
             int n = rte_substituir_tudo(doc, b, p, maius);
             registrar("pluma: reemplazados %d\n", n);
             char m[80];
-            formatar_texto(m, sizeof m, "Se han hecho %d reemplazos.", n);
+            formatar_texto(m, sizeof m, _("Se han hecho %d reemplazos."), n);
             mensagem("Pluma", m);
             break;
         }
@@ -692,19 +692,19 @@ static bool sair_pedido;
 
 /* ------------------------------------------------------------ imágenes y WordArt (D296) */
 
-#define FILTROS_IMAGEM "Imágenes (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*"
+static const char *const filtros_imagem = N_("Imágenes (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*");
 
 static void imagem_inserir(void)
 {
     char c[200];
     copia_texto(c, "/home", sizeof c);
-    if (!dialogo_abrir("Insertar imagen", FILTROS_IMAGEM, c, c, sizeof c) || !c[0]) return;
+    if (!dialogo_abrir(_("Insertar imagen"), _(filtros_imagem), c, c, sizeof c) || !c[0]) return;
     rte_obj_t o;
     memset(&o, 0, sizeof o);
-    if (!rte_obj_de_arquivo(&o, c)) { mensagem("Pluma", "No se ha podido leer la imagen.\nSe aceptan BMP, PNG, JPEG baseline y GIF."); return; }
+    if (!rte_obj_de_arquivo(&o, c)) { mensagem("Pluma", _("No se ha podido leer la imagen.\nSe aceptan BMP, PNG, JPEG baseline y GIF.")); return; }
     const imagem_t *im = rte_obj_imagem(&o);
     int pl = im ? im->larg : 0, pa = im ? im->alt : 0;
-    if (!rte_obj_inserir(doc, &o)) { rte_obj_liberar(&o); mensagem("Pluma", "No hay sitio para más imágenes en el documento."); return; }
+    if (!rte_obj_inserir(doc, &o)) { rte_obj_liberar(&o); mensagem("Pluma", _("No hay sitio para más imágenes en el documento.")); return; }
     registrar("pluma: imagem inserida %s %dx%d\n", c, pl, pa);
 }
 
@@ -719,7 +719,7 @@ static void wordart_inserir(void)
     char txt[96];
     copia_texto(txt, o.wa_texto, sizeof txt);
     o.ajuste = RTE_AJ_LINHA;
-    if (!rte_obj_inserir(doc, &o)) { mensagem("Pluma", "No se ha podido crear el WordArt."); return; }
+    if (!rte_obj_inserir(doc, &o)) { mensagem("Pluma", _("No se ha podido crear el WordArt.")); return; }
     registrar("pluma: wordart inserido estilo=%d '%s'\n", est, txt);
 }
 
@@ -727,7 +727,7 @@ static void wordart_inserir(void)
 static void objeto_formato(void)
 {
     rte_obj_t o;
-    if (!rte_obj_selecionado(doc, &o, NULL)) { mensagem("Pluma", "Seleccione primero una imagen o un WordArt (clic sobre ella)."); return; }
+    if (!rte_obj_selecionado(doc, &o, NULL)) { mensagem("Pluma", _("Seleccione primero una imagen o un WordArt (clic sobre ella).")); return; }
     rte_par_t p;
     rte_par_atual(doc, &p);
     int al = p.alin <= RTE_DIR ? p.alin : RTE_ESQ;
@@ -741,7 +741,7 @@ static void objeto_formato(void)
 static void objeto_editar(void)
 {
     rte_obj_t o;
-    if (!rte_obj_selecionado(doc, &o, NULL)) { mensagem("Pluma", "Seleccione primero un WordArt (clic sobre él)."); return; }
+    if (!rte_obj_selecionado(doc, &o, NULL)) { mensagem("Pluma", _("Seleccione primero un WordArt (clic sobre él).")); return; }
     if (o.tipo != RTE_OBJ_WORDART) { objeto_formato(); return; }
     if (!dialogo_wordart(&o)) return;
     rte_obj_substituir(doc, &o);
@@ -801,7 +801,7 @@ static void ag_alternar(void)
         int x, y, l, a;
         ag_rect(&x, &y, &l, &a);
         ag = ag_panel_criar(j, x, y, l, a, NULL);
-        if (!ag) { mensagem("Pluma", "No se ha podido crear el panel del asistente."); return; }
+        if (!ag) { mensagem("Pluma", _("No se ha podido crear el panel del asistente.")); return; }
         ag_panel_escolher(ag, AG_AGENTE);
     }
     ag_visible = !ag_visible;
@@ -1115,14 +1115,14 @@ static void ag_rapida(int a)
     };
     int i = a - A_IA_RESUMIR;
     if (i < 0 || i > 4) return;
-    if (!rte_selecao(doc, NULL, NULL)) { mensagem("Pluma", "Seleccione primero el texto con el que trabajar."); return; }
+    if (!rte_selecao(doc, NULL, NULL)) { mensagem("Pluma", _("Seleccione primero el texto con el que trabajar.")); return; }
     if (!ag_visible) { ag_alternar(); layout(); tudo_redesenhar(); }
     if (!ag) return;
     registrar("pluma: accion rapida %d\n", i);
     ag_panel_tarea(ag, AG_AGENTE, tareas[i]);
 }
 
-#define MENU_CTX_SEL "Cortar\nCopiar\nPegar\n-\nAsistente IA: Resumir\nAsistente IA: Corregir\nAsistente IA: Traducir al inglés\nAsistente IA: Reescribir más formal\nAsistente IA: Reescribir más informal"
+static const char *const menu_ctx_sel = NMENU_("Cortar\nCopiar\nPegar\n-\nAsistente IA: Resumir\nAsistente IA: Corregir\nAsistente IA: Traducir al inglés\nAsistente IA: Reescribir más formal\nAsistente IA: Reescribir más informal");
 static const int ctx_sel_acoes[9] = { A_CORTAR, A_COPIAR, A_COLAR, 0, A_IA_RESUMIR, A_IA_CORREGIR, A_IA_TRADUCIR, A_IA_FORMAL, A_IA_INFORMAL };
 
 /* Encamina un evento al panel; true si lo consumió. */
@@ -1224,8 +1224,8 @@ static void acao(int a)
         if (!pode_descartar()) return;
         char c[200];
         copia_texto(c, caminho[0] ? caminho : "/home", sizeof c);
-        if (!dialogo_abrir("Abrir", FILTROS_ABRIR, c, c, sizeof c) || !c[0]) break;
-        if (abrir_documento(doc, c) != 0) { mensagem("Pluma", "No se ha podido abrir el archivo."); break; }
+        if (!dialogo_abrir(_("Abrir"), _(filtros_abrir), c, c, sizeof c) || !c[0]) break;
+        if (abrir_documento(doc, c) != 0) { mensagem("Pluma", _("No se ha podido abrir el archivo.")); break; }
         copia_texto(caminho, c, sizeof caminho);
         registrar("pluma: aberto %s (%d letras, %d paginas)\n", caminho, rte_tamanho(doc), rte_paginas(doc));
         break;
@@ -1293,13 +1293,13 @@ static void acao(int a)
         int w, c, p;
         rte_contar(doc, &w, &c, &p);
         char m[200];
-        formatar_texto(m, sizeof m, "Páginas: %d\nPalabras: %d\nCaracteres (sin espacios): %d\nPárrafos: %d", rte_paginas(doc), w, c, p);
-        mensagem("Contar palabras", m);
+        formatar_texto(m, sizeof m, _("Páginas: %d\nPalabras: %d\nCaracteres (sin espacios): %d\nPárrafos: %d"), rte_paginas(doc), w, c, p);
+        mensagem(_("Contar palabras"), m);
         registrar("pluma: contar palabras=%d caracteres=%d paragrafos=%d paginas=%d\n", w, c, p, rte_paginas(doc));
         break;
     }
     case A_ACERCA:
-        mensagem("Acerca de Pluma", "Pluma - procesador de textos de SaguiOS\nLeer y escribir RTF y texto,\nexportar a PDF. Sin macros.");
+        mensagem(_("Acerca de Pluma"), _("Pluma - procesador de textos de SaguiOS\nLeer y escribir RTF y texto,\nexportar a PDF. Sin macros."));
         break;
     case A_IMAGEM: imagem_inserir(); break;
     case A_WORDART: wordart_inserir(); break;
@@ -1524,14 +1524,14 @@ int principal(int argc, char **argv)
 
     int jl = 820, ja = 600;
     cinta_tam_janela(&jl, &ja);
-    j = jan_abrir("Documento1 - Pluma", jl, ja);
+    j = jan_abrir(_("Documento1 - Pluma"), jl, ja);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK, 560, 360);
     doc = rte_criar(0, 0, 100, 100);
     if (!doc) return 1;
     itens_iniciar();
     ag_registrar_herramientas();
-    for (int i = 0; i < 7; i++) { menu.nomes[i] = menu_nomes[i]; menu.itens[i] = menu_textos[i]; }
+    for (int i = 0; i < 7; i++) { menu.nomes[i] = _(menu_nomes[i]); menu.itens[i] = MENU_(menu_textos[i]); }
     menu.n = 7;
     {   /* la cinta (D334): --cinta-log y --clasico/--cinta; si no, lo que se eligió la última vez */
         int nm = 0;
@@ -1546,7 +1546,7 @@ int principal(int argc, char **argv)
         }
         cinta.acceso = cc_acceso; cinta.n_acceso = 3;
         cinta_iniciar(&cinta, 0, 0, j->larg, cp_pluma, 5);
-        cinta.archivo = menu_textos[0];
+        cinta.archivo = MENU_(menu_textos[0]);
         cinta.archivo_ids = menu_acoes[0];
         cinta.depurar = cinta_log;
         cinta_traducir(&cinta);
@@ -1557,7 +1557,7 @@ int principal(int argc, char **argv)
         if (abrir_documento(doc, argv[1]) == 0) {
             copia_texto(caminho, argv[1], sizeof caminho);
             registrar("pluma: aberto %s (%d letras, %d paginas)\n", caminho, rte_tamanho(doc), rte_paginas(doc));
-        } else mensagem("Pluma", "No se ha podido abrir el archivo.");
+        } else mensagem("Pluma", _("No se ha podido abrir el archivo."));
     }
     zoom_ajustar();
     layout();
@@ -1584,7 +1584,7 @@ int principal(int argc, char **argv)
             }
         }
         if (e.tipo == EV_CLIQUE && (e.botoes & 2) && e.x < j->larg - (ag_visible ? 380 : 0) && e.y > y_base() + REGUA_A) {
-            menu_contextual(j->id, e.x, e.y, MENU_CTX_SEL, COD_CTX_SEL);
+            menu_contextual(j->id, e.x, e.y, MENU_(menu_ctx_sel), COD_CTX_SEL);
             continue;
         }
         /* la cinta (D334): tiene prioridad sobre el resto cuando está activa */

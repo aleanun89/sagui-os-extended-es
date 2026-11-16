@@ -55,10 +55,10 @@ static char aviso[120];
 static lista_t seletor;       /* sin imagen: las imágenes de la carpeta */
 
 static botao_t bt[] = {
-    { 8, 5, 64, 24, "Abrir", false },
+    { 8, 5, 64, 24, N_("Abrir"), false },
     { 80, 5, 28, 24, "<", false },
     { 112, 5, 28, 24, ">", false },
-    { 148, 5, 72, 24, "Ajustar", false },
+    { 148, 5, 72, 24, N_("Ajustar"), false },
     { 226, 5, 44, 24, "1:1", false },
     { 278, 5, 28, 24, "-", false },
     { 310, 5, 28, 24, "+", false },
@@ -150,7 +150,7 @@ static void desenhar_barra(void)
     g_retangulo(j, 0, 0, j->larg, BARRA, COR_FUNDO);
     g_retangulo(j, 0, BARRA - 1, j->larg, 1, COR_BORDA);
     for (int i = 0; i < QTD_BT; i++) botao_desenhar(j, &bt[i]);
-    if (j->larg > 520) g_texto(j, 352, 9, "Rueda: zoom  F11: pantalla completa", COR_TEXTO_FRACO);
+    if (j->larg > 520) g_texto(j, 352, 9, _("Rueda: zoom  F11: pantalla completa"), COR_TEXTO_FRACO);
     jan_mostrar_area(j, 0, 0, j->larg, BARRA);
 }
 
@@ -162,13 +162,13 @@ static void desenhar_rodape(void)
     g_retangulo(j, 0, y, j->larg, 1, COR_BORDA);
     char t[200];
     if (aviso[0]) copia_texto(t, aviso, sizeof t);
-    else if (!tem_imagem) formatar_texto(t, sizeof t, "Ninguna imagen abierta (%s)", pasta);
+    else if (!tem_imagem) formatar_texto(t, sizeof t, _("Ninguna imagen abierta (%s)"), pasta);
     else if (qtd_arqs > 0 && atual >= 0)
-        formatar_texto(t, sizeof t, "%s  |  %d x %d  |  %s  |  %d%%%s  |  %d de %d", nome_curto(caminho), img.larg, img.alt,
-                       img.formato, zoom / 10, ajustar ? " (ajustada)" : "", atual + 1, qtd_arqs);
+        formatar_texto(t, sizeof t, _("%s  |  %d x %d  |  %s  |  %d%%%s  |  %d de %d"), nome_curto(caminho), img.larg, img.alt,
+                       img.formato, zoom / 10, ajustar ? _(" (ajustada)") : "", atual + 1, qtd_arqs);
     else
         formatar_texto(t, sizeof t, "%s  |  %d x %d  |  %s  |  %d%%%s", nome_curto(caminho), img.larg, img.alt,
-                       img.formato, zoom / 10, ajustar ? " (ajustada)" : "");
+                       img.formato, zoom / 10, ajustar ? _(" (ajustada)") : "");
     g_texto_n(j, 8, y + 3, t, (j->larg - 16) / LETRA_L, COR_TEXTO);
     jan_mostrar_area(j, 0, y, j->larg, RODAPE);
 }
@@ -177,15 +177,15 @@ static void desenhar_seletor(void)
 {
     int ax = area_x(), ay = area_y(), al = area_l(), aa = area_a();
     g_retangulo(j, ax, ay, al, aa, COR_FUNDO);
-    g_texto(j, ax + 16, ay + 10, "Ninguna imagen abierta. Elige una (doble clic o Intro), pulsa Abrir", COR_TEXTO);
-    g_texto(j, ax + 16, ay + 28, "(Ctrl+O) o usa en el terminal: visor archivo.bmp", COR_TEXTO);
+    g_texto(j, ax + 16, ay + 10, _("Ninguna imagen abierta. Elige una (doble clic o Intro), pulsa Abrir"), COR_TEXTO);
+    g_texto(j, ax + 16, ay + 28, _("(Ctrl+O) o usa en el terminal: visor archivo.bmp"), COR_TEXTO);
     seletor.x = ax + 16;
     seletor.y = ay + 52;
     seletor.l = al - 32 < 200 ? 200 : al - 32;
     seletor.a = aa - 64 < 44 ? 44 : aa - 64;
     if (qtd_arqs == 0) {
         char t[240];
-        formatar_texto(t, sizeof t, "No hay imágenes en %s", pasta);
+        formatar_texto(t, sizeof t, _("No hay imágenes en %s"), pasta);
         g_texto(j, seletor.x, seletor.y + 4, t, COR_TEXTO_FRACO);
     } else lista_desenhar(j, &seletor);
     jan_mostrar_area(j, ax, ay, al, aa);
@@ -206,8 +206,8 @@ static void desenhar_imagem(void)
 static void atualizar_titulo(void)
 {
     char t[120];
-    if (tem_imagem) formatar_texto(t, sizeof t, "%s - Visor de imágenes", nome_curto(caminho));
-    else copia_texto(t, "Visor de imágenes", sizeof t);
+    if (tem_imagem) formatar_texto(t, sizeof t, _("%s - Visor de imágenes"), nome_curto(caminho));
+    else copia_texto(t, _("Visor de imágenes"), sizeof t);
     titulo_janela(j->id, t);
 }
 
@@ -251,7 +251,7 @@ static bool abrir_imagem(const char *c, bool relistar)
     imagem_t nova;
     int r = imagem_ler(c, &nova);
     if (r < 0) {
-        formatar_texto(aviso, sizeof aviso, "No se ha podido abrir %s: %s", nome_curto(c), imagem_erro(r));
+        formatar_texto(aviso, sizeof aviso, _("No se ha podido abrir %s: %s"), nome_curto(c), imagem_erro(r));
         registrar("visor: erro ao abrir %s (%d)\n", c, r);
         return false;
     }
@@ -285,7 +285,7 @@ static bool abrir_caminho(const char *c)
     if (info_arquivo(c, &inf) >= 0 && inf.tipo == TIPO_PASTA) {
         listar_pasta(c);
         if (qtd_arqs == 0) {
-            formatar_texto(aviso, sizeof aviso, "No hay imágenes en %s", c);
+            formatar_texto(aviso, sizeof aviso, _("No hay imágenes en %s"), c);
             if (tem_imagem) { imagem_liberar(&img); tem_imagem = false; }
             atualizar_titulo();
             return false;
@@ -316,7 +316,7 @@ static void pedir_arquivo(void)
     char c[200];
     if (tem_imagem) copia_texto(c, caminho, sizeof c);
     else { copia_texto(c, pasta, sizeof c); junta_texto(c, "/", sizeof c); }
-    if (dialogo_abrir("Abrir imagen", "Imágenes|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*", c, c, sizeof c) && c[0]) {
+    if (dialogo_abrir(_("Abrir imagen"), _("Imágenes|*.bmp;*.ppm;*.pgm;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*"), c, c, sizeof c) && c[0]) {
         abrir_caminho(c);
         desenhar_tudo();
     }
@@ -474,7 +474,7 @@ static int informar(int argc, char **argv)
 int principal(int argc, char **argv)
 {
     if (argc > 1 && compara_texto(argv[1], "-i") == 0) return informar(argc, argv);
-    j = jan_abrir("Visor de imágenes", LARG_INICIO, ALT_INICIO);
+    j = jan_abrir(_("Visor de imágenes"), LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, LARG_MIN, ALT_MIN);
     seletor.icone = NULL;

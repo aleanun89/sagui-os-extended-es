@@ -419,8 +419,12 @@ static void xlsx_estilos(char **b, int *t, int *c)
         int numid = nf_codigo(f, cod, sizeof cod) ? 164 + i : 0;
         txt_addf(b, t, c, "<xf numFmtId=\"%d\" fontId=\"%d\" fillId=\"%d\" borderId=\"%d\" xfId=\"0\" applyNumberFormat=\"1\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\"",
                  numid, i, (f->rel & REL_ATIVO) ? 2 + i : 0, i);
-        if (f->al) txt_addf(b, t, c, " applyAlignment=\"1\"><alignment horizontal=\"%s\"/></xf>",
-                            f->al == AL_ESQ ? "left" : (f->al == AL_CENTRO ? "center" : "right"));
+        if (f->al || f->aj) {           /* ajustar texto (D345): wrapText */
+            txt_add(b, t, c, " applyAlignment=\"1\"><alignment");
+            if (f->al) txt_addf(b, t, c, " horizontal=\"%s\"", f->al == AL_ESQ ? "left" : (f->al == AL_CENTRO ? "center" : "right"));
+            if (f->aj) txt_add(b, t, c, " wrapText=\"1\"");
+            txt_add(b, t, c, "/></xf>");
+        }
         else txt_add(b, t, c, "/>");
     }
     txt_add(b, t, c, "</cellXfs><cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>");
@@ -724,10 +728,13 @@ static void xlsx_estilos_ler(char *x, int n)
                 xl_xf_fmt[n_xf++] = (uint8_t)(idx < 0 ? 0 : idx);
                 if (t.vazia) xf_atual = -1;
             } else if (sec == 5 && xf_atual >= 0 && xml_nome_es(&t, "alignment")) {
-                char v[24];
-                if (xml_attr(&t, "horizontal", v, sizeof v)) {
+                char v[24], w[8];
+                bool tiene_h = xml_attr(&t, "horizontal", v, sizeof v);
+                bool ajusta = xml_attr(&t, "wrapText", w, sizeof w) && w[0] == '1';
+                if (tiene_h || ajusta) {
                     fmt_t f = livro.fmts[xl_xf_fmt[xf_atual]];
-                    f.al = compara_texto(v, "left") == 0 ? AL_ESQ : (compara_texto(v, "center") == 0 ? AL_CENTRO : (compara_texto(v, "right") == 0 ? AL_DIR : 0));
+                    if (tiene_h) f.al = compara_texto(v, "left") == 0 ? AL_ESQ : (compara_texto(v, "center") == 0 ? AL_CENTRO : (compara_texto(v, "right") == 0 ? AL_DIR : 0));
+                    if (ajusta) f.aj = 1;
                     int idx = fmt_internar_livro(&f);
                     if (idx >= 0) xl_xf_fmt[xf_atual] = (uint8_t)idx;
                 }

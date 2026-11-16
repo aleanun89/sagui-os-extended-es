@@ -34,10 +34,10 @@ static bool tem_imagem;
 static char aviso[160];
 
 static botao_t bt[] = {
-    { 8, 5, 56, 24, "Foto", false },
+    { 8, 5, 56, 24, N_("Foto"), false },
     { 72, 5, 28, 24, "<", false },
     { 104, 5, 28, 24, ">", false },
-    { 340, 5, 64, 24, "Prueba", false },
+    { 340, 5, 64, 24, N_("Prueba"), false },
     { 412, 5, 28, 24, "B-", false },
     { 444, 5, 28, 24, "B+", false },
     { 480, 5, 28, 24, "C-", false },
@@ -74,8 +74,8 @@ static void desenhar_rodape(void)
     g_retangulo(j, 0, y, j->larg, 1, COR_BORDA);
     char t[200];
     if (aviso[0]) copia_texto(t, aviso, sizeof t);
-    else if (!inf.presente) copia_texto(t, "Sin cámara. Pulsa Prueba para usar la fuente de prueba", sizeof t);
-    else formatar_texto(t, sizeof t, "%s | %u cuadros | %u descartados", inf.nome, quadros, inf.descartados);
+    else if (!inf.presente) copia_texto(t, _("Sin cámara. Pulsa Prueba para usar la fuente de prueba"), sizeof t);
+    else formatar_texto(t, sizeof t, _("%s | %u cuadros | %u descartados"), inf.nome, quadros, inf.descartados);
     g_texto_n(j, 8, y + 3, t, (j->larg - 16) / LETRA_L, COR_TEXTO);
     jan_mostrar_area(j, 0, y, j->larg, RODAPE);
 }
@@ -92,9 +92,9 @@ static void desenhar_imagem(void)
         if (a < 1) a = 1;
         imagem_desenhar(j->px, j->larg, 0, ay, al, aa, &img, (al - l) / 2, ay + (aa - a) / 2, l, a, false);
     } else if (!inf.presente)
-        g_texto(j, 24, ay + 24, "No se detecta ninguna cámara USB (UVC).", 0xE0E0E0);
+        g_texto(j, 24, ay + 24, _("No se detecta ninguna cámara USB (UVC)."), 0xE0E0E0);
     else if (!aberta)
-        g_texto(j, 24, ay + 24, "La cámara no está abierta.", 0xE0E0E0);
+        g_texto(j, 24, ay + 24, _("La cámara no está abierta."), 0xE0E0E0);
     jan_mostrar_area(j, 0, ay, al, aa);
 }
 
@@ -138,13 +138,13 @@ static bool abrir_cam(void)
     info_camara_t a;
     int r = camara_abrir(fuente, modo, &a);
     if (r < 0) {
-        formatar_texto(aviso, sizeof aviso, "No se pudo abrir la cámara (error %d)", r);
+        formatar_texto(aviso, sizeof aviso, _("No se pudo abrir la cámara (error %d)"), r);
         registrar("camara: abrir fallo %d\n", r);
         return false;
     }
     buf_cap = (unsigned)inf.modos[modo].larg * inf.modos[modo].alt * 2u + 4096u;
     buf = aloca(buf_cap);
-    if (!buf) { fechar_cam(); copia_texto(aviso, "Sin memoria", sizeof aviso); return false; }
+    if (!buf) { fechar_cam(); copia_texto(aviso, _("Sin memoria"), sizeof aviso); return false; }
     aberta = true;
     seq_visto = 0;
     quadros = 0;
@@ -172,7 +172,7 @@ static bool novo_cuadro(void)
 
 static void tirar_foto(void)
 {
-    if (!aberta || !buf_n || !tem_imagem) { copia_texto(aviso, "No hay ningún cuadro que guardar", sizeof aviso); return; }
+    if (!aberta || !buf_n || !tem_imagem) { copia_texto(aviso, _("No hay ningún cuadro que guardar"), sizeof aviso); return; }
     unsigned n = buf_n, l = cuadro_inf.larg, a = cuadro_inf.alt, f = cuadro_inf.formato;
     uint8_t *copia = aloca(n);                 /* el diálogo es modal: la vista previa sigue en pausa */
     if (!copia) return;
@@ -182,14 +182,14 @@ static void tirar_foto(void)
     char ini[120], ruta[200];
     criar_pasta("/home/fotos");
     formatar_texto(ini, sizeof ini, "/home/fotos/foto-%04u%02u%02u-%02u%02u%02u.png", d.ano, d.mes, d.dia, d.hora, d.minuto, d.segundo);
-    if (dialogo_guardar("Guardar foto", f == CAM_FMT_MJPEG ? "PNG (*.png)|*.png|JPEG (*.jpg)|*.jpg" : "PNG (*.png)|*.png", ini, ruta, sizeof ruta)) {
+    if (dialogo_guardar(_("Guardar foto"), f == CAM_FMT_MJPEG ? _("PNG (*.png)|*.png|JPEG (*.jpg)|*.jpg") : _("PNG (*.png)|*.png"), ini, ruta, sizeof ruta)) {
         int r = camara_guardar(ruta, copia, n, l, a, f);
         if (r == IMG_ERRO_NAO_SUPORTA) {       /* JPEG pedido con una cámara YUY2: se guarda como PNG */
             size_t m = tam_texto(ruta);
             while (m && ruta[m - 1] != '.') m--;
             if (m) { ruta[m] = 0; junta_texto(ruta, "png", sizeof ruta); r = camara_guardar(ruta, copia, n, l, a, f); }
         }
-        if (r < 0) formatar_texto(aviso, sizeof aviso, "No se pudo guardar la foto (%d)", r);
+        if (r < 0) formatar_texto(aviso, sizeof aviso, _("No se pudo guardar la foto (%d)"), r);
         else { formatar_texto(aviso, sizeof aviso, "Foto guardada en %s", ruta); registrar("camara: foto guardada %s\n", ruta); }
     }
     libera(copia);
@@ -203,7 +203,7 @@ static void ajustar(unsigned ctl, int sentido)
     if (paso < 1) paso = 1;
     int v = a.valor + sentido * paso;
     if (camara_ajuste(ctl, true, v, &a) >= 0)
-        formatar_texto(aviso, sizeof aviso, "%s: %d (de %d a %d)", ctl == CAM_CTL_BRILLO ? "Brillo" : "Contraste", a.valor, a.minimo, a.maximo);
+        formatar_texto(aviso, sizeof aviso, _("%s: %d (de %d a %d)"), ctl == CAM_CTL_BRILLO ? _("Brillo") : _("Contraste"), a.valor, a.minimo, a.maximo);
 }
 
 static void botao(int i)
@@ -294,7 +294,7 @@ int principal(int argc, char **argv)
     if (info) { imprimir_info(); return 0; }
     if (foto) return foto_sin_ventana(foto, cuadros);
 
-    j = jan_abrir("Cámara", LARG_INICIO, ALT_INICIO);
+    j = jan_abrir(_("Cámara"), LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, 420, 300);
     abrir_cam();

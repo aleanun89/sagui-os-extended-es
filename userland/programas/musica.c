@@ -69,8 +69,8 @@ static botao_t bt_arq[] = {
 };
 static botao_t bt_ctl[] = {
     { 12, 150, 36, 26, "|<", false },
-    { 56, 150, 100, 26, "Reproducir", false },
-    { 164, 150, 64, 26, "Parar", false },
+    { 56, 150, 100, 26, N_("Reproducir"), false },
+    { 164, 150, 64, 26, N_("Parar"), false },
     { 236, 150, 36, 26, ">|", false },
 };
 #define BT_ANT 0
@@ -158,7 +158,7 @@ static void layout(void)
     bx = MARGEM;
     bw = l - 2 * MARGEM;
     by = 124;
-    bt_ctl[BT_PLAY].texto = estado == TOCANDO ? "Pausa" : "Reproducir";
+    bt_ctl[BT_PLAY].texto = estado == TOCANDO ? _("Pausa") : _("Reproducir");
     vw = 100;
     vx = l - MARGEM - vw - 40;
     vy = 158;
@@ -224,9 +224,9 @@ static void desenhar_info(void)
         else if (inf->album[0]) copia_texto(t, inf->album, sizeof t);
         else t[0] = 0;
         texto_linha(62, t, COR_TEXTO_FRACO);
-        int n = formatar_texto(t, sizeof t, "%s, %u Hz, %s", inf->nome_formato, inf->taxa, inf->canais == 2 ? "estéreo" : "mono");
+        int n = formatar_texto(t, sizeof t, "%s, %u Hz, %s", inf->nome_formato, inf->taxa, inf->canais == 2 ? _("estéreo") : "mono");
         if (inf->bits_origem > 4 && n < (int)sizeof t) n += formatar_texto(t + n, sizeof t - (size_t)n, ", %u bits", inf->bits_origem);
-        if (inf->kbps && n < (int)sizeof t) formatar_texto(t + n, sizeof t - (size_t)n, ", %u kbps%s", inf->kbps, inf->vbr ? " (VBR)" : "");
+        if (inf->kbps && n < (int)sizeof t) formatar_texto(t + n, sizeof t - (size_t)n, ", %u kbps%s", inf->kbps, inf->vbr ? _(" (VBR)") : "");
         texto_linha(80, t, COR_TEXTO);
     }
     jan_mostrar_area(j, 0, 38, j->larg, 62);
@@ -239,8 +239,8 @@ static void desenhar_rodape(void)
     g_retangulo(j, 0, y, j->larg, 1, COR_BORDA);
     char t[200];
     if (aviso[0]) copia_texto(t, aviso, sizeof t);
-    else if (qtd == 0) copia_texto(t, "Lista vacía", sizeof t);
-    else formatar_texto(t, sizeof t, "%s  |  pista %d de %d", estado == TOCANDO ? "Reproduciendo" : estado == PAUSADO ? "En pausa" : "Detenido",
+    else if (qtd == 0) copia_texto(t, _("Lista vacía"), sizeof t);
+    else formatar_texto(t, sizeof t, _("%s  |  pista %d de %d"), estado == TOCANDO ? _("Reproduciendo") : estado == PAUSADO ? _("En pausa") : _("Detenido"),
                         atual + 1, qtd);
     g_texto_n(j, 8, y + 3, t, (j->larg - 16) / LETRA_L, aviso[0] ? 0x9A1B1B : COR_TEXTO);
     jan_mostrar_area(j, 0, y, j->larg, RODAPE);
@@ -249,8 +249,8 @@ static void desenhar_rodape(void)
 static void atualizar_titulo(void)
 {
     char t[120];
-    if (inf && atual >= 0) formatar_texto(t, sizeof t, "%s - Música", inf->titulo[0] ? inf->titulo : nome_curto(rutas[atual]));
-    else copia_texto(t, "Música", sizeof t);
+    if (inf && atual >= 0) formatar_texto(t, sizeof t, _("%s - Música"), inf->titulo[0] ? inf->titulo : nome_curto(rutas[atual]));
+    else copia_texto(t, _("Música"), sizeof t);
     titulo_janela(j->id, t);
 }
 
@@ -269,7 +269,7 @@ static void desenhar_tudo(void)
     else {
         g_retangulo(j, lista.x, lista.y, lista.l, lista.a, COR_BRANCO);
         g_moldura(j, lista.x, lista.y, lista.l, lista.a, COR_BORDA);
-        g_texto(j, lista.x + 8, lista.y + 8, "La lista está vacía.", COR_TEXTO_FRACO);
+        g_texto(j, lista.x + 8, lista.y + 8, _("La lista está vacía."), COR_TEXTO_FRACO);
     }
     desenhar_rodape();
     jan_mostrar(j);
@@ -303,8 +303,8 @@ static void iniciar(void)
     if (!arq) return;
     fluxo = audio_abrir((int)inf->taxa, (int)inf->canais, 16);
     if (fluxo < 0) {
-        if (fluxo == ERRO_NAO_EXISTE) copia_texto(aviso, "No hay tarjeta de sonido (solo el altavoz del PC): no se puede reproducir", sizeof aviso);
-        else formatar_texto(aviso, sizeof aviso, "No se puede abrir el sonido: %s", nome_erro(fluxo));
+        if (fluxo == ERRO_NAO_EXISTE) copia_texto(aviso, _("No hay tarjeta de sonido (solo el altavoz del PC): no se puede reproducir"), sizeof aviso);
+        else formatar_texto(aviso, sizeof aviso, _("No se puede abrir el sonido: %s"), nome_erro(fluxo));
         registrar("musica: sin sonido (%d)\n", fluxo);
         fluxo = -1;
         estado = PARADO;
@@ -325,7 +325,7 @@ static bool abrir_faixa(int i, bool tocar)
     arq = audio_arquivo_abrir(rutas[i], &erro);
     if (!arq) {
         if (erro == AUDIO_ERRO_FORMATO && extensao_ogg(rutas[i]))
-            formatar_texto(aviso, sizeof aviso, "%s: Ogg Vorbis todavía no está soportado", nome_curto(rutas[i]));
+            formatar_texto(aviso, sizeof aviso, _("%s: Ogg Vorbis todavía no está soportado"), nome_curto(rutas[i]));
         else formatar_texto(aviso, sizeof aviso, "%s: %s", nome_curto(rutas[i]), audio_erro_texto(erro));
         registrar("musica: error al abrir %s (%d)\n", rutas[i], erro);
         return false;
@@ -397,7 +397,7 @@ static void saltar(uint32_t ms)
     uint32_t desde = posicao_ms();
     if (fluxo >= 0) audio_controle(fluxo, AUDIO_DESCARTAR, 0);
     int r = audio_arquivo_buscar(arq, ms);
-    if (r < 0) { formatar_texto(aviso, sizeof aviso, "No se puede saltar: %s", audio_erro_texto(r)); return; }
+    if (r < 0) { formatar_texto(aviso, sizeof aviso, _("No se puede saltar: %s"), audio_erro_texto(r)); return; }
     reiniciar_anel();
     aviso[0] = 0;
     registrar("musica: salto a %u ms (cuadro %u, %u ms) desde %u ms\n", ms, base_q, quadros_ms(base_q, inf->taxa), desde);
@@ -466,7 +466,7 @@ static void juntar(char *saida, size_t max, const char *pasta, const char *nome)
 
 static bool adicionar_arquivo(const char *c)
 {
-    if (qtd >= MAX_PISTAS) { copia_texto(aviso, "Lista llena", sizeof aviso); return false; }
+    if (qtd >= MAX_PISTAS) { copia_texto(aviso, _("Lista llena"), sizeof aviso); return false; }
     copia_texto(rutas[qtd++], c, sizeof rutas[0]);
     return true;
 }
@@ -476,7 +476,7 @@ static int adicionar(const char *c)
 {
     info_arquivo_t i;
     if (info_arquivo(c, &i) < 0) {
-        formatar_texto(aviso, sizeof aviso, "%s: no existe", c);
+        formatar_texto(aviso, sizeof aviso, _("%s: no existe"), c);
         return 0;
     }
     if (i.tipo != TIPO_PASTA) return adicionar_arquivo(c) ? 1 : 0;
@@ -495,7 +495,7 @@ static int adicionar(const char *c)
         juntar(r, sizeof r, c, ns[k]);
         if (adicionar_arquivo(r)) add++;
     }
-    if (!add) formatar_texto(aviso, sizeof aviso, "No hay archivos de sonido en %s", c);
+    if (!add) formatar_texto(aviso, sizeof aviso, _("No hay archivos de sonido en %s"), c);
     return add;
 }
 
@@ -508,7 +508,7 @@ static bool preguntar(const char *titulo, char *c, int max)
     bool tocaba = estado == TOCANDO;
     if (tocaba) pausar();
     if (c[0] == 0) copia_texto(c, "/", (size_t)max);
-    bool carpeta = confirmar(titulo, "¿Añadir una carpeta entera?\nSí: elegir una carpeta.  No: elegir un archivo de sonido.");
+    bool carpeta = confirmar(titulo, _("¿Añadir una carpeta entera?\nSí: elegir una carpeta.  No: elegir un archivo de sonido."));
     bool ok = (carpeta ? dialogo_carpeta(titulo, c, c, max) : dialogo_abrir(titulo, FILTROS_SONIDO, c, c, max)) && c[0];
     if (tocaba && estado == PAUSADO) alternar();
     return ok;
@@ -685,7 +685,7 @@ int principal(int argc, char **argv)
         registrar("musica: entregado a la instancia viva\n");
         return 0;
     }
-    j = jan_abrir("Música", LARG_INICIO, ALT_INICIO);
+    j = jan_abrir(_("Música"), LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
     iu_registrar("musica");
     jan_estilo(j, JAN_REDIMENSIONAVEL, LARG_MIN, ALT_MIN);

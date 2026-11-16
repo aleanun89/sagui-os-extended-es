@@ -1,0 +1,79 @@
+# Traducción de SaguiOS: catálogo «recortes», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/recortes.c:78 userland/programas/recortes.c:162 userland/programas/recortes.c:216
+msgid "Recortes"
+msgstr "Recortes"
+
+#: userland/programas/recortes.c:166
+msgid "Guardar"
+msgstr "Salvar"
+
+#: userland/programas/recortes.c:166
+msgid "Copiar"
+msgstr "Copiar"
+
+#: userland/programas/recortes.c:167
+msgid "Abrir en Paint"
+msgstr "Abrir no Paint"
+
+#: userland/programas/recortes.c:167
+msgid "Nuevo recorte"
+msgstr "Novo recorte"
+
+#: userland/programas/recortes.c:184
+msgid "Guardar recorte"
+msgstr "Salvar recorte"
+
+#: userland/programas/recortes.c:184
+msgid "Imagen PNG (*.png)|*.png|Mapa de bits (*.bmp)|*.bmp"
+msgstr "Imagem PNG (*.png)|*.png|Mapa de bits (*.bmp)|*.bmp"
+
+#: userland/programas/recortes.c:188
+msgid "No se pudo guardar."
+msgstr "Não foi possível salvar."
+
+#: userland/programas/recortes.c:188
+#, c-format
+msgid "Guardado en %s"
+msgstr "Salvo em %s"
+
+#: userland/programas/recortes.c:193
+msgid "No se pudo copiar."
+msgstr "Não foi possível copiar."
+
+#: userland/programas/recortes.c:193
+msgid "Imagen copiada (Ctrl+V en Paint)"
+msgstr "Imagem copiada (Ctrl+V no Paint)"
+
+#: userland/programas/recortes.c:200
+msgid "No se pudo guardar para Paint."
+msgstr "Não foi possível salvar para o Paint."
+
+#: userland/programas/recortes.c:219
+msgid "Ahora"
+msgstr "Agora"
+
+#: userland/programas/recortes.c:219
+msgid "3 s"
+msgstr "3 s"
+
+#: userland/programas/recortes.c:220
+msgid "5 s"
+msgstr "5 s"
+
+#: userland/programas/recortes.c:220
+msgid "10 s"
+msgstr "10 s"
+
+#: userland/programas/recortes.c:222
+msgid "Nuevo recorte (el retardo sirve para menús abiertos):"
+msgstr "Novo recorte (o atraso serve para menus abertos):"
+

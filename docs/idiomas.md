@@ -39,6 +39,10 @@ Reglas:
 
 En el kernel: `#include "idioma.h"` y lo mismo (`_()`, `N_()`).
 
+Menús de una pieza (`barra_menu_t.itens`, `menu_contextual`, `cinta.archivo`): `MENU_("Nuevo\tCtrl+N\n-\nAbrir...")` traduce cada
+línea por separado (el atajo tras `\t` y los `-` se dejan) y el extractor saca cada línea como una cadena; `NMENU_()` solo marca
+(tablas estáticas, se traduce al usarla con `MENU_()`). Los `#define` los salta el extractor: usa `static const char *const x = N_("...")`.
+
 ## Dónde va cada texto (qué catálogo)
 
 | Fuente | Catálogo |
@@ -47,6 +51,7 @@ En el kernel: `#include "idioma.h"` y lo mismo (`_()`, `N_()`).
 | `userland/libsagui/*.c`, `userland/inc/*.h` | `libsagui` (los lee todo programa, tras el suyo) |
 | `kernel/gui/*.c` y los avisos de `acpi.c`, `supervisor.c`, `energia.c` | `kernel` |
 
+Una cabecera `userland/programas/X_y.h` va al catálogo `X` si existe `X.c` (`pluma_cinta.h` -> `pluma`).
 Un programa nuevo en otra carpeta o con otro nombre de ejecutable se añade en `catalogo_de()` y `BUSCAR` de
 `tools/extraer_textos.py`.
 
@@ -72,3 +77,16 @@ cirílico, griego o CJK necesitan la fase 3 (UTF-8 interno).
 `python3 tests/h315_idiomas.py` (lector de catálogos, `.po` completos, capturas en `en`, `pt_BR` y `xx`, cambio de idioma desde la
 ventana, reinicio). Con `LANG=xx` y los registros: lo marcado que falta sale como `[IDIOMA] sin traducir (idioma): texto` (una vez
 por cadena) en el puerto serie.
+
+## Aplicaciones traducidas (D313 y D344)
+
+| Aplicación | Catálogo | Estado |
+|---|---|---|
+| Configuración, Archivos, Convertir audio, Ejecutar, Traductor | `configuracion`, `arquivos`, `convertir-audio`, `ejecutar`, `traductor` | completo (fase 1) |
+| Escritorio, barra, menú Inicio | `kernel` | completo |
+| Calculadora, Paint, Editor, Visor de imágenes, Música, Grabadora, Cámara, Recortes, Buscaminas | un catálogo por programa | completo (D344) |
+| Pluma (menús, cinta, diálogos) | `pluma` | completo, salvo el texto del asistente de IA (dirigido al modelo) |
+| Administrador de tareas | `tareas` | completo, salvo los estados TCP y la columna «Rein.» abreviada |
+| Acerca de | `sobre-o-sistema` | completo |
+| Reproductor | `reproductor` | completo |
+| Pendientes | Macaco, Correo, Cipó, Terminal, Visor de PDF, Chat IA, Discos, Información del PC, Sintonía, Planomini, Gebramini, JClic, MIDI, VNC, Spider, Pantalla, Ampliar /home, Markdown | sin marcar |
