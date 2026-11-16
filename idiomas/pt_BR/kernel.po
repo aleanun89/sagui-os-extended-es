@@ -812,3 +812,7 @@ msgstr "Você já pode desligar o computador."
 msgid "Parando los servicios..."
 msgstr "Parando os serviços..."
 
+
+#: kernel/gui/janelas.c
+msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
+msgstr "Não foi encontrada a partição de aplicativos (/apps): este PC não enxerga bem o disco de inicialização. Alguns aplicativos não estarão disponíveis. Use saguios-completo.img (mais informações: docs/imagenes.md)."

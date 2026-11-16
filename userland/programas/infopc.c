@@ -21,12 +21,14 @@
  * INFO_PCI, INFO_VIDEO, INFO_CPU_MHZ, además de los existentes; para el informe,
  * INFO_LOG, INFO_ACPI e INFO_ARRANQUE). La tabla SMBIOS llega cruda y se
  * decodifica aquí. Nada se escribe en el hardware. */
+#include "pcinomes.h"
 #include "sagui.h"
 #include "gui.h"
 #include "saguimark.h"
 #include "versao.h"
 #include "sensores.h"
 #include "gpuid.h"
+#include "contas.h"
 
 /* ------------------------------------------------------------ texto acumulado */
 
@@ -601,63 +603,6 @@ static const char *nome_classe(uint8_t c, uint8_t s, uint8_t i)
     }
 }
 
-static const char *nome_fabricante(uint16_t v)
-{
-    switch (v) {
-    case 0x8086: return "Intel"; case 0x1022: return "AMD"; case 0x1002: return "AMD/ATI";
-    case 0x10DE: return "NVIDIA"; case 0x10EC: return "Realtek"; case 0x168C: return "Atheros";
-    case 0x1969: return "Atheros"; case 0x14E4: return "Broadcom"; case 0x1AF4: return "Red Hat (virtio)";
-    case 0x1B36: return "Red Hat (QEMU)"; case 0x1234: return "Bochs/QEMU"; case 0x80EE: return "VirtualBox";
-    case 0x15AD: return "VMware"; case 0x1106: return "VIA"; case 0x1039: return "SiS";
-    case 0x197B: return "JMicron"; case 0x1180: return "Ricoh"; case 0x1217: return "O2 Micro";
-    case 0x104C: return "Texas Instr."; case 0x11AB: return "Marvell"; case 0x1B21: return "ASMedia";
-    case 0x1414: return "Microsoft"; case 0x10B7: return "3Com"; case 0x1033: return "NEC";
-    default: return NULL;
-    }
-}
-
-static const char *nome_dispositivo(uint16_t v, uint16_t d)
-{
-    uint32_t id = ((uint32_t)v << 16) | d;
-    switch (id) {
-    case 0x80861237: return "440FX (i440FX PMC)";
-    case 0x80867000: return "PIIX3 ISA";
-    case 0x80867010: return "PIIX3 IDE";
-    case 0x80867020: return "PIIX3 USB";
-    case 0x80867113: return "PIIX4 ACPI";
-    case 0x808629C0: return "Q35 (MCH)";
-    case 0x80862918: return "ICH9 LPC";
-    case 0x80862922: return "ICH9 AHCI";
-    case 0x8086100E: return "82540EM Gigabit (e1000)";
-    case 0x808624CD: return "82801DB EHCI";
-    case 0x8086293A: return "ICH9 EHCI";
-    case 0x80862668: return "ICH6 HD Audio";
-    case 0x80860104: return "Sandy Bridge (host)";
-    case 0x80860106: case 0x80860116: case 0x80860126: return "HD Graphics (Sandy Bridge)";
-    case 0x80861C3A: return "6 Series MEI";
-    case 0x80861C26: case 0x80861C2D: return "6 Series EHCI";
-    case 0x80861C20: return "6 Series HD Audio";
-    case 0x80861C49: return "HM65 LPC";
-    case 0x80861C03: return "6 Series SATA AHCI";
-    case 0x80861C22: return "6 Series SMBus";
-    case 0x12341111: return "VGA estándar (Bochs)";
-    case 0x10EC8136: return "RTL810xE Fast Ethernet";
-    case 0x10EC8168: return "RTL8111/8168 Gigabit";
-    case 0x10EC8139: return "RTL8139";
-    case 0x19692060: return "AR8152 v1.1 Fast Ethernet";
-    case 0x19692062: return "AR8152 v2.0 Fast Ethernet";
-    case 0x19691073: return "AR8151 v1.0 Gigabit";
-    case 0x19691083: return "AR8151 v2.0 Gigabit";
-    case 0x19691063: return "AR8131 Gigabit";
-    case 0x19691062: return "AR8132 Fast Ethernet";
-    case 0x168C002B: return "AR9285 Wi-Fi";
-    case 0x168C0032: return "AR9485 Wi-Fi";
-    case 0x80EEBEEF: return "VGA de VirtualBox";
-    case 0x80EECAFE: return "Guest Service";
-    default: return NULL;
-    }
-}
-
 /* D211: la vía de cada IRQ: controlador, GSI (de la línea de la BIOS o del
  * _PRT), CPU que la recibe y el resultado de la autoprueba del arranque. */
 static void secao_irq(texto_t *t)
@@ -701,10 +646,11 @@ static void secao_pci(texto_t *t)
     ad(t, "%d funciones PCI (bus:disp.fun, fabricante:dispositivo, clase):\n", n);
     for (int i = 0; i < n; i++) {
         info_pci_t *p = &v[i];
-        const char *f = nome_fabricante(p->fabricante), *d = nome_dispositivo(p->fabricante, p->modelo);
+        const char *f = pci_nome_fabricante(p->fabricante), *d = pci_nome_dispositivo(p->fabricante, p->modelo);
         ad(t, "  %02x:%02x.%u  %04x:%04x  %-22s %s%s%s\n", p->barramento, p->dispositivo, p->funcao,
            p->fabricante, p->modelo, nome_classe(p->classe, p->subclasse, p->interface),
            f ? f : "?", d ? " " : "", d ? d : "");
+        if (pci_es_voodoo12(p->fabricante, p->modelo)) ad(t, "             %s\n", PCI_NOTA_VOODOO12);
     }
     /* D302: los dispositivos ISA que detectó el kernel */
     static info_isa_t isa[8];
@@ -722,6 +668,22 @@ static void secao_pci(texto_t *t)
 }
 
 /* ------------------------------------------------------------ vídeo */
+
+/* issue #43: la tarjeta de los aceleradores 2D de época (tdfx, Mach64/Rage, S3...) no está en gpuid.h ni en la tabla
+ * de nombres del PCI. Su nombre sale de la tabla del propio acelerador del kernel (INFO_ACEL2D, campo placa), sin
+ * duplicarla. Si la tarjeta es esa, g.familia pasa a decir de qué acelerador es. Devuelve el nombre o NULL. */
+static info_acel2d_t ac2;
+static char acel_fam[48];
+static const char *acel_nome_placa(const info_acel2d_t *ac, const info_pci_t *p, gpu_id_t *g)
+{
+    if (!ac->placa[0] || ac->fabricante != p->fabricante || ac->modelo != p->modelo) return NULL;
+    if (compara_texto(g->familia, "otra") == 0 || compara_texto(g->familia, "desconocida") == 0) {
+        formatar_texto(acel_fam, sizeof acel_fam, "acelerador 2D de época (driver %s)", ac->nome);
+        g->familia = acel_fam;
+        g->detalle = "";
+    }
+    return ac->placa;
+}
 
 static void secao_video(texto_t *t)
 {
@@ -753,6 +715,7 @@ static void secao_video(texto_t *t)
     info_acel2d_t ac;
     memset(&ac, 0, sizeof ac);
     if (v.grafico && info_sistema(INFO_ACEL2D, &ac, sizeof ac) == 0) {
+        ac2 = ac;
         /* D195: «<motor> (por qué)» o «CPU (por qué)»: lo primero que hay que mirar en
          * un PC real (el detalle, en las líneas [ACEL2D] del log). */
         if (ac.ativo) ad(t, "Aceleración 2D:    %s (%s)\n", ac.nome, ac.motivo);
@@ -777,7 +740,9 @@ static void secao_video(texto_t *t)
         const info_pci_t *p = &pv[i];
         if (p->classe != 0x03) continue;
         gpu_id_t g = gpu_identificar(p->fabricante, p->modelo);
-        ad(t, "GPU:               %04x:%04x, %s\n", p->fabricante, p->modelo, g.familia);
+        const char *pn = acel_nome_placa(&ac2, p, &g);
+        if (pn) ad(t, "GPU:               %04x:%04x, %s (%s)\n", p->fabricante, p->modelo, pn, g.familia);
+        else ad(t, "GPU:               %04x:%04x, %s\n", p->fabricante, p->modelo, g.familia);
         if (g.detalle[0]) ad(t, "  Chips:          %s\n", g.detalle);
         ad(t, "  SaguiGL 3D:     %s\n", g.motor);
     }
@@ -1324,9 +1289,21 @@ static void gb_executar(gb_t *r)
     /* El kernel: las mismas órdenes por la GPU y por la CPU (tres tandas). */
     static info_acel2d_prova_t k;
     memset(&k, 0, sizeof k);
-    info_sistema(INFO_ACEL2D_PROVA, &k, sizeof k);
+    /* La autoprueba toca la GPU: el kernel solo la deja al administrador (ERRO_ACESSO si no). Antes no se miraba el
+     * resultado de la llamada y, sin permisos, k quedaba a cero: «resultado 0» = «FALLÓ la autoprueba ()» (issue #43). */
+    int ra = COM_ADMIN("medir el 2D por la GPU", info_sistema(INFO_ACEL2D_PROVA, &k, sizeof k));
+    if (ra != 0) {
+        memset(&k, 0, sizeof k);
+        k.resultado = -1;
+        copia_texto(k.texto, ra == ERRO_ACESSO ? "medir con la GPU pide ser administrador: se mide solo por software"
+                                                : "el kernel no da la autoprueba del acelerador", sizeof k.texto);
+    }
     copia_texto(r->motivo, k.texto, sizeof r->motivo);
-    r->acel = k.resultado == 1 && k.bn == 3 ? 1 : k.resultado == 0 ? -1 : 0;
+    if (k.resultado == 1 && k.bn != 3)   /* superó la autoprueba pero no dio las tres tandas: no es un fallo */
+        copia_texto(r->motivo, "superó la autoprueba, pero el kernel no midió las tres tandas", sizeof r->motivo);
+    if (!r->motivo[0]) copia_texto(r->motivo, k.resultado == 0 ? "sin detalle del kernel" : "sin motivo del kernel", sizeof r->motivo);
+    /* 1 = por la GPU; 0 = no hay acelerador; -1 = FALLÓ la autoprueba; -2 = hay acelerador pero no se pudo medir con él */
+    r->acel = ra != 0 || (k.resultado == 1 && k.bn != 3) ? -2 : k.resultado == 1 ? 1 : k.resultado == 0 ? -1 : 0;
     for (int t = 0; t < 3; t++) {
         gb_prova_t *p = &r->p[t];
         if (r->acel == 1) {
@@ -1377,6 +1354,7 @@ static void gb_texto(texto_t *t, const gb_t *r)
     ad(t, "Medido el %02u/%02u/%04u a las %02u:%02u, TSC %u,%02u MHz\n", r->data.dia, r->data.mes, r->data.ano,
        r->data.hora, r->data.minuto, r->tsc_khz / 1000, r->tsc_khz % 1000 / 10);
     if (r->acel == 1) ad(t, "Camino GPU: %s\n", r->motivo);
+    else if (r->acel == -2) ad(t, "Camino GPU: no se midió con el acelerador (%s); solo por software\n", r->motivo);
     else if (r->acel < 0) ad(t, "Camino GPU: el acelerador FALLÓ la autoprueba (%s); solo por software\n", r->motivo);
     else ad(t, "Camino GPU: no hay acelerador 2D (%s); solo por software (CPU)\n", r->motivo);
     ad(t, "\n%-30s %-24s %-24s %6s %s\n", "Prueba", "GPU", "CPU (software)", "Ganan.", "Suma  Puntos");
@@ -1504,12 +1482,26 @@ static void secao_gpu(texto_t *t)
         if (p->classe != 0x03) continue;
         achou++;
         gpu_id_t g = gpu_identificar(p->fabricante, p->modelo);
-        const char *f = nome_fabricante(p->fabricante), *d = nome_dispositivo(p->fabricante, p->modelo);
-        ad(t, "GPU:               %04x:%04x  %s%s%s\n", p->fabricante, p->modelo, f ? f : "?", d ? " " : "", d ? d : "");
+        const char *f = pci_nome_fabricante(p->fabricante), *d = pci_nome_dispositivo(p->fabricante, p->modelo);
+        info_acel2d_t aq;
+        memset(&aq, 0, sizeof aq);
+        info_sistema(INFO_ACEL2D, &aq, sizeof aq);
+        const char *pn = acel_nome_placa(&aq, p, &g);
+        if (pn && !d) { f = NULL; d = pn; }   /* sin nombre en la tabla del PCI: el del acelerador */
+        ad(t, "GPU:               %04x:%04x  %s%s%s\n", p->fabricante, p->modelo, f ? f : (d ? "" : "?"), d && f ? " " : "", d ? d : "");
         ad(t, "  Subsistema:      %04x:%04x, revisión %02x, PCI %02x:%02x.%u\n", p->sub_fabricante, p->sub_modelo, p->revisao,
            p->barramento, p->dispositivo, p->funcao);
         ad(t, "  Familia:         %s\n", g.familia);
         if (g.detalle[0]) ad(t, "  Chips:           %s\n", g.detalle);
+    }
+    /* 3dfx Voodoo 1/2: aceleradores 3D adicionales, sin driver (clase 0x04, no salen arriba) */
+    for (int i = 0; i < np; i++) {
+        const info_pci_t *p = &pv[i];
+        if (!pci_es_voodoo12(p->fabricante, p->modelo)) continue;
+        ad(t, "GPU:               %04x:%04x  %s %s\n", p->fabricante, p->modelo, pci_nome_fabricante(p->fabricante),
+           pci_nome_dispositivo(p->fabricante, p->modelo));
+        ad(t, "  %s\n", PCI_NOTA_VOODOO12);
+        achou++;
     }
     if (!achou) ad(t, "GPU:               ninguna tarjeta de vídeo en el PCI\n");
     if (v.vbe_versao) ad(t, "Memoria de vídeo: %s (VBE %u.%u%s%s)\n", tamanho(a, sizeof a, (uint64_t)v.memoria_kb << 10),
@@ -1528,6 +1520,7 @@ static void secao_gpu(texto_t *t)
     info_acel2d_t ac;
     memset(&ac, 0, sizeof ac);
     if (v.grafico && info_sistema(INFO_ACEL2D, &ac, sizeof ac) == 0) {
+        ac2 = ac;
         if (ac.ativo) ad(t, "Acelerador 2D:    %s (%s)\n", ac.nome, ac.motivo);
         else ad(t, "Acelerador 2D:    por software (CPU): %s\n", ac.motivo);
         if (ac.modelo) ad(t, "  Tarjeta:         %s; espera máxima de la GPU %u ms\n", ac.confirmada ? "confirmada" : "por autoprueba", ac.prazo_ms);
@@ -1692,7 +1685,7 @@ static void informe_pci(texto_t *t, int *com, int *sem)
     ad(t, "  nombre / driver de SaguiOS y estado\n\n");
     for (int i = 0; i < n; i++) {
         info_pci_t *p = &v[i];
-        const char *f = nome_fabricante(p->fabricante), *d = nome_dispositivo(p->fabricante, p->modelo);
+        const char *f = pci_nome_fabricante(p->fabricante), *d = pci_nome_dispositivo(p->fabricante, p->modelo);
         const conhecido_t *c = conhecer(p);
         ad(t, "%02x:%02x.%u  %04x:%04x  sub %04x:%04x  %02x.%02x.%02x  rev %02x  irq %u\n", p->barramento,
            p->dispositivo, p->funcao, p->fabricante, p->modelo, p->sub_fabricante, p->sub_modelo, p->classe,

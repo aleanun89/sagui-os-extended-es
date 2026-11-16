@@ -679,6 +679,7 @@ typedef struct {
     unsigned int apagado;                    /* D244: 0 = no; 1 = lo apagó el vigilante; 2 = a mano */
     unsigned int prazo_ms;                   /* D244: plazo máximo de cada espera de la GPU en sesión */
     unsigned int reservado[2];
+    char         placa[48];                  /* nombre de la tarjeta según la tabla del acelerador (vacío si no es de ella) */
 } info_acel2d_t;
 #define INFO_ACEL2D_CTL   69  /* D244: (op, 0): op 0 = apagar, 1 = encender -> 0 / error */
 /* Cámara (D277): INFO_CAMARA (&info_camara_t, sizeof) -> el campo "resultado" y el valor devuelto

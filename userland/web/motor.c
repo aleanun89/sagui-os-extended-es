@@ -6147,7 +6147,7 @@ static void controle(no_m *n, int x, int y)
             cmd_novo(&c);
         } else {
             const char *alt = atributo_m(n, "alt");
-            if (alt && alt[0] && cl > 8) texto_cmd(n, cx, cy, cl, ca, alt, (int)tam_texto(alt) < cl / larg_letra(e) ? (int)tam_texto(alt) : cl / larg_letra(e), e, 0x6A737C);
+            if (alt && alt[0] && cl > 8 && (int)tam_texto(alt) <= cl / larg_letra(e)) texto_cmd(n, cx, cy, cl, ca, alt, (int)tam_texto(alt) < cl / larg_letra(e) ? (int)tam_texto(alt) : cl / larg_letra(e), e, 0x6A737C);
         }
         if (n->alvo >= 0) {
             if (n->img >= 0 && mo->imgs[n->img].url && mo->alvos[n->alvo].tipo == MA_LINK)

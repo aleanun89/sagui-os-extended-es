@@ -8,7 +8,10 @@
  * discos.
  *
  * Cada disco responde al IDENTIFY; direccionamiento LBA28 y, para sectores más allá
- * de 2^28, LBA48. Toda espera tiene límite (un canal sin disco devuelve 0xFF o
+ * de 2^28, LBA48. D330: los discos que no anuncian LBA (palabra 49, bit 9; los de menos de
+ * 1024 cilindros de la época, y los que emula 86Box) se direccionan por CHS con su
+ * geometría por defecto (palabras 1, 3 y 6), que se fija antes con INITIALIZE DEVICE
+ * PARAMETERS para que el disco y el driver cuenten igual. Toda espera tiene límite (un canal sin disco devuelve 0xFF o
  * 0x00 y nunca bloquea el arranque). Interrupciones del disco desactivadas (nIEN): el
  * driver solo consulta el registro de estado.
  *
@@ -82,6 +85,7 @@
 #define CMD_GRAVAR_DMA     0xCA
 #define CMD_GRAVAR_DMA_EXT 0x35
 #define CMD_SET_FEATURES   0xEF
+#define CMD_INIC_PARAMS    0x91   /* D330: INITIALIZE DEVICE PARAMETERS (geometría CHS actual) */
 #define DMA_SETORES  128u    /* 64 KB por orden: una sola entrada de la tabla PRD */
 
 typedef struct {
@@ -104,6 +108,10 @@ typedef struct {
     uint8_t  unidade;          /* 0 = maestro, 1 = esclavo */
     bool     dma;              /* D281: el disco tiene un modo DMA activo */
     bool     lba48;
+    bool     chs;              /* D330: sin LBA; se direcciona por cilindro/cabeza/sector */
+    uint8_t  cabecas, setpista; /* geometría CHS fijada con INITIALIZE DEVICE PARAMETERS */
+    bool     flush_anunciado;  /* D330: IDENTIFY palabra 83, bit 12 (FLUSH CACHE, ATA-6 en adelante) */
+    bool     sem_flush;        /* D330: el disco abortó el FLUSH CACHE sin anunciarlo: ya no se manda */
     uint32_t setores;
     disco_t *disco;
 } ata_disco_t;
@@ -351,6 +359,18 @@ static int comando(ata_disco_t *a, uint32_t lba, uint32_t n, bool gravar, bool d
         porta_escreve8(c->base + REG_LBA1, (uint8_t)(lba >> 8));
         porta_escreve8(c->base + REG_LBA2, (uint8_t)(lba >> 16));
         porta_escreve8(c->base + REG_CMD, op48);
+    } else if (a->chs) {
+        /* D330: el LBA del disco se pasa a CHS con la geometría actual del disco. */
+        uint32_t por_cil = (uint32_t)a->cabecas * a->setpista;
+        uint32_t cil = lba / por_cil, resto = lba % por_cil;
+        if (cil > 0xFFFFu) return -1;                       /* fuera del alcance del CHS */
+        porta_escreve8(c->base + REG_DISP, (uint8_t)(0xA0 | a->unidade << 4 | (resto / a->setpista)));
+        pausa_400ns(c);
+        porta_escreve8(c->base + REG_QTD, (uint8_t)n);      /* 256 pasa a 0 */
+        porta_escreve8(c->base + REG_LBA0, (uint8_t)(resto % a->setpista + 1));
+        porta_escreve8(c->base + REG_LBA1, (uint8_t)cil);
+        porta_escreve8(c->base + REG_LBA2, (uint8_t)(cil >> 8));
+        porta_escreve8(c->base + REG_CMD, op28);
     } else {
         porta_escreve8(c->base + REG_DISP, (uint8_t)(0xE0 | a->unidade << 4 | ((lba >> 24) & 0x0F)));
         pausa_400ns(c);
@@ -690,7 +710,7 @@ static int escrever(disco_t *k, uint32_t lba, uint32_t n, const void *buf)
         r = gravar_pio(k, a, lba, parte, (const uint16_t *)p, &ext);
         p += parte * 512u; lba += parte; n -= parte;
     }
-    if (r == 0) {   /* saca de la caché del disco: apagar justo después no pierde nada */
+    if (r == 0 && !a->sem_flush) {   /* saca de la caché del disco: apagar justo después no pierde nada */
         bool i0 = int_salva_desliga();
         porta_escreve8(c->ctrl, 0x02);
         porta_escreve8(c->base + REG_DISP, (uint8_t)(0xA0 | a->unidade << 4));
@@ -698,7 +718,14 @@ static int escrever(disco_t *k, uint32_t lba, uint32_t n, const void *buf)
         porta_escreve8(c->base + REG_CMD, ext ? CMD_FLUSH_EXT : CMD_FLUSH);
         pausa_400ns(c);
         int s = esperar_livre_flush(c);
-        if (s < 0 || (s & ST_ERR)) r = -1;
+        /* D330: los discos de antes del ATA-4 (y el IDE de 86Box) no conocen el FLUSH CACHE y
+         * lo abortan (ABRT). Si el disco no lo anuncia, eso no es un fallo de la grabación (que
+         * ya terminó bien): se anota y no se vuelve a mandar. Si lo anuncia, sigue siendo error. */
+        if (s >= 0 && (s & ST_ERR) && !(s & ST_DF) && !a->flush_anunciado &&
+            (porta_le8(c->base + REG_ERRO) & 0x04)) {
+            a->sem_flush = true;
+            klog("[ATA] %s: el disco no admite FLUSH CACHE (no lo anuncia y lo aborta): se graba sin vaciar su cache (D330)\n", k->nome);
+        } else if (s < 0 || (s & ST_ERR)) r = -1;
         int_restaura(i0);
     }
     trava_soltar(&c->trava);
@@ -713,6 +740,35 @@ static canal_t *acrescentar_canal(uint16_t base, uint16_t ctrl)
     for (int i = 0; i < MAX_CANAIS; i++)
         if (!canais[i].usado) { canais[i] = (canal_t){ .base = base, .ctrl = ctrl, .usado = true }; return &canais[i]; }
     return NULL;
+}
+
+/* D330: un disco sin LBA. Toma la geometría por defecto del IDENTIFY (palabras 1, 3 y 6),
+ * comprueba que es posible y la fija como la actual con INITIALIZE DEVICE PARAMETERS: la BIOS
+ * pudo dejar otra (traducción) y, sin LBA, el disco no dice cuál (palabras 54-56 no válidas).
+ * Devuelve los sectores del disco, o 0 si no se puede usar. Con las interrupciones apagadas. */
+static uint32_t preparar_chs(canal_t *c, ata_disco_t *a, const uint16_t *id)
+{
+    uint32_t cil = id[1], cab = id[3], spt = id[6];
+    if (!cil || !cab || cab > 16 || !spt || spt > 63) {
+        klog("[ATA] %x/%d: sin LBA y con geometria imposible (%u/%u/%u), ignorado\n", c->base, a->unidade, cil, cab, spt);
+        return 0;
+    }
+    porta_escreve8(c->base + REG_DISP, (uint8_t)(0xA0 | a->unidade << 4 | (cab - 1)));
+    pausa_400ns(c);
+    if (esperar_livre(c) < 0) return 0;
+    porta_escreve8(c->base + REG_QTD, (uint8_t)spt);
+    porta_escreve8(c->base + REG_CMD, CMD_INIC_PARAMS);
+    pausa_400ns(c);
+    int s = esperar_livre(c);
+    if (s < 0 || (s & (ST_ERR | ST_DF))) {
+        klog("[ATA] %x/%d: sin LBA y no acepta la geometria %u/%u/%u (estado %x), ignorado\n",
+             c->base, a->unidade, cil, cab, spt, s < 0 ? 0xFF : s);
+        return 0;
+    }
+    a->chs = true;
+    a->cabecas = (uint8_t)cab;
+    a->setpista = (uint8_t)spt;
+    return cil * cab * spt;
 }
 
 static void copiar_texto_ata(char *dest, const uint16_t *id, int ini, int palavras, int max)
@@ -785,20 +841,28 @@ int ata_iniciar(void)
             ata_disco_t *a = &unidades[qtd_unidades];
             a->canal = c;
             a->unidade = u;
-            a->lba48 = (id[83] & (1 << 10)) != 0;
+            a->chs = false;
+            a->sem_flush = false;
+            a->flush_anunciado = (id[83] & 0xC000) == 0x4000 && (id[83] & (1 << 12));
+            a->lba48 = (id[49] & (1 << 9)) && (id[83] & (1 << 10)) != 0;
             uint32_t s28 = (uint32_t)id[60] | (uint32_t)id[61] << 16;
             uint32_t s48 = (uint32_t)id[100] | (uint32_t)id[101] << 16;
             bool grande = id[102] || id[103];
             a->setores = a->lba48 ? (grande ? 0xFFFFFFFFu : s48) : s28;
             if (!a->setores) a->setores = s28;
-            if (!(id[49] & (1 << 9)) || !a->setores) { klog("[ATA] %x/%d: sem LBA, ignorado\n", c->base, u); continue; }
+            if (!(id[49] & (1 << 9))) a->setores = preparar_chs(c, a, id);   /* D330 */
+            if (!a->setores) { klog("[ATA] %x/%d: sem LBA, ignorado\n", c->base, u); continue; }
             char modelo[48];
             copiar_texto_ata(modelo, id, 27, 20, sizeof modelo);
             /* D179: el TRIM (DATA SET MANAGEMENT) solo existe por DMA y este driver es PIO:
              * se anota que el disco lo admite, pero no se manda. */
             bool trim = (id[169] & 1) != 0;
-            klog("[ATA] %x/%d: \"%s\", %u setores, LBA%s%s\n", c->base, u, modelo, a->setores, a->lba48 ? "48" : "28",
-                 grande ? " (limitado a 2 TB)" : "");
+            if (a->chs)
+                klog("[ATA] %x/%d: \"%s\", %u setores, CHS %u/%u/%u (sin LBA, D330)\n", c->base, u, modelo, a->setores,
+                     id[1], a->cabecas, a->setpista);
+            else
+                klog("[ATA] %x/%d: \"%s\", %u setores, LBA%s%s\n", c->base, u, modelo, a->setores, a->lba48 ? "48" : "28",
+                     grande ? " (limitado a 2 TB)" : "");
             if (!dma_desligado && c->bm && dma_preparar_canal(c)) {
                 a->dma = dma_modo_disco(c, a, id);
                 klog("[ATA] %x/%d: %s (Bus Master %x, IRQ %u)\n", c->base, u, a->dma ? "DMA" : "solo PIO", c->bm, c->irq);

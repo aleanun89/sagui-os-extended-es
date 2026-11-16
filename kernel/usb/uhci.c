@@ -133,8 +133,19 @@ static bool iniciar(uhci_t *c)
     esc16(c, R_CMD, 0);
     pausa_ms(10);
     esc16(c, R_CMD, CMD_HCRESET);
-    for (int i = 0; i < 20 && (le16(c, R_CMD) & CMD_HCRESET); i++) pausa_ms(1);
-    if (le16(c, R_CMD) & CMD_HCRESET) { klog("[UHCI] el reinicio no terminó\n"); return false; }
+    for (int i = 0; i < 100 && (le16(c, R_CMD) & CMD_HCRESET); i++) pausa_ms(1);
+    if (le16(c, R_CMD) & CMD_HCRESET) {
+        /* D328: el HCRESET debe borrarse solo (UHCI 1.1, 2.1.1), pero el PIIX4 emulado por 86Box lo deja
+         * puesto. Se baja a mano y se sigue si el controlador responde (parado y con los puertos en pie). */
+        uint16_t cmd_ant = le16(c, R_CMD), sts_ant = le16(c, R_STS);
+        esc16(c, R_CMD, 0);
+        pausa_ms(10);
+        if ((le16(c, R_CMD) & CMD_HCRESET) || le16(c, R_CMD) == 0xFFFF || !(le16(c, R_PORTA) & 0x80)) {
+            klog("[UHCI] el reinicio no terminó (CMD %04x, STS %04x, E/S %x)\n", cmd_ant, sts_ant, c->io);
+            return false;
+        }
+        klog("[UHCI] el HCRESET no se borra solo (CMD %04x, STS %04x): se baja a mano\n", cmd_ant, sts_ant);
+    }
 
     c->quadros = memfisica_alocar();
     c->pagina = memfisica_alocar_seguidas(1 + MAX_TD * 32 / PAGINA);

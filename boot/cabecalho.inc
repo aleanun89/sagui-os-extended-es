@@ -70,6 +70,8 @@ CAB_USB_PRUEBA      equ 141        ; u8 fallos simulados de la enumeración USB 
 CAB_DISCO_OPC       equ 143        ; u8 opciones del disco (D281, pruebas): bit 0 sin DMA IDE, bit 1 sin caché de
                                    ; bloques, bit 2 sin escritura diferida. Solo lo lee el kernel
 CAB_ID_INSTALACAO   equ 144        ; u32 "SGIN", u32 aleatorio, u32 hora (144-155): lo escribe "instalar" (D179) en
+CAB_NE2K_OPC        equ 157        ; u8 D329: bit 0 = sondear NE2000 ISA (mkimagem.py --ne2k-isa); apagado por defecto. Solo lo lee el kernel
+CAB_NE2K_IRQ        equ 158        ; u8 D329: IRQ de la NE2000 ISA (mkimagem.py --ne2k-irq); 0 = autodetectarla
 CAB_MANDOS_PRUEBA   equ 156        ; u8 mandos de prueba (D307; lo pone mkimagem.py --mandos-prueba): no 144, que es CAB_ID_INSTALACAO
                                    ; cada disco instalado; mkimagem.py lo deja a cero. El kernel compara los 256
                                    ; primeros bytes de la cabecera para saber de qué disco arrancó

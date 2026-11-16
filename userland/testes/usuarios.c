@@ -203,6 +203,8 @@ static void llamadas(void)
     /* SIS_AUDIO_HDA */
     livre(SIS_AUDIO_HDA, HDA_OP_ESTADO, b, 0);
     livre(SIS_AUDIO_HDA, HDA_OP_AUTOSILENCIO, (unsigned)-1, 0);
+    livre(SIS_AUDIO_HDA, SB16_OP_ESTADO, b, 0);   /* D328 */
+    livre(SIS_AUDIO_HDA, SB16_OP_CANAL, 0, (unsigned)-1);
     root(SIS_AUDIO_HDA, HDA_OP_AUTOSILENCIO, 1, 0);
     root(SIS_AUDIO_HDA, HDA_OP_VERBO, 0, 0);
     root(SIS_AUDIO_HDA, HDA_OP_PINO, 0, 0);

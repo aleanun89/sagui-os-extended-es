@@ -1187,7 +1187,7 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8
 	cp $(B)/chip8/testes/* "$$d/testes/chip8/"; \
 	if [ -n "$(PROGRAMAS)" ]; then cp $(PROGRAMAS) "$$d/bin/"; fi; \
 	if [ -n "$(PROG_TESTE)" ]; then cp $(PROG_TESTE) "$$d/testes/"; fi; \
-	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; fi; \
+	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; else : > "$$d/etc/apps-fuera"; fi; \
 	mkdir -p "$$d/lib/python"; \
 	cp -r litemonkey/python/litemonkey "$$d/lib/python/"; \
 	find "$$d" -type d -name __pycache__ -prune -exec rm -rf {} +; \

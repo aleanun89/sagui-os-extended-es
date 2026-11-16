@@ -489,7 +489,7 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
 
 ## Red y HTTPS
 
-- **Red cableada** (D046, D047): drivers Intel e1000 y Realtek RTL8139, pila IPv4 propia
+- **Red cableada** (D046, D047): drivers Intel e1000, Realtek RTL8139 y NE2000 (DP8390, PCI RTL8029 e ISA, D329), pila IPv4 propia
   (ARP, ICMP, UDP, DHCP, DNS, TCP), bucle local `127.0.0.1` y sockets como descriptores.
   Comandos `ifconfig`, `dhcp`, `ping`, `nslookup`, `nc` y el navegador de texto **Cipó**
   (`cipo`).

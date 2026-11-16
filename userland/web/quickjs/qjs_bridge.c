@@ -1420,6 +1420,27 @@ static void qjs_executar_interna(void *arg)
         JSValue exc = JS_GetException(ctx);
         const char *msg = JS_ToCString(ctx, exc);
         registrar("qjs: erro em %s: %s\n", e->nome, msg ? msg : "?");
+        /* a linha do erro, para saber que sintaxe falhou */
+        JSValue pil = JS_GetPropertyStr(ctx, exc, "stack");
+        const char *ps = JS_IsString(pil) ? JS_ToCString(ctx, pil) : NULL;
+        if (ps) {
+            const char *dp = strrchr(ps, ':');
+            int ln = 0;
+            if (dp) { dp++; while (*dp >= '0' && *dp <= '9') ln = ln * 10 + (*dp++ - '0'); }
+            registrar("qjs: pilha: %s\n", ps);
+            if (ln > 0) {
+                const char *q = e->codigo, *fim = e->codigo + e->n;
+                for (int l = 1; l < ln && q < fim; q++) if (*q == '\n') l++;
+                for (int d = 0; d < 2; d++) {   /* a linha e a seguinte */
+                    char tr[100]; int k = 0;
+                    while (q < fim && *q != '\n' && k < 99) { char ch = *q++; tr[k++] = (ch < 32 || ch > 126) ? '?' : ch; }
+                    tr[k] = 0; if (q < fim) q++;
+                    registrar("qjs: linha %d: %s\n", ln + d, tr);
+                }
+            }
+            JS_FreeCString(ctx, ps);
+        }
+        JS_FreeValue(ctx, pil);
         if (msg) JS_FreeCString(ctx, msg);
         JS_FreeValue(ctx, exc);
         e->erro = -1;

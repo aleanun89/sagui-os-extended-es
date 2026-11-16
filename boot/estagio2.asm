@@ -136,6 +136,7 @@ inicio:
 ; ---------------------------------------------------------------- [3/6] kernel
         mov si, msg_kernel
         call escrever
+.ler_kernel:
         mov eax, [CAB_ENDERECO + CAB_K_ENDERECO]
         mov [BOOTINFO + BI_K_INICIO], eax
         mov eax, [CAB_ENDERECO + CAB_K_BYTES]
@@ -148,7 +149,11 @@ inicio:
         mov ecx, [CAB_ENDERECO + CAB_K_BYTES]
         call somar_bytes
         cmp eax, [CAB_ENDERECO + CAB_K_SOMA]
-        jne .falha_soma
+        je .kernel_ok
+        call recorrer_a_chs             ; D330: lo leído por LBA no cuadra: otra vez por CHS
+        jc .falha_soma
+        jmp .ler_kernel
+.kernel_ok:
         mov si, msg_ok
         call escrever
 
@@ -162,6 +167,7 @@ inicio:
         mov edi, [CAB_ENDERECO + CAB_R_ENDERECO]
         mov ecx, [CAB_ENDERECO + CAB_R_BYTES]
         call conferir_ram               ; D181: avisa si el ramdisk no cabe en la RAM del E820
+.ler_ramdisk:
         mov eax, [CAB_ENDERECO + CAB_R_LBA]
         mov ecx, [CAB_ENDERECO + CAB_R_SETORES]
         mov edi, [CAB_ENDERECO + CAB_R_ENDERECO]
@@ -170,7 +176,11 @@ inicio:
         mov ecx, [CAB_ENDERECO + CAB_R_BYTES]
         call somar_bytes
         cmp eax, [CAB_ENDERECO + CAB_R_SOMA]
-        jne .falha_soma
+        je .ramdisk_ok
+        call recorrer_a_chs             ; D330
+        jc .falha_soma
+        jmp .ler_ramdisk
+.ramdisk_ok:
         mov si, msg_ok
         call escrever
 
@@ -190,6 +200,11 @@ inicio:
         call escrever_char
         mov eax, [BOOTINFO + BI_VESA_BPP]
         call escrever_decimal
+        cmp byte [s3_bancos], 0
+        je .video_crlf
+        mov si, msg_s3_janela
+        call escrever
+.video_crlf:
         mov si, msg_crlf
         call escrever
         jmp .video_fim
@@ -209,11 +224,19 @@ inicio:
         cmp dword [BOOTINFO + BI_VESA_OK], 0
         je .entrar_pm
         mov bx, [BOOTINFO + BI_VESA_MODO]
+        cmp byte [s3_bancos], 0         ; D331: modo con bancos de una S3, sin el bit 14
+        jne .trocar_modo
         or bx, 0x4000                   ; bit 14: framebuffer lineal
+.trocar_modo:
         mov ax, 0x4F02
         int 0x10
         cmp ax, 0x004F
         jne .entrar_pm                  ; falló: el kernel sigue en modo texto y avisa
+        cmp byte [s3_bancos], 0
+        je .modo_ativo
+        call s3_abrir_janela            ; D331: si no responde, vuelve al modo texto
+        jc .entrar_pm
+.modo_ativo:
         mov dword [BOOTINFO + BI_VESA_ATIVO], 1
 
 .entrar_pm:
@@ -483,26 +506,45 @@ somar_memoria_mb:
 ; presenta la imagen de dentro del CD como el disco 0x80, y las BIOS antiguas.
 ; También pregunta por El Torito (AX=4B01h): si el "disco" es la imagen de un
 ; CD, el kernel lo sabe (OPC_CD) y no intenta grabar en él.
+;
+; D330: hay BIOS de la época que anuncian las extensiones y leen mal por LBA un
+; disco sin LBA (86Box: la Award de la P3B-F devuelve el sector anterior; la AMI
+; del 430HX, con traducción LARGE, se equivoca de cilindro a partir del primero).
+; Por eso la geometría se pide siempre (plan B) y, si la cabecera (LBA 1) leída por
+; LBA no es la que dejó el MBR en 0x7E00, se lee por CHS. Solo se cambia cuando la
+; lectura por LBA terminó bien y trajo otra cosa: un fallo de lectura (un pendrive
+; que falla la primera vez) sigue por LBA, con los reintentos de siempre.
 preparar_disco:
+        mov byte [tem_ext], 0
         mov ah, 0x41
         mov bx, 0x55AA
         mov dl, [disco]
         int 0x13
-        jc .chs
+        jc .geometria
         cmp bx, 0xAA55
-        je .el_torito
-.chs:
+        jne .geometria
+        mov byte [tem_ext], 1
+.geometria:
+        mov byte [spt_bios], 0
         mov ah, 0x08
         mov dl, [disco]
         push es
         int 0x13
         pop es
-        jc .el_torito                   ; sin geometría: se queda en LBA y avisa si falla
+        jc .decidir                     ; sin geometría: se queda en LBA y avisa si falla
         and cl, 0x3F
-        mov [spt], cl
+        mov [spt_bios], cl
         inc dh
-        mov [cabecas], dh
-        mov dword [BOOTINFO + BI_CHS], 1
+        mov [cab_bios], dh
+.decidir:
+        cmp byte [tem_ext], 0
+        je .chs
+        call conferir_lba
+        jnc .el_torito
+        call recorrer_a_chs             ; la BIOS lee mal por LBA (avisa en pantalla)
+        jmp .el_torito
+.chs:
+        call passar_a_chs               ; sin geometría (CF=1): se queda en LBA y avisa si falla
 .el_torito:
         mov byte [pacote_cd], 0
         mov ax, 0x4B01                  ; "devuelve el estado de la emulación", sin terminarla
@@ -517,6 +559,70 @@ preparar_disco:
         jz .fim
         or dword [BOOTINFO + BI_OPCOES], OPC_CD
 .fim:
+        ret
+
+; passar_a_chs (D330): lee desde ahora por CHS con la geometría de AH=08h. CF=1 si
+; la BIOS no la dio (se sigue por LBA).
+passar_a_chs:
+        cmp byte [spt_bios], 0
+        je .sem
+        mov al, [spt_bios]
+        mov [spt], al
+        mov al, [cab_bios]
+        mov [cabecas], al
+        mov dword [BOOTINFO + BI_CHS], 1
+        clc
+        ret
+.sem:
+        stc
+        ret
+
+; recorrer_a_chs (D330): plan B cuando lo leído por LBA no es lo que tenía que ser.
+; Pasa a CHS y lo dice en pantalla; CF=1 si ya se leía por CHS o no hay geometría
+; (entonces no hay nada más que probar).
+recorrer_a_chs:
+        cmp byte [spt], 0
+        jne .nao
+        call passar_a_chs
+        jc .nao
+        mov si, msg_lba_ruim
+        call escrever
+        clc
+        ret
+.nao:
+        stc
+        ret
+
+; conferir_lba (D330): lee por LBA la cabecera (LBA 1) al búfer bajo y la compara con
+; la que dejó el MBR en CAB_ENDERECO. CF=1 solo si la lectura terminó bien y los datos
+; son otros; si la BIOS da error, CF=0 (lo resuelven los reintentos de ler_setores).
+conferir_lba:
+        push es
+        mov word [dap_qtd], 1
+        mov word [dap_destino], 0
+        mov word [dap_destino + 2], BUFFER_SEG
+        mov dword [dap_lba], CAB_LBA
+        mov dword [dap_lba + 4], 0
+        mov si, dap
+        mov ah, 0x42
+        mov dl, [disco]
+        int 0x13
+        jc .igual
+        mov ax, BUFFER_SEG
+        mov es, ax
+        xor di, di
+        mov si, CAB_ENDERECO
+        mov cx, 256
+        cld
+        repe cmpsw
+        jne .distinta
+.igual:
+        pop es
+        clc
+        ret
+.distinta:
+        pop es
+        stc
         ret
 
 ; ler_setores: ejecuta el paquete "dap" con 3 intentos. Por CHS, hasta el fin
@@ -804,6 +910,21 @@ procurar_vesa:
         call avaliar_modo
         mov cx, 0x110                           ; 640x480, 15 bits
         call avaliar_modo
+        ; D331: ningún modo lineal. Si la tarjeta es una S3 conocida (Trio64 o ViRGE,
+        ; las BIOS VBE 1.2 de la época), se acepta un modo de 16 bits con bancos y la
+        ; ventana lineal del chip se abrirá después del cambio de modo (s3_abrir_janela).
+        cmp dword [BOOTINFO + BI_VESA_OK], 0
+        jne .fim
+        call s3_procurar
+        jc .fim
+        mov byte [s3_bancos], 1
+        mov cx, 0x114                           ; 800x600, 16 bits (VESA 1.2)
+        call avaliar_modo
+        mov cx, 0x111                           ; 640x480, 16 bits
+        call avaliar_modo
+        cmp dword [BOOTINFO + BI_VESA_OK], 0
+        jne .fim
+        mov byte [s3_bancos], 0                 ; ninguno: modo texto, como antes
 .fim:
         xor ax, ax
         mov fs, ax
@@ -821,11 +942,32 @@ avaliar_modo:
         cmp ax, 0x004F
         jne .fim
         mov ax, [VBE_MODO]                      ; atributos
+        cmp byte [s3_bancos], 0
+        jne .atributos_s3
         and ax, 0x0091                          ; soportado + gráfico + lineal
         cmp ax, 0x0091
         jne .fim
         cmp byte [VBE_MODO + 0x1B], 6           ; modelo de memoria: color directo
         jne .fim
+        jmp .atributos_ok
+.atributos_s3:                                  ; D331: modo con bancos de una S3
+        and ax, 0x0019                          ; soportado + color + gráfico
+        cmp ax, 0x0019
+        jne .fim
+        mov al, [VBE_MODO + 0x1B]               ; color directo, o «empaquetado» en
+        cmp al, 6                               ; las BIOS que no distinguen
+        je .cabe_s3
+        cmp al, 4
+        jne .fim
+.cabe_s3:
+        movzx eax, word [VBE_MODO + 0x10]       ; bytes por línea * líneas, dentro de
+        movzx edx, word [VBE_MODO + 0x14]       ; la memoria que declara la BIOS
+        imul eax, edx
+        movzx edx, word [VBE_INFO + 0x12]       ; en bloques de 64 KB
+        shl edx, 16
+        cmp eax, edx
+        ja .fim
+.atributos_ok:
         ; Profundidad "de verdad": hay BIOS que dicen 16 bits por píxel en un
         ; modo 5-5-5; el tamaño del verde (desplazamiento 0x21) desempata.
         mov al, [VBE_MODO + 0x19]
@@ -903,8 +1045,207 @@ avaliar_modo:
         mov [BOOTINFO + BI_VESA_CORES], eax
         mov ax, [VBE_MODO + 0x23]               ; tam/pos azul
         mov [BOOTINFO + BI_VESA_CORES + 4], ax
+        cmp byte [s3_bancos], 0
+        je .fim
+        mov eax, [s3_bar0]                      ; D331: la ventana lineal estará al
+        mov [BOOTINFO + BI_VESA_FB], eax        ; principio del BAR 0
+        cmp byte [VBE_MODO + 0x1F], 0           ; sin máscaras (BIOS VBE 1.1): las
+        jne .fim                                ; de los modos estándar de 16 bits
+        mov dword [BOOTINFO + BI_VESA_CORES], 0x05060B05    ; R 5@11, G 6@5
+        mov word [BOOTINFO + BI_VESA_CORES + 4], 0x0005     ; B 5@0
 .fim:
         ret
+
+;  ---------------------------------------------------------------------------
+; S3 Trio64 / ViRGE con BIOS VBE 1.2 (D331, issue #40)
+;
+; Estas BIOS solo ofrecen modos con bancos (ventana de 64 KB en A0000), pero el chip
+; tiene una ventana lineal propia sobre el BAR 0 que se abre con sus registros:
+;   CR38 = 0x48 y CR39 = 0xA5 desbloquean los registros de S3 (CR2D-CR3F, CR40-CRFF);
+;   CR59/CR5A = bits 31-24 y 23-16 de la dirección física de la ventana;
+;   CR58 bit 4 = ventana lineal encendida, bits 1-0 = tamaño (1, 2 o 4 MB).
+; El modo (temporización, DAC, pitch en CR13/CR51) lo pone la BIOS con el INT 10h, como
+; siempre: aquí solo se abre la ventana. Nunca se toca otra tarjeta: hace falta el
+; fabricante 5333, un identificador de la tabla y un BAR 0 de memoria de 32 bits.
+;  ---------------------------------------------------------------------------
+
+; s3_procurar: busca en los buses PCI 0 a 3 (función 0) una S3 de la tabla con clase
+; de pantalla y un BAR 0 válido. CF = 0 si la encuentra (s3_bar0 queda con la dirección).
+s3_procurar:
+        mov dx, 0xCF8                           ; ¿hay mecanismo de configuración n.º 1?
+        in eax, dx
+        mov ebx, eax
+        mov eax, 0x80000000
+        out dx, eax
+        in eax, dx
+        xchg eax, ebx
+        out dx, eax                             ; deja CF8 como estaba
+        cmp ebx, 0x80000000
+        jne .nao
+        xor ecx, ecx                            ; bus << 16 | dispositivo << 11
+.laco:
+        mov eax, ecx
+        call pci_ler
+        cmp ax, 0x5333
+        jne .proximo
+        shr eax, 16
+        mov si, s3_ids
+.id:    mov bx, [si]
+        test bx, bx
+        jz .proximo
+        add si, 2
+        cmp ax, bx
+        jne .id
+        mov eax, ecx
+        or al, 0x08                             ; clase 03: pantalla
+        call pci_ler
+        shr eax, 24
+        cmp al, 3
+        jne .proximo
+        mov eax, ecx
+        or al, 0x04                             ; orden: decodificación de memoria
+        call pci_ler
+        test al, 2
+        jz .nao
+        mov eax, ecx
+        or al, 0x10                             ; BAR 0
+        call pci_ler
+        test al, 0x07                           ; E/S o de 64 bits: no es lo esperado
+        jnz .nao
+        test eax, 0x0000FFF0                    ; CR59/CR5A solo guardan los bits 31-16
+        jnz .nao
+        cmp eax, 0x01000000                     ; sin asignar o dentro de la RAM baja
+        jb .nao
+        mov [s3_bar0], eax
+        clc
+        ret
+.proximo:
+        add ecx, 0x800
+        cmp ecx, 0x40000
+        jb .laco
+.nao:   stc
+        ret
+
+; pci_ler: EAX = bus/dispositivo/registro (sin el bit 31). Devuelve el valor en EAX.
+pci_ler:
+        push dx
+        or eax, 0x80000000
+        mov dx, 0xCF8
+        out dx, eax
+        mov dx, 0xCFC
+        in eax, dx
+        pop dx
+        ret
+
+; s3_cr_ler: AL = índice del CRTC. Devuelve el valor en AL (DX = 0x3D4 al salir).
+s3_cr_ler:
+        mov dx, 0x3D4
+        out dx, al
+        inc dx
+        in al, dx
+        dec dx
+        ret
+
+; s3_abrir_janela: tras el INT 10h del modo con bancos, abre la ventana lineal en el
+; BAR 0 y comprueba que la memoria responde allí (escribe y relee dos patrones, por
+; «unreal mode»). Si no, deja los registros como estaban, vuelve al modo texto y
+; devuelve CF = 1 (el kernel sigue en texto, como antes).
+s3_abrir_janela:
+        mov al, 0x38
+        call s3_cr_ler
+        mov [s3_cr38], al
+        mov al, 0x39
+        call s3_cr_ler
+        mov [s3_cr39], al
+        mov ax, 0x4838                          ; CR38 = 0x48
+        out dx, ax
+        mov ax, 0xA539                          ; CR39 = 0xA5
+        out dx, ax
+        mov al, 0x58
+        call s3_cr_ler
+        mov [s3_cr58], al
+        mov al, 0x59
+        call s3_cr_ler
+        mov [s3_cr59], al
+        mov al, 0x5A
+        call s3_cr_ler
+        mov [s3_cr5a], al
+        mov ebx, [s3_bar0]
+        shr ebx, 16                             ; BH = bits 31-24, BL = bits 23-16
+        mov al, 0x59
+        mov ah, bh
+        out dx, ax
+        mov al, 0x5A
+        mov ah, bl
+        out dx, ax
+        mov bl, 3                               ; tamaño de la ventana según la memoria
+        cmp word [VBE_INFO + 0x12], 64          ; que declara la BIOS (bloques de 64 KB)
+        jae .tamanho
+        mov bl, 2
+        cmp word [VBE_INFO + 0x12], 32
+        jae .tamanho
+        mov bl, 1
+.tamanho:
+        mov ah, [s3_cr58]
+        and ah, 0xEC                            ; fuera el tamaño y el bit de encendido
+        or ah, bl
+        or ah, 0x10                             ; ventana lineal encendida
+        mov al, 0x58
+        out dx, ax
+        mov al, 0x58                            ; ¿lo aceptó?
+        call s3_cr_ler
+        and al, 0x13
+        or bl, 0x10
+        cmp al, bl
+        jne .falha
+        call entrar_unreal                      ; DS con límite de 4 GB
+        mov esi, [s3_bar0]
+        mov ebx, [esi]
+        mov dword [esi], 0x5AA5C33C
+        cmp dword [esi], 0x5AA5C33C
+        jne .falha_mem
+        mov dword [esi], 0xA55A3CC3
+        cmp dword [esi], 0xA55A3CC3
+        jne .falha_mem
+        mov [esi], ebx
+        call s3_fechar
+        clc
+        ret
+.falha_mem:
+        mov [esi], ebx
+.falha:
+        mov dx, 0x3D4
+        mov al, 0x58
+        mov ah, [s3_cr58]
+        out dx, ax
+        mov al, 0x59
+        mov ah, [s3_cr59]
+        out dx, ax
+        mov al, 0x5A
+        mov ah, [s3_cr5a]
+        out dx, ax
+        call s3_fechar
+        mov ax, 0x0003                          ; vuelta al modo texto
+        int 0x10
+        mov byte [s3_bancos], 0
+        stc
+        ret
+
+; s3_fechar: vuelve a dejar CR39 y CR38 como estaban (bloqueados, normalmente).
+s3_fechar:
+        mov dx, 0x3D4
+        mov al, 0x39
+        mov ah, [s3_cr39]
+        out dx, ax
+        mov al, 0x38
+        mov ah, [s3_cr38]
+        out dx, ax
+        ret
+
+; S3 que llevan la ventana lineal en CR58-CR5A (la tabla de kernel/dispositivos/acel_s3.c).
+s3_ids:         dw 0x8811, 0x8812, 0x8814, 0x8901                   ; Trio64, Aurora64V+, Trio64UV+, Trio64V2
+                dw 0x5631, 0x883D, 0x8A01, 0x8A10, 0x8904, 0x8A13   ; ViRGE, VX, DX/GX, GX2, Trio3D, Trio3D/2X
+                dw 0
 
 ; guardar_modo: añade el modo de VBE_MODO a la lista VBE_MODOS (si cabe).
 ; Entrada de 8 bytes: número de modo, anchura, altura, profundidad (15, 16,
@@ -1006,11 +1347,22 @@ modo_protegido:
 disco:          db 0
 spt:            db 0                    ; 0 = lectura por LBA (AH=42h)
 cabecas:        db 0
+tem_ext:        db 0                    ; D330: la BIOS anuncia las extensiones (AH=41h)
+spt_bios:       db 0                    ; D330: geometría de AH=08h (0 = no la dio)
+cab_bios:       db 0
 pacote_cd:      times 0x14 db 0         ; respuesta del INT 13h AX=4B01h (El Torito)
 melhor_pontos:  dw 0
 modo_atual:     dw 0
 blocos_lidos:   dw 0
 profundidade:   db 0
+s3_bancos:      db 0                    ; D331: modo con bancos de una S3 + ventana lineal
+s3_cr38:        db 0
+s3_cr39:        db 0
+s3_cr58:        db 0
+s3_cr59:        db 0
+s3_cr5a:        db 0
+align 4
+s3_bar0:        dd 0
 
 align 4
 dap:            db 0x10, 0
@@ -1045,6 +1397,7 @@ msg_ok:         db " ok", 13, 10, 0
 msg_video:      db "[5/6] video: ", 0
 msg_sem_vesa:   db "VESA no encontrado, sigue en modo texto", 13, 10, 0
 msg_crlf:       db 13, 10, 0
+msg_s3_janela:  db " (S3: bancos + ventana lineal)", 0
 msg_pm:         db "[6/6] entrando en modo protegido", 13, 10, 0
 ; D310. La etapa 2 escribe con la fuente de la BIOS (página de códigos 437): 0xA2 es la «ó».
 msg_cpu_sem_cmov:  db "[0/6] CPU: Esta CPU no es i686 (falta la instrucci", 0xA2, "n CMOV): ", 0
@@ -1055,6 +1408,7 @@ msg_cpu_requisito: db "SaguiOS necesita un Pentium Pro / Pentium II / AMD Athlon
 msg_falha_a20:  db "ERROR: no se pudo activar la linea A20", 0
 msg_falha_mem:  db "ERROR: la BIOS no dio el mapa de memoria (E820)", 0
 msg_falha_leitura: db 13, 10, "ERROR: fallo de lectura del disco (INT 13h)", 0
+msg_lba_ruim:   db 13, 10, "Aviso: la BIOS lee mal el disco por LBA; se lee por CHS (D330)", 13, 10, 0
 msg_falha_soma: db 13, 10, "ERROR: datos leidos corruptos (la suma no coincide)", 0
 msg_aviso_ram:  db 13, 10, "AVISO: el ramdisk no cabe en la RAM que da la BIOS; hacen falta ", 0
 msg_aviso_ram2: db " MB", 13, 10, 0

@@ -44,6 +44,11 @@ MAQUINAS = {
     "p2-mach64": ("1002:5654", "mach64", "86box-mach64"),
     "p2-s3virge": ("5333:8a01", "s3", "86box-s3-virge"),
     "p2-s3trio64": ("5333:8901", "s3", "86box-s3-trio64"),
+    # D331: BIOS VBE 1.2 sin modos lineales (issue #40); la etapa 2 abre la ventana lineal de la S3
+    "p2-s3trio64-vbe12": ("5333:8811", "s3", "86box-s3-trio64-vbe12"),
+    "p2-s3virge-vbe12": ("5333:8a01", "s3", "86box-s3-virge-vbe12"),
+    "p2-s3trio3d2x": ("5333:8a13", "s3", "86box-s3-trio3d2x"),
+    "p2-s3virgegx2": ("5333:8a10", "s3", "86box-s3-virgegx2"),
 }
 
 
@@ -111,6 +116,15 @@ def escritorio(nombre, imagen, guardar, informe, sufijo=""):
             informe.append("$ acel2d")
             informe.append(out.strip())
             verificar(f"Aceleracion 2D: {acel}" in out, f"«acel2d»: el acelerador es {acel}")
+            if nombre == "p2-s3virgegx2":
+                # nombres PCI y nota de la Voodoo 1/2 (segunda tarjeta del preset)
+                for sec in ("pci", "gpu"):
+                    out = m.comando(f"infopc -t {sec}", 60)
+                    informe.append(f"$ infopc -t {sec}")
+                    informe.append(out.strip())
+                    verificar("S3 ViRGE/GX2" in out, f"infopc {sec}: nombra la S3 ViRGE/GX2")
+                    verificar("3dfx Voodoo" in out and "sin driver en SaguiOS" in out,
+                              f"infopc {sec}: la Voodoo 1/2 sale como acelerador 3D adicional sin driver")
             return g, c
         except Exception:
             m.captura(f"{cap}-fallo{sufijo}")

@@ -183,7 +183,10 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_DESLIGAR:
         return !eu->de_servico;
     case SIS_AUDIO_HDA:
-        return a == HDA_OP_ESTADO || (a == HDA_OP_AUTOSILENCIO && (int32_t)b == -1);
+        /* D328: con la SB16 la operacion 0x40 es solo lectura y 0x41 es el mezclador (niveles 0-100):
+         * sin ellas el usuario normal no podia ver la tarjeta ni cambiar el volumen. */
+        return a == HDA_OP_ESTADO || a == SB16_OP_ESTADO || a == SB16_OP_CANAL ||
+               (a == HDA_OP_AUTOSILENCIO && (int32_t)b == -1);
     case SIS_DISCO_BLOCOS:
         return a == DBLOCO_INFO;
     case SIS_CONFIG_REDE:

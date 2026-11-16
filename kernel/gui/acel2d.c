@@ -983,6 +983,7 @@ int32_t acel2d_info(uint32_t ptr, uint32_t n)
     v->modelo = placa ? disp.modelo : 0;
     txt_copia_n(v->nome, acel2d_nome(), sizeof v->nome);
     txt_copia_n(v->motivo, motivo, sizeof v->motivo);
+    if (placa) txt_copia_n(v->placa, placa->nome, sizeof v->placa);   /* issue #43: infopc nombra la tarjeta con esta tabla */
     v->copias = n_copias; v->rellenos = n_rellenos; v->falhas = n_falhas;
     v->arrastos = n_arrastos; v->quadros = n_quadros;
     v->kciclos_quadro = n_quadros ? (uint32_t)sconv_div64(ciclos_arrasto, n_quadros * 1000u) : 0;

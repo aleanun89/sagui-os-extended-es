@@ -17503,3 +17503,161 @@ Paint y Python, que en la 8.4.2 iban en el ramdisk. Por eso cada versión public
 cuya controladora de disco no localiza bien el disco de arranque. Está documentado en `docs/imagenes.md` y
 en el README. Comprobada en QEMU con 1 núcleo y 512 MB: escritorio en 10 s y las aplicaciones abren.
 
+## D328. UHCI del PIIX4 en 86Box y permisos de la SB16 para el usuario normal (v8.4.4)
+
+**UHCI (#37).** Causa: el PIIX4 de 86Box deja puesto el bit HCRESET (0x0002) del registro de órdenes tras el reinicio, en vez de borrarlo solo como pide la
+especificación; `uhci.c` esperaba 20 ms y daba «el reinicio no terminó», sin controlador USB. Ahora espera hasta 100 ms y, si el bit sigue, lo baja a mano
+(`CMD = 0`, 10 ms) y continúa si el controlador responde (orden no 0xFFFF, puerto 0 con el bit 7 a 1); si no, registra CMD, STS y la E/S. El LEGSUP (0xC0) y la E/S de
+la BAR4 ya eran correctos. 86Box 6.0 no emula ratón ni teclado USB: los presets no llevan dispositivo, solo se comprueba que el controlador quede «en marcha».
+
+**Permisos.** `SIS_AUDIO_HDA` (102) op 0x40 (`SB16_OP_ESTADO`, lectura) y op 0x41 (`SB16_OP_CANAL`, niveles 0-100 del mezclador) pasan a `operacao_livre`: con
+ellas denegadas `sonido` caía al camino HDA y decía «no hay tarjeta». Los verbos, pines y GPIO del HDA siguen solo para root. Prueba: `usuarios.c` (h254).
+
+## D329. Driver NE2000 (DP8390) en PCI y en ISA (v8.4.4, issue #38)
+
+**Qué.** `kernel/rede/ne2000.c` (código propio GPL-2.0-or-later, escrito a partir de la hoja de datos del DP8390, sin copiar a Linux): tarjetas NE2000 de
+16 bits por PCI (Realtek RTL8029 `10ec:8029`, y por la misma tabla Winbond W89C940, VIA VT86C926 y Compex RL2000, sin probar) y por ISA. Mismo patrón que
+`rtl8139.c`: `placa_t` con `enviar/receber/cabo/atender`, enganchado en `rede_iniciar()` (PCI justo tras e1000 y RTL8139; la ISA solo como último recurso, si no
+hay ninguna otra tarjeta).
+
+**Cómo.** Todo pasa por la RAM de 16 KB de la tarjeta: caja de envío (páginas 0x40-0x45), anillo de recepción (0x46-0x7F) con la cabecera de 4 bytes por
+quadro, DMA remoto por palabras (el driver parte la lectura cuando el quadro da la vuelta al final del anillo), MAC del PROM (bytes duplicados; las ISA exigen
+además el 0x57 0x57 final), recuperación del desbordamiento (OVW) con la receta de la hoja de datos. Las operaciones del chip corren con interrupciones apagadas
+(el DMA remoto es compartido por el envío y la recepción). La autoprueba de la IRQ (D211) funciona con `provocar_irq` (un DMA remoto terminado).
+
+**ISA, con prudencia.** Bases 0x300, 0x280, 0x320 y 0x340, en ese orden. En cada una: no se toca si una tarjeta PCI tiene una BAR de E/S encima; solo se lee el
+CR y si da 0xFF (bus flotante) se pasa a la siguiente; el único acceso de escritura es el reinicio por el puerto 0x1F y debe dejar el bit RST en el ISR y el CR
+en 0x21; después, MAC del PROM válida y 0x57 0x57. **El sondeo ISA está APAGADO por defecto** (en un PC real 0x300-0x340 pueden ser de un MPU-401, un SCSI...): se activa con `mkimagem.py --ne2k-isa` (bit 0 del byte 157, `CAB_NE2K_OPC`; `--ne2k-sin-isa` queda sin efecto). La NE2000 PCI está siempre activa. Sin página de Configuración para ello (solo mkimagem). IRQ: la que
+diga `mkimagem.py --ne2k-irq N` (byte 158, `CAB_NE2K_IRQ`) o, si es 0, se averigua pidiendo un DMA remoto terminado con la IMR abierta y mirando qué línea
+(3, 4, 5, 9, 10, 11, 12, 15) se enciende en el IRR del 8259 (como la SB16, D302), **con el RDC todavía puesto**: el 8259 de 86Box olvida la petición en cuanto la
+línea baja. Si no sale una sola línea, queda en sondeo cada tic (funciona igual, más lento). La NE2000 ISA se registra en `isa_registrar` (lista de ISA).
+
+**Pruebas.** `tests/h329_ne2000.py` no: es `tests/h328_ne2000.py` (el número de la decisión no coincide con el de la prueba, el D328 lo tomó la rama disco-epoca):
+PCI, PCI con IOAPIC (autoprueba de la IRQ), ISA 0x300 con IRQ autodetectada, ISA 0x280 con IRQ forzada, sondeo apagado por defecto y sin tarjeta (las partes ISA usan `--ne2k-isa`); en cada caso con tarjeta:
+detección, DHCP 10.0.2.15, ping y descarga HTTP de 200 KB con CRC32 desde el anfitrión. En 86Box (a petición): `tests/emu_86box_ne2000.py` con `p2-ne2000`
+(RTL8029 PCI, IRQ 10) y `p2-ne2000-isa` (ISA 0x300, IRQ 10 autodetectada): DHCP y ping bien. Sin regresiones en h44 (RTL8139) ni h165 (e1000).
+
+**Límites.** Sin NE1000 (8 bits) ni NE2000 con la RAM de 32 KB aprovechada (se usan 16 KB), sin ISA PnP (las NE2000 PnP necesitarían el isapnp.c), sin estado
+de enlace (el DP8390 no lo da; el RTL8029 lo tiene en la página 3, sin leer), una sola caja de envío (el envío espera a que acabe el anterior, hasta ~20 ms),
+sin contadores de errores de la tarjeta. `ifconfig` imprime «PCI 00:00.0 (0000:0000)» para la ISA (cosmético, pendiente en el userland).
+
+## D330. Discos de la época: IDE sin LBA por CHS y plan B por CHS en el arranque (v8.4.4, #33, #34, #36)
+
+Desde D324 las aplicaciones viven en `/apps` del disco de arranque: si el kernel no ve el disco, o el cargador no lo
+lee bien, el sistema se queda sin Pluma, Macaco, Python... En 86Box fallaban tres cosas, todas del mismo origen: el disco
+que emula 86Box con menos de 1024 cilindros **no anuncia LBA** (`hdc_ide.c` de 86Box 6.0 solo pone la palabra 49 bit 9 si
+hay 1024 cilindros o más), como los discos pequeños de principios de los 90.
+
+**Kernel (`kernel/dispositivos/ata.c`).**
+
+- Un disco sin LBA ya no se ignora: se toma la geometría por defecto del IDENTIFY (palabras 1, 3 y 6), se comprueba que
+  es posible (cabezas 1-16, sectores 1-63, cilindros > 0) y se fija como la actual con **INITIALIZE DEVICE PARAMETERS
+  (91h)**: la BIOS pudo dejar otra (traducción LARGE) y, sin LBA, el disco no dice cuál (palabras 54-56 no válidas). Todas
+  las órdenes de lectura y grabación (PIO y DMA) salen de `comando()`, que convierte el LBA a cilindro/cabeza/sector con
+  esa geometría (bit LBA del registro de unidad a 0). Si el disco rechaza la 91h, se ignora como antes. El serie dice
+  `[ATA] 1f0/0: "...", N setores, CHS c/h/s (sin LBA, D330)`. El DMA del PIIX4 funciona igual (las órdenes C8h/CAh
+  aceptan CHS).
+- **FLUSH CACHE abortado.** Los discos anteriores al ATA-4 (y el IDE de 86Box) no conocen E7h y lo abortan: toda
+  grabación salía como fallida (`erro de gravacao (estado 51, erro 4)`) y `/jogos`, `/apps` y SAGUI-CONF no se montaban
+  (el montaje en escritura graba el superbloque). Ahora, si el disco **no anuncia** FLUSH CACHE (palabra 83 válida y bit 12
+  a 0) y responde ABRT, se anota una vez y no se vuelve a mandar; la grabación (que terminó bien) cuenta como buena. Si el
+  disco lo anuncia, un error del FLUSH sigue siendo error. No se toca nada de D040: los discos internos siguen en solo
+  lectura salvo `mount -o rw`/fstab, y el driver nunca graba por sí solo.
+
+**Cargador (`boot/mbr.asm`, `boot/estagio2.asm`).** Las BIOS de la época leen mal por INT 13h AH=42h un disco sin LBA
+aunque anuncien las extensiones (diagnosticado con un MBR y una etapa 2 de prueba que comparan AH=42h con AH=02h):
+
+- la **Award de la ASUS P3B-F** (`p3-rage`) devuelve el sector anterior (LBA 1 trae el MBR): «Cabecera invalida» (#34);
+- la **AMI del 430HX** (`p1-s3`, traducción LARGE) acierta en el cilindro físico 0 y se equivoca a partir del LBA 1008:
+  la suma del kernel no cuadra (#33).
+
+Por CHS (AH=02h, con la geometría de AH=08h) las dos leen bien. Solución, sin cambiar nada donde la lectura por LBA ya
+funciona:
+
+- MBR: si la cabecera leída por LBA no trae la firma `SGHD`, se pide la geometría y se repite por CHS (una vez; por CHS
+  ya no hay plan B). Para que quepa, el paquete de disco lleva ya el destino y el LBA de la cabecera.
+- Etapa 2: la geometría se pide siempre; si la cabecera (LBA 1) leída por LBA no es la que dejó el MBR en 0x7E00, se pasa
+  a CHS; y si la suma del kernel o del ramdisk no cuadra leyendo por LBA, se vuelven a leer por CHS. Sale en pantalla
+  `Aviso: la BIOS lee mal el disco por LBA; se lee por CHS (D330)` y `boot_info.leitura_chs` = 1.
+- Solo se cambia a CHS cuando la lectura por LBA **terminó bien y trajo otra cosa**: si la BIOS da error (un pendrive que
+  falla la primera lectura) se sigue por LBA con los reintentos de siempre. Así el G470, los pendrives, las VM y el CD con
+  emulación (D077) no cambian de camino.
+
+**Pruebas.** `tests/emergencia.py --maquinas p2-450-voodoo3500` y `--maquinas p3-rage`: disco IDE en CHS con DMA, `/apps`,
+`/jogos` y SAGUI-CONF montados en escritura, pluma, macaco, paint y python abren desde `/apps/bin` (en `p3-rage` solo falla
+la red: la NE2000 PCI no tiene driver, #38). `p1-s3` tiene un Pentium MMX, que SaguiOS ya no admite (D310, sin CMOV): con
+una etapa 2 de prueba sin esa comprobación y parada tras el ramdisk, se ve el aviso de D330, `[3/6] kernel ... ok` y
+`[4/6] ramdisk ... ok`; el kernel arranca y escribe `[SAGUI] kernel iniciado` por el serie. En QEMU (que sí anuncia LBA y lee
+bien por AH=42h, así que no cambia de camino): h02, h04, h92, h149, h324, h50, h33 y h31.
+
+**Pendiente.** No hay prueba en QEMU del camino CHS del driver (el IDE de QEMU siempre anuncia LBA): solo se prueba en
+86Box. Comprobar en una máquina real con BIOS antigua que el aviso de D330 no sale cuando el LBA funciona.
+
+## D331. S3 Trio64/ViRGE con BIOS VBE 1.2: modo con bancos y ventana lineal del chip (v8.4.3r2, #40)
+
+**Problema.** Las BIOS de vídeo de la S3 Trio64 y Trio64V+ y la «Generic» de la ViRGE/DX (las de 86Box y muchas de las
+tarjetas de la época) solo dan VBE 1.2: ningún modo con framebuffer lineal (atributo bit 7). La etapa 2 solo acepta modos
+lineales, así que salía «VESA no encontrado» y SaguiOS se quedaba en modo texto.
+
+**Dónde: en la etapa 2, no en el kernel.** Un driver S3 en el kernel tendría que fijar el modo entero sin la BIOS (PLL
+de reloj, CRTC, DAC, registros extendidos de cada chip), justo lo más arriesgado en una tarjeta real y lo que más cambia
+entre Trio64, V+, V2 y ViRGE. En la etapa 2 el modo lo sigue poniendo la BIOS de la propia tarjeta con el INT 10h (modo
+VESA 1.2 con bancos, sin el bit 14) y nosotros solo abrimos la ventana lineal, que son tres registros. El kernel recibe
+un modo «lineal» como cualquier otro (`boot_info`: dirección = BAR 0, pitch = bytes por línea del VBE, 16 bits, máscaras
+565) y el escritorio, el WC por MTRR y el 2D de `acel_s3.c` (D308) funcionan sin cambios. El kernel no se toca.
+
+**Cómo (`boot/estagio2.asm`).**
+- `procurar_vesa`: solo si la lista y los números fijos de VESA 1.2 no dan **ningún** modo lineal, `s3_procurar` busca en
+  los buses PCI 0-3 (función 0, mecanismo n.º 1 comprobado antes) una tarjeta con fabricante 5333, un identificador de la
+  tabla de `acel_s3.c` (Trio64 8811/8812/8814/8901, ViRGE 5631/883D/8A01/8A10/8904/8A13), clase 03, la decodificación de
+  memoria encendida y un BAR 0 de memoria de 32 bits, alineado a 64 KB y por encima de 16 MB. Si no, nada cambia.
+- Entonces se evalúan 0x114 (800x600x16) y 0x111 (640x480x16) aceptando modos con bancos (soportado + color + gráfico,
+  modelo 6 o 4) que quepan en la memoria que declara la BIOS (`TotalMemory` de 4F00). Puntúan como los demás (la
+  resolución de la cabecera gana) y van a la lista de modos. Sin 8 bits: el kernel no tiene modos de paleta.
+- Tras el 4F02, `s3_abrir_janela`: CR38 = 0x48 y CR39 = 0xA5, CR59/CR5A = bits 31-16 del BAR 0, CR58 = (CR58 & 0xEC) |
+  0x10 | tamaño (1, 2 o 4 MB según `TotalMemory`), se relee CR58 y, en «unreal mode», se escriben y releen dos patrones al
+  principio del BAR 0 (se restaura el valor). Después CR39/CR38 vuelven a como estaban. El pitch (CR13/CR51) no se toca:
+  ya lo puso la BIOS para el modo con bancos y es el mismo en la ventana lineal.
+- Si algo no cuadra (CR58 no lo acepta, la memoria no responde), se restauran CR58/59/5A y los bloqueos, se vuelve al
+  modo 3 y el kernel sigue en texto, como antes. En pantalla: `[5/6] video: 800x600x16 (S3: bancos + ventana lineal)`.
+- En hardware real solo se activa con esa S3 y sin ningún modo lineal VBE: con una BIOS VBE 2.0 (la Trio64V2/DX de
+  `p2-s3trio64`) el camino de siempre no cambia.
+
+**Pruebas (86Box, D301).** Presets nuevos `p2-s3trio64-vbe12` (Trio64 PCI 5333:8811) y `p2-s3virge-vbe12` (ViRGE/DX con
+la BIOS «Generic»), en `tests/emu_86box_acel2d_epoca.py --solo-escritorio`: los dos llegan al escritorio a 800x600x16 y
+la autoprueba del 2D da los mismos píxeles que la CPU (`acel2d probar`: BIEN; GPU 26-28 veces más rápida que la CPU).
+Sin cambios: `emu_86box_arranque.py` en `p2-450-voodoo3500` (1024x768x24), `p3-rage` (1024x768x24) y `p2-s3trio64`; QEMU
+h02, h04 y h58.
+
+**Pendiente.** Sin probar en una Trio64/ViRGE de verdad. Solo 16 bits (las BIOS VBE 1.2 de S3 no dan 32 bits por píxel
+en todos los chips), y la Trio64 de 86Box no pasa de 800x600 en este camino porque solo se piden 0x114 y 0x111.
+
+**D308, Trio3D/2X (8.4.3r2).** Causa del «el MMIO no responde»: el MMIO sí respondía (SUBSYS_STAT 0xF001 con CR53 bit 3 y
+BAR0 + 16 MB correctos), pero el driver, por la tabla (fifo_novo = 1), buscaba los huecos de la FIFO en los bits 28:23 y
+leía 0. En 86Box la Trio3D/2X deja los huecos en los bits 12:8 como el ViRGE. Arreglo (acel_s3.c, v_iniciar): si con el
+formato nuevo hay 0 huecos y con el antiguo hay alguno, con el motor en reposo se usa el antiguo. Prueba:
+`tests/emu_86box_acel2d_epoca.py p2-s3trio3d2x` (preset `tools/86box/maquinas/p2-s3trio3d2x.cfg`). En hardware real
+sigue sin comprobarse el formato de las GX2/Trio3D.
+
+**D324, añadido 2026-11-16 (8.4.3r2):**
+- **Aviso si falta `/apps`.** El Makefile deja un fichero vacío `/etc/apps-fuera` en el ramdisk **solo** cuando
+  las aplicaciones van en la partición (perfil «base», `APPS=1`); con `RAMDISK=completo`, `APPS=0` y en la ISO
+  (ramdisk-cd, que lleva `/apps` dentro) no existe. Al llegar al escritorio (`gui_iniciar`, `janelas.c`), si existe
+  ese fichero y `/apps` no es un punto de montaje, sale una notificación («No se encontró la partición de
+  aplicaciones (/apps)... Usa saguios-completo.img») y una línea `[GUI] aviso: falta /apps` en el registro; una vez
+  por arranque. Textos con `_()` y en `idiomas/{pt_BR,en}/kernel.po`. Una imagen base sin partición (`--apps`
+  omitido) también avisa: es exactamente el caso de un PC que no ve el disco. Prueba: `tests/h329_aviso_apps.py`.
+- `make variantes` (`gerar_versao.sh --todas`, o `--completo`) genera también `saguios-completo.img`, con su suma
+  en `SHA256SUMS.txt` y su línea en `VERSION.txt`. Se construye en la misma carpeta (`RAMDISK=completo`) y se vuelve
+  a dejar la imagen base.
+- `userland/apps/leeme.txt` lista las aplicaciones de `/apps`; `tests/rodar_paralelo.py` cuenta la salida 77
+  («no se aplica», p. ej. h159 sin NetSurf) como no aplicable, no como fallo. **Núcleo:** no se tocó memoria,
+  planificador, VFS ni arranque (solo el final de `gui_iniciar`).
+
+## Cipó: marca.com, as.com y es.wikipedia.org (rama v8.4.4-cipo-paginas)
+
+- Hecho: el texto alternativo de una imagen sin cargar ya no se pinta recortado (en marca.com salían 20 «Esc·» de «Escudo» en una fila); solo se pinta si cabe entero.
+- Wikipedia: ya se ve bien (portada, tarjetas, enlaces); queda comprobar imágenes (cargan después de «pagina pintada») y el logotipo.
+- marca.com: cabecera y menú rojo correctos; pendiente: el bloque grande en blanco bajo el menú (anuncio/carrusel sin imágenes), el texto de la tira «Es noticia» solapado en dos líneas, 1 script con «cannot read property of undefined».
+- as.com: pendiente grave: la página sale casi en blanco con solo el aviso de newsletter encima (texto «Tomás Roncero» superpuesto, recuadros grises de imágenes sin cargar); varios scripts dan «SyntaxError: expecting ';'» (scripts 6, 7, 8, 10, 52): hay que ver qué sintaxis no soporta el QuickJS integrado y si el contenido queda oculto por una capa o por JS que no corre.
+- Diagnóstico de scripts (QuickJS): cuando un script falla, Cipó escribe ahora en el serie la pila y el texto de la línea del error y la siguiente (`qjs: pilha:` / `qjs: linha N:`). En la primera visita as.com mostró SyntaxError «expecting ';'» en los scripts 6, 7, 8, 10, 11, 12, 14, 52 (líneas 7 a 14), pero después DataDome empezó a servir su página de captcha (4 líneas, 0 enlaces) y no se pudo repetir; falta leer la línea con la nueva traza cuando as.com vuelva a servir la página real. Sospecha sin comprobar: sintaxis moderna (`?.`, `??=`, campos privados) en scripts de terceros de la página.

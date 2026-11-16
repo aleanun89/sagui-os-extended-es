@@ -678,7 +678,7 @@ static int acel_probar_2d(char *res, size_t n)
     if (info_sistema(INFO_ACEL2D_PROVA, &r, sizeof r) != 0) { copia_texto(res, "el kernel no tiene la autoprueba", n); return -2; }
     if (r.resultado == 1) formatar_texto(res, n, "BIEN: %u órdenes iguales a la CPU; GPU %u us, CPU %u us", r.ordens, r.us_gpu, r.us_cpu);
     else if (r.resultado == 0) formatar_texto(res, n, "MAL: %u píxeles distintos (%s)", r.diferentes, r.texto);
-    else formatar_texto(res, n, "sin acelerador 2D: %s", r.texto);
+    else copia_texto(res, r.texto, n)   /* el kernel ya antepone «sin acelerador: » */;
     return r.resultado;
 }
 
@@ -689,7 +689,7 @@ static int acel_probar_3d(char *res, size_t n)
     if (info_sistema(INFO_GPU3D_PROVA, &r, sizeof r) != 0) { copia_texto(res, "el kernel no tiene la autoprueba", n); return -2; }
     if (r.resultado == 1) formatar_texto(res, n, "BIEN: puntuación 3D %u (%u triángulos/s)", r.pontos, r.tri_s);
     else if (r.resultado == 0) formatar_texto(res, n, "MAL: %s (se apaga el 3D)", r.texto);
-    else formatar_texto(res, n, "sin 3D por GPU: %s", r.texto);
+    else copia_texto(res, r.texto, n)   /* el kernel ya antepone «sin 3D por GPU: » */;
     return r.resultado;
 }
 
@@ -911,7 +911,7 @@ static int linha_de_comandos(int argc, char **argv)
 
 /* ------------------------------------------------------------ la ventana */
 
-#define LARG 840   /* 780 hasta la v8.3.2: la pestaña Mandos (D307) no cabía */
+#define LARG 788   /* cabe en 800x600 (issue #43); las pestañas se aprietan solas si no caben */
 #define ALT  500
 #define Y_PAG 50
 enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_MANDOS, P_QTD };
@@ -1770,7 +1770,7 @@ static bool md_tratar(const evento_t *e)
 
 /* Pantalla > Aceleración gráfica (D323). La página Pantalla tiene dos vistas: la resolución de siempre y esta. */
 static int sub_tela;   /* 0 = Resolución, 1 = Aceleración gráfica */
-static botao_t b_sub[2] = { { 480, Y_PAG + 2, 150, 26, "Resolución", false }, { 636, Y_PAG + 2, 190, 26, "Aceleración gráfica", false } };
+static botao_t b_sub[2] = { { 436, Y_PAG + 2, 150, 26, "Resolución", false }, { 592, Y_PAG + 2, 190, 26, "Aceleración gráfica", false } };
 #define AC_X0   180            /* primera columna de botones */
 #define AC_PASO 124
 #define AC_Y0   (Y_PAG + 122)  /* fila 2D; las demás, AC_FILA más abajo */
@@ -1904,7 +1904,13 @@ static void acel_desenhar(void)
             botao_desenhar(jn, &b_ac[f][s]);
         }
         if (f < 2) botao_desenhar(jn, &b_acp[f]);
-        if (acel_res[f][0]) g_texto_n(jn, AC_X0, yy + 29, acel_res[f], (LARG - AC_X0 - 24) / LETRA_L, COR_TEXTO_FRACO);
+        if (acel_res[f][0]) {   /* desde el borde izquierdo (99 caracteres); si aun así no cabe, termina en «...» */
+            char rr[160];
+            int maxc = (LARG - 48) / LETRA_L;
+            copia_texto(rr, acel_res[f], sizeof rr);
+            if ((int)tam_texto(rr) > maxc) { rr[maxc - 3] = '.'; rr[maxc - 2] = '.'; rr[maxc - 1] = '.'; rr[maxc] = 0; }
+            g_texto_n(jn, 24, yy + 29, rr, maxc, COR_TEXTO_FRACO);
+        }
     }
     if (acel_3d_hay_driver() && acel_3d_experimental()) {
         if (conf.a_3d == TRI_SI)
@@ -2318,12 +2324,16 @@ static int eq_coluna(const evento_t *e)
 static void traducir_rotulos(void)
 {
     int xp = 10;
+    /* Relleno de cada pestaña: 10 px, y menos si todas juntas no caben en LARG (issue #43). */
+    int suma = 0, relleno = 10;
+    for (int i = 0; i < P_QTD; i++) suma += g_largura_texto(_(titulos_pag[i]));
+    while (relleno > 2 && 10 + suma + P_QTD * (relleno + 1) > LARG - 4) relleno--;
     for (int i = 0; i < P_QTD; i++) {
-        int l = g_largura_texto(_(titulos_pag[i])) + 10;
+        int l = g_largura_texto(_(titulos_pag[i])) + relleno;
         pos_pag[i] = xp;
         larg_pag[i] = l;
         b_pag[i] = (botao_t){ xp, 10, l, 28, _(titulos_pag[i]), false };
-        xp += l + 2;
+        xp += l + 1;
     }
     int x = 24;
     for (int i = 0; i < M_QTD; i++) { b_modo[i] = (botao_t){ x, Y_PAG + 118, 90, 28, _(rotulos_modo[i]), false }; x += 94; }

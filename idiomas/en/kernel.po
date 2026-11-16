@@ -812,3 +812,7 @@ msgstr "It is now safe to turn off the computer."
 msgid "Parando los servicios..."
 msgstr "Stopping services..."
 
+
+#: kernel/gui/janelas.c
+msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
+msgstr "The applications partition (/apps) was not found: this PC does not see the boot disk properly. Some applications will be missing. Use saguios-completo.img (more information: docs/imagenes.md)."

@@ -53,6 +53,10 @@ Plantillas de configuración de 86Box, sin ROM. Llevan `@IMAGEN@`, `@PISTAS@` (c
 | `p2-mach64` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | ATI Mach64 VT2 PCI (`mach64vt2`) | SB16 | NE2000 PCI |
 | `p2-s3virge` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | S3 ViRGE/DX PCI (`virge_dx_pci`, BIOS Diamond Stealth 3D 2000 Pro) | SB16 | NE2000 PCI |
 | `p2-s3trio64` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | S3 Trio64V2/DX PCI (`s3_trio64v2dx_pci`) | SB16 | NE2000 PCI |
+| `p2-ne2000` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | 3dfx Voodoo3 2000 AGP | SB16 | NE2000 PCI (RTL8029), para el driver `ne2000` (D329) |
+| `p2-ne2000-isa` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | 3dfx Voodoo3 2000 AGP | SB16 | NE2000 ISA (0x300, IRQ 10), para el driver `ne2000` (D329; imagen con `--ne2k-isa`, el sondeo ISA va apagado por defecto) |
+| `p2-s3trio64-vbe12` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | S3 Trio64 PCI (`s3_trio64_pci`, BIOS VBE 1.2, D331) | SB16 | NE2000 PCI |
+| `p2-s3virge-vbe12` | ASUS P2B-LS, i440BX | Pentium II 350 | 128 MB | S3 ViRGE/DX PCI (`virge_dx_pci`, BIOS «Generic» VBE 1.2, D331) | SB16 | NE2000 PCI |
 
 Límites de 86Box 6.0 (comprobados en su código): **no emula Pentium III** (ni Katmai ni Coppermine, así que
 tampoco SSE; `p3-rage` es una placa de P3 con un Deschutes), **no tiene ATI Rage 128 ni Rage Pro** (Mach64 VT2/VT3
@@ -107,7 +111,7 @@ calibración. Con `joystick_0_nr = 0` los ejes «no están» y el puerto se port
 Detección en `p2-voodoo3`: CPU GenuineIntel con FPU y MMX (sin SSE: lo avisa); 127 MB; VGA 121a:0005 (Voodoo3);
 IDE PIIX4 8086:7111 visto por PCI, **pero `[ATA] 1f0/0: sem LBA, ignorado` y 0 discos ATA** (por eso no se montan
 SAGUI-TMP, /home, /apps...); USB UHCI 8086:7112 con `[UHCI] el reinicio no terminó` y 0 controladores; la tarjeta
-Realtek 10ec:8029 (NE2000 PCI) aparece en `lspci` y `ifconfig` dice que no hay driver (solo e1000 y RTL8139); la SB16
+Realtek 10ec:8029 (NE2000 PCI) aparece en `lspci` y `ifconfig` decía que no había driver (resuelto en la v8.4.4: driver `ne2000`, D329); la SB16
 es ISA y no aparece en PCI (no se ha probado el sonido). Con 86Box el ratón PS/2 funciona si se configura
 `mouse_type = ps2` (las plantillas ya lo ponen).
 
@@ -120,7 +124,15 @@ Registrados como issues de GitHub (etiqueta `86box`):
 - [#35](https://github.com/aleanun89/miniOS/issues/35) 86Box k6-matrox: el kernel se reinicia en bucle tras «compilacion: con GPL» con un K6-2 en VIA MVP3
 - [#36](https://github.com/aleanun89/miniOS/issues/36) 86Box p2-voodoo3: el driver ATA ignora el disco IDE del PIIX4 (sem LBA) y no se montan las particiones
 - [#37](https://github.com/aleanun89/miniOS/issues/37) 86Box p2-voodoo3: UHCI del PIIX4 «el reinicio no terminó» y ningún controlador USB
-- [#38](https://github.com/aleanun89/miniOS/issues/38) 86Box p2-voodoo3: sin driver para la NE2000 PCI (RTL8029) ni la NE2000 ISA
+- [#38](https://github.com/aleanun89/miniOS/issues/38) 86Box p2-voodoo3: sin driver para la NE2000 PCI (RTL8029) ni la NE2000 ISA (resuelto en la v8.4.4, D329: `tests/emu_86box_ne2000.py`)
+
+### Discos sin LBA (D330, v8.4.4)
+
+El disco IDE de 86Box con menos de 1024 cilindros no anuncia LBA (como los discos pequeños de la época). Desde la v8.4.4
+el driver ATA lo usa por CHS (con DMA del PIIX) y no da por fallida la grabación cuando el disco no conoce FLUSH CACHE
+(#36: `p2-voodoo3` y `p2-450-voodoo3500` montan `/apps` y SAGUI-CONF). El MBR y la etapa 2 vuelven a leer por CHS si la
+BIOS lee mal por LBA (#34, la Award de la P3B-F: `p3-rage` llega al escritorio; #33, la AMI del 430HX: la etapa 2 carga
+el kernel y el ramdisk, aunque `p1-s3` sigue sin arrancar por su Pentium MMX, D310).
 
 ## 2D por la GPU en las gráficas de la época (D308)
 
@@ -137,6 +149,9 @@ tools/turno.sh python3 tests/emu_86box_acel2d_epoca.py [maquina ...] [--solo-esc
   lineales, SaguiOS se queda en modo texto ([#40](https://github.com/aleanun89/miniOS/issues/40)). Por eso los presets usan
   la **Trio64V2/DX** (misma familia y mismo motor, BIOS VBE 2.0) y la ViRGE/DX con la BIOS de la **Diamond Stealth 3D
   2000 Pro**; las dos dan 1024x768x32. También llega al escritorio la ViRGE/GX (`virge385_pci`).
+- Desde D331 la etapa 2 también arranca en gráfico con esas BIOS VBE 1.2: `p2-s3trio64-vbe12` (Trio64 PCI, 5333:8811)
+  y `p2-s3virge-vbe12` (ViRGE/DX con la BIOS «Generic») dan 800x600x16 con bancos y la ventana lineal del chip abierta;
+  el 2D de `acel_s3.c` queda activo en las dos.
 - Arrastrar ventanas no se puede automatizar (#39): a mano con `./run_in_86box.sh --windows p2-mach64`.
 
 ## Lo que 86Box no es

@@ -23,6 +23,7 @@
 #                      y, con --ext2/--fat32, también las persistentes multinúcleo
 #   --uacpi            incluye las imágenes con el intérprete de AML (uACPI, D192: batería):
 #                      saguios-uacpi.img y, con --smp y --ext2, saguios-persistente-smp-uacpi.img
+#   --completo         saguios-completo.img (D324: las aplicaciones dentro del ramdisk)
 #   --particiones      incluye el disco con /home, /tmp y /logs en particiones (D120), comprimido
 #   --todas            todo lo anterior: ISO, FAT32, ext2, sin GPL, multinúcleo, uACPI y particiones
 #   --variante V       variante de la imagen principal: gpl (por defecto),
@@ -87,6 +88,7 @@ QUERER_SINGPL=0
 QUERER_SMP=0
 QUERER_UACPI=0
 QUERER_PART=0
+QUERER_COMPLETO=0
 VARIANTE=gpl
 SIN_PYTHON=0
 OTIMIZACAO="-O2"
@@ -133,7 +135,8 @@ while [ $# -gt 0 ]; do
         --smp) QUERER_SMP=1 ;;
         --uacpi) QUERER_UACPI=1 ;;
         --particiones) QUERER_PART=1 ;;
-        --todas) QUERER_ISO=1; QUERER_FAT32=1; QUERER_EXT2=1; QUERER_SINGPL=1; QUERER_SMP=1; QUERER_UACPI=1; QUERER_PART=1 ;;
+        --completo) QUERER_COMPLETO=1 ;;
+        --todas) QUERER_ISO=1; QUERER_FAT32=1; QUERER_EXT2=1; QUERER_SINGPL=1; QUERER_SMP=1; QUERER_UACPI=1; QUERER_PART=1; QUERER_COMPLETO=1 ;;
         --variante) VARIANTE="${2:?falta la variante}"; shift ;;
         --sin-python) SIN_PYTHON=1 ;;
         --otimizacao) OTIMIZACAO="${2:?falta el nivel de optimización}"; shift ;;
@@ -244,6 +247,14 @@ if [ "$COMPILAR" = 1 ]; then
         make "${MAKE_VAR[@]}" B="$B" -j"$JOBS" $B/saguios-persistente-smp-uacpi.img DATOS_MB="$EXT2_MB"
     fi
     [ "$QUERER_PART" = 1 ] && make "${MAKE_VAR[@]}" B="$B" -j"$JOBS" imagem-particoes-xz
+    # D324: saguios-completo.img (las aplicaciones dentro del ramdisk, para los PC cuya controladora no
+    # localiza el disco de arranque). Solo cambia el ramdisk y la imagen: se hace en la misma carpeta y se
+    # vuelve a dejar la imagen normal (perfil «base») para la copia de más abajo.
+    if [ "$QUERER_COMPLETO" = 1 ] && [ "$RAMDISK" != completo ] && [ "$APPS" != 0 ]; then
+        make "${MAKE_VAR[@]}" B="$B" -j"$JOBS" RAMDISK=completo "$B/saguios.img"
+        cp "$B/saguios.img" "$B/saguios-completo.img"
+        make "${MAKE_VAR[@]}" B="$B" -j"$JOBS" RAMDISK=base APPS="$APPS" "$B/saguios.img"
+    fi
     if [ "$QUERER_SINGPL" = 1 ]; then
         echo "Compilando la variante sin GPL (con auditoría de licencias)..."
         make ${ENTRADA_VAR[@]+"${ENTRADA_VAR[@]}"} entrega-sin-gpl
@@ -291,6 +302,9 @@ if [ "$QUERER_UACPI" = 1 ] && [ -f "$B/saguios-uacpi.img" ]; then
 fi
 if [ -f "$B/saguios-persistente-smp-uacpi.img" ] && [ "$QUERER_UACPI" = 1 ] && [ "$QUERER_SMP" = 1 ] && [ "$QUERER_EXT2" = 1 ]; then
     cp "$B/saguios-persistente-smp-uacpi.img" "$DESTINO/saguios-persistente-smp-uacpi.img"
+fi
+if [ "$QUERER_COMPLETO" = 1 ] && [ -f "$B/saguios-completo.img" ]; then
+    cp "$B/saguios-completo.img" "$DESTINO/saguios-completo.img"
 fi
 if [ "$QUERER_PART" = 1 ]; then
     for f in "$B"/saguios-particiones.img.xz "$B"/saguios-particiones.img; do
@@ -396,6 +410,7 @@ if [ "$NOTAS" = 1 ]; then
                   saguios-persistente-fat32-smp.img*) d="pendrive con /home persistente en FAT32, con todos los procesadores" ;;
                   saguios-persistente-fat32.img*) d="pendrive con /home persistente en FAT32 (también se lee desde Windows)" ;;
                   saguios-particiones.img*) d="disco con /home, /tmp y /logs en particiones (D120)" ;;
+                  saguios-completo.img) d="imagen con todas las aplicaciones dentro del sistema en memoria (sin /apps), para los PC cuya controladora de disco no localiza el disco de arranque (D324); pide unos 64 MB más de RAM" ;;
                   saguios-sin-gpl.img) d="variante sin código GPL (sin ports GPL de terceros: OpenTyrian, NetSurf, OpenJazz..., D109/D258)" ;;
                   *) d="" ;;
               esac

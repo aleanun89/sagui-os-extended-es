@@ -17,6 +17,8 @@
 #include "gui.h"
 #include "idioma.h"
 #include "avisos.h"
+#include "montagem.h"
+#include "vfs.h"
 #include "permisos_dialogo.h"
 #include "aparencia.h"
 #include "abi.h"
@@ -615,6 +617,20 @@ static void tarefa_gerenciador(void *arg)
     }
 }
 
+/* D324 (8.4.3r2): la imagen «base» lleva /etc/apps-fuera en el ramdisk (el Makefile la pone solo
+ * cuando las aplicaciones van en la partición SAGUI-APPS). Si al llegar al escritorio /apps no
+ * está montada, el PC no ve bien el disco de arranque (#36): se avisa una vez por arranque. */
+static void aviso_apps_ausentes(void)
+{
+    if (!vfs_existe_arquivo("/etc/apps-fuera")) return;
+    const char *rel;
+    montagem_t *m = montagem_de("/apps", &rel);
+    if (m && m->tam_ponto == 5) return;   /* montada: todo bien */
+    klog("[GUI] aviso: falta /apps (SAGUI-APPS no montada); usa saguios-completo.img (docs/imagenes.md)\n");
+    gui_aviso(_("No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. "
+                "Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."));
+}
+
 bool gui_iniciar(void)
 {
     if (!video_ativo() || !area_iniciar()) return false;
@@ -624,6 +640,7 @@ bool gui_iniciar(void)
     gui_mostrar();
     tarefa_kernel("janelas", tarefa_gerenciador, NULL);
     klog("[GUI] area de trabalho pronta\n");
+    aviso_apps_ausentes();
     return true;
 }
 

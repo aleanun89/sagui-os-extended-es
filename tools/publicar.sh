@@ -43,8 +43,8 @@ URL_PUBLICO="${PUBLICAR_URL:-https://github.com/aleanun89/sagui-os-extended-es}"
 
 # Nombre de la publicación en el repo público: betaN o AAAAMM-VERSION (D261).
 validar_version() {
-    [[ "$1" =~ ^beta[0-9]+$ ]] || [[ "$1" =~ ^[0-9]{6}-[0-9]+(\.[0-9]+)*(b[0-9]*)?$ ]] \
-        || die "nombre de publicación no válido: «$1» (formatos: beta1, 202611-8.0, 202612-8.0.1, 202611-8.0b7)"
+    [[ "$1" =~ ^beta[0-9]+$ ]] || [[ "$1" =~ ^[0-9]{6}-[0-9]+(\.[0-9]+)*(b[0-9]*|r[0-9]+)?$ ]] \
+        || die "nombre de publicación no válido: «$1» (formatos: beta1, 202611-8.0, 202612-8.0.1, 202611-8.0b7, 202611-8.4.3r2)"
 }
 # Versión del repo de trabajo (vX.Y...): se anota en el commit y en las notas de la Release.
 validar_origen() {

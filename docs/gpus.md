@@ -24,7 +24,7 @@ Estado a 2026-11-15 (v8.0; 3dfx, Mach64 y S3, v8.3.3). **Leyenda:** ✅ funciona
 | **NVIDIA posteriores** (8000 en adelante) | ✅ (VESA/GOP) | — | — | — | — |
 | **3dfx Banshee/Voodoo3/4/5** (Banshee, Voodoo3 1000-3500, Velocity, Voodoo4/5 VSA-100) | ✅ (VESA) | 🟡 **v8.3.3** (D305), motor 2D por MMIO, también a 16 y 24 bits; probado solo en 86Box | — | — | 86Box (`p2-voodoo3`, `p2-450-voodoo3500`) |
 | **ATI Mach64 / Rage** GX, CT, VT, 3D Rage II/IIC, Rage Pro, LT Pro, XL, Mobility | ✅ (VESA) | 🟡 **v8.3.3** (D308), motor 2D por MMIO; en 24 bits con x3; probado solo en 86Box (VT2) | — | — | 86Box `p2-mach64` |
-| **S3 Trio64 / ViRGE** Trio64, V+, UV+, V2; ViRGE, VX, DX/GX, GX2, Trio3D, Trio3D/2X | ✅ (VESA con BIOS VBE 2.0; las VBE 1.2 se quedan en modo texto, #40) | 🟡 **v8.3.3** (D308): Trio64 por puertos, ViRGE por MMIO; probado solo en 86Box (Trio64V2/DX y ViRGE/DX) | — | — | 86Box `p2-s3trio64`, `p2-s3virge` |
+| **S3 Trio64 / ViRGE** Trio64, V+, UV+, V2; ViRGE, VX, DX/GX, GX2, Trio3D, Trio3D/2X | ✅ (VESA con BIOS VBE 2.0; con las VBE 1.2, 800x600x16 con bancos y la ventana lineal del chip abierta por la etapa 2, D331, #40; 🟡 en hardware real) | 🟡 **v8.3.3** (D308): Trio64 por puertos, ViRGE por MMIO; probado solo en 86Box (Trio64V2/DX, ViRGE/DX, ViRGE/GX2 AGP y Trio3D/2X) | — | — | 86Box `p2-s3trio64`, `p2-s3virge`, `p2-s3trio64-vbe12`, `p2-s3virge-vbe12`, `p2-s3virgegx2` (con una Voodoo como segunda tarjeta), `p2-s3trio3d2x` |
 
 ## Cómo activar la aceleración (D323)
 
@@ -66,6 +66,8 @@ el diálogo de administrador.
 3. Si pone `[ACEL2D] CPU: …`, el motivo dice qué no cuadró (registros que no responden, pitch o formato del CRTC
    distinto del VBE, otra tarjeta en los puertos de la VGA…): enviar el registro entero.
 4. Ante cualquier problema de imagen: `acel2d apagar`, o arrancar con `--sin-acel2d`.
+5. Con una S3 cuya BIOS sea VBE 1.2 (D331): la línea `[5/6] video: 800x600x16 (S3: bancos + ventana lineal)` de la
+   etapa 2. Si la pantalla sale rota o negra, una foto, y arrancar sin `--vesa` (modo texto).
 
 ## Qué probar en el Toshiba L635 (Radeon Evergreen, D286)
 
@@ -88,3 +90,5 @@ Hasta ahora solo se ha probado en 86Box (Voodoo3 2000 y 3500 AGP con un Pentium 
 4. Ante cualquier problema de imagen: `acel2d apagar`, o arrancar con `--sin-acel2d`.
 
 Más detalle: mejoras 054, 055, 060, 106-111 y la discusión de GitHub sobre v9.x/v10/v11.
+
+Nota (v8.4.3r2): las **3dfx Voodoo Graphics y Voodoo2** (121a:0001/0002) son aceleradores 3D adicionales, en cadena con la tarjeta de vídeo, sin driver en SaguiOS; infopc las nombra y lo dice (PCI y GPU).

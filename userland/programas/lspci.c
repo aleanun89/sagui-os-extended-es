@@ -36,6 +36,8 @@ static const char *fabricante(uint16_t v)
     case 0x15AD: return "VMware"; case 0x1106: return "VIA Technologies, Inc."; case 0x1039: return "Silicon Integrated Systems [SiS]";
     case 0x197B: return "JMicron Technology Corp."; case 0x104C: return "Texas Instruments"; case 0x11AB: return "Marvell Technology Group Ltd.";
     case 0x1B21: return "ASMedia Technology Inc."; case 0x1414: return "Microsoft Corporation";
+    case 0x5333: return "S3 Graphics Co., Ltd"; case 0x121A: return "3Dfx Interactive, Inc."; case 0x102B: return "Matrox Electronics Systems Ltd.";
+    case 0x1274: return "Ensoniq"; case 0x1013: return "Cirrus Logic"; case 0x12D2: return "NVidia / SGS Thomson";
     }
     return NULL;
 }

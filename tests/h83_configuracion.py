@@ -21,7 +21,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, cor_do_pixel, imagem_console, RAIZ, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, cor_do_pixel, imagem_console, RAIZ, SAIDA, opcoes_apps  # noqa: E402
 
 ACENTO = (0x2A, 0x6F, 0xD8)
 DADOS_MB = 16
@@ -34,10 +34,14 @@ def pos_paginas():
     """Devolve a posição e a largura de cada aba, como as calcula o programa."""
     x = 10
     pos = []
+    suma = sum(len(t) * 8 for t in TITULOS_PAG)
+    relleno = 10   # como traducir_rotulos(): menos si no caben en los 788 px (issue #43)
+    while relleno > 2 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
+        relleno -= 1
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 10   # como la ventana: anchura del título + 10 (D145)
+        l = len(t) * 8 + relleno
         pos.append((x, l))
-        x += l + 2
+        x += l + 1
     return pos
 
 
@@ -47,7 +51,8 @@ def imagem_persistente(nome, grafica):
     cmd = ["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
            "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
            "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-           "--ramdisk", os.path.join(b, "ramdisk.sgfs"), "--saida", destino, "--vesa", "--dados-mb", str(DADOS_MB)]
+           "--ramdisk", os.path.join(b, "ramdisk.sgfs"), "--saida", destino, "--vesa", "--dados-mb", str(DADOS_MB),
+           *opcoes_apps()]   # D324: con /apps, para que no salga el aviso de «falta /apps» sobre las ventanas
     if not grafica:
         cmd.append("--console")
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)

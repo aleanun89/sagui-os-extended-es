@@ -267,6 +267,13 @@ static bool v_iniciar(const pci_disp_t *d, const acel_tela_t *t, char *m, int nm
     if (!vmmio) { snformatar(m, (size_t)nm, "sin ventana para el MMIO"); return false; }
     uint32_t st = vrd(V_SUBSYS_STAT);
     klog("[ACEL2D] s3: ViRGE: SUBSYS_STAT %x (%u huecos en la FIFO)\n", st, v_huecos(st));
+    /* Trio3D/2X en 86Box: el chip se anuncia con la FIFO «nueva» pero SUBSYS_STAT lleva los
+     * huecos en los bits 12:8 como el ViRGE (0xF001 en reposo). Si con el formato nuevo no hay
+     * ningun hueco y con el antiguo si, con el motor en reposo, se usa el antiguo. */
+    if (fifo_novo && st != 0xFFFFFFFFu && !v_huecos(st) && ((st >> 8) & 0x1Fu)) {
+        klog("[ACEL2D] s3: ViRGE: los huecos de la FIFO estan en los bits 12:8 (formato ViRGE), no en 28:23\n");
+        fifo_novo = false;
+    }
     if (st == 0xFFFFFFFFu || !v_huecos(st)) { snformatar(m, (size_t)nm, "el MMIO no responde (SUBSYS_STAT %x)", st); return false; }
     if (!v_esperar()) { snformatar(m, (size_t)nm, "el motor 2D no esta libre (SUBSYS_STAT %x)", vrd(V_SUBSYS_STAT)); return false; }
     if (!v_fifo(5)) { snformatar(m, (size_t)nm, "la FIFO del motor no responde"); return false; }

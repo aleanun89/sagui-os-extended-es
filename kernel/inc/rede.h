@@ -21,7 +21,7 @@
 /* O que um driver entrega para a pilha. Uma placa por vez (a primeira
  * suportada que aparecer no PCI). */
 typedef struct placa {
-    const char *nome;          /* driver: "e1000", "rtl8139", "rtl810x" */
+    const char *nome;          /* driver: "e1000", "rtl8139", "ne2000", "rtl810x" */
     const char *descricao;     /* "Intel 82540EM (PRO/1000 MT)" */
     uint8_t     mac[6];
     pci_disp_t  pci;
@@ -44,6 +44,10 @@ typedef struct placa {
 
 bool e1000_procurar(placa_t *p);
 bool rtl8139_procurar(placa_t *p);
+/* D329: NE2000 (DP8390) en PCI (RTL8029 y clones) y en ISA (0x300/0x280/0x320/0x340, solo si no
+ * hay otra tarjeta; apagado por defecto, se activa con mkimagem.py --ne2k-isa; IRQ con --ne2k-irq o autodetectada). */
+bool ne2000_procurar(placa_t *p);
+bool ne2000_isa_procurar(placa_t *p);
 /* Família RTL8101E/8102E/8105E/8168 (r8169): sem como testar, só ativa a
  * pedido (ifconfig eth0 experimental). Com ativar=false só detecta. */
 bool r8169_procurar(placa_t *p, bool ativar);

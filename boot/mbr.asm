@@ -64,15 +64,16 @@ inicio:
         pop es
         jc ler_setores.falha
         and cl, 0x3F                    ; sectores por pista (bits 0-5)
+        jz .sem_cabecalho               ; sin geometría útil
         mov [spt], cl
         inc dh                          ; DH = última cabeza
         mov [cabecas], dh
 .lba_ok:
 
-        ; Cabecera de arranque (LBA 1) a 0x7E00, justo después de este sector.
+        ; Cabecera de arranque (LBA 1) a 0x7E00, justo después de este sector. El
+        ; destino y el LBA ya vienen así en el paquete (la lectura por LBA no los
+        ; cambia); la cantidad sí puede cambiarla la BIOS, y se repone.
         mov word [dap_qtd], 1
-        mov word [dap_destino], CAB_ENDERECO
-        mov dword [dap_lba], CAB_LBA
         call ler_setores
         cmp dword [CAB_ENDERECO + CAB_ASSINATURA], CAB_ASSINATURA_VAL
         jne .sem_cabecalho
@@ -93,6 +94,11 @@ inicio:
         jmp 0x0000:ESTAGIO2_ENDERECO
 
 .sem_cabecalho:
+        ; D330: hay BIOS que anuncian las extensiones y leen mal por LBA un disco sin
+        ; LBA (86Box: la Award de la P3B-F trae el sector anterior). Si lo leído por
+        ; LBA no es la cabecera, se repite por CHS; por CHS (spt != 0) ya no hay plan B.
+        cmp byte [spt], 0
+        je .chs
         mov si, msg_cabecalho
         jmp parar
 
@@ -171,8 +177,8 @@ cabecas:        db 0
 align 4
 dap:            db 0x10, 0
 dap_qtd:        dw 0
-dap_destino:    dw 0, 0                 ; offset, segmento
-dap_lba:        dd 0, 0
+dap_destino:    dw CAB_ENDERECO, 0      ; offset, segmento (primero, la cabecera)
+dap_lba:        dd CAB_LBA, 0
 
 msg_carregando: db "SaguiOS: cargando...", 13, 10, 0
 msg_cabecalho:  db "Cabecera invalida", 0

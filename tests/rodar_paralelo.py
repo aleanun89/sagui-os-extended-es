@@ -30,6 +30,7 @@ import time
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(AQUI)
 PASTA = os.path.join(RAIZ, "build", "paralelo")
+NAO_SE_APLICA = 77   # código de saída de uma prova que não se aplica a esta compilação
 TEMPO_MAX = 900   # por prova (a serial usa 600; com várias em paralelo o TCG vai mais lento)
 
 # Provas que não podem rodar com outras ao mesmo tempo, e o motivo.
@@ -65,7 +66,8 @@ def listar(filtros, regexes):
 
 
 def rodar_uma(nome, kvm, sufixo="", memoria="512M"):
-    """Roda uma prova num processo próprio. Devolve (ok, segundos)."""
+    """Roda uma prova num processo próprio. Devolve (ok, segundos); ok é None se a prova saiu com 77
+    («NÃO SE APLICA», por exemplo h159 sem NetSurf): não conta como falha."""
     base = nome[:-3] + sufixo
     saida = os.path.join(PASTA, "saida", base)
     shutil.rmtree(saida, ignore_errors=True)
@@ -80,13 +82,14 @@ def rodar_uma(nome, kvm, sufixo="", memoria="512M"):
                              env=env, cwd=RAIZ, start_new_session=True)
         registrar(p)
         try:
-            ok = p.wait(timeout=TEMPO_MAX) == 0
+            rc = p.wait(timeout=TEMPO_MAX)
+            ok = None if rc == NAO_SE_APLICA else rc == 0
         except subprocess.TimeoutExpired:
             log.write("\nTEMPO ESGOTADO\n")
             matar(p)
             ok = False
     # A pasta de saída só ocupa espaço (imagens de dezenas de MB): fora se passou.
-    if ok:
+    if ok or ok is None:
         shutil.rmtree(saida, ignore_errors=True)
     return ok, time.time() - ini
 
@@ -154,7 +157,7 @@ def main():
             feitas[0] += 1
             resultados[nome] = ok
             dur[nome] = round(seg)
-            print(f"[{feitas[0]}/{total}] {nome[:-3]} {'PASSOU' if ok else 'FALHOU'} {seg:.0f}s", flush=True)
+            print(f"[{feitas[0]}/{total}] {nome[:-3]} {'NÃO SE APLICA' if ok is None else 'PASSOU' if ok else 'FALHOU'} {seg:.0f}s", flush=True)
 
     audio = {n for n in comuns if e_audio(n)}
     audio_ocupado = [False]
@@ -205,21 +208,24 @@ def main():
     except OSError:
         pass
 
-    falhas = [n for n in nomes if not resultados.get(n)]
+    nao_aplica = [n for n in nomes if resultados.get(n, False) is None]
+    falhas = [n for n in nomes if n not in nao_aplica and not resultados.get(n)]
     if falhas and a.repetir_falhas:
         print(f"\nrepetindo em série e sem KVM: {', '.join(falhas)}", flush=True)
         ainda = []
         for nome in falhas:
             ok, seg = rodar_uma(nome, False, ".repeticao", memoria=a.mem)
-            print(f"   {nome[:-3]} {'PASSOU' if ok else 'FALHOU'} na repetição {seg:.0f}s", flush=True)
-            if not ok:
+            print(f"   {nome[:-3]} {'NÃO SE APLICA' if ok is None else 'PASSOU' if ok else 'FALHOU'} na repetição {seg:.0f}s", flush=True)
+            if ok is False:
                 ainda.append(nome)
         if len(ainda) < len(falhas):
             print("Passaram na repetição:", ", ".join(n for n in falhas if n not in ainda))
         falhas = ainda
 
     print(f"\ntempo total: {(time.time() - ini_geral) / 60:.1f} min")
-    print(f"{total - len(falhas)}/{total} testes passaram")
+    print(f"{total - len(falhas) - len(nao_aplica)}/{total - len(nao_aplica)} testes passaram")
+    if nao_aplica:
+        print("Não se aplicam (saída 77):", ", ".join(nao_aplica))
     if falhas:
         print("Falharam:", ", ".join(falhas))
     return 1 if falhas else 0

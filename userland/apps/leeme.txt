@@ -1,16 +1,31 @@
-Aplicaciones de SaguiOS fuera de la RAM (/apps, particion SAGUI-APPS, D194)
-===========================================================================
+Aplicaciones de SaguiOS fuera de la RAM (/apps, particion SAGUI-APPS, D194, D324)
+==================================================================================
 
 Esta carpeta (/apps) es la particion SAGUI-APPS de SaguiOS: ext2, montada por
 su etiqueta en lectura y escritura. Aqui van las aplicaciones que no son de la
 base del sistema: no se copian a la RAM al arrancar, se leen del disco al
-abrirlas. Si la particion falta, el sistema arranca igual, sin ellas.
+abrirlas. Si la particion falta, el sistema arranca igual, sin ellas, y avisa
+en el escritorio: usa entonces saguios-completo.img (docs/imagenes.md), que las
+lleva dentro del sistema en memoria.
 
   /apps/bin        los ejecutables (esta en el PATH del terminal: basta con
-                   escribir su nombre, por ejemplo "netsurf")
+                   escribir su nombre, por ejemplo "pluma")
   /apps/<app>/     los datos de cada aplicacion (por ejemplo /apps/netsurf)
+  /apps/videos/    el video de demostracion (sagui.avi)
   /apps/fuentes/   las fuentes vectoriales .otf/.ttf (Typodermic, CC0); Configuracion > Fuentes
                    las lista; las tuyas, en /home/fuentes
+
+Aplicaciones que viven en /apps/bin (v8.4.3):
+
+  Oficina y utilidades   pluma (procesador de textos), macaco (hojas de calculo y bases de
+                         datos), mico, correo, visorpdf, planomini, gebramini, paint, camara,
+                         grabadora, reproductor, musica
+  Internet               cipo (navegador), netsurf (si se compila)
+  Programacion           python y python-x87 (MicroPython), cc (compilador de C), pascal,
+                         chip8, chip8asm, chip8-roms, chip8-roms-gui
+  Inteligencia artificial ia, chatia
+  Juegos y demos         opentyrian (solo con GPL), buscaminas, banana, spider, sagui3d,
+                         sgldemo, jclic, jclicbajar
 
 Para instalar otra aplicacion, copia su ejecutable a /apps/bin y sus datos a
 /apps/<app>/. El instalador de SaguiOS (Inicio > Sistema > Instalar SaguiOS)

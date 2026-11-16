@@ -32,8 +32,8 @@ TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "C
                "Escritorio remoto", "Mandos")
 VMWARE = ["-vga", "none", "-device", "vmware-svga"]
 # La vista de aceleración, como en el programa.
-SUB_ACEL = (636 + 95, Y_PAG + 2 + 13)
-SUB_RES = (480 + 75, Y_PAG + 2 + 13)
+SUB_ACEL = (592 + 95, Y_PAG + 2 + 13)
+SUB_RES = (436 + 75, Y_PAG + 2 + 13)
 AC_X0, AC_PASO, AC_Y0, AC_FILA = 180, 124, Y_PAG + 122, 44
 
 
@@ -131,7 +131,7 @@ def main():
         verificar("hace falta ser administrador" in out, f"sin permisos, la orden lo pide ({out!r})")
 
         v, n0 = abrir_ventana(m)
-        verificar(v["l"] == 840 and v["a"] == 500, f"la ventana mide 840x500 ({v['l']}x{v['a']})")
+        verificar(v["l"] == 788 and v["a"] == 500, f"la ventana mide 788x500 ({v['l']}x{v['a']})")
         m.captura("H323-1-estado")
 
         # 3D: Activado (diálogo de administrador; la primera vez root elige su contraseña)

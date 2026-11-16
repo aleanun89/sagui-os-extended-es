@@ -1018,7 +1018,8 @@ void rede_iniciar(void)
 {
     bool i0 = int_salva_desliga();
     memset(&placa, 0, sizeof placa);
-    if (e1000_procurar(&placa) || (memset(&placa, 0, sizeof placa), rtl8139_procurar(&placa))) {
+    if (e1000_procurar(&placa) || (memset(&placa, 0, sizeof placa), rtl8139_procurar(&placa)) ||
+        (memset(&placa, 0, sizeof placa), ne2000_procurar(&placa))) {
         ligar_placa();
     } else {
         memset(&placa, 0, sizeof placa);
@@ -1037,6 +1038,11 @@ void rede_iniciar(void)
             so_detectada = true;
             klog("[REDE] %s detectada: driver experimental desligado (ifconfig eth0 experimental)\n", placa.descricao);
         }
+    }
+    if (!tem_placa && !so_detectada) {   /* D329: último recurso, el sondeo de puertos de la NE2000 ISA */
+        memset(&placa, 0, sizeof placa);
+        if (ne2000_isa_procurar(&placa)) ligar_placa();
+        else memset(&placa, 0, sizeof placa);
     }
     ligar_tarefa();   /* mesmo sem placa: o loopback (127.0.0.1) precisa dela */
     wifi_pci_iniciar();   /* D280: Wi-Fi integrada Atheros AR9485 (PCIe), si la hay */

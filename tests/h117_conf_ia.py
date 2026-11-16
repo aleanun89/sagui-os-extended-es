@@ -22,7 +22,8 @@ from qemu import Maquina, verificar, imagem_de_teste  # noqa: E402
 import servidor_falso_ia  # noqa: E402
 
 # Las pestañas de la ventana: cada una es del ancho de su título (D145).
-TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA")
+TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
+               "Escritorio remoto", "Mandos")   # todas: el relleno depende de la suma (issue #43)
 
 # La página de la IA, en coordenadas del cliente (como en el programa).
 Y_PAG = 50
@@ -44,10 +45,14 @@ def pos_paginas():
     """La posición y la anchura de cada pestaña, como las calcula el programa."""
     x = 10
     pos = []
+    suma = sum(len(t) * 8 for t in TITULOS_PAG)
+    relleno = 10   # como traducir_rotulos(): se reduce si las pestañas no caben en los 788 px (issue #43)
+    while relleno > 2 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
+        relleno -= 1
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 10   # como la ventana y h83: anchura del título + 10
+        l = len(t) * 8 + relleno
         pos.append((x, l))
-        x += l + 2
+        x += l + 1
     return pos
 
 
@@ -83,7 +88,7 @@ def main():
             esperar(m, '"Configuración"')
             time.sleep(1.0)
             j = janela(m.serial(), "Configuración")
-            verificar(j["l"] == 840 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
+            verificar(j["l"] == 788 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
 
             # La pestaña «IA» es la séptima.
             pos = pos_paginas()

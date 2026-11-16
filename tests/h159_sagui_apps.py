@@ -12,7 +12,7 @@ Parte A (imagen con la partición, como build/saguios.img, sobre una copia y sna
   - Inicio > Internet tiene «NetSurf (navegador)» y abre /apps/bin/netsurf;
   - un fichero escrito en /apps sigue ahí después de reiniciar.
 Parte B (imagen sin la partición): el sistema arranca igual, Inicio > Internet no tiene NetSurf
-  (sí Cipó) y "netsurf" no se encuentra.
+  ni Cipó (D324: los dos viven en /apps) y "netsurf" no se encuentra.
 Parte C (CD, que no lee particiones): la ISO lleva /apps dentro de su ramdisk (el mismo árbol
   que con APPS=0) y "which netsurf"/"sqlite3" funcionan.
 Capturas en docs/capturas/H159-*.png.
@@ -41,12 +41,12 @@ def terminal(m):
     h136.focar_terminal(m)
 
 
-def menu_internet(m, capturar=None):
+def menu_internet(m, capturar=None, item="Cipó (navegador)"):
     """Abre Inicio > Internet y devuelve sus líneas (el menú queda abierto)."""
     marca = len(m.serial())
     m.clique(40, 12)
     p = painel(m, marca)
-    sub = submenu_pelo_mouse(m, p, "Internet", "Cipó (navegador)")
+    sub = submenu_pelo_mouse(m, p, "Internet", item)
     time.sleep(0.4)
     if capturar:
         m.captura(capturar)
@@ -143,9 +143,10 @@ def parte_b():
     with Maquina("h159-b", "ide", imagem=imagem) as m:
         terminal(m)
         verificar("SAGUI-APPS -> " not in m.serial(), "B: sin la partición de apps el sistema arranca igual")
-        p, sub = menu_internet(m, "H159-4-sin-particion")
-        verificar("NetSurf (navegador)" not in sub["linhas"] and "Cipó (navegador)" in sub["linhas"],
-                  "B: sin la partición, Inicio > Internet no muestra NetSurf (%s)" % ", ".join(sub["linhas"]))
+        p, sub = menu_internet(m, "H159-4-sin-particion", item="Escritorio remoto (VNC)")
+        # D324 (v8.4.3): Cipó también vive en /apps; sin la partición el menú lo oculta, como a NetSurf
+        verificar("NetSurf (navegador)" not in sub["linhas"] and "Cipó (navegador)" not in sub["linhas"],
+                  "B: sin la partición, Inicio > Internet no muestra NetSurf ni Cipó (%s)" % ", ".join(sub["linhas"]))
         m.tecla("esc")
         time.sleep(0.5)
         m.tecla("esc")

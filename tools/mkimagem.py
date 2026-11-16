@@ -212,6 +212,11 @@ def main():
     ap.add_argument("--irq-prueba", default="",
                     help="D211 (solo pruebas): fallos simulados de la autoprueba de las IRQ, separados por comas: "
                          "prt-errada (GSI del _PRT equivocada), isa-errada (la entrada ISA no entrega), tormenta (D244: simula una en la IRQ 11 a los 2 s)")
+    ap.add_argument("--ne2k-isa", action="store_true",
+                    help="D329: sondear tarjetas NE2000 ISA en los puertos 0x300/0x280/0x320/0x340 (apagado por defecto)")
+    ap.add_argument("--ne2k-sin-isa", action="store_true", help="D329: sin efecto (el sondeo ISA ya está apagado)")
+    ap.add_argument("--ne2k-irq", type=int, default=0, choices=[0] + [3, 4, 5, 7, 9, 10, 11, 12, 15],
+                    help="D329: IRQ de la NE2000 ISA; 0 = autodetectarla")
     ap.add_argument("--mandos-prueba", action="store_true",
                     help="D307: registra dos mandos de prueba (Dual Action por el analizador HID y Xbox 360) "
                          "y acepta informes inyectados (solo para las pruebas)")
@@ -384,6 +389,7 @@ def main():
     # 144-155 = CAB_ID_INSTALACAO (D179: lo escribe «instalar»).
     cab = cab.ljust(156, b"\0")
     cab += struct.pack("<B", 1 if a.mandos_prueba else 0)    # CAB_MANDOS_PRUEBA (156, D307): mandos de prueba
+    cab += struct.pack("<BB", 1 if a.ne2k_isa else 0, a.ne2k_irq)   # CAB_NE2K_OPC (157), CAB_NE2K_IRQ (158) (D329)
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre
     # desde el LBA 1 hasta el fin del archivo y es la única, marcada como activa (0x80),
