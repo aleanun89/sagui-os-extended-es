@@ -37,7 +37,7 @@ static int geracao;
 static acel_tela_t tela;
 static uint32_t estado = GPU3D_SEM_GPU;
 static uint8_t cab;                       /* CAB_GPU3D */
-static uint32_t variante;                 /* GPU3D_CAB_ANEL o 0 */
+static uint32_t variante;                 /* GPU3D_CAB_ANEL y GPU3D_CAB_GTT (D358) */
 static char motivo[160] = "sin iniciar";
 static char placa_nome[40];
 static int dono;                          /* pid; 0 = libre */
@@ -335,7 +335,7 @@ void gpu3d_iniciar(void)
     int pedido = cab & GPU3D_CAB_MODO;
     bool seguro = (info_boot.opcoes & OPC_BOOT_ACEL_SEGURO) || (cabecalho_boot[CAB_ACEL2D] & CAB_ACEL_SEGURO);   /* D323 */
     if (seguro) pedido = GPU3D_CAB_NAO;
-    variante = cab & GPU3D_CAB_ANEL;
+    variante = cab & (GPU3D_CAB_ANEL | GPU3D_CAB_GTT);
     drv = NULL; estado = GPU3D_SEM_GPU;
     snformatar(placa_nome, sizeof placa_nome, "ninguna");
     if ((info_boot.opcoes & OPC_BOOT_SGL_SOFTWARE) || pedido == GPU3D_CAB_NAO) {
@@ -356,11 +356,20 @@ void gpu3d_iniciar(void)
             snformatar(placa_nome, sizeof placa_nome, "Intel Gen3 %04x:%04x", disp.fabricante, disp.modelo);
             estado = GPU3D_SIN_PROBAR;
             snformatar(motivo, sizeof motivo, "%s: 3D sin probar todavia (se prueba con el primer uso o con «gpu3d probar»)", placa_nome);
-        } else if (d2 == &acel_r600 && geracao == 7) {
-            /* D284: Radeon R7xx. Sin probar en hardware y el inicio carga microcódigo y reinicia el
-             * procesador de órdenes: NO se enciende con el primer uso, solo a mano. */
+        } else if (d2 == &acel_r600 && (geracao == 7 || geracao == 6)) {
+            /* D284: Radeon R7xx; D357: también R6xx. Sin probar en hardware y el inicio carga microcódigo y
+             * reinicia el procesador de órdenes: NO se enciende con el primer uso, solo a mano (o con
+             * --gpu3d=radeon). D357: estas líneas del estado se habían perdido al fusionar la rama de las
+             * R5xx (02bae96d): las R7xx quedaban «sin GPU con driver 3D» y «gpu3d probar» no las encendía. */
             drv = &gpu3d_r600;
-            snformatar(placa_nome, sizeof placa_nome, "Radeon R7xx %04x:%04x", disp.fabricante, disp.modelo);
+            snformatar(placa_nome, sizeof placa_nome, "Radeon %s %04x:%04x", geracao == 7 ? "R7xx" : "R6xx", disp.fabricante, disp.modelo);
+            if (pedido == GPU3D_CAB_RADEON) {
+                estado = GPU3D_SIN_PROBAR;
+                snformatar(motivo, sizeof motivo, "%s: 3D sin probar todavia (--gpu3d=radeon: se prueba con el primer uso)", placa_nome);
+            } else {
+                estado = GPU3D_APAGADO;
+                snformatar(motivo, sizeof motivo, "%s: 3D apagado; no se enciende solo («gpu3d probar» lo comprueba y lo activa; --gpu3d=radeon al grabar)", placa_nome);
+            }
         } else if (d2 == &acel_radeon && geracao == 2 &&
                    disp.modelo >= 0x7100 && disp.modelo <= 0x72FF) {
             /* D287: Radeon R5xx. Sin probar en hardware: no se enciende con el primer uso
@@ -385,6 +394,16 @@ void gpu3d_iniciar(void)
 }
 
 const char *gpu3d_resumo(void) { return motivo; }
+
+/* D358: la variante que de verdad quedó (GPU3D_VAR_*): el driver de Intel puede pasar
+ * al anillo si el lote no se ejecuta, o seguir sin la RAM del GTT si no la puede usar. */
+static uint32_t variante_real(uint32_t *ram_kb)
+{
+    uint32_t v = (variante & GPU3D_CAB_ANEL ? GPU3D_VAR_ANEL : 0) | (variante & GPU3D_CAB_GTT ? GPU3D_VAR_GTT : 0), kb = 0;
+    if (drv == &gpu3d_intel && estado == GPU3D_ATIVO) gpu3d_intel_estado(&v, &kb);
+    if (ram_kb) *ram_kb = kb;
+    return v;
+}
 
 /* Pone el driver en marcha y lo prueba. true: activo. */
 static bool ligar(info_gpu3d_prova_t *r)
@@ -443,9 +462,10 @@ static bool ligar(info_gpu3d_prova_t *r)
         }
         /* El 3D va por el procesador de órdenes y el 2D por el motor DMA: son independientes, así
          * que un 2D fallido no lo impide (en la Intel sí, porque comparten el ring). */
-        if (suspeito) klog("[GPU3D] aviso: el 2D por DMA de esta tarjeta fallo (%s); el 3D no lo usa y se prueba igual\n", acel2d_motivo());
+        if (suspeito) klog("[GPU3D] aviso: el 2D por DMA de esta tarjeta no esta activo (%s); el 3D no lo usa y se prueba igual\n", acel2d_motivo());
     }
-    klog("[GPU3D] encender %s (%s)%s\n", drv->nome, placa_nome, variante & GPU3D_CAB_ANEL ? ", ordenes en el anillo" : "");
+    klog("[GPU3D] encender %s (%s)%s%s\n", drv->nome, placa_nome, variante & GPU3D_CAB_ANEL ? ", ordenes en el anillo" : "",
+         variante & GPU3D_CAB_GTT ? ", RAM en el GTT" : "");
     int ri = drv->iniciar(&disp, geracao, &tela, variante, m, sizeof m);
     if (ri != G3D_OK) {
         if (ri == G3D_FALHA) n_falhas++;
@@ -464,8 +484,12 @@ static bool ligar(info_gpu3d_prova_t *r)
     }
     us_autoprova = r->us_autoprova;
     alvo_l = alvo_a = 0; dono = 0;
-    snformatar(motivo, sizeof motivo, "%s: autoprueba superada en %u ms (por autoprueba; %s)", placa_nome,
-               (us_autoprova + 999) / 1000, variante & GPU3D_CAB_ANEL ? "ordenes en el anillo" : "lotes");
+    uint32_t ram_kb, vr = variante_real(&ram_kb);
+    char gtt[48] = "";
+    if (vr & GPU3D_VAR_GTT) snformatar(gtt, sizeof gtt, "; RAM en el GTT%s", vr & GPU3D_VAR_GTT_TEX ? " con texturas" : "");
+    else if (variante & GPU3D_CAB_GTT) snformatar(gtt, sizeof gtt, "; sin la RAM en el GTT pedida");
+    snformatar(motivo, sizeof motivo, "%s: autoprueba superada en %u ms (por autoprueba; %s%s)", placa_nome,
+               (us_autoprova + 999) / 1000, vr & GPU3D_VAR_ANEL ? "ordenes en el anillo" : "lotes", gtt);
     klog("[GPU3D] activo: %s\n", motivo);
     return true;
 }
@@ -592,7 +616,7 @@ int32_t gpu3d_info(uint32_t ptr, uint32_t n)
     v->triangulos = n_tri; v->lotes = n_lotes; v->quadros = n_quadros; v->falhas = n_falhas; v->recusas = n_recusas;
     v->us_autoprova = us_autoprova;
     if (drv && drv->memoria && estado == GPU3D_ATIVO) drv->memoria(&v->memoria_kb, &v->livre_kb);
-    v->variante = variante & GPU3D_CAB_ANEL ? 1 : 0;
+    v->variante = variante_real(&v->reservado[0]);   /* D358: bits GPU3D_VAR_*; reservado[0] = KB de RAM en el GTT */
     v->prazo_ms = GPU3D_PRAZO_MS;
     v->pontos = pontos; v->tri_s = tri_s; v->kpix_s = kpix_s;
     return 0;
@@ -651,10 +675,11 @@ int32_t gpu3d_ctl(uint32_t op)
         klog("[GPU3D] apagado: a mano (gpu3d apagar)\n");
         return 0;
     }
-    if (op != 1 && op != 2) return ERRO_INVALIDO;
+    /* 1 lotes, 2 anillo; D358: 3 lotes y 4 anillo, con la RAM del sistema en el GTT. */
+    if (op < 1 || op > 4) return ERRO_INVALIDO;
     if (dono_vivo()) return ERRO_OCUPADO;
     if (estado == GPU3D_ATIVO) soltar_driver();
-    variante = op == 2 ? GPU3D_CAB_ANEL : 0;
+    variante = (op == 2 || op == 4 ? GPU3D_CAB_ANEL : 0) | (op >= 3 ? GPU3D_CAB_GTT : 0);
     estado = GPU3D_SIN_PROBAR;
     return ligar(NULL) ? 0 : ERRO_INVALIDO;
 }

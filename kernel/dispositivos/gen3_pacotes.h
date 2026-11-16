@@ -25,6 +25,7 @@
 /* ---- órdenes de memoria (MI) ---- */
 #define G3_MI_NOOP            0x00000000u
 #define G3_MI_FLUSH           (0x04u << 23)
+#define G3_MI_FLUSH_LEITURA   (1u << 0)                /* D358: además invalida las cachés de lectura (texturas) */
 #define G3_MI_LOTE_FIM        (0x0Au << 23)            /* MI_BATCH_BUFFER_END */
 #define G3_MI_LOTE_INICIO     (0x31u << 23)            /* MI_BATCH_BUFFER_START: 2 palabras */
 #define G3_LOTE_GTT           (2u << 6)                /* la dirección del lote es del GTT (antes de Gen4) */
@@ -36,6 +37,8 @@
 #define G3_BR13_565           (1u << 24)
 #define G3_BR13_8888          (3u << 24)
 #define G3_ROP_PATCOPY        (0xF0u << 16)
+#define G3_XY_SRC_COPY_BLT    ((2u << 29) | (0x53u << 22) | 6)   /* 8 palabras (D358: pruebas de la RAM en el GTT) */
+#define G3_ROP_SRCCOPY        (0xCCu << 16)
 
 /* ---- 3D ---- */
 #define G3_3D                 (3u << 29)
@@ -296,6 +299,19 @@ static inline void g3_blt_preencher(g3d_fila_t *f, uint32_t gpu, uint32_t passo,
     g3d_por(f, ((uint32_t)alt << 16) | (uint32_t)larg);
     g3d_por(f, gpu);
     g3d_por(f, valor);
+}
+
+/* D358: copia del blitter de 32 bits (8 palabras): de «orig» a «dest», los dos sin mosaico. */
+static inline void g3_blt_copiar(g3d_fila_t *f, uint32_t dest, uint32_t dpasso, uint32_t orig, uint32_t opasso, int larg, int alt)
+{
+    g3d_por(f, G3_XY_SRC_COPY_BLT | G3_BLT_ALFA_RGB);
+    g3d_por(f, G3_BR13_8888 | G3_ROP_SRCCOPY | dpasso);
+    g3d_por(f, 0);
+    g3d_por(f, ((uint32_t)alt << 16) | (uint32_t)larg);
+    g3d_por(f, dest);
+    g3d_por(f, 0);
+    g3d_por(f, opasso);
+    g3d_por(f, orig);
 }
 
 #endif

@@ -7,6 +7,10 @@
  *   wifi desconectar
  *   wifi recordadas             las redes recordadas
  *   wifi olvidar SSID
+ *   wifi --ventana              la ventana de redes (la que abre el icono Wi-Fi de la bandeja, D354)
+ *
+ * Conectar y desconectar no piden ser root: vale la sesión local (D354). Las redes recordadas son
+ * de cada usuario (su /home/.config/wifi.conf).
  *
  * La contraseña nunca llega al kernel ni al disco: aquí se calcula lo que hace
  * falta y eso es lo que se manda y se guarda en /home/.config/wifi.conf, una
@@ -22,16 +26,37 @@
 #include "sagui.h"
 #include "wpa.h"
 #include "sae.h"
+#include "gui.h"
 
 #define CONFIG "/home/.config/wifi.conf"
 #define MAX_LINHAS 32
 #define TAM_LINHA  1024
 
+static bool simulado;   /* --simulado: redes de mentira para probar la ventana sin adaptador (D354) */
+static int wifi_sim(int op, void *p, unsigned n);
+
 static int wifi(int op, void *p, unsigned n)
 {
     int r;
+    if (simulado) return wifi_sim(op, p, n);
     __asm__ volatile("int $0x80" : "=a"(r) : "a"(SIS_WIFI), "b"(op), "c"(p), "d"(n), "S"(0), "D"(0) : "memory");
     return r;
+}
+
+/* Avisos y errores: en la terminal salen por la salida; en la ventana se guardan para mostrarlos. */
+static bool modo_gui;
+static char msg_gui[160];
+static void avisa(bool erro, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    if (modo_gui) formatar_lista(msg_gui, sizeof msg_gui, fmt, ap);
+    else {
+        char t[200];
+        formatar_lista(t, sizeof t, fmt, ap);
+        if (erro) imprimir_em(ERROS, "%s", t); else imprimir("%s", t);
+    }
+    va_end(ap);
 }
 
 static const char *nome_estado(unsigned e)
@@ -304,28 +329,27 @@ static int preparar(pedido_wifi_t *p, const char *ssid, const char *senha, int k
     if (s == WIFI_WEP) {
         int nw = clave_wep(senha, p->wep);
         if (nw < 0) {
-            imprimir_em(ERROS, "wifi: la clave WEP tiene 5 o 13 caracteres, o 10 o 26 cifras hexadecimales\n");
+            avisa(true, _("wifi: la clave WEP tiene 5 o 13 caracteres, o 10 o 26 cifras hexadecimales\n"));
             return 2;
         }
         p->nwep = (unsigned char)nw;
-        imprimir("AVISO: %s usa WEP, que no protege nada: cualquiera cerca puede leer y falsificar el tráfico en\n"
-                 "       minutos. Si el router lo permite, cámbialo a WPA2-AES o WPA3.\n", ssid);
+        avisa(false, _("AVISO: %s usa WEP, que no protege nada: cualquiera cerca puede leer y falsificar el tráfico. Cámbialo a WPA2-AES o WPA3.\n"), ssid);
         return 0;
     }
     if (tem_psk(s)) {
         if (wpa_pmk(senha, (const uint8_t *)ssid, nssid, p->pmk)) p->tem_pmk = 1;
         else if (!tem_sae(s)) {
-            imprimir_em(ERROS, "wifi: la clave de WPA/WPA2 tiene de 8 a 63 caracteres ASCII\n");
+            avisa(true, _("wifi: la clave de WPA/WPA2 tiene de 8 a 63 caracteres ASCII\n"));
             return 2;
         }
         if (redes[k].detalhe & WIFI_DET_TKIP)
-            imprimir("AVISO: %s usa TKIP, que está obsoleto. Si el router lo permite, mejor WPA2-AES o WPA3.\n", ssid);
+            avisa(false, _("AVISO: %s usa TKIP, que está obsoleto. Mejor WPA2-AES o WPA3.\n"), ssid);
     }
     if (tem_sae(s)) {
-        if (nsenha < 1 || nsenha > 128) { imprimir_em(ERROS, "wifi: la contraseña de WPA3 tiene de 1 a 128 caracteres\n"); return 2; }
+        if (nsenha < 1 || nsenha > 128) { avisa(true, _("wifi: la contraseña de WPA3 tiene de 1 a 128 caracteres\n")); return 2; }
         info_wifi_t v;
         if (wifi(WIFI_ESTADO, &v, sizeof v) < 0) return 1;
-        imprimir("Preparando WPA3 (SAE con P-256)...\n");
+        if (!modo_gui) imprimir("Preparando WPA3 (SAE con P-256)...\n");
         if (sae_pt((const uint8_t *)ssid, nssid, (const uint8_t *)senha, nsenha, (const uint8_t *)0, 0, p->pt)) p->tem_pt = 1;
         /* «cazar y picotear»: un PWE por cada punto de acceso de la red que no sea solo H2E */
         for (int i = 0; i < n && p->npwe < WIFI_MAX_PWE; i++) {
@@ -434,18 +458,22 @@ static int olvidar(const char *ssid)
 {
     ler_config();
     int i = achar(ssid);
-    if (i < 0) { imprimir_em(ERROS, "wifi: %s no está entre las redes recordadas\n", ssid); return 1; }
+    if (i < 0) { avisa(true, "wifi: %s no está entre las redes recordadas\n", ssid); return 1; }
     for (int k = i + 1; k < nlinhas; k++) copia_texto(linhas[k - 1], linhas[k], sizeof linhas[0]);
     nlinhas--;
     int r = gravar_config();
     wpa_apagar(linhas, sizeof linhas);
-    if (r < 0) { imprimir_em(ERROS, "wifi: no se pudo guardar %s\n", CONFIG); return 1; }
-    imprimir("Olvidada: %s\n", ssid);
+    if (r < 0) { avisa(true, "wifi: no se pudo guardar %s\n", CONFIG); return 1; }
+    avisa(false, "Olvidada: %s\n", ssid);
     return 0;
 }
 
+#include "wifi_ventana.h"
+
 int principal(int argc, char **argv)
 {
+    for (int i = 1; i < argc; i++) if (!compara_texto(argv[i], "--simulado")) simulado = true;
+    if (argc > 1 && (!compara_texto(argv[1], "--ventana") || !compara_texto(argv[1], "-v"))) return ventana();
     if (argc < 2 || !compara_texto(argv[1], "estado")) return estado();
     if (!compara_texto(argv[1], "buscar")) return buscar();
     if (!compara_texto(argv[1], "conectar") && argc >= 3) return conectar_rede(argv[2], argc >= 4 ? argv[3] : NULL);
@@ -457,6 +485,6 @@ int principal(int argc, char **argv)
     }
     if (!compara_texto(argv[1], "recordadas")) return recordadas();
     if (!compara_texto(argv[1], "olvidar") && argc >= 3) return olvidar(argv[2]);
-    imprimir_em(ERROS, "uso: wifi [estado | buscar | conectar SSID [clave] | desconectar | recordadas | olvidar SSID]\n");
+    imprimir_em(ERROS, "uso: wifi [estado | buscar | conectar SSID [clave] | desconectar | recordadas | olvidar SSID | --ventana]\n");
     return 2;
 }

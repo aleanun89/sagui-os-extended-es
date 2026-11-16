@@ -169,3 +169,130 @@ msgstr "OK"
 msgid "Más"
 msgstr "Mais"
 
+#: userland/libsagui/opcoes_kernel.c:10
+msgid "Paginación PAE (más de 4 GB)"
+msgstr "Paginação PAE (mais de 4 GB)"
+
+#: userland/libsagui/opcoes_kernel.c:10
+msgid "Con «no», la paginación de siempre: la memoria por encima de 4 GB no se usa."
+msgstr "Com «no», a paginação de sempre: a memória acima de 4 GB não é usada."
+
+#: userland/libsagui/opcoes_kernel.c:11
+msgid "Protección NX"
+msgstr "Proteção NX"
+
+#: userland/libsagui/opcoes_kernel.c:11
+msgid "Las páginas de datos no se pueden ejecutar (solo con PAE y si la CPU lo tiene)."
+msgstr "As páginas de dados não podem ser executadas (só com PAE e se a CPU tiver)."
+
+#: userland/libsagui/opcoes_kernel.c:12
+msgid "Caché de disco"
+msgstr "Cache de disco"
+
+#: userland/libsagui/opcoes_kernel.c:12
+msgid "Guarda en la RAM lo leído y escrito en los discos."
+msgstr "Guarda na RAM o que é lido e escrito nos discos."
+
+#: userland/libsagui/opcoes_kernel.c:13
+msgid "Caché en la memoria alta"
+msgstr "Cache na memória alta"
+
+#: userland/libsagui/opcoes_kernel.c:13
+msgid "Con «no», la caché se queda en la memoria baja (como mucho 64 MB)."
+msgstr "Com «no», o cache fica na memória baixa (no máximo 64 MB)."
+
+#: userland/libsagui/opcoes_kernel.c:14
+msgid "Escritura diferida"
+msgstr "Gravação adiada"
+
+#: userland/libsagui/opcoes_kernel.c:14
+msgid "Lo escrito se graba unos segundos después; con «no», al momento."
+msgstr "O que é escrito é gravado alguns segundos depois; com «no», na hora."
+
+#: userland/libsagui/opcoes_kernel.c:15
+msgid "DMA de los discos IDE"
+msgstr "DMA dos discos IDE"
+
+#: userland/libsagui/opcoes_kernel.c:15
+msgid "Con «no», todo por PIO: más lento, pero sirve si el DMA da problemas."
+msgstr "Com «no», tudo por PIO: mais lento, mas serve se o DMA der problemas."
+
+#: userland/libsagui/opcoes_kernel.c:16
+msgid "Tamaño máximo de la caché"
+msgstr "Tamanho máximo do cache"
+
+#: userland/libsagui/opcoes_kernel.c:16
+msgid "Solo puede bajar el tope automático."
+msgstr "Só pode baixar o limite automático."
+
+#: userland/libsagui/opcoes_kernel.c:17
+msgid "Máximo sin grabar en la caché"
+msgstr "Máximo não gravado no cache"
+
+#: userland/libsagui/opcoes_kernel.c:17
+msgid "Cuánto puede esperar a grabarse; menos = menos riesgo si se va la luz."
+msgstr "Quanto pode esperar para ser gravado; menos = menos risco se faltar luz."
+
+#: userland/libsagui/opcoes_kernel.c:18
+msgid "Grabar lo pendiente cada"
+msgstr "Gravar o pendente a cada"
+
+#: userland/libsagui/opcoes_kernel.c:18
+msgid "Segundos que espera un bloque escrito antes de grabarse (3 de serie)."
+msgstr "Segundos que um bloco escrito espera antes de ser gravado (3 por padrão)."
+
+#: userland/libsagui/opcoes_kernel.c:19
+msgid "Control de frecuencia de la CPU"
+msgstr "Controle de frequência da CPU"
+
+#: userland/libsagui/opcoes_kernel.c:19
+msgid "Con «no», la CPU queda como la dejó la BIOS."
+msgstr "Com «no», a CPU fica como a BIOS deixou."
+
+#: userland/libsagui/opcoes_kernel.c:20
+msgid "Gobernador de la frecuencia"
+msgstr "Governador de frequência"
+
+#: userland/libsagui/opcoes_kernel.c:20
+msgid "Rendimiento, ahorro o a demanda; se aplica también al momento."
+msgstr "Desempenho, economia ou sob demanda; também aplicado na hora."
+
+#: userland/libsagui/opcoes_kernel.c:21
+msgid "Swap comprimida en la RAM"
+msgstr "Swap compactado na RAM"
+
+#: userland/libsagui/opcoes_kernel.c:21
+msgid "Cuando falta memoria, comprime en la RAM las páginas menos usadas; con «no», no hay swap."
+msgstr "Quando falta memória, compacta na RAM as páginas menos usadas; com «no», não há swap."
+
+#: userland/libsagui/opcoes_kernel.c:22
+msgid "Tamaño máximo de la swap"
+msgstr "Tamanho máximo do swap"
+
+#: userland/libsagui/opcoes_kernel.c:22
+msgid "Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta)."
+msgstr "Limite do armazenamento compactado; automático = metade da RAM (um quarto sem memória alta)."
+
+#: userland/libsagui/opcoes_kernel.c:75
+msgid "sí"
+msgstr "sim"
+
+#: userland/libsagui/opcoes_kernel.c:75
+msgid "no"
+msgstr "não"
+
+#: userland/libsagui/opcoes_kernel.c:76
+msgid "automático"
+msgstr "automático"
+
+#: userland/libsagui/opcoes_kernel.c:78
+msgid "rendimiento"
+msgstr "desempenho"
+
+#: userland/libsagui/opcoes_kernel.c:78
+msgid "ahorro"
+msgstr "economia"
+
+#: userland/libsagui/opcoes_kernel.c:78
+msgid "a demanda"
+msgstr "sob demanda"

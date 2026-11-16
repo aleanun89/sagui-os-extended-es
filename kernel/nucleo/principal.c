@@ -6,6 +6,7 @@
  * interrupciones y reloj, memoria física y asignador, teclado, sistema de
  * archivos y, por último, la terminal. Todo cabe en pocas líneas de pantalla: en
  * el G470 el mapa de memoria grande empujaba el saludo hacia afuera (error 1). */
+#include "kconf.h"
 #include "bootinfo.h"
 #include "acel2d.h"
 #include "gpu3d.h"
@@ -59,6 +60,7 @@
 #include "permisos.h"
 #include "sessao.h"
 #include "conf_sistema.h"
+#include "troca.h"
 
 /* El nombre y la versión vienen de versao.h (D101). */
 
@@ -232,6 +234,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         info_boot.modos_qtd = 0;
     memcpy(modos_vbe, (const void *)info_boot.modos_end, info_boot.modos_qtd * sizeof(modo_vbe_t));
     memcpy(cabecalho_boot, cab, sizeof cabecalho_boot);
+    kconf_iniciar();      /* D353: lo que guardó kconfig, encima de la imagen (no en el modo rescate) */
     hw_capturar_boot();   /* VBE y SMBIOS para el infopc (D041), con toda la memoria física a la vista */
     cpu_lapic_capturar();   /* D157: los APIC locales de la MADT, antes de la paginación */
     ioapic_capturar();      /* D166: los IOAPIC y las overrides de la MADT, también antes */
@@ -252,6 +255,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     isa_dma_reservar();   /* D302: 128 KB bajo 16 MB para el DMA ISA, antes de que se gaste la memoria baja */
     paginacao_iniciar();
     memalta_iniciar();    /* D348: ventanas temporales para las páginas altas de los programas */
+    troca_iniciar();      /* D352: swap comprimida en RAM (tope, reserva baja; la tarea, más tarde) */
     wc_iniciar();         /* PAT con una entrada write-combining, antes de mapear el framebuffer (D057) */
 
     /* H17/H18: terminal gráfica con la fuente propia. Si no hay modo
@@ -281,6 +285,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     else
         kprintf("ninguno\n");
     klog("[SAGUI] memoria_mb=%u usavel_mb=%u\n", (uint32_t)(livre >> 20), (uint32_t)(usavel >> 20));
+    kconf_registrar();    /* D353 */
     /* D077: desde el CD (El Torito, la imagen emulada como disco 0x80) el disco de
      * arranque es sólo lectura; y sin las extensiones del INT 13h el cargador leyó
      * por CHS. Las dos cosas ayudan a entender un informe (infopc --informe). */
@@ -553,6 +558,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     ehci_modo_assincrono(true);
     ata_modo_assincrono(true);    /* D281: el DMA del IDE duerme esperando su IRQ */
     cache_disco_tarefa_iniciar(); /* D281: vaciado periódico de la escritura diferida */
+    troca_tarefa_iniciar();       /* D352: mantiene memoria libre sacando páginas a la swap */
     xhci_modo_assincrono(true);   /* D214: la IRQ del xHCI, con su sonda para la autoprueba */
     /* D211: con el IOAPIC, cada driver que sabe provocar una interrupción de
      * su dispositivo comprueba que llega; si no, esa línea vuelve al 8259. */
@@ -606,7 +612,8 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     if (permisos_modo_rescate()) {
         console_cor(COR_AMARELO, COR_PRETO);
         kprintf("\n*** MODO RESCATE: shell de root sin contrasena, sin escritorio ni servicios. ***\n"
-                "    passwd cambia la contrasena de root; reiniciar vuelve al arranque normal.\n\n");
+                "    passwd cambia la contrasena de root; reiniciar vuelve al arranque normal.\n"
+                "    La configuracion del kernel guardada (kconfig) no se aplica; kconfig --por-defecto la borra.\n\n");
         console_cor(COR_CINZA, COR_PRETO);
         klog("[SAGUI] MODO RESCATE\n");
     }

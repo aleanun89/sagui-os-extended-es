@@ -140,6 +140,35 @@ static int catalogar(const char *const *dirs, int nd, fuente_info_t *v, int max)
     return n;
 }
 
+int fuentes_catalogo_dir(const char *dir, fuente_info_t *v, int max)
+{
+    const char *d[1] = { dir };
+    return catalogar(d, 1, v, max);
+}
+
+unsigned fuentes_cambio(void)
+{
+    char t[16];
+    int fd = abrir("/tmp/fuentes.cambio", ABRIR_LER);
+    if (fd < 0) return 0;
+    int r = ler(fd, t, sizeof t - 1);
+    fechar(fd);
+    unsigned v = 0;
+    for (int i = 0; i < r && t[i] >= '0' && t[i] <= '9'; i++) v = v * 10 + (unsigned)(t[i] - '0');
+    return v;
+}
+
+void fuentes_cambio_marcar(void)
+{
+    char t[16];
+    formatar_texto(t, sizeof t, "%u\n", fuentes_cambio() + 1);
+    int fd = abrir("/tmp/fuentes.cambio", ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    escrever(fd, t, (unsigned)tam_texto(t));
+    fechar(fd);
+    mudar_permisos("/tmp/fuentes.cambio", 0666);
+}
+
 static void ordenar_info(fuente_info_t *v, int n)
 {
     for (int i = 1; i < n; i++) {
@@ -193,9 +222,12 @@ static void clasificar_estilo(const char *est, int *neg, int *cur, char *resto, 
 
 int fuentes_sistema_listar(familia_fuente_t *v, int max)
 {
-    static const char *const dirs[3] = { FUENTES_DIR_SISTEMA, FUENTES_DIR_APPS, FUENTES_DIR_HOME };
+    static char propia[64];
+    fuentes_dir_usuario(propia, sizeof propia);
+    const char *dirs[4] = { FUENTES_DIR_SISTEMA, FUENTES_DIR_APPS, FUENTES_DIR_HOME, propia };
     static fuente_info_t cat[FUENTES_MAX];
-    int nc = catalogar(dirs, 3, cat, FUENTES_MAX), nf = 0;
+    int nd = compara_texto(propia, FUENTES_DIR_HOME) ? 4 : 3;
+    int nc = catalogar(dirs, nd, cat, FUENTES_MAX), nf = 0;
     for (int i = 0; i < nc; i++) {
         int neg, cur;
         char resto[24], nombre[48];

@@ -63,7 +63,7 @@ autor (robson-apk) propôs o código ao projeto original como o **PR #6 de
 `erigobeli/sagui-os`** (aberto em 2026-11-10, sem fundir) e esse repositório é GPL-3.0:
 pelos Termos do GitHub (secção D.6, «inbound = outbound») o que se contribui para um
 repositório com licença fica sob essa licença. **Confirmado em 14/11/2026** (o código do PR #6 foi aceito para integração no SaguiOS original, GPL-3.0, por um canal interno; antes, pediu-se ao autor que o confirmasse)
-explicitamente (rascunho em `docs/borradores/robson-licencia.md`). Os ficheiros levam
+Os ficheiros levam
 `SPDX-License-Identifier: GPL-3.0-only` (lista `ROBSON` de `tools/spdx.py`). Ficam sem
 marca as tabelas de dados (`brotli_tab.h`, `quebra_tab.h`) e o `js_base.h` gerado.
 

@@ -354,6 +354,8 @@ static void ui_atualizar(void)
 
 static bool ag_visible;
 static void ag_colocar(void);
+static int ag_larg(void);
+static void ag_rect(int *x, int *y, int *l, int *a);
 
 /* Donde empieza lo que hay debajo de las barras. */
 static int y_base(void) { return modo_cinta ? cinta_altura(&cinta) : BARRA_Y + 2 * FERR_A; }
@@ -369,15 +371,22 @@ static void layout(void)
     combo_iniciar(&c_tam, barra_ferr_x(&ferr2, 1), BARRA_Y + FERR_A + 3, 52, tams_txt, 16, true, 7102);
     combo_iniciar(&c_zoom, barra_ferr_x(&ferr1, 15), BARRA_Y + 3, 70, zooms_txt, 5, false, 7103);
     int y = y_base();
-    int lw = l - (ag_visible ? 380 : 0);          /* sin el panel del asistente (D298) */
+    int lw = l - (ag_visible ? ag_larg() : 0);          /* sin el panel del asistente (D298) */
     regua_iniciar(&regua, 0, y, lw);
     if (regua_visivel) y += REGUA_A;
     int dib = dibujo_visible ? DIBUJO_A : 0;
     rte_mover(doc, 0, y, lw, a - y - ESTADO_A - dib);
-    barra_ferr_iniciar(&ferr3, 0, a - ESTADO_A - DIBUJO_A, l, it3, 4);
+    barra_ferr_iniciar(&ferr3, 0, a - ESTADO_A - DIBUJO_A, lw, it3, 4);
     static const int larg[5] = { 100, 70, 70, 70, 100 };
     barra_estado_iniciar(&estado, 0, a - ESTADO_A, l, 5, larg);
     ag_colocar();
+    if (cinta_log) {   /* para las pruebas: lo que ocupa cada zona (x,y,l,a) */
+        int px = 0, py = 0, pl = 0, pa = 0;
+        if (ag_visible) ag_rect(&px, &py, &pl, &pa);
+        registrar("pluma: layout base=%d doc=0,%d,%d,%d panel=%d,%d,%d,%d dibujo=%d,%d,%d,%d estado=%d ventana=%dx%d\n",
+                  y_base(), y + 0, lw, a - y - ESTADO_A - dib, px, py, pl, pa,
+                  0, dibujo_visible ? a - ESTADO_A - DIBUJO_A : 0, lw, dib, a - ESTADO_A, l, a);
+    }
 }
 
 static void itens_iniciar(void)
@@ -780,10 +789,19 @@ static int  ag_version;             /* sube cada vez que una herramienta cambia 
 
 #define AG_AGENTE "Pluma IA"
 
+/* Ancho del panel: 380 px, o menos en ventanas pequeñas para dejar sitio al documento. */
+static int ag_larg(void)
+{
+    int l = j->larg * 45 / 100;
+    return l < AG_PANEL_L ? l : AG_PANEL_L;
+}
+
+/* El panel empieza donde acaban las barras (la cinta, plegada o no, o las barras clásicas) y
+   termina sobre la barra Dibujo, para que nada se tape (D355). */
 static void ag_rect(int *x, int *y, int *l, int *a)
 {
-    *x = j->larg - AG_PANEL_L; *y = BARRA_Y + 2 * FERR_A;
-    *l = AG_PANEL_L; *a = j->alt - ESTADO_A - *y;
+    *l = ag_larg(); *x = j->larg - *l; *y = y_base();
+    *a = j->alt - ESTADO_A - (dibujo_visible ? DIBUJO_A : 0) - *y;
 }
 
 static void ag_colocar(void)
@@ -1583,7 +1601,7 @@ int principal(int argc, char **argv)
                 continue;
             }
         }
-        if (e.tipo == EV_CLIQUE && (e.botoes & 2) && e.x < j->larg - (ag_visible ? 380 : 0) && e.y > y_base() + REGUA_A) {
+        if (e.tipo == EV_CLIQUE && (e.botoes & 2) && e.x < j->larg - (ag_visible ? ag_larg() : 0) && e.y > y_base() + REGUA_A) {
             menu_contextual(j->id, e.x, e.y, MENU_(menu_ctx_sel), COD_CTX_SEL);
             continue;
         }

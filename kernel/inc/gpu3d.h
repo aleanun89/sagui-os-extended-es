@@ -39,6 +39,7 @@
 #define GPU3D_CAB_ANEL      0x08  /* órdenes en el anillo en vez de lotes */
 #define GPU3D_CAB_P_PIXEL   0x10  /* pruebas: la autoprueba ve un píxel distinto */
 #define GPU3D_CAB_P_TEMPO   0x20  /* pruebas: la GPU deja de responder tras la autoprueba */
+#define GPU3D_CAB_GTT       0x40  /* D358: RAM del sistema en el GTT (Intel Gen3; --gpu3d-gtt, «gpu3d encender gtt») */
 
 #define GPU3D_PRAZO_MS      2000  /* vigilante: lo más que se espera a una valla (D158) */
 
@@ -117,6 +118,9 @@ extern const gpu3d_driver_t gpu3d_intel;   /* Gen3: 915, 945, G33, Pineview (gpu
 extern const gpu3d_driver_t gpu3d_r600;    /* Radeon R7xx por el CP (gpu3d_r600.c, D284): no se enciende solo */
 extern const gpu3d_driver_t gpu3d_r500;    /* Radeon R5xx: X1300 a X1950 (gpu3d_r500.c, D287) */
 extern const gpu3d_driver_t gpu3d_sim;     /* de mentira, por la CPU (gpu3d_sim.c): solo pruebas */
+
+/* D358: lo que quedó en marcha en la Intel (GPU3D_VAR_*) y los KB de RAM en el GTT. */
+void gpu3d_intel_estado(uint32_t *variante, uint32_t *ram_kb);
 
 /* ------------------------------------------------------------ la capa */
 

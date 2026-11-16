@@ -1047,6 +1047,15 @@ static bool jclic_extensao(const char *c)
     return false;
 }
 
+/* .ttf .otf: la vista previa de la fuente con el botón «Instalar» (programa fuentes, D356) */
+static bool fuente_extensao(const char *c)
+{
+    unsigned n = tam_texto(c);
+    if (n < 5 || c[n - 4] != '.') return false;
+    char e[4] = { (char)(c[n - 3] | 0x20), (char)(c[n - 2] | 0x20), (char)(c[n - 1] | 0x20), 0 };
+    return compara_texto(e, "ttf") == 0 || compara_texto(e, "otf") == 0;
+}
+
 /* .wav .mp3 .flac .ogg: se abren con el reproductor de mÃºsica (mejora 053, D115) */
 static bool audio_extensao(const char *c)
 {
@@ -1143,6 +1152,9 @@ static void abrir_item(int i)
         if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg .mp4 .m4v: el Reproductor de vÃ­deo (D129) */
         char bin[40];
         ruta_programa(bin, sizeof bin, prog);
+        char *argv_ft[4];
+        bool ft = fuente_extensao(c);
+        if (ft) { prog = "fuentes"; ruta_programa(bin, sizeof bin, prog); argv_ft[0] = "fuentes"; argv_ft[1] = "--ventana"; argv_ft[2] = c; argv_ft[3] = NULL; }
 #ifndef SAGUI_SEM_GPL
         if (gb_extensao(c)) { prog = "gnuboy"; formatar_texto(bin, sizeof bin, "/apps/bin/gnuboy"); }   /* .gb .gbc: GNUBoy (D235) */
         if (dos_extensao(c)) { prog = "dosbox"; formatar_texto(bin, sizeof bin, "/apps/bin/dosbox"); }   /* .exe .com .bat: DOSBox (D294) */
@@ -1156,7 +1168,8 @@ static void abrir_item(int i)
             ruta_programa(bin, sizeof bin, "python");
             argv_bd[0] = "python"; argv_bd[1] = "/lib/python/basedatos/explorador_sqlite.py"; argv_bd[2] = c; argv_bd[3] = NULL;
             pid = executar(bin, argv_bd);
-        } else
+        } else if (ft) pid = executar(bin, argv_ft);   /* .ttf .otf: vista previa e «Instalar» (D356) */
+        else
         pid = executar(bin, argv);
         registrar("arquivos: abrindo no %s %s (pid %d)", prog, c, pid);
     }

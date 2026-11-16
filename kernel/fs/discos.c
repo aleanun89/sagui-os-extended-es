@@ -114,7 +114,23 @@ int disco_ler(disco_t *d, uint32_t lba, uint32_t n, void *buf)
     return d->ler(d, lba, n, buf) < 0 ? ERRO_ACESSO : 0;
 }
 
+static int escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf, bool ja);
+
 int disco_escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf)
+{
+    return escrever(d, lba, n, buf, false);
+}
+
+/* D353: como disco_escrever, pero nunca diferido: llega al driver antes de volver y solo esos
+ * sectores (la caché, si tiene el bloque, se pone al día). Para la cabecera de arranque: por la
+ * caché diferida se grabaría al vaciar el bloque de 4 KB entero, con el MBR (LBA 0) y la etapa 2,
+ * y un corte de luz en ese momento podría dejar mal un sector que no había cambiado. */
+int disco_escrever_ja(disco_t *d, uint32_t lba, uint32_t n, const void *buf)
+{
+    return escrever(d, lba, n, buf, true);
+}
+
+static int escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf, bool ja)
 {
     if (!d->presente || lba >= d->setores || n > d->setores - lba) return ERRO_ACESSO;
     /* Segundo bloqueo (D040): en un volumen montado sólo para lectura, o en un disco
@@ -125,14 +141,14 @@ int disco_escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf)
     }
     if (d->pai) {
         d->pai->pai_gravando = true;   /* la partición ya fue verificada */
-        int r = disco_escrever(d->pai, d->inicio + lba, n, buf);
+        int r = escrever(d->pai, d->inicio + lba, n, buf, ja);
         d->pai->pai_gravando = false;
         return r;
     }
     if (!d->escrever) return ERRO_ACESSO;
     /* D281: por la caché; solo se difiere lo que escribe un sistema de archivos montado (un disco
      * reservado para el acceso en bruto -formateo, particiones, instalador- graba al instante). */
-    if (cache_disco_aplica(d)) return cache_disco_escrever(d, lba, n, buf, !disco_reservado(d));
+    if (cache_disco_aplica(d)) return cache_disco_escrever(d, lba, n, buf, !ja && !disco_reservado(d));
     return d->escrever(d, lba, n, buf) < 0 ? ERRO_ACESSO : 0;
 }
 

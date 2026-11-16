@@ -1139,3 +1139,89 @@ msgstr "Conta excluída; a pasta é mantida."
 #: userland/programas/configuracion.c
 msgid "Elige una cuenta de la lista."
 msgstr "Escolha uma conta da lista."
+
+#: userland/programas/configuracion.c:1956
+msgid "Kernel"
+msgstr "Kernel"
+
+#: userland/programas/configuracion.c:2122
+msgid "Valores de la imagen (borrar lo guardado)"
+msgstr "Valores da imagem (apagar o salvo)"
+
+#: userland/programas/configuracion.c:2131
+msgid "Cambiar"
+msgstr "Alterar"
+
+#: userland/programas/configuracion.c:2132
+msgid "De la imagen"
+msgstr "Da imagem"
+
+#: userland/programas/configuracion.c:2140
+msgid "cambiar las opciones del kernel"
+msgstr "alterar as opções do kernel"
+
+#: userland/programas/configuracion.c:2141
+msgid "Sin permisos de administrador no se pueden cambiar las opciones del kernel."
+msgstr "Sem permissões de administrador não é possível alterar as opções do kernel."
+
+#: userland/programas/configuracion.c:2147
+msgid "Arranque desde CD: no se puede guardar."
+msgstr "Inicializado a partir de CD: não é possível salvar."
+
+#: userland/programas/configuracion.c:2150
+msgid "Borrado lo guardado: al reiniciar, los valores de la imagen."
+msgstr "O que foi salvo foi apagado: ao reiniciar, os valores da imagem."
+
+#: userland/programas/configuracion.c:2155
+#, c-format
+msgid "%s: %s; se aplica al reiniciar"
+msgstr "%s: %s; aplicado ao reiniciar"
+
+#: userland/programas/configuracion.c:2155
+#, c-format
+msgid "%s: %s"
+msgstr "%s: %s"
+
+#: userland/programas/configuracion.c:2189
+msgid "Opciones del kernel"
+msgstr "Opções do kernel"
+
+#: userland/programas/configuracion.c:2190
+msgid "Se aplican al reiniciar. Si no arranca: Ctrl al arrancar y «kconfig --por-defecto»."
+msgstr "Aplicadas ao reiniciar. Se não iniciar: Ctrl ao iniciar e «kconfig --por-defecto»."
+
+#: userland/programas/configuracion.c:2192
+msgid "Modo rescate: lo guardado no se aplica en este arranque."
+msgstr "Modo de resgate: o que foi salvo não é aplicado nesta inicialização."
+
+#: userland/programas/configuracion.c:2193
+msgid "Arranque desde CD: no se puede guardar nada."
+msgstr "Inicializado a partir de CD: não é possível salvar nada."
+
+#: userland/programas/configuracion.c:2194
+msgid "Lo guardado está dañado y no se aplica."
+msgstr "O que foi salvo está danificado e não é aplicado."
+
+#: userland/programas/configuracion.c:2197
+msgid "Opción"
+msgstr "Opção"
+
+#: userland/programas/configuracion.c:2199
+msgid "Ahora"
+msgstr "Agora"
+
+#: userland/programas/configuracion.c:2200
+msgid "Al reiniciar"
+msgstr "Ao reiniciar"
+
+#: userland/programas/configuracion.c:2202
+msgid "Este kernel no tiene opciones guardables."
+msgstr "Este kernel não tem opções salváveis."
+
+#: userland/programas/configuracion.c:2219
+msgid "* = cambia al reiniciar"
+msgstr "* = muda ao reiniciar"
+
+#: userland/programas/configuracion.c:1093
+msgid "Instalar fuentes..."
+msgstr "Instalar fontes..."

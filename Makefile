@@ -744,6 +744,8 @@ $(B)/userland/sae.o: kernel/lib/sae.c $(WIFI_LIB_H)
 	$(CC) $(UCFLAGS) -c -o $@ $<
 $(B)/userland/bin/wifi: $(B)/userland/wpa.o $(B)/userland/wpa_cifra.o $(B)/userland/p256.o $(B)/userland/sae.o \
                         $(B)/userland/libtls/sha256.o
+# D354: la ventana de redes va en wifi_ventana.h (incluida por wifi.c)
+$(B)/userland/programas/wifi.o: userland/programas/wifi_ventana.h
 
 # El benchmark (D176) tiene cargas de coma flotante SSE2 (con __attribute__((target)), tras el
 # CPUID) y usa la x87 para la media geométrica: sin -mgeneral-regs-only, como el simd. Lleva SHA-256.
@@ -899,6 +901,8 @@ $(B)/userland/programas/gebramini.o: UCFLAGS := $(filter-out -mgeneral-regs-only
 $(B)/userland/programas/gebramini.o: $(GBM_HDR)
 # El catálogo de funciones de Macaco (D311) es una cabecera propia: al cambiarla hay que recompilar macaco.o.
 $(B)/userland/programas/macaco.o: userland/programas/macaco_funciones.h userland/programas/macaco_formatos.h
+$(B)/userland/programas/pluma.o: userland/programas/pluma_cinta.h
+$(B)/userland/programas/macaco.o: userland/programas/macaco_cinta.h
 $(B)/userland/bin/gebramini: $(GBM_OBJ)
 
 # PlanoMini (D312, mejora 129): el motor del CAD 2D (órdenes, geometría, .pmini, DXF) con la x87 como GebraMini
@@ -1229,7 +1233,7 @@ $(B)/$(FONTES_DIR)/%.o: $(FONTES_DIR)/%.c userland/inc/fontes.h $(USER_HDR)
 	$(CC) $(FONTES_FLAGS) -c -o $@ $<
 
 # Los programas que usan fuentes vectoriales enlazan la libfontes.
-$(B)/userland/bin/pluma $(B)/userland/bin/configuracion $(B)/userland/bin/editor $(B)/userland/bin/paint $(B)/userland/bin/terminal $(B)/userland/testes/pruebafuentes: $(FONTES_OBJ)
+$(B)/userland/bin/pluma $(B)/userland/bin/fuentes $(B)/userland/bin/macaco $(B)/userland/bin/configuracion $(B)/userland/bin/editor $(B)/userland/bin/paint $(B)/userland/bin/terminal $(B)/userland/testes/pruebafuentes: $(FONTES_OBJ)
 
 # ---------- /apps (D194) ----------
 # D228: lo de $(INPUT_SHARE)/apps (docs/input_share.md) va encima, tal cual; la marca

@@ -63,6 +63,15 @@ static int escanear(void)
             for (int e = 0; e < 4; e++) if (!reg[id].ruta[e][0] && v[i].ruta[e][0]) { copia_texto(reg[id].ruta[e], v[i].ruta[e], sizeof reg[id].ruta[e]); cargadas[id][e].tentou = false; }
         }
     }
+    /* D356: lo que ya no está en las carpetas (fuente quitada) se olvida: el nombre y el número se conservan (por si
+     * se vuelve a instalar), pero sin archivos la familia no aparece en las listas y se dibuja y exporta como la clásica. */
+    for (int id = PDFW_FAM_SIS; id < nreg; id++)
+        for (int e = 0; e < 4; e++) {
+            if (!reg[id].ruta[e][0]) continue;
+            bool sigue = false;
+            for (int i = 0; i < n && !sigue; i++) sigue = igual_sc(v[i].ruta[e], reg[id].ruta[e]);
+            if (!sigue) { reg[id].ruta[e][0] = 0; cargadas[id][e].tentou = false; }
+        }
     enlazar_clasicas();
     return nuevas;
 }
@@ -197,7 +206,12 @@ static uint8_t *p_archivo(int fam, int est, const uint8_t *usadas, int *n, int *
 }
 
 static int p_cantidad(void) { return nreg; }
-static const char *p_nombre(int fam) { return fam >= PDFW_FAM_SIS && fam < nreg && reg[fam].familia[0] ? reg[fam].familia : NULL; }
+static const char *p_nombre(int fam)
+{
+    if (fam < PDFW_FAM_SIS || fam >= nreg || !reg[fam].familia[0]) return NULL;
+    for (int e = 0; e < 4; e++) if (reg[fam].ruta[e][0]) return reg[fam].familia;
+    return NULL;                                   /* la fuente se quitó */
+}
 static int p_resolver(const char *nombre) { return buscar_nombre(nombre); }
 
 /* La clásica más parecida a una familia: por el nombre y, si no, sans. */

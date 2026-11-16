@@ -62,7 +62,7 @@ def fuentes():
               "usa la memoria de GPU y los búferes comunes (g3d_*)")
     # No se enciende solo: la capa lo deja apagado salvo --gpu3d=radeon.
     ini = capa[capa.index("void gpu3d_iniciar(void)"):capa.index("const char *gpu3d_resumo")]
-    r7 = ini[ini.index("d2 == &acel_r600 && geracao == 7"):]
+    r7 = ini[ini.index("d2 == &acel_r600 && (geracao == 7 || geracao == 6)"):]   # D357: también R6xx
     r7 = r7[:r7.index("} else if (d2)")]
     verificar("drv = &gpu3d_r600;" in r7 and "estado = GPU3D_APAGADO;" in r7 and "pedido == GPU3D_CAB_RADEON" in r7,
               "las R7xx arrancan apagadas: solo «gpu3d probar/encender» o --gpu3d=radeon")
@@ -89,7 +89,8 @@ def fuentes():
     verificar(len(esperas) >= 5 and all("prazo_vencido" in e for e in esperas), f"toda espera del driver tiene plazo ({len(esperas)})")
     verificar("r600_sondar(" in drv and "vm0 & 1" in drv and "D1CUR_CONTROL" in drv and "r600_fim_2d" in drv,
               "la sonda reutiliza la del 2D y comprueba la memoria virtual, el cursor y que va detrás del 2D")
-    verificar("SAGUI_SEM_FIRMWARE" in drv and "/lib/firmware/radeon/" in drv and "R7_PFP_UCODE_PALAVRAS * 4" in drv,
+    verificar("SAGUI_SEM_FIRMWARE" in drv and "/lib/firmware/radeon/" in drv and "npfp != pal_pfp * 4" in drv
+              and "R7_PFP_UCODE_PALAVRAS : R6_PFP_UCODE_PALAVRAS" in drv,
               "microcódigo del sistema de archivos, con el tamaño comprobado; nada con SEM_FIRMWARE=1")
     verificar("return tocou ? G3D_FALHA : G3D_NAO;" in drv, "lo que falla antes de tocar la tarjeta no cuenta como fallo de la GPU")
     # La lista de inicio no toca pantalla, HDP ni DMA (también lo comprueba la unidad).
@@ -119,7 +120,7 @@ def fuentes():
     ter = ler("docs/terceros.md")
     verificar("gpu3d_r600.c" in ter and "firmware/radeon/" in ter, "docs/terceros.md registra las referencias y el microcódigo")
     guia = ler("docs/gpu3d.md")
-    verificar("## Radeon R7xx" in guia and "gpu3d probar --detalle" in guia and "dmesg > /home/gpu3d.txt" in guia
+    verificar(re.search(r"^## Radeon (R6xx y )?R7xx", guia, re.M) and "gpu3d probar --detalle" in guia and "dmesg > /home/gpu3d.txt" in guia
               and "Sin probar en hardware" in guia, "docs/gpu3d.md dice qué ejecutar en el dv7 y que no está probado")
     for rel in ("kernel/dispositivos/gpu3d_r600.c", "kernel/dispositivos/r600_3d_pacotes.c", "kernel/inc/r600_3d.h",
                 "kernel/inc/r600_base.h"):

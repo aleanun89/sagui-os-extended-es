@@ -46,6 +46,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "frequencia.h"
+#include "kconf.h"
 #include "frequencia_pol.h"
 #include "info_hardware.h"
 #include "memoria.h"
@@ -618,7 +619,7 @@ void frequencia_iniciar(void)
     inf.atual = inf.pedido = -1;
     inf.temp_mc = FREQ_TEMP_ND;
     inf.periodo_ms = PERIODO_MS;
-    uint8_t cab = cabecalho_boot[CAB_FREQ];
+    uint8_t cab = (uint8_t)kconf_cab(CAB_FREQ);   /* D353: con lo que guardó kconfig */
     bool simulado = cab & CAB_FREQ_SIMULADA;
 
     cpuid(0, 0, r);
@@ -684,7 +685,16 @@ void frequencia_iniciar(void)
                  pol.coordenacao == FPOL_PAQUETE ? "por paquete" : "por nucleo");
     }
     if (cab & CAB_FREQ_DESATIVAR) desativar(1);
-    else ler_config();
+    else {
+        ler_config();
+        /* D353: el gobernador que guardó kconfig manda sobre /home/.frecuencia y /etc/frecuencia. */
+        uint32_t g = kconf_valor(KC_GOBERNADOR);
+        if (g >= 1 && g <= 3) {
+            pol.politica = (int)g - 1;
+            static const char *const nomes[] = { "rendimiento", "ahorro", "a demanda" };
+            klog("[FREQ] politica %s (kconfig)\n", nomes[g - 1]);
+        }
+    }
     if (inf.estado == FREQ_EST_ATIVO) ciclo(false);
     int_restaura(i0);
     if (!tarefa_ligada) { tarefa_ligada = true; tarefa_kernel("frecuencia", tarefa_frequencia, NULL); }

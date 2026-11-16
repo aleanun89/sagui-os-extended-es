@@ -72,7 +72,11 @@ CAB_DISCO_OPC       equ 143        ; u8 opciones del disco (D281, pruebas): bit 
 CAB_ID_INSTALACAO   equ 144        ; u32 "SGIN", u32 aleatorio, u32 hora (144-155): lo escribe "instalar" (D179) en
 CAB_NE2K_OPC        equ 157        ; u8 D329: bit 0 = sondear NE2000 ISA (mkimagem.py --ne2k-isa); apagado por defecto. Solo lo lee el kernel
 CAB_NE2K_IRQ        equ 158        ; u8 D329: IRQ de la NE2000 ISA (mkimagem.py --ne2k-irq); 0 = autodetectarla
-CAB_MEM_OPC         equ 159        ; u8 D349: bit 0 = sin PAE (mkimagem.py --sem-pae), bit 1 = sin NX (--sem-nx). Solo lo lee el kernel
+CAB_MEM_OPC         equ 159        ; u8 D349: bit 0 = sin PAE (mkimagem.py --sem-pae), bit 1 = sin NX (--sem-nx), bit 2 = sin swap (--sin-swap, D352). Solo lo lee el kernel
+CAB_TROCA_MB        equ 160        ; u16 D352: tope de la swap comprimida en MB (mkimagem.py --swap-mb); 0 = automático. Solo lo lee el kernel
+CAB_KCONF           equ 192        ; 64 bytes D353 (192-255): lo que guarda «kconfig» desde el sistema (firma 'SGKC', bits
+                                   ; de presencia, u16 por opción y suma; kernel/inc/kconf.h). mkimagem.py la deja a cero (los
+                                   ; valores de la imagen son los bits de arriba). Solo la lee el kernel (en el modo rescate, no la aplica)
 CAB_MANDOS_PRUEBA   equ 156        ; u8 mandos de prueba (D307; lo pone mkimagem.py --mandos-prueba): no 144, que es CAB_ID_INSTALACAO
                                    ; cada disco instalado; mkimagem.py lo deja a cero. El kernel compara los 256
                                    ; primeros bytes de la cabecera para saber de qué disco arrancó

@@ -79,6 +79,26 @@ void fuentes_doc_instalar(void);
 /* Para pruebas: vuelve a leer las carpetas y devuelve cuántas familias quedan registradas. */
 int fuentes_doc_actualizar(void);
 
+/* ---- instalar y quitar fuentes (D356, libfontes/instalar.c) ---- */
+enum { FUENTES_OK = 0, FUENTES_E_NOEXISTE = -1, FUENTES_E_EXT = -2, FUENTES_E_TAM = -3, FUENTES_E_DANADA = -4,
+       FUENTES_E_VACIA = -5, FUENTES_E_COPIA = -6, FUENTES_E_PERMISO = -7 };
+const char *fuentes_error_texto(int r);
+/* La carpeta de fuentes de la cuenta: /home/fuentes, o $HOME/fuentes si HOME es /home/<cuenta>. */
+void fuentes_dir_usuario(char *dst, int n);
+/* Comprueba que el archivo es una fuente que la libfontes abre y dibuja; da su familia y estilo. */
+int  fuentes_validar(const char *ruta, char *familia, int nf, char *estilo, int ne);
+/* Valida y copia a dir (la crea si hace falta). Sin permiso en dir: FUENTES_E_PERMISO. */
+int  fuentes_instalar(const char *origen, const char *dir, char *familia, int nf);
+int  fuentes_instalar_carpeta(const char *carpeta, const char *dir, int *malas);   /* cuántas se instalaron */
+/* Borra de dir los archivos de la familia (o «Familia Estilo»); devuelve cuántos. */
+int  fuentes_quitar(const char *dir, const char *familia, int *errores);
+/* El catálogo de una sola carpeta, sin ordenar. */
+int  fuentes_catalogo_dir(const char *dir, fuente_info_t *v, int max);
+/* Marca de cambios: instalar y quitar suben un contador en /tmp/fuentes.cambio; los programas
+ * con la lista abierta lo comparan (fuentes_cambio) y vuelven a leer las carpetas. */
+unsigned fuentes_cambio(void);
+void     fuentes_cambio_marcar(void);
+
 /* Fuente por defecto elegida en Configuración: uso 0 = documentos, 1 = títulos.
  * Copia la ruta; devuelve false si no hay ninguna elegida. */
 bool fuentes_defecto(int uso, char *ruta, int n);

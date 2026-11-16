@@ -202,6 +202,13 @@ static uint32_t wptr, seq;
 static uint32_t cor_atual, cor_largura;   /* lo que tiene pintado la fila del color */
 /* Los registros del DMA antes de tocarlos (se dejan igual al apagar). */
 static uint32_t o_rb_cntl, o_rb_base, o_ib_cntl, o_cntl, o_mode, o_rptr_hi, o_rptr_lo, o_sem1, o_sem2;
+/* D357: hasta dónde llegó el último inicio (para «acel2d probar --detalle» y el motivo). */
+static int etapa = -1;
+static const char *const nomes_etapa[7] = {
+    "-", "modelo y sonda (BAR, MMIO, pantalla)", "memoria y zona del DMA", "estado previo del DMA", "encender el anillo",
+    "prueba del anillo", "valla",
+};
+static const char *nome_etapa(int e) { return e >= 1 && e <= 6 ? nomes_etapa[e] : "sin intentar"; }
 
 static inline uint32_t rd(uint32_t r)             { return *(volatile uint32_t *)(mmio + r); }
 static inline void     wr(uint32_t r, uint32_t v) { *(volatile uint32_t *)(mmio + r) = v; }
@@ -316,6 +323,8 @@ static bool dentro(int x, int y, int l, int a)
 /* D246: «acel2d probar --detalle»: los registros clave de la memoria y del motor, para el log. */
 static void r6_detalle(const char *fase)
 {
+    klog("[ACEL2D] r600 detalle (%s): ultima etapa del inicio del driver: %d de 6 (%s)%s\n", fase, etapa, nome_etapa(etapa),
+         etapa == 6 && programado ? "; despues va la autoprueba de la capa 2D" : "");
     if (!mmio) return;
     uint32_t fbl = rd(gen >= 7 ? R700_MC_VM_FB_LOCATION : R600_MC_VM_FB_LOCATION);
     klog("[ACEL2D] r600 detalle (%s): MC_VM_FB_LOCATION %x HDP_NONSURFACE_BASE %x VM_CONTEXT0_CNTL %x "
@@ -525,10 +534,11 @@ void r600_hdp_vaciar(const r600_base_t *b, volatile uint32_t *leitura)
     }
 }
 
-static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
+static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
 {
     programado = false;
     crtc_tela = -1;
+    etapa = 1;
     r600_base_t base;
     const r600_modelo_t *mod = modelo_de(d->modelo);
     if (mod && mod->gen == geracao) {
@@ -547,6 +557,7 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     uint64_t vram_ini = base.vram_ini, vram_fim = base.vram_fim;
     int ctrl_ok = base.controlador;
     crtc_tela = ctrl_ok;
+    etapa = 2;
 
     /* Lo que va a tocar el DMA, detrás de la pantalla y de la zona de prueba. */
     uint32_t zona_fim = t->pitch * (uint32_t)(t->alt + ACEL2D_ZONA_A);
@@ -605,6 +616,7 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
         snformatar(m, (size_t)nm, "la memoria virtual de la GPU esta encendida (VM_CONTEXT0_CNTL %x): no se arriesga", vm0);
         return false;
     }
+    etapa = 3;
     uint32_t rb = rd(DMA_RB_CNTL), st = rd(DMA_STATUS_REG);
     klog("[ACEL2D] r600: DMA_RB_CNTL %x, DMA_STATUS %x, DMA_CNTL %x, SRBM_STATUS %x\n", rb, st, rd(DMA_CNTL), rd(SRBM_STATUS));
     if (rb & DMA_RB_ENABLE) { snformatar(m, (size_t)nm, "el anillo del DMA ya esta encendido (DMA_RB_CNTL %x): no se toca", rb); return false; }
@@ -637,6 +649,7 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
          ctrl_ok + 1, mc_tela, mc_ring, filas, geo.mc_rascunho, total >> 10);
 
     /* Encender el anillo (como r600_dma_resume, sin escritura de vuelta ni IB). */
+    etapa = 4;
     o_rb_cntl = rb; o_rb_base = rd(DMA_RB_BASE); o_ib_cntl = rd(DMA_IB_CNTL); o_cntl = rd(DMA_CNTL);
     o_mode = tem_dma_mode() ? rd(DMA_MODE) : 0;
     o_rptr_hi = rd(DMA_RB_RPTR_ADDR_HI); o_rptr_lo = rd(DMA_RB_RPTR_ADDR_LO);
@@ -666,6 +679,7 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     wr(DMA_RB_CNTL, cntl | DMA_RB_ENABLE);
 
     /* Prueba del anillo: escribir una palabra y leerla. */
+    etapa = 5;
     uint32_t p[4];
     r600_pkt_escrever(p, mc_ctrl + CTRL_TESTE * 4, 0xCAFEDEADu);
     if (!pacote(p, 4)) { snformatar(m, (size_t)nm, "el anillo del DMA no avanza"); return false; }
@@ -679,9 +693,24 @@ static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
                        rd(DMA_STATUS_REG));
             return false;
         }
+    etapa = 6;
     if (!r6_esperar()) { snformatar(m, (size_t)nm, "el DMA no escribe la valla"); return false; }
     klog("[ACEL2D] r600: anillo del DMA en marcha (prueba y valla escritas, RPTR %x)\n", rd(DMA_RB_RPTR));
     return true;
+}
+
+/* D357: el motivo lleva «etapa N:» delante, para que «acel2d probar» y el arranque digan dónde se paró. */
+static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
+{
+    etapa = 0;
+    if (r6_iniciar_etapas(d, geracao, t, m, nm)) return true;
+    if (etapa >= 1) {
+        char tx[160];
+        snformatar(tx, sizeof tx, "etapa %d: %s", etapa, m);
+        snformatar(m, (size_t)nm, "%s", tx);
+        klog("[ACEL2D] r600: el inicio se paro en la etapa %d (%s)\n", etapa, nome_etapa(etapa));
+    }
+    return false;
 }
 
 const acel_driver_t acel_r600 = {

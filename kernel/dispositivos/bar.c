@@ -171,6 +171,7 @@ int32_t sis_desejar_bar(uint32_t virt, uint32_t b, uint32_t c, uint32_t d, uint3
         uint32_t ini = atual->bar_mapas[i].virt;
         uint32_t bytes = atual->bar_mapas[i].bytes;
         if (!bytes || ini != virt) continue;
+        if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351 */
         for (uint32_t v = ini; v < ini + bytes; v += PAGINA) espaco_desmapear(atual->espaco, v);
         espaco_sincronizar(atual->espaco);   /* D167: otro hilo en otra CPU puede tenerlas en la TLB */
         atual->bar_mapas[i].bytes = 0;

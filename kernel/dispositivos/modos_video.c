@@ -27,12 +27,14 @@
 #include "cpu.h"
 #include "disco.h"
 #include "gui.h"
+#include "kconf.h"
 #include "info_hardware.h"
 #include "memoria.h"
 #include "mouse.h"
 #include "rapido.h"
 #include "sistema.h"
 #include "texto.h"
+#include "trava.h"
 #include "video.h"
 #include "wc.h"
 
@@ -141,74 +143,96 @@ static disco_t *particao_de_boot(uint32_t *lba)
     return NULL;
 }
 
+/* D353: una sola escritura de la cabecera a la vez (leer, cambiar y grabar duerme en el driver: dos
+ * a la vez, p. ej. «pantalla --guardar» y kconfig, perderían una de las dos). */
+static trava_t trava_cab;
+
 /* Regraba solo los 4 bytes de la resolución en la cabecera. Antes comprueba que el
  * sector es la misma cabecera con la que arrancó la máquina (los primeros 128
  * bytes iguales a la copia de 0x7E00, incluidas las sumas del kernel y del
  * ramdisk): ningún otro disco, ni una imagen distinta de SaguiOS, se
  * toca. Es una escritura pedida por la persona (pantalla --guardar), nunca en el
  * arranque; el cerrojo de D040 se abre solo para este sector de la partición del
- * propio SaguiOS, que ningún sistema de archivos usa. */
+ * propio SaguiOS, que ningún sistema de archivos usa. D353: por cab_regravar (el
+ * cerrojo y la escritura sin diferir). */
+static bool pref_mudar(uint8_t *s, void *ctx)
+{
+    const uint32_t *la = ctx;
+    uint8_t antes[4];
+    memcpy(antes, s + CAB_RES_LARG, 4);
+    s[CAB_RES_LARG] = (uint8_t)la[0]; s[CAB_RES_LARG + 1] = (uint8_t)(la[0] >> 8);
+    s[CAB_RES_ALT] = (uint8_t)la[1];  s[CAB_RES_ALT + 1] = (uint8_t)(la[1] >> 8);
+    return memcmp(antes, s + CAB_RES_LARG, 4) != 0;
+}
+
 static int gravar_preferencia(uint32_t l, uint32_t a)
 {
-    /* Desde el CD (D077) no se graba: ni siquiera se busca el disco, para no encontrar por
-     * error otra copia de SaguiOS con la misma cabecera. */
+    uint32_t la[2] = { l, a };
+    const char *nome;
+    int r = cab_regravar(pref_mudar, la, &nome);
+    if (r == 0) info_boot.res_pref = l | a << 16;
+    klog("[VIDEO] preferencia %ux%u gravada em %s: %d\n", l, a, nome, r);
+    return r;
+}
+
+/* D353: lee la cabecera del disco de arranque, comprueba que es la misma con la que arrancó la
+ * máquina (los 128 primeros bytes, como gravar_preferencia), deja que "mudar" la cambie y, si
+ * cambió algo, la graba sin pasar por la escritura diferida de la caché (disco_escrever_ja: solo ese
+ * sector, no el bloque de 4 KB con el MBR) y copia el sector en cabecalho_boot (discos.c reconoce el
+ * disco de arranque comparando 256 bytes). Nunca desde el CD (D077). Es la escritura que ya hacían «pantalla --guardar» y Configuración (D323). */
+int cab_regravar(bool (*mudar)(uint8_t *s, void *ctx), void *ctx, const char **nome)
+{
+    if (nome) *nome = "?";
     if (info_boot.opcoes & OPC_BOOT_CD) return ERRO_SO_LEITURA;
     uint32_t lba;
     disco_t *p = particao_de_boot(&lba);
     if (!p) return ERRO_NAO_EXISTE;
+    if (nome) *nome = p->nome;
     uint8_t *s = kmalloc(512);
     if (!s) return ERRO_SEM_MEMORIA;
+    trava_pegar(&trava_cab);
     int r = disco_ler(p, lba, 1, s);
     if (r == 0 && memcmp(s, cabecalho_boot, CAB_RES_LARG) != 0) r = ERRO_FORMATO;
-    if (r == 0) {
-        s[CAB_RES_LARG] = (uint8_t)l; s[CAB_RES_LARG + 1] = (uint8_t)(l >> 8);
-        s[CAB_RES_ALT] = (uint8_t)a;  s[CAB_RES_ALT + 1] = (uint8_t)(a >> 8);
+    if (r == 0 && mudar(s, ctx)) {
         bool antes = p->rw_autorizado;
         p->rw_autorizado = true;
-        r = disco_escrever(p, lba, 1, s);
+        r = disco_escrever_ja(p, lba, 1, s);   /* sin diferir: solo este sector, ya */
         p->rw_autorizado = antes;
+        if (r == 0) memcpy(cabecalho_boot, s, 512);
     }
-    if (r == 0) {
-        memcpy(cabecalho_boot + CAB_RES_LARG, s + CAB_RES_LARG, 4);
-        info_boot.res_pref = l | a << 16;
-    }
+    trava_soltar(&trava_cab);
     kfree(s);
-    klog("[VIDEO] preferencia %ux%u gravada em %s: %d\n", l, a, p->nome, r);
+    if (r < 0) klog("[KCONF] no se pudo grabar la cabecera de arranque en %s: %d\n", p->nome, r);
     return r;
 }
 
 /* D323: cambia bits de la cabecera de arranque del disco de arranque (lo que Configuración guarda de
  * la aceleración y del disco: solo se puede decidir antes de arrancar el kernel). Solo los bytes y
  * bits de la lista; igual que la resolución, solo en el disco de arranque (se comprueba que su
- * cabecera es la que arrancó) y nunca desde el CD. pedido = CAB_OPC_PEDIDO(desplazamiento, máscara, valor). */
+ * cabecera es la que arrancó) y nunca desde el CD. pedido = CAB_OPC_PEDIDO(desplazamiento, máscara, valor).
+ * D353: si el byte cambia, se olvida lo que kconfig guardó para esos bits (manda lo último pedido). */
+typedef struct { uint32_t desl, mascara, valor; } cab_opc_t;
+
+static bool cab_opc_mudar(uint8_t *s, void *ctx)
+{
+    cab_opc_t *c = ctx;
+    uint8_t nuevo = (uint8_t)((s[c->desl] & ~c->mascara) | c->valor);
+    if (nuevo == s[c->desl]) return false;
+    s[c->desl] = nuevo;
+    kconf_esquecer_bits(s, c->desl, c->mascara);
+    return true;
+}
+
 int32_t cab_opc_gravar(uint32_t pedido)
 {
-    uint32_t desl = pedido & 0xFF, mascara = (pedido >> 8) & 0xFF, valor = (pedido >> 16) & 0xFF;
-    uint32_t permitida = desl == CAB_ACEL2D ? ACEL2D_MODO_MASCARA
-                       : desl == CAB_GPU3D ? 0x07
-                       : desl == CAB_DISCO_OPC ? (CAB_DISCO_SEM_DMA | CAB_DISCO_SEM_CACHE | CAB_DISCO_SEM_DIFERIDA) : 0;
-    if (!permitida || !mascara || (mascara & ~permitida) || (valor & ~mascara)) return ERRO_INVALIDO;
-    if (info_boot.opcoes & OPC_BOOT_CD) return ERRO_SO_LEITURA;
-    uint32_t lba;
-    disco_t *p = particao_de_boot(&lba);
-    if (!p) return ERRO_NAO_EXISTE;
-    uint8_t *s = kmalloc(512);
-    if (!s) return ERRO_SEM_MEMORIA;
-    int r = disco_ler(p, lba, 1, s);
-    if (r == 0 && memcmp(s, cabecalho_boot, CAB_RES_LARG) != 0) r = ERRO_FORMATO;
-    if (r == 0) {
-        uint8_t nuevo = (uint8_t)((s[desl] & ~mascara) | valor);
-        if (nuevo != s[desl]) {
-            s[desl] = nuevo;
-            bool antes = p->rw_autorizado;
-            p->rw_autorizado = true;
-            r = disco_escrever(p, lba, 1, s);
-            p->rw_autorizado = antes;
-            if (r == 0) cabecalho_boot[desl] = nuevo;
-        }
-    }
-    kfree(s);
-    klog("[VIDEO] cabecera %u &%02x=%02x grabada en %s: %d\n", desl, mascara, valor, p->nome, r);
+    cab_opc_t c = { pedido & 0xFF, (pedido >> 8) & 0xFF, (pedido >> 16) & 0xFF };
+    uint32_t permitida = c.desl == CAB_ACEL2D ? ACEL2D_MODO_MASCARA
+                       : c.desl == CAB_GPU3D ? 0x07
+                       : c.desl == CAB_DISCO_OPC ? (CAB_DISCO_SEM_DMA | CAB_DISCO_SEM_CACHE | CAB_DISCO_SEM_DIFERIDA) : 0;
+    if (!permitida || !c.mascara || (c.mascara & ~permitida) || (c.valor & ~c.mascara)) return ERRO_INVALIDO;
+    const char *nome;
+    int r = cab_regravar(cab_opc_mudar, &c, &nome);
+    klog("[VIDEO] cabecera %u &%02x=%02x grabada en %s: %d\n", c.desl, c.mascara, c.valor, nome, r);
     return r;
 }
 

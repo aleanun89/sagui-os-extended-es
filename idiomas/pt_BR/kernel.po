@@ -295,8 +295,8 @@ msgid " TKIP: débil"
 msgstr " TKIP: fraca"
 
 #: kernel/gui/barra.c:651
-msgid "sin conectar (wifi buscar)"
-msgstr "desconectado (wifi buscar)"
+msgid "sin conectar (clic para ver las redes)"
+msgstr "desconectado (clique para ver as redes)"
 
 #: kernel/gui/barra.c:654
 msgid "sin driver"

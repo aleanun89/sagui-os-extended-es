@@ -1133,3 +1133,88 @@ msgstr ""
 #: userland/programas/configuracion.c
 msgid "Elige una cuenta de la lista."
 msgstr ""
+
+#: userland/programas/configuracion.c:1956
+msgid "Kernel"
+msgstr ""
+
+#: userland/programas/configuracion.c:2122
+msgid "Valores de la imagen (borrar lo guardado)"
+msgstr ""
+
+#: userland/programas/configuracion.c:2131
+msgid "Cambiar"
+msgstr ""
+
+#: userland/programas/configuracion.c:2132
+msgid "De la imagen"
+msgstr ""
+
+#: userland/programas/configuracion.c:2140
+msgid "cambiar las opciones del kernel"
+msgstr ""
+
+#: userland/programas/configuracion.c:2141
+msgid "Sin permisos de administrador no se pueden cambiar las opciones del kernel."
+msgstr ""
+
+#: userland/programas/configuracion.c:2147
+msgid "Arranque desde CD: no se puede guardar."
+msgstr ""
+
+#: userland/programas/configuracion.c:2150
+msgid "Borrado lo guardado: al reiniciar, los valores de la imagen."
+msgstr ""
+
+#: userland/programas/configuracion.c:2155
+#, c-format
+msgid "%s: %s; se aplica al reiniciar"
+msgstr ""
+
+#: userland/programas/configuracion.c:2155
+#, c-format
+msgid "%s: %s"
+msgstr ""
+
+#: userland/programas/configuracion.c:2189
+msgid "Opciones del kernel"
+msgstr ""
+
+#: userland/programas/configuracion.c:2190
+msgid "Se aplican al reiniciar. Si no arranca: Ctrl al arrancar y «kconfig --por-defecto»."
+msgstr ""
+
+#: userland/programas/configuracion.c:2192
+msgid "Modo rescate: lo guardado no se aplica en este arranque."
+msgstr ""
+
+#: userland/programas/configuracion.c:2193
+msgid "Arranque desde CD: no se puede guardar nada."
+msgstr ""
+
+#: userland/programas/configuracion.c:2194
+msgid "Lo guardado está dañado y no se aplica."
+msgstr ""
+
+#: userland/programas/configuracion.c:2197
+msgid "Opción"
+msgstr ""
+
+#: userland/programas/configuracion.c:2199
+msgid "Ahora"
+msgstr ""
+
+#: userland/programas/configuracion.c:2200
+msgid "Al reiniciar"
+msgstr ""
+
+#: userland/programas/configuracion.c:2202
+msgid "Este kernel no tiene opciones guardables."
+msgstr ""
+
+#: userland/programas/configuracion.c:2219
+msgid "* = cambia al reiniciar"
+
+#: userland/programas/configuracion.c:1093
+msgid "Instalar fuentes..."
+msgstr ""

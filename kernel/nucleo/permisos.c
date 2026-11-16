@@ -83,7 +83,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_ENVIAR_PARA] = L, [SIS_RECEBER_DE] = L, [SIS_RESOLVER] = L, [SIS_PING] = L,
     [SIS_OPCAO_SOCKET] = L, [SIS_ESPERAR_REDE] = L,
     [SIS_CONFIG_REDE] = O,                 /* solo REDE_CONSULTAR */
-    [SIS_WIFI] = O,                        /* estado, redes y buscar; conectar y desconectar, no */
+    [SIS_WIFI] = O,                        /* estado, redes y buscar, libres; conectar y desconectar, solo la sesión local (D354) */
     [SIS_BLOQUEO] = O,                     /* estado, últimos y consultar; recargar y contadores, no */
     /* Hardware directo */
     [SIS_FREQUENCIA] = R,
@@ -182,7 +182,8 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
         return do_mesmo_usuario(a, eu);
     case SIS_INFO_SISTEMA:
         return a != INFO_ACEL2D_CTL && a != INFO_ACEL2D_PROVA && a != INFO_MSR_PROVA &&
-               a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA && a != INFO_CAB_OPC;   /* D284/D285: encender y probar el 3D tocan la GPU */
+               a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA && a != INFO_CAB_OPC &&
+               a != INFO_KCONF_GRAVAR;   /* D353: kconfig solo lee sin ser administrador */   /* D284/D285: encender y probar el 3D tocan la GPU */
     case SIS_HORA:
         return a == HORA_UTC || a == HORA_LER_RTC;
     case SIS_ZONA:
@@ -200,7 +201,10 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_CONFIG_REDE:
         return a == REDE_CONSULTAR;
     case SIS_WIFI:
-        return a == WIFI_ESTADO || a == WIFI_REDES || a == WIFI_BUSCAR;
+        /* D354: conectar y desconectar el Wi-Fi, como apagar: la sesión local sí (sin ser root);
+         * un servicio o una sesión SSH que no es de root, no. */
+        return a == WIFI_ESTADO || a == WIFI_REDES || a == WIFI_BUSCAR ||
+               ((a == WIFI_CONECTAR || a == WIFI_DESCONECTAR) && !eu->de_servico);
     case SIS_BLUETOOTH:
         return a == BT_ESTADO || a == BT_DISPOSITIVOS || a == BT_BUSCAR;
     case SIS_BLOQUEO:

@@ -45,6 +45,7 @@
 #include "trava.h"
 #include "processo.h"
 #include "bootinfo.h"
+#include "kconf.h"
 
 #define REG_DADOS     0
 #define REG_ERRO      1
@@ -822,7 +823,7 @@ int ata_iniciar(void)
     acrescentar_canal(0x1F0, 0x3F6);
     acrescentar_canal(0x170, 0x376);
 
-    dma_desligado = (cabecalho_boot[CAB_DISCO_OPC] & CAB_DISCO_SEM_DMA) != 0;
+    dma_desligado = (kconf_cab(CAB_DISCO_OPC) & CAB_DISCO_SEM_DMA) != 0;   /* D353: o kconfig dma=no */
     if (dma_desligado) klog("[ATA] DMA desactivado (--sem-dma): todo por PIO\n");
     uint16_t *id = kmalloc(512);
     if (!id) return 0;

@@ -14508,8 +14508,9 @@ FFmpeg (LGPL-2.1+) y FAAD2 (GPL-2.0+), más datos de especificaciones (RFC 7932,
 
 **Decisión.**
 1. El motor de robson se trata como **GPL-3.0-only**: aportado a un repositorio GPL-3.0 (PR #6), los
-   Términos de GitHub (D.6, «inbound = outbound») lo dejan bajo esa licencia. Se pide además confirmación
-   explícita al autor (borrador en `docs/borradores/robson-licencia.md`, lo envía el mantenedor). Como el
+   Términos de GitHub (D.6, «inbound = outbound») lo dejan bajo esa licencia. No hace falta pedir
+   confirmación aparte: el propio autor lo aportó al proyecto original con esa licencia (decisión del
+   mantenedor, 2026-11-16; el borrador `docs/borradores/robson-licencia.md` queda sin enviar). Como el
    código de M4R4G0N (D259), figura en `terceros.md` pero es de la capa GPL v3: `tools/spdx.py` y
    `tools/auditar_licencias.py` lo reconocen por la lista `ROBSON` y los ficheros llevan
    `SPDX-License-Identifier: GPL-3.0-only`. Fuera de la marca quedan los datos (`brotli_tab.h`, `quebra_tab.h`)
@@ -18424,7 +18425,7 @@ mismas páginas de 4 MB; lo comprueban las pruebas con `-cpu qemu32,-pae` y con 
   hizo, las secundarias hacen lo mismo en el trampolín antes de mirar el suyo. `--sem-nx` (y `--sem-pae`) lo evitan.
   El QEMU no emula XD_DISABLE ni CPU distintas entre sí: estos dos caminos no están probados en máquina virtual.
 
-**Pendiente (anotado en la revisión).** `usuario_ok` puede asignar páginas de pila mientras otra CPU duerme en el
+**Pendiente (anotado en la revisión; resuelto en la D351).** `usuario_ok` puede asignar páginas de pila mientras otra CPU duerme en el
 mismo proceso (hallazgo previo a la D349, no tocado). W^X: los binarios C++ con `.init_array` tienen el primer segmento
 RWX (mover `.init_array` tras el `ALIGN(4096)` de `programa.ld`/`programa_cxx.ld`).
 
@@ -18441,3 +18442,892 @@ siempre; NX (`qemu32,+nx`): saltar a la pila o al montón mata el programa con e
 `MEM_PROT_EXEC` funciona, el `cc` y su ejecutable también, y con `--sem-nx` la pila vuelve a ejecutarse; autopruebas
 `memoria`, `paginacao` y `anel3` con 6G y NX. `tests/qemu.py` acepta `SAGUI_CPU` (p. ej. `qemu32,+nx`) para pasar
 cualquier prueba con otra CPU (h294 `nucleos`: DOSBox con `core=dynamic` bajo NX).
+
+## D350. La caché de disco en la memoria alta, y cede memoria a los programas (v8.5.1, mejora 125 fase 3a)
+
+**Problema.** Tras la D348/D349 la caché de bloques (D281) seguía en la zona baja, limitada a 1/16 de ella (64 MB como
+mucho): en un equipo con 4-16 GB casi toda la RAM alta quedaba sin usar mientras no hubiera programas que la pidieran.
+
+**Decisión.**
+
+1. **Datos en la alta, metadatos en la baja.** Cada bloque guarda el número de su página física (`pag`, 32 bits: hasta
+   16 TB) y si es alta (`alto`). Los descriptores (40 bytes por bloque) se piden **todos de una vez** al iniciar la caché,
+   con un `kcalloc` del tamaño máximo (9,4 MB para 1 GB de caché) y una lista de libres, y el hash pasa a ser del tamaño
+   de la caché (potencia de 2, la mitad de los bloques; 512 KB con 1 GB). Así la caché no reparte cientos de miles de
+   `kcalloc` de 64 bytes que el `kmalloc` nunca devuelve. Si la baja no da para ellos, la caché se reduce a la mitad
+   hasta que quepan.
+2. **Todo acceso a los datos es una copia por ventana** (`fisica_ler`/`fisica_escrever`, D348): aciertos, relleno tras
+   un fallo, lectura anticipada, escritura diferida y vaciado. Cuando el otro lado puede ser memoria de un programa (el
+   búfer del sistema de archivos puede serlo), la copia pasa por `ponte` (4 KB en la baja): con la ventana puesta las
+   interrupciones están apagadas, y un fallo de página dentro (pila que crece) no debe ocurrir ahí. Con bloques bajos
+   la copia es directa, como antes.
+3. **El DMA nunca toca un bloque.** Los drivers ya leían en `lote` y grababan desde `lote_v` (baja); el único sitio que
+   leía directo a un bloque (el relleno de un bloque a medio escribir) lee ahora en `lote` y copia. Así da igual que el
+   controlador alcance o no la dirección del bloque: el IDE Bus Master (PRD de 32 bits) no llega por encima de 4 GB y
+   el AHCI sin 64 bits tampoco. Programar la física directamente se descartó: una copia de 4 KB cuesta mucho menos que
+   la E/S y no hay que mirar las capacidades de cada controlador.
+4. **Tamaño.** Sin alta (o con menos de 64 MB) todo sigue como en la D281: 1/16 de la baja, entre 1 y 64 MB, en la baja.
+   Con alta: hasta **la mitad de la alta + superior, con un tope de 1 GB** (`TETO_ALTA_BLOCOS`). El tope: 1 GB de
+   bloques son 10 MB de descriptores y hash en la baja (que es la del kernel); más caché ayuda poco a programas de 32
+   bits que como mucho tienen ~2 GB cada uno, y el vaciado y la búsqueda del menos reciente limpio crecen con ella. La
+   caché nunca deja menos de una **reserva** de páginas altas libres para los programas (1/32 de la alta, 16 MB como
+   mínimo; 131 MB con 6 GB). Si la alta no da página (reserva o alta llena), usa bloques bajos como antes (hasta el
+   límite de siempre y con 8 MB libres para el kernel). Lo sucio sigue limitado como en la D281 (1/4 del tamaño bajo,
+   16 MB como mucho): una caché grande no alarga lo que se pierde en un corte de luz.
+5. **Ceder memoria (lo delicado).** `memfisica_alocar_usuario()` pide ahora: superior y alta; si no hay, **reclama** a la
+   caché (`memfisica_registar_reclamo`) y vuelve a probar la alta; después la baja; y antes de fallar, otro reclamo. El
+   reclamo (`ceder_memoria`) devuelve hasta 256 bloques (1 MB) **limpios** del final del LRU (los sucios no: grabarlos
+   pide el driver, que duerme).
+   - **Nunca espera.** Solo actúa si `trava_cache` está **libre**: con las interrupciones apagadas mira
+     `profundidade == 0` y la toma (sin dormir, porque está libre). Si la tiene otro proceso (por ejemplo, dormido en
+     el DMA de una lectura) o **el propio** (un fallo de página a mitad de una copia de la caché), devuelve 0 y el
+     programa sigue con la baja como antes. Esperar el cerrojo sería un fallo: `espaco_alocar` comprueba que la entrada
+     de la tabla está vacía, asigna y escribe; si durmiera en medio, otro hilo del mismo proceso podría mapear la misma
+     página y una de las dos se perdería. Tampoco se puede dormir con una ventana puesta o desde una IRQ.
+   - **Pedido diferido.** Con la caché ocupada, el reclamo anota lo que quería (`pedido_ceder`, hasta 32 MB) y el
+     dueño del cerrojo lo libera al terminar su operación (`soltar()`, en el nivel exterior del cerrojo, con la caché
+     entera). La página de ese momento sale de la baja, pero las siguientes vuelven a encontrar alta. No se roban
+     bloques mientras el dueño duerme: el tic de la CPU 0 puede cambiar de proceso en medio de código del kernel con
+     las interrupciones puestas, así que «el dueño no corre» no garantiza que la caché esté en un estado coherente.
+   - **SMP (D164/D165).** El kernel está serializado por el cerrojo general: solo una CPU ejecuta código del kernel a la
+     vez, y `trava_cache` (de proceso, D095) protege a la caché entre los que duermen dentro de ella. El reclamo corre
+     con el cerrojo general y sin dormir, así que nadie más toca la caché mientras libera; las ventanas son por CPU.
+     Ninguna IRQ ni el tic de un secundario asignan páginas de programa.
+   - **Orden de cerrojos:** `trava_fs -> trava_cache -> canal`, como en la D281; el reclamo solo toma `trava_cache`
+     (y sin esperar), así que no añade ningún orden nuevo.
+   - **Reserva.** La tarea `sync-disco`, cada segundo, si los programas dejaron la alta por debajo de la reserva,
+     devuelve bloques limpios (hasta 32 MB por vuelta) para que la vuelva a haber: así los programas rara vez llegan
+     al reclamo síncrono o a la baja, que es la del kernel. En la prueba con una lectura de disco a la vez que los
+     programas piden 4 GB, casi todos los reclamos encontraron la caché ocupada (la lectura de fondo la tiene durante
+     el DMA): esas páginas salieron de la baja, el pedido diferido vació la caché alta igualmente y ningún programa
+     falló.
+   - **Sin alta** el reclamo solo actúa cuando la baja se acabó (donde antes se fallaba): todo lo demás igual.
+6. **Información.** `info_memoria_t` usa los dos `reservado` del final como `cache_kb` y `cache_alta_kb` (mismo tamaño:
+   un programa que ya pedía `sizeof` los recibe; el kernel los rellena con la versión entera, como `superior_*`). La
+   caché sigue contando como **usada** (como en la D281, que también la tenía en la baja), de modo que «libre» no
+   cambia de significado. `free` añade la línea «Caché disco: N (en la alta M; se devuelve a los programas)», `mem`
+   «Caché de disco:» e `infopc` lo mismo en la sección de memoria. `sync -v` añade a la línea `[CACHE]`: altos,
+   cedidos, reclamos y reclamos con la caché ocupada.
+7. **Vuelta atrás.** `mkimagem.py --cache-disco-baja` (bit 3 de `CAB_DISCO_OPC`) deja la caché en la baja como en la
+   D281 aunque haya alta (para hardware con problemas). `--sem-cache-disco` sigue apagándola entera. El auditor
+   `tools/auditar_memalta.py` vigila también `memfisica_alocar_alta()` y `pagina_nova()`.
+
+**Lo que no se hizo.** La swap comprimida en la alta (fase 3b). Ceder bloques sucios (grabarlos y soltarlos) cuando los
+programas aprietan: hoy son 16 MB como mucho. Un OOM killer.
+
+**Riesgos en hardware real.** El camino de los datos no cambia para los drivers (siguen con `lote`/`lote_v` en la baja).
+Lo nuevo para el hardware es usar mucha RAM alta enseguida: si el firmware deja RAM «libre» por encima de 1,875 GB que
+no lo es, ahora se nota antes (archivos corruptos en vez de un programa que falla); `--cache-disco-baja` lo descarta.
+Con mucho disco a la vez que mucha demanda de memoria, los programas pueden tomar baja aunque la caché tenga alta
+(reclamo con la caché ocupada); en equipos de 32 bits con 3-4 GB eso deja menos baja para el kernel durante unos
+segundos, hasta que la tarea devuelve la reserva.
+
+**Pruebas.** `tests/h352_cache_alta.py`: 6G con PAE, 3G sin PAE (`qemu32,-pae`), 6G con `--smp` y 4 CPU, 512M sin
+alta y 3G con `--cache-disco-baja` (TCG; 6G y `--smp` también con KVM). Un ext2 con un archivo al azar de 128 MB: dos `sha256sum` con la suma del anfitrión; la segunda sin fallos de
+caché y con todos los bloques en la alta (`[CACHE]`, `free`, `mem`); varios procesos piden más que la alta libre con un
+`sha256sum` a la vez en segundo plano: ninguno falla, sus sumas FNV no cambian, la caché cede bloques y la lectura de
+fondo da la suma buena; después, `cp` con escritura diferida desde bloques altos, `sync` sin sucios, `apagar-pc`, y en
+el anfitrión `e2fsck -fn` limpio y la copia con la suma buena. Con 512M la caché sigue en la baja (como mucho 64 MB) y
+todo lo demás igual. Pasan también h350, h351 (todas sus partes, 12G y 16G incluidas), h46, h281, h131, h92 y h244
+(esta falló una vez en «quieto en pantalla completa», del escritorio con 2 GB y sin alta, y pasó al repetirla).
+
+**Revisión (correcciones).**
+- *Relleno de una escritura parcial.* Se creaba el bloque (en el hash, con lo que tuviera su página: otro sector u otro
+  programa) y después se leía el relleno con el driver, que duerme. Si matan al proceso en ese sueño, el siguiente roba el
+  cerrojo (D095) y el bloque se queda así: lecturas con basura y, si luego se escribe en parte y se graba, basura en el
+  disco. Venía de la D281, pero ahora la página puede ser memoria alta de otro programa. Ahora el relleno se lee en `lote`
+  **antes** de crear el bloque (`novo_bloco()` vacía desde `lote_v`, así que `lote` sigue intacto).
+- *La tarea solo devuelve bloques altos* para reponer la reserva: los bajos no la reponen, y con los programas por encima
+  de la reserva la tarea vaciaba la caché (también los bloques bajos, que se vuelven a llenar) cada segundo.
+- `soltar()` atiende el pedido diferido solo si el cerrojo sigue siendo del que lo suelta, y `cache_disco_descartar()`
+  también lo atiende. El auditor vigila además `fis_de()`.
+
+**Quedan anotados (sin cambiar).** Con el reclamo diferido, un programa puede fallar por falta de memoria aunque la
+caché tenga bloques limpios si otro proceso la tiene ocupada justo cuando se acaba la baja (solo con toda la alta y la
+baja llenas). La entrada desde una IRQ (D095: `trava_pegar` sigue sin cerrojo dentro de una IRQ) puede tocar la caché a
+la vez que su dueño, como antes de la D350.
+
+## D351. Endurecimiento tras la revisión de la D349: la barrera del espacio compartido y W^X (v8.5.1, mejora 125)
+
+**Contexto.** La revisión de la D349 dejó dos pendientes: «`usuario_ok` puede asignar páginas de pila mientras otra CPU
+duerme en el mismo proceso» (con un sleep y un mprotect acababa en un fallo de página del kernel) y los segmentos RWX de
+los binarios con `.init_array`.
+
+**La carrera exacta.** No era la pila. Hacer crecer una pila solo añade entradas (la x86 no guarda en la TLB las
+ausentes, y las cuatro PDPT existen siempre con PAE), y las páginas de pila nunca se quitan mientras vive el proceso
+(D186): eso es seguro. El fallo es un TOCTOU general de los punteros del programa:
+1. el hilo A entra en `read(fd, buf, 256 KB)`; `usuario_ok(buf, n, escritura)` comprueba (y si hace falta asigna) las
+   páginas al entrar;
+2. la lectura duerme dentro del kernel (`ata.c` cede el turno esperando la IRQ del DMA; también `trava`, `cpu_espera`,
+   la caché de disco, USB...): el cerrojo general queda libre;
+3. el hilo B del mismo proceso (en otra CPU, o en la misma mientras A duerme) llama a `memoria_proteger(buf, ..., 0)`
+   (`MEM_PROTEGER`, mprotect) o a `MEM_DEVOLVER` (el `free` de un bloque grande); la D349 ya sincroniza las TLB, así
+   que el cambio es inmediato y correcto para todas las CPU;
+4. A despierta y el `memcpy` del kernel escribe en `buf`: #PF en modo kernel (código 3, página protegida; o 2, no
+   presente) y `excecao_fatal`, la pantalla de error. Cualquier programa con dos hilos podía tirar el sistema.
+
+No hace falta SMP: con una CPU pasa igual (B corre mientras A duerme en el disco). Reproducido con
+`/testes/endurecer` en el kernel de la v8.5: con 1 CPU `EXCECAO 14 erro=3 eip=memcpy cr2=0x80019c00` (protegida) y
+con `--smp` y 4 CPU `erro=2` (devuelta). Ni invalidar TLB entre CPU (ya se hacía) ni revalidar tras dormir (el kernel
+escribe en los punteros del programa en cientos de sitios, sin tabla de excepciones) lo arreglan.
+
+**Decisión: una barrera por proceso** (`kernel/nucleo/processos.c`):
+- `tratar_sistema` marca `em_chamada` en el hilo mientras corre la llamada (también si duerme en ella) y la borra al
+  volver, también con `SIS_REPETIR`.
+- Quien **quita páginas o escritura** del espacio compartido llama antes a `espaco_pode_tirar()`: si otro hilo del
+  proceso tiene `em_chamada` (solo puede ser uno dormido a mitad de una llamada: el kernel está bajo el cerrojo
+  general), se bloquea y su llamada se repite (`SIS_REPETIR`) cuando ese hilo sale (`espaco_chamada_fim` lo despierta).
+  Lo usan `MEM_DEVOLVER`, `MEM_PROTEGER` sin `MEM_PROT_ESCRITA` (dar permisos o quitar ejecución no afecta al kernel,
+  que nunca ejecuta código del programa), `SIS_FECHAR_JANELA`, `SIS_REDIMENSIONAR_JANELA` (si cambia el tamaño) y
+  `SIS_DESEJAR_BAR`.
+- **La puerta** (`espaco_porta()`, al principio de toda llamada): mientras un hilo espera para quitar (`tirando` en el
+  líder), las llamadas nuevas de los demás hilos esperan también. Sin ella, un hilo que lee sin parar del disco deja al
+  que quiere quitar esperando indefinidamente (con una CPU, vuelve a dormir en el disco antes de que el otro corra).
+- **Viveza.** Las esperas largas a algo del programa (pipes, futex, sockets, eventos de ventana, `hilo_esperar`) ya
+  devuelven `SIS_REPETIR` y no duermen dentro del kernel, así que no retienen a nadie: solo cuentan las esperas de E/S,
+  acotadas. Quien espera en la puerta no tiene nada del kernel, así que no puede haber ciclo. Las dos esperas se
+  revisan en cada tic (`acordar_em`, que se limpia al volver) por si un hilo muere dormido, un zombi solo cuenta si una
+  CPU aún lo tiene, y si quien esperaba ya no espera (acabó, murió o su llamada salió por otro camino) la puerta se
+  abre siempre (`espaco_chamada_fim`, `tirador_vivo`).
+- Coste: una comparación por llamada al sistema (la puerta) y un recorrido de la tabla de 64 entradas solo en las
+  operaciones que quitan.
+
+**Lo que queda fuera.** Cerrar las ventanas de un proceso que muere (`janelas_do_processo_fechar`) no espera: el
+proceso entero termina. Un hilo dormido en `cpu_espera` (fuera del cerrojo) de un proceso al que otra CPU mata podría
+volver a una ventana ya cerrada; es el caso de la D165, muy raro (casi ninguna llamada usa `cpu_espera`), no tocado.
+
+**W^X.** `.init_array` es escribible y estaba antes del `ALIGN(4096)` de los guiones: el primer segmento quedaba RWX
+en **67 ELF de `build/`** (todos los C++ —DOSBox, OpenJazz, Conquer, Gearsystem, LaiNES...—, NetSurf, gprolog/pl2wam
+y los de C con constructores: python, qjs, sqlite3, quake, rsync, mgba, gnuboy, opentyrian, cipo...). Ahora va tras el
+`ALIGN(4096)`, al principio del segmento de datos, en `userland/programa.ld`, `programa_cxx.ld`,
+`terceros/netsurf/plataforma/netsurf.ld` y `terceros/gprolog/plataforma/programa_gp.ld`: código `R E` y datos `RW`,
+**0 segmentos RWX de 546 ELF**. Ninguno necesita RWX: el único que genera código (DOSBox `core_dyn_x86`) lo pide con
+`mprotect` (D349). `inicio.asm` solo lee la tabla. `.eh_frame` (C++) sigue en el segmento de código: es de solo lectura.
+
+**Pruebas.** `tests/h353_endurecer.py`: `/testes/endurecer` (dos hilos leen trozos de 256 KB de `/apps/bin/dosbox` —
+lectura directa del disco—, uno al área de datos y otro a su pila sin tocar, mientras el principal protege/desprotege y
+devuelve/reasigna el buffer durante 6 s) con 1 CPU y con `--smp` (4 CPU): sin excepción, mismos datos al final; y el
+recorrido de `readelf -lW` por `build/userland` y `build/apps/raiz` sin ningún `RWE`. Además pasan h351, h350, h46,
+h154 y las de programas C++ y con constructores (h160, h230, h228, h294, h321, h156, h153, h288).
+
+
+## D354. La ventana de redes Wi-Fi en la bandeja, y conectar el Wi-Fi sin ser root (v8.5.1)
+
+**Pedido del mantenedor:** «que al hacer clic en el botón del Wi-Fi pueda ver las redes disponibles (para configurar y conectar al Wi-Fi no hace falta ser root)».
+**Decisión del mantenedor sobre los permisos:** conectar y desconectar sin root, **solo el usuario de la sesión local o root**; los servicios y las sesiones SSH que no sean de root siguen sin poder.
+
+**Panel o programa.** Un programa gráfico, no un panel del kernel: el clic en el icono Wi-Fi de la bandeja (`bandeja_clicar`, `barra.c`; solo cuando el icono es el Wi-Fi, `bandeja_wifi()`) lanza `wifi --ventana` con `gui_abrir_unico` (una sola ventana). Razones: el diálogo de contraseña, la lista con desplazamiento y la búsqueda con espera son cosas de la libsagui (`lista_t`, `caixa_t` con `oculta`, `casilla_t`), y el cálculo de la PMK (PBKDF2, 4096 vueltas), de SAE o de WEP debe seguir en el usuario (la contraseña no entra al kernel, D215/D220). Es el mismo binario `wifi` (como `bluetooth --ventana`, D279): la ventana está en `userland/programas/wifi_ventana.h` y **reutiliza** de `wifi.c` `preparar`, `ler_recordada`, `recordar`, `olvidar` y `wpa.h`/`sae.h`, sin copiar nada; los mensajes de `preparar` pasan por `avisa()` (terminal: salida; ventana: línea de estado). Se perdió el panel de la red con IP/DNS para el Wi-Fi (queda en la dica, `ifconfig wlan0` y `wifi estado`); con cable, el panel de siempre.
+- La ventana: estado (conectado a X, %), «Buscar de nuevo» (busca al abrir si no hay conexión), lista sin duplicados (el mejor punto de acceso de cada SSID) con barras de señal, candado si tiene seguridad, «conectada» (primera) y «recordada» (y las recordadas fuera de alcance al final); «Conectar» (o doble clic o Intro): la recordada o la abierta conecta directa, la que pide clave abre el campo de contraseña oculta con «Mostrar la contraseña», «Conectar» y «Cancelar» (Esc); «Desconectar»; «Olvidar» (pregunta). La conexión no bloquea la ventana: se consulta `WIFI_ESTADO` en cada vuelta; al conectar de verdad se guarda la red (como `wifi conectar`).
+- `wifi --ventana --simulado`: cinco redes de mentira y un punto de acceso que acepta «sagui1234» (la simulación está en `wifi_ventana.h`, no toca el kernel ni los drivers): sirve para probar la interfaz en QEMU, que no emula el pincho.
+
+**Permisos** (`permisos.c`, `SIS_WIFI`, clase `PERM_OPERACAO`): `WIFI_ESTADO`, `WIFI_REDES`, `WIFI_BUSCAR` libres (como antes); `WIFI_CONECTAR` y `WIFI_DESCONECTAR` para quien **no es de un servicio** (`!eu->de_servico`, la misma regla que apagar y reiniciar): la sesión local (cualquiera de sus programas, también tras iniciar sesión otro usuario) y root; un servicio o una sesión SSH, aunque tengan un usuario normal, reciben `ERRO_ACESSO`. Una sesión SSH como root sigue pudiendo. Recordar y olvidar no necesitan nada más: son archivos del propio `/home/.config/wifi.conf` del usuario (permisos de archivo, D282).
+
+**Redes recordadas: por usuario.** Con varias cuentas (D340) cada una ve su carpeta como `/home`, así que el programa escribe en su `wifi.conf` sin cambios. El kernel, que lee ese archivo para reconectar solo (`escolher_recordada` y la comprobación de `wifi_tarea`, en `kernel/rede/wifi.c`), lo leía en el `/home` real (el de `sagui`): ahora usa `permisos_sessao_caminho()` (el `wifi.conf` de la carpeta de la **sesión local**) y, si no existe, el de siempre (compatibilidad: una sola cuenta = la misma ruta, nada cambia). Efecto: cada usuario reconecta a sus propias redes tras iniciar sesión (y una sesión nueva no usa las claves de otro); las redes no se comparten entre cuentas. No se hizo una lista del sistema (SAGUI-CONF): las PMK/PT son derivadas de la contraseña y no conviene ponerlas al alcance de todas las cuentas; si se pide una red común, se haría con una opción explícita.
+**Alcance:** solo se tocó en `wifi.c` del kernel la ruta del archivo recordado (dos usos); nada de la pila 802.11 ni de los drivers.
+
+**Textos:** `idiomas/{pt_BR,en}/wifi.po` completos (nuevos) y la dica de la bandeja en `kernel.po` («clic para ver las redes»).
+
+**Pruebas:** `tests/h356_wifi_bandeja.py` (fuentes; `/testes/usuarios --llamadas` como sagui sin ninguna negativa de conectar/desconectar; el clic en el icono de red sin Wi-Fi sigue abriendo el panel; la ventana simulada: lista, contraseña mala, buena con «Mostrar», PMK correcta en `wifi.conf`, desconectar, reconectar sin contraseña, red abierta, olvidar), y `usuarios --servicio` (h254) comprueba que un servicio no root recibe `ERRO_ACESSO` al conectar y desconectar. **No probado:** el clic real en la bandeja con el pincho (QEMU no lo emula; el icono Wi-Fi solo aparece con adaptador) ni la conexión real: lo mira el mantenedor con el RTL8188EU.
+
+## D355 - La cinta no tapa el panel del Asistente IA en Pluma (h357)
+
+Fallo: con la cinta y el panel del asistente abierto, la cabecera del panel (selector de agente y botones) quedaba
+oculta bajo la cinta, el panel pisaba la barra Dibujo y los textos se salían por la derecha.
+Causa: `ag_rect()` de Pluma colocaba el panel en `BARRA_Y + 2 * FERR_A` (la altura de las barras clásicas) en vez de
+`y_base()` (la altura real de la cinta, plegada o no, que da `cinta_altura()`); además el panel llegaba hasta el estado
+(ignorando la barra Dibujo, que a su vez ocupaba todo el ancho), y el selector de agente (262 px) se solapaba con los
+botones Nuevo/Editar/Registro en un panel de 380 px.
+Corrección: el panel empieza en `y_base()`, acaba sobre la barra Dibujo, la barra Dibujo mide lo mismo que el documento,
+el panel se estrecha en ventanas pequeñas (45 % del ancho como máximo), el selector no pisa los botones y los textos del
+panel son más cortos y se recortan a su ancho. El componente `gui_cinta.c` informaba bien su altura; solo Pluma y Macaco
+usan la cinta, y Macaco ya colocaba el panel con `MAC_BARRA` (cinta incluida). El Makefile ahora depende de
+`pluma_cinta.h` y `macaco_cinta.h`. Prueba: `tests/h357_pluma_cinta.py` (Pluma anota el layout con `--cinta-log`).
+
+Ampliación (Macaco): el panel del asistente también se dibujaba encima de la hoja, la barra de fórmulas, las barras de
+desplazamiento y las pestañas de hojas. Ahora `mac_l()` (ancho de ventana menos el panel, que es de 380 px como mucho y
+de un 45 % en ventanas pequeñas) sustituye a `jan->larg` en la cuadrícula, las barras de desplazamiento, la fórmula y las
+pestañas, y `ag_alternar()` recoloca todo con `layout()`; vale igual en modo clásico. Macaco anota su layout con
+`--cinta-log` y h357 comprueba que hoja, fórmula y pestañas acaban a la izquierda del panel (1024 y 800, normal y
+maximizada, con cinta y clásico). Otras aplicaciones con panel del agente: solo Chat IA y Correo, que tienen su propio
+diseño sin cinta; Sintonía solo usa la palabra «cinta» en un comentario.
+
+## D352. Swap comprimida en RAM (v8.5.1, mejora 125 fase 3b; mejora 069 fase 3)
+
+**Problema.** Sin swap, cuando se acaban la memoria alta, la baja y lo que cede la caché de disco (D350),
+`memfisica_alocar_usuario` falla y el programa muere (o `aumentar_memoria` devuelve error). Los datos de los
+programas suelen comprimirse muy bien (ceros, tablas, texto, patrones), y la RAM sobrante (la alta y la superior de
+la D348/D349) es mucho más rápida que un disco y no desgasta un pendrive.
+
+**Decisión.** Una swap comprimida en RAM al estilo de zram/zswap, sin disco (`kernel/mem/troca.c`,
+`kernel/mem/compressor.c`, `kernel/inc/troca.h`).
+
+1. **Entrada de swap en la tabla de páginas.** La página sacada deja su entrada «no presente» con un identificador
+   (solo la mitad baja; con PAE la alta queda a 0): bit 0 P=0, bit 1 marca de swap (las ausentes de siempre valen 0,
+   así que nada antiguo la confunde), bit 2 escribible, bit 3 NX, bit 4 página a cero (no ocupa almacén), bits 5-10
+   el bloque de 64 bytes donde empieza el trozo y bits 11-31 la página del almacén (2^21). Los permisos viajan en la
+   entrada: un `mprotect` (`espaco_ajustar`) sobre una página en la swap cambia esos bits; `espaco_tirar`
+   (`MEM_DEVOLVER`) y `espaco_destruir` sueltan el trozo. Sin tabla aparte ni contador de referencias: ninguna página
+   propia de un programa está en dos espacios (los hilos comparten espacio; lo compartido con el compositor y los BAR
+   es prestado y no se saca).
+2. **Compresor propio** (`compressor.c`): LZ77 sin entropía al estilo de LZ4 (formato propio: token con literales y
+   longitud, distancia de 2 bytes), tabla hash de 4096 entradas en la BSS, voraz, que acelera el salto en datos que no
+   se repiten (una página aleatoria cuesta poco antes de rechazarse). El descompresor comprueba cada límite y la
+   longitud final (4096 exactos); además cada trozo lleva una suma de 16 bits de la página original que se comprueba
+   al traerla: un trozo corrupto no se entrega nunca (el programa muere con «Página de la swap corrupta»). No se
+   reutilizó el DEFLATE de la libsagui: es de usuario y mucho más lento (Huffman); la swap necesita velocidad, no
+   ratio. Probado en el anfitrión con 200.000 páginas de seis clases y más de 800.000 trozos corrompidos al azar
+   (ASan/UBSan): ida y vuelta exacta y ningún acceso fuera.
+3. **El almacén.** Páginas físicas partidas en 64 bloques de 64 bytes; un trozo (cabecera de 4 bytes: longitud y suma,
+   y los datos) ocupa bloques seguidos de **una sola** página, así que se copia con una sola ventana de memalta. Cada
+   página del almacén tiene un descriptor de 32 bytes en la baja (en páginas de 128, pedidas según hacen falta):
+   página física, mapa de bloques ocupados y mapa de bloques que empiezan un trozo (la longitud de un trozo se sabe
+   sin leerlo). Las páginas con hueco están en 63 listas por bloques libres; un trozo va a la más llena donde quepa
+   (mirando 24 como mucho) y una página que se vacía vuelve al sistema. **No se sacan** las páginas que comprimidas
+   pasan de 3072 bytes (menos de un 25 % de ahorro): vuelven a su sitio con `PG_INCOMPRIMIVEL` (bit 11 libre) y D a
+   cero, y no se reintentan hasta que el programa las escribe (D puesta). Las páginas a cero no ocupan nada.
+   - **Dónde:** alta o superior si hay (`memfisica_alocar_alta(0)`); si no, baja mientras queden más de la mitad de
+     la reserva del kernel. Si el almacén no puede crecer, **la propia página que se saca** pasa a ser del almacén:
+     sacar nunca necesita memoria.
+   - **Tope** (no es una reserva: el almacén solo crece al sacar): con alta, la mitad de la RAM gestionada; sin alta
+     (equipos de hasta 1,875 GB, todo es baja), un cuarto; como mucho 1 GB (≥ 3 GB de datos con la compresión de las
+     pruebas, y los programas de 32 bits no pasan de ~1,4 GB cada uno). `mkimagem.py --swap-mb N` lo fija
+     (`CAB_TROCA_MB`, u16 en el byte 160 de la cabecera) y `--sin-swap` la apaga (bit 2 de `CAB_MEM_OPC`). Por debajo
+     de 32 MB de RAM no se activa. Sin alta **sí** funciona (con 512 MB, un tope de 128 MB): es donde más ayuda.
+4. **Sacar** (`troca_liberar`). Un **reloj de segunda oportunidad** sobre las tablas de los procesos (la mano: índice
+   de proceso y dirección virtual; dos vueltas a la tabla de procesos como mucho por llamada): una entrada presente
+   del programa con A puesta pierde A; sin A, es candidata salvo que sea prestada (`PG_EMPRESTADA`: píxeles de las
+   ventanas, BAR) o la palabra de un **futex** que alguien espera (la clave del futex es la dirección física: si la
+   página cambiara de sitio, quien despierta no encontraría al que espera). Las páginas recién asignadas
+   (`espaco_alocar`) y las recién traídas se mapean con A puesta: les toca una vuelta antes de salir. Por lotes de
+   hasta 16 páginas del mismo proceso (y 2048 entradas miradas como mucho), **con las interrupciones apagadas**:
+   cada entrada pasa a 0 con un `xchg` de la mitad que lleva P, `invlpg` si el espacio es el de esta CPU y
+   `espaco_sincronizar` (D165: las CPU que corren el proceso salen al kernel y esperan el cerrojo; recargan el CR3);
+   después cada página se copia por ventana a un búfer, se comprime, el trozo se escribe en el almacén, la entrada
+   pasa a ser de swap y la página se libera. Nadie ve la entrada a 0: el kernel tiene el cerrojo general y las
+   interrupciones apagadas, y las demás CPU del proceso esperan el cerrojo.
+5. **Traer** (`troca_trazer`), sin dormir y con las interrupciones apagadas: pide una página
+   (`memfisica_alocar_usuario`, que a su vez puede sacar otras: los búferes de sacar y de traer son distintos), lee el
+   trozo, lo descomprime, comprueba la suma, escribe la página, suelta el trozo y mapea con A puesta. Una entrada no
+   presente no está en ninguna TLB: añadirla no necesita avisar a nadie. Se llama desde:
+   - el **fallo de página** (`pilha.c`), antes de la pila que crece: del programa (P=0 en el código de error), o
+     **del kernel** si el CR3 es el del programa (una llamada al sistema que copia a la memoria del programa: la página
+     pudo salir mientras el hilo dormía en el disco). Si otra CPU ya la trajo, está presente y se repite la
+     instrucción. Sin memoria, el programa muere con «Sin memoria para traer de la swap»; en modo kernel se usa la baja
+     de reserva (`memfisica_alocar`) y, si ni así, la pantalla de error de siempre;
+   - **`espaco_traduzir`**, que trae la página si está fuera: quien traduce va a usar la dirección física (cargador
+     ELF, pila de un hilo nuevo, futex) o a tocarla (`usuario_ok`, que así deja presentes las páginas de cada llamada al
+     sistema al entrar). Quien solo quiere saber si existe usa `espaco_existe` (presente o en la swap): `espaco_alocar`
+     (para no asignar encima de una página en la swap), `MEM_PROTEGER` y `pilha_usada_kb`. `copiar_para` del cargador
+     y `pilha_de_hilo` comprueban ahora que la traducción no sea 0 antes de escribir.
+   - **Ventanas de memalta:** sacar y traer usan una sola ventana cada vez (nunca dos a la vez), así que un fallo
+     dentro de otra ventana (el kernel ya no lo hace: la caché copia por `ponte`, D350) cabría en los 4 niveles.
+6. **Cerrojos y SMP (D164/D165).** Todo corre con el cerrojo general y sin dormir, así que el kernel no tiene un
+   cerrojo nuevo: los lotes con las interrupciones apagadas son atómicos en su CPU (la tarea del kernel puede perder la
+   CPU entre lotes, nunca dentro), y el estado global (la mano, las listas) solo cambia dentro de un lote. Dos hilos
+   que fallan en la misma página se atienden uno detrás de otro: el segundo la encuentra presente. Ninguna IRQ ni el
+   tic de un secundario tocan memoria de programas ni asignan páginas de programa. El reclamo de la caché (D350) se
+   llama sin esperar su cerrojo, como antes; un fallo de página del kernel dentro de una copia de la caché encuentra
+   la caché tomada por sí mismo y sigue sin ella.
+7. **Relación con la D351** (fusionada antes de la revisión). La D351 hace esperar a quien **quita** páginas
+   (`MEM_DEVOLVER`, `MEM_PROTEGER`...) mientras otro hilo del proceso duerme a mitad de una llamada, porque el kernel,
+   al despertar, escribiría en una página ausente y el fallo sería fatal. Sacar a la swap también quita páginas, pero
+   **no espera** (se hace dentro de una asignación, que no puede dormir) y no lo necesita: el fallo de página del kernel
+   sobre una entrada de swap se resuelve trayéndola (probado con `/testes/troca lector`: un hilo lee del disco a un
+   búfer que otro saca sin parar; el kernel lo encuentra fuera tras el DMA y lo trae). En `sis_memoria`, `MEM_SACAR`
+   va antes de `espaco_pode_tirar`; `MEM_DEVOLVER` y `MEM_PROTEGER` sin escritura siguen pasando por la barrera, y
+   funcionan con entradas de swap (`espaco_tirar` suelta el trozo; `espaco_ajustar` cambia los bits de la entrada).
+8. **Cuándo se saca.** (a) La **tarea `swap`** (cada 100 ms): si los programas tienen menos de un umbral libre (1/128 de
+   la RAM, entre 4 y 32 MB; contando la alta, la superior y la baja por encima de la reserva del kernel), primero la
+   caché de disco devuelve bloques limpios y luego se saca hasta el doble del umbral (16 MB por vuelta como mucho).
+   (b) **`memfisica_alocar_usuario`**: superior/alta; reclamo de la caché; con swap, la baja **solo hasta la reserva
+   del kernel** (1/32 de la baja, entre 16 y 64 MB), sin alta otro reclamo de la caché, y luego se sacan 32 páginas y
+   se reintenta; solo si la swap no libera nada, la baja entera y el último reclamo, como sin swap. Así el kernel
+   conserva memoria baja para sus tablas y su `kmalloc` aunque los programas pidan más de lo que hay. Sin swap
+   (`--sin-swap`) el orden es exactamente el de la D350.
+9. **`MEM_SACAR`** (operación 5 de `SIS_MEMORIA`, como `MADV_PAGEOUT` de Linux): saca ya las páginas presentes de un
+   rango del área de datos del programa y devuelve cuántas del rango están en la swap. Solo sobre el propio programa;
+   la usan las pruebas y un programa que sepa que no va a tocar una zona en mucho tiempo.
+10. **Información.** `info_memoria_t` crece (versión `INFO_MEMORIA_V3` = 48 bytes la anterior): `troca_teto_kb` (0 =
+    sin swap), `troca_kb` (lo que ocupaban las páginas sacadas), `troca_comprimida_kb` (bloques ocupados),
+    `troca_armazem_kb` (páginas del almacén, que cuentan como usadas), `troca_saidas` y `troca_entradas`. `free`
+    añade «Swap (RAM):» (tope, almacén, libre) y «en la swap:» (datos, comprimidos, razón, salidas y entradas), o
+    «desactivada»; `mem` e `infopc` (sección de memoria) lo mismo. El arranque dice el tope, la reserva y el umbral.
+
+**Por qué no un disco ni una partición de swap.** Leer del disco dentro de un fallo de página exige dormir con la
+entrada a medias (hoy las asignaciones no pueden dormir: D350), y en un pendrive es lento y lo desgasta; la RAM
+sobrante de estos equipos sobra para lo que necesitan programas de 32 bits. La partición `SAGUI-SWAP` sigue como fase 4
+de la mejora 069.
+
+**Por qué el reloj y no LRU.** El bit A lo pone el hardware gratis; una lista LRU necesitaría un fallo por acceso. Las
+TLB no se vacían al quitar A (como Linux): una página caliente en la TLB de otra CPU puede parecer fría y salir; vuelve
+con un fallo, sin error.
+
+**Lo que no se hizo.** La swap a disco (fase 4 de la 069); un OOM killer (si la swap no puede más, el programa falla como
+antes); compactar el almacén (una página con un solo trozo vivo ocupa entera hasta que se vacía); guardar la copia
+comprimida de las páginas traídas que no se escriben (el «swap cache» de Linux).
+
+**Riesgos.** Con mucha presión y acceso secuencial a más memoria de la que hay, el reloj saca y trae sin parar (como
+cualquier swap): es lento pero correcto. Las interrupciones quedan apagadas durante un lote (16 páginas: comprimir
+64 KB; microsegundos con KVM, algunos milisegundos con TCG). Un controlador que hiciera DMA directo a memoria de un
+programa (hoy ninguno: todos usan búferes del kernel en la baja) tendría que fijar esas páginas.
+
+**Pruebas.** `tests/h354_swap_comprimida.py` (TCG y KVM, 65 comprobaciones): la autoprueba del kernel `troca` con 3G
+y 512M (compresor, 51 de 64 páginas a la swap —las aleatorias no—, vuelven iguales y con sus permisos tres veces,
+`mprotect` y `MEM_DEVOLVER` sobre páginas en la swap, el almacén vuelve vacío y toda la memoria al sistema); con 1G
+(sin alta) un proceso de 1300 MB y dos de 700 MB a la vez, dos vueltas comprobando las 1024 palabras de cada página
+(swap de hasta 382 MB, ~14:1, 1 millón de salidas), `free`, `mem` e `infopc`, y al acabar vuelve la memoria y el
+almacén queda casi vacío; 700 MB en 512M; CPU sin PAE con 3G, cuatro procesos de 1000 MB (4 GB en 3 GB); `--smp` con
+4 CPU: cuatro hilos en las mismas páginas mientras otro hilo las saca con `MEM_SACAR` y la tarea las saca y las trae;
+el lector (1 CPU y SMP, sin caché de disco): lecturas del disco a un búfer que se saca sin parar, con
+«[SWAP] fallo de pagina del kernel resuelto» en el registro y los mismos datos; `--sin-swap`: «desactivada» y 1300 MB en
+1G no se dan (como antes). Sin excepciones, sin errores de las ventanas ni trozos corruptos. Pasan también h46, h350,
+h351 y h352 (TCG; h350 `smp,4G` y h352 entera también con KVM).
+
+**Revisión (independiente, tras fusionar main con la D351 y la D354).** Revisados el `xchg` + `invlpg` +
+`espaco_sincronizar` (una CPU que escribe en el hueco: si su TLB ya tenía D, escribe en la página antes de que la
+copiemos, porque `processo_tirar_da_cpu` espera a que entre al kernel; si no, al poner D encuentra P=0 y falla), las
+páginas compartidas (no las hay: `espaco_mapear` solo se usa con `PG_EMPRESTADA`), el futex, el DMA (ningún driver
+traduce memoria de programas), las ventanas de memalta (nadie toca memoria de programa con una puesta;
+`tools/auditar_memalta.py` limpio) y la pila: el camino añadido por un fallo de página del kernel (`falta_pagina` 144
+bytes, `troca_trazer` 112, `memfisica_alocar_usuario` 48, `troca_liberar` 88, `lote` 352, `sacar` 112, el compresor 96,
+`fisica_ler` 64; medido con `-fstack-usage`) suma ~1,1 KB más el marco de la excepción, dentro de los 8 KB.
+- **Corregido:** un fallo de página **del kernel** sobre una entrada de swap de la zona de la pila que no se podía traer
+  (sin memoria ni en la baja, o trozo corrupto) pasaba a `pilha_crescer`, que da por buena la página porque ya existe
+  (en la swap), y repetía la instrucción para siempre (el sistema colgado en vez de la pantalla de error). Ahora va a la
+  pantalla de error.
+- **Anotado:** un trozo corrupto que se descubre en un fallo del kernel para el sistema (pantalla de error) en vez de
+  terminar solo el programa (a mitad de una llamada no se puede terminar sin más). `--swap-mb` de 1 a 3 da 4 MB (el
+  mínimo del kernel). Con mucha presión, `troca_trazer` deja las interrupciones apagadas mientras saca un lote de 32
+  páginas (milisegundos en TCG).
+
+## D353. Opciones del kernel que se cambian desde el sistema y valen al reiniciar: `kconfig` (v8.5.1)
+
+**Problema.** Las opciones de memoria y disco del kernel (PAE, NX, DMA, caché...) solo se fijaban al generar la imagen
+con `tools/mkimagem.py`, en bytes de la cabecera de arranque (LBA 1). El mantenedor pidió poder cambiarlas desde
+SaguiOS, solo root, aplicadas en el siguiente arranque, sin exponer nada delicado; y (petición añadida) el gobernador
+de la frecuencia de la CPU, aplicado también al momento si no hay riesgo.
+
+**Dónde se guarda: en la cabecera de arranque, en una zona aparte (no en `/etc/kernel.conf`).** Se compararon:
+- *un fichero en SAGUI-CONF* (`/etc/kernel.conf`): la PAE y el NX se deciden en `paginacao_escolher_modo()`, antes de la
+  memoria física y mucho antes de montar nada; el DMA y la caché, al arrancar el disco del que se lee ese mismo fichero.
+  Ninguna de las opciones pedidas (salvo el gobernador) se podría aplicar desde un fichero sin leerlo dos veces o mover
+  esas decisiones. Además en modo en vivo (sin SAGUI-CONF) no se guardaría nada;
+- *los bytes de la cabecera*: es lo único que el kernel tiene antes de la paginación, y ya se graba desde el sistema con
+  `pantalla --guardar` (D058) y Configuración (D323, `INFO_CAB_OPC`).
+Se eligió la cabecera, pero **sin tocar los bits de la imagen**: lo que guarda `kconfig` va en los bytes **192-255**
+(`CAB_KCONF`, `kernel/inc/kconf.h`): firma `SGKC`, 32 bits de presencia (una opción = un hueco fijo, nunca reutilizado),
+un u16 por opción y una suma de los bytes 192-247. El kernel, nada más copiar la cabecera (`kconf_iniciar()`, antes de
+la paginación), hace una copia de los 256 primeros bytes con lo guardado encima; quien lee `CAB_MEM_OPC`, `CAB_DISCO_OPC`
+o `CAB_FREQ` usa `kconf_cab()` y los topes nuevos `kconf_valor()`. Así «volver a los valores de la imagen» es borrar la
+zona, y la copia de 0x7E00 (`cabecalho_boot`) sigue siendo idéntica al disco (`discos.c` reconoce el disco de arranque
+comparando 256 bytes; quien graba la actualiza). Los bytes 160-161 son de la swap comprimida (D352).
+
+**Cómo se graba.** `cab_regravar()` (en `modos_video.c`, junto a `gravar_preferencia`): el mismo camino que
+`pantalla --guardar` y D323 (`particao_de_boot()`: solo el disco del que arrancó la máquina, comprobando que los 128
+primeros bytes de su cabecera son los del arranque; nunca desde el CD), y además vacía la caché de ese disco después
+(`disco_sincronizar`): la escritura no se queda diferida. `INFO_CAB_OPC` pasa a usarla también. Una escritura de un
+sector es atómica en la práctica; aun así, una zona cortada a medias no pasa la suma y se ignora entera.
+Llamadas nuevas: `INFO_KCONF` (79, la lista; cualquier usuario) e `INFO_KCONF_GRAVAR` (80, `KCONF_PEDIDO(op, hueco,
+valor)`: fijar, quitar una, quitar todo; **solo administrador**, `permisos.c`). El kernel valida el rango al guardar.
+
+**Qué se expone.** Solo lo que ya existía en `mkimagem.py` y tiene prueba, más tres topes triviales de la caché:
+
+| Opción (`kconfig`) | Dónde vive | Cuándo se aplica | Por qué es segura |
+|---|---|---|---|
+| `pae` si/no | `CAB_MEM_OPC` bit 0 (`--sem-pae`, D349) | arranque, antes de la paginación | «no» es la paginación de siempre (h351 `opcion`); «sí» solo usa PAE si la CPU lo anuncia |
+| `nx` si/no | `CAB_MEM_OPC` bit 1 (`--sem-nx`) | arranque | «no» quita una protección; «sí» solo con PAE y CPU con NX |
+| `cache_disco` si/no | `CAB_DISCO_OPC` bit 1 (`--sem-cache-disco`, D281) | al iniciar la caché | sin caché todo va directo al driver (h281) |
+| `cache_alta` si/no | `CAB_DISCO_OPC` bit 3 (`--cache-disco-baja`, D350) | al iniciar la caché | «no» es la caché de la D281 (h352 `opcion`) |
+| `escritura_diferida` si/no | `CAB_DISCO_OPC` bit 2 (`--sin-escritura-diferida`) | al iniciar la caché | «no» graba al momento: menos riesgo |
+| `dma` si/no | `CAB_DISCO_OPC` bit 0 (`--sem-dma`) | al iniciar el IDE | «no» es PIO (h281, h323); «sí» vuelve a la detección de siempre |
+| `cache_max_mb` auto/4-1024 | solo en la zona (nuevo) | al iniciar la caché | solo puede **bajar** el tope automático; nunca por debajo de 4 MB |
+| `sucios_max_mb` auto/1-16 | solo en la zona (nuevo) | al iniciar la caché | solo puede **bajar** lo sucio (16 MB como mucho de serie): menos riesgo |
+| `vaciado_s` auto/1-30 | solo en la zona (nuevo; antes `ENVELHECE_TIQUES`, 3 s) | tarea `sync-disco` | acota cuánto se pierde con un corte de luz; el orden de grabación (prefijo) no cambia |
+| `frecuencia` si/no | `CAB_FREQ` bit 0 (`--sin-frecuencia`, D106) | al iniciar el driver | «no» deja la CPU como la BIOS; «sí» es el driver de siempre, con su límite de 79 °C |
+| `gobernador` auto/rendimiento/ahorro/demanda | solo en la zona (nuevo) | al iniciar el driver **y al momento** | es `frecuencia rendimiento/ahorro/demanda` (`FREQ_OP_POLITICA`); el límite de temperatura manda sobre todos |
+| `swap` si/no | `CAB_MEM_OPC` bit 2 (`--sin-swap`, D352) | al iniciar la swap | «no» es el sistema sin swap de la v8.5 (h354 `sinswap`) |
+| `swap_mb` auto/4-1024 | `CAB_TROCA_MB`, u16 de los bytes 160-161 (`--swap-mb`) | al iniciar la swap | es un tope, no una reserva; desde 4 porque `troca.c` nunca baja de 1024 páginas (con 1-3 el tope real sería 4 MB) |
+
+El gobernador guardado manda sobre `/home/.frecuencia` y `/etc/frecuencia` (con «auto», vale lo de esos ficheros o
+«rendimiento»). Es el único que se aplica al momento: el driver ya cambia de política en caliente con la misma llamada.
+
+**No expuestas, y por qué.**
+- *2D/3D por la GPU y SDL 2* (`CAB_ACEL2D`, `CAB_GPU3D`): ya tienen su sitio en Configuración > Pantalla > Aceleración
+  gráfica (D323), con su modo seguro (Mayús) y su marca de arranque en curso. Duplicarlas daría dos fuentes de verdad.
+- *Motor 3D* (`CAB_MOTOR`): lo lee la etapa 2 antes que el kernel (no se puede poner encima en una copia) y su función
+  la cubre el 3D de D323.
+- *NE2000 ISA* (`CAB_NE2K_OPC/IRQ`): sondear 0x300-0x340 en un PC real puede tocar otro dispositivo (MPU-401, SCSI); D329
+  la dejó solo en mkimagem a propósito.
+- *Resolución, profundidad, planificador, SMP, IOAPIC, uACPI, consola, modo rescate*: los lee la etapa 2 o son de
+  arranque/pruebas; la resolución ya tiene `pantalla --guardar`. SMP/IOAPIC/uACPI pueden dejar una máquina real sin
+  arrancar y no se pueden probar aquí en hardware real.
+- *Opciones de prueba* (`CAB_IRQ_PRUEBA`, `CAB_USB_PRUEBA`, `CAB_MANDOS_PRUEBA`, frecuencia simulada, fallos de la
+  autoprueba 2D): solo para las pruebas.
+**Salvavidas.**
+1. **Modo rescate** (Ctrl al arrancar, por BIOS y por UEFI; D255): el kernel **no aplica nada de lo guardado** (arranca
+   con los valores de la imagen), lo dice en el registro y en el aviso del shell, y `kconfig --por-defecto` desde ese
+   shell de root lo borra. No hacía falta una tecla nueva: el rescate ya es «arrancar con lo mínimo».
+2. **Validación al arrancar:** un valor fuera de rango se ignora con `[KCONF] AVISO: … fuera de rango … ignorada`
+   (vale el de la imagen); una opción que este kernel no conoce (de uno más nuevo), también; una zona con la suma mala se
+   ignora entera. `kconfig` lo enseña.
+3. Lo que puede salir mal no deja la máquina sin arrancar: con PAE apagada se arranca como en la v8.4; sin DMA, por PIO;
+   sin caché, directo. El peor caso que queda es uno que ya existía con `mkimagem.py` (p. ej. forzar DMA en una máquina
+   en la que da problemas), y para eso está el punto 1.
+
+**Relación con D323.** Configuración > Aceleración gráfica > Disco escribe los bits de la imagen de `CAB_DISCO_OPC`. Si
+cambia el byte, `cab_opc_gravar` borra en la misma escritura lo que `kconfig` guardó para esos bits: manda lo último que
+se pidió (si no, `kconfig dma=si` taparía para siempre un «Desactivado» posterior). Cuando no cambia (el `--aplicar` de
+cada arranque con lo de siempre) no se toca.
+
+**Interfaz.**
+- `kconfig` (lista: ahora, imagen, guardado y «cambia al reiniciar»), `kconfig opcion=valor ...` (se comprueban todas
+  antes de guardar ninguna; `defecto` quita esa), `kconfig --por-defecto`, `kconfig -h`. Sin ser administrador dice «usa:
+  admin kconfig …». Textos con `_()`, catálogo `kconfig` y los nombres de las opciones en `libsagui` (pt_BR y en).
+- **Configuración > Pantalla > Kernel**: tercera vista de Pantalla (no cabe otra pestaña: con 12 ya se aprietan) junto a
+  Aceleración gráfica, que ya tenía el disco. Una fila por opción con «Ahora», «Al reiniciar» (en naranja con `*` si
+  cambia), «Cambiar» (el siguiente valor de un ciclo: sí/no, o una escala de valores habituales) y «De la imagen»;
+  «Valores de la imagen» borra todo. Avisa en naranja de que se aplica al reiniciar y de Ctrl. Pide administrador con el
+  diálogo de D269. Los botones de las vistas se estrechan (Resolución 110, Aceleración 180, Kernel 74): h323 sigue igual.
+
+**Otras notas.** `instalar` copia la cabecera entera: un disco instalado hereda lo guardado (es lo esperado: el mismo
+sistema). Por UEFI la cabecera que manda es la del disco (`cargador.c`), así que lo guardado también vale.
+
+**Pruebas.** `tests/h355_kconfig.py` (con KVM y sin él, 6 GB, qemu32): A) `kconfig` como sagui no guarda (ni la cabecera
+cambia), fuera de rango rechazado, `admin kconfig pae=no cache_alta=no dma=no cache_max_mb=32 vaciado_s=5
+gobernador=ahorro` lo guarda (zona comprobada en el archivo de la imagen, bytes 0-191 intactos) y el gobernador cambia
+al momento; B) al reiniciar: sin PAE (registro, `free`, `mem`), PIO, caché en la baja con tope de 32 MB y 5 s, gobernador
+ahorro; `gobernador=defecto` quita solo esa; C) con el bit de rescate (lo que pone Ctrl) nada se aplica y
+`kconfig --por-defecto` deja la zona a cero; D) los valores de la imagen otra vez, y una zona escrita a mano con
+`vaciado_s=99` y `sucios_max_mb=2`: la primera ignorada con aviso, la segunda aplicada; E) una zona con la suma mala,
+ignorada; F) la ventana como sagui: «Cambiar» en PAE con el diálogo de administrador y «De la imagen». Pasan además
+h323, h351 (`opcion`, `sinpae`) y h352 (`opcion`, `512M`).
+
+**Sin probar en hardware real.** La escritura de la cabecera en un disco físico (la misma que `pantalla --guardar`) y
+Ctrl en una BIOS/UEFI real (la de D255).
+
+**Revisión (independiente, tras integrar D351 y D354).**
+- *Corregido:* la cabecera se grababa por la caché de disco (D281/D350) en escritura diferida y luego se vaciaba el
+  disco: el bloque de 4 KB del LBA 1 incluye el **MBR (LBA 0) y la etapa 2** (LBA 2-7), y se regrababan los ocho
+  sectores, aunque solo cambiara uno; un corte de luz justo entonces podía estropear un sector que no había cambiado.
+  Ahora `cab_regravar()` usa `disco_escrever_ja()` (`discos.c`): la misma comprobación de permisos, pero sin diferir,
+  solo ese sector y antes de volver (la caché vacía primero lo sucio que solape y se pone al día). `pantalla --guardar`
+  (`gravar_preferencia`) pasa por `cab_regravar()`: antes no tomaba el cerrojo en la comprobación y dejaba la
+  cabecera sucia en la caché hasta el vaciado (con `vaciado_s` hasta 30 s).
+- *Comprobado sin cambios:* la zona 192-255 no la leen el MBR, la etapa 2 ni el cargador UEFI (que solo compara campos
+  sueltos, `mesma_cabecera`); ningún campo de `cabecalho.inc` ni de la rama de la swap (160-161, bit 2 de
+  `CAB_MEM_OPC`) cae ahí; `INFO_KCONF`/`INFO_KCONF_GRAVAR` (79/80) no chocan con otras ramas; la ISO lleva `OPC_CD` en
+  su cabecera (`mkimagem --cd`), así que también por UEFI se niega a grabar; el modo rescate llega por BIOS y por UEFI
+  en `info_boot.opcoes`; `kconf_iniciar()` solo copia memoria y usa la BSS; PAE y NX «sí» siguen condicionados al CPUID
+  y los topes de la caché solo bajan.
+- *Anotado (sin cambiar):*
+  1. D323: Configuración > Aceleración > Disco solo olvida lo de `kconfig` si el byte de la imagen cambia. Elegir el
+     mismo valor que ya tiene la imagen (p. ej. «Automático» con `kconfig dma=no` guardado) no lo olvida, y esa vista no
+     enseña que `kconfig` lo tapa. Distinguir el clic del `--aplicar` de cada arranque pediría un bit más en
+     `CAB_OPC_PEDIDO`; se deja a decisión del autor.
+  2. Si matan al proceso entre la escritura y la copia a `cabecalho_boot` (el cerrojo se roba al muerto), la copia en
+     memoria queda vieja y un disco que se conecte después no se reconoce como el de arranque hasta reiniciar.
+  3. `kconfig a=1 b=2` hace una escritura por opción: un error a mitad deja guardadas las primeras (el comentario de
+     `kconfig.c` habla de comprobar antes, no de una sola escritura).
+  4. Como ya pasaba con `pantalla --guardar`: con dos pendrives de la misma imagen sin instalar, la cabecera se graba en
+     el primero que coincida (D179).
+- *Swap (al integrar la D352):* activadas las entradas `swap` (hueco 11) y `swap_mb` (12) que el autor dejó comentadas;
+  `troca_iniciar()` lee `CAB_MEM_OPC` y `CAB_TROCA_MB` con `kconf_cab()` y el registro dice de dónde viene
+  (`--sin-swap`/`kconfig swap=no`, `--swap-mb`/`kconfig swap_mb`); `swap_mb` de 4 a 1024. La vista Pantalla > Kernel
+  enseña ahora 13 filas (filas de 21 píxeles, para no pisar el aviso de /home). h355 G: `swap=no` al reiniciar deja
+  `free` en «desactivada» y `swap=defecto` la devuelve con el tope guardado de 64 MB.
+
+## D356. Macaco usa las fuentes del sistema y un instalador de fuentes: el programa `fuentes` (v8.5.1, h358)
+
+**Petición (mantenedor):** «Macaco y Pluma no cogen las fuentes extra que tenemos; mejora un sistema que permita instalar fuentes.»
+
+**Diagnóstico (QEMU, imagen normal con el zip de Typodermic en `NEW_FONTS/`).** En la partición `SAGUI-APPS` (`/apps/fuentes`, rw)
+están las 28 Typodermic y en `/fontes` (ramdisk) las 7 DejaVu. **Pluma sí las coge**: `pluma --fuentes` da 32 familias y se escribe
+con Xirod y Typodermic con antialias (captura del diagnóstico). Causas de lo que vio el mantenedor:
+1. **Macaco no tenía nada de esto.** Su formato de celda guardaba `fam` = 0..2 (Arial, Times, Courier), el combo era una lista fija de tres,
+   el programa no enlazaba la libfontes (`FONTES_OBJ`) ni instalaba el proveedor de D319, la celda se dibujaba solo con la 8x16 y XLSX/ODS
+   escribían uno de tres nombres. D327 ya lo dejaba como «pendiente para la 8.4.4».
+2. **Sin Typodermic en la imagen**: el zip (`NEW_FONTS/typodermic-public-domain-*.zip`, 54 MB) no va en git; una imagen construida sin él
+   (o por el repositorio público sin `FUENTES_RED=1`) no trae ninguna extra, y de la colección de 731 solo se empaquetan 28.
+3. **No había forma de instalar**: solo copiar a mano a `/home/fuentes`, sin validar, sin aviso a las aplicaciones abiertas, y `/home` sin
+   partición propia vive en la RAM.
+4. Límites que quedan: 247 familias distintas (`PDFW_FAM_MAX`), `FUENTES_MAX` = 1024 archivos (la colección completa de 731 cabe, pero
+   cada selector lee la tabla `name` de todos). No se pudo medir la colección completa en QEMU (el `cp` de 731 archivos desde el pendrive no
+   terminó en tiempo razonable), así que no hay cifra del coste del escaneo.
+
+**Corrección en Macaco.** `macaco` enlaza `FONTES_OBJ` y llama a `fuentes_doc_instalar()`; `fmt.fam` vale 0..249 (el número de familia del
+proveedor); celda: si la familia es >= 3 se dibuja con los glifos vectoriales del proveedor (`texto_celda_vec`, antialias, `tam * 4/3` px,
+alineación, recorte, «###», subrayado) y si falta algún carácter vuelve a la 8x16; combo de la barra y de la cinta = `combo_fuentes`
+(buscador y cada nombre con su fuente, D327; `CC_FUENTES` en `macaco_cinta.h`, 3 líneas); diálogo Formato de celdas con todas las
+familias; **XLSX y ODS escriben el nombre real** (`nome_fonte_xml`) y al abrir buscan la instalada con ese nombre (`fam_de_nome`; si no está,
+la clásica más parecida); el formato propio `.mxs` guarda `fn=Nombre_Con_Guiones` junto al número (que no vale entre sesiones); PDF: la
+familia del sistema se incrusta como en Pluma (D319). `macaco --fuentes` lista las familias (pruebas).
+
+**El instalador.** Programa `fuentes` (`/bin/fuentes`, `userland/programas/fuentes.c`) y `userland/libfontes/instalar.c`:
+- `fuentes [listar]`, `fuentes instalar [--sistema] ARCHIVO|CARPETA...`, `fuentes quitar [--sistema] FAMILIA`, `fuentes actualizar`,
+  `fuentes --ventana [ARCHIVO]`.
+- **Validación antes de copiar** (`fuentes_validar`): extensión .ttf/.otf, 256 B a 16 MB, la libfontes la abre y dibuja al menos un glifo de
+  prueba, tiene nombre de familia (o se usa el del archivo). Un archivo dañado, truncado, vacío, de basura o un texto con extensión .ttf
+  se rechaza con el motivo y sin tocar nada. La copia va a un temporal (`.instalando`) y se renombra.
+- **Para una cuenta, sin root:** `/home/fuentes` (la cuenta principal) o `$HOME/fuentes` si el entorno trae `HOME=/home/<cuenta>`.
+  **Para todas, con root:** `/apps/fuentes`, la carpeta de las Typodermic en `SAGUI-APPS`: ext2 en el disco, rw, así **sobrevive a los reinicios**
+  (el ramdisk y un `/home` sin partición no). Con un instalador sin disco de apps (`APPS=0`, CD) esa carpeta está en el ramdisk y dura hasta
+  apagar. En la ventana, «para todas las cuentas» pide permisos con `COM_ADMIN` (diálogo del sistema, D269); en la terminal dice
+  `admin fuentes instalar --sistema`. Las de la base (`/fontes`) no se quitan.
+- **Ventana** (como `wifi --ventana`): lista de familias con su origen (base / esta cuenta / todas las cuentas), estilos, muestra dibujada con la
+  propia fuente (tres tamaños, ñ y acentos), Instalar..., Carpeta..., Quitar (con confirmación), Actualizar y la casilla «Para todas las cuentas».
+  Con un archivo, la **vista previa con el botón «Instalar»** (y «Instalar para todos»); **Archivos** abre así los `.ttf`/`.otf`; **Configuración >
+  Fuentes** tiene el botón «Instalar fuentes...».
+- **Las aplicaciones abiertas se enteran:** instalar y quitar suben el contador de `/tmp/fuentes.cambio` (`fuentes_cambio()`), que mira la
+  propia ventana de `fuentes`; los selectores (combo de Pluma y Macaco, diálogo Fuente, Formato de celdas) releen las carpetas **al abrirse**
+  (`actualizar()` del proveedor), y ahora además **olvidan lo quitado**: una familia sin archivos deja de salir en las listas (el número se
+  conserva; los textos que la usaban se dibujan y exportan como la clásica, D319).
+- Catálogo `fuentes` en pt_BR y en; `fuentes_sistema_listar` también lee `$HOME/fuentes`.
+
+**Pruebas:** `tests/h358_fuentes.py` (consola: extras en `fuentes`, Pluma y Macaco; rechazo de cuatro archivos dañados y de un no-fuente;
+instalar, ver en Pluma y Macaco, quitar; `--sistema` en `/apps/fuentes`; XLSX/ODS por nombre y de vuelta; PDF de Macaco; ventanas: celda de
+Macaco píxel a píxel igual que DejaVu Serif y distinta de la 8x16, combo de Macaco con 33 familias, ventana de fuentes, vista previa de un
+archivo dañado y de uno bueno con «Instalar», línea de Pluma idéntica a la de DejaVu Serif). Capturas `H358-*.png`.
+
+**No cubierto:** PlanoMini, GebraMini y VisualPythonS no tienen selector de fuente en el árbol (Paint solo usa la «fuente de documentos» de
+Configuración); Python lo tiene (`sagui.dialogo` tipo 4) y ya ve las instaladas. Los programas con la lista abierta no se refrescan solos
+(Pluma al abrir el combo, y al pulsar «Actualizar lista» del diálogo antiguo). Con varias cuentas, `fuentes` instala en `$HOME/fuentes`
+solo si la sesión exporta `HOME`; no se probó con una cuenta distinta de `sagui`.
+
+## D357. Radeon de la v8.3 completas: 3D en R6xx, el estado perdido de las R7xx y diagnóstico por etapas (v8.5.2, h359)
+
+**Contexto (2026-11-16, autorizado por el mantenedor: «completar la aceleración de las Radeon que ya tienen driver de
+la v8.3»).** En main estaban el 3D de R5xx (D287) y de R7xx (D284), el 2D de R5xx (D195), R6xx/R7xx (D223/D246) y
+Evergreen/NI (D286), nada probado en hardware. Las issues #1, #2, #3, #22, #23 y #24 no tienen todavía resultados del
+dv7, del Amilo ni del L635 (solo el plan de pruebas): no hay fallo de hardware que corregir. La revisión contra las
+referencias (Linux 6.6 `r600.c`/`rv770.c`/`r600d.h`/`rv770d.h`, Mesa `r600_state.c`, xf86-video-ati `r6xx_accel.c`,
+`evergreend.h`/`nid.h`/`r600_dma.c`/`ni_dma.c`) encontró:
+
+1. **Un fallo de fusión que dejaba el 3D de las R7xx inservible.** Al fusionar la rama de las R5xx (`02bae96d`) se
+   perdieron en `gpu3d_iniciar()` las líneas que ponían el estado inicial de las R7xx: el driver se elegía pero el
+   estado quedaba en `GPU3D_SEM_GPU`, así que en el dv7 `gpu3d` decía «sin GPU con driver 3D» y `gpu3d probar` /
+   `gpu3d encender` se negaban. `tests/h284` lo comprobaba y habría fallado. Se restauran (apagado por defecto; sin
+   probar con `--gpu3d=radeon`), sin cambiar el valor por defecto.
+2. **Las R6xx (HD 2000/3000) no tenían 3D** (D284 punto 4 las dejó fuera). Ahora el mismo driver las lleva.
+3. **Un bit equivocado para las R6xx** en el estado base: `PA_SC_MODE_CNTL` llevaba el bit 0 (`MSAA_ENABLE`) donde
+   xf86-video-ati pone `WALK_ORDER_ENABLE` (bit 4). Solo afectaba a R6xx (que no se usaban).
+4. Faltaba **`DB_PREFETCH_LIMIT`** al poner el Z (Mesa lo escribe siempre: filas de bloques de 8 menos 1).
+5. **El diagnóstico no decía la etapa** en la salida de las órdenes: había que leer el log.
+
+El 2D de Evergreen/NI (D286) se revisó contra `r600_dma.c`/`ni_dma.c`/`evergreend.h`/`nid.h` (registros, paquete de
+copia de 20 bits, valla, `DMA_MODE` solo fuera de Cayman, `CMD_VMID_FORCE` en Cayman, controladores de pantalla,
+`CONFIG_MEMSIZE` en MB) sin encontrar diferencias. El renderizador de la SDL 2 por GPU (D288) va sobre la capa
+`gpu3d` y no tiene nada de Intel: vale para las Radeon tal cual (destinos y texturas de más de 1024 van por software).
+
+**Decisión:**
+
+1. **R6xx en `gpu3d_r600`** (R600, RV610, RV620, RV630, RV635, RV670; no las integradas RS780/RS880, que tampoco
+   están en el 2D). La capa elige el driver para la generación 6 igual que para la 7 y lo deja **apagado** (la
+   tarjeta se llama «Radeon R6xx …»; Configuración la marca experimental). No hace falta que el 2D por DMA esté
+   activo (en R6xx sigue siendo solo con `--acel2d=radeon`, D223): basta con que la capa 2D reconozca la tarjeta.
+   Lo que cambia respecto de las R7xx, todo tomado de las referencias de arriba:
+   - **Microcódigo:** `R600_*`, `RV610_*` (también para la RV620), `RV630_*` (también para la RV635), `RV670_*`; PFP
+     de 576 palabras y ME de 5376 (`R600_PM4_UCODE_SIZE * 3`), cargados **primero el ME y luego el PFP**
+     (`r600_cp_load_microcode`; en R7xx al revés, `rv770_cp_load_microcode`). En linux-firmware `RV620_*` son los
+     mismos bytes que `RV610_*` y `RV635_*` que `RV630_*` (y los cuatro PFP de RV6xx son iguales), por eso no se
+     llevan dos veces. 95 KB más en `/lib/firmware/radeon/`, misma licencia que los de R7xx, fuera con
+     `SEM_FIRMWARE=1`; `tools/firmware_radeon.sh` los baja de la etiqueta `20241110` y comprueba su SHA-256.
+   - **Valores por defecto del motor:** `r6_inicio_motor` (de `r600_gpu_init`): tuberías, backends, contextos y
+     reparto del secuenciador por familia, `GB_TILING_CONFIG` con los campos de `RAMCFG` de las R6xx (0x2408),
+     `SX_DEBUG_1` en 0x9054, `DB_DEBUG`/`SQ_MS_FIFO_SIZES` distintos para R600/RV610/RV630 y RV635/RV670, `TC_CNTL` por
+     familia. Como en R7xx, **no** se borran las superficies del HDP ni se escriben `DCP/HDP/DMA_TILING_CONFIG`,
+     `HDP_HOST_PATH_CNTL` ni el árbitro (`ARB_POP` con `ENABLE_TC128`, `ARB_GDEC_RD_CNTL` de la RV670): son
+     memoria, pantalla y 2D. Si la textura falla en una R6xx, `ARB_POP` es lo primero que mirar.
+   - **Por la cola:** `ME_INITIALIZE` con 3 y `START_3D_CMDBUF` al principio (ya estaban); recursos del secuenciador,
+     `DB_DEBUG` 0x82000000, `DB_WATERMARKS`, `SPI_THREAD_GROUPING` 0, `FORCE_SHADER_Z_ORDER` y `PA_SC_MODE_CNTL` de
+     xf86-video-ati; `SURFACE_BASE_UPDATE` tras las bases del color y del Z en las RV6xx (rodeo de su hardware que
+     emiten xf86-video-ati y Mesa); sin mezcla «por superficie» en la R600; sin caché de vértices en RV610/RV620
+     (como en la RV710). Los sombreadores ya tenían la codificación de las R6xx (`ALU_WORD1_OP2`).
+2. **Diagnóstico por etapas en los tres drivers Radeon.** Si el encendido falla, el motivo que enseñan `gpu3d probar`,
+   `gpu3d`, `acel2d probar` y `acel2d` empieza por la etapa: 3D R6xx/R7xx `etapa N (nombre)` de 0 (sonda de solo
+   lectura) a 6 (estado base); 3D R5xx de 1 a 6 (las seis de la D287); 2D por DMA `etapa N:` de 1 (modelo y sonda) a
+   6 (valla), y después la autoprueba de la capa. Con `--detalle`, cada driver añade al log la última etapa
+   alcanzada. El búfer del motivo del 2D pasa de 96 a 128 bytes para que quepa. `gpu3d` llama al estado «apagado
+   (software; «gpu3d probar» o «gpu3d encender» lo enciende)» en vez de «apagado a mano» (también es el de arranque).
+3. **Lo que no cambia:** el 3D Radeon sigue **apagado por defecto** hasta que se confirme en hardware; el 2D de las R6xx
+   sigue solo con `--acel2d=radeon`; nada nuevo toca pantalla, HDP, relojes, energía, DMA ni reinicios del motor.
+
+**Alternativas descartadas:** un driver aparte para las R6xx (duplicaría la cola, la memoria y la autoprueba, que son
+iguales); escribir `ARB_POP` como Linux (es el árbitro de memoria: sin poder probarlo, mejor no tocarlo y dejarlo
+anotado); llevar también `RV620_*`/`RV635_*` (los mismos bytes con otro nombre).
+
+**Sin probar en hardware.** Ninguna máquina del mantenedor tiene una R6xx. Qué ejecutar en el dv7, el Amilo y el L635:
+`docs/gpu3d.md`, «Qué probar en cada máquina Radeon».
+
+**Pruebas:** `tests/h359_radeon_v83.py` (`fuentes`: el estado de R6xx/R7xx en la capa, familias, orden de carga,
+registros del inicio, etapas, microcódigo con su SHA-256, documentos; `unidad`: `tests/r600_3d_unidad.c` con el inicio
+y el estado de las R6xx, también con ASan/UBSan; `firmware`: el ramdisk lleva el microcódigo; `qemu`: sin Radeon nada
+cambia con `--gpu3d=radeon`, y con `--gpu3d=simulado` la capa común sigue pasando la autoprueba). `tests/h284`
+adaptada (su comprobación del estado es la que habría detectado el fallo de fusión).
+
+**Revisión (Opus, 2026-11-16, `depurador-drivers`):** contrastado con Linux 6.6 (`r600_gpu_init`, `r600_cp_load_microcode`, `r600_cp_start`, `r6xx_remap_render_backend`, `r600d.h`), xf86-video-ati (`r6xx_accel.c`, `r600_set_default_state`, `r600_sq_setup`) y Mesa (`r600_state.c`, `r600d.h`): valores del motor, orden de carga, `ME_INITIALIZE`, `SURFACE_BASE_UPDATE`, `PA_SC_MODE_CNTL` (bit 4), `DB_PREFETCH_LIMIT` (Mesa lo escribe también en R7xx), identificadores PCI (sin RS780/RS880 ni Evergreen en el 3D) y sumas SHA-256 del microcódigo (comprobadas bajando de nuevo de linux-firmware `20241110`) cuadran. Un fallo corregido: `CB_SHADER_CONTROL` solo se escribía en R7xx, y xf86-video-ati y Mesa lo escriben en todas (en una R6xx la superficie 0 podía no escribirse); ahora va siempre y `tests/r600_3d_unidad.c` lo fija. `h242` falla igual en main (la línea del kernel «processo N (infopc) terminou» se mete en la fila «Líneas» del puerto serie): no es de esta rama.
+
+## D358. Intel Gen3 3D completo: encendido por etapas, robustez y RAM del sistema en el GTT (v8.5.2, rama `v8.5.2-intel-gen3`; completa la D285)
+
+**Contexto.** El 3D de Intel Gen3 (D285) estaba en main sin probar en hardware (issue #21) y con tres huecos anotados: mapear RAM
+normal en el GTT (destinos y texturas grandes; traer el cuadro sin leer la apertura sin caché), el renderizador de la SDL 2 por GPU
+y varias pantallas. El renderizador de la SDL 2 ya entró con la D288 sobre la misma capa (no hace falta nada propio de Intel) y varias
+pantallas (mejora 060) es otra pieza. Faltaba además que un fallo en la máquina dijera **dónde** se para: el encendido solo dejaba
+«el ring no avanza» o la prueba de la autoprueba que fallaba.
+
+**Decisión.**
+1. **Encendido por etapas** (líneas `[GPU3D] intel: etapa N` en el log): 1 la sonda (solo PCI: modelo, MMIO, apertura, GTTADR,
+   familia 915/945 o G33), 2 el ring (del 2D o propio) avanza con una orden vacía y se apuntan EIR, `PGTBL_CTL` e `INSTPM`, 3 la zona
+   de la memoria del VBE guarda lo que la CPU escribe al principio, en medio y al final (si no, el VBE anunció memoria que no está en
+   el GTT), 4 el blitter por el ring rellena 16x4 píxeles de una zona de pruebas de 8 KB y **solo** esos, 5 un **lote** con el mismo
+   relleno se ejecuta, 6 la RAM en el GTT (si se pidió), 7 el estado 3D completo y un triángulo en la zona de pruebas terminan sin
+   error (y se apunta el píxel que salió: la autoprueba de la capa sigue siendo el criterio). La última etapa del log dice dónde se paró.
+2. **Robustez** (sin cambiar la interfaz del driver): (a) tras cada espera se lee **EIR**: un bit nuevo de «orden no válida» o «tabla
+   de páginas» apaga el 3D aunque el ring haya quedado vacío, con `IPEHR` y `PGTBL_ER` en el motivo; (b) si en la etapa 5 el lote
+   **termina pero no hace lo que lleva**, se sigue con las órdenes en el anillo (si no termina, el ring está colgado y no hay vuelta:
+   3D apagado y el 2D pasa a la CPU con su vigilante, D244); (c) cada entrega empieza con `MI_FLUSH` con el bit de **invalidar las
+   cachés de lectura**: sin él, una textura recargada en el mismo sitio podía muestrearse vieja (la SDL 2 recarga texturas a menudo).
+3. **RAM del sistema en el GTT, solo a mano** (`gpu3d encender gtt`, `gpu3d encender anillo gtt` o `mkimagem.py --gpu3d-gtt`; bit
+   `0x40` de `CAB_GPU3D`, `GPU3D_CAB_GTT`). Es lo único del driver que escribe fuera del ring, y por eso no va por defecto hasta
+   probarlo:
+   - **Ventana**: 16 MB (8 MB con menos de 64 MB libres; nada con menos de 32) al final de los primeros **128 MB** de direcciones
+     gráficas (la apertura más pequeña de Gen3: la entrada existe en cualquier modelo), por encima de la memoria robada que dice
+     `GMCH_CTRL` (puente 0:0.0, `0x52`), de lo que anunció el VBE y de una guarda de 1 MB. Un código de memoria robada desconocido
+     la descarta.
+   - **Comprobada leyendo antes de escribir**: GTTADR (BAR 3, `0x1C`) es un BAR de memoria de 32 bits fuera de la apertura; la
+     entrada de la pantalla es válida; y **todas** las entradas de la ventana son iguales (a cero o a la página de relleno de la BIOS).
+     Si una BIOS mapeó algo ahí (DVMT), se ve y no se usa.
+   - **Escrita y comprobada**: cada entrada se relee; cada página lleva su número y la CPU lo lee **por la apertura** (la apertura y
+     la GPU usan el mismo GTT); después el blitter rellena una página de prueba y la CPU comprueba que escribió ahí y **no** en la
+     página siguiente; y, si la BIOS dejó encendida la **página de vaciado del chipset** (`0x60` en 915/945, `0x70` en la familia G33;
+     no se programa nunca), que la GPU lee bien lo que escribió la CPU (copia RAM -> memoria del VBE). Solo entonces van **texturas** a
+     la RAM; si no, solo el destino de color (la GPU escribe, la CPU lee) y, si no cabe en la memoria del VBE, el Z.
+   - **Caché de la CPU**: la GPU de Gen3 no la ve. Las páginas se ven por una ventana con caché; se vacían (`clflush` + `mfence`)
+     tras escribir texturas y al crear el destino, y se invalidan antes de leer el cuadro. Por eso exige CLFLUSH y SSE2 (todas las CPU
+     que van con estos chipsets los tienen; si no, no se usa).
+   - **Las páginas no se liberan nunca** una vez escritas sus entradas: se quedan hasta reiniciar (16 MB como mucho). Una GPU colgada,
+     o una traducción que la GPU aún recuerde, no puede así escribir en memoria que el kernel haya dado a otro. Al apagar el 3D solo se
+     dejan de usar; al volver a encender se reutilizan (y se repiten las pruebas de la GPU). Si algo falla tras escribirlas, las
+     entradas vuelven a lo que tenían, las páginas se quedan reservadas y no se vuelve a intentar hasta reiniciar.
+4. **La capa común** (`kernel/gui/gpu3d.c`; a tener en cuenta al fusionar con `v8.5.2-amd-v83`): `variante` lleva también
+   `GPU3D_CAB_GTT`; `INFO_GPU3D_CTL` acepta **3** (lotes + GTT) y **4** (anillo + GTT) además de 1 y 2; `info_gpu3d_t.variante` pasa a
+   ser de **bits** (`GPU3D_VAR_ANEL` 1, que coincide con el valor de antes, `GPU3D_VAR_GTT` 2, `GPU3D_VAR_GTT_TEX` 4, en `abi.h`) y dice
+   lo que **de verdad** quedó (`gpu3d_intel_estado()`, declarada en `gpu3d.h`; para los demás drivers, lo pedido); `reservado[0]` = KB
+   de RAM en el GTT. No cambia `gpu3d_driver_t` ni las operaciones; los drivers de Radeon reciben el bit `0x40` en `variante` y lo
+   ignoran. `gpu3d`, `infopc` y el driver simulado (que solo lo apunta en el log) lo enseñan.
+5. **Fuentes**: formato de la entrada del GTT de Gen3, códigos GMS de `GMCH_CTRL`, desplazamientos de GTTADR y de la página de vaciado:
+   documentación de Intel de 915/945/G33 y, solo como números, `drivers/char/agp/intel-agp.h`, `intel-gtt.c` e `include/drm/intel-gtt.h`
+   de Linux 6.6 (GPL: no se copia nada, código propio en `gen3_gtt.h`); bit de invalidación de lectura de `MI_FLUSH`, de `intel_reg.h`
+   de Mesa (MIT). `docs/terceros.md` lo registra. `SEM_GPL=1` compila igual.
+
+**Sin probar en hardware.** Nada de esto: QEMU no emula ninguna GPU de Intel. Dudas para la primera prueba: que `GMCH_CTRL` diga la
+robada de verdad y la ventana de 112-128 MB esté libre en la BIOS de la máquina; que la GPU vea las entradas nuevas sin invalidar su
+TLB (antes nadie usó esas direcciones); si hace falta la página de vaciado para las texturas o el chipset ya la tiene encendida; y lo
+que se gana al traer el cuadro (lo mide `gpu3d probar`: «traer N píxeles a la RAM»).
+
+**Pruebas:** `tests/h360_gpu3d_intel_gtt.py` (unidad: `tests/gen3_gtt_unidad.c` y `gen3_3d_unidad.c`; fuentes; std; simulado con
+`gpu3d encender gtt`, `encender anillo gtt` y una imagen `--gpu3d-gtt`). h285, h288 y h242 sin cambios de comportamiento.
+
+**Revisión (Opus, 2026-11-16, antes de fusionar).** Comparado con Linux 6.6 (`drivers/char/agp/intel-gtt.c`, `intel-agp.h`,
+`arch/x86/kernel/early-quirks.c`) y Mesa (`i915_reg.h`, `intel_reg.h`): los códigos GMS (iguales a `gen3_stolen_size()`), el GTT
+en el BAR 3 también en el 915 (`i9xx_setup()`: `I915_PTE_BAR` para Gen3; el GTT dentro del MMIO es del 830/855), el formato de la
+entrada (`i830_write_entry`/`i965_write_entry`, sin el bit de «caché del sistema»), `IFPADDR` 0x60/0x70 en el puente,
+`MI_FLUSH | MI_READ_FLUSH` (`gen2_emit_flush`) y `BFO_ENABLE_STENCIL_TWO_SIDE` = bit 1 con `BFO_STENCIL_TWO_SIDE` (bit 0) a cero
+están bien. Linux, tras escribir entradas, solo relee (posting) y escribe la página de vaciado: no invalida nada más en Gen3; si la
+BIOS no la encendió, Linux la programa y aquí no (por eso sin ella no van texturas a la RAM). Corregido: (1) la ventana se pone por
+encima de `fb_gfx + memoria del VBE` (ahí acaba el ring del 2D), no de `memoria`, por si la pantalla no empieza en la dirección 0;
+(2) la página de vaciado solo se escribe (antes se releía, cosa que Linux no hace); (3) si la GPU no termina una prueba de la etapa 6,
+la RAM queda vetada hasta reiniciar sin devolver las entradas (la orden colgada escribe en páginas reservadas, no en las de antes);
+(4) `infopc` no dice «destino en la RAM del GTT» cuando un driver que no la usa la tiene pedida. Queda como riesgo: EIR solo cuenta
+bits **nuevos** (un bit que la BIOS dejó puesto o que dejó el lote de la etapa 5 ya no avisa: falso negativo, la autoprueba sigue
+mirando los píxeles), y el bit 4 de EIR también lo ponen los fallos de la tabla de páginas de la pantalla.
+
+## D359. 2D por el blitter en Intel Gen7, Gen7.5 y Gen8 (Ivy Bridge, Haswell, Broadwell); Gen9-Gen12 fuera hasta tener execlists (v8.5.2, h361)
+
+**Contexto (2026-11-16, adelantado de la v11, mejora 111 nivel 2).** El 2D de Intel (D195) llegaba hasta Gen6 (Sandy Bridge,
+anillo del blitter BCS). Las máquinas del mantenedor con Intel moderna son el **Toshiba L850** (HD 4000, Ivy Bridge, `8086:0166`)
+y el **mini PC i3-1220P** (UHD Xe-LP, Alder Lake-P, Gen12, solo UEFI/GOP). SaguiOS es de 32 bits (con PAE).
+
+**Qué se hace.**
+- **Gen7, Gen7.5 y Gen8 por el anillo heredado del BCS** (registros 0x22030-0x2203C, como Gen6), con las órdenes de siempre
+  (`XY_COLOR_BLT`, `XY_SRC_COPY_BLT`, `MI_FLUSH_DW`); en Gen8 las direcciones son de 64 bits (relleno de 7 palabras, copia de 10,
+  vaciado de 4). Las órdenes las arma `kernel/dispositivos/acel_intel_logica.h` (código puro, probado en el anfitrión; las de
+  Gen3-Gen6 salen palabra a palabra igual que antes).
+- **Modelos exactos** (`intel_variante`, listas de `i915_pciids.h`): 6 Ivy Bridge, 60 Haswell y 24 Broadwell. Las Atom con la
+  misma generación (Valleyview `0x0F3x`, Cherryview `0x22Bx`) **no** entran: tienen otro reparto de registros.
+- **Forcewake** (lo que hace i915): Ivy Bridge prueba el multihilo (`FORCEWAKE_MT` 0xA188 con máscara, acuse 0x130040) y lo usa
+  si `ECOBUS` bit 5 dice que el firmware lo activó; si no, el de Gen6 (0xA18C/0x130090). Haswell y Broadwell: el multihilo con el
+  acuse en 0x130044. Antes se borran los bits que dejó el firmware (WaRsClearFWBitsAtReset) y después se esperan los hilos del GT
+  (`GT_THREAD_STATUS`, 5 ms; si no, solo se anota). Se suelta al apagar.
+- **Comprobación estricta antes de escribir nada en la tarjeta** (todo con lecturas):
+  1. modelo exacto, BAR por debajo de 4 GB, pantalla dentro de la apertura (los primeros 256 MB), a 32 bits, empezando en una
+     página y con pitch múltiplo de 64 y menor de 32 KB;
+  2. **el plano de la pantalla**: de los planos primarios de los pipes A, B y C, el que está encendido y empieza en la dirección
+     gráfica del framebuffer (`DSPSURF` + `DSPLINOFF` en Ivy Bridge; + `DSPOFFSET` y/x en Haswell/Broadwell) tiene que ser
+     **lineal** (sin tiles X/Y), **XRGB8888** y con `DSPSTRIDE` igual al pitch del VBE/GOP; si uno lo muestra de otra forma, o
+     ninguno lo muestra, la CPU;
+  3. **el GTT**: las entradas de la pantalla, la zona de prueba y el anillo (leídas en el BAR 0 a +2 MB en Gen7, de 4 bytes; a
+     +8 MB en Gen8, de 8) tienen que ser **válidas y apuntar a páginas físicas seguidas** (la memoria robada es contigua; si el
+     firmware dejó entradas a una página de relleno, el anillo se pisaría a sí mismo) y **fuera de la zona reservada** del
+     hardware (`GEN6_STOLEN_RESERVED` 0x1082C0, contexto de RC6);
+  4. el cursor de hardware, si está encendido, no está donde iría el anillo.
+  Después: bus maestro, forcewake, y el BCS no puede estar en uso (`RING_CTL` válido) ni con execlists o PPGTT (`GFX_MODE`
+  bits 15 y 9): si lo está, no se toca. Se arranca el anillo, se quita `STOP_RING` de `MI_MODE` (i915, `xcs_resume`) y tiene
+  que ejecutar un vaciado vacío en el plazo.
+- **El anillo va justo detrás de la pantalla y de las 64 filas de la zona de prueba** (no al final de la memoria del VBE como en
+  Gen3-6: ahí suele estar la zona reservada). Así **también vale con UEFI/GOP**, donde no hay «memoria del VBE»: basta con que el
+  GTT ya mapee esas páginas seguidas a la pantalla (si no, la CPU con el motivo).
+- Tras escribir en el anillo por la apertura se hace una lectura de MMIO antes de mover `TAIL` (barrera, como
+  `intel_gt_flush_ggtt_writes` de i915).
+- Lo demás, igual que en todos los aceleradores: autoprueba **completa** contra la CPU al arrancar (la tarjeta no está
+  confirmada), medida de velocidad, vigilante (D244) que vuelve a la CPU si una espera pasa de 30 ms, y `acel2d probar --detalle`
+  (nuevo `in_detalle`: `CTL/HEAD/TAIL/START/ACTHD/MI_MODE/IPEIR/IPEHR/INSTDONE`, forcewake y acuse, `GFX_MODE`, el plano).
+  Cada paso deja su línea `[ACEL2D] intel: …` en el `dmesg`.
+
+**Gen9 y Gen11-Gen12 (Skylake … Alder Lake): fuera, documentado.** Desde Gen9 el blitter solo acepta órdenes por **execlists**:
+i915 lo impone desde Gen9 (`intel_sanitize_enable_execlists`), retiró en Linux 4.16 el modo heredado también en Gen8, y en Gen11+
+no existe (`GEN11_GFX_DISABLE_LEGACY_MODE`). En 32 bits y **sin firmware** sería posible en principio (GuC/HuC no hacen falta para
+execlists en Gen9-Gen12; el DMC solo para los estados de ahorro de la pantalla), pero exige: una imagen de contexto (LRC) por motor
+con el reparto de registros de cada generación, la página de estado y el búfer de estado de contextos, **PPGTT** de 4 niveles (Gen12)
+con páginas en RAM, escribir entradas propias en el GTT global, los dominios de forcewake de Gen9/Gen11 (render, GT/blitter, media) y
+MOCS. Nada de eso se puede probar en QEMU, la única máquina es el mini PC y un contexto mal formado puede colgar el GT hasta
+reiniciar. **No es viable con seguridad ahora**: queda para la v11 (mejora 111, junto al 3D, que necesita lo mismo). Hasta entonces la
+capa común reconoce estas familias (`intel_familia_sem_2d`, solo para el motivo) y **no las toca**: el motivo dice
+`la tarjeta 8086:46a8 (Intel Gen12, Alder Lake-P): el 2D necesita execlists, aun no (D359): copia la CPU (no se toca)`; el GOP sigue
+igual.
+
+**Sin GPL nuevo ni firmware.** Valores de registros y secuencias tomados del PRM público de Intel y de i915 (`i915_reg.h`,
+`intel_uncore.c`, `intel_ring_submission.c`, `i915_gem_stolen.c`, `i915_pciids.h`); el código es propio (GPL-2.0-or-later como el
+resto del driver). Nada en `kernel/terceros/`.
+
+**Pruebas (`tests/h361_acel2d_intel_moderna.py`).** `anfitriao`: `tests/recursos/acel_intel_anfitriao.c` con el mismo
+`acel_intel_logica.h` (modelos, familias sin 2D, órdenes por generación, plano, GTT, zona reservada, anillo); `fuentes`: cada modelo
+con 2D cae en una sola fila de `acel2d.c` con su generación, ninguna fila cubre una familia sin 2D, el driver mira la lista antes de
+leer la tarjeta y el plano y el GTT antes de escribir, no escribe en la pantalla, el GTT ni `GFX_MODE`, sin firmware; `std` y
+`forzado`: con `-vga std` (y `--acel2d=intel`) nada cambia y ninguna línea del driver intel.
+
+**Sin probar en hardware.** Qué mirar en el L850 y en el mini PC: `docs/gpus.md`, «Qué probar en una Intel HD 4000». Dudas para la
+revisión: que la HD 4000 acepte el anillo BCS sin la página de estado (`HWS_PGA`) programada, como Gen6; que el VBIOS/GOP del L850 deje
+el GTT contiguo detrás de la pantalla; el forcewake de Ivy Bridge cuando `ECOBUS` no dice multihilo.
+
+**Revisión (depurador-drivers, 2026-11-16), frente a i915 (`intel_ringbuffer.c` 4.x, `i915_gem_stolen.c`, `i915_gem_gtt.c`):**
+- **Página de estado:** con las órdenes que se usan (sin `MI_STORE_DATA_INDEX`, sin escritura posterior en `MI_FLUSH_DW`, sin
+  informe automático de `HEAD`) el BCS no la necesita, pero el registro queda con lo que dejó el firmware (0 = la pantalla). Ahora
+  se hace como i915 (`intel_ring_setup_status_page`): una página propia justo detrás del anillo (comprobada en el GTT como el resto),
+  `RING_HWSTAM` a ~0, `BLT_HWS_PGA_GEN7` (0x4280) en Ivy Bridge/Haswell o `RING_HWS_PGA` (0x22080) en Broadwell, y en Gen7 la
+  invalidación de la TLB por `INSTPM` (plazo de 2 ms, si no solo se anota). El `BCS_HWS_PGA` 0x24080 es el de Gen6.
+- **Zona reservada en Broadwell:** el registro no lleva tamaño (los bits 8:7 son de Cherryview/Gen9): va de la base al final de
+  la memoria robada (`bdw_get_stolen_reserved`). Antes se leía un tamaño de 1-8 MB de esos bits.
+- **Memoria robada:** las páginas de la pantalla, la zona de prueba, el anillo y la página de estado tienen que estar dentro de la
+  memoria robada (`BDSM` 0x5C y `GMCH_CTRL` 0x50: bits 7:3 en Gen7, 15:8 en Gen8, en unidades de 32 MB); si el GTT del GOP llevara
+  ahí RAM del sistema, la CPU.
+- **Otras superficies:** ningún plano primario de otro pipe (salvo los clones de la pantalla), sprite ni cursor (hasta 256 KB)
+  encendido puede tener su memoria debajo de la pantalla (zona de prueba, anillo, página de estado). Antes solo se miraba el cursor
+  frente al anillo.
+- **Apertura:** el límite baja a 128 MB (lo mínimo de `GMADR` en Gen7-8).
+- **Gen8 en modo heredado:** i915 lo admitía hasta 4.x con `enable_execlists=0` y `enable_ppgtt=0` (Broadwell no exige PPGTT,
+  Gen9 sí); como el firmware no enciende execlists ni PPGTT (se comprueba en `GFX_MODE` y, si los hay, no se toca), basta con no
+  escribir `GFX_MODE`. Se mantiene, protegido por la autoprueba completa.
+
+## D360. 2D por la GPU en las Radeon GCN 1.0 (Southern Islands) por el motor DMA; GCN 1.1 en adelante, solo diagnóstico (v8.5.2, mejora 110 nivel 2 adelantado)
+
+**Contexto (2026-11-16, autorizado y pedido con urgencia por el mantenedor):** adelantar a ahora el 2D acelerado de
+las Radeon GCN (previsto para la v11, mejora 110). Hasta aquí las GCN copiaban siempre con la CPU sobre el
+framebuffer del VESA/GOP. SaguiOS es de 32 bits (con PAE). Máquina posible: el Ryzen B450 del mantenedor (la tarjeta
+está por concretar). **Sin probar en hardware** (QEMU no emula ninguna Radeon).
+
+**Qué es viable en 32 bits sin SMU ni PSP (comprobado en Linux 6.6, `amdgpu_ucode_get_load_type`):**
+- **GCN 1.0 (SI: Tahiti, Pitcairn, Cape Verde, Oland):** el motor DMA es el de Cayman y **no lleva microcódigo**
+  (carga «DIRECT» y `si_dma` no carga nada; radeon lo enciende con `cayman_dma_resume` y copia memoria con él).
+  Viable con lo mismo que la D286. **Hecho.**
+- **GCN 1.1 (CIK: Bonaire, Hawaii):** el SDMA necesita su microcódigo (`radeon/bonaire_sdma.bin`, `hawaii_sdma.bin`,
+  linux-firmware, redistribuible), que el driver carga por `SDMA0_UCODE_ADDR/DATA` sin SMU. Viable en 32 bits, pero el
+  2D se elige y se prueba en el arranque **antes** de que exista el sistema de archivos (`principal.c`: `acel2d_iniciar`
+  va antes de `vfs_iniciar`), así que necesita un arranque diferido del acelerador; además el SDMA tiene otro formato de
+  paquetes y otros registros (`cik_sdma.c`). **Pendiente**, desactivado.
+- **GCN 1.2-4 (VI: Tonga, Fiji, Polaris 10/11/12, Vega M):** en Linux 6.6 el microcódigo del SDMA **solo lo carga el
+  SMU** (`AMDGPU_FW_LOAD_SMU`; la carga directa se quitó), y el SMU hay que arrancarlo con su firmware y gestiona la
+  energía de toda la tarjeta. Fuera de alcance por ahora (riesgo de dejar la tarjeta sin relojes).
+- **GCN 5 (Vega 10/12/20):** el firmware lo carga el **PSP** y va firmado. Fuera de alcance en 32 bits por ahora.
+- El GOP no se toca en ningún caso.
+
+**Decisión:**
+
+1. **Driver nuevo `acel_gcn` (`kernel/dispositivos/acel_gcn.c`), no una generación más de `acel_r600`:** la rama
+   v8.5.2-amd-v83 toca `evergreen_dma.c` y `acel_r600.c`; para que las dos se fusionen sin conflictos, lo de GCN va en
+   ficheros propios (`acel_gcn.c`, `gcn_dma.c`, `gcn_dma.h`) y solo **llama** a `r600_dma_pacotes.c` (el reparto de
+   rectángulos en copias lineales, sin cambiarlo). En la capa común solo cambian 16 filas de la tabla y la declaración
+   del driver. El modo de forzarlo es el de las Radeon (`--acel2d=radeon`).
+2. **Detección:** lista exacta de 160 modelos sacada mecánicamente de `drm_pciids.h` (SI) y `amdgpu_drv.c` (el resto):
+   66 de GCN 1.0 (generación 10: 13 Tahiti, 12 Pitcairn, 24 Cape Verde, 17 Oland) y 94 de GCN 1.1-5 (generaciones
+   11-13). **No están:** Hainan y Topaz (sin pantalla), las APU (Kaveri, Kabini, Mullins, Carrizo, Stoney, Raven: otro
+   mapa de memoria) y `1002:684C` (Pitcairn FirePro), que cae dentro de la fila de Turks (`0x6840-0x6859`, D286):
+   partirla tocaría lo de la otra rama; queda en la CPU. En GCN 1.1-5 el driver **no mapea ni lee nada de la tarjeta**:
+   escribe en el log la familia, los BAR (espacio de configuración del PCI) y por qué copia la CPU, que sale también
+   en `acel2d` y en Información del PC.
+3. **Qué cambia en SI respecto de Cayman (D286)** (de `sid.h`, `si_dma.c` de radeon y de amdgpu):
+   - **Copia lineal:** `DMA_PACKET(COPY, b = 1, 0, 0, bytes)`: la cuenta va en **bytes** (en Evergreen, en palabras);
+     5 palabras con los bits 39:32 de destino y origen; como mucho 0xFFFF8 bytes por paquete (amdgpu).
+   - **Relleno:** existe `DMA_PACKET_CONSTANT_FILL` (orden 0xD), que amdgpu usa en SI para borrar la VRAM: cabecera con
+     la cuenta en palabras, destino, valor, bits altos << 16. A diferencia de la D286, aquí sí hay secuencia de
+     referencia; aun así **se prueba al encender** (14 palabras con una de margen a cada lado) y, si no da exactamente
+     eso, los rellenos van copiando una fila pintada (como en R7xx). Rectángulos de ancho completo, un paquete por
+     bloque de filas.
+   - Escribir, valla y NOP son los de siempre (radeon usa `r600_dma_ring_test` y `evergreen_dma_fence_ring_emit` en SI).
+   - **Anillo:** `cayman_dma_resume` / `si_dma_start` tal cual (sin `DMA_MODE`, con `CMD_VMID_FORCE`), solo el motor 0
+     (el 1, en 0xD800, no se toca); relleno de NOP hasta 16 palabras (`align_mask` 0xf).
+   - **HDP:** vaciado con `HDP_MEM_COHERENCY_FLUSH_CNTL` antes de avisar al motor y **caché de lectura invalidada con
+     `HDP_DEBUG0` = 1** antes de que la CPU lea lo que escribió la GPU (valla, prueba), como `si_invalidate_hdp`.
+   - **Pantalla DCE 6:** los registros de Evergreen con los mismos desplazamientos (radeon `si.c` usa `crtc_offsets`
+     de Evergreen); 6 controladores (2 en Oland). MMIO en el BAR 2 (de 64 bits), se mapean 128 KB.
+   - **Direcciones de 40 bits:** el VBE/GOP puede poner la VRAM por encima de 4 GB en el espacio del MC. Se admite
+     siempre que todo lo que toca el DMA tenga el mismo byte alto (no cruce un límite de 4 GB del MC): ese byte va en
+     todos los paquetes, en `DMA_RB_RPTR_ADDR_HI` y la base del anillo se escribe con los 40 bits >> 8.
+4. **Seguridad** (como D223/D246/D286, más lo de SI): nada se escribe antes de comprobar el modelo exacto, los BAR (por
+   debajo de 4 GB: con «Above 4G Decoding»/«Resizable BAR» activos se queda la CPU con el motivo), el MMIO
+   (`CONFIG_MEMSIZE` responde), qué controlador muestra la pantalla del VBE/GOP (32 bits ARGB8888, lineal, pitch y
+   superficie de 40 bits iguales a la apertura de la CPU: `HDP_NONSURFACE_BASE` + desplazamiento en el BAR 0), que todo
+   cae en la VRAM (`MC_VM_FB_LOCATION`), en `CONFIG_MEMSIZE` y en los primeros 64 MB del BAR 0, que ningún cursor está
+   donde va el anillo, que la memoria virtual de la GPU está apagada (`VM_CONTEXT0_CNTL`), que el DMA **no está retenido
+   en reinicio** (`SRBM_SOFT_RESET` bit 20, **solo se lee**), que su anillo está apagado y el motor parado. Plazos por
+   TSC; sin interrupciones, sin firmware, sin tocar relojes, SMC, CP, el modo ni el GOP. Al apagar, los registros del
+   DMA como estaban. El vigilante (D244) vuelve a la CPU ante cualquier espera agotada. Ninguna GCN en `confirmadas[]`:
+   **autoprueba completa** siempre.
+5. **Diagnóstico:** `[ACEL2D] gcn: …` en el arranque (modelo y generación, BAR, `CONFIG_MEMSIZE`,
+   `HDP_NONSURFACE_BASE`, `MC_VM_FB_LOCATION` con la VRAM en 40 bits, `VM_CONTEXT0_CNTL`, `MC_VM_MX_L1_TLB_CNTL`,
+   `SRBM_SOFT_RESET`, cada controlador de pantalla, el estado del DMA, dónde va el anillo, el resultado de las tres
+   pruebas: escribir, valla y `CONSTANT_FILL`); `acel2d probar --detalle` añade cuatro líneas `gcn detalle`.
+6. **Hipótesis por confirmar en hardware:** (a) que el DMA accede a la VRAM con el contexto 0 apagado y con la TLB L1
+   tal como la dejó el VBE/GOP (el log da `L1_TLB_CNTL`; si la prueba del anillo no pasa con la TLB apagada, el plan B
+   es programarla como `evergreen_agp_enable`, con contextos apagados); (b) que la caché de lectura del HDP se invalida
+   con `HDP_DEBUG0` en las SI dedicadas (si no, la prueba del anillo no pasaría y se queda la CPU).
+
+**Alternativas descartadas:** (a) *meter SI como generación 10 de `acel_r600`*: menos código, pero choca con la rama
+de Evergreen y mezcla el formato de la copia en bytes con el de palabras; (b) *CIK ya, con el microcódigo leído por el
+cargador de arranque*: pide tocar la etapa 2 y el formato del ramdisk para un hardware que nadie ha confirmado tener;
+mejor el arranque diferido cuando haya una tarjeta; (c) *VI por la carga directa antigua* (Linux 4.x): quitada de
+Linux; sin referencia vigente y con el SMU de por medio.
+
+**Qué probar** (cualquier HD 7700-7900, R7 240/250, R9 270/280): ver `docs/gpus.md`, «Qué probar en una Radeon GCN».
+Con una Polaris/Vega, el `dmesg` sirve para saber la familia y planificar la v11. Ante cualquier problema:
+`acel2d apagar` o `--sin-acel2d`.
+
+**Revisión independiente (Opus, 2026-11-16), antes de fusionar:** comprobado frente a Linux 6.6 (radeon `sid.h`,
+`si.c`, `si_dma.c`, `ni_dma.c` `cayman_dma_resume`, `radeon_device.c`; amdgpu `si_dma.c`, `si.c`, `sid.h`): direcciones
+de registros (incluido `SRBM_STATUS2` 0xEC4, que da también amdgpu `sid.h` como 0x3B1 en palabras), BAR 2 de MMIO en SI
+(`rmmio` = recurso 2 antes de Bonaire, 5 desde Bonaire), paquetes COPY/CONSTANT_FILL/WRITE/FENCE/NOP, relleno de NOP a 16
+palabras (`align_mask` 0xf), secuencia de encendido del anillo y `HDP_DEBUG0` (0xBCC en palabras = 0x2F30; radeon no
+invalida la caché de lectura del HDP porque lee las vallas de la memoria del sistema, amdgpu sí con `si_invalidate_hdp`).
+Cambios de la revisión: (1) **el bus maestro se apaga** mientras el DMA es nuestro (la capa común lo deja como estaba al
+soltar): sin contexto 0 ni TLB programados, una dirección que el MC no tomase por VRAM no puede llegar a la RAM del PC;
+(2) el log da la apertura del sistema del MC (`MC_VM_SYSTEM_APERTURE_LOW/HIGH/DEFAULT`, solo lectura) y el motivo del
+fallo de la prueba del anillo dice si `RPTR` se movió (el motor no lee el anillo: traducción del MC) o no (lo lee pero su
+escritura no se ve) con `L1_TLB_CNTL`. **No se programa la TLB L1** (decidido): es estado del MC que comparten el HDP (la
+apertura de la CPU) y la pantalla, y cambiarlo a ciegas puede dejar la pantalla negra o colgar la CPU al leer el BAR 0;
+si el primer informe real da «no lee el anillo» con `L1_TLB_CNTL` sin el bit 0, el plan B es programarla como
+`si_pcie_gart_disable` + `ENABLE_L1_TLB` (con `SYSTEM_ACCESS_MODE_NOT_IN_SYS` y la apertura del sistema sobre la VRAM,
+como `si_mc_program`), con los valores anteriores guardados y repuestos al apagar.
+
+**Pruebas:** `tests/h362_acel2d_gcn.py` (`fuentes`: tabla, lista exacta, reglas de seguridad y documentos;
+`unidad`: `tests/gcn_dma_unidad.c` en el PC: paquetes con los bits de `sid.h`, detección, controladores de pantalla con
+direcciones de 40 bits, copias como memmove con un motor que copia en cualquier orden y rellenos con `CONSTANT_FILL`;
+`std`: en QEMU nada cambia). Siguen pasando h161 y h286.

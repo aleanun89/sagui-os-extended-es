@@ -13,6 +13,10 @@
  *   gpu3d encender      vuelve a encenderlo y a probarlo (órdenes por lotes)
  *   gpu3d encender anillo    igual, con las órdenes escritas en el anillo (Intel): para
  *                       comparar los dos caminos en una máquina real
+ *   gpu3d encender gtt  (D358, Intel Gen3) además, el destino y las texturas en RAM del
+ *                       sistema mapeada en el GTT (8 o 16 MB): traer el cuadro es más
+ *                       rápido. Escribe entradas del GTT: solo a mano. Se puede juntar
+ *                       con «anillo» («gpu3d encender anillo gtt»)
  *
  * Para comparar con SaguiGL por software: «sgldemo -g».
  * El nombre del archivo es el del comando. */
@@ -25,7 +29,7 @@ static const char *nome_estado(unsigned e)
     case GPU3D_SIN_PROBAR: return "sin probar (se prueba con el primer uso)";
     case GPU3D_ATIVO:      return "activo";
     case GPU3D_FALHOU:     return "apagado por un fallo (software)";
-    case GPU3D_APAGADO:    return "apagado a mano (software)";
+    case GPU3D_APAGADO:    return "apagado (software; «gpu3d probar» o «gpu3d encender» lo enciende)";
     case GPU3D_DESATIVADO: return "desactivado por la opcion de arranque (software)";
     default:               return "sin GPU con driver 3D (software)";
     }
@@ -70,8 +74,17 @@ int principal(int argc, char **argv)
     }
     if (argc > 1 && (compara_texto(argv[1], "apagar") == 0 || compara_texto(argv[1], "encender") == 0)) {
         int enc = compara_texto(argv[1], "encender") == 0;
-        int anel = enc && argc > 2 && compara_texto(argv[2], "anillo") == 0;
-        int r = info_sistema(INFO_GPU3D_CTL, (void *)(long)(enc ? (anel ? 2 : 1) : 0), 0);
+        int anel = 0, gtt = 0;
+        for (int i = 2; enc && i < argc; i++) {
+            if (compara_texto(argv[i], "anillo") == 0) anel = 1;
+            else if (compara_texto(argv[i], "gtt") == 0) gtt = 1;
+            else {
+                imprimir_em(ERROS, "uso: gpu3d encender [anillo] [gtt]\n");
+                return 1;
+            }
+        }
+        /* 1 lotes, 2 anillo, 3 lotes con RAM en el GTT, 4 anillo con RAM en el GTT (D358). */
+        int r = info_sistema(INFO_GPU3D_CTL, (void *)(long)(enc ? (gtt ? 3 : 1) + anel : 0), 0);
         info_gpu3d_t v;
         memset(&v, 0, sizeof v);
         info_sistema(INFO_GPU3D, &v, sizeof v);
@@ -79,7 +92,7 @@ int principal(int argc, char **argv)
         return enc ? (r == 0 ? 0 : 1) : 0;
     }
     if (argc > 1) {
-        imprimir_em(ERROS, "uso: gpu3d [probar [--detalle] | apagar | encender [anillo]]\n");
+        imprimir_em(ERROS, "uso: gpu3d [probar [--detalle] | apagar | encender [anillo] [gtt]]\n");
         return 1;
     }
     info_gpu3d_t v;
@@ -93,7 +106,12 @@ int principal(int argc, char **argv)
     imprimir("  %s\n", v.motivo);
     if (v.estado == GPU3D_ATIVO) {
         imprimir("  ordenes: %s; plazo del vigilante: %u ms; memoria de GPU: %u KB (%u libres)\n",
-                 v.variante ? "en el anillo" : "por lotes", v.prazo_ms, v.memoria_kb, v.livre_kb);
+                 v.variante & GPU3D_VAR_ANEL ? "en el anillo" : "por lotes", v.prazo_ms, v.memoria_kb, v.livre_kb);
+        if ((v.variante & GPU3D_VAR_GTT) && v.reservado[0])
+            imprimir("  RAM del sistema en el GTT: %u KB para el destino%s (D358)\n", v.reservado[0],
+                     v.variante & GPU3D_VAR_GTT_TEX ? " y las texturas" : "; texturas en la memoria de video");
+        else if (v.variante & GPU3D_VAR_GTT)
+            imprimir("  RAM del sistema en el GTT: pedida (este driver no la usa)\n");
         if (v.dono) imprimir("  motor en uso por el proceso %u: destino %ux%u, Z pedido de %u bits\n", v.dono, v.larg, v.alt, v.zbits);
         else imprimir("  motor libre\n");
     }

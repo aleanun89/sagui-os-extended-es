@@ -1,0 +1,135 @@
+# Traducción de SaguiOS: catálogo «kconfig», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/kconfig.c:26
+#, c-format
+msgid "kconfig: este kernel no tiene opciones guardables (%d)\n"
+msgstr "kconfig: este kernel não tem opções salváveis (%d)\n"
+
+#: userland/programas/kconfig.c:42
+msgid "Opciones del kernel (se aplican al reiniciar):\n"
+msgstr "Opções do kernel (aplicadas ao reiniciar):\n"
+
+#: userland/programas/kconfig.c:43
+msgid "OPCIÓN"
+msgstr "OPÇÃO"
+
+#: userland/programas/kconfig.c:43
+msgid "AHORA"
+msgstr "AGORA"
+
+#: userland/programas/kconfig.c:43
+msgid "IMAGEN"
+msgstr "IMAGEM"
+
+#: userland/programas/kconfig.c:43
+msgid "GUARDADO"
+msgstr "SALVO"
+
+#: userland/programas/kconfig.c:43
+msgid "AL REINICIAR"
+msgstr "AO REINICIAR"
+
+#: userland/programas/kconfig.c:53
+msgid "(guardado fuera de rango: ignorado)"
+msgstr "(valor salvo fora do intervalo: ignorado)"
+
+#: userland/programas/kconfig.c:54
+msgid "(no aplicado: modo rescate)"
+msgstr "(não aplicado: modo de resgate)"
+
+#: userland/programas/kconfig.c:55
+msgid "cambia al reiniciar"
+msgstr "muda ao reiniciar"
+
+#: userland/programas/kconfig.c:59
+msgid "Modo rescate: lo guardado no se aplica en este arranque. «kconfig --por-defecto» lo borra.\n"
+msgstr "Modo de resgate: o que foi salvo não é aplicado nesta inicialização. «kconfig --por-defecto» apaga.\n"
+
+#: userland/programas/kconfig.c:61
+msgid "Aviso: lo guardado está dañado y no se aplica; al guardar algo se empieza de cero.\n"
+msgstr "Aviso: o que foi salvo está danificado e não é aplicado; ao salvar algo, começa do zero.\n"
+
+#: userland/programas/kconfig.c:63
+msgid "Arranque desde CD: no se puede guardar nada.\n"
+msgstr "Inicializado a partir de CD: não é possível salvar nada.\n"
+
+#: userland/programas/kconfig.c:64
+msgid "Hay cambios guardados que se aplicarán al reiniciar.\n"
+msgstr "Há alterações salvas que serão aplicadas ao reiniciar.\n"
+
+#: userland/programas/kconfig.c:69
+msgid "uso: kconfig [OPCION=VALOR ...] | kconfig --por-defecto\n"
+msgstr "uso: kconfig [OPÇÃO=VALOR ...] | kconfig --por-defecto\n"
+
+#: userland/programas/kconfig.c:70
+msgid "Valores: si|no, un número, auto, o «defecto» (vuelve al de la imagen).\n"
+msgstr "Valores: si|no, um número, auto, ou «defecto» (volta ao da imagem).\n"
+
+#: userland/programas/kconfig.c:80
+msgid "Si lo guardado impide arrancar: Ctrl al arrancar (modo rescate) y «kconfig --por-defecto».\n"
+msgstr "Se o que foi salvo impedir a inicialização: Ctrl ao iniciar (modo de resgate) e «kconfig --por-defecto».\n"
+
+#: userland/programas/kconfig.c:86
+#, c-format
+msgid "kconfig: hace falta ser administrador (usa: admin kconfig %s)\n"
+msgstr "kconfig: é preciso ser administrador (use: admin kconfig %s)\n"
+
+#: userland/programas/kconfig.c:88
+msgid "kconfig: SaguiOS ha arrancado desde un CD, que es de solo lectura: no se puede guardar\n"
+msgstr "kconfig: o SaguiOS foi iniciado a partir de um CD, que é somente leitura: não é possível salvar\n"
+
+#: userland/programas/kconfig.c:90
+msgid "kconfig: no se encontró el disco de arranque de SaguiOS para guardar\n"
+msgstr "kconfig: o disco de inicialização do SaguiOS não foi encontrado para salvar\n"
+
+#: userland/programas/kconfig.c:91
+#, c-format
+msgid "kconfig: %s: no se pudo guardar: %s\n"
+msgstr "kconfig: %s: não foi possível salvar: %s\n"
+
+#: userland/programas/kconfig.c:106
+msgid "Configuración del kernel borrada: al reiniciar, los valores de la imagen.\n"
+msgstr "Configuração do kernel apagada: ao reiniciar, os valores da imagem.\n"
+
+#: userland/programas/kconfig.c:118
+#, c-format
+msgid "kconfig: «%s»: se espera OPCION=VALOR (kconfig -h)\n"
+msgstr "kconfig: «%s»: esperado OPÇÃO=VALOR (kconfig -h)\n"
+
+#: userland/programas/kconfig.c:123
+#, c-format
+msgid "kconfig: no hay ninguna opción «%s» (kconfig -h)\n"
+msgstr "kconfig: não existe a opção «%s» (kconfig -h)\n"
+
+#: userland/programas/kconfig.c:127
+#, c-format
+msgid "kconfig: %s: «%s» no vale (si o no)\n"
+msgstr "kconfig: %s: «%s» não é válido (si ou no)\n"
+
+#: userland/programas/kconfig.c:128
+#, c-format
+msgid "kconfig: %s: «%s» fuera de rango (auto o de %u a %u)\n"
+msgstr "kconfig: %s: «%s» fora do intervalo (auto ou de %u a %u)\n"
+
+#: userland/programas/kconfig.c:148
+#, c-format
+msgid "%s: vuelve al de la imagen (%s)"
+msgstr "%s: volta ao da imagem (%s)"
+
+#: userland/programas/kconfig.c:149
+#, c-format
+msgid "%s: guardado %s"
+msgstr "%s: salvo %s"
+
+#: userland/programas/kconfig.c:150
+msgid "; se aplica al reiniciar"
+msgstr "; aplicado ao reiniciar"
+

@@ -44,13 +44,27 @@
 #define R63D_IT_SET_RESOURCE    0x6D
 #define R63D_IT_SET_SAMPLER     0x6E
 #define R63D_IT_SET_CTL_CONST   0x6F
+#define R63D_IT_SURFACE_BASE_UPDATE 0x73   /* solo RV6xx */
 #define R63D_PKT3(op, n)        (0xC0000000u | ((((uint32_t)(n) - 1u) & 0x3FFFu) << 16) | ((uint32_t)(op) << 8))
 
-/* Familias con valores propios. */
+/* Familias con valores propios. 0-3 son R7xx; 4-7 son R6xx (D357). */
 #define R63D_RV770  0
 #define R63D_RV730  1
 #define R63D_RV740  2
 #define R63D_RV710  3
+#define R63D_R600   4     /* HD 2900: sin mezcla por superficie */
+#define R63D_RV610  5     /* HD 2400 y la RV620 (HD 3400): mismos valores en Linux y Mesa; sin caché de vértices */
+#define R63D_RV630  6     /* HD 2600 */
+#define R63D_RV670  7     /* HD 3800 */
+#define R63D_RV635  8     /* HD 3600: la RV630 salvo DB_DEBUG y SQ_MS_FIFO_SIZES */
+#define R63D_N_FAMILIAS 9
+#define R63D_E_R7XX(f)          ((f) >= R63D_RV770 && (f) <= R63D_RV710)
+#define R63D_E_R6XX(f)          ((f) >= R63D_R600 && (f) <= R63D_RV635)
+/* Sin caché de vértices (SQ_CONFIG sin VC_ENABLE; los vértices se sincronizan por la de texturas). */
+#define R63D_SEM_CACHE_VTX(f)   ((f) == R63D_RV710 || (f) == R63D_RV610)
+/* Las RV6xx (no la R600 ni las R7xx) necesitan SURFACE_BASE_UPDATE tras cambiar la base
+ * del color o del Z (rodeo de su hardware; xf86-video-ati y Mesa lo emiten). */
+#define R63D_PRECISA_SBU(f)     ((f) >= R63D_RV610 && (f) <= R63D_RV635)
 
 /* Registros que el driver lee o escribe por MMIO (por debajo de 64 KB). */
 #define R6_GRBM_STATUS          0x8010
@@ -85,6 +99,8 @@
 #define R6_CP_DEBUG             0xC1FC
 #define R7_PFP_UCODE_PALAVRAS   848      /* RV7xx_pfp.bin: 3392 bytes */
 #define R7_ME_UCODE_PALAVRAS    1360     /* RV7xx_me.bin: 5440 bytes */
+#define R6_PFP_UCODE_PALAVRAS   576      /* R600/RV6xx_pfp.bin: 2304 bytes (R600_PFP_UCODE_SIZE) */
+#define R6_ME_UCODE_PALAVRAS    5376     /* R600/RV6xx_me.bin: 21504 bytes (R600_PM4_UCODE_SIZE * 3) */
 
 /* Lo que rv7_inicio_motor necesita leer antes (por MMIO). */
 #define R7_MC_ARB_RAMCFG              0x2760
@@ -96,10 +112,15 @@
 #define R7_DB_DEBUG3                  0x98B0
 #define R7_DB_DEBUG4                  0x9B8C
 #define R7_SQ_CONFIG                  0x8C00
+/* Lo que r6_inicio_motor lee (R6xx; los demás números son los mismos que en R7xx). */
+#define R6_RAMCFG                     0x2408
+#define R6_SX_DEBUG_1                 0x9054
+#define R6_SQ_MS_FIFO_SIZES           0x8CF0
 typedef struct {
     uint32_t mc_arb_ramcfg, cc_gc_shader_pipe_config, cc_rb_backend_disable;
     uint32_t ta_cntl_aux, sx_debug_1, smx_dc_ctl0, db_debug3, db_debug4, sq_config;
-} r7_leituras_t;
+    uint32_t sq_ms_fifo_sizes;   /* D357: solo lo usa el inicio de las R6xx */
+} r7_leituras_t;   /* en R6xx: mc_arb_ramcfg es RAMCFG (0x2408) y sx_debug_1 el 0x9054; smx/db_debug3/4 no se leen */
 typedef struct { uint32_t reg, valor; } r6_par_t;
 #define R7_INICIO_MAX 64
 
@@ -108,6 +129,11 @@ typedef struct { uint32_t reg, valor; } r6_par_t;
  * cola en r63d_estado_base). No toca la pantalla (DCP), el HDP ni el DMA.
  * Devuelve cuántos pares, o -1 si no caben o la familia no es de las R7xx. */
 int r7_inicio_motor(int familia, const r7_leituras_t *l, r6_par_t *p, int max, uint32_t *max_contextos);
+/* Lo mismo para las R6xx (lo de r600_gpu_init de Linux por debajo de 64 KB, D357). Tampoco toca
+ * el HDP (ni sus superficies), DCP/HDP/DMA_TILING_CONFIG ni el árbitro de memoria (ARB_*). */
+int r6_inicio_motor(int familia, const r7_leituras_t *l, r6_par_t *p, int max, uint32_t *max_contextos);
+/* La que toque según la familia. */
+int r63d_inicio_motor(int familia, const r7_leituras_t *l, r6_par_t *p, int max, uint32_t *max_contextos);
 
 /* Un lote de palabras para la cola. Si no cabe, «cheio» queda a true y no se escribe más. */
 typedef struct { uint32_t *p; int n, max; bool cheio; } r6_lote_t;
@@ -127,8 +153,9 @@ void r63d_teste_cola(r6_lote_t *l, uint32_t scratch, uint32_t valor);       /* 3
  * recorte desactivado, vértices ya en pantalla (x, y, z, 1/w), interpolación con
  * perspectiva, tres parámetros (color, especular y textura), sin plantilla ni MSAA. */
 void r63d_estado_base(r6_lote_t *l, int familia, bool r7xx, uint32_t qd_pipes, uint32_t mc_fs);
-/* Superficie de color (lineal, ARGB8888) y Z (mosaico 1D, 16 o 24 bits) y los recortes. */
-void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool r6xx_puro);
+/* Superficie de color (lineal, ARGB8888) y Z (mosaico 1D, 16 o 24 bits) y los recortes.
+ * «sbu»: emitir SURFACE_BASE_UPDATE tras las bases (R63D_PRECISA_SBU, solo RV6xx). */
+void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool sbu);
 /* Sombreadores en VRAM (direcciones múltiplo de 256): el de vértices y el de píxeles. */
 void r63d_programas(r6_lote_t *l, uint32_t mc_vs, uint32_t mc_ps, bool com_textura);
 void r63d_textura(r6_lote_t *l, uint32_t mc, int larg, int alt, int passo, bool borde_s, bool borde_t, bool linear);

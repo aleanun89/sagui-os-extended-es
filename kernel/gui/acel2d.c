@@ -9,7 +9,7 @@
  *
  * Al arrancar:
  *   1. se busca en el PCI una tarjeta de la tabla (VMware SVGA II, Intel Gen3 a
- *      Gen6, Radeon R100-R500 y R6xx/R7xx, 3dfx Banshee/Voodoo3/VSA-100, ATI Mach64/Rage, S3 Trio64/ViRGE); la cabecera de arranque puede pedir la CPU
+ *      Gen8 (D359), Radeon R100-R500, R6xx/R7xx, HD 5000-6000 y GCN 1.0, 3dfx Banshee/Voodoo3/VSA-100, ATI Mach64/Rage, S3 Trio64/ViRGE); la cabecera de arranque puede pedir la CPU
  *      (--sin-acel2d) o forzar un acelerador concreto (--acel2d=...);
  *   2. el acelerador se inicia y se pone a prueba: copias solapadas en las
  *      cuatro direcciones y rellenos en una zona de la memoria de vídeo (debajo
@@ -29,6 +29,7 @@
  * bytes por píxel de la tarjeta; la referencia de la CPU guarda los mismos valores
  * (en el formato de la tarjeta) en un uint32_t por píxel. */
 #include "acel2d.h"
+#include "../dispositivos/acel_intel_logica.h"   /* D359: familias de Intel sin 2D */
 #include "abi.h"
 #include "bootinfo.h"
 #include "console.h"
@@ -137,6 +138,20 @@ static const acel_placa_t placas[] = {
     { 0x8086, 0x0116, 0x0116, &acel_intel, 6, "Intel HD 3000 M" },
     { 0x8086, 0x0122, 0x0122, &acel_intel, 6, "Intel HD 3000" },
     { 0x8086, 0x0126, 0x0126, &acel_intel, 6, "Intel HD 3000 M" },
+    /* D359: Gen7 (Ivy Bridge; la HD 4000 del L850 es 0x0166), Gen7.5 (Haswell) y Gen8
+     * (Broadwell) por el anillo heredado del BCS. Los intervalos de Haswell y Broadwell
+     * tienen huecos: acel_intel.c solo sigue con la lista exacta de acel_intel_logica.h. */
+    { 0x8086, 0x0152, 0x0152, &acel_intel, 7, "Intel HD 2500 (Ivy Bridge)" },
+    { 0x8086, 0x0156, 0x0156, &acel_intel, 7, "Intel HD 2500 M (Ivy Bridge)" },
+    { 0x8086, 0x015A, 0x015A, &acel_intel, 7, "Intel HD P2500 (Ivy Bridge)" },
+    { 0x8086, 0x0162, 0x0162, &acel_intel, 7, "Intel HD 4000 (Ivy Bridge)" },
+    { 0x8086, 0x0166, 0x0166, &acel_intel, 7, "Intel HD 4000 M (Ivy Bridge)" },
+    { 0x8086, 0x016A, 0x016A, &acel_intel, 7, "Intel HD P4000 (Ivy Bridge)" },
+    { 0x8086, 0x0402, 0x042E, &acel_intel, 7, "Intel HD (Haswell)" },
+    { 0x8086, 0x0A02, 0x0A2E, &acel_intel, 7, "Intel HD (Haswell ULT/ULX)" },
+    { 0x8086, 0x0C02, 0x0C2E, &acel_intel, 7, "Intel HD (Haswell SDV)" },
+    { 0x8086, 0x0D02, 0x0D2E, &acel_intel, 7, "Intel Iris Pro (Haswell CRW)" },
+    { 0x8086, 0x1602, 0x163E, &acel_intel, 8, "Intel HD (Broadwell)" },
     /* Radeon con el motor 2D clásico por registros (sin microcódigo). La
      * generación: 2 = R5xx (AVIVO; la X1400 es RV515/M54, 0x7145), 1 = R300/R420,
      * 0 = R100/R200. Los intervalos son los de la D158 (userland/libamd/amd.c). */
@@ -180,6 +195,26 @@ static const acel_placa_t placas[] = {
     { 0x1002, 0x6840, 0x6859, &acel_r600, 8, "Radeon HD 7500M/7600M (Turks)" },
     { 0x1002, 0x6760, 0x677B, &acel_r600, 8, "Radeon HD 6400 (Caicos)" },
     { 0x1002, 0x6700, 0x671F, &acel_r600, 9, "Radeon HD 6900 (Cayman)" },
+    /* D360: Radeon GCN por el motor DMA (acel_gcn.c; la lista exacta en gcn_dma.c). Generación 10 = GCN 1.0
+     * (Southern Islands, sin microcódigo): se elige sola, con la autoprueba completa. 11-13 (GCN 1.1, 1.2-4 y
+     * Vega) solo dicen en el log la familia y por qué copia la CPU, sin tocar la tarjeta. Sin Hainan ni
+     * Topaz (sin pantalla), sin las APU y sin 1002:684C (cae en la fila de Turks). */
+    { 0x1002, 0x6780, 0x679F, &acel_gcn, 10, "Radeon HD 7900 / R9 280 (Tahiti)" },
+    { 0x1002, 0x6800, 0x6819, &acel_gcn, 10, "Radeon HD 7800 / R9 270 (Pitcairn)" },
+    { 0x1002, 0x6820, 0x683F, &acel_gcn, 10, "Radeon HD 7700 / R7 250X (Cape Verde)" },
+    { 0x1002, 0x6600, 0x6631, &acel_gcn, 10, "Radeon R7 240/250 (Oland)" },
+    { 0x1002, 0x6640, 0x665F, &acel_gcn, 11, "Radeon HD 7790 / R7 260 (Bonaire)" },
+    { 0x1002, 0x67A0, 0x67BE, &acel_gcn, 11, "Radeon R9 290/390 (Hawaii)" },
+    { 0x1002, 0x6920, 0x6939, &acel_gcn, 12, "Radeon R9 285/380 (Tonga)" },
+    { 0x1002, 0x7300, 0x730F, &acel_gcn, 12, "Radeon R9 Fury/Nano (Fiji)" },
+    { 0x1002, 0x67C0, 0x67DF, &acel_gcn, 12, "Radeon RX 470/480/570/580 (Polaris 10)" },
+    { 0x1002, 0x6FDF, 0x6FDF, &acel_gcn, 12, "Radeon RX 580 2048SP (Polaris 10)" },
+    { 0x1002, 0x67E0, 0x67FF, &acel_gcn, 12, "Radeon RX 460/560 (Polaris 11)" },
+    { 0x1002, 0x6980, 0x699F, &acel_gcn, 12, "Radeon RX 540/550 (Polaris 12)" },
+    { 0x1002, 0x694C, 0x694F, &acel_gcn, 12, "Radeon RX Vega M" },
+    { 0x1002, 0x6860, 0x687F, &acel_gcn, 13, "Radeon RX Vega 56/64 (Vega 10)" },
+    { 0x1002, 0x69A0, 0x69AF, &acel_gcn, 13, "Radeon Pro Vega 20 (Vega 12)" },
+    { 0x1002, 0x66A0, 0x66AF, &acel_gcn, 13, "Radeon VII (Vega 20)" },
 };
 #define N_PLACAS (int)(sizeof placas / sizeof placas[0])
 
@@ -742,9 +777,17 @@ void acel2d_iniciar(void)
         if (pedido != ACEL2D_AUTO)
             snformatar(motivo, sizeof motivo, "se pidio el acelerador %s y la pantalla no es de una tarjeta suya (%04x:%04x)",
                        nome_modo(pedido), v[d].fabricante, v[d].modelo);
-        else
-            snformatar(motivo, sizeof motivo, "la tarjeta %04x:%04x no es de una familia con acelerador: copia la CPU (no se toca)",
-                       v[d].fabricante, v[d].modelo);
+        else {
+            /* D359: las Intel que se reconocen pero no llevan 2D dicen por qué (sin tocarlas). */
+            const char *fam = NULL, *porque = NULL;
+            int g = v[d].fabricante == 0x8086 ? intel_familia_sem_2d(v[d].modelo, &fam, &porque) : 0;
+            if (g)
+                snformatar(motivo, sizeof motivo, "la tarjeta %04x:%04x (Intel Gen%d, %s): %s: copia la CPU (no se toca)",
+                           v[d].fabricante, v[d].modelo, g, fam, porque);
+            else
+                snformatar(motivo, sizeof motivo, "la tarjeta %04x:%04x no es de una familia con acelerador: copia la CPU (no se toca)",
+                           v[d].fabricante, v[d].modelo);
+        }
         klog("[ACEL2D] CPU: %s\n", motivo);
         return;
     }
@@ -766,7 +809,7 @@ void acel2d_iniciar(void)
         return;
     }
     cmd_original = pci_le32(&disp, 0x04);
-    char m[96] = "";
+    char m[128] = "";   /* D357: cabe «etapa N:» delante del motivo del driver */
     /* Iniciar puede esperar (la sonda de la VMware, hasta 3 s): con las
      * interrupciones activas, para que el reloj siga contando. */
     uint64_t t0 = tsc();
@@ -1070,7 +1113,7 @@ int32_t acel2d_prova(uint32_t ptr, uint32_t n)
         return 0;
     }
     bool sim = int_salva_desliga();
-    char m[96] = "";
+    char m[128] = "";   /* D357: cabe «etapa N:» delante del motivo del driver */
     bool temporal = !iniciado;
     if (temporal) cmd_original = pci_le32(&disp, 0x04);
     if (temporal && !drv->iniciar(&disp, placa->geracao, &tela, m, sizeof m)) {

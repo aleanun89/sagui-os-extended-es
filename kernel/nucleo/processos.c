@@ -409,6 +409,104 @@ void espaco_sincronizar(espaco_t e)
     }
 }
 
+/* D351: la barrera del espacio compartido de un proceso con hilos.
+ *
+ * Una llamada al sistema comprueba los punteros del programa al entrar
+ * (usuario_ok) y los usa después; entre medias puede dormir dentro del kernel
+ * (el disco, una trava, cpu_espera) y, con el cerrojo general suelto, otro
+ * hilo del mismo proceso puede quitar esas páginas (MEM_DEVOLVER, cerrar o
+ * redimensionar una ventana, deshacer un mapa de BAR) o su escritura
+ * (MEM_PROTEGER). Al despertar, el kernel escribiría en ellas: fallo de
+ * página en modo kernel y pantalla de error. Pasa también con una sola CPU.
+ *
+ * Por eso quien quita o protege llama antes a espaco_pode_tirar(): si otro
+ * hilo del proceso está dormido en medio de una llamada (em_chamada), se
+ * bloquea y su llamada se repite (SIS_REPETIR) cuando ese hilo sale. Mientras
+ * espera, las llamadas nuevas de los demás hilos esperan en la puerta
+ * (espaco_porta), para que un hilo que lee sin parar del disco no lo deje
+ * esperando para siempre. Las esperas largas a algo del programa (pipes,
+ * futex, sockets, eventos de ventana) no cuentan: esas llamadas no duermen
+ * dentro del kernel, devuelven SIS_REPETIR y se comprueban otra vez al volver.
+ * Ambas esperas se revisan además en cada tic, por si un hilo muere dormido. */
+#define CANAL_TIRAR(l) ((const void *)&(l)->tirando)
+#define CANAL_PORTA(l) ((const void *)((const char *)&(l)->tirando + 1))
+
+/* ¿Puede "t" estar a mitad de una llamada al sistema, con punteros ya
+ * comprobados? Un zombi solo si una CPU lo tiene aún (fuera del cerrojo). */
+static bool dormido_em_chamada(const processo_t *t)
+{
+    if (!t->em_chamada || t->estado == P_LIVRE) return false;
+    return t->estado != P_ZUMBI || t->na_cpu;
+}
+
+/* El hilo que espera para quitar, si sigue vivo (si no, la puerta se abre). */
+static bool tirador_vivo(processo_t *l)
+{
+    processo_t *t = processo_por_pid(l->tirando);
+    return t && processo_lider(t) == l && t->estado != P_ZUMBI && t->estado != P_LIVRE;
+}
+
+bool espaco_pode_tirar(void)
+{
+    processo_t *eu = processo_atual(), *l = processo_lider(eu);
+    if (!eu || !l->usuario) return true;
+    bool alguem = false;
+    for (int i = 1; i < MAX_PROCESSOS && !alguem; i++) {
+        processo_t *t = &tabela[i];
+        alguem = t != eu && processo_lider(t) == l && dormido_em_chamada(t);
+    }
+    if (!alguem) {
+        if (l->tirando == eu->pid) {   /* ya puede: abre la puerta */
+            l->tirando = 0;
+            acordar(CANAL_PORTA(l));
+        }
+        return true;
+    }
+    if (!l->tirando || !tirador_vivo(l)) l->tirando = eu->pid;
+    bloquear(CANAL_TIRAR(l));
+    eu->acordar_em = relogio_tiques() + 1;
+    eu->na_barreira = true;
+    return false;
+}
+
+/* Al entrar en cualquier llamada al sistema, antes de nada. */
+bool espaco_porta(void)
+{
+    processo_t *eu = processo_atual(), *l = processo_lider(eu);
+    if (!eu) return true;
+    if (eu->na_barreira) {   /* vuelve de esperar aquí: el plazo de un tic ya no vale */
+        eu->na_barreira = false;
+        eu->acordar_em = 0;
+    }
+    if (!l->tirando || l->tirando == eu->pid) return true;
+    if (!tirador_vivo(l)) {
+        l->tirando = 0;
+        acordar(CANAL_PORTA(l));
+        return true;
+    }
+    bloquear(CANAL_PORTA(l));
+    eu->acordar_em = relogio_tiques() + 1;
+    eu->na_barreira = true;
+    return false;
+}
+
+/* Al salir de la llamada (también con SIS_REPETIR). */
+void espaco_chamada_fim(void)
+{
+    processo_t *eu = processo_atual(), *l = processo_lider(eu);
+    if (!eu) return;
+    eu->em_chamada = false;
+    if (!l->tirando) return;
+    if (l->tirando != eu->pid) {
+        acordar(CANAL_TIRAR(l));   /* que quien espera para quitar mire otra vez */
+    } else if (!(eu->estado == P_BLOQUEADO && eu->espera == CANAL_TIRAR(l))) {
+        /* Quien esperaba ya no espera (quitó, o su llamada acabó por otro
+         * camino): la puerta se abre siempre, pase lo que pase. */
+        l->tirando = 0;
+        acordar(CANAL_PORTA(l));
+    }
+}
+
 /* Qué puede tomar cada CPU (D165, ahora en planificadores.c):
  *   - listo, y que no lo tenga otra CPU (na_cpu);
  *   - las tareas del kernel solo en la CPU 0: hablan con dispositivos cuyas

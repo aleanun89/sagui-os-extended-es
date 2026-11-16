@@ -52,6 +52,27 @@ int principal(int argc, char **argv)
         celda(l, sizeof l, m.superior_livre_kb, modo);
         imprimir("%-14s %12s %12s %12s\n", "   >4 GB:", g, u, l);
     }
+    /* D350: la caché de disco (cuenta como usada; se devuelve a los programas cuando la piden). */
+    celda(g, sizeof g, m.cache_kb, modo);
+    celda(u, sizeof u, m.cache_alta_kb, modo);
+    imprimir("%-14s %12s  (en la alta %s; se devuelve a los programas)\n", "Caché disco:", g, u);
+    /* D352: la swap comprimida en RAM: el almacén (usado) contra su tope, y lo que guarda. */
+    if (m.troca_teto_kb) {
+        celda(g, sizeof g, m.troca_teto_kb, modo);
+        celda(u, sizeof u, m.troca_armazem_kb, modo);
+        celda(l, sizeof l, m.troca_teto_kb > m.troca_armazem_kb ? m.troca_teto_kb - m.troca_armazem_kb : 0, modo);
+        imprimir("%-14s %12s %12s %12s\n", "Swap (RAM):", g, u, l);
+        unsigned c = m.troca_comprimida_kb ? m.troca_comprimida_kb : 1, razao = m.troca_kb * 10u / c;
+        celda(g, sizeof g, m.troca_kb, modo);
+        celda(u, sizeof u, m.troca_comprimida_kb, modo);
+        if (m.troca_kb)
+            imprimir("%-14s %12s  (comprimidos en %s, razón %u.%u:1; salidas %u, entradas %u)\n", "  en la swap:", g, u,
+                     razao / 10, razao % 10, m.troca_saidas, m.troca_entradas);
+        else
+            imprimir("%-14s %12s  (salidas %u, entradas %u)\n", "  en la swap:", g, m.troca_saidas, m.troca_entradas);
+    } else {
+        imprimir("%-14s %s\n", "Swap (RAM):", "desactivada");
+    }
     imprimir("%-14s %12s\n", "RAM del PC:", t);
     imprimir("%-14s %s%s\n", "Paginacion:", (m.modo & MEM_MODO_PAE) ? "PAE (hasta 64 GB)" :
              (m.modo & MEM_MODO_CPU_PAE) ? "sin PAE (desactivado; hasta 4 GB)" : "sin PAE (la CPU no lo tiene; hasta 4 GB)",

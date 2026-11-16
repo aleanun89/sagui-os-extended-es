@@ -39,10 +39,11 @@ static void s_desligar(void)
 
 static int s_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, uint32_t variante, char *m, int nm)
 {
-    (void)d; (void)geracao; (void)t; (void)variante; (void)m; (void)nm;
+    (void)d; (void)geracao; (void)t; (void)m; (void)nm;
     s_desligar();
     pronto = true; vala = 0; usados_kb = 0;
-    klog("[GPU3D] simulado: driver de pruebas por la CPU (no es una GPU)\n");
+    klog("[GPU3D] simulado: driver de pruebas por la CPU (no es una GPU)%s\n",
+         variante & GPU3D_CAB_GTT ? "; RAM en el GTT pedida (D358): en el simulado no cambia nada" : "");
     return G3D_OK;
 }
 

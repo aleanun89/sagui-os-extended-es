@@ -220,8 +220,10 @@ static void llamadas(void)
     livre(SIS_WIFI, WIFI_ESTADO, b, 0);
     livre(SIS_WIFI, WIFI_REDES, b, 0);
     livre(SIS_WIFI, WIFI_BUSCAR, 0, 0);
-    root(SIS_WIFI, WIFI_CONECTAR, 0, 0);
-    root(SIS_WIFI, WIFI_DESCONECTAR, 0, 0);
+    /* D354: conectar y desconectar, la sesión local sí (sin adaptador: ERRO_NAO_EXISTE, no ERRO_ACESSO) */
+    livre(SIS_WIFI, WIFI_CONECTAR, 0, 0);
+    livre(SIS_WIFI, WIFI_DESCONECTAR, 0, 0);
+    root(SIS_WIFI, 77, 0, 0);   /* operacion desconocida: cerrada */
     /* SIS_BLOQUEO */
     livre(SIS_BLOQUEO, BLOQ_ESTADO, b, 0);
     livre(SIS_BLOQUEO, BLOQ_ULTIMOS, b, 0);
@@ -319,6 +321,13 @@ static void servico(void)
     anota(r == ERRO_ACESSO, "apagar desde un servicio que no es root: %d", r);
     r = sc(SIS_REINICIAR, 0, 0, 0, 0, 0);
     anota(r == ERRO_ACESSO, "reiniciar desde un servicio que no es root: %d", r);
+    /* D354: el Wi-Fi: mirar y buscar sí; conectar y desconectar, no (solo la sesión local o root) */
+    r = sc(SIS_WIFI, WIFI_CONECTAR, 0, 0, 0, 0);
+    anota(r == ERRO_ACESSO, "conectar el Wi-Fi desde un servicio que no es root: %d", r);
+    r = sc(SIS_WIFI, WIFI_DESCONECTAR, 0, 0, 0, 0);
+    anota(r == ERRO_ACESSO, "desconectar el Wi-Fi desde un servicio que no es root: %d", r);
+    r = sc(SIS_WIFI, WIFI_BUSCAR, 0, 0, 0, 0);
+    anota(r != ERRO_ACESSO, "buscar redes Wi-Fi desde un servicio es libre: %d", r);
     /* Desde un servicio, una cuenta sin contraseña no se puede fijar. */
     pedido_conta_t p;
     memset(&p, 0, sizeof p);

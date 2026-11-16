@@ -233,6 +233,33 @@ static void paquetes(void)
     r63d_estado_base(&l, 0, false, 1, 0);
     recorre("estado base R6xx", &l);
     VERIFICA(l.p[0] == 0xC0002400u, "en R6xx empieza por START_3D_CMDBUF");
+    /* D357: el estado base de cada familia R6xx, con los valores de xf86-video-ati. */
+    for (int f = R63D_R600; f <= R63D_RV635; f++) {
+        r63d_lote(&l, b, 1024);
+        r63d_estado_base(&l, f, false, 1, 0x10110000u);
+        int np = recorre("estado base R6xx", &l);
+        VERIFICA(np > 40 && l.n < 700, "estado base R6xx de la familia %d: %d paquetes", f, np);
+        VERIFICA(l.p[0] == 0xC0002400u && l.p[2] == 0xC0012800u, "R6xx: START_3D_CMDBUF y CONTEXT_CONTROL");
+        VERIFICA(tem_reg(&l, 0x8C00, (f == R63D_RV610 ? 0u : 1u) | 0xE400000Cu), "SQ_CONFIG R6xx (familia %d)", f);
+        VERIFICA(tem_reg(&l, 0x9830, 0x82000000u) && tem_reg(&l, 0x9838, 4u | (16u << 5) | (4u << 15) | (16u << 20)),
+                 "DB_DEBUG y DB_WATERMARKS de las R6xx");
+        VERIFICA(tem_reg(&l, 0x8D8C, 0) && tem_reg(&l, 0x286C8, 0), "R6xx: sin límite del PC de vértices ni PS_GROUPING");
+        VERIFICA(tem_reg(&l, 0x28A4C, (1u << 14) | (1u << 4)), "PA_SC_MODE_CNTL R6xx: WALK_ORDER_ENABLE, no MSAA_ENABLE");
+        VERIFICA(tem_reg(&l, 0x28D10, 2u | (2u << 2) | (2u << 4) | (1u << 6)), "DB_RENDER_OVERRIDE R6xx: FORCE_SHADER_Z_ORDER");
+        VERIFICA(tem_reg(&l, 0x28230, 0), "PA_SC_EDGERULE a 0 en R6xx");
+        VERIFICA(tem_reg(&l, 0x287A0, 1), "CB_SHADER_CONTROL con la superficie 0 también en R6xx (xf86-video-ati y Mesa)");
+    }
+    r63d_lote(&l, b, 1024);
+    r63d_estado_base(&l, R63D_RV670, false, 4, 0);
+    VERIFICA(tem_reg(&l, 0x8C04, 144u | (40u << 16) | (4u << 28)) && tem_reg(&l, 0x8C0C, 136u | (48u << 8) | (4u << 16) | (4u << 24)) &&
+             tem_reg(&l, 0x8C10, 40u | (40u << 16)) && tem_reg(&l, 0x8C14, 32u | (16u << 16)), "recursos del secuenciador de la RV670");
+    r63d_lote(&l, b, 1024);
+    r63d_estado_base(&l, R63D_R600, false, 4, 0);
+    VERIFICA(tem_reg(&l, 0x8C04, 192u | (56u << 16) | (4u << 28)) && tem_reg(&l, 0x8C14, 0), "recursos del secuenciador de la R600");
+    r63d_lote(&l, b, 1024);
+    r63d_estado_base(&l, R63D_RV710, true, 2, 0);
+    VERIFICA(tem_reg(&l, 0x9830, 0) && tem_reg(&l, 0x28A4C, (1u << 14) | (1u << 16) | 0x00500000u) && tem_reg(&l, 0x286C8, 1),
+             "las R7xx siguen con sus valores");
 
     r63d_lote(&l, b, 128);
     r63d_alvo(&l, 0x10300000u, 0x10400000u, 640, 512, 640, 480, 32, false);
@@ -241,9 +268,22 @@ static void paquetes(void)
     VERIFICA(tem_reg(&l, 0x280A0, 0x08110068u), "CB_COLOR0_INFO: 8888 lineal, ARGB, mezcla saturada");
     VERIFICA(tem_reg(&l, 0x2800C, 0x104000) && tem_reg(&l, 0x28010, 2u | (2u << 15)), "Z de 24 bits en mosaico 1D");
     VERIFICA(tem_reg(&l, 0x28034, 640u | (480u << 16)), "recorte de la superficie");
+    VERIFICA(tem_reg(&l, 0x28D34, 512 / 8 - 1), "DB_PREFETCH_LIMIT: filas de bloques de 8 menos 1");
+    for (int i = 0; i < l.n; i++) VERIFICA(l.p[i] != 0xC0007300u, "sin SURFACE_BASE_UPDATE si no se pide");
     r63d_lote(&l, b, 128);
     r63d_alvo(&l, 0x10300000u, 0x10400000u, 64, 64, 64, 64, 16, false);
     VERIFICA(tem_reg(&l, 0x28010, 1u | (2u << 15)), "Z de 16 bits");
+    /* D357: las RV6xx, SURFACE_BASE_UPDATE tras la base del color (bit 1) y tras la del Z (bit 0). */
+    r63d_lote(&l, b, 128);
+    r63d_alvo(&l, 0x10300000u, 0x10400000u, 64, 64, 64, 64, 24, true);
+    recorre("superficie RV6xx", &l);
+    int sbu = 0, i_cor = -1, i_z = -1;
+    for (int i = 0; i + 1 < l.n; i++) {
+        if (l.p[i] == 0xC0007300u) { sbu++; if (l.p[i + 1] == 2) i_cor = i; if (l.p[i + 1] == 1) i_z = i; }
+    }
+    VERIFICA(sbu == 2 && i_cor >= 0 && i_z > i_cor, "dos SURFACE_BASE_UPDATE: color y luego Z (%d)", sbu);
+    VERIFICA(R63D_PRECISA_SBU(R63D_RV610) && R63D_PRECISA_SBU(R63D_RV670) && R63D_PRECISA_SBU(R63D_RV635) && !R63D_PRECISA_SBU(R63D_R600) &&
+             !R63D_PRECISA_SBU(R63D_RV710), "SURFACE_BASE_UPDATE solo en RV610-RV670");
 
     r63d_lote(&l, b, 128);
     r63d_programas(&l, 0x10110000u, 0x10110200u, true);
@@ -338,6 +378,58 @@ static void inicio(void)
              "familia desconocida o sin sitio: error");
 }
 
+/* D357: los valores por defecto de las R6xx (r600_gpu_init de Linux 6.6). */
+static void inicio_r6(void)
+{
+    r6_par_t p[R7_INICIO_MAX];
+    r7_leituras_t le;
+    uint32_t ctx = 0;
+    int a;
+    for (int f = R63D_R600; f <= R63D_RV635; f++) {
+        memset(&le, 0, sizeof le);
+        int n = r6_inicio_motor(f, &le, p, R7_INICIO_MAX, &ctx);
+        VERIFICA(n > 30 && n <= R7_INICIO_MAX, "R6xx familia %d: %d registros", f, n);
+        VERIFICA(ctx == (f == R63D_RV610 ? 4u : 8u), "R6xx familia %d: %u contextos", f, ctx);
+        for (int i = 0; i < n; i++)
+            VERIFICA(p[i].reg < 0x10000 && (p[i].reg < 0x6000 || p[i].reg >= 0x8000) && p[i].reg != 0x0E60 &&
+                     !(p[i].reg >= 0x2000 && p[i].reg < 0x3000) && !(p[i].reg >= 0xD000 && p[i].reg < 0xD100),
+                     "R6xx: el registro %x no es de pantalla, MC/HDP/ARB ni DMA y cae en la ventana del MMIO", p[i].reg);
+        VERIFICA(r63d_inicio_motor(f, &le, p, R7_INICIO_MAX, &ctx) == n, "r63d_inicio_motor elige el de las R6xx");
+        uint32_t sq = par(p, n, 0x8C00, &a);
+        VERIFICA(a && ((sq & 1u) != 0) == (f != R63D_RV610) && (sq & 0xFF000004u) == 0xE4000004u, "SQ_CONFIG R6xx: %x", sq);
+        VERIFICA(par(p, n, 0x88C4, &a) == (f == R63D_RV610 ? 1u : 2u) && a, "VGT_CACHE_INVALIDATION R6xx");
+    }
+    /* RV610: 1 tubería de mosaico, 1 backend; RAMCFG con 8 bancos (bit 0), ráfaga larga (bit 8) y 3 de filas (bits 4:2). */
+    memset(&le, 0, sizeof le);
+    le.mc_arb_ramcfg = 1u | (3u << 2) | (1u << 8);
+    le.sq_ms_fifo_sizes = 0x12345678u;
+    le.sx_debug_1 = 0x100u;
+    int n = r6_inicio_motor(R63D_RV610, &le, p, R7_INICIO_MAX, &ctx);
+    VERIFICA(par(p, n, 0x98F0, &a) == ((0u << 1) | (1u << 4) | (1u << 6) | (3u << 8) | (1u << 11) | (3u << 14)) && a,
+             "GB_TILING_CONFIG de la RV610: %x", par(p, n, 0x98F0, &a));
+    VERIFICA(par(p, n, 0x8CF0, &a) == (0xAu | (0xAu << 8) | (0xE0u << 16) | (0x8u << 24)) && a, "SQ_MS_FIFO_SIZES de la RV610");
+    VERIFICA(par(p, n, 0x9054, &a) == (0x100u | 1u | (1u << 16)) && a, "SX_DEBUG_1 (0x9054 en R6xx)");
+    VERIFICA(par(p, n, 0x8C04, &a) == (44u | (44u << 16) | (2u << 28)) && par(p, n, 0x8C0C, &a) == (79u | (78u << 8) | (4u << 16) | (31u << 24)),
+             "recursos del secuenciador de la RV610 (r600_gpu_init)");
+    VERIFICA(par(p, n, 0x88C8, &a) == 48 && par(p, n, 0x9608, &a) == (8u << 5) && par(p, n, 0x9830, &a) == (1u << 31), "RV610: GS_PER_ES, TC_CNTL, DB_DEBUG");
+    n = r6_inicio_motor(R63D_R600, &le, p, R7_INICIO_MAX, &ctx);
+    VERIFICA(par(p, n, 0x8CF0, &a) == ((0x12345678u & ~(0xFFu << 16)) | (4u << 16)), "SQ_MS_FIFO_SIZES de la R600: DONE_FIFO_HIWATER 4");
+    VERIFICA(par(p, n, 0x9054, &a) == (0x100u | 1u), "R600: sin dirección SMX nueva");
+    VERIFICA(par(p, n, 0x9608, &a) == (1u << 9) && par(p, n, 0x88C8, &a) == 64, "R600: TC_CNTL y GS_PER_ES");
+    /* R600: 8 tuberías de mosaico entre 4 backends: 3,3,2,2,1,1,0,0. */
+    VERIFICA((par(p, n, 0x98F0, &a) >> 16) == 0xFA50u && ((par(p, n, 0x98F0, &a) >> 1) & 7u) == 3, "mapa de backends de la R600");
+    n = r6_inicio_motor(R63D_RV635, &le, p, R7_INICIO_MAX, &ctx);
+    VERIFICA(par(p, n, 0x9830, &a) == 0 && par(p, n, 0x8CF0, &a) == 0x12345678u && par(p, n, 0x9608, &a) == (4u << 5),
+             "RV635: DB_DEBUG a 0, SQ_MS_FIFO_SIZES como estaba, TC_CNTL de la RV630");
+    n = r6_inicio_motor(R63D_RV630, &le, p, R7_INICIO_MAX, &ctx);
+    VERIFICA(par(p, n, 0x9830, &a) == (1u << 31) && ((par(p, n, 0x8CF0, &a) >> 16) & 0xFFu) == 4, "RV630: PREZ y DONE_FIFO_HIWATER 4");
+    n = r6_inicio_motor(R63D_RV670, &le, p, R7_INICIO_MAX, &ctx);
+    VERIFICA(par(p, n, 0x9830, &a) == 0 && par(p, n, 0x88C8, &a) == 192 && par(p, n, 0x8C10, &a) == (64u | (64u << 16)), "RV670");
+    VERIFICA(r6_inicio_motor(R63D_RV710, &le, p, R7_INICIO_MAX, &ctx) < 0 && r7_inicio_motor(R63D_RV610, &le, p, R7_INICIO_MAX, &ctx) < 0 &&
+             r6_inicio_motor(R63D_RV610, &le, p, 10, &ctx) < 0, "cada inicio rechaza la otra generación y la falta de sitio");
+    VERIFICA(r63d_inicio_motor(R63D_RV710, &le, p, R7_INICIO_MAX, &ctx) > 40, "r63d_inicio_motor elige el de las R7xx");
+}
+
 int main(void)
 {
     sombreadores(1);
@@ -345,7 +437,8 @@ int main(void)
     paquetes();
     flotantes();
     inicio();
+    inicio_r6();
     if (falhas) { printf("%d fallos\n", falhas); return 1; }
-    printf("sombreadores (3, en R6xx y R7xx), paquetes PM4, flotantes e inicio del motor: todo bien\n");
+    printf("sombreadores (3, en R6xx y R7xx), paquetes PM4, flotantes e inicio del motor (R6xx y R7xx): todo bien\n");
     return 0;
 }

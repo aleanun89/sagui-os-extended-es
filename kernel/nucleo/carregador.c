@@ -55,6 +55,7 @@ static bool copiar_para(espaco_t e, uint32_t virt, const void *origem, uint32_t 
         if (!fis) {
             if (!espaco_alocar(e, virt & ~(PAGINA - 1), PAGINA, PG_USUARIO | PG_ESCRITA | PG_NX)) return false;
             fis = espaco_traduzir(e, virt, NULL);
+            if (!fis) return false;   /* D352: estaba en la swap y no hay memoria para traerla */
         }
         uint32_t cabe = PAGINA - (virt & 0xFFF);
         if (cabe > n) cabe = n;

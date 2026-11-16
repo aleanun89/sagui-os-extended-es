@@ -215,6 +215,26 @@ static int xml_medida_pt(const char *s)
 
 static const char *const FONTES_XML[3] = { "Arial", "Times New Roman", "Courier New" };
 
+/* D356: nombre de la familia para XLSX/ODS: las clásicas y las del sistema (con comillas y signos de XML quitados). */
+static const char *nome_fonte_xml(int fam)
+{
+    static char n[64];
+    if (fam >= 0 && fam < 3) return FONTES_XML[fam];
+    copia_texto(n, pdfw_nombre_familia(fam), sizeof n);
+    for (char *p = n; *p; p++) if (*p == '"' || *p == '&' || *p == '<' || *p == '>' || *p == '\'') *p = ' ';
+    return n;
+}
+
+/* D356: familia por el nombre de un libro ajeno: la instalada con ese nombre, o la clásica más parecida. */
+static int fam_de_nome(const char *v, int actual)
+{
+    int r = fuente_familia_por_nombre(v);
+    if (r >= 0) return r;
+    if (acha_texto(v, "Times") || acha_texto(v, "Georgia") || acha_texto(v, "Cambria")) return 1;
+    if (acha_texto(v, "Courier") || acha_texto(v, "Consolas") || acha_texto(v, "Mono")) return 2;
+    return actual;
+}
+
 static void rgb_hex(char *dst, uint32_t rgb)
 {
     static const char dig[] = "0123456789ABCDEF";
@@ -390,7 +410,7 @@ static void xlsx_estilos(char **b, int *t, int *c)
         if (f->est & EST_CURSIVA) txt_add(b, t, c, "<i/>");
         if (f->est & EST_SUBLIN) txt_add(b, t, c, "<u/>");
         txt_addf(b, t, c, "<sz val=\"%d\"/><color rgb=\"FF%s\"/><name val=\"%s\"/></font>",
-                 f->tam ? f->tam : 10, rgb, FONTES_XML[f->fam < 3 ? f->fam : 0]);
+                 f->tam ? f->tam : 10, rgb, nome_fonte_xml(f->fam));
     }
     txt_add(b, t, c, "</fonts>");
     txt_addf(b, t, c, "<fills count=\"%d\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill>", 2 + nf);
@@ -692,8 +712,7 @@ static void xlsx_estilos_ler(char *x, int n)
                 else if (xml_nome_es(&t, "sz")) { int s = xml_attr_int(&t, "val", 10); f->tam = (uint8_t)(s == 10 ? 0 : (s > 72 ? 72 : s)); }
                 else if (xml_nome_es(&t, "color") && xml_attr(&t, "rgb", v, sizeof v)) { uint32_t c = hex_rgb(v); f->cor = (c == 0) ? 0 : c; }
                 else if (xml_nome_es(&t, "name") && xml_attr(&t, "val", v, sizeof v)) {
-                    if (acha_texto(v, "Times") || acha_texto(v, "Georgia") || acha_texto(v, "Cambria")) f->fam = 1;
-                    else if (acha_texto(v, "Courier") || acha_texto(v, "Consolas") || acha_texto(v, "Mono")) f->fam = 2;
+                    f->fam = (uint8_t)fam_de_nome(v, f->fam);
                 }
             } else if (sec == 3 && xml_nome_es(&t, "fill") && n_rellenos < 128) { cur_fill = n_rellenos++; }
             else if (sec == 3 && cur_fill >= 0 && xml_nome_es(&t, "fgColor")) {
@@ -992,7 +1011,7 @@ static void ods_estilo_celda(char **b, int *t, int *c, int i, const fmt_t *f)
     if (f->est & EST_NEGRITA) txt_add(b, t, c, " fo:font-weight=\"bold\"");
     if (f->est & EST_CURSIVA) txt_add(b, t, c, " fo:font-style=\"italic\"");
     if (f->est & EST_SUBLIN) txt_add(b, t, c, " style:text-underline-style=\"solid\" style:text-underline-width=\"auto\" style:text-underline-color=\"font-color\"");
-    txt_addf(b, t, c, " style:font-name=\"%s\"/></style:style>", FONTES_XML[f->fam < 3 ? f->fam : 0]);
+    txt_addf(b, t, c, " style:font-name=\"%s\"/></style:style>", nome_fonte_xml(f->fam));
 }
 
 static void ods_celda(const celula_t *ce, folha_t *fo, int l, int c, char **b, int *t, int *cap)
@@ -1187,8 +1206,7 @@ static void ods_est_atributos(const xtok_t *t, ods_est_t *e)
         if (xml_attr(t, "fo:color", v, sizeof v) && v[0] == '#') e->f.cor = hex_rgb(v);
         if (xml_attr(t, "fo:font-size", v, sizeof v)) { int s = xml_medida_pt(v); e->f.tam = (uint8_t)(s == 10 ? 0 : (s < 1 ? 0 : (s > 72 ? 72 : s))); }
         if (xml_attr(t, "style:font-name", v, sizeof v)) {
-            if (acha_texto(v, "Times") || acha_texto(v, "Georgia")) e->f.fam = 1;
-            else if (acha_texto(v, "Courier") || acha_texto(v, "Mono")) e->f.fam = 2;
+            e->f.fam = (uint8_t)fam_de_nome(v, e->f.fam);
         }
     }
 }

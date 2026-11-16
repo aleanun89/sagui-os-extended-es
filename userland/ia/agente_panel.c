@@ -311,7 +311,10 @@ static int altura_entrada(void) { return 50; }
 static void maquetar(ag_panel_t *p)
 {
     int x = p->x, y = p->y, l = p->l, a = p->a;
-    p->bt_agente = (botao_t){ x, y, 262, 24, "Agente", false };
+    int la = l - 250 - 4;                    /* el selector no pisa los botones de la derecha */
+    if (la > 262) la = 262;
+    if (la < 60) la = 60;
+    p->bt_agente = (botao_t){ x, y, la, 24, "Agente", false };
     p->bt_nuevo = (botao_t){ x + l - 250, y, 80, 24, "Nuevo", false };
     p->bt_editar = (botao_t){ x + l - 166, y, 80, 24, "Editar", false };
     p->bt_registro = (botao_t){ x + l - 82, y, 82, 24, "Registro", false };
@@ -351,7 +354,7 @@ ag_panel_t *ag_panel_criar(void *jv, int x, int y, int l, int a, void *app)
     maquetar(p);
     char motivo[100];
     if (!ag_permitido(motivo, sizeof motivo)) fmt(p->estado, sizeof p->estado, "No disponible: %s", motivo), p->estado_erro = true;
-    else fmt(p->estado, sizeof p->estado, "Elige un agente y escribe la tarea. Intro: enviar | Esc: detener");
+    else fmt(p->estado, sizeof p->estado, "Elige un agente y escribe. Intro: enviar");
     return p;
 }
 
@@ -383,12 +386,14 @@ void ag_panel_desenhar(ag_panel_t *p)
     jan_t *j = p->j;
     g_retangulo(j, p->x, p->y, p->l, p->a, W98_FACE);
     char t[240];
-    fmt(t, sizeof t, "Agente: %s", p->ndefs ? p->defs[p->sel].nome : "(ninguno)");
+    /* en un panel estrecho el selector solo muestra el nombre, para que el texto no se corte */
+    const char *nom = p->ndefs ? p->defs[p->sel].nome : "(ninguno)";
+    if (p->bt_agente.l < 190) copia_texto(t, nom, sizeof t); else fmt(t, sizeof t, "Agente: %s", nom);
     p->bt_agente.texto = t;
     boton98(j, &p->bt_agente);
     p->bt_agente.texto = "Agente";
     if (p->ndefs) {
-        int ancho = p->l - 250 - 270 - 8;
+        int ancho = p->l - 250 - 270 - 8;   /* solo si cabe junto al selector */
         if (ancho > 40) {
             int cols = ancho / LETRA_L;
             char d[160];
@@ -401,7 +406,7 @@ void ag_panel_desenhar(ag_panel_t *p)
     p->lista.qtd = p->n_pasos;
     g_texto(j, p->lista.x, p->lista.y - 16, "", W98_NEGRO);
     lista_en_marco(j, &p->lista);
-    if (!p->n_pasos) g_texto(j, p->lista.x + 6, p->lista.y + 6, "(los pasos del agente apareceran aqui; elige uno para ver su resultado)", W98_SOMBRA);
+    if (!p->n_pasos) g_texto_n(j, p->lista.x + 6, p->lista.y + 6, "(los pasos del agente apareceran aqui)", (p->lista.l - 12) / LETRA_L > 0 ? (p->lista.l - 12) / LETRA_L : 0, W98_SOMBRA);
     if (p->detalle_visible) {
         area_desenhar(j, &p->detalle);
         boton98(j, &p->bt_ocultar);

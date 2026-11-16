@@ -67,6 +67,10 @@ typedef struct processo {
     uint64_t    futex;            /* D167: dirección física que espera en futex_esperar (64 bits con PAE, D349) */
     uint64_t    vagas_hilos;      /* D186: en el líder, huecos de pila de hilos ocupados (bit n = hueco n) */
     uint8_t     vaga_pilha;       /* D186: en un hilo, su hueco de pila + 1 (0 = la pila es del programa) */
+    /* D351: la barrera del espacio compartido (espaco_pode_tirar). */
+    bool        em_chamada;       /* el hilo está dentro de una llamada al sistema (puede dormir en ella) */
+    bool        na_barreira;      /* el hilo durmió en la barrera o en su puerta (hay que limpiar acordar_em) */
+    int         tirando;          /* en el líder: tid del hilo que espera para quitar páginas o escritura (0 = nadie) */
     /* D174: lo que usan los planificadores (planificadores.c). */
     uint32_t    mascara_cpu;      /* CPU permitidas (bit n = CPU n); 0 = todas */
     int         nice;             /* -20..19: solo cuenta en el planificador "prioridad" */
@@ -103,6 +107,9 @@ quadro_t *escalonador_tique_secundaria(quadro_t *q);   /* D165: el tic de un sec
 void      avisar_ociosa(processo_t *p);  /* D165: despertar una CPU ociosa que pueda tomarlo */
 void      processo_tirar_da_cpu(processo_t *p);   /* D165: que la CPU donde corre deje su código */
 void      espaco_sincronizar(espaco_t e);     /* D165: que ninguna otra CPU use traducciones viejas de "e" */
+bool      espaco_pode_tirar(void);            /* D351: ¿ningún otro hilo dormido en una llamada? si no, bloquea */
+bool      espaco_porta(void);                 /* D351: ¿puede entrar esta llamada? si no, bloquea */
+void      espaco_chamada_fim(void);           /* D351: el hilo sale de una llamada al sistema */
 void      bloquear(const void *canal);
 void      ceder(void);   /* tarea del kernel: cede el turno ahora (ej.: después de bloquear) */
 void      acordar(const void *canal);

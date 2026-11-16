@@ -34,7 +34,7 @@ import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Las que devuelven la dirección física de una página de programa, y sus envoltorios.
-FUNCOES = r"(?:espaco_traduzir|espaco_tirar|memfisica_alocar_usuario|palavra_fisica|pagina_usuario_zerada)"
+FUNCOES = r"(?:espaco_traduzir|espaco_tirar|memfisica_alocar_usuario|memfisica_alocar_alta|palavra_fisica|pagina_usuario_zerada|pagina_nova|fis_de)"
 MOLDE = r"\(\s*(?:const\s+)?(?:volatile\s+)?[A-Za-z_]\w*\s*\*+\s*\)"
 DIRETO = re.compile(MOLDE + r"\s*" + FUNCOES + r"\s*\(")
 ATRIB = re.compile(r"\b([A-Za-z_]\w*)\s*=\s*" + FUNCOES + r"\s*\(")

@@ -1,0 +1,135 @@
+# Traducción de SaguiOS: catálogo «kconfig», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/kconfig.c:26
+#, c-format
+msgid "kconfig: este kernel no tiene opciones guardables (%d)\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:42
+msgid "Opciones del kernel (se aplican al reiniciar):\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:43
+msgid "OPCIÓN"
+msgstr ""
+
+#: userland/programas/kconfig.c:43
+msgid "AHORA"
+msgstr ""
+
+#: userland/programas/kconfig.c:43
+msgid "IMAGEN"
+msgstr ""
+
+#: userland/programas/kconfig.c:43
+msgid "GUARDADO"
+msgstr ""
+
+#: userland/programas/kconfig.c:43
+msgid "AL REINICIAR"
+msgstr ""
+
+#: userland/programas/kconfig.c:53
+msgid "(guardado fuera de rango: ignorado)"
+msgstr ""
+
+#: userland/programas/kconfig.c:54
+msgid "(no aplicado: modo rescate)"
+msgstr ""
+
+#: userland/programas/kconfig.c:55
+msgid "cambia al reiniciar"
+msgstr ""
+
+#: userland/programas/kconfig.c:59
+msgid "Modo rescate: lo guardado no se aplica en este arranque. «kconfig --por-defecto» lo borra.\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:61
+msgid "Aviso: lo guardado está dañado y no se aplica; al guardar algo se empieza de cero.\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:63
+msgid "Arranque desde CD: no se puede guardar nada.\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:64
+msgid "Hay cambios guardados que se aplicarán al reiniciar.\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:69
+msgid "uso: kconfig [OPCION=VALOR ...] | kconfig --por-defecto\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:70
+msgid "Valores: si|no, un número, auto, o «defecto» (vuelve al de la imagen).\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:80
+msgid "Si lo guardado impide arrancar: Ctrl al arrancar (modo rescate) y «kconfig --por-defecto».\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:86
+#, c-format
+msgid "kconfig: hace falta ser administrador (usa: admin kconfig %s)\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:88
+msgid "kconfig: SaguiOS ha arrancado desde un CD, que es de solo lectura: no se puede guardar\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:90
+msgid "kconfig: no se encontró el disco de arranque de SaguiOS para guardar\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:91
+#, c-format
+msgid "kconfig: %s: no se pudo guardar: %s\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:106
+msgid "Configuración del kernel borrada: al reiniciar, los valores de la imagen.\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:118
+#, c-format
+msgid "kconfig: «%s»: se espera OPCION=VALOR (kconfig -h)\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:123
+#, c-format
+msgid "kconfig: no hay ninguna opción «%s» (kconfig -h)\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:127
+#, c-format
+msgid "kconfig: %s: «%s» no vale (si o no)\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:128
+#, c-format
+msgid "kconfig: %s: «%s» fuera de rango (auto o de %u a %u)\n"
+msgstr ""
+
+#: userland/programas/kconfig.c:148
+#, c-format
+msgid "%s: vuelve al de la imagen (%s)"
+msgstr ""
+
+#: userland/programas/kconfig.c:149
+#, c-format
+msgid "%s: guardado %s"
+msgstr ""
+
+#: userland/programas/kconfig.c:150
+msgid "; se aplica al reiniciar"
+msgstr ""
+

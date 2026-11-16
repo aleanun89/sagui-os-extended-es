@@ -50,6 +50,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "memoria.h"
+#include "permisos.h"
 #include "processo.h"
 #include "rede.h"
 #include "relogio.h"
@@ -1285,11 +1286,20 @@ static void ler_extras(const char *l, int nl, pedido_wifi_t *p)
     }
 }
 
+/* D354: las redes recordadas son de cada usuario (su /home/.config/wifi.conf, que con varias cuentas
+ * está en /home/<nombre>): se lee la de la sesión local y, si no tiene, la de /home (compatibilidad). */
+static const char *ruta_config(char *buf, size_t n)
+{
+    permisos_sessao_caminho(buf, n, "/.config/wifi.conf");
+    return vfs_existe_arquivo(buf) ? buf : CONFIG;
+}
+
 static bool escolher_recordada(void)
 {
     uint8_t *txt;
     uint32_t tam;
-    if (vfs_ler_inteiro(CONFIG, &txt, &tam) < 0) return false;
+    char rc[96];
+    if (vfs_ler_inteiro(ruta_config(rc, sizeof rc), &txt, &tam) < 0) return false;
     bool achou = false;
     int melhor_rssi = -200;
     for (uint32_t i = 0; i < tam;) {
@@ -1550,7 +1560,8 @@ static void tarefa_wifi(void *arg)
             bool havia = pedido.ssid[0] != 0;
             int_restaura(i0);
             if (!havia) {   /* sin una red pedida en esta sesión: las recordadas */
-                if (!vfs_existe_arquivo(CONFIG)) continue;
+                char rc[96];
+                if (!vfs_existe_arquivo(ruta_config(rc, sizeof rc))) continue;
                 buscar((const pedido_wifi_t *)0);
                 if (escolher_recordada()) conectar();
             } else conectar();

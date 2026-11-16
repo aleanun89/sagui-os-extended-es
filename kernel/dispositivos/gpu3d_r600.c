@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* gpu3d_r600.c - 3D por la GPU en las Radeon R7xx (RV710, RV730, RV740, RV770): el
- * procesador de órdenes (CP) con su microcódigo, el estado del motor 3D y los
- * dibujos, debajo de la capa común gpu3d (D284; la capa es la de la D285).
+/* gpu3d_r600.c - 3D por la GPU en las Radeon R7xx (RV710, RV730, RV740, RV770) y,
+ * desde la D357, R6xx (R600, RV610, RV620, RV630, RV635, RV670): el procesador de
+ * órdenes (CP) con su microcódigo, el estado del motor 3D y los dibujos, debajo de la
+ * capa común gpu3d (D284; la capa es la de la D285).
  *
  * SIN PROBAR EN HARDWARE: QEMU no emula ninguna Radeon. Por eso no se enciende solo
  * («gpu3d probar» o «gpu3d encender») y la capa común solo lo activa si la autoprueba lee los
  * píxeles esperados. El objetivo es la Mobility Radeon HD 4530/4570 (RV710/M92,
- * 1002:9553) del HP dv7 del mantenedor. Las R6xx (HD 2xxx/3xxx) quedan pendientes:
- * otro microcódigo (más grande), otro inicio del motor y otra codificación de las
- * operaciones de los sombreadores (r600_3d_pacotes.c ya la tiene).
+ * 1002:9553) del HP dv7 del mantenedor. Lo que cambia en las R6xx (D357): microcódigo
+ * (PFP de 576 palabras y ME de 5376, cargado como r600_cp_load_microcode), los valores
+ * por defecto del motor (r6_inicio_motor), ME_INITIALIZE, START_3D_CMDBUF en el estado
+ * base, la codificación de las operaciones de los sombreadores, SURFACE_BASE_UPDATE
+ * tras cambiar las bases (RV6xx) y la mezcla sin «por superficie» de la R600.
  *
  * Qué toca y qué no:
  *   - memoria: solo VRAM de la tarjeta, DETRÁS de todo lo que puede usar el 2D por
@@ -58,6 +61,12 @@
 static r600_base_t base;
 static acel_tela_t tela;
 static int familia;
+static bool r7;                                /* familia R7xx (si no, R6xx) */
+static int etapa = -1;                         /* D357: hasta dónde llegó el último encendido (-1: nunca se intentó) */
+static const char *const nomes_etapa[7] = {
+    "sonda de solo lectura", "leer el microcodigo", "parar el CP y cargar el microcodigo", "valores por defecto del motor 3D",
+    "cola y arranque del CP", "prueba de la cola", "sombreadores y estado base",
+};
 static bool sondado, cp_ligado;
 static uint32_t zona_off, zona_bytes;          /* desde el principio de la pantalla */
 static volatile uint8_t *zona;                 /* ventana sin caché de toda la zona */
@@ -83,8 +92,12 @@ static void esperar_ms(uint32_t ms)
     while (!prazo_vencido(&p)) { }
 }
 
+static const char *nome_etapa(int e) { return e >= 0 && e <= 6 ? nomes_etapa[e] : "sin intentar"; }
+
 static void r3_detalle(const char *fase)
 {
+    klog("[GPU3D] r600 detalle (%s): ultima etapa del encendido: %d de 6 (%s); CP %s\n", fase, etapa, nome_etapa(etapa),
+         cp_ligado ? "en marcha" : "parado");
     if (!base.mmio || !sondado) return;
     klog("[GPU3D] r600 detalle (%s): GRBM_STATUS %x STATUS2 %x SRBM_STATUS %x CP_STAT %x CP_ME_CNTL %x\n", fase,
          rd(R6_GRBM_STATUS), rd(R6_GRBM_STATUS2), rd(SRBM_STATUS), rd(R6_CP_STAT), rd(R6_CP_ME_CNTL));
@@ -107,7 +120,18 @@ static bool r3_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ch
     else if (!txt_compara_n(base.nome, "RV730", 5)) familia = R63D_RV730;
     else if (!txt_compara_n(base.nome, "RV740", 5)) familia = R63D_RV740;
     else if (!txt_compara_n(base.nome, "RV770", 5)) familia = R63D_RV770;
+    /* D357: R6xx. La RV620 lleva los valores de la RV610 (Linux y Mesa las tratan igual). */
+    else if (!txt_compara_n(base.nome, "RV610", 5) || !txt_compara_n(base.nome, "RV620", 5)) familia = R63D_RV610;
+    else if (!txt_compara_n(base.nome, "RV630", 5)) familia = R63D_RV630;
+    else if (!txt_compara_n(base.nome, "RV635", 5)) familia = R63D_RV635;
+    else if (!txt_compara_n(base.nome, "RV670", 5)) familia = R63D_RV670;
+    else if (!txt_compara_n(base.nome, "R600", 4)) familia = R63D_R600;
     else { snformatar(m, (size_t)nm, "%s: familia sin 3D todavia", base.nome); return false; }
+    r7 = R63D_E_R7XX(familia);
+    if ((base.gen == 7) != r7) {
+        snformatar(m, (size_t)nm, "%s: la familia no cuadra con la generacion %d de la tabla", base.nome, base.gen);
+        return false;
+    }
     if (base.vm0 & 1) {
         snformatar(m, (size_t)nm, "la memoria virtual de la GPU esta encendida (VM_CONTEXT0_CNTL %x): no se arriesga", base.vm0);
         return false;
@@ -140,8 +164,8 @@ static bool r3_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ch
     }
     zona_off = ini; zona_bytes = tam;
     mc_zona = base.mc_tela + ini;
-    klog("[GPU3D] r600: %s (%04x), familia %d; zona 3D: %u KB en MC %x (a %u KB de la pantalla); VRAM %u MB, apertura %u MB, VBE %u KB\n",
-         base.nome, base.modelo, familia, tam >> 10, mc_zona, ini >> 10, base.memsize >> 20, base.aper >> 20, t->memoria >> 10);
+    klog("[GPU3D] r600: %s (%04x), %s, familia %d; zona 3D: %u KB en MC %x (a %u KB de la pantalla); VRAM %u MB, apertura %u MB, VBE %u KB\n",
+         base.nome, base.modelo, r7 ? "R7xx" : "R6xx", familia, tam >> 10, mc_zona, ini >> 10, base.memsize >> 20, base.aper >> 20, t->memoria >> 10);
     klog("[GPU3D] r600: antes de tocar nada: CP_ME_CNTL %x CP_RB_CNTL %x GRBM_STATUS %x CP_STAT %x CP_INT_CNTL %x\n",
          rd(R6_CP_ME_CNTL), rd(R6_CP_RB_CNTL), rd(R6_GRBM_STATUS), rd(R6_CP_STAT), rd(R6_CP_INT_CNTL));
     sondado = true;
@@ -231,8 +255,13 @@ static bool tocou;   /* ligar_cp ya escribió algún registro de la GPU */
 
 static bool ligar_cp(char *m, int nm)
 {
-    static const char *const fw_nome[4] = { "RV770", "RV730", "RV730", "RV710" };   /* la RV740 usa el de la RV730 */
+    /* La RV740 usa el de la RV730 (como Linux). D357: la RV620 y la RV635 cargan los de la RV610 y la RV630,
+     * que en linux-firmware son los mismos bytes que RV620_* y RV635_* (mismas sumas SHA-256). */
+    static const char *const fw_nome[R63D_N_FAMILIAS] = { "RV770", "RV730", "RV730", "RV710", "R600", "RV610", "RV630", "RV670", "RV630" };
+    const uint32_t pal_pfp = r7 ? R7_PFP_UCODE_PALAVRAS : R6_PFP_UCODE_PALAVRAS;
+    const uint32_t pal_me = r7 ? R7_ME_UCODE_PALAVRAS : R6_ME_UCODE_PALAVRAS;
     if (!sondado) { snformatar(m, (size_t)nm, "sin sondar"); return false; }
+    etapa = 1;
     cp_ligado = false;
     tocou = false;
     sh_atual = -1;
@@ -246,14 +275,14 @@ static bool ligar_cp(char *m, int nm)
     uint8_t *pfp = NULL, *me = NULL;
     uint32_t npfp = 0, nme = 0;
     snformatar(cam, sizeof cam, "/lib/firmware/radeon/%s_pfp.bin", fw_nome[familia]);
-    if (vfs_ler_inteiro(cam, &pfp, &npfp) < 0 || npfp != R7_PFP_UCODE_PALAVRAS * 4) {
-        snformatar(m, (size_t)nm, "falta el microcodigo %s (o no mide %u bytes: %u)", cam, R7_PFP_UCODE_PALAVRAS * 4, npfp);
+    if (vfs_ler_inteiro(cam, &pfp, &npfp) < 0 || npfp != pal_pfp * 4) {
+        snformatar(m, (size_t)nm, "falta el microcodigo %s (o no mide %u bytes: %u)", cam, pal_pfp * 4, npfp);
         if (pfp) kfree(pfp);
         return false;
     }
     snformatar(cam, sizeof cam, "/lib/firmware/radeon/%s_me.bin", fw_nome[familia]);
-    if (vfs_ler_inteiro(cam, &me, &nme) < 0 || nme != R7_ME_UCODE_PALAVRAS * 4) {
-        snformatar(m, (size_t)nm, "falta el microcodigo %s (o no mide %u bytes: %u)", cam, R7_ME_UCODE_PALAVRAS * 4, nme);
+    if (vfs_ler_inteiro(cam, &me, &nme) < 0 || nme != pal_me * 4) {
+        snformatar(m, (size_t)nm, "falta el microcodigo %s (o no mide %u bytes: %u)", cam, pal_me * 4, nme);
         kfree(pfp);
         if (me) kfree(me);
         return false;
@@ -283,16 +312,25 @@ static bool ligar_cp(char *m, int nm)
         return false;
     }
 
-    /* Etapa 2: parar el CP, reiniciarlo y cargarle el microcódigo. */
+    /* Etapa 2: parar el CP, reiniciarlo y cargarle el microcódigo (R7xx: PFP y luego ME, como
+     * rv770_cp_load_microcode; R6xx: ME y luego PFP, como r600_cp_load_microcode). */
+    etapa = 2;
     tocou = true;
     cp_parar();
     wr(R6_CP_RB_CNTL, R6_RB_NO_UPDATE | (15u << 8) | 3u);
     cp_reiniciar();
-    wr(R6_CP_PFP_UCODE_ADDR, 0);
-    for (uint32_t i = 0; i < R7_PFP_UCODE_PALAVRAS; i++) wr(R6_CP_PFP_UCODE_DATA, be32(pfp + i * 4));
-    wr(R6_CP_PFP_UCODE_ADDR, 0);
-    wr(R6_CP_ME_RAM_WADDR, 0);
-    for (uint32_t i = 0; i < R7_ME_UCODE_PALAVRAS; i++) wr(R6_CP_ME_RAM_DATA, be32(me + i * 4));
+    if (r7) {
+        wr(R6_CP_PFP_UCODE_ADDR, 0);
+        for (uint32_t i = 0; i < pal_pfp; i++) wr(R6_CP_PFP_UCODE_DATA, be32(pfp + i * 4));
+        wr(R6_CP_PFP_UCODE_ADDR, 0);
+        wr(R6_CP_ME_RAM_WADDR, 0);
+        for (uint32_t i = 0; i < pal_me; i++) wr(R6_CP_ME_RAM_DATA, be32(me + i * 4));
+    } else {
+        wr(R6_CP_ME_RAM_WADDR, 0);
+        for (uint32_t i = 0; i < pal_me; i++) wr(R6_CP_ME_RAM_DATA, be32(me + i * 4));
+        wr(R6_CP_PFP_UCODE_ADDR, 0);
+        for (uint32_t i = 0; i < pal_pfp; i++) wr(R6_CP_PFP_UCODE_DATA, be32(pfp + i * 4));
+    }
     wr(R6_CP_PFP_UCODE_ADDR, 0);
     wr(R6_CP_ME_RAM_WADDR, 0);
     wr(R6_CP_ME_RAM_RADDR, 0);
@@ -301,22 +339,33 @@ static bool ligar_cp(char *m, int nm)
     klog("[GPU3D] r600: etapa 2: CP parado, reiniciado y microcodigo cargado (primera palabra del ME %x; CP_STAT %x)\n", me0,
          rd(R6_CP_STAT));
 
-    /* Etapa 3: valores por defecto del motor 3D (por MMIO). */
-    r7_leituras_t le = { rd(R7_MC_ARB_RAMCFG), rd(R7_CC_GC_SHADER_PIPE_CONFIG), rd(R7_CC_RB_BACKEND_DISABLE), rd(R7_TA_CNTL_AUX),
-                         rd(R7_SX_DEBUG_1), rd(R7_SMX_DC_CTL0), rd(R7_DB_DEBUG3), rd(R7_DB_DEBUG4), rd(R7_SQ_CONFIG) };
+    /* Etapa 3: valores por defecto del motor 3D (por MMIO). En las R6xx RAMCFG y SX_DEBUG_1 están en
+     * otro sitio, y SMX_DC_CTL0, DB_DEBUG3 y DB_DEBUG4 no se leen (son de las R7xx). */
+    etapa = 3;
+    r7_leituras_t le;
+    memset(&le, 0, sizeof le);
+    le.mc_arb_ramcfg = rd(r7 ? R7_MC_ARB_RAMCFG : R6_RAMCFG);
+    le.cc_gc_shader_pipe_config = rd(R7_CC_GC_SHADER_PIPE_CONFIG);
+    le.cc_rb_backend_disable = rd(R7_CC_RB_BACKEND_DISABLE);
+    le.ta_cntl_aux = rd(R7_TA_CNTL_AUX);
+    le.sx_debug_1 = rd(r7 ? R7_SX_DEBUG_1 : R6_SX_DEBUG_1);
+    if (r7) { le.smx_dc_ctl0 = rd(R7_SMX_DC_CTL0); le.db_debug3 = rd(R7_DB_DEBUG3); le.db_debug4 = rd(R7_DB_DEBUG4); }
+    le.sq_config = rd(R7_SQ_CONFIG);
+    le.sq_ms_fifo_sizes = rd(R6_SQ_MS_FIFO_SIZES);
     static r6_par_t pares[R7_INICIO_MAX];
     uint32_t max_ctx = 4;
-    int np = r7_inicio_motor(familia, &le, pares, R7_INICIO_MAX, &max_ctx);
+    int np = r63d_inicio_motor(familia, &le, pares, R7_INICIO_MAX, &max_ctx);
     if (np < 0) { snformatar(m, (size_t)nm, "sin tabla de inicio para la familia %d", familia); return false; }
     for (int i = 0; i < np; i++) wr(pares[i].reg, pares[i].valor);
     uint32_t inativas = (le.cc_gc_shader_pipe_config >> 8) & 0xFFu;
     qd_pipes = 0;
     for (int i = 0; i < 8; i++) if (!(inativas & (1u << i))) qd_pipes++;
     if (!qd_pipes) qd_pipes = 1;
-    klog("[GPU3D] r600: etapa 3: motor 3D con %d registros por defecto (MC_ARB_RAMCFG %x, tuberias %x, backends %x, GB_TILING_CONFIG %x, %u tuberias activas)\n",
+    klog("[GPU3D] r600: etapa 3: motor 3D con %d registros por defecto (RAMCFG %x, tuberias %x, backends %x, GB_TILING_CONFIG %x, %u tuberias activas)\n",
          np, le.mc_arb_ramcfg, le.cc_gc_shader_pipe_config, le.cc_rb_backend_disable, rd(0x98F0), qd_pipes);
 
     /* Etapa 4: la cola (64 KB en VRAM), sin escritura de vuelta del puntero. */
+    etapa = 4;
     cp_reiniciar();
     uint32_t cntl = (9u << 8) | 13u;   /* log2(4096 / 8) y log2(65536 / 8) */
     wr(R6_CP_RB_CNTL, cntl);
@@ -340,13 +389,14 @@ static bool ligar_cp(char *m, int nm)
     static uint32_t b[1024];
     r6_lote_t l;
     r63d_lote(&l, b, 16);
-    r63d_me_initialize(&l, true, max_ctx);
+    r63d_me_initialize(&l, r7, max_ctx);
     cp_ligado = true;
     for (int i = 0; i < l.n; i++) { ring[wptr] = l.p[i]; wptr++; }
     avisar();
     wr(R6_CP_ME_CNTL, 0xFF);
     klog("[GPU3D] r600: etapa 4: cola en MC %x, CP en marcha (CP_ME_CNTL %x, RPTR %x, WPTR %x)\n", mc_zona, rd(R6_CP_ME_CNTL),
          rd(R6_CP_RB_RPTR), wptr);
+    etapa = 5;
     wr(SCRATCH_TESTE, 0xCAFEDEADu);
     r63d_lote(&l, b, 16);
     r63d_teste_cola(&l, SCRATCH_TESTE, 0xDEADBEEFu);
@@ -362,19 +412,20 @@ static bool ligar_cp(char *m, int nm)
     klog("[GPU3D] r600: etapa 5: prueba de la cola superada (el CP escribio el registro de apuntes; RPTR %x)\n", rd(R6_CP_RB_RPTR));
 
     /* Etapa 6: sombreadores a la VRAM y estado base del contexto, con una valla. */
+    etapa = 6;
     for (int i = 0; i < 3 * 64; i++) sh[i] = 0;
     uint32_t s[R63D_SH_MAX];
-    int n = r63d_vs(s, true);
+    int n = r63d_vs(s, r7);
     for (int i = 0; i < n; i++) sh[i] = s[i];
-    n = r63d_ps_cor(s, true);
+    n = r63d_ps_cor(s, r7);
     for (int i = 0; i < n; i++) sh[64 + i] = s[i];
-    n = r63d_ps_tex(s, true);
+    n = r63d_ps_tex(s, r7);
     for (int i = 0; i < n; i++) sh[128 + i] = s[i];
     g3d_arena_iniciar(&arena, (uint64_t)mc_zona + FIXO, (uint8_t *)zona + FIXO, zona_bytes - FIXO);
     if (!g3d_buffer_criar(&arena, &b_vb, G3D_BUF_LOTE, VB_BYTES, 4096)) { snformatar(m, (size_t)nm, "sin sitio para los vertices"); return false; }
     vb_usado = 0;
     r63d_lote(&l, b, 1024);
-    r63d_estado_base(&l, familia, true, qd_pipes, mc_zona + RING_BYTES);
+    r63d_estado_base(&l, familia, r7, qd_pipes, mc_zona + RING_BYTES);
     seq = 0x3D000000u;
     wr(SCRATCH_VALLA, seq);
     g3d_vala_t v;
@@ -402,16 +453,27 @@ static void r3_desligar(void)
     klog("[GPU3D] r600: CP parado (CP_ME_CNTL %x); la pantalla sigue como estaba\n", rd(R6_CP_ME_CNTL));
 }
 
+/* D357: «etapa N (nombre): motivo», para que «gpu3d probar» diga dónde se paró sin mirar el log. */
+static void prefixar_etapa(char *m, int nm)
+{
+    char t[160];
+    snformatar(t, sizeof t, "etapa %d (%s): %s", etapa, nome_etapa(etapa), m);
+    snformatar(m, (size_t)nm, "%s", t);
+}
+
 static int r3_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, uint32_t variante, char *m, int nm)
 {
     (void)variante;
 #ifdef SAGUI_SEM_FIRMWARE
-    (void)d; (void)geracao; (void)t; (void)r3_sondar; (void)ligar_cp;
+    (void)d; (void)geracao; (void)t; (void)r3_sondar; (void)ligar_cp; (void)prefixar_etapa;
     snformatar(m, (size_t)nm, "esta compilacion no lleva firmware (SEM_FIRMWARE=1): sin microcodigo no hay 3D");
     return G3D_NAO;
 #else
-    if (!r3_sondar(d, geracao, t, m, nm)) return G3D_NAO;        /* solo leyó: no es un fallo de la GPU */
+    etapa = 0;
+    if (!r3_sondar(d, geracao, t, m, nm)) { prefixar_etapa(m, nm); return G3D_NAO; }   /* solo leyó: no es un fallo de la GPU */
     if (ligar_cp(m, nm)) return G3D_OK;
+    prefixar_etapa(m, nm);
+    klog("[GPU3D] r600: el encendido se paro en la etapa %d (%s)\n", etapa, nome_etapa(etapa));
     return tocou ? G3D_FALHA : G3D_NAO;
 #endif
 }
@@ -449,7 +511,7 @@ static int r3_alvo(int larg, int alt, int zbits)
     uint32_t b[64];
     r6_lote_t l;
     r63d_lote(&l, b, 64);
-    r63d_alvo(&l, (uint32_t)b_cor.gpu, (uint32_t)b_z.gpu, passo, alt_buf, larg, alt, zbits, false);
+    r63d_alvo(&l, (uint32_t)b_cor.gpu, (uint32_t)b_z.gpu, passo, alt_buf, larg, alt, zbits, R63D_PRECISA_SBU(familia));
     if (!emitir(&l)) return G3D_FALHA;
     alvo_l = larg; alvo_a = alt; alvo_passo = passo; alvo_zbits = zbits;
     b_cor.passo = (uint32_t)passo * 4; b_cor.larg = larg; b_cor.alt = alt; b_cor.bpp = 32;
@@ -477,10 +539,11 @@ static bool por_estado(const gpu3d_estado_t *e, uint32_t limpar)
     if (t) r63d_textura(&l, (uint32_t)t->gpu, t->larg, t->alt, (int)(t->passo / 4), !(e->flags & G3D_TEX_REPETE_S),
                         !(e->flags & G3D_TEX_REPETE_T), (e->flags & G3D_TEX_LINEAR) != 0);
     if (limpar)   /* el Z siempre pasa y se escribe con el valor del fondo; el color solo si se pide */
-        r63d_estado(&l, (limpar & 2) != 0, true, 7, false, 1, 0, (limpar & 1) != 0, 0, 0, alvo_l, alvo_a, false);
+        r63d_estado(&l, (limpar & 2) != 0, true, 7, false, 1, 0, (limpar & 1) != 0, 0, 0, alvo_l, alvo_a, familia == R63D_R600);
     else
         r63d_estado(&l, (e->flags & G3D_Z_TESTE) != 0, (e->flags & G3D_Z_ESCRITA) != 0, zf[e->func_z <= 2 ? e->func_z : 0],
-                    (e->flags & G3D_MEZCLA) != 0, fat[e->mez_orig & 3], fat[e->mez_dest & 3], true, 0, 0, alvo_l, alvo_a, false);
+                    (e->flags & G3D_MEZCLA) != 0, fat[e->mez_orig & 3], fat[e->mez_dest & 3], true, 0, 0, alvo_l, alvo_a,
+                    familia == R63D_R600);
     if (!emitir(&l)) return false;
     if (limpar) est_valido = false;
     else { est_posto = *e; est_valido = true; }
@@ -502,7 +565,7 @@ static int vertices(const gpu3d_vert_t *v, int n)
     uint32_t b[32];
     r6_lote_t l;
     r63d_lote(&l, b, 32);
-    r63d_desenhar(&l, (uint32_t)b_vb.gpu + vb_usado, n, 4, familia == R63D_RV710);
+    r63d_desenhar(&l, (uint32_t)b_vb.gpu + vb_usado, n, 4, R63D_SEM_CACHE_VTX(familia));
     if (!emitir(&l)) return G3D_FALHA;
     vb_usado += bytes;
     pendente = true;

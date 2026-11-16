@@ -26,6 +26,8 @@
 #include "disco.h"
 #include "memoria.h"
 #include "memalta.h"
+#include "troca.h"
+#include "compressor.h"
 
 static int falhas;
 
@@ -512,6 +514,84 @@ static void teste_smp(void)
          cpu_pilha(0) ? CPU_PILHA_KERNEL : 0);
 }
 
+/* D352: la swap comprimida. El compresor con varios tipos de página, y un espacio con
+ * páginas de patrones que se sacan a la swap, se traen (espaco_traduzir) y se comparan; al
+ * destruirlo vuelve toda la memoria, almacén incluido. */
+static uint32_t semente_troca = 7;
+static uint32_t aleatorio_troca(void) { semente_troca = semente_troca * 1103515245u + 12345u; return semente_troca >> 8; }
+
+static void pagina_padrao(uint8_t *p, uint32_t i)
+{
+    for (uint32_t k = 0; k < PAGINA; k++) {
+        switch (i % 5) {
+        case 0: p[k] = (uint8_t)(k / 16 + i); break;                         /* comprime bien */
+        case 1: p[k] = 0; break;                                             /* a cero */
+        case 2: p[k] = (uint8_t)aleatorio_troca(); break;                   /* no comprime */
+        case 3: p[k] = (k & 7) ? (uint8_t)i : (uint8_t)aleatorio_troca(); break;   /* a medias */
+        default: p[k] = "texto de prueba de la swap, "[k % 28]; break;
+        }
+    }
+}
+
+static void teste_troca(void)
+{
+    static uint8_t a[PAGINA], c[PAGINA], d[PAGINA];
+    uint32_t ok = 0;
+    for (uint32_t i = 0; i < 50; i++) {
+        pagina_padrao(a, i);
+        uint32_t n = comp_pagina(a, c, 3068);
+        if (i % 5 == 2) { confere(n == 0, "uma página aleatória não comprime"); continue; }
+        confere(n > 0, "a página comprime");
+        if (n && descomp_pagina(c, n, d) && memcmp(a, d, PAGINA) == 0) ok++;
+        if (n) { c[n / 2] ^= 0x55; descomp_pagina(c, n, d); }   /* corrupto: no debe salirse */
+    }
+    confere(ok == 40, "comprimir e descomprimir devolve o mesmo");
+    klog("[TESTE] troca: compresor %u/40 paginas iguais\n", ok);
+    if (!troca_ativa()) { klog("[TESTE] troca: swap desativada, so o compressor\n"); return; }
+
+    const uint32_t N = 64, v0 = USUARIO_INICIO;
+    uint32_t livres0 = memfisica_livres() + memfisica_livres_alta();
+    espaco_t e = espaco_criar();
+    confere(e != 0, "espaço criado");
+    confere(espaco_alocar(e, v0, N * PAGINA, PG_USUARIO | PG_ESCRITA | PG_NX), "64 páginas");
+    semente_troca = 7;
+    for (uint32_t i = 0; i < N; i++) {
+        pagina_padrao(a, i);
+        fisica_escrever(espaco_traduzir(e, v0 + i * PAGINA, NULL), a, PAGINA);
+    }
+    for (uint32_t volta = 0; volta < 3; volta++) {
+        uint32_t fora = troca_sacar_faixa(e, v0, v0 + N * PAGINA);
+        uint32_t na_troca = espaco_paginas_troca(e);
+        klog("[TESTE] troca: volta %u: %u paginas na swap (%u presentes)\n", volta, na_troca, espaco_paginas_usuario(e));
+        confere(fora == N - N / 5 - 1 && na_troca == fora, "todas menos as aleatórias vão para a swap");
+        semente_troca = 7;
+        uint32_t iguais = 0;
+        for (uint32_t i = 0; i < N; i++) {
+            pagina_padrao(a, i);
+            uint32_t fl = 0;
+            fis_t f = espaco_traduzir(e, v0 + i * PAGINA, &fl);
+            if (f) fisica_ler(f, d, PAGINA);
+            if (f && memcmp(a, d, PAGINA) == 0 && (fl & PG_ESCRITA) && (fl & PG_USUARIO)) iguais++;
+        }
+        confere(iguais == N, "as páginas voltam iguais e com os mesmos permissos");
+        confere(espaco_paginas_troca(e) == 0, "nada fica na swap depois de traduzir");
+    }
+    troca_sacar_faixa(e, v0, v0 + N * PAGINA);
+    espaco_ajustar(e, v0, PAGINA, 0, PG_ESCRITA);   /* na swap: o permisso muda na entrada */
+    uint32_t fl = 0;
+    espaco_traduzir(e, v0, &fl);
+    confere(!(fl & PG_ESCRITA), "mprotect sobre uma página na swap se conserva");
+    troca_sacar_faixa(e, v0, v0 + N * PAGINA);
+    confere(espaco_tirar(e, v0 + PAGINA) == 0 && !espaco_existe(e, v0 + PAGINA), "tirar uma página da swap a solta");
+    espaco_destruir(e);
+    troca_est_t t;
+    troca_estatisticas(&t);
+    klog("[TESTE] troca: saidas %u entradas %u rejeitadas %u almacen %u paginas, %u na swap\n",
+         t.saidas, t.entradas, t.rejeitadas, t.armazem_paginas, t.paginas);
+    confere(t.paginas == 0 && t.armazem_paginas == 0, "o almacén fica vazio");
+    confere(memfisica_livres() + memfisica_livres_alta() + 1 >= livres0, "destruir devolve toda a memória");
+}
+
 static const autoteste_t testes[] = {
     { "divisao", teste_divisao },
     { "relogio", teste_relogio },
@@ -527,6 +607,7 @@ static const autoteste_t testes[] = {
     { "sem_irq12", teste_sem_irq12 },
     { "usb_setores", teste_usb_setores },
     { "smp", teste_smp },
+    { "troca", teste_troca },
 };
 
 void autoteste_executar(const char *nome)

@@ -432,7 +432,11 @@ static int cf_cargar(bool actualizar)
     int n = p && p->cantidad ? p->cantidad() : 3;
     if (n < 3) n = 3;
     if (n > PDFW_FAM_MAX + 1) n = PDFW_FAM_MAX + 1;
-    for (int i = 0; i < n; i++) copia_texto(cf_nombres[i], pdfw_nombre_familia(i), sizeof cf_nombres[i]);
+    for (int i = 0; i < n; i++) {
+        /* D356: una familia sin archivos (se quitó la fuente) queda con nombre vacío y no sale en las listas */
+        const char *nm = i < 3 ? pdfw_nombre_familia(i) : (p && p->nombre ? p->nombre(i) : NULL);
+        copia_texto(cf_nombres[i], nm ? nm : "", sizeof cf_nombres[i]);
+    }
     cf_n = n;
     return n;
 }
@@ -462,6 +466,7 @@ static char minus(char c) { return c >= 'A' && c <= 'Z' ? (char)(c + 32) : c; }
 /* ¿El nombre contiene el filtro (sin distinguir mayúsculas)? */
 static bool cf_casa(const char *nombre, const char *filtro)
 {
+    if (!nombre[0]) return false;
     if (!filtro[0]) return true;
     for (const char *s = nombre; *s; s++) {
         const char *a = s, *b = filtro;
@@ -804,7 +809,7 @@ static int combo_fuentes_abrir(jan_t *j, combo_fuentes_t *c)
     memset(&busca, 0, sizeof busca);
     busca.x = px + 3; busca.y = py + 2; busca.l = l - 6; busca.foco = true;
     int n = 0, sel = -1, topo = 0, res = -1;
-    for (int i = 0; i < cf_n; i++) { map[n++] = i; if (i == c->fam) sel = n - 1; }
+    for (int i = 0; i < cf_n; i++) { if (!cf_nombres[i][0]) continue; map[n++] = i; if (i == c->fam) sel = n - 1; }
     if (sel < 0) sel = 0;
     if (sel >= filas) topo = sel - filas + 1;
     bool redib = true;

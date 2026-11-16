@@ -44,6 +44,7 @@ bool sou_root(void);
 #include "vncd_estado.h"
 #include "mandos.h"
 #include "contas_gestao.h"   /* D340: Usuarios (sin contas.h: tiene su propio conf_gravar) */
+#include "opcoes_kernel.h"   /* D353: Pantalla > Kernel */
 
 #define DIR_CONF   "/home/.config"
 #define ARQ_CONF   "/home/.config/sagui.conf"
@@ -472,8 +473,8 @@ static void acel_ler_estado(void)
     info_sistema(INFO_GPU3D, &ac3, sizeof ac3);
 }
 
-/* Tarjetas con 3D sin probar en hardware (D284, D287): R5xx y R7xx. */
-static bool acel_3d_experimental(void) { return contem(ac3.placa, "R5xx") || contem(ac3.placa, "R7xx"); }
+/* Tarjetas con 3D sin probar en hardware (D284, D287, D357): R5xx, R6xx y R7xx. */
+static bool acel_3d_experimental(void) { return contem(ac3.placa, "R5xx") || contem(ac3.placa, "R6xx") || contem(ac3.placa, "R7xx"); }
 static bool acel_3d_hay_driver(void) { return ac3.estado != GPU3D_SEM_GPU && ac3.estado != GPU3D_DESATIVADO; }
 
 static const char *acel_texto_2d(void)
@@ -1090,6 +1091,7 @@ static int     vista_i = -1;
 static botao_t b_fnt[3] = { { FN_VX, Y_PAG + 276, 150, 28, N_("Para documentos"), false },
                             { FN_VX + 158, Y_PAG + 276, 120, 28, N_("Para títulos"), false },
                             { FN_VX + 286, Y_PAG + 276, 90, 28, N_("Quitar"), false } };
+static botao_t b_fnt_inst = { 24, Y_PAG + 276, 190, 28, N_("Instalar fuentes..."), false };   /* D356: abre «fuentes --ventana» */
 #define TXT_MUESTRA "El veloz murciélago hindú comía feliz cardillo y kiwi"
 #define TXT_CIFRAS  "ABC abc 0123456789 ¿?¡!"
 
@@ -1157,6 +1159,8 @@ static void fuentes_desenhar(void)
             g_texto(jn, 24, Y_PAG + 40, b, COR_TEXTO_FRACO);
         }
         g_texto(jn, 24, Y_PAG + 60, _("Las de Typodermic (CC0) vienen en la partición SAGUI-APPS."), COR_TEXTO_FRACO);
+        b_fnt_inst.y = Y_PAG + 90;
+        botao_desenhar(jn, &b_fnt_inst);
         return;
     }
     formatar_texto(t, sizeof t, _("%d fuentes (%s, %s)"), n_fnt, FUENTES_DIR_APPS, FUENTES_DIR_HOME);
@@ -1173,6 +1177,8 @@ static void fuentes_desenhar(void)
     formatar_texto(t, sizeof t, _("Títulos:     %s"), conf.fuente_tit[0] ? nombre_ruta(conf.fuente_tit) : _("(ninguna)"));
     g_texto_n(jn, FN_VX, Y_PAG + FN_VA + 56, t, FN_VL / LETRA_L, COR_TEXTO);
     for (int i = 0; i < 3; i++) botao_desenhar(jn, &b_fnt[i]);
+    b_fnt_inst.y = Y_PAG + 276;
+    botao_desenhar(jn, &b_fnt_inst);
 }
 
 /* ------------------------------------------------------------ la IA (D145) */
@@ -1949,8 +1955,10 @@ static bool us_tratar(const evento_t *e)
 }
 
 /* Pantalla > Aceleración gráfica (D323). La página Pantalla tiene dos vistas: la resolución de siempre y esta. */
-static int sub_tela;   /* 0 = Resolución, 1 = Aceleración gráfica */
-static botao_t b_sub[2] = { { 436, Y_PAG + 2, 150, 26, "Resolución", false }, { 592, Y_PAG + 2, 190, 26, "Aceleración gráfica", false } };
+static int sub_tela;   /* 0 = Resolución, 1 = Aceleración gráfica, 2 = Kernel (D353) */
+#define N_SUB 3
+static botao_t b_sub[N_SUB] = { { 414, Y_PAG + 2, 110, 26, "Resolución", false }, { 526, Y_PAG + 2, 180, 26, "Aceleración gráfica", false },
+                                { 708, Y_PAG + 2, 74, 26, N_("Kernel"), false } };
 #define AC_X0   180            /* primera columna de botones */
 #define AC_PASO 124
 #define AC_Y0   (Y_PAG + 122)  /* fila 2D; las demás, AC_FILA más abajo */
@@ -2105,6 +2113,117 @@ static void acel_desenhar(void)
     botao_desenhar(jn, &b_acr);
 }
 
+/* Pantalla > Kernel (D353): las opciones del kernel que se guardan en la cabecera de arranque y valen al
+ * reiniciar (lo mismo que la orden «kconfig»). Está aquí, como tercera vista de Pantalla, porque no cabe otra
+ * pestaña y la aceleración (con el DMA y la caché del disco de D323) ya vive en esta página. Cada fila: el valor
+ * de ahora, el del siguiente arranque, «Cambiar» (el siguiente de su ciclo) y «De la imagen». Cambiar pide
+ * administrador (D269). */
+#define KC_Y0   (Y_PAG + 74)
+#define KC_FILA 21   /* 13 filas caben sobre el aviso de /home (ALT - 62) */
+static info_kconf_t kc[KCONF_MAX];
+static int kc_n;
+static unsigned kc_est;
+static botao_t b_kc[KCONF_MAX][2];
+static botao_t b_kcr = { 24, KC_Y0 + 13 * KC_FILA + 4, 344, 26, N_("Valores de la imagen (borrar lo guardado)"), false };
+
+static void kc_preparar(void)
+{
+    kc_n = kconf_ler(kc, KCONF_MAX, &kc_est);
+    if (kc_n < 0) kc_n = 0;
+    if (kc_n > 13) kc_n = 13;   /* las que caben; la orden «kconfig» las enseña todas */
+    for (int i = 0; i < kc_n; i++) {
+        int y = KC_Y0 + i * KC_FILA;
+        b_kc[i][0] = (botao_t){ 528, y, 96, 20, N_("Cambiar"), false };
+        b_kc[i][1] = (botao_t){ 628, y, 130, 20, N_("De la imagen"), false };
+    }
+    b_kcr.y = KC_Y0 + kc_n * KC_FILA + 4;
+}
+
+static bool kc_permiso(void)
+{
+    if (sou_root()) return true;
+    if (elevar_grafico(_("cambiar las opciones del kernel")) == 0) return true;
+    dizer(_("Sin permisos de administrador no se pueden cambiar las opciones del kernel."));
+    return false;
+}
+
+static void kc_resultado(int r, const info_kconf_t *o)
+{
+    if (r == ERRO_SO_LEITURA) { dizer(_("Arranque desde CD: no se puede guardar.")); return; }
+    if (r < 0) { formatar_texto(estado, sizeof estado, _("No se pudo guardar: %s"), nome_erro(r)); return; }
+    kc_preparar();
+    if (!o) { dizer(_("Borrado lo guardado: al reiniciar, los valores de la imagen.")); return; }
+    for (int i = 0; i < kc_n; i++)
+        if (kc[i].hueco == o->hueco) {
+            char t[24];
+            kconf_texto_valor(&kc[i], kc[i].proximo, t, sizeof t);
+            formatar_texto(estado, sizeof estado, kconf_pide_reinicio(&kc[i]) ? _("%s: %s; se aplica al reiniciar") : _("%s: %s"),
+                           kconf_rotulo(kc[i].nome), t);
+        }
+}
+
+static bool kc_tratar(const evento_t *e)
+{
+    bool mudou = false;
+    for (int i = 0; i < kc_n; i++)
+        for (int k = 0; k < 2; k++)
+            if ((k == 0 || kc[i].guardado) && botao_tratar(jn, &b_kc[i][k], e)) {
+                mudou = true;
+                if (!kc_permiso()) continue;
+                info_kconf_t o = kc[i];
+                int r = k == 0 ? kconf_fijar(o.hueco, kconf_siguiente(&o, o.proximo)) : kconf_quitar(o.hueco);
+                registrar("configuracion: kernel %s %s -> %d", o.nome, k == 0 ? "cambiar" : "imagen", r);
+                kc_resultado(r, &o);
+                elevacao_soltar();
+            }
+    if (botao_tratar(jn, &b_kcr, e)) {
+        mudou = true;
+        if (kc_permiso()) {
+            int r = kconf_quitar_todo();
+            registrar("configuracion: kernel valores de la imagen -> %d", r);
+            kc_resultado(r, NULL);
+            elevacao_soltar();
+        }
+    }
+    return mudou;
+}
+
+static void kc_desenhar(void)
+{
+    char t[200], a[24], b[24];
+    titulo_pag(24, Y_PAG + 8, _("Opciones del kernel"));
+    g_texto_n(jn, 24, Y_PAG + 32, _("Se aplican al reiniciar. Si no arranca: Ctrl al arrancar y «kconfig --por-defecto»."),
+              (LARG - 48) / LETRA_L, 0xB03000);
+    if (kc_est & KCONF_EST_RESCATE) copia_texto(t, _("Modo rescate: lo guardado no se aplica en este arranque."), sizeof t);
+    else if (kc_est & KCONF_EST_CD) copia_texto(t, _("Arranque desde CD: no se puede guardar nada."), sizeof t);
+    else if (kc_est & KCONF_EST_DANADA) copia_texto(t, _("Lo guardado está dañado y no se aplica."), sizeof t);
+    else t[0] = 0;
+    g_retangulo(jn, 24, KC_Y0 - 6, LARG - 48, 1, COR_BORDA);
+    g_texto(jn, 24, KC_Y0 - 22, t[0] ? t : _("Opción"), t[0] ? 0xB03000 : COR_TEXTO_FRACO);
+    if (!t[0]) {
+        g_texto(jn, 292, KC_Y0 - 22, _("Ahora"), COR_TEXTO_FRACO);
+        g_texto(jn, 402, KC_Y0 - 22, _("Al reiniciar"), COR_TEXTO_FRACO);
+    }
+    if (!kc_n) g_texto(jn, 24, KC_Y0 + 6, _("Este kernel no tiene opciones guardables."), COR_TEXTO);
+    for (int i = 0; i < kc_n; i++) {
+        const info_kconf_t *o = &kc[i];
+        int y = KC_Y0 + i * KC_FILA;
+        g_texto_n(jn, 24, y + 4, kconf_rotulo(o->nome), 33, COR_TEXTO);
+        kconf_texto_valor(o, o->efetivo, a, sizeof a);
+        kconf_texto_valor(o, o->proximo, b, sizeof b);
+        g_texto_n(jn, 292, y + 4, a, 13, COR_TEXTO);
+        bool r = kconf_pide_reinicio(o);
+        if (o->guardado) formatar_texto(t, sizeof t, "%s%s", b, r ? " *" : "");
+        else copia_texto(t, b, sizeof t);
+        g_texto_n(jn, 402, y + 4, t, 15, r ? 0xB03000 : o->guardado ? COR_TEXTO : COR_TEXTO_FRACO);
+        b_kc[i][1].apertado = false;
+        botao_desenhar(jn, &b_kc[i][0]);
+        if (o->guardado) botao_desenhar(jn, &b_kc[i][1]);
+    }
+    botao_desenhar(jn, &b_kcr);
+    g_texto_n(jn, 380, b_kcr.y + 6, _("* = cambia al reiniciar"), (LARG - 404) / LETRA_L, COR_TEXTO_FRACO);
+}
+
 static void desenhar_pagina(void)
 {
     char t[160];
@@ -2125,6 +2244,8 @@ static void desenhar_pagina(void)
         titulo_pag(24, Y_PAG + 8, t);
         lista_desenhar(jn, &lista_zona);
         botao_desenhar(jn, &b_zona);
+    } else if (pagina == P_TELA && sub_tela == 2) {
+        kc_desenhar();
     } else if (pagina == P_TELA && sub_tela == 1) {
         acel_desenhar();
     } else if (pagina == P_TELA) {
@@ -2280,7 +2401,7 @@ static void desenhar(void)
     g_retangulo(jn, 10, Y_PAG - 6, LARG - 20, 1, COR_BORDA);
     desenhar_pagina();
     if (pagina == P_TELA) {   /* D323: las dos vistas de Pantalla */
-        for (int i = 0; i < 2; i++) { b_sub[i].apertado = sub_tela == i; botao_desenhar(jn, &b_sub[i]); }
+        for (int i = 0; i < N_SUB; i++) { b_sub[i].apertado = sub_tela == i; botao_desenhar(jn, &b_sub[i]); }
     }
     if (!persiste) g_texto_n(jn, 14, ALT - 62, _("Aviso: /home no es un disco persistente: los cambios no se recordarán."), (LARG - 28) / LETRA_L, 0xB03000);
     g_texto_n(jn, 14, ALT - 38, estado, (LARG - 130) / LETRA_L, COR_TEXTO_FRACO);
@@ -2584,7 +2705,7 @@ static int janela(void)
                 pagina = i;
                 registrar("configuracion: pagina %s", titulos_pag[i]);
                 if (i == P_SOM) mic_abrir(); else mic_cerrar();   /* D292 */
-                if (i == P_TELA) { ler_modos_video(); if (sub_tela == 1) acel_preparar(); }
+                if (i == P_TELA) { ler_modos_video(); if (sub_tela == 1) acel_preparar(); if (sub_tela == 2) kc_preparar(); }
                 if (i == P_IA) ia_preparar();   /* relee lo guardado (D145) */
                 if (i == P_FUENTES) fuentes_preparar();   /* (D196) */
                 if (i == P_VNC) vnc_refrescar();
@@ -2594,17 +2715,19 @@ static int janela(void)
                 mudou = true;
             }
         if (pagina == P_TELA)
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < N_SUB; i++)
                 if (botao_tratar(jn, &b_sub[i], &e)) {
                     sub_tela = i;
-                    if (i == 1) acel_preparar(); else ler_modos_video();
-                    registrar("configuracion: pantalla vista %s", i ? "aceleracion" : "resolucion");
+                    if (i == 1) acel_preparar(); else if (i == 2) kc_preparar(); else ler_modos_video();
+                    registrar("configuracion: pantalla vista %s", i == 2 ? "kernel" : i ? "aceleracion" : "resolucion");
                     mudou = true;
                 }
         if (pagina == P_MANDOS) {
             if (md_tratar(&e)) mudou = true;
         } else if (pagina == P_USUARIOS) {
             if (us_tratar(&e)) mudou = true;
+        } else if (pagina == P_TELA && sub_tela == 2) {
+            if (kc_tratar(&e)) mudou = true;
         } else if (pagina == P_TELA && sub_tela == 1) {
             if (acel_tratar(&e)) mudou = true;
         } else if (pagina == P_TECLADO) {
@@ -2849,6 +2972,11 @@ static int janela(void)
             if (botao_tratar(jn, &b_vnc_des, &e)) { vnc_desconectar_sel(); vnc_refrescar(); mudou = true; }
             mudou = true;
         } else if (pagina == P_FUENTES) {
+            if (botao_tratar(jn, &b_fnt_inst, &e)) {   /* D356: instalar y quitar fuentes (para la cuenta o para todas) */
+                char *av[3] = { "fuentes", "--ventana", NULL };
+                executar("/bin/fuentes", av);
+                mudou = true;
+            }
             if (n_fnt > 0) {
                 int at = lista_tratar(jn, &lista_fnt, &e);
                 if (at) { fuentes_vista(); mudou = true; }

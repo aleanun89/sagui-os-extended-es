@@ -29,6 +29,10 @@ void cache_disco_tarefa_iniciar(void);         /* la tarea que vacía cada pocos
 typedef struct {
     uint32_t blocos, max_blocos, sujos, max_sujos;
     uint32_t acertos, falhas, anticipados, gravados, vaciados, erros, diretos;
+    /* D350: bloques con los datos en la memoria alta, bloques devueltos a los programas (reclamo
+     * de memfisica_alocar_usuario y tarea), reclamos atendidos y reclamos con la caché ocupada,
+     * páginas altas que la caché deja siempre libres. */
+    uint32_t altos, cedidos, reclamos, reclamos_ocupada, reserva;
 } cache_disco_est_t;
 void cache_disco_estatisticas(cache_disco_est_t *e);
 void cache_disco_registar(void);                /* una línea [CACHE] en el log con las cifras */

@@ -8,6 +8,11 @@
 #define PG_ESCRITA   0x002
 #define PG_USUARIO   0x004
 #define PG_EMPRESTADA 0x200   /* bit libre para el sistema: página que no es del proceso (ej.: píxeles de ventana) */
+#define PG_ACESSADA  0x020   /* A: el hardware la pone al usar la entrada (reloj de la swap, D352) */
+#define PG_SUJA      0x040   /* D: el hardware la pone al escribir */
+/* D352: bit libre para el sistema (11): la página no comprimió bien la última vez que se
+ * intentó sacarla a la swap. Vale mientras D siga a cero (no se ha escrito desde entonces). */
+#define PG_INCOMPRIMIVEL 0x800
 /* Tipo de memoria de una página de 4 KB: índice en la PAT = PAT*4 + PCD*2 + PWT.
  * El wc.c reprograma la entrada 1 (solo PWT) para write-combining (D057). */
 #define PG_PWT       0x008
@@ -122,6 +127,24 @@ fis_t    espaco_tirar(espaco_t e, uint32_t virt);
 
 /* Asigna páginas nuevas y a cero para [virt, virt+bytes) en el espacio del usuario. */
 bool     espaco_alocar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t flags);
+
+/* D352: la página existe para el programa (presente o sacada a la swap comprimida). Para
+ * contar o comprobar sin traerla: espaco_traduzir() trae de la swap la que está fuera. */
+bool     espaco_existe(espaco_t e, uint32_t virt);
+uint32_t espaco_paginas_troca(espaco_t e);   /* D352: páginas del programa en la swap */
+
+/* D352: acceso a las entradas de tabla de páginas de los programas para la swap (troca.c).
+ * espaco_pte() da la entrada de "virt" (zona del programa) si su tabla existe, o NULL; las
+ * entradas se leen y escriben con estas funciones, que saben el tamaño (4 u 8 bytes). */
+void    *espaco_pte(espaco_t e, uint32_t virt);
+uint32_t paginacao_bloco(void);              /* lo que cubre una tabla: 4 MB, o 2 MB con PAE */
+pte_t    pte_ler(const void *p);
+void     pte_gravar(void *p, pte_t v);       /* el valor ya hecho (pte_valor o una entrada de swap) */
+pte_t    pte_valor(fis_t fis, uint32_t flags);
+fis_t    pte_endereco(pte_t v);
+uint32_t pte_flags(pte_t v);                 /* banderas del API (PG_NX incluida) */
+void     pte_mudar(void *p, uint32_t por, uint32_t tirar);   /* bits bajos de una entrada presente, atómico */
+pte_t    pte_esvaziar(void *p);              /* la pone a 0 de forma atómica y devuelve lo que tenía */
 
 /* Mapea una franja física alta (vídeo, USB) en la ventana del kernel; devuelve la
  * dirección virtual. */

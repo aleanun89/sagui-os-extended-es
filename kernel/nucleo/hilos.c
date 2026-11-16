@@ -51,7 +51,9 @@ static uint32_t pilha_de_hilo(processo_t *l, processo_t *t, uint32_t arg)
     if (!pilha_crescer(t, topo)) return 0;   /* la primera página; las demás, al tocarlas */
     /* D348: la página puede ser alta: se escribe por una ventana temporal. */
     uint32_t palavras[2] = { 0, arg };   /* retorno (la función del hilo no vuelve) y su argumento */
-    fisica_escrever(espaco_traduzir(l->espaco, topo, NULL), palavras, sizeof palavras);
+    fis_t f = espaco_traduzir(l->espaco, topo, NULL);   /* D352: puede estar en la swap (hueco reutilizado) */
+    if (!f) return 0;
+    fisica_escrever(f, palavras, sizeof palavras);
     return topo;
 }
 

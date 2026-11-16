@@ -759,6 +759,7 @@ int32_t sis_fechar_janela(uint32_t id, uint32_t b, uint32_t c, uint32_t d, uint3
     (void)b; (void)c; (void)d; (void)e;
     janela_t *j = janela_do_processo((int)id);
     if (!j) return ERRO_INVALIDO;
+    if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351: otro hilo puede dormir escribiendo en sus píxeles */
     destruir((int)(j - janelas));
     gui_mostrar();
     return 0;
@@ -1341,6 +1342,7 @@ int32_t sis_redimensionar_janela(uint32_t id, uint32_t dims, uint32_t ppixels, u
         return ERRO_INVALIDO;
     if (ppixels && !usuario_ok((void *)ppixels, 4, true)) return ERRO_ENDERECO;
     if (l != j->larg || a != j->alt) {
+        if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351: se quitan las páginas de los píxeles */
         uint32_t paginas = ((uint32_t)(l * a) * 4 + PAGINA - 1) / PAGINA;
         uint32_t fis = memfisica_alocar_seguidas(paginas);
         if (!fis) return ERRO_SEM_MEMORIA;

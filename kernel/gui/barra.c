@@ -648,7 +648,7 @@ static void painel_desenhar(superficie_t *s)
                 snformatar(t, sizeof t, "%s (%u %%)%s", wf.ssid, wf.qualidade,
                            wf.seguranca == WIFI_WEP ? _(" WEP: INSEGURA") : (wf.detalhe & WIFI_DET_TKIP) ? _(" TKIP: débil") :
                            wf.seguranca == WIFI_WPA3 ? " WPA3" : "");
-            else snformatar(t, sizeof t, _("sin conectar (wifi buscar)"));
+            else snformatar(t, sizeof t, _("sin conectar (clic para ver las redes)"));
             linha_painel(s, 28, "Wi-Fi: ", t);
         } else {
             snformatar(t, sizeof t, "%s (%s)", rd.descricao[0] ? rd.descricao : "eth0", rd.driver[0] ? rd.driver : _("sin driver"));
@@ -794,6 +794,13 @@ bool barra_popup_tecla(int t)
 static void bandeja_clicar(int id)
 {
     if (id == IC_VOL && tb.som != AUDIO_FUNCIONANDO) { gui_aviso(_("No hay tarjeta de sonido.")); return; }
+    if (id == IC_REDE && bandeja_wifi()) {   /* D354: el icono Wi-Fi abre la ventana de redes (sin ser root) */
+        painel_fechar();
+        char *argv[3] = { "wifi", "--ventana", NULL };
+        klog("[GUI] bandeja: wifi -> ventana de redes\n");
+        gui_abrir_unico("wifi", "/bin/wifi", 2, argv);
+        return;
+    }
     painel_abrir(id);
 }
 

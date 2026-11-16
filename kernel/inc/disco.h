@@ -95,6 +95,7 @@ disco_t *disco_indice(int i);
 disco_t *disco_raiz(disco_t *d);                  /* el disco entero de una partición */
 int      disco_ler(disco_t *d, uint32_t lba, uint32_t n, void *buf);
 int      disco_escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf);
+int      disco_escrever_ja(disco_t *d, uint32_t lba, uint32_t n, const void *buf);   /* D353: sin diferir */
 int      disco_sincronizar(disco_t *d);           /* D281: vacía la caché de bloques (NULL = todos) */
 bool     disco_montado(disco_t *d);               /* él o alguna partición suya */
 disco_t *disco_pendrive_montado(void);            /* primer pendrive con algo montado */

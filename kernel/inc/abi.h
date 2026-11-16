@@ -338,6 +338,9 @@ typedef struct {
  * Todas las páginas del rango tienen que estar ya asignadas: si falta alguna,
  * ERRO_SEM_MEMORIA y no se cambia nada (como el ENOMEM de mprotect). */
 #define MEM_PROTEGER  4
+/* D352: (endereço, bytes) -> páginas del rango que están en la swap comprimida al terminar; las
+ * presentes se sacan ya (como MADV_PAGEOUT de Linux; también para las pruebas). 0 sin swap. */
+#define MEM_SACAR     5
 #define MEM_PROT_ESCRITA 2   /* = PROT_WRITE */
 #define MEM_PROT_EXEC    4   /* = PROT_EXEC */
 
@@ -776,7 +779,33 @@ typedef struct {
 #define INFO_GPU3D_PROVA  73  /* (&info_gpu3d_prova_t, sizeof) -> 0: autoprueba y medida, ahora */
 #define INFO_CAB_OPC      78  /* D323: (CAB_OPC_PEDIDO(desplazamiento, máscara, valor), 0) -> 0 / error: cambia bits de la cabecera de arranque del disco de arranque (solo administrador); solo CAB_ACEL2D, CAB_GPU3D y CAB_DISCO_OPC */
 #define CAB_OPC_PEDIDO(d, m, v) ((unsigned)(d) | (unsigned)(m) << 8 | (unsigned)(v) << 16)
-#define INFO_GPU3D_CTL    74  /* (op, 0): 0 = apagar, 1 = encender (lotes), 2 = encender con las órdenes en el anillo */
+/* D353: opciones del kernel que se guardan desde el sistema y valen en el siguiente arranque (kconfig). */
+#define INFO_KCONF        79  /* (info_kconf_t[], n) -> cuántas | KCONF_EST_* << 16: la lista (cualquier usuario) */
+#define INFO_KCONF_GRAVAR 80  /* (KCONF_PEDIDO(op, hueco, valor), 0) -> 0 / error: guarda en la cabecera de arranque (solo administrador) */
+#define KCONF_PEDIDO(op, h, v) ((unsigned)(op) | (unsigned)(h) << 8 | (unsigned)(v) << 16)
+#define KCONF_OP_FIJAR    1   /* guarda "valor" para el hueco */
+#define KCONF_OP_QUITAR   2   /* olvida lo guardado del hueco: vuelve el de la imagen */
+#define KCONF_OP_QUITAR_TODO 3   /* olvida todo (kconfig --por-defecto) */
+#define KCONF_SINO   1        /* 0 = no, 1 = sí */
+#define KCONF_NUM    2        /* 0 = automático, o de min a max */
+#define KCONF_LISTA  3        /* 0 = automático, o de 1 a max (los nombres los pone el programa) */
+#define KCONF_EST_RESCATE  1  /* este arranque es el modo rescate: lo guardado no se aplicó */
+#define KCONF_EST_DANADA   2  /* la zona guardada no pasa la suma: no se aplicó */
+#define KCONF_EST_CD       4  /* arranque desde CD: no se puede guardar */
+#define KCONF_IGN_RANGO    1  /* info_kconf_t.ignorada: el valor guardado está fuera de rango */
+#define KCONF_IGN_RESCATE  2  /* info_kconf_t.ignorada: no se aplicó por el modo rescate */
+typedef struct {
+    char           nome[24];     /* la clave de kconfig: "pae", "cache_max_mb"... */
+    unsigned char  hueco, tipo;  /* KCONF_SINO, KCONF_NUM, KCONF_LISTA */
+    unsigned char  guardado;     /* 1 si hay un valor guardado (lo de "valor_guardado") */
+    unsigned char  ignorada;     /* KCONF_IGN_*: lo guardado no se aplicó en este arranque */
+    unsigned short min, max;
+    unsigned short imagem;       /* el de la imagen (mkimagem.py) */
+    unsigned short valor_guardado;
+    unsigned short efetivo;      /* el de este arranque (el gobernador: el de ahora) */
+    unsigned short proximo;      /* el del siguiente arranque: el guardado o, sin él, el de la imagen */
+} info_kconf_t;
+#define INFO_GPU3D_CTL    74  /* (op, 0): 0 = apagar, 1 = encender (lotes), 2 = encender con las órdenes en el anillo; D358: 3/4 = como 1/2 con RAM en el GTT (Intel Gen3) */
 
 /* Captura de sonido / micrófono (D292). Una sola llamada, como la cámara: info_sistema(INFO_CAPTURA,
  * &info_captura_t, sizeof). El campo "orden" dice qué se pide; el resultado va también en "resultado".
@@ -970,12 +999,16 @@ typedef struct {
     unsigned int triangulos, lotes, quadros, falhas, recusas;   /* desde el arranque */
     unsigned int us_autoprova;
     unsigned int memoria_kb, livre_kb;   /* memoria de GPU de la capa */
-    unsigned int variante;      /* 0 = lotes (batch buffers), 1 = órdenes en el anillo */
+    unsigned int variante;      /* bits GPU3D_VAR_*: 0 = lotes (batch buffers), 1 = órdenes en el anillo */
     unsigned int prazo_ms;      /* plazo del vigilante */
     unsigned int pontos;        /* última puntuación 3D medida (0 = sin medir) */
     unsigned int tri_s, kpix_s; /* y sus medidas */
-    unsigned int reservado[6];
+    unsigned int reservado[6];  /* D358: [0] = KB de RAM del sistema en el GTT (con GPU3D_VAR_GTT) */
 } info_gpu3d_t;
+/* D358: info_gpu3d_t.variante, lo que de verdad quedó en marcha (bits). */
+#define GPU3D_VAR_ANEL      0x01  /* órdenes en el anillo (pedido, o el lote no se ejecutaba) */
+#define GPU3D_VAR_GTT       0x02  /* destino en la RAM del sistema mapeada en el GTT (Intel Gen3) */
+#define GPU3D_VAR_GTT_TEX   0x04  /* y también las texturas */
 
 #define GPU3D_N_PROVAS 8
 typedef struct {
@@ -1560,10 +1593,23 @@ typedef struct {
     /* D349: de la alta, la que está por encima de 4 GB (solo con PAE). */
     unsigned int superior_gerida_kb;
     unsigned int superior_livre_kb;
-    unsigned int reservado[2];
+    /* D350: la caché de disco (eran «reservado», a cero; mismo tamaño, así que los programas que
+     * ya pedían sizeof(info_memoria_t) los reciben). Cuenta como usada en gerida/livre/usada (y
+     * en alta_* lo que está en la alta), pero se devuelve a los programas cuando la piden. */
+    unsigned int cache_kb;       /* bloques de la caché de disco */
+    unsigned int cache_alta_kb;  /* de ellos, con los datos en la memoria alta o superior */
+    /* D352: la swap comprimida en RAM (el kernel los rellena si el programa pide este tamaño).
+     * El almacén cuenta como usado en gerida/livre/usada (y en alta_* lo que está en la alta). */
+    unsigned int troca_teto_kb;       /* tope del almacén; 0 = sin swap (--sin-swap) */
+    unsigned int troca_kb;            /* páginas de programas en la swap (lo que ocupaban sin comprimir) */
+    unsigned int troca_comprimida_kb; /* lo que ocupan comprimidas (bloques de 64 bytes) */
+    unsigned int troca_armazem_kb;    /* páginas del almacén (lo comprimido más el hueco entre trozos) */
+    unsigned int troca_saidas;        /* páginas sacadas a la swap desde el arranque */
+    unsigned int troca_entradas;      /* páginas traídas de vuelta */
 } info_memoria_t;
 #define INFO_MEMORIA_V1 16       /* bytes de la versión sin memoria alta */
 #define INFO_MEMORIA_V2 32       /* bytes de la versión sin memoria superior (D348) */
+#define INFO_MEMORIA_V3 48       /* bytes de la versión sin swap (D350) */
 #define MEM_MODO_PAE      1      /* paginación PAE (3 niveles, hasta 64 GB) */
 #define MEM_MODO_NX       2      /* NX activo: pila y montón no ejecutables */
 #define MEM_MODO_CPU_PAE  4      /* la CPU tiene PAE (aunque no se use: --sem-pae) */

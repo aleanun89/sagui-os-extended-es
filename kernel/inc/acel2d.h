@@ -17,7 +17,7 @@
 #define ACEL2D_CPU          1     /* --sin-acel2d o --acel2d=cpu: siempre la CPU */
 #define ACEL2D_VMWARE       2     /* --acel2d=vmware: solo ese acelerador */
 #define ACEL2D_INTEL        3     /* --acel2d=intel */
-#define ACEL2D_RADEON       4     /* --acel2d=radeon (R100-R500 y, D223, R6xx/R7xx) */
+#define ACEL2D_RADEON       4     /* --acel2d=radeon (R100-R500 y, D223, R6xx/R7xx; D286 HD 5000-6000; D360 GCN 1.0) */
 #define ACEL2D_NVIDIA       6     /* --acel2d=nvidia (GeForce 6/7, D224) */
 #define ACEL2D_TDFX         7     /* --acel2d=tdfx (3dfx Banshee, Voodoo3, Voodoo4/5; D305) */
 #define ACEL2D_MACH64       8     /* --acel2d=mach64 (ATI Mach64 y Rage hasta la XL, D308) */
@@ -109,6 +109,7 @@ extern const acel_driver_t acel_vmware;
 extern const acel_driver_t acel_intel;
 extern const acel_driver_t acel_radeon;
 extern const acel_driver_t acel_r600;      /* R6xx/R7xx por el motor DMA (D223) */
+extern const acel_driver_t acel_gcn;       /* Radeon GCN 1.0 por el motor DMA (D360) */
 extern const acel_driver_t acel_nv;
 extern const acel_driver_t acel_tdfx;      /* 3dfx Banshee/Voodoo3/Voodoo4/5 (D305) */
 extern const acel_driver_t acel_mach64;   /* ATI Mach64/Rage (D308) */

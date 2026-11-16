@@ -114,7 +114,8 @@ GPU3D_PRUEBA = {"": 0, "pixel": 0x10, "tiempo": 0x20}
 
 
 def gpu3d_byte(a):
-    return GPU3D_MODOS[a.gpu3d] | (0x08 if a.gpu3d_anillo else 0) | GPU3D_PRUEBA[a.gpu3d_prueba]
+    return (GPU3D_MODOS[a.gpu3d] | (0x08 if a.gpu3d_anillo else 0) | GPU3D_PRUEBA[a.gpu3d_prueba]
+            | (0x40 if a.gpu3d_gtt else 0))   # 0x40: GPU3D_CAB_GTT (D358)
 
 
 TIPO_PARTICAO = 0xDA  # "datos sin sistema de archivos": ningún sistema intenta montar
@@ -178,6 +179,11 @@ def main():
     ap.add_argument("--sem-pae", action="store_true",
                     help="paginación clásica de 2 niveles aunque la CPU tenga PAE (D349): hasta 4 GB, sin NX")
     ap.add_argument("--sem-nx", action="store_true", help="no activar NX aunque la CPU lo tenga (D349)")
+    ap.add_argument("--sin-swap", action="store_true",
+                    help="D352: sin swap comprimida en RAM (cuando se acaba la memoria, el programa falla como antes)")
+    ap.add_argument("--swap-mb", type=int, default=0,
+                    help="D352: tope del almacén de la swap comprimida en MB (1-1024); 0 = automático "
+                         "(la mitad de la RAM con memoria alta, un cuarto sin ella)")
     ap.add_argument("--bpp", type=int, default=0, choices=(0, 15, 16, 24, 32),
                     help="profundidade de cor preferida (D078); 0 = automática (32 > 24 > 16 > 15)")
     ap.add_argument("--smp", action="store_true",
@@ -232,6 +238,8 @@ def main():
                     help="D281: sin caché de bloques común (cada lectura y grabación va al disco)")
     ap.add_argument("--sin-escritura-diferida", action="store_true",
                     help="D281: la caché de bloques graba al instante (sin escritura diferida)")
+    ap.add_argument("--cache-disco-baja", action="store_true",
+                    help="D350: la caché de bloques en la memoria baja (hasta 64 MB) aunque haya memoria alta")
     ap.add_argument("--acel-segura", action="store_true",
                     help="D323: arrancar en modo seguro de la aceleración (2D por la CPU, 3D por software, sin la configuración guardada); "
                          "es lo que hace Mayús pulsado al arrancar")
@@ -243,6 +251,9 @@ def main():
                          "con el primer uso; sin esto, solo con «gpu3d probar») o simulado (driver de pruebas por la CPU, para QEMU)")
     ap.add_argument("--gpu3d-anillo", action="store_true",
                     help="3D Intel: órdenes escritas en el anillo en vez de lotes (batch buffers); para comparar en hardware")
+    ap.add_argument("--gpu3d-gtt", action="store_true",
+                    help="3D Intel Gen3 (D358): el destino y las texturas en RAM del sistema mapeada en el GTT desde el "
+                         "primer uso (escribe entradas del GTT; sin probar en hardware)")
     ap.add_argument("--gpu3d-prueba", default="", choices=("", "pixel", "tiempo"),
                     help="solo pruebas: la autoprueba 3D ve un píxel distinto, o la GPU deja de responder después")
     ap.add_argument("--usb-zip", action="store_true",
@@ -388,13 +399,18 @@ def main():
     cab += struct.pack("<B", usb_prueba_byte(a.usb_prueba))   # CAB_USB_PRUEBA (141, D227): fallos simulados
     cab += struct.pack("<B", gpu3d_byte(a))                   # CAB_GPU3D (142, D285): 3D por la GPU
     assert len(cab) == 143, "CAB_DISCO_OPC tiene que caer en el byte 143"
-    cab += struct.pack("<B", (1 if a.sem_dma else 0) | (2 if a.sem_cache_disco else 0) | (4 if a.sin_escritura_diferida else 0))   # CAB_DISCO_OPC (143, D281)
+    cab += struct.pack("<B", (1 if a.sem_dma else 0) | (2 if a.sem_cache_disco else 0) | (4 if a.sin_escritura_diferida else 0) | (8 if a.cache_disco_baja else 0))   # CAB_DISCO_OPC (143, D281)
     # 144-155 = CAB_ID_INSTALACAO (D179: lo escribe «instalar»).
     cab = cab.ljust(156, b"\0")
     cab += struct.pack("<B", 1 if a.mandos_prueba else 0)    # CAB_MANDOS_PRUEBA (156, D307): mandos de prueba
     cab += struct.pack("<BB", 1 if a.ne2k_isa else 0, a.ne2k_irq)   # CAB_NE2K_OPC (157), CAB_NE2K_IRQ (158) (D329)
     assert len(cab) == 159, "CAB_MEM_OPC tiene que caer en el byte 159"
-    cab += struct.pack("<B", (1 if a.sem_pae else 0) | (2 if a.sem_nx else 0))   # CAB_MEM_OPC (159, D349)
+    cab += struct.pack("<B", (1 if a.sem_pae else 0) | (2 if a.sem_nx else 0) | (4 if a.sin_swap else 0))   # CAB_MEM_OPC (159, D349; bit 2 D352)
+    if not 0 <= a.swap_mb <= 1024:
+        sys.exit("mkimagem: --swap-mb tiene que estar entre 1 y 1024 (0 = automático)")
+    cab += struct.pack("<H", a.swap_mb)   # CAB_TROCA_MB (160, D352): tope de la swap comprimida en MB
+    # 162-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
+    # aquí se deja a cero (preencher_setores): los valores de la imagen son los bits de arriba.
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre
     # desde el LBA 1 hasta el fin del archivo y es la única, marcada como activa (0x80),

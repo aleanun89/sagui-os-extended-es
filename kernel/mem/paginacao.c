@@ -29,6 +29,7 @@
  * programas lo deciden los llamadores con PG_NX (pila, montón, datos del ELF). */
 #include "paginacao.h"
 #include "bootinfo.h"
+#include "kconf.h"
 #include "console.h"
 #include "cpu.h"
 #include "memoria.h"
@@ -37,6 +38,7 @@
 #include "ioapic.h"
 #include "memalta.h"
 #include "msr.h"
+#include "troca.h"
 
 #define PG_GRANDE     0x080   /* PDE: página grande (PS): 4 MB sin PAE, 2 MB con PAE */
 #define PG_GLOBAL     0x100   /* queda en el TLB al cambiar el CR3 (con CR4.PGE) */
@@ -222,7 +224,7 @@ static void conferir_cpu(void)
 void paginacao_escolher_modo(void)
 {
     conferir_cpu();
-    uint8_t opc = cabecalho_boot[CAB_MEM_OPC];
+    uint8_t opc = kconf_cab(CAB_MEM_OPC);   /* D353: con lo que guardó kconfig */
     /* D349: en Intel, la BIOS puede apagar NX con XD_DISABLE (IA32_MISC_ENABLE bit 34)
      * y entonces CPUID no lo anuncia. Como Linux, se vuelve a encender (lectura y
      * escritura protegidas contra #GP: si el MSR no existe no pasa nada), salvo con
@@ -458,6 +460,8 @@ void espaco_destruir(espaco_t e)
             pte_t pte = ent_ler(pte_de(pde, k));
             if ((pte & PG_PRESENTE) && !(pte & PG_EMPRESTADA))   /* las prestadas tienen otro dueño */
                 memfisica_liberar(ent_end(pte));
+            else if (troca_e_entrada(pte))   /* D352: su trozo en el almacén de la swap */
+                troca_soltar(pte);
         }
         memfisica_liberar(ent_end(pde));
     }
@@ -504,7 +508,15 @@ fis_t espaco_traduzir(espaco_t e, uint32_t virt, uint32_t *flags)
         if (flags) *flags = ent_flags(pde) & ~(uint32_t)PG_GRANDE;
         return (ent_end(pde) & ~(fis_t)(BLOCO - 1)) | (virt & (BLOCO - 1));
     }
-    pte_t pte = ent_ler(pte_de(pde, (virt >> 12) & (n_tab - 1)));
+    void *pp = pte_de(pde, (virt >> 12) & (n_tab - 1));
+    pte_t pte = ent_ler(pp);
+    /* D352: una página en la swap se trae ahora: quien traduce va a usar la dirección física
+     * (cargador, pila de un hilo, futex) o a tocarla (usuario_ok). Sin memoria para traerla,
+     * es como si no estuviera. */
+    if (troca_e_entrada(pte) && (virt >> d_desl) >= PDE_KERNEL) {
+        troca_trazer(e, virt, true);
+        pte = ent_ler(pp);
+    }
     if (!(pte & PG_PRESENTE)) return 0;
     /* Permiso efectivo: las dos tienen que permitir (y NX en cualquiera de las dos prohíbe). */
     if (flags) {
@@ -519,9 +531,10 @@ bool espaco_alocar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t flags)
     uint32_t ini = virt & ~(PAGINA - 1), fim = (virt + bytes + PAGINA - 1) & ~(PAGINA - 1);
     if (ini < USUARIO_INICIO || fim > USUARIO_FIM || fim < ini) return false;
     for (uint32_t v = ini; v < fim; v += PAGINA) {
-        if (espaco_traduzir(e, v, NULL)) continue;   /* ya existe: mantiene */
+        if (espaco_existe(e, v)) continue;   /* ya existe (también si está en la swap, D352): mantiene */
         fis_t p = pagina_usuario_zerada();
-        if (!p || !espaco_mapear(e, v, p, flags)) {
+        /* D352: con A puesta, el reloj de la swap le da una vuelta antes de sacarla. */
+        if (!p || !espaco_mapear(e, v, p, flags | PG_ACESSADA)) {
             if (p) memfisica_liberar(p);
             return false;
         }
@@ -540,6 +553,17 @@ void espaco_ajustar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t por, uin
         if (!(pde & PG_PRESENTE) || grande(pde)) continue;
         void *p = pte_de(pde, (v >> 12) & (n_tab - 1));
         pte_t pte = ent_ler(p);
+        if (troca_e_entrada(pte)) {
+            /* D352: en la swap, los permisos se guardan en la propia entrada (no presente: el
+             * hardware no la mira, y el kernel la cambia con el cerrojo general). */
+            uint32_t b = (uint32_t)pte;
+            if (por & PG_ESCRITA) b |= TROCA_ESCRITA;
+            if (por & PG_NX) b |= TROCA_NX;
+            if (tirar & PG_ESCRITA) b &= ~TROCA_ESCRITA;
+            if (tirar & PG_NX) b &= ~TROCA_NX;
+            ent_escrever(p, b);
+            continue;
+        }
         if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) continue;
         ent_trocar(p, bits_hw(por), bits_hw(tirar));   /* el marco no cambia: nunca P=0 */
         if (espaco_atual() == e) invalidar(v);
@@ -563,6 +587,11 @@ fis_t espaco_tirar(espaco_t e, uint32_t virt)
     pte_t pte = ent_ler(p);
     /* La marca de prestada solo está en la PTE (espaco_traduzir la pierde al
      * combinarla con la PDE): por eso se mira aquí. */
+    if (troca_e_entrada(pte)) {   /* D352: estaba en la swap: se suelta su trozo */
+        ent_escrever(p, 0);
+        troca_soltar(pte);
+        return 0;
+    }
     if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) return 0;
     ent_escrever(p, 0);
     if (espaco_atual() == e) invalidar(virt);
@@ -579,6 +608,58 @@ uint32_t espaco_paginas_usuario(espaco_t e)
             if (ent_ler(pte_de(pde, k)) & PG_PRESENTE) n++;
     }
     return n;
+}
+
+/* ------------------------------------------------------ la swap (D352) */
+
+void *espaco_pte(espaco_t e, uint32_t virt)
+{
+    if (virt < USUARIO_INICIO || virt >= USUARIO_FIM) return NULL;
+    pte_t pde = ent_ler(pde_de(e, virt >> d_desl));
+    if (!(pde & PG_PRESENTE) || grande(pde)) return NULL;
+    return pte_de(pde, (virt >> 12) & (n_tab - 1));
+}
+
+bool espaco_existe(espaco_t e, uint32_t virt)
+{
+    if (virt < USUARIO_INICIO) return espaco_traduzir(e, virt, NULL) != 0;
+    void *p = espaco_pte(e, virt);
+    if (!p) return false;
+    pte_t v = ent_ler(p);
+    return (v & PG_PRESENTE) || troca_e_entrada(v);
+}
+
+uint32_t espaco_paginas_troca(espaco_t e)
+{
+    uint32_t n = 0;
+    for (uint32_t i = PDE_KERNEL; i < PDE_USUARIO_FIM; i++) {
+        pte_t pde = ent_ler(pde_de(e, i));
+        if (!(pde & PG_PRESENTE)) continue;
+        for (uint32_t k = 0; k < n_tab; k++)
+            if (troca_e_entrada(ent_ler(pte_de(pde, k)))) n++;
+    }
+    return n;
+}
+
+uint32_t paginacao_bloco(void)          { return BLOCO; }
+pte_t    pte_ler(const void *p)         { return ent_ler(p); }
+void     pte_gravar(void *p, pte_t v)   { ent_escrever(p, v); }
+pte_t    pte_valor(fis_t fis, uint32_t flags) { return ent_valor(fis, flags); }
+fis_t    pte_endereco(pte_t v)          { return ent_end(v); }
+uint32_t pte_flags(pte_t v)             { return ent_flags(v); }
+void     pte_mudar(void *p, uint32_t por, uint32_t tirar) { ent_trocar(p, por & 0xFFFu, tirar & 0xFFFu); }
+
+/* La mitad baja (la que lleva P) se cambia a 0 con un xchg: el hardware pone A/D con
+ * operaciones atómicas y solo en entradas presentes, así que lo que devuelve es lo último
+ * que tuvo. La alta (PAE) se borra después: con P=0 ya nadie la mira. */
+pte_t pte_esvaziar(void *p)
+{
+    volatile uint32_t *m = (volatile uint32_t *)p;
+    uint32_t baixa = __atomic_exchange_n((uint32_t *)p, 0u, __ATOMIC_SEQ_CST);
+    if (!PAE) return baixa;
+    uint32_t alta = m[1];
+    m[1] = 0;
+    return (uint64_t)alta << 32 | baixa;
 }
 
 /* --------------------------------------------------------- las ventanas */

@@ -1,6 +1,6 @@
 # 069 - Que el sistema no muera sin RAM: OOM, swap comprimida en RAM y partición de swap
 
-- **Estado:** idea para **mucho más adelante** (mejora «gorda»; decidido por el mantenedor el 2026-11-08)
+- **Estado:** fase 3 hecha (swap comprimida en RAM, D352, v8.5.1, con la mejora 125); las fases 1 (OOM killer), 2 y 4 siguen para más adelante (decidido por el mantenedor el 2026-11-08)
 - **Prioridad:** media
 - **Alta:** 2026-11-08
 - **Relacionadas:** 035 (arquitectura de almacenamiento: carga bajo demanda), 068 (imagen con varias particiones), 017 (SMP), 055 (AHCI)
@@ -64,7 +64,7 @@ gestiona 1,8 GB de 4). Esa RAM sobrante, por encima de lo que el kernel mapea, s
 
 - [ ] Fase 1: un programa que reserva sin parar no tumba el sistema; aviso y cierre del culpable
 - [ ] Fase 2: paginación bajo demanda (con la 035)
-- [ ] Fase 3: swap comprimida en la RAM sobrante, medida con SaguiMark
+- [x] Fase 3: swap comprimida en la RAM sobrante (D352, h354; con la mejora 125). Falta medirla con SaguiMark
 - [ ] Fase 4: partición `SAGUI-SWAP`
 - [ ] Tests automáticos con poca RAM en QEMU (`-m 64`, `-m 128`)
 - [ ] Decisiones registradas en `docs/decisoes.md`

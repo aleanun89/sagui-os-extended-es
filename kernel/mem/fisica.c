@@ -194,14 +194,12 @@ uint32_t memfisica_alocar(void)
     return p < 0 ? 0 : (uint32_t)p * PAGINA;
 }
 
-/* D348/D349: para las páginas de los programas. Primero la superior y la alta,
- * que el kernel no puede usar para otra cosa; la baja solo cuando se acabaron. */
-uint64_t memfisica_alocar_usuario(void)
+/* Una página de las zonas de "ordem" (las primeras n), en ese orden; 0 si no queda. */
+static uint64_t alocar_de(zona_t *const *ordem, uint32_t n)
 {
-    zona_t *ordem[3] = { &superior, &alta, &baixa };
     bool i = int_salva_desliga();
     uint64_t r = 0;
-    for (uint32_t k = 0; k < 3 && !r; k++) {
+    for (uint32_t k = 0; k < n && !r; k++) {
         zona_t *z = ordem[k];
         if (!z->paginas || !z->livres) continue;
         int32_t p = buscar(z);
@@ -209,6 +207,99 @@ uint64_t memfisica_alocar_usuario(void)
     }
     int_restaura(i);
     return r;
+}
+
+/* D350: quien puede devolver memoria cuando se acaba (la caché de disco). Nunca duerme:
+ * memfisica_alocar_usuario() se llama entre la comprobación de una entrada de la tabla de
+ * páginas y su escritura (espaco_alocar), y otro hilo del mismo proceso no puede colarse. */
+static uint32_t (*reclamador)(uint32_t paginas);
+
+void memfisica_registar_reclamo(uint32_t (*f)(uint32_t paginas))
+{
+    reclamador = f;
+}
+
+#define RECLAMO_LOTE 256u   /* páginas que se piden de una vez (1 MB): una sola entrada en la caché */
+
+static bool reclamar(void)
+{
+    return reclamador && reclamador(RECLAMO_LOTE) > 0;
+}
+
+uint32_t memfisica_reclamar(uint32_t paginas)
+{
+    return reclamador && paginas ? reclamador(paginas) : 0;
+}
+
+/* D352: la swap comprimida (troca.c) y la reserva baja que deja al kernel. */
+static uint32_t (*trocador)(uint32_t paginas);
+static uint32_t reserva_troca;
+
+void memfisica_registar_troca(uint32_t (*f)(uint32_t paginas), uint32_t reserva_baixa)
+{
+    reserva_troca = reserva_baixa;
+    trocador = f;
+}
+
+uint32_t memfisica_livres_programas(void)
+{
+    uint32_t b = baixa.livres > reserva_troca ? baixa.livres - reserva_troca : 0;
+    return alta.livres + superior.livres + b;
+}
+
+/* D352: una página baja solo si quedan más de la reserva del kernel. */
+static uint64_t baixa_sobre_reserva(void)
+{
+    static zona_t *const so_baixa[1] = { &baixa };
+    return baixa.livres > reserva_troca ? alocar_de(so_baixa, 1) : 0;
+}
+
+#define TROCA_LOTE 32u   /* páginas que se sacan de una vez cuando un programa no encuentra memoria */
+
+/* D348/D349: para las páginas de los programas. Primero la superior y la alta,
+ * que el kernel no puede usar para otra cosa; la baja solo cuando se acabaron.
+ * D350: antes de tocar la baja (y otra vez antes de fallar), la caché de disco
+ * devuelve bloques limpios.
+ * D352: con la swap comprimida, la baja hasta la reserva del kernel; después se sacan
+ * páginas a la swap y se vuelve a probar; solo si la swap no libera nada, la baja entera
+ * (lo de siempre). Sin swap, todo como antes. */
+uint64_t memfisica_alocar_usuario(void)
+{
+    static zona_t *const altas[2] = { &superior, &alta };
+    static zona_t *const todas[3] = { &superior, &alta, &baixa };
+    uint64_t r = alocar_de(altas, 2);
+    if (r) return r;
+    if ((alta.paginas || superior.paginas) && reclamar()) {
+        r = alocar_de(altas, 2);
+        if (r) return r;
+    }
+    if (trocador) {
+        r = baixa_sobre_reserva();
+        if (r) return r;
+        /* Sin alta, la caché de disco vive en la baja: antes de sacar nada, que devuelva. */
+        if (!alta.paginas && !superior.paginas && reclamar()) {
+            r = baixa_sobre_reserva();
+            if (r) return r;
+        }
+        if (trocador(TROCA_LOTE)) {
+            r = alocar_de(altas, 2);
+            if (!r) r = baixa_sobre_reserva();
+            if (r) return r;
+        }
+    }
+    r = alocar_de(todas, 3);
+    if (r) return r;
+    if (reclamar()) r = alocar_de(todas, 3);
+    return r;
+}
+
+/* D350: una página de la alta o la superior (nunca de la baja) para los bloques de la caché
+ * de disco; 0 si no hay o si quedan menos de "reserva" libres (para los programas). */
+uint64_t memfisica_alocar_alta(uint32_t reserva)
+{
+    static zona_t *const altas[2] = { &superior, &alta };
+    if (alta.livres + superior.livres <= reserva) return 0;
+    return alocar_de(altas, 2);
 }
 
 uint32_t memfisica_alocar_seguidas(uint32_t n)

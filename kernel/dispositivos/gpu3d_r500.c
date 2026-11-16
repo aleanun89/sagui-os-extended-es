@@ -137,6 +137,12 @@ static uint32_t wptr, enviado;             /* wptr: hasta dónde se ha escrito; 
 static uint32_t seq, seq_vista;            /* última valla emitida y última confirmada */
 static uint32_t isync_antes, tuberias;
 static bool pronto, cp_ligado, isync_guardado;
+static int etapa = -1;   /* D357: hasta dónde llegó el último encendido (-1: nunca se intentó) */
+static const char *const nomes_etapa[7] = {
+    "-", "sonda de solo lectura", "leer el microcodigo", "tuberias y su reloj", "cargar el microcodigo y arrancar el CP",
+    "prueba de la cola", "estado fijo del 3D",
+};
+static const char *nome_etapa(int e) { return e >= 1 && e <= 6 ? nomes_etapa[e] : "sin intentar"; }
 static g3d_arena_t arena;
 static g3d_buffer_t b_cor, b_z, b_tex[GPU3D_TEXTURAS];
 static r5_alvo_t alvo;
@@ -175,6 +181,8 @@ static void pll_escrever(uint32_t reg, uint32_t v)
 
 static void r5_detalle(const char *fase)
 {
+    klog("[GPU3D] r500 %s: ultima etapa del encendido: %d de 6 (%s); CP %s\n", fase, etapa, nome_etapa(etapa),
+         cp_ligado ? "en marcha" : "parado");
     if (!mmio) { klog("[GPU3D] r500 %s: sin iniciar (ningun registro leido)\n", fase); return; }
     klog("[GPU3D] r500 %s: RBBM_STATUS %x CP_CSQ_CNTL %x CP_CSQ_STAT %x CP_RB_CNTL %x ISYNC_CNTL %x\n", fase, rd(RBBM_STATUS),
          rd(CP_CSQ_CNTL), rd(CP_CSQ_STAT), rd(CP_RB_CNTL), rd(R5_ISYNC_CNTL));
@@ -394,10 +402,10 @@ static int sondar(const pci_disp_t *d, const acel_tela_t *t, char *m, int nm)
     return G3D_OK;
 }
 
-static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, uint32_t variante, char *m, int nm)
+static int r5_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
 {
-    (void)variante;   /* en R5xx las órdenes van siempre en el anillo del CP */
     pronto = false;
+    etapa = 1;
     if (SEM_FIRMWARE) {
         snformatar(m, (size_t)nm, "esta compilacion no lleva firmware (SEM_FIRMWARE=1): sin el microcodigo del CP no hay 3D en R5xx");
         return G3D_NAO;
@@ -414,6 +422,7 @@ static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
     if (r != G3D_OK) return r;
 
     /* Etapa 2: el microcódigo, del sistema de archivos. */
+    etapa = 2;
     uint8_t *uc = NULL;
     uint32_t nuc = 0;
     if (vfs_ler_inteiro("/lib/firmware/radeon/R520_cp.bin", &uc, &nuc) < 0 || nuc != UCODE_BYTES) {
@@ -442,6 +451,7 @@ static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
          nuc, be32(uc), be32(uc + 4));
 
     /* Etapa 3: tuberías de píxeles y su reloj (como rv515_gpu_init de Linux). */
+    etapa = 3;
     uint32_t gps = rd(R5_GB_PIPE_SELECT), pll = pll_ler(PLL_SCLK_PIPE);
     tuberias = ((gps >> 12) & 3) + 1;
     uint32_t pll_novo = (1u << ((rd(R5_DST_PIPE_CONFIG) >> 2) & 3)) | (((gps >> 8) & 0xFu) << 4);
@@ -450,6 +460,7 @@ static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
          pll != pll_novo ? " (cambiado)" : " (ya estaba)");
 
     /* Etapa 4: CP parado, microcódigo dentro y la cola (en VRAM) a cero. Sin escrituras de vuelta. */
+    etapa = 4;
     isync_antes = rd(R5_ISYNC_CNTL); isync_guardado = true;
     cp_parar();
     wr(CP_ME_RAM_ADDR, 0);
@@ -488,6 +499,7 @@ static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
     }
 
     /* Etapa 5: la prueba de la cola: el CP tiene que escribir un registro de apuntes. */
+    etapa = 5;
     wr(APUNTE_TESTE, 0xCAFEDEADu);
     wr(APUNTE_VALLA, 0);
     seq = seq_vista = 0x3D500000u;
@@ -506,6 +518,7 @@ static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
     klog("[GPU3D] r500: etapa 5: prueba de la cola superada (el CP lee la cola de la VRAM; RPTR %x)\n", rd(CP_RB_RPTR));
 
     /* Etapa 6: el estado fijo del 3D, con su valla. */
+    etapa = 6;
     g3d_fila_t f;
     g3d_fila_iniciar(&f, prep, PREP_PAL);
     r5_inicio(&f, tuberias, fpus_familia[familia]);
@@ -523,6 +536,21 @@ static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
     memset(&b_cor, 0, sizeof b_cor); memset(&b_z, 0, sizeof b_z); memset(b_tex, 0, sizeof b_tex); memset(&alvo, 0, sizeof alvo);
     pronto = true;
     return G3D_OK;
+}
+
+/* D357: «etapa N (nombre): motivo», para que «gpu3d probar» diga dónde se paró sin mirar el log. */
+static int r5_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, uint32_t variante, char *m, int nm)
+{
+    (void)variante;   /* en R5xx las órdenes van siempre en el anillo del CP */
+    etapa = 0;
+    int r = r5_iniciar_etapas(d, geracao, t, m, nm);
+    if (r != G3D_OK && etapa >= 1) {
+        char tx[160];
+        snformatar(tx, sizeof tx, "etapa %d (%s): %s", etapa, nome_etapa(etapa), m);
+        snformatar(m, (size_t)nm, "%s", tx);
+        klog("[GPU3D] r500: el encendido se paro en la etapa %d (%s)\n", etapa, nome_etapa(etapa));
+    }
+    return r;
 }
 
 /* ------------------------------------------------------------ lo que pide la capa */

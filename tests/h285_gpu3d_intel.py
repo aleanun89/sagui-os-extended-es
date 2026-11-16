@@ -11,7 +11,8 @@ QEMU no emula el 3D de ninguna GPU de Intel, así que el driver de verdad
             palabras escritas a mano, el tamaño del vértice que declara el
             estado, la memoria de GPU por bloques y la coma flotante con enteros;
   fuentes   lo que tiene que estar en el árbol: lista exacta de modelos, sin
-            escribir el GTT, decisión D285, docs/gpu3d.md, docs/terceros.md;
+            escribir registros MMIO (el GTT solo con la opción «gtt», D358, que
+            vigila h360), decisión D285, docs/gpu3d.md, docs/terceros.md;
   std       QEMU normal (sin GPU con 3D): la capa no toca nada, «gpu3d» dice
             por qué va el software, «gpu3d probar» y «sgldemo -g» lo dicen y
             SaguiGL por software da lo de siempre;

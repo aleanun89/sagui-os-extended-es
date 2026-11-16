@@ -14,11 +14,14 @@ SaguiOS tiene dos cuentas de persona y una de servicio:
 
 Todo lo normal: programas, ventanas, sus archivos (los de `/home`, `/tmp`, los
 pendrives; ver «Permisos de archivos»), red, sonido, imprimir capturas, cambiar el
-fondo, el teclado o la resolución, apagar y reiniciar desde el escritorio.
+fondo, el teclado o la resolución, apagar y reiniciar desde el escritorio, y **conectar y
+desconectar el Wi-Fi** (clic en el icono Wi-Fi de la bandeja, o `wifi conectar`; D354; solo la sesión
+local: un servicio o una sesión SSH que no es de root no puede). Las redes recordadas son de cada
+usuario (su `/home/.config/wifi.conf`).
 
 Hace falta ser administrador para: montar y desmontar discos, particionar,
 formatear e instalar, leer o escribir discos en crudo, configurar la red, el
-Wi-Fi, el DNS y el bloqueo de publicidad, manejar los servicios (`servicio
+DNS y el bloqueo de publicidad, manejar los servicios (`servicio
 iniciar|parar|activar...`; consultar sí se puede), la hora y la zona del
 sistema, el acelerador 2D, la frecuencia de la CPU, el ACPI, el acceso directo
 al hardware (BAR de PCI, verbos del códec de sonido), terminar programas de

@@ -155,13 +155,26 @@ static quadro_t *tratar_sistema(quadro_t *q)
         q->eax = (uint32_t)ERRO_INVALIDO;
         return q;
     }
+    /* D351: otro hilo del proceso espera para quitar páginas o escritura:
+     * las llamadas nuevas esperan a que lo haga (la llamada se repite). */
+    if (!espaco_porta()) {
+        q->eip -= 2;
+        return escalonar(q);
+    }
     /* D255: quien no es root solo puede lo que permisos.c dice que es libre. */
     int32_t r = permisos_chamada(n, q->ebx, q->ecx, q->edx, q->esi, q->edi);
     if (r < 0) {
+        /* D351: si este hilo era el que esperaba para quitar (su llamada se
+         * repetía), ya no espera: que la puerta se abra para los demás. */
+        espaco_chamada_fim();
         q->eax = (uint32_t)r;
         return q;
     }
+    /* D351: dentro de la llamada, los punteros ya comprobados (usuario_ok)
+     * siguen valiendo aunque duerma: espaco_pode_tirar espera a que salga. */
+    processo_atual()->em_chamada = true;
     r = tabela[n](q->ebx, q->ecx, q->edx, q->esi, q->edi);
+    espaco_chamada_fim();
     if (r == SIS_REPETIR) {
         q->eip -= 2;               /* ejecuta el "int 0x80" de nuevo al despertar */
         return escalonar(q);

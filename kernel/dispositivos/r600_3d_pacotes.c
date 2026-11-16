@@ -176,6 +176,102 @@ int r7_inicio_motor(int f, const r7_leituras_t *l, r6_par_t *p, int max, uint32_
     return n;
 }
 
+/* ------------------------------------------------------------------ inicio del motor (R6xx, D357) */
+
+/* De r600_gpu_init (Linux 6.6, r600.c, cabecera MIT): tuberías, backends y reparto del secuenciador
+ * por familia. Índice: familia - R63D_R600. */
+typedef struct {
+    int pipes, tile_pipes, backends, contextos;
+    uint32_t gpr1, gpr2, threads, pilha1, pilha2;   /* SQ_GPR_RESOURCE_MGMT_1/2, THREAD, STACK_1/2 */
+} r6_chip_t;
+
+#define R6_GPRS(ps, vs, tmp)       ((uint32_t)(ps) | ((uint32_t)(vs) << 16) | ((uint32_t)(tmp) << 28))
+#define R6_GPRS2(gs, es)           ((uint32_t)(gs) | ((uint32_t)(es) << 16))
+#define R6_HILOS(ps, vs, gs, es)   ((uint32_t)(ps) | ((uint32_t)(vs) << 8) | ((uint32_t)(gs) << 16) | ((uint32_t)(es) << 24))
+#define R6_PILHA(a, b)             ((uint32_t)(a) | ((uint32_t)(b) << 16))
+
+static const r6_chip_t chips6[5] = {
+    /* R600  */ { 4, 8, 4, 8, R6_GPRS(124, 124, 4), R6_GPRS2(0, 0), R6_HILOS(136, 48, 4, 4), R6_PILHA(128, 128), R6_PILHA(0, 0) },
+    /* RV610 */ { 1, 1, 1, 4, R6_GPRS(44, 44, 2), R6_GPRS2(17, 17), R6_HILOS(79, 78, 4, 31), R6_PILHA(40, 40), R6_PILHA(32, 16) },
+    /* RV630 */ { 2, 2, 1, 8, R6_GPRS(44, 44, 2), R6_GPRS2(18, 18), R6_HILOS(79, 78, 4, 31), R6_PILHA(40, 40), R6_PILHA(32, 16) },
+    /* RV670 */ { 4, 4, 4, 8, R6_GPRS(44, 44, 2), R6_GPRS2(17, 17), R6_HILOS(79, 78, 4, 31), R6_PILHA(64, 64), R6_PILHA(64, 64) },
+    /* RV635 */ { 2, 2, 1, 8, R6_GPRS(44, 44, 2), R6_GPRS2(18, 18), R6_HILOS(79, 78, 4, 31), R6_PILHA(40, 40), R6_PILHA(32, 16) },
+};
+
+int r6_inicio_motor(int f, const r7_leituras_t *l, r6_par_t *p, int max, uint32_t *max_contextos)
+{
+    if (!R63D_E_R6XX(f)) return -1;
+    const r6_chip_t *c = &chips6[f - R63D_R600];
+    int n = 0;
+#define W(r, v) do { if (n >= max) return -1; p[n].reg = (r); p[n].valor = (v); n++; } while (0)
+    if (max_contextos) *max_contextos = (uint32_t)c->contextos;
+    /* No se hace: el borrado de las 32 superficies del HDP (0x2C14...), DCP/HDP/DMA_TILING_CONFIG,
+     * HDP_HOST_PATH_CNTL ni el árbitro (ARB_POP, ARB_GDEC_RD_CNTL): pantalla, apertura de la CPU, 2D y
+     * memoria siguen como los dejó el VBE (D284 punto 7). Lo de contexto (0x28xxx) va por la cola. */
+    W(0x8000, 0xFF);                                            /* GRBM_CNTL: plazo de lectura */
+
+    /* GB_TILING_CONFIG con los campos de RAMCFG de las R6xx (otra posición que en R7xx). */
+    uint32_t pt = c->tile_pipes == 8 ? 3u : c->tile_pipes == 4 ? 2u : c->tile_pipes == 2 ? 1u : 0u;
+    uint32_t gb = pt << 1;
+    gb |= (l->mc_arb_ramcfg & 0x1u) << 4;                       /* BANK_TILING(NOOFBANK) */
+    gb |= ((l->mc_arb_ramcfg >> 8) & 1u) << 6;                  /* GROUP_SIZE(BURSTLENGTH) */
+    uint32_t filas = (l->mc_arb_ramcfg >> 2) & 0x7u;            /* NOOFROWS */
+    if (filas > 3) filas = 3;
+    gb |= filas << 8;                                           /* ROW_TILING */
+    gb |= filas << 14;                                          /* SAMPLE_SPLIT */
+    gb |= 1u << 11;                                             /* BANK_SWAPS */
+    uint32_t rb_des = (l->cc_rb_backend_disable >> 16) & 0xFFu, todos = (1u << c->backends) - 1u;
+    if ((rb_des & todos) == todos) rb_des &= ~todos;            /* todos apagados: se corrige */
+    gb |= mapa_backends(pt, (uint32_t)c->backends, 8, rb_des) << 16;
+    W(0x98F0, gb);                                              /* GB_TILING_CONFIG */
+
+    W(0x8760, 0x16u | (0x2Bu << 8));                            /* CP_QUEUE_THRESHOLDS */
+    W(0x8764, (0x40u << 16) | (0x40u << 24));                   /* CP_MEQ_THRESHOLDS: MEQ_END, ROQ_END */
+    W(0x9508, (1u << 1) | (1u << 24) | (1u << 25) | (1u << 26)); /* TA_CNTL_AUX: sin anisotropía en cubos, SYNC_* */
+    W(R6_SX_DEBUG_1, l->sx_debug_1 | 1u | (f != R63D_R600 ? 1u << 16 : 0u));   /* SMX_EVENT_RELEASE, dirección SMX nueva */
+    W(0x9830, f == R63D_RV670 || f == R63D_RV635 ? 0u : 1u << 31);   /* DB_DEBUG: PREZ_MUST_WAIT_FOR_POSTZ_DONE */
+    W(0x9838, 4u | (16u << 5) | (4u << 15) | (16u << 20));      /* DB_WATERMARKS */
+    W(0x8B20, 0);                                               /* PA_SC_MULTI_CHIP_CNTL */
+    W(0x8974, 0);                                               /* VGT_NUM_INSTANCES */
+    W(0x9100, 0);                                               /* SPI_CONFIG_CNTL */
+    W(0x913C, 0);                                               /* SPI_CONFIG_CNTL_1 */
+    uint32_t fifo = l->sq_ms_fifo_sizes;
+    if (f == R63D_RV610) fifo = 0xAu | (0xAu << 8) | (0xE0u << 16) | (0x8u << 24);
+    else if (f == R63D_R600 || f == R63D_RV630) fifo = (fifo & ~(0xFFu << 16)) | (0x4u << 16);
+    W(R6_SQ_MS_FIFO_SIZES, fifo);                               /* SQ_MS_FIFO_SIZES */
+    uint32_t sq = (l->sq_config & ~((3u << 24) | (3u << 26) | (3u << 28) | (3u << 30))) | (1u << 2) | 1u |
+                  (0u << 24) | (1u << 26) | (2u << 28) | (3u << 30);
+    if (R63D_SEM_CACHE_VTX(f)) sq &= ~1u;                       /* sin caché de vértices */
+    W(0x8C00, sq);                                              /* SQ_CONFIG */
+    W(0x8C04, c->gpr1);
+    W(0x8C08, c->gpr2);
+    W(0x8C0C, c->threads);
+    W(0x8C10, c->pilha1);
+    W(0x8C14, c->pilha2);
+    W(0x88C4, R63D_SEM_CACHE_VTX(f) ? 1u : 2u);                 /* VGT_CACHE_INVALIDATION: TC o VC y TC */
+    W(0x8B40, 0xCu | (0x4u << 4) | (0x4u << 8) | (0xCu << 12)); /* PA_SC_AA_SAMPLE_LOCS_2S */
+    W(0x8B44, 0xEu | (0xEu << 4) | (0x2u << 8) | (0x2u << 12) | (0xAu << 16) | (0x6u << 20) | (0x6u << 24) | (0xAu << 28));
+    W(0x8B48, 0xEu | (0xBu << 4) | (0x4u << 8) | (0xCu << 12) | (0x1u << 16) | (0x6u << 20) | (0xAu << 24) | (0xEu << 28));
+    W(0x8B4C, 0x6u | (0x1u << 4) | (0x0u << 8) | (0x0u << 12) | (0xBu << 16) | (0x4u << 20) | (0x7u << 24) | (0x8u << 28));
+    uint32_t gpe = (uint32_t)c->pipes * 16u + (f == R63D_RV610 ? 32u : f == R63D_RV670 ? 128u : 0u);
+    W(0x88CC, 128);                                             /* VGT_ES_PER_GS */
+    W(0x88C8, gpe > 256 ? 256 : gpe);                           /* VGT_GS_PER_ES */
+    W(0x88E8, 2);                                               /* VGT_GS_PER_VS */
+    W(0x88D4, 16);                                              /* VGT_GS_VERTEX_REUSE */
+    W(0x8B10, 0);                                               /* PA_SC_LINE_STIPPLE_STATE */
+    W(0x9608, f == R63D_RV610 ? 8u << 5 : f == R63D_RV630 || f == R63D_RV635 ? 4u << 5 : f == R63D_R600 ? 1u << 9 : 0u);   /* TC_CNTL */
+    W(0x8A14, 1u | (3u << 1));                                  /* PA_CL_ENHANCE */
+    W(0x8BF0, 4095);                                            /* PA_SC_ENHANCE: FORCE_EOV_MAX_CLK_CNT */
+    W(0x9714, 0);                                               /* VC_ENHANCE */
+#undef W
+    return n;
+}
+
+int r63d_inicio_motor(int f, const r7_leituras_t *l, r6_par_t *p, int max, uint32_t *max_contextos)
+{
+    return R63D_E_R6XX(f) ? r6_inicio_motor(f, l, p, max, max_contextos) : r7_inicio_motor(f, l, p, max, max_contextos);
+}
+
 /* ------------------------------------------------------------------ paquetes */
 
 void r63d_me_initialize(r6_lote_t *l, bool r7xx, uint32_t max_contextos)
@@ -199,22 +295,32 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
     r63d_p(l, 0x80000000u);
     r63d_p(l, 0x80000000u);
 
-    /* Recursos del secuenciador: registros, hilos y pila por familia. */
-    static const struct { uint32_t ps, vs, hps, hvs, pilha; } sq[4] = {
-        { 192, 56, 188, 60, 256 }, { 84, 36, 188, 60, 128 }, { 84, 36, 188, 60, 128 }, { 192, 56, 144, 48, 128 },
+    /* Recursos del secuenciador: registros, hilos y pila por familia (r6xx_accel.c de xf86-video-ati;
+     * en las R6xx, además, 4 hilos de GS y de ES y pila para ellos en las RV6xx). */
+    static const struct { uint32_t ps, vs, hps, hvs, hgs, pilha, pgs, pes; } sq[R63D_N_FAMILIAS] = {
+        /* RV770 */ { 192, 56, 188, 60, 0, 256, 0, 0 },
+        /* RV730 */ { 84, 36, 188, 60, 0, 128, 0, 0 },
+        /* RV740 */ { 84, 36, 188, 60, 0, 128, 0, 0 },
+        /* RV710 */ { 192, 56, 144, 48, 0, 128, 0, 0 },
+        /* R600  */ { 192, 56, 136, 48, 4, 128, 0, 0 },
+        /* RV610 */ { 84, 36, 136, 48, 4, 40, 32, 16 },
+        /* RV630 */ { 84, 36, 144, 40, 4, 40, 32, 16 },
+        /* RV670 */ { 144, 40, 136, 48, 4, 40, 32, 16 },
+        /* RV635 */ { 84, 36, 144, 40, 4, 40, 32, 16 },
     };
-    int k = r7xx && f >= 0 && f <= 3 ? f : R63D_RV730;
+    int k = f >= 0 && f < R63D_N_FAMILIAS ? f : (r7xx ? R63D_RV730 : R63D_RV610);
+    if (R63D_E_R7XX(k) != r7xx) k = r7xx ? R63D_RV730 : R63D_RV610;   /* familia y generación tienen que cuadrar */
     uint32_t v[9];
-    v[0] = (k == R63D_RV710 ? 0u : 1u) | (1u << 2) | (1u << 3) | (1u << 26) | (2u << 28) | (3u << 30);
+    v[0] = (R63D_SEM_CACHE_VTX(k) ? 0u : 1u) | (1u << 2) | (1u << 3) | (1u << 26) | (2u << 28) | (3u << 30);
     v[1] = sq[k].ps | (sq[k].vs << 16) | (4u << 28);
     v[2] = 0;
-    v[3] = sq[k].hps | (sq[k].hvs << 8);
+    v[3] = sq[k].hps | (sq[k].hvs << 8) | (sq[k].hgs << 16) | (sq[k].hgs << 24);
     v[4] = sq[k].pilha | (sq[k].pilha << 16);
-    v[5] = 0;
+    v[5] = sq[k].pgs | (sq[k].pes << 16);
     r63d_regs(l, 0x8C00, v, 6);                                 /* SQ_CONFIG ... SQ_STACK_RESOURCE_MGMT_2 */
-    if (r7xx) r63d_reg(l, 0x8D8C, 1u << 14);                    /* SQ_DYN_GPR_CNTL_PS_FLUSH_REQ: límite del PC de vértices */
-    r63d_reg(l, 0x9830, 0);                                     /* DB_DEBUG */
-    r63d_reg(l, 0x9838, 4u | (16u << 5) | (4u << 15) | (4u << 20));   /* DB_WATERMARKS */
+    r63d_reg(l, 0x8D8C, r7xx ? 1u << 14 : 0u);                  /* SQ_DYN_GPR_CNTL_PS_FLUSH_REQ: límite del PC de vértices (R7xx) */
+    r63d_reg(l, 0x9830, r7xx ? 0u : 0x82000000u);               /* DB_DEBUG (el valor de las R6xx es el de xf86-video-ati) */
+    r63d_reg(l, 0x9838, 4u | (16u << 5) | (4u << 15) | ((r7xx ? 4u : 16u) << 20));   /* DB_WATERMARKS */
     r63d_regs(l, 0x3CFF0, zeros, 2);                            /* SQ_VTX_BASE_VTX_LOC, SQ_VTX_START_INST_LOC */
     r63d_regs(l, 0x288A8, zeros, 9);                            /* tamaños de los anillos de geometría: sin usar */
 
@@ -222,7 +328,8 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
     r63d_reg(l, 0x28010, 0);                                    /* DB_DEPTH_INFO: sin Z hasta r63d_alvo */
     r63d_reg(l, 0x28800, 0);                                    /* DB_DEPTH_CONTROL */
     v[0] = (1u << 5) | (1u << 6);                               /* DB_RENDER_CONTROL: sin compresión de Z ni plantilla */
-    v[1] = 2u | (2u << 2) | (2u << 4);                          /* DB_RENDER_OVERRIDE: sin Z ni plantilla jerárquicas */
+    v[1] = 2u | (2u << 2) | (2u << 4) | (r7xx ? 0u : 1u << 6);  /* DB_RENDER_OVERRIDE: sin Z ni plantilla jerárquicas;
+                                                                   R6xx: FORCE_SHADER_Z_ORDER */
     r63d_regs(l, 0x28D0C, v, 2);
     r63d_reg(l, 0x28D30, 0);                                    /* DB_PRELOAD_CONTROL */
     r63d_reg(l, 0x28D44, 0x0000AA00u);                          /* DB_ALPHA_TO_MASK */
@@ -234,7 +341,10 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
     v[0] = 1u << 24; v[1] = v[2] = v[3] = 0;
     r63d_regs(l, 0x28C30, v, 4);                                /* CB_CLRCMP_* */
     r63d_reg(l, 0x2823C, 0xF);                                  /* CB_SHADER_MASK */
-    if (r7xx) r63d_reg(l, 0x287A0, 1);                          /* CB_SHADER_CONTROL: la superficie 0 */
+    /* CB_SHADER_CONTROL: la superficie 0. En todas (D357, revisión): xf86-video-ati (r6xx_accel.c,
+     * r600_set_default_state) y Mesa (r600_state.c, r600_emit_framebuffer_state) lo escriben también
+     * en las R6xx; sin él, la superficie 0 podría quedar sin escribir en una R6xx. */
+    r63d_reg(l, 0x287A0, 1);
     r63d_regs(l, 0x28410, zeros, 5);                            /* SX_ALPHA_TEST_CONTROL, CB_BLEND_RED..ALPHA */
 
     /* Recortes: todo abierto; el de la superficie lo pone r63d_alvo y el del programa r63d_estado. */
@@ -249,7 +359,9 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
     r63d_regs(l, 0x282D0, v, 2);                                /* PA_SC_VPORT_ZMIN_0, ZMAX_0 */
 
     v[0] = 0;
-    v[1] = r7xx ? ((1u << 14) | (1u << 16) | 0x00500000u) : ((1u << 14) | (1u << 0));
+    /* R7xx: FORCE_EOV_CNTDWN | FORCE_EOV_REZ | 0x00500000; R6xx: FORCE_EOV_CNTDWN | WALK_ORDER_ENABLE (bit 4;
+     * D357: aquí ponía el bit 0, que es MSAA_ENABLE). */
+    v[1] = r7xx ? ((1u << 14) | (1u << 16) | 0x00500000u) : ((1u << 14) | (1u << 4));
     r63d_regs(l, 0x28A48, v, 2);                                /* PA_SC_MPASS_PS_CNTL, PA_SC_MODE_CNTL */
     v[0] = 0; v[1] = 0;
     v[2] = (2u << 1) | 1u | (5u << 3);                          /* PA_SU_VTX_CNTL: centro en .5, redondeo al par, 1/256 */
@@ -265,7 +377,7 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
     r63d_regs(l, 0x28DF8, zeros, 6);                            /* desplazamiento de polígonos: no */
 
     /* Interpolación: tres parámetros (0 = color, 1 = especular, 2 = textura), con perspectiva. */
-    if (r7xx) r63d_reg(l, 0x286C8, 1);                          /* SPI_THREAD_GROUPING */
+    r63d_reg(l, 0x286C8, r7xx ? 1u : 0u);                       /* SPI_THREAD_GROUPING: PS_GROUPING solo en R7xx */
     r63d_reg(l, 0x28614, 0u | (1u << 8) | (2u << 16));          /* SPI_VS_OUT_ID_0: semánticas 0, 1 y 2 */
     v[0] = 0u | (1u << 8);
     v[1] = 1u | (1u << 8);
@@ -298,9 +410,8 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
     r63d_regs(l, 0x28C58, v, 2);
 }
 
-void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool r6xx_puro)
+void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool sbu)
 {
-    (void)r6xx_puro;
     uint32_t tam = (uint32_t)(passo / 8 - 1) | ((uint32_t)(passo * alt_buf / 64 - 1) << 10);
     r63d_reg(l, 0x28040, mc_cor >> 8);                          /* CB_COLOR0_BASE */
     r63d_reg(l, 0x280C0, mc_cor >> 8);                          /* CB_COLOR0_TILE (sin usar: apunta al color) */
@@ -310,12 +421,15 @@ void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_
     r63d_reg(l, 0x28100, 0);                                    /* CB_COLOR0_MASK */
     /* 8888 sin signo normalizado, lineal, bytes en el orden ARGB (0xAARRGGBB), mezcla saturada. */
     r63d_reg(l, 0x280A0, (0x1Au << 2) | (0u << 8) | (0u << 12) | (1u << 16) | (1u << 20) | (1u << 27));
+    if (sbu) { r63d_p(l, R63D_PKT3(R63D_IT_SURFACE_BASE_UPDATE, 1)); r63d_p(l, 1u << 1); }   /* RV6xx: COLOR0 */
     if (zbits) {
         r63d_reg(l, 0x28000, tam);                              /* DB_DEPTH_SIZE */
         r63d_reg(l, 0x28004, 0);                                /* DB_DEPTH_VIEW */
         r63d_reg(l, 0x2800C, mc_z >> 8);                        /* DB_DEPTH_BASE */
         r63d_reg(l, 0x28014, mc_z >> 8);                        /* DB_HTILE_DATA_BASE (sin usar) */
         r63d_reg(l, 0x28010, (zbits == 16 ? 1u : 2u) | (2u << 15));   /* DB_DEPTH_INFO: mosaico 1D */
+        r63d_reg(l, 0x28D34, (uint32_t)(alt_buf / 8 - 1));      /* DB_PREFETCH_LIMIT: filas de bloques de 8 - 1 (como Mesa) */
+        if (sbu) { r63d_p(l, R63D_PKT3(R63D_IT_SURFACE_BASE_UPDATE, 1)); r63d_p(l, 1u << 0); }   /* RV6xx: DEPTH */
     } else {
         r63d_reg(l, 0x28010, 0);
     }

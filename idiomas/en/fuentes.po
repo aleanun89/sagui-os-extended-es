@@ -1,0 +1,268 @@
+# Traducción de SaguiOS: catálogo «fuentes», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/fuentes.c:26
+msgid "el archivo no existe o no se puede leer"
+msgstr "the file does not exist or cannot be read"
+
+#: userland/programas/fuentes.c:26
+msgid "solo se instalan archivos .ttf y .otf"
+msgstr "only .ttf and .otf files can be installed"
+
+#: userland/programas/fuentes.c:27
+msgid "el archivo es demasiado pequeño o demasiado grande"
+msgstr "the file is too small or too large"
+
+#: userland/programas/fuentes.c:27
+msgid "no es una fuente válida (archivo dañado)"
+msgstr "not a valid font (damaged file)"
+
+#: userland/programas/fuentes.c:28
+msgid "la fuente no trae glifos de texto"
+msgstr "the font has no text glyphs"
+
+#: userland/programas/fuentes.c:28
+msgid "no se pudo copiar a la carpeta de destino"
+msgstr "could not copy to the destination folder"
+
+#: userland/programas/fuentes.c:29
+msgid "sin permiso para escribir en la carpeta de destino"
+msgstr "no permission to write to the destination folder"
+
+#: userland/programas/fuentes.c:38 userland/programas/fuentes.c:319
+msgid "base"
+msgstr "base"
+
+#: userland/programas/fuentes.c:39 userland/programas/fuentes.c:318
+msgid "todas las cuentas"
+msgstr "all accounts"
+
+#: userland/programas/fuentes.c:40
+msgid "esta cuenta"
+msgstr "this account"
+
+#: userland/programas/fuentes.c:47
+msgid "Regular"
+msgstr "Regular"
+
+#: userland/programas/fuentes.c:47
+msgid "Negrita"
+msgstr "Bold"
+
+#: userland/programas/fuentes.c:47
+msgid "Cursiva"
+msgstr "Italic"
+
+#: userland/programas/fuentes.c:47
+msgid "Negrita cursiva"
+msgstr "Bold italic"
+
+#: userland/programas/fuentes.c:68
+#, c-format
+msgid "%d familias de fuentes:\n"
+msgstr "%d font families:\n"
+
+#: userland/programas/fuentes.c:80
+#, c-format
+msgid "fuentes: %s: no existe\n"
+msgstr "fuentes: %s: does not exist\n"
+
+#: userland/programas/fuentes.c:84
+#, c-format
+msgid "fuentes: %d instaladas desde %s (%d rechazadas)\n"
+msgstr "fuentes: %d installed from %s (%d rejected)\n"
+
+#: userland/programas/fuentes.c:90
+#, c-format
+msgid "fuentes: instalada «%s» en %s\n"
+msgstr "fuentes: installed «%s» in %s\n"
+
+#: userland/programas/fuentes.c:102
+msgid "fuentes: para todas las cuentas hace falta ser administrador: usa «admin fuentes instalar --sistema ...»\n"
+msgstr "fuentes: installing for all accounts needs an administrator: use «admin fuentes instalar --sistema ...»\n"
+
+#: userland/programas/fuentes.c:110
+msgid "uso: fuentes instalar [--sistema] ARCHIVO.ttf|.otf|CARPETA...\n"
+msgstr "usage: fuentes instalar [--sistema] FILE.ttf|.otf|FOLDER...\n"
+
+#: userland/programas/fuentes.c:120
+msgid "uso: fuentes quitar [--sistema] FAMILIA\n"
+msgstr "usage: fuentes quitar [--sistema] FAMILY\n"
+
+#: userland/programas/fuentes.c:124
+msgid "fuentes: para todas las cuentas hace falta ser administrador: usa «admin fuentes quitar --sistema ...»\n"
+msgstr "fuentes: removing for all accounts needs an administrator: use «admin fuentes quitar --sistema ...»\n"
+
+#: userland/programas/fuentes.c:133
+#, c-format
+msgid "fuentes: «%s» es de %s: no se quita desde aquí (usa --sistema como administrador)\n"
+msgstr "fuentes: «%s» belongs to %s: it cannot be removed from here (use --sistema as administrator)\n"
+
+#: userland/programas/fuentes.c:136
+#, c-format
+msgid "fuentes: no hay ninguna familia «%s»\n"
+msgstr "fuentes: there is no family «%s»\n"
+
+#: userland/programas/fuentes.c:139
+#, c-format
+msgid "fuentes: %d archivos no se pudieron borrar\n"
+msgstr "fuentes: %d files could not be deleted\n"
+
+#: userland/programas/fuentes.c:140
+#, c-format
+msgid "fuentes: quitada «%s» (%d archivos)\n"
+msgstr "fuentes: removed «%s» (%d files)\n"
+
+#: userland/programas/fuentes.c:153
+msgid "Instalar..."
+msgstr "Install..."
+
+#: userland/programas/fuentes.c:154
+msgid "Carpeta..."
+msgstr "Folder..."
+
+#: userland/programas/fuentes.c:155
+msgid "Quitar"
+msgstr "Remove"
+
+#: userland/programas/fuentes.c:156
+msgid "Actualizar"
+msgstr "Refresh"
+
+#: userland/programas/fuentes.c:157 userland/programas/fuentes.c:241
+msgid "Instalar"
+msgstr "Install"
+
+#: userland/programas/fuentes.c:158
+msgid "Instalar para todos"
+msgstr "Install for everyone"
+
+#: userland/programas/fuentes.c:159
+msgid "Cerrar"
+msgstr "Close"
+
+#: userland/programas/fuentes.c:204
+msgid "Sin muestra."
+msgstr "No sample."
+
+#: userland/programas/fuentes.c:220
+msgid "Vista previa de la fuente"
+msgstr "Font preview"
+
+#: userland/programas/fuentes.c:226
+#, c-format
+msgid "No se puede instalar: %s."
+msgstr "Cannot install: %s."
+
+#: userland/programas/fuentes.c:236
+#: userland/programas/fuentes.c:241
+msgid "Instalada"
+msgstr "Installed"
+
+#: userland/programas/fuentes.c:249
+#, c-format
+msgid "%d familias de fuentes instaladas"
+msgstr "%d font families installed"
+
+#: userland/programas/fuentes.c:264
+msgid "Para todas las cuentas (pide permisos de administrador)"
+msgstr "For all accounts (asks for administrator permission)"
+
+#: userland/programas/fuentes.c:268
+msgid "Elige una fuente de la lista para verla, o instala una nueva."
+msgstr "Pick a font from the list to see it, or install a new one."
+
+#: userland/programas/fuentes.c:286
+msgid "instalar fuentes para todas las cuentas"
+msgstr "install fonts for all accounts"
+
+#: userland/programas/fuentes.c:297
+#, c-format
+msgid "No se instaló: %s."
+msgstr "Not installed: %s."
+
+#: userland/programas/fuentes.c:303
+#, c-format
+msgid "Instalada «%s»."
+msgstr "Installed «%s»."
+
+#: userland/programas/fuentes.c:314
+msgid "Elige primero una fuente de la lista."
+msgstr "Pick a font from the list first."
+
+#: userland/programas/fuentes.c:319
+msgid "Las fuentes de la base del sistema no se quitan."
+msgstr "The fonts of the system base cannot be removed."
+
+#: userland/programas/fuentes.c:320
+#, c-format
+msgid "¿Quitar la fuente «%s»?"
+msgstr "Remove the font «%s»?"
+
+#: userland/programas/fuentes.c:321 userland/programas/fuentes.c:347
+msgid "Fuentes"
+msgstr "Fonts"
+
+#: userland/programas/fuentes.c:327
+msgid "quitar fuentes de todas las cuentas"
+msgstr "remove fonts from all accounts"
+
+#: userland/programas/fuentes.c:330
+msgid "No se pudo quitar (¿faltan permisos?)."
+msgstr "Could not remove (missing permissions?)."
+
+#: userland/programas/fuentes.c:332
+#, c-format
+msgid "Quitada «%s»."
+msgstr "Removed «%s»."
+
+#: userland/programas/fuentes.c:347 userland/programas/fuentes.c:375
+msgid "Instalar fuente"
+msgstr "Install font"
+
+#: userland/programas/fuentes.c:348
+msgid "fuentes: no se pudo abrir la ventana (¿hay escritorio?)\n"
+msgstr "fuentes: could not open the window (is there a desktop?)\n"
+
+#: userland/programas/fuentes.c:375
+msgid "Fuentes (*.ttf)|*.ttf|Fuentes (*.otf)|*.otf|Todos|*"
+msgstr "Fonts (*.ttf)|*.ttf|Fonts (*.otf)|*.otf|All|*"
+
+#: userland/programas/fuentes.c:378
+msgid "Instalar las fuentes de una carpeta"
+msgstr "Install the fonts of a folder"
+
+#: userland/programas/fuentes.c:383
+#, c-format
+msgid "%d instaladas, %d rechazadas."
+msgstr "%d installed, %d rejected."
+
+#: userland/programas/fuentes.c:389
+msgid "Lista actualizada."
+msgstr "List refreshed."
+
+#: userland/programas/fuentes.c:407
+#, c-format
+msgid "fuentes: lista actualizada, %d familias\n"
+msgstr "fuentes: list refreshed, %d families\n"
+
+#: userland/programas/fuentes.c:410
+msgid "uso: fuentes [listar | instalar [--sistema] ARCHIVO|CARPETA... | quitar [--sistema] FAMILIA | actualizar | --ventana [ARCHIVO]]\n"
+msgstr "usage: fuentes [listar | instalar [--sistema] FILE|FOLDER... | quitar [--sistema] FAMILY | actualizar | --ventana [FILE]]\n"
+
+#: userland/programas/fuentes.c
+#, c-format
+msgid "Esta cuenta: %s"
+msgstr "This account: %s"
+
+#: userland/programas/fuentes.c
+#, c-format
+msgid "Todas las cuentas: %s (pide permisos de administrador)"
+msgstr "All accounts: %s (asks for administrator permission)"

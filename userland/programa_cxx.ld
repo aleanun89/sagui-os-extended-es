@@ -21,14 +21,15 @@ SECTIONS
         __eh_frame_fim = .;
         LONG(0)
     }
-    . = ALIGN(4);
+    . = ALIGN(4096);
+    /* D351 (W^X): la tabla de constructores es una sección escribible: va con
+     * los datos, en su página, para que el código quede R-X y los datos RW-. */
     .init_array : {
         __init_array_start = .;
         KEEP(*(SORT(.init_array.*)))
         KEEP(*(.init_array .ctors))
         __init_array_end = .;
     }
-    . = ALIGN(4096);
     .data : { *(.data .data.*) }
     .bss : { *(.bss .bss.*) *(COMMON) }
     /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame_hdr) }

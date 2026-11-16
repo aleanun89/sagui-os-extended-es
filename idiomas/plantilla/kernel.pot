@@ -291,7 +291,7 @@ msgid " TKIP: débil"
 msgstr ""
 
 #: kernel/gui/barra.c:650
-msgid "sin conectar (wifi buscar)"
+msgid "sin conectar (clic para ver las redes)"
 msgstr ""
 
 #: kernel/gui/barra.c:653

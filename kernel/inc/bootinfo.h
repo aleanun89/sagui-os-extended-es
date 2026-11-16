@@ -101,16 +101,21 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_IRQ_PRUEBA 140 /* u8 fallos simulados de la autoprueba de las IRQ (D211, IRQ_PRUEBA_*); 0 = ninguno */
 #define CAB_USB_PRUEBA 141 /* u8 fallos simulados de la enumeración USB (D227, USB_PRUEBA_* de usb.h); 0 = ninguno */
 #define CAB_GPU3D    142   /* u8 3D por la GPU (D285): GPU3D_CAB_* de gpu3d.h; 0 = automático */
-#define CAB_DISCO_OPC  143 /* u8 D281 (mkimagem.py): bit 0 --sem-dma (todo por PIO), bit 1 --sem-cache-disco, bit 2 --sin-escritura-diferida */
+#define CAB_DISCO_OPC  143 /* u8 D281 (mkimagem.py): bit 0 --sem-dma (todo por PIO), bit 1 --sem-cache-disco, bit 2 --sin-escritura-diferida, bit 3 --cache-disco-baja (D350) */
 #define CAB_DISCO_SEM_DMA     1
 #define CAB_DISCO_SEM_CACHE   2
 #define CAB_DISCO_SEM_DIFERIDA 4
+#define CAB_DISCO_CACHE_BAIXA  8   /* D350: --cache-disco-baja: la caché en la baja aunque haya alta */
 #define CAB_MANDOS_PRUEBA 156 /* u8 D307 (no 144: 144-155 es CAB_ID_INSTALACAO, D179): bit 0 = mandos de prueba y MANDOS_INYECTAR (mkimagem.py --mandos-prueba) */
 #define CAB_NE2K_OPC 157   /* u8 D329 (mkimagem.py): bit 0 = sondear NE2000 ISA (--ne2k-isa); sin él no se tocan esos puertos */
 #define CAB_NE2K_IRQ 158   /* u8 D329 (mkimagem.py --ne2k-irq N): IRQ de la NE2000 ISA; 0 = autodetectarla */
-#define CAB_MEM_OPC  159   /* u8 D349 (mkimagem.py): bit 0 --sem-pae (paginación clásica aunque haya PAE), bit 1 --sem-nx */
+#define CAB_MEM_OPC  159   /* u8 D349 (mkimagem.py): bit 0 --sem-pae (paginación clásica aunque haya PAE), bit 1 --sem-nx, bit 2 --sin-swap (D352) */
 #define CAB_MEM_SEM_PAE 1
 #define CAB_MEM_SEM_NX  2
+#define CAB_MEM_SEM_TROCA 4   /* D352: bit 2 de CAB_MEM_OPC: sin swap comprimida (mkimagem.py --sin-swap) */
+#define CAB_TROCA_MB 160   /* u16 D352 (mkimagem.py --swap-mb N): tope del almacén de la swap en MB; 0 = automático */
+/* D353: 192-255 = lo que guarda kconfig (KCONF_* de kconf.h). Quien lee CAB_MEM_OPC, CAB_DISCO_OPC o CAB_FREQ
+ * usa kconf_cab(), que pone lo guardado encima de la imagen. */
 extern uint8_t cabecalho_boot[512];
 
 /* Copia hecha al inicio del kernel; vale durante toda la ejecución. */

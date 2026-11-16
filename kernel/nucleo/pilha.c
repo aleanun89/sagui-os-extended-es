@@ -30,7 +30,12 @@
  * nunca se quitan mientras vive el proceso (tampoco al acabar un hilo: su
  * hueco se reutiliza con lo que ya tenía), así que ninguna CPU puede tener
  * en su TLB una traducción vieja: no hace falta avisar a las demás. Las
- * páginas se liberan con el espacio entero (espaco_destruir). */
+ * páginas se liberan con el espacio entero (espaco_destruir).
+ *
+ * D351: por eso usuario_ok puede hacer crecer una pila aunque otro hilo del
+ * proceso esté corriendo o durmiendo en otra CPU. Lo peligroso era lo
+ * contrario, quitar (MEM_DEVOLVER) o proteger (MEM_PROTEGER) páginas que una
+ * llamada dormida ya había comprobado: espaco_pode_tirar (processos.c). */
 #include "processo.h"
 #include "paginacao.h"
 #include "memoria.h"
@@ -38,6 +43,7 @@
 #include "cpu.h"
 #include "texto.h"
 #include "abi.h"
+#include "troca.h"
 
 #define HILOS_FIM (USUARIO_HILOS + HILO_VAGAS * HILO_VAGA)
 
@@ -93,7 +99,7 @@ static uint32_t paginas_em(espaco_t e, uint32_t ini, uint32_t fim)
 {
     uint32_t n = 0;
     for (uint32_t v = ini; v < fim; v += PAGINA)
-        if (espaco_traduzir(e, v, NULL)) n++;
+        if (espaco_existe(e, v)) n++;   /* D352: también las que están en la swap, sin traerlas */
     return n;
 }
 
@@ -117,6 +123,34 @@ static quadro_t *falta_pagina(quadro_t *q)
     /* En modo kernel solo si el CR3 es el del programa (el kernel trabaja
      * para él en una llamada al sistema). */
     if (z != PILHA_FORA && !usuario && espaco_atual() != processo_lider(p)->espaco) z = PILHA_FORA;
+
+    /* D352: una página del programa en la swap comprimida se trae y se repite la instrucción.
+     * También en modo kernel (una llamada al sistema que copia a la memoria del programa: la
+     * página pudo salir mientras el hilo dormía en el disco), si el CR3 es el del programa.
+     * Traer no duerme. Si otra CPU la trajo antes, ya está presente: se repite. */
+    if (!(q->erro & PF_PRESENTE) && p && p->pid != 0 && cr2 >= USUARIO_INICIO && cr2 < USUARIO_FIM &&
+        processo_lider(p)->usuario && (usuario || espaco_atual() == processo_lider(p)->espaco)) {
+        int r = troca_trazer(processo_lider(p)->espaco, cr2, !usuario);
+        if (r == TROCA_TRAZIDA && !usuario) {
+            static uint32_t avisos;   /* las primeras, en el registro (las pruebas las buscan) */
+            if (avisos++ < 8)
+                klog("[SWAP] fallo de pagina del kernel resuelto: %08x (eip %08x, proceso %d)\n", cr2, q->eip,
+                     processo_lider(p)->pid);
+        }
+        if (r == TROCA_TRAZIDA || r == TROCA_PRESENTE) return q;
+        if (usuario && (r == TROCA_SEM_MEMORIA || r == TROCA_CORROMPIDA)) {
+            char motivo[64];
+            snformatar(motivo, sizeof motivo, r == TROCA_SEM_MEMORIA ? "Sin memoria para traer de la swap (0x%08x)" :
+                                              "Página de la swap corrupta (0x%08x)", cr2);
+            kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: %s\n", processo_lider(p)->pid, p->nome, motivo);
+            processo_encerrar(p, SAIDA_ENCERRADO_PELO_KERNEL, motivo);
+            return escalonar(q);
+        }
+        /* En modo kernel, sin memoria ni en la baja (o trozo corrupto): sigue abajo, a la pantalla
+         * de error. No a la pila que crece: pilha_crescer da por buena una página que ya existe (en
+         * la swap) y se repetiría la instrucción para siempre (revisión de la D352). */
+        if (r == TROCA_SEM_MEMORIA || r == TROCA_CORROMPIDA) z = PILHA_FORA;
+    }
 
     if (z == PILHA_CRESCER && !(q->erro & PF_PRESENTE)) {
         if (pilha_crescer(p, cr2)) return q;   /* página nueva: se repite la instrucción */

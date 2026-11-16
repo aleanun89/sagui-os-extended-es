@@ -10,6 +10,12 @@ Dar aceleración, aunque sea parcial, a GPU AMD modernas también en la versión
 propia memoria virtual de 48 bits; el procesador solo necesita ver ventanas pequeñas por debajo de 4 GB, con
 «Above 4G Decoding» y «Resizable BAR» desactivados).
 
+## Avance (D360, v8.5.2)
+- **Nivel 2 adelantado en GCN 1.0** (Tahiti, Pitcairn, Cape Verde, Oland): 2D por el motor DMA, sin microcódigo,
+  sin probar en hardware (`acel_gcn.c`).
+- GCN 1.1-5: solo diagnóstico en el log. CIK es viable (microcódigo cargado por el driver) con un arranque diferido
+  del 2D; Polaris/VI necesita el SMU y Vega el PSP (ver D360).
+
 ## Propuesta (por niveles)
 1. **Pantalla nativa**: modos de la tarjeta (resolución del panel/monitor, varias pantallas).
 2. **2D con el motor SDMA** (copias y rellenos por DMA de la GPU), como el R600.

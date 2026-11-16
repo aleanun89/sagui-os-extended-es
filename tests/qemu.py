@@ -45,6 +45,8 @@ IMAGEM = os.path.join(BUILD, "saguios.img")
 SAIDA = os.environ.get("SAGUI_SAIDA") or os.path.join(RAIZ, "build", "testes")
 CAPTURAS = os.path.join(RAIZ, "docs", "capturas")
 TEMPO_MAX = 180
+# Aviso del kernel al acabar un proceso (ver Maquina.comando)
+AVISO_FIM = re.compile(r"\[SAGUI\] processo \d+ \([^)\n]*\) terminou com codigo -?\d+\n?")
 
 # O monitor do QEMU é um socket Unix e o kernel aceita no máximo 107 bytes de
 # caminho (sun_path). Numa cópia de trabalho com o nome longo o caminho
@@ -697,7 +699,16 @@ class Maquina:
             if self.proc.poll() is not None:
                 break
             time.sleep(0.2)
-        return self.serial()[len(antes):].replace("\r", "")
+        out = self.serial()[len(antes):].replace("\r", "")
+        # El aviso del kernel «[SAGUI] processo N (x) terminou com codigo C» sale directo por el serie,
+        # mientras la salida del programa llega a través del Terminal: a veces cae en medio de una
+        # línea («term[SAGUI] ... codigo 0\ninal», h24 y h242). Se saca de donde cayó y se pone al
+        # final, en su propia línea, para que las pruebas que lo buscan lo sigan viendo.
+        avisos = AVISO_FIM.findall(out)
+        if avisos:
+            out = AVISO_FIM.sub("", out)
+            out += "\n" + "".join(a if a.endswith("\n") else a + "\n" for a in avisos)
+        return out
 
     # ------------------------------------------------------------ mouse
     def mouse_para(self, x, y):

@@ -429,11 +429,24 @@ static void secao_memoria(texto_t *t)
     ad(t, "  memoria baja:              %s (libre %s): kernel, DMA y programas\n",
        tamanho(a, sizeof a, (uint64_t)(m.gerida_kb - m.alta_gerida_kb) << 10),
        tamanho(b, sizeof b, (uint64_t)(m.livre_kb - m.alta_livre_kb) << 10));
-    ad(t, "  memoria alta:              %s (libre %s): solo programas\n",
+    ad(t, "  memoria alta:              %s (libre %s): programas y caché de disco\n",
        tamanho(a, sizeof a, (uint64_t)m.alta_gerida_kb << 10), tamanho(b, sizeof b, (uint64_t)m.alta_livre_kb << 10));
     if (m.superior_gerida_kb)   /* D349 */
         ad(t, "    por encima de 4 GB:      %s (libre %s)\n",
            tamanho(a, sizeof a, (uint64_t)m.superior_gerida_kb << 10), tamanho(b, sizeof b, (uint64_t)m.superior_livre_kb << 10));
+    ad(t, "Caché de disco:              %s (en la alta %s; se devuelve a los programas)\n",   /* D350 */
+       tamanho(a, sizeof a, (uint64_t)m.cache_kb << 10), tamanho(b, sizeof b, (uint64_t)m.cache_alta_kb << 10));
+    if (m.troca_teto_kb) {   /* D352 */
+        unsigned cz = m.troca_comprimida_kb ? m.troca_comprimida_kb : 1, razao = m.troca_kb * 10u / cz;
+        ad(t, "Swap comprimida en RAM:      %s en la swap, comprimidos en %s (razón %u.%u:1)\n",
+           tamanho(a, sizeof a, (uint64_t)m.troca_kb << 10), tamanho(b, sizeof b, (uint64_t)m.troca_comprimida_kb << 10),
+           razao / 10, razao % 10);
+        ad(t, "  almacén:                   %s de un tope de %s; salidas %u, entradas %u\n",
+           tamanho(a, sizeof a, (uint64_t)m.troca_armazem_kb << 10), tamanho(b, sizeof b, (uint64_t)m.troca_teto_kb << 10),
+           m.troca_saidas, m.troca_entradas);
+    } else {
+        ad(t, "Swap comprimida en RAM:      desactivada\n");
+    }
     ad(t, "Paginación:                  %s; NX %s\n",
        (m.modo & MEM_MODO_PAE) ? "PAE (3 niveles, hasta 64 GB)" :
        (m.modo & MEM_MODO_CPU_PAE) ? "clásica sin PAE (desactivado al arrancar; hasta 4 GB)" :
@@ -445,7 +458,8 @@ static void secao_memoria(texto_t *t)
           "los 128 MB siguientes de direcciones son ventanas para el framebuffer y el USB, y\n"
           "los programas empiezan en 0x80000000. La RAM por encima (memoria alta, hasta el\n"
           "hueco de los dispositivos PCI bajo 4 GB, y con PAE la de encima de 4 GB, hasta\n"
-          "64 GB) es solo para los programas: el kernel la toca por ventanas temporales.\n"
+          "64 GB) es para los programas y la caché de disco: el kernel la toca por ventanas\n"
+          "temporales, y la caché la devuelve cuando los programas la necesitan.\n"
           "Cada programa sigue teniendo 32 bits de direcciones, pero entre todos usan toda la RAM.\n");
 }
 
@@ -1413,8 +1427,11 @@ static void g3_texto(texto_t *t)
         return;
     }
     if (g.estado == GPU3D_ATIVO)
-        ad(t, "  3D por GPU:      activo: driver %s, %s; órdenes %s; memoria de GPU %u KB (%u libres)\n", g.nome, g.placa,
-           g.variante ? "en el anillo" : "por lotes", g.memoria_kb, g.livre_kb);
+        ad(t, "  3D por GPU:      activo: driver %s, %s; órdenes %s; memoria de GPU %u KB (%u libres)%s\n", g.nome, g.placa,
+           g.variante & GPU3D_VAR_ANEL ? "en el anillo" : "por lotes", g.memoria_kb, g.livre_kb,
+           (g.variante & GPU3D_VAR_GTT) && g.reservado[0] ? (g.variante & GPU3D_VAR_GTT_TEX ? "; destino y texturas en la RAM del GTT" :
+                                         "; destino en la RAM del GTT") :
+           g.variante & GPU3D_VAR_GTT ? "; RAM del GTT pedida (este driver no la usa)" : "");
     else if (g.estado == GPU3D_SIN_PROBAR)
         ad(t, "  3D por GPU:      driver %s para %s, sin probar todavía (se prueba con el primer uso o al medir)\n", g.nome, g.placa);
     else

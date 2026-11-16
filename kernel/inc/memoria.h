@@ -9,9 +9,10 @@
 
 /* D348/D349: tres zonas de páginas físicas.
  *   baja     [0, MEMFIS_LIMITE): el kernel la ve 1:1; estructuras del kernel, tablas
- *            de páginas, kmalloc, DMA, caché de disco y píxeles de las ventanas.
- *   alta     [MEMFIS_LIMITE, 4 GB): solo para páginas de los programas; el kernel la
- *            toca por ventanas temporales (memalta.h), nunca por su dirección.
+ *            de páginas, kmalloc, DMA, caché de disco sin alta y píxeles de las ventanas.
+ *   alta     [MEMFIS_LIMITE, 4 GB): páginas de los programas y datos de la caché de
+ *            disco (D350); el kernel la toca por ventanas temporales (memalta.h), nunca
+ *            por su dirección.
  *   superior [4 GB, 64 GB) (D349, solo con PAE): como la alta.
  * memfisica_alocar*() dan SIEMPRE memoria baja (la dirección sirve de puntero);
  * memfisica_alocar_usuario() da superior o alta si queda y, si no, baja.
@@ -30,6 +31,22 @@ uint32_t memfisica_geridas_alta(void);
 uint32_t memfisica_livres_superior(void);     /* D349: solo la superior (por encima de 4 GB) */
 uint32_t memfisica_geridas_superior(void);
 bool     memfisica_sobre_ram(uint64_t ini, uint64_t fim);   /* D348: ¿toca RAM libre del E820? */
+/* D350: páginas de la alta/superior para la caché de disco (NO usar como puntero: ventanas de
+ * memalta.h). 0 si no hay alta o si quedan "reserva" páginas libres o menos. */
+uint64_t memfisica_alocar_alta(uint32_t reserva);
+/* D350: memfisica_alocar_usuario() sin páginas pide a "f" que devuelva unas "paginas" (la caché
+ * de disco, sus bloques limpios) antes de pasar a la baja o de fallar. "f" devuelve cuántas
+ * liberó; no puede dormir ni esperar ningún cerrojo (si su cerrojo está tomado, devuelve 0). */
+void     memfisica_registar_reclamo(uint32_t (*f)(uint32_t paginas));
+/* D352: la swap comprimida. Con ella, memfisica_alocar_usuario() no baja de "reserva_baixa"
+ * páginas bajas libres (las del kernel) sin antes sacar páginas a la swap con "f" (que no
+ * duerme ni pide páginas de programa; devuelve las liberadas). Solo si la swap no libera
+ * nada se usa la baja entera, como sin swap. */
+void     memfisica_registar_troca(uint32_t (*f)(uint32_t paginas), uint32_t reserva_baixa);
+/* D352: páginas que los programas pueden tomar sin tocar la reserva baja del kernel. */
+uint32_t memfisica_livres_programas(void);
+/* D352: pide al reclamador (la caché de disco) hasta "paginas"; devuelve las devueltas. */
+uint32_t memfisica_reclamar(uint32_t paginas);
 
 typedef struct {
     uint64_t ram_total;        /* toda la RAM libre según E820 (incluida por encima de 4 GB) */

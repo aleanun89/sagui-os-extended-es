@@ -34,7 +34,7 @@ static cinta_ctrl_t mcc_portapapeles[] = {
     CT(A_BROCHA, CC_BOTON, CCF_SIN_TEXTO | CCF_SIGUE, "Copiar formato", "Copiar formato\nCopia el formato de la celda y lo pega en las que elija\nCtrl+Mayús+C", "FB", ic_brocha),
 };
 static cinta_ctrl_t mcc_fuente[] = {
-    { .id = A_C_FONTE, .tipo = CC_COMBO, .tip = "Fuente\nFamilia de la letra", .kt = "FF", .lista = NOMES_FONTE, .n_lista = 3, .ancho = 140 },
+    { .id = A_C_FONTE, .tipo = CC_FUENTES, .tip = "Fuente\nFamilia de la letra", .kt = "FF", .ancho = 140 },   /* D356: lista con las fuentes del sistema */
     { .id = A_C_TAM, .tipo = CC_COMBO, .flags = CCF_SIGUE | CCF_EDITABLE, .tip = "Tamaño\nTamaño de la letra en puntos", .kt = "FS",
       .lista = mc_tams, .n_lista = 15, .ancho = 56 },
     CT(A_NEGRITA, CC_CONMUT, 0, "N", "Negrita\nCtrl+B", "1", NULL),
@@ -232,7 +232,7 @@ static bool macaco_cinta_desenhar(void)
     cinta_marcar(&mc, A_FORMULAS, mostrar_formulas);
     cinta_marcar(&mc, A_ASISTENTE, ag_visible);
     cinta_ctrl_t *kf = cinta_buscar(&mc, A_C_FONTE), *kt = cinta_buscar(&mc, A_C_TAM);
-    if (kf && !kf->cb.foco) combo_definir(&kf->cb, NOMES_FONTE[f->fam < 3 ? f->fam : 0]);
+    if (kf) combo_fuentes_definir(&kf->cf, f->fam);
     if (kt && !kt->cb.foco) { char t[8]; formatar_texto(t, sizeof t, "%d", f->tam ? f->tam : 10); combo_definir(&kt->cb, t); }
     cinta_desenhar(jan, &mc);
     return true;
@@ -252,7 +252,7 @@ static void macaco_cinta_orden(int id)
     confirmar_edicao();
     if (id >= A_BOR_0 && id < A_BOR_0 + 7) { bordas_aplicar(id - A_BOR_0); return; }
     switch (id) {
-    case A_C_FONTE: if (k && k->cb.sel >= 0) formato_aplicar(FO_FAM, (uint32_t)k->cb.sel, NULL); return;
+    case A_C_FONTE: if (k) formato_aplicar(FO_FAM, (uint32_t)k->cf.fam, NULL); return;
     case A_C_TAM: {
         int v = k ? texto_para_int(k->cb.texto) : 0;
         if (v >= 1 && v <= 72) formato_aplicar(FO_TAM, (uint32_t)v, NULL);

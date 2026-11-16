@@ -9,6 +9,7 @@
 #include "sistema.h"
 #include "console.h"
 #include "memoria.h"
+#include "cache_disco.h"
 #include "memalta.h"
 #include "processo.h"
 #include "relogio.h"
@@ -23,6 +24,7 @@
 #include "acpi.h"
 #include "bateria.h"
 #include "supervisor.h"
+#include "troca.h"
 
 int32_t sis_sair(uint32_t codigo, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 {
@@ -115,8 +117,9 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_MEMORIA) {
         info_memoria_t *m = (info_memoria_t *)ptr;
         /* D348/D349: los campos de la memoria alta y la superior solo si el programa los pide (n). */
-        bool v2 = n >= INFO_MEMORIA_V2, v3 = n >= sizeof *m;
-        if (!usuario_ok(m, v3 ? sizeof *m : v2 ? INFO_MEMORIA_V2 : INFO_MEMORIA_V1, true)) return ERRO_ENDERECO;
+        bool v2 = n >= INFO_MEMORIA_V2, v3 = n >= INFO_MEMORIA_V3, v4 = n >= sizeof *m;
+        if (!usuario_ok(m, v4 ? sizeof *m : v3 ? INFO_MEMORIA_V3 : v2 ? INFO_MEMORIA_V2 : INFO_MEMORIA_V1, true))
+            return ERRO_ENDERECO;
         estat_memoria_t est;
         memoria_estatisticas(&est);
         m->ram_total_kb = (uint32_t)(est.ram_total >> 10);
@@ -133,7 +136,20 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         if (v3) {
             m->superior_gerida_kb = est.superiores_geridas * 4;
             m->superior_livre_kb = est.superiores_livres * 4;
-            m->reservado[0] = m->reservado[1] = 0;
+            cache_disco_est_t c;   /* D350 */
+            cache_disco_estatisticas(&c);
+            m->cache_kb = c.blocos * 4;
+            m->cache_alta_kb = c.altos * 4;
+        }
+        if (v4) {   /* D352: la swap comprimida */
+            troca_est_t t;
+            troca_estatisticas(&t);
+            m->troca_teto_kb = t.teto_paginas * 4;
+            m->troca_kb = t.paginas * 4;
+            m->troca_comprimida_kb = t.bytes / 1024;
+            m->troca_armazem_kb = t.armazem_paginas * 4;
+            m->troca_saidas = t.saidas;
+            m->troca_entradas = t.entradas;
         }
         return 0;
     }
@@ -279,6 +295,14 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         int32_t cab_opc_gravar(uint32_t pedido);
         return cab_opc_gravar(ptr);
     }
+    if (tipo == INFO_KCONF) {   /* D353: kconfig */
+        int32_t kconf_info(uint32_t ptr, uint32_t n);
+        return kconf_info(ptr, n);
+    }
+    if (tipo == INFO_KCONF_GRAVAR) {
+        int32_t kconf_gravar(uint32_t pedido);
+        return kconf_gravar(ptr);
+    }
     if (tipo == INFO_MOTOR_GPU) {   /* motor 3D por la GPU (D158) */
         int32_t motor_gpu_info(uint32_t ptr, uint32_t n);
         return motor_gpu_info(ptr, n);
@@ -331,7 +355,9 @@ int32_t sis_aumentar_memoria(uint32_t n, uint32_t b, uint32_t c, uint32_t d, uin
  * puede tocar el código del programa, las pilas, las ventanas ni los BAR.
  * SMP (D165, D167): otro hilo del proceso puede estar corriendo en otra CPU
  * con esas páginas en su TLB; se le saca de ella (espaco_sincronizar) después
- * de quitarlas y antes de liberarlas, como al cerrar una ventana. */
+ * de quitarlas y antes de liberarlas, como al cerrar una ventana.
+ * D351: MEM_DEVOLVER y quitar la escritura esperan antes a que ningún otro
+ * hilo duerma a mitad de una llamada que use esas páginas (espaco_pode_tirar). */
 #define MEM_LOTE 64   /* páginas que se quitan antes de sincronizar y liberar */
 
 static bool rango_de_dados(const processo_t *l, uint32_t ini, uint32_t n)
@@ -361,18 +387,25 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
          * en otra CPU con la entrada vieja en su TLB fallaría (o seguiría
          * escribiendo) con los permisos de antes. */
         if (d & ~(uint32_t)(MEM_PROT_ESCRITA | MEM_PROT_EXEC | 1)) return ERRO_INVALIDO;
+        /* D351: quitar la escritura espera a que ningún otro hilo duerma en
+         * una llamada que vaya a escribir ahí (dar permisos o quitar la
+         * ejecución no le afecta: el kernel no ejecuta código del programa). */
+        if (!(d & MEM_PROT_ESCRITA) && !espaco_pode_tirar()) return SIS_REPETIR;
         /* Como mprotect (ENOMEM): todas las páginas del rango tienen que estar
          * asignadas. Si no, unas quedarían con los permisos nuevos y las que se
          * asignaran después (MEM_ASIGNAR) con NX: mejor un error claro. */
         for (uint32_t v = ini; v < ini + n; v += PAGINA)
-            if (!espaco_traduzir(l->espaco, v, NULL)) return ERRO_SEM_MEMORIA;
+            if (!espaco_existe(l->espaco, v)) return ERRO_SEM_MEMORIA;   /* D352: en la swap también vale */
         uint32_t por = ((d & MEM_PROT_ESCRITA) ? PG_ESCRITA : 0) | ((d & MEM_PROT_EXEC) ? 0 : PG_NX);
         uint32_t tirar = ((d & MEM_PROT_ESCRITA) ? 0 : PG_ESCRITA) | ((d & MEM_PROT_EXEC) ? PG_NX : 0);
         espaco_ajustar(l->espaco, ini, n, por, tirar);
         espaco_sincronizar(l->espaco);
         return 0;
     }
+    if (op == MEM_SACAR)   /* D352 */
+        return (int32_t)troca_sacar_faixa(l->espaco, ini, ini + n);
     if (op != MEM_DEVOLVER) return ERRO_INVALIDO;
+    if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351 */
     fis_t fisicas[MEM_LOTE];
     uint32_t devolvidas = 0;
     uint32_t v = ini, fim = ini + n;

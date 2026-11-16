@@ -23,6 +23,7 @@
 #include "sagui.h"
 #include "gui.h"
 #include "pdf_escribir.h"
+#include "fontes.h"            /* D356: las fuentes instaladas del sistema (proveedor de familias.c) */
 #include "agentes.h"
 #include "icones.h"
 #include "macaco_funciones.h"   /* catálogo único de funciones (evaluador, asistente y autocompletado) */
@@ -63,6 +64,7 @@
 #define MAC_BARRA      macaco_barra_a()   /* menús + barras Estándar y Formato, o la cinta (D334) */
 static int  macaco_barra_a(void);
 static void macaco_cinta_layout(void);
+static void macaco_log_layout(void);
 static bool macaco_cinta_desenhar(void);
 static bool macaco_cinta_evento(const evento_t *e);
 static void macaco_cinta_args(int *argc, char **argv);
@@ -2804,12 +2806,17 @@ static bool guardar_ficheiro(const char *destino)
         while (it_proximo(fo, &l, &c, &ce)) {
                 if (!ce->fmt) continue;
                 const fmt_t *ft = fmt_de_livro(ce);
-                char ref[16];
+                char ref[16], fn_txt[64];
+                fn_txt[0] = 0;
+                if (ft->fam >= PDFW_FAM_SIS) {     /* D356: el número de familia no vale entre sesiones: se guarda el nombre (espacios como «_») */
+                    copia_texto(fn_txt, pdfw_nombre_familia(ft->fam), sizeof fn_txt);
+                    for (char *u = fn_txt; *u; u++) if (*u == ' ' || *u == '=') *u = '_';
+                }
                 nome_ref(ref, sizeof ref, l, c);
                 txt_addf(&buf, &tam, &cap,
-                         "formato %s nf=%d dec=%d mo=%d al=%d est=%d fam=%d tam=%d bor=%d cor=%x rel=%x aj=%d\n",
+                         "formato %s nf=%d dec=%d mo=%d al=%d est=%d fam=%d tam=%d bor=%d cor=%x rel=%x aj=%d%s%s\n",
                          ref, ft->nf, ft->dec, ft->moeda, ft->al, ft->est, ft->fam, ft->tam, ft->bor,
-                         (unsigned)ft->cor, (unsigned)ft->rel, ft->aj);
+                         (unsigned)ft->cor, (unsigned)ft->rel, ft->aj, fn_txt[0] ? " fn=" : "", fn_txt);
         }
         }
         f2_guardar(fo, &buf, &tam, &cap);
@@ -3106,6 +3113,15 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
                 if (*q != '=') break;
                 int kl = (int)(q - k);
                 q++;
+                if (kl == 2 && memcmp(k, "fn", 2) == 0) {    /* D356: nombre de la familia del sistema */
+                    char nm[64];
+                    int nl = 0;
+                    while (*q && *q != ' ' && nl < (int)sizeof nm - 1) { nm[nl] = *q == '_' ? ' ' : *q; nl++; q++; }
+                    nm[nl] = 0;
+                    int id = fuente_familia_por_nombre(nm);
+                    if (id >= PDFW_FAM_SIS) ft.fam = (uint8_t)id; else if (ft.fam >= PDFW_FAM_SIS) ft.fam = 0;
+                    continue;
+                }
                 unsigned v = 0;
                 const char *vi = q;
                 bool hex = (kl == 3 && (memcmp(k, "cor", 3) == 0 || memcmp(k, "rel", 3) == 0));
@@ -3503,7 +3519,6 @@ static void abrir_grafico(int tipo)
 /* ------------------------------------------------------------ formatos de celda (D293) */
 
 static const char *const MOEDAS[3] = { "$", "EUR ", "\xA3" };
-static const char *const NOMES_FONTE[3] = { "Arial", "Times New Roman", "Courier New" };
 static const uint32_t PALETA_COR[9] = {
     0x000000, 0xFF0000, 0x008000, 0x0000FF, 0x000080, 0x800000, 0x808080, 0xFF8000, 0xFFFFFF
 };
@@ -4420,10 +4435,14 @@ static int cong_h(void) { return off_lin(folha_ativa(), folha_ativa()->cong_l); 
 static int x_coluna(int c) { return MAC_LARGC + off_col_x(c) - (c < folha_ativa()->cong_c ? 0 : desl_x); }
 static int y_linha(int l) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH + off_lin(folha_ativa(), l) - (l < folha_ativa()->cong_l ? 0 : desl_y); }
 static int grelha_y(void) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH; }
+/* Ancho disponible para la hoja: lo que queda a la izquierda del panel del asistente cuando está abierto (D355). */
+static bool ag_visible;
+static int  ag_larg(void) { int l = jan->larg * 45 / 100; return l < 380 ? l : 380; }
+static int  mac_l(void) { return jan->larg - (ag_visible ? ag_larg() : 0); }
 #define MAC_SB 16        /* grosor de las barras de desplazamiento (D345) */
 static int grelha_a(void) { return jan->alt - grelha_y() - MAC_RODAPE - MAC_SB; }
-static int grelha_x1(void) { return jan->larg - MAC_SB; }           /* borde derecho de la cuadrícula */
-static int grelha_l(void) { return jan->larg - MAC_LARGC - MAC_SB; }   /* ancho de la cuadrícula */
+static int grelha_x1(void) { return mac_l() - MAC_SB; }           /* borde derecho de la cuadrícula */
+static int grelha_l(void) { return mac_l() - MAC_LARGC - MAC_SB; }   /* ancho de la cuadrícula */
 
 #define Y_FERR1  MENU_A
 #define Y_FERR2  (MENU_A + FERR_A)
@@ -4459,7 +4478,8 @@ enum {
 static barra_menu_t   menu;
 static barra_ferr_t   ferr1, ferr2;
 static barra_item_t   it1[22], it2[24];
-static combo_t        c_fonte, c_tam;
+static combo_fuentes_t c_fonte;    /* D356: lista de fuentes con buscador y muestra (D327) */
+static combo_t        c_tam;
 static barra_estado_t barra_est;
 static char           ult_titulo[160];
 static uint32_t       cor_rel_atual = 0xFFFF00, cor_txt_atual = 0xFF0000;
@@ -4647,12 +4667,13 @@ static void layout(void)
     barra_ferr_iniciar(&ferr1, 0, Y_FERR1, l, it1, 18);
     barra_ferr_iniciar(&ferr2, 0, Y_FERR2, l, it2, 22);
     static const char *const tams_txt[] = { "8", "9", "10", "11", "12", "14", "16", "18", "20", "22", "24", "28", "36", "48", "72" };
-    combo_iniciar(&c_fonte, barra_ferr_x(&ferr2, 0), Y_FERR2 + 3, 140, NOMES_FONTE, 3, false, 7301);
+    combo_fuentes_iniciar(&c_fonte, barra_ferr_x(&ferr2, 0), Y_FERR2 + 3, 140);
     combo_iniciar(&c_tam, barra_ferr_x(&ferr2, 1), Y_FERR2 + 3, 52, tams_txt, 15, true, 7302);
     static const int larg[4] = { 260, 150, 150, 100 };
     barra_estado_iniciar(&barra_est, 0, Y_ESTADO, l, 4, larg);
     macaco_cinta_layout();
     ag_colocar();
+    macaco_log_layout();
 }
 
 /* ------------------------------------------------------------ menús (barra y contextuales) */
@@ -4748,8 +4769,6 @@ static bool acao_ativa(int a)
     }
 }
 
-static bool ag_visible;
-
 static void menu_construir(char *dst, int max, const mi_t *l, int n)
 {
     int k = 0;
@@ -4805,8 +4824,74 @@ static uint32_t mezclar(uint32_t a, uint32_t b)
 #define TXT_CLAVE 0x010203
 static uint32_t txt_buf[256 * 8 * 17];
 
+/* D356: una celda con una fuente del sistema (familia >= 3): glifos vectoriales con antialias del proveedor de
+ * la libfontes (el mismo que usa Pluma), a tam pt = tam * 4/3 px. false = no se puede (sin la fuente o un
+ * carácter que no trae): la celda se dibuja con la 8x16 como siempre. */
+static bool texto_celda_vec(int x, int y, int w, int h, const char *t, const fmt_t *f, bool numero, uint32_t cor)
+{
+    const fuentes_prov_t *pv = fuentes_prov_obter();
+    if (!pv || !pv->glifo || f->fam < PDFW_FAM_SIS) return false;
+    int tam = f->tam ? f->tam : 10, px = tam * 4 / 3, n = (int)tam_texto(t);
+    int est = ((f->est & EST_NEGRITA) ? 1 : 0) | ((f->est & EST_CURSIVA) ? 2 : 0);
+    if (n > 250) n = 250;
+    if (n == 0 || px < 4) return false;
+    int anch[256], tot = 0;
+    for (int i = 0; i < n; i++) {
+        int l, a, ox, oy;
+        unsigned char c = (unsigned char)t[i];
+        if (c > ' ' && !pv->glifo(f->fam, est, c, px, &l, &a, &ox, &oy)) return false;
+        int m = pdfw_largura_char(f->fam, est, c);
+        anch[i] = (m < 0 ? 500 : m) * px;          /* milésimas de píxel */
+        tot += anch[i];
+    }
+    char almoh[8];
+    if (tot / 1000 > w - 4) {
+        if (numero) {                              /* D300: un número que no cabe se muestra «###» */
+            int k = 0;
+            for (; k < 3; k++) almoh[k] = '#';
+            almoh[k] = 0;
+            t = almoh; n = 3; tot = 0;
+            for (int i = 0; i < n; i++) { anch[i] = pdfw_largura_char(f->fam, est, '#') * px; tot += anch[i]; }
+        }
+        while (n > 0 && tot / 1000 > w - 4) tot -= anch[--n];     /* el texto se recorta por la derecha */
+    }
+    int tw = tot / 1000;
+    int al = f->al ? f->al : (numero ? AL_DIR : AL_ESQ);
+    int tx = (al == AL_ESQ) ? x + 3 : (al == AL_DIR ? x + w - 3 - tw : x + (w - tw) / 2);
+    int base = y + h / 2 + px * 35 / 100;
+    int acum = 0;
+    for (int i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)t[i];
+        int l, a, ox, oy;
+        if (c > ' ') {
+            const uint8_t *g = pv->glifo(f->fam, est, c, px, &l, &a, &ox, &oy);
+            if (g) {
+                int gx = tx + acum / 1000 + ox, gy = base + oy;
+                for (int yy = 0; yy < a; yy++) {
+                    int py = gy + yy;
+                    if (py < y || py >= y + h || py < 0 || py >= jan->alt) continue;
+                    for (int xx = 0; xx < l; xx++) {
+                        int pxx = gx + xx, cv = g[yy * l + xx];
+                        if (!cv || pxx < x || pxx >= x + w || pxx < 0 || pxx >= jan->larg) continue;
+                        uint32_t d = jan->px[py * jan->larg + pxx];
+                        int dr = (d >> 16) & 255, dg = (d >> 8) & 255, db = d & 255;
+                        dr += ((int)((cor >> 16) & 255) - dr) * cv / 255;
+                        dg += ((int)((cor >> 8) & 255) - dg) * cv / 255;
+                        db += ((int)(cor & 255) - db) * cv / 255;
+                        jan->px[py * jan->larg + pxx] = (uint32_t)dr << 16 | (uint32_t)dg << 8 | (uint32_t)db;
+                    }
+                }
+            }
+        }
+        acum += anch[i];
+    }
+    if (f->est & EST_SUBLIN) g_retangulo(jan, tx, base + 2, tw, 1, cor);
+    return true;
+}
+
 static void texto_celda_1(int x, int y, int w, int h, const char *t, const fmt_t *f, bool numero, uint32_t cor)
 {
+    if (f->fam >= PDFW_FAM_SIS && texto_celda_vec(x, y, w, h, t, f, numero, cor)) return;
     int tam = f->tam ? f->tam : 10;
     int n = (int)tam_texto(t);
     if (n > 250) n = 250;
@@ -5447,7 +5532,7 @@ static void sb_calc(bool vert, sb_t *s)
         vis = linha_em_y(fo, desl_y + ga) - top;
         if (vis < 1) vis = 1;
         ext = fo->linhas;
-        s->x = jan->larg - MAC_SB; s->y = gy; s->l = MAC_SB; s->a = ga;
+        s->x = mac_l() - MAC_SB; s->y = gy; s->l = MAC_SB; s->a = ga;
         s->ini = gy + MAC_SB; s->len = ga - 2 * MAC_SB;
     } else {
         top = coluna_em_x(desl_x + cong_w());
@@ -5457,7 +5542,7 @@ static void sb_calc(bool vert, sb_t *s)
         vis = c - top;
         if (vis < 1) vis = 1;
         ext = fo->colunas;
-        s->x = MAC_LARGC; s->y = gy + ga; s->l = jan->larg - MAC_LARGC - MAC_SB; s->a = MAC_SB;
+        s->x = MAC_LARGC; s->y = gy + ga; s->l = mac_l() - MAC_LARGC - MAC_SB; s->a = MAC_SB;
         s->ini = s->x + MAC_SB; s->len = s->l - 2 * MAC_SB;
     }
     int rng = (ext > top + vis ? ext : top + vis) + (vert ? 30 : 6);
@@ -5598,7 +5683,7 @@ static void sb_desenhar(void)
 {
     sb_desenhar_uma(true);
     sb_desenhar_uma(false);
-    g_retangulo(jan, jan->larg - MAC_SB, grelha_y() + grelha_a(), MAC_SB, MAC_SB, W98_FACE);
+    g_retangulo(jan, mac_l() - MAC_SB, grelha_y() + grelha_a(), MAC_SB, MAC_SB, W98_FACE);
 }
 
 /* El botoncito desplegable de una celda (filtro o lista de validación): su esquina y si cabe en pantalla. */
@@ -5756,7 +5841,7 @@ static void desenhar_grelha(void)
 
     /* La cabecera de las columnas: botones biselados, con la seleccionada hundida. */
     int hy = gy - MAC_CABECALH;
-    g_retangulo(jan, 0, hy, jan->larg, MAC_CABECALH, W98_FACE);
+    g_retangulo(jan, 0, hy, mac_l(), MAC_CABECALH, W98_FACE);
     for (int c = c_ini; c < c_fim; c++) desenhar_cab_col(fo, c, l1, c1, c2);
     if (fo->cong_c) {
         g_retangulo(jan, MAC_LARGC, hy, Wf, MAC_CABECALH, W98_FACE);
@@ -5782,7 +5867,7 @@ static void desenhar_grelha(void)
 static void desenhar_formula(void)
 {
     int y = Y_FORM;
-    g_retangulo(jan, 0, y, jan->larg, MAC_FORMULA, W98_FACE);
+    g_retangulo(jan, 0, y, mac_l(), MAC_FORMULA, W98_FACE);
     /* La caja del nombre (la referencia de la celda activa). */
     char ref[24];
     if (nome_foco) copia_texto(ref, nome_buf, sizeof ref);
@@ -5801,7 +5886,7 @@ static void desenhar_formula(void)
     g_texto(jan, 114, y + 4, "fx", 0x000080);
     g_texto(jan, 115, y + 4, "fx", 0x000080);
     /* La caja del contenido. */
-    int cx = 138, cw = jan->larg - cx - 4;
+    int cx = 138, cw = mac_l() - cx - 4;
     if (cw < 20) cw = 20;
     g_retangulo(jan, cx, y + 2, cw, MAC_FORMULA - 4, COR_BRANCO);
     g_bisel(jan, cx, y + 2, cw, MAC_FORMULA - 4, true);
@@ -5820,12 +5905,12 @@ static int larg_pestana(int f) { return g_largura_texto(livro.folha[f].nome) + 2
 static void desenhar_pestanas(void)
 {
     int y = Y_PEST;
-    g_retangulo(jan, 0, y, jan->larg, MAC_RODAPE - ESTADO_A, W98_FACE);
-    g_retangulo(jan, 0, y, jan->larg, 1, W98_SOMBRA);
+    g_retangulo(jan, 0, y, mac_l(), MAC_RODAPE - ESTADO_A, W98_FACE);
+    g_retangulo(jan, 0, y, mac_l(), 1, W98_SOMBRA);
     int x = 6;
     for (int f = 0; f < livro.n; f++) {
         int l = larg_pestana(f);
-        if (x + l > jan->larg - 30) break;
+        if (x + l > mac_l() - 30) break;
         bool ativa = f == livro.ativa;
         int y0 = y + (ativa ? 0 : 1);
         g_retangulo(jan, x, y0, l, MAC_RODAPE - ESTADO_A - (ativa ? 1 : 2), ativa ? COR_BRANCO : W98_FACE);
@@ -5837,7 +5922,7 @@ static void desenhar_pestanas(void)
         if (ativa) g_texto(jan, x + 12, y0 + 1, livro.folha[f].nome, W98_NEGRO);
         x += l;
     }
-    if (x + 24 < jan->larg) {                                  /* botón de hoja nueva */
+    if (x + 24 < mac_l()) {                                  /* botón de hoja nueva */
         g_retangulo(jan, x + 4, y + 2, 20, 17, W98_FACE);
         g_bisel(jan, x + 4, y + 2, 20, 17, false);
         g_texto(jan, x + 10, y + 2, "+", W98_NEGRO);
@@ -5921,8 +6006,8 @@ static void ui_atualizar(void)
     barra_ferr_marcar(&ferr2, A_CENTRO, f->al == AL_CENTRO);
     barra_ferr_marcar(&ferr2, A_DIR, f->al == AL_DIR);
     barra_ferr_desenhar(jan, &ferr2);
-    if (!c_fonte.foco) combo_definir(&c_fonte, NOMES_FONTE[f->fam < 3 ? f->fam : 0]);
-    combo_desenhar(jan, &c_fonte);
+    combo_fuentes_definir(&c_fonte, f->fam);
+    combo_fuentes_desenhar(jan, &c_fonte);
     if (!c_tam.foco) { char t[8]; formatar_texto(t, sizeof t, "%d", f->tam ? f->tam : 10); combo_definir(&c_tam, t); }
     combo_desenhar(jan, &c_tam);
 }
@@ -6763,7 +6848,7 @@ static bool pdf_gerar(const char *titulo, uint8_t **dados, int *n)
                     int nn = (int)tam_texto(t);
                     if (nn > 0) {
                         int tam = (f->tam ? f->tam : 10) * 20;
-                        int fam = f->fam == 1 ? PDFW_SERIF : f->fam == 2 ? PDFW_MONO : PDFW_SANS;
+                        int fam = f->fam >= PDFW_FAM_SIS ? f->fam : f->fam == 1 ? PDFW_SERIF : f->fam == 2 ? PDFW_MONO : PDFW_SANS;
                         int est = ((f->est & EST_NEGRITA) ? PDFW_NEGRITA : 0) | ((f->est & EST_CURSIVA) ? PDFW_CURSIVA : 0);
                         while (nn > 0 && pdfw_largura_texto(fam, est, tam, t, nn) > lc - 90) nn--;
                         bool numero = (ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO);
@@ -6910,7 +6995,23 @@ static void dialogo_celulas(void)
     static char it_cat[5][64] = { "General", "Número", "Moneda", "Porcentaje", "Miles" };
     static char it_mo[3][64] = { "$ (dólar)", "EUR (euro)", "£ (libra)" };
     static char it_al[4][64] = { "General", "Izquierda", "Centro", "Derecha" };
-    static char it_fam[3][64] = { "Arial", "Times New Roman", "Courier New" };
+    static char it_fam[PDFW_FAM_MAX + 1][64];
+    static int fam_ids[PDFW_FAM_MAX + 1];
+    int n_fam = 0, sel_fam = 0;
+    {   /* D356: las clásicas y todas las fuentes instaladas (las quitadas no salen) */
+        const fuentes_prov_t *pv = fuentes_prov_obter();
+        if (pv && pv->actualizar) pv->actualizar();
+        int tot = pv && pv->cantidad ? pv->cantidad() : 3;
+        if (tot < 3) tot = 3;
+        if (tot > PDFW_FAM_MAX + 1) tot = PDFW_FAM_MAX + 1;
+        for (int i = 0; i < tot; i++) {
+            const char *nm = i < 3 ? pdfw_nombre_familia(i) : (pv && pv->nombre ? pv->nombre(i) : NULL);
+            if (!nm) continue;
+            copia_texto(it_fam[n_fam], nm, sizeof it_fam[n_fam]);
+            fam_ids[n_fam] = i;
+            n_fam++;
+        }
+    }
     static char it_est[4][64] = { "Normal", "Cursiva", "Negrita", "Negrita cursiva" };
     static char it_tam[15][64], it_cor[9][64], it_rel[10][64];
     for (int i = 0; i < 15; i++) formatar_texto(it_tam[i], 64, "%d", TAMS_DLG[i]);
@@ -6925,6 +7026,7 @@ static void dialogo_celulas(void)
     jan_estilo(j, JAN_DIALOGO, 0, 0);
 
     int sel_tam = 2, sel_cor = -1, sel_rel = 9;
+    for (int i = 0; i < n_fam; i++) if (fam_ids[i] == ini.fam) sel_fam = i;
     for (int i = 0; i < 15; i++) if (TAMS_DLG[i] == (ini.tam ? ini.tam : 10)) sel_tam = i;
     for (int i = 0; i < 9; i++) if (PALETA_COR[i] == ini.cor) { sel_cor = i; break; }
     for (int i = 0; i < 9; i++) if ((ini.rel & REL_ATIVO) && PALETA_REL[i] == (ini.rel & 0xFFFFFF)) sel_rel = i;
@@ -6933,7 +7035,7 @@ static void dialogo_celulas(void)
     lista_t l_cat = { 24, 62, 150, 90, it_cat, 5, ini.nf < 5 ? ini.nf : 0, 0, NULL, NULL };
     lista_t l_mo = { 200, 128, 140, 62, it_mo, 3, ini.moeda < 3 ? ini.moeda : 0, 0, NULL, NULL };
     lista_t l_al = { 24, 62, 150, 90, it_al, 4, ini.al < 4 ? ini.al : 0, 0, NULL, NULL };
-    lista_t l_fam = { 24, 62, 150, 82, it_fam, 3, ini.fam < 3 ? ini.fam : 0, 0, NULL, NULL };
+    lista_t l_fam = { 24, 62, 150, 82, it_fam, n_fam, sel_fam, 0, NULL, NULL };
     lista_t l_est = { 184, 62, 130, 82, it_est, 4, ((ini.est & EST_NEGRITA) ? 2 : 0) | ((ini.est & EST_CURSIVA) ? 1 : 0), 0, NULL, NULL };
     lista_t l_tam = { 324, 62, 80, 82, it_tam, 15, sel_tam, 0, NULL, NULL };
     lista_t l_cor = { 24, 176, 190, 100, it_cor, 9, sel_cor, 0, icone_cor_txt, NULL };
@@ -7062,7 +7164,7 @@ static void dialogo_celulas(void)
         mask |= M_NUM;
     }
     if (l_al.sel != ini.al) { r.al = (uint8_t)l_al.sel; mask |= M_AL; }
-    if (l_fam.sel != ini.fam) { r.fam = (uint8_t)l_fam.sel; mask |= M_FAM; }
+    if (l_fam.sel >= 0 && l_fam.sel < n_fam && fam_ids[l_fam.sel] != ini.fam) { r.fam = (uint8_t)fam_ids[l_fam.sel]; mask |= M_FAM; }
     uint8_t est = (uint8_t)(((l_est.sel & 2) ? EST_NEGRITA : 0) | ((l_est.sel & 1) ? EST_CURSIVA : 0) | (c_sub.marcada ? EST_SUBLIN : 0));
     if (est != ini.est) { r.est = est; mask |= M_EST; }
     uint8_t tam = (uint8_t)(TAMS_DLG[l_tam.sel < 0 ? 2 : l_tam.sel] == 10 ? 0 : TAMS_DLG[l_tam.sel < 0 ? 2 : l_tam.sel]);
@@ -7396,8 +7498,8 @@ static int  ag_version;            /* sube cuando una herramienta cambia el libr
 
 static void ag_rect(int *x, int *y, int *l, int *a)
 {
-    *x = jan->larg - AG_PANEL_L; *y = MAC_BARRA;
-    *l = AG_PANEL_L; *a = jan->alt - ESTADO_A - *y;
+    *l = ag_larg(); *x = jan->larg - *l; *y = MAC_BARRA;
+    *a = jan->alt - ESTADO_A - *y;
 }
 
 /* Muestra u oculta el panel (Ver > Asistente IA, el botón de la barra y F12). El panel se dibuja encima de la
@@ -7415,6 +7517,7 @@ static void ag_alternar(void)
     ag_foco = ag_visible;
     barra_ferr_marcar(&ferr1, A_ASISTENTE, ag_visible);
     registrar("macaco: asistente %s", ag_visible ? "visible" : "oculto");
+    layout();                          /* la hoja, la fórmula y las pestañas se estrechan o se ensanchan (D355) */
 }
 
 static void ag_colocar(void)
@@ -7891,7 +7994,7 @@ static void ag_rapida(int a)
         ag_lista_funciones(fs, sizeof fs);
         formatar_texto(tarea, sizeof tarea, "Crea una formula de Macaco para: %s. Mira los datos con macaco_leer_rango (la seleccion actual y la celda activa) y escribe la formula en la celda activa con macaco_escribir_rango. Funciones disponibles (tambien con su nombre en espanol, argumentos separados por ;): %s. El operador & une textos.", t, fs);
     }
-    if (!ag_visible) { ag_alternar(); layout(); desenhar_tudo(); }
+    if (!ag_visible) { ag_alternar(); desenhar_tudo(); }
     if (!ag) return;
     registrar("macaco: accion rapida %d", a);
     ag_panel_tarea(ag, AG_AGENTE, tarea);
@@ -8386,6 +8489,17 @@ static void funcao_assistente(void);
 static void autoajustar_coluna(int c);
 static void autoajustar_linha(int l);
 #include "macaco_cinta.h"
+
+/* Para las pruebas (--cinta-log): lo que ocupa cada zona, como (x,y,l,a). */
+static void macaco_log_layout(void)
+{
+    if (!mc_log) return;
+    int px = 0, py = 0, pl = 0, pa = 0;
+    if (ag_visible) ag_rect(&px, &py, &pl, &pa);
+    registrar("macaco: layout base=%d hoja=0,%d,%d,%d formula=0,%d,%d,%d pest=0,%d,%d,%d panel=%d,%d,%d,%d estado=%d ventana=%dx%d\n",
+              MAC_BARRA, grelha_y(), mac_l(), grelha_a() + MAC_SB, Y_FORM, mac_l(), MAC_FORMULA,
+              Y_PEST, mac_l(), MAC_RODAPE - ESTADO_A, px, py, pl, pa, Y_ESTADO, jan->larg, jan->alt);
+}
 
 static void executar_acao(int a)
 {
@@ -9028,7 +9142,7 @@ static int pestana_em(int mx, int my)
     int x = 6;
     for (int f = 0; f < livro.n; f++) {
         int l = larg_pestana(f);
-        if (x + l > jan->larg - 30) break;
+        if (x + l > mac_l() - 30) break;
         if (mx >= x && mx < x + l) return f;
         x += l;
     }
@@ -9096,7 +9210,6 @@ static void tratar_evento(const evento_t *e)
         int m = barra_menu_tratar(jan, &menu, e);
         if (m >= 0) { executar_acao(MENUS[m / 100].l[m % 100].a); return; }
         if (tratar_menus_proprios(e)) return;
-        if (combo_tratar(jan, &c_fonte, e) == COMBO_SELECIONOU) { formato_aplicar(FO_FAM, (uint32_t)c_fonte.sel, NULL); return; }
         if (combo_tratar(jan, &c_tam, e) == COMBO_SELECIONOU) {
             formato_aplicar(FO_TAM, (uint32_t)texto_para_int(c_tam.texto), NULL);
             return;
@@ -9106,8 +9219,8 @@ static void tratar_evento(const evento_t *e)
     if (e->tipo == EV_CLIQUE && (e->botoes & 1)) barra_menu_tratar(jan, &menu, e);
 
     /* combos con foco: reciben el teclado */
-    if (e->tipo == EV_TECLA && (c_tam.foco || c_fonte.foco)) {
-        int r = combo_tratar(jan, c_tam.foco ? &c_tam : &c_fonte, e);
+    if (e->tipo == EV_TECLA && c_tam.foco) {
+        int r = combo_tratar(jan, &c_tam, e);
         if (r == COMBO_ENTROU) {
             int v = texto_para_int(c_tam.texto);
             if (v >= 1 && v <= 72) formato_aplicar(FO_TAM, (uint32_t)v, NULL);
@@ -9115,7 +9228,7 @@ static void tratar_evento(const evento_t *e)
         return;
     }
     if (e->tipo == EV_CLIQUE) {
-        combo_tratar(jan, &c_fonte, e);
+        if (combo_fuentes_tratar(jan, &c_fonte, e) == COMBO_SELECIONOU) { formato_aplicar(FO_FAM, (uint32_t)c_fonte.fam, NULL); return; }
         combo_tratar(jan, &c_tam, e);
     }
 
@@ -10019,6 +10132,14 @@ int principal(int argc, char **argv)
     macaco_cinta_args(&argc, argv);
     memset(&livro, 0, sizeof livro);
     livro.n_fmts = 1;
+    fuentes_doc_instalar();                /* D356: las fuentes del sistema para pantalla, PDF, XLSX y ODS */
+    if (argc > 1 && compara_texto(argv[1], "--fuentes") == 0) {   /* pruebas: las familias que ofrece el selector */
+        const fuentes_prov_t *pv = fuentes_prov_obter();
+        int tot = pv && pv->cantidad ? pv->cantidad() : 3;
+        registrar("macaco: fuentes %d familias", tot);
+        for (int i = 0; i < tot; i++) { const char *nm = i < 3 ? pdfw_nombre_familia(i) : (pv && pv->nombre ? pv->nombre(i) : NULL); if (nm) registrar("macaco: familia %d %s", i, nm); }
+        return 0;
+    }
     /* El modo de prueba: carga el fichero y escribe las celdas en el registro. */
     if (argc > 1 && argv[1][0] == '-' && argv[1][1] == 't') {
         if (argc < 3) { registrar("macaco: modo -t sin fichero"); return 1; }

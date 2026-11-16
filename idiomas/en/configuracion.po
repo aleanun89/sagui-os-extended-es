@@ -1139,3 +1139,89 @@ msgstr "Account deleted; its folder is kept."
 #: userland/programas/configuracion.c
 msgid "Elige una cuenta de la lista."
 msgstr "Choose an account from the list."
+
+#: userland/programas/configuracion.c:1956
+msgid "Kernel"
+msgstr "Kernel"
+
+#: userland/programas/configuracion.c:2122
+msgid "Valores de la imagen (borrar lo guardado)"
+msgstr "Image values (erase saved)"
+
+#: userland/programas/configuracion.c:2131
+msgid "Cambiar"
+msgstr "Change"
+
+#: userland/programas/configuracion.c:2132
+msgid "De la imagen"
+msgstr "From image"
+
+#: userland/programas/configuracion.c:2140
+msgid "cambiar las opciones del kernel"
+msgstr "change the kernel options"
+
+#: userland/programas/configuracion.c:2141
+msgid "Sin permisos de administrador no se pueden cambiar las opciones del kernel."
+msgstr "Without administrator rights the kernel options cannot be changed."
+
+#: userland/programas/configuracion.c:2147
+msgid "Arranque desde CD: no se puede guardar."
+msgstr "Booted from CD: cannot save."
+
+#: userland/programas/configuracion.c:2150
+msgid "Borrado lo guardado: al reiniciar, los valores de la imagen."
+msgstr "Saved settings erased: the image values on restart."
+
+#: userland/programas/configuracion.c:2155
+#, c-format
+msgid "%s: %s; se aplica al reiniciar"
+msgstr "%s: %s; applied on restart"
+
+#: userland/programas/configuracion.c:2155
+#, c-format
+msgid "%s: %s"
+msgstr "%s: %s"
+
+#: userland/programas/configuracion.c:2189
+msgid "Opciones del kernel"
+msgstr "Kernel options"
+
+#: userland/programas/configuracion.c:2190
+msgid "Se aplican al reiniciar. Si no arranca: Ctrl al arrancar y «kconfig --por-defecto»."
+msgstr "Applied on restart. If it does not boot: hold Ctrl at boot and run «kconfig --por-defecto»."
+
+#: userland/programas/configuracion.c:2192
+msgid "Modo rescate: lo guardado no se aplica en este arranque."
+msgstr "Rescue mode: the saved settings are not applied in this boot."
+
+#: userland/programas/configuracion.c:2193
+msgid "Arranque desde CD: no se puede guardar nada."
+msgstr "Booted from CD: nothing can be saved."
+
+#: userland/programas/configuracion.c:2194
+msgid "Lo guardado está dañado y no se aplica."
+msgstr "The saved settings are damaged and not applied."
+
+#: userland/programas/configuracion.c:2197
+msgid "Opción"
+msgstr "Option"
+
+#: userland/programas/configuracion.c:2199
+msgid "Ahora"
+msgstr "Now"
+
+#: userland/programas/configuracion.c:2200
+msgid "Al reiniciar"
+msgstr "On restart"
+
+#: userland/programas/configuracion.c:2202
+msgid "Este kernel no tiene opciones guardables."
+msgstr "This kernel has no saveable options."
+
+#: userland/programas/configuracion.c:2219
+msgid "* = cambia al reiniciar"
+msgstr "* = changes on restart"
+
+#: userland/programas/configuracion.c:1093
+msgid "Instalar fuentes..."
+msgstr "Install fonts..."

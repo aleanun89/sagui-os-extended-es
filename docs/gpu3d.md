@@ -132,6 +132,7 @@ la variante del driver) e `INFO_*` 71 a 74.
 | 2026-11-15 | Primera versión estable (D285) |
 | 2026-11-15 | Al fusionar main: `INFO_GPU3D*` pasan de 70-73 a **71-74** (el 70 es `INFO_CAMARA`, D277). Solo cambia el número: quien use los nombres de `abi.h` recompila y ya |
 | 2026-11-15 | D284 (sin cambio de interfaz): driver `gpu3d_r600`, que arranca en `GPU3D_APAGADO`; modo 4 de `CAB_GPU3D` (`--gpu3d=radeon`); `INFO_GPU3D_CTL` e `INFO_GPU3D_PROVA` solo para el administrador |
+| 2026-11-16 | D358 (se amplía, nada incompatible): bit `0x40` de `CAB_GPU3D` (`GPU3D_CAB_GTT`, RAM del sistema en el GTT) que llega al driver en `variante` (los que no lo usan lo ignoran); `INFO_GPU3D_CTL` acepta 3 (lotes + GTT) y 4 (anillo + GTT); `info_gpu3d_t.variante` pasa a bits `GPU3D_VAR_*` de `abi.h` (el 1 sigue siendo «anillo») con lo que de verdad quedó, y `reservado[0]` = KB de RAM en el GTT; `gpu3d_intel_estado()` en `gpu3d.h`. `gpu3d_driver_t` no cambia |
 
 ### Cómo añadir un driver (como se hizo con las Radeon R7xx, D284)
 
@@ -171,13 +172,46 @@ y `A011` Pineview. Las X3100 (GM965) y posteriores son Gen4: otra tubería (somb
 - **Vértices** dentro de la orden (`3DPRIMITIVE` con lista de triángulos): XYZW + color + especular
   + (u, v) = 8 palabras, que es `gpu3d_vert_t` tal cual.
 - **Limpiar**: con el blitter (`XY_COLOR_BLT`), que es lo que ya prueba el 2D.
-- **Memoria**: solo la que el VBE dejó en el GTT (la «robada»), entre la zona de prueba del 2D y el
-  ring. **No se escribe el GTT**, ni registros de pantalla, relojes o energía. Con 8 MB robados y
-  1024x768 quedan unos 4,5 MB: cabe un destino de 640x480 con Z de 24 bits y alguna textura; uno de
-  800x600 solo con Z de 16 bits. Si no cabe, ese programa va por software.
-- **Traer el cuadro**: la CPU lee la memoria de vídeo por la apertura (sin caché: lento).
-  `gpu3d probar` lo mide aparte; si resulta ser lo que limita, el paso siguiente es mapear RAM
-  normal en el GTT (ver «Pendiente»).
+- **Memoria**: la que el VBE dejó en el GTT (la «robada»), entre la zona de prueba del 2D y el
+  ring. Sin la opción `gtt` **no se escribe el GTT**, ni registros de pantalla, relojes o energía
+  (nunca). Con 8 MB robados y 1024x768 quedan unos 4,5 MB: cabe un destino de 640x480 con Z de 24
+  bits y alguna textura; uno de 800x600 solo con Z de 16 bits. Si no cabe, ese programa va por software.
+- **RAM del sistema en el GTT** (D358, **solo a mano**: `gpu3d encender gtt`, `gpu3d encender anillo
+  gtt` o `mkimagem.py --gpu3d-gtt`): 16 MB de RAM normal (8 MB si hay poca libre) en una ventana del
+  GTT libre (comprobado leyendo: todas sus entradas iguales) al final de los primeros 128 MB de
+  direcciones gráficas. Ahí va el **destino de color** (traer el cuadro es leer RAM con caché, no la
+  apertura sin caché) y, si la BIOS dejó encendida la página de vaciado del chipset y la GPU lee bien
+  la RAM, **las texturas**. El Z sigue en la memoria del VBE (solo lo ve la GPU) salvo que no quepa.
+  Antes de usarla se comprueba que la CPU ve cada página por la apertura y que la GPU escribe en la
+  RAM y solo donde debe. Las páginas no se liberan nunca (hasta reiniciar), para que una GPU colgada
+  no pueda escribir en memoria del kernel; si algo falla, las entradas vuelven a lo que tenían (si la
+  GPU se colgó, se quedan apuntando a esas páginas reservadas) y no se repite hasta reiniciar.
+- **Traer el cuadro**: sin la RAM en el GTT, la CPU lee la memoria de vídeo por la apertura (sin
+  caché: lento); con ella, RAM con caché tras invalidarla. `gpu3d probar` lo mide aparte
+  («traer N píxeles a la RAM»): es la cifra a comparar entre `gpu3d encender` y `gpu3d encender gtt`.
+- **Robustez** (D358): cada entrega empieza invalidando las cachés de lectura de la GPU (texturas
+  recargadas en el mismo sitio); tras cada espera se lee EIR y un error nuevo (orden no válida, tabla
+  de páginas) apaga el 3D; si el lote termina pero no hace lo que lleva, se sigue en el anillo.
+
+### Encendido por etapas (D358) y cómo leer el log
+
+`[GPU3D] intel: etapa N` es el último paso del encendido que se hizo; después vienen la autoprueba
+común (0 a 7) y la medida.
+
+| Última etapa en el log | Qué significa | Qué mirar |
+| --- | --- | --- |
+| ninguna (`no es una Intel Gen3 de la lista`) | el modelo no está en la lista | el id PCI |
+| `etapa 1` y `el ring no arranca` | el ring (del 2D o propio) no se pone en marcha | las líneas `[ACEL2D] intel` |
+| `etapa 2` y nada más / `no avanza con una orden vacia` | el ring está parado o colgado | `intel al iniciar`: CTL, HEAD, TAIL |
+| `etapa 3: ... no guarda lo escrito` | la memoria que anuncia el VBE no está toda en el GTT | la dirección; probar otra resolución |
+| `etapa 3` y `etapa 4: el blitter no termina/no escribe bien` | el blitter no llega a la zona 3D | la palabra que salió; `intel etapa 4` |
+| `etapa 4` y `etapa 5: el lote no termina` | `MI_BATCH_BUFFER_START` cuelga el ring | reiniciar y `gpu3d encender anillo` |
+| `etapa 5: el lote termina pero no hace lo que lleva` | lotes sin efecto: sigue solo en el anillo | `EIR`, `IPEHR` de esa línea |
+| `etapa 6: RAM en el GTT no: ...` | la RAM en el GTT no se usa; el 3D sigue con la del VBE | el motivo (ventana en uso, GTTADR, página de la apertura...) |
+| `etapa 6: la GPU no termina o marca un error` | la GPU se colgó o marcó error con la RAM | `PGTBL_ER`, `EIR`; no usar `gtt` en esa máquina |
+| `etapa 7: la GPU no termina el estado 3D` | una orden del estado 3D cuelga la GPU | `IPEHR` (la orden), `INSTDONE` |
+| `etapa 7` con `pixel ... no coincide` | el estado se acepta pero el triángulo no sale bien | la autoprueba dice qué pieza |
+| `la GPU marco un error ... (EIR ...)` | orden no válida (bit 0) o fallo de la tabla de páginas (bit 4) | `IPEHR`, `PGTBL_ER` |
 
 Fuentes: documentación de Intel del 3D de Gen3 y las cabeceras de Mesa (MIT), solo valores y
 secuencias; código propio (`docs/terceros.md`). Nada del driver i915 de Linux con GPL.
@@ -191,13 +225,26 @@ secuencias; código propio (`docs/terceros.md`). Nada del driver i915 de Linux c
   de píxeles, siguen por software salvo que se pida la GPU con `sgl_gpu_ligar()`.
 - Las líneas van como rectángulos de un píxel; los puntos no están.
 
-## Radeon R7xx (HD 4xxx: RV710, RV730, RV740, RV770) — D284
+## Radeon R6xx y R7xx (HD 2000-4000: R600, RV610-RV670; RV710, RV730, RV740, RV770) — D284, D357
 
 `kernel/dispositivos/gpu3d_r600.c` + `r600_3d_pacotes.c` / `kernel/inc/r600_3d.h` (paquetes PM4, tres
 sombreadores a mano y valores de inicio: lógica pura, probada en el PC) + `r600_sondar`
 (`kernel/inc/r600_base.h`, la sonda de solo lectura que comparte con el 2D por DMA de la D223).
-**Sin probar en hardware.** La máquina es el HP dv7 (`1002:9553`, RV710). Las R6xx (HD 2xxx/3xxx) no
-están: otro microcódigo y otro inicio.
+**Sin probar en hardware.** La máquina es el HP dv7 (`1002:9553`, RV710).
+
+**R6xx (D357, v8.5.2):** el mismo driver lleva desde la D357 las HD 2000/3000 (R600, RV610, RV620, RV630,
+RV635, RV670; no las integradas RS780/RS880). Cambia el microcódigo (`R600_*`, `RV610_*` también para la
+RV620, `RV630_*` también para la RV635, `RV670_*`: PFP de 2304 bytes y ME de 21504, cargados primero el ME
+como `r600_cp_load_microcode`), los valores por defecto del motor (`r6_inicio_motor`, de `r600_gpu_init`),
+`ME_INITIALIZE`, `START_3D_CMDBUF` al principio del estado base, la codificación de las operaciones de los
+sombreadores, el paquete `SURFACE_BASE_UPDATE` tras poner las bases del color y del Z (rodeo de las RV6xx) y
+la mezcla de la R600 (sin «por superficie»). Ninguna máquina del mantenedor tiene una R6xx: queda a la espera
+de quien la tenga. El 2D por DMA de las R6xx sigue solo con `--acel2d=radeon` (D223); el 3D no lo necesita
+(basta con que la capa 2D reconozca la tarjeta).
+
+**Arreglo de la D357:** al fusionar la rama de las R5xx (`02bae96d`) se perdieron las líneas que ponían el
+estado inicial de las R7xx: en el dv7 `gpu3d` decía «sin GPU con driver 3D» y `gpu3d probar` no encendía
+nada. Vuelven a estar (y `tests/h284` y `tests/h359` lo vigilan).
 
 ### No se enciende sola
 
@@ -206,7 +253,8 @@ administrador la enciende con `gpu3d probar` (o `gpu3d encender`). El inicio car
 (`/lib/firmware/radeon/RV710_pfp.bin` y `_me.bin`, de linux-firmware; no entran con
 `SEM_FIRMWARE=1`) y reinicia el procesador de órdenes (CP) de una tarjeta en la que esto no se ha
 ejecutado nunca, y el 2D de esa misma máquina tiene fallos abiertos (issues #1 y #2). Cuando esté
-confirmada, `mkimagem.py --gpu3d=radeon` la deja como la Intel (se prueba con el primer uso).
+confirmada, `mkimagem.py --gpu3d=radeon` la deja como la Intel (se prueba con el primer uso). `gpu3d` la
+muestra como «apagado (software; «gpu3d probar» o «gpu3d encender» lo enciende)».
 
 ### Qué toca y qué no
 
@@ -252,10 +300,17 @@ dmesg > /home/gpu3d-2.txt
 
 Traer `/home/gpu3d*.txt` (por SSH, D250: `scp`) o una foto. `gpu3d apagar` lo para.
 
+Si `gpu3d` dice «sin GPU con driver 3D» en el dv7, la imagen es anterior a la D357 (v8.5.2): el estado se
+perdía al fusionar y el 3D no se podía encender.
+
 ### Cómo leer el log
 
-`[GPU3D] r600: etapa N` es el último paso del inicio que terminó; después vienen las pruebas de la
-autoprueba común (0 a 7).
+Desde la D357 **la propia salida de `gpu3d probar` dice la etapa**: si el encendido falla, el motivo empieza
+por `etapa N (nombre): ...` (`etapa 0 (sonda de solo lectura)` si la tarjeta no pasó las comprobaciones sin
+tocar nada), y con `--detalle` el log lleva `[GPU3D] r600 detalle (...): ultima etapa del encendido: N de 6`.
+Las etapas: 0 sonda, 1 leer el microcódigo, 2 parar el CP y cargarlo, 3 valores por defecto del motor, 4 cola
+y arranque del CP, 5 prueba de la cola, 6 sombreadores y estado base. Si el encendido pasa, lo que falle es de
+la autoprueba común (`prueba N`, 0 a 7). En el log, `[GPU3D] r600: etapa N` es el último paso que terminó.
 
 | Última línea | Qué significa | Dónde mirar |
 | --- | --- | --- |
@@ -274,8 +329,9 @@ autoprueba común (0 a 7).
 
 ### Qué no hace todavía
 
-R6xx; destinos de más de 1024x1024 y texturas de más de 1024x1024; presentar sin pasar por la RAM
-(el cuadro se lee por la apertura de la CPU, que es lento); recuperarse de un bloqueo del motor.
+Las integradas RS780/RS880; destinos de más de 1024x1024 y texturas de más de 1024x1024 (la SDL 2 por GPU y
+SaguiGL siguen por software en esos casos); presentar sin pasar por la RAM (el cuadro se lee por la apertura
+de la CPU, que es lento); recuperarse de un bloqueo del motor.
 
 ## Radeon R5xx (X1300 a X1950; la Mobility X1400 del Amilo) (D287)
 
@@ -292,6 +348,9 @@ R6xx; destinos de más de 1024x1024 y texturas de más de 1024x1024; presentar s
   (`color + especular` y `color * textura + especular`).
 - **Convive con el 2D por MMIO** (`acel_radeon.c`): el CP solo trabaja mientras la capa espera a la valla.
 - **Si algo falla** se para el CP y se sigue por software; el motor no se reinicia nunca.
+
+Desde la D357, si el encendido falla, `gpu3d probar` dice `etapa N (nombre): ...` en su propia salida, sin
+mirar el log; `--detalle` añade `[GPU3D] r500 ...: ultima etapa del encendido: N de 6`.
 
 ### Qué probar en el Amilo (para el mantenedor)
 
@@ -328,6 +387,19 @@ Cosas a mirar si funciona: bordes de los triángulos comparados con el software 
 píxel), texturas no potencia de 2 con repetición (van por software), y la velocidad de `sgldemo` (traer el
 cuadro de la VRAM a la RAM es lento: es lo siguiente a mejorar).
 
+## Qué probar en cada máquina Radeon (resumen, D357)
+
+| Máquina | Tarjeta | Qué ejecutar | Qué mandar |
+| --- | --- | --- | --- |
+| **HP dv7** | HD 4530/4570 `1002:9553` (RV710, R7xx) | `acel2d probar --detalle`; `acel2d apagar`; `gpu3d`; `gpu3d probar --detalle`; si BIEN: `sgldemo -g`, `sgldemo`, `infopc --bench-gpu`; `sdl2gpu` (D288) | `dmesg > /home/dv7-radeon.txt` y la salida de las órdenes (o foto) |
+| **Fujitsu Amilo** | Mobility X1400 `1002:7145` (R5xx) | `acel2d`; `gpu3d probar --detalle`; la lista de «Qué probar en el Amilo» | `dmesg > /home/r500.txt` |
+| **Toshiba L635** | Mobility HD 5000 `1002:68e0` (Cedar, Evergreen) | 2D (D286): `dmesg > /home/evg.txt`; `acel2d`; `acel2d probar --detalle`. El 3D no existe para Evergreen: `gpu3d` dirá «sin driver 3D» (correcto) | `/home/evg.txt` y la salida de `acel2d probar --detalle` |
+
+En las tres: si `acel2d probar` falla al iniciar, el texto empieza por `etapa N:` (1 modelo y sonda, 2 memoria y
+zona del DMA, 3 estado previo del DMA, 4 encender el anillo, 5 prueba del anillo, 6 valla); si pasa el inicio y
+falla después, es la autoprueba de la capa 2D. Ante cualquier cosa rara: `acel2d apagar`, `gpu3d apagar`, o
+arrancar con Mayús pulsado (modo seguro, D323).
+
 ## Órdenes y diagnóstico
 
 | Orden | Qué da |
@@ -335,7 +407,7 @@ cuadro de la VRAM a la RAM es lento: es lo siguiente a mejorar).
 | `gpu3d` | estado, driver, motivo, dueño del motor, memoria de GPU, contadores |
 | `gpu3d probar` | enciende si hace falta, autoprueba (qué prueba falla y qué píxel) y medida |
 | `gpu3d probar --detalle` | además, los registros de la GPU en el log (`[GPU3D]`) |
-| `gpu3d apagar` / `gpu3d encender [anillo]` | software / volver a encender y probar (por lotes o en el anillo) |
+| `gpu3d apagar` / `gpu3d encender [anillo] [gtt]` | software / volver a encender y probar (por lotes o en el anillo; `gtt`: RAM del sistema en el GTT, D358) |
 | `sgldemo -g [N]` | las escenas de SaguiGL por software y por la GPU: píxeles que se apartan y fps de cada camino |
 | `sgldemo` | el cubo en una ventana; el título de fps dice `(GPU)` o `(CPU)` |
 | `infopc` (pestaña GPU) e `infopc --informe` | estado del 3D y última puntuación 3D |
@@ -368,7 +440,15 @@ Imagen normal (sin opciones). Con el administrador, en un terminal, y guardando 
    fps de cada camino) y `sgldemo` (el cubo en ventana: debe verse igual que siempre y decir `(GPU)`).
    Mover la ventana y abrir otras mientras gira: el 2D y el 3D comparten el ring.
 6. `infopc --bench-gpu` y la pestaña GPU de Información del PC.
-7. `dmesg > /home/gpu3d.txt` y copiar el archivo (o foto de `dmesg | grep GPU3D`).
+7. `dmesg > /home/gpu3d.txt` y copiar el archivo (o foto de `dmesg | grep GPU3D`). La última línea
+   `[GPU3D] intel: etapa N` dice hasta dónde llegó el encendido (tabla «Encendido por etapas»).
+8. **RAM en el GTT (D358), solo si lo anterior fue BIEN**: `gpu3d encender gtt`, después
+   `gpu3d probar --detalle` y `gpu3d`. Anotar las líneas `etapa 6` (ventana, entradas «todas
+   iguales: libres», «la CPU ve las N paginas», «la GPU escribe en la RAM», texturas sí/no), si la
+   autoprueba sigue BIEN y el tiempo de «traer N píxeles a la RAM» comparado con el del paso 3. Luego
+   `sgldemo -g` y `sgldemo` otra vez (mover la ventana del cubo). `dmesg > /home/gpu3d-gtt.txt`.
+   Si la máquina hace algo raro tras esto (programas que fallan, archivos dañados), reiniciar, **no**
+   volver a usar `gtt` en ella y decirlo: es la parte que escribe en el GTT.
 
 Si la máquina no arranca bien o la pantalla se estropea al probar (no debería: no se toca la
 pantalla), arrancar con `--gpu3d=no` y decirlo.
@@ -381,6 +461,11 @@ pantalla), arrancar con `--gpu3d=no` y decirlo.
 - `tests/h285_gpu3d_intel.py` (QEMU): sin GPU todo sigue por software; con `--gpu3d=simulado` (un
   driver de mentira por la CPU, `gpu3d_sim.c`) se prueba el camino entero: autoprueba, `sgldemo -g`
   contra el software, dueño del motor, fallo de píxel y vigilante simulados, `gpu3d apagar/encender`.
+- `tests/gen3_gtt_unidad.c` (en el PC, D358): memoria robada de `GMCH_CTRL`, ventana del GTT, entradas,
+  un GTT de BIOS simulado (la ventana nunca pisa lo usado) y la copia del blitter.
+- `tests/h360_gpu3d_intel_gtt.py` (D358): las dos pruebas de unidad, las reglas del driver (etapas, el GTT
+  solo en la ventana comprobada, páginas nunca liberadas, EIR, invalidar cachés) y, en QEMU con el driver
+  simulado, `gpu3d encender gtt` / `anillo gtt` e imágenes `--gpu3d-gtt`.
 
 `tests/h287_gpu3d_r500.py` (Radeon R5xx, D287): `unidad` (`tests/r500_3d_unidad.c`: órdenes del CP, formato del
 vértice, programa de vértices y programas de fragmentos contra sus palabras a mano), `fuentes`, `firmware` (el
@@ -389,9 +474,12 @@ microcódigo en la imagen) y `std` (QEMU sin Radeon, con y sin `--gpu3d=radeon`:
 ## Pendiente
 
 - Probarlo en hardware (todo lo anterior).
-- Mapear RAM normal en el GTT para el destino y las texturas (traer el cuadro sin leer memoria de
-  vídeo, y texturas grandes). Hay que escribir el GTT: irá detrás de una opción.
-- Renderizador de la SDL 2 por GPU y varias pantallas (siguientes piezas de la v8.3, D257).
+- ~~Mapear RAM normal en el GTT~~: hecho en la D358, detrás de la opción `gtt`; si va bien en las
+  máquinas, que sea lo normal.
+- ~~Renderizador de la SDL 2 por GPU~~: D288 (sobre la misma capa, vale para Intel). Varias pantallas
+  (mejora 060), pendiente.
+- Intel: destino y Z con mosaico (Y) si el Z lineal diera problemas en alguna máquina; presentar sin
+  copiar el cuadro (búfer compartido con el compositor).
 - Gen4 en adelante (X3100, GM45, HD Graphics): otra tubería.
 
 

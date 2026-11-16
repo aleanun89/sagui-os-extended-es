@@ -85,7 +85,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `OTIMIZACAO` | `-O2` | nivel de optimización (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` deja fuera lo que no puede ir en un binario GPL v3: NetSurf, GNUBoy y el r8169 derivado de Linux (el driver usa el inicio clásico propio). Lo pasa solo `gerar_versao.sh` si no usas `--con-input-share` |
 | `SEM_GPL` | `0` | `1` deja fuera todos los ports de terceros con licencia GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, DOSBox, Linux). Compila en `build-sem-gpl/` |
-| `SEM_FIRMWARE` | `0` | `1` no mete el firmware binario (`firmware/`: el del pincho Wi-Fi RTL8188EU y el microcódigo de las Radeon R7xx para el 3D por la GPU). Compila en `build-sem-firmware/` |
+| `SEM_FIRMWARE` | `0` | `1` no mete el firmware binario (`firmware/`: el del pincho Wi-Fi RTL8188EU y el microcódigo de las Radeon R5xx, R6xx y R7xx para el 3D por la GPU). Compila en `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` genera la imagen sin MicroPython (bastante más pequeña) |
 | `NETSURF` | `1` | navegador NetSurf; solo entra si están las fuentes preparadas y el pegamento (ver 7). `NETSURF=0` lo quita |
 | `GNUBOY` | `1` | emulador de Game Boy; solo entra si está descargado su código (`make priv_descargas` o `bash tools/gnuboy_fuentes.sh`, ver 5 y 7). `GNUBOY=0` lo quita |
@@ -152,6 +152,9 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--sem-wc` | apagado | no activar write-combining en el framebuffer |
 | `--sem-pae` | apagado | paginación clásica de 2 niveles aunque la CPU tenga PAE: hasta 4 GB de RAM y sin NX (para probar o para hardware con problemas) |
 | `--sem-nx` | apagado | no activar NX (pila y montón no ejecutables) aunque la CPU lo tenga |
+| `--cache-disco-baja` | apagado | la caché de disco en la memoria baja (hasta 64 MB) aunque haya memoria alta (por si el hardware da problemas) |
+| `--sin-swap` | apagado | sin swap comprimida en RAM: cuando se acaba la memoria, el programa falla como antes |
+| `--swap-mb N` | 0 (automático) | tope del almacén de la swap comprimida en MB (1-1024); automático = la mitad de la RAM con memoria alta, un cuarto sin ella, 1 GB como mucho |
 | `--sgl-motor software` | `auto` | desactiva toda la aceleración 3D por hardware |
 | `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D de la GPU; `cpu` o `--sin-acel2d` = solo CPU |
 | `--sin-servicios` | apagado | no lanzar el gestor de servicios ni el cron al arrancar |
@@ -224,7 +227,7 @@ Notas:
 
 - **Typodermic:** `make priv_descargas` (o `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba`) baja el zip a `NEW_FONTS/` si falta. Si la web da 404 (pasó el 2026-11-14), el guion lo dice con claridad y **no rompe nada**: el sistema se construye igual sin esas fuentes. Para tenerlas, baja el zip a mano y ponlo en `NEW_FONTS/typodermic-public-domain-2024-12.zip` (se comprueba el SHA-256). `make` solo mete las fuentes si el zip ya está en `NEW_FONTS/` cuando compilas (esa carpeta no va en el repositorio público).
 - **`make priv_descargas`** ejecuta, por este orden: `tools/netsurf_fuentes.sh` (si no hay fuentes preparadas), `tools/gnuboy_fuentes.sh` (si no está `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` y la descarga de las fuentes Typodermic (si falla, avisa y sigue). Funciona igual con el repositorio público: el pegamento de NetSurf y GNUBoy va en él.
-- **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), el microcódigo de las Radeon R7xx para el 3D por la GPU (`firmware/radeon/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_radeon.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
+- **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), el microcódigo de las Radeon R5xx, R6xx y R7xx para el 3D por la GPU (`firmware/radeon/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_radeon.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Juegos y datos que pones tú (`input_share/`)
 
@@ -401,7 +404,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `OTIMIZACAO` | `-O2` | optimization level (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` leaves out what cannot go into a GPL v3 binary: NetSurf, GNUBoy and the Linux-derived r8169 (the driver uses its own classic init). `gerar_versao.sh` sets it for you unless you use `--con-input-share` |
 | `SEM_GPL` | `0` | `1` leaves out every GPL-licensed third-party port (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, DOSBox, Linux). Builds in `build-sem-gpl/` |
-| `SEM_FIRMWARE` | `0` | `1` leaves out the binary firmware (`firmware/`: the RTL8188EU Wi-Fi dongle's and the Radeon R7xx microcode for GPU 3D). Builds in `build-sem-firmware/` |
+| `SEM_FIRMWARE` | `0` | `1` leaves out the binary firmware (`firmware/`: the RTL8188EU Wi-Fi dongle's and the Radeon R5xx, R6xx and R7xx microcode for GPU 3D). Builds in `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` builds the image without MicroPython (considerably smaller) |
 | `NETSURF` | `1` | the NetSurf browser; only included if the sources are prepared and the glue exists (see 7). `NETSURF=0` removes it |
 | `GNUBOY` | `1` | the Game Boy emulator; only included if its code has been downloaded (`make priv_descargas` or `bash tools/gnuboy_fuentes.sh`, see 5 and 7). `GNUBOY=0` removes it |
@@ -468,6 +471,9 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--sem-wc` | off | do not enable write-combining on the framebuffer |
 | `--sem-pae` | off | classic 2-level paging even if the CPU has PAE: up to 4 GB of RAM and no NX (for testing or for troublesome hardware) |
 | `--sem-nx` | off | do not enable NX (non-executable stack and heap) even if the CPU has it |
+| `--cache-disco-baja` | off | keep the disk cache in low memory (up to 64 MB) even if there is high memory (in case the hardware has problems) |
+| `--sin-swap` | off | no compressed swap in RAM: when memory runs out, the program fails as before |
+| `--swap-mb N` | 0 (automatic) | cap of the compressed swap store in MB (1-1024); automatic = half the RAM with high memory, a quarter without it, at most 1 GB |
 | `--sgl-motor software` | `auto` | disables all hardware 3D acceleration |
 | `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | the GPU's 2D accelerator; `cpu` or `--sin-acel2d` = CPU only |
 | `--sin-servicios` | off | do not start the service manager or cron at boot |
@@ -540,7 +546,7 @@ Notes:
 
 - **Typodermic:** `make priv_descargas` (or `python3 tools/fuentes_typodermic.py seleccion /tmp/fonts-test`) downloads the zip into `NEW_FONTS/` if it is missing. If the website gives 404 (it did on 2026-11-14), the script says so clearly and **breaks nothing**: the system is built anyway without those fonts. To get them, download the zip by hand and put it at `NEW_FONTS/typodermic-public-domain-2024-12.zip` (the SHA-256 is checked). `make` only includes the fonts if the zip is already in `NEW_FONTS/` when you build (that folder is not in the public repository).
 - **`make priv_descargas`** runs, in this order: `tools/netsurf_fuentes.sh` (if there are no prepared sources), `tools/gnuboy_fuentes.sh` (if `jogo/` is missing), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` and the download of the Typodermic fonts (if it fails, it warns and goes on). It works the same with the public repository: the NetSurf and GNUBoy glue is in it.
-- **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the Radeon R7xx microcode for GPU 3D (`firmware/radeon/`, from linux-firmware, redistributable unchanged; `tools/firmware_radeon.sh --comprobar` verifies it and without `--comprobar` it downloads it again; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
+- **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the Radeon R5xx, R6xx and R7xx microcode for GPU 3D (`firmware/radeon/`, from linux-firmware, redistributable unchanged; `tools/firmware_radeon.sh --comprobar` verifies it and without `--comprobar` it downloads it again; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Games and data you provide (`input_share/`)
 
@@ -717,7 +723,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `OTIMIZACAO` | `-O2` | nível de otimização (`-O0`, `-O1`, `-O2`, `-O3`, `-Os`) |
 | `PUBLICABLE` | `0` | `1` deixa de fora o que não pode ir em um binário GPL v3: NetSurf, GNUBoy e o r8169 derivado do Linux (o driver usa o início clássico próprio). O `gerar_versao.sh` passa isso sozinho, a menos que você use `--con-input-share` |
 | `SEM_GPL` | `0` | `1` deixa de fora todos os ports de terceiros com licença GPL (OpenTyrian, NetSurf, GNU Prolog, OpenJazz, Vanilla Conquer, Quake, GNUBoy, DOSBox, Linux). Compila em `build-sem-gpl/` |
-| `SEM_FIRMWARE` | `0` | `1` não inclui o firmware binário (`firmware/`: o do adaptador Wi-Fi RTL8188EU e o microcódigo das Radeon R7xx para o 3D pela GPU). Compila em `build-sem-firmware/` |
+| `SEM_FIRMWARE` | `0` | `1` não inclui o firmware binário (`firmware/`: o do adaptador Wi-Fi RTL8188EU e o microcódigo das Radeon R5xx, R6xx e R7xx para o 3D pela GPU). Compila em `build-sem-firmware/` |
 | `MICROPYTHON` | `1` | `0` gera a imagem sem o MicroPython (bem menor) |
 | `NETSURF` | `1` | o navegador NetSurf; só entra se as fontes estiverem preparadas e a cola existir (veja 7). `NETSURF=0` o remove |
 | `GNUBOY` | `1` | o emulador de Game Boy; só entra se o seu código foi baixado (`make priv_descargas` ou `bash tools/gnuboy_fuentes.sh`, veja 5 e 7). `GNUBOY=0` o remove |
@@ -784,6 +790,9 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--sem-wc` | desligado | não ativar o write-combining no framebuffer |
 | `--sem-pae` | desligado | paginação clássica de 2 níveis mesmo que a CPU tenha PAE: até 4 GB de RAM e sem NX (para testar ou para hardware com problemas) |
 | `--sem-nx` | desligado | não ativar o NX (pilha e heap não executáveis) mesmo que a CPU o tenha |
+| `--cache-disco-baja` | desligado | manter o cache de disco na memória baixa (até 64 MB) mesmo que haja memória alta (caso o hardware dê problemas) |
+| `--sin-swap` | desligado | sem swap comprimida na RAM: quando a memória acaba, o programa falha como antes |
+| `--swap-mb N` | 0 (automático) | limite do armazém da swap comprimida em MB (1-1024); automático = metade da RAM com memória alta, um quarto sem ela, no máximo 1 GB |
 | `--sgl-motor software` | `auto` | desativa toda a aceleração 3D por hardware |
 | `--acel2d {auto,cpu,intel,nvidia,radeon,tdfx,vmware}`, `--sin-acel2d` | `auto` | acelerador 2D da GPU; `cpu` ou `--sin-acel2d` = só CPU |
 | `--sin-servicios` | desligado | não iniciar o gerenciador de serviços nem o cron na inicialização |
@@ -856,7 +865,7 @@ Notas:
 
 - **Typodermic:** o `make priv_descargas` (ou `python3 tools/fuentes_typodermic.py seleccion /tmp/fontes-teste`) baixa o zip para `NEW_FONTS/` se faltar. Se o site der 404 (aconteceu em 2026-11-14), o script avisa com clareza e **não quebra nada**: o sistema é construído do mesmo jeito sem essas fontes. Para tê-las, baixe o zip à mão e coloque-o em `NEW_FONTS/typodermic-public-domain-2024-12.zip` (o SHA-256 é verificado). O `make` só inclui as fontes se o zip já estiver em `NEW_FONTS/` quando você compila (essa pasta não está no repositório público).
 - **`make priv_descargas`** executa, nesta ordem: `tools/netsurf_fuentes.sh` (se não houver fontes preparadas), `tools/gnuboy_fuentes.sh` (se faltar `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` e o download das fontes Typodermic (se falhar, avisa e continua). Funciona igual com o repositório público: a cola do NetSurf e do GNUBoy está nele.
-- **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), o microcódigo das Radeon R7xx para o 3D pela GPU (`firmware/radeon/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_radeon.sh --comprobar` verifica-o e, sem `--comprobar`, o baixa de novo; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
+- **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), o microcódigo das Radeon R5xx, R6xx e R7xx para o 3D pela GPU (`firmware/radeon/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_radeon.sh --comprobar` verifica-o e, sem `--comprobar`, o baixa de novo; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Jogos e dados que você fornece (`input_share/`)
 
