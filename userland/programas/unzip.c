@@ -24,7 +24,18 @@ static bool seleccionado(const char *nome, char **f, int n)
     return false;
 }
 
+/* D341: la fecha de modificación de la entrada en UTC: la del campo "UT" si la hay; si no, la del
+ * DOS, que es hora local (se toma la zona del sistema). 0 = sin fecha. */
+static uint32_t data_zip(const zip_ent_t *e)
+{
+    if (e->mtime_ut) return e->mtime_ut;
+    int ano = 1980 + (e->data >> 9), mes = (e->data >> 5) & 15, dia = e->data & 31;
+    if (!e->data || mes < 1 || mes > 12 || dia < 1) return 0;
+    return local_para_utc(fuso_compor(ano, mes, dia, e->hora >> 11, (e->hora >> 5) & 63, (e->hora & 31) * 2), NULL);
+}
+
 int principal(int argc, char **argv)
+
 {
     bool listar_ = false, testar = false, sobrescrever = false, silencio = false;
     const char *arq = NULL, *destino = ".";
@@ -128,7 +139,9 @@ int principal(int argc, char **argv)
         if (barra) { *barra = 0; criar_pasta_p(real); *barra = '/'; }
         int q = salvar_arquivo(real, o, r);
         libera(o);
+        if (q >= 0) { uint32_t t = data_zip(e); if (t) fixar_datas(real, t, PARQ_DATA_AGORA); }   /* D341 */
         if (q < 0) { imprimir_em(ERROS, "unzip: %s: %s\n", real, nome_erro(q)); erros++; }
+
         else if (!silencio) imprimir("  %s: %s\n", e->metodo ? "inflating" : "extracting", nome);
     }
     if (testar && !erros) imprimir("No errors detected in compressed data of %s.\n", nome_arq);

@@ -188,11 +188,26 @@ int principal(int argc, char **argv)
         if (barra) { *barra = 0; criar_pasta_p(destino_real); *barra = '/'; }
         int q = salvar_arquivo(destino_real, e.dados, (int)e.tamanho);
         if (q < 0) { imprimir_em(ERROS, "tar: %s: %s\n", destino_real, nome_erro(q)); erros++; }
-        else if (verboso) imprimir("%s\n", nome);
+        else {
+            if (e.mtime) fixar_datas(destino_real, e.mtime, PARQ_DATA_AGORA);   /* D341: la fecha del archivo */
+            if (verboso) imprimir("%s\n", nome);
+        }
     }
     if (r < 0) {
         imprimir_em(ERROS, "tar: %s: %s\n", padrao ? "-" : arq, r == COMP_ERRO_FORMATO ? "no es un archivo tar o está corrupto" : comp_nome_erro(r));
         return 1;
     }
+    /* D341: las fechas de las carpetas, al final (crear lo de dentro las cambia) */
+    if (op == 'x') {
+        pos = 0;
+        while (tar_proximo(d, n, &pos, &e) > 0) {
+            char nome[1024], destino_real[600];
+            if (e.tipo != '5' || !e.mtime) continue;
+            if (nome_de_utf8(e.nome, nome, sizeof nome) < 0) copia_texto(nome, e.nome, sizeof nome);
+            if (!seleccionado(nome, rutas, nrutas) || !caminho_seguro(nome, destino, destino_real, sizeof destino_real)) continue;
+            fixar_datas(destino_real, e.mtime, PARQ_DATA_AGORA);
+        }
+    }
+
     return erros ? 1 : 0;
 }

@@ -1,6 +1,6 @@
 # 132 — Componente «cinta» (menú Ribbon) con el estilo de SaguiOS, en la libsagui y en VisualPythonS (v8.4.4)
 
-- **Estado:** pendiente (v8.4.4)
+- **Estado:** libsagui, Pluma y Macaco hechos (D334); falta VisualPythonS
 - **Prioridad:** media-alta
 - **Alta:** 2026-11-15
 

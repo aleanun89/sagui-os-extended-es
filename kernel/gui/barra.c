@@ -40,6 +40,7 @@
 #include "video.h"
 #include "telas.h"
 #include "vfs.h"
+#include "permisos.h"
 
 #define BOTAO_Y     3
 #define BOTAO_A     18
@@ -236,8 +237,8 @@ static const desenho_t *icone_do_processo(const char *nome)
         /* D139: os programas que estavam sem icone. */
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
-        { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica },
-        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
+        { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica }, { "convertir-audio", &arte_mini_musica },
+        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
@@ -941,8 +942,10 @@ static const programa_t programas[] = {
     { N_("Markdown"),                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
     { N_("Mico (editor de código)"), "/apps/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
     { N_("VisualPythonS (diseñador)"), "/apps/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
-    { N_("Explorador de bases de datos"), "/apps/bin/python", "/lib/python/basedatos/explorador.py", "exploradorbd", G_ACESSORIOS, &arte_mini_exploradorbd, false },   /* D304: melhoria 127 */
+    { N_("Explorador SQLite"), "/apps/bin/python", "/lib/python/basedatos/explorador_sqlite.py", "exploradorsqlite", G_ACESSORIOS, &arte_mini_exploradorsqlite, false },   /* D333: melhoria 131 (antes D304, 127) */
+    { N_("Explorador lite-monkey"), "/apps/bin/python", "/lib/python/basedatos/explorador_litemonkey.py", "exploradorlmk", G_ACESSORIOS, &arte_mini_exploradorlmk, false },   /* D333: melhoria 131 */
     { N_("Pluma (procesador de textos)"), "/apps/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
+    { N_("Traductor"),               "/apps/bin/traductor", NULL, "traductor", G_ACESSORIOS, &arte_mini_pluma, false },   /* D335: mejora 133 */
     { N_("Macaco (hoja de cálculo)"), "/apps/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
     { N_("Paint"),                   "/apps/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
     { N_("Visor de imágenes"),       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
@@ -950,6 +953,7 @@ static const programa_t programas[] = {
     { N_("Visor de PDF"),            "/apps/bin/visorpdf",    NULL, "visorpdf",    G_ACESSORIOS, &arte_mini_visorpdf, false },  /* D139: melhoria 059 */
     { N_("Reproductor de vídeo"),    "/apps/bin/reproductor", NULL, "reproductor", G_GRAFICOS,   &arte_mini_video, false },      /* D139: melhoria 048 */
     { N_("Grabadora de sonido"),     "/apps/bin/grabadora",   NULL, "grabadora",   G_MULTIMEDIA, &arte_mini_musica, false },   /* D292: micrófono */
+    { N_("Conversor de audio"),      "/apps/bin/convertir-audio", NULL, "convertir-audio", G_MULTIMEDIA, &arte_mini_musica, false },   /* D339: MP3, FLAC y WAV */
     { N_("Cámara"),                  "/apps/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
     { N_("Cipó (navegador)"),        "/apps/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
     { N_("GebraMini (geometría dinámica)"), "/apps/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
@@ -1027,6 +1031,11 @@ static uint16_t usos[QTD_PROGRAMAS];
  * programa nuevo entra en su grupo) y un índice fijo apuntaría a otro. */
 static const char *const preferidos[MAIS_USADOS] = { "terminal", "arquivos", "editor", "cipo" };
 
+void barra_sessao_nova(void)
+{
+    memset(usos, 0, sizeof usos);
+}
+
 void barra_janela_criada(const char *processo)
 {
     for (int i = 0; i < QTD_PROGRAMAS; i++)
@@ -1056,7 +1065,7 @@ static int mais_usados(int *v)
     return n;
 }
 
-enum { A_PROGRAMA = 0, A_EJECUTAR = 100, A_PANTALLA, A_ACERCA, A_REINICIAR, A_APAGAR, A_TAREFAS, A_FECHA, A_VPS = 200, A_JANELA = 1000 };
+enum { A_PROGRAMA = 0, A_EJECUTAR = 100, A_PANTALLA, A_ACERCA, A_REINICIAR, A_APAGAR, A_TAREFAS, A_FECHA, A_SAIR, A_TROCAR, A_VPS = 200, A_JANELA = 1000 };
 #define VPS_MAX 24   /* aplicaciones generadas por VisualPythonS que caben en el menú (D297) */
 
 static menu_lista_t menu_inicio;
@@ -1076,15 +1085,17 @@ static bool vps_listar(const char *caminho, int i, entrada_pasta_t *e)
     return vfs_listar(caminho, i, e) == 1;
 }
 
-static void vps_buscar(const char *base)
+/* "base" es la carpeta real; "vista", como la ve el programa que se lanza (D340: la de la sesión es
+ * /home/vps aunque esté en /home/<cuenta>/vps). */
+static void vps_buscar(const char *base, const char *vista)
 {
     entrada_pasta_t e;
     for (int i = 0; vps_cuantas < VPS_MAX && vps_listar(base, i, &e); i++) {
         if (e.tipo != TIPO_PASTA) continue;
-        char l[2 * NOME_MAX + 32];
+        char l[2 * NOME_MAX + 48];
         snformatar(l, sizeof l, "%s/%s/lanzador.py", base, e.nome);
         if (!vfs_existe_arquivo(l)) continue;
-        snformatar(vps_ruta[vps_cuantas], sizeof vps_ruta[0], "%s/%s", base, e.nome);
+        snformatar(vps_ruta[vps_cuantas], sizeof vps_ruta[0], "%s/%s", vista, e.nome);
         txt_copia_n(vps_nombre[vps_cuantas], e.nome, NOME_MAX);
         vps_cuantas++;
     }
@@ -1132,6 +1143,8 @@ static void resposta_inicio(int indice, int janela, int dado)
     }
     else if (a == A_REINICIAR) executar_ajudante("--reiniciar");   /* pregunta antes: puede haber algo sin guardar */
     else if (a == A_APAGAR) executar_ajudante("--apagar");         /* D113: también pregunta */
+    else if (a == A_SAIR) executar_ajudante("--cerrar-sesion");    /* D340: pregunta (se cierra todo) */
+    else if (a == A_TROCAR) executar_ajudante("--cambiar-usuario");
 }
 
 void barra_abrir_inicio(bool teclado)
@@ -1151,8 +1164,12 @@ void barra_abrir_inicio(bool teclado)
         menu_lista_linha(ml, "<", MENU_NADA, NULL);
     }
     vps_cuantas = 0;
-    vps_buscar("/apps/vps");
-    vps_buscar("/home/vps");
+    vps_buscar("/apps/vps", "/apps/vps");
+    {   /* D340: las de la carpeta personal de la sesión */
+        char vps_casa[CAMINHO_MAX];
+        permisos_sessao_caminho(vps_casa, sizeof vps_casa, "/vps");
+        vps_buscar(vps_casa, "/home/vps");
+    }
     if (vps_cuantas) {
         {
             char t[MENU_MAX_TEXTO + 1];
@@ -1175,6 +1192,11 @@ void barra_abrir_inicio(bool teclado)
      * apagado graba los discos y avisa de que ya se puede apagar con el botón. */
     menu_lista_linha(ml, _("Apagar..."), A_APAGAR, NULL);
     menu_lista_linha(ml, _("Reiniciar..."), A_REINICIAR, NULL);
+    /* D340: sin la sesión de pruebas ni el modo rescate (no hay pantalla de inicio de sesión a la que volver). */
+    if (!permisos_sesion_raiz() && !permisos_modo_rescate()) {
+        menu_lista_linha(ml, _("Cerrar sesión..."), A_SAIR, NULL);
+        menu_lista_linha(ml, _("Cambiar de usuario..."), A_TROCAR, NULL);
+    }
     if (!menu_lista_abrir(INICIO_X, BARRA_SUPERIOR, ml, resposta_inicio, 0, 0)) return;
     inicio_aberto = true;
     gui_redesenhar(0, 0, (int)video_largura(), BARRA_SUPERIOR);

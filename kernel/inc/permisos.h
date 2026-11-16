@@ -16,6 +16,21 @@ uint32_t permisos_uid_inicial(void);
 bool permisos_modo_rescate(void);
 bool permisos_sesion_raiz(void);   /* imagen de prueba con la sesión como root */
 
+/* D340: la sesión local (la cuenta que está delante del escritorio) y las carpetas personales.
+ * permisos_uid_inicial es el uid de la sesión. La casa vacía es /home tal cual (sagui). */
+void permisos_fixar_sessao(uint32_t uid, uint32_t gid, const char *casa);
+uint32_t permisos_sessao_gid(void);
+const char *permisos_sessao_casa(void);
+bool permisos_casa_valida(const char *casa);   /* "" o "/home/<nombre>" */
+/* La ruta real de "rel" ("/.config/x" o "") dentro de la carpeta personal de la sesión. */
+void permisos_sessao_caminho(char *dst, size_t n, const char *rel);
+/* Lo que un proceso que no es root pide en /home va a su carpeta (processo_t.casa_conta). En el sitio:
+ * "caminho" tiene CAMINHO_MAX bytes y ya está resuelto. false si no cabe. */
+bool permisos_casa_traduzir(const processo_t *p, char *caminho);
+/* Antes de cambiar el uid del líder "l" a "novo": su carpeta actual pasa de la vista de la cuenta a la
+ * real (a root) o al revés. */
+void permisos_casa_mudar_uid(processo_t *l, uint32_t novo);
+
 /* ¿Es root el proceso (su líder)? */
 static inline bool permisos_root(const processo_t *p) { return processo_lider((processo_t *)p)->uid == 0; }
 

@@ -38,13 +38,54 @@ static uint32_t aleatorio32(void)
     return v;
 }
 
+/* D338: poner a cero sin volver a escribir lo que ya es cero. Las tablas de inodos de un ext2 que
+ * crece, o las de uno nuevo, son cientos de MB en un disco grande; en un pendrive nuevo (o en el
+ * espacio que nunca se ha usado de una imagen grabada en él) casi todo ya es cero, y leer va
+ * varias veces más deprisa que escribir. Se lee de 128 KB en 128 KB y solo se escribe el trozo
+ * que no es todo ceros. Para no perder si el disco está lleno de datos viejos: si de los
+ * primeros 16 trozos leídos más de la mitad no eran cero, se deja de leer y se escribe todo.
+ * En un disco con TRIM (un SSD) no se lee nunca: lo descartado puede leerse como ceros ahora y
+ * con otra cosa después. "z" lleva la cuenta entre llamadas (un ext2 lo usa en cada grupo). */
+int fs_zerar(const char *vol, uint32_t lba, uint32_t n, fs_zerar_t *z)
+{
+    enum { TROZO = 256 };
+    static uint8_t buf[TROZO * 512];
+    if (!z->decidido) {
+        info_bloco_t inf;
+        z->decidido = true;
+        z->so_escrever = blocos_info(vol, &inf) < 0 || inf.trim != TRIM_NAO;
+    }
+    while (n) {
+        uint32_t q = n > TROZO ? TROZO : n;
+        bool escrever = true;
+        if (!z->so_escrever && blocos_ler(vol, lba, q, buf) == 0) {
+            const uint32_t *w = (const uint32_t *)buf;
+            uint32_t acc = 0;
+            for (uint32_t i = 0; i < q * 128; i++) acc |= w[i];
+            escrever = acc != 0;
+            z->lidos++;
+            if (escrever) z->sujos++;
+            if (z->lidos >= 16 && z->sujos * 2 > z->lidos) z->so_escrever = true;
+        }
+        if (escrever) {
+            int r = blocos_zerar(vol, lba, q);
+            if (r < 0) return r;
+            z->escritos += q;
+        }
+        lba += q; n -= q;
+    }
+    return 0;
+}
+
 /* Pone a cero n sectores avisando del progreso entre pc0 y pc1. */
-static int zerar_com_progresso(const char *vol, uint32_t lba, uint32_t n, fs_progresso_t p, void *ctx, int pc0, int pc1)
+static int zerar_com_progresso(const char *vol, uint32_t lba, uint32_t n, fs_progresso_t p, void *ctx, int pc0, int pc1, fs_zerar_t *z)
 {
     uint32_t feito = 0, passo = 2048;
+    fs_zerar_t local;
+    if (!z) { memset(&local, 0, sizeof local); z = &local; }
     while (feito < n) {
         uint32_t q = n - feito > passo ? passo : n - feito;
-        int r = blocos_zerar(vol, lba + feito, q);
+        int r = fs_zerar(vol, lba + feito, q, z);
         if (r < 0) return r;
         feito += q;
         avisar(p, ctx, pc0 + (int)((uint32_t)(pc1 - pc0) * (feito >> 8) / ((n >> 8) + 1)));
@@ -101,7 +142,7 @@ int fs_formatar_fat32(const char *vol, const char *rotulo, fs_progresso_t prog, 
     r = blocos_zerar(vol, 0, rsvd);
     if (r < 0) goto falha;
     for (uint32_t f = 0; f < nfats; f++) {
-        r = zerar_com_progresso(vol, rsvd + f * fatsz, fatsz, prog, ctx, 2 + (int)f * 45, 47 + (int)f * 45);
+        r = zerar_com_progresso(vol, rsvd + f * fatsz, fatsz, prog, ctx, 2 + (int)f * 45, 47 + (int)f * 45, NULL);
         if (r < 0) goto falha;
     }
     uint32_t dados = rsvd + nfats * fatsz;
@@ -205,8 +246,8 @@ int fs_formatar_exfat(const char *vol, const char *rotulo, fs_progresso_t prog, 
     if (inf.trim == TRIM_SIM) blocos_descartar(vol, 1, tot - 1);
     /* Lo que diga cómo era el volumen anterior fuera (región de arranque, FAT, mapa y raíz). */
     if ((r = blocos_zerar(vol, 0, 32)) < 0) goto falha;
-    if ((r = zerar_com_progresso(vol, fat_off, fat_len, prog, ctx, 2, 40)) < 0) goto falha;
-    if ((r = zerar_com_progresso(vol, heap_off, bm_cl * spc, prog, ctx, 40, 70)) < 0) goto falha;
+    if ((r = zerar_com_progresso(vol, fat_off, fat_len, prog, ctx, 2, 40, NULL)) < 0) goto falha;
+    if ((r = zerar_com_progresso(vol, heap_off, bm_cl * spc, prog, ctx, 40, 70, NULL)) < 0) goto falha;
     if ((r = blocos_zerar(vol, heap_off + (c_raiz - 2) * spc, spc)) < 0) goto falha;
 
     uint8_t *buf = aloca(bpc > 32768 ? 32768 : (bpc < 4096 ? 4096 : bpc));
@@ -453,13 +494,15 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     if ((r = blocos_zerar(vol, 0, 8)) < 0) goto falha;
 
     uint32_t raiz_blk = 0, lf_blk = 0, livres_tot = 0, inodos_livres_tot = 0;
+    fs_zerar_t z;   /* D338: una cuenta para todas las tablas de inodos */
+    memset(&z, 0, sizeof z);
     for (uint32_t gr = 0; gr < g.grupos; gr++) {
         uint32_t ini = g.fdb + gr * g.bpg, tam = g.blocos - ini > g.bpg ? g.bpg : g.blocos - ini;
         uint32_t meta = tem_super(gr) ? 1 + g.gdt : 0;
         uint32_t bb = ini + meta, ib = bb + 1, it = ib + 1, usados = sobrecarga(&g, gr);
         if (gr == 0) { raiz_blk = it + g.itb; lf_blk = raiz_blk + 1; usados += 2; }
         /* Tabla de inodos a cero. */
-        if ((r = zerar_com_progresso(vol, it * g.spb, g.itb * g.spb, NULL, NULL, 0, 0)) < 0) goto falha;
+        if ((r = zerar_com_progresso(vol, it * g.spb, g.itb * g.spb, NULL, NULL, 0, 0, &z)) < 0) goto falha;
         /* Mapa de bloques: la sobrecarga (y raíz y lost+found), y el relleno tras el final del grupo. */
         memset(b, 0, g.bs);
         for (uint32_t i = 0; i < usados; i++) bit(b, i);
@@ -530,8 +573,9 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     libera(b);
     libera(gdt);
     avisar(prog, ctx, 100);
-    registrar("formatar: %s ext2 \"%s\", bloques de %u, %u bloques, %u grupos, %u inodos", vol, rotulo ? rotulo : "",
-              g.bs, g.blocos, g.grupos, g.inodos);
+    registrar("formatar: %s ext2 \"%s\", bloques de %u, %u bloques, %u grupos, %u inodos; tablas de inodos: %u MB escritos, "
+              "%u de %u trozos leídos ya eran cero%s", vol, rotulo ? rotulo : "", g.bs, g.blocos, g.grupos, g.inodos,
+              z.escritos / 2048, z.lidos - z.sujos, z.lidos, z.so_escrever ? " (escritura sin leer)" : "");
     return 0;
 falha:
     libera(b);

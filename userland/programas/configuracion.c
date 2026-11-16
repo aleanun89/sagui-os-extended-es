@@ -5,6 +5,8 @@
  *                                    Sonido, Escritorio, Capturas e IA
  *   configuracion --aplicar          lo que el kernel lanza al arrancar: lee el archivo de
  *                                    configuración y lo aplica (teclado, volumen, zona, acento, fondo)
+ *   configuracion --usuarios         la ventana, en la página Usuarios (D340: crear, borrar y renombrar
+ *                                    cuentas, su contraseña y el grupo administrador)
  *   configuracion mostrar            el contenido del archivo y el estado actual
  *   configuracion teclado es|abnt2
  *   configuracion volumen 0-100|silencio|activar
@@ -41,6 +43,7 @@ bool sou_root(void);
 #include "captura.h"
 #include "vncd_estado.h"
 #include "mandos.h"
+#include "contas_gestao.h"   /* D340: Usuarios (sin contas.h: tiene su propio conf_gravar) */
 
 #define DIR_CONF   "/home/.config"
 #define ARQ_CONF   "/home/.config/sagui.conf"
@@ -622,9 +625,12 @@ static void acel_arranque(bool tem)
 /* Lo que hace el arranque. Los errores van al log; nada de esto debe detener el sistema. */
 static int aplicar_tudo(int argc, char **argv)
 {
-    aplicar_conectores();
+    /* D340: «--aplicar UID GID --sesion»: una sesión que empieza (o se cierra) después del arranque. El kernel
+     * nos lanza ya con la identidad y la carpeta de la cuenta: solo lo suyo, ni conectores ni aceleración. */
+    bool sesion = argc >= 5 && compara_texto(argv[4], "--sesion") == 0;
+    if (!sesion) aplicar_conectores();
     bool tem_conf = conf_ler();
-    acel_arranque(tem_conf);   /* D323: modo seguro, marca de arranque y aceleración (el kernel nos lanza como root) */
+    if (!sesion) acel_arranque(tem_conf);   /* D323: modo seguro, marca de arranque y aceleración (el kernel nos lanza como root) */
     /* D313: el idioma del usuario (sagui.conf) manda sobre el del sistema (/etc/idioma). Aunque no haya
      * sagui.conf, el del sistema se aplica: el kernel traduce su interfaz con él. */
     if (!conf.idioma[0]) idioma_sistema_ler(conf.idioma, sizeof conf.idioma);
@@ -914,8 +920,8 @@ static int linha_de_comandos(int argc, char **argv)
 #define LARG 788   /* cabe en 800x600 (issue #43); las pestañas se aprietan solas si no caben */
 #define ALT  500
 #define Y_PAG 50
-enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_MANDOS, P_QTD };
-static const char *const titulos_pag[P_QTD] = { N_("Teclado"), N_("Fecha y hora"), N_("Pantalla"), N_("Sonido"), N_("Escritorio"), N_("Capturas"), N_("IA"), N_("Fuentes"), N_("Red"), N_("Escritorio remoto"), N_("Mandos") };
+enum { P_TECLADO, P_ZONA, P_TELA, P_SOM, P_ESCRITORIO, P_CAPTURAS, P_IA, P_FUENTES, P_RED, P_VNC, P_MANDOS, P_USUARIOS, P_QTD };
+static const char *const titulos_pag[P_QTD] = { N_("Teclado"), N_("Fecha y hora"), N_("Pantalla"), N_("Sonido"), N_("Escritorio"), N_("Capturas"), N_("IA"), N_("Fuentes"), N_("Red"), N_("Escritorio remoto"), N_("Mandos"), N_("Usuarios") };
 
 static int pagina;
 static char estado[160];
@@ -1768,6 +1774,178 @@ static bool md_tratar(const evento_t *e)
     return mudou;
 }
 
+/* ------------------------------------------------------------ Usuarios (D340, mejora 098 fase 3) */
+/* Las cuentas de persona del ordenador. Verlas no pide nada; cambiarlas pide permisos de administrador
+ * con el diálogo del sistema (D269) justo antes del cambio, y se vuelve a la cuenta de antes después. */
+#define US_MAX 16
+static conta_resumo_t us_v[US_MAX];
+static int us_n;
+static char itens_us[US_MAX][64];
+static lista_t lista_us;
+static bool us_donos;
+#define US_BX 500
+static botao_t b_us[5] = { { US_BX, Y_PAG + 34, 260, 28, N_("Nueva cuenta..."), false },
+                           { US_BX, Y_PAG + 70, 260, 28, N_("Cambiar la contraseña..."), false },
+                           { US_BX, Y_PAG + 106, 260, 28, N_("Cambiar el nombre..."), false },
+                           { US_BX, Y_PAG + 142, 260, 28, N_("Administrador: sí / no"), false },
+                           { US_BX, Y_PAG + 178, 260, 28, N_("Borrar la cuenta..."), false } };
+
+static void us_listar(void)
+{
+    int sel = lista_us.sel;
+    us_n = contas_resumo(us_v, US_MAX);
+    for (int i = 0; i < us_n; i++)
+        formatar_texto(itens_us[i], sizeof itens_us[i], "%s%s%s%s", us_v[i].nome, us_v[i].admin ? _(" (administrador)") : "",
+                       us_v[i].descricao[0] ? " - " : "", us_v[i].descricao);
+    lista_us.qtd = us_n;
+    lista_us.sel = sel >= 0 && sel < us_n ? sel : (us_n ? 0 : -1);
+    us_donos = conta_home_com_donos();
+}
+
+static void us_preparar(void)
+{
+    lista_us = (lista_t){ 24, Y_PAG + 34, US_BX - 24 - 16, 260, itens_us, 0, -1, 0, NULL, NULL };
+    us_listar();
+}
+
+static void us_desenhar(void)
+{
+    titulo_pag(24, Y_PAG + 10, _("Cuentas de usuario de este ordenador"));
+    lista_desenhar(jn, &lista_us);
+    for (int i = 0; i < 5; i++) botao_desenhar(jn, &b_us[i]);
+    int y = Y_PAG + 306;
+    g_texto_n(jn, 24, y, _("Cada cuenta tiene su carpeta /home/<nombre>, con su configuración."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, y + 18, _("La cuenta principal (sagui) sigue usando /home."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, y + 36, _("Un administrador autoriza los cambios del sistema con su propia contraseña."),
+              (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    g_texto_n(jn, 24, y + 54, _("Los cambios piden permisos de administrador."), (LARG - 48) / LETRA_L, COR_TEXTO_FRACO);
+    if (!us_donos)
+        g_texto_n(jn, 24, y + 76, _("Aviso: /home no guarda dueños (FAT32): no se pueden crear cuentas."),
+                  (LARG - 48) / LETRA_L, 0xB03000);
+}
+
+/* Pide permisos de administrador; false (y lo dice) si no se conceden. */
+static bool us_elevar(void)
+{
+    int r = elevar_grafico(_("administrar las cuentas de usuario"));
+    if (r == 0) return true;
+    dizer(r == ERRO_ACESSO ? _("No se concedieron los permisos de administrador.") : nome_erro(r));
+    return false;
+}
+
+static void us_resultado(int r, const char *bien)
+{
+    if (r == 0) dizer(bien);
+    else if (r == ERRO_ACESSO) dizer(_("No se puede: es una cuenta del sistema, la principal o la de esta sesión."));
+    else if (r == ERRO_JA_EXISTE) dizer(_("Ya hay una cuenta (o una carpeta en /home) con ese nombre."));
+    else if (r == ERRO_NAO_SUPORTADO) dizer(_("/home no guarda dueños ni permisos (FAT32): no se pueden crear cuentas."));
+    else if (r == ERRO_INVALIDO) dizer(_("Nombre o contraseña no válidos (contraseña: al menos 4 caracteres)."));
+    else formatar_texto(estado, sizeof estado, _("No se pudo: %s"), nome_erro(r));
+}
+
+/* Una contraseña nueva dos veces (vacía = sin contraseña si se permite). false = cancelado o distintas. */
+static bool us_senha(const char *tit, char *s, int max, bool vazia)
+{
+    char otra[PED_SENHA_MAX];
+    s[0] = 0;
+    if (!pedir_texto_oculto(tit, vazia ? _("Contraseña (vacía = sin contraseña; al menos 4 caracteres):")
+                                       : _("Contraseña nueva (al menos 4 caracteres):"), s, max)) return false;
+    if (!s[0] && vazia) return true;
+    otra[0] = 0;
+    bool ok = pedir_texto_oculto(tit, _("Repite la contraseña:"), otra, sizeof otra) && compara_texto(s, otra) == 0;
+    memset(otra, 0, sizeof otra);
+    if (!ok) { memset(s, 0, (size_t)max); dizer(_("Las dos contraseñas no coinciden.")); }
+    return ok;
+}
+
+static void us_nova(void)
+{
+    const char *tit = _("Nueva cuenta");
+    char nome[32] = "", descr[64] = "", senha[PED_SENHA_MAX];
+    if (!pedir_texto(tit, _("Nombre de la cuenta (minúsculas, números, _ y -):"), nome, sizeof nome)) return;
+    if (!conta_nome_valido(nome)) { dizer(_("Nombre no válido: minúsculas, números, _ y -, hasta 31.")); return; }
+    if (!pedir_texto(tit, _("Nombre completo o descripción (opcional):"), descr, sizeof descr)) return;
+    if (!us_senha(tit, senha, sizeof senha, true)) return;
+    bool admin = confirmar(tit, _("¿Será administrador?\n(Podrá autorizar cambios del sistema con su contraseña.)"));
+    if (!us_elevar()) { memset(senha, 0, sizeof senha); return; }
+    int r = conta_criar(nome, descr, senha, admin, NULL);
+    memset(senha, 0, sizeof senha);
+    elevacao_soltar();
+    registrar("configuracion: usuarios: crear %s -> %d", nome, r);
+    us_resultado(r, _("Cuenta creada. Puede entrar desde «Cerrar sesión» o al reiniciar."));
+    us_listar();
+}
+
+static void us_mudar_senha(conta_resumo_t *c)
+{
+    char senha[PED_SENHA_MAX];
+    if (!us_senha(_("Cambiar la contraseña"), senha, sizeof senha, true)) return;
+    if (!us_elevar()) { memset(senha, 0, sizeof senha); return; }
+    int r = conta_senha(c->nome, senha);
+    memset(senha, 0, sizeof senha);
+    elevacao_soltar();
+    registrar("configuracion: usuarios: contraseña de %s -> %d", c->nome, r);
+    us_resultado(r, _("Contraseña cambiada."));
+}
+
+static void us_renomear(conta_resumo_t *c)
+{
+    char novo[32];
+    copia_texto(novo, c->nome, sizeof novo);
+    if (!pedir_texto(_("Cambiar el nombre"), _("Nombre nuevo de la cuenta (su carpeta cambia con él):"), novo, sizeof novo)) return;
+    if (compara_texto(novo, c->nome) == 0) return;
+    if (!us_elevar()) return;
+    int r = conta_renomear(c->nome, novo);
+    elevacao_soltar();
+    registrar("configuracion: usuarios: renombrar %s a %s -> %d", c->nome, novo, r);
+    us_resultado(r, _("Nombre cambiado."));
+    us_listar();
+}
+
+static void us_admin(conta_resumo_t *c)
+{
+    if (!us_elevar()) return;
+    int r = conta_admin_fixar(c->nome, !c->admin);
+    elevacao_soltar();
+    registrar("configuracion: usuarios: administrador %s %s -> %d", c->nome, c->admin ? "no" : "si", r);
+    us_resultado(r, c->admin ? _("Ya no es administrador.") : _("Ahora es administrador."));
+    us_listar();
+}
+
+static void us_apagar(conta_resumo_t *c)
+{
+    char p[160];
+    formatar_texto(p, sizeof p, _("¿Borrar la cuenta %s?\nYa no podrá entrar."), c->nome);
+    if (!confirmar(_("Borrar la cuenta"), p)) return;
+    formatar_texto(p, sizeof p, _("¿Borrar también su carpeta /home/%s con todos sus archivos?\n(No = se conservan.)"), c->nome);
+    bool arquivos = confirmar(_("Borrar la cuenta"), p);
+    char nome[32];
+    copia_texto(nome, c->nome, sizeof nome);
+    if (!us_elevar()) return;
+    int r = conta_apagar(nome, arquivos);
+    elevacao_soltar();
+    registrar("configuracion: usuarios: borrar %s (archivos %d) -> %d", nome, arquivos, r);
+    us_resultado(r, arquivos ? _("Cuenta y carpeta borradas.") : _("Cuenta borrada; su carpeta se conserva."));
+    us_listar();
+}
+
+static bool us_tratar(const evento_t *e)
+{
+    bool mudou = lista_tratar(jn, &lista_us, e) != 0;
+    for (int i = 0; i < 5; i++)
+        if (botao_tratar(jn, &b_us[i], e)) {
+            mudou = true;
+            if (i == 0) { us_nova(); continue; }
+            if (lista_us.sel < 0 || lista_us.sel >= us_n) { dizer(_("Elige una cuenta de la lista.")); continue; }
+            conta_resumo_t c = us_v[lista_us.sel];
+            if (i == 1) us_mudar_senha(&c);
+            else if (i == 2) us_renomear(&c);
+            else if (i == 3) us_admin(&c);
+            else us_apagar(&c);
+        }
+    return mudou;
+}
+
 /* Pantalla > Aceleración gráfica (D323). La página Pantalla tiene dos vistas: la resolución de siempre y esta. */
 static int sub_tela;   /* 0 = Resolución, 1 = Aceleración gráfica */
 static botao_t b_sub[2] = { { 436, Y_PAG + 2, 150, 26, "Resolución", false }, { 592, Y_PAG + 2, 190, 26, "Aceleración gráfica", false } };
@@ -2061,6 +2239,8 @@ static void desenhar_pagina(void)
         vnc_desenhar();
     } else if (pagina == P_MANDOS) {
         md_desenhar();
+    } else if (pagina == P_USUARIOS) {
+        us_desenhar();
     } else {
         info_aparencia_t ap;
         memset(&ap, 0, sizeof ap);
@@ -2324,10 +2504,12 @@ static int eq_coluna(const evento_t *e)
 static void traducir_rotulos(void)
 {
     int xp = 10;
-    /* Relleno de cada pestaña: 10 px, y menos si todas juntas no caben en LARG (issue #43). */
+    /* Relleno de cada pestaña: 10 px, y menos si todas juntas no caben en LARG (issue #43). Con la de
+     * Usuarios (D340) hace falta bajar hasta 1 y empezar más a la izquierda. */
     int suma = 0, relleno = 10;
     for (int i = 0; i < P_QTD; i++) suma += g_largura_texto(_(titulos_pag[i]));
-    while (relleno > 2 && 10 + suma + P_QTD * (relleno + 1) > LARG - 4) relleno--;
+    while (relleno > 1 && 10 + suma + P_QTD * (relleno + 1) > LARG - 4) relleno--;
+    if (10 + suma + P_QTD * (relleno + 1) > LARG - 4) xp = 4;
     for (int i = 0; i < P_QTD; i++) {
         int l = g_largura_texto(_(titulos_pag[i])) + relleno;
         pos_pag[i] = xp;
@@ -2404,6 +2586,7 @@ static int janela(void)
                 if (i == P_VNC) vnc_refrescar();
                 if (i == P_MANDOS) md_preparar();
                 else md_fase = 0;
+                if (i == P_USUARIOS) us_preparar();   /* D340 */
                 mudou = true;
             }
         if (pagina == P_TELA)
@@ -2416,6 +2599,8 @@ static int janela(void)
                 }
         if (pagina == P_MANDOS) {
             if (md_tratar(&e)) mudou = true;
+        } else if (pagina == P_USUARIOS) {
+            if (us_tratar(&e)) mudou = true;
         } else if (pagina == P_TELA && sub_tela == 1) {
             if (acel_tratar(&e)) mudou = true;
         } else if (pagina == P_TECLADO) {
@@ -2790,6 +2975,7 @@ static int janela(void)
 int principal(int argc, char **argv)
 {
     if (argc >= 2 && compara_texto(argv[1], "--aplicar") == 0) return aplicar_tudo(argc, argv);
+    if (argc >= 2 && compara_texto(argv[1], "--usuarios") == 0) { pagina = P_USUARIOS; us_preparar(); return janela(); }   /* D340 */
     if (argc >= 2 && compara_texto(argv[1], "--ventana") != 0) return linha_de_comandos(argc, argv);
     return janela();
 }

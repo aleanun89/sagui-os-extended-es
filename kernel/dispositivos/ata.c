@@ -515,12 +515,16 @@ static int dma_orden(ata_disco_t *a, uint32_t lba, uint32_t n, bool gravar)
     bool dormiu = false;
     for (;;) {
         uint8_t st, est;
-        if (c->irq_chegou) { st = c->bm_st; est = c->ata_st; goto terminou; }
+        if (c->irq_chegou) { st = c->bm_st; est = c->ata_st; c->irq_falhas = 0; goto terminou; }
         st = porta_le8(c->bm + BM_ST);
         est = porta_le8(c->ctrl);
         if (st & BM_ST_ERRO) goto fim;
         if ((st & BM_ST_IRQ) || (!(st & BM_ST_ATIVO) && !(est & ST_BSY))) {
-            if (por_irq && dormiu && !c->irq_chegou && ++c->irq_falhas >= 3) {
+            /* D338: solo cuenta si pasa varias veces SEGUIDAS (una IRQ que llegó cuenta y vuelve a cero):
+             * despertar por el reloj justo cuando el DMA acaba, con la IRQ aún pendiente por estar las
+             * interrupciones apagadas aquí, es una carrera normal, y antes tres de esas en todo el
+             * arranque dejaban el disco esperando con la CPU ocupada para siempre. */
+            if (por_irq && dormiu && !c->irq_chegou && ++c->irq_falhas >= 8) {
                 c->irq_usavel = false;
                 klog("[ATA] canal %x: la IRQ no llega; el DMA espera cediendo la CPU\n", c->base);
             }

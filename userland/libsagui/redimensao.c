@@ -566,24 +566,22 @@ int fs_redimensionar_ext2(const char *vol, uint32_t setores, fs_progresso_t prog
 
     /* --- Crecer: los grupos nuevos, que nadie mira todavía --- */
     uint32_t cab1 = manter ? gdt1 + rgdt1 : gdt1;   /* tras el superbloque, en los grupos con copia */
+    fs_zerar_t z;   /* D338: la tabla de inodos de los grupos nuevos, sin reescribir lo que ya es cero */
+    memset(&z, 0, sizeof z);
     if (crescer && G1 > G0) {
-        zeros = aloca_zerado(e.bs * 16);
+        zeros = aloca_zerado(e.bs * 2);   /* aquí, los dos mapas de un grupo nuevo (van seguidos) */
         if (!zeros) { r = ERRO_SEM_MEMORIA; goto fim; }
         for (uint32_t g = G0; g < G1; g++) {
             uint32_t ini = ext_ini(&e, g), tam = ext_tam(&e, g, novos);
             uint32_t bb = ini + (ext_tem_sb(&e, g) ? 1 + cab1 : 0), ib = bb + 1, it = bb + 2;
-            for (uint32_t k = 0; k < e.itb; k += 16) {
-                uint32_t q = e.itb - k > 16 ? 16 : e.itb - k;
-                if ((r = ext_escrever(&e, it + k, q, zeros)) < 0) goto erro_es;
-            }
-            memset(mapa, 0, e.bs);
-            for (uint32_t i = 0; i < it + e.itb - ini; i++) bit_pon(mapa, i);
-            for (uint32_t i = tam; i < e.bs * 8; i++) bit_pon(mapa, i);
-            uint32_t livres = ceros(mapa, tam);
-            if ((r = ext_escrever(&e, bb, 1, mapa)) < 0) goto erro_es;
-            memset(mapa, 0, e.bs);
-            for (uint32_t i = e.ipg; i < e.bs * 8; i++) bit_pon(mapa, i);
-            if ((r = ext_escrever(&e, ib, 1, mapa)) < 0) goto erro_es;
+            if ((r = fs_zerar(vol, it * e.spb, e.itb * e.spb, &z)) < 0) goto erro_es;
+            uint8_t *mb = zeros, *mi = zeros + e.bs;
+            memset(zeros, 0, e.bs * 2);
+            for (uint32_t i = 0; i < it + e.itb - ini; i++) bit_pon(mb, i);
+            for (uint32_t i = tam; i < e.bs * 8; i++) bit_pon(mb, i);
+            uint32_t livres = ceros(mb, tam);
+            for (uint32_t i = e.ipg; i < e.bs * 8; i++) bit_pon(mi, i);
+            if ((r = ext_escrever(&e, bb, 2, zeros)) < 0) goto erro_es;   /* los dos mapas de una vez */
             uint8_t *d = ext_gd(&e, g);
             memset(d, 0, 32);
             po32(d, bb); po32(d + 4, ib); po32(d + 8, it);
@@ -638,8 +636,9 @@ int fs_redimensionar_ext2(const char *vol, uint32_t setores, fs_progresso_t prog
     if (prog) prog(100, ctx);
     msg_txt(m, max, "el ext2 de %s pasa de %u a %u MB (%u grupos)%s", vol, (uint32_t)((uint64_t)velhos * e.bs / 1048576),
             (uint32_t)((uint64_t)novos * e.bs / 1048576), G1, tirar ? "; ya no le quedan bloques reservados para crecer" : "");
-    registrar("redimensao: %s ext2 de %u a %u bloques, grupos %u -> %u, tabla %u -> %u, reservados %u -> %u", vol, velhos, novos,
-              G0, G1, e.gdt, gdt1, e.rgdt, rgdt1);
+    registrar("redimensao: %s ext2 de %u a %u bloques, grupos %u -> %u, tabla %u -> %u, reservados %u -> %u; tablas de inodos nuevas: "
+              "%u MB escritos, %u de %u trozos leídos ya eran cero%s", vol, velhos, novos, G0, G1, e.gdt, gdt1, e.rgdt, rgdt1,
+              z.escritos / 2048, z.lidos - z.sujos, z.lidos, z.so_escrever ? " (escritura sin leer)" : "");
     r = 0;
     goto fim;
 erro_es:

@@ -132,6 +132,8 @@ int  lista_tratar(jan_t *j, lista_t *l, const evento_t *e);   /* EV_RODA desplaz
 bool confirmar(const char *titulo, const char *pergunta);      /* "¿Seguro?" Sí/No */
 void mensagem(const char *titulo, const char *texto);           /* OK */
 bool pedir_texto(const char *titulo, const char *pergunta, char *resposta, int max);
+/* D340: lo mismo con asteriscos (contraseñas). */
+bool pedir_texto_oculto(const char *titulo, const char *pergunta, char *resposta, int max);
 
 /* ---- diálogos de archivos estilo Windows 95 (mejora 103, D272; gui_arquivos.c) ----
  * Modales; devuelven true y la ruta absoluta en "saida" si se aceptó. "filtros":
@@ -550,6 +552,99 @@ void combo_fuentes_definir(combo_fuentes_t *c, int fam);
 void combo_fuentes_desenhar(jan_t *j, combo_fuentes_t *c);
 /* COMBO_SELECIONOU: eligió una familia (c->fam). Se abre con el clic izquierdo. */
 int  combo_fuentes_tratar(jan_t *j, combo_fuentes_t *c, const evento_t *e);
+
+/* ---- cinta (Ribbon) con el estilo de SaguiOS (mejora 132, D334) ----
+ * Se describe con tablas de C: pestañas -> grupos -> controles. Lo que devuelve cinta_tratar es el id del
+ * control elegido (como barra_ferr_tratar), CINTA_TRATADO si el evento era suyo pero no hay orden, o 0 si no
+ * le interesaba (el programa lo sigue tratando). Los datos de estado (marcado, desactivado, color, valor de
+ * los combos) viven en las propias tablas; cinta_buscar(c, id) da el control para leerlos.
+ *  - Texto de ayuda (tip): "Título\nDescripción\nAtajo", se muestra en la fila de pestañas.
+ *  - Teclado: Alt+letra de pestaña abre esa pestaña con sus KeyTips; Alt+. muestra los de las pestañas;
+ *    Ctrl+F1 minimiza; con KeyTips activos, flechas izq./der. cambian de pestaña y Esc sale.
+ *  - Doble clic en una pestaña minimiza la cinta; con ella minimizada, un clic en una pestaña la abre
+ *    mientras se usa. Cuando cambia la altura, cinta_cambio() devuelve true: hay que recolocar el programa. */
+#define CINTA_TRATADO   (-1)
+#define CINTA_PEST_MAX  8
+#define CINTA_GRUPOS_MAX 8
+#define CINTA_TAB_A     22
+#define CINTA_PANEL_A   94
+enum { CC_BOTON = 1, CC_DESPLEG, CC_DIVIDIDO, CC_CONMUT, CC_EXCL, CC_COMBO, CC_FUENTES, CC_COR, CC_GALERIA };
+#define CCF_GRANDE    1      /* botón grande: icono de 32 px y texto debajo */
+#define CCF_SIGUE     2      /* en la misma fila que el anterior (a su derecha) */
+#define CCF_SIN_TEXTO 4      /* solo el icono */
+#define CCF_SALTO     8      /* empieza columna nueva */
+#define CCF_EDITABLE  16     /* combo con texto editable */
+typedef struct {
+    int id;
+    unsigned char tipo, flags;
+    const char *texto;           /* "Pegar" (traducido con _() por el programa) */
+    const char *tip;             /* "Título\nDescripción\nAtajo" */
+    const char *kt;              /* KeyTip: 1 o 2 letras */
+    void (*icone)(jan_t *j, int x, int y, bool ativo);   /* 16x16; el grande lo amplía al doble */
+    const char *menu;            /* desplegable/dividido: líneas del menú (como menu_contextual) */
+    const int *ids;              /* id de cada línea del menú (0 = separador) */
+    const char *const *lista;    /* combo, galería */
+    int n_lista, ancho;
+    int excl;                    /* grupo de botones exclusivos (CC_EXCL): mismo número = mismo grupo */
+    bool marcado, desativado;
+    uint32_t cor;                /* CC_COR: el color actual */
+    int sel;                     /* galería y combo: el índice elegido */
+    combo_t cb;
+    combo_fuentes_t cf;
+    bool ini;
+    int x, y, l, a;              /* solo lectura: posición calculada */
+} cinta_ctrl_t;
+typedef struct {
+    const char *nome;
+    cinta_ctrl_t *ctrl;
+    int n;
+    int lanzador;                /* id del botón de la esquina (0 = sin él) */
+    int prio;                    /* menor = se reduce antes al estrechar */
+    int nivel, x, l;             /* calculados: 0 completo, 1 pequeños con texto, 2 solo iconos, 3 un botón */
+} cinta_grupo_t;
+#define CINTA_GRUPO(nome, tabla, lanz, prio) { nome, tabla, (int)(sizeof(tabla) / sizeof((tabla)[0])), lanz, prio, 0, 0, 0 }
+typedef struct {
+    const char *nome, *kt;
+    cinta_grupo_t *grupos;
+    int n;
+    bool contextual;             /* solo sale si cinta_pest_visible(c, i, true) */
+    bool visible;
+    int x, l;
+} cinta_pest_t;
+typedef struct {
+    int x, y, l;
+    cinta_pest_t *pest; int n_pest, sel;
+    const char *archivo;         /* menú de la pestaña «Archivo» (NULL = no hay) */
+    const int *archivo_ids;
+    cinta_ctrl_t *acceso; int n_acceso;      /* barra de acceso rápido */
+    bool minimizada, temporal;
+    bool depurar;                /* registra posiciones y órdenes en el puerto serie (pruebas) */
+    uint32_t acento, suave;
+    cinta_ctrl_t *sobre, *apertado;
+    int ap_zona, sobre_tab;
+    int kt_modo;                 /* 0 no, 1 letras de pestañas, 2 letras de controles */
+    char kt_buf[3];
+    cinta_ctrl_t *menu_k;
+    int colapso_ids[24], colapso_sel[24];
+    bool cambio;
+    int panel_alt;
+    int arch_x, arch_l;
+    int firma;                   /* para registrar el layout solo cuando cambia (depurar) */
+} cinta_t;
+void cinta_iniciar(cinta_t *c, int x, int y, int l, cinta_pest_t *pest, int n);
+void cinta_largura(cinta_t *c, int x, int y, int l);        /* tras redimensionar */
+int  cinta_altura(const cinta_t *c);
+void cinta_desenhar(jan_t *j, cinta_t *c);
+int  cinta_tratar(jan_t *j, cinta_t *c, const evento_t *e);
+cinta_ctrl_t *cinta_buscar(cinta_t *c, int id);
+void cinta_marcar(cinta_t *c, int id, bool marcado);        /* conmutable o exclusivo (apaga los demás del grupo) */
+void cinta_activar(cinta_t *c, int id, bool activo);        /* false = desactivado */
+void cinta_pestana(cinta_t *c, int indice);
+void cinta_pest_visible(cinta_t *c, int indice, bool visible);   /* pestañas contextuales */
+void cinta_minimizar(cinta_t *c, bool min);
+void cinta_tam_janela(int *l, int *a);                      /* recorta el tamaño pedido a la pantalla principal */
+void cinta_traducir(cinta_t *c);                            /* pasa los textos por _() */
+bool cinta_cambio(cinta_t *c);                              /* la altura cambió: recolocar y redibujar */
 /* Buscar/Reemplazar: devuelve DLG_BUSCAR_* (0 = cerrado). com_substituir muestra el campo y los botones de reemplazo. */
 #define DLG_BUSCAR_NADA      0
 #define DLG_BUSCAR_SEGUINTE  1

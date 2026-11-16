@@ -108,6 +108,7 @@ class Cuadricula(tk.Frame):
         self.al_editar = None
         self.al_doble_cabecera = None
         self.al_doble_fila = None
+        self.nulos = set()       # celdas (fila, columna) que son NULL: se dibujan en gris (D333)
         self._ent = None
         self._ed = None
         self._cuerpo = _Cuerpo(self, self)
@@ -176,10 +177,12 @@ class Cuadricula(tk.Frame):
         self._ajustar()
 
     # ---------------------------------------------------------- datos
-    def poner(self, columnas, filas, conservar=False):
+    def poner(self, columnas, filas, conservar=False, nulos=None):
         """Cambia columnas (nombres) y filas (listas de textos). Con conservar=True mantiene la fila
-        y la columna actuales si siguen existiendo."""
+        y la columna actuales si siguen existiendo. `nulos` es el conjunto de celdas (fila, columna)
+        que son NULL y se dibujan en gris (D333)."""
         self._cancelar_edicion()
+        self.nulos = set(nulos) if nulos else set()
         f0, c0 = self.fila, self.col
         self.columnas = [str(c) for c in columnas]
         self.filas = [[("" if v is None else str(v)) for v in f] for f in filas]
@@ -290,7 +293,7 @@ class Cuadricula(tk.Frame):
                         v.rect(px, fy, a, ALTO_FILA, AZUL)
                         v.texto(px + 3, fy + 1, t, BLANCO)
                     else:
-                        v.texto(px + 3, fy + 1, t, NEGRO)
+                        v.texto(px + 3, fy + 1, t, 0x808080 if (i, j) in self.nulos else NEGRO)
                     v.linea(px + a - 1, fy, px + a - 1, fy + ALTO_FILA - 1, LUZ)
                 px += a
             v.linea(x, fy + ALTO_FILA - 1, x + w - 1, fy + ALTO_FILA - 1, LUZ)
@@ -399,5 +402,6 @@ class Cuadricula(tk.Frame):
         if self.al_editar:
             ok = self.al_editar(i, j, texto)
         if ok is not False:
+            self.nulos.discard((i, j))
             self.filas[i][j] = texto
             self._cuerpo._redesenhar()

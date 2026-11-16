@@ -542,6 +542,23 @@ static uint32_t ts_para_utc(uint32_t ts, uint8_t desvio)
     return hora_local_para_utc(local);
 }
 
+/* D341: un instante UTC -> sello exFAT en la hora local de la zona del sistema, con su desvío (en
+ * cuartos de hora, marcado con el bit 7, como Windows y Linux) y las centésimas del segundo impar.
+ * Fuera del rango (1980-2107) se queda en el extremo. */
+static uint32_t utc_para_ts(uint32_t utc, uint8_t *desvio, uint8_t *cs)
+{
+    fuso_data_t d;
+    hora_local_de(utc, &d);
+    int o = d.desvio / 900;
+    *desvio = (uint8_t)(0x80 | (o & 0x7F));
+    *cs = 0;
+    if (d.ano < 1980) return (1u << 21) | (1u << 16);
+    if (d.ano > 2107) return (127u << 25) | (12u << 21) | (31u << 16) | (23u << 11) | (59u << 5) | 29u;
+    *cs = (uint8_t)((d.segundo & 1) ? 100 : 0);
+    return ((uint32_t)(d.ano - 1980) << 25) | ((uint32_t)d.mes << 21) | ((uint32_t)d.dia << 16) |
+           ((uint32_t)d.hora << 11) | ((uint32_t)d.minuto << 5) | (d.segundo / 2);
+}
+
 /* ------------------------------------------------------------ carpetas */
 
 typedef struct {
@@ -554,6 +571,7 @@ typedef struct {
     uint32_t idx, qtd;           /* SEM_ENTRADA en la raíz */
     uint32_t t_cria, t_mod, t_acesso;
     uint8_t  d_cria, d_mod, d_acesso;
+    uint8_t  cs_cria, cs_mod;    /* D341: centésimas (0..199) que se suman a los 2 s del sello */
 } entrada_t;
 
 typedef struct { fluxo_t *fl; uint32_t cn, cc; } cursor_t;
@@ -643,6 +661,7 @@ static bool ler_grupo(fluxo_t *pai, uint32_t idx, const uint8_t *prim, entrada_t
     e->attr = *(uint16_t *)(g + 4);
     e->t_cria = *(uint32_t *)(g + 8);  e->t_mod = *(uint32_t *)(g + 12);  e->t_acesso = *(uint32_t *)(g + 16);
     e->d_cria = g[22]; e->d_mod = g[23]; e->d_acesso = g[24];
+    e->cs_cria = g[20] < 200 ? g[20] : 0; e->cs_mod = g[21] < 200 ? g[21] : 0;
     uint8_t *s = g + 32;
     uint64_t vdl = *(uint32_t *)(s + 8) | ((uint64_t)*(uint32_t *)(s + 12) << 32);
     uint64_t tam = *(uint32_t *)(s + 24) | ((uint64_t)*(uint32_t *)(s + 28) << 32);
@@ -1146,6 +1165,8 @@ static int ex_datas(void *priv, const char *rel, datas_arquivo_t *d)
     if (!achar(rel, &e)) return terminar(ERRO_NAO_EXISTE);
     d->modificado = ts_para_utc(e.t_mod, e.d_mod);
     d->criado = ts_para_utc(e.t_cria, e.d_cria);
+    if (d->modificado) d->modificado += e.cs_mod / 100u;   /* D341: el segundo impar */
+    if (d->criado) d->criado += e.cs_cria / 100u;
     d->acessado = ts_para_utc(e.t_acesso, e.d_acesso);
     return terminar(0);
 }
@@ -1486,6 +1507,7 @@ static int ex_renomear(void *priv, const char *de, const char *para)
         if (grupo_ler(&nova.pai, nova.idx, nova.qtd, g)) {
             *(uint32_t *)(g + 8) = e.t_cria;  *(uint32_t *)(g + 12) = e.t_mod;  *(uint32_t *)(g + 16) = e.t_acesso;
             g[22] = e.d_cria; g[23] = e.d_mod; g[24] = e.d_acesso;
+            g[20] = e.cs_cria; g[21] = e.cs_mod;   /* D341 */
             *(uint16_t *)(g + 2) = soma_grupo(g, nova.qtd);
             grupo_gravar(&nova.pai, nova.idx, nova.qtd, g);
         }
@@ -1499,10 +1521,31 @@ static int ex_renomear(void *priv, const char *de, const char *para)
     return terminar_liberando(0);
 }
 
+/* D341: modificación (con sus centésimas: resolución de 1 s) y último acceso del grupo. La raíz no
+ * tiene grupo: no se guarda nada y no es un error. */
+static int ex_fixar_datas(void *priv, const char *rel, uint32_t mod, uint32_t acesso)
+{
+    vp = priv;
+    SOLEITURA();
+    entrada_t e;
+    if (!*rel) return 0;
+    if (!achar(rel, &e)) return terminar(ERRO_NAO_EXISTE);
+    if (e.idx == SEM_ENTRADA) return terminar(0);
+    uint8_t g[GRUPO_MAX * 32];
+    if (e.qtd > GRUPO_MAX || !grupo_ler(&e.pai, e.idx, e.qtd, g)) return terminar(ERRO_ACESSO);
+    uint8_t d, cs;
+    if (mod) { *(uint32_t *)(g + 12) = utc_para_ts(mod, &d, &cs); g[23] = d; g[21] = cs; }
+    if (acesso) { *(uint32_t *)(g + 16) = utc_para_ts(acesso, &d, &cs); g[24] = d; }
+    *(uint16_t *)(g + 2) = soma_grupo(g, e.qtd);
+    return terminar(grupo_gravar(&e.pai, e.idx, e.qtd, g) ? 0 : ERRO_ACESSO);
+}
+
 const sistema_arquivos_t fs_exfat = {
     .nome = "exfat", .tam_arq = sizeof(exfat_arq_t),
     .montar = ex_montar, .desmontar = ex_desmontar, .info = ex_info, .datas = ex_datas, .listar = ex_listar,
     .abrir = ex_abrir, .ler = ex_ler, .escrever = ex_escrever, .truncar = ex_truncar, .fechar = ex_fechar,
     .sincronizar = ex_sincronizar, .criar_pasta = ex_criar_pasta, .remover_pasta = ex_remover_pasta,
     .apagar = ex_apagar, .renomear = ex_renomear, .espaco = ex_espaco,
+    .fixar_datas = ex_fixar_datas,   /* D341 */
 };
+

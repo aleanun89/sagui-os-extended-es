@@ -1,0 +1,332 @@
+# Traducción de SaguiOS: catálogo «traductor», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/traductor.c:259
+#, c-format
+msgid "Formato: el original lleva %s y la traducción %s"
+msgstr "Format: the original has %s and the translation %s"
+
+#: userland/programas/traductor.c:260
+msgid "Saltos de línea o tabuladores distintos de los del original"
+msgstr "Line breaks or tabs differ from the original"
+
+#: userland/programas/traductor.c:261
+msgid "El atajo (& o _) o el texto tras el tabulador no coincide"
+msgstr "The shortcut (& or _) or the text after the tab does not match"
+
+#: userland/programas/traductor.c:262
+msgid "Las etiquetas <...> no coinciden con las del original"
+msgstr "The <...> tags do not match the original"
+
+#: userland/programas/traductor.c:263
+msgid "Es mucho más larga que el original: quizá no quepa"
+msgstr "Much longer than the original: it may not fit"
+
+#: userland/programas/traductor.c:308
+msgid "La IA no está configurada (Configuración > IA)"
+msgstr "AI is not set up (Settings > AI)"
+
+#: userland/programas/traductor.c:318
+msgid "Consultando a la IA..."
+msgstr "Asking the AI..."
+
+#: userland/programas/traductor.c:322
+#, c-format
+msgid "La IA no respondió: %s"
+msgstr "The AI did not answer: %s"
+
+#: userland/programas/traductor.c:488
+msgid "(sin archivo)"
+msgstr "(no file)"
+
+#: userland/programas/traductor.c:491
+#, c-format
+msgid "%d cadenas"
+msgstr "%d strings"
+
+#: userland/programas/traductor.c:493
+#, c-format
+msgid "Traducidas: %d%%"
+msgstr "Translated: %d%%"
+
+#: userland/programas/traductor.c:495
+#, c-format
+msgid "Dudosas: %d"
+msgstr "Fuzzy: %d"
+
+#: userland/programas/traductor.c:498
+#, c-format
+msgid "Sin traducir: %d"
+msgstr "Untranslated: %d"
+
+#: userland/programas/traductor.c:518
+msgid "Todas"
+msgstr "All"
+
+#: userland/programas/traductor.c:518
+msgid "Sin traducir"
+msgstr "Untranslated"
+
+#: userland/programas/traductor.c:518
+msgid "Dudosas"
+msgstr "Fuzzy"
+
+#: userland/programas/traductor.c:518
+msgid "Traducidas"
+msgstr "Translated"
+
+#: userland/programas/traductor.c:526
+msgid "Buscar:"
+msgstr "Search:"
+
+#: userland/programas/traductor.c:533
+msgid "Contexto:"
+msgstr "Context:"
+
+#: userland/programas/traductor.c:534
+msgid "Referencias:"
+msgstr "References:"
+
+#: userland/programas/traductor.c:535
+msgid "Comentarios:"
+msgstr "Comments:"
+
+#: userland/programas/traductor.c:537
+msgid "Original:"
+msgstr "Source:"
+
+#: userland/programas/traductor.c:549
+msgid "Traducción:"
+msgstr "Translation:"
+
+#: userland/programas/traductor.c:552
+msgid "Sin problemas"
+msgstr "No problems"
+
+#: userland/programas/traductor.c:557 userland/programas/traductor.c:784
+msgid "Dudosa"
+msgstr "Fuzzy"
+
+#: userland/programas/traductor.c:562
+msgid "Sugerencias (doble clic para usar):"
+msgstr "Suggestions (double-click to use):"
+
+#: userland/programas/traductor.c:575 userland/programas/traductor.c:584 userland/programas/traductor.c:619 userland/programas/traductor.c:627
+msgid "Traductor"
+msgstr "Translator"
+
+#: userland/programas/traductor.c:575 userland/programas/traductor.c:658 userland/programas/traductor.c:687
+msgid "No se pudo leer el archivo."
+msgstr "The file could not be read."
+
+#: userland/programas/traductor.c:583
+#, c-format
+msgid "El archivo no es un .po válido: %s"
+msgstr "The file is not a valid .po: %s"
+
+#: userland/programas/traductor.c:618
+#, c-format
+msgid "Hay %d cadenas con problemas de validación. ¿Guardar igualmente?"
+msgstr "%d strings have validation problems. Save anyway?"
+
+#: userland/programas/traductor.c:627
+msgid "No se pudo guardar el archivo."
+msgstr "The file could not be saved."
+
+#: userland/programas/traductor.c:639
+msgid "Guardar catálogo"
+msgstr "Save catalog"
+
+#: userland/programas/traductor.c:646
+msgid "Abrir catálogo"
+msgstr "Open catalog"
+
+#: userland/programas/traductor.c:653
+msgid "Plantilla (.pot)"
+msgstr "Template (.pot)"
+
+#: userland/programas/traductor.c:655
+msgid "Idioma del catálogo nuevo (pt_BR, en, fr...):"
+msgstr "Language of the new catalog (pt_BR, en, fr...):"
+
+#: userland/programas/traductor.c:661 userland/programas/traductor.c:691
+msgid "El archivo no es un .po válido."
+msgstr "The file is not a valid .po."
+
+#: userland/programas/traductor.c:681
+msgid "Esto ya es una plantilla: abre un catálogo .po."
+msgstr "This is already a template: open a .po catalog."
+
+#: userland/programas/traductor.c:684
+msgid "Actualizar desde la plantilla (.pot)"
+msgstr "Update from the template (.pot)"
+
+#: userland/programas/traductor.c:703
+#, c-format
+msgid "Actualizado: %d nuevas, %d dudosas, %d obsoletas, %d sin cambios."
+msgstr "Updated: %d new, %d fuzzy, %d obsolete, %d unchanged."
+
+#: userland/programas/traductor.c:711
+msgid "Una plantilla no genera catálogo."
+msgstr "A template does not build a catalog."
+
+#: userland/programas/traductor.c:713
+msgid "No se sabe el idioma del catálogo (falta Language)."
+msgstr "The catalog language is unknown (Language is missing)."
+
+#: userland/programas/traductor.c:729
+msgid "No se pudo escribir el catálogo."
+msgstr "The catalog could not be written."
+
+#: userland/programas/traductor.c:736
+#, c-format
+msgid "Catálogo generado (%d cadenas) y recargado: %s"
+msgstr "Catalog built (%d strings) and reloaded: %s"
+
+#: userland/programas/traductor.c:736
+#, c-format
+msgid "Catálogo generado (%d cadenas): %s. Elige ese idioma en Configuración para verlo."
+msgstr "Catalog built (%d strings): %s. Pick that language in Settings to see it."
+
+#: userland/programas/traductor.c:737
+#, c-format
+msgid "Sin permiso para /sistema: catálogo guardado (%d cadenas) en %s"
+msgstr "No permission for /sistema: catalog saved (%d strings) to %s"
+
+#: userland/programas/traductor.c:738
+msgid "Catálogo recargado"
+msgstr "Catalog reloaded"
+
+#: userland/programas/traductor.c:738
+msgid "Catálogo generado"
+msgstr "Catalog built"
+
+#: userland/programas/traductor.c:738
+msgid "Catálogo guardado aparte"
+msgstr "Catalog saved separately"
+
+#: userland/programas/traductor.c:748
+#, c-format
+msgid ""
+"Cadenas: %d\n"
+"Traducidas: %d (%d%%)\n"
+"Dudosas: %d\n"
+"Sin traducir: %d\n"
+"Obsoletas: %d\n"
+"Con problemas: %d"
+msgstr ""
+"Strings: %d\n"
+"Translated: %d (%d%%)\n"
+"Fuzzy: %d\n"
+"Untranslated: %d\n"
+"Obsolete: %d\n"
+"With problems: %d"
+
+#: userland/programas/traductor.c:751 userland/programas/traductor.c:783
+msgid "Estadísticas"
+msgstr "Statistics"
+
+#: userland/programas/traductor.c:759
+#, c-format
+msgid ""
+"Cadenas con problemas: %d\n"
+"Cabecera: %s"
+msgstr ""
+"Strings with problems: %d\n"
+"Header: %s"
+
+#: userland/programas/traductor.c:759
+msgid "incompleta (se corrige al guardar)"
+msgstr "incomplete (fixed on save)"
+
+#: userland/programas/traductor.c:759
+msgid "correcta"
+msgstr "correct"
+
+#: userland/programas/traductor.c:764
+msgid "Validación"
+msgstr "Validation"
+
+#: userland/programas/traductor.c:770
+msgid "Hay cambios sin guardar. ¿Salir sin guardar?"
+msgstr "There are unsaved changes. Quit without saving?"
+
+#: userland/programas/traductor.c:780
+msgid "Abrir..."
+msgstr "Open..."
+
+#: userland/programas/traductor.c:780
+msgid "Nuevo desde plantilla (.pot)..."
+msgstr "New from template (.pot)..."
+
+#: userland/programas/traductor.c:781
+msgid "Guardar"
+msgstr "Save"
+
+#: userland/programas/traductor.c:781
+msgid "Guardar como..."
+msgstr "Save as..."
+
+#: userland/programas/traductor.c:781
+msgid "Salir"
+msgstr "Quit"
+
+#: userland/programas/traductor.c:782
+msgid "Actualizar desde el .pot..."
+msgstr "Update from the .pot..."
+
+#: userland/programas/traductor.c:783
+msgid "Generar catálogo (.cat)"
+msgstr "Build catalog (.cat)"
+
+#: userland/programas/traductor.c:783
+msgid "Validar todo"
+msgstr "Validate all"
+
+#: userland/programas/traductor.c:785 userland/programas/traductor.c:840
+msgid "Siguiente sin traducir"
+msgstr "Next untranslated"
+
+#: userland/programas/traductor.c:785
+msgid "Copiar el original"
+msgstr "Copy the source"
+
+#: userland/programas/traductor.c:785
+msgid "Sugerencias de la memoria"
+msgstr "Memory suggestions"
+
+#: userland/programas/traductor.c:785
+msgid "Sugerencia de la IA"
+msgstr "AI suggestion"
+
+#: userland/programas/traductor.c:786
+msgid "Archivo"
+msgstr "File"
+
+#: userland/programas/traductor.c:787
+msgid "Catálogo"
+msgstr "Catalog"
+
+#: userland/programas/traductor.c:788
+msgid "Cadena"
+msgstr "String"
+
+#: userland/programas/traductor.c:837
+msgid "Copiar original"
+msgstr "Copy source"
+
+#: userland/programas/traductor.c:838
+msgid "Memoria"
+msgstr "Memory"
+
+#: userland/programas/traductor.c:839
+msgid "Sugerir con IA"
+msgstr "Suggest with AI"
+

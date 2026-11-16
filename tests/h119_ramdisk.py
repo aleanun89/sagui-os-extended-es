@@ -123,6 +123,7 @@ def main():
         if g:
             verificar(int(g[-1][1]) == entradas, f"el kernel ve las mismas entradas ({g[-1][1]})")
         # el terminal que abre el kernel al arrancar
+        m.esperar_serial("[SAGUI] terminal:", 30)   # sale poco después de «area de trabalho no ar»: con KVM se leía antes
         t = re.findall(r"\[SAGUI\] terminal: (-?\d+)", m.serial())
         verificar(bool(t) and int(t[-1]) > 0, f"el kernel abre el terminal al arrancar (pid {t[-1] if t else '?'})")
 

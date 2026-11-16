@@ -1,0 +1,258 @@
+# Traducción de SaguiOS: catálogo «convertir-audio», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/convertir-audio.c:183 userland/programas/convertir-audio.c:322 userland/programas/convertir-audio.c:557
+#, c-format
+msgid "%s: %s"
+msgstr "%s: %s"
+
+#: userland/programas/convertir-audio.c:200
+msgid "Esta versión no incluye el codificador MP3"
+msgstr "This version does not include the MP3 encoder"
+
+#: userland/programas/convertir-audio.c:214
+#, c-format
+msgid "No se puede crear %s"
+msgstr "Cannot create %s"
+
+#: userland/programas/convertir-audio.c:244
+msgid "No se pudo iniciar el codificador"
+msgstr "Could not start the encoder"
+
+#: userland/programas/convertir-audio.c:345 userland/programas/convertir-audio.c:357
+msgid "Error al escribir el archivo (¿disco lleno?)"
+msgstr "Error writing the file (disk full?)"
+
+#: userland/programas/convertir-audio.c:382
+msgid "Uso: convertir-audio ENTRADA... SALIDA [opciones]\n"
+msgstr "Usage: convertir-audio INPUT... OUTPUT [options]\n"
+
+#: userland/programas/convertir-audio.c:383
+msgid "  SALIDA con extensión .mp3, .flac o .wav (con varias entradas, una carpeta y --formato).\n"
+msgstr "  OUTPUT with extension .mp3, .flac or .wav (with several inputs, a folder and --formato).\n"
+
+#: userland/programas/convertir-audio.c:384
+msgid "  --kbps N      MP3: tasa de bits constante, 64 a 320 (por omisión, 128)\n"
+msgstr "  --kbps N      MP3: constant bit rate, 64 to 320 (default 128)\n"
+
+#: userland/programas/convertir-audio.c:385
+msgid "  --nivel N     FLAC: nivel de compresión, 0 a 8 (por omisión, 5)\n"
+msgstr "  --nivel N     FLAC: compression level, 0 to 8 (default 5)\n"
+
+#: userland/programas/convertir-audio.c:386
+msgid "  --taxa HZ     frecuencia de salida: 44100, 22050 u 11025 (por omisión, la del original)\n"
+msgstr "  --taxa HZ     output sample rate: 44100, 22050 or 11025 (default: the original's)\n"
+
+#: userland/programas/convertir-audio.c:387
+msgid "  --canales N   1 (mono) o 2 (estéreo) (por omisión, los del original)\n"
+msgstr "  --canales N   1 (mono) or 2 (stereo) (default: the original's)\n"
+
+#: userland/programas/convertir-audio.c:388
+msgid "  --bits N      WAV: 8 o 16 (por omisión, 16)\n"
+msgstr "  --bits N      WAV: 8 or 16 (default 16)\n"
+
+#: userland/programas/convertir-audio.c:389
+msgid "  --formato F   mp3, flac o wav, si SALIDA es una carpeta\n"
+msgstr "  --formato F   mp3, flac or wav, if OUTPUT is a folder\n"
+
+#: userland/programas/convertir-audio.c:390
+msgid "  -y            sobrescribe sin preguntar\n"
+msgstr "  -y            overwrite without asking\n"
+
+#: userland/programas/convertir-audio.c:391
+msgid "Sin nombres abre la ventana del Conversor de audio.\n"
+msgstr "With no names it opens the Audio converter window.\n"
+
+#: userland/programas/convertir-audio.c:423
+#, c-format
+msgid "%s -> %s (%s): %u ms de audio en %u ms\n"
+msgstr "%s -> %s (%s): %u ms of audio in %u ms\n"
+
+#: userland/programas/convertir-audio.c:500
+msgid "Añadir archivo..."
+msgstr "Add file..."
+
+#: userland/programas/convertir-audio.c:501
+msgid "Añadir carpeta..."
+msgstr "Add folder..."
+
+#: userland/programas/convertir-audio.c:502
+msgid "Quitar"
+msgstr "Remove"
+
+#: userland/programas/convertir-audio.c:503
+msgid "Vaciar"
+msgstr "Clear"
+
+#: userland/programas/convertir-audio.c:505
+msgid "Examinar..."
+msgstr "Browse..."
+
+#: userland/programas/convertir-audio.c:506
+msgid "Convertir"
+msgstr "Convert"
+
+#: userland/programas/convertir-audio.c:507
+msgid "Cancelar"
+msgstr "Cancel"
+
+#: userland/programas/convertir-audio.c:552
+msgid "Lista llena"
+msgstr "List full"
+
+#: userland/programas/convertir-audio.c:589
+#, c-format
+msgid "No hay archivos de sonido en %s"
+msgstr "No sound files in %s"
+
+#: userland/programas/convertir-audio.c:622
+msgid "Tasa (kbps):"
+msgstr "Bit rate (kbps):"
+
+#: userland/programas/convertir-audio.c:622
+msgid "Compresión:"
+msgstr "Compression:"
+
+#: userland/programas/convertir-audio.c:622
+msgid "Calidad:"
+msgstr "Quality:"
+
+#: userland/programas/convertir-audio.c:647
+msgid "Añade los archivos de sonido que quieres convertir."
+msgstr "Add the sound files you want to convert."
+
+#: userland/programas/convertir-audio.c:650
+msgid "Formato:"
+msgstr "Format:"
+
+#: userland/programas/convertir-audio.c:654
+msgid "Frecuencia:"
+msgstr "Sample rate:"
+
+#: userland/programas/convertir-audio.c:656
+msgid "Canales:"
+msgstr "Channels:"
+
+#: userland/programas/convertir-audio.c:659
+msgid "Destino:"
+msgstr "Destination:"
+
+#: userland/programas/convertir-audio.c:668
+msgid "Archivo actual"
+msgstr "Current file"
+
+#: userland/programas/convertir-audio.c:668
+msgid "Archivo"
+msgstr "File"
+
+#: userland/programas/convertir-audio.c:669
+msgid "Total"
+msgstr "Total"
+
+#: userland/programas/convertir-audio.c:677
+msgid "MP3 a 11,025 kHz es MPEG-2.5: muchos reproductores no lo leen"
+msgstr "MP3 at 11.025 kHz is MPEG-2.5: many players cannot read it"
+
+#: userland/programas/convertir-audio.c:678
+msgid "A esa frecuencia el MP3 admite como mucho 160 kbps"
+msgstr "At that sample rate MP3 allows 160 kbps at most"
+
+#: userland/programas/convertir-audio.c:679
+#, c-format
+msgid "%d archivos en la lista"
+msgstr "%d files in the list"
+
+#: userland/programas/convertir-audio.c:701
+#, c-format
+msgid "Cancelado: %d convertidos"
+msgstr "Cancelled: %d converted"
+
+#: userland/programas/convertir-audio.c:702
+#, c-format
+msgid "Hecho: %d convertidos, %d con error, %d omitidos"
+msgstr "Done: %d converted, %d with errors, %d skipped"
+
+#: userland/programas/convertir-audio.c:703
+#, c-format
+msgid "Hecho: %d archivos convertidos en %u s"
+msgstr "Done: %d files converted in %u s"
+
+#: userland/programas/convertir-audio.c:717
+#, c-format
+msgid "%s: el destino es el propio archivo de origen"
+msgstr "%s: the destination is the source file itself"
+
+#: userland/programas/convertir-audio.c:742
+msgid "No hay archivos que convertir"
+msgstr "No files to convert"
+
+#: userland/programas/convertir-audio.c:743
+msgid "Elige la carpeta de destino"
+msgstr "Choose the destination folder"
+
+#: userland/programas/convertir-audio.c:746 userland/programas/convertir-audio.c:857
+msgid "Carpeta de destino"
+msgstr "Destination folder"
+
+#: userland/programas/convertir-audio.c:746
+msgid "La carpeta de destino no existe. ¿Crearla?"
+msgstr "The destination folder does not exist. Create it?"
+
+#: userland/programas/convertir-audio.c:747
+msgid "No se puede usar esa carpeta de destino"
+msgstr "That destination folder cannot be used"
+
+#: userland/programas/convertir-audio.c:761
+#, c-format
+msgid ""
+"Ya existe %d archivo en el destino.\n"
+"¿Sobrescribirlo? (No: se omite)"
+msgstr "%d file already exists in the destination.\nOverwrite it? (No: it is skipped)"
+
+#: userland/programas/convertir-audio.c:761
+#, c-format
+msgid ""
+"Ya existen %d archivos en el destino.\n"
+"¿Sobrescribirlos? (No: se omiten)"
+msgstr "%d files already exist in the destination.\nOverwrite them? (No: they are skipped)"
+
+#: userland/programas/convertir-audio.c:762
+msgid "El destino existe"
+msgstr "The destination exists"
+
+#: userland/programas/convertir-audio.c:820
+msgid "Añadir archivo de sonido"
+msgstr "Add sound file"
+
+#: userland/programas/convertir-audio.c:827
+msgid "Añadir carpeta"
+msgstr "Add folder"
+
+#: userland/programas/convertir-audio.c:875
+msgid "Conversor de audio"
+msgstr "Audio converter"
+
+#: userland/programas/convertir-audio.c:880 userland/programas/convertir-audio.c:881
+msgid "Original"
+msgstr "Original"
+
+#: userland/programas/convertir-audio.c:881
+msgid "Mono"
+msgstr "Mono"
+
+#: userland/programas/convertir-audio.c:881
+msgid "Estéreo"
+msgstr "Stereo"
+
+#: userland/programas/convertir-audio.c:900
+#, c-format
+msgid "%s: no existe"
+msgstr "%s: does not exist"
+

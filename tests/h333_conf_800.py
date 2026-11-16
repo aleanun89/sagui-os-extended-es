@@ -3,7 +3,7 @@
 """Configuración cabe entera a 800x600 y sigue bien a 1024x768 (issue #43).
 
 Arranca con --resolucao 800x600 y con 1024x768, abre la ventana, comprueba que cabe en la pantalla y
-captura la pestaña Mandos (la última) y Pantalla > Aceleración gráfica (las filas largas de botones).
+captura la pestaña Mandos (la penúltima; la última es Usuarios, D340) y Pantalla > Aceleración gráfica (las filas largas de botones).
 """
 import os
 import re
@@ -15,16 +15,16 @@ from qemu import Maquina, verificar, imagem_de_teste  # noqa: E402
 
 BORDA, TITULO, LARG, Y_PAG = 2, 24, 788, 50
 TITULOS = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
-           "Escritorio remoto", "Mandos")
+           "Escritorio remoto", "Mandos", "Usuarios")
 
 
 def pestana(nombre):
     """Centro de la pestaña, con el mismo reparto que traducir_rotulos() de configuracion.c."""
     suma = sum(len(t) * 8 for t in TITULOS)
     relleno = 10
-    while relleno > 2 and 10 + suma + len(TITULOS) * (relleno + 1) > LARG - 4:
+    while relleno > 1 and 10 + suma + len(TITULOS) * (relleno + 1) > LARG - 4:
         relleno -= 1
-    x = 10
+    x = 4 if 10 + suma + len(TITULOS) * (relleno + 1) > LARG - 4 else 10   # D340: con Usuarios
     for t in TITULOS:
         l = len(t) * 8 + relleno
         if t == nombre:

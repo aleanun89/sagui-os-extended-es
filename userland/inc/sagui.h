@@ -70,6 +70,11 @@ int  permisos_arquivo(const char *caminho, info_permisos_t *p);
 int  mudar_permisos(const char *caminho, unsigned modo);          /* chmod: el dueño o root */
 int  mudar_dono(const char *caminho, int uid, int gid);       /* chown/chgrp: -1 = no cambia */
 int  mascara_criacao(int nova);                               /* umask: -1 = solo consultar; devuelve la anterior */
+/* D341: fija las fechas (UTC). PARQ_DATA_AGORA = ahora; PARQ_DATA_MANTER = no cambia. Una fecha
+ * concreta: el dueño o root; «ahora»: basta poder escribir. */
+int  fixar_datas(const char *caminho, unsigned modificado, unsigned acessado);
+int  fixar_datas_fd(int fd, unsigned modificado, unsigned acessado);   /* el archivo abierto */
+
 void texto_modo(unsigned modo, char saida[10]);               /* "rwxr-xr-x" */
 /* ---- carpetas ---- */
 int  criar_pasta(const char *caminho);

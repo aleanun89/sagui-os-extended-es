@@ -47,6 +47,7 @@
 #include "tls.h"
 #include "audio_formato.h"
 #include "sintonia_logica.h"
+#include "instancia_unica.h"
 
 #define LARG_INICIO 520
 #define LARG_MIN    500
@@ -1788,6 +1789,30 @@ static void tratar_menu(const evento_t *e)
     dibujar_todo();
 }
 
+/* D339: rutas que entrega otro proceso (aviso del CD, doble clic en Archivos) con Sintonía ya abierta: se reutiliza
+ * la pista si ya está en la lista (o se añade) y suena; abrir_pista cierra antes el flujo de la que sonaba, así
+ * nunca hay dos pistas a la vez. */
+static bool recoger_pedidos(void)
+{
+    static char buf[2048];
+    int n = iu_recoger("sintonia", buf, sizeof buf);
+    if (n <= 0) return false;
+    int primera = -1;
+    const char *r = buf;
+    for (int k = 0; k < n; k++, r += tam_texto(r) + 1) {
+        int ya = -1;
+        for (int i = 0; i < qtd; i++) if (compara_texto(pistas[i].ruta, r) == 0) { ya = i; break; }
+        int antes = qtd;
+        if (ya < 0) anadir_ruta(r);
+        if (primera < 0) primera = ya >= 0 ? ya : (qtd > antes ? antes : -1);
+    }
+    filtrar();
+    registrar("sintonia: pedido de otro proceso (%d rutas), pista %d\n", n, primera + 1);
+    if (primera >= 0 && abrir_pista(primera, true)) mostrar_pista(primera);
+    dibujar_todo();
+    return true;
+}
+
 static void tecla(unsigned t, unsigned mod)
 {
     if (busca.foco && ver_lista && !mini) {
@@ -1960,6 +1985,10 @@ static bool tratar(evento_t *e)
 
 int principal(int argc, char **argv)
 {
+    if (iu_entregar("sintonia", argc - 1, argv + 1)) {   /* D339: ya hay una Sintonía: se lo pasa y no abre otro flujo */
+        registrar("sintonia: entregado a la instancia viva\n");
+        return 0;
+    }
     asegurar_conf();
     cargar_tema();
     ver_lista = tema.lista;
@@ -1970,6 +1999,7 @@ int principal(int argc, char **argv)
     memset(&busca, 0, sizeof busca);
     j = jan_abrir(mini ? "Sintonía (mini)" : "Sintonía", mini ? LARG_MINI : LARG_INICIO, mini ? ALT_MINI : alt_normal());
     if (!j) return 1;
+    iu_registrar("sintonia");
     estilo_ventana();
     calcular_layout();
     eq_cargar();
@@ -1992,11 +2022,12 @@ int principal(int argc, char **argv)
     uint32_t rad_est_vis = 99;
     while (continuar) {
         bool animado = estado == TOCANDO || !vis_en_reposo() || hay_meta_pendiente();
-        if (esperar_evento(j->id, &e, animado ? 15 : -1) == 1) {
+        if (esperar_evento(j->id, &e, animado ? 15 : IU_PERIODO_MS) == 1) {
             continuar = tratar(&e);
             while (continuar && proximo_evento(j->id, &e, false) == 1) continuar = tratar(&e);
         }
         if (!continuar) break;
+        recoger_pedidos();
         uint32_t ahora = tempo_ms();
         if (estado == TOCANDO && modo_radio && t_tick) radio_ms += ahora - t_tick;
         t_tick = ahora;
@@ -2024,6 +2055,7 @@ int principal(int argc, char **argv)
         }
     }
     registrar("sintonia: cerrado\n");
+    iu_liberar("sintonia");
     guardar_estado();
     cerrar_pista();
     jan_fechar(j);

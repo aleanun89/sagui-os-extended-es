@@ -97,6 +97,10 @@ typedef void (*fs_progresso_t)(int por_cento, void *ctx);
 int  fs_formatar_fat32(const char *volume, const char *rotulo, fs_progresso_t p, void *ctx, char *erro, int max);
 int  fs_formatar_exfat(const char *volume, const char *rotulo, fs_progresso_t p, void *ctx, char *erro, int max);   /* D325 */
 int  fs_formatar_ext2(const char *volume, const char *rotulo, fs_progresso_t p, void *ctx, char *erro, int max);
+/* D338: poner a cero [lba, lba+n) de un volumen sin reescribir lo que ya es cero (lee antes, salvo
+ * en un disco con TRIM o si lo que va leyendo casi nunca es cero). "z" a cero la primera vez. */
+typedef struct { bool decidido, so_escrever; uint32_t lidos, sujos, escritos; } fs_zerar_t;
+int  fs_zerar(const char *volume, uint32_t lba, uint32_t n, fs_zerar_t *z);
 /* Después de cambiar el tamaño de la partición: un FAT32 crece hasta donde le da la FAT; si no
  * se puede, se dice por qué. Encoger un sistema de archivos no se hace (D179). */
 int  fs_crescer_fat32(const char *volume, char *msg, int max);

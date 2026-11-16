@@ -923,7 +923,10 @@ static quadro_t *ao_irq(quadro_t *q)
     if (!p->atender()) {
         /* Linha compartilhada com algo que ninguém atende: se virar uma
          * tempestade, desiste da IRQ e fica só na sondagem. */
-        if (++irq_alheias > 5000 && usa_irq) {
+        /* D338: la que reconoció otro atendedor de la línea (el xHCI, el sonido) no cuenta: con un
+         * pendrive en un xHCI que comparte la IRQ, 5000 órdenes USB dejaban la línea enmascarada
+         * y el USB sin interrupciones. */
+        if (!irq_atendida_por_outro() && ++irq_alheias > 5000 && usa_irq) {
             irq_desabilitar((uint8_t)p->irq);
             usa_irq = false;
             klog("[REDE] IRQ %d sem causa da placa: passando a sondagem\n", p->irq);

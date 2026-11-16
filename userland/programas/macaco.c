@@ -39,8 +39,11 @@
 
 /* ------------------------------------------------------------ constantes */
 
-#define MAC_MAX_LINHAS   1000   /* filas por hoja */
-#define MAC_MAX_COLUNAS  100    /* columnas por hoja */
+#define MAC_MAX_LINHAS   65536  /* filas por hoja (como Excel 97) */
+#define MAC_MAX_COLUNAS  256    /* columnas por hoja (A..IV) */
+#define PAG_L            16     /* filas de una página de celdas (la hoja es dispersa) */
+#define PAG_C            16     /* columnas de una página */
+#define MAC_NBANDAS      (MAC_MAX_LINHAS / PAG_L)
 #define MAC_MAX_FOLHAS   8      /* hojas por libro */
 #define MAC_NOME_FOLHA   24     /* caracteres del nombre de una hoja */
 #define MAC_TEXTO_CEL    256    /* caracteres del contenido de una celda */
@@ -57,14 +60,25 @@
 /* ----geometría de la ventana ---- */
 #define MENU_A         20    /* barra de menús */
 #define FERR_A         28    /* cada barra de herramientas */
-#define MAC_BARRA      (MENU_A + 2 * FERR_A)   /* menús + barras Estándar y Formato */
+#define MAC_BARRA      macaco_barra_a()   /* menús + barras Estándar y Formato, o la cinta (D334) */
+static int  macaco_barra_a(void);
+static void macaco_cinta_layout(void);
+static bool macaco_cinta_desenhar(void);
+static bool macaco_cinta_evento(const evento_t *e);
+static void macaco_cinta_args(int *argc, char **argv);
+static void macaco_cinta_iniciar(void);
+static void macaco_cinta_alternar(void);
 #define MAC_FORMULA    24    /* barra de fórmulas */
 #define MAC_CABECALH   18    /* cabecera de las columnas */
 #define ESTADO_A       22    /* barra de estado */
 #define MAC_RODAPE     (22 + ESTADO_A)   /* pestañas de hojas + barra de estado */
-#define MAC_LARGC      40    /* ancho de la franja de los números de fila */
-#define MAC_ALTLINHA   20    /* alto de una fila */
-#define MAC_LARGCOL    72    /* ancho de una columna, por omisión */
+/* Tamaños por omisión en proporción a la fuente del sistema (8x16), como Excel (8,43 caracteres de
+ * ancho, fuente + 25 % de alto) y Calc: 8 caracteres + relleno y la altura del texto + 4. */
+#define MAC_LARGCOL    (8 * LETRA_L + 8)   /* ancho de una columna, por omisión (72) */
+#define MAC_ALTLINHA   (LETRA_A + 4)       /* alto de una fila, por omisión (20) */
+#define MAC_LARGC_MIN  40    /* ancho mínimo de la franja de los números de fila (4 cifras) */
+static int larg_cab = MAC_LARGC_MIN;
+#define MAC_LARGC      larg_cab   /* crece a 5 cifras pasada la fila 9999 */
 
 /* ----tipos de gráfico ---- */
 #define GRAF_BARRAS      0   /* barras verticales */
@@ -108,11 +122,24 @@ typedef struct {
     char   *texto;      /* el contenido: literal o fórmula (NULL si vacía) */
 } celula_t;
 
+/* Altura propia de una fila (la hoja guarda solo las filas que no tienen la altura por omisión). */
+typedef struct { int l; uint16_t alt; uint8_t oculta; } linha_prop_t;
+/* Un rango de celdas combinadas. */
+typedef struct { int l1, c1, l2, c2; } fusao_t;
+
+/* La hoja es dispersa: las celdas viven en páginas de PAG_L x PAG_C que solo se reservan al escribir
+ * en ellas. bandas[l / PAG_L] apunta a MAC_MAX_COLUNAS / PAG_C páginas; una hoja casi vacía ocupa
+ * un puñado de kilobytes, no el tamaño teórico. */
 typedef struct {
     char      nome[MAC_NOME_FOLHA];
-    int       linhas, colunas;         /* dimensiones usadas */
-    celula_t *celulas;                 /* linhas * colunas */
+    int       linhas, colunas;         /* extensión usada (última fila y columna tocadas + 1) */
+    celula_t ***bandas;                /* MAC_NBANDAS punteros (se reserva al primer uso) */
+    int       paginas;                 /* páginas reservadas (para medir la memoria) */
     int       larg_col[MAC_MAX_COLUNAS];
+    uint8_t   col_oculta[MAC_MAX_COLUNAS];
+    linha_prop_t *lp;  int n_lp, cap_lp;   /* alturas y filas ocultas, ordenadas por fila */
+    fusao_t  *fu;      int n_fu, cap_fu;   /* celdas combinadas */
+    int       cong_l, cong_c;          /* filas y columnas inmovilizadas */
 } folha_t;
 
 typedef struct {
@@ -147,6 +174,9 @@ typedef struct {
     bool  erro;
 } ps_t;
 
+/* Una celda de la copia de seguridad de una hoja (solo se copian las que no están vacías). */
+typedef struct { int l, c; celula_t ce; } snap_cel_t;
+
 /* Un paso del deshacer. */
 typedef struct {
     int      tipo;      /* 0 = una celda, 1 = la hoja entera */
@@ -154,8 +184,13 @@ typedef struct {
     int      l, c;
     char    *antigo;    /* el contenido anterior de la celda */
     int      linhas, colunas;
-    celula_t *copia;    /* copia de la hoja (paso estructural) */
+    snap_cel_t *copia;  /* copia de la hoja (paso estructural): solo las celdas con algo */
+    int      n_copia;
     int      larg_col[MAC_MAX_COLUNAS];
+    uint8_t  col_oculta[MAC_MAX_COLUNAS];
+    linha_prop_t *lp;  int n_lp;
+    fusao_t  *fu;      int n_fu;
+    int      cong_l, cong_c;
 } undo_t;
 
 /* El área de transferencia (del programa, no la del sistema: aquí se copian
@@ -400,10 +435,121 @@ static void formatar_numero(char *dst, int max, int32_t cent)
 
 static folha_t *folha_ativa(void) { return &livro.folha[livro.ativa]; }
 
+static celula_t celula_vazia_estatica;   /* para leer sin reservar nada (no se escribe nunca) */
+
+static bool celula_cheia(const celula_t *ce) { return ce->texto || ce->fmt || ce->flags || ce->valor; }
+
+/* La celda (l, c) si su página existe; NULL si no (una celda sin página está vacía). */
 static celula_t *celula_de(folha_t *fo, int l, int c)
 {
-    if (!fo || l < 0 || l >= fo->linhas || c < 0 || c >= fo->colunas) return NULL;
-    return &fo->celulas[(size_t)l * fo->colunas + c];
+    if (!fo || !fo->bandas || l < 0 || l >= MAC_MAX_LINHAS || c < 0 || c >= MAC_MAX_COLUNAS) return NULL;
+    celula_t **b = fo->bandas[l / PAG_L];
+    if (!b) return NULL;
+    celula_t *pg = b[c / PAG_C];
+    if (!pg) return NULL;
+    return &pg[(l % PAG_L) * PAG_C + (c % PAG_C)];
+}
+
+/* Para leer: nunca devuelve NULL (una celda inexistente es una celda vacía). */
+static celula_t *celula_ler(folha_t *fo, int l, int c)
+{
+    celula_t *ce = celula_de(fo, l, c);
+    return ce ? ce : &celula_vazia_estatica;
+}
+
+/* Para escribir: reserva la página si hace falta y sube la extensión usada. */
+static celula_t *celula_obter(folha_t *fo, int l, int c)
+{
+    if (!fo || l < 0 || l >= MAC_MAX_LINHAS || c < 0 || c >= MAC_MAX_COLUNAS) return NULL;
+    if (!fo->bandas) {
+        fo->bandas = aloca_zerado((size_t)MAC_NBANDAS * sizeof(celula_t **));
+        if (!fo->bandas) return NULL;
+    }
+    celula_t **b = fo->bandas[l / PAG_L];
+    if (!b) {
+        b = aloca_zerado((size_t)(MAC_MAX_COLUNAS / PAG_C) * sizeof(celula_t *));
+        if (!b) return NULL;
+        fo->bandas[l / PAG_L] = b;
+    }
+    celula_t *pg = b[c / PAG_C];
+    if (!pg) {
+        pg = aloca_zerado((size_t)PAG_L * PAG_C * sizeof(celula_t));
+        if (!pg) return NULL;
+        b[c / PAG_C] = pg;
+        fo->paginas++;
+    }
+    if (l + 1 > fo->linhas) fo->linhas = l + 1;
+    if (c + 1 > fo->colunas) fo->colunas = c + 1;
+    return &pg[(l % PAG_L) * PAG_C + (c % PAG_C)];
+}
+
+/* Recorre en orden de filas las celdas con algo: empieza con *l = 0, *c = -1; devuelve false al acabar.
+ * Salta las bandas y las páginas que no existen, así que cuesta lo que ocupa la hoja. */
+static bool it_proximo(folha_t *fo, int *l, int *c, celula_t **ce)
+{
+    if (!fo->bandas) return false;
+    (*c)++;
+    while (*l < MAC_MAX_LINHAS) {
+        if (*c >= MAC_MAX_COLUNAS) { *c = 0; (*l)++; continue; }
+        celula_t **b = fo->bandas[*l / PAG_L];
+        if (!b) { *l = (*l / PAG_L + 1) * PAG_L; *c = 0; continue; }
+        celula_t *pg = b[*c / PAG_C];
+        if (!pg) { *c = (*c / PAG_C + 1) * PAG_C; continue; }
+        celula_t *x = &pg[(*l % PAG_L) * PAG_C + (*c % PAG_C)];
+        if (celula_cheia(x)) { *ce = x; return true; }
+        (*c)++;
+    }
+    return false;
+}
+
+/* Última fila y columna con contenido (o formato) de verdad; -1 si la hoja está vacía. */
+static void folha_extremos(folha_t *fo, int *ul, int *uc, bool so_texto)
+{
+    *ul = *uc = -1;
+    int l = 0, c = -1;
+    celula_t *ce;
+    while (it_proximo(fo, &l, &c, &ce)) {
+        if (so_texto && !ce->texto) continue;
+        if (l > *ul) *ul = l;
+        if (c > *uc) *uc = c;
+    }
+}
+
+/* Suelta las páginas de celdas (y los textos que quedan en ellas). */
+static void folha_paginas_liberar(folha_t *fo)
+{
+    if (fo->bandas) {
+        for (int i = 0; i < MAC_NBANDAS; i++) {
+            celula_t **b = fo->bandas[i];
+            if (!b) continue;
+            for (int k = 0; k < MAC_MAX_COLUNAS / PAG_C; k++) {
+                if (!b[k]) continue;
+                for (int j = 0; j < PAG_L * PAG_C; j++)
+                    if (b[k][j].texto) libera(b[k][j].texto);
+                libera(b[k]);
+            }
+            libera(b);
+        }
+        libera(fo->bandas);
+    }
+    fo->bandas = NULL;
+    fo->paginas = 0;
+}
+
+/* Suelta todas las celdas, las filas con altura propia y las combinaciones. */
+static void folha_liberar(folha_t *fo)
+{
+    folha_paginas_liberar(fo);
+    if (fo->lp) libera(fo->lp);
+    if (fo->fu) libera(fo->fu);
+    fo->lp = NULL; fo->fu = NULL;
+    fo->n_lp = fo->cap_lp = fo->n_fu = fo->cap_fu = 0;
+}
+
+/* Vacía las celdas de una hoja sin tocar su nombre ni los anchos. */
+static void folha_larguras_padrao(folha_t *fo)
+{
+    for (int c = 0; c < MAC_MAX_COLUNAS; c++) { fo->larg_col[c] = MAC_LARGCOL; fo->col_oculta[c] = 0; }
 }
 
 static int procurar_folha(const char *nome)
@@ -422,53 +568,19 @@ static int procurar_folha(const char *nome)
     return -1;
 }
 
-/* Redimensiona la hoja, conservando el contenido. Sirve para crecer y para
- * cambiar el número de columnas (que cambia el paso de las filas). */
-static bool folha_redimensionar(folha_t *fo, int linhas, int colunas)
-{
-    if (linhas < 1) linhas = 1;
-    if (colunas < 1) colunas = 1;
-    if (linhas > MAC_MAX_LINHAS) linhas = MAC_MAX_LINHAS;
-    if (colunas > MAC_MAX_COLUNAS) colunas = MAC_MAX_COLUNAS;
-    if (linhas == fo->linhas && colunas == fo->colunas) return true;
-    celula_t *novo = aloca_zerado((size_t)linhas * colunas * sizeof(celula_t));
-    if (!novo) return false;
-    int copiar_l = (fo->linhas < linhas) ? fo->linhas : linhas;
-    int copiar_c = (fo->colunas < colunas) ? fo->colunas : colunas;
-    for (int l = 0; l < copiar_l; l++)
-        for (int c = 0; c < copiar_c; c++) {
-            celula_t *d = &novo[(size_t)l * colunas + c];
-            celula_t *o = &fo->celulas[(size_t)l * fo->colunas + c];
-            *d = *o;
-            d->flags &= (uint8_t)~CEL_CALC;
-        }
-    /* Las celdas que quedan fuera sueltan su texto. */
-    for (int l = 0; l < fo->linhas; l++)
-        for (int c = 0; c < fo->colunas; c++) {
-            bool fica = (l < copiar_l && c < copiar_c);
-            if (!fica) {
-                celula_t *o = &fo->celulas[(size_t)l * fo->colunas + c];
-                if (o->texto) { libera(o->texto); o->texto = NULL; }
-            }
-        }
-    libera(fo->celulas);
-    fo->celulas = novo;
-    fo->linhas = linhas;
-    for (int c = fo->colunas; c < colunas; c++)      /* D311: las columnas nuevas salían de ancho cero */
-        if (fo->larg_col[c] < 16) fo->larg_col[c] = MAC_LARGCOL;
-    fo->colunas = colunas;
-    return true;
-}
-
 /* Pone el contenido de una celda (texto, número o fórmula); los valores se
  * recalculan después. */
 static bool celula_definir(folha_t *fo, int l, int c, const char *conteudo)
 {
     if (l < 0 || l >= MAC_MAX_LINHAS || c < 0 || c >= MAC_MAX_COLUNAS) return false;
-    if (!folha_redimensionar(fo, (l + 1 > fo->linhas) ? l + 1 : fo->linhas,
-                             (c + 1 > fo->colunas) ? c + 1 : fo->colunas)) return false;
     celula_t *ce = celula_de(fo, l, c);
+    if (!ce) {
+        if (!conteudo || !conteudo[0]) return true;      /* escribir «nada» en una celda sin página no cambia nada */
+        ce = celula_obter(fo, l, c);
+    }
     if (!ce) return false;
+    if (l + 1 > fo->linhas) fo->linhas = l + 1;
+    if (c + 1 > fo->colunas) fo->colunas = c + 1;
     char *novo = NULL;
     int32_t v = 0;
     uint8_t flags = 0;
@@ -490,16 +602,137 @@ static bool celula_definir(folha_t *fo, int l, int c, const char *conteudo)
     return true;
 }
 
+/* La primera aparición de «agulha» en «palheiro», o NULL. */
+static const char *acha_texto(const char *palheiro, const char *agulha)
+{
+    int n = (int)tam_texto(agulha);
+    for (; *palheiro; palheiro++)
+        if (memcmp(palheiro, agulha, (size_t)n) == 0) return palheiro;
+    return NULL;
+}
+
+/* ---- celdas combinadas ---- */
+
+/* El rango combinado que contiene la celda (l, c), o NULL. */
+static fusao_t *fusao_em(folha_t *fo, int l, int c)
+{
+    for (int i = 0; i < fo->n_fu; i++)
+        if (l >= fo->fu[i].l1 && l <= fo->fu[i].l2 && c >= fo->fu[i].c1 && c <= fo->fu[i].c2) return &fo->fu[i];
+    return NULL;
+}
+
+static void fusao_remover(folha_t *fo, int i)
+{
+    for (int q = i; q + 1 < fo->n_fu; q++) fo->fu[q] = fo->fu[q + 1];
+    fo->n_fu--;
+}
+
+/* Combina el rango (quita las combinaciones que se le cruzan). Un rango de una sola celda no combina nada. */
+static bool fusao_juntar(folha_t *fo, int l1, int c1, int l2, int c2)
+{
+    if (l1 > l2) { int t = l1; l1 = l2; l2 = t; }
+    if (c1 > c2) { int t = c1; c1 = c2; c2 = t; }
+    if (l1 < 0 || c1 < 0 || l2 >= MAC_MAX_LINHAS || c2 >= MAC_MAX_COLUNAS) return false;
+    if (l1 == l2 && c1 == c2) return false;
+    for (int i = 0; i < fo->n_fu;) {
+        fusao_t *u = &fo->fu[i];
+        if (u->l1 <= l2 && u->l2 >= l1 && u->c1 <= c2 && u->c2 >= c1) fusao_remover(fo, i);
+        else i++;
+    }
+    if (fo->n_fu >= fo->cap_fu) {
+        int nc = fo->cap_fu ? fo->cap_fu * 2 : 8;
+        fusao_t *n = realoca(fo->fu, (size_t)nc * sizeof *n);
+        if (!n) return false;
+        fo->fu = n;
+        fo->cap_fu = nc;
+    }
+    fo->fu[fo->n_fu].l1 = l1; fo->fu[fo->n_fu].c1 = c1;
+    fo->fu[fo->n_fu].l2 = l2; fo->fu[fo->n_fu].c2 = c2;
+    fo->n_fu++;
+    if (l2 + 1 > fo->linhas) fo->linhas = l2 + 1;
+    if (c2 + 1 > fo->colunas) fo->colunas = c2 + 1;
+    return true;
+}
+
+/* ---- altura de las filas y anchura de las columnas (la hoja guarda solo lo que no es por omisión) ---- */
+
+static linha_prop_t *lp_buscar(folha_t *fo, int l)
+{
+    int a = 0, b = fo->n_lp - 1;
+    while (a <= b) {
+        int m = (a + b) / 2;
+        if (fo->lp[m].l == l) return &fo->lp[m];
+        if (fo->lp[m].l < l) a = m + 1; else b = m - 1;
+    }
+    return NULL;
+}
+
+static linha_prop_t *lp_obter(folha_t *fo, int l)
+{
+    linha_prop_t *x = lp_buscar(fo, l);
+    if (x) return x;
+    if (fo->n_lp >= fo->cap_lp) {
+        int nc = fo->cap_lp ? fo->cap_lp * 2 : 16;
+        linha_prop_t *n = realoca(fo->lp, (size_t)nc * sizeof *n);
+        if (!n) return NULL;
+        fo->lp = n;
+        fo->cap_lp = nc;
+    }
+    int i = fo->n_lp;
+    while (i > 0 && fo->lp[i - 1].l > l) { fo->lp[i] = fo->lp[i - 1]; i--; }
+    fo->lp[i].l = l; fo->lp[i].alt = 0; fo->lp[i].oculta = 0;
+    fo->n_lp++;
+    return &fo->lp[i];
+}
+
+static int linha_alt(folha_t *fo, int l)
+{
+    linha_prop_t *x = lp_buscar(fo, l);
+    if (!x) return MAC_ALTLINHA;
+    if (x->oculta) return 0;
+    return x->alt ? x->alt : MAC_ALTLINHA;
+}
+
+static int coluna_larg(folha_t *fo, int c)
+{
+    if (c < 0 || c >= MAC_MAX_COLUNAS) return MAC_LARGCOL;
+    return fo->col_oculta[c] ? 0 : fo->larg_col[c];
+}
+
+/* El desplazamiento vertical (en píxeles, desde la fila 1) del borde superior de la fila l. */
+static int off_lin(folha_t *fo, int l)
+{
+    int y = l * MAC_ALTLINHA;
+    for (int i = 0; i < fo->n_lp && fo->lp[i].l < l; i++) y += linha_alt(fo, fo->lp[i].l) - MAC_ALTLINHA;
+    return y;
+}
+
+/* La fila que contiene el desplazamiento vertical y (la última si se pasa). */
+static int linha_em_y(folha_t *fo, int y)
+{
+    int extra = 0;
+    for (int i = 0; i < fo->n_lp; i++) {
+        int h = linha_alt(fo, fo->lp[i].l);
+        int ini = fo->lp[i].l * MAC_ALTLINHA + extra;
+        if (y < ini) break;
+        if (y < ini + h) return fo->lp[i].l;
+        extra += h - MAC_ALTLINHA;
+    }
+    int l = (y - extra) / MAC_ALTLINHA;
+    if (l < 0) l = 0;
+    if (l >= MAC_MAX_LINHAS) l = MAC_MAX_LINHAS - 1;
+    return l;
+}
+
 static void folha_nova(const char *nome)
 {
     if (livro.n >= MAC_MAX_FOLHAS) return;
     folha_t *fo = &livro.folha[livro.n];
     memset(fo, 0, sizeof *fo);
     copia_texto(fo->nome, nome, sizeof fo->nome);
-    fo->linhas = 20;
-    fo->colunas = 8;
-    fo->celulas = aloca_zerado((size_t)fo->linhas * fo->colunas * sizeof(celula_t));
-    for (int c = 0; c < fo->colunas; c++) fo->larg_col[c] = MAC_LARGCOL;
+    fo->linhas = 1;
+    fo->colunas = 1;
+    folha_larguras_padrao(fo);
     livro.n++;
     livro.ativa = livro.n - 1;
 }
@@ -539,7 +772,7 @@ static bool token_celula(const char *s, int *i, int *c, bool *ac, int *l, bool *
     int ll = 0, m = 0;
     while (s[p] >= '0' && s[p] <= '9') {
         ll = ll * 10 + (s[p] - '0');
-        if (++m > 4 || ll > MAC_MAX_LINHAS) return false;
+        if (++m > 5 || ll > MAC_MAX_LINHAS) return false;
         p++;
     }
     if (m == 0 || ll < 1) return false;
@@ -760,7 +993,7 @@ static bool ler_numero_linha(const char **p, int *lin)
         v = v * 10 + (*q - '0');
         if (v > MAC_MAX_LINHAS) return false;
         q++;
-        if (++n > 4) return false;
+        if (++n > 5) return false;
     }
     if (n == 0) return false;
     *lin = v - 1;
@@ -1708,37 +1941,43 @@ static void recalcular(void)
     tc_limpar();
     for (int f = 0; f < livro.n; f++) {
         folha_t *fo = &livro.folha[f];
-        for (int l = 0; l < fo->linhas; l++)
-            for (int c = 0; c < fo->colunas; c++) {
-                celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
-                if (!(ce->flags & CEL_FORMULA)) continue;
-                ps_t ps;
-                ps.p = inicio_formula(ce->texto ? ce->texto : "");
-                ps.folha = f;
-                ps.prof = 1;
-                ps.erro = false;
-                ce->flags |= CEL_CALC;
-                res_t r = avaliar_expr(&ps);
-                ce->flags &= (uint8_t)~CEL_CALC;
-                celula_guardar_resultado(ce, &r, ps.erro);
-            }
+        int l = 0, c = -1;
+        celula_t *ce;
+        while (it_proximo(fo, &l, &c, &ce)) {
+            if (!(ce->flags & CEL_FORMULA)) continue;
+            ps_t ps;
+            ps.p = inicio_formula(ce->texto ? ce->texto : "");
+            ps.folha = f;
+            ps.prof = 1;
+            ps.erro = false;
+            ce->flags |= CEL_CALC;
+            res_t r = avaliar_expr(&ps);
+            ce->flags &= (uint8_t)~CEL_CALC;
+            celula_guardar_resultado(ce, &r, ps.erro);
+        }
     }
 }
 
 /* ------------------------------------------------------------ deshacer */
 
+/* Suelta lo que un paso del deshacer guarda de la hoja (celdas, filas, combinaciones). */
+static void undo_soltar(undo_t *u)
+{
+    if (u->antigo) { libera(u->antigo); u->antigo = NULL; }
+    if (u->copia) {
+        for (int k = 0; k < u->n_copia; k++)
+            if (u->copia[k].ce.texto) libera(u->copia[k].ce.texto);
+        libera(u->copia);
+        u->copia = NULL;
+    }
+    if (u->lp) { libera(u->lp); u->lp = NULL; }
+    if (u->fu) { libera(u->fu); u->fu = NULL; }
+    u->n_copia = u->n_lp = u->n_fu = 0;
+}
+
 static void desfazer_limpar(void)
 {
-    for (int i = 0; i < n_desfazer; i++) {
-        if (desfazer[i].antigo) { libera(desfazer[i].antigo); desfazer[i].antigo = NULL; }
-        if (desfazer[i].copia) {
-            int n = desfazer[i].linhas * desfazer[i].colunas;
-            for (int k = 0; k < n; k++)
-                if (desfazer[i].copia[k].texto) libera(desfazer[i].copia[k].texto);
-            libera(desfazer[i].copia);
-            desfazer[i].copia = NULL;
-        }
-    }
+    for (int i = 0; i < n_desfazer; i++) undo_soltar(&desfazer[i]);
     n_desfazer = 0;
 }
 
@@ -1746,13 +1985,7 @@ static void desfazer_limpar(void)
 static void desfazer_antiguo(void)
 {
     if (n_desfazer == 0) return;
-    if (desfazer[0].antigo) { libera(desfazer[0].antigo); desfazer[0].antigo = NULL; }
-    if (desfazer[0].copia) {
-        int n = desfazer[0].linhas * desfazer[0].colunas;
-        for (int k = 0; k < n; k++) if (desfazer[0].copia[k].texto) libera(desfazer[0].copia[k].texto);
-        libera(desfazer[0].copia);
-        desfazer[0].copia = NULL;
-    }
+    undo_soltar(&desfazer[0]);
     for (int i = 1; i < n_desfazer; i++) desfazer[i - 1] = desfazer[i];
     n_desfazer--;
 }
@@ -1769,7 +2002,7 @@ static void desfazer_guardar_celula(int f, int l, int c, const char *antigo)
     u->antigo = duplicar_texto(antigo);
 }
 
-/* Guarda la hoja entera, para deshacer las operaciones estructurales. */
+/* Guarda la hoja entera, para deshacer las operaciones estructurales (solo las celdas que tienen algo). */
 static void desfazer_guardar_folha(int f)
 {
     if (n_desfazer >= MAC_UNDO_MAX) desfazer_antiguo();
@@ -1780,13 +2013,30 @@ static void desfazer_guardar_folha(int f)
     u->folha = f;
     u->linhas = fo->linhas;
     u->colunas = fo->colunas;
-    for (int c = 0; c < MAC_MAX_COLUNAS; c++) u->larg_col[c] = fo->larg_col[c];
-    int n = fo->linhas * fo->colunas;
-    u->copia = aloca_zerado((size_t)(n ? n : 1) * sizeof(celula_t));
+    for (int c = 0; c < MAC_MAX_COLUNAS; c++) { u->larg_col[c] = fo->larg_col[c]; u->col_oculta[c] = fo->col_oculta[c]; }
+    u->cong_l = fo->cong_l; u->cong_c = fo->cong_c;
+    int n = 0, l = 0, c = -1;
+    celula_t *ce;
+    while (it_proximo(fo, &l, &c, &ce)) n++;
+    u->copia = aloca_zerado((size_t)(n ? n : 1) * sizeof(snap_cel_t));
     if (!u->copia) { n_desfazer--; return; }
-    for (int k = 0; k < n; k++) {
-        u->copia[k] = fo->celulas[k];
-        u->copia[k].texto = duplicar_texto(fo->celulas[k].texto);
+    int k = 0;
+    l = 0; c = -1;
+    while (it_proximo(fo, &l, &c, &ce) && k < n) {
+        u->copia[k].l = l;
+        u->copia[k].c = c;
+        u->copia[k].ce = *ce;
+        u->copia[k].ce.texto = duplicar_texto(ce->texto);
+        k++;
+    }
+    u->n_copia = k;
+    if (fo->n_lp) {
+        u->lp = aloca((size_t)fo->n_lp * sizeof(linha_prop_t));
+        if (u->lp) { memcpy(u->lp, fo->lp, (size_t)fo->n_lp * sizeof(linha_prop_t)); u->n_lp = fo->n_lp; }
+    }
+    if (fo->n_fu) {
+        u->fu = aloca((size_t)fo->n_fu * sizeof(fusao_t));
+        if (u->fu) { memcpy(u->fu, fo->fu, (size_t)fo->n_fu * sizeof(fusao_t)); u->n_fu = fo->n_fu; }
     }
 }
 
@@ -1800,16 +2050,23 @@ static bool desfazer_refazer(void)
     } else {
         folha_t *fo = &livro.folha[u->folha];
         /* Suelta el contenido actual y mete la copia. */
-        for (int k = 0; k < fo->linhas * fo->colunas; k++)
-            if (fo->celulas[k].texto) { libera(fo->celulas[k].texto); fo->celulas[k].texto = NULL; }
-        libera(fo->celulas);
+        folha_liberar(fo);
         fo->linhas = u->linhas;
         fo->colunas = u->colunas;
-        fo->celulas = u->copia;
-        u->copia = NULL;
-        for (int c = 0; c < MAC_MAX_COLUNAS; c++) fo->larg_col[c] = u->larg_col[c];
+        for (int k = 0; k < u->n_copia; k++) {
+            celula_t *d = celula_obter(fo, u->copia[k].l, u->copia[k].c);
+            if (!d) { if (u->copia[k].ce.texto) libera(u->copia[k].ce.texto); continue; }
+            *d = u->copia[k].ce;
+        }
+        u->n_copia = 0;                      /* los textos pasaron a la hoja */
+        fo->linhas = u->linhas;
+        fo->colunas = u->colunas;
+        fo->lp = u->lp; fo->n_lp = fo->cap_lp = u->n_lp; u->lp = NULL; u->n_lp = 0;
+        fo->fu = u->fu; fo->n_fu = fo->cap_fu = u->n_fu; u->fu = NULL; u->n_fu = 0;
+        fo->cong_l = u->cong_l; fo->cong_c = u->cong_c;
+        for (int c = 0; c < MAC_MAX_COLUNAS; c++) { fo->larg_col[c] = u->larg_col[c]; fo->col_oculta[c] = u->col_oculta[c]; }
     }
-    if (u->antigo) { libera(u->antigo); u->antigo = NULL; }
+    undo_soltar(u);
     return true;
 }
 
@@ -1836,10 +2093,20 @@ static void intervalo_selecionado(int *l1, int *c1, int *l2, int *c2)
     *c2 = (anc_c < cel_c) ? cel_c : anc_c;
 }
 
+/* La selección recortada a la extensión usada de la hoja cuando abarca columnas o filas enteras (como
+ * «Seleccionar todo» o clic en una cabecera): evita recorrer millones de celdas vacías. */
+static void intervalo_util(int *l1, int *c1, int *l2, int *c2)
+{
+    folha_t *fo = folha_ativa();
+    intervalo_selecionado(l1, c1, l2, c2);
+    if (*l2 - *l1 >= 1000 && *l2 >= fo->linhas) { *l2 = fo->linhas - 1; if (*l2 < *l1) *l2 = *l1; }
+    if (*c2 - *c1 >= 64 && *c2 >= fo->colunas) { *c2 = fo->colunas - 1; if (*c2 < *c1) *c2 = *c1; }
+}
+
 static void copiar_intervalo(void)
 {
     int l1, c1, l2, c2;
-    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    intervalo_util(&l1, &c1, &l2, &c2);
     folha_t *fo = folha_ativa();
     copia_limpar();
     copia.linhas = l2 - l1 + 1;
@@ -1876,7 +2143,8 @@ static void colar_intervalo(void)
                 t = ajustada;
             }
             celula_definir(fo, cel_l + l, cel_c + c, t ? t : "");
-            celula_t *nc = celula_de(fo, cel_l + l, cel_c + c);
+            celula_t *nc = (copia.fmts && copia.fmts[l * copia.colunas + c]) ? celula_obter(fo, cel_l + l, cel_c + c)
+                                                                              : celula_de(fo, cel_l + l, cel_c + c);
             if (nc && copia.fmts) nc->fmt = copia.fmts[l * copia.colunas + c];
         }
     modificado = true;
@@ -2075,7 +2343,7 @@ static void preencher_nucleo(bool vert, int f0, int f1, int s0, int s1, bool ade
             }
             uint8_t fm = orig ? orig->fmt : 0;
             celula_definir(fo, dl, dc, nuevo);
-            celula_t *dest = celula_de(fo, dl, dc);
+            celula_t *dest = fm ? celula_obter(fo, dl, dc) : celula_de(fo, dl, dc);
             if (dest) dest->fmt = fm;
         }
     }
@@ -2150,81 +2418,149 @@ static void preencher_duplo(void)
 
 /* ------------------------------------------------------------ filas y columnas */
 
-static bool linha_inserir(folha_t *fo, int l)
+/* Reescribe las referencias de una fórmula tras insertar (delta = 1) o borrar (delta = -1) la fila o la
+ * columna «pos» de la hoja «alvo»: lo que apunta a una celda borrada pasa a #REF!. */
+static void ajustar_formula_estrutura(const char *src, char *dst, int max, int folha_f, int alvo, bool linha, int pos, int delta)
 {
-    if (fo->linhas + 1 > MAC_MAX_LINHAS) return false;
-    if (!folha_redimensionar(fo, fo->linhas + 1, fo->colunas)) return false;
-    size_t passo = (size_t)fo->colunas * sizeof(celula_t);
-    memmove(&fo->celulas[(size_t)(l + 1) * fo->colunas], &fo->celulas[(size_t)l * fo->colunas],
-            (size_t)(fo->linhas - l) * passo);
-    for (int c = 0; c < fo->colunas; c++) {
-        celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
-        if (ce->texto) { libera(ce->texto); ce->texto = NULL; }
-        ce->valor = 0;
-        ce->flags = 0;
-        ce->fmt = 0;
+    reftok_t tk[48];
+    int n = refs_da_formula(src, tk, 48);
+    int k = 0, p = 0;
+    for (int i = 0; i < n && k < max - 1; i++) {
+        while (p < tk[i].ini && k < max - 1) dst[k++] = src[p++];
+        reftok_t t = tk[i];
+        int f = t.folha[0] ? procurar_folha(t.folha) : folha_f;
+        bool ref_erro = false;
+        if (f == alvo) {
+            int *a = linha ? &t.l1 : &t.c1, *b = linha ? &t.l2 : &t.c2;
+            if (delta > 0) {
+                if (*a >= pos) (*a)++;
+                if (*b >= pos) (*b)++;
+            } else {
+                if (*a == pos && *b == pos) ref_erro = true;
+                else {
+                    if (*a > pos) (*a)--;
+                    if (*b >= pos) (*b)--;
+                }
+            }
+            if (t.l1 >= MAC_MAX_LINHAS || t.l2 >= MAC_MAX_LINHAS || t.c1 >= MAC_MAX_COLUNAS || t.c2 >= MAC_MAX_COLUNAS) ref_erro = true;
+        }
+        char txt[64];
+        if (ref_erro) copia_texto(txt, "#REF!", sizeof txt);
+        else reftok_escrever(txt, sizeof txt, &t);
+        for (int q = 0; txt[q] && k < max - 1; q++) dst[k++] = txt[q];
+        p = tk[i].fim;
+    }
+    while (src[p] && k < max - 1) dst[k++] = src[p++];
+    dst[k] = 0;
+}
+
+typedef struct { int l, c; celula_t ce; } mov_t;
+
+/* Inserta (delta = 1) o borra (delta = -1) la fila o columna «pos» de la hoja f: mueve las celdas, las
+ * alturas y anchos, las combinaciones y reescribe las fórmulas de todo el libro. */
+static bool folha_remapear(int f, bool linha, int pos, int delta)
+{
+    folha_t *fo = &livro.folha[f];
+    int n = 0, l = 0, c = -1;
+    celula_t *ce;
+    while (it_proximo(fo, &l, &c, &ce)) n++;
+    mov_t *mv = aloca_zerado((size_t)(n ? n : 1) * sizeof *mv);
+    if (!mv) return false;
+    int k = 0;
+    l = 0; c = -1;
+    while (it_proximo(fo, &l, &c, &ce) && k < n) {
+        mv[k].l = l; mv[k].c = c; mv[k].ce = *ce;
+        memset(ce, 0, sizeof *ce);          /* el texto pasa a la lista */
+        k++;
+    }
+    n = k;
+    folha_paginas_liberar(fo);
+    int linhas = fo->linhas, colunas = fo->colunas;
+    for (int i = 0; i < n; i++) {
+        int *idx = linha ? &mv[i].l : &mv[i].c;
+        bool fuera = false;
+        if (delta > 0) { if (*idx >= pos) (*idx)++; }
+        else { if (*idx == pos) fuera = true; else if (*idx > pos) (*idx)--; }
+        if (mv[i].l >= MAC_MAX_LINHAS || mv[i].c >= MAC_MAX_COLUNAS) fuera = true;
+        if (fuera) { if (mv[i].ce.texto) libera(mv[i].ce.texto); continue; }
+        celula_t *d = celula_obter(fo, mv[i].l, mv[i].c);
+        if (!d) { if (mv[i].ce.texto) libera(mv[i].ce.texto); continue; }
+        *d = mv[i].ce;
+    }
+    libera(mv);
+    fo->linhas = linhas; fo->colunas = colunas;
+    if (linha) {
+        if (delta > 0) { if (fo->linhas > pos && fo->linhas < MAC_MAX_LINHAS) fo->linhas++; }
+        else if (fo->linhas > pos && fo->linhas > 1) fo->linhas--;
+        for (int i = 0; i < fo->n_lp;) {
+            linha_prop_t *x = &fo->lp[i];
+            if (delta > 0) { if (x->l >= pos) x->l++; i++; }
+            else if (x->l == pos) { for (int q = i; q + 1 < fo->n_lp; q++) fo->lp[q] = fo->lp[q + 1]; fo->n_lp--; }
+            else { if (x->l > pos) x->l--; i++; }
+        }
+        if (delta > 0) fo->cong_l += (fo->cong_l > pos) ? 1 : 0;
+        else if (fo->cong_l > pos) fo->cong_l--;
+    } else {
+        if (delta > 0) { if (fo->colunas > pos && fo->colunas < MAC_MAX_COLUNAS) fo->colunas++; }
+        else if (fo->colunas > pos && fo->colunas > 1) fo->colunas--;
+        if (delta > 0) {
+            for (int q = MAC_MAX_COLUNAS - 1; q > pos; q--) { fo->larg_col[q] = fo->larg_col[q - 1]; fo->col_oculta[q] = fo->col_oculta[q - 1]; }
+            fo->larg_col[pos] = MAC_LARGCOL; fo->col_oculta[pos] = 0;
+            if (fo->cong_c > pos) fo->cong_c++;
+        } else {
+            for (int q = pos; q + 1 < MAC_MAX_COLUNAS; q++) { fo->larg_col[q] = fo->larg_col[q + 1]; fo->col_oculta[q] = fo->col_oculta[q + 1]; }
+            fo->larg_col[MAC_MAX_COLUNAS - 1] = MAC_LARGCOL; fo->col_oculta[MAC_MAX_COLUNAS - 1] = 0;
+            if (fo->cong_c > pos) fo->cong_c--;
+        }
+    }
+    for (int i = 0; i < fo->n_fu;) {
+        fusao_t *u = &fo->fu[i];
+        int *a = linha ? &u->l1 : &u->c1, *b = linha ? &u->l2 : &u->c2;
+        if (delta > 0) { if (*a >= pos) (*a)++; if (*b >= pos) (*b)++; i++; }
+        else {
+            if (*a > pos) (*a)--;
+            if (*b >= pos) (*b)--;
+            if (*b < *a) { for (int q = i; q + 1 < fo->n_fu; q++) fo->fu[q] = fo->fu[q + 1]; fo->n_fu--; }
+            else i++;
+        }
+    }
+    /* Las fórmulas de todas las hojas que apuntan a esta. */
+    for (int g = 0; g < livro.n; g++) {
+        folha_t *gf = &livro.folha[g];
+        l = 0; c = -1;
+        while (it_proximo(gf, &l, &c, &ce)) {
+            if (!(ce->flags & CEL_FORMULA) || !ce->texto) continue;
+            char nuevo[MAC_TEXTO_CEL];
+            ajustar_formula_estrutura(ce->texto, nuevo, sizeof nuevo, g, f, linha, pos, delta);
+            if (compara_texto(nuevo, ce->texto) != 0) {
+                char *d = duplicar_texto(nuevo);
+                if (d) { libera(ce->texto); ce->texto = d; }
+            }
+        }
     }
     return true;
+}
+
+static bool linha_inserir(folha_t *fo, int l)
+{
+    if (fo->linhas + 1 > MAC_MAX_LINHAS && l < fo->linhas) return false;
+    return folha_remapear((int)(fo - livro.folha), true, l, 1);
 }
 
 static bool linha_apagar(folha_t *fo, int l)
 {
-    if (fo->linhas <= 1) return false;
-    for (int c = 0; c < fo->colunas; c++) {
-        celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
-        if (ce->texto) { libera(ce->texto); ce->texto = NULL; }
-    }
-    size_t passo = (size_t)fo->colunas * sizeof(celula_t);
-    memmove(&fo->celulas[(size_t)l * fo->colunas], &fo->celulas[(size_t)(l + 1) * fo->colunas],
-            (size_t)(fo->linhas - l - 1) * passo);
-    for (int c = 0; c < fo->colunas; c++) {
-        celula_t *ce = &fo->celulas[(size_t)(fo->linhas - 1) * fo->colunas + c];
-        ce->texto = NULL;
-        ce->valor = 0;
-        ce->flags = 0;
-        ce->fmt = 0;
-    }
-    fo->linhas--;
-    return true;
+    return folha_remapear((int)(fo - livro.folha), true, l, -1);
 }
 
 static bool coluna_inserir(folha_t *fo, int c)
 {
-    if (fo->colunas + 1 > MAC_MAX_COLUNAS) return false;
-    int nc = fo->colunas + 1;
-    celula_t *novo = aloca_zerado((size_t)fo->linhas * nc * sizeof(celula_t));
-    if (!novo) return false;
-    for (int l = 0; l < fo->linhas; l++)
-        for (int i = 0; i < fo->colunas; i++) {
-            int d = (i < c) ? i : i + 1;
-            novo[(size_t)l * nc + d] = fo->celulas[(size_t)l * fo->colunas + i];
-        }
-    libera(fo->celulas);
-    fo->celulas = novo;
-    fo->colunas = nc;
-    return true;
+    if (fo->colunas + 1 > MAC_MAX_COLUNAS && c < fo->colunas) return false;
+    return folha_remapear((int)(fo - livro.folha), false, c, 1);
 }
 
 static bool coluna_apagar(folha_t *fo, int c)
 {
-    if (fo->colunas <= 1) return false;
-    int nc = fo->colunas - 1;
-    celula_t *novo = aloca_zerado((size_t)fo->linhas * (nc ? nc : 1) * sizeof(celula_t));
-    if (!novo) return false;
-    for (int l = 0; l < fo->linhas; l++)
-        for (int i = 0; i < fo->colunas; i++) {
-            if (i == c) {
-                celula_t *o = &fo->celulas[(size_t)l * fo->colunas + i];
-                if (o->texto) { libera(o->texto); o->texto = NULL; }
-                continue;
-            }
-            int d = (i < c) ? i : i - 1;
-            novo[(size_t)l * nc + d] = fo->celulas[(size_t)l * fo->colunas + i];
-        }
-    libera(fo->celulas);
-    fo->celulas = novo;
-    fo->colunas = nc;
-    return true;
+    return folha_remapear((int)(fo - livro.folha), false, c, -1);
 }
 
 /* ------------------------------------------------------------ ordenar */
@@ -2393,14 +2729,30 @@ static bool guardar_ficheiro(const char *destino)
         char nome[MAC_NOME_FOLHA + 4];
         txt_nome(nome, sizeof nome, fo->nome);
         txt_addf(&buf, &tam, &cap, "hoja %s %d %d\n", nome, fo->linhas, fo->colunas);
-        /* Los anchos de las columnas, para que la hoja vuelva igual. */
+        /* Los anchos de las columnas, para que la hoja vuelva igual (hasta la última que no es por omisión). */
+        int uc_ancho = fo->colunas - 1;
+        for (int c = MAC_MAX_COLUNAS - 1; c >= fo->colunas; c--)
+            if (fo->larg_col[c] != MAC_LARGCOL) { uc_ancho = c; break; }
         txt_add(&buf, &tam, &cap, "larguras ");
-        for (int c = 0; c < fo->colunas; c++)
+        for (int c = 0; c <= uc_ancho; c++)
             txt_addf(&buf, &tam, &cap, "%s%d", c ? "," : "", fo->larg_col[c]);
         txt_add(&buf, &tam, &cap, "\n");
-        for (int l = 0; l < fo->linhas; l++)
-            for (int c = 0; c < fo->colunas; c++) {
-                celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
+        for (int c = 0; c < MAC_MAX_COLUNAS; c++)
+            if (fo->col_oculta[c]) { char rc[8]; nome_coluna(rc, sizeof rc, c); txt_addf(&buf, &tam, &cap, "columnaoculta %s\n", rc); }
+        for (int i = 0; i < fo->n_lp; i++)
+            if (fo->lp[i].alt || fo->lp[i].oculta)
+                txt_addf(&buf, &tam, &cap, "fila %d alt=%d oculta=%d\n", fo->lp[i].l + 1, fo->lp[i].alt, fo->lp[i].oculta);
+        for (int i = 0; i < fo->n_fu; i++) {
+            char r1[16], r2[16];
+            nome_ref(r1, sizeof r1, fo->fu[i].l1, fo->fu[i].c1);
+            nome_ref(r2, sizeof r2, fo->fu[i].l2, fo->fu[i].c2);
+            txt_addf(&buf, &tam, &cap, "combinar %s:%s\n", r1, r2);
+        }
+        if (fo->cong_l || fo->cong_c) txt_addf(&buf, &tam, &cap, "inmovilizar %d %d\n", fo->cong_l, fo->cong_c);
+        {
+        int l = 0, c = -1;
+        celula_t *ce;
+        while (it_proximo(fo, &l, &c, &ce)) {
                 if (!ce->texto) continue;
                 char ref[16];
                 nome_ref(ref, sizeof ref, l, c);
@@ -2417,11 +2769,13 @@ static bool guardar_ficheiro(const char *destino)
                     txt_addf(&buf, &tam, &cap, "celda %s %s\n", ref, t);
                 } else
                     txt_addf(&buf, &tam, &cap, "celda %s %s\n", ref, ce->texto);
-            }
+        }
+        }
         /* Los formatos de celda (D293): una línea por celda con formato; los lectores antiguos las ignoran. */
-        for (int l = 0; l < fo->linhas; l++)
-            for (int c = 0; c < fo->colunas; c++) {
-                celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
+        {
+        int l = 0, c = -1;
+        celula_t *ce;
+        while (it_proximo(fo, &l, &c, &ce)) {
                 if (!ce->fmt) continue;
                 const fmt_t *ft = fmt_de_livro(ce);
                 char ref[16];
@@ -2430,7 +2784,8 @@ static bool guardar_ficheiro(const char *destino)
                          "formato %s nf=%d dec=%d mo=%d al=%d est=%d fam=%d tam=%d bor=%d cor=%x rel=%x\n",
                          ref, ft->nf, ft->dec, ft->moeda, ft->al, ft->est, ft->fam, ft->tam, ft->bor,
                          (unsigned)ft->cor, (unsigned)ft->rel);
-            }
+        }
+        }
     }
     /* Los gráficos incrustados (D311): una línea por gráfico, tras las de su hoja; los lectores antiguos las ignoran. */
     for (int i = 0; i < GR_MAX; i++) {
@@ -2532,13 +2887,11 @@ static char *csv_texto(folha_t *fo, int *tam)
 {
     char *buf = NULL;
     int n = 0, cap = 0;
-    int ul = -1, uc = -1;
-    for (int l = 0; l < fo->linhas; l++)
-        for (int c = 0; c < fo->colunas; c++)
-            if (fo->celulas[(size_t)l * fo->colunas + c].texto) { if (l > ul) ul = l; if (c > uc) uc = c; }
+    int ul, uc;
+    folha_extremos(fo, &ul, &uc, true);
     for (int l = 0; l <= ul; l++) {
         for (int c = 0; c <= uc; c++) {
-            celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
+            const celula_t *ce = celula_ler(fo, l, c);
             char v[MAC_TEXTO_CEL + 8];
             v[0] = 0;
             if (ce->texto) {
@@ -2629,17 +2982,19 @@ static int csv_ler(folha_t *fo, const char *nome_ficheiro, int l0, int c0)
     return lidas;
 }
 
+static bool importar_xlsx(const char *ruta);
+static bool importar_ods(const char *ruta);
+static bool exportar_xlsx(const char *destino);
+static bool exportar_ods(const char *destino);
+
 static bool carregar_ficheiro(const char *nome_ficheiro)
 {
     int tam = 0;
+    if (termina_en(nome_ficheiro, ".xlsx")) return importar_xlsx(nome_ficheiro);
+    if (termina_en(nome_ficheiro, ".ods")) return importar_ods(nome_ficheiro);
     if (termina_en(nome_ficheiro, ".csv")) {
         /* Un CSV se abre como libro de una hoja. */
-        for (int f = 0; f < livro.n; f++) {
-            folha_t *fo = &livro.folha[f];
-            for (int k = 0; k < fo->linhas * fo->colunas; k++)
-                if (fo->celulas[k].texto) { libera(fo->celulas[k].texto); fo->celulas[k].texto = NULL; }
-            if (fo->celulas) { libera(fo->celulas); fo->celulas = NULL; }
-        }
+        for (int f = 0; f < livro.n; f++) folha_liberar(&livro.folha[f]);
         memset(&livro, 0, sizeof livro);
         livro.n_fmts = 1;
         graficos_limpar();
@@ -2657,12 +3012,7 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
     if (!buf) return false;
 
     /* Libro nuevo. */
-    for (int f = 0; f < livro.n; f++) {
-        folha_t *fo = &livro.folha[f];
-        for (int k = 0; k < fo->linhas * fo->colunas; k++)
-            if (fo->celulas[k].texto) { libera(fo->celulas[k].texto); fo->celulas[k].texto = NULL; }
-        if (fo->celulas) { libera(fo->celulas); fo->celulas = NULL; }
-    }
+    for (int f = 0; f < livro.n; f++) folha_liberar(&livro.folha[f]);
     memset(&livro, 0, sizeof livro);
     livro.n_fmts = 1;
     graficos_limpar();
@@ -2697,8 +3047,7 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
             copia_texto(fo->nome, nome, sizeof fo->nome);
             fo->linhas = li;
             fo->colunas = co;
-            fo->celulas = aloca_zerado((size_t)li * co * sizeof(celula_t));
-            for (int c = 0; c < fo->colunas; c++) fo->larg_col[c] = MAC_LARGCOL;
+            folha_larguras_padrao(fo);
             folha_atual = livro.n - 1;
         } else if (comeca_com(lin, MAC_KW_CELDA) && folha_atual >= 0) {
             const char *q = lin + (int)sizeof(MAC_KW_CELDA) - 1;
@@ -2751,9 +3100,8 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
                 else if (kl == 3 && memcmp(k, "rel", 3) == 0) ft.rel = v;
             }
             folha_t *fo = &livro.folha[folha_atual];
-            if (!folha_redimensionar(fo, lin2 + 1 > fo->linhas ? lin2 + 1 : fo->linhas, col + 1 > fo->colunas ? col + 1 : fo->colunas)) continue;
             int idx = fmt_internar_livro(&ft);
-            celula_t *ce = celula_de(fo, lin2, col);
+            celula_t *ce = celula_obter(fo, lin2, col);
             if (ce && idx >= 0) ce->fmt = (uint8_t)idx;
         } else if (comeca_com(lin, "grafico ") && folha_atual >= 0) {
             const char *q = lin + 8;
@@ -2794,6 +3142,36 @@ static bool carregar_ficheiro(const char *nome_ficheiro)
             int libre = -1;
             for (int i = 0; i < GR_MAX; i++) if (!graficos[i].ativo) { libre = i; break; }
             if (libre >= 0) graficos[libre] = gt;
+        } else if (comeca_com(lin, "columnaoculta ") && folha_atual >= 0) {
+            const char *q = lin + 14;
+            int col;
+            if (ler_coluna(&q, &col)) livro.folha[folha_atual].col_oculta[col] = 1;
+        } else if (comeca_com(lin, "fila ") && folha_atual >= 0) {
+            const char *q = lin + 5;
+            int l = texto_para_int(q) - 1, alt = 0, ocu = 0;
+            const char *x = acha_texto(q, "alt=");
+            if (x) alt = texto_para_int(x + 4);
+            x = acha_texto(q, "oculta=");
+            if (x) ocu = texto_para_int(x + 7);
+            if (l >= 0 && l < MAC_MAX_LINHAS && (alt || ocu)) {
+                linha_prop_t *lp = lp_obter(&livro.folha[folha_atual], l);
+                if (lp) { lp->alt = (uint16_t)(alt < 0 ? 0 : (alt > 1000 ? 1000 : alt)); lp->oculta = (uint8_t)(ocu != 0); }
+            }
+        } else if (comeca_com(lin, "combinar ") && folha_atual >= 0) {
+            const char *q = lin + 9;
+            int c1, l1, c2, l2;
+            if (!ler_coluna(&q, &c1) || !ler_numero_linha(&q, &l1) || *q != ':') continue;
+            q++;
+            if (!ler_coluna(&q, &c2) || !ler_numero_linha(&q, &l2)) continue;
+            fusao_juntar(&livro.folha[folha_atual], l1, c1, l2, c2);
+        } else if (comeca_com(lin, "inmovilizar ") && folha_atual >= 0) {
+            const char *q = lin + 12;
+            folha_t *fo = &livro.folha[folha_atual];
+            fo->cong_l = texto_para_int(q);
+            const char *r = acha_char(q, ' ');
+            fo->cong_c = r ? texto_para_int(r + 1) : 0;
+            if (fo->cong_l < 0 || fo->cong_l > 1000) fo->cong_l = 0;
+            if (fo->cong_c < 0 || fo->cong_c > 100) fo->cong_c = 0;
         } else if (comeca_com(lin, MAC_KW_LARGU) && folha_atual >= 0) {
             const char *q = lin + (int)sizeof(MAC_KW_LARGU) - 1;
             folha_t *fo = &livro.folha[folha_atual];
@@ -3565,23 +3943,31 @@ static uint32_t *graf_imagem(const grafico_t *g, int *pw, int *ph)
 
 static int off_col[MAC_MAX_COLUNAS + 1];
 
+static int grelha_a(void);
+
 static void calcular_offsets(void)
 {
     folha_t *fo = folha_ativa();
     off_col[0] = 0;
-    for (int c = 0; c < fo->colunas; c++) off_col[c + 1] = off_col[c] + fo->larg_col[c];
+    for (int c = 0; c < MAC_MAX_COLUNAS; c++) off_col[c + 1] = off_col[c] + coluna_larg(fo, c);
+    /* La franja de los números de fila crece a 5 cifras cuando se ven filas pasada la 9999. */
+    int ult = linha_em_y(fo, desl_y + grelha_a());
+    larg_cab = (ult >= 9999) ? MAC_LARGC_MIN + 8 : MAC_LARGC_MIN;
 }
 
-/* El desplazamiento de la columna c (también de las que aún no existen, con el ancho por omisión). */
+/* El desplazamiento de la columna c (también de las que están más allá del final, con el ancho por omisión). */
 static int off_col_x(int c)
 {
-    folha_t *fo = folha_ativa();
-    if (c <= fo->colunas) return off_col[c];
-    return off_col[fo->colunas] + (c - fo->colunas) * MAC_LARGCOL;
+    if (c <= 0) return 0;
+    if (c <= MAC_MAX_COLUNAS) return off_col[c];
+    return off_col[MAC_MAX_COLUNAS] + (c - MAC_MAX_COLUNAS) * MAC_LARGCOL;
 }
 
-static int x_coluna(int c) { return MAC_LARGC + off_col_x(c) - desl_x; }
-static int y_linha(int l) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH + l * MAC_ALTLINHA - desl_y; }
+/* Con paneles inmovilizados (cong_l filas, cong_c columnas) esas filas y columnas no se desplazan. */
+static int cong_w(void) { return off_col_x(folha_ativa()->cong_c); }
+static int cong_h(void) { return off_lin(folha_ativa(), folha_ativa()->cong_l); }
+static int x_coluna(int c) { return MAC_LARGC + off_col_x(c) - (c < folha_ativa()->cong_c ? 0 : desl_x); }
+static int y_linha(int l) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH + off_lin(folha_ativa(), l) - (l < folha_ativa()->cong_l ? 0 : desl_y); }
 static int grelha_y(void) { return MAC_BARRA + MAC_FORMULA + MAC_CABECALH; }
 static int grelha_a(void) { return jan->alt - grelha_y() - MAC_RODAPE; }
 
@@ -3599,7 +3985,9 @@ enum {
     A_CELULAS, A_NEGRITA, A_CURSIVA, A_SUBLIN, A_ESQ, A_CENTRO, A_DIR,
     A_MOEDA, A_PERCENT, A_MILHAR, A_DEC_MAIS, A_DEC_MENOS, A_BORDAS, A_RELLENO, A_COR_TXT,
     A_LARG, A_ORD_A, A_ORD_Z, A_SOMA, A_RECALC, A_GRADE, A_FORMULAS, A_ACERCA, A_IGUAL,
-    A_ASISTENTE, A_IA_EXPLICAR, A_IA_FORMULA, A_FUNCAO,
+    A_ASISTENTE, A_IA_EXPLICAR, A_IA_FORMULA, A_FUNCAO, A_CLASICO,
+    A_COMBINAR, A_COMB_CENTRAR, A_COMB_H, A_SEPARAR, A_OCULTAR_FILAS, A_MOSTRAR_FILAS, A_OCULTAR_COLS, A_MOSTRAR_COLS,
+    A_AUTO_COL, A_AUTO_FILA, A_INMOV,
     /* elecciones de colores y bordes (menús desplegables de los botones) */
     A_REL_0 = 100, A_COR_0 = 120, A_BOR_0 = 140
 };
@@ -3718,6 +4106,14 @@ static void ic_ia(jan_t *j, int x, int y, bool a)
     icone_desenhar(j, x, y, "robo", 1);
 }
 
+/* Combinar y centrar: una caja con una flecha a cada lado. */
+static void ic_combinar(jan_t *j, int x, int y, bool a)
+{
+    (void)a;
+    R(2, 3, 12, 1, W98_NEGRO); R(2, 12, 12, 1, W98_NEGRO); R(2, 3, 1, 10, W98_NEGRO); R(13, 3, 1, 10, W98_NEGRO);
+    R(4, 7, 3, 1, W98_NEGRO); R(9, 7, 3, 1, W98_NEGRO); R(4, 6, 1, 3, W98_NEGRO); R(11, 6, 1, 3, W98_NEGRO);
+}
+
 static void ic_igual(jan_t *j, int x, int y, bool a)
 {
     (void)a;
@@ -3743,7 +4139,7 @@ static void itens_iniciar(void)
         IT(0, NULL, NULL, false, false, 0),
         IT(A_ASISTENTE, ic_ia, NULL, false, true, 0),
     };
-    static const barra_item_t u2[20] = {
+    static const barra_item_t u2[22] = {
         IT(-1, NULL, NULL, false, false, 146), IT(-1, NULL, NULL, false, false, 58),
         IT(0, NULL, NULL, false, false, 0),
         IT(A_NEGRITA, NULL, "N", true, true, 0), IT(A_CURSIVA, NULL, "K", false, true, 0),
@@ -3758,6 +4154,8 @@ static void itens_iniciar(void)
         IT(0, NULL, NULL, false, false, 0),
         IT(A_BORDAS, ic_bordas, NULL, false, false, 0), IT(A_RELLENO, ic_relleno, NULL, false, false, 0),
         IT(A_COR_TXT, ic_cor_txt, NULL, false, false, 0),
+        IT(0, NULL, NULL, false, false, 0),
+        IT(A_COMB_CENTRAR, ic_combinar, NULL, false, false, 0),
     };
 #undef IT
     memcpy(it1, u1, sizeof u1);
@@ -3773,12 +4171,13 @@ static void layout(void)
     menus_atualizar();               /* rellena nombres y n antes de colocar los menús */
     barra_menu_iniciar(&menu, 0, 0, l);
     barra_ferr_iniciar(&ferr1, 0, Y_FERR1, l, it1, 18);
-    barra_ferr_iniciar(&ferr2, 0, Y_FERR2, l, it2, 20);
+    barra_ferr_iniciar(&ferr2, 0, Y_FERR2, l, it2, 22);
     static const char *const tams_txt[] = { "8", "9", "10", "11", "12", "14", "16", "18", "20", "22", "24", "28", "36", "48", "72" };
     combo_iniciar(&c_fonte, barra_ferr_x(&ferr2, 0), Y_FERR2 + 3, 140, NOMES_FONTE, 3, false, 7301);
     combo_iniciar(&c_tam, barra_ferr_x(&ferr2, 1), Y_FERR2 + 3, 52, tams_txt, 15, true, 7302);
     static const int larg[4] = { 260, 150, 150, 100 };
     barra_estado_iniciar(&barra_est, 0, Y_ESTADO, l, 4, larg);
+    macaco_cinta_layout();
     ag_colocar();
 }
 
@@ -3800,7 +4199,7 @@ static const mi_t M_EDICAO[] = {
 };
 static const mi_t M_VER[] = {
     { "Líneas de la cuadrícula", A_GRADE }, { "Mostrar fórmulas en las celdas", A_FORMULAS }, { "-", 0 },
-    { "Asistente IA\tF12", A_ASISTENTE },
+    { "Asistente IA\tF12", A_ASISTENTE }, { "-", 0 }, { "Cinta (estilo moderno)\tCtrl+F1", A_CLASICO },
 };
 static const mi_t M_INSERIR[] = {
     { "Fila", A_LINHA_INS }, { "Columna", A_COL_INS }, { "Hoja", A_FOLHA_NOVA }, { "-", 0 },
@@ -3812,7 +4211,13 @@ static const mi_t M_FORMATO[] = {
     { "Negrita\tCtrl+B", A_NEGRITA }, { "Cursiva\tCtrl+I", A_CURSIVA }, { "Subrayado\tCtrl+U", A_SUBLIN }, { "-", 0 },
     { "Estilo de moneda", A_MOEDA }, { "Estilo porcentual", A_PERCENT }, { "Separador de miles", A_MILHAR },
     { "Más decimales", A_DEC_MAIS }, { "Menos decimales", A_DEC_MENOS }, { "-", 0 },
-    { "Ancho de las columnas...", A_LARG }, { "Cambiar nombre de la hoja...", A_FOLHA_REN },
+    { "Combinar y centrar", A_COMB_CENTRAR }, { "Combinar celdas", A_COMBINAR },
+    { "Combinar horizontalmente", A_COMB_H }, { "Separar celdas", A_SEPARAR }, { "-", 0 },
+    { "Ancho de las columnas...", A_LARG }, { "Autoajustar el ancho de la columna", A_AUTO_COL },
+    { "Autoajustar el alto de la fila", A_AUTO_FILA }, { "-", 0 },
+    { "Ocultar filas", A_OCULTAR_FILAS }, { "Mostrar filas", A_MOSTRAR_FILAS },
+    { "Ocultar columnas", A_OCULTAR_COLS }, { "Mostrar columnas", A_MOSTRAR_COLS }, { "-", 0 },
+    { "Inmovilizar paneles", A_INMOV }, { "Cambiar nombre de la hoja...", A_FOLHA_REN },
 };
 static const mi_t M_FERRAMENTAS[] = {
     { "Recalcular", A_RECALC }, { "Autosuma", A_SOMA }, { "-", 0 },
@@ -3832,6 +4237,9 @@ static const mi_t M_CONTEXTO[] = {
     { "Ordenar de A a Z", A_ORD_A }, { "Ordenar de Z a A", A_ORD_Z }, { "-", 0 },
     { "Gráfico...", A_GRAFICO },
     { "Gráfico de barras", A_GRAF_B }, { "Gráfico de barras horizontales", A_GRAF_H }, { "Gráfico de tarta", A_GRAF_T },
+    { "-", 0 }, { "Combinar y centrar", A_COMB_CENTRAR }, { "Separar celdas", A_SEPARAR },
+    { "Ocultar filas", A_OCULTAR_FILAS }, { "Mostrar filas", A_MOSTRAR_FILAS },
+    { "Ocultar columnas", A_OCULTAR_COLS }, { "Mostrar columnas", A_MOSTRAR_COLS },
     { "-", 0 }, { "Ancho de las columnas...", A_LARG }, { "-", 0 },
     { "Asistente IA: Explicar estos datos", A_IA_EXPLICAR }, { "Asistente IA: Crear fórmula para...", A_IA_FORMULA },
 };
@@ -4004,7 +4412,7 @@ static void ref_rect(const reftok_t *t, int *x, int *y, int *w, int *h)
     *x = x_coluna(t->c1);
     *w = off_col_x(t->c2 + 1) - off_col_x(t->c1);
     *y = y_linha(t->l1);
-    *h = (t->l2 - t->l1 + 1) * MAC_ALTLINHA;
+    *h = off_lin(folha_ativa(), t->l2 + 1) - off_lin(folha_ativa(), t->l1);
 }
 
 /* Cada referencia de la fórmula que se edita rodea su celda o rango con un borde de su color,
@@ -4105,7 +4513,7 @@ static void desenhar_previa_relleno(void)
     if (l1 < 0) l1 = 0;
     if (c1 < 0) c1 = 0;
     int x = x_coluna(c1), y = y_linha(l1);
-    int w = off_col_x(c2 + 1) - off_col_x(c1), h = (l2 - l1 + 1) * MAC_ALTLINHA;
+    int w = off_col_x(c2 + 1) - off_col_x(c1), h = off_lin(folha_ativa(), l2 + 1) - off_lin(folha_ativa(), l1);
     for (int i = 0; i < w; i += 4) { g_retangulo(jan, x + i, y, 2, 1, 0x606060); g_retangulo(jan, x + i, y + h - 1, 2, 1, 0x606060); }
     for (int i = 0; i < h; i += 4) { g_retangulo(jan, x, y + i, 1, 2, 0x606060); g_retangulo(jan, x + w - 1, y + i, 1, 2, 0x606060); }
 }
@@ -4248,7 +4656,7 @@ static void desenhar_ayudas_formula(void)
     static const fx_t *ult_f;
     static int ult_arg = -2;
     if (!editando || livro.ativa != edit_folha || !edit_e_formula()) { ult_f = NULL; ult_arg = -2; return; }
-    int x0 = x_coluna(cel_c), y0 = y_linha(cel_l) + MAC_ALTLINHA;
+    int x0 = x_coluna(cel_c), y0 = y_linha(cel_l) + linha_alt(folha_ativa(), cel_l);
     int gy = grelha_y(), ga = grelha_a();
     if (y0 < gy || y0 > gy + ga) return;
     int y = y0 + 1;
@@ -4319,90 +4727,195 @@ static void desenhar_painel_colapsado(void)
     boton98(jan, &fx_col_cancelar);
 }
 
-static void desenhar_grelha(void)
+/* La selección ampliada a las celdas combinadas que toca (el marco de Excel cubre la combinación entera). */
+static void selecao_expandida(int *l1, int *c1, int *l2, int *c2)
 {
     folha_t *fo = folha_ativa();
+    intervalo_selecionado(l1, c1, l2, c2);
+    bool mudou = fo->n_fu > 0;
+    while (mudou) {
+        mudou = false;
+        for (int i = 0; i < fo->n_fu; i++) {
+            fusao_t *u = &fo->fu[i];
+            if (u->l1 > *l2 || u->l2 < *l1 || u->c1 > *c2 || u->c2 < *c1) continue;
+            if (u->l1 < *l1) { *l1 = u->l1; mudou = true; }
+            if (u->l2 > *l2) { *l2 = u->l2; mudou = true; }
+            if (u->c1 < *c1) { *c1 = u->c1; mudou = true; }
+            if (u->c2 > *c2) { *c2 = u->c2; mudou = true; }
+        }
+    }
+}
+
+static void desenhar_celula(folha_t *fo, int l, int c, int x, int y, int lc, int h)
+{
+    celula_t *ce = celula_ler(fo, l, c);
+    const fmt_t *f = fmt_de(ce);
+    char t[MAC_TEXTO_CEL];
+    if (editando && livro.ativa == edit_folha && l == cel_l && c == cel_c) {
+        copia_texto(t, edit_buf, sizeof t);
+        texto_celda(x, y, lc, h, t, f, false, f->cor);
+        if (edit_buf[0] == '=' && (f->tam == 0 || f->tam == 10) && !(f->est & EST_CURSIVA) &&
+            (f->al == AL_AUTO || f->al == AL_ESQ))
+            texto_edit_cores(x + 3, y + (h - LETRA_A) / 2, (lc - 4) / LETRA_L, (f->est & EST_NEGRITA) != 0);
+        return;
+    }
+    if (mostrar_formulas && (ce->flags & CEL_FORMULA)) copia_texto(t, ce->texto, sizeof t);
+    else celula_exibida(t, sizeof t, ce);
+    bool numero = (ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO) && !(mostrar_formulas && (ce->flags & CEL_FORMULA));
+    if (t[0]) texto_celda(x, y, lc, h, t, f, numero, f->cor);
+    /* bordes de la celda */
+    if (f->bor) {
+        if (f->bor & BOR_CIMA) g_linha(jan, x, y, x + lc - 1, y, W98_NEGRO);
+        if (f->bor & BOR_BAIXO) g_linha(jan, x, y + h - 1, x + lc - 1, y + h - 1, W98_NEGRO);
+        if (f->bor & BOR_ESQ) g_linha(jan, x, y, x, y + h - 1, W98_NEGRO);
+        if (f->bor & BOR_DIR) g_linha(jan, x + lc - 1, y, x + lc - 1, y + h - 1, W98_NEGRO);
+    }
+}
+
+static int coluna_em_x(int px);
+
+/* Dibuja las filas [la, lb) y las columnas [ca, cb): fondos, cuadrícula, valores y combinaciones. */
+static void desenhar_zona(folha_t *fo, int la, int lb, int ca, int cb)
+{
+    if (la >= lb || ca >= cb) return;
     int gy = grelha_y(), ga = grelha_a();
-    int gl = jan->larg - MAC_LARGC;
-    calcular_offsets();
-    int ncol = fo->colunas;
-
-    g_retangulo(jan, MAC_LARGC, gy, gl, ga, COR_BRANCO);
-    /* Rango de filas visible. */
-    int l_ini = desl_y / MAC_ALTLINHA;
-    int l_fim = (desl_y + ga) / MAC_ALTLINHA + 1;
-    if (l_fim > fo->linhas) l_fim = fo->linhas;
-
-    /* Fondos: relleno propio, o el tinte de la selección (la celda activa queda blanca). */
-    for (int l = l_ini; l < l_fim; l++) {
-        int y = y_linha(l);
-        for (int c = 0; c < ncol; c++) {
-            int x = x_coluna(c), lc = fo->larg_col[c];
-            if (x + lc <= MAC_LARGC) continue;
-            if (x >= jan->larg) break;
-            celula_t *ce = &fo->celulas[(size_t)l * ncol + c];
+    int zx0 = x_coluna(ca), zx1 = x_coluna(cb);
+    if (zx1 > jan->larg) zx1 = jan->larg;
+    for (int l = la; l < lb; l++) {
+        int y = y_linha(l), h = linha_alt(fo, l);
+        if (h <= 0) continue;
+        for (int c = ca; c < cb; c++) {
+            int x = x_coluna(c), lc = coluna_larg(fo, c);
+            if (lc <= 0) continue;
+            celula_t *ce = celula_de(fo, l, c);
+            if (!ce) {
+                if (tem_selecao() && !(l == cel_l && c == cel_c) && na_selecao(l, c)) g_retangulo(jan, x, y, lc, h, mezclar(COR_BRANCO, 0x6080D0));
+                continue;
+            }
             const fmt_t *f = fmt_de(ce);
             uint32_t fundo = (f->rel & REL_ATIVO) ? (f->rel & 0xFFFFFF) : COR_BRANCO;
             bool ativa = (l == cel_l && c == cel_c);
             if (tem_selecao() && !ativa && na_selecao(l, c)) fundo = mezclar(fundo, 0x6080D0);
-            if (fundo != COR_BRANCO) g_retangulo(jan, x, y, lc, MAC_ALTLINHA, fundo);
+            if (fundo != COR_BRANCO) g_retangulo(jan, x, y, lc, h, fundo);
         }
     }
-
     /* Las líneas de la cuadrícula. */
     if (grade_visivel) {
-        for (int c = 0; c <= ncol; c++) {
+        int zy0 = y_linha(la), zy1 = y_linha(lb);
+        if (zy0 < gy) zy0 = gy;
+        if (zy1 > gy + ga) zy1 = gy + ga;
+        for (int c = ca; c <= cb && c <= MAC_MAX_COLUNAS; c++) {
             int x = x_coluna(c);
-            if (x < MAC_LARGC || x > jan->larg) continue;
-            g_linha(jan, x, gy, x, gy + ga - 1, 0xC0C0C0);
+            if (x < MAC_LARGC || x > jan->larg || x > zx1) continue;
+            g_linha(jan, x, zy0, x, zy1 - 1, 0xC0C0C0);
         }
-        for (int l = l_ini; l <= l_fim; l++) {
+        for (int l = la; l <= lb && l <= MAC_MAX_LINHAS; l++) {
             int y = y_linha(l);
             if (y < gy || y >= gy + ga) continue;
-            g_linha(jan, MAC_LARGC, y, jan->larg, y, 0xC0C0C0);
+            g_linha(jan, zx0 < MAC_LARGC ? MAC_LARGC : zx0, y, zx1, y, 0xC0C0C0);
         }
     }
+    /* Los valores (solo donde hay páginas de celdas: el resto está vacío). */
+    for (int l = la; l < lb; l++) {
+        int y = y_linha(l), h = linha_alt(fo, l);
+        if (h <= 0) continue;
+        if (!fo->bandas || !fo->bandas[l / PAG_L]) {
+            if (!(editando && livro.ativa == edit_folha && l == cel_l)) continue;
+        }
+        for (int c = ca; c < cb; c++) {
+            int x = x_coluna(c), lcol = coluna_larg(fo, c);
+            if (lcol <= 0) continue;
+            bool edita = editando && livro.ativa == edit_folha && l == cel_l && c == cel_c;
+            if (!edita && !celula_de(fo, l, c)) continue;
+            if (fusao_em(fo, l, c)) continue;           /* las combinadas se pintan aparte */
+            desenhar_celula(fo, l, c, x, y, lcol, h);
+        }
+    }
+    /* Las celdas combinadas: tapan la cuadrícula de dentro y pintan el contenido de la esquina. */
+    for (int i = 0; i < fo->n_fu; i++) {
+        fusao_t *u = &fo->fu[i];
+        if (u->l1 < la || u->l1 >= lb || u->c1 < ca || u->c1 >= cb) continue;
+        int x = x_coluna(u->c1), y = y_linha(u->l1);
+        int w = off_col_x(u->c2 + 1) - off_col_x(u->c1), h = off_lin(fo, u->l2 + 1) - off_lin(fo, u->l1);
+        if (w <= 0 || h <= 0) continue;
+        const fmt_t *f = fmt_de(celula_ler(fo, u->l1, u->c1));
+        uint32_t fundo = (f->rel & REL_ATIVO) ? (f->rel & 0xFFFFFF) : COR_BRANCO;
+        if (tem_selecao() && na_selecao(u->l1, u->c1) && !(cel_l == u->l1 && cel_c == u->c1)) fundo = mezclar(fundo, 0x6080D0);
+        g_retangulo(jan, x, y, w, h, fundo);
+        if (grade_visivel) g_moldura(jan, x, y, w + 1, h + 1, 0xC0C0C0);
+        desenhar_celula(fo, u->l1, u->c1, x, y, w, h);
+    }
+}
 
-    /* Los valores. */
-    for (int l = l_ini; l < l_fim; l++) {
-        int y = y_linha(l);
-        for (int c = 0; c < ncol; c++) {
-            int x = x_coluna(c);
-            int lcol = fo->larg_col[c];
-            if (x + lcol <= MAC_LARGC) continue;
-            if (x >= jan->larg) break;
-            celula_t *ce = &fo->celulas[(size_t)l * ncol + c];
-            const fmt_t *f = fmt_de(ce);
-            char t[MAC_TEXTO_CEL];
-            if (editando && livro.ativa == edit_folha && l == cel_l && c == cel_c) {
-                copia_texto(t, edit_buf, sizeof t);
-                texto_celda(x, y, lcol, MAC_ALTLINHA, t, f, false, f->cor);
-                if (edit_buf[0] == '=' && (f->tam == 0 || f->tam == 10) && !(f->est & EST_CURSIVA) &&
-                    (f->al == AL_AUTO || f->al == AL_ESQ))
-                    texto_edit_cores(x + 3, y + (MAC_ALTLINHA - LETRA_A) / 2, (lcol - 4) / LETRA_L, (f->est & EST_NEGRITA) != 0);
-                continue;
-            }
-            if (mostrar_formulas && (ce->flags & CEL_FORMULA)) copia_texto(t, ce->texto, sizeof t);
-            else celula_exibida(t, sizeof t, ce);
-            bool numero = (ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO) && !(mostrar_formulas && (ce->flags & CEL_FORMULA));
-            if (t[0]) texto_celda(x, y, lcol, MAC_ALTLINHA, t, f, numero, f->cor);
-            /* bordes de la celda */
-            if (f->bor) {
-                if (f->bor & BOR_CIMA) g_linha(jan, x, y, x + lcol - 1, y, W98_NEGRO);
-                if (f->bor & BOR_BAIXO) g_linha(jan, x, y + MAC_ALTLINHA - 1, x + lcol - 1, y + MAC_ALTLINHA - 1, W98_NEGRO);
-                if (f->bor & BOR_ESQ) g_linha(jan, x, y, x, y + MAC_ALTLINHA - 1, W98_NEGRO);
-                if (f->bor & BOR_DIR) g_linha(jan, x + lcol - 1, y, x + lcol - 1, y + MAC_ALTLINHA - 1, W98_NEGRO);
-            }
-        }
+static void desenhar_cab_col(folha_t *fo, int c, int l1, int c1, int c2)
+{
+    (void)l1;
+    int hy = grelha_y() - MAC_CABECALH;
+    int x = x_coluna(c), lcol = coluna_larg(fo, c);
+    if (lcol <= 0 || x >= jan->larg) return;
+    bool sel = c >= c1 && c <= c2;
+    g_retangulo(jan, x, hy, lcol, MAC_CABECALH, W98_FACE);
+    g_relevo(jan, x, hy, lcol, MAC_CABECALH, sel);
+    char nome[8];
+    nome_coluna(nome, sizeof nome, c);
+    int tx = x + (lcol - g_largura_texto(nome)) / 2 + (sel ? 1 : 0);
+    g_texto(jan, tx, hy + 1 + (sel ? 1 : 0), nome, W98_NEGRO);
+    if (sel) g_texto(jan, tx + 1, hy + 1 + 1, nome, W98_NEGRO);
+}
+
+static void desenhar_cab_linha(folha_t *fo, int l, int l1, int l2)
+{
+    int gy = grelha_y(), ga = grelha_a();
+    int y = y_linha(l), h = linha_alt(fo, l);
+    if (h <= 0 || y + h <= gy || y >= gy + ga) return;
+    bool sel = l >= l1 && l <= l2;
+    g_retangulo(jan, 0, y, MAC_LARGC, h, W98_FACE);
+    g_relevo(jan, 0, y, MAC_LARGC, h, sel);
+    char n[8];
+    formatar_texto(n, sizeof n, "%d", l + 1);
+    int tx = (MAC_LARGC - g_largura_texto(n)) / 2 + (sel ? 1 : 0);
+    g_texto(jan, tx, y + (h - LETRA_A) / 2 + (sel ? 1 : 0), n, W98_NEGRO);
+}
+
+static void desenhar_grelha(void)
+{
+    folha_t *fo = folha_ativa();
+    int gy = grelha_y(), ga = grelha_a();
+    calcular_offsets();
+    int gl = jan->larg - MAC_LARGC;
+    int Hf = cong_h(), Wf = cong_w();
+
+    g_retangulo(jan, MAC_LARGC, gy, gl, ga, COR_BRANCO);
+    /* Rango de filas y de columnas visible (la parte que se desplaza). */
+    int l_ini = linha_em_y(fo, desl_y + Hf);
+    if (l_ini < fo->cong_l) l_ini = fo->cong_l;
+    int l_fim = linha_em_y(fo, desl_y + ga) + 1;
+    if (l_fim > MAC_MAX_LINHAS) l_fim = MAC_MAX_LINHAS;
+    int c_ini = coluna_em_x(desl_x + Wf);
+    if (c_ini < fo->cong_c) c_ini = fo->cong_c;
+    int c_fim = c_ini;
+    while (c_fim < MAC_MAX_COLUNAS && x_coluna(c_fim) < jan->larg) c_fim++;
+
+    desenhar_zona(fo, l_ini, l_fim, c_ini, c_fim);
+    if (fo->cong_l) {                                    /* las filas inmovilizadas tapan lo que se desplaza bajo ellas */
+        g_retangulo(jan, MAC_LARGC, gy, gl, Hf, COR_BRANCO);
+        desenhar_zona(fo, 0, fo->cong_l, c_ini, c_fim);
     }
+    if (fo->cong_c) {
+        g_retangulo(jan, MAC_LARGC, gy, Wf, ga, COR_BRANCO);
+        desenhar_zona(fo, l_ini, l_fim, 0, fo->cong_c);
+        desenhar_zona(fo, 0, fo->cong_l, 0, fo->cong_c);
+    }
+    if (fo->cong_l) g_linha(jan, MAC_LARGC, gy + Hf - 1, jan->larg, gy + Hf - 1, W98_SOMBRA);
+    if (fo->cong_c) g_linha(jan, MAC_LARGC + Wf - 1, gy, MAC_LARGC + Wf - 1, gy + ga - 1, W98_SOMBRA);
 
     desenhar_graficos();
 
     /* El marco de la selección (negro y grueso, como en Excel) y el cursor de edición. */
     int l1, c1, l2, c2;
-    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    selecao_expandida(&l1, &c1, &l2, &c2);
     int sx = x_coluna(c1), sw = off_col_x(c2 + 1) - off_col_x(c1);
-    int sy = y_linha(l1), sh = (l2 - l1 + 1) * MAC_ALTLINHA;
+    int sy = y_linha(l1), sh = off_lin(fo, l2 + 1) - off_lin(fo, l1);
     if (sw > 0 && sh > 0 && !(editando && livro.ativa != edit_folha)) {
         int y0 = sy, y1 = sy + sh;
         if (y0 < gy) y0 = gy;
@@ -4417,7 +4930,7 @@ static void desenhar_grelha(void)
         const fmt_t *f = fmt_de(celula_de(fo, cel_l, cel_c));
         int tam = f->tam ? f->tam : 10;
         int cx = ax + 3 + edit_cur * LETRA_L * tam / 10;
-        g_retangulo(jan, cx, ay + 2, 1, MAC_ALTLINHA - 4, W98_NEGRO);
+        g_retangulo(jan, cx, ay + 2, 1, linha_alt(fo, cel_l) - 4, W98_NEGRO);
     }
     desenhar_marcos_refs();
     desenhar_asa_relleno();
@@ -4426,34 +4939,20 @@ static void desenhar_grelha(void)
     /* La cabecera de las columnas: botones biselados, con la seleccionada hundida. */
     int hy = gy - MAC_CABECALH;
     g_retangulo(jan, 0, hy, jan->larg, MAC_CABECALH, W98_FACE);
-    for (int c = 0; c < ncol; c++) {
-        int x = x_coluna(c), lcol = fo->larg_col[c];
-        if (x + lcol <= MAC_LARGC) continue;
-        if (x >= jan->larg) break;
-        bool sel = c >= c1 && c <= c2;
-        g_retangulo(jan, x, hy, lcol, MAC_CABECALH, W98_FACE);
-        g_relevo(jan, x, hy, lcol, MAC_CABECALH, sel);
-        char nome[8];
-        nome_coluna(nome, sizeof nome, c);
-        int tx = x + (lcol - g_largura_texto(nome)) / 2 + (sel ? 1 : 0);
-        g_texto(jan, tx, hy + 1 + (sel ? 1 : 0), nome, W98_NEGRO);
-        if (sel) g_texto(jan, tx + 1, hy + 1 + 1, nome, W98_NEGRO);
+    for (int c = c_ini; c < c_fim; c++) desenhar_cab_col(fo, c, l1, c1, c2);
+    if (fo->cong_c) {
+        g_retangulo(jan, MAC_LARGC, hy, Wf, MAC_CABECALH, W98_FACE);
+        for (int c = 0; c < fo->cong_c; c++) desenhar_cab_col(fo, c, l1, c1, c2);
     }
     g_retangulo(jan, 0, hy, MAC_LARGC, MAC_CABECALH, W98_FACE);
     g_bisel(jan, 0, hy, MAC_LARGC, MAC_CABECALH, false);
 
     /* La cabecera de las filas. */
     g_retangulo(jan, 0, gy, MAC_LARGC, ga, W98_FACE);
-    for (int l = l_ini; l < l_fim; l++) {
-        int y = y_linha(l);
-        if (y + MAC_ALTLINHA <= gy || y >= gy + ga) continue;
-        bool sel = l >= l1 && l <= l2;
-        g_retangulo(jan, 0, y, MAC_LARGC, MAC_ALTLINHA, W98_FACE);
-        g_relevo(jan, 0, y, MAC_LARGC, MAC_ALTLINHA, sel);
-        char n[8];
-        formatar_texto(n, sizeof n, "%d", l + 1);
-        int tx = (MAC_LARGC - g_largura_texto(n)) / 2 + (sel ? 1 : 0);
-        g_texto(jan, tx, y + (MAC_ALTLINHA - LETRA_A) / 2 + (sel ? 1 : 0), n, W98_NEGRO);
+    for (int l = l_ini; l < l_fim; l++) desenhar_cab_linha(fo, l, l1, l2);
+    if (fo->cong_l) {
+        g_retangulo(jan, 0, gy, MAC_LARGC, Hf, W98_FACE);
+        for (int l = 0; l < fo->cong_l; l++) desenhar_cab_linha(fo, l, l1, l2);
     }
     /* La esquina izquierda de la cabecera cubre lo que desbordó por la izquierda. */
     g_retangulo(jan, 0, hy, MAC_LARGC, MAC_CABECALH, W98_FACE);
@@ -4536,8 +5035,8 @@ static void estatisticas(int32_t *soma, int *cont, int *numeros)
     if ((int64_t)(l2 - l1 + 1) * (c2 - c1 + 1) <= 40000) {
         for (int l = l1; l <= l2 && l < fo->linhas; l++)
             for (int c = c1; c <= c2 && c < fo->colunas; c++) {
-                celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
-                if (!ce->texto) continue;
+                celula_t *ce = celula_de(fo, l, c);
+                if (!ce || !ce->texto) continue;
                 t++;
                 if ((ce->flags & CEL_NUMERO) && !(ce->flags & CEL_TEXTO)) { s += ce->valor; n++; }
             }
@@ -4594,6 +5093,7 @@ static void estado_atualizar(void)
 /* Refleja el formato de la celda activa en las barras. */
 static void ui_atualizar(void)
 {
+    if (macaco_cinta_desenhar()) return;     /* con la cinta no hay barras que refrescar */
     const fmt_t *f = fmt_de(celula_de(folha_ativa(), cel_l, cel_c));
     barra_ferr_marcar(&ferr2, A_NEGRITA, (f->est & EST_NEGRITA) != 0);
     barra_ferr_marcar(&ferr2, A_CURSIVA, (f->est & EST_CURSIVA) != 0);
@@ -4615,8 +5115,7 @@ static void desenhar_tudo(void)
     g_retangulo(jan, 0, 0, jan->larg, jan->alt, W98_FACE);
     desenhar_grelha();                  /* primero la hoja: un gráfico que desborda por arriba lo tapan las barras */
     menus_atualizar();
-    barra_menu_desenhar(jan, &menu);
-    barra_ferr_desenhar(jan, &ferr1);
+    if (!macaco_cinta_desenhar()) { barra_menu_desenhar(jan, &menu); barra_ferr_desenhar(jan, &ferr1); }
     desenhar_formula();
     desenhar_pestanas();
     ui_atualizar();
@@ -4767,16 +5266,18 @@ static void assure_visivel_cel(int cl, int cc)
     calcular_offsets();
     int ga = grelha_a();
     /* La columna. */
-    if (cc < fo->colunas) {
-        int x = off_col[cc], fim = off_col[cc + 1];
-        if (x < desl_x) desl_x = x;
+    if (cc >= fo->cong_c && cc < MAC_MAX_COLUNAS) {
+        int x = off_col[cc], fim = off_col[cc + 1], Wf = off_col_x(fo->cong_c);
+        if (x < desl_x + Wf) desl_x = x - Wf;
         else if (fim > desl_x + (jan->larg - MAC_LARGC)) desl_x = fim - (jan->larg - MAC_LARGC);
     }
     if (desl_x < 0) desl_x = 0;
     /* La fila. */
-    int y = cl * MAC_ALTLINHA, fim = y + MAC_ALTLINHA;
-    if (y < desl_y) desl_y = y;
-    else if (fim > desl_y + ga) desl_y = fim - ga;
+    if (cl >= fo->cong_l) {
+        int y = off_lin(fo, cl), fim = y + linha_alt(fo, cl), Hf = off_lin(fo, fo->cong_l);
+        if (y < desl_y + Hf) desl_y = y - Hf;
+        else if (fim > desl_y + ga) desl_y = fim - ga;
+    }
     if (desl_y < 0) desl_y = 0;
 }
 
@@ -4788,7 +5289,19 @@ static void mover_para(int l, int c, bool extender)
     if (c < 0) c = 0;
     if (l >= MAC_MAX_LINHAS) l = MAC_MAX_LINHAS - 1;
     if (c >= MAC_MAX_COLUNAS) c = MAC_MAX_COLUNAS - 1;
+    {   /* las filas y columnas ocultas se saltan en la dirección del movimiento */
+        folha_t *fo = folha_ativa();
+        int dl = (l >= cel_l) ? 1 : -1, dc = (c >= cel_c) ? 1 : -1;
+        int l0 = l, c0 = c;
+        while (l >= 0 && l < MAC_MAX_LINHAS && linha_alt(fo, l) == 0) l += dl;
+        if (l < 0 || l >= MAC_MAX_LINHAS) l = cel_l;
+        while (c >= 0 && c < MAC_MAX_COLUNAS && coluna_larg(fo, c) == 0) c += dc;
+        if (c < 0 || c >= MAC_MAX_COLUNAS) c = cel_c;
+        (void)l0; (void)c0;
+    }
     if (!extender) {
+        fusao_t *u = fusao_em(folha_ativa(), l, c);     /* dentro de una combinación se cae en su esquina */
+        if (u) { l = u->l1; c = u->c1; }
         anc_l = l;
         anc_c = c;
     }
@@ -4798,23 +5311,45 @@ static void mover_para(int l, int c, bool extender)
     assure_visivel();
 }
 
-/* La esquina de la zona con datos (para el Ctrl+setas). */
+/* La esquina de la zona con datos (Ctrl+Fin): la última fila y columna con contenido. */
 static void limite_dados(int *l, int *c, bool *achou)
 {
     folha_t *fo = folha_ativa();
-    int ml = 0, mc = 0;
-    bool ache = false;
-    for (int i = 0; i < fo->linhas; i++)
-        for (int k = 0; k < fo->colunas; k++) {
-            celula_t *ce = &fo->celulas[(size_t)i * fo->colunas + k];
-            if (!ce->texto) continue;
-            ache = true;
-            if (i > ml) ml = i;
-            if (k > mc) mc = k;
-        }
-    *l = ml;
-    *c = mc;
-    *achou = ache;
+    int ul, uc;
+    folha_extremos(fo, &ul, &uc, true);
+    *achou = ul >= 0;
+    *l = ul < 0 ? 0 : ul;
+    *c = uc < 0 ? 0 : uc;
+}
+
+static bool celula_com_dados(folha_t *fo, int l, int c)
+{
+    celula_t *ce = celula_de(fo, l, c);
+    return ce && ce->texto;
+}
+
+/* Ctrl+flecha: salta al borde de la región de datos en esa dirección (o al extremo de la hoja). */
+static void salto_ctrl(int dl, int dc, bool shift)
+{
+    folha_t *fo = folha_ativa();
+    int l = cel_l, c = cel_c;
+    int nl = l + dl, nc = c + dc;
+    if (nl < 0 || nc < 0 || nl >= MAC_MAX_LINHAS || nc >= MAC_MAX_COLUNAS) return;
+    if (celula_com_dados(fo, l, c) && celula_com_dados(fo, nl, nc)) {
+        /* dentro de un bloque: hasta su último dato */
+        while (nl + dl >= 0 && nl + dl < MAC_MAX_LINHAS && nc + dc >= 0 && nc + dc < MAC_MAX_COLUNAS &&
+               celula_com_dados(fo, nl + dl, nc + dc)) { nl += dl; nc += dc; }
+    } else {
+        /* en un hueco (o al borde de un bloque): hasta el siguiente dato, o hasta el extremo */
+        while (!celula_com_dados(fo, nl, nc) && nl + dl >= 0 && nl + dl < MAC_MAX_LINHAS &&
+               nc + dc >= 0 && nc + dc < MAC_MAX_COLUNAS) { nl += dl; nc += dc; }
+    }
+    mover_para(nl, nc, shift);
+    {
+        char r[16];
+        nome_ref(r, sizeof r, cel_l, cel_c);
+        registrar("macaco: salto a %s", r);
+    }
 }
 
 /* ------------------------------------------------------------ acciones */
@@ -4822,18 +5357,15 @@ static void limite_dados(int *l, int *c, bool *achou)
 static bool guardar_como(void);
 
 /* Diálogos de archivo (D272): abrir ve todo; guardar pone la extensión .mxs. */
-#define FILTROS_MACACO_ABRIR "Libro Macaco (*.mxs)|*.mxs|Texto CSV (*.csv)|*.csv|Todos los archivos (*.*)|*"
-#define FILTROS_MACACO_GUARDAR "Libro Macaco (*.mxs)|*.mxs"
+#define FILTROS_MACACO_ABRIR "Libro Macaco (*.mxs)|*.mxs|Excel (*.xlsx)|*.xlsx|OpenDocument (*.ods)|*.ods|Texto CSV (*.csv)|*.csv|Todos los archivos (*.*)|*"
+#define FILTROS_MACACO_GUARDAR "Libro Macaco (*.mxs)|*.mxs|Excel (*.xlsx)|*.xlsx|OpenDocument (*.ods)|*.ods"
 #define FILTROS_CSV "Texto CSV (*.csv)|*.csv"
 #define FILTROS_PDF "Documento PDF (*.pdf)|*.pdf"
 
 static void libro_vaciar(void)
 {
     for (int f = 0; f < livro.n; f++) {
-        folha_t *fo = &livro.folha[f];
-        for (int k = 0; k < fo->linhas * fo->colunas; k++)
-            if (fo->celulas[k].texto) { libera(fo->celulas[k].texto); fo->celulas[k].texto = NULL; }
-        if (fo->celulas) { libera(fo->celulas); fo->celulas = NULL; }
+        folha_liberar(&livro.folha[f]);
     }
     memset(&livro, 0, sizeof livro);
     livro.n_fmts = 1;
@@ -4866,7 +5398,9 @@ static bool abrir_ficheiro(void)
 static bool guardar(void)
 {
     if (!caminho[0]) return guardar_como();
-    if (!guardar_ficheiro(caminho)) {
+    bool grabado = termina_en(caminho, ".xlsx") ? exportar_xlsx(caminho)
+                 : termina_en(caminho, ".ods") ? exportar_ods(caminho) : guardar_ficheiro(caminho);
+    if (!grabado) {
         char m[200];
         formatar_texto(m, sizeof m, "No se ha podido guardar\n%s", caminho);
         mensagem("Macaco", m);
@@ -4916,13 +5450,8 @@ static void inserir_linha(void)
 static void apagar_linha(void)
 {
     folha_t *fo = folha_ativa();
-    if (fo->linhas <= 1) {
-        por_aqui(estado, sizeof estado, "La hoja sólo tiene una línea");
-        return;
-    }
     desfazer_guardar_folha(livro.ativa);
     if (!linha_apagar(fo, cel_l)) return;
-    if (cel_l >= fo->linhas) cel_l = fo->linhas - 1;
     anc_l = cel_l;
     modificado = true;
     recalcular();
@@ -4945,13 +5474,8 @@ static void inserir_coluna(void)
 static void apagar_coluna(void)
 {
     folha_t *fo = folha_ativa();
-    if (fo->colunas <= 1) {
-        por_aqui(estado, sizeof estado, "La hoja sólo tiene una columna");
-        return;
-    }
     desfazer_guardar_folha(livro.ativa);
     if (!coluna_apagar(fo, cel_c)) return;
-    if (cel_c >= fo->colunas) cel_c = fo->colunas - 1;
     anc_c = cel_c;
     modificado = true;
     recalcular();
@@ -4970,8 +5494,8 @@ static void ajustar_larguras(void)
     folha_t *fo = folha_ativa();
     int l1, c1, l2, c2;
     intervalo_selecionado(&l1, &c1, &l2, &c2);
-    bool todas = (l1 == 0 && c1 == 0 && l2 == fo->linhas - 1 && c2 == fo->colunas - 1);
-    for (int c = 0; c < fo->colunas; c++)
+    bool todas = (l1 == 0 && c1 == 0 && l2 == MAC_MAX_LINHAS - 1 && c2 == MAC_MAX_COLUNAS - 1);
+    for (int c = 0; c < MAC_MAX_COLUNAS; c++)
         if (todas || (c >= c1 && c <= c2)) fo->larg_col[c] = v;
     modificado = true;
     registrar("macaco: anchos de las columnas = %d", v);
@@ -5002,10 +5526,7 @@ static void apagar_folha(int f)
     char m[120];
     formatar_texto(m, sizeof m, "¿Eliminar la hoja %s?", livro.folha[f].nome);
     if (!confirmar("Macaco", m)) return;
-    folha_t *fo = &livro.folha[f];
-    for (int k = 0; k < fo->linhas * fo->colunas; k++)
-        if (fo->celulas[k].texto) libera(fo->celulas[k].texto);
-    if (fo->celulas) libera(fo->celulas);
+    folha_liberar(&livro.folha[f]);
     for (int i = f; i < livro.n - 1; i++) livro.folha[i] = livro.folha[i + 1];
     memset(&livro.folha[livro.n - 1], 0, sizeof(folha_t));
     livro.n--;
@@ -5086,13 +5607,115 @@ static void formato_aplicar(int op, uint32_t v, const fmt_t *completo)
 {
     folha_t *fo = folha_ativa();
     int l1, c1, l2, c2;
-    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    intervalo_util(&l1, &c1, &l2, &c2);
     desfazer_guardar_folha(livro.ativa);
-    if (!folha_redimensionar(fo, l2 + 1 > fo->linhas ? l2 + 1 : fo->linhas, c2 + 1 > fo->colunas ? c2 + 1 : fo->colunas))
-        return;
     for (int l = l1; l <= l2; l++)
         for (int c = c1; c <= c2; c++)
-            aplicar_formato_celula(celula_de(fo, l, c), op, v, completo);
+            aplicar_formato_celula(celula_obter(fo, l, c), op, v, completo);
+    modificado = true;
+}
+
+/* ---- combinar celdas, ocultar filas y columnas, paneles inmovilizados (D332) ---- */
+
+/* modo 0 = combinar, 1 = combinar y centrar (si ya está combinado, separa), 2 = combinar cada fila. */
+static void combinar_celdas(int modo)
+{
+    folha_t *fo = folha_ativa();
+    int l1, c1, l2, c2;
+    selecao_expandida(&l1, &c1, &l2, &c2);
+    fusao_t *u = fusao_em(fo, l1, c1);
+    if (modo == 1 && u && u->l1 == l1 && u->c1 == c1 && u->l2 == l2 && u->c2 == c2) {
+        desfazer_guardar_folha(livro.ativa);
+        fusao_remover(fo, (int)(u - fo->fu));
+        modificado = true;
+        registrar("macaco: separadas las celdas %d,%d", l1 + 1, c1 + 1);
+        return;
+    }
+    if (l1 == l2 && c1 == c2) { por_aqui(estado, sizeof estado, "Seleccione más de una celda para combinar"); return; }
+    if (modo == 2 && c1 == c2) { por_aqui(estado, sizeof estado, "Seleccione más de una columna"); return; }
+    desfazer_guardar_folha(livro.ativa);
+    int n = 0;
+    for (int l = l1; l <= l2; l++) {
+        if (modo == 2) { if (fusao_juntar(fo, l, c1, l, c2)) n++; }
+        else if (l == l1 && fusao_juntar(fo, l1, c1, l2, c2)) n++;
+    }
+    /* Como Excel: se conserva el contenido de la celda de arriba a la izquierda de cada combinación y se vacía el resto
+     * (solo hasta donde hay datos: combinar columnas enteras no recorre millones de celdas vacías). */
+    int lfin = l2 < fo->linhas ? l2 : fo->linhas - 1, cfin = c2 < fo->colunas ? c2 : fo->colunas - 1;
+    for (int l = l1; l <= lfin; l++)
+        for (int c = c1; c <= cfin; c++) {
+            fusao_t *f = fusao_em(fo, l, c);
+            if (f && !(f->l1 == l && f->c1 == c)) celula_definir(fo, l, c, "");
+        }
+    if (modo == 1) aplicar_formato_celula(celula_obter(fo, l1, c1), FO_AL, AL_CENTRO, NULL);
+    anc_l = cel_l = l1;
+    anc_c = cel_c = c1;
+    modificado = true;
+    recalcular();
+    char a[16], z[16];
+    nome_ref(a, sizeof a, l1, c1);
+    nome_ref(z, sizeof z, l2, c2);
+    registrar("macaco: combinadas %s:%s (%d)", a, z, n);
+}
+
+static void separar_celdas(void)
+{
+    folha_t *fo = folha_ativa();
+    int l1, c1, l2, c2;
+    selecao_expandida(&l1, &c1, &l2, &c2);
+    desfazer_guardar_folha(livro.ativa);
+    int n = 0;
+    for (int i = fo->n_fu - 1; i >= 0; i--) {
+        fusao_t *u = &fo->fu[i];
+        if (u->l1 <= l2 && u->l2 >= l1 && u->c1 <= c2 && u->c2 >= c1) { fusao_remover(fo, i); n++; }
+    }
+    if (n) modificado = true;
+    registrar("macaco: separadas %d combinaciones", n);
+}
+
+static void ocultar_mostrar(bool filas, bool ocultar)
+{
+    folha_t *fo = folha_ativa();
+    int l1, c1, l2, c2;
+    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    int a = filas ? l1 : c1, b = filas ? l2 : c2;
+    int max = filas ? MAC_MAX_LINHAS : MAC_MAX_COLUNAS;
+    if (ocultar) {
+        if (b - a + 1 >= max) { por_aqui(estado, sizeof estado, "No se pueden ocultar todas"); return; }
+        for (int k = a; k <= b; k++) {
+            if (filas) { linha_prop_t *lp = lp_obter(fo, k); if (lp) lp->oculta = 1; }
+            else fo->col_oculta[k] = 1;
+        }
+        int nuevo = b + 1;                                  /* el cursor pasa a la siguiente visible */
+        while (nuevo < max && (filas ? linha_alt(fo, nuevo) : coluna_larg(fo, nuevo)) == 0) nuevo++;
+        if (nuevo >= max) { nuevo = a - 1; while (nuevo > 0 && (filas ? linha_alt(fo, nuevo) : coluna_larg(fo, nuevo)) == 0) nuevo--; }
+        if (nuevo < 0) nuevo = 0;
+        if (filas) anc_l = cel_l = nuevo; else anc_c = cel_c = nuevo;
+    } else {
+        int n = 0;
+        for (int k = (a > 0 ? a - 1 : 0); k <= b + 1 && k < max; k++) {
+            if (filas) { linha_prop_t *lp = lp_buscar(fo, k); if (lp && lp->oculta) { lp->oculta = 0; n++; } }
+            else if (fo->col_oculta[k]) { fo->col_oculta[k] = 0; n++; }
+        }
+        (void)n;
+    }
+    modificado = true;
+    registrar("macaco: %s %s %d-%d", ocultar ? "ocultadas" : "mostradas", filas ? "filas" : "columnas", a + 1, b + 1);
+}
+
+static void inmovilizar_paneles(void)
+{
+    folha_t *fo = folha_ativa();
+    if (fo->cong_l || fo->cong_c) {
+        fo->cong_l = fo->cong_c = 0;
+        registrar("macaco: paneles liberados");
+    } else {
+        if (cel_l == 0 && cel_c == 0) { por_aqui(estado, sizeof estado, "Elija la celda bajo y a la derecha de lo que quiere inmovilizar"); return; }
+        desl_x = desl_y = 0;
+        fo->cong_l = cel_l;
+        fo->cong_c = cel_c;
+        registrar("macaco: paneles inmovilizados filas=%d columnas=%d", fo->cong_l, fo->cong_c);
+    }
     modificado = true;
 }
 
@@ -5107,13 +5730,11 @@ static void bordas_aplicar(int escolha)
     /* 0 ninguno, 1 contorno, 2 todos, 3 abajo, 4 arriba, 5 izquierda, 6 derecha */
     folha_t *fo = folha_ativa();
     int l1, c1, l2, c2;
-    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    intervalo_util(&l1, &c1, &l2, &c2);
     desfazer_guardar_folha(livro.ativa);
-    if (!folha_redimensionar(fo, l2 + 1 > fo->linhas ? l2 + 1 : fo->linhas, c2 + 1 > fo->colunas ? c2 + 1 : fo->colunas))
-        return;
     for (int l = l1; l <= l2; l++)
         for (int c = c1; c <= c2; c++) {
-            celula_t *ce = celula_de(fo, l, c);
+            celula_t *ce = celula_obter(fo, l, c);
             unsigned b = fmt_de(ce)->bor;
             switch (escolha) {
             case 0: b = 0; break;
@@ -5138,7 +5759,7 @@ static void apagar_conteudo(void)
 {
     folha_t *fo = folha_ativa();
     int l1, c1, l2, c2;
-    intervalo_selecionado(&l1, &c1, &l2, &c2);
+    intervalo_util(&l1, &c1, &l2, &c2);
     desfazer_guardar_folha(livro.ativa);
     for (int l = l1; l <= l2; l++)
         for (int c = c1; c <= c2; c++) celula_definir(fo, l, c, "");
@@ -5206,6 +5827,11 @@ static void ir_para(const char *t)
     int c, l;
     if (!ler_coluna(&q, &c) || !ler_numero_linha(&q, &l)) { por_aqui(estado, sizeof estado, "Referencia no válida"); return; }
     mover_para(l, c, false);
+    {
+        char r[16];
+        nome_ref(r, sizeof r, cel_l, cel_c);
+        registrar("macaco: ir a %s", r);
+    }
     if (*q == ':') {
         q++;
         int c2, l2;
@@ -5217,8 +5843,9 @@ static void ir_para(const char *t)
 static void selecionar_tudo(void)
 {
     folha_t *fo = folha_ativa();
-    anc_l = 0; anc_c = 0;
-    cel_l = fo->linhas - 1; cel_c = fo->colunas - 1;
+    (void)fo;
+    anc_l = MAC_MAX_LINHAS - 1; anc_c = MAC_MAX_COLUNAS - 1;     /* la hoja entera: ancla abajo a la derecha, activa A1 */
+    cel_l = 0; cel_c = 0;
 }
 
 static void desfazer_acao(void)
@@ -5244,7 +5871,7 @@ static int pdf_alt_linha(folha_t *fo, int l)
 {
     int h = MAC_ALTLINHA * 15;
     for (int c = 0; c < fo->colunas; c++) {
-        const fmt_t *f = fmt_de(&fo->celulas[(size_t)l * fo->colunas + c]);
+        const fmt_t *f = fmt_de(celula_ler(fo, l, c));
         int t = (f->tam ? f->tam : 10) * 24;
         if (t > h) h = t;
     }
@@ -5257,12 +5884,8 @@ static int pdf_alt_linha(folha_t *fo, int l)
 static bool pdf_gerar(const char *titulo, uint8_t **dados, int *n)
 {
     folha_t *fo = folha_ativa();
-    int ul = -1, uc = -1;
-    for (int l = 0; l < fo->linhas; l++)
-        for (int c = 0; c < fo->colunas; c++) {
-            celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
-            if (ce->texto || ce->fmt) { if (l > ul) ul = l; if (c > uc) uc = c; }
-        }
+    int ul, uc;
+    folha_extremos(fo, &ul, &uc, false);
     if (ul < 0) { ul = 0; uc = 0; }
     pdfw_t *w = pdfw_criar(PDFW_A4);
     if (!w) return false;
@@ -5298,7 +5921,7 @@ static bool pdf_gerar(const char *titulo, uint8_t **dados, int *n)
                 int x = PDF_MARGEN;
                 for (int c = c0; c <= c1; c++) {
                     int lc = fo->larg_col[c] * 15;
-                    celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
+                    celula_t *ce = celula_ler(fo, l, c);
                     const fmt_t *f = fmt_de(ce);
                     if (f->rel & REL_ATIVO) pdfw_retangulo(w, x, y, lc, h, f->rel & 0xFFFFFF);
                     char t[MAC_TEXTO_CEL];
@@ -5409,13 +6032,17 @@ static void csv_importar_dialogo(void)
     registrar("macaco: csv importado %s (%d celdas)", c, n);
 }
 
-/* Sin ventana, para las pruebas: macaco --convertir entrada salida (.mxs/.csv -> .mxs/.csv/.pdf). */
+#include "macaco_formatos.h"      /* XLSX y ODS (D332) */
+
+/* Sin ventana, para las pruebas: macaco --convertir entrada salida (.mxs/.csv/.xlsx/.ods -> .mxs/.csv/.pdf/.xlsx/.ods). */
 static int modo_converter(const char *entrada, const char *saida)
 {
     if (!carregar_ficheiro(entrada)) { registrar("macaco: no se ha leído %s", entrada); return 1; }
     bool ok;
     if (termina_en(saida, ".pdf")) ok = pdf_exportar(saida, acha_ultimo_char(saida, '/') ? acha_ultimo_char(saida, '/') + 1 : saida);
     else if (termina_en(saida, ".csv")) ok = csv_gravar(saida);
+    else if (termina_en(saida, ".xlsx")) ok = exportar_xlsx(saida);
+    else if (termina_en(saida, ".ods")) ok = exportar_ods(saida);
     else ok = guardar_ficheiro(saida);
     registrar("macaco: convertido %s -> %s %s", entrada, saida, ok ? "bien" : "ERROR");
     return ok ? 0 : 1;
@@ -5651,9 +6278,9 @@ static void regiao_atual(int l, int c, int *l1, int *c1, int *l2, int *c2)
         for (int k = b - 1; k <= e + 1; k++) { if (a > 0 && TEM(a - 1, k)) arriba = true; if (TEM(d + 1, k)) abajo = true; }
         for (int k = a - 1; k <= d + 1; k++) { if (b > 0 && TEM(k, b - 1)) izq = true; if (TEM(k, e + 1)) der = true; }
         if (arriba && a > 0) { a--; mudou = true; }
-        if (abajo && d < fo->linhas - 1) { d++; mudou = true; }
+        if (abajo && d < MAC_MAX_LINHAS - 1) { d++; mudou = true; }
         if (izq && b > 0) { b--; mudou = true; }
-        if (der && e < fo->colunas - 1) { e++; mudou = true; }
+        if (der && e < MAC_MAX_COLUNAS - 1) { e++; mudou = true; }
     }
 #undef TEM
     *l1 = a; *c1 = b; *l2 = d; *c2 = e;
@@ -5859,8 +6486,8 @@ static void graf_nuevo_de_seleccion(grafico_t *g, int tipo)
     graf_autodetectar(g);
     calcular_offsets();
     g->x = off_col_x(c2 + 1) + 20;
-    g->y = l1 * MAC_ALTLINHA;
-    if (g->x - desl_x + g->w > jan->larg - MAC_LARGC) { g->x = desl_x + 20; g->y = (l2 + 2) * MAC_ALTLINHA; }
+    g->y = off_lin(folha_ativa(), l1);
+    if (g->x - desl_x + g->w > jan->larg - MAC_LARGC) { g->x = desl_x + 20; g->y = off_lin(folha_ativa(), l2 + 2); }
 }
 
 static int graf_libre(void)
@@ -5999,11 +6626,16 @@ static unsigned huella_livro(void)
     folha_t *fo = folha_ativa();
     unsigned h = ag_hash(2166136261u, &livro.ativa, sizeof livro.ativa);
     h = ag_hash(h, &livro.n, sizeof livro.n);
-    for (int i = 0; i < fo->linhas * fo->colunas; i++) {
-        celula_t *ce = &fo->celulas[i];
-        h = ag_hash(h, &ce->fmt, 1);
-        if (ce->texto) h = ag_hash(h, ce->texto, (int)tam_texto(ce->texto) + 1);
-        else h = ag_hash(h, "", 1);
+    {
+        int l = 0, c = -1;
+        celula_t *ce;
+        while (it_proximo(fo, &l, &c, &ce)) {
+            h = ag_hash(h, &l, sizeof l);
+            h = ag_hash(h, &c, sizeof c);
+            h = ag_hash(h, &ce->fmt, 1);
+            if (ce->texto) h = ag_hash(h, ce->texto, (int)tam_texto(ce->texto) + 1);
+            else h = ag_hash(h, "", 1);
+        }
     }
     int sel[4] = { anc_l, anc_c, cel_l, cel_c };
     return ag_hash(h, sel, sizeof sel);
@@ -6214,12 +6846,10 @@ static int exe_formato(ag_ctx_t *c, const ag_args_t *a, char *saida, int max)
     ag_arg_texto(a, "numero", nf, sizeof nf);
     folha_t *fo = folha_ativa();
     desfazer_guardar_folha(livro.ativa);
-    if (!folha_redimensionar(fo, r.l2 + 1 > fo->linhas ? r.l2 + 1 : fo->linhas, r.c2 + 1 > fo->colunas ? r.c2 + 1 : fo->colunas))
-        return formatar_texto(saida, (size_t)max, "error: sin memoria"), -1;
     int n = 0;
     for (int l = r.l1; l <= r.l2; l++)
         for (int cc = r.c1; cc <= r.c2; cc++) {
-            celula_t *ce = celula_de(fo, l, cc);
+            celula_t *ce = celula_obter(fo, l, cc);
             if (!ce) continue;
             if (neg >= 0) aplicar_formato_celula(ce, neg ? FO_EST_LIGAR : FO_EST_DESLIGAR, EST_NEGRITA, NULL);
             if (cur >= 0) aplicar_formato_celula(ce, cur ? FO_EST_LIGAR : FO_EST_DESLIGAR, EST_CURSIVA, NULL);
@@ -6354,7 +6984,7 @@ static int exe_grafico(ag_ctx_t *c, const ag_args_t *a, char *saida, int max)
     graf_autodetectar(&g);
     calcular_offsets();
     g.x = off_col_x(r.c2 + 1) + 20;
-    g.y = r.l1 * MAC_ALTLINHA;
+    g.y = off_lin(folha_ativa(), r.l1);
     graficos[k] = g;
     graf_sel = k;
     modificado = true;
@@ -6464,9 +7094,14 @@ static bool ag_evento(const evento_t *e)
 
 static void funcao_assistente(void);
 
+static void autoajustar_coluna(int c);
+static void autoajustar_linha(int l);
+#include "macaco_cinta.h"
+
 static void executar_acao(int a)
 {
     switch (a) {
+    case A_CLASICO: macaco_cinta_alternar(); break;
     case A_NOVO:
         if (modificado && !confirmar("Macaco", "El libro tiene cambios sin guardar.\n¿Descartarlos?")) return;
         novo_livro(); break;
@@ -6534,6 +7169,17 @@ static void executar_acao(int a)
         break;
     }
     case A_LARG: ajustar_larguras(); break;
+    case A_COMBINAR: combinar_celdas(0); break;
+    case A_COMB_CENTRAR: combinar_celdas(1); break;
+    case A_COMB_H: combinar_celdas(2); break;
+    case A_SEPARAR: separar_celdas(); break;
+    case A_OCULTAR_FILAS: ocultar_mostrar(true, true); break;
+    case A_MOSTRAR_FILAS: ocultar_mostrar(true, false); break;
+    case A_OCULTAR_COLS: ocultar_mostrar(false, true); break;
+    case A_MOSTRAR_COLS: ocultar_mostrar(false, false); break;
+    case A_AUTO_COL: { int l1, c1, l2, c2; intervalo_selecionado(&l1, &c1, &l2, &c2); for (int c = c1; c <= c2 && c - c1 < 64; c++) autoajustar_coluna(c); break; }
+    case A_AUTO_FILA: { int l1, c1, l2, c2; intervalo_selecionado(&l1, &c1, &l2, &c2); for (int l = l1; l <= l2 && l - l1 < 256; l++) autoajustar_linha(l); break; }
+    case A_INMOV: inmovilizar_paneles(); break;
     case A_ORD_A: ordenar_intervalo(true); break;
     case A_ORD_Z: ordenar_intervalo(false); break;
     case A_SOMA: autosoma(); break;
@@ -6674,38 +7320,37 @@ static void tratar_tecla(const evento_t *e)
     case TECLA_F3: if (shift) executar_acao(A_FUNCAO); return;
     case TECLA_F2: comecar_edicao(NULL); return;
     case TECLA_CIMA:
-        if (ctrl) {
-            int l, c; bool achou;
-            limite_dados(&l, &c, &achou);
-            mover_para(cel_l > 0 ? 0 : (achou ? l : 0), cel_c, shift);
-        } else mover_para(cel_l - 1, cel_c, shift);
+        if (ctrl) salto_ctrl(-1, 0, shift);
+        else mover_para(cel_l - 1, cel_c, shift);
         return;
     case TECLA_BAIXO:
-        if (ctrl) {
-            int l, c; bool achou;
-            limite_dados(&l, &c, &achou);
-            mover_para(achou ? l : cel_l, cel_c, shift);
-        } else mover_para(cel_l + 1, cel_c, shift);
+        if (ctrl) salto_ctrl(1, 0, shift);
+        else {
+            fusao_t *u = fusao_em(folha_ativa(), cel_l, cel_c);
+            mover_para((u ? u->l2 : cel_l) + 1, cel_c, shift);
+        }
         return;
     case TECLA_ESQUERDA:
-        if (ctrl) {
-            int l, c; bool achou;
-            limite_dados(&l, &c, &achou);
-            mover_para(cel_l, cel_c > 0 ? 0 : (achou ? c : 0), shift);
-        } else mover_para(cel_l, cel_c - 1, shift);
+        if (ctrl) salto_ctrl(0, -1, shift);
+        else mover_para(cel_l, cel_c - 1, shift);
         return;
     case TECLA_DIREITA:
-        if (ctrl) {
-            int l, c; bool achou;
-            limite_dados(&l, &c, &achou);
-            mover_para(cel_l, achou ? c : cel_c, shift);
-        } else mover_para(cel_l, cel_c + 1, shift);
+        if (ctrl) salto_ctrl(0, 1, shift);
+        else {
+            fusao_t *u = fusao_em(folha_ativa(), cel_l, cel_c);
+            mover_para(cel_l, (u ? u->c2 : cel_c) + 1, shift);
+        }
         return;
     case TECLA_HOME: mover_para(ctrl ? 0 : cel_l, 0, shift); return;
     case TECLA_END: {
         int l, c; bool achou;
         limite_dados(&l, &c, &achou);
         mover_para(ctrl && achou ? l : cel_l, achou ? c : cel_c, shift);
+        {
+            char r[16];
+            nome_ref(r, sizeof r, cel_l, cel_c);
+            registrar("macaco: salto a %s", r);
+        }
         return;
     }
     case TECLA_PGUP: mover_para(cel_l - (grelha_a() / MAC_ALTLINHA), cel_c, shift); return;
@@ -6726,26 +7371,35 @@ static void tratar_tecla(const evento_t *e)
     }
 }
 
+/* La columna que contiene un desplazamiento horizontal (en píxeles desde A, con el ancho de cada una). */
+static int coluna_em_x(int px)
+{
+    int c = 0;
+    if (px < 0) return 0;
+    while (c < MAC_MAX_COLUNAS - 1 && off_col[c + 1] <= px) c++;
+    return c;
+}
+
 /* La celda que hay en un punto de la ventana (sin mover nada). */
 static void celula_em(int mx, int my, int *l, int *c)
 {
     folha_t *fo = folha_ativa();
     int gy = grelha_y();
-    *l = (my - gy + desl_y) / MAC_ALTLINHA;
-    if (*l < 0) *l = 0;
-    if (*l >= MAC_MAX_LINHAS) *l = MAC_MAX_LINHAS - 1;
-    /* La columna: los anchos no son todos iguales. */
-    *c = 0;
-    int x = MAC_LARGC - desl_x;
-    while (*c < fo->colunas && mx >= x + fo->larg_col[*c]) { x += fo->larg_col[*c]; (*c)++; }
-    if (*c > fo->colunas) *c = fo->colunas;
-    if (*c >= MAC_MAX_COLUNAS) *c = MAC_MAX_COLUNAS - 1;
+    calcular_offsets();
+    int y = my - gy;
+    if (y >= cong_h()) y += desl_y;
+    *l = y < 0 ? 0 : linha_em_y(fo, y);
+    int x = mx - MAC_LARGC;
+    if (x >= cong_w()) x += desl_x;
+    *c = coluna_em_x(x);
 }
 
 static void clique_grelha(int mx, int my)
 {
     int l, c;
     celula_em(mx, my, &l, &c);
+    fusao_t *u = fusao_em(folha_ativa(), l, c);
+    if (u) { l = u->l1; c = u->c1; }
     cel_l = l;
     cel_c = c;
     anc_l = l;
@@ -6948,6 +7602,59 @@ static void arrastrar_para(int mx, int my)
     cel_c = c;
 }
 
+/* ---- autoajuste de columnas y filas (doble clic en el borde de la cabecera) ---- */
+
+static int texto_ancho_celda(celula_t *ce)
+{
+    char t[MAC_TEXTO_CEL];
+    celula_exibida(t, sizeof t, ce);
+    const fmt_t *f = fmt_de(ce);
+    int tam = f->tam ? f->tam : 10;
+    return (int)tam_texto(t) * LETRA_L * tam / 10 + (f->est & EST_NEGRITA ? 1 : 0);
+}
+
+/* Ajusta el ancho de la columna c a su contenido más ancho (como Excel y Calc). */
+static void autoajustar_coluna(int c)
+{
+    folha_t *fo = folha_ativa();
+    int w = 0, l = 0, cc = -1;
+    celula_t *ce;
+    while (it_proximo(fo, &l, &cc, &ce)) {
+        if (cc != c || !ce->texto) continue;
+        int t = texto_ancho_celda(ce) + 8;
+        if (t > w) w = t;
+    }
+    if (w == 0) w = MAC_LARGCOL;           /* una columna vacía vuelve al ancho por omisión */
+    if (w < 16) w = 16;
+    if (w > 400) w = 400;
+    fo->larg_col[c] = w;
+    modificado = true;
+    registrar("macaco: autoajuste de la columna %d = %d", c + 1, w);
+}
+
+/* Ajusta el alto de la fila l al texto más grande que lleva. */
+static void autoajustar_linha(int l)
+{
+    folha_t *fo = folha_ativa();
+    int h = MAC_ALTLINHA;
+    for (int c = 0; c < MAC_MAX_COLUNAS && fo->bandas && fo->bandas[l / PAG_L]; c += 1) {
+        celula_t *ce = celula_de(fo, l, c);
+        if (!ce) { c = (c / PAG_C + 1) * PAG_C - 1; continue; }
+        if (!ce->texto) continue;
+        const fmt_t *f = fmt_de(ce);
+        int t = LETRA_A * (f->tam ? f->tam : 10) / 10 + 4;
+        if (t > h) h = t;
+    }
+    linha_prop_t *lp = lp_obter(fo, l);
+    if (lp) lp->alt = (uint16_t)(h == MAC_ALTLINHA ? 0 : h);
+    modificado = true;
+    registrar("macaco: autoajuste de la fila %d = %d", l + 1, h);
+}
+
+static int redim_lin = -1, redim_y0, redim_h0;   /* arrastre del borde de una fila */
+static unsigned borde_ult_ms;                    /* instante del último clic en un borde (doble clic) */
+static int borde_ult;                            /* qué borde: columna c, o 1000 + fila */
+
 /* Clic en la cabecera de las columnas: borde (empieza a redimensionar), esquina (todo) o columna. */
 static void clique_cabecalho(int mx, int my)
 {
@@ -6956,33 +7663,51 @@ static void clique_cabecalho(int mx, int my)
     if (my < hy || my >= grelha_y()) return;
     if (mx < MAC_LARGC) { selecionar_tudo(); return; }
     calcular_offsets();
-    for (int c = 0; c < fo->colunas; c++) {
+    int c0 = coluna_em_x(mx - MAC_LARGC + (mx - MAC_LARGC >= cong_w() ? desl_x : 0));
+    for (int c = (c0 > 0 ? c0 - 1 : 0); c <= c0 && c < MAC_MAX_COLUNAS; c++) {
         int borde = x_coluna(c + 1);
-        if (mx >= borde - 3 && mx <= borde + 3) {
+        if (coluna_larg(fo, c) > 0 && mx >= borde - 3 && mx <= borde + 3) {
+            unsigned agora = tempo_ms();
+            if (borde_ult == c && borde_ult_ms && agora - borde_ult_ms < 500) {     /* doble clic: autoajuste */
+                borde_ult_ms = 0;
+                autoajustar_coluna(c);
+                return;
+            }
+            borde_ult = c; borde_ult_ms = agora;
             redim_col = c; redim_x0 = mx; redim_w0 = fo->larg_col[c];
             return;
         }
     }
-    int c = 0;
-    int x = MAC_LARGC - desl_x;
-    while (c < fo->colunas && mx >= x + fo->larg_col[c]) { x += fo->larg_col[c]; c++; }
-    if (c < fo->colunas) {
-        cel_c = c;
-        anc_c = c;
-        cel_l = fo->linhas - 1;
-        anc_l = 0;
-        assure_visivel();
-    }
+    int c = c0;
+    cel_c = c;
+    anc_c = c;
+    cel_l = 0;                       /* la columna entera: el ancla abajo del todo y la celda activa arriba */
+    anc_l = MAC_MAX_LINHAS - 1;
+    assure_visivel_cel(desl_y > 0 ? linha_em_y(fo, desl_y) : 0, c);
 }
 
 static void clique_cabecalho_linha(int my)
 {
     folha_t *fo = folha_ativa();
-    int l = (my - grelha_y() + desl_y) / MAC_ALTLINHA;
-    if (l < 0) l = 0;
-    if (l >= fo->linhas) l = fo->linhas - 1;
+    int y = my - grelha_y();
+    if (y >= cong_h()) y += desl_y;
+    int l = y < 0 ? 0 : linha_em_y(fo, y);
+    for (int k = (l > 0 ? l - 1 : 0); k <= l && k < MAC_MAX_LINHAS; k++) {
+        int borde = y_linha(k + 1);
+        if (linha_alt(fo, k) > 0 && my >= borde - 3 && my <= borde + 3) {
+            unsigned agora = tempo_ms();
+            if (borde_ult == 1000 + k && borde_ult_ms && agora - borde_ult_ms < 500) {
+                borde_ult_ms = 0;
+                autoajustar_linha(k);
+                return;
+            }
+            borde_ult = 1000 + k; borde_ult_ms = agora;
+            redim_lin = k; redim_y0 = my; redim_h0 = linha_alt(fo, k);
+            return;
+        }
+    }
     anc_l = l; cel_l = l;
-    anc_c = 0; cel_c = fo->colunas - 1;
+    anc_c = MAC_MAX_COLUNAS - 1; cel_c = 0;
 }
 
 /* La pestaña (hoja) bajo una posición, o -1. -2 = el botón "+". */
@@ -7051,6 +7776,7 @@ static void tratar_evento(const evento_t *e)
     /* asistente IA: F12 y los eventos del panel */
     if (e->tipo == EV_TECLA && e->tecla == TECLA_F12) { confirmar_edicao(); executar_acao(A_ASISTENTE); return; }
     if (ag_evento(e)) return;
+    if (macaco_cinta_evento(e)) return;
 
     /* menús y listas desplegables */
     if (e->tipo == EV_MENU) {
@@ -7090,7 +7816,7 @@ static void tratar_evento(const evento_t *e)
             desl_y += (int)e->cliques * MAC_ALTLINHA * RODA_LINHAS;
             if (desl_y < 0) desl_y = 0;
             folha_t *fo = folha_ativa();
-            int max = fo->linhas * MAC_ALTLINHA - grelha_a();
+            int max = off_lin(fo, MAC_MAX_LINHAS) - grelha_a();
             if (desl_y > max) desl_y = (max > 0) ? max : 0;
         }
         return;
@@ -7168,6 +7894,14 @@ static void tratar_evento(const evento_t *e)
         folha_ativa()->larg_col[redim_col] = w;
         return;
     }
+    if (e->tipo == EV_MOVER && redim_lin >= 0 && (e->botoes & 1)) {
+        int h = redim_h0 + e->y - redim_y0;
+        if (h < 6) h = 6;
+        if (h > 400) h = 400;
+        linha_prop_t *lp = lp_obter(folha_ativa(), redim_lin);
+        if (lp) { lp->alt = (uint16_t)h; lp->oculta = 0; }
+        return;
+    }
     if (e->tipo == EV_MOVER && (e->botoes & 1) && editando && (sen_arrasto || rf_modo)) {
         arrastrar_edicao(e->x, e->y);
         return;
@@ -7204,8 +7938,10 @@ static void tratar_evento(const evento_t *e)
         }
         if (arrastrando) assure_visivel();
         if (redim_col >= 0) { modificado = true; registrar("macaco: anchura de la columna %d = %d", redim_col + 1, folha_ativa()->larg_col[redim_col]); }
+        if (redim_lin >= 0) { modificado = true; registrar("macaco: altura de la fila %d = %d", redim_lin + 1, linha_alt(folha_ativa(), redim_lin)); }
         arrastrando = false;
         redim_col = -1;
+        redim_lin = -1;
         return;
     }
     if (e->tipo == EV_TECLA) {
@@ -7797,9 +8533,37 @@ static void dump(void)
     for (int f = 0; f < livro.n; f++) {
         folha_t *fo = &livro.folha[f];
         registrar("macaco: hoja %s %dx%d", fo->nome, fo->linhas, fo->colunas);
-        for (int l = 0; l < fo->linhas; l++)
-            for (int c = 0; c < fo->colunas; c++) {
-                celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
+        {   /* memoria de la hoja dispersa, la geometría y las combinaciones (para la prueba) */
+            int celdas = 0, bandas = 0, dl = 0, dc = -1;
+            celula_t *x;
+            while (it_proximo(fo, &dl, &dc, &x)) celdas++;
+            if (fo->bandas) for (int i = 0; i < MAC_NBANDAS; i++) if (fo->bandas[i]) bandas++;
+            int bytes = (fo->bandas ? MAC_NBANDAS * (int)sizeof(celula_t **) : 0) +
+                        bandas * (MAC_MAX_COLUNAS / PAG_C) * (int)sizeof(celula_t *) +
+                        fo->paginas * PAG_L * PAG_C * (int)sizeof(celula_t);
+            registrar("macaco: memoria %s celdas=%d paginas=%d bytes=%d teorico=%d", fo->nome, celdas, fo->paginas, bytes,
+                      MAC_MAX_LINHAS * MAC_MAX_COLUNAS * (int)sizeof(celula_t));
+            for (int i = 0; i < fo->n_fu; i++) {
+                char a[16], z[16];
+                nome_ref(a, sizeof a, fo->fu[i].l1, fo->fu[i].c1);
+                nome_ref(z, sizeof z, fo->fu[i].l2, fo->fu[i].c2);
+                registrar("macaco: combinada %s!%s:%s", fo->nome, a, z);
+            }
+            for (int k = 0; k < MAC_MAX_COLUNAS; k++)
+                if (fo->larg_col[k] != MAC_LARGCOL || fo->col_oculta[k]) {
+                    char cn[8];
+                    nome_coluna(cn, sizeof cn, k);
+                    registrar("macaco: columna %s!%s ancho=%d oculta=%d", fo->nome, cn, fo->larg_col[k], fo->col_oculta[k]);
+                }
+            for (int i = 0; i < fo->n_lp; i++)
+                if (fo->lp[i].alt || fo->lp[i].oculta)
+                    registrar("macaco: fila %s!%d alto=%d oculta=%d", fo->nome, fo->lp[i].l + 1, fo->lp[i].alt ? fo->lp[i].alt : MAC_ALTLINHA, fo->lp[i].oculta);
+            if (fo->cong_l || fo->cong_c) registrar("macaco: inmovilizado %s filas=%d columnas=%d", fo->nome, fo->cong_l, fo->cong_c);
+        }
+        int dl = 0, dc = -1;
+        celula_t *ce;
+        while (it_proximo(fo, &dl, &dc, &ce)) {
+                int l = dl, c = dc;
                 if (!ce->texto) continue;
                 char ref[16], val[32];
                 nome_ref(ref, sizeof ref, l, c);
@@ -7820,9 +8584,9 @@ static void dump(void)
                           g->por_filas ? 1 : 0, g->tit_ser ? 1 : 0, g->tit_cat ? 1 : 0, g->leyenda ? 1 : 0, g->titulo);
             }
         /* los formatos, para la prueba */
-        for (int l = 0; l < fo->linhas; l++)
-            for (int c = 0; c < fo->colunas; c++) {
-                celula_t *ce = &fo->celulas[(size_t)l * fo->colunas + c];
+        dl = 0; dc = -1;
+        while (it_proximo(fo, &dl, &dc, &ce)) {
+                int l = dl, c = dc;
                 if (!ce->fmt) continue;
                 const fmt_t *ft = fmt_de(ce);
                 char ref[16], vis[64];
@@ -7907,6 +8671,7 @@ static int modo_fx(void)
 int principal(int argc, char **argv)
 {
     ag_app_opciones(&argc, argv);          /* --url y --modelo del asistente (pruebas) */
+    macaco_cinta_args(&argc, argv);
     memset(&livro, 0, sizeof livro);
     livro.n_fmts = 1;
     /* El modo de prueba: carga el fichero y escribe las celdas en el registro. */
@@ -7935,10 +8700,13 @@ int principal(int argc, char **argv)
         }
     }
 
-    jan = jan_abrir("Macaco - Libro1", 900, 600);
+    int jl = 900, ja = 600;
+    cinta_tam_janela(&jl, &ja);
+    jan = jan_abrir("Macaco - Libro1", jl, ja);
     if (!jan) { registrar("macaco: no se ha abierto la ventana"); return 1; }
     jan_estilo(jan, JAN_REDIMENSIONAVEL, 640, 360);
     itens_iniciar();
+    macaco_cinta_iniciar();
     ag_registrar_herramientas();
     layout();
     por_aqui(estado, sizeof estado, "");

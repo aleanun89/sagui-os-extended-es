@@ -272,7 +272,7 @@ def cliente():
 
         # --- errores claros
         out = comando_ate(m, "rsync -a rsync://127.0.0.1/mod /home/x/; echo codigo=$?", 30)
-        verificar("rsync://" in out and "\ncodigo=1\n" in out, "rsync:// se rechaza con un mensaje")
+        verificar("conectar" in out and "\ncodigo=1\n" in out, "rsync:// a un puerto sin demonio da un error (D336: ya hay cliente de demonio)")
         out = comando_ate(m, f"rsync -a {ssh_e} a@127.0.0.1:/home/dst/ b@127.0.0.1:/home/x/; echo codigo=$?", 30)
         verificar("remoto a remoto" in out and "\ncodigo=1\n" in out, "remoto a remoto se rechaza")
         out = comando_ate(m, f"rsync -a {ssh_e} /home/org/ sagui@127.0.0.1:/home/dst2/ --rsync-path=noexiste; echo codigo=$?", 90)

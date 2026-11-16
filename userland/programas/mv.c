@@ -43,8 +43,9 @@ static int mover_um(const char *org, const char *dst)
     }
     int r = renomear(org, dst);
     if (r == ERRO_ACESSO) {
-        /* Entre la RAM y el pendrive el kernel no renombra: copia y borra. */
-        char *cp[] = { "cp", "-r", (char *)org, (char *)dst, NULL };
+        /* Entre la RAM y el pendrive el kernel no renombra: copia (con fechas y permisos, D341) y borra. */
+        char *cp[] = { "cp", "-rp", (char *)org, (char *)dst, NULL };
+
         char *rm[] = { "rm", "-rf", (char *)org, NULL };
         r = ERRO_ACESSO;
         if (correr("/bin/cp", cp) == 0 && correr("/bin/rm", rm) == 0) r = 0;

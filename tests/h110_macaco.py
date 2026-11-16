@@ -97,7 +97,7 @@ def principal():
         time.sleep(1)
 
         # ---- abrir el programa
-        m.digitar("macaco\n", 0.05)
+        m.digitar("macaco --clasico\n", 0.05)
         m.esperar_serial("macaco: pronto", 30)
         time.sleep(1.5)
         a = janela(m.serial(), "Macaco")

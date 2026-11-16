@@ -231,6 +231,7 @@ int pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *
     if (p->depois == p->antes && !p->nmover) { txt(m, max, "%s ya mide %u MB", vol, p->antes / PT_MB); return 0; }
     char tipo_fs[16];
     uint32_t ocupa = 0;
+    unsigned t0 = 0, t1 = 0;
     bool fat = false;
     /* Lo montado de lo que se toca, fuera (y se recuerda dónde estaba): antes de comprobarlo, porque
      * un ext2 montado dice «no desmontado bien» hasta que se desmonta. */
@@ -248,9 +249,11 @@ int pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *
         ng++;
     }
     /* 1. El sistema de archivos tiene que estar sano antes de nada (fsck de solo lectura). */
+    t0 = tempo_ms();   /* D338: el tiempo de cada paso, al registro */
     ocupa = fs_tamanho(vol, tipo_fs, sizeof tipo_fs);
     fat = ocupa && compara_texto(tipo_fs, "FAT32") == 0;
     if (ocupa && (r = fs_verificar(vol, cmp, sizeof cmp)) < 0) { txt(m, max, "comprobación previa de %s: %s. No se ha cambiado nada", vol, cmp); goto remontar_todo; }
+    registrar("particiones: tamaño de %s: comprobación previa en %u ms", vol, (t1 = tempo_ms()) - t0);
     if ((r = blocos_reservar(p->disco, conf | DBLOCO_CONF_MONTADO)) < 0) {
         txt(m, max, r == ERRO_DISCO_ARRANQUE ? "%s es el disco de arranque: hace falta confirmarlo" : "no se puede reservar %s: %s", p->disco, nome_erro(r));
         goto remontar_todo;
@@ -269,6 +272,9 @@ int pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *
     }
     /* 4. La tabla con las lógicas en su sitio nuevo (un solo EBR enlaza la cadena nueva). */
     if (p->nmover) {
+        unsigned t2 = tempo_ms();
+        registrar("particiones: tamaño de %s: %u MB copiados y releídos en %u ms", vol, p->mover_setores / PT_MB, t2 - t1);
+        t1 = t2;
         for (int j = 0; j < p->nmover; j++) {
             pt_part_t *l = &t.log[p->mover[j] - 5];
             l->inicio = p->novo_ini[j];
@@ -285,7 +291,9 @@ int pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *
             txt(m, max, "%s ya mide %u MB, pero su ext2 no ha crecido: %s", vol, p->depois / PT_MB, extra);
             goto soltar;
         }
+        unsigned t2 = tempo_ms();
         if ((r = fs_verificar(vol, cmp, sizeof cmp)) < 0) { txt(m, max, "%s ha crecido, pero la comprobación de después falla: %s", vol, cmp); goto soltar; }
+        registrar("particiones: tamaño de %s: sistema de archivos ampliado en %u ms y comprobado en %u ms", vol, t2 - t1, tempo_ms() - t2);
     }
     txt(m, max, "%s pasa de %u a %u MB%s%s%s", vol, p->antes / PT_MB, p->depois / PT_MB,
         p->nmover ? " (las particiones de detrás se han movido al final del disco)" : "", extra[0] ? "; " : "", extra);

@@ -362,7 +362,7 @@ def menu_item(m, w, menu_x, indices_y):
 
 
 def parte2(m, sacar, png, jpg):
-    pos = lanzar(m, "pluma")
+    pos = lanzar(m, "pluma --clasico")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     w = janela(m, "Documento1 - Pluma", pos)
@@ -491,7 +491,7 @@ def parte2(m, sacar, png, jpg):
     esperar_desde(m, "pluma: fechado", pos, 20)
     time.sleep(0.8)
     k7 = len(m.serial())
-    pos = lanzar(m, "pluma /usb/gui296.rtf")
+    pos = lanzar(m, "pluma --clasico /usb/gui296.rtf")
     esperar_desde(m, "pluma: aberto /usb/gui296.rtf", pos, 40)
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(2.0)

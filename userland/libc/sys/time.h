@@ -16,6 +16,9 @@ struct timezone {
     int tz_dsttime;
 };
 int gettimeofday(struct timeval *tv, void *tz);
+int utimes(const char *caminho, const struct timeval tv[2]);   /* D341: [0] acceso, [1] modificación */
+int futimes(int fd, const struct timeval tv[2]);
+
 #define timerclear(t) ((t)->tv_sec = (t)->tv_usec = 0)
 #define timerisset(t) ((t)->tv_sec || (t)->tv_usec)
 #define timercmp(a, b, CMP) (((a)->tv_sec == (b)->tv_sec) ? \

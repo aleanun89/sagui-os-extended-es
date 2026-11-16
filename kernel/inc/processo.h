@@ -41,6 +41,8 @@ typedef struct processo {
     int32_t     como_uid, como_gid;   /* USU_COMO: identidad del próximo hijo (-1 = la propia) */
     bool        de_servico;       /* desciende del gestor de servicios: no es la sesión local */
     uint16_t    umask;            /* D282: lo que se quita a los permisos de lo que crea (022) */
+    char        casa_conta[40];   /* D340: la carpeta personal de la cuenta («/home/ana»): lo que pide en /home va
+                                   * ahí; vacía = /home tal cual (sagui, root, servicios). Heredada */
     espaco_t    espaco;
     uint32_t    pilha_kernel;     /* base (física = virtual) */
     quadro_t   *quadro;           /* donde quedaron guardados los registros */

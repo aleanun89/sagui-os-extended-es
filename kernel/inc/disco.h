@@ -110,6 +110,7 @@ disco_t *disco_toca_protegida(disco_t *d, uint32_t lba, uint32_t n);
 /* ¿La tabla (MBR y cadena de EBR) que quedaría al escribir n sectores desde lba con el
  * contenido k conserva todas las particiones protegidas igual (inicio, tamaño y tipo)? */
 bool     disco_tabela_conserva(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *k);
+void     disco_tabela_esquecer(disco_t *d, uint32_t lba, uint32_t n);   /* D338: n = 0, del todo */
 
 /* Montar por el nombre antiguo ("usb0" en /usb) y desmontar todo de un disco. */
 int      disco_montar(disco_t *d);

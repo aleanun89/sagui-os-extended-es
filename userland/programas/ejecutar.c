@@ -4,6 +4,8 @@
  *   ejecutar               "Ejecutar...": pide una línea de comando y abre el programa
  *   ejecutar --reiniciar   "Reiniciar...": pregunta antes de reiniciar la PC
  *   ejecutar --apagar      "Apagar...": pregunta antes de apagar la PC (D113)
+ *   ejecutar --cerrar-sesion     "Cerrar sesión...": pregunta y vuelve a la pantalla de inicio de sesión (D340)
+ *   ejecutar --cambiar-usuario   "Cambiar de usuario...": lo mismo, empezando en otra cuenta
  *
  * El kernel no dibuja cajas de texto ni botones (eso es de la libsagui, en el
  * anillo 3); por eso el menú Inicio llama a este programa en vez de preguntar
@@ -35,6 +37,18 @@ static int apagar_pc(void)
     return 0;
 }
 
+/* D340: cerrar la sesión (o cambiar de usuario) cierra todos los programas de la sesión. */
+static int sair_sessao(int modo)
+{
+    const char *tit = modo == USU_SAIR_CAMBIAR ? _("Cambiar de usuario") : _("Cerrar sesión");
+    if (!confirmar(tit, _("Se cerrarán todos los programas de esta sesión.\nLo que no esté guardado se perderá. ¿Seguir?")))
+        return 0;
+    int r = usuario_op(USU_CERRAR_SESION, modo, 0);
+    registrar("ejecutar: %s -> %d", modo == USU_SAIR_CAMBIAR ? "cambiar de usuario" : "cerrar sesion", r);
+    if (r < 0) mensagem(tit, nome_erro(r));
+    return 0;
+}
+
 /* Divide la línea en palabras (en el lugar), con "comillas" para nombres con espacio. */
 static int dividir(char *linha, char **argv)
 {
@@ -60,6 +74,8 @@ int principal(int argc, char **argv)
 {
     if (argc > 1 && compara_texto(argv[1], "--reiniciar") == 0) return reiniciar_pc();
     if (argc > 1 && compara_texto(argv[1], "--apagar") == 0) return apagar_pc();
+    if (argc > 1 && compara_texto(argv[1], "--cerrar-sesion") == 0) return sair_sessao(USU_SAIR_CERRAR);
+    if (argc > 1 && compara_texto(argv[1], "--cambiar-usuario") == 0) return sair_sessao(USU_SAIR_CAMBIAR);
     static char linha[160], copia[160], caminho[CAMINHO_MAX];
     for (;;) {
         if (!pedir_texto("Ejecutar", "Escribe el nombre de un programa y sus\nargumentos (por ejemplo: editor /sobre.txt).",

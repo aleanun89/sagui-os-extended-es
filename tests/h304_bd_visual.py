@@ -165,7 +165,7 @@ def principal():
         # ---------------------------------------------------------- 3. el Explorador con SQLite
         marca = len(m.serial())
         m.digitar("python /lib/python/basedatos/explorador.py %s &\n" % EJEMPLO, 0.03)
-        ex = janela(m, "Explorador de bases de datos", marca)
+        ex = janela(m, "Explorador SQLite", marca)             # v8.4.4 (D333): explorador.py es un alias del de SQLite
         esperar(m, "exploradorbd: Abierta ejemplo.db (2 tablas)", marca)
         time.sleep(1.5)
         m.captura("H304-1-explorador")
@@ -221,7 +221,7 @@ def principal():
         m.captura("H304-5-estructura")
 
         # la pestaña Consulta: SQL con resultado
-        m.clique(*boton(s, "Consulta"))
+        m.clique(*boton(s, "SQL"))                             # la pestaña Consulta se llama SQL desde la v8.4.4
         time.sleep(0.8)
         s = sonda(m, ex)
         marca = len(m.serial())
@@ -278,13 +278,13 @@ def principal():
         verificar(not re.search(r"^litemonkey\s+(en marcha|activo|corriendo)", out, re.M), "lite-monkey no está arrancado de serie")
         marca = len(m.serial())
         m.digitar("python /lib/python/basedatos/explorador.py litemonkey://127.0.0.1:7979/tienda &\n", 0.03)
-        ex2 = janela(m, "Explorador de bases de datos", marca)
+        ex2 = janela(m, "Explorador lite-monkey", marca)
         janela(m, "lite-monkey", marca)                                  # «no está arrancado: ¿arrancarlo?»
         time.sleep(0.8)
         m.captura("H304-10a-lmk-arrancar")
         m.tecla("ret", 1.0)                                              # Sí
         esperar(m, "exploradorbd: Arrancando el servicio litemonkey", marca)
-        esperar(m, "exploradorbd: Abierta 127.0.0.1:7979/tienda", marca, 120)
+        esperar(m, "exploradorbd: Abierta 127.0.0.1:7979", marca, 120)
         verificar(True, "el Explorador ofrece arrancar el servicio y conecta")
         time.sleep(1)
         cerrar(m, ex2)
@@ -296,25 +296,28 @@ def principal():
         verificar("3" in out, "lmk insertó tres documentos")
         marca = len(m.serial())
         m.digitar("python /lib/python/basedatos/explorador.py litemonkey://127.0.0.1:7979/tienda &\n", 0.03)
-        ex3 = janela(m, "Explorador de bases de datos", marca)
-        esperar(m, "exploradorbd: Abierta 127.0.0.1:7979/tienda (1 tablas)", marca, 60)
+        ex3 = janela(m, "Explorador lite-monkey", marca)
+        esperar(m, "exploradorbd: Abierta 127.0.0.1:7979", marca, 60)
         time.sleep(1.5)
         s = sonda(m, ex3)
         marca = len(m.serial())
         m.clique(*nodo(s, "productos"))
-        esperar(m, "exploradorbd: productos: 3 filas", marca)
+        esperar(m, "exploradorbd: productos: 3 documentos", marca)
         time.sleep(0.6)
+        s = sonda(m, ex3)
+        m.clique(*boton(s, "Tabla"))                       # el Explorador lite-monkey arranca en la vista de árbol
+        time.sleep(0.8)
         s = sonda(m, ex3)
         textos = list(s["_rejilla"].values())
         verificar("cafe" in textos and "te" in textos and "pan" in textos, "los documentos insertados con lmk salen en el Explorador: %s" % textos[:12])
         cols = [c[0] for c in s["cab"]]
         verificar(cols[0] == "_id" and "nombre" in cols and "precio" in cols and "tags" in cols, "las columnas son la unión de los campos: %s" % cols)
         m.captura("H304-10-lmk")
-        m.clique(*boton(s, "Estructura"))
+        m.clique(*boton(s, "Esquema"))
         time.sleep(1.0)
         s = sonda(m, ex3)
-        tipos = list(s["_rejilla_cols"].values())
-        verificar("entero|real" in tipos or "real" in tipos, "la pestaña Estructura enseña los campos deducidos: %s" % tipos)
+        tipos = list(s["_rejilla_esq"].values())
+        verificar(any(t.startswith("real") for t in tipos), "la pestaña Esquema enseña los campos deducidos: %s" % tipos)
         m.captura("H304-11-lmk-estructura")
         cerrar(m, ex3)
         time.sleep(1.5)

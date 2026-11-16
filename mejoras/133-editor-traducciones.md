@@ -1,6 +1,6 @@
 # 133 — Editor de traducciones propio, al estilo de Poedit (v8.4.4)
 
-- **Estado:** pendiente (v8.4.4)
+- **Estado:** hecho (v8.4.4, D335, prueba h338)
 - **Prioridad:** media-alta
 - **Alta:** 2026-11-15
 

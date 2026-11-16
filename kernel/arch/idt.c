@@ -251,6 +251,11 @@ void irq_registrar(uint8_t irq, manipulador_t m)
 #define ATENDENTES 4
 static bool (*atendentes[16][ATENDENTES])(void);
 
+/* D338: en la IRQ que se está tratando, ¿la reconoció ya como suya algún atendedor? El manipulador
+ * principal (la red) lo mira antes de contarla como «sin causa». */
+static volatile bool irq_atendida;
+bool irq_atendida_por_outro(void) { return irq_atendida; }
+
 void irq_compartilhar(uint8_t irq, bool (*atender)(void))
 {
     if (irq >= 16) return;
@@ -317,12 +322,21 @@ quadro_t *tratar_interrupcao(quadro_t *q)
         contagem[irq]++;
         if (!(contagem[irq] & 255)) tormenta_medir(irq);
         tormenta_vigiar();
+        bool atendeu = false;
         for (int k = 0; k < ATENDENTES && atendentes[irq][k]; k++)
-            atendentes[irq][k]();
+            atendeu |= atendentes[irq][k]();
+        irq_atendida = atendeu;
         if (manipuladores[v])
             r = manipuladores[v](r);
         if (extras[irq])
             r = extras[irq](r);
+        /* D338: un atendedor (xHCI, sonido, ACPI) despierta a quien esperaba su dispositivo, pero no
+         * cambia de proceso. Si lo que corría era el proceso ocioso y nadie ha cambiado ya, se cambia
+         * ahora: si no, el que despertó esperaba al tic siguiente (10 ms por cada orden USB). */
+        if (atendeu && r == q) {
+            processo_t *p = processo_atual();
+            if (p && p->pid == 0) r = escalonar(r);
+        }
         (*n)--;
         irq_fim(irq);
         uint32_t cpu = cpu_atual();

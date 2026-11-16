@@ -165,3 +165,14 @@ msgstr "Pasta:"
 msgid "Aceptar"
 msgstr "OK"
 
+#: userland/programas/macaco_cinta.h
+msgid "Combinar y centrar"
+msgstr "Mesclar e centralizar"
+
+#: userland/programas/macaco_cinta.h
+msgid "Separar celdas"
+msgstr "Separar células"
+
+#: userland/programas/macaco_cinta.h
+msgid "Inmovilizar paneles"
+msgstr "Congelar painéis"

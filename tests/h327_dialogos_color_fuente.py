@@ -144,7 +144,7 @@ def fuente(m):
 
 
 def combo(m):
-    pos = lanzar(m, "pluma")
+    pos = lanzar(m, "pluma --clasico")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     w = janela(m, "Documento1 - Pluma", pos)

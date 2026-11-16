@@ -456,8 +456,12 @@ msgid "VisualPythonS (diseñador)"
 msgstr "VisualPythonS (designer)"
 
 #: kernel/gui/barra.c:944
-msgid "Explorador de bases de datos"
-msgstr "Explorador de bancos de dados"
+msgid "Explorador SQLite"
+msgstr "Explorador SQLite"
+
+#: kernel/gui/barra.c:945
+msgid "Explorador lite-monkey"
+msgstr "Explorador lite-monkey"
 
 #: kernel/gui/barra.c:945
 msgid "Pluma (procesador de textos)"
@@ -816,3 +820,71 @@ msgstr "Parando os serviços..."
 #: kernel/gui/janelas.c
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
 msgstr "Não foi encontrada a partição de aplicativos (/apps): este PC não enxerga bem o disco de inicialização. Alguns aplicativos não estarão disponíveis. Use saguios-completo.img (mais informações: docs/imagenes.md)."
+
+#: kernel/gui/barra.c:937
+msgid "Traductor"
+msgstr "Tradutor"
+
+#: kernel/gui/barra.c
+msgid "Cerrar sesión..."
+msgstr "Encerrar sessão..."
+
+#: kernel/gui/barra.c
+msgid "Cambiar de usuario..."
+msgstr "Trocar de usuário..."
+
+#: kernel/gui/sessao.c
+msgid "No se pudo iniciar la sesión."
+msgstr "Não foi possível iniciar a sessão."
+
+#: kernel/gui/sessao.c
+msgid "Escribe la contraseña."
+msgstr "Digite a senha."
+
+#: kernel/gui/sessao.c
+msgid "No se puede comprobar la contraseña: el gestor de servicios no responde."
+msgstr "Não é possível verificar a senha: o gerenciador de serviços não responde."
+
+#: kernel/gui/sessao.c
+msgid "Cerrando la sesión..."
+msgstr "Encerrando a sessão..."
+
+#: kernel/gui/sessao.c
+msgid "Iniciando la sesión..."
+msgstr "Iniciando a sessão..."
+
+#: kernel/gui/sessao.c
+msgid "Iniciar sesión"
+msgstr "Iniciar sessão"
+
+#: kernel/gui/sessao.c
+msgid "Elige tu cuenta:"
+msgstr "Escolha sua conta:"
+
+#: kernel/gui/sessao.c
+msgid "sin contraseña"
+msgstr "sem senha"
+
+#: kernel/gui/sessao.c
+msgid "Contraseña:"
+msgstr "Senha:"
+
+#: kernel/gui/sessao.c
+msgid "Esta cuenta no tiene contraseña: pulsa Entrar."
+msgstr "Esta conta não tem senha: clique em Entrar."
+
+#: kernel/gui/sessao.c
+msgid "Entrar"
+msgstr "Entrar"
+
+#: kernel/gui/sessao.c
+msgid "Apagar"
+msgstr "Desligar"
+
+#: kernel/gui/sessao.c
+msgid "Reiniciar"
+msgstr "Reiniciar"
+
+#: kernel/gui/barra.c
+msgid "Conversor de audio"
+msgstr "Conversor de áudio"

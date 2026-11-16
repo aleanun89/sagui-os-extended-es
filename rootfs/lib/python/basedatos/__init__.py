@@ -193,6 +193,28 @@ def _q(nombre):
     return '"' + str(nombre).replace('"', '""') + '"'
 
 
+def _literal_sql(v, volcado=False):
+    """Un valor como literal SQL (solo para DEFAULT del asistente y para el volcado; los datos del usuario
+    siempre van enlazados)."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "1" if v else "0"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, (bytes, bytearray)):
+        return "X'" + "".join("%02x" % b for b in v) + "'"
+    t = str(v)
+    if not volcado:
+        try:
+            float(t)
+            return t
+        except ValueError:
+            if t.upper() in ("NULL", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"):
+                return t.upper()
+    return "'" + t.replace("'", "''") + "'"
+
+
 _OPS_SQL = {"$eq": "=", "$ne": "<>", "$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}
 
 
@@ -430,6 +452,167 @@ class SQLite(BaseDatos):
         self._sql("DROP TABLE %s" % _q(nombre))
         self._clave = {}
         self._fin_escritura()
+
+    # --- v8.4.4 (D333): lo que necesita el Explorador SQLite
+    def objetos(self):
+        """Todo lo que hay en la base: [{"tipo": table|view|index|trigger, "nombre", "tabla", "sql"}]."""
+        _, f = self.consulta_sql("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' "
+                                 "ORDER BY type, name")
+        return [{"tipo": x[0], "nombre": x[1], "tabla": x[2], "sql": x[3] or ""} for x in f]
+
+    def sql_de(self, nombre):
+        _, f = self.consulta_sql("SELECT sql FROM sqlite_master WHERE name = ?", [nombre])
+        return (f[0][0] or "") if f else ""
+
+    def claves_foraneas(self, tabla):
+        _, f = self.consulta_sql("PRAGMA foreign_key_list(%s)" % _q(tabla))
+        return [{"desde": x[3], "tabla": x[2], "a": x[4]} for x in f]
+
+    def definicion(self, tabla):
+        """Las columnas con todo lo que el asistente edita: [{"nombre", "tipo", "pk", "obligatorio", "defecto",
+        "unico", "fk"}] (fk = «tabla(columna)» o "")."""
+        esq = self.esquema(tabla)
+        fks = dict((x["desde"], "%s(%s)" % (x["tabla"], x["a"] or "")) for x in self.claves_foraneas(tabla))
+        unicos = set()
+        for ix in self.indices(tabla):
+            if ix["unico"] and len(ix["columnas"]) == 1:
+                unicos.add(ix["columnas"][0])
+        npk = len([c for c in esq if c["clave"]])
+        r = []
+        for c in esq:
+            r.append({"nombre": c["nombre"], "tipo": c["tipo"] or "", "pk": c["clave"] and npk == 1,
+                      "obligatorio": c["obligatorio"], "defecto": c["defecto"],
+                      "unico": c["nombre"] in unicos and not c["clave"], "fk": fks.get(c["nombre"], "")})
+        return r
+
+    @staticmethod
+    def sql_crear(nombre, defs):
+        """El CREATE TABLE de una lista de definiciones (las del asistente de columnas)."""
+        if not defs:
+            raise ErrorConsulta("una tabla necesita al menos una columna")
+        partes, vistos = [], set()
+        for d in defs:
+            n = str(d.get("nombre", "")).strip()
+            if not n:
+                raise ErrorConsulta("una columna no tiene nombre")
+            if n.lower() in vistos:
+                raise ErrorConsulta("la columna «%s» está repetida" % n)
+            vistos.add(n.lower())
+            tipo = str(d.get("tipo") or "TEXT").upper()
+            if tipo not in TIPOS_SQL:
+                raise ErrorConsulta("tipo de columna no válido: " + tipo)
+            t = "%s %s" % (_q(n), tipo)
+            if d.get("pk"):
+                t += " PRIMARY KEY"
+            if d.get("obligatorio") and not d.get("pk"):
+                t += " NOT NULL"
+            if d.get("unico") and not d.get("pk"):
+                t += " UNIQUE"
+            df = d.get("defecto")
+            if df not in (None, ""):
+                t += " DEFAULT " + _literal_sql(df)
+            fk = str(d.get("fk") or "").strip()
+            if fk:
+                ft, _, fc = fk.partition("(")
+                t += " REFERENCES %s%s" % (_q(ft.strip()), "(%s)" % _q(fc.rstrip(")").strip()) if fc.strip(") ") else "")
+            partes.append(t)
+        return "CREATE TABLE %s (%s)" % (_q(nombre), ", ".join(partes))
+
+    def crear_tabla_def(self, nombre, defs):
+        self._sql(self.sql_crear(nombre, defs))
+        self._clave = {}
+        self._fin_escritura()
+
+    def reconstruir(self, tabla, defs, origen=None):
+        """Cambia la estructura de una tabla (el recurso estándar de SQLite): crea la nueva, copia los datos de las
+        columnas que siguen (`origen` = {nombre nuevo: nombre viejo}; por defecto, el mismo nombre), borra la vieja y
+        renombra. Conserva los índices que siguen siendo válidos. Todo en una transacción."""
+        viejas = [c["nombre"] for c in self.esquema(tabla)]
+        origen = origen or {}
+        copiar = []
+        for d in defs:
+            v = origen.get(d["nombre"], d["nombre"])
+            if v in viejas:
+                copiar.append((d["nombre"], v))
+        idx = [x for x in self.objetos() if x["tipo"] == "index" and x["tabla"] == tabla and x["sql"]]
+        temp = tabla + "__nueva"
+        propia = not self._tx
+        if propia:
+            self.empezar()
+        try:
+            self._sql(self.sql_crear(temp, defs))
+            if copiar:
+                self._sql("INSERT INTO %s (%s) SELECT %s FROM %s" % (
+                    _q(temp), ", ".join(_q(a) for a, _ in copiar), ", ".join(_q(b) for _, b in copiar), _q(tabla)))
+            self._sql("DROP TABLE %s" % _q(tabla))
+            self._sql("ALTER TABLE %s RENAME TO %s" % (_q(temp), _q(tabla)))
+            for x in idx:
+                try:
+                    self._sql(x["sql"])
+                except ErrorBD:
+                    pass
+            if propia:
+                self.confirmar()
+        except ErrorBD:
+            if propia:
+                self.revertir()
+            raise
+        self._clave = {}
+
+    def crear_indice(self, tabla, nombre, columnas, unico=False):
+        if not columnas:
+            raise ErrorConsulta("un índice necesita al menos una columna")
+        self._sql("CREATE %sINDEX %s ON %s (%s)" % ("UNIQUE " if unico else "", _q(nombre), _q(tabla),
+                                                     ", ".join(_q(c) for c in columnas)))
+        self._fin_escritura()
+
+    def borrar_indice(self, nombre):
+        self._sql("DROP INDEX %s" % _q(nombre))
+        self._fin_escritura()
+
+    def integridad(self):
+        """PRAGMA integrity_check: la lista de problemas; ["ok"] si la base está sana."""
+        _, f = self.consulta_sql("PRAGMA integrity_check")
+        return [str(x[0]) for x in f]
+
+    def compactar(self):
+        """VACUUM (hay que estar fuera de una transacción)."""
+        if self._tx:
+            raise ErrorConsulta("escribe o deshaz los cambios pendientes antes de compactar")
+        self._sql("VACUUM")
+
+    def plan(self, sql, parametros=()):
+        """EXPLAIN QUERY PLAN de una sentencia: [(id, padre, detalle)]."""
+        _, f = self.consulta_sql("EXPLAIN QUERY PLAN " + sql, parametros)
+        return [(x[0], x[1], str(x[3])) for x in f]
+
+    def volcado(self):
+        """Una copia en SQL de toda la base (esquema y datos), como el .dump de sqlite3, en una lista de líneas."""
+        L = ["BEGIN TRANSACTION;"]
+        objs = self.objetos()
+        for o in objs:
+            if o["tipo"] == "table":
+                L.append(o["sql"] + ";")
+                cols, filas = self.consulta_sql("SELECT * FROM %s" % _q(o["nombre"]))
+                for f in filas:
+                    L.append("INSERT INTO %s VALUES(%s);" % (_q(o["nombre"]), ",".join(_literal_sql(v, True) for v in f)))
+        for o in objs:
+            if o["tipo"] in ("index", "view", "trigger") and o["sql"]:
+                L.append(o["sql"] + ";")
+        L.append("COMMIT;")
+        return L
+
+    def importar_filas(self, tabla, columnas, filas):
+        """Inserta muchas filas (listas de textos o valores) con parámetros enlazados. Devuelve cuántas."""
+        if not columnas:
+            raise ErrorConsulta("no hay columnas que importar")
+        sql = "INSERT INTO %s (%s) VALUES (%s)" % (_q(tabla), ", ".join(_q(c) for c in columnas), ",".join("?" * len(columnas)))
+        n = 0
+        for f in filas:
+            self._sql(sql, [(f[i] if i < len(f) else None) for i in range(len(columnas))])
+            n += 1
+        self._fin_escritura()
+        return n
 
     # --- datos
     def consultar(self, tabla, filtro=None, orden=None, limite=None, desplazamiento=0):
@@ -712,6 +895,101 @@ class LiteMonkey(BaseDatos):
         f = self._f(filtro, clave, todos)
         try:
             return self._col(tabla).delete_many(f).deleted_count
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    # --- v8.4.4 (D333): lo que necesita el Explorador lite-monkey
+    def bases_con_colecciones(self):
+        """[(base, [colecciones])] de todo el servidor."""
+        r = []
+        for b in self.bases():
+            try:
+                r.append((b, sorted(self._cli[b].list_collection_names())))
+            except self._m.errors.LiteMonkeyError:
+                r.append((b, []))
+        return r
+
+    def usar_base(self, base):
+        """Cambia la base con la que se trabaja (el servidor las crea al escribir)."""
+        self.nombre_base = base
+        self._db = self._cli[base]
+        self.origen = "litemonkey://%s:%d/%s" % (self.host, self.puerto, base)
+
+    def estadisticas(self, tabla):
+        """{"n": documentos, "tam": bytes de datos, "indices": cuántos}; lo que el servidor no dé, 0."""
+        try:
+            e = self._col(tabla).stats()
+        except self._m.errors.LiteMonkeyError as ex:
+            raise self._envolver(ex)
+        return {"n": int(e.get("count", 0) or 0), "tam": int(e.get("size", e.get("storageSize", 0)) or 0),
+                "indices": int(e.get("nindexes", 0) or 0)}
+
+    def consultar_proy(self, tabla, filtro=None, proyeccion=None, orden=None, limite=None, desplazamiento=0):
+        """Como consultar(), con proyección ({"campo": 1} o {"campo": 0})."""
+        try:
+            cur = self._col(tabla).find(self._filtro(filtro), proyeccion or None)
+            o = _orden_lista(orden)
+            if o:
+                cur = cur.sort(o)
+            if desplazamiento:
+                cur = cur.skip(int(desplazamiento))
+            if limite:
+                cur = cur.limit(int(limite))
+            return list(cur)
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def reemplazar(self, tabla, clave, documento):
+        """Sustituye el documento de esa clave por `documento` (sin _id; conserva el de la clave)."""
+        d = dict((k, v) for k, v in documento.items() if k != "_id")
+        try:
+            return self._col(tabla).replace_one(self._ids({"_id": clave}), d).matched_count
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def actualizar_op(self, tabla, filtro, operadores):
+        """update_many con un documento de operadores ($set, $inc...). Devuelve cuántos casan."""
+        try:
+            return self._col(tabla).update_many(self._filtro(filtro), operadores).matched_count
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def insertar_muchos(self, tabla, documentos):
+        try:
+            if not documentos:
+                return 0
+            return len(self._col(tabla).insert_many([dict(d) for d in documentos]).inserted_ids)
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def agregar(self, tabla, etapas):
+        """aggregate con una lista de etapas ($match, $group, $sort, $project, $limit...)."""
+        try:
+            return list(self._col(tabla).aggregate(list(etapas)))
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def crear_indice(self, tabla, campo, unico=False, descendente=False):
+        try:
+            return self._col(tabla).create_index([(campo, -1 if descendente else 1)], unique=bool(unico))
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def borrar_indice(self, tabla, nombre):
+        try:
+            self._col(tabla).drop_index(nombre)
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def borrar_base(self, base):
+        try:
+            self._cli.drop_database(base)
+        except self._m.errors.LiteMonkeyError as e:
+            raise self._envolver(e)
+
+    def explicar(self, tabla, filtro=None):
+        try:
+            return self._col(tabla).find(self._filtro(filtro)).explain()
         except self._m.errors.LiteMonkeyError as e:
             raise self._envolver(e)
 

@@ -31,3 +31,11 @@ incluye a la fuerza y redefine los nombres.
 Sin tocar el upstream: `cliente_rsync.c` (propio) hace lo de `client.c`/`fargs.c` con `executar()` y dos tuberías;
 `compat_sagui.c` añade `rs_read`/`rs_write` y un `poll` que vacían la salida de `ssh` a un búfer propio (tuberías de
 512 bytes del kernel sin interbloqueo), y conecta los modos de D282 (`stat`, `fchmodat`, modo al crear). Ver D314 (ampliación).
+
+## Dueños, XMIT_TOP_DIR y el demonio (v8.4.4, D336)
+
+- `flist.c`: el emisor manda el uid y el gid verdaderos (antes 0); el receptor guarda el uid (antes lo leía y lo ignoraba) y
+  marca con `XMIT_TOP_DIR` (0x01) las carpetas de la línea de órdenes: sin esa marca el rsync 3.x del otro lado no borra con `--delete`.
+- `downloader.c` y `uploader.c`: dueño y grupo con `rs_chownat` (PARQ_DONO, por ruta) en lugar de `fchown(fd, -1, gid)`.
+- `cliente_rsync.c` (propio) añade el cliente del demonio `rsync://` (texto del puerto 873 y después el protocolo de siempre por el socket).
+- Las fechas siguen sin fijarse: el sistema de archivos no tiene llamada para escribirlas (ver D336).

@@ -211,9 +211,9 @@ static void
 flist_copy_stat(struct flist *f, const struct stat *st)
 {
 	f->st.mode = st->st_mode;
-	/* SaguiOS (D314): sin base de usuarios ni de grupos, todo es root (0). */
-	f->st.uid = 0;
-	f->st.gid = 0;
+	/* SaguiOS (D336): el dueño y el grupo verdaderos (D282); el receptor los aplica si puede. */
+	f->st.uid = st->st_uid;
+	f->st.gid = st->st_gid;
 	f->st.size = st->st_size;
 	f->st.mtime = st->st_mtime;
 }
@@ -282,6 +282,13 @@ flist_send(struct sess *sess, int fdin, int fdout, const struct flist *fl,
 		 */
 
 		flag = FLIST_NAME_LONG;
+
+		/* D336: las carpetas de la linea de ordenes llevan XMIT_TOP_DIR (0x01): el rsync 3.x que recibe
+		 * solo borra (--delete) dentro de ellas y sus subcarpetas. Con origen "carpeta/" es ".";
+		 * sin la barra, la propia carpeta (una entrada sin barras). */
+		if (S_ISDIR(f->st.mode) &&
+		    (strcmp(fn, ".") == 0 || (strcmp(fl[0].wpath, ".") != 0 && strchr(fn, '/') == NULL)))
+			flag |= 0x01;
 
 		LOG3(sess, "%s: sending file metadata: "
 			"size %jd, mtime %jd, mode %o",
@@ -623,13 +630,17 @@ flist_recv(struct sess *sess, int fd, struct flist **flp, size_t *sz)
 		} else
 			ff->st.mode = fflast->st.mode;
 
-		/* Conditional part: uid (se lee y se ignora, D314). */
+		/* Conditional part: uid (D336: se guarda y el receptor lo aplica si puede). */
 
-		if (sess->opts->preserve_uids &&
-		    !(FLIST_UID_SAME & flag) &&
-		    !io_read_int(sess, fd, &ival)) {
-			ERRX1(sess, "io_read_int");
-			goto out;
+		if (sess->opts->preserve_uids) {
+			if (!(FLIST_UID_SAME & flag)) {
+				if (!io_read_int(sess, fd, &ival)) {
+					ERRX1(sess, "io_read_int");
+					goto out;
+				}
+				ff->st.uid = ival;
+			} else if (fflast != NULL)
+				ff->st.uid = fflast->st.uid;
 		}
 
 		/* Conditional part: gid. */

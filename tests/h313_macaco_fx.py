@@ -175,7 +175,7 @@ def principal():
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
         fase_catalogo(m)
-        m.digitar("macaco\n", 0.05)
+        m.digitar("macaco --clasico\n", 0.05)
         m.esperar_serial("macaco: pronto", 30)
         time.sleep(1.5)
         a = janela(m.serial(), "Macaco")

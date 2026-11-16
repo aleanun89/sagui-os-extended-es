@@ -1,6 +1,6 @@
 # 098 - Usuarios y permisos
 
-- **Estado:** aprobada (fase 1 en **v8.0b7**; fases 2 y 3 en **v8.4**: antes v8.5, agrupada en la v8.4 por el mantenedor el 2026-11-15)
+- **Estado:** fase 1 en **v8.0b7** (D255), fase 2 en **v8.4** (D282), fase 3 en **v8.4.4** (D340); falta SSH y crontab por cuenta
 - **Prioridad:** alta (seguridad; hay `sshd` y `vncd`)
 - **Alta:** 2026-11-14
 - **Relacionadas:** servicios (D216), SSH (D250, D253, 052), VNC (097, D251, D252), sistemas de archivos
@@ -57,7 +57,7 @@ sobre todo robusta**.
 ## Criterios de aceptación
 - [x] Fase 1: identidades, llamadas privilegiadas, elevación, modo rescate (v8.0b7, D255; falta el diálogo gráfico de contraseña)
 - [x] Fase 2: permisos de ficheros (v8.4, D282, `h282_permisos.py`)
-- [ ] Fase 3: varios usuarios (v8.4)
+- [x] Fase 3: varios usuarios (v8.4.4, D340, `h340_varios_usuarios.py`; faltan SSH y crontab por cuenta)
 - [x] Test automático en `tests/` (`h254_usuarios.py`, fase 1)
 - [x] Decisión registrada en `docs/decisoes.md` (D255, fase 1)
 
@@ -69,3 +69,9 @@ sobre todo robusta**.
   ext2 con los suyos, ramdisk de root (`/home` de sagui, `/tmp` 1777, `/sistema` 0700), FAT32/ISO/UDF
   con `uid=`/`gid=`/`umask=`; `chmod`, `chown`, `chgrp`, `umask`, `ls -l` y Propiedades en Archivos;
   las rutas de D255 pasan a permisos, salvo unos pocos secretos que se protegen además por la ruta.
+- Fase 3 hecha (D340, rama `v8.4.4-usuarios`): pantalla de inicio de sesión del gestor de ventanas (directo con
+  una sola cuenta sin contraseña), Configuración > Usuarios (crear, borrar, renombrar, contraseña, grupo admin con
+  su propia contraseña), cerrar sesión y cambiar de usuario en Inicio. Cada cuenta nueva tiene `/home/<nombre>`
+  (0700) y sus programas lo ven como `/home` (el kernel traduce las rutas de quien no es root), así que la
+  configuración es por cuenta sin cambiar los programas; `sagui` conserva `/home`. Pendiente: SSH y crontab por
+  cuenta, inicio de sesión en la consola de texto.

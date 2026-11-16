@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit a231b6ac (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 7fd46611 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -482,7 +482,7 @@ na seção «Sagui 3D» de [`docs/decisoes.md`](docs/decisoes.md).
 
 ## Rede e HTTPS
 
-- **Rede cabeada** (D046, D047): drivers Intel e1000 e Realtek RTL8139, pilha IPv4 própria
+- **Rede cabeada** (D046, D047): drivers Intel e1000, Realtek RTL8139 e NE2000 (DP8390, PCI RTL8029 e ISA, D329), pilha IPv4 própria
   (ARP, ICMP, UDP, DHCP, DNS, TCP), loopback `127.0.0.1` e sockets como descritores.
   Comandos `ifconfig`, `dhcp`, `ping`, `nslookup`, `nc` e o navegador de texto **Cipó**
   (`cipo`).

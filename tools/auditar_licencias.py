@@ -82,6 +82,7 @@ GPL_AISLADA = "kernel/terceros/linux/"
 # MS-DOS, GPL-2.0 o posterior (D294); sus ficheros de MAME (src/hardware/mame/) son BSD-3-Clause.
 # userland/terceros/mgba/ es mGBA 0.10.5, el emulador de GBA/GB/GBC, MPL-2.0 (D322; con blip_buf LGPL-2.1+ e
 # inih BSD): compatible con la GPL v3, se aísla como los demás porque sus textos citan la GPL.
+# userland/terceros/shine/ es shine, el codificador MP3 de enteros, LGPL-2.0+ (D339); sin modificar.
 # userland/terceros/laines/ es LaiNES (NES, BSD-2-Clause, con el APU LGPL de blargg) y
 # userland/terceros/gearsystem/ es Gearsystem (Master System y Game Gear, GPL-3.0) (D321).
 # userland/web/terceros/ffmpeg-h264-tablas/ (LGPL-2.1+) y userland/web/terceros/faad2-huffman/
@@ -89,7 +90,7 @@ GPL_AISLADA = "kernel/terceros/linux/"
 # variante sin GPL (el MP4 no se decodifica en ella: video_mp4.c y el Makefile lo respetan).
 GPL_AISLADAS = (GPL_AISLADA, "userland/terceros/opentyrian/", "userland/terceros/netsurf/", "userland/terceros/gprolog/",
                 "userland/terceros/openjazz/", "userland/terceros/conquer/", "userland/terceros/quake/",
-                "userland/terceros/gnuboy/", "userland/terceros/dosbox/", "userland/terceros/mgba/",
+                "userland/terceros/gnuboy/", "userland/terceros/dosbox/", "userland/terceros/mgba/", "userland/terceros/shine/",
                 "userland/terceros/laines/", "userland/terceros/gearsystem/",
                 "userland/web/terceros/ffmpeg-h264-tablas/",
                 "userland/web/terceros/faad2-huffman/")

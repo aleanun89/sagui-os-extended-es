@@ -490,6 +490,18 @@ static uint32_t fat_para_utc(uint16_t data, uint16_t hora)
     return hora_local_para_utc(local);
 }
 
+/* D341: un instante UTC -> fecha y hora del FAT (locales, segundos de 2 en 2, por abajo, como
+ * Linux y mtools). Fuera del rango del FAT (1980-2107) se queda en el extremo. */
+static void utc_para_fat(uint32_t utc, uint16_t *data, uint16_t *hora)
+{
+    fuso_data_t d;
+    hora_local_de(utc, &d);
+    if (d.ano < 1980) { *data = (uint16_t)((1 << 5) | 1); *hora = 0; return; }
+    if (d.ano > 2107) { *data = (uint16_t)((127 << 9) | (12 << 5) | 31); *hora = (uint16_t)((23 << 11) | (59 << 5) | 29); return; }
+    *data = (uint16_t)(((d.ano - 1980) << 9) | (d.mes << 5) | d.dia);
+    *hora = (uint16_t)((d.hora << 11) | (d.minuto << 5) | (d.segundo / 2));
+}
+
 static bool valido_8_3(uint8_t c)
 {
     if (c >= 'A' && c <= 'Z') return true;
@@ -1181,8 +1193,18 @@ static int fat_renomear(void *priv, const char *de, const char *para)
             c = pp.primeiro ? pp.primeiro : v.raiz;
         }
     }
-    r = criar_entrada(nova_pai, nome, e.atributos, e.primeiro, e.tamanho, NULL, NULL);
+    uint32_t sn_novo = 0, desl_novo = 0;
+    r = criar_entrada(nova_pai, nome, e.atributos, e.primeiro, e.tamanho, &sn_novo, &desl_novo);
     if (r < 0) return terminar(r);
+    /* D341: renombrar no cambia las fechas (mv, y rsync, que escribe en un temporal y lo renombra) */
+    uint8_t *xn = setor(sn_novo);
+    if (xn) {
+        xn += desl_novo;
+        *(uint16_t *)(xn + 14) = e.cria_hora; *(uint16_t *)(xn + 16) = e.cria_data;
+        *(uint16_t *)(xn + 18) = e.acesso_data;
+        *(uint16_t *)(xn + 22) = e.mod_hora; *(uint16_t *)(xn + 24) = e.mod_data;
+        sujar(sn_novo);
+    }
     apagar_entrada(&e);
     if (e.atributos & ATR_PASTA) {                 /* el ".." de la carpeta movida apunta al nuevo padre */
         entrada_t ponto2;
@@ -1196,6 +1218,24 @@ static int fat_renomear(void *priv, const char *de, const char *para)
             }
         }
     }
+    return terminar(0);
+}
+
+/* D341: fecha de modificación (con su hora) y de acceso (solo el día) de la entrada. La raíz no
+ * tiene entrada: no se guarda nada y no es un error (rsync fija la de la carpeta de destino). */
+static int fat_fixar_datas(void *priv, const char *rel, uint32_t mod, uint32_t acesso)
+{
+    vp = priv;
+    entrada_t e;
+    if (!*rel) return 0;
+    if (!achar(rel, &e)) return terminar(ERRO_NAO_EXISTE);
+    uint8_t *x = setor(e.setor);
+    if (!x) return terminar(ERRO_ACESSO);
+    x += e.desloc;
+    uint16_t d, h;
+    if (mod) { utc_para_fat(mod, &d, &h); *(uint16_t *)(x + 22) = h; *(uint16_t *)(x + 24) = d; }
+    if (acesso) { utc_para_fat(acesso, &d, &h); *(uint16_t *)(x + 18) = d; }
+    sujar(e.setor);
     return terminar(0);
 }
 
@@ -1213,4 +1253,6 @@ const sistema_arquivos_t fs_fat32 = {
     .abrir = fat_abrir, .ler = fat_ler, .escrever = fat_escrever, .truncar = fat_truncar, .fechar = fat_fechar, .sincronizar = fat_sincronizar,
     .criar_pasta = fat_criar_pasta, .remover_pasta = fat_remover_pasta, .apagar = fat_apagar,
     .renomear = fat_renomear, .espaco = fat_espaco,
+    .fixar_datas = fat_fixar_datas,   /* D341 */
 };
+

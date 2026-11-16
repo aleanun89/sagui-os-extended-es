@@ -27,17 +27,18 @@ ACENTO = (0x2A, 0x6F, 0xD8)
 DADOS_MB = 16
 
 # As abas da janela «Configuración»: cada uma é da largura do seu título (D145).
-TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto", "Mandos")
+TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto", "Mandos",
+               "Usuarios")
 
 
 def pos_paginas():
     """Devolve a posição e a largura de cada aba, como as calcula o programa."""
-    x = 10
     pos = []
     suma = sum(len(t) * 8 for t in TITULOS_PAG)
-    relleno = 10   # como traducir_rotulos(): menos si no caben en los 788 px (issue #43)
-    while relleno > 2 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
+    relleno = 10   # como traducir_rotulos(): menos si no caben en los 788 px (issue #43; hasta 1 con Usuarios, D340)
+    while relleno > 1 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
         relleno -= 1
+    x = 4 if 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4 else 10
     for t in TITULOS_PAG:
         l = len(t) * 8 + relleno
         pos.append((x, l))

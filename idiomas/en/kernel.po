@@ -456,8 +456,12 @@ msgid "VisualPythonS (diseñador)"
 msgstr "VisualPythonS (designer)"
 
 #: kernel/gui/barra.c:944
-msgid "Explorador de bases de datos"
-msgstr "Database Explorer"
+msgid "Explorador SQLite"
+msgstr "SQLite Explorer"
+
+#: kernel/gui/barra.c:945
+msgid "Explorador lite-monkey"
+msgstr "lite-monkey Explorer"
 
 #: kernel/gui/barra.c:945
 msgid "Pluma (procesador de textos)"
@@ -816,3 +820,71 @@ msgstr "Stopping services..."
 #: kernel/gui/janelas.c
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
 msgstr "The applications partition (/apps) was not found: this PC does not see the boot disk properly. Some applications will be missing. Use saguios-completo.img (more information: docs/imagenes.md)."
+
+#: kernel/gui/barra.c:937
+msgid "Traductor"
+msgstr "Translator"
+
+#: kernel/gui/barra.c
+msgid "Cerrar sesión..."
+msgstr "Sign out..."
+
+#: kernel/gui/barra.c
+msgid "Cambiar de usuario..."
+msgstr "Switch user..."
+
+#: kernel/gui/sessao.c
+msgid "No se pudo iniciar la sesión."
+msgstr "Could not start the session."
+
+#: kernel/gui/sessao.c
+msgid "Escribe la contraseña."
+msgstr "Type the password."
+
+#: kernel/gui/sessao.c
+msgid "No se puede comprobar la contraseña: el gestor de servicios no responde."
+msgstr "Cannot check the password: the service manager is not responding."
+
+#: kernel/gui/sessao.c
+msgid "Cerrando la sesión..."
+msgstr "Signing out..."
+
+#: kernel/gui/sessao.c
+msgid "Iniciando la sesión..."
+msgstr "Signing in..."
+
+#: kernel/gui/sessao.c
+msgid "Iniciar sesión"
+msgstr "Sign in"
+
+#: kernel/gui/sessao.c
+msgid "Elige tu cuenta:"
+msgstr "Choose your account:"
+
+#: kernel/gui/sessao.c
+msgid "sin contraseña"
+msgstr "no password"
+
+#: kernel/gui/sessao.c
+msgid "Contraseña:"
+msgstr "Password:"
+
+#: kernel/gui/sessao.c
+msgid "Esta cuenta no tiene contraseña: pulsa Entrar."
+msgstr "This account has no password: press Sign in."
+
+#: kernel/gui/sessao.c
+msgid "Entrar"
+msgstr "Sign in"
+
+#: kernel/gui/sessao.c
+msgid "Apagar"
+msgstr "Shut down"
+
+#: kernel/gui/sessao.c
+msgid "Reiniciar"
+msgstr "Restart"
+
+#: kernel/gui/barra.c
+msgid "Conversor de audio"
+msgstr "Audio converter"

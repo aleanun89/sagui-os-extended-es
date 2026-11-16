@@ -1012,7 +1012,7 @@ static bool bd_extensao(const char *c)
            (k >= 8 && compara_texto(e + k - 8, ".sqlite3") == 0);
 }
 
-/* .avi .mpg .mpeg: el reproductor de video (mejora 048). */
+/* .avi .mpg .mpeg .mp4 .m4v: el reproductor de video (mejora 048, D342). */
 static bool video_extensao(const char *c)
 {
     size_t n = tam_texto(c);
@@ -1022,6 +1022,8 @@ static bool video_extensao(const char *c)
     e[4] = 0;
     if (compara_texto(e, ".avi") == 0) return true;
     if (compara_texto(e, ".mpg") == 0) return true;
+    if (compara_texto(e, ".mp4") == 0) return true;   /* D342: H.264 + AAC (D276) */
+    if (compara_texto(e, ".m4v") == 0) return true;
     /* .mpeg: a extensao tem cinco letras */
     if (n >= 5) {
         for (int k = 0; k < 5; k++) e[k] = (char)(c[n - 5 + k] | 0x20);
@@ -1138,7 +1140,7 @@ static void abrir_item(int i)
         if (midi_extensao(c)) prog = "midi";   /* .mid .midi .kar .rmi: el reproductor de MIDI (D190) */
         if (jclic_extensao(c)) prog = "jclic";   /* .jclic .jclic.zip: Actividades JClic (D183) */
         if (pdf_extensao(c)) prog = "visorpdf";   /* .pdf: el Visor de PDF (D138) */
-        if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg: el Reproductor de vÃ­deo (D129) */
+        if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg .mp4 .m4v: el Reproductor de vÃ­deo (D129) */
         char bin[40];
         ruta_programa(bin, sizeof bin, prog);
 #ifndef SAGUI_SEM_GPL
@@ -1149,10 +1151,10 @@ static void abrir_item(int i)
         if (nes_extensao(c)) { prog = "laines"; formatar_texto(bin, sizeof bin, "/apps/bin/laines"); }   /* .nes: LaiNES (D321) */
         argv[0] = (char *)prog; argv[1] = c; argv[2] = NULL;
         char *argv_bd[4];
-        if (bd_extensao(c)) {   /* .db: el Explorador de bases de datos (Python); no ejecuta nada al abrir */
-            prog = "exploradorbd";
+        if (bd_extensao(c)) {   /* .db .sqlite .sqlite3: el Explorador SQLite (Python, D333); no ejecuta nada al abrir */
+            prog = "exploradorsqlite";
             ruta_programa(bin, sizeof bin, "python");
-            argv_bd[0] = "python"; argv_bd[1] = "/lib/python/basedatos/explorador.py"; argv_bd[2] = c; argv_bd[3] = NULL;
+            argv_bd[0] = "python"; argv_bd[1] = "/lib/python/basedatos/explorador_sqlite.py"; argv_bd[2] = c; argv_bd[3] = NULL;
             pid = executar(bin, argv_bd);
         } else
         pid = executar(bin, argv);
@@ -1457,7 +1459,16 @@ static void extrair_item(bool em_pasta)
 
 /* ------------------------------------------------------------ copiar y pegar */
 
+/* D341: la copia queda con la fecha de modificacion del original, como cp -p (sin error si el
+ * destino no la guarda). */
+static void conservar_data(const char *origem, const char *destino)
+{
+    datas_arquivo_t d;
+    if (datas_arquivo(origem, &d) == 0 && d.modificado) fixar_datas(destino, d.modificado, PARQ_DATA_MANTER);
+}
+
 /* Copia un archivo o una carpeta entera (recursiva). */
+
 static bool copiar_ficheiro(const char *origem, const char *destino)
 {
     info_arquivo_t inf;
@@ -1471,6 +1482,7 @@ static bool copiar_ficheiro(const char *origem, const char *destino)
             caminho_juntar(dst, sizeof dst, destino, e.nome);
             if (!copiar_ficheiro(sub, dst)) return false;
         }
+        conservar_data(origem, destino);
         return true;
     }
     int fo = abrir(origem, ABRIR_LER);
@@ -1483,6 +1495,7 @@ static bool copiar_ficheiro(const char *origem, const char *destino)
         if (escrever_tudo(fd, buf, (unsigned)n) < 0) { fechar(fo); fechar(fd); return false; }
     fechar(fo);
     fechar(fd);
+    conservar_data(origem, destino);
     return true;
 }
 
@@ -1649,19 +1662,20 @@ static int coluna_de_ponto(int x, int y)
 typedef struct { const char *nome; } app_t;
 static const app_t apps[] = {
     { "editor" }, { "visor" }, { "paint" }, { "markdown" },
-    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" },
+    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" },
 };
 
 /* El programa que abrirÃ­a este archivo (la asociaciÃ³n por defecto). */
 /* La lista de «Abrir con...»: los de siempre y, si están instalados en /apps, los emuladores (D321). */
 static const char *abrir_lista[16];
 static int abrir_n;
-static void preparar_lista_abrir(void)
+static void preparar_lista_abrir(const char *arquivo)
 {
     static const char *const EMUS[] = { "laines", "gearsystem" };
     abrir_n = 0;
     for (unsigned a = 0; a < sizeof apps / sizeof apps[0] && abrir_n < 14; a++) {
         char bin[40];
+        if (compara_texto(apps[a].nome, "convertir-audio") == 0 && !audio_extensao(arquivo)) continue;   /* D339: solo para sonidos */
         if (ruta_programa(bin, sizeof bin, apps[a].nome)) abrir_lista[abrir_n++] = apps[a].nome;   /* D324: sin /apps no salen */
     }
     for (unsigned a = 0; a < sizeof EMUS / sizeof EMUS[0] && abrir_n < 16; a++) {
@@ -1710,7 +1724,7 @@ static void menu_abrir_com(void)
     char itens[MENU_MAX * 24];
     int k = 0;
     itens[0] = 0;
-    preparar_lista_abrir();
+    preparar_lista_abrir(c);
     for (int a = 0; a < abrir_n; a++) {
         const char *p = abrir_lista[a];
         if (k) itens[k++] = '\n';

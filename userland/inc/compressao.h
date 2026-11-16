@@ -108,7 +108,9 @@ typedef struct {
     uint32_t crc, tc, tu, desloc, attr;
     uint16_t metodo, flags, hora, data;   /* hora e data no formato do DOS */
     bool     pasta;
+    uint32_t mtime_ut;       /* D341: UTC do campo extra "UT" (0x5455) do Info-ZIP; 0 = não tem */
 } zip_ent_t;
+
 typedef struct { buf_t b; zip_ent_t *e; int n, cap; } zip_escritor_t;
 /* nivel 0 = guardar; senão deflate (se não encolher, guarda). Devolve 0 ou erro. */
 int  zip_adicionar(zip_escritor_t *z, const char *nome, const uint8_t *dados, uint32_t n,

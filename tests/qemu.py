@@ -528,6 +528,11 @@ class Maquina:
             cmd += ["-device", "usb-ehci,id=ehci",
                     "-drive", f"if=none,id=pendrive,format={self.formato},file={self.imagem},snapshot={self.snapshot}",
                     "-device", "usb-storage,bus=ehci.0,drive=pendrive,bootindex=0"]
+        elif self.modo in ("xhci", "uhci"):   # D338: el pendrive de arranque en un xHCI o un UHCI
+            ctl = "qemu-xhci,id=xhci" if self.modo == "xhci" else "piix3-usb-uhci,id=uhci"
+            cmd += ["-device", ctl,
+                    "-drive", f"if=none,id=pendrive,format={self.formato},file={self.imagem},snapshot={self.snapshot}",
+                    "-device", f"usb-storage,bus={self.modo}.0,drive=pendrive,bootindex=0"]
         elif self.modo == "cd":
             cmd += ["-cdrom", self.imagem, "-boot", "d"]
         else:

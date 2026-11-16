@@ -339,7 +339,7 @@ def principal_graficos():
         out = m.comando("montar usb0")
         verificar("Pendrive montado en /usb" in out, "el pendrive está montado")
         m.comando("echo 1 > /etc/gui-revisar.modo")             # D300: el detector de problemas de la GUI, activo
-        m.digitar("macaco\n", 0.05)
+        m.digitar("macaco --clasico\n", 0.05)
         m.esperar_serial("macaco: pronto", 30)
         time.sleep(1.5)
         a = janela(m.serial(), "Macaco")
@@ -377,7 +377,7 @@ def principal_graficos():
         verificar("celula Hoja1!B2 = 80" in out, "los datos siguen")
 
         # ---- reabrir con la GUI para ver los gráficos (captura)
-        m.digitar("macaco /tmp/h311g.mxs\n", 0.05)
+        m.digitar("macaco --clasico /tmp/h311g.mxs\n", 0.05)
         m.esperar_serial("macaco: pronto", 30)
         time.sleep(1.5)
         m.captura("H311-17-reabierto")
@@ -411,7 +411,7 @@ def principal():
     with Maquina("h311", "ide") as m:
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
-        m.digitar("macaco\n", 0.05)
+        m.digitar("macaco --clasico\n", 0.05)
         m.esperar_serial("macaco: pronto", 30)
         time.sleep(1.5)
         a = janela(m.serial(), "Macaco")

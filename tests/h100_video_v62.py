@@ -279,11 +279,11 @@ def em_os(somas_host):
     verificar(pior >= UMBRAL_PSNR, f"[SaguiOS] los cuadros del pendrive coinciden con ffmpeg (PSNR {pior:.1f} dB)")
 
     # (d) el vídeo de ejemplo que viene en la imagen
-    with Maquina("h100-ex", "ide", imagem=imagem_console()) as m:
+    with Maquina("h100-ex", "ide", imagem=imagem_console(apps=True)) as m:   # D324: el ejemplo va en /apps
         esperar(m, r"sagui:/\$", 120)
-        out = rodar(m, "reproductor -t /videos/sagui.avi | head -2", FIM_PROC)
+        out = rodar(m, "reproductor -t /apps/videos/sagui.avi | head -2", FIM_PROC)
         verificar("MJPEG en AVI 426x240 30 fps 60 cuadros" in out,
-                  "el vídeo de ejemplo de /videos se lee: " + (re.search(r"video:.*", out) or re.search(r"$", out)).group(0)[:120])
+                  "el vídeo de ejemplo de /apps/videos se lee: " + (re.search(r"video:.*", out) or re.search(r"$", out)).group(0)[:120])
 
 
 # ------------------------------------------------------------ parte 3: la ventana
@@ -308,10 +308,10 @@ def rect_video(wx, wy, wid, alt, vl=LARG, va=ALT):
     """Dónde se dibuja la imagen del vídeo dentro de la ventana.
 
     La ventana lleva un marco de 2 px y una barra de título de 24 px; dentro,
-    el reproductor deja 34 px de barra de botones arriba y 46 px de pie abajo,
-    y centra la imagen en el hueco que queda. La escala se calcula como la
+    el reproductor (rediseño D342) deja 20 px de barra de menús arriba y 72 px
+    de panel de controles abajo, y centra la imagen en el hueco que queda. La escala se calcula como la
     del reproductor (enteros de 16 bits), para caer en el mismo píxel."""
-    bx, by, ba = 0, 34, alt - 34 - 46
+    bx, by, ba = 0, 20, alt - 20 - 72
     escala = min((wid * 65536) // vl, (ba * 65536) // va)
     l = (vl * escala) // 65536
     a = (va * escala) // 65536

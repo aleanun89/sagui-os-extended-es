@@ -397,6 +397,14 @@ post_dir(struct sess *sess, const struct upload *u, size_t idx)
 		LOG4(sess, "%s: updated mode", f->path);
 	}
 
+	/* D336: dueño y grupo de la carpeta (si el usuario puede, como root). */
+	if (u->newdir[idx] ||
+	    (sess->opts->preserve_uids && st.st_uid != f->st.uid) ||
+	    (sess->opts->preserve_gids && st.st_gid != f->st.gid))
+		rs_chownat(u->rootfd, f->path,
+		    sess->opts->preserve_uids ? (int)f->st.uid : -1,
+		    sess->opts->preserve_gids ? (int)f->st.gid : -1);
+
 	return 1;
 }
 

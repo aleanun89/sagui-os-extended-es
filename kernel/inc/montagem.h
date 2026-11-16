@@ -41,7 +41,11 @@ typedef struct sistema_arquivos {
      * Al crear, el driver pone los de quien crea (permisos_dono_novo). */
     int  (*meta)(void *priv, const char *rel, meta_t *m);
     int  (*fixar_meta)(void *priv, const char *rel, int32_t uid, int32_t gid, int32_t modo);   /* -1 = no cambia */
+    /* D341: fija las fechas de modificación y de acceso (UTC; 0 = no cambia). NULL = no las guarda
+     * (ISO 9660, UDF). El driver pone también la del cambio del inodo (ext2) a la hora actual. */
+    int  (*fixar_datas)(void *priv, const char *rel, uint32_t modificado, uint32_t acessado);
 } sistema_arquivos_t;
+
 
 typedef struct montagem {
     bool     usado;

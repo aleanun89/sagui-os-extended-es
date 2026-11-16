@@ -1,4 +1,4 @@
-# Usuarios y administrador (D255 y D282, mejora 098, fases 1 y 2)
+# Usuarios y administrador (D255, D282 y D340, mejora 098)
 
 SaguiOS tiene dos cuentas de persona y una de servicio:
 
@@ -27,6 +27,37 @@ otra cuenta, y escribir en `/etc` y `/bin`. La tabla completa está en
 
 Un programa que lo intenta sin serlo recibe «operación no permitida (hace
 falta ser administrador: usa «admin orden»)».
+
+## Varias cuentas (D340)
+
+Además de `sagui` se pueden crear más cuentas de persona en **Configuración > Usuarios**
+(`configuracion --usuarios`): «Nueva cuenta...», «Cambiar la contraseña...», «Cambiar el nombre...»,
+«Administrador: sí / no» y «Borrar la cuenta...». Ver la lista no pide nada; cada cambio pide la
+contraseña de administrador con el diálogo del sistema.
+
+- **Inicio de sesión:** si solo hay una cuenta y no tiene contraseña, el escritorio entra solo, como
+  siempre. Si hay más, o la única tiene contraseña, al arrancar aparece la pantalla «Iniciar sesión»:
+  eliges la cuenta (flechas o ratón), escribes la contraseña e Intro. Tiene también Apagar y Reiniciar.
+  La pinta el propio sistema (como el diálogo de permisos): ningún programa ve la contraseña. Tras 5
+  fallos, un minuto de espera.
+- **Cerrar sesión y cambiar de usuario:** en el menú Inicio. Se cierran todos los programas de la sesión
+  (lo que no esté guardado se pierde: pregunta antes) y vuelve la pantalla de inicio de sesión. No hay
+  dos sesiones a la vez.
+- **Carpeta personal:** cada cuenta nueva tiene `/home/<nombre>` (solo suya, 0700), pero sus programas
+  la ven como `/home`: su configuración va en su `/home/.config`, sin cambiar ningún programa, y no
+  puede ver ni nombrar los archivos de las demás cuentas. La cuenta principal, `sagui`, sigue usando
+  `/home` tal cual (sus archivos no se mueven) y ve las carpetas de las demás, pero no entra. Root (o un
+  programa con permisos de administrador) ve el árbol real.
+- **Administradores:** las cuentas marcadas como administrador (grupo `admin`, en `/etc/grupos`) dan
+  **su propia contraseña** en el diálogo de permisos y en `admin`/`su` (como `sudo`); la de root sigue
+  valiendo. Por defecto no hay ninguna.
+- **Borrar una cuenta:** pregunta también si se borran sus archivos (`/home/<nombre>`); si no, se
+  conservan, y su número no se da a otra cuenta mientras la carpeta exista. No se pueden borrar ni
+  renombrar `root`, `sagui`, las cuentas de servicio ni la de la sesión abierta.
+- **Necesita** `/home` en un disco que guarde dueños (ext2, o la RAM en vivo): con `/home` FAT32 no se
+  crean cuentas.
+- **Aún no:** SSH y `crontab` por cuenta (siguen siendo de `sagui` y root) e inicio de sesión en la
+  consola de texto.
 
 ## `admin`, `su` y `passwd`
 

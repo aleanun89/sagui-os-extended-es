@@ -7,6 +7,7 @@
  * redibujado sólo se copia la parte necesaria. La barra superior (barra.c) se
  * dibuja por encima, porque el reloj y las tareas cambian. */
 #include "gui.h"
+#include "permisos.h"
 #include "idioma.h"
 #include "arte.h"
 #include "console.h"
@@ -130,8 +131,11 @@ static bool banda_vis;
 static int banda_x0, banda_y0, banda_x1, banda_y1;
 static bool sel_base[sizeof icones / sizeof icones[0]];
 static bool arr_ctrl;
-#define CONF_ESCRITORIO "/home/.config/escritorio.conf"
-#define CONF_NOVO       "/home/.config/escritorio.conf.nuevo"
+/* D340: en la carpeta personal de la sesión (/home/.config para la cuenta principal). */
+static char conf_escritorio[CAMINHO_MAX] = "/home/.config/escritorio.conf";
+static char conf_novo[CAMINHO_MAX] = "/home/.config/escritorio.conf.nuevo";
+#define CONF_ESCRITORIO conf_escritorio
+#define CONF_NOVO       conf_novo
 
 static int colunas(void)
 {
@@ -316,6 +320,14 @@ static void registrar_casillas(const char *motivo)
  *   orden=manual|nombre|tipo|fecha
  *   auto=si|no
  *   <clave>=<columna>,<fila>        (una línea por icono) */
+static void pasta_de_arquivo(const char *c, char *pasta)
+{
+    txt_copia_n(pasta, c, CAMINHO_MAX);
+    char *u = NULL;
+    for (char *p = pasta; *p; p++) if (*p == '/') u = p;
+    if (u && u != pasta) *u = 0;
+}
+
 int escrever_atomico(const char *dest, const char *tmp, const void *dados, uint32_t n)
 {
     const char *rd, *rt;
@@ -324,7 +336,9 @@ int escrever_atomico(const char *dest, const char *tmp, const void *dados, uint3
         if (m->opcoes & MONTAR_SO_LEITURA) return ERRO_SO_LEITURA;
         if (!montagem_de(tmp, &rt)) return ERRO_ACESSO;
         const char *rp;
-        if (montagem_de("/home/.config", &rp) == m && *rp) m->fs->criar_pasta(m->priv, rp);
+        char pasta[CAMINHO_MAX];
+        pasta_de_arquivo(dest, pasta);
+        if (montagem_de(pasta, &rp) == m && *rp) m->fs->criar_pasta(m->priv, rp);
         arq_montado_t *a = kcalloc(sizeof(arq_montado_t) + m->fs->tam_arq);
         if (!a) return ERRO_SEM_MEMORIA;
         uint32_t tam = 0;
@@ -338,7 +352,11 @@ int escrever_atomico(const char *dest, const char *tmp, const void *dados, uint3
         kfree(a);
         return r;
     }
-    if (!vfs_achar("/home/.config")) vfs_criar("/home/.config", TIPO_PASTA, NULL);
+    {
+        char pasta[CAMINHO_MAX];
+        pasta_de_arquivo(dest, pasta);
+        if (!vfs_achar(pasta)) vfs_criar(pasta, TIPO_PASTA, NULL);
+    }
     no_t *x = vfs_achar(tmp);
     if (x) vfs_truncar(x);
     else {
@@ -359,6 +377,8 @@ static void guardar_conf(void)
     for (int i = 0; i < N_ICONES; i++)
         n += snformatar(t + n, sizeof t - (size_t)n, "%s=%d,%d\n", icones[i].chave, id_c[i], id_f[i]);
     int r = escrever_atomico(CONF_ESCRITORIO, CONF_NOVO, t, (uint32_t)n);
+    if (r >= 0 && permisos_sessao_casa()[0])   /* D340: el archivo es de la cuenta, no de root */
+        vfs_fixar_meta(CONF_ESCRITORIO, (int32_t)permisos_uid_inicial(), (int32_t)permisos_sessao_gid(), -1);
     klog("[ICONOS] guardado en %s (%d bytes): %d\n", CONF_ESCRITORIO, n, r);
 }
 
@@ -616,6 +636,21 @@ void area_fundo_fim(void)
     desenhar_fundo();
     gui_redesenhar(0, 0, larg, alt);
     gui_mostrar();
+}
+
+/* D340: empieza otra sesión (o se cerró una): las casillas de los iconos son las de su carpeta. */
+void area_sessao_nova(void)
+{
+    permisos_sessao_caminho(conf_escritorio, sizeof conf_escritorio, "/.config/escritorio.conf");
+    permisos_sessao_caminho(conf_novo, sizeof conf_novo, "/.config/escritorio.conf.nuevo");
+    criterio = ORD_MANUAL;
+    automatica = false;
+    manual = false;
+    casillas_padrao();
+    carregar_conf();
+    ajustar_casillas();
+    registrar_casillas("casillas de la sesion");
+    if (fundo) desenhar_fundo();
 }
 
 /* D313: cambió el idioma: los rótulos de los iconos van pintados en el fondo, se pintan de nuevo. */

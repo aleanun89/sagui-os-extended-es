@@ -7,4 +7,5 @@
 uint32_t aparencia_acento(void);                     /* 0xRRGGBB */
 uint32_t aparencia_escurecer(uint32_t cor, int pct); /* mezcla con negro */
 uint32_t aparencia_clarear(uint32_t cor, int pct);   /* mezcla con blanco */
+void     aparencia_padrao(void);                     /* D340: el acento de serie (al cerrar la sesión) */
 #endif

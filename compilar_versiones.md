@@ -91,6 +91,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `GNUBOY` | `1` | emulador de Game Boy; solo entra si está descargado su código (`make priv_descargas` o `bash tools/gnuboy_fuentes.sh`, ver 5 y 7). `GNUBOY=0` lo quita |
 | `MGBA` | `1` | emulador de Game Boy Advance, Game Boy y Game Boy Color con mGBA (MPL-2.0; sus fuentes van en git). También entra con `PUBLICABLE=1`. `MGBA=0` lo quita |
 | `LAINES`, `GEARSYSTEM` | `1` | emuladores de NES (LaiNES) y de Master System, Game Gear y SG-1000 (Gearsystem), en C++ con SDL 2; sin `g++` no entran. `0` los quita; con `SEM_GPL=1` tampoco entran |
+| `SHINE` | `1` | codificador MP3 shine (LGPL-2.0+, D339) del Conversor de audio (`convertir-audio`). `SHINE=0` lo quita (el programa sale igual, sin la salida MP3); con `SEM_GPL=1` tampoco entra |
 | `QUAKE` | `1` | motor de Quake (`0` lo quita) |
 | `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (con el lanzador Recreativa) y GNU Prolog (`0` los quita) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | meter en `/jogos` los datos shareware que bajaron `tools/quake_datos.sh` y `tools/openjazz_datos.sh`. Si no se bajaron, no entra nada; `0` los ignora aunque estén bajados |
@@ -99,7 +100,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `JOGOS` | `1` | `0` quita la partición de juegos `SAGUI-JOGOS` de todas las imágenes |
 | `JOGOS_MB` | `800` | tamaño de `SAGUI-JOGOS` en las imágenes persistentes, la de particiones y lo que crea el instalador (`0` = el justo) |
 | `JOGOS_IMG_MB` | `0` | lo mismo para `saguios.img`, `-smp` y `-uacpi` (`0` = el justo para lo que lleva) |
-| `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` mete las aplicaciones dentro del ramdisk (`/apps`, imagen de un solo bloque); `APPS_MB` es el tamaño de la partición `SAGUI-APPS` (`0` = lo justo más un margen) |
+| `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` mete las aplicaciones dentro del ramdisk (`/apps`, imagen de un solo bloque); `APPS_MB` es el tamaño de la partición `SAGUI-APPS` (`0` = lo justo más un margen). `convertir-audio`, `traductor` y los exploradores de bases de datos van en la partición de aplicaciones (`/apps`); los exploradores ejecutan `/apps/bin/python`. |
 | `RAMDISK` | `base` | `base` (por defecto): el ramdisk solo lleva lo fundamental y las aplicaciones no fundamentales van a la partición `SAGUI-APPS` (`/apps`). `completo`: se meten en el ramdisk, como `APPS=0`. La ISO es siempre `completo`. Se pasa igual con `gerar_versao.sh`, por ejemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` de la imagen persistente ext2 |
 | `DATOS_FAT32_MB` | `2048` | `/home` de la imagen persistente FAT32 |
@@ -168,6 +169,8 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 
 Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente) o `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas las imágenes de disco, arranca por BIOS y por UEFI (D270; `crear-disco.py --sin-uefi`: solo BIOS).
 
+Herramienta del PC: `tools/conversor_video_pc.py` es un conversor de vídeo con ventana (Python 3 + tkinter, con ffmpeg) que prepara vídeos para el Reproductor de SaguiOS; no forma parte de la compilación. Ver `docs/convertir-video.md`.
+
 ### 4. Objetivos: qué imagen sale de cada uno
 
 | Orden | Qué genera |
@@ -190,6 +193,7 @@ Ficheros que deja `make variantes` en la carpeta de entrega:
 | `saguios.img` | La normal (un núcleo). **Empieza siempre por esta** |
 | `saguios-smp.img` | Multinúcleo (todos los procesadores, sin IOAPIC) |
 | `saguios-uacpi.img` | Con el intérprete ACPI (uACPI): indicador de batería y `_PSS`/`_PRT` en portátiles |
+| `saguios-completo.img` | Como la normal, con las aplicaciones dentro del sistema en memoria (sin `/apps`), para los PC cuya controladora no localiza el disco de arranque (D324); pide unos 64 MB más de RAM. Desde la 8.4.3r2 |
 | `saguios-persistente-fat32.img.xz` | Con `/home` FAT32 de 2 GB, visible también desde Windows. La mejor para guardar cosas |
 | `saguios-persistente-fat32-smp.img.xz` | Lo mismo, multinúcleo |
 | `saguios-persistente.img`, `-smp`, `-smp-uacpi` | Con `/home` ext2 (Windows no la ve). Combinan multinúcleo y uACPI |
@@ -401,6 +405,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `GNUBOY` | `1` | the Game Boy emulator; only included if its code has been downloaded (`make priv_descargas` or `bash tools/gnuboy_fuentes.sh`, see 5 and 7). `GNUBOY=0` removes it |
 | `MGBA` | `1` | the Game Boy Advance, Game Boy and Game Boy Color emulator, mGBA (MPL-2.0; its sources are in git). Also included with `PUBLICABLE=1`. `MGBA=0` removes it |
 | `LAINES`, `GEARSYSTEM` | `1` | the NES emulator (LaiNES) and the Master System, Game Gear and SG-1000 emulator (Gearsystem), in C++ with SDL 2; without `g++` they are not included. `0` removes them; with `SEM_GPL=1` they are not included either |
+| `SHINE` | `1` | MP3 encoder shine (LGPL-2.0+, D339) of the Audio converter (`convertir-audio`). `SHINE=0` removes it (the program works the same, without MP3 output); with `SEM_GPL=1` it is not included either |
 | `QUAKE` | `1` | the Quake engine (`0` removes it) |
 | `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (with the Recreativa launcher) and GNU Prolog (`0` removes them) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | put the shareware data downloaded by `tools/quake_datos.sh` and `tools/openjazz_datos.sh` into `/jogos`. If they were not downloaded, nothing is added; `0` ignores them even if downloaded |
@@ -409,7 +414,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `JOGOS` | `1` | `0` removes the `SAGUI-JOGOS` games partition from every image |
 | `JOGOS_MB` | `800` | size of `SAGUI-JOGOS` in the persistent images, the partitioned one and what the installer creates (`0` = just enough) |
 | `JOGOS_IMG_MB` | `0` | the same for `saguios.img`, `-smp` and `-uacpi` (`0` = just enough for what it holds) |
-| `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` puts the applications inside the ramdisk (`/apps`, single-block image); `APPS_MB` is the size of the `SAGUI-APPS` partition (`0` = just enough plus a margin) |
+| `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` puts the applications inside the ramdisk (`/apps`, single-block image); `APPS_MB` is the size of the `SAGUI-APPS` partition (`0` = just enough plus a margin). `convertir-audio`, `traductor` and the database explorers go in the applications partition (`/apps`); the explorers run `/apps/bin/python`. |
 | `RAMDISK` | `base` | `base` (default): the ramdisk holds only the essentials and the non-essential applications go to the `SAGUI-APPS` partition (`/apps`). `completo`: they go into the ramdisk, like `APPS=0`. The ISO is always `completo`. It is passed the same way with `gerar_versao.sh`, for example `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` of the ext2 persistent image |
 | `DATOS_FAT32_MB` | `2048` | `/home` of the FAT32 persistent image |
@@ -478,6 +483,8 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 
 A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Like every disk image, it boots by BIOS and by UEFI (D270; `crear-disco.py --sin-uefi`: BIOS only).
 
+PC-side tool: `tools/conversor_video_pc.py` is a windowed video converter (Python 3 + tkinter, with ffmpeg) that prepares videos for the SaguiOS Player; it is not part of the build. See `docs/convertir-video.md`.
+
 ### 4. Targets: which image each one produces
 
 | Command | What it produces |
@@ -500,6 +507,7 @@ Files that `make variantes` leaves in the delivery folder:
 | `saguios.img` | The normal one (single core). **Always start with this one** |
 | `saguios-smp.img` | Multicore (all processors, no IOAPIC) |
 | `saguios-uacpi.img` | With the ACPI interpreter (uACPI): battery indicator and `_PSS`/`_PRT` on laptops |
+| `saguios-completo.img` | Like the normal image, with the applications inside the in-memory system (no `/apps`), for PCs whose disk controller does not find the boot disk (D324); it needs about 64 MB more RAM. Since 8.4.3r2 |
 | `saguios-persistente-fat32.img.xz` | With a 2 GB FAT32 `/home`, also readable from Windows. The best one for keeping files |
 | `saguios-persistente-fat32-smp.img.xz` | The same, multicore |
 | `saguios-persistente.img`, `-smp`, `-smp-uacpi` | With an ext2 `/home` (Windows cannot see it). They combine multicore and uACPI |
@@ -711,6 +719,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `GNUBOY` | `1` | o emulador de Game Boy; só entra se o seu código foi baixado (`make priv_descargas` ou `bash tools/gnuboy_fuentes.sh`, veja 5 e 7). `GNUBOY=0` o remove |
 | `MGBA` | `1` | o emulador de Game Boy Advance, Game Boy e Game Boy Color com mGBA (MPL-2.0; as fontes estão no git). Também entra com `PUBLICABLE=1`. `MGBA=0` o remove |
 | `LAINES`, `GEARSYSTEM` | `1` | os emuladores de NES (LaiNES) e de Master System, Game Gear e SG-1000 (Gearsystem), em C++ com SDL 2; sem `g++` não entram. `0` os remove; com `SEM_GPL=1` também não entram |
+| `SHINE` | `1` | o codificador MP3 shine (LGPL-2.0+, D339) do Conversor de áudio (`convertir-audio`). `SHINE=0` o remove (o programa funciona igual, sem a saída MP3); com `SEM_GPL=1` também não entra |
 | `QUAKE` | `1` | o motor do Quake (`0` o remove) |
 | `OPENJAZZ`, `CONQUER`, `DOSBOX`, `GPROLOG` | `1` | OpenJazz, Command & Conquer (Vanilla Conquer), DOSBox (com o lançador Recreativa) e GNU Prolog (`0` os remove) |
 | `QUAKE_DATOS`, `OPENJAZZ_DATOS` | `1` | colocar em `/jogos` os dados shareware baixados por `tools/quake_datos.sh` e `tools/openjazz_datos.sh`. Se não foram baixados, nada entra; `0` os ignora mesmo que estejam baixados |
@@ -719,7 +728,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `JOGOS` | `1` | `0` tira a partição de jogos `SAGUI-JOGOS` de todas as imagens |
 | `JOGOS_MB` | `800` | tamanho da `SAGUI-JOGOS` nas imagens persistentes, na de partições e no que o instalador cria (`0` = o justo) |
 | `JOGOS_IMG_MB` | `0` | o mesmo para `saguios.img`, `-smp` e `-uacpi` (`0` = o justo para o que ela leva) |
-| `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` coloca os aplicativos dentro do ramdisk (`/apps`, imagem de um só bloco); `APPS_MB` é o tamanho da partição `SAGUI-APPS` (`0` = o justo mais uma margem) |
+| `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` coloca os aplicativos dentro do ramdisk (`/apps`, imagem de um só bloco); `APPS_MB` é o tamanho da partição `SAGUI-APPS` (`0` = o justo mais uma margem). `convertir-audio`, `traductor` e os exploradores de bancos de dados ficam na partição de aplicativos (`/apps`); os exploradores executam `/apps/bin/python`. |
 | `RAMDISK` | `base` | `base` (padrão): o ramdisk leva só o essencial e os aplicativos não essenciais vão para a partição `SAGUI-APPS` (`/apps`). `completo`: vão para dentro do ramdisk, como `APPS=0`. A ISO é sempre `completo`. Passa-se igual com o `gerar_versao.sh`, por exemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` da imagem persistente ext2 |
 | `DATOS_FAT32_MB` | `2048` | `/home` da imagem persistente FAT32 |
@@ -788,6 +797,8 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 
 Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assistente) ou `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas as imagens de disco, arranca por BIOS e por UEFI (D270; `crear-disco.py --sin-uefi`: só BIOS).
 
+Ferramenta do PC: `tools/conversor_video_pc.py` é um conversor de vídeo com janela (Python 3 + tkinter, com ffmpeg) que prepara vídeos para o Reprodutor do SaguiOS; não faz parte da compilação. Veja `docs/convertir-video.md`.
+
 ### 4. Alvos: qual imagem sai de cada um
 
 | Comando | O que gera |
@@ -810,6 +821,7 @@ Arquivos que o `make variantes` deixa na pasta de entrega:
 | `saguios.img` | A normal (um núcleo). **Comece sempre por esta** |
 | `saguios-smp.img` | Multinúcleo (todos os processadores, sem IOAPIC) |
 | `saguios-uacpi.img` | Com o interpretador ACPI (uACPI): indicador de bateria e `_PSS`/`_PRT` em notebooks |
+| `saguios-completo.img` | Como a normal, com os aplicativos dentro do sistema em memória (sem `/apps`), para PCs cuja controladora não encontra o disco de boot (D324); precisa de uns 64 MB a mais de RAM. Desde a 8.4.3r2 |
 | `saguios-persistente-fat32.img.xz` | Com `/home` FAT32 de 2 GB, visível também no Windows. A melhor para guardar coisas |
 | `saguios-persistente-fat32-smp.img.xz` | O mesmo, multinúcleo |
 | `saguios-persistente.img`, `-smp`, `-smp-uacpi` | Com `/home` ext2 (o Windows não a vê). Combinam multinúcleo e uACPI |

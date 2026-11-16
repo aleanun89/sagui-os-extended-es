@@ -61,7 +61,7 @@ def principal():
         out = m.comando("montar usb0")
         verificar("Pendrive montado en /usb" in out, "el pendrive está montado")
 
-        m.digitar("macaco\n", 0.05)
+        m.digitar("macaco --clasico\n", 0.05)
         m.esperar_serial("macaco: pronto", 30)
         time.sleep(1.5)
         a = janela(m.serial(), "Macaco")

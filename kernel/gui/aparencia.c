@@ -13,6 +13,7 @@
 static uint32_t acento = ACENTO_PADRAO;
 
 uint32_t aparencia_acento(void) { return acento; }
+void aparencia_padrao(void) { acento = ACENTO_PADRAO; }
 
 static uint32_t mistura(uint32_t c, uint32_t alvo, int pct)
 {

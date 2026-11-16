@@ -456,7 +456,11 @@ msgid "VisualPythonS (diseñador)"
 msgstr ""
 
 #: kernel/gui/barra.c:944
-msgid "Explorador de bases de datos"
+msgid "Explorador SQLite"
+msgstr ""
+
+#: kernel/gui/barra.c:945
+msgid "Explorador lite-monkey"
 msgstr ""
 
 #: kernel/gui/barra.c:945
@@ -815,4 +819,67 @@ msgstr ""
 
 #: kernel/gui/janelas.c
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
+msgstr ""
+
+#: kernel/gui/barra.c:937
+msgid "Traductor"
+
+#: kernel/gui/barra.c
+msgid "Cerrar sesión..."
+msgstr ""
+
+#: kernel/gui/barra.c
+msgid "Cambiar de usuario..."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "No se pudo iniciar la sesión."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Escribe la contraseña."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "No se puede comprobar la contraseña: el gestor de servicios no responde."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Cerrando la sesión..."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Iniciando la sesión..."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Iniciar sesión"
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Elige tu cuenta:"
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "sin contraseña"
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Contraseña:"
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Esta cuenta no tiene contraseña: pulsa Entrar."
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Entrar"
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Apagar"
+msgstr ""
+
+#: kernel/gui/sessao.c
+msgid "Reiniciar"
 msgstr ""

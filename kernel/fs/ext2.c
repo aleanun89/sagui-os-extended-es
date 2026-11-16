@@ -112,7 +112,9 @@
 #define CACHE_SUAVE 256             /* con diario: a partir de aquí se confirma antes de crecer */
 #define MAX_ABERTOS 32
 #define MAX_EXTENTS 16384           /* un archivo con más extents se lee pero no se modifica */
-#define ESCRITA_EXT34 0             /* D326: 1 = escribir en ext3/ext4 (pendiente de pruebas, 8.4.4) */
+#ifndef ESCRITA_EXT34
+#define ESCRITA_EXT34 1             /* D326/D337: 0 = ext3/ext4 en solo lectura (como hasta la 8.4.3) */
+#endif
 
 /* Tipo de bloque en la caché (para su suma al grabarlo, D326). */
 #define TB_OUTRO   0
@@ -1760,7 +1762,32 @@ static int e2_fixar_meta(void *priv, const char *rel, int32_t uid, int32_t gid, 
     return terminar(v, inode_gravar(v, &i));
 }
 
+/* D341: una fecha del inodo y, si el inodo es grande (256 bytes) y tiene su campo _extra, los bits
+ * de época de ese campo (sin nanosegundos: la resolución es de un segundo). Pasado 2038 el campo de
+ * 32 bits, que es con signo, se queda negativo y la época 1 le suma 2^32. */
+static void inode_fixar_tempo(e2_t *v, inode_t *i, uint32_t pos, uint32_t pos_extra, uint32_t t)
+{
+    st32(i->b + pos, t);
+    if (extra_isize(v, i) >= pos_extra + 4 - 128) st32(i->b + pos_extra, t >= 0x80000000u ? 1 : 0);
+}
+
+/* D341: fija mtime y atime (0 = no cambia); ctime pasa a ser ahora, como en POSIX. Con diario, el
+ * bloque del inodo va en la transacción como cualquier otro metadato (terminar). */
+static int e2_fixar_datas(void *priv, const char *rel, uint32_t mod, uint32_t acesso)
+{
+    e2_t *v = priv;
+    if (v->so_leitura) return ERRO_SO_LEITURA;
+    inode_t i;
+    int r = achar(v, rel, &i);
+    if (r < 0) return terminar(v, r);
+    if (mod) inode_fixar_tempo(v, &i, 16, 0x88, mod);      /* i_mtime, i_mtime_extra */
+    if (acesso) inode_fixar_tempo(v, &i, 8, 0x8C, acesso); /* i_atime, i_atime_extra */
+    inode_fixar_tempo(v, &i, 12, 0x84, agora());           /* i_ctime, i_ctime_extra */
+    return terminar(v, inode_gravar(v, &i));
+}
+
 static int e2_datas(void *priv, const char *rel, datas_arquivo_t *d)
+
 {
     e2_t *v = priv;
     inode_t i;
@@ -2333,6 +2360,10 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
                          v->j.reproduzidas, v->j.blocos_reproduzidos, v->j.revogados);
                     disco_avisar(AVISO_INFO, "%s: diario reproducido (%u transacciones)", d->nome, v->j.reproduzidas);
                     reproduziu = true;
+                    /* D337: la caché tiene bloques leídos antes de reproducir (la tabla de inodos
+                     * del inodo 8, al abrir el diario): ya no valen. Sin esto se leía la versión
+                     * vieja de los inodos reproducidos y, al escribir, se habría grabado encima. */
+                    for (uint32_t i = 0; i < CACHE_MAX; i++) v->cache[i].valido = v->cache[i].sujo = false;
                     /* Lo reproducido pudo cambiar el superbloque y los descriptores. */
                     uint8_t novo[1024];
                     if (disco_ler(d, 2, 2, novo) < 0 || le16(novo + 56) != 0xEF53 || ler_descritores(v) < 0) {
@@ -2356,8 +2387,9 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
             v->ncache_max = c < CACHE_MAX ? c : CACHE_MAX;
         }
     }
-    /* D326 (v8.4.3): la escritura en ext3/ext4 aún no está probada lo bastante para discos
-     * reales: tras reproducir el diario, el volumen queda en solo lectura. Pendiente para la 8.4.4. */
+    /* D326/D337: con ESCRITA_EXT34 a 0, ext3/ext4 quedan en solo lectura tras reproducir el
+     * diario (lo de la 8.4.3). Desde la 8.4.4 está a 1: probado con tests/ext34_unidad.c (cortes
+     * de luz en cada escritura) y h326. */
     if (!ESCRITA_EXT34 && !motivo && (v->incompat & ~(uint32_t)(INCOMPAT_TIPO_DIR | INCOMPAT_RECUPERAR)))
         motivo = "ext4: SaguiOS solo lo lee (solo lectura)";
     if (!ESCRITA_EXT34 && !motivo && ((v->compat & COMPAT_DIARIO) || (v->ro_compat & ~(uint32_t)(RO_SPARSE | RO_ARQ_GRANDE | RO_BTREE))))
@@ -2463,4 +2495,6 @@ const sistema_arquivos_t fs_ext2 = {
     .criar_pasta = e2_criar_pasta, .remover_pasta = e2_remover_pasta, .apagar = e2_apagar,
     .renomear = e2_renomear, .espaco = e2_espaco,
     .meta = e2_meta, .fixar_meta = e2_fixar_meta,   /* D282 */
+    .fixar_datas = e2_fixar_datas,                  /* D341 */
 };
+

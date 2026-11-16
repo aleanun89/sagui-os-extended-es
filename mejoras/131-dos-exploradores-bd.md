@@ -1,6 +1,6 @@
 # 131 — Dos aplicaciones de bases de datos: SQLite (relacional) y lite-monkey (documental) (v8.4.4)
 
-- **Estado:** pendiente (v8.4.4)
+- **Estado:** hecha (v8.4.4, D333)
 - **Prioridad:** alta
 - **Alta:** 2026-11-15
 
@@ -75,3 +75,14 @@ Tomando como ejemplo de uso MongoDB Compass (nombre y aspecto propios):
   - lite-monkey: insertar un documento, filtrar con `$gt`, editar en JSON, ver el esquema y crear un índice.
 - Capturas.
 - Las pruebas de la mejora 127 siguen pasando.
+
+## Resultado (D333)
+
+Hecha: `explorador_sqlite.py` y `explorador_litemonkey.py` (más `_comun.py`, `_filtros.py`, `_muestreo.py`, `_consulta.py`, `_json.py`,
+`_csv.py`, `_idioma.py`), con `explorador.py` como alias. Pruebas `h335` y `h336` (QEMU) y los módulos puros en `basedatos_unidad.py`;
+`h304` (127) pasa con tres cambios de nombre. Decisiones de detalle en D333. Pendiente / matices:
+
+- La escritura automática de SQLite está **marcada por defecto** (para no cambiar la 127); «Escribir cambios» y «Deshacer cambios» actúan al desmarcarla.
+- Mejoras del motor lite-monkey anotadas: `$lookup`, `$facet`, `$bucket`, índices compuestos y expresiones de fecha.
+- `_()` está en todos los textos, pero aún no hay catálogos en inglés ni portugués para Python.
+- El doble clic en un `.db` de Archivos (`arquivos.c`) lanza `explorador_sqlite.py`; no tiene prueba de interfaz propia.

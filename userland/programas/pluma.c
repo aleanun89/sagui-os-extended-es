@@ -55,6 +55,11 @@ static combo_t c_tam, c_zoom;
 static regua_t regua;
 static barra_estado_t estado;
 static char ult_titulo[128];
+static cinta_t cinta;                 /* la cinta (D334); modo_cinta = false vuelve a los menús clásicos */
+static bool modo_cinta = true;
+static bool ag_visible;
+static bool cinta_log;                /* --cinta-log: posiciones y órdenes de la cinta en el puerto serie */
+#define MODO_ARCHIVO "/etc/pluma.modo"
 
 /* Nombres del combo de fuentes: las tres clásicas y las del sistema (D319), hasta PDFW_FAM_MAX. */
 static char nomes_sis[PDFW_FAM_MAX + 1][32];
@@ -238,6 +243,8 @@ static void ic_formato_imagem(jan_t *j, int x, int y, bool a)
     for (int i = 0; i < 4; i++) R((i & 1) ? 12 : 1, (i & 2) ? 12 : 1, 3, 3, COR(a, W98_NEGRO));
 }
 
+#include "pluma_cinta.h"
+
 /* ------------------------------------------------------------ estado del documento */
 
 static const char *nome_curto(void)
@@ -298,6 +305,31 @@ static void ui_atualizar(void)
     rte_fmt_atual(doc, &f);
     rte_par_t p;
     rte_par_atual(doc, &p);
+    if (modo_cinta) {
+        cinta_marcar(&cinta, A_NEGRITA, (f.est & RTE_NEGRITA) != 0);
+        cinta_marcar(&cinta, A_CURSIVA, (f.est & RTE_CURSIVA) != 0);
+        cinta_marcar(&cinta, A_SUBLINHADO, (f.est & RTE_SUBLINHADO) != 0);
+        cinta_marcar(&cinta, p.alin == RTE_CENTRO ? A_CENTRO : p.alin == RTE_DIR ? A_DIR : p.alin == RTE_JUST ? A_JUST : A_ESQ, true);
+        cinta_marcar(&cinta, A_VINETAS, p.marcador != 0);
+        cinta_marcar(&cinta, A_ASISTENTE, ag_visible);
+        cinta_marcar(&cinta, A_REGUA, regua_visivel);
+        cinta_marcar(&cinta, A_BARRA_DIBUJO, dibujo_visible);
+        int pw0;
+        rte_papel_obter(doc, &pw0, NULL, NULL, NULL, NULL, NULL);
+        cinta_marcar(&cinta, pw0 == 12240 ? A_PAPEL_CARTA : A_PAPEL_A4, true);
+        cinta_ctrl_t *kf = cinta_buscar(&cinta, A_C_FONTE), *kt = cinta_buscar(&cinta, A_C_TAM), *kz = cinta_buscar(&cinta, A_C_ZOOM);
+        if (kf) combo_fuentes_definir(&kf->cf, f.fam < n_fontes ? f.fam : 0);
+        if (kt && !kt->cb.foco) { char t[8]; formatar_texto(t, sizeof t, "%d", f.tam); combo_definir(&kt->cb, t); }
+        if (kz) { char z[12]; formatar_texto(z, sizeof z, "%d%%", rte_zoom_obter(doc)); combo_definir(&kz->cb, z); }
+        rte_obj_t ob;
+        bool hay_obj = rte_obj_selecionado(doc, &ob, NULL);
+        if (hay_obj != cp_pluma[PEST_OBJETO].visible) cinta_pest_visible(&cinta, PEST_OBJETO, hay_obj);
+        cinta_desenhar(j, &cinta);
+        regua_sincronizar();
+        estado_atualizar();
+        titulo();
+        return;
+    }
     barra_ferr_marcar(&ferr2, A_NEGRITA, (f.est & RTE_NEGRITA) != 0);
     barra_ferr_marcar(&ferr2, A_CURSIVA, (f.est & RTE_CURSIVA) != 0);
     barra_ferr_marcar(&ferr2, A_SUBLINHADO, (f.est & RTE_SUBLINHADO) != 0);
@@ -323,16 +355,20 @@ static void ui_atualizar(void)
 static bool ag_visible;
 static void ag_colocar(void);
 
+/* Donde empieza lo que hay debajo de las barras. */
+static int y_base(void) { return modo_cinta ? cinta_altura(&cinta) : BARRA_Y + 2 * FERR_A; }
+
 static void layout(void)
 {
     int l = j->larg, a = j->alt;
+    if (modo_cinta) cinta_largura(&cinta, 0, 0, l);
     barra_menu_iniciar(&menu, 0, 0, l);
     barra_ferr_iniciar(&ferr1, 0, BARRA_Y, l, it1, 16);
     barra_ferr_iniciar(&ferr2, 0, BARRA_Y + FERR_A, l, it2, 15);
     combo_fuentes_iniciar(&c_fonte, barra_ferr_x(&ferr2, 0), BARRA_Y + FERR_A + 3, 164);
     combo_iniciar(&c_tam, barra_ferr_x(&ferr2, 1), BARRA_Y + FERR_A + 3, 52, tams_txt, 16, true, 7102);
     combo_iniciar(&c_zoom, barra_ferr_x(&ferr1, 15), BARRA_Y + 3, 70, zooms_txt, 5, false, 7103);
-    int y = BARRA_Y + 2 * FERR_A;
+    int y = y_base();
     int lw = l - (ag_visible ? 380 : 0);          /* sin el panel del asistente (D298) */
     regua_iniciar(&regua, 0, y, lw);
     if (regua_visivel) y += REGUA_A;
@@ -398,7 +434,7 @@ static const char *const menu_nomes[7] = { "Archivo", "Edición", "Ver", "Insert
 static const char *const menu_textos[7] = {
     "Nuevo\tCtrl+N\nAbrir...\tCtrl+O\n-\nGuardar\tCtrl+S\nGuardar como...\n-\nExportar a PDF...\tCtrl+P\n-\nPapel A4\nPapel Carta\n-\nSalir",
     "Deshacer\tCtrl+Z\nRehacer\tCtrl+Y\n-\nCortar\tCtrl+X\nCopiar\tCtrl+C\nPegar\tCtrl+V\n-\nSeleccionar todo\tCtrl+A\n-\nBuscar...\tCtrl+F\nReemplazar...\tCtrl+H",
-    "Zoom 50%\nZoom 75%\nZoom 100%\nZoom 150%\nZoom 200%\n-\nMostrar u ocultar la regla\nMostrar u ocultar la barra Dibujo\n-\nAsistente IA\tF12",
+    "Zoom 50%\nZoom 75%\nZoom 100%\nZoom 150%\nZoom 200%\n-\nMostrar u ocultar la regla\nMostrar u ocultar la barra Dibujo\n-\nAsistente IA\tF12\n-\nCinta (estilo moderno)",
     "Fecha\nSalto de página\tCtrl+Intro\n-\nImagen...\nWordArt...",
     "Fuente...\nPárrafo...\nViñetas\n-\nNegrita\tCtrl+B\nCursiva\tCtrl+I\nSubrayado\tCtrl+U\n-\nAlinear a la izquierda\nCentrar\nAlinear a la derecha\nJustificar\n-\nAumentar sangría\nDisminuir sangría\n-\nFormato de imagen...\nEditar WordArt...",
     "Contar palabras...\n-\nAsistente IA: Resumir la selección\nAsistente IA: Corregir la selección\nAsistente IA: Traducir al inglés\nAsistente IA: Reescribir más formal\nAsistente IA: Reescribir más informal",
@@ -407,7 +443,7 @@ static const char *const menu_textos[7] = {
 static const int menu_acoes[7][20] = {
     { A_NOVO, A_ABRIR, 0, A_GUARDAR, A_GUARDAR_COMO, 0, A_PDF, 0, A_PAPEL_A4, A_PAPEL_CARTA, 0, A_SAIR },
     { A_DESFAZER, A_REFAZER, 0, A_CORTAR, A_COPIAR, A_COLAR, 0, A_TUDO, 0, A_BUSCAR, A_SUBSTITUIR },
-    { A_Z50, A_Z75, A_Z100, A_Z150, A_Z200, 0, A_REGUA, A_BARRA_DIBUJO, 0, A_ASISTENTE },
+    { A_Z50, A_Z75, A_Z100, A_Z150, A_Z200, 0, A_REGUA, A_BARRA_DIBUJO, 0, A_ASISTENTE, 0, A_CLASICO },
     { A_DATA, A_PAGINA, 0, A_IMAGEM, A_WORDART },
     { A_FONTE, A_PARAGRAFO, A_VINETAS, 0, A_NEGRITA, A_CURSIVA, A_SUBLINHADO, 0, A_ESQ, A_CENTRO, A_DIR, A_JUST, 0, A_SANG_MAIS, A_SANG_MENOS, 0, A_FORMATO_IMAGEM, A_WORDART_EDITAR },
     { A_CONTAR, 0, A_IA_RESUMIR, A_IA_CORREGIR, A_IA_TRADUCIR, A_IA_FORMAL, A_IA_INFORMAL },
@@ -523,9 +559,11 @@ static ag_panel_t *ag;
 static void tudo_redesenhar(void)
 {
     g_retangulo(j, 0, 0, j->larg, j->alt, W98_FACE);
-    barra_menu_desenhar(j, &menu);
-    barra_ferr_desenhar(j, &ferr1);
-    combo_desenhar(j, &c_zoom);
+    if (!modo_cinta) {
+        barra_menu_desenhar(j, &menu);
+        barra_ferr_desenhar(j, &ferr1);
+        combo_desenhar(j, &c_zoom);
+    }
     if (dibujo_visible) { barra_ferr_desenhar(j, &ferr3); rotulo(j, 120, a_dibujo_y(), "Dibujo", W98_NEGRO); }
     ui_atualizar();
     rte_desenhar(j, doc);
@@ -1119,6 +1157,61 @@ static bool ag_evento(const evento_t *e)
 }
 
 
+/* Cambia entre la cinta y los menús clásicos y se acuerda de la elección (D334). */
+static void modo_alternar(void)
+{
+    modo_cinta = !modo_cinta;
+    escrever_arquivo(MODO_ARCHIVO, modo_cinta ? "cinta\n" : "clasico\n", modo_cinta ? 6 : 8);
+    registrar("pluma: modo %s\n", modo_cinta ? "cinta" : "clasico");
+}
+
+static void acao(int a);
+
+/* Órdenes de la cinta que no son un simple acao(): combos, color y galería. */
+static void cinta_orden(int id)
+{
+    cinta_ctrl_t *k = cinta_buscar(&cinta, id);
+    switch (id) {
+    case A_C_TAM: {
+        int v = 0;
+        for (const char *q = k->cb.texto; *q >= '0' && *q <= '9'; q++) v = v * 10 + (*q - '0');
+        if (v >= 1 && v <= 127) { rte_fmt_t f = { 0, 0, (uint8_t)v, 0 }; rte_fmt_aplicar(doc, RTE_C_TAM, &f); }
+        break;
+    }
+    case A_C_FONTE: {
+        rte_fmt_t f = { (uint8_t)k->cf.fam, 0, 12, 0 };
+        rte_fmt_aplicar(doc, RTE_C_FAM, &f);
+        registrar("pluma: fuente aplicada %s\n", pdfw_nombre_familia(k->cf.fam));
+        break;
+    }
+    case A_C_ZOOM: {
+        static const int zs[5] = { 50, 75, 100, 150, 200 };
+        if (k->cb.sel >= 0 && k->cb.sel < 5) zoom(zs[k->cb.sel]);
+        break;
+    }
+    case A_C_COR: {
+        rte_fmt_t f = { 0, 0, 0, k->cor };
+        rte_fmt_aplicar(doc, RTE_C_COR, &f);
+        registrar("pluma: color aplicado %06x\n", (unsigned)k->cor);
+        break;
+    }
+    case A_C_ESTILO: {
+        static const int tam[4] = { 12, 24, 16, 12 };
+        static const unsigned est[4] = { 0, RTE_NEGRITA, RTE_NEGRITA, RTE_CURSIVA };
+        int q = k->sel < 0 || k->sel > 3 ? 0 : k->sel;
+        rte_fmt_t f = { 0, 0, (uint8_t)tam[q], 0 };
+        rte_fmt_aplicar(doc, RTE_C_TAM, &f);
+        rte_estilo(doc, RTE_NEGRITA | RTE_CURSIVA, false);
+        if (est[q]) rte_estilo(doc, est[q], true);
+        registrar("pluma: estilo aplicado %d\n", q);
+        break;
+    }
+    default: acao(id); return;
+    }
+    rte_foco(doc, true);
+    tudo_redesenhar();
+}
+
 static void acao(int a)
 {
     switch (a) {
@@ -1214,6 +1307,7 @@ static void acao(int a)
     case A_WORDART_EDITAR: objeto_editar(); break;
     case A_BARRA_DIBUJO: dibujo_visible = !dibujo_visible; break;
     case A_ASISTENTE: ag_alternar(); break;
+    case A_CLASICO: modo_alternar(); break;
     case A_IA_RESUMIR: case A_IA_CORREGIR: case A_IA_TRADUCIR: case A_IA_FORMAL: case A_IA_INFORMAL: ag_rapida(a); break;
     }
     layout();
@@ -1428,7 +1522,9 @@ int principal(int argc, char **argv)
     }
     if (argc >= 4 && compara_texto(argv[1], "--imagem") == 0) return modo_imagem(argv[2], argv[3], argc >= 5 ? argv[4] : "");
 
-    j = jan_abrir("Documento1 - Pluma", 820, 600);
+    int jl = 820, ja = 600;
+    cinta_tam_janela(&jl, &ja);
+    j = jan_abrir("Documento1 - Pluma", jl, ja);
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL | JAN_TELA_CHEIA_OK, 560, 360);
     doc = rte_criar(0, 0, 100, 100);
@@ -1437,6 +1533,26 @@ int principal(int argc, char **argv)
     ag_registrar_herramientas();
     for (int i = 0; i < 7; i++) { menu.nomes[i] = menu_nomes[i]; menu.itens[i] = menu_textos[i]; }
     menu.n = 7;
+    {   /* la cinta (D334): --cinta-log y --clasico/--cinta; si no, lo que se eligió la última vez */
+        int nm = 0;
+        char *mb = ler_arquivo(MODO_ARCHIVO, &nm);
+        if (mb) { modo_cinta = !(nm >= 7 && memcmp(mb, "clasico", 7) == 0); libera(mb); }
+        while (argc >= 2 && argv[1][0] == '-' && argv[1][1] == '-') {
+            if (compara_texto(argv[1], "--cinta-log") == 0) cinta_log = true;
+            else if (compara_texto(argv[1], "--clasico") == 0) modo_cinta = false;
+            else if (compara_texto(argv[1], "--cinta") == 0) modo_cinta = true;
+            else break;
+            argv++; argc--;
+        }
+        cinta.acceso = cc_acceso; cinta.n_acceso = 3;
+        cinta_iniciar(&cinta, 0, 0, j->larg, cp_pluma, 5);
+        cinta.archivo = menu_textos[0];
+        cinta.archivo_ids = menu_acoes[0];
+        cinta.depurar = cinta_log;
+        cinta_traducir(&cinta);
+        cinta_buscar(&cinta, A_C_COR)->cor = 0x000000;
+        cinta_buscar(&cinta, A_C_ESTILO)->sel = 0;
+    }
     if (argc >= 2) {
         if (abrir_documento(doc, argv[1]) == 0) {
             copia_texto(caminho, argv[1], sizeof caminho);
@@ -1467,12 +1583,20 @@ int principal(int argc, char **argv)
                 continue;
             }
         }
-        if (e.tipo == EV_CLIQUE && (e.botoes & 2) && e.x < j->larg - (ag_visible ? 380 : 0) && e.y > BARRA_Y + 2 * FERR_A + REGUA_A) {
+        if (e.tipo == EV_CLIQUE && (e.botoes & 2) && e.x < j->larg - (ag_visible ? 380 : 0) && e.y > y_base() + REGUA_A) {
             menu_contextual(j->id, e.x, e.y, MENU_CTX_SEL, COD_CTX_SEL);
             continue;
         }
+        /* la cinta (D334): tiene prioridad sobre el resto cuando está activa */
+        if (modo_cinta) {
+            int id = cinta_tratar(j, &cinta, &e);
+            if (cinta_cambio(&cinta)) { layout(); tudo_redesenhar(); }
+            if (id > 0) { cinta_orden(id); continue; }
+            if (id == CINTA_TRATADO) continue;
+            if (e.tipo == EV_MENU) continue;
+        }
         /* menús y listas desplegables */
-        if (e.tipo == EV_MENU) {
+        if (!modo_cinta && e.tipo == EV_MENU) {
             int m = barra_menu_tratar(j, &menu, &e);
             if (m >= 0) { int a = menu_acoes[m / 100][m % 100]; if (a) acao(a); continue; }
             int r;
@@ -1491,7 +1615,7 @@ int principal(int argc, char **argv)
             continue;
         }
         /* el combo de fuentes: lista con buscador y cada nombre con su fuente (D327) */
-        if (e.tipo == EV_CLIQUE && (e.botoes & 1) && combo_fuentes_tratar(j, &c_fonte, &e) == COMBO_SELECIONOU) {
+        if (!modo_cinta && e.tipo == EV_CLIQUE && (e.botoes & 1) && combo_fuentes_tratar(j, &c_fonte, &e) == COMBO_SELECIONOU) {
             rte_fmt_t f = { (uint8_t)c_fonte.fam, 0, 12, 0 };
             rte_fmt_aplicar(doc, RTE_C_FAM, &f);
             registrar("pluma: fuente aplicada %s\n", pdfw_nombre_familia(c_fonte.fam));
@@ -1499,12 +1623,12 @@ int principal(int argc, char **argv)
             tudo_redesenhar();
             continue;
         }
-        if (e.tipo == EV_CLIQUE && (e.botoes & 1)) {
+        if (!modo_cinta && e.tipo == EV_CLIQUE && (e.botoes & 1)) {
             int m = barra_menu_tratar(j, &menu, &e);
             (void)m;
         }
         /* combos con foco: reciben el teclado */
-        if (e.tipo == EV_TECLA && c_tam.foco) {
+        if (!modo_cinta && e.tipo == EV_TECLA && c_tam.foco) {
             int r = combo_tratar(j, &c_tam, &e);
             if (r == COMBO_ENTROU) {
                 int v = 0;
@@ -1515,15 +1639,15 @@ int principal(int argc, char **argv)
             }
             continue;
         }
-        if (e.tipo == EV_CLIQUE) {
+        if (!modo_cinta && e.tipo == EV_CLIQUE) {
             bool antes_t = c_tam.foco;
             combo_tratar(j, &c_tam, &e);
             combo_tratar(j, &c_zoom, &e);
             if (c_tam.foco && !antes_t) rte_foco(doc, false);
         }
         /* barras */
-        int id = barra_ferr_tratar(j, &ferr1, &e);
-        if (!id) id = barra_ferr_tratar(j, &ferr2, &e);
+        int id = modo_cinta ? 0 : barra_ferr_tratar(j, &ferr1, &e);
+        if (!id && !modo_cinta) id = barra_ferr_tratar(j, &ferr2, &e);
         if (!id && dibujo_visible) id = barra_ferr_tratar(j, &ferr3, &e);
         if (id > 0) { acao(id); continue; }
         if (regua_visivel) {

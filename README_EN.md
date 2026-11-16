@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit a231b6ac (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 7fd46611 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -478,7 +478,7 @@ text files, with textures and characters drawn in the code itself. Full explanat
 
 ## Network and HTTPS
 
-- **Wired network** (D046, D047): Intel e1000 and Realtek RTL8139 drivers, own IPv4 stack
+- **Wired network** (D046, D047): Intel e1000, Realtek RTL8139 and NE2000 (DP8390, PCI RTL8029 and ISA, D329) drivers, own IPv4 stack
   (ARP, ICMP, UDP, DHCP, DNS, TCP), loopback `127.0.0.1` and sockets as descriptors.
   Commands `ifconfig`, `dhcp`, `ping`, `nslookup`, `nc` and the text browser **Cipó**
   (`cipo`).

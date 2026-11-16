@@ -21,6 +21,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "gui.h"
+#include "permisos.h"
 #include "processo.h"
 #include "relogio.h"
 #include "sistema.h"
@@ -170,6 +171,7 @@ typedef struct {
     int               resultado;
     uint32_t          desde;
     bool              graf;
+    bool              entrar;             /* D340: inicio de sesión (lo pidió el kernel, no un proceso) */
     uint8_t           fase;
     int               erro;               /* último fallo mostrado por el diálogo */
     bool              primeira;           /* root no tiene contraseña: el diálogo pide elegirla */
@@ -225,7 +227,7 @@ static void pedidos_caducar(void)
         if (p->estado == PD_LIVRE) continue;
         uint32_t vida = p->estado == PD_DIALOGO ? PEDIDO_DIALOGO_S : PEDIDO_VIDA_S;
         bool velho = relogio_tiques() - p->desde > vida * TIQUES_POR_SEGUNDO;
-        if (velho || !vivo(p->r.pid)) pedido_limpar(p);
+        if (velho || (!p->entrar && !vivo(p->r.pid))) pedido_limpar(p);
     }
 }
 
@@ -325,6 +327,7 @@ static int proximo(uint32_t ptr)
 
 static void elevar_pedido(pedido_t *p, processo_t *alvo)
 {
+    permisos_casa_mudar_uid(alvo, p->r.uid_alvo);   /* D340: la carpeta actual sigue siendo la misma */
     alvo->uid = p->r.uid_alvo;
     alvo->gid = p->r.uid_alvo == UID_ROOT ? GID_ROOT : p->r.uid_alvo;
     klog("[USUARIOS] ELEVACION concedida: %s (pid %d) pasa de uid %u a uid %u\n", alvo->nome, alvo->pid,
@@ -335,6 +338,14 @@ static int responder(uint32_t id, int32_t res)
 {
     pedido_t *p = achar_pedido(id);
     if (!p || p->estado != PD_ENTREGUE) return ERRO_NAO_EXISTE;
+    if (p->entrar) {   /* D340: lo recoge la pantalla de inicio de sesión */
+        klog("[USUARIOS] inicio de sesion (pedido %u) de uid %u: %s (%d)\n", p->r.id, p->r.uid_alvo,
+             res == 1 ? "contrasena correcta" : "NEGADO", res);
+        p->resultado = res == 1 ? 1 : res < 0 ? res : ERRO_ACESSO;
+        p->estado = PD_RESPONDIDO;
+        p->desde = relogio_tiques();
+        return 0;
+    }
     processo_t *alvo = processo_por_pid(p->r.pid);
     if (!alvo || alvo->estado == P_ZUMBI) { pedido_limpar(p); return ERRO_SEM_PROCESSO; }
     alvo = processo_lider(alvo);
@@ -413,6 +424,52 @@ void supervisor_dialogo_negar(uint32_t id)
     p->resultado = ERRO_ACESSO;
     p->estado = PD_RESPONDIDO;
     p->desde = relogio_tiques();
+}
+
+/* ---------------------------------------------------------------- inicio de sesión (D340) */
+int supervisor_entrar_pedir(uint32_t uid, const char *senha)
+{
+    if (!supervisor_pid_confiavel()) return ERRO_NAO_EXISTE;
+    pedidos_caducar();
+    pedido_t *p = NULL;
+    for (int i = 0; i < PEDIDOS_MAX; i++) {
+        if (pedidos[i].estado != PD_LIVRE && pedidos[i].entrar) pedido_limpar(&pedidos[i]);   /* uno solo a la vez */
+        if (!p && pedidos[i].estado == PD_LIVRE) p = &pedidos[i];
+    }
+    if (!p) return ERRO_OCUPADO;
+    pedido_limpar(p);
+    p->r.id = proximo_id++;
+    if (proximo_id > 0x7FFFFFFF) proximo_id = 1;
+    p->r.tipo = PED_ENTRAR;
+    p->r.uid_alvo = uid;
+    p->r.pid = 0;
+    p->r.uid = p->r.gid = PED_UID_NINGUEM;   /* nadie: el supervisor pide la contraseña de la cuenta */
+    p->r.servicio = 0;                        /* delante de la pantalla, en la sesión local */
+    txt_copia_n(p->r.senha, senha, PED_SENHA_MAX);
+    p->entrar = true;
+    p->desde = relogio_tiques();
+    p->estado = PD_ESPERANDO;
+    klog("[USUARIOS] pedido %u: inicio de sesion de uid %u\n", p->r.id, uid);
+    return (int)p->r.id;
+}
+
+int supervisor_entrar_resultado(uint32_t id)
+{
+    pedido_t *p = achar_pedido(id);
+    if (!p || !p->entrar) return ERRO_NAO_EXISTE;
+    if (p->estado != PD_RESPONDIDO) {
+        if (!supervisor_pid_confiavel()) { pedido_limpar(p); return ERRO_NAO_EXISTE; }
+        return 0;
+    }
+    int r = p->resultado;
+    pedido_limpar(p);
+    return r;
+}
+
+void supervisor_entrar_cancelar(uint32_t id)
+{
+    pedido_t *p = achar_pedido(id);
+    if (p && p->entrar) pedido_limpar(p);
 }
 
 /* servicos(SERV_*, arg). Cualquiera puede preguntar; solo el supervisor

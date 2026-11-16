@@ -1137,12 +1137,17 @@ static int tratar_pedido(pedido_recebido_t *p, char *det, int max)
     conta_t alvo;
     if (!conta_por_uid(p->uid_alvo, &alvo)) { copia_texto(det, "esa cuenta no existe", (size_t)max); return ERRO_NAO_EXISTE; }
     bool elevar = p->tipo == PED_ELEVAR;
-    if (p->uid == UID_ROOT) {   /* root no necesita contraseñas */
+    /* D340: entrar en el escritorio (lo pide el kernel, desde la pantalla de inicio de sesión). */
+    bool entrar = p->tipo == PED_ENTRAR && p->pid == 0 && p->uid == PED_UID_NINGUEM;
+    if (p->tipo == PED_ENTRAR && !entrar) { copia_texto(det, "pedido de inicio de sesión que no viene del kernel", (size_t)max); return ERRO_ACESSO; }
+    if (entrar && (alvo.uid < UID_SAGUI || !alvo.shell[0])) { copia_texto(det, "esa cuenta no entra en el escritorio", (size_t)max); return ERRO_ACESSO; }
+    if (!entrar && p->uid == UID_ROOT) {   /* root no necesita contraseñas */
         if (elevar) { copia_texto(det, "ya era root", (size_t)max); return 1; }
         return fijar_senha(&alvo, p->senha_nova, det, max);
     }
     unsigned *ate;
-    int *falhas = falhas_de(p->uid, &ate);
+    /* Los fallos al entrar cuentan por la cuenta de destino (todos los pide «nadie»). */
+    int *falhas = falhas_de(entrar ? 0x10000u + alvo.uid : p->uid, &ate);
     if (*ate && (int)(tempo_ms() - *ate) < 0) { copia_texto(det, "bloqueado por intentos fallidos", (size_t)max); return ERRO_ESPERA; }
     char h[SOMBRA_TEXTO_MAX] = "";
     int r = sombra_ler(alvo.nome, h, sizeof h);
@@ -1155,6 +1160,29 @@ static int tratar_pedido(pedido_recebido_t *p, char *det, int max)
         tem = false;
     }
     if (r < 0) anotar("contraseñas: no se puede leer la sombra (%s): %s queda sin contraseña", nome_erro(r), alvo.nome);
+    /* D340: un administrador (grupo admin) pasa a root con su propia contraseña, si la tiene (como sudo). */
+    if (elevar && alvo.uid == UID_ROOT) {
+        conta_t quem;
+        char hp[SOMBRA_TEXTO_MAX] = "";
+        bool propia = conta_por_uid(p->uid, &quem) && conta_admin(quem.nome) && sombra_ler(quem.nome, hp, sizeof hp) > 0 &&
+                      pbkdf2_valido(hp, &iter, sal, hh);
+        if (propia) {
+            if (!p->senha[0]) { memset(hp, 0, sizeof hp); memset(h, 0, sizeof h); copia_texto(det, "falta la contraseña (administrador)", (size_t)max); return ERRO_ACESSO; }
+            bool ok = pbkdf2_conferir(p->senha, hp) || (tem && pbkdf2_conferir(p->senha, h));
+            memset(hp, 0, sizeof hp);
+            memset(h, 0, sizeof h);
+            if (ok) { *falhas = 0; *ate = 0; formatar_texto(det, (size_t)max, "contraseña correcta (%s es administrador)", quem.nome); return 1; }
+            if (++*falhas >= FALHAS_MAX) {
+                *falhas = 0;
+                *ate = tempo_ms() + BLOQUEIO_MS;
+                if (!*ate) *ate = 1;
+                copia_texto(det, "contraseña incorrecta: 5 fallos, bloqueado un minuto", (size_t)max);
+            } else copia_texto(det, "contraseña incorrecta", (size_t)max);
+            return 0;   /* con retraso */
+        }
+        memset(hp, 0, sizeof hp);
+    }
+    if (!tem && entrar) { copia_texto(det, "la cuenta no tiene contraseña", (size_t)max); return 1; }
     if (!tem) {
         /* Sin contraseña: solo la sesión local la fija (la primera vez). */
         if (p->servicio) { copia_texto(det, "sin contraseña y no es la sesión local", (size_t)max); return ERRO_SEM_SENHA; }
@@ -1182,7 +1210,7 @@ static int tratar_pedido(pedido_recebido_t *p, char *det, int max)
     }
     *falhas = 0;
     *ate = 0;
-    if (elevar) { formatar_texto(det, (size_t)max, "contraseña correcta"); return 1; }
+    if (elevar || entrar) { formatar_texto(det, (size_t)max, "contraseña correcta"); return 1; }
     return fijar_senha(&alvo, p->senha_nova, det, max);
 }
 
@@ -1195,7 +1223,7 @@ static void atender_contas(void)
         int r = tratar_pedido(&p, det, sizeof det);
         conta_nome(p.uid, quem, sizeof quem);
         conta_nome(p.uid_alvo, alvo, sizeof alvo);
-        anotar("%s: pid %d (%s%s) -> %s: %s: %s", p.tipo == PED_ELEVAR ? "ELEVAR" : "CONTRASEÑA", p.pid, quem,
+        anotar("%s: pid %d (%s%s) -> %s: %s: %s", p.tipo == PED_ELEVAR ? "ELEVAR" : p.tipo == PED_ENTRAR ? "ENTRAR" : "CONTRASEÑA", p.pid, quem,
                p.servicio ? ", desde un servicio" : "", alvo, r == 1 ? "CONCEDIDO" : "negado", det);
         if (r == 0) responder_depois(p.id, ERRO_ACESSO);
         else servicos_kernel3(SERV_RESPONDER, (int)p.id, r);

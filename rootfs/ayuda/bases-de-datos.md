@@ -184,60 +184,75 @@ Los componentes tienen su icono en la caja de herramientas; `origen` abre su di�
 en la base (el diseñador se conecta un momento para leerlo) y `fuente` uno con los conectores del formulario. El autocompletado
 conoce los métodos (`ConectorBD1.` ofrece `abrir`, `guardar`, `siguiente`...). La rejilla se dibuja en el diseño como una maqueta.
 
-## 3. El Explorador de bases de datos
+## 3. Los dos exploradores (v8.4.4, D333)
 
-**Inicio > Accesorios > Explorador de bases de datos**, o un doble clic en un `.db` (o `.sqlite`) en Archivos. También
-`python /lib/python/basedatos/explorador.py [fichero.db | litemonkey://host:7979/base]`.
+Desde la v8.4.4 el Explorador de la 127 son **dos aplicaciones**, una por tipo de base, en **Inicio > Accesorios** con iconos
+distintos: **Explorador SQLite** (cilindro azul, relacional) y **Explorador lite-monkey** (cara de mono, documental).
+`explorador.py` queda como alias (una dirección `litemonkey://` abre el de lite-monkey; lo demás, el de SQLite). Un doble clic en un
+`.db`, `.sqlite` o `.sqlite3` en Archivos abre el de SQLite. Los textos van con `_()` (D313, `basedatos/_idioma.py`).
 
-![El Explorador con una base SQLite](capturas/H304-1-explorador.png)
+### 3.1. Explorador SQLite
 
-**Árbol (a la izquierda).** Las conexiones (las que abriste otras veces se recuerdan en `/home/.config/exploradorbd.json`) ->
-tablas o colecciones -> columnas e índices. Un clic en una tabla enseña sus datos; doble clic en una conexión la abre o la cierra y doble clic
-en una tabla despliega sus columnas y sus índices; el botón derecho abre un menú (abrir, cerrar, quitar, nueva tabla, exportar...).
+`python /lib/python/basedatos/explorador_sqlite.py [fichero.db]`
 
-![El árbol con las columnas de una tabla](capturas/H304-3-arbol.png)
+![Explorador SQLite](capturas/H335-1-arbol.png)
 
-**Pestaña Datos.** La tabla con **paginación** (50 filas por página), **filtro** (condición SQL en SQLite; JSON en lite-monkey) y
-**orden** (un clic en la cabecera). **Doble clic en una celda para editarla** (Intro acepta, Esc cancela): se escribe en la base con
-parámetros enlazados. **Fila nueva...** abre un formulario con un campo por columna; **Borrar fila** pide confirmación.
+- **Árbol:** tablas, vistas, índices y disparadores (cada grupo se pliega con doble clic; doble clic en una tabla despliega sus
+  columnas). Un clic en un índice o disparador enseña su SQL en la pestaña Estructura.
+- **Datos:** rejilla con paginación, orden (clic en la cabecera) y edición de celdas (doble clic). **NULL se distingue del texto
+  vacío**: se dibuja «NULL» en gris, y al editar, escribir `NULL` guarda un nulo. **Filtro por columna**: escribe `columna:valor`
+  (o solo el valor, para la columna elegida en la rejilla) y pulsa Intro; se pueden añadir varios (se unen con AND). Sintaxis del valor:
+  `x` igual, `>5 <5 >=5 <=5 <>x`, `~x` contiene, `NULL`, `!NULL` y `""` (texto vacío). **Fila nueva...**, **Borrar fila** y
+  **Borrar filtradas** (enseña cuántas son antes de pedir confirmación).
+- **Estructura:** las columnas con tipo, clave, obligatoria, valor por defecto, único y clave foránea, los índices y el `CREATE TABLE`.
+  El **asistente de columnas** (Nueva tabla... y Modificar tabla...) edita nombre, tipo, PK, NOT NULL, UNIQUE, DEFAULT y FK; **Ver SQL**
+  enseña la sentencia. Modificar una tabla usa el método estándar de SQLite (crear la nueva, copiar los datos, borrar la vieja y
+  renombrar, en una transacción); borrar una columna la quita dejando su nombre en blanco, y renombrarla conserva sus datos.
+  Nuevo índice... y Borrar índice.
 
-![Datos: editar una celda y ordenar](capturas/H304-4-editar-ordenar.png)
+  ![El asistente de columnas](capturas/H335-3-asistente-lleno.png)
+- **SQL:** editor con resaltado, varias sentencias, resultado en rejilla con el tiempo (`4 filas en 12 ms`), **Autocompletar** (o
+  Ctrl+Espacio: tablas, columnas y palabras de SQL; si solo hay una opción la pone), **Plan** (`EXPLAIN QUERY PLAN`), historial e
+  **Exportar resultado...** a CSV.
+- **Cambios:** la **escritura automática** está marcada por defecto (como antes). Si la desmarcas, el primer cambio abre una
+  transacción: **Escribir cambios** la confirma y **Deshacer cambios** la deshace (también crear tablas e índices). Al cerrar con cambios
+  pendientes pregunta.
+- **Archivo:** abrir y crear bases, **Importar CSV...** (la primera fila son los nombres de columna; entra en la tabla elegida o crea
+  una nueva), **Exportar tabla a CSV...** (con el filtro; ofrece abrirlo en Macaco), **Exportar base a SQL (volcado)...** y
+  **Ejecutar archivo SQL...**. **Herramientas:** comprobar integridad (`PRAGMA integrity_check`) y compactar (`VACUUM`).
+- **Seguridad (D304):** `DROP` y `DELETE`/`UPDATE` sin `WHERE` (en la pestaña SQL o en un archivo SQL) piden confirmación con el
+  botón por defecto en **«No»**; igual el borrado de una fila, de las filas filtradas, de una tabla o de un índice. Abrir un fichero no
+  ejecuta nada.
 
-**Pestaña Estructura.** Las columnas con su tipo, clave, si son obligatorias y su valor por defecto, y los índices. En
-lite-monkey, los campos deducidos de una muestra con el porcentaje de documentos que los tienen.
+  ![Confirmación de un DROP](capturas/H335-10-confirmar-drop.png)
 
-![Estructura de una tabla](capturas/H304-5-estructura.png)
+### 3.2. Explorador lite-monkey
 
-**Pestaña Consulta.** Un editor de **SQL** con resaltado sencillo (palabras clave, cadenas, números y comentarios). **F5** ejecuta
-(o el botón); el resultado sale en una rejilla con el número de filas y el tiempo (`4 filas en 12 ms`), y **Historial** recuerda las
-últimas 30 consultas. Se pueden escribir varias sentencias separadas por `;`. En lite-monkey, la pestaña recibe el **filtro en
-JSON** con la sintaxis del cliente (`{"precio": {"$lt": 4}}`) y muestra los documentos de la colección elegida.
+`python /lib/python/basedatos/explorador_litemonkey.py [litemonkey://host:7979/base]`
 
-![Consulta SQL con su resultado](capturas/H304-6-consulta.png)
+![Explorador lite-monkey](capturas/H336-2-arbol-desplegado.png)
 
-**Tabla > Nueva tabla...** crea una tabla (nombre y hasta cinco columnas con su tipo y clave; en lite-monkey, una colección vacía);
-**Exportar a CSV...** guarda la tabla (con el filtro y el orden) o, con el botón de la pestaña Consulta, el resultado; después ofrece
-**abrirlo en Macaco**. **Borrar tabla** pide confirmación.
+- **Conexión:** Archivo > Conectar a lite-monkey... (servidor, usuario y clave opcionales). Si el servidor no está arrancado ofrece
+  arrancarlo (`servicio iniciar litemonkey`). El árbol lista **las bases y sus colecciones con su número de documentos y su tamaño**.
+- **Documentos**, en tres vistas (botones Árbol, JSON y Tabla): lista de documentos como **árbol plegable** (doble clic despliega;
+  doble clic en un campo escalar lo edita), el **JSON** del documento elegido (editable; se **valida antes de guardar**: un JSON roto no
+  se guarda y un `_id` distinto se rechaza; los `ObjectId` y fechas van como `{"$oid": ...}` y `{"$fecha": ms}`; un documento con binarios
+  no se edita aquí) y una **tabla** con las claves de primer nivel (editable).
+- **Barra de consulta:** filtro (JSON: `{"edad": {"$gt": 30}}`), **proyección** (`nombre, precio` o `-tags` o JSON), **orden**
+  (`-precio, nombre` o JSON), **saltar** y **límite** (`<` y `>` pasan de página), con **historial** y **consultas favoritas**.
+- **Editar:** Insertar JSON... (con una plantilla sacada del esquema; admite una lista), Insertar formulario..., **Clonar**, **Borrar**
+  (con confirmación), **Actualizar filtrados...** (operadores `$set`, `$inc`... sobre todos los que casan) y **Borrar filtrados...**: los dos
+  enseñan antes cuántos documentos son y piden confirmación (más severa si el filtro está vacío).
+- **Esquema:** muestreo de la colección (200 documentos por defecto): por campo, sus **tipos con porcentaje**, **cuántos documentos
+  lo tienen y cuántos no (huecos)** y sus **valores más frecuentes**.
+- **Índices:** listar, crear (campo, único, descendente) y borrar (el de `_id` no).
+- **Agregación:** constructor de etapas **`$match`, `$group`, `$sort`, `$project`, `$limit`, `$skip`, `$unwind` y `$count`** (las
+  que el motor soporta, D117) con **vista previa tras cada etapa** (al elegir una etapa en la lista se ve el resultado hasta ella,
+  50 documentos como mucho). El motor **no tiene** `$lookup`, `$facet`, `$bucket` ni expresiones de fecha: eso sería una mejora del motor.
+- **Importar y exportar:** Importar JSON... (una lista JSON o un documento por línea) y Exportar a JSON, JSON por líneas y CSV
+  (aplanando los campos de primer nivel), con el filtro y el orden de la barra.
 
-![El CSV exportado, en Macaco](capturas/H304-8-macaco.png)
-
-### lite-monkey
-
-**Archivo > Conectar a lite-monkey...** pide el servidor (`127.0.0.1:7979`) y la base. Si el servidor no está arrancado, el
-Explorador lo dice y **ofrece arrancarlo** con el gestor de servicios (`servicio iniciar litemonkey`); si el servicio no
-arranca (por ejemplo, porque no hay `/home`), lanza `litemonkey &` a mano (sus datos van a `/home/litemonkey` o, sin `/home`, a `/tmp/litemonkey`). Después se ven las colecciones de la base; los documentos con campos distintos
-salen en una sola rejilla con la unión de sus campos.
-
-![lite-monkey en el Explorador](capturas/H304-10-lmk.png)
-
-### Seguridad del Explorador
-
-- Una sentencia **`DROP`**, o un **`DELETE`/`UPDATE` sin `WHERE`**, pide confirmación (con la sentencia delante) antes de
-  ejecutarse; contestar que no la cancela sin tocar nada.
-
-  ![Confirmación de un DELETE sin WHERE](capturas/H304-7-confirmar.png)
-- Al **abrir un fichero no se ejecuta nada**: solo se leen la lista de tablas y su esquema.
-- Los cambios de la rejilla usan parámetros enlazados, igual que `basedatos`.
+  ![Esquema por muestreo](capturas/H336-9-esquema.png)
 
 ## 4. Pruebas
 
@@ -247,3 +262,6 @@ salen en una sola rejilla con la unión de sus campos.
   (`python /lib/python/basedatos/autoprueba.py`), el Explorador con el ratón (abrir, árbol, editar una celda y comprobarla en la
   base, estructura, consulta, confirmación, CSV y Macaco), lite-monkey (arrancar el servicio y ver los documentos) y la agenda de
   VisualPythonS. Capturas en `docs/capturas/H304-*.png`.
+- `tests/h335_explorador_sqlite.py` y `tests/h336_explorador_lmk.py` (QEMU, v8.4.4): los dos exploradores con ratón y teclado (asistente de
+  columnas, cambios pendientes, NULL y filtro, SQL con autocompletado y plan, confirmaciones, índices; documentos en árbol, tabla y JSON,
+  consulta, edición validada, insertar y borrar, esquema, índices y agregación). Capturas `docs/capturas/H335-*.png` y `H336-*.png`.

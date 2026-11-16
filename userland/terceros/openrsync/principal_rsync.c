@@ -8,7 +8,7 @@
  *                                     completos: solo copia lo que cambió.
  *   - [usuario@]host:ruta             cliente por ssh (cliente_rsync.c, v8.4.2): sube o baja con
  *                                     el /bin/ssh de SaguiOS (D317); -e "ssh -p 2222 -i clave".
- *   - rsync://                        el cliente de demonio no existe (SaguiOS no abre el 873).
+ *   - rsync://host/modulo/ruta        cliente del demonio rsync (D336, puerto 873): listar modulos, bajar y subir.
  *
  * Reemplaza al main.c de openrsync, que usa fork, exec y socketpair (SaguiOS no tiene).
  */
@@ -31,6 +31,8 @@ static int uso(void)
         "  se copia su contenido; sin ella, la carpeta misma.\n"
         "  Por ssh, desde SaguiOS: rsync -av carpeta/ usuario@maquina:ruta/ y al reves\n"
         "  (-e \"ssh -p 2222 -i clave\" para opciones; hace falta rsync en la otra maquina).\n"
+        "  Demonio rsync: rsync rsync://maquina/ (lista los modulos), rsync -av rsync://maquina/modulo/ruta/ destino/\n"
+        "  y al reves (puerto 873, sin clave ni cifrado: red local).\n"
         "  Desde otro ordenador: rsync -av -e ssh carpeta/ root@IP:/destino/ (el sshd de SaguiOS\n"
         "  ejecuta 'rsync --server'; la clave publica va en /home/.ssh/authorized_keys).\n");
     return 1;
@@ -105,13 +107,10 @@ int principal(int argc, char **argv)
         return rsync_server(&opts, (size_t)argc, argv) ? 0 : 1;
     }
 
+    if (argc == 1 && rsync_es_demonio(argv[0])) return rsync_cliente_demonio(&opts, argc, argv);   /* lista los modulos */
     if (argc < 2) return uso();
     for (int i = 0; i < argc; i++) {
-        if (strncmp(argv[i], "rsync://", 8) == 0) {
-            fprintf(stderr, "rsync: '%s': el cliente de demonio (rsync://) no existe en SaguiOS. "
-                    "Use ssh: rsync -av carpeta/ usuario@maquina:ruta/\n", argv[i]);
-            return 1;
-        }
+        if (rsync_es_demonio(argv[i])) return rsync_cliente_demonio(&opts, argc, argv);   /* D336 */
         if (rsync_es_remota(argv[i]))
             return rsync_cliente_ssh(&opts, ssh_orden, argc, argv);
     }

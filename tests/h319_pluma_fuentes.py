@@ -229,7 +229,7 @@ def parte2(m, sacar, tmp):
     k0 = len(m.serial())
     m.comando("sleep 55 && cp /usb/SaguiPrueba.ttf /home/fuentes/SaguiPrueba.ttf && echo H319-copiada &")
     # ---- un RTF con fuentes que faltan: sustitución con aviso en la barra de estado
-    pos = lanzar(m, "pluma /usb/prueba.rtf")
+    pos = lanzar(m, "pluma --clasico /usb/prueba.rtf")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     verificar("pluma: aviso Fuente no instalada, sustituida: " in m.serial()[pos:] and "Fuente Fantasma" in m.serial()[pos:], "al abrir el RTF se avisa de las fuentes sustituidas")
@@ -264,7 +264,7 @@ def parte2(m, sacar, tmp):
     cerrar(m, pos)
 
     # ---- escribir con fuentes distintas: el dibujo y el maquetado cambian
-    pos = lanzar(m, "pluma")
+    pos = lanzar(m, "pluma --clasico")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     w = janela(m, "Documento1 - Pluma", pos)
@@ -322,7 +322,7 @@ def parte2(m, sacar, tmp):
     cerrar(m, pos)
 
     # ---- reabrir con la fuente: sin aviso; quitarla y reabrir: sustituida con aviso
-    pos = lanzar(m, "pluma /usb/gui319.rtf")
+    pos = lanzar(m, "pluma --clasico /usb/gui319.rtf")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     verificar("pluma: aviso" not in m.serial()[pos:], "con la fuente instalada el RTF se abre sin aviso")
@@ -331,7 +331,7 @@ def parte2(m, sacar, tmp):
     verificar(len(a2) == 3 and all(abs(p - q) <= 2 for p, q in zip(a2, ancho)), "el RTF reabierto se dibuja igual (%s contra %s)" % (a2, ancho))
     cerrar(m, pos)
     m.comando("rm /home/fuentes/SaguiPrueba.ttf")
-    pos = lanzar(m, "pluma /usb/gui319.rtf")
+    pos = lanzar(m, "pluma --clasico /usb/gui319.rtf")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     verificar("pluma: aviso Fuente no instalada, sustituida: %s" % NOMBRE_EXTRA in m.serial()[pos:], "sin la fuente, el RTF se abre sustituida y con aviso")

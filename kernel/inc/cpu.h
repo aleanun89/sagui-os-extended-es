@@ -51,7 +51,8 @@ void idt_iniciar(void);
 const void *idt_descritor(void);   /* D157: el descriptor que necesita el lidt */
 void idt_registrar(uint8_t vetor, manipulador_t m);
 void irq_registrar(uint8_t irq, manipulador_t m);
-void irq_registrar_extra(uint8_t irq, manipulador_t m);   /* D095: atiende una línea que ya tiene dueño */
+void irq_registrar_extra(uint8_t irq, manipulador_t m);
+bool irq_atendida_por_outro(void);   /* D338: dentro de un manipulador: un atendedor ya reconoció esta IRQ */   /* D095: atiende una línea que ya tiene dueño */
 bool contexto_irq(void);        /* dentro de una IRQ de hardware: no puede dormir */
 bool irq_ocupada(uint8_t irq);   /* ya tiene manipulador principal */
 uint32_t irq_contagem(uint8_t irq);   /* D211: interrupciones atendidas en la línea */

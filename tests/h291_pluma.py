@@ -159,7 +159,7 @@ def lanzar(m, comando):
 
 def parte2(m, sacar):
     # ---- escribir con formato
-    pos = lanzar(m, "pluma")
+    pos = lanzar(m, "pluma --clasico")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     w = janela(m, "Documento1 - Pluma", pos)
@@ -239,7 +239,7 @@ def parte2(m, sacar):
     m.clique(w["x"] + w["l"] + 4 - 2 - 20 + 8 - 2, w["y"] - 12)
     esperar_desde(m, "pluma: fechado", pos, 20)
     time.sleep(0.8)
-    pos = lanzar(m, "pluma /usb/gui.rtf")
+    pos = lanzar(m, "pluma --clasico /usb/gui.rtf")
     esperar_desde(m, "pluma: aberto /usb/gui.rtf", pos, 40)
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
@@ -251,7 +251,7 @@ def parte2(m, sacar):
     time.sleep(0.8)
 
     # ---- un documento de dos páginas
-    pos = lanzar(m, "pluma /usb/ejemplo.rtf")
+    pos = lanzar(m, "pluma --clasico /usb/ejemplo.rtf")
     esperar_desde(m, "pluma: pronto", pos, 40)
     time.sleep(1.5)
     m.captura("H291-8-ejemplo-pagina1")

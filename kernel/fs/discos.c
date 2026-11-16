@@ -26,6 +26,7 @@
 #include "udf.h"
 #include "memoria.h"
 #include "montagem.h"
+#include "permisos.h"
 #include "processo.h"
 #include "sistema.h"
 #include "texto.h"
@@ -529,9 +530,33 @@ disco_t *disco_toca_protegida(disco_t *d, uint32_t lba, uint32_t n)
     return NULL;
 }
 
+/* D338: los sectores que leyó la última comprobación que salió bien (el 0 y los EBR de la cadena,
+ * también el que la cortó). Lo que dice la tabla depende solo de ellos: una escritura que no toca
+ * ninguno deja la tabla igual, y no hace falta volver a leerla (en un pendrive, sin caché, eran
+ * cuatro o cinco órdenes USB de un sector por cada escritura de datos al mover particiones). Se
+ * olvida al reservar, al soltar, al releer la tabla, cuando una escritura en bruto toca alguno o
+ * falla (disco_tabela_esquecer). */
+static struct {
+    disco_t *d;
+    uint32_t n;
+    uint32_t set[MAX_LOGICAS + 2];
+} cadeia;
+
+void disco_tabela_esquecer(disco_t *d, uint32_t lba, uint32_t n)
+{
+    if (!cadeia.d || (d && cadeia.d != d)) return;
+    if (n) {
+        bool toca = false;
+        for (uint32_t i = 0; i < cadeia.n && !toca; i++) toca = cadeia.set[i] >= lba && cadeia.set[i] - lba < n;
+        if (!toca) return;
+    }
+    cadeia.d = NULL;
+}
+
 /* Lee un sector del disco como quedaría tras la escritura [lba, lba+n) con el contenido k. */
 static int ler_simulado(disco_t *d, uint32_t setor, uint32_t lba, uint32_t n, const uint8_t *k, uint8_t *s)
 {
+    if (cadeia.n < MAX_LOGICAS + 2) cadeia.set[cadeia.n++] = setor;
     if (setor >= lba && setor - lba < n) { memcpy(s, k + (setor - lba) * 512, 512); return 0; }
     return disco_ler(d, setor, 1, s);
 }
@@ -544,9 +569,16 @@ bool disco_tabela_conserva(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *
 {
     struct { uint32_t ini, qtd; uint8_t tipo; } v[MAX_PARTICOES];
     int nv = 0;
+    if (cadeia.d == d) {   /* D338: ¿toca la escritura algún sector de la cadena comprobada? */
+        bool toca = false;
+        for (uint32_t i = 0; i < cadeia.n && !toca; i++) toca = cadeia.set[i] >= lba && cadeia.set[i] - lba < n;
+        if (!toca) return true;
+    }
+    cadeia.d = NULL;
+    cadeia.n = 0;
     uint8_t *s = kmalloc(512);
     if (!s) return false;
-    bool ok = true;
+    bool ok = true, erro = false;
     if (ler_simulado(d, 0, lba, n, k, s) < 0) { kfree(s); return false; }
     uint32_t ext_ini = 0, ext_qtd = 0;
     if (s[510] == 0x55 && s[511] == 0xAA)
@@ -563,7 +595,9 @@ bool disco_tabela_conserva(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *
         uint32_t fim = ext_ini + ext_qtd, rel = 0;
         for (int c = 0; c < MAX_LOGICAS && nv < MAX_PARTICOES; c++) {
             uint32_t ebr = ext_ini + rel;
-            if (ebr < ext_ini || ebr >= fim || ler_simulado(d, ebr, lba, n, k, s) < 0 || s[510] != 0x55 || s[511] != 0xAA) break;
+            if (ebr < ext_ini || ebr >= fim) break;
+            if (ler_simulado(d, ebr, lba, n, k, s) < 0) { erro = true; break; }
+            if (s[510] != 0x55 || s[511] != 0xAA) break;
             const uint8_t *l = s + 446, *en = s + 462;
             uint32_t lini = ebr + escalar(d, le32(l + 8)), lqtd = escalar(d, le32(l + 12));
             if (l[4] && !tipo_extendida(l[4]) && lqtd && lini >= ebr && lini < fim && lqtd <= fim - lini) {
@@ -588,6 +622,8 @@ bool disco_tabela_conserva(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *
         }
     }
     kfree(s);
+    /* Solo se recuerda una cadena entera y bien leída (con sitio para todos sus sectores). */
+    if (ok && !erro && cadeia.n < MAX_LOGICAS + 2) cadeia.d = d;
     return ok;
 }
 
@@ -600,6 +636,7 @@ void disco_reler(disco_t *d)
 {
     for (int i = 0; i < MAX_DISCOS; i++)
         if (discos[i].usado && discos[i].pai == d && !discos[i].montagem) discos[i].usado = discos[i].presente = false;
+    disco_tabela_esquecer(d, 0, 0);   /* D338 */
     d->volume = NULL;
     d->de_boot = false;
     d->gpt = false;
@@ -930,6 +967,15 @@ int32_t sis_desmontar(uint32_t pnome, uint32_t b, uint32_t c, uint32_t dd, uint3
     /* D281: "sync" (nombre "*") vacía la caché de bloques de todos los discos; "?cache" anota sus cifras. */
     if (txt_compara(nome, "*") == 0) return disco_sincronizar(NULL);
     if (txt_compara(nome, "?cache") == 0) { cache_disco_registar(); return 0; }
+    /* D336: lo anterior es inofensivo y vale para cualquiera; desmontar de verdad sigue siendo de root
+     * (la tabla de permisos.c deja pasar la llamada y el nombre se mira aqui, ya copiado al kernel). */
+    {
+        processo_t *eu = processo_recursos();
+        if (eu->usuario && !permisos_root(eu)) {
+            permisos_anotar_negacao("llamada", SIS_DESMONTAR, 0);
+            return ERRO_ACESSO;
+        }
+    }
     disco_t *d = nome[0] != '/' && nome[0] != '.' ? disco_resolver(nome) : NULL;
     if (d) return disco_desmontar(d);
     char ponto[CAMINHO_MAX];

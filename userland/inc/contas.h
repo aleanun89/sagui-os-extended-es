@@ -19,6 +19,7 @@
 #ifndef SAGUI_CONTAS_H
 #define SAGUI_CONTAS_H
 #include "sagui.h"
+#include "contas_gestao.h"   /* D340: crear, borrar, renombrar y el grupo admin */
 
 #define CONTA_NOME_MAX  32
 #define CONTAS_MAX      16
@@ -47,6 +48,10 @@ int  sombra_ler(const char *nome, char *hash, int max);
 /* Cambia (o añade) la línea de una cuenta. Escribe un temporal al lado y lo
  * renombra encima: un corte a medias deja la vieja o la nueva, nunca media. */
 int  sombra_gravar(const char *nome, const char *hash);
+/* D340: quita la línea de la cuenta. */
+int  sombra_remover(const char *nome);
+/* D340: escribe /etc/usuarios con estas cuentas (root). */
+int  contas_gravar(const conta_t *v, int n);
 
 /* La configuración del sistema (D255, partición SAGUI-CONF). "rel" es la ruta
  * dentro de /etc ("sombra", "ssh/authorized_keys", "servicios/activados"):

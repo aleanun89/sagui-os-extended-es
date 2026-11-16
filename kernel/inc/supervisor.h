@@ -37,4 +37,12 @@ bool supervisor_dialogo_vista(dialogo_vista_t *v);   /* el primer pedido gráfic
 void supervisor_dialogo_enviar(uint32_t id, const char *senha, const char *nova);
 void supervisor_dialogo_negar(uint32_t id);
 
+/* D340: el inicio de sesión (kernel/gui/sessao.c) pide al supervisor que compruebe la contraseña de una
+ * cuenta. pedir: id (> 0) o ERRO_NAO_EXISTE (sin supervisor), ERRO_OCUPADO; resultado: 0 sin respuesta,
+ * 1 bien, o el error (ERRO_ACESSO mala, ERRO_ESPERA bloqueo); con la respuesta, el pedido se libera.
+ * La contraseña se copia y se borra en cuanto se entrega. */
+int  supervisor_entrar_pedir(uint32_t uid, const char *senha);
+int  supervisor_entrar_resultado(uint32_t id);
+void supervisor_entrar_cancelar(uint32_t id);
+
 #endif

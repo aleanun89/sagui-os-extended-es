@@ -577,16 +577,12 @@ rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 	 * group identifier.
 	 */
 
-	if (sess->opts->preserve_gids) {
-		if (fchown(p->fd, -1, f->st.gid) == -1) {
-			if (errno != EPERM) {
-				ERR(sess, "%s: fchown", p->fname);
-				goto out;
-			}
-			WARNX(sess, "%s: gid unknown or not available "
-				"to user: %u", f->path, f->st.gid);
-		} else
-			LOG4(sess, "%s: updated gid", f->path);
+	if (sess->opts->preserve_uids || sess->opts->preserve_gids) {
+		/* D336: dueño y grupo por la ruta del temporal (PARQ_DONO); sin permiso (no es root) se sigue. */
+		rs_chownat(p->rootfd, p->fname,
+		    sess->opts->preserve_uids ? (int)f->st.uid : -1,
+		    sess->opts->preserve_gids ? (int)f->st.gid : -1);
+		LOG4(sess, "%s: updated owner", f->path);
 	}
 
 	/* Conditionally adjust file modification time. */

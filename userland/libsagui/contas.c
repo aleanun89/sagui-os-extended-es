@@ -177,9 +177,10 @@ static int escrever_todo(int fd, const char *s, int n)
     return r == n ? 0 : r < 0 ? r : ERRO_LIMITE;
 }
 
-int sombra_gravar(const char *nome, const char *hash)
+/* hash NULL = quitar la línea (D340). */
+static int sombra_trocar(const char *nome, const char *hash)
 {
-    if (!nome_valido(nome) || acha_char(hash, '\n') || acha_char(hash, ':')) return ERRO_INVALIDO;
+    if (!nome_valido(nome) || (hash && (acha_char(hash, '\n') || acha_char(hash, ':')))) return ERRO_INVALIDO;
     int erro;
     char *b = ler_tudo(CONTAS_ARQ_SOMBRA, &erro);
     if (!b && erro != ERRO_NAO_EXISTE) return erro;
@@ -194,20 +195,23 @@ int sombra_gravar(const char *nome, const char *hash)
         char *prox = *fim ? fim + 1 : fim;
         *fim = 0;
         if (compara_texto_n(l, nome, (size_t)nn) == 0 && l[nn] == ':') {
-            if (!posto) n += formatar_texto(novo + n, (size_t)(ARQ_MAX + SOMBRA_TEXTO_MAX - n), "%s:%s\n", nome, hash);
+            if (!posto && hash) n += formatar_texto(novo + n, (size_t)(ARQ_MAX + SOMBRA_TEXTO_MAX - n), "%s:%s\n", nome, hash);
             posto = true;
         } else if (*l && n + (int)tam_texto(l) + 2 < ARQ_MAX) {
             n += formatar_texto(novo + n, (size_t)(ARQ_MAX + SOMBRA_TEXTO_MAX - n), "%s\n", l);
         }
         l = prox;
     }
-    if (!posto) n += formatar_texto(novo + n, (size_t)(ARQ_MAX + SOMBRA_TEXTO_MAX - n), "%s:%s\n", nome, hash);
+    if (!posto && hash) n += formatar_texto(novo + n, (size_t)(ARQ_MAX + SOMBRA_TEXTO_MAX - n), "%s:%s\n", nome, hash);
     if (b) { memset(b, 0, ARQ_MAX); libera(b); }
     int r = conf_gravar("sombra", novo, n);
     memset(novo, 0, (size_t)n);
     libera(novo);
     return r;
 }
+
+int sombra_gravar(const char *nome, const char *hash) { return sombra_trocar(nome, hash); }
+int sombra_remover(const char *nome) { return sombra_trocar(nome, NULL); }
 
 /* ---------------------------------------------------------------- configuración del sistema */
 
@@ -370,8 +374,11 @@ int elevar_interativo(unsigned uid_alvo, const char *programa)
             imprimir_em(ERROS, "%s aún no tiene contraseña. Elige una (se pedirá a partir de ahora):\n", alvo);
             if (senha_nova_dupla(p.senha_nova, sizeof p.senha_nova) < 0) { r = ERRO_INVALIDO; break; }
         } else if (r == ERRO_ACESSO) {
-            char q[64];
-            formatar_texto(q, sizeof q, "Contraseña de %s: ", alvo);
+            char q[64], eu[CONTA_NOME_MAX];
+            conta_nome(meu_uid(), eu, sizeof eu);
+            /* D340: un administrador puede dar la suya. */
+            if (uid_alvo == UID_ROOT && conta_admin(eu)) formatar_texto(q, sizeof q, "Contraseña (la tuya o la de %s): ", alvo);
+            else formatar_texto(q, sizeof q, "Contraseña de %s: ", alvo);
             if (ler_senha(q, p.senha, sizeof p.senha) < 0) break;
         } else break;
         r = pedir_conta(&p);
@@ -422,4 +429,309 @@ void elevacao_soltar(void)
     if (uid_antes_grafico == (unsigned)-1 || !sou_root()) return;
     usuario_op(USU_FIJAR, (int)uid_antes_grafico, (int)gid_antes_grafico);
     uid_antes_grafico = (unsigned)-1;
+}
+
+/* ---------------------------------------------------------------- D340: altas, bajas y cambios */
+
+bool conta_nome_valido(const char *nome) { return nome_valido(nome); }
+
+int contas_resumo(conta_resumo_t *r, int max)
+{
+    conta_t v[CONTAS_MAX];
+    int n = contas_ler(v, CONTAS_MAX, NULL), k = 0;
+    for (int i = 0; i < n && k < max; i++) {
+        if (v[i].uid < UID_SAGUI || v[i].uid > CONTA_UID_ULTIMO || !v[i].shell[0]) continue;
+        memset(&r[k], 0, sizeof r[k]);
+        copia_texto(r[k].nome, v[i].nome, sizeof r[k].nome);
+        r[k].uid = v[i].uid;
+        copia_texto(r[k].descricao, v[i].descricao, sizeof r[k].descricao);
+        r[k].admin = conta_admin(v[i].nome);
+        k++;
+    }
+    return k;
+}
+
+int contas_gravar(const conta_t *v, int n)
+{
+    char *b = aloca(ARQ_MAX);
+    if (!b) return ERRO_SEM_MEMORIA;
+    int k = formatar_texto(b, ARQ_MAX, "# Cuentas de SaguiOS (D255, D340): nombre:uid:gid:carpeta:shell:descripción\n");
+    for (int i = 0; i < n && k < ARQ_MAX - 256; i++) {
+        if (acha_char(v[i].descricao, ':') || acha_char(v[i].descricao, '\n')) { libera(b); return ERRO_INVALIDO; }
+        k += formatar_texto(b + k, (size_t)(ARQ_MAX - k), "%s:%u:%u:%s:%s:%s\n", v[i].nome, v[i].uid, v[i].gid,
+                            v[i].casa, v[i].shell, v[i].descricao);
+    }
+    int r = conf_gravar("usuarios", b, k);
+    libera(b);
+    return r;
+}
+
+/* /etc/grupos: la lista de miembros de "admin" (sin copiar: apunta dentro de "b"). */
+static char *membros_admin(char *b)
+{
+    for (char *l = b; l && *l;) {
+        char *fim = l;
+        while (*fim && *fim != '\n') fim++;
+        if (compara_texto_n(l, GRUPO_ADMIN ":", 6) == 0) {
+            char *m = l + 6;
+            while (m < fim && *m != ':') m++;
+            return m < fim ? m + 1 : fim;
+        }
+        l = *fim ? fim + 1 : fim;
+    }
+    return NULL;
+}
+
+bool conta_admin(const char *nome)
+{
+    if (!nome_valido(nome)) return false;
+    char *b = ler_tudo(CONTAS_ARQ_GRUPOS, NULL);
+    if (!b) return false;
+    bool sim = false;
+    char *m = membros_admin(b);
+    size_t nn = tam_texto(nome);
+    while (m && *m && *m != '\n' && *m != '\r') {
+        char *f = m;
+        while (*f && *f != ',' && *f != '\n' && *f != '\r') f++;
+        if ((size_t)(f - m) == nn && compara_texto_n(m, nome, nn) == 0) sim = true;
+        m = *f == ',' ? f + 1 : f;
+    }
+    libera(b);
+    return sim;
+}
+
+int conta_admin_fixar(const char *nome, bool sim)
+{
+    if (!nome_valido(nome)) return ERRO_INVALIDO;
+    if (conta_admin(nome) == sim) return 0;
+    char *b = ler_tudo(CONTAS_ARQ_GRUPOS, NULL);
+    char *novo = aloca(ARQ_MAX + 64);
+    if (!novo) { if (b) libera(b); return ERRO_SEM_MEMORIA; }
+    int n = 0;
+    bool tinha = false;
+    for (char *l = b; l && *l;) {
+        char *fim = l;
+        while (*fim && *fim != '\n') fim++;
+        char *prox = *fim ? fim + 1 : fim;
+        *fim = 0;
+        if (fim > l && fim[-1] == '\r') fim[-1] = 0;
+        if (compara_texto_n(l, GRUPO_ADMIN ":", 6) == 0) {
+            tinha = true;
+            char *m = membros_admin(l) ? l + 6 : NULL;
+            while (m && *m && *m != ':') m++;
+            if (m && *m == ':') m++;
+            n += formatar_texto(novo + n, (size_t)(ARQ_MAX - n), "%s:%u:", GRUPO_ADMIN, GID_ADMIN);
+            bool prim = true;
+            size_t nn = tam_texto(nome);
+            while (m && *m) {
+                char *f = m;
+                while (*f && *f != ',') f++;
+                bool este = (size_t)(f - m) == nn && compara_texto_n(m, nome, nn) == 0;
+                if (f > m && !este && n + (f - m) + 2 < ARQ_MAX) {
+                    if (!prim) novo[n++] = ',';
+                    memcpy(novo + n, m, (size_t)(f - m));
+                    n += (int)(f - m);
+                    prim = false;
+                }
+                m = *f ? f + 1 : f;
+            }
+            if (sim) n += formatar_texto(novo + n, (size_t)(ARQ_MAX - n), "%s%s", prim ? "" : ",", nome);
+            novo[n++] = '\n';
+        } else if (*l && n + (int)tam_texto(l) + 2 < ARQ_MAX) {
+            n += formatar_texto(novo + n, (size_t)(ARQ_MAX - n), "%s\n", l);
+        }
+        l = prox;
+    }
+    if (!tinha) {
+        if (n == 0) n += formatar_texto(novo, ARQ_MAX, "# Grupos de SaguiOS (D340): nombre:gid:miembros\n");
+        n += formatar_texto(novo + n, (size_t)(ARQ_MAX - n), "%s:%u:%s\n", GRUPO_ADMIN, GID_ADMIN, sim ? nome : "");
+    }
+    if (b) libera(b);
+    int r = conf_gravar("grupos", novo, n);
+    libera(novo);
+    return r;
+}
+
+bool conta_home_com_donos(void)
+{
+    info_permisos_t p;
+    return permisos_arquivo("/home", &p) == 0 && p.com_donos;
+}
+
+/* ¿Cuenta que no se borra ni se renombra? root, sagui, las de servicio y la de la sesión local. */
+static bool conta_protegida(const conta_t *c)
+{
+    int s = usuario_op(USU_SESSAO, 0, 0);
+    return c->uid < CONTA_UID_PRIMEIRO || c->uid > CONTA_UID_ULTIMO || !c->shell[0] ||
+           (s >= 0 && ((unsigned)s & 0xFFFF) == c->uid);
+}
+
+/* El primer uid libre: ni de una cuenta ni dueño de una carpeta de /home (una cuenta borrada que
+ * dejó sus archivos: su uid no se da a otra, que vería sus archivos). */
+static unsigned uid_livre(const conta_t *v, int n)
+{
+    unsigned u = CONTA_UID_PRIMEIRO;
+    for (int i = 0; i < n; i++)
+        if (v[i].uid >= u && v[i].uid <= CONTA_UID_ULTIMO) u = v[i].uid + 1;
+    entrada_pasta_t e;
+    for (int i = 0; listar("/home", i, &e) == 1; i++) {
+        if (e.tipo != TIPO_PASTA) continue;
+        char c[96];
+        formatar_texto(c, sizeof c, "/home/%s", e.nome);
+        info_permisos_t p;
+        if (permisos_arquivo(c, &p) == 0 && p.uid >= u && p.uid <= CONTA_UID_ULTIMO) u = p.uid + 1;
+    }
+    return u;
+}
+
+static int pasta_da_conta(const char *c, unsigned uid, unsigned gid)
+{
+    int r = criar_pasta(c);
+    if (r < 0 && r != ERRO_JA_EXISTE) return r;
+    if ((r = mudar_dono(c, (int)uid, (int)gid)) < 0) return r;
+    if ((r = mudar_permisos(c, 0700)) < 0) return r;
+    info_permisos_t p;
+    if (permisos_arquivo(c, &p) < 0 || !p.com_donos || p.uid != uid || (p.modo & 0777) != 0700) return ERRO_NAO_SUPORTADO;
+    return 0;
+}
+
+/* Borra "c" con todo lo de dentro. Solo lo usa conta_apagar, como root, en /home/<cuenta>. */
+static int apagar_arvore(const char *c, int prof)
+{
+    info_arquivo_t inf;
+    int r = info_arquivo(c, &inf);
+    if (r < 0) return r;
+    if (inf.tipo != TIPO_PASTA) return apagar(c);
+    if (prof > 32) return ERRO_LIMITE;
+    char *f = aloca(256);
+    if (!f) return ERRO_SEM_MEMORIA;
+    entrada_pasta_t e;
+    int voltas = 0;
+    while (listar(c, 0, &e) == 1 && voltas++ < 100000) {
+        formatar_texto(f, 256, "%s/%s", c, e.nome);
+        if (tam_texto(f) >= 250 || (r = apagar_arvore(f, prof + 1)) < 0) { libera(f); return r < 0 ? r : ERRO_LIMITE; }
+    }
+    libera(f);
+    return remover_pasta(c);
+}
+
+int conta_criar(const char *nome, const char *descricao, const char *senha, bool admin, unsigned *uid_saida)
+{
+    if (!sou_root()) return ERRO_ACESSO;
+    if (!nome_valido(nome) || acha_char(descricao, ':') || acha_char(descricao, '\n')) return ERRO_INVALIDO;
+    if (senha[0] && tam_texto(senha) < 4) return ERRO_INVALIDO;
+    if (!conta_home_com_donos()) return ERRO_NAO_SUPORTADO;
+    conta_t v[CONTAS_MAX];
+    int n = contas_ler(v, CONTAS_MAX, NULL);
+    if (achar_nome(v, n, nome) >= 0) return ERRO_JA_EXISTE;
+    if (n >= CONTAS_MAX) return ERRO_LIMITE;
+    char casa[64];
+    formatar_texto(casa, sizeof casa, "/home/%s", nome);
+    info_arquivo_t inf;
+    if (info_arquivo(casa, &inf) == 0) return ERRO_JA_EXISTE;   /* una carpeta de sagui (o de una cuenta borrada) */
+    unsigned uid = uid_livre(v, n);
+    if (uid > CONTA_UID_ULTIMO) return ERRO_LIMITE;
+    /* Primero la sombra con «!» (sin entrada): la cuenta nunca existe sin la contraseña elegida. */
+    int r = sombra_gravar(nome, "!");
+    if (r < 0) return r;
+    if ((r = pasta_da_conta(casa, uid, uid)) < 0) { remover_pasta(casa); sombra_remover(nome); return r; }
+    char cfg[80];
+    formatar_texto(cfg, sizeof cfg, "%s/.config", casa);
+    pasta_da_conta(cfg, uid, uid);
+    conta_t x;
+    memset(&x, 0, sizeof x);
+    copia_texto(x.nome, nome, sizeof x.nome);
+    x.uid = x.gid = uid;
+    copia_texto(x.casa, casa, sizeof x.casa);
+    copia_texto(x.shell, "/bin/sagsh", sizeof x.shell);
+    copia_texto(x.descricao, descricao, sizeof x.descricao);
+    v[n++] = x;
+    if ((r = contas_gravar(v, n)) < 0) { apagar_arvore(casa, 0); sombra_remover(nome); return r; }
+    if ((r = conta_senha(nome, senha)) < 0) return r;   /* la cuenta queda con «!» (no entra): se puede repetir */
+    if (admin && (r = conta_admin_fixar(nome, true)) < 0) return r;
+    if (uid_saida) *uid_saida = uid;
+    registrar("contas: cuenta %s creada (uid %u, %s, %s)", nome, uid, senha[0] ? "con contraseña" : "sin contraseña",
+              admin ? "administrador" : "normal");
+    return 0;
+}
+
+int conta_senha(const char *nome, const char *senha)
+{
+    if (!sou_root()) return ERRO_ACESSO;
+    conta_t c;
+    if (!conta_por_nome(nome, &c)) return ERRO_NAO_EXISTE;
+    if (!senha[0]) return sombra_gravar(nome, "");   /* sin contraseña */
+    if (tam_texto(senha) < 4) return ERRO_INVALIDO;
+    /* El hash lo hace el gestor de servicios (D255): root no necesita la contraseña de antes. */
+    pedido_conta_t p;
+    memset(&p, 0, sizeof p);
+    p.tipo = PED_SENHA;
+    p.uid_alvo = c.uid;
+    copia_texto(p.senha_nova, senha, sizeof p.senha_nova);
+    int r = pedir_conta(&p);
+    memset(&p, 0, sizeof p);
+    return r == 1 ? 0 : r < 0 ? r : ERRO_ACESSO;
+}
+
+int conta_apagar(const char *nome, bool con_arquivos)
+{
+    if (!sou_root()) return ERRO_ACESSO;
+    conta_t v[CONTAS_MAX];
+    int n = contas_ler(v, CONTAS_MAX, NULL);
+    int i = achar_nome(v, n, nome);
+    if (i < 0) return ERRO_NAO_EXISTE;
+    conta_t c = v[i];
+    if (conta_protegida(&c)) return ERRO_ACESSO;
+    for (int k = i; k < n - 1; k++) v[k] = v[k + 1];
+    n--;
+    int r = contas_gravar(v, n);   /* primero deja de existir (ya no entra) */
+    if (r < 0) return r;
+    sombra_remover(nome);
+    conta_admin_fixar(nome, false);
+    if (con_arquivos) {
+        char casa[64];
+        formatar_texto(casa, sizeof casa, "/home/%s", nome);
+        info_permisos_t p;
+        /* Solo su carpeta: /home/<nombre>, y de esa cuenta (nunca una de sagui con el mismo nombre). */
+        if (compara_texto(c.casa, casa) == 0 && permisos_arquivo(casa, &p) == 0 && p.uid == c.uid && p.tipo == TIPO_PASTA)
+            r = apagar_arvore(casa, 0);
+        registrar("contas: carpeta %s borrada: %d", casa, r);
+    }
+    registrar("contas: cuenta %s (uid %u) borrada%s", nome, c.uid, con_arquivos ? " con sus archivos" : "");
+    return r < 0 ? r : 0;
+}
+
+int conta_renomear(const char *velho, const char *novo)
+{
+    if (!sou_root()) return ERRO_ACESSO;
+    if (!nome_valido(novo)) return ERRO_INVALIDO;
+    conta_t v[CONTAS_MAX];
+    int n = contas_ler(v, CONTAS_MAX, NULL);
+    int i = achar_nome(v, n, velho);
+    if (i < 0) return ERRO_NAO_EXISTE;
+    if (achar_nome(v, n, novo) >= 0) return ERRO_JA_EXISTE;
+    if (conta_protegida(&v[i])) return ERRO_ACESSO;
+    char ca[64], cn[64];
+    formatar_texto(ca, sizeof ca, "/home/%s", velho);
+    formatar_texto(cn, sizeof cn, "/home/%s", novo);
+    info_arquivo_t inf;
+    if (info_arquivo(cn, &inf) == 0) return ERRO_JA_EXISTE;
+    /* La contraseña primero con el nombre nuevo: en ningún momento hay una cuenta sin la suya. */
+    char h[SOMBRA_TEXTO_MAX] = "";
+    int r = sombra_ler(velho, h, sizeof h);
+    if (r < 0) return r;
+    r = sombra_gravar(novo, r > 0 ? h : "");   /* sin línea = sin contraseña, igual con el nombre nuevo */
+    memset(h, 0, sizeof h);
+    if (r < 0) return r;
+    bool admin = conta_admin(velho);
+    if (compara_texto(v[i].casa, ca) == 0 && info_arquivo(ca, &inf) == 0) {
+        if ((r = renomear(ca, cn)) < 0) { sombra_remover(novo); return r; }
+        copia_texto(v[i].casa, cn, sizeof v[i].casa);
+    }
+    copia_texto(v[i].nome, novo, sizeof v[i].nome);
+    if ((r = contas_gravar(v, n)) < 0) return r;
+    sombra_remover(velho);
+    if (admin) { conta_admin_fixar(novo, true); conta_admin_fixar(velho, false); }
+    registrar("contas: cuenta %s renombrada a %s", velho, novo);
+    return 0;
 }

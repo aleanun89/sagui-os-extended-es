@@ -58,8 +58,13 @@ int      vfs_meta(const char *caminho, meta_t *m);
  * no dice si existe): para las carpetas de una ruta. */
 int      vfs_meta_rapida(const char *caminho, meta_t *m);
 int      vfs_fixar_meta(const char *caminho, int32_t uid, int32_t gid, int32_t modo);
+/* D341: fija las fechas (UTC; 0 = no cambia), sin comprobar quién (eso es de permisos.c). */
+int      vfs_fixar_datas(const char *caminho, uint32_t modificado, uint32_t acessado);
+
 
 void arquivos_herdar(struct processo *filho, struct processo *pai);
+int  arquivos_caminho(uint32_t fd, char *saida, size_t max);   /* D341: la ruta de un descriptor */
+
 void arquivos_fechar_todos(struct processo *p);
 
 #endif

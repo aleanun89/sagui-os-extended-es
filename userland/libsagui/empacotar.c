@@ -553,7 +553,15 @@ int zip_abrir(zip_leitor_t *z, const uint8_t *d, int n)
         memcpy(e->nome, d + q + 46, (size_t)nl);
         e->nome[nl] = 0;
         e->pasta = nl > 0 && e->nome[nl - 1] == '/';
+        /* D341: el campo extra "UT" (0x5455) lleva la fecha de modificación en UTC (la del DOS es local) */
+        for (int x = q + 46 + nl, fim = x + xl; x + 4 <= fim;) {
+            int id = (int)l16(d + x), tam = (int)l16(d + x + 2);
+            if (x + 4 + tam > fim) break;
+            if (id == 0x5455 && tam >= 5 && (d[x + 4] & 1)) e->mtime_ut = l32(d + x + 5);
+            x += 4 + tam;
+        }
         z->cnt = i + 1;
+
         q += 46 + nl + xl + cl;
     }
     return 0;

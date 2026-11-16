@@ -56,6 +56,7 @@
 #include "bloqueo.h"
 #include "supervisor.h"
 #include "permisos.h"
+#include "sessao.h"
 #include "conf_sistema.h"
 
 /* El nombre y la versión vienen de versao.h (D101). */
@@ -160,22 +161,32 @@ static void rodar_programa_de_teste(char *linha)
 /* D112: aplica /home/.config/sagui.conf (teclado, volumen, fondo, acento). Es un programa común
  * ("configuracion --aplicar"): sin archivo no hace nada. Se espera a que termine para que el
  * primer programa ya vea el teclado y el escritorio elegidos. */
-static void aplicar_configuracao(void)
+static void aplicar_configuracao(bool sessao)
 {
     /* D323: la aceleración (2D, 3D, cabecera del disco) la cambia solo root: con la sesión como sagui, el programa
      * arranca como root, lo aplica y baja él mismo a la identidad de la sesión (le pasa su uid y gid) antes de
-     * aplicar lo demás, que sigue corriendo con los mismos permisos de siempre. */
+     * aplicar lo demás, que sigue corriendo con los mismos permisos de siempre.
+     * D340: al empezar (o cerrar) una sesión después del arranque, solo lo de la cuenta («--sesion»: ni la
+     * aceleración ni los conectores), lanzado ya con la identidad y la carpeta de la sesión. */
     char suid[12], sgid[12];
-    snformatar(suid, sizeof suid, "%u", UID_SAGUI);
-    snformatar(sgid, sizeof sgid, "%u", GID_SAGUI);
-    char *argv[] = { "configuracion", "--aplicar", suid, sgid, NULL };
-    int pid = permisos_uid_inicial() == UID_ROOT ? processo_executar("/bin/configuracion", 2, argv, NULL)
+    snformatar(suid, sizeof suid, "%u", permisos_uid_inicial());
+    snformatar(sgid, sizeof sgid, "%u", permisos_sessao_gid());
+    char *argv[] = { "configuracion", "--aplicar", suid, sgid, sessao ? "--sesion" : NULL, NULL };
+    int pid = sessao ? processo_executar("/bin/configuracion", 5, argv, NULL)
+            : permisos_uid_inicial() == UID_ROOT ? processo_executar("/bin/configuracion", 2, argv, NULL)
                                                  : processo_executar_como("/bin/configuracion", 4, argv, UID_ROOT, GID_ROOT);
     klog("[SAGUI] configuracion --aplicar: %d\n", pid);
     if (pid < 0) return;
     uint32_t limite = relogio_tiques() + 15 * TIQUES_POR_SEGUNDO;
     while (processo_por_pid(pid) && (int32_t)(relogio_tiques() - limite) < 0)
         cpu_espera();
+}
+
+static void abrir_terminal(void)
+{
+    char *argv_t[] = { "terminal", NULL };
+    int pid = processo_executar("/bin/terminal", 1, argv_t, NULL);
+    klog("[SAGUI] terminal: %d\n", pid);
 }
 
 static void etapa(const char *texto)
@@ -555,28 +566,34 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         arranque_marca("escritorio");
         klog("[SAGUI] area de trabalho no ar\n");
         telas_iniciar();   /* D290: otras salidas de vídeo (varias pantallas), si las hay */
-        aplicar_configuracao();
+        aplicar_configuracao(false);
         arranque_marca("configuracion");
         if (info_boot.teste[0] == '/') {
             rodar_programa_de_teste(info_boot.teste);   /* pruebas de la fase 5: programa gráfico */
-        } else {
-            char *argv_t[] = { "terminal", NULL };
-            int pid = processo_executar("/bin/terminal", 1, argv_t, NULL);
-            klog("[SAGUI] terminal: %d\n", pid);
+        } else if (sessao_arrancar()) {   /* D340: una sola cuenta sin contraseña: directo, como siempre */
+            abrir_terminal();
         }
         /* D216: el gestor de servicios, después del Terminal (no lo retrasa) y
-         * sin esperar a nada: si falta o falla, se anota y se sigue. */
+         * sin esperar a nada: si falta o falla, se anota y se sigue. D340: con la
+         * pantalla de inicio de sesión, antes de que alguien entre (comprueba las contraseñas). */
         supervisor_lancar();
         for (;;) {
             cpu_espera();   /* el proceso 0 sólo descansa; el resto son procesos y la tarea de las ventanas */
             supervisor_vigiar();   /* D216: lo relanza si murió (mira una vez por segundo) */
+            /* D340: tras cerrar una sesión, la configuración de la máquina detrás de la pantalla; al
+             * entrar, la de la cuenta y su Terminal. */
+            if (sessao_tomar_restaurar()) aplicar_configuracao(true);
+            if (sessao_tomar_inicio()) {
+                aplicar_configuracao(true);
+                abrir_terminal();
+            }
         }
     }
 
     /* H16: el primer proceso es el shell, un programa común en el anillo 3. La
      * terminal provisoria de la H09 fue quitada. De aquí en adelante este código
      * es sólo el proceso 0 (ocioso). */
-    aplicar_configuracao();
+    aplicar_configuracao(false);
     bool servicos_lancados = false;
     if (permisos_modo_rescate()) {
         console_cor(COR_AMARELO, COR_PRETO);

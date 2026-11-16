@@ -29,7 +29,7 @@ BORDA, TITULO = 2, 24
 Y_PAG = 50
 CLAVE = "root1234"
 TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
-               "Escritorio remoto", "Mandos")
+               "Escritorio remoto", "Mandos", "Usuarios")
 VMWARE = ["-vga", "none", "-device", "vmware-svga"]
 # La vista de aceleración, como en el programa.
 SUB_ACEL = (592 + 95, Y_PAG + 2 + 13)
@@ -67,12 +67,17 @@ def clic(m, v, p):
 
 
 def pestana(nombre):
-    x = 10
+    """Como traducir_rotulos() de configuracion.c (D145, issue #43, D340)."""
+    suma = sum(len(t) * 8 for t in TITULOS_PAG)
+    relleno = 10
+    while relleno > 1 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
+        relleno -= 1
+    x = 4 if 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4 else 10
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 10
+        l = len(t) * 8 + relleno
         if t == nombre:
             return (x + l // 2, 24)
-        x += l + 2
+        x += l + 1
 
 
 def conceder(m, desde, primera=False):

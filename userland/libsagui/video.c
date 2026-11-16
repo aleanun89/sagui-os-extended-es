@@ -546,6 +546,7 @@ bool video_extensao(const char *nome)
     if (a == 'a' && b == 'v' && c == 'i') return true;                 /* .avi */
     if (a == 'm' && b == 'p' && c == 'g') return true;                 /* .mpg */
     if (a == 'm' && b == 'p' && c == '4') return true;                 /* .mp4 */
+    if (a == 'm' && b == '4' && c == 'v') return true;                 /* .m4v (D342) */
     if (a == 'm' && b == 'p' && c == 'e' && p[4] && minuscula(p[4]) == 'g') return true;   /* .mpeg */
     return false;
 }

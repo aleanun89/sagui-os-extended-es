@@ -27,7 +27,8 @@ from qemu import Maquina, verificar, imagem_de_teste, opcoes_apps, BUILD  # noqa
 import h57_paint as h57  # noqa: E402
 
 APPS = os.path.join(BUILD, "apps", "raiz")
-TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto")
+TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto",
+               "Mandos", "Usuarios")
 Y_PAG = 50
 FN_VX, FN_VY, FN_VL, FN_VA = 24 + 270 + 16, Y_PAG + 24, 840 - (24 + 270 + 16) - 24, 190
 BORDA, TITULO = 2, 24
@@ -158,12 +159,16 @@ def parte_b(m):
     time.sleep(1.5)
     j = janela(m.serial(), "Configuración")
     ox, oy = j["x"] + BORDA, j["y"] + TITULO
-    x = 10
     pos = []
+    suma = sum(len(t) * 8 for t in TITULOS_PAG)
+    relleno = 10   # como traducir_rotulos() de la ventana (D145, issue #43, D340)
+    while relleno > 1 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
+        relleno -= 1
+    x = 4 if 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4 else 10
     for t in TITULOS_PAG:
-        l = len(t) * 8 + 10   # como la ventana (D145)
+        l = len(t) * 8 + relleno
         pos.append((x, l))
-        x += l + 2
+        x += l + 1
     m.clique(ox + pos[7][0] + pos[7][1] // 2, oy + 24)
     time.sleep(1.5)
     png1 = m.captura("H162-2-config-fuentes")

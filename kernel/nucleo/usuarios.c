@@ -16,6 +16,7 @@
 #include "console.h"
 #include "permisos.h"
 #include "processo.h"
+#include "sessao.h"
 
 static bool uid_valido(uint32_t uid, uint32_t gid)
 {
@@ -43,6 +44,7 @@ int32_t sis_usuario(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
         if (!uid_valido(a, b)) return ERRO_INVALIDO;
         if (a != eu->uid || b != eu->gid)
             klog("[USUARIOS] %s (pid %d) pasa de uid %u a uid %u (gid %u)\n", eu->nome, eu->pid, eu->uid, a, b);
+        permisos_casa_mudar_uid(eu, a);   /* D340 */
         eu->uid = a;
         eu->gid = b;
         return 0;
@@ -53,6 +55,13 @@ int32_t sis_usuario(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
         eu->como_uid = (int32_t)a;
         eu->como_gid = (int32_t)b;
         return 0;
+    case USU_SESSAO:   /* D340 */
+        return (int32_t)(permisos_uid_inicial() | permisos_sessao_gid() << 16);
+    case USU_CERRAR_SESION:
+        /* Solo la sesión local: un servicio (SSH, cron) no cierra la sesión de quien está delante. */
+        if (eu->de_servico) return ERRO_ACESSO;
+        if (a != USU_SAIR_CERRAR && a != USU_SAIR_CAMBIAR) return ERRO_INVALIDO;
+        return sessao_pedir_fim((int)a, eu->pid);
     }
     return ERRO_INVALIDO;
 }

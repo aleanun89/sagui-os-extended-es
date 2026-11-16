@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""H51 (D040) - ext4 e ext3 só para leitura.
+"""H51 (D040, D337) - ext4 e ext3 montados só para leitura (-o ro).
 
 Um pendrive com um ext4 do mke2fs atual (extents, 64 bits, flex_bg,
 metadata_csum, inodes de 256, huge_file, dir_nlink, extra_isize), um ext3
 (com diário) e uma FAT32. No ext4 há um arquivo grande fragmentado de
 propósito (árvore de extents com nível de índice) e uma pasta com muitas
 entradas. O SaguiOS lê tudo, copia o arquivo fragmentado para a FAT32, e
-qualquer tentativa de escrita é recusada; pedir "-o rw" deixa só leitura com
-aviso. A VPS confere que as partições ext3/ext4 não mudaram nem um byte e
+qualquer tentativa de escrita é recusada. (Desde la 8.4.4 SaguiOS escribe en ext3/ext4,
+D337: aquí se montan con "-o ro" y la escritura se prueba en h326.) A VPS confere que as partições ext3/ext4 não mudaram nem um byte e
 que o e2fsck continua limpo.
 """
 import hashlib
@@ -68,9 +68,8 @@ def main():
         out = m.comando("discos")
         verificar(re.search(r"usb0p1\s+24 MB\s+ext4\s+\"CUATRO\"", out) and re.search(r"usb0p2\s+8 MB\s+ext3\s+\"TRES\"", out),
                   "discos reconhece ext4 e ext3")
-        out = m.comando("mount -o rw usb0p1 /e4")
-        verificar("montado en /e4, solo lectura" in out and "Aviso" in out, "mount -o rw de ext4: fica só para leitura, com aviso")
-        verificar("ext4: SaguiOS solo lo lee" in m.serial(), "o kernel avisa o motivo")
+        out = m.comando("mount -o ro usb0p1 /e4")
+        verificar("montado en /e4, solo lectura" in out, "mount -o ro de ext4: só para leitura")
         out = m.comando("cat /e4/texto.txt")
         verificar("ext4 leído por SaguiOS: canción, ñandú." in out, "cat de arquivo no ext4 (extents)")
         out = m.comando("cat /e4/sub/dentro/hondo.txt")
@@ -91,8 +90,8 @@ def main():
         verificar("solo lectura" in out, "mv no ext4: recusado")
         out = m.comando("echo x >> /e4/texto.txt")
         verificar("solo lectura" in out, "acrescentar no ext4: recusado")
-        out = m.comando("mount usb0p2 /e3")
-        verificar("montado en /e3, solo lectura" in out, "ext3 com diário: só leitura")
+        out = m.comando("mount -o ro usb0p2 /e3")
+        verificar("montado en /e3, solo lectura" in out, "mount -o ro de ext3 com diário: só leitura")
         out = m.comando("cat /e3/ext3.txt")
         verificar("con diario" in out, "cat no ext3")
         m.captura("H51-ext4")

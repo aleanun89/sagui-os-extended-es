@@ -41,6 +41,7 @@ static inline const char *nome_erro(int r) { (void)r; return "error de E/S"; }
 void registrar(const char *fmt, ...);
 int bytes_aleatorios(void *p, unsigned n);
 uint32_t tempo_ms(void);
+#define TRIM_NAO 0
 #define TRIM_SIM 1
 static inline uint32_t hora_utc(void *p) { (void)p; return 1762905600u; }
 static inline size_t tam_texto(const char *s) { return strlen(s); }

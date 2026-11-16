@@ -25,5 +25,6 @@ que cambió: copias de seguridad de `/home`, llevar juegos y datos a la máquina
 ## Criterios de aceptación
 - [x] `rsync -av` desde el anfitrión a SaguiOS por SSH, y de vuelta, con delta comprobado (solo se mandan los cambios) (D314, h314)
 - [x] Copia local con `--delete` y `--dry-run` (D314)
-- [ ] Cliente `rsync://` contra un demonio rsync del anfitrión (pendiente: v8.4.1)
+- [x] Cliente `rsync://` contra un demonio rsync del anfitrión (D336, h339; sin autenticación ni cifrado)
+- [x] Fechas con `-t` (D341, h343): `utimensat`/`futimens` reales; ext2, FAT32, exFAT y RAM las guardan
 - [x] Test automático en `tests/` (h314); licencia en `docs/terceros.md`; decisión en `docs/decisoes.md` (D314)

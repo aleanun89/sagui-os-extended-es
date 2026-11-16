@@ -138,6 +138,8 @@ static int t_meta(void *priv, const char *rel, meta_t *m)
 { ENTRAR(); int r = E->ativo ? E->orig->meta(E->priv, rel, m) : ERRO_NAO_EXISTE; SAIR(); return r; }
 static int t_fixar_meta(void *priv, const char *rel, int32_t uid, int32_t gid, int32_t modo)
 { ENTRAR(); int r = E->ativo ? E->orig->fixar_meta(E->priv, rel, uid, gid, modo) : ERRO_NAO_EXISTE; SAIR(); return r; }
+static int t_fixar_datas(void *priv, const char *rel, uint32_t mod, uint32_t acesso)
+{ ENTRAR(); int r = E->ativo ? E->orig->fixar_datas(E->priv, rel, mod, acesso) : ERRO_NAO_EXISTE; SAIR(); return r; }
 static void t_espaco(void *priv, uint32_t *total, uint32_t *livre)
 { ENTRAR(); if (E->ativo) E->orig->espaco(E->priv, total, livre); SAIR(); }
 static int t_desmontar(void *priv, bool gravar)
@@ -175,6 +177,8 @@ static void envolver(int i, const sistema_arquivos_t *fs, void *priv)
     e->tabela.datas = fs->datas ? t_datas : NULL;
     e->tabela.meta = fs->meta ? t_meta : NULL;
     e->tabela.fixar_meta = fs->fixar_meta ? t_fixar_meta : NULL;
+    e->tabela.fixar_datas = fs->fixar_datas ? t_fixar_datas : NULL;   /* D341 */
+
 }
 
 /* Crea las carpetas que falten en la ruta (en la RAM). Devuelve si creó la última. */

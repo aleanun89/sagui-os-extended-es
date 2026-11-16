@@ -877,6 +877,18 @@ void mensagem(const char *titulo, const char *texto)
     dialogo(titulo, texto, _("OK"), NULL, NULL);
 }
 
+bool pedir_texto_oculto(const char *titulo, const char *pergunta, char *resposta, int max)
+{
+    caixa_t c;
+    memset(&c, 0, sizeof c);
+    c.oculta = true;
+    caixa_definir(&c, resposta);
+    bool ok = dialogo(titulo, pergunta, _("OK"), _("Cancelar"), &c) == 1;
+    if (ok) copia_texto(resposta, c.texto, (size_t)max);
+    memset(&c, 0, sizeof c);   /* no dejar la contraseña en la pila */
+    return ok;
+}
+
 bool pedir_texto(const char *titulo, const char *pergunta, char *resposta, int max)
 {
     caixa_t c;

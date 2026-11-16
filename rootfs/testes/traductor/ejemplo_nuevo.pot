@@ -1,0 +1,50 @@
+# Plantilla nueva: sin «Salir», con una cadena nueva y «Cerrar la ventana» algo cambiada.
+msgid ""
+msgstr ""
+"Project-Id-Version: ejemplo 1.1\n"
+"POT-Creation-Date: 2026-11-17 10:00+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ejemplo.c:10
+msgid "Guardar el archivo"
+msgstr ""
+
+#: ejemplo.c:21
+#, c-format
+msgid "Abrir %s"
+msgstr ""
+
+#: ejemplo.c:33
+msgid "Cerrar la ventana actual"
+msgstr ""
+
+#: ejemplo.c:47
+#, c-format
+msgid "Archivos: %d"
+msgstr ""
+
+#: ejemplo.c:70
+#, c-format
+msgid "Un archivo"
+msgid_plural "%d archivos"
+msgstr[0] ""
+msgstr[1] ""
+
+#: ejemplo.c:81
+msgctxt "menu"
+msgid "&Edición"
+msgstr ""
+
+#: ejemplo.c:90
+msgid "Cerrar todas las ventanas"
+msgstr ""
+
+#: ejemplo.c:99
+msgid "Cadena nueva del pot"
+msgstr ""
+
+#: ejemplo.c:120
+msgid "Nueva carpeta"
+msgstr ""

@@ -20,6 +20,7 @@
 #include "montagem.h"
 #include "vfs.h"
 #include "permisos_dialogo.h"
+#include "sessao.h"
 #include "aparencia.h"
 #include "abi.h"
 #include "console.h"
@@ -189,6 +190,7 @@ void gui_mostrar(void)
         atalhos_desenhar(&tela);
         menu_desenhar(&tela);
         pd_desenhar(&tela);   /* D269 */
+        sessao_desenhar(&tela);   /* D340 */
         video_marcar(tela.cx0, tela.cy0, tela.cx1 - tela.cx0, tela.cy1 - tela.cy0);
         video_mostrar();
         rapido_fim(sse);
@@ -212,6 +214,7 @@ void gui_mostrar(void)
     atalhos_desenhar(&tela);       /* panel de Alt+Tab (D119) */
     menu_desenhar(&tela);   /* el menú contextual queda por encima de todo (D051) */
     pd_desenhar(&tela);     /* D269: el diálogo de permisos, sobre todo lo demás, atenúa también la barra */
+    sessao_desenhar(&tela); /* D340: la pantalla de inicio de sesión lo cubre todo */
     video_marcar(tela.cx0, tela.cy0, tela.cx1 - tela.cx0, tela.cy1 - tela.cy0);
     video_mostrar();
     rapido_fim(sse);
@@ -248,7 +251,7 @@ static void atualizar_zona_cursor(void)
 {
     janela_t *j = ativa ? focada() : NULL;
     int x = 0, y = 0, l = 0, a = 0;
-    if (j && (j->estilo & JAN_SEM_CURSOR) && !pd_ativo() && !menu_aberto() && !barra_popup_visivel() && !atalhos_visivel() &&
+    if (j && (j->estilo & JAN_SEM_CURSOR) && !pd_ativo() && !sessao_ativa() && !menu_aberto() && !barra_popup_visivel() && !atalhos_visivel() &&
         arrastando < 0 && redimensionando < 0) {
         if (j->tela_cheia) {
             geometria_tela_cheia(j, &x, &y, &l, &a);
@@ -303,7 +306,7 @@ static int imax(int a, int b) { return a > b ? a : b; }
 static bool mover_com_gpu(janela_t *j, int nx, int ny)
 {
     if (!acel2d_ativo() || j->tela_cheia || j->minimizada || qtd == 0 || &janelas[ordem[qtd - 1]] != j) return false;
-    if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || avisos_visivel() || pd_ativo() || redimensionando >= 0) return false;
+    if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || avisos_visivel() || pd_ativo() || sessao_ativa() || redimensionando >= 0) return false;
     gui_mostrar();   /* lo pendiente primero: la pantalla tiene que ser lo que se compuso */
     int L = (int)video_largura(), A = (int)video_altura();
     int ox = j->x - 1, oy = j->y - 1, l = moldura_l(j) + 2, a = moldura_a(j) + 2;
@@ -363,7 +366,7 @@ static void verificar_captura(void)
     if (!j) { soltar_captura("ventana cerrada"); return; }
     if ((teclado_modificadores() & (MOD_CTRL | MOD_ALT)) == (MOD_CTRL | MOD_ALT)) soltar_captura("Ctrl+Alt");
     else if (j != focada() || j->minimizada) soltar_captura("perdio el foco");
-    else if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || pd_ativo() || arrastando >= 0) soltar_captura("menu o panel");
+    else if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || pd_ativo() || sessao_ativa() || arrastando >= 0) soltar_captura("menu o panel");
 }
 
 /* Con la captura, el ratón es solo de la ventana: deltas crudos, botones en el centro, rueda. */
@@ -391,6 +394,11 @@ static bool tratar_captura(evento_mouse_t *m)
 
 static void tratar_mouse(evento_mouse_t *m)
 {
+    if (sessao_ativa()) {   /* D340: la pantalla de inicio de sesión: todo el ratón es suyo */
+        arrastando = -1; captura = -1; redimensionando = -1;
+        sessao_mouse(m->x, m->y, m->botoes, m->mudaram);
+        return;
+    }
     if (pd_ativo()) {   /* D269: el diálogo de permisos es modal: todo el ratón es suyo */
         arrastando = -1; captura = -1; redimensionando = -1;
         pd_mouse(m->x, m->y, m->botoes, m->mudaram);
@@ -573,6 +581,7 @@ static void tarefa_gerenciador(void *arg)
         int t;
         uint32_t mods;   /* los modificadores de cuando se pulsó la tecla, no los de ahora (D119) */
         while ((t = teclado_tentar_mods(&mods)) >= 0) {
+            if (sessao_tecla(t)) continue;   /* D340: la pantalla de inicio de sesión, con todo el teclado */
             if (pd_tecla(t)) continue;   /* D269: el diálogo de permisos se queda con todo el teclado */
             if (atalhos_tecla(t, mods)) continue;   /* Alt+Tab, Alt+F4, Windows, Ctrl+Alt+Supr (D119) */
             if (menu_tratar_tecla(t)) continue;   /* menú contextual abierto: el teclado es suyo (D051) */
@@ -601,6 +610,7 @@ static void tarefa_gerenciador(void *arg)
         while (disco_proximo_aviso(&tipo, texto, sizeof texto, caminho, sizeof caminho))
             gui_aviso_ex(texto, tipo == AVISO_AUDIO && caminho[0] ? caminho : NULL, tipo == AVISO_AUDIO,
                          tipo == AVISO_AUDIO && caminho[0] ? 10 : 0);   /* D233: pulsable, reproduce el CD */
+        sessao_tique();  /* D340: inicio y fin de sesión */
         pd_tique();      /* D269: ¿hay un programa pidiendo permisos de administrador? */
         avisos_tique();  /* caduca el aviso y muestra el siguiente de la cola */
         disco_t *pd = NULL;

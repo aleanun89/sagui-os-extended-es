@@ -37,6 +37,7 @@ typedef struct arquivo {
     socket_t *sock;      /* socket de red (D046) */
     struct fluxo *fluxo; /* flujo de audio (D088) */
     char    *criado;     /* D282: ruta, si esta apertura lo creó y aún no se escribió el principio */
+    char    *caminho;    /* D341: la ruta con que se abrió (A_NO, A_MONTADO), para futimens */
     int      refs;
 } arquivo_t;
 
@@ -64,6 +65,7 @@ static void arquivo_soltar(arquivo_t *a)
     else if (a->tipo == A_SOCKET) socket_fechar(a->sock);
     else if (a->tipo == A_AUDIO) audio_fluxo_fechar(a->fluxo);
     if (a->criado) kfree(a->criado);
+    if (a->caminho) kfree(a->caminho);
     kfree(a);
 }
 
@@ -104,7 +106,20 @@ static arquivo_t *pegar(uint32_t fd)
     return fd < MAX_ARQUIVOS ? processo_recursos()->arquivos[fd] : NULL;
 }
 
+/* D341: la ruta con la que se abrió el archivo del descriptor "fd" (para fijar sus fechas). Si se
+ * renombró después, es la de antes: futimens actúa sobre la ruta, no sobre el archivo. */
+int arquivos_caminho(uint32_t fd, char *saida, size_t max)
+{
+    arquivo_t *a = pegar(fd);
+    if (!a) return ERRO_DESCRITOR;
+    if ((a->tipo != A_NO && a->tipo != A_MONTADO) || !a->caminho) return ERRO_NAO_SUPORTADO;
+    if (txt_tamanho(a->caminho) >= max) return ERRO_INVALIDO;
+    txt_copia_n(saida, a->caminho, max);
+    return 0;
+}
+
 /* Los flujos de audio son descriptores (D088): cerrar el programa, o el
+
  * descriptor, silencia el flujo. */
 int arquivos_novo_audio(struct fluxo *f)
 {
@@ -150,16 +165,21 @@ void arquivos_fechar_todos(processo_t *p)
         }
 }
 
-/* Texto del programa -> ruta absoluta simplificada. */
-static int caminho_do_usuario(uint32_t ptr, char *saida)
+/* Texto del programa -> ruta absoluta simplificada, como la ve el programa ("vista") y la real
+ * ("saida"): D340, lo que una cuenta pide en /home va a su carpeta personal. "vista" puede ser NULL. */
+static int caminho_do_usuario_v(uint32_t ptr, char *saida, char *vista)
 {
     char bruto[CAMINHO_MAX];
     int r = usuario_texto((const char *)ptr, bruto, sizeof bruto);
     if (r < 0) return r;
     if (r == 0) return ERRO_INVALIDO;
     if (!caminho_resolver(processo_recursos()->pasta, bruto, saida, CAMINHO_MAX)) return ERRO_INVALIDO;
+    if (vista) txt_copia_n(vista, saida, CAMINHO_MAX);
+    if (!permisos_casa_traduzir(processo_recursos(), saida)) return ERRO_INVALIDO;
     return 0;
 }
+
+static int caminho_do_usuario(uint32_t ptr, char *saida) { return caminho_do_usuario_v(ptr, saida, NULL); }
 
 int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t e)
 {
@@ -208,6 +228,7 @@ int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t 
             return ERRO_ACESSO;
         }
         if (r == 1 && m->fs->fixar_meta) a->criado = copiar_caminho(caminho);
+        a->caminho = copiar_caminho(caminho);   /* D341: sin memoria, futimens no podrá */
         processo_recursos()->arquivos[fd] = a;
         return fd;
     }
@@ -226,6 +247,7 @@ int32_t sis_abrir(uint32_t ptr, uint32_t modo, uint32_t c, uint32_t d, uint32_t 
     if (!a) return ERRO_SEM_MEMORIA;
     if (modo & ABRIR_TRUNCAR) vfs_truncar(x);
     if (criou) a->criado = copiar_caminho(caminho);
+    a->caminho = copiar_caminho(caminho);
     a->no = x;
     vfs_segurar(x);
     processo_recursos()->arquivos[fd] = a;
@@ -496,8 +518,8 @@ int32_t sis_listar(uint32_t ptr, uint32_t indice, uint32_t pent, uint32_t d, uin
 int32_t sis_mudar_pasta(uint32_t ptr, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 {
     (void)b; (void)c; (void)d; (void)e;
-    char caminho[CAMINHO_MAX];
-    int r = caminho_do_usuario(ptr, caminho);
+    char caminho[CAMINHO_MAX], vista[CAMINHO_MAX];
+    int r = caminho_do_usuario_v(ptr, caminho, vista);
     if (r < 0) return r;
     if ((r = permisos_acesso(caminho, PERM_EXECUTAR)) < 0) return r;   /* D282: entrar */
     const char *rel;
@@ -509,13 +531,13 @@ int32_t sis_mudar_pasta(uint32_t ptr, uint32_t b, uint32_t c, uint32_t d, uint32
             if (r < 0) return r;
             if (inf.tipo != TIPO_PASTA) return ERRO_NAO_E_PASTA;
         }
-        txt_copia_n(processo_recursos()->pasta, caminho, sizeof processo_recursos()->pasta);
+        txt_copia_n(processo_recursos()->pasta, vista, sizeof processo_recursos()->pasta);   /* D340: como la ve */
         return 0;
     }
     no_t *x = vfs_achar(caminho);
     if (!x) return ERRO_NAO_EXISTE;
     if (x->tipo != TIPO_PASTA) return ERRO_NAO_E_PASTA;
-    txt_copia_n(processo_recursos()->pasta, caminho, sizeof processo_recursos()->pasta);
+    txt_copia_n(processo_recursos()->pasta, vista, sizeof processo_recursos()->pasta);
     return 0;
 }
 

@@ -182,7 +182,7 @@ COMPILACAO_H := $(B)/gerado/compilacao.h
 # libtls (D060-D063): criptografia, X.509 e TLS, só nos programas que usam rede cifrada.
 TLS_OBJ   := $(patsubst userland/libtls/%.c,$(B)/userland/libtls/%.o,$(wildcard userland/libtls/*.c)) \
              $(B)/userland/libtls/sha256.o
-TLS_PROGS := sshd ssh ssh-keygen curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco
+TLS_PROGS := sshd ssh ssh-keygen curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco traductor
 # O cliente de IA (D134): a biblioteca da API compativel com a da OpenAI, que
 # o `ia` do terminal e o assistente do Mico partilham. Fica numa pasta propria
 # (como a libtls) porque so os programas que falam com a IA a ligam.
@@ -416,7 +416,7 @@ APPS_MB ?= 0
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
 APPS_MOVER_FIJO := cipo pluma macaco mico correo planomini gebramini visorpdf chatia ia \
   reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo \
-  chip8 chip8asm jclic jclicbajar
+  chip8 chip8asm jclic jclicbajar traductor convertir-audio
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
 APPS_RECURSOS := videos:userland/apps/videos
@@ -557,6 +557,17 @@ ifneq ($(SEM_GPL),1)
 ifeq ($(MGBA),1)
 ifneq ($(wildcard userland/terceros/mgba/jogo/VERSAO),)
 include userland/terceros/mgba/mgba.mk
+endif
+endif
+endif
+
+# Conversor de audio (D339): el MP3 lo codifica shine (LGPL-2.0+), aislado en userland/terceros/shine/. SHINE=0 o SEM_GPL=1
+# lo dejan fuera (el programa sale igual, sin la salida MP3).
+SHINE ?= 1
+ifneq ($(SEM_GPL),1)
+ifeq ($(SHINE),1)
+ifneq ($(wildcard userland/terceros/shine/src/layer3.c),)
+include userland/terceros/shine/shine.mk
 endif
 endif
 endif
@@ -794,6 +805,8 @@ $(B)/userland/bin/chatia: $(IA_OBJ) $(IA_GUI_OBJ)
 $(B)/userland/bin/pluma $(B)/userland/bin/macaco $(B)/userland/bin/correo: $(IA_OBJ) $(IA_GUI_OBJ)
 # A janela de Configuração também fala com o servidor de IA para pedir os modelos (D145).
 $(B)/userland/bin/configuracion: $(IA_OBJ)
+# El Traductor (D335) pide propuestas al agente de IA del sistema.
+$(B)/userland/bin/traductor: $(IA_OBJ)
 # O `correo` liga a biblioteca dos protocolos de correio e a libtls (D082).
 $(B)/userland/bin/correo: $(CORREO_OBJ)
 $(B)/userland/mail/%.o: userland/mail/%.c $(USER_HDR)
@@ -885,7 +898,7 @@ $(B)/$(GBM_DIR)/%.o: $(GBM_DIR)/%.c $(GBM_HDR) $(USER_HDR)
 $(B)/userland/programas/gebramini.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -I$(GBM_DIR)
 $(B)/userland/programas/gebramini.o: $(GBM_HDR)
 # El catálogo de funciones de Macaco (D311) es una cabecera propia: al cambiarla hay que recompilar macaco.o.
-$(B)/userland/programas/macaco.o: userland/programas/macaco_funciones.h
+$(B)/userland/programas/macaco.o: userland/programas/macaco_funciones.h userland/programas/macaco_formatos.h
 $(B)/userland/bin/gebramini: $(GBM_OBJ)
 
 # PlanoMini (D312, mejora 129): el motor del CAD 2D (órdenes, geometría, .pmini, DXF) con la x87 como GebraMini
@@ -1228,7 +1241,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \

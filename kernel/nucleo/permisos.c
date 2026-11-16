@@ -75,7 +75,8 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_AUDIO_HDA] = O,                   /* el estado sí; verbos, pines y GPIO del códec, no */
     /* Discos y montajes */
     [SIS_LISTAR_DISCOS] = L,
-    [SIS_MONTAR] = R, [SIS_DESMONTAR] = R,
+    [SIS_MONTAR] = R,
+    [SIS_DESMONTAR] = L,                   /* D336: "sync" (vaciar cachés) es libre; desmontar se niega dentro (discos.c) */
     [SIS_DISCO_BLOCOS] = O,                /* solo DBLOCO_INFO; leer en crudo saltaría todas las protecciones */
     /* Red: usar la red es libre; configurarla, no */
     [SIS_SOCKET] = L, [SIS_CONECTAR] = L, [SIS_ESCUTAR] = L, [SIS_ACEITAR] = L,
@@ -108,12 +109,19 @@ int permisos_classe(uint32_t n)
 
 static uint32_t uid_inicial = UID_SAGUI;
 static bool rescate, sesion_raiz;
+/* D340: la sesión local (quién está delante del escritorio). Al arrancar, la de uid_inicial; el inicio de
+ * sesión (kernel/gui/sessao.c) la cambia. sessao_casa vacía = /home tal cual (sagui, root). */
+static uint32_t sessao_uid = UID_SAGUI, sessao_gid = GID_SAGUI;
+static char sessao_casa[40];
 
 void permisos_iniciar(void)
 {
     rescate = (info_boot.opcoes & OPC_BOOT_RESCATE) != 0;
     sesion_raiz = (info_boot.opcoes & OPC_BOOT_SESION_RAIZ) != 0;
     uid_inicial = rescate || sesion_raiz ? UID_ROOT : UID_SAGUI;
+    sessao_uid = uid_inicial;
+    sessao_gid = uid_inicial == UID_ROOT ? GID_ROOT : GID_SAGUI;
+    sessao_casa[0] = 0;
     klog("[PERMISOS] sesion como %s%s%s\n", uid_inicial == 0 ? "root" : "sagui",
          rescate ? " (MODO RESCATE)" : "", sesion_raiz ? " (imagen de prueba)" : "");
     /* Autoprueba barata: una llamada de la tabla del despachador sin clase
@@ -123,7 +131,7 @@ void permisos_iniciar(void)
             klog("[PERMISOS] aviso: la llamada %u no esta clasificada (solo root)\n", n);
 }
 
-uint32_t permisos_uid_inicial(void) { return uid_inicial; }
+uint32_t permisos_uid_inicial(void) { return sessao_uid; }
 bool permisos_modo_rescate(void) { return rescate; }
 bool permisos_sesion_raiz(void) { return sesion_raiz; }
 
@@ -205,7 +213,8 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_SERVICOS:
         return a == SERV_APAGANDO || a == SERV_SUPERVISOR || a == SERV_PEDIR || a == SERV_RESULTADO;
     case SIS_USUARIO:
-        return a == USU_CONSULTAR || a == USU_DE_PID || a == USU_ESTADO;
+        return a == USU_CONSULTAR || a == USU_DE_PID || a == USU_ESTADO || a == USU_SESSAO ||
+               a == USU_CERRAR_SESION;   /* D340: cerrar la sesión lo comprueba usuarios.c (solo la local) */
     }
     return false;
 }
@@ -290,6 +299,85 @@ nega:
         klog("[PERMISOS] denegado a %s (pid %d, uid %u): %s %s (secreto)\n", eu->nome, eu->pid, eu->uid,
              acao & PERM_ESCREVER ? "escribir" : "leer", caminho);
     return ERRO_ACESSO;
+}
+
+/* ---------------------------------------------------------------- D340: varias cuentas
+ *
+ * La carpeta personal de una cuenta que no es la principal (sagui) es /home/<nombre>, pero sus
+ * programas la ven en /home: todo lo que piden dentro de /home (también /home/.config, que usan más
+ * de cien rutas fijas de los programas y de los ports) va a su carpeta. Así cada cuenta tiene su
+ * configuración sin cambiar los programas, y no puede ni nombrar los archivos de las demás. Root
+ * (también un programa elevado) ve el árbol real. La carpeta actual se guarda como la ve el
+ * programa: se traduce en cada llamada. */
+
+static bool nome_casa_valido(const char *c)
+{
+    if (txt_compara_n(c, "/home/", 6) != 0) return false;
+    const char *n = c + 6;
+    size_t k = 0;
+    for (; n[k]; k++)
+        if (!((n[k] >= 'a' && n[k] <= 'z') || (n[k] >= '0' && n[k] <= '9') || n[k] == '_' || n[k] == '-')) return false;
+    return k > 0 && k < 32;
+}
+
+bool permisos_casa_valida(const char *casa) { return !casa[0] || nome_casa_valido(casa); }
+
+void permisos_fixar_sessao(uint32_t uid, uint32_t gid, const char *casa)
+{
+    sessao_uid = uid;
+    sessao_gid = gid;
+    sessao_casa[0] = 0;
+    if (casa && nome_casa_valido(casa)) txt_copia_n(sessao_casa, casa, sizeof sessao_casa);
+    klog("[SESION] sesion local: uid %u gid %u, carpeta %s\n", uid, gid, sessao_casa[0] ? sessao_casa : "/home");
+}
+
+uint32_t permisos_sessao_gid(void) { return sessao_gid; }
+const char *permisos_sessao_casa(void) { return sessao_casa; }
+
+/* La ruta real de "rel" (que empieza por '/', o "") dentro de la carpeta de la sesión. */
+void permisos_sessao_caminho(char *dst, size_t n, const char *rel)
+{
+    snformatar(dst, n, "%s%s", sessao_casa[0] ? sessao_casa : "/home", rel);
+}
+
+static bool em_home_c(const char *c) { return txt_compara_n(c, "/home", 5) == 0 && (c[5] == 0 || c[5] == '/'); }
+
+/* "/home/x" -> casa + "/x" (en el sitio; CAMINHO_MAX). false si no cabe. */
+static bool traduzir_com(const char *casa, char *caminho)
+{
+    if (!casa[0] || !em_home_c(caminho)) return true;
+    size_t nc = txt_tamanho(casa), nr = txt_tamanho(caminho + 5);
+    if (nc + nr + 1 > CAMINHO_MAX) return false;
+    memmove(caminho + nc, caminho + 5, nr + 1);
+    memcpy(caminho, casa, nc);
+    return true;
+}
+
+bool permisos_casa_traduzir(const processo_t *p, char *caminho)
+{
+    if (!p || !p->usuario) return true;
+    const processo_t *l = processo_lider((processo_t *)p);
+    if (l->uid == 0) return true;
+    return traduzir_com(l->casa_conta, caminho);
+}
+
+/* El proceso (líder) pasa de su uid a "novo": su carpeta actual sigue siendo la misma carpeta real
+ * (root ve el árbol real; la cuenta, su /home). */
+void permisos_casa_mudar_uid(processo_t *l, uint32_t novo)
+{
+    if (!l->casa_conta[0] || (l->uid == 0) == (novo == 0)) return;
+    char c[CAMINHO_MAX];
+    size_t nc = txt_tamanho(l->casa_conta);
+    if (novo == 0) {   /* a root: la vista de la cuenta pasa a la real */
+        txt_copia_n(c, l->pasta, sizeof c);
+        if (traduzir_com(l->casa_conta, c)) txt_copia_n(l->pasta, c, sizeof l->pasta);
+        else txt_copia_n(l->pasta, "/", sizeof l->pasta);
+    } else if (txt_compara_n(l->pasta, l->casa_conta, nc) == 0 && (l->pasta[nc] == 0 || l->pasta[nc] == '/')) {
+        snformatar(c, sizeof c, "/home%s", l->pasta + nc);
+        txt_copia_n(l->pasta, c, sizeof l->pasta);
+    } else if (em_home_c(l->pasta)) {
+        txt_copia_n(l->pasta, "/", sizeof l->pasta);   /* otra carpeta de /home: la cuenta no la ve */
+    }
 }
 
 /* ---------------------------------------------------------------- D282: permisos de archivos */
@@ -408,6 +496,7 @@ static int caminho_do_usuario(uint32_t ptr, char *saida)
     if (r < 0) return r;
     if (r == 0) return ERRO_INVALIDO;
     if (!caminho_resolver(processo_recursos()->pasta, bruto, saida, CAMINHO_MAX)) return ERRO_INVALIDO;
+    if (!permisos_casa_traduzir(processo_recursos(), saida)) return ERRO_INVALIDO;   /* D340 */
     return 0;
 }
 
@@ -420,10 +509,12 @@ int32_t sis_permisos_arq(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32
         if ((int32_t)a != -1) eu->umask = (uint16_t)(a & 0777);
         return antes;
     }
-    if (op != PARQ_CONSULTAR && op != PARQ_MODO && op != PARQ_DONO) return ERRO_INVALIDO;
+    if (op != PARQ_CONSULTAR && op != PARQ_MODO && op != PARQ_DONO && op != PARQ_DATAS && op != PARQ_DATAS_FD)
+        return ERRO_INVALIDO;
     char caminho[CAMINHO_MAX];
-    int r = caminho_do_usuario(a, caminho);
+    int r = op == PARQ_DATAS_FD ? arquivos_caminho(a, caminho, sizeof caminho) : caminho_do_usuario(a, caminho);
     if (r < 0) return r;
+
     if ((r = permisos_acesso(caminho, 0)) < 0) return r;   /* entrar en sus carpetas */
     meta_t m;
     if ((r = vfs_meta(caminho, &m)) < 0) return r;
@@ -439,7 +530,24 @@ int32_t sis_permisos_arq(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32
         v->com_donos = m.com_donos;
         return 0;
     }
+    if (op == PARQ_DATAS || op == PARQ_DATAS_FD) {
+        /* D341 (como utimensat): una fecha concreta, solo el dueño o root; «ahora» o «no cambiar»
+         * bastan con poder escribir el archivo. Las dos «no cambiar» no hacen nada. */
+        uint32_t mod = b, ace = c;
+        if (mod == PARQ_DATA_MANTER && ace == PARQ_DATA_MANTER) return 0;
+        bool concreta = (mod != PARQ_DATA_AGORA && mod != PARQ_DATA_MANTER) ||
+                        (ace != PARQ_DATA_AGORA && ace != PARQ_DATA_MANTER);
+        if (!root && m.uid != eu->uid) {
+            if (concreta) return negar(eu, "cambiar las fechas de", caminho);
+            if ((r = permisos_acesso(caminho, PERM_ESCREVER)) < 0) return r;
+        }
+        uint32_t agora = hora_utc();
+        mod = mod == PARQ_DATA_AGORA ? agora : mod == PARQ_DATA_MANTER ? 0 : mod;
+        ace = ace == PARQ_DATA_AGORA ? agora : ace == PARQ_DATA_MANTER ? 0 : ace;
+        return vfs_fixar_datas(caminho, mod, ace);
+    }
     if (op == PARQ_MODO) {
+
         if (!root && m.uid != eu->uid) return negar(eu, "cambiar los permisos de", caminho);
         return vfs_fixar_meta(caminho, -1, -1, (int32_t)(b & MODO_PERMISOS));
     }

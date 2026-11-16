@@ -24,6 +24,8 @@
 #include "sys/mman.h"
 #include "sys/select.h"
 #include "sys/stat.h"
+#include "sys/time.h"
+#include "utime.h"
 #include "sys/utsname.h"
 #include "sys/wait.h"
 #include "pwd.h"
@@ -395,7 +397,66 @@ int unlinkat(int pasta, const char *nome, int flags)
     return (flags & AT_REMOVEDIR) ? rmdir(c) : unlink(c);
 }
 
+/* ------------------------------------------------------------- fechas (D341) */
+
+/* Una timespec -> el valor de PARQ_DATAS (ahora, sin cambio o segundos UTC). */
+static int valor_data(const struct timespec *t, unsigned *v)
+{
+    if (!t || t->tv_nsec == UTIME_NOW) { *v = PARQ_DATA_AGORA; return 0; }
+    if (t->tv_nsec == UTIME_OMIT) { *v = PARQ_DATA_MANTER; return 0; }
+    if (t->tv_sec < 0 || t->tv_nsec < 0 || t->tv_nsec >= 1000000000l) { errno = EINVAL; return -1; }
+    *v = (unsigned)t->tv_sec;
+    if (*v >= PARQ_DATA_MANTER) { errno = EINVAL; return -1; }
+    return 0;
+}
+
+int utimensat(int pasta, const char *nome, const struct timespec ts[2], int flags)
+{
+    (void)flags;   /* AT_SYMLINK_NOFOLLOW: se fijan las del destino */
+    char c[PATH_MAX];
+    unsigned mod, ace;
+    if (ruta_em(pasta, nome, c, sizeof c) < 0) return -1;
+    if (valor_data(ts ? &ts[0] : NULL, &ace) < 0 || valor_data(ts ? &ts[1] : NULL, &mod) < 0) return -1;
+    int r = fixar_datas(c, mod, ace);
+    return r < 0 ? falha(r) : 0;
+}
+
+int futimens(int fd, const struct timespec ts[2])
+{
+    unsigned mod, ace;
+    if (valor_data(ts ? &ts[0] : NULL, &ace) < 0 || valor_data(ts ? &ts[1] : NULL, &mod) < 0) return -1;
+    int r = fixar_datas_fd(fd, mod, ace);
+    return r < 0 ? falha(r) : 0;
+}
+
+static void timeval_para_timespec(const struct timeval *tv, struct timespec ts[2])
+{
+    for (int i = 0; i < 2; i++) { ts[i].tv_sec = tv[i].tv_sec; ts[i].tv_nsec = (long)tv[i].tv_usec * 1000; }
+}
+
+int utimes(const char *caminho, const struct timeval tv[2])
+{
+    struct timespec ts[2];
+    if (tv) timeval_para_timespec(tv, ts);
+    return utimensat(AT_FDCWD, caminho, tv ? ts : NULL, 0);
+}
+
+int futimes(int fd, const struct timeval tv[2])
+{
+    struct timespec ts[2];
+    if (tv) timeval_para_timespec(tv, ts);
+    return futimens(fd, tv ? ts : NULL);
+}
+
+int utime(const char *caminho, const struct utimbuf *t)
+{
+    struct timespec ts[2] = { { 0, UTIME_NOW }, { 0, UTIME_NOW } };
+    if (t) { ts[0].tv_sec = t->actime; ts[0].tv_nsec = 0; ts[1].tv_sec = t->modtime; ts[1].tv_nsec = 0; }
+    return utimensat(AT_FDCWD, caminho, ts, 0);
+}
+
 int alphasort(const struct dirent **a, const struct dirent **b)
+
 {
     return strcmp((*a)->d_name, (*b)->d_name);
 }

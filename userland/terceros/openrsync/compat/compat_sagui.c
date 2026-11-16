@@ -6,11 +6,10 @@
  * funciones "...at" con la carpeta raíz del receptor y los no-op de lo que el
  * sistema de archivos no guarda (fechas, dueño, enlaces simbólicos).
  *
- * Fechas: los sistemas de archivos escribibles de SaguiOS no guardan la fecha de
- * modificación (solo ISO 9660 y UDF, de solo lectura), así que utimensat/futimens
- * no hacen nada y el receptor trata todo fichero existente como "distinto":
- * recalcula sus sumas y el emisor manda solo lo que cambió (el delta sigue
- * valiendo). Los modos ya estan conectados (D282); las fechas no se pueden escribir todavia.
+ * Fechas (D341): utimensat va al kernel (PARQ_DATAS) por la ruta resuelta y futimens es el
+ * de la libc (PARQ_DATAS_FD). Con -t el receptor deja las fechas del emisor y la
+ * comprobación rápida (tamaño y fecha) vuelve a valer. Un sistema sin fechas fijables
+ * (ISO 9660, UDF) no es un error. Los modos ya estan conectados (D282).
  */
 #include "sagui.h"
 
@@ -61,16 +60,30 @@ void *recallocarray(void *p, size_t viejo, size_t nuevo, size_t t)
 
 const char *getprogname(void) { return "rsync"; }
 
-/* No hay base de usuarios ni de grupos: solo existe el grupo 0 (root). */
+/* No hay base de grupos: existen root (0) y sagui (1000, D255); cualquier otro gid recibe un nombre
+ * inventado ("g2000") para poder mandarlo por el protocolo, que lleva nombres. */
 static struct group grupo_zero = { "root", 0 };
-struct group *getgrnam(const char *nome) { return strcmp(nome, "root") == 0 ? &grupo_zero : NULL; }
-struct group *getgrgid(gid_t gid) { return gid == 0 ? &grupo_zero : NULL; }
+static struct group grupo_sagui = { "sagui", 1000 };
+static char nome_grupo[16];
+static struct group grupo_otro = { nome_grupo, 0 };
+struct group *getgrnam(const char *nome)
+{
+    if (strcmp(nome, "root") == 0) return &grupo_zero;
+    if (strcmp(nome, "sagui") == 0) return &grupo_sagui;
+    return NULL;
+}
+struct group *getgrgid(gid_t gid)
+{
+    if (gid == 0) return &grupo_zero;
+    if (gid == 1000) return &grupo_sagui;
+    snprintf(nome_grupo, sizeof nome_grupo, "g%u", (unsigned)gid);
+    grupo_otro.gr_gid = gid;
+    return &grupo_otro;
+}
 
-/* Dueño y fechas: los modos si se guardan (D282, rs_fchmodat y rs_fstatat), pero el dueño no se
- * aplica (un uid de otra máquina no significa nada aqui: SaguiOS solo tiene root y sagui) y las
- * fechas no se pueden fijar (no hay llamada para escribirlas): se acepta y se ignora. */
+/* Dueño por descriptor: no se aplica aquí (rs_chownat lo hace por ruta, D336). futimens viene de
+ * la libc (D341). */
 int fchown(int fd, uid_t uid, gid_t gid) { (void)fd; (void)uid; (void)gid; return 0; }
-int futimens(int fd, const struct timespec ts[2]) { (void)fd; (void)ts; return 0; }
 
 /* ------------------------------------------------------------- poll */
 
@@ -180,9 +193,13 @@ ssize_t rs_write(int fd, const void *buf, size_t n)
  * lectura devuelve 0). Un fichero siempre. Escribir se da siempre por posible:
  * la escritura de un pipe lleno espera sola a que el otro lado lea (D010), y
  * el otro lado (sshd, o la propia sesión) lee sin esperar a que escriba */
+static int cli_socket = -1;
+void rs_cliente_socket(int fd) { cli_socket = fd; }
+
 static int listo_leer(int fd)
 {
     if (fd < 0) return 0;
+    if (fd == cli_socket) return disponivel(fd) != 0;   /* con datos, o cerrado (la lectura dara 0) */
     if (fd == cli_de && cli_de >= 0) { drenar(); return cb_n > 0 || cli_fim; }
     if (tipo_descritor(fd) != TIPO_PIPE) return 1;
     return disponivel(fd) != 0;
@@ -490,8 +507,29 @@ int rs_fchmodat(int pasta, const char *caminho, mode_t modo, int flags)
     return 0;
 }
 
-int rs_utimensat(int pasta, const char *caminho, const struct timespec ts[2], int flags)
+int rs_chownat(int pasta, const char *caminho, int uid, int gid)
 {
-    (void)pasta; (void)caminho; (void)ts; (void)flags;
+    char c[PATH_MAX];
+    if (ruta_en(pasta, caminho, c, sizeof c) < 0) return -1;
+    /* Sin permiso (no es root) o en un FAT32/ISO sin dueños propios: se sigue, como rsync sin ser root. */
+    mudar_dono(c, uid, gid);
     return 0;
 }
+
+int rs_utimensat(int pasta, const char *caminho, const struct timespec ts[2], int flags)
+{
+    (void)flags;
+    char c[PATH_MAX];
+    if (ruta_en(pasta, caminho, c, sizeof c) < 0) return -1;
+    unsigned v[2];
+    for (int i = 0; i < 2; i++) {
+        if (!ts || ts[i].tv_nsec == UTIME_NOW) v[i] = PARQ_DATA_AGORA;
+        else if (ts[i].tv_nsec == UTIME_OMIT) v[i] = PARQ_DATA_MANTER;
+        else v[i] = ts[i].tv_sec > 0 ? (unsigned)ts[i].tv_sec : 1u;   /* antes de 1970: el primer segundo */
+    }
+    int r = fixar_datas(c, v[1], v[0]);   /* D341: [0] acceso, [1] modificación */
+    if (r == ERRO_NAO_SUPORTADO) return 0;   /* ISO 9660, UDF: sin fechas que fijar */
+    if (r < 0) { errno = r == ERRO_ACESSO ? EPERM : EIO; return -1; }
+    return 0;
+}
+

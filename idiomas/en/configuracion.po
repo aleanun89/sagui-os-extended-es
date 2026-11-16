@@ -958,3 +958,184 @@ msgstr "Choose an image from the list."
 msgid "Aplicando el fondo..."
 msgstr "Applying the background..."
 
+#: userland/programas/configuracion.c
+msgid "Usuarios"
+msgstr "Users"
+
+#: userland/programas/configuracion.c
+msgid "Nueva cuenta..."
+msgstr "New account..."
+
+#: userland/programas/configuracion.c
+msgid "Cambiar la contraseña..."
+msgstr "Change the password..."
+
+#: userland/programas/configuracion.c
+msgid "Cambiar el nombre..."
+msgstr "Rename..."
+
+#: userland/programas/configuracion.c
+msgid "Administrador: sí / no"
+msgstr "Administrator: yes / no"
+
+#: userland/programas/configuracion.c
+msgid "Borrar la cuenta..."
+msgstr "Delete the account..."
+
+#: userland/programas/configuracion.c
+msgid " (administrador)"
+msgstr " (administrator)"
+
+#: userland/programas/configuracion.c
+msgid "Cuentas de usuario de este ordenador"
+msgstr "User accounts on this computer"
+
+#: userland/programas/configuracion.c
+msgid "Cada cuenta tiene su carpeta /home/<nombre>, con su configuración."
+msgstr "Each account has its own folder /home/<name>, with its settings."
+
+#: userland/programas/configuracion.c
+msgid "La cuenta principal (sagui) sigue usando /home."
+msgstr "The main account (sagui) keeps using /home."
+
+#: userland/programas/configuracion.c
+msgid "Un administrador autoriza los cambios del sistema con su propia contraseña."
+msgstr "An administrator authorizes system changes with their own password."
+
+#: userland/programas/configuracion.c
+msgid "Los cambios piden permisos de administrador."
+msgstr "Changes ask for administrator permissions."
+
+#: userland/programas/configuracion.c
+msgid "Aviso: /home no guarda dueños (FAT32): no se pueden crear cuentas."
+msgstr "Warning: /home does not keep owners (FAT32): accounts cannot be created."
+
+#: userland/programas/configuracion.c
+msgid "administrar las cuentas de usuario"
+msgstr "manage the user accounts"
+
+#: userland/programas/configuracion.c
+msgid "No se concedieron los permisos de administrador."
+msgstr "Administrator permissions were not granted."
+
+#: userland/programas/configuracion.c
+msgid "No se puede: es una cuenta del sistema, la principal o la de esta sesión."
+msgstr "Not possible: it is a system account, the main one or the one of this session."
+
+#: userland/programas/configuracion.c
+msgid "Ya hay una cuenta (o una carpeta en /home) con ese nombre."
+msgstr "There is already an account (or a folder in /home) with that name."
+
+#: userland/programas/configuracion.c
+msgid "/home no guarda dueños ni permisos (FAT32): no se pueden crear cuentas."
+msgstr "/home does not keep owners or permissions (FAT32): accounts cannot be created."
+
+#: userland/programas/configuracion.c
+msgid "Nombre o contraseña no válidos (contraseña: al menos 4 caracteres)."
+msgstr "Invalid name or password (password: at least 4 characters)."
+
+#: userland/programas/configuracion.c
+msgid "Contraseña (vacía = sin contraseña; al menos 4 caracteres):"
+msgstr "Password (empty = no password; at least 4 characters):"
+
+#: userland/programas/configuracion.c
+msgid "Contraseña nueva (al menos 4 caracteres):"
+msgstr "New password (at least 4 characters):"
+
+#: userland/programas/configuracion.c
+msgid "Repite la contraseña:"
+msgstr "Repeat the password:"
+
+#: userland/programas/configuracion.c
+msgid "Las dos contraseñas no coinciden."
+msgstr "The two passwords do not match."
+
+#: userland/programas/configuracion.c
+msgid "Nueva cuenta"
+msgstr "New account"
+
+#: userland/programas/configuracion.c
+msgid "Nombre de la cuenta (minúsculas, números, _ y -):"
+msgstr "Account name (lowercase, digits, _ and -):"
+
+#: userland/programas/configuracion.c
+msgid "Nombre no válido: minúsculas, números, _ y -, hasta 31."
+msgstr "Invalid name: lowercase, digits, _ and -, up to 31."
+
+#: userland/programas/configuracion.c
+msgid "Nombre completo o descripción (opcional):"
+msgstr "Full name or description (optional):"
+
+#: userland/programas/configuracion.c
+msgid ""
+"¿Será administrador?\n"
+"(Podrá autorizar cambios del sistema con su contraseña.)"
+msgstr ""
+"Will it be an administrator?\n"
+"(It will be able to authorize system changes with its password.)"
+
+#: userland/programas/configuracion.c
+msgid "Cuenta creada. Puede entrar desde «Cerrar sesión» o al reiniciar."
+msgstr "Account created. It can sign in from «Sign out» or after restarting."
+
+#: userland/programas/configuracion.c
+msgid "Cambiar la contraseña"
+msgstr "Change the password"
+
+#: userland/programas/configuracion.c
+msgid "Contraseña cambiada."
+msgstr "Password changed."
+
+#: userland/programas/configuracion.c
+msgid "Cambiar el nombre"
+msgstr "Rename"
+
+#: userland/programas/configuracion.c
+msgid "Nombre nuevo de la cuenta (su carpeta cambia con él):"
+msgstr "New account name (its folder changes with it):"
+
+#: userland/programas/configuracion.c
+msgid "Nombre cambiado."
+msgstr "Name changed."
+
+#: userland/programas/configuracion.c
+msgid "Ya no es administrador."
+msgstr "No longer an administrator."
+
+#: userland/programas/configuracion.c
+msgid "Ahora es administrador."
+msgstr "Now an administrator."
+
+#: userland/programas/configuracion.c
+#, c-format
+msgid ""
+"¿Borrar la cuenta %s?\n"
+"Ya no podrá entrar."
+msgstr ""
+"Delete the account %s?\n"
+"It will no longer be able to sign in."
+
+#: userland/programas/configuracion.c
+msgid "Borrar la cuenta"
+msgstr "Delete the account"
+
+#: userland/programas/configuracion.c
+#, c-format
+msgid ""
+"¿Borrar también su carpeta /home/%s con todos sus archivos?\n"
+"(No = se conservan.)"
+msgstr ""
+"Also delete its folder /home/%s with all its files?\n"
+"(No = they are kept.)"
+
+#: userland/programas/configuracion.c
+msgid "Cuenta y carpeta borradas."
+msgstr "Account and folder deleted."
+
+#: userland/programas/configuracion.c
+msgid "Cuenta borrada; su carpeta se conserva."
+msgstr "Account deleted; its folder is kept."
+
+#: userland/programas/configuracion.c
+msgid "Elige una cuenta de la lista."
+msgstr "Choose an account from the list."

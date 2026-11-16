@@ -62,6 +62,8 @@ int rs_symlinkat(const char *alvo, int pasta, const char *caminho);
 ssize_t rs_readlinkat(int pasta, const char *caminho, char *buf, size_t n);
 int rs_fchmodat(int pasta, const char *caminho, mode_t modo, int flags);
 int rs_utimensat(int pasta, const char *caminho, const struct timespec ts[2], int flags);
+/* D336: dueño y grupo por ruta (-1 = no cambia); sin permiso no es un error (como rsync sin ser root). */
+int rs_chownat(int pasta, const char *caminho, int uid, int gid);
 int futimens(int fd, const struct timespec ts[2]);
 int fchown(int fd, uid_t uid, gid_t gid);
 
@@ -82,6 +84,7 @@ int fchown(int fd, uid_t uid, gid_t gid);
 ssize_t rs_read(int fd, void *buf, size_t n);
 ssize_t rs_write(int fd, const void *buf, size_t n);
 void rs_cliente_tuberias(int de_ssh, int a_ssh, int a_ssh_leitura);
+void rs_cliente_socket(int fd);   /* D336: el socket del demonio rsync:// (para poll) */
 #define read rs_read
 #define write rs_write
 

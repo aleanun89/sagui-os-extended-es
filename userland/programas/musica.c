@@ -22,6 +22,7 @@
 #include "sagui.h"
 #include "gui.h"
 #include "audio_formato.h"
+#include "instancia_unica.h"
 
 #define LARG_INICIO 560
 #define ALT_INICIO  440
@@ -567,6 +568,27 @@ static uint32_t ms_da_barra(int x)
     return (uint32_t)d * (dur / 64) / (uint32_t)bw * 64;
 }
 
+/* D339: rutas que otro proceso nos entrega (doble clic en Archivos con el reproductor ya abierto): se añaden a la
+ * lista (o se reutiliza la que ya está) y suena la primera; lo que sonaba se para antes en abrir_faixa. */
+static bool recoger_pedidos(void)
+{
+    static char buf[2048];
+    int n = iu_recoger("musica", buf, sizeof buf);
+    if (n <= 0) return false;
+    int primeira = -1;
+    const char *r = buf;
+    for (int k = 0; k < n; k++, r += tam_texto(r) + 1) {
+        int ya = -1;
+        for (int i = 0; i < qtd; i++) if (compara_texto(rutas[i], r) == 0) { ya = i; break; }
+        int antes = qtd;
+        if (ya < 0) adicionar(r);
+        if (primeira < 0) primeira = ya >= 0 ? ya : (qtd > antes ? antes : -1);
+    }
+    registrar("musica: pedido de otro proceso (%d rutas), pista %d\n", n, primeira + 1);
+    if (primeira >= 0) abrir_faixa(primeira, true);
+    return true;
+}
+
 static void tecla(unsigned t)
 {
     aviso[0] = 0;
@@ -659,8 +681,13 @@ static bool tratar(evento_t *e)
 
 int principal(int argc, char **argv)
 {
+    if (iu_entregar("musica", argc - 1, argv + 1)) {   /* D339: ya hay un reproductor sonando: se lo pasa y no abre otro flujo */
+        registrar("musica: entregado a la instancia viva\n");
+        return 0;
+    }
     j = jan_abrir("Música", LARG_INICIO, ALT_INICIO);
     if (!j) return 1;
+    iu_registrar("musica");
     jan_estilo(j, JAN_REDIMENSIONAVEL, LARG_MIN, ALT_MIN);
     lista.sel = -1;
     lista.icone = NULL;
@@ -676,15 +703,17 @@ int principal(int argc, char **argv)
     evento_t e;
     bool continuar = true;
     while (continuar) {
-        if (esperar_evento(j->id, &e, estado == TOCANDO ? 15 : -1) == 1) {
+        if (esperar_evento(j->id, &e, estado == TOCANDO ? 15 : IU_PERIODO_MS) == 1) {
             continuar = tratar(&e);
             while (continuar && proximo_evento(j->id, &e, false) == 1) continuar = tratar(&e);
         }
         if (!continuar) break;
+        if (recoger_pedidos()) { atualizar_titulo(); desenhar_tudo(); }
         if (bombear()) { atualizar_titulo(); desenhar_tudo(); }
         else if (estado == TOCANDO && !arrastando_barra && posicao_ms() / 1000 != seg_mostrado) desenhar_progresso();
     }
     registrar("musica: cerrado\n");
+    iu_liberar("musica");
     fechar_faixa();
     jan_fechar(j);
     return 0;

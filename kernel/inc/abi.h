@@ -212,6 +212,12 @@
 #define USU_EST_SERVICIO 0x02   /* el proceso viene de un servicio (sshd, vncd, cron...): no es la sesión local */
 #define USU_EST_PRUEBA   0x04   /* imagen de prueba con la sesión como root (mkimagem.py --sesion-root) */
 #define USU_EST_EN_VIVO  0x08   /* sin la partición SAGUI-CONF: la configuración del sistema no se guarda */
+/* D340 (mejora 098, fase 3): varias cuentas. */
+#define USU_SESSAO     5   /* () -> uid | gid << 16 de la sesión local (la cuenta que entró en el escritorio) */
+#define USU_CERRAR_SESION 6 /* (USU_SAIR_*) -> 0: cierra todos los programas de la sesión local y vuelve a la
+                            * pantalla de inicio de sesión. Solo desde la sesión local (no un servicio) */
+#define USU_SAIR_CERRAR   0   /* «Cerrar sesión» */
+#define USU_SAIR_CAMBIAR  1   /* «Cambiar de usuario»: la pantalla empieza en otra cuenta */
 
 /* SIS_PERMISOS_ARQ (D282). Cada archivo y carpeta tiene dueño (uid), grupo (gid)
  * y 9 bits rwx (dueño, grupo, otros) más el pegajoso; sin ACL. El kernel los
@@ -224,6 +230,13 @@
 #define PARQ_DONO      2   /* (caminho, uid o -1, gid o -1) -> 0; el dueño solo root; el grupo, root o el
                             * dueño (a su propio grupo) */
 #define PARQ_UMASK     3   /* (nueva o -1) -> la anterior; del proceso, la heredan los hijos (022 al arrancar) */
+/* D341: fijar las fechas (UTC). Como utimensat: PARQ_DATA_AGORA = la hora actual, PARQ_DATA_MANTER = no
+ * cambia. Una fecha concreta, el dueño o root; «ahora» (o nada) basta con permiso de escritura. Un
+ * sistema de solo lectura o sin fechas (ISO 9660, UDF) da ERRO_SO_LEITURA o ERRO_NAO_SUPORTADO. */
+#define PARQ_DATAS     4   /* (caminho, modificado, acessado) -> 0 */
+#define PARQ_DATAS_FD  5   /* (fd, modificado, acessado) -> 0; el archivo abierto (futimens) */
+#define PARQ_DATA_AGORA  0xFFFFFFFFu
+#define PARQ_DATA_MANTER 0xFFFFFFFEu
 #define MODO_PEGAJOSO  01000   /* en una carpeta: solo el dueño de cada archivo (o de la carpeta) lo borra */
 #define MODO_PERMISOS  01777
 #define UMASK_PADRAO   022
@@ -283,6 +296,10 @@ typedef struct {
 #define PED_ELEVAR      1   /* pasar a ser uid_alvo (root, normalmente) con su contraseña */
 #define PED_SENHA       2   /* cambiar la contraseña de uid_alvo (la actual en senha, la nueva en senha_nova) */
 #define PED_SENHA_MAX   64
+/* D340: entrar en el escritorio (inicio de sesión) con la cuenta uid_alvo. Solo lo crea el propio kernel
+ * (la pantalla de inicio de sesión, pid 0, uid PED_UID_NINGUEM); un programa recibe ERRO_INVALIDO. */
+#define PED_ENTRAR      3
+#define PED_UID_NINGUEM 65534
 /* D269: con PED_GRAFICO (se suma a PED_ELEVAR) el kernel no espera una contraseña del programa: el
  * gestor de ventanas pinta el diálogo de permisos (atenúa el escritorio), pide la contraseña de
  * root a la persona y la entrega él mismo al supervisor. El programa solo espera el resultado
@@ -322,8 +339,8 @@ typedef struct {
  * DBLOCO_CONF_ARRANQUE (la confirmación doble de la interfaz). */
 #define DBLOCO_RESERVAR   1   /* (nombre del disco entero, DBLOCO_CONF_*) -> 0 */
 #define DBLOCO_LIBERAR    2   /* (nombre) -> 0; suelta la reserva y vuelve a leer la tabla */
-#define DBLOCO_LER        3   /* (nombre, lba, sectores <= 128, destino) -> 0 */
-#define DBLOCO_ESCREVER   4   /* (nombre, lba, sectores <= 128, origen) -> 0 */
+#define DBLOCO_LER        3   /* (nombre, lba, sectores <= DBLOCO_MAX_SETORES, destino) -> 0 */
+#define DBLOCO_ESCREVER   4   /* (nombre, lba, sectores <= DBLOCO_MAX_SETORES, origen) -> 0 */
 #define DBLOCO_DESCARTAR  5   /* (nombre, lba, sectores) -> 0; TRIM; ERRO_NAO_SUPORTADO si no se puede */
 #define DBLOCO_RELER      6   /* (nombre) -> 0; vuelve a leer la tabla sin soltar la reserva */
 #define DBLOCO_INFO       7   /* (nombre, &info_bloco_t) -> 0 */
@@ -338,7 +355,7 @@ typedef struct {
  * se escribe ni se descarta nada dentro de ellas, y cada escritura de la tabla (MBR o EBR) tiene
  * que dejarlas exactamente donde estaban (mismo inicio, tamaño y tipo). */
 #define DBLOCO_CONF_MONTADO  4
-#define DBLOCO_MAX_SETORES 128
+#define DBLOCO_MAX_SETORES 256   /* D338: 128 KB por llamada (antes 64 KB) */
 
 typedef struct {
     unsigned int setores;          /* del volumen (disco o partición) */
@@ -404,6 +421,7 @@ typedef struct {
 #define CONF_SISTEMA_PONTO    "/sistema/conf"
 #define CONTAS_ARQ_USUARIOS   "/etc/usuarios"
 #define CONTAS_ARQ_SOMBRA     "/etc/sombra"
+#define CONTAS_ARQ_GRUPOS     "/etc/grupos"   /* D340: «admin:10:ana,sagui»; lo leen todos */
 #define CONTAS_CLAVES_ROOT    "/etc/ssh/authorized_keys"   /* las claves SSH que entran como root */
 
 /* Opções do SIS_MONTAR (D040). Sem nenhuma das duas primeiras: o padrão

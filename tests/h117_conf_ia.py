@@ -23,7 +23,7 @@ import servidor_falso_ia  # noqa: E402
 
 # Las pestañas de la ventana: cada una es del ancho de su título (D145).
 TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
-               "Escritorio remoto", "Mandos")   # todas: el relleno depende de la suma (issue #43)
+               "Escritorio remoto", "Mandos", "Usuarios")   # todas: el relleno depende de la suma (issue #43)
 
 # La página de la IA, en coordenadas del cliente (como en el programa).
 Y_PAG = 50
@@ -43,12 +43,12 @@ ABA_TAB = 24       # dentro de la pestaña (los botones tienen 28 de alto, en y=
 
 def pos_paginas():
     """La posición y la anchura de cada pestaña, como las calcula el programa."""
-    x = 10
     pos = []
     suma = sum(len(t) * 8 for t in TITULOS_PAG)
-    relleno = 10   # como traducir_rotulos(): se reduce si las pestañas no caben en los 788 px (issue #43)
-    while relleno > 2 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
+    relleno = 10   # como traducir_rotulos(): se reduce si las pestañas no caben en los 788 px (issue #43; D340)
+    while relleno > 1 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
         relleno -= 1
+    x = 4 if 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4 else 10
     for t in TITULOS_PAG:
         l = len(t) * 8 + relleno
         pos.append((x, l))

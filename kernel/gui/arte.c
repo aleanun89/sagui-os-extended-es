@@ -909,6 +909,44 @@ static const char *const exploradorbd[] = {   /* Explorador de bases de datos: u
     "................",
 };
 
+static const char *const exploradorsqlite[] = {   /* Explorador SQLite: un cilindro azul con una tabla (mejora 131, D333) */
+    "................",
+    "....PPPPPPPP....",
+    "..PPVVVVVVVVPP..",
+    "..PVsssssssssVP.",
+    "..PPVVVVVVVVPP..",
+    "..PsssssssssssP.",
+    "..PPPPPPPPPPPP..",
+    "..PVVVVVVVVVVP..",
+    "..PsssBBsssssP..",
+    "..PPPPPPPPPPPP..",
+    "..PVVVVVVVVVVP..",
+    "..PsssssBBsssP..",
+    "..PPPPPPPPPPPP..",
+    "..PPVVVVVVVVPP..",
+    "....PPPPPPPP....",
+    "................",
+};
+
+static const char *const exploradorlmk[] = {   /* Explorador lite-monkey: la cara de un mono sobre un documento (mejora 131, D333) */
+    "................",
+    "..PPP......PPP..",
+    ".PMMMPPPPPPMMMP.",
+    ".PMRMPEEEEPMRMP.",
+    ".PMMPEEEEEEPMMP.",
+    "..PPEEEEEEEEPP..",
+    "..PERRRRRRRREP..",
+    "..PERPbRRbPREP..",
+    "..PERRRRRRRREP..",
+    "..PEREPPPPEREP..",
+    "...PERRRRRREP...",
+    "....PEEEEEEP....",
+    "...PPYYYYYYPP...",
+    "...PYAAYAAYYP...",
+    "...PPPPPPPPPP...",
+    "................",
+};
+
 static const char *const ia[] = {   /* IA: uma cabeca de robo */
     "................",
     ".......P........",
@@ -1247,6 +1285,8 @@ const desenho_t arte_mini_gebramini   = { gebramini, 16, 16 };   /* mejora 128, 
 const desenho_t arte_mini_planomini   = { planomini, 16, 16 };   /* mejora 129, D312 */
 const desenho_t arte_mini_vps         = { vps, 16, 16 };   /* mejora 123, D297: VisualPythonS */
 const desenho_t arte_mini_exploradorbd = { exploradorbd, 16, 16 };   /* mejora 127, D304: Explorador de bases de datos */
+const desenho_t arte_mini_exploradorsqlite = { exploradorsqlite, 16, 16 };   /* mejora 131, D333 */
+const desenho_t arte_mini_exploradorlmk = { exploradorlmk, 16, 16 };   /* mejora 131, D333 */
 const desenho_t arte_mini_spider      = { spider, 16, 16 };   /* D173: el solitario Spider */
 const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Buscaminas */
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */

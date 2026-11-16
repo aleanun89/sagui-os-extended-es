@@ -71,6 +71,7 @@ class Entrada:
         self.mod = 0          # marca de tiempo de modificación (32 bits exFAT)
         self.crea = 0
         self.mod_desv = 0
+        self.mod_cs = 0       # D341: centésimas de la modificación (0..199)
 
     @property
     def eh_pasta(self):
@@ -208,6 +209,8 @@ class ExFat:
                     x.attr = struct.unpack_from("<H", g, 4)[0]
                     x.crea, x.mod = struct.unpack_from("<II", g, 8)[0], struct.unpack_from("<I", g, 12)[0]
                     x.mod_desv = g[23]
+                    x.mod_cs = g[21]
+
                     s = g[32:64]
                     x.sem_cadeia = bool(s[1] & 2)
                     nl = s[3]

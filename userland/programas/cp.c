@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /* cp (copiar) - copia archivos y carpetas (D097).
- * cp [-rinvf] origen destino   |   cp [-rinvf] origen... carpeta */
+ * cp [-rinvfpa] origen destino   |   cp [-rinvfpa] origen... carpeta */
 #include "sagui.h"
 
-static bool recursivo, interactivo, no_pisar, verboso, forzar;
+static bool recursivo, interactivo, no_pisar, verboso, forzar, conservar;
 static int erros;
 
 static const char *AYUDA =
@@ -12,6 +12,7 @@ static const char *AYUDA =
     "  -r, -R  copia carpetas enteras      -i  pregunta antes de sobrescribir\n"
     "  -n      no sobrescribe lo que existe  -v  explica lo que va copiando\n"
     "  -f      sobrescribe sin preguntar (anula -i)\n"
+    "  -p      conserva la fecha de modificación y los permisos   -a  como -r -p\n"
     "Si el destino es una carpeta, copia dentro de ella con el mismo nombre.\n";
 
 static bool es_pasta(const char *c, unsigned *tam)
@@ -29,6 +30,22 @@ static bool confirmar(const char *c)
     char r[8];
     imprimir("cp: ¿sobrescribir %s? (s/n) ", c);
     return ler_linha(ENTRADA, r, sizeof r) >= 0 && (r[0] == 's' || r[0] == 'S' || r[0] == 'y' || r[0] == 'Y');
+}
+
+/* -p (D341): la fecha de modificación (y la de acceso, si la hay) y los permisos del origen. En un
+ * sistema sin fechas fijables (ISO 9660) se sigue en silencio. */
+static int conservar_datos(const char *org, const char *dst)
+{
+    info_permisos_t p;
+    if (permisos_arquivo(org, &p) == 0 && p.com_donos) mudar_permisos(dst, p.modo);
+    datas_arquivo_t d;
+    if (datas_arquivo(org, &d) < 0 || !d.modificado) return 0;
+    int r = fixar_datas(dst, d.modificado, d.acessado ? d.acessado : PARQ_DATA_MANTER);
+    if (r < 0 && r != ERRO_NAO_SUPORTADO) {
+        imprimir_em(ERROS, "cp: %s: no se pudo conservar la fecha: %s\n", dst, nome_erro(r));
+        return 1;
+    }
+    return 0;
 }
 
 static int copiar_arquivo(const char *org, const char *dst)
@@ -53,6 +70,7 @@ static int copiar_arquivo(const char *org, const char *dst)
     if (n < 0) { imprimir_em(ERROS, "cp: %s: %s\n", org, nome_erro(n)); st = 1; }
     fechar(o);
     fechar(d);
+    if (conservar && !st) st = conservar_datos(org, dst);
     if (verboso && !st) imprimir("'%s' -> '%s'\n", org, dst);
     return st;
 }
@@ -79,6 +97,7 @@ static int copiar_arvore(const char *org, const char *dst, int prof)
         st |= copiar_arvore(a, b, prof + 1);
     }
     libera(v);
+    if (conservar) st |= conservar_datos(org, dst);   /* después del contenido, que la cambia */
     return st;
 }
 
@@ -86,9 +105,12 @@ int principal(int argc, char **argv)
 {
     opcoes_t o = { 0 };
     int r;
-    while ((r = obter_opcao(argc, argv, "rRinvf", &o)) >= 0) {
+    while ((r = obter_opcao(argc, argv, "rRinvfpa", &o)) >= 0) {
         switch (r) {
         case 'r': case 'R': recursivo = true; break;
+        case 'p': conservar = true; break;
+        case 'a': recursivo = conservar = true; break;
+
         case 'i': interactivo = true; break;
         case 'n': no_pisar = true; break;
         case 'v': verboso = true; break;

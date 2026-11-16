@@ -189,6 +189,9 @@ int  permisos_arquivo(const char *c, info_permisos_t *p) { return chamar4(SIS_PE
 int  mudar_permisos(const char *c, unsigned modo)          { return chamar4(SIS_PERMISOS_ARQ, PARQ_MODO, (unsigned)c, modo, 0); }
 int  mudar_dono(const char *c, int uid, int gid)       { return chamar4(SIS_PERMISOS_ARQ, PARQ_DONO, (unsigned)c, (unsigned)uid, (unsigned)gid); }
 int  mascara_criacao(int nova)                         { return chamar4(SIS_PERMISOS_ARQ, PARQ_UMASK, (unsigned)nova, 0, 0); }
+int  fixar_datas(const char *c, unsigned mod, unsigned ace) { return chamar4(SIS_PERMISOS_ARQ, PARQ_DATAS, (unsigned)c, mod, ace); }   /* D341 */
+int  fixar_datas_fd(int fd, unsigned mod, unsigned ace)     { return chamar4(SIS_PERMISOS_ARQ, PARQ_DATAS_FD, (unsigned)fd, mod, ace); }
+
 int  montar_dono(const char *nome, const char *ponto, int opcoes, int uid, int gid)
 {
     return chamar4(SIS_MONTAR, (unsigned)nome, (unsigned)ponto, (unsigned)opcoes | MONTAR_DONO,

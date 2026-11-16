@@ -17466,6 +17466,9 @@ ocultan el menú y los iconos; (D) la ISO llega al escritorio con `/apps` dentro
     pruebas de unidad de CRC32c, extents y JBD2.
 - **ext2 sin cambios de comportamiento**, aunque su código (caché, contadores de grupo) pasa por
   las funciones nuevas: h50, h51, h92, h281, h282 pasan.
+- **Nota (v8.4.4, D337):** la escritura ya está activada (`ESCRITA_EXT34 1`) tras el arnés en el PC
+  con cortes de luz y h326 ampliada; el arnés encontró un fallo en la reproducción (caché vieja tras
+  reproducir) que se corrigió antes de activar. Ver D337.
 
 ## D327. Diálogos comunes de color y de fuente, y combo de fuentes (v8.4.3)
 
@@ -17661,3 +17664,476 @@ sigue sin comprobarse el formato de las GX2/Trio3D.
 - marca.com: cabecera y menú rojo correctos; pendiente: el bloque grande en blanco bajo el menú (anuncio/carrusel sin imágenes), el texto de la tira «Es noticia» solapado en dos líneas, 1 script con «cannot read property of undefined».
 - as.com: pendiente grave: la página sale casi en blanco con solo el aviso de newsletter encima (texto «Tomás Roncero» superpuesto, recuadros grises de imágenes sin cargar); varios scripts dan «SyntaxError: expecting ';'» (scripts 6, 7, 8, 10, 52): hay que ver qué sintaxis no soporta el QuickJS integrado y si el contenido queda oculto por una capa o por JS que no corre.
 - Diagnóstico de scripts (QuickJS): cuando un script falla, Cipó escribe ahora en el serie la pila y el texto de la línea del error y la siguiente (`qjs: pilha:` / `qjs: linha N:`). En la primera visita as.com mostró SyntaxError «expecting ';'» en los scripts 6, 7, 8, 10, 11, 12, 14, 52 (líneas 7 a 14), pero después DataDome empezó a servir su página de captcha (4 líneas, 0 enlaces) y no se pudo repetir; falta leer la línea con la nueva traza cuando as.com vuelva a servir la página real. Sospecha sin comprobar: sintaxis moderna (`?.`, `??=`, campos privados) en scripts de terceros de la página.
+
+## D332. Macaco como una hoja de cálculo de verdad: hoja dispersa, combinar celdas, XLSX y ODS (v8.4.4, mejora 130)
+
+- **Hoja dispersa de 65 536 filas x 256 columnas (A..IV)**, como Excel 97 (`MAC_MAX_LINHAS`, `MAC_MAX_COLUNAS`). Antes
+  era un vector denso de 1000 x 100 que se reservaba entero y crecía hasta la última celda escrita: escribir en IV65536
+  habría pedido 200 MB. Ahora las celdas viven en **páginas de 16 x 16** que solo se reservan al escribir en ellas, en dos
+  niveles (`bandas[fila / 16]` -> 16 páginas por banda): una hoja con una celda en A1 y otra en IV65536 ocupa 2 páginas,
+  unos 22 KB (frente a 201 326 592 bytes teóricos). `fo->linhas/colunas` pasaron a ser la **extensión usada**; las
+  funciones nuevas son `celula_de` (lee; NULL si no hay página), `celula_ler` (nunca NULL), `celula_obter` (reserva), el
+  iterador `it_proximo` (recorre solo lo que existe, en orden de filas) y `folha_extremos` (Ctrl+Fin exacto). Las
+  selecciones de filas o columnas enteras (clic en una cabecera, Ctrl+A) se recortan a la extensión usada al copiar,
+  borrar, dar formato o combinar (`intervalo_util`), para no recorrer millones de celdas vacías. El deshacer estructural
+  guarda solo las celdas que tienen algo. No se llegó a 1 048 576 x 16 384 (`A1:XFD1048576`): el cuadro de nombre acepta
+  hasta `IV65536`; el directorio de bandas con 1 048 576 filas costaría 256 KB por hoja y las referencias de 7 cifras
+  cambian el ancho de la franja de filas; queda como paso posterior.
+- **Tamaños por omisión en proporción a la fuente** (8 x 16 del sistema): ancho de columna `8 * LETRA_L + 8` = 72 px (los
+  8,43 caracteres de Excel con su relleno) y alto de fila `LETRA_A + 4` = 20 px (fuente + 25 %, como Excel; Calc usa 17 px).
+  Los números son los de antes: lo que se veía raro era que la hoja solo dibujaba su extensión usada (20 x 8) y no
+  llenaba la ventana. **Ancho por columna** (`larg_col`, 256 enteros), **alto por fila** (`linha_prop_t`: lista ordenada
+  de las filas con altura propia u ocultas, así que 65 536 filas no cuestan nada) y **ocultar** filas/columnas. La franja
+  de números de fila pasa de 40 a 48 px cuando se ven filas por encima de la 9999. **Doble clic en el borde de la
+  cabecera** autoajusta la columna (al texto más ancho) o la fila (a la letra más grande); también en Formato.
+- **Celdas combinadas** (`fusao_t`, lista por hoja): Formato > Combinar y centrar (el botón de la barra Formato; si lo
+  seleccionado ya es una combinación, la separa), Combinar celdas, Combinar horizontalmente (una por fila) y Separar
+  celdas. Se conserva el contenido de la esquina de arriba a la izquierda y se vacía el resto, como Excel. Pintado aparte
+  (tapa la cuadrícula interior), el clic y las flechas caen en la esquina y saltan toda la combinación.
+- **Insertar y eliminar filas y columnas** reescriben ahora las **fórmulas de todo el libro** (`ajustar_formula_estrutura`):
+  una referencia que apuntaba a lo borrado pasa a `#REF!`. Mueven también alturas, anchos, ocultas y combinaciones
+  (`folha_remapear`). Antes las fórmulas no se tocaban.
+- **Ctrl+flechas** saltan al borde de la región de datos (de un hueco, al siguiente dato; dentro de un bloque, a su
+  último dato; si no hay, al extremo de la hoja); **Ctrl+Fin** va a la última celda con datos. Se saltan las filas y
+  columnas ocultas. Las referencias admiten filas de hasta 5 cifras (`IV65536`).
+- **Inmovilizar paneles** (Formato): las filas por encima y las columnas a la izquierda de la celda activa no se
+  desplazan (`cong_l`, `cong_c`); el dibujo pinta la zona que se desplaza y encima las bandas fijas, y las coordenadas
+  (`x_coluna`, `y_linha`, clic) tienen en cuenta lo inmovilizado.
+- **Formatos de fichero nuevos** (`macaco_formatos.h`, incluido desde `macaco.c`; ZIP y deflate de la libsagui,
+  XML escrito y leído a mano con un lector de etiquetas mínimo; el interior es Latin-1 y el XML UTF-8):
+  - **XLSX**: libros, hojas, valores, textos (`inlineStr`; al leer también `sharedStrings`), fórmulas con su resultado,
+    estilos (negrita, cursiva, subrayado, color, tamaño, fuente, relleno, bordes, alineación y formato de número),
+    `cols` (ancho y oculta), `row` (alto y oculta), **`mergeCells`** y el panel inmovilizado.
+  - **ODS**: `content.xml` con columnas, filas (altura y `collapse`), celdas con `office:value-type`, fórmulas en
+    OpenFormula (`of:=SUM([.B6:.C6])`), estilos de celda automáticos y **`table:number-columns-spanned` /
+    `number-rows-spanned`** más `covered-table-cell`. No guarda el formato de número ni los paneles.
+  - Se abren y se guardan por Archivo > Abrir / Guardar como (por la extensión) y por `macaco --convertir entrada salida`.
+    El formato propio `.mxs` gana `combinar B2:D4`, `fila N alt=H oculta=0|1`, `columnaoculta C` e `inmovilizar L C`
+    (los lectores antiguos ignoran las líneas desconocidas); `larguras` lista solo hasta la última columna cambiada.
+- **Pendiente** de la lista de la mejora 130: autofiltro, formato condicional, validación de datos (lista desplegable),
+  buscar y reemplazar, comentarios de celda, copiar formato (brocha), ajustar texto y alineación vertical, barras de
+  desplazamiento, 1 048 576 x 16 384, número de formato y paneles en ODS, y los gráficos al insertar o eliminar filas.
+- **Pruebas:** `tests/h334_macaco_hoja.py` (IV65536 guardada y releída, memoria de la hoja casi vacía, B2:D4 por el
+  `.mxs`, XLSX y ODS con validación del ZIP y del XML en el anfitrión, ancho/alto/ocultas/formato de ida y vuelta, y la
+  ventana: combinación, cuadro de nombre, Ctrl+Fin, Ctrl+flechas, autoajuste, combinar por menú, ocultar, inmovilizar). Las
+  de Macaco anteriores (h110, h293, h311, h313) siguen pasando. **Núcleo:** no se tocó memoria, planificador, VFS ni
+  arranque (solo `userland/programas/macaco.c`, `macaco_formatos.h` y el `Makefile`, una dependencia).
+
+## D333. Dos exploradores de bases de datos: SQLite y lite-monkey (mejora 131, v8.4.4)
+
+**Decisión (mantenedor, 2026-11-15):** el Explorador de la 127 (D304) trataba igual una base relacional y una documental y resultaba
+«raro»; se parte en **dos aplicaciones** con nombre y aspecto propios. La biblioteca `basedatos` y los componentes de VisualPythonS
+(`ConectorBD`, `RejillaDatos`) se quedan; lo que se parte es la aplicación.
+
+- **Archivos** (`rootfs/lib/python/basedatos/`): `explorador_sqlite.py` (Explorador SQLite, estilo DB Browser for SQLite),
+  `explorador_litemonkey.py` (Explorador lite-monkey, con el espíritu de MongoDB Compass pero con nombre y aspecto propios), `_comun.py`
+  (ventana base con árbol y pestañas, configuración, confirmación de peligro con «No» por defecto y la sonda F12 de las pruebas),
+  `_filtros.py` (filtro por columna), `_muestreo.py` (esquema por muestreo), `_consulta.py` (barra de consulta), `_json.py` (documentos como JSON
+  editable, con `{"$oid"}` y `{"$fecha"}`), `_csv.py` (lector de CSV) e `_idioma.py` (`_()`/`N_()` de D313 para Python: el español es la
+  clave; hay un gancho para catálogos `idiomas/<idioma>.py`, aún sin catálogos). `explorador.py` es **alias**: una dirección
+  `litemonkey://` abre el de lite-monkey, lo demás el de SQLite (así h304 y los ejemplos siguen funcionando).
+- **Biblioteca** (solo se añade): SQLite `objetos`, `sql_de`, `definicion`, `sql_crear`/`crear_tabla_def`, `reconstruir` (cambiar la estructura
+  por el método estándar de crear-copiar-borrar-renombrar en una transacción), `crear_indice`/`borrar_indice`, `integridad`, `compactar`,
+  `plan`, `volcado` e `importar_filas`; lite-monkey `bases_con_colecciones`, `usar_base`, `estadisticas`, `consultar_proy` (proyección),
+  `reemplazar`, `actualizar_op` (operadores), `insertar_muchos`, `agregar`, `crear_indice`/`borrar_indice`, `borrar_base` y `explicar`.
+- **Transacciones en SQLite:** hay una casilla «Escritura automática», **marcada por defecto** para no cambiar el comportamiento de la 127
+  (h304 comprueba la base tras editar una celda sin escribir nada). Desmarcada, el primer cambio (también crear tablas o índices) abre una
+  transacción que «Escribir cambios» confirma y «Deshacer cambios» deshace; cerrar con cambios pendientes pregunta.
+- **Agregación:** el motor (D117, `litemonkey/nucleo/agregar.c`) soporta `$match`, `$project`, `$addFields`/`$set`, `$sort`, `$skip`, `$limit`,
+  `$unwind` (primer nivel), `$count` y `$group` (`$sum $avg $min $max $count $first $last $push`); el constructor ofrece esas etapas con
+  vista previa tras cada una. **Mejoras del motor anotadas, no inventadas en la aplicación:** `$lookup`, `$facet`, `$bucket`, índices
+  compuestos y expresiones de fecha. El orden de las claves de un `$sort` con varios campos depende de que el `dict` conserve el orden (en
+  MicroPython no está garantizado): para varios campos, usar `$sort` con una sola clave por etapa.
+- **Seguridad (D304):** `DROP`, `DELETE`/`UPDATE` sin `WHERE` (pestaña SQL y archivos SQL), borrado de fila, de filas filtradas, de
+  tabla, de índice, de documentos, de colección y de base piden confirmación con **«No» como botón por defecto**; las operaciones masivas
+  enseñan antes cuántas filas o documentos afectan.
+- **Entradas y archivos:** dos entradas en Inicio > Accesorios (`exploradorsqlite`, `exploradorlmk`) con iconos nuevos; `arquivos.c` abre
+  `.db`, `.sqlite` y `.sqlite3` con `explorador_sqlite.py`. `Cuadricula` gana `nulos` (celdas NULL en gris).
+- **Pruebas:** `tests/h335_explorador_sqlite.py`, `tests/h336_explorador_lmk.py` (QEMU, con `tests/bd_sonda.py`), y los módulos puros en
+  `tests/basedatos_unidad.py`. h304 se adaptó en lo que cambia de nombre (título de la ventana y pestaña «SQL»).
+
+## D334. Cinta (Ribbon) con el estilo de SaguiOS en la libsagui, aplicada a Pluma y Macaco (v8.4.4, mejora 132)
+
+- **Componente:** `userland/libsagui/gui_cinta.c` y su API en `userland/inc/gui.h` (`cinta_t`, `cinta_pest_t`, `cinta_grupo_t`, `cinta_ctrl_t`). Se describe con tablas de C (pestaña, grupo, control) y `cinta_tratar` devuelve el id elegido (`CINTA_TRATADO` si el evento era suyo sin orden); `cinta_marcar`, `cinta_activar`, `cinta_buscar`.
+- **Controles:** botón grande (icono de 32 px, el de 16 ampliado al doble) y pequeño, desplegable, dividido, de dos estados, grupo exclusivo, combo (reutiliza `combo_t`), combo de fuentes, color con flecha (`dialogo_cor`) y galería. Pestaña «Archivo» con el color de acento del sistema (D112), pestañas contextuales, barra de acceso rápido en la fila de pestañas, lanzador de grupo.
+- **Estilo propio:** panel claro unido a la pestaña activa, franja de acento, botones planos que se marcan con el acento al pasar o activarse; no copia a Office. La ayuda (título, descripción y atajo) sale en la fila de pestañas, sin tapar el documento.
+- **Reducción al estrechar:** por prioridad de grupo, en cuatro niveles (completo, pequeños con texto, solo iconos, un botón que abre el grupo como menú).
+- **Teclado:** la ventana no recibe Alt solo, así que Alt+letra de pestaña abre esa pestaña con los KeyTips de sus controles, Alt+. enseña los de las pestañas y Ctrl+F1 minimiza. Doble clic en una pestaña minimiza; con la cinta minimizada, un clic la abre mientras se usa.
+- **Pluma** (`pluma_cinta.h`): Inicio, Insertar, Diseño, Vista y la contextual «Objeto». **Macaco** (`macaco_cinta.h`): Inicio, Insertar, Fórmulas, Datos y Vista; macaco.c solo lleva las llamadas `macaco_cinta_*` (para fusionar con la rama de la hoja). En los dos, `--clasico` / `--cinta` y el botón «Menús clásicos» (o Ver > Cinta, Ctrl+F1 en macaco clásico) cambian de modo; se recuerda en `/etc/pluma.modo` y `/etc/macaco.modo`.
+- **Ventana:** `cinta_tam_janela` recorta el tamaño pedido a la pantalla (a 800x600 Pluma y Macaco ya no abren más anchos que ella).
+- **Pruebas:** `tests/h337_cinta.py` (con `--cinta-log` la cinta anota posiciones y órdenes en el serie). Las pruebas de Pluma y Macaco que pulsan menús o barras arrancan ahora con `--clasico`.
+- **Pendiente:** componente `Cinta` de VisualPythonS y su editor en el diseñador.
+
+## D335. El Traductor: editor de catálogos .po/.pot en C con libsagui (v8.4.4, mejora 133)
+
+**Contexto.** Poedit no se puede portar (C++ sobre wxWidgets/GTK, Boost, ICU, Lucene++). El mantenedor pidió (2026-11-15) una aplicación
+propia con lo útil de Poedit para el punto «multiidioma en el resto de aplicaciones» de la 8.4.4: traducir desde el propio SaguiOS.
+
+**Decisión: libsagui en C, no VisualPythonS.** Los catálogos de D313 son `.cat` binarios (SGCT, hash FNV-1a, Latin-1) que el sistema lee con
+un lector en C; generarlos desde el mismo código garantiza que el resultado es el que el sistema espera (la prueba compara el `.cat` de C
+con el de `tools/extraer_textos.py`, byte a byte, en los 10 catálogos). La libsagui da `_()`, `idioma_fijar` (recarga en caliente),
+los diálogos de archivos y los componentes (lista, áreas de texto, menús), y el cliente de `ia`. El Python del sistema (VPS) arranca más
+lento, es un paquete de `/apps` más grande y no tiene lector de `.cat` ni acceso a `idioma_fijar`. Además la lógica se prueba en el PC con gcc.
+
+**Estructura.**
+1. `userland/programas/traductor_po.h`: la lógica, sin interfaz. Lee y escribe `.po/.pot` en UTF-8 (msgctxt, msgid_plural, msgstr[n],
+   comentarios `#`, `#.`, `#:`, `#,` fuzzy/c-format, `#|`, obsoletas `#~`); estadísticas; validación; actualización como `msgmerge`;
+   `.cat`; memoria de traducción. `tests/traductor_unidad.c` la prueba en el PC (66 comprobaciones).
+2. `userland/programas/traductor.c`: la ventana (`/apps/bin/traductor`, Inicio > Accesorios > «Traductor») y órdenes de línea de comandos
+   (`--estadisticas`, `--validar`, `--actualizar`, `--generar`).
+3. Interfaz traducida: `idiomas/{pt_BR,en}/traductor.po` (catálogo `traductor`), «Traductor» en `kernel.po`.
+
+**Validación** (en vivo y al guardar; aviso, no bloqueo: pregunta antes de guardar con problemas): `%s/%d/%1$s` (mismo número y tipo;
+posicionales en cualquier orden pero sin mezclar con no posicionales; el singular de un plural puede omitir el `%d`), `\n` y `\t` (mismo
+número, y al principio/final), atajos (`&x`, `_x`, y el texto tras el `\t`), etiquetas `<b>...`, longitud (más de 1,5 veces el original más 6),
+y la cabecera (UTF-8, MIME, Language, Plural-Forms si hay plurales; se corrige al guardar).
+
+**Actualizar desde el .pot.** Coincidencia exacta (msgctxt+msgid) conserva la traducción y toma referencias y comentarios nuevos; si no,
+la más parecida con traducción (similitud >= 60 %, distancia de edición acotada) entra como dudosa con `#| msgid`; lo sin pareja y con
+traducción pasa a obsoleto (`#~`), lo demás se descarta.
+
+**Generar y recargar.** `.cat` solo de lo traducido y no dudoso (plurales: singular y plural como dos claves). Se escribe en
+`/sistema/idiomas/<idioma>/<nombre>.cat` (root) o, sin permiso, junto al `.po`. Si el idioma del sistema es ese, se llama a `idioma_fijar`
+(D313: recarga el catálogo de este proceso y, si el catálogo es `kernel`, pasa por el español para que el kernel lo vuelva a leer y redibuje el escritorio; los programas abiertos después leen el suyo al arrancar); si no, se avisa de que hay que elegir ese idioma. No se cambia el idioma del usuario por
+iniciativa propia.
+
+**Memoria de traducción.** Catálogos `.cat` del sistema en ese idioma más `/home/.config/traductor/memoria.po` (se alimenta al guardar con
+lo traducido y válido). Muestra hasta 3 sugerencias de similitud >= 60 %; se aplican con doble clic. **IA** (`Ctrl+Y`): pide una
+propuesta al agente configurado (`ia_chat`), la añade a la lista marcada «IA» y nunca la aplica sola.
+
+**Límites conocidos.** Los textos se enseñan en Latin-1 (como todo el sistema): un carácter fuera de Latin-1 se ve como `?` (el .po no se
+estropea: solo se reescribe lo que el traductor edita) y no entra en el `.cat` (se cuenta como omitida). Las áreas de texto no ajustan
+líneas: más de ~108 caracteres se recortan al dibujar. Plurales con `Plural-Forms` de hasta 6 formas. La IA es síncrona (la ventana espera).
+No se tocó el núcleo (solo una línea del menú Inicio, `barra.c`).
+
+**Pruebas.** `tests/h338_traductor.py` (anfitrión: lógica, `.cat` idéntico al de Python, `msgfmt --check` si hay gettext; QEMU: abrir,
+filtrar, traducir, dudosa, error de `%s`, guardar, actualizar desde `.pot`, `.cat` leído por el lector del sistema, interfaz en pt_BR y en,
+recarga en caliente, memoria). Capturas `H338-*.png`.
+
+## D336. rsync://, dueños en rsync, `sync` para el usuario normal y la issue #41 (v8.4.4)
+
+**Contexto.** Tres piezas acotadas tras D314: el cliente del demonio `rsync://` (mejora 120), `sync` solo para root, y la issue #41.
+
+1. **Cliente `rsync://`** (`cliente_rsync.c`, propio): `rsync rsync://host[:puerto]/` lista los módulos; `rsync -av rsync://host/modulo/ruta/ destino/` baja y
+   `rsync -av carpeta/ rsync://host/modulo/ruta/` sube (también `host::modulo/ruta`). Protocolo del puerto 873: texto (`@RSYNCD: 27`, el módulo, `@RSYNCD: OK`,
+   los argumentos del servidor uno por línea, porque al ser el protocolo 27 < 30 no van terminados en NUL) y después el protocolo binario de siempre con el
+   socket como entrada y salida (`poll` mira el socket con `disponivel`). **Sin autenticación ni cifrado:** un módulo con `auth users` se rechaza con un mensaje
+   (queda la autenticación MD4 del protocolo 27 si el mantenedor la quiere); pensado para la red local. Ficheros de trabajo: ver PARCHES.md.
+2. **Dueños (-o, -g) y XMIT_TOP_DIR.** El emisor manda el uid y gid verdaderos (D282; antes 0) y el receptor los aplica por ruta con `PARQ_DONO`
+   (`rs_chownat`); sin permiso (no es root, FAT32...) se sigue sin error. `getgrgid` inventa un nombre (`gN`) para los gid desconocidos. Además, las carpetas de la
+   línea de órdenes se mandan con `XMIT_TOP_DIR`: sin esa marca el rsync 3.x que recibe **no borraba con `--delete`** (se descubrió con el demonio).
+3. **Fechas: NO se conservan, y es una decisión pendiente.** Los sistemas de archivos escribibles no guardan la fecha de modificación fijable: RAM y FAT32 no la
+   tienen, y ext2 solo la lee (`e2_datas`). Conservarlas (-t) exige una operación nueva del VFS (`fixar_datas` en `sistema_arquivos_t`, `PARQ_DATAS` y su código
+   en ext2/FAT32/RAM): es núcleo (VFS) y se dejó sin hacer; `utimensat`/`futimens` siguen aceptando y no haciendo nada.
+4. **`sync` para el usuario normal.** `SIS_DESMONTAR` estaba como «solo root» en la tabla de `permisos.c` y `sync` llama a `desmontar("*")`. Ahora la llamada es
+   libre en la tabla y `sis_desmontar` (discos.c) deja pasar a cualquiera solo los nombres `"*"` (vaciar cachés) y `"?cache"` (anotar cifras); lo demás sigue
+   siendo de root, comprobado dentro con el nombre ya copiado al kernel (la tabla no mira punteros). `h254` pasa un nombre real a `root(SIS_DESMONTAR...)`.
+5. **Issue #41: no se reproduce.** `open('w')` de MicroPython sobre un fichero existente funciona como root y como sagui en `/tmp` (RAM), `/home` (ext2), una
+   subcarpeta, `/home` y `/tmp` en FAT32 y `/tmp` en ext2 (SAGUI-TMP). Queda una prueba de regresión en h339; la sospecha sigue en `mkdirs()` del diseñador.
+
+**Pruebas.** `tests/h339_rsync_demonio.py` (con `rsync --daemon` del anfitrión sin root; sin rsync sale con 77 salvo sync y #41). `h314` actualizada (`rsync://` ya
+no se rechaza: da error de conexión). **Núcleo:** solo `permisos.c` y `sis_desmontar`; no se tocó memoria, planificador, VFS ni arranque.
+
+## D337. ext3/ext4: escritura activada tras el arnés de cortes de luz (v8.4.4)
+
+- **Arnés en el PC** (`tests/ext34_unidad.c` + `tests/ext34_simulado.h`): compila `kernel/fs/ext2.c`
+  (con `ESCRITA_EXT34 1` desde fuera: el `#define` del kernel va entre `#ifndef`), `jbd2.c` y
+  `crc32c.c` contra un disco en memoria que guarda cada escritura y cada barrera. Una carga
+  (carpetas, 40 archivos, borrar uno de cada dos, dos archivos grandes que crecen a la vez y quedan
+  fragmentados con árbol de extents de un nivel, renombrar en la carpeta, a otra, encima de otro y
+  una carpeta, truncar a medio bloque, a cero y por encima del árbol, sobrescribir, borrar, rmdir,
+  y añadir/borrar/renombrar en una carpeta de 400 entradas con índice htree) y después **un corte
+  en cada escritura**: el disco con las k primeras, y otra variante con lo anterior a la última
+  barrera más un subconjunto al azar de lo de después (el disco puede reordenar entre barreras).
+  Cada estado se recupera **con nuestro código** (montar con escritura, leerlo todo, escribir un
+  archivo de 20 KB, desmontar) **y con Linux** (`e2fsck -E journal_only`), y los dos tienen que dar
+  `e2fsck -fn` limpio. Volúmenes de 16 MB de mkfs.ext3, mkfs.ext4 por defecto (metadata_csum, 64bit,
+  csum v3 en el diario), ext4 sin metadata_csum y ext4 de bloques de 1 KB; sin diario (ext4 sin
+  has_journal y ext2) solo el estado final, porque sin diario un corte no puede quedar coherente.
+  Además, pruebas de unidad: CRC32c (vectores del RFC 3720), CRC16 (ARC y MODBUS), la lista de
+  extents (insertar, unir, partir, el máximo de 32768) y JBD2 en un disco en memoria (transacción
+  confirmada que se reproduce, bloque escapado, avanzar, un corte en cada escritura de la
+  transacción: sin commit nada, con commit todo; copia con la suma mal: se niega), sin sumas, csum
+  v2 y csum v3 con 64 bits.
+- **Comprobado que el arnés detecta fallos** (mutaciones): grabar los metadatos en su sitio antes del
+  commit da cientos de cortes con `e2fsck` sucio.
+- **Fallo encontrado y corregido:** tras reproducir el diario al montar, la caché conservaba bloques
+  leídos antes (la tabla de inodos donde está el inodo 8, al abrir el diario). Se leía la versión
+  vieja de los inodos reproducidos (en ext4, «suma mal») y en ext3, al escribir después, se grababa
+  encima de lo reproducido (corrupción). Ahora la caché se vacía tras reproducir. Afectaba también a
+  la lectura en la 8.4.3 (solo lectura tras reproducir).
+- **Resultado, todos los cortes** (`h326_ext34.py completo`): ext3 5425 escrituras y 9391 estados,
+  ext4 5437/9415, ext4 sin metadata_csum 5437/9415, ext4 de 1 KB 7309/13159: 0 fallos (antes de
+  añadir la carpeta htree a la carga; con ella, h326 en la batería: 0 fallos en los seis volúmenes, con ASan).
+  En la batería, h326 comprueba uno de cada 10 cortes.
+- **Activado** `ESCRITA_EXT34 1`. Sigue igual: los discos internos solo con `mount -o rw` (D040); lo que
+  no se sabe escribir (inline_data, encrypt, casefold, bigalloc, quota, project, mmp, meta_bg,
+  orphan_present, diario con fast_commit o externo...) deja el volumen en solo lectura con el motivo.
+  `ESCRITA_EXT34 0` vuelve a lo de la 8.4.3.
+- **h51** monta ahora el ext3/ext4 con `-o ro` (sigue comprobando que no cambia ni un byte); la
+  escritura la prueba h326 (parte qemu: ext3 y ext4 con diario pendiente, ext4 sin metadata_csum, ext4
+  sin diario; mkdir, echo, archivos que crecen a la vez, cp, mv, rm, truncate, rmdir y una carpeta
+  htree; `e2fsck -fn` y el contenido con debugfs).
+- **Límites conocidos:** una operación que ensucia más de 256 bloques de metadatos (en la práctica,
+  reconstruir el árbol de extents de un archivo con miles de extents) se confirma en dos
+  transacciones: un corte justo entre las dos puede dejar ese archivo para `e2fsck` (los demás no se
+  tocan). `dir_nlink` con más de 65000 subcarpetas no se trata.
+
+## D338. «Ampliar /home» más rápido: medir antes, órdenes de 128 KB, sin releer la tabla, sin reescribir ceros e IRQ que despiertan de verdad (v8.4.4)
+
+**Problema.** El mantenedor ve muy lento «Ampliando /home» (`ampliar-home`, D318). Sospechaba de las interrupciones.
+
+**Qué hace ampliar-home** (imagen con /home de 64 MB y SAGUI-APPS, SAGUI-CONF detrás, grabada en un disco mayor):
+fsck de solo lectura de /home; copia de las lógicas de detrás al final del disco y relectura entera para compararlas
+(62 MB en la imagen de prueba, se leen dos veces y se escriben una); la tabla nueva; y el ext2 crece: por cada grupo
+nuevo, los dos mapas y la **tabla de inodos a cero** (ext2 sin `uninit_bg` no admite dejarla sin inicializar; mke2fs y
+resize2fs también la ponen a cero). Con el /home de 64 MB de mkimagem (un inodo cada 4 KB) son **124 MB de ceros** para
+llegar a 4 GB (32 MB en un ext2 nuevo de `fs_formatar_ext2`, un inodo cada 16 KB). Nada sincroniza tras cada paso,
+pero cada llamada de bloques era de 64 KB y en ATA cada una acaba con FLUSH CACHE.
+
+**Cómo se mide.** `tests/medir_ampliar_home.py [ide|usb|xhci|uhci] GB [--sin-datos] [--ioapic] [--sucio]` (no es de la
+batería) hace esa imagen, pulsa «Ampliar» y recoge: las líneas nuevas `particiones: tamaño de ...` (ms de cada paso) y
+la del kernel al soltar la reserva, `[BLOCOS] <disco>: reserva de N ms; leídos/grabados, ms dentro del driver y KB/s;
+CPU0 ociosa x de y tics; IRQ línea:cuántas` (blocos.c, se queda: sirve en una máquina real). `--sucio` llena el espacio
+libre de datos (lo peor para lo de los ceros). `qemu.py` acepta los modos `xhci` y `uhci` (pendrive de arranque en esos
+controladores). Todo en KVM salvo donde se dice; disco de 4 GB; e2fsck -fn limpio en las tres lógicas en todas.
+
+**Antes (main 4c1519ca):**
+
+| caso | total | copia 62 MB | ext2 | E/S | IRQ y CPU |
+|---|---|---|---|---|---|
+| IDE | 13,8 s | 5,7 s | 8,5 s | escritura 14,6 MB/s | IRQ 14 abandonada a mitad («la IRQ no llega»); CPU0 ociosa 6/1417 tics |
+| IDE, TCG | 13,6 s | | | 14,7 MB/s | |
+| IDE, --ioapic | 13,8 s | | | 14,5 MB/s | igual |
+| EHCI | 70,1 s | 54,8 s | 14,9 s | lectura 9,1, escritura 3,9 MB/s | sin IRQ (IRQ 11 «nao chega» desde el arranque), CPU0 ociosa 0 |
+| EHCI, TCG | 72,3 s | | | | igual |
+| EHCI, --ioapic | 70,7 s | | | | igual |
+| xHCI | 100,2 s | 77,8 s | 21,6 s | 6,2 / 2,7 MB/s | 18.813 IRQ (188/s), **CPU0 ociosa el 100 %**: 10 ms por orden |
+| UHCI | 361 s | | | 1,1 / 1,0 MB/s | sondeo (USB 1.1: es el bus) |
+| sin /home (crear SAGUI-DATOS), EHCI | 4,8 s | | | | |
+| sin /home, IDE | 2,0 s | | | | |
+
+**Causas** (de más a menos peso):
+1. **xHCI: un tic por orden.** Su IRQ se atiende con un «atendedor» de línea compartida (`irq_compartilhar`), que
+   despierta al proceso pero no cambia de proceso: con la CPU ociosa, el que esperaba seguía dormido hasta el tic
+   siguiente (100 Hz). 10.000 órdenes USB = 100 s con la CPU sin hacer nada. Es lo que el mantenedor sospechaba.
+2. **Cada escritura de datos en el disco entero releía la tabla.** Con la reserva D213 (`DBLOCO_CONF_MONTADO`), cada
+   escritura del disco entero se simula (`disco_tabela_conserva`) leyendo el sector 0 y toda la cadena de EBR. Al
+   mover particiones son escrituras de datos lejos de la tabla, pero cada 64 KB costaban 4-5 lecturas de un sector;
+   en IDE las sirve la caché de bloques, en USB (sin caché) son órdenes USB enteras. Por eso la copia por EHCI iba a
+   la mitad que la ampliación del ext2.
+3. **Órdenes pequeñas.** `DBLOCO_MAX_SETORES` era 128 (64 KB): en USB, cada orden son tres transferencias (CBW,
+   datos, CSW) con su latencia; en ATA, un FLUSH CACHE por orden. Además las lecturas de 64 KB pasaban por la caché de
+   bloques (llenándola de lo que se copia) y las de 128 KB van directas.
+4. **Los 124 MB de ceros** de las tablas de inodos se escribían siempre, en trozos de 16 bloques, aunque el disco ya
+   tuviera ceros ahí (lo normal en un pendrive nuevo o en la parte nunca usada tras grabar la imagen).
+5. **IRQ abandonadas por error.** ATA: tres «falsas alarmas» en todo el arranque (despertar por el reloj justo cuando
+   el DMA acaba, con la IRQ aún pendiente porque ahí las interrupciones están apagadas) la dejaban sin IRQ para siempre:
+   el contador nunca volvía a cero. Red: la e1000 contaba como «sin causa» las IRQ de la línea 11 que eran del xHCI y,
+   al pasar de 5000, **enmascaraba la línea entera** (el xHCI se quedaba sin IRQ y pasaba a sondeo).
+6. **EHCI en QEMU (no se cambia):** la IRQ sí se entrega (comprobado con el IRR/ISR del 8259 y abriendo las
+   interrupciones a mano: llega), pero el EHCI de QEMU no avanza la lista asíncrona mientras la CPU invitada duerme
+   (FRINDEX quieto durante 12 tics seguidos): la espera se despierta por el tic, ve la transferencia acabada con la IRQ
+   aún pendiente y, tras 6, el driver pasa a sondeo. Es del emulador; en una máquina real el EHCI recorre la lista solo.
+   El sondeo resultante es rápido en QEMU, así que no se toca (ni la autoprueba ni el criterio).
+- El tic de 100 Hz no limitaba nada más: las esperas de ATA y EHCI ya duermen como mucho un tic y la IRQ las despierta.
+- MSI: no se usan (el xHCI lo apaga a propósito, necesitaría el APIC local en todas las imágenes); con lo de arriba no
+  hace falta para esto.
+- DMA: el ATA ya escribe por DMA (bus master) en esta ruta; el EHCI y el xHCI son DMA por naturaleza.
+
+**Arreglo:**
+- `kernel/arch/idt.c`: si un atendedor reconoce la IRQ y lo que corría es el proceso ocioso (y nadie ha cambiado ya
+  de proceso), se llama a `escalonar` antes del EOI, igual que ya hacían el EHCI y la red en sus manipuladores. Y
+  `irq_atendida_por_outro()` dice al manipulador principal si un atendedor ya reconoció esa IRQ.
+- `kernel/rede/rede.c`: no cuenta como «sin causa» la IRQ que reconoció otro atendedor.
+- `kernel/dispositivos/ata.c`: `irq_falhas` vuelve a cero con cada IRQ que llega y hacen falta 8 seguidas.
+- `kernel/fs/discos.c` + `blocos.c`: la comprobación de la tabla recuerda qué sectores leyó (el 0 y los EBR, también
+  el que corta la cadena) tras una comprobación buena; lo que dice la tabla depende solo de ellos, así que una
+  escritura que no toca ninguno la deja igual y no se vuelve a leer. Se olvida al reservar, al soltar, al releer la
+  tabla, si una escritura (comprobada o no) o un TRIM toca alguno, y si una escritura falla. Una cadena con un sector
+  que no se pudo leer, o más larga de lo que cabe, no se recuerda.
+- `DBLOCO_MAX_SETORES` = 256 (128 KB por llamada; el USB ya admite 256 por orden y el ATA hace dos DMA y **un** FLUSH).
+  El kernel pide un búfer de 128 KB y, si no hay memoria contigua, lo hace en trozos de 64 KB como antes.
+- `fs_zerar` (formatacao.c, lo usan el ext2 nuevo, el que crece y el FAT/exFAT): lee de 128 KB en 128 KB y solo escribe
+  el trozo que no es todo ceros. Si de los primeros 16 trozos más de la mitad no eran cero, deja de leer (lo peor
+  cuesta 2 MB de lectura de más). **Nunca lee en un disco con TRIM** (`trim != TRIM_NAO`, también `TRIM_SEM_DRIVER`):
+  un sector descartado puede leerse como ceros ahora y como otra cosa después (SSD sin «read zero after trim»). Por
+  eso el IDE de QEMU, que anuncia TRIM, escribe sin leer. Riesgo que queda: un SSD externo por USB, que se ve como
+  `TRIM_NAO` aunque otro sistema le haya mandado UNMAP; es raro en las máquinas objetivo.
+- redimensao.c: los dos mapas de cada grupo nuevo (van seguidos) en una sola escritura.
+- Sin cambiar el orden de escritura de D318 (copia y relectura antes de la tabla; grupos nuevos antes del superbloque)
+  ni el FLUSH de ATA al final de cada orden.
+
+**Después** (misma prueba, e2fsck -fn limpio en todas):
+
+| caso | total | copia 62 MB | ext2 | E/S | IRQ y CPU |
+|---|---|---|---|---|---|
+| IDE | **7,6 s** (13,8) | 3,5 s | 4,5 s | escritura 26 MB/s | IRQ 14: 6083, sin abandonarla; CPU0 ociosa 110/802 |
+| IDE, TCG | 6,8 s (13,6) | | | 29 MB/s | |
+| IDE, --ioapic | 7,6 s (13,8) | | | 26 MB/s | |
+| EHCI | **22,2 s** (70,1) | 14,0 s | 7,8 s | 17,9 / 15,7 MB/s | sondeo (ver causa 6) |
+| EHCI, espacio libre sucio | 22,0 s | 13,9 s | 7,8 s | 17,6 / 17,8 MB/s | los 124 MB se escriben (deja de leer al trozo 16) |
+| EHCI, TCG | 22,8 s (72,3) | | | | |
+| EHCI, --ioapic | 21,8 s (70,7) | | | | |
+| xHCI | **0,8 s** (100,2) | | | ~500 MB/s | 3259 IRQ en 0,8 s, por IRQ todo el rato |
+| xHCI, sucio | 0,9 s | | | | 5517 IRQ |
+| xHCI, --ioapic | 0,9 s | | | | 7196 IRQ |
+| UHCI | 342 s (361) | | | 1,1 MB/s | es el límite del USB 1.1 |
+| sin /home, EHCI | 3,0 s (4,8) | | | | tablas de inodos: 0 MB escritos (256 trozos ya eran cero) |
+| sin /home, IDE | 1,2 s (2,0) | | | | |
+
+(«total» es el reloj del anfitrión del clic al resultado; en el xHCI la reserva del kernel, 0,8-0,9 s, es más fiable.)
+
+**¿IOAPIC activo por defecto?** En estas medidas **no cambia nada**: ni en IDE ni en EHCI; con xHCI, igual de rápido
+(la mejora es la del punto 1, que vale con PIC y con IOAPIC). Lo que se vio en el Amilo (escritorio en <20 s con
+`--smp --ioapic --uacpi`) no puede atribuirse al IOAPIC con esto: la causa probable de las esperas largas era la
+misma que aquí (líneas compartidas que la red enmascaraba, atendedores que no despertaban de verdad), y eso ya está
+arreglado con PIC. Recomendación: **no activarlo todavía por defecto** en esta versión; medir en el Amilo la r2 y esta
+rama sin `--ioapic`. Riesgos de activarlo (D164/D166/D211): depende de la MADT y del `_PRT` (sin uACPI, la línea de la
+BIOS puede no ser la GSI real: la autoprueba de D211 lo detecta y cae al 8259 en modo mixto, pero solo en los
+dispositivos con sonda), los Pentium II/III sin APIC local útil o con él apagado por la BIOS, y que las pruebas de la
+batería se escribieron con el 8259. Si se quiere, una opción intermedia es activarlo por defecto solo cuando hay ACPI
+con MADT y la autoprueba de todas las sondas sale bien.
+
+**Pendiente:** medir en un pendrive real (EHCI y xHCI) con `[BLOCOS] ... reserva de` del registro; la imagen de
+prueba solo mueve 62 MB, con SAGUI-JOGOS de 800 MB la copia y relectura domina (3 pasadas por byte, es la garantía de
+D318); el EHCI de QEMU por sondeo (causa 6).
+
+## D339. Reproductores de instancia única y Conversor de audio (v8.4.4, rama v8.4.4-conversor-audio)
+
+**1. Dos pistas a la vez.** Causa: Archivos (y el aviso del CD de D233) lanzan con `executar()` un proceso NUEVO de `musica`/`sintonia`
+por cada doble clic; cada uno abría su propio flujo de audio y el mezclador del kernel los suma. Dentro de un mismo proceso ya
+era secuencial (`abrir_faixa`/`abrir_pista` cierran el flujo antes de abrir otro; `fechar` sin «esperar» descarta lo pendiente).
+Arreglo: `userland/programas/instancia_unica.h`: la instancia viva escribe `/tmp/<nombre>.pid`; el proceso nuevo con argumentos añade
+sus rutas a `/tmp/<nombre>.cola`, espera hasta 1,5 s a que desaparezca y sale; la viva la recoge (cada 150 ms en reposo, entre
+evento y evento al sonar), reutiliza la pista si ya está en la lista (o la añade) y toca la pedida tras parar la anterior. Si el pid
+era viejo (nadie recoge), el nuevo sigue como instancia. Sin tocar el kernel. **Prueba:** `tests/h342_dos_pistas.py` (a.wav 440 Hz,
+b.wav 880 Hz, grabación del sonido y Goertzel: tras pinchar la segunda solo suena 880 Hz; tecla P vuelve a 440 Hz; una sola ventana).
+**Límite:** QEMU no emula CD-DA; se prueba con dos pistas WAV lanzadas como las lanza Archivos; la lectura real del CD no se prueba aquí.
+
+**2. Conversor de audio** (`/apps/bin/convertir-audio`, `userland/programas/convertir-audio.c`). Entrada: todo lo que decodifica la
+libsagui. Salida: **MP3** con **shine** (LGPL-2.0+, `userland/terceros/shine/`, sin modificar, `shine.mk`, `docs/terceros.md`, regla en
+`auditar_licencias.py`; fuera de `SEM_GPL=1`, donde el programa sale sin MP3), CBR 64-320 kbps (el MP3 de 22,05 kHz admite hasta 160 y el de
+11,025 kHz es MPEG-2.5: se ajusta y se avisa); **FLAC** propio (`userland/libsagui/audio_conversor.c`: predictores fijos 0-4, Rice,
+decorrelación estéreo, niveles 0-8, sin MD5); **WAV** de 8 o 16 bits. Remuestreo entero a 44,1/22,05/11,025 kHz (promedio al bajar,
+interpolación lineal al subir) y mono/estéreo. La última trama de shine sale un byte corta: se completa (si no, el decodificador propio
+dice «archivo cortado»). Ventana libsagui (lista, formato, calidad, frecuencia, canales, destino, 2 barras, cancelar, aviso de destino
+existente), conversión por bloques entre eventos (sin hilos: los decodificadores admiten un archivo abierto). Línea de órdenes:
+`convertir-audio entrada.wav salida.mp3 --kbps 192` (`--nivel`, `--taxa`, `--canales`, `--bits`, `--formato`, `-y`). Entrada en
+Inicio > Multimedia y en «Abrir con» de Archivos (solo para sonidos). Textos con `_()` (catálogos en y pt_BR).
+**Calidad:** shine no tiene modelo psicoacústico: en la señal de prueba (tonos y ruido) da ~18 dB de SNR a 128 y a 320 kbps (igual
+compilado en el anfitrión; LAME: 24 y 42 dB). **Rendimiento (KVM):** 60 s de audio a MP3 de 128 kbps en ~3,1 s (19x tiempo real);
+FLAC nivel 5 de 20 s en 2,9 s (7x); 20 s a WAV 22 kHz mono en 1,4 s. **Pruebas:** `tests/h341_conversor_audio.py`, `h342_dos_pistas.py`.
+**Núcleo:** no se tocó memoria, planificador, VFS ni arranque.
+
+## D340. Varias cuentas: inicio de sesión gráfico, carpeta personal por cuenta, Configuración > Usuarios y cerrar sesión (v8.4.4, mejora 098, fase 3)
+
+**Contexto:** las fases 1 y 2 de la mejora 098 (D255, D282) dieron identidad a los procesos, elevación por el gestor de servicios y permisos de archivos, pero con una sola persona: `sagui` entraba sola y su carpeta era `/home` entera. La fase 3 pide varias cuentas: elegir cuenta y contraseña al arrancar el escritorio (directo si solo hay una sin contraseña), «Usuarios» en Configuración (solo el administrador, con el diálogo de D269), un `/home/<nombre>` por cuenta con su `.config`, cerrar sesión y cambiar de usuario desde Inicio, y que cada sesión corra con su uid y lea su configuración de su carpeta. Requisito de siempre: nada puede dejar el sistema sin arrancar ni perder datos.
+
+**El problema de fondo:** más de cien rutas fijas de los programas, de la libsagui, de los ports (SDL, juegos) y del propio kernel usan `/home` y `/home/.config` como «la carpeta de la persona». Pasarlas todas a una variable `HOME` y mover los datos de `sagui` a `/home/sagui` habría sido un cambio enorme, con una migración de los datos de cada máquina al arrancar (justo lo que D282 descartó) y decenas de pruebas de la batería que escriben en `/home`.
+
+**Decisión:**
+1. **La carpeta de cada cuenta se ve en `/home` (una vista por proceso, en el kernel).** `processo_t.casa_conta` (por ejemplo «/home/ana», heredada por los hijos) hace que todo lo que un proceso que **no es root** pide dentro de `/home` vaya a su carpeta: `/home/.config/sagui.conf` de ana es de verdad `/home/ana/.config/sagui.conf`. La traducción se hace en un solo sitio, después de resolver la ruta (`permisos_casa_traduzir`, llamada desde `caminho_do_usuario` de `arquivos.c` y `permisos.c` y desde `sis_executar`), así que `..`, `//` o rutas relativas no la saltan. La carpeta actual se guarda como la ve el programa (`pwd` dice `/home`). Root (también un programa elevado con el diálogo, `su` o `admin`) ve el árbol real; al elevarse o volver, la carpeta actual se traduce para seguir siendo la misma (`permisos_casa_mudar_uid`). **Consecuencia:** ningún programa cambia, cada cuenta tiene su configuración, y una cuenta **no puede ni nombrar** los archivos de las demás ni los de `sagui` (no hay enlaces simbólicos en el VFS por los que escapar).
+2. **La cuenta principal (`sagui`, uid 1000) conserva `/home` tal cual** (`casa_conta` vacía): sus datos no se mueven, y todo lo de antes (pruebas, servicios con `usuario=sagui` como `litemonkey`, SSH, cron, los ajustes de la máquina que el kernel lee de `/home/.config`: Wi-Fi, pantallas, bloqueo, zona, frecuencia) sigue igual. Las cuentas nuevas viven en `/home/<nombre>` (0700, suyas): `sagui` ve esas carpetas pero no entra (D282). El **D282.7** («lo que es de root en `/home` se ve como de sagui») no abre nada: dentro de `/home/<cuenta>` no se llega sin la `x` de su dueña, y el kernel y Configuración pasan a la cuenta lo que crean ahí.
+3. **La sesión local la decide el kernel.** `permisos_uid_inicial()` pasa a ser el uid de la sesión (`permisos_fixar_sessao(uid, gid, casa)`), y lo que el kernel lanza sin padre (Terminal, menú Inicio, escritorio, `configuracion --aplicar`) recibe uid, gid y carpeta de la sesión. El gestor de servicios y lo que lanza siguen viendo `/home` tal cual.
+4. **Pantalla de inicio de sesión en el gestor de ventanas (`kernel/gui/sessao.c`),** el componente de confianza, como el diálogo de D269: cubre toda la pantalla (también la barra), se queda con el teclado y el ratón, y la contraseña solo sale de allí hacia el supervisor (nunca al registro ni a la serie). Lista las cuentas de persona de `/etc/usuarios` (uid 1000-59999 y con shell; `sagui` siempre; las de la sombra con «!» no salen), con «sin contraseña» a la derecha; Arriba/Abajo/Tab eligen, Intro entra, Esc borra; botones Entrar, Apagar y Reiniciar.
+   - **Arranque:** si hay una sola cuenta y no tiene contraseña, se entra directo, sin pantalla y sin esperar a nada (lo de siempre: el Terminal se abre antes que el supervisor). Si no, la pantalla aparece y el supervisor se lanza antes del Terminal, que se abre al entrar. El modo rescate, la consola y las imágenes de prueba (`--sesion-root`) no la usan.
+   - **Comprobar la contraseña:** una cuenta sin contraseña (sin línea en la sombra, vacía o que no se entiende, como en D255) entra sin preguntar a nadie. Con contraseña, el kernel crea un pedido `PED_ENTRAR` (solo él puede: `pid` 0 y uid `PED_UID_NINGUEM`; un programa recibe `ERRO_INVALIDO`) y el supervisor lo trata como una elevación: 2 s de espera tras un fallo y un minuto de bloqueo tras 5, contados **por cuenta de destino**. Sin supervisor, la pantalla dice que no se puede comprobar (el modo rescate sigue siendo la salida).
+   - **Cerrar sesión / cambiar de usuario** (`USU_CERRAR_SESION`, solo desde la sesión local, no desde un servicio; menú Inicio > «Cerrar sesión...» y «Cambiar de usuario...», que preguntan con `ejecutar`): una tarea del kernel cierra **todos** los programas de la sesión (también los elevados y el que lo pidió: ninguno sobrevive a la sesión siguiente; no los servicios ni el supervisor), deja de serie el acento, el fondo y los «más usados», vuelve a aplicar la configuración de la máquina detrás de la pantalla (teclado incluido: es con el que se escribe la contraseña) y abre la pantalla. «Cambiar de usuario» empieza en otra cuenta. No hay sesiones simultáneas.
+   - **Al entrar:** la tarea crea la carpeta si falta (0700, de la cuenta, con `.config`: también en un `/home` en RAM), fija la sesión, el escritorio lee las casillas de sus iconos de su `.config` y el proceso 0 lanza `configuracion --aplicar UID GID --sesion` (con la identidad de la cuenta; sin conectores ni aceleración, que son de la máquina y ya se aplicaron al arrancar) y su Terminal.
+5. **Configuración > Usuarios** (pestaña nueva; `configuracion --usuarios` la abre directamente): lista las cuentas de persona; «Nueva cuenta...», «Cambiar la contraseña...», «Cambiar el nombre...», «Administrador: sí / no» y «Borrar la cuenta...». Ver no pide nada; cada cambio pide el diálogo de permisos justo antes y vuelve a la cuenta de antes (`elevar_grafico`/`elevacao_soltar`). El trabajo lo hace la libsagui (`contas_gestao.h`: `conta_criar`, `conta_apagar`, `conta_renomear`, `conta_senha`, `conta_admin_fixar`), solo como root:
+   - **Crear:** nombre `[a-z0-9_-]{1,31}` que no sea de una cuenta ni de una carpeta de `/home` (de sagui o de una cuenta borrada); uid el primero libre desde 1001 **sin reutilizar el de una carpeta que aún exista en `/home`** (una cuenta nueva no hereda archivos de una borrada); su propio grupo; orden pensado para cortes: primero la sombra con «!» (no entra), luego la carpeta (0700, comprobada con `PARQ_CONSULTAR`: si el sistema de archivos no guarda dueños, se deshace y se niega), luego `/etc/usuarios`, y al final la contraseña (el hash lo hace el supervisor con `PED_SENHA`, como `passwd`) o la línea vacía si se eligió sin contraseña. Si `/home` es FAT32 (sin dueños), no se crean cuentas: aviso en la página.
+   - **Borrar:** nunca root, sagui, las de servicio ni la de la sesión. Primero sale de `/etc/usuarios` (ya no entra), luego la sombra y el grupo; los archivos solo si se pide (segunda pregunta, «No» los conserva) y solo `/home/<nombre>` si es de esa cuenta.
+   - **Renombrar:** las mismas excepciones; la contraseña se copia al nombre nuevo **antes** de cambiar `/etc/usuarios` (nunca hay una cuenta sin la suya) y la carpeta cambia con el nombre.
+6. **Grupo administrador: `/etc/grupos`** (`admin:10:ana,sagui`, en SAGUI-CONF, legible por todos). Sus miembros autorizan la elevación a root **con su propia contraseña**, si la tienen (como `sudo`); la de root sigue valiendo. Sin el archivo, nadie (lo de antes). No se crea con nadie dentro: `sagui` no pasa a ser administrador solo. `admin`/`su` lo dicen en la pregunta («la tuya o la de root»).
+7. **Seguridad:** contraseñas con el PBKDF2 de D255 (las calcula el supervisor); ninguna contraseña en el registro ni en la serie (lo comprueba h340); el usuario normal sigue sin leer `/etc/sombra` ni `/sistema/conf` (D282); `/home/<cuenta>` 0700.
+
+**Núcleo tocado (aviso):** `processo.h` (un campo), `carregador.c` (herencia y la sesión en `dar_identidade`; traducción en `sis_executar`), `arquivos.c` y `permisos.c` (traducción de rutas; la sesión), `supervisor.c` (`PED_ENTRAR`; traducir la carpeta actual al elevar), `usuarios.c` (`USU_SESSAO`, `USU_CERRAR_SESION`), `principal.c` (arranque del escritorio), gestor de ventanas (`janelas.c`, `barra.c`, `area_trabalho.c`, `aparencia.c` y el nuevo `sessao.c`). Ni memoria, ni planificador, ni arranque de la máquina. Sin cuentas nuevas, el único cambio que se nota es el menú Inicio (dos entradas) y la pestaña Usuarios.
+
+**Límites conocidos:** SSH por cuenta (las claves de `/home/<cuenta>/.ssh`) y el `crontab` de cada cuenta quedan para después (sshd y cron siguen con sagui y root); la consola de texto (imágenes `--console` o sin modo gráfico) no tiene inicio de sesión: entra `sagui` como antes; `su ana` desde la sesión de sagui da una identidad de ana sin su carpeta (ve el `/home` real); como mucho 8 cuentas en la pantalla (16 en total); sin sesiones simultáneas; con `/home` FAT32 no se crean cuentas; `rmdir` de root no detecta que una carpeta es la actual de un proceso de otra cuenta; los ajustes de la máquina guardados en `/home/.config` (Wi-Fi, pantallas, bloqueo) los cambia la cuenta principal o root.
+
+**Prueba:** `tests/h340_varios_usuarios.py` (el número sigue a D340 para no chocar con las pruebas de los otros agentes de la 8.4.4): arranque directo con una cuenta; Configuración > Usuarios crea a ana (diálogo de permisos con la primera contraseña de root); `/etc/usuarios`, `/home/ana` 0700 de ana y sagui sin entrar; reinicio con pantalla; contraseña mala y buena; como ana, `/home` es su carpeta, no lee `secreto.txt` de sagui por ningún nombre (`/home/...`, `/home/../home/...`, `//home/...`, `/home/sagui/...`), ni `/etc/sombra` ni la de SAGUI-CONF; cerrar sesión (se cierra su Terminal) y entrar como sagui, que no lee lo de ana; Configuración borra a ana con sus archivos; ninguna contraseña en la serie. Siguen pasando h254, h282, h269, h332, h149 y las de Configuración (h83, h323, h333 y h117: las pestañas se reparten con una más; sus funciones de posición, al día; h162 también, pero no se pudo pasar aquí: sin las fuentes de Typodermic sale con 77). Guía: `docs/usuarios.md`.
+
+## D341. Conservar y fijar las fechas de los ficheros (v8.4.4)
+
+**Contexto.** D336 (punto 3) dejó pendiente lo que faltaba para `rsync -t`: no había forma de escribir la fecha de un fichero. `utimensat`/`futimens`
+eran no-op, el árbol en RAM y el FAT32 solo ponían «ahora» al escribir, y ext2/exFAT solo leían sus fechas (`e2_datas`, `ex_datas`).
+
+1. **Una operación del VFS y dos de `SIS_PERMISOS_ARQ`.** `fixar_datas(priv, rel, modificado, acessado)` en `sistema_arquivos_t` (UTC; 0 = no cambia;
+   NULL = el sistema no las guarda: ISO 9660 y UDF dan `ERRO_NAO_SUPORTADO`; un montaje de solo lectura, `ERRO_SO_LEITURA`), con su envoltorio con el
+   bloqueo de D095 y `vfs_fixar_datas`. Desde el programa, `PARQ_DATAS` (ruta) y `PARQ_DATAS_FD` (descriptor, para `futimens`), junto a `PARQ_DONO`
+   de D282 porque es la misma clase de cosa (metadatos que cambian dueño, permisos y fechas, con las mismas reglas de quién puede) y así no hace falta
+   una llamada nueva. Los valores especiales son los de `utimensat`: `PARQ_DATA_AGORA` y `PARQ_DATA_MANTER`.
+2. **Permisos (como POSIX).** Una fecha concreta: el dueño o root. «Ahora» (o no cambiar): basta poder escribir el fichero (`permisos_acesso` con
+   `PERM_ESCREVER`). En FAT32/exFAT el dueño es el del montaje (D282).
+3. **Por descriptor.** El archivo abierto guarda la ruta con que se abrió (`arquivo_t.caminho`, solo los de RAM y de volumen; unos bytes por fichero
+   abierto) y `PARQ_DATAS_FD` actúa sobre ella. Se descartó una operación por descriptor en cada driver (más código en cuatro drivers para el mismo
+   resultado). Límite conocido: si el fichero se renombra estando abierto, `futimens` actúa sobre la ruta vieja (rsync lo llama antes de renombrar).
+4. **Drivers.**
+   - **ext2/3/4**: `i_mtime` e `i_atime`, e `i_ctime` = ahora (como POSIX). Con inodos de 256 bytes se escriben también los `_extra` que quepan en
+     `i_extra_isize`: nanosegundos a 0 (resolución de 1 s) y los bits de época (pasado 2038 el campo de 32 bits con signo queda negativo y la época 1 le
+     suma 2^32). El bloque del inodo pasa por `inode_gravar` + `terminar`, así que con el diario de D326/D337 va en la transacción como cualquier otro
+     metadato: es compatible con la rama `v8.4.4-ext34-escritura` sin depender de ella. En esta rama ext3/ext4 siguen de solo lectura (`ESCRITA_EXT34`).
+   - **FAT32** (no hay FAT16 en SaguiOS): fecha y hora de modificación de la entrada corta y el día del último acceso, en **hora local** de la zona del
+     sistema (D080, como Windows) y de 2 en 2 segundos por abajo (como Linux y mtools); fuera de 1980-2107, el extremo. Además, **renombrar ya no cambia las
+     fechas** (`fat_renomear` creaba la entrada nueva con «ahora»; rsync escribe en un temporal y lo renombra, y `mv` dentro del FAT las perdía).
+   - **exFAT** (D325): sello de modificación y de acceso en hora local con su desvío (cuartos de hora, bit 7) y las centésimas de la modificación
+     (`LastModified10msIncrement`: 100 si el segundo es impar), así que la resolución es de 1 s; al leer se suman. Renombrar ya copiaba las fechas; ahora
+     también las centésimas.
+   - **RAM**: el nodo ya guardaba `modificado` (D080) y lo actualizaban escribir y truncar; ahora se puede fijar. La de acceso se acepta y se ignora.
+   - Escribir actualiza la fecha en los cuatro (ya lo hacían: `inode_tempos`, `atualizar_entrada`, `gravar_entrada(…, true)`, `vfs_escrever`).
+5. **Zona horaria.** En disco, UTC salvo FAT y exFAT, que van en hora local como los escribe Windows (el exFAT, además, con su desvío). La conversión usa
+   `hora_local_de` del kernel, la misma zona que `zona` y la lectura de D080.
+6. **Userland.** libsagui: `fixar_datas`, `fixar_datas_fd`. libc: `utimensat`, `futimens`, `utimes`, `futimes` y `utime` (`utime.h` nuevo, `UTIME_NOW`,
+   `UTIME_OMIT`). openrsync: `rs_utimensat` real y `futimens` de la libc (fuera el no-op de D314). Programas: `touch` (`-t`, `-d` con `@segundos` o
+   `AAAA-MM-DD[ hh:mm[:ss]]`, `-r`, `-a`, `-m`; ya no reescribe el primer byte), `cp -p` y `cp -a` (fecha y permisos; las carpetas al final), `mv` entre
+   sistemas (usa `cp -rp`), `tar x` (ficheros y, en una segunda pasada, carpetas), `unzip` (campo extra «UT» de Info-ZIP, en UTC; si no, la hora del DOS como
+   local), Archivos al copiar y pegar, y `stat -c` con `%Y`, `%X`, `%n`, `%s` para scripts.
+
+**Pruebas.** `tests/h343_fechas.py`: un segundo disco con ext2 (inodos de 256 bytes), ext4, FAT32 y exFAT hechos en el anfitrión, más `/tmp` (RAM) y
+`/home` (ext2 de la imagen, inodos de 128): `touch -d`/`-t`, `stat`, `cp -p`, `mv`, `tar`, `unzip`, `rsync -t` contra un demonio del anfitrión en las dos
+direcciones, escribir, y los permisos; en el anfitrión `debugfs`, `mcopy -m`, `exfat_lib`, `e2fsck -fn`, `fsck.vfat -n` y `fsck.exfat -n`. ext4 de solo
+lectura en esta rama: se comprueba el error. **Núcleo tocado:** VFS (`montagem.h`, `montagem.c`, `vfs.c`, `arquivos.c`), `permisos.c` y los drivers
+ext2/FAT32/exFAT; no se tocó memoria, planificador ni arranque.
+
+## D342. Reproductor rediseñado: panel de controles, lista de reproducción, pantalla completa y audio (v8.4.4)
+
+**Contexto.** El Reproductor de vídeo (`reproductor`, D129/D276) tenía una barra de botones de texto, un pie con una barra
+de progreso de 12 px y ninguna noción de lista. Se pidió un aspecto de reproductor de escritorio, propio de SaguiOS (sin
+logotipos ni marcas ajenas), y que abriera también audio.
+
+**Decisión.**
+1. **Ventana** (`userland/programas/reproductor.c`): barra de menús (Archivo, Ver, Reproducir, Ayuda; `barra_menu_t`, con
+   las casillas `[x]` en los menús de estado), el vídeo escalado conservando la proporción, y abajo un **panel oscuro de 72 px**:
+   barra de posición arrastrable (con el tiempo flotante al pasar el ratón), anterior, parar, un botón redondo verde de
+   reproducir/pausa, siguiente, silencio, deslizador de volumen arrastrable y, a la derecha, Aleat., Repet., Lista y pantalla
+   completa (los que quepan: a 480 px se omiten). Los iconos se dibujan con primitivas (círculo, triángulos, rectángulos).
+   El tamaño de arranque se ajusta a la pantalla (`telas_sis`): a 800x600 sale 796x548 (antes 800x600 se salía de la pantalla y
+   el panel quedaba cortado).
+2. **Lista de reproducción** a la derecha (Ctrl+L, botón «Lista»; sola con 2 o más archivos en la línea de órdenes): Añadir...,
+   Carpeta..., Quitar, Subir, Bajar (diálogos de archivo D272), doble clic o Intro para tocar una, Supr para quitar, **.m3u**
+   (Abrir lista, Guardar lista; las rutas relativas se leen respecto a la carpeta de la lista), **Aleatorio** (sin repetir hasta
+   agotarlas) y **Repetir** (la lista entera; con una sola pista, la pista). Al acabar una pista pasa sola a la siguiente; si no abre,
+   prueba las demás. `reproductor [archivo|carpeta|lista.m3u]...`; sin argumentos abre la ventana vacía.
+3. **Pantalla completa** con F11 (la gestiona el sistema) o doble clic: sin barra de menús ni lista; los controles aparecen al
+   mover el ratón y se ocultan (con el puntero) a los 3 s.
+4. **Audio** (.mp3, .flac, .wav, .mid, los decodificadores de `audio_formato.h`): el mismo reproductor, con el audio escrito por
+   bloques a la tarjeta (~400 ms por delante). Se ve la **carátula** (ID3v2.2/2.3/2.4 APIC o FLAC PICTURE, JPEG o PNG) o **24 barras
+   de espectro** de una **FFT entera de 256 puntos** (ventana de Hann, twiddles Q14 de una tabla, magnitud |re|+|im|/2, escala
+   logarítmica de 1,5 dB, caída lenta), calculada sobre lo que ya ha sonado. `musica.c` no se toca.
+5. **Atajos:** Espacio o Ctrl+P, Ctrl+S parar, Ctrl+B/Ctrl+F anterior/siguiente, F8 o M silencio, F9/F10 volumen -/+, A aleatorio,
+   L repetir, I estadísticas, Ctrl+O abrir, flechas/Inicio/Fin, `,` `.` cuadro a cuadro (se mantienen los de antes).
+   **Propiedades...** (Archivo): archivo, tamaño, formato, códecs, resolución, duración y audio; en audio, etiquetas.
+6. **Registro para las pruebas** (no cambian las líneas antiguas): `reproductor: listo (...)`, `primer cuadro en la ventana`,
+   `salto a`, `en pausa`/`en marcha`, `bucle`, `volumen N`, `ventana WxH (pantalla completa)`, `cerrado`; nuevas: `abierto <ruta> (...)`,
+   `pista N de M`, `parado`, `silencio`/`con sonido`, `aleatorio`, `lista visible|oculta`, `carátula WxH`, `visualización de espectro`,
+   `propiedades`. Los textos de la interfaz van con `_()` (D313).
+
+**Pendiente:** la **velocidad** (0,5x a 2x) no se hizo: con el audio como reloj maestro habría que remuestrearlo (o descartar
+cuadros de vídeo y acelerar el PCM); sin audio sería solo escalar el reloj. Los .po de pt_BR y en del reproductor. Reordenar la
+lista arrastrando (hoy, con Subir/Bajar). Núcleo: no se tocó (solo programa de usuario y su prueba).
+
+**Pruebas.** `tests/h344_reproductor_wmp.py` (800x600 y 1024x768, con ffmpeg del anfitrión): doble clic en un .mp4 desde Archivos,
+lista .m3u que pasa sola de una pista a otra, arrastrar la barra de posición, pantalla completa con ocultado de controles,
+espectro del .mp3 y carátula (ID3 y FLAC), atajos y menú Propiedades. `h100` se adapta al nuevo reparto de la ventana (20 px de
+menú, 72 de panel) y al ejemplo en `/apps/videos` (D324).

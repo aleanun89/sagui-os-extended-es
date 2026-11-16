@@ -165,7 +165,7 @@ static void llamadas(void)
 
     /* --- solo root --- */
     root(SIS_MONTAR, 0, 0, 0);
-    root(SIS_DESMONTAR, 0, 0, 0);
+    root(SIS_DESMONTAR, (unsigned)"disco-que-no-hay", 0, 0);   /* D336: el nombre se mira dentro; "*" (sync) es libre */
     root(SIS_ACPI, ACPI_OP_ATIVAR, 0, 0);
     root(SIS_FREQUENCIA, FREQ_OP_POLITICA, 0, 0);
     for (unsigned op = 1; op <= 10; op++) root(SIS_FREQUENCIA, op, 0, 0);

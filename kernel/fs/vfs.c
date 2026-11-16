@@ -426,3 +426,22 @@ int vfs_fixar_meta(const char *caminho, int32_t uid, int32_t gid, int32_t modo)
     if (modo >= 0) x->modo = (uint16_t)(modo & MODO_PERMISOS);
     return 0;
 }
+
+/* D341: en un volumen, su driver; en el árbol en RAM solo hay fecha de modificación (la de acceso
+ * no se guarda: se acepta y se ignora). La raíz de un volumen FAT no tiene entrada: el driver
+ * devuelve 0 sin hacer nada. */
+int vfs_fixar_datas(const char *caminho, uint32_t modificado, uint32_t acessado)
+{
+    const char *rel;
+    montagem_t *mt = montagem_de(caminho, &rel);
+    if (mt) {
+        if (mt->opcoes & MONTAR_SO_LEITURA) return ERRO_SO_LEITURA;
+        if (!mt->fs->fixar_datas) return ERRO_NAO_SUPORTADO;
+        return mt->fs->fixar_datas(mt->priv, rel, modificado, acessado);
+    }
+    no_t *x = vfs_achar(caminho);
+    if (!x) return ERRO_NAO_EXISTE;
+    if (modificado) x->modificado = modificado;
+    return 0;
+}
+

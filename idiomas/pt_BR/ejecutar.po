@@ -1,0 +1,25 @@
+# Traducción de SaguiOS: catálogo «ejecutar», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/ejecutar.c
+msgid "Cambiar de usuario"
+msgstr "Trocar de usuário"
+
+#: userland/programas/ejecutar.c
+msgid "Cerrar sesión"
+msgstr "Encerrar sessão"
+
+#: userland/programas/ejecutar.c
+msgid ""
+"Se cerrarán todos los programas de esta sesión.\n"
+"Lo que no esté guardado se perderá. ¿Seguir?"
+msgstr ""
+"Todos os programas desta sessão serão fechados.\n"
+"O que não estiver salvo será perdido. Continuar?"

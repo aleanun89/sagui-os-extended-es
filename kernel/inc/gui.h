@@ -38,6 +38,7 @@ bool area_fundo_personalizado(void);       /* D112: imagen de fondo elegida en l
 void area_fundo_padrao(void);
 int  area_fundo_linhas(const uint32_t *px, int y, int n);   /* n líneas de píxeles de ancho de pantalla a partir de la línea y */
 void area_idioma_mudou(void);              /* D313: repinta los rótulos de los iconos con el idioma nuevo */
+void area_sessao_nova(void);               /* D340: otra sesión: las casillas de los iconos de su carpeta */
 void area_fundo_fim(void);                 /* termina la imagen: redibuja el fondo y la pantalla */
 void area_abrir_pantalla(void);            /* "Configuración de pantalla" (D066) */
 void area_menu_resolucao(menu_lista_t *ml);/* submenú "Resolución" con los modos en caliente (D066) */
@@ -111,6 +112,7 @@ bool barra_tratar_clique(int x, int y, unsigned botoes);  /* clic en la barra (y
 void barra_tique(void);                             /* en cada tic: reloj y cambios en las ventanas */
 void barra_abrir_inicio(bool teclado);              /* abre (o cierra, si está abierto) el menú Inicio */
 void barra_janela_criada(const char *processo);     /* cuenta los programas más usados */
+void barra_sessao_nova(void);                       /* D340: otra sesión: sin los programas más usados de la anterior */
 /* Bandeja (volumen, red, temperatura) y su panel emergente (barra.c, D114). */
 bool barra_popup_mouse(int x, int y, unsigned botoes, unsigned mudaram);   /* true = el panel se quedó con el evento */
 bool barra_roda(int x, int y, int dz);              /* rueda sobre el icono o el panel del volumen */
