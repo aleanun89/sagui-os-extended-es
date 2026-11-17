@@ -29,4 +29,14 @@ unsigned kconf_siguiente(const info_kconf_t *o, unsigned v);
 /* ¿Hace falta reiniciar para que valga lo que se arrancará la próxima vez? */
 bool kconf_pide_reinicio(const info_kconf_t *o);
 
+
+/* D367: dependencias entre opciones (conf_reglas.h). Un cambio pedido y lo que de verdad hay que guardar. */
+typedef struct { int hueco; unsigned valor; int quitar; const char *aviso; } kconf_cambio_t;
+/* ¿Está deshabilitada la opción `nome` con el estado que se arrancará la próxima vez? NULL = libre; si no, el motivo (traducido). */
+const char *kconf_bloqueo(const info_kconf_t *ops, int n, const char *nome);
+/* Resuelve los cambios pedidos (n) contra las reglas: los aplica sobre el estado del próximo arranque, añade los ajustes
+ * en cascada (p. ej. nx=no si se apaga pae; `aviso` = el motivo, traducido) y comprueba el resultado. Devuelve cuántos
+ * cambios hay que guardar (los pedidos primero) o < 0 con `*error` (traducido, listo para mostrar) y nada que guardar. */
+int kconf_resolver(const info_kconf_t *ops, int n_ops, const kconf_cambio_t *pedidos, int n, kconf_cambio_t *salida, int max, char *error, size_t ne);
+
 #endif

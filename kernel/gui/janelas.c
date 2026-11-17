@@ -66,6 +66,10 @@ typedef struct {
     bool       maximizada, minimizada, tela_cheia;
     int        rest_x, rest_y, rest_l, rest_a;   /* geometría antes de maximizar */
     int        tc_x, tc_y, tc_l, tc_a;           /* geometría antes de pantalla completa */
+    /* D365: ventana de escritorio (widget): sin marco (el contenido empieza en x, y), siempre debajo de las
+     * normales, sin foco ni botón en la barra. opac: 1-100 % (100 = opaca). */
+    bool       widget, clave;
+    int        opac;
 } janela_t;
 
 static janela_t janelas[MAX_JANELAS];
@@ -111,8 +115,12 @@ bool gui_ativa(void) { return ativa; }
 
 /* Las notificaciones (H34, D125, D233) viven en avisos.c (issue #16); el diálogo de permisos (D269) en permisos_dialogo.c. */
 
-static int moldura_l(janela_t *j) { return j->larg + 2 * BORDA; }
-static int moldura_a(janela_t *j) { return j->alt + BARRA_TITULO + BORDA; }
+/* D365: el desplazamiento del contenido respecto a la esquina de la ventana (un widget no tiene marco). */
+static int bd(const janela_t *j) { return j->widget ? 0 : BORDA; }
+static int td(const janela_t *j) { return j->widget ? 0 : BARRA_TITULO; }
+static int moldura_l(janela_t *j) { return j->widget ? j->larg : j->larg + 2 * BORDA; }
+static int moldura_a(janela_t *j) { return j->widget ? j->alt : j->alt + BARRA_TITULO + BORDA; }
+static bool widgets_editar;   /* D365: modo «editar widgets»: se arrastran sin Alt y se ve su contorno */
 
 void gui_redesenhar(int x, int y, int l, int a)
 {
@@ -135,7 +143,7 @@ static void redesenhar_janela(janela_t *j)
 static janela_t *focada(void)
 {
     for (int k = qtd - 1; k >= 0; k--)
-        if (!janelas[ordem[k]].minimizada) return &janelas[ordem[k]];
+        if (!janelas[ordem[k]].minimizada && !janelas[ordem[k]].widget) return &janelas[ordem[k]];
     return NULL;
 }
 
@@ -167,8 +175,8 @@ static int primeira_visivel(const superficie_t *t)
 {
     for (int k = qtd - 1; k >= 0; k--) {
         janela_t *j = &janelas[ordem[k]];
-        if (j->minimizada) continue;
-        int cx = j->x + BORDA, cy = j->y + BARRA_TITULO;
+        if (j->minimizada || (j->widget && (j->opac < 100 || j->clave))) continue;
+        int cx = j->x + bd(j), cy = j->y + td(j);
         if (cx <= t->cx0 && cy <= t->cy0 && cx + j->larg >= t->cx1 && cy + j->alt >= t->cy1)
             return k;
     }
@@ -203,13 +211,19 @@ void gui_mostrar(void)
     for (int k = k0; k < qtd; k++) {
         janela_t *j = &janelas[ordem[k]];
         if (j->minimizada) continue;
+        if (j->widget) {   /* D365: sin marco; con opacidad se mezcla con lo que hay debajo */
+            if (j->opac < 100 || j->clave) sup_misturar(&tela, j->x, j->y, j->px, j->larg, j->alt, j->larg, j->opac, j->clave);
+            else sup_copiar(&tela, j->x, j->y, j->px, j->larg, j->alt, j->larg);
+            if (widgets_editar) sup_moldura(&tela, j->x, j->y, j->larg, j->alt, aparencia_acento());
+            continue;
+        }
         if (!(coberto && k == k0)) desenhar_moldura(j, j == foco);   /* la de abajo sólo muestra el contenido */
         sup_copiar(&tela, j->x + BORDA, j->y + BARRA_TITULO, j->px, j->larg, j->alt, j->larg);
         desenhar_alca(j);
     }
     desenhar_contorno_redimensionar();
     avisos_desenhar(&tela);
-    if (tela.cy0 < BARRA_SUPERIOR) barra_desenhar(&tela);   /* Inicio, tareas y reloj (D065) */
+    if (barra_intersecta(tela.cy0, tela.cy1)) barra_desenhar(&tela);   /* Inicio, tareas y reloj (D065); arriba o abajo (D361) */
     barra_popup_desenhar(&tela);   /* panel o ayuda de la bandeja (D114) */
     atalhos_desenhar(&tela);       /* panel de Alt+Tab (D119) */
     menu_desenhar(&tela);   /* el menú contextual queda por encima de todo (D051) */
@@ -284,6 +298,7 @@ static int janela_em(int x, int y)   /* índice en ordem[], de arriba hacia abaj
 
 static void trazer_para_cima(int k)
 {
+    if (janelas[ordem[k]].widget) return;   /* D365: un widget no sube ni toma el foco */
     area_foco_perder();   /* D268: el teclado deja de ser del escritorio */
     if (k == qtd - 1) return;
     janela_t *antes = focada();
@@ -306,6 +321,7 @@ static int imax(int a, int b) { return a > b ? a : b; }
 static bool mover_com_gpu(janela_t *j, int nx, int ny)
 {
     if (!acel2d_ativo() || j->tela_cheia || j->minimizada || qtd == 0 || &janelas[ordem[qtd - 1]] != j) return false;
+    if (barra_cfg(BC_AUTOOCULTAR) || barra_fundo()) return false;   /* D361: la barra puede estar encima de lo que se copia */
     if (menu_aberto() || barra_popup_visivel() || atalhos_visivel() || avisos_visivel() || pd_ativo() || sessao_ativa() || redimensionando >= 0) return false;
     gui_mostrar();   /* lo pendiente primero: la pantalla tiene que ser lo que se compuso */
     int L = (int)video_largura(), A = (int)video_altura();
@@ -392,6 +408,76 @@ static bool tratar_captura(evento_mouse_t *m)
     return true;
 }
 
+/* ---- D365: widgets de escritorio ---- */
+static void resposta_widget(int indice, int id, int dado)
+{
+    (void)dado;
+    janela_t *j = NULL;
+    for (int i = 0; i < MAX_JANELAS; i++) if (janelas[i].usada && janelas[i].id == id) j = &janelas[i];
+    if (!j || indice < 0) return;
+    if (indice == 0) {   /* Mover: el modo de edición, para arrastrar sin Alt */
+        gui_widgets_editar(true);
+    } else if (indice == 1) {
+        evento_t e = { .tipo = EV_WIDGET, .tecla = EVW_QUITAR };
+        entregar(j, &e);
+        klog("[GUI] widget %d (%s): quitar\n", j->id, j->titulo);
+    } else if (indice == 3) {
+        gui_widgets_editar(!widgets_editar);
+    }
+}
+
+/* Botón apretado sobre un widget (k = su lugar en ordem[]). Alt+izquierdo, o el izquierdo en el modo de edición,
+ * lo arrastra; el derecho abre su menú; el resto va al programa sin darle el foco. */
+static void tratar_clique_widget(int k, evento_mouse_t *m)
+{
+    int idx = ordem[k];
+    janela_t *j = &janelas[idx];
+    captura = -1;
+    if ((m->mudaram & BOTAO_ESQUERDO) && (widgets_editar || (teclado_modificadores() & MOD_ALT))) {
+        arrastando = idx;
+        arr_dx = m->x - j->x; arr_dy = m->y - j->y;
+        return;
+    }
+    if (m->mudaram & BOTAO_DIREITO) {
+        char t[MENU_MAX_TEXTO * 4];
+        snformatar(t, sizeof t, "%s\n%s\n-\n%s%s", _("Mover widget"), _("Quitar widget"), widgets_editar ? "*" : "", _("Editar widgets"));
+        menu_abrir(m->x, m->y, t, resposta_widget, j->id, 0);
+        return;
+    }
+    evento_t e = { .tipo = EV_CLIQUE, .x = m->x - j->x, .y = m->y - j->y, .botoes = m->mudaram & m->botoes,
+                   .cliques = 1, .modificadores = teclado_modificadores() & 3 };
+    entregar(j, &e);
+    captura = idx;
+}
+
+void gui_widgets_editar(bool ligar)
+{
+    if (widgets_editar == ligar) return;
+    widgets_editar = ligar;
+    for (int i = 0; i < MAX_JANELAS; i++) if (janelas[i].usada && janelas[i].widget) redesenhar_janela(&janelas[i]);
+    gui_mostrar();
+    klog("[GUI] editar widgets: %s\n", ligar ? "si" : "no");
+}
+bool gui_widgets_editando(void) { return widgets_editar; }
+int gui_widgets_contar(void)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_JANELAS; i++) if (janelas[i].usada && janelas[i].widget) n++;
+    return n;
+}
+
+/* Otra sesión (D340): los widgets de la anterior terminan; los de la nueva los lanza el arranque de la sesión. */
+void gui_widgets_sessao_nova(void)
+{
+    widgets_editar = false;
+    for (int i = 0; i < MAX_JANELAS; i++) {
+        janela_t *j = &janelas[i];
+        if (!j->usada || !j->widget) continue;
+        evento_t e = { .tipo = EV_WIDGET, .tecla = EVW_FIN_SESION };
+        entregar(j, &e);
+    }
+}
+
 static void tratar_mouse(evento_mouse_t *m)
 {
     if (sessao_ativa()) {   /* D340: la pantalla de inicio de sesión: todo el ratón es suyo */
@@ -408,6 +494,10 @@ static void tratar_mouse(evento_mouse_t *m)
     bool apertou = (m->mudaram & m->botoes) != 0;
     bool soltou = (m->mudaram & ~m->botoes) != 0;
 
+    if (m->dz && inicio_painel_roda(m->dz)) {   /* D361: la rueda desplaza la lista del menú Inicio de columnas */
+        m->dz = 0;
+        if (!m->mudaram && !m->dx && !m->dy) return;
+    }
     /* Con un menú contextual abierto, todo el ratón es suyo (D051). */
     if (menu_tratar_mouse(m->x, m->y, m->botoes, m->mudaram)) return;
     if (barra_popup_mouse(m->x, m->y, m->botoes, m->mudaram)) return;   /* panel de la bandeja abierto (D114) */
@@ -426,6 +516,10 @@ static void tratar_mouse(evento_mouse_t *m)
         janela_t *j = &janelas[arrastando];
         if (!j->usada || !(m->botoes & BOTAO_ESQUERDO)) {
             if (j->usada) klog("[GUI] janela %d movida para (%d,%d)\n", j->id, j->x, j->y);
+            if (j->usada && j->widget) {   /* D365: el widget guarda su posición */
+                evento_t ew = { .tipo = EV_WIDGET, .tecla = EVW_MOVIDO, .x = j->x, .y = j->y };
+                entregar(j, &ew);
+            }
             if (arr_quadros)   /* D195: la medida, para la prueba h161 */
                 klog("[GUI] arrastre: %u cuadros, %u kciclos por cuadro (2D: %s)\n", arr_quadros,
                      (uint32_t)sconv_div64(arr_ciclos, arr_quadros * 1000u), acel2d_nome());
@@ -441,12 +535,12 @@ static void tratar_mouse(evento_mouse_t *m)
         }
         int nx = m->x - arr_dx, ny = m->y - arr_dy;
         if (ny < BARRA_SUPERIOR) ny = BARRA_SUPERIOR;
-        if (ny > (int)video_altura() - BARRA_TITULO) ny = (int)video_altura() - BARRA_TITULO;
+        if (ny > (int)video_altura() - barra_fundo() - BARRA_TITULO) ny = (int)video_altura() - barra_fundo() - BARRA_TITULO;   /* D361: la barra de abajo no tapa el título */
         if (nx > (int)video_largura() - 40) nx = (int)video_largura() - 40;
         if (nx < 40 - moldura_l(j)) nx = 40 - moldura_l(j);
         if (nx != j->x || ny != j->y) {
             arr_moveu = true;
-            if (!mover_com_gpu(j, nx, ny)) {
+            if (j->widget || !mover_com_gpu(j, nx, ny)) {
                 redesenhar_janela(j);
                 j->x = nx; j->y = ny;
                 redesenhar_janela(j);
@@ -457,7 +551,7 @@ static void tratar_mouse(evento_mouse_t *m)
 
     int bl, ba;
     telas_principal_rect(&bl, &ba);
-    if (apertou && m->y < BARRA_SUPERIOR && m->x < bl) {   /* D290: la barra solo ocupa la pantalla principal */   /* ninguna ventana sube hasta la barra (D065) */
+    if (apertou && barra_contem(m->x, m->y) && m->x < bl) {   /* D290: la barra solo ocupa la pantalla principal */   /* ninguna ventana sube hasta la barra (D065) */
         barra_tratar_clique(m->x, m->y, m->mudaram & m->botoes);
         captura = -1;
         return;
@@ -478,6 +572,10 @@ static void tratar_mouse(evento_mouse_t *m)
                 else if (m->y >= BARRA_SUPERIOR) area_menu_fundo(m->x, m->y);
             }
             captura = -1;
+            return;
+        }
+        if (janelas[ordem[k]].widget) {   /* D365: un widget no sube ni toma el foco */
+            tratar_clique_widget(k, m);
             return;
         }
         trazer_para_cima(k);
@@ -518,8 +616,8 @@ static void tratar_mouse(evento_mouse_t *m)
 
     if (captura >= 0 && janelas[captura].usada) {
         janela_t *j = &janelas[captura];
-        evento_t e = { .tipo = soltou ? EV_SOLTOU : EV_MOVER, .x = m->x - j->x - BORDA,
-                       .y = m->y - j->y - BARRA_TITULO, .botoes = soltou ? m->mudaram : m->botoes };
+        evento_t e = { .tipo = soltou ? EV_SOLTOU : EV_MOVER, .x = m->x - j->x - bd(j),
+                       .y = m->y - j->y - td(j), .botoes = soltou ? m->mudaram : m->botoes };
         entregar(j, &e);
         if (soltou) captura = -1;
         return;
@@ -541,6 +639,7 @@ static void tratar_mouse(evento_mouse_t *m)
 bool gui_abrir_unico(const char *processo, const char *caminho, int argc, char *argv[])
 {
     for (int k = qtd - 1; k >= 0; k--) {
+        if (janelas[ordem[k]].widget) continue;   /* D365: el widget de un programa no es «su ventana» (no sube) */
         processo_t *p = processo_por_pid(janelas[ordem[k]].pid);
         if (p && p->estado != P_ZUMBI && txt_compara(p->nome, processo) == 0) {
             if (janelas[ordem[k]].minimizada) janelas[ordem[k]].minimizada = false;
@@ -702,15 +801,17 @@ void janelas_do_processo_fechar(processo_t *p)
     gui_mostrar();
 }
 
-int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint32_t d, uint32_t e)
+static int32_t criar_janela_comum(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, bool widget, int opac, bool clave)
 {
-    (void)d; (void)e;
     if (!ativa) return ERRO_ACESSO;
     char titulo[48];
     int r = usuario_texto((const char *)ptitulo, titulo, sizeof titulo);
     if (r < 0) return r;
     int l = (int)(dims & 0xFFFF), a = (int)(dims >> 16);
     if (l < 40 || a < 20 || l > JANELA_LARG_MAX || a > JANELA_ALT_MAX) return ERRO_INVALIDO;
+    int pl, pa;
+    telas_principal_rect(&pl, &pa);   /* D290: las ventanas nuevas aparecen en la pantalla principal */
+    if (widget && (l > pl || a > pa - BARRA_SUPERIOR)) return ERRO_INVALIDO;   /* D365: un widget cabe en la pantalla */
     if (!usuario_ok((void *)ppixels, 4, true)) return ERRO_ENDERECO;
     int i = 0;
     while (i < MAX_JANELAS && janelas[i].usada) i++;
@@ -722,7 +823,10 @@ int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint
     memset(j, 0, sizeof *j);
     j->usada = true;
     j->id = proximo_id++;
-    area_foco_perder();   /* D268: una ventana nueva toma el teclado */
+    j->widget = widget;
+    j->opac = opac;
+    j->clave = clave;
+    if (!widget) area_foco_perder();   /* D268: una ventana nueva toma el teclado (un widget no) */
     j->pid = processo_recursos()->pid;   /* D167: la ventana es del proceso */
     j->larg = l; j->alt = a;
     j->px = (uint32_t *)fis;
@@ -736,12 +840,25 @@ int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint
     int n = j->id % 8;
     j->x = 150 + n * 34;
     j->y = BARRA_SUPERIOR + 30 + n * 28;
-    int pl, pa;
-    telas_principal_rect(&pl, &pa);   /* D290: las ventanas nuevas aparecen en la pantalla principal */
     if (j->x + moldura_l(j) > pl) j->x = pl - moldura_l(j);
     if (j->y + moldura_a(j) > pa) j->y = pa - moldura_a(j);
     if (j->x < 0) j->x = 0;
     if (j->y < BARRA_SUPERIOR) j->y = BARRA_SUPERIOR;
+    if (widget) {
+        /* D365: los widgets ocupan siempre la parte de abajo de la pila (por encima del fondo). */
+        int nw = 0;
+        while (nw < qtd && janelas[ordem[nw]].widget) nw++;
+        for (int k = qtd; k > nw; k--) ordem[k] = ordem[k - 1];
+        ordem[nw] = i;
+        qtd++;
+        j->x = pl - j->larg - 20; j->y = BARRA_SUPERIOR + 20;
+        if (j->x < 0) j->x = 0;
+        redesenhar_janela(j);
+        gui_mostrar();
+        *(uint32_t *)ppixels = j->virt;
+        klog("[GUI] widget %d criado por %d: \"%s\" %dx%d opacidade %d%%\n", j->id, j->pid, j->titulo, l, a, opac);
+        return j->id;
+    }
     janela_t *antes = focada();
     if (antes && antes->tela_cheia) sair_tela_cheia(antes);   /* la ventana nueva necesita aparecer */
     if (antes) redesenhar_janela(antes);
@@ -752,6 +869,21 @@ int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint
     *(uint32_t *)ppixels = j->virt;
     klog("[GUI] janela %d criada por %d: \"%s\" %dx%d em (%d,%d)\n", j->id, j->pid, j->titulo, l, a, j->x, j->y);
     return j->id;
+}
+
+int32_t sis_criar_janela(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint32_t d, uint32_t e)
+{
+    (void)d; (void)e;
+    return criar_janela_comum(ptitulo, dims, ppixels, false, 100, false);
+}
+
+/* D365: SIS_CRIAR_WIDGET (titulo, dims, &pixels, opacidad). */
+int32_t sis_criar_widget(uint32_t ptitulo, uint32_t dims, uint32_t ppixels, uint32_t opac, uint32_t e)
+{
+    (void)e;
+    int o = (opac & 0xFF) == 0 ? 100 : (int)(opac & 0xFF);
+    if (o < 1 || o > 100 || (opac & ~(uint32_t)(0xFF | WIDGET_CLAVE))) return ERRO_INVALIDO;
+    return criar_janela_comum(ptitulo, dims, ppixels, true, o, (opac & WIDGET_CLAVE) != 0);
 }
 
 int32_t sis_fechar_janela(uint32_t id, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
@@ -788,7 +920,7 @@ int32_t sis_atualizar_janela(uint32_t id, uint32_t pret, uint32_t c, uint32_t d,
         int px1 = ox + (x + l) * dl / j->larg + 2, py1 = oy + (y + a) * da / j->alt + 2;
         if (l <= 0 || a <= 0) return 0;
         gui_redesenhar(px0, py0, px1 - px0, py1 - py0);
-    } else gui_redesenhar(j->x + BORDA + x, j->y + BARRA_TITULO + y, l, a);
+    } else gui_redesenhar(j->x + bd(j) + x, j->y + td(j) + y, l, a);
     gui_mostrar();
     return 0;
 }
@@ -848,7 +980,7 @@ int32_t sis_titulo_janela(uint32_t id, uint32_t ptitulo, uint32_t c, uint32_t d,
     if (!j) return ERRO_INVALIDO;
     int r = usuario_texto((const char *)ptitulo, j->titulo, sizeof j->titulo);
     if (r < 0) return r;
-    gui_redesenhar(j->x, j->y, moldura_l(j), BARRA_TITULO);
+    if (!j->widget) gui_redesenhar(j->x, j->y, moldura_l(j), BARRA_TITULO);
     gui_mostrar();
     return 0;
 }
@@ -885,7 +1017,9 @@ static mon_t mon_da(janela_t *j)
 /* Donde empieza una ventana maximizada en esa pantalla: ninguna sube hasta la barra de arriba (D065). */
 static int mon_topo(mon_t m) { return m.y > BARRA_SUPERIOR ? m.y : BARRA_SUPERIOR; }
 static int mc_l(mon_t m) { return m.l - 2 * BORDA; }
-static int mc_a(mon_t m) { return m.y + m.a - mon_topo(m) - BARRA_TITULO - BORDA; }
+/* D361: la barra de abajo (de la pantalla principal) también quita área de trabajo. */
+static int mon_fundo(mon_t m) { return (m.x == 0 && m.y == 0) ? barra_fundo() : 0; }
+static int mc_a(mon_t m) { return m.y + m.a - mon_topo(m) - mon_fundo(m) - BARRA_TITULO - BORDA; }
 static int minimo_l(janela_t *j) { return j->min_l > 40 ? j->min_l : 40; }
 static int minimo_a(janela_t *j) { return j->min_a > 20 ? j->min_a : 20; }
 static bool redimensionavel(janela_t *j) { return (j->estilo & JAN_REDIMENSIONAVEL) != 0; }
@@ -1047,7 +1181,7 @@ static void minimizar(janela_t *j)
     if (arrastando >= 0 && &janelas[arrastando] == j) arrastando = -1;
     if (captura >= 0 && &janelas[captura] == j) captura = -1;
     if (focada()) redesenhar_janela(focada());
-    gui_redesenhar(0, 0, tela_l(), BARRA_SUPERIOR);
+    barra_sujar();
     klog("[GUI] janela %d minimizada\n", j->id);
 }
 
@@ -1057,7 +1191,7 @@ static void desminimizar(janela_t *j)
     int k = indice_na_ordem(j);
     if (k >= 0) trazer_para_cima(k);
     redesenhar_janela(j);
-    gui_redesenhar(0, 0, tela_l(), BARRA_SUPERIOR);
+    barra_sujar();
     klog("[GUI] janela %d restaurada da barra\n", j->id);
 }
 
@@ -1228,8 +1362,8 @@ static void tratar_roda(evento_mouse_t *m)
         int k = janela_em(m->x, m->y);
         if (k < 0) return;
         j = &janelas[ordem[k]];
-        e.x = m->x - j->x - BORDA;
-        e.y = m->y - j->y - BARRA_TITULO;
+        e.x = m->x - j->x - bd(j);
+        e.y = m->y - j->y - td(j);
     }
     entregar(j, &e);
     klog("[GUI] roda %d para janela %d (%s) em (%d,%d)\n", (int)m->dz, j->id, j->titulo, e.x, e.y);
@@ -1269,6 +1403,7 @@ int32_t sis_mover_janela(uint32_t id, uint32_t px, uint32_t py, uint32_t d, uint
     j->x = x; j->y = y;
     redesenhar_janela(j);
     gui_mostrar();
+    if (j->widget) klog("[GUI] widget %d colocado em (%d,%d) %dx%d\n", j->id, j->x, j->y, j->larg, j->alt);
     return 0;
 }
 
@@ -1278,7 +1413,7 @@ int32_t sis_estilo_janela(uint32_t id, uint32_t estilo, uint32_t minimo, uint32_
 {
     (void)d; (void)e;
     janela_t *j = janela_do_processo((int)id);
-    if (!j) return ERRO_INVALIDO;
+    if (!j || j->widget) return ERRO_INVALIDO;   /* D365: el tamaño y el estilo de un widget son fijos */
     if (estilo & JAN_SO_CAPTURA) {   /* D242: solo la captura del ratón */
         if (estilo & ~(uint32_t)(JAN_SO_CAPTURA | JAN_CAPTURA)) return ERRO_INVALIDO;
         if (!(estilo & JAN_CAPTURA)) {
@@ -1336,7 +1471,7 @@ int32_t sis_redimensionar_janela(uint32_t id, uint32_t dims, uint32_t ppixels, u
 {
     (void)d; (void)e;
     janela_t *j = janela_do_processo((int)id);
-    if (!j) return ERRO_INVALIDO;
+    if (!j || j->widget) return ERRO_INVALIDO;
     int l = (int)(dims & 0xFFFF), a = (int)(dims >> 16);
     if (l < 40 || a < 20 || l > tela_l() || a > tela_a() || (uint32_t)(l * a) * 4 > ESPACO_JANELA)
         return ERRO_INVALIDO;
@@ -1392,7 +1527,7 @@ int janelas_listar(void *destino, int n)
         v[k].y = j->y;
         v[k].largura = j->larg;
         v[k].altura = j->alt;
-        v[k].foco = k == qtd - 1;
+        v[k].foco = k == qtd - 1 && !j->widget;
         txt_copia_n(v[k].titulo, j->titulo, sizeof v[k].titulo);
     }
     return k;
@@ -1503,8 +1638,8 @@ int32_t sis_menu_contextual(uint32_t id, uint32_t px, uint32_t py, uint32_t pite
         x = ox + x * dl / j->larg;
         y = oy + y * da / j->alt;
     } else {
-        x += j->x + BORDA;
-        y += j->y + BARRA_TITULO;
+        x += j->x + bd(j);
+        y += j->y + td(j);
     }
     arrastando = redimensionando = captura = -1;
     if (!menu_abrir(x, y, itens, resposta_programa, j->id, (int)codigo)) return ERRO_INVALIDO;
@@ -1546,10 +1681,10 @@ void gui_tela_mudou(void)
         /* Posición (también la guardada para después de la pantalla completa). */
         int *px = j->tela_cheia ? &j->tc_x : &j->x, *py = j->tela_cheia ? &j->tc_y : &j->y;
         if (!j->maximizada) {
-            int l = (j->larg < ml ? j->larg : ml) + 2 * BORDA;
-            int a = (j->alt < ma ? j->alt : ma) + BARRA_TITULO + BORDA;
+            int l = (j->larg < ml ? j->larg : ml) + 2 * bd(j);
+            int a = (j->alt < ma ? j->alt : ma) + td(j) + bd(j);
             if (*px + l > tela_l()) *px = tela_l() - l;
-            if (*py + a > tela_a()) *py = tela_a() - a;
+            if (*py + a > tela_a() - barra_fundo()) *py = tela_a() - barra_fundo() - a;
             if (*px < 0) *px = 0;
             if (*py < BARRA_SUPERIOR) *py = BARRA_SUPERIOR;
         }
@@ -1561,6 +1696,34 @@ void gui_tela_mudou(void)
         entregar(j, &e);
         klog("[GUI] janela %d em (%d,%d) %dx%d depois da troca para %dx%d\n", j->id, j->x, j->y, j->larg, j->alt,
              tela_l(), tela_a());
+    }
+    redesenhar_tudo();
+    gui_mostrar();
+}
+
+/* D361: la barra cambió de sitio, de altura o se oculta sola: las ventanas maximizadas toman el área nueva y las
+ * demás no dejan su título debajo de la barra. */
+void janelas_area_mudou(void)
+{
+    if (!ativa) return;
+    menu_cancelar();
+    arrastando = redimensionando = captura = -1;
+    int lim = tela_a() - barra_fundo();
+    for (int i = 0; i < MAX_JANELAS; i++) {
+        janela_t *j = &janelas[i];
+        if (!j->usada || j->tela_cheia) continue;
+        mon_t m = mon_da(j);
+        if (j->maximizada) {
+            j->x = m.x;
+            j->y = mon_topo(m);
+            pedir_tamanho(j, mc_l(m), mc_a(m), JAN_ESTADO_MAXIMIZADA);
+            continue;
+        }
+        if (j->y < BARRA_SUPERIOR) j->y = BARRA_SUPERIOR;
+        if (j->y + BARRA_TITULO > lim) j->y = lim - BARRA_TITULO;
+        if (j->y < BARRA_SUPERIOR) j->y = BARRA_SUPERIOR;
+        if (j->rest_y + BARRA_TITULO > lim) j->rest_y = lim - BARRA_TITULO;
+        if (j->rest_y < BARRA_SUPERIOR) j->rest_y = BARRA_SUPERIOR;
     }
     redesenhar_tudo();
     gui_mostrar();
@@ -1582,7 +1745,7 @@ int janelas_da_barra(janela_barra_t *v, int max)
         janela_t *prox = NULL;
         for (int i = 0; i < MAX_JANELAS; i++) {
             janela_t *j = &janelas[i];
-            if (j->usada && !dialogo(j) && j->id > ultimo && (!prox || j->id < prox->id)) prox = j;
+            if (j->usada && !dialogo(j) && !j->widget && j->id > ultimo && (!prox || j->id < prox->id)) prox = j;
         }
         if (!prox) break;
         ultimo = prox->id;
@@ -1641,7 +1804,7 @@ int janelas_por_uso(janela_barra_t *v, int max)
     for (int passo = 0; passo < 2; passo++)
         for (int k = qtd - 1; k >= 0 && n < max; k--) {
             janela_t *j = &janelas[ordem[k]];
-            if (j->minimizada != (passo == 1)) continue;
+            if (j->minimizada != (passo == 1) || j->widget) continue;   /* D365: los widgets no entran en Alt+Tab */
             janela_barra_t *b = &v[n++];
             b->id = j->id;
             b->pid = j->pid;

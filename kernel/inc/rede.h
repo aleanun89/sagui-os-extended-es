@@ -75,6 +75,11 @@ uint32_t    rede_meu_ip(void);
  * O endereço de origem de um pacote para 127.x é 127.0.0.1. */
 uint32_t    rede_origem_para(uint32_t destino);
 bool        rede_eh_local(uint32_t ip);
+/* D363: el túnel wg0 (tunel.c). */
+uint32_t    rede_mss_para(uint32_t destino);   /* MSS del TCP según la interfaz de salida */
+void        rede_tunel_chegou(const uint8_t *p, uint32_t n);
+void        rede_dns_limpar(void);
+extern bool rede_forcar_fisica;                /* socket.c, mientras manda un datagrama OPC_FISICA */
 void        rede_linha_boot(char *s, int max, bool *aviso);   /* "[ ok ] Red: ..." (sem o prefixo) */
 bool        rede_dhcp_terminou(void);  /* para o boot esperar um pouco */
 uint32_t    rede_tsc_khz(void);

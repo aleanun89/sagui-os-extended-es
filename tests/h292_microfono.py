@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, imagem_console  # noqa: E402
 import h70_sonido as h70  # noqa: E402
 import h83_configuracion as h83  # noqa: E402
+import conf_arbol as ca  # noqa: E402
 
 TONO = [0, 1044, 2071, 3061, 4000, 4870, 5657, 6347, 6928, 7391, 7727, 7932, 8000, 7932, 7727, 7391, 6928, 6347,
         5657, 4870, 4000, 3061, 2071, 1044, 0, -1044, -2071, -3061, -4000, -4870, -5657, -6347, -6928, -7391,
@@ -297,17 +298,17 @@ def ventana():
         time.sleep(1.0)
         j = h83.janela(m.serial(), "Configuración")
         ox, oy = j["x"] + 2, j["y"] + 24
-        pos = h83.pos_paginas()
-        m.clique(ox + pos[3][0] + pos[3][1] // 2, oy + 24)
+        v = dict(x=ox, y=oy, l=j["l"], a=j["a"])
+        ca.ir(m, v, "sonido")
         time.sleep(1.2)
         verificar("[CAPTURA] abierta" in m.serial(), "la pestaña Sonido abre la captura para el medidor")
         m.captura("H292-config-sonido-1")
-        m.clique(ox + 290, oy + 170 + 12)                      # balance: cuarto izquierdo
+        m.clique(*ca.panel(v, 150, ca.SND["bal_y"] + 12))      # balance: cuarto izquierdo
         time.sleep(0.6)
         verificar("[AUDIO] balance 50" in m.serial(), "un clic en la barra de balance lo cambia (50)")
-        m.clique(ox + 540 + 108, oy + 50 + 146 + 13)           # Silenciar micrófono
+        m.clique(*ca.panel(v, 30 + 7, ca.SND["mic_y"] + 66 + 32 + 7))   # casilla Silenciar micrófono
         time.sleep(0.6)
-        m.clique(ox + 722 + 12, oy + 50 + 70 + 12)             # ganancia +
+        m.clique(*ca.panel(v, 60 + 200 + 6 + 12, ca.SND["mic_y"] + 30 + 12))   # ganancia +
         time.sleep(0.6)
         m.captura("H292-config-sonido-2")
         m.clique(150, 12)                                      # Terminal

@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* tareas - el Administrador de tareas (D043, D079, D216).
  *
- * Cinco pestañas:
+ * Seis pestañas (D368, modernizado):
  *   Procesos     tabla con PID, nombre, padre, estado, % de CPU, tiempo de CPU,
- *                memoria y ventanas; ordena por la columna pulsada en la cabecera;
+ *                memoria, ventanas y núcleo (más hilos y prioridad, a elección);
+ *                ordena por la columna pulsada en la cabecera; escribir busca;
+ *                botón derecho en la cabecera: columnas y árbol; en una fila:
+ *                finalizar, prioridad, detalles; colores de «calor» por consumo;
  *                _("Finalizar proceso") (con confirmación) usa SIS_MATAR.
- *   Rendimiento  gráficos de los últimos 60 s de CPU, memoria, temperatura y
- *                frecuencia de la CPU (monitor de hardware, D092: sólo consulta
- *                los sensores con la pestaña visible, una vez por segundo).
+ *   Rendimiento  barra lateral con una miniatura por recurso (CPU, Memoria, Swap,
+ *                Disco, Red, GPU, Sensores) y el panel grande del elegido, con
+ *                gráficos de los últimos 60 s (monitor de hardware, D092: sólo
+ *                consulta los sensores con la pestaña visible, una vez por segundo).
+ *   Detalles     el proceso elegido: planificador, pila, hilos (INFO_HILOS).
  *   Ventanas     las ventanas abiertas y _("Cerrar ventana") (SIS_PEDIR_FECHAR,
  *                lo mismo que pulsar la X).
  *   Red          cada interfaz (eth0, lo): estado, driver, MAC, direcciones,
@@ -48,6 +53,8 @@
 typedef struct {
     info_processo_t p;
     unsigned cpu10;      /* % de CPU x 10 na última amostra */
+    int      nice;       /* D368: solo si querer_nice */
+    bool     tem_nice;
 } proc_t;
 
 static proc_t procs[MAXP];
@@ -70,6 +77,18 @@ static int qtd_jans;
 static info_nucleo_t nuc[MAXN], nuc_ant[MAXN];
 static int qtd_nuc, qtd_nuc_ant;
 static unsigned nuc_uso10[MAXN];      /* % x 10 de cada CPU */
+
+/* D368: historias y tasas de lo que enseña la barra lateral de Rendimiento. */
+static unsigned hist_nuc[MAXN][HIST];                    /* % x 10 de cada CPU */
+static unsigned hist_swap[HIST];                         /* % x 10 del tope de la swap */
+static unsigned hist_swap_e[HIST], hist_swap_s[HIST];    /* páginas por segundo traídas y sacadas */
+static unsigned swap_e_s, swap_s_s, swap_e_ant, swap_s_ant;
+static info_disco_cache_t disco_i, disco_ant;
+static bool disco_ok;
+static unsigned disco_rd_s, disco_wr_s;                  /* KB/s */
+static unsigned hist_disco_rd[HIST], hist_disco_wr[HIST];
+static unsigned por_segundo(unsigned agora, unsigned antes, unsigned dt);
+static bool querer_nice;                                 /* la columna Prior. o Detalles necesitan el nice */
 
 static info_frequencia_t freq;                       /* driver de frecuencia (D106) */
 static bool freq_ok;
@@ -140,6 +159,35 @@ static const info_processo_t *achar_ant(int pid)
     return NULL;
 }
 
+static void deslocar_hist(void)
+{
+    unsigned *const h[] = { hist_cpu, hist_mem, hist_swap, hist_swap_e, hist_swap_s, hist_disco_rd, hist_disco_wr };
+    for (unsigned i = 0; i < sizeof h / sizeof h[0]; i++) memmove(h[i], h[i] + 1, (HIST - 1) * sizeof h[i][0]);
+    for (int i = 0; i < MAXN; i++) memmove(hist_nuc[i], hist_nuc[i] + 1, (HIST - 1) * sizeof hist_nuc[i][0]);
+}
+
+/* Swap comprimida (D352) y actividad de la caché de disco (D368): tasas por segundo. */
+static void amostrar_swap_disco(unsigned dt, bool medir)
+{
+    swap_s_s = swap_e_s = disco_rd_s = disco_wr_s = 0;
+    if (medir && dt) {
+        swap_s_s = por_segundo(mem.troca_saidas, swap_s_ant, dt);
+        swap_e_s = por_segundo(mem.troca_entradas, swap_e_ant, dt);
+    }
+    swap_s_ant = mem.troca_saidas;
+    swap_e_ant = mem.troca_entradas;
+    info_disco_cache_t d;
+    memset(&d, 0, sizeof d);
+    disco_ok = info_sistema(INFO_DISCO_CACHE, &d, sizeof d) == 0 && d.versao == 1;
+    if (!disco_ok) memset(&d, 0, sizeof d);
+    if (medir && dt && disco_ok) {   /* un bloque son 4 KB */
+        disco_rd_s = (por_segundo(d.falhas, disco_ant.falhas, dt) + por_segundo(d.anticipados, disco_ant.anticipados, dt)) * 4;
+        disco_wr_s = por_segundo(d.gravados, disco_ant.gravados, dt) * 4;
+    }
+    disco_ant = d;
+    disco_i = d;
+}
+
 static void amostrar(void)
 {
     static info_processo_t v[MAXP];
@@ -159,6 +207,11 @@ static void amostrar(void)
             if (c > 1000) c = 1000;
         }
         procs[i].cpu10 = c;
+        procs[i].tem_nice = false;
+        if (querer_nice) {
+            info_planificacion_t pi;
+            if (planificacion_info(v[i].pid, &pi) == 0) { procs[i].nice = pi.nice; procs[i].tem_nice = true; }
+        }
         if (v[i].pid == 0) ocioso10 = c;
     }
     qtd_procs = n;
@@ -171,16 +224,20 @@ static void amostrar(void)
     amostrar_nucleos();
     if (qtd_nuc == 1 && tem_ant) nuc_uso10[0] = cpu_total10;   /* con una CPU, coincide con el total */
     info_sistema(INFO_MEMORIA, &mem, sizeof mem);
+    amostrar_swap_disco(dt, tem_ant);
     info_sistema(INFO_VERSAO, &versao, sizeof versao);
     int j = info_sistema(INFO_JANELAS, jans, MAXJ);
     qtd_jans = j < 0 ? 0 : j;
     if (tem_ant) {
-        if (qtd_hist == HIST) {
-            memmove(hist_cpu, hist_cpu + 1, (HIST - 1) * sizeof hist_cpu[0]);
-            memmove(hist_mem, hist_mem + 1, (HIST - 1) * sizeof hist_mem[0]);
-            qtd_hist--;
-        }
+        if (qtd_hist == HIST) { deslocar_hist(); qtd_hist--; }
         hist_cpu[qtd_hist] = cpu_total10;
+        for (int i = 0; i < qtd_nuc && i < MAXN; i++) hist_nuc[i][qtd_hist] = nuc_uso10[i];
+        hist_swap[qtd_hist] = mem.troca_teto_kb ? (unsigned)((unsigned long long)mem.troca_armazem_kb * 1000 / mem.troca_teto_kb) : 0;
+        if (hist_swap[qtd_hist] > 1000) hist_swap[qtd_hist] = 1000;
+        hist_swap_e[qtd_hist] = swap_e_s;
+        hist_swap_s[qtd_hist] = swap_s_s;
+        hist_disco_rd[qtd_hist] = disco_rd_s;
+        hist_disco_wr[qtd_hist] = disco_wr_s;
         unsigned usada = mem.usada_kb, gerida = mem.gerida_kb;
         while (gerida > 4000000u) { usada >>= 4; gerida >>= 4; }   /* sin cuenta de 64 bits */
         hist_mem[qtd_hist] = gerida ? usada * 1000 / gerida : 0;
@@ -204,14 +261,18 @@ static void fmt_tempo(char *t, size_t max, unsigned ms)
 
 /* ------------------------------------------------------------ ordenación */
 
-enum { C_PID, C_NOME, C_PAI, C_ESTADO, C_CPU, C_TEMPO, C_MEM, C_JAN, C_NUCLEO, QTD_COLUNAS };
+enum { C_PID, C_NOME, C_PAI, C_ESTADO, C_CPU, C_TEMPO, C_MEM, C_JAN, C_NUCLEO, C_HILOS, C_PRIO, QTD_COLUNAS };
 
 typedef struct { const char *titulo; int l; bool direita; } coluna_t;
 static const coluna_t colunas[QTD_COLUNAS] = {
     { N_("PID"), 48, true }, { N_("Nombre"), 100, false }, { N_("Padre"), 56, true }, { N_("Estado"), 96, false },
-    { N_("CPU %"), 64, true }, { N_("T. CPU"), 72, true }, { N_("Memoria"), 72, true }, { N_("Ventana"), 64, false },
-    { N_("Núcleo"), 56, true },
+    { N_("CPU %"), 64, true }, { N_("T. CPU"), 72, true }, { N_("Memoria"), 80, true }, { N_("Ventana"), 64, false },
+    { N_("Núcleo"), 56, true }, { N_("Hilos"), 52, true }, { N_("Prior."), 56, true },
 };
+/* Columnas visibles (D368): por defecto las de siempre; Hilos y Prior. se piden con el botón derecho en la cabecera. */
+static unsigned col_vis = (1u << (C_NUCLEO + 1)) - 1;
+static bool arbol;                      /* procesos como árbol (padre e hijos) */
+static char filtro[32];                 /* búsqueda: texto dentro del nombre o del PID */
 
 static int ordem_col = C_PID;
 static bool ordem_desc;
@@ -230,20 +291,71 @@ static int comparar(const proc_t *a, const proc_t *b)
     case C_MEM:    d = (long long)a->p.memoria_kb - b->p.memoria_kb; break;
     case C_JAN:    d = (long long)a->p.janelas - b->p.janelas; break;
     case C_NUCLEO: d = (long long)a->p.cpu - b->p.cpu; break;
+    case C_HILOS:  d = (long long)a->p.n_hilos - b->p.n_hilos; break;
+    case C_PRIO:   d = (long long)a->nice - b->nice; break;
     }
     if (d == 0) d = a->p.pid - b->p.pid;   /* empate: por PID, siempre creciente */
     else if (ordem_desc) d = -d;
     return d < 0 ? -1 : d > 0 ? 1 : 0;
 }
 
+static int nvis;          /* filas mostradas: ordem[0..nvis) */
+static int prof[MAXP];   /* profundidad en el árbol de cada fila mostrada */
+
+static char baixa(char c) { return c >= 'A' && c <= 'Z' ? (char)(c + 32) : c; }
+
+static bool contem_ci(const char *h, const char *a)
+{
+    for (; *h; h++) {
+        int k = 0;
+        while (a[k] && h[k] && baixa(h[k]) == baixa(a[k])) k++;
+        if (!a[k]) return true;
+    }
+    return false;
+}
+
+static bool casa_filtro(const proc_t *p)
+{
+    if (!filtro[0]) return true;
+    char t[16];
+    formatar_texto(t, sizeof t, "%d", p->p.pid);
+    return contem_ci(p->p.nome, filtro) || contem_ci(t, filtro);
+}
+
+static void emitir_arvore(const int *todos, bool *feito, int idx, int nivel)
+{
+    if (feito[idx] || nivel > 12) return;
+    feito[idx] = true;
+    if (casa_filtro(&procs[idx])) { ordem[nvis] = idx; prof[nvis++] = nivel; }
+    for (int k = 0; k < qtd_procs; k++) {
+        int c = todos[k];
+        if (!feito[c] && procs[c].p.pai == procs[idx].p.pid && procs[c].p.pid != procs[idx].p.pid)
+            emitir_arvore(todos, feito, c, nivel + 1);
+    }
+}
+
 static void ordenar(void)
 {
-    for (int i = 0; i < qtd_procs; i++) ordem[i] = i;
+    static int todos[MAXP];
+    static bool feito[MAXP];
+    for (int i = 0; i < qtd_procs; i++) todos[i] = i;
     for (int i = 1; i < qtd_procs; i++) {   /* inserción: como máximo 64 */
-        int x = ordem[i], k = i - 1;
-        while (k >= 0 && comparar(&procs[ordem[k]], &procs[x]) > 0) { ordem[k + 1] = ordem[k]; k--; }
-        ordem[k + 1] = x;
+        int x = todos[i], k = i - 1;
+        while (k >= 0 && comparar(&procs[todos[k]], &procs[x]) > 0) { todos[k + 1] = todos[k]; k--; }
+        todos[k + 1] = x;
     }
+    nvis = 0;
+    if (!arbol) {
+        for (int i = 0; i < qtd_procs; i++)
+            if (casa_filtro(&procs[todos[i]])) { ordem[nvis] = todos[i]; prof[nvis++] = 0; }
+        return;
+    }
+    memset(feito, 0, sizeof feito);
+    for (int i = 0; i < qtd_procs; i++) {   /* raíces: sin padre en la lista */
+        const proc_t *p = &procs[todos[i]];
+        if (p->p.pai == p->p.pid || !proc_por_pid(p->p.pai)) emitir_arvore(todos, feito, todos[i], 0);
+    }
+    for (int i = 0; i < qtd_procs; i++) emitir_arvore(todos, feito, todos[i], 0);   /* lo que quede (ciclos) */
 }
 
 /* ------------------------------------------------------------ modo texto (-t) */
@@ -285,7 +397,7 @@ static int modo_texto(void)
     qtd_pilhas = info_sistema(INFO_PILHAS, pilhas, MAXP);
     if (qtd_pilhas < 0) qtd_pilhas = 0;
     imprimir("  PID PADRE ESTADO      CPU %%    T. CPU  MEMORIA    PILA VENT. NUCL. NOMBRE\n");
-    for (int i = 0; i < qtd_procs; i++) {
+    for (int i = 0; i < nvis; i++) {
         const proc_t *p = &procs[ordem[i]];
         char t[16];
         fmt_tempo(t, sizeof t, p->p.cpu_ms);
@@ -304,7 +416,7 @@ static jan_t *j;
 static int larg = LARG_INI, alt = ALT_INI;   /* tamaño actual (D044) */
 #define LARG larg
 #define ALT  alt
-static int aba;                     /* 0 Procesos, 1 Rendimiento, 2 Ventanas, 3 Red, 4 Servicios */
+static int aba;                     /* 0 Procesos, 1 Rendimiento, 2 Ventanas, 3 Red, 4 Servicios, 5 Detalles */
 static bool pausado;
 static int sel_pid = -1, topo;
 static int sel_jan = -1;            /* id de la ventana seleccionada */
@@ -322,11 +434,12 @@ static int sel_jan = -1;            /* id de la ventana seleccionada */
 #define BARRA_L 12
 #define BOT_Y   (ALT - 40)
 
-#define QTD_ABAS 5
+#define QTD_ABAS 6
 #define ABA_SERV 4
-static const char *nomes_abas[QTD_ABAS] = { N_("Procesos"), N_("Rendimiento"), N_("Ventanas"), N_("Red"), N_("Servicios") };
-static const char *nomes_log[QTD_ABAS] = { "procesos", "rendimiento", "ventanas", "red", "servicios" };
-static const int abas_x[QTD_ABAS] = { 10, 112, 230, 328, 394 }, abas_l[QTD_ABAS] = { 100, 116, 96, 64, 92 };
+#define ABA_DET  5
+static const char *nomes_abas[QTD_ABAS] = { N_("Procesos"), N_("Rendimiento"), N_("Ventanas"), N_("Red"), N_("Servicios"), N_("Detalles") };
+static const char *nomes_log[QTD_ABAS] = { "procesos", "rendimiento", "ventanas", "red", "servicios", "detalles" };
+static const int abas_x[QTD_ABAS] = { 10, 112, 230, 328, 394, 488 }, abas_l[QTD_ABAS] = { 100, 116, 96, 64, 92, 84 };
 
 static botao_t b_pausa  = { 12, 0, 110, 28, N_("Pausar"), false };
 static botao_t b_acao   = { 0, 0, 170, 28, N_("Finalizar proceso"), false };
@@ -361,6 +474,16 @@ static void texto_coluna(int x, int y, int l, const char *t, bool direita, uint3
     g_texto_n(j, tx, y, t, n, cor);
 }
 
+/* Color de «calor» de una celda: de transparente (0) a naranja intenso (1000), para ver de un vistazo
+ * quién consume. Devuelve 0 por debajo del 5 %. */
+static uint32_t calor(unsigned v1000)
+{
+    if (v1000 < 50) return 0;
+    if (v1000 > 1000) v1000 = 1000;
+    unsigned r = 0xFF, g = 0xF4 - (0xF4 - 0x9A) * v1000 / 1000, b = 0xD8 - (0xD8 - 0x5A) * v1000 / 1000;
+    return r << 16 | g << 8 | b;
+}
+
 static void desenhar_tabela(void)
 {
     g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_BRANCO);
@@ -368,6 +491,7 @@ static void desenhar_tabela(void)
     /* Cabecera: pulsar ordena; la columna actual muestra ^ (creciente) o v. */
     int x = TAB_X + 1;
     for (int c = 0; c < QTD_COLUNAS; c++) {
+        if (!(col_vis >> c & 1)) continue;
         bool atual = c == ordem_col;
         g_retangulo(j, x, TAB_Y + 1, colunas[c].l, CAB_A, atual ? 0xD6E4D9 : COR_BOTAO);
         g_relevo(j, x, TAB_Y + 1, colunas[c].l, CAB_A, false);
@@ -378,33 +502,50 @@ static void desenhar_tabela(void)
     }
     ordenar();
     int vis = linhas_visiveis();
-    if (topo > qtd_procs - vis) topo = qtd_procs - vis;
+    if (topo > nvis - vis) topo = nvis - vis;
     if (topo < 0) topo = 0;
-    for (int k = 0; k < vis && topo + k < qtd_procs; k++) {
+    if (!nvis) g_texto(j, TAB_X + 8, TAB_Y + CAB_A + 8, filtro[0] ? _("Ningún proceso coincide con la búsqueda.") : "", COR_TEXTO_FRACO);
+    unsigned gerida = mem.gerida_kb ? mem.gerida_kb : 1;
+    for (int k = 0; k < vis && topo + k < nvis; k++) {
         const proc_t *p = &procs[ordem[topo + k]];
         int y = TAB_Y + 1 + CAB_A + 2 + k * LIN_A;
         bool s = p->p.pid == sel_pid;
         uint32_t cor = s ? COR_BRANCO : p->p.usuario ? COR_TEXTO : COR_TEXTO_FRACO;
         if (s) g_retangulo(j, TAB_X + 2, y, TAB_L - 4 - BARRA_L, LIN_A, COR_SELECAO);
-        char t[40];
+        else if (k & 1) g_retangulo(j, TAB_X + 2, y, TAB_L - 4 - BARRA_L, LIN_A, 0xF8F9FA);   /* cebra */
+        char t[64];
         x = TAB_X + 1;
         for (int c = 0; c < QTD_COLUNAS; c++) {
+            if (!(col_vis >> c & 1)) continue;
+            uint32_t calc = 0;
             switch (c) {
             case C_PID:    formatar_texto(t, sizeof t, "%d", p->p.pid); break;
-            case C_NOME:   /* D167: con varios hilos, cuántos */
-                           if (p->p.n_hilos > 1) formatar_texto(t, sizeof t, "%s (%u)", p->p.nome, p->p.n_hilos);
-                           else copia_texto(t, p->p.nome, sizeof t);
-                           break;
+            case C_NOME: {  /* D167: con varios hilos, cuántos; en árbol, sangría */
+                char sang[32];
+                int np = prof[topo + k] * 2;
+                if (np > 24) np = 24;
+                for (int q = 0; q < np; q++) sang[q] = ' ';
+                sang[np] = 0;
+                if (p->p.n_hilos > 1) formatar_texto(t, sizeof t, "%s%s (%u)", sang, p->p.nome, p->p.n_hilos);
+                else formatar_texto(t, sizeof t, "%s%s", sang, p->p.nome);
+                break;
+            }
             case C_PAI:    formatar_texto(t, sizeof t, p->p.pid ? "%d" : "-", p->p.pai); break;
             case C_ESTADO: copia_texto(t, nome_estado(p->p.estado), sizeof t); break;
-            case C_CPU:    formatar_texto(t, sizeof t, "%u,%u", p->cpu10 / 10, p->cpu10 % 10); break;
+            case C_CPU:    formatar_texto(t, sizeof t, "%u,%u", p->cpu10 / 10, p->cpu10 % 10);
+                           if (p->p.pid) { calc = calor(p->cpu10 * 2); }   /* el 50 % ya es máximo */
+                           break;
             case C_TEMPO:  fmt_tempo(t, sizeof t, p->p.cpu_ms); break;
-            case C_MEM:    formatar_texto(t, sizeof t, "%u KB", p->p.memoria_kb); break;
+            case C_MEM:    formatar_texto(t, sizeof t, "%u KB", p->p.memoria_kb);
+                           calc = calor((unsigned)((unsigned long long)p->p.memoria_kb * 4000 / gerida)); break;   /* 25 % = máximo */
             case C_JAN:    if (!p->p.janelas) t[0] = 0;
                            else formatar_texto(t, sizeof t, p->p.janelas > 1 ? _("sí (%u)") : _("sí"), p->p.janelas);
                            break;
             case C_NUCLEO: formatar_texto(t, sizeof t, "%u", p->p.cpu); break;
+            case C_HILOS:  formatar_texto(t, sizeof t, "%u", p->p.n_hilos); break;
+            case C_PRIO:   if (p->tem_nice) formatar_texto(t, sizeof t, "%d", p->nice); else copia_texto(t, "-", sizeof t); break;
             }
+            if (calc && !s) g_retangulo(j, x, y, colunas[c].l, LIN_A, calc);
             texto_coluna(x, y + 1, colunas[c].l, t, colunas[c].direita, cor);
             x += colunas[c].l;
         }
@@ -412,9 +553,9 @@ static void desenhar_tabela(void)
     /* Barra de desplazamiento (pulsar encima o debajo del pulgar desplaza una página). */
     int bx = TAB_X + TAB_L - BARRA_L - 1, by = TAB_Y + 1 + CAB_A, ba = TAB_A - CAB_A - 2;
     g_retangulo(j, bx, by, BARRA_L, ba, 0xE4E7EA);
-    int pol_a = qtd_procs <= vis ? ba : ba * vis / qtd_procs;
+    int pol_a = nvis <= vis ? ba : ba * vis / nvis;
     if (pol_a < 12) pol_a = 12;
-    int pol_y = qtd_procs <= vis ? 0 : (ba - pol_a) * topo / (qtd_procs - vis);
+    int pol_y = nvis <= vis ? 0 : (ba - pol_a) * topo / (nvis - vis);
     g_retangulo(j, bx + 2, by + pol_y, BARRA_L - 4, pol_a, 0x9AA3AC);
 }
 
@@ -467,6 +608,10 @@ static void hist_por(unsigned *h, unsigned v)
     h[HIST - 1] = v;
 }
 
+static void amostrar_gpu_bateria(void);
+static unsigned hist_g2d[HIST], hist_g3d[HIST];
+static unsigned gpu2d_s, gpu3d_s;
+
 static void amostrar_sensores(void)
 {
     sens_ok = sensores_ler(&sens);
@@ -485,6 +630,9 @@ static void amostrar_sensores(void)
     unsigned vf = freq_escala ? f / (freq_escala / 1000 ? freq_escala / 1000 : 1) : 0;
     hist_por(hist_temp, vt > 1000 ? 1000 : vt);
     hist_por(hist_freq, vf > 1000 ? 1000 : vf);
+    amostrar_gpu_bateria();
+    hist_por(hist_g2d, gpu2d_s);
+    hist_por(hist_g3d, gpu3d_s);
     if (qtd_hist_sens < HIST) qtd_hist_sens++;
 }
 
@@ -494,117 +642,6 @@ static void sem_dados(int x, int y, int l, int a, const char *t)
     g_moldura(j, x, y, l, a, COR_BORDA);
     int w = g_largura_texto(t);
     g_texto_n(j, x + (w < l - 16 ? (l - w) / 2 : 8), y + a / 2 - LETRA_A / 2, t, (l - 16) / LETRA_L, 0x9AA8B8);
-}
-
-static void desenhar_rendimento(void)
-{
-    g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_FUNDO);
-    char t[128], g[24];
-    /* Cuatro gráficos en cuadrícula: CPU y memoria arriba; temperatura y
-     * frecuencia abajo. La altura se ajusta a la ventana (D044). */
-    int passo = (TAB_L - 16) / 2 / HIST;
-    if (passo < 2) passo = 2;
-    int gl = HIST * passo, x1 = TAB_X + (TAB_L - 2 * gl - 16) / 2, x2 = x1 + gl + 16;
-    int ncols = qtd_nuc > 4 ? 2 : 1, nfil = (qtd_nuc + ncols - 1) / ncols;
-    int reserva_nuc = 22 + nfil * 18;   /* sección "Núcleos" al pie */
-    int ga = (TAB_A - 2 * 20 - 44 - 8 - reserva_nuc - (freq_ok && freq.estado != FREQ_EST_NAO_DISPONIVEL ? 20 : 0)) / 2;
-    if (ga > 130) ga = 130;
-    if (ga < 40) ga = 40;
-    int y1 = TAB_Y, y2 = TAB_Y + 20 + ga + 6;
-
-    formatar_texto(t, sizeof t, _("CPU: %u,%u %%"), cpu_total10 / 10, cpu_total10 % 10);
-    g_texto(j, x1, y1, t, COR_TEXTO);
-    g_texto(j, x1 + gl - g_largura_texto(_("últimos 60 s")), y1, _("últimos 60 s"), COR_TEXTO_FRACO);
-    desenhar_grafico(x1, y1 + 18, gl, ga, hist_cpu, qtd_hist, 0x3CDC6E, 0x165C32);
-    unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
-    formatar_texto(t, sizeof t, _("Memoria: %u de %u MB (%u %%)"), mem.usada_kb / 1024, mem.gerida_kb / 1024, (m10 + 5) / 10);
-    g_texto_n(j, x2, y1, t, gl / LETRA_L, COR_TEXTO);
-    desenhar_grafico(x2, y1 + 18, gl, ga, hist_mem, qtd_hist, 0x7EB6FF, 0x1E3E78);
-
-    /* Temperatura: verde; amarillo a menos de 10 °C del máximo; rojo
-     * con la CPU limitada (throttling). */
-    int tm = sens_ok ? sensores_temp_maior(&sens) : -1;
-    if (sens_ok && sens.qtd_temp) {
-        bool limita = sens.throttling & (SENS_THR_TERMICO | SENS_THR_PROCHOT);
-        bool perto = sens.max_mili_c > 0 && tm >= sens.max_mili_c - 10000;
-        uint32_t cor = limita ? 0xFF5050 : perto ? 0xFFD040 : 0x3CDC6E;
-        uint32_t fundo = limita ? 0x5C1616 : perto ? 0x5C4A10 : 0x165C32;
-        formatar_texto(t, sizeof t, _("Temperatura: %s%s"), sensores_grau(g, sizeof g, tm), limita ? _(" LIMITANDO") : "");
-        g_texto_n(j, x1, y2, t, gl / LETRA_L, limita ? 0xC02020 : perto ? 0x9A7000 : COR_TEXTO);
-        if (sens.max_mili_c) {
-            formatar_texto(t, sizeof t, _("máx. %s"), sensores_grau(g, sizeof g, sens.max_mili_c));
-            g_texto(j, x1 + gl - g_largura_texto(t), y2, t, COR_TEXTO_FRACO);
-        }
-        desenhar_grafico(x1, y2 + 18, gl, ga, hist_temp, qtd_hist_sens, cor, fundo);
-    } else {
-        g_texto(j, x1, y2, _("Temperatura: no disponible"), COR_TEXTO);
-        sem_dados(x1, y2 + 18, gl, ga, sens_ok && sens.hipervisor ? "sin sensor (máquina virtual)" : "sin sensor conocido");
-    }
-    const char *orig = "";
-    unsigned f = freq_mostrada(&orig);
-    /* Indicador del driver de frecuencia (D106), sin avisos emergentes: una
-     * banda roja dentro del gráfico mientras la CPU esté limitada por
-     * temperatura (y el gráfico en rojo). */
-    bool limitada = freq_ok && freq.limitada;
-    if (f) {
-        formatar_texto(t, sizeof t, _("Frecuencia: %s (%s)"), sensores_mhz(g, sizeof g, f), orig);
-        g_texto_n(j, x2, y2, t, gl / LETRA_L, COR_TEXTO);
-        desenhar_grafico(x2, y2 + 18, gl, ga, hist_freq, qtd_hist_sens, limitada ? 0xFF5050 : 0xFFA94D,
-                         limitada ? 0x5C1616 : 0x5C3A10);
-    } else {
-        formatar_texto(t, sizeof t, "Frecuencia: %s MHz nominal", sens.tsc_khz ? "" : "?");
-        if (sens.tsc_khz) formatar_texto(t, sizeof t, _("Frecuencia: %u MHz (nominal)"), (sens.tsc_khz + 500) / 1000);
-        g_texto_n(j, x2, y2, t, gl / LETRA_L, COR_TEXTO);
-        sem_dados(x2, y2 + 18, gl, ga, "sin APERF/MPERF");
-    }
-    if (limitada) {   /* dentro del gráfico, arriba a la izquierda, sobre una banda roja */
-        const char *ind = "limitada por temperatura";
-        g_retangulo(j, x2 + 3, y2 + 21, g_largura_texto(ind) + 8, LETRA_A + 4, 0xB01818);
-        g_texto(j, x2 + 7, y2 + 23, ind, 0xFFFFFF);
-    }
-
-    int yt = y2 + 18 + ga + 8;
-    unsigned s = versao.segundos_ligado;
-    formatar_texto(t, sizeof t, _("Procesos: %d    Ventanas: %d    Encendido: %u:%02u:%02u    RAM física: %u MB"), qtd_procs,
-                   qtd_jans, s / 3600, s / 60 % 60, s % 60, mem.ram_total_kb / 1024);
-    g_texto_n(j, x1, yt, t, (TAB_L - (x1 - TAB_X)) / LETRA_L, COR_TEXTO);
-    if (sens_ok) {
-        static const char *const turbo[] = { "n/d", "no", "desactivado", "activo" };
-        char mult[24] = "n/d";
-        if (sens.mult_x10) formatar_texto(mult, sizeof mult, "x%u,%u", sens.mult_x10 / 10, sens.mult_x10 % 10);
-        formatar_texto(t, sizeof t, _("Multiplicador: %s    Turbo: %s    VID: %s"), mult, turbo[sens.turbo <= 3 ? sens.turbo : 0],
-                       sens.vid_mv ? "" : "n/d");
-        if (sens.vid_mv)
-            formatar_texto(t, sizeof t, _("Multiplicador: %s    Turbo: %s    VID: %u,%03u V"), mult,
-                           turbo[sens.turbo <= 3 ? sens.turbo : 0], sens.vid_mv / 1000, sens.vid_mv % 1000);
-        g_texto_n(j, x1, yt + 20, t, (TAB_L - (x1 - TAB_X)) / LETRA_L, COR_TEXTO_FRACO);
-    }
-    if (freq_ok && freq.estado != FREQ_EST_NAO_DISPONIVEL) {
-        static const char *const est[] = { "no disponible", "activo", "desactivado", "desactivado (fallo)" };
-        formatar_texto(t, sizeof t, _("Control de frecuencia: %s, %s, límite %d °C"), est[freq.estado <= 3 ? freq.estado : 0],
-                       frequencia_politica(freq.politica), freq.limite_mc / 1000);
-        g_texto_n(j, x1, yt + 40, t, (TAB_L - (x1 - TAB_X)) / LETRA_L, limitada ? 0xC02020 : COR_TEXTO_FRACO);
-    }
-
-    /* Sección "Núcleos": una fila por CPU con su estado, una barra y el % de uso. */
-    int yn = yt + 20 * (1 + (sens_ok ? 1 : 0) + (freq_ok && freq.estado != FREQ_EST_NAO_DISPONIVEL ? 1 : 0));
-    formatar_texto(t, sizeof t, _("Núcleos: %d"), qtd_nuc);
-    g_texto(j, x1, yn, t, COR_TEXTO);
-    int cl = (TAB_L - (x1 - TAB_X)) / ncols;
-    for (int i = 0; i < qtd_nuc; i++) {
-        int cx = x1 + (i / nfil) * cl, cy = yn + 18 + (i % nfil) * 18;
-        unsigned u = nuc_uso10[i];
-        formatar_texto(t, sizeof t, "CPU %u", nuc[i].indice);
-        g_texto(j, cx, cy, t, COR_TEXTO);
-        int bx = cx + 56, bl = cl > 330 ? 120 : 80;
-        g_retangulo(j, bx, cy + 2, bl, 12, 0x10181E);
-        g_moldura(j, bx, cy + 2, bl, 12, COR_BORDA);
-        g_retangulo(j, bx + 1, cy + 3, (bl - 2) * u / 1000, 10, 0x3CDC6E);
-        char fq[32];
-        freq_da_cpu(nuc[i].indice, fq, sizeof fq);
-        formatar_texto(t, sizeof t, "%u,%u %%  %s%s%s", u / 10, u % 10, nome_estado_nucleo(nuc[i].estado), fq[0] ? "  " : "", fq);
-        g_texto_n(j, bx + bl + 8, cy, t, (cl - 56 - bl - 8) / LETRA_L, COR_TEXTO_FRACO);
-    }
 }
 
 /* Ítems de la lista de ventanas. */
@@ -825,8 +862,10 @@ static void amostrar_red(void)
     qtd_ifs = n;
     if (if_sel >= qtd_ifs) if_sel = 0;
     info_sistema(INFO_TRAFEGO, &trafego, sizeof trafego);
-    int k = info_sistema(INFO_SOCKETS, socks, MAXS);
-    qtd_socks = k < 0 ? 0 : k;
+    if (aba == 3) {   /* las conexiones solo con la pestaña Red */
+        int k = info_sistema(INFO_SOCKETS, socks, MAXS);
+        qtd_socks = k < 0 ? 0 : k;
+    }
     if (!medir) return;
     bool primeira = !tem_ifs_ant;
     tem_ifs_ant = true;
@@ -1246,13 +1285,694 @@ static void tratar_red(const evento_t *e)
     if (direito && dentro(e, TAB_X, TAB_Y, TAB_L, RED_TAB_Y - TAB_Y)) menu_red(e);
 }
 
+/* ------------------------------------------------------------ Rendimiento (D368) */
+
+/* Barra lateral con una miniatura por recurso y, a la derecha, el panel grande del elegido. Los datos de CPU,
+ * memoria, swap y disco se muestrean siempre (son una llamada barata); los de red, GPU, sensores y batería
+ * solo con la pestaña a la vista. */
+enum { R_CPU, R_MEM, R_SWAP, R_DISCO, R_RED, R_GPU, R_SENS, QTD_R };
+static const char *nomes_r[QTD_R] = { N_("CPU"), N_("Memoria"), N_("Swap"), N_("Disco"), N_("Red"), N_("GPU"), N_("Sensores") };
+static const char *nomes_r_log[QTD_R] = { "cpu", "memoria", "swap", "disco", "red", "gpu", "sensores" };
+static const uint32_t acento_r[QTD_R] = { 0x1E8A4C, 0x2A6FD8, 0x8E5BC8, 0x1C9A94, 0xD0782A, 0xC23C7E, 0xB8860B };
+static int rsel;                       /* recurso elegido */
+
+#define SB_L   176
+#define RP_X   (TAB_X + SB_L + 8)
+#define RP_L   (TAB_L - SB_L - 8)
+#define RP_Y   TAB_Y
+#define RP_A   TAB_A
+
+static info_acel2d_t a2d;
+static info_gpu3d_t g3d;
+static bool a2d_ok, g3d_ok;
+static unsigned g2d_ant, g3d_ant, t_gpu_ant;
+static info_bateria_t bat;
+static bool bat_ok;
+
+static void amostrar_gpu_bateria(void)
+{
+    unsigned agora = tempo_ms(), dt = agora - t_gpu_ant;
+    memset(&a2d, 0, sizeof a2d);
+    memset(&g3d, 0, sizeof g3d);
+    a2d_ok = info_sistema(INFO_ACEL2D, &a2d, sizeof a2d) == 0 && a2d.versao == 1;
+    g3d_ok = info_sistema(INFO_GPU3D, &g3d, sizeof g3d) == 0 && g3d.versao == 1;
+    unsigned o2 = a2d.copias + a2d.rellenos, o3 = g3d.quadros;
+    gpu2d_s = gpu3d_s = 0;
+    if (t_gpu_ant && dt >= 200) {
+        gpu2d_s = por_segundo(o2, g2d_ant, dt);
+        gpu3d_s = por_segundo(o3, g3d_ant, dt);
+    }
+    g2d_ant = o2; g3d_ant = o3; t_gpu_ant = agora;
+    memset(&bat, 0, sizeof bat);
+    bat_ok = info_sistema(INFO_BATERIA, &bat, sizeof bat) == 0 && bat.versao == 1 && bat.presente;
+}
+
+/* Un ancho múltiplo de HIST: cada segundo ocupa los mismos píxeles. */
+static int ajusta(int l) { l -= l % HIST; return l < HIST ? HIST : l; }
+
+/* Gráfico de tasas (una o dos series) con la escala automática: la potencia de 2 por encima del mayor valor. */
+static unsigned grafico_taxa(int x, int y, int l, int a, const unsigned *v1, const unsigned *v2, int n,
+                             uint32_t c1, uint32_t c2, const char *un)
+{
+    unsigned maior = 4;
+    for (int i = 0; i < n; i++) {
+        if (v1 && v1[i] > maior) maior = v1[i];
+        if (v2 && v2[i] > maior) maior = v2[i];
+    }
+    unsigned escala = 4;
+    while (escala < maior && escala < 0x80000000u) escala <<= 1;
+    g_retangulo(j, x, y, l, a, 0x10181E);
+    for (int k = 1; k < 4; k++) g_retangulo(j, x, y + a * k / 4, l, 1, 0x26343C);
+    for (int k = 1; k < 6; k++) g_retangulo(j, x + l * k / 6, y, 1, a, 0x26343C);
+    int passo = l / HIST;
+    if (passo < 1) passo = 1;
+    for (int serie = 0; serie < 2; serie++) {
+        const unsigned *v = serie ? v2 : v1;
+        if (!v) continue;
+        int px_ant = -1, py_ant = 0;
+        for (int i = 0; i < n; i++) {
+            int px = x + l - (n - i) * passo;
+            unsigned frac = escala >= 4000000u ? v[i] / (escala / 1000) : v[i] * 1000u / escala;
+            if (frac > 1000) frac = 1000;
+            int py = y + a - 1 - (int)((unsigned)(a - 2) * frac / 1000);
+            if (px_ant >= 0) g_linha(j, px_ant, py_ant, px, py, serie ? c2 : c1);
+            g_linha(j, px, py, px + passo - 1, py, serie ? c2 : c1);
+            px_ant = px + passo - 1; py_ant = py;
+        }
+    }
+    g_moldura(j, x, y, l, a, COR_BORDA);
+    char t[40];
+    formatar_texto(t, sizeof t, "%u %s", escala, un);
+    g_texto(j, x + 4, y + 2, t, 0x9AA8B8);
+    return escala;
+}
+
+/* Miniatura de la barra lateral: la misma serie, normalizada al mayor valor. */
+static void miniatura_taxa(int x, int y, int l, int a, const unsigned *v1, const unsigned *v2, int n, uint32_t c, uint32_t f)
+{
+    unsigned tmp[HIST], maior = 1;
+    for (int i = 0; i < n && i < HIST; i++) {
+        tmp[i] = (v1 ? v1[i] : 0) + (v2 ? v2[i] : 0);
+        if (tmp[i] > maior) maior = tmp[i];
+    }
+    for (int i = 0; i < n && i < HIST; i++)
+        tmp[i] = maior >= 4000000u ? tmp[i] / (maior / 1000) : tmp[i] * 1000u / maior;
+    desenhar_grafico(x, y, l, a, tmp, n, c, f);
+}
+
+static void fmt_mb(char *t, size_t max, unsigned kb)
+{
+    if (kb >= 1024 * 1024) formatar_texto(t, max, "%u,%u GB", kb / (1024 * 1024), kb / (1024 * 1024 / 10) % 10);
+    else formatar_texto(t, max, "%u MB", kb / 1024);
+}
+
+static void fmt_khz(char *t, size_t max, unsigned khz)
+{
+    if (khz >= 1000000) formatar_texto(t, max, "%u,%u GHz", khz / 1000000, khz / 100000 % 10);
+    else formatar_texto(t, max, "%u MHz", khz / 1000);
+}
+
+static const info_rede_t *rede_principal(int *idx)
+{
+    for (int i = 0; i < qtd_ifs; i++)
+        if (!ifs[i].loopback) { if (idx) *idx = i; return &ifs[i]; }
+    if (idx) *idx = 0;
+    return qtd_ifs ? &ifs[0] : NULL;
+}
+
+/* Texto corto y miniatura de cada recurso. */
+static void item_resumo(int r, char *t, size_t max)
+{
+    char a[24], b[24];
+    t[0] = 0;
+    switch (r) {
+    case R_CPU: {
+        unsigned f = freq_mostrada(NULL);
+        if (f) { fmt_khz(a, sizeof a, f); formatar_texto(t, max, "%u%% %s", (cpu_total10 + 5) / 10, a); }
+        else formatar_texto(t, max, "%u %%", (cpu_total10 + 5) / 10);
+        break;
+    }
+    case R_MEM: {
+        unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
+        fmt_mb(a, sizeof a, mem.usada_kb);
+        formatar_texto(t, max, "%u%% %s", (m10 + 5) / 10, a);
+        break;
+    }
+    case R_SWAP:
+        if (!mem.troca_teto_kb) copia_texto(t, _("Desactivada"), max);
+        else { fmt_mb(a, sizeof a, mem.troca_armazem_kb); formatar_texto(t, max, "%s (%u%%)", a, (qtd_hist ? hist_swap[qtd_hist - 1] + 5 : 0) / 10); }
+        break;
+    case R_DISCO:
+        if (!disco_ok || !disco_i.ativa) copia_texto(t, _("Sin caché"), max);
+        else formatar_texto(t, max, "%u KB/s", disco_rd_s + disco_wr_s);
+        break;
+    case R_RED: {
+        int i;
+        const info_rede_t *r0 = rede_principal(&i);
+        if (!r0) copia_texto(t, "-", max);
+        else { fmt_bytes(a, sizeof a, vel_rx[i] + vel_tx[i]); formatar_texto(t, max, "%s/s", a); }
+        break;
+    }
+    case R_GPU:
+        formatar_texto(t, max, "2D: %s", a2d_ok && a2d.ativo ? a2d.nome : "CPU");
+        break;
+    case R_SENS: {
+        int tm = sens_ok ? sensores_temp_maior(&sens) : -1;
+        if (tm > 0) formatar_texto(t, max, "%s", sensores_grau(b, sizeof b, tm));
+        else if (bat_ok) formatar_texto(t, max, _("Batería %d%%"), bat.porcentagem);
+        else copia_texto(t, "n/d", max);
+        break;
+    }
+    }
+}
+
+static void desenhar_item_lateral(int r)
+{
+    int ia = TAB_A / QTD_R;
+    if (ia > 56) ia = 56;
+    int x = TAB_X, y = TAB_Y + r * ia, h = ia - 3;
+    bool s = r == rsel;
+    g_retangulo(j, x, y, SB_L, h, s ? COR_BRANCO : COR_FUNDO);
+    g_moldura(j, x, y, SB_L, h, s ? acento_r[r] : 0xC8CDD2);
+    if (s) g_retangulo(j, x, y, 4, h, acento_r[r]);
+    int ta = h - 10;
+    if (ta < 24) ta = 24;
+    int tx = x + 8, ty = y + 5;
+    switch (r) {
+    case R_CPU:   desenhar_grafico(tx, ty, HIST, ta, hist_cpu, qtd_hist, 0x3CDC6E, 0x165C32); break;
+    case R_MEM:   desenhar_grafico(tx, ty, HIST, ta, hist_mem, qtd_hist, 0x7EB6FF, 0x1E3E78); break;
+    case R_SWAP:  desenhar_grafico(tx, ty, HIST, ta, hist_swap, qtd_hist, 0xC792EA, 0x3A2A5C); break;
+    case R_DISCO: miniatura_taxa(tx, ty, HIST, ta, hist_disco_rd, hist_disco_wr, qtd_hist, 0x4DD0C8, 0x12403E); break;
+    case R_RED: {
+        int n = (int)trafego.amostras;
+        if (n > HIST) n = HIST;
+        miniatura_taxa(tx, ty, HIST, ta, trafego.rx + TRAFEGO_AMOSTRAS - n, trafego.tx + TRAFEGO_AMOSTRAS - n, n, 0xFFA94D, 0x5C3A10);
+        break;
+    }
+    case R_GPU:   miniatura_taxa(tx, ty, HIST, ta, hist_g2d, hist_g3d, qtd_hist_sens, 0xFF7AB6, 0x5C1E3E); break;
+    case R_SENS:  desenhar_grafico(tx, ty, HIST, ta, hist_temp, qtd_hist_sens, 0xFFD040, 0x5C4A10); break;
+    }
+    char t[40];
+    g_texto(j, x + 8 + HIST + 8, ty, _(nomes_r[r]), COR_TEXTO);
+    item_resumo(r, t, sizeof t);
+    g_texto_n(j, x + 8 + HIST + 8, ty + 18, t, (SB_L - 8 - HIST - 8 - 4) / LETRA_L, COR_TEXTO_FRACO);
+}
+
+/* Cabecera del panel grande; devuelve la Y donde empieza el cuerpo. */
+static int painel_cab(const char *tit, const char *sub, uint32_t cor)
+{
+    g_retangulo(j, RP_X, RP_Y, RP_L, RP_A, COR_BRANCO);
+    g_moldura(j, RP_X, RP_Y, RP_L, RP_A, COR_BORDA);
+    g_retangulo(j, RP_X + 1, RP_Y + 1, RP_L - 2, 22, cor);
+    g_texto(j, RP_X + 8, RP_Y + 4, tit, COR_BRANCO);
+    if (sub && sub[0]) {
+        int w = g_largura_texto(sub);
+        if (w < RP_L - 24 - g_largura_texto(tit)) g_texto(j, RP_X + RP_L - 8 - w, RP_Y + 4, sub, 0xE8F0F8);
+    }
+    return RP_Y + 28;
+}
+
+/* Campos «etiqueta / valor» en cuadrícula, al pie del panel. */
+typedef struct { const char *r; char v[72]; } campo_t;
+static campo_t cps[20];
+static int ncps;
+#define CP(rot, ...) do { if (ncps < 20) { cps[ncps].r = (rot); formatar_texto(cps[ncps].v, sizeof cps[0].v, __VA_ARGS__); ncps++; } } while (0)
+
+static int campos_cols(void) { int c = (RP_L - 16) / 150; return c < 1 ? 1 : c > 4 ? 4 : c; }
+static int campos_altura(void) { int c = campos_cols(); return ((ncps + c - 1) / c) * 34 + 6; }
+
+static void campos_desenhar(void)
+{
+    int c = campos_cols(), cw = (RP_L - 16) / c, y0 = RP_Y + RP_A - campos_altura();
+    g_retangulo(j, RP_X + 8, y0 - 3, RP_L - 16, 1, 0xDDE1E5);
+    for (int k = 0; k < ncps; k++) {
+        int cx = RP_X + 8 + (k % c) * cw, cy = y0 + (k / c) * 34;
+        g_texto_n(j, cx, cy, cps[k].r, (cw - 8) / LETRA_L, COR_TEXTO_FRACO);
+        g_texto_n(j, cx, cy + 15, cps[k].v, (cw - 8) / LETRA_L, COR_TEXTO);
+    }
+}
+
+static void rot_grafico(int y, const char *esq, const char *dir)
+{
+    g_texto_n(j, RP_X + 8, y, esq, (RP_L - 24) / LETRA_L - 14, COR_TEXTO);
+    if (dir) g_texto(j, RP_X + RP_L - 8 - g_largura_texto(dir), y, dir, COR_TEXTO_FRACO);
+}
+
+static void leyenda(int x, int y, uint32_t cor, const char *t, int *avanco)
+{
+    g_retangulo(j, x, y + 4, 10, 8, cor);
+    g_texto(j, x + 14, y, t, COR_TEXTO);
+    *avanco = 14 + g_largura_texto(t) + 14;
+}
+
+static void painel_cpu(void)
+{
+    char a[24], b[48], plan[24];
+    ncps = 0;
+    unsigned f = freq_mostrada(NULL);
+    unsigned hilos = 0;
+    for (int i = 0; i < qtd_procs; i++) hilos += procs[i].p.n_hilos;
+    unsigned s = versao.segundos_ligado;
+    CP(_("Utilización"), "%u,%u %%", cpu_total10 / 10, cpu_total10 % 10);
+    if (f) { fmt_khz(a, sizeof a, f); CP(_("Frecuencia"), "%s", a); } else CP(_("Frecuencia"), "n/d");
+    if (freq_ok && freq.estado != FREQ_EST_NAO_DISPONIVEL) CP(_("Gobernador"), "%s%s", frequencia_politica(freq.politica), freq.limitada ? _(" (limitada)") : "");
+    else CP(_("Gobernador"), _("sin control"));
+    CP(_("Procesos"), "%d", qtd_procs);
+    CP(_("Hilos"), "%u", hilos);
+    CP(_("Encendido"), "%u:%02u:%02u", s / 3600, s / 60 % 60, s % 60);
+    CP(_("Núcleos lógicos"), "%d", qtd_nuc);
+    if (planificador_consultar(plan, sizeof plan) > 0) {
+        /* el nombre interno (rr, afinidad...) es el de la orden `planificador`; aquí, uno que se entienda */
+        const char *nom = plan;
+        if (compara_texto(plan, "rr") == 0) nom = _("Por turnos (round-robin)");
+        else if (compara_texto(plan, "afinidad") == 0) nom = _("Por afinidad de CPU");
+        else if (compara_texto(plan, "equilibrio") == 0) nom = _("Equilibrado entre CPU");
+        else if (compara_texto(plan, "prioridad") == 0) nom = _("Por prioridad");
+        CP(_("Planificador"), "%s", nom);
+    }
+    if (sens_ok && sens.mult_x10) { formatar_texto(b, sizeof b, "x%u,%u", sens.mult_x10 / 10, sens.mult_x10 % 10); CP(_("Multiplicador"), "%s", b); }
+    int y = painel_cab(_("CPU"), _("últimos 60 s"), acento_r[R_CPU]);
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), nuc_n = qtd_nuc > 1 ? qtd_nuc : 0;
+    int th = nuc_n ? livre * 4 / 10 - 16 : livre - 16;
+    if (th < 36) th = 36;
+    if (th > 150) th = 150;
+    formatar_texto(b, sizeof b, _("Uso total de la CPU: %u,%u %%"), cpu_total10 / 10, cpu_total10 % 10);
+    rot_grafico(y, b, "100 %");
+    desenhar_grafico(RP_X + 8, y + 16, gl, th, hist_cpu, qtd_hist, 0x3CDC6E, 0x165C32);
+    y += 16 + th + 6;
+    if (nuc_n) {
+        int cols = nuc_n <= 2 ? nuc_n : nuc_n <= 4 ? 2 : 4, rows = (nuc_n + cols - 1) / cols;
+        int cw = (RP_L - 16 - (cols - 1) * 6) / cols;
+        int ch = (RP_Y + RP_A - campos_altura() - 4 - y - 16 - (rows - 1) * 6) / rows;
+        if (ch > 64) ch = 64;
+        if (ch >= 20) {
+            rot_grafico(y, _("Núcleos lógicos (cada uno con su uso)"), NULL);
+            for (int i = 0; i < nuc_n && i < MAXN; i++) {
+                int cx = RP_X + 8 + (i % cols) * (cw + 6), cy = y + 16 + (i / cols) * (ch + 6), cl = ajusta(cw);
+                if (cl > cw) cl = cw;
+                desenhar_grafico(cx, cy, cl, ch, hist_nuc[i], qtd_hist, 0x3CDC6E, 0x165C32);
+                char fq[32];
+                freq_da_cpu(nuc[i].indice, fq, sizeof fq);
+                formatar_texto(b, sizeof b, "CPU %u: %u%%%s%s", nuc[i].indice, (nuc_uso10[i] + 5) / 10, fq[0] ? " " : "", fq);
+                g_texto_n(j, cx + 3, cy + 2, b, (cl - 6) / LETRA_L, 0x9AA8B8);
+            }
+        }
+    }
+    campos_desenhar();
+}
+
+static void painel_mem(void)
+{
+    char a[24], b[24], t[96];
+    ncps = 0;
+    unsigned cache = mem.cache_kb, cache_alta = mem.cache_alta_kb > cache ? cache : mem.cache_alta_kb;
+    unsigned app = mem.usada_kb > cache ? mem.usada_kb - cache : 0;
+    fmt_mb(a, sizeof a, mem.ram_total_kb);
+    CP(_("RAM física"), "%s", a);
+    fmt_mb(a, sizeof a, app);
+    CP(_("En uso (programas)"), "%s", a);
+    fmt_mb(a, sizeof a, mem.livre_kb);
+    CP(_("Libre"), "%s", a);
+    fmt_mb(a, sizeof a, cache - cache_alta); fmt_mb(b, sizeof b, cache_alta);
+    CP(_("Caché de disco"), _("%s baja + %s alta"), a, b);
+    formatar_texto(t, sizeof t, "%s%s%s", mem.modo & MEM_MODO_PAE ? "PAE" : _("sin PAE"), mem.modo & MEM_MODO_NX ? " + NX" : "",
+                   !(mem.modo & MEM_MODO_NX) && (mem.modo & MEM_MODO_CPU_NX) ? _(" (NX apagado)") : "");
+    CP(_("Modo de memoria"), "%s", t);
+    if (mem.alta_gerida_kb) {
+        fmt_mb(a, sizeof a, mem.alta_livre_kb); fmt_mb(b, sizeof b, mem.alta_gerida_kb);
+        CP(_("Memoria alta libre"), _("%s de %s"), a, b);
+    }
+    if (mem.superior_gerida_kb) {
+        fmt_mb(a, sizeof a, mem.superior_livre_kb); fmt_mb(b, sizeof b, mem.superior_gerida_kb);
+        CP(_("Por encima de 4 GB"), _("%s de %s"), a, b);
+    }
+    unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
+    fmt_mb(a, sizeof a, mem.usada_kb); fmt_mb(b, sizeof b, mem.gerida_kb);
+    formatar_texto(t, sizeof t, _("Memoria: %s de %s (%u %%)"), a, b, (m10 + 5) / 10);
+    int y = painel_cab(_("Memoria"), _("últimos 60 s"), acento_r[R_MEM]);
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), th = livre - 16 - 60;
+    if (th < 36) th = 36;
+    if (th > 160) th = 160;
+    rot_grafico(y, t, "100 %");
+    desenhar_grafico(RP_X + 8, y + 16, gl, th, hist_mem, qtd_hist, 0x7EB6FF, 0x1E3E78);
+    y += 16 + th + 8;
+    /* Barra apilada: programas, caché baja, caché alta, libre. */
+    rot_grafico(y, _("Reparto de la memoria"), NULL);
+    y += 18;
+    unsigned seg[4] = { app, cache - cache_alta, cache_alta, mem.livre_kb }, tot = 0;
+    for (int i = 0; i < 4; i++) tot += seg[i];
+    while (tot > 4000000u) { for (int i = 0; i < 4; i++) seg[i] >>= 4; tot >>= 4; }
+    if (!tot) tot = 1;
+    static const uint32_t cs[4] = { 0x2A6FD8, 0x3FB58A, 0xA5DDB8, 0xDDE3E8 };
+    int bl = RP_L - 16, bx = RP_X + 8, acc = 0;
+    g_moldura(j, bx - 1, y - 1, bl + 2, 20, COR_BORDA);
+    for (int i = 0; i < 4; i++) {
+        int w = i == 3 ? bl - acc : (int)((unsigned long long)bl * seg[i] / tot);
+        if (w > bl - acc) w = bl - acc;
+        g_retangulo(j, bx + acc, y, w, 18, cs[i]);
+        acc += w;
+    }
+    y += 22;
+    int x = bx, av;
+    static const char *lg[4] = { N_("En uso"), N_("Caché"), N_("Caché alta"), N_("Libre") };
+    for (int i = 0; i < 4; i++) {
+        const char *tx = _(lg[i]);
+        if (x + 14 + g_largura_texto(tx) > bx + bl) break;
+        leyenda(x, y, cs[i], tx, &av);
+        x += av;
+    }
+    campos_desenhar();
+}
+
+static void painel_swap(void)
+{
+    char a[24], b[24], c[24];
+    ncps = 0;
+    int y = painel_cab(_("Swap (comprimida en RAM)"), mem.troca_teto_kb ? _("últimos 60 s") : "", acento_r[R_SWAP]);
+    if (!mem.troca_teto_kb) {
+        g_texto(j, RP_X + 12, y + 8, _("La swap está desactivada (arranque con --sin-swap)."), COR_TEXTO);
+        g_texto(j, RP_X + 12, y + 28, _("Sin ella, los programas solo pueden usar la RAM libre."), COR_TEXTO_FRACO);
+        return;
+    }
+    unsigned razao10 = mem.troca_comprimida_kb ? mem.troca_kb * 10u / mem.troca_comprimida_kb : 0;
+    unsigned u10 = qtd_hist ? hist_swap[qtd_hist - 1] : 0;
+    fmt_mb(a, sizeof a, mem.troca_teto_kb);
+    CP(_("Tope del almacén"), "%s", a);
+    fmt_mb(a, sizeof a, mem.troca_armazem_kb);
+    CP(_("Usada (almacén)"), "%s (%u,%u %%)", a, u10 / 10, u10 % 10);
+    fmt_mb(a, sizeof a, mem.troca_kb);
+    CP(_("Páginas en la swap"), _("%s sin comprimir"), a);
+    fmt_mb(a, sizeof a, mem.troca_comprimida_kb);
+    CP(_("Comprimida en RAM"), "%s", a);
+    CP(_("Ratio de compresión"), razao10 ? "%u,%u : 1" : "-", razao10 / 10, razao10 % 10);
+    CP(_("Sacadas por segundo"), _("%u págs/s"), swap_s_s);
+    CP(_("Traídas por segundo"), _("%u págs/s"), swap_e_s);
+    formatar_texto(a, sizeof a, "%u", mem.troca_saidas);
+    formatar_texto(b, sizeof b, "%u", mem.troca_entradas);
+    formatar_texto(c, sizeof c, "%s / %s", a, b);
+    CP(_("Total sacadas / traídas"), "%s", c);
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), th = (livre - 2 * 16 - 8) / 2;
+    if (th < 30) th = 30;
+    if (th > 130) th = 130;
+    rot_grafico(y, _("Ocupación de la swap"), "100 %");
+    desenhar_grafico(RP_X + 8, y + 16, gl, th, hist_swap, qtd_hist, 0xC792EA, 0x3A2A5C);
+    y += 16 + th + 8;
+    int av;
+    rot_grafico(y, "", NULL);
+    leyenda(RP_X + 8, y, 0xFFA94D, _("sacadas"), &av);
+    leyenda(RP_X + 8 + av, y, 0x3CDC6E, _("traídas"), &av);
+    grafico_taxa(RP_X + 8, y + 16, gl, th, hist_swap_s, hist_swap_e, qtd_hist, 0xFFA94D, 0x3CDC6E, _("págs/s"));
+    campos_desenhar();
+}
+
+static void painel_disco(void)
+{
+    char a[24];
+    ncps = 0;
+    int y = painel_cab(_("Disco (caché de bloques)"), disco_ok && disco_i.ativa ? _("últimos 60 s") : "", acento_r[R_DISCO]);
+    if (!disco_ok || !disco_i.ativa) {
+        g_texto(j, RP_X + 12, y + 8, _("No hay caché de disco: el kernel no cuenta los accesos."), COR_TEXTO);
+        g_texto(j, RP_X + 12, y + 28, _("(imagen con --sem-cache-disco o disco sin caché)"), COR_TEXTO_FRACO);
+        return;
+    }
+    unsigned tot = disco_i.acertos + disco_i.falhas, taxa = tot ? (unsigned)((unsigned long long)disco_i.acertos * 100 / tot) : 0;
+    CP(_("Lectura"), "%u KB/s", disco_rd_s);
+    CP(_("Escritura"), "%u KB/s", disco_wr_s);
+    fmt_mb(a, sizeof a, disco_i.blocos * 4);
+    CP(_("Caché ocupada"), "%s (%u bloques)", a, disco_i.blocos);
+    fmt_mb(a, sizeof a, disco_i.max_blocos * 4);
+    CP(_("Tope de la caché"), "%s", a);
+    CP(_("Pendiente de grabar"), _("%u bloques"), disco_i.sujos);
+    CP(_("Aciertos de caché"), "%u %%", taxa);
+    CP(_("Leído por adelantado"), _("%u bloques"), disco_i.anticipados);
+    CP(_("Grabados / errores"), "%u / %u", disco_i.gravados, disco_i.erros);
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), th = livre - 16;
+    if (th < 36) th = 36;
+    if (th > 200) th = 200;
+    int av;
+    leyenda(RP_X + 8, y, 0x4DD0C8, _("lectura"), &av);
+    leyenda(RP_X + 8 + av, y, 0xFFA94D, _("escritura"), &av);
+    grafico_taxa(RP_X + 8, y + 16, gl, th, hist_disco_rd, hist_disco_wr, qtd_hist, 0x4DD0C8, 0xFFA94D, "KB/s");
+    campos_desenhar();
+}
+
+static void painel_red(void)
+{
+    char a[24], b[24], c[24];
+    ncps = 0;
+    int y = painel_cab(_("Red"), _("últimos 60 s"), acento_r[R_RED]);
+    if (!qtd_ifs) { g_texto(j, RP_X + 12, y + 8, _("No hay interfaces de red."), COR_TEXTO); return; }
+    for (int i = 0; i < qtd_ifs && i < MAXIF; i++) {
+        b_if[i] = (botao_t){ RP_X + 8 + i * 70, y, 66, 22, ifs[i].nome, false };
+        botao_desenhar(j, &b_if[i]);
+        if (i == if_sel) g_retangulo(j, b_if[i].x + 2, b_if[i].y + b_if[i].a - 3, b_if[i].l - 4, 2, COR_DESTAQUE);
+    }
+    y += 28;
+    const info_rede_t *r = &ifs[if_sel];
+    const char *estado = !r->ativa ? _("sin driver activo") : r->desativada ? _("Desactivada") : r->loopback ? _("Activa") :
+                         r->cabo ? _("Conectada") : _("Sin cable");
+    CP(_("Estado"), "%s", estado);
+    CP(_("Adaptador"), "%s", r->driver[0] ? r->driver : "-");
+    CP(_("IPv4"), "%s", r->ip ? ip_para_texto(r->ip, a) : "-");
+    fmt_bytes(a, sizeof a, vel_tx[if_sel]); fmt_bytes(b, sizeof b, vel_rx[if_sel]);
+    CP(_("Envío"), "%s/s", a);
+    CP(_("Recepción"), "%s/s", b);
+    fmt_bytes(a, sizeof a, r->tx_bytes); fmt_bytes(b, sizeof b, r->rx_bytes);
+    CP(_("Total enviado"), "%s", a);
+    CP(_("Total recibido"), "%s", b);
+    formatar_texto(c, sizeof c, "%u / %u", r->tx_pacotes, r->rx_pacotes);
+    CP(_("Paquetes (env. / rec.)"), "%s", c);
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), th = livre - 16;
+    if (th < 36) th = 36;
+    if (th > 200) th = 200;
+    int av;
+    leyenda(RP_X + 8, y, 0x3CDC6E, _("recepción"), &av);
+    leyenda(RP_X + 8 + av, y, 0xFFA94D, _("envío"), &av);
+    desenhar_grafico_red(RP_X + 8, y + 16, gl, th);
+    campos_desenhar();
+}
+
+static void painel_gpu(void)
+{
+    char t[96];
+    ncps = 0;
+    int y = painel_cab(_("GPU"), _("actividad, últimos 60 s"), acento_r[R_GPU]);
+    if (a2d_ok) {
+        CP(_("2D del escritorio"), "%s", a2d.ativo ? a2d.nome : _("CPU (software)"));
+        if (a2d.placa[0]) CP(_("Tarjeta"), "%s", a2d.placa);
+        CP(_("Órdenes 2D (copias + rellenos)"), "%u + %u", a2d.copias, a2d.rellenos);
+        CP(_("Fallos 2D"), "%u", a2d.falhas);
+        CP(_("Cuadros de arrastre"), "%u", a2d.quadros);
+    } else CP(_("2D del escritorio"), _("sin información"));
+    if (g3d_ok) {
+        static const char *const e3[] = { N_("sin probar"), N_("activo"), N_("software"), N_("fallo") };
+        CP(_("3D"), "%s", g3d.nome[0] ? g3d.nome : "software");
+        if (g3d.placa[0]) CP(_("Tarjeta 3D"), "%s", g3d.placa);
+        CP(_("Estado 3D"), "%s", _(e3[g3d.estado < 4 ? g3d.estado : 3]));
+        CP(_("Triángulos / lotes"), "%u / %u", g3d.triangulos, g3d.lotes);
+        if (g3d.memoria_kb) CP(_("Memoria de GPU"), _("%u de %u MB libres"), g3d.livre_kb / 1024, g3d.memoria_kb / 1024);
+    } else CP(_("3D"), _("sin información"));
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), th = livre - 16 - 20;
+    if (th < 36) th = 36;
+    if (th > 160) th = 160;
+    int av;
+    leyenda(RP_X + 8, y, 0xFF7AB6, _("2D (órdenes/s)"), &av);
+    leyenda(RP_X + 8 + av, y, 0x7EB6FF, _("3D (cuadros/s)"), &av);
+    grafico_taxa(RP_X + 8, y + 16, gl, th, hist_g2d, hist_g3d, qtd_hist_sens, 0xFF7AB6, 0x7EB6FF, "/s");
+    y += 16 + th + 4;
+    if (a2d_ok && a2d.motivo[0]) {
+        formatar_texto(t, sizeof t, "%s", a2d.motivo);
+        g_texto_n(j, RP_X + 8, y, t, (RP_L - 16) / LETRA_L, COR_TEXTO_FRACO);
+    }
+    campos_desenhar();
+}
+
+static void painel_sens(void)
+{
+    char a[32], b[32];
+    ncps = 0;
+    int y = painel_cab(_("Sensores"), _("últimos 60 s"), acento_r[R_SENS]);
+    int tm = sens_ok ? sensores_temp_maior(&sens) : -1;
+    unsigned f = freq_mostrada(NULL);
+    bool limitada = freq_ok && freq.limitada;
+    if (sens_ok && sens.qtd_temp) {
+        CP(_("Temperatura"), "%s", sensores_grau(a, sizeof a, tm));
+        if (sens.max_mili_c) CP(_("Máxima admitida"), "%s", sensores_grau(a, sizeof a, sens.max_mili_c));
+    } else CP(_("Temperatura"), "%s", sens_ok && sens.hipervisor ? _("sin sensor (máquina virtual)") : _("sin sensor conocido"));
+    if (f) { fmt_khz(a, sizeof a, f); CP(_("Frecuencia"), "%s", a); }
+    if (limitada) CP(_("Estado"), _("limitada por temperatura"));
+    if (bat_ok) {
+        static const char *const eb[] = { N_("en reposo"), N_("descargando"), N_("cargando"), N_("crítica") };
+        unsigned e = bat.estado & BATERIA_DESCARREGANDO ? 1 : bat.estado & BATERIA_CARREGANDO ? 2 : 0;
+        if (bat.estado & BATERIA_CRITICA) e = 3;
+        CP(_("Batería"), "%d %% (%s)", bat.porcentagem, _(eb[e]));
+        if (bat.minutos >= 0) CP(_("Tiempo restante"), "%d:%02d", bat.minutos / 60, bat.minutos % 60);
+        CP(_("Adaptador"), "%s", bat.adaptador == 2 ? _("enchufado") : bat.adaptador == 1 ? _("desenchufado") : "-");
+    } else CP(_("Batería"), _("no hay"));
+    int livre = RP_Y + RP_A - y - campos_altura() - 4;
+    int gl = ajusta(RP_L - 16), th = (livre - 2 * 16 - 8) / 2;
+    if (th < 30) th = 30;
+    if (th > 130) th = 130;
+    int tmax = sens.max_mili_c > 0 ? sens.max_mili_c : 100000;
+    formatar_texto(b, sizeof b, tm > 0 ? "0-%d" : "", tmax / 1000);
+    bool lim = sens_ok && (sens.throttling & (SENS_THR_TERMICO | SENS_THR_PROCHOT));
+    rot_grafico(y, _("Temperatura"), b);
+    if (sens_ok && sens.qtd_temp)
+        desenhar_grafico(RP_X + 8, y + 16, gl, th, hist_temp, qtd_hist_sens, lim ? 0xFF5050 : 0xFFD040, lim ? 0x5C1616 : 0x5C4A10);
+    else sem_dados(RP_X + 8, y + 16, gl, th, sens_ok && sens.hipervisor ? "sin sensor (máquina virtual)" : "sin sensor conocido");
+    y += 16 + th + 8;
+    rot_grafico(y, _("Frecuencia de la CPU"), NULL);
+    if (f) desenhar_grafico(RP_X + 8, y + 16, gl, th, hist_freq, qtd_hist_sens, limitada ? 0xFF5050 : 0xFFA94D, limitada ? 0x5C1616 : 0x5C3A10);
+    else sem_dados(RP_X + 8, y + 16, gl, th, "sin APERF/MPERF");
+    campos_desenhar();
+}
+
+static void desenhar_rendimento(void)
+{
+    g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_FUNDO);
+    for (int r = 0; r < QTD_R; r++) desenhar_item_lateral(r);
+    switch (rsel) {
+    case R_CPU:   painel_cpu(); break;
+    case R_MEM:   painel_mem(); break;
+    case R_SWAP:  painel_swap(); break;
+    case R_DISCO: painel_disco(); break;
+    case R_RED:   painel_red(); break;
+    case R_GPU:   painel_gpu(); break;
+    default:      painel_sens(); break;
+    }
+}
+
+/* Clic en la pestaña Rendimiento: elegir recurso o interfaz. true = hay que repintar. */
+static bool tratar_rendimento(const evento_t *e)
+{
+    if (e->tipo != EV_CLIQUE) return false;
+    int ia = TAB_A / QTD_R;
+    if (ia > 56) ia = 56;
+    if (e->x >= TAB_X && e->x < TAB_X + SB_L && e->y >= TAB_Y) {
+        int r = (e->y - TAB_Y) / ia;
+        if (r >= 0 && r < QTD_R && r != rsel) {
+            rsel = r;
+            registrar("tareas: recurso %s", nomes_r_log[r]);
+            return true;
+        }
+        return false;
+    }
+    if (rsel == R_RED)
+        for (int i = 0; i < qtd_ifs && i < MAXIF; i++)
+            if (botao_tratar(j, &b_if[i], e)) { if_sel = i; registrar("tareas: interfaz %s", ifs[i].nome); return true; }
+    return false;
+}
+
+/* ------------------------------------------------------------ Detalles (D368) */
+
+#define MAXH 128
+static info_hilo_t hilos[MAXH];
+static int qtd_hilos;
+static info_planificacion_t plan_sel;
+static bool plan_ok;
+
+static void amostrar_detalhes(void)
+{
+    int n = info_sistema(INFO_HILOS, hilos, MAXH);
+    qtd_hilos = n < 0 ? 0 : n;
+    plan_ok = sel_pid >= 0 && planificacion_info(sel_pid, &plan_sel) == 0;
+    int k = info_sistema(INFO_PILHAS, pilhas, MAXP);
+    qtd_pilhas = k < 0 ? 0 : k;
+}
+
+static void desenhar_detalhes(void)
+{
+    g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_BRANCO);
+    g_moldura(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_BORDA);
+    const proc_t *p = proc_por_pid(sel_pid);
+    if (!p) {
+        g_texto(j, TAB_X + 12, TAB_Y + 14, _("Elige un proceso en la pestaña Procesos para ver sus detalles e hilos."), COR_TEXTO_FRACO);
+        return;
+    }
+    char t[96], a[24];
+    g_retangulo(j, TAB_X + 1, TAB_Y + 1, TAB_L - 2, 24, COR_DESTAQUE);
+    formatar_texto(t, sizeof t, "%s  (PID %d)", p->p.nome, p->p.pid);
+    g_texto_n(j, TAB_X + 10, TAB_Y + 5, t, (TAB_L - 20) / LETRA_L, COR_BRANCO);
+    ncps = 0;
+    CP(_("Estado"), "%s", nome_estado(p->p.estado));
+    CP(_("Padre"), p->p.pid ? "%d" : "-", p->p.pai);
+    CP(_("CPU"), "%u,%u %%", p->cpu10 / 10, p->cpu10 % 10);
+    fmt_tempo(a, sizeof a, p->p.cpu_ms);
+    CP(_("Tiempo de CPU"), "%s", a);
+    CP(_("Memoria"), "%u KB", p->p.memoria_kb);
+    CP(_("Pila"), "%u KB", pilha_de(p->p.pid));
+    CP(_("Hilos"), "%u", p->p.n_hilos);
+    CP(_("Ventanas"), "%u", p->p.janelas);
+    CP(_("Última CPU"), "%u", p->p.cpu);
+    if (plan_ok) {
+        CP(_("Prioridad (nice)"), "%d", plan_sel.nice);
+        CP(_("Prioridad efectiva"), "%d", plan_sel.prioridade);
+        if (plan_sel.mascara) CP(_("Afinidad"), "0x%x", plan_sel.mascara); else CP(_("Afinidad"), _("todas las CPU"));
+        CP(_("Migraciones"), "%u", plan_sel.migracoes);
+        CP(_("Latencia media"), "%u us", plan_sel.lat_media_us);
+        CP(_("Latencia máxima"), "%u us", plan_sel.lat_max_us);
+    }
+    int c = (TAB_L - 16) / 150;
+    if (c < 1) c = 1;
+    if (c > 4) c = 4;
+    int cw = (TAB_L - 16) / c, y0 = TAB_Y + 32;
+    for (int k = 0; k < ncps; k++) {
+        int cx = TAB_X + 8 + (k % c) * cw, cy = y0 + (k / c) * 34;
+        g_texto_n(j, cx, cy, cps[k].r, (cw - 8) / LETRA_L, COR_TEXTO_FRACO);
+        g_texto_n(j, cx, cy + 15, cps[k].v, (cw - 8) / LETRA_L, COR_TEXTO);
+    }
+    int ty = y0 + ((ncps + c - 1) / c) * 34 + 8;
+    static const int hl[5] = { 72, 120, 100, 72, 72 };
+    static const char *const ht[5] = { N_("TID"), N_("Estado"), N_("T. CPU"), N_("CPU"), N_("Prior.") };
+    int x = TAB_X + 8;
+    for (int k = 0; k < 5; k++) {
+        g_retangulo(j, x, ty, hl[k], CAB_A, COR_BOTAO);
+        g_relevo(j, x, ty, hl[k], CAB_A, false);
+        texto_coluna(x, ty + 2, hl[k], _(ht[k]), k != 1, COR_TEXTO);
+        x += hl[k];
+    }
+    int fila = 0, max = (TAB_Y + TAB_A - ty - CAB_A - 4) / LIN_A, total = 0;
+    for (int i = 0; i < qtd_hilos; i++) {
+        if (hilos[i].pid != sel_pid) continue;
+        total++;
+        if (fila >= max) continue;
+        int y = ty + CAB_A + 2 + fila * LIN_A;
+        if (fila & 1) g_retangulo(j, TAB_X + 8, y, 436, LIN_A, 0xF8F9FA);
+        char c1[16], c2[24], c3[16], c4[16], c5[16];
+        formatar_texto(c1, sizeof c1, "%d", hilos[i].tid);
+        copia_texto(c2, nome_estado(hilos[i].estado), sizeof c2);
+        fmt_tempo(c3, sizeof c3, hilos[i].cpu_ms);
+        formatar_texto(c4, sizeof c4, "%u", hilos[i].cpu);
+        info_planificacion_t pi;
+        if (planificacion_info(hilos[i].tid, &pi) == 0) formatar_texto(c5, sizeof c5, "%d", pi.nice); else copia_texto(c5, "-", sizeof c5);
+        const char *cs[5] = { c1, c2, c3, c4, c5 };
+        x = TAB_X + 8;
+        for (int k = 0; k < 5; k++) { texto_coluna(x, y + 1, hl[k], cs[k], k != 1, COR_TEXTO); x += hl[k]; }
+        fila++;
+    }
+    if (!total) g_texto(j, TAB_X + 12, ty + CAB_A + 6, _("Este proceso solo tiene su hilo principal."), COR_TEXTO_FRACO);
+    else if (total > fila) {
+        formatar_texto(t, sizeof t, _("... y %d hilos más"), total - fila);
+        g_texto(j, TAB_X + 12, TAB_Y + TAB_A - 20, t, COR_TEXTO_FRACO);
+    }
+}
+
 static void desenhar_rodape(void)
 {
     g_retangulo(j, 0, BOT_Y - 6, LARG, ALT - BOT_Y + 6, COR_FUNDO);
     char t[96];
     unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
-    formatar_texto(t, sizeof t, _("Procesos: %d  CPU: %u%%  Mem.: %u%%%s"), qtd_procs,
-                   (cpu_total10 + 5) / 10, (m10 + 5) / 10, pausado ? "  (pausa)" : "");
+    if (aba == 0 && filtro[0])
+        formatar_texto(t, sizeof t, _("Buscar: %s_  (%d de %d; Esc borra)"), filtro, nvis, qtd_procs);
+    else
+        formatar_texto(t, sizeof t, _("Procesos: %d  CPU: %u%%  Mem.: %u%%%s"), qtd_procs,
+                       (cpu_total10 + 5) / 10, (m10 + 5) / 10, pausado ? "  (pausa)" : "");
     int x = b_pausa.x + b_pausa.l + 12;
     int x_fim = aba == ABA_SERV ? b_serv_auto.x : b_acao.x;
     g_texto_n(j, x, BOT_Y + 6, t, (x_fim - 8 - x) / LETRA_L, COR_TEXTO_FRACO);
@@ -1268,7 +1988,7 @@ static void desenhar_rodape(void)
         botao_desenhar(j, &b_serv_rein);
         botao_desenhar(j, &b_acao);
     } else if (aba != 1) {
-        b_acao.texto = aba == 0 ? _("Finalizar proceso") : aba == 2 ? _("Cerrar ventana") : _("Cerrar conexión");
+        b_acao.texto = aba == 0 || aba == ABA_DET ? _("Finalizar proceso") : aba == 2 ? _("Cerrar ventana") : _("Cerrar conexión");
         botao_desenhar(j, &b_acao);
     } else if (freq_controlavel()) {
         /* Rendimiento: la política del driver de frecuencia (D106); cada clic pasa a la siguiente. */
@@ -1287,11 +2007,15 @@ static void mudar_politica(void)
     freq_ok = frequencia_ler(&freq);
 }
 
+static unsigned sig_ant;   /* firma de lo dibujado en la tabla de procesos: sin cambios, no se repinta */
+
 static void desenhar_tudo(void)
 {
+    sig_ant = 0;
     g_retangulo(j, 0, PAINEL_Y + 1, LARG, ALT - PAINEL_Y - 1, COR_FUNDO);
     desenhar_abas();
-    if (aba == 0) desenhar_tabela();
+    if (aba == ABA_DET) desenhar_detalhes();
+    else if (aba == 0) desenhar_tabela();
     else if (aba == 1) desenhar_rendimento();
     else if (aba == 2) desenhar_janelas();
     else if (aba == ABA_SERV) desenhar_servicos();
@@ -1358,23 +2082,69 @@ static void registrar_amostra(void)
         if (freq_ok)
             registrar("tareas: frecuencia estado %u atual %d %u kHz limitada %u temp %d", freq.estado, freq.atual,
                       freq_mostrada(NULL), freq.limitada, freq.temp_mc);
+        /* D368: el recurso elegido y los datos de swap y disco (las pruebas los leen). */
+        registrar("tareas: recurso %s", nomes_r_log[rsel]);
+        registrar("tareas: swap tope %u KB almacen %u KB datos %u KB comprimida %u KB salidas %u entradas %u sale/s %u entra/s %u",
+                  mem.troca_teto_kb, mem.troca_armazem_kb, mem.troca_kb, mem.troca_comprimida_kb, mem.troca_saidas,
+                  mem.troca_entradas, swap_s_s, swap_e_s);
+        registrar("tareas: disco ativa %u bloques %u/%u sucios %u aciertos %u fallos %u grabados %u lee %u KB/s escribe %u KB/s",
+                  disco_i.ativa, disco_i.blocos, disco_i.max_blocos, disco_i.sujos, disco_i.acertos, disco_i.falhas,
+                  disco_i.gravados, disco_rd_s, disco_wr_s);
+        registrar("tareas: gpu 2d %s %u ops/s 3d %s %u cuadros/s bateria %d%%", a2d_ok && a2d.ativo ? a2d.nome : "cpu", gpu2d_s,
+                  g3d_ok && g3d.nome[0] ? g3d.nome : "software", gpu3d_s, bat_ok ? bat.porcentagem : -1);
+    }
+    else if (aba == ABA_DET) {
+        int nh = 0;
+        for (int i = 0; i < qtd_hilos; i++) if (hilos[i].pid == sel_pid) nh++;
+        registrar("tareas: detalles pid %d hilos %d extra %d nice %d", sel_pid, proc_por_pid(sel_pid) ? (int)proc_por_pid(sel_pid)->p.n_hilos : -1,
+                  nh, plan_ok ? plan_sel.nice : -99);
     }
     else if (maior)
         registrar("tareas: cpu %u%% mayor pid %d %s %u%%", (cpu_total10 + 5) / 10, maior->p.pid, maior->p.nome,
                   (maior->cpu10 + 5) / 10);
 }
 
+/* Firma de lo que dibuja la pestaña Procesos: si no cambia, no se repinta (el administrador casi no gasta CPU). */
+static unsigned assinatura_tabela(void)
+{
+    unsigned h = 2166136261u;
+#define MEZ(v) (h = (h ^ (unsigned)(v)) * 16777619u)
+    MEZ(qtd_procs); MEZ(ordem_col); MEZ(ordem_desc); MEZ(arbol); MEZ(col_vis); MEZ(sel_pid); MEZ(topo); MEZ(LARG); MEZ(ALT);
+    MEZ(pausado); MEZ(cpu_total10); MEZ(qtd_hist ? hist_mem[qtd_hist - 1] : 0); MEZ(mem.gerida_kb);
+    for (const char *c = filtro; *c; c++) MEZ(*c);
+    for (int i = 0; i < qtd_procs; i++) {
+        MEZ(procs[i].p.pid); MEZ(procs[i].p.estado); MEZ(procs[i].cpu10); MEZ(procs[i].p.memoria_kb);
+        MEZ(procs[i].p.n_hilos); MEZ(procs[i].p.cpu); MEZ(procs[i].p.janelas); MEZ(procs[i].p.cpu_ms / 1000);
+        MEZ(procs[i].nice);
+    }
+#undef MEZ
+    return h | 1;
+}
+
+static void atualizar_nice(void)
+{
+    querer_nice = (aba == 0 && (col_vis >> C_PRIO & 1)) || aba == ABA_DET;
+}
+
 static void atualizar(void)
 {
+    atualizar_nice();
     amostrar();
-    if (aba == 3) amostrar_red();   /* la red sólo se consulta con la pestaña a la vista */
+    if (aba == 3 || aba == 1) amostrar_red();   /* la red solo se consulta con la pestaña a la vista */
     if (aba == 1) amostrar_sensores();   /* los sensores también (D092) */
     if (aba == ABA_SERV) amostrar_servicos();   /* y los servicios (D216) */
+    if (aba == ABA_DET) amostrar_detalhes();
     registrar_amostra();
-    if (aba == 0) { desenhar_tabela(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
+    if (aba == 0) {
+        unsigned sig = assinatura_tabela();
+        if (sig == sig_ant) return;   /* nada ha cambiado desde el último dibujo */
+        sig_ant = sig;
+        desenhar_tabela(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A);
+    }
     else if (aba == 1) { desenhar_rendimento(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
     else if (aba == 2) { desenhar_janelas(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
     else if (aba == ABA_SERV) { desenhar_servicos(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
+    else if (aba == ABA_DET) { desenhar_detalhes(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
     else { desenhar_red(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
     desenhar_rodape();
     jan_mostrar_area(j, 0, BOT_Y - 6, LARG, ALT - BOT_Y + 6);
@@ -1429,13 +2199,13 @@ static bool dentro(const evento_t *e, int x, int y, int l, int a)
 /* Selección por teclado: se mueve en el orden mostrado. */
 static void mover_selecao(int delta)
 {
-    if (!qtd_procs) return;
     ordenar();
+    if (!nvis) return;
     int pos = -1;
-    for (int i = 0; i < qtd_procs; i++) if (procs[ordem[i]].p.pid == sel_pid) pos = i;
+    for (int i = 0; i < nvis; i++) if (procs[ordem[i]].p.pid == sel_pid) pos = i;
     pos = pos < 0 ? 0 : pos + delta;
     if (pos < 0) pos = 0;
-    if (pos >= qtd_procs) pos = qtd_procs - 1;
+    if (pos >= nvis) pos = nvis - 1;
     sel_pid = procs[ordem[pos]].p.pid;
     int vis = linhas_visiveis();
     if (pos < topo) topo = pos;
@@ -1444,40 +2214,156 @@ static void mover_selecao(int delta)
     jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A);
 }
 
+/* Menús del botón derecho (D368): en la cabecera, las columnas y el árbol; en una fila, las acciones. */
+#define MENU_COLS  8
+#define MENU_PROC  9
+enum { MP_FINALIZAR, MP_SEP1, MP_MAIS, MP_MENOS, MP_SEP2, MP_DETALHES };
+
+static void menu_colunas(const evento_t *e)
+{
+    char itens[400];
+    itens[0] = 0;
+    for (int c = C_PAI; c < QTD_COLUNAS; c++) {
+        char l[64];
+        formatar_texto(l, sizeof l, "%s%s\n", col_vis >> c & 1 ? "*" : "", _(colunas[c].titulo));
+        junta_texto(itens, l, sizeof itens);
+    }
+    junta_texto(itens, "-\n", sizeof itens);
+    junta_texto(itens, arbol ? "*" : "", sizeof itens);
+    junta_texto(itens, _("Árbol de procesos"), sizeof itens);
+    registrar("tareas: menu columnas");
+    menu_contextual(j->id, e->x, e->y, itens, MENU_COLS);
+}
+
+static void menu_proceso(const evento_t *e)
+{
+    const proc_t *p = proc_por_pid(sel_pid);
+    bool normal = p && p->p.pid != 0 && p->p.usuario;
+    char itens[256];
+    formatar_texto(itens, sizeof itens, "%s%s\n-\n%s%s\n%s%s\n-\n%s", normal ? "" : "~", _("Finalizar proceso"),
+                   normal ? "" : "~", _("Prioridad más alta"), normal ? "" : "~", _("Prioridad más baja"), p ? "" : "~");
+    junta_texto(itens, _("Detalles e hilos"), sizeof itens);
+    registrar("tareas: menu proceso pid %d", sel_pid);
+    menu_contextual(j->id, e->x, e->y, itens, MENU_PROC);
+}
+
+/* Cambia el nice del proceso elegido en `delta` (negativo = más prioridad: pide administrador, D269). */
+static void mudar_prioridade(int delta)
+{
+    const proc_t *p = proc_por_pid(sel_pid);
+    info_planificacion_t pi;
+    if (!p || planificacion_info(p->p.pid, &pi) != 0) return;
+    int nn = pi.nice + delta;
+    if (nn < -20) nn = -20;
+    if (nn > 19) nn = 19;
+    int pid = p->p.pid;
+    int r = COM_ADMIN("cambiar la prioridad de un proceso", prioridade_processo(pid, nn));
+    registrar("tareas: prioridad pid %d %d -> %d: %d", pid, pi.nice, nn, r);
+    if (r < 0) {
+        char t[160];
+        formatar_texto(t, sizeof t, _("No se pudo cambiar la prioridad del proceso %d:\n%s"), pid, nome_erro(r));
+        mensagem(_("Prioridad"), t);
+    }
+}
+
+static void ir_detalhes(void);
+
 static void tratar_tabela(const evento_t *e)
 {
+    if (e->tipo == EV_MENU && (int)e->tecla == MENU_COLS) {
+        int n = QTD_COLUNAS - C_PAI;
+        if (e->x < n) {
+            col_vis ^= 1u << (C_PAI + e->x);
+            registrar("tareas: columnas 0x%x", col_vis);
+        } else if (e->x == n + 1) {
+            arbol = !arbol;
+            registrar("tareas: arbol %s", arbol ? "si" : "no");
+        }
+        atualizar_nice();
+        if (querer_nice) amostrar();
+        desenhar_tabela();
+        jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A);
+        return;
+    }
+    if (e->tipo == EV_MENU && (int)e->tecla == MENU_PROC) {
+        if (e->x == MP_FINALIZAR) { finalizar_selecionado(); atualizar(); }
+        else if (e->x == MP_MAIS) { mudar_prioridade(-5); atualizar(); }
+        else if (e->x == MP_MENOS) { mudar_prioridade(5); atualizar(); }
+        else if (e->x == MP_DETALHES) ir_detalhes();
+        return;
+    }
     if (e->tipo == EV_TECLA) {
-        if (e->tecla == TECLA_BAIXO) mover_selecao(1);
-        else if (e->tecla == TECLA_CIMA) mover_selecao(-1);
-        else if (e->tecla == TECLA_PGDN) mover_selecao(linhas_visiveis());
-        else if (e->tecla == TECLA_PGUP) mover_selecao(-linhas_visiveis());
-        else if (e->tecla == TECLA_DELETE) { finalizar_selecionado(); atualizar(); }
+        unsigned k = e->tecla;
+        if (k == TECLA_BAIXO) mover_selecao(1);
+        else if (k == TECLA_CIMA) mover_selecao(-1);
+        else if (k == TECLA_PGDN) mover_selecao(linhas_visiveis());
+        else if (k == TECLA_PGUP) mover_selecao(-linhas_visiveis());
+        else if (k == TECLA_DELETE) { finalizar_selecionado(); atualizar(); }
+        else if (k == TECLA_ESC || k == 8 || k == 127 || (k >= 32 && k < 256 && !(e->modificadores & 6))) {
+            size_t n = tam_texto(filtro);
+            if (k == TECLA_ESC) filtro[0] = 0;
+            else if (k == 8 || k == 127) { if (n) filtro[n - 1] = 0; }
+            else if (n + 1 < sizeof filtro) { filtro[n] = (char)k; filtro[n + 1] = 0; }
+            else return;
+            topo = 0;
+            registrar("tareas: buscar \"%s\"", filtro);
+            desenhar_tabela();
+            jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A);
+            desenhar_rodape();
+            jan_mostrar_area(j, 0, BOT_Y - 6, LARG, ALT - BOT_Y + 6);
+        }
         return;
     }
     if (e->tipo != EV_CLIQUE || !dentro(e, TAB_X, TAB_Y, TAB_L, TAB_A)) return;
-    if (e->y < TAB_Y + 1 + CAB_A) {   /* cabecera: ordena */
+    bool direito = (e->botoes & 2) != 0;
+    if (e->y < TAB_Y + 1 + CAB_A) {   /* cabecera: ordena (botón derecho: columnas) */
+        if (direito) { menu_colunas(e); return; }
         int x = TAB_X + 1;
-        for (int c = 0; c < QTD_COLUNAS; x += colunas[c].l, c++) {
-            if (e->x < x || e->x >= x + colunas[c].l) continue;
-            if (c == ordem_col) ordem_desc = !ordem_desc;
-            else { ordem_col = c; ordem_desc = c >= C_CPU; }   /* números grandes primeiro */
-            registrar("tareas: ordenar por %s %s", colunas[c].titulo, ordem_desc ? "desc" : "asc");
-            break;
+        for (int c = 0; c < QTD_COLUNAS; c++) {
+            if (!(col_vis >> c & 1)) continue;
+            if (e->x >= x && e->x < x + colunas[c].l) {
+                if (c == ordem_col) ordem_desc = !ordem_desc;
+                else { ordem_col = c; ordem_desc = c >= C_CPU; }   /* números grandes primero */
+                registrar("tareas: ordenar por %s %s", colunas[c].titulo, ordem_desc ? "desc" : "asc");
+                break;
+            }
+            x += colunas[c].l;
         }
     } else if (e->x >= TAB_X + TAB_L - BARRA_L - 1) {   /* barra de rolagem */
         int vis = linhas_visiveis();
         topo += e->y < TAB_Y + TAB_A / 2 ? -vis : vis;
     } else {
         int k = (e->y - (TAB_Y + 1 + CAB_A + 2)) / LIN_A;
-        if (k >= 0 && topo + k < qtd_procs) {
+        if (k >= 0 && topo + k < nvis) {
             ordenar();
             const proc_t *p = &procs[ordem[topo + k]];
             sel_pid = p->p.pid;
             registrar("tareas: seleccionado pid %d (%s)", p->p.pid, p->p.nome);
+            if (e->cliques == 2 && !direito) { ir_detalhes(); return; }
         }
+        if (direito && sel_pid >= 0) { desenhar_tabela(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); menu_proceso(e); return; }
     }
     desenhar_tabela();
     jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A);
+}
+
+static void mudar_aba(int i)
+{
+    aba = i;
+    registrar("tareas: pestana %s", nomes_log[i]);
+    atualizar_nice();
+    if (aba == 3) amostrar_red();   /* a velocidade aparece na amostra seguinte */
+    if (aba == 1) { amostrar_red(); amostrar_sensores(); }
+    if (aba == ABA_SERV) { amostrar(); amostrar_servicos(); }
+    if (aba == ABA_DET) { amostrar(); amostrar_detalhes(); }
+    desenhar_tudo();
+    registrar_amostra();
+}
+
+static void ir_detalhes(void)
+{
+    if (sel_pid < 0) return;
+    mudar_aba(ABA_DET);
 }
 
 int principal(int argc, char **argv)
@@ -1507,15 +2393,7 @@ int principal(int argc, char **argv)
             }
             if (e.tipo == EV_CLIQUE && e.y >= ABA_Y - 3 && e.y < PAINEL_Y) {
                 for (int i = 0; i < QTD_ABAS; i++)
-                    if (e.x >= abas_x[i] && e.x < abas_x[i] + abas_l[i] && aba != i) {
-                        aba = i;
-                        registrar("tareas: pestana %s", nomes_log[i]);
-                        if (aba == 3) amostrar_red();   /* a velocidade aparece na amostra seguinte */
-                        if (aba == 1) amostrar_sensores();
-                        if (aba == ABA_SERV) { amostrar(); amostrar_servicos(); }
-                        desenhar_tudo();
-                        registrar_amostra();
-                    }
+                    if (e.x >= abas_x[i] && e.x < abas_x[i] + abas_l[i] && aba != i) mudar_aba(i);
                 continue;
             }
             if (botao_tratar(j, &b_pausa, &e)) {
@@ -1554,7 +2432,7 @@ int principal(int argc, char **argv)
                 continue;
             }
             if (aba != 1 && botao_tratar(j, &b_acao, &e)) {
-                if (aba == 0) finalizar_selecionado();
+                if (aba == 0 || aba == ABA_DET) finalizar_selecionado();
                 else if (aba == 2) cerrar_ventana();
                 else fechar_conexao();
                 dormir(100);   /* deja que el proceso (o la ventana) termine antes de mirar de nuevo */
@@ -1563,7 +2441,9 @@ int principal(int argc, char **argv)
                 continue;
             }
             if (aba == 0) tratar_tabela(&e);
-            else if (aba == 3) {
+            else if (aba == 1) {
+                if (tratar_rendimento(&e)) { desenhar_rendimento(); jan_mostrar_area(j, TAB_X, TAB_Y, TAB_L, TAB_A); }
+            } else if (aba == 3) {
                 if (e.tipo == EV_MOVER) continue;
                 tratar_red(&e);
                 if (red_mudou) { red_mudou = false; dormir(100); amostrar_red(); }

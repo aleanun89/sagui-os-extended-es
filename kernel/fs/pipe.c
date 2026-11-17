@@ -15,6 +15,7 @@
 #include "memoria.h"
 #include "processo.h"
 #include "sistema.h"
+#include "texto.h"
 
 pipe_t *pipe_criar(void)
 {
@@ -62,6 +63,10 @@ void pipe_fechar_ponta(pipe_t *p, bool escrita)
 {
     if (escrita) p->escritores--; else p->leitores--;
     acordar(p);   /* un lector esperando necesita descubrir que terminó */
-    if (p->leitores <= 0 && p->escritores <= 0)
+    if (p->leitores <= 0 && p->escritores <= 0) {
+        /* D372: lo que quede en el búfer puede ser secreto (una contraseña para admin, el .conf de
+         * la VPN con su clave privada que wg-quick pasa al demonio): no se deja en la memoria libre. */
+        memset(p, 0, sizeof *p);
         kfree(p);
+    }
 }

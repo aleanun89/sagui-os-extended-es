@@ -203,6 +203,27 @@ static void testar_chacha(void)
     conferir_bool("ChaCha20-Poly1305 rechaza datos alterados", !chachapoly_decifrar(k, n, aad, 12, saida, buf, npt, tag));
 }
 
+/* D363: BLAKE2s (RFC 7693 apéndice B y la KAT con clave de BLAKE2), HMAC-BLAKE2s y HChaCha20
+ * (draft-irtf-cfrg-xchacha 2.2.1): lo que añade el WireGuard. */
+static void testar_wireguard(void)
+{
+    uint8_t h[32], k[32], n[16];
+    blake2s(h, 32, NULL, 0, "abc", 3);
+    conferir("BLAKE2s-256 abc", h, "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982");
+    for (int i = 0; i < 32; i++) k[i] = (uint8_t)i;
+    blake2s(h, 32, k, 32, "", 0);
+    conferir("BLAKE2s con clave (KAT 0)", h, "48a8997da407876b3d79c0d92325ad3b89cbb754d86ab71aee047ad345fd2c49");
+    hex("000000090000004a0000000031415927", n);
+    hchacha20(k, n, h);
+    conferir("HChaCha20", h, "82413b4227b27bfed30e42508a877d73a0f9e4d58a74a853c12ec41326d3ecdc");
+    uint8_t x[24], c[16 + 16], v[16];
+    memset(x, 7, sizeof x);
+    xchachapoly_cifrar(k, x, n, 16, k, c, 16, c + 16);
+    bool ok = xchachapoly_decifrar(k, x, n, 16, c, v, 16, c + 16) && memcmp(v, k, 16) == 0;
+    c[3] ^= 1;
+    conferir_bool("XChaCha20-Poly1305 ida y vuelta, adulterado rechazado", ok && !xchachapoly_decifrar(k, x, n, 16, c, v, 16, c + 16));
+}
+
 static void testar_x25519(void)
 {
     uint8_t e[32], u[32], r[32], a[32], b[32], pa[32], pb[32];
@@ -425,6 +446,7 @@ int principal(int argc, char **argv)
     }
     testar_chacha();
     testar_x25519();
+    testar_wireguard();
     testar_ed25519();
     testar_ecc();
     testar_rsa();

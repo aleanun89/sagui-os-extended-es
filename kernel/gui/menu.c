@@ -31,6 +31,7 @@
 #include "teclado.h"
 #include "texto.h"
 #include "video.h"
+#include "versao.h"
 
 #define LINHA_A    22    /* altura de una línea con texto */
 #define SEP_A      9     /* altura de un separador */
@@ -70,10 +71,28 @@ static struct {
     int  np;                       /* paneles abiertos; el último es el que tiene el teclado */
     menu_resposta_t resposta;
     int  janela, dado;
+    char faixa[24];                /* D361: texto de la franja lateral del primer panel ("" = sin franja) */
+    int  tema;                     /* 1 = clásico (gris y azul marino) */
 } m;
 
-bool menu_aberto(void) { return m.aberto; }
+static int ancora_acima = -1;      /* D361: el menú que se abre ahora termina en esta y (la barra abajo) */
+static char faixa_pendente[24];
+static int  tema_pendente;
+#define FAIXA_L 26                 /* ancho de la franja lateral del estilo clásico */
+
+extern const unsigned char fonte_sagui[256][16];
+
+void menu_ancorar_acima(int y) { ancora_acima = y; }
+void menu_decorar(const char *faixa, int tema)
+{
+    faixa_pendente[0] = 0;
+    if (faixa) { int i = 0; while (faixa[i] && i < (int)sizeof faixa_pendente - 1) { faixa_pendente[i] = faixa[i]; i++; } faixa_pendente[i] = 0; }
+    tema_pendente = tema;
+}
+
+bool menu_aberto(void) { return m.aberto || inicio_painel_aberto(); }
 int  menu_janela(void) { return m.aberto ? m.janela : 0; }
+static bool tem_faixa(const painel_t *p) { return m.faixa[0] && p->pai < 0; }
 
 static int altura_item(int i) { return m.tipo[i] == ITEM_SEPARADOR ? SEP_A : LINHA_A; }
 static bool visivel(int i, int pai) { return m.pai[i] == pai && m.tipo[i] != ITEM_FIM; }
@@ -184,6 +203,7 @@ static int medir(painel_t *p)
         alt += altura_item(i);
         n++;
     }
+    if (tem_faixa(p)) larg += FAIXA_L;
     p->l = larg; p->a = alt; p->icones = ic;
     return n;
 }
@@ -262,13 +282,21 @@ static void fechar_com(int indice)
     if (r) r(indice, janela, dado);
 }
 
-void menu_cancelar(void) { fechar_com(-1); }
+void menu_cancelar(void)
+{
+    if (inicio_painel_aberto()) inicio_painel_fechar();
+    fechar_com(-1);
+}
 
 bool menu_abrir_icones(int x, int y, const char *itens, const desenho_t *const *icones, menu_resposta_t resposta,
                        int janela, int dado)
 {
     if (!gui_ativa()) return false;
     menu_cancelar();   /* uno a la vez: el anterior responde -1 */
+    int ancora = ancora_acima;
+    ancora_acima = -1;
+    for (int i = 0; i < (int)sizeof m.faixa; i++) m.faixa[i] = faixa_pendente[i];
+    m.tema = tema_pendente;
     m.qtd = ler_itens(itens);
     for (int i = 0; i < m.qtd; i++) {
         separar_atalho(m.texto[i]);
@@ -284,7 +312,8 @@ bool menu_abrir_icones(int x, int y, const char *itens, const desenho_t *const *
      * arriba; si ni así cabe, se pega al borde. */
     int L = (int)video_largura(), A = (int)video_altura();
     if (x + p->l > L) x -= p->l;
-    if (y + p->a > A) y -= p->a;
+    if (ancora >= 0) y = ancora - p->a;   /* D361: la barra está abajo: el menú sube desde su borde */
+    else if (y + p->a > A) y -= p->a;
     if (x + p->l > L) x = L - p->l;
     if (y + p->a > A) y = A - p->a;
     if (x < 0) x = 0;
@@ -352,6 +381,7 @@ static void apontar(int k, int i, bool clique)
 
 bool menu_tratar_mouse(int x, int y, unsigned botoes, unsigned mudaram)
 {
+    if (inicio_painel_aberto()) return inicio_painel_mouse(x, y, botoes, mudaram);
     if (!m.aberto) return false;
     unsigned apertou = mudaram & botoes;
     int k = painel_em(x, y);
@@ -402,6 +432,7 @@ void menu_destacar_primeira(void)
 
 bool menu_tratar_tecla(int t)
 {
+    if (inicio_painel_aberto()) return inicio_painel_tecla(t);
     if (!m.aberto) return false;
     int k = m.np - 1;
     painel_t *p = &m.p[k];
@@ -448,28 +479,61 @@ static void visto(superficie_t *t, int x, int y, uint32_t cor)
     for (int k = 0; k < 7; k++) sup_retangulo(t, x + k, y + dy[k], 1, 2, cor);
 }
 
+/* D361: texto en vertical, de abajo arriba (como las franjas laterales de los menús clásicos). */
+static void texto_vertical(superficie_t *t, int x, int ybase, const char *txt, uint32_t cor)
+{
+    for (int k = 0; txt[k]; k++) {
+        const unsigned char *g = fonte_sagui[(uint8_t)txt[k]];
+        for (int j = 0; j < 16; j++)
+            for (int i = 0; i < 8; i++)
+                if (g[j] & (0x80 >> i)) {
+                    int px = x + j, py = ybase - k * 8 - i;
+                    if (px >= t->cx0 && px < t->cx1 && py >= t->cy0 && py < t->cy1) t->px[py * t->larg + px] = cor;
+                }
+    }
+}
+
+/* La franja lateral del estilo clásico: un degradado vertical de azul marino a azul claro y el nombre del sistema. */
+static void desenhar_faixa(superficie_t *t, painel_t *p)
+{
+    for (int j = 0; j < p->a - 2; j++) {
+        int k = j * 255 / (p->a > 3 ? p->a - 3 : 1);   /* 0 arriba, 255 abajo */
+        /* abajo (k = 255) el azul marino; arriba el azul claro */
+        uint32_t rr = (uint32_t)(0x6C + (0x08 - 0x6C) * k / 255), gv = (uint32_t)(0x9C + (0x24 - 0x9C) * k / 255),
+                 bb = (uint32_t)(0xD8 + (0x6A - 0xD8) * k / 255);
+        sup_retangulo(t, p->x + 1, p->y + 1 + j, FAIXA_L - 2, 1, rr << 16 | gv << 8 | bb);
+    }
+    texto_vertical(t, p->x + 5, p->y + p->a - 8, m.faixa, 0xFFFFFF);
+    texto_vertical(t, p->x + 6, p->y + p->a - 8, m.faixa, 0xFFFFFF);   /* negrita */
+}
+
 static void desenhar_painel(superficie_t *t, painel_t *p)
 {
+    bool classico = m.tema == 1;
+    uint32_t fundo_c = classico ? 0xD4D0C8 : COR_FUNDO_MENU, destaque_c = classico ? 0x0A246A : COR_DESTAQUE;
+    int dx = tem_faixa(p) ? FAIXA_L : 0;
     sombra(t, p->x + p->l, p->y + SOMBRA, SOMBRA, p->a);
     sombra(t, p->x + SOMBRA, p->y + p->a, p->l - SOMBRA, SOMBRA);
-    sup_retangulo(t, p->x, p->y, p->l, p->a, COR_FUNDO_MENU);
-    sup_moldura(t, p->x, p->y, p->l, p->a, COR_BORDA_MENU);
-    sup_retangulo(t, p->x + 1, p->y + 1, 3, p->a - 2, COR_DESTAQUE);   /* la franja verde de la marca */
-    int y = p->y + 2, tx = p->x + (p->icones ? MARGEM_ICONE : MARGEM_X);
+    sup_retangulo(t, p->x, p->y, p->l, p->a, fundo_c);
+    sup_moldura(t, p->x, p->y, p->l, p->a, classico ? 0x404040 : COR_BORDA_MENU);
+    if (classico) { sup_retangulo(t, p->x + 1, p->y + 1, p->l - 2, 1, 0xFFFFFF); sup_retangulo(t, p->x + 1, p->y + 1, 1, p->a - 2, 0xFFFFFF); }
+    if (dx) desenhar_faixa(t, p);
+    else if (!classico) sup_retangulo(t, p->x + 1, p->y + 1, 3, p->a - 2, COR_DESTAQUE);   /* la franja verde de la marca */
+    int y = p->y + 2, tx = p->x + dx + (p->icones ? MARGEM_ICONE : MARGEM_X);
     for (int i = 0; i < m.qtd; i++) {
         if (!visivel(i, p->pai)) continue;
         int h = altura_item(i);
         if (m.tipo[i] == ITEM_SEPARADOR) {
-            sup_retangulo(t, p->x + 8, y + SEP_A / 2, p->l - 16, 1, COR_SEPARADOR);
+            sup_retangulo(t, p->x + 8 + dx, y + SEP_A / 2, p->l - 16 - dx, 1, classico ? 0x808080 : COR_SEPARADOR);
         } else {
             bool ativo = escolhivel(i);
             uint32_t cor = ativo ? COR_TEXTO_MENU : COR_DESATIVADO;
             if (i == p->sel) {
-                sup_retangulo(t, p->x + 4, y, p->l - 6, h, COR_DESTAQUE);
+                sup_retangulo(t, p->x + 4 + dx, y, p->l - 6 - dx, h, destaque_c);
                 cor = 0xFFFFFF;
             }
-            if (m.icone[i]) sup_desenho_metade(t, p->x + 12, y + (h - 16) / 2, m.icone[i]);
-            if (m.marcada[i]) visto(t, p->x + 5 + (p->icones ? 20 : 0), y + (h - 8) / 2, cor);
+            if (m.icone[i]) sup_desenho_metade(t, p->x + 12 + dx, y + (h - 16) / 2, m.icone[i]);
+            if (m.marcada[i]) visto(t, p->x + 5 + dx + (p->icones ? 20 : 0), y + (h - 8) / 2, cor);
             sup_texto(t, tx, y + (h - 16) / 2, m.texto[i], cor);
             const char *at = atalho_de(i);
             if (*at)
@@ -483,6 +547,7 @@ static void desenhar_painel(superficie_t *t, painel_t *p)
 
 void menu_desenhar(superficie_t *t)
 {
+    inicio_painel_desenhar(t);
     if (!m.aberto) return;
     for (int k = 0; k < m.np; k++) desenhar_painel(t, &m.p[k]);
 }

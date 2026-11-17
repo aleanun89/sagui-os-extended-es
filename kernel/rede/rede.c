@@ -34,6 +34,7 @@
 #include "aleatorio.h"
 #include "bloqueo.h"
 #include "wifi.h"
+#include "tunel.h"
 
 #define ETH_IP   0x0800
 #define ETH_ARP  0x0806
@@ -122,11 +123,41 @@ static void descartar(int motivo, const uint8_t *q, uint32_t n)
 placa_t *rede_placa(void) { return tem_placa ? &placa : NULL; }
 bool rede_pronta(void) { return tem_placa && meu_ip; }
 uint32_t rede_meu_ip(void) { return meu_ip; }
-uint32_t rede_origem_para(uint32_t destino) { return (destino >> 24) == 127 ? LO_IP : meu_ip; }
-bool rede_eh_local(uint32_t ip) { return (ip >> 24) == 127 || (meu_ip && ip == meu_ip); }
 uint8_t *rede_carga(void) { return quadro + 14 + 20; }
 static uint32_t agora(void) { return relogio_tiques(); }
 static bool passou(uint32_t t) { return (int32_t)(agora() - t) >= 0; }
+
+/* D363: el túnel (wg0, tunel.c). Un destino va por él si su ruta más larga en el túnel
+ * es al menos tan larga como la red local de la interfaz física: con AllowedIPs =
+ * 0.0.0.0/0 todo va por el túnel salvo la red local (como wg-quick con su regla
+ * «suppress_prefixlength 0»). El demonio del túnel marca su socket (OPC_FISICA) y
+ * sus datagramas salen siempre por la física: rede_forcar_fisica vale mientras se
+ * manda uno. La difusión y el multicast nunca van por el túnel. */
+bool rede_forcar_fisica;
+static uint32_t bits_de(uint32_t m) { uint32_t b = 0; while (b < 32 && (m & (0x80000000u >> b))) b++; return b; }
+static bool pelo_tunel(uint32_t destino)
+{
+    if (rede_forcar_fisica || destino == IP_TODOS || (destino >> 28) >= 14 || (destino >> 24) == 127) return false;
+    int lt = tunel_casamento(destino);
+    if (lt < 0) return false;
+    int lf = (meu_ip && mascara && ((destino ^ meu_ip) & mascara) == 0) ? (int)bits_de(mascara) : -1;
+    return lt >= lf;
+}
+static bool eh_meu(uint32_t ip) { return ip && (ip == meu_ip || ip == tunel_ip()); }
+uint32_t rede_origem_para(uint32_t destino)
+{
+    if ((destino >> 24) == 127) return LO_IP;
+    if (pelo_tunel(destino)) return tunel_ip();
+    return meu_ip;
+}
+bool rede_eh_local(uint32_t ip) { return (ip >> 24) == 127 || eh_meu(ip); }
+/* El MSS del TCP según por dónde sale: 1460 por Ethernet, MTU - 40 por el túnel (1380 con 1420). */
+uint32_t rede_mss_para(uint32_t destino)
+{
+    if (pelo_tunel(destino) && tunel_mtu() > 40 + 536) return tunel_mtu() - 40;
+    return 1460;
+}
+static uint32_t dns_atual(void) { uint32_t d = tunel_dns(); return d ? d : servidor_dns; }
 
 uint32_t soma_parcial(uint32_t s, const uint8_t *p, uint32_t n)
 {
@@ -305,7 +336,9 @@ static bool lo_enfileirar(const uint8_t *pacote, uint32_t n)
     return true;
 }
 
-static void ip_chegou(const uint8_t *h, uint32_t n, bool do_lo);
+/* De dónde viene un paquete: del cable, del bucle local o del túnel (D363). */
+enum { DE_CABO, DE_LO, DE_TUNEL };
+static void ip_chegou(const uint8_t *h, uint32_t n, int de);
 
 static void lo_processar(void)
 {
@@ -314,7 +347,7 @@ static void lo_processar(void)
         memcpy(lo_atual, lo_fila[lo_ini].p, n);   /* a vaga fica livre para as respostas */
         lo_ini = (lo_ini + 1) % LO_FILA;
         lo_qtd--;
-        ip_chegou(lo_atual, n, true);
+        ip_chegou(lo_atual, n, DE_LO);
     }
 }
 
@@ -322,7 +355,8 @@ bool ip_enviar(uint32_t destino, uint8_t protocolo, uint32_t n)
 {
     static uint16_t ident;
     bool local = rede_eh_local(destino);
-    if ((!tem_placa && !local) || n > ETH_MAX - 34) return false;
+    bool tunel = !local && pelo_tunel(destino);
+    if ((!tem_placa && !local && !tunel) || n > ETH_MAX - 34) return false;
     uint8_t *h = quadro + 14;
     h[0] = 0x45; h[1] = 0;
     poe16(h + 2, (uint16_t)(20 + n));
@@ -334,6 +368,7 @@ bool ip_enviar(uint32_t destino, uint8_t protocolo, uint32_t n)
     poe32(h + 16, destino);
     poe16(h + 10, soma_final(soma_parcial(0, h, 20)));
     if (local) return lo_enfileirar(h, 20 + n);
+    if (tunel) return tunel_enviar(h, 20 + n);   /* D363: el demonio lo cifra y lo manda */
 
     if (destino == IP_TODOS || (meu_ip && mascara && destino == (meu_ip | ~mascara))) {
         eth_enviar(difusao, ETH_IP, quadro, 20 + n);
@@ -446,7 +481,7 @@ static void eco_enviar(espera_t *e, uint16_t seq, uint32_t dados)
 static void icmp_chegou(uint32_t origem, uint32_t destino, uint8_t ttl, const uint8_t *c, uint32_t n)
 {
     if (n < 8 || soma_final(soma_parcial(0, c, n)) != 0) return;
-    if (c[0] == 8 && c[1] == 0 && (destino == meu_ip || (destino >> 24) == 127) && n <= ETH_MAX - 34) {   /* alguém pingou o SaguiOS */
+    if (c[0] == 8 && c[1] == 0 && (eh_meu(destino) || (destino >> 24) == 127) && n <= ETH_MAX - 34) {   /* alguém pingou o SaguiOS */
         uint8_t *r = rede_carga();
         memmove(r, c, n);
         r[0] = 0;
@@ -820,7 +855,7 @@ int32_t sis_resolver(uint32_t pnome, uint32_t pip, uint32_t servidor, uint32_t p
         uint32_t ip;
         if (!servidor && dns_no_cache(nome, &ip)) { *(uint32_t *)pip = ip; return 0; }
         if (!rede_pronta()) return ERRO_SEM_REDE;
-        if (!servidor) servidor = servidor_dns;
+        if (!servidor) servidor = dns_atual();
         if (!servidor) return ERRO_INALCANCAVEL;
         if (porta == 0 || porta > 65535) porta = PORTA_DNS;
         e = espera_nova(ESP_DNS, 5000);
@@ -834,7 +869,7 @@ int32_t sis_resolver(uint32_t pnome, uint32_t pip, uint32_t servidor, uint32_t p
         dns_perguntar(e);            /* UDP pode se perder: pergunta de novo */
     }
     uint32_t ip = e->ip, ttl = e->ttl;
-    bool por_padrao = e->servidor == servidor_dns && e->porta_srv == PORTA_DNS;
+    bool por_padrao = e->servidor == dns_atual() && e->porta_srv == PORTA_DNS;
     char nome[64];
     txt_copia_n(nome, e->nome, sizeof nome);
     int32_t r = espera_continuar(e, 0);
@@ -855,7 +890,7 @@ static void udp_chegou(uint32_t origem, uint32_t destino, const uint8_t *u, uint
     if (be16(u + 6) && soma_pseudo(origem, destino, IP_UDP, u, tam) != 0) { placa.rx_erros++; return; }
     uint16_t po = be16(u), pd = be16(u + 2);
     if (pd == PORTA_DHCP_CLIENTE && po == PORTA_DHCP_SERVIDOR) { dhcp_chegou(u + 8, tam - 8); return; }
-    if ((destino >> 24) != 127 && (!meu_ip || (destino != meu_ip && destino != IP_TODOS && destino != (meu_ip | ~mascara))))
+    if ((destino >> 24) != 127 && !eh_meu(destino) && (!meu_ip || (destino != IP_TODOS && destino != (meu_ip | ~mascara))))
         return;
     if (pd >= 50000 && pd < 50000 + 0x2000) {
         for (int i = 0; i < ESPERAS; i++)
@@ -864,8 +899,9 @@ static void udp_chegou(uint32_t origem, uint32_t destino, const uint8_t *u, uint
     udp_chegou_socket(origem, destino, po, pd, u + 8, tam - 8);
 }
 
-static void ip_chegou(const uint8_t *h, uint32_t n, bool do_lo)
+static void ip_chegou(const uint8_t *h, uint32_t n, int de)
 {
+    bool do_lo = de != DE_CABO;   /* sin trama Ethernet: el registro de descartes no la enseña */
     if (n < 20 || (h[0] >> 4) != 4) return;
     uint32_t cab = (h[0] & 15) * 4u, total = be16(h + 2);
     if (cab < 20 || total < cab || total > n || soma_final(soma_parcial(0, h, cab)) != 0) { placa.rx_erros++; return; }
@@ -875,15 +911,29 @@ static void ip_chegou(const uint8_t *h, uint32_t n, bool do_lo)
     uint32_t origem = be32(h + 12), destino = be32(h + 16);
     bool para_lo = (destino >> 24) == 127;
     /* 127.x vindo do cabo é falsificado (RFC 1122, "martian"): fora. */
-    if (!do_lo && (para_lo || (origem >> 24) == 127)) { descartar(DESC_FALSO_127, chegada, n + 14); return; }
+    if (de != DE_LO && (para_lo || (origem >> 24) == 127)) { descartar(DESC_FALSO_127, do_lo ? NULL : chegada, n + 14); return; }
     bool difusao_ip = destino == IP_TODOS || (meu_ip && destino == (meu_ip | ~mascara));
-    if (meu_ip && destino != meu_ip && !difusao_ip && !para_lo) return;
+    /* D363, revisión de seguridad: el demonio del túnel puede ser cualquier programa de la sesión
+     * local (no hace falta root), así que lo que escribe se trata como lo que llega de un cable
+     * ajeno y se filtra en las dos direcciones:
+     *   - por el túnel solo entra lo que va a la dirección del túnel y viene de un origen que
+     *     respondemos por el túnel (filtro de camino inverso estricto, el AllowedIPs del kernel):
+     *     nada que se haga pasar por la red local, por el servidor DNS o DHCP de la física;
+     *   - por el cable no entra nada para la dirección del túnel: un vecino de la red local no
+     *     puede meterse en las conexiones de la VPN falsificando el origen de un par. */
+    if (de == DE_TUNEL && (difusao_ip || destino != tunel_ip() || !pelo_tunel(origem))) { tunel_descarte(origem, destino); return; }
+    if (de == DE_CABO && tunel_ativo() && destino == tunel_ip() && destino != meu_ip) return;
+    if ((meu_ip || de == DE_TUNEL) && !eh_meu(destino) && !difusao_ip && !para_lo) return;
     if (origem == IP_TODOS || (origem >> 28) == 14) return;   /* origem de difusão ou multicast: inválida */
     const uint8_t *c = h + cab;
     uint32_t t = total - cab;
     if (h[9] == IP_ICMP && (meu_ip || do_lo)) icmp_chegou(origem, destino, h[8], c, t);
-    else if (h[9] == IP_UDP) udp_chegou(origem, destino, c, t);
-    else if (h[9] == IP_TCP && ((meu_ip && destino == meu_ip) || para_lo)) tcp_receber(origem, destino, c, t);
+    else if (h[9] == IP_UDP) {
+        /* D363: el DHCP solo por la física (por el túnel cambiaría la dirección y la puerta de enlace) */
+        if (de == DE_TUNEL && (t < 4 || be16(c + 2) == PORTA_DHCP_CLIENTE)) { tunel_descarte(origem, destino); return; }
+        udp_chegou(origem, destino, c, t);
+    }
+    else if (h[9] == IP_TCP && (eh_meu(destino) || para_lo)) tcp_receber(origem, destino, c, t);
 }
 
 static void processar_chegadas(void)
@@ -904,7 +954,7 @@ static void processar_chegadas(void)
         }
         uint16_t tipo = be16(chegada + 12);
         if (tipo == ETH_ARP) arp_chegou(chegada + 14, (uint32_t)n - 14);
-        else if (tipo == ETH_IP) ip_chegou(chegada + 14, (uint32_t)n - 14, false);
+        else if (tipo == ETH_IP) ip_chegou(chegada + 14, (uint32_t)n - 14, DE_CABO);
         else {
             descarte_ultimo_tipo = tipo;
             descartar(tipo == 0x86DD ? DESC_IPV6 : (tipo == 0x8100 || tipo == 0x88A8) ? DESC_VLAN : DESC_TIPO,
@@ -966,6 +1016,7 @@ static void tarefa_rede(void *arg)
         int_desliga();
         processar_chegadas();
         lo_processar();
+        tunel_processar();
         arp_tique();
         dhcp_tique();
         tcp_tique();
@@ -1169,6 +1220,20 @@ static void reiniciar_ip(void)
     for (int i = 0; i < DNS_CACHE; i++) dns_cache[i].usado = false;
 }
 
+/* D363: un paquete que el demonio del túnel descifró (tunel_processar, en la tarea de la red). */
+void rede_tunel_chegou(const uint8_t *p, uint32_t n)
+{
+    static uint8_t copia[1500];   /* ip_chegou puede responder (y montar) en "quadro", nunca aquí */
+    if (n > sizeof copia) return;
+    memcpy(copia, p, n);
+    ip_chegou(copia, n, DE_TUNEL);
+}
+
+void rede_dns_limpar(void)
+{
+    for (int i = 0; i < DNS_CACHE; i++) dns_cache[i].usado = false;
+}
+
 /* D238: lo llama wifi.c al dejar tramas en su cola de llegada. */
 void rede_acordar(void)
 {
@@ -1240,12 +1305,13 @@ int32_t rede_info(uint32_t tipo, uint32_t ptr, uint32_t n)
     }
     if (tipo == INFO_INTERFACES) {
         info_rede_t *v = (info_rede_t *)ptr;
-        if (n > 4) n = 4;
+        if (n > 5) n = 5;
         if (!usuario_ok(v, n * sizeof *v, true)) return ERRO_ENDERECO;
         uint32_t k = 0;
         if (k < n && (tem_placa || so_detectada)) info_preencher(&v[k++], true);
         if (k < n && wifi_ativa && eth_tinha) info_inativa(&v[k++], &placa_eth, "eth0");
         if (k < n && !wifi_ativa && wlan) info_inativa(&v[k++], wlan, "wlan0");
+        if (k < n && tunel_ativo()) tunel_info_rede(&v[k++]);   /* D363 */
         if (k < n) info_lo(&v[k++]);
         return (int32_t)k;
     }
@@ -1306,7 +1372,7 @@ int32_t sis_config_rede(uint32_t op, uint32_t ptr, uint32_t c, uint32_t d, uint3
     (void)c; (void)d; (void)e_;
     config_rede_t *cfg = (config_rede_t *)ptr;
     bool sem_ponteiro = op == REDE_DHCP || op == REDE_EXPERIMENTAL || op == REDE_RENOVAR || op == REDE_DESATIVAR ||
-                        op == REDE_ATIVAR || op == REDE_FECHAR || op == REDE_AJUSTAR_DRIVER;
+                        op == REDE_ATIVAR || op == REDE_FECHAR || op == REDE_AJUSTAR_DRIVER || op == REDE_TUNEL_DESLIGAR;
     if (!sem_ponteiro && !usuario_ok(cfg, sizeof *cfg, op == REDE_CONSULTAR)) return ERRO_ENDERECO;
     switch (op) {
     case REDE_CONSULTAR:
@@ -1386,6 +1452,8 @@ int32_t sis_config_rede(uint32_t op, uint32_t ptr, uint32_t c, uint32_t d, uint3
         return 0;
     case REDE_FECHAR:
         return tcp_abortar(ptr);
+    case REDE_TUNEL_DESLIGAR:
+        return tunel_pedir_desligar();
     case REDE_AJUSTAR_DRIVER: {
         /* D124: ajustes en caliente del driver experimental, para probar
          * variantes en el hardware real sin recompilar. */

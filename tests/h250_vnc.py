@@ -265,12 +265,12 @@ def _prueba(m, porta):
     # --- contraseña y red local
     out = m.comando("vncd --clave " + CLAVE)
     verificar("contraseña guardada" in out, "vncd --clave guarda la contraseña")
-    m.comando("echo escuchar=red-local > /home/.config/vncd.conf")
-    m.comando("echo bloqueo_fallos=3 >> /home/.config/vncd.conf")
-    m.comando("echo bloqueo_segundos=10 >> /home/.config/vncd.conf")
-    m.comando("echo max_clientes=2 >> /home/.config/vncd.conf")
-    m.comando("echo fps_max=15 >> /home/.config/vncd.conf")
-    m.comando("echo indicador=no >> /home/.config/vncd.conf")   # D273: la ventana indicadora cambiaría la pantalla entre capturas
+    m.comando("echo escuchar=red-local >> /etc/vnc/vncd.conf")   # D371: con SAGUI-CONF, /home/.config/vncd.conf solo da fps_max
+    m.comando("echo bloqueo_fallos=3 >> /etc/vnc/vncd.conf")
+    m.comando("echo bloqueo_segundos=10 >> /etc/vnc/vncd.conf")
+    m.comando("echo max_clientes=2 >> /etc/vnc/vncd.conf")
+    m.comando("echo fps_max=15 >> /etc/vnc/vncd.conf")
+    m.comando("echo indicador=no >> /etc/vnc/vncd.conf")   # D273: la ventana indicadora cambiaría la pantalla entre capturas
     marca = len(m.serial())
     m.comando("servicio iniciar vncd", 30)
     esperar_log(m, "vncd: escuchando en el puerto 5900", 30, marca)

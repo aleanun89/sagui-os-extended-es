@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-only
+# Abre el generador de imágenes de SaguiOS (ventana Tkinter; D370). Ver docs/generador.md.
+exec python3 "$(dirname "$(readlink -f "$0")")/generador.py" "$@"

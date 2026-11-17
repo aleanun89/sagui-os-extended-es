@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, imagem_console, criar_pendrive, pendrive_qemu, RAIZ, SAIDA  # noqa: E402
 import h70_sonido as h70  # noqa: E402
 import h83_configuracion as h83  # noqa: E402
+import conf_arbol as ca  # noqa: E402
 
 DIR = os.path.join(SAIDA, "h200")
 
@@ -130,10 +131,13 @@ def provar_gui():
         time.sleep(1.0)
         j = h83.janela(m.serial(), "Configuración")
         ox, oy = j["x"] + 2, j["y"] + 24
-        pos = h83.pos_paginas()
-        m.clique(ox + pos[3][0] + pos[3][1] // 2, oy + 24)
+        v = dict(x=ox, y=oy, l=j["l"], a=j["a"])
+        ca.ir(m, v, "sonido")
         time.sleep(0.6)
-        m.clique(ox + 60 + 2 * 84, oy + 50 + 250 + 24)        # 1 kHz, a un cuarto del carril: +6 dB
+        ca.al_final(m, v)                                      # el ecualizador está al final del panel
+        R = ca.rol_max(ca.SND_TOTAL, j["a"])
+        time.sleep(0.4)
+        m.clique(*ca.panel(v, 30 + 40 + 2 * 84, ca.SND["eq_y0"] + 24, R))   # 1 kHz, a un cuarto del carril: +6 dB
         time.sleep(0.6)
         s = m.serial()
         verificar("[AUDIO] ecualizador activo: 0 0 6 0 0 dB" in s, "clic en el deslizador de 1 kHz: +6 dB en el kernel")
@@ -143,11 +147,11 @@ def provar_gui():
         out = m.comando("cat /home/.config/sagui.conf")
         verificar("ecualizador=0,0,6,0,0" in out, "el deslizador guarda ecualizador=0,0,6,0,0")
         m.clique(300, 12)                                      # y vuelve a Configuración
-        m.clique(ox + 500 + 75, oy + 50 + 250 + 46 + 13)       # Voz
+        m.clique(*ca.panel(v, 30 + 40 + 4 * 84 + 46 + 55, ca.SND["eq_y0"] - 4 + 2 * 30 + 13, R))   # Voz
         time.sleep(0.6)
         verificar("[AUDIO] ecualizador activo: -3 -1 3 3 -2 dB" in m.serial(), "el botón Voz aplica el preajuste")
         m.captura("H200-2-sonido-voz")
-        m.clique(ox + 500 + 75, oy + 50 + 250 - 14 + 13)       # Plano
+        m.clique(*ca.panel(v, 30 + 40 + 4 * 84 + 46 + 55, ca.SND["eq_y0"] - 4 + 13, R))   # Plano
         time.sleep(0.6)
         verificar("[AUDIO] ecualizador plano" in m.serial(), "el botón Plano vuelve a la derivación total")
         m.clique(150, 12)

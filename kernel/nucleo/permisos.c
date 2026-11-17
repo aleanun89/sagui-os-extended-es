@@ -52,6 +52,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_REGISTRAR] = L,
     [SIS_HORA] = O,                        /* leer sí; ajustar el reloj, no */
     [SIS_ZONA] = O,                        /* leer sí; cambiar la zona del sistema, no */
+    [SIS_CRIAR_WIDGET] = L,                /* D365: ventana de escritorio, como cualquier ventana */
     [SIS_IDIOMA] = L,                      /* D313: el idioma es preferencia del usuario */
     /* Apagar y reiniciar: la sesión local sí (como el botón de encendido); un servicio o SSH, no */
     [SIS_REINICIAR] = O, [SIS_DESLIGAR] = O,
@@ -79,7 +80,8 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_DESMONTAR] = L,                   /* D336: "sync" (vaciar cachés) es libre; desmontar se niega dentro (discos.c) */
     [SIS_DISCO_BLOCOS] = O,                /* solo DBLOCO_INFO; leer en crudo saltaría todas las protecciones */
     /* Red: usar la red es libre; configurarla, no */
-    [SIS_SOCKET] = L, [SIS_CONECTAR] = L, [SIS_ESCUTAR] = L, [SIS_ACEITAR] = L,
+    [SIS_SOCKET] = O,                      /* D363: TCP y UDP libres; SOCK_TUN (la VPN), solo root (D372) */
+    [SIS_CONECTAR] = L, [SIS_ESCUTAR] = L, [SIS_ACEITAR] = L,
     [SIS_ENVIAR_PARA] = L, [SIS_RECEBER_DE] = L, [SIS_RESOLVER] = L, [SIS_PING] = L,
     [SIS_OPCAO_SOCKET] = L, [SIS_ESPERAR_REDE] = L,
     [SIS_CONFIG_REDE] = O,                 /* solo REDE_CONSULTAR */
@@ -199,7 +201,14 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_DISCO_BLOCOS:
         return a == DBLOCO_INFO;
     case SIS_CONFIG_REDE:
-        return a == REDE_CONSULTAR;
+        /* D363/D372: apagar el túnel (wg-quick down) sí lo puede la sesión local sin elevar: apagar
+         * devuelve el tráfico a la red física, que es lo seguro (encender, en cambio, es de root). */
+        return a == REDE_CONSULTAR || (a == REDE_TUNEL_DESLIGAR && !eu->de_servico);
+    case SIS_SOCKET:
+        /* D372: crear la interfaz del túnel (encender la VPN) es solo de root: desvía el tráfico y el
+         * DNS de todo el sistema. La sesión local lo pide con el diálogo de administrador (wg-quick,
+         * la ventana de la VPN) y el demonio corre como root. TCP y UDP siguen libres. */
+        return a != SOCK_TUN;
     case SIS_WIFI:
         /* D354: conectar y desconectar el Wi-Fi, como apagar: la sesión local sí (sin ser root);
          * un servicio o una sesión SSH que no es de root, no. */
@@ -486,6 +495,11 @@ int permisos_remover(const char *caminho)
     char pasta[CAMINHO_MAX];
     pasta_de(caminho, pasta);
     meta_t mp, mx;
+    /* D371: /home es de sagui (D340), así que sin esto sagui podía renombrar o quitar la carpeta de otra
+     * cuenta (/home/ana, aunque sea 0700: basta escribir en /home) y dejar en su sitio una suya con lo que
+     * quisiera dentro. Lo que cuelga directamente de /home solo lo borra o renombra su dueño (o root). */
+    if (dentro(pasta, "/home") && !pasta[5] && vfs_meta(caminho, &mx) == 0 && mx.uid != eu->uid)
+        return negar(eu, "borrar o renombrar (carpeta de otra cuenta)", caminho);
     if (vfs_meta(pasta, &mp) < 0 || !(mp.modo & MODO_PEGAJOSO) || mp.uid == eu->uid) return 0;
     if (vfs_meta(caminho, &mx) < 0 || mx.uid == eu->uid) return 0;
     return negar(eu, "borrar (carpeta pegajosa)", caminho);

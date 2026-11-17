@@ -1,0 +1,11 @@
+Programas de ejemplo en Go (TinyGo) para SaguiOS. Ver docs/go.md del repositorio.
+
+  hola        fmt y matemáticas
+  argumentos  argumentos de la línea de órdenes y variables de entorno
+  ficheros    leer, escribir y listar carpetas
+  goroutines  goroutines, canales y sync.WaitGroup
+  tiempo      time.Now, time.Sleep, cronómetro y temporizador
+  contar      cuenta líneas, palabras y bytes (como wc)
+  adivinar    juego de adivinar el número
+  json        encoding/json con structs
+  acentos     UTF-8 de Go y Latin-1 del terminal

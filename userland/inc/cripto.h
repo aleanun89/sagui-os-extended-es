@@ -40,7 +40,20 @@ void sha384_iniciar(sha512_t *c);
 void sha512_somar(sha512_t *c, const void *d, unsigned n);
 void sha512_fim(sha512_t *c, uint8_t *saida);   /* 48 o 64 bytes según el iniciar */
 
-typedef union { sha256_t s256; sha512_t s512; } hash_ctx_t;
+/* BLAKE2s (RFC 7693), D363: el hash del WireGuard. tam = bytes de salida (1-32);
+ * con clave (hasta 32 bytes) es el MAC del WireGuard (16 bytes de salida). */
+typedef struct {
+    uint32_t h[8], t[2];
+    uint8_t  bloco[64];
+    unsigned usados, tam;
+} blake2s_t;
+void blake2s_iniciar(blake2s_t *c, unsigned tam);
+void blake2s_iniciar_chave(blake2s_t *c, unsigned tam, const void *chave, unsigned nchave);
+void blake2s_somar(blake2s_t *c, const void *dados, unsigned n);
+void blake2s_fim(blake2s_t *c, uint8_t *saida);   /* borra el contexto */
+void blake2s(uint8_t *saida, unsigned tam, const void *chave, unsigned nchave, const void *dados, unsigned n);
+
+typedef union { sha256_t s256; sha512_t s512; blake2s_t b2s; } hash_ctx_t;
 typedef struct {
     const char *nome;
     unsigned tam, bloco;
@@ -48,7 +61,7 @@ typedef struct {
     void (*somar)(hash_ctx_t *c, const void *d, unsigned n);
     void (*fim)(hash_ctx_t *c, uint8_t *saida);
 } hash_alg_t;
-extern const hash_alg_t HASH_SHA256, HASH_SHA384, HASH_SHA512;
+extern const hash_alg_t HASH_SHA256, HASH_SHA384, HASH_SHA512, HASH_BLAKE2S;
 void hash_calcular(const hash_alg_t *h, const void *d, unsigned n, uint8_t *saida);
 
 /* ---- HMAC (RFC 2104), HKDF (RFC 5869) y el PRF del TLS 1.2 (RFC 5246) ---- */
@@ -95,6 +108,13 @@ void chachapoly_cifrar(const uint8_t chave[32], const uint8_t nonce[12], const u
                        const uint8_t *entrada, uint8_t *saida, unsigned n, uint8_t tag[16]);
 bool chachapoly_decifrar(const uint8_t chave[32], const uint8_t nonce[12], const uint8_t *aad, unsigned naad,
                          const uint8_t *entrada, uint8_t *saida, unsigned n, const uint8_t tag[16]);
+/* HChaCha20 y XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha), D363: las cookies del WireGuard.
+ * Nonce de 24 bytes; el resto, como chachapoly_*. */
+void hchacha20(const uint8_t chave[32], const uint8_t nonce[16], uint8_t subchave[32]);
+void xchachapoly_cifrar(const uint8_t chave[32], const uint8_t nonce[24], const uint8_t *aad, unsigned naad,
+                        const uint8_t *entrada, uint8_t *saida, unsigned n, uint8_t tag[16]);
+bool xchachapoly_decifrar(const uint8_t chave[32], const uint8_t nonce[24], const uint8_t *aad, unsigned naad,
+                          const uint8_t *entrada, uint8_t *saida, unsigned n, const uint8_t tag[16]);
 
 /* ---- X25519 (RFC 7748) ---- */
 void x25519(uint8_t saida[32], const uint8_t escalar[32], const uint8_t ponto[32]);

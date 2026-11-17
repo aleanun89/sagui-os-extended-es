@@ -23,6 +23,7 @@
 #include "relogio.h"
 #include "sistema.h"
 #include "texto.h"
+#include "tunel.h"
 
 #define UDP_FILA_MAX   32
 #define UDP_BYTES_MAX  (64 * 1024)
@@ -37,7 +38,8 @@ typedef struct datagrama {
 } datagrama_t;
 
 struct socket {
-    int       tipo;              /* SOCK_TCP, SOCK_UDP */
+    int       tipo;              /* SOCK_TCP, SOCK_UDP, SOCK_TUN (D363) */
+    bool      fisica;            /* UDP, OPC_FISICA (D363): sale siempre por la interfaz física */
     int       pid;
     uint32_t  tempo_ms;          /* 0 = sem limite */
     uint32_t  prazo;             /* tique em que a espera atual desiste (0 = nenhuma) */
@@ -146,7 +148,10 @@ static int32_t udp_mandar(socket_t *s, const char *buf, uint32_t n, uint32_t ip,
     int32_t r = udp_ligar(s);
     if (r < 0) return r;
     memcpy(rede_carga() + 8, buf, n);
-    if (!udp_enviar(ip, s->porta_local, (uint16_t)porta, n)) return ERRO_INALCANCAVEL;
+    rede_forcar_fisica = s->fisica;
+    bool ok = udp_enviar(ip, s->porta_local, (uint16_t)porta, n);
+    rede_forcar_fisica = false;
+    if (!ok) return ERRO_INALCANCAVEL;
     return (int32_t)n;
 }
 
@@ -175,6 +180,11 @@ int udp_listar(void *v, int max)
 int32_t socket_ler(socket_t *s, char *buf, uint32_t n)
 {
     if (s->tipo == SOCK_UDP) return pronto(s, udp_receber(s, buf, n, NULL));
+    if (s->tipo == SOCK_TUN) {   /* D363: el siguiente paquete que la pila manda por el túnel */
+        int32_t r = tunel_ler(s, buf, n);
+        if (r == SIS_REPETIR) r = esperar(s, tunel_canal());
+        return pronto(s, r);
+    }
     if (!s->tcp || s->escutando || s->conectando) return ERRO_INVALIDO;
     int32_t r = tcp_ler(s->tcp, buf, n);
     if (r == SIS_REPETIR) r = esperar(s, s->tcp);
@@ -183,6 +193,7 @@ int32_t socket_ler(socket_t *s, char *buf, uint32_t n)
 
 int32_t socket_escrever(socket_t *s, const char *buf, uint32_t n)
 {
+    if (s->tipo == SOCK_TUN) return tunel_escrever(s, buf, n);
     if (s->tipo == SOCK_UDP) {
         if (!s->ip_destino) return ERRO_INVALIDO;   /* sem destino: use enviar_para */
         return udp_mandar(s, buf, n, s->ip_destino, s->porta_destino);
@@ -196,6 +207,7 @@ int32_t socket_escrever(socket_t *s, const char *buf, uint32_t n)
 int32_t socket_disponivel(socket_t *s)
 {
     if (s->tipo == SOCK_UDP) return s->primeiro ? (int32_t)s->primeiro->n : 0;
+    if (s->tipo == SOCK_TUN) return tunel_disponivel(s);
     if (!s->tcp || s->conectando) return 0;
     return tcp_disponivel(s->tcp);
 }
@@ -203,6 +215,7 @@ int32_t socket_disponivel(socket_t *s)
 void socket_fechar(socket_t *s)
 {
     if (s->tcp) tcp_soltar(s->tcp);
+    if (s->tipo == SOCK_TUN) tunel_fechar(s);   /* D363: la interfaz, sus rutas y su DNS se van con el demonio */
     if (s->tipo == SOCK_UDP) {
         for (socket_t **p = &udps; *p; p = &(*p)->prox)
             if (*p == s) { *p = s->prox; break; }
@@ -230,9 +243,13 @@ static socket_t *socket_novo(int tipo)
 int32_t sis_socket(uint32_t tipo, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 {
     (void)b; (void)c; (void)d; (void)e;
-    if (tipo != SOCK_TCP && tipo != SOCK_UDP) return ERRO_INVALIDO;
+    if (tipo != SOCK_TCP && tipo != SOCK_UDP && tipo != SOCK_TUN) return ERRO_INVALIDO;
     socket_t *s = socket_novo((int)tipo);
     if (!s) return ERRO_SEM_MEMORIA;
+    if (tipo == SOCK_TUN) {   /* D363: el permiso (solo root, D372) ya lo miró permisos.c */
+        int32_t r = tunel_abrir(s);
+        if (r < 0) { kfree(s); return r; }
+    }
     int fd = arquivos_novo_socket(s);
     if (fd < 0) socket_fechar(s);
     return fd;
@@ -244,6 +261,7 @@ int32_t sis_conectar(uint32_t fd, uint32_t ip, uint32_t porta, uint32_t d, uint3
     (void)d; (void)e;
     socket_t *s = pegar(fd);
     if (!s) return ERRO_DESCRITOR;
+    if (s->tipo == SOCK_TUN) return ERRO_INVALIDO;
     if (porta == 0 || porta > 65535 || ip == 0 || ip == IP_TODOS) return ERRO_INVALIDO;
     if (s->tipo == SOCK_UDP) {
         int32_t r = udp_ligar(s);
@@ -277,6 +295,7 @@ int32_t sis_escutar(uint32_t fd, uint32_t porta, uint32_t fila, uint32_t d, uint
     (void)d; (void)e;
     socket_t *s = pegar(fd);
     if (!s) return ERRO_DESCRITOR;
+    if (s->tipo == SOCK_TUN) return ERRO_INVALIDO;
     if (porta == 0 || porta > 65535) return ERRO_INVALIDO;
     if (s->tipo == SOCK_UDP) {
         if (s->porta_local) return ERRO_JA_EXISTE;
@@ -408,6 +427,23 @@ int32_t sis_opcao_socket(uint32_t fd, uint32_t opcao, uint32_t valor, uint32_t d
     case OPC_ESTADO:
         if (s->tipo == SOCK_UDP) return CON_UDP;
         return s->tcp ? (int32_t)tcp_estado(s->tcp) : CON_FECHADA;
+    case OPC_FISICA:
+        /* D363: saltarse las rutas del túnel es cosa de su demonio: si no, cualquier programa podría
+         * sacar tráfico por fuera de la VPN. D372: el demonio es root, así que basta con exigir root
+         * (antes valía también el dueño del túnel, que podía ser un programa de la sesión local). */
+        if (s->tipo != SOCK_UDP) return ERRO_INVALIDO;
+        if (processo_recursos()->uid != 0) return ERRO_ACESSO;
+        s->fisica = valor != 0;
+        return 0;
+    case OPC_TUN_CONFIG:
+        if (s->tipo != SOCK_TUN) return ERRO_INVALIDO;
+        /* D372: dirección, rutas y DNS, solo root, aunque el descriptor haya acabado en otras manos
+         * (un demonio que soltase la elevación después de abrirlo no puede cambiar las rutas). */
+        if (processo_recursos()->uid != 0) return ERRO_ACESSO;
+        return tunel_configurar(s, valor);
+    case OPC_TUN_ESTADO:
+        if (s->tipo != SOCK_TUN) return ERRO_INVALIDO;
+        return tunel_publicar(s, valor);
     }
     return ERRO_INVALIDO;
 }

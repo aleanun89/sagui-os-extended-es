@@ -1,0 +1,22 @@
+# Traducción de SaguiOS: catálogo «widget-sistema», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/widget-sistema.c:40
+msgid "Memoria"
+msgstr ""
+
+#: userland/programas/widget-sistema.c:45
+msgid "Bajada"
+msgstr ""
+
+#: userland/programas/widget-sistema.c:51
+msgid "Subida"
+msgstr ""
+

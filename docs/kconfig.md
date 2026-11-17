@@ -32,6 +32,15 @@ kconfig -h                                # qué hace cada opción y su rango
 | `swap` | si, no | swap comprimida en la RAM (D352) |
 | `swap_mb` | auto, 4-1024 | tope de la swap comprimida (automático: la mitad de la RAM) |
 
+## Dependencias entre opciones (D367)
+
+Algunas opciones dependen de otras y `kconfig` no guarda una combinación sin sentido: `nx` y `cache_alta` requieren `pae`;
+`cache_alta`, `escritura_diferida`, `cache_max_mb`, `sucios_max_mb` y `vaciado_s` dependen de `cache_disco`; `swap_mb` de `swap` y
+`gobernador` de `frecuencia`. Al apagar el padre, lo que requiere (`nx`, `cache_alta`) se apaga solo y lo dice; lo que solo «no
+tiene efecto» no se puede fijar mientras el padre esté apagado (`kconfig: combinación no válida`, no se guarda nada). La tabla está en
+`userland/libsagui/conf_reglas.c`. El DMA del disco lo manda esta cabecera: Configuración > Aceleración > Disco la lee y no la pisa al
+arrancar.
+
 ## En Configuración
 
 **Configuración > Pantalla > Kernel**: las mismas opciones, con su valor de ahora y el del próximo arranque (en naranja

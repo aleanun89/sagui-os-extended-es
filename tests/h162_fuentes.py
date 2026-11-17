@@ -30,7 +30,7 @@ APPS = os.path.join(BUILD, "apps", "raiz")
 TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red", "Escritorio remoto",
                "Mandos", "Usuarios")
 Y_PAG = 50
-FN_VX, FN_VY, FN_VL, FN_VA = 24 + 270 + 16, Y_PAG + 24, 840 - (24 + 270 + 16) - 24, 190
+FN_VX, FN_VY, FN_VA = 24 + 230 + 16, 24, 190   # coordenadas locales del panel (D367); FN_VL = LARG - FN_VX - 24
 BORDA, TITULO = 2, 24
 
 
@@ -159,38 +159,33 @@ def parte_b(m):
     time.sleep(1.5)
     j = janela(m.serial(), "Configuración")
     ox, oy = j["x"] + BORDA, j["y"] + TITULO
-    pos = []
-    suma = sum(len(t) * 8 for t in TITULOS_PAG)
-    relleno = 10   # como traducir_rotulos() de la ventana (D145, issue #43, D340)
-    while relleno > 1 and 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4:
-        relleno -= 1
-    x = 4 if 10 + suma + len(TITULOS_PAG) * (relleno + 1) > 788 - 4 else 10
-    for t in TITULOS_PAG:
-        l = len(t) * 8 + relleno
-        pos.append((x, l))
-        x += l + 1
-    m.clique(ox + pos[7][0] + pos[7][1] // 2, oy + 24)
+    import conf_arbol as ca
+    v = dict(x=ox, y=oy, l=j["l"], a=j["a"])
+    px, py, pw, ph = ca.geometria(j["l"], j["a"])
+    FN_VL = (pw + 22) - FN_VX - 24
+    bot_y = ph - 30                                      # la fila de botones de abajo
+    ca.ir(m, v, "fuentes")
     time.sleep(1.5)
     png1 = m.captura("H162-2-config-fuentes")
-    o1, g1, _, _ = tinta(region(png1, ox + FN_VX + 2, oy + FN_VY + 2, FN_VL - 4, FN_VA - 4))
+    o1, g1, _, _ = tinta(region(png1, *ca.panel(v, FN_VX + 2, FN_VY + 2), FN_VL - 4, FN_VA - 4))
     verificar(o1 > 300 and g1 > 100, f"B: la vista previa dibuja texto con antialias (oscuros {o1}, grises {g1})")
     # otra fuente de la lista: la vista cambia
-    m.clique(ox + 24 + 100, oy + Y_PAG + 34 + 3 * 20 + 10)
+    m.clique(*ca.panel(v, 24 + 100, 34 + 3 * 20 + 10))
     time.sleep(1.2)
     png2 = m.captura("H162-3-config-otra-fuente")
-    r1 = region(png1, ox + FN_VX + 2, oy + FN_VY + 2, FN_VL - 4, FN_VA - 4)
-    r2 = region(png2, ox + FN_VX + 2, oy + FN_VY + 2, FN_VL - 4, FN_VA - 4)
+    r1 = region(png1, *ca.panel(v, FN_VX + 2, FN_VY + 2), FN_VL - 4, FN_VA - 4)
+    r2 = region(png2, *ca.panel(v, FN_VX + 2, FN_VY + 2), FN_VL - 4, FN_VA - 4)
     difer = sum(1 for a, b in zip(r1, r2) for p, q in zip(a, b) if abs(p - q) > 40)
     verificar(difer > 500, f"B: al elegir otra fuente cambia la vista previa ({difer} píxeles distintos)")
     # «Para documentos» (fila 3) y «Para títulos» (fila 5)
-    m.clique(ox + FN_VX + 75, oy + Y_PAG + 276 + 14)
+    m.clique(*ca.panel(v, 24 + 70, bot_y + 14))
     time.sleep(1)
-    m.clique(ox + 24 + 100, oy + Y_PAG + 34 + 5 * 20 + 10)
+    m.clique(*ca.panel(v, 24 + 100, 34 + 5 * 20 + 10))
     time.sleep(1)
-    m.clique(ox + FN_VX + 158 + 60, oy + Y_PAG + 276 + 14)
+    m.clique(*ca.panel(v, 172 + 55, bot_y + 14))
     time.sleep(1)
     m.captura("H162-4-config-elegidas")
-    m.clique(ox + 740 - 110 + 48, oy + 500 - 40 + 14)   # Cerrar
+    m.clique(*ca.boton_pie(v, "aceptar"))   # Aceptar
     time.sleep(1)
     out = m.comando("cat /tmp/fuentes.conf").replace("\r", "")
     d = re.search(r"fuente_documentos=(/apps/fuentes/\S+\.otf)", out)

@@ -641,6 +641,7 @@ void area_fundo_fim(void)
 /* D340: empieza otra sesión (o se cerró una): las casillas de los iconos son las de su carpeta. */
 void area_sessao_nova(void)
 {
+    gui_widgets_sessao_nova();   /* D365: los widgets de la sesión anterior terminan */
     permisos_sessao_caminho(conf_escritorio, sizeof conf_escritorio, "/.config/escritorio.conf");
     permisos_sessao_caminho(conf_novo, sizeof conf_novo, "/.config/escritorio.conf.nuevo");
     criterio = ORD_MANUAL;
@@ -984,7 +985,7 @@ void area_icone_direito(int i, int x, int y)
  * el Administrador de tareas, la configuración de la pantalla con el submenú de las
  * resoluciones (D066) y el "Acerca de". Cada línea lleva una acción; las de los
  * íconos son el propio índice del ícono. */
-enum { AF_TAREFAS = 100, AF_PANTALLA, AF_RESOLUCAO = 200, AF_ORD_NOME = 300, AF_ORD_TIPO, AF_ORD_FECHA, AF_ALINHAR, AF_AUTO };
+enum { AF_TAREFAS = 100, AF_PANTALLA, AF_WIDGETS, AF_WIDGETS_EDITAR, AF_RESOLUCAO = 200, AF_ORD_NOME = 300, AF_ORD_TIPO, AF_ORD_FECHA, AF_ALINHAR, AF_AUTO };
 #define RES_MAX 24
 
 static menu_lista_t menu_fundo;
@@ -1068,6 +1069,11 @@ static void resposta_fundo(int indice, int janela, int dado)
     int acao = menu_lista_acao(&menu_fundo, indice);
     if (acao == AF_TAREFAS) gui_abrir_tarefas();
     else if (acao == AF_PANTALLA) area_abrir_pantalla();
+    else if (acao == AF_WIDGETS) {   /* D365: el gestor de widgets (un solo ejemplar) */
+        char *argv[] = { "widgets", NULL };
+        gui_abrir_unico("widgets", "/bin/widgets", 1, argv);
+    }
+    else if (acao == AF_WIDGETS_EDITAR) gui_widgets_editar(!gui_widgets_editando());
     else if (area_resposta_resolucao(acao)) {}
     else if (acao >= AF_ORD_NOME && acao <= AF_AUTO) ordenar_por_menu(acao);
     else if (acao >= 0 && acao < QTD_ICONES) area_icone_abrir(acao);
@@ -1085,6 +1091,11 @@ void area_menu_fundo(int x, int y)
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
     menu_lista_linha(ml, _("Administrador de tareas"), AF_TAREFAS, NULL);
     menu_lista_linha(ml, _("Configuración de pantalla..."), AF_PANTALLA, NULL);
+    menu_lista_linha(ml, _("Añadir widgets..."), AF_WIDGETS, NULL);   /* D365 */
+    if (gui_widgets_contar() > 0) {
+        snformatar(t, sizeof t, "%s%s", gui_widgets_editando() ? "*" : "", _("Editar widgets"));
+        menu_lista_linha(ml, t, AF_WIDGETS_EDITAR, NULL);
+    }
     area_menu_resolucao(ml);
     snformatar(t, sizeof t, ">%s", _("Ordenar iconos"));
     menu_lista_linha(ml, t, MENU_NADA, NULL);   /* D268 */

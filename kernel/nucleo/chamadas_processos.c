@@ -181,6 +181,39 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         }
         return (int32_t)k;
     }
+    if (tipo == INFO_HILOS) {   /* D366 */
+        info_hilo_t *v = (info_hilo_t *)ptr;
+        if (n > MAX_PROCESSOS) n = MAX_PROCESSOS;
+        if (!usuario_ok(v, n * sizeof *v, true)) return ERRO_ENDERECO;
+        uint32_t k = 0;
+        for (int i = 1; i < MAX_PROCESSOS && k < n; i++) {
+            processo_t *t = processo_indice(i);
+            if (t->estado == P_LIVRE || !t->lider) continue;
+            v[k].tid = t->pid;
+            v[k].pid = t->lider->pid;
+            v[k].estado = t->estado;
+            v[k].cpu_ms = t->tiques_cpu * (1000 / TIQUES_POR_SEGUNDO);
+            v[k].cpu = t->cpu;
+            k++;
+        }
+        return (int32_t)k;
+    }
+    if (tipo == INFO_DISCO_CACHE) {   /* D368 */
+        if (n < sizeof(info_disco_cache_t)) return ERRO_INVALIDO;
+        info_disco_cache_t *d = (info_disco_cache_t *)ptr;
+        if (!usuario_ok(d, sizeof *d, true)) return ERRO_ENDERECO;
+        cache_disco_est_t e;
+        cache_disco_estatisticas(&e);
+        info_disco_cache_t r;
+        memset(&r, 0, sizeof r);
+        r.versao = 1;
+        r.ativa = e.max_blocos != 0;
+        r.blocos = e.blocos; r.max_blocos = e.max_blocos; r.sujos = e.sujos;
+        r.acertos = e.acertos; r.falhas = e.falhas; r.anticipados = e.anticipados;
+        r.gravados = e.gravados; r.vaciados = e.vaciados; r.diretos = e.diretos; r.erros = e.erros;
+        *d = r;
+        return 0;
+    }
     if (tipo == INFO_PILHAS) {   /* D186 */
         info_pilha_t *v = (info_pilha_t *)ptr;
         if (n > MAX_PROCESSOS) n = MAX_PROCESSOS;
@@ -236,6 +269,8 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         return modos_info_tela(ptr);
     }
     if (tipo == INFO_APARENCIA) return aparencia_info(ptr, n);   /* D112 */
+    if (tipo == INFO_BARRA) return barra_info(ptr, n);   /* D361 */
+    if (tipo == INFO_BARRA_GRAVAR) return barra_gravar(ptr, n);   /* D361 */
     if (tipo == INFO_JANELAS) {   /* D043: el administrador de tareas lista las ventanas */
         if (n > 64) n = 64;
         if (!usuario_ok((void *)ptr, n * sizeof(info_janela_t), true)) return ERRO_ENDERECO;
@@ -269,6 +304,10 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_AUDIO) {   /* D088 */
         int32_t audio_info(uint32_t ptr, uint32_t n);
         return audio_info(ptr, n);
+    }
+    if (tipo == INFO_WG) {   /* D363: el túnel WireGuard (sin secretos) */
+        int32_t tunel_info(uint32_t ptr, uint32_t n);
+        return tunel_info(ptr, n);
     }
     if ((tipo >= INFO_REDE && tipo <= INFO_ARP) || (tipo >= INFO_INTERFACES && tipo <= INFO_TRAFEGO)) {
         int32_t rede_info(uint32_t tipo, uint32_t ptr, uint32_t n);

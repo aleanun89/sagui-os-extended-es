@@ -32,7 +32,6 @@
 #define CONEXOES   32
 #define RX_TAM     32768
 #define TX_TAM     16384
-#define MEU_MSS    1460
 #define RTO_MIN    (TIQUES_POR_SEGUNDO / 5)    /* 200 ms */
 #define RTO_MAX    (10 * TIQUES_POR_SEGUNDO)
 #define TENTATIVAS 8
@@ -93,7 +92,7 @@ static void segmento_para(uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, u
     poe16(t + 14, janela);
     poe16(t + 16, 0);
     poe16(t + 18, 0);
-    if (flags & F_SYN) { t[20] = 2; t[21] = 4; poe16(t + 22, MEU_MSS); }   /* opção MSS */
+    if (flags & F_SYN) { t[20] = 2; t[21] = 4; poe16(t + 22, (uint16_t)rede_mss_para(ip)); }   /* opção MSS (D363: menor por el túnel) */
     for (uint32_t i = 0; i < n; i++) t[cab + i] = c->tx[(c->tx_ini + desloc + i) % TX_TAM];
     poe16(t + 16, soma_pseudo(rede_origem_para(ip), ip, IP_TCP, t, cab + n));
     ip_enviar(ip, IP_TCP, cab + n);
@@ -236,7 +235,7 @@ static void ler_mss(tcp_t *c, const uint8_t *t, uint32_t cab)
         if (t[i] == 2 && t[i + 1] == 4) c->mss = be16(t + i + 2);
         i += t[i + 1];
     }
-    if (c->mss > MEU_MSS) c->mss = MEU_MSS;
+    if (c->mss > rede_mss_para(c->ip)) c->mss = rede_mss_para(c->ip);   /* D363: 1380 por el túnel */
     if (c->mss < 64) c->mss = 64;
 }
 

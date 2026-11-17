@@ -266,6 +266,12 @@ cat > "$BASE/env.sh" <<'EOF'
 SAGUI_ROOT="$HOME/.local/saguitools/root"
 SAGUI_EXTRA="$HOME/.local/saguitools/extra"
 export PATH="$HOME/.local/saguitools/bin:$SAGUI_ROOT/usr/bin:$SAGUI_ROOT/usr/sbin:$SAGUI_ROOT/sbin:$SAGUI_EXTRA/usr/bin${PATH:+:$PATH}"
+# Go con TinyGo (D364, tools/tinygo_entorno.sh): solo si esta instalado.
+for _d in "$HOME/.local/saguitools/tinygo/bin" "$HOME/.local/saguitools/go/bin"; do
+    [ -d "$_d" ] && PATH="$_d:$PATH"
+done
+unset _d
+export PATH
 # Las herramientas del propio checkout (convert, identify) van delante: cada
 # copia de trabajo (miniOS_master_os_*) usa las suyas, no las de otra copia.
 if [ -x "${PWD:-}/tools/convert" ]; then

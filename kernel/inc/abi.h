@@ -192,7 +192,16 @@
 #define SIS_IDIOMA        138
 #define IDIOMA_LER        0   /* (buf, n) -> 0: nombre del idioma actual ("es", "pt_BR", "en", "xx") */
 #define IDIOMA_FIXAR      1   /* (texto) -> 0: cambia el idioma, recarga el catálogo del kernel y redibuja el escritorio */
-#define SIS_MAX           139
+/* D365 (v8.5.3): widgets de escritorio. (titulo, largura | altura << 16, &pixels, opacidad) -> id de ventana.
+ * Una ventana «de escritorio»: sin marco ni botón en la barra, siempre por debajo de las ventanas normales
+ * y por encima del fondo, sin tomar el foco del teclado. Recibe el ratón (EV_CLIQUE, EV_SOLTOU, EV_RODA) y se
+ * coloca con Alt+arrastrar o en el modo «editar widgets»; el kernel avisa con EV_WIDGET. opacidad: bits 0-7 =
+ * 1-100 % (0 = 100; por debajo de 100 se mezcla con el fondo); WIDGET_CLAVE (bit 8) = los píxeles con el byte
+ * alto a 0xFF (0xFF000000) son transparentes (esquinas redondeadas, fondo «transparente» de Conky). SIS_MOVER_JANELA, SIS_ATUALIZAR_JANELA y SIS_FECHAR_JANELA
+ * valen igual; el tamaño es fijo (SIS_ESTILO_JANELA y SIS_REDIMENSIONAR_JANELA dan ERRO_INVALIDO). */
+#define SIS_CRIAR_WIDGET  139
+#define WIDGET_CLAVE      0x100
+#define SIS_MAX           140
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que
@@ -305,6 +314,10 @@ typedef struct {
  * root a la persona y la entrega él mismo al supervisor. El programa solo espera el resultado
  * con SERV_RESULTADO (1 = ya es root; ERRO_ACESSO = «No» o contraseña mala; ERRO_ESPERA = bloqueo). */
 #define PED_GRAFICO     0x100
+/* D372: con PED_SIN_RECORDAR (junto a PED_GRAFICO) el diálogo pregunta siempre: ni usa ni guarda la
+ * autorización recordada 5 min por programa. Para lo que no debe repetirse sin que la persona lo vea
+ * (encender una VPN: otro programa podría lanzar /bin/wg con su propio .conf en esos 5 min). */
+#define PED_SIN_RECORDAR 0x200
 #define PED_MOTIVO_MAX  80
 typedef struct {
     unsigned int tipo;                   /* PED_* */
@@ -782,6 +795,31 @@ typedef struct {
 /* D353: opciones del kernel que se guardan desde el sistema y valen en el siguiente arranque (kconfig). */
 #define INFO_KCONF        79  /* (info_kconf_t[], n) -> cuántas | KCONF_EST_* << 16: la lista (cualquier usuario) */
 #define INFO_KCONF_GRAVAR 80  /* (KCONF_PEDIDO(op, hueco, valor), 0) -> 0 / error: guarda en la cabecera de arranque (solo administrador) */
+/* D366 (htop): los hilos de cada proceso, uno por entrada (los hilos principales ya salen en INFO_PROCESSOS).
+ * El tid vale para PLAN_INFO (nice, última CPU) y para SIS_MATAR de un hilo no: matar actúa sobre procesos. */
+#define INFO_HILOS        83  /* (info_hilo_t[], n) -> cuántos (D366; 81 y 82 son de la barra, D361) */
+typedef struct {
+    int          tid;       /* identificador del hilo (el de SIS_HILO_ID) */
+    int          pid;       /* el proceso al que pertenece */
+    unsigned int estado;    /* como info_processo_t.estado */
+    unsigned int cpu_ms;    /* tiempo de CPU de este hilo */
+    unsigned int cpu;       /* la CPU donde corre */
+} info_hilo_t;
+#define INFO_WG           85  /* (&info_wg_t, sizeof) -> 1 si el túnel wg0 está activo, 0 si no (D363; sin secretos) */
+/* D368 (Administrador de tareas): actividad de la caché de disco, para las gráficas de Disco. Los contadores
+ * son de 32 bits desde el arranque; el programa saca las tasas por segundo de la diferencia entre dos lecturas.
+ * Un bloque son 4 KB. Sin caché de disco (--sem-cache-disco) todo vale 0 y "ativa" 0. */
+#define INFO_DISCO_CACHE        84  /* (&info_disco_cache_t, sizeof) -> 0 */
+typedef struct {
+    unsigned int versao;       /* 1 */
+    unsigned int ativa;        /* 1 = hay caché de disco */
+    unsigned int blocos, max_blocos, sujos;   /* bloques en la caché, tope y pendientes de grabar */
+    unsigned int acertos, falhas;             /* lecturas servidas por la caché / que fueron al disco */
+    unsigned int anticipados;                 /* bloques leídos por adelantado */
+    unsigned int gravados, vaciados;          /* bloques grabados en el disco; vaciados de sucios */
+    unsigned int diretos, erros;              /* accesos sin caché y errores de E/S */
+    unsigned int reservado[4];
+} info_disco_cache_t;
 #define KCONF_PEDIDO(op, h, v) ((unsigned)(op) | (unsigned)(h) << 8 | (unsigned)(v) << 16)
 #define KCONF_OP_FIJAR    1   /* guarda "valor" para el hueco */
 #define KCONF_OP_QUITAR   2   /* olvida lo guardado del hueco: vuelve el de la imagen */
@@ -1190,11 +1228,58 @@ typedef struct disp_bt {
 /* SIS_SOCKET */
 #define SOCK_TCP 1
 #define SOCK_UDP 2
+/* D363: la interfaz del túnel (wg0), como un TUN: ler da el siguiente paquete IPv4 que la pila
+ * manda por el túnel y escrever mete uno descifrado como si hubiera llegado. Solo uno a la vez;
+ * crearlo pide root o la sesión local (como el Wi-Fi, D354). Al cerrarlo (o al morir el demonio)
+ * la interfaz, sus rutas y su DNS desaparecen. disponivel = bytes del siguiente paquete, 0 si no
+ * hay, ERRO_PIPE_QUEBRADO si alguien pidió apagarla (REDE_TUNEL_DESLIGAR). */
+#define SOCK_TUN 3
 /* SIS_OPCAO_SOCKET */
 #define OPC_TEMPO_LIMITE 1   /* valor = ms para ler/aceitar/conectar (0 = sem limite) -> 0 */
 #define OPC_FECHAR_ENVIO 2   /* TCP: manda o FIN, mas continua lendo -> 0 */
 #define OPC_ENDERECOS    3   /* valor = &enderecos_socket_t -> 0 */
 #define OPC_ESTADO       4   /* -> CON_* (TCP) */
+#define OPC_FISICA       5   /* UDP, D363: (1) sale siempre por la interfaz física aunque haya ruta por el túnel;
+                                solo el proceso dueño del túnel (su demonio) o root */
+#define OPC_TUN_CONFIG   6   /* SOCK_TUN: (&config_tunel_t) dirección, máscara, MTU, DNS y rutas -> 0 */
+#define OPC_TUN_ESTADO   7   /* SOCK_TUN: (&info_wg_demonio_t) el demonio publica el estado para «wg show» -> 0 */
+/* D363: la interfaz del túnel (SOCK_TUN, OPC_TUN_*, INFO_WG) */
+#define TUNEL_ROTAS_MAX  32
+#define WG_INFO_PARES    8
+typedef struct { unsigned int ip, bits; } rota_tunel_t;
+typedef struct {
+    char           nome[16];       /* "wg0" */
+    unsigned int   ip, mascara;    /* la dirección de la interfaz (Address) */
+    unsigned int   mtu;            /* 576-1500; 0 = 1420 */
+    unsigned int   dns;            /* 0 = el de la interfaz física */
+    unsigned int   nrotas;         /* AllowedIPs de todos los pares (0.0.0.0/0 = todo menos la red local) */
+    rota_tunel_t   rotas[TUNEL_ROTAS_MAX];
+} config_tunel_t;
+typedef struct {
+    char           publica[48];    /* base64 */
+    unsigned int   endpoint_ip, endpoint_porta;
+    unsigned int   ultimo_hs;      /* hora Unix del último saludo completo; 0 = nunca */
+    unsigned int   keepalive_s, tem_psk;
+    unsigned long long rx_bytes, tx_bytes;
+    unsigned int   nips;
+    rota_tunel_t   ips[8];
+} info_wg_par_t;
+typedef struct {
+    char           publica[48];    /* la clave pública de la interfaz (base64) */
+    unsigned int   porta;          /* ListenPort */
+    unsigned int   npares;
+    info_wg_par_t  pares[WG_INFO_PARES];
+    unsigned int   descartes_repeticao, descartes_mac, descartes_origem, descartes_outros;
+    unsigned int   cookies_recebidas, cookies_enviadas;
+    unsigned int   reservado[4];
+} info_wg_demonio_t;
+typedef struct {
+    unsigned int   ativo, pid, uid;
+    unsigned int   desligando;     /* REDE_TUNEL_DESLIGAR pedido: el demonio está saliendo */
+    config_tunel_t config;
+    unsigned int   rx_pacotes, tx_pacotes, rx_bytes, tx_bytes, descartados;   /* el tráfico de dentro del túnel */
+    info_wg_demonio_t wg;
+} info_wg_t;
 /* SIS_WIFI (D215) */
 #define WIFI_ESTADO      0   /* (&info_wifi_t, sizeof) -> 0; ERRO_NAO_EXISTE si no hay pincho */
 #define WIFI_BUSCAR      1   /* (0) -> 0: empieza una búsqueda (unos 3 s; WIFI_ESTADO.buscando) */
@@ -1334,6 +1419,7 @@ typedef struct {
 #define REDE_ATIVAR       7   /* (0) religa a eth0 (e renova o DHCP, se era o caso) */
 #define REDE_FECHAR       8   /* (id de info_socket_t, no lugar do ponteiro) corta a conexão TCP com RST */
 #define REDE_AJUSTAR_DRIVER 9 /* (&ajuste_driver_t) D124: ajustes en caliente del driver experimental (r8169) */
+#define REDE_TUNEL_DESLIGAR 10 /* (0) D363: pide al demonio del túnel (wg0) que lo apague (wg-quick down); root o la sesión local */
 /* Como o endereço foi obtido */
 #define REDE_SEM_IP   0
 #define REDE_POR_DHCP 1
@@ -1792,6 +1878,12 @@ typedef struct {
 #define EV_MOVER_CRU 17  /* D242: con el ratón capturado (JAN_CAPTURA): x, y = desplazamiento crudo
                             (con signo, y hacia abajo), botoes = botones apretados. El cursor no se mueve. */
 #define EV_CAPTURA_SOLTA 18  /* D242: el sistema soltó la captura (Ctrl+Alt, perdió el foco, menú...) */
+#define EV_WIDGET    19  /* D365: aviso a una ventana de escritorio (SIS_CRIAR_WIDGET); tecla = EVW_*:
+                            EVW_MOVIDO (x, y = posición nueva en la pantalla), EVW_QUITAR (la persona eligió
+                            «Quitar widget»: el programa se desactiva y termina), EVW_FIN_SESION (termina). */
+#define EVW_MOVIDO     1
+#define EVW_QUITAR     2
+#define EVW_FIN_SESION 3
 
 /* SIS_PROXIMO_EVENTO: esperar até um instante (ms de SIS_TEMPO, 31 bits) e
  * devolver 0 se nada chegar (D083). */
@@ -1873,6 +1965,44 @@ typedef struct {
     unsigned int fundo_imagem;   /* 1 = ha imagem de fundo escolhida */
     unsigned int largura, altura;/* a tela (o tamanho que FUNDO_LINHAS espera) */
 } info_aparencia_t;
+/* D361: la barra de tareas y el menú Inicio personalizables. Un vector de bytes con una posición por ajuste;
+ * INFO_BARRA lo lee (más lo que no se elige: si la barra está visible y su rectángulo) y INFO_BARRA_GRAVAR lo aplica
+ * al momento (cualquier usuario: es preferencia de su sesión). Los valores fuera de rango se ajustan al más cercano. */
+enum {
+    BC_POSICION,     /* 0 arriba, 1 abajo */
+    BC_ALTURA,       /* 20..48 píxeles (24 de serie; con iconos grandes sube sola hasta lo que hace falta) */
+    BC_AUTOOCULTAR,  /* 0 no, 1 sí: la barra solo aparece al llevar el ratón a su borde */
+    BC_RELOJ,        /* 0 oculto, 1 visible */
+    BC_FECHA,        /* 0 automática (según el ancho de la pantalla), 1 con fecha, 2 solo la hora */
+    BC_SEGUNDOS,     /* 0 no, 1 sí: la hora con segundos */
+    BC_BAND_VOL, BC_BAND_RED, BC_BAND_TEMP, BC_BAND_BAT,   /* 0 oculto, 1 visible (la temperatura y la batería solo si existen) */
+    BC_AGRUPAR,      /* 0 un botón por ventana, 1 un botón por programa (con el número de ventanas) */
+    BC_ROTULOS,      /* botones de las tareas: 0 icono y texto, 1 solo icono, 2 solo texto */
+    BC_ICONOS,       /* 0 iconos de 16 píxeles, 1 de 32 */
+    BC_INICIO_TXT,   /* botón Inicio: 0 logo y texto, 1 solo el logo, 2 solo el texto */
+    BC_TEMA,         /* color de la barra: 0 oscuro, 1 claro, 2 del acento, 3 negro, 4 azul noche */
+    BC_MENU,         /* menú Inicio: 0 SaguiOS, 1 Clásico, 2 Dos columnas, 3 Moderno */
+    BC_BUSCADOR,     /* Moderno: 0 buscador arriba, 1 abajo */
+    BC_TRANSLUCIDO,  /* Moderno: 1 translúcido, 0 degradado oscuro */
+    BC_N
+};
+#define BC_POS_ARRIBA 0
+#define BC_POS_ABAJO  1
+#define BC_MENU_SAGUI 0
+#define BC_MENU_CLASICO 1
+#define BC_MENU_DOS_COL 2
+#define BC_MENU_MODERNO 3
+#define INFO_BARRA        81   /* (&info_barra_t, sizeof) -> 0 (D361) */
+#define INFO_BARRA_GRAVAR 82   /* (&info_barra_t, sizeof) -> 0: aplica v[] (D361); versao tiene que ser 1 */
+typedef struct {
+    unsigned int versao;           /* 1 */
+    unsigned char v[BC_N];         /* los ajustes, por BC_* */
+    unsigned char pad[32 - BC_N];
+    int          visivel;          /* solo lectura: 1 si la barra está en la pantalla ahora */
+    int          x, y, l, a;       /* solo lectura: el rectángulo de la barra */
+    int          menu_aberto;      /* solo lectura: el menú Inicio está abierto */
+    int          menu_x, menu_y, menu_l, menu_a;   /* solo lectura: su rectángulo (0 si no hay) */
+} info_barra_t;
 #define INFO_MSR_PROVA 55   /* (0, 0) -> bit 0: MSR inexistente deu "não disponível"; bit 1: idem o x2APIC ID (0x802) */
 
 #define INFO_BANDEJA   60   /* (&info_bandeja_t, sizeof) -> 0: o que a bandeja da barra mostra agora (D114) */

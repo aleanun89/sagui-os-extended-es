@@ -76,6 +76,13 @@ def clic_en(m, v, x, y):
     m.clique(v["x"] + BORDA + x, v["y"] + TITULO + y)
 
 
+def clic_local(m, v, xl, yl):
+    """Clic en un punto LOCAL del panel de Configuración (D367; ver conf_arbol.py)."""
+    import conf_arbol as ca
+    px, py, pw, ph = ca.geometria(v["l"], v["a"])
+    clic_en(m, v, px - 16 + xl, py + yl)
+
+
 def main():
     img = imagem_de_teste("", ["--vesa", "--sesion-sagui", "--home-mb", "32", "--home-fs", "ext2"])
     # ---------------------------------------------------------------- 1 y 2
@@ -96,9 +103,9 @@ def main():
         esperar_ventana(m, "Configuración", pos)
         v = ventana(m, "Configuración", pos)
         m.captura("H340-1-usuarios")
-        # «Nueva cuenta...»: botón en (500, Y_PAG + 34), 260x28
+        # «Nueva cuenta...»: botón en (336, 34), 226x28 (coordenadas locales del panel)
         pos = len(m.serial())
-        clic_en(m, v, 630, Y_PAG + 48)
+        clic_local(m, v, 336 + 113, 34 + 14)
         esperar_ventana(m, "Nueva cuenta", pos)
         m.digitar("ana", 0.05)
         m.tecla("ret")
@@ -205,10 +212,10 @@ def main():
         m.tecla("ret")
         esperar_ventana(m, "Configuración", pos)
         v = ventana(m, "Configuración", pos)
-        clic_en(m, v, 80, Y_PAG + 34 + 20 + 10)   # la segunda cuenta de la lista: ana
+        clic_local(m, v, 80, 34 + 20 + 10)   # la segunda cuenta de la lista: ana
         time.sleep(0.5)
         pos = len(m.serial())
-        clic_en(m, v, 630, Y_PAG + 192)             # «Borrar la cuenta...»
+        clic_local(m, v, 336 + 113, 34 + 4 * 36 + 14)             # «Borrar la cuenta...»
         esperar_ventana(m, "Borrar la cuenta", pos)
         m.tecla("ret")   # ¿Borrar la cuenta ana? Sí
         time.sleep(1.5)

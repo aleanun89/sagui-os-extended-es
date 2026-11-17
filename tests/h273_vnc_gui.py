@@ -51,12 +51,11 @@ def clic(m, v, cx, cy, **kw):
     m.clique(v["x"] + cx, v["y"] + cy, **kw)
 
 
-def pestana(v):
-    """Centro de la pestaña «Escritorio remoto» (cada una mide su título + 10 y hay 2 px entre ellas)."""
-    x = 10
-    for t in TABS[:-1]:
-        x += len(t) * 8 + 10 + 2
-    return x + (len(TABS[-1]) * 8 + 10) // 2, 10 + 14
+def lc(v, xl, yl):
+    """Punto LOCAL del panel (D367) -> relativo a la ventana, para clic()."""
+    import conf_arbol as ca
+    px, py, pw, ph = ca.geometria(v["l"], v["a"])
+    return px - 16 + xl, py + yl
 
 
 def lanzar_fondo(m, orden):
@@ -119,8 +118,9 @@ def main():
         g = re.findall(r'janela \d+ criada por \d+: "Configuraci.n" (\d+)x(\d+) em \((\d+),(\d+)\)', m.serial()[n:])[-1]
         v = dict(l=int(g[0]), a=int(g[1]), x=int(g[2]) + BORDA, y=int(g[3]) + TITULO)
         verificar(v["l"] >= 780, f"la ventana de Configuración ensanchada ({v['l']} px)")
+        import conf_arbol as ca
         time.sleep(1)
-        clic(m, v, *pestana(v))
+        m.clique(*ca.arbol(v, "vnc"))
         esperar(m, r"configuracion: pagina Escritorio remoto", 10, n)
         time.sleep(1)
         m.captura("H273-1-servidor-parado")
@@ -128,14 +128,14 @@ def main():
         # la contraseña se fija con «Fijar contraseña» y el diálogo de permisos (root elige la suya)
         m.digitar(CLAVE_VNC, 0.05)
         pos = len(m.serial())
-        clic(m, v, 294 + 20, Y_PAG + 122 + 14)
+        clic(m, v, *lc(v, 252 + 20, 122 + 14))
         conceder(m, pos, True)
         time.sleep(3)
         m.captura("H273-2-contrasena-fijada")
         verificar(CLAVE_VNC not in m.serial()[pos:], "la contraseña de VNC no aparece en la serie")
 
         pos = len(m.serial())
-        clic(m, v, 24 + 20, Y_PAG + 58 + 14)   # Activar y arrancar (permiso recordado: sin diálogo)
+        clic(m, v, *lc(v, 24 + 20, 58 + 14))   # Activar y arrancar (permiso recordado: sin diálogo)
         esperar(m, r"vncd: escuchando en el puerto 5900|vncd.*escuchando", 40, pos)
         time.sleep(4)
         m.captura("H273-3-servidor-activo")
@@ -151,13 +151,13 @@ def main():
             time.sleep(9)
             o = comando(m, term, "cat /etc/vnc/vncd.conf")
             verificar(esperado in o, f"{nombre}: {esperado} guardado ({o!r})")
-        alternar(24 + 20, Y_PAG + 170 + 14, "solo_ver=si", "Solo ver")
-        alternar(284 + 20, Y_PAG + 170 + 14, "escuchar=red-local", "Escuchar")
+        alternar(*lc(v, 24 + 20, 170 + 14), "solo_ver=si", "Solo ver")
+        alternar(*lc(v, 252 + 20, 170 + 14), "escuchar=red-local", "Escuchar")
         foco(m, cfg)
         time.sleep(1)
         m.captura("H273-4-solo-ver-y-red-local")
-        alternar(24 + 20, Y_PAG + 170 + 14, "solo_ver=no", "Solo ver")
-        alternar(284 + 20, Y_PAG + 170 + 14, "escuchar=local", "Escuchar")
+        alternar(*lc(v, 24 + 20, 170 + 14), "solo_ver=no", "Solo ver")
+        alternar(*lc(v, 252 + 20, 170 + 14), "escuchar=local", "Escuchar")
         out = comando(m, term, "servicio estado vncd")
         verificar("marcha" in out, "tras los reinicios el servicio sigue en marcha")
 
@@ -222,9 +222,9 @@ def main():
         m.captura("H273-11-pestana-conectados")
         g = re.findall(r'janela \d+ criada por \d+: "Configuraci.n" (\d+)x(\d+) em \((\d+),(\d+)\)', m.serial())[-1]
         vcfg = dict(l=int(g[0]), a=int(g[1]), x=int(g[2]) + BORDA, y=int(g[3]) + TITULO)
-        clic(m, vcfg, 24 + 100, Y_PAG + 238 + 10)      # primera fila de la lista
+        clic(m, vcfg, *lc(vcfg, 24 + 100, 238 + 10))      # primera fila de la lista
         pos = len(m.serial())
-        clic(m, vcfg, 24 + (vcfg["l"] - 48 - 170) + 10 + 40, Y_PAG + 238 + 14)   # Desconectar (a la derecha de la lista, que crece con la ventana)
+        clic(m, vcfg, *lc(vcfg, 24 + (ca.geometria(vcfg["l"], vcfg["a"])[2] + 22 - 48 - 170) + 10 + 40, 238 + 14))   # Desconectar (a la derecha de la lista, que crece con la ventana)
         esperar(m, r"vnc: desconectado: ", 30, pos)
         time.sleep(1)
         m.captura("H273-12-desconectado-desde-servidor")

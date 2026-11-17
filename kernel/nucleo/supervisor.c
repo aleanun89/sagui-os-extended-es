@@ -171,6 +171,7 @@ typedef struct {
     int               resultado;
     uint32_t          desde;
     bool              graf;
+    bool              sem_lembrar;        /* D372: PED_SIN_RECORDAR, el diálogo pregunta siempre */
     bool              entrar;             /* D340: inicio de sesión (lo pidió el kernel, no un proceso) */
     uint8_t           fase;
     int               erro;               /* último fallo mostrado por el diálogo */
@@ -237,7 +238,9 @@ static int pedir(uint32_t ptr)
     if (!usuario_ok(u, sizeof *u, false)) return ERRO_ENDERECO;
     if (!supervisor_pid_confiavel()) return ERRO_NAO_EXISTE;
     bool graf = (u->tipo & PED_GRAFICO) != 0;
-    uint32_t tipo = u->tipo & ~(uint32_t)PED_GRAFICO;
+    bool sem_lembrar = (u->tipo & PED_SIN_RECORDAR) != 0;
+    if (sem_lembrar && !graf) return ERRO_INVALIDO;
+    uint32_t tipo = u->tipo & ~(uint32_t)(PED_GRAFICO | PED_SIN_RECORDAR);
     if (tipo != PED_ELEVAR && tipo != PED_SENHA) return ERRO_INVALIDO;
     if (u->uid_alvo > UID_MAX) return ERRO_INVALIDO;
     pedidos_caducar();
@@ -269,11 +272,12 @@ static int pedir(uint32_t ptr)
     p->estado = PD_ESPERANDO;
     if (graf) {
         p->graf = true;
+        p->sem_lembrar = sem_lembrar;
         p->fase = GF_SONDA;
         txt_copia_n(p->nome, eu->nome, sizeof p->nome);
         for (int i = 0; i < PED_MOTIVO_MAX - 1 && u->motivo[i]; i++)
             p->motivo[i] = (unsigned char)u->motivo[i] < 32 ? ' ' : u->motivo[i];   /* sin controles: el texto es del programa */
-        if (lembrada(eu)) {   /* la persona ya lo autorizó hace menos de 5 min: sin diálogo */
+        if (!sem_lembrar && lembrada(eu)) {   /* la persona ya lo autorizó hace menos de 5 min: sin diálogo */
             uint32_t uid_antes = eu->uid;
             processo_lider(eu)->uid = UID_ROOT;
             processo_lider(eu)->gid = GID_ROOT;
@@ -371,7 +375,7 @@ static int responder(uint32_t id, int32_t res)
     if (res == 1 && p->r.tipo == PED_ELEVAR) {
         if (alvo->uid != p->r.uid) { pedido_limpar(p); return ERRO_SEM_PROCESSO; }   /* ya no es el mismo */
         elevar_pedido(p, alvo);
-        if (p->graf) lembrar(alvo, p->r.uid);
+        if (p->graf && !p->sem_lembrar) lembrar(alvo, p->r.uid);
     } else {
         klog("[USUARIOS] pedido %u de pid %d: %s (%d)\n", p->r.id, p->r.pid, res == 1 ? "hecho" : "NEGADO", res);
     }

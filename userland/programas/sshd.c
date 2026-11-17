@@ -42,13 +42,22 @@
  * fallo en una sesión no tumba el servicio ni las otras sesiones.
  *
  * Configuración (clave=valor) en /etc/ssh/sshd.conf y /home/.ssh/sshd.conf
- * (gana la segunda): ver docs/ssh.md. */
+ * (gana la segunda): ver docs/ssh.md.
+ *
+ * D362: «sshd --depuracion» es la sesión temporal de DEBUG-APP (la lanza
+ * debug-app, como root, nunca el gestor de servicios): otro puerto, una sola
+ * clave aceptada (la que sale del secreto del código, del que aquí solo se
+ * conoce la pública), una conexión a la vez, se acaba con la primera sesión
+ * autenticada, con DAPP_FALLOS_MAX claves malas, al caducar o cuando debug-app
+ * cierra la tubería de nuestra entrada. No lee sshd.conf ni authorized_keys y
+ * no necesita que el servicio sshd esté activado. Ver docs/debug-app.md. */
 #include "sagui.h"
 #include "contas.h"
 #include "cripto.h"
 #include "servicos.h"
 #include "sshd_logica.h"
 #include "ssh_transporte.h"   /* D317: paquetes, H y claves, comunes con el cliente ssh */
+#include "debug_app_logica.h" /* D362: la sesión temporal de DEBUG-APP */
 
 #define VERSAO_SSH     "SSH-2.0-SaguiOS_sshd_1.0"
 #define PKT_MAX        35000u            /* tamaño máximo de un paquete (RFC 4253, 6.1) */
@@ -127,6 +136,7 @@
 #define SAIR_BEM        0
 #define SAIR_SEM_AUT    10   /* se fue sin autenticarse o falló: cuenta para el bloqueo de su dirección */
 #define SAIR_ERRO       11
+#define SAIR_AUT_FALHOU 12   /* D362: probó una clave o una firma que no vale (cuenta para anular el código) */
 
 /* ------------------------------------------------------------ configuración */
 
@@ -190,6 +200,15 @@ static void conf_carregar(void)
     conf_ler(DIR_CASA "/sshd.conf");
 }
 
+/* ------------------------------------------------------------ D362: modo depuración */
+
+#define DEP_PASTA      "/home/.config/debug-app"
+#define DEP_REGISTRO   DEP_PASTA "/debug-app.log"
+
+static bool    dep_modo;        /* esta sesión (o quien escucha) es la de DEBUG-APP */
+static bool    dep_falhou;      /* probó una clave mala: el código pierde un intento */
+static uint8_t dep_pub[32];     /* la única clave que entra */
+
 /* ------------------------------------------------------------ registro */
 
 static char quem[40];   /* "10.0.2.2:51234" en una sesión; vacío en el que escucha */
@@ -209,9 +228,9 @@ static void anotar(const char *fmt, ...)
     agora_local(&d);
     formatar_data(hora, sizeof hora, "%Y-%m-%d %H:%M:%S", &d);
     formatar_texto(linha, sizeof linha, "%s [%d]%s%s %s\n", hora, meu_pid(), quem[0] ? " " : "", quem, texto);
-    const char *pasta = servicos_pasta_registros();
+    const char *pasta = dep_modo ? DEP_PASTA : servicos_pasta_registros();
     servicos_criar_pastas(pasta);
-    formatar_texto(arq, sizeof arq, "%s/sshd.log", pasta);
+    formatar_texto(arq, sizeof arq, dep_modo ? "%s/debug-app.log" : "%s/sshd.log", pasta);
     info_arquivo_t i;
     if (info_arquivo(arq, &i) == 0 && i.tamanho > REGISTRO_MAX) {
         char velho[112];
@@ -224,7 +243,8 @@ static void anotar(const char *fmt, ...)
         escrever_tudo(fd, linha, (unsigned)tam_texto(linha));
         fechar(fd);
     }
-    registrar("sshd:%s%s %s", quem[0] ? " " : "", quem, texto);
+    /* D362: lo de DEBUG-APP va solo a su registro; al del sistema, una línea al abrir y otra al cerrar */
+    if (!dep_modo) registrar("sshd:%s%s %s", quem[0] ? " " : "", quem, texto);
 }
 
 /* ------------------------------------------------------------ claves */
@@ -460,7 +480,7 @@ static void terminar(int codigo)
     cripto_apagar(ch_rx, sizeof ch_rx);
     cripto_apagar(ch_tx, sizeof ch_tx);
     cripto_apagar(srv_semente, sizeof srv_semente);
-    sair(autenticado ? SAIR_BEM : codigo);
+    sair(autenticado ? SAIR_BEM : dep_modo && dep_falhou ? SAIR_AUT_FALHOU : codigo);
 }
 
 static void fatal(const char *motivo) __attribute__((noreturn));
@@ -838,6 +858,7 @@ static void autenticar(void)
                 if ((unsigned char)*p < 0x21 || (unsigned char)*p > 0x7e) *p = '?';
             anotar("usuario %s: método «%s» rechazado", usuario, metodo);
         }
+        if (conta) dep_falhou = true;
         if (conta && ++tentativas >= conf.max_tentativas) desconectar(D_PROTOCOLO, "demasiados intentos de autenticación");
         m_iniciar(M_AUT_FALHA);
         se_cstr(&m, "publickey");
@@ -1611,8 +1632,20 @@ static int sessao(const char *ip, const char *porta)
         fechar(p[0]);
         fechar(p[1]);
     }
-    conf_carregar();
-    autorizadas_carregar();
+    if (dep_modo) {
+        /* D362: valores fijos y la única clave del código, entrando como root */
+        conf.max_tentativas = 2;
+        conf.graca_s = 30;
+        conf.redirigir = SSH_RED_NO;
+        conf.exec_utf8 = false;
+        n_autorizadas = 1;
+        memcpy(autorizadas[0].pub, dep_pub, 32);
+        copia_texto(autorizadas[0].comentario, "DEBUG-APP", sizeof autorizadas[0].comentario);
+        autorizadas[0].uid = UID_ROOT;
+    } else {
+        conf_carregar();
+        autorizadas_carregar();
+    }
     rx = aloca(RX_TAM);
     tx = aloca(PKT_MAX + 64);
     msg = aloca(PKT_MAX);
@@ -1632,6 +1665,7 @@ static int sessao(const char *ip, const char *porta)
     memcpy(ic, pl, pn);
     trocar_chaves(ic, pn);
     autenticar();
+    if (dep_modo) imprimir("@conectado %s\n", cliente_ip);   /* a la ventana de DEBUG-APP */
 
     sem_canais_desde = ultimo_rx = ultima_pergunta = tempo_ms();
     unsigned visto = (unsigned)esperar_rede(0, 0);
@@ -1677,7 +1711,7 @@ static int sessao(const char *ip, const char *porta)
                 if (c->ent_n) procs = true;   /* espera sitio en la cola del destino: eso no despierta a esperar_rede */
             }
         }
-        if (!n_canais() && tempo_ms() - sem_canais_desde > (conf.redirigir == SSH_RED_NO ? SEM_CANAL_MS : SEM_CANAL_TUNEL_MS))
+        if (!dep_modo && !n_canais() && tempo_ms() - sem_canais_desde > (conf.redirigir == SSH_RED_NO ? SEM_CANAL_MS : SEM_CANAL_TUNEL_MS))
             desconectar(D_PELO_APLIC, "demasiado tiempo sin ningún canal abierto");
         /* Un cliente que desaparece sin cerrar (el PC se suspende, se cae la
          * red) dejaría la sesión ocupando sitio para siempre: tras un minuto
@@ -1831,6 +1865,156 @@ static int escutar_ssh(int porta_pedida)
     }
 }
 
+/* ------------------------------------------------------------ D362: quien escucha para DEBUG-APP */
+
+/* Una línea «@...» para debug-app (nuestra salida es una tubería suya). */
+static void dep_avisar(const char *fmt, ...)
+{
+    char t[200];
+    va_list ap;
+    va_start(ap, fmt);
+    formatar_lista(t, sizeof t, fmt, ap);
+    va_end(ap);
+    imprimir("@%s\n", t);
+}
+
+/* Recoge la sesión hija que haya terminado y decide qué significa su código. */
+static void dep_recolher(int *filho, int *falhas_aut, const char **motivo)
+{
+    int pid, cod;
+    while ((pid = recolher(&cod)) > 0) {
+        if (pid != *filho) continue;
+        *filho = 0;
+        if (cod == SAIR_AUT_FALHOU) {
+            anotar_falha(filhos[0].ip, true);
+            if (++*falhas_aut >= DAPP_FALLOS_MAX) *motivo = "demasiadas claves no válidas: código anulado";
+            else dep_avisar("fallo %d", *falhas_aut);
+        } else if (cod == SAIR_ERRO || cod == SAIR_SEM_AUT) {
+            /* no probó ninguna clave (ssh-keyscan, que depurar-remoto usa antes de entrar, o un escáner):
+             * no cuenta; quien ocupa el sitio sin autenticarse lo suelta a los 30 s */
+        } else {
+            /* SAIR_BEM (entró) o cualquier cosa rara (se cayó): el código no se vuelve a aceptar */
+            *motivo = "la conexión autenticada terminó: el código ya no vale";
+        }
+    }
+}
+
+/* sshd --depuracion PUERTO CLAVE_PUBLICA_HEX SEGUNDOS PERMITIR
+ *   PUERTO 0: DAPP_PUERTO o, si está ocupado, alguno de los 9 siguientes.
+ *   PERMITIR: la lista de dapp_permitir_ler («subred», redes, «publicas»). */
+static int escutar_depuracao(int argc, char **argv)
+{
+    dep_modo = true;
+    if (argc < 6) { dep_avisar("fin argumentos que faltan"); return 2; }
+    int porta = texto_para_int(argv[2]);
+    int segundos = texto_para_int(argv[4]);
+    char hexpub[65], erro[120];
+    dapp_permitir_t perm;
+    copia_texto(hexpub, argv[3], sizeof hexpub);
+    if (porta < 0 || porta > 65535 || segundos < 5 || segundos > DAPP_MAX_MIN * 60 || !dapp_de_hex(argv[3], dep_pub, 32)) {
+        dep_avisar("fin argumentos no válidos");
+        return 2;
+    }
+    if (dapp_permitir_ler(argv[5], &perm, erro, sizeof erro) < 0) { dep_avisar("fin %s", erro); return 2; }
+    if (!sou_root()) {
+        dep_avisar("fin hace falta ser administrador");
+        return 1;
+    }
+    if (!chave_servidor(true)) { dep_avisar("fin no hay clave del servidor"); return 1; }
+    int e = -1, r = ERRO_INVALIDO;
+    for (int p = porta ? porta : DAPP_PUERTO; p <= (porta ? porta : DAPP_PUERTO + 9); p++) {
+        e = criar_socket(SOCK_TCP);
+        r = e < 0 ? e : escutar(e, p, 2);
+        if (r >= 0) { porta = p; break; }
+        if (e >= 0) fechar(e);
+        e = -1;
+    }
+    if (e < 0) {
+        dep_avisar("fin no se puede escuchar en el puerto %d: %s", porta ? porta : DAPP_PUERTO, nome_erro(r));
+        return 1;
+    }
+    uint8_t blob[SSH_BLOB_ED25519], h32[32];
+    char h[64], fp[65];
+    ssh_blob_montar(blob, srv_publica);
+    sha256(blob, sizeof blob, h32);
+    dapp_hex(h32, 32, fp);   /* el SHA-256 entero: debug-app saca de él y del secreto la huella del código */
+    impressao(srv_publica, h, sizeof h);
+    cripto_apagar(srv_semente, sizeof srv_semente);   /* quien escucha no firma */
+    unsigned fim = tempo_ms() + (unsigned)segundos * 1000u;
+    anotar("sesión ABIERTA: puerto %d, caduca en %d s, permitidas: %s; clave del servidor %s; clave de un solo uso %s",
+           porta, segundos, argv[5], h, hexpub);
+    registrar("debug-app: sesión de depuración remota ABIERTA (puerto %d, root, %d min)", porta, (segundos + 59) / 60);
+    dep_avisar("puerto %d", porta);
+    dep_avisar("huella %s", h);
+    dep_avisar("fp %s", fp);
+    dep_avisar("escuchando");
+
+    bool com_tubo = tipo_descritor(ENTRADA) == TIPO_PIPE;
+    int filho = 0, falhas_aut = 0;
+    const char *motivo = NULL;
+    tempo_limite(e, 300);
+    while (!motivo) {
+        if (com_tubo && disponivel(ENTRADA) == ERRO_PIPE_QUEBRADO) { motivo = "cortada desde DEBUG-APP"; break; }
+        if ((int)(fim - tempo_ms()) <= 0) { motivo = "caducó"; break; }
+        dep_recolher(&filho, &falhas_aut, &motivo);
+        if (motivo) break;
+        endereco_rede_t de;
+        int s = aceitar_conexao(e, &de);
+        if (s == ERRO_TEMPO) continue;
+        if (s < 0) { dormir(300); continue; }
+        char ip[16], pt[8], pl[8];
+        ip_para_texto(de.ip, ip);
+        formatar_texto(pt, sizeof pt, "%u", de.porta);
+        formatar_texto(pl, sizeof pl, "%d", porta);
+        config_rede_t cr;
+        memset(&cr, 0, sizeof cr);
+        config_rede(REDE_CONSULTAR, &cr);
+        const char *rec = NULL;
+        if (!dapp_permitido(&perm, de.ip, cr.ip, cr.mascara)) rec = "dirección no permitida";
+        else if (bloqueada(de.ip)) rec = "dirección bloqueada por fallos";
+        else if (filho) {
+            /* la anterior puede estar terminando (ssh-keyscan justo antes de entrar): un segundo de margen */
+            for (int i = 0; i < 10 && filho && !motivo; i++) {
+                dormir(100);
+                dep_recolher(&filho, &falhas_aut, &motivo);
+            }
+            if (motivo) { fechar(s); break; }
+            if (filho) rec = "ya hay una conexión";
+        }
+        if (!rec) {
+            char *av[] = { "sshd", "--sesion-depuracion", ip, pt, hexpub, pl, NULL };
+            int g0 = duplicar(ENTRADA, 28);
+            duplicar(s, ENTRADA);
+            filho = executar("/bin/sshd", av);
+            duplicar(g0, ENTRADA);
+            fechar(g0);
+            if (filho < 0) { rec = nome_erro(filho); filho = 0; }
+            else filhos[0].ip = de.ip;
+        }
+        fechar(s);
+        if (rec) {
+            anotar("conexión de %s:%s rechazada: %s", ip, pt, rec);
+            dep_avisar("rechazada %s %s", ip, rec);
+        } else {
+            anotar("conexión de %s:%s", ip, pt);
+            dep_avisar("conexion %s", ip);
+        }
+    }
+    fechar(e);
+    if (filho) {
+        matar_arvore(filho);
+        for (int i = 0; i < 20; i++) {
+            int cod;
+            if (recolher(&cod) == filho) break;
+            dormir(50);
+        }
+    }
+    anotar("sesión CERRADA: %s", motivo);
+    registrar("debug-app: sesión de depuración remota CERRADA: %s", motivo);
+    dep_avisar("fin %s", motivo);
+    return 0;
+}
+
 /* ------------------------------------------------------------ principal */
 
 static const char AYUDA[] =
@@ -1848,6 +2032,13 @@ int principal(int argc, char **argv)
 {
     int porta = 0;
     if (argc >= 4 && compara_texto(argv[1], "--sesion") == 0) return sessao(argv[2], argv[3]);
+    if (argc >= 2 && compara_texto(argv[1], "--depuracion") == 0) return escutar_depuracao(argc, argv);
+    if (argc >= 6 && compara_texto(argv[1], "--sesion-depuracion") == 0) {
+        dep_modo = true;
+        if (!dapp_de_hex(argv[4], dep_pub, 32)) return SAIR_ERRO;
+        conf.porta = texto_para_int(argv[5]);
+        return sessao(argv[2], argv[3]);
+    }
     for (int i = 1; i < argc; i++) {
         if (compara_texto(argv[i], "--ayuda") == 0 || compara_texto(argv[i], "--help") == 0) {
             escrever_texto(SAIDA, AYUDA);

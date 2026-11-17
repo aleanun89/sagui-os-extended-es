@@ -57,6 +57,11 @@ contraseña de administrador con el diálogo del sistema.
 - **Borrar una cuenta:** pregunta también si se borran sus archivos (`/home/<nombre>`); si no, se
   conservan, y su número no se da a otra cuenta mientras la carpeta exista. No se pueden borrar ni
   renombrar `root`, `sagui`, las cuentas de servicio ni la de la sesión abierta.
+- **Protecciones (D371):** lo que cuelga directamente de `/home` (la carpeta de cada cuenta) solo lo borra o
+  renombra su dueño o root, aunque `/home` sea de `sagui`; y al entrar, si la carpeta personal no es de la
+  cuenta o otros pueden escribir en ella, no se entra (aviso en la pantalla: lo arregla el administrador). La
+  primera contraseña de una cuenta la pone ella misma o root (desde otra cuenta, `su sagui` o `passwd sagui` no
+  dejan elegirla).
 - **Necesita** `/home` en un disco que guarde dueños (ext2, o la RAM en vivo): con `/home` FAT32 no se
   crean cuentas.
 - **Aún no:** SSH y `crontab` por cuenta (siguen siendo de `sagui` y root) e inicio de sesión en la

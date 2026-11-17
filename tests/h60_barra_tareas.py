@@ -169,7 +169,7 @@ def main():
         marca = len(m.serial())
         m.clique(40, 12)
         p = painel(m, marca)
-        esperar(m, r"menu Inicio aberto \(mouse\)", desde=marca)
+        esperar(m, r"menu Inicio aberto \(mouse(, estilo \d+)?\)", desde=marca)
         verificar((p["x"], p["y"]) == (2, 24), "o menu Inicio cai da barra, embaixo do botão")
         verificar(p["linhas"][:2] == ["Terminal", "Archivos"] and "-" in p["linhas"],
                   f"no alto, os programas mais usados ({', '.join(p['linhas'][:4])})")
@@ -197,7 +197,7 @@ def main():
         # ---- pelo teclado: Ctrl+Esc, setas, direita/esquerda, Enter
         marca = len(m.serial())
         m.tecla("ctrl-esc")
-        esperar(m, r"menu Inicio aberto \(teclado\)", desde=marca)
+        esperar(m, r"menu Inicio aberto \(teclado(, estilo \d+)?\)", desde=marca)
         p = painel(m, marca)
         esperar(m, r"menu: destaque \d+ \(Terminal\)", desde=marca)
         verificar(True, "Ctrl+Esc abre o menu Inicio com a primeira linha destacada")
@@ -224,7 +224,7 @@ def main():
 
         marca = len(m.serial())
         m.tecla("meta_l")
-        esperar(m, r"menu Inicio aberto \(teclado\)", desde=marca)
+        esperar(m, r"menu Inicio aberto \(teclado(, estilo \d+)?\)", desde=marca)
         m.tecla("meta_l")
         esperar(m, r"menu: cancelado", desde=marca)
         verificar(True, "a tecla Windows abre e fecha o menu Inicio")
@@ -322,7 +322,7 @@ def main():
         # ---- menu da área de trabalho: Configuración de pantalla y Resolución
         p = menu_escritorio(m, 1000, 700)
         verificar(p["linhas"] == ["Terminal", "Archivos", "Editor", "Calculadora", "-", "Administrador de tareas",
-                                  "Configuración de pantalla...", ">Resolución",
+                                  "Configuración de pantalla...", "Añadir widgets...", ">Resolución",
                                   ">Ordenar iconos", "-", "Acerca de SaguiOS-Extended"],
                   f"o menu da área de trabalho tem Configuración de pantalla... e o submenu Resolución (D268: submenu «Ordenar iconos») ({p['linhas']})")
         marca = len(m.serial())

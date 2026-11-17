@@ -198,6 +198,12 @@ atributos, DSR/DA, teclas de función, Inicio/Fin/RePág/AvPág/Insert/Supr, Ctr
 salir. Las cajas que mandan htop y mc en UTF-8 las pasa al juego de dibujo de líneas DEC. La tabla de secuencias y lo que
 falta (ratón, caracteres anchos, color real) está en `docs/terminal.md`.
 
+## Depuración remota con un código: DEBUG-APP (D362)
+
+Para que otro equipo entre un rato sin activar este servicio ni copiar claves, DEBUG-APP abre una
+sesión aparte (`sshd --depuracion`, puerto 2222) con un código de un solo uso que se le pasa a
+`tools/depurar-remoto.py`. Ver [debug-app.md](debug-app.md).
+
 ## Seguridad
 
 - **Desactivado de serie.** Sin `servicio activar sshd` (o `servicio iniciar sshd`), no hay

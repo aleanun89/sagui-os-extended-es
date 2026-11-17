@@ -1,0 +1,583 @@
+# Traducción de SaguiOS: catálogo «wg», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/wg.c:162
+#, c-format
+msgid "no se pudo leer la configuración: %s"
+msgstr ""
+
+#: userland/programas/wg.c:163
+#, c-format
+msgid "la configuración pasa de %d bytes"
+msgstr ""
+
+#: userland/programas/wg.c:165
+msgid "la configuración no es un archivo de texto"
+msgstr ""
+
+#: userland/programas/wg.c:180
+#, c-format
+msgid "el nombre de «%s» no vale para una interfaz (letras, cifras, «_-.+=», hasta 15)"
+msgstr ""
+
+#: userland/programas/wg.c:184
+#, c-format
+msgid "no se puede abrir %s: %s"
+msgstr ""
+
+#: userland/programas/wg.c:191
+#, c-format
+msgid "Aviso: otros usuarios pueden leer %s (tiene la clave privada): chmod 600 %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:224
+#, c-format
+msgid "línea %d: más de %d pares"
+msgstr ""
+
+#: userland/programas/wg.c:227
+#, c-format
+msgid "línea %d: sección desconocida %s"
+msgstr ""
+
+#: userland/programas/wg.c:231
+#, c-format
+msgid "línea %d: falta «=»"
+msgstr ""
+
+#: userland/programas/wg.c:236
+#, c-format
+msgid "línea %d: PrivateKey no es una clave válida"
+msgstr ""
+
+#: userland/programas/wg.c:242 userland/programas/wg.c:289
+#, c-format
+msgid "Aviso: %s: IPv6 no está soportado; se ignora %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:246 userland/programas/wg.c:248
+#, c-format
+msgid "línea %d: Address no válida"
+msgstr ""
+
+#: userland/programas/wg.c:249
+#, c-format
+msgid "Aviso: %s: solo se usa la primera dirección IPv4; se ignora %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:264
+#, c-format
+msgid "línea %d: MTU entre 576 y 1500"
+msgstr ""
+
+#: userland/programas/wg.c:268
+#, c-format
+msgid "línea %d: ListenPort no válido"
+msgstr ""
+
+#: userland/programas/wg.c:271
+#, c-format
+msgid "línea %d: PublicKey no es una clave válida"
+msgstr ""
+
+#: userland/programas/wg.c:273
+#, c-format
+msgid "línea %d: PresharedKey no es una clave válida"
+msgstr ""
+
+#: userland/programas/wg.c:276
+#, c-format
+msgid "línea %d: Endpoint IPv6 no está soportado"
+msgstr ""
+
+#: userland/programas/wg.c:280
+#, c-format
+msgid "línea %d: Endpoint es «nombre:puerto»"
+msgstr ""
+
+#: userland/programas/wg.c:290
+#, c-format
+msgid "línea %d: demasiadas AllowedIPs"
+msgstr ""
+
+#: userland/programas/wg.c:291
+#, c-format
+msgid "línea %d: AllowedIPs no válida: %s"
+msgstr ""
+
+#: userland/programas/wg.c:297
+#, c-format
+msgid "línea %d: PersistentKeepalive en segundos u «off»"
+msgstr ""
+
+#: userland/programas/wg.c:302
+#, c-format
+msgid "Aviso: %s: %s no está soportado en SaguiOS; se ignora\n"
+msgstr ""
+
+#: userland/programas/wg.c:304
+#, c-format
+msgid "línea %d: falta [Interface] o [Peer] antes"
+msgstr ""
+
+#: userland/programas/wg.c:307
+#, c-format
+msgid "línea %d: clave desconocida %s"
+msgstr ""
+
+#: userland/programas/wg.c:311
+msgid "falta PrivateKey en [Interface]"
+msgstr ""
+
+#: userland/programas/wg.c:312
+msgid "falta una Address IPv4 en [Interface]"
+msgstr ""
+
+#: userland/programas/wg.c:313
+msgid "no hay ningún [Peer]"
+msgstr ""
+
+#: userland/programas/wg.c:315
+#, c-format
+msgid "al par %d le falta PublicKey"
+msgstr ""
+
+#: userland/programas/wg.c:402
+msgid "wg: nombre de interfaz no válido\n"
+msgstr ""
+
+#: userland/programas/wg.c:415
+#, c-format
+msgid "wg: no se pudo resolver %s: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:423
+msgid "wg: encender una VPN es solo para el administrador (wg-quick up pide el permiso)\n"
+msgstr ""
+
+#: userland/programas/wg.c:424
+msgid "wg: ya hay un túnel encendido (wg-quick down primero)\n"
+msgstr ""
+
+#: userland/programas/wg.c:425
+#, c-format
+msgid "wg: no se pudo crear la interfaz: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:442
+#, c-format
+msgid "wg: el socket UDP (puerto %u): %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:459
+#, c-format
+msgid "wg: el par %d no vale (clave repetida, la propia o inválida)\n"
+msgstr ""
+
+#: userland/programas/wg.c:472
+#, c-format
+msgid "wg: la interfaz no aceptó la dirección o las rutas: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:533
+msgid "nunca"
+msgstr ""
+
+#: userland/programas/wg.c:536
+#, c-format
+msgid "hace %u s"
+msgstr ""
+
+#: userland/programas/wg.c:537
+#, c-format
+msgid "hace %u min %u s"
+msgstr ""
+
+#: userland/programas/wg.c:538
+#, c-format
+msgid "hace %u h %u min"
+msgstr ""
+
+#: userland/programas/wg.c:544
+msgid "No hay ningún túnel WireGuard encendido.\n"
+msgstr ""
+
+#: userland/programas/wg.c:547
+#, c-format
+msgid "wg: no existe la interfaz %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:552
+#, c-format
+msgid "interfaz: %s%s\n"
+msgstr ""
+
+#: userland/programas/wg.c:552
+msgid " (apagándose)"
+msgstr ""
+
+#: userland/programas/wg.c:553
+#, c-format
+msgid "  clave pública: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:554
+msgid "  clave privada: (oculta)\n"
+msgstr ""
+
+#: userland/programas/wg.c:555
+#, c-format
+msgid "  puerto de escucha: %u\n"
+msgstr ""
+
+#: userland/programas/wg.c:556
+#, c-format
+msgid "  dirección: %s/%u, MTU %u"
+msgstr ""
+
+#: userland/programas/wg.c:557 userland/programas/wg.c:628
+#, c-format
+msgid ", DNS %s"
+msgstr ""
+
+#: userland/programas/wg.c:558
+#, c-format
+msgid " (demonio: proceso %u)\n"
+msgstr ""
+
+#: userland/programas/wg.c:561
+#, c-format
+msgid ""
+"\n"
+"par: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:562
+msgid "  clave precompartida: (oculta)\n"
+msgstr ""
+
+#: userland/programas/wg.c:563
+#, c-format
+msgid "  extremo: %s:%u\n"
+msgstr ""
+
+#: userland/programas/wg.c:564
+msgid "  IP permitidas: "
+msgstr ""
+
+#: userland/programas/wg.c:566
+msgid "(ninguna)\n"
+msgstr ""
+
+#: userland/programas/wg.c:568
+#, c-format
+msgid "  último saludo: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:571
+#, c-format
+msgid "  transferencia: %s recibidos, %s enviados\n"
+msgstr ""
+
+#: userland/programas/wg.c:572
+#, c-format
+msgid "  keepalive persistente: cada %u s\n"
+msgstr ""
+
+#: userland/programas/wg.c:574
+#, c-format
+msgid ""
+"\n"
+"descartados: %u repetidos, %u con MAC o etiqueta mala, %u con origen no permitido, %u otros; cookies recibidas %u\n"
+msgstr ""
+
+#: userland/programas/wg.c:611
+msgid "wg: la entrada no es una clave en base64\n"
+msgstr ""
+
+#: userland/programas/wg.c:626
+#, c-format
+msgid "[#] %s: dirección %s/%u, MTU %u"
+msgstr ""
+
+#: userland/programas/wg.c:632
+#, c-format
+msgid "[#] par %d: "
+msgstr ""
+
+#: userland/programas/wg.c:633
+#, c-format
+msgid "extremo %s:%u, "
+msgstr ""
+
+#: userland/programas/wg.c:634
+msgid "rutas"
+msgstr ""
+
+#: userland/programas/wg.c:652
+#, c-format
+msgid "encender la VPN «%s» (todo el tráfico de red irá por ella)"
+msgstr ""
+
+#: userland/programas/wg.c:660
+msgid "wg-quick: encender una VPN necesita permiso de administrador.\n"
+msgstr ""
+
+#: userland/programas/wg.c:685
+#, c-format
+msgid "wg-quick: ya está encendida %s (wg-quick down %s)\n"
+msgstr ""
+
+#: userland/programas/wg.c:698
+msgid "wg-quick: demasiados intentos fallidos; espera un minuto\n"
+msgstr ""
+
+#: userland/programas/wg.c:699
+msgid "wg-quick: no se encendió: hace falta permiso de administrador\n"
+msgstr ""
+
+#: userland/programas/wg.c:716
+#, c-format
+msgid "wg-quick: no se pudo lanzar el demonio: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:725
+msgid "permiso denegado"
+msgstr ""
+
+#: userland/programas/wg.c:725
+msgid "ya hay un túnel"
+msgstr ""
+
+#: userland/programas/wg.c:726
+msgid "no se pudo resolver el extremo"
+msgstr ""
+
+#: userland/programas/wg.c:726
+msgid "error"
+msgstr ""
+
+#: userland/programas/wg.c:727
+#, c-format
+msgid "wg-quick: el túnel no arrancó (%s)\n"
+msgstr ""
+
+#: userland/programas/wg.c:731
+#, c-format
+msgid "[#] %s encendida (demonio: proceso %d). «wg show» da el estado.\n"
+msgstr ""
+
+#: userland/programas/wg.c:736
+msgid "wg-quick: el demonio no respondió\n"
+msgstr ""
+
+#: userland/programas/wg.c:746
+msgid "wg-quick: no hay ningún túnel encendido\n"
+msgstr ""
+
+#: userland/programas/wg.c:752
+#, c-format
+msgid "wg-quick: %s no está encendida (la encendida es %s)\n"
+msgstr ""
+
+#: userland/programas/wg.c:757
+#, c-format
+msgid "wg-quick: no se pudo apagar: %s\n"
+msgstr ""
+
+#: userland/programas/wg.c:760
+msgid "[#] túnel apagado\n"
+msgstr ""
+
+#: userland/programas/wg.c:767
+msgid "[#] túnel apagado (el demonio no respondía)\n"
+msgstr ""
+
+#: userland/programas/wg.c:770
+msgid "wg-quick: el demonio no se apagó\n"
+msgstr ""
+
+#: userland/programas/wg.c:787
+#, c-format
+msgid "[#] %s es correcto\n"
+msgstr ""
+
+#: userland/programas/wg.c:791
+#, c-format
+msgid "uso: wg-quick up|down|check NOMBRE (el archivo es %s/NOMBRE.conf) o RUTA.conf\n"
+msgstr ""
+
+#: userland/programas/wg.c:807
+msgid ""
+"uso: wg genkey | pubkey | genpsk | show [INTERFAZ]\n"
+"     wg-quick up|down NOMBRE    (encender y apagar la VPN)\n"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:28
+msgid "Conectar"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:29
+msgid "Desconectar"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:30
+msgid "Importar .conf..."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:31
+msgid "Borrar"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:32
+msgid "Generar claves"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:33
+msgid "Copiar"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:108 userland/programas/wg_ventana.h:261 userland/programas/wg_ventana.h:290
+msgid "VPN (WireGuard)"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:108
+msgid "Ya hay un par de claves generado. ¿Cambiarlo por otro? El servidor tendrá que conocer la clave pública nueva."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:119
+msgid "No se pudo guardar la clave en /home/.config/wireguard."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:123
+msgid "Claves generadas. La pública está copiada: dásela al servidor (su [Peer] PublicKey)."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:130
+msgid "El nombre del archivo no vale (letras, cifras, «_-.+=», hasta 15)."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:133
+msgid "No se pudo leer el archivo."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:145
+msgid "El archivo no trae PrivateKey: genera antes las claves aquí."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:152
+msgid "El archivo no tiene [Interface]."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:164
+msgid "No se pudo guardar en /home/.config/wireguard."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:169
+#, c-format
+msgid "Importada, pero tiene un error: %s"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:174
+#, c-format
+msgid "Importada como «%s»."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:187
+msgid "Importar una configuración WireGuard"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:187
+msgid "WireGuard (*.conf)|*.conf|Todos los archivos (*.*)|*"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:205
+#, c-format
+msgid "VPN encendida: %s (%s/%u). Último saludo: %s."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:211
+#, c-format
+msgid "Recibido %s, enviado %s. Servidor %s:%u."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:212
+#, c-format
+msgid "Recibido %s, enviado %s."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:215 userland/programas/wg_ventana.h:285
+msgid "VPN apagada."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:216
+msgid "Elige una configuración y pulsa «Conectar»."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:218
+msgid "Configuraciones (/home/.config/wireguard):"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:223
+msgid "No hay ninguna. Pulsa «Importar .conf...»."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:229
+msgid "Tu clave pública (para el servidor):"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:230
+msgid "(ninguna: pulsa «Generar claves»)"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:239
+msgid "Conectar pide permiso de administrador; desconectar, no."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:245
+msgid "Elige una configuración."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:246
+msgid "Ya hay una VPN encendida: desconéctala antes."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:247
+msgid "Conectando..."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:253
+msgid "VPN encendida."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:254
+msgid "No se pudo encender la VPN."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:262
+msgid "wg: no se pudo abrir la ventana (¿hay escritorio?)\n"
+msgstr ""
+
+#: userland/programas/wg_ventana.h:290
+msgid "¿Borrar esta configuración? Se pierde su clave privada si no la tienes en otro sitio."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:293
+msgid "Configuración borrada."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:293
+msgid "No se pudo borrar."
+msgstr ""
+
+#: userland/programas/wg_ventana.h:298
+msgid "Clave pública copiada."
+msgstr ""
+

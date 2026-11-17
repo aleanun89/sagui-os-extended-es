@@ -1,0 +1,71 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+# go-sagui - envoltorio de tinygo para compilar programas de Go para SaguiOS (D364, docs/go.md).
+#
+#   tools/go-sagui build [-o salida] [opciones de tinygo] [paquete]   (el paquete por defecto es .)
+#   tools/go-sagui env     imprime las variables (para «eval», y usar tinygo a mano)
+#
+# Prepara el entorno (tools/tinygo_entorno.sh), genera el objetivo de TinyGo con las rutas de esta
+# copia del repositorio (userland/go/alvos/saguios.json), compila y enlaza contra
+# build/userland/libgo.a (libsagui + libc común + userland/go/runtime/glue.c; si no existe la
+# compila con make) y deja el ejecutable listo para el sistema (sin símbolos, comprobado como los
+# demás programas). Variantes:
+#   SAGUI_GO_SSE2=1   permite SSE2 en el código generado (solo para máquinas con SSE2).
+#   SAGUI_GO_SALIDA   carpeta de compilación (por defecto build/).
+set -euo pipefail
+
+RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+B="${SAGUI_GO_SALIDA:-$RAIZ/build}"
+
+if [ "${1:-}" = env ]; then
+    exec bash "$RAIZ/tools/tinygo_entorno.sh" env
+fi
+if [ "${1:-}" != build ]; then
+    sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+fi
+shift
+
+eval "$(bash "$RAIZ/tools/tinygo_entorno.sh" env)"
+export PATH="$HOME/.local/saguitools/bin:$HOME/.local/saguitools/root/usr/bin:$PATH"
+
+# Argumentos: -o salida; el resto va a tinygo.
+SALIDA=""
+RESTO=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -o) SALIDA="$2"; shift 2 ;;
+    *)  RESTO+=("$1"); shift ;;
+    esac
+done
+[ -n "$SALIDA" ] || SALIDA="a.out"
+[ ${#RESTO[@]} -gt 0 ] || RESTO=(.)
+
+LIBGO="$B/userland/libgo.a"
+if [ ! -f "$LIBGO" ]; then
+    echo "go-sagui: compilando $LIBGO..." >&2
+    ( cd "$RAIZ" && make "B=$B" "$B/userland/libgo.a" >&2 )
+fi
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/go-sagui.XXXXXX")"
+trap 'rm -r "$TMP"' EXIT
+FEATURES='-sse,-sse2,-mmx,+x87'
+CPU=pentium
+if [ "${SAGUI_GO_SSE2:-0}" = 1 ]; then FEATURES='+sse,+sse2,+x87'; CPU=pentium4; fi
+sed -e "s#@LIBGO@#$LIBGO#" -e "s#@PROGRAMA_LD@#$RAIZ/userland/programa.ld#" \
+    -e "s#\"-sse,-sse2,-mmx,+x87\"#\"$FEATURES\"#" -e "s#\"cpu\": \"pentium\"#\"cpu\": \"$CPU\"#" \
+    "$RAIZ/userland/go/alvos/saguios.json" > "$TMP/saguios.json"
+
+# El paquete (la última palabra si es una carpeta) se compila desde su carpeta, para que Go
+# encuentre el go.mod (los ejemplos comparten userland/go/ejemplos/go.mod).
+ULTIMO="${RESTO[$((${#RESTO[@]} - 1))]}"
+if [ -d "$ULTIMO" ]; then
+    ( cd "$ULTIMO" && tinygo build -target "$TMP/saguios.json" -o "$TMP/prog.elf" "${RESTO[@]:0:$((${#RESTO[@]} - 1))}" . )
+else
+    tinygo build -target "$TMP/saguios.json" -o "$TMP/prog.elf" "${RESTO[@]}"
+fi
+objcopy --strip-all "$TMP/prog.elf" "$TMP/prog"
+python3 "$RAIZ/tools/elf32.py" "$TMP/prog.elf" >&2
+mkdir -p "$(dirname "$SALIDA")"
+cp "$TMP/prog" "$SALIDA"
+chmod 755 "$SALIDA"

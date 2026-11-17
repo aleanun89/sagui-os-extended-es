@@ -21,6 +21,8 @@ void sup_desenho(superficie_t *s, int x, int y, const desenho_t *d, int escala);
 void sup_desenho_metade(superficie_t *s, int x, int y, const desenho_t *d);
 void sup_copiar(superficie_t *s, int x, int y, const uint32_t *origem, int larg, int alt, int passo);
 int  texto_largura(const char *t);
+/* D365: como sup_copiar, mezclando con lo que ya hay: pct % del origen (1-100) sobre el destino; clave: los píxeles 0xFFxxxxxx no se pintan. */
+void sup_misturar(superficie_t *s, int x, int y, const uint32_t *origem, int larg, int alt, int passo, int pct, bool clave);
 /* Copia origen (ol x oa) ampliada o reducida al rectángulo (x, y, l, a). */
 void sup_escalar(superficie_t *s, int x, int y, int l, int a, const uint32_t *origem, int ol, int oa);
 

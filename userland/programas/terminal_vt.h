@@ -41,6 +41,8 @@ struct vt_s {
     tl_esc_t  esc;
     int       top, bot;          /* región de desplazamiento (DECSTBM), base 0 */
     bool      xterm;             /* habla con un xterm (ssh): LF sin CR, BS sin borrar, teclas xterm */
+    int       rato;              /* D366: informe de ratón pedido por el programa: 0 no, 1000 clics, 1002 arrastre, 1003 todo */
+    bool      rato_sgr;          /* D366: formato SGR (CSI ? 1006 h) */
     bool      lnm;               /* LF también vuelve a la columna 0 (el modo de siempre del sagsh) */
     bool      origem, autowrap, ins, cur_oculto, app_cur, app_kp, colar_cor;
     int       gl, cs[2];         /* juego activo (SO/SI) y juegos G0/G1: 0 ASCII, 1 dibujo DEC */
@@ -231,11 +233,13 @@ static TL_USADA void vt_modo_priv(vt_t *v, int p, bool on)
     case 1048: if (on) vt_guardar(v, true); else vt_restaurar(v, true); break;
     case 1049: vt_pantalha(v, on, true, true); break;
     case 2004: v->colar_cor = on; break;
+    case 1000: case 1002: case 1003: v->rato = on ? p : 0; break;   /* D366: ratón para el programa (xterm) */
+    case 1006: v->rato_sgr = on; break;
     case 7700:   /* SaguiOS: hay un xterm al otro lado (lo enciende ssh, lo apaga al salir y cada prompt del sagsh) */
         v->xterm = on; v->lnm = !on;
-        if (!on) { v->app_cur = false; v->app_kp = false; v->colar_cor = false; vt_pantalha(v, false, false, false); }
+        if (!on) { v->rato = 0; v->rato_sgr = false; v->app_cur = false; v->app_kp = false; v->colar_cor = false; vt_pantalha(v, false, false, false); }
         break;
-    default: break;   /* 5, 12, 69, 1000-1006, 1015, 2026...: se aceptan sin efecto */
+    default: break;   /* 5, 12, 69, 1004, 1005, 1015, 2026...: se aceptan sin efecto */
     }
 }
 

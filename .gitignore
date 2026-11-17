@@ -64,3 +64,10 @@ __pycache__/
 /roms/
 /build/86box/
 *.rom
+
+# D362: lo que trae tools/depurar-remoto.py recoger de los portátiles (dmesg, infopc...): datos de
+# máquinas reales, fuera de git y del repositorio público
+/pruebas-remotas/
+# Entregas de uso propio del generador de imágenes (tools/generador.py, D370): nunca se versionan ni se publican
+/entrega/privada/
+/entrega/personalizada/

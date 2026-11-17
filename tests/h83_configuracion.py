@@ -22,6 +22,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, cor_do_pixel, imagem_console, RAIZ, SAIDA, opcoes_apps  # noqa: E402
+import conf_arbol as ca  # noqa: E402
 
 ACENTO = (0x2A, 0x6F, 0xD8)
 DADOS_MB = 16
@@ -211,58 +212,58 @@ def parte2e3():
         j = janela(m.serial(), "Configuración")
         ox, oy = j["x"] + 2, j["y"] + 24
         m.captura("H83-6-janela-teclado")
-        pos = pos_paginas()
-        for i, nome in enumerate(("teclado", "zona", "pantalla", "sonido", "escritorio")):
-            m.clique(ox + pos[i][0] + pos[i][1] // 2, oy + 24)
+        for nome, ch in (("teclado", "teclado"), ("zona", "zona"), ("pantalla", "tela"), ("sonido", "sonido"), ("escritorio", "escritorio")):
+            ca.ir_ox(m, ox, oy, ch)
             time.sleep(0.5)
             m.captura(f"H83-7-janela-{nome}")
         # Capturas: antes del arreglo (Capturas, v7.3.1) la ventana se quedaba atrapada
         # en esta pestaña y no volvía a cambiar. Se comprueba por el serie.
-        m.clique(ox + pos[5][0] + pos[5][1] // 2, oy + 24)
+        ca.ir_ox(m, ox, oy, "capturas")
         time.sleep(0.5)
         m.captura("H83-7b-janela-capturas")
         p_cap = registou_pagina(m, "Capturas", 0)
         verificar(p_cap >= 0, "pestaña Capturas: el serie registra la página")
-        m.clique(ox + pos[0][0] + pos[0][1] // 2, oy + 24)   # sale de Capturas
+        ca.ir_ox(m, ox, oy, "teclado")   # sale de Capturas
         p_tec = registou_pagina(m, "Teclado", max(p_cap, 0))
         verificar(p_cap >= 0 and p_tec > p_cap, "pestaña Capturas: al pulsar Teclado la página cambia")
         # y todas las pestañas, en orden, para que ninguna se quede atrapada
         cursor = max(p_tec, 0)
-        for i, nome in enumerate(TITULOS_PAG):
-            m.clique(ox + pos[i][0] + pos[i][1] // 2, oy + 24)
+        for ch in ca.HOJAS:
+            nome = ca.LOG[ch]
+            ca.ir_ox(m, ox, oy, ch)
             time.sleep(0.3)
             cursor = registou_pagina(m, nome, cursor + 1)   # una marca nueva, posterior al clic
             verificar(cursor >= 0, f"pestaña {nome}: la página cambia")
             if cursor < 0:
                 break
         # el recorrido acaba en la última pestaña: se vuelve a Escritorio para los colores
-        m.clique(ox + pos[4][0] + pos[4][1] // 2, oy + 24)
+        ca.ir_ox(m, ox, oy, "escritorio")
         time.sleep(0.5)
-        # clique de verdade no segundo swatch (verde -> azul ya activo): elegimos Rojo (índice 2)
-        m.clique(ox + 24 + 2 * 70 + 20, oy + 50 + 28 + 10)
+        # clique de verdade en una muestra (Rojo: índice 6 de los 16 colores de acento)
+        m.clique(*ca.panel_ox(ox, oy, *ca.muestra_acento(6), l=j["l"], a=j["a"]))
         time.sleep(0.6)
         png = m.captura("H83-8-acento-rojo")
         t = janela(m.serial(), "Terminal")
         c = cor_do_pixel(png, j["x"] + j["l"] - 150, j["y"] + 8)
         verificar(perto(c, (0xC0, 0x39, 0x2B), 2), f"clique no color Rojo: a barra da janela ativa ficou {c}")
         out = ""
-        m.clique(ox + pos[0][0] + pos[0][1] // 2, oy + 24)   # volta ao teclado
-        m.clique(ox + 24 + 100, oy + 50 + 56 + 15)   # botão "Español (ES)"
+        ca.ir_ox(m, ox, oy, "teclado")   # volta ao teclado
+        ca.clic_panel(m, ox, oy, 30 + 20, 26 + 6, j["l"], j["a"])   # opción "Español (ES)"
         time.sleep(0.6)
         m.captura("H83-9-teclado-es")
         verificar("configuracion: ventana abierta (persistente 1)" in m.serial(), "a janela sabe que /home é persistente")
         # D218: la pestaña Red, con el interruptor del bloqueo de publicidad por DNS.
-        m.clique(ox + pos[8][0] + pos[8][1] // 2, oy + 24)
+        ca.ir_ox(m, ox, oy, "red")
         time.sleep(0.5)
         m.captura("H83-10-red")
-        m.clique(ox + 24 + 80, oy + 50 + 100 + 14)   # botón "Activar"
+        ca.clic_panel(m, ox, oy, 30 + 7, 84 + 7, j["l"], j["a"])   # casilla «Bloquear publicidad...»
         fim = time.time() + 30
         while time.time() < fim and "[BLOQUEO] activo:" not in m.serial():
             time.sleep(0.3)
         verificar("[BLOQUEO] activo:" in m.serial(), "Red > Activar: el kernel carga la tabla del bloqueo")
         time.sleep(0.8)
         m.captura("H83-11-red-bloqueo-activado")
-        m.clique(ox + 24 + 80, oy + 50 + 100 + 14)   # ahora dice "Desactivar"
+        ca.clic_panel(m, ox, oy, 30 + 7, 84 + 7, j["l"], j["a"])   # la misma casilla: la desmarca
         time.sleep(2)
         m.digitar("", 0.01)
 

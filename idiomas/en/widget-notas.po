@@ -1,0 +1,26 @@
+# Traducción de SaguiOS: catálogo «widget-notas», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/widget-notas.c:19
+msgid "Nota adhesiva: haz clic para escribir."
+msgstr "Sticky note: click to write."
+
+#: userland/programas/widget-notas.c:40
+msgid "Nota"
+msgstr "Note"
+
+#: userland/programas/widget-notas.c:65
+msgid "Nota adhesiva"
+msgstr "Sticky note"
+
+#: userland/programas/widget-notas.c:71
+msgid "Guardar"
+msgstr "Save"
+

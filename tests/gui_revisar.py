@@ -28,27 +28,16 @@ from qemu import Maquina, FalhaTeste, criar_pendrive, pendrive_qemu, RAIZ, SAIDA
 DIR = os.path.join(RAIZ, "build", "gui-revisar")
 CAPS = os.path.join(DIR, "capturas")
 
-# Pestañas de Configuración (título -> ancho = 8 px por letra + 10, separación 2, como h83).
-TITULOS_CONFIG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
-                  "Escritorio remoto")
-
-
-def pos_pestanas():
-    x, pos = 10, []
-    for t in TITULOS_CONFIG:
-        l = len(t) * 8 + 10
-        pos.append((x, l))
-        x += l + 2
-    return pos
+import conf_arbol as ca  # noqa: E402   (D367: Configuración tiene árbol de secciones, no pestañas)
 
 
 # Cada aplicación: (nombre, orden, pasos). Pasos: ("esperar", s), ("captura", etiqueta), ("tecla", t),
 # ("clic", dx, dy) relativo al área cliente de la última ventana, ("texto", t), ("pestana", i).
 def tabla():
-    pos = pos_pestanas()
-    cfg = [("esperar", 1.0), ("captura", "teclado")]
-    for i, t in enumerate(TITULOS_CONFIG[1:], 1):
-        cfg += [("clic", pos[i][0] + pos[i][1] // 2, 24), ("esperar", 0.6), ("captura", t.lower().replace(" ", "-"))]
+    cfg = [("esperar", 1.0), ("captura", "inicio")]
+    for ch in ca.HOJAS:
+        x, y = ca.arbol(dict(x=0, y=0), ch)
+        cfg += [("clic", x, y), ("esperar", 0.6), ("captura", ch)]
     return [
         ("configuracion", "configuracion &", cfg),
         ("arquivos", "arquivos &", [("esperar", 1.0), ("captura", "principal"), ("tecla", "ctrl-n"), ("esperar", 0.8), ("captura", "tecla-ctrl-n"), ("tecla", "esc")]),

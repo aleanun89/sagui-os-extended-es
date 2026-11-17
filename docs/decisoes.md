@@ -19331,3 +19331,574 @@ como `si_mc_program`), con los valores anteriores guardados y repuestos al apaga
 `unidad`: `tests/gcn_dma_unidad.c` en el PC: paquetes con los bits de `sid.h`, detección, controladores de pantalla con
 direcciones de 40 bits, copias como memmove con un motor que copia en cualquier orden y rellenos con `CONSTANT_FILL`;
 `std`: en QEMU nada cambia). Siguen pasando h161 y h286.
+
+## D367. Configuración con árbol de secciones y panel de opciones con grupos (v8.5.2, mejora 124 adelantada en lo del árbol)
+
+**Qué.** La ventana «Configuración» deja las 12 pestañas (que no cabían a 800 px, con sub-pestañas dentro de Pantalla) y pasa
+a un diseño de panel de opciones clásico, propio de SaguiOS: **árbol de categorías a la izquierda**, **panel con título de
+sección y grupos enmarcados a la derecha** y, abajo, **Aceptar / Cancelar / Aplicar** (y **Predeterminado** de la sección, a
+la izquierda). Se puede redimensionar (mínimo 700x440); el tamaño y la última sección se recuerdan.
+
+| Categoría | Secciones (clave de `--ventana`) |
+|---|---|
+| Sistema | Pantalla (`tela`), Aceleración gráfica (`aceleracion`), Kernel (`kernel`), Fecha y hora (`zona`), Idioma (`idioma`), Usuarios (`usuarios`) |
+| Escritorio | Colores y fondo (`escritorio`), Fuentes (`fuentes`), Capturas (`capturas`) |
+| Dispositivos | Teclado (`teclado`), Mandos (`mandos`), Sonido (`sonido`) |
+| Red | Publicidad (DNS) (`red`), Escritorio remoto (`vnc`) |
+| IA (`ia`) | |
+
+Ninguna opción se pierde: lo que estaba en las pestañas se repartió así (el idioma, que vivía en Teclado, tiene su sección;
+Pantalla > Resolución / Aceleración / Kernel pasan a tres secciones). `configuracion --ventana [SECCION]` y
+`configuracion --seccion SECCION` abren la sección (claves de la tabla y alias: `pantalla`, `fondo`, `gpu`, `fuente`...);
+`--usuarios` sigue valiendo. Sin argumento se abre la de la última vez (`/tmp/configuracion.ui` y, con /home persistente,
+`/home/.config/configuracion.ui`: `seccion=`, `ancho=`, `alto=`). **El modo texto (`configuracion mostrar`, `volumen`...) no cambia.**
+
+**Aplicar o inmediato.** Se mantiene lo de hoy: cada cambio se **aplica y guarda al momento** (teclado, acento, volumen,
+fuentes, aceleración...). Los pocos campos de texto (carpeta de capturas, IA) esperan a **Intro / Aplicar / Aceptar** (o a salir de la
+sección, en Capturas). **Aceptar** = Aplicar + cerrar (cerrar con la X es lo mismo); **Aplicar** confirma lo pendiente de la sección
+(«ya está aplicado» si no hay nada); **Cancelar** cierra **deshaciendo lo cambiado en esta apertura** en lo que es viable en
+proceso: teclado, volumen y silencio, balance, latencia, ecualizador, zona, acento, idioma, fondo, fuentes y capturas (compara con
+lo que había puesto al abrir, aunque no hubiera archivo). **No deshace** la aceleración, el kernel, el micrófono, las cuentas ni
+el bloqueo de publicidad (piden administrador o tienen su propia autoprueba): esas secciones llevan su «Predeterminado».
+**Predeterminado** existe en Teclado, Idioma, Colores y fondo, Capturas, Sonido (ecualizador plano y balance al centro), Fuentes,
+Aceleración (valores seguros) y Kernel (valores de la imagen).
+
+**Colores de acento.** 16 muestras cuadradas de 26 px con 6 de separación, que se reparten en varias filas si no caben; el nombre
+del elegido sale debajo («Elegido: Verde»). Todas dan **al menos 3:1 de contraste con el texto blanco** de la barra de título y de
+tareas (`tests/h369_config_arbol.py` lo calcula): por eso no hay amarillos ni grises claros (verde claro, azul marino, cian, ámbar,
+marrón, rosa claro, gris y negro se añaden a los ocho de antes). Hacer que el kernel elija texto oscuro con acentos claros queda
+fuera (tocaría el dibujo de ventanas y barra).
+
+**Piezas.**
+- `arvore_t` en la libsagui (`userland/libsagui/gui_arvore.c`, cabecera `gui.h`): lista en árbol con ramas desplegables
+  (primer componente de la mejora 124: el árbol; la tabla virtual sigue pendiente). Ítems en orden de recorrido con su nivel.
+- `configuracion.c`: el **panel trabaja en coordenadas locales** (origen en su esquina; las filas empiezan en x = 24) y unas macros
+  suman el origen y el desplazamiento a `g_*()` y a los componentes viejos (botón, caja, lista), así que las secciones heredadas
+  no cambiaron de código. Las nuevas se escriben en **modo inmediato** (`ui_*`): una sola función dibuja (`ui_ev == NULL`) y trata
+  el evento (`ui_ev != NULL`) con las mismas llamadas: `ui_grupo`, `ui_casilla`, `ui_opcion`, `ui_boton`, `ui_parrafo`, `ui_texto`.
+- Barra de desplazamiento del panel si `cont_h > PH` (clic en el carril, arrastre del pulgar, rueda salvo sobre una lista).
+
+**Cómo portar una sección al árbol (guía para fusiones).** Una sección es **una entrada en la tabla `seccoes[]`** y **una función
+de dibujo** (más la de eventos si la hay):
+1. En el `enum` de índices (`S_...`) añade el nombre **en la posición del árbol que quieres** (el orden del enum es el del árbol; una
+   categoría de primer nivel va antes de sus hojas). Añade la **misma entrada en `seccoes[]` en el mismo orden** y su clave en
+   `tests/conf_arbol.py` (`SECCIONES`; `h369` comprueba que coinciden).
+2. La entrada: `{ "clave", N_("Título"), "Nombre para el log", nivel, preparar, sair, desenhar, tratar, predet, aplicar, intervalo, tique }`.
+   `nivel` 0 = categoría o sección suelta, 1 = hoja bajo la categoría de arriba. Lo que no uses, `NULL`. `log` es lo que sale en
+   «configuracion: pagina X» (las pruebas lo esperan).
+3. **Sección nueva, en modo inmediato:** escribe `static void pg_xxx(void)` que dibuja y trata eventos con los `ui_*`; pon
+   `ui_mudou = true` cuando algo cambie; usa `y` locales desde 26 (dentro de un grupo: `ui_grupo(y, alto, N_("Título"))` va **al
+   final**, con el alto ya conocido); calcula `cont_h` (alto del contenido) al final; usa `PAGINA_UI(xxx)` para generar `d_xxx` y `t_xxx`.
+   Los ejemplos más cortos: `pg_teclado`, `pg_idioma`, `pg_capturas`.
+4. **Sección heredada (pestaña con coordenadas absolutas):** llama a tu dibujo desde `desenhar` y a tu tratamiento desde `tratar`
+   tal cual; cambia `Y_PAG + n` por `n` (`Y_PAG` ya es 0), `LARG - 48` sigue valiendo, y ancla lo de abajo con `ALT - 100` (= `PH - 30`);
+   **no ocupes más de `LARG - 24`** de ancho (a 800x600 el contenido útil mide ~528 px desde x = 30). Pon `cont_h`. Si usas una lista, añádela a
+   `roda_en_lista()` para que la rueda sea suya. Posiciones de botones que dependen del alto: se recalculan en el dibujo (ver `fuentes_pos`).
+5. Textos: `N_()` y `_()` como siempre, y `python3 tools/extraer_textos.py comprobar configuracion`.
+6. Las pruebas que toquen la sección usan `tests/conf_arbol.py`: `ir(m, v, "clave")` (clic en el árbol), `panel(v, xl, yl)` (punto local ->
+   pantalla), `boton_pie(v, "aceptar")`, `al_final()` (desplaza el panel). **Sin versión intermedia:** una sección que se te quede grande va
+   con scroll, nunca con una segunda fila de pestañas.
+Secciones previstas: «Barra y menú Inicio» (v8.5.2-barra, D361) cuelga de Escritorio; «VPN» (D363) de Red, antes de «Escritorio remoto»;
+widgets (D365) de Escritorio. Cada rama añade su entrada al enum y a la tabla y su `clave` a `conf_arbol.SECCIONES`; los conflictos al
+fusionar serán de orden en esas tres listas.
+
+**Pruebas:** `tests/h369_config_arbol.py` (árbol, 15 secciones sin cortes a 800x600, 16 muestras dentro del grupo, cambios en varias
+secciones, plegar, desplazar, Cancelar, `--ventana kernel`, última sección) y las de Configuración ajustadas a la geometría nueva:
+h83, h117, h162, h200, h273, h292, h307, h315, h323, h333, h340, h355 y `gui_revisar`. `tests/conf_arbol.py` reúne la geometría.
+
+### D367 (ampliación): dependencias entre opciones, una sola tabla
+
+Petición del mantenedor: «no permitir activar configuraciones incompatibles entre sí». La tabla de reglas vive en **un solo
+sitio**, `userland/libsagui/conf_reglas.c` (cabecera `userland/inc/conf_reglas.h`, C puro), y la usan `kconfig`, la orden
+`configuracion aceleracion` y la ventana (Sistema > Kernel y Sistema > Aceleración gráfica). Dos clases de regla «OPCIÓN depende
+de PADRE» (el padre está *activo*: sí/no -> sí; varios valores -> distinto de automático; triestado -> distinto de «desactivado»):
+- **REQUIERE**: «OPCIÓN activa con PADRE inactivo» es inválida. Se rechaza (con el motivo) y, al apagar el PADRE, la OPCIÓN se
+  apaga sola con aviso (en cascada: 2D -> 3D -> SDL 2). **Nunca se guarda una combinación inválida.**
+- **SIN_EFECTO**: con el PADRE inactivo la opción no hace nada: se enseña deshabilitada (gris, con el motivo debajo) y no se le
+  puede fijar un valor (apagar o «De la imagen» sí); lo que ya hubiera guardado no se toca.
+
+| Opción | Depende de | Clase | Motivo que se enseña |
+|---|---|---|---|
+| `nx` | `pae` | REQUIERE | Requiere PAE |
+| `cache_alta` | `pae`, `cache_disco` | REQUIERE | Requiere PAE / Requiere la caché de disco |
+| `escritura_diferida`, `cache_max_mb`, `sucios_max_mb`, `vaciado_s` | `cache_disco` | SIN_EFECTO | Sin efecto con la caché de disco apagada |
+| `swap_mb` | `swap` | SIN_EFECTO | Sin efecto con la swap apagada |
+| `gobernador` | `frecuencia` | SIN_EFECTO | Sin efecto con el control de frecuencia apagado |
+| SDL 2 por la GPU (`a_sdl`) | 3D por la GPU (`a_3d`) | REQUIERE | Requiere el 3D por la GPU |
+| 3D por la GPU (`a_3d`) | 2D por la GPU (`a_2d`) | REQUIERE, **solo si el 2D y el 3D comparten el anillo** (driver 2D «intel») | Requiere el 2D por la GPU (comparten el anillo) |
+
+Cómo se aplica: `kconfig OPCION=VALOR ...` resuelve **todo el conjunto** contra el estado del próximo arranque (`kconf_resolver()`
+en `opcoes_kernel.c`): primero los cambios pedidos, después la cascada de lo que no se pidió (se avisa con «OPCIÓN: ajustado a no
+solo (motivo)»), y rechaza el conjunto entero («combinación no válida (...); no se guarda nada», código 2, sin pedir administrador)
+si lo pedido deja algo inválido o fija un valor en una opción deshabilitada (`cache_disco=no vaciado_s=5` se rechaza;
+`pae=no nx=no` pasa). Lo que la imagen ya traía mal (NX con `--sem-pae`) no impide cambiar otras cosas. En la ventana, cada clic
+sobre una opción pasa por el mismo `kconf_resolver()` (`kc_cambiar`) y en Aceleración por `acel_cambiar`; en
+`configuracion aceleracion 3d|sdl VALOR` la misma tabla rechaza o ajusta antes de tocar nada. El kernel no conoce la tabla (la
+imponen los programas que escriben la cabecera; quien la escriba por otro camino, p. ej. a mano con `mkimagem.py`, es responsable).
+
+**DMA del disco: manda la cabecera de arranque (kconfig).** Hasta ahora `kconfig dma=...`/`cache_disco=...` y la fila «Disco» de
+Aceleración (D323) escribían los mismos bits y `configuracion --aplicar` re-escribía los de `sagui.conf` en cada arranque, de modo
+que lo de kconfig se perdía sin avisar. Ahora: (1) la fila Disco de Aceleración **se lee de la cabecera** (automático si DMA y caché
+están activos, desactivado si los dos están apagados, y «Mezcla en Sistema > Kernel» si difieren) y al elegir escribe, como antes, los
+dos bits; (2) al arrancar, si `kconfig` guardó `dma` o `cache_disco`, lo de `disco_dma_cache=` de `sagui.conf` **no se aplica** (queda
+anotado en el registro).
+
+**Pendiente de las ramas que añaden las opciones** (estilo de menú «Moderno» y buscador/translúcido solo con ese estilo; «autoocultar
+la barra» y la posición de la barra; v8.5.2-barra, D361): se añaden como filas SIN_EFECTO (o REQUIERE) a `conf_reglas[]` con el
+nombre de su clave, y su sección las deshabilita con `ui_gris` y `ui_parrafo(..., motivo)` igual que Kernel (ver `pg_kernel`). El
+«(Moderno)» de las etiquetas deja de hacer falta. **Prueba de unidad:** `tests/conf_reglas_unidad.c` (en el PC) recorre todas las
+combinaciones de las opciones del kernel y de la aceleración (con y sin anillo compartido, 1,7 millones de comprobaciones) y exige que
+tras cualquier cambio permitido y sus ajustes el estado sea válido; `h369` la compila y la ejecuta, y añade los casos de `kconfig` y de
+la ventana con la imagen `--sem-pae`.
+
+## D364. Soporte de Go con TinyGo (v8.5.2, mejora 135)
+
+**Decisión:** Go se soporta con **TinyGo** (planificador cooperativo, recolector propio, sin TLS por hilo ni señales), no
+con el Go oficial, que necesitaría TLS por hilo, poll/epoll y señales en el kernel (fase 2, `docs/go.md`).
+- **Toolchain** fuera del repositorio: `tools/tinygo_entorno.sh instalar` baja TinyGo 0.44.0 (trae LLVM) y Go 1.26.11 a
+  `~/.local/saguitools/{tinygo,go}` con SHA-256 y crea dos copias parcheadas.
+- **Objetivo** `userland/go/alvos/saguios.json`: `goos=linux`, `goarch=386`, etiqueta `saguios`, CPU `pentium` sin SSE (con
+  `SAGUI_GO_SSE2=1`, `pentium4`), planificador `tasks`, GC conservador. TinyGo enlaza con `ld.lld` y `userland/programa.ld`
+  contra `libgo.a` (libsagui + libc común + `glue.c`).
+- **Por qué `goos=linux`:** es el único que da `os`, `time`, `sync` y `encoding/json` completos sin tocar el binario de TinyGo.
+  Su `syscall` hace `int 0x80` con números de Linux (la compilación lo inserta en línea), así que **se sustituye
+  `src/syscall` del GOROOT** por `userland/go/syscall/` (copia en `~/.local/saguitools/go-sagui`), que llama a funciones `sg_*`
+  de `glue.c`. Carpetas como descriptores (3000+) y `ReadDirent` fabricados en C.
+- **Parche del runtime** (`userland/go/runtime/parchear_tinygo.py`, copia `tinygo-sagui`): SaguiOS no tiene paginación a
+  demanda dentro de lo reservado, así que el montón (256 MB de direcciones) se reserva con `MEM_RESERVAR` y las páginas se
+  asignan (`MEM_ASIGNAR`) al crecer. Falla en voz alta si cambia la versión de TinyGo.
+- **Límites conocidos:** reloj de 1 ms, sin señales, sin `fork`/`exec`, sin enlaces simbólicos, `net` no soportado (fase 2).
+- **Código de terceros:** `userland/go/syscall/` deriva de ficheros de Go y TinyGo (BSD-3-Clause, `docs/terceros.md`).
+- **Pruebas:** `tests/h366_tinygo.py` (se salta sin TinyGo). Los ejemplos van a `/apps/go/` (D194/D324), no a la base.
+
+
+## D361 - Barra de tareas y menú Inicio personalizables (v8.5.2)
+
+Petición del mantenedor: una barra más configurable, con varios estilos de menú Inicio (épocas ME, XP y Vista) y sin la versión del
+sistema en la barra (está en «Acerca de»). Diseño propio: solo se usa el sagui y el arte de SaguiOS.
+
+- **Ajustes** (`BC_*` en `abi.h`, un vector de bytes): posición (arriba/abajo), altura (20-48 px), ocultar sola, reloj, fecha
+  (automática/con fecha/solo hora), segundos, bandeja (volumen, red, temperatura, batería), agrupar ventanas por programa, rótulos
+  (icono y texto/solo icono/solo texto), iconos de 16 o 32 px, botón Inicio (logo y texto/solo logo/solo texto), tema de color
+  (oscuro, claro, del acento, negro, azul noche), estilo del menú y, en el Moderno, buscador arriba/abajo y translúcido.
+  Los de serie son los de siempre.
+- **Llamadas:** `INFO_BARRA` (81, lee) e `INFO_BARRA_GRAVAR` (82, aplica al momento; sin permisos especiales: es preferencia de la
+  sesión). `barra_conf_padrao()` los restablece al cerrar la sesión.
+- **Persistencia:** claves en `/home/.config/sagui.conf` (`barra_posicion`, `barra_altura`, `inicio_menu`...); el arranque las aplica
+  con `configuracion --aplicar`. CLI: `configuracion barra mostrar | restablecer | CLAVE=N...`.
+- **Área de trabajo:** `BARRA_SUPERIOR` pasa a ser `barra_topo()` (líneas reservadas arriba) y `barra_fundo()` las de abajo; con
+  «ocultar sola» no se reserva nada (la barra aparece al llevar el ratón al borde y se va a los 0,6 s). `janelas_area_mudou()`
+  reajusta las ventanas maximizadas al cambiar la barra.
+- **Estilos:** «SaguiOS» (el de siempre); «Clásico» (el menú de listas con franja lateral azul y el nombre del sistema en vertical);
+  «Dos columnas» y «Moderno» (`kernel/gui/inicio.c`: cabecera con la cuenta, más usados y «Todos los programas»; o buscador
+  integrado, lista con desplazamiento por líneas enteras y translúcido o degradado). Los botones de apagar, reiniciar y cerrar sesión
+  son cuadrados, con icono propio y etiqueta al pasar el ratón; abren la misma confirmación.
+- **No hecho:** barra en los laterales (obligaría a reservar columnas en todo el gestor de ventanas); el menú «SaguiOS» y el
+  «Clásico» siguen usando menu.c (sin buscador).
+- Prueba: `tests/h363_barra_menu.py` (capturas `docs/capturas/H363-*.png`).
+
+## D366. htop: monitor de procesos interactivo (clon propio) y ratón xterm en el Terminal
+
+**Qué:** programa `htop` (`userland/programas/htop.c`, GPL-3.0; htop es GPL-2.0+, así que es un clon propio sin su código):
+barras de CPU por núcleo, memoria y swap, lista con PID/USUARIO/PRI/NI/RES/S/CPU%/MEM%/TIEMPO+/ORDEN, árbol, hilos, orden por
+columna, buscar, filtrar, seguir, marcar, nice, matar, filtro de usuario, configuración en `~/.config/htoprc`, ayuda, barra de
+F-teclas, ratón, textos en un catálogo (`htop`, es/pt_BR/en) y entrada en `ajuda`. Teclas: `docs/htop.md`.
+
+**Datos del kernel que faltaban:** (1) `INFO_HILOS` = 83 (`info_sistema`), una entrada por hilo (`info_hilo_t`: tid, pid del proceso,
+estado, `cpu_ms`, CPU); era lo único que no se podía saber (`INFO_PROCESSOS` los suma en su proceso). Solo lee la tabla de procesos,
+sin tocar el planificador ni la memoria. (2) Lo demás ya existía: `PLAN_INFO` (nice, por pid o tid), `USU_DE_PID`, `INFO_NUCLEOS`
+(tiques por CPU), `INFO_MEMORIA` (caché y swap D352). No hay carga media (`loadavg`) ni VIRT, y el kernel no separa usuario y sistema
+por núcleo: la barra reparte el uso de cada CPU entre «usuario» y «kernel» según el tiempo de CPU de los procesos de cada tipo.
+
+**Señales:** SaguiOS no tiene señales (`kill` solo termina), así que F9 ofrece solo «Matar»; F7 y F8 usan `PLAN_PRIORIDADE` y
+el kernel decide quién baja el nice.
+
+**Ratón y F-teclas en el Terminal:** el modo bruto del Terminal no manda F-teclas ni ratón. htop enciende el modo xterm
+(`CSI ? 7700 h`, D320, el de `ssh`) y el Terminal ahora entiende `CSI ? 1000/1002/1003 h` y `CSI ? 1006 h` (`vt.rato`, `vt.rato_sgr`
+en `terminal_vt.h`; `rato_para_programa` en `terminal.c`, unas 25 líneas): clic, rueda y arrastre con 1002 llegan al programa en
+formato SGR; Mayús+clic sigue seleccionando y la barra de pestañas no se reenvía. Antes esos modos se aceptaban sin efecto.
+Por SSH funciona igual (el cliente reenvía lo que el Terminal escribe).
+
+**Consumo y parpadeo:** el programa mantiene la rejilla de la pantalla y solo escribe las líneas que cambiaron; intervalo 1,5 s;
+entre pulsaciones duerme 25 ms.
+
+**Alternativas descartadas:** (a) ampliar `top`: es de salida por lotes y no tiene teclas; (b) hacerlo gráfico (ya está `tareas`);
+(c) pedir al kernel F-teclas en el modo bruto (tocaba el tty del kernel): el modo xterm que ya había basta.
+
+**Pruebas:** `tests/h368_htop.py` (Terminal en QEMU). Siguen pasando `h41` (tareas), `h232` (`top`), `h320` y `h263` (Terminal).
+
+## D362. DEBUG-APP: depuración remota con un código de un solo uso (v8.5.2, h364)
+
+**Contexto:** para pasar pruebas en los portátiles del mantenedor hacía falta activar el `sshd` (D250), copiar una clave a `authorized_keys` y saber la dirección de cada máquina. El mantenedor pidió (2026-11-16) una aplicación que genere un código que se le pasa al coordinador para que entre y ejecute las pruebas. El coordinador (WSL en NAT) puede conectar **hacia** la red local, pero los portátiles no pueden conectar hacia él: escucha el portátil. Requisito añadido: nada de redes ni direcciones fijas; debe servir desde otro PC u otra red.
+
+**Decisión:**
+1. **Programa `debug-app`** («DEBUG-APP» en el menú, Sistema) con ventana y modo `--texto` (para la consola o SSH). «Permitir depuración remota» avisa de que la sesión es **root** y pide el diálogo de administrador (D269); en modo texto hace falta ser root (`admin debug-app --texto`). Sin dirección IP o con una dirección que no es privada, no se abre.
+2. **Sobre el `sshd` existente, en un modo aparte** (`sshd --depuracion`), no un servidor nuevo: mismo transporte, cifrado y canales (exec, shell, sftp/scp) ya probados (h248). Lo lanza `debug-app` como root, nunca el gestor de servicios; no lee `sshd.conf` ni `authorized_keys` y no activa el servicio normal. Puerto 2222 (o el primero libre de los 9 siguientes; configurable). Sin túneles (`redirigir=no`), 30 s para autenticarse, 2 intentos por conexión.
+3. **Autenticación: una clave ed25519 de un solo uso que sale del secreto**, no una contraseña. El secreto (64 bits de `cripto_aleatorio`) es la semilla (`SHA-256("SaguiOS DEBUG-APP v1" | secreto)`); `debug-app` pasa al `sshd` solo la clave **pública** (en su línea de órdenes: no es secreta). Ventajas frente a una contraseña: el `sshd` sigue sin aceptar contraseñas (D250), el secreto nunca viaja por la red (ni cifrado), y en el PC basta el `ssh` de OpenSSH sin `sshpass` ni `SSH_ASKPASS`. Descartado: una contraseña de un solo uso (habría que abrir `password`/`keyboard-interactive` en el `sshd`).
+4. **Una conexión autenticada por código, y se acabó.** De las dos opciones del mantenedor se elige la más simple: el secreto vale para **una** conexión autenticada; cuando termina, la sesión entera se cierra. Para encadenar órdenes, `scp` y `sftp`, el PC mantiene esa conexión abierta como **maestra de OpenSSH** (`ControlMaster`/`ControlPersist`) y todo lo demás va por ella sin volver a autenticarse. Descartado: que el cliente registre una clave pública suya en la primera conexión (más protocolo y más estado en el servidor para lo mismo). Coste: si la conexión se cae, hace falta otro código.
+5. **El código** (`debug_app_logica.h`, y lo mismo en `tools/depurar-remoto.py`): 25 bytes (versión 2, IP, puerto, secreto de 8 bytes, huella de 8 bytes **atada al secreto** — `SHA-256("SaguiOS DEBUG-APP huella v2" | secreto | SHA-256(clave del servidor))` —, 2 bytes de suma SHA-256) en base32 de Crockford: 40 letras en 8 grupos de 5, sin I, L, O ni U (al leer, I/L = 1 y O = 0, sin distinguir mayúsculas). Se dicta o se copia (botón «Copiar código»); la suma detecta una letra mal copiada antes de conectar. La dirección y la huella completas se enseñan también en claro.
+6. **Se gasta o se anula:** el `sshd` que escucha mira el código de salida de cada sesión: entró (`SAIR_BEM`, o cualquier salida rara) → el código no se vuelve a aceptar y se cierra; probó una clave o firma mala (`SAIR_AUT_FALHOU`, 12) → cuenta, y a la tercera (`DAPP_FALLOS_MAX`) se anula; no llegó a probar ninguna (el `ssh-keyscan` del PC, un escáner) → no cuenta. Una sola conexión a la vez (la anterior tiene un segundo de margen para terminar).
+7. **Direcciones permitidas configurables** (`--permitir`, campo de la ventana, guardado en `/home/.config/debug-app/debug-app.conf`): `subred` (de serie: la de la tarjeta en ese momento, sin su difusión ni su dirección de red), redes `a.b.c.d/N` (N de 8 a 32) y direcciones. Solo privadas (RFC 1918 y enlace local; ni 127/8 ni CGNAT 100.64/10) salvo `publicas`, que en la ventana es una casilla aparte con confirmación. Una entrada que no se entiende es un error y no se abre nada. La IP del código sale de la tarjeta (el kernel tiene una sola interfaz activa; cable o Wi-Fi) y se puede cambiar; puerto y duración (15 min - 8 h, 2 h de serie) también.
+8. **Fin de la sesión:** caducidad (la impone el `sshd`), «Cortar», cerrar la ventana, Intro o Ctrl+C en modo texto, o que `debug-app` muera: `debug-app` tiene el extremo de escritura de una tubería en la entrada del `sshd`, y al cerrarse el `sshd` mata la sesión con todo lo que lanzó (`matar_arvore`). Mientras dura, la ventana es roja con «Cortar», el título es «DEBUG-APP: SESIÓN REMOTA ACTIVA» (se ve en la barra de tareas) y hay avisos en pantalla al abrir, al entrar alguien y al cerrar. No hay icono propio en la bandeja: sería una llamada al sistema nueva para un programa; la ventana con el botón cumple lo mismo.
+9. **Registro:** `/home/.config/debug-app/debug-app.log` (conexiones, rechazos, órdenes, cierres; con la clave pública, nunca el secreto ni el código) y dos líneas en el registro del sistema (`dmesg`): abierta y cerrada con el motivo.
+10. **Lado del PC: `tools/depurar-remoto.py`** (y `.sh`): decodifica y valida, lee la clave del servidor con `ssh-keyscan` y compara su huella con la del código **antes** de entregar nada (si no coincide, no conecta), escribe la clave privada en formato OpenSSH (0600, carpeta 0700 en `$XDG_RUNTIME_DIR` o `/tmp`, ruta corta para el socket de control) solo mientras abre la conexión maestra, y ofrece `info`, `ejecutar`, `shell`, `recoger` (a `pruebas-remotas/<máquina>-<fecha>/`, fuera de git y en `tools/publicar-excluir.txt`), `subir`, `bajar` y `cerrar`; `--host`/`--puerto` para un NAT o reenvío, `--resultados`, `--maquina`. `ssh -F /dev/null`: no toca `~/.ssh` ni la configuración del usuario. Ed25519 propio en Python (solo la clave pública) para no depender de bibliotecas. Funciona en cualquier Linux con OpenSSH; desde WSL en NAT, la conexión sale del PC y no hace falta abrir puertos en Windows.
+
+**Límites conocidos:** quien ocupa el único hueco sin autenticarse lo bloquea hasta 30 s (un equipo de la red local puede molestar, no entrar); si la conexión maestra se cae hay que generar otro código; el código en el portapapeles lo pueden leer otros programas de la sesión; la huella del código son 64 bits, pero atados al secreto (ver la revisión de abajo); el registro de órdenes no ve lo que se teclea dentro de un `shell` interactivo (sí que se abrió). Wi-Fi con aislamiento de clientes: no hay nada que hacer desde SaguiOS; cable (docs/debug-app.md).
+
+**Revisión de seguridad (2026-11-16, antes de fusionar):**
+- *Claves sin firma («¿aceptarías esta?»):* una consulta `publickey` sin firma con una clave que no es la del código cuenta como intento igual que una firma mala (2 por conexión, 3 conexiones así anulan el código); con la buena solo responde quien ya tiene el secreto. `none` no cuenta pero no dice nada. En total, como mucho 6 claves probadas de 2^64. La clave pública de un solo uso está en la línea de órdenes del `sshd` (la ve `ps` en SaguiOS) y en el registro: sirve de oráculo fuera de línea para el secreto, pero son 2^64 derivaciones SHA-256 + Ed25519 en las horas que vale el código, fuera de alcance.
+- *Huella (cambiada a v2):* en v1 eran los 8 primeros bytes del SHA-256 de la clave del servidor, que es la **permanente** del `sshd` y cualquiera lee con `ssh-keyscan`. El objetivo era fijo y conocido de antemano, así que la segunda preimagen de 64 bits se podía calcular sin prisa (meses de GPU) y reutilizar contra todas las sesiones; el argumento de «las horas que vale el código» no se sostenía. Con la huella atada al secreto, el atacante no sabe qué valor buscar: cada clave suya tiene 2^-64 de pasar y cada intento es una conexión que el cliente aborta. Alargar la huella a 16 bytes también servía, pero el código pasaba de 40 a 53 letras. El suplantador, aun acertando, no entraría en el portátil (la firma del cliente va atada a su propio `session_id`): solo vería las órdenes y podría devolver resultados falsos. Sin hueco TOCTOU: la clave leída por `ssh-keyscan` se fija entera en un `known_hosts` propio y la conexión de verdad usa `StrictHostKeyChecking=yes` con `HostKeyAlias` y `HostKeyAlgorithms=ssh-ed25519`.
+- *Filtro de origen:* la IP la da el TCP del kernel al aceptar (solo IPv4, sin direcciones mapeadas); se rechazan 0.0.0.0, 255.255.255.255, la propia, y con `subred` la de red y la de difusión; sin `publicas`, nada fuera de RFC 1918/169.254 aunque una regla lo cubriera. `publicas` en las opciones guardadas (en `/home`, que escribe la cuenta normal) ya no vale en `--texto` sin `--permitir` en la línea de órdenes; en la ventana ya pedía su propia confirmación.
+- *Privilegios:* `sshd --depuracion` exige `sou_root()`; `sshd --sesion-depuracion` lanzado a mano por un usuario normal corre con su uid (`USU_FIJAR` es solo de root en el kernel), así que no da nada que no tuviera. Lo que hace el cliente ya autenticado (órdenes, SFTP/scp, `env`, pty) es root por diseño.
+- *Cliente:* `-F /dev/null`, sin agente ni `~/.ssh`; carpetas comprobadas con `lstat` (dueño, no enlace, 0700) contra una carpeta preparada en `/tmp` por otro usuario; la clave con `O_EXCL|O_NOFOLLOW` y borrada al abrir la maestra; `-` pide el código sin eco en un terminal; `scp --`.
+- *Riesgos que quedan:* la denegación (un equipo de la red ocupa el único hueco 30 s en bucle; varias plazas no lo arreglan contra quien puede usar varias direcciones de la LAN, y sin cripto antes de autenticar no hay forma de distinguirlo); el registro detallado está en `/home/.config/debug-app/`, que la cuenta normal puede borrar (en `dmesg` quedan la apertura y el cierre); un proceso que el cliente deje en segundo plano y que cambie de padre sobrevive al corte (`matar_arvore` sigue la familia); el código en el portapapeles; en el PC, el código pasado como argumento lo ve `ps` mientras dura la primera orden (por eso `env`/`-`).
+
+**Prueba:** `tests/h364_debug_app.py`: en el anfitrión `tests/debug_app_unidad.c` (también con ASan/UBSan) y comparación C/Python en 200 casos al azar, Ed25519 contra `cryptography` y la clave privada leída por `ssh-keygen`; en QEMU con `hostfwd` y `tools/depurar-remoto.py --host/--puerto`: sin root no se abre, red pública rechazada, código y huella (= `sshd --huella`), huella falsa rechazada por el cliente, ejecutar/subir/bajar/recoger, segunda conexión rechazada, cierre al terminar la conexión, tres claves malas anulan, otra red no entra, Intro corta (también con alguien dentro), caducidad, registro sin secreto y `sshd` normal parado. Guía: `docs/debug-app.md`.
+
+## D365. Widgets de escritorio y Conky propio (v8.5.3)
+
+**Contexto (2026-11-16, pedido del mantenedor):** «soporte de widgets de escritorio» y «Conky».
+
+**Decisión:**
+
+1. **Un widget es un programa normal** que abre una ventana «de escritorio» con la llamada nueva `SIS_CRIAR_WIDGET = 139`
+   (`abi.h`; `SIS_MAX` pasa a 140). La ventana: sin marco, sin botón en la barra ni en Alt+Tab, siempre **por debajo** de
+   las ventanas normales y por encima del fondo (en `janelas.c` los widgets ocupan el fondo de la pila `ordem[]` y
+   `focada()` los salta, así que no roban el foco ni suben al hacer clic), tamaño fijo. Recibe el ratón (`EV_CLIQUE`,
+   `EV_SOLTOU`, `EV_RODA`). Opacidad 1-100 % y, con `WIDGET_CLAVE`, los píxeles `0xFFxxxxxx` son transparentes
+   (esquinas redondeadas y el fondo «transparente» de Conky; `sup_misturar` en `desenho.c`, sin tocar el compositor). Un
+   evento nuevo `EV_WIDGET = 19` (`EVW_MOVIDO` con la posición, `EVW_QUITAR`, `EVW_FIN_SESION`) avisa al programa.
+   *Qué se tocó del núcleo:* solo el gestor de ventanas (`janelas.c`: `bd()`/`td()` en lugar de `BORDA`/`BARRA_TITULO`
+   en las coordenadas, la ventana común de `sis_criar_janela` pasó a `criar_janela_comum`) y 4 líneas de
+   `principal.c` (`abrir_widgets`, tras abrir el Terminal). `barra.c` y `menu.c` **no** se tocaron.
+2. **Colocación:** Alt + arrastrar, o el modo «Editar widgets» (menú del escritorio; los widgets muestran su contorno y se
+   arrastran sin Alt). Al soltar, el kernel manda `EVW_MOVIDO` y el widget guarda `<widget>.x/.y` en su configuración.
+   Clic derecho sobre un widget: «Mover widget», «Quitar widget», «Editar widgets».
+3. **Configuración y gestor:** `/home/.config/widgets.conf` (de la cuenta que tiene la sesión: `/home` se traduce por
+   sesión, D340): `<widget>=1|0`, `<widget>.x/.y`, `<widget>.opacidad`, `<widget>.<opción>`. El programa `widgets` es el
+   gestor (lista, Añadir/Quitar, opacidad, modo del reloj, editar `conky.conf`); se abre desde «Añadir widgets...» del
+   menú del escritorio y desde Configuración > Escritorio > «Widgets de escritorio...». `widgets --arrancar` lo lanza el
+   arranque de la sesión (también tras iniciar sesión con otra cuenta) y arranca los activos; `gui_widgets_sessao_nova`
+   avisa a los de la sesión anterior (`EVW_FIN_SESION`) para que terminen.
+4. **Widgets incluidos** (diseño propio, con los colores de SaguiOS; `userland/programas/widget-*.c`): reloj (analógico o
+   digital, un clic cambia), calendario (flechas de mes), notas adhesivas (un clic abre una ventana normal para
+   editar; se guarda en `/home/.config/widget-notas.txt`) y monitor del sistema (CPU con gráfica, memoria, red).
+   El tiempo/meteo **no** (sin servicio externo). Lo común (configuración, bucle con temporizador, datos del sistema,
+   dibujo) está en `libsagui/widget.c` + `inc/widget.h`.
+5. **Conky propio** (`userland/programas/conky.c`; no un porte: Conky es GPL-3 pero depende de X11 y Lua): lee
+   `/home/.config/conky.conf` (si no existe, crea uno de ejemplo con las etiquetas en el idioma de la sesión) con la
+   sintaxis del `.conkyrc` clásico (y, por tolerancia, `conky.config = {...}` / `conky.text = [[...]]`). Variables y
+   opciones soportadas: `docs/conky.md`. Lo no soportado: las variables se muestran tal cual y las opciones se ignoran,
+   con una línea en el registro (`[CONKY] variable no soportada: x`). Recarga sola al guardar el fichero (mira su fecha
+   cada 5 s y se relanza).
+6. **Consumo:** un temporizador por widget (1 s por defecto; el calendario 30 s; las notas, solo eventos), una lectura del
+   sistema por ciclo y solo de lo que el widget usa (`widget_datos_tique`), y si el texto/valores no cambiaron no se
+   repinta (Conky compara un hash de lo evaluado; el reloj, el segundo; el monitor, sus números).
+7. **Textos:** catálogos `widgets`, `widget-calendario`, `widget-notas`, `widget-sistema`, `conky` (pt_BR y en) y las
+   cadenas nuevas del kernel, Configuración y libsagui; `python3 tools/extraer_textos.py comprobar` sin pendientes.
+
+**Límites conocidos:** la letra es la de 8x16 de SaguiOS (`font`/`use_xft` de Conky se ignoran); los datos de red son los
+de la eth0 (cualquier nombre de interfaz salvo `lo` lee la eth0); no hay `exec`/`execi` (ejecutar programas desde un
+fichero de texto sería un riesgo) ni `${image}`; una ventana con opacidad < 100 % mezcla todo el widget (texto incluido),
+con `own_window_transparent yes` solo el fondo es transparente; el widget arrastrado a mano recuerda su posición y esta
+manda sobre `gap_x`/`gap_y` (para volver a ellos: borrar `conky.x` y `conky.y` de `widgets.conf`).
+
+**Revisión (2026-11-17, antes de fusionar en main con D361/D362/D366):** `SIS_CRIAR_WIDGET` no acepta un widget más
+ancho que la pantalla principal ni más alto que ella menos la barra de arriba (`ERRO_INVALIDO`; Conky recorta su tamaño a
+la pantalla); `gui_abrir_unico` salta los widgets (con el widget de un programa encontrado antes que su ventana, decía
+«ya abierto» sin abrir nada); en `conky.c` los números del fichero saturan en ±100000 y la línea del registro ya no se
+sale de su búfer con textos largos. Lo que no cambia: un widget siempre se pinta por debajo de las ventanas normales, y
+la barra, los menús, el diálogo de administrador (D269) y la pantalla de inicio de sesión (D340) se pintan después de
+todas las ventanas, así que ningún widget los tapa; los programas de la sesión mueren al cerrarla (D340), con o sin
+`EVW_FIN_SESION`. Riesgo aceptado: un widget que no atienda `EVW_QUITAR` sigue en el escritorio hasta cerrarlo desde el
+Administrador de tareas.
+
+**Pruebas:** `tests/h367_widgets_conky.py` (activar, no salen en la barra, quedan bajo una ventana normal y se ven sobre el
+fondo, esquinas transparentes, conky con valores reales, variable desconocida, recarga, Editar widgets + arrastre + posición
+guardada, Quitar widget, notas, arranque automático en otra sesión); capturas `docs/capturas/H367-*.png`.
+
+## D370. Generador de imágenes con ventana (tools/generador.py, v8.5.2, h372)
+
+**Qué es.** `tools/generador` (Tkinter, ttk) es una herramienta del PC, no de SaguiOS: monta la orden de
+`gerar_versao.sh` (perfiles «Pública», igual que `make variantes`, y «Privada completa», igual que
+`make priv_variantes`) o de `tools/mkimagem.py` (perfil «Personalizada»), deja elegir la carpeta de destino y
+ejecuta con salida en vivo, progreso aproximado, cancelar, resumen con tamaños y SHA-256 y «Probar en QEMU».
+La lógica está en `tools/generador.py` (también sin ventana: `--orden`, `--ejecutar`, `--perfil`, `--set`) y la
+ventana en `tools/generador_gui.py`. Ver `docs/generador.md`.
+
+**Decisiones.**
+- **No se cambia ningún valor por defecto ni `gerar_versao.sh`/`Makefile`.** Las opciones de `mkimagem.py` no se
+  pueden pasar a las variantes de `gerar_versao.sh` (cada imagen del Makefile lleva las suyas), así que el perfil
+  Personalizada compila con `make … all` (o usa `--sin-compilar` sobre un `build/` existente) y llama a
+  `tools/mkimagem.py` directamente con los ficheros de `build/` y las opciones elegidas. Los perfiles Pública y
+  Privada no aceptan opciones de `mkimagem.py` (las pestañas quedan bloqueadas con el motivo).
+- **Reglas de compatibilidad:** tabla local `REGLAS` en `generador.py` (NX sin PAE, GTT/anillo sin 3D Intel, swap
+  sin swap, uACPI sin ACPI, sesiones excluyentes, `--sin-compilar` con las opciones de compilar…). Lo bloqueado se
+  ve con el motivo y no sale en la orden. Si la rama de Configuración publica una tabla común, se sustituye.
+- **Seguridad:** la entrega privada (o con input_share, datos de juegos o NetSurf) enseña «USO PROPIO: NO PUBLICAR»,
+  nunca lleva `--publicar`, y su destino debe estar fuera del repositorio o dentro de una carpeta que git ignore
+  y sin ficheros versionados (`git check-ignore`/`git ls-files`; `entrega/v*` queda excluida). Se añaden
+  `/entrega/privada/` y `/entrega/personalizada/` a `.gitignore`. Se rechaza cualquier destino en carpetas de 86Box
+  (ROM prohibidas).
+- **Ejecución:** siempre `SAGUI_TURNOS=6 tools/turno.sh` tras cargar `~/.local/saguitools/env.sh`, en su propio
+  grupo de procesos (Cancelar mata el grupo, sin `pkill -f`).
+- **Configuración:** `~/.config/saguios-generador.json` (última configuración y perfiles con nombre).
+
+**Prueba:** `tests/h372_generador.py` (sin pantalla: órdenes de cada perfil, reglas, destino privado, perfiles
+guardados, cancelar, y una imagen personalizada con `--sin-compilar` que arranca en QEMU).
+
+## D363. VPN WireGuard: interfaz wg0 en el kernel, protocolo en un demonio de usuario (v8.5.2, h365)
+
+**Pedido del mantenedor:** soporte de WireGuard (VPN), compatible con el protocolo oficial
+(Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s) y con los servidores habituales; servirá también para que
+DEBUG-APP (D362) funcione a través de una VPN. Uso: `docs/wireguard.md`.
+
+**Diseño: interfaz en el kernel + demonio en espacio de usuario (como wireguard-go con un TUN), no
+todo en el kernel (como el módulo de Linux).** Razones:
+- **Reutilizar sin duplicar:** toda la criptografía ya estaba en `userland/libtls` (X25519, ChaCha20-
+  Poly1305 y HMAC/HKDF del SSH y el TLS). En el kernel habría que copiarla o compilarla dos veces.
+- **Robustez:** el análisis de mensajes que llegan de Internet sin autenticar corre en el anillo 3; un
+  fallo del protocolo mata al demonio, no al sistema. Si el demonio muere, al cerrarse su socket el
+  kernel quita la interfaz, sus rutas y su DNS: la red física queda como estaba (nada puede dejar el
+  sistema sin red ni sin arrancar).
+- **Las claves no entran al kernel** (como la contraseña del Wi-Fi, D215/D220).
+- **Coste:** una copia más por paquete y el planificador entre medias: unos pocos MB/s en las máquinas
+  objetivo, de sobra para SSH, web y la depuración remota. Si algún día hace falta más, el protocolo
+  (`wireguard.c`, sin llamadas al sistema) se puede compilar en el kernel sin cambios.
+
+**Kernel** (`kernel/rede/tunel.c`, `kernel/inc/tunel.h`):
+- Un socket nuevo `SOCK_TUN` (abi.h): `ler` da el siguiente paquete IPv4 que la pila manda por el túnel,
+  `escrever` mete uno descifrado (pasa por `ip_chegou` como si llegara del cable, con todas sus
+  comprobaciones), `disponivel` da el tamaño o `ERRO_PIPE_QUEBRADO` si alguien pidió apagarlo. Filas de
+  64 paquetes / 128 KB por sentido con `kmalloc`. Uno a la vez.
+- `OPC_TUN_CONFIG` (`config_tunel_t`): nombre, dirección/máscara, MTU (576-1500, 1420 por defecto), DNS y
+  hasta 32 rutas (las AllowedIPs de todos los pares). `OPC_TUN_ESTADO`: el demonio publica el estado
+  público (claves públicas, extremo, último saludo, bytes, descartes) que leen `wg show`, la ventana, la
+  bandeja y cualquiera con `INFO_WG` (85; sin secretos).
+- **Rutas** (`rede.c`, `pelo_tunel`): un destino va por el túnel si su ruta más larga del túnel es al
+  menos tan larga como la red local de la interfaz física; la red de la propia dirección del túnel
+  cuenta como ruta. Con `0.0.0.0/0` todo va por el túnel salvo la red local (lo que hace wg-quick con
+  `suppress_prefixlength 0`); difusión, multicast y 127/8 nunca. La dirección de origen
+  (`rede_origem_para`), el MSS del TCP (`rede_mss_para`: MTU - 40, 1380 con 1420) y el DNS por defecto
+  (`dns_atual`) siguen a la ruta. Lo que llega por el túnel solo se acepta si es para la dirección del
+  túnel. La dirección del túnel es «nuestra» para ICMP, UDP y TCP (`eh_meu`).
+- **La ruta al servidor sin perderla:** el socket UDP del demonio lleva `OPC_FISICA` y sus datagramas
+  salen siempre por la interfaz física (aunque el servidor esté dentro de AllowedIPs, o cambie de
+  dirección por roaming). En vez de una ruta /32 al extremo (que habría que rehacer con el roaming), el
+  equivalente del `fwmark` de wg-quick. Solo puede ponerlo el proceso dueño del túnel o root (si no,
+  cualquier programa podría sacar tráfico por fuera de la VPN).
+- `REDE_TUNEL_DESLIGAR` (SIS_CONFIG_REDE): pide al demonio que salga (`wg-quick down`).
+- `INFO_INTERFACES` devuelve hasta 5 (eth0/wlan0, la aparcada, el túnel, lo); `ifconfig` lo enseña.
+
+**Permisos (decisión inicial, cambiada por la D372: encender es solo de root y pide permiso cada vez;
+apagar sigue siendo de la sesión local):** crear `SOCK_TUN` y `REDE_TUNEL_DESLIGAR`: root o la
+**sesión local** (`!de_servico`); un servicio o una sesión SSH que no sea de root, no (`SIS_SOCKET`
+pasa a la clase «por operación»: TCP y UDP siguen libres). Razón: encender la VPN cambia por dónde sale
+el tráfico de todo el sistema, igual que cambiar de red Wi-Fi; pedir la contraseña de administrador
+cada vez sería incómodo para algo que se usa a diario, y un servicio no debería poder desviar el
+tráfico. Los `.conf` son archivos del usuario (`/home/.config/wireguard`, 600): permisos de archivo
+(D282); `wg-quick` avisa si otros pueden leerlo.
+
+**Protocolo** (`userland/libtls/wireguard.c`, `userland/inc/wireguard.h`), escrito del whitepaper (ni
+una línea del código de Linux, que es GPL-2.0-only): saludo en los dos papeles (iniciación y respuesta),
+claves de transporte, contador con ventana contra la repetición de 2048 (se mira antes de descifrar y se
+marca solo después de que la etiqueta valga), renovación por tiempo (REKEY_AFTER_TIME 120 s, el
+iniciador; también al recibir cerca de REJECT_AFTER_TIME) y por mensajes, REJECT_AFTER_TIME 180 s,
+reenvío de la iniciación cada REKEY_TIMEOUT + azar hasta REKEY_ATTEMPT_TIME, keepalive pasivo
+(KEEPALIVE_TIMEOUT) y persistente, borrado de todo a 3 x REJECT_AFTER_TIME, cookie (como iniciador: se
+descifra con XChaCha20-Poly1305 y el mac2 va en las siguientes; como respondedor: se pide con más de 32
+saludos por segundo), PSK, roaming (el extremo es la dirección del último paquete auténtico), marca
+TAI64N creciente y como mucho 50 iniciaciones por segundo por par. Comparaciones de claves, MAC y
+etiquetas con `cripto_igual` (la clave estática del que inicia se compara con todos los pares sin salir
+en el primero); las efímeras, las de encadenamiento y las caducadas se borran con `cripto_apagar`. Un DH
+que da cero (punto de orden bajo) se rechaza. Sin llamadas al sistema: el demonio da tres funciones
+(mandar UDP, entregar a la interfaz, reloj), y así se prueba entero en el anfitrión.
+Hasta 8 pares, 16 AllowedIPs por par, 16 paquetes esperando el saludo por par.
+
+**Criptografía nueva en la libtls:** `blake2s.c` (RFC 7693, con clave y longitud variable, y
+`HASH_BLAKE2S` en la tabla de hashes: el HMAC y el HKDF de `hash.c` sirven tal cual para el KDF del
+Noise) y HChaCha20 + XChaCha20-Poly1305 en `chacha.c` (draft-irtf-cfrg-xchacha). `hash_ctx_t` crece con
+el contexto de BLAKE2s (cabe dentro del de SHA-512).
+
+**Programas:** `wg` (`genkey`, `pubkey`, `genpsk`, `show`, `--ventana`, y el demonio `--demonio RUTA`) y
+`wg-quick` (`up|down|check`, que llama a `wg --quick`). `wg-quick up` comprueba el archivo, lanza el
+demonio en su propio grupo (un Ctrl+C no lo mata) y espera a que la interfaz exista; el demonio resuelve
+los extremos **antes** de poner las rutas (con 0/0 la pregunta al DNS iría por un túnel que aún no
+funciona), suelta la terminal y se queda con `esperar_rede`. `--tiempos-prueba` (solo para h365) acorta
+los tiempos a segundos. Formato estándar de wg-quick; IPv6 se ignora con aviso; `PostUp` y compañía,
+también. `nslookup` enseña el DNS del túnel cuando está encendido.
+
+**Interfaz gráfica:** la ventana `wg --ventana` (`wg_ventana.h`, como `wifi --ventana` de la D354):
+lista de `/home/.config/wireguard`, Conectar/Desconectar, Importar .conf (lo copia con 600 y, si no trae
+PrivateKey, le pone la generada), Borrar, Generar claves (privada en `.clave`, 600; la pública a la vista
+con Copiar) y el estado cada segundo. Configuración > Red tiene la sección «VPN (WireGuard)» con el resumen
+y el botón que abre la ventana (los últimos bloqueados del DNS pasan de 6 a 3 para hacerle sitio). En la
+bandeja, un candado (verde con saludo, gris esperando) solo con el túnel encendido; el clic abre la
+ventana (`gui_abrir_unico`). Textos con `_()`: catálogo `wg` (pt_BR y en) y las cadenas nuevas de
+`configuracion` y `kernel`.
+
+**Números de abi.h:** `SOCK_TUN` 3, `OPC_FISICA` 5, `OPC_TUN_CONFIG` 6, `OPC_TUN_ESTADO` 7,
+`REDE_TUNEL_DESLIGAR` 10, `INFO_WG` 85 (81-82 los usa la rama de la barra, D361). Sin llamada nueva.
+
+**Pruebas:** `tests/h365_wireguard.py`.
+1. En el anfitrión (`tests/wg_unidad.c` con la libtls, con y sin ASan/UBSan): 76 vectores: BLAKE2s del RFC
+   7693 y de la KAT con clave, contra `hashlib` en 0-1000 bytes y por trozos; HMAC-BLAKE2s y KDF1-3 contra
+   `hmac`; X25519 del RFC 7748 (5.2 y 6.1) y contra `cryptography`; ChaCha20-Poly1305 del RFC 8439 2.8.2 y
+   contra `cryptography`; HChaCha20 del draft (2.2.1); XChaCha20-Poly1305 contra HChaCha20 en Python +
+   `cryptography`; base64 de claves y prefijos.
+2. En el anfitrión, el motor C contra un par de referencia en Python escrito para la prueba
+   (`tests/wg_referencia.py`, primitivas de `hashlib` y `cryptography`, sin root): saludo en los dos
+   papeles, PSK, cookie, paquete repetido descartado, renovación.
+3. En QEMU (red de usuario, el par de referencia en 127.0.0.1 del anfitrión, que SaguiOS ve en
+   10.0.2.2): `wg genkey | wg pubkey`, `wg-quick check/up/down`, ping y TCP (`nc`, MSS 1380) por el túnel,
+   DNS del túnel, `wg show` e `ifconfig`, repetido descartado, renovación (tiempos de prueba), roaming del
+   par, SaguiOS como respondedor, 300 datagramas basura, la red física intacta tras apagar, cookie,
+   AllowedIPs que tapan la red local (el demonio sigue saliendo por la física) y 0.0.0.0/0 con MTU 1400
+   (la red local fuera del túnel, lo demás dentro, MSS 1360).
+4. En el escritorio, como la sesión local sagui (sin root): la ventana genera las claves (`.clave`, 600), importa un `.conf` sin PrivateKey (queda 600 y con la clave), Conectar enciende la VPN (saludo y ping), el candado sale en la bandeja y Desconectar la apaga.
+Siguen pasando h44 (red), h218 (bloqueo DNS), h356 (Wi-Fi en la bandeja), h254 (usuarios) y h59 (TLS; pruebacripto 91/91 con los vectores nuevos).
+
+**Interoperabilidad probada:** solo con el par de referencia en Python (independiente: otras
+primitivas, escrito del whitepaper). En el anfitrión no hay `wg`, `wireguard-go` ni `boringtun` y no se
+instaló nada. **Pendiente para el mantenedor:** probarlo contra un servidor Linux real (receta en
+`docs/wireguard.md`) y contra su router.
+
+**No hecho / límites:** un solo túnel; IPv6 (no hay pila); la sección de Configuración > Red no se prueba con clics (la ventana a la
+que lleva sí, h365 fase 4); sin `PostUp`. Terceros: nada (`docs/terceros.md` sin cambios).
+
+**Revisión de seguridad antes de fusionar (2026-11-17).** Punto de partida: el «demonio» que abre
+`SOCK_TUN` puede ser **cualquier programa de la sesión local** (no hace falta root ni ser `/bin/wg`), así
+que lo que escribe en la interfaz se trata como lo de un cable ajeno. Cambios:
+- **Filtro de entrada del túnel en el kernel** (`ip_chegou`, `DE_TUNEL`): solo se acepta lo que va a la
+  **dirección del túnel** (no a la física) y viene de un origen que **se responde por el túnel**
+  (`pelo_tunel(origem)`, camino inverso estricto). Es la versión del kernel del filtro de AllowedIPs del
+  demonio y no depende de él: sin esto, un programa con el túnel podía meter paquetes con el origen de la
+  red local, del servidor DNS de la física (envenenar la caché del DNS) o del servidor DHCP.
+- **Nada de DHCP por el túnel** (puerto 68): un DHCPACK falso cambiaba la dirección, la puerta de enlace y
+  el DNS de la interfaz física.
+- **Por el cable no se llega a la dirección del túnel** (`DE_CABO`): un vecino de la red local podía
+  falsificar el origen de un par y entrar en las conexiones de la VPN (modelo de «host fuerte» solo para
+  wg0; la física sigue como estaba). La dirección del túnel no puede ser la de la física.
+- **La ventana crea `.clave` y los `.conf` con la máscara 077** (antes se creaban con la del usuario y
+  después se hacía `chmod 600`: otro usuario podía abrirlos en medio y leer la clave luego) y deja la
+  carpeta en 0700 aunque ya existiera.
+Revisado sin cambios: MAC1 antes de cualquier DH; mac2 y cookie bajo carga (más de 32 saludos válidos por
+segundo); ventana de 2048 con el borde exacto (acepta máx − 2047, rechaza máx − 2048 y el repetido) y
+contador de 64 bits; DH cero rechazado; TAI64N creciente por par (y 50 por segundo); borrado de efímeras,
+de encadenamiento, de sesiones caducadas y de la fila; un saludo de un par desconocido no reserva nada
+(todo en la pila); los mensajes se miran con su tamaño exacto. Fuzz en el anfitrión con ASan/UBSan
+(1 millón de mensajes mutados y basura entre dos motores con sesión): sin fallos. Los vectores de h365
+son los oficiales (RFC 7693, KAT de BLAKE2, RFC 7748, RFC 8439, draft de XChaCha) y además contra
+`hashlib`/`cryptography`. `SIS_SOCKET` a la clase «por operación» no cambia nada para TCP/UDP (sshd,
+DEBUG-APP y los servicios siguen libres); los servicios y las sesiones SSH que no son de root no crean
+túneles. En SaguiOS el VFS no sigue enlaces simbólicos, así que importar no puede seguir uno.
+**Riesgos que quedan (decisión del mantenedor; el primero lo cierra la D372):** cualquier programa de la sesión local puede encender
+un túnel con su propio `.conf` y llevarse todo el tráfico del sistema (también el de root) y el DNS,
+igual que puede cambiar la red Wi-Fi (D354); si se quiere cerrar, la opción barata es exigir
+`exe_sistema == EXE_BIN` (solo `/bin/wg`) o pedir la contraseña la primera vez. `INFO_WG` enseña a
+cualquiera las claves públicas, el extremo y las AllowedIPs (no secretos, pero `wg show` en Linux pide
+root).
+
+## D368. Administrador de tareas modernizado: Rendimiento por recursos, Detalles, búsqueda y menús (v8.5.2, h370)
+
+**Contexto:** el mantenedor pidió modernizar y ampliar el Administrador de tareas (`tareas`) ahora que hay swap comprimida (D352), caché de disco alta (D350), PAE/NX (D349), gobernador de frecuencia (D353) y aceleración 2D/3D. La pestaña Rendimiento era una rejilla fija de cuatro gráficos.
+
+**Decisión:**
+1. **Rendimiento con barra lateral:** siete recursos (CPU, Memoria, Swap, Disco, Red, GPU, Sensores), cada uno con miniatura de 60 s y un valor corto; el elegido abre un panel grande con cabecera de color, gráficos de 60 s y una cuadrícula de campos. CPU: total y una gráfica por núcleo, frecuencia y gobernador, procesos, hilos, planificador, tiempo encendido. Memoria: gráfica y **barra apilada** (programas, caché baja, caché alta, libre), modo PAE/NX, memoria alta y superior. Swap: tope, usada, páginas sin comprimir, comprimida, ratio, sacadas y traídas por segundo con gráficas. Disco: lectura/escritura en KB/s, caché, aciertos, anticipados. Red: botones por interfaz y el gráfico existente. GPU: 2D (acelerador y contadores) y 3D (estado, triángulos, memoria) con actividad por segundo. Sensores: temperatura, frecuencia, batería y adaptador.
+2. **Una llamada nueva del kernel, `INFO_DISCO_CACHE` (84, `info_disco_cache_t`):** los contadores de la caché de bloques (aciertos, fallos, anticipados, grabados, sucios…) que el kernel ya llevaba y no exponía. Solo lee (`cache_disco_estatisticas`), sin tocar la caché. Las tasas por segundo se calculan en el programa. **No hay contadores de DMA ni de lecturas/escrituras por dispositivo:** «DMA activo» queda pendiente. El número 84 puede chocar con el de INFO_WG (D363) si esa rama también toma el siguiente libre: el que se fusione segundo lo cambia. Swap: no hizo falta kernel (`troca_saidas/entradas` ya están en `INFO_MEMORIA_V3`). GPU: el kernel no mide ocupación; se enseña la actividad (órdenes 2D y cuadros 3D por segundo, diferencia de contadores).
+3. **Procesos:** columnas nuevas **Hilos** y **Prior.** (nice, con `PLAN_INFO` solo mientras la columna está visible) que se activan con el botón derecho en la cabecera, junto con **Árbol de procesos**; escribir busca (nombre o PID, `Esc` borra); botón derecho en una fila: Finalizar, Prioridad más alta/más baja (nice ∓5; bajarlo pide el diálogo de administrador, D269) y Detalles; doble clic va a Detalles; celdas de «calor» en CPU y Memoria y filas en cebra. Las columnas por defecto y sus posiciones no cambian.
+4. **Detalles:** pestaña nueva con el proceso elegido (estado, tiempo de CPU, memoria, pila, planificación, migraciones, latencias) y sus hilos (`INFO_HILOS`, D366).
+5. **Consumo:** muestreo de 1 s; la tabla de procesos solo se repinta si cambia su firma (datos, orden, selección, tamaño); la red, la GPU, los sensores y las conexiones solo se consultan con la pestaña a la vista; CPU, memoria, swap y disco se muestrean siempre (una llamada cada una).
+6. **No incluido:** pestañas **Usuarios** (el kernel no da el usuario por proceso en `INFO_PROCESSOS`) e **Inicio**; el túnel WireGuard (D363) no está en esta rama: cuando exista `INFO_WG` se añadirá una fila en Red. La pestaña Servicios existía (D216).
+7. Textos en el catálogo `tareas` (es, en, pt_BR).
+
+**Pruebas:** `tests/h370_tareas_moderno.py` (512 MB, `/testes/troca llenar` fuerza la swap: el almacén queda con datos y la pestaña la muestra; búsqueda, menús, Detalles, los siete recursos con capturas `docs/capturas/H370-*.png`) y `tests/h41_tareas.py` (ampliada: log de swap, disco y GPU; pestaña Detalles).
+
+## D372. WireGuard: encender la VPN solo con permiso de administrador (v8.5.2, h365)
+
+**Pedido del mantenedor (2026-11-17), tras la revisión de seguridad de la D363:** encender una VPN solo con
+permiso. Con la D363 cualquier programa de la sesión local podía abrir `SOCK_TUN` con su propio `.conf` y
+llevarse el tráfico de todo el sistema (también el de root) y el DNS. Decisión aparte (no un apartado de la
+D363) porque cambia una regla de permisos del kernel y toca el diálogo de administrador (D269).
+
+**Decisión:**
+1. **Kernel: encender es de root.** `SIS_SOCKET` con `SOCK_TUN`, solo uid 0 (`permisos.c`; la sesión local
+   ya no, y los servicios y las sesiones SSH que no son de root tampoco, como antes). Además, por si el
+   descriptor acabase en otras manos (un root que suelta la elevación después de abrirlo), `OPC_TUN_CONFIG`
+   (dirección, rutas, DNS) y `OPC_FISICA` exigen uid 0 en `socket.c` (antes `OPC_FISICA` valía también para
+   el dueño del túnel; `tunel_do_processo` desaparece). TCP y UDP siguen libres. Leer el estado (`INFO_WG`)
+   sigue libre.
+2. **Apagar no pide permiso.** `REDE_TUNEL_DESLIGAR` sigue siendo de root o de la sesión local
+   (`!de_servico`): apagar devuelve el tráfico a la red física, que es lo seguro; lo peor que puede hacer un
+   programa de la sesión es cortar la VPN, y eso ya lo podía hacer cambiando de red Wi-Fi (D354, que no
+   cambia). Un servicio o una sesión SSH que no es de root, no.
+3. **Pedir el permiso, siempre.** `wg-quick up` y la ventana (*Conectar*; el candado de la bandeja y
+   Configuración > Red llevan a esa ventana) piden permiso **cada vez**: con escritorio, el diálogo de
+   administrador de la D269 (mismo mecanismo que Configuración o Discos: la contraseña de root o la propia
+   de un miembro del grupo admin, D340); sin escritorio o desde un servicio (consola, SSH), la contraseña en
+   el terminal con `elevar_interativo` (como `admin`). `admin wg-quick up RUTA` también vale.
+4. **Sin la autorización recordada.** La D269 recuerda 5 min las autorizaciones de los programas de `/bin`
+   por nombre: tras encender la VPN, cualquier programa de la sesión podría lanzar `/bin/wg --quick up` con
+   su `.conf` y subir el túnel sin diálogo. Nuevo indicador `PED_SIN_RECORDAR` (abi.h, junto a
+   `PED_GRAFICO`; solo con él): el kernel ni usa ni guarda la autorización recordada para ese pedido.
+   Biblioteca: `elevar_grafico_ex(motivo, PED_SIN_RECORDAR)`; `elevacao_soltar()` sirve igual. El modo en
+   vivo sin contraseña de root sigue como en la D269 (el supervisor concede sin diálogo, igual que `admin`).
+5. **El demonio corre como root y no abre rutas.** `wg-quick` lee el `.conf` **con los permisos de quien lo
+   pide y antes de elevar** (así, además, `/home` es la carpeta de su cuenta, D340), lo comprueba, pide el
+   permiso, lanza `wg --demonio NOMBRE` (hereda root), lo pone en su grupo, **suelta la elevación** y le pasa
+   el texto por una tubería en su entrada. El demonio lee como mucho 16 KB de texto (sin bytes 0) de la
+   entrada y lo vuelve a analizar entero; nunca recibe una ruta, así que root no lee ningún archivo elegido
+   por el usuario (ni `/etc/sombra`, ni nada fuera de `/home/.config/wireguard`), y no hay enlaces que
+   seguir. Las claves del archivo solo pueden ser base64 de 32 bytes (`wg_base64_ler`): no hay forma de que
+   un campo sea una ruta. Lo mismo que hace DEBUG-APP (D362) con el `sshd`: la ventana eleva, lanza el
+   proceso root y suelta. El programa del usuario solo es root entre el permiso y el `executar`.
+6. **Borrado:** la copia del `.conf` que se trocea al analizar se borra al terminar (antes quedaba en un
+   búfer estático), y el kernel borra el búfer de una tubería al liberarla (`pipe.c`): el `.conf` con la
+   clave privada pasa por ella (y las contraseñas de `echo ... | admin`).
+7. **Consecuencias:** la sesión no puede matar el demonio con `kill` (es root): se apaga con
+   `wg-quick down`, *Desconectar* o el candado. Si el demonio no responde en 10 s, `wg-quick` pide
+   `REDE_TUNEL_DESLIGAR`. Textos nuevos en el catálogo `wg` (pt_BR y en).
+
+**Descartado:** exigir solo `exe_sistema == EXE_BIN` (que el demonio sea `/bin/wg`), la opción barata de la
+revisión de la D363: cualquier programa puede lanzar `/bin/wg` con su `.conf`, así que no es un permiso.
+Pedir la contraseña solo la primera vez: es la autorización recordada, con el mismo problema.
+
+**Núcleo tocado:** `permisos.c` (una regla), `socket.c` (dos comprobaciones), `supervisor.c` (el indicador),
+`pipe.c` (borrado al liberar), `abi.h` (`PED_SIN_RECORDAR`). Ni memoria, ni planificador, ni VFS, ni
+arranque: nada de esto puede dejar el sistema sin arrancar; si el permiso falla, la red física queda igual.
+
+**Pruebas:** `tests/h365_wireguard.py`, fase de escritorio como sagui: sin elevar, `wg --demonio` no puede
+abrir la interfaz (`SOCK_TUN` denegado); *Conectar* abre el diálogo (primera contraseña de root), se
+concede, hay saludo y ping; el demonio es root (sagui no lo puede matar); *Desconectar* apaga sin diálogo;
+`wg-quick up` en el Terminal vuelve a preguntar (no se recuerda) y con Esc no enciende; con la contraseña
+enciende, el Terminal sigue siendo sagui y `wg-quick down` apaga sin elevar. Y en las fuentes: `SOCK_TUN`
+solo root, `OPC_TUN_CONFIG`/`OPC_FISICA` solo root, el demonio sin `abrir()`. Captura `H365-5-pide-permiso`.
+
+## D371. Usuarios en la v8.5.3: auditoría, cuatro fallos entre cuentas corregidos y diseño de root, `/root`, carpetas propias y configuración de sistema frente a la de la persona (propuesta pendiente de decisión)
+
+**Pedido del mantenedor:** dar una vuelta a los usuarios, sobre todo instalados: root siempre existe, forma de entrar, cada usuario con su carpeta, permisos claros y configuración de usuario frente a la de sistema; y root con su carpeta en `/root`. **Estado: fase 1 (auditoría y diseño) hecha; el diseño espera las respuestas del mantenedor** (preguntas P1-P15 en `docs/usuarios-v853.md`, sección 5). El documento tiene el estado real (cuentas, modos de entrada, vista de `/home` por proceso, la tabla de cada fichero de configuración con quién lo escribe y lo lee y adónde debería ir) y el plan en seis fases.
+
+**Fallos corregidos ya (prueba `tests/h371_usuarios_seguridad.py`):**
+1. **sagui quitaba la carpeta de otra cuenta.** `/home` es de sagui (D340.2) y renombrar o borrar solo miraba la carpeta de encima: `mv /home/ana /home/x` funcionaba aunque `/home/ana` fuera 0700, y sagui podía dejar en su sitio una `/home/ana` suya con configuración que lanza órdenes (widgets, conky, servicios) y leer lo que ana guardase. Ahora lo que cuelga directamente de `/home` solo lo borra o renombra su dueño o root (`permisos_remover`).
+2. **El kernel entraba en una carpeta personal ajena.** `preparar_casa` (`sessao.c`) no miraba el dueño de una carpeta que ya existía (con `/home` en la RAM, sagui podía crearla antes). Ahora solo se entra si es de la cuenta, en un sistema con dueños y sin `w` para grupo ni otros; si no, vuelve la pantalla con un aviso. Además crea `/home` si falta (sin partición `/home` no existía y la carpeta no se creaba).
+3. **Otra cuenta le ponía la primera contraseña a sagui.** La regla de D255 («sin contraseña, la elige la sesión local») valía para cualquier cuenta: desde ana, `su sagui` o `passwd sagui` fijaban la de sagui (que de serie no tiene) y ana pasaba a ser sagui. Ahora la primera contraseña de una cuenta la pone ella misma o root; la de root, la sesión local como antes (`servicios.c`, `tratar_pedido`).
+4. **El VNC (root) obedecía a la carpeta de sagui.** `/home/.config/vncd.conf` ganaba a `/etc/vnc/vncd.conf`: sagui, sin ser administrador, podía poner `seguridad=ninguna` y `escuchar=red-local` y dejar el escritorio de quien entrara abierto a la red sin contraseña. Con SAGUI-CONF de ese fichero solo vale `fps_max`; en vivo, entero (`vncd.c`; h250, `docs/vnc.md` y `rootfs/etc/vnc/vncd.conf` al día).
+5. (Menor) **Wi-Fi:** si una cuenta no tenía `wifi.conf`, el kernel reconectaba con las redes y claves de sagui; ahora solo con las de la sesión (`wifi.c`, `ruta_config`), como pedía D354.
+
+**Diseño propuesto (resumen; detalle y alternativas en el documento):** root siempre existe con contraseña obligatoria al instalar y carpeta `/root` 0700 (instalado: `raiz/` de SAGUI-CONF vista en `/root` con un alias del kernel y límite de tamaño; en vivo, en la RAM); cada persona, sagui incluida, con `/home/<nombre>` 0700 y `/home` de root, con migración de sagui a `/home/sagui` por renombrados en el mismo ext2, con marca en SAGUI-CONF y reanudable; la vista de D340 se extiende a todas las personas para las ~100 rutas fijas y se añade `HOME`; `su` da `/root` y lo elevado con el diálogo o `admin` sigue viendo la configuración de quien eleva; la configuración de la máquina (aceleración, disco, zona, frecuencia, pantallas, sonido, bloqueo DNS, VNC, DEBUG-APP, red) pasa a `/etc` en SAGUI-CONF, solo administrador, con migración de lo guardado en `/home`; la de la persona en `~/.config`; `login` en la consola, bloqueo de pantalla e inicio automático como opción del sistema; SSH, cron y servicios por cuenta.
+
+**Núcleo tocado (aviso):** `permisos.c` (una regla en `permisos_remover`), `sessao.c` (`preparar_casa` comprueba el dueño y crea `/home`; un estado más para volver a la pantalla), `wifi.c` (la ruta de las redes recordadas). Ni memoria, ni planificador, ni arranque.
+
+**Pruebas:** h371 (consola con sesión root y `/home` ext2: sagui no renombra ni borra `/home/ana` pero sí lo suyo; ana no pasa a sagui con `su` ni le pone contraseña con `passwd`, y sí elige la suya; el `vncd` ignora `seguridad` y `escuchar` de `/home`; escritorio con `/home` en la RAM: con una `/home/ana` de sagui no se entra, sin ella se crea de ana y se entra). Siguen pasando h254, h282, h340 y h250.
+
+### D367 (fusión con main): secciones portadas al árbol
+
+Con la fusión de main (barra D361, widgets D365, WireGuard D363) se portaron con la guía de arriba: **Escritorio > Barra y menú Inicio**
+(`pg_barra`: grupos Vista previa, Posición y tamaño, Botones de tareas y reloj, Bandeja y color, Menú Inicio; modo inmediato, scroll),
+**Escritorio > Widgets** (`pg_widgets`: texto y el botón que abre el programa `widgets`; ya no hay botón en Colores y fondo) y **Red > VPN
+(WireGuard)** (`pg_vpn`: resumen del estado y el botón que abre `wg --ventana`; la lógica y el permiso de administrador son de `wg`, aquí no
+se duplican; la sección Publicidad (DNS) pierde el resumen de la VPN). Reglas nuevas en `conf_reglas.c` (campo `padre_igual`: el padre
+cuenta solo si vale exactamente eso): `inicio_buscador` e `inicio_translucido` solo con `inicio_menu` = Moderno (3), y `barra_fecha` y
+`barra_segundos` solo con `barra_reloj` visible, todas SIN_EFECTO (se enseñan en gris con el motivo; apagarlas siempre se puede). Autoocultar,
+posición, iconos y bandeja no dependen de nada; widgets y VPN no tienen opciones propias en Configuración. La prueba de unidad recorre también
+estas reglas. Las claves del árbol son `barra`, `widgets` y `vpn`.

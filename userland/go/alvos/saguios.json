@@ -1,0 +1,32 @@
+{
+  "llvm-target": "i386-unknown-none-elf",
+  "cpu": "pentium",
+  "features": "-sse,-sse2,-mmx,+x87",
+  "build-tags": ["saguios"],
+  "goos": "linux",
+  "goarch": "386",
+  "linker": "ld.lld",
+  "rtlib": "compiler-rt",
+  "gc": "conservative",
+  "scheduler": "tasks",
+  "default-stack-size": 65536,
+  "cflags": [
+    "-fno-pic",
+    "-fno-stack-protector",
+    "-ffunction-sections",
+    "-fdata-sections"
+  ],
+  "ldflags": [
+    "-m", "elf_i386",
+    "-zmax-page-size=4096",
+    "-znoexecstack",
+    "--gc-sections",
+    "-u", "_inicio",
+    "@LIBGO@"
+  ],
+  "linkerscript": "@PROGRAMA_LD@",
+  "extra-files": [
+    "src/internal/task/task_stack_386.S",
+    "src/runtime/asm_386.S"
+  ]
+}

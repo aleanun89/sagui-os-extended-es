@@ -37,8 +37,8 @@ Por defecto `vncd` **solo acepta conexiones que vengan de la propia máquina** (
 (sin túnel; el tráfico VNC **no va cifrado**, solo la contraseña va protegida por el reto):
 
 ```
-echo escuchar=red-local > /home/.config/vncd.conf
-servicio reiniciar vncd
+admin vncd --ajustar escuchar=red-local
+admin servicio reiniciar vncd
 vncviewer 192.168.1.50:5900
 ```
 
@@ -76,7 +76,10 @@ vncviewer 192.168.1.50:5900
 
 ## Opciones
 
-En `/etc/vnc/vncd.conf` y `/home/.config/vncd.conf` (gana la segunda); `clave=valor`:
+En `/etc/vnc/vncd.conf` (SAGUI-CONF; lo cambia el administrador) y `/home/.config/vncd.conf`, que gana pero **solo en
+vivo** (sin SAGUI-CONF): con SAGUI-CONF, de la carpeta de la cuenta solo vale `fps_max` (D371: el `vncd` corre como root y
+enseña el escritorio de quien haya entrado, así que una cuenta sin ser administradora no puede quitarle la contraseña ni
+abrirlo a la red). `clave=valor`:
 
 | Clave | Valor de serie | |
 |---|---|---|

@@ -23,6 +23,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 # opcional, para probar el arranque UEFI (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
 
+**Opcional: programas en Go.** `tools/tinygo_entorno.sh instalar` baja TinyGo y Go a `~/.local/saguitools` (sin sudo); con eso `make` compila además los ejemplos de `userland/go/ejemplos/` a `/apps/go/`. Sin TinyGo se saltan con un aviso (`GO=0` los desactiva). Ver `docs/go.md`.
+
 | Paquete | Para qué |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar el kernel y los programas en 32 bits |
@@ -305,6 +307,10 @@ Después, la imagen a otro sitio (el paso a paso está en `docs/como-gravar.md`)
 
 Comprueba las descargas con `sha256sum -c SHA256SUMS.txt`. En una máquina real, empieza por `saguios.img`; si funciona, prueba `-smp` y, en portátiles, `-uacpi`.
 
+### Generador con ventana (opcional)
+
+Si prefieres una ventana en vez de las órdenes de arriba, `tools/generador` (Tkinter) monta la orden de `gerar_versao.sh` o de `tools/mkimagem.py`, deja elegir la carpeta de destino y ejecuta con la salida en vivo. También funciona sin ventana: `tools/generador.py --orden --perfil publica`. Ver `docs/generador.md`.
+
 ### 9. Problemas frecuentes
 
 | Síntoma | Causa y solución |
@@ -341,6 +347,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 # optional, only for the automated tests: imagemagick ffmpeg zip sqlite3 exfatprogs
 # optional, to test UEFI boot (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
+
+**Optional: Go programs.** `tools/tinygo_entorno.sh instalar` downloads TinyGo and Go into `~/.local/saguitools` (no sudo); with that, `make` also builds the examples in `userland/go/ejemplos/` into `/apps/go/`. Without TinyGo they are skipped with a notice (`GO=0` disables them). See `docs/go.md`.
 
 | Package | What for |
 | --- | --- |
@@ -624,6 +632,10 @@ Then the image to somewhere else (step by step in `docs/como-gravar.md`):
 
 Check downloads with `sha256sum -c SHA256SUMS.txt`. On a real machine, start with `saguios.img`; if it works, try `-smp` and, on laptops, `-uacpi`.
 
+### Window-based generator (optional)
+
+If you prefer a window over the commands above, `tools/generador` (Tkinter) builds the `gerar_versao.sh` or `tools/mkimagem.py` command, lets you pick the output folder and runs it with live output. It also works without a window: `tools/generador.py --orden --perfil publica`. See `docs/generador.md` (in Spanish).
+
 ### 9. Common problems
 
 | Symptom | Cause and fix |
@@ -660,6 +672,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 # opcional, só para os testes automáticos: imagemagick ffmpeg zip sqlite3 exfatprogs
 # opcional, para testar o arranque UEFI (D264: h264, run_in_qemu.sh --uefi): ovmf ovmf-ia32
 ```
+
+**Opcional: programas em Go.** `tools/tinygo_entorno.sh instalar` baixa o TinyGo e o Go para `~/.local/saguitools` (sem sudo); com isso o `make` também compila os exemplos de `userland/go/ejemplos/` para `/apps/go/`. Sem o TinyGo eles são pulados com um aviso (`GO=0` os desativa). Ver `docs/go.md`.
 
 | Pacote | Para quê |
 | --- | --- |
@@ -942,6 +956,10 @@ Depois, a imagem para outro lugar (o passo a passo está em `docs/como-gravar.md
 | **QEMU** | `./run_in_qemu.sh --imagen ...` como acima |
 
 Verifique os downloads com `sha256sum -c SHA256SUMS.txt`. Em uma máquina real, comece por `saguios.img`; se funcionar, teste `-smp` e, em notebooks, `-uacpi`.
+
+### Gerador com janela (opcional)
+
+Se preferir uma janela em vez dos comandos acima, `tools/generador` (Tkinter) monta o comando do `gerar_versao.sh` ou do `tools/mkimagem.py`, deixa escolher a pasta de destino e executa com a saída ao vivo. Também funciona sem janela: `tools/generador.py --orden --perfil publica`. Veja `docs/generador.md` (em espanhol).
 
 ### 9. Problemas frequentes
 

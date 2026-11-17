@@ -1420,8 +1420,31 @@ static bool atalho(const evento_t *e)
                        "Buscar...\tCtrl+Mayús+F\n-\n" "Nueva pestaña\tCtrl+Mayús+T\n" "Nueva ventana\n-\n" \
                        "Preferencias...\tCtrl+,\n-\n" "Cerrar pestaña\tCtrl+Mayús+W"
 
+/* D366: si el programa pidió ratón (CSI ? 1000/1002 h + 1006 h, como htop o vim), el clic y la rueda van
+ * a él en formato xterm SGR en vez de seleccionar. Mayús+clic sigue seleccionando; la barra de pestañas es del Terminal. */
+static bool rato_para_programa(const evento_t *e, bool roda, int entalhes)
+{
+    if (!sa->vt.rato || !sa->vt.rato_sgr || !sa->vt.xterm || (e->modificadores & 1)) return false;
+    if (!roda) {
+        if (barra_ponto(e->x, e->y) >= 0 || (e->y < y0 - MARGEM + 1 && barra_visivel())) return false;
+        if (e->tipo == EV_MOVER && (sa->vt.rato < 1002 || !e->botoes)) return true;
+    }
+    int l, c, b;
+    celula(e->x, e->y, &l, &c);
+    if (roda) b = entalhes < 0 ? 64 : 65;
+    else b = (e->botoes & 1) ? 0 : (e->botoes & 4) ? 1 : (e->botoes & 2) ? 2 : 0;
+    if (e->tipo == EV_MOVER) b += 32;
+    if (e->modificadores & 4) b += 8;
+    if (e->modificadores & 2) b += 16;
+    char s[40];
+    int n = tl_formato(s, sizeof s, "\033[<%d;%d;%d%c", b, c + 1, l + 1, e->tipo == EV_SOLTOU ? 'm' : 'M');
+    if (n > 0) escrever_tudo(sa->mestre, s, (unsigned)n);
+    return true;
+}
+
 static void ratom(const evento_t *e)
 {
+    if (rato_para_programa(e, false, 0)) return;
     if (e->tipo == EV_CLIQUE && (e->botoes & 1)) {
         int b = barra_ponto(e->x, e->y);
         if (b >= 0) {
@@ -1552,7 +1575,7 @@ int principal(int argc, char **argv)
                 if (nsess == 0) break;
                 continue;
             }
-            if (e.tipo == EV_RODA) rodar((int)e.cliques);
+            if (e.tipo == EV_RODA) { if (!rato_para_programa(&e, true, (int)e.cliques)) rodar((int)e.cliques); }
             else if (e.tipo == EV_MENU) menu_resposta(&e);
             else if (jan_redimensionar(j, &e)) novo_tamanho(true);
             else ratom(&e);

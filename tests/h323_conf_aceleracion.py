@@ -31,18 +31,33 @@ CLAVE = "root1234"
 TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
                "Escritorio remoto", "Mandos", "Usuarios")
 VMWARE = ["-vga", "none", "-device", "vmware-svga"]
-# La vista de aceleración, como en el programa.
-SUB_ACEL = (592 + 95, Y_PAG + 2 + 13)
-SUB_RES = (436 + 75, Y_PAG + 2 + 13)
-AC_X0, AC_PASO, AC_Y0, AC_FILA = 180, 124, Y_PAG + 122, 44
+import conf_arbol as ca  # noqa: E402
 
 
-def boton(fila, col):
-    return (AC_X0 + col * AC_PASO + 60, AC_Y0 + fila * AC_FILA + 13)
+def lc(v, xl, yl):
+    """Punto LOCAL del panel (D367) -> relativo al área de cliente de la ventana."""
+    px, py, pw, ph = ca.geometria(v["l"], v["a"])
+    return px - 16 + xl, py + yl
 
 
-PROBAR_3D = (AC_X0 + 3 * AC_PASO + 8 + 65, AC_Y0 + AC_FILA + 13)
-RESTABLECER = (24 + 110, Y_PAG + 350 + 14)
+def boton(v, fila, col):
+    """La opción `col` (0 automático, 1 activado, 2 desactivado) de la fila: grupos de 98 px, la opción a 124 px una de otra."""
+    return lc(v, 30 + col * 124 + 10, 26 + 98 * fila + 6)
+
+
+def probar(v, fila):
+    px, py, pw, ph = ca.geometria(v["l"], v["a"])
+    return lc(v, (pw + 22 - 36) - 130 + 65, 26 + 98 * fila + 7)
+
+
+def restablecer(v):
+    """«Predeterminado» (abajo a la izquierda del panel): los valores seguros."""
+    x, y = ca.boton_pie(dict(x=0, y=0, l=v["l"], a=v["a"]), "predeterminado")
+    return x, y
+
+
+def aceptar(v):
+    return ca.boton_pie(dict(x=0, y=0, l=v["l"], a=v["a"]), "aceptar")
 
 
 def esperar(m, patron, tempo=60, desde=0):
@@ -99,16 +114,14 @@ def abrir_ventana(m):
     esperar(m, r'"Configuraci.n"', 30, n)
     time.sleep(1.5)
     v = ventana(m, "Configuración", n)
-    clic(m, v, pestana("Pantalla"))
-    time.sleep(0.8)
-    clic(m, v, SUB_ACEL)
+    m.clique(*ca.arbol(v, "aceleracion"))
     esperar(m, r"configuracion: pantalla vista aceleracion", 15, n)
     time.sleep(1)
     return v, n
 
 
 def cerrar_ventana(m, v):
-    clic(m, v, (v["l"] - 110 + 48, v["a"] - 40 + 14))
+    clic(m, v, aceptar(v))
     time.sleep(1.5)
 
 
@@ -136,33 +149,33 @@ def main():
         verificar("hace falta ser administrador" in out, f"sin permisos, la orden lo pide ({out!r})")
 
         v, n0 = abrir_ventana(m)
-        verificar(v["l"] == 788 and v["a"] == 500, f"la ventana mide 788x500 ({v['l']}x{v['a']})")
+        verificar(v["l"] >= 700 and v["a"] >= 440, f"la ventana tiene su tamaño ({v['l']}x{v['a']})")
         m.captura("H323-1-estado")
 
         # 3D: Activado (diálogo de administrador; la primera vez root elige su contraseña)
         pos = len(m.serial())
-        clic(m, v, boton(1, 1))
+        clic(m, v, boton(v, 1, 1))
         conceder(m, pos, True)
         esperar(m, r"configuracion: aceleracion fila 1 -> si: 3D: activo", 30, pos)
         m.captura("H323-2-3d-activado")
         # Probar ahora (3D)
         pos = len(m.serial())
-        clic(m, v, PROBAR_3D)   # el permiso queda recordado 5 minutos: sin diálogo
+        clic(m, v, probar(v, 1))   # el permiso queda recordado 5 minutos: sin diálogo
         esperar(m, r"configuracion: aceleracion probar 3d -> 1: BIEN", 60, pos)
         time.sleep(1)
         m.captura("H323-3-3d-probado")
         # 2D: Desactivado
         pos = len(m.serial())
-        clic(m, v, boton(0, 2))
+        clic(m, v, boton(v, 0, 2))
         esperar(m, r"configuracion: aceleracion fila 0 -> no: 2D: ", 30, pos)
         # SDL 2: Activado (sin diálogo)
         pos = len(m.serial())
-        clic(m, v, boton(2, 1))
+        clic(m, v, boton(v, 2, 1))
         esperar(m, r"configuracion: aceleracion fila 2 -> si", 30, pos)
         verificar("dialogo de permisos" not in m.serial()[pos:], "la SDL 2 no pide permisos")
         # Disco: Desactivado
         pos = len(m.serial())
-        clic(m, v, boton(3, 1))
+        clic(m, v, boton(v, 3, 1))
         esperar(m, r"configuracion: aceleracion fila 3 -> no: Disco", 30, pos)
         time.sleep(1)
         m.captura("H323-4-todo-elegido")
@@ -205,7 +218,7 @@ def main():
 
         # Restablecer valores seguros
         pos = len(m.serial())
-        clic(m, v, RESTABLECER)
+        clic(m, v, restablecer(v))
         conceder(m, pos)
         esperar(m, r"configuracion: aceleracion restablecida a los valores seguros", 30, pos)
         time.sleep(1)

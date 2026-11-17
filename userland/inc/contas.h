@@ -75,6 +75,9 @@ bool     falta_admin(const char *programa);
  * (ERRO_ACESSO), hay bloqueo (ERRO_ESPERA) o no hay escritorio/gestor de servicios. Espera sin límite
  * práctico a la persona (hasta 5 min). `motivo` dice qué quiere hacer («modificar los discos»). */
 int      elevar_grafico(const char *motivo);
+/* D372: lo mismo con opciones: PED_SIN_RECORDAR (abi.h) pregunta siempre, sin usar ni guardar la
+ * autorización recordada 5 min (encender una VPN). */
+int      elevar_grafico_ex(const char *motivo, unsigned opcoes);
 /* Vuelve a la cuenta de antes de elevar_grafico (si la hubo). Dentro de 5 min, volver a elevar un programa
  * de /bin no vuelve a preguntar. */
 void     elevacao_soltar(void);

@@ -133,10 +133,19 @@ int principal(int argc, char **argv)
         valores[n] = v;
         n++;
     }
-    for (int i = 0; i < n; i++) {
-        int r = quitar[i] ? kconf_quitar(huecos[i]) : kconf_fijar(huecos[i], valores[i]);
-        if (r < 0) return erro_gravar(argv[i + 1], r);
+    /* D367: dependencias entre opciones: nunca se guarda una combinación que no tiene sentido */
+    kconf_cambio_t ped[KCONF_MAX], fin[KCONF_MAX];
+    for (int i = 0; i < n; i++) { ped[i].hueco = huecos[i]; ped[i].valor = valores[i]; ped[i].quitar = quitar[i]; ped[i].aviso = NULL; }
+    char err[120];
+    int nf = kconf_resolver(ops, n_ops, ped, n, fin, KCONF_MAX, err, sizeof err);
+    if (nf < 0) { imprimir_em(ERROS, _("kconfig: combinación no válida (%s); no se guarda nada\n"), err); return 2; }
+    for (int i = 0; i < nf; i++) {
+        int r = fin[i].quitar ? kconf_quitar(fin[i].hueco) : kconf_fijar(fin[i].hueco, fin[i].valor);
+        if (r < 0) return erro_gravar(i < n ? argv[i + 1] : "(ajuste)", r);
     }
+    for (int i = n; i < nf; i++)
+        for (int k = 0; k < n_ops; k++)
+            if (ops[k].hueco == fin[i].hueco) imprimir(_("%s: ajustado a %s solo (%s)\n"), ops[k].nome, fin[i].valor ? "si" : "no", fin[i].aviso);
     ler_ops();
     for (int i = 0; i < n; i++) {
         const info_kconf_t *o = NULL;

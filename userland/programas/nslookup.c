@@ -21,6 +21,8 @@ int principal(int argc, char **argv)
     } else {
         config_rede_t c;
         if (config_rede(REDE_CONSULTAR, &c) == 0) servidor = c.dns;
+        static info_wg_t wg;   /* D363: con la VPN encendida y su DNS, se pregunta a ese */
+        if (info_sistema(INFO_WG, &wg, sizeof wg) > 0 && wg.config.dns) servidor = wg.config.dns;
     }
     if (porta && porta != 53) formatar_texto(s, sizeof s, "%s#%d", ip_para_texto(servidor, t), porta);
     else ip_para_texto(servidor, s);

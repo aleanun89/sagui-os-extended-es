@@ -99,3 +99,23 @@ void sup_copiar(superficie_t *s, int x, int y, const uint32_t *origem, int larg,
     for (int j = y0; j < y1; j++)
         rapido_copiar(s->px + j * s->larg + x0, origem + (j - y) * passo + (x0 - x), (size_t)(x1 - x0) * 4);
 }
+
+/* D365: mezcla pct % del origen sobre el destino, canal a canal (sin SSE: solo se usa en widgets translúcidos). */
+void sup_misturar(superficie_t *s, int x, int y, const uint32_t *origem, int larg, int alt, int passo, int pct, bool clave)
+{
+    int x0 = x < s->cx0 ? s->cx0 : x, y0 = y < s->cy0 ? s->cy0 : y;
+    int x1 = x + larg > s->cx1 ? s->cx1 : x + larg, y1 = y + alt > s->cy1 ? s->cy1 : y + alt;
+    if (x0 >= x1) return;
+    uint32_t a = (uint32_t)pct * 256 / 100, b = 256 - a;
+    for (int j = y0; j < y1; j++) {
+        uint32_t *d = s->px + j * s->larg + x0;
+        const uint32_t *o = origem + (j - y) * passo + (x0 - x);
+        for (int i = 0; i < x1 - x0; i++) {
+            uint32_t p = o[i], q = d[i];
+            if (clave && (p >> 24) == 0xFF) continue;
+            uint32_t rb = (((p & 0xFF00FF) * a + (q & 0xFF00FF) * b) >> 8) & 0xFF00FF;
+            uint32_t g = (((p & 0x00FF00) * a + (q & 0x00FF00) * b) >> 8) & 0x00FF00;
+            d[i] = rb | g;
+        }
+    }
+}

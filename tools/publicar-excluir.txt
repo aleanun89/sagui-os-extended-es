@@ -77,3 +77,6 @@
 /86box-roms/
 /roms/
 *.rom
+
+# --- D362: resultados de tools/depurar-remoto.py (dmesg, infopc... de máquinas reales) ---
+/pruebas-remotas/

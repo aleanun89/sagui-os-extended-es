@@ -87,7 +87,11 @@ static bool valor_sim(const char *v)
     return compara_texto(v, "si") == 0 || compara_texto(v, "1") == 0 || compara_texto(v, "yes") == 0;
 }
 
-static void conf_ler(const char *arq)
+/* "so_fps": D371, el de /home/.config lo escribe la cuenta del escritorio (sin ser administradora) y el vncd corre
+ * como root y enseña el escritorio de quien haya entrado: con SAGUI-CONF solo se le acepta fps_max. Antes ganaba en
+ * todo y bastaba «seguridad=ninguna» y «escuchar=red-local» para abrir sin contraseña a la red local el
+ * escritorio de cualquier cuenta. En vivo (sin SAGUI-CONF) /etc no se guarda y sigue valiendo entero. */
+static void conf_ler(const char *arq, bool so_fps)
 {
     int fd = abrir(arq, ABRIR_LER);
     if (fd < 0) return;
@@ -107,6 +111,7 @@ static void conf_ler(const char *arq)
         f = v + tam_texto(v);
         while (f > v && eh_espaco(f[-1])) *--f = 0;
         int n = texto_para_int(v);
+        if (so_fps && compara_texto(p, "fps_max") != 0) { registrar("vncd: %s: se ignora %s (es del administrador: /etc/vnc/vncd.conf)", arq, p); continue; }
         if (compara_texto(p, "puerto") == 0 && n > 0 && n < 65536) conf.porta = n;
         else if (compara_texto(p, "escuchar") == 0) conf.red_local = compara_texto(v, "red-local") == 0;
         else if (compara_texto(p, "solo_ver") == 0) conf.solo_ver = valor_sim(v);
@@ -124,8 +129,8 @@ static void conf_ler(const char *arq)
 
 static void conf_carregar(void)
 {
-    conf_ler(DIR_ETC "/vncd.conf");
-    conf_ler(DIR_CASA "/vncd.conf");
+    conf_ler(DIR_ETC "/vncd.conf", false);
+    conf_ler(DIR_CASA "/vncd.conf", !(usuario_op(USU_ESTADO, 0, 0) & USU_EST_EN_VIVO));
 }
 
 /* ------------------------------------------------------------ registro */

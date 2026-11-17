@@ -400,13 +400,15 @@ int elevar_interativo(unsigned uid_alvo, const char *programa)
 
 static unsigned uid_antes_grafico = (unsigned)-1, gid_antes_grafico;
 
-int elevar_grafico(const char *motivo)
+int elevar_grafico(const char *motivo) { return elevar_grafico_ex(motivo, 0); }
+
+int elevar_grafico_ex(const char *motivo, unsigned opcoes)
 {
     if (sou_root()) return 0;
     unsigned uid0 = meu_uid(), gid0 = meu_gid();
     pedido_conta_t p;
     memset(&p, 0, sizeof p);
-    p.tipo = PED_ELEVAR | PED_GRAFICO;
+    p.tipo = PED_ELEVAR | PED_GRAFICO | (opcoes & PED_SIN_RECORDAR);
     p.uid_alvo = UID_ROOT;
     if (motivo) copia_texto(p.motivo, motivo, sizeof p.motivo);
     int id = servicos_kernel(SERV_PEDIR, (int)&p);

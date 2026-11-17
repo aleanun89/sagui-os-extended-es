@@ -182,7 +182,7 @@ COMPILACAO_H := $(B)/gerado/compilacao.h
 # libtls (D060-D063): criptografia, X.509 e TLS, só nos programas que usam rede cifrada.
 TLS_OBJ   := $(patsubst userland/libtls/%.c,$(B)/userland/libtls/%.o,$(wildcard userland/libtls/*.c)) \
              $(B)/userland/libtls/sha256.o
-TLS_PROGS := sshd ssh ssh-keygen curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco traductor
+TLS_PROGS := sshd ssh ssh-keygen wg curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco traductor debug-app
 # O cliente de IA (D134): a biblioteca da API compativel com a da OpenAI, que
 # o `ia` do terminal e o assistente do Mico partilham. Fica numa pasta propria
 # (como a libtls) porque so os programas que falam com a IA a ligam.
@@ -575,6 +575,9 @@ endif
 # Programa sintético de la SDL 2 para la prueba h246 (D247).
 include userland/libsdl2/teste.mk
 
+# Soporte de Go con TinyGo (D364): solo si TinyGo está instalado (tools/tinygo_entorno.sh).
+include userland/go/go.mk
+
 # D194: lo que va a /apps sale de /bin. APPS_DEP es el árbol de /apps ya
 # montado en $(B)/apps/raiz; APPS_OPC, la partición en las imágenes; el CD
 # (que no lee particiones, D077) lleva las apps en su propio ramdisk.
@@ -746,6 +749,8 @@ $(B)/userland/bin/wifi: $(B)/userland/wpa.o $(B)/userland/wpa_cifra.o $(B)/userl
                         $(B)/userland/libtls/sha256.o
 # D354: la ventana de redes va en wifi_ventana.h (incluida por wifi.c)
 $(B)/userland/programas/wifi.o: userland/programas/wifi_ventana.h
+# D363: la ventana de la VPN va en wg_ventana.h (incluida por wg.c)
+$(B)/userland/programas/wg.o: userland/programas/wg_ventana.h userland/inc/wireguard.h
 
 # El benchmark (D176) tiene cargas de coma flotante SSE2 (con __attribute__((target)), tras el
 # CPUID) y usa la x87 para la media geométrica: sin -mgeneral-regs-only, como el simd. Lleva SHA-256.
@@ -1245,7 +1250,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \

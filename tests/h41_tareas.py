@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, FalhaTeste, verificar  # noqa: E402
 
 # Geometria da janela (userland/programas/tareas.c).
-ABAS = {"procesos": 10 + 50, "rendimiento": 112 + 58, "ventanas": 230 + 48}
+ABAS = {"procesos": 10 + 50, "rendimiento": 112 + 58, "ventanas": 230 + 48, "detalles": 488 + 42}
 ABA_Y = 20
 LINHA0_Y = 65 + 9           # centro da primeira linha da tabela
 LIN_A = 18
@@ -174,6 +174,17 @@ def main():
         verificar(int(nl[0]) >= 1 and len(usos) == int(nl[0]) and all(0 <= u <= 100 for u in usos) and "0=" in nl[1],
                   f"Rendimiento: sección Núcleos con {nl[0]} CPU, usos {usos}")
         m.captura("H41-tareas-rendimiento")
+        # D368: barra lateral de recursos; las líneas de swap, disco y GPU salen en cada muestra.
+        verificar(re.search(r"tareas: swap tope \d+ KB almacen \d+ KB datos \d+ KB comprimida \d+ KB salidas \d+ entradas \d+", m.serial()),
+                  "Rendimiento: el log incluye la swap")
+        verificar(re.search(r"tareas: disco ativa [01] bloques \d+/\d+", m.serial()), "Rendimiento: el log incluye el disco")
+        verificar(re.search(r"tareas: gpu 2d \S+ \d+ ops/s", m.serial()), "Rendimiento: el log incluye la GPU")
+
+        # --- Detalles (D368): el proceso elegido, con sus hilos
+        m.clique(ox + ABAS["detalles"], oy + ABA_Y)
+        m.esperar_serial("tareas: pestana detalles", 10)
+        m.esperar_serial("tareas: detalles pid", 10)
+        m.captura("H41-tareas-detalles")
 
         # --- Ventanas: fecha a Calculadora pela lista
         m.clique(ox + ABAS["ventanas"], oy + ABA_Y)

@@ -109,3 +109,7 @@ Todos con `--help` y entrada en `ajuda`. Los marcados con (PC) tienen la lógica
 | `time`, `timeout`, `watch`, `top` | `timeout [-k] DURACIÓN` (124 al agotarse); `watch -n -t -c`; `top -d -n -b -o` | solo programas; los internos del shell no se pueden lanzar así |
 
 Descartados: `ln`, `readlink` (sin enlaces en el VFS), `nohup` (sin SIGHUP), `join`, `unexpand`.
+
+## 4. `htop` (D366)
+
+Monitor de procesos interactivo, clon propio (no usa código de htop): barras de CPU por núcleo, memoria y swap, árbol, hilos, ordenar, buscar, filtrar, `nice`, matar y ratón. Todas las teclas, en `docs/htop.md`.

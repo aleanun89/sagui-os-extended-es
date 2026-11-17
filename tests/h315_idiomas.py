@@ -24,6 +24,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, RAIZ, SAIDA  # noqa: E402
 import h83_configuracion as h83  # noqa: E402
+import conf_arbol as ca  # noqa: E402
 
 sys.path.insert(0, os.path.join(RAIZ, "tools"))
 import extraer_textos as X  # noqa: E402
@@ -180,12 +181,11 @@ def idioma_en_pantalla(m, idi, etiqueta, titulos, tit_cfg, tit_arq):
     jc = esperar_ventana(m, tit_cfg, k)
     time.sleep(0.8)
     m.captura(f"H315-{etiqueta}-3-configuracion")
-    pos = posiciones(titulos)
     ox, oy = jc["x"] + 2, jc["y"] + 24
-    for i in range(len(pos)):   # todas las páginas: lo que no esté en el catálogo se anota
-        m.clique(ox + pos[i][0] + pos[i][1] // 2, oy + 24)
+    for i, ch in enumerate(ca.HOJAS):   # todas las secciones del árbol: lo que no esté en el catálogo se anota
+        ca.ir_ox(m, ox, oy, ch)
         time.sleep(0.35)
-        if i in (1, 2, 3, 8, 9):
+        if ch in ("zona", "tela", "sonido", "red", "vnc"):
             m.captura(f"H315-{etiqueta}-3-configuracion-{i}")
     cerrar_ventana(m, jc)
     k = marca(m)
@@ -231,12 +231,11 @@ def parte2():
         m.comando("configuracion &")
         jc = esperar_ventana(m, "Configuración", k)
         ox, oy = jc["x"] + 2, jc["y"] + 24
-        pos = posiciones(titulos_pestanas("es"))
-        m.clique(ox + pos[0][0] + pos[0][1] // 2, oy + 24)   # Teclado
+        ca.ir_ox(m, ox, oy, "idioma")
         time.sleep(0.5)
         m.captura("H315-5-elegir-idioma-es")
         k = marca(m)
-        m.clique(ox + 444 + 100, oy + 50 + 226 + 15)         # botón «English»
+        ca.clic_panel(m, ox, oy, 30 + 330 + 20, 26 + 6, jc["l"], jc["a"])   # opción «English»
         esperar_serial_desde(m, r"\[IDIOMA\] interfaz del kernel: en", k)
         time.sleep(1.0)
         m.captura("H315-5-elegir-idioma-en")
@@ -277,12 +276,11 @@ def parte2():
         k0 = marca(m)
         m.comando("configuracion &")
         jc = esperar_ventana(m, tit_cfg, k0)
-        pos = posiciones(titulos_pestanas("xx"))
         ox, oy = jc["x"] + 2, jc["y"] + 24
-        for i in range(len(pos)):
-            m.clique(ox + pos[i][0] + pos[i][1] // 2, oy + 24)
+        for i, ch in enumerate(ca.HOJAS):
+            ca.ir_ox(m, ox, oy, ch)
             time.sleep(0.35)
-            if i in (0, 1, 3):
+            if ch in ("teclado", "zona", "sonido"):
                 m.captura(f"H315-7-xx-configuracion-{i}")
         cerrar_ventana(m, jc)
         k = marca(m)

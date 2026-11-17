@@ -54,8 +54,23 @@ static void linha_wifi(void)
 
 /* La interfaz que no es la activa: la eth0 aparcada mientras la wlan0 está
  * conectada, o la wlan0 sin conectar (D215). */
+static void mostrar_tunel(const info_rede_t *v)
+{
+    /* D363: el túnel WireGuard (wg-quick up): dirección, DNS y el tráfico de dentro. */
+    char a[16], b[16], t1[24], t2[24];
+    imprimir("%s: %s (wg show)\n", v->nome, v->descricao);
+    imprimir("      IPv4 %s/%d   saludo: %s", ip_para_texto(v->ip, a), prefixo(v->mascara), v->cabo ? "sí" : "aún no");
+    if (v->dns) imprimir("   DNS %s", ip_para_texto(v->dns, b));
+    imprimir("\n");
+    tamanho(t1, v->rx_bytes);
+    tamanho(t2, v->tx_bytes);
+    imprimir("      RX: %u paquetes (%s)   TX: %u paquetes (%s), %u descartados\n", v->rx_pacotes, t1, v->tx_pacotes, t2,
+             v->descartados);
+}
+
 static void mostrar_inativa(const info_rede_t *v)
 {
+    if (compara_texto(v->driver, "wireguard") == 0) { mostrar_tunel(v); return; }
     imprimir("%s: %s, driver %s\n", v->nome, v->descricao, v->driver[0] ? v->driver : "-");
     imprimir("      MAC %02x:%02x:%02x:%02x:%02x:%02x   %s\n", v->mac[0], v->mac[1], v->mac[2], v->mac[3], v->mac[4], v->mac[5],
              compara_texto(v->nome, "wlan0") == 0 ? "sin conectar" : "en espera (la wlan0 es la interfaz activa)");
@@ -64,8 +79,8 @@ static void mostrar_inativa(const info_rede_t *v)
 
 static void outras_interfaces(const char *ativa)
 {
-    static info_rede_t ifs[4];
-    int ni = info_sistema(INFO_INTERFACES, ifs, 4);
+    static info_rede_t ifs[5];
+    int ni = info_sistema(INFO_INTERFACES, ifs, 5);
     for (int i = 0; i < ni; i++)
         if (!ifs[i].loopback && compara_texto(ifs[i].nome, ativa) != 0) mostrar_inativa(&ifs[i]);
 }
@@ -123,8 +138,8 @@ static int mostrar(bool tudo)
     otras_tarjetas(&r, true);
     outras_interfaces(r.nome);
     /* D079: el loopback, que solo tiene contadores. */
-    static info_rede_t ifs[4];
-    int ni = info_sistema(INFO_INTERFACES, ifs, 4);
+    static info_rede_t ifs[5];
+    int ni = info_sistema(INFO_INTERFACES, ifs, 5);
     for (int i = 0; i < ni; i++)
         if (ifs[i].loopback) {
             tamanho(t1, ifs[i].rx_bytes);
@@ -190,8 +205,8 @@ int principal(int argc, char **argv)
         /* D215: la wlan0 es la activa (conectada) o una de las otras */
         static info_rede_t r;
         if (info_sistema(INFO_REDE, &r, sizeof r) > 0 && compara_texto(r.nome, "wlan0") == 0) return mostrar(false);
-        static info_rede_t ifs[4];
-        int ni = info_sistema(INFO_INTERFACES, ifs, 4);
+        static info_rede_t ifs[5];
+        int ni = info_sistema(INFO_INTERFACES, ifs, 5);
         for (int k = 0; k < ni; k++)
             if (compara_texto(ifs[k].nome, "wlan0") == 0) { mostrar_inativa(&ifs[k]); return 0; }
         imprimir_em(ERROS, "ifconfig: no hay wlan0 (el pincho Wi-Fi Realtek RTL8188EU no está conectado)\n");

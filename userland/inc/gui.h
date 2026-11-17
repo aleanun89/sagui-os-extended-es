@@ -188,6 +188,28 @@ bool         progresso_avancar(progresso_t *p);   /* mueve la banda; true = redi
 void         progresso_rect(progresso_t *p, retangulo_t *r);   /* sitio que ocupa */
 void         progresso_liberar(progresso_t *p);   /* suelta la barra (al redimensionar) */
 
+/* ---- lista en árbol (D367, mejora 124) ----
+ * Los ítems van en orden de recorrido con su nivel (0 = raíz); tiene hijos el que va seguido de un
+ * nivel más hondo. aberto[i] dice si la rama i está desplegada. */
+#define ARVORE_NADA      0
+#define ARVORE_ESCOLHEU  1   /* cambió el ítem elegido (clic en la fila o teclado) */
+#define ARVORE_ALTERNOU  2   /* solo se abrió o cerró una rama */
+typedef struct {
+    int x, y, l, a;
+    int n;
+    const char *const *textos;
+    const unsigned char *nivel;
+    unsigned char *aberto;
+    int sel;                 /* ítem elegido (índice en la tabla completa) */
+    int topo;                /* primera fila visible desplazada */
+} arvore_t;
+void arvore_desenhar(jan_t *j, arvore_t *a);
+int  arvore_tratar(jan_t *j, arvore_t *a, const evento_t *e);
+bool arvore_tem_filhos(const arvore_t *a, int i);
+bool arvore_visivel(const arvore_t *a, int i);
+int  arvore_pai(const arvore_t *a, int i);          /* -1 = raíz */
+void arvore_mostrar(arvore_t *a, int i);            /* abre los antepasados y lo deja a la vista */
+
 /* ---- casilla de verificación (mejora 042) ---- */
 typedef struct {
     int  x, y;

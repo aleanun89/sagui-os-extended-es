@@ -146,47 +146,54 @@ def gui():
             time.sleep(0.3)
         time.sleep(1.5)
         j = h83.janela(m.serial(), "Configuración")
-        verificar(j["l"] == 840, f"la ventana de Configuración es de 840 px ({j['l']})")
+        import conf_arbol as ca
         ox, oy = j["x"] + 2, j["y"] + 24
-        pos = h83.pos_paginas()
-        verificar(len(pos) == 11, "once pestañas, la última «Mandos»")
-        m.clique(ox + pos[10][0] + pos[10][1] // 2, oy + 24)
+        v = dict(x=ox, y=oy, l=j["l"], a=j["a"])
+        ca.ir(m, v, "mandos")
         fim = time.time() + 15
         while time.time() < fim and "configuracion: pagina Mandos" not in m.serial():
             time.sleep(0.3)
         verificar("configuracion: pagina Mandos" in m.serial(), "la pestaña Mandos se abre")
         time.sleep(1.5)
+        ca.al_final(m, v)                          # la prueba en vivo está bajo la lista
+        R = ca.rol_max(548, j["a"])                # contenido: 216 + 332
+        time.sleep(1.0)
         m.captura("H307-1-mandos-dual-action")
         w, h, rgb = h228.pantalla(m, "h307-gui")
+        px0, py0 = ca.geometria(j["l"], j["a"])[0] - 16, ca.geometria(j["l"], j["a"])[1]
 
-        def cor(x, y):
-            i = ((oy + y) * w + ox + x) * 3
+        def cor(x, y):   # (x, y) locales del panel
+            i = ((oy + py0 + y - R) * w + ox + px0 + x) * 3
             return tuple(rgb[i:i + 3])
 
         def perto(c, e, tol=24):
             return all(abs(a - b) <= tol for a, b in zip(c, (e >> 16 & 255, e >> 8 & 255, e & 255)))
-        Y_PAG, X0 = 50, 380
-        yb = Y_PAG + 172 + 18
+        X0, YC = 24, 216 + 40            # la prueba en vivo: debajo de la lista, cuadros desde y = 256
+        yb = 216 + 164 + 18
         def botao(k):   # una esquina de la casilla del botón k (desde 0), lejos del número
             return cor(X0 + (k % 16) * 27 + 3, yb + (k // 16) * 26 + 3)
         verificar(perto(botao(1), 0x2A6FD8), f"el botón 2 se ve pulsado ({botao(1)})")
         verificar(perto(botao(9), 0x2A6FD8), "el botón 10 se ve pulsado")
         verificar(perto(botao(0), 0xF2F2F2), f"el botón 1 no ({botao(0)})")
         # El punto del stick izquierdo: X -32768 e Y 32767 = abajo a la izquierda del primer cuadro.
-        verificar(perto(cor(X0 + 6, Y_PAG + 48 + 48 + 41), 0xC0392B), f"el punto del stick, abajo a la izquierda ({cor(X0 + 6, Y_PAG + 137)})")
-        verificar(perto(cor(X0 + 48, Y_PAG + 48 + 48), 0xD0D0D0) or perto(cor(X0 + 48, Y_PAG + 48 + 48), 0xFFFFFF),
+        verificar(perto(cor(X0 + 6, YC + 48 + 41), 0xC0392B), f"el punto del stick, abajo a la izquierda ({cor(X0 + 6, YC + 89)})")
+        verificar(perto(cor(X0 + 48, YC + 48), 0xD0D0D0) or perto(cor(X0 + 48, YC + 48), 0xFFFFFF),
                   "el centro del cuadro está libre")
         # El Xbox 360: segundo de la lista.
-        m.clique(ox + 100, oy + Y_PAG + 30 + 20 + 10)
-        time.sleep(1.5)
+        ca.al_inicio(m, v)
+        m.clique(*ca.panel(v, 100, 30 + 20 + 10))
+        time.sleep(0.5)
+        ca.al_final(m, v)
+        time.sleep(1.0)
         m.captura("H307-2-mandos-xbox360")
         w, h, rgb = h228.pantalla(m, "h307-gui2")
         verificar(perto(botao(0), 0x2A6FD8) and perto(botao(4), 0x2A6FD8),
                   "Xbox 360: A (botón 1) y LB (botón 5) pulsados")
-        verificar(perto(cor(X0 + 108 + 48, Y_PAG + 48 + 48 - 41), 0xC0392B),
-                  f"Xbox 360: el stick derecho arriba (Y invertida) ({cor(X0 + 156, Y_PAG + 55)})")
+        verificar(perto(cor(X0 + 108 + 48, YC + 48 - 41), 0xC0392B),
+                  f"Xbox 360: el stick derecho arriba (Y invertida) ({cor(X0 + 156, YC + 7)})")
         # Buscar joystick: el QEMU no tiene puerto de juegos.
-        m.clique(ox + 24 + 80, oy + Y_PAG + 208 + 14)
+        ca.al_inicio(m, v)
+        m.clique(*ca.panel(v, 366 + 98, 30 + 14))
         fim = time.time() + 15
         while time.time() < fim and "configuracion: mandos detectar -> 0" not in m.serial():
             time.sleep(0.3)

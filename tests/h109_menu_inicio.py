@@ -88,7 +88,7 @@ def principal():
         # ---- o menu Inicio
         marca = len(m.serial())
         m.clique(40, 12)     # o botao Inicio da barra de tarefas
-        esperar(m, r"\[GUI\] menu Inicio aberto \(mouse\)", 10, desde=marca)
+        esperar(m, r"\[GUI\] menu Inicio aberto \(mouse(, estilo \d+)?\)", 10, desde=marca)
         px0, py0, pl, pa = painel_do_log(m, marca)
         linhas = linhas_do_log(m, marca)
         ys = y_das_linhas(py0, linhas)
@@ -137,7 +137,7 @@ def principal():
         m.clique(40, 12)     # fecha o menu (o mesmo botao)
         time.sleep(0.5)
         m.clique(40, 12)     # abre outra vez
-        esperar(m, r"\[GUI\] menu Inicio aberto \(mouse\)", 10, desde=marca4)
+        esperar(m, r"\[GUI\] menu Inicio aberto \(mouse(, estilo \d+)?\)", 10, desde=marca4)
         px0, py0, pl, pa = painel_do_log(m, marca4)
         linhas = linhas_do_log(m, marca4)
         ys = y_das_linhas(py0, linhas)

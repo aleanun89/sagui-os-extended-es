@@ -1,0 +1,58 @@
+# Traducción de SaguiOS: catálogo «widgets», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/widgets.c:86
+msgid "Widgets de escritorio"
+msgstr "Desktop widgets"
+
+#: userland/programas/widgets.c:87
+msgid "Elige cuáles quieres ver. Los activos arrancan al iniciar la sesión."
+msgstr "Choose which ones you want to see. Active ones start when you log in."
+
+#: userland/programas/widgets.c:93
+msgid "Quitar"
+msgstr "Remove"
+
+#: userland/programas/widgets.c:93
+msgid "Añadir"
+msgstr "Add"
+
+#: userland/programas/widgets.c:99
+msgid "Opacidad"
+msgstr "Opacity"
+
+#: userland/programas/widgets.c:104
+msgid "Reloj: digital"
+msgstr "Clock: digital"
+
+#: userland/programas/widgets.c:104
+msgid "Reloj: analógico"
+msgstr "Clock: analog"
+
+#: userland/programas/widgets.c:105
+msgid "Editar conky.conf"
+msgstr "Edit conky.conf"
+
+#: userland/programas/widgets.c:107
+msgid "Para mover un widget: Alt + arrastrar, o «Editar widgets» en el menú del escritorio."
+msgstr "To move a widget: Alt + drag, or \"Edit widgets\" in the desktop menu."
+
+#: userland/programas/widgets.c:108
+msgid "Clic derecho sobre un widget: moverlo o quitarlo."
+msgstr "Right-click a widget: move or remove it."
+
+#: userland/programas/widgets.c:109
+msgid "[x] en el escritorio   [!] activo pero parado   [ ] sin usar"
+msgstr "[x] on the desktop   [!] active but stopped   [ ] unused"
+
+#: userland/programas/widgets.c:122
+msgid "Widgets"
+msgstr "Widgets"
+

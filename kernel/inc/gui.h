@@ -6,7 +6,11 @@
 #include "desenho.h"
 #include "abi.h"
 
-#define BARRA_SUPERIOR 24
+/* D361: la barra puede ir arriba o abajo y ocultarse sola; BARRA_SUPERIOR son las líneas que la barra
+ * reserva arriba hoy (24 de serie, 0 si va abajo o se oculta sola): las ventanas no suben por encima. */
+int  barra_topo(void);
+int  barra_fundo(void);                             /* las líneas que reserva abajo */
+#define BARRA_SUPERIOR barra_topo()
 
 /* Menús montados por el kernel (barra, escritorio): el texto y, para
  * cada línea, la acción que ejecuta la respuesta y el icono. */
@@ -73,6 +77,8 @@ int  menu_janela(void);                             /* "janela" del menú abiert
 void menu_cancelar(void);
 bool menu_tratar_mouse(int x, int y, unsigned botoes, unsigned mudaram);   /* true = el menú se quedó con el evento */
 bool menu_tratar_tecla(int t);
+void menu_ancorar_acima(int y);                     /* D361: el próximo menú se abre con su borde de abajo en y (-1 = lo normal) */
+void menu_decorar(const char *faixa, int tema);     /* D361: el próximo menú lleva una franja lateral con ese texto (tema 1 = clásico) */
 void menu_desenhar(superficie_t *t);
 void gui_tela_mudou(void);                          /* D059: recoloca las ventanas en el tamaño nuevo de la pantalla */
 
@@ -98,6 +104,12 @@ int  janelas_por_uso(janela_barra_t *v, int max);   /* orden de uso reciente: vi
 int  gui_janela_focada(void);                       /* id de la ventana con el foco, 0 = ninguna */
 void gui_janela_pedir_fechar(int id);               /* el mismo aviso que la X (EV_FECHAR) */
 
+/* Widgets de escritorio (janelas.c, D365). */
+void gui_widgets_editar(bool ligar);                /* modo «editar widgets»: se arrastran sin Alt */
+bool gui_widgets_editando(void);
+int  gui_widgets_contar(void);                      /* ventanas de escritorio abiertas */
+void gui_widgets_sessao_nova(void);                 /* termina los widgets de la sesión anterior */
+
 /* Atajos de teclado del gestor de ventanas (atalhos.c, D119). */
 bool atalhos_tecla(int t, uint32_t mods);           /* true = el atajo se quedó con la tecla */
 bool janela_quer_imprpant(void);                    /* la ventana activa pidió recibir Impr Pant (JAN_IMPRPANT) */
@@ -120,5 +132,42 @@ bool barra_popup_tecla(int t);
 void barra_popup_desenhar(superficie_t *s);         /* panel (o la sugerencia) encima de todo, debajo del menú */
 bool barra_popup_visivel(void);                     /* D195: hay panel o sugerencia de la bandeja */
 int32_t barra_info_bandeja(uint32_t ptr, uint32_t n);
+/* La barra personalizable (D361). */
+int  barra_alt(void);
+int  barra_y0(void);                                /* el borde de arriba de la barra en la pantalla */
+bool barra_esta_visivel(void);
+bool barra_intersecta(int y0, int y1);              /* ¿la franja [y0, y1) toca la barra (si se ve)? */
+bool barra_contem(int x, int y);
+void barra_sujar(void);                             /* vuelve a dibujar la barra */
+int  barra_cfg(int bc);                             /* un ajuste (BC_*) */
+void barra_conf_padrao(void);                       /* los ajustes de serie (al cerrar la sesión) */
+int32_t barra_info(uint32_t ptr, uint32_t n);       /* INFO_BARRA */
+int32_t barra_gravar(uint32_t ptr, uint32_t n);     /* INFO_BARRA_GRAVAR */
+void janelas_area_mudou(void);                      /* el área de trabajo cambió (barra): reajusta las maximizadas */
+const char *sessao_utilizador(void);                /* el nombre de la cuenta de la sesión */
+
+/* El menú Inicio de columnas (inicio.c, D361): «Dos columnas» y «Moderno». */
+#define INICIO_MAX 160
+#define IG_FREQ    (-1)   /* los programas más usados */
+#define IG_LUGAR   (-2)   /* la columna de la derecha */
+#define IG_ENERGIA (-3)   /* los botones de apagar y reiniciar */
+typedef struct { char texto[48]; int acao; const desenho_t *icone; int grupo; int icono; } inicio_item_t;   /* icono: de los botones de energía (1 apagar, 2 reiniciar, 3 cerrar sesión) */   /* grupo >= 0: el de programas */
+typedef struct {
+    const inicio_item_t *itens; int n;
+    char grupos[10][32]; int ngrupos;
+    const char *usuario;
+    void (*acao)(int a);       /* acción elegida (>= 0) o -1 al cerrarse */
+    int x, y_barra, alt_barra; bool acima;
+    bool buscador_abajo, translucido, teclado;
+    int estilo;                /* BC_MENU_DOS_COL o BC_MENU_MODERNO */
+} inicio_pedido_t;
+bool inicio_painel_abrir(const inicio_pedido_t *p);
+bool inicio_painel_aberto(void);
+void inicio_painel_fechar(void);                    /* cierra y avisa con -1 */
+bool inicio_painel_mouse(int x, int y, unsigned botoes, unsigned mudaram);
+bool inicio_painel_roda(int dz);
+bool inicio_painel_tecla(int t);
+void inicio_painel_desenhar(superficie_t *s);
+void inicio_painel_retangulo(int *x, int *y, int *l, int *a);
 
 #endif

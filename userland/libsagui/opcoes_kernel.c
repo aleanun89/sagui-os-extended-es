@@ -3,6 +3,7 @@
  * Ver userland/inc/opcoes_kernel.h. Una opción que el kernel enseña y aquí no se conoce sale con su
  * clave como nombre (así un kernel más nuevo no deja la lista a medias). */
 #include "opcoes_kernel.h"
+#include "conf_reglas.h"
 
 typedef struct { const char *nome, *rotulo, *ayuda; } texto_op_t;
 
@@ -130,4 +131,79 @@ bool kconf_pide_reinicio(const info_kconf_t *o)
 {
     if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "gobernador") == 0 && o->proximo == 0) return false;
     return o->proximo != o->efetivo;
+}
+
+/* ---- D367: dependencias ---- */
+
+typedef struct { const info_kconf_t *ops; int n; int val[KCONF_MAX]; } estado_k_t;
+
+static int leer_k(const char *nome, void *c)
+{
+    estado_k_t *e = c;
+    for (int i = 0; i < e->n; i++)
+        if (compara_texto(e->ops[i].nome, nome) == 0) return e->val[i];
+    return -1;
+}
+
+static void estado_de(estado_k_t *e, const info_kconf_t *ops, int n)
+{
+    e->ops = ops;
+    e->n = n > KCONF_MAX ? KCONF_MAX : n;
+    for (int i = 0; i < e->n; i++) e->val[i] = ops[i].proximo;
+}
+
+const char *kconf_bloqueo(const info_kconf_t *ops, int n, const char *nome)
+{
+    estado_k_t e;
+    estado_de(&e, ops, n);
+    const char *m = conf_bloqueo(nome, leer_k, &e, 0);
+    return m ? _(m) : NULL;
+}
+
+int kconf_resolver(const info_kconf_t *ops, int n_ops, const kconf_cambio_t *pedidos, int n, kconf_cambio_t *salida, int max, char *error, size_t ne)
+{
+    estado_k_t e;
+    estado_de(&e, ops, n_ops);
+    /* lo que la imagen ya traía mal (p. ej. NX con --sem-pae) no impide cambiar otras cosas: solo cuenta lo nuevo */
+    const char *op0 = NULL;
+    const char *mal0 = conf_invalido(leer_k, &e, 0, &op0);
+    int ns = 0;
+    int pidio[KCONF_MAX] = { 0 };
+    for (int i = 0; i < n; i++) {
+        int k = -1;
+        for (int j = 0; j < e.n; j++) if (ops[j].hueco == pedidos[i].hueco) k = j;
+        if (k < 0 || ns >= max) continue;
+        e.val[k] = pedidos[i].quitar ? ops[k].imagem : (int)pedidos[i].valor;
+        pidio[k] = 1;
+        salida[ns++] = pedidos[i];
+    }
+    /* en cascada: lo que depende de algo que quedó apagado, y no se pidió, se apaga solo con su aviso */
+    for (int i = 0; i < n; i++) {
+        int k = -1;
+        for (int j = 0; j < e.n; j++) if (ops[j].hueco == pedidos[i].hueco) k = j;
+        if (k < 0) continue;
+        conf_ajuste_t aj[8];
+        int na = conf_ajustes(ops[k].nome, e.val[k], leer_k, &e, 0, aj, 8);
+        for (int a = 0; a < na; a++) {
+            int d = -1;
+            for (int j = 0; j < e.n; j++) if (compara_texto(ops[j].nome, aj[a].nome) == 0) d = j;
+            if (d < 0 || pidio[d] || ns >= max) continue;
+            e.val[d] = aj[a].valor;
+            salida[ns].hueco = ops[d].hueco; salida[ns].valor = (unsigned)aj[a].valor; salida[ns].quitar = 0;
+            salida[ns].aviso = _(aj[a].motivo);
+            ns++;
+        }
+    }
+    /* el resultado: nada inválido, y lo pedido no puede quedar deshabilitado */
+    const char *op = NULL;
+    const char *mal = conf_invalido(leer_k, &e, 0, &op);
+    if (mal && !(mal0 && op0 && op && compara_texto(op0, op) == 0)) { formatar_texto(error, ne, "%s: %s", op, _(mal)); return -1; }
+    for (int i = 0; i < n; i++) {
+        int k = -1;
+        for (int j = 0; j < e.n; j++) if (ops[j].hueco == pedidos[i].hueco) k = j;
+        if (k < 0 || pedidos[i].quitar || pedidos[i].valor == 0) continue;
+        const char *m = conf_bloqueo(ops[k].nome, leer_k, &e, 0);
+        if (m) { formatar_texto(error, ne, "%s: %s", ops[k].nome, _(m)); return -1; }
+    }
+    return ns;
 }

@@ -8,6 +8,42 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: userland/libsagui/conf_reglas.c:19 userland/libsagui/conf_reglas.c:20
+msgid "Requiere PAE"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:21
+msgid "Requiere la caché de disco"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:22 userland/libsagui/conf_reglas.c:23 userland/libsagui/conf_reglas.c:24 userland/libsagui/conf_reglas.c:25
+msgid "Sin efecto con la caché de disco apagada"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:26
+msgid "Sin efecto con la swap apagada"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:27
+msgid "Sin efecto con el control de frecuencia apagado"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:29
+msgid "Requiere el 3D por la GPU"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:30
+msgid "Requiere el 2D por la GPU (comparten el anillo)"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:32 userland/libsagui/conf_reglas.c:33
+msgid "Solo con el estilo de menú Moderno"
+msgstr ""
+
+#: userland/libsagui/conf_reglas.c:34 userland/libsagui/conf_reglas.c:35
+msgid "Sin efecto con el reloj oculto"
+msgstr ""
+
 #: userland/libsagui/gui.c:872 userland/libsagui/gui_arquivos.c:694
 msgid "Sí"
 msgstr ""
@@ -16,11 +52,11 @@ msgstr ""
 msgid "No"
 msgstr ""
 
-#: userland/libsagui/gui.c:877 userland/libsagui/gui.c:885
+#: userland/libsagui/gui.c:877 userland/libsagui/gui.c:886 userland/libsagui/gui.c:897
 msgid "OK"
 msgstr ""
 
-#: userland/libsagui/gui.c:885 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
+#: userland/libsagui/gui.c:886 userland/libsagui/gui.c:897 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
 msgid "Cancelar"
 msgstr ""
 
@@ -44,7 +80,7 @@ msgstr ""
 msgid "Programa"
 msgstr ""
 
-#: userland/libsagui/gui_arquivos.c:397
+#: userland/libsagui/gui_arquivos.c:397 userland/libsagui/gui_cinta.c:187 userland/libsagui/gui_cinta.c:379
 msgid "Archivo"
 msgstr ""
 
@@ -163,146 +199,175 @@ msgstr ""
 msgid "Aceptar"
 msgstr ""
 
-#: userland/programas/macaco_cinta.h
-msgid "Combinar y centrar"
-msgstr ""
-
-#: userland/programas/macaco_cinta.h
-msgid "Separar celdas"
-msgstr ""
-
-#: userland/programas/macaco_cinta.h
-msgid "Inmovilizar paneles"
-msgstr ""
-
 #: userland/libsagui/gui_cinta.c:434 userland/libsagui/gui_cinta.c:434
 msgid "Más"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:10
+#: userland/libsagui/opcoes_kernel.c:11
 msgid "Paginación PAE (más de 4 GB)"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:10
+#: userland/libsagui/opcoes_kernel.c:11
 msgid "Con «no», la paginación de siempre: la memoria por encima de 4 GB no se usa."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:11
+#: userland/libsagui/opcoes_kernel.c:12
 msgid "Protección NX"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:11
+#: userland/libsagui/opcoes_kernel.c:12
 msgid "Las páginas de datos no se pueden ejecutar (solo con PAE y si la CPU lo tiene)."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:12
+#: userland/libsagui/opcoes_kernel.c:13
 msgid "Caché de disco"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:12
+#: userland/libsagui/opcoes_kernel.c:13
 msgid "Guarda en la RAM lo leído y escrito en los discos."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:13
+#: userland/libsagui/opcoes_kernel.c:14
 msgid "Caché en la memoria alta"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:13
+#: userland/libsagui/opcoes_kernel.c:14
 msgid "Con «no», la caché se queda en la memoria baja (como mucho 64 MB)."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:14
+#: userland/libsagui/opcoes_kernel.c:15
 msgid "Escritura diferida"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:14
+#: userland/libsagui/opcoes_kernel.c:15
 msgid "Lo escrito se graba unos segundos después; con «no», al momento."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:15
+#: userland/libsagui/opcoes_kernel.c:16
 msgid "DMA de los discos IDE"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:15
+#: userland/libsagui/opcoes_kernel.c:16
 msgid "Con «no», todo por PIO: más lento, pero sirve si el DMA da problemas."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:16
+#: userland/libsagui/opcoes_kernel.c:17
 msgid "Tamaño máximo de la caché"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:16
+#: userland/libsagui/opcoes_kernel.c:17
 msgid "Solo puede bajar el tope automático."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:17
+#: userland/libsagui/opcoes_kernel.c:18
 msgid "Máximo sin grabar en la caché"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:17
+#: userland/libsagui/opcoes_kernel.c:18
 msgid "Cuánto puede esperar a grabarse; menos = menos riesgo si se va la luz."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:18
+#: userland/libsagui/opcoes_kernel.c:19
 msgid "Grabar lo pendiente cada"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:18
+#: userland/libsagui/opcoes_kernel.c:19
 msgid "Segundos que espera un bloque escrito antes de grabarse (3 de serie)."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:19
+#: userland/libsagui/opcoes_kernel.c:20
 msgid "Control de frecuencia de la CPU"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:19
+#: userland/libsagui/opcoes_kernel.c:20
 msgid "Con «no», la CPU queda como la dejó la BIOS."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:20
+#: userland/libsagui/opcoes_kernel.c:21
 msgid "Gobernador de la frecuencia"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:20
+#: userland/libsagui/opcoes_kernel.c:21
 msgid "Rendimiento, ahorro o a demanda; se aplica también al momento."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:21
+#: userland/libsagui/opcoes_kernel.c:22
 msgid "Swap comprimida en la RAM"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:21
+#: userland/libsagui/opcoes_kernel.c:22
 msgid "Cuando falta memoria, comprime en la RAM las páginas menos usadas; con «no», no hay swap."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:22
+#: userland/libsagui/opcoes_kernel.c:23
 msgid "Tamaño máximo de la swap"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:22
+#: userland/libsagui/opcoes_kernel.c:23
 msgid "Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta)."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:75
+#: userland/libsagui/opcoes_kernel.c:78
 msgid "sí"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:75
+#: userland/libsagui/opcoes_kernel.c:78
 msgid "no"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:76
+#: userland/libsagui/opcoes_kernel.c:79
 msgid "automático"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "rendimiento"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "ahorro"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "a demanda"
 msgstr ""
+
+#: userland/libsagui/widget.c:14
+msgid "Reloj"
+msgstr ""
+
+#: userland/libsagui/widget.c:14
+msgid "Reloj analógico o digital"
+msgstr ""
+
+#: userland/libsagui/widget.c:15
+msgid "Calendario"
+msgstr ""
+
+#: userland/libsagui/widget.c:15
+msgid "El mes en curso, con el día de hoy marcado"
+msgstr ""
+
+#: userland/libsagui/widget.c:16
+msgid "Notas adhesivas"
+msgstr ""
+
+#: userland/libsagui/widget.c:16
+msgid "Una nota de texto que se queda en el escritorio"
+msgstr ""
+
+#: userland/libsagui/widget.c:17
+msgid "Monitor del sistema"
+msgstr ""
+
+#: userland/libsagui/widget.c:17
+msgid "CPU, memoria y red, con gráficas"
+msgstr ""
+
+#: userland/libsagui/widget.c:18
+msgid "Conky"
+msgstr ""
+
+#: userland/libsagui/widget.c:18
+msgid "Texto con datos del sistema (~/.config/conky.conf)"
+msgstr ""
+

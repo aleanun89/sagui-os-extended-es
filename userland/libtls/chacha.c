@@ -205,3 +205,50 @@ bool chachapoly_decifrar(const uint8_t chave[32], const uint8_t nonce[12], const
     chacha20_xor(chave, 1, nonce, entrada, saida, n);
     return true;
 }
+
+/* ------------------------------------------------------------ XChaCha20-Poly1305 (D363)
+ * draft-irtf-cfrg-xchacha-03: HChaCha20 saca una subclave de la clave y los 16
+ * primeros bytes del nonce (las 20 rondas, sin la suma final, y se quedan las
+ * palabras 0-3 y 12-15); el AEAD de siempre usa esa subclave y el nonce
+ * 0x00000000 || nonce[16..24). Lo usan las cookies del WireGuard. */
+void hchacha20(const uint8_t chave[32], const uint8_t nonce[16], uint8_t subchave[32])
+{
+    uint32_t x[16];
+    x[0] = 0x61707865; x[1] = 0x3320646e; x[2] = 0x79622d32; x[3] = 0x6b206574;
+    for (int i = 0; i < 8; i++) x[4 + i] = le32(chave + 4 * i);
+    for (int i = 0; i < 4; i++) x[12 + i] = le32(nonce + 4 * i);
+    for (int i = 0; i < 10; i++) {
+        QR(x[0], x[4], x[8], x[12]) QR(x[1], x[5], x[9], x[13])
+        QR(x[2], x[6], x[10], x[14]) QR(x[3], x[7], x[11], x[15])
+        QR(x[0], x[5], x[10], x[15]) QR(x[1], x[6], x[11], x[12])
+        QR(x[2], x[7], x[8], x[13]) QR(x[3], x[4], x[9], x[14])
+    }
+    for (int i = 0; i < 4; i++) { poe_le32(subchave + 4 * i, x[i]); poe_le32(subchave + 16 + 4 * i, x[12 + i]); }
+    cripto_apagar(x, sizeof x);
+}
+
+static void xchacha_preparar(const uint8_t chave[32], const uint8_t nonce[24], uint8_t sub[32], uint8_t n12[12])
+{
+    hchacha20(chave, nonce, sub);
+    memset(n12, 0, 4);
+    memcpy(n12 + 4, nonce + 16, 8);
+}
+
+void xchachapoly_cifrar(const uint8_t chave[32], const uint8_t nonce[24], const uint8_t *aad, unsigned naad,
+                        const uint8_t *entrada, uint8_t *saida, unsigned n, uint8_t tag[16])
+{
+    uint8_t sub[32], n12[12];
+    xchacha_preparar(chave, nonce, sub, n12);
+    chachapoly_cifrar(sub, n12, aad, naad, entrada, saida, n, tag);
+    cripto_apagar(sub, sizeof sub);
+}
+
+bool xchachapoly_decifrar(const uint8_t chave[32], const uint8_t nonce[24], const uint8_t *aad, unsigned naad,
+                          const uint8_t *entrada, uint8_t *saida, unsigned n, const uint8_t tag[16])
+{
+    uint8_t sub[32], n12[12];
+    xchacha_preparar(chave, nonce, sub, n12);
+    bool ok = chachapoly_decifrar(sub, n12, aad, naad, entrada, saida, n, tag);
+    cripto_apagar(sub, sizeof sub);
+    return ok;
+}

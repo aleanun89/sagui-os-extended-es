@@ -142,7 +142,7 @@ def parte_a(img):
         apagar(m, "A")
     verificar(ler_cab(img)[:192] == antes[:192], "[A] los bytes de la imagen (0-191) no cambian")
     z = zona(ler_cab(img))
-    esperado = {"pae": 0, "cache_alta": 0, "dma": 0, "cache_max_mb": 32, "vaciado_s": 5, "gobernador": 2}
+    esperado = {"pae": 0, "nx": 0, "cache_alta": 0, "dma": 0, "cache_max_mb": 32, "vaciado_s": 5, "gobernador": 2}   # D367: apagar pae apaga nx
     verificar(z == esperado, f"[A] la zona guardada en el disco es la pedida ({z})")
 
 
@@ -150,7 +150,7 @@ def parte_b(img):
     with Maquina("h355-b", "ide", imagem=img, memoria=MEM, snapshot=False) as m:
         m.esperar_serial("sagui:/$", 400)
         s = m.serial()
-        verificar(re.search(r"\[KCONF\] aplicada la configuracion guardada: pae=0 cache_alta=0 dma=0 cache_max_mb=32 "
+        verificar(re.search(r"\[KCONF\] aplicada la configuracion guardada: pae=0 nx=0 cache_alta=0 dma=0 cache_max_mb=32 "
                             r"vaciado_s=5 gobernador=2", s) is not None, "[B] el kernel anota lo que aplica")
         verificar(modo_pag(s) == "sem PAE", f"[B] paginación sin PAE ({modo_pag(s)})")
         verificar("[ATA] DMA desactivado" in s, "[B] el disco IDE va por PIO")
@@ -239,8 +239,12 @@ def parte_g(img):
                   "[G] sin nada guardado, la swap de la imagen (automática)")
         out = admin(m, "kconfig swap_mb=2")
         verificar("fuera de rango" in out, f"[G] swap_mb=2 se rechaza (desde 4) ({out!r})")
-        out = admin(m, "kconfig swap=no swap_mb=64")
-        verificar("swap: guardado no" in out and "swap_mb: guardado 64 MB" in out, f"[G] admin kconfig swap=no ({out!r})")
+        out = admin(m, "kconfig swap=no swap_mb=64")   # D367: un tope con la swap apagada no tiene efecto: se rechaza
+        verificar("combinación no válida" in out and "Sin efecto con la swap apagada" in out, f"[G] swap=no swap_mb=64 se rechaza ({out!r})")
+        out = admin(m, "kconfig swap_mb=64")
+        verificar("swap_mb: guardado 64 MB" in out, f"[G] admin kconfig swap_mb=64 ({out!r})")
+        out = admin(m, "kconfig swap=no")
+        verificar("swap: guardado no" in out, f"[G] admin kconfig swap=no ({out!r})")
         sem_erros(m.serial(), "G1")
         apagar(m, "G1")
     z = zona(ler_cab(img))
@@ -267,11 +271,11 @@ def parte_g(img):
 
 
 def parte_f():
-    from h323_conf_aceleracion import esperar, ventana, clic, pestana, conceder, cerrar_ventana
-    y_pag = 50
-    sub_kernel = (708 + 37, y_pag + 2 + 13)
-    fila0 = y_pag + 74 + 11            # KC_Y0 de configuracion.c, la fila de «pae»
-    cambiar, imagen = (528 + 48, fila0), (628 + 65, fila0)
+    from h323_conf_aceleracion import esperar, ventana, clic, conceder, cerrar_ventana, lc
+    import conf_arbol as ca
+    # D367: la sección Kernel es una hoja del árbol; «pae» es la primera casilla del grupo Memoria. Encima van dos
+    # párrafos de dos líneas (el aviso y la ayuda de la primera opción): la primera casilla está en y local = 118.
+    fila0 = 118
     img = imagem_de_teste("", ["--vesa", "--sesion-sagui", "--dados-mb", "16"])
     with Maquina("h355-f", "ide", imagem=img, snapshot=False) as m:
         m.esperar_serial("sagui:/$", 400)
@@ -282,21 +286,19 @@ def parte_f():
         esperar(m, r'"Configuraci.n"', 30, n)
         time.sleep(1.5)
         v = ventana(m, "Configuración", n)
-        clic(m, v, pestana("Pantalla"))
-        time.sleep(0.8)
-        clic(m, v, sub_kernel)
+        m.clique(*ca.arbol(v, "kernel"))
         esperar(m, r"configuracion: pantalla vista kernel", 15, n)
         time.sleep(1)
         m.captura("H355-4-ventana")
         n = len(m.serial())
-        clic(m, v, cambiar)
+        clic(m, v, lc(v, 30 + 7, fila0 + 7))   # la casilla «Paginación PAE»
         conceder(m, n, primera=True)
         esperar(m, r"\[KCONF\] guardado pae=0 en \S+: 0", 30, n)
         verificar(True, "[F] «Cambiar» en PAE, con el diálogo de administrador, guarda pae=0")
         time.sleep(1.5)
         m.captura("H355-5-ventana-cambiado")
         n = len(m.serial())
-        clic(m, v, imagen)
+        clic(m, v, lc(v, 30 + 418 + 54, fila0 - 5 + 13))   # «De la imagen» de PAE
         fim = time.time() + 8
         while time.time() < fim and "dialogo de permisos: configuracion" not in m.serial()[n:] and "[KCONF] pae vuelve" not in m.serial()[n:]:
             time.sleep(0.3)

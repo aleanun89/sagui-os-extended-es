@@ -73,7 +73,8 @@ comp_secretos() {
     local a="$1" r
     r="$(buscar_texto "$a" -e 'ghp_[A-Za-z0-9]{20,}' -e 'github_pat_[A-Za-z0-9_]{20,}' -e '(^|[^A-Za-z0-9_])GT=[^ ]' \
         -e '-----BEGIN [A-Z ]*PRIVATE KEY' -e 'PRIVATE KEY-----' -e 'AKIA[0-9A-Z]{16}' \
-        | { grep -v -E ':[0-9]+:#define [A-Z_]+ +"-----(BEGIN|END) [A-Z ]*PRIVATE KEY-----"$' || true; } | cut -c1-110)"
+        | { grep -v -E ':[0-9]+:#define [A-Z_]+ +"-----(BEGIN|END) [A-Z ]*PRIVATE KEY-----"$' || true; } \
+        | { grep -v -E ':[0-9]+:[A-Z_]+ = "-----(BEGIN|END) [A-Z ]*PRIVATE KEY-----"$' || true; } | cut -c1-110)"
     # Excepción acotada (D317): las MARCAS de texto con las que el cliente ssh reconoce un fichero de clave
     # (`#define SSH_PRIV_INICIO "-----BEGIN OPENSSH PRIVATE KEY-----"`) no son una clave; una clave real
     # tiene esas líneas solas, sin #define, y sigue saltando.
@@ -91,6 +92,9 @@ comp_correos() {
     # Direcciones que no son personales: ejemplos de pruebas, nombres de algoritmos SSH
     # (chacha20-poly1305@openssh.com), SSH de GitHub, localhost.
     printf '%s\n' 'git@github.com' >> "$permitidos"
+    # D363: el identificador del protocolo WireGuard («WireGuard v1 zx2c4 Jason@zx2c4.com») es una constante del
+    # protocolo (entra en el hash del saludo); sin ella no hay interoperabilidad. No es un contacto.
+    printf '%s\n' 'Jason@zx2c4.com' >> "$permitidos"
     r="$(cd "$a" && grep -rIoE --exclude-dir=.git --exclude-dir=terceros --exclude-dir=micropython --exclude='LICENSE*' --exclude='LICENCA*' --exclude='COPYING*' \
         --exclude=publicar.sh --exclude=h260_publicar.py --exclude=publicar.md \
         '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' . 2>/dev/null \

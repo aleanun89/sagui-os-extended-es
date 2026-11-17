@@ -62,6 +62,7 @@ static int  pedido_conta;
 static uint32_t pedido_desde;
 static conta_tela_t entrando;      /* la cuenta que está entrando (la usa la tarea) */
 static volatile bool fim_pronto, inicio_pronto, inicio_pendente, restaurar_pendente;
+static volatile bool inicio_negado;   /* D371: la carpeta personal no era de la cuenta */
 static int  modo_saida;
 static char anterior[32];          /* la cuenta que cerró la sesión: la pantalla empieza en ella (o en otra) */
 
@@ -232,23 +233,34 @@ static int criar_pasta_k(const char *c)
 }
 
 /* La carpeta de una cuenta que no es la principal: si falta (un /home en la RAM, o se borró), se crea
- * de la cuenta y 0700 (D282), con su .config. Si existe, no se toca. */
-static void preparar_casa(const conta_tela_t *c)
+ * de la cuenta y 0700 (D282), con su .config. Si existe, no se toca.
+ * D371: false si la carpeta no es de la cuenta o la pueden cambiar otros (grupo o demás con «w»), o si el
+ * sistema de archivos no guarda dueños: /home es de sagui y sagui pudo dejar ahí una carpeta suya con ese
+ * nombre (un /home en la RAM pierde las carpetas al reiniciar) con su configuración dentro (órdenes de
+ * widgets, conky, servicios...). Entrar ahí sería correr como la cuenta lo que otro preparó. */
+static bool preparar_casa(const conta_tela_t *c)
 {
-    if (!c->casa[0]) return;
+    if (!c->casa[0]) return true;
     meta_t m;
-    if (vfs_meta(c->casa, &m) == 0) {
-        if (m.tipo != TIPO_PASTA) klog("[SESION] %s no es una carpeta\n", c->casa);
-        return;
+    if (vfs_meta(c->casa, &m) != 0) {
+        int r = criar_pasta_k(c->casa);
+        if (r == ERRO_NAO_EXISTE && criar_pasta_k("/home") >= 0)   /* sin partición /home, en la RAM aún no hay /home */
+            r = criar_pasta_k(c->casa);
+        if (r >= 0) {
+            vfs_fixar_meta(c->casa, (int32_t)c->uid, (int32_t)c->gid, 0700);
+            char cfg[CAMINHO_MAX];
+            snformatar(cfg, sizeof cfg, "%s/.config", c->casa);
+            if (criar_pasta_k(cfg) >= 0) vfs_fixar_meta(cfg, (int32_t)c->uid, (int32_t)c->gid, 0700);
+        }
+        klog("[SESION] carpeta %s creada para %s: %d\n", c->casa, c->nome, r);
+        if (vfs_meta(c->casa, &m) != 0) return false;
     }
-    int r = criar_pasta_k(c->casa);
-    if (r >= 0) {
-        vfs_fixar_meta(c->casa, (int32_t)c->uid, (int32_t)c->gid, 0700);
-        char cfg[CAMINHO_MAX];
-        snformatar(cfg, sizeof cfg, "%s/.config", c->casa);
-        if (criar_pasta_k(cfg) >= 0) vfs_fixar_meta(cfg, (int32_t)c->uid, (int32_t)c->gid, 0700);
+    if (m.tipo != TIPO_PASTA || !m.com_donos || m.uid != c->uid || (m.modo & 022)) {
+        klog("[SESION] %s no es una carpeta de %s (uid %u, modo 0x%x): no se entra\n", c->casa, c->nome, m.uid,
+             (unsigned)m.modo);
+        return false;
     }
-    klog("[SESION] carpeta %s creada para %s: %d\n", c->casa, c->nome, r);
+    return true;
 }
 
 /* ---------------------------------------------------------------- la tarea del kernel */
@@ -265,7 +277,10 @@ static void tarefa(void *arg)
         fim_pronto = true;
         return;
     }
-    preparar_casa(&entrando);
+    if (!preparar_casa(&entrando)) {   /* D371: la sesión sigue siendo la de detrás de la pantalla */
+        inicio_negado = true;
+        return;
+    }
     permisos_fixar_sessao(entrando.uid, entrando.gid, entrando.casa);
     klog("[SESION] entra %s (uid %u)\n", entrando.nome, entrando.uid);
     inicio_pronto = true;
@@ -300,7 +315,11 @@ bool sessao_arrancar(void)
     carregar_contas();
     if (n_contas == 1 && !contas[0].senha) {
         if (contas[0].uid != UID_SAGUI || contas[0].casa[0]) {
-            preparar_casa(&contas[0]);
+            if (!preparar_casa(&contas[0])) {   /* D371: no se entra en una carpeta que no es suya */
+                abrir_tela();
+                txt_copia_n(msg, _("Tu carpeta personal no es tuya o otros la pueden cambiar: avisa al administrador."), sizeof msg);
+                return false;
+            }
             permisos_fixar_sessao(contas[0].uid, contas[0].gid, contas[0].casa);
         }
         klog("[SESION] una sola cuenta sin contrasena (%s): entrada directa\n", contas[0].nome);
@@ -375,17 +394,28 @@ static void tentar(void)
     tela_toda();
 }
 
+/* D361: el nombre de la cuenta de la sesión (para la cabecera del menú Inicio). */
+const char *sessao_utilizador(void) { return anterior[0] ? anterior : "sagui"; }
+
 void sessao_tique(void)
 {
     if (fim_pronto) {
         fim_pronto = false;
         /* Lo de la sesión que vive en el gestor de ventanas vuelve a lo de serie. */
         aparencia_padrao();
+        barra_conf_padrao();   /* D361 */
         area_fundo_padrao();
         barra_sessao_nova();
         area_sessao_nova();
         restaurar_pendente = true;
         abrir_tela();
+        return;
+    }
+    if (inicio_negado) {
+        inicio_negado = false;
+        estado = S_TELA;
+        txt_copia_n(msg, _("Tu carpeta personal no es tuya o otros la pueden cambiar: avisa al administrador."), sizeof msg);
+        tela_toda();
         return;
     }
     if (inicio_pronto) {

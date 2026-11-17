@@ -189,7 +189,7 @@ def main():
         # ---- tecla Windows sola
         marca = len(m.serial())
         m.tecla("meta_l")
-        esperar(m, r"menu Inicio aberto \(teclado\)", desde=marca)
+        esperar(m, r"menu Inicio aberto \(teclado(, estilo \d+)?\)", desde=marca)
         time.sleep(0.4)
         m.captura("H90-tecla-windows")
         m.tecla("meta_l")

@@ -192,6 +192,15 @@ static void abrir_terminal(void)
     klog("[SAGUI] terminal: %d\n", pid);
 }
 
+/* D365: los widgets de escritorio que la persona dejó activos (widgets.conf de su cuenta): el programa
+ * «widgets --arrancar» los lanza y termina. */
+static void abrir_widgets(void)
+{
+    char *argv_w[] = { "widgets", "--arrancar", NULL };
+    int pid = processo_executar("/bin/widgets", 2, argv_w, NULL);
+    klog("[SAGUI] widgets: %d\n", pid);
+}
+
 static void etapa(const char *texto)
 {
     console_cor(COR_VERDE_CLARO, COR_PRETO);
@@ -586,6 +595,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
             rodar_programa_de_teste(info_boot.teste);   /* pruebas de la fase 5: programa gráfico */
         } else if (sessao_arrancar()) {   /* D340: una sola cuenta sin contraseña: directo, como siempre */
             abrir_terminal();
+            abrir_widgets();
         }
         /* D216: el gestor de servicios, después del Terminal (no lo retrasa) y
          * sin esperar a nada: si falta o falla, se anota y se sigue. D340: con la
@@ -600,6 +610,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
             if (sessao_tomar_inicio()) {
                 aplicar_configuracao(true);
                 abrir_terminal();
+                abrir_widgets();
             }
         }
     }

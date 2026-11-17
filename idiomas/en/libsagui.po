@@ -8,6 +8,42 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: userland/libsagui/conf_reglas.c:19 userland/libsagui/conf_reglas.c:20
+msgid "Requiere PAE"
+msgstr "Requires PAE"
+
+#: userland/libsagui/conf_reglas.c:21
+msgid "Requiere la caché de disco"
+msgstr "Requires the disk cache"
+
+#: userland/libsagui/conf_reglas.c:22 userland/libsagui/conf_reglas.c:23 userland/libsagui/conf_reglas.c:24 userland/libsagui/conf_reglas.c:25
+msgid "Sin efecto con la caché de disco apagada"
+msgstr "No effect while the disk cache is off"
+
+#: userland/libsagui/conf_reglas.c:26
+msgid "Sin efecto con la swap apagada"
+msgstr "No effect while swap is off"
+
+#: userland/libsagui/conf_reglas.c:27
+msgid "Sin efecto con el control de frecuencia apagado"
+msgstr "No effect while frequency control is off"
+
+#: userland/libsagui/conf_reglas.c:29
+msgid "Requiere el 3D por la GPU"
+msgstr "Requires 3D on the GPU"
+
+#: userland/libsagui/conf_reglas.c:30
+msgid "Requiere el 2D por la GPU (comparten el anillo)"
+msgstr "Requires 2D on the GPU (they share the ring)"
+
+#: userland/libsagui/conf_reglas.c:32 userland/libsagui/conf_reglas.c:33
+msgid "Solo con el estilo de menú Moderno"
+msgstr "Only with the Modern menu style"
+
+#: userland/libsagui/conf_reglas.c:34 userland/libsagui/conf_reglas.c:35
+msgid "Sin efecto con el reloj oculto"
+msgstr "No effect while the clock is hidden"
+
 #: userland/libsagui/gui.c:872 userland/libsagui/gui_arquivos.c:694
 msgid "Sí"
 msgstr "Yes"
@@ -169,130 +205,171 @@ msgstr "OK"
 msgid "Más"
 msgstr "More"
 
-#: userland/libsagui/opcoes_kernel.c:10
+#: userland/libsagui/opcoes_kernel.c:11
 msgid "Paginación PAE (más de 4 GB)"
 msgstr "PAE paging (over 4 GB)"
 
-#: userland/libsagui/opcoes_kernel.c:10
+#: userland/libsagui/opcoes_kernel.c:11
 msgid "Con «no», la paginación de siempre: la memoria por encima de 4 GB no se usa."
 msgstr "With «no», classic paging: memory above 4 GB is not used."
 
-#: userland/libsagui/opcoes_kernel.c:11
+#: userland/libsagui/opcoes_kernel.c:12
 msgid "Protección NX"
 msgstr "NX protection"
 
-#: userland/libsagui/opcoes_kernel.c:11
+#: userland/libsagui/opcoes_kernel.c:12
 msgid "Las páginas de datos no se pueden ejecutar (solo con PAE y si la CPU lo tiene)."
 msgstr "Data pages cannot be executed (only with PAE and if the CPU has it)."
 
-#: userland/libsagui/opcoes_kernel.c:12
+#: userland/libsagui/opcoes_kernel.c:13
 msgid "Caché de disco"
 msgstr "Disk cache"
 
-#: userland/libsagui/opcoes_kernel.c:12
+#: userland/libsagui/opcoes_kernel.c:13
 msgid "Guarda en la RAM lo leído y escrito en los discos."
 msgstr "Keeps what is read from and written to disks in RAM."
 
-#: userland/libsagui/opcoes_kernel.c:13
+#: userland/libsagui/opcoes_kernel.c:14
 msgid "Caché en la memoria alta"
 msgstr "Cache in high memory"
 
-#: userland/libsagui/opcoes_kernel.c:13
+#: userland/libsagui/opcoes_kernel.c:14
 msgid "Con «no», la caché se queda en la memoria baja (como mucho 64 MB)."
 msgstr "With «no», the cache stays in low memory (64 MB at most)."
 
-#: userland/libsagui/opcoes_kernel.c:14
+#: userland/libsagui/opcoes_kernel.c:15
 msgid "Escritura diferida"
 msgstr "Delayed writing"
 
-#: userland/libsagui/opcoes_kernel.c:14
+#: userland/libsagui/opcoes_kernel.c:15
 msgid "Lo escrito se graba unos segundos después; con «no», al momento."
 msgstr "Writes reach the disk a few seconds later; with «no», immediately."
 
-#: userland/libsagui/opcoes_kernel.c:15
+#: userland/libsagui/opcoes_kernel.c:16
 msgid "DMA de los discos IDE"
 msgstr "IDE disk DMA"
 
-#: userland/libsagui/opcoes_kernel.c:15
+#: userland/libsagui/opcoes_kernel.c:16
 msgid "Con «no», todo por PIO: más lento, pero sirve si el DMA da problemas."
 msgstr "With «no», everything by PIO: slower, but useful if DMA causes problems."
 
-#: userland/libsagui/opcoes_kernel.c:16
+#: userland/libsagui/opcoes_kernel.c:17
 msgid "Tamaño máximo de la caché"
 msgstr "Maximum cache size"
 
-#: userland/libsagui/opcoes_kernel.c:16
+#: userland/libsagui/opcoes_kernel.c:17
 msgid "Solo puede bajar el tope automático."
 msgstr "Can only lower the automatic limit."
 
-#: userland/libsagui/opcoes_kernel.c:17
+#: userland/libsagui/opcoes_kernel.c:18
 msgid "Máximo sin grabar en la caché"
 msgstr "Maximum unwritten in the cache"
 
-#: userland/libsagui/opcoes_kernel.c:17
+#: userland/libsagui/opcoes_kernel.c:18
 msgid "Cuánto puede esperar a grabarse; menos = menos riesgo si se va la luz."
 msgstr "How much may wait to be written; less = less risk on a power cut."
 
-#: userland/libsagui/opcoes_kernel.c:18
+#: userland/libsagui/opcoes_kernel.c:19
 msgid "Grabar lo pendiente cada"
 msgstr "Write pending data every"
 
-#: userland/libsagui/opcoes_kernel.c:18
+#: userland/libsagui/opcoes_kernel.c:19
 msgid "Segundos que espera un bloque escrito antes de grabarse (3 de serie)."
 msgstr "Seconds a written block waits before reaching the disk (3 by default)."
 
-#: userland/libsagui/opcoes_kernel.c:19
+#: userland/libsagui/opcoes_kernel.c:20
 msgid "Control de frecuencia de la CPU"
 msgstr "CPU frequency control"
 
-#: userland/libsagui/opcoes_kernel.c:19
+#: userland/libsagui/opcoes_kernel.c:20
 msgid "Con «no», la CPU queda como la dejó la BIOS."
 msgstr "With «no», the CPU stays as the BIOS left it."
 
-#: userland/libsagui/opcoes_kernel.c:20
+#: userland/libsagui/opcoes_kernel.c:21
 msgid "Gobernador de la frecuencia"
 msgstr "Frequency governor"
 
-#: userland/libsagui/opcoes_kernel.c:20
+#: userland/libsagui/opcoes_kernel.c:21
 msgid "Rendimiento, ahorro o a demanda; se aplica también al momento."
 msgstr "Performance, power saving or on demand; also applied immediately."
 
-#: userland/libsagui/opcoes_kernel.c:21
+#: userland/libsagui/opcoes_kernel.c:22
 msgid "Swap comprimida en la RAM"
 msgstr "Compressed swap in RAM"
 
-#: userland/libsagui/opcoes_kernel.c:21
+#: userland/libsagui/opcoes_kernel.c:22
 msgid "Cuando falta memoria, comprime en la RAM las páginas menos usadas; con «no», no hay swap."
 msgstr "When memory runs low, compresses the least used pages in RAM; with «no», there is no swap."
 
-#: userland/libsagui/opcoes_kernel.c:22
+#: userland/libsagui/opcoes_kernel.c:23
 msgid "Tamaño máximo de la swap"
 msgstr "Maximum swap size"
 
-#: userland/libsagui/opcoes_kernel.c:22
+#: userland/libsagui/opcoes_kernel.c:23
 msgid "Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta)."
 msgstr "Limit of the compressed store; automatic = half the RAM (a quarter without high memory)."
 
-#: userland/libsagui/opcoes_kernel.c:75
+#: userland/libsagui/opcoes_kernel.c:78
 msgid "sí"
 msgstr "yes"
 
-#: userland/libsagui/opcoes_kernel.c:75
+#: userland/libsagui/opcoes_kernel.c:78
 msgid "no"
 msgstr "no"
 
-#: userland/libsagui/opcoes_kernel.c:76
+#: userland/libsagui/opcoes_kernel.c:79
 msgid "automático"
 msgstr "automatic"
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "rendimiento"
 msgstr "performance"
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "ahorro"
 msgstr "power saving"
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "a demanda"
 msgstr "on demand"
+
+#: userland/libsagui/widget.c:14
+msgid "Reloj"
+msgstr "Clock"
+
+#: userland/libsagui/widget.c:14
+msgid "Reloj analógico o digital"
+msgstr "Analog or digital clock"
+
+#: userland/libsagui/widget.c:15
+msgid "Calendario"
+msgstr "Calendar"
+
+#: userland/libsagui/widget.c:15
+msgid "El mes en curso, con el día de hoy marcado"
+msgstr "The current month, with today marked"
+
+#: userland/libsagui/widget.c:16
+msgid "Notas adhesivas"
+msgstr "Sticky notes"
+
+#: userland/libsagui/widget.c:16
+msgid "Una nota de texto que se queda en el escritorio"
+msgstr "A text note that stays on the desktop"
+
+#: userland/libsagui/widget.c:17
+msgid "Monitor del sistema"
+msgstr "System monitor"
+
+#: userland/libsagui/widget.c:17
+msgid "CPU, memoria y red, con gráficas"
+msgstr "CPU, memory and network, with graphs"
+
+#: userland/libsagui/widget.c:18
+msgid "Conky"
+msgstr "Conky"
+
+#: userland/libsagui/widget.c:18
+msgid "Texto con datos del sistema (~/.config/conky.conf)"
+msgstr "Text with system data (~/.config/conky.conf)"
+

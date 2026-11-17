@@ -1287,11 +1287,13 @@ static void ler_extras(const char *l, int nl, pedido_wifi_t *p)
 }
 
 /* D354: las redes recordadas son de cada usuario (su /home/.config/wifi.conf, que con varias cuentas
- * está en /home/<nombre>): se lee la de la sesión local y, si no tiene, la de /home (compatibilidad). */
+ * está en /home/<nombre>): se lee la de la sesión local. D371: si esa cuenta no tiene, ninguna (antes se
+ * usaba la de sagui: otra cuenta se conectaba sola con las redes y las claves de sagui). Con la sesión
+ * de sagui (o detrás de la pantalla de inicio de sesión) la ruta es CONFIG, como siempre. */
 static const char *ruta_config(char *buf, size_t n)
 {
     permisos_sessao_caminho(buf, n, "/.config/wifi.conf");
-    return vfs_existe_arquivo(buf) ? buf : CONFIG;
+    return buf;
 }
 
 static bool escolher_recordada(void)

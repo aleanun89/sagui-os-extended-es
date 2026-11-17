@@ -1184,6 +1184,13 @@ static int tratar_pedido(pedido_recebido_t *p, char *det, int max)
     }
     if (!tem && entrar) { copia_texto(det, "la cuenta no tiene contraseña", (size_t)max); return 1; }
     if (!tem) {
+        /* D371: la primera contraseña de una cuenta la pone ella misma (o root, más arriba); la de root, la
+         * sesión local (D255). Sin esto, otra cuenta de la sesión local (ana) le ponía con «su sagui» o
+         * «passwd sagui» la suya a sagui (que de serie no tiene), pasaba a ser sagui y le quitaba la cuenta. */
+        if (alvo.uid != UID_ROOT && alvo.uid != p->uid) {
+            copia_texto(det, "esa cuenta no tiene contraseña: solo ella misma o root se la ponen", (size_t)max);
+            return ERRO_ACESSO;
+        }
         /* Sin contraseña: solo la sesión local la fija (la primera vez). */
         if (p->servicio) { copia_texto(det, "sin contraseña y no es la sesión local", (size_t)max); return ERRO_SEM_SENHA; }
         /* Modo en vivo (sin SAGUI-CONF): root sin contraseña para la sesión local. */

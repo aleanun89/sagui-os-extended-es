@@ -25,20 +25,20 @@ import servidor_falso_ia  # noqa: E402
 TITULOS_PAG = ("Teclado", "Fecha y hora", "Pantalla", "Sonido", "Escritorio", "Capturas", "IA", "Fuentes", "Red",
                "Escritorio remoto", "Mandos", "Usuarios")   # todas: el relleno depende de la suma (issue #43)
 
-# La página de la IA, en coordenadas del cliente (como en el programa).
-Y_PAG = 50
-CX_URL = 250
-CY_URL = Y_PAG + 22
-CX_GERAL = 250
-CY_GERAL = Y_PAG + 118
-CX_CHAT = 250
-CY_CHAT = Y_PAG + 166
-CX_GUARDAR, CY_GUARDAR, LARG_GUARDAR = 250, Y_PAG + 206, 120
-CX_CARGAR, LARG_CARGAR = 380, 170
-LISTA_PROV_X, LISTA_PROV_Y = 24, Y_PAG + 24
-LISTA_MOD_X, LISTA_MOD_Y = 250, Y_PAG + 280
+# La página de la IA, en coordenadas LOCALES del panel (D367; ver conf_arbol.py)
+CX_URL = 230
+CY_URL = 22
+CX_GUARDAR, CY_GUARDAR, LARG_GUARDAR = 230, 206, 100
+CX_CARGAR, LARG_CARGAR = 338, 170
+LISTA_PROV_X, LISTA_PROV_Y = 24, 24
+LISTA_MOD_X, LISTA_MOD_Y = 230, 296
 ITEM = 20          # LISTA_ALTURA_ITEM
-ABA_TAB = 24       # dentro de la pestaña (los botones tienen 28 de alto, en y=10)
+import conf_arbol as ca  # noqa: E402
+
+
+def pl(j, xl, yl):
+    """Punto local del panel -> pantalla."""
+    return ca.panel(dict(x=j["x"] + 2, y=j["y"] + 24, l=j["l"], a=j["a"]), xl, yl)
 
 
 def pos_paginas():
@@ -88,22 +88,21 @@ def main():
             esperar(m, '"Configuración"')
             time.sleep(1.0)
             j = janela(m.serial(), "Configuración")
-            verificar(j["l"] == 788 and j["a"] == 500, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
+            verificar(j["l"] >= 700 and j["a"] >= 440, f"la ventana abre con su tamaño ({j['l']}x{j['a']})")
 
             # La pestaña «IA» es la séptima.
-            pos = pos_paginas()
-            m.clique(*ponto(j, pos[6][0] + pos[6][1] // 2, ABA_TAB))
+            ca.ir(m, dict(x=j["x"] + 2, y=j["y"] + 24), "ia")
             time.sleep(0.8)
             m.captura("H117-1-pagina-ia")
             verificar(True, "la página de la IA abre")
 
             # El proveedor «Personalizado» vacía la caja de la dirección.
-            m.clique(*ponto(j, LISTA_PROV_X + 30, LISTA_PROV_Y + 2 + 7 * ITEM + 10))
+            m.clique(*pl(j, LISTA_PROV_X + 30, LISTA_PROV_Y + 2 + 7 * ITEM + 10))
             time.sleep(0.6)
             m.captura("H117-2-provedor-personalizado")
 
             # Escribir la dirección del servidor falso en la caja de la URL.
-            m.clique(*ponto(j, CX_URL + 20, CY_URL + 10))
+            m.clique(*pl(j, CX_URL + 20, CY_URL + 10))
             time.sleep(0.3)
             m.digitar(url, 0.03)
             time.sleep(0.5)
@@ -111,7 +110,7 @@ def main():
 
             # «Cargar modelos» pide la lista al servidor.
             antes = len(servidor_falso_ia.PEDIDOS_MODELOS)
-            m.clique(*ponto(j, CX_CARGAR + LARG_CARGAR // 2, CY_GUARDAR + 14))
+            m.clique(*pl(j, CX_CARGAR + LARG_CARGAR // 2, CY_GUARDAR + 14))
             fim = time.time() + 30
             while time.time() < fim and len(servidor_falso_ia.PEDIDOS_MODELOS) == antes:
                 time.sleep(0.2)
@@ -122,23 +121,23 @@ def main():
 
             # El primer modelo va a la casilla «Modelo por omisión» (el destino
             # por omisión; no hay que hacer clic antes en ella).
-            m.clique(*ponto(j, LISTA_MOD_X + 30, LISTA_MOD_Y + 2 + 10))
+            m.clique(*pl(j, LISTA_MOD_X + 30, LISTA_MOD_Y + 2 + 10))
             time.sleep(0.5)
             # El segundo va al «Chat»: se elige el destino con su botón.
-            m.clique(*ponto(j, 529 + 44, Y_PAG + 240 + 14))
+            m.clique(*pl(j, 402 + 41, 262 + 14))
             time.sleep(0.4)
-            m.clique(*ponto(j, LISTA_MOD_X + 30, LISTA_MOD_Y + 2 + ITEM + 10))
+            m.clique(*pl(j, LISTA_MOD_X + 30, LISTA_MOD_Y + 2 + ITEM + 10))
             time.sleep(0.5)
             m.captura("H117-5-modelos-escolhidos")
 
             # Guardar.
-            m.clique(*ponto(j, CX_GUARDAR + LARG_GUARDAR // 2, CY_GUARDAR + 14))
+            m.clique(*pl(j, CX_GUARDAR + LARG_GUARDAR // 2, CY_GUARDAR + 14))
             time.sleep(1.0)
             m.captura("H117-6-guardado")
 
             # Se cierra la ventana: con una ventana abierta el teclado va a ella
             # y la consola serial deja de recibir teclas.
-            m.clique(*ponto(j, j["l"] - 110 + 48, j["a"] - 40 + 14))
+            m.clique(*ca.boton_pie(dict(x=j["x"] + 2, y=j["y"] + 24, l=j["l"], a=j["a"]), "aceptar"))
             time.sleep(1.5)
 
             # Lo que quedó en el fichero: si /home no es persistente, la

@@ -119,17 +119,27 @@ msgstr "kconfig: %s: «%s» is not valid (si or no)\n"
 msgid "kconfig: %s: «%s» fuera de rango (auto o de %u a %u)\n"
 msgstr "kconfig: %s: «%s» out of range (auto or %u to %u)\n"
 
+#: userland/programas/kconfig.c:141
+#, c-format
+msgid "kconfig: combinación no válida (%s); no se guarda nada\n"
+msgstr "kconfig: invalid combination (%s); nothing is saved\n"
+
 #: userland/programas/kconfig.c:148
+#, c-format
+msgid "%s: ajustado a %s solo (%s)\n"
+msgstr "%s: set to %s automatically (%s)\n"
+
+#: userland/programas/kconfig.c:157
 #, c-format
 msgid "%s: vuelve al de la imagen (%s)"
 msgstr "%s: back to the image value (%s)"
 
-#: userland/programas/kconfig.c:149
+#: userland/programas/kconfig.c:158
 #, c-format
 msgid "%s: guardado %s"
 msgstr "%s: saved %s"
 
-#: userland/programas/kconfig.c:150
+#: userland/programas/kconfig.c:159
 msgid "; se aplica al reiniciar"
 msgstr "; applied on restart"
 

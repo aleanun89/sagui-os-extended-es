@@ -1,0 +1,292 @@
+# Traducción de SaguiOS: catálogo «debug-app», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/debug-app.c:113
+msgid "No hay red: este equipo no tiene dirección IP. Conecta el cable (o la Wi-Fi) y vuelve a probar."
+msgstr "Sem rede: este computador não tem endereço IP. Conecte o cabo (ou o Wi-Fi) e tente de novo."
+
+#: userland/programas/debug-app.c:118
+#, c-format
+msgid "La dirección «%s» no es válida."
+msgstr "O endereço «%s» não é válido."
+
+#: userland/programas/debug-app.c:123
+#, c-format
+msgid "La dirección de este equipo (%s) no es privada: DEBUG-APP solo se abre en una red local."
+msgstr "O endereço deste computador (%s) não é privado: o DEBUG-APP só abre numa rede local."
+
+#: userland/programas/debug-app.c:138 userland/programas/debug-app.c:524
+#, c-format
+msgid "Direcciones permitidas: %s"
+msgstr "Endereços permitidos: %s"
+
+#: userland/programas/debug-app.c:143
+msgid "Hace falta ser administrador."
+msgstr "É preciso ser administrador."
+
+#: userland/programas/debug-app.c:156 userland/programas/debug-app.c:160
+msgid "No se pudo crear la tubería."
+msgstr "Não foi possível criar o pipe."
+
+#: userland/programas/debug-app.c:177
+#, c-format
+msgid "No se pudo lanzar sshd: %s"
+msgstr "Não foi possível iniciar o sshd: %s"
+
+#: userland/programas/debug-app.c:185
+msgid "Preparando..."
+msgstr "Preparando..."
+
+#: userland/programas/debug-app.c:200
+#, c-format
+msgid "Sesión cerrada: %s"
+msgstr "Sessão encerrada: %s"
+
+#: userland/programas/debug-app.c:223
+msgid "Esperando la conexión del otro equipo."
+msgstr "Esperando a conexão do outro computador."
+
+#: userland/programas/debug-app.c:226
+#, c-format
+msgid "Conexión de %s: comprobando la clave..."
+msgstr "Conexão de %s: verificando a chave..."
+
+#: userland/programas/debug-app.c:231
+#, c-format
+msgid "CONECTADO desde %s (como root). El código ya no vale."
+msgstr "CONECTADO a partir de %s (como root). O código já não vale."
+
+#: userland/programas/debug-app.c:233
+#, c-format
+msgid "DEBUG-APP: %s ha entrado como administrador"
+msgstr "DEBUG-APP: %s entrou como administrador"
+
+#: userland/programas/debug-app.c:236
+#, c-format
+msgid "Conexión rechazada: %s"
+msgstr "Conexão recusada: %s"
+
+#: userland/programas/debug-app.c:239
+#, c-format
+msgid "Una conexión probó una clave que no vale (%s de %d)."
+msgstr "Uma conexão tentou uma chave que não vale (%s de %d)."
+
+#: userland/programas/debug-app.c:255 userland/programas/debug-app.c:269
+msgid "el servidor de la sesión terminó"
+msgstr "o servidor da sessão terminou"
+
+#: userland/programas/debug-app.c:283
+msgid "cortada"
+msgstr "cortada"
+
+#: userland/programas/debug-app.c:318
+#, c-format
+msgid "debug-app: falta el valor de %s\n"
+msgstr "debug-app: falta o valor de %s\n"
+
+#: userland/programas/debug-app.c:326
+#, c-format
+msgid "debug-app: opción o valor no válido: %s %s\n"
+msgstr "debug-app: opção ou valor inválido: %s %s\n"
+
+#: userland/programas/debug-app.c:335
+msgid "debug-app: las opciones guardadas permiten direcciones públicas; para eso hay que decirlo con --permitir\n"
+msgstr "debug-app: as opções salvas permitem endereços públicos; para isso é preciso dizê-lo com --permitir\n"
+
+#: userland/programas/debug-app.c:340
+msgid "debug-app: hace falta ser administrador: usa «admin debug-app --texto»\n"
+msgstr "debug-app: é preciso ser administrador: use «admin debug-app --texto»\n"
+
+#: userland/programas/debug-app.c:343
+msgid "debug-app: no se pudieron guardar las opciones\n"
+msgstr "debug-app: não foi possível salvar as opções\n"
+
+#: userland/programas/debug-app.c:358
+#, c-format
+msgid "debug-app: no se pudo abrir la sesión: %s\n"
+msgstr "debug-app: não foi possível abrir a sessão: %s\n"
+
+#: userland/programas/debug-app.c:358
+msgid "sin respuesta de sshd"
+msgstr "sem resposta do sshd"
+
+#: userland/programas/debug-app.c:363
+msgid "ATENCIÓN: quien tenga este código entrará en este equipo como ADMINISTRADOR (root).\n"
+msgstr "ATENÇÃO: quem tiver este código entrará neste computador como ADMINISTRADOR (root).\n"
+
+#: userland/programas/debug-app.c:364
+#, c-format
+msgid "Código: %s\n"
+msgstr "Código: %s\n"
+
+#: userland/programas/debug-app.c:365
+#, c-format
+msgid "Dirección: %s  puerto %d\n"
+msgstr "Endereço: %s  porta %d\n"
+
+#: userland/programas/debug-app.c:366
+#, c-format
+msgid "Huella del servidor: %s\n"
+msgstr "Impressão digital do servidor: %s\n"
+
+#: userland/programas/debug-app.c:367
+#, c-format
+msgid "Permitidas: %s\n"
+msgstr "Permitidos: %s\n"
+
+#: userland/programas/debug-app.c:368
+#, c-format
+msgid "Caduca en %s. Vale para una sola conexión. Pulsa Intro para cortar.\n"
+msgstr "Expira em %s. Vale para uma única conexão. Pressione Enter para cortar.\n"
+
+#: userland/programas/debug-app.c:411
+msgid "Depuración remota por la red local"
+msgstr "Depuração remota pela rede local"
+
+#: userland/programas/debug-app.c:413
+msgid "Deja que otro equipo de tu red entre en este por SSH para hacer pruebas."
+msgstr "Deixa outro computador da sua rede entrar neste por SSH para fazer testes."
+
+#: userland/programas/debug-app.c:415
+msgid "Quien tenga el código entrará como ADMINISTRADOR (root): todo el sistema."
+msgstr "Quem tiver o código entrará como ADMINISTRADOR (root): todo o sistema."
+
+#: userland/programas/debug-app.c:417
+msgid "Una sola conexión; caduca sola; «Cortar» o cerrar la ventana la termina."
+msgstr "Uma única conexão; expira sozinha; «Cortar» ou fechar a janela a termina."
+
+#: userland/programas/debug-app.c:419
+msgid "Dirección del código:"
+msgstr "Endereço do código:"
+
+#: userland/programas/debug-app.c:419
+msgid "Puerto (0 = 2222 o libre):"
+msgstr "Porta (0 = 2222 ou livre):"
+
+#: userland/programas/debug-app.c:420
+msgid "Duración (minutos, 15-480):"
+msgstr "Duração (minutos, 15-480):"
+
+#: userland/programas/debug-app.c:420
+msgid "Direcciones permitidas:"
+msgstr "Endereços permitidos:"
+
+#: userland/programas/debug-app.c:430
+msgid "«subred», redes (192.168.5.0/24) o direcciones, separadas por comas"
+msgstr "«subred», redes (192.168.5.0/24) ou endereços, separados por vírgulas"
+
+#: userland/programas/debug-app.c:435
+msgid "Permitir también direcciones públicas (peligroso: solo detrás de una VPN)"
+msgstr "Permitir também endereços públicos (perigoso: só atrás de uma VPN)"
+
+#: userland/programas/debug-app.c:437
+msgid "Permitir depuración remota"
+msgstr "Permitir depuração remota"
+
+#: userland/programas/debug-app.c:443
+msgid "Pide la contraseña de administrador. Más información: docs/debug-app.md"
+msgstr "Pede a senha de administrador. Mais informações: docs/debug-app.md"
+
+#: userland/programas/debug-app.c:446
+msgid "SESIÓN REMOTA ACTIVA: quien tenga el código entra como root"
+msgstr "SESSÃO REMOTA ATIVA: quem tiver o código entra como root"
+
+#: userland/programas/debug-app.c:449
+msgid "Código (díctalo o cópialo al otro equipo):"
+msgstr "Código (dite ou copie para o outro computador):"
+
+#: userland/programas/debug-app.c:455
+msgid "Copiar código"
+msgstr "Copiar código"
+
+#: userland/programas/debug-app.c:461
+msgid "El código ya se ha usado: no vale para nadie más."
+msgstr "O código já foi usado: não vale para mais ninguém."
+
+#: userland/programas/debug-app.c:464
+msgid "Preparando el código..."
+msgstr "Preparando o código..."
+
+#: userland/programas/debug-app.c:468
+#, c-format
+msgid "Dirección: %s, puerto %d"
+msgstr "Endereço: %s, porta %d"
+
+#: userland/programas/debug-app.c:471
+#, c-format
+msgid "Huella del servidor: %s"
+msgstr "Impressão digital do servidor: %s"
+
+#: userland/programas/debug-app.c:476
+#, c-format
+msgid "Caduca en: %s"
+msgstr "Expira em: %s"
+
+#: userland/programas/debug-app.c:479
+#, c-format
+msgid "Permitidas: %s"
+msgstr "Permitidos: %s"
+
+#: userland/programas/debug-app.c:485
+msgid "Cortar"
+msgstr "Cortar"
+
+#: userland/programas/debug-app.c:496
+msgid "DEBUG-APP: SESIÓN REMOTA ACTIVA"
+msgstr "DEBUG-APP: SESSÃO REMOTA ATIVA"
+
+#: userland/programas/debug-app.c:506
+msgid "El puerto no es válido."
+msgstr "A porta não é válida."
+
+#: userland/programas/debug-app.c:507
+msgid "La duración va de 15 a 480 minutos."
+msgstr "A duração vai de 15 a 480 minutos."
+
+#: userland/programas/debug-app.c:519
+msgid "La lista dice «publicas»: marca la casilla para confirmarlo."
+msgstr "A lista diz «publicas»: marque a caixa para confirmar."
+
+#: userland/programas/debug-app.c:526 userland/programas/debug-app.c:528
+msgid "DEBUG-APP"
+msgstr "DEBUG-APP"
+
+#: userland/programas/debug-app.c:526
+msgid "Has permitido direcciones públicas: cualquiera de Internet que llegue a este puerto podría probar el código. ¿Seguro?"
+msgstr "Você permitiu endereços públicos: qualquer um da Internet que chegue a esta porta poderia testar o código. Tem certeza?"
+
+#: userland/programas/debug-app.c:529
+msgid "La sesión remota ejecutará órdenes como ADMINISTRADOR (root): podrá leer, cambiar y borrar cualquier cosa. Dale el código solo a quien vaya a depurar este equipo. ¿Abrir la sesión?"
+msgstr "A sessão remota executará comandos como ADMINISTRADOR (root): poderá ler, alterar e apagar qualquer coisa. Dê o código só a quem vai depurar este computador. Abrir a sessão?"
+
+#: userland/programas/debug-app.c:534
+msgid "abrir una sesión de depuración remota como administrador (root)"
+msgstr "abrir uma sessão de depuração remota como administrador (root)"
+
+#: userland/programas/debug-app.c:535
+msgid "Cancelado: hacen falta permisos de administrador."
+msgstr "Cancelado: são necessárias permissões de administrador."
+
+#: userland/programas/debug-app.c:545
+msgid "DEBUG-APP: depuración remota permitida (root). Ciérrala con «Cortar»."
+msgstr "DEBUG-APP: depuração remota permitida (root). Feche-a com «Cortar»."
+
+#: userland/programas/debug-app.c:553
+msgid "debug-app: no se pudo abrir la ventana (¿hay escritorio?); usa «debug-app --texto»\n"
+msgstr "debug-app: não foi possível abrir a janela (há área de trabalho?); use «debug-app --texto»\n"
+
+#: userland/programas/debug-app.c:584 userland/programas/debug-app.c:611 userland/programas/debug-app.c:620
+msgid "DEBUG-APP: la sesión remota se ha cerrado."
+msgstr "DEBUG-APP: a sessão remota foi encerrada."
+
+#: userland/programas/debug-app.c:603
+msgid "Código copiado al portapapeles."
+msgstr "Código copiado para a área de transferência."
+

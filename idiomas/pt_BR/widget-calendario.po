@@ -1,0 +1,86 @@
+# Traducción de SaguiOS: catálogo «widget-calendario», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/widget-calendario.c:10
+msgid "enero"
+msgstr "janeiro"
+
+#: userland/programas/widget-calendario.c:10
+msgid "febrero"
+msgstr "fevereiro"
+
+#: userland/programas/widget-calendario.c:10
+msgid "marzo"
+msgstr "março"
+
+#: userland/programas/widget-calendario.c:10
+msgid "abril"
+msgstr "abril"
+
+#: userland/programas/widget-calendario.c:10
+msgid "mayo"
+msgstr "maio"
+
+#: userland/programas/widget-calendario.c:10
+msgid "junio"
+msgstr "junho"
+
+#: userland/programas/widget-calendario.c:11
+msgid "julio"
+msgstr "julho"
+
+#: userland/programas/widget-calendario.c:11
+msgid "agosto"
+msgstr "agosto"
+
+#: userland/programas/widget-calendario.c:11
+msgid "septiembre"
+msgstr "setembro"
+
+#: userland/programas/widget-calendario.c:11
+msgid "octubre"
+msgstr "outubro"
+
+#: userland/programas/widget-calendario.c:11
+msgid "noviembre"
+msgstr "novembro"
+
+#: userland/programas/widget-calendario.c:11
+msgid "diciembre"
+msgstr "dezembro"
+
+#: userland/programas/widget-calendario.c:12
+msgid "L"
+msgstr "S"
+
+#: userland/programas/widget-calendario.c:12
+msgid "M"
+msgstr "T"
+
+#: userland/programas/widget-calendario.c:12
+msgid "X"
+msgstr "Q"
+
+#: userland/programas/widget-calendario.c:12
+msgid "J"
+msgstr "Q"
+
+#: userland/programas/widget-calendario.c:12
+msgid "V"
+msgstr "S"
+
+#: userland/programas/widget-calendario.c:12
+msgid "S"
+msgstr "S"
+
+#: userland/programas/widget-calendario.c:12
+msgid "D"
+msgstr "D"
+
