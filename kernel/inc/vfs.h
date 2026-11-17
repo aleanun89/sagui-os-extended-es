@@ -51,6 +51,8 @@ void     vfs_soltar(no_t *x);
 int      vfs_ler_inteiro(const char *caminho, uint8_t **dados, uint32_t *tam);
 /* D194: ¿existe el archivo (no carpeta)? También dentro de un volumen montado (/apps...). */
 bool     vfs_existe_arquivo(const char *caminho);
+/* D379: fecha de modificación (UTC) de una ruta, también en un volumen montado o en la raíz en disco; 0 = no se sabe. */
+uint32_t vfs_data_modificacao(const char *caminho);
 /* D282: los permisos de una ruta absoluta resuelta (0, o ERRO_NAO_EXISTE...), y
  * cambiarlos (sin comprobar quién: eso es de permisos.c). uid o gid -1 = no cambia. */
 int      vfs_meta(const char *caminho, meta_t *m);

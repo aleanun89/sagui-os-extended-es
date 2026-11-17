@@ -48,7 +48,7 @@ validar_version() {
 }
 # Versión del repo de trabajo (vX.Y...): se anota en el commit y en las notas de la Release.
 validar_origen() {
-    [[ "$1" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?([a-z]+[0-9]*)?$ ]] || die "versión de trabajo no válida: «$1» (ejemplos: v8.0, v8.0b7, v7.4.3)"
+    [[ "$1" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+){0,2}([a-z]+[0-9]*)?$ ]] || die "versión de trabajo no válida: «$1» (ejemplos: v8.0, v8.0b7, v7.4.3, v8.5.3.1)"
 }
 
 # ---------------------------------------------------------------- comprobaciones

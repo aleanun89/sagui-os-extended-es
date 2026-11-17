@@ -71,8 +71,13 @@ def achar_rotulo(img, rotulo):
     return None
 
 
+def achar_conf(img):
+    """D379 (M1): la configuración del sistema instalado: SAGUI-CONF, o /etc dentro de SAGUI-RAIZ."""
+    return achar_rotulo(img, "SAGUI-CONF") or achar_rotulo(img, "SAGUI-RAIZ")
+
+
 def conf_escrever(img, nome, conteudo):
-    ini, qtd = achar_rotulo(img, "SAGUI-CONF")
+    ini, qtd = achar_conf(img)
     p = extrair_particao(img, ini, qtd // 2048, os.path.join(SAIDA, "h270-conf.part"))
     tmp = os.path.join(SAIDA, "h270-conf.tmp")
     with open(tmp, "wb") as f:
@@ -83,7 +88,7 @@ def conf_escrever(img, nome, conteudo):
 
 
 def conf_ler(img, nome):
-    ini, qtd = achar_rotulo(img, "SAGUI-CONF")
+    ini, qtd = achar_conf(img)
     p = extrair_particao(img, ini, qtd // 2048, os.path.join(SAIDA, "h270-conf-r.part"))
     return subprocess.run([DEBUGFS, "-R", f"cat {nome}", p], capture_output=True).stdout
 
@@ -148,13 +153,18 @@ def gpt_desde_uefi(origem):
     with Maquina("h270-uefi-auto", "ide", imagem=origem, extras=extras, firmware="x64") as m:
         esperar_prompt(m, "[UEFI] origen")
         verificar("firmware=uefi-x64" in m.serial(), "[UEFI] el origen arrancó por UEFI x64")
-        out = m.comando("instalar hdb -s", 1500)
+        # D379 (M1): reinstalar conserva /home en su sitio; de MBR a GPT no cabe (la ESP va antes): se pide borrarla
+        out = m.comando("instalar hdb -s", 300)
+        verificar("no deja sitio en su lugar" in out and "--formatear-home" in out,
+                  f"[UEFI] sin --formatear-home no se borra el /home de la instalación anterior ({out.strip()[-300:]})")
+        out = m.comando("instalar hdb --formatear-home -s", 1500)
         verificar("SaguiOS instalado en hdb y verificado" in out, f"[UEFI] instalar termina ({out.strip()[-300:]})")
         verificar("Tabla de particiones: GPT" in out and "automática: se arrancó por UEFI" in out,
                   "[UEFI] el modo automático elige GPT al arrancar por UEFI")
         verificar("con el cargador UEFI de /sistema/efi" in out and "AVISO: no hay cargador" not in out,
                   "[UEFI] la ESP lleva el cargador del ramdisk")
-        verificar("contenido anterior conservado" in out, "[UEFI] se conserva SAGUI-CONF (de MBR a GPT)")
+        verificar("contenido anterior conservado" in out or "Configuración de la instalación anterior conservada" in out,
+                  "[UEFI] se conserva SAGUI-CONF (de MBR a GPT; D379: la configuración de la raíz instalada)")
     ents, _ = ler_gpt(dest)
     verificar(sgdisk_ok(dest)[0], "la GPT creada es válida (sgdisk -v)")
     verificar([e["tipo"] for e in ents] == [ESP, SAGUI, LINUX, LINUX], "GPT: ESP, SaguiOS, /home y SAGUI-CONF")
@@ -180,7 +190,8 @@ def arrancar_gpt(dest):
                   f"[GPT x64] el cargador lee la cabecera del sector {setor} y el sistema del disco")
         verificar(re.search(r"\[DISCO\] hda: es el disco de arranque \(GPT: cabecera en hda\d, sector %d\)" % setor, s) is not None,
                   "[GPT x64] el kernel reconoce su disco de arranque (cabecera en la partición GPT)")
-        verificar("[CONF] SAGUI-CONF en" in s, "[GPT x64] SAGUI-CONF montada")
+        verificar("[CONF] SAGUI-CONF en" in s or "[CONF] /root en la raiz del disco" in s,
+                  "[GPT x64] SAGUI-CONF montada (D379: o fundida en la raíz instalada)")
         out = m.comando("cat /etc/prueba-h270.txt")
         verificar("conservada en el paso de MBR a GPT" in out, "[GPT x64] el fichero de SAGUI-CONF está en /etc")
         out = m.comando("discos")
@@ -230,7 +241,8 @@ def nvme(origem):
         esperar_escritorio(m, "[NVMe boot]")
         s = m.serial()
         verificar("es el disco de arranque (GPT: cabecera en nvme0p" in s, "[NVMe] arranca del NVMe por UEFI y el kernel lo reconoce")
-        verificar("[CONF] SAGUI-CONF en" in s, "[NVMe] SAGUI-CONF del NVMe montada")
+        verificar("[CONF] SAGUI-CONF en" in s or "[CONF] /root en la raiz del disco" in s,
+                  "[NVMe] SAGUI-CONF del NVMe montada (D379: o fundida en la raíz instalada)")
 
 
 def smp_uefi():

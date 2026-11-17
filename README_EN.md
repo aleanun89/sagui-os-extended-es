@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 7fd46611 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 81f0ded8 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -247,6 +247,8 @@ text files, with textures and characters drawn in the code itself. Full explanat
   (`--guardar` keeps it on the boot disk). The framebuffer uses *write-combining* when
   the CPU allows it (D057-D059).
 
+- **Go with TinyGo** (v8.5.2, D364): Go programs compiled with TinyGo, 32-bit ELF for a Pentium without SSE, installed in `/apps/go/`. The compiler is installed on the host with `tools/tinygo_entorno.sh instalar`. Details in [`docs/go.md`](docs/go.md).
+
 ## Extras: old PCs (improvement 036, phase A)
 
 - **Without SSE2 automatically** (Pentium III, Athlon XP): the kernel and libsagui copy
@@ -323,6 +325,8 @@ text files, with textures and characters drawn in the code itself. Full explanat
 - **Mail client** (D146, v6.3 and v6.6): receives through POP3 or IMAP and sends through SMTP, with a window,
   message list, attachments and body in plain text or HTML (converted to text).
 
+- **Tucán** (v8.5.3, D369): presentation editor next to Pluma and Macaco: slides with thumbnails, text boxes, shapes, images and WordArt, and speaker notes. Exports to PDF, PNG and PPTX (without animations) and saves in its own `.tcn` format. Details in [`docs/tucan.md`](docs/tucan.md).
+
 ## Extras: taskbar and Start menu
 
 - **Start button** (or the Windows key, or Ctrl+Esc): the most used programs at the top, the
@@ -349,6 +353,8 @@ text files, with textures and characters drawn in the code itself. Full explanat
 - **File explorer** (v6.3, D136): show hidden files (Ctrl+H), details and thumbnail views,
   path bar and side panel, multiple selection, copy, cut, paste and drag, rename,
   search, «Abrir con» («Open with»), properties and trash. Alt+Tab shows thumbnails.
+
+- **Customizable taskbar and Start menu** (v8.5.2, D361): the bar at the top or bottom, from 20 to 48 pixels, with clock, date, tray, grouping of windows by program and auto-hide; the Start menu has four styles (SaguiOS, Classic, Two columns and Modern). Change it from Settings.
 
 ## Extras: images and drawing
 
@@ -498,6 +504,8 @@ text files, with textures and characters drawn in the code itself. Full explanat
   - No auditing and no revocation (OCSP/CRL): it is an educational system; the limits are in
     D063.
 
+- **WireGuard VPN** (v8.5.2, D363 and D372): speaks the official protocol with WireGuard servers (Linux, OpenWrt routers, FRITZ!Box or MikroTik, VPS). The configuration goes in `/home/.config/wireguard/*.conf`; `wg-quick up` and `wg-quick down` turn the tunnel on and off, and `wg show` shows the status. Turning it on asks for administrator permission. IPv4 only. Usage in [`docs/wireguard.md`](docs/wireguard.md).
+
 ## Extras: the Cipó browser
 
 - **Own web engine** (D141, v6.3): CSS, JavaScript, Canvas, SVG and WebGL in software, with band-by-band
@@ -512,6 +520,24 @@ text files, with textures and characters drawn in the code itself. Full explanat
   script finishes.
 - **CSS transitions** (D153) and **pseudo-elements** without breaking the DOM (D161): `https://www.amd.com/`
   loads in full.
+
+- **Cipó renewed** (v8.5.3, D373): tabs with their icon, toolbar, bookmarks bar, home page, own settings and parallel downloads.
+
+## Extras: system, users and tools
+
+- **Users set up properly** (v8.5.3, D371): `root` always exists and has its folder in `/root`; each account has its own in `/home`, system settings are in `/etc`, there is a login screen in the console (`login`) and a screen lock with password. Design in [`docs/usuarios-v853.md`](docs/usuarios-v853.md).
+- **Task Manager modernized** (v8.5.2, D368): the Performance tab has a sidebar with seven resources (CPU, memory, swap, disk, network, GPU and sensors) and one-minute graphs; there is also a Details tab, search and new menus.
+- **htop** (v8.5.2, D366): process monitor for the Terminal and the SSH console, our own clone: per-core bars, tree view, sorting by column, killing processes and a user filter. Details in [`docs/htop.md`](docs/htop.md).
+- **DEBUG-APP** (v8.5.2, D362): remote debugging with a one-time code. "Allow remote debugging" warns that the session will be root and asks for administrator permission; it uses `sshd` in a separate mode.
+
+## Extras: desktop, widgets and settings
+
+- **Tree-style Settings** (v8.5.2, D367): categories on the left and grouped options on the right, with OK, Cancel and Apply; the window can be resized and remembers its size and last section.
+- **Desktop widgets and Conky** (v8.5.3, D365): a widget is a program that draws on the desktop, without a frame and below the windows. Our own Conky reads `/home/.config/conky.conf`, reloads when the file is saved, and is enabled from the desktop menu. Details in [`docs/conky.md`](docs/conky.md).
+
+## Extras: Freeciv (third-party code, C)
+
+- **Freeciv 3.1.6** (v8.5.3, D374): turn-based strategy game with an SDL2 client and a local server, in Spanish. It is in **Start > Games > Freeciv**, and `.sav` files open with a double click in Files. GPL-2.0 or later. It is in the disk and USB-stick images, not in the ISO or the "complete" image. Its sources are not in git: `tools/freeciv_fuentes.sh` downloads them. Details in [`docs/freeciv.md`](docs/freeciv.md).
 
 ## Extras: compression (improvement 056)
 

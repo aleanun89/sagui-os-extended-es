@@ -259,9 +259,10 @@ def principal():
         out = m.comando("du -sh /bin")
         verificar(re.search(r"^[\d.]+[KMG]\t/bin$", out, re.M), "du -sh")
         out = m.comando("df")
-        verificar("Montado en" in out and re.search(r"ramfs\s+ramfs\s+\d+", out), "df con la RAM")
+        # D379 (M1): con la raíz en disco, la RAM sale como /tmp (tmpfs, tipo ramfs) y la raíz como un montaje más
+        verificar("Montado en" in out and re.search(r"(ramfs|tmpfs)\s+ramfs\s+\d+", out), "df con la RAM")
         out = m.comando("df -h /tmp")
-        verificar(re.search(r"/$", out, re.M) is not None, "df -h con una ruta")
+        verificar(re.search(r"/(tmp)?$", out, re.M) is not None, "df -h con una ruta (D379: /tmp es su propio montaje)")
         out = m.comando("which ls; which nada; echo st=$?")
         verificar(tem_linha(out, "/bin/ls") and "which: nada: no encontrado" in out and tem_linha(out, "st=1"), "which")
         out = m.comando("tree -L 2 /tmp/w")

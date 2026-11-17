@@ -191,7 +191,9 @@ bool cache_disco_aplica(disco_t *r)
 {
     iniciar();
     if (!ligada || !r || r->pai || !r->ler) return false;
-    if (r->removivel || r->cd || r->imagem_cd || r->audio_cd) return false;
+    /* D379: los pendrives sí (lectura en caché; su escritura va directa, discos.c), para que la live lea la
+     * raíz del medio bajo demanda; al retirarlos, disco_removido descarta sus bloques. CD, no (cambia de disco). */
+    if (r->cd || r->imagem_cd || r->audio_cd || r->ram) return false;
     return true;
 }
 

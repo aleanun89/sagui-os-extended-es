@@ -103,7 +103,9 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `JOGOS_MB` | `800` | tamaño de `SAGUI-JOGOS` en las imágenes persistentes, la de particiones y lo que crea el instalador (`0` = el justo) |
 | `JOGOS_IMG_MB` | `0` | lo mismo para `saguios.img`, `-smp` y `-uacpi` (`0` = el justo para lo que lleva) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` mete las aplicaciones dentro del ramdisk (`/apps`, imagen de un solo bloque); `APPS_MB` es el tamaño de la partición `SAGUI-APPS` (`0` = lo justo más un margen). `convertir-audio`, `traductor` y los exploradores de bases de datos van en la partición de aplicaciones (`/apps`); los exploradores ejecutan `/apps/bin/python`. |
-| `RAMDISK` | `base` | `base` (por defecto): el ramdisk solo lleva lo fundamental y las aplicaciones no fundamentales van a la partición `SAGUI-APPS` (`/apps`). `completo`: se meten en el ramdisk, como `APPS=0`. La ISO es siempre `completo`. Se pasa igual con `gerar_versao.sh`, por ejemplo `RAMDISK=completo ./gerar_versao.sh` |
+| `RAIZ_DISCO` | `1` | (D379, desde la v8.5.3.1) las imágenes arrancan con un initramfs mínimo (`build/initramfs.sgfs`, < 1 MB) y el sistema entero, con `/apps`, en la partición `SAGUI-RAIZ` (ext2): live desde el medio (raíz de solo lectura y los cambios en la RAM, o en `SAGUI-PERSIST` en las persistentes); la ISO la copia a la RAM (toram). `0`: todas con el ramdisk de siempre (como hasta la v8.5.3) |
+| `PERSIST_MB` | `256` | tamaño de `SAGUI-PERSIST` (la capa persistente de la live) en las imágenes persistentes |
+| `RAMDISK` | `base` | `completo`: el ramdisk de siempre con todo el sistema y las aplicaciones dentro (como `APPS=0` y `RAIZ_DISCO=0`; es `saguios-completo.img`). Se pasa igual con `gerar_versao.sh`, por ejemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` de la imagen persistente ext2 |
 | `DATOS_FAT32_MB` | `2048` | `/home` de la imagen persistente FAT32 |
 | `HOME_MB`, `TMP_MB`, `LOGS_MB` | `2048`, `256`, `128` | particiones del disco con particiones (`imagem-particoes`) |
@@ -176,6 +178,9 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--apps CARPETA`, `--apps-mb N` | — | partición de aplicaciones (idem) |
 | `--part-fs {ext2,fat32}` | `ext2` | sistema de las particiones sin `--*-fs` propio |
 | `--cd` | apagado | imagen para la ISO (la usa `make iso`) |
+| `--raiz CARPETA`, `--raiz-mb N` | — | (D379) la raíz del sistema en la partición `SAGUI-RAIZ` (ext2) con el contenido de la carpeta (`build/rootfs`; con `--apps`, `/apps` va dentro); `--ramdisk` es entonces el initramfs (`tools/mkinitramfs.py`). El `Makefile` ya lo hace |
+| `--persist-mb N` | 0 | (D379) partición `SAGUI-PERSIST`: la capa persistente de la live |
+| `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) fuerza cómo se usa la raíz (por defecto, lo que diga el initramfs; con `--cd`, `toram`) |
 
 Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente) o `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas las imágenes de disco, arranca por BIOS y por UEFI (D270; `crear-disco.py --sin-uefi`: solo BIOS).
 
@@ -203,17 +208,17 @@ Ficheros que deja `make variantes` en la carpeta de entrega:
 | `saguios.img` | La normal (un núcleo). **Empieza siempre por esta** |
 | `saguios-smp.img` | Multinúcleo (todos los procesadores, sin IOAPIC) |
 | `saguios-uacpi.img` | Con el intérprete ACPI (uACPI): indicador de batería y `_PSS`/`_PRT` en portátiles |
-| `saguios-completo.img` | Como la normal, con las aplicaciones dentro del sistema en memoria (sin `/apps`), para los PC cuya controladora no localiza el disco de arranque (D324); pide unos 64 MB más de RAM. Desde la 8.4.3r2 |
+| `saguios-completo.img` | Con todo el sistema y las aplicaciones en la memoria (el ramdisk de siempre), para los PC cuya controladora no localiza el disco de arranque (D324); pide unos 64 MB más de RAM y no lleva Freeciv ni OpenTTD. Desde la 8.4.3r2 |
 | `saguios-persistente-fat32.img.xz` | Con `/home` FAT32 de 2 GB, visible también desde Windows. La mejor para guardar cosas |
 | `saguios-persistente-fat32-smp.img.xz` | Lo mismo, multinúcleo |
 | `saguios-persistente.img`, `-smp`, `-smp-uacpi` | Con `/home` ext2 (Windows no la ve). Combinan multinúcleo y uACPI |
 | `saguios-particiones.img.xz` | `/home`, `/tmp` y `/logs` en particiones (el kernel guarda su registro en `/logs`) |
 | `saguios-sin-gpl.img` | Sin ports de terceros GPL |
-| `saguios.iso` | CD arrancable (modo en vivo, sin `SAGUI-CONF`) |
+| `saguios.iso` | CD arrancable (modo en vivo, sin `SAGUI-CONF`): el sistema, con `/apps` y Freeciv, se copia a la RAM al arrancar (toram) y el CD se puede sacar; con poca RAM se usa desde el CD |
 | `saguios.vdi` | VirtualBox |
 | `SHA256SUMS.txt`, `VERSION.txt` | sumas de comprobación y hoja de datos de lo que se compiló |
 
-Todas las imágenes de disco llevan, además, las particiones `SAGUI-JOGOS` (juegos, `/jogos`), `SAGUI-APPS` (aplicaciones, `/apps`) y `SAGUI-CONF` (configuración, 16 MB). Con `APPS=0` o `RAMDISK=completo` no hay partición `SAGUI-APPS`.
+Desde la v8.5.3.1 (D379) todas las imágenes de disco llevan el sistema en `SAGUI-RAIZ` (ext2, con `/apps` dentro: ya no hay partición `SAGUI-APPS`), además de `SAGUI-JOGOS` (juegos, `/jogos`) y `SAGUI-CONF` (configuración, 16 MB); las persistentes, también `SAGUI-PERSIST`. Arrancan en live desde el medio (`docs/imagenes.md`). Con `RAIZ_DISCO=0` salen como hasta la v8.5.3 (ramdisk con la base y `SAGUI-APPS`).
 
 ### 5. Qué se descarga y cuándo
 
@@ -437,7 +442,9 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `JOGOS_MB` | `800` | size of `SAGUI-JOGOS` in the persistent images, the partitioned one and what the installer creates (`0` = just enough) |
 | `JOGOS_IMG_MB` | `0` | the same for `saguios.img`, `-smp` and `-uacpi` (`0` = just enough for what it holds) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` puts the applications inside the ramdisk (`/apps`, single-block image); `APPS_MB` is the size of the `SAGUI-APPS` partition (`0` = just enough plus a margin). `convertir-audio`, `traductor` and the database explorers go in the applications partition (`/apps`); the explorers run `/apps/bin/python`. |
-| `RAMDISK` | `base` | `base` (default): the ramdisk holds only the essentials and the non-essential applications go to the `SAGUI-APPS` partition (`/apps`). `completo`: they go into the ramdisk, like `APPS=0`. The ISO is always `completo`. It is passed the same way with `gerar_versao.sh`, for example `RAMDISK=completo ./gerar_versao.sh` |
+| `RAIZ_DISCO` | `1` | (D379, since v8.5.3.1) the images boot with a minimal initramfs (`build/initramfs.sgfs`, < 1 MB) and the whole system, `/apps` included, in the `SAGUI-RAIZ` partition (ext2): live from the medium (read-only root with the changes in RAM, or in `SAGUI-PERSIST` on the persistent images); the ISO copies it to RAM (toram). `0`: all of them with the old ramdisk (as up to v8.5.3) |
+| `PERSIST_MB` | `256` | size of `SAGUI-PERSIST` (the live persistent layer) on the persistent images |
+| `RAMDISK` | `base` | `completo`: the old ramdisk with the whole system and the applications inside (like `APPS=0` and `RAIZ_DISCO=0`; it is `saguios-completo.img`). It is passed the same way with `gerar_versao.sh`, for example `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` of the ext2 persistent image |
 | `DATOS_FAT32_MB` | `2048` | `/home` of the FAT32 persistent image |
 | `HOME_MB`, `TMP_MB`, `LOGS_MB` | `2048`, `256`, `128` | partitions of the partitioned disk (`imagem-particoes`) |
@@ -510,6 +517,9 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--apps CARPETA`, `--apps-mb N` | — | applications partition (ditto) |
 | `--part-fs {ext2,fat32}` | `ext2` | file system of the partitions without their own `--*-fs` |
 | `--cd` | off | image for the ISO (used by `make iso`) |
+| `--raiz CARPETA`, `--raiz-mb N` | — | (D379) the system root in the `SAGUI-RAIZ` partition (ext2) with the folder's contents (`build/rootfs`; with `--apps`, `/apps` goes inside); `--ramdisk` is then the initramfs (`tools/mkinitramfs.py`). The `Makefile` already does it |
+| `--persist-mb N` | 0 | (D379) `SAGUI-PERSIST` partition: the live persistent layer |
+| `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) forces how the root is used (by default, what the initramfs says; with `--cd`, `toram`) |
 
 A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Like every disk image, it boots by BIOS and by UEFI (D270; `crear-disco.py --sin-uefi`: BIOS only).
 
@@ -537,17 +547,17 @@ Files that `make variantes` leaves in the delivery folder:
 | `saguios.img` | The normal one (single core). **Always start with this one** |
 | `saguios-smp.img` | Multicore (all processors, no IOAPIC) |
 | `saguios-uacpi.img` | With the ACPI interpreter (uACPI): battery indicator and `_PSS`/`_PRT` on laptops |
-| `saguios-completo.img` | Like the normal image, with the applications inside the in-memory system (no `/apps`), for PCs whose disk controller does not find the boot disk (D324); it needs about 64 MB more RAM. Since 8.4.3r2 |
+| `saguios-completo.img` | With the whole system and the applications in memory (the old ramdisk), for PCs whose disk controller does not find the boot disk (D324); it needs about 64 MB more RAM and has no Freeciv or OpenTTD. Since 8.4.3r2 |
 | `saguios-persistente-fat32.img.xz` | With a 2 GB FAT32 `/home`, also readable from Windows. The best one for keeping files |
 | `saguios-persistente-fat32-smp.img.xz` | The same, multicore |
 | `saguios-persistente.img`, `-smp`, `-smp-uacpi` | With an ext2 `/home` (Windows cannot see it). They combine multicore and uACPI |
 | `saguios-particiones.img.xz` | `/home`, `/tmp` and `/logs` as partitions (the kernel keeps its log in `/logs`) |
 | `saguios-sin-gpl.img` | Without GPL third-party ports |
-| `saguios.iso` | Bootable CD (live mode, no `SAGUI-CONF`) |
+| `saguios.iso` | Bootable CD (live mode, no `SAGUI-CONF`): the system, with `/apps` and Freeciv, is copied to RAM at boot (toram) and the CD can be removed; with little RAM it runs from the CD |
 | `saguios.vdi` | VirtualBox |
 | `SHA256SUMS.txt`, `VERSION.txt` | checksums and a data sheet of what was built |
 
-Every disk image also carries the `SAGUI-JOGOS` (games, `/jogos`), `SAGUI-APPS` (applications, `/apps`) and `SAGUI-CONF` (configuration, 16 MB) partitions. With `APPS=0` or `RAMDISK=completo` there is no `SAGUI-APPS` partition.
+Since v8.5.3.1 (D379) every disk image carries the system in `SAGUI-RAIZ` (ext2, with `/apps` inside: there is no `SAGUI-APPS` partition any more), plus `SAGUI-JOGOS` (games, `/jogos`) and `SAGUI-CONF` (configuration, 16 MB); the persistent ones also `SAGUI-PERSIST`. They boot live from the medium (`docs/imagenes.md`). With `RAIZ_DISCO=0` they come out as up to v8.5.3 (ramdisk with the base system and `SAGUI-APPS`).
 
 ### 5. What is downloaded, and when
 
@@ -771,7 +781,9 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `JOGOS_MB` | `800` | tamanho da `SAGUI-JOGOS` nas imagens persistentes, na de partições e no que o instalador cria (`0` = o justo) |
 | `JOGOS_IMG_MB` | `0` | o mesmo para `saguios.img`, `-smp` e `-uacpi` (`0` = o justo para o que ela leva) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` coloca os aplicativos dentro do ramdisk (`/apps`, imagem de um só bloco); `APPS_MB` é o tamanho da partição `SAGUI-APPS` (`0` = o justo mais uma margem). `convertir-audio`, `traductor` e os exploradores de bancos de dados ficam na partição de aplicativos (`/apps`); os exploradores executam `/apps/bin/python`. |
-| `RAMDISK` | `base` | `base` (padrão): o ramdisk leva só o essencial e os aplicativos não essenciais vão para a partição `SAGUI-APPS` (`/apps`). `completo`: vão para dentro do ramdisk, como `APPS=0`. A ISO é sempre `completo`. Passa-se igual com o `gerar_versao.sh`, por exemplo `RAMDISK=completo ./gerar_versao.sh` |
+| `RAIZ_DISCO` | `1` | (D379, desde a v8.5.3.1) as imagens iniciam com um initramfs mínimo (`build/initramfs.sgfs`, < 1 MB) e o sistema inteiro, com `/apps`, na partição `SAGUI-RAIZ` (ext2): live a partir da mídia (raiz somente leitura e as mudanças na RAM, ou na `SAGUI-PERSIST` nas persistentes); a ISO a copia para a RAM (toram). `0`: todas com o ramdisk de sempre (como até a v8.5.3) |
+| `PERSIST_MB` | `256` | tamanho da `SAGUI-PERSIST` (a camada persistente da live) nas imagens persistentes |
+| `RAMDISK` | `base` | `completo`: o ramdisk de sempre com o sistema inteiro e os aplicativos dentro (como `APPS=0` e `RAIZ_DISCO=0`; é a `saguios-completo.img`). Passa-se igual com o `gerar_versao.sh`, por exemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` da imagem persistente ext2 |
 | `DATOS_FAT32_MB` | `2048` | `/home` da imagem persistente FAT32 |
 | `HOME_MB`, `TMP_MB`, `LOGS_MB` | `2048`, `256`, `128` | partições do disco com partições (`imagem-particoes`) |
@@ -844,6 +856,9 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--apps CARPETA`, `--apps-mb N` | — | partição de aplicativos (idem) |
 | `--part-fs {ext2,fat32}` | `ext2` | sistema das partições sem `--*-fs` próprio |
 | `--cd` | desligado | imagem para a ISO (usada por `make iso`) |
+| `--raiz CARPETA`, `--raiz-mb N` | — | (D379) a raiz do sistema na partição `SAGUI-RAIZ` (ext2) com o conteúdo da pasta (`build/rootfs`; com `--apps`, `/apps` vai dentro); o `--ramdisk` é então o initramfs (`tools/mkinitramfs.py`). O `Makefile` já faz isso |
+| `--persist-mb N` | 0 | (D379) partição `SAGUI-PERSIST`: a camada persistente da live |
+| `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) força como a raiz é usada (por padrão, o que o initramfs diz; com `--cd`, `toram`) |
 
 Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assistente) ou `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas as imagens de disco, arranca por BIOS e por UEFI (D270; `crear-disco.py --sin-uefi`: só BIOS).
 
@@ -871,17 +886,17 @@ Arquivos que o `make variantes` deixa na pasta de entrega:
 | `saguios.img` | A normal (um núcleo). **Comece sempre por esta** |
 | `saguios-smp.img` | Multinúcleo (todos os processadores, sem IOAPIC) |
 | `saguios-uacpi.img` | Com o interpretador ACPI (uACPI): indicador de bateria e `_PSS`/`_PRT` em notebooks |
-| `saguios-completo.img` | Como a normal, com os aplicativos dentro do sistema em memória (sem `/apps`), para PCs cuja controladora não encontra o disco de boot (D324); precisa de uns 64 MB a mais de RAM. Desde a 8.4.3r2 |
+| `saguios-completo.img` | Com o sistema inteiro e os aplicativos na memória (o ramdisk de sempre), para PCs cuja controladora não encontra o disco de boot (D324); precisa de uns 64 MB a mais de RAM e não leva Freeciv nem OpenTTD. Desde a 8.4.3r2 |
 | `saguios-persistente-fat32.img.xz` | Com `/home` FAT32 de 2 GB, visível também no Windows. A melhor para guardar coisas |
 | `saguios-persistente-fat32-smp.img.xz` | O mesmo, multinúcleo |
 | `saguios-persistente.img`, `-smp`, `-smp-uacpi` | Com `/home` ext2 (o Windows não a vê). Combinam multinúcleo e uACPI |
 | `saguios-particiones.img.xz` | `/home`, `/tmp` e `/logs` em partições (o kernel guarda seu registro em `/logs`) |
 | `saguios-sin-gpl.img` | Sem ports de terceiros GPL |
-| `saguios.iso` | CD inicializável (modo ao vivo, sem `SAGUI-CONF`) |
+| `saguios.iso` | CD inicializável (modo ao vivo, sem `SAGUI-CONF`): o sistema, com `/apps` e Freeciv, é copiado para a RAM ao iniciar (toram) e o CD pode ser retirado; com pouca RAM, é usado a partir do CD |
 | `saguios.vdi` | VirtualBox |
 | `SHA256SUMS.txt`, `VERSION.txt` | somas de verificação e ficha técnica do que foi compilado |
 
-Todas as imagens de disco levam ainda as partições `SAGUI-JOGOS` (jogos, `/jogos`), `SAGUI-APPS` (aplicativos, `/apps`) e `SAGUI-CONF` (configuração, 16 MB). Com `APPS=0` ou `RAMDISK=completo` não há partição `SAGUI-APPS`.
+Desde a v8.5.3.1 (D379) todas as imagens de disco levam o sistema na `SAGUI-RAIZ` (ext2, com `/apps` dentro: já não há partição `SAGUI-APPS`), além da `SAGUI-JOGOS` (jogos, `/jogos`) e da `SAGUI-CONF` (configuração, 16 MB); as persistentes, também a `SAGUI-PERSIST`. Iniciam em modo live a partir da mídia (`docs/imagenes.md`). Com `RAIZ_DISCO=0` saem como até a v8.5.3 (ramdisk com a base e `SAGUI-APPS`).
 
 ### 5. O que é baixado e quando
 

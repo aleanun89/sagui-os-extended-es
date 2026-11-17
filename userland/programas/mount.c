@@ -24,8 +24,8 @@ static int numero_conta(const char *t, bool grupo)
 
 static void listar_montagens(void)
 {
-    info_montagem_t m[10];
-    int n = info_sistema(INFO_MONTAGENS, m, 10);
+    info_montagem_t m[16];   /* D379: hasta 12 montajes (raíz, /tmp, /initrd...) */
+    int n = info_sistema(INFO_MONTAGENS, m, 16);
     if (n <= 0) { imprimir("No hay nada montado.\n"); return; }
     for (int i = 0; i < n; i++) {
         imprimir("%-7s en %s  tipo %s  (%s", m[i].dispositivo, m[i].ponto, m[i].tipo,

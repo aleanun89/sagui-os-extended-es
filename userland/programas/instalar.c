@@ -21,6 +21,11 @@
  *                SAGUI-CONF  (ext2, 16 MB) la configuración del sistema (D256, mejora 098), la última;
  *                                       si el destino ya tenía una, su contenido se conserva
  *                                       (--formatear-conf la borra)
+ * D379: si el sistema que corre tiene la raíz en disco (las imágenes de serie desde la v8.5.3.1), en
+ * lugar de SAGUI-APPS y SAGUI-CONF va SAGUI-RAIZ (ext2) con todo el sistema, copiado por ficheros.
+ * Reinstalar sobre un disco con SaguiOS (M1): la SAGUI-DATOS que ya hay se conserva tal cual (sus
+ * archivos, su sitio y su tamaño; --formatear-home la borra) y la configuración de la instalación
+ * anterior (de SAGUI-CONF o de SAGUI-RAIZ: lo cambiado en /etc y todo /root) pasa a la nueva.
  * Con "disco entero" la partición de SaguiOS empieza en el LBA 1, como en las imágenes de
  * mkimagem.py; en un hueco libre empieza en el hueco y la cabecera del LBA 1 apunta allí.
  *
@@ -63,6 +68,9 @@
 #define MBR_ORIGEM "/sistema/arranque/mbr.bin"   /* D270: el MBR de SaguiOS (BIOS), para instalar con MBR desde un disco GPT */
 #define ESP_ROTULO "SAGUI-ESP"
 #define ESP_PUNTO  "/mnt/instalar-esp"
+#define CAB_RAIZ_OPC      163      /* D379: modo de la raíz (kernel/inc/bootinfo.h) */
+#define RAIZ_OPC_DISCO    2
+#define RAIZ_MIN_MB       128u     /* D379: la raíz instalada, como mínimo (sitio para crecer) */
 #define CONF_MB 16u                        /* D256: la partición SAGUI-CONF (configuración del sistema, mejora 098) */
 #define CONF_RESPALDO "/tmp/instalar-conf" /* donde se guarda (en RAM) la SAGUI-CONF vieja mientras se reparte el disco */
 /* UTF-8 explícito (octal): el mismo texto y codificación que el LEEME de mkimagem.py */
@@ -85,6 +93,11 @@ typedef struct {
     bool     apps, jogos, copiar_jogos;
     bool     formatear_conf;     /* D256: formatear también la SAGUI-CONF vieja; si no, se conserva su contenido */
     char     conf_vieja[16];     /* el volumen de una SAGUI-CONF que ya hay en el destino ("hdb7"), o "" */
+    char     raiz_vieja[16];     /* D379: el de una SAGUI-RAIZ (su /etc cambiado y su /root se conservan), o "" */
+    bool     formatear_home;     /* D379: borrar también la SAGUI-DATOS que ya hay; si no, se conserva entera */
+    bool     home_conservar;     /* D379: hay una SAGUI-DATOS en el destino y se deja tal cual */
+    char     home_vieja[16];     /* su volumen ("hdb5") */
+    uint32_t home_vieja_ini, home_vieja_set;   /* su sitio en el disco (no cambia) */
     /* calculado por planejar() */
     char     origem[12];
     uint8_t  cab[512], mbr_origem[512];
@@ -280,6 +293,51 @@ static uint32_t kb_apps(void)   /* D318: recordado, como kb_jogos */
 }
 static bool ha_apps(void) { return kb_apps() > 0; }
 
+/* D379: el sistema que corre tiene la raíz en un disco (su initramfs está en /initrd). Entonces se
+ * instala igual: initramfs en la partición de SaguiOS y la raíz por ficheros en SAGUI-RAIZ, que ocupa
+ * el sitio de SAGUI-CONF (la absorbe, P2 A) y lleva /apps dentro. Si no (ramdisk de siempre), como antes. */
+static int modo_raiz_cache = -1;
+static bool modo_raiz(void)
+{
+    if (modo_raiz_cache < 0) {
+        info_arquivo_t i;
+        modo_raiz_cache = info_arquivo("/initrd/etc/raiz.conf", &i) == 0;
+    }
+    return modo_raiz_cache == 1;
+}
+
+/* Lo de "/" que no es el sistema: puntos de montaje y carpetas de la RAM. */
+static bool fora_da_raiz(const char *nome)
+{
+    static const char *const fora[] = { "home", "tmp", "initrd", "jogos", "usb", "mnt", "cd", "logs", "dev", "proc", "lost+found" };
+    for (unsigned i = 0; i < sizeof fora / sizeof fora[0]; i++)
+        if (compara_texto(nome, fora[i]) == 0) return true;
+    return false;
+}
+
+static uint32_t kb_raiz(void)
+{
+    static uint32_t kb = 0xFFFFFFFFu;
+    if (kb != 0xFFFFFFFFu) return kb;
+    kb = 0;
+    entrada_pasta_t e;
+    for (int i = 0; listar("/", i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0 || fora_da_raiz(e.nome)) continue;
+        char f[80];
+        caminho_juntar(f, sizeof f, "/", e.nome);
+        kb += e.tipo == TIPO_PASTA ? kb_pasta(f, 1) : e.tamanho / 1024 + 1;
+    }
+    return kb;
+}
+
+/* MB de la partición del final: SAGUI-CONF (16), o la raíz (el doble de lo que ocupa, y al menos 128). */
+static uint32_t mb_ultima(void)
+{
+    if (!modo_raiz()) return CONF_MB;
+    uint32_t mb = (kb_raiz() / 1024 + 1) * 2 + 32;
+    return mb < RAIZ_MIN_MB ? RAIZ_MIN_MB : mb;
+}
+
 /* ------------------------------------------------------------ el plan */
 
 static bool planejar(plano_t *p, char *erro, int max)
@@ -359,27 +417,50 @@ static bool planejar(plano_t *p, char *erro, int max)
         ini = 1;
         fim = t.setores / MB * MB;
         if (t.esquema == PT_MBR || (t.esquema == PT_GPT && !t.gpt_mala)) {
-            /* D256: ¿ya hay una SAGUI-CONF (reinstalación)? Su contenido se conserva (también en una GPT, D266). */
-            p->conf_vieja[0] = 0;
-            for (int i = 0; i < 4 + t.nlog && !p->conf_vieja[0]; i++) {
+            /* D256: ¿ya hay una SAGUI-CONF (reinstalación)? Su contenido se conserva (también en una GPT, D266).
+             * D379: lo mismo con una SAGUI-RAIZ (su /etc cambiado y su /root) y SAGUI-DATOS se deja entera. */
+            p->conf_vieja[0] = p->raiz_vieja[0] = p->home_vieja[0] = 0;
+            p->home_conservar = false;
+            for (int i = 0; i < 4 + t.nlog; i++) {
                 const pt_part_t *x = i < 4 ? &t.prim[i] : &t.log[i - 4];
                 char n[16];
                 info_disco_t q;
                 if (!x->tipo || pt_tipo_extendida(x->tipo)) continue;
                 pt_nome_particao(p->destino, i < 4 ? i + 1 : i + 1, n, sizeof n);
-                if (info_de(n, &q) && q.suportado && compara_texto(q.rotulo, "SAGUI-CONF") == 0)
+                if (!info_de(n, &q) || !q.suportado) continue;
+                if (compara_texto(q.rotulo, "SAGUI-CONF") == 0 && !p->conf_vieja[0])
                     copia_texto(p->conf_vieja, n, sizeof p->conf_vieja);
+                if (compara_texto(q.rotulo, "SAGUI-RAIZ") == 0 && !p->raiz_vieja[0])
+                    copia_texto(p->raiz_vieja, n, sizeof p->raiz_vieja);
+                if (compara_texto(q.rotulo, "SAGUI-DATOS") == 0 && !p->home_vieja[0] && !p->formatear_home) {
+                    if (comeca_com(q.tipo_fs, "ext")) p->fs_home = PA_FS_EXT2;
+                    else if (compara_texto(q.tipo_fs, "fat32") == 0) p->fs_home = PA_FS_FAT32;
+                    else { txt(erro, max, "%s (SAGUI-DATOS) es %s: no se sabe conservarla; usa --formatear-home para borrarla", n, q.formato); return false; }
+                    copia_texto(p->home_vieja, n, sizeof p->home_vieja);
+                    p->home_vieja_ini = x->inicio;
+                    p->home_vieja_set = x->setores;
+                    p->home_conservar = true;
+                }
+            }
+            /* D379: la SAGUI-DATOS se conserva solo si su sitio sirve tal cual (las tablas de SaguiOS van a 1 MB):
+             * nunca se mueve ni se recorta. Si no, no se instala sin --formatear-home (nada se borra sin pedirlo). */
+            if (p->home_conservar && (p->home_vieja_ini % MB || p->home_vieja_set % MB || p->home_vieja_set < 16u * MB)) {
+                txt(erro, max, "la SAGUI-DATOS de %s (%s) no está alineada a 1 MB: no se puede conservar en su sitio; "
+                               "cópiala a otro disco y usa «instalar ... --formatear-home» en el Terminal", p->destino, p->home_vieja);
+                return false;
             }
             for (int i = 0; i < 4; i++) if (t.prim[i].tipo) {
                 char n[16], x[80], tm[16];
                 info_disco_t q;
                 pt_nome_particao(p->destino, i + 1, n, sizeof n);
+                if (p->home_conservar && compara_texto(n, p->home_vieja) == 0) continue;   /* D379: se conserva */
                 tamanho(t.prim[i].setores, tm, sizeof tm);
                 if (info_de(n, &q) && q.suportado) txt(x, sizeof x, "%s%s (%s, %s \"%s\")", p->perde[0] ? ", " : "", n, tm, q.formato, q.rotulo);
                 else txt(x, sizeof x, "%s%s (%s, %s)", p->perde[0] ? ", " : "", n, tm, pt_nome_tipo(t.prim[i].tipo));
                 junta_texto(p->perde, x, sizeof p->perde);
             }
             if (t.nlog) { char x[40]; txt(x, sizeof x, " y %d lógica%s", t.nlog, t.nlog == 1 ? "" : "s"); junta_texto(p->perde, x, sizeof p->perde); }
+            if (p->home_conservar) { char x[80]; txt(x, sizeof x, " (salvo %s, SAGUI-DATOS: /home se conserva)", p->home_vieja); junta_texto(p->perde, x, sizeof p->perde); }
             if (t.esquema == PT_GPT && t.ngpt > 4) { char x[48]; txt(x, sizeof x, " y %d más", t.ngpt - 4); junta_texto(p->perde, x, sizeof p->perde); }
             if (t.esquema == PT_GPT && p->perde[0]) { char x[48]; txt(x, sizeof x, " (todo en una GPT)"); junta_texto(p->perde, x, sizeof p->perde); }
         } else if (t.esquema == PT_GPT) txt(p->perde, sizeof p->perde, "toda la GPT (dañada) y lo que contenga");
@@ -395,7 +476,19 @@ static bool planejar(plano_t *p, char *erro, int max)
         p->blob_dst = p->sys_ini + (p->blob_src - p->cab_origem);   /* la cabecera va en el primer sector de la partición */
         p->home_ini = p->sys_ini + p->sys_set;
         uint32_t fim_g = (t.setores - ((d.flags & DISCO_BLOCO4K) ? 41u : 33u)) / MB * MB;   /* D283: en 4096 la GPT final ocupa 5 bloques de 4096 */
-        p->conf_set = CONF_MB * MB;
+        p->conf_set = mb_ultima() * MB;   /* D379: o SAGUI-RAIZ */
+        if (p->home_conservar) {   /* D379: la SAGUI-DATOS de antes, en su sitio */
+            if (p->sin_home) { txt(erro, max, "--sin-home borraría la SAGUI-DATOS que ya hay (%s): usa también --formatear-home", p->home_vieja); return false; }
+            if (p->home_vieja_ini < p->home_ini || p->home_vieja_ini + p->home_vieja_set + p->conf_set > fim_g) {
+                txt(erro, max, "la SAGUI-DATOS que ya hay (%s) no deja sitio en su lugar para el sistema y %s: "
+                               "cópiala a otro disco y usa «instalar ... --formatear-home» en el Terminal", p->home_vieja, modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF");
+                return false;
+            }
+            p->home_ini = p->home_vieja_ini;
+            p->home_set = p->home_vieja_set;
+            p->conf_ini = p->home_ini + p->home_set;
+            return true;
+        }
         if (fim_g < p->home_ini + p->conf_set + (p->sin_home ? 0u : 16u * MB)) { txt(erro, max, "no cabe: hacen falta al menos %u MB para ESP, sistema, configuración%s", (p->home_ini + p->conf_set) / MB + (p->sin_home ? 0u : 16u), p->sin_home ? "" : " y /home"); return false; }
         p->home_set = p->sin_home ? 0 : fim_g - p->home_ini - p->conf_set;
         if (!p->sin_home && p->home_mb && p->home_mb * MB < p->home_set) p->home_set = p->home_mb * MB;   /* D318 */
@@ -474,13 +567,31 @@ static bool planejar(plano_t *p, char *erro, int max)
         if (!p->perde[0]) copia_texto(p->perde, "nada: solo se usa espacio libre", sizeof p->perde);
     }
     if (p->ext_ini >= fim) { txt(erro, max, "no cabe: SaguiOS necesita al menos %u MB más espacio para los datos", sys_mb); return false; }
-    p->ext_set = fim - p->ext_ini;
-    /* Los datos: /home se queda con lo que sobre (o lo pedido); /jogos y /apps según el espacio (o lo
-     * pedido); /tmp y /logs (D318) con lo pedido. Cada lógica gasta 1 MB de EBR. */
-    uint32_t disp = p->ext_set / MB;
-    if (disp < 2 + CONF_MB + 16) { txt(erro, max, "no cabe: falta sitio para SAGUI-CONF (%u MB) y /home", CONF_MB); return false; }
-    disp -= 2 + CONF_MB;      /* los EBR de /home y SAGUI-CONF, y D256: SAGUI-CONF, la última de las lógicas */
-    p->conf_set = CONF_MB * MB;
+    uint32_t ult = mb_ultima();   /* D379: SAGUI-CONF, o SAGUI-RAIZ con la raíz en disco */
+    uint32_t disp;
+    if (p->home_conservar) {
+        /* D379: la SAGUI-DATOS de antes se queda donde está: la extendida empieza en su EBR (1 MB antes; lo que
+         * quede entre el sistema y ella no se usa) y el resto de lógicas van detrás de ella. */
+        if (p->modo != M_ENTERO || p->home_vieja_ini < p->ext_ini + MB || p->home_vieja_ini + p->home_vieja_set >= fim) {
+            txt(erro, max, "la SAGUI-DATOS que ya hay (%s) no deja sitio en su lugar para el sistema: cópiala a otro disco y usa «instalar ... --formatear-home» en el Terminal",
+                p->home_vieja);
+            return false;
+        }
+        p->ext_ini = p->home_vieja_ini - MB;
+        p->ext_set = fim - p->ext_ini;
+        disp = (fim - p->home_vieja_ini - p->home_vieja_set) / MB;
+        if (disp < 1 + ult) { txt(erro, max, "no cabe %s (%u MB) detrás de la SAGUI-DATOS que se conserva (%s)", modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", ult, p->home_vieja); return false; }
+        disp -= 1 + ult;  /* el EBR de la última y ella */
+    } else {
+        p->ext_set = fim - p->ext_ini;
+        /* Los datos: /home se queda con lo que sobre (o lo pedido); /jogos y /apps según el espacio (o lo
+         * pedido); /tmp y /logs (D318) con lo pedido. Cada lógica gasta 1 MB de EBR. */
+        disp = p->ext_set / MB;
+        if (disp < 2 + ult + 16) { txt(erro, max, "no cabe: falta sitio para %s (%u MB) y /home", modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", ult); return false; }
+        disp -= 2 + ult;      /* los EBR de /home y SAGUI-CONF, y D256: SAGUI-CONF, la última de las lógicas */
+    }
+    p->conf_set = ult * MB;
+    if (modo_raiz()) p->apps = false;   /* D379: /apps va dentro de SAGUI-RAIZ */
     uint32_t tm = 0, lg = 0;
     if (p->tmp) { tm = p->tmp_mb ? p->tmp_mb : 256; disp = disp > tm + 1 ? disp - tm - 1 : 0; }
     if (p->logs) { lg = p->logs_mb ? p->logs_mb : 128; disp = disp > lg + 1 ? disp - lg - 1 : 0; }
@@ -511,7 +622,7 @@ static bool planejar(plano_t *p, char *erro, int max)
             uint32_t resto = disp > ap + 1 ? disp - ap - 1 : 0;
             jg = JOGOS_INSTALAR_MB;
             if (jg < minimo) jg = minimo;
-            if (jg > resto / 2) jg = resto / 2;
+            if (jg > (p->home_conservar ? resto : resto / 2)) jg = p->home_conservar ? resto : resto / 2;   /* D379: /home ya está */
             if (jg < minimo) { p->jogos = false; p->copiar_jogos = false; jg = 0; }
             else disp -= 1;
         }
@@ -523,6 +634,15 @@ static bool planejar(plano_t *p, char *erro, int max)
     for (int i = 0; i < 4; i++)
         if (fat[i].usa && fat[i].fs == PA_FS_FAT32 && fat[i].mb < 34) { txt(erro, max, "%s en FAT32 necesita al menos 34 MB", fat[i].nome); return false; }
     uint32_t fixo = jg + ap;
+    if (p->home_conservar) {   /* D379 */
+        if (disp < fixo) { txt(erro, max, "no cabe detrás de la SAGUI-DATOS que se conserva: hacen falta %u MB más", fixo - disp); return false; }
+        p->apps_set = ap * MB;
+        p->jogos_set = jg * MB;
+        p->tmp_set = tm * MB;
+        p->logs_set = lg * MB;
+        p->home_set = p->home_vieja_set;
+        return true;
+    }
     if (disp < fixo + 16) { txt(erro, max, "no cabe: hacen falta al menos %u MB más", fixo + 16 - disp); return false; }
     uint32_t hm = p->home_mb ? p->home_mb : disp - fixo;
     if (hm > disp - fixo) { txt(erro, max, "no cabe: /home puede tener como mucho %u MB con lo demás que se ha pedido", disp - fixo); return false; }
@@ -554,7 +674,8 @@ static void descrever_plano(const plano_t *p, char *s, int max)
         txt(parte, sizeof parte, "  |  %s %s (%s)", v[i].nome, h, v[i].fs == PA_FS_FAT32 ? "FAT32" : "ext2");
         junta_texto(s, parte, (size_t)max);
     }
-    junta_texto(s, "  |  SAGUI-CONF 16 MB", (size_t)max);
+    if (modo_raiz()) { tamanho(p->conf_set, h, sizeof h); txt(parte, sizeof parte, "  |  SAGUI-RAIZ %s (ext2)", h); junta_texto(s, parte, (size_t)max); }   /* D379 */
+    else junta_texto(s, "  |  SAGUI-CONF 16 MB", (size_t)max);
     if (p->esp) { txt(parte, sizeof parte, "  |  EFI %s (FAT32)", e); junta_texto(s, parte, (size_t)max); }
     if (p->tabela == T_GPT) junta_texto(s, "  |  tabla GPT (UEFI)", (size_t)max);
 }
@@ -1022,7 +1143,210 @@ static int opcoes_conf(plano_t *p, const char *ponto, char *erro, int max)
 /* Monta una partición del destino, la prepara y la desmonta. jogos: copia los datos del
  * juego (si se pidió); apps: copia lo que haya en /apps (D194). */
 static uint32_t arquivos_jogos, arquivos_apps;
+
+/* D379 (M1): /sistema sin lo que no es del sistema de serie: /sistema/conf es el punto de montaje de la
+ * SAGUI-CONF de la live (en lo instalado, una carpeta vacía) y /sistema/raiz/versao, la marca de versión, se
+ * copia la última de toda la instalación (marcar_raiz): una copia cortada a medias no lleva marca y el núcleo
+ * no la usa como raíz (raiz.c). */
+#define MARCA_RAIZ "/sistema/raiz/versao"
+static int copiar_sistema(const char *de, const char *para, char *erro, int max)
+{
+    criar_pasta(para);
+    copiar_permisos(de, para);
+    entrada_pasta_t e;
+    int r = 0;
+    for (int i = 0; r == 0 && listar(de, i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
+        char a[128], b[160];
+        caminho_juntar(a, sizeof a, de, e.nome);
+        caminho_juntar(b, sizeof b, para, e.nome);
+        if (compara_texto(e.nome, "conf") == 0 && e.tipo == TIPO_PASTA) { criar_pasta(b); mudar_dono(b, UID_ROOT, GID_ROOT); mudar_permisos(b, 0700); continue; }
+        if (compara_texto(e.nome, "raiz") == 0 && e.tipo == TIPO_PASTA) {
+            criar_pasta(b);
+            copiar_permisos(a, b);
+            entrada_pasta_t f;
+            for (int k = 0; r == 0 && listar(a, k, &f) > 0; k++) {
+                if (f.tipo == TIPO_PASTA || compara_texto(f.nome, "versao") == 0) continue;
+                char a2[160], b2[192];
+                caminho_juntar(a2, sizeof a2, a, f.nome);
+                caminho_juntar(b2, sizeof b2, b, f.nome);
+                r = copiar_arquivo(a2, b2, erro, max);
+            }
+            continue;
+        }
+        r = e.tipo == TIPO_PASTA ? copiar_pasta(a, b, erro, max, 2) : copiar_arquivo(a, b, erro, max);
+    }
+    return r;
+}
+
+/* D379 (M1): lo último de la instalación con la raíz en disco: la marca de versión del sistema que corre. */
+static int marcar_raiz(const char *ponto, char *erro, int max)
+{
+    char b[128];
+    caminho_juntar(b, sizeof b, ponto, MARCA_RAIZ);
+    int r = copiar_arquivo(MARCA_RAIZ, b, erro, max);
+    if (r == 0) registrar("instalar: marca de versión escrita en la raíz (%s)", MARCA_RAIZ);
+    return r;
+}
+
+/* D379: la raíz del sistema que corre, por ficheros (comparados uno a uno al copiarlos), sin lo que no es
+ * sistema (montajes, RAM); esas carpetas se crean vacías: son puntos de montaje del sistema instalado. */
+static int copiar_raiz(const char *ponto, char *erro, int max)
+{
+    fase(fase_atual, 0, "Copiando la raíz del sistema...");
+    uint32_t antes = arquivos_copiados;
+    entrada_pasta_t e;
+    int r = 0;
+    for (int i = 0; r == 0 && listar("/", i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
+        char a[80], b[128];
+        caminho_juntar(a, sizeof a, "/", e.nome);
+        caminho_juntar(b, sizeof b, ponto, e.nome);
+        if (fora_da_raiz(e.nome)) {
+            if (e.tipo == TIPO_PASTA && compara_texto(e.nome, "lost+found") != 0) { criar_pasta(b); copiar_permisos(a, b); }
+            continue;
+        }
+        if (compara_texto(e.nome, "sistema") == 0 && e.tipo == TIPO_PASTA) { r = copiar_sistema(a, b, erro, max); continue; }
+        r = e.tipo == TIPO_PASTA ? copiar_pasta(a, b, erro, max, 1) : copiar_arquivo(a, b, erro, max);
+    }
+    static const char *const vazias[] = { "home", "tmp", "initrd", "jogos", "mnt", "logs", "root" };
+    for (unsigned i = 0; r == 0 && i < sizeof vazias / sizeof vazias[0]; i++) {
+        char b[128];
+        caminho_juntar(b, sizeof b, ponto, vazias[i]);
+        if (!existe_pasta(b)) criar_pasta(b);
+    }
+    if (r == 0) {
+        char b[128];
+        caminho_juntar(b, sizeof b, ponto, "tmp");
+        mudar_permisos(b, 01777);
+        caminho_juntar(b, sizeof b, ponto, "root");
+        mudar_dono(b, UID_ROOT, GID_ROOT);
+        mudar_permisos(b, 0700);
+        mudar_dono(ponto, UID_ROOT, GID_ROOT);
+        mudar_permisos(ponto, 0755);
+    }
+    arquivos_apps += arquivos_copiados - antes;
+    registrar("instalar: raíz copiada por ficheros: %u archivos", arquivos_copiados - antes);
+    return r;
+}
+/* D379 (revisión): lo que se funde de la SAGUI-CONF vieja en /etc queda como lo deja el kernel al
+ * superponerla (conf_sistema.c, modo_de): de root, sin escritura para el grupo ni los otros y los
+ * secretos (sombra, claves de ssh y de vnc) en 0600/0700. En la partición vieja pueden estar mal y, con
+ * la raíz en disco, el kernel ya no los corrige al arrancar: sin esto /etc/sombra podía quedar legible. */
+static void normalizar_etc(const char *de, const char *para, const char *rel, int nivel)
+{
+    /* Solo lo que vino de la SAGUI-CONF vieja ("de"): el resto de /etc es el del sistema nuevo. */
+    if (nivel > 12) return;
+    entrada_pasta_t e;
+    for (int i = 0; listar(de, i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
+        char a[256], c[256], r[160];
+        caminho_juntar(a, sizeof a, de, e.nome);
+        caminho_juntar(c, sizeof c, para, e.nome);
+        if (rel[0]) caminho_juntar(r, sizeof r, rel, e.nome); else copia_texto(r, e.nome, sizeof r);
+        info_permisos_t p;
+        unsigned modo = e.tipo == TIPO_PASTA ? 0755u : 0644u;
+        if (permisos_arquivo(c, &p) == 0 && p.com_donos) modo = p.modo & 0755u;
+        if (e.tipo == TIPO_PASTA) modo |= 0700u;
+        if (comeca_com(r, "sombra") || comeca_com(r, "ssh/ssh_host_") || comeca_com(r, "vnc/vncd.passwd")) modo &= 0700u;
+        mudar_dono(c, UID_ROOT, GID_ROOT);
+        mudar_permisos(c, (int)modo);
+        if (e.tipo == TIPO_PASTA) normalizar_etc(a, c, r, nivel + 1);
+    }
+}
+
 static bool conf_respaldada;   /* hay una copia de la SAGUI-CONF vieja en CONF_RESPALDO */
+
+/* ---- D379 (M1): reinstalar sobre una SAGUI-RAIZ: lo que la persona cambió en /etc y todo /root ---- */
+#define RAIZ_VIEJA_PONTO "/mnt/instalar-raizvieja"
+#define SOMAS_ETC        "/sistema/raiz/etc.sha256"   /* las sumas del /etc de serie (mkimagem.py, marcar_raiz) */
+#define RESPALDO_MAX_KB  (24u * 1024u)                /* en la RAM (/tmp) mientras se reparte el disco */
+#define RESPALDO_CONF_KB (12u * 1024u)                /* si va a una SAGUI-CONF (16 MB; el sistema que corre no tiene raíz en disco) */
+
+static bool contem(const char *s, const char *t)
+{
+    size_t n = tam_texto(t);
+    for (; *s; s++) if (*s == *t && memcmp(s, t, n) == 0) return true;
+    return false;
+}
+
+/* ¿Es este archivo de /etc el de serie de la instalación anterior (su suma está en sus SOMAS_ETC)? */
+static bool etc_de_serie(const char *somas, const char *real, const char *rel)
+{
+    if (!somas) return false;
+    int fd = abrir(real, ABRIR_LER);
+    if (fd < 0) return false;
+    sha256_t c;
+    sha256_iniciar(&c);
+    static uint8_t buf[8192];
+    for (;;) {
+        int n = ler(fd, buf, sizeof buf);
+        if (n < 0) { fechar(fd); return false; }
+        if (!n) break;
+        sha256_somar(&c, buf, (unsigned)n);
+    }
+    fechar(fd);
+    unsigned char h[SHA256_TAM];
+    sha256_fim(&c, h);
+    char linha[320];
+    int k = 0;
+    for (int i = 0; i < SHA256_TAM; i++) k += formatar_texto(linha + k, sizeof linha - (size_t)k, "%02x", h[i]);
+    formatar_texto(linha + k, sizeof linha - (size_t)k, "  %s\n", rel);
+    return contem(somas, linha);
+}
+
+/* Copia de "de" (el /etc viejo) a "para" lo que no es de serie: lo que se cambió o se creó después. */
+static int respaldar_etc(const char *de, const char *para, const char *rel, const char *somas, int nivel,
+                         uint32_t *n, char *erro, int max)
+{
+    if (nivel > 12) return 0;
+    criar_pasta(para);
+    entrada_pasta_t e;
+    int r = 0;
+    for (int i = 0; r == 0 && listar(de, i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
+        char a[256], b[256], rr[200];
+        caminho_juntar(a, sizeof a, de, e.nome);
+        caminho_juntar(b, sizeof b, para, e.nome);
+        caminho_juntar(rr, sizeof rr, rel, e.nome);
+        if (e.tipo == TIPO_PASTA) r = respaldar_etc(a, b, rr, somas, nivel + 1, n, erro, max);
+        else if (!etc_de_serie(somas, a, rr)) { r = copiar_arquivo(a, b, erro, max); (*n)++; }
+    }
+    return r;
+}
+
+/* Al empezar, antes de tocar el disco: el /etc cambiado y /root de la SAGUI-RAIZ vieja van a CONF_RESPALDO
+ * (etc/ y raiz/, como una SAGUI-CONF), y de ahí a la raíz nueva (preparar_dados), igual que una SAGUI-CONF.
+ * Si algo falla, o no cabe en la RAM, no se toca nada y se dice por qué. */
+static int respaldar_raiz_vieja(plano_t *p, char *erro, int max)
+{
+    criar_pasta(RAIZ_VIEJA_PONTO);
+    int r = montar_em(p->raiz_vieja, RAIZ_VIEJA_PONTO, MONTAR_SO_LEITURA);
+    if (r < 0) { txt(erro, max, "no se puede leer la SAGUI-RAIZ de %s (%s): no se ha tocado nada; "
+                                "usa --formatear-conf si no quieres conservar su configuración", p->raiz_vieja, nome_erro(r)); return r; }
+    uint32_t kb = kb_pasta(RAIZ_VIEJA_PONTO "/etc", 0) + kb_pasta(RAIZ_VIEJA_PONTO "/root", 0);
+    uint32_t lim = modo_raiz() ? RESPALDO_MAX_KB : RESPALDO_CONF_KB;
+    if (kb > lim) {
+        desmontar(RAIZ_VIEJA_PONTO);
+        txt(erro, max, "/etc y /root de la instalación anterior (%s) ocupan %u MB (más de %u): no se ha tocado nada; "
+                       "pasa lo que tengas en /root a /home (se conserva) o usa --formatear-conf", p->raiz_vieja, kb / 1024 + 1, lim / 1024);
+        return ERRO_LIMITE;
+    }
+    unsigned tam = 0;
+    char *somas = NULL;
+    int fd = abrir(RAIZ_VIEJA_PONTO SOMAS_ETC, ABRIR_LER);
+    if (fd >= 0) { somas = ler_todo_fd(fd, &tam); fechar(fd); }
+    if (!somas) registrar("instalar: la SAGUI-RAIZ de %s no tiene " SOMAS_ETC ": se conserva todo su /etc", p->raiz_vieja);
+    criar_pasta(CONF_RESPALDO);
+    uint32_t n = 0;
+    r = respaldar_etc(RAIZ_VIEJA_PONTO "/etc", CONF_RESPALDO "/etc", "etc", somas, 0, &n, erro, max);
+    if (somas) libera(somas);
+    if (r == 0 && existe_pasta(RAIZ_VIEJA_PONTO "/root")) r = copiar_pasta(RAIZ_VIEJA_PONTO "/root", CONF_RESPALDO "/raiz", erro, max, 1);
+    desmontar(RAIZ_VIEJA_PONTO);
+    if (r < 0) return r;
+    registrar("instalar: SAGUI-RAIZ de %s: %u archivo(s) de /etc cambiados y /root guardados en %s", p->raiz_vieja, n, CONF_RESPALDO);
+    return 0;
+}
 static int preparar_dados(plano_t *p, int num, const char *ponto, const char *leeme, bool jogos, bool apps,
                           char *erro, int max, bool conf)
 {
@@ -1068,12 +1392,26 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
             mudar_permisos(ponto, 0755);
         }
     } else if (r < 0) txt(erro, max, "no se puede escribir en %s: %s", vol, nome_erro(r));
-    if (r == 0 && conf && conf_respaldada) {
+    if (r == 0 && conf && modo_raiz()) r = copiar_raiz(ponto, erro, max);   /* D379 */
+    if (r == 0 && conf && conf_respaldada && modo_raiz()) {
+        /* D379 (P6 A): la SAGUI-CONF vieja se funde en la raíz: su etc/ sobre /etc y su raiz/ en /root. */
+        fase(fase_atual, 0, "Pasando la configuración de SAGUI-CONF a la raíz...");
+        char de[96], para[96];
+        caminho_juntar(de, sizeof de, CONF_RESPALDO, "etc");
+        caminho_juntar(para, sizeof para, ponto, "etc");
+        if (existe_pasta(de)) r = copiar_pasta(de, para, erro, max, 1);
+        if (r == 0 && existe_pasta(de)) { mudar_dono(para, UID_ROOT, GID_ROOT); mudar_permisos(para, 0755); normalizar_etc(de, para, "", 0); }
+        caminho_juntar(de, sizeof de, CONF_RESPALDO, "raiz");
+        caminho_juntar(para, sizeof para, ponto, "root");
+        if (r == 0 && existe_pasta(de)) r = copiar_pasta(de, para, erro, max, 1);
+        if (r == 0) { mudar_dono(para, UID_ROOT, GID_ROOT); mudar_permisos(para, 0700); }
+    } else if (r == 0 && conf && conf_respaldada) {
         /* D256: reinstalación: se devuelve lo que había (contraseñas, claves), también su LEEME. */
         fase(fase_atual, 0, "Devolviendo el contenido de SAGUI-CONF...");
         r = copiar_pasta(CONF_RESPALDO, ponto, erro, max, 0);
     }
     if (r == 0 && conf) r = opcoes_conf(p, ponto, erro, max);   /* D318 */
+    if (r == 0 && conf && modo_raiz()) r = marcar_raiz(ponto, erro, max);   /* D379 (M1): lo último */
     if (r == 0 && compara_texto(ponto, "/mnt/instalar-home") == 0) {
         /* D371: con otra cuenta que sagui, lo de la persona va a su carpeta /home/<cuenta> (0700). */
         char casa[96];
@@ -1153,6 +1491,12 @@ static int instalar(plano_t *p, char *erro, int max)
         conf_respaldada = true;
         registrar("instalar: SAGUI-CONF de %s guardada en %s", p->conf_vieja, CONF_RESPALDO);
     }
+    /* D379 (M1): una SAGUI-RAIZ de antes: su /etc cambiado y su /root, igual que una SAGUI-CONF. */
+    if (p->raiz_vieja[0] && !p->formatear_conf) {
+        fase(0, 0, "Guardando la configuración de la instalación anterior (SAGUI-RAIZ)...");
+        if ((r = respaldar_raiz_vieja(p, erro, max)) < 0) return r;
+        conf_respaldada = true;
+    }
 
     /* 1. Reservar y dejar el disco no arrancable. */
     fase(0, 0, NULL);
@@ -1193,7 +1537,7 @@ static int instalar(plano_t *p, char *erro, int max)
             if ((sl = gpt_adicionar(g, p->fs_home == PA_FS_FAT32 ? GPT_TIPO_DADOS_MS : GPT_TIPO_LINUX, p->home_ini, p->home_set, "SAGUI-DATOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (/home): %s", e); r = sl; goto falha; }
             num_home = gpt_numero_kernel(g, sl);
         }
-        if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->conf_ini, p->conf_set, "SAGUI-CONF", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (SAGUI-CONF): %s", e); r = sl; goto falha; }
+        if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->conf_ini, p->conf_set, modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (SAGUI-CONF): %s", e); r = sl; goto falha; }
         num_conf = gpt_numero_kernel(g, sl);
         r = gpt_gravar(g, true, cod, e, sizeof e);
         libera(g);
@@ -1216,7 +1560,8 @@ static int instalar(plano_t *p, char *erro, int max)
     }
     num_ext = pt_criar(&t, p->ext_ini, p->ext_set, 0x0F, false, e, sizeof e);
     if (num_ext < 0) { txt(erro, max, "la extendida: %s", e); r = num_ext; goto falha; }
-    uint32_t pos = p->ext_ini + MB;
+    uint32_t pos = p->ext_ini + MB;   /* D379: con /home conservada, ext_ini es su EBR: pos es su sitio de siempre */
+    if (p->home_conservar && (pos != p->home_vieja_ini || p->home_set != p->home_vieja_set)) { txt(erro, max, "error interno: /home no queda en su sitio"); r = ERRO_INVALIDO; goto falha; }
     num_home = pt_criar(&t, pos, p->home_set, p->fs_home == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
     if (num_home < 0) { txt(erro, max, "/home: %s", e); r = num_home; goto falha; }
     pos += p->home_set + MB;
@@ -1258,6 +1603,7 @@ tabela_pronta: ;
         { num_apps, p->fs_apps, "SAGUI-APPS", "/apps" } };
     for (int i = 0; i < 5; i++) {
         if (!dados[i].num) continue;
+        if (i == 0 && p->home_conservar) { registrar("instalar: /home (%s) se conserva sin formatear", p->home_vieja); continue; }   /* D379 */
         char t2[80];
         bool fat = dados[i].fs == PA_FS_FAT32;
         pt_nome_particao(p->destino, dados[i].num, vol, sizeof vol);
@@ -1267,8 +1613,8 @@ tabela_pronta: ;
         if (r < 0) { txt(erro, max, "%s", e); goto falha; }
     }
     pt_nome_particao(p->destino, num_conf, vol, sizeof vol);
-    fase(1, 0, "Formateando SAGUI-CONF (ext2)...");
-    if ((r = fs_formatar_ext2(vol, "SAGUI-CONF", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
+    fase(1, 0, modo_raiz() ? "Formateando SAGUI-RAIZ (ext2)..." : "Formateando SAGUI-CONF (ext2)...");
+    if ((r = fs_formatar_ext2(vol, modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", prog_fmt, NULL, e, sizeof e)) < 0) { txt(erro, max, "%s", e); goto falha; }
 
     /* 3 y 4. El sistema: copiar y releer. */
     fase(2, 0, NULL);
@@ -1282,7 +1628,7 @@ tabela_pronta: ;
     blocos_liberar(p->destino);
     reservado = false;
     if (num_esp && (r = preparar_esp(p, num_esp, erro, max)) < 0) goto falha;
-    if (num_home && (r = preparar_dados(p, num_home, "/mnt/instalar-home",
+    if (num_home && !p->home_conservar && (r = preparar_dados(p, num_home, "/mnt/instalar-home",
                             "Esta es la carpeta personal (/home) de SaguiOS instalado en este disco.\n"
                             "Lo que guardes aquí sigue aquí al reiniciar.\n", false, false, erro, max, false)) < 0) goto falha;
     if (num_jogos && (r = preparar_dados(p, num_jogos, "/mnt/instalar-jogos",
@@ -1290,7 +1636,7 @@ tabela_pronta: ;
     if (num_apps && (r = preparar_dados(p, num_apps, "/mnt/instalar-apps",
                             "Aplicaciones de SaguiOS fuera de la RAM (/apps, D194): los ejecutables en /apps/bin\n"
                             "y los datos de cada una en /apps/<app>.\n", false, !p->sem_copiar_apps, erro, max, false)) < 0) goto falha;
-    if ((r = preparar_dados(p, num_conf, "/mnt/instalar-conf", CONF_LEEME, false, false, erro, max, true)) < 0) goto falha;
+    if ((r = preparar_dados(p, num_conf, "/mnt/instalar-conf", modo_raiz() ? NULL : CONF_LEEME, false, false, erro, max, true)) < 0) goto falha;
     fase(4, 100, NULL);
 
     /* 6. Arrancable: primero la cabecera, luego el código del MBR, y se relee todo. */
@@ -1314,6 +1660,8 @@ tabela_pronta: ;
         cab[CAB_OPCOES + 1] = (uint8_t)(op >> 8);
     }
     po32(cab + CAB_SIS_SETORES, (p->jogos ? p->jogos_set : 0) + (p->apps ? p->apps_set : 0) + p->conf_set);   /* para «Acerca de» (D181, D194, D256) */
+    /* D379: el disco instalado monta su raíz con escritura, diga lo que diga el raiz.conf del initramfs (live). */
+    if (modo_raiz()) cab[CAB_RAIZ_OPC] = RAIZ_OPC_DISCO;
     po32(cab + CAB_ID_INSTALACAO, 0x4E494753u);   /* "SGIN" */
     po32(cab + CAB_ID_INSTALACAO + 4, id ? id : tempo_ms());
     po32(cab + CAB_ID_INSTALACAO + 8, hora_utc(NULL));
@@ -1479,6 +1827,7 @@ static int terminal(int argc, char **argv)
         else if (compara_texto(argv[i], "--sin-apps") == 0) p.apps = false;
         else if (compara_texto(argv[i], "--copiar-jogos") == 0) p.copiar_jogos = true;
         else if (compara_texto(argv[i], "--formatear-conf") == 0) p.formatear_conf = true;
+        else if (compara_texto(argv[i], "--formatear-home") == 0) p.formatear_home = true;   /* D379 */
         else if (compara_texto(argv[i], "--mbr") == 0) p.tabela = T_MBR;       /* D266 */
         else if (compara_texto(argv[i], "--gpt") == 0) p.tabela = T_GPT;
         else if (compara_texto(argv[i], "--auto") == 0) p.tabela = T_AUTO;
@@ -1487,7 +1836,7 @@ static int terminal(int argc, char **argv)
         else if (compara_texto(argv[i], "-s") == 0 || compara_texto(argv[i], "--si") == 0) sim = true;
         else if (argv[i][0] == '-') {
             imprimir_em(ERROS, "uso: instalar [disco [--entero | --hueco MB | --particion N | --reducir N:MB] [--sin-jogos] [--sin-apps]\n"
-                               "                      [--copiar-jogos] [--formatear-conf] [--mbr | --gpt | --auto] [--esp] [--sin-home]\n"
+                               "                      [--copiar-jogos] [--formatear-conf] [--formatear-home] [--mbr | --gpt | --auto] [--esp] [--sin-home]\n"
                                "                      [--home-mb N] [--apps-mb N] [--jogos-mb N] [--tmp-mb N] [--logs-mb N] [--fat32 home,apps,...]\n"
                                "                      [--nombre EQUIPO] [--zona Z] [--teclado es|abnt2] [--clave-root X] [--clave-usuario X]\n"
                                "                      [--sshd] [--vncd] [--copiar-config prefs,wifi,ssh,correo,ia,ia-clave,docs|todo] [-s]]\n"
@@ -1507,6 +1856,11 @@ static int terminal(int argc, char **argv)
     if (p.conf_vieja[0])
         imprimir(p.formatear_conf ? "  AVISO: se BORRA también SAGUI-CONF (%s): contraseñas y claves del sistema\n"
                                   : "  Se conserva el contenido de SAGUI-CONF (%s): contraseñas y claves (--formatear-conf lo borra)\n", p.conf_vieja);
+    if (p.raiz_vieja[0])   /* D379 (M1) */
+        imprimir(p.formatear_conf ? "  AVISO: se BORRA la configuración de la instalación anterior (SAGUI-RAIZ %s): contraseñas y claves\n"
+                                  : "  Se conserva la configuración de la instalación anterior (SAGUI-RAIZ %s): lo cambiado en /etc y /root (--formatear-conf lo borra)\n", p.raiz_vieja);
+    if (p.home_conservar)
+        imprimir("  Se conserva /home (SAGUI-DATOS %s, %u MB) tal cual, sin formatear (--formatear-home la borra)\n", p.home_vieja, p.home_vieja_set / MB);
     if (p.copiar_jogos) imprimir("  Se copian también los datos de " JOGOS_ORIGEM "%s\n", ha_jogos() ? "" : " (no hay datos: nada que copiar)");
     if (p.reduzir) imprimir("  Antes: %s\n", p.reduzir_txt);
     if (p.copiar_conf) imprimir("  Se copia de esta sesión a /home: %u KB de configuración y documentos\n", kb_copia(p.copiar_conf));
@@ -1526,8 +1880,14 @@ static int terminal(int argc, char **argv)
     imprimir("SaguiOS instalado en %s y verificado.\n  %s\n", p.destino, d);
     if (p.copiar_conf) imprimir("  Configuración de la sesión copiada: %u archivos\n", arquivos_conf);
     if (p.copiar_jogos) imprimir("  Datos de juegos copiados: %u archivos\n", arquivos_jogos);
-    if (p.apps) imprimir("  Aplicaciones de " APPS_ORIGEM " copiadas: %u archivos\n", arquivos_apps);
-    imprimir("  SAGUI-CONF (configuración del sistema, %u MB)%s\n", CONF_MB, conf_respaldada ? ": contenido anterior conservado" : "");
+    if (modo_raiz()) {   /* D379: el sistema entero, con /apps dentro, en SAGUI-RAIZ */
+        imprimir("  Sistema copiado por ficheros a SAGUI-RAIZ (%u MB, con /apps): %u archivos\n", p.conf_set / MB, arquivos_apps);
+        if (conf_respaldada) imprimir("  Configuración de la instalación anterior conservada (/etc cambiado y /root)\n");
+    } else {
+        if (p.apps) imprimir("  Aplicaciones de " APPS_ORIGEM " copiadas: %u archivos\n", arquivos_apps);
+        imprimir("  SAGUI-CONF (configuración del sistema, %u MB)%s\n", CONF_MB, conf_respaldada ? ": contenido anterior conservado" : "");
+    }
+    if (p.home_conservar) imprimir("  /home (SAGUI-DATOS %s) conservada tal cual\n", p.home_vieja);
     if (p.esp) imprimir("  Partición EFI (%u MB, FAT32): %s\n", p.esp_set / MB, p.efi_ok ? "con el cargador UEFI de " EFI_ORIGEM : "vacía (no había cargador UEFI)");
     if (p.tabela == T_GPT) imprimir("  Tabla GPT verificada (principal y respaldo, CRC releídos).\n");
     imprimir(p.desde_cd ? "Apaga, saca el CD y arranca desde %s.\n" : "Apaga, quita el disco de arranque y arranca desde %s.\n", p.destino);

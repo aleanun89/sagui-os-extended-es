@@ -33,7 +33,7 @@
 #include "vfs.h"
 
 static disco_t discos[MAX_DISCOS];
-static int contador_usb, contador_ata, contador_cd, contador_nvme;
+static int contador_usb, contador_ata, contador_cd, contador_nvme, contador_ram;
 
 #define MAX_AVISOS 8
 static struct { int tipo; char texto[256]; char caminho[64]; } avisos[MAX_AVISOS];
@@ -148,7 +148,9 @@ static int escrever(disco_t *d, uint32_t lba, uint32_t n, const void *buf, bool 
     if (!d->escrever) return ERRO_ACESSO;
     /* D281: por la caché; solo se difiere lo que escribe un sistema de archivos montado (un disco
      * reservado para el acceso en bruto -formateo, particiones, instalador- graba al instante). */
-    if (cache_disco_aplica(d)) return cache_disco_escrever(d, lba, n, buf, !ja && !disco_reservado(d));
+    /* D379: los pendrives también pasan por la caché (para leer la raíz de la live del medio), pero lo
+     * que se les escribe va al instante: se pueden retirar sin avisar. */
+    if (cache_disco_aplica(d)) return cache_disco_escrever(d, lba, n, buf, !ja && !disco_reservado(d) && !d->removivel);
     return d->escrever(d, lba, n, buf) < 0 ? ERRO_ACESSO : 0;
 }
 
@@ -796,7 +798,9 @@ static disco_t *registrar_comum(const char *prefixo, const char *fabricante, con
     d->presente = true;
     d->nvme = bloco_fisico != 0;        /* D265: solo el NVMe pasa su bloque real */
     d->bloco_fisico = bloco_fisico;
-    if (prefixo[0] == 'n') snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_nvme++);   /* D265: nvme0, nvme1... */
+    d->ram = txt_compara(prefixo, "ram") == 0;   /* D379: el disco en RAM del toram (ram0) */
+    if (d->ram) snformatar(d->nome, sizeof d->nome, "ram%d", contador_ram++);
+    else if (prefixo[0] == 'n') snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_nvme++);   /* D265: nvme0, nvme1... */
     else if (removivel) snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_usb++);
     else snformatar(d->nome, sizeof d->nome, "%s%c", prefixo, 'a' + contador_ata++);
     txt_copia_n(d->fabricante, fabricante, sizeof d->fabricante);

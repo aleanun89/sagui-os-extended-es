@@ -201,7 +201,7 @@ def montar_efi(m):
 
 def partes_instalacion():
     dest = disco_vazio("h266-dest", 1536)
-    origem = imagem_console()
+    origem = imagem_console(clasica=True)   # D379: el instalador de siempre (SAGUI-CONF); el nuevo, h387/h149
     efi = os.urandom(70000)
     efi_img, _ = criar_disco("h266-efi", [dict(tipo="fat32", mb=40, rotulo="EFITEST", pastas=["EFI", "EFI/BOOT"], arquivos={"EFI/BOOT/BOOTX64.EFI": efi})])
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw", "-drive", f"file={efi_img},if=ide,index=2,format=raw,snapshot=on"]
@@ -302,7 +302,7 @@ def parte_ajena():
     img, ents, secreto = disco_gpt_ajeno()
     verificar(sgdisk_ok(img)[0], "el disco GPT de prueba (sgdisk) es válido")
     antes = hash_disco(img)
-    origem = imagem_console()
+    origem = imagem_console(clasica=True)   # D379: el instalador de siempre (SAGUI-CONF); el nuevo, h387/h149
     extras = ["-drive", f"file={img},if=ide,index=1,format=raw"]
     with Maquina("h266-ajeno1", "ide", imagem=origem, extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)

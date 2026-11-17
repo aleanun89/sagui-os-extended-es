@@ -26,29 +26,24 @@ import hashlib
 import os
 import re
 import subprocess
+import shutil
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, extrair_particao, e2fsck, RAIZ, BUILD, SAIDA, NOME_VERSAO  # noqa: E402
+from qemu import Maquina, verificar, extrair_particao, e2fsck, imagem_de_teste, RAIZ, BUILD, SAIDA, NOME_VERSAO  # noqa: E402
 
 MB = 1024 * 1024
 OPC_CD = 8
 
 
 def construir_iso():
-    """La ISO con terminal a pantalla completa (--console), como la de h159 parte C."""
-    subprocess.run(["make", "-s", "-C", RAIZ, os.path.relpath(os.path.join(BUILD, "ramdisk-cd.sgfs"), RAIZ)],
-                   check=True, stdout=subprocess.DEVNULL)
+    """La ISO con terminal a pantalla completa (--console), como la de h159 parte C.
+    D379 (M1): como la de serie, con el initramfs y la raíz (con /apps) dentro de la imagen El Torito (toram)."""
     os.makedirs(SAIDA, exist_ok=True)
     img = os.path.join(SAIDA, "h207-cd.img")
     iso = os.path.join(SAIDA, "h207.iso")
-    b = BUILD
-    subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkimagem.py"),
-                    "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
-                    "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", os.path.join(b, "ramdisk-cd.sgfs"), "--saida", img, "--vesa", "--console", "--cd"],
-                   check=True, stdout=subprocess.DEVNULL)
+    shutil.copyfile(imagem_de_teste("", ["--vesa", "--console", "--cd"]), img)
     subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkiso.py"), "--imagem", img, "--saida", iso],
                    check=True, stdout=subprocess.DEVNULL)
     return img, iso
@@ -120,7 +115,8 @@ def desde_cd(m, rotulo, img_cd, controlador):
     out = m.comando("instalar hda -s", 1200)
     verificar("SaguiOS instalado en hda y verificado" in out, f"[{rotulo}] instalar hda termina y verifica ({out.strip()[-300:]})")
     verificar("saca el CD" in out, f"[{rotulo}] el final dice que se saque el CD")
-    verificar(re.search(r"Aplicaciones de /apps copiadas: [1-9]\d* archivos", out), f"[{rotulo}] se copian las apps de /apps")
+    verificar(re.search(r"(Aplicaciones de /apps copiadas|Sistema copiado por ficheros a SAGUI-RAIZ \(\d+ MB, con /apps\)): [1-9]\d* archivos", out),
+              f"[{rotulo}] se copian el sistema y las apps de /apps")
     return versao
 
 
@@ -158,7 +154,8 @@ def arrancar_instalado(dest, rotulo, versao):
         verificar("es el disco de arranque (cabecera igual" in s, f"[{rotulo}] el disco instalado arranca y se reconoce como el de arranque")
         verificar("cd=0" in s, f"[{rotulo}] ya no arranca como CD (OPC_CD fuera de la cabecera)")
         out = m.comando("mount")
-        verificar(re.search(r"\s/home\s", out) and re.search(r"\s/apps\s", out), f"[{rotulo}] /home y /apps montados (por etiqueta)")
+        verificar(re.search(r"\s/home\s", out) and (re.search(r"\s/apps\s", out) or re.search(r"en /\s+tipo ext2\s+\(rw", out)),
+                  f"[{rotulo}] /home montado (por etiqueta) y /apps (partición, o dentro de la raíz en disco, D379)")
         v2 = linha_versao(m.comando("uname -a"))
         verificar(versao and versao == v2, f"[{rotulo}] la versión es la misma que desde el CD ({v2!r})")
         out = m.comando("which sqlite3")

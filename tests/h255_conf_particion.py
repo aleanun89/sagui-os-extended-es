@@ -164,7 +164,7 @@ def parte3():
     dest = os.path.join(SAIDA, "h255-dest.img")
     with open(dest, "wb") as f:
         f.truncate(512 * MB)
-    origem = imagem_console()
+    origem = imagem_console(clasica=True)   # D379: el instalador de siempre (SAGUI-CONF); el nuevo, h387/h149
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw"]
     secreto = os.urandom(3000)
     with Maquina("h255-inst1", "ide", imagem=origem, extras=extras) as m:

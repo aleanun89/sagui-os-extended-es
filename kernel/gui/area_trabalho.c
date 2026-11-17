@@ -219,8 +219,7 @@ static int compara_nomes(int a, int b)
 
 static uint32_t data_do_icone(int i)
 {
-    no_t *n = vfs_achar(icones[i].programa);
-    return n ? n->modificado : 0;
+    return vfs_data_modificacao(icones[i].programa);   /* D379: también con la raíz en disco */
 }
 
 /* ¿a va antes que b según el criterio? */

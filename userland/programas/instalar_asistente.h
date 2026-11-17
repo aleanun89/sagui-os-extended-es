@@ -530,7 +530,7 @@ static void pagina_tipo(void)
     y += 44;
     if (tipo == TI_ENTERO) {
         for (int k = 0; k < bw; k += 4) g_linha(j, bx + k, by + 29, bx + k + 4 < bx + bw ? bx + k + 4 : bx + bw - 1, by, 0xC00000);
-        char perde[300] = "";
+        char perde[300] = "", fica[80] = "";
         for (int i = 0; i < 4 + tab.nlog; i++) {
             const pt_part_t *p = i < 4 ? &tab.prim[i] : &tab.log[i - 4];
             if (!p->tipo || pt_tipo_extendida(p->tipo)) continue;
@@ -538,12 +538,17 @@ static void pagina_tipo(void)
             info_disco_t q;
             pt_nome_particao(tab.disco, i + 1, n, sizeof n);
             tamanho(p->setores, tm, sizeof tm);
+            /* D379 (M1): una SAGUI-DATOS de una instalación anterior se conserva (planejar). */
+            if (!fica[0] && info_de(n, &q) && q.suportado && compara_texto(q.rotulo, "SAGUI-DATOS") == 0) {
+                txt(fica, sizeof fica, " Se conserva /home (%s, %s) tal cual.", n, tm);
+                continue;
+            }
             if (info_de(n, &q) && q.suportado) txt(x, sizeof x, "%s%s (%s, %s \"%s\")", perde[0] ? ", " : "", n, tm, q.formato, q.rotulo);
             else txt(x, sizeof x, "%s%s (%s, %s)", perde[0] ? ", " : "", n, tm, pt_nome_tipo(p->tipo));
             junta_texto(perde, x, sizeof perde);
         }
         char t[400];
-        txt(t, sizeof t, "SE BORRA TODO: %s.", perde[0] ? perde : "el disco está vacío");
+        txt(t, sizeof t, "SE BORRA TODO: %s.%s", perde[0] ? perde : "el disco está vacío", fica);
         y = texto_linhas(CX0, y, t, CXL / 8, 0xC00000) + 8;
         txt(t, sizeof t, "Para confirmar que es el disco correcto, escribe su nombre (%s):", destinos[sel_dest]);
         g_texto(j, CX0, y, t, W98_NEGRO);

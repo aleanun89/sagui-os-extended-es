@@ -336,6 +336,19 @@ bool vfs_existe_arquivo(const char *caminho)
     return x && x->tipo != TIPO_PASTA;
 }
 
+uint32_t vfs_data_modificacao(const char *caminho)
+{
+    const char *rel;
+    montagem_t *m = montagem_de(caminho, &rel);
+    if (m) {
+        datas_arquivo_t d;
+        if (!*rel || !m->fs->datas || m->fs->datas(m->priv, rel, &d) < 0) return 0;
+        return d.modificado;
+    }
+    no_t *x = vfs_achar(caminho);
+    return x ? x->modificado : 0;
+}
+
 int vfs_ler_inteiro(const char *caminho, uint8_t **dados, uint32_t *tam)
 {
     const char *rel;

@@ -23,6 +23,7 @@
 #include "vfs.h"
 #include "gui.h"
 #include "bootinfo.h"
+#include "raiz.h"
 
 #define ARQ_MAX    (256u * 1024u)
 #define TOTAL_MAX  (4u * 1024u * 1024u)
@@ -43,18 +44,30 @@ static bool listar(const char *caminho, int i, entrada_pasta_t *e)
  * permisos, sin escritura para el grupo ni los otros (un archivo de otro dueño
  * en la partición no puede dar a nadie la configuración del sistema). Los
  * secretos, 0600 aunque en la partición estén mal. */
-static void fixar_meta(no_t *x, const char *de, const char *para)
+static uint16_t modo_de(bool pasta, const char *de, const char *para)
 {
     meta_t m;
-    uint16_t modo = x->tipo == TIPO_PASTA ? 0755 : 0644;
+    uint16_t modo = pasta ? 0755 : 0644;
     if (vfs_meta(de, &m) == 0) modo = (uint16_t)(m.modo & 0755);
-    if (x->tipo == TIPO_PASTA) modo |= 0700;
+    if (pasta) modo |= 0700;
     if (txt_comeca_com(para, "/etc/sombra") || txt_comeca_com(para, "/etc/ssh/ssh_host_") ||
         txt_comeca_com(para, "/etc/vnc/vncd.passwd"))
         modo &= 0700;
+    return modo;
+}
+
+static void fixar_meta(no_t *x, const char *de, const char *para)
+{
     x->uid = UID_ROOT;
     x->gid = GID_ROOT;
-    x->modo = modo;
+    x->modo = modo_de(x->tipo == TIPO_PASTA, de, para);
+}
+
+/* D379: en la live la raíz es la sobreposición (escribible): la copia va a su /etc, no al árbol en RAM. */
+static bool na_raiz_montada(void)
+{
+    montagem_t *r = montagem_da_raiz();
+    return r && !(r->opcoes & MONTAR_SO_LEITURA);
 }
 
 static void copiar_arquivo(const char *de, const char *para)
@@ -66,6 +79,17 @@ static void copiar_arquivo(const char *de, const char *para)
         kfree(dados);
         saltados++;
         klog("[CONF] %s: demasiado grande (%u bytes): se queda el del ramdisk\n", de, tam);
+        return;
+    }
+    if (na_raiz_montada()) {
+        char tmp[CAMINHO_MAX];
+        snformatar(tmp, sizeof tmp, "%s.conf-tmp", para);
+        int r = escrever_atomico(para, tmp, dados, tam);
+        kfree(dados);
+        if (r < 0) { saltados++; klog("[CONF] no se puede escribir %s (%d)\n", para, r); return; }
+        vfs_fixar_meta(para, UID_ROOT, GID_ROOT, modo_de(false, de, para));
+        copiados++;
+        copiados_bytes += tam;
         return;
     }
     no_t *x = vfs_achar(para);
@@ -82,10 +106,20 @@ static void copiar_arquivo(const char *de, const char *para)
 static void copiar_pasta(const char *de, const char *para, int nivel)
 {
     if (nivel > NIVEIS_MAX) return;
-    no_t *p = vfs_achar(para);
-    if (!p && vfs_criar(para, TIPO_PASTA, &p) < 0) return;
-    if (p->tipo != TIPO_PASTA) return;
-    fixar_meta(p, de, para);
+    if (na_raiz_montada()) {   /* D379: la live */
+        meta_t m;
+        if (vfs_meta(para, &m) < 0) {
+            const char *rel;
+            montagem_t *mt = montagem_de(para, &rel);
+            if (!mt || mt->fs->criar_pasta(mt->priv, rel) < 0) return;
+        } else if (m.tipo != TIPO_PASTA) return;
+        vfs_fixar_meta(para, UID_ROOT, GID_ROOT, modo_de(true, de, para));
+    } else {
+        no_t *p = vfs_achar(para);
+        if (!p && vfs_criar(para, TIPO_PASTA, &p) < 0) return;
+        if (p->tipo != TIPO_PASTA) return;
+        fixar_meta(p, de, para);
+    }
     entrada_pasta_t e;
     for (int i = 0; i < 512 && listar(de, i, &e); i++) {
         if (txt_compara(e.nome, ".") == 0 || txt_compara(e.nome, "..") == 0 || txt_compara(e.nome, "lost+found") == 0)
@@ -106,10 +140,22 @@ static void copiar_pasta(const char *de, const char *para, int nivel)
     }
 }
 
+/* D379: con la raíz en un disco con escritura (instalado), SAGUI-CONF se funde en ella:
+ * /etc y /root ya son persistentes y CONF_PONTO es una carpeta más de la raíz. */
+bool conf_sistema_na_raiz(void)
+{
+    const char *rel;
+    montagem_t *m = montagem_de(CONF_PONTO, &rel);
+    return m && m == montagem_da_raiz() && raiz_estado() == RAIZ_DISCO && !(m->opcoes & MONTAR_SO_LEITURA);
+}
+
+static bool conf_na_raiz(void) { return conf_sistema_na_raiz(); }
+
 bool conf_sistema_montada(void)
 {
     const char *rel;
     montagem_t *m = montagem_de(CONF_PONTO, &rel);
+    if (m && m == montagem_da_raiz()) return conf_na_raiz();
     return m && !*rel && !(m->opcoes & MONTAR_SO_LEITURA);
 }
 
@@ -124,7 +170,7 @@ int conf_sistema_gravar(const char *rel, const void *dados, uint32_t n)
     snformatar(ram, sizeof ram, "/etc/%s", rel);
     snformatar(tmp, sizeof tmp, "/etc/%s.nuevo", rel);
     int r = escrever_atomico(ram, tmp, dados, n);
-    if (conf_sistema_montada()) {
+    if (conf_sistema_montada() && !conf_na_raiz()) {   /* D379: en la raíz en disco, /etc ya es la copia buena */
         snformatar(ram, sizeof ram, CONF_PONTO "/etc/%s", rel);
         snformatar(tmp, sizeof tmp, CONF_PONTO "/etc/%s.nuevo", rel);
         int rd = escrever_atomico(ram, tmp, dados, n);
@@ -139,6 +185,32 @@ bool conf_sistema_raiz_persistente(void) { return raiz_persistente; }
 
 void conf_sistema_raiz_preparar(void)
 {
+    /* D379: en la live sin SAGUI-CONF, /root está en la capa escribible de la raíz. */
+    if (na_raiz_montada() && !conf_na_raiz() && !conf_sistema_montada()) {
+        meta_t m;
+        if (vfs_meta("/root", &m) < 0) {
+            const char *rel;
+            montagem_t *mt = montagem_de("/root", &rel);
+            if (mt) mt->fs->criar_pasta(mt->priv, rel);
+        }
+        vfs_fixar_meta("/root", 0, 0, 0700);
+        raiz_persistente = false;
+        klog("[CONF] /root en la capa de la raiz (sin SAGUI-CONF)\n");
+        return;
+    }
+    /* D379: con la raíz en disco, /root es una carpeta de verdad de ese disco (sin alias). */
+    if (conf_na_raiz()) {
+        meta_t m;
+        if (vfs_meta("/root", &m) < 0) {
+            const char *rel;
+            montagem_t *mt = montagem_de("/root", &rel);
+            if (mt && mt->fs->criar_pasta) mt->fs->criar_pasta(mt->priv, rel);
+        }
+        vfs_fixar_meta("/root", 0, 0, 0700);
+        raiz_persistente = false;
+        klog("[CONF] /root en la raiz del disco (SAGUI-CONF fundida en la raiz)\n");
+        return;
+    }
     no_t *x = vfs_achar("/root");
     if (!x && vfs_criar("/root", TIPO_PASTA, &x) < 0) x = NULL;
     if (x) { x->uid = 0; x->gid = 0; x->modo = 0700; }

@@ -21,10 +21,11 @@ make imagem-particoes HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32
 
 | Partición | Etiqueta | Se monta en | Contenido |
 | --- | --- | --- | --- |
-| 1 | (tipo 0xDA) | arranque | SaguiOS (≈6 MB) |
+| 1 | (tipo 0xDA) | arranque | núcleo e initramfs (≈2 MB) |
 | 2 | `SAGUI-DATOS` | `/home` | tus archivos |
 | 3 | `SAGUI-TMP` | `/tmp` | temporales; sustituye al `/tmp` en RAM solo si la partición existe |
 | 4 | `SAGUI-LOGS` | `/logs` | registros del kernel (ver abajo) |
+| — | `SAGUI-JOGOS`, `SAGUI-RAIZ`, `SAGUI-CONF` | `/jogos`, `/`, `/sistema/conf` | juegos, el sistema (D379) y su configuración |
 
 Las tres están alineadas a 1 MB. SaguiOS las monta solo al arrancar (`/etc/fstab`, por etiqueta) y
 **solo en el disco que tiene la partición de SaguiOS**: un pendrive cualquiera con una etiqueta
@@ -46,21 +47,41 @@ Las extras se llaman `SAGUI-X1`, `SAGUI-X2`... y no tienen carpeta fija (se mont
 El kernel reconoce cualquier extendida (0x05, 0x0F, 0x85), también las creadas con otras herramientas;
 una cadena rota, en bucle o con tamaños absurdos se ignora con un aviso en el registro, sin colgar nada.
 
-## `saguios.img` o `saguios-completo.img` (D324)
+## Cómo arrancan las imágenes desde la v8.5.3.1 (D379)
 
-Desde la v8.4.3, `saguios.img` arranca con un sistema en memoria pequeño (unos 12 MB), y las aplicaciones
-que no son fundamentales viven en la partición **SAGUI-APPS**, que se monta en `/apps`. Entre ellas están
-Pluma, Macaco, Correo, Paint, Python, Cipó, VisualPythonS, PlanoMini y los juegos. Así arranca con 32 MB
-de RAM.
+Todas las imágenes de serie (`saguios.img`, `-smp`, `-uacpi`, las persistentes, la de particiones, la VDI y
+la ISO) arrancan como un Unix: la BIOS o el cargador UEFI solo leen el núcleo y un **initramfs** de menos de
+1 MB; el sistema entero (programas, `/lib`, `/apps` con las aplicaciones, `/etc`) está en la partición
+**SAGUI-RAIZ** (ext2) y se lee del medio según hace falta. Por eso arranca antes y deja más RAM libre.
 
-**`saguios-completo.img`** lleva esas aplicaciones **dentro del sistema en memoria** (ramdisk de unos
-31 MB), como hasta la v8.4.2, y no necesita leer el disco para tenerlas. Úsala en los **PC donde la
-controladora de disco no localiza bien el disco de arranque**: en algunos PC de época (IDE sin LBA, #36)
-o con controladoras que SaguiOS aún no maneja bien, el sistema arranca por la BIOS pero luego no ve el
-disco, no monta `/apps`, y en el menú Inicio faltan esas aplicaciones. Pide más RAM: unos 64 MB más que
-la normal.
+| Imagen | Cómo se usa la raíz | Qué se guarda al apagar |
+| --- | --- | --- |
+| `saguios.img`, `-smp`, `-uacpi`, `-particiones`, VDI | **live desde el medio**: SAGUI-RAIZ de solo lectura y los cambios en la RAM | la configuración del sistema (SAGUI-CONF, como siempre), `/home` si hay SAGUI-DATOS, `/jogos` |
+| `saguios-persistente*.img` | live con **SAGUI-PERSIST**: los cambios al sistema (programas instalados, `/etc`, `/root`) se guardan en esa partición | todo: además `/home` en SAGUI-DATOS |
+| `saguios.iso` | **toram**: la raíz se copia a la RAM al arrancar y el CD se puede sacar; si no hay RAM bastante (unos 32 MB más que la raíz), avisa y se usa leyendo del CD | nada (CD) |
+| disco instalado (`instalar`) | SAGUI-RAIZ con escritura (como un Linux instalado) | todo; `/home` va aparte, en SAGUI-DATOS |
 
-Para generarla: `make RAMDISK=completo` (o `RAMDISK=completo ./gerar_versao.sh`).
+La partición SAGUI-RAIZ del pendrive **nunca se escribe** en la live (un corte de luz no la estropea). Si la
+raíz falta, es de otra versión o está incompleta, SaguiOS sigue con el sistema mínimo del initramfs (modo
+rescate, consola de root) y dice por qué; las líneas `[RAIZ]` de `dmesg` dan el detalle.
+
+**Reinstalar** sobre un disco con SaguiOS (de cualquier versión) conserva la partición de `/home`
+(SAGUI-DATOS) tal cual y la configuración (contraseñas, claves de ssh y vnc, lo cambiado en `/etc` y `/root`);
+`instalar ... --formatear-home` y `--formatear-conf` las borran si se pide. Los discos instalados con la
+v8.5.3 o anteriores siguen arrancando como siempre; para pasar al sistema nuevo, se reinstala encima.
+
+## `saguios-completo.img` (D324)
+
+**`saguios-completo.img`** lleva todo el sistema y las aplicaciones **en la memoria** (el ramdisk de
+siempre, unos 34 MB), como hasta la v8.4.2, y no necesita leer el disco después de arrancar. Úsala en los
+**PC donde la controladora de disco no localiza bien el disco de arranque**: en algunos PC de época (IDE sin
+LBA, #36) o con controladoras que SaguiOS aún no maneja bien, el sistema arranca por la BIOS pero luego no ve
+el disco; con las imágenes normales se queda entonces en el modo rescate («No se encuentra la partición
+raíz»). Pide más RAM: unos 64 MB más que la normal, y no lleva Freeciv ni OpenTTD (sus rutas no caben en el
+formato del ramdisk).
+
+Para generarla: `make RAMDISK=completo` (o `RAMDISK=completo ./gerar_versao.sh`). Con `RAIZ_DISCO=0`, todas
+las imágenes salen con el ramdisk de siempre (como hasta la v8.5.3).
 
 Si pasa con tu PC, apunta el modelo (placa y controladora de disco) y abre una issue con el registro
 (`/logs`): así se arregla el driver.

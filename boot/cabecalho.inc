@@ -73,6 +73,7 @@ CAB_ID_INSTALACAO   equ 144        ; u32 "SGIN", u32 aleatorio, u32 hora (144-15
 CAB_NE2K_OPC        equ 157        ; u8 D329: bit 0 = sondear NE2000 ISA (mkimagem.py --ne2k-isa); apagado por defecto. Solo lo lee el kernel
 CAB_NE2K_IRQ        equ 158        ; u8 D329: IRQ de la NE2000 ISA (mkimagem.py --ne2k-irq); 0 = autodetectarla
 CAB_MEM_OPC         equ 159        ; u8 D349: bit 0 = sin PAE (mkimagem.py --sem-pae), bit 1 = sin NX (--sem-nx), bit 2 = sin swap (--sin-swap, D352). Solo lo lee el kernel
+CAB_RAIZ_OPC        equ 163        ; u8 D379: modo de la raíz (0 auto/raiz.conf, 1 ram/rescate, 2 disco, 3 live, 4 toram). Solo lo lee el kernel
 CAB_TROCA_MB        equ 160        ; u16 D352: tope de la swap comprimida en MB (mkimagem.py --swap-mb); 0 = automático. Solo lo lee el kernel
 CAB_KCONF           equ 192        ; 64 bytes D353 (192-255): lo que guarda «kconfig» desde el sistema (firma 'SGKC', bits
                                    ; de presencia, u16 por opción y suma; kernel/inc/kconf.h). mkimagem.py la deja a cero (los

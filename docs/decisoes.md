@@ -20086,3 +20086,148 @@ Guía completa en [`openttd.md`](openttd.md); prueba `tests/h377_openttd_paquete
    `partition`, `rotate`, `nth_element`, `splice`, `is_integral`, `sort` de tipos solo movibles...) con prueba en
    `tests/cxx_biblioteca_unidad.cpp`; una entrada de Inicio > Juegos en `kernel/gui/barra.c` (solo si existe `/apps/bin/openttd`).
    Pendiente para el instalador de la v9.0: tomar la entrada de menú del manifiesto.
+
+## D379. Almacenamiento como un Unix: initramfs mínimo y raíz en disco (instalado), live desde el medio con capa escribible, «todo a RAM» solo para el CD o a petición (decidido el 2026-11-17; v8.5.3.1; mejora 035)
+
+**Pedido del mantenedor:** no limitar el ramdisk sino resolver su funcionamiento como un Linux/Unix. Corrección del
+mismo día: el live normal (USB, imagen) también funciona **desde el medio** (raíz de solo lectura con capa escribible
+en RAM o persistente), y el «todo a RAM» es un **modo específico** (CD/ISO o pedido explícito), **nunca** una elección
+automática por la RAM. **Decisión del mantenedor (2026-11-17): todas las recomendaciones de [`almacenamiento.md`](almacenamiento.md) §6**:
+P1 ext2; P2 SAGUI-RAIZ que absorbe `/apps` y SAGUI-CONF, más SAGUI-DATOS `/home` y SAGUI-JOGOS opcional; P3 capa de la
+live en RAM y SAGUI-PERSIST opcional; P4 toram por defecto solo en el CD (en USB, con tecla o `modo=toram`); P5 la misma
+ext2 en `ram0`, comprimida por bloques en el CD; P6 las instalaciones ≤ 8.5 siguen como hoy y pasan al modo nuevo
+reinstalando (se conservan `/home` y SAGUI-CONF); P7 CD con toram por defecto y live desde el CD como alternativa.
+**Versión v8.5.3.1** (rama `v8.5.3.1-almacenamiento`): R1-R3 y L1-L2 imprescindibles, T1 si llega; M1 y F, v8.5.3.2.
+
+**Medido (v8.5.3):** ramdisk de 11,94 MiB, a 60 KB del límite de h324; cuesta ≈ 11 MB de RAM siempre (240 → 251 MB
+gestionados con 256 MB); la BIOS tarda 2,76 s en cargar kernel + ramdisk (KVM, IDE; 5,0 s por UEFI). El kernel **sí lee
+el CD** desde D207 (ATAPI, ISO 9660, `/cd`), aunque la raíz y `/apps` del CD siguen en el ramdisk. El disco de arranque ya
+se identifica sin ambigüedad por la cabecera (D179): las etiquetas `SAGUI-*` solo valen en él.
+
+**Diseño propuesto (detalle en `almacenamiento.md`):** el ramdisk pasa a ser un **initramfs** SGFS (mismo formato y
+cargadores) con el shell y utilidades estáticas y `/etc/raiz.conf` (`raiz=LABEL=SAGUI-RAIZ`, `modo`, `espera`, `capa`),
+forzable desde el cargador con un byte nuevo de la cabecera. **Instalado:** SAGUI-RAIZ ext2 `rw` con `/bin`, `/lib`
+(las `.so` de D378), `/apps`, `/etc`, `/root`; SAGUI-DATOS en `/home`; SAGUI-CONF absorbida por la raíz. **Live:**
+SAGUI-RAIZ de solo lectura con un sistema `sobreposicao` (copy-up y marcas de borrado) sobre una capa en RAM o en
+SAGUI-PERSIST; requiere caché de lectura para pendrives. **Toram:** la raíz copiada a un disco en RAM (`ram0`) con el
+mismo ext2, comprimida por bloques en la ISO; si no cabe, se avisa y se sigue desde el medio. Rescate siempre con el
+initramfs. Fases R1-R3, L1-L2, T1, M1 y F (`almacenamiento.md` §5).
+
+**Prototipo (rama `v8.5.3.1-almacenamiento`, activo solo si el ramdisk trae `/etc/raiz.conf`):** `kernel/fs/raiz.c`
+monta la raíz tras detectar los discos y antes del fstab; `montagem.c` admite el montaje de `/` (prefijo más corto,
+montajes dentro de él, `umount /` negado, la raíz se suelta la última al apagar; opción interna `MONTAR_RAIZ_INTERNO`
+que los programas no pueden pasar; `MAX_MONTAGENS` 8 → 12); con la raíz en disco no se superpone SAGUI-CONF sobre el
+árbol en RAM. `tools/mkinitramfs.py` (initramfs de 640 KB) y `mkimagem.py --raiz PASTA` (SAGUI-RAIZ con los textos en
+Latin-1 y los permisos del VFS). Resultado: hasta el escritorio desde la raíz en disco; carga del kernel 2.759 → 469 ms y
+`[ARRANQUE] configuracion` 5.696 → 3.445 ms (KVM); +10 MB libres en reposo.
+
+**Núcleo tocado (aviso):** `montagem.c` (despacho por rutas y orden del desmontaje), `principal.c` (una llamada y la
+condición de `conf_sistema_superpor`), `raiz.c` nuevo. Sin cambios en memoria, planificador, cargadores ni formato de la
+cabecera. Las imágenes normales no llevan `raiz.conf` y no cambian (h387 D).
+
+**Pruebas:** `tests/h387_raiz_disco.py` (A anfitrión: tamaño, e2fsck, permisos; B raíz montada, `/bin` y `/etc` del
+disco, montajes dentro, `umount /` negado, persistencia y e2fsck limpio tras reiniciar; C rescate; D imagen normal);
+pasa con KVM y con TCG. Siguen pasando h54 (fstab), h91 (particiones) y h255 (SAGUI-CONF).
+
+**Fases hechas en la v8.5.3.1 (2026-11-17; detalle en `almacenamiento.md` §7):**
+- **R1:** cuelgue arreglado en `trava.c` (el ocioso esperaba un bloqueo cediendo con las interrupciones apagadas mientras
+  el dueño dormía esperando su IRQ de DMA: 1 de cada 4 arranques con la raíz en disco se quedaba sin prompt; 20 de 20
+  bien después); los accesos que quedaban al árbol en RAM pasan por rutas; SAGUI-CONF fundida en la raíz; rescate sin
+  servicios; `CAB_RAIZ_OPC` (byte 163).
+- **R3:** `ramfs.c` (`/tmp` en RAM, `/initrd`); **R2:** el instalador crea SAGUI-RAIZ y copia la raíz por ficheros.
+- **L1/L2:** `sobreposicao.c` (live desde el medio; capa en RAM o SAGUI-PERSIST); caché de lectura para pendrives.
+- **T1:** `disco_ram.c` (toram del CD a `ram0`), sin compresión todavía.
+- Batería reducida tras R (79/81): falla h324 (también en `main`: el ramdisk de la 8.5.3 pasa de 12 MiB) y h387 F-H
+  (aún sin compilar en ese momento); h133 pasa al repetir.
+
+**Pendiente:** compresión de la raíz en el CD (P5), la tecla del cargador y `kconfig` para el modo (P4), M1 (imágenes por
+defecto, límite de h324, migración) y F (`fsck`, carga bajo demanda) en la **v8.5.3.2**.
+
+**Revisión antes de publicar (2026-11-17):** lo nuevo de la raíz en disco, la live y el toram solo se activa si el ramdisk
+trae `/etc/raiz.conf` (`mkimagem.py --raiz`); las imágenes por defecto de la v8.5.3.1 no lo traen (M1 es de la v8.5.3.2).
+Lo que sí cambia para todas: `trava.c` (el ocioso espera un tic con interrupciones en vez de ceder con ellas apagadas;
+el tic del planificador siempre saca al ocioso, así que el dueño corre igual que antes), los pendrives pasan por la
+caché de bloques para leer (escritura directa, `disco_removido` descarta sus bloques; solo hay pendrives de 512 bytes),
+`MAX_MONTAGENS` 12 y la ruta de `montagem_de` (igual que antes con `montagem_raiz` nulo). Corregido en la revisión: al
+fundir la SAGUI-CONF vieja en SAGUI-RAIZ, el instalador copiaba los permisos tal como estaban en la partición (el kernel
+los corregía al superponerla, pero con la raíz en disco ya no lo hace): `/etc/sombra` podía quedar legible; ahora lo
+fundido queda de root, sin escritura ajena y los secretos en 0600 (como `conf_sistema.c`, `modo_de`).
+**Pendiente para la v8.5.3.2** (no bloquea: solo con imágenes `--raiz`):
+- Reinstalar sobre un disco que ya tiene SAGUI-RAIZ no guarda su `/etc` ni su `/root` (solo se busca SAGUI-CONF): se
+  pierden contraseñas, claves y lo de `/root`. Respaldar `etc/` y `root/` de SAGUI-RAIZ como se hace con SAGUI-CONF.
+- La raíz no se comprueba contra la versión del kernel/initramfs (una SAGUI-RAIZ de otra versión se monta igual); si
+  monta pero le falta `/bin` (copia interrumpida con la cabecera ya escrita, imposible hoy por el orden), no hay rescate.
+- La capa de la live en la RAM crece con el montón del kernel como el árbol en RAM de siempre: sin tope propio ni
+  ENOSPC antes de agotar la memoria (igual que `/tmp` en las imágenes de siempre).
+- `sobreposicao.c`: renombrar una carpeta que solo está arriba a un nombre que existe abajo la «funde» con la de abajo
+  (no queda opaca); renombrar un archivo encima de una carpeta de abajo la tapa sin error.
+- Quitar en caliente el pendrive de la live desmonta la raíz y deja el sistema sobre el initramfs (sin aviso claro).
+
+**M1 hecha (2026-11-17; decisión del mantenedor: la v8.5.3.1 no se publica hasta que las imágenes por defecto usen esto).**
+Lo nuevo deja de ser opcional (`mkimagem.py --raiz`) y pasa a ser **cómo salen todas las imágenes** de `make all` y
+`make variantes`:
+- **Imágenes de disco y USB** (`saguios.img`, `-smp`, `-uacpi`, las persistentes, la de particiones, la VDI; UEFI con la ESP
+  igual: su `RAMDISK.SGF` es el initramfs): núcleo + `build/initramfs.sgfs` (640 KB, `raiz.conf` con `modo=live`,
+  `capa=auto`) + **SAGUI-RAIZ** (ext2, `build/rootfs` con `/apps` dentro, P2 A; ya no hay SAGUI-APPS) + SAGUI-JOGOS +
+  **SAGUI-CONF** (en la live sigue guardando la configuración como siempre: el kernel la superpone sobre el `/etc` de
+  la capa; solo lo instalado la funde en la raíz). Arrancan **en live desde el medio** (raíz de solo lectura, capa en
+  la RAM, P3 A). Las **persistentes** llevan además **SAGUI-PERSIST** (`PERSIST_MB`, 256): `capa=auto` usa la capa
+  persistente si la imagen la tiene y la RAM si no, sin aviso (un solo initramfs para todas).
+- **ISO**: la raíz (con `/apps` y **Freeciv**: en ext2 ya no aplica el límite de 55 caracteres del SGFS) dentro de la
+  imagen El Torito; `mkimagem.py --cd --raiz` pone `CAB_RAIZ_OPC = toram` (P4/P7 A): se copia a la RAM y el CD se puede
+  sacar; si no cabe, aviso y **live desde el CD** (la alternativa de P7; la tecla del cargador para elegirla sigue
+  pendiente). El `ramdisk-cd.sgfs` solo se hace ya con `RAIZ_DISCO=0`.
+- **Instalador**: desde cualquiera de ellas instala con SAGUI-RAIZ (R2) con la raíz `rw`.
+- **«completo»** (`RAMDISK=completo`, `saguios-completo.img`): sigue siendo el **ramdisk de siempre** con todo dentro.
+  Es coherente con D379 (§3.5: formato de compatibilidad hasta que el toram lo sustituya) y es lo único que sirve en los
+  PC cuyo disco de arranque el núcleo no ve (#36): ahí la raíz en disco acabaría en el rescate. Sin Freeciv ni OpenTTD
+  (siguen fuera por el límite del SGFS). **«sin GPL»**: la misma imagen que `saguios.img` (raíz en disco), sin lo GPL.
+- `RAIZ_DISCO=0` vuelve a hacer todas las imágenes como hasta la v8.5.3 (vía de escape). El SGFS queda para el initramfs
+  y esos formatos de compatibilidad; `build/ramdisk.sgfs` (la base completa) se sigue haciendo: de él sale
+  `build/rootfs` y lo usan las pruebas de compatibilidad.
+
+**Requisitos de la revisión, hechos:**
+- **Reinstalar sobre SAGUI-RAIZ** conserva la configuración: antes de tocar el disco, el instalador monta la SAGUI-RAIZ
+  vieja de solo lectura y guarda en la RAM su `/root` entero y, de su `/etc`, **lo que no es de serie**: `mkimagem.py`
+  deja en cada raíz las sumas SHA-256 del `/etc` de serie (`/sistema/raiz/etc.sha256`); lo que coincide con ellas se
+  toma de la versión nueva (se actualiza) y lo cambiado o creado por la persona (sombra, usuarios, claves de ssh y vnc,
+  `sistema.conf`, hostname...) pasa a la raíz nueva con `normalizar_etc` (de root, secretos 0600/0700). Sin sumas (una
+  raíz anterior a M1) se conserva todo su `/etc`. Si `/etc`+`/root` pasan de 24 MB (12 si el destino lleva SAGUI-CONF)
+  no se toca nada y se dice por qué. `--formatear-conf` lo descarta, como con SAGUI-CONF.
+- **/home intacta**: hasta ahora «disco entero» rehacía la tabla y **formateaba SAGUI-DATOS** (salvo SAGUI-CONF, nada se
+  conservaba). Ahora, si el destino tiene una SAGUI-DATOS (ext2 o FAT32), se **deja tal cual en su sitio** (la extendida
+  empieza en su EBR, las demás lógicas van detrás; en GPT, la entrada en el mismo sitio) y no se formatea ni se toca; si
+  su sitio no sirve (no alineada a 1 MB, o el sistema no cabe delante o detrás, p. ej. de MBR a GPT con la ESP delante)
+  el instalador **se niega** y pide `--formatear-home`: nunca se borra `/home` sin pedirlo. El asistente lo dice en la
+  página del disco.
+- **Versión de la raíz**: `mkimagem.py` escribe `/sistema/raiz/versao` (= `SAGUI_VERSAO`; `--raiz-versao` solo para
+  pruebas) y el instalador la copia **lo último** (una copia cortada no la lleva). `raiz.c` monta antes el volumen de
+  solo lectura en `/raiz-verificar` y exige `/bin/sagsh`, `/etc` y la marca igual a la del núcleo; si no, **rescate**
+  con el motivo («es de la versión X y este núcleo es Y», «le falta /bin/sagsh»): nunca un sistema medio arrancado.
+- **Instalaciones ≤ 8.5.3** (P6 A): no tienen `raiz.conf` y arrancan como siempre (también con este núcleo); reinstalar
+  encima funde su SAGUI-CONF en la raíz y conserva su SAGUI-DATOS.
+- El aviso «falta /apps» del escritorio ya no salta con `/apps` dentro de la raíz; `/sistema/conf` (el punto de montaje
+  de la SAGUI-CONF de la live) no se copia al instalar.
+
+**Pruebas:** h387 D (la imagen de serie arranca así; una clásica no), I (instalar, contraseña de root, clave de sshd con
+0644 a propósito, `/root`, `/etc/crontab` cambiado y `/home`; reinstalar desde una «versión» con otro `/etc/sagshrc`:
+`su` con la misma contraseña, la misma clave en 0600, `/root` 0700, el crontab de la persona, el sagshrc nuevo y
+SAGUI-DATOS en el mismo sitio sin formatear), J (marca distinta y sin `sagsh`: rescate) y K (instalado al estilo 8.5.3
+con este núcleo arranca como siempre; reinstalar encima conserva `/home` y funde SAGUI-CONF). Las pruebas hacen sus
+imágenes como las de serie (`imagem_de_teste`, `SAGUI_RAIZ_CLASICA=1` o `clasica=True` para la de siempre); h324 pasa a
+vigilar el **initramfs ≤ 1 MB**.
+
+Además: con la raíz en disco, los puntos de montaje que se crean en ella (un pendrive en `/usb`) se quitan al desmontar
+(como en la RAM) y ext2 marca como programa (`TIPO_PROGRAMA`) los archivos con permiso de ejecución, como el ramdisk con
+los ELF (`ls`, Archivos). `rodar_paralelo.py` da más tiempo a las pruebas que instalan varias veces (la raíz se copia
+por ficheros). **Resultado:** batería reducida + h387 h381 h384 h371 h340 h375 h376 h270 h207 h159 h324 h149 h227 h374
+h380 h373: **86/86** (KVM, sin repeticiones); `make variantes GERAR_OPC=--probar`: todas las variantes generadas y
+arrancadas a mano (la normal y la sin GPL en live, la persistente con SAGUI-PERSIST, la ISO en toram con Freeciv, la
+completa con el ramdisk de siempre).
+**Tamaños frente a la v8.5.3** (archivo / ocupado): `saguios.img` 196 MiB → **149 MiB** (90 → 75 MB), `-smp`/`-uacpi`
+igual; ISO 40,7 MiB → **95,6 MiB** (la raíz con `/apps` y Freeciv sin comprimir; P5 pendiente); persistentes ext2
+1.052 → 1.262 MiB (+256 MiB de SAGUI-PERSIST, dispersa); persistentes FAT32 `.xz` 24,3 → 23,3 MiB; particiones `.xz`
+29,0 → 25,1 MiB; completa 104 → 101 MiB; sin GPL 104 → 99 MiB; VDI 101 → 84 MiB. El initramfs: 644 KiB.
+**Pendiente (v8.5.3.2):** compresión de la raíz en la ISO (P5); la tecla del cargador para elegir live/toram (P4/P7);
+desde la live, instalar solo «el sistema de serie» (hoy copia la raíz que se ve, con lo cambiado en la sesión); el tope
+de la capa en la RAM y lo de `sobreposicao.c` de la revisión; F (`fsck`).

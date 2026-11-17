@@ -249,6 +249,10 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
   (`--guardar` la deja en el disco de arranque). El framebuffer usa *write-combining* cuando
   la CPU lo permite (D057-D059).
 
+- **Go con TinyGo** (v8.5.2, D364): programas en Go compilados con TinyGo, ELF de 32 bits para Pentium sin SSE,
+  instalados en `/apps/go/`. El compilador se instala en el anfitrión con `tools/tinygo_entorno.sh instalar`.
+  Detalles en [`docs/go.md`](docs/go.md).
+
 ## Extras: PC antiguos (mejora 036, fase A)
 
 - **Sin SSE2 de forma automática** (Pentium III, Athlon XP): el kernel y la libsagui copian
@@ -330,6 +334,10 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
 - **Cliente de correo** (D146, v6.3 y v6.6): recibe por POP3 o IMAP y envía por SMTP, con ventana,
   lista de mensajes, adjuntos y cuerpo en texto plano o en HTML (convertido a texto).
 
+- **Tucán** (v8.5.3, D369): editor de presentaciones junto a Pluma y Macaco: diapositivas con miniaturas, cuadros de
+  texto, formas, imágenes y WordArt, y notas del orador. Exporta a PDF, PNG y PPTX (sin animaciones) y guarda en su
+  formato `.tcn`. Detalles en [`docs/tucan.md`](docs/tucan.md).
+
 ## Extras: barra de tareas y menú Inicio
 
 - **Botón Inicio** (o la tecla Windows, o Ctrl+Esc): los programas más usados arriba, los
@@ -356,6 +364,10 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
 - **Explorador de archivos** (v6.3, D136): ver los ocultos (Ctrl+H), vistas de detalles y miniaturas,
   barra de ruta y panel lateral, selección múltiple, copiar, cortar, pegar y arrastrar, renombrar,
   buscar, «Abrir con», propiedades y papelera. Alt+Tab muestra miniaturas.
+
+- **Barra y menú Inicio personalizables** (v8.5.2, D361): la barra arriba o abajo, de 20 a 48 píxeles, con reloj,
+  fecha, bandeja, agrupación de ventanas por programa y «ocultar sola»; el menú Inicio tiene cuatro estilos
+  (SaguiOS, Clásico, Dos columnas y Moderno). Se cambia desde Configuración.
 
 ## Extras: imágenes y dibujo
 
@@ -510,6 +522,11 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
   - Sin auditoría y sin revocación (OCSP/CRL): es un sistema educativo; los límites están en
     D063.
 
+- **VPN WireGuard** (v8.5.2, D363 y D372): habla el protocolo oficial con servidores WireGuard (Linux, routers
+  OpenWrt, FRITZ!Box o MikroTik, VPS). La configuración va en `/home/.config/wireguard/*.conf`; `wg-quick up` y
+  `wg-quick down` encienden y apagan el túnel, y `wg show` muestra el estado. Encenderla pide permiso de
+  administrador. Solo IPv4. Uso en [`docs/wireguard.md`](docs/wireguard.md).
+
 ## Extras: el navegador Cipó
 
 - **Motor web propio** (D141, v6.3): CSS, JavaScript, Canvas, SVG y WebGL por software, con el dibujado
@@ -524,6 +541,37 @@ en la sección "Sagui 3D" de [`docs/decisoes.md`](docs/decisoes.md).
   script termina.
 - **Transiciones CSS** (D153) y **pseudo-elementos** sin romper el DOM (D161): `https://www.amd.com/`
   carga entera.
+
+- **Cipó renovado** (v8.5.3, D373): pestañas con su icono, barra de herramientas, barra de marcadores, página de
+  inicio, ajustes propios y descargas en paralelo.
+
+## Extras: sistema, usuarios y herramientas
+
+- **Usuarios bien montados** (v8.5.3, D371): `root` existe siempre y tiene su carpeta en `/root`; cada cuenta
+  tiene la suya en `/home`, la configuración del sistema está en `/etc`, hay pantalla de entrada en la consola
+  (`login`) y bloqueo de pantalla con contraseña. Diseño en [`docs/usuarios-v853.md`](docs/usuarios-v853.md).
+- **Administrador de tareas modernizado** (v8.5.2, D368): la pestaña Rendimiento tiene una barra lateral con siete
+  recursos (CPU, memoria, swap, disco, red, GPU y sensores) y gráficos del último minuto; hay además pestaña
+  Detalles, búsqueda y menús nuevos.
+- **htop** (v8.5.2, D366): monitor de procesos para el Terminal y la consola por SSH, clon propio: barras por
+  núcleo, árbol, orden por columna, matar procesos y filtro por usuario. Detalles en [`docs/htop.md`](docs/htop.md).
+- **DEBUG-APP** (v8.5.2, D362): depuración remota con un código de un solo uso. «Permitir depuración remota»
+  avisa de que la sesión será de root y pide permiso de administrador; usa el `sshd` en un modo aparte.
+
+## Extras: escritorio, widgets y configuración
+
+- **Configuración con árbol** (v8.5.2, D367): categorías a la izquierda y opciones agrupadas a la derecha, con
+  Aceptar, Cancelar y Aplicar; la ventana se redimensiona y recuerda su tamaño y su última sección.
+- **Widgets de escritorio y Conky** (v8.5.3, D365): un widget es un programa que dibuja sobre el escritorio, sin
+  marco y debajo de las ventanas. El Conky propio lee `/home/.config/conky.conf`, se recarga al guardar el fichero
+  y se activa desde el menú del escritorio. Detalles en [`docs/conky.md`](docs/conky.md).
+
+## Extras: Freeciv (código de terceros, C)
+
+- **Freeciv 3.1.6** (v8.5.3, D374): juego de estrategia por turnos con cliente SDL2 y servidor local, en español.
+  Está en **Inicio > Juegos > Freeciv**, y los `.sav` se abren con doble clic desde Archivos. Licencia GPL-2.0 o
+  posterior. Va en las imágenes de disco y de pendrive, no en la ISO ni en la imagen «completa». Sus fuentes no van
+  en git: `tools/freeciv_fuentes.sh` las descarga. Detalles en [`docs/freeciv.md`](docs/freeciv.md).
 
 ## Extras: compresión (mejora 056)
 

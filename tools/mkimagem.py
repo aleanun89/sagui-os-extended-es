@@ -15,6 +15,9 @@ Distribución (PRD 4.1):
                escritura con etiqueta SAGUI-JOGOS; el /etc/fstab la monta en /jogos
   opcional     la partición de aplicaciones (--apps PASTA, D194): ext2 de lectura y
                escritura con etiqueta SAGUI-APPS; el /etc/fstab la monta en /apps
+  opcional     la raíz del sistema en disco (--raiz PASTA, D379, prototipo): ext2 SAGUI-RAIZ con
+               todo el sistema; el ramdisk es entonces un initramfs pequeño (tools/mkinitramfs.py)
+               cuyo /etc/raiz.conf dice al kernel que monte esta partición en "/"
   por defecto  la partición de configuración SAGUI-CONF (D256, mejora 098): ext2 de 16 MB con
                un LEEME, la última de todas (--sin-conf la quita; la ISO no la lleva)
 
@@ -38,11 +41,16 @@ META_MB = META_BYTES // (1024 * 1024)
 ROTULO_JOGOS = "SAGUI-JOGOS"   # la partición de juegos (D181); el /etc/fstab la monta por esta etiqueta
 ROTULO_APPS = "SAGUI-APPS"     # la partición de aplicaciones (D194); el /etc/fstab la monta en /apps
 # UUID y semilla fijos de cada partición del sistema: dos compilaciones dan la misma imagen.
+MODOS_RAIZ = {"auto": 0, "ram": 1, "disco": 2, "live": 3, "toram": 4}   # CAB_RAIZ_OPC (D379)
+ROTULO_PERSIST = "SAGUI-PERSIST"   # D379 (L2): la capa persistente de la live
+ROTULO_RAIZ = "SAGUI-RAIZ"     # D379: la raíz del sistema en disco (prototipo); el initramfs la monta en "/"
 ROTULO_CONF = "SAGUI-CONF"     # la configuración del sistema (mejora 098, D256): usuarios, claves, red; 16 MB ext2
 CONF_MB = 16
 UUIDS_SISTEMA = {ROTULO_CONF: ("5a6a0005-5a61-434f-8000-434f4e460001", "5a6a0005-5a61-434f-8000-434f4e460002"),
                  ROTULO_JOGOS: ("5a6a0005-5a61-4a4f-8000-4a4f474f5301", "5a6a0005-5a61-4a4f-8000-4a4f474f5302"),
-                 ROTULO_APPS: ("5a6a0005-5a61-4150-8000-415050530001", "5a6a0005-5a61-4150-8000-415050530002")}
+                 ROTULO_APPS: ("5a6a0005-5a61-4150-8000-415050530001", "5a6a0005-5a61-4150-8000-415050530002"),
+                 ROTULO_RAIZ: ("5a6a0005-5a61-5241-8000-5241495a0001", "5a6a0005-5a61-5241-8000-5241495a0002"),
+                 ROTULO_PERSIST: ("5a6a0005-5a61-5045-8000-504552530001", "5a6a0005-5a61-5045-8000-504552530002")}
 import argparse
 import os
 import shutil
@@ -52,7 +60,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from mksgfs import validar_sgfs   # la misma validación del ramdisk (D147)
+from mksgfs import validar_sgfs, EXT_TEXTO   # la misma validación del ramdisk (D147)
 
 SETOR = 512
 KERNEL_ENDERECO = 0x100000
@@ -306,6 +314,18 @@ def main():
     ap.add_argument("--apps-mb", type=int, default=0,
                     help="tamaño de la partición de aplicaciones en MB; 0 = lo justo más un margen "
                          "para instalar otras (el doble, al menos 4 MB más)")
+    ap.add_argument("--raiz", default=None, metavar="PASTA",
+                    help="D379 (prototipo): partición SAGUI-RAIZ (ext2) con la raíz del sistema (el árbol del ramdisk, "
+                         "build/rootfs); el --ramdisk tiene que ser un initramfs (tools/mkinitramfs.py) que la monte")
+    ap.add_argument("--modo-raiz", default="auto", choices=sorted(MODOS_RAIZ),
+                    help="D379: fuerza el modo de la raíz (auto = lo que diga /etc/raiz.conf del initramfs; ram = el "
+                         "initramfs en modo rescate; disco; live; toram)")
+    ap.add_argument("--persist-mb", type=int, default=0,
+                    help="D379 (L2): partición SAGUI-PERSIST (ext2 vacía) de N MB: la capa persistente de la live")
+    ap.add_argument("--raiz-mb", type=int, default=0, help="tamaño de SAGUI-RAIZ en MB (0 = lo justo y margen)")
+    ap.add_argument("--raiz-versao", default=None,
+                    help="D379 (M1, solo pruebas): la marca de versión que se escribe en la raíz (/sistema/raiz/versao); "
+                         "por defecto, SAGUI_VERSAO de kernel/inc/versao.h (la del núcleo)")
     ap.add_argument("--part-fs", default="ext2", choices=("ext2", "fat32"),
                     help="sistema das partições sem --*-fs próprio (padrão ext2)")
     ap.add_argument("--sin-conf", action="store_true",
@@ -351,7 +371,9 @@ def main():
             sys.exit(f"mkimagem: a pasta de jogos {a.jogos} não existe ou está vazia")
         jogos_mb = a.jogos_mb or mb_para_conteudo(a.jogos)
     apps_mb = 0
-    if a.apps:
+    if a.apps and a.raiz:
+        pass   # D379 (P2 A): con la raíz en disco, /apps va dentro de SAGUI-RAIZ (sin partición propia)
+    elif a.apps:
         if a.cd:
             sys.exit("mkimagem: --cd no combina con la partición de aplicaciones (el kernel no lee el CD, D077/D194)")
         if not os.path.isdir(a.apps) or not os.listdir(a.apps):
@@ -360,8 +382,34 @@ def main():
         apps_mb = a.apps_mb or justo + max(4, justo)
         if apps_mb < justo:
             sys.exit(f"mkimagem: --apps-mb {apps_mb} no basta para {a.apps} (hacen falta {justo} MB)")
-    conf_mb = 0 if (a.cd or a.sin_conf) else CONF_MB
-    sis_mb = jogos_mb + apps_mb + conf_mb
+    raiz_mb = 0
+    tmp_raiz = None
+    if a.raiz:
+        # D379 (T1): con --cd la raíz va dentro de la imagen El Torito; el kernel la ve en cd0img y,
+        # en modo toram, la copia a la RAM (ram0).
+        if not os.path.isdir(a.raiz) or not os.listdir(a.raiz):
+            sys.exit(f"mkimagem: la carpeta raíz {a.raiz} no existe o está vacía")
+        tmp_raiz = tempfile.TemporaryDirectory()
+        preparar_raiz(a.raiz, tmp_raiz.name, a.raiz_versao or versao_do_nucleo())
+        if a.apps:   # D379 (P2 A): SAGUI-RAIZ absorbe /apps (tal cual, como la partición SAGUI-APPS)
+            if not os.path.isdir(a.apps) or not os.listdir(a.apps):
+                sys.exit(f"mkimagem: la carpeta de aplicaciones {a.apps} no existe o está vacía")
+            shutil.copytree(a.apps, os.path.join(tmp_raiz.name, "apps"), dirs_exist_ok=True, symlinks=True)
+        justo = mb_para_conteudo(tmp_raiz.name)
+        # D379 (M1): en la live la raíz es de solo lectura (lo que se cambia va a la capa) y en el CD se copia
+        # entera a la RAM: un margen pequeño (lo instalado lo dimensiona el instalador, no esto).
+        raiz_mb = a.raiz_mb or justo + max(8, justo // 16)
+        if raiz_mb < justo:
+            sys.exit(f"mkimagem: --raiz-mb {raiz_mb} no basta para {a.raiz} (hacen falta {justo} MB)")
+    # D379 (P2 A): con la raíz en disco con escritura (--modo-raiz disco), SAGUI-CONF se funde en ella (/etc y
+    # /root persistentes). En la live (las imágenes de serie, M1) la raíz es de solo lectura y SAGUI-CONF sigue
+    # guardando la configuración como siempre (el kernel la superpone sobre el /etc de la capa).
+    conf_mb = 0 if (a.cd or a.sin_conf or (a.raiz and a.modo_raiz == "disco")) else CONF_MB
+    # D379 (M1, P4/P7 A): el CD con la raíz dentro arranca en toram (la raíz copiada a la RAM; si no cabe, live
+    # desde el CD) diga lo que diga el raiz.conf del initramfs (el mismo de las imágenes de disco).
+    if a.cd and a.raiz and a.modo_raiz == "auto":
+        a.modo_raiz = "toram"
+    sis_mb = jogos_mb + apps_mb + raiz_mb + conf_mb
 
     sim = simbolos(a.kernel_elf)
     if sim.get("_kernel_inicio") != KERNEL_ENDERECO:
@@ -420,6 +468,8 @@ def main():
         sys.exit("mkimagem: --swap-mb tiene que estar entre 1 y 1024 (0 = automático)")
     cab += struct.pack("<H", a.swap_mb)   # CAB_TROCA_MB (160, D352): tope de la swap comprimida en MB
     cab += struct.pack("<B", (1 if a.sin_pedir_root else 0) | (2 if a.sin_migrar_home else 0))   # CAB_USU_OPC (162, D371)
+    assert len(cab) == 163, "CAB_RAIZ_OPC tiene que caer en el byte 163"
+    cab += struct.pack("<B", MODOS_RAIZ[a.modo_raiz])   # CAB_RAIZ_OPC (163, D379)
     # 163-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
     # aquí se deja a cero (preencher_setores): los valores de la imagen son los bits de arriba.
 
@@ -474,6 +524,13 @@ def main():
     if apps_mb:
         tabela.append((ROTULO_APPS, apps_mb, "ext2", "/apps"))
         conteudos[ROTULO_APPS] = a.apps
+    if raiz_mb:   # D379: la raíz, justo antes de la de configuración
+        tabela.append((ROTULO_RAIZ, raiz_mb, "ext2", "/"))
+        conteudos[ROTULO_RAIZ] = tmp_raiz.name
+    tmp_persist = tempfile.TemporaryDirectory()
+    if a.persist_mb:   # D379 (L2): vacía (sin leeme: lo que hay en ella aparece en la raíz de la live)
+        tabela.append((ROTULO_PERSIST, a.persist_mb, "ext2", "/persist"))
+        conteudos[ROTULO_PERSIST] = tmp_persist.name
     # D256: la de configuración es la última de todas; lleva solo un LEEME.
     tmp_conf = tempfile.TemporaryDirectory()
     if conf_mb:
@@ -507,7 +564,17 @@ def main():
             f.write(entrada_mbr(0xEF, esp[0], esp[1]))
         print(f"mkimagem: ESP SAGUI-EFI (FAT32, tipo 0xEF) de {esp[1] // 2048} MB en el LBA {esp[0]}, "
               f"entrada {(livres[0] - 0x1BE) // 16 + 1} (D264)")
+    if a.cd and raiz_mb:
+        # D379 (T1): con la raíz dentro, la imagen del CD también tiene que acabar en un cilindro entero
+        # (la BIOS, en la emulación de disco de El Torito, toma la geometría de la tabla).
+        cil = GEOM_CABECAS * GEOM_SETORES * SETOR
+        tam = os.path.getsize(a.saida)
+        with open(a.saida, "r+b") as f:
+            f.truncate((tam + cil - 1) // cil * cil)
     tmp_conf.cleanup()
+    if tmp_raiz:
+        tmp_raiz.cleanup()
+    tmp_persist.cleanup()
     util_sis = util + sis_mb * 1024 * 1024
     # tamanho.txt: la imagen entera que cuenta «Acerca de» (arranque y particiones del
     # sistema). tamanho-base.txt: la meta de 38 MB (D181), que desde la v7.4 es la del
@@ -584,6 +651,100 @@ def montar_esp(a, saida, tam, cab, kern, rd):
             f.truncate(max(os.path.getsize(saida), (inicio + qtd) * SETOR))
         copiar_disperso(vol, saida, inicio * SETOR)
     return inicio, qtd
+
+
+def versao_do_nucleo():
+    """SAGUI_VERSAO de kernel/inc/versao.h (la que el núcleo compara con la marca de la raíz, D379)."""
+    import re
+    h = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kernel", "inc", "versao.h")
+    with open(h, encoding="utf-8") as f:
+        m = re.search(r'^#define\s+SAGUI_VERSAO\s+"([^"]+)"', f.read(), re.M)
+    if not m:
+        sys.exit(f"mkimagem: no se encuentra SAGUI_VERSAO en {h}")
+    return m.group(1)
+
+
+# D379 (M1): lo que identifica la raíz. "versao": la versión del núcleo con el que va (el kernel no usa una raíz
+# de otra versión, raiz.c). "etc.sha256": las sumas del /etc de serie, para que el instalador, al reinstalar,
+# sepa qué archivos de /etc cambió la persona (esos se conservan) y cuáles son de serie (esos se actualizan).
+MARCA_RAIZ = "sistema/raiz/versao"
+SOMAS_ETC = "sistema/raiz/etc.sha256"
+
+
+def marcar_raiz(destino, versao):
+    import hashlib
+    os.makedirs(os.path.join(destino, "sistema", "raiz"), exist_ok=True)
+    linhas = []
+    etc = os.path.join(destino, "etc")
+    for raiz, pastas, arqs in os.walk(etc):
+        pastas.sort()
+        for n in sorted(arqs):
+            real = os.path.join(raiz, n)
+            if os.path.islink(real):
+                continue
+            rel = os.path.relpath(real, destino).replace(os.sep, "/")
+            with open(real, "rb") as f:
+                linhas.append(f"{hashlib.sha256(f.read()).hexdigest()}  {rel}\n")
+    with open(os.path.join(destino, SOMAS_ETC), "w", encoding="latin-1") as f:
+        f.write("".join(linhas))
+    with open(os.path.join(destino, MARCA_RAIZ), "w", encoding="latin-1") as f:
+        f.write(versao + "\n")
+
+
+def preparar_raiz(origem, destino, versao):
+    """D379: copia el árbol de la raíz como lo vería el kernel en el ramdisk: los textos
+    (EXT_TEXTO de mksgfs) pasan de UTF-8 a Latin-1 y se quitan los .gitkeep. Al final, la
+    marca de versión y las sumas de /etc (marcar_raiz)."""
+    for raiz, pastas, arqs in os.walk(origem):
+        rel = os.path.relpath(raiz, origem)
+        dest = os.path.join(destino, rel) if rel != "." else destino
+        os.makedirs(dest, exist_ok=True)
+        for n in arqs:
+            if n == ".gitkeep":
+                continue
+            src = os.path.join(raiz, n)
+            if os.path.islink(src):
+                continue
+            with open(src, "rb") as f:
+                dados = f.read()
+            if dados[:4] != b"\x7fELF" and os.path.splitext(n)[1].lower() in EXT_TEXTO:
+                try:
+                    dados = dados.decode("utf-8").encode("latin-1")
+                except (UnicodeDecodeError, UnicodeEncodeError):
+                    pass
+            with open(os.path.join(dest, n), "wb") as g:
+                g.write(dados)
+            shutil.copymode(src, os.path.join(dest, n))
+    # Las carpetas que en el árbol en RAM crea el kernel al usarlas (/home, D371) o los montajes:
+    # en la raíz en disco tienen que existir ya (los puntos de montaje de /etc/fstab).
+    for p in ("home", "tmp", "apps", "apps/vps", "jogos", "logs", "sistema/conf", "root", "initrd"):
+        os.makedirs(os.path.join(destino, p), exist_ok=True)
+    marcar_raiz(destino, versao)
+
+
+# D379: los permisos que el kernel da al árbol del ramdisk (vfs.c, meta_inicial), en la raíz en disco.
+def ordens_permisos_raiz(conteudo):
+    ordens = []
+    for raiz, pastas, arqs in os.walk(conteudo):
+        for n in sorted(pastas) + sorted(arqs):
+            real = os.path.join(raiz, n)
+            rel = os.path.relpath(real, conteudo).replace(os.sep, "/")
+            if '"' in rel or os.path.islink(real):
+                continue
+            pasta = os.path.isdir(real)
+            if rel == "home" or rel.startswith("home/"):
+                ordens += [f'sif "/{rel}" uid 1000', f'sif "/{rel}" gid 1000']
+            if rel.startswith("sistema/") and not (rel == "sistema/idiomas" or rel.startswith("sistema/idiomas/")):
+                ordens.append(f'sif "/{rel}" mode {"040700" if pasta else "0100700"}')
+            if rel == "etc/sombra":
+                ordens.append(f'sif "/{rel}" mode 0100600')
+    for rel in PASTAS_DE_SAGUI["/apps"]:   # /apps/vps de sagui también dentro de la raíz (D297)
+        if os.path.isdir(os.path.join(conteudo, "apps" + rel)):
+            ordens += [f'sif "/apps{rel}" uid 1000', f'sif "/apps{rel}" gid 1000']
+    for rel, modo in (("tmp", "041777"), ("sistema", "040711"), ("root", "040700")):
+        if os.path.isdir(os.path.join(conteudo, rel)):
+            ordens.append(f'sif "/{rel}" mode {modo}')
+    return ordens
 
 
 def mb_para_conteudo(pasta):
@@ -675,6 +836,8 @@ def normalizar_donos(saida, inicio, conteudo, uid, gid, ponto=""):
             ordens += [f'sif "{rel}" uid {uid}', f'sif "{rel}" gid {gid}', f'sif "{rel}" mode 0{modo:o}']
     # /apps es de root, pero VisualPythonS (D297) guarda ahí, como sagui, las aplicaciones que genera:
     # /apps/vps se crea ya de sagui (si no existe, «mkdir» falla sin más y el «sif» lo corrige).
+    if ponto == "/":
+        ordens += ordens_permisos_raiz(conteudo)
     for rel in PASTAS_DE_SAGUI.get(ponto, ()):
         ordens += [f'mkdir "{rel}"', f'sif "{rel}" uid 1000', f'sif "{rel}" gid 1000', f'sif "{rel}" mode 040755']
     if not ordens:

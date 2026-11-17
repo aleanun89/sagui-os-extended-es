@@ -1244,7 +1244,7 @@ static bool programa_disponivel(const programa_t *p)
     return true;   /* en esta variante la entrada del OpenTyrian ni siquiera existe */
 #else
     if (!txt_comeca_com(p->processo, "opentyrian")) return true;   /* D204: también «opentyrian-cheia» */
-    return vfs_achar(p->caminho) != NULL;
+    return vfs_existe_arquivo(p->caminho);   /* D379: también con la raíz en disco */
 #endif
 }
 

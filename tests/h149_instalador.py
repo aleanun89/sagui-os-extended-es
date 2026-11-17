@@ -12,6 +12,9 @@ Parte 1 (IDE, terminal): un disco vacío de 512 MB (hdb) y un disco con datos de
   los juegos están, se escribe en /home, se reinicia y sigue ahí.
 Parte 2 (pendrive USB): se instala en un pendrive del EHCI y se arranca desde él (modo usb).
 Parte 3 (escritorio): el asistente (capturas H149-*), instalando en un disco de verdad.
+D379 (M1): el origen es, como las imágenes de serie, una live con la raíz en SAGUI-RAIZ: lo instalado lleva
+SAGUI-RAIZ (el sistema por ficheros, con /apps dentro) en lugar de SAGUI-APPS y SAGUI-CONF (h387 E, I y K
+prueban además reinstalar y el instalador de antes). Con SAGUI_RAIZ_CLASICA=1, lo de siempre.
 """
 import os
 import re
@@ -49,20 +52,35 @@ def reiniciar_e_esperar(m, rotulo):
     verificar(m.proc.poll() is not None, f"[{rotulo}] reiniciar: el QEMU sale (-no-reboot)")
 
 
+def rotulo_ext2(part):
+    return subprocess.run(["/usr/sbin/e2label", part], capture_output=True, text=True).stdout.strip()
+
+
 def comprobar_disco(img, origem, jogo=None, rotulo=""):
     t = sfdisk(img)
     print("tabla:", t)
     verificar(t.get(1) and t[1][0] == 1 and t[1][2] == "da" and t[1][3], f"[{rotulo}] partición 1: SaguiOS (0xDA), activa, desde el LBA 1")
     verificar(t.get(2) and t[2][2] == "f", f"[{rotulo}] partición 2: extendida")
-    verificar(t.get(5) and t[5][2] == "83" and t.get(6) and t[6][2] == "83" and t.get(7) and t[7][2] == "83"
-              and t.get(8) and t[8][2] == "83" and t[8][1] == 16 * 2048,
-              f"[{rotulo}] lógicas: /home, juegos, /apps y SAGUI-CONF de 16 MB (83, ext2; como en la imagen, D194, D256)")
+    ultima = max(k for k in t if k >= 5)
+    raiz = None
+    if ultima == 7:   # D379 (M1): /home, juegos y SAGUI-RAIZ
+        raiz = extrair_particao(img, t[7][0], t[7][1] // 2048)
+        verificar(rotulo_ext2(raiz) == "SAGUI-RAIZ" and e2fsck(raiz)[0] == 0,
+                  f"[{rotulo}] lógicas: /home, juegos y SAGUI-RAIZ (un ext2 sano; D379: sin SAGUI-APPS ni SAGUI-CONF)")
+        verificar(subprocess.run(["/usr/sbin/debugfs", "-R", "cat /sistema/raiz/versao", raiz], capture_output=True).stdout.startswith(b"v"),
+                  f"[{rotulo}] la raíz instalada lleva la marca de versión (lo último que se copia)")
+        sis = t[6][1] + t[7][1]
+    else:
+        verificar(t.get(5) and t[5][2] == "83" and t.get(6) and t[6][2] == "83" and t.get(7) and t[7][2] == "83"
+                  and t.get(8) and t[8][2] == "83" and t[8][1] == 16 * 2048,
+                  f"[{rotulo}] lógicas: /home, juegos, /apps y SAGUI-CONF de 16 MB (83, ext2; como en la imagen, D194, D256)")
+        sis = t[6][1] + t[7][1] + t[8][1]
     with open(img, "rb") as f:
         dst = f.read(2 * 512)
         cab = dst[512:1024]
         verificar(cab[:4] == b"SGHD" and cab[144:148] == b"SGIN", f"[{rotulo}] cabecera de arranque con el identificador de instalación (144)")
-        verificar(int.from_bytes(cab[136:140], "little") == t[6][1] + t[7][1] + t[8][1],
-                  f"[{rotulo}] CAB_SIS_SETORES (136) = las particiones de juegos, de apps y de configuración (D181, D194, D256)")
+        verificar(int.from_bytes(cab[136:140], "little") == sis,
+                  f"[{rotulo}] CAB_SIS_SETORES (136) = las particiones del sistema (juegos, apps/raíz y configuración; D181, D194, D256)")
         e2, total = int.from_bytes(cab[8:12], "little"), int.from_bytes(cab[48:52], "little")
         f.seek(e2 * 512)
         copiado = f.read((total - e2) * 512)
@@ -83,17 +101,22 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
         verificar(r == jogo, f"[{rotulo}] los datos de juegos están en opentyrian/ de la partición, byte a byte (D228)")
     r = subprocess.run(["/usr/sbin/debugfs", "-R", "ls /chip8", jg], capture_output=True, text=True).stdout
     verificar(".ch8" in r, f"[{rotulo}] los juegos de la base (chip8) van también a la partición: el montaje en /jogos los tapa (D228)")
+    ns = os.path.join(APPS_RAIZ, "bin", "netsurf")
+    if raiz:
+        if os.path.exists(ns):
+            r = subprocess.run(["/usr/sbin/debugfs", "-R", "cat /apps/bin/netsurf", raiz], capture_output=True).stdout
+            verificar(r == open(ns, "rb").read(), f"[{rotulo}] /apps/bin/netsurf copiado byte a byte a SAGUI-RAIZ")
+        return t
     ap = extrair_particao(img, t[7][0], t[7][1] // 2048)
     rc, o = e2fsck(ap)
-    verificar(rc == 0 and "SAGUI-APPS" in subprocess.run(["/usr/sbin/e2label", ap], capture_output=True, text=True).stdout,
+    verificar(rc == 0 and "SAGUI-APPS" in rotulo_ext2(ap),
               f"[{rotulo}] la partición /apps es un ext2 SAGUI-APPS sano, como en la imagen (D194)")
     cf = extrair_particao(img, t[8][0], t[8][1] // 2048)
     rc, o = e2fsck(cf)
-    verificar(rc == 0 and "SAGUI-CONF" in subprocess.run(["/usr/sbin/e2label", cf], capture_output=True, text=True).stdout,
+    verificar(rc == 0 and "SAGUI-CONF" in rotulo_ext2(cf),
               f"[{rotulo}] SAGUI-CONF es un ext2 sano con su etiqueta (D256)")
     verificar(b"SAGUI-CONF" in subprocess.run(["/usr/sbin/debugfs", "-R", "cat /LEEME", cf], capture_output=True).stdout,
               f"[{rotulo}] SAGUI-CONF lleva su LEEME")
-    ns = os.path.join(APPS_RAIZ, "bin", "netsurf")
     if os.path.exists(ns):
         r = subprocess.run(["/usr/sbin/debugfs", "-R", "cat /bin/netsurf", ap], capture_output=True).stdout
         verificar(r == open(ns, "rb").read(), f"[{rotulo}] /apps/bin/netsurf copiado byte a byte al disco instalado")
@@ -106,10 +129,11 @@ def arrancar_instalado(img, modo, rotulo, com_jogos):
         s = m.serial()
         verificar("es el disco de arranque (cabecera igual" in s, f"[{rotulo}] el disco instalado se reconoce como el de arranque")
         out = m.comando("mount")
-        verificar(re.search(r"\s/home\s", out) and re.search(r"\s/jogos\s", out) and re.search(r"\s/apps\s", out),
-                  f"[{rotulo}] /home, /jogos y /apps montados (por etiqueta)")
+        en_raiz = re.search(r"en /\s+tipo ext2\s+\(rw", out)   # D379: /apps dentro de la raíz en disco
+        verificar(re.search(r"\s/home\s", out) and re.search(r"\s/jogos\s", out) and (en_raiz or re.search(r"\s/apps\s", out)),
+                  f"[{rotulo}] /home, /jogos y /apps montados (por etiqueta; /apps, o la raíz en disco con /apps dentro)")
         verificar(re.search(r"/jogos\s+tipo ext2\s+\(rw", out), f"[{rotulo}] los juegos, ext2 de lectura y escritura como en la imagen (D228)")
-        verificar(re.search(r"/apps\s+tipo ext2\s+\(rw", out), f"[{rotulo}] /apps, ext2 de lectura y escritura (D194)")
+        verificar(en_raiz or re.search(r"/apps\s+tipo ext2\s+\(rw", out), f"[{rotulo}] /apps, ext2 de lectura y escritura (D194, o la raíz D379)")
         out = m.comando("ls /jogos /jogos/opentyrian /apps")
         verificar("chip8" in out, f"[{rotulo}] /jogos/chip8 está (copiado a la partición, D228)")
         if com_jogos:
@@ -143,7 +167,8 @@ def parte1():
         verificar("SaguiOS instalado en hdb y verificado" in out, f"instalar hdb termina y verifica ({out.strip()[-300:]})")
         verificar(re.search(r"Datos de juegos copiados: (\d+) archivos", out) and int(re.search(r"Datos de juegos copiados: (\d+) archivos", out).group(1)) >= 2,
                   "se copian los datos de /jogos (los del disco en /jogos/opentyrian y los juegos de la base, D228)")
-        verificar(re.search(r"Aplicaciones de /apps copiadas: [1-9]\d* archivos", out), "se copian las aplicaciones de /apps (D194)")
+        verificar(re.search(r"(Aplicaciones de /apps copiadas|Sistema copiado por ficheros a SAGUI-RAIZ \(\d+ MB, con /apps\)): [1-9]\d* archivos", out),
+                  "se copian las aplicaciones de /apps (D194; D379: dentro de SAGUI-RAIZ)")
         out = m.comando("particiones hdb")
         print(out)
         m.captura("H149-1-terminal")

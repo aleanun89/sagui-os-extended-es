@@ -35,6 +35,7 @@
 #include "xhci.h"
 #include "info_hardware.h"
 #include "montagem.h"
+#include "raiz.h"
 #include "ata.h"
 #include "cache_disco.h"
 #include "atapi.h"
@@ -484,14 +485,25 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
             etapa(linha);
         }
     }
+    /* D379: si el ramdisk es un initramfs con /etc/raiz.conf, la raíz pasa a ser la
+     * partición del disco que dice (o, si no se puede, se sigue en RAM: modo rescate).
+     * Sin ese fichero (las imágenes de siempre) no hace nada. */
+    if (raiz_montar()) {
+        etapa("Raíz del sistema en el disco (initramfs mínimo en RAM)");
+        arranque_marca("raiz");
+    }
     /* D040: lo que el /etc/fstab manda montar (por ejemplo, la partición de
      * datos del disco de arranque en /home). De aquí en adelante, un disco conectado
      * en caliente también consulta el fstab. */
     {
         bool i0 = int_salva_desliga();
         fstab_liberar();
-        conf_sistema_superpor();  /* D255: la configuración del sistema de SAGUI-CONF sobre /etc */
-        conf_sistema_raiz_preparar();   /* D371: /root, en SAGUI-CONF si está */
+        raiz_pos_fstab();   /* D379: /tmp en la RAM e /initrd, con la raíz en disco */
+        /* D255: la configuración del sistema de SAGUI-CONF sobre /etc. D379: con la raíz en
+         * disco, /etc ya es persistente y esta copia sobre el árbol en RAM no se vería. */
+        if (raiz_estado() != RAIZ_DISCO && raiz_estado() != RAIZ_DISCO_SO_LEITURA)
+            conf_sistema_superpor();
+        conf_sistema_raiz_preparar();   /* D371: /root, en SAGUI-CONF si está (D379: o en la raíz en disco) */
         conf_sistema_home_reavaliar();  /* D371: /home de root si sagui ya está en /home/sagui */
         hora_carregar_config();   /* D080: /home/.zona (persistente) o /etc/zona */
         int_restaura(i0);

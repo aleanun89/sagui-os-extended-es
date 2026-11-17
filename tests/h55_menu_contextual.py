@@ -22,7 +22,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, cor_do_pixel  # noqa: E402
+from qemu import Maquina, verificar, cor_do_pixel, raiz_en_disco, IMAGEM  # noqa: E402
 
 BORDA, TITULO = 2, 24
 LINHA_A, SEP_A = 22, 9   # kernel/gui/menu.c
@@ -101,19 +101,26 @@ def main():
         # D194: el punto de montaje /apps (SAGUI-APPS) también está en la raíz, como carpeta.
         # D255: /sistema (SAGUI-CONF en /sistema/conf) también está en la raíz.
         # D371: /root (la carpeta de root) también.
-        raiz = sorted(set(os.listdir(_rf)) | {"apps", "sistema", "root"},
-                      key=lambda n: (not (n in ("apps", "sistema", "root") or os.path.isdir(os.path.join(_rf, n))), n))
-        i_tmp = raiz.index("tmp")
+        # D379 (M1): la imagen de serie tiene la raíz en SAGUI-RAIZ (ext2): además, las carpetas que mkimagem.py
+        # crea en ella (puntos de montaje) y la lost+found del ext2.
+        extra = {"apps", "sistema", "root"}
+        if raiz_en_disco(IMAGEM):
+            extra |= {"home", "tmp", "jogos", "logs", "initrd", "lost+found"}
+        raiz = sorted(set(os.listdir(_rf)) | extra,
+                      key=lambda n: (not (n in extra or os.path.isdir(os.path.join(_rf, n))), n))
+        # D379: con la raíz en disco hay más carpetas y /tmp queda fuera de la vista: se usa /home
+        pasta = "home" if "home" in raiz and raiz.index("tmp") > 12 else "tmp"
+        i_tmp = raiz.index(pasta)
         marca = len(m.serial())
         menu = abrir_menu(m, *item_arquivos(a, i_tmp))
-        esperar(m, r"arquivos: menu do item tmp", desde=marca)
+        esperar(m, rf"arquivos: menu do item {pasta}", desde=marca)
         verificar(menu[4] == 10, "botão direito numa pasta do Archivos: menu do programa com 10 linhas (Abrir, Renombrar, Borrar, -, Propiedades e, desde a mejora 056, -, Comprimir x2, Extraer x2)")
         time.sleep(0.3)
         m.captura("H55-2-menu-archivos-item")
         marca = len(m.serial())
         m.clique(*linha(menu, 4, 1))
         esperar(m, r"EV_MENU 4 \(codigo 1\)", desde=marca)
-        esperar(m, r"arquivos: propriedades de /tmp", desde=marca)
+        esperar(m, rf"arquivos: propriedades de /{pasta}", desde=marca)
         m.esperar_serial('"Propiedades"', 10)
         verificar(True, "\"Propiedades\" chega ao programa como EV_MENU 4 e mostra o diálogo")
         time.sleep(0.4)
@@ -125,7 +132,7 @@ def main():
         marca = len(m.serial())
         menu = abrir_menu(m, *item_arquivos(a, i_tmp))
         m.clique(*linha(menu, 0))
-        esperar(m, r"arquivos: pasta /tmp \(", desde=marca)
+        esperar(m, rf"arquivos: pasta /{pasta} \(", desde=marca)
         verificar(True, "\"Abrir\" no menu entra na pasta /tmp")
 
         # ---- menu do fundo: Nueva carpeta
@@ -137,7 +144,7 @@ def main():
         m.esperar_serial('"Nueva carpeta"', 10)
         time.sleep(0.4)
         m.digitar("menu55\n", 0.05)
-        esperar(m, r"arquivos: pasta criada /tmp/menu55", desde=marca)
+        esperar(m, rf"arquivos: pasta criada /{pasta}/menu55", desde=marca)
         verificar(True, "\"Nueva carpeta\" no menu do fundo cria /tmp/menu55")
         time.sleep(0.5)
 
@@ -150,7 +157,7 @@ def main():
         for _ in range(8):
             m.tecla("backspace", 0.04)
         m.digitar("nuevo55\n", 0.05)
-        esperar(m, r"arquivos: renomeado /tmp/menu55 -> /tmp/nuevo55", desde=marca)
+        esperar(m, rf"arquivos: renomeado /{pasta}/menu55 -> /{pasta}/nuevo55", desde=marca)
         verificar(True, "\"Renombrar\" muda o nome para nuevo55")
         time.sleep(0.5)
 
@@ -161,7 +168,7 @@ def main():
         m.tecla("down")
         m.tecla("ret")
         esperar(m, r"menu: escolhido 1 \(Actualizar\)", desde=marca)
-        esperar(m, r"arquivos: pasta /tmp \(1 itens\)", desde=marca)
+        esperar(m, rf"arquivos: pasta /{pasta} \(1 itens\)", desde=marca)
         verificar(True, "setas + Enter escolhem \"Actualizar\" no menu do fundo")
         marca = len(m.serial())
         abrir_menu(m, a["cx"] + 400, a["cy"] + 250)
@@ -180,7 +187,7 @@ def main():
         m.esperar_serial('"Borrar"', 10)
         time.sleep(0.4)
         m.tecla("ret")
-        esperar(m, r"arquivos: apagado /tmp/nuevo55", desde=marca)
+        esperar(m, rf"arquivos: apagado /{pasta}/nuevo55", desde=marca)
         verificar(True, "\"Borrar\" no menu apaga a pasta (depois de confirmar)")
         time.sleep(0.5)
 

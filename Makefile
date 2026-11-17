@@ -17,7 +17,10 @@
 #   GNUBOY=0 (sin el emulador de Game Boy, D235) CONQUER=0 (sin Command & Conquer, D230) CNC_VIDEOS=1 (con las películas de C&C: ~880 MB más en
 #   /jogos; súbase JOGOS_MB, p. ej. JOGOS_MB=2000)
 #   QUAKE_DATOS=0 QUAKE=0 (D229)
-#   RAMDISK=base|completo (D324; completo = apps dentro del ramdisk, como APPS=0)
+#   RAMDISK=base|completo (D324; completo = apps dentro del ramdisk, como APPS=0, y el formato de siempre)
+#   RAIZ_DISCO=1 (por defecto, D379 M1): initramfs mínimo + raíz ext2 SAGUI-RAIZ (live desde el medio; el CD,
+#                toram); RAIZ_DISCO=0: el ramdisk de siempre con todo el sistema (como hasta la v8.5.3)
+#   PERSIST_MB (256): la capa persistente SAGUI-PERSIST de las imágenes persistentes (D379)
 #   APPS_MB (0 = lo justo más margen) APPS=0 (las apps de /apps dentro del ramdisk, D194)
 #   make variantes [DESTINO=entrega/v7.0b] -> todas las imágenes en una carpeta (gerar_versao.sh --todas)
 #   make imagem-smp -> build/saguios-smp.img: la misma imagen con --smp (D164; sin IOAPIC)
@@ -608,6 +611,40 @@ APPS_OPC := --apps $(B)/apps/raiz --apps-mb $(APPS_MB)
 RAMDISK_APPS_DEP :=
 CD_RAMDISK := $(B)/ramdisk-cd.sgfs
 APPS_IMG_DEP := $(APPS_DEP)
+endif
+
+# D379 (M1): las imágenes por defecto. El cargador lee solo el núcleo y un initramfs pequeño
+# ($(INITRAMFS): shell, utilidades estáticas y /etc/raiz.conf); la raíz del sistema es la partición
+# SAGUI-RAIZ (ext2, de build/rootfs con /apps dentro, P2 A), que el núcleo monta en «/»:
+#   - imágenes de disco y de USB (y la VDI): live desde el medio, la raíz de solo lectura con una capa
+#     escribible en la RAM, o en SAGUI-PERSIST en las persistentes (P3 A); SAGUI-CONF como siempre;
+#   - la ISO: la raíz dentro de la imagen El Torito, copiada a la RAM al arrancar (toram, P4/P7 A; si no
+#     cabe, live desde el CD);
+#   - el instalador copia el initramfs y la raíz por ficheros a SAGUI-RAIZ, con escritura (R2).
+# Con RAMDISK=completo (o RAIZ_DISCO=0) todo vuelve a ser como hasta la v8.5.3: el ramdisk SGFS con todo
+# el sistema es la raíz (saguios-completo.img, para los PC cuyo disco de arranque el núcleo no ve).
+# El SGFS completo ($(B)/ramdisk.sgfs) se sigue haciendo: de él sale build/rootfs y lo usan
+# saguios-completo.img, las pruebas de compatibilidad y RAIZ_DISCO=0.
+RAIZ_DISCO ?= 1
+ifeq ($(RAMDISK),completo)
+override RAIZ_DISCO := 0
+endif
+INITRAMFS := $(B)/initramfs.sgfs
+PERSIST_MB ?= 256
+ifeq ($(RAIZ_DISCO),1)
+IMG_RAMDISK := $(INITRAMFS)
+IMG_RAMDISK_DEP := $(INITRAMFS) $(B)/ramdisk.sgfs
+RAIZ_OPC := --raiz $(B)/rootfs
+PERSIST_OPC := --persist-mb $(PERSIST_MB)
+CD_DEP := $(INITRAMFS) $(B)/ramdisk.sgfs $(APPS_IMG_DEP)
+CD_OPC := --ramdisk $(INITRAMFS) --raiz $(B)/rootfs $(APPS_OPC)
+else
+IMG_RAMDISK := $(B)/ramdisk.sgfs
+IMG_RAMDISK_DEP := $(B)/ramdisk.sgfs
+RAIZ_OPC :=
+PERSIST_OPC :=
+CD_DEP := $(CD_RAMDISK)
+CD_OPC := --ramdisk $(CD_RAMDISK)
 endif
 
 .PHONY: help uefi variantes priv_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
@@ -1209,7 +1246,8 @@ $(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
 	@touch $@
 
 # D374/D379: el SGFS admite rutas de hasta 55 caracteres; Freeciv y OpenTTD tienen más largas, así que no van en un
-# ramdisk con /apps dentro (CD, «completo») hasta que la 8.5.3.1 cambie el formato (raíz ext2).
+# ramdisk con /apps dentro («completo» y el CD con RAIZ_DISCO=0). Con la raíz en ext2 (M1, lo de por defecto:
+# imágenes de disco y la ISO) sí van: el SGFS queda solo para el initramfs y esos formatos de compatibilidad.
 SGFS_MAX_RUTA := 55
 $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
                   userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) \
@@ -1248,6 +1286,12 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8
 	if [ -e $(B)/rootfs ]; then rm -rf $(B)/rootfs.antigo; mv $(B)/rootfs $(B)/rootfs.antigo; fi; \
 	mv "$$d" $(B)/rootfs; \
 	rm -rf $(B)/rootfs.antigo
+
+# D379 (M1): el initramfs de las imágenes (live; el CD lo arranca en toram y el instalador marca la
+# cabecera del disco instalado para la raíz con escritura). Sale de build/rootfs, que hace el ramdisk.
+$(INITRAMFS): $(B)/ramdisk.sgfs tools/mkinitramfs.py tools/mksgfs.py
+	$(PY) tools/mkinitramfs.py $(B)/rootfs $@.novo --modo live --capa auto
+	mv -f $@.novo $@
 
 # ---------- las fuentes de Typodermic (D196) ----------
 $(B)/fuentes-res/.feito: tools/fuentes_typodermic.py $(FUENTES_ZIP)
@@ -1289,7 +1333,7 @@ $(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(N
 	mv "$$t" $(B)/apps/raiz; \
 	touch $@
 
-# El ramdisk del CD: el mismo, con /apps dentro (el CD no ve la partición).
+# El ramdisk del CD con RAIZ_DISCO=0 (el formato de siempre): el mismo, con /apps dentro.
 $(B)/ramdisk-cd.sgfs: $(B)/ramdisk.sgfs $(APPS_DEP) tools/mksgfs.py
 	@set -e; \
 	d="$$(mktemp -d $(B)/rootfs-cd.XXXXXX)"; \
@@ -1299,7 +1343,7 @@ $(B)/ramdisk-cd.sgfs: $(B)/ramdisk.sgfs $(APPS_DEP) tools/mksgfs.py
 	cp -r $(B)/apps/raiz "$$d/apps"; \
 	for x in freeciv openttd; do \
 	  if [ -e "$$d/apps/$$x" ]; then \
-	    echo "Makefile: $$x fuera del CD (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; la 8.5.3.1 lo resuelve, D379)"; \
+	    echo "Makefile: $$x fuera del CD con RAIZ_DISCO=0 (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; con la raíz en ext2 sí va, D379)"; \
 	    rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
 	done; \
 	$(PY) tools/mksgfs.py "$$d" "$@.novo"; \
@@ -1339,9 +1383,9 @@ $(B)/jogos/.feito: $(OT_DIR)/dados.img.xz $(OT_DIR)/dados-leeme.txt $(JOGOS_MARC
 
 # ---------- imagem final ----------
 # D264: la imagen normal es híbrida: arranca por BIOS (MBR) y por UEFI (la ESP SAGUI-EFI).
-$(B)/saguios.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
 	    --saida $@ --vesa --uefi $(B)/boot/uefi $(JOGOS_OPC_IMG) $(APPS_OPC)
 	cd $(B) && sha256sum saguios.img > saguios.img.sha256
 
@@ -1410,9 +1454,9 @@ help:
 # llegaban por él y todo iba lentísimo; hasta que el IOAPIC compruebe al
 # arrancar que llegan las de los dispositivos, va aparte (--ioapic a mano).
 imagem-smp: $(B)/saguios-smp.img
-$(B)/saguios-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
 	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp $(JOGOS_OPC_IMG) $(APPS_OPC)
 
 # Imagen con el intérprete de AML (uACPI) y el indicador de batería (D192):
@@ -1420,9 +1464,9 @@ $(B)/saguios-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $
 # la que se prueba en los portátiles. Va aparte (como imagem-smp) para que
 # build/saguios.img no cambie según una variable.
 imagem-uacpi: $(B)/saguios-uacpi.img
-$(B)/saguios-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
 	    --saida $@ --vesa --uefi $(B)/boot/uefi --uacpi $(JOGOS_OPC_IMG) $(APPS_OPC)
 	cd $(B) && sha256sum saguios-uacpi.img > saguios-uacpi.img.sha256
 
@@ -1432,10 +1476,11 @@ $(B)/saguios-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin
 # sem xorriso nem genisoimage.
 iso: $(B)/saguios.iso
 
-# D194: el CD lleva las apps de /apps dentro de su ramdisk (ramdisk-cd.sgfs).
-$(B)/saguios-cd.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(CD_RAMDISK) tools/mkimagem.py
+# D379 (M1): el CD lleva la raíz (con /apps dentro, también Freeciv) en la imagen El Torito y arranca en
+# toram; con RAIZ_DISCO=0, las apps de /apps dentro de su ramdisk (ramdisk-cd.sgfs, D194).
+$(B)/saguios-cd.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(CD_DEP) tools/mkimagem.py
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(CD_RAMDISK) \
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf $(CD_OPC) \
 	    --saida $@ --vesa --cd
 
 # D270: la ISO arranca también por UEFI (EFI.IMG con el cargador; el kernel y el ramdisk, de la imagen de dentro).
@@ -1447,10 +1492,10 @@ $(B)/saguios.iso: $(B)/saguios-cd.img tools/mkiso.py $(UEFI_EFI)
 DATOS_MB ?= 64
 imagem-persistente: $(B)/saguios-persistente.img
 
-$(B)/saguios-persistente.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios-persistente.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --uefi $(B)/boot/uefi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC) $(PERSIST_OPC)
 
 # La misma imagen con una partición FAT32 de datos (/home), legible también
 # desde Windows. Sale esparsa: ocupa poco en disco aunque mida DATOS_FAT32_MB.
@@ -1463,24 +1508,24 @@ imagem-persistente-smp: $(B)/saguios-persistente-smp.img $(B)/saguios-persistent
 # Persistente ext2 multinúcleo con uACPI (--uacpi, D192): la de los portátiles, con el
 # indicador de batería; la genera también «make variantes» (gerar_versao.sh --uacpi).
 imagem-persistente-smp-uacpi: $(B)/saguios-persistente-smp-uacpi.img
-$(B)/saguios-persistente-smp-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios-persistente-smp-uacpi.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --uacpi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
-$(B)/saguios-persistente-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --uacpi --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC) $(PERSIST_OPC)
+$(B)/saguios-persistente-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC)
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --dados-mb $(DATOS_MB) $(JOGOS_OPC) $(APPS_OPC) $(PERSIST_OPC)
 
-$(B)/saguios-persistente-fat32-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios-persistente-fat32-smp.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC)
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --smp --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC) $(PERSIST_OPC)
 
-$(B)/saguios-persistente-fat32.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+$(B)/saguios-persistente-fat32.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 	$(PY) tools/mkimagem.py --mbr $(B)/boot/mbr.bin --estagio2 $(B)/boot/estagio2.bin \
-	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(B)/ramdisk.sgfs \
-	    --saida $@ --vesa --uefi $(B)/boot/uefi --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC)
+	    --kernel $(B)/kernel.bin --kernel-elf $(B)/kernel.elf --ramdisk $(IMG_RAMDISK) $(RAIZ_OPC) \
+	    --saida $@ --vesa --uefi $(B)/boot/uefi --dados-mb $(DATOS_FAT32_MB) --dados-fs fat32 $(JOGOS_OPC) $(APPS_OPC) $(PERSIST_OPC)
 
 # D120: imagen con varias particiones de datos (/home, /tmp y /logs) para grabar con Rufus o dd.
 # Tamaños en MB; 0 = sin esa partición. Sale dispersa. Ejemplo:
@@ -1492,8 +1537,8 @@ LOGS_MB ?= 128
 PART_FS ?= fat32
 PART_EXT ?=            # D213: todas van ya como lógicas en una extendida; PART_EXT=--primarias, el formato de antes
 PART_OPC = --home-mb $(HOME_MB) --tmp-mb $(TMP_MB) --logs-mb $(LOGS_MB) --fs $(PART_FS) $(PART_EXT) --salida $(B)/saguios-particiones.img $(JOGOS_OPC) \
-           $(if $(APPS_OPC),--apps $(B)/apps/raiz --apps-mb $(APPS_MB),--sin-apps)
-PART_DEPS = $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(B)/ramdisk.sgfs tools/mkimagem.py tools/crear-disco.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
+           $(if $(APPS_OPC),--apps $(B)/apps/raiz --apps-mb $(APPS_MB),--sin-apps) $(if $(filter 1,$(RAIZ_DISCO)),--initramfs $(INITRAMFS),--clasica)
+PART_DEPS = $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG_RAMDISK_DEP) tools/mkimagem.py tools/crear-disco.py $(JOGOS_DEP) $(APPS_IMG_DEP) $(UEFI_EFI)
 imagem-particoes: $(PART_DEPS)
 	$(PY) tools/crear-disco.py $(PART_OPC)
 

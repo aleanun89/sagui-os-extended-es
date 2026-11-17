@@ -735,6 +735,9 @@ static void aviso_apps_ausentes(void)
     const char *rel;
     montagem_t *m = montagem_de("/apps", &rel);
     if (m && m->tam_ponto == 5) return;   /* montada: todo bien */
+    /* D379 (M1): con la raíz en disco, /apps va dentro de ella (no es una partición aparte). */
+    meta_t mt;
+    if (m && m == montagem_da_raiz() && vfs_meta("/apps/bin", &mt) == 0 && mt.tipo == TIPO_PASTA) return;
     klog("[GUI] aviso: falta /apps (SAGUI-APPS no montada); usa saguios-completo.img (docs/imagenes.md)\n");
     gui_aviso(_("No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. "
                 "Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."));

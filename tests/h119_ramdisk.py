@@ -18,6 +18,9 @@ Critério:
   - a imagem de disco lleva dentro, byte a byte, ese mismo ramdisk;
   - con la imagen así, el kernel arranca con el ramdisk lleno y el Terminal
     se abre de verdad (el pid es mayor que cero).
+D379 (M1): la imagen de serie lleva el initramfs (build/initramfs.sgfs, entero y con /etc/raiz.conf y el
+shell) y la raíz en SAGUI-RAIZ; el ramdisk completo (build/ramdisk.sgfs) se sigue haciendo y comprobando
+(sale de él build/rootfs y lo usan saguios-completo.img y RAIZ_DISCO=0).
 """
 import os
 import re
@@ -106,6 +109,19 @@ def main():
         caminhos.append(rd[off:off + 56].split(b"\0")[0].decode("latin-1"))
     for esperado in ("bin/terminal", "bin/arquivos", "bin/sagsh", "lib/python"):   # D324: correo vive en /apps
         verificar(esperado in caminhos, f"el ramdisk trae {esperado}")
+
+    # ---- D379 (M1): el initramfs de la imagen, también entero ----
+    ini = os.path.join(BUILD, "initramfs.sgfs")
+    if os.path.exists(ini):
+        with open(ini, "rb") as f:
+            rd = f.read()
+        magic, _v, _te, entradas, _to, _do, total, _s, _r = struct.unpack("<4sHHIIIIII", rd[:TAM_CAB])
+        verificar(magic == b"SGFS" and total == len(rd) and sum(rd[TAM_CAB:]) & 0xFFFFFFFF == _s,
+                  "el initramfs es un SGFS entero (tamaño y suma)")
+        caminhos = [rd[TAM_CAB + i * TAM_ENTRADA:TAM_CAB + i * TAM_ENTRADA + 56].split(b"\0")[0].decode("latin-1")
+                    for i in range(entradas)]
+        for esperado in ("bin/sagsh", "etc/raiz.conf", "etc/rescate.txt"):
+            verificar(esperado in caminhos, f"el initramfs trae {esperado}")
 
     # ---- y la imagen lleva ese ramdisk dentro ----
     with open(IMAGEM, "rb") as f:

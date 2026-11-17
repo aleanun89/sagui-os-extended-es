@@ -37,7 +37,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, RAIZ, SAIDA, particoes_img  # noqa: E402
+from qemu import Maquina, verificar, opcoes_ramdisk, RAIZ, SAIDA, particoes_img  # noqa: E402
 
 TRAB = os.path.join(SAIDA, "h254")
 B = os.path.join(RAIZ, "build")
@@ -77,15 +77,21 @@ def construir_imagen(nome, extras, chave_root=None, chave_sagui=None, conf=False
         os.makedirs(os.path.join(raiz, "home", ".ssh"), exist_ok=True)
         with open(os.path.join(raiz, "home", ".ssh", "authorized_keys"), "w") as f:
             f.write("# clave de sagui (prueba h254)\n" + open(chave_sagui + ".pub").read())
-    sgfs = os.path.join(TRAB, nome + ".sgfs")
-    subprocess.run(["python3", os.path.join(RAIZ, "tools", "mksgfs.py"), raiz, sgfs], check=True, stdout=subprocess.DEVNULL)
+    # D379 (M1): como las imágenes de serie, el initramfs y este árbol como raíz en SAGUI-RAIZ (live).
+    ramdisk = opcoes_ramdisk()
+    if "--raiz" in ramdisk:
+        ramdisk = ["--ramdisk", ramdisk[1], "--raiz", raiz]
+    else:
+        sgfs = os.path.join(TRAB, nome + ".sgfs")
+        subprocess.run(["python3", os.path.join(RAIZ, "tools", "mksgfs.py"), raiz, sgfs], check=True, stdout=subprocess.DEVNULL)
+        ramdisk = ["--ramdisk", sgfs]
     img = os.path.join(TRAB, nome + ".img")
     if not conf:
         extras = extras + ["--sin-conf"]      # sin SAGUI-CONF: modo en vivo (D256: por defecto la imagen la lleva)
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(B, "boot", "mbr.bin"), "--estagio2", os.path.join(B, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(B, "kernel.bin"), "--kernel-elf", os.path.join(B, "kernel.elf"),
-                    "--ramdisk", sgfs, "--saida", img, "--sesion-sagui"] + extras,
+                    *ramdisk, "--saida", img, "--sesion-sagui"] + extras,
                    check=True, stdout=subprocess.DEVNULL)
     return img
 

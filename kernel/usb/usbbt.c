@@ -104,11 +104,16 @@ static int escrever_montado(const char *caminho, const char *rel_pasta, const vo
 
 static void p_guardar(const char *t, int n)
 {
-    no_t *x = vfs_achar(CONF_RAM);
-    if (x) vfs_truncar(x);
-    else if (vfs_criar(CONF_RAM, TIPO_ARQUIVO, &x) < 0) x = NULL;
-    if (x && n) vfs_escrever(x, 0, t, (uint32_t)n);
-    if (conf_sistema_montada()) {
+    if (montagem_da_raiz()) {   /* D379: /etc está en la raíz en disco */
+        int r = escrever_montado(CONF_RAM, "etc", t, (uint32_t)n);
+        if (r < 0) klog("[BT] no se pudieron guardar las claves en /etc (%d)\n", r);
+    } else {
+        no_t *x = vfs_achar(CONF_RAM);
+        if (x) vfs_truncar(x);
+        else if (vfs_criar(CONF_RAM, TIPO_ARQUIVO, &x) < 0) x = NULL;
+        if (x && n) vfs_escrever(x, 0, t, (uint32_t)n);
+    }
+    if (conf_sistema_montada() && !conf_sistema_na_raiz()) {
         int r = escrever_montado(CONF_DISCO, "etc", t, (uint32_t)n);
         if (r < 0) klog("[BT] no se pudieron guardar las claves en SAGUI-CONF (%d)\n", r);
     } else {

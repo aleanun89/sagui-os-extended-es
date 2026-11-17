@@ -4,7 +4,7 @@
 contraseña de root en la pantalla del sistema.
 
 A. «instalar hdb -s --cuenta ana --clave-usuario X --clave-root X --cuenta-admin» (la opción «usar la misma
-   para root» del asistente): en SAGUI-CONF, /etc/usuarios con ana:1000:1000:/home/ana (sin sagui), la sombra
+   para root» del asistente): en SAGUI-CONF (D379: o en la SAGUI-RAIZ instalada), /etc/usuarios con ana:1000:1000:/home/ana (sin sagui), la sombra
    con root y ana (PBKDF2), /etc/grupos con admin:10:ana y /etc/sistema.conf; en /home, /ana de uid 1000 y
    0700. El disco instalado arranca en la pantalla de inicio de sesión con ana; con su contraseña entra con
    /home/ana, y «admin» acepta su propia contraseña (administradora).
@@ -74,7 +74,7 @@ def parte_a():
             p = extrair_particao(dest, v[0], v[1] // 2048)
             r = __import__("subprocess").run([os.path.join(h318.E2, "e2label"), p], capture_output=True, text=True).stdout.strip()
             rot[r] = p
-    home, conf = rot["SAGUI-DATOS"], rot["SAGUI-CONF"]
+    home, conf = rot["SAGUI-DATOS"], rot.get("SAGUI-CONF") or rot["SAGUI-RAIZ"]   # D379 (M1): /etc en la raíz instalada
     usu = debugfs(conf, "cat /etc/usuarios")
     verificar(re.search(rb"^ana:1000:1000:/home/ana:/bin/sagsh:", usu, re.M) and not re.search(rb"^sagui:", usu, re.M),
               f"/etc/usuarios: ana es la cuenta principal, sin sagui ({usu!r})")

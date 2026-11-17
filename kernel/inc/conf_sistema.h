@@ -7,6 +7,7 @@
 
 #define CONF_PONTO CONF_SISTEMA_PONTO   /* abi.h: /sistema/conf */
 
+bool conf_sistema_na_raiz(void);     /* D379: SAGUI-CONF fundida en la raíz en disco (instalado) */
 bool conf_sistema_montada(void);     /* SAGUI-CONF montada con escritura */
 void conf_sistema_superpor(void);    /* copia su etc/ sobre el /etc de la RAM (al arrancar) */
 /* D371: ¿la configuración de la máquina ya está en /etc (SAGUI-CONF montada y /etc/sistema.conf)? Si no, el

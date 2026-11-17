@@ -23,7 +23,9 @@
 #                      y, con --ext2/--fat32, también las persistentes multinúcleo
 #   --uacpi            incluye las imágenes con el intérprete de AML (uACPI, D192: batería):
 #                      saguios-uacpi.img y, con --smp y --ext2, saguios-persistente-smp-uacpi.img
-#   --completo         saguios-completo.img (D324: las aplicaciones dentro del ramdisk)
+#   --completo         saguios-completo.img (D324: todo el sistema y las aplicaciones en el ramdisk de
+#                      siempre, en la RAM; D379: el formato de compatibilidad para los PC cuyo disco de
+#                      arranque el núcleo no ve)
 #   --particiones      incluye el disco con /home, /tmp y /logs en particiones (D120), comprimido
 #   --todas            todo lo anterior: ISO, FAT32, ext2, sin GPL, multinúcleo, uACPI y particiones
 #   --variante V       variante de la imagen principal: gpl (por defecto),
@@ -56,13 +58,15 @@
 #   JOGOS=0         todas las imágenes sin la partición de juegos
 #   INPUT_SHARE     por defecto vacío: lo de input_share/ (juegos completos de quien
 #                   compila, D228) NO entra en la entrega; con --con-input-share, sí
-#   APPS_MB         partición de aplicaciones SAGUI-APPS en /apps (0 = lo justo
+#   PERSIST_MB      la capa persistente SAGUI-PERSIST de las imágenes persistentes (256, D379)
+#   RAIZ_DISCO=0    (D379) todas las imágenes con el ramdisk de siempre (como hasta la v8.5.3):
+#                   por defecto (1) arrancan con un initramfs mínimo y la raíz del sistema en la
+#                   partición SAGUI-RAIZ (ext2, con /apps dentro), live desde el medio; la ISO
+#                   la copia a la RAM (toram)
+#   APPS_MB         con RAIZ_DISCO=0: la partición SAGUI-APPS en /apps (0 = lo justo
 #                   más un margen para instalar otras: el doble, al menos 4 MB más)
-#   APPS=0          sin la partición SAGUI-APPS: las apps (NetSurf, sqlite3) van
-#                   dentro del ramdisk, en /apps (imagen de un solo bloque, D194)
-#   RAMDISK=completo  lo mismo que APPS=0 (D324); por defecto «base»: el ramdisk solo
-#                   lleva lo fundamental y las aplicaciones van en SAGUI-APPS. La ISO
-#                   es siempre «completo» (el kernel no lee el CD)
+#   APPS=0          sin /apps aparte: las apps van dentro del ramdisk de siempre (D194)
+#   RAMDISK=completo  lo mismo que APPS=0 (D324) y el formato de siempre (RAIZ_DISCO=0)
 # Por ejemplo:  HOME_MB=8192 JOGOS_MB=64 APPS_MB=64 ./gerar_versao.sh --particiones --smp
 #
 # Lo que se compila se puede parametrizar (variante de licencia, MicroPython,
@@ -249,7 +253,8 @@ if [ "$COMPILAR" = 1 ]; then
     [ "$QUERER_PART" = 1 ] && make "${MAKE_VAR[@]}" B="$B" -j"$JOBS" imagem-particoes-xz
     # D324: saguios-completo.img (las aplicaciones dentro del ramdisk, para los PC cuya controladora no
     # localiza el disco de arranque). Solo cambia el ramdisk y la imagen: se hace en la misma carpeta y se
-    # vuelve a dejar la imagen normal (perfil «base») para la copia de más abajo.
+    # vuelve a dejar la imagen normal (perfil «base») para la copia de más abajo. D379: es la única con el
+    # ramdisk de siempre (todo en la RAM; sin Freeciv ni OpenTTD, que no caben en el SGFS).
     if [ "$QUERER_COMPLETO" = 1 ] && [ "$RAMDISK" != completo ] && [ "$APPS" != 0 ]; then
         make "${MAKE_VAR[@]}" B="$B" -j"$JOBS" RAMDISK=completo "$B/saguios.img"
         cp "$B/saguios.img" "$B/saguios-completo.img"
@@ -326,6 +331,7 @@ texto_apps() {
         echo "sin la partición SAGUI-APPS: las aplicaciones van en el ramdisk (/apps)"
         return
     fi
+    # D379 (M1): con la raíz en disco, /apps va dentro de SAGUI-RAIZ.
     python3 - "$IMAGEN" "$B/apps/raiz/bin" <<'FIN'
 import os, struct, sys
 img, binarios = sys.argv[1], sys.argv[2]
@@ -353,9 +359,12 @@ with open(img, "rb") as f:
                 rel = struct.unpack("<I", nx[8:12])[0]
         elif e[4]:
             parts.append((ini, qtd))
+    apps = sorted(os.listdir(binarios)) if os.path.isdir(binarios) else []
     for ini, qtd in parts:
+        if etiqueta(ini) == "SAGUI-RAIZ":
+            print(f"dentro de la raíz del sistema (SAGUI-RAIZ, ext2 de {qtd // 2048} MB, D379), en /apps ({', '.join(apps) or 'ninguna'})")
+            break
         if etiqueta(ini) == "SAGUI-APPS":
-            apps = sorted(os.listdir(binarios)) if os.path.isdir(binarios) else []
             print(f"SAGUI-APPS de {qtd // 2048} MB en /apps ({', '.join(apps) or 'vacía'})")
             break
     else:
@@ -388,7 +397,12 @@ if [ "$NOTAS" = 1 ]; then
         echo "Juegos:             $([ "$JOGOS" = 0 ] && echo "sin la partición SAGUI-JOGOS" || echo "SAGUI-JOGOS en /jogos: $([ "$JOGOS_IMG_MB" = 0 ] && echo "la justa" || echo "$JOGOS_IMG_MB MB") en saguios.img, $([ "$JOGOS_MB" = 0 ] && echo "la justa" || echo "$JOGOS_MB MB") en las persistentes")"
         echo "input_share:        $([ "$CON_INPUT_SHARE" = 1 ] && echo "INCLUIDO (no publicar)" || echo "no incluido")"
         echo "Aplicaciones:       $(texto_apps)"
-        echo "Configuración:      SAGUI-CONF (ext2, 16 MB, con un LEEME; D256) en todas las imágenes de disco o pendrive; la ISO no la lleva"
+        if [ "${RAIZ_DISCO:-1}" = 0 ]; then
+            echo "Arranque:           el ramdisk de siempre con todo el sistema (RAIZ_DISCO=0)"
+        else
+            echo "Arranque:           initramfs mínimo y la raíz del sistema en SAGUI-RAIZ (ext2, D379): live desde el medio (raíz de solo lectura y los cambios en la RAM; en las persistentes, en SAGUI-PERSIST de ${PERSIST_MB:-256} MB); la ISO la copia a la RAM (toram; si no cabe, live desde el CD); saguios-completo.img, el ramdisk de siempre"
+        fi
+        echo "Configuración:      SAGUI-CONF (ext2, 16 MB, con un LEEME; D256) en todas las imágenes de disco o pendrive; la ISO no la lleva; lo instalado la funde en la raíz"
         echo "Tamaños (MB):       persistente FAT32 $FAT32_MB, persistente ext2 $EXT2_MB; particiones: /home $HOME_MB, /tmp $TMP_MB, /logs $LOGS_MB ($PART_FS${PART_EXT:+, $PART_EXT})"
         echo
         echo "Contenido:"
@@ -399,18 +413,18 @@ if [ "$NOTAS" = 1 ]; then
         echo "Qué es cada fichero:"
         ( cd "$DESTINO" && for f in saguios*; do
               case "$f" in
-                  saguios.img) d="pendrive o disco (Rufus/dd), un procesador; juegos en SAGUI-JOGOS, aplicaciones en SAGUI-APPS y la configuración en SAGUI-CONF" ;;
+                  saguios.img) d="pendrive o disco (Rufus/dd), un procesador; live: el sistema y las aplicaciones en SAGUI-RAIZ (solo lectura; los cambios, en la RAM), juegos en SAGUI-JOGOS y la configuración en SAGUI-CONF; desde ella se instala" ;;
                   saguios-smp.img) d="la misma, con todos los procesadores (--smp; sin IOAPIC)" ;;
                   saguios.vdi) d="disco para VirtualBox" ;;
-                  saguios.iso) d="CD arrancable (sin la partición de juegos; las aplicaciones de /apps van dentro)" ;;
-                  saguios-persistente.img) d="pendrive con /home persistente en ext2" ;;
+                  saguios.iso) d="CD arrancable: el sistema (con /apps y Freeciv) se copia a la RAM al arrancar y el CD se puede sacar; con poca RAM, se usa desde el CD (sin la partición de juegos)" ;;
+                  saguios-persistente.img) d="pendrive con /home persistente en ext2 y los cambios al sistema guardados en SAGUI-PERSIST" ;;
                   saguios-uacpi.img) d="la básica con el intérprete de AML (uACPI): indicador de batería en portátiles (D192)" ;;
                   saguios-persistente-smp-uacpi.img) d="pendrive con /home persistente en ext2, todos los procesadores y uACPI (batería): la de los portátiles" ;;
                   saguios-persistente-smp.img) d="pendrive con /home persistente en ext2, con todos los procesadores" ;;
                   saguios-persistente-fat32-smp.img*) d="pendrive con /home persistente en FAT32, con todos los procesadores" ;;
                   saguios-persistente-fat32.img*) d="pendrive con /home persistente en FAT32 (también se lee desde Windows)" ;;
                   saguios-particiones.img*) d="disco con /home, /tmp y /logs en particiones (D120)" ;;
-                  saguios-completo.img) d="imagen con todas las aplicaciones dentro del sistema en memoria (sin /apps), para los PC cuya controladora de disco no localiza el disco de arranque (D324); pide unos 64 MB más de RAM" ;;
+                  saguios-completo.img) d="imagen con todo el sistema y las aplicaciones en la RAM (el ramdisk de siempre, sin Freeciv ni OpenTTD), para los PC cuya controladora de disco no localiza el disco de arranque (D324); pide unos 64 MB más de RAM" ;;
                   saguios-sin-gpl.img) d="variante sin código GPL (sin ports GPL de terceros: OpenTyrian, NetSurf, OpenJazz..., D109/D258)" ;;
                   *) d="" ;;
               esac

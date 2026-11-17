@@ -16,6 +16,9 @@ pendrive o disco con Rufus (modo imagen DD) o con dd. Uso:
   python3 tools/crear-disco.py -i            (asistente: pregunta tamaños y sistema)
 Lo normal es "make imagem-particoes HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32".
 Un tamaño 0 omite esa partición.
+D379 (M1): como las demás imágenes, arranca con el initramfs (<build>/initramfs.sgfs) y la raíz del
+sistema en la partición SAGUI-RAIZ (ext2, con /apps dentro; live desde el medio). Con --clasica, el
+ramdisk de siempre con todo el sistema (y /apps en SAGUI-APPS), como hasta la v8.5.3.
 """
 import argparse
 import os
@@ -63,14 +66,23 @@ def main():
                     help="partición de aplicaciones SAGUI-APPS (D194); por defecto <build>/apps/raiz si existe")
     ap.add_argument("--sin-apps", action="store_true", help="sin la partición de aplicaciones")
     ap.add_argument("--apps-mb", type=int, default=0, help="tamaño de la partición de aplicaciones en MB (0 = lo justo más margen)")
+    ap.add_argument("--initramfs", default=None, metavar="ARCHIVO",
+                    help="D379: el initramfs (por defecto <build>/initramfs.sgfs); la raíz, <build>/rootfs en SAGUI-RAIZ")
+    ap.add_argument("--clasica", action="store_true",
+                    help="D379: el ramdisk de siempre (<build>/ramdisk.sgfs) con todo el sistema, sin SAGUI-RAIZ")
     ap.add_argument("mkimagem_extra", nargs="*", help="opciones extra para mkimagem.py (tras --)")
     a = ap.parse_args()
     if a.interactivo:
         asistente(a)
     b = a.build
+    initramfs = a.initramfs or f"{b}/initramfs.sgfs"
+    raiz = not a.clasica and os.path.isfile(initramfs)
+    if not a.clasica and not raiz:
+        print(f"crear-disco: AVISO: no está {initramfs} (make): la imagen sale con el ramdisk de siempre")
     cmd = [sys.executable, os.path.join(RAIZ, "tools", "mkimagem.py"),
            "--mbr", f"{b}/boot/mbr.bin", "--estagio2", f"{b}/boot/estagio2.bin",
-           "--kernel", f"{b}/kernel.bin", "--kernel-elf", f"{b}/kernel.elf", "--ramdisk", f"{b}/ramdisk.sgfs",
+           "--kernel", f"{b}/kernel.bin", "--kernel-elf", f"{b}/kernel.elf",
+           *(["--ramdisk", initramfs, "--raiz", f"{b}/rootfs"] if raiz else ["--ramdisk", f"{b}/ramdisk.sgfs"]),
            "--saida", a.salida, "--vesa", "--part-fs", a.fs,
            "--home-mb", str(a.home_mb), "--tmp-mb", str(a.tmp_mb), "--logs-mb", str(a.logs_mb), *a.mkimagem_extra]
     for mb in a.extra_mb:
@@ -101,8 +113,10 @@ def main():
     rotulos = [r for _, r in rotulos] + [("-", f"SAGUI-X{k + 1}") for k in range(len(a.extra_mb))]
     if con_jogos:   # las del sistema van las últimas: juegos y aplicaciones (mkimagem.py, D181, D194)
         rotulos.append(("/jogos, lectura y escritura", "SAGUI-JOGOS"))
-    if con_apps:
+    if con_apps and not raiz:
         rotulos.append(("/apps, aplicaciones", "SAGUI-APPS"))
+    if raiz:   # D379: la raíz del sistema (con /apps dentro), antes de la de configuración
+        rotulos.append(("/ (raíz del sistema, solo lectura en la live)", "SAGUI-RAIZ"))
     if "--sin-conf" not in a.mkimagem_extra:   # D256: la última, con la configuración del sistema
         rotulos.append(("configuración del sistema", "SAGUI-CONF"))
     usados = iter(rotulos)

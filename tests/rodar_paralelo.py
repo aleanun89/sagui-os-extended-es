@@ -32,6 +32,9 @@ RAIZ = os.path.dirname(AQUI)
 PASTA = os.path.join(RAIZ, "build", "paralelo")
 NAO_SE_APLICA = 77   # código de saída de uma prova que não se aplica a esta compilação
 TEMPO_MAX = 900   # por prova (a serial usa 600; com várias em paralelo o TCG vai mais lento)
+# D379 (M1): las que instalan varias veces copian la raíz por ficheros (y la releen): más tiempo.
+TEMPO_LENTAS = {"h149_instalador.py": 2400, "h387_raiz_disco.py": 2400, "h207_instalar_cd.py": 1800,
+                "h270_uefi_gpt.py": 1800}
 
 # Provas que não podem rodar com outras ao mesmo tempo, e o motivo.
 EXCLUSIVAS = {
@@ -82,7 +85,7 @@ def rodar_uma(nome, kvm, sufixo="", memoria="512M"):
                              env=env, cwd=RAIZ, start_new_session=True)
         registrar(p)
         try:
-            rc = p.wait(timeout=TEMPO_MAX)
+            rc = p.wait(timeout=TEMPO_LENTAS.get(nome, TEMPO_MAX))
             ok = None if rc == NAO_SE_APLICA else rc == 0
         except subprocess.TimeoutExpired:
             log.write("\nTEMPO ESGOTADO\n")

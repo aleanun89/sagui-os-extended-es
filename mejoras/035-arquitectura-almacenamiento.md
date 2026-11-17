@@ -3,6 +3,13 @@
 - **Estado:** propuesta (documento de diseño). No empezar hasta que terminen los hilos en curso
   que tocan el kernel; cada fase va **sola**, sin otros hilos de kernel en paralelo, y con la
   batería completa entre fases.
+- **Actualización 2026-11-17 (D379, DECIDIDO, v8.5.3.1):** la parte de arranque y raíz (F0, F2, §3.1, §3.2, §3.6, §3.7 y §5.2) se
+  rehace en [`docs/almacenamiento.md`](../docs/almacenamiento.md), con el estado medido de la v8.5.3, los tres modos
+  pedidos por el mantenedor (**instalado** con raíz en disco, **live** desde el medio con capa escribible y
+  **toram** solo para el CD o cuando se pida), el plan por fases R/L/T/M y las preguntas abiertas. **F2 hecha
+  en la v8.5.3.1** (instalado, live desde el medio con capa, toram del CD; h387 A-H); **M1 también hecha en la v8.5.3.1** (las imágenes por defecto, D379); F para la v8.5.3.2. Lo que sigue valiendo de aquí sin cambios: la caché
+  (§3.3, hecha en parte por D281/D350), la carga bajo demanda (§3.4, F3), las bibliotecas (§3.5, ahora D378), la
+  robustez (§5) y las pruebas (§5.6). Donde este documento y `almacenamiento.md` no coincidan, manda el segundo.
 - **Prioridad:** alta
 - **Alta:** 2026-11-07
 - **Relacionadas:** [012](012-memoria-alta.md) (kmap y caché de bloques),
@@ -80,6 +87,8 @@ del kernel cargables.
 
 ### 3.2 initrd (lo mínimo para llegar a la raíz)
 
+- (D379: hecho en el prototipo con `tools/mkinitramfs.py`, 640 KB, y `/etc/raiz.conf` en vez de un UUID en la
+  cabecera: la etiqueta `SAGUI-RAIZ` solo vale en el disco de arranque, reconocido por su cabecera, D179.)
 - Es un SGFS como el ramdisk actual, pero pequeño (~300-500 KB): `sh`, `mount`, `ls`, `cat`,
   `discos`, `fsck` (nuevo), `infopc` y los mensajes de rescate.
 - Los drivers ATA, EHCI y almacenamiento USB y el código de ext2 ya están en el kernel; el
@@ -179,6 +188,9 @@ Se mantienen enlaces o rutas de compatibilidad para lo antiguo (`/jogos`, `/imag
   hasta el escritorio ≤ N s en el G470** (medir antes de F2 para fijar N).
 
 ### F0: partición del sistema (paso intermedio, propuesto el 2026-11-08)
+
+> **Superado (2026-11-17):** lo hicieron D194/D324 con SAGUI-APPS en `/apps`. D379 va más allá: la raíz entera
+> en disco (SAGUI-RAIZ, que absorbe `/apps`) y el ramdisk reducido a un initramfs. Ver `docs/almacenamiento.md`.
 
 Antes de la raíz en disco completa, un paso pequeño que ya quita RAM: **no todo el sistema
 tiene que vivir en el ramdisk**. En la imagen con particiones (068) hay una opción

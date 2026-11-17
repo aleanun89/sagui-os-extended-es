@@ -1,7 +1,7 @@
 # Freeciv en SaguiOS (D374)
 
 Freeciv 3.1.6 (juego de estrategia por turnos libre, GPL-2.0 o posterior, <https://www.freeciv.org>) con su
-cliente SDL2 y el servidor local, en español. Es la v8.5.3.1.
+cliente SDL2 y el servidor local, en español. Salió en la v8.5.3 (imágenes de disco y USB; en la ISO, desde la v8.5.3.1).
 
 ## Cómo jugar
 

@@ -193,9 +193,38 @@ def imagem_sesion_root(origem=None):
     return destino
 
 
-def imagem_de_teste(teste, extras=(), apps=True):
+# D379 (M1): las imágenes de prueba arrancan como las de serie: el initramfs (build/initramfs.sgfs) y la raíz
+# del sistema en SAGUI-RAIZ (build/rootfs, con /apps dentro), live desde el medio (el CD, toram). Con
+# SAGUI_RAIZ_CLASICA=1 (o clasica=True), el ramdisk de siempre con todo el sistema (como hasta la v8.5.3).
+RAIZ_CLASICA = os.environ.get("SAGUI_RAIZ_CLASICA") == "1"
+INITRAMFS = os.path.join(BUILD, "initramfs.sgfs")
+ROOTFS = os.path.join(BUILD, "rootfs")
+
+
+def opcoes_ramdisk(clasica=None):
+    """Las opciones de mkimagem.py para el ramdisk: el initramfs y --raiz (D379), o el ramdisk de siempre."""
+    if clasica is None:
+        clasica = RAIZ_CLASICA
+    if not clasica and os.path.isfile(INITRAMFS) and os.path.isdir(os.path.join(ROOTFS, "bin")):
+        return ["--ramdisk", INITRAMFS, "--raiz", ROOTFS]
+    return ["--ramdisk", os.path.join(BUILD, "ramdisk.sgfs")]
+
+
+def raiz_en_disco(img):
+    """D379: ¿la imagen lleva la raíz del sistema en una partición SAGUI-RAIZ (y no el ramdisk de siempre)?"""
+    for _n, tipo, ini, _q in particoes_img(img):
+        if tipo == 0x83:
+            with open(img, "rb") as f:
+                f.seek(ini * 512 + 1024 + 120)
+                if f.read(16).split(b"\0")[0] == b"SAGUI-RAIZ":
+                    return True
+    return False
+
+
+def imagem_de_teste(teste, extras=(), apps=True, clasica=None):
     """Monta build/testes/teste-<nome>.img: a imagem normal com um autoteste
-    do kernel ligado pelo cabeçalho de boot (campo CAB_TESTE)."""
+    do kernel ligado pelo cabeçalho de boot (campo CAB_TESTE).
+    D379: con la raíz en SAGUI-RAIZ como las imágenes de serie (clasica=True: el ramdisk de siempre)."""
     extras = list(extras) + [o for o in OPCOES_IMAGEM if o not in extras]
     # D371: las pruebas no quieren la pantalla de la primera contraseña de root (salvo la que la prueba).
     if "--pedir-root" not in extras and "--sin-pedir-root" not in extras:
@@ -209,14 +238,17 @@ def imagem_de_teste(teste, extras=(), apps=True):
     apps_raiz = os.path.join(b, "apps", "raiz")
     if apps and "--apps" not in extras and os.path.isdir(apps_raiz) and os.listdir(apps_raiz):
         extras += ["--apps", apps_raiz]
+    ramdisk = [] if "--ramdisk" in extras else opcoes_ramdisk(clasica)
     seguro = re.sub(r"[^A-Za-z0-9_.-]+", "_", teste).strip("_")[:40]
     if extras:   # con opciones distintas, imágenes distintas (p. ej. con y sin --smp)
         seguro += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "_", "".join(extras)).strip("_")[:40]
+    if "--raiz" not in ramdisk:
+        seguro += "-clasica"
     destino = os.path.join(SAIDA, f"teste-{seguro}.img")
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", os.path.join(b, "ramdisk.sgfs"), "--saida", destino, "--teste", teste, *extras],
+                    *ramdisk, "--saida", destino, "--teste", teste, *extras],
                    check=True, stdout=subprocess.DEVNULL)
     return destino
 
@@ -428,11 +460,11 @@ def opcoes_apps():
     return ["--apps", APPS_RAIZ] if os.path.isdir(os.path.join(APPS_RAIZ, "bin")) else []
 
 
-def imagem_console(apps=False):
+def imagem_console(apps=False, clasica=None):
     """A imagem normal, mas com o terminal de tela cheia em vez da área de
     trabalho (opção --console). Usada pelos testes das fases 2 a 4.
-    apps=True: con la partición SAGUI-APPS en /apps (D194)."""
-    return imagem_de_teste("", ["--vesa", "--console"] + (opcoes_apps() if apps else []))
+    apps=True: con la partición SAGUI-APPS en /apps (D194). clasica=True: el ramdisk de siempre (D379)."""
+    return imagem_de_teste("", ["--vesa", "--console"] + (opcoes_apps() if apps else []), clasica=clasica)
 
 
 def achar_ovmf(firmware):

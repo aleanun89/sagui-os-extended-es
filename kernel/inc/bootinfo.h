@@ -116,6 +116,12 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_USU_OPC  162   /* u8 D371 (mkimagem.py): bit 0 --sin-pedir-root (imágenes de prueba: el primer arranque no pide la contraseña de root) */
 #define CAB_USU_SIN_PEDIR_ROOT 0x01
 #define CAB_USU_SIN_MIGRAR     0x02   /* --sin-migrar-home: no pasar sagui a /home/sagui (imágenes de prueba) */
+#define CAB_RAIZ_OPC 163   /* u8 D379 (mkimagem.py --modo-raiz): fuerza el modo de la raíz sobre /etc/raiz.conf del initramfs */
+#define RAIZ_OPC_AUTO   0   /* lo que diga /etc/raiz.conf (sin él, el ramdisk es la raíz, como siempre) */
+#define RAIZ_OPC_RAM    1   /* no montar ninguna raíz: el initramfs, en modo rescate */
+#define RAIZ_OPC_DISCO  2   /* la raíz del disco con escritura (instalado) */
+#define RAIZ_OPC_LIVE   3   /* la raíz del medio de solo lectura con una capa escribible */
+#define RAIZ_OPC_TORAM  4   /* la raíz copiada entera a la RAM */
 #define CAB_TROCA_MB 160   /* u16 D352 (mkimagem.py --swap-mb N): tope del almacén de la swap en MB; 0 = automático */
 /* D353: 192-255 = lo que guarda kconfig (KCONF_* de kconf.h). Quien lee CAB_MEM_OPC, CAB_DISCO_OPC o CAB_FREQ
  * usa kconf_cab(), que pone lo guardado encima de la imagen. */

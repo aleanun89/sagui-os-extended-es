@@ -13,8 +13,10 @@ Parte A (imagen con la partición, como build/saguios.img, sobre una copia y sna
   - un fichero escrito en /apps sigue ahí después de reiniciar.
 Parte B (imagen sin la partición): el sistema arranca igual, Inicio > Internet no tiene NetSurf
   ni Cipó (D324: los dos viven en /apps) y "netsurf" no se encuentra.
-Parte C (CD, que no lee particiones): la ISO lleva /apps dentro de su ramdisk (el mismo árbol
-  que con APPS=0) y "which netsurf"/"sqlite3" funcionan.
+Parte C (CD): la ISO lleva /apps dentro (D379 M1: dentro de la raíz, copiada a la RAM) y
+  "which netsurf"/"sqlite3" funcionan.
+D379 (M1): la partición SAGUI-APPS solo existe ya en las imágenes con el ramdisk de siempre (RAIZ_DISCO=0):
+la parte A usa una de esas (clasica=True); en las de serie /apps va dentro de SAGUI-RAIZ (h387).
 Capturas en docs/capturas/H159-*.png.
 """
 import os
@@ -60,7 +62,7 @@ def extras_pen(pen):
 
 
 def parte_a():
-    imagem = imagem_de_teste("", ["--vesa", "--jogos", JOGOS, "--apps", APPS])
+    imagem = imagem_de_teste("", ["--vesa", "--jogos", JOGOS, "--apps", APPS], clasica=True)   # D379: SAGUI-APPS
     copia = os.path.join(SAIDA, "h159-apps.img")
     shutil.copyfile(imagem, copia)
     datos = h153.DATOS
@@ -157,17 +159,9 @@ def parte_b():
 
 
 def parte_c():
-    """El CD: /apps va en su ramdisk (el mismo árbol que con APPS=0)."""
-    subprocess.run(["make", "-s", "-C", RAIZ, os.path.relpath(os.path.join(BUILD, "ramdisk-cd.sgfs"), RAIZ)],
-                   check=True, stdout=subprocess.DEVNULL)
-    img = os.path.join(SAIDA, "h159-cd.img")
+    """El CD: /apps va dentro de la raíz (D379 M1), que se copia a la RAM al arrancar."""
+    img = imagem_de_teste("", ["--vesa", "--console", "--cd"])
     iso = os.path.join(SAIDA, "h159.iso")
-    b = BUILD
-    subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkimagem.py"),
-                    "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
-                    "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", os.path.join(b, "ramdisk-cd.sgfs"), "--saida", img, "--vesa", "--console", "--cd"],
-                   check=True, stdout=subprocess.DEVNULL)
     subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkiso.py"), "--imagem", img, "--saida", iso],
                    check=True, stdout=subprocess.DEVNULL)
     os.remove(img)
@@ -176,7 +170,7 @@ def parte_c():
             m.esperar_serial("sagui:/$", 180)
             out = m.comando("which netsurf sqlite3")
             verificar("/apps/bin/netsurf" in out and "/apps/bin/sqlite3" in out,
-                      "C: el CD lleva /apps en el ramdisk (which netsurf, sqlite3)")
+                      "C: el CD lleva /apps (which netsurf, sqlite3)")
             out = m.comando("ls /apps/netsurf")
             verificar("default.css" in out and "Messages" in out, "C: y los recursos de NetSurf")
             out = m.comando("sqlite3 :memory: \"select 6*7\"")

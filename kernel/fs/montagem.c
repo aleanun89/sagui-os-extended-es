@@ -26,12 +26,17 @@ static uint32_t geracao = 1;
 
 montagem_t *montagem_indice(int i) { return (i >= 0 && i < MAX_MONTAGENS && tabela[i].usado) ? &tabela[i] : NULL; }
 
+/* D379: el montaje de la raíz ("/"), si la raíz está en un disco. Sin él (lo de
+ * siempre) el árbol en RAM es la raíz y esto vale NULL. */
+static montagem_t *montagem_raiz;
+static bool desmontando_tudo;   /* solo al apagar se puede soltar la raíz */
+
 montagem_t *montagem_de(const char *caminho, const char **rel)
 {
     montagem_t *melhor = NULL;
     for (int i = 0; i < MAX_MONTAGENS; i++) {
         montagem_t *m = &tabela[i];
-        if (!m->usado || txt_compara_n(caminho, m->ponto, m->tam_ponto) != 0) continue;
+        if (!m->usado || m == montagem_raiz || txt_compara_n(caminho, m->ponto, m->tam_ponto) != 0) continue;
         char c = caminho[m->tam_ponto];
         if (c != 0 && c != '/') continue;                 /* "/usbx" no es /usb */
         if (!melhor || m->tam_ponto > melhor->tam_ponto) melhor = m;
@@ -40,8 +45,19 @@ montagem_t *montagem_de(const char *caminho, const char **rel)
         const char *r = caminho + melhor->tam_ponto;
         *rel = *r ? r + 1 : r;
     }
+    /* D379: lo que no cae en otro montaje es de la raíz en disco (toda ruta absoluta). */
+    if (!melhor && montagem_raiz && caminho[0] == '/') {
+        melhor = montagem_raiz;
+        if (rel) {
+            const char *r = caminho;
+            while (*r == '/') r++;
+            *rel = r;
+        }
+    }
     return melhor;
 }
+
+montagem_t *montagem_da_raiz(void) { return montagem_raiz; }
 
 bool montagem_viva(const arq_montado_t *a) { return a->m->usado && a->m->geracao == a->geracao; }
 
@@ -51,6 +67,7 @@ bool montagem_abaixo(const char *caminho)
     if (n == 1) n = 0;   /* "/" */
     for (int i = 0; i < MAX_MONTAGENS; i++) {
         montagem_t *m = &tabela[i];
+        if (m == montagem_raiz) continue;   /* D379: la raíz está "debajo" de todo; no cuenta */
         if (m->usado && txt_compara_n(m->ponto, caminho, n) == 0 && (m->ponto[n] == 0 || m->ponto[n] == '/')) return true;
     }
     return false;
@@ -64,6 +81,8 @@ static const sistema_arquivos_t *fs_do_tipo(const char *tipo)
     if (txt_compara(tipo, "iso9660") == 0) return &fs_iso9660;   /* D207: CD/DVD */
     if (txt_compara(tipo, "udf") == 0) return &fs_udf;           /* D233: DVD y CD grabados */
     if (txt_compara(tipo, "cdda") == 0) return &fs_cdda;         /* D233: CD de audio (pistas en WAV) */
+    if (txt_compara(tipo, "ramfs") == 0) return &fs_ramfs;       /* D379: una carpeta del árbol en RAM */
+    if (txt_compara(tipo, "sobreposicao") == 0) return &fs_sobreposicao;   /* D379: la raíz de la live */
     return NULL;
 }
 
@@ -72,6 +91,7 @@ static const sistema_arquivos_t *fs_do_tipo(const char *tipo)
 static bool tipo_valido(disco_t *d, const sistema_arquivos_t *fs)
 {
     if (fs == fs_do_tipo(d->tipo_fs)) return true;
+    if (fs == &fs_sobreposicao) return txt_comeca_com(d->tipo_fs, "ext");   /* D379: un ext2 como capa inferior */
     return d->cd && ((fs == &fs_iso9660 && d->tem_iso) || (fs == &fs_udf && d->tem_udf));
 }
 
@@ -181,11 +201,34 @@ static void envolver(int i, const sistema_arquivos_t *fs, void *priv)
 
 }
 
+/* D379: con la raíz en disco, el punto de montaje es una carpeta de ese disco. Si
+ * falta y la raíz se puede escribir, se crea (como «mkdir -p»); si no, el montaje
+ * vale igual (el desvío es por la ruta), solo que la carpeta no sale en el listado. */
+static bool criar_ponto_na_raiz(const char *ponto)
+{
+    montagem_t *r = montagem_raiz;
+    if (r->opcoes & MONTAR_SO_LEITURA) return false;
+    char parcial[CAMINHO_MAX];
+    for (size_t i = 1; ; i++) {
+        if (ponto[i] != '/' && ponto[i] != 0) continue;
+        memcpy(parcial, ponto, i);
+        parcial[i] = 0;
+        info_arquivo_t inf;
+        bool criou = false;
+        if (r->fs->info(r->priv, parcial + 1, &inf) < 0) {
+            if (r->fs->criar_pasta(r->priv, parcial + 1) < 0) return false;
+            criou = true;
+        }
+        if (!ponto[i]) return criou;   /* D379 (M1): si se creó, se quita al desmontar (como en la RAM) */
+    }
+}
+
 /* Crea las carpetas que falten en la ruta (en la RAM). Devuelve si creó la última. */
 static int criar_ponto(const char *ponto, bool *criou)
 {
     char parcial[CAMINHO_MAX];
     *criou = false;
+    if (montagem_raiz) { *criou = criar_ponto_na_raiz(ponto); return 0; }
     for (size_t i = 1; ; i++) {
         if (ponto[i] != '/' && ponto[i] != 0) continue;
         memcpy(parcial, ponto, i);
@@ -242,7 +285,7 @@ int montagem_meta(montagem_t *m, const char *rel, meta_t *s, bool olhar)
 
 int montagem_montar(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes)
 {
-    return montagem_montar_dono(d, ponto, tipo, opcoes & ~(uint32_t)MONTAR_DONO, 0);
+    return montagem_montar_dono(d, ponto, tipo, opcoes & ~(uint32_t)(MONTAR_DONO | MONTAR_RAIZ_INTERNO), 0);
 }
 
 int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes, uint32_t dono)
@@ -254,8 +297,13 @@ int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32
         klog("[MONTAGEM] %s: disco reservado (particiones o instalador), no se monta\n", d->nome);
         return ERRO_OCUPADO;
     }
-    if (ponto[0] != '/' || !ponto[1] || txt_tamanho(ponto) >= CAMINHO_MAX) return ERRO_INVALIDO;
-    if (montagem_de(ponto, NULL)) return ERRO_OCUPADO;    /* ya montado ahí, o dentro de otro montaje */
+    bool e_raiz = (opcoes & MONTAR_RAIZ_INTERNO) != 0;   /* D379: solo raiz.c monta "/" */
+    opcoes &= ~(uint32_t)MONTAR_RAIZ_INTERNO;
+    if (ponto[0] != '/' || txt_tamanho(ponto) >= CAMINHO_MAX) return ERRO_INVALIDO;
+    if (e_raiz ? (ponto[1] || montagem_raiz) : !ponto[1]) return ERRO_INVALIDO;
+    /* Ya montado ahí, o dentro de otro montaje. D379: dentro de la raíz en disco sí se puede. */
+    montagem_t *dentro = montagem_de(ponto, NULL);
+    if (dentro && dentro != montagem_raiz) return ERRO_OCUPADO;
     if (!tipo || txt_compara(tipo, "auto") == 0) tipo = d->tipo_fs;
     const sistema_arquivos_t *fs = fs_do_tipo(tipo);
     if (!fs || !tipo_valido(d, fs)) return ERRO_FORMATO;
@@ -277,8 +325,10 @@ int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32
     r = fs->montar(d, &opcoes, &priv);
     trava_soltar(&trava_fs);
     d->rw_autorizado = r >= 0 && !(opcoes & MONTAR_SO_LEITURA);
+    if (fs == &fs_sobreposicao) d->rw_autorizado = false;   /* D379: la capa inferior de la live nunca se escribe */
     if (r < 0) {
-        if (criou) vfs_remover_pasta(ponto);
+        if (criou && montagem_raiz) montagem_raiz->fs->remover_pasta(montagem_raiz->priv, ponto + 1);   /* D379 */
+        else if (criou) vfs_remover_pasta(ponto);
         klog("[MONTAGEM] %s em %s falhou (%d)\n", d->nome, ponto, r);
         return r;
     }
@@ -301,7 +351,12 @@ int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32
     else { m->uid = UID_SAGUI; m->gid = GID_SAGUI; }
     m->umask = (opcoes & MONTAR_COM_UMASK) ? MONTAR_UMASK(opcoes) : ponto_comum(ponto) ? 0 : UMASK_PADRAO;
     txt_copia_n(m->tipo, d->cd ? fs->nome : d->tipo_fs, sizeof m->tipo);   /* D233: el que se usó */
+    if (fs == &fs_sobreposicao) txt_copia_n(m->tipo, "live", sizeof m->tipo);   /* D379: la sobreposición de la live */
     d->montagem = m;
+    if (e_raiz) {   /* D379: dueños de verdad (ext2), sin máscara de montaje */
+        m->uid = UID_ROOT; m->gid = GID_ROOT; m->umask = 022;
+        montagem_raiz = m;
+    }
     bool so_leitura = (opcoes & MONTAR_SO_LEITURA) != 0;
     klog("[MONTAGEM] %s (%s) montado em %s, %s\n", d->nome, m->tipo, ponto, so_leitura ? "so leitura" : "leitura e escrita");
     if (txt_compara(ponto, "/logs") == 0 && !so_leitura) logs_disco_gravar("montaje");   /* D120 */
@@ -313,6 +368,8 @@ int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32
 int montagem_desmontar(montagem_t *m, bool gravar)
 {
     if (!m->usado) return 0;
+    /* D379: la raíz en disco solo se suelta al apagar o si el disco ya no está. */
+    if (m == montagem_raiz && !desmontando_tudo && m->disco->presente) return ERRO_OCUPADO;
     /* Nadie puede quedarse con la carpeta actual dentro del volumen. */
     for (int i = 0; i < MAX_PROCESSOS; i++) {
         processo_t *p = processo_indice(i);
@@ -327,7 +384,11 @@ int montagem_desmontar(montagem_t *m, bool gravar)
     d->rw_autorizado = false;
     m->usado = false;
     m->geracao = 0;
-    if (m->criou_ponto) {
+    if (m == montagem_raiz) montagem_raiz = NULL;
+    if (m->criou_ponto && montagem_raiz && m != montagem_raiz) {
+        /* D379 (M1): el punto se creó en la raíz en disco (un pendrive en /usb): se quita si quedó vacío. */
+        montagem_raiz->fs->remover_pasta(montagem_raiz->priv, m->ponto + 1);
+    } else if (m->criou_ponto) {
         no_t *x = vfs_achar(m->ponto);
         if (x && !x->filho) vfs_remover_pasta(m->ponto);
     }
@@ -342,8 +403,12 @@ int montagem_desmontar(montagem_t *m, bool gravar)
 void montagem_desmontar_tudo(void)
 {
     logs_disco_gravar("apagado o reinicio");   /* D120: antes de soltar nada */
+    desmontando_tudo = true;
+    montagem_t *r = montagem_raiz;   /* D379: la raíz, la última */
     for (int i = 0; i < MAX_MONTAGENS; i++)
-        if (tabela[i].usado) montagem_desmontar(&tabela[i], tabela[i].disco->presente);
+        if (tabela[i].usado && &tabela[i] != r) montagem_desmontar(&tabela[i], tabela[i].disco->presente);
+    if (r && r->usado) montagem_desmontar(r, r->disco->presente);
+    desmontando_tudo = false;
     disco_sincronizar(NULL);   /* D281: apagar o reiniciar: nada diferido se queda en la caché */
 }
 

@@ -1728,7 +1728,7 @@ static int e2_info(void *priv, const char *rel, info_arquivo_t *inf)
     inode_t i;
     int r = achar(v, rel, &i);
     if (r < 0) return terminar_dados(v, r);
-    inf->tipo = EH_PASTA(&i) ? TIPO_PASTA : TIPO_ARQUIVO;
+    inf->tipo = EH_PASTA(&i) ? TIPO_PASTA : (I_MODO(&i) & 0111) ? TIPO_PROGRAMA : TIPO_ARQUIVO;   /* D379: como e2_listar */
     inf->tamanho = EH_PASTA(&i) ? 0 : I_TAM(&i);
     return terminar_dados(v, 0);
 }
@@ -1818,7 +1818,9 @@ static int e2_listar(void *priv, const char *rel, int indice, entrada_pasta_t *s
         nome_do_disco(e.nome, e.nome_len, saida->nome, NOME_MAX);
         inode_t f;
         if (inode_ler(v, e.ino, &f) == 0) {
-            saida->tipo = EH_PASTA(&f) ? TIPO_PASTA : TIPO_ARQUIVO;
+            /* D379 (M1): un archivo con permiso de ejecución se lista como programa, como en el ramdisk
+             * (allí, por ser un ELF): «ls» y Archivos lo marcan igual con la raíz en disco. */
+            saida->tipo = EH_PASTA(&f) ? TIPO_PASTA : (I_MODO(&f) & 0111) ? TIPO_PROGRAMA : TIPO_ARQUIVO;
             saida->tamanho = EH_PASTA(&f) ? 0 : I_TAM(&f);
         } else {
             v->erro = 0;

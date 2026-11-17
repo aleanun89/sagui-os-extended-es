@@ -3,8 +3,12 @@
 """H324 (D324) - las aplicaciones no fundamentales viven en /apps, no en el ramdisk.
 
 El ramdisk se carga entero en la RAM al arrancar: con 32 MB y escritorio no quedaba memoria.
+D379 (M1, v8.5.3.1): lo que se carga entero en la RAM ya es solo un initramfs mínimo (la raíz va en SAGUI-RAIZ,
+leída bajo demanda): el límite del ramdisk pasa a ser el del initramfs (MAX_INITRAMFS). El ramdisk completo
+(build/ramdisk.sgfs) sigue existiendo como formato de compatibilidad (saguios-completo.img), sin límite propio.
 Criterios:
-  A. (sin QEMU) el ramdisk pesa menos de MAX_RAMDISK; las aplicaciones movidas no están en su /bin y sí
+  A. (sin QEMU) el initramfs de la imagen pesa menos de MAX_INITRAMFS y es lo que la imagen lleva tras el
+     kernel; las aplicaciones movidas no están en el /bin del sistema y sí
      en build/apps/raiz/bin; ninguna fuente del kernel ni del userland llama a /bin/<app movida>
      (rutas rotas), y el perfil RAMDISK=completo existe en el Makefile.
   B. Con 32 MB y escritorio: arranca, quedan más de MIN_LIBRE_KB libres, y Pluma (Inicio > Accesorios),
@@ -12,8 +16,8 @@ Criterios:
      el escritorio.
   C. Sin la partición SAGUI-APPS: el sistema arranca igual, el menú Inicio y el escritorio ocultan lo
      que vive en /apps (Pluma, Paint, Banana...) y «which pluma» no lo encuentra.
-  D. La ISO (el kernel no lee el CD, D077) lleva /apps en su ramdisk (perfil completo): llega al
-     escritorio y «which pluma» da /apps/bin/pluma.
+  D. La ISO (D379: la raíz con /apps dentro, copiada a la RAM al arrancar) llega al escritorio y
+     «which pluma» da /apps/bin/pluma.
 """
 import os
 import re
@@ -27,8 +31,8 @@ from qemu import Maquina, verificar, imagem_de_teste, SAIDA, BUILD  # noqa: E402
 from h60_barra_tareas import painel, submenu_pelo_mouse, esperar, clicar_aqui, y_linha  # noqa: E402
 import h268_iconos_escritorio as h268  # noqa: E402
 
-MAX_RAMDISK = 14 * 1024 * 1024    # el de la 8.4.2 era 19,3 MB; 12 MB hasta la 8.5.3 (el mantenedor: «no limites el
-#                                   ramdisk»; la 8.5.3.1 lo cambia por un initramfs mínimo con la raíz en disco, D379)
+MAX_INITRAMFS = 1024 * 1024       # D379 (M1): el ramdisk de la 8.4.2 era 19,3 MB y 12 MB hasta la 8.5.3 (el mantenedor:
+#                                   «no limites el ramdisk»); desde la 8.5.3.1 solo va a la RAM un initramfs mínimo
 MIN_LIBRE_KB = 4 * 1024           # con 32 MB y escritorio
 MOVIDAS = ("cipo", "pluma", "macaco", "mico", "correo", "planomini", "gebramini", "visorpdf", "chatia", "ia",
            "reproductor", "musica", "camara", "grabadora", "paint", "pascal", "cc", "spider", "sagui3d",
@@ -42,8 +46,16 @@ def libre_kb(out):
 
 
 def parte_a():
-    rd = os.path.getsize(os.path.join(BUILD, "ramdisk.sgfs"))
-    verificar(rd < MAX_RAMDISK, f"A: el ramdisk pesa {rd / 1048576:.1f} MB (límite {MAX_RAMDISK // 1048576} MB)")
+    ini = os.path.join(BUILD, "initramfs.sgfs")
+    verificar(os.path.exists(ini), "A: hay initramfs (make, D379 M1)")
+    rd = os.path.getsize(ini)
+    verificar(rd < MAX_INITRAMFS, f"A: el initramfs pesa {rd // 1024} KB (límite {MAX_INITRAMFS // 1024} KB)")
+    with open(ini, "rb") as f:
+        dados = f.read()
+    with open(os.path.join(BUILD, "saguios.img"), "rb") as f:
+        img = f.read(8 * 1024 * 1024)
+    verificar(dados[:4096] in img, "A: la imagen de serie lleva ese initramfs tras el kernel")
+    print(f"H324: initramfs {rd} bytes; ramdisk completo (compatibilidad) {os.path.getsize(os.path.join(BUILD, 'ramdisk.sgfs'))} bytes")
     bin_rd = set(os.listdir(os.path.join(BUILD, "rootfs", "bin")))
     bin_ap = set(os.listdir(os.path.join(APPS_RAIZ, "bin")))
     for n in MOVIDAS:
@@ -145,20 +157,12 @@ def parte_c():
 
 
 def parte_d():
-    subprocess.run(["make", "-s", "-C", RAIZ, os.path.relpath(os.path.join(BUILD, "ramdisk-cd.sgfs"), RAIZ)],
-                   check=True, stdout=subprocess.DEVNULL)
-    img = os.path.join(SAIDA, "h324-cd.img")
+    img = imagem_de_teste("", ["--vesa", "--cd"])   # D379: initramfs y la raíz (con /apps) dentro: toram
     iso = os.path.join(SAIDA, "h324.iso")
-    b = BUILD
-    subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkimagem.py"),
-                    "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
-                    "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", os.path.join(b, "ramdisk-cd.sgfs"), "--saida", img, "--vesa", "--cd"],
-                   check=True, stdout=subprocess.DEVNULL)
     subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkiso.py"), "--imagem", img, "--saida", iso],
                    check=True, stdout=subprocess.DEVNULL)
     os.remove(img)
-    print("H324: ramdisk de la ISO: %.1f MB" % (os.path.getsize(os.path.join(b, "ramdisk-cd.sgfs")) / 1048576))
+    print("H324: la ISO: %.1f MB" % (os.path.getsize(iso) / 1048576))
     try:
         with Maquina("h324-d", "cd", imagem=iso, memoria="256M") as m:
             m.esperar_serial('"Terminal"', 240)

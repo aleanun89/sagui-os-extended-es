@@ -46,9 +46,20 @@ void trava_pegar(trava_t *t)
         if (processo_atual()->pid != 0) {
             bloquear(t);
             processo_atual()->acordar_em = relogio_tiques() + 1;
+            ceder();
+            processo_atual()->acordar_em = 0;
+        } else {
+            /* D379: el ocioso (proceso 0) no puede dormir y suele llegar aquí con las
+             * interrupciones apagadas (carga un programa: con la raíz en disco, del ext2).
+             * Si el dueño del bloqueo duerme esperando la IRQ de su DMA, ceder sin
+             * interrupciones vuelve siempre al ocioso: ni la IRQ ni el reloj llegan y la
+             * máquina se queda girando (visto en h387: shell sin prompt, ~1 de cada 4
+             * arranques). Se espera un tic con las interrupciones encendidas. */
+            bool ints = int_salva_desliga();
+            int_liga();
+            cpu_espera();
+            if (!ints) int_desliga();
         }
-        ceder();
-        processo_atual()->acordar_em = 0;
     }
     if (t->profundidade++ == 0) {
         t->dono = processo_atual();
