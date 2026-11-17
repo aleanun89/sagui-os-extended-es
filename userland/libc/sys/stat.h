@@ -52,6 +52,7 @@ int fstatat(int pasta, const char *caminho, struct stat *st, int flags);
 int mkdir(const char *caminho, mode_t modo);
 mode_t umask(mode_t m);
 int chmod(const char *caminho, mode_t modo);
+int fchmod(int fd, mode_t modo);
 /* D341: fijar fechas (PARQ_DATAS). Resolución de un segundo (FAT: 2 s); nanosegundos ignorados. */
 #define UTIME_NOW  ((1l << 30) - 1l)
 #define UTIME_OMIT ((1l << 30) - 2l)

@@ -238,17 +238,20 @@ def conectores():
         out = m.comando("sonido")
         verificar("Autosilencio: si" in out, "de serie el autosilencio está activo")
         out = m.comando("sonido -n --guardar --auto off")
-        verificar("Guardado en /home/.config/sonido.conf" in out and "auto=off" in out, f"--guardar anota el ajuste ({out.strip()[-100:]})")
+        # D371: con SAGUI-CONF los conectores son de la máquina: /etc/sonido.conf
+        g = re.search(r"Guardado en (/etc/sonido\.conf|/home/\.config/sonido\.conf)", out)
+        verificar(g and "auto=off" in out, f"--guardar anota el ajuste ({out.strip()[-100:]})")
+        arq = g.group(1)
         m.comando("sonido -n --guardar --auto off")
         out = m.comando("sonido -n --guardar --pin 3 on")
         verificar("Guardado" in out, "--guardar con --pin")
-        out = m.comando("cat /home/.config/sonido.conf")
+        out = m.comando(f"cat {arq}")
         verificar(re.search(r"\[[0-9a-f]{8}:[0-9a-f]{8}:[0-9a-f]{8}\]", out) and out.count("auto=off") == 1 and "pin=3,on" in out,
                   "sonido.conf: sección del modelo, con cada orden una sola vez")
         out = m.comando("sonido --guardados")
         verificar("auto=off" in out and "pin=3,on" in out, "sonido --guardados lista lo guardado")
         out = m.comando("configuracion salida 0")
-        r = m.comando("cat /home/.config/sagui.conf")
+        r = m.comando("cat /home/.config/sagui.conf; cat /etc/sistema.conf")   # D371: salida es de la máquina
         verificar("salida=" in r, f"configuracion salida 0 se guarda ({r.strip()[-80:]})")
         h83.reiniciar(m)
     with Maquina("h292k2", "ide", imagem=img, snapshot=False, extras=extras_audio("hda")) as m:

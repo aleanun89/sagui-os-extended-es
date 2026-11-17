@@ -141,6 +141,7 @@ void SDL_Log(const char *fmt, ...);
 
 /* ---- pistas ---- */
 typedef enum { SDL_HINT_DEFAULT, SDL_HINT_NORMAL, SDL_HINT_OVERRIDE } SDL_HintPriority;
+#define SDL_HINT_AUDIO_RESAMPLING_MODE "SDL_AUDIO_RESAMPLING_MODE"
 #define SDL_HINT_RENDER_SCALE_QUALITY "SDL_RENDER_SCALE_QUALITY"
 #define SDL_HINT_RENDER_DRIVER        "SDL_RENDER_DRIVER"
 #define SDL_HINT_RENDER_VSYNC         "SDL_RENDER_VSYNC"
@@ -277,6 +278,10 @@ typedef struct SDL_Surface {
     /* Lo de la SDL del SaguiOS (no lo mira el programa). */
     Uint32 sagui_chave;      /* color clave */
     int sagui_tem_chave;
+    Uint8 sagui_alfa_mod;    /* SDL_SetSurfaceAlphaMod */
+    Uint8 sagui_alfa_set;    /* 1 = hay alfa global */
+    Uint8 sagui_blend_set;   /* 1 = el programa fijó sagui_blend */
+    int   sagui_blend;       /* SDL_BlendMode elegido */
 } SDL_Surface;
 
 #define SDL_MUSTLOCK(s) 0
@@ -297,6 +302,8 @@ void SDL_GetClipRect(SDL_Surface *s, SDL_Rect *r);
 int  SDL_SetColorKey(SDL_Surface *s, int ativo, Uint32 chave);
 int  SDL_GetColorKey(SDL_Surface *s, Uint32 *chave);
 int  SDL_SetSurfaceBlendMode(SDL_Surface *s, SDL_BlendMode m);
+int  SDL_SetSurfaceAlphaMod(SDL_Surface *s, Uint8 alfa);   /* D374: se guarda en la superficie */
+int  SDL_GetSurfaceAlphaMod(SDL_Surface *s, Uint8 *alfa);
 int  SDL_SetSurfaceRLE(SDL_Surface *s, int rle);
 int  SDL_FillRect(SDL_Surface *d, const SDL_Rect *r, Uint32 cor);
 int  SDL_FillRects(SDL_Surface *d, const SDL_Rect *rs, int n, Uint32 cor);
@@ -353,7 +360,11 @@ SDL_Window *SDL_GetMouseFocus(void);
 typedef struct SDL_DisplayMode { Uint32 format; int w, h, refresh_rate; void *driverdata; } SDL_DisplayMode;
 int SDL_GetNumVideoDisplays(void);
 int SDL_GetDesktopDisplayMode(int tela, SDL_DisplayMode *m);
+int SDL_GetWindowDisplayMode(SDL_Window *w, SDL_DisplayMode *m);
 int SDL_GetCurrentDisplayMode(int tela, SDL_DisplayMode *m);
+int SDL_GetNumDisplayModes(int tela);
+int SDL_GetDisplayMode(int tela, int indice, SDL_DisplayMode *m);
+const char *SDL_GetCurrentVideoDriver(void);
 int SDL_GetDisplayBounds(int tela, SDL_Rect *r);
 void SDL_DisableScreenSaver(void);
 void SDL_EnableScreenSaver(void);
@@ -574,6 +585,7 @@ typedef enum {
     SDL_JOYDEVICEADDED, SDL_JOYDEVICEREMOVED,
     SDL_CONTROLLERAXISMOTION = 0x650, SDL_CONTROLLERBUTTONDOWN, SDL_CONTROLLERBUTTONUP,
     SDL_CONTROLLERDEVICEADDED, SDL_CONTROLLERDEVICEREMOVED, SDL_CONTROLLERDEVICEREMAPPED,
+    SDL_FINGERDOWN = 0x700, SDL_FINGERUP, SDL_FINGERMOTION,
     SDL_CLIPBOARDUPDATE = 0x900,
     SDL_DROPFILE = 0x1000,
     SDL_AUDIODEVICEADDED = 0x1100, SDL_AUDIODEVICEREMOVED,
@@ -662,6 +674,10 @@ typedef struct SDL_UserEvent {
 } SDL_UserEvent;
 typedef struct SDL_DropEvent { Uint32 type, timestamp; char *file; Uint32 windowID; } SDL_DropEvent;
 
+typedef long long SDL_TouchID;
+typedef long long SDL_FingerID;
+typedef struct SDL_TouchFingerEvent { Uint32 type, timestamp; SDL_TouchID touchId; SDL_FingerID fingerId;
+    float x, y, dx, dy, pressure; } SDL_TouchFingerEvent;
 typedef union SDL_Event {
     Uint32 type;
     SDL_CommonEvent common;
@@ -681,6 +697,7 @@ typedef union SDL_Event {
     SDL_QuitEvent quit;
     SDL_UserEvent user;
     SDL_DropEvent drop;
+    SDL_TouchFingerEvent tfinger;
     Uint8 padding[56];
 } SDL_Event;
 
@@ -691,6 +708,8 @@ int  SDL_WaitEvent(SDL_Event *e);
 int  SDL_WaitEventTimeout(SDL_Event *e, int ms);
 int  SDL_PushEvent(SDL_Event *e);
 int  SDL_PeepEvents(SDL_Event *es, int n, SDL_eventaction acao, Uint32 min, Uint32 max);
+typedef int (*SDL_EventFilter)(void *userdata, SDL_Event *event);
+void SDL_SetEventFilter(SDL_EventFilter filtro, void *userdata);   /* D374: se guarda pero no se aplica */
 SDL_bool SDL_HasEvent(Uint32 tipo);
 void SDL_FlushEvent(Uint32 tipo);
 void SDL_FlushEvents(Uint32 min, Uint32 max);
@@ -866,6 +885,8 @@ int SDL_GetSystemRAM(void);
 /* En el SaguiOS el programa empieza en principal(); el port pone un
  * principal que llama a su main. SDL_main no cambia el nombre. */
 #define SDL_main main
+
+#include "SDL_rwops.h"
 
 #ifdef __cplusplus
 }

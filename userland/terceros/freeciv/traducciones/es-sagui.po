@@ -1,0 +1,35 @@
+# Traducciones al español de textos del cliente SDL2 de Freeciv que el upstream no traduce (D374).
+# tools/freeciv_mo.py las añade a core/es.po al generar freeciv-core.mo. GPL-2.0 o posterior, como Freeciv.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+#, c-format
+msgid "%s%s Population: %s  Year: %s  Gold %d "
+msgstr "%s%s Población: %s  Año: %s  Oro %d "
+
+#, c-format
+msgid "%s%s Population: %s  Year: %s  Gold %d Tax: %d Lux: %d Sci: %d "
+msgstr "%s%s Población: %s  Año: %s  Oro %d Imp: %d Lujo: %d Cien: %d "
+
+msgid "(Obs) "
+msgstr "(Obs) "
+
+msgid "(Observer) "
+msgstr "(Observador) "
+
+msgid "Send them back"
+msgstr "Devolverlos"
+
+msgid "Base Cost:"
+msgstr "Coste base:"
+
+msgid "Cultivate to"
+msgstr "Cultivar para"
+
+msgid "Plant to"
+msgstr "Plantar para"
+
+#, c-format
+msgid "Invalid font size %s"
+msgstr "Tamaño de fuente no válido: %s"

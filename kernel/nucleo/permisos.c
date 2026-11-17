@@ -30,6 +30,9 @@
 #include "texto.h"
 #include "vfs.h"
 #include "caminho.h"
+#include "conf_sistema.h"
+#include "memoria.h"
+#include "processo.h"
 
 #define L PERM_LIVRE
 #define R PERM_ROOT
@@ -67,7 +70,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_COPIAR_TEXTO] = L, [SIS_COLAR_TEXTO] = L, [SIS_COPIAR_IMAGEM] = L, [SIS_COLAR_IMAGEM] = L,
     [SIS_TECLAS_SEGURADAS] = L, [SIS_TECLADO] = L,   /* la distribución del teclado: preferencia del usuario */
     [SIS_MODOS_VIDEO] = L, [SIS_MUDAR_MODO] = L,      /* la resolución: preferencia del usuario */
-    [SIS_TELAS] = L,                       /* D290: varias pantallas, también preferencia del usuario */
+    [SIS_TELAS] = O,                       /* D290: varias pantallas; D371: guardarlas es de la máquina */
     [SIS_FUNDO] = L, [SIS_ACENTO] = L,
     [SIS_ALEATORIO] = L, [SIS_INFO_ALEATORIO] = L,
     /* Sonido */
@@ -216,6 +219,10 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
                ((a == WIFI_CONECTAR || a == WIFI_DESCONECTAR) && !eu->de_servico);
     case SIS_BLUETOOTH:
         return a == BT_ESTADO || a == BT_DISPOSITIVOS || a == BT_BUSCAR;
+    case SIS_TELAS:
+        /* D371 (P6): las pantallas son de la máquina: cambiarlas para la sesión, cualquiera; guardarlas en
+         * /etc (con la configuración de la máquina separada), el administrador. */
+        return a != TELAS_OP_GUARDAR || !conf_sistema_separada();
     case SIS_BLOQUEO:
         return a == BLOQ_ESTADO || a == BLOQ_ULTIMOS || a == BLOQ_CONSULTAR;
     case SIS_PLANIFICADOR:
@@ -355,10 +362,19 @@ void permisos_sessao_caminho(char *dst, size_t n, const char *rel)
 
 static bool em_home_c(const char *c) { return txt_compara_n(c, "/home", 5) == 0 && (c[5] == 0 || c[5] == '/'); }
 
+/* D371 (P8): /home/compartido, la carpeta común (root, 1777), es la misma para todas las cuentas: no se traduce
+ * a la carpeta de cada una. Solo cuando /home ya es de root (sagui en /home/sagui): antes, era una más de sagui. */
+#define CASA_COMUM "/home/compartido"
+static bool em_comum(const char *c)
+{
+    size_t n = sizeof CASA_COMUM - 1;
+    return vfs_home_e_de_root() && txt_compara_n(c, CASA_COMUM, n) == 0 && (c[n] == 0 || c[n] == '/');
+}
+
 /* "/home/x" -> casa + "/x" (en el sitio; CAMINHO_MAX). false si no cabe. */
 static bool traduzir_com(const char *casa, char *caminho)
 {
-    if (!casa[0] || !em_home_c(caminho)) return true;
+    if (!casa[0] || !em_home_c(caminho) || em_comum(caminho)) return true;
     size_t nc = txt_tamanho(casa), nr = txt_tamanho(caminho + 5);
     if (nc + nr + 1 > CAMINHO_MAX) return false;
     memmove(caminho + nc, caminho + 5, nr + 1);
@@ -366,18 +382,117 @@ static bool traduzir_com(const char *casa, char *caminho)
     return true;
 }
 
+/* D371 (P14): /root se guarda en SAGUI-CONF: "/root/x" -> CONF_RAIZ "/x" para todos los procesos (el permiso lo
+ * dan los de la carpeta, 0700 de root). Sin SAGUI-CONF, /root es la carpeta de la RAM. */
+static bool traduzir_raiz(char *caminho)
+{
+    if (!conf_sistema_raiz_persistente() || txt_compara_n(caminho, "/root", 5) != 0 || (caminho[5] && caminho[5] != '/'))
+        return true;
+    size_t nc = sizeof CONF_RAIZ - 1, nr = txt_tamanho(caminho + 5);
+    if (nc + nr + 1 > CAMINHO_MAX) return false;
+    memmove(caminho + nc, caminho + 5, nr + 1);
+    memcpy(caminho, CONF_RAIZ, nc);
+    return true;
+}
+
 bool permisos_casa_traduzir(const processo_t *p, char *caminho)
 {
     if (!p || !p->usuario) return true;
+    if (!traduzir_raiz(caminho)) return false;
     const processo_t *l = processo_lider((processo_t *)p);
-    if (l->uid == 0) return true;
+    if (l->uid == 0) {
+        /* D371 (P2 b): un programa elevado con el diálogo o «admin» desde una cuenta ve el árbol real (para
+         * administrar, /home/ana es /home/ana), pero su configuración (/home/.algo: .config, .ssh...) sigue
+         * siendo la de esa cuenta. «su» suelta la carpeta (USU_CASA_SOLTAR): root del todo, con /root. */
+        if (l->casa_conta[0] && txt_compara_n(caminho, "/home/.", 7) == 0) return traduzir_com(l->casa_conta, caminho);
+        return true;
+    }
     return traduzir_com(l->casa_conta, caminho);
+}
+
+/* D371 (fase 4): la carpeta de una cuenta según /etc/usuarios ("" si es /home tal cual, root, o no se sabe). Así
+ * todo proceso de una cuenta (también los que lanza un servicio, cron, SSH o «su ana») ve su carpeta en /home,
+ * no solo los de la sesión local. */
+void permisos_casa_de_uid(uint32_t uid, char *casa, size_t n)
+{
+    casa[0] = 0;
+    if (uid == 0 || n < 2) return;
+    uint8_t *d;
+    uint32_t tam;
+    if (vfs_ler_inteiro("/etc/usuarios", &d, &tam) < 0) return;
+    const char *p = (const char *)d, *fim = p + tam;
+    while (p < fim) {
+        const char *l = p, *le = p;
+        while (le < fim && *le != '\n') le++;
+        p = le < fim ? le + 1 : le;
+        if (le > l && le[-1] == '\r') le--;
+        if (l >= le || *l == '#') continue;
+        const char *c[5];
+        size_t k[5] = { 0 };
+        int nc = 0;
+        for (const char *q = l; q <= le && nc < 5;) {   /* nombre:uid:gid:carpeta:... */
+            const char *e = q;
+            while (e < le && *e != ':') e++;
+            c[nc] = q; k[nc] = (size_t)(e - q); nc++;
+            q = e + 1;
+        }
+        if (nc < 4 || !k[1]) continue;
+        uint32_t u = 0;
+        bool ok = true;
+        for (size_t i = 0; i < k[1]; i++) { if (c[1][i] < '0' || c[1][i] > '9') ok = false; else u = u * 10 + (uint32_t)(c[1][i] - '0'); }
+        if (!ok || u != uid) continue;
+        char x[40];
+        if (k[3] >= sizeof x) break;
+        memcpy(x, c[3], k[3]);
+        x[k[3]] = 0;
+        if (nome_casa_valido(x) && txt_tamanho(x) < n) txt_copia_n(casa, x, n);
+        break;
+    }
+    kfree(d);
+}
+
+/* Una carpeta real a como la ve un proceso con la carpeta "casa". */
+static void real_a_vista(const char *casa, char *pasta, size_t n)
+{
+    if (!casa[0]) return;
+    size_t nc = txt_tamanho(casa);
+    char c[CAMINHO_MAX];
+    if (txt_compara_n(pasta, casa, nc) == 0 && (pasta[nc] == 0 || pasta[nc] == '/')) {
+        snformatar(c, sizeof c, "/home%s", pasta + nc);
+        txt_copia_n(pasta, c, n);
+    } else if (em_home_c(pasta) && !em_comum(pasta)) {
+        txt_copia_n(pasta, "/", n);   /* otra carpeta de /home: la cuenta no la ve */
+    }
+}
+
+void permisos_pasta_herdada(processo_t *p, const processo_t *pai)
+{
+    const processo_t *lp = processo_lider((processo_t *)pai);
+    if (txt_compara(p->casa_conta, lp->casa_conta) == 0) return;
+    char c[CAMINHO_MAX];
+    txt_copia_n(c, p->pasta, sizeof c);
+    if (lp->uid != 0 && !traduzir_com(lp->casa_conta, c)) txt_copia_n(c, "/", sizeof c);   /* la vista del padre, a la real */
+    real_a_vista(p->casa_conta, c, sizeof c);
+    txt_copia_n(p->pasta, c, sizeof p->pasta);
 }
 
 /* El proceso (líder) pasa de su uid a "novo": su carpeta actual sigue siendo la misma carpeta real
  * (root ve el árbol real; la cuenta, su /home). */
 void permisos_casa_mudar_uid(processo_t *l, uint32_t novo)
 {
+    if (novo != 0) {   /* D371 (fase 4): a una cuenta, la carpeta de esa cuenta */
+        char casa[sizeof l->casa_conta];
+        permisos_casa_de_uid(novo, casa, sizeof casa);
+        if (casa[0] && txt_compara(casa, l->casa_conta) != 0) {
+            char c[CAMINHO_MAX];
+            txt_copia_n(c, l->pasta, sizeof c);
+            if (l->uid != 0 && !traduzir_com(l->casa_conta, c)) txt_copia_n(c, "/", sizeof c);
+            txt_copia_n(l->casa_conta, casa, sizeof l->casa_conta);
+            real_a_vista(casa, c, sizeof c);
+            txt_copia_n(l->pasta, c, sizeof l->pasta);
+            return;
+        }
+    }
     if (!l->casa_conta[0] || (l->uid == 0) == (novo == 0)) return;
     char c[CAMINHO_MAX];
     size_t nc = txt_tamanho(l->casa_conta);
@@ -388,7 +503,7 @@ void permisos_casa_mudar_uid(processo_t *l, uint32_t novo)
     } else if (txt_compara_n(l->pasta, l->casa_conta, nc) == 0 && (l->pasta[nc] == 0 || l->pasta[nc] == '/')) {
         snformatar(c, sizeof c, "/home%s", l->pasta + nc);
         txt_copia_n(l->pasta, c, sizeof l->pasta);
-    } else if (em_home_c(l->pasta)) {
+    } else if (em_home_c(l->pasta) && !em_comum(l->pasta)) {
         txt_copia_n(l->pasta, "/", sizeof l->pasta);   /* otra carpeta de /home: la cuenta no la ve */
     }
 }

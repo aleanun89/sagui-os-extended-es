@@ -293,7 +293,7 @@ def sem_simulacao():
 
 
 def com_simulacao():
-    img = imagem_de_teste("", ["--vesa", "--console", "--frecuencia-simulada"])
+    img = imagem_de_teste("", ["--vesa", "--console", "--frecuencia-simulada", "--sin-conf"])   # D371: sin SAGUI-CONF, --guardar sigue en /home/.frecuencia (con ella, /etc: h375)
     with Maquina("h78s", "ide", imagem=img) as m:
         m.esperar_serial("sagui:/$", 120)
         s = m.serial()

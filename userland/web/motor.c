@@ -7080,6 +7080,22 @@ static fonte_t *fonte_da_url(motor_t *m, const char *url, const char *fam)
 }
 static bool fonte_em_cache(fonte_t *f) { for (int i = 0; i < n_cache_f; i++) if (cache_f[i].f == f) return true; return false; }
 
+/* Las direcciones que motor_imagens bajaría a continuación, en su mismo orden (fuentes web, luego
+ * fondos y fotos), sin bajarlas: el Cipó las pide por adelantado con varios hilos (D373). */
+int motor_urls_pendentes(motor_t *m, const char **urls, int max)
+{
+    int k = 0;
+    for (int i = 0; i < m->n_faces && k < max; i++)
+        if (!m->faces[i].tentou && m->faces[i].quer && m->g.baixar) urls[k++] = m->faces[i].url;
+    for (int pas = 1; pas >= 0 && k < max; pas--)
+        for (int i = 0; i < m->n_imgs && k < max; i++) {
+            imagem_m *im = &m->imgs[i];
+            if (im->tentou || im->prio != pas || !m->g.baixar || comeca_com(im->url, "data:")) continue;
+            urls[k++] = im->url;
+        }
+    return k;
+}
+
 int motor_imagens(motor_t *m, int max)
 {
     int k = 0;

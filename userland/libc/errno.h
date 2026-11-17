@@ -53,6 +53,18 @@ extern int errno;
 #define ECONNREFUSED 111
 #define EHOSTUNREACH 113
 #define EINPROGRESS 115
+#define ENOTSOCK 88
+#define EMSGSIZE 90
+#define ENOPROTOOPT 92
+#define EPROTONOSUPPORT 93
+#define EADDRINUSE 98
+#define EADDRNOTAVAIL 99
+#define ENETUNREACH 101
+#define ECONNABORTED 103
+#define ENOBUFS 105
+#define EISCONN 106
+#define ENOTCONN 107
+#define EALREADY 114
 /* Pasa un código de error del SaguiOS (ERRO_*, negativo) a uno de POSIX. */
 int __ns_errno_de(int erro_sagui);
 #endif

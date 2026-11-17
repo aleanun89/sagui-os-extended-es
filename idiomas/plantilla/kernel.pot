@@ -16,7 +16,7 @@ msgstr ""
 msgid "Archivos"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1087 kernel/gui/barra.c:1214
+#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1087 kernel/gui/barra.c:1217
 msgid "Terminal"
 msgstr ""
 
@@ -32,11 +32,11 @@ msgstr ""
 msgid "Banana"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:48 kernel/gui/barra.c:1211
+#: kernel/gui/area_trabalho.c:48 kernel/gui/barra.c:1214
 msgid "Sagui 3D"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:49 kernel/gui/barra.c:1520
+#: kernel/gui/area_trabalho.c:49 kernel/gui/barra.c:1526
 msgid "Acerca de"
 msgstr ""
 
@@ -52,23 +52,23 @@ msgstr ""
 msgid "Visor"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:53 kernel/gui/barra.c:1180
+#: kernel/gui/area_trabalho.c:53 kernel/gui/barra.c:1181
 msgid "Paint"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:54 kernel/gui/barra.c:1212
+#: kernel/gui/area_trabalho.c:54 kernel/gui/barra.c:1215
 msgid "CHIP-8"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:55 kernel/gui/barra.c:1219
+#: kernel/gui/area_trabalho.c:55 kernel/gui/barra.c:1222
 msgid "Configuración"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:56 kernel/gui/barra.c:1220
+#: kernel/gui/area_trabalho.c:56 kernel/gui/barra.c:1223
 msgid "Discos"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:59 kernel/gui/barra.c:1222
+#: kernel/gui/area_trabalho.c:59 kernel/gui/barra.c:1225
 msgid "Instalar SaguiOS"
 msgstr ""
 
@@ -92,7 +92,7 @@ msgstr ""
 msgid "No se pudo cambiar la resolución."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1092 kernel/gui/barra.c:1215
+#: kernel/gui/area_trabalho.c:1092 kernel/gui/barra.c:1218
 msgid "Administrador de tareas"
 msgstr ""
 
@@ -132,7 +132,7 @@ msgstr ""
 msgid "Organización automática"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1113 kernel/gui/barra.c:1465
+#: kernel/gui/area_trabalho.c:1113 kernel/gui/barra.c:1470
 #, c-format
 msgid "Acerca de %s"
 msgstr ""
@@ -493,280 +493,296 @@ msgstr ""
 msgid "Macaco (hoja de cálculo)"
 msgstr ""
 
-#: kernel/gui/barra.c:1181
-msgid "Visor de imágenes"
+#: kernel/gui/barra.c:1180
+msgid "Tucán (presentaciones)"
 msgstr ""
 
 #: kernel/gui/barra.c:1182
-msgid "PlanoMini (CAD 2D)"
+msgid "Visor de imágenes"
 msgstr ""
 
 #: kernel/gui/barra.c:1183
-msgid "Visor de PDF"
+msgid "PlanoMini (CAD 2D)"
 msgstr ""
 
 #: kernel/gui/barra.c:1184
-msgid "Reproductor de vídeo"
+msgid "Visor de PDF"
 msgstr ""
 
 #: kernel/gui/barra.c:1185
-msgid "Grabadora de sonido"
+msgid "Reproductor de vídeo"
 msgstr ""
 
 #: kernel/gui/barra.c:1186
-msgid "Conversor de audio"
+msgid "Grabadora de sonido"
 msgstr ""
 
 #: kernel/gui/barra.c:1187
-msgid "Cámara"
+msgid "Conversor de audio"
 msgstr ""
 
 #: kernel/gui/barra.c:1188
-msgid "Cipó (navegador)"
+msgid "Cámara"
 msgstr ""
 
 #: kernel/gui/barra.c:1189
-msgid "GebraMini (geometría dinámica)"
+msgid "Cipó (navegador)"
 msgstr ""
 
 #: kernel/gui/barra.c:1190
-msgid "Actividades JClic"
+msgid "GebraMini (geometría dinámica)"
 msgstr ""
 
 #: kernel/gui/barra.c:1191
+msgid "Actividades JClic"
+msgstr ""
+
+#: kernel/gui/barra.c:1192
 msgid "Actividades JClic (bajar)"
 msgstr ""
 
-#: kernel/gui/barra.c:1193
+#: kernel/gui/barra.c:1194
 msgid "NetSurf (navegador)"
 msgstr ""
 
-#: kernel/gui/barra.c:1195
+#: kernel/gui/barra.c:1196
 msgid "Sagui Atrapa Bananas"
 msgstr ""
 
-#: kernel/gui/barra.c:1196
+#: kernel/gui/barra.c:1197
 msgid "Solitario Spider"
 msgstr ""
 
-#: kernel/gui/barra.c:1197
+#: kernel/gui/barra.c:1198
 msgid "Buscaminas"
 msgstr ""
 
-#: kernel/gui/barra.c:1199
+#: kernel/gui/barra.c:1200
 msgid "OpenTyrian"
 msgstr ""
 
-#: kernel/gui/barra.c:1200
+#: kernel/gui/barra.c:1201
 msgid "OpenTyrian (pantalla completa)"
 msgstr ""
 
-#: kernel/gui/barra.c:1201
-msgid "OpenJazz"
-msgstr ""
-
 #: kernel/gui/barra.c:1202
-msgid "OpenJazz (pantalla completa)"
+msgid "Freeciv"
 msgstr ""
 
 #: kernel/gui/barra.c:1203
-msgid "Command & Conquer"
+msgid "OpenTTD"
 msgstr ""
 
 #: kernel/gui/barra.c:1204
-msgid "Quake"
+msgid "OpenJazz"
 msgstr ""
 
 #: kernel/gui/barra.c:1205
-msgid "Quake (pantalla completa)"
+msgid "OpenJazz (pantalla completa)"
 msgstr ""
 
 #: kernel/gui/barra.c:1206
-msgid "Game Boy (GNUBoy)"
+msgid "Command & Conquer"
 msgstr ""
 
 #: kernel/gui/barra.c:1207
-msgid "Recreativa (juegos y consolas)"
+msgid "Quake"
 msgstr ""
 
 #: kernel/gui/barra.c:1208
-msgid "DOSBox"
+msgid "Quake (pantalla completa)"
 msgstr ""
 
 #: kernel/gui/barra.c:1209
+msgid "Game Boy (GNUBoy)"
+msgstr ""
+
+#: kernel/gui/barra.c:1210
+msgid "Recreativa (juegos y consolas)"
+msgstr ""
+
+#: kernel/gui/barra.c:1211
+msgid "DOSBox"
+msgstr ""
+
+#: kernel/gui/barra.c:1212
 msgid "DOSBox (pantalla completa)"
 msgstr ""
 
-#: kernel/gui/barra.c:1213
+#: kernel/gui/barra.c:1216
 msgid "ROM de CHIP-8 (bajar)"
 msgstr ""
 
-#: kernel/gui/barra.c:1216
+#: kernel/gui/barra.c:1219
 msgid "Información del PC"
 msgstr ""
 
-#: kernel/gui/barra.c:1217
+#: kernel/gui/barra.c:1220
 msgid "Pantalla"
 msgstr ""
 
-#: kernel/gui/barra.c:1218
+#: kernel/gui/barra.c:1221
 msgid "Fecha y hora"
 msgstr ""
 
-#: kernel/gui/barra.c:1221
+#: kernel/gui/barra.c:1224
 msgid "Bluetooth"
 msgstr ""
 
-#: kernel/gui/barra.c:1223
+#: kernel/gui/barra.c:1226
 msgid "DEBUG-APP (depuración remota)"
 msgstr ""
 
-#: kernel/gui/barra.c:1224
+#: kernel/gui/barra.c:1227
 msgid "IA (chat)"
 msgstr ""
 
-#: kernel/gui/barra.c:1225
+#: kernel/gui/barra.c:1228
 msgid "Chat IA"
 msgstr ""
 
-#: kernel/gui/barra.c:1226
+#: kernel/gui/barra.c:1229
 msgid "Correo"
 msgstr ""
 
-#: kernel/gui/barra.c:1227
+#: kernel/gui/barra.c:1230
 msgid "Escritorio remoto (VNC)"
 msgstr ""
 
-#: kernel/gui/barra.c:1342
+#: kernel/gui/barra.c:1346
 msgid "No se pudo abrir la aplicación."
 msgstr ""
 
-#: kernel/gui/barra.c:1352
+#: kernel/gui/barra.c:1356
 msgid "No se pudo abrir el programa."
 msgstr ""
 
-#: kernel/gui/barra.c:1432
+#: kernel/gui/barra.c:1437
 msgid "Programas"
 msgstr ""
 
-#: kernel/gui/barra.c:1447 kernel/gui/barra.c:1535
+#: kernel/gui/barra.c:1452 kernel/gui/barra.c:1542
 msgid "Mis aplicaciones"
 msgstr ""
 
-#: kernel/gui/barra.c:1454
+#: kernel/gui/barra.c:1459
 msgid "Frecuentes"
 msgstr ""
 
-#: kernel/gui/barra.c:1463 kernel/gui/barra.c:1516
+#: kernel/gui/barra.c:1468 kernel/gui/barra.c:1522
 msgid "Ejecutar..."
 msgstr ""
 
-#: kernel/gui/barra.c:1464 kernel/gui/barra.c:1517
+#: kernel/gui/barra.c:1469 kernel/gui/barra.c:1523
 msgid "Configuración de pantalla"
 msgstr ""
 
-#: kernel/gui/barra.c:1470 kernel/gui/barra.c:1522
+#: kernel/gui/barra.c:1475 kernel/gui/barra.c:1529
 msgid "Apagar..."
 msgstr ""
 
-#: kernel/gui/barra.c:1471 kernel/gui/barra.c:1524
+#: kernel/gui/barra.c:1476 kernel/gui/barra.c:1531
 msgid "Reiniciar..."
 msgstr ""
 
-#: kernel/gui/barra.c:1474 kernel/gui/barra.c:1527
+#: kernel/gui/barra.c:1479 kernel/gui/barra.c:1528
+msgid "Bloquear"
+msgstr ""
+
+#: kernel/gui/barra.c:1480 kernel/gui/barra.c:1534
 msgid "Cerrar sesión..."
 msgstr ""
 
-#: kernel/gui/barra.c:1475 kernel/gui/barra.c:1521
+#: kernel/gui/barra.c:1481 kernel/gui/barra.c:1527
 msgid "Cambiar de usuario..."
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "domingo"
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "lunes"
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "martes"
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "miércoles"
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "jueves"
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "viernes"
 msgstr ""
 
-#: kernel/gui/barra.c:1584
+#: kernel/gui/barra.c:1591
 msgid "sábado"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "enero"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "febrero"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "marzo"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "abril"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "mayo"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "junio"
 msgstr ""
 
-#: kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1592
 msgid "julio"
 msgstr ""
 
-#: kernel/gui/barra.c:1586
+#: kernel/gui/barra.c:1593
 msgid "agosto"
 msgstr ""
 
-#: kernel/gui/barra.c:1586
+#: kernel/gui/barra.c:1593
 msgid "septiembre"
 msgstr ""
 
-#: kernel/gui/barra.c:1586
+#: kernel/gui/barra.c:1593
 msgid "octubre"
 msgstr ""
 
-#: kernel/gui/barra.c:1586
+#: kernel/gui/barra.c:1593
 msgid "noviembre"
 msgstr ""
 
-#: kernel/gui/barra.c:1586
+#: kernel/gui/barra.c:1593
 msgid "diciembre"
 msgstr ""
 
-#: kernel/gui/barra.c:1593
+#: kernel/gui/barra.c:1600
 #, c-format
 msgid "%s, %u de %s de %u, %s %s"
 msgstr ""
 
-#: kernel/gui/barra.c:1642
+#: kernel/gui/barra.c:1649
 msgid "Ajustar fecha y hora..."
 msgstr ""
 
-#: kernel/gui/barra.c:1650
+#: kernel/gui/barra.c:1657
 msgid "Administrador de tareas\tCtrl+Mayús+Esc"
 msgstr ""
 
@@ -798,23 +814,23 @@ msgstr ""
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
 msgstr ""
 
-#: kernel/gui/janelas.c:1601
+#: kernel/gui/janelas.c:1603
 msgid "Restaurar"
 msgstr ""
 
-#: kernel/gui/janelas.c:1601
+#: kernel/gui/janelas.c:1603
 msgid "Minimizar"
 msgstr ""
 
-#: kernel/gui/janelas.c:1602
+#: kernel/gui/janelas.c:1604
 msgid "Maximizar"
 msgstr ""
 
-#: kernel/gui/janelas.c:1603
+#: kernel/gui/janelas.c:1605
 msgid "Pantalla completa"
 msgstr ""
 
-#: kernel/gui/janelas.c:1603
+#: kernel/gui/janelas.c:1605
 msgid "Cerrar"
 msgstr ""
 
@@ -826,19 +842,19 @@ msgstr ""
 msgid "Elige la contraseña de administrador (root):"
 msgstr ""
 
-#: kernel/gui/permisos_dialogo.c:51
+#: kernel/gui/permisos_dialogo.c:51 kernel/gui/sessao.c:646
 msgid "Repítela:"
 msgstr ""
 
-#: kernel/gui/permisos_dialogo.c:112 kernel/gui/sessao.c:444
+#: kernel/gui/permisos_dialogo.c:112 kernel/gui/sessao.c:570
 msgid "Contraseña incorrecta. Inténtalo otra vez."
 msgstr ""
 
-#: kernel/gui/permisos_dialogo.c:113 kernel/gui/sessao.c:445
+#: kernel/gui/permisos_dialogo.c:113 kernel/gui/sessao.c:571
 msgid "Demasiados fallos: espera un minuto para volver a intentarlo."
 msgstr ""
 
-#: kernel/gui/permisos_dialogo.c:114 kernel/gui/sessao.c:386 kernel/gui/sessao.c:446
+#: kernel/gui/permisos_dialogo.c:114 kernel/gui/sessao.c:492 kernel/gui/sessao.c:572
 msgid "No se pudo comprobar la contraseña."
 msgstr ""
 
@@ -846,7 +862,7 @@ msgstr ""
 msgid "Elige al menos 4 caracteres."
 msgstr ""
 
-#: kernel/gui/permisos_dialogo.c:171
+#: kernel/gui/permisos_dialogo.c:171 kernel/gui/sessao.c:398
 msgid "Las dos contraseñas no coinciden."
 msgstr ""
 
@@ -862,7 +878,7 @@ msgstr ""
 msgid "quiere hacer cambios en el sistema."
 msgstr ""
 
-#: kernel/gui/permisos_dialogo.c:286 kernel/gui/sessao.c:535
+#: kernel/gui/permisos_dialogo.c:286 kernel/gui/sessao.c:707
 msgid "Comprobando..."
 msgstr ""
 
@@ -878,59 +894,115 @@ msgstr ""
 msgid "Solo el sistema muestra esta ventana. Esc = No."
 msgstr ""
 
-#: kernel/gui/sessao.c:320 kernel/gui/sessao.c:417
-msgid "Tu carpeta personal no es tuya o otros la pueden cambiar: avisa al administrador."
+#: kernel/gui/sessao.c:397
+msgid "La contraseña necesita al menos 4 caracteres."
 msgstr ""
 
-#: kernel/gui/sessao.c:371
+#: kernel/gui/sessao.c:402 kernel/gui/sessao.c:544
+msgid "No se puede guardar: el gestor de servicios no responde (Esc: más tarde)."
+msgstr ""
+
+#: kernel/gui/sessao.c:448
 msgid "No se pudo iniciar la sesión."
 msgstr ""
 
-#: kernel/gui/sessao.c:381
+#: kernel/gui/sessao.c:487
 msgid "Escribe la contraseña."
 msgstr ""
 
-#: kernel/gui/sessao.c:385 kernel/gui/sessao.c:437
+#: kernel/gui/sessao.c:491 kernel/gui/sessao.c:563
 msgid "No se puede comprobar la contraseña: el gestor de servicios no responde."
 msgstr ""
 
-#: kernel/gui/sessao.c:493
+#: kernel/gui/sessao.c:523
+msgid "Tu carpeta personal no es tuya o otros la pueden cambiar: avisa al administrador."
+msgstr ""
+
+#: kernel/gui/sessao.c:553
+msgid "No se pudo guardar la contraseña."
+msgstr ""
+
+#: kernel/gui/sessao.c:640
+msgid "Contraseña del administrador (root)"
+msgstr ""
+
+#: kernel/gui/sessao.c:641
+msgid "Este sistema guarda su configuración y root aún no"
+msgstr ""
+
+#: kernel/gui/sessao.c:642
+msgid "tiene contraseña. Elígela ahora: la pedirán el diálogo"
+msgstr ""
+
+#: kernel/gui/sessao.c:643
+msgid "de permisos, admin y su. (Esc: más tarde)"
+msgstr ""
+
+#: kernel/gui/sessao.c:644
+msgid "Contraseña nueva:"
+msgstr ""
+
+#: kernel/gui/sessao.c:648
+msgid "Guardando..."
+msgstr ""
+
+#: kernel/gui/sessao.c:650
+msgid "Siguiente"
+msgstr ""
+
+#: kernel/gui/sessao.c:650
+msgid "Guardar"
+msgstr ""
+
+#: kernel/gui/sessao.c:664
 msgid "Cerrando la sesión..."
 msgstr ""
 
-#: kernel/gui/sessao.c:493
+#: kernel/gui/sessao.c:664
 msgid "Iniciando la sesión..."
 msgstr ""
 
-#: kernel/gui/sessao.c:503
+#: kernel/gui/sessao.c:675
+msgid "Pantalla bloqueada"
+msgstr ""
+
+#: kernel/gui/sessao.c:675
 msgid "Iniciar sesión"
 msgstr ""
 
-#: kernel/gui/sessao.c:504
+#: kernel/gui/sessao.c:676
+msgid "Escribe tu contraseña para volver:"
+msgstr ""
+
+#: kernel/gui/sessao.c:676
 msgid "Elige tu cuenta:"
 msgstr ""
 
-#: kernel/gui/sessao.c:516
+#: kernel/gui/sessao.c:688
 msgid "sin contraseña"
 msgstr ""
 
-#: kernel/gui/sessao.c:521
+#: kernel/gui/sessao.c:693
 msgid "Contraseña:"
 msgstr ""
 
-#: kernel/gui/sessao.c:533
+#: kernel/gui/sessao.c:705
 msgid "Esta cuenta no tiene contraseña: pulsa Entrar."
 msgstr ""
 
-#: kernel/gui/sessao.c:537
+#: kernel/gui/sessao.c:709
+msgid "Desbloquear"
+msgstr ""
+
+#: kernel/gui/sessao.c:709
 msgid "Entrar"
 msgstr ""
 
-#: kernel/gui/sessao.c:538
+#: kernel/gui/sessao.c:710
 msgid "Apagar"
 msgstr ""
 
-#: kernel/gui/sessao.c:539
+#: kernel/gui/sessao.c:711
 msgid "Reiniciar"
 msgstr ""
 
@@ -938,7 +1010,7 @@ msgstr ""
 msgid "Ya puedes apagar el ordenador."
 msgstr ""
 
-#: kernel/nucleo/supervisor.c:137
+#: kernel/nucleo/supervisor.c:138
 msgid "Parando los servicios..."
 msgstr ""
 

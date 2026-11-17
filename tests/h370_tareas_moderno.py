@@ -53,15 +53,20 @@ def main():
         m.comando("/testes/girar &")
         m.esperar_serial("girar: comecando", 20)
         pid_g = int(re.findall(r"girar: comecando \(pid (\d+)\)", m.serial())[-1])
-        # Un programa que llena 700 MB en una máquina de 512: la swap comprimida tiene que trabajar.
-        m.comando("/testes/troca llenar 700 12 &")
-        time.sleep(3)
-        m.comando("tareas")
-        m.esperar_serial("tareas: pronto", 30)
+        # Primero el Administrador de tareas (en segundo plano): si se lanzaba con la memoria ya llena, a veces no
+        # cargaba («sagsh: tareas: sin memoria»). Luego el foco vuelve al Terminal (clic en su barra de título,
+        # que el Administrador no tapa) y se lanza el llenado.
+        m.comando("tareas &")
+        m.esperar_serial("tareas: pronto", 60)
         pid_t = int(re.findall(r"tareas: pronto \(pid (\d+)\)", m.serial())[-1])
         j = janela(m.serial(), "Administrador de tareas")
         ox, oy = j["x"], j["y"]
-        time.sleep(2)
+        t = janela(m.serial(), "Terminal")
+        m.clique(t["fx"] + 30, t["fy"] + 8)   # barra de título del Terminal
+        time.sleep(1)
+        # Un programa que llena 700 MB en una máquina de 512: la swap comprimida tiene que trabajar.
+        m.comando("/testes/troca llenar 700 12 &")
+        time.sleep(5)
 
         # --- Procesos: búsqueda, menús, doble clic
         m.clique(ox + 300, oy + 470 - 34)   # un sitio inofensivo para dar el foco

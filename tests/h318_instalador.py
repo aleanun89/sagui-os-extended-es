@@ -481,6 +481,8 @@ def parte3():
         a.pulsar("siguiente")
         a.esperar_pagina(4)
         a.pulsar("ar-bios")
+        a.escribir("clave-root", "clave318")   # D371 (P1 b): la de root es obligatoria
+        a.escribir("clave-root2", "clave318")
         a.pulsar("siguiente")
         a.esperar_pagina(5)
         a.pulsar("siguiente")
@@ -510,7 +512,8 @@ def parte4():
     subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", f"{b}/boot/mbr.bin", "--estagio2", f"{b}/boot/estagio2.bin", "--kernel", f"{b}/kernel.bin",
                     "--kernel-elf", f"{b}/kernel.elf", "--ramdisk", f"{b}/ramdisk.sgfs", "--saida", img,
-                    "--vesa", "--dados-mb", "64", *opcoes_apps()], check=True, stdout=subprocess.DEVNULL)
+                    "--vesa", "--dados-mb", "64", "--sin-pedir-root", "--sin-migrar-home",   # D371: como las demás de prueba
+                    *opcoes_apps()], check=True, stdout=subprocess.DEVNULL)
     t0 = sfdisk(img)
     # Un archivo en /home antes de arrancar (escrito desde el PC en la partición de datos).
     home0 = extrair_particao(img, t0[5][0], t0[5][1] // 2048)

@@ -121,6 +121,9 @@ typedef struct {
     char     zona[40];
     int      teclado;            /* -1 = el de ahora; TECLADO_ES o TECLADO_ABNT2 */
     char     senha_root[64], senha_usuario[64];
+    char     conta[32];          /* D371: la cuenta de la persona (uid 1000); "" = sagui */
+    bool     conta_admin;        /* D371 (P1 b): la cuenta es administradora (grupo admin, su propia contraseña) */
+    bool     inicio_auto;        /* D371 (P5): entrar sin pedir la cuenta (de serie, no) */
     bool     sshd, vncd;
     unsigned copiar_conf;        /* CC_* */
     bool     sem_copiar_apps;    /* crear /apps vacía (sin copiar las aplicaciones de este sistema) */
@@ -867,6 +870,60 @@ static bool texto_zona(const char *nome, char *t, int max)
     return true;
 }
 
+/* D371: la cuenta de la persona (la principal, uid 1000): sagui salvo que se elija otro nombre. */
+static const char *conta_de(const plano_t *p) { return p->conta[0] ? p->conta : "sagui"; }
+static bool conta_e_sagui(const plano_t *p) { return compara_texto(conta_de(p), "sagui") == 0; }
+
+/* D371: ¿nombre válido para la cuenta? [a-z0-9_-]{1,31}, que no sea root, servicio ni admin. */
+static bool nome_conta_valido(const char *n)
+{
+    int k = 0;
+    for (; n[k]; k++)
+        if (!((n[k] >= 'a' && n[k] <= 'z') || (n[k] >= '0' && n[k] <= '9') || n[k] == '_' || n[k] == '-')) return false;
+    return k > 0 && k < 32 && compara_texto(n, "root") != 0 && compara_texto(n, "servicio") != 0 &&
+           compara_texto(n, "admin") != 0;
+}
+
+/* D371: /etc/usuarios con la cuenta elegida como la principal (uid 1000, /home/<nombre>): sin la línea de
+ * sagui ni otra con el uid 1000; el resto (de una SAGUI-CONF conservada) se queda. */
+static int usuarios_com_conta(const plano_t *p, const char *arq)
+{
+    static char novo[4096];
+    int k = formatar_texto(novo, sizeof novo, "# /etc/usuarios - las cuentas de SaguiOS (D255, D371). nombre:uid:gid:carpeta:shell:descripción\n");
+    bool tem_root = false, tem_serv = false;
+    int fd = abrir(arq, ABRIR_LER);
+    if (fd >= 0) {
+        unsigned tam;
+        char *b = ler_todo_fd(fd, &tam);
+        fechar(fd);
+        for (char *l = b; b && *l && k < (int)sizeof novo - 200; ) {
+            char *f = acha_char(l, '\n');
+            int len = f ? (int)(f - l) : (int)tam_texto(l);
+            char lin[200];
+            int ln = len < (int)sizeof lin - 1 ? len : (int)sizeof lin - 1;
+            memcpy(lin, l, (unsigned)ln);
+            lin[ln] = 0;
+            char *c1 = acha_char(lin, ':');
+            bool fora = lin[0] == '#' || !c1;
+            if (!fora) {
+                *c1 = 0;
+                fora = compara_texto(lin, "sagui") == 0 || compara_texto(lin, conta_de(p)) == 0 || comeca_com(c1 + 1, "1000:");
+                if (compara_texto(lin, "root") == 0) tem_root = true;
+                if (compara_texto(lin, "servicio") == 0) tem_serv = true;
+            }
+            if (!fora && len < (int)sizeof novo - 200 - k) { memcpy(novo + k, l, (unsigned)len); k += len; novo[k++] = '\n'; }
+            l += len;
+            if (*l == '\n') l++;
+        }
+        if (b) libera(b);
+    }
+    if (!tem_root) k += formatar_texto(novo + k, sizeof novo - (size_t)k, "root:0:0:/root:/bin/sagsh:Administrador\n");
+    if (!tem_serv) k += formatar_texto(novo + k, sizeof novo - (size_t)k, "servicio:100:100:/::Servicios sin escritorio\n");
+    k += formatar_texto(novo + k, sizeof novo - (size_t)k, "%s:1000:1000:/home/%s:/bin/sagsh:Usuario del escritorio\n",
+                        conta_de(p), conta_de(p));
+    return escrever_texto_arquivo(arq, novo);
+}
+
 /* D282: todo el /home nuevo es de sagui (como en las imágenes, mkimagem.py), sin cambiar los modos: lo
  * que escribe el instalador lo crea root, y una clave SSH copiada sigue con su 0600. */
 static void dono_sagui(const char *c, int nivel)
@@ -914,7 +971,7 @@ static int opcoes_conf(plano_t *p, const char *ponto, char *erro, int max)
     criar_pasta(c);
     int r = 0;
     (void)pbkdf2_conferir;   /* pbkdf2.h trae también la comprobación, que aquí no hace falta */
-    struct { const char *conta, *senha; } s[] = { { "root", p->senha_root }, { "sagui", p->senha_usuario } };
+    struct { const char *conta, *senha; } s[] = { { "root", p->senha_root }, { conta_de(p), p->senha_usuario } };
     for (int i = 0; i < 2 && r == 0; i++) {
         if (!s[i].senha[0]) continue;
         char h[PBKDF2_TEXTO_MAX];
@@ -923,6 +980,25 @@ static int opcoes_conf(plano_t *p, const char *ponto, char *erro, int max)
         r = fixar_linha(c, s[i].conta, h, ':');
         if (r == 0) mudar_permisos(c, 0600);   /* D282: la sombra, solo root */
         memset(h, 0, sizeof h);
+    }
+    if (r == 0 && !conta_e_sagui(p)) {   /* D371: la cuenta elegida es la principal (uid 1000) */
+        caminho_juntar(c, sizeof c, ponto, "etc/usuarios");
+        r = usuarios_com_conta(p, c);
+    }
+    if (r == 0 && p->conta_admin) {   /* D371 (P1 b): «la misma contraseña»: la cuenta es administradora */
+        char lin[64];
+        caminho_juntar(c, sizeof c, ponto, "etc/grupos");
+        txt(lin, sizeof lin, "10:%s", conta_de(p));
+        r = fixar_linha(c, "admin", lin, ':');
+    }
+    if (r == 0) {   /* D371: la configuración de la máquina ya va en /etc (sistema.conf es además la marca) */
+        caminho_juntar(c, sizeof c, ponto, "etc/sistema.conf");
+        info_arquivo_t ia;
+        /* P5: en lo instalado, sin inicio automático de serie (la pantalla o «login» piden la cuenta). */
+        if (info_arquivo(c, &ia) < 0)
+            r = escrever_texto_arquivo(c, p->inicio_auto ? "# Configuración de la máquina (D371): solo la cambia el administrador.\ninicio_automatico=si\n"
+                                                         : "# Configuración de la máquina (D371): solo la cambia el administrador.\ninicio_automatico=no\n");
+        if (r == 0 && p->teclado >= 0) r = fixar_linha(c, "teclado", p->teclado == TECLADO_ABNT2 ? "abnt2" : "es", '=');
     }
     if (r == 0 && p->nome_equipo[0]) {
         caminho_juntar(c, sizeof c, ponto, "etc/hostname");
@@ -938,8 +1014,8 @@ static int opcoes_conf(plano_t *p, const char *ponto, char *erro, int max)
         if ((r = fixar_linha(c, "sshd", p->sshd ? "si" : "no", '=')) == 0) r = fixar_linha(c, "vncd", p->vncd ? "si" : "no", '=');
     }
     if (r < 0) txt(erro, max, "no se pueden escribir las opciones en SAGUI-CONF: %s", nome_erro(r));
-    registrar("instalar: opciones en SAGUI-CONF: claves %s/%s, equipo '%s', zona '%s', sshd %d, vncd %d", p->senha_root[0] ? "root" : "-",
-              p->senha_usuario[0] ? "sagui" : "-", p->nome_equipo, p->zona, p->sshd, p->vncd);
+    registrar("instalar: opciones en SAGUI-CONF: claves %s/%s, cuenta '%s'%s, equipo '%s', zona '%s', sshd %d, vncd %d", p->senha_root[0] ? "root" : "-",
+              p->senha_usuario[0] ? conta_de(p) : "-", conta_de(p), p->conta_admin ? " (administradora)" : "", p->nome_equipo, p->zona, p->sshd, p->vncd);
     return r;
 }
 
@@ -999,9 +1075,14 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
     }
     if (r == 0 && conf) r = opcoes_conf(p, ponto, erro, max);   /* D318 */
     if (r == 0 && compara_texto(ponto, "/mnt/instalar-home") == 0) {
-        if ((r = copiar_configuracao(p, ponto, erro, max)) == 0 && (r = opcoes_home(p, ponto)) < 0)
+        /* D371: con otra cuenta que sagui, lo de la persona va a su carpeta /home/<cuenta> (0700). */
+        char casa[96];
+        if (conta_e_sagui(p)) copia_texto(casa, ponto, sizeof casa);
+        else { caminho_juntar(casa, sizeof casa, ponto, conta_de(p)); criar_pasta(casa); }
+        if ((r = copiar_configuracao(p, casa, erro, max)) == 0 && (r = opcoes_home(p, casa)) < 0)
             txt(erro, max, "no se pueden escribir el teclado y la zona en /home: %s", nome_erro(r));
-        if (r == 0) dono_sagui(ponto, 0);   /* D282 */
+        if (r == 0) dono_sagui(ponto, 0);   /* D282: todo de la cuenta principal (uid 1000) */
+        if (r == 0 && !conta_e_sagui(p)) mudar_permisos(casa, 0700);
     }
     int d = desmontar(ponto);
     if (r == 0 && d < 0) { txt(erro, max, "no se puede desmontar %s: %s", vol, nome_erro(d)); r = d; }
@@ -1370,6 +1451,13 @@ static int terminal(int argc, char **argv)
         if (compara_texto(argv[i], "--teclado") == 0 && i + 1 < argc) { p.teclado = compara_texto(argv[++i], "abnt2") == 0 ? TECLADO_ABNT2 : TECLADO_ES; continue; }
         if (compara_texto(argv[i], "--clave-root") == 0 && i + 1 < argc) { copia_texto(p.senha_root, argv[++i], sizeof p.senha_root); continue; }
         if (compara_texto(argv[i], "--clave-usuario") == 0 && i + 1 < argc) { copia_texto(p.senha_usuario, argv[++i], sizeof p.senha_usuario); continue; }
+        if (compara_texto(argv[i], "--cuenta") == 0 && i + 1 < argc) {   /* D371 */
+            if (!nome_conta_valido(argv[i + 1])) { imprimir_em(ERROS, "instalar: nombre de cuenta no válido: %s (a-z, 0-9, _ y -)\n", argv[i + 1]); return 2; }
+            copia_texto(p.conta, argv[++i], sizeof p.conta);
+            continue;
+        }
+        if (compara_texto(argv[i], "--cuenta-admin") == 0) { p.conta_admin = true; continue; }
+        if (compara_texto(argv[i], "--inicio-automatico") == 0) { p.inicio_auto = true; continue; }
         if (compara_texto(argv[i], "--sshd") == 0) { p.sshd = true; continue; }
         if (compara_texto(argv[i], "--vncd") == 0) { p.vncd = true; continue; }
         if (compara_texto(argv[i], "--copiar-config") == 0 && i + 1 < argc) {   /* prefs,wifi,ssh,correo,ia,ia-clave,docs | todo */

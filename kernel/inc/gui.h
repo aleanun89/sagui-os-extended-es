@@ -145,6 +145,7 @@ int32_t barra_info(uint32_t ptr, uint32_t n);       /* INFO_BARRA */
 int32_t barra_gravar(uint32_t ptr, uint32_t n);     /* INFO_BARRA_GRAVAR */
 void janelas_area_mudou(void);                      /* el área de trabajo cambió (barra): reajusta las maximizadas */
 const char *sessao_utilizador(void);                /* el nombre de la cuenta de la sesión */
+void sessao_bloquear(void);                         /* D371: bloquear la pantalla (Windows+L, menú Inicio) */
 
 /* El menú Inicio de columnas (inicio.c, D361): «Dos columnas» y «Moderno». */
 #define INICIO_MAX 160

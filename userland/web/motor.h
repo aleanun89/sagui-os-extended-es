@@ -68,6 +68,7 @@ void     motor_fim(motor_t *m);
 void     motor_ler(motor_t *m, const char *html, int n, const char *url);
 /* Baixa as imagens que faltam; devolve quantas chegaram (chamar de novo até 0). */
 int      motor_imagens(motor_t *m, int max);
+int      motor_urls_pendentes(motor_t *m, const char **urls, int max);   /* lo que motor_imagens bajará luego (D373) */
 /* Faz o layout para a largura dada; devolve a altura da página. */
 int      motor_layout(motor_t *m, int largura, int altura_tela);
 /* Pinta a faixa [y, y + a) da página em px (larg x a, passo = larg). */

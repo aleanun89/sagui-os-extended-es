@@ -24,6 +24,13 @@
 #include "sagui.h"
 #include "bloqueo_tabla.h"
 #include "bloqueo_hosts.h"
+#include "conf_maquina.h"
+
+/* D371: el bloqueo es de la máquina: con SAGUI-CONF, la configuración en /etc/bloqueo.conf y la tabla en
+ * SAGUI-CONF (MAQ_BLOQ_TABLA), solo el administrador. Las listas descargadas siguen en la carpeta de quien
+ * las baja. El kernel lee de los mismos sitios (bloqueo.c). */
+static const char *arq_conf(void) { return maquina_separada() ? "/etc/bloqueo.conf" : BLOQ_CONF; }
+static const char *arq_tabla(void) { return maquina_separada() ? MAQ_BLOQ_TABLA : BLOQ_TABLA; }
 
 #define LISTAS_DIR   BLOQ_DIR "/listas"
 #define PERMITIDOS   BLOQ_DIR "/permitidos.txt"
@@ -46,7 +53,7 @@ static void conf_ler(void)
     conf.activo = 0;
     conf.subdominios = 1;
     conf.nlistas = 0;
-    int fd = abrir(BLOQ_CONF, ABRIR_LER);
+    int fd = abrir(arq_conf(), ABRIR_LER);
     if (fd < 0) {                               /* nunca se configuró: la lista por defecto */
         copia_texto(conf.listas[0], LISTA_DEF, sizeof conf.listas[0]);
         conf.nlistas = 1;
@@ -64,16 +71,19 @@ static void conf_ler(void)
 
 static int conf_gravar(void)
 {
+    static char t[300 * (MAX_LISTAS + 1)];
+    int n = formatar_texto(t, sizeof t, "# Bloqueo de publicidad y rastreo por DNS (D218). Lo escribe el programa «bloqueo».\n"
+                    "# activo 1 = el kernel filtra los nombres; subdominios 1 = ejemplo.com bloquea ads.ejemplo.com.\n"
+                    "activo %d\nsubdominios %d\n", conf.activo, conf.subdominios);
+    for (int i = 0; i < conf.nlistas; i++) n += formatar_texto(t + n, sizeof t - (unsigned)n, "lista %s\n", conf.listas[i]);
+    if (maquina_separada()) return maquina_gravar_arquivo("bloqueo.conf", t, n, "cambiar el bloqueo de publicidad");
     criar_pasta("/home/.config");
     criar_pasta(BLOQ_DIR);
     int fd = abrir(BLOQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
-    imprimir_em(fd, "# Bloqueo de publicidad y rastreo por DNS (D218). Lo escribe el programa «bloqueo».\n"
-                    "# activo 1 = el kernel filtra los nombres; subdominios 1 = ejemplo.com bloquea ads.ejemplo.com.\n"
-                    "activo %d\nsubdominios %d\n", conf.activo, conf.subdominios);
-    for (int i = 0; i < conf.nlistas; i++) imprimir_em(fd, "lista %s\n", conf.listas[i]);
+    int r = escrever_tudo(fd, t, (unsigned)n);
     fechar(fd);
-    return 0;
+    return r < 0 ? r : 0;
 }
 
 static void caminho_lista(char *s, int max, int i, const char *ext)
@@ -215,9 +225,9 @@ static int compilar(bool falar)
     cab.versao = 1;
     cab.n_bloq = nb;
     cab.n_perm = np;
-    criar_pasta("/home/.config");
-    criar_pasta(BLOQ_DIR);
-    const char *tmp = BLOQ_DIR "/tabla.tmp";
+    const char *tmp = maquina_separada() ? MAQ_BLOQ_TABLA ".tmp" : BLOQ_DIR "/tabla.tmp";
+    if (maquina_separada()) criar_pasta("/sistema/conf/bloqueo");
+    else { criar_pasta("/home/.config"); criar_pasta(BLOQ_DIR); }
     int fd = abrir(tmp, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     int r = fd < 0 ? fd : 0;
     if (r == 0 && (gravar_tudo(fd, &cab, sizeof cab) < 0 || gravar_tudo(fd, vb.v, nb * 8u) < 0 ||
@@ -225,12 +235,12 @@ static int compilar(bool falar)
     if (fd >= 0) fechar(fd);
     libera(vb.v); libera(vp.v);
     if (r == 0) {                                /* se cambia de una vez: nunca una tabla a medias */
-        apagar(BLOQ_TABLA);
-        r = renomear(tmp, BLOQ_TABLA);
+        apagar(arq_tabla());
+        r = renomear(tmp, arq_tabla());
     }
     if (r < 0) {
         apagar(tmp);
-        imprimir_em(ERROS, "bloqueo: no se pudo escribir %s: %s\n", BLOQ_TABLA, nome_erro(r));
+        imprimir_em(ERROS, "bloqueo: no se pudo escribir %s: %s\n", arq_tabla(), nome_erro(r));
         return r;
     }
     if (falar) imprimir("Tabla: %u dominios bloqueados y %u permitidos (%u KB, %u ms).\n",
@@ -290,7 +300,7 @@ static int activar(bool sim)
     conf.activo = sim;
     if (sim && compilar(true) < 0) return 1;
     int g = conf_gravar();
-    if (g < 0) { imprimir_em(ERROS, "bloqueo: no se pudo guardar %s: %s\n", BLOQ_CONF, nome_erro(g)); return 1; }
+    if (g < 0) { imprimir_em(ERROS, "bloqueo: no se pudo guardar %s: %s\n", arq_conf(), nome_erro(g)); return 1; }
     if (recarregar() < 0) return 1;
     if (!sim) { imprimir("Bloqueo desactivado: se resuelven todos los nombres.\n"); return 0; }
     info_bloqueo_t i;

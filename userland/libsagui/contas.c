@@ -7,7 +7,7 @@
 
 /* Las cuentas de serie: valen siempre que el archivo falte o no las tenga. */
 static const conta_t serie[] = {
-    { "root", UID_ROOT, GID_ROOT, "/home", "/bin/sagsh", "Administrador" },
+    { "root", UID_ROOT, GID_ROOT, "/root", "/bin/sagsh", "Administrador" },
     { "sagui", UID_SAGUI, GID_SAGUI, "/home", "/bin/sagsh", "Usuario del escritorio" },
     { "servicio", 100, 100, "/", "", "Servicios sin escritorio" },
 };
@@ -95,6 +95,7 @@ int contas_ler(conta_t *v, int max, bool *danado)
                 ((x.uid == 0) == (compara_texto(c[0], "root") == 0))) {
                 copia_texto(x.nome, c[0], sizeof x.nome);
                 copia_texto(x.casa, k > 3 && c[3][0] ? c[3] : "/home", sizeof x.casa);
+                if (x.uid == UID_ROOT) copia_texto(x.casa, "/root", sizeof x.casa);   /* D371: siempre /root */
                 copia_texto(x.shell, k > 4 ? c[4] : "", sizeof x.shell);
                 copia_texto(x.descricao, k > 5 ? c[5] : "", sizeof x.descricao);
                 v[n++] = x;
@@ -389,6 +390,9 @@ int elevar_interativo(unsigned uid_alvo, const char *programa)
     if (r == ERRO_NAO_EXISTE)
         imprimir_em(ERROS, "%s: el gestor de servicios no está en marcha: no se puede comprobar la contraseña "
                     "(arranca en modo rescate: Ctrl al encender)\n", programa);
+    else if (r == ERRO_NAO_SUPORTADO && uid_alvo == UID_ROOT)   /* D371 (P3 b): lo dice el kernel */
+        imprimir_em(ERROS, "%s: la primera contraseña de root se elige en la pantalla del sistema (al arrancar) o en el "
+                    "diálogo de permisos, no desde un programa\n", programa);
     else if (r != ERRO_INVALIDO && !(r == ERRO_ACESSO))
         imprimir_em(ERROS, "%s: %s\n", programa, nome_erro(r));
     else if (r == ERRO_ACESSO)

@@ -28,6 +28,7 @@
 #include "sistema.h"
 #include "texto.h"
 #include "vfs.h"
+#include "conf_sistema.h"
 
 #define RESINCRONIZAR (600 * TIQUES_POR_SEGUNDO)
 
@@ -200,15 +201,18 @@ static int aplicar(const config_zona_t *nova)
 void hora_carregar_config(void)
 {
     config_zona_t c = cfg;
-    if (ler_arquivo("/home/.zona", &c)) c.origem = ZONA_PERSISTENTE;
-    else if (ler_arquivo("/etc/zona", &c)) c.origem = ZONA_ARQUIVO;
+    /* D371: con la configuración de la máquina separada, la zona es solo la de /etc (SAGUI-CONF). */
+    bool sep = conf_sistema_separada();
+    if (sep && ler_arquivo("/etc/zona", &c)) c.origem = ZONA_PERSISTENTE;
+    else if (!sep && ler_arquivo("/home/.zona", &c)) c.origem = ZONA_PERSISTENTE;
+    else if (!sep && ler_arquivo("/etc/zona", &c)) c.origem = ZONA_ARQUIVO;
     else { registrar_hora("sem /etc/zona"); return; }
     if (aplicar(&c) < 0) {
         klog("[HORA] regra TZ invalida em %s: \"%s\" (fica UTC)\n",
-             c.origem == ZONA_PERSISTENTE ? "/home/.zona" : "/etc/zona", c.tz);
+             c.origem == ZONA_PERSISTENTE && !sep ? "/home/.zona" : "/etc/zona", c.tz);
         return;
     }
-    registrar_hora(c.origem == ZONA_PERSISTENTE ? "/home/.zona" : "/etc/zona");
+    registrar_hora(c.origem == ZONA_PERSISTENTE && !sep ? "/home/.zona" : "/etc/zona");
 }
 
 /* ------------------------------------------------------------ llamadas */

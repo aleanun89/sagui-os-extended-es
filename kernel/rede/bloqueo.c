@@ -26,6 +26,12 @@
 #include "texto.h"
 #include "vfs.h"
 #include "bloqueo_tabla.h"
+#include "conf_sistema.h"
+
+/* D371: con la configuración de la máquina separada, el bloqueo (de toda la máquina) se lee de /etc y de
+ * SAGUI-CONF, que solo escribe el administrador; si no, de /home como antes. */
+static const char *arq_conf(void) { return conf_sistema_separada() ? "/etc/bloqueo.conf" : BLOQ_CONF; }
+static const char *arq_tabla(void) { return conf_sistema_separada() ? "/sistema/conf/bloqueo/tabla.bin" : BLOQ_TABLA; }
 
 static uint8_t        *tabela;          /* el archivo entero, tal como se leyó */
 static uint32_t        tabela_bytes;
@@ -50,7 +56,7 @@ static void ler_conf(bool *p, bool *sub)
     *sub = true;
     uint8_t *txt;
     uint32_t tam;
-    if (vfs_ler_inteiro(BLOQ_CONF, &txt, &tam) < 0) return;
+    if (vfs_ler_inteiro(arq_conf(), &txt, &tam) < 0) return;
     for (uint32_t i = 0; i < tam;) {
         uint32_t f = i;
         while (f < tam && txt[f] != '\n') f++;
@@ -95,7 +101,7 @@ static int recargar(void)
     uint64_t t0 = prazo_tsc();
     uint8_t *d;
     uint32_t tam;
-    int r = vfs_ler_inteiro(BLOQ_TABLA, &d, &tam);
+    int r = vfs_ler_inteiro(arq_tabla(), &d, &tam);
     if (r == 0) {
         r = validar(d, tam);
         if (r < 0) kfree(d);
@@ -103,7 +109,7 @@ static int recargar(void)
     if (r < 0) {
         ultimo_erro = r;
         pedido = true;               /* con la tabla de antes, si la había */
-        klog("[BLOQUEO] no se pudo cargar %s (error %d)%s\n", BLOQ_TABLA, r,
+        klog("[BLOQUEO] no se pudo cargar %s (error %d)%s\n", arq_tabla(), r,
              tabela ? ": sigue la tabla anterior" : ": el bloqueo queda apagado");
         return r;
     }
@@ -129,7 +135,7 @@ static int recargar(void)
 
 void bloqueo_iniciar(void)
 {
-    if (!vfs_existe_arquivo(BLOQ_CONF)) return;   /* lo normal: nunca se activó */
+    if (!vfs_existe_arquivo(arq_conf())) return;   /* lo normal: nunca se activó */
     recargar();
 }
 

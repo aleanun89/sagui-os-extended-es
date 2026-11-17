@@ -4,6 +4,7 @@
  * entiende ESC [ D (cursor a la izquierda), ESC [ C (a la derecha) y ESC [ K (borra
  * hasta el final de la línea); ver kernel/dispositivos/terminal_grafico.c. */
 #include "sagsh.h"
+#include "contas.h"
 
 #define MAX_LINHA 1024
 #define MAX_HIST  200
@@ -15,7 +16,8 @@ const char *prompt_atual = "";
 static void mostrar(const char *s) { escrever_texto(SAIDA, s); }
 static void prompt(void) { mostrar(prompt_atual); }
 
-#define ARQ_HIST "/home/.sagsh_historial"
+/* D371: el de root, en su carpeta (/root); el de una cuenta, en la suya (que ve como /home). */
+#define ARQ_HIST (meu_uid() == 0 ? "/root/.sagsh_historial" : "/home/.sagsh_historial")
 static bool hist_persistente;
 
 /* D263: historial persistente. Solo con TERM (Terminal y SSH): en la consola y en las pruebas por

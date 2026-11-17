@@ -10,4 +10,5 @@ int inet_aton(const char *s, struct in_addr *a);
 int inet_pton(int familia, const char *s, void *dst);
 const char *inet_ntop(int familia, const void *src, char *dst, socklen_t n);
 in_addr_t inet_addr(const char *s);
+char *inet_ntoa(struct in_addr a);
 #endif

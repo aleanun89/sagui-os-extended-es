@@ -24,6 +24,7 @@
 #include "permisos.h"
 #include "processo.h"
 #include "relogio.h"
+#include "sessao.h"
 #include "sistema.h"
 #include "texto.h"
 
@@ -247,6 +248,16 @@ static int pedir(uint32_t ptr)
     processo_t *eu = processo_recursos();
     if (graf && (tipo != PED_ELEVAR || u->uid_alvo != UID_ROOT || !gui_ativa())) return ERRO_NAO_SUPORTADO;
     if (graf && eu->de_servico) return ERRO_ACESSO;   /* un servicio (SSH) no tiene a nadie delante del escritorio */
+    /* D371 (P3 b): con la configuración guardada y root aún sin contraseña (la persona dijo «más tarde» en la
+     * pantalla del arranque), la primera la elige quien está delante: esa pantalla o el diálogo de permisos. Un
+     * programa sin diálogo (passwd root, su, admin) no la pone mientras hay escritorio: si no, cualquier programa
+     * de la sesión se quedaba con root sin que nadie lo viera. Sin escritorio (la consola), como antes. */
+    if (!graf && u->uid_alvo == UID_ROOT && u->senha_nova[0] && eu->uid != UID_ROOT && gui_ativa() &&
+        sessao_raiz_sem_senha()) {
+        klog("[USUARIOS] %s (pid %d, uid %u): la primera contrasena de root no la pone un programa (pantalla o dialogo)\n",
+             eu->nome, eu->pid, eu->uid);
+        return ERRO_NAO_SUPORTADO;
+    }
     pedido_t *livre = NULL;
     for (int i = 0; i < PEDIDOS_MAX; i++) {
         if (pedidos[i].estado != PD_LIVRE && pedidos[i].r.pid == eu->pid) return ERRO_OCUPADO;   /* uno por proceso */
@@ -431,7 +442,16 @@ void supervisor_dialogo_negar(uint32_t id)
 }
 
 /* ---------------------------------------------------------------- inicio de sesión (D340) */
-int supervisor_entrar_pedir(uint32_t uid, const char *senha)
+static int pedido_do_kernel(uint32_t tipo, uint32_t uid, const char *senha, const char *nova);
+
+int supervisor_entrar_pedir(uint32_t uid, const char *senha) { return pedido_do_kernel(PED_ENTRAR, uid, senha, ""); }
+
+/* D371 (P3 b): la primera contraseña de root, elegida en la pantalla del sistema (primer arranque con SAGUI-CONF).
+ * Como el inicio de sesión: solo la crea el kernel (pid 0, uid PED_UID_NINGUEM); el supervisor la acepta solo si
+ * root aún no tiene contraseña. El resultado, con supervisor_entrar_resultado. */
+int supervisor_raiz_pedir(const char *nova) { return pedido_do_kernel(PED_SENHA, 0, "", nova); }
+
+static int pedido_do_kernel(uint32_t tipo, uint32_t uid, const char *senha, const char *nova)
 {
     if (!supervisor_pid_confiavel()) return ERRO_NAO_EXISTE;
     pedidos_caducar();
@@ -444,16 +464,17 @@ int supervisor_entrar_pedir(uint32_t uid, const char *senha)
     pedido_limpar(p);
     p->r.id = proximo_id++;
     if (proximo_id > 0x7FFFFFFF) proximo_id = 1;
-    p->r.tipo = PED_ENTRAR;
+    p->r.tipo = tipo;
     p->r.uid_alvo = uid;
     p->r.pid = 0;
     p->r.uid = p->r.gid = PED_UID_NINGUEM;   /* nadie: el supervisor pide la contraseña de la cuenta */
     p->r.servicio = 0;                        /* delante de la pantalla, en la sesión local */
     txt_copia_n(p->r.senha, senha, PED_SENHA_MAX);
+    txt_copia_n(p->r.senha_nova, nova, PED_SENHA_MAX);
     p->entrar = true;
     p->desde = relogio_tiques();
     p->estado = PD_ESPERANDO;
-    klog("[USUARIOS] pedido %u: inicio de sesion de uid %u\n", p->r.id, uid);
+    klog("[USUARIOS] pedido %u: %s de uid %u\n", p->r.id, tipo == PED_ENTRAR ? "inicio de sesion" : "primera contrasena", uid);
     return (int)p->r.id;
 }
 

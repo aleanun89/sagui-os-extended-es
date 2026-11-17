@@ -1,0 +1,6 @@
+Freeciv 3.1.6 para SaguiOS (D374)
+
+Freeciv es un juego de estrategia por turnos libre (GPL-2.0 o posterior): https://www.freeciv.org
+Aqui van el servidor (freeciv-server) y el cliente SDL2 (freeciv-sdl2). Datos en /apps/freeciv/data,
+catalogos de idioma en /apps/freeciv/locale, partidas guardadas en /home/.freeciv/saves.
+Mas informacion: docs/freeciv.md del repositorio de SaguiOS.

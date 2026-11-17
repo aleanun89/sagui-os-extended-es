@@ -112,6 +112,9 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `DESTINO`, `PRIV_DESTINO` | `entrega/latest` | carpeta de salida de `make variantes` y de `make priv_variantes` |
 | `GERAR_OPC` | (vacío) | opciones extra para `gerar_versao.sh` desde esos dos objetivos (por ejemplo `GERAR_OPC="--probar"`) |
 | `FUENTES_RED` | (sin definir) | `1`: si falta el zip de Typodermic, que lo baje (ver 5) |
+| `FREECIV` | `1` | Freeciv 3.1.6 (cliente SDL2 y servidor local, en español, D374): solo entra si están preparadas las fuentes (ver 5). `FREECIV=0` lo quita; con `SEM_GPL=1` tampoco entra |
+| `GO` | `1` | programas en Go con TinyGo (`/apps/go/`, ver 1). Sin TinyGo instalado se saltan con un aviso; `GO=0` los desactiva |
+| `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | solo para `make priv_descargas`: dónde está el repositorio de OpenTTD (o de dónde clonarlo). Sin él, la imagen privada no lleva OpenTTD (ver 5) |
 
 **`gerar_versao.sh`** (compila, arma las imágenes y deja la entrega con sumas SHA-256; `./gerar_versao.sh --help`):
 
@@ -224,11 +227,15 @@ Todas las imágenes de disco llevan, además, las particiones `SAGUI-JOGOS` (jue
 | Shareware de Jazz Jackrabbit 1.0 (episodio 1) | `bash tools/openjazz_datos.sh [--zip FICHERO] [--forzar]` | `https://slackware.uk/~urchlay/src/jjrabbit.zip` | datos de Epic MegaGames, con condiciones de redistribución: no se publican | `userland/terceros/openjazz/datos/` (ignorada por git) |
 | Fuentes tipográficas de Typodermic (28 elegidas de 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (con red, baja el zip); `make priv_descargas` lo hace solo | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**a veces da 404**: ver la nota) | CC0 (dominio público) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
 | ROM libre de Game Boy (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, versión v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (solo útil con GNUBoy, ver 7) |
+| Fuentes de Freeciv 3.1.6 y de zlib 1.3.1 (unos 90 MB) | `bash tools/freeciv_fuentes.sh [--tarball FICHERO] [--zlib-tarball FICHERO] [--forzar]` | `https://github.com/freeciv/freeciv/archive/refs/tags/R3_1_6.tar.gz` (zlib: `https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz`) | GPL-2.0 o posterior (Freeciv); licencia zlib (zlib) | `userland/terceros/freeciv/fuentes/` y `userland/terceros/zlib/fuentes/` (ignoradas por git) |
 
 Notas:
 
 - **Typodermic:** `make priv_descargas` (o `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba`) baja el zip a `NEW_FONTS/` si falta. Si la web da 404 (pasó el 2026-11-14), el guion lo dice con claridad y **no rompe nada**: el sistema se construye igual sin esas fuentes. Para tenerlas, baja el zip a mano y ponlo en `NEW_FONTS/typodermic-public-domain-2024-12.zip` (se comprueba el SHA-256). `make` solo mete las fuentes si el zip ya está en `NEW_FONTS/` cuando compilas (esa carpeta no va en el repositorio público).
 - **`make priv_descargas`** ejecuta, por este orden: `tools/netsurf_fuentes.sh` (si no hay fuentes preparadas), `tools/gnuboy_fuentes.sh` (si no está `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` y la descarga de las fuentes Typodermic (si falla, avisa y sigue). Funciona igual con el repositorio público: el pegamento de NetSurf y GNUBoy va en él.
+- **Freeciv** no lo baja `make priv_descargas`: hay que ejecutar `bash tools/freeciv_fuentes.sh` a mano. Sin `userland/terceros/freeciv/fuentes/.preparado` el `Makefile` no compila Freeciv, y sin aviso (`FREECIV=0` lo quita). Sus datos de juego van a `/apps/freeciv`. No depende de `--con-input-share`: si las fuentes están preparadas, Freeciv entra también en `make variantes`; bájalas solo si lo quieres en tus imágenes.
+- **OpenTTD** (opcional, solo imágenes privadas): el último paso de `make priv_descargas` lo compila como paquete desde su repositorio aparte (por defecto `../openttd-saguios`, o `OPENTTD_URL`) con `tools/openttd_paquete.sh` y lo instala en `input_share/apps`. Sin ese repositorio, avisa y la imagen privada sale sin él. Las imágenes públicas (`INPUT_SHARE=`) nunca lo llevan.
+- **Go** (opcional): `tools/tinygo_entorno.sh instalar` descarga TinyGo y Go en versiones fijas, con SHA-256 comprobado, a `~/.local/saguitools` (sin sudo). Sin ello, `make` salta los ejemplos de Go con un aviso.
 - **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), el microcódigo de las Radeon R5xx, R6xx y R7xx para el 3D por la GPU (`firmware/radeon/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_radeon.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Juegos y datos que pones tú (`input_share/`)
@@ -267,13 +274,15 @@ Detalles: el `Makefile` vigila `input_share/games` y `input_share/apps` y rehace
 
 ### 7. Lo que no está en el repositorio público, y por qué
 
-SaguiOS-Extended es **GPL v3** (`LICENSE`, `docs/licencia.md`). Tres piezas son **GPL v2 solamente** (sin «o posterior»), y la v2 sola es incompatible con la v3: no pueden enlazarse en un mismo binario con la libsagui y la libc comunes, así que **su código no se publica** ni va en las imágenes publicadas. Sí se publica lo nuestro: el pegamento con SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, con su SPDX `GPL-2.0-or-later`) y los guiones que descargan el código original; así cada uno puede compilárselos **para uso propio** (usar en privado no es distribuir):
+SaguiOS-Extended es **GPL v3** (`LICENSE`, `docs/licencia.md`). Cuatro piezas son **GPL v2 solamente** (sin «o posterior»), y la v2 sola es incompatible con la v3: no pueden enlazarse en un mismo binario con la libsagui y la libc comunes, así que **su código no se publica** ni va en las imágenes publicadas. Sí se publica lo nuestro: el pegamento con SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, con su SPDX `GPL-2.0-or-later`) y los guiones que descargan el código original; así cada uno puede compilárselos **para uso propio** (usar en privado no es distribuir):
 
 | Pieza | Licencia | Qué pasa en el repositorio público |
 | --- | --- | --- |
 | **NetSurf** (navegador, `userland/terceros/netsurf/`) | GPL-2.0 solo v2 | su código (`fuentes/`) no está: lo baja `tools/netsurf_fuentes.sh`; el pegamento propio sí |
 | **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (casi sin «o posterior»: se trata como solo v2) | su código (`jogo/`) no está: lo baja `tools/gnuboy_fuentes.sh` (commit fijo, SHA-256 comprobado); el pegamento propio sí |
 | **r8169 derivado de Linux** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | no está; el driver de la tarjeta Realtek RTL8168/8111 usa su inicio clásico propio (`kernel/rede/r8169_sem_gpl.h`): funciona, pero sin las secuencias de inicio de los chips más nuevos (RTL8111G/H) |
+| **Freeciv** (juego de estrategia, `userland/terceros/freeciv/`) | GPL-2.0 o posterior | su código (`fuentes/`, unos 90 MB) no está en git: lo baja `tools/freeciv_fuentes.sh`; el pegamento propio (`freeciv.mk`, `plataforma/`, `parches/`, `traducciones/`) sí |
+| **OpenTTD** (juego, repositorio aparte `../openttd-saguios`) | GPL-2.0 solo | no está en este repositorio ni en las imágenes públicas: se compila como paquete aparte y solo entra en las imágenes privadas (D375) |
 
 **Usarlos en privado está permitido; redistribuir esas imágenes, no.** Compilarte una imagen con ellos y usarla tú no es distribuir (`docs/licencia.md`).
 
@@ -309,7 +318,7 @@ Comprueba las descargas con `sha256sum -c SHA256SUMS.txt`. En una máquina real,
 
 ### Generador con ventana (opcional)
 
-Si prefieres una ventana en vez de las órdenes de arriba, `tools/generador` (Tkinter) monta la orden de `gerar_versao.sh` o de `tools/mkimagem.py`, deja elegir la carpeta de destino y ejecuta con la salida en vivo. También funciona sin ventana: `tools/generador.py --orden --perfil publica`. Ver `docs/generador.md`.
+Si prefieres una ventana en vez de las órdenes de arriba, `tools/generador` (Tkinter) monta la orden de `gerar_versao.sh` o de `tools/mkimagem.py`, deja elegir la carpeta de destino y ejecuta con la salida en vivo. También funciona sin ventana: `tools/generador.py --orden --perfil publica`. Tiene tres perfiles: *Pública* (lo de `make variantes`), *Privada completa* (lo de `make priv_variantes`; muestra «USO PROPIO: NO PUBLICAR» y nunca añade `--publicar`) y *Personalizada* (las opciones de `tools/mkimagem.py`). Ver `docs/generador.md`.
 
 ### 9. Problemas frecuentes
 
@@ -401,7 +410,7 @@ make -j8                 # builds everything and creates build/saguios.img
 
 ### 3. Build options
 
-They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you change an option, use a different `B=` (or `make limpar`) so objects are not mixed.
+They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you change an option, use a different `B=` (or `make limpar`) so objects are not mixed.
 
 **`Makefile` variables:**
 
@@ -437,6 +446,9 @@ They go on the `make` command line: `make NETSURF=0 B=build-mine -j8`. If you ch
 | `DESTINO`, `PRIV_DESTINO` | `entrega/latest` | output folder of `make variantes` and `make priv_variantes` |
 | `GERAR_OPC` | (empty) | extra options for `gerar_versao.sh` from those two targets (for example `GERAR_OPC="--probar"`) |
 | `FUENTES_RED` | (unset) | `1`: if the Typodermic zip is missing, download it (see 5) |
+| `FREECIV` | `1` | Freeciv 3.1.6 (SDL2 client and local server, in Spanish, D374): only included if the sources are prepared (see 5). `FREECIV=0` removes it; with `SEM_GPL=1` it is not included either |
+| `GO` | `1` | programs in Go with TinyGo (`/apps/go/`, see 1). Without TinyGo installed they are skipped with a notice; `GO=0` disables them |
+| `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | only for `make priv_descargas`: where the OpenTTD repository is (or where to clone it from). Without it the private image does not carry OpenTTD (see 5) |
 
 **`gerar_versao.sh`** (builds, assembles the images and leaves the delivery with SHA-256 sums; `./gerar_versao.sh --help`):
 
@@ -513,7 +525,7 @@ PC-side tool: `tools/conversor_video_pc.py` is a windowed video converter (Pytho
 | `make imagem-smp`, `imagem-uacpi` | `build/saguios-smp.img`, `build/saguios-uacpi.img` |
 | `make imagem-persistente`, `imagem-persistente-fat32`, `imagem-persistente-smp`, `imagem-persistente-smp-uacpi` | the persistent images (with `/home`) in `build/` |
 | `make imagem-particoes`, `imagem-particoes-xz` | `build/saguios-particiones.img` (and `.xz`) |
-| `make variantes [DESTINO=entrega/mine]` | **the publishable build**: `./gerar_versao.sh --todas --destino DESTINO`: every image in the table below, without `input_share/`, NetSurf, GNUBoy or shareware data |
+| `make variantes [DESTINO=entrega/mia]` | **the publishable build**: `./gerar_versao.sh --todas --destino DESTINO`: every image in the table below, without `input_share/`, NetSurf, GNUBoy or shareware data |
 | `make priv_variantes [PRIV_DESTINO=...]` | **personal use**: the same with `--con-input-share` (your games, Quake and Jazz shareware, NetSurf and GNUBoy, which it downloads first). It first runs `make priv_descargas` (see 5 and 7) |
 | `make entrega-sin-gpl` | `build-sem-gpl/saguios-sin-gpl.img`, after the license audit |
 | `./gerar_versao.sh --todas` | the same as `make variantes`, with the default destination `entrega/latest` |
@@ -547,13 +559,17 @@ Every disk image also carries the `SAGUI-JOGOS` (games, `/jogos`), `SAGUI-APPS` 
 | GNUBoy sources (SDL2-GNUBoy, commit `c8642d1`, about 450 KB) | `bash tools/gnuboy_fuentes.sh [--tarball FILE] [--forzar] [--comprobar]` | `https://github.com/AlexOberhofer/SDL2-GNUBoy/archive/c8642d11bd2706333c5255e2b7f2b84445d0a070.tar.gz` | GPL-2.0 (v2 only in practice). See 7 | `userland/terceros/gnuboy/jogo/` |
 | Quake 1.06 shareware (episode 1) | `bash tools/quake_datos.sh [--zip FILE] [--forzar]` | `ftp.gwdg.de/pub/misc/ftp.idsoftware.com/idstuff/quake/quake106.zip` (and the `youfailit.net` mirror) | id Software data: free for the user, **no right to redistribute it inside another system** | `userland/terceros/quake/datos/` (ignored by git) |
 | Jazz Jackrabbit 1.0 shareware (episode 1) | `bash tools/openjazz_datos.sh [--zip FILE] [--forzar]` | `https://slackware.uk/~urchlay/src/jjrabbit.zip` | Epic MegaGames data, with redistribution conditions: not published | `userland/terceros/openjazz/datos/` (ignored by git) |
-| Typodermic typefaces (28 chosen out of 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINATION` (with network, it downloads the zip); `make priv_descargas` does it for you | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**sometimes gives 404**: see the note) | CC0 (public domain) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
+| Typodermic typefaces (28 chosen out of 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (with network, it downloads the zip); `make priv_descargas` does it for you | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**sometimes gives 404**: see the note) | CC0 (public domain) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
 | Free Game Boy ROM (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, version v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (only useful with GNUBoy, see 7) |
+| Freeciv 3.1.6 and zlib 1.3.1 sources (about 90 MB) | `bash tools/freeciv_fuentes.sh [--tarball FILE] [--zlib-tarball FILE] [--forzar]` | `https://github.com/freeciv/freeciv/archive/refs/tags/R3_1_6.tar.gz` (zlib: `https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz`) | GPL-2.0 or later (Freeciv); zlib license (zlib) | `userland/terceros/freeciv/fuentes/` and `userland/terceros/zlib/fuentes/` (ignored by git) |
 
 Notes:
 
-- **Typodermic:** `make priv_descargas` (or `python3 tools/fuentes_typodermic.py seleccion /tmp/fonts-test`) downloads the zip into `NEW_FONTS/` if it is missing. If the website gives 404 (it did on 2026-11-14), the script says so clearly and **breaks nothing**: the system is built anyway without those fonts. To get them, download the zip by hand and put it at `NEW_FONTS/typodermic-public-domain-2024-12.zip` (the SHA-256 is checked). `make` only includes the fonts if the zip is already in `NEW_FONTS/` when you build (that folder is not in the public repository).
+- **Typodermic:** `make priv_descargas` (or `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba`) downloads the zip into `NEW_FONTS/` if it is missing. If the website gives 404 (it did on 2026-11-14), the script says so clearly and **breaks nothing**: the system is built anyway without those fonts. To get them, download the zip by hand and put it at `NEW_FONTS/typodermic-public-domain-2024-12.zip` (the SHA-256 is checked). `make` only includes the fonts if the zip is already in `NEW_FONTS/` when you build (that folder is not in the public repository).
 - **`make priv_descargas`** runs, in this order: `tools/netsurf_fuentes.sh` (if there are no prepared sources), `tools/gnuboy_fuentes.sh` (if `jogo/` is missing), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` and the download of the Typodermic fonts (if it fails, it warns and goes on). It works the same with the public repository: the NetSurf and GNUBoy glue is in it.
+- **Freeciv** is not downloaded by `make priv_descargas`: run `bash tools/freeciv_fuentes.sh` yourself. Without `userland/terceros/freeciv/fuentes/.preparado` the `Makefile` does not build Freeciv, and it does not say so (`FREECIV=0` removes it). Its game data goes to `/apps/freeciv`. It does not depend on `--con-input-share`: if the sources are prepared, Freeciv also goes into `make variantes`; download them only if you want it in your images.
+- **OpenTTD** (optional, private images only): the final step of `make priv_descargas` builds it as a package from its own repository (by default `../openttd-saguios`, or `OPENTTD_URL`) with `tools/openttd_paquete.sh` and installs it in `input_share/apps`. Without that repository it warns, and the private image comes out without it. The public images (`INPUT_SHARE=`) never carry it.
+- **Go** (optional): `tools/tinygo_entorno.sh instalar` downloads TinyGo and Go, at fixed versions with checked SHA-256, into `~/.local/saguitools` (no sudo). Without it, `make` skips the Go examples with a notice.
 - **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the Radeon R5xx, R6xx and R7xx microcode for GPU 3D (`firmware/radeon/`, from linux-firmware, redistributable unchanged; `tools/firmware_radeon.sh --comprobar` verifies it and without `--comprobar` it downloads it again; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Games and data you provide (`input_share/`)
@@ -567,7 +583,7 @@ input_share/
     Jazz/                    full Jazz Jackrabbit (e.g. the GOG one), as it is
     CnC/CnC_GDI95.iso        Command & Conquer Gold: GDI (volume GDI95)
     CnC/CnC_NOD95.iso        ... and NOD (optional: without it, only the GDI campaign)
-    gb/game.gb               Game Boy / Game Boy Color ROM (.gb, .gbc)
+    gb/juego.gb              Game Boy / Game Boy Color ROM (.gb, .gbc)
     <other>/                 any other game: it ends up in /jogos/<other>
   apps/
     bin/                     SaguiOS executables you want in /apps/bin (on the PATH)
@@ -592,13 +608,15 @@ Details: the `Makefile` watches `input_share/games` and `input_share/apps` and r
 
 ### 7. What is not in the public repository, and why
 
-SaguiOS-Extended is **GPL v3** (`LICENSE`, `docs/licencia.md`). Three pieces are **GPL v2 only** (no «or later»), and v2 alone is incompatible with v3: they cannot be linked into one binary with the common libsagui and libc, so **their code is not published** and is not in the published images. What is ours is published: the glue with SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, with their `GPL-2.0-or-later` SPDX) and the scripts that download the original code; so anyone can build them **for personal use** (using it privately is not distributing):
+SaguiOS-Extended is **GPL v3** (`LICENSE`, `docs/licencia.md`). Four pieces are **GPL v2 only** (no «or later»), and v2 alone is incompatible with v3: they cannot be linked into one binary with the common libsagui and libc, so **their code is not published** and is not in the published images. What is ours is published: the glue with SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, with their `GPL-2.0-or-later` SPDX) and the scripts that download the original code; so anyone can build them **for personal use** (using it privately is not distributing):
 
 | Piece | License | What happens in the public repository |
 | --- | --- | --- |
 | **NetSurf** (browser, `userland/terceros/netsurf/`) | GPL-2.0 v2 only | its code (`fuentes/`) is not there: `tools/netsurf_fuentes.sh` downloads it; our glue is there |
 | **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (almost no «or later»: treated as v2 only) | its code (`jogo/`) is not there: `tools/gnuboy_fuentes.sh` downloads it (pinned commit, SHA-256 checked); our glue is there |
 | **Linux-derived r8169** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | not there; the driver for the Realtek RTL8168/8111 card uses its own classic init (`kernel/rede/r8169_sem_gpl.h`): it works, but without the init sequences of the newest chips (RTL8111G/H) |
+| **Freeciv** (strategy game, `userland/terceros/freeciv/`) | GPL-2.0 or later | its code (`fuentes/`, about 90 MB) is not in git: `tools/freeciv_fuentes.sh` downloads it; our own glue (`freeciv.mk`, `plataforma/`, `parches/`, `traducciones/`) is there |
+| **OpenTTD** (game, separate repository `../openttd-saguios`) | GPL-2.0 only | not in this repository nor in the public images: it is built as a separate package and only goes into the private images (D375) |
 
 **Using them privately is allowed; redistributing those images is not.** Building an image with them and using it yourself is not distributing (`docs/licencia.md`).
 
@@ -617,8 +635,8 @@ The rest of `kernel/terceros/linux/` (`hda`, `hwmon`, GPL-2.0 or later) is in th
 **First, test it in QEMU** (nothing is written to any disk):
 
 ```bash
-./run_in_qemu.sh --imagen entrega/mine/saguios.img
-./run_in_qemu.sh --imagen entrega/mine/saguios-persistente-fat32.img.xz --guardar
+./run_in_qemu.sh --imagen entrega/mia/saguios.img
+./run_in_qemu.sh --imagen entrega/mia/saguios-persistente-fat32.img.xz --guardar
 ```
 
 Then the image to somewhere else (step by step in `docs/como-gravar.md`):
@@ -634,7 +652,7 @@ Check downloads with `sha256sum -c SHA256SUMS.txt`. On a real machine, start wit
 
 ### Window-based generator (optional)
 
-If you prefer a window over the commands above, `tools/generador` (Tkinter) builds the `gerar_versao.sh` or `tools/mkimagem.py` command, lets you pick the output folder and runs it with live output. It also works without a window: `tools/generador.py --orden --perfil publica`. See `docs/generador.md` (in Spanish).
+If you prefer a window over the commands above, `tools/generador` (Tkinter) builds the `gerar_versao.sh` or `tools/mkimagem.py` command, lets you pick the output folder and runs it with live output. It also works without a window: `tools/generador.py --orden --perfil publica`. It has three profiles: *Pública* (what `make variantes` does), *Privada completa* (what `make priv_variantes` does; it shows «USO PROPIO: NO PUBLICAR» and never adds `--publicar`) and *Personalizada* (the `tools/mkimagem.py` options). See `docs/generador.md` (in Spanish).
 
 ### 9. Common problems
 
@@ -678,7 +696,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 | Pacote | Para quê |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar o kernel e os programas em 32 bits |
-| `g++` (com suporte a `-m32`) | **opcional**: os programas em C++ (OpenJazz, Command & Conquer, DOSBox). Sem ele o sistema é construído do mesmo jeito, sem eles |
+| `g++` (com suporte a `-m32`) | **opcional**: os programas em C++ (OpenJazz, Command & Conquer, DOSBox). Sem ele o sistema é construído igualmente, sem eles |
 | `nasm` | o carregador de inicialização e partes do kernel |
 | `python3` | todas as ferramentas de `tools/` (`mkimagem.py`, `mksgfs.py`...) |
 | `mtools`, `dosfstools` | partições FAT32 (`mcopy`, `mkfs.vfat`) |
@@ -726,7 +744,7 @@ Opções do `./run_in_qemu.sh` (`--help` lista todas):
 
 ### 3. Opções de compilação
 
-Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opção, use um `B=` diferente (ou `make limpar`) para não misturar objetos.
+Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção, use um `B=` diferente (ou `make limpar`) para não misturar objetos.
 
 **Variáveis do `Makefile`:**
 
@@ -762,6 +780,9 @@ Vão na linha do `make`: `make NETSURF=0 B=build-minha -j8`. Se mudar uma opçã
 | `DESTINO`, `PRIV_DESTINO` | `entrega/latest` | pasta de saída de `make variantes` e de `make priv_variantes` |
 | `GERAR_OPC` | (vazio) | opções extras para o `gerar_versao.sh` a partir desses dois alvos (por exemplo `GERAR_OPC="--probar"`) |
 | `FUENTES_RED` | (não definida) | `1`: se faltar o zip da Typodermic, baixá-lo (veja 5) |
+| `FREECIV` | `1` | Freeciv 3.1.6 (cliente SDL2 e servidor local, em espanhol, D374): só entra se as fontes estiverem preparadas (veja 5). `FREECIV=0` o remove; com `SEM_GPL=1` também não entra |
+| `GO` | `1` | programas em Go com TinyGo (`/apps/go/`, veja 1). Sem o TinyGo instalado são pulados com um aviso; `GO=0` os desativa |
+| `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | só para `make priv_descargas`: onde está o repositório do OpenTTD (ou de onde cloná-lo). Sem ele, a imagem privada não leva o OpenTTD (veja 5) |
 
 **`gerar_versao.sh`** (compila, monta as imagens e deixa a entrega com somas SHA-256; `./gerar_versao.sh --help`):
 
@@ -838,7 +859,7 @@ Ferramenta do PC: `tools/conversor_video_pc.py` é um conversor de vídeo com ja
 | `make imagem-smp`, `imagem-uacpi` | `build/saguios-smp.img`, `build/saguios-uacpi.img` |
 | `make imagem-persistente`, `imagem-persistente-fat32`, `imagem-persistente-smp`, `imagem-persistente-smp-uacpi` | as persistentes (com `/home`) em `build/` |
 | `make imagem-particoes`, `imagem-particoes-xz` | `build/saguios-particiones.img` (e `.xz`) |
-| `make variantes [DESTINO=entrega/minha]` | **o publicável**: `./gerar_versao.sh --todas --destino DESTINO`: todas as imagens da tabela abaixo, sem `input_share/`, sem NetSurf nem GNUBoy, sem dados shareware |
+| `make variantes [DESTINO=entrega/mia]` | **o publicável**: `./gerar_versao.sh --todas --destino DESTINO`: todas as imagens da tabela abaixo, sem `input_share/`, sem NetSurf nem GNUBoy, sem dados shareware |
 | `make priv_variantes [PRIV_DESTINO=...]` | **uso próprio**: o mesmo com `--con-input-share` (seus jogos, shareware de Quake e Jazz, NetSurf e GNUBoy, que ele baixa antes). Antes executa `make priv_descargas` (veja 5 e 7) |
 | `make entrega-sin-gpl` | `build-sem-gpl/saguios-sin-gpl.img`, depois da auditoria de licenças |
 | `./gerar_versao.sh --todas` | o mesmo que `make variantes`, com o destino padrão `entrega/latest` |
@@ -864,7 +885,7 @@ Todas as imagens de disco levam ainda as partições `SAGUI-JOGOS` (jogos, `/jog
 
 ### 5. O que é baixado e quando
 
-**Um `make` normal não baixa nada da rede.** Tudo o que está abaixo é executado por você, ou por `make priv_descargas` / `make priv_variantes`. Todos os scripts verificam o SHA-256 do que baixam e não repetem o download se já estiver feito; sem rede, falham com uma mensagem e o sistema é construído do mesmo jeito, sem essa peça (os dados shareware e as fontes tipográficas são opcionais).
+**Um `make` normal não baixa nada da rede.** Tudo o que está abaixo é executado por você, ou por `make priv_descargas` / `make priv_variantes`. Todos os scripts verificam o SHA-256 do que baixam e não repetem o download se já estiver feito; sem rede, falham com uma mensagem e o sistema é construído mesmo assim, sem essa peça (os dados shareware e as fontes tipográficas são opcionais).
 
 | O quê | Script | Origem | Licença | Onde fica |
 | --- | --- | --- | --- | --- |
@@ -874,11 +895,15 @@ Todas as imagens de disco levam ainda as partições `SAGUI-JOGOS` (jogos, `/jog
 | Shareware do Jazz Jackrabbit 1.0 (episódio 1) | `bash tools/openjazz_datos.sh [--zip ARQUIVO] [--forzar]` | `https://slackware.uk/~urchlay/src/jjrabbit.zip` | dados da Epic MegaGames, com condições de redistribuição: não são publicados | `userland/terceros/openjazz/datos/` (ignorada pelo git) |
 | Fontes tipográficas da Typodermic (28 escolhidas de 731) | `python3 tools/fuentes_typodermic.py seleccion DESTINO` (com rede, baixa o zip); o `make priv_descargas` faz isso sozinho | `https://typodermicfonts.com/wp-content/uploads/2024/12/typodermic-public-domain-2024-12.zip` (**às vezes dá 404**: veja a nota) | CC0 (domínio público) | `NEW_FONTS/typodermic-public-domain-2024-12.zip` |
 | ROM livre de Game Boy (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, versão v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (só útil com o GNUBoy, veja 7) |
+| Fontes do Freeciv 3.1.6 e do zlib 1.3.1 (cerca de 90 MB) | `bash tools/freeciv_fuentes.sh [--tarball ARQUIVO] [--zlib-tarball ARQUIVO] [--forzar]` | `https://github.com/freeciv/freeciv/archive/refs/tags/R3_1_6.tar.gz` (zlib: `https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz`) | GPL-2.0 ou posterior (Freeciv); licença zlib (zlib) | `userland/terceros/freeciv/fuentes/` e `userland/terceros/zlib/fuentes/` (ignoradas pelo git) |
 
 Notas:
 
-- **Typodermic:** o `make priv_descargas` (ou `python3 tools/fuentes_typodermic.py seleccion /tmp/fontes-teste`) baixa o zip para `NEW_FONTS/` se faltar. Se o site der 404 (aconteceu em 2026-11-14), o script avisa com clareza e **não quebra nada**: o sistema é construído do mesmo jeito sem essas fontes. Para tê-las, baixe o zip à mão e coloque-o em `NEW_FONTS/typodermic-public-domain-2024-12.zip` (o SHA-256 é verificado). O `make` só inclui as fontes se o zip já estiver em `NEW_FONTS/` quando você compila (essa pasta não está no repositório público).
+- **Typodermic:** o `make priv_descargas` (ou `python3 tools/fuentes_typodermic.py seleccion /tmp/fuentes-prueba`) baixa o zip para `NEW_FONTS/` se faltar. Se o site der 404 (aconteceu em 2026-11-14), o script avisa com clareza e **não quebra nada**: o sistema é construído mesmo assim, sem essas fontes. Para tê-las, baixe o zip à mão e coloque-o em `NEW_FONTS/typodermic-public-domain-2024-12.zip` (o SHA-256 é verificado). O `make` só inclui as fontes se o zip já estiver em `NEW_FONTS/` quando você compila (essa pasta não está no repositório público).
 - **`make priv_descargas`** executa, nesta ordem: `tools/netsurf_fuentes.sh` (se não houver fontes preparadas), `tools/gnuboy_fuentes.sh` (se faltar `jogo/`), `tools/quake_datos.sh`, `tools/openjazz_datos.sh` e o download das fontes Typodermic (se falhar, avisa e continua). Funciona igual com o repositório público: a cola do NetSurf e do GNUBoy está nele.
+- **Freeciv** não é baixado por `make priv_descargas`: é preciso executar `bash tools/freeciv_fuentes.sh` manualmente. Sem `userland/terceros/freeciv/fuentes/.preparado`, o `Makefile` não compila o Freeciv, e sem aviso (`FREECIV=0` o remove). Os dados do jogo vão para `/apps/freeciv`. Não depende de `--con-input-share`: se as fontes estiverem preparadas, o Freeciv entra também em `make variantes`; baixe-as só se o quiser nas suas imagens.
+- **OpenTTD** (opcional, só imagens privadas): o último passo do `make priv_descargas` o compila como pacote a partir do seu repositório separado (por padrão `../openttd-saguios`, ou `OPENTTD_URL`) com `tools/openttd_paquete.sh` e o instala em `input_share/apps`. Sem esse repositório, avisa e a imagem privada sai sem ele. As imagens públicas (`INPUT_SHARE=`) nunca o levam.
+- **Go** (opcional): `tools/tinygo_entorno.sh instalar` baixa o TinyGo e o Go em versões fixas, com SHA-256 verificado, para `~/.local/saguitools` (sem sudo). Sem isso, o `make` pula os exemplos de Go com um aviso.
 - **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), o microcódigo das Radeon R5xx, R6xx e R7xx para o 3D pela GPU (`firmware/radeon/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_radeon.sh --comprobar` verifica-o e, sem `--comprobar`, o baixa de novo; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
 
 ### 6. Jogos e dados que você fornece (`input_share/`)
@@ -892,7 +917,7 @@ input_share/
     Jazz/                    Jazz Jackrabbit completo (p. ex. o da GOG), como está
     CnC/CnC_GDI95.iso        Command & Conquer Gold: GDI (volume GDI95)
     CnC/CnC_NOD95.iso        ... e NOD (opcional: sem ela, só a campanha GDI)
-    gb/jogo.gb               ROM de Game Boy / Game Boy Color (.gb, .gbc)
+    gb/juego.gb               ROM de Game Boy / Game Boy Color (.gb, .gbc)
     <outra>/                 qualquer outro jogo: vai para /jogos/<outra>
   apps/
     bin/                     executáveis do SaguiOS que você quer em /apps/bin (no PATH)
@@ -917,13 +942,15 @@ Detalhes: o `Makefile` vigia `input_share/games` e `input_share/apps` e refaz as
 
 ### 7. O que não está no repositório público, e por quê
 
-O SaguiOS-Extended é **GPL v3** (`LICENSE`, `docs/licencia.md`). Três peças são **GPL v2 somente** (sem «ou posterior»), e a v2 sozinha é incompatível com a v3: não podem ser ligadas no mesmo binário com a libsagui e a libc comuns, então **o código delas não é publicado** nem vai nas imagens publicadas. O que é nosso é publicado: a cola com o SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, com o SPDX `GPL-2.0-or-later`) e os scripts que baixam o código original; assim cada um pode compilá-los **para uso próprio** (usar em privado não é distribuir):
+O SaguiOS-Extended é **GPL v3** (`LICENSE`, `docs/licencia.md`). Quatro peças são **GPL v2 somente** (sem «ou posterior»), e a v2 sozinha é incompatível com a v3: não podem ser ligadas no mesmo binário com a libsagui e a libc comuns, então **o código delas não é publicado** nem vai nas imagens publicadas. O que é nosso é publicado: a cola com o SaguiOS (`netsurf.mk`, `gnuboy.mk`, `plataforma/`, `libc/`, com o SPDX `GPL-2.0-or-later`) e os scripts que baixam o código original; assim cada um pode compilá-los **para uso próprio** (usar em privado não é distribuir):
 
 | Peça | Licença | O que acontece no repositório público |
 | --- | --- | --- |
 | **NetSurf** (navegador, `userland/terceros/netsurf/`) | GPL-2.0 só v2 | o código dele (`fuentes/`) não está: o `tools/netsurf_fuentes.sh` o baixa; a cola própria está |
 | **GNUBoy** (Game Boy, `userland/terceros/gnuboy/`) | GPL-2.0 (quase sem «ou posterior»: tratado como só v2) | o código dele (`jogo/`) não está: o `tools/gnuboy_fuentes.sh` o baixa (commit fixo, SHA-256 verificado); a cola própria está |
 | **r8169 derivado do Linux** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | não está; o driver da placa Realtek RTL8168/8111 usa seu início clássico próprio (`kernel/rede/r8169_sem_gpl.h`): funciona, mas sem as sequências de início dos chips mais novos (RTL8111G/H) |
+| **Freeciv** (jogo de estratégia, `userland/terceros/freeciv/`) | GPL-2.0 ou posterior | o código dele (`fuentes/`, cerca de 90 MB) não está no git: o `tools/freeciv_fuentes.sh` o baixa; a cola própria (`freeciv.mk`, `plataforma/`, `parches/`, `traducciones/`) está |
+| **OpenTTD** (jogo, repositório separado `../openttd-saguios`) | GPL-2.0 só | não está neste repositório nem nas imagens públicas: é compilado como pacote à parte e só entra nas imagens privadas (D375) |
 
 **Usá-los em privado é permitido; redistribuir essas imagens, não.** Compilar para si uma imagem com eles e usá-la não é distribuir (`docs/licencia.md`).
 
@@ -942,8 +969,8 @@ O resto de `kernel/terceros/linux/` (`hda`, `hwmon`, GPL-2.0 ou posterior) está
 **Primeiro, teste no QEMU** (nada é gravado em nenhum disco):
 
 ```bash
-./run_in_qemu.sh --imagen entrega/minha/saguios.img
-./run_in_qemu.sh --imagen entrega/minha/saguios-persistente-fat32.img.xz --guardar
+./run_in_qemu.sh --imagen entrega/mia/saguios.img
+./run_in_qemu.sh --imagen entrega/mia/saguios-persistente-fat32.img.xz --guardar
 ```
 
 Depois, a imagem para outro lugar (o passo a passo está em `docs/como-gravar.md`):
@@ -959,7 +986,7 @@ Verifique os downloads com `sha256sum -c SHA256SUMS.txt`. Em uma máquina real, 
 
 ### Gerador com janela (opcional)
 
-Se preferir uma janela em vez dos comandos acima, `tools/generador` (Tkinter) monta o comando do `gerar_versao.sh` ou do `tools/mkimagem.py`, deixa escolher a pasta de destino e executa com a saída ao vivo. Também funciona sem janela: `tools/generador.py --orden --perfil publica`. Veja `docs/generador.md` (em espanhol).
+Se preferir uma janela em vez dos comandos acima, `tools/generador` (Tkinter) monta o comando do `gerar_versao.sh` ou do `tools/mkimagem.py`, deixa escolher a pasta de destino e executa com a saída ao vivo. Também funciona sem janela: `tools/generador.py --orden --perfil publica`. Tem três perfis: *Pública* (o que faz o `make variantes`), *Privada completa* (o que faz o `make priv_variantes`; mostra «USO PROPIO: NO PUBLICAR» e nunca acrescenta `--publicar`) e *Personalizada* (as opções do `tools/mkimagem.py`). Veja `docs/generador.md` (em espanhol).
 
 ### 9. Problemas frequentes
 
@@ -968,7 +995,7 @@ Se preferir uma janela em vez dos comandos acima, `tools/generador` (Tkinter) mo
 | `CPU you selected does not support x86-64 instruction set` ou `gcc: ... não aceita -m32` | Falta o `gcc-multilib` (ou o suporte de 32 bits em `~/.local/saguitools/root`). Instale-o; não tire o `-m32` |
 | Um cabeçalho «não existe» no kernel ou em um programa | O `env.sh` exporta `CPATH` com a glibc do PC e o GCC o acrescenta mesmo com `-nostdinc`; o `Makefile` já o anula para tudo o que vai dentro do SaguiOS. **Não conserte** voltando a passar `CPATH` ou `-I` para a glibc do PC: falta um cabeçalho nosso ou um `-I` |
 | `env.sh: line 5: LD_LIBRARY_PATH: unbound variable` | O `run_in_qemu.sh` usa `set -u`. Dentro do `env.sh`, as variáveis que podem não existir são ampliadas com `${VAR:+:$VAR}` ou `${VAR:-}`, nunca com `$VAR` solto (já está assim em `tools/entorno-local.sh`; mantenha se editar). Teste: `bash -c 'set -u; unset LD_LIBRARY_PATH LIBRARY_PATH CPATH; . ~/.local/saguitools/env.sh && echo OK'` |
-| Os programas em C++ (OpenJazz, Command & Conquer, DOSBox) não aparecem | Não há `g++` de 32 bits (`cc1plus`): instale `g++` ou execute `tools/entorno-local.sh`. O resto é construído do mesmo jeito |
+| Os programas em C++ (OpenJazz, Command & Conquer, DOSBox) não aparecem | Não há `g++` de 32 bits (`cc1plus`): instale `g++` ou execute `tools/entorno-local.sh`. O resto é construído normalmente |
 | Sem NetSurf, GNUBoy, fontes Typodermic ou dados de Quake/Jazz | São opcionais e só entram se você baixou antes os dados com `make priv_descargas` (veja 5 e 7) |
 | `falta el mcopy` / `mke2fs` / `mkfs.vfat` | Instale `mtools`, `e2fsprogs`, `dosfstools` (ou execute `tools/entorno-local.sh`) |
 | QEMU muito lento | Sem KVM usa emulação por software. Verifique se `/dev/kvm` existe e se você está no grupo: `sudo usermod -aG kvm $USER` (abra uma sessão nova). Para forçar sem KVM: `--sin-kvm` |

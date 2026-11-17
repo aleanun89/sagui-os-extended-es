@@ -871,6 +871,25 @@ static const char *const pluma[] = {   /* Pluma: una hoja con renglones y una pl
     "................",
 };
 
+static const char *const tucan[] = {   /* Tucán: un tucán de perfil con su pico grande (D369) */
+    "................",
+    ".....PPPPP......",
+    "....PPPPPPAAAA..",
+    "....PPBbPPYYYYA.",
+    "....PPPPPPYYYYYA",
+    "....PPPPPPAAAArr",
+    "...PPPPPPPPrrr..",
+    "..PPPBBBPPP.....",
+    ".PPPBBBBBPP.....",
+    ".PPPBBBBBPP.....",
+    ".PPPPBBBPPP.....",
+    "..PPPPPPPPP.....",
+    "...PPPPPPP......",
+    "....PPPPP.......",
+    ".....AA.AA......",
+    "................",
+};
+
 static const char *const vps[] = {   /* VisualPythonS: un formulario con barra azul, un botón y la serpiente amarilla (D297) */
     "................",
     ".PPPPPPPPPPPPPP.",
@@ -1162,6 +1181,27 @@ static const char *const openjazz[] = {   /* OpenJazz: Jazz, el conejo verde con
 };
 #endif
 
+#ifndef SAGUI_SEM_GPL   /* D374: Freeciv es GPL */
+static const char *const freeciv[] = {   /* Freeciv: un globo azul con continentes verdes (D374) */
+    "................",
+    "....PPPPPPPP....",
+    "...PBBGGGBBBBP..",
+    "..PBGGGGBBBBBBP.",
+    ".PBBGGGBBBGGBBBP",
+    ".PBBBGGBBGGGGBBP",
+    ".PBBBBBBBGGGGBBP",
+    ".PBGGBBBBBGGBBBP",
+    ".PBGGGBBBBBBBBBP",
+    ".PBBGGGBBBBGGBBP",
+    ".PBBBGBBBBGGGBBP",
+    "..PBBBBBBBBGBBP.",
+    "..PBBBBBBBBBBP..",
+    "...PPBBBBBPPP...",
+    "......PPPPP.....",
+    "................",
+};
+#endif
+
 #ifndef SAGUI_SEM_GPL   /* D230: Command & Conquer (Vanilla Conquer) es GPL */
 static const char *const conquer[] = {   /* Command & Conquer: un tanque verde junto a cristales de tiberio (D230) */
     "................",
@@ -1280,7 +1320,8 @@ const desenho_t arte_mini_visorpdf    = { visorpdf, 16, 16 };
 const desenho_t arte_mini_video       = { video, 16, 16 };
 const desenho_t arte_mini_ia          = { ia, 16, 16 };
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
-const desenho_t arte_mini_pluma       = { pluma, 16, 16 };   /* mejora 116, D291 */
+const desenho_t arte_mini_pluma       = { pluma, 16, 16 };
+const desenho_t arte_mini_tucan       = { tucan, 16, 16 };   /* D369: editor de presentaciones */   /* mejora 116, D291 */
 const desenho_t arte_mini_gebramini   = { gebramini, 16, 16 };   /* mejora 128, D309 */
 const desenho_t arte_mini_planomini   = { planomini, 16, 16 };   /* mejora 129, D312 */
 const desenho_t arte_mini_vps         = { vps, 16, 16 };   /* mejora 123, D297: VisualPythonS */
@@ -1295,6 +1336,7 @@ const desenho_t arte_mini_jclicbajar  = { jclicbajar, 16, 16 };   /* D185: bajar
 const desenho_t arte_mini_tyrian      = { tyrian, 16, 16 };   /* D180: o OpenTyrian */
 const desenho_t arte_mini_netsurf     = { netsurf, 16, 16 };  /* D184: el navegador NetSurf */
 const desenho_t arte_mini_openjazz    = { openjazz, 16, 16 }; /* D228: OpenJazz */
+const desenho_t arte_mini_freeciv     = { freeciv, 16, 16 };  /* D374: Freeciv */
 const desenho_t arte_mini_conquer     = { conquer, 16, 16 };  /* D230: Command & Conquer */
 const desenho_t arte_mini_quake       = { quake, 16, 16 };    /* D229: Quake */
 const desenho_t arte_mini_gnuboy      = { gnuboy, 16, 16 };   /* D235: Game Boy (SDL2-GNUBoy) */

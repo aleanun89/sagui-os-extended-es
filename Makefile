@@ -182,7 +182,7 @@ COMPILACAO_H := $(B)/gerado/compilacao.h
 # libtls (D060-D063): criptografia, X.509 e TLS, só nos programas que usam rede cifrada.
 TLS_OBJ   := $(patsubst userland/libtls/%.c,$(B)/userland/libtls/%.o,$(wildcard userland/libtls/*.c)) \
              $(B)/userland/libtls/sha256.o
-TLS_PROGS := sshd ssh ssh-keygen wg curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco traductor debug-app
+TLS_PROGS := sshd ssh ssh-keygen wg curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco tucan traductor debug-app
 # O cliente de IA (D134): a biblioteca da API compativel com a da OpenAI, que
 # o `ia` do terminal e o assistente do Mico partilham. Fica numa pasta propria
 # (como a libtls) porque so os programas que falam com a IA a ligam.
@@ -414,7 +414,7 @@ APPS_MB ?= 0
 # D324: lo que se mueve del ramdisk a /apps para adelgazarlo (el ramdisk entero se copia a la
 # RAM al arrancar). APPS_MOVER acumula, ademas, lo que solo existe segun la configuracion
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
-APPS_MOVER_FIJO := cipo pluma macaco mico correo planomini gebramini visorpdf chatia ia \
+APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini visorpdf chatia ia \
   reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo \
   chip8 chip8asm jclic jclicbajar traductor convertir-audio
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
@@ -464,6 +464,7 @@ endif
 # solo si hay compilador de C++. OPENJAZZ=0 lo deja fuera.
 OPENJAZZ ?= 1
 include userland/libcxx/libcxx.mk
+include userland/sdk_externo.mk   # D375: «make sdk_externo» para compilar aplicaciones en repositorios aparte
 ifneq ($(SEM_GPL),1)
 ifeq ($(OPENJAZZ)$(CXX_OK),11)
 include userland/terceros/openjazz/openjazz.mk
@@ -557,6 +558,17 @@ ifneq ($(SEM_GPL),1)
 ifeq ($(MGBA),1)
 ifneq ($(wildcard userland/terceros/mgba/jogo/VERSAO),)
 include userland/terceros/mgba/mgba.mk
+endif
+endif
+endif
+
+# Freeciv (D374): GPL-2.0 o posterior, aislado en userland/terceros/freeciv/ como OpenJazz; solo
+# si se bajaron las fuentes (tools/freeciv_fuentes.sh) y fuera de la variante sin GPL. FREECIV=0 lo deja fuera.
+FREECIV ?= 1
+ifneq ($(SEM_GPL),1)
+ifeq ($(FREECIV),1)
+ifneq ($(wildcard userland/terceros/freeciv/fuentes/.preparado),)
+include userland/terceros/freeciv/freeciv.mk
 endif
 endif
 endif
@@ -757,7 +769,7 @@ $(B)/userland/programas/wg.o: userland/programas/wg_ventana.h userland/inc/wireg
 $(B)/userland/programas/benchmark.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS))
 $(B)/userland/bin/benchmark: $(B)/userland/libtls/sha256.o
 # D255: el gestor de servicios comprueba las contraseñas (PBKDF2-HMAC-SHA256, userland/inc/pbkdf2.h).
-$(B)/userland/bin/servicios $(B)/userland/testes/usuarios: $(B)/userland/libtls/sha256.o
+$(B)/userland/bin/servicios $(B)/userland/bin/login $(B)/userland/testes/usuarios: $(B)/userland/libtls/sha256.o
 # D318: el instalador escribe las contraseñas elegidas en la sombra de SAGUI-CONF (PBKDF2) y su
 # asistente va en instalar_asistente.h.
 $(B)/userland/bin/instalar: $(B)/userland/libtls/sha256.o
@@ -809,7 +821,7 @@ $(addprefix $(B)/userland/bin/,$(TLS_PROGS)) $(B)/userland/testes/pruebacripto: 
 $(B)/userland/bin/ia: $(IA_OBJ)
 $(B)/userland/bin/chatia: $(IA_OBJ) $(IA_GUI_OBJ)
 # Pluma, Macaco y el correo integran el panel de agentes de IA (D298).
-$(B)/userland/bin/pluma $(B)/userland/bin/macaco $(B)/userland/bin/correo: $(IA_OBJ) $(IA_GUI_OBJ)
+$(B)/userland/bin/pluma $(B)/userland/bin/macaco $(B)/userland/bin/tucan $(B)/userland/bin/correo: $(IA_OBJ) $(IA_GUI_OBJ)
 # A janela de Configuração também fala com o servidor de IA para pedir os modelos (D145).
 $(B)/userland/bin/configuracion: $(IA_OBJ)
 # El Traductor (D335) pide propuestas al agente de IA del sistema.
@@ -907,6 +919,7 @@ $(B)/userland/programas/gebramini.o: $(GBM_HDR)
 # El catálogo de funciones de Macaco (D311) es una cabecera propia: al cambiarla hay que recompilar macaco.o.
 $(B)/userland/programas/macaco.o: userland/programas/macaco_funciones.h userland/programas/macaco_formatos.h
 $(B)/userland/programas/pluma.o: userland/programas/pluma_cinta.h
+$(B)/userland/programas/tucan.o: userland/programas/tucan_cinta.h userland/programas/tucan_modos.h userland/programas/tucan_pres.h userland/programas/tucan_agente.h
 $(B)/userland/programas/macaco.o: userland/programas/macaco_cinta.h
 $(B)/userland/bin/gebramini: $(GBM_OBJ)
 
@@ -1195,6 +1208,9 @@ $(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
 	$(PY) tools/extraer_textos.py compilar $(B)/idiomas
 	@touch $@
 
+# D374/D379: el SGFS admite rutas de hasta 55 caracteres; Freeciv y OpenTTD tienen más largas, así que no van en un
+# ramdisk con /apps dentro (CD, «completo») hasta que la 8.5.3.1 cambie el formato (raíz ext2).
+SGFS_MAX_RUTA := 55
 $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
                   userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) \
                   $(UEFI_EFI) $(B)/boot/mbr.bin
@@ -1209,7 +1225,13 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8
 	cp $(B)/chip8/testes/* "$$d/testes/chip8/"; \
 	if [ -n "$(PROGRAMAS)" ]; then cp $(PROGRAMAS) "$$d/bin/"; fi; \
 	if [ -n "$(PROG_TESTE)" ]; then cp $(PROG_TESTE) "$$d/testes/"; fi; \
-	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; else : > "$$d/etc/apps-fuera"; fi; \
+	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; \
+	  for x in freeciv openttd; do \
+	    if [ -e "$$d/apps/$$x" ]; then \
+	      echo "Makefile: $$x fuera del ramdisk completo (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; D379)"; \
+	      rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
+	  done; \
+	else : > "$$d/etc/apps-fuera"; fi; \
 	mkdir -p "$$d/lib/python"; \
 	cp -r litemonkey/python/litemonkey "$$d/lib/python/"; \
 	find "$$d" -type d -name __pycache__ -prune -exec rm -rf {} +; \
@@ -1238,7 +1260,7 @@ $(B)/$(FONTES_DIR)/%.o: $(FONTES_DIR)/%.c userland/inc/fontes.h $(USER_HDR)
 	$(CC) $(FONTES_FLAGS) -c -o $@ $<
 
 # Los programas que usan fuentes vectoriales enlazan la libfontes.
-$(B)/userland/bin/pluma $(B)/userland/bin/fuentes $(B)/userland/bin/macaco $(B)/userland/bin/configuracion $(B)/userland/bin/editor $(B)/userland/bin/paint $(B)/userland/bin/terminal $(B)/userland/testes/pruebafuentes: $(FONTES_OBJ)
+$(B)/userland/bin/pluma $(B)/userland/bin/tucan $(B)/userland/bin/fuentes $(B)/userland/bin/macaco $(B)/userland/bin/configuracion $(B)/userland/bin/editor $(B)/userland/bin/paint $(B)/userland/bin/terminal $(B)/userland/testes/pruebafuentes: $(FONTES_OBJ)
 
 # ---------- /apps (D194) ----------
 # D228: lo de $(INPUT_SHARE)/apps (docs/input_share.md) va encima, tal cual; la marca
@@ -1250,7 +1272,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \
@@ -1259,7 +1281,7 @@ $(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(N
 	mkdir "$$t/bin"; \
 	if [ -n "$(APPS_BINS)" ]; then cp $(APPS_BINS) "$$t/bin/"; fi; \
 	if [ -n "$(APPS_GUIONES)" ]; then cp $(APPS_GUIONES) "$$t/bin/"; fi; \
-	for r in $(APPS_RECURSOS); do mkdir -p "$$t/$${r%%:*}"; cp "$${r#*:}"/* "$$t/$${r%%:*}/"; done; \
+	for r in $(APPS_RECURSOS); do mkdir -p "$$t/$${r%%:*}"; cp -r "$${r#*:}"/* "$$t/$${r%%:*}/"; done; \
 	cp userland/apps/leeme.txt "$$t/leeme.txt"; \
 	if [ -n "$(INPUT_SHARE)" ] && [ -d "$(INPUT_SHARE)/apps" ]; then \
 	  echo "Makefile: $(INPUT_SHARE)/apps -> /apps"; cp -r "$(INPUT_SHARE)/apps/." "$$t/"; fi; \
@@ -1275,6 +1297,11 @@ $(B)/ramdisk-cd.sgfs: $(B)/ramdisk.sgfs $(APPS_DEP) tools/mksgfs.py
 	chmod 755 "$$d"; \
 	cp -r $(B)/rootfs/. "$$d/"; \
 	cp -r $(B)/apps/raiz "$$d/apps"; \
+	for x in freeciv openttd; do \
+	  if [ -e "$$d/apps/$$x" ]; then \
+	    echo "Makefile: $$x fuera del CD (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; la 8.5.3.1 lo resuelve, D379)"; \
+	    rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
+	done; \
 	$(PY) tools/mksgfs.py "$$d" "$@.novo"; \
 	mv -f "$@.novo" "$@"
 
@@ -1339,11 +1366,22 @@ TYPODERMIC_ZIP := typodermic-public-domain-2024-12.zip
 priv_descargas:
 	@[ -f userland/terceros/netsurf/fuentes/.preparado ] || bash tools/netsurf_fuentes.sh
 	@[ -f userland/terceros/gnuboy/jogo/VERSAO ] || bash tools/gnuboy_fuentes.sh
+	@# D374: Freeciv (GPL-2.0 o posterior) también va en las públicas si sus fuentes están preparadas
+	@# (antes de «make variantes», ejecutar tools/freeciv_fuentes.sh); aquí se preparan para las privadas.
+	bash tools/freeciv_fuentes.sh
 	bash tools/quake_datos.sh
 	bash tools/openjazz_datos.sh
 	@$(PY) -c "import sys; sys.path.insert(0, 'tools'); import fuentes_typodermic as f; sys.exit(0 if f.buscar_zip() else 3)" || \
 	    echo "priv_descargas: sin las fuentes de Typodermic (opcionales; se sigue sin ellas): baja a mano $(TYPODERMIC_ZIP) de typodermicfonts.com/public-domain/ y ponlo en NEW_FONTS/"
 	@[ -d input_share ] || echo "priv_descargas: AVISO: no hay input_share/ (los juegos propios no entrarán; ver docs/input_share.md)"
+	@# D375: OpenTTD (GPL-2.0 solo) va SOLO en las imágenes privadas: se compila como paquete desde su repositorio
+	@# aparte y se instala en input_share/apps, que el make vuelca en /apps. Las públicas (INPUT_SHARE=) no lo llevan.
+	@if [ -d "$(OPENTTD_REPO_DIR)/.git" ] || [ -n "$(OPENTTD_URL)" ]; then \
+	    mkdir -p input_share/apps && bash tools/openttd_paquete.sh && bash tools/openttd_paquete.sh instalar; \
+	else echo "priv_descargas: sin el repositorio de OpenTTD ($(OPENTTD_REPO_DIR) u OPENTTD_URL): la imagen privada no lo llevará"; fi
+
+OPENTTD_REPO_DIR ?= $(if $(OPENTTD_REPO),$(OPENTTD_REPO),../openttd-saguios)
+OPENTTD_URL ?=
 
 priv_variantes: priv_descargas
 	./gerar_versao.sh --todas --con-input-share --destino $(PRIV_DESTINO) $(GERAR_OPC)

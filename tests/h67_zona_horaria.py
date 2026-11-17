@@ -308,7 +308,9 @@ def parte_relogio():
 
         # --- Madrid, RTC em UTC
         out = m.comando("zona Europe/Madrid")
-        verificar("Aviso: /home no es un disco persistente" in out, "sem disco persistente: avisa que fica só na RAM")
+        # D371: com SAGUI-CONF a zona é da máquina e fica em /etc/zona (SAGUI-CONF), sem aviso
+        verificar("Aviso: /home no es un disco persistente" in out or "gravada em /etc/zona (SAGUI-CONF)" in m.serial(),
+                  "sem /home persistente: avisa que fica só na RAM (ou vai para SAGUI-CONF)")
         verificar("Próximo cambio:  29/03/2026, 02:00 CET -> 03:00 CEST" in out, "zona mostra o próximo cambio de horario")
         out = m.comando("date")
         verificar(re.search(r"jueves, 15/01/2026 11:0\d:\d\d CET", out), "date em Madrid no inverno: 11:0x CET")
@@ -425,7 +427,7 @@ def imagem_persistente(nome):
                     "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
                     "--ramdisk", os.path.join(b, "ramdisk.sgfs"), "--saida", destino, "--vesa", "--console",
-                    "--dados-mb", "16"], check=True, stdout=subprocess.DEVNULL)
+                    "--dados-mb", "16", "--sin-conf"], check=True, stdout=subprocess.DEVNULL)
     return destino
 
 

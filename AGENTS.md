@@ -52,7 +52,10 @@ saber de qué lado está cada uno antes de parchearlo, o el fichero se estropea.
 
 - **UTF‑8**: todo `userland/` salvo lo de abajo, `kernel/gui/arte.c`, `kernel/inc/arte.h`,
   `kernel/gui/barra.c`, `docs/*.md`, `tests/*.py`, `mejoras/*.md`, `tools/*.py`.
-- **ISO‑8859‑1 (Latin‑1)**: `userland/programas/arquivos.c` y `userland/programas/cipo.c`.
+- **ISO‑8859‑1 (Latin‑1)**: `userland/programas/arquivos.c`.
+- **`userland/programas/cipo.c`**: es **UTF‑8** salvo 6 líneas sueltas en Latin‑1 que quedan en main (la rama
+  `v8.5.3-cipo-ui` lo deja entero en UTF‑8). Antes de parchearlo, comprobar con
+  `python3 -c "open('userland/programas/cipo.c','rb').read().decode('utf-8')"`.
 
 El código del userland se compila con `-finput-charset=UTF-8 -fexec-charset=ISO-8859-1`:
 los textos de la interfaz salen en Latin‑1, que es lo que espera el terminal.

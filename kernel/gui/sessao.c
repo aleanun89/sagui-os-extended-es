@@ -36,6 +36,8 @@
 #include "video.h"
 #include "memoria.h"
 #include "versao.h"
+#include "conf_sistema.h"
+#include "bootinfo.h"
 
 #define CONTAS_TELA 8
 #define PW 460
@@ -52,7 +54,12 @@ typedef struct {
 
 static conta_tela_t contas[CONTAS_TELA];
 static int n_contas, sel;
-enum { S_INATIVA, S_TELA, S_FECHANDO, S_ENTRANDO };
+enum { S_INATIVA, S_TELA, S_FECHANDO, S_ENTRANDO, S_RAIZ, S_BLOQUEO };   /* D371: S_BLOQUEO, la pantalla bloqueada */
+
+/* D371 (P3 b): la primera contraseña de root, en la pantalla del sistema (dos campos). */
+static char raiz2[PED_SENHA_MAX];
+static int  raiz2_len, raiz_campo;
+static bool pedido_raiz;
 static volatile int estado = S_INATIVA;
 static char senha[PED_SENHA_MAX];
 static int  slen;
@@ -309,24 +316,94 @@ static void abrir_tela(void)
     tela_toda();
 }
 
-bool sessao_arrancar(void)
+static void entrar(int i);
+
+/* D371 (P3 b): ¿root aún sin contraseña con la configuración guardada (SAGUI-CONF)? */
+static bool raiz_sem_senha(void)
 {
-    if (permisos_modo_rescate() || permisos_sesion_raiz()) return true;   /* rescate y pruebas: como siempre */
+    if (!conf_sistema_montada()) return false;   /* en vivo: root sin contraseña desde la sesión local (D255) */
+    if (cabecalho_boot[CAB_USU_OPC] & CAB_USU_SIN_PEDIR_ROOT) return false;   /* imágenes de prueba */
+    uint8_t *s = NULL;
+    uint32_t ts = 0;
+    if (vfs_ler_inteiro(CONTAS_ARQ_SOMBRA, &s, &ts) < 0) s = NULL;
+    int r = senha_de(s, ts, "root");
+    if (s) kfree(s);
+    return r == 0;
+}
+
+/* D371: para el supervisor (supervisor.c, pedir): mientras root no tiene contraseña con la configuración guardada,
+ * la primera la elige la persona delante (esta pantalla o el diálogo de permisos), no un programa. */
+bool sessao_raiz_sem_senha(void) { return raiz_sem_senha(); }
+
+static void limpar_raiz(void)
+{
+    memset(raiz2, 0, sizeof raiz2);
+    raiz2_len = 0;
+    raiz_campo = 0;
+}
+
+/* Después de la pantalla de root (o sin ella): lo de siempre. true = entrada directa ya (como antes). */
+static bool continuar(bool ja)
+{
     carregar_contas();
-    if (n_contas == 1 && !contas[0].senha) {
-        if (contas[0].uid != UID_SAGUI || contas[0].casa[0]) {
-            if (!preparar_casa(&contas[0])) {   /* D371: no se entra en una carpeta que no es suya */
-                abrir_tela();
-                txt_copia_n(msg, _("Tu carpeta personal no es tuya o otros la pueden cambiar: avisa al administrador."), sizeof msg);
-                return false;
-            }
-            permisos_fixar_sessao(contas[0].uid, contas[0].gid, contas[0].casa);
+    /* D371 (P5): entrar sin la pantalla solo con el inicio automático (en vivo y lo de antes, sí; el instalador lo
+     * deja apagado: la pantalla aparece aunque haya una sola cuenta, y con ella sin contraseña basta Intro). */
+    if (n_contas == 1 && !contas[0].senha && conf_sistema_inicio_automatico()) {
+        if (contas[0].uid == UID_SAGUI && !contas[0].casa[0] && ja) {   /* sagui con /home: directo, sin esperar */
+            klog("[SESION] una sola cuenta sin contrasena (%s): entrada directa\n", contas[0].nome);
+            return true;
         }
+        /* D371: las demás (o después de la pantalla de root), por la tarea de entrar: su carpeta, su configuración
+         * y su escritorio, como al entrar desde la pantalla. */
         klog("[SESION] una sola cuenta sin contrasena (%s): entrada directa\n", contas[0].nome);
-        return true;
+        entrar(0);
+        return false;
     }
     abrir_tela();
     return false;
+}
+
+void sessao_consola_preparar(void)
+{
+    conf_sistema_home_reavaliar();   /* «configuracion --aplicar» pudo migrar sagui a /home/sagui */
+    if (permisos_modo_rescate() || permisos_sesion_raiz()) return;
+    char casa[40];
+    permisos_casa_de_uid(permisos_uid_inicial(), casa, sizeof casa);
+    if (casa[0]) permisos_fixar_sessao(permisos_uid_inicial(), permisos_sessao_gid(), casa);
+}
+
+bool sessao_arrancar(void)
+{
+    conf_sistema_home_reavaliar();   /* D371: «configuracion --aplicar» pudo migrar sagui a /home/sagui */
+    if (permisos_modo_rescate() || permisos_sesion_raiz()) return true;   /* rescate y pruebas: como siempre */
+    if (raiz_sem_senha()) {
+        limpar_senha();
+        limpar_raiz();
+        msg[0] = 0;
+        pedido = 0;
+        estado = S_RAIZ;
+        klog("[SESION] root sin contrasena: la pantalla pide elegirla\n");
+        tela_toda();
+        return false;
+    }
+    return continuar(true);
+}
+
+/* D371: la pantalla de root: comprobar los dos campos y pedir al supervisor que la guarde. */
+static void raiz_tentar(void)
+{
+    if (pedido) return;
+    if (raiz_campo == 0) { raiz_campo = 1; tela_toda(); return; }
+    if (slen < 4) txt_copia_n(msg, _("La contraseña necesita al menos 4 caracteres."), sizeof msg);
+    else if (slen != raiz2_len || memcmp(senha, raiz2, (size_t)slen) != 0) txt_copia_n(msg, _("Las dos contraseñas no coinciden."), sizeof msg);
+    else {
+        int r = supervisor_raiz_pedir(senha);
+        if (r > 0) { pedido = (uint32_t)r; pedido_raiz = true; pedido_desde = relogio_tiques(); msg[0] = 0; }
+        else txt_copia_n(msg, _("No se puede guardar: el gestor de servicios no responde (Esc: más tarde)."), sizeof msg);
+    }
+    limpar_senha();
+    limpar_raiz();
+    tela_toda();
 }
 
 bool sessao_tomar_inicio(void)
@@ -373,11 +450,40 @@ static void entrar(int i)
     }
 }
 
+/* D371 (fase 6, P15): bloquear la pantalla. Los programas siguen; para volver hace falta la contraseña de la
+ * cuenta de la sesión (la comprueba el supervisor, como al entrar). */
+static void desbloquear(void)
+{
+    klog("[SESION] pantalla desbloqueada\n");
+    limpar_senha();
+    msg[0] = 0;
+    estado = S_INATIVA;
+    tela_toda();
+}
+
+void sessao_bloquear(void)
+{
+    if (estado != S_INATIVA || permisos_modo_rescate() || permisos_sesion_raiz()) return;
+    carregar_contas();
+    int k = -1;
+    for (int i = 0; i < n_contas; i++) if (contas[i].uid == permisos_uid_inicial()) k = i;
+    if (k < 0) { klog("[SESION] no se bloquea: la cuenta de la sesion no esta en la lista\n"); return; }
+    if (k) contas[0] = contas[k];
+    n_contas = 1;
+    sel = 0;
+    limpar_senha();
+    msg[0] = 0;
+    pedido = 0;
+    estado = S_BLOQUEO;
+    klog("[SESION] pantalla bloqueada (%s)\n", contas[0].nome);
+    tela_toda();
+}
+
 static void tentar(void)
 {
-    if (pedido || estado != S_TELA || !n_contas) return;
+    if (pedido || (estado != S_TELA && estado != S_BLOQUEO) || !n_contas) return;
     conta_tela_t *c = &contas[sel];
-    if (!c->senha) { entrar(sel); return; }   /* sin contraseña: como antes, sin preguntar a nadie */
+    if (!c->senha) { if (estado == S_BLOQUEO) desbloquear(); else entrar(sel); return; }   /* sin contraseña: como antes */
     if (!slen) { txt_copia_n(msg, _("Escribe la contraseña."), sizeof msg); tela_toda(); return; }
     int r = supervisor_entrar_pedir(c->uid, senha);
     limpar_senha();
@@ -413,7 +519,7 @@ void sessao_tique(void)
     }
     if (inicio_negado) {
         inicio_negado = false;
-        estado = S_TELA;
+        abrir_tela();   /* vuelve la pantalla (también tras la entrada directa de una sola cuenta) */
         txt_copia_n(msg, _("Tu carpeta personal no es tuya o otros la pueden cambiar: avisa al administrador."), sizeof msg);
         tela_toda();
         return;
@@ -428,7 +534,27 @@ void sessao_tique(void)
         tela_toda();
         return;
     }
-    if (estado != S_TELA || !pedido) return;
+    if (estado == S_RAIZ && pedido) {   /* D371: la primera contraseña de root */
+        int rr = supervisor_entrar_resultado(pedido);
+        if (rr == 0) {
+            if (relogio_tiques() - pedido_desde > 30 * TIQUES_POR_SEGUNDO) {
+                supervisor_entrar_cancelar(pedido);
+                pedido = 0;
+                pedido_raiz = false;
+                txt_copia_n(msg, _("No se puede guardar: el gestor de servicios no responde (Esc: más tarde)."), sizeof msg);
+                tela_toda();
+            }
+            return;
+        }
+        pedido = 0;
+        pedido_raiz = false;
+        klog("[SESION] primera contrasena de root: %s (%d)\n", rr == 1 ? "guardada" : "NO guardada", rr);
+        if (rr == 1) { estado = S_INATIVA; continuar(false); return; }
+        txt_copia_n(msg, _("No se pudo guardar la contraseña."), sizeof msg);
+        tela_toda();
+        return;
+    }
+    if ((estado != S_TELA && estado != S_BLOQUEO) || !pedido) return;
     int r = supervisor_entrar_resultado(pedido);
     if (r == 0) {
         if (relogio_tiques() - pedido_desde > 30 * TIQUES_POR_SEGUNDO) {   /* el supervisor no contesta */
@@ -440,7 +566,7 @@ void sessao_tique(void)
         return;
     }
     pedido = 0;
-    if (r == 1) { entrar(pedido_conta); return; }
+    if (r == 1) { if (estado == S_BLOQUEO) desbloquear(); else entrar(pedido_conta); return; }
     if (r == ERRO_ACESSO) txt_copia_n(msg, _("Contraseña incorrecta. Inténtalo otra vez."), sizeof msg);
     else if (r == ERRO_ESPERA) txt_copia_n(msg, _("Demasiados fallos: espera un minuto para volver a intentarlo."), sizeof msg);
     else txt_copia_n(msg, _("No se pudo comprobar la contraseña."), sizeof msg);
@@ -479,6 +605,51 @@ static void botao(superficie_t *t, ret_t r, const char *txt, uint32_t cor)
     sup_texto(t, r.x + (r.l - texto_largura(txt)) / 2, r.y + (r.a - 16) / 2, txt, 0xFFFFFF);
 }
 
+/* D371: la pantalla de la primera contraseña de root. */
+static void campo_pts(superficie_t *t, ret_t f, int n, bool ativo)
+{
+    sup_retangulo(t, f.x, f.y, f.l, f.a, 0xFFFFFF);
+    sup_moldura(t, f.x, f.y, f.l, f.a, ativo && !pedido ? COR_AZUL : 0xA0A8B0);
+    char pts[PED_SENHA_MAX];
+    int max = (f.l - 12) / 8;
+    if (n > max) n = max;
+    for (int i = 0; i < n; i++) pts[i] = '*';
+    pts[n] = 0;
+    sup_texto(t, f.x + 6, f.y + 4, pts, 0x101820);
+    if (ativo && !pedido) sup_retangulo(t, f.x + 6 + n * 8, f.y + 4, 2, 16, 0x101820);
+}
+
+static void layout_raiz(ret_t *c, ret_t *f1, ret_t *f2, ret_t *ok)
+{
+    int sw, sh;
+    telas_principal_rect(&sw, &sh);
+    int h = 270;
+    *c = (ret_t){ (sw - PW) / 2, (sh - h) / 2, PW, h };
+    *f1 = (ret_t){ c->x + 20, c->y + 130, PW - 40, 24 };
+    *f2 = (ret_t){ c->x + 20, c->y + 178, PW - 40, 24 };
+    *ok = (ret_t){ c->x + PW - 20 - 120, c->y + h - 44, 120, 30 };
+}
+
+static void desenhar_raiz(superficie_t *t)
+{
+    ret_t c, f1, f2, ok;
+    layout_raiz(&c, &f1, &f2, &ok);
+    sup_retangulo(t, c.x, c.y, c.l, c.a, COR_PAINEL);
+    sup_moldura(t, c.x - 1, c.y - 1, c.l + 2, c.a + 2, 0x000000);
+    sup_retangulo(t, c.x, c.y, c.l, 30, COR_AZUL);
+    sup_texto(t, c.x + 14, c.y + 7, _("Contraseña del administrador (root)"), 0xFFFFFF);
+    sup_texto(t, c.x + 20, c.y + 44, _("Este sistema guarda su configuración y root aún no"), 0x101820);
+    sup_texto(t, c.x + 20, c.y + 62, _("tiene contraseña. Elígela ahora: la pedirán el diálogo"), 0x101820);
+    sup_texto(t, c.x + 20, c.y + 80, _("de permisos, admin y su. (Esc: más tarde)"), 0x101820);
+    sup_texto(t, c.x + 20, f1.y - 18, _("Contraseña nueva:"), 0x101820);
+    campo_pts(t, f1, raiz_campo == 0 ? slen : slen, raiz_campo == 0);
+    sup_texto(t, c.x + 20, f2.y - 18, _("Repítela:"), 0x101820);
+    campo_pts(t, f2, raiz2_len, raiz_campo == 1);
+    if (pedido) sup_texto(t, c.x + 20, c.y + c.a - 70, _("Guardando..."), COR_AZUL);
+    else if (msg[0]) sup_texto(t, c.x + 20, c.y + c.a - 70, msg, 0xC0261B);
+    botao(t, ok, raiz_campo == 0 ? _("Siguiente") : _("Guardar"), pedido ? 0x9AA3AE : 0x2E7D32);
+}
+
 void sessao_desenhar(superficie_t *t)
 {
     if (estado == S_INATIVA) return;
@@ -494,14 +665,15 @@ void sessao_desenhar(superficie_t *t)
         sup_texto(t, (sw - texto_largura(m)) / 2, sh / 2 - 8, m, 0xFFFFFF);
         return;
     }
+    if (estado == S_RAIZ) { desenhar_raiz(t); return; }
     lay_t L;
     layout(&L);
     ret_t c = L.caixa;
     sup_retangulo(t, c.x, c.y, c.l, c.a, COR_PAINEL);
     sup_moldura(t, c.x - 1, c.y - 1, c.l + 2, c.a + 2, 0x000000);
     sup_retangulo(t, c.x, c.y, c.l, 30, COR_AZUL);
-    sup_texto(t, c.x + 14, c.y + 7, _("Iniciar sesión"), 0xFFFFFF);
-    sup_texto(t, c.x + 20, c.y + 30 + 14, _("Elige tu cuenta:"), 0x101820);
+    sup_texto(t, c.x + 14, c.y + 7, estado == S_BLOQUEO ? _("Pantalla bloqueada") : _("Iniciar sesión"), 0xFFFFFF);
+    sup_texto(t, c.x + 20, c.y + 30 + 14, estado == S_BLOQUEO ? _("Escribe tu contraseña para volver:") : _("Elige tu cuenta:"), 0x101820);
     for (int i = 0; i < n_contas; i++) {
         ret_t r = L.linha[i];
         bool s = i == sel;
@@ -534,7 +706,7 @@ void sessao_desenhar(superficie_t *t)
     }
     if (pedido) sup_texto(t, c.x + 20, L.y_msg, _("Comprobando..."), COR_AZUL);
     else if (msg[0]) sup_texto(t, c.x + 20, L.y_msg, msg, 0xC0261B);
-    botao(t, L.entrar, _("Entrar"), pedido ? 0x9AA3AE : 0x2E7D32);
+    botao(t, L.entrar, estado == S_BLOQUEO ? _("Desbloquear") : _("Entrar"), pedido ? 0x9AA3AE : 0x2E7D32);
     botao(t, L.apagar, _("Apagar"), 0x5A6470);
     botao(t, L.reiniciar, _("Reiniciar"), 0x5A6470);
 }
@@ -551,7 +723,26 @@ static void escolher(int i)
 bool sessao_tecla(int t)
 {
     if (estado == S_INATIVA) return false;
-    if (estado != S_TELA || pedido) return true;   /* todo el teclado es suyo */
+    if (estado == S_RAIZ) {   /* D371: la primera contraseña de root */
+        if (pedido) return true;
+        if (t == '\n' || t == '\r') { raiz_tentar(); return true; }
+        if (t == TECLA_ESC) {
+            klog("[SESION] primera contrasena de root: mas tarde\n");
+            limpar_senha();
+            limpar_raiz();
+            msg[0] = 0;
+            estado = S_INATIVA;
+            continuar(false);
+            return true;
+        }
+        if (t == '\t') { raiz_campo ^= 1; tela_toda(); return true; }
+        char *b = raiz_campo == 0 ? senha : raiz2;
+        int *n = raiz_campo == 0 ? &slen : &raiz2_len;
+        if (t == 8 || t == 127) { if (*n > 0) b[--*n] = 0; tela_toda(); return true; }
+        if (t >= 32 && t < 256 && *n < PED_SENHA_MAX - 1) { b[(*n)++] = (char)t; tela_toda(); }
+        return true;
+    }
+    if ((estado != S_TELA && estado != S_BLOQUEO) || pedido) return true;   /* todo el teclado es suyo */
     if (t == '\n' || t == '\r') { tentar(); return true; }
     if (t == TECLA_ESC) { limpar_senha(); msg[0] = 0; tela_toda(); return true; }
     if (t == TECLA_CIMA) { escolher(sel > 0 ? sel - 1 : n_contas - 1); return true; }
@@ -567,7 +758,16 @@ bool sessao_tecla(int t)
 bool sessao_mouse(int x, int y, int botoes, int mudaram)
 {
     if (estado == S_INATIVA) return false;
-    if (estado != S_TELA || !(mudaram & botoes & BOTAO_ESQUERDO)) return true;
+    if (estado == S_RAIZ) {   /* D371 */
+        if (!(mudaram & botoes & BOTAO_ESQUERDO)) return true;
+        ret_t c, f1, f2, ok;
+        layout_raiz(&c, &f1, &f2, &ok);
+        if (dentro(ok, x, y)) raiz_tentar();
+        else if (dentro(f1, x, y)) { raiz_campo = 0; tela_toda(); }
+        else if (dentro(f2, x, y)) { raiz_campo = 1; tela_toda(); }
+        return true;
+    }
+    if ((estado != S_TELA && estado != S_BLOQUEO) || !(mudaram & botoes & BOTAO_ESQUERDO)) return true;
     lay_t L;
     layout(&L);
     if (dentro(L.entrar, x, y)) tentar();

@@ -47,6 +47,7 @@
 #include "servicos.h"
 #include "contas.h"
 #include "pbkdf2.h"
+#include "conf_maquina.h"   /* D371: casa_real_de_uid */
 
 #define MAX_SERV       20          /* cada uno en marcha gasta un descriptor (su pipe) */
 #define CICLO_MS       200
@@ -286,6 +287,25 @@ static bool ler_definicao(const char *arq, const char *nome_arq, bool usuario, s
  * sistema, el de /home sigue valiendo para todos (como antes de D255: así una
  * máquina que ya arrancaba sshd sola no pierde el acceso al actualizar); con
  * SAGUI-CONF, sus líneas de servicios del sistema se pasan una vez al nuevo. */
+/* D371 (fase 5): los servicios de la persona son los de la cuenta principal (uid 1000), en su carpeta real
+ * (/home o, tras pasar a su carpeta, /home/sagui). El gestor es root: no ve /home como ella. */
+static const char *dir_usu(void)
+{
+    static char b[96];
+    if (!sou_root()) return SERV_DIR_USUARIO;
+    char c[80];
+    casa_real_de_uid(UID_SAGUI, c, sizeof c);
+    formatar_texto(b, sizeof b, "%s/.config/servicios", c);
+    return b;
+}
+
+static const char *arq_act_usu(void)
+{
+    static char b[112];
+    formatar_texto(b, sizeof b, "%s/activados", dir_usu());
+    return b;
+}
+
 #define ACTIVADOS_SIS_REL "servicios/activados"
 #define ACTIVADOS_SIS     "/etc/" ACTIVADOS_SIS_REL
 
@@ -322,18 +342,22 @@ static void aplicar_activados(servico_t *v, int n)
     bool tem_sis = info_arquivo(ACTIVADOS_SIS, &inf) == 0;
     if (!tem_sis) {
         char migrar[512] = "";
-        ler_activados(SERV_ARQ_ACTIVADOS, v, n, 0, NULL, 0);   /* como antes: vale para todos */
+        ler_activados(arq_act_usu(), v, n, 0, NULL, 0);   /* como antes: vale para todos */
         if (conf_persistente()) {
-            ler_activados(SERV_ARQ_ACTIVADOS, v, n, 1, migrar, sizeof migrar);
-            if (migrar[0] && conf_gravar(ACTIVADOS_SIS_REL, migrar, (int)tam_texto(migrar)) == 0)
+            ler_activados(arq_act_usu(), v, n, 1, migrar, sizeof migrar);
+            /* D371 (revisión): el archivo del sistema se crea siempre (vacío si la persona no tenía servicios del
+             * sistema): si no, cada arranque seguía valiendo el de la carpeta de la cuenta para los del sistema, y
+             * una cuenta sin ser administradora encendía sshd o vncd (como root) al arrancar. */
+            if (!migrar[0]) copia_texto(migrar, "# Servicios del sistema que arrancan solos (D255); solo los cambia el administrador.\n", sizeof migrar);
+            if (conf_gravar(ACTIVADOS_SIS_REL, migrar, (int)tam_texto(migrar)) == 0)
                 anotar("arranque automático de los servicios del sistema pasado a " ACTIVADOS_SIS " (SAGUI-CONF)");
         } else {
             anotar("aviso: sin SAGUI-CONF, el arranque automático de los servicios del sistema sale de %s (lo puede "
-                   "cambiar el usuario)", SERV_ARQ_ACTIVADOS);
+                   "cambiar el usuario)", arq_act_usu());
         }
         return;
     }
-    ler_activados(SERV_ARQ_ACTIVADOS, v, n, 1, NULL, 0);
+    ler_activados(arq_act_usu(), v, n, 1, NULL, 0);
     ler_activados(ACTIVADOS_SIS, v, n, 2, NULL, 0);
 }
 
@@ -351,6 +375,12 @@ static int ler_pasta(const char *pasta, bool usuario, int n)
         if (!ler_definicao(arq, e.nome, usuario, &s)) continue;
         int k = 0;
         while (k < n && compara_texto(novos[k].nome, s.nome) != 0) k++;
+        if (k < n && usuario && !novos[k].usuario && conf_persistente()) {
+            /* D371 (revisión): instalado, la carpeta de la cuenta no reemplaza un servicio del sistema (se quitaba el
+             * sshd o el vncd del administrador y se ponía otro suyo con ese nombre). En vivo, como antes (D216). */
+            anotar("%s: se ignora: ya hay un servicio del sistema con ese nombre (%s)", arq, novos[k].origem);
+            continue;
+        }
         if (k < n) {
             anotar("%s: sustituye a la definición de %s", arq, novos[k].origem);
             novos[k] = s;
@@ -435,7 +465,7 @@ static void quitar(int i)
 static int carregar(bool recarga)
 {
     int n = ler_pasta(SERV_DIR_SISTEMA, false, 0);
-    n = ler_pasta(SERV_DIR_USUARIO, true, n);
+    n = ler_pasta(dir_usu(), true, n);
     aplicar_activados(novos, n);
     for (int i = 0; i < qtd; i++) {
         int k = 0;
@@ -814,8 +844,8 @@ static void publicar(void)
 
 static int gravar_activado(const char *nome, bool ligar, bool sistema)
 {
-    const char *arq = sistema ? ACTIVADOS_SIS : SERV_ARQ_ACTIVADOS;
-    if (!sistema) servicos_criar_pastas(SERV_DIR_USUARIO);
+    const char *arq = sistema ? ACTIVADOS_SIS : arq_act_usu();
+    if (!sistema) servicos_criar_pastas(dir_usu());
     char *velho = ler_arquivo(arq);
     unsigned cap = (velho ? (unsigned)tam_texto(velho) : 0u) + 64u;
     char *novo = aloca(cap);
@@ -899,7 +929,7 @@ static int ordem(const char *o, const char *nome, char *msg, int max)
     if (compara_texto(o, "activar") == 0 || compara_texto(o, "desactivar") == 0) {
         bool ligar = o[0] == 'a';
         int r = gravar_activado(s->nome, ligar, !s->usuario);
-        if (r < 0) { formatar_texto(msg, (size_t)max, "no se pudo guardar en %s: %s", s->usuario ? SERV_ARQ_ACTIVADOS : ACTIVADOS_SIS,
+        if (r < 0) { formatar_texto(msg, (size_t)max, "no se pudo guardar en %s: %s", s->usuario ? arq_act_usu() : ACTIVADOS_SIS,
                                    nome_erro(r)); return 1; }
         s->arrancar = ligar;
         mudou = true;
@@ -1199,6 +1229,18 @@ static int tratar_pedido(pedido_recebido_t *p, char *det, int max)
             return 1;
         }
         if (!p->senha_nova[0]) { copia_texto(det, "sin contraseña: hay que elegir una", (size_t)max); return ERRO_SEM_SENHA; }
+        /* D371 (P3 b): con la configuración guardada, la primera de root la elige la pantalla del sistema (el
+         * kernel) o, desde la sesión, la cuenta principal o una administradora; otra cuenta de la sesión no se
+         * queda con root por llegar antes. En vivo, como antes. */
+        if (alvo.uid == UID_ROOT && !(usuario_op(USU_ESTADO, 0, 0) & USU_EST_EN_VIVO) &&
+            !(p->pid == 0 && p->uid == PED_UID_NINGUEM && p->tipo == PED_SENHA)) {
+            conta_t quem;
+            bool pode = p->uid == UID_SAGUI || (conta_por_uid(p->uid, &quem) && conta_admin(quem.nome));
+            if (!pode) {
+                copia_texto(det, "root no tiene contraseña: la elige la cuenta principal o un administrador", (size_t)max);
+                return ERRO_ACESSO;
+            }
+        }
         r = fijar_senha(&alvo, p->senha_nova, det, max);
         if (r == 1) anotar("contraseñas: primera contraseña de %s fijada desde la sesión local (uid %u)", alvo.nome, p->uid);
         return r;

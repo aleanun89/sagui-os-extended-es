@@ -1,0 +1,1218 @@
+# Traducción de SaguiOS: catálogo «tucan», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/tucan.c:422
+#, c-format
+msgid "%s - Tucán%s"
+msgstr "%s - Tucán%s"
+
+#: userland/programas/tucan.c:422
+msgid "Presentación1"
+msgstr "Presentation1"
+
+#: userland/programas/tucan.c:561
+msgid "Notas del orador"
+msgstr "Speaker notes"
+
+#: userland/programas/tucan.c:570
+#, c-format
+msgid "Diapositiva %d de %d   %s   Tema: %s%s"
+msgstr "Slide %d of %d   %s   Theme: %s%s"
+
+#: userland/programas/tucan.c:570
+msgid "   (modificada)"
+msgstr "   (modified)"
+
+#: userland/programas/tucan.c:656
+msgid "No se puede añadir otra diapositiva."
+msgstr "Cannot add another slide."
+
+#: userland/programas/tucan.c:667
+msgid "Hay demasiados objetos en la diapositiva."
+msgstr "There are too many objects on the slide."
+
+#: userland/programas/tucan.c:698
+msgid "Insertar imagen"
+msgstr "Insert picture"
+
+#: userland/programas/tucan.c:698
+msgid "Imágenes (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif|Todos los archivos (*.*)|*"
+msgstr "Pictures (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif|All files (*.*)|*"
+
+#: userland/programas/tucan.c:701
+msgid "No se ha podido leer el archivo."
+msgstr "The file could not be read."
+
+#: userland/programas/tucan.c:705
+msgid "No se ha podido leer la imagen."
+msgstr "The picture could not be read."
+
+#: userland/programas/tucan.c:720 userland/programas/tucan.c:723 userland/programas/tucan.c:733 userland/programas/tucan.c:735
+msgid "WordArt"
+msgstr "WordArt"
+
+#: userland/programas/tucan.c:720 userland/programas/tucan.c:733
+msgid "Texto:"
+msgstr "Text:"
+
+#: userland/programas/tucan.c:723 userland/programas/tucan.c:735
+msgid "Estilo (0 a 19):"
+msgstr "Style (0 to 19):"
+
+#: userland/programas/tucan.c:747 userland/programas/tucan_cinta.h:108
+msgid "Tabla"
+msgstr "Table"
+
+#: userland/programas/tucan.c:747
+msgid "Filas x columnas (por ejemplo 3x4):"
+msgstr "Rows x columns (for example 3x4):"
+
+#: userland/programas/tucan.c:752
+msgid "La tabla puede tener de 1 a 20 filas y de 1 a 10 columnas."
+msgstr "The table can have 1 to 20 rows and 1 to 10 columns."
+
+#: userland/programas/tucan.c:777 userland/programas/tucan_cinta.h:109
+msgid "Gráfico"
+msgstr "Chart"
+
+#: userland/programas/tucan.c:777
+msgid "Datos (etiqueta=valor, separados por comas):"
+msgstr "Data (label=value, separated by commas):"
+
+#: userland/programas/tucan.c:1057
+msgid "Presentaciones (*.tcn;*.pptx)|*.tcn;*.pptx|Todos los archivos (*.*)|*"
+msgstr "Presentations (*.tcn;*.pptx)|*.tcn;*.pptx|All files (*.*)|*"
+
+#: userland/programas/tucan.c:1058
+msgid "Presentación de Tucán (*.tcn)|*.tcn|PowerPoint (*.pptx)|*.pptx"
+msgstr "Tucán presentation (*.tcn)|*.tcn|PowerPoint (*.pptx)|*.pptx"
+
+#: userland/programas/tucan.c:1070
+msgid "No se ha podido guardar la presentación."
+msgstr "The presentation could not be saved."
+
+#: userland/programas/tucan.c:1080
+msgid "Guardar como"
+msgstr "Save as"
+
+#: userland/programas/tucan.c:1088
+msgid ""
+"La presentación tiene cambios sin guardar.\n"
+"¿Guardarlos antes de continuar?"
+msgstr ""
+"The presentation has unsaved changes.\n"
+"Save them before continuing?"
+
+#: userland/programas/tucan.c:1109 userland/programas/tucan.c:1669
+msgid "No se ha podido abrir el archivo."
+msgstr "The file could not be opened."
+
+#: userland/programas/tucan.c:1116
+#, c-format
+msgid "Importado con avisos: %s"
+msgstr "Imported with warnings: %s"
+
+#: userland/programas/tucan.c:1130
+msgid "PowerPoint (*.pptx)|*.pptx"
+msgstr "PowerPoint (*.pptx)|*.pptx"
+
+#: userland/programas/tucan.c:1130
+msgid "Documento PDF (*.pdf)|*.pdf"
+msgstr "PDF document (*.pdf)|*.pdf"
+
+#: userland/programas/tucan.c:1130
+msgid "Imagen PNG (*.png)|*.png"
+msgstr "PNG image (*.png)|*.png"
+
+#: userland/programas/tucan.c:1131 userland/programas/tucan_cinta.h:197
+msgid "Exportar"
+msgstr "Export"
+
+#: userland/programas/tucan.c:1149
+msgid "No se ha podido exportar."
+msgstr "The file could not be exported."
+
+#: userland/programas/tucan.c:1150
+#, c-format
+msgid "Exportado: %s"
+msgstr "Exported: %s"
+
+#: userland/programas/tucan.c:1179
+msgid "Abrir"
+msgstr "Open"
+
+#: userland/programas/tucan.c:1228 userland/programas/tucan_cinta.h:114
+msgid "Pie de página"
+msgstr "Footer"
+
+#: userland/programas/tucan.c:1228
+msgid "Texto al pie de las diapositivas:"
+msgstr "Footer text on the slides:"
+
+#: userland/programas/tucan.c:1241 userland/programas/tucan_cinta.h:126
+msgid "Color de fondo"
+msgstr "Background color"
+
+#: userland/programas/tucan.c:1246
+msgid "Color de arriba"
+msgstr "Top color"
+
+#: userland/programas/tucan.c:1246
+msgid "Color de abajo"
+msgstr "Bottom color"
+
+#: userland/programas/tucan.c:1251 userland/programas/tucan_cinta.h:128
+msgid "Imagen de fondo"
+msgstr "Background picture"
+
+#: userland/programas/tucan.c:1251
+msgid "Imágenes (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif"
+msgstr "Pictures (*.bmp;*.png;*.jpg;*.jpeg;*.gif)|*.bmp;*.png;*.jpg;*.jpeg;*.gif"
+
+#: userland/programas/tucan.c:1282
+msgid "Atajos: Ctrl+M diapositiva nueva, Ctrl+D duplicar, Ctrl+Z/Y deshacer y rehacer, Ctrl+C/X/V copiar, cortar y pegar objetos, Ctrl+G agrupar, F5 presentar, Mayús+F5 desde la actual. Doble clic en un texto para escribir; Tab baja el nivel de un párrafo. En la presentación: flechas, clic o rueda para avanzar; B pantalla negra, L láser, número+Intro ir a una diapositiva, Esc salir."
+msgstr "Shortcuts: Ctrl+M new slide, Ctrl+D duplicate, Ctrl+Z/Y undo and redo, Ctrl+C/X/V copy, cut and paste objects, Ctrl+G group, F5 present, Shift+F5 from the current slide. Double click on a text to type; Tab lowers the level of a paragraph. In the presentation: arrows, click or wheel to advance; B black screen, L laser, number+Enter go to a slide, Esc exit."
+
+#: userland/programas/tucan.c:1284
+msgid "Acerca de Tucán"
+msgstr "About Tucán"
+
+#: userland/programas/tucan.c:1284
+msgid ""
+"Tucán - presentaciones de SaguiOS (D369).\n"
+"Formatos: .tcn, .pptx, PDF y PNG."
+msgstr ""
+"Tucán - presentations for SaguiOS (D369).\n"
+"Formats: .tcn, .pptx, PDF and PNG."
+
+#: userland/programas/tucan.c:1331
+msgid "Diapositiva nueva"
+msgstr "New slide"
+
+#: userland/programas/tucan.c:1331
+msgid "Duplicar diapositiva"
+msgstr "Duplicate slide"
+
+#: userland/programas/tucan.c:1331
+msgid "Eliminar diapositiva"
+msgstr "Delete slide"
+
+#: userland/programas/tucan.c:1331
+msgid "Ocultar o mostrar"
+msgstr "Hide or show"
+
+#: userland/programas/tucan.c:1331
+msgid "Subir"
+msgstr "Move up"
+
+#: userland/programas/tucan.c:1331
+msgid "Bajar"
+msgstr "Move down"
+
+#: userland/programas/tucan.c:1335 userland/programas/tucan_cinta.h:51
+msgid "Cortar"
+msgstr "Cut"
+
+#: userland/programas/tucan.c:1335 userland/programas/tucan_cinta.h:52
+msgid "Copiar"
+msgstr "Copy"
+
+#: userland/programas/tucan.c:1335 userland/programas/tucan_cinta.h:50
+msgid "Pegar"
+msgstr "Paste"
+
+#: userland/programas/tucan.c:1335 userland/programas/tucan_cinta.h:86
+msgid "Traer al frente"
+msgstr "Bring to front"
+
+#: userland/programas/tucan.c:1335 userland/programas/tucan_cinta.h:87
+msgid "Enviar al fondo"
+msgstr "Send to back"
+
+#: userland/programas/tucan.c:1335 userland/programas/tucan_cinta.h:59
+msgid "Eliminar"
+msgstr "Delete"
+
+#: userland/programas/tucan.c:1613
+msgid "Clic para agregar un título"
+msgstr "Click to add a title"
+
+#: userland/programas/tucan.c:1614
+msgid "Clic para agregar texto"
+msgstr "Click to add text"
+
+#: userland/programas/tucan.c:1615
+msgid "Clic para agregar un subtítulo"
+msgstr "Click to add a subtitle"
+
+#: userland/programas/tucan.c:1638
+msgid "Presentación1 - Tucán"
+msgstr "Presentation1 - Tucán"
+
+#: userland/programas/tucan_agente.h:19
+msgid "No se ha podido crear el panel del asistente."
+msgstr "The assistant panel could not be created."
+
+#: userland/programas/tucan_cinta.h:30
+msgid "Diapositiva de título"
+msgstr "Title slide"
+
+#: userland/programas/tucan_cinta.h:30
+msgid "Título y contenido"
+msgstr "Title and content"
+
+#: userland/programas/tucan_cinta.h:30
+msgid "Dos columnas"
+msgstr "Two columns"
+
+#: userland/programas/tucan_cinta.h:30
+msgid "Solo el título"
+msgstr "Title only"
+
+#: userland/programas/tucan_cinta.h:30
+msgid "En blanco"
+msgstr "Blank"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Rectángulo"
+msgstr "Rectangle"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Rectángulo redondeado"
+msgstr "Rounded rectangle"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Elipse"
+msgstr "Ellipse"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Triángulo"
+msgstr "Triangle"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Rombo"
+msgstr "Diamond"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Flecha"
+msgstr "Arrow"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Línea"
+msgstr "Line"
+
+#: userland/programas/tucan_cinta.h:31
+msgid "Estrella"
+msgstr "Star"
+
+#: userland/programas/tucan_cinta.h:32 userland/programas/tucan_cinta.h:71
+msgid "Alinear a la izquierda"
+msgstr "Align left"
+
+#: userland/programas/tucan_cinta.h:32
+msgid "Centrar horizontalmente"
+msgstr "Center horizontally"
+
+#: userland/programas/tucan_cinta.h:32 userland/programas/tucan_cinta.h:73
+msgid "Alinear a la derecha"
+msgstr "Align right"
+
+#: userland/programas/tucan_cinta.h:32
+msgid "Alinear arriba"
+msgstr "Align top"
+
+#: userland/programas/tucan_cinta.h:32
+msgid "Centrar verticalmente"
+msgstr "Center vertically"
+
+#: userland/programas/tucan_cinta.h:32
+msgid "Alinear abajo"
+msgstr "Align bottom"
+
+#: userland/programas/tucan_cinta.h:33
+msgid "Gráfico de barras"
+msgstr "Bar chart"
+
+#: userland/programas/tucan_cinta.h:33
+msgid "Gráfico de líneas"
+msgstr "Line chart"
+
+#: userland/programas/tucan_cinta.h:33
+msgid "Gráfico de sectores"
+msgstr "Pie chart"
+
+#: userland/programas/tucan_cinta.h:38
+msgid "Corte"
+msgstr "Cut"
+
+#: userland/programas/tucan_cinta.h:38 userland/programas/tucan_cinta.h:39
+msgid "Fundido"
+msgstr "Fade"
+
+#: userland/programas/tucan_cinta.h:38
+msgid "Desplazar"
+msgstr "Push"
+
+#: userland/programas/tucan_cinta.h:38
+msgid "Barrido"
+msgstr "Wipe"
+
+#: userland/programas/tucan_cinta.h:39
+msgid "Ninguna"
+msgstr "None"
+
+#: userland/programas/tucan_cinta.h:39
+msgid "Aparecer"
+msgstr "Appear"
+
+#: userland/programas/tucan_cinta.h:43 userland/programas/tucan_cinta.h:214
+msgid "Guardar"
+msgstr "Save"
+
+#: userland/programas/tucan_cinta.h:43
+msgid ""
+"Guardar\n"
+"Guarda la presentación\n"
+"Ctrl+S"
+msgstr ""
+"Save\n"
+"Saves the presentation\n"
+"Ctrl+S"
+
+#: userland/programas/tucan_cinta.h:44
+msgid "Deshacer"
+msgstr "Undo"
+
+#: userland/programas/tucan_cinta.h:44
+msgid ""
+"Deshacer\n"
+"Deshace la última acción\n"
+"Ctrl+Z"
+msgstr ""
+"Undo\n"
+"Undoes the last action\n"
+"Ctrl+Z"
+
+#: userland/programas/tucan_cinta.h:45
+msgid "Rehacer"
+msgstr "Redo"
+
+#: userland/programas/tucan_cinta.h:45
+msgid ""
+"Rehacer\n"
+"Repite lo deshecho\n"
+"Ctrl+Y"
+msgstr ""
+"Redo\n"
+"Repeats what was undone\n"
+"Ctrl+Y"
+
+#: userland/programas/tucan_cinta.h:50
+msgid ""
+"Pegar\n"
+"Pega el objeto copiado\n"
+"Ctrl+V"
+msgstr ""
+"Paste\n"
+"Pastes the copied object\n"
+"Ctrl+V"
+
+#: userland/programas/tucan_cinta.h:51
+msgid ""
+"Cortar\n"
+"Quita el objeto y lo guarda\n"
+"Ctrl+X"
+msgstr ""
+"Cut\n"
+"Removes the object and keeps it\n"
+"Ctrl+X"
+
+#: userland/programas/tucan_cinta.h:52
+msgid ""
+"Copiar\n"
+"Guarda una copia del objeto\n"
+"Ctrl+C"
+msgstr ""
+"Copy\n"
+"Keeps a copy of the object\n"
+"Ctrl+C"
+
+#: userland/programas/tucan_cinta.h:55
+msgid "Nueva diapositiva"
+msgstr "New slide"
+
+#: userland/programas/tucan_cinta.h:55
+msgid ""
+"Nueva diapositiva\n"
+"Añade una diapositiva después de la actual\n"
+"Ctrl+M"
+msgstr ""
+"New slide\n"
+"Adds a slide after the current one\n"
+"Ctrl+M"
+
+#: userland/programas/tucan_cinta.h:57 userland/programas/tucan_cinta.h:207
+msgid "Diseño"
+msgstr "Design"
+
+#: userland/programas/tucan_cinta.h:57
+msgid ""
+"Diseño\n"
+"Cambia la disposición de la diapositiva actual"
+msgstr ""
+"Design\n"
+"Changes the layout of the current slide"
+
+#: userland/programas/tucan_cinta.h:58
+msgid "Duplicar"
+msgstr "Duplicate"
+
+#: userland/programas/tucan_cinta.h:58
+msgid ""
+"Duplicar\n"
+"Copia la diapositiva actual justo detrás"
+msgstr ""
+"Duplicate\n"
+"Copies the current slide just after it"
+
+#: userland/programas/tucan_cinta.h:59
+msgid ""
+"Eliminar\n"
+"Quita la diapositiva actual\n"
+"Supr en la lista"
+msgstr ""
+"Delete\n"
+"Removes the current slide\n"
+"Del in the list"
+
+#: userland/programas/tucan_cinta.h:62
+msgid ""
+"Fuente\n"
+"Familia de la letra del objeto"
+msgstr ""
+"Font\n"
+"Typeface of the object's text"
+
+#: userland/programas/tucan_cinta.h:63
+msgid ""
+"Tamaño\n"
+"Tamaño de la letra en puntos"
+msgstr ""
+"Size\n"
+"Font size in points"
+
+#: userland/programas/tucan_cinta.h:65
+msgid "N"
+msgstr "B"
+
+#: userland/programas/tucan_cinta.h:65
+msgid ""
+"Negrita\n"
+"Pone el texto del objeto en negrita\n"
+"Ctrl+B"
+msgstr ""
+"Bold\n"
+"Makes the object's text bold\n"
+"Ctrl+B"
+
+#: userland/programas/tucan_cinta.h:66
+msgid "K"
+msgstr "I"
+
+#: userland/programas/tucan_cinta.h:66
+msgid ""
+"Cursiva\n"
+"Pone el texto del objeto en cursiva\n"
+"Ctrl+I"
+msgstr ""
+"Italic\n"
+"Makes the object's text italic\n"
+"Ctrl+I"
+
+#: userland/programas/tucan_cinta.h:67
+msgid "S"
+msgstr "U"
+
+#: userland/programas/tucan_cinta.h:67
+msgid ""
+"Subrayado\n"
+"Subraya el texto del objeto\n"
+"Ctrl+U"
+msgstr ""
+"Underline\n"
+"Underlines the object's text\n"
+"Ctrl+U"
+
+#: userland/programas/tucan_cinta.h:68
+msgid "Color de la letra"
+msgstr "Font color"
+
+#: userland/programas/tucan_cinta.h:68
+msgid ""
+"Color de la letra\n"
+"Cambia el color del texto del objeto"
+msgstr ""
+"Font color\n"
+"Changes the color of the object's text"
+
+#: userland/programas/tucan_cinta.h:71
+msgid "Izquierda"
+msgstr "Left"
+
+#: userland/programas/tucan_cinta.h:72
+msgid "Centro"
+msgstr "Center"
+
+#: userland/programas/tucan_cinta.h:72
+msgid "Centrar"
+msgstr "Center"
+
+#: userland/programas/tucan_cinta.h:73
+msgid "Derecha"
+msgstr "Right"
+
+#: userland/programas/tucan_cinta.h:74
+msgid "Viñetas"
+msgstr "Bullets"
+
+#: userland/programas/tucan_cinta.h:74
+msgid ""
+"Viñetas\n"
+"Lista con viñetas"
+msgstr ""
+"Bullets\n"
+"Bulleted list"
+
+#: userland/programas/tucan_cinta.h:75
+msgid "Numeración"
+msgstr "Numbering"
+
+#: userland/programas/tucan_cinta.h:75
+msgid ""
+"Numeración\n"
+"Lista numerada"
+msgstr ""
+"Numbering\n"
+"Numbered list"
+
+#: userland/programas/tucan_cinta.h:76
+msgid "Subir nivel"
+msgstr "Promote"
+
+#: userland/programas/tucan_cinta.h:76
+msgid ""
+"Subir nivel\n"
+"Quita un nivel de sangría al párrafo (Mayús+Tab)"
+msgstr ""
+"Promote\n"
+"Removes one indent level from the paragraph (Shift+Tab)"
+
+#: userland/programas/tucan_cinta.h:77
+msgid "Bajar nivel"
+msgstr "Demote"
+
+#: userland/programas/tucan_cinta.h:77
+msgid ""
+"Bajar nivel\n"
+"Añade un nivel de sangría al párrafo (Tab)"
+msgstr ""
+"Demote\n"
+"Adds one indent level to the paragraph (Tab)"
+
+#: userland/programas/tucan_cinta.h:80 userland/programas/tucan_cinta.h:105
+msgid "Formas"
+msgstr "Shapes"
+
+#: userland/programas/tucan_cinta.h:80 userland/programas/tucan_cinta.h:105
+msgid ""
+"Formas\n"
+"Inserta una forma en la diapositiva"
+msgstr ""
+"Shapes\n"
+"Inserts a shape on the slide"
+
+#: userland/programas/tucan_cinta.h:81
+msgid "Relleno"
+msgstr "Fill"
+
+#: userland/programas/tucan_cinta.h:81
+msgid ""
+"Relleno de forma\n"
+"Color de relleno de la forma elegida"
+msgstr ""
+"Shape fill\n"
+"Fill color of the chosen shape"
+
+#: userland/programas/tucan_cinta.h:82
+msgid "Contorno"
+msgstr "Outline"
+
+#: userland/programas/tucan_cinta.h:82
+msgid ""
+"Contorno de forma\n"
+"Color del contorno de la forma elegida"
+msgstr ""
+"Shape outline\n"
+"Outline color of the chosen shape"
+
+#: userland/programas/tucan_cinta.h:83
+msgid ""
+"Grosor\n"
+"Grosor del contorno en puntos (0 = sin contorno)"
+msgstr ""
+"Weight\n"
+"Outline thickness in points (0 = no outline)"
+
+#: userland/programas/tucan_cinta.h:86
+msgid ""
+"Traer al frente\n"
+"Pone el objeto encima de los demás"
+msgstr ""
+"Bring to front\n"
+"Puts the object above the others"
+
+#: userland/programas/tucan_cinta.h:87
+msgid ""
+"Enviar al fondo\n"
+"Pone el objeto debajo de los demás"
+msgstr ""
+"Send to back\n"
+"Puts the object below the others"
+
+#: userland/programas/tucan_cinta.h:88
+msgid "Agrupar"
+msgstr "Group"
+
+#: userland/programas/tucan_cinta.h:88
+msgid ""
+"Agrupar\n"
+"Une los objetos elegidos para moverlos juntos\n"
+"Ctrl+G"
+msgstr ""
+"Group\n"
+"Joins the chosen objects to move them together\n"
+"Ctrl+G"
+
+#: userland/programas/tucan_cinta.h:89
+msgid "Desagrupar"
+msgstr "Ungroup"
+
+#: userland/programas/tucan_cinta.h:89
+msgid ""
+"Desagrupar\n"
+"Separa los objetos del grupo"
+msgstr ""
+"Ungroup\n"
+"Separates the objects in the group"
+
+#: userland/programas/tucan_cinta.h:90
+msgid "Alinear"
+msgstr "Align"
+
+#: userland/programas/tucan_cinta.h:90
+msgid ""
+"Alinear\n"
+"Alinea los objetos elegidos o los centra en la diapositiva"
+msgstr ""
+"Align\n"
+"Aligns the chosen objects or centers them on the slide"
+
+#: userland/programas/tucan_cinta.h:91
+msgid "Seleccionar todo"
+msgstr "Select all"
+
+#: userland/programas/tucan_cinta.h:91
+msgid ""
+"Seleccionar todo\n"
+"Elige todos los objetos de la diapositiva\n"
+"Ctrl+A"
+msgstr ""
+"Select all\n"
+"Selects all the objects on the slide\n"
+"Ctrl+A"
+
+#: userland/programas/tucan_cinta.h:92
+msgid "Borrar objeto"
+msgstr "Delete object"
+
+#: userland/programas/tucan_cinta.h:92
+msgid ""
+"Borrar objeto\n"
+"Quita los objetos elegidos\n"
+"Supr"
+msgstr ""
+"Delete object\n"
+"Removes the chosen objects\n"
+"Del"
+
+#: userland/programas/tucan_cinta.h:95
+msgid "Asistente IA"
+msgstr "AI assistant"
+
+#: userland/programas/tucan_cinta.h:95
+msgid ""
+"Asistente IA\n"
+"Abre el panel del asistente\n"
+"F12"
+msgstr ""
+"AI assistant\n"
+"Opens the assistant panel\n"
+"F12"
+
+#: userland/programas/tucan_cinta.h:98 userland/programas/tucan_cinta.h:202
+msgid "Ayuda"
+msgstr "Help"
+
+#: userland/programas/tucan_cinta.h:98
+msgid ""
+"Ayuda\n"
+"Atajos y modo presentación\n"
+"F1"
+msgstr ""
+"Help\n"
+"Shortcuts and presentation mode\n"
+"F1"
+
+#: userland/programas/tucan_cinta.h:103
+msgid "Cuadro de texto"
+msgstr "Text box"
+
+#: userland/programas/tucan_cinta.h:103
+msgid ""
+"Cuadro de texto\n"
+"Dibuja un cuadro de texto en la diapositiva"
+msgstr ""
+"Text box\n"
+"Draws a text box on the slide"
+
+#: userland/programas/tucan_cinta.h:104
+msgid "Imagen"
+msgstr "Picture"
+
+#: userland/programas/tucan_cinta.h:104
+msgid ""
+"Imagen\n"
+"Inserta una imagen BMP, PNG, JPEG o GIF"
+msgstr ""
+"Picture\n"
+"Inserts a BMP, PNG, JPEG or GIF picture"
+
+#: userland/programas/tucan_cinta.h:108
+msgid ""
+"Tabla\n"
+"Inserta una tabla sencilla"
+msgstr ""
+"Table\n"
+"Inserts a simple table"
+
+#: userland/programas/tucan_cinta.h:109
+msgid ""
+"Gráfico\n"
+"Inserta un gráfico de barras, líneas o sectores"
+msgstr ""
+"Chart\n"
+"Inserts a bar, line or pie chart"
+
+#: userland/programas/tucan_cinta.h:110
+msgid ""
+"WordArt\n"
+"Inserta un texto decorativo"
+msgstr ""
+"WordArt\n"
+"Inserts decorative text"
+
+#: userland/programas/tucan_cinta.h:113
+msgid "Número de diapositiva"
+msgstr "Slide number"
+
+#: userland/programas/tucan_cinta.h:113
+msgid ""
+"Número de diapositiva\n"
+"Muestra el número al pie de cada diapositiva"
+msgstr ""
+"Slide number\n"
+"Shows the number at the foot of each slide"
+
+#: userland/programas/tucan_cinta.h:114
+msgid ""
+"Pie de página\n"
+"Texto al pie de todas las diapositivas"
+msgstr ""
+"Footer\n"
+"Text at the foot of all slides"
+
+#: userland/programas/tucan_cinta.h:119
+msgid "Panorámica 16:9"
+msgstr "Widescreen 16:9"
+
+#: userland/programas/tucan_cinta.h:120
+msgid "Estándar 4:3"
+msgstr "Standard 4:3"
+
+#: userland/programas/tucan_cinta.h:123
+msgid ""
+"Temas\n"
+"Colores, fuentes y fondo de toda la presentación"
+msgstr ""
+"Themes\n"
+"Colors, fonts and background of the whole presentation"
+
+#: userland/programas/tucan_cinta.h:126
+msgid ""
+"Color de fondo\n"
+"Un color liso para esta diapositiva"
+msgstr ""
+"Background color\n"
+"A solid color for this slide"
+
+#: userland/programas/tucan_cinta.h:127
+msgid "Degradado"
+msgstr "Gradient"
+
+#: userland/programas/tucan_cinta.h:127
+msgid ""
+"Degradado\n"
+"De un color a otro, de arriba abajo"
+msgstr ""
+"Gradient\n"
+"From one color to another, top to bottom"
+
+#: userland/programas/tucan_cinta.h:128
+msgid ""
+"Imagen de fondo\n"
+"Una imagen que cubre la diapositiva"
+msgstr ""
+"Background picture\n"
+"A picture that covers the slide"
+
+#: userland/programas/tucan_cinta.h:129
+msgid "Fondo del tema"
+msgstr "Theme background"
+
+#: userland/programas/tucan_cinta.h:129
+msgid ""
+"Fondo del tema\n"
+"Vuelve al fondo del tema"
+msgstr ""
+"Theme background\n"
+"Returns to the theme background"
+
+#: userland/programas/tucan_cinta.h:132
+msgid ""
+"Fuente de los títulos\n"
+"La fuente de todos los títulos (diapositiva maestra)"
+msgstr ""
+"Title font\n"
+"The font of all titles (slide master)"
+
+#: userland/programas/tucan_cinta.h:133
+msgid ""
+"Fuente del cuerpo\n"
+"La fuente de todo el texto (diapositiva maestra)"
+msgstr ""
+"Body font\n"
+"The font of all the text (slide master)"
+
+#: userland/programas/tucan_cinta.h:138
+msgid ""
+"Transición\n"
+"Cómo entra esta diapositiva en la presentación"
+msgstr ""
+"Transition\n"
+"How this slide enters the presentation"
+
+#: userland/programas/tucan_cinta.h:141
+msgid ""
+"Duración\n"
+"Cuánto dura la transición"
+msgstr ""
+"Duration\n"
+"How long the transition lasts"
+
+#: userland/programas/tucan_cinta.h:142
+msgid ""
+"Avanzar\n"
+"Pasa sola a la siguiente tras unos segundos (con «Tiempos automáticos»)"
+msgstr ""
+"Advance\n"
+"Goes on to the next slide by itself after a few seconds (with \"Automatic timings\")"
+
+#: userland/programas/tucan_cinta.h:143
+msgid "Aplicar a todas"
+msgstr "Apply to all"
+
+#: userland/programas/tucan_cinta.h:143
+msgid ""
+"Aplicar a todas\n"
+"Usa esta transición y estos tiempos en todas las diapositivas"
+msgstr ""
+"Apply to all\n"
+"Uses this transition and these timings on all slides"
+
+#: userland/programas/tucan_cinta.h:146
+msgid ""
+"Animación de entrada\n"
+"Cómo aparece el objeto elegido, con cada clic"
+msgstr ""
+"Entrance animation\n"
+"How the chosen object appears, on each click"
+
+#: userland/programas/tucan_cinta.h:151
+msgid "Desde el principio"
+msgstr "From beginning"
+
+#: userland/programas/tucan_cinta.h:151
+msgid ""
+"Desde el principio\n"
+"Pantalla completa desde la primera diapositiva\n"
+"F5"
+msgstr ""
+"From beginning\n"
+"Full screen from the first slide\n"
+"F5"
+
+#: userland/programas/tucan_cinta.h:152
+msgid "Desde la actual"
+msgstr "From current slide"
+
+#: userland/programas/tucan_cinta.h:152
+msgid ""
+"Desde la actual\n"
+"Pantalla completa desde esta diapositiva\n"
+"Mayús+F5"
+msgstr ""
+"From current slide\n"
+"Full screen from this slide\n"
+"Shift+F5"
+
+#: userland/programas/tucan_cinta.h:155
+msgid "Ocultar diapositiva"
+msgstr "Hide slide"
+
+#: userland/programas/tucan_cinta.h:155
+msgid ""
+"Ocultar diapositiva\n"
+"No se muestra ni se exporta a PDF"
+msgstr ""
+"Hide slide\n"
+"It is not shown or exported to PDF"
+
+#: userland/programas/tucan_cinta.h:156
+msgid "Tiempos automáticos"
+msgstr "Automatic timings"
+
+#: userland/programas/tucan_cinta.h:156
+msgid ""
+"Tiempos automáticos\n"
+"Avanza sola según los segundos de cada diapositiva"
+msgstr ""
+"Automatic timings\n"
+"Advances by itself according to the seconds of each slide"
+
+#: userland/programas/tucan_cinta.h:157
+msgid "Puntero láser"
+msgstr "Laser pointer"
+
+#: userland/programas/tucan_cinta.h:157
+msgid ""
+"Puntero láser\n"
+"Un punto rojo sigue al ratón (tecla L durante la presentación)"
+msgstr ""
+"Laser pointer\n"
+"A red dot follows the mouse (L key during the presentation)"
+
+#: userland/programas/tucan_cinta.h:160
+msgid "Exportar a PDF"
+msgstr "Export to PDF"
+
+#: userland/programas/tucan_cinta.h:160
+msgid ""
+"Exportar a PDF\n"
+"Una diapositiva por página"
+msgstr ""
+"Export to PDF\n"
+"One slide per page"
+
+#: userland/programas/tucan_cinta.h:161
+msgid "PDF con notas"
+msgstr "PDF with notes"
+
+#: userland/programas/tucan_cinta.h:161
+msgid ""
+"PDF con notas\n"
+"Cada página lleva la diapositiva y sus notas"
+msgstr ""
+"PDF with notes\n"
+"Each page has the slide and its notes"
+
+#: userland/programas/tucan_cinta.h:166
+msgid "Notas"
+msgstr "Notes"
+
+#: userland/programas/tucan_cinta.h:166
+msgid ""
+"Notas\n"
+"Muestra u oculta el panel de notas del orador"
+msgstr ""
+"Notes\n"
+"Shows or hides the speaker notes panel"
+
+#: userland/programas/tucan_cinta.h:167
+msgid "Miniaturas"
+msgstr "Thumbnails"
+
+#: userland/programas/tucan_cinta.h:167
+msgid ""
+"Miniaturas\n"
+"Muestra u oculta la lista de diapositivas"
+msgstr ""
+"Thumbnails\n"
+"Shows or hides the slide list"
+
+#: userland/programas/tucan_cinta.h:171
+msgid "Portapapeles"
+msgstr "Clipboard"
+
+#: userland/programas/tucan_cinta.h:172
+msgid "Diapositivas"
+msgstr "Slides"
+
+#: userland/programas/tucan_cinta.h:173
+msgid "Fuente"
+msgstr "Font"
+
+#: userland/programas/tucan_cinta.h:174
+msgid "Párrafo"
+msgstr "Paragraph"
+
+#: userland/programas/tucan_cinta.h:175
+msgid "Dibujo"
+msgstr "Drawing"
+
+#: userland/programas/tucan_cinta.h:176
+msgid "Organizar"
+msgstr "Arrange"
+
+#: userland/programas/tucan_cinta.h:179
+msgid "Básicos"
+msgstr "Basics"
+
+#: userland/programas/tucan_cinta.h:180
+msgid "Objetos"
+msgstr "Objects"
+
+#: userland/programas/tucan_cinta.h:181
+msgid "Pie"
+msgstr "Footer"
+
+#: userland/programas/tucan_cinta.h:184
+msgid "Tamaño"
+msgstr "Size"
+
+#: userland/programas/tucan_cinta.h:185
+msgid "Temas"
+msgstr "Themes"
+
+#: userland/programas/tucan_cinta.h:186
+msgid "Fondo"
+msgstr "Background"
+
+#: userland/programas/tucan_cinta.h:187
+msgid "Diapositiva maestra"
+msgstr "Slide master"
+
+#: userland/programas/tucan_cinta.h:190
+msgid "Transición"
+msgstr "Transition"
+
+#: userland/programas/tucan_cinta.h:191
+msgid "Tiempo"
+msgstr "Timing"
+
+#: userland/programas/tucan_cinta.h:192
+msgid "Animación"
+msgstr "Animation"
+
+#: userland/programas/tucan_cinta.h:195
+msgid "Iniciar"
+msgstr "Start"
+
+#: userland/programas/tucan_cinta.h:196
+msgid "Configurar"
+msgstr "Setup"
+
+#: userland/programas/tucan_cinta.h:200
+msgid "Paneles"
+msgstr "Panels"
+
+#: userland/programas/tucan_cinta.h:201
+msgid "Asistente"
+msgstr "Assistant"
+
+#: userland/programas/tucan_cinta.h:205
+msgid "Inicio"
+msgstr "Home"
+
+#: userland/programas/tucan_cinta.h:206
+msgid "Insertar"
+msgstr "Insert"
+
+#: userland/programas/tucan_cinta.h:208
+msgid "Transiciones"
+msgstr "Transitions"
+
+#: userland/programas/tucan_cinta.h:209
+msgid "Presentación"
+msgstr "Slide Show"
+
+#: userland/programas/tucan_cinta.h:210
+msgid "Ver"
+msgstr "View"
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Nueva"
+msgstr "New"
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Abrir..."
+msgstr "Open..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Guardar como..."
+msgstr "Save as..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Exportar a PDF..."
+msgstr "Export to PDF..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Exportar a PDF con notas..."
+msgstr "Export to PDF with notes..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Exportar a PowerPoint (.pptx)..."
+msgstr "Export to PowerPoint (.pptx)..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Exportar diapositiva actual a PNG..."
+msgstr "Export current slide to PNG..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Exportar todas a PNG..."
+msgstr "Export all slides to PNG..."
+
+#: userland/programas/tucan_cinta.h:214
+msgid "Salir"
+msgstr "Exit"
+
+#: userland/programas/tucan_pres.h:201
+msgid "Todas las diapositivas están ocultas."
+msgstr "All slides are hidden."
+

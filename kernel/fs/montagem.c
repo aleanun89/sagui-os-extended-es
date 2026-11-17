@@ -231,7 +231,10 @@ int montagem_meta(montagem_t *m, const char *rel, meta_t *s, bool olhar)
     }
     if (!*rel) {   /* la carpeta del montaje */
         s->tipo = TIPO_PASTA;
-        if (txt_compara(m->ponto, "/home") == 0) { s->uid = UID_SAGUI; s->gid = GID_SAGUI; s->modo = 0755; }
+        if (txt_compara(m->ponto, "/home") == 0) {   /* D371: de root cuando cada cuenta tiene su carpeta */
+            bool r = vfs_home_e_de_root();
+            s->uid = r ? UID_ROOT : UID_SAGUI; s->gid = r ? GID_ROOT : GID_SAGUI; s->modo = 0755;
+        }
         else if (ponto_comum(m->ponto) && s->com_donos) { s->uid = UID_ROOT; s->gid = GID_ROOT; s->modo = 01777; }
     }
     return 0;

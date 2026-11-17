@@ -71,3 +71,5 @@ __pycache__/
 # Entregas de uso propio del generador de imágenes (tools/generador.py, D370): nunca se versionan ni se publican
 /entrega/privada/
 /entrega/personalizada/
+/userland/terceros/freeciv/fuentes
+/userland/terceros/zlib/fuentes

@@ -19874,9 +19874,25 @@ concede, hay saludo y ping; el demonio es root (sagui no lo puede matar); *Desco
 enciende, el Terminal sigue siendo sagui y `wg-quick down` apaga sin elevar. Y en las fuentes: `SOCK_TUN`
 solo root, `OPC_TUN_CONFIG`/`OPC_FISICA` solo root, el demonio sin `abrir()`. Captura `H365-5-pide-permiso`.
 
-## D371. Usuarios en la v8.5.3: auditoría, cuatro fallos entre cuentas corregidos y diseño de root, `/root`, carpetas propias y configuración de sistema frente a la de la persona (propuesta pendiente de decisión)
+## D371. Usuarios en la v8.5.3: auditoría, cuatro fallos entre cuentas corregidos y diseño de root, `/root`, carpetas propias y configuración de sistema frente a la de la persona (decidido el 2026-11-17)
 
-**Pedido del mantenedor:** dar una vuelta a los usuarios, sobre todo instalados: root siempre existe, forma de entrar, cada usuario con su carpeta, permisos claros y configuración de usuario frente a la de sistema; y root con su carpeta en `/root`. **Estado: fase 1 (auditoría y diseño) hecha; el diseño espera las respuestas del mantenedor** (preguntas P1-P15 en `docs/usuarios-v853.md`, sección 5). El documento tiene el estado real (cuentas, modos de entrada, vista de `/home` por proceso, la tabla de cada fichero de configuración con quién lo escribe y lo lee y adónde debería ir) y el plan en seis fases.
+**Pedido del mantenedor:** dar una vuelta a los usuarios, sobre todo instalados: root siempre existe, forma de entrar, cada usuario con su carpeta, permisos claros y configuración de usuario frente a la de sistema; y root con su carpeta en `/root`. **Estado: decidido.** El mantenedor (2026-11-17) acepta todas las recomendaciones de `docs/usuarios-v853.md`, sección 5:
+P1 b (contraseña de root obligatoria al instalar, con la casilla «la misma que mi cuenta», que hace administradora a la cuenta);
+P2 b (lo elevado con el diálogo o `admin` ve el árbol real, pero la configuración `/home/.*` sigue siendo la de quien eleva; `su` da `/root`);
+P3 b (sin contraseña de root con SAGUI-CONF, la pide el sistema en el primer arranque, en su pantalla);
+P4 a (sagui se migra a `/home/sagui`, automático, una vez y reanudable);
+P5 b (inicio automático: opción del sistema, apagada de serie en instalado; en vivo, siempre);
+P6 a (pantallas: de la máquina, administrador);
+P7 b (idioma y teclado del sistema y de cada persona; la pantalla de inicio de sesión usa el del sistema);
+P8 a (`umask 022`, más una carpeta común `/home/compartido` 1777);
+P9 a (aceleración, kconfig, frecuencia, bloqueo DNS, zona y sonido de la máquina: solo administrador, con migración);
+P10 b (redes y túneles de la máquina, en una fase posterior; IP fija y DNS del administrador);
+P11 c (cron y servicios de una cuenta sin sesión: solo si el administrador lo permite; de serie, la cuenta principal);
+P12 a (`login` en la consola de texto);
+P13 a (root no sale en la pantalla de inicio de sesión);
+P14 a (`/root` en la carpeta `raiz/` de SAGUI-CONF, con un límite de 4 MB);
+P15 a (bloqueo de pantalla con contraseña en la v8.5.3).
+Se implementa en la rama `v8.5.3-usuarios` por fases (sección 4 del documento): 1 configuración del sistema a `/etc`; 2 `/root` y `HOME`; 3 instalador y primer arranque; 4 migración de sagui; 5 SSH, cron y servicios por cuenta; 6 `login`, bloqueo de pantalla e inicio automático. Los fallos A-E ya están en main (v8.5.2). El documento tiene el estado real (cuentas, modos de entrada, vista de `/home` por proceso, la tabla de cada fichero de configuración con quién lo escribe y lo lee y adónde debería ir) y el plan en seis fases.
 
 **Fallos corregidos ya (prueba `tests/h371_usuarios_seguridad.py`):**
 1. **sagui quitaba la carpeta de otra cuenta.** `/home` es de sagui (D340.2) y renombrar o borrar solo miraba la carpeta de encima: `mv /home/ana /home/x` funcionaba aunque `/home/ana` fuera 0700, y sagui podía dejar en su sitio una `/home/ana` suya con configuración que lanza órdenes (widgets, conky, servicios) y leer lo que ana guardase. Ahora lo que cuelga directamente de `/home` solo lo borra o renombra su dueño o root (`permisos_remover`).
@@ -19902,3 +19918,171 @@ cuenta solo si vale exactamente eso): `inicio_buscador` e `inicio_translucido` s
 `barra_segundos` solo con `barra_reloj` visible, todas SIN_EFECTO (se enseñan en gris con el motivo; apagarlas siempre se puede). Autoocultar,
 posición, iconos y bandeja no dependen de nada; widgets y VPN no tienen opciones propias en Configuración. La prueba de unidad recorre también
 estas reglas. Las claves del árbol son `barra`, `widgets` y `vpn`.
+
+**Implementado (rama `v8.5.3-usuarios`, fases 1-6):**
+1. **Configuración de la máquina en `/etc`** (`userland/libsagui/conf_maquina.c`, h375): `/etc/sistema.conf` (marca de la separación) con aceleración 2D/3D, caché del disco, sonido y micro, mando, teclado del sistema e `inicio_automatico`; `/etc/zona`, `/etc/frecuencia`, `/etc/pantallas.conf`, `/etc/sonido.conf`, `/etc/wifi-desempenho.conf`, `/etc/bloqueo.conf` y la tabla en `/sistema/conf/bloqueo/tabla.bin`. La primera vez con SAGUI-CONF, `configuracion --aplicar` (root) los copia de `/home` (sin borrar); el kernel los lee de `/etc` cuando existe `/etc/sistema.conf`. Escribirlos es de root: Configuración, `zona`, `frecuencia`, `sonido`, `bloqueo`, `pantalla` y `mandos` piden el diálogo de permisos. `sdl2_gpu` sigue siendo de la persona (no toca la GPU). Guardar las pantallas (`TELAS_OP_GUARDAR`) es de administrador con la máquina separada.
+2. **`/root` y `HOME`** (h376): `/root` 0700 en la RAM; con SAGUI-CONF, alias del kernel a `/sistema/conf/raiz` (`permisos_casa_traduzir`) con una reserva de 4 MB libres en la partición (`raiz_sem_sitio`, `arquivos.c`). Lo elevado (diálogo, `admin`) ve el árbol real salvo `/home/.algo`, que sigue siendo de quien eleva (P2 b); `su` suelta la carpeta (`USU_CASA_SOLTAR`) y da `HOME=/root`. root tiene `/root` en `/etc/usuarios` siempre; el sagsh, `HOME` de serie y el historial de root en `/root`.
+3. **Instalador y primer arranque** (h381): nombre de la cuenta (uid 1000; si no es sagui, `/home/<nombre>` 0700), su contraseña y la de root obligatoria o «la misma» (la cuenta pasa a `admin`); SAGUI-CONF con `/etc/usuarios`, `/etc/grupos` y `/etc/sistema.conf` (teclado, `inicio_automatico=no`). Con SAGUI-CONF y root sin contraseña, la pantalla del sistema la pide al arrancar (`sessao.c`, `S_RAIZ`; pedido `PED_SENHA` del kernel con uid `PED_UID_NINGUEM`; Esc = más tarde, para no dejar nunca la máquina sin entrar).
+4. **sagui a `/home/sagui`** (h384, `userland/libsagui/casa_migrar.c`): al arrancar, como root, con SAGUI-CONF y `/home` ext2 persistente: marca `etc/migracion-home` «empezada», cada entrada de `/home` (salvo las carpetas de otras cuentas, `lost+found` y `compartido`) se renombra a `/home/sagui.nuevo`, que pasa a `/home/sagui` (0700); `/etc/usuarios` cambia; `/home/compartido` 1777; marca «hecha». Reanudable y sin borrar. Con la marca, el kernel pone `/home` de root (`vfs_home_de_root`) y lo de root dentro de `/home/<cuenta>/` se ve de la dueña de esa carpeta (D282.7 acotado). Todo proceso que pasa a una cuenta (`USU_FIJAR`, `USU_COMO`, `processo_executar_como`) recibe su carpeta de `/etc/usuarios` (`permisos_casa_de_uid`): servicios, cron, SSH y `su ana` ven su carpeta; la consola sin escritorio también.
+5. **SSH, cron y servicios por cuenta** (h382): `sshd` lee `~/.ssh/authorized_keys` de cada cuenta en su carpeta real con la regla de StrictModes, y `/root/.ssh`; con SAGUI-CONF ignora el `sshd.conf` de `/home`. `cron`: la tabla de la principal y las de `/etc/cron.permitidos` (P11 c), cada una con su cuenta; su estado en SAGUI-CONF. Los servicios de persona, de la carpeta real de la principal.
+6. **`login`, inicio automático y bloqueo** (h383): `login` en la consola (root, comprueba la sombra, 2 s por fallo y un minuto tras 5); `inicio_automatico` (`login --inicio-automatico si|no`); bloquear con Windows+L o el menú Inicio (`sessao_bloquear`, `S_BLOQUEO`).
+
+Para las pruebas, `mkimagem.py --sin-pedir-root` (ni pantalla de root, ni `login`, y entrada directa) y `--sin-migrar-home`, que ponen por defecto las imágenes de prueba (`SAGUI_PRUEBA_USUARIOS=1` en `tests/qemu.py`) salvo `--pedir-root` / `--migrar-home`. **Núcleo tocado:** `permisos.c`, `carregador.c`, `usuarios.c`, `vfs.c`, `montagem.c`, `arquivos.c`, `conf_sistema.c`, `principal.c`, `supervisor.c`, `sessao.c`, `atalhos.c`, `barra.c`, `hora.c`, `frequencia.c`, `telas.c`, `bloqueo.c`, `wifi.c`. Ni memoria ni planificador.
+
+**Pendiente:** servicios de persona de otras cuentas (con nombres que no choquen); redes y túneles «de la máquina» (P10 b); la marca `acel-arranque`, `debug-app.conf` y `ampliar-home.no` siguen en `/home` (los escribe root); `/home/.config` en la raíz de `/home` lo crean algunos programas root; la Configuración aún no tiene una casilla para el inicio automático (`login --inicio-automatico`); el teclado del sistema en la pantalla de inicio de sesión tras cerrar sesión sigue siendo el de la cuenta principal (P7, parcial).
+
+**Revisión de seguridad antes de fusionar (2026-11-17, rama `v8.5.3-usuarios`).** Revisado como una cuenta normal, como otra
+cuenta de la máquina y con acceso físico. Corregido (pruebas h381 C, h383 y h384 ampliadas):
+1. **La primera contraseña de root tras «más tarde».** Con SAGUI-CONF y root sin contraseña, tras Esc en la pantalla del
+   arranque cualquier programa de la sesión (`passwd root`, `su`, `admin` sin diálogo) la fijaba y pasaba a root sin que
+   nadie lo viera (el fallo C de la fase 1, para root), y cualquier cuenta de la sesión podía hacerlo con el diálogo.
+   Ahora el kernel (`supervisor.c`, `pedir`) niega la contraseña nueva de root sin el diálogo mientras hay escritorio
+   (`ERRO_NAO_SUPORTADO`), y el gestor solo la acepta de la pantalla del sistema, de la cuenta principal o de una
+   administradora. Sin escritorio (consola) se elige con `su` desde la cuenta; en vivo, como antes.
+2. **`login` daba un shell de root sin contraseña** si root no tenía: ahora se niega.
+3. **Las teclas pulsadas** (`SIS_TECLAS_SEGURADAS`) se daban a la ventana con el foco aunque el teclado fuera de la
+   pantalla de bloqueo, la de inicio o el diálogo de permisos: un programa leía la contraseña. Ahora no.
+4. **Las claves de la máquina en la carpeta de sagui.** La clave del servidor SSH y la contraseña del VNC de `/home`
+   (copiadas a SAGUI-CONF por D255, pero sin borrar la de `/home`) pasaban con la migración a `/home/sagui` y sagui las
+   leía (la protección es por nombre; renombrando `/home/.ssh` ya se podía antes). La migración las pasa a `/etc` y las
+   borra de `/home`; `sshd` y `vncd` borran la copia vieja en cuanto la de SAGUI-CONF existe.
+5. **`/home/compartido` no era común:** la vista por cuenta la traducía a `/home/<cuenta>/compartido`. Ya no se traduce
+   (con `/home` de root). Pegajosa de verdad: nadie borra lo de otro.
+6. **Migración:** `sagui.nuevo` que no es una carpeta detiene la migración; una `compartido` previa de sagui pasa a su
+   carpeta y la común se crea después; con la cuenta principal ya en su carpeta (instalador con otro nombre), `/home`
+   pasa igual a root con la común (antes seguía siendo de la cuenta principal).
+7. **cron** ya no ejecuta como root la tarea de una cuenta si `USU_COMO` falla, ni da a otra cuenta sin carpeta la
+   tabla de la principal; **`su ana`** da `HOME=/home` (su vista), no `/home/ana`.
+8. **Servicios del sistema desde la carpeta de la cuenta.** Con SAGUI-CONF, si el primer arranque no había servicios
+   del sistema que pasar, no se creaba `/etc/servicios/activados` y en cada arranque el `activados` de la cuenta
+   seguía encendiendo servicios del sistema (sshd, vncd, como root). Ahora se crea siempre. Y, instalado, una
+   definición de `~/.config/servicios` con el nombre de un servicio del sistema ya no lo reemplaza (D216 lo permitía:
+   sagui quitaba el sshd del administrador y ponía el suyo); en vivo, como antes.
+
+Comprobado sin cambios: `/etc`, `/root` (alias a `/sistema/conf/raiz`, negado por `permisos_ruta`) y SAGUI-CONF solo
+root; la regla «lo de root en `/home/<cuenta>` es de la dueña» solo mira la carpeta de primer nivel con dueño no root
+(sin enlaces duros ni simbólicos en el VFS y sin setuid, no sirve para adueñarse de archivos de root: moverlos a la
+carpeta propia exige escribir en la de origen y respetar el pegajoso); la vista de `/home` se aplica tras normalizar
+la ruta (`..` no sale); el bloqueo lo decide el kernel (`sessao.c`, con todo el teclado y el ratón, dibujado encima de
+todo; los fallos cuentan en el gestor, 5 = un minuto); el inicio automático y `/etc/cron.permitidos` solo los cambia
+root; los servicios de persona corren como la cuenta principal.
+
+**Riesgos que quedan (documentados):** el modo rescate (Ctrl al encender) y el inicio automático son entradas sin
+contraseña con acceso físico, como estaba decidido; una cuenta sin contraseña bloquea sin proteger; un programa con el
+framebuffer directo podría pintar encima de la pantalla de bloqueo (no saltarla); `instalar --clave-root` en la línea de
+órdenes se ve en la lista de procesos; los programas elevados leen la configuración de la cuenta que eleva (P2 b): un
+programa malicioso de esa cuenta puede preparar lo que lea un programa elevado (como `sudo` sin `-H`); `SAGUI_PRUEBA_USUARIOS`
+y `SAGUI_SESION_ROOT` en el entorno de `make` pondrían los bits de prueba en una imagen; `/home/compartido` no sale al
+listar `/home` desde una cuenta (se entra por la ruta).
+
+## D369. Tucán: editor de presentaciones (v8.5.3)
+Programa `tucan` en `/apps`, junto a Pluma y Macaco. Modelo, dibujo (polígonos con suavizado entero, sin coma flotante),
+formato propio .tcn (ZIP + texto), PDF, PNG y PPTX viven en la libsagui (`presentacion*.c`) y la interfaz en `userland/programas/tucan*`.
+Un formato por objeto, sin rotación ni ODP ni vista de moderador; PPTX sin animaciones. Los WordArt reutilizan wordart.h con el
+proveedor de letras extraído a `userland/libfontes/wordart_fuentes.c` (Pluma conserva su copia). Toca fuera de lo propio solo datos:
+icono y entrada del menú Inicio (kernel/gui), asociación en Archivos. Ver docs/tucan.md.
+
+## D374. Freeciv 3.1.6 (cliente SDL2 y servidor local, en español) y capas SDL2_image, SDL2_ttf, zlib y sockets BSD (v8.5.3.1, h374)
+
+**Contexto:** el mantenedor pidió portar el Freeciv de Flathub (cliente SDL2) a SaguiOS en español. Los ports amplían el sistema: lo que haga falta pasa a capas reutilizables.
+
+**Decisión:**
+1. **Versión 3.1.6** (estable; 3.2 añade dependencias): GPL-2.0 o posterior, compatible con la GPL v3. Las fuentes no van en git (`tools/freeciv_fuentes.sh`, SHA-256 fijado, genera `packets_gen`, `specenum_gen` y los `tolua_*_gen` con el compilador del anfitrión y aplica `parches/sagui.patch`).
+2. **Sin ICU** (un `unicode/ustring.h` de 100 líneas: conversión UTF-8/UTF-16 y comparación sin mayúsculas), **sin hilos** (un `fc_tinycthread.h` de mentira: Freeciv solo los usa para el metaservidor), **sin curl** (`netfile_sagui.c`: sin metaservidor ni descarga de modpacks), con Lua de `dependencies/`.
+3. **Cliente y servidor son dos procesos** unidos por TCP en 127.0.0.1: el cliente lanza `/apps/bin/freeciv-server` con `executar()` (parche en `connectdlg_common.c`) y lo mata con `matar()`.
+4. **Capas del sistema:** `libc/sockets.c` (socket/bind/listen/accept/connect/send/recv, `select` con `disponivel()` y `esperar_rede()`, `getaddrinfo` IPv4; «no bloqueante» emulado); `libsdl2/sdl2_image.c` (PNG con alfa propio; BMP/JPEG/GIF por la libsagui), `sdl2_ttf.c` (sobre libfontes) y `sdl2_capas.mk`; la SDL 2 gana blit con alfa, `SDL_SetSurfaceAlphaMod`, dedos, modos de pantalla; zlib 1.3.1 real (licencia zlib) para los `.sav.gz`.
+5. **Español:** un `libintl` propio lee `.mo` estándar (`tools/freeciv_mo.py` compila `es.po` y `nations/es.po` más `traducciones/es-sagui.po`, que traduce textos del cliente SDL2 que el upstream no traduce); el lanzador toma `LANG` del idioma del sistema (D313) y usa `es` si no hay.
+6. **Datos** (`tools/freeciv_datos.sh`) recortados a unos 27 MB: reglas, tilesets amplio/amplio2/hexemplio/trident, tema *human*, banderas; sin sonidos, música, SVG ni fuentes CJK. Van a `/apps/freeciv` (`APPS_RECURSOS` ahora copia carpetas con `cp -r`).
+7. **Integración:** Inicio > Juegos > Freeciv (icono propio) y Archivos abre `.sav` y `.sav.gz` con `freeciv-sdl2 --file`.
+8. **Carencias:** el sonido sale por la SDL del sistema y no hay hilos (la música se decodifica en el hilo principal), sin metaservidor, sin juego en red salvo LAN directa por IP, el alfa global de superficie se aplica pero no hay RLE, las cadenas de plural del cliente SDL2 que el upstream no traduce siguen en inglés.
+
+**Pendiente del mixer:** MP3, FLAC y MIDI como música están escritos pero sin probar; los efectos solo WAV y Ogg; sin fundido de entrada; 256 MB sin medir.
+
+**Pruebas:** `tests/h374_freeciv.py`. Capturas `H374-*.png`. Guía: `docs/freeciv.md`.
+
+
+## D373. Cipó moderno: pestañas, barra, marcadores, ajustes, descargas y descargas simultáneas (v8.5.3, h373)
+
+**Pedido del mantenedor:** modernizar la interfaz del Cipó (pestañas, configuración con hilos de descarga, página de inicio, marcadores).
+
+**Decisión (implementada en `userland/programas/cipo.c`, documentada en `docs/cipo.md`):**
+- **Disposición:** pestañas arriba, barra de herramientas debajo (la pestaña activa va unida a ella), barra de marcadores opcional y la página. `ABA_Y` depende de si la barra de marcadores se ve.
+- **Pestañas:** favicon (`<link rel=icon>` o `/favicon.ico`; PNG, ICO con PNG o DIB), título cortado con «...» (la fuente es Latin-1: no existe «…»), × por pestaña, «+», clic central, arrastrar para reordenar, menú contextual, giro de carga; `ABAS_MAX` 16 y la rueda sobre la tira cambia de pestaña.
+- **Barra:** iconos propios dibujados con líneas, candado (verde/ámbar/rojo) con el certificado del sitio, sugerencias de marcadores e historial, estrella, menú «≡»; lo escrito sin punto ni esquema (o con espacios) se busca con el motor elegido.
+- **Marcadores:** fichero `url TAB título [TAB carpeta]` (compatible con el antiguo), gestor con carpetas, barra opcional, importar/exportar HTML «Netscape bookmark file».
+- **Historial** persistente (`~/.config/cipo/historial`, 400 entradas) con panel y búsqueda (Ctrl+H); **descargas** en hilos con pausa, cancelar y abrir carpeta (Ctrl+J); un enlace a un archivo que no es página va al gestor.
+- **Ajustes** en `~/.config/cipo/cipo.conf` (inicio, buscador, carpeta de descargas, barra de marcadores, JavaScript, imágenes, descargas simultáneas); el bloqueo DNS (D218) se activa con `/bin/bloqueo`.
+- **Descargas simultáneas 1-12** (por defecto 1, el comportamiento de siempre). Un lote de hasta 24 recursos (`motor_urls_pendentes`, nuevo en el motor) lo bajan N hilos que solo mueven bytes: el motor, la decodificación y la ventana siguen en el hilo principal, que recoge cada recurso de la caché (`pf_pegar`) cuando el motor lo pide. La TLS no es reentrante: una conexión HTTPS a la vez (`tls_trava`). El valor efectivo se recorta según la memoria libre (`hilos_efectivos`) y la ventana lo dice. Medido en QEMU con 30 imágenes de 250 ms en el servidor: 1 hilo 7800 ms, 4 hilos 2080 ms, 12 hilos 870 ms.
+- **Fuera de alcance (pendiente):** zoom (Ctrl +/-/0), user-agent y modo de compatibilidad (el motor y `http.c` no los admiten), cookies (el Cipó no las tiene), CSS y JS en paralelo (solo imágenes y fuentes web).
+- **Archivo:** `cipo.c` es UTF-8 (tenía 6 líneas en Latin-1); `tools/extraer_textos.py` ya no lo trata como Latin-1.
+
+**Pruebas:** `tests/h373_cipo_ui.py` (pestañas, marcadores, inicio, historial, ajustes, descargas y 1/4/12 hilos); `h47` adaptada a la barra nueva; pasan las demás del Cipó.
+
+## D375. Aplicaciones con licencia incompatible con la GPL v3: repositorios públicos aparte y paquetes para /apps (propuesta, 2026-11-17)
+
+**Contexto.** El sistema publicado es GPL v3 (D260). Hay programas libres que se pueden portar pero cuya licencia no se puede
+combinar con la GPL v3 dentro de las imágenes públicas: **GPL-2.0 solo** (OpenTTD —confirmado en sus fuentes: «version 2»,
+sin «or any later version»—, NetSurf y GNUBoy, que hoy quedan fuera de lo publicable por D261) y, en general, cualquier
+licencia libre incompatible.
+
+**Decisión (pedida por el mantenedor).** Cada una de esas aplicaciones vive en **su propio repositorio público**, copia
+(fork) del proyecto original con los cambios para SaguiOS, con **su licencia original** (GPL-2.0, etc.), sus fuentes
+completas y sus datos redistribuibles. Sus **Releases** traen el paquete compilado para SaguiOS (binario, datos y aviso de
+licencia), que se instala en `/apps` (o en la partición de juegos) **por separado** del sistema: no se compila ni se enlaza
+con el núcleo ni con la libsagui GPL v3 dentro de las imágenes públicas. Es una agregación («mere aggregation»), como un
+paquete de una distribución.
+
+1. **Qué va en el repositorio del sistema:** solo una receta (script de descarga con versión y SHA-256, como
+   `tools/*_fuentes.sh`) y, si hace falta, una capa de compatibilidad propia con licencia compatible con las dos.
+2. **Enlace con la libc/SDL de SaguiOS:** el paquete enlaza con nuestras bibliotecas (libc, libcxx, SDL2…). Hay que
+   revisar caso por caso que esas bibliotecas no sean GPL v3 «solo» en lo que se enlaza (las capas de sistema que se
+   enlazan desde paquetes deberían ser GPL-2.0-or-later o más permisivas: anotarlo en `docs/terceros.md`).
+3. **Instalación:** un instalador de paquetes en SaguiOS (previsto para la v9.0: «instalar y actualizar apps en /apps sin
+   otro PC») que baja la Release, comprueba la suma y la instala; mientras tanto, el paquete se copia a mano o por
+   `input_share`.
+4. **Primeros candidatos:** OpenTTD (v9.0), NetSurf y GNUBoy.
+5. **Publicación:** crear cada repositorio público y su Release **solo con la orden explícita del mantenedor** (D260);
+   ningún agente los crea ni hace push.
+
+**Pendiente:** confirmar el punto 2 (licencias de libc/libcxx/SDL2 propias) antes del primer paquete.
+
+**Actualización de D375 (2026-11-17, prueba de concepto con OpenTTD, decisión del mantenedor).** OpenTTD 1.10.3
+compila y funciona en SaguiOS como paquete aparte (rama `v9.0-openttd`, prueba h377; formato de paquete 1 con
+manifiesto `sagui-paquete.json`, `tools/paquete_instalar.py`). Pero el ejecutable enlaza 11 ficheros de la libsagui
+que son **GPL-3.0-only** (heredados del SaguiOS original: `inicio.asm`, `chamadas.c`, `memoria.c`, `formatar.c`,
+`texto.c`, `entrada.c`, `gui.c`, `widget.c`, `mp4.c`, `h264.c`, `aac.c`) e incluye cabeceras de `kernel/inc/` también
+GPL-3.0-only: un binario GPL-2.0-only + GPL-3.0-only **no se puede distribuir**. **Decisión: solo fuentes y receta**
+(como NetSurf y GNUBoy, D261): se publican las fuentes del porte (el repositorio aparte, con su licencia GPL-2.0, cuando
+el mantenedor lo ordene) y la receta del sistema (`tools/openttd_paquete.sh`); el paquete compilado es **solo para uso
+propio** (imágenes privadas, `input_share`), nunca en una Release ni en un repositorio público. Lo mismo vale para
+cualquier programa GPL-2.0-only mientras la libsagui que enlazan los programas siga teniendo partes GPL-3.0-only.
+Alternativa descartada por ahora: reescribir en limpio una capa mínima de arranque/llamadas con licencia permisiva.
+
+### D375 — resultado de la prueba de concepto con OpenTTD (rama v9.0-openttd, 2026-11-17)
+
+Guía completa en [`openttd.md`](openttd.md); prueba `tests/h377_openttd_paquete.py`.
+
+1. **Funciona:** OpenTTD 1.10.3 (la estable que menos C++ exige: C++11, sin CMake, sin `string_view`/`optional`) se compila
+   cruzado en su **repositorio aparte** (local, `../openttd-saguios` junto a la copia del sistema, rama `saguios`, solo el porte; nada de su código
+   está en este repositorio) y, instalado como paquete en `/apps`, arranca desde Inicio > Juegos > OpenTTD, muestra su menú
+   principal y genera y juega una partida nueva (capturas `H377-*.png`).
+2. **Formato del paquete (formato 1):** tar `<nombre>-<versión>-saguios.tar` con `sagui-paquete.json` (manifiesto con identidad,
+   licencia SPDX, origen con commit, destino, entrada de menú, datos externos con SHA-256 y todos los ficheros con su suma),
+   `LICENSE`, `ORIGEN-FUENTES.txt` (la oferta de fuentes), `icono.png` y `apps/` (se vuelca tal cual sobre `/apps`). El instalador
+   (`tools/paquete_instalar.py`) comprueba el manifiesto y las sumas antes de extraer. Servirá igual para NetSurf y GNUBoy.
+3. **Mecánica:** `make sdk_externo` deja en `build/sdk/` las banderas, el guion de enlace y los objetos de las bibliotecas propias;
+   el repositorio externo compila con ellos (`saguios/compilar.sh`, ruta del SDK por `SAGUI_SDK`); `tools/openttd_paquete.sh`
+   lo orquesta y deja el paquete en `build/paquetes/` (fuera de git); el paquete se prueba instalándolo en una copia de
+   `build/apps/raiz` (imagen privada de prueba), nunca en las imágenes públicas.
+4. **Punto 2 (licencias del enlace) — BLOQUEO LEGAL, lo decide el mantenedor:** la libc común, la libcxx y la SDL 2 son
+   GPL-2.0-or-later (nuevas del fork), pero la **libsagui** que todo ejecutable enlaza lleva **11 ficheros GPL-3.0-only** (herencia
+   del proyecto original) que entran en el binario: `inicio.asm` (punto de entrada), `chamadas.c` (llamadas al sistema), `memoria.c`,
+   `formatar.c`, `texto.c`, `entrada.c`, `gui.c`, `widget.c`, `mp4.c`, `h264.c`, `aac.c`; y las cabeceras de la ABI de
+   `kernel/inc/` (43, GPL-3.0-only). GPL-2.0-only (OpenTTD) y GPL-3.0-only no se pueden combinar en un mismo ejecutable, ni
+   siquiera como paquete aparte. Salidas (detalle en `openttd.md`): reescribir en limpio una capa mínima de arranque y llamadas
+   al sistema compatible con ambas, una excepción de enlace del titular, o distribuir solo fuentes y receta (uso privado, como D261).
+   **No se ha resuelto cambiando licencias.** Hasta decidirlo, el paquete de OpenTTD no se puede publicar como binario.
+5. **Coste en el sistema:** la libcxx creció con cosas generales que pidió el port (iteradores inversos, `tuple`, `shared_ptr`,
+   `partition`, `rotate`, `nth_element`, `splice`, `is_integral`, `sort` de tipos solo movibles...) con prueba en
+   `tests/cxx_biblioteca_unidad.cpp`; una entrada de Inicio > Juegos en `kernel/gui/barra.c` (solo si existe `/apps/bin/openttd`).
+   Pendiente para el instalador de la v9.0: tomar la entrada de menú del manifiesto.

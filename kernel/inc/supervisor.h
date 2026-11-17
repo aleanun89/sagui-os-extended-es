@@ -42,6 +42,7 @@ void supervisor_dialogo_negar(uint32_t id);
  * 1 bien, o el error (ERRO_ACESSO mala, ERRO_ESPERA bloqueo); con la respuesta, el pedido se libera.
  * La contraseña se copia y se borra en cuanto se entrega. */
 int  supervisor_entrar_pedir(uint32_t uid, const char *senha);
+int  supervisor_raiz_pedir(const char *nova);   /* D371: la primera contraseña de root desde la pantalla */
 int  supervisor_entrar_resultado(uint32_t id);
 void supervisor_entrar_cancelar(uint32_t id);
 

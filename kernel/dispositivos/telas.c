@@ -23,6 +23,7 @@
 #include "vfs.h"
 #include "video.h"
 #include "acel2d.h"
+#include "conf_sistema.h"
 
 #define CONF_PANTALLAS "/home/.config/pantallas.conf"
 #define CONF_NOVO      "/home/.config/pantallas.conf.nuevo"
@@ -204,8 +205,10 @@ int telas_guardar(void)
                        lado == TELAS_LADO_ABAIXO ? "abajo" : "derecha", principal);
     for (int i = 0; i < ncab; i++)
         n += snformatar(t + n, sizeof t - (size_t)n, "res%d=%ux%u\n", i, sai[i].largura, sai[i].altura);
-    int r = escrever_atomico(CONF_PANTALLAS, CONF_NOVO, t, (uint32_t)n);
-    klog("[TELAS] guardado en %s (%d bytes): %d\n", CONF_PANTALLAS, n, r);
+    /* D371: con la configuración de la máquina separada, en /etc (SAGUI-CONF); solo el administrador (permisos.c). */
+    bool sep = conf_sistema_separada();
+    int r = sep ? conf_sistema_gravar("pantallas.conf", t, (uint32_t)n) : escrever_atomico(CONF_PANTALLAS, CONF_NOVO, t, (uint32_t)n);
+    klog("[TELAS] guardado en %s (%d bytes): %d\n", sep ? "/etc/pantallas.conf" : CONF_PANTALLAS, n, r);
     return r < 0 ? r : 0;
 }
 
@@ -220,7 +223,8 @@ static void carregar(void)
 {
     uint8_t *d;
     uint32_t tam;
-    if (!vfs_existe_arquivo(CONF_PANTALLAS) || vfs_ler_inteiro(CONF_PANTALLAS, &d, &tam) < 0) return;
+    const char *arq = conf_sistema_separada() ? "/etc/pantallas.conf" : CONF_PANTALLAS;   /* D371 */
+    if (!vfs_existe_arquivo(arq) || vfs_ler_inteiro(arq, &d, &tam) < 0) return;
     const char *p = (const char *)d, *fim = p + tam;
     while (p < fim) {
         const char *l = p, *le = p;

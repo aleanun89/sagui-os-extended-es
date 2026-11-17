@@ -109,8 +109,11 @@ def persiste():
     with Maquina("h307p", "ide", imagem=img, snapshot=False) as m:
         m.esperar_serial("sagui:/$", 120)
         out = m.comando("mandos --calibracion " + cal)
-        verificar("Guardado en /home/.config/sagui.conf." in out, "la calibración se guarda en sagui.conf")
-        out = m.comando("cat /home/.config/sagui.conf")
+        # D371: con SAGUI-CONF la calibración es de la máquina: /etc/sistema.conf
+        g = re.search(r"Guardado en (/etc/sistema\.conf|/home/\.config/sagui\.conf)\.", out)
+        verificar(g, "la calibración se guarda (sistema.conf o sagui.conf)")
+        arq = g.group(1)
+        out = m.comando(f"cat {arq}")
         verificar("mando_puerto=" + cal in out, "sagui.conf tiene mando_puerto=")
         h83.reiniciar(m)
     with Maquina("h307p2", "ide", imagem=img, snapshot=False) as m:
@@ -122,8 +125,8 @@ def persiste():
         out = m.comando("mandos --calibracion")
         verificar("(a mano)" in out and "Y1: 250 / 6100 / 12100" in out, "mandos --calibracion la enseña")
         out = m.comando("mandos --calibracion auto")
-        out = m.comando("cat /home/.config/sagui.conf")
-        verificar("mando_puerto=" not in out, "«auto» la quita de sagui.conf")
+        out = m.comando("cat /home/.config/sagui.conf; cat /etc/sistema.conf")
+        verificar("mando_puerto=" not in out.split("cat /home")[-1], "«auto» la quita")
 
 
 def imagem_grafica(extras=()):

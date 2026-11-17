@@ -23,6 +23,8 @@
  * grabar: el kernel rechaza con ERRO_SO_LEITURA y aquí se explica. */
 #include "sagui.h"
 #include "gui.h"
+#include "contas.h"
+#include "conf_maquina.h"
 
 #define MAX_MODOS 192
 
@@ -210,9 +212,10 @@ static int telas_cli(int argc, char **argv)
         if (r < 0) { imprimir("pantalla: no se pudo: %s\n", nome_erro(r)); return 1; }
     }
     if (guardar) {
-        r = telas_sis(TELAS_OP_GUARDAR, 0, 0);
-        if (r < 0) { imprimir("pantalla: no se pudo guardar: %s\n", nome_erro(r)); return 1; }
-        imprimir("Guardado en /home/.config/pantallas.conf.\n");
+        /* D371: con la configuración de la máquina en /etc, guardarla es del administrador. */
+        r = COM_ADMIN("guardar la configuración de las pantallas", telas_sis(TELAS_OP_GUARDAR, 0, 0));
+        if (r < 0) { imprimir("pantalla: no se pudo guardar: %s\n", r == ERRO_ACESSO ? "hace falta ser administrador (admin pantalla ...)" : nome_erro(r)); return 1; }
+        imprimir("Guardado en %s.\n", maquina_separada() ? "/etc/pantallas.conf" : "/home/.config/pantallas.conf");
     }
     listar_telas();
     return 0;

@@ -967,7 +967,9 @@ int32_t sis_teclas_seguradas(uint32_t pmapa, uint32_t b, uint32_t c, uint32_t d,
     uint8_t mapa[32];
     memset(mapa, 0, sizeof mapa);
     janela_t *j = focada();
-    bool foco = j && j->pid == processo_recursos()->pid;
+    /* D371: con la pantalla de inicio de sesión o de bloqueo, o el diálogo de permisos, el teclado es suyo: las
+     * teclas pulsadas (una contraseña) no se le dicen a la ventana que tenía el foco. */
+    bool foco = j && j->pid == processo_recursos()->pid && !sessao_ativa() && !pd_ativo();
     if (foco) teclado_seguradas(mapa);
     memcpy((void *)pmapa, mapa, 32);
     return foco ? 1 : 0;

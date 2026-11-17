@@ -66,6 +66,12 @@ template <class I, class T> typename iterator_traits<I>::difference_type count(I
     return n;
 }
 
+template <class I, class P> ptrdiff_t count_if(I ini, I fim, P pred)   // D375 (OpenTTD)
+{
+    ptrdiff_t k = 0;
+    for (; ini != fim; ++ini) if (pred(*ini)) k++;
+    return k;
+}
 template <class I, class P> bool any_of(I ini, I fim, P pred) { return find_if(ini, fim, pred) != fim; }
 template <class I, class P> bool all_of(I ini, I fim, P pred)
 {
@@ -124,6 +130,33 @@ template <class I> I max_element(I ini, I fim)
     for (++ini; ini != fim; ++ini)
         if (*m < *ini) m = ini;
     return m;
+}
+
+template <class I, class T, class C> I lower_bound(I ini, I fim, const T &v, C cmp)   // D375 (OpenTTD)
+{
+    ptrdiff_t n = distance(ini, fim);
+    while (n > 0) {
+        ptrdiff_t m = n / 2;
+        I p = ini;
+        advance(p, m);
+        if (cmp(*p, v)) { ini = ++p; n -= m + 1; } else n = m;
+    }
+    return ini;
+}
+
+template <class I, class P> bool none_of(I ini, I fim, P pred) { return find_if(ini, fim, pred) == fim; }   // D375
+
+// D375: rota [ini, fim) de modo que medio pasa a ser el primero (con tres inversiones).
+template <class I> I rotate(I ini, I medio, I fim)
+{
+    if (ini == medio) return fim;
+    if (medio == fim) return ini;
+    reverse(ini, medio);
+    reverse(medio, fim);
+    reverse(ini, fim);
+    I r = ini;
+    advance(r, distance(medio, fim));
+    return r;
 }
 
 template <class I, class T> I lower_bound(I ini, I fim, const T &v)
@@ -242,15 +275,39 @@ template <class I, class C> void ordenar(I ini, I fim, C cmp, int prof)
 
 } // namespace detalhe_alg
 
+namespace detalhe_alg {
+struct _copiavel {};
+struct _no_copiavel {};
+template <class I, class C> void sortear(I ini, I fim, C cmp, _copiavel) { ordenar(ini, fim, cmp, 64); }
+// Elementos que no se copian (unique_ptr): el quicksort copia el pivote; aquí, montón (solo mueve).
+template <class I, class C> void sortear(I ini, I fim, C cmp, _no_copiavel) { monte(ini, fim, cmp); }
+template <class V> struct _escoger { typedef typename conditional<__is_constructible(V, const V &), _copiavel, _no_copiavel>::type tipo; };
+} // namespace detalhe_alg
+
 template <class I, class C> void sort(I ini, I fim, C cmp)
 {
-    detalhe_alg::ordenar(ini, fim, cmp, 64);
+    typedef typename iterator_traits<I>::value_type V;
+    detalhe_alg::sortear(ini, fim, cmp, typename detalhe_alg::_escoger<V>::tipo());
 }
 template <class I> void sort(I ini, I fim) { sort(ini, fim, detalhe_alg::menor()); }
 
 // Estable: inserción (O(n^2), pensado para listas cortas) en vez de mezcla.
 template <class I, class C> void stable_sort(I ini, I fim, C cmp) { detalhe_alg::inserir(ini, fim, cmp); }
 template <class I> void stable_sort(I ini, I fim) { stable_sort(ini, fim, detalhe_alg::menor()); }
+
+// D375 (OpenTTD): los que cumplen pred pasan delante; devuelve el primero que no.
+template <class I, class P> I partition(I ini, I fim, P pred)
+{
+    while (ini != fim && pred(*ini)) ++ini;
+    if (ini == fim) return ini;
+    for (I j = ini + 1; j != fim; ++j)
+        if (pred(*j)) { iter_swap(ini, j); ++ini; }
+    return ini;
+}
+
+// D375 (OpenTTD): el elemento n queda como en el orden total (se ordena todo: simple y correcto).
+template <class I, class C> void nth_element(I ini, I nth, I fim, C cmp) { (void)nth; sort(ini, fim, cmp); }
+template <class I> void nth_element(I ini, I nth, I fim) { (void)nth; sort(ini, fim); }
 
 } // namespace std
 

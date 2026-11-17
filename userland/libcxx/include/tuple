@@ -1,0 +1,57 @@
+// <tuple> - std::tuple mínimo: construcción, get<I>, make_tuple, tuple_size (D375, lo pide OpenTTD).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_TUPLE
+#define SAGUI_CXX_TUPLE
+#pragma GCC system_header
+
+#include <stddef.h>
+#include <utility>
+#include <type_traits>
+
+namespace std {
+
+template <class... T> class tuple;
+template <> class tuple<> {
+public:
+    constexpr tuple() {}
+};
+
+template <class H, class... R> class tuple<H, R...> {
+public:
+    H cabeza;
+    tuple<R...> cola;
+    constexpr tuple() : cabeza(), cola() {}
+    tuple(const H &h, const R &...r) : cabeza(h), cola(r...) {}
+    template <class A, class... B, class = typename enable_if<sizeof...(B) == sizeof...(R) && sizeof...(R) != 0>::type> tuple(A &&a, B &&...b) : cabeza(std::forward<A>(a)), cola(std::forward<B>(b)...) {}
+};
+
+template <class T> struct tuple_size;
+template <class... T> struct tuple_size<tuple<T...>> { static const size_t value = sizeof...(T); };
+
+namespace detalhe_tupla {
+template <size_t I, class T> struct elem;
+template <class H, class... R> struct elem<0, tuple<H, R...>> {
+    typedef H tipo;
+    static H &obter(tuple<H, R...> &t) { return t.cabeza; }
+    static const H &obter(const tuple<H, R...> &t) { return t.cabeza; }
+};
+template <size_t I, class H, class... R> struct elem<I, tuple<H, R...>> {
+    typedef typename elem<I - 1, tuple<R...>>::tipo tipo;
+    static tipo &obter(tuple<H, R...> &t) { return elem<I - 1, tuple<R...>>::obter(t.cola); }
+    static const tipo &obter(const tuple<H, R...> &t) { return elem<I - 1, tuple<R...>>::obter(t.cola); }
+};
+} // namespace detalhe_tupla
+
+template <size_t I, class... T> typename detalhe_tupla::elem<I, tuple<T...>>::tipo &get(tuple<T...> &t)
+{
+    return detalhe_tupla::elem<I, tuple<T...>>::obter(t);
+}
+template <size_t I, class... T> const typename detalhe_tupla::elem<I, tuple<T...>>::tipo &get(const tuple<T...> &t)
+{
+    return detalhe_tupla::elem<I, tuple<T...>>::obter(t);
+}
+template <class... T> tuple<T...> make_tuple(T... v) { return tuple<T...>(v...); }
+
+} // namespace std
+
+#endif

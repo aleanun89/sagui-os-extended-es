@@ -13,6 +13,7 @@
 #include "sistema.h"
 #include "abi.h"
 #include "conf_sistema.h"
+#include "bootinfo.h"
 #include "console.h"
 #include "permisos.h"
 #include "processo.h"
@@ -38,7 +39,8 @@ int32_t sis_usuario(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     }
     case USU_ESTADO:
         return (permisos_modo_rescate() ? USU_EST_RESCATE : 0) | (eu->de_servico ? USU_EST_SERVICIO : 0) |
-               (permisos_sesion_raiz() ? USU_EST_PRUEBA : 0) | (conf_sistema_montada() ? 0 : USU_EST_EN_VIVO);
+               (permisos_sesion_raiz() ? USU_EST_PRUEBA : 0) | (conf_sistema_montada() ? 0 : USU_EST_EN_VIVO) |
+               ((cabecalho_boot[CAB_USU_OPC] & CAB_USU_SIN_MIGRAR) ? USU_EST_SIN_MIGRAR : 0);
     case USU_FIJAR:
         if (eu->uid != 0) return ERRO_ACESSO;
         if (!uid_valido(a, b)) return ERRO_INVALIDO;
@@ -55,6 +57,12 @@ int32_t sis_usuario(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
         eu->como_uid = (int32_t)a;
         eu->como_gid = (int32_t)b;
         return 0;
+    case USU_CASA_SOLTAR: {   /* D371 */
+        if (eu->uid != 0) return ERRO_ACESSO;
+        processo_t *l = processo_lider(eu);
+        l->casa_conta[0] = 0;
+        return 0;
+    }
     case USU_SESSAO:   /* D340 */
         return (int32_t)(permisos_uid_inicial() | permisos_sessao_gid() << 16);
     case USU_CERRAR_SESION:

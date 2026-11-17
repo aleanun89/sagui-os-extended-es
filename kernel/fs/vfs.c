@@ -368,6 +368,8 @@ int vfs_ler_inteiro(const char *caminho, uint8_t **dados, uint32_t *tam)
 
 /* ------------------------------------------------------------ D282: permisos */
 
+static bool home_de_root;   /* D371 (fase 4) */
+
 static bool em_home(const char *c)
 {
     return txt_compara_n(c, "/home", 5) == 0 && (c[5] == 0 || c[5] == '/');
@@ -397,7 +399,27 @@ static int meta_de(const char *caminho, meta_t *m, bool olhar)
      * de sagui (lo que se creó antes de D282 en un ext2 era todo de root, y lo
      * que root crea ahí, como «zona» o un programa elevado, sigue siendo de la
      * persona). Lo de antes en un ext2 era 0644: se ve también ejecutable. */
-    if (em_home(caminho)) {
+    if (em_home(caminho) && home_de_root) {
+        /* D371 (fase 4): con cada cuenta en su carpeta, /home es de root y lo de root dentro de /home/<cuenta>
+         * (lo de antes de D282, o lo que guarda un programa elevado en su configuracion) se ve como de la
+         * duena de esa carpeta; fuera de las carpetas personales, de root. */
+        const char *x = caminho[5] == '/' ? caminho + 6 : NULL, *fx = x;
+        while (fx && *fx && *fx != '/') fx++;
+        if (m->uid == UID_ROOT && x && *x && *x != '.' && *fx == '/' && fx[1]) {
+            char base[CAMINHO_MAX];
+            size_t nb = (size_t)(fx - caminho);
+            meta_t mb;
+            if (nb < sizeof base) {
+                memcpy(base, caminho, nb);
+                base[nb] = 0;
+                if (meta_de(base, &mb, false) == 0 && mb.uid != UID_ROOT && mb.tipo == TIPO_PASTA) {
+                    m->uid = mb.uid;
+                    if (m->gid == GID_ROOT) m->gid = mb.gid;
+                    if (mt && m->com_donos && m->tipo != TIPO_PASTA) m->modo |= (uint16_t)((m->modo & 0444) >> 2);
+                }
+            }
+        }
+    } else if (em_home(caminho)) {
         if (m->uid == UID_ROOT) {
             m->uid = UID_SAGUI;
             if (mt && m->com_donos && m->tipo != TIPO_PASTA) m->modo |= (uint16_t)((m->modo & 0444) >> 2);
@@ -406,6 +428,10 @@ static int meta_de(const char *caminho, meta_t *m, bool olhar)
     }
     return 0;
 }
+
+/* D371 (fase 4): /home es de root (las cuentas en /home/<nombre>) desde que se migro sagui. */
+void vfs_home_de_root(bool sim) { home_de_root = sim; }
+bool vfs_home_e_de_root(void) { return home_de_root; }
 
 int vfs_meta(const char *caminho, meta_t *m) { return meta_de(caminho, m, true); }
 int vfs_meta_rapida(const char *caminho, meta_t *m) { return meta_de(caminho, m, false); }

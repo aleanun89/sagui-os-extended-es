@@ -128,7 +128,7 @@ def parte_b():
         esperar(m, r"\[SESION\] pantalla de inicio de sesion: 1 cuenta\(s\)", 30)
         time.sleep(3)
         s = m.serial()
-        verificar("entrada directa" not in s, "con una carpeta ajena no se entra directo")
+        verificar("[SESION] entra ana" not in s, "con una carpeta ajena no se entra directo")
         verificar("sesion local: uid 1001" not in s, "la sesión no pasa a ana")
         verificar(not re.search(r"\[SAGUI\] terminal: \d+", s), "no se abre el Terminal")
         m.captura("H371-carpeta-ajena")

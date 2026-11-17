@@ -1,0 +1,305 @@
+# Traducción de SaguiOS: catálogo «cipo», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/cipo.c:4042
+msgid "Marcadores"
+msgstr ""
+
+#: userland/programas/cipo.c:4042
+msgid "Historial"
+msgstr ""
+
+#: userland/programas/cipo.c:4042
+msgid "Descargas"
+msgstr ""
+
+#: userland/programas/cipo.c:4042
+msgid "General"
+msgstr ""
+
+#: userland/programas/cipo.c:4042
+msgid "Privacidad"
+msgstr ""
+
+#: userland/programas/cipo.c:4042
+msgid "Rendimiento"
+msgstr ""
+
+#: userland/programas/cipo.c:4043
+msgid "Página propia de Cipó"
+msgstr ""
+
+#: userland/programas/cipo.c:4043
+msgid "Página en blanco"
+msgstr ""
+
+#: userland/programas/cipo.c:4043
+msgid "Esta dirección:"
+msgstr ""
+
+#: userland/programas/cipo.c:4110 userland/programas/cipo.c:4123
+msgid "Abrir"
+msgstr ""
+
+#: userland/programas/cipo.c:4110
+msgid "Editar"
+msgstr ""
+
+#: userland/programas/cipo.c:4110
+msgid "Borrar"
+msgstr ""
+
+#: userland/programas/cipo.c:4110
+msgid "Carpeta..."
+msgstr ""
+
+#: userland/programas/cipo.c:4112
+msgid "Importar HTML..."
+msgstr ""
+
+#: userland/programas/cipo.c:4112
+msgid "Exportar HTML..."
+msgstr ""
+
+#: userland/programas/cipo.c:4123
+msgid "Quitar"
+msgstr ""
+
+#: userland/programas/cipo.c:4123 userland/programas/cipo.c:4143
+msgid "Borrar historial"
+msgstr ""
+
+#: userland/programas/cipo.c:4126
+msgid "Pausar/Reanudar"
+msgstr ""
+
+#: userland/programas/cipo.c:4126
+msgid "Cancelar"
+msgstr ""
+
+#: userland/programas/cipo.c:4126
+msgid "Abrir carpeta"
+msgstr ""
+
+#: userland/programas/cipo.c:4126
+msgid "Quitar de la lista"
+msgstr ""
+
+#: userland/programas/cipo.c:4139
+msgid "Elegir..."
+msgstr ""
+
+#: userland/programas/cipo.c:4143
+msgid "Activar o desactivar"
+msgstr ""
+
+#: userland/programas/cipo.c:4145
+msgid "Olvidar posiciones de lectura"
+msgstr ""
+
+#: userland/programas/cipo.c:4178
+msgid "Descargando"
+msgstr ""
+
+#: userland/programas/cipo.c:4178
+msgid "En pausa"
+msgstr ""
+
+#: userland/programas/cipo.c:4178
+msgid "Completa"
+msgstr ""
+
+#: userland/programas/cipo.c:4179
+msgid "Cancelada"
+msgstr ""
+
+#: userland/programas/cipo.c:4190
+msgid "No hay descargas. Los archivos que no son páginas se bajan aquí."
+msgstr ""
+
+#: userland/programas/cipo.c:4213 userland/programas/cipo.c:4231 userland/programas/cipo.c:4524
+msgid "Mostrar la barra de marcadores"
+msgstr ""
+
+#: userland/programas/cipo.c:4216
+msgid "Buscar:"
+msgstr ""
+
+#: userland/programas/cipo.c:4224
+msgid "Página de inicio y pestaña nueva"
+msgstr ""
+
+#: userland/programas/cipo.c:4225
+msgid "Motor de búsqueda (barra de dirección y página de inicio)"
+msgstr ""
+
+#: userland/programas/cipo.c:4226 userland/programas/cipo.c:4467
+msgid "Carpeta de descargas"
+msgstr ""
+
+#: userland/programas/cipo.c:4238
+msgid "Bloqueo de publicidad y rastreo (DNS): no disponible"
+msgstr ""
+
+#: userland/programas/cipo.c:4239
+#, c-format
+msgid "Bloqueo de publicidad y rastreo (DNS): %s, %u dominios"
+msgstr ""
+
+#: userland/programas/cipo.c:4239
+msgid "activo"
+msgstr ""
+
+#: userland/programas/cipo.c:4239
+msgid "desactivado"
+msgstr ""
+
+#: userland/programas/cipo.c:4241
+msgid "Cipó no guarda cookies: no hay nada que aceptar ni borrar."
+msgstr ""
+
+#: userland/programas/cipo.c:4245
+msgid "Descargas simultáneas (hilos que bajan imágenes y recursos a la vez):"
+msgstr ""
+
+#: userland/programas/cipo.c:4249
+#, c-format
+msgid "Ahora se usan %d: la memoria libre no alcanza para %d."
+msgstr ""
+
+#: userland/programas/cipo.c:4250
+#, c-format
+msgid "Ahora se usan %d (de 1 a 12; 1 = en serie, como siempre)."
+msgstr ""
+
+#: userland/programas/cipo.c:4252
+msgid "En equipos con poca memoria conviene un valor bajo."
+msgstr ""
+
+#: userland/programas/cipo.c:4253
+msgid "Contenido de las páginas"
+msgstr ""
+
+#: userland/programas/cipo.c:4254
+msgid "Ejecutar JavaScript"
+msgstr ""
+
+#: userland/programas/cipo.c:4255
+msgid "Mostrar imágenes"
+msgstr ""
+
+#: userland/programas/cipo.c:4296 userland/programas/cipo.c:4298
+msgid "Marcador"
+msgstr ""
+
+#: userland/programas/cipo.c:4296
+msgid "Nombre:"
+msgstr ""
+
+#: userland/programas/cipo.c:4298
+msgid "Dirección:"
+msgstr ""
+
+#: userland/programas/cipo.c:4375
+msgid "Carpeta"
+msgstr ""
+
+#: userland/programas/cipo.c:4375
+msgid "Nombre de la carpeta (vacío = ninguna):"
+msgstr ""
+
+#: userland/programas/cipo.c:4382
+msgid "Importar marcadores"
+msgstr ""
+
+#: userland/programas/cipo.c:4385
+msgid "No se pudo leer el archivo de marcadores."
+msgstr ""
+
+#: userland/programas/cipo.c:4391
+msgid "Exportar marcadores"
+msgstr ""
+
+#: userland/programas/cipo.c:4393
+msgid "No se pudo escribir el archivo."
+msgstr ""
+
+#: userland/programas/cipo.c:4420 userland/programas/cipo.c:4483
+msgid "¿Borrar todo el historial?"
+msgstr ""
+
+#: userland/programas/cipo.c:4519
+msgid "Nueva pestaña\tCtrl+T"
+msgstr ""
+
+#: userland/programas/cipo.c:4520
+msgid "Marcadores\tCtrl+B"
+msgstr ""
+
+#: userland/programas/cipo.c:4521
+msgid "Historial\tCtrl+H"
+msgstr ""
+
+#: userland/programas/cipo.c:4522
+msgid "Descargas\tCtrl+J"
+msgstr ""
+
+#: userland/programas/cipo.c:4523
+msgid "Ajustes"
+msgstr ""
+
+#: userland/programas/cipo.c:4524
+msgid "Ocultar la barra de marcadores"
+msgstr ""
+
+#: userland/programas/cipo.c:4525
+msgid "Buscar en la página\tCtrl+F"
+msgstr ""
+
+#: userland/programas/cipo.c:4546
+msgid "Recargar"
+msgstr ""
+
+#: userland/programas/cipo.c:4546
+msgid "Duplicar"
+msgstr ""
+
+#: userland/programas/cipo.c:4546
+msgid "Cerrar"
+msgstr ""
+
+#: userland/programas/cipo.c:4546
+msgid "Cerrar las demás"
+msgstr ""
+
+#: userland/programas/cipo.c:4609
+msgid "Certificado del sitio"
+msgstr ""
+
+#: userland/programas/cipo.c:4610
+msgid "Conexión no segura"
+msgstr ""
+
+#: userland/programas/cipo.c:4610
+msgid "Esta página se cargó sin cifrar (HTTP): lo que envíes o recibas puede leerlo otra persona de la red."
+msgstr ""
+
+#: userland/programas/cipo.c:4611
+msgid "Página interna de Cipó."
+msgstr ""
+
+#: userland/programas/cipo.c:4617
+msgid "Editar marcador..."
+msgstr ""
+
+#: userland/programas/cipo.c:4617
+msgid "Quitar marcador"
+msgstr ""
+

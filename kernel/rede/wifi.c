@@ -57,6 +57,7 @@
 #include "sistema.h"
 #include "texto.h"
 #include "vfs.h"
+#include "conf_sistema.h"
 
 #define FIRMWARE "/lib/firmware/rtl8188eufw.bin"
 #define CONFIG   "/home/.config/wifi.conf"
@@ -425,7 +426,8 @@ static void ler_ajustes(void)
     uint32_t tam;
     ajuste_ht = ajuste_filas = true;
     ajuste_cifra_hw = false;
-    if (!vfs_existe_arquivo(AJUSTES) || vfs_ler_inteiro(AJUSTES, &txt, &tam) < 0) return;
+    const char *arq = conf_sistema_separada() ? "/etc/wifi-desempenho.conf" : AJUSTES;   /* D371: de la máquina */
+    if (!vfs_existe_arquivo(arq) || vfs_ler_inteiro(arq, &txt, &tam) < 0) return;
     for (uint32_t i = 0; i < tam;) {
         uint32_t f = i;
         while (f < tam && txt[f] != '\n') f++;

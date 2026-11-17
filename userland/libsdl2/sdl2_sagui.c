@@ -415,7 +415,12 @@ int SDL_GetColorKey(SDL_Surface *s, Uint32 *chave)
     if (chave) *chave = s->sagui_chave;
     return 0;
 }
-int SDL_SetSurfaceBlendMode(SDL_Surface *s, SDL_BlendMode m) { (void)s; (void)m; return 0; }
+int SDL_SetSurfaceBlendMode(SDL_Surface *s, SDL_BlendMode m) { if (!s) return -1; s->sagui_blend_set = 1; s->sagui_blend = (int)m; return 0; }
+/* D374: alfa global y modo de mezcla por superficie; los aplican los blits de 32 a 32 bits. */
+int SDL_SetSurfaceAlphaMod(SDL_Surface *s, Uint8 a) { if (!s) return -1; s->sagui_alfa_mod = a; s->sagui_alfa_set = 1; return 0; }
+int SDL_GetSurfaceAlphaMod(SDL_Surface *s, Uint8 *a) { if (!s) return -1; if (a) *a = s->sagui_alfa_set ? s->sagui_alfa_mod : 255; return 0; }
+static SDL_EventFilter filtro_eventos; static void *filtro_datos;
+void SDL_SetEventFilter(SDL_EventFilter f, void *d) { filtro_eventos = f; filtro_datos = d; (void)filtro_eventos; (void)filtro_datos; }
 int SDL_SetSurfaceRLE(SDL_Surface *s, int rle) { (void)s; (void)rle; return 0; }
 
 int SDL_FillRect(SDL_Surface *d, const SDL_Rect *rect, Uint32 cor)
@@ -469,6 +474,22 @@ static void paleta32(const SDL_Surface *s, Uint32 *t)
         t[i] = (p && i < p->ncolors) ? cor_de(&p->colors[i]) : 0xFF000000u;
 }
 
+/* D374: mezcla un píxel de 32 bits con alfa (SDL_BLENDMODE_BLEND) sobre otro, cada uno con su formato. */
+static inline Uint32 mezclar_px(const SDL_PixelFormat *fs, Uint32 s, const SDL_PixelFormat *fd, Uint32 d, unsigned amod)
+{
+    unsigned sa = (unsigned)((s & fs->Amask) >> fs->Ashift);
+    if (amod != 255) sa = (sa * amod + 127) / 255;
+    if (sa == 0) return d;
+    unsigned sr = (s & fs->Rmask) >> fs->Rshift, sg = (s & fs->Gmask) >> fs->Gshift, sb = (s & fs->Bmask) >> fs->Bshift;
+    if (sa == 255) return (sr << fd->Rshift) | (sg << fd->Gshift) | (sb << fd->Bshift) | (fd->Amask ? ((Uint32)255 << fd->Ashift) : 0);
+    unsigned dr = (d & fd->Rmask) >> fd->Rshift, dg = (d & fd->Gmask) >> fd->Gshift, db = (d & fd->Bmask) >> fd->Bshift;
+    unsigned da = fd->Amask ? (unsigned)((d & fd->Amask) >> fd->Ashift) : 255;
+    unsigned ia = 255 - sa;
+    dr = (sr * sa + dr * ia + 127) / 255; dg = (sg * sa + dg * ia + 127) / 255; db = (sb * sa + db * ia + 127) / 255;
+    unsigned oa = sa + (da * ia + 127) / 255;
+    return (dr << fd->Rshift) | (dg << fd->Gshift) | (db << fd->Bshift) | (fd->Amask ? ((Uint32)oa << fd->Ashift) : 0);
+}
+
 int SDL_UpperBlit(SDL_Surface *o, const SDL_Rect *ro, SDL_Surface *d, SDL_Rect *rd)
 {
     if (!o || !d) return SDL_SetError("SDL_BlitSurface: superficie nula");
@@ -477,6 +498,10 @@ int SDL_UpperBlit(SDL_Surface *o, const SDL_Rect *ro, SDL_Surface *d, SDL_Rect *
     int bo = o->format->BytesPerPixel, bd = d->format->BytesPerPixel;
     int chave = o->sagui_tem_chave;
     Uint32 k = o->sagui_chave;
+    /* 32 -> 32: con canal alfa en el origen se mezcla, salvo que el programa pida SDL_BLENDMODE_NONE */
+    unsigned amod = o->sagui_alfa_set ? o->sagui_alfa_mod : 255;
+    int mezcla = bo == 4 && bd == 4 && (o->format->Amask || amod != 255) &&
+                 !(o->sagui_blend_set && o->sagui_blend == SDL_BLENDMODE_NONE);
     if (bo == 1 && bd == 1) {
         for (int y = 0; y < so.h; y++) {
             const Uint8 *a = (const Uint8 *)o->pixels + (size_t)(so.y + y) * o->pitch + so.x;
@@ -509,6 +534,13 @@ int SDL_UpperBlit(SDL_Surface *o, const SDL_Rect *ro, SDL_Surface *d, SDL_Rect *
         for (int y = 0; y < so.h; y++) {
             const Uint32 *a = (const Uint32 *)((const Uint8 *)o->pixels + (size_t)(so.y + y) * o->pitch) + so.x;
             Uint32 *b = (Uint32 *)((Uint8 *)d->pixels + (size_t)(sd.y + y) * d->pitch) + sd.x;
+            if (mezcla) {
+                for (int x = 0; x < so.w; x++) {
+                    if (chave && (a[x] & 0xFFFFFF) == (k & 0xFFFFFF)) continue;
+                    b[x] = mezclar_px(o->format, a[x], d->format, b[x], amod);
+                }
+                continue;
+            }
             if (!chave) { memmove(b, a, (size_t)so.w * 4); continue; }
             for (int x = 0; x < so.w; x++)
                 if ((a[x] & 0xFFFFFF) != (k & 0xFFFFFF)) b[x] = a[x];
@@ -547,7 +579,10 @@ int SDL_UpperBlitScaled(SDL_Surface *o, const SDL_Rect *ro, SDL_Surface *d, SDL_
             const Uint8 *lo = (const Uint8 *)o->pixels + (size_t)sy * o->pitch;
             Uint8 *ld = (Uint8 *)d->pixels + (size_t)dy * d->pitch;
             Uint32 v = o->format->BytesPerPixel == 1 ? t[lo[sx]] : ((const Uint32 *)lo)[sx];
-            if (d->format->BytesPerPixel == 4) ((Uint32 *)ld)[dx] = v;
+            if (d->format->BytesPerPixel == 4 && o->format->BytesPerPixel == 4 && o->format->Amask &&
+                !(o->sagui_blend_set && o->sagui_blend == SDL_BLENDMODE_NONE))
+                ((Uint32 *)ld)[dx] = mezclar_px(o->format, v, d->format, ((Uint32 *)ld)[dx], o->sagui_alfa_set ? o->sagui_alfa_mod : 255);
+            else if (d->format->BytesPerPixel == 4) ((Uint32 *)ld)[dx] = v;
             else ld[dx] = o->format->BytesPerPixel == 1 ? lo[sx] : (Uint8)SDL_MapRGB(d->format, (Uint8)(v >> 16), (Uint8)(v >> 8), (Uint8)v);
         }
     }
@@ -968,6 +1003,10 @@ static void modo_da_tela(SDL_DisplayMode *m)
 int SDL_GetNumVideoDisplays(void) { return 1; }
 int SDL_GetDesktopDisplayMode(int t, SDL_DisplayMode *m) { (void)t; if (m) modo_da_tela(m); return 0; }
 int SDL_GetCurrentDisplayMode(int t, SDL_DisplayMode *m) { (void)t; if (m) modo_da_tela(m); return 0; }
+int SDL_GetWindowDisplayMode(SDL_Window *w, SDL_DisplayMode *m) { (void)w; if (m) modo_da_tela(m); return 0; }
+int SDL_GetNumDisplayModes(int t) { (void)t; return 1; }
+int SDL_GetDisplayMode(int t, int i, SDL_DisplayMode *m) { (void)t; if (i != 0) return -1; if (m) modo_da_tela(m); return 0; }
+const char *SDL_GetCurrentVideoDriver(void) { return "sagui"; }
 int SDL_GetDisplayBounds(int t, SDL_Rect *r)
 {
     SDL_DisplayMode m;

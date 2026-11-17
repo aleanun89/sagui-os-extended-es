@@ -57,6 +57,8 @@ int      vfs_meta(const char *caminho, meta_t *m);
 /* Lo mismo sin leer el disco en FAT32/ISO/UDF (todo tiene los permisos del montaje;
  * no dice si existe): para las carpetas de una ruta. */
 int      vfs_meta_rapida(const char *caminho, meta_t *m);
+void     vfs_home_de_root(bool sim);     /* D371: /home de root (sagui ya en /home/sagui) */
+bool     vfs_home_e_de_root(void);
 int      vfs_fixar_meta(const char *caminho, int32_t uid, int32_t gid, int32_t modo);
 /* D341: fija las fechas (UTC; 0 = no cambia), sin comprobar quién (eso es de permisos.c). */
 int      vfs_fixar_datas(const char *caminho, uint32_t modificado, uint32_t acessado);

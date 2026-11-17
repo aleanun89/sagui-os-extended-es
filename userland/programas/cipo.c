@@ -43,9 +43,10 @@ static int foco_campo = -1;
 #define ALT_MIN     300
 #define LARG      (j->larg)
 #define ALT       (j->alt)
-#define TOPO      40
-#define ABA_A     26                /* altura da barra de abas (D148) */
-#define ABA_Y     (TOPO + ABA_A)    /* onde começa a página */
+#define ABA_A     28                /* altura da barra de abas, arriba del todo (D148, D373) */
+#define BARRA_A   34                /* la barra de herramientas, debajo de las pestañas */
+#define MARCB_A   22                /* la barra de marcadores (opcional) */
+#define ABA_Y     (ABA_A + BARRA_A + (conf.barra_marc ? MARCB_A : 0))   /* onde começa a página */
 #define RODAPE    28
 #define AREA_A    (ALT - ABA_Y - RODAPE)
 #define ROLAGEM   14
@@ -149,7 +150,7 @@ static int mouse_x, mouse_y;
 /* Abas (D148): cada aba guarda a sua página (o documento, o motor e onde se
  * estava a ler). Trocar de aba não volta a descarregar nada: a página fica em
  * memória, que é também a cache. */
-#define ABAS_MAX 6
+#define ABAS_MAX 16
 typedef struct {
     char    url[URL_MAX];
     char    titulo[96];
@@ -164,6 +165,9 @@ typedef struct {
     bool    a_carregar_registrado;
     bool    pintura_pendente;
     int     pintura_y;
+    bool    carregando;               /* indicador de carga de la pestaña (D373) */
+    bool    tem_fav, fav_tentado;     /* favicon de 16x16 (o el icono genérico) */
+    uint32_t fav[16 * 16];
 } aba_t;
 static aba_t abas[ABAS_MAX];
 static int   qtd_abas;
@@ -171,12 +175,18 @@ static int   aba_atual;
 
 /* Marcadores (D148): os sítios que o utilizador guardou, num ficheiro de texto
  * (uma linha por marcador: url, uma tabulação e o título). */
-#define MARC_MAX 32
+#define MARC_MAX 128
 static char marcador_url[MARC_MAX][URL_MAX];
 static char marcador_titulo[MARC_MAX][96];
+static char marcador_pasta[MARC_MAX][32];   /* carpeta del marcador ("" = sin carpeta, D373) */
 static int  qtd_marcadores;
 #define COD_MENU_MARCADORES 64
 #define COD_MENU_CONTEXTUAL 65   /* el menú del botón derecho (D152) */
+#define COD_MENU_ABA 66          /* el menú de una pestaña (D373) */
+#define COD_MENU_ESTRELA 67
+#define COD_MENU_PRINCIPAL 68    /* el menú «≡» */
+#define COD_MENU_PASTA 69        /* una carpeta de la barra de marcadores */
+#define COD_COMBO 70             /* de 70 en adelante: los desplegables de los ajustes */
 
 /* Posições de leitura por sítio (D152): onde se ficou a ler em cada página,
  * para que ao voltar a ela apareça tal como se deixou. */
@@ -187,18 +197,84 @@ static int  qtd_pos;
 
 /* El menú del botón derecho (D152): cada línea tiene su acción, para que el
  * EV_MENU sepa qué hacer con la línea elegida. */
-enum { ACAO_NADA = 0, ACAO_GUARDAR_IMAGEM, ACAO_GUARDAR_LINK, ACAO_ABA_NOVA };
+enum { ACAO_NADA = 0, ACAO_GUARDAR_IMAGEM, ACAO_GUARDAR_LINK, ACAO_ABA_NOVA, ACAO_DESCARGAR };
 static int menu_acoes[4];
 static int qtd_menu_acoes;
 
 static jan_t  *j;
 static caixa_t endereco;
-static botao_t bt_voltar = { 8, 7, 56, 26, "Atrás", false };
-static botao_t bt_avancar = { 68, 7, 76, 26, "Adelante", false };
-static botao_t bt_recarregar = { 148, 7, 76, 26, "Recargar", false };
-static botao_t bt_inicio = { 228, 7, 56, 26, "Inicio", false };
-static botao_t bt_ir = { 0, 7, 42, 26, "Ir", false };   /* x: ajustar_barra() */
 static char rodape_texto[128];
+
+/* ---- configuración, historial y gestores (D373) ---- */
+
+/* Los ajustes del Cipó (D373): se guardan en /home/.config/cipo/cipo.conf, una línea «clave=valor». */
+#define HILOS_MAX 12                /* descargas simultáneas: de 1 a 12 */
+typedef struct {
+    int  inicio_modo;               /* 0 = página propia de Cipó, 1 = en blanco, 2 = una dirección */
+    char inicio_url[URL_MAX];
+    int  buscador;                  /* índice en buscadores[] */
+    int  hilos;                     /* descargas simultáneas pedidas (1-12) */
+    char pasta_desc[96];            /* carpeta de descargas ("" = la de siempre) */
+    bool js, imagens, barra_marc;
+} conf_t;
+static conf_t conf = { 0, "", 0, 4, "", true, true, false };   /* D373: 4 descargas simultáneas por defecto (mantenedor, 2026-11-17) */
+typedef struct { const char *nome, *acao, *campo; } buscador_t;
+static const buscador_t buscadores[] = {
+    { "DuckDuckGo", "https://lite.duckduckgo.com/lite/", "q" },
+    { "Wikipedia (es)", "https://es.wikipedia.org/w/index.php", "search" },
+    { "Google", "https://www.google.com/search", "q" },
+    { "Bing", "https://www.bing.com/search", "q" },
+};
+#define N_BUSC 4
+static const char *const buscadores_nomes[N_BUSC] = { "DuckDuckGo", "Wikipedia (es)", "Google", "Bing" };
+
+/* El historial que se recuerda entre sesiones (para sugerencias, «más visitados» y Ctrl+H). */
+#define HST_MAX 400
+#define HST_URL 160
+typedef struct { char url[HST_URL]; char tit[64]; int visitas; unsigned ordem; } hst_t;
+static hst_t hst[HST_MAX];
+static int   qtd_hst;
+static unsigned hst_contador;
+
+/* Los paneles de gestión (marcadores, historial, descargas y ajustes) ocupan el sitio de la página. */
+enum { P_NADA = 0, P_MARC, P_HIST, P_DESC, P_GERAL, P_PRIV, P_REND, P_N };
+static int painel;
+
+/* El gestor de descargas: cada una es un hilo que escribe su archivo (pausa y cancelar por banderas). */
+#define DESC_MAX 16
+enum { D_LIVRE = 0, D_BAIXANDO, D_PAUSADA, D_PRONTA, D_ERRO, D_CANCELADA };
+typedef struct {
+    char url[URL_MAX];
+    char nome[64];
+    char caminho[160];
+    char erro[64];
+    volatile int estado, bytes, total, pausa, cancela;
+} desc_t;
+static desc_t desc[DESC_MAX];
+static int    qtd_desc, desc_sel = -1;
+
+static char cert_texto[640];     /* el certificado de la página HTTPS actual (candado, D373) */
+static bool cert_ok;
+static int hilos_efectivos(void);
+static void mostrar_painel(int p);
+static void fechar_painel(void);
+static void desenhar_barra(void);
+static void desenhar_abas(void);
+static void desenhar_marcb(void);
+static void desc_iniciar(const char *url);
+static void pf_limpar(void);
+static void pf_lote(void);
+static void sugestoes_fechar(void);
+static void hst_registar(const char *url, const char *tit);
+static uint8_t *pf_pegar(const char *url, unsigned *n, bool *achou);
+static char *inicio_gerar(void);
+static void painel_desenhar(void);
+static void novo_tamanho(void);
+static const char *url_inicio(void);
+static void interpretar_entrada(const char *t, char *url, int max);
+static void favicon_buscar(void);
+static bool carregando_agora(void);
+static void fechar_aba_idx(int i);
 
 /* ------------------------------------------------------------ memoria */
 
@@ -939,6 +1015,7 @@ static int max_topo(void)
 
 static void desenhar_pagina(void)
 {
+    if (painel) { painel_desenhar(); return; }
     if (motor) {
         pintura_y = rol_px;
         pintura_pendente = true;
@@ -1002,23 +1079,133 @@ static void rolar_para_pulgar(int y)
     desenhar_pagina();
 }
 
+
+
+/* ---- barra de herramientas y pestañas modernas (D373) ---- */
+
+#define COR_BARRA   0xF4F6F8     /* barra de herramientas y pestaña activa (van unidas) */
+#define COR_TIRA    0xD3D9E0     /* la tira de pestañas */
+#define COR_ABA_OFF 0xC3CAD3
+#define COR_ICONE   0x3A4550
+
+enum { B_VOLTAR = 0, B_AVANCAR, B_RECARGAR, B_INICIO, B_CANDADO, B_ESTRELA, B_MENU, B_N };
+typedef struct { int x, y, l, a; } cr_t;
+static cr_t br[B_N];
+static int  hover_b = -1;          /* botón bajo el ratón */
+static int  pilula_x, pilula_l;    /* el óvalo de la dirección */
+static int  aba_ini;               /* primera pestaña visible (desplazamiento) */
+static int  aba_l = 160;           /* ancho de cada pestaña */
+static int  aba_cabem = 1;
+static int  arrasto = -1;          /* pestaña que se arrastra */
+#define ABA_L_MAX 200
+#define ABA_L_MIN 96
+#define ABA_MAIS  26               /* el botón «+» */
+
+/* Las sugerencias que salen bajo la dirección al escribir (marcadores primero, luego el historial). */
+#define SUG_MAX 6
+static int  sug_n, sug_sel = -1;
+static const char *sug_url[SUG_MAX];
+static char sug_rot[SUG_MAX][72];
+
+static bool marcado_atual(void)
+{
+    for (int i = 0; i < qtd_marcadores; i++)
+        if (compara_texto(marcador_url[i], url_atual) == 0) return true;
+    return false;
+}
+
+static void lg(jan_t *jj, int x0, int y0, int x1, int y1, uint32_t c)
+{
+    g_linha(jj, x0, y0, x1, y1, c);
+    g_linha(jj, x0 + 1, y0, x1 + 1, y1, c);
+}
+
+/* Los iconos, dibujados con líneas (diseño propio): (x, y) es la esquina de un cuadro de 24x24. */
+static void icone(int k, int x, int y, uint32_t c, bool parar)
+{
+    int cx = x + 12, cy = y + 12;
+    switch (k) {
+    case B_VOLTAR:
+        lg(j, cx + 6, cy, cx - 6, cy, c); lg(j, cx - 6, cy, cx, cy - 6, c); lg(j, cx - 6, cy, cx, cy + 6, c);
+        break;
+    case B_AVANCAR:
+        lg(j, cx - 6, cy, cx + 6, cy, c); lg(j, cx + 6, cy, cx, cy - 6, c); lg(j, cx + 6, cy, cx, cy + 6, c);
+        break;
+    case B_RECARGAR:
+        if (parar) { lg(j, cx - 5, cy - 5, cx + 5, cy + 5, c); lg(j, cx + 5, cy - 5, cx - 5, cy + 5, c); break; }
+        {
+            static const int8_t an[11][2] = { {7,0},{6,3},{3,6},{0,7},{-3,6},{-6,3},{-7,0},{-6,-3},{-3,-6},{0,-7},{3,-6} };
+            for (int i = 0; i < 10; i++) lg(j, cx + an[i][0], cy + an[i][1], cx + an[i + 1][0], cy + an[i + 1][1], c);
+            lg(j, cx + 3, cy - 6, cx + 8, cy - 6, c); lg(j, cx + 3, cy - 6, cx + 3, cy - 1, c);
+        }
+        break;
+    case B_INICIO:
+        lg(j, cx - 8, cy, cx, cy - 7, c); lg(j, cx, cy - 7, cx + 8, cy, c);
+        g_retangulo(j, cx - 5, cy, 2, 7, c); g_retangulo(j, cx + 4, cy, 2, 7, c); g_retangulo(j, cx - 5, cy + 6, 11, 2, c);
+        break;
+    case B_CANDADO:   /* c = color del cuerpo; parar = abierto (sin cifrar) */
+        g_retangulo(j, cx - 5, cy - 1, 11, 8, c);
+        g_retangulo(j, cx - 3, cy - 6, 2, 5, c); g_retangulo(j, cx + 2, cy - 6, 2, 5, c); g_retangulo(j, cx - 3, cy - 7, 8, 2, c);
+        if (parar) g_retangulo(j, cx + 2, cy - 6, 2, 3, 0xF4F6F8);
+        break;
+    case B_ESTRELA: {
+        static const int8_t p[10][2] = { {0,-8},{2,-3},{8,-2},{3,1},{5,7},{0,4},{-5,7},{-3,1},{-8,-2},{-2,-3} };
+        for (int i = 0; i < 10; i++) {
+            int a = (i + 1) % 10;
+            lg(j, cx + p[i][0], cy + p[i][1], cx + p[a][0], cy + p[a][1], c);
+            if (parar) g_linha(j, cx, cy, cx + p[i][0], cy + p[i][1], c);   /* parar = rellena (ya es marcador) */
+        }
+        break;
+    }
+    case B_MENU:
+        g_retangulo(j, cx - 7, cy - 6, 14, 2, c); g_retangulo(j, cx - 7, cy - 1, 14, 2, c); g_retangulo(j, cx - 7, cy + 4, 14, 2, c);
+        break;
+    }
+}
+
 static void ajustar_barra(void)
 {
-    bt_ir.x = LARG - 50;
-    endereco.x = 292;
-    endereco.y = 8;
-    endereco.l = LARG - 292 - 58;
+    int y = ABA_A + 5;
+    br[B_VOLTAR]   = (cr_t){ 6, y, 24, 24 };
+    br[B_AVANCAR]  = (cr_t){ 32, y, 24, 24 };
+    br[B_RECARGAR] = (cr_t){ 58, y, 24, 24 };
+    br[B_INICIO]   = (cr_t){ 84, y, 24, 24 };
+    pilula_x = 114;
+    pilula_l = LARG - 34 - pilula_x;
+    br[B_CANDADO]  = (cr_t){ pilula_x + 2, y, 22, 24 };
+    br[B_ESTRELA]  = (cr_t){ pilula_x + pilula_l - 26, y, 24, 24 };
+    br[B_MENU]     = (cr_t){ LARG - 30, y, 24, 24 };
+    endereco.x = pilula_x + 26;
+    endereco.y = ABA_A + 5;
+    endereco.l = pilula_l - 26 - 28;
 }
+
+/* ¿Hay algo cargándose en la pestaña activa? */
+static bool carregando_agora(void) { return recursos_pendentes || pintura_pendente || abas[aba_atual].carregando; }
 
 static void desenhar_barra(void)
 {
-    g_retangulo(j, 0, 0, LARG, TOPO, 0xE6E9EC);
-    g_retangulo(j, 0, TOPO - 1, LARG, 1, COR_BORDA);
-    botao_desenhar(j, &bt_voltar);
-    botao_desenhar(j, &bt_avancar);
-    botao_desenhar(j, &bt_recarregar);
-    botao_desenhar(j, &bt_inicio);
-    botao_desenhar(j, &bt_ir);
+    g_retangulo(j, 0, ABA_A, LARG, BARRA_A, COR_BARRA);
+    g_retangulo(j, 0, ABA_A + BARRA_A - 1, LARG, 1, COR_BORDA);
+    bool car = carregando_agora();
+    for (int k = 0; k < B_N; k++) {
+        if (k == B_CANDADO || k == B_ESTRELA) continue;
+        bool ativo = true;
+        if (k == B_VOLTAR) ativo = qtd_historico > 0;
+        if (k == B_AVANCAR) ativo = qtd_futuro > 0;
+        uint32_t c = ativo ? COR_ICONE : 0xA9B1BA;
+        if (k == hover_b && ativo) g_retangulo(j, br[k].x, br[k].y, br[k].l, br[k].a, 0xDDE3EA);
+        else g_retangulo(j, br[k].x, br[k].y, br[k].l, br[k].a, COR_BARRA);
+        icone(k, br[k].x, br[k].y, c, k == B_RECARGAR ? car : false);
+    }
+    /* el óvalo de la dirección, con el candado (verde = HTTPS válido, ámbar = sin verificar, rojo = sin cifrar) */
+    g_retangulo(j, pilula_x, ABA_A + 4, pilula_l, 26, COR_BRANCO);
+    g_moldura(j, pilula_x, ABA_A + 4, pilula_l, 26, endereco.foco ? COR_DESTAQUE : COR_BORDA);
+    if (hover_b == B_ESTRELA) g_retangulo(j, br[B_ESTRELA].x, br[B_ESTRELA].y, br[B_ESTRELA].l, br[B_ESTRELA].a, 0xE9EEF3);
+    icone(B_ESTRELA, br[B_ESTRELA].x, br[B_ESTRELA].y, marcado_atual() ? 0xE0A020 : 0x8A939C, marcado_atual());
+    if (comeca_com(url_atual, "https://")) icone(B_CANDADO, br[B_CANDADO].x, br[B_CANDADO].y, cert_ok ? COR_DESTAQUE : 0xC98A10, false);
+    else if (comeca_com(url_atual, "http://")) icone(B_CANDADO, br[B_CANDADO].x, br[B_CANDADO].y, 0xB03A2E, true);
+    else icone(B_CANDADO, br[B_CANDADO].x, br[B_CANDADO].y, 0x8A939C, false);
     caixa_desenhar(j, &endereco);
     if (endereco_sel && endereco.foco) {   /* dirección "seleccionada" (Ctrl+L) */
         int n = (int)tam_texto(endereco.texto), cabem = (endereco.l - 10) / LETRA_L;
@@ -1026,7 +1213,232 @@ static void desenhar_barra(void)
         g_retangulo(j, endereco.x + 4, endereco.y + 3, n * LETRA_L + 2, LETRA_A + 2, COR_SELECAO);
         g_texto_n(j, endereco.x + 5, endereco.y + 4, endereco.texto, n, COR_BRANCO);
     }
-    jan_mostrar_area(j, 0, 0, LARG, TOPO);
+    desenhar_marcb();
+    jan_mostrar_area(j, 0, ABA_A, LARG, BARRA_A + (conf.barra_marc ? MARCB_A : 0));
+}
+
+/* La barra de marcadores: las carpetas primero como botones con menú, luego los sueltos. */
+#define MARCB_ITENS 24
+static int marcb_x[MARCB_ITENS + 1], marcb_idx[MARCB_ITENS];   /* x de cada chip; índice del marcador (o -1-n = carpeta n) */
+static int marcb_n;
+static char pastas[16][32];
+static int  qtd_pastas;
+
+static void juntar_pastas(void)
+{
+    qtd_pastas = 0;
+    for (int i = 0; i < qtd_marcadores; i++) {
+        if (!marcador_pasta[i][0]) continue;
+        bool ja = false;
+        for (int p = 0; p < qtd_pastas; p++) if (compara_texto(pastas[p], marcador_pasta[i]) == 0) ja = true;
+        if (!ja && qtd_pastas < 16) copia_texto(pastas[qtd_pastas++], marcador_pasta[i], 32);
+    }
+}
+
+static void desenhar_marcb(void)
+{
+    if (!conf.barra_marc) return;
+    int y = ABA_A + BARRA_A;
+    g_retangulo(j, 0, y, LARG, MARCB_A, 0xEAEEF2);
+    g_retangulo(j, 0, y + MARCB_A - 1, LARG, 1, COR_BORDA);
+    juntar_pastas();
+    marcb_n = 0;
+    int x = 6;
+    for (int p = 0; p < qtd_pastas && marcb_n < MARCB_ITENS; p++) {
+        char t[40];
+        { char pn[20]; copia_texto(pn, pastas[p], 15); formatar_texto(t, sizeof t, "[%s]", pn); }
+        int l = (int)tam_texto(t) * LETRA_L + 12;
+        if (x + l > LARG - 8) break;
+        g_retangulo(j, x, y + 2, l, MARCB_A - 5, 0xD9DFE6);
+        g_texto(j, x + 6, y + 3, t, COR_TEXTO);
+        marcb_x[marcb_n] = x; marcb_idx[marcb_n++] = -1 - p;
+        x += l + 4;
+    }
+    for (int i = 0; i < qtd_marcadores && marcb_n < MARCB_ITENS; i++) {
+        if (marcador_pasta[i][0]) continue;
+        const char *t = marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i];
+        int n = (int)tam_texto(t); if (n > 16) n = 16;
+        int l = n * LETRA_L + 12;
+        if (x + l > LARG - 8) break;
+        g_retangulo(j, x, y + 2, l, MARCB_A - 5, 0xDDE3EA);
+        g_texto_n(j, x + 6, y + 3, t, n, COR_TEXTO);
+        marcb_x[marcb_n] = x; marcb_idx[marcb_n++] = i;
+        x += l + 4;
+    }
+    marcb_x[marcb_n] = x;
+}
+
+/* Qué chip de la barra de marcadores hay en (x, y); -1 = ninguno. */
+static int marcb_em(int x, int y)
+{
+    if (!conf.barra_marc || y < ABA_A + BARRA_A || y >= ABA_A + BARRA_A + MARCB_A) return -1;
+    for (int i = 0; i < marcb_n; i++) if (x >= marcb_x[i] && x < marcb_x[i + 1] - 4) return i;
+    return -1;
+}
+
+/* ---- las pestañas ---- */
+
+static void abas_layout(void)
+{
+    int avail = LARG - 8 - ABA_MAIS - 6;
+    int n = qtd_abas > 0 ? qtd_abas : 1;
+    int l = avail / n;
+    if (l > ABA_L_MAX) l = ABA_L_MAX;
+    if (l < ABA_L_MIN) l = ABA_L_MIN;
+    aba_l = l;
+    aba_cabem = avail / l;
+    if (aba_cabem < 1) aba_cabem = 1;
+    if (aba_cabem > n) aba_cabem = n;
+    if (aba_ini > n - aba_cabem) aba_ini = n - aba_cabem;
+    if (aba_ini < 0) aba_ini = 0;
+    if (aba_atual < aba_ini) aba_ini = aba_atual;
+    if (aba_atual >= aba_ini + aba_cabem) aba_ini = aba_atual - aba_cabem + 1;
+}
+
+static int aba_x(int i) { return 4 + (i - aba_ini) * aba_l; }
+static int mais_x(void) { int x = 4 + aba_cabem * aba_l + 2; return x > LARG - ABA_MAIS - 4 ? LARG - ABA_MAIS - 4 : x; }
+
+/* El icono genérico (un globo) cuando la página no da favicon. */
+static void favicon_generico(int x, int y, uint32_t cor)
+{
+    for (int dy = -7; dy <= 7; dy++)
+        for (int dx = -7; dx <= 7; dx++) {
+            int d = dx * dx + dy * dy;
+            if (d <= 49 && d >= 36) g_retangulo(j, x + 8 + dx, y + 8 + dy, 1, 1, cor);
+        }
+    g_retangulo(j, x + 1, y + 8, 15, 1, cor);
+    g_retangulo(j, x + 8, y + 1, 1, 15, cor);
+    for (int dy = -5; dy <= 5; dy += 1) { int dx = 3 - (dy * dy) / 8; g_retangulo(j, x + 8 + dx, y + 8 + dy, 1, 1, cor); g_retangulo(j, x + 8 - dx, y + 8 + dy, 1, 1, cor); }
+}
+
+static void desenhar_spinner(int x, int y)
+{
+    static const int8_t d[8][2] = { {0,-6},{4,-4},{6,0},{4,4},{0,6},{-4,4},{-6,0},{-4,-4} };
+    int h = (int)((tempo_ms() / 90) % 8);
+    for (int i = 0; i < 8; i++) {
+        int k = (h - i + 8) % 8;   /* 0 = cabeza */
+        uint32_t c = k == 0 ? COR_DESTAQUE : k < 3 ? 0x5FA880 : k < 5 ? 0x9CC6AE : 0xC9DDD1;
+        g_retangulo(j, x + 8 + d[i][0] - 1, y + 8 + d[i][1] - 1, 3, 3, c);
+    }
+}
+
+/* El título cortado con «...» para que quepa en n columnas. */
+static void titulo_corto(const char *t, int n, char *s, int max)
+{
+    int l = (int)tam_texto(t);
+    if (n < 4) n = 4;
+    if (n > max - 1) n = max - 1;
+    if (l <= n) { copia_texto(s, t, (size_t)max); return; }
+    memcpy(s, t, (size_t)n - 3);
+    s[n - 3] = s[n - 2] = s[n - 1] = '.';
+    s[n] = 0;
+}
+
+static void desenhar_abas(void)
+{
+    abas_layout();
+    g_retangulo(j, 0, 0, LARG, ABA_A, COR_TIRA);
+    g_retangulo(j, 0, ABA_A - 1, LARG, 1, COR_BORDA);
+    for (int i = aba_ini; i < aba_ini + aba_cabem; i++) {
+        int x = aba_x(i);
+        bool ativa = (i == aba_atual);
+        int l = aba_l - 2;
+        g_retangulo(j, x, 3, l, ABA_A - 3, ativa ? COR_BARRA : COR_ABA_OFF);
+        if (ativa) {
+            g_retangulo(j, x, 3, l, 2, COR_DESTAQUE);
+            g_retangulo(j, x, ABA_A - 1, l, 1, COR_BARRA);   /* unida a la barra de herramientas */
+        }
+        aba_t *a = &abas[i];
+        bool car = ativa ? carregando_agora() : a->carregando;
+        if (car) desenhar_spinner(x + 5, 8);
+        else if (a->tem_fav) {
+            for (int fy = 0; fy < 16; fy++)
+                for (int fx = 0; fx < 16; fx++) {
+                    uint32_t p = a->fav[fy * 16 + fx];
+                    if (p >> 24 >= 0x80 || (p >> 24) == 0) g_retangulo(j, x + 5 + fx, 8 + fy, 1, 1, p & 0xFFFFFF);
+                }
+        } else favicon_generico(x + 5, 8, ativa ? COR_ICONE : 0x6A737C);
+        bool tem_x = aba_l >= 60;
+        int cols = (l - 26 - (tem_x ? 18 : 0)) / LETRA_L;
+        char t[96];
+        titulo_corto(a->titulo[0] ? a->titulo : a->url, cols, t, sizeof t);
+        g_texto_n(j, x + 25, 8, t, cols, ativa ? 0x1E2328 : 0x4A535C);
+        if (tem_x) {
+            int bx = x + l - 17;
+            lg(j, bx + 3, 11, bx + 9, 17, 0x6A737C); lg(j, bx + 9, 11, bx + 3, 17, 0x6A737C);
+        }
+        if (!ativa && i + 1 < aba_ini + aba_cabem && i + 1 != aba_atual) g_retangulo(j, x + l, 8, 1, 14, 0xA9B1BA);
+    }
+    int mx = mais_x();
+    lg(j, mx + 8, 14, mx + 18, 14, COR_ICONE); g_retangulo(j, mx + 12, 9, 2, 11, COR_ICONE);
+    jan_mostrar_area(j, 0, 0, LARG, ABA_A);
+}
+
+/* Qué hay en el punto x de la tira: >= 0 una pestaña, -1 nada, -2 el «+»; *no_x = sobre el ×. */
+static int aba_no_clic(int x, bool *no_x)
+{
+    if (no_x) *no_x = false;
+    int mx = mais_x();
+    if (x >= mx && x < mx + ABA_MAIS) return -2;
+    for (int i = aba_ini; i < aba_ini + aba_cabem && i < qtd_abas; i++) {
+        int ini = aba_x(i);
+        if (x >= ini && x < ini + aba_l - 2) {
+            if (no_x && aba_l >= 60 && x >= ini + aba_l - 2 - 19) *no_x = true;
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Las sugerencias bajo la dirección (D373): lo que se escribe, en marcadores y historial. */
+static bool contem_sem_caixa(const char *h, const char *a)
+{
+    int n = (int)tam_texto(a);
+    if (!n) return false;
+    for (const char *p = h; *p; p++) if (igual_sem_caixa_e_tilde(p, a, n)) return true;
+    return false;
+}
+
+static void sugestoes_calcular(void)
+{
+    sug_n = 0; sug_sel = -1;
+    if (!endereco.foco || endereco_sel || !endereco.texto[0] || comeca_com(endereco.texto, "sobre:")) return;
+    for (int i = 0; i < qtd_marcadores && sug_n < SUG_MAX; i++)
+        if (contem_sem_caixa(marcador_url[i], endereco.texto) || contem_sem_caixa(marcador_titulo[i], endereco.texto)) {
+            sug_url[sug_n] = marcador_url[i];
+            formatar_texto(sug_rot[sug_n], sizeof sug_rot[0], "* %s", marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i]);
+            sug_n++;
+        }
+    for (int i = qtd_hst - 1; i >= 0 && sug_n < SUG_MAX; i--)
+        if (contem_sem_caixa(hst[i].url, endereco.texto) || contem_sem_caixa(hst[i].tit, endereco.texto)) {
+            bool dup = false;
+            for (int k = 0; k < sug_n; k++) if (compara_texto(sug_url[k], hst[i].url) == 0) dup = true;
+            if (dup) continue;
+            sug_url[sug_n] = hst[i].url;
+            formatar_texto(sug_rot[sug_n], sizeof sug_rot[0], "  %s", hst[i].url);
+            sug_n++;
+        }
+}
+
+static void sugestoes_desenhar(void)
+{
+    if (!sug_n) return;
+    int y0 = ABA_A + BARRA_A + (conf.barra_marc ? MARCB_A : 0), x = pilula_x, l = pilula_l;
+    int a = sug_n * 20 + 4;
+    g_retangulo(j, x, y0, l, a, COR_BRANCO);
+    g_moldura(j, x, y0, l, a, COR_BORDA);
+    for (int i = 0; i < sug_n; i++) {
+        if (i == sug_sel) g_retangulo(j, x + 1, y0 + 2 + i * 20, l - 2, 20, COR_SELECAO);
+        g_texto_n(j, x + 8, y0 + 4 + i * 20, sug_rot[i], (l - 16) / LETRA_L, i == sug_sel ? COR_BRANCO : COR_TEXTO);
+    }
+    jan_mostrar_area(j, x, y0, l, a);
+}
+
+static void sugestoes_fechar(void)
+{
+    if (!sug_n) return;
+    sug_n = 0; sug_sel = -1;
+    desenhar_pagina();
 }
 
 /* ---- abas (D148) ---- */
@@ -1063,40 +1475,12 @@ static void aba_trocar(int i)
     a_carregar_registrado = a->a_carregar_registrado;
     pintura_pendente = a->pintura_pendente; pintura_y = a->pintura_y;
     aba_atual = i;
+    caixa_definir(&endereco, url_atual);          /* la dirección de la pestaña (D373) */
+    endereco.foco = false;
+    endereco_sel = false;
 }
 
-/* A barra de abas: uma pastilha por aba (com o título) e o botão de nova aba. */
-static void desenhar_abas(void)
-{
-    g_retangulo(j, 0, TOPO, LARG, ABA_A, 0xE6E9EC);
-    g_retangulo(j, 0, TOPO + ABA_A - 1, LARG, 1, COR_BORDA);
-    int x = 4;
-    for (int i = 0; i < qtd_abas; i++) {
-        int l = 140;
-        if (x + l > LARG - 40) break;
-        bool ativa = (i == aba_atual);
-        g_retangulo(j, x, TOPO + 3, l, ABA_A - 6, ativa ? 0xFFFFFF : 0xD3D8DD);
-        const char *t = abas[i].titulo[0] ? abas[i].titulo : abas[i].url;
-        g_texto_n(j, x + 6, TOPO + 6, t, (l - 10) / LETRA_L, ativa ? 0x1E2328 : 0x5A636C);
-        x += l + 4;
-    }
-    g_retangulo(j, LARG - 34, TOPO + 3, 28, ABA_A - 6, 0xD3D8DD);
-    g_texto(j, LARG - 26, TOPO + 6, "+", 0x1E2328);
-    jan_mostrar_area(j, 0, TOPO, LARG, ABA_A);
-}
 
-/* Que aba está no ponto x da barra de abas (-1 = nenhuma). */
-static int aba_no_clic(int x)
-{
-    int ini = 4;
-    for (int i = 0; i < qtd_abas; i++) {
-        int l = 140;
-        if (ini + l > LARG - 40) break;
-        if (x >= ini && x < ini + l) return i;
-        ini += l + 4;
-    }
-    return -1;
-}
 
 static void aba_titulo_janela(void)
 {
@@ -1110,6 +1494,7 @@ static void trocar_aba(int i)
 {
     if (i < 0 || i >= qtd_abas || i == aba_atual) return;
     video_parar();
+    pf_limpar();
     aba_guardar();
     aba_trocar(i);
     recursos_pendentes = false;
@@ -1131,7 +1516,7 @@ static void nova_aba_com_url(const char *url)
     memset(&abas[qtd_abas], 0, sizeof abas[0]);
     aba_atual = qtd_abas++;
     bool link = url && url[0];
-    carregar(link ? url : "sobre:inicio");
+    carregar(link ? url : url_inicio());
     desenhar_abas();
     if (link) registrar("cipo: link noutra aba %d (%s)\n", aba_atual, url);
     else registrar("cipo: nova aba %d\n", aba_atual);
@@ -1153,26 +1538,56 @@ static void abrir_link_nova_aba(const char *url)
     nova_aba_com_url(u);
 }
 
-static void fechar_aba(void)
+/* Cierra la pestaña i (la activa o cualquier otra, con el clic central o el menú). */
+static void fechar_aba_idx(int i)
 {
-    if (qtd_abas <= 1) return;
+    if (qtd_abas <= 1 || i < 0 || i >= qtd_abas) return;
+    pf_limpar();
     aba_guardar();
-    aba_t *a = &abas[aba_atual];
+    aba_t *a = &abas[i];
     if (a->motor) motor_fim(a->motor);
     libera(a->doc);
-    for (int i = aba_atual; i < qtd_abas - 1; i++) abas[i] = abas[i + 1];
+    int cur = aba_atual;
+    for (int k = i; k < qtd_abas - 1; k++) abas[k] = abas[k + 1];
     qtd_abas--;
-    if (aba_atual >= qtd_abas) aba_atual = qtd_abas - 1;
     memset(&abas[qtd_abas], 0, sizeof abas[0]);
-    aba_trocar(aba_atual);
-    recursos_pendentes = false;
-    pintura_pendente = false;
+    if (i == cur) {
+        if (cur >= qtd_abas) cur = qtd_abas - 1;
+        aba_atual = cur;
+        aba_trocar(cur);
+        recursos_pendentes = false;
+        pintura_pendente = false;
+    } else {
+        if (i < cur) cur--;
+        aba_atual = cur;
+    }
     aba_titulo_janela();
     desenhar_barra();
     desenhar_abas();
     desenhar_pagina();
     desenhar_rodape();
     registrar("cipo: aba fechada, %d restantes\n", qtd_abas);
+}
+
+static void fechar_aba(void)
+{
+    fechar_aba_idx(aba_atual);
+}
+
+/* Arrastrar para reordenar: la pestaña i pasa a la posición k (la activa sigue siendo la misma). */
+static void mover_aba(int i, int k)
+{
+    if (i == k || i < 0 || k < 0 || i >= qtd_abas || k >= qtd_abas) return;
+    aba_guardar();
+    aba_t t = abas[i];
+    if (i < k) for (int m = i; m < k; m++) abas[m] = abas[m + 1];
+    else for (int m = i; m > k; m--) abas[m] = abas[m - 1];
+    abas[k] = t;
+    if (aba_atual == i) aba_atual = k;
+    else if (i < aba_atual && k >= aba_atual) aba_atual--;
+    else if (i > aba_atual && k <= aba_atual) aba_atual++;
+    registrar("cipo: aba %d movida a %d\n", i, k);
+    desenhar_abas();
 }
 
 static void desenhar_tudo(void)
@@ -1382,10 +1797,10 @@ static void js_log(const char *t)
     registrar("cipo: js: %s\n", t);
 }
 
-/* ---- el script cambia la p�gina (D271) ----
+/* ---- el script cambia la página (D271) ----
  * El puente avisa de cada atributo (class, style, hidden...) o texto que el
- * script cambia en un elemento; aqu� se pasa al motor y se apunta que hay que
- * maquetar otra vez. La maquetaci�n se hace una sola vez, cuando el script (o
+ * script cambia en un elemento; aquí se pasa al motor y se apunta que hay que
+ * maquetar otra vez. La maquetación se hace una sola vez, cuando el script (o
  * el temporizador, o el manejador del clic) ha terminado: js_refrescar(). */
 static bool js_dom_sujo;
 static uint8_t *motor_baixar(const char *url, unsigned *n);
@@ -1414,7 +1829,7 @@ static void js_texto(int dom, const char *txt)
     libera(b);
 }
 
-/* fetch y XMLHttpRequest (solo GET): la direcci�n puede ser relativa a la p�gina. */
+/* fetch y XMLHttpRequest (solo GET): la dirección puede ser relativa a la página. */
 static char *js_baixar(const char *url, int *n)
 {
     char abs[URL_MAX];
@@ -1428,7 +1843,7 @@ static char *js_baixar(const char *url, int *n)
     return (char *)d;
 }
 
-/* Si el script cambi� algo, maqueta y pinta de nuevo. */
+/* Si el script cambió algo, maqueta y pinta de nuevo. */
 static void js_refrescar(void)
 {
     if (!js_dom_sujo || !motor) return;
@@ -1642,7 +2057,7 @@ static void dom_construir(void)
  * de uma pagina nao pode ver as variaveis de outra. */
 static void correr_scripts(void)
 {
-    if (!doc || !doc_html) return;
+    if (!doc || !doc_html || !conf.js) return;
     if (js_geracao != js_geracao_rodada) {
         js_geracao_rodada = js_geracao;
         if (js) { qjs_destruir(js); js = NULL; }
@@ -1844,52 +2259,85 @@ typedef struct {
     int   codigo;
     bool  html;
     bool  truncado;
+    bool  arquivo;      /* el servidor manda un archivo que no se muestra: va al gestor de descargas */
     const char *erro;
     char  detalhe[200];
 } baixa_t;
 
 /* Descarga la dirección (siguiendo redirecciones). "pagina" = es la página que se
  * muestra (actualiza barra, pie y url_atual); si no, es una imagen. */
+static mutex_t tls_trava = MUTEX_INICIAL;
+static tls_config_t cfg;   /* las raíces de certificados, una sola vez para todos los hilos */
+static void cert_resumo(tls_t *t, const char *host)
+{
+    const cert_t *c = NULL;
+    cert_ok = false;
+    cert_texto[0] = 0;
+    if (tls_cadeia(t, &c) < 1 || !c) return;
+    char suj[96], emi[96], d1[24], d2[24], hu[100];
+    x509_nome_curto(c[0].sujeito, suj, sizeof suj);
+    x509_nome_curto(c[0].emissor, emi, sizeof emi);
+    x509_data_texto(c[0].antes, d1, sizeof d1);
+    x509_data_texto(c[0].depois, d2, sizeof d2);
+    x509_huella(&c[0], hu, sizeof hu);
+    cert_ok = tls_validacao(t) == X509_OK;
+    formatar_texto(cert_texto, sizeof cert_texto, "Sitio: %s\nEmitido para: %s\nEmitido por: %s\nVálido: %s a %s\nConexión: %s\nSHA-256: %s",
+                   host, suj, emi, d1, d2, tls_versao_texto(t), hu);
+}
+
+static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resposta_t *rr, conexao_t *cn, bool *tem_trava);
 static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
+{
+    http_resposta_t *rr = aloca_zerado(sizeof *rr);
+    conexao_t *cn = aloca_zerado(sizeof *cn);
+    bool trava = false;
+    if (!rr || !cn) { memset(b, 0, sizeof *b); b->erro = "Sin memoria"; libera(rr); libera(cn); return; }
+    baixar_int(url, pagina, maximo, b, rr, cn, &trava);
+    if (trava) mutex_largar(&tls_trava);
+    libera(rr);
+    libera(cn);
+}
+
+static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resposta_t *rr, conexao_t *cn, bool *tem_trava)
 {
     memset(b, 0, sizeof *b);
     b->html = true;
-    static http_resposta_t r;
+    const bool principal = thread_id() == meu_pid();   /* solo el hilo principal toca la ventana (D373) */
     for (int redirecoes = 0; redirecoes < 5; redirecoes++) {
         url_t u;
         if (!url_separar(url, &u)) { b->erro = "Dirección no válida"; return; }
         if (!pagina) registrar("cipo: baixando %s\n", url);
         char st[160];
         formatar_texto(st, sizeof st, "%s %s%s...", pagina ? "Conectando con" : "Descargando imagen de", u.host, u.https ? " (HTTPS)" : "");
-        rodape(st);
+        if (principal) rodape(st);
         /* HTTPS (D062): la misma lectura, por encima del TLS. Certificado
          * malo = página de error con el motivo; no hay "continuar de todos modos". */
-        static tls_config_t cfg;
+        if (u.https && !*tem_trava) { mutex_tomar(&tls_trava); *tem_trava = true; }   /* la TLS no es reentrante: una conexión HTTPS a la vez */
         char e2[160];
         if (u.https && !cfg.raizes && !tls_config_padrao(&cfg, NULL, e2, sizeof e2)) {
             b->erro = "No se pudo preparar HTTPS";
             copia_texto(b->detalhe, e2, sizeof b->detalhe);
             return;
         }
-        static conexao_t con;
-        int rc = conexao_abrir(&con, &u, &cfg);
+        int rc = conexao_abrir(cn, &u, &cfg);
         if (rc < 0) {
             b->erro = rc == TLS_ERRO_CERT ? "Conexión no segura" : "No se pudo abrir la página";
-            formatar_texto(b->detalhe, sizeof b->detalhe, "%s: %s.", u.host, con.erro);
-            conexao_fechar(&con);
+            formatar_texto(b->detalhe, sizeof b->detalhe, "%s: %s.", u.host, cn->erro);
+            conexao_fechar(cn);
             return;
         }
+        if (pagina && u.https && cn->tls) cert_resumo(cn->tls, u.host);
         char pedido[1024];
         int np = http_montar_pedido(&u, "GET", NULL, pedido, sizeof pedido);
-        if (conexao_escrever(&con, pedido, (unsigned)np) < 0 || http_ler_cabecalho_de(&r, conexao_ler, &con) < 0) {
-            conexao_fechar(&con);
+        if (conexao_escrever(cn, pedido, (unsigned)np) < 0 || http_ler_cabecalho_de(rr, conexao_ler, cn) < 0) {
+            conexao_fechar(cn);
             b->erro = "Respuesta no válida del servidor";
             return;
         }
-        b->codigo = r.codigo;
+        b->codigo = rr->codigo;
         char destino[URL_MAX];
-        if (b->codigo >= 300 && b->codigo < 400 && http_campo(r.cabecalho, "Location", destino, sizeof destino)) {
-            conexao_fechar(&con);
+        if (b->codigo >= 300 && b->codigo < 400 && http_campo(rr->cabecalho, "Location", destino, sizeof destino)) {
+            conexao_fechar(cn);
             char nova[URL_MAX];
             if (!juntar_url(url, destino, nova, sizeof nova)) { b->erro = "Redirección no válida"; return; }
             copia_texto(url, nova, URL_MAX);
@@ -1901,25 +2349,25 @@ static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
             continue;
         }
         char tipo[80] = "text/html";
-        http_campo(r.cabecalho, "Content-Type", tipo, sizeof tipo);
+        http_campo(rr->cabecalho, "Content-Type", tipo, sizeof tipo);
         for (char *p = tipo; *p; p++) *p = minuscula(*p);
         b->html = comeca_com(tipo, "text/html") || comeca_com(tipo, "application/xhtml");
         if (pagina && !b->html && !comeca_com(tipo, "text/")) {
-            conexao_fechar(&con);
-            b->erro = "Tipo de archivo que Cipó no muestra";
-            formatar_texto(b->detalhe, sizeof b->detalhe, "El servidor envió \"%s\". Para guardar el archivo, usa wget o curl -o en el Terminal.", tipo);
+            conexao_fechar(cn);
+            b->arquivo = true;   /* no es una página: lo recoge el gestor de descargas (D373) */
+            copia_texto(b->detalhe, tipo, sizeof b->detalhe);
             return;
         }
         if (!pagina && b->codigo != 200) {
-            conexao_fechar(&con);
+            conexao_fechar(cn);
             b->erro = "Imagen no disponible";
             return;
         }
         int cap = 65536;
         b->corpo = aloca((size_t)cap);
-        if (!b->corpo) { conexao_fechar(&con); b->erro = "Sin memoria"; return; }
+        if (!b->corpo) { conexao_fechar(cn); b->erro = "Sin memoria"; return; }
         int n, mostrado = 0;
-        while ((n = http_ler_corpo(&r, b->corpo + b->tam, cap - b->tam)) > 0) {
+        while ((n = http_ler_corpo(rr, b->corpo + b->tam, cap - b->tam)) > 0) {
             b->tam += n;
             if (b->tam == cap) {
                 if (cap >= maximo) { b->truncado = true; break; }
@@ -1933,11 +2381,11 @@ static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
             if (pagina && b->tam / 16384 != mostrado) {
                 mostrado = b->tam / 16384;
                 formatar_texto(st, sizeof st, "Cargando %s... %d KB", u.host, b->tam / 1024);
-                rodape(st);
+                if (principal) rodape(st);
             }
         }
         if (n < 0) b->erro = "Error al leer la respuesta";
-        conexao_fechar(&con);
+        conexao_fechar(cn);
         return;
     }
     b->erro = "Demasiadas redirecciones";
@@ -1946,6 +2394,9 @@ static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
 static uint8_t *motor_baixar(const char *url, unsigned *n)
 {
     *n = 0;
+    bool achou;
+    uint8_t *previo = pf_pegar(url, n, &achou);   /* ya lo bajó un hilo (D373) */
+    if (achou) return previo;
     char u[URL_MAX];
     copia_texto(u, url, sizeof u);
     static baixa_t b;
@@ -2230,9 +2681,12 @@ static void liberar_imagens(void)
     recursos_pendentes = pintura_pendente = false;
 }
 
+static unsigned rec_t0;   /* cuándo empezó la descarga de recursos de la página (para medirla) */
+
 /* Descarga un recurso del motor por vuelta del bucle de eventos. */
 static void processar_recurso(void)
 {
+    if (painel) pintura_pendente = false;   /* el panel ocupa el sitio de la página */
     if (pintura_pendente && motor) {
         int fim = rol_px + AREA_A;
         int faixa = fim - pintura_y < FAIXA_PINTURA ? fim - pintura_y : FAIXA_PINTURA;
@@ -2246,13 +2700,23 @@ static void processar_recurso(void)
         if (pintura_y >= fim) {
             pintura_pendente = false;
             registrar("cipo: pagina pintada\n");
+            if (sug_n) sugestoes_desenhar();
         }
         return;
     }
     if (!recursos_pendentes || !motor) return;
+    if (!conf.imagens) {      /* ajuste: sin imágenes (ni fuentes web) */
+        recursos_pendentes = false;
+        registrar("cipo: recursos omitidos (imágenes desactivadas)\n");
+        rodape("Listo");
+        desenhar_barra(); desenhar_abas();
+        return;
+    }
+    pf_lote();                /* varios hilos bajan por adelantado lo que el motor pedirá (D373) */
     rodape("Cargando recursos de la página...");
     if (!a_carregar_registrado) {
         a_carregar_registrado = true;
+        rec_t0 = tempo_ms();
         registrar("cipo: a carregar recursos\n");
     }
     if (motor_imagens(motor, 1) > 0) {
@@ -2272,7 +2736,7 @@ static void processar_recurso(void)
         return;
     }
     recursos_pendentes = false;
-    registrar("cipo: recursos listos\n");
+    registrar("cipo: recursos listos en %u ms\n", tempo_ms() - rec_t0);
     rodape("Listo");
     desenhar_pagina();
 }
@@ -2330,20 +2794,40 @@ static void carregar(const char *pedido)
     caixa_definir(&endereco, url);
     endereco.foco = false;
     endereco_sel = false;
+    sugestoes_fechar();
+    if (painel) { painel = P_NADA; }
     foco_alvo = -1;
     codigo_pagina = 0;
+    cert_texto[0] = 0;
+    cert_ok = false;
+    pf_limpar();
     liberar_imagens();
+    if (qtd_abas) { abas[aba_atual].carregando = true; abas[aba_atual].tem_fav = false; abas[aba_atual].fav_tentado = comeca_com(url, "sobre:"); }
     desenhar_barra();
+    desenhar_abas();
     registrar("cipo: abrindo %s\n", url);
 
     if (comeca_com(url, "sobre:")) {
-        definir_doc_texto(pagina_inicio);
+        if (compara_texto(url, "sobre:blanco") == 0) definir_doc_texto("<title>En blanco</title>");
+        else {
+            char *h = inicio_gerar();
+            if (h) { definir_doc(h, (int)tam_texto(h), true); }
+            else definir_doc_texto(pagina_inicio);
+        }
         diagramar();
     } else {
         static baixa_t b;
         baixar(url, true, PAGINA_MAX, &b);
         codigo_pagina = b.codigo;
-        if (b.erro) {
+        if (b.arquivo) {
+            /* No es una página (un zip, un ejecutable...): lo baja el gestor de descargas (D373). */
+            registrar("cipo: archivo %s (%s): descarga\n", url, b.detalhe);
+            desc_iniciar(url);
+            codigo_pagina = 0;
+            definir_doc_texto("<title>Descarga</title><h1>Descarga iniciada</h1><p>Este enlace es un archivo, no una página. "
+                              "Se está bajando en segundo plano: míralo en Descargas (Ctrl+J).</p>");
+            diagramar();
+        } else if (b.erro) {
             registrar("cipo: erro: %s %s\n", b.erro, b.detalhe);
             libera(b.corpo);
             codigo_pagina = 0;
@@ -2373,6 +2857,8 @@ static void carregar(const char *pedido)
         copia_texto(abas[aba_atual].titulo, titulo, 96);
         desenhar_abas();
     }
+    if (qtd_abas) abas[aba_atual].carregando = false;
+    if (codigo_pagina > 0 && codigo_pagina < 400) hst_registar(url_atual, titulo);
     registrar("cipo: pronto \"%s\" (%d linhas, %d links)\n", titulo, linhas, motor ? motor_links(motor) : qtd_alvos);
     rodape(recursos_pendentes ? "Cargando recursos de la página..." : "Listo");
     /* Se a pagina nao pediu outra, a cadeia de reenvios acaba aqui (D159). */
@@ -2384,6 +2870,7 @@ static void carregar(const char *pedido)
         registrar("cipo: posicao reposta (%d px) em %s\n", onde, url_atual);
     }
     desenhar_pagina();
+    if (qtd_desc && desc_sel >= 0 && desc[desc_sel].estado == D_BAIXANDO && compara_texto(titulo, "Descarga") == 0) mostrar_painel(P_DESC);
 }
 
 static void navegar(const char *url)
@@ -2566,7 +3053,7 @@ static void guardar_recurso(const char *url)
     char nome[96];
     nome_arquivo_url(url, nome, sizeof nome);
     formatar_texto(caminho, sizeof caminho, "%s/%s", pasta_descarga(), nome);
-    /* Mejora 103: se elige d�nde guardar con el di�logo com�n (Intro acepta la propuesta). */
+    /* Mejora 103: se elige dónde guardar con el diálogo común (Intro acepta la propuesta). */
     if (!dialogo_guardar("Guardar como", NULL, caminho, caminho, sizeof caminho)) {
         libera(b.corpo);
         rodape("Guardado cancelado");
@@ -2668,17 +3155,20 @@ static void ler_marcadores(void)
     caminho_marcadores(caminho, sizeof caminho);
     int fd = abrir(caminho, ABRIR_LER);
     if (fd < 0) return;
-    char linha[URL_MAX + 96];
+    char linha[URL_MAX + 140];
     while (qtd_marcadores < MARC_MAX) {
         int n = ler_linha(fd, linha, sizeof linha);
         if (n < 0) break;
         if (!n || linha[0] == '#') continue;
-        char *sep = NULL;
-        for (char *p = linha; *p; p++) if (*p == '\t') { sep = p; break; }
+        char *sep = NULL, *sep2 = NULL;   /* url<TAB>título[<TAB>carpeta] (la carpeta es de la D373) */
+        for (char *p = linha; *p; p++) if (*p == '\t') { if (!sep) sep = p; else { sep2 = p; break; } }
         if (sep) *sep = 0;
+        if (sep2) *sep2 = 0;
         copia_texto(marcador_url[qtd_marcadores], linha, URL_MAX);
         if (sep) copia_texto(marcador_titulo[qtd_marcadores], sep + 1, 96);
         else marcador_titulo[qtd_marcadores][0] = 0;
+        if (sep2) copia_texto(marcador_pasta[qtd_marcadores], sep2 + 1, 32);
+        else marcador_pasta[qtd_marcadores][0] = 0;
         qtd_marcadores++;
     }
     fechar(fd);
@@ -2691,8 +3181,8 @@ static void gravar_marcadores(void)
     int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return;
     for (int i = 0; i < qtd_marcadores; i++) {
-        char linha[URL_MAX + 96];
-        int n = formatar_texto(linha, sizeof linha, "%s\t%s\n", marcador_url[i], marcador_titulo[i]);
+        char linha[URL_MAX + 140];
+        int n = formatar_texto(linha, sizeof linha, "%s\t%s%s%s\n", marcador_url[i], marcador_titulo[i], marcador_pasta[i][0] ? "\t" : "", marcador_pasta[i]);
         escrever_tudo(fd, linha, (unsigned)n);
     }
     fechar(fd);
@@ -2714,6 +3204,7 @@ static void adicionar_marcador(void)
     }
     copia_texto(marcador_url[qtd_marcadores], url_atual, URL_MAX);
     copia_texto(marcador_titulo[qtd_marcadores], titulo, 96);
+    marcador_pasta[qtd_marcadores][0] = 0;
     qtd_marcadores++;
     gravar_marcadores();
     char t[128];
@@ -2731,9 +3222,9 @@ static void mostrar_marcadores(void)
         registrar("cipo: sem marcadores\n");
         return;
     }
-    char itens[MARC_MAX * (URL_MAX + 96)];
+    static char itens[32 * (URL_MAX + 96)];   /* el menú muestra los 32 primeros; el gestor (Ctrl+Mayús+B), todos */
     int k = 0;
-    for (int i = 0; i < qtd_marcadores; i++) {
+    for (int i = 0; i < qtd_marcadores && i < 32; i++) {
         const char *t = marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i];
         k += formatar_texto(itens + k, (int)sizeof itens - k, "%s\t%s\n", t, marcador_url[i]);
         if (k >= (int)sizeof itens - 2) break;
@@ -2882,6 +3373,1258 @@ static void atualizar_busca(void)
 }
 
 /* La ventana cambió de tamaño (arrastrar el borde, maximizar, restaurar). */
+/* ------------------------------------------------------------ ajustes, historial y marcadores (D373) */
+
+static void caminho_cfg(const char *nome, char *saida, int max)
+{
+    char base[64], d[96];
+    copia_texto(base, pasta_usuario(), sizeof base);
+    formatar_texto(d, sizeof d, "%s/.config", base);
+    criar_pasta(d);
+    formatar_texto(d, sizeof d, "%s/.config/cipo", base);
+    criar_pasta(d);
+    formatar_texto(saida, max, "%s/.config/cipo/%s", base, nome);
+}
+
+static int num_de(const char *s, int min, int max, int pad)
+{
+    if (!s || !*s) return pad;
+    int v = 0;
+    bool neg = false;
+    if (*s == '-') { neg = true; s++; }
+    if (*s < '0' || *s > '9') return pad;
+    while (*s >= '0' && *s <= '9') v = v * 10 + (*s++ - '0');
+    if (neg) v = -v;
+    return v < min ? min : v > max ? max : v;
+}
+
+/* cipo.conf: «clave=valor». Un valor que no vale se recorta (los hilos, a 1-12). */
+static void ler_conf(void)
+{
+    char caminho[128];
+    caminho_cfg("cipo.conf", caminho, sizeof caminho);
+    int fd = abrir(caminho, ABRIR_LER);
+    if (fd < 0) return;
+    char linha[URL_MAX + 40];
+    while (ler_linha(fd, linha, sizeof linha) >= 0) {
+        char *v = NULL;
+        for (char *p = linha; *p; p++) if (*p == '=') { *p = 0; v = p + 1; break; }
+        if (!v) continue;
+        if (!compara_texto(linha, "inicio_modo")) conf.inicio_modo = num_de(v, 0, 2, 0);
+        else if (!compara_texto(linha, "inicio_url")) copia_texto(conf.inicio_url, v, sizeof conf.inicio_url);
+        else if (!compara_texto(linha, "buscador")) conf.buscador = num_de(v, 0, N_BUSC - 1, 0);
+        else if (!compara_texto(linha, "hilos")) conf.hilos = num_de(v, 1, HILOS_MAX, 4);
+        else if (!compara_texto(linha, "descargas")) copia_texto(conf.pasta_desc, v, sizeof conf.pasta_desc);
+        else if (!compara_texto(linha, "js")) conf.js = num_de(v, 0, 1, 1) != 0;
+        else if (!compara_texto(linha, "imagenes")) conf.imagens = num_de(v, 0, 1, 1) != 0;
+        else if (!compara_texto(linha, "barra_marcadores")) conf.barra_marc = num_de(v, 0, 1, 0) != 0;
+    }
+    fechar(fd);
+}
+
+static void gravar_conf(void)
+{
+    char caminho[128], t[URL_MAX + 400];
+    caminho_cfg("cipo.conf", caminho, sizeof caminho);
+    int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    int n = formatar_texto(t, sizeof t,
+        "# Ajustes del Cipó (D373)\ninicio_modo=%d\ninicio_url=%s\nbuscador=%d\nhilos=%d\ndescargas=%s\njs=%d\nimagenes=%d\nbarra_marcadores=%d\n",
+        conf.inicio_modo, conf.inicio_url, conf.buscador, conf.hilos, conf.pasta_desc, conf.js, conf.imagens, conf.barra_marc);
+    escrever_tudo(fd, t, (unsigned)n);
+    fechar(fd);
+}
+
+/* Cuántas descargas a la vez caben de verdad: el valor pedido, recortado según la memoria libre
+ * (cada hilo trae su pila y sus búferes; en un equipo de 128-256 MB, 12 serían demasiados). */
+static int hilos_efectivos(void)
+{
+    int n = conf.hilos < 1 ? 1 : conf.hilos > HILOS_MAX ? HILOS_MAX : conf.hilos;
+    info_memoria_t m;
+    memset(&m, 0, sizeof m);
+    if (info_sistema(INFO_MEMORIA, &m, sizeof m) >= 0 && m.livre_kb) {
+        unsigned mb = m.livre_kb / 1024;
+        int tope = mb < 24 ? 1 : mb < 48 ? 2 : mb < 80 ? 4 : mb < 120 ? 6 : mb < 160 ? 8 : HILOS_MAX;
+        if (n > tope) n = tope;
+    }
+    return n;
+}
+
+static const char *pasta_descargas_conf(void)
+{
+    if (conf.pasta_desc[0]) {
+        info_arquivo_t inf;
+        if (info_arquivo(conf.pasta_desc, &inf) == 0 && inf.tipo == TIPO_PASTA) return conf.pasta_desc;
+    }
+    return pasta_descarga();
+}
+
+/* ---- historial ---- */
+
+static void gravar_hst(void)
+{
+    char caminho[128];
+    caminho_cfg("historial", caminho, sizeof caminho);
+    int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    for (int i = 0; i < qtd_hst; i++) {
+        char l[HST_URL + 96];
+        int n = formatar_texto(l, sizeof l, "%s\t%s\t%d\n", hst[i].url, hst[i].tit, hst[i].visitas);
+        escrever_tudo(fd, l, (unsigned)n);
+    }
+    fechar(fd);
+}
+
+static void ler_hst(void)
+{
+    qtd_hst = 0;
+    char caminho[128];
+    caminho_cfg("historial", caminho, sizeof caminho);
+    int fd = abrir(caminho, ABRIR_LER);
+    if (fd < 0) return;
+    char l[HST_URL + 96];
+    while (qtd_hst < HST_MAX && ler_linha(fd, l, sizeof l) >= 0) {
+        char *t1 = NULL, *t2 = NULL;
+        for (char *p = l; *p; p++) if (*p == '\t') { if (!t1) { t1 = p; *p = 0; } else { t2 = p; *p = 0; break; } }
+        if (!l[0] || !t1) continue;
+        hst_t *h = &hst[qtd_hst++];
+        copia_texto(h->url, l, sizeof h->url);
+        copia_texto(h->tit, t1 + 1, sizeof h->tit);
+        h->visitas = t2 ? num_de(t2 + 1, 1, 1000000, 1) : 1;
+        h->ordem = ++hst_contador;
+    }
+    fechar(fd);
+}
+
+/* Anota una página vista (las de «sobre:» no entran). */
+static void hst_registar(const char *url, const char *tit)
+{
+    if (!comeca_com(url, "http://") && !comeca_com(url, "https://")) return;
+    if ((int)tam_texto(url) >= HST_URL) return;
+    for (int i = 0; i < qtd_hst; i++)
+        if (compara_texto(hst[i].url, url) == 0) {
+            hst[i].visitas++;
+            if (tit[0]) copia_texto(hst[i].tit, tit, sizeof hst[i].tit);
+            hst_t t = hst[i];                 /* pasa al final: es lo más reciente */
+            for (int k = i; k < qtd_hst - 1; k++) hst[k] = hst[k + 1];
+            hst[qtd_hst - 1] = t;
+            gravar_hst();
+            return;
+        }
+    if (qtd_hst == HST_MAX) { memmove(&hst[0], &hst[1], sizeof hst[0] * (HST_MAX - 1)); qtd_hst--; }
+    hst_t *h = &hst[qtd_hst++];
+    copia_texto(h->url, url, sizeof h->url);
+    copia_texto(h->tit, tit, sizeof h->tit);
+    h->visitas = 1;
+    gravar_hst();
+}
+
+/* ---- marcadores con carpetas, importar y exportar (formato HTML «Netscape bookmark file») ---- */
+
+static void html_escapar(const char *s, char *o, int max)
+{
+    int k = 0;
+    for (; *s && k < max - 7; s++) {
+        const char *r = *s == '&' ? "&amp;" : *s == '<' ? "&lt;" : *s == '>' ? "&gt;" : *s == '"' ? "&quot;" : NULL;
+        if (r) { while (*r && k < max - 2) o[k++] = *r++; }
+        else o[k++] = *s;
+    }
+    o[k] = 0;
+}
+
+/* Exporta a un archivo HTML de marcadores (UTF-8, el que leen todos los navegadores). */
+static bool marcadores_exportar(const char *caminho)
+{
+    int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return false;
+    static const char cab[] = "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n";
+    escrever_tudo(fd, cab, sizeof cab - 1);
+    juntar_pastas();
+    for (int pass = -1; pass < qtd_pastas; pass++) {
+        if (pass >= 0) {
+            char p8[160], pe[96];
+            html_escapar(pastas[pass], pe, sizeof pe);
+            latin1_para_utf8(pe, (int)tam_texto(pe), p8, sizeof p8);
+            char l[300];
+            int k = formatar_texto(l, sizeof l, "    <DT><H3>%s</H3>\n    <DL><p>\n", p8);
+            escrever_tudo(fd, l, (unsigned)k);
+        }
+        for (int i = 0; i < qtd_marcadores; i++) {
+            if (pass < 0 ? marcador_pasta[i][0] != 0 : compara_texto(marcador_pasta[i], pastas[pass]) != 0) continue;
+            char ue[URL_MAX * 2], te[200], t8[400], l[URL_MAX * 2 + 520];
+            html_escapar(marcador_url[i], ue, sizeof ue);
+            html_escapar(marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i], te, sizeof te);
+            latin1_para_utf8(te, (int)tam_texto(te), t8, sizeof t8);
+            int k = formatar_texto(l, sizeof l, "%s<DT><A HREF=\"%s\" ADD_DATE=\"0\">%s</A>\n", pass < 0 ? "    " : "        ", ue, t8);
+            escrever_tudo(fd, l, (unsigned)k);
+        }
+        if (pass >= 0) escrever_tudo(fd, "    </DL><p>\n", 14);
+    }
+    escrever_tudo(fd, "</DL><p>\n", 9);
+    fechar(fd);
+    return true;
+}
+
+/* Importa un archivo HTML de marcadores; devuelve cuántos añadió (-1 si no se pudo leer). */
+static int marcadores_importar(const char *caminho)
+{
+    info_arquivo_t inf;
+    if (info_arquivo(caminho, &inf) != 0 || inf.tipo != TIPO_ARQUIVO || inf.tamanho > 2 * 1024 * 1024) return -1;
+    char *h = aloca(inf.tamanho + 1);
+    if (!h) return -1;
+    int fd = abrir(caminho, ABRIR_LER), n = 0;
+    if (fd >= 0) { int r; while (n < (int)inf.tamanho && (r = ler(fd, h + n, inf.tamanho - (unsigned)n)) > 0) n += r; fechar(fd); }
+    h[n] = 0;
+    n = converter(h, n);
+    int novos = 0, dl = 0, dl_pasta = -1;
+    bool pend = false;
+    char pasta[32] = "";
+    for (int i = 0; i < n; i++) {
+        if (h[i] != '<') continue;
+        const char *t = h + i + 1;
+        int resto = n - i - 1;
+        bool fecha = resto > 0 && t[0] == '/';
+        const char *nm = fecha ? t + 1 : t;
+        if (igual_sem_caixa_e_tilde(nm, "dl", 2) && (nm[2] == '>' || nm[2] == ' ' || nm[2] == 'p')) {
+            if (fecha) { if (dl == dl_pasta) { pasta[0] = 0; dl_pasta = -1; } dl--; }
+            else { dl++; if (pend) { dl_pasta = dl; pend = false; } }
+        } else if (!fecha && igual_sem_caixa_e_tilde(nm, "h3", 2)) {
+            int a = i; while (a < n && h[a] != '>') a++;
+            int b = a + 1; while (b < n && !(h[b] == '<' && h[b + 1] == '/')) b++;
+            char tmp[64];
+            decodificar(h + a + 1, b - a - 1 > 60 ? 60 : b - a - 1, tmp, sizeof tmp);
+            copia_texto(pasta, tmp, sizeof pasta);
+            pend = true;
+            i = b;
+        } else if (!fecha && (nm[0] == 'a' || nm[0] == 'A') && (nm[1] == ' ' || nm[1] == '\t' || nm[1] == '\n')) {
+            int a = i; while (a < n && h[a] != '>') a++;
+            char href[URL_MAX];
+            if (a < n && atributo_valor(h + i + 1, a - i - 1, "href", href, sizeof href)) {
+                int b = a + 1; while (b < n && !(h[b] == '<' && h[b + 1] == '/')) b++;
+                char tit[96];
+                decodificar(h + a + 1, b - a - 1 > 90 ? 90 : b - a - 1, tit, sizeof tit);
+                char u[URL_MAX];
+                decodificar(href, (int)tam_texto(href), u, sizeof u);
+                bool ja = false;
+                for (int m = 0; m < qtd_marcadores; m++) if (!compara_texto(marcador_url[m], u)) ja = true;
+                if ((comeca_com(u, "http://") || comeca_com(u, "https://")) && !ja && qtd_marcadores < MARC_MAX) {
+                    copia_texto(marcador_url[qtd_marcadores], u, URL_MAX);
+                    copia_texto(marcador_titulo[qtd_marcadores], tit, 96);
+                    copia_texto(marcador_pasta[qtd_marcadores], pasta, 32);
+                    registrar("cipo: importado marcador \"%s\" [%s]\n", tit, pasta);
+                    qtd_marcadores++;
+                    novos++;
+                }
+                i = b;
+            }
+        }
+    }
+    libera(h);
+    return novos;
+}
+
+/* ---- la página de inicio propia, la entrada de la barra de dirección y los buscadores ---- */
+
+static const char *url_inicio(void)
+{
+    if (conf.inicio_modo == 1) return "sobre:blanco";
+    if (conf.inicio_modo == 2 && conf.inicio_url[0]) return conf.inicio_url;
+    return "sobre:inicio";
+}
+
+static void url_codificar(const char *t, char *o, int max)
+{
+    static const char hexa[] = "0123456789ABCDEF";
+    int k = 0;
+    for (const unsigned char *p = (const unsigned char *)t; *p && k < max - 7; p++) {
+        unsigned char c = *p;
+        if (c == ' ') o[k++] = '+';
+        else if (letra((char)c) || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') o[k++] = (char)c;
+        else if (c >= 0x80) {   /* Latin-1 -> UTF-8, que es lo que esperan los sitios */
+            unsigned char b[2] = { (unsigned char)(0xC0 | (c >> 6)), (unsigned char)(0x80 | (c & 0x3F)) };
+            for (int i = 0; i < 2; i++) { o[k++] = '%'; o[k++] = hexa[b[i] >> 4]; o[k++] = hexa[b[i] & 15]; }
+        } else { o[k++] = '%'; o[k++] = hexa[c >> 4]; o[k++] = hexa[c & 15]; }
+    }
+    o[k] = 0;
+}
+
+/* Lo escrito en la barra: una dirección, o una búsqueda con el motor elegido si parece texto suelto. */
+static void interpretar_entrada(const char *t, char *url, int max)
+{
+    bool esq = comeca_com(t, "http://") || comeca_com(t, "https://") || comeca_com(t, "sobre:");
+    bool espaco = false, ponto = false;
+    for (const char *p = t; *p; p++) { if (*p == ' ') espaco = true; if (*p == '.' || *p == ':' || *p == '/') ponto = true; }
+    if (!compara_texto(t, "localhost")) ponto = true;
+    if (!esq && (espaco || !ponto)) {
+        char q[URL_MAX];
+        url_codificar(t, q, sizeof q);
+        const buscador_t *b = &buscadores[conf.buscador];
+        formatar_texto(url, max, "%s?%s=%s", b->acao, b->campo, q);
+        registrar("cipo: búsqueda con %s\n", b->nome);
+    } else copia_texto(url, t, (size_t)max);
+}
+
+/* La página de inicio: buscador con el motor elegido, accesos rápidos (marcadores y los más
+ * visitados) y los consejos de siempre. Devuelve un bloque de aloca (Latin-1). */
+static char *inicio_gerar(void)
+{
+    enum { CAP = 12288 };
+    char *h = aloca(CAP);
+    if (!h) return NULL;
+    int k = 0;
+    const buscador_t *b = &buscadores[conf.buscador];
+    k += formatar_texto(h + k, CAP - k,
+        "<title>Inicio</title><h1>Cipó, el navegador de SaguiOS</h1>"
+        "<form action=\"%s\" method=\"get\"><p><input type=\"text\" name=\"%s\" size=\"40\"> "
+        "<input type=\"submit\" value=\"Buscar con %s\"></p></form>", b->acao, b->campo, b->nome);
+    k += formatar_texto(h + k, CAP - k, "<h3>Accesos rápidos</h3><ul>");
+    int n = 0;
+    for (int i = 0; i < qtd_marcadores && n < 8 && k < CAP - 1500; i++) {
+        char u[URL_MAX * 2], t[200];
+        html_escapar(marcador_url[i], u, sizeof u);
+        html_escapar(marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i], t, sizeof t);
+        k += formatar_texto(h + k, CAP - k, "<li><a href=\"%s\">%s</a> (marcador)</li>", u, t);
+        n++;
+    }
+    bool usado[HST_MAX];
+    memset(usado, 0, sizeof usado);
+    for (int r = 0; r < 8 && n < 14 && k < CAP - 1500; r++) {   /* los más visitados */
+        int mejor = -1;
+        for (int i = 0; i < qtd_hst; i++)
+            if (!usado[i] && (mejor < 0 || hst[i].visitas > hst[mejor].visitas)) mejor = i;
+        if (mejor < 0) break;
+        usado[mejor] = true;
+        char u[HST_URL * 2], t[160];
+        html_escapar(hst[mejor].url, u, sizeof u);
+        html_escapar(hst[mejor].tit[0] ? hst[mejor].tit : hst[mejor].url, t, sizeof t);
+        k += formatar_texto(h + k, CAP - k, "<li><a href=\"%s\">%s</a> (%d visita%s)</li>", u, t, hst[mejor].visitas, hst[mejor].visitas == 1 ? "" : "s");
+        n++;
+    }
+    if (!n) k += formatar_texto(h + k, CAP - k, "<li>Aquí aparecerán tus marcadores y los sitios que más visites.</li>");
+    k += formatar_texto(h + k, CAP - k, "</ul>");
+    k += formatar_texto(h + k, CAP - k, "%s", pagina_inicio + (sizeof("<title>Inicio</title><h1>Cipó, el navegador de SaguiOS</h1>") - 1));
+    return h;
+}
+
+/* ---- favicon (D373): el <link rel="icon"> de la página, o /favicon.ico; si no, el icono genérico ---- */
+
+static unsigned le32(const uint8_t *p) { return (unsigned)p[0] | (unsigned)p[1] << 8 | (unsigned)p[2] << 16 | (unsigned)p[3] << 24; }
+static unsigned le16(const uint8_t *p) { return (unsigned)p[0] | (unsigned)p[1] << 8; }
+
+static void favicon_escalar(aba_t *a, const uint32_t *px, int l, int h)
+{
+    if (l <= 0 || h <= 0) return;
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++) a->fav[y * 16 + x] = px[(y * h / 16) * l + (x * l / 16)] & 0xFFFFFF;
+    a->tem_fav = true;
+}
+
+static void favicon_buscar(void)
+{
+    aba_t *a = &abas[aba_atual];
+    a->fav_tentado = true;
+    if (!doc || !doc_html || (!comeca_com(url_atual, "http://") && !comeca_com(url_atual, "https://"))) return;
+    char href[URL_MAX] = "", abs[URL_MAX];
+    for (int i = 0; i + 8 < doc_tam && i < 60000; i++) {
+        if (doc[i] != '<') continue;
+        if (igual_sem_caixa_e_tilde(doc + i + 1, "/head", 5) || igual_sem_caixa_e_tilde(doc + i + 1, "body", 4)) break;
+        if (!igual_sem_caixa_e_tilde(doc + i + 1, "link", 4)) continue;
+        int e = i;
+        while (e < doc_tam && doc[e] != '>') e++;
+        char rel[64];
+        if (atributo_valor(doc + i + 5, e - i - 5, "rel", rel, sizeof rel) && contem_sem_caixa(rel, "icon")
+            && atributo_valor(doc + i + 5, e - i - 5, "href", href, sizeof href)) break;
+        href[0] = 0;
+        i = e;
+    }
+    if (comeca_com(href, "data:")) return;
+    if (!juntar_url(url_atual, href[0] ? href : "/favicon.ico", abs, sizeof abs)) return;
+    static baixa_t fb;
+    baixar(abs, false, 65536, &fb);
+    if (fb.erro || !fb.corpo || fb.tam < 24) { libera(fb.corpo); registrar("cipo: favicon no disponible (%s)\n", abs); return; }
+    const uint8_t *d = (const uint8_t *)fb.corpo;
+    int n = fb.tam;
+    if (d[0] == 0 && d[1] == 0 && d[2] == 1 && d[3] == 0) {         /* .ico: se busca la entrada más cercana a 16x16 */
+        int cnt = (int)le16(d + 4), mejor = -1, ms = 1000;
+        for (int k = 0; k < cnt && 6 + 16 * (k + 1) <= n; k++) {
+            const uint8_t *e = d + 6 + 16 * k;
+            int w = e[0] ? e[0] : 256, off = (int)le32(e + 12), sz = (int)le32(e + 8);
+            int score = w > 16 ? w - 16 : 16 - w;
+            if (off < 0 || sz <= 0 || off + sz > n) continue;
+            if (score < ms) { ms = score; mejor = k; }
+        }
+        if (mejor >= 0) {
+            const uint8_t *e = d + 6 + 16 * mejor;
+            int off = (int)le32(e + 12), sz = (int)le32(e + 8);
+            const uint8_t *dib = d + off;
+            if (sz > 8 && dib[0] == 0x89 && dib[1] == 'P') { d = dib; n = sz; }
+            else if (sz > 44 && le32(dib) == 40) {                 /* DIB de 24 o 32 bits */
+                int w = (int)le32(dib + 4), h = (int)le32(dib + 8) / 2, bpp = (int)le16(dib + 14);
+                if (w > 0 && w <= 256 && h > 0 && h <= 256 && (bpp == 32 || bpp == 24)) {
+                    uint32_t *px = aloca((size_t)w * (size_t)h * 4);
+                    if (px) {
+                        const uint8_t *pd = dib + 40;
+                        int stride = bpp == 32 ? w * 4 : (w * 3 + 3) & ~3;
+                        for (int y = 0; y < h; y++)
+                            for (int x = 0; x < w; x++) {
+                                const uint8_t *q = pd + (h - 1 - y) * stride + x * (bpp / 8);
+                                if (q + bpp / 8 > d + n) { px[y * w + x] = 0xE8ECF0; continue; }
+                                unsigned al = bpp == 32 ? q[3] : 255;
+                                unsigned r = (q[2] * al + 0xE8 * (255 - al)) / 255, g = (q[1] * al + 0xEC * (255 - al)) / 255, b = (q[0] * al + 0xF0 * (255 - al)) / 255;
+                                px[y * w + x] = r << 16 | g << 8 | b;
+                            }
+                        favicon_escalar(a, px, w, h);
+                        libera(px);
+                    }
+                }
+                libera(fb.corpo);
+                if (a->tem_fav) registrar("cipo: favicon %s\n", abs);
+                return;
+            } else { libera(fb.corpo); return; }
+        } else { libera(fb.corpo); return; }
+    }
+    imagem_t im;
+    memset(&im, 0, sizeof im);
+    if (imagem_decodificar(d, n, &im) == 0) {
+        favicon_escalar(a, im.px, im.larg, im.alt);
+        imagem_liberar(&im);
+    }
+    libera(fb.corpo);
+    if (a->tem_fav) registrar("cipo: favicon %s\n", abs);
+    else registrar("cipo: favicon sin imagen (%s)\n", abs);
+}
+
+/* ---- descargas simultáneas (D373): hilos de trabajo que bajan los recursos por adelantado ----
+ *
+ * El motor de páginas no es reentrante y la ventana tampoco: los hilos SOLO bajan bytes
+ * (baixar() no toca la ventana si no es el hilo principal). El análisis, la decodificación y el
+ * pintado siguen en el hilo principal, que recoge cada recurso de la caché cuando el motor lo pide
+ * (motor_baixar). Con 1 hilo no hay nada de esto y se baja en serie, como siempre. */
+#define PF_MAX 24
+#define PF_BYTES (1024 * 1024)       /* tope de cada recurso por adelantado (los mayores se bajan en serie) */
+enum { PF_LIVRE = 0, PF_PEDIDO, PF_BAIXANDO, PF_LISTO, PF_ERRO, PF_FALHA };
+typedef struct { char url[URL_MAX]; volatile int estado; uint8_t *dados; unsigned n; } pf_t;
+static pf_t pf[PF_MAX];
+static mutex_t pf_trava = MUTEX_INICIAL;
+static volatile uint32_t pf_vivos;
+static thread_t *pf_th[HILOS_MAX];
+static int pf_nth;
+static volatile int pf_cancela;
+static int pf_hilos_usados;          /* hilos del último lote (para la ventana de ajustes) */
+
+static void *pf_trabalhador(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        int k = -1;
+        mutex_tomar(&pf_trava);
+        if (!pf_cancela)
+            for (int i = 0; i < PF_MAX; i++) if (pf[i].estado == PF_PEDIDO) { pf[i].estado = PF_BAIXANDO; k = i; break; }
+        mutex_largar(&pf_trava);
+        if (k < 0) break;
+        baixa_t *b = aloca_zerado(sizeof *b);
+        char u[URL_MAX];
+        copia_texto(u, pf[k].url, sizeof u);
+        registrar("cipo: descarga hilo %d %s\n", thread_id(), u);
+        if (b) baixar(u, false, PF_BYTES, b);
+        mutex_tomar(&pf_trava);
+        if (b && !b->erro && !b->truncado && b->corpo && b->tam > 0) {
+            pf[k].dados = (uint8_t *)b->corpo; pf[k].n = (unsigned)b->tam; pf[k].estado = PF_LISTO;
+        } else {
+            if (b) libera(b->corpo);
+            pf[k].estado = (b && b->erro) ? PF_ERRO : PF_FALHA;
+        }
+        mutex_largar(&pf_trava);
+        libera(b);
+    }
+    atomico_dec32(&pf_vivos);
+    return NULL;
+}
+
+static void pf_juntar(void)
+{
+    for (int i = 0; i < pf_nth; i++) if (pf_th[i]) thread_join(pf_th[i]);
+    pf_nth = 0;
+}
+
+/* Deja la caché vacía (al cambiar de página o de pestaña): los hilos acaban lo que traen entre manos. */
+static void pf_limpar(void)
+{
+    pf_cancela = 1;
+    pf_juntar();
+    pf_cancela = 0;
+    mutex_tomar(&pf_trava);
+    for (int i = 0; i < PF_MAX; i++) { if (pf[i].dados) libera(pf[i].dados); pf[i].dados = NULL; pf[i].estado = PF_LIVRE; }
+    mutex_largar(&pf_trava);
+}
+
+/* Si la página tiene recursos por bajar y se piden varios hilos, lanza un lote. */
+static void pf_lote(void)
+{
+    int h = hilos_efectivos();
+    if (h < 2 || !motor || pf_vivos) return;
+    pf_juntar();
+    for (int i = 0; i < PF_MAX; i++) if (pf[i].estado == PF_PEDIDO || pf[i].estado == PF_BAIXANDO) return;
+    const char *urls[PF_MAX];
+    int n = motor_urls_pendentes(motor, urls, PF_MAX), pedidos = 0;
+    for (int i = 0; i < n; i++) {
+        bool ja = false;
+        for (int k = 0; k < PF_MAX; k++) if (pf[k].estado != PF_LIVRE && !compara_texto(pf[k].url, urls[i])) ja = true;
+        if (ja) continue;
+        for (int k = 0; k < PF_MAX; k++)
+            if (pf[k].estado == PF_LIVRE) { copia_texto(pf[k].url, urls[i], sizeof pf[k].url); pf[k].estado = PF_PEDIDO; pedidos++; break; }
+    }
+    if (pedidos < 2) {   /* uno solo no compensa: se baja en serie */
+        for (int k = 0; k < PF_MAX; k++) if (pf[k].estado == PF_PEDIDO) pf[k].estado = PF_LIVRE;
+        return;
+    }
+    int nth = h < pedidos ? h : pedidos;
+    pf_vivos = (uint32_t)nth;
+    pf_nth = 0;
+    for (int i = 0; i < nth; i++) {
+        thread_t *t = thread_create(pf_trabalhador, NULL, 64 * 1024);
+        if (!t) { atomico_dec32(&pf_vivos); continue; }
+        pf_th[pf_nth++] = t;
+    }
+    pf_hilos_usados = pf_nth;
+    registrar("cipo: descargas en paralelo: %d recursos, %d hilos (pedidos %d)\n", pedidos, pf_nth, conf.hilos);
+    if (!pf_nth) for (int k = 0; k < PF_MAX; k++) if (pf[k].estado == PF_PEDIDO) pf[k].estado = PF_LIVRE;
+}
+
+/* El recurso de la caché, esperando si lo está bajando un hilo. NULL + *achou = ya se intentó y falló. */
+static uint8_t *pf_pegar(const char *url, unsigned *n, bool *achou)
+{
+    *achou = false;
+    for (int i = 0; i < PF_MAX; i++) {
+        if (pf[i].estado == PF_LIVRE || compara_texto(pf[i].url, url) != 0) continue;
+        while (pf[i].estado == PF_BAIXANDO || (pf[i].estado == PF_PEDIDO && pf_vivos)) dormir(1);
+        mutex_tomar(&pf_trava);
+        int est = pf[i].estado;
+        uint8_t *d = pf[i].dados;
+        *n = pf[i].n;
+        pf[i].dados = NULL;
+        pf[i].estado = PF_LIVRE;
+        mutex_largar(&pf_trava);
+        if (est == PF_LISTO) { *achou = true; return d; }
+        if (est == PF_ERRO) { *achou = true; return NULL; }
+        return NULL;
+    }
+    return NULL;
+}
+
+/* ---- el gestor de descargas (D373) ---- */
+
+static int desc_hilo_ler(void *c, void *buf, unsigned n)
+{
+    conexao_t *cn = c;
+    if (!cn->tls) return conexao_ler(cn, buf, n);
+    mutex_tomar(&tls_trava);
+    int r = conexao_ler(cn, buf, n);
+    mutex_largar(&tls_trava);
+    return r;
+}
+
+static void desc_falha(desc_t *d, const char *t) { copia_texto(d->erro, t, sizeof d->erro); d->estado = D_ERRO; registrar("cipo: descarga error %s (%s)\n", d->nome, t); }
+
+static void *desc_hilo(void *arg)
+{
+    desc_t *d = arg;
+    http_resposta_t *rr = aloca_zerado(sizeof *rr);
+    conexao_t *cn = aloca_zerado(sizeof *cn);
+    char url[URL_MAX];
+    copia_texto(url, d->url, sizeof url);
+    int fd = -1;
+    uint8_t *buf = aloca(16384);
+    if (!rr || !cn || !buf) { desc_falha(d, "Sin memoria"); goto fim; }
+    bool aberta = false;
+    for (int red = 0; red < 5 && !aberta; red++) {
+        url_t u;
+        if (!url_separar(url, &u)) { desc_falha(d, "Dirección no válida"); goto fim; }
+        char e2[160];
+        if (u.https) {
+            mutex_tomar(&tls_trava);
+            if (!cfg.raizes && !tls_config_padrao(&cfg, NULL, e2, sizeof e2)) { mutex_largar(&tls_trava); desc_falha(d, "No se pudo preparar HTTPS"); goto fim; }
+        }
+        int rc = conexao_abrir(cn, &u, &cfg);
+        if (u.https) mutex_largar(&tls_trava);
+        if (rc < 0) { conexao_fechar(cn); desc_falha(d, "No se pudo conectar"); goto fim; }
+        char ped[1024];
+        int np = http_montar_pedido(&u, "GET", NULL, ped, sizeof ped);
+        if (u.https) mutex_tomar(&tls_trava);
+        int w = conexao_escrever(cn, ped, (unsigned)np);
+        if (u.https) mutex_largar(&tls_trava);
+        if (w < 0 || http_ler_cabecalho_de(rr, desc_hilo_ler, cn) < 0) { conexao_fechar(cn); desc_falha(d, "Respuesta no válida"); goto fim; }
+        char dest[URL_MAX];
+        if (rr->codigo >= 300 && rr->codigo < 400 && http_campo(rr->cabecalho, "Location", dest, sizeof dest)) {
+            conexao_fechar(cn);
+            char nova[URL_MAX];
+            if (!juntar_url(url, dest, nova, sizeof nova)) { desc_falha(d, "Redirección no válida"); goto fim; }
+            copia_texto(url, nova, sizeof url);
+            continue;
+        }
+        aberta = true;
+    }
+    if (!aberta) { desc_falha(d, "Demasiadas redirecciones"); goto fim; }
+    if (rr->codigo != 200) { conexao_fechar(cn); char t[32]; formatar_texto(t, sizeof t, "El servidor dice %d", rr->codigo); desc_falha(d, t); goto fim; }
+    char cl[24];
+    d->total = http_campo(rr->cabecalho, "Content-Length", cl, sizeof cl) ? num_de(cl, 0, 0x7FFFFFFF, 0) : 0;
+    fd = abrir(d->caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) { conexao_fechar(cn); desc_falha(d, "No se pudo crear el archivo"); goto fim; }
+    int n = 0;
+    for (;;) {
+        while (d->pausa && !d->cancela) { d->estado = D_PAUSADA; dormir(100); }
+        if (d->cancela) break;
+        d->estado = D_BAIXANDO;
+        n = http_ler_corpo(rr, buf, 16384);
+        if (n <= 0) break;
+        if (escrever_tudo(fd, buf, (unsigned)n) != n) { n = -1; break; }
+        d->bytes += n;
+    }
+    conexao_fechar(cn);
+    fechar(fd);
+    fd = -1;
+    if (d->cancela) { apagar(d->caminho); d->estado = D_CANCELADA; registrar("cipo: descarga cancelada %s\n", d->nome); }
+    else if (n < 0) desc_falha(d, "Error al leer o escribir");
+    else { d->estado = D_PRONTA; if (!d->total) d->total = d->bytes; registrar("cipo: descarga lista %s (%d bytes)\n", d->caminho, d->bytes); }
+fim:
+    if (fd >= 0) fechar(fd);
+    libera(buf); libera(rr); libera(cn);
+    return NULL;
+}
+
+static void desc_iniciar(const char *url)
+{
+    int k = -1;
+    for (int i = 0; i < DESC_MAX; i++) if (desc[i].estado == D_LIVRE || desc[i].estado >= D_PRONTA) { k = i; break; }
+    if (k < 0) { rodape("Hay demasiadas descargas; quita alguna de la lista"); return; }
+    desc_t *d = &desc[k];
+    memset(d, 0, sizeof *d);
+    copia_texto(d->url, url, sizeof d->url);
+    nome_arquivo_url(url, d->nome, sizeof d->nome);
+    for (int v = 0; v < 100; v++) {
+        if (v) { char b[64]; formatar_texto(b, sizeof b, "%d_%s", v, d->nome); formatar_texto(d->caminho, sizeof d->caminho, "%s/%s", pasta_descargas_conf(), b); }
+        else formatar_texto(d->caminho, sizeof d->caminho, "%s/%s", pasta_descargas_conf(), d->nome);
+        info_arquivo_t inf;
+        bool ocupado = info_arquivo(d->caminho, &inf) == 0;
+        for (int o = 0; o < DESC_MAX; o++) if (o != k && desc[o].estado && desc[o].estado < D_PRONTA && !compara_texto(desc[o].caminho, d->caminho)) ocupado = true;
+        if (!ocupado) break;
+    }
+    d->estado = D_BAIXANDO;
+    if (k >= qtd_desc) qtd_desc = k + 1;
+    desc_sel = k;
+    if (!thread_create(desc_hilo, d, 64 * 1024)) { desc_falha(d, "No se pudo crear el hilo"); return; }
+    registrar("cipo: descarga iniciada %s -> %s\n", url, d->caminho);
+}
+
+static int desc_activas(void)
+{
+    int n = 0;
+    for (int i = 0; i < qtd_desc; i++) if (desc[i].estado == D_BAIXANDO || desc[i].estado == D_PAUSADA) n++;
+    return n;
+}
+
+/* ------------------------------------------------------------ paneles de gestión (D373)
+ *
+ * Marcadores, Historial, Descargas y los Ajustes ocupan el sitio de la página, con una lista de
+ * secciones a la izquierda (como la Configuración del sistema). Se abren desde el menú «≡» o con
+ * Ctrl+H (historial), Ctrl+J (descargas) y Ctrl+Mayús+B (marcadores). Esc los cierra. */
+
+#define PAN_LISTA 150
+static lista_t l_marc, l_hist;
+static char it_marc[MARC_MAX][64];
+static char it_hist[HST_MAX][64];
+static int  hist_idx[HST_MAX], qtd_hist_f;
+static caixa_t cx_busca, cx_inicio, cx_desc;
+static casilla_t cs_js, cs_img, cs_barra;
+static combo_t cb_inicio, cb_busc, cb_hilos;
+static botao_t pb[8];
+static unsigned ultimo_desc_ms;
+static const char *const nomes_painel[P_N] = { "", N_("Marcadores"), N_("Historial"), N_("Descargas"), N_("General"), N_("Privacidad"), N_("Rendimiento") };
+static const char *const inicio_txt[3] = { N_("Página propia de Cipó"), N_("Página en blanco"), N_("Esta dirección:") };
+static const char *const hilos_txt[HILOS_MAX] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12" };
+
+static int pan_y(void) { return ABA_Y; }
+static int pan_x0(void) { return PAN_LISTA + 14; }
+static int pan_l(void) { return LARG - PAN_LISTA - 28; }
+
+static void marc_lista_reconstruir(void)
+{
+    for (int i = 0; i < qtd_marcadores; i++) {
+        char t[96];
+        const char *n = marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i];
+        if (marcador_pasta[i][0]) formatar_texto(t, sizeof t, "[%s] %s", marcador_pasta[i], n);
+        else copia_texto(t, n, sizeof t);
+        copia_texto(it_marc[i], t, 64);
+    }
+    l_marc.itens = it_marc;
+    l_marc.qtd = qtd_marcadores;
+    if (l_marc.sel >= qtd_marcadores) l_marc.sel = qtd_marcadores - 1;
+}
+
+static void hist_filtrar(void)
+{
+    qtd_hist_f = 0;
+    for (int i = qtd_hst - 1; i >= 0; i--) {
+        if (cx_busca.texto[0] && !contem_sem_caixa(hst[i].url, cx_busca.texto) && !contem_sem_caixa(hst[i].tit, cx_busca.texto)) continue;
+        char t[96];
+        formatar_texto(t, sizeof t, "%s%s%s", hst[i].tit, hst[i].tit[0] ? " - " : "", hst[i].url);
+        copia_texto(it_hist[qtd_hist_f], t, 64);
+        hist_idx[qtd_hist_f++] = i;
+    }
+    l_hist.itens = it_hist;
+    l_hist.qtd = qtd_hist_f;
+    if (l_hist.sel >= qtd_hist_f) l_hist.sel = qtd_hist_f - 1;
+    if (l_hist.topo > l_hist.sel) l_hist.topo = l_hist.sel > 0 ? l_hist.sel : 0;
+}
+
+static void botoes_fila(int n, const char *const *txt, int y)
+{
+    int x = pan_x0();
+    for (int i = 0; i < n; i++) {
+        int l = (int)tam_texto(txt[i]) * LETRA_L + 20;
+        pb[i] = (botao_t){ x, y, l, 26, txt[i], false };
+        x += l + 8;
+    }
+}
+
+static int pan_nbot;
+static char pan_txt[8][40];
+
+static void pan_botoes(int n, const char *a, const char *b, const char *c, const char *d, int y)
+{
+    const char *t[4] = { a, b, c, d };
+    const char *tt[4];
+    for (int i = 0; i < n; i++) { copia_texto(pan_txt[i], _(t[i]), sizeof pan_txt[i]); tt[i] = pan_txt[i]; }
+    botoes_fila(n, tt, y);
+    pan_nbot = n;
+}
+
+/* Coloca los controles de la sección actual (al abrirla y al redimensionar). */
+static void painel_layout(void)
+{
+    int y0 = pan_y(), x0 = pan_x0(), cl = pan_l(), yb = y0 + AREA_A;
+    switch (painel) {
+    case P_MARC:
+        l_marc = (lista_t){ .x = x0, .y = y0 + 34, .l = cl, .a = AREA_A - 34 - 76, .itens = it_marc, .qtd = 0, .sel = l_marc.sel, .topo = 0 };
+        marc_lista_reconstruir();
+        pan_botoes(4, N_("Abrir"), N_("Editar"), N_("Borrar"), N_("Carpeta..."), yb - 68);
+        {
+            const char *t[2] = { _("Importar HTML..."), _("Exportar HTML...") };
+            int x = x0;
+            for (int i = 0; i < 2; i++) { int l = (int)tam_texto(t[i]) * LETRA_L + 20; pb[4 + i] = (botao_t){ x, yb - 36, l, 26, t[i], false }; x += l + 8; }
+            pan_nbot = 6;
+            cs_barra = (casilla_t){ x + 10, yb - 32, conf.barra_marc };
+        }
+        break;
+    case P_HIST:
+        cx_busca.x = x0 + 80; cx_busca.y = y0 + 6; cx_busca.l = cl > 360 ? 300 : cl - 80;
+        l_hist = (lista_t){ .x = x0, .y = y0 + 42, .l = cl, .a = AREA_A - 42 - 40, .itens = it_hist, .sel = l_hist.sel, .topo = 0 };
+        hist_filtrar();
+        pan_botoes(3, N_("Abrir"), N_("Quitar"), N_("Borrar historial"), 0, yb - 34);
+        break;
+    case P_DESC:
+        pan_botoes(4, N_("Pausar/Reanudar"), N_("Cancelar"), N_("Abrir carpeta"), N_("Quitar de la lista"), yb - 34);
+        break;
+    case P_GERAL:
+        combo_iniciar(&cb_inicio, x0, y0 + 40, 240, inicio_txt, 3, false, COD_COMBO);
+        combo_definir(&cb_inicio, _(inicio_txt[conf.inicio_modo]));
+        cb_inicio.sel = conf.inicio_modo;
+        cx_inicio.x = x0 + 250; cx_inicio.y = y0 + 38; cx_inicio.l = cl - 250 > 300 ? 300 : cl - 250;
+        caixa_definir(&cx_inicio, conf.inicio_url);
+        combo_iniciar(&cb_busc, x0, y0 + 100, 240, buscadores_nomes, N_BUSC, false, COD_COMBO + 1);
+        combo_definir(&cb_busc, buscadores_nomes[conf.buscador]);
+        cb_busc.sel = conf.buscador;
+        cx_desc.x = x0; cx_desc.y = y0 + 160; cx_desc.l = cl - 130 > 400 ? 400 : cl - 130;
+        caixa_definir(&cx_desc, conf.pasta_desc[0] ? conf.pasta_desc : pasta_descarga());
+        { const char *t = _("Elegir..."); pb[0] = (botao_t){ cx_desc.x + cx_desc.l + 8, y0 + 158, (int)tam_texto(t) * LETRA_L + 20, 26, t, false }; pan_nbot = 1; }
+        cs_barra = (casilla_t){ x0, y0 + 204, conf.barra_marc };
+        break;
+    case P_PRIV:
+        pan_botoes(2, N_("Activar o desactivar"), N_("Borrar historial"), 0, 0, y0 + 74);
+        {
+            const char *t = _("Olvidar posiciones de lectura");
+            pb[2] = (botao_t){ x0, y0 + 112, (int)tam_texto(t) * LETRA_L + 20, 26, t, false };
+            pan_nbot = 3;
+        }
+        break;
+    case P_REND:
+        combo_iniciar(&cb_hilos, x0, y0 + 56, 80, hilos_txt, HILOS_MAX, false, COD_COMBO + 2);
+        combo_definir(&cb_hilos, hilos_txt[conf.hilos - 1]);
+        cb_hilos.sel = conf.hilos - 1;
+        cs_js = (casilla_t){ x0, y0 + 170, conf.js };
+        cs_img = (casilla_t){ x0, y0 + 200, conf.imagens };
+        pan_nbot = 0;
+        break;
+    }
+}
+
+static void rot_p(int x, int y, const char *t, uint32_t cor) { g_texto_n(j, x, y, t, (LARG - x - 6) / LETRA_L, cor); }
+
+static void painel_desc_desenhar(void)
+{
+    int x0 = pan_x0(), y0 = pan_y() + 34, cl = pan_l();
+    g_retangulo(j, x0, y0, cl, AREA_A - 34 - 40, COR_BRANCO);
+    g_moldura(j, x0, y0, cl, AREA_A - 34 - 40, COR_BORDA);
+    int fila = 0;
+    for (int i = 0; i < qtd_desc; i++) {
+        desc_t *d = &desc[i];
+        if (d->estado == D_LIVRE) continue;
+        int y = y0 + 4 + fila * 46;
+        if (y + 44 > y0 + AREA_A - 34 - 40) break;
+        if (i == desc_sel) g_retangulo(j, x0 + 1, y - 2, cl - 2, 44, 0xDCE8F8);
+        char t[160];
+        rot_p(x0 + 8, y, d->nome, COR_TEXTO);
+        int pct = d->total > 0 ? (int)((long long)d->bytes * 100 / d->total) : 0;
+        const char *est = d->estado == D_BAIXANDO ? _("Descargando") : d->estado == D_PAUSADA ? _("En pausa") : d->estado == D_PRONTA ? _("Completa")
+                        : d->estado == D_CANCELADA ? _("Cancelada") : d->erro;
+        formatar_texto(t, sizeof t, "%s  %d KB%s", est, d->bytes / 1024, d->total ? "" : "");
+        if (d->total) { char u[48]; formatar_texto(u, sizeof u, " de %d KB (%d%%)", d->total / 1024, pct); junta_texto(t, u, sizeof t); }
+        rot_p(x0 + 8, y + 18, t, COR_TEXTO_FRACO);
+        int bl = cl - 24;
+        g_retangulo(j, x0 + 8, y + 36, bl, 4, 0xD0D6DC);
+        int ll = d->total > 0 ? (int)((long long)bl * d->bytes / d->total) : (d->estado == D_PRONTA ? bl : 0);
+        if (ll > bl) ll = bl;
+        g_retangulo(j, x0 + 8, y + 36, ll, 4, d->estado == D_ERRO ? 0xB03A2E : COR_DESTAQUE);
+        fila++;
+    }
+    if (!fila) rot_p(x0 + 10, y0 + 10, _("No hay descargas. Los archivos que no son páginas se bajan aquí."), COR_TEXTO_FRACO);
+    jan_mostrar_area(j, x0, y0, cl, AREA_A - 34 - 40);
+}
+
+static void painel_desenhar(void)
+{
+    int y0 = pan_y();
+    pintura_pendente = false;
+    g_retangulo(j, 0, y0, LARG, AREA_A, COR_FUNDO);
+    g_retangulo(j, 0, y0, PAN_LISTA, AREA_A, 0xE6E9EC);
+    g_retangulo(j, PAN_LISTA, y0, 1, AREA_A, COR_BORDA);
+    for (int i = 1; i < P_N; i++) {
+        int y = y0 + 8 + (i - 1) * 28;
+        if (i == painel) g_retangulo(j, 4, y - 2, PAN_LISTA - 8, 24, COR_SELECAO);
+        rot_p(14, y + 2, _(nomes_painel[i]), i == painel ? COR_BRANCO : COR_TEXTO);
+        if (i == P_DESC || i == P_GERAL) g_retangulo(j, 8, y + 25, PAN_LISTA - 16, 1, 0xC4CBD2);
+    }
+    int x0 = pan_x0();
+    rot_p(x0, y0 + 10, _(nomes_painel[painel]), COR_DESTAQUE);
+    switch (painel) {
+    case P_MARC:
+        lista_desenhar(j, &l_marc);
+        casilla_desenhar(j, &cs_barra);
+        rot_p(cs_barra.x + 22, cs_barra.y + 2, _("Mostrar la barra de marcadores"), COR_TEXTO);
+        break;
+    case P_HIST:
+        rot_p(x0, y0 + 12, _("Buscar:"), COR_TEXTO);
+        caixa_desenhar(j, &cx_busca);
+        lista_desenhar(j, &l_hist);
+        break;
+    case P_DESC:
+        painel_desc_desenhar();
+        break;
+    case P_GERAL:
+        rot_p(x0, y0 + 28 - 12, _("Página de inicio y pestaña nueva"), COR_TEXTO_FRACO);
+        rot_p(x0, y0 + 88 - 12, _("Motor de búsqueda (barra de dirección y página de inicio)"), COR_TEXTO_FRACO);
+        rot_p(x0, y0 + 148 - 12, _("Carpeta de descargas"), COR_TEXTO_FRACO);
+        caixa_desenhar(j, &cx_inicio);
+        combo_desenhar(j, &cb_busc);
+        caixa_desenhar(j, &cx_desc);
+        casilla_desenhar(j, &cs_barra);
+        rot_p(x0 + 22, cs_barra.y + 2, _("Mostrar la barra de marcadores"), COR_TEXTO);
+        combo_desenhar(j, &cb_inicio);
+        break;
+    case P_PRIV: {
+        info_bloqueo_t bi;
+        memset(&bi, 0, sizeof bi);
+        char t[160];
+        if (bloqueo_dns(BLOQ_ESTADO, &bi, sizeof bi) < 0) copia_texto(t, _("Bloqueo de publicidad y rastreo (DNS): no disponible"), sizeof t);
+        else formatar_texto(t, sizeof t, _("Bloqueo de publicidad y rastreo (DNS): %s, %u dominios"), bi.activo ? _("activo") : _("desactivado"), bi.bloqueados);
+        rot_p(x0, y0 + 44, t, COR_TEXTO);
+        rot_p(x0, y0 + 150, _("Cipó no guarda cookies: no hay nada que aceptar ni borrar."), COR_TEXTO_FRACO);
+        break;
+    }
+    case P_REND: {
+        rot_p(x0, y0 + 32, _("Descargas simultáneas (hilos que bajan imágenes y recursos a la vez):"), COR_TEXTO);
+        combo_desenhar(j, &cb_hilos);
+        char t[160];
+        int ef = hilos_efectivos();
+        if (ef < conf.hilos) formatar_texto(t, sizeof t, _("Ahora se usan %d: la memoria libre no alcanza para %d."), ef, conf.hilos);
+        else formatar_texto(t, sizeof t, _("Ahora se usan %d (de 1 a 12; 1 = en serie, como siempre)."), ef);
+        rot_p(x0, y0 + 90, t, ef < conf.hilos ? 0xB03A2E : COR_TEXTO_FRACO);
+        rot_p(x0, y0 + 110, _("En equipos con poca memoria conviene un valor bajo."), COR_TEXTO_FRACO);
+        rot_p(x0, y0 + 146, _("Contenido de las páginas"), COR_TEXTO_FRACO);
+        casilla_desenhar(j, &cs_js); rot_p(x0 + 22, cs_js.y + 2, _("Ejecutar JavaScript"), COR_TEXTO);
+        casilla_desenhar(j, &cs_img); rot_p(x0 + 22, cs_img.y + 2, _("Mostrar imágenes"), COR_TEXTO);
+        break;
+    }
+    }
+    for (int i = 0; i < pan_nbot; i++) botao_desenhar(j, &pb[i]);
+    jan_mostrar_area(j, 0, y0, LARG, AREA_A);
+}
+
+static void mostrar_painel(int p)
+{
+    if (p <= P_NADA || p >= P_N) return;
+    sugestoes_fechar();
+    if (painel == P_NADA) ler_marcadores();
+    painel = p;
+    if (p == P_HIST) { cx_busca.texto[0] = 0; cx_busca.cursor = 0; cx_busca.foco = true; }
+    painel_layout();
+    painel_desenhar();
+    registrar("cipo: panel %s\n", nomes_painel[p]);
+}
+
+static void fechar_painel(void)
+{
+    if (!painel) return;
+    painel = P_NADA;
+    registrar("cipo: panel cerrado\n");
+    desenhar_barra();
+    desenhar_pagina();
+}
+
+static void barra_marc_mudou(void)
+{
+    gravar_conf();
+    novo_tamanho();
+    ajustar_barra();
+    if (painel) { painel_layout(); painel_desenhar(); }
+}
+
+static void editar_marcador(int i)
+{
+    char t[96], u[URL_MAX];
+    copia_texto(t, marcador_titulo[i], sizeof t);
+    if (!pedir_texto(_("Marcador"), _("Nombre:"), t, sizeof t)) return;
+    copia_texto(u, marcador_url[i], sizeof u);
+    if (!pedir_texto(_("Marcador"), _("Dirección:"), u, 120) || !u[0]) return;
+    copia_texto(marcador_titulo[i], t, 96);
+    copia_texto(marcador_url[i], u, URL_MAX);
+    gravar_marcadores();
+    registrar("cipo: marcador editado %s\n", u);
+}
+
+static void painel_abrir_url(const char *u)
+{
+    char c[URL_MAX];
+    copia_texto(c, u, sizeof c);
+    fechar_painel();
+    navegar(c);
+}
+
+static void painel_pergunta_hilos(void)
+{
+    gravar_conf();
+    registrar("cipo: descargas simultáneas %d (efectivas %d)\n", conf.hilos, hilos_efectivos());
+}
+
+/* Trata un evento mientras hay un panel abierto. true = consumido. */
+static bool painel_evento(const evento_t *e)
+{
+    if (e->tipo == EV_MENU && e->tecla >= COD_COMBO && e->tecla < COD_COMBO + 3) {
+        if (painel == P_GERAL && e->tecla == COD_COMBO && combo_tratar(j, &cb_inicio, e) == COMBO_SELECIONOU) {
+            conf.inicio_modo = cb_inicio.sel; gravar_conf(); painel_desenhar();
+        } else if (painel == P_GERAL && e->tecla == COD_COMBO + 1 && combo_tratar(j, &cb_busc, e) == COMBO_SELECIONOU) {
+            conf.buscador = cb_busc.sel; gravar_conf(); registrar("cipo: buscador %s\n", buscadores[conf.buscador].nome);
+        } else if (painel == P_REND && e->tecla == COD_COMBO + 2 && combo_tratar(j, &cb_hilos, e) == COMBO_SELECIONOU) {
+            conf.hilos = cb_hilos.sel + 1; painel_pergunta_hilos(); painel_desenhar();
+        }
+        return true;
+    }
+    bool mouse = e->tipo == EV_CLIQUE || e->tipo == EV_SOLTOU || e->tipo == EV_MOVER || e->tipo == EV_RODA;
+    if (mouse && e->y < pan_y()) return false;       /* pestañas y barra: siguen funcionando */
+    if (e->tipo == EV_TECLA && endereco.foco) return false;
+    if (e->tipo == EV_TECLA) {
+        unsigned t = e->tecla;
+        if ((e->modificadores & 6) || t == TECLA_F5_CIPO || t == TECLA_F3_CIPO) return false;   /* atajos globales */
+        if (t == TECLA_ESC || t == 27) {
+            if (painel == P_HIST && cx_busca.foco && cx_busca.texto[0]) { caixa_definir(&cx_busca, ""); hist_filtrar(); painel_desenhar(); return true; }
+            fechar_painel(); return true;
+        }
+    }
+    if (!mouse && e->tipo != EV_TECLA) return false;
+    /* la lista de secciones */
+    if (e->tipo == EV_CLIQUE && (e->botoes & 1) && e->x < PAN_LISTA) {
+        int i = (e->y - pan_y() - 6) / 28 + 1;
+        if (i >= 1 && i < P_N && i != painel) { painel = i; if (i == P_HIST) { cx_busca.texto[0] = 0; cx_busca.cursor = 0; cx_busca.foco = true; } painel_layout(); painel_desenhar(); registrar("cipo: panel %s\n", nomes_painel[i]); }
+        return true;
+    }
+    bool mudou = false;
+    switch (painel) {
+    case P_MARC: {
+        int sel0 = l_marc.sel;
+        int r = lista_tratar(j, &l_marc, e);
+        if (r == LISTA_ATIVOU && e->tipo == EV_CLIQUE && sel0 != l_marc.sel) r = LISTA_SELECIONOU;   /* un doble clic solo abre lo ya elegido */
+        if (r != LISTA_NADA) registrar("cipo: panel marcadores, lista %d, elegido %d, clic (%d,%d) x%u, lista y %d a %d\n", r, l_marc.sel, e->x, e->y, e->cliques, l_marc.y, l_marc.a);
+        if (r == LISTA_ATIVOU && l_marc.sel >= 0) { painel_abrir_url(marcador_url[l_marc.sel]); return true; }
+        if (casilla_tratar(&cs_barra, e)) { conf.barra_marc = cs_barra.marcada; barra_marc_mudou(); return true; }
+        for (int b = 0; b < pan_nbot; b++) if (botao_tratar(j, &pb[b], e)) {
+            int s = l_marc.sel;
+            registrar("cipo: panel marcadores, botón %d, elegido %d\n", b, s);
+            if (b == 0 && s >= 0) { painel_abrir_url(marcador_url[s]); return true; }
+            if (b == 1 && s >= 0) { editar_marcador(s); }
+            if (b == 2 && s >= 0) {
+                for (int k = s; k < qtd_marcadores - 1; k++) {
+                    copia_texto(marcador_url[k], marcador_url[k + 1], URL_MAX); copia_texto(marcador_titulo[k], marcador_titulo[k + 1], 96); copia_texto(marcador_pasta[k], marcador_pasta[k + 1], 32);
+                }
+                qtd_marcadores--;
+                gravar_marcadores();
+                registrar("cipo: marcador borrado, quedan %d\n", qtd_marcadores);
+            }
+            if (b == 3 && s >= 0) {
+                char p[32];
+                copia_texto(p, marcador_pasta[s], sizeof p);
+                if (pedir_texto(_("Carpeta"), _("Nombre de la carpeta (vacío = ninguna):"), p, sizeof p)) {
+                    copia_texto(marcador_pasta[s], p, 32); gravar_marcadores(); registrar("cipo: marcador %d en la carpeta \"%s\"\n", s, p);
+                }
+            }
+            if (b == 4) {
+                char c[160];
+                formatar_texto(c, sizeof c, "%s/marcadores.html", pasta_descargas_conf());
+                if (dialogo_abrir(_("Importar marcadores"), "*.html", c, c, sizeof c)) {
+                    int n = marcadores_importar(c);
+                    if (n >= 0) { gravar_marcadores(); registrar("cipo: importados %d marcadores de %s\n", n, c); }
+                    else mensagem("Cipó", _("No se pudo leer el archivo de marcadores."));
+                }
+            }
+            if (b == 5) {
+                char c[160];
+                formatar_texto(c, sizeof c, "%s/marcadores.html", pasta_descargas_conf());
+                if (dialogo_guardar(_("Exportar marcadores"), "*.html", c, c, sizeof c)) {
+                    if (marcadores_exportar(c)) registrar("cipo: marcadores exportados a %s (%d)\n", c, qtd_marcadores);
+                    else mensagem("Cipó", _("No se pudo escribir el archivo."));
+                }
+            }
+            mudou = true;
+        }
+        if (mudou) { painel_layout(); painel_desenhar(); desenhar_barra(); }
+        return true;
+    }
+    case P_HIST: {
+        char antes[sizeof cx_busca.texto];
+        copia_texto(antes, cx_busca.texto, sizeof antes);
+        int r = LISTA_NADA;
+        if (e->tipo == EV_TECLA && cx_busca.foco && e->tecla != TECLA_CIMA && e->tecla != TECLA_BAIXO && e->tecla != '\n') {
+            caixa_tratar(j, &cx_busca, e);
+        } else {
+            if (e->tipo == EV_CLIQUE) { bool f = cx_busca.foco; caixa_tratar(j, &cx_busca, e); if (cx_busca.foco && !f) { painel_desenhar(); return true; } }
+            int sel0 = l_hist.sel;
+            r = lista_tratar(j, &l_hist, e);
+            if (r == LISTA_ATIVOU && e->tipo == EV_CLIQUE && sel0 != l_hist.sel) r = LISTA_SELECIONOU;
+        }
+        if (compara_texto(antes, cx_busca.texto) != 0) { hist_filtrar(); painel_desenhar(); registrar("cipo: historial filtrado (%d)\n", qtd_hist_f); return true; }
+        if ((r == LISTA_ATIVOU || (e->tipo == EV_TECLA && e->tecla == '\n' && cx_busca.foco)) && l_hist.sel < 0 && qtd_hist_f > 0) l_hist.sel = 0;
+        if ((r == LISTA_ATIVOU || (e->tipo == EV_TECLA && e->tecla == '\n')) && l_hist.sel >= 0 && l_hist.sel < qtd_hist_f) { painel_abrir_url(hst[hist_idx[l_hist.sel]].url); return true; }
+        for (int b = 0; b < pan_nbot; b++) if (botao_tratar(j, &pb[b], e)) {
+            int s = l_hist.sel >= 0 && l_hist.sel < qtd_hist_f ? hist_idx[l_hist.sel] : -1;
+            if (b == 0 && s >= 0) { painel_abrir_url(hst[s].url); return true; }
+            if (b == 1 && s >= 0) { for (int k = s; k < qtd_hst - 1; k++) hst[k] = hst[k + 1]; qtd_hst--; gravar_hst(); }
+            if (b == 2 && confirmar("Cipó", _("¿Borrar todo el historial?"))) { qtd_hst = 0; gravar_hst(); registrar("cipo: historial borrado\n"); }
+            hist_filtrar(); painel_desenhar();
+        }
+        return true;
+    }
+    case P_DESC: {
+        if (e->tipo == EV_CLIQUE && (e->botoes & 1)) {
+            int y0 = pan_y() + 34 + 4, fila = 0, elegido = -1;
+            for (int i = 0; i < qtd_desc; i++) {
+                if (desc[i].estado == D_LIVRE) continue;
+                int y = y0 + fila * 46;
+                if (e->x >= pan_x0() && e->y >= y - 2 && e->y < y + 42) elegido = i;
+                fila++;
+            }
+            if (elegido >= 0) { desc_sel = elegido; painel_desenhar(); return true; }
+        }
+        for (int b = 0; b < pan_nbot; b++) if (botao_tratar(j, &pb[b], e)) {
+            if (desc_sel < 0 || desc_sel >= qtd_desc) return true;
+            desc_t *d = &desc[desc_sel];
+            if (b == 0 && (d->estado == D_BAIXANDO || d->estado == D_PAUSADA)) { d->pausa = !d->pausa; registrar("cipo: descarga %s %s\n", d->nome, d->pausa ? "en pausa" : "reanudada"); }
+            if (b == 1 && (d->estado == D_BAIXANDO || d->estado == D_PAUSADA)) { d->cancela = 1; registrar("cipo: descarga cancelada por el usuario %s\n", d->nome); }
+            if (b == 2) {
+                char dir[160];
+                copia_texto(dir, d->caminho, sizeof dir);
+                for (int k = (int)tam_texto(dir) - 1; k > 0; k--) if (dir[k] == '/') { dir[k] = 0; break; }
+                char *args[3] = { "arquivos", dir, NULL };
+                int pid = executar("/bin/arquivos", args);
+                registrar("cipo: abrir carpeta %s (pid %d)\n", dir, pid);
+            }
+            if (b == 3 && d->estado >= D_PRONTA) d->estado = D_LIVRE;
+            painel_desenhar();
+        }
+        return true;
+    }
+    case P_GERAL: {
+        if (combo_tratar(j, &cb_inicio, e) == COMBO_SELECIONOU) { conf.inicio_modo = cb_inicio.sel; gravar_conf(); }
+        combo_tratar(j, &cb_busc, e);
+        char a1[sizeof cx_inicio.texto], a2[sizeof cx_desc.texto];
+        copia_texto(a1, cx_inicio.texto, sizeof a1); copia_texto(a2, cx_desc.texto, sizeof a2);
+        caixa_tratar(j, &cx_inicio, e);
+        caixa_tratar(j, &cx_desc, e);
+        if (compara_texto(a1, cx_inicio.texto) != 0) { copia_texto(conf.inicio_url, cx_inicio.texto, sizeof conf.inicio_url); gravar_conf(); }
+        if (compara_texto(a2, cx_desc.texto) != 0) { copia_texto(conf.pasta_desc, cx_desc.texto, sizeof conf.pasta_desc); gravar_conf(); }
+        if (casilla_tratar(&cs_barra, e)) { conf.barra_marc = cs_barra.marcada; barra_marc_mudou(); return true; }
+        if (botao_tratar(j, &pb[0], e)) {
+            char c[96];
+            copia_texto(c, cx_desc.texto, sizeof c);
+            if (dialogo_carpeta(_("Carpeta de descargas"), c, c, sizeof c)) { copia_texto(conf.pasta_desc, c, sizeof conf.pasta_desc); gravar_conf(); caixa_definir(&cx_desc, c); }
+        }
+        painel_desenhar();
+        return true;
+    }
+    case P_PRIV: {
+        for (int b = 0; b < pan_nbot; b++) if (botao_tratar(j, &pb[b], e)) {
+            if (b == 0) {
+                info_bloqueo_t bi;
+                memset(&bi, 0, sizeof bi);
+                bloqueo_dns(BLOQ_ESTADO, &bi, sizeof bi);
+                char *args[3] = { "bloqueo", bi.activo ? "desactivar" : "activar", NULL };
+                int pid = executar("/bin/bloqueo", args);
+                if (pid > 0) esperar(pid, NULL);
+                registrar("cipo: bloqueo de publicidad %s\n", bi.activo ? "desactivado" : "activado");
+            }
+            if (b == 1 && confirmar("Cipó", _("¿Borrar todo el historial?"))) { qtd_hst = 0; gravar_hst(); registrar("cipo: historial borrado\n"); }
+            if (b == 2) { qtd_pos = 0; gravar_posicoes(); registrar("cipo: posiciones de lectura olvidadas\n"); }
+            painel_desenhar();
+        }
+        return true;
+    }
+    case P_REND: {
+        combo_tratar(j, &cb_hilos, e);
+        if (casilla_tratar(&cs_js, e)) { conf.js = cs_js.marcada; gravar_conf(); registrar("cipo: JavaScript %s\n", conf.js ? "si" : "no"); painel_desenhar(); }
+        if (casilla_tratar(&cs_img, e)) { conf.imagens = cs_img.marcada; gravar_conf(); registrar("cipo: imagenes %s\n", conf.imagens ? "si" : "no"); painel_desenhar(); }
+        return true;
+    }
+    }
+    return false;
+}
+
+/* ---- menús: «≡», pestañas, estrella y carpetas de la barra de marcadores (D373) ---- */
+
+static int aba_menu_i = -1;
+static int pasta_menu_idx[MARC_MAX];
+
+static void quitar_marcador(int i)
+{
+    if (i < 0 || i >= qtd_marcadores) return;
+    for (int k = i; k < qtd_marcadores - 1; k++) {
+        copia_texto(marcador_url[k], marcador_url[k + 1], URL_MAX); copia_texto(marcador_titulo[k], marcador_titulo[k + 1], 96); copia_texto(marcador_pasta[k], marcador_pasta[k + 1], 32);
+    }
+    qtd_marcadores--;
+    gravar_marcadores();
+    registrar("cipo: marcador quitado, quedan %d\n", qtd_marcadores);
+}
+
+static void menu_principal(void)
+{
+    char t[400];
+    int k = 0;
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Nueva pestaña\tCtrl+T"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Marcadores\tCtrl+B"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Historial\tCtrl+H"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Descargas\tCtrl+J"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Ajustes"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", conf.barra_marc ? _("Ocultar la barra de marcadores") : _("Mostrar la barra de marcadores"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s", _("Buscar en la página\tCtrl+F"));
+    menu_contextual(j->id, br[B_MENU].x - 150, ABA_A + BARRA_A, t, COD_MENU_PRINCIPAL);
+}
+
+static void abrir_gestor_marcadores(void) { mostrar_painel(P_MARC); }
+
+static void acao_menu_principal(int k)
+{
+    if (k == 0) nova_aba();
+    else if (k == 1) abrir_gestor_marcadores();
+    else if (k == 2) mostrar_painel(P_HIST);
+    else if (k == 3) mostrar_painel(P_DESC);
+    else if (k == 4) mostrar_painel(P_GERAL);
+    else if (k == 5) { conf.barra_marc = !conf.barra_marc; barra_marc_mudou(); }
+    else if (k == 6) abrir_busca();
+}
+
+static void menu_aba(int i, int x, int y)
+{
+    char t[300];
+    aba_menu_i = i;
+    formatar_texto(t, sizeof t, "%s\n%s\n%s\n%s", _("Recargar"), _("Duplicar"), _("Cerrar"), _("Cerrar las demás"));
+    menu_contextual(j->id, x, y, t, COD_MENU_ABA);
+}
+
+static void acao_menu_aba(int k)
+{
+    int i = aba_menu_i;
+    aba_menu_i = -1;
+    if (i < 0 || i >= qtd_abas) return;
+    if (k == 0) { trocar_aba(i); recarregar(); }
+    else if (k == 1) { char u[URL_MAX]; copia_texto(u, abas[i].url, sizeof u); if (i == aba_atual) copia_texto(u, url_atual, sizeof u); nova_aba_com_url(u); }
+    else if (k == 2) fechar_aba_idx(i);
+    else if (k == 3) {
+        for (int m = qtd_abas - 1; m >= 0; m--) {
+            if (m == i) continue;
+            fechar_aba_idx(m);
+            if (m < i) i--;
+        }
+    }
+}
+
+static const char *rotulo60(int i)
+{
+    static char r[64];
+    copia_texto(r, marcador_titulo[i][0] ? marcador_titulo[i] : marcador_url[i], sizeof r);
+    return r;
+}
+
+static void menu_pasta(int p, int x, int y)
+{
+    char t[1200];
+    int k = 0, n = 0;
+    for (int i = 0; i < qtd_marcadores && n < 20 && k < (int)sizeof t - 140; i++) {
+        if (compara_texto(marcador_pasta[i], pastas[p]) != 0) continue;
+        k += formatar_texto(t + k, (int)sizeof t - k, "%s%s", n ? "\n" : "", rotulo60(i));
+        pasta_menu_idx[n++] = i;
+    }
+    if (!n) return;
+    menu_contextual(j->id, x, y, t, COD_MENU_PASTA);
+}
+
+/* Interpreta un clic sobre la barra de herramientas; true = lo tratamos. */
+static bool clique_barra(const evento_t *e)
+{
+    if (e->y < ABA_A || e->y >= ABA_A + BARRA_A) return false;
+    for (int k = 0; k < B_N; k++) {
+        if (e->x < br[k].x || e->x >= br[k].x + br[k].l || e->y < br[k].y || e->y >= br[k].y + br[k].a) continue;
+        sugestoes_fechar();
+        switch (k) {
+        case B_VOLTAR: voltar(); break;
+        case B_AVANCAR: avancar(); break;
+        case B_RECARGAR:
+            if (carregando_agora()) {
+                recursos_pendentes = pintura_pendente = false;
+                abas[aba_atual].carregando = false;
+                pf_limpar();
+                rodape("Carga detenida");
+                registrar("cipo: carga detenida\n");
+                desenhar_barra(); desenhar_abas();
+            } else recarregar();
+            break;
+        case B_INICIO: navegar(url_inicio()); break;
+        case B_CANDADO:
+            if (comeca_com(url_atual, "https://") && cert_texto[0]) mensagem(_("Certificado del sitio"), cert_texto);
+            else if (comeca_com(url_atual, "http://")) mensagem(_("Conexión no segura"), _("Esta página se cargó sin cifrar (HTTP): lo que envíes o recibas puede leerlo otra persona de la red."));
+            else mensagem("Cipó", _("Página interna de Cipó."));
+            break;
+        case B_ESTRELA:
+            if (!comeca_com(url_atual, "http")) { rodape("Solo se marcan páginas de la web"); break; }
+            if (marcado_atual()) {
+                char t[160];
+                formatar_texto(t, sizeof t, "%s\n%s", _("Editar marcador..."), _("Quitar marcador"));
+                menu_contextual(j->id, br[B_ESTRELA].x - 100, ABA_A + BARRA_A, t, COD_MENU_ESTRELA);
+            } else { adicionar_marcador(); desenhar_barra(); }
+            break;
+        case B_MENU: menu_principal(); break;
+        }
+        return true;
+    }
+    return false;
+}
+
 static void novo_tamanho(void)
 {
     if (motor) {
@@ -2893,6 +4636,7 @@ static void novo_tamanho(void)
         topo = (rol_px + LINHA_A / 2) / LINHA_A;
     }
     registrar("cipo: ventana %dx%d, texto de %d px de ancho, %d lineas\n", LARG, ALT, LARG_TEXTO, linhas);
+    if (painel) painel_layout();
     desenhar_tudo();
 }
 
@@ -2912,12 +4656,14 @@ static bool atalho(const evento_t *e)
     bool a_escrever = (buscando && caixa_busca.foco) || endereco.foco;
     if ((m & 4) && t == TECLA_ESQUERDA) { voltar(); return true; }
     if ((m & 4) && t == TECLA_DIREITA) { avancar(); return true; }
-    if ((m & 4) && t == TECLA_HOME) { navegar("sobre:inicio"); return true; }
+    if ((m & 4) && t == TECLA_HOME) { navegar(url_inicio()); return true; }
     if (t == TECLA_F5_CIPO || t == 18) { recarregar(); return true; }          /* F5, Ctrl+R */
     if (t == 12) { ir_para_endereco(); return true; }                          /* Ctrl+L */
     if (t == 6) { abrir_busca(); return true; }                                /* Ctrl+F */
     if (t == 3) { copiar_agora(); return true; }                                /* Ctrl+C */
     if (t == 20) { nova_aba(); return true; }                                   /* Ctrl+T */
+    if ((m & 2) && (t == 8 || t == 'h')) { mostrar_painel(P_HIST); return true; }      /* Ctrl+H: historial con búsqueda */
+    if ((m & 2) && (t == 10 || t == 'j')) { mostrar_painel(P_DESC); return true; }     /* Ctrl+J: descargas */
     if (t == 23) { fechar_aba(); return true; }                                 /* Ctrl+W */
     if (t == 9 && (m & 2)) {                                                    /* Ctrl+Tab */
         trocar_aba((m & 1) ? (aba_atual + qtd_abas - 1) % qtd_abas : (aba_atual + 1) % qtd_abas);
@@ -2925,6 +4671,7 @@ static bool atalho(const evento_t *e)
     }
     if (!a_escrever) {
         if (t == 4) { adicionar_marcador(); return true; }                      /* Ctrl+D */
+        if (t == 2 && (m & 1)) { abrir_gestor_marcadores(); return true; }       /* Ctrl+Mayús+B: el gestor */
         if (t == 2) { mostrar_marcadores(); return true; }                      /* Ctrl+B */
     }
     if (t == TECLA_F3_CIPO) {
@@ -2933,6 +4680,16 @@ static bool atalho(const evento_t *e)
         return true;
     }
     return false;
+}
+
+/* El indicador de carga (D373): el giro de las pestañas y el icono de recargar/parar. */
+static void indicadores_tick(void)
+{
+    static unsigned ult;
+    static bool car_ant;
+    bool car = carregando_agora();
+    if (car != car_ant) { car_ant = car; desenhar_barra(); desenhar_abas(); ult = tempo_ms(); return; }
+    if (car && tempo_ms() - ult >= 100) { ult = tempo_ms(); desenhar_abas(); }
 }
 
 int principal(int argc, char **argv)
@@ -2945,11 +4702,21 @@ int principal(int argc, char **argv)
     ajustar_barra();
     desenhar_barra();
     rodape("Listo");
+    ler_conf();
+    const char *url_arg = NULL;           /* cipo [--hilos N] [dirección]: --hilos fija las descargas simultáneas solo esta vez */
+    for (int i = 1; i < argc; i++) {
+        if (!compara_texto(argv[i], "--hilos") && i + 1 < argc) { conf.hilos = num_de(argv[i + 1], 1, HILOS_MAX, 1); i++; }
+        else url_arg = argv[i];
+    }
+    ler_hst();
     ler_marcadores();
     ler_posicoes();
+    registrar("cipo: ajustes: inicio %d, buscador %s, descargas simultáneas %d (efectivas %d), js %d, imágenes %d\n",
+              conf.inicio_modo, buscadores[conf.buscador].nome, conf.hilos, hilos_efectivos(), conf.js, conf.imagens);
+    ajustar_barra();
     qtd_abas = 1;
     aba_atual = 0;
-    carregar(argc > 1 ? argv[1] : "sobre:inicio");
+    carregar(url_arg ? url_arg : url_inicio());
     aba_guardar();          /* a primeira aba fica com a página */
     desenhar_abas();
     jan_mostrar(j);
@@ -2975,12 +4742,15 @@ int principal(int argc, char **argv)
         }
         /* As animações da página andam com o relógio: se alguma mudou, repinta-se
          * a banda visível (sem recalcular o layout). */
-        if (animacoes_tick()) { desenhar_pagina(); continue; }
+        if (!painel && animacoes_tick()) { desenhar_pagina(); continue; }
         video_tick();
         /* Os temporizadores do script (setTimeout): correm com o relogio do SO. */
         if (js && qjs_tique(js, tempo_ms()) > 0) { if (js_dom_sujo) js_refrescar(); else desenhar_pagina(); }
         if (proximo_evento(j->id, &e, false) != 1) {
+            indicadores_tick();
             if (pintura_pendente || recursos_pendentes) { processar_recurso(); continue; }
+            if (!painel && qtd_abas && !abas[aba_atual].fav_tentado && doc && !tem_url_pendente) { favicon_buscar(); desenhar_abas(); continue; }
+            if (painel == P_DESC && desc_activas() && tempo_ms() - ultimo_desc_ms > 300) { ultimo_desc_ms = tempo_ms(); painel_desc_desenhar(); }
             if (esperar_evento(j->id, &e, vid_tocando ? 4 : 15) != 1) continue;
         }
         if (e.tipo == EV_FECHAR) break;
@@ -2991,6 +4761,7 @@ int principal(int argc, char **argv)
                 if (acao == ACAO_GUARDAR_IMAGEM) guardar_recurso(salvar_imagem_url);
                 else if (acao == ACAO_GUARDAR_LINK) guardar_recurso(salvar_link_url);
                 else if (acao == ACAO_ABA_NOVA) abrir_link_nova_aba(salvar_link_url);
+                else if (acao == ACAO_DESCARGAR) { desc_iniciar(salvar_link_url); mostrar_painel(P_DESC); }
             }
             qtd_menu_acoes = 0;
             salvar_imagem_url[0] = salvar_link_url[0] = 0;
@@ -3005,7 +4776,25 @@ int principal(int argc, char **argv)
             }
             continue;
         }
+        if (e.tipo == EV_MENU && e.tecla == COD_MENU_ABA) { if (e.x >= 0) acao_menu_aba(e.x); continue; }
+        if (e.tipo == EV_MENU && e.tecla == COD_MENU_PRINCIPAL) { if (e.x >= 0) acao_menu_principal(e.x); continue; }
+        if (e.tipo == EV_MENU && e.tecla == COD_MENU_ESTRELA) {
+            for (int m = 0; m < qtd_marcadores && e.x >= 0; m++)
+                if (compara_texto(marcador_url[m], url_atual) == 0) { if (e.x == 0) editar_marcador(m); else quitar_marcador(m); break; }
+            desenhar_barra();
+            continue;
+        }
+        if (e.tipo == EV_MENU && e.tecla == COD_MENU_PASTA) {
+            if (e.x >= 0 && e.x < MARC_MAX && pasta_menu_idx[e.x] < qtd_marcadores) { char u[URL_MAX]; copia_texto(u, marcador_url[pasta_menu_idx[e.x]], sizeof u); navegar(u); }
+            continue;
+        }
         if (jan_redimensionar(j, &e)) { novo_tamanho(); continue; }
+        if (painel && painel_evento(&e)) continue;
+        if (e.tipo == EV_RODA && e.y < ABA_A) {   /* la rueda sobre las pestañas pasa de una a otra */
+            int n = (int)e.cliques;
+            if (n && qtd_abas > 1) trocar_aba(((aba_atual + (n < 0 ? 1 : -1)) % qtd_abas + qtd_abas) % qtd_abas);
+            continue;
+        }
         if (e.tipo == EV_RODA) {
             int n = (int)e.cliques;
             if (e.y >= ABA_Y && e.y < ALT - RODAPE) {
@@ -3026,14 +4815,32 @@ int principal(int argc, char **argv)
             }
             if (motor && motor_tem_foco(motor)) { tecla_campo_motor(t); continue; }
             if (endereco.foco) {
-                if (t == '\t' || t == TECLA_ESC || t == 27) { endereco.foco = false; endereco_sel = false; desenhar_barra(); continue; }
+                if (t == '\t' || t == TECLA_ESC || t == 27) { endereco.foco = false; endereco_sel = false; sugestoes_fechar(); desenhar_barra(); continue; }
+                if (sug_n && (t == TECLA_BAIXO || t == TECLA_CIMA)) {
+                    sug_sel += t == TECLA_BAIXO ? 1 : -1;
+                    if (sug_sel < -1) sug_sel = sug_n - 1;
+                    if (sug_sel >= sug_n) sug_sel = -1;
+                    sugestoes_desenhar();
+                    continue;
+                }
+                if (t == '\n' && sug_n && sug_sel >= 0) { char u[URL_MAX]; copia_texto(u, sug_url[sug_sel], sizeof u); sugestoes_fechar(); navegar(u); continue; }
                 if (endereco_sel) {
                     bool substitui = (t >= 0x20 && t < 0x100 && t != 0x7F) || t == '\b' || t == TECLA_DELETE || t == 22;
                     endereco_sel = false;
                     if (substitui) caixa_definir(&endereco, "");
                     else desenhar_barra();
                 }
-                if (caixa_tratar(j, &endereco, &e) && endereco.texto[0]) navegar(endereco.texto);
+                if (caixa_tratar(j, &endereco, &e) && endereco.texto[0]) {
+                    char u[URL_MAX];
+                    interpretar_entrada(endereco.texto, u, sizeof u);
+                    sugestoes_fechar();
+                    navegar(u);
+                    continue;
+                }
+                int antes = sug_n;
+                sugestoes_calcular();
+                if (sug_n < antes) { desenhar_pagina(); }
+                if (sug_n) sugestoes_desenhar();
                 continue;
             }
             if (t == TECLA_BAIXO) rolar(topo + 1);
@@ -3050,12 +4857,58 @@ int principal(int argc, char **argv)
         }
         /* Ratón: las cajas de texto reciben clics y movimientos. */
         if (e.tipo == EV_MOVER) { mouse_x = e.x; mouse_y = e.y; }
-        if (e.tipo == EV_CLIQUE) { mouse_x = e.x; mouse_y = e.y; }
-        /* La barra de abas: un clic cambia de aba, el botón "+" abre una nueva. */
-        if (e.tipo == EV_CLIQUE && e.y >= TOPO && e.y < ABA_Y) {
-            if (e.x >= LARG - 34) { nova_aba(); continue; }
-            int idx = aba_no_clic(e.x);
-            if (idx >= 0) { trocar_aba(idx); continue; }
+        if (e.tipo == EV_CLIQUE) { mouse_x = e.x; mouse_y = e.y; if (e.botoes != 1) registrar("cipo: clic botones %u en (%d,%d)\n", e.botoes, e.x, e.y); }
+        if (e.tipo == EV_MOVER) {
+            int hb = -1;
+            for (int k = 0; k < B_N; k++) if (e.x >= br[k].x && e.x < br[k].x + br[k].l && e.y >= br[k].y && e.y < br[k].y + br[k].a) hb = k;
+            if (hb != hover_b) { hover_b = hb; desenhar_barra(); }
+            if (arrasto >= 0 && (e.botoes & 1)) {     /* arrastrar una pestaña para reordenarla */
+                int slot = aba_ini + (e.x - 4) / aba_l;
+                if (slot < 0) slot = 0;
+                if (slot >= qtd_abas) slot = qtd_abas - 1;
+                if (slot != arrasto) { mover_aba(arrasto, slot); arrasto = slot; }
+                continue;
+            }
+        }
+        if (e.tipo == EV_SOLTOU) arrasto = -1;
+        /* Las sugerencias de la dirección: un clic en una de ellas la abre. */
+        if (e.tipo == EV_CLIQUE && sug_n) {
+            int y0 = ABA_A + BARRA_A + (conf.barra_marc ? MARCB_A : 0);
+            if (e.x >= pilula_x && e.x < pilula_x + pilula_l && e.y >= y0 && e.y < y0 + sug_n * 20 + 4) {
+                int k = (e.y - y0 - 2) / 20;
+                if (k >= 0 && k < sug_n) { char u[URL_MAX]; copia_texto(u, sug_url[k], sizeof u); sugestoes_fechar(); navegar(u); }
+                continue;
+            }
+        }
+        /* La tira de pestañas: clic = cambiar (y empezar a arrastrar), × o clic central = cerrar,
+         * botón derecho = menú, «+» = nueva. */
+        if (e.tipo == EV_CLIQUE && e.y < ABA_A) {
+            sugestoes_fechar();
+            bool no_x;
+            int idx = aba_no_clic(e.x, &no_x);
+            if (e.botoes & 4) { if (idx >= 0) fechar_aba_idx(idx); continue; }
+            if (e.botoes & 2) { if (idx >= 0) menu_aba(idx, e.x, ABA_A); continue; }
+            if (idx == -2) { nova_aba(); continue; }
+            if (idx >= 0) {
+                if (no_x) { fechar_aba_idx(idx); continue; }
+                trocar_aba(idx);
+                arrasto = idx;
+            }
+            continue;
+        }
+        if (e.tipo == EV_CLIQUE && (e.botoes & 1) && clique_barra(&e)) continue;
+        if (e.tipo == EV_CLIQUE && (e.botoes & 1)) {      /* la barra de marcadores */
+            int ci = marcb_em(e.x, e.y);
+            if (ci >= 0) {
+                if (marcb_idx[ci] >= 0) { char u[URL_MAX]; copia_texto(u, marcador_url[marcb_idx[ci]], sizeof u); navegar(u); }
+                else menu_pasta(-1 - marcb_idx[ci], marcb_x[ci], ABA_A + BARRA_A + MARCB_A);
+                continue;
+            }
+        }
+        if (e.tipo == EV_CLIQUE && (e.botoes & 4) && motor) {   /* clic central en un enlace: pestaña nueva */
+            const motor_alvo_t *a = alvo_motor_em(e.x, e.y);
+            if (a && a->tipo == MA_LINK && a->href) abrir_link_nova_aba(a->href);
+            continue;
         }
         if (e.tipo == EV_CLIQUE && (e.botoes & 2) && motor) {
             const motor_alvo_t *a = alvo_motor_em(e.x, e.y);
@@ -3081,6 +4934,8 @@ int principal(int argc, char **argv)
             if (salvar_link_url[0]) {
                 k += formatar_texto(itens + k, (int)sizeof itens - k, "Abrir en pestaña nueva\n");
                 menu_acoes[qtd_menu_acoes++] = ACAO_ABA_NOVA;
+                k += formatar_texto(itens + k, (int)sizeof itens - k, "Descargar enlace\n");
+                menu_acoes[qtd_menu_acoes++] = ACAO_DESCARGAR;
             }
             if (!k) continue;
             itens[k - 1] = 0;   /* sem o "\n" do fim */
@@ -3092,18 +4947,14 @@ int principal(int argc, char **argv)
             endereco_sel = false;
             if (tinha) desenhar_barra();
             if (buscando && caixa_tratar(j, &caixa_busca, &e)) { /* Intro no llega con el ratón */ }
-            if (caixa_tratar(j, &endereco, &e) && endereco.texto[0]) { navegar(endereco.texto); continue; }
+            if (caixa_tratar(j, &endereco, &e) && endereco.texto[0]) { char u[URL_MAX]; interpretar_entrada(endereco.texto, u, sizeof u); navegar(u); continue; }
+            if (!endereco.foco && sug_n) sugestoes_fechar();
             if (!tinha && endereco.foco) {   /* primer clic en la dirección: queda seleccionada, como en los navegadores */
                 endereco.cursor = (int)tam_texto(endereco.texto);
                 endereco_sel = true;
                 desenhar_barra();
             }
         }
-        if (botao_tratar(j, &bt_ir, &e) && endereco.texto[0]) { navegar(endereco.texto); continue; }
-        if (botao_tratar(j, &bt_inicio, &e)) { navegar("sobre:inicio"); continue; }
-        if (botao_tratar(j, &bt_recarregar, &e)) { recarregar(); continue; }
-        if (botao_tratar(j, &bt_avancar, &e)) { avancar(); continue; }
-        if (botao_tratar(j, &bt_voltar, &e)) { voltar(); continue; }
         if (e.tipo == EV_CLIQUE && (e.botoes & 1)) {
             if (e.x >= LARG - ROLAGEM && e.y >= ABA_Y && e.y < ALT - RODAPE && motor_altura > AREA_A) {
                 /* Barra de desplazamiento: sobre el pulgar lo agarra; en otro punto, lo centra ahí y sigue arrastrando. */

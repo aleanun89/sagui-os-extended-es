@@ -88,6 +88,13 @@ public:
 };
 template <class C> front_insert_iterator<C> front_inserter(C &c) { return front_insert_iterator<C>(c); }
 
+template <class T, size_t N> T *begin(T (&a)[N]) { return a; }   // D375 (OpenTTD)
+template <class T, size_t N> T *end(T (&a)[N]) { return a + N; }
+template <class C> auto begin(C &c) -> decltype(c.begin()) { return c.begin(); }
+template <class C> auto end(C &c) -> decltype(c.end()) { return c.end(); }
+template <class C> auto begin(const C &c) -> decltype(c.begin()) { return c.begin(); }
+template <class C> auto end(const C &c) -> decltype(c.end()) { return c.end(); }
+
 template <class I> class reverse_iterator {
     I cur;
 public:
@@ -105,9 +112,16 @@ public:
     reverse_iterator operator++(int) { reverse_iterator t = *this; --cur; return t; }
     reverse_iterator &operator--() { ++cur; return *this; }
     reverse_iterator operator--(int) { reverse_iterator t = *this; ++cur; return t; }
-    bool operator==(const reverse_iterator &o) const { return cur == o.cur; }
-    bool operator!=(const reverse_iterator &o) const { return cur != o.cur; }
+    template <class J> reverse_iterator(const reverse_iterator<J> &o) : cur(o.base()) {}   // D375 (OpenTTD): iterator -> const_iterator
+    reverse_iterator operator+(difference_type n) const { return reverse_iterator(cur - n); }
+    reverse_iterator operator-(difference_type n) const { return reverse_iterator(cur + n); }
+    reverse_iterator &operator+=(difference_type n) { cur -= n; return *this; }
+    reverse_iterator &operator-=(difference_type n) { cur += n; return *this; }
+    reference operator[](difference_type n) const { return *(*this + n); }
 };
+template <class I, class J> bool operator==(const reverse_iterator<I> &a, const reverse_iterator<J> &b) { return a.base() == b.base(); }
+template <class I, class J> bool operator!=(const reverse_iterator<I> &a, const reverse_iterator<J> &b) { return a.base() != b.base(); }
+template <class I, class J> typename reverse_iterator<I>::difference_type operator-(const reverse_iterator<I> &a, const reverse_iterator<J> &b) { return b.base() - a.base(); }
 
 } // namespace std
 

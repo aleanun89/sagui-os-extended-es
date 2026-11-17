@@ -187,6 +187,25 @@ public:
         iniciar();
     }
 
+    // D375 (OpenTTD): pasa todos los elementos de o (que queda vacía) antes de pos.
+    void splice(const_iterator pos, list &o)
+    {
+        if (o.n == 0 || &o == this) return;
+        elo *p = const_cast<elo *>(pos.e);
+        elo *a = o.cab.prox, *z = o.cab.ant;
+        a->ant = p->ant; p->ant->prox = a;
+        z->prox = p; p->ant = z;
+        n += o.n;
+        o.iniciar();
+    }
+    // splice de un solo elemento (D375, OpenTTD).
+    void splice(const_iterator pos, list &o, const_iterator it)
+    {
+        elo *p = const_cast<elo *>(pos.e), *x = const_cast<elo *>(it.e);
+        if (p == x || p == x->prox) return;
+        x->ant->prox = x->prox; x->prox->ant = x->ant; o.n--;
+        x->ant = p->ant; x->prox = p; p->ant->prox = x; p->ant = x; n++;
+    }
     iterator erase(const_iterator a, const_iterator b)
     {
         while (a != b) a = erase(a);

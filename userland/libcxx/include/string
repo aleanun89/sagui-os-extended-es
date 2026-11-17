@@ -23,6 +23,7 @@
 #include <new>
 #include <utility>
 #include <initializer_list>
+#include <iterator>
 #include <stdexcept>
 
 namespace std {
@@ -83,6 +84,8 @@ public:
     typedef const C *const_pointer;
     typedef C *iterator;
     typedef const C *const_iterator;
+    typedef std::reverse_iterator<iterator> reverse_iterator;             // D375 (OpenTTD)
+    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
     static constexpr size_t npos = (size_t)-1;
 
     // ---- construcción ----
@@ -181,6 +184,11 @@ public:
     const C *data() const noexcept { return d; }
     C *data() noexcept { return d; }
 
+    reverse_iterator rbegin() noexcept { return reverse_iterator(d + n); }
+    reverse_iterator rend() noexcept { return reverse_iterator(d); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(d + n); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(d); }
+    basic_string &assign(const C *a, const C *b) { return assign(a, static_cast<size_t>(b - a)); }   // D375: assign(ini, fin)
     iterator begin() noexcept { return d; }
     iterator end() noexcept { return d + n; }
     const_iterator begin() const noexcept { return d; }

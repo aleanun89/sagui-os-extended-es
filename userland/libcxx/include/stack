@@ -32,6 +32,9 @@ public:
     void push(T &&v) { c.push_back(static_cast<T &&>(v)); }
     void pop() { c.pop_back(); }
     void swap(stack &o) { c.swap(o.c); }
+    bool operator==(const stack &o) const { return c == o.c; }   // D375 (OpenTTD)
+    bool operator!=(const stack &o) const { return !(c == o.c); }
+    bool operator<(const stack &o) const { return c < o.c; }
 };
 
 }  // namespace std

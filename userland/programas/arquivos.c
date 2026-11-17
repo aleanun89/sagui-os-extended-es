@@ -999,6 +999,25 @@ static bool pdf_extensao(const char *c)
     return compara_texto(e, ".pdf") == 0;
 }
 
+/* .pptx .tcn: presentaciones, para Tucán (D369). */
+static bool tucan_extensao(const char *c)
+{
+    size_t n = tam_texto(c);
+    if (n > 5) {
+        char e[6];
+        for (int k = 0; k < 5; k++) e[k] = (char)(c[n - 5 + k] | 0x20);
+        e[5] = 0;
+        if (compara_texto(e, ".pptx") == 0) return true;
+    }
+    if (n > 4) {
+        char e[5];
+        for (int k = 0; k < 4; k++) e[k] = (char)(c[n - 4 + k] | 0x20);
+        e[4] = 0;
+        if (compara_texto(e, ".tcn") == 0) return true;
+    }
+    return false;
+}
+
 /* .db .sqlite .sqlite3: bases de datos, para el Explorador de bases de datos (mejora 127, D304). */
 static bool bd_extensao(const char *c)
 {
@@ -1103,6 +1122,16 @@ static bool ext_rom(const char *c, const char *e1, const char *e2)
     return ext_rom(c, e2, NULL);
 }
 static bool nes_extensao(const char *c) { return ext_rom(c, "nes", NULL); }
+#ifndef SAGUI_SEM_GPL
+/* .sav .sav.gz: partidas guardadas de Freeciv (D374; GPL); el cliente las carga con --file. */
+static bool freeciv_extensao(const char *c)
+{
+    unsigned n = tam_texto(c);
+    if (ext_rom(c, "sav", NULL)) return true;
+    return n > 7 && c[n - 7] == '.' && (c[n - 6] | 0x20) == 's' && (c[n - 5] | 0x20) == 'a' && (c[n - 4] | 0x20) == 'v'
+           && c[n - 3] == '.' && (c[n - 2] | 0x20) == 'g' && (c[n - 1] | 0x20) == 'z';
+}
+#endif
 static bool sms_extensao(const char *c) { return ext_rom(c, "sms", "sg") || ext_rom(c, "gg", NULL); }
 
 #ifndef SAGUI_SEM_GPL
@@ -1149,6 +1178,7 @@ static void abrir_item(int i)
         if (midi_extensao(c)) prog = "midi";   /* .mid .midi .kar .rmi: el reproductor de MIDI (D190) */
         if (jclic_extensao(c)) prog = "jclic";   /* .jclic .jclic.zip: Actividades JClic (D183) */
         if (pdf_extensao(c)) prog = "visorpdf";   /* .pdf: el Visor de PDF (D138) */
+        if (tucan_extensao(c)) prog = "tucan";   /* .pptx .tcn: Tucán (D369) */
         if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg .mp4 .m4v: el Reproductor de vÃ­deo (D129) */
         char bin[40];
         ruta_programa(bin, sizeof bin, prog);
@@ -1161,6 +1191,12 @@ static void abrir_item(int i)
         if (sms_extensao(c)) { prog = "gearsystem"; formatar_texto(bin, sizeof bin, "/apps/bin/gearsystem"); }   /* .sms .sg .gg: Gearsystem (D321) */
 #endif
         if (nes_extensao(c)) { prog = "laines"; formatar_texto(bin, sizeof bin, "/apps/bin/laines"); }   /* .nes: LaiNES (D321) */
+        char *argv_fc[4];
+        bool fc = false;
+#ifndef SAGUI_SEM_GPL
+        fc = freeciv_extensao(c);
+#endif
+        if (fc) { prog = "freeciv-sdl2"; formatar_texto(bin, sizeof bin, "/apps/bin/freeciv-sdl2"); argv_fc[0] = "freeciv-sdl2"; argv_fc[1] = "--file"; argv_fc[2] = c; argv_fc[3] = NULL; }   /* .sav .sav.gz: Freeciv (D374) */
         argv[0] = (char *)prog; argv[1] = c; argv[2] = NULL;
         char *argv_bd[4];
         if (bd_extensao(c)) {   /* .db .sqlite .sqlite3: el Explorador SQLite (Python, D333); no ejecuta nada al abrir */
@@ -1168,7 +1204,8 @@ static void abrir_item(int i)
             ruta_programa(bin, sizeof bin, "python");
             argv_bd[0] = "python"; argv_bd[1] = "/lib/python/basedatos/explorador_sqlite.py"; argv_bd[2] = c; argv_bd[3] = NULL;
             pid = executar(bin, argv_bd);
-        } else if (ft) pid = executar(bin, argv_ft);   /* .ttf .otf: vista previa e «Instalar» (D356) */
+        } else if (fc) pid = executar(bin, argv_fc);
+        else if (ft) pid = executar(bin, argv_ft);   /* .ttf .otf: vista previa e «Instalar» (D356) */
         else
         pid = executar(bin, argv);
         registrar("arquivos: abrindo no %s %s (pid %d)", prog, c, pid);
@@ -1675,7 +1712,7 @@ static int coluna_de_ponto(int x, int y)
 typedef struct { const char *nome; } app_t;
 static const app_t apps[] = {
     { "editor" }, { "visor" }, { "paint" }, { "markdown" },
-    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" },
+    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" }, { "tucan" },
 };
 
 /* El programa que abrirÃ­a este archivo (la asociaciÃ³n por defecto). */
@@ -1706,6 +1743,7 @@ static const char *programa_padrao(const char *c)
     if (rom_chip8(c)) p = "chip8";
     if (audio_extensao(c)) p = "musica";
     if (pdf_extensao(c)) p = "visorpdf";
+    if (tucan_extensao(c)) p = "tucan";      /* D369 */
     if (video_extensao(c)) p = "reproductor";
     if (nes_extensao(c)) p = "laines";       /* D321 */
     if (sms_extensao(c)) p = "gearsystem";

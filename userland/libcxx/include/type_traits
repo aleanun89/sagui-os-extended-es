@@ -31,6 +31,15 @@ template <bool B, class T = void> struct enable_if {};
 template <class T> struct enable_if<true, T> { typedef T type; };
 template <bool B, class T = void> using enable_if_t = typename enable_if<B, T>::type;
 
+// D375 (OpenTTD): is_integral para los tipos enteros (con sus variantes cv).
+namespace detalhe_tipos { template <class T> struct inteiro { static const bool value = false; }; }
+#define SAGUI_INTEIRO(T) namespace detalhe_tipos { template <> struct inteiro<T> { static const bool value = true; }; }
+SAGUI_INTEIRO(bool) SAGUI_INTEIRO(char) SAGUI_INTEIRO(signed char) SAGUI_INTEIRO(unsigned char)
+SAGUI_INTEIRO(short) SAGUI_INTEIRO(unsigned short) SAGUI_INTEIRO(int) SAGUI_INTEIRO(unsigned)
+SAGUI_INTEIRO(long) SAGUI_INTEIRO(unsigned long) SAGUI_INTEIRO(long long) SAGUI_INTEIRO(unsigned long long)
+#undef SAGUI_INTEIRO
+template <class T> struct is_integral : detalhe_tipos::inteiro<typename remove_cv<T>::type> {};
+
 template <bool B, class T, class F> struct conditional { typedef T type; };
 template <class T, class F> struct conditional<false, T, F> { typedef F type; };
 

@@ -221,12 +221,15 @@
 #define USU_EST_SERVICIO 0x02   /* el proceso viene de un servicio (sshd, vncd, cron...): no es la sesión local */
 #define USU_EST_PRUEBA   0x04   /* imagen de prueba con la sesión como root (mkimagem.py --sesion-root) */
 #define USU_EST_EN_VIVO  0x08   /* sin la partición SAGUI-CONF: la configuración del sistema no se guarda */
+#define USU_EST_SIN_MIGRAR 0x10 /* D371: imagen de prueba que no pasa sagui a /home/sagui (mkimagem.py --sin-migrar-home) */
 /* D340 (mejora 098, fase 3): varias cuentas. */
 #define USU_SESSAO     5   /* () -> uid | gid << 16 de la sesión local (la cuenta que entró en el escritorio) */
 #define USU_CERRAR_SESION 6 /* (USU_SAIR_*) -> 0: cierra todos los programas de la sesión local y vuelve a la
                             * pantalla de inicio de sesión. Solo desde la sesión local (no un servicio) */
 #define USU_SAIR_CERRAR   0   /* «Cerrar sesión» */
 #define USU_SAIR_CAMBIAR  1   /* «Cambiar de usuario»: la pantalla empieza en otra cuenta */
+#define USU_CASA_SOLTAR 7   /* () -> 0; solo root: el proceso deja la vista de la carpeta de la cuenta de la
+                             * que se elevó (D371, P2: «su» es hacerse root del todo, con /root y el árbol real) */
 
 /* SIS_PERMISOS_ARQ (D282). Cada archivo y carpeta tiene dueño (uid), grupo (gid)
  * y 9 bits rwx (dueño, grupo, otros) más el pegajoso; sin ACL. El kernel los

@@ -21,6 +21,8 @@
 #include "montagem.h"
 #include "texto.h"
 #include "vfs.h"
+#include "gui.h"
+#include "bootinfo.h"
 
 #define ARQ_MAX    (256u * 1024u)
 #define TOTAL_MAX  (4u * 1024u * 1024u)
@@ -109,6 +111,79 @@ bool conf_sistema_montada(void)
     const char *rel;
     montagem_t *m = montagem_de(CONF_PONTO, &rel);
     return m && !*rel && !(m->opcoes & MONTAR_SO_LEITURA);
+}
+
+bool conf_sistema_separada(void)
+{
+    return conf_sistema_montada() && vfs_existe_arquivo("/etc/sistema.conf");
+}
+
+int conf_sistema_gravar(const char *rel, const void *dados, uint32_t n)
+{
+    char ram[CAMINHO_MAX], tmp[CAMINHO_MAX];
+    snformatar(ram, sizeof ram, "/etc/%s", rel);
+    snformatar(tmp, sizeof tmp, "/etc/%s.nuevo", rel);
+    int r = escrever_atomico(ram, tmp, dados, n);
+    if (conf_sistema_montada()) {
+        snformatar(ram, sizeof ram, CONF_PONTO "/etc/%s", rel);
+        snformatar(tmp, sizeof tmp, CONF_PONTO "/etc/%s.nuevo", rel);
+        int rd = escrever_atomico(ram, tmp, dados, n);
+        if (rd < 0) r = rd;
+    }
+    return r;
+}
+
+static bool raiz_persistente;
+
+bool conf_sistema_raiz_persistente(void) { return raiz_persistente; }
+
+void conf_sistema_raiz_preparar(void)
+{
+    no_t *x = vfs_achar("/root");
+    if (!x && vfs_criar("/root", TIPO_PASTA, &x) < 0) x = NULL;
+    if (x) { x->uid = 0; x->gid = 0; x->modo = 0700; }
+    raiz_persistente = false;
+    if (!conf_sistema_montada()) { klog("[CONF] /root en la RAM (sin SAGUI-CONF)\n"); return; }
+    meta_t m;
+    if (vfs_meta(CONF_RAIZ, &m) < 0) {
+        const char *rel;
+        montagem_t *mt = montagem_de(CONF_RAIZ, &rel);
+        if (mt && mt->fs->criar_pasta) mt->fs->criar_pasta(mt->priv, rel);
+        vfs_fixar_meta(CONF_RAIZ, 0, 0, 0700);
+    }
+    raiz_persistente = vfs_meta(CONF_RAIZ, &m) == 0 && m.tipo == TIPO_PASTA;
+    klog("[CONF] /root en SAGUI-CONF (%s): %s\n", CONF_RAIZ, raiz_persistente ? "si" : "no, se queda en la RAM");
+}
+
+bool conf_sistema_inicio_automatico(void)
+{
+    if (!conf_sistema_montada() || (cabecalho_boot[CAB_USU_OPC] & CAB_USU_SIN_PEDIR_ROOT)) return true;
+    uint8_t *d;
+    uint32_t n;
+    if (vfs_ler_inteiro("/etc/sistema.conf", &d, &n) < 0) return true;
+    bool sim = true;
+    const char *p = (const char *)d, *fim = p + n;
+    while (p < fim) {
+        const char *l = p;
+        while (p < fim && *p != '\n') p++;
+        if (p - l >= 20 && txt_compara_n(l, "inicio_automatico=no", 20) == 0) sim = false;
+        if (p < fim) p++;
+    }
+    kfree(d);
+    return sim;
+}
+
+void conf_sistema_home_reavaliar(void)
+{
+    uint8_t *d;
+    uint32_t n;
+    bool feita = false;
+    if (conf_sistema_montada() && vfs_ler_inteiro("/etc/migracion-home", &d, &n) == 0) {
+        feita = n >= 5 && txt_compara_n((const char *)d, "hecha", 5) == 0;
+        kfree(d);
+    }
+    if (feita != vfs_home_e_de_root()) klog("[CONF] /home: %s\n", feita ? "de root (cada cuenta en /home/<nombre>)" : "de sagui");
+    vfs_home_de_root(feita);
 }
 
 void conf_sistema_superpor(void)

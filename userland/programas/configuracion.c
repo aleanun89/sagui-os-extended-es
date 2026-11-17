@@ -49,6 +49,7 @@ bool sou_root(void);
 #include "mandos.h"
 #include "contas_gestao.h"   /* D340: Usuarios (sin contas.h: tiene su propio conf_gravar) */
 #include "opcoes_kernel.h"   /* D353: Pantalla > Kernel */
+#include "conf_maquina.h"    /* D371: la configuración de la máquina en /etc */
 #include "conf_reglas.h"      /* D367: dependencias entre opciones */
 
 #define DIR_CONF   "/home/.config"
@@ -159,10 +160,36 @@ static int tri_texto(const char *v)
     return 0;
 }
 
-/* Lee el archivo; false = no existe. Las claves desconocidas se ignoran. */
+/* D371: guardar las pantallas es de la máquina (con /etc/sistema.conf, el administrador): el diálogo si hace falta. */
+static int telas_guardar_admin(void)
+{
+    int r = telas_sis(TELAS_OP_GUARDAR, 0, 0);
+    if (r == ERRO_ACESSO && !sou_root() && elevar_grafico(_("guardar la configuración de las pantallas")) == 0) {
+        r = telas_sis(TELAS_OP_GUARDAR, 0, 0);
+        elevacao_soltar();
+    }
+    return r;
+}
+
+/* D371: qué claves se toman de un archivo. */
+enum { CL_TODO, CL_PERSONA, CL_MAQUINA };
+
+static bool conf_ler_arq(const char *arq, int modo);
+
+/* Lee el archivo; false = no existe. Las claves desconocidas se ignoran.
+ * D371: con la configuración de la máquina separada (/etc/sistema.conf), las claves de la máquina salen de
+ * ahí y no de sagui.conf; el teclado es de los dos: el de la persona manda y, si no tiene, el del sistema. */
 static bool conf_ler(void)
 {
-    int fd = abrir(ARQ_CONF, ABRIR_LER);
+    if (!maquina_separada()) return conf_ler_arq(ARQ_CONF, CL_TODO);
+    bool tem = conf_ler_arq(ARQ_CONF, CL_PERSONA);
+    conf_ler_arq(MAQ_ARQ_CONF, CL_MAQUINA);
+    return tem;   /* si existe el de la persona (lo de la máquina, aplicar_tudo lo mira aparte) */
+}
+
+static bool conf_ler_arq(const char *arq, int modo)
+{
+    int fd = abrir(arq, ABRIR_LER);
     if (fd < 0) return false;
     static char t[3072];
     int n = ler(fd, t, sizeof t - 1);
@@ -179,7 +206,11 @@ static bool conf_ler(void)
             size_t tv = tam_texto(v);
             while (tv && (v[tv - 1] == '\r' || v[tv - 1] == ' ')) ((char *)v)[--tv] = 0;
             uint32_t c;
-            if (compara_texto(k, "teclado") == 0) conf.teclado = compara_texto(v, "abnt2") == 0 ? TECLADO_ABNT2
+            bool maq = maquina_clave(k);
+            if ((modo == CL_PERSONA && maq && compara_texto(k, "teclado") != 0) || (modo == CL_MAQUINA && !maq) ||
+                (modo == CL_MAQUINA && compara_texto(k, "teclado") == 0 && conf.teclado >= 0))
+                ;   /* D371: no es de este archivo */
+            else if (compara_texto(k, "teclado") == 0) conf.teclado = compara_texto(v, "abnt2") == 0 ? TECLADO_ABNT2
                                                                 : compara_texto(v, "es") == 0 ? TECLADO_ES : -1;
             else if (compara_texto(k, "volumen") == 0) { int x = texto_para_int(v); conf.volume = x < 0 ? 0 : x > 100 ? 100 : x; }
             else if (compara_texto(k, "ecualizador") == 0) conf.eq_def = eq_texto_ler(v, conf.eq) == 0;
@@ -296,6 +327,14 @@ static int conf_gravar(void)
     if (fd < 0) return fd;
     int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
     fechar(fd);
+    if (r >= 0 && maquina_separada()) {
+        /* D371: lo de la máquina va a /etc/sistema.conf (solo si cambió; si no es root, el diálogo de permisos).
+         * En sagui.conf se queda también, sin efecto, por si se vuelve a una versión anterior. */
+        static char maq[600];
+        formatar_texto(maq, sizeof maq, "%s%s", son, ace2);
+        int rm = maquina_gravar_linhas(maq, "guardar la configuración de la máquina");
+        if (rm < 0) return rm;
+    }
     return r < 0 ? r : 0;
 }
 
@@ -341,7 +380,7 @@ static int aplicar_salida(const char *nome)
 static void aplicar_conectores(void)
 {
     info_arquivo_t ia;
-    if (info_arquivo("/home/.config/sonido.conf", &ia) < 0) return;
+    if (info_arquivo(maquina_separada() ? "/etc/sonido.conf" : "/home/.config/sonido.conf", &ia) < 0) return;   /* D371 */
     char *av[] = { "sonido", "--aplicar", NULL };
     int pid = executar("/bin/sonido", av), codigo = 0;
     if (pid < 0) return;
@@ -682,8 +721,12 @@ static int aplicar_tudo(int argc, char **argv)
     /* D340: «--aplicar UID GID --sesion»: una sesión que empieza (o se cierra) después del arranque. El kernel
      * nos lanza ya con la identidad y la carpeta de la cuenta: solo lo suyo, ni conectores ni aceleración. */
     bool sesion = argc >= 5 && compara_texto(argv[4], "--sesion") == 0;
+    /* D371: la primera vez con SAGUI-CONF, lo de la máquina pasa de la carpeta de sagui a /etc (como root). */
+    if (!sesion && sou_root()) { int rm = maquina_migrar(); if (rm) registrar("configuracion: configuracion de la maquina a /etc -> %d", rm); }
+    /* D371 (fase 4): después (lee lo de la máquina de /home), sagui pasa a /home/sagui. */
+    if (!sesion && sou_root()) { int rc = casa_migrar_sagui(); if (rc) registrar("configuracion: sagui a su carpeta -> %d", rc); }
     if (!sesion) aplicar_conectores();
-    bool tem_conf = conf_ler();
+    bool tem_conf = conf_ler() || maquina_separada();   /* D371: lo de la máquina se aplica aunque la cuenta no tenga sagui.conf */
     if (!sesion) acel_arranque(tem_conf);   /* D323: modo seguro, marca de arranque y aceleración (el kernel nos lanza como root) */
     /* D313: el idioma del usuario (sagui.conf) manda sobre el del sistema (/etc/idioma). Aunque no haya
      * sagui.conf, el del sistema se aplica: el kernel traduce su interfaz con él. */
@@ -3350,7 +3393,7 @@ static bool tela_tratar(const evento_t *e)
         if (botao_tratar(jn, &b_telas[4], e)) { sel_res = (sel_res + 1) % n; mudou = true; ler_modos_video(); }
         if (tocou) {
             int r = telas_sis(TELAS_OP_CONFIG, (unsigned)modo | (unsigned)lado << 8 | (unsigned)prin << 16, 0);
-            if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); copia_texto(estado, _("Pantallas cambiadas y guardadas"), sizeof estado); }
+            if (r == 0) { telas_guardar_admin(); copia_texto(estado, _("Pantallas cambiadas y guardadas"), sizeof estado); }
             else formatar_texto(estado, sizeof estado, _("No se pudo: %s"), nome_erro(r));
             ler_modos_video();
             mudou = true;
@@ -3366,7 +3409,7 @@ static bool tela_tratar(const evento_t *e)
         if (gu || !tela.a_quente) op |= MUDAR_GUARDAR;
         if (sel_res > 0 && telas.qtd > 1) {   /* D290: la resolución de una pantalla extra */
             int r = telas_sis(TELAS_OP_RESOLUCAO, (unsigned)sel_res, m->largura | (unsigned)m->altura << 16);
-            if (r == 0) { telas_sis(TELAS_OP_GUARDAR, 0, 0); formatar_texto(estado, sizeof estado, _("Pantalla %d: %ux%u"), sel_res + 1, m->largura, m->altura); }
+            if (r == 0) { telas_guardar_admin(); formatar_texto(estado, sizeof estado, _("Pantalla %d: %ux%u"), sel_res + 1, m->largura, m->altura); }
             else formatar_texto(estado, sizeof estado, _("No se pudo: %s"), nome_erro(r));
         } else
         if (!op) dizer(_("La pantalla ya está en esa resolución."));

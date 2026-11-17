@@ -157,7 +157,7 @@ static bool valor_sim(const char *v)
     return compara_texto(v, "si") == 0 || compara_texto(v, "1") == 0 || compara_texto(v, "yes") == 0;
 }
 
-static void conf_ler(const char *arq)
+static void conf_ler(const char *arq, bool so_pessoal)
 {
     int fd = abrir(arq, ABRIR_LER);
     if (fd < 0) return;
@@ -177,6 +177,8 @@ static void conf_ler(const char *arq)
         f = v + tam_texto(v);
         while (f > v && eh_espaco(f[-1])) *--f = 0;
         int n = texto_para_int(v);
+        /* D371: de la carpeta de una cuenta (con SAGUI-CONF) solo lo que no abre nada: la codificación de exec. */
+        if (so_pessoal && compara_texto(p, "exec_utf8") != 0) { registrar("sshd: %s: se ignora %s (es del administrador: /etc/ssh/sshd.conf)", arq, p); continue; }
         if (compara_texto(p, "puerto") == 0 && n > 0 && n < 65536) conf.porta = n;
         else if (compara_texto(p, "solo_red_local") == 0) conf.so_local = valor_sim(v);
         else if (compara_texto(p, "max_conexiones") == 0 && n > 0 && n <= 8) conf.max_conexoes = n;
@@ -196,8 +198,10 @@ static void conf_ler(const char *arq)
 
 static void conf_carregar(void)
 {
-    conf_ler(DIR_ETC "/sshd.conf");
-    conf_ler(DIR_CASA "/sshd.conf");
+    conf_ler(DIR_ETC "/sshd.conf", false);
+    /* D371: el sshd es root y del sistema: con SAGUI-CONF, de la carpeta de una cuenta solo vale exec_utf8 (antes
+     * sagui podía abrirlo a toda la red o permitir túneles sin ser administrador). En vivo, entero. */
+    conf_ler(DIR_CASA "/sshd.conf", conf_persistente());
 }
 
 /* ------------------------------------------------------------ D362: modo depuración */
@@ -349,14 +353,22 @@ static bool chave_gravar_conf(void)
  * Sin SAGUI-CONF, como antes: en /home/.ssh o, si no se puede, en /etc/ssh. */
 static bool chave_servidor(bool criar)
 {
+    /* D371: con SAGUI-CONF, la copia vieja de /home sobra y no se deja: /home es de la cuenta (que la leería
+     * renombrando la carpeta, o al pasar a /home/sagui). */
+    bool limpar = sou_root() && conf_persistente();
     if (chave_ler(DIR_ETC "/" NOME_CHAVE)) {
         ed25519_publica(srv_publica, srv_semente);
+        info_arquivo_t ia;
+        if (limpar && info_arquivo(DIR_CASA "/" NOME_CHAVE, &ia) == 0 && apagar(DIR_CASA "/" NOME_CHAVE) == 0)
+            anotar("copia vieja de la clave del servidor quitada de " DIR_CASA " (la buena está en " DIR_ETC ")");
         return true;
     }
     if (chave_ler(DIR_CASA "/" NOME_CHAVE)) {
         ed25519_publica(srv_publica, srv_semente);
-        if (criar && conf_persistente() && chave_gravar_conf())
+        if (criar && limpar && chave_gravar_conf()) {
+            apagar(DIR_CASA "/" NOME_CHAVE);
             anotar("clave del servidor pasada de " DIR_CASA " a SAGUI-CONF (" DIR_ETC "); la huella no cambia");
+        }
         return true;
     }
     if (!criar) return false;
@@ -386,11 +398,11 @@ static bool chave_persistente(void)
 
 /* D255: cada clave entra con una cuenta: las de /home/.ssh/authorized_keys
  * como sagui y las de CONTAS_CLAVES_ROOT (/etc/ssh/authorized_keys) como root. */
-typedef struct { uint8_t pub[32]; char comentario[40]; unsigned uid; } autorizada_t;
+typedef struct { uint8_t pub[32]; char comentario[40]; unsigned uid, gid; } autorizada_t;
 static autorizada_t autorizadas[MAX_CHAVES];
 static int n_autorizadas, n_recusadas;
 
-static void autorizadas_ler(const char *arq, unsigned uid)
+static void autorizadas_ler(const char *arq, unsigned uid, unsigned gid)
 {
     int fd = abrir(arq, ABRIR_LER);
     if (fd < 0) return;
@@ -401,7 +413,7 @@ static void autorizadas_ler(const char *arq, unsigned uid)
         if (n_autorizadas >= MAX_CHAVES) { n_recusadas++; continue; }
         autorizada_t *a = &autorizadas[n_autorizadas];
         int r = ssh_linha_autorizada(linha, a->pub, a->comentario, sizeof a->comentario);
-        if (r == 1) { a->uid = uid; n_autorizadas++; }
+        if (r == 1) { a->uid = uid; a->gid = gid; n_autorizadas++; }
         else if (r < 0) n_recusadas++;
         else {
             const char *p = linha;
@@ -412,23 +424,60 @@ static void autorizadas_ler(const char *arq, unsigned uid)
     fechar(fd);
 }
 
+/* D371 (fase 5): como el StrictModes de OpenSSH: el archivo y las carpetas hasta él, de la cuenta (o de root) y
+ * sin escritura para el grupo ni los demás; si no, otra cuenta podría haber puesto una clave. */
+static bool seguro(const char *c, unsigned uid)
+{
+    info_permisos_t p;
+    if (permisos_arquivo(c, &p) < 0) return false;
+    if (!p.com_donos) return true;   /* FAT32: todo del montaje (en vivo o un /home antiguo) */
+    return (p.uid == uid || p.uid == UID_ROOT) && !(p.modo & 022);
+}
+
+static void autorizadas_conta(const conta_t *c)
+{
+    char casa[80], ssh[96], arq[120];
+    copia_texto(casa, c->casa[0] ? c->casa : "/home", sizeof casa);
+    formatar_texto(ssh, sizeof ssh, "%s/.ssh", casa);
+    formatar_texto(arq, sizeof arq, "%s/authorized_keys", ssh);
+    info_arquivo_t ia;
+    if (info_arquivo(arq, &ia) < 0) return;
+    if (!seguro(casa, c->uid) || !seguro(ssh, c->uid) || !seguro(arq, c->uid)) {
+        anotar("aviso: %s no se usa: la carpeta o el archivo los puede cambiar otro (de %s, sin escritura para el grupo ni "
+               "los demás)", arq, c->nome);
+        return;
+    }
+    autorizadas_ler(arq, c->uid, c->gid);
+}
+
 static void autorizadas_carregar(void)
 {
     n_autorizadas = n_recusadas = 0;
-    autorizadas_ler(DIR_CASA "/authorized_keys", UID_SAGUI);
-    autorizadas_ler(CONTAS_CLAVES_ROOT, UID_ROOT);
+    /* D371 (fase 5): las de cada cuenta de persona, en su carpeta (sagui: /home/.ssh o, tras pasar a su carpeta,
+     * /home/sagui/.ssh), y las de root (/etc/ssh, en SAGUI-CONF, y /root/.ssh). */
+    static conta_t v[CONTAS_MAX];
+    int n = contas_ler(v, CONTAS_MAX, NULL);
+    for (int i = 0; i < n; i++)
+        if (v[i].uid >= UID_SAGUI && v[i].uid < 60000 && v[i].shell[0]) autorizadas_conta(&v[i]);
+    autorizadas_ler(CONTAS_CLAVES_ROOT, UID_ROOT, GID_ROOT);
+    if (seguro("/root/.ssh", UID_ROOT) && seguro("/root/.ssh/authorized_keys", UID_ROOT))
+        autorizadas_ler("/root/.ssh/authorized_keys", UID_ROOT, GID_ROOT);
 }
 
 /* La entrada de esa clave: si el cliente pide root, la de root si la hay; si
  * no, la de sagui. Una clave solo de sagui con «root@» entra como sagui (y se
  * anota): no da más de lo que da su archivo. */
-static const autorizada_t *autorizada(const uint8_t pub[32], bool quer_root)
+static const autorizada_t *autorizada(const uint8_t pub[32], const char *usuario)
 {
+    /* D371: la clave entra con la cuenta que pide el cliente si está en su archivo; si no, con la de su archivo
+     * (una clave solo de sagui con «root@» entra como sagui, y se anota: no da más de lo que da su archivo). */
+    conta_t c;
+    bool tem = conta_por_nome(usuario, &c);
     const autorizada_t *outra = NULL;
     for (int i = 0; i < n_autorizadas; i++)
         if (memcmp(autorizadas[i].pub, pub, 32) == 0) {
-            if ((autorizadas[i].uid == UID_ROOT) == quer_root) return &autorizadas[i];
-            if (!outra) outra = &autorizadas[i];
+            if (tem && autorizadas[i].uid == c.uid) return &autorizadas[i];
+            if (!outra || (outra->uid == UID_ROOT && autorizadas[i].uid != UID_ROOT)) outra = &autorizadas[i];
         }
     return outra;
 }
@@ -444,10 +493,9 @@ static void tomar_conta(const autorizada_t *a, const char *pedido)
     char n[CONTA_NOME_MAX];
     conta_nome(a->uid, n, sizeof n);
     if (compara_texto(pedido, n) != 0)
-        anotar("el cliente pidió «%s» y entra como %s (la clave está en %s)", pedido, n,
-               a->uid == UID_ROOT ? CONTAS_CLAVES_ROOT : DIR_CASA "/authorized_keys");
+        anotar("el cliente pidió «%s» y entra como %s (la clave está en el archivo de %s)", pedido, n, n);
     if (meu_uid() != a->uid) {
-        int r = usuario_op(USU_FIJAR, (int)a->uid, (int)(a->uid == UID_ROOT ? GID_ROOT : GID_SAGUI));
+        int r = usuario_op(USU_FIJAR, (int)a->uid, (int)a->gid);
         if (r < 0) anotar("no se pudo pasar a la cuenta %s (%s): la sesión sigue con uid %u", n, nome_erro(r), meu_uid());
     }
 }
@@ -809,7 +857,7 @@ static void autenticar(void)
             if (!sl_igual(alg, na, SSH_ED25519) || !ssh_blob_ler(blob, nb, pub)) {
                 anotar("usuario %s: clave de un tipo no admitido (solo ssh-ed25519)", usuario);
             } else {
-                const autorizada_t *a = autorizada(pub, compara_texto(usuario, "root") == 0);
+                const autorizada_t *a = autorizada(pub, usuario);
                 impressao(pub, h, sizeof h);
                 if (!a) {
                     anotar("usuario %s: clave NO autorizada %s", usuario, h);
@@ -1642,6 +1690,7 @@ static int sessao(const char *ip, const char *porta)
         memcpy(autorizadas[0].pub, dep_pub, 32);
         copia_texto(autorizadas[0].comentario, "DEBUG-APP", sizeof autorizadas[0].comentario);
         autorizadas[0].uid = UID_ROOT;
+        autorizadas[0].gid = GID_ROOT;
     } else {
         conf_carregar();
         autorizadas_carregar();

@@ -190,7 +190,11 @@ def parte3():
         a.esperar_pagina(3)
         verificar(re.search(r"instalar: plan ok", m.serial()[m.serial().rfind("instalar: pagina 3"):]), "el plan se calcula y se muestra")
         m.captura("H149-3-plan")
-        for pagina in (4, 5, 6):
+        a.pulsar("siguiente")
+        a.esperar_pagina(4)
+        a.escribir("clave-root", "clave149")   # D371 (P1 b): la de root es obligatoria
+        a.escribir("clave-root2", "clave149")
+        for pagina in (5, 6):
             a.pulsar("siguiente")
             a.esperar_pagina(pagina)
         a.pulsar("siguiente")                  # «Instalar»

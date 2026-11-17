@@ -204,6 +204,16 @@ def main():
                     default=os.environ.get("SAGUI_SESION_ROOT") == "1",
                     help="imagen de prueba: el escritorio y el Terminal como root en vez de sagui (D255). "
                          "Las pruebas lo ponen con SAGUI_SESION_ROOT=1")
+    ap.add_argument("--sin-pedir-root", action="store_true", default=os.environ.get("SAGUI_PRUEBA_USUARIOS") == "1",
+                    help="D371: el primer arranque con SAGUI-CONF no pide la contraseña de root en su pantalla "
+                         "(para las pruebas, que ponen SAGUI_PRUEBA_USUARIOS=1; las de prueba la llevan salvo con --pedir-root). "
+                         "Además: la consola no pide la cuenta y se entra sin la pantalla (inicio automático)")
+    ap.add_argument("--pedir-root", dest="sin_pedir_root", action="store_false",
+                    help="lo contrario de --sin-pedir-root")
+    ap.add_argument("--sin-migrar-home", action="store_true", default=os.environ.get("SAGUI_PRUEBA_USUARIOS") == "1",
+                    help="D371: no pasar los archivos de sagui a /home/sagui en el primer arranque (para las pruebas; "
+                         "las imágenes de prueba la llevan salvo con --migrar-home)")
+    ap.add_argument("--migrar-home", dest="sin_migrar_home", action="store_false", help="lo contrario de --sin-migrar-home")
     ap.add_argument("--sesion-sagui", dest="sesion_root", action="store_false",
                     help="lo contrario de --sesion-root (aunque SAGUI_SESION_ROOT=1)")
     ap.add_argument("--uacpi", action="store_true",
@@ -409,7 +419,8 @@ def main():
     if not 0 <= a.swap_mb <= 1024:
         sys.exit("mkimagem: --swap-mb tiene que estar entre 1 y 1024 (0 = automático)")
     cab += struct.pack("<H", a.swap_mb)   # CAB_TROCA_MB (160, D352): tope de la swap comprimida en MB
-    # 162-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
+    cab += struct.pack("<B", (1 if a.sin_pedir_root else 0) | (2 if a.sin_migrar_home else 0))   # CAB_USU_OPC (162, D371)
+    # 163-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
     # aquí se deja a cero (preencher_setores): los valores de la imagen son los bits de arriba.
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre

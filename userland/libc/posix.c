@@ -6,6 +6,7 @@
  * Lo que el SaguiOS no tiene se marca "carencia" en el comentario de cada
  * función y está en docs/carencias-netsurf.md.
  */
+#include <stdarg.h>
 #include "sagui.h"
 
 #include "arpa/inet.h"
@@ -133,11 +134,16 @@ int creat(const char *caminho, mode_t modo)
     return open(caminho, O_WRONLY | O_CREAT | O_TRUNC);
 }
 
+int __sock_fcntl(int fd, int op, int arg);   /* sockets.c: F_GETFL/F_SETFL de los sockets (D374) */
 int fcntl(int fd, int op, ...)
 {
-    /* Sin banderas de descriptor en el SaguiOS: se dice que todo va bien. */
-    (void)fd; (void)op;
-    return 0;
+    /* Sin banderas de descriptor en el SaguiOS salvo O_NONBLOCK de los sockets: lo demás va bien. */
+    va_list ap;
+    va_start(ap, op);
+    int arg = va_arg(ap, int);
+    va_end(ap);
+    int r = __sock_fcntl(fd, op, arg);
+    return r == -2 ? 0 : r;
 }
 
 ssize_t read(int fd, void *buf, size_t n)
@@ -185,8 +191,10 @@ ssize_t pwrite(int fd, const void *buf, size_t n, off_t desloc)
     return r < 0 ? falha(r) : r;
 }
 
+void __sock_olvidar(int fd);
 int close(int fd)
 {
+    __sock_olvidar(fd);
     int r = fechar(fd);
     return r < 0 ? falha(r) : 0;
 }
@@ -768,16 +776,7 @@ int uname(struct utsname *u)
 unsigned sleep(unsigned s) { dormir(s * 1000); return 0; }
 int usleep(unsigned us) { dormir((us + 999) / 1000); return 0; }
 
-/* Carencia: no hay select(). Solo se cumple el plazo. */
-int select(int n, fd_set *l, fd_set *e, fd_set *x, struct timeval *prazo)
-{
-    (void)n;
-    if (l) FD_ZERO(l);
-    if (e) FD_ZERO(e);
-    if (x) FD_ZERO(x);
-    if (prazo) dormir((unsigned)(prazo->tv_sec * 1000 + prazo->tv_usec / 1000));
-    return 0;
-}
+/* select() está en sockets.c (D374). */
 
 /* ------------------------------------------------------------- señales */
 

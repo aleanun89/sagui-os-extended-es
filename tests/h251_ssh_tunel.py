@@ -368,7 +368,7 @@ def maquina():
 
             # --- redirigir=no y redirigir=red-local (la configuración se lee en cada conexión)
             marca = len(m.serial())
-            cl.ssh("mkdir /home/.ssh; echo redirigir=no > /home/.ssh/sshd.conf")
+            cl.ssh("cp /etc/ssh/sshd.conf /tmp/sshd.orig; echo redirigir=no >> /etc/ssh/sshd.conf")   # D371: es del sistema (/etc)
             t = Tunel(cl, [f"localhost:{ECO}"])
             tuneis.append(t)
             verificar(cerrada(t.portas[0]), "con redirigir=no, ni a localhost")
@@ -376,7 +376,7 @@ def maquina():
             t.fechar()
             verificar(cl.ssh("echo sigo").stdout == b"sigo\n", "y las órdenes siguen funcionando")
 
-            cl.ssh("echo redirigir=red-local > /home/.ssh/sshd.conf")
+            cl.ssh("cp /tmp/sshd.orig /etc/ssh/sshd.conf; echo redirigir=red-local >> /etc/ssh/sshd.conf")
             # (localhost el primero: es el puerto con el que tantea esperar_puerto)
             t = Tunel(cl, [f"localhost:{ECO}", f"10.0.2.2:{anf.porta}", "8.8.8.8:53"])
             tuneis.append(t)
@@ -391,12 +391,12 @@ def maquina():
             base.esperar_log(m, "RECHAZADO: destino fuera de la red local (redirigir=red-local)", 10, marca)
             t.fechar()
 
-            cl.ssh("echo redirigir=quizas > /home/.ssh/sshd.conf")
+            cl.ssh("cp /tmp/sshd.orig /etc/ssh/sshd.conf; echo redirigir=quizas >> /etc/ssh/sshd.conf")
             t = Tunel(cl, [f"localhost:{ECO}"])
             tuneis.append(t)
             verificar(cerrada(t.portas[0]), "un valor de redirigir que no se entiende cierra la puerta (como no)")
             t.fechar()
-            cl.ssh("rm /home/.ssh/sshd.conf")
+            cl.ssh("cp /tmp/sshd.orig /etc/ssh/sshd.conf")
             verificar(eco(Tunel_tmp(cl, tuneis).portas[0], b"de serie\n") == b"de serie\n\nFIN 9\n",
                       "sin la opción (de serie, redirigir=local), a localhost sí")
 

@@ -1,0 +1,60 @@
+diff -ruN '--exclude=.preparado' orig/client/connectdlg_common.c fuentes/client/connectdlg_common.c
+--- a/client/connectdlg_common.c
++++ b/client/connectdlg_common.c
+@@ -367,7 +367,18 @@
+       astr_free(&srv_cmdline_opts);
+     }
+ 
++#ifdef SAGUI_FREECIV
++    /* D374: sin fork(): el servidor es otro proceso que se lanza con executar() y habla por TCP */
++    {
++      extern int executar(const char *caminho, char *const argv[]);
++      server_pid = executar("/apps/bin/freeciv-server", argv);
++      if (server_pid < 0) {
++        server_pid = -1;
++      }
++    }
++#else
+     server_pid = fork();
++#endif
+     server_quitting = FALSE;
+ 
+     if (server_pid == 0) {
+diff -ruN '--exclude=.preparado' orig/client/options.c fuentes/client/options.c
+--- a/client/options.c
++++ b/client/options.c
+@@ -341,14 +341,14 @@
+ 
+ /* gui-sdl client specific options. */
+   .gui_sdl_fullscreen = FALSE,
+-  .gui_sdl_screen = VIDEO_MODE(640, 480),
++  .gui_sdl_screen = VIDEO_MODE(1000, 700),
+   .gui_sdl_do_cursor_animation = TRUE,
+   .gui_sdl_use_color_cursors = TRUE,
+ 
+ /* gui-sdl2 client specific options. */
+   .gui_sdl2_default_theme_name = FC_SDL2_DEFAULT_THEME_NAME,
+   .gui_sdl2_fullscreen = FALSE,
+-  .gui_sdl2_screen = VIDEO_MODE(640, 480),
++  .gui_sdl2_screen = VIDEO_MODE(1000, 700),
+   .gui_sdl2_swrenderer = FALSE,
+   .gui_sdl2_do_cursor_animation = TRUE,
+   .gui_sdl2_use_color_cursors = TRUE,
+@@ -3201,7 +3201,7 @@
+   GEN_BOOL_OPTION(gui_sdl_fullscreen, NULL, NULL,
+                   COC_INTERFACE, GUI_SDL, FALSE, NULL),
+   GEN_VIDEO_OPTION(gui_sdl_screen, NULL, NULL,
+-                   COC_INTERFACE, GUI_SDL, 640, 480, NULL),
++                   COC_INTERFACE, GUI_SDL, 1000, 700, NULL),
+   GEN_BOOL_OPTION(gui_sdl_do_cursor_animation, NULL, NULL,
+                   COC_INTERFACE, GUI_SDL, TRUE, NULL),
+   GEN_BOOL_OPTION(gui_sdl_use_color_cursors, NULL, NULL,
+@@ -3215,7 +3215,7 @@
+   GEN_VIDEO_OPTION(gui_sdl2_screen, N_("Screen resolution"),
+                    N_("This option controls the resolution of the "
+                       "selected screen."),
+-                   COC_INTERFACE, GUI_SDL2, 640, 480, NULL),
++                   COC_INTERFACE, GUI_SDL2, 1000, 700, NULL),
+   GEN_BOOL_OPTION(gui_sdl2_swrenderer, N_("Use software rendering"),
+                   N_("Usually hardware rendering is used when possible. "
+                      "With this option set, software rendering is always used."),

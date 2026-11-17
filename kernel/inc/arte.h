@@ -25,6 +25,7 @@ extern const desenho_t arte_mini_exploradorbd;   /* mejora 127: Explorador de ba
 extern const desenho_t arte_mini_exploradorsqlite;   /* mejora 131: Explorador SQLite */
 extern const desenho_t arte_mini_exploradorlmk;   /* mejora 131: Explorador lite-monkey */
 extern const desenho_t arte_mini_pluma;   /* mejora 116: el procesador de textos */
+extern const desenho_t arte_mini_tucan;   /* D369: el editor de presentaciones */
 extern const desenho_t arte_mini_macaco;   /* melhoria 078: a folha de calculo */
 extern const desenho_t arte_mini_gebramini;   /* mejora 128: geometría dinámica */
 extern const desenho_t arte_mini_planomini;   /* mejora 129: mini CAD 2D */
@@ -33,6 +34,7 @@ extern const desenho_t arte_mini_jclicbajar;   /* D185: bajar actividades JClic 
 #ifndef SAGUI_SEM_GPL
 extern const desenho_t arte_mini_tyrian;   /* D180: o OpenTyrian */
 extern const desenho_t arte_mini_openjazz;   /* D228: OpenJazz */
+extern const desenho_t arte_mini_freeciv;    /* D374: Freeciv */
 extern const desenho_t arte_mini_conquer;    /* D230: Command & Conquer (Vanilla Conquer) */
 extern const desenho_t arte_mini_quake;      /* D229: Quake */
 extern const desenho_t arte_mini_dosbox;     /* D294: DOSBox */

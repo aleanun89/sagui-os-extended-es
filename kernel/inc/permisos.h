@@ -30,6 +30,10 @@ bool permisos_casa_traduzir(const processo_t *p, char *caminho);
 /* Antes de cambiar el uid del líder "l" a "novo": su carpeta actual pasa de la vista de la cuenta a la
  * real (a root) o al revés. */
 void permisos_casa_mudar_uid(processo_t *l, uint32_t novo);
+/* D371 (fase 4): la carpeta de una cuenta (/etc/usuarios); "" = /home tal cual. Y la carpeta actual de un hijo
+ * que nace con otra carpeta que su padre (USU_COMO, servicios). */
+void permisos_casa_de_uid(uint32_t uid, char *casa, size_t n);
+void permisos_pasta_herdada(processo_t *p, const processo_t *pai);
 
 /* ¿Es root el proceso (su líder)? */
 static inline bool permisos_root(const processo_t *p) { return processo_lider((processo_t *)p)->uid == 0; }

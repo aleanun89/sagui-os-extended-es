@@ -186,6 +186,7 @@ bool atalhos_tecla(int t, uint32_t mods)
         super_usada = true;
         if (shift && (t == 's' || t == 'S' || t == 0x13)) { lanzar_recortes(); return true; }
         if (t == 'd' || t == 'D' || t == 4 /* Ctrl+D */) mostrar_escritorio();
+        if (t == 'l' || t == 'L' || t == 0x0C /* Ctrl+L */) sessao_bloquear();   /* D371: bloquear la pantalla */
         return true;
     }
 

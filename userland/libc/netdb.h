@@ -32,11 +32,21 @@ struct addrinfo {
 #define AI_PASSIVE     0x01
 #define AI_CANONNAME   0x02
 #define AI_NUMERICHOST 0x04
+#define AI_NUMERICSERV 0x400
+#define AI_ADDRCONFIG  0x20
+#define NI_NUMERICHOST 1
+#define NI_NUMERICSERV 2
+#define NI_NAMEREQD    8
+#define NI_MAXHOST 1025
+#define NI_MAXSERV 32
+#define EAI_SERVICE (-8)
 #define EAI_FAIL       (-4)
 #define EAI_NONAME     (-2)
 
 struct hostent *gethostbyname(const char *nome);
+struct hostent *gethostbyaddr(const void *dir, socklen_t n, int tipo);
 int  getaddrinfo(const char *nome, const char *servico, const struct addrinfo *pistas, struct addrinfo **res);
 void freeaddrinfo(struct addrinfo *res);
 const char *gai_strerror(int erro);
+int  getnameinfo(const struct sockaddr *a, socklen_t an, char *host, socklen_t hl, char *serv, socklen_t sl, int flags);
 #endif

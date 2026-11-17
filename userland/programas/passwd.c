@@ -63,6 +63,11 @@ int principal(int argc, char **argv)
     int r = pedir_conta(&p);
     memset(&p, 0, sizeof p);
     if (r == 1) { imprimir("passwd: contraseña de %s cambiada\n", c.nome); return 0; }
+    if (r == ERRO_NAO_SUPORTADO && c.uid == UID_ROOT) {   /* D371 (P3 b) */
+        imprimir_em(ERROS, "passwd: la primera contraseña de root se elige en la pantalla del sistema (al arrancar) o en el "
+                    "diálogo de permisos, no desde un programa\n");
+        return 1;
+    }
     imprimir_em(ERROS, "passwd: no se cambió: %s\n", r == ERRO_ACESSO ? "contraseña actual incorrecta" : nome_erro(r));
     return 1;
 }

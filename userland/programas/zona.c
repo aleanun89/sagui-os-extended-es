@@ -18,6 +18,7 @@
 #include "sagui.h"
 #include "gui.h"
 #include "contas.h"
+#include "conf_maquina.h"
 
 #define ARQ_RAM         "/etc/zona"
 #define ARQ_PERSISTENTE "/home/.zona"
@@ -60,9 +61,18 @@ static int aplicar_e_gravar(void)
     if (r < 0) { elevacao_soltar(); return r; }
     ler_zona(&cfg);
     gravar_arquivo(ARQ_RAM);
-    bool persistente = home_persistente() && gravar_arquivo(ARQ_PERSISTENTE) == 0;
+    bool persistente;
+    if (maquina_separada()) {   /* D371: la zona es de la máquina: /etc/zona en SAGUI-CONF (ya somos root) */
+        static char t[256];
+        int fd = abrir(ARQ_RAM, ABRIR_LER), n = fd >= 0 ? ler(fd, t, sizeof t) : -1;
+        if (fd >= 0) fechar(fd);
+        persistente = n > 0 && conf_gravar("zona", t, n) == 0;
+    } else {
+        persistente = home_persistente() && gravar_arquivo(ARQ_PERSISTENTE) == 0;
+    }
     registrar("zona: aplicada %s (%s), rtc %s, %s h, %s", cfg.nome, cfg.tz, cfg.rtc_local ? "local" : "utc",
-              cfg.formato_24h ? "24" : "12", persistente ? "gravada em " ARQ_PERSISTENTE : "so na RAM");
+              cfg.formato_24h ? "24" : "12", !persistente ? "so na RAM" : maquina_separada() ? "gravada em /etc/zona (SAGUI-CONF)"
+              : "gravada em " ARQ_PERSISTENTE);
     elevacao_soltar();
     return persistente ? 1 : 0;
 }
@@ -104,7 +114,7 @@ static uint32_t proxima_mudanca(const fuso_t *f, uint32_t t)
 static const char *nome_origem(unsigned o)
 {
     switch (o) {
-    case ZONA_PERSISTENTE: return ARQ_PERSISTENTE " (disco persistente)";
+    case ZONA_PERSISTENTE: return maquina_separada() ? "/etc/zona (SAGUI-CONF, disco persistente)" : ARQ_PERSISTENTE " (disco persistente)";   /* D371 */
     case ZONA_ARQUIVO:     return ARQ_RAM " (solo en RAM)";
     case ZONA_PROGRAMA:    return "cambiada en esta sesión";
     default:               return "sin configurar (UTC)";

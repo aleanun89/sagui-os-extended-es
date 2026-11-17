@@ -25,6 +25,8 @@
  * El nombre del archivo va en español porque es el del comando (interfaz). */
 #include "sagui.h"
 #include "sensores.h"
+#include "contas.h"
+#include "conf_maquina.h"
 
 static int erro(const char *msg, int r)
 {
@@ -65,6 +67,15 @@ static int guardar(const info_frequencia_t *f)
                            f->politica == FREQ_POL_ECONOMIA ? "ahorro" : f->politica == FREQ_POL_DEMANDA ? "demanda" : "rendimiento",
                            f->limite_mc / 1000, f->estado == FREQ_EST_DESATIVADO ? "si" : "no",
                            f->coordenacao == FREQ_COORD_PAQUETE ? "paquete" : "nucleo");
+    if (maquina_separada()) {   /* D371: es de la máquina: /etc/frecuencia en SAGUI-CONF, como administrador */
+        int r = maquina_gravar_arquivo("frecuencia", buf, n, "guardar la política de frecuencia de la CPU");
+        if (r < 0) {
+            imprimir_em(ERROS, "frecuencia: no se guardó: %s\n", r == ERRO_ACESSO ? "hace falta ser administrador (admin frecuencia ...)" : nome_erro(r));
+            return 1;
+        }
+        imprimir("Guardado en /etc/frecuencia (se aplica al arrancar).\n");
+        return 0;
+    }
     int fd = abrir("/home/.frecuencia", ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) {
         if (fd == ERRO_NAO_EXISTE)

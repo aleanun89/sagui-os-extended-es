@@ -197,8 +197,9 @@ def main():
             esperar_pintada(m)
             captura = m.captura("H135-qjs-dom", guardar=False)
             largura, altura, canais, linhas = png_pixels(captura)
-            # a área da página dentro da janela (a barra de abas fica acima)
-            pagina = (ox + 4, oy + 68, jlarg - 24, 320)
+            # a área da página dentro da janela: título (24) + pestañas (26) + barra de herramientas (34) del Cipó
+            # nuevo (D373); antes de D373 empezaba en +68 y ahora caería sobre los iconos rojos de la barra
+            pagina = (ox + 4, oy + 24 + 26 + 34 + 4, jlarg - 24, 320)
 
             # ---------------------------------------- o clique na caixa (div)
             caixa = caixa_de(linhas, canais, vermelho, pagina)

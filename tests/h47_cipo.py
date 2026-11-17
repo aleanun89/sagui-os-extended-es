@@ -82,11 +82,11 @@ def main():
         m.clique((caixa[0] + caixa[2]) // 2, (caixa[1] + caixa[3]) // 2)
         m.esperar_serial("gina B", 20)
         verificar("abrindo http://10.0.2.2:%d/b.html" % porta in m.serial(), "el clic sigue el enlace relativo (carpeta/../b.html -> /b.html)")
-        m.clique(jx + 2 + 40, jy + 24 + 20)   # Atrás
+        m.clique(jx + 2 + 18, jy + 24 + 45)   # Atrás (D373: la barra de herramientas va bajo las pestañas)
         time.sleep(2)
         verificar(len(re.findall(r'cipo: pronto "P.gina A"', m.serial())) == 2, "Atrás vuelve a abrir la página A")
         # Dirección nueva escrita en la barra: una página chunked.
-        m.clique(jx + 2 + 400, jy + 24 + 20)
+        m.clique(jx + 2 + 400, jy + 24 + 45)   # la dirección
         for _ in range(60):
             m.tecla("backspace", 0.02)
         m.digitar(f"10.0.2.2:{porta}/trozos.html\n", 0.04)

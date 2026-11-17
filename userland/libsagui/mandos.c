@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* mandos.c - mandos y joysticks en la libsagui (D307). Ver mandos.h. */
 #include "mandos.h"
+#include "conf_maquina.h"
 
 static int llamar(info_mandos_t *i) { return info_sistema(INFO_MANDOS, i, sizeof *i); }
 
@@ -127,7 +128,7 @@ static bool home_persistente(void)
 int mandos_conf_ler(unsigned short cal[4][3])
 {
     static char t[2048];
-    int fd = abrir(MANDOS_ARQ_CONF, ABRIR_LER);
+    int fd = abrir(maquina_separada() ? MAQ_ARQ_CONF : MANDOS_ARQ_CONF, ABRIR_LER);   /* D371: es de la máquina */
     if (fd < 0) return -1;
     int n = ler(fd, t, sizeof t - 1);
     fechar(fd);
@@ -149,6 +150,12 @@ int mandos_conf_gravar(const unsigned short cal[4][3])
 {
     static char t[2048], o[2200];
     int n = 0, no = 0;
+    if (maquina_separada()) {   /* D371: la calibración es de la máquina: /etc/sistema.conf (administrador) */
+        char v[96] = "", l[128];
+        if (cal) mandos_cal_texto(cal, v, sizeof v);
+        formatar_texto(l, sizeof l, CHAVE "%s\n", v);
+        return maquina_gravar_linhas(l, "guardar la calibración del mando");
+    }
     if (!home_persistente()) return 1;
     int fd = abrir(MANDOS_ARQ_CONF, ABRIR_LER);
     if (fd >= 0) { n = ler(fd, t, sizeof t - 1); fechar(fd); if (n < 0) n = 0; }

@@ -31,7 +31,7 @@ DIR_IDIOMAS = os.path.join(RAIZ, "idiomas")
 # Dónde se buscan las marcas (no se recorre kernel/terceros ni los puertos).
 BUSCAR = ["kernel/gui", "kernel/dispositivos/acpi.c", "kernel/nucleo/supervisor.c", "kernel/nucleo/energia.c", "userland/programas", "userland/libsagui", "userland/inc"]
 # Fuentes que no están en UTF-8 (AGENTS.md, «Codificación de los ficheros»).
-LATIN1 = {"userland/programas/arquivos.c", "userland/programas/cipo.c"}
+LATIN1 = {"userland/programas/arquivos.c"}
 IDIOMAS = ["pt_BR", "en"]          # los que se mantienen con .po; «es» es el original y «xx» el de pruebas
 PSEUDO = "xx"
 MAGIA = 0x54434753

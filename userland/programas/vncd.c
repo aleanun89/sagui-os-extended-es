@@ -192,13 +192,22 @@ static bool clave_ler(const char *arq)
  * /home/.config (donde iba antes) se pasa a SAGUI-CONF la primera vez. */
 static bool clave_cargar(void)
 {
-    if (clave_ler(DIR_ETC "/" ARQ_CLAVE)) return true;
+    /* D371: con SAGUI-CONF, la copia de /home no se deja (/home es de la cuenta, que la leería). */
+    bool limpar = sou_root() && conf_persistente();
+    if (clave_ler(DIR_ETC "/" ARQ_CLAVE)) {
+        info_arquivo_t ia;
+        if (limpar && info_arquivo(DIR_CASA "/" ARQ_CLAVE, &ia) == 0 && apagar(DIR_CASA "/" ARQ_CLAVE) == 0)
+            registrar("vncd: copia vieja de la contraseña quitada de " DIR_CASA);
+        return true;
+    }
     if (!clave_ler(DIR_CASA "/" ARQ_CLAVE)) return false;
-    if (sou_root() && conf_persistente()) {
+    if (limpar) {
         char t[80];
         formatar_texto(t, sizeof t, "%s\n", clave);
-        if (conf_gravar("vnc/" ARQ_CLAVE, t, (int)tam_texto(t)) == 0)
+        if (conf_gravar("vnc/" ARQ_CLAVE, t, (int)tam_texto(t)) == 0) {
+            apagar(DIR_CASA "/" ARQ_CLAVE);
             registrar("vncd: contraseña pasada de " DIR_CASA " a SAGUI-CONF (" DIR_ETC ")");
+        }
         memset(t, 0, sizeof t);
     }
     return true;

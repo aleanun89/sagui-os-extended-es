@@ -76,6 +76,8 @@ int fuentes_sistema_listar(familia_fuente_t *v, int max);
 /* Instala el proveedor de fuentes de documento (familias.c) en la libsagui: las familias >= 3 de
  * rte/pdfw/rtf pasan a ser estas fuentes (el 0..2 clásico se dibuja con DejaVu). Idempotente. */
 void fuentes_doc_instalar(void);
+/* Letras vectoriales (DejaVu) para los WordArt de wordart.h (D296; Tucán, D369). */
+void wordart_fuentes_instalar(void);
 /* Para pruebas: vuelve a leer las carpetas y devuelve cuántas familias quedan registradas. */
 int fuentes_doc_actualizar(void);
 

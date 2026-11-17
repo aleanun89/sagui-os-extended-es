@@ -25,6 +25,19 @@ struct sockaddr_in6 {
     uint32_t    sin6_scope_id;
 };
 #define INADDR_ANY ((in_addr_t)0)
+#define INADDR_LOOPBACK ((in_addr_t)0x7f000001)
+#define IPPROTO_IP   0
+#define IPPROTO_TCP  6
+#define IPPROTO_UDP  17
+#define IPPROTO_IPV6 41
+#define IP_MULTICAST_TTL 33
+#define IP_ADD_MEMBERSHIP 35
+#define IPV6_JOIN_GROUP 20
+#define IPV6_V6ONLY 26
+#define IPV6_MULTICAST_HOPS 18
+struct ip_mreq { struct in_addr imr_multiaddr; struct in_addr imr_interface; };
+struct ip_mreqn { struct in_addr imr_multiaddr; struct in_addr imr_address; int imr_ifindex; };
+struct ipv6_mreq { struct in6_addr ipv6mr_multiaddr; unsigned ipv6mr_interface; };
 #define INADDR_NONE ((in_addr_t)0xffffffff)
 #define INET_ADDRSTRLEN 16
 #define INET6_ADDRSTRLEN 46

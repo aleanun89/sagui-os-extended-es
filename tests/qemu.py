@@ -45,6 +45,10 @@ IMAGEM = os.path.join(BUILD, "saguios.img")
 SAIDA = os.environ.get("SAGUI_SAIDA") or os.path.join(RAIZ, "build", "testes")
 CAPTURAS = os.path.join(RAIZ, "docs", "capturas")
 TEMPO_MAX = 180
+# Las pruebas compilan como la imagen PÚBLICA: los make que lanzan (ISO, VDI...) no deben meter input_share/
+# (juegos propios, el paquete privado de OpenTTD de D375...). Make toma INPUT_SHARE vacío del entorno.
+# Quien quiera input_share lo pone a mano (h230 usa «INPUT_SHARE or input_share» para buscar sus ISO).
+os.environ.setdefault("INPUT_SHARE", "")
 # Aviso del kernel al acabar un proceso (ver Maquina.comando)
 AVISO_FIM = re.compile(r"\[SAGUI\] processo \d+ \([^)\n]*\) terminou com codigo -?\d+\n?")
 
@@ -160,6 +164,9 @@ OPCOES_IMAGEM = os.environ.get("SAGUI_OPCOES_IMAGEM", "").split()
 # publica) se copia una vez con el bit puesto (imagem_sesion_root). Para pasar
 # pruebas como el usuario normal: SAGUI_SESION_ROOT=0 (h254 lo hace solo).
 os.environ.setdefault("SAGUI_SESION_ROOT", "1")
+# D371: las imágenes que hacen las pruebas (mkimagem.py) no piden la contraseña de root al arrancar, entran sin
+# pedir la cuenta y no pasan sagui a /home/sagui, salvo que la prueba pida --pedir-root o --migrar-home.
+os.environ.setdefault("SAGUI_PRUEBA_USUARIOS", "1")
 CAB_OPCOES_DESL = 512 + 6     # LBA 1, CAB_OPCOES (boot/cabecalho.inc)
 OPC_SESION_RAIZ = 0x8000
 
@@ -190,6 +197,11 @@ def imagem_de_teste(teste, extras=(), apps=True):
     """Monta build/testes/teste-<nome>.img: a imagem normal com um autoteste
     do kernel ligado pelo cabeçalho de boot (campo CAB_TESTE)."""
     extras = list(extras) + [o for o in OPCOES_IMAGEM if o not in extras]
+    # D371: las pruebas no quieren la pantalla de la primera contraseña de root (salvo la que la prueba).
+    if "--pedir-root" not in extras and "--sin-pedir-root" not in extras:
+        extras.append("--sin-pedir-root")
+    if "--migrar-home" not in extras and "--sin-migrar-home" not in extras:   # D371 (fase 4): /home como siempre
+        extras.append("--sin-migrar-home")
     b = BUILD
     os.makedirs(SAIDA, exist_ok=True)
     # D324: las aplicaciones ya no van en el ramdisk sino en SAGUI-APPS: las imagenes de prueba

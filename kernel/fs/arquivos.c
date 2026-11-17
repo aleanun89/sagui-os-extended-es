@@ -19,6 +19,7 @@
 #include "texto.h"
 #include "vfs.h"
 #include "montagem.h"
+#include "conf_sistema.h"
 #include "tv.h"
 #include "rede.h"
 #include "aleatorio.h"
@@ -303,6 +304,19 @@ int32_t sis_ler(uint32_t fd, uint32_t buf, uint32_t n, uint32_t d, uint32_t e)
     return r;
 }
 
+/* D371 (P14): /root se guarda en SAGUI-CONF (16 MB), junto a las contraseñas y las claves. Lo que se escribe en
+ * /root no puede dejarla con menos de RAIZ_RESERVA_KB libres: una contraseña nueva siempre tiene sitio. */
+#define RAIZ_RESERVA_KB 4096u
+static bool raiz_sem_sitio(const arquivo_t *a, uint32_t n)
+{
+    if (!a->caminho || txt_compara_n(a->caminho, CONF_RAIZ "/", sizeof CONF_RAIZ) != 0 || !a->mnt->m->fs->espaco) return false;
+    uint32_t total, livre;
+    a->mnt->m->fs->espaco(a->mnt->m->priv, &total, &livre);
+    if (livre >= RAIZ_RESERVA_KB + n / 1024u + 1) return false;
+    klog("[CONF] /root: sin sitio (quedan %u KB en SAGUI-CONF, reserva %u KB)\n", livre, RAIZ_RESERVA_KB);
+    return true;
+}
+
 static int32_t escrever_em(arquivo_t *a, uint32_t buf, uint32_t n)
 {
     switch (a->tipo) {
@@ -319,6 +333,7 @@ static int32_t escrever_em(arquivo_t *a, uint32_t buf, uint32_t n)
         if (!mnt_vivo(a)) return ERRO_NAO_EXISTE;
         if (so_leitura(a->mnt->m)) return ERRO_SO_LEITURA;
         if (a->modo & ABRIR_ACRESCENTAR) a->pos = a->mnt->tamanho;
+        if (raiz_sem_sitio(a, n)) return ERRO_LIMITE;
         talvez_executavel(a, (const uint8_t *)buf, n);
         int r = a->mnt->m->fs->escrever(a->mnt->m->priv, a->mnt->dados, a->pos, (const void *)buf, n, &a->mnt->tamanho);
         if (r > 0) a->pos += (uint32_t)r;

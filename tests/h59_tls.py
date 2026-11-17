@@ -372,7 +372,7 @@ def parte_cipo(p):
         jan = re.search(r'janela (\d+) criada por \d+: "Cip.*?" (\d+)x(\d+) em \((\d+),(\d+)\)', s)
         jx, jy = int(jan.group(4)), int(jan.group(5))
         m.captura("H59-cipo-https")
-        m.clique(jx + 2 + 400, jy + 24 + 20)   # barra de dirección
+        m.clique(jx + 2 + 400, jy + 24 + 45)   # barra de dirección (D373: la barra va bajo las pestañas)
         for _ in range(60):
             m.tecla("backspace", 0.02)
         m.digitar(f"https://10.0.2.2:{p['caducado']}/hola.txt\n", 0.04)

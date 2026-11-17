@@ -27,7 +27,8 @@ from qemu import Maquina, verificar, imagem_de_teste, SAIDA, BUILD  # noqa: E402
 from h60_barra_tareas import painel, submenu_pelo_mouse, esperar, clicar_aqui, y_linha  # noqa: E402
 import h268_iconos_escritorio as h268  # noqa: E402
 
-MAX_RAMDISK = 12 * 1024 * 1024    # el de la 8.4.2 era 19,3 MB
+MAX_RAMDISK = 14 * 1024 * 1024    # el de la 8.4.2 era 19,3 MB; 12 MB hasta la 8.5.3 (el mantenedor: «no limites el
+#                                   ramdisk»; la 8.5.3.1 lo cambia por un initramfs mínimo con la raíz en disco, D379)
 MIN_LIBRE_KB = 4 * 1024           # con 32 MB y escritorio
 MOVIDAS = ("cipo", "pluma", "macaco", "mico", "correo", "planomini", "gebramini", "visorpdf", "chatia", "ia",
            "reproductor", "musica", "camara", "grabadora", "paint", "pascal", "cc", "spider", "sagui3d",

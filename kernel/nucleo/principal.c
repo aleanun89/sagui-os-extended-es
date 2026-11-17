@@ -491,6 +491,8 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         bool i0 = int_salva_desliga();
         fstab_liberar();
         conf_sistema_superpor();  /* D255: la configuración del sistema de SAGUI-CONF sobre /etc */
+        conf_sistema_raiz_preparar();   /* D371: /root, en SAGUI-CONF si está */
+        conf_sistema_home_reavaliar();  /* D371: /home de root si sagui ya está en /home/sagui */
         hora_carregar_config();   /* D080: /home/.zona (persistente) o /etc/zona */
         int_restaura(i0);
     }
@@ -619,6 +621,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
      * terminal provisoria de la H09 fue quitada. De aquí en adelante este código
      * es sólo el proceso 0 (ocioso). */
     aplicar_configuracao(false);
+    sessao_consola_preparar();   /* D371: la carpeta de la cuenta (tras la migración de sagui, /home/sagui) */
     bool servicos_lancados = false;
     if (permisos_modo_rescate()) {
         console_cor(COR_AMARELO, COR_PRETO);
@@ -628,9 +631,13 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         console_cor(COR_CINZA, COR_PRETO);
         klog("[SAGUI] MODO RESCATE\n");
     }
+    /* D371 (fase 6, P12): con la configuración guardada y sin el inicio automático, la consola pide la cuenta
+     * («login», como root: comprueba la contraseña y pasa a la cuenta). El modo rescate y las pruebas, no. */
+    bool pede_login = !permisos_modo_rescate() && !permisos_sesion_raiz() && !conf_sistema_inicio_automatico();
     for (;;) {
-        char *argv[] = { "sagsh", NULL };
-        int pid = processo_executar("/bin/sagsh", 1, argv, NULL);
+        char *argv[] = { pede_login ? "login" : "sagsh", NULL };
+        int pid = pede_login ? processo_executar_como("/bin/login", 1, argv, UID_ROOT, GID_ROOT)
+                             : processo_executar("/bin/sagsh", 1, argv, NULL);
         if (pid < 0) {
             console_cor(COR_VERMELHO_CLARO, COR_PRETO);
             kprintf("No se pudo iniciar /bin/sagsh (error %d).\n", pid);

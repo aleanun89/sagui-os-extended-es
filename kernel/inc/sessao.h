@@ -14,6 +14,10 @@
  * contraseña, imagen de prueba o modo rescate): la sesión ya está puesta. false = la pantalla de inicio
  * de sesión está abierta y la sesión empezará cuando alguien entre. */
 bool sessao_arrancar(void);
+void sessao_consola_preparar(void);   /* D371: sin escritorio, la carpeta de la cuenta de la consola */
+void sessao_bloquear(void);           /* D371: Windows+L y «Bloquear» del menú Inicio */
+/* D371 (P3 b): ¿root sigue sin contraseña con la configuración guardada (SAGUI-CONF)? (no en las imágenes de prueba) */
+bool sessao_raiz_sem_senha(void);
 /* El proceso 0 (principal.c), en su espera. inicio: empezó una sesión (aplicar su configuración y abrir
  * su Terminal); restaurar: se cerró una (volver a la configuración de la máquina detrás de la pantalla). */
 bool sessao_tomar_inicio(void);

@@ -1,4 +1,4 @@
-# Usuarios en la v8.5.3: auditoría y diseño (D371, propuesta pendiente de decisión)
+# Usuarios en la v8.5.3: auditoría y diseño (D371, decidido)
 
 Pedido del mantenedor: «Usuario root (SIEMPRE EXISTE) y luego alguna manera de hacer login, que cada usuario
 tenga su directorio… Saber bien los permisos de usuario y configuraciones de usuario vs configuraciones de
@@ -400,6 +400,9 @@ para que `/home/.config` ya no tenga nada de la máquina cuando se mueva.
 ---
 
 ## 5. Preguntas para el mantenedor
+
+**Respuestas (2026-11-17): el mantenedor acepta todas las recomendaciones** (P1 b, P2 b, P3 b, P4 a, P5 b, P6 a, P7 b,
+P8 a con `/home/compartido` 1777, P9 a, P10 b en una fase posterior, P11 c, P12 a, P13 a, P14 a, P15 a).
 
 **P1. Contraseña de root al instalar.**
 

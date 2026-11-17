@@ -382,7 +382,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica }, { "convertir-audio", &arte_mini_musica },
-        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
+        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "tucan", &arte_mini_tucan }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
@@ -1177,6 +1177,7 @@ static const programa_t programas[] = {
     { N_("Pluma (procesador de textos)"), "/apps/bin/pluma", NULL, "pluma",      G_ACESSORIOS, &arte_mini_pluma, false },   /* D291: melhoria 116 */
     { N_("Traductor"),               "/apps/bin/traductor", NULL, "traductor", G_ACESSORIOS, &arte_mini_pluma, false },   /* D335: mejora 133 */
     { N_("Macaco (hoja de cálculo)"), "/apps/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
+    { N_("Tucán (presentaciones)"),  "/apps/bin/tucan",      NULL, "tucan",       G_ACESSORIOS, &arte_mini_tucan, false },    /* D369: junto a Pluma y Macaco */
     { N_("Paint"),                   "/apps/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
     { N_("Visor de imágenes"),       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
     { N_("PlanoMini (CAD 2D)"),      "/apps/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */
@@ -1198,6 +1199,8 @@ static const programa_t programas[] = {
 #ifndef SAGUI_SEM_GPL   /* D184: la h81 encontraba «OpenTyrian» en el kernel sin GPL */
     { N_("OpenTyrian"),              "/apps/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
     { N_("OpenTyrian (pantalla completa)"), "/apps/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */
+    { N_("Freeciv"),                 "/apps/bin/freeciv-sdl2", NULL, "freeciv",  G_JUEGOS,     &arte_mini_freeciv, false },   /* D374: en /apps; sólo si está */
+    { N_("OpenTTD"),                 "/apps/bin/openttd", NULL, "openttd",    G_JUEGOS,     &arte_mini_recreativa, false },   /* D375: paquete aparte (GPL-2.0 solo), se instala en /apps; sólo si está */
     { N_("OpenJazz"),                "/apps/bin/openjazz", NULL, "openjazz",  G_JUEGOS,     &arte_mini_openjazz, false },   /* D228: en /apps; sólo si está */
     { N_("OpenJazz (pantalla completa)"), "/apps/bin/openjazz", "--pantalla-completa", "openjazz-cheia", G_JUEGOS, &arte_mini_openjazz, false },   /* D228 */
     { N_("Command & Conquer"),       "/apps/bin/conquer", NULL, "conquer",    G_JUEGOS,     &arte_mini_conquer, false },   /* D230: Vanilla Conquer, en /apps; sólo si está */
@@ -1296,7 +1299,8 @@ static int mais_usados(int *v)
     return n;
 }
 
-enum { A_PROGRAMA = 0, A_EJECUTAR = 100, A_PANTALLA, A_ACERCA, A_REINICIAR, A_APAGAR, A_TAREFAS, A_FECHA, A_SAIR, A_TROCAR, A_VPS = 200, A_JANELA = 1000 };
+enum { A_PROGRAMA = 0, A_EJECUTAR = 100, A_PANTALLA, A_ACERCA, A_REINICIAR, A_APAGAR, A_TAREFAS, A_FECHA, A_SAIR, A_TROCAR,
+       A_BLOQUEAR, A_VPS = 200, A_JANELA = 1000 };   /* D371: A_BLOQUEAR */
 #define VPS_MAX 24   /* aplicaciones generadas por VisualPythonS que caben en el menú (D297) */
 
 static menu_lista_t menu_inicio;
@@ -1374,6 +1378,7 @@ static void executar_acao(int a)
     else if (a == A_APAGAR) executar_ajudante("--apagar");         /* D113: también pregunta */
     else if (a == A_SAIR) executar_ajudante("--cerrar-sesion");    /* D340: pregunta (se cierra todo) */
     else if (a == A_TROCAR) executar_ajudante("--cambiar-usuario");
+    else if (a == A_BLOQUEAR) sessao_bloquear();   /* D371 */
 }
 
 static void resposta_inicio(int indice, int janela, int dado)
@@ -1471,6 +1476,7 @@ static bool abrir_inicio_lista(bool classico, bool teclado)
     menu_lista_linha(ml, _("Reiniciar..."), A_REINICIAR, NULL);
     /* D340: sin la sesión de pruebas ni el modo rescate (no hay pantalla de inicio de sesión a la que volver). */
     if (sessao_com_troca()) {
+        menu_lista_linha(ml, _("Bloquear"), A_BLOQUEAR, NULL);   /* D371 */
         menu_lista_linha(ml, _("Cerrar sesión..."), A_SAIR, NULL);
         menu_lista_linha(ml, _("Cambiar de usuario..."), A_TROCAR, NULL);
     }
@@ -1519,6 +1525,7 @@ static bool abrir_inicio_painel(int estilo, bool teclado)
     (void)t;
     pitem(_("Acerca de"), A_ACERCA, &arte_icone_sobre, IG_LUGAR);   /* sin el nombre ni la versión: ya está en la ventana */
     if (sessao_com_troca()) pitem(_("Cambiar de usuario..."), A_TROCAR, NULL, IG_LUGAR);
+    if (sessao_com_troca()) pitem(_("Bloquear"), A_BLOQUEAR, NULL, IG_LUGAR);   /* D371 */
     pitem(_("Apagar..."), A_APAGAR, NULL, IG_ENERGIA);
     pitens[npitens - 1].icono = 1;
     pitem(_("Reiniciar..."), A_REINICIAR, NULL, IG_ENERGIA);

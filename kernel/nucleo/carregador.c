@@ -169,7 +169,8 @@ static void dar_identidade(processo_t *p, processo_t *pai)
 {
     if (pai) {
         processo_t *l = processo_lider(pai);
-        if (l->como_uid >= 0) {
+        bool como = l->como_uid >= 0;
+        if (como) {
             p->uid = (uint32_t)l->como_uid;
             p->gid = (uint32_t)l->como_gid;
             l->como_uid = l->como_gid = -1;   /* una sola vez */
@@ -182,9 +183,16 @@ static void dar_identidade(processo_t *p, processo_t *pai)
         p->de_servico = l->de_servico || l->exe_sistema == EXE_SERVICIOS;
         p->umask = l->umask;   /* D282 */
         txt_copia_n(p->casa_conta, l->casa_conta, sizeof p->casa_conta);   /* D340 */
+        /* D371 (fase 4): un hijo que nace con otra cuenta (un servicio con usuario=sagui) ve la carpeta de esa cuenta. */
+        if (como && p->uid != 0) {
+            char casa[sizeof p->casa_conta];
+            permisos_casa_de_uid(p->uid, casa, sizeof casa);
+            if (casa[0]) txt_copia_n(p->casa_conta, casa, sizeof p->casa_conta);
+        }
     } else if (identidade_kernel >= 0) {
         p->uid = (uint32_t)identidade_kernel & 0xFFFF;
         p->gid = (uint32_t)identidade_kernel >> 16;
+        if (p->uid != 0) permisos_casa_de_uid(p->uid, p->casa_conta, sizeof p->casa_conta);   /* D371 */
         /* D340: lo que el kernel lanza con otra identidad (el gestor de servicios) ve /home tal cual. */
     } else {
         /* D340: la sesión local (la cuenta que entró en el escritorio) con su carpeta personal. */
@@ -236,7 +244,10 @@ int processo_executar_env(const char *caminho, int argc, char *const argv[], int
     dar_identidade(p, pai);                     /* D255 */
     p->dados_inicio = p->dados_fim = (fim + PAGINA - 1) & ~(PAGINA - 1);
     p->grupo = pai ? pai->grupo : p->pid;   /* el hijo queda en el grupo del padre (D037) */
-    if (pai) txt_copia_n(p->pasta, pai->pasta, sizeof p->pasta);
+    if (pai) {
+        txt_copia_n(p->pasta, pai->pasta, sizeof p->pasta);
+        permisos_pasta_herdada(p, pai);   /* D371: si nace con otra carpeta que su padre */
+    }
     arquivos_herdar(p, pai);
     processo_preparar_usuario(p, entrada, pilha);
     klog("[SAGUI] executar %s -> processo %d\n", caminho, p->pid);

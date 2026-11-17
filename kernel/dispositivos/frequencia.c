@@ -58,6 +58,7 @@
 #include "texto.h"
 #include "trava_geral.h"
 #include "vfs.h"
+#include "conf_sistema.h"
 
 #define MSR_PLATFORM_INFO   0xCE
 #define MSR_PERF_STATUS     0x198
@@ -540,7 +541,8 @@ static void desativar(uint32_t origem);
 static void ler_config(void)
 {
     static const char *const caminhos[] = { "/home/.frecuencia", "/etc/frecuencia" };
-    for (int c = 0; c < 2; c++) {
+    /* D371: con la configuración de la máquina separada, solo /etc/frecuencia (SAGUI-CONF). */
+    for (int c = conf_sistema_separada() ? 1 : 0; c < 2; c++) {
         uint8_t *txt;
         uint32_t tam;
         if (vfs_ler_inteiro(caminhos[c], &txt, &tam) < 0) continue;

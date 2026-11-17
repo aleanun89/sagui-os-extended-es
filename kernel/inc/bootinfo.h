@@ -113,6 +113,9 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_MEM_SEM_PAE 1
 #define CAB_MEM_SEM_NX  2
 #define CAB_MEM_SEM_TROCA 4   /* D352: bit 2 de CAB_MEM_OPC: sin swap comprimida (mkimagem.py --sin-swap) */
+#define CAB_USU_OPC  162   /* u8 D371 (mkimagem.py): bit 0 --sin-pedir-root (imágenes de prueba: el primer arranque no pide la contraseña de root) */
+#define CAB_USU_SIN_PEDIR_ROOT 0x01
+#define CAB_USU_SIN_MIGRAR     0x02   /* --sin-migrar-home: no pasar sagui a /home/sagui (imágenes de prueba) */
 #define CAB_TROCA_MB 160   /* u16 D352 (mkimagem.py --swap-mb N): tope del almacén de la swap en MB; 0 = automático */
 /* D353: 192-255 = lo que guarda kconfig (KCONF_* de kconf.h). Quien lee CAB_MEM_OPC, CAB_DISCO_OPC o CAB_FREQ
  * usa kconf_cab(), que pone lo guardado encima de la imagen. */

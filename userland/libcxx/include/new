@@ -4,8 +4,14 @@
 #pragma GCC system_header
 
 #include <stddef.h>
+#include <exception>
 
 namespace std {
+// D375 (OpenTTD lo captura): este runtime no lanza bad_alloc, operator new avisa y para (rt/abi.cpp).
+class bad_alloc : public exception {
+public:
+    const char *what() const noexcept override { return "std::bad_alloc"; }
+};
 struct nothrow_t { explicit nothrow_t() = default; };
 extern const nothrow_t nothrow;
 enum class align_val_t : size_t {};

@@ -28,6 +28,10 @@
 #include <limits>
 #include <iterator>
 #include <algorithm>
+#include <tuple>
+#include <memory>
+#include <list>
+#include <stack>
 #include <functional>
 #include <stack>
 #include <list>
@@ -372,6 +376,86 @@ static void prueba_pila()
     COMPROBAR(sv.size() == 5 && sv[0] == "x" && sv[3] == "a" && sv[4] == "b", "vector::insert de un rango de cadenas");
 }
 
+// D375 (OpenTTD): lo que añadió el porte de OpenTTD a las cabeceras.
+static void prueba_openttd()
+{
+    std::vector<int> v = { 1, 2, 3, 4, 5 };
+    int suma = 0;
+    for (std::vector<int>::reverse_iterator i = v.rbegin(); i != v.rend(); ++i) suma = suma * 10 + *i;
+    COMPROBAR(suma == 54321, "vector: iteración inversa");
+    const std::vector<int> &cv = v;
+    std::vector<int>::const_reverse_iterator ci = cv.rbegin();
+    COMPROBAR(*ci == 5 && ci + 1 != cv.rend() && *(ci + 1) == 4, "vector const: rbegin y operator+");
+    std::vector<int>::const_reverse_iterator desde = v.rbegin();   // iterator -> const_iterator
+    COMPROBAR(*desde == 5, "reverse_iterator convertible a const");
+    v.erase(v.begin() + 1, v.begin() + 3);
+    COMPROBAR(v.size() == 3 && v[0] == 1 && v[1] == 4 && v[2] == 5, "vector::erase de un rango");
+    v.insert(v.begin() + 1, 2, 9);
+    COMPROBAR(v.size() == 5 && v[1] == 9 && v[2] == 9 && v[3] == 4, "vector::insert(pos, k, valor)");
+    v.shrink_to_fit();
+    COMPROBAR(v.size() == 5 && v[4] == 5, "vector::shrink_to_fit conserva los datos");
+    std::vector<int> w = v;
+    COMPROBAR(w == v && !(w != v) && !(w < v), "vector: == != <");
+    std::map<int, int> m = { { 1, 10 }, { 2, 20 }, { 3, 30 } };
+    COMPROBAR(m.rbegin()->first == 3, "map: rbegin");
+    std::set<int> st = { 4, 5, 6 };
+    COMPROBAR(*st.rbegin() == 6, "set: rbegin");
+    std::set<int> st2(st.begin(), st.end(), std::less<int>());
+    COMPROBAR(st == st2 && !(st != st2), "set: rango con comparador y ==");
+    std::string t = "hola";
+    COMPROBAR(*t.rbegin() == 'a' && std::string(t.rbegin(), t.rend()) == "aloh", "string: rbegin/rend");
+    char buf[8] = "abcdef";
+    std::string u;
+    u.assign(buf, buf + 3);
+    COMPROBAR(u == "abc", "string::assign(ini, fin)");
+    std::list<int> a = { 1, 2 }, b = { 3, 4 };
+    a.splice(a.end(), b);
+    COMPROBAR(a.size() == 4 && b.empty() && a.back() == 4, "list::splice de una lista");
+    std::list<int> c = { 7, 8, 9 };
+    a.splice(a.begin(), c, ++c.begin());
+    COMPROBAR(a.front() == 8 && c.size() == 2 && a.size() == 5, "list::splice de un elemento");
+    std::vector<int> n = { 9, 3, 7, 1, 5, 2, 8, 4, 6, 0, 11, 15, 13, 12, 14, 10, 19, 17, 18, 16 };
+    std::nth_element(n.begin(), n.begin() + 5, n.end());
+    COMPROBAR(n[5] == 5, "nth_element");
+    std::vector<int> q = { 1, 2, 3, 4, 5, 6 };
+    std::rotate(q.begin(), q.begin() + 2, q.end());
+    COMPROBAR(q[0] == 3 && q[3] == 6 && q[4] == 1 && q[5] == 2, "rotate");
+    std::vector<int> p = { 1, 2, 3, 4, 5, 6 };
+    std::vector<int>::iterator corte = std::partition(p.begin(), p.end(), [](int x) { return x % 2 == 0; });
+    COMPROBAR(corte - p.begin() == 3 && p[0] % 2 == 0 && p[2] % 2 == 0 && p[3] % 2 == 1, "partition");
+    COMPROBAR(std::none_of(p.begin(), p.end(), [](int x) { return x > 9; }) && std::count_if(p.begin(), p.end(), [](int x) { return x > 3; }) == 3, "none_of y count_if");
+    std::vector<int> ord = { 1, 3, 5, 7 };
+    COMPROBAR(*std::lower_bound(ord.begin(), ord.end(), 5, [](int x, int y) { return x < y; }) == 5, "lower_bound con comparador");
+    int arr[4] = { 1, 2, 3, 4 };
+    int ssum = 0;
+    for (int *i = std::begin(arr); i != std::end(arr); ++i) ssum += *i;
+    COMPROBAR(ssum == 10, "std::begin/end de una matriz");
+    typedef std::tuple<int, unsigned short, const char *, unsigned> Tupla;
+    Tupla tp(1, 2, "tres", 4);
+    Tupla tq = tp;
+    COMPROBAR(std::get<0>(tq) == 1 && std::get<1>(tq) == 2 && std::strcmp(std::get<2>(tq), "tres") == 0 && std::get<3>(tq) == 4, "tuple: construir, copiar y get");
+    std::get<3>(tq) = 40;
+    COMPROBAR(std::get<3>(tq) == 40 && std::get<3>(tp) == 4, "tuple: get modifica la copia");
+    std::shared_ptr<int> s1 = std::make_shared<int>(42);
+    {
+        std::shared_ptr<int> s2 = s1;
+        COMPROBAR(s1.use_count() == 2 && *s2 == 42, "shared_ptr: dos dueños");
+    }
+    COMPROBAR(s1.use_count() == 1, "shared_ptr: la copia libera su cuenta");
+    s1.reset();
+    COMPROBAR(!s1, "shared_ptr: reset");
+    std::stack<int> s3, s4;
+    s3.push(1); s4.push(1);
+    COMPROBAR(s3 == s4 && !(s3 != s4) && !(s3 < s4), "stack: comparaciones");
+    std::vector<std::unique_ptr<int> > up;
+    for (int i = 0; i < 40; i++) up.push_back(std::unique_ptr<int>(new int(40 - i)));
+    std::sort(up.begin(), up.end(), [](const std::unique_ptr<int> &x, const std::unique_ptr<int> &y) { return *x < *y; });
+    bool ok = true;
+    for (int i = 0; i < 40; i++) ok = ok && *up[i] == i + 1;
+    COMPROBAR(ok, "sort de elementos que solo se mueven (unique_ptr)");
+    try { throw std::bad_alloc(); } catch (std::exception &e) { COMPROBAR(std::strcmp(e.what(), "std::bad_alloc") == 0 || e.what() != nullptr, "bad_alloc es una exception"); }
+}
+
 int main()
 {
     prueba_construir();
@@ -385,6 +469,7 @@ int main()
     prueba_flujos();
     prueba_algoritmos();
     prueba_pila();
+    prueba_openttd();
     std::printf("%d comprobaciones, %d fallos\n", total, fallos);
     if (!fallos) std::printf("todo bien\n");
     return fallos ? 1 : 0;

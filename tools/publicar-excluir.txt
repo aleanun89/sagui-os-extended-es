@@ -80,3 +80,8 @@
 
 # --- D362: resultados de tools/depurar-remoto.py (dmesg, infopc... de máquinas reales) ---
 /pruebas-remotas/
+
+# Trabajadores para otras IAs (instrucciones internas de desarrollo, como .claude/)
+/agentes-externos/
+/.qwen/
+/.opencode/

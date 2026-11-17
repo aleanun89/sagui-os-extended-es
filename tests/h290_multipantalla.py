@@ -190,9 +190,11 @@ def dos_pantallas():
         m.comando("pantalla salida 2 1024x768")
         m.comando("pantalla principal 1")
         out = limpio(m.comando("pantalla extender abajo --guardar"))
-        verificar("Guardado en /home/.config/pantallas.conf" in out, "extender abajo --guardar")
+        # D371: con SAGUI-CONF las pantallas son de la máquina y van a /etc/pantallas.conf
+        g = re.search(r"Guardado en (/etc/pantallas\.conf|/home/\.config/pantallas\.conf)", out)
+        verificar(g, "extender abajo --guardar")
         esperar(m, r"\[TELAS\] extendido, 2 pantallas, principal 0, escritorio 1024x1536", desde=marca)
-        out = limpio(m.comando("cat /home/.config/pantallas.conf"))
+        out = limpio(m.comando(f"cat {g.group(1)}"))
         verificar("modo=extender" in out and "lado=abajo" in out and "principal=0" in out and "res1=1024x768" in out,
                   "el archivo guarda modo, lado, principal y resoluciones")
         time.sleep(1)

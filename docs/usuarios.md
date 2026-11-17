@@ -10,6 +10,37 @@ SaguiOS tiene dos cuentas de persona y una de servicio:
 
 `id` y `whoami` dicen con qué cuenta corre cada programa.
 
+## Desde la v8.5.3 (D371)
+
+- **root** siempre existe y tiene su carpeta **`/root`** (0700). Instalado, se guarda en SAGUI-CONF (`/sistema/conf/raiz`;
+  siempre quedan 4 MB libres para las contraseñas); en vivo, en la RAM. `su` da `HOME=/root`.
+- **Cada cuenta tiene su carpeta `/home/<nombre>`** (0700), también sagui: la primera vez que arranca un sistema con
+  SAGUI-CONF y `/home` en ext2, sus archivos pasan de `/home` a `/home/sagui` (renombrando, sin copiar ni borrar; si se
+  corta, sigue en el siguiente arranque). Los programas siguen viendo su carpeta como `/home`. `/home` pasa a ser de
+  root y hay una carpeta común, **`/home/compartido`** (como `/tmp`: cada uno borra lo suyo), la misma para todas las
+  cuentas (se entra por su ruta; no sale al listar `/home`). La clave del servidor SSH y la contraseña del VNC que
+  quedaran en `/home` pasan a `/etc` (SAGUI-CONF), no a la carpeta de sagui.
+- **Configuración de la máquina frente a la de la persona.** Lo de la máquina (aceleración, caché del disco, sonido y
+  conectores, calibración del mando, teclado del sistema, zona, frecuencia, pantallas, bloqueo DNS, ajustes del
+  Wi-Fi) está en `/etc` (SAGUI-CONF: `/etc/sistema.conf`, `/etc/zona`...) y lo cambia el administrador (Configuración
+  pide el diálogo de permisos). Lo de la persona (fondo, acento, barra, widgets, Wi-Fi y VPN propias, idioma y teclado
+  de su sesión...) sigue en su `~/.config`.
+- **Programas elevados:** con el diálogo o `admin` ven el árbol real (`/home/ana` es `/home/ana`) pero su configuración
+  (`/home/.config`) sigue siendo la de quien eleva.
+- **Instalar:** el asistente pide el nombre de la cuenta, su contraseña y la de **root, obligatoria** (o «usar la misma
+  para root»: la cuenta pasa a ser administradora). Sin inicio automático: la pantalla (o la consola) pide la cuenta.
+  `login --inicio-automatico si|no` (como administrador) lo cambia.
+- **Primer arranque sin contraseña de root** (con SAGUI-CONF): el sistema la pide en su pantalla antes de entrar (Esc:
+  más tarde). Después, solo se elige en esa pantalla o en el diálogo de permisos (la cuenta principal o una
+  administradora); `passwd root`, `su` o `admin` sin el diálogo no la ponen desde el escritorio. Sin escritorio, con
+  `su` desde la cuenta. `login` no deja entrar a root sin contraseña.
+- **Consola de texto:** con la configuración guardada y sin inicio automático, pide cuenta y contraseña (`login`).
+- **Bloquear la pantalla:** Windows+L o «Bloquear» en el menú Inicio; vuelve con la contraseña de la cuenta.
+- **SSH por cuenta:** las claves de `~/.ssh/authorized_keys` de cada cuenta (solo si ni la carpeta ni el archivo los
+  puede cambiar otro); las de root en `/etc/ssh/authorized_keys` o `/root/.ssh/authorized_keys`.
+- **cron por cuenta:** la tabla de la cuenta principal y las de las cuentas que el administrador ponga en
+  `/etc/cron.permitidos`. Los servicios de persona (`~/.config/servicios`), solo de la cuenta principal (pendiente).
+
 ## Qué puede hacer `sagui` y qué no
 
 Todo lo normal: programas, ventanas, sus archivos (los de `/home`, `/tmp`, los

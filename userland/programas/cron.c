@@ -27,6 +27,7 @@
 #include "sagui.h"
 #include "cron.h"
 #include "servicos.h"
+#include "contas.h"
 
 #define MAX_TAREFAS 64
 #define MAX_EXEC     8
@@ -34,7 +35,14 @@
 #define FD_AVISO    29          /* la entrada que puso el supervisor (su cierre = parar) */
 #define FD_SAIDA    28          /* la salida que puso el supervisor (el registro del servicio) */
 
-static const char *const tabelas[2] = { "/etc/crontab", "/home/.config/crontab" };
+/* D371 (fase 5, P11 c): la del sistema y la de cada cuenta que puede tener tareas: la principal (uid 1000) y las
+ * que el administrador ponga en /etc/cron.permitidos (un nombre por línea). Cada una corre con su cuenta. El
+ * servicio (root) las lee de la carpeta real de cada cuenta; «cron proximas» de una persona, la suya (/home). */
+#define MAX_TAB 9
+#define PERMITIDOS "/etc/cron.permitidos"
+static char tabelas[MAX_TAB][96] = { "/etc/crontab", "/home/.config/crontab" };
+static unsigned tab_uid[MAX_TAB], tab_gid[MAX_TAB];
+static int ntab = 2;
 
 typedef struct {
     cron_tarefa_t t;
@@ -50,10 +58,51 @@ typedef struct {
 
 static tarefa_t tar[MAX_TAREFAS];
 static int qtd;
-static char vars[2][MAX_VARS][96];
-static int nvars[2];
-static unsigned tam_visto[2], mod_visto[2];
-static bool existe_visto[2];
+static char vars[MAX_TAB][MAX_VARS][96];
+static int nvars[MAX_TAB];
+static unsigned tam_visto[MAX_TAB], mod_visto[MAX_TAB];
+static bool existe_visto[MAX_TAB];
+
+/* ¿"nome" está en /etc/cron.permitidos? */
+static bool permitida(const char *nome)
+{
+    int fd = abrir(PERMITIDOS, ABRIR_LER);
+    if (fd < 0) return false;
+    unsigned tam;
+    char *b = ler_todo_fd(fd, &tam);
+    fechar(fd);
+    bool sim = false;
+    for (char *l = b; b && l && *l && !sim;) {
+        char *fim = acha_char(l, '\n');
+        if (fim) *fim = 0;
+        while (*l == ' ' || *l == '\t') l++;
+        size_t n = tam_texto(l);
+        while (n && (l[n - 1] == ' ' || l[n - 1] == '\r')) l[--n] = 0;
+        sim = *l != '#' && compara_texto(l, nome) == 0;
+        l = fim ? fim + 1 : NULL;
+    }
+    if (b) libera(b);
+    return sim;
+}
+
+/* El servicio (root): la tabla del sistema y la de cada cuenta permitida, en su carpeta real. */
+static void tabelas_das_contas(void)
+{
+    static conta_t v[CONTAS_MAX];
+    int n = contas_ler(v, CONTAS_MAX, NULL);
+    ntab = 1;
+    tab_uid[0] = tab_gid[0] = 0;
+    for (int i = 0; i < n && ntab < MAX_TAB; i++) {
+        if (v[i].uid < UID_SAGUI || v[i].uid >= 60000 || !v[i].shell[0]) continue;
+        if (v[i].uid != UID_SAGUI && !permitida(v[i].nome)) continue;
+        /* D371: otra cuenta sin carpeta propia leería la tabla de la principal (/home) y la correría con la suya. */
+        if (v[i].uid != UID_SAGUI && (!v[i].casa[0] || compara_texto(v[i].casa, "/home") == 0)) continue;
+        formatar_texto(tabelas[ntab], sizeof tabelas[0], "%s/.config/crontab", v[i].casa[0] ? v[i].casa : "/home");
+        tab_uid[ntab] = v[i].uid;
+        tab_gid[ntab] = v[i].gid;
+        ntab++;
+    }
+}
 static exec_t execs[MAX_EXEC];
 static char arq_log[96], arq_saida[96], arq_estado[96];
 static bool recuperar_ok;
@@ -205,7 +254,7 @@ static bool tabela_mudou(int k, bool guardar)
 static void ler_tabelas(void)
 {
     qtd = 0;
-    for (int k = 0; k < 2; k++) {
+    for (int k = 0; k < ntab; k++) {
         tabela_mudou(k, true);
         ler_tabela(k);
     }
@@ -249,11 +298,14 @@ static void executar_tarefa(const tarefa_t *t, const char *motivo)
     char cmd[CRON_COMANDO_MAX];
     copia_texto(cmd, t->t.comando, sizeof cmd);
     char *argv[] = { "sagsh", "-c", cmd, NULL };
-    /* D255: las tareas de la tabla del usuario (/home/.config/crontab) corren
-     * como sagui aunque el cron sea root; las de /etc/crontab, como el cron. */
-    if (t->tabela == 1 && (usuario_op(USU_CONSULTAR, 0, 0) & 0xFFFF) == UID_ROOT)
-        usuario_op(USU_COMO, UID_SAGUI, GID_SAGUI);
-    int pid = executar_env("/bin/sagsh", argv, envp);
+    /* D255, D371: las tareas de la tabla de una cuenta corren con esa cuenta aunque el cron sea root (y ven su
+     * carpeta); las de /etc/crontab, como el cron. */
+    int pid = ERRO_ACESSO;
+    if (t->tabela > 0 && (usuario_op(USU_CONSULTAR, 0, 0) & 0xFFFF) == UID_ROOT &&
+        (tab_uid[t->tabela] == UID_ROOT || usuario_op(USU_COMO, (int)tab_uid[t->tabela], (int)tab_gid[t->tabela]) < 0))
+        anotar("la tarea de %s no puede correr con su cuenta: no se ejecuta", tabelas[t->tabela]);   /* D371: nunca como root */
+    else
+        pid = executar_env("/bin/sagsh", argv, envp);
     usuario_op(USU_COMO, -1, 0);
     /* Los de cron otra vez. */
     duplicar(FD_AVISO, ENTRADA);
@@ -375,7 +427,7 @@ int principal(int argc, char **argv)
             compara_texto(argv[1], "-h") == 0) { escrever_texto(SAIDA, AYUDA); return 0; }
         if (compara_texto(argv[1], "--proxima") == 0) return proxima_expr(argc, argv);
         if (compara_texto(argv[1], "proximas") == 0 || compara_texto(argv[1], "próximas") == 0) {
-            for (int k = 0; k < 2; k++) {   /* sin anotar nada: solo leer */
+            for (int k = 0; k < ntab; k++) {   /* sin anotar nada: solo leer */
                 int fd = abrir(tabelas[k], ABRIR_LER);
                 if (fd < 0) continue;
                 unsigned tam;
@@ -406,8 +458,10 @@ int principal(int argc, char **argv)
     duplicar(ENTRADA, FD_AVISO);
     duplicar(SAIDA, FD_SAIDA);
     servicos_criar_pastas(pasta);
-    recuperar_ok = servicos_montado("/home");
-    if (recuperar_ok) {
+    tabelas_das_contas();   /* D371 */
+    recuperar_ok = servicos_montado("/home") || conf_persistente();
+    if (conf_persistente()) copia_texto(arq_estado, "/sistema/conf/cron.estado", sizeof arq_estado);   /* D371: del sistema */
+    else if (recuperar_ok) {
         servicos_criar_pastas("/home/.config/cron");
         copia_texto(arq_estado, "/home/.config/cron/estado", sizeof arq_estado);
     } else copia_texto(arq_estado, SERV_DIR_COMUM "/cron.estado", sizeof arq_estado);
@@ -457,7 +511,9 @@ int principal(int argc, char **argv)
         } else if (m < ultimo_min) ultimo_min = m;   /* el reloj fue hacia atrás: nada se repite */
         if (tempo_ms() - ultima_vista >= 2000) {
             ultima_vista = tempo_ms();
-            if (tabela_mudou(0, false) || tabela_mudou(1, false)) {
+            bool mudou = false;
+            for (int k = 0; k < ntab; k++) mudou |= tabela_mudou(k, false);
+            if (mudou) {
                 anotar("las tablas han cambiado: se vuelven a leer");
                 ler_tabelas();
             }

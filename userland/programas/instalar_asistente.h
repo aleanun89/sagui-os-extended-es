@@ -72,8 +72,8 @@ static lista_t lz;
 static char (*zonas_txt)[64];
 static const zona_info_t *zonas;
 static int nzonas;
-static caixa_t cx_nome, cx_r1, cx_r2, cx_u1, cx_u2;
-static casilla_t cs_sshd, cs_vncd, cs_apps, cs_jogos;
+static caixa_t cx_nome, cx_r1, cx_r2, cx_u1, cx_u2, cx_conta;   /* D371: cx_conta, el nombre de la cuenta */
+static casilla_t cs_sshd, cs_vncd, cs_apps, cs_jogos, cs_misma;   /* D371: cs_misma, «la misma para root» */
 /* configuración */
 static const unsigned cc_bit[7] = { CC_PREFS, CC_WIFI, CC_SSH, CC_CORREO, CC_IA, CC_IA_CHAVE, CC_DOCS };
 static const char *const cc_id[7] = { "cc-prefs", "cc-wifi", "cc-ssh", "cc-correo", "cc-ia", "cc-ia-clave", "cc-docs" };
@@ -385,8 +385,10 @@ static bool montar_plano(bool com_tamanhos)
     }
     copia_texto(pl.nome_equipo, cx_nome.texto, sizeof pl.nome_equipo);
     if (lz.sel >= 0 && lz.sel < nzonas) copia_texto(pl.zona, zonas[lz.sel].nome, sizeof pl.zona);
-    copia_texto(pl.senha_root, cx_r1.texto, sizeof pl.senha_root);
     copia_texto(pl.senha_usuario, cx_u1.texto, sizeof pl.senha_usuario);
+    copia_texto(pl.senha_root, cs_misma.marcada ? cx_u1.texto : cx_r1.texto, sizeof pl.senha_root);   /* D371 (P1 b) */
+    copia_texto(pl.conta, compara_texto(cx_conta.texto, "sagui") == 0 ? "" : cx_conta.texto, sizeof pl.conta);
+    pl.conta_admin = cs_misma.marcada;
     pl.sshd = cs_sshd.marcada;
     pl.vncd = cs_vncd.marcada;
     for (int i = 0; i < 7; i++) if (cs_cc[i].marcada) pl.copiar_conf |= cc_bit[i];
@@ -661,16 +663,24 @@ static void pagina_opcoes(void)
     int x2 = CX0 + 280;
     negrito(x2, y, "Nombre del equipo", W98_NEGRO);
     caixa98("nombre", &cx_nome, x2, y + 18, 150);
+    negrito(x2, y + 48, "Tu cuenta (nombre)", W98_NEGRO);   /* D371 */
+    caixa98("cuenta", &cx_conta, x2, y + 66, 150);
     y += 18 + lz.a + 10;
-    negrito(CX0, y, "Contraseñas (vacías: se fijan al entrar la primera vez)", W98_NEGRO);
-    g_texto(j, CX0 + 8, y + 24, "root:", W98_NEGRO);
-    caixa98("clave-root", &cx_r1, CX0 + 90, y + 20, 120);
-    caixa98("clave-root2", &cx_r2, CX0 + 220, y + 20, 120);
-    g_texto(j, CX0 + 8, y + 52, "sagui:", W98_NEGRO);
-    caixa98("clave-usuario", &cx_u1, CX0 + 90, y + 48, 120);
-    caixa98("clave-usuario2", &cx_u2, CX0 + 220, y + 48, 120);
+    /* D371 (P1 b): la de root es obligatoria, o la misma que la de la cuenta (que pasa a ser administradora). */
+    negrito(CX0, y, "Contraseñas (la de root es obligatoria)", W98_NEGRO);
+    char rot[40];
+    txt(rot, sizeof rot, "%s:", cx_conta.texto[0] ? cx_conta.texto : "sagui");
+    g_texto(j, CX0 + 8, y + 24, rot, W98_NEGRO);
+    caixa98("clave-usuario", &cx_u1, CX0 + 90, y + 20, 120);
+    caixa98("clave-usuario2", &cx_u2, CX0 + 220, y + 20, 120);
     g_texto(j, CX0 + 350, y + 24, "(repítela)", W98_SOMBRA);
-    y += 80;
+    marcar98("misma", &cs_misma, CX0 + 8, y + 48, "Usar la misma para root (tu cuenta será administradora)", true);
+    g_texto(j, CX0 + 8, y + 76, "root:", cs_misma.marcada ? W98_SOMBRA : W98_NEGRO);
+    if (!cs_misma.marcada) {
+        caixa98("clave-root", &cx_r1, CX0 + 90, y + 72, 120);
+        caixa98("clave-root2", &cx_r2, CX0 + 220, y + 72, 120);
+    }
+    y += 102;
     negrito(CX0, y, "Servicios", W98_NEGRO);
     marcar98("sshd", &cs_sshd, CX0 + 8, y + 20, "Servidor SSH (sshd)", true);
     marcar98("vncd", &cs_vncd, CX0 + 200, y + 20, "Escritorio remoto (VNC)", true);
@@ -748,10 +758,11 @@ static void resumo(char *s, int max)
         }
     }
     junta_texto(s, ".\n", (size_t)max);
-    txt(x, sizeof x, "\nOPCIONES: arranque %s; equipo \"%s\"; zona %s; teclado %s; root %s, sagui %s; sshd %s, VNC %s.",
+    txt(x, sizeof x, "\nOPCIONES: arranque %s; equipo \"%s\"; zona %s; teclado %s; root %s; cuenta %s %s%s; sshd %s, VNC %s.",
         pl.tabela == T_GPT ? "UEFI (GPT)" : pl.esp ? "BIOS y UEFI" : "BIOS", pl.nome_equipo[0] ? pl.nome_equipo : "sagui", pl.zona[0] ? pl.zona : "la de ahora",
-        pl.teclado == TECLADO_ABNT2 ? "ABNT2" : "español", pl.senha_root[0] ? "con contraseña" : "sin contraseña todavía",
-        pl.senha_usuario[0] ? "con contraseña" : "sin contraseña todavía", pl.sshd ? "encendido" : "apagado", pl.vncd ? "encendido" : "apagado");
+        pl.teclado == TECLADO_ABNT2 ? "ABNT2" : "español", pl.conta_admin ? "con la misma contraseña" : pl.senha_root[0] ? "con contraseña" : "sin contraseña todavía",
+        conta_de(&pl), pl.senha_usuario[0] ? "con contraseña" : "sin contraseña", pl.conta_admin ? " (administradora)" : "",
+        pl.sshd ? "encendido" : "apagado", pl.vncd ? "encendido" : "apagado");
     junta_texto(s, x, (size_t)max);
 }
 
@@ -979,7 +990,10 @@ static caixa_t *caixas_da_pagina(int *n, caixa_t **v)
     int k = 0;
     if (pagina == P_TIPO) { if (tipo == TI_ENTERO) v[k++] = &cx_confirma; else if (esc == ES_REDUCIR) v[k++] = &cx_red; }
     if (pagina == P_TAMANOS) for (int i = 0; i < N_DADOS; i++) v[k++] = &cx_mb[i];
-    if (pagina == P_OPCIONES) { v[k++] = &cx_nome; v[k++] = &cx_r1; v[k++] = &cx_r2; v[k++] = &cx_u1; v[k++] = &cx_u2; }
+    if (pagina == P_OPCIONES) {
+        v[k++] = &cx_nome; v[k++] = &cx_conta; v[k++] = &cx_u1; v[k++] = &cx_u2;
+        if (!cs_misma.marcada) { v[k++] = &cx_r1; v[k++] = &cx_r2; }
+    }
     *n = k;
     for (int i = 0; i < k; i++) if (v[i]->foco) return v[i];
     return NULL;
@@ -990,8 +1004,16 @@ static bool validar_pagina(void)
 {
     plano_erro[0] = 0;
     if (pagina == P_OPCIONES) {
-        if (compara_texto(cx_r1.texto, cx_r2.texto) != 0) { txt(plano_erro, sizeof plano_erro, "las dos contraseñas de root no son iguales"); return false; }
-        if (compara_texto(cx_u1.texto, cx_u2.texto) != 0) { txt(plano_erro, sizeof plano_erro, "las dos contraseñas de sagui no son iguales"); return false; }
+        /* D371 (P1 b) */
+        const char *cta = cx_conta.texto[0] ? cx_conta.texto : "sagui";
+        if (!nome_conta_valido(cta)) { txt(plano_erro, sizeof plano_erro, "el nombre de la cuenta solo lleva minúsculas sin acentos, números, _ y - (y no puede ser root)"); return false; }
+        if (compara_texto(cx_u1.texto, cx_u2.texto) != 0) { txt(plano_erro, sizeof plano_erro, "las dos contraseñas de %s no son iguales", cta); return false; }
+        if (cs_misma.marcada) {
+            if (tam_texto(cx_u1.texto) < 4) { txt(plano_erro, sizeof plano_erro, "para usarla también como la de root, la contraseña de %s necesita al menos 4 caracteres", cta); return false; }
+        } else {
+            if (tam_texto(cx_r1.texto) < 4) { txt(plano_erro, sizeof plano_erro, "la contraseña de root es obligatoria (al menos 4 caracteres), o marca «Usar la misma para root»"); return false; }
+            if (compara_texto(cx_r1.texto, cx_r2.texto) != 0) { txt(plano_erro, sizeof plano_erro, "las dos contraseñas de root no son iguales"); return false; }
+        }
         for (const char *c = cx_nome.texto; *c; c++)
             if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '-')) {
                 txt(plano_erro, sizeof plano_erro, "el nombre del equipo solo lleva letras sin acentos, números y guiones"); return false;
@@ -1040,6 +1062,7 @@ static int janela(void)
     arranque = arrancou_por_uefi() ? AR_UEFI : efi_disponivel() ? AR_AMBOS : AR_BIOS;
     tecl = teclado_layout(-1) == TECLADO_ABNT2 ? TECLADO_ABNT2 : TECLADO_ES;
     caixa_definir(&cx_nome, "sagui");
+    caixa_definir(&cx_conta, "sagui");   /* D371 */
     cx_r1.oculta = cx_r2.oculta = cx_u1.oculta = cx_u2.oculta = true;
     cs_apps.marcada = ha_apps();
     cs_jogos.marcada = false;
@@ -1149,6 +1172,7 @@ static int janela(void)
             else if (e_zona(z, "tec-abnt2")) tecl = TECLADO_ABNT2;
             else if (e_zona(z, "zona")) lista_tratar(j, &lz, &e);
             else if (e_zona(z, "sshd")) cs_sshd.marcada = !cs_sshd.marcada;
+            else if (e_zona(z, "misma")) cs_misma.marcada = !cs_misma.marcada;   /* D371 */
             else if (e_zona(z, "vncd")) cs_vncd.marcada = !cs_vncd.marcada;
             else if (e_zona(z, "copiar-apps")) cs_apps.marcada = !cs_apps.marcada;
             else if (e_zona(z, "copiar-jogos")) cs_jogos.marcada = !cs_jogos.marcada;

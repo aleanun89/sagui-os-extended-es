@@ -31,11 +31,15 @@ int principal(int argc, char **argv)
     conta_t c;
     if (!conta_por_nome(nome, &c)) { imprimir_em(ERROS, "su: no existe el usuario «%s»\n", nome); return 1; }
     if (elevar_interativo(c.uid, "su") < 0) return 1;
+    /* D371 (P2): «su» a root es hacerse root del todo: el árbol real y /root, sin la vista de la cuenta de antes. */
+    if (c.uid == UID_ROOT) usuario_op(USU_CASA_SOLTAR, 0, 0);
     char *envp[64];
     int ne = 0;
     char user[48], home[80];
     formatar_texto(user, sizeof user, "USER=%s", c.nome);
-    formatar_texto(home, sizeof home, "HOME=%s", c.casa[0] ? c.casa : "/home");
+    /* D371: una cuenta ve su carpeta como /home (el kernel le da la suya al pasar a ella); HOME=/home/ana sería
+     * /home/ana/ana. */
+    formatar_texto(home, sizeof home, "HOME=%s", c.uid == UID_ROOT ? "/root" : "/home");
     for (int i = 0; environ && environ[i] && ne < 60; i++)
         if (!comeca_com(environ[i], "USER=") && !comeca_com(environ[i], "HOME=")) envp[ne++] = environ[i];
     envp[ne++] = user;

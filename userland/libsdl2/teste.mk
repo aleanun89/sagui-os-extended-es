@@ -1,6 +1,8 @@
 # teste.mk - /apps/bin/sdl2cuadro: programa sintético para medir la cadena de dibujo de la
 # SDL 2 (D247, prueba h246). Usa la SDL 2 del sistema (userland/libsdl2).
-ifndef SDL2_OBJ
+# Las opciones, si ningún port las definió (sdl2_capas.mk define SDL2_OBJ pero no SDL2_FLAGS: sin GPL
+# no hay mgba ni gnuboy que las pongan).
+ifndef SDL2_FLAGS
 SDL2_FLAGS := -m32 -march=i686 -std=gnu11 -Os \
   -ffreestanding -fno-builtin -nostdlib -fno-pic -fno-pie \
   -fno-stack-protector -fno-asynchronous-unwind-tables \
@@ -9,6 +11,8 @@ SDL2_FLAGS := -m32 -march=i686 -std=gnu11 -Os \
   -nostdinc -isystem $(shell $(CC) -print-file-name=include) \
   -Iuserland/libsdl2 -I$(LIBC_DIR) -Iuserland/inc -idirafter kernel/inc \
   -finput-charset=UTF-8 -fexec-charset=ISO-8859-1 -Wall -Wextra -Wno-unused-parameter
+endif
+ifndef SDL2_OBJ
 SDL2_OBJ := $(B)/userland/libsdl2/sdl2_sagui.o
 $(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/sdl2gpu.h userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
 	@mkdir -p $(dir $@)

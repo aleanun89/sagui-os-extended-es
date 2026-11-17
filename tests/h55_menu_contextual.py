@@ -100,8 +100,9 @@ def main():
         _rf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rootfs")
         # D194: el punto de montaje /apps (SAGUI-APPS) también está en la raíz, como carpeta.
         # D255: /sistema (SAGUI-CONF en /sistema/conf) también está en la raíz.
-        raiz = sorted(set(os.listdir(_rf)) | {"apps", "sistema"},
-                      key=lambda n: (not (n in ("apps", "sistema") or os.path.isdir(os.path.join(_rf, n))), n))
+        # D371: /root (la carpeta de root) también.
+        raiz = sorted(set(os.listdir(_rf)) | {"apps", "sistema", "root"},
+                      key=lambda n: (not (n in ("apps", "sistema", "root") or os.path.isdir(os.path.join(_rf, n))), n))
         i_tmp = raiz.index("tmp")
         marca = len(m.serial())
         menu = abrir_menu(m, *item_arquivos(a, i_tmp))

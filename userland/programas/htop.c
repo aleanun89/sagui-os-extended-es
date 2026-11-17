@@ -246,10 +246,8 @@ static char ruta_conf[96];
 /* La carpeta personal de quien llama: la de su cuenta (HOME del sagsh vale «/» si nadie lo fijó). */
 static void carpeta_casa(char *d, size_t n)
 {
-    conta_t c;
-    int u = usuario_op(USU_CONSULTAR, 0, 0);
-    if (u >= 0 && conta_por_uid((unsigned)u & 0xFFFF, &c) && c.casa[0]) copia_texto(d, c.casa, n);
-    else copia_texto(d, "/home", n);
+    /* D371: root, /root; una cuenta ve su carpeta como /home (la ruta de /etc/usuarios se traduciría dos veces). */
+    copia_texto(d, sou_root() ? "/root" : "/home", n);
 }
 
 static void conf_ruta(void)

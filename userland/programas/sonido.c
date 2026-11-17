@@ -29,6 +29,8 @@
  * portátil qué pin o GPIO enciende cada altavoz sin recompilar el kernel.
  * Solo funciona con el driver hda (en QEMU: -device intel-hda). */
 #include "sagui.h"
+#include "contas.h"
+#include "conf_maquina.h"
 
 static bool com_tono = true;
 static bool guardar;                 /* --guardar: recordar la orden para este modelo */
@@ -278,9 +280,12 @@ static bool home_persistente(void)
 
 static char conf_buf[4096], conf_out[4400];
 
+/* D371: los conectores son de la máquina: con SAGUI-CONF, /etc/sonido.conf (solo administrador). */
+static const char *arq_conf(void) { return maquina_separada() ? "/etc/sonido.conf" : ARQ_CONF; }
+
 static int conf_leer(void)
 {
-    int fd = abrir(ARQ_CONF, ABRIR_LER), n = 0;
+    int fd = abrir(arq_conf(), ABRIR_LER), n = 0;
     if (fd >= 0) { n = ler(fd, conf_buf, sizeof conf_buf - 1); fechar(fd); if (n < 0) n = 0; }
     conf_buf[n] = 0;
     return n;
@@ -288,6 +293,8 @@ static int conf_leer(void)
 
 static int conf_escribir(const char *t)
 {
+    if (maquina_separada())
+        return maquina_gravar_arquivo("sonido.conf", t, (int)tam_texto(t), "guardar los conectores de sonido de la máquina");
     criar_pasta("/home/.config");
     int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
@@ -340,9 +347,9 @@ static void guardar_orden(const info_hda_t *i, const char *linea)
 {
     if (!guardar) return;
     int r = conf_reescribir(i, linea, false);
-    if (r < 0) imprimir("Aviso: no se pudo guardar en " ARQ_CONF ": %s\n", nome_erro(r));
+    if (r < 0) imprimir("Aviso: no se pudo guardar en %s: %s\n", arq_conf(), nome_erro(r));
     else if (!home_persistente()) imprimir("Aviso: /home no es un disco persistente; se guarda para esta sesión pero no se recordará.\n");
-    else imprimir("Guardado en " ARQ_CONF " para este modelo (se aplicará en cada arranque): %s\n", linea);
+    else imprimir("Guardado en %s para este modelo (se aplicará en cada arranque): %s\n", arq_conf(), linea);
 }
 
 /* Aplica una orden guardada; devuelve true si la entendió. */
@@ -504,7 +511,7 @@ int principal(int argc, char **argv)
     }
     if (compara_texto(op, "--olvidar") == 0) {
         int r = conf_reescribir(&i, NULL, true);
-        if (r < 0) { imprimir_em(ERROS, "sonido: no se pudo escribir " ARQ_CONF ": %s\n", nome_erro(r)); return 1; }
+        if (r < 0) { imprimir_em(ERROS, "sonido: no se pudo escribir %s: %s\n", arq_conf(), nome_erro(r)); return 1; }
         imprimir("Borrado lo guardado para este modelo.\n");
         return 0;
     }

@@ -46,7 +46,8 @@ static void variaveis_iniciais(void)
         libera(nome);
     }
     if (!var_obter("PATH")) var_definir("PATH", SAGUI_PATH_PADRAO, V_EXPORTADA);   /* D194: también /apps/bin */
-    if (!var_obter("HOME")) var_definir("HOME", "/", V_EXPORTADA);
+    /* D371: la carpeta personal: /root para root; para una cuenta, /home (su carpeta, como la ve). */
+    if (!var_obter("HOME")) var_definir("HOME", meu_uid() == 0 ? "/root" : "/home", V_EXPORTADA);
     if (!var_obter("SHELL")) var_definir("SHELL", "/bin/sagsh", V_EXPORTADA);
     char pasta[256];
     if (pasta_atual(pasta, sizeof pasta) >= 0) var_definir("PWD", pasta, V_EXPORTADA);

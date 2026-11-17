@@ -15,6 +15,7 @@
  * La calibración se guarda en /home/.config/sagui.conf (clave mando_puerto=) si /home persiste. */
 #include "sagui.h"
 #include "mandos.h"
+#include "conf_maquina.h"
 
 static void ayuda(void)
 {
@@ -129,7 +130,7 @@ static int guardar_aviso(int g)
 {
     if (g == 1) imprimir("/home no es un disco persistente: vale hasta apagar.\n");
     else if (g < 0) { imprimir_em(ERROS, "mandos: no se ha podido guardar (%d)\n", g); return 1; }
-    else imprimir("Guardado en /home/.config/sagui.conf.\n");
+    else imprimir("Guardado en %s.\n", maquina_separada() ? "/etc/sistema.conf" : "/home/.config/sagui.conf");   /* D371 */
     return 0;
 }
 
