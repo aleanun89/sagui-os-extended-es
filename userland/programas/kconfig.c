@@ -73,6 +73,7 @@ static void ajuda(void)
         char rango[48];
         if (o->tipo == KCONF_SINO) copia_texto(rango, "si|no", sizeof rango);
         else if (compara_texto(o->nome, "gobernador") == 0) copia_texto(rango, "auto|rendimiento|ahorro|demanda", sizeof rango);
+        else if (compara_texto(o->nome, "raiz_modo") == 0) copia_texto(rango, "auto|live|toram", sizeof rango);
         else formatar_texto(rango, sizeof rango, "auto|%u-%u", o->min, o->max);
         imprimir("  %-20s %-32s %s\n", o->nome, rango, kconf_rotulo(o->nome));
         imprimir("  %-20s %s\n", "", kconf_ayuda(o->nome));

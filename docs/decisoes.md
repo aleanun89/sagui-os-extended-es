@@ -20146,7 +20146,7 @@ P1 ext2; P2 SAGUI-RAIZ que absorbe `/apps` y SAGUI-CONF, más SAGUI-DATOS `/home
 live en RAM y SAGUI-PERSIST opcional; P4 toram por defecto solo en el CD (en USB, con tecla o `modo=toram`); P5 la misma
 ext2 en `ram0`, comprimida por bloques en el CD; P6 las instalaciones ≤ 8.5 siguen como hoy y pasan al modo nuevo
 reinstalando (se conservan `/home` y SAGUI-CONF); P7 CD con toram por defecto y live desde el CD como alternativa.
-**Versión v8.5.3.1** (rama `v8.5.3.1-almacenamiento`): R1-R3 y L1-L2 imprescindibles, T1 si llega; M1 y F, v8.5.3.2.
+**Versión v8.5.3.1** (rama `v8.5.3.1-almacenamiento`): R1-R3 y L1-L2 imprescindibles, T1 si llega; M1 y F, v8.5.4.2.
 
 **Medido (v8.5.3):** ramdisk de 11,94 MiB, a 60 KB del límite de h324; cuesta ≈ 11 MB de RAM siempre (240 → 251 MB
 gestionados con 256 MB); la BIOS tarda 2,76 s en cargar kernel + ramdisk (KVM, IDE; 5,0 s por UEFI). El kernel **sí lee
@@ -20190,10 +20190,10 @@ pasa con KVM y con TCG. Siguen pasando h54 (fstab), h91 (particiones) y h255 (SA
   (aún sin compilar en ese momento); h133 pasa al repetir.
 
 **Pendiente:** compresión de la raíz en el CD (P5), la tecla del cargador y `kconfig` para el modo (P4), M1 (imágenes por
-defecto, límite de h324, migración) y F (`fsck`, carga bajo demanda) en la **v8.5.3.2**.
+defecto, límite de h324, migración) y F (`fsck`, carga bajo demanda) en la **v8.5.4.2**.
 
 **Revisión antes de publicar (2026-11-17):** lo nuevo de la raíz en disco, la live y el toram solo se activa si el ramdisk
-trae `/etc/raiz.conf` (`mkimagem.py --raiz`); las imágenes por defecto de la v8.5.3.1 no lo traen (M1 es de la v8.5.3.2).
+trae `/etc/raiz.conf` (`mkimagem.py --raiz`); las imágenes por defecto de la v8.5.3.1 no lo traen (M1 es de la v8.5.4.2).
 Lo que sí cambia para todas: `trava.c` (el ocioso espera un tic con interrupciones en vez de ceder con ellas apagadas;
 el tic del planificador siempre saca al ocioso, así que el dueño corre igual que antes), los pendrives pasan por la
 caché de bloques para leer (escritura directa, `disco_removido` descarta sus bloques; solo hay pendrives de 512 bytes),
@@ -20201,7 +20201,7 @@ caché de bloques para leer (escritura directa, `disco_removido` descarta sus bl
 fundir la SAGUI-CONF vieja en SAGUI-RAIZ, el instalador copiaba los permisos tal como estaban en la partición (el kernel
 los corregía al superponerla, pero con la raíz en disco ya no lo hace): `/etc/sombra` podía quedar legible; ahora lo
 fundido queda de root, sin escritura ajena y los secretos en 0600 (como `conf_sistema.c`, `modo_de`).
-**Pendiente para la v8.5.3.2** (no bloquea: solo con imágenes `--raiz`):
+**Pendiente para la v8.5.4.2** (no bloquea: solo con imágenes `--raiz`):
 - Reinstalar sobre un disco que ya tiene SAGUI-RAIZ no guarda su `/etc` ni su `/root` (solo se busca SAGUI-CONF): se
   pierden contraseñas, claves y lo de `/root`. Respaldar `etc/` y `root/` de SAGUI-RAIZ como se hace con SAGUI-CONF.
 - La raíz no se comprueba contra la versión del kernel/initramfs (una SAGUI-RAIZ de otra versión se monta igual); si
@@ -20277,10 +20277,94 @@ completa con el ramdisk de siempre).
 igual; ISO 40,7 MiB → **95,6 MiB** (la raíz con `/apps` y Freeciv sin comprimir; P5 pendiente); persistentes ext2
 1.052 → 1.262 MiB (+256 MiB de SAGUI-PERSIST, dispersa); persistentes FAT32 `.xz` 24,3 → 23,3 MiB; particiones `.xz`
 29,0 → 25,1 MiB; completa 104 → 101 MiB; sin GPL 104 → 99 MiB; VDI 101 → 84 MiB. El initramfs: 644 KiB.
-**Pendiente (v8.5.3.2):** compresión de la raíz en la ISO (P5); la tecla del cargador para elegir live/toram (P4/P7);
+**Pendiente (v8.5.4.2):** compresión de la raíz en la ISO (P5); la tecla del cargador para elegir live/toram (P4/P7);
 desde la live, instalar solo «el sistema de serie» (hoy copia la raíz que se ve, con lo cambiado en la sesión); el tope
 de la capa en la RAM y lo de `sobreposicao.c` de la revisión; F (`fsck`).
 
 **Nota de integración (v8.5.4, tras la 8.5.3.1/D379):** reintegrado main; `java`, `javac`, `jabuti` y `/apps/java/` siguen
 en `/apps` (ahora dentro de la raíz SAGUI-RAIZ), las rutas fijas de `java_main.c` no cambian y `APPS_DEP` quedó igual. h378, h379,
 h324, h119, h387, h109, h81 y la batería reducida pasan (77/77).
+
+**v8.5.4.2 (antes llamada v8.5.3.2; decisión del mantenedor: todos los pendientes de las dos revisiones).**
+Rama `v8.5.4.2-almacenamiento`. Por puntos:
+1. **Marca de versión:** `raiz_valida` compara la primera línea **entera** de `/sistema/raiz/versao` (quitando solo
+   espacios, tabuladores y `\r` del final; más larga que el búfer = no casa). Antes se cortaba en el primer espacio:
+   un núcleo «v6.0 beta 2» mandaba toda raíz a rescate y una marca «v8.5.4.2 beta» valía para el núcleo «v8.5.4.2».
+2. **Rescate por raíz no encontrada:** lista en pantalla (y en `[RAIZ] disco visto`) los discos y volúmenes que ve
+   el núcleo y recomienda `saguios-completo.img` para los PC que no dejan ver el disco de arranque (#36);
+   `/etc/rescate.txt` del initramfs lo explica también, con la tecla M y Ctrl.
+3. **Dos discos SaguiOS:** el identificador no va en `raiz.conf` (el initramfs es uno para todas las imágenes y el
+   instalador lo copia como un bloque con su suma en la cabecera) sino en la **cabecera**, que es lo que el cargador
+   leyó del medio del que arrancó: «instalar» decide al empezar `CAB_ID_INSTALACAO` («SGIN», aleatorio, hora) y lo
+   escribe también en `/sistema/raiz/id` (0600, antes de la marca de versión). `raiz.c` recorre **todas** las
+   SAGUI-RAIZ que podrían ser de arranque (`disco_resolver_n`), cada una una vez mientras dura la espera, y usa la
+   que tiene el id de la cabecera (una imagen, sin id: la que no lleva id). Con dos que valen (copias idénticas del
+   mismo instalado) o sin saber el disco de arranque y en un medio extraíble, un instalado **nunca se monta con
+   escritura**: live con la capa en la RAM y aviso. La capa SAGUI-PERSIST se busca en el mismo disco que la raíz.
+   Prueba h387 L (copia con otro id delante, instalado + pendrive live en los dos sentidos, dos copias idénticas).
+4. **mkimagem.py:** sin `debugfs`, generar SAGUI-RAIZ **falla** (los dueños root son obligatorios, D378 §14); las
+   demás particiones siguen solo avisando.
+5. **ISO comprimida (P5):** `mkimagem.py --cd` comprime la SAGUI-RAIZ **en su sitio** por bloques de 64 KB con
+   DEFLATE (formato propio «SGRZ»: cabecera, tabla con desplazamiento, tamaño y CRC-32 de cada bloque; bloques de
+   ceros sin datos; los que no ganan, guardados), partición de tipo 0x5A; `--raiz-sin-comprimir` la deja como
+   ext2. El núcleo (`disco_comprimido.c`, con el inflate propio de libsagui traído a `kernel/lib/inflar.c`) la ve
+   como el disco `rz0` de solo lectura ya descomprimido: el toram lo copia a `ram0` (cada bloque se lee y
+   descomprime una vez) y, si no cabe en la RAM, la live se monta encima y descomprime lo que se lee (caché de 4
+   bloques). Un bloque que no da su CRC es un error de E/S, nunca datos cambiados. **Medido (KVM):** ISO 94,2 →
+   **47,1 MB**; toram de 80 MB en ~2,8 s. Prueba h387 H (también live desde el CD con 96 MB).
+6. **Tecla del cargador (P4/P7):** con **M** pulsada (la etapa 2 la mira al empezar y otra vez tras leer núcleo e
+   initramfs; el cargador UEFI, igual que Ctrl) sale un menú: 1 live desde el medio, 2 todo a la RAM, 3 instalado,
+   4 rescate; Intro, lo de siempre. Va en `boot_info` (bits 17-19, `OPC_BOOT_RAIZ_MODO`), **no** en la cabecera (el
+   núcleo la compara con el disco). `kconfig raiz_modo=live|toram` lo guarda (instalado y rescate solo con la
+   tecla: un modo guardado que no deja arrancar sería difícil de quitar). Orden: tecla > kconfig > cabecera >
+   `raiz.conf`. Prueba h387 M (la M se manda por el monitor sin KVM: con KVM la etapa 2 llega antes que la tecla).
+7. **Instalar «solo de serie»:** en la live la capa inferior se monta de solo lectura en `/sistema/serie` (tipo
+   «serie», la misma capa que usa la live); «instalar» copia de ahí por defecto y `--con-cambios` (casilla en el
+   asistente) copia la raíz que se ve. En toram no hay capa inferior: se copia lo que hay (como antes).
+8. **Tope de la capa en la RAM:** los volúmenes ramfs (capa de la live y `/tmp`) cuentan la memoria de lo que
+   escriben; tope del 50 % de la RAM (`kconfig capa_ram_pct` 10-90) y una reserva de memoria baja que nunca se toca;
+   al llenarse, `ERRO_SEM_ESPACO` (nuevo, ENOSPC: «no queda espacio») y un aviso una vez; `df` muestra el tope.
+   Prueba h387 N.
+9. **sobreposicao.c:** renombrar como `e2_renomear` (lo que ven los programas en un instalado): a una carpeta,
+   dentro; una carpeta nunca encima de un archivo (ERRO_JA_EXISTE); una carpeta llevada al nombre de una de abajo
+   tapada por una marca queda **opaca**. Se eligió la semántica del ext2 de SaguiOS y no la de `rename(2)` de Unix
+   (EISDIR/ENOTEMPTY) para que el mismo programa haga lo mismo en la live y en el instalado; lo que pedía la revisión
+   (no fundir, no tapar sin error) se cumple. Prueba h387 F.
+10. **fsck (F):** al montar con escritura un ext2 sin el bit de limpio, **fsck básico** propio en `ext2.c`: recorre
+   los inodos en uso y sus bloques (directos, indirectos, atributos) y los metadatos de cada grupo, y rehace los
+   mapas de bloques e inodos y los contadores (pasos 1 y 5 de e2fsck); lo raro (bloque fuera o usado dos veces,
+   extents) no se toca y el volumen queda **de solo lectura con aviso**. Solo ext2 sin diario, extents, sumas ni 64
+   bits (ext3/4 tienen su diario). No mira directorios ni enlaces (pasos 2-4): queda pendiente. e2fsprogs no se porta
+   (GPL-2.0 solo, incompatible con la GPL-3 del proyecto, y D034/D073). Prueba h387 O (mapas estropeados a propósito
+   y corte de luz de la raíz: e2fsck -fn limpio después).
+11. **Nota para el enlace dinámico (D378 §14):** al fusionar la rama del enlace dinámico, excluir `/apps/vps` (de
+   sagui, D297) de las rutas de búsqueda de bibliotecas: es escribible por la persona y una `.so` puesta ahí se
+   cargaría en programas de root. No se implementa aquí.
+**Sigue pendiente:** quitar en caliente el pendrive de la live (hoy desmonta la raíz y sigue sobre el initramfs sin
+un aviso claro); los pasos 2-4 del fsck; liberar `rz0` tras el toram (≈ 330 KB).
+**Revisión independiente de la v8.5.4.2 (arreglado):** B1 un ext2 con `s_inodes_count` mayor que grupos × inodos por
+grupo hacía escribir al fsck fuera de su memoria: ahora no se monta (con menos, solo lectura) y `inode_onde` nunca da un
+grupo inexistente. I1 el inflate (núcleo y `compressao.c`: gzip, PNG, zip) tiraba bytes del acumulador al empezar un
+bloque guardado y rechazaba flujos válidos: corregido, con `tests/inflar_unidad.py` (frente a zlib, en el PC) y
+`mkimagem.py` comprueba cada bloque SGRZ al generarlo. I2 renombrar encima de un archivo en ramfs no restaba su memoria
+del tope (ENOSPC falso tras guardados atómicos). I3 una SGRZ mala no se relee en cada vuelta de la espera. Menores: el
+fsck solo recorre bloques de archivos, carpetas y enlaces largos (no de dispositivos) y siempre los del inodo 1; avisa en
+pantalla al empezar y, si no puede, dice qué hacer; la marca opaca que no se puede crear deshace el renombrado; con `--cd`
+una partición detrás de la raíz es un error; `raiz_modo` de kconfig no se aplica a un disco instalado.
+**Límite del fsck (sigue):** no mira directorios ni contadores de enlaces (pasos 2-4 de e2fsck): una entrada a un inodo
+libre o un inodo sin entrada no se detectan; si el fsck no puede, la raíz instalada queda de solo lectura hasta repararla
+fuera (e2fsck desde otra live) o reinstalar (no hay aún opción para forzar la escritura desde el rescate).
+**Anotado, no hecho:** el tipo «serie» sigue en `fs_do_tipo` (inalcanzable desde los programas: su disco no está en la
+tabla de discos); con `--con-cambios` el tamaño de la raíz se mide del sistema de serie (lo cambiado en la sesión suele
+ser poco y la partición lleva el doble); `/sistema/serie` se desmonta antes que la raíz como los demás montajes.
+
+## D381. AVX2 opcional: estado XSAVE en el kernel y rutas AVX2 en el motor de IA (decidido el 2026-11-17; prevista para una 8.5.x posterior a la IA local)
+
+**Pregunta del mantenedor:** «¿Implementar opcionalmente AVX para la IA local, o es poco útil en este kernel?»
+
+**Decisión (por fases):**
+1. **SSSE3 ya, sin tocar el kernel:** el motor de la IA local (D380) gana una ruta SSSE3 (`pmaddubsw` + `pmaddwd`) elegida por CPUID (SSSE3 > SSE2 > C). Usa los mismos registros XMM que el kernel ya guarda con FXSAVE.
+2. **AVX2 opcional en el kernel:** si CPUID tiene XSAVE/AVX, activar `CR4.OSXSAVE`, programar `XCR0` (x87, SSE, AVX) y guardar el estado con `XSAVE`/`XRSTOR` en un área por hilo del tamaño que dé CPUID (hoy FXSAVE de 512 bytes, `FPU_ESTADO` en `kernel/inc/fpu.h`); cambio de contexto, señales y CPU secundarias (SMP) incluidos. Apagable desde kconfig (`--sem-avx`). Trabajo de Opus con revisión aparte: un fallo aquí corrompe registros de otro proceso sin avisar.
+3. **Rutas AVX2 (+FMA) en el motor** elegidas en tiempo de ejecución, solo si el kernel anuncia el estado AVX guardado.
+
+**Por qué AVX2 y no AVX:** el AVX de 2011 solo ensancha la coma flotante; los productos punto de Q4_K/Q8_0 son de enteros y necesitan AVX2 (Haswell, Excavator, Zen y posteriores). Ganancia esperada: 1,7-2× al leer el prompt y 1,3-1,5× al generar (la generación la limita el ancho de banda de la RAM). En 32 bits solo hay 8 registros YMM. Equipos del foco con AVX2: i3-i7 de 4.ª a 7.ª generación, Ryzen B450 y el mini PC i3-1220P; Bulldozer/Piledriver solo tienen AVX1 y se quedan en SSSE3.

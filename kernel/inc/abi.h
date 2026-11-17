@@ -436,6 +436,7 @@ typedef struct {
 #define ERRO_DISCO_ARRANQUE -18 /* es el disco de arranque: hace falta la confirmación doble (D179) */
 #define ERRO_SEM_SENHA     -19  /* D255: la cuenta no tiene contraseña y hay que fijarla desde la sesión local */
 #define ERRO_ESPERA        -20  /* D255: demasiados intentos fallidos: hay que esperar */
+#define ERRO_SEM_ESPACO    -21  /* v8.5.4.2 (D379): no queda espacio en el volumen (ENOSPC; la capa de la live en la RAM, /tmp) */
 
 /* D255: la configuración del sistema. Los programas leen /etc como siempre; la
  * partición SAGUI-CONF (ext2, solo root) se monta en CONF_SISTEMA_PONTO y su

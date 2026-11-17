@@ -92,6 +92,7 @@ disco_t *disco_registrar_audio_cd(disco_t *cd, uint32_t setores, void *dono, str
 void     disco_reconhecer_cd(disco_t *d);         /* D207: ISO 9660 o no (tras cambiar el disco) */
 disco_t *disco_por_nome(const char *nome);
 disco_t *disco_resolver(const char *nome);        /* nombre, "LABEL=etiqueta" o "arranque" */
+disco_t *disco_resolver_n(const char *nome, int n);   /* D379: el n-ésimo con esa etiqueta (n = 0: disco_resolver) */
 disco_t *disco_indice(int i);
 disco_t *disco_raiz(disco_t *d);                  /* el disco entero de una partición */
 int      disco_ler(disco_t *d, uint32_t lba, uint32_t n, void *buf);

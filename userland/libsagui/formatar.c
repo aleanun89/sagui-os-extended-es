@@ -170,6 +170,7 @@ const char *nome_erro(int e)
     case ERRO_DISCO_ARRANQUE: return "es el disco de arranque";
     case ERRO_SEM_SENHA: return "la cuenta aún no tiene contraseña (se fija desde la sesión local)";
     case ERRO_ESPERA: return "demasiados intentos fallidos: espera un minuto";
+    case ERRO_SEM_ESPACO: return "no queda espacio";
     case ERRO_TEMPO: return "sin respuesta (tiempo agotado)";
     case ERRO_SEM_REDE: return "sin red (no hay tarjeta o aún no tiene dirección IP)";
     case ERRO_RECUSADA: return "conexión rechazada";

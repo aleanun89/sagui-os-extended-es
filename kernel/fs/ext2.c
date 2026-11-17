@@ -772,6 +772,7 @@ static bool inode_onde(e2_t *v, uint32_t num, uint32_t *b, uint32_t *off)
 {
     if (num < 1 || num > v->inodes) return false;
     uint32_t g = (num - 1) / v->ipg, idx = (num - 1) % v->ipg;
+    if (g >= v->grupos) return false;   /* v8.5.4.2: nunca un descriptor que no existe */
     uint32_t byte = idx * v->tam_inode;
     *b = gd_tabela(v, g) + byte / v->bloco;
     *off = byte % v->bloco;
@@ -2277,6 +2278,166 @@ static int ler_descritores(e2_t *v)
     return disco_ler(v->d, (v->primeiro_bloco + 1) * v->spb, v->gd_blocos * v->spb, v->gd) < 0 ? ERRO_ACESSO : 0;
 }
 
+/* ------------------------------------------------------------ fsck básico (v8.5.4.2, D379 F)
+ *
+ * Un ext2 que no se desmontó bien (s_state sin el bit de limpio: corte de luz, pendrive arrancado) puede
+ * tener los mapas de bits y los contadores desfasados de lo que de verdad usan los inodos: lo peligroso
+ * es un bloque en uso marcado como libre (se volvería a asignar y dos archivos compartirían datos). Antes
+ * de montarlo con escritura se rehacen, como los pasos 1 y 5 de e2fsck:
+ *   - se recorren todos los inodos en uso (enlaces > 0, sin fecha de borrado) y sus bloques (directos,
+ *     indirectos simple/doble/triple y el de atributos), más los metadatos de cada grupo (copias del
+ *     superbloque y de los descriptores, los reservados para crecer, los mapas y la tabla de inodos);
+ *   - los mapas de bloques y de inodos se dejan como sale de eso, y los contadores de cada grupo (libres,
+ *     carpetas) y del superbloque.
+ * No mira los directorios ni los contadores de enlaces (lo que e2fsck hace en los pasos 2-4): eso no
+ * produce asignaciones dobles. Solo para ext2 «puro» (sin diario, extents, sumas, 64 bits ni flex_bg);
+ * con algo raro (un bloque fuera del volumen o usado dos veces, extents en un inodo) no se toca nada y
+ * se monta de solo lectura. Devuelve NULL si lo hizo, o el motivo. */
+static bool fsck_elegivel(e2_t *v)
+{
+    return !v->csum && !v->gdt_csum && !(v->compat & COMPAT_DIARIO) && !gd64(v) &&
+           !(v->incompat & ~(uint32_t)INCOMPAT_TIPO_DIR) &&
+           !(v->ro_compat & ~(uint32_t)(RO_SPARSE | RO_ARQ_GRANDE | RO_EXTRA_ISIZE));
+}
+
+typedef struct { uint8_t *uso; uint8_t *buf[3]; const char *falha; } fsck_t;
+
+static bool fsck_marcar(e2_t *v, fsck_t *f, uint32_t b)
+{
+    if (b < v->primeiro_bloco || b >= v->blocos) { f->falha = "un inodo apunta fuera del volumen"; return false; }
+    uint32_t k = b - v->primeiro_bloco;
+    if (f->uso[k / 8] & (1 << (k % 8))) { f->falha = "un bloque lo usan dos sitios"; return false; }
+    f->uso[k / 8] |= (uint8_t)(1 << (k % 8));
+    return true;
+}
+
+static bool fsck_arvore(e2_t *v, fsck_t *f, uint32_t b, int nivel)
+{
+    if (!b) return true;
+    if (!fsck_marcar(v, f, b)) return false;
+    if (!nivel) return true;
+    uint8_t *x = bloco(v, b);
+    if (!x) { f->falha = "error de lectura"; return false; }
+    uint8_t *meu = f->buf[nivel - 1];   /* copia: la caché puede soltar el bloque al bajar */
+    memcpy(meu, x, v->bloco);
+    for (uint32_t i = 0; i < v->bloco / 4; i++)
+        if (!fsck_arvore(v, f, le32(meu + i * 4), nivel - 1)) return false;
+    return true;
+}
+
+static const char *fsck_basico(e2_t *v, uint32_t *mudancas)
+{
+    *mudancas = 0;
+    if (!fsck_elegivel(v)) return "sus características no las comprueba SaguiOS";
+    if ((uint64_t)v->grupos * v->ipg != v->inodes) return "la cuenta de inodos no cuadra con los grupos";
+    fsck_t f = { 0 };
+    uint32_t nb = v->blocos - v->primeiro_bloco;
+    f.uso = kcalloc((nb + 7) / 8);
+    uint8_t *ino_uso = kcalloc((v->inodes + 7) / 8);
+    uint32_t *pastas = kcalloc(v->grupos * sizeof(uint32_t));
+    for (int i = 0; i < 3; i++) f.buf[i] = kmalloc(v->bloco);
+    if (!f.uso || !ino_uso || !pastas || !f.buf[0] || !f.buf[1] || !f.buf[2]) { f.falha = "sin memoria"; goto fim; }
+    /* Metadatos de cada grupo (lo mismo que iniciar_mapa_blocos). */
+    uint32_t tab = (v->ipg * v->tam_inode + v->bloco - 1) / v->bloco;
+    for (uint32_t g = 0; g < v->grupos && !f.falha; g++) {
+        uint32_t base = v->primeiro_bloco + g * v->bpg;
+        if (tem_super(v, g))
+            for (uint32_t k = 0; k < 1 + v->gd_blocos + le16(v->sb + 0xCE) && !f.falha; k++) fsck_marcar(v, &f, base + k);
+        if (!f.falha) fsck_marcar(v, &f, gd_mapa_blocos(v, g));
+        if (!f.falha) fsck_marcar(v, &f, gd_mapa_inodes(v, g));
+        for (uint32_t k = 0; k < tab && !f.falha; k++) fsck_marcar(v, &f, gd_tabela(v, g) + k);
+    }
+    /* Los inodos en uso y sus bloques. */
+    inode_t in;
+    for (uint32_t n = 1; n <= v->inodes && !f.falha; n++) {
+        bool reservado = n < v->primeiro_ino;
+        if (inode_ler(v, n, &in) < 0) { f.falha = "error de lectura de un inodo"; break; }
+        bool vivo = I_MODO(&in) && I_LIGACOES(&in) > 0 && le32(in.b + 20) == 0;
+        if (!vivo && !reservado) continue;
+        ino_uso[(n - 1) / 8] |= (uint8_t)(1 << ((n - 1) % 8));
+        if (n == 1) {   /* los bloques malos: los suyos están en uso aunque el inodo no tenga modo */
+            const uint32_t *b = I_BLOCO(&in);
+            for (int k = 0; k < 12 && !f.falha; k++) if (b[k]) fsck_marcar(v, &f, b[k]);
+            if (!f.falha) fsck_arvore(v, &f, b[12], 1);
+            if (!f.falha) fsck_arvore(v, &f, b[13], 2);
+            if (!f.falha) fsck_arvore(v, &f, b[14], 3);
+            continue;
+        }
+        if (!vivo) continue;
+        if (n == 7) {   /* resize_inode: su bloque doble (los reservados ya van con los metadatos del grupo) */
+            if (I_BLOCO(&in)[13] && !fsck_marcar(v, &f, I_BLOCO(&in)[13])) break;
+            continue;
+        }
+        if (EH_PASTA(&in) && (n - 1) / v->ipg < v->grupos) pastas[(n - 1) / v->ipg]++;
+        if (I_FLAGS(&in) & 0x80000) { f.falha = "un inodo con extents"; break; }
+        if (I_ACL(&in) && !fsck_marcar(v, &f, I_ACL(&in))) break;
+        bool simbolico_curto = (I_MODO(&in) & 0xF000) == 0xA000 && I_TAM(&in) < 60 && I_SETORES(&in) == (I_ACL(&in) ? v->spb : 0);
+        if (simbolico_curto) continue;
+        /* solo archivos, carpetas y enlaces simbólicos largos tienen bloques: en un dispositivo, una tubería o
+         * un socket, i_block guarda otra cosa (el número del dispositivo) */
+        uint16_t tipo = I_MODO(&in) & 0xF000;
+        if (tipo != 0x8000 && tipo != 0x4000 && tipo != 0xA000) continue;
+        const uint32_t *b = I_BLOCO(&in);
+        for (int k = 0; k < 12 && !f.falha; k++) if (b[k]) fsck_marcar(v, &f, b[k]);
+        if (!f.falha) fsck_arvore(v, &f, b[12], 1);
+        if (!f.falha) fsck_arvore(v, &f, b[13], 2);
+        if (!f.falha) fsck_arvore(v, &f, b[14], 3);
+    }
+    if (f.falha) goto fim;
+    /* Los mapas y los contadores. */
+    uint32_t livres_b = 0, livres_i = 0;
+    for (uint32_t g = 0; g < v->grupos; g++) {
+        uint8_t *m = mapa(v, g, false);
+        if (!m) { f.falha = "error de lectura de un mapa"; goto fim; }
+        uint32_t qtd = blocos_no_grupo(v, g), usados = 0, base = g * v->bpg;
+        bool mudou = false;
+        for (uint32_t bit = 0; bit < qtd; bit++) {
+            uint32_t k = base + bit;
+            bool u = f.uso[k / 8] & (1 << (k % 8)), em = m[bit / 8] & (1 << (bit % 8));
+            if (u) usados++;
+            if (u == em) continue;
+            if (u) m[bit / 8] |= (uint8_t)(1 << (bit % 8)); else m[bit / 8] &= (uint8_t)~(1 << (bit % 8));
+            mudou = true;
+            (*mudancas)++;
+        }
+        if (mudou) { sujar(v, gd_mapa_blocos(v, g)); v->grupo[g] |= GR_MB; }
+        uint8_t *mi = mapa(v, g, true);
+        if (!mi) { f.falha = "error de lectura de un mapa"; goto fim; }
+        uint32_t ocupados = 0;
+        mudou = false;
+        for (uint32_t bit = 0; bit < v->ipg; bit++) {
+            uint32_t n = g * v->ipg + bit;
+            bool u = ino_uso[n / 8] & (1 << (n % 8)), em = mi[bit / 8] & (1 << (bit % 8));
+            if (u) ocupados++;
+            if (u == em) continue;
+            if (u) mi[bit / 8] |= (uint8_t)(1 << (bit % 8)); else mi[bit / 8] &= (uint8_t)~(1 << (bit % 8));
+            mudou = true;
+            (*mudancas)++;
+        }
+        if (mudou) { sujar(v, gd_mapa_inodes(v, g)); v->grupo[g] |= GR_MI; }
+        if (gd_campo(v, g, GD_LIVRES_B, GD_LIVRES_B_A) != qtd - usados || gd_campo(v, g, GD_LIVRES_I, GD_LIVRES_I_A) != v->ipg - ocupados ||
+            gd_campo(v, g, GD_PASTAS, GD_PASTAS_A) != pastas[g]) {
+            gd_por_campo(v, g, GD_LIVRES_B, GD_LIVRES_B_A, qtd - usados);
+            gd_por_campo(v, g, GD_LIVRES_I, GD_LIVRES_I_A, v->ipg - ocupados);
+            gd_por_campo(v, g, GD_PASTAS, GD_PASTAS_A, pastas[g]);
+            marcar_grupo(v, g, 0);
+            (*mudancas)++;
+        }
+        livres_b += qtd - usados;
+        livres_i += v->ipg - ocupados;
+    }
+    st32(v->sb + 12, livres_b);
+    st32(v->sb + 16, livres_i);
+    v->sb_sujo = true;
+    if (confirmar(v) < 0 || v->erro) { v->erro = 0; f.falha = "error al grabar lo corregido"; }
+fim:
+    if (f.uso) kfree(f.uso);
+    if (ino_uso) kfree(ino_uso);
+    if (pastas) kfree(pastas);
+    for (int i = 0; i < 3; i++) if (f.buf[i]) kfree(f.buf[i]);
+    return f.falha;
+}
+
 static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
 {
     e2_t *v = kcalloc(sizeof(e2_t));
@@ -2314,6 +2475,12 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
         return recusar(v, d, "ext: superbloque no válido", 0);
     if ((uint64_t)v->blocos * v->spb > d->setores) return recusar(v, d, "ext: el volumen es mayor que la partición", v->blocos);
     v->grupos = (v->blocos - v->primeiro_bloco + v->bpg - 1) / v->bpg;
+    /* v8.5.4.2 (revisión): como e2fsck, s_inodes_count tiene que ser grupos * inodos por grupo. Con más, un
+     * número de inodo apuntaría a un descriptor de grupo que no existe (memoria de otro): no se monta. Con
+     * menos (raro, nunca lo hace mke2fs) se monta pero solo para leer (ni fsck ni escritura con esa cuenta). */
+    uint64_t ino_grupos = (uint64_t)v->grupos * v->ipg;
+    if (ino_grupos < v->inodes) return recusar(v, d, "ext: más inodos que grupos * inodos por grupo", v->inodes);
+    bool inodes_curto = ino_grupos != v->inodes;
     v->gd_blocos = (v->grupos * v->desc_size + v->bloco - 1) / v->bloco;
     v->gd = kmalloc(v->gd_blocos * v->bloco);
     v->gdb_sujo = kcalloc(v->gd_blocos);
@@ -2343,6 +2510,7 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
         for (uint32_t g = 0; g < v->grupos; g++)
             if (le32(gd(v, g) + 0x20) || le32(gd(v, g) + 0x24) || le32(gd(v, g) + 0x28)) { motivo = "descriptores con direcciones de 64 bits: solo lectura"; break; }
     if (!motivo && (estado & 2)) motivo = "el sistema de archivos tiene errores (usa e2fsck): solo lectura";
+    if (!motivo && inodes_curto) motivo = "la cuenta de inodos no cuadra con los grupos (usa e2fsck): solo lectura";
     bool quer_escrever = (*opcoes & MONTAR_SO_LEITURA) == 0;
     bool reproduziu = false;
     /* El diario: sólo se abre (y se reproduce lo pendiente) si se va a escribir (D040: un
@@ -2409,6 +2577,29 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
     }
     if (v->so_leitura) v->diario = false;
     if (motivo) klog("[EXT2] %s: %s\n", d->nome, motivo);
+    if (!v->so_leitura && !v->diario && !(v->compat & COMPAT_DIARIO) && !(estado & 1) && !(estado & 2)) {
+        /* v8.5.4.2 (D379 F): no se desmontó bien: el fsck básico antes de escribir; si no se puede, solo lectura. */
+        uint32_t t0 = relogio_tiques(), mud = 0;
+        kprintf("Comprobando %s (no se desmontó bien la última vez)...\n", d->nome);   /* puede tardar en discos grandes */
+        const char *falha = fsck_basico(v, &mud);
+        if (falha) {
+            snformatar(texto, sizeof texto, "no se desmontó bien y no se puede comprobar (%s): solo lectura", falha);
+            klog("[EXT2] %s: %s\n", d->nome, texto);
+            disco_avisar(AVISO_INFO, "%s: %s", d->nome, texto);
+            console_cor(COR_AMARELO, COR_PRETO);
+            kprintf("[aviso] %s: %s.\nLo que hay se puede leer y copiar. Para repararlo: e2fsck desde otro sistema\n"
+                    "(una live de Linux) y vuelve a arrancar; si es la raíz instalada, también se puede reinstalar\n"
+                    "(se conservan /home y la configuración).\n", d->nome, texto);
+            console_cor(COR_CINZA, COR_PRETO);
+            v->so_leitura = true;
+            *opcoes |= MONTAR_SO_LEITURA;
+        } else {
+            klog("[EXT2] %s: no se desmonto bien: fsck basico hecho (%u correcciones, %u ms)\n", d->nome, mud,
+                 (relogio_tiques() - t0) * (1000u / TIQUES_POR_SEGUNDO));
+            if (mud) disco_avisar(AVISO_INFO, "%s: no se desmontó bien; mapas y contadores corregidos (%u)", d->nome, mud);
+            estado |= 1;
+        }
+    }
     v->estado_original = estado;
     if (!v->so_leitura) {
         /* Los contadores del superbloque, de la suma de los grupos (tras un corte pueden no
@@ -2420,7 +2611,7 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
         }
         st32(sb + 12, lb);
         st32(sb + 16, li);
-        if (!(estado & 1)) klog("[EXT2] %s: nao foi desmontado direito da ultima vez (convem e2fsck)\n", d->nome);
+        if (!(estado & 1)) klog("[EXT2] %s: no se desmonto bien la ultima vez (con diario: lo ha recuperado el diario)\n", d->nome);
         if (v->diario && jbd2_comecar(&v->j) < 0) {
             klog("[EXT2] %s: no se pudo abrir el diario para escribir\n", d->nome);
             liberar(v);

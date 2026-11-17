@@ -73,7 +73,7 @@ static char (*zonas_txt)[64];
 static const zona_info_t *zonas;
 static int nzonas;
 static caixa_t cx_nome, cx_r1, cx_r2, cx_u1, cx_u2, cx_conta;   /* D371: cx_conta, el nombre de la cuenta */
-static casilla_t cs_sshd, cs_vncd, cs_apps, cs_jogos, cs_misma;   /* D371: cs_misma, «la misma para root» */
+static casilla_t cs_sshd, cs_vncd, cs_apps, cs_jogos, cs_misma, cs_cambios;   /* v8.5.4.2: cs_cambios */   /* D371: cs_misma, «la misma para root» */
 /* configuración */
 static const unsigned cc_bit[7] = { CC_PREFS, CC_WIFI, CC_SSH, CC_CORREO, CC_IA, CC_IA_CHAVE, CC_DOCS };
 static const char *const cc_id[7] = { "cc-prefs", "cc-wifi", "cc-ssh", "cc-correo", "cc-ia", "cc-ia-clave", "cc-docs" };
@@ -369,6 +369,7 @@ static bool montar_plano(bool com_tamanhos)
     pl.tmp = cs_usa[D_TMP].marcada;
     pl.logs = cs_usa[D_LOGS].marcada;
     pl.copiar_jogos = cs_jogos.marcada && ha_jogos();
+    pl.con_cambios = cs_cambios.marcada && ha_serie();
     pl.sem_copiar_apps = !cs_apps.marcada;
     pl.fs_home = fs_esc[D_HOME]; pl.fs_apps = fs_esc[D_APPS]; pl.fs_jogos = fs_esc[D_JOGOS]; pl.fs_tmp = fs_esc[D_TMP]; pl.fs_logs = fs_esc[D_LOGS];
     if (com_tamanhos) {
@@ -696,6 +697,8 @@ static void pagina_opcoes(void)
     marcar98("copiar-apps", &cs_apps, CX0 + 8, y + 20, t, ha_apps());
     txt(t, sizeof t, "Datos de juegos (%u MB)", ha_jogos() ? kb_jogos(true) / 1024 + 1 : 0);
     marcar98("copiar-jogos", &cs_jogos, CX0 + 260, y + 20, t, ha_jogos());
+    if (modo_raiz() && ha_serie())   /* v8.5.4.2: desde la live; sin marcar, el sistema de serie */
+        marcar98("con-cambios", &cs_cambios, CX0 + 8, y + 40, "Llevar también lo cambiado en el sistema en esta sesión", true);
     if (plano_erro[0]) texto_linhas(CX0, BOT_Y - 30, plano_erro, CXL / 8, 0xC00000);
 }
 
@@ -1071,6 +1074,7 @@ static int janela(void)
     cx_r1.oculta = cx_r2.oculta = cx_u1.oculta = cx_u2.oculta = true;
     cs_apps.marcada = ha_apps();
     cs_jogos.marcada = false;
+    cs_cambios.marcada = false;
     cs_cc[0].marcada = true;   /* las preferencias, sí por defecto; lo demás lo elige la persona */
     cs_cc[1].marcada = true;
     zonas = zona_tabela(&nzonas);
@@ -1181,6 +1185,7 @@ static int janela(void)
             else if (e_zona(z, "vncd")) cs_vncd.marcada = !cs_vncd.marcada;
             else if (e_zona(z, "copiar-apps")) cs_apps.marcada = !cs_apps.marcada;
             else if (e_zona(z, "copiar-jogos")) cs_jogos.marcada = !cs_jogos.marcada;
+            else if (e_zona(z, "con-cambios")) cs_cambios.marcada = !cs_cambios.marcada;
             layout_mudou = true;
         } else if (pagina == P_CONFIG) {
             for (int i = 0; i < 7; i++) if (e_zona(z, cc_id[i])) { cs_cc[i].marcada = !cs_cc[i].marcada; layout_mudou = true; }

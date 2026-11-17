@@ -48,6 +48,11 @@ static const kconf_op_t ops[] = {
      * (con 1-3 el tope real sería 4 MB igualmente). */
     { "swap",               KC_SWAP,               KCONF_SINO,  CAB_MEM_OPC,   CAB_MEM_SEM_TROCA,      0, 0, 1 },
     { "swap_mb",            KC_SWAP_MB,            KCONF_NUM,   CAB_TROCA_MB,  0,                      2, 4, 1024 },
+    /* v8.5.4.2 (D379): el tope de lo que se escribe en la RAM (capa de la live, /tmp), en % de la RAM (0 = 50);
+     * y el modo de la raíz: 3 live desde el medio, 4 todo a la RAM (0 = el de la imagen). raiz.c los lee con
+     * kconf_valor(); «instalado» y «solo el initramfs» no se guardan: solo con la tecla M al arrancar. */
+    { "capa_ram_pct",       KC_CAPA_RAM_PCT,       KCONF_NUM,   0, 0,                              0, 10, 90 },
+    { "raiz_modo",          KC_RAIZ_MODO,          KCONF_LISTA, 0, 0,                              0, 3, 4 },
 };
 #define N_OPS ((int)(sizeof ops / sizeof ops[0]))
 

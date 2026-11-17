@@ -9,5 +9,7 @@
  * (capa en la RAM). Calcula también el tamaño del archivo abierto de la tabla. */
 void sobreposicao_preparar(disco_t *persistente);
 bool sobreposicao_persistente(void);   /* la capa montada es la de disco */
+/* v8.5.4.2: la capa inferior (el sistema de serie), de solo lectura, en "ponto" (/sistema/serie). */
+int  sobreposicao_montar_serie(const char *ponto);
 
 #endif

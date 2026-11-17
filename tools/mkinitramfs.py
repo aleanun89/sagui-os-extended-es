@@ -56,7 +56,14 @@ def main():
                     f"raiz={a.raiz}\nmodo={a.modo}\nespera={a.espera}\ncapa={a.capa}\n")
         with open(os.path.join(tmp, "etc", "rescate.txt"), "w", encoding="utf-8") as f:
             f.write("Sistema mínimo en RAM (initramfs, D379). Si ves esto, la raíz del disco no se ha\n"
-                    "montado: mira «dmesg» (líneas [RAIZ]) y «discos»; se puede montar a mano con «mount».\n")
+                    "montado: mira «dmesg» (líneas [RAIZ]) y «discos»; se puede montar a mano con «mount».\n"
+                    "\n"
+                    "- Si «discos» no muestra el disco o pendrive del que arrancaste, este PC no deja a\n"
+                    "  SaguiOS verlo después de arrancar: usa la imagen saguios-completo.img, que carga todo\n"
+                    "  el sistema en la RAM y no lo necesita.\n"
+                    "- Con la tecla M pulsada al arrancar se elige el modo: 1 live desde el medio, 2 todo a\n"
+                    "  la RAM, 3 instalado, 4 rescate. «kconfig raiz_modo=live|toram» lo deja guardado.\n"
+                    "- Ctrl al arrancar: modo rescate con la raíz montada (sin lo guardado con kconfig).\n")
         aqui = os.path.dirname(os.path.abspath(__file__))
         subprocess.run([sys.executable, os.path.join(aqui, "mksgfs.py"), tmp, a.saida], check=True,
                        stdout=subprocess.DEVNULL)

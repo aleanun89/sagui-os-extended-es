@@ -10,7 +10,7 @@ QEMU con 512 MB y un programa que obliga a usar la swap (/testes/troca llenar):
     clic y muestra su panel; la swap enseña uso real (> 0) mientras el programa la llena, y la caché de
     disco (INFO_DISCO_CACHE, nueva) cuenta accesos;
   - el administrador apenas consume (no se repinta la tabla si nada cambia: se mide la CPU del propio tareas).
-Capturas en docs/capturas/H370-*.png."""
+Capturas en docs/capturas/H370-*.png (también H370-red: la pestaña Red tras pasar por Rendimiento)."""
 import os
 import re
 import sys
@@ -144,6 +144,19 @@ def main():
             m.captura(f"H370-rendimiento-{nombre}")
         r = re.findall(r"tareas: rendimiento cpu (\d+)% mem (\d+)/(\d+) KB", m.serial())[-1]
         verificar(0 < int(r[1]) <= int(r[2]), f"Rendimiento: memoria {r[1]}/{r[2]} KB")
+
+        # --- Red, después de haber visto el panel Red de Rendimiento: los botones de interfaz los comparten las
+        # dos vistas y tienen que volver a su sitio (arriba a la izquierda, sin tapar «Driver:»). Clic en el
+        # primero (TAB_X 12 + 31, TAB_Y 42 + 11 en la ventana).
+        m.clique(ox + ABA_X["red"], oy + TAB_Y)
+        m.esperar_serial("tareas: pestana red", 10)
+        time.sleep(1.5)
+        n = contar(m, r"tareas: interfaz \S+")
+        m.clique(ox + 12 + 31, oy + 42 + 11)
+        nombre = esperar_novo(m, r"tareas: interfaz (\S+)", n, 10)
+        verificar(True, f"Red: el botón de la interfaz {nombre} está en su sitio tras pasar por Rendimiento")
+        time.sleep(1)
+        m.captura("H370-red")
 
         # --- Consumo del propio administrador: con la tabla quieta casi no gasta CPU.
         m.clique(ox + ABA_X["procesos"], oy + TAB_Y)

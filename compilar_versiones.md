@@ -183,6 +183,7 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--raiz CARPETA`, `--raiz-mb N` | — | (D379) la raíz del sistema en la partición `SAGUI-RAIZ` (ext2) con el contenido de la carpeta (`build/rootfs`; con `--apps`, `/apps` va dentro); `--ramdisk` es entonces el initramfs (`tools/mkinitramfs.py`). El `Makefile` ya lo hace |
 | `--persist-mb N` | 0 | (D379) partición `SAGUI-PERSIST`: la capa persistente de la live |
 | `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) fuerza cómo se usa la raíz (por defecto, lo que diga el initramfs; con `--cd`, `toram`) |
+| `--raiz-sin-comprimir` | apagado | (D379, v8.5.4.2) con `--cd`, la raíz va como ext2 tal cual; por defecto va comprimida por bloques (la ISO pesa la mitad) |
 
 Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente) o `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas las imágenes de disco, arranca por BIOS y por UEFI (D270; `crear-disco.py --sin-uefi`: solo BIOS).
 
@@ -524,6 +525,7 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--raiz CARPETA`, `--raiz-mb N` | — | (D379) the system root in the `SAGUI-RAIZ` partition (ext2) with the folder's contents (`build/rootfs`; with `--apps`, `/apps` goes inside); `--ramdisk` is then the initramfs (`tools/mkinitramfs.py`). The `Makefile` already does it |
 | `--persist-mb N` | 0 | (D379) `SAGUI-PERSIST` partition: the live persistent layer |
 | `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) forces how the root is used (by default, what the initramfs says; with `--cd`, `toram`) |
+| `--raiz-sin-comprimir` | off | (D379, v8.5.4.2) with `--cd`, the root goes as a plain ext2; by default it is compressed in blocks (the ISO is half the size) |
 
 A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Like every disk image, it boots by BIOS and by UEFI (D270; `crear-disco.py --sin-uefi`: BIOS only).
 
@@ -865,6 +867,7 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--raiz CARPETA`, `--raiz-mb N` | — | (D379) a raiz do sistema na partição `SAGUI-RAIZ` (ext2) com o conteúdo da pasta (`build/rootfs`; com `--apps`, `/apps` vai dentro); o `--ramdisk` é então o initramfs (`tools/mkinitramfs.py`). O `Makefile` já faz isso |
 | `--persist-mb N` | 0 | (D379) partição `SAGUI-PERSIST`: a camada persistente da live |
 | `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) força como a raiz é usada (por padrão, o que o initramfs diz; com `--cd`, `toram`) |
+| `--raiz-sin-comprimir` | desligado | (D379, v8.5.4.2) com `--cd`, a raiz vai como ext2 sem mudanças; por padrão vai comprimida por blocos (a ISO fica com a metade do tamanho) |
 
 Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assistente) ou `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas as imagens de disco, arranca por BIOS e por UEFI (D270; `crear-disco.py --sin-uefi`: só BIOS).
 

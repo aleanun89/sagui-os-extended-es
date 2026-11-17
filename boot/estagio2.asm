@@ -109,6 +109,10 @@ inicio:
         mov si, msg_acel_segura
         call escrever
 .sem_seguro:
+        ; v8.5.4.2 (D379): M (de «modo») pulsada al arrancar = menú del modo de la raíz (live desde el
+        ; medio, todo a la RAM, instalado, rescate). Solo se mira si ya hay una M en el búfer del
+        ; teclado: sin ella no se espera nada. Lo elegido va en BI_OPCOES (bits 17-19), no en la cabecera.
+        call olhar_m
 
         call preparar_disco
 
@@ -183,6 +187,9 @@ inicio:
 .ramdisk_ok:
         mov si, msg_ok
         call escrever
+
+        ; v8.5.4.2: y otra vez tras leer el núcleo y el initramfs (la M que llegó mientras tanto).
+        call olhar_m
 
 ; ---------------------------------------------------------------- [5/6] vídeo
         mov si, msg_video
@@ -1273,6 +1280,77 @@ guardar_modo:
 ; Texto por la BIOS
 ; ============================================================================
 
+;-----------------------------------------------------------------------------
+; olhar_m: v8.5.4.2 (D379). Si hay una M en el búfer del teclado (y el menú no ha salido
+; ya), el menú del modo de la raíz. No espera nada si no la hay.
+olhar_m:
+        cmp byte [menu_raiz_visto], 0
+        jne .fim
+        push ax
+        mov ah, 0x01
+        int 0x16
+        jz .nada
+        and al, 0xDF
+        cmp al, 'M'
+        jne .nada
+        mov byte [menu_raiz_visto], 1
+        call menu_raiz
+.nada:
+        pop ax
+.fim:
+        ret
+
+menu_raiz_visto: db 0
+
+;-----------------------------------------------------------------------------
+; menu_raiz: v8.5.4.2 (D379). Vacía el búfer (la M repetida), enseña las opciones
+; y espera un número; Intro o Esc = lo de siempre. Pone RAIZ_OPC_* << 17 en BI_OPCOES.
+menu_raiz:
+        push eax
+        push bx
+        push si
+.vaciar:
+        mov ah, 0x01
+        int 0x16
+        jz .pedir
+        mov ah, 0x00
+        int 0x16
+        jmp .vaciar
+.pedir:
+        mov si, msg_menu_raiz
+        call escrever
+.ler:
+        mov ah, 0x00
+        int 0x16
+        cmp al, 13
+        je .nada
+        cmp al, 27
+        je .nada
+        cmp al, '1'
+        jb .ler
+        cmp al, '4'
+        ja .ler
+        call escrever_char
+        movzx bx, al
+        sub bx, '1'
+        movzx eax, byte [tabela_menu_raiz + bx]
+        shl eax, 17
+        or dword [BOOTINFO + BI_OPCOES], eax
+        mov si, msg_crlf
+        call escrever
+        jmp .fim
+.nada:
+        mov si, msg_menu_nada
+        call escrever
+.fim:
+        pop si
+        pop bx
+        pop eax
+        ret
+
+; 1 live (RAIZ_OPC_LIVE), 2 todo a la RAM (TORAM), 3 instalado (DISCO), 4 rescate (RAM: solo el initramfs)
+tabela_menu_raiz: db 3, 4, 2, 1
+
 escrever:
         push ax
 .l:     lodsb
@@ -1387,6 +1465,13 @@ gdt_descritor:
 msg_titulo:     db "SaguiOS - etapa 2 del cargador", 13, 10, 0
 msg_rescate:    db "Ctrl pulsado: MODO RESCATE", 13, 10, 0
 msg_acel_segura: db "Mayus pulsado: aceleracion en modo seguro", 13, 10, 0
+msg_menu_raiz:  db "M pulsada: modo de arranque", 13, 10
+                db "  1 live desde el medio (los cambios, en la RAM)", 13, 10
+                db "  2 todo a la RAM (despues se puede sacar el medio)", 13, 10
+                db "  3 instalado (la raiz del disco, con escritura)", 13, 10
+                db "  4 rescate (solo el sistema minimo)", 13, 10
+                db "  Intro: el de siempre.  Elige: ", 0
+msg_menu_nada:  db "el de siempre", 13, 10, 0
 msg_a20:        db "[1/6] A20 ok", 13, 10, 0
 msg_mem:        db "[2/6] memoria ok: ", 0
 msg_mem2:       db " regiones, ", 0

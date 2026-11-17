@@ -52,6 +52,7 @@ int __ns_errno_de(int e)
     case ERRO_ACESSO:        return EACCES;
     case ERRO_OCUPADO:       return EBUSY;
     case ERRO_SO_LEITURA:    return EROFS;
+    case ERRO_SEM_ESPACO:    return ENOSPC;
     case ERRO_TEMPO:         return ETIMEDOUT;
     case ERRO_RECUSADA:      return ECONNREFUSED;
     case ERRO_INALCANCAVEL:  return EHOSTUNREACH;

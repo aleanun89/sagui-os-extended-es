@@ -18,7 +18,8 @@
  *   - Listar: lo de la superior (sin las marcas) y lo de la inferior que no esté repetido ni
  *     marcado.
  *   - Renombrar una carpeta que está en la inferior no se admite (como EXDEV en Linux): los
- *     programas copian y borran. Los archivos, sí (se copian arriba primero).
+ *     programas copian y borran. Los archivos, sí (se copian arriba primero). Lo demás, como el
+ *     ext2 (a una carpeta, dentro; una carpeta nunca encima de un archivo; v8.5.4.2).
  * Los nombres que empiezan por ".wh." son de la capa: no se ven ni se pueden crear.
  *
  * La tabla de montajes llama a esto con el bloqueo de los sistemas de archivos tomado
@@ -482,6 +483,13 @@ static int s_apagar(void *priv, const char *rel)
     return 0;
 }
 
+/* v8.5.4.2: renombrar como el ext2 de SaguiOS (e2_renomear), mirando lo que SE VE (las dos capas):
+ *   - el destino es una carpeta: se mueve DENTRO (destino/<nombre>); si eso ya existe, ERRO_JA_EXISTE;
+ *   - el destino es un archivo: un archivo lo sustituye; una carpeta no (ERRO_JA_EXISTE);
+ *   - una carpeta que llega a un sitio donde la inferior tiene otra con ese nombre (tapada por una marca
+ *     de borrado) queda opaca: lo de abajo no se mezcla con lo que se ha movido.
+ * Antes, una carpeta de arriba renombrada a un nombre que existía abajo se «fundía» con la de abajo, y un
+ * archivo renombrado encima de una carpeta de abajo la tapaba sin error (revisión de la v8.5.3.1). */
 static int s_renomear(void *priv, const char *de, const char *para)
 {
     (void)priv;
@@ -489,6 +497,22 @@ static int s_renomear(void *priv, const char *de, const char *para)
     info_arquivo_t i;
     int o = onde(de, &i);
     if (o < 0) return ERRO_NAO_EXISTE;
+    if (txt_compara(de, para) == 0) return 0;
+    char final[CAMINHO_MAX];
+    txt_copia_n(final, para, sizeof final);
+    info_arquivo_t ia;
+    if (onde(para, &ia) >= 0) {
+        if (ia.tipo == TIPO_PASTA) {
+            if (!juntar(final, para, ultimo(de))) return ERRO_INVALIDO;
+            if (txt_compara(final, de) == 0) return 0;          /* ya está dentro */
+            if (onde(final, NULL) >= 0) return ERRO_JA_EXISTE;
+        } else if (i.tipo == TIPO_PASTA) {
+            return ERRO_JA_EXISTE;                                /* una carpeta encima de un archivo */
+        }
+    }
+    /* Una carpeta no puede ir dentro de sí misma. */
+    size_t nd = txt_tamanho(de);
+    if (i.tipo == TIPO_PASTA && txt_compara_n(final, de, nd) == 0 && final[nd] == '/') return ERRO_INVALIDO;
     bool na_inf = inf_visivel(de) && inf_info(de, NULL);
     if (i.tipo == TIPO_PASTA && na_inf) return ERRO_NAO_SUPORTADO;   /* como EXDEV */
     if (o == 0) {
@@ -496,14 +520,30 @@ static int s_renomear(void *priv, const char *de, const char *para)
         if (r < 0) return r;
     }
     char pp[CAMINHO_MAX];
-    pasta_de(para, pp);
+    pasta_de(final, pp);
     info_arquivo_t ip;
     if (*pp && (onde(pp, &ip) < 0 || ip.tipo != TIPO_PASTA)) return ERRO_NAO_EXISTE;
     int r = garantir_pasta(pp);
     if (r < 0) return r;
-    tirar_marca(pp, ultimo(para));
-    r = vol.sup.fs->renomear(vol.sup.priv, de, para);
-    if (r < 0) return r;
+    /* ¿Hay en la inferior algo con el nombre de destino (hoy tapado por una marca o por un archivo de
+     * arriba que se va a sustituir)? */
+    info_arquivo_t ii;
+    bool abaixo = inf_info(final, &ii);
+    tirar_marca(pp, ultimo(final));
+    r = vol.sup.fs->renomear(vol.sup.priv, de, final);
+    if (r < 0) {
+        if (abaixo && !sup_info(final, NULL)) por_marca(pp, ultimo(final));   /* se deja como estaba */
+        return r;
+    }
+    if (abaixo && i.tipo == TIPO_PASTA && ii.tipo == TIPO_PASTA) {
+        char m[CAMINHO_MAX];
+        int ro = juntar(m, final, OPACA) ? criar_vazio(m) : ERRO_INVALIDO;
+        if (ro < 0) {   /* v8.5.4.2 (revisión): sin la marca opaca se mezclaría con lo de abajo: se deshace */
+            vol.sup.fs->renomear(vol.sup.priv, final, de);
+            por_marca(pp, ultimo(final));
+            return ro;
+        }
+    }
     if (na_inf) {
         char pd[CAMINHO_MAX];
         pasta_de(de, pd);
@@ -578,3 +618,64 @@ void sobreposicao_preparar(disco_t *persistente)
 }
 
 bool sobreposicao_persistente(void) { return vol.disco_sup != NULL; }
+
+/* ------------------------------------------------------------ la capa inferior, a la vista */
+
+/* v8.5.4.2 (D379): la capa inferior (el sistema de serie del medio) montada, de solo lectura, en
+ * /sistema/serie: el instalador copia de ahí «solo el sistema de serie» (sin lo cambiado en la sesión).
+ * Es la misma capa que usa la live (mismo priv): este montaje no la monta ni la suelta. */
+static int r_montar_serie(disco_t *d, uint32_t *opcoes, void **priv)
+{
+    (void)d;
+    if (!vol.inf.fs) return ERRO_NAO_EXISTE;
+    *opcoes |= MONTAR_SO_LEITURA;
+    *priv = &vol;
+    return 0;
+}
+static int r_soltar_serie(void *priv, bool gravar) { (void)priv; (void)gravar; return 0; }
+static int r_info_s(void *priv, const char *rel, info_arquivo_t *i) { (void)priv; return vol.inf.fs->info(vol.inf.priv, rel, i); }
+static int r_listar_s(void *priv, const char *rel, int k, entrada_pasta_t *e) { (void)priv; return vol.inf.fs->listar(vol.inf.priv, rel, k, e); }
+static int r_abrir_s(void *priv, const char *rel, int modo, void *arq, uint32_t *tam)
+{
+    (void)priv;
+    if (modo & (ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR | ABRIR_ACRESCENTAR)) return ERRO_SO_LEITURA;
+    return vol.inf.fs->abrir(vol.inf.priv, rel, modo, arq, tam);
+}
+static int r_ler_s(void *priv, void *arq, uint32_t pos, void *buf, uint32_t n) { (void)priv; return vol.inf.fs->ler(vol.inf.priv, arq, pos, buf, n); }
+static int r_escrever_s(void *priv, void *arq, uint32_t pos, const void *buf, uint32_t n, uint32_t *tam)
+{ (void)priv; (void)arq; (void)pos; (void)buf; (void)n; (void)tam; return ERRO_SO_LEITURA; }
+static int r_truncar_s(void *priv, void *arq, uint32_t tam) { (void)priv; (void)arq; (void)tam; return ERRO_SO_LEITURA; }
+static void r_fechar_s(void *priv, void *arq) { (void)priv; vol.inf.fs->fechar(vol.inf.priv, arq); }
+static int r_ro_s(void *priv, const char *rel) { (void)priv; (void)rel; return ERRO_SO_LEITURA; }
+static int r_ren_s(void *priv, const char *a, const char *b) { (void)priv; (void)a; (void)b; return ERRO_SO_LEITURA; }
+static void r_espaco_s(void *priv, uint32_t *t, uint32_t *l) { (void)priv; if (vol.inf.fs->espaco) vol.inf.fs->espaco(vol.inf.priv, t, l); else *t = *l = 0; }
+static int r_datas_s(void *priv, const char *rel, datas_arquivo_t *d)
+{ (void)priv; return vol.inf.fs->datas ? vol.inf.fs->datas(vol.inf.priv, rel, d) : ERRO_NAO_SUPORTADO; }
+static int r_meta_s(void *priv, const char *rel, meta_t *m)
+{ (void)priv; return vol.inf.fs->meta ? vol.inf.fs->meta(vol.inf.priv, rel, m) : ERRO_NAO_SUPORTADO; }
+static int r_fixar_meta_s(void *priv, const char *rel, int32_t u, int32_t g, int32_t m)
+{ (void)priv; (void)rel; (void)u; (void)g; (void)m; return ERRO_SO_LEITURA; }
+static int r_fixar_datas_s(void *priv, const char *rel, uint32_t a, uint32_t b)
+{ (void)priv; (void)rel; (void)a; (void)b; return ERRO_SO_LEITURA; }
+
+sistema_arquivos_t fs_serie = {
+    .nome = "serie",
+    .montar = r_montar_serie, .desmontar = r_soltar_serie, .info = r_info_s, .listar = r_listar_s,
+    .abrir = r_abrir_s, .ler = r_ler_s, .escrever = r_escrever_s, .truncar = r_truncar_s, .fechar = r_fechar_s,
+    .criar_pasta = r_ro_s, .remover_pasta = r_ro_s, .apagar = r_ro_s, .renomear = r_ren_s, .espaco = r_espaco_s,
+    .datas = r_datas_s, .meta = r_meta_s, .fixar_meta = r_fixar_meta_s, .fixar_datas = r_fixar_datas_s,
+};
+
+static disco_t disco_serie;
+
+int sobreposicao_montar_serie(const char *ponto)
+{
+    if (!vol.inf.fs) return ERRO_NAO_EXISTE;
+    fs_serie.tam_arq = vol.inf.fs->tam_arq;
+    memset(&disco_serie, 0, sizeof disco_serie);
+    txt_copia_n(disco_serie.nome, "serie", sizeof disco_serie.nome);
+    txt_copia_n(disco_serie.formato, "sistema de serie", sizeof disco_serie.formato);
+    txt_copia_n(disco_serie.tipo_fs, "serie", sizeof disco_serie.tipo_fs);
+    disco_serie.presente = true;
+    return montagem_montar_dono(&disco_serie, ponto, "serie", MONTAR_SO_LEITURA | MONTAR_DONO, UID_ROOT | GID_ROOT << 16);
+}

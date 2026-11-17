@@ -58,12 +58,27 @@ la ISO) arrancan como un Unix: la BIOS o el cargador UEFI solo leen el núcleo y
 | --- | --- | --- |
 | `saguios.img`, `-smp`, `-uacpi`, `-particiones`, VDI | **live desde el medio**: SAGUI-RAIZ de solo lectura y los cambios en la RAM | la configuración del sistema (SAGUI-CONF, como siempre), `/home` si hay SAGUI-DATOS, `/jogos` |
 | `saguios-persistente*.img` | live con **SAGUI-PERSIST**: los cambios al sistema (programas instalados, `/etc`, `/root`) se guardan en esa partición | todo: además `/home` en SAGUI-DATOS |
-| `saguios.iso` | **toram**: la raíz se copia a la RAM al arrancar y el CD se puede sacar; si no hay RAM bastante (unos 32 MB más que la raíz), avisa y se usa leyendo del CD | nada (CD) |
+| `saguios.iso` | **toram**: la raíz (comprimida en el CD desde la v8.5.4.2: la ISO pesa la mitad) se descomprime a la RAM al arrancar y el CD se puede sacar; si no hay RAM bastante (unos 32 MB más que la raíz, ~80 MB), avisa y se usa leyendo del CD | nada (CD) |
 | disco instalado (`instalar`) | SAGUI-RAIZ con escritura (como un Linux instalado) | todo; `/home` va aparte, en SAGUI-DATOS |
 
 La partición SAGUI-RAIZ del pendrive **nunca se escribe** en la live (un corte de luz no la estropea). Si la
 raíz falta, es de otra versión o está incompleta, SaguiOS sigue con el sistema mínimo del initramfs (modo
 rescate, consola de root) y dice por qué; las líneas `[RAIZ]` de `dmesg` dan el detalle.
+
+**Elegir el modo al arrancar (v8.5.4.2):** con la tecla **M** pulsada al encender sale un menú: 1 live desde
+el medio, 2 todo a la RAM, 3 instalado (la raíz con escritura), 4 rescate (solo el sistema mínimo); Intro deja
+el de siempre. `kconfig raiz_modo=live` o `raiz_modo=toram` lo deja guardado (`kconfig raiz_modo=defecto` lo
+quita). En la live, lo que se escribe en la RAM tiene un tope (la mitad de la RAM; `kconfig capa_ram_pct`):
+al llenarse, «no queda espacio» y un aviso, sin que se caiga el sistema.
+
+**Instalar desde la live** copia por defecto el sistema **de serie** (sin lo cambiado en la sesión);
+`instalar ... --con-cambios` (o la casilla del asistente) lleva también lo cambiado. Cada disco instalado lleva
+su identificador: con dos discos SaguiOS conectados (el instalado y un pendrive live), cada uno usa su raíz.
+
+**Si no encuentra la raíz** (el PC no deja a SaguiOS ver el disco o el pendrive del que arrancó, #36), el modo
+rescate lista los discos que ve y recomienda **`saguios-completo.img`**. Un ext2 que no se desmontó bien
+(corte de luz) pasa una comprobación básica al arrancar (mapas y contadores, como `e2fsck`); si no se puede
+comprobar, se usa de solo lectura y se avisa.
 
 **Reinstalar** sobre un disco con SaguiOS (de cualquier versión) conserva la partición de `/home`
 (SAGUI-DATOS) tal cual y la configuración (contraseñas, claves de ssh y vnc, lo cambiado en `/etc` y `/root`);

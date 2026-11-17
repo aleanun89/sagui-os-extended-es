@@ -33,6 +33,17 @@ I. Reinstalar sobre SAGUI-RAIZ (M1, requisito de la revisión): se instala, se p
    cambiado se conserva, el sagshrc de serie se actualiza y /home (SAGUI-DATOS) sigue intacta y sin formatear.
 J. Raíz que no vale (M1): de otra versión (marca distinta) o sin /bin/sagsh: modo rescate con el motivo, nunca
    un sistema a medias.
+J (v8.5.4.2). La marca de versión se compara con la línea entera: «<versión> beta» no vale para el núcleo
+   <versión> (antes se cortaba en el primer espacio y valía); con espacios y \r al final, sí.
+L (v8.5.4.2). Dos discos SaguiOS: el instalado lleva su identificador en la cabecera y en /sistema/raiz/id; con
+   una copia del disco cuya raíz tiene otro id delante (hda), el núcleo la rechaza y monta la suya (hdb); con
+   un pendrive live conectado, arranca del instalado sin tocar el pendrive y, arrancando del pendrive, la live
+   no toca el instalado; con dos copias idénticas del instalado, ninguna se monta con escritura (live y aviso).
+M (v8.5.4.2). La tecla M al arrancar abre el menú del modo (live, todo a la RAM, instalado, rescate); kconfig
+   raiz_modo lo guarda y --por-defecto lo quita. N (v8.5.4.2). La capa de la live en la RAM tiene tope
+   (kconfig capa_ram_pct): al llenarse, «no queda espacio» con aviso, y el sistema sigue.
+O (v8.5.4.2). fsck básico: un ext2 con los mapas mal y sin el bit de limpio se corrige al montarlo con escritura
+   (e2fsck limpio después, los datos intactos); la raíz instalada tras un corte de luz, igual.
 K. Instalaciones de antes (P6 A): un disco instalado al estilo 8.5.3 (ramdisk de siempre, SAGUI-APPS, SAGUI-CONF)
    arranca igual con este núcleo; reinstalar encima con la imagen nueva conserva /home y funde SAGUI-CONF en la
    raíz (contraseña de root, /root).
@@ -46,7 +57,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import (Maquina, verificar, e2fsck, debugfs, particoes_img, extrair_particao, opcoes_apps,  # noqa: E402
+from qemu import (Maquina, verificar, e2fsck, debugfs, particoes_img, extrair_particao, opcoes_apps, DEBUGFS, criar_disco,  # noqa: E402
                   imagem_de_teste, BUILD, RAIZ, SAIDA)
 
 ROOTFS = os.path.join(BUILD, "rootfs")
@@ -86,7 +97,32 @@ def particao_raiz(img):
     return None
 
 
+def versao_nucleo():
+    with open(os.path.join(RAIZ, "kernel", "inc", "versao.h"), encoding="utf-8") as f:
+        return re.search(r'^#define\s+SAGUI_VERSAO\s+"([^"]+)"', f.read(), re.M).group(1)
+
+
+def mkimagem_sem_debugfs():
+    """v8.5.4.2: sin debugfs, mkimagem.py no genera una SAGUI-RAIZ (dueños root obligatorios, D378 §14)."""
+    import importlib.util
+    import tempfile
+    spec = importlib.util.spec_from_file_location("mkimagem_h387", os.path.join(RAIZ, "tools", "mkimagem.py"))
+    mk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mk)
+    mk.achar_ferramenta = lambda nome: None
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "x"), "w").close()
+        try:
+            mk.normalizar_donos(os.path.join(d, "no-existe.img"), 0, d, 0, 0, "/")
+            falla = False
+        except SystemExit as e:
+            falla = "debugfs" in str(e)
+        verificar(falla, "A: sin debugfs, mkimagem.py se niega a generar SAGUI-RAIZ")
+        mk.normalizar_donos(os.path.join(d, "no-existe.img"), 0, d, 1000, 1000, "/home")   # otra: solo avisa
+
+
 def parte_a():
+    mkimagem_sem_debugfs()
     img, initrd = gerar_imagem("h387-raiz")
     tam = os.path.getsize(initrd)
     rd = os.path.getsize(os.path.join(BUILD, "ramdisk.sgfs"))
@@ -183,6 +219,8 @@ def parte_c():
         verificar(5 < n < 40, f"C: sigue con el initramfs (/bin con {n} entradas)")
         out = m.comando("cat /etc/rescate.txt")
         verificar("initramfs" in out, "C: el aviso de rescate del initramfs está")
+        verificar("saguios-completo.img" in s, "C: el aviso recomienda saguios-completo.img (#36)")
+        verificar(re.search(r"Discos que ve SaguiOS:\s*\n\s+hda\s", s), "C: y lista los discos que ve")
 
 
 def parte_e(img):
@@ -285,6 +323,20 @@ def parte_f():
         verificar(tem(m, "/etc/usuarios387") and not tem(m, "/etc/usuarios"), "F: renombrar un archivo de serie")
         m.comando("mv /etc/usuarios387 /etc/usuarios")
         verificar(tem(m, "/etc/usuarios"), "F: y devolverlo")
+        # v8.5.4.2: casos raros de renombrar, como el ext2 (a una carpeta, dentro; sin fundir ni tapar)
+        m.comando("mkdir /etc/c9; echo c9-h387 > /etc/c9/f9; mv /etc/c9 /etc/ssh")
+        verificar("c9-h387" in m.comando("cat /etc/ssh/c9/f9") and tem(m, "/etc/ssh/sshd.conf") and not tem(m, "/etc/c9"),
+                  "F: una carpeta de arriba a una carpeta de serie va dentro (no se funde)")
+        m.comando("rm /etc/bloqueo/ejemplo.txt; rmdir /etc/bloqueo; mkdir /etc/d9; echo d9-h387 > /etc/d9/g9; mv /etc/d9 /etc/bloqueo")
+        out = m.comando("ls /etc/bloqueo")
+        verificar("g9" in out and "ejemplo.txt" not in out,
+                  f"F: una carpeta llevada al nombre de una de serie borrada queda opaca ({out.strip()[-200:]})")
+        m.comando("echo h9-h387 > /etc/h9; mv /etc/h9 /etc/vnc")
+        verificar("h9-h387" in m.comando("cat /etc/vnc/h9") and tem(m, "/etc/vnc/vncd.conf"),
+                  "F: un archivo sobre una carpeta de serie va dentro (no la tapa)")
+        m.comando("mkdir /etc/e9; mv /etc/e9 /etc/crontab")
+        verificar(tem(m, "/etc/e9") and "extra-h387" in m.comando("cat /etc/crontab"),
+                  "F: una carpeta encima de un archivo: error, los dos siguen")
         m.comando("sync")
         reiniciar(m)
     with Maquina("h387-f2", "usb", imagem=img, snapshot=False, memoria="256M") as m:
@@ -350,6 +402,28 @@ def parte_h():
         m.comando("echo en-ram > /etc/h387cd.txt")
         verificar("en-ram" in m.comando("cat /etc/h387cd.txt"), "H: se escribe en la raíz (RAM)")
         verificar(len(re.findall(r"\d+ bytes", m.comando("ls /apps/bin"))) > 5, "H: /apps, dentro de la raíz, sin el CD")
+        t = re.search(r"\[RAM0\] \S+ copiado a la RAM: (\d+) MB en (\d+) ms", s)
+        print(f"H387: toram desde la raíz comprimida: {t.group(1)} MB en {t.group(2)} ms" if t else "H387: (sin tiempo de copia)")
+    verificar(re.search(r"\[RZ\] \S+: raiz comprimida SAGUI-RAIZ", s), "H: (P5) la raíz del CD va comprimida (rz0)")
+    # P5: la misma ISO sin comprimir, para comparar el tamaño
+    img2, _ = gerar_imagem("h387-cd-cru", modo="toram", extras_img=["--cd", "--raiz-sin-comprimir"])
+    iso2 = os.path.join(SAIDA, "h387-cd-cru.iso")
+    subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkiso.py"), "--imagem", img2, "--saida", iso2],
+                   check=True, stdout=subprocess.DEVNULL)
+    t1, t2 = os.path.getsize(iso), os.path.getsize(iso2)
+    print(f"H387: ISO con la raíz comprimida {t1 / 1048576:.1f} MB; sin comprimir {t2 / 1048576:.1f} MB")
+    verificar(t1 < t2 * 0.7, f"H: (P5) la ISO comprimida es bastante más pequeña ({t1 >> 20} MB frente a {t2 >> 20} MB)")
+    os.remove(iso2)
+    os.remove(img2)
+    # P5: con poca RAM, live desde el CD, descomprimiendo lo que se lee
+    with Maquina("h387-h2", "cd", imagem=iso, memoria="96M") as m:
+        m.esperar_serial("sagui:", 240)
+        s = m.serial()
+        verificar("no cabe en la RAM" in s, "H: con 96 MB no cabe en la RAM y lo dice")
+        verificar(re.search(r"\[RAIZ\] rz0 \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[live\]", s), "H: y arranca en live desde el CD comprimido")
+        verificar(re.search(r"Sagui", m.comando("uname -a")), "H: un programa se lee del CD comprimido")
+        m.comando("echo en-capa > /etc/h387cd2.txt")
+        verificar("en-capa" in m.comando("cat /etc/h387cd2.txt"), "H: y se escribe en la capa")
     os.remove(iso)
 
 
@@ -395,10 +469,12 @@ def su_root(m, pw):
     return not mal and "uid=0(root)" in m.serial()[marca:]
 
 
-def instalar_em(img, dest, nome, args="-s", memoria="256M"):
+def instalar_em(img, dest, nome, args="-s", memoria="256M", antes=()):
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw"]
     with Maquina(nome, "ide", imagem=img, extras=extras, memoria=memoria) as m:
         m.esperar_serial("sagui:", 180)
+        for c in antes:
+            m.comando(c)
         out = m.comando(f"instalar hdb {args}", 1800)
         verificar("SaguiOS instalado en hdb y verificado" in out, f"{nome}: instalar hdb {args} termina y verifica ({out.strip()[-500:]})")
         return out, m.serial()
@@ -484,6 +560,17 @@ def parte_j():
     img, _ = gerar_imagem("h387-j-version", extras_img=["--raiz-versao", "v0.0-h387"])
     rescate_por("h387-j1", img, r"es de la versi.n v0\.0-h387 y este n.cleo es v")
     os.remove(img)
+    # v8.5.4.2: la línea entera (antes «<v> beta» valía: se cortaba en el primer espacio)
+    v = versao_nucleo()
+    img, _ = gerar_imagem("h387-j-espacio", extras_img=["--raiz-versao", v + " beta"])
+    rescate_por("h387-j3", img, r"es de la versi.n " + re.escape(v + " beta") + r" y este n.cleo es " + re.escape(v))
+    os.remove(img)
+    img, _ = gerar_imagem("h387-j-final", extras_img=["--raiz-versao", v + "  \t\r"])
+    with Maquina("h387-j4", "ide", imagem=img, memoria="128M") as m:
+        m.esperar_serial("sagui:", 180)
+        verificar(re.search(r"\[RAIZ\] hda\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[rw\]", m.serial()),
+                  "J: con espacios y \\r al final de la marca, la raíz vale")
+    os.remove(img)
     sin = rootfs_modificado("h387-j-rootfs", lambda d: os.remove(os.path.join(d, "bin", "sagsh")))
     img, _ = gerar_imagem("h387-j-sinsh", rootfs=sin)
     rescate_por("h387-j2", img, r"le falta /bin/sagsh")
@@ -535,6 +622,251 @@ def parte_k():
     os.remove(dest)
 
 
+def copiar_particao_de_volta(img, inicio, arquivo):
+    with open(arquivo, "rb") as f, open(img, "r+b") as g:
+        g.seek(inicio * 512)
+        shutil.copyfileobj(f, g)
+
+
+def id_raiz(img):
+    p = particao_raiz(img)
+    return debugfs(p, "cat /sistema/raiz/id").decode("latin-1").strip(), p
+
+
+def parte_l():
+    img, _ = gerar_imagem("h387-l", modo="live")
+    dest = os.path.join(SAIDA, "h387-l-dest.img")
+    with open(dest, "wb") as f:
+        f.truncate(512 * 1024 * 1024)
+    sesion = ["echo de-la-sesion > /etc/sesion387.txt", "echo '# sesion-387' >> /etc/sagshrc"]
+    out, serie = instalar_em(img, dest, "h387-l1", antes=sesion)
+    verificar("Se copia el sistema de serie, sin lo cambiado en esta sesi" in out, "L: el instalador dice que copia el sistema de serie")
+    p = particao_raiz(dest)
+    verificar(b"sesion387" not in debugfs(p, "ls /etc") and b"sesion-387" not in debugfs(p, "cat /etc/sagshrc"),
+              "L: (punto 7) lo cambiado en la sesión live no se instala por defecto")
+    ident, _ = id_raiz(dest)
+    verificar(re.fullmatch(r"[0-9a-f]{16}", ident), f"L: la raíz instalada lleva su identificador ({ident})")
+    with open(dest, "rb") as f:
+        f.seek(512 + 144)
+        cab = f.read(12)
+    verificar(cab[:4] == b"SGIN" and f"{int.from_bytes(cab[4:8], 'little'):08x}{int.from_bytes(cab[8:12], 'little'):08x}" == ident,
+              "L: y es el mismo que el de la cabecera del disco (CAB_ID_INSTALACAO)")
+    # 1. Una copia del disco con otra raíz (otro id) delante: hda es la copia, hdb el bueno; arranca de hda
+    #    (las cabeceras son iguales), y la raíz tiene que ser la de hdb.
+    otro = os.path.join(SAIDA, "h387-l-otro.img")
+    shutil.copyfile(dest, otro)
+    _, p = id_raiz(otro)
+    with open(os.path.join(SAIDA, "h387-l-id"), "w") as f:
+        f.write("0123456789abcdef\n")
+    subprocess.run([DEBUGFS, "-w", "-R", "rm /sistema/raiz/id", p], check=True, capture_output=True)
+    subprocess.run([DEBUGFS, "-w", "-R", f"write {os.path.join(SAIDA, 'h387-l-id')} /sistema/raiz/id", p], check=True, capture_output=True)
+    ini = rotulos_de(otro)["SAGUI-RAIZ"][0]
+    copiar_particao_de_volta(otro, ini, p)
+    verificar(id_raiz(otro)[0] == "0123456789abcdef", "L: la copia lleva otro identificador")
+    with Maquina("h387-l2", "ide", imagem=otro, extras=["-drive", f"file={dest},if=ide,index=1,format=raw,snapshot=on"],
+                 memoria="256M") as m:
+        m.esperar_serial("sagui:", 180)
+        s = m.serial()
+        verificar(re.search(r"\[RAIZ\] hda\d+ \(LABEL=SAGUI-RAIZ\) no vale como raiz: es de otra instalaci.n", s),
+                  "L: la raíz de la copia (otro id) se rechaza")
+        verificar(re.search(r"\[RAIZ\] hdb\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[rw\]", s),
+                  "L: y se monta la de esta instalación (hdb), con escritura")
+    os.remove(otro)
+    # 2. El instalado con un pendrive live conectado: arranca del instalado, el pendrive no se toca.
+    antes, _ = soma_raiz(img)
+    with Maquina("h387-l3", "ide", imagem=dest, snapshot=False, memoria="256M", extras=pendrive_extra(img)) as m:
+        m.esperar_serial("sagui:", 180)
+        verificar(re.search(r"\[RAIZ\] hda\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[rw\]", m.serial()),
+                  "L: con el pendrive live puesto, la raíz es la del instalado")
+        m.comando("echo l3 > /root/l3.txt")
+        apagar_maquina(m)
+    verificar(soma_raiz(img)[0] == antes, "L: el pendrive live no se ha escrito")
+    # 3. Del pendrive live con el instalado conectado: la live no toca el instalado.
+    antes_d, _ = soma_raiz(dest)
+    with Maquina("h387-l4", "usb", imagem=img, memoria="256M",
+                 extras=["-drive", f"file={dest},if=ide,index=0,format=raw,snapshot=on"]) as m:
+        m.esperar_serial("sagui:", 180)
+        verificar(re.search(r"\[RAIZ\] usb\d+p\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[live\]", m.serial()),
+                  "L: arrancando del pendrive, la raíz es la del pendrive (live)")
+    verificar(soma_raiz(dest)[0] == antes_d, "L: el instalado no se ha escrito")
+    # 4. Dos copias idénticas del instalado: no se sabe cuál es: ninguna con escritura.
+    gemelo = os.path.join(SAIDA, "h387-l-gemelo.img")
+    shutil.copyfile(dest, gemelo)
+    with Maquina("h387-l5", "ide", imagem=dest, memoria="256M",
+                 extras=["-drive", f"file={gemelo},if=ide,index=1,format=raw"]) as m:
+        m.esperar_serial("sagui:", 180)
+        s = m.serial()
+        verificar("Hay dos discos con este mismo SaguiOS instalado" in s, "L: con dos copias idénticas, lo avisa")
+        verificar(re.search(r"\[RAIZ\] hda\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[live\]", s),
+                  "L: y monta la raíz sin escribir en ella (live)")
+    os.remove(gemelo)
+    # 5. (punto 7) Reinstalar «con los cambios de la sesión».
+    out, serie = instalar_em(img, dest, "h387-l6", args="--con-cambios -s", antes=sesion)
+    verificar("con lo cambiado en esta sesi" in out, "L: con --con-cambios, el instalador lo dice")
+    p = particao_raiz(dest)
+    verificar(b"sesion387" in debugfs(p, "ls /etc") and b"sesion-387" in debugfs(p, "cat /etc/sagshrc"),
+              "L: y lo cambiado en la sesión live va al disco")
+    verificar(id_raiz(dest)[0] != ident, "L: la reinstalación lleva un identificador nuevo")
+    os.remove(dest)
+    os.remove(img)
+
+
+def parte_m():
+    """v8.5.4.2 (punto 6): la tecla M al arrancar abre el menú del modo de la raíz; «kconfig raiz_modo» lo guarda."""
+    img, _ = gerar_imagem("h387-m")   # «instalado»: rw
+    # Sin KVM: con KVM la BIOS llega a la etapa 2 en unas décimas y QEMU no repite la tecla como un
+    # teclado de verdad (que, mantenida, la vuelve a mandar), así que la M no llega a tiempo.
+    kvm = os.environ.pop("SAGUI_KVM", None)
+    m = Maquina("h387-m1", "ide", imagem=img, snapshot=False, memoria="256M")
+    try:
+        m.ligar()
+    finally:
+        if kvm is not None:
+            os.environ["SAGUI_KVM"] = kvm
+    try:
+        # La etapa 2 solo mira si ya hay una M en el búfer del teclado de la BIOS: se manda muy seguido
+        # desde que arranca la máquina (la BIOS borra el búfer al iniciar el teclado), y luego se mira la pantalla.
+        fim = time.time() + 8
+        while time.time() < fim:
+            m.monitor("sendkey m")
+            time.sleep(0.02)
+        visto = False
+        fim = time.time() + 20
+        while time.time() < fim and not visto:
+            visto = any("M pulsada: modo de arranque" in l for l in m.tela_texto())
+            time.sleep(0.3)
+        verificar(visto, "M: con la M pulsada, la etapa 2 enseña el menú del modo")
+        time.sleep(0.5)
+        m.monitor("sendkey 1")
+        m.esperar_serial("sagui:", 180)
+        s = m.serial()
+        verificar("[RAIZ] modo 3 elegido al arrancar (tecla M)" in s, "M: el núcleo recibe lo elegido (live)")
+        verificar(re.search(r"\[RAIZ\] hda\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[live\]", s), "M: y arranca en live")
+        out = m.comando("kconfig raiz_modo=toram", 30)
+        verificar(re.search(r"raiz_modo", m.comando("kconfig", 30)), f"M: kconfig conoce raiz_modo ({out.strip()[-200:]})")
+        m.comando("sync")
+        reiniciar(m)
+    finally:
+        m.desligar()
+    with Maquina("h387-m2", "ide", imagem=img, snapshot=False, memoria="512M") as m:
+        m.esperar_serial("sagui:", 180)
+        s = m.serial()
+        # v8.5.4.2 (revisión): en un disco instalado, lo guardado no se aplica (se perdería lo escrito)
+        verificar("[RAIZ] modo 4 guardado con kconfig: no se aplica a un disco instalado" in s,
+                  "M: en un disco instalado, raiz_modo de kconfig no se aplica")
+        verificar(re.search(r"montada en / \[rw\]", s), "M: y sigue arrancando con escritura")
+        m.comando("kconfig --por-defecto", 30)
+        reiniciar(m)
+    with Maquina("h387-m3", "ide", imagem=img, snapshot=False, memoria="256M") as m:
+        m.esperar_serial("sagui:", 180)
+        verificar(re.search(r"montada en / \[rw\]", m.serial()), "M: con --por-defecto, vuelve el modo de la imagen")
+    os.remove(img)
+
+
+def parte_n():
+    """v8.5.4.2 (punto 8): la capa de la live en la RAM tiene tope: ENOSPC limpio y el sistema sigue."""
+    img, _ = gerar_imagem("h387-n", modo="live")
+    with Maquina("h387-n1", "ide", imagem=img, snapshot=False, memoria="256M") as m:
+        m.esperar_serial("sagui:", 180)
+        m.comando("kconfig capa_ram_pct=10", 30)
+        m.comando("sync")
+        reiniciar(m)
+    with Maquina("h387-n2", "ide", imagem=img, memoria="256M") as m:
+        m.esperar_serial("sagui:", 180)
+        out = m.comando("df /", 30)
+        print(out)
+        out = m.comando("truncate -s 64M /etc/grande387; echo fin-$?", 60)
+        verificar(re.search(r"no queda espacio|No queda espacio", out), f"N: más allá del tope: «no queda espacio» ({out.strip()[-300:]})")
+        verificar("[RAMFS] la capa sin sitio" in m.serial() and "No queda sitio en la RAM para la capa" in m.serial(), "N: con aviso en el registro y en pantalla")
+        m.comando("rm /etc/grande387")
+        out = m.comando("truncate -s 4M /etc/peq387; echo hecho-387", 60)
+        verificar("hecho-387" in out and "espacio" not in out, "N: lo que cabe se sigue escribiendo")
+        verificar("vivo-387" in m.comando("echo vivo-387"), "N: el sistema sigue en pie")
+        # v8.5.4.2 (revisión): guardados atómicos (temporal + renombrar encima): el uso no sube (antes, ENOSPC falso)
+        m.comando("rm /etc/peq387")
+        for pasta in ("/tmp", "/etc"):
+            for vuelta in range(4):
+                orden = "; ".join(f"truncate -s 2M {pasta}/g387.tmp; mv {pasta}/g387.tmp {pasta}/g387.dat" for _ in range(8))
+                out = m.comando(orden + "; echo vuelta-387", 120)
+                verificar("espacio" not in out, f"N: {pasta}: 8 guardados atómicos de 2 MB más (vuelta {vuelta + 1}) sin ENOSPC")
+            out = m.comando(f"df {pasta}", 30)
+            usado = re.search(r"\s(\d+)\s+(\d+)\s+(\d+)\s+\d+%", out)
+            verificar(usado and int(usado.group(2)) < 8 * 1024, f"N: {pasta}: tras 32 guardados de 2 MB el uso es el de un archivo ({out.strip()[-160:]})")
+    os.remove(img)
+
+
+def parte_o():
+    """v8.5.4.2 (punto 10, F): un ext2 que no se desmontó bien pasa el fsck básico antes de escribir en él."""
+    # 1. Un ext2 con los mapas mal a propósito (un bloque en uso marcado libre, uno libre marcado en uso)
+    #    y sin el bit de limpio.
+    datos = "".join(f"linea {i} del h387\n" for i in range(4000))
+    disco, inis = criar_disco("h387-o-datos", [{"tipo": "ext2", "mb": 32, "rotulo": "O387", "arquivos": {"a.txt": datos}}])
+    p = extrair_particao(disco, inis[0], 32, os.path.join(SAIDA, "h387-o-datos.ext2"))
+    blocos = debugfs(p, "blocks /a.txt").decode().split()
+    total = int(re.search(r"Block count:\s+(\d+)", subprocess.run([DEBUGFS, "-R", "stats", p], capture_output=True, text=True).stdout).group(1))
+    for c in (f"freeb {blocos[0]}", f"setb {total - 20}", "ssv state 0"):
+        subprocess.run([DEBUGFS, "-w", "-R", c, p], check=True, capture_output=True)
+    verificar(e2fsck(p)[0] != 0, "O: el ext2 de prueba está mal (e2fsck lo ve)")
+    copiar_particao_de_volta(disco, inis[0], p)
+    img, _ = gerar_imagem("h387-o")
+    with Maquina("h387-o1", "ide", imagem=img, memoria="256M",
+                 extras=["-drive", f"file={disco},if=ide,index=1,format=raw"]) as m:
+        m.esperar_serial("sagui:", 180)
+        m.comando("mkdir /m1; mount -o rw hdb1 /m1")
+        s = m.serial()
+        r = re.search(r"\[EXT2\] hdb1: no se desmonto bien: fsck basico hecho \((\d+) correcciones", s)
+        verificar(r and int(r.group(1)) >= 2, f"O: al montarlo con escritura, el fsck básico lo corrige ({r.group(0) if r else 'nada'})")
+        m.comando("echo nuevo-h387 > /m1/nuevo.txt")
+        verificar(m.comando("md5sum /m1/a.txt").split()[0:1] != [], "O: el archivo de antes se lee")
+        m.comando("umount /m1; sync")
+    extrair_particao(disco, inis[0], 32, p)
+    cod, txt = e2fsck(p)
+    verificar(cod == 0, f"O: tras el fsck básico y escribir, e2fsck -fn limpio ({txt.strip().splitlines()[-1] if txt.strip() else ''})")
+    verificar(debugfs(p, "cat /a.txt").decode() == datos, "O: el archivo de antes sigue intacto")
+    os.remove(disco)
+    # 1b. (revisión) s_inodes_count que no cuadra con grupos * inodos por grupo: con más, no se monta (antes el
+    #     fsck escribía fuera de su memoria); con menos, solo lectura.
+    disco, inis = criar_disco("h387-o-inodos", [{"tipo": "ext2", "mb": 8, "rotulo": "MAS387"},
+                                                 {"tipo": "ext2", "mb": 8, "rotulo": "MENOS387"}])
+    for k, delta in ((0, +64), (1, -8)):
+        pk = extrair_particao(disco, inis[k], 8, os.path.join(SAIDA, f"h387-o-inodos{k}.ext2"))
+        st = subprocess.run([DEBUGFS, "-R", "stats", pk], capture_output=True, text=True).stdout
+        n = int(re.search(r"Inode count:\s+(\d+)", st).group(1))
+        for c in (f"ssv inodes_count {n + delta}", "ssv state 0"):
+            subprocess.run([DEBUGFS, "-w", "-R", c, pk], check=True, capture_output=True)
+        copiar_particao_de_volta(disco, inis[k], pk)
+    with Maquina("h387-o1b", "ide", imagem=img, memoria="256M",
+                 extras=["-drive", f"file={disco},if=ide,index=1,format=raw"]) as m:
+        m.esperar_serial("sagui:", 180)
+        m.comando("mkdir /m2 /m3; mount -o rw hdb1 /m2; mount -o rw hdb2 /m3")
+        s = m.serial()
+        verificar(re.search(r"hdb1: ext: m.s inodos que grupos", s), "O: con más inodos que grupos * inodos por grupo, no se monta")
+        verificar(re.search(r"hdb2: la cuenta de inodos no cuadra con los grupos", s), "O: con menos, solo lectura")
+        verificar("vivo-o387" in m.comando("echo vivo-o387"), "O: y el sistema sigue")
+    os.remove(disco)
+    # 2. La raíz instalada con un corte de luz: al arrancar, el fsck básico y la raíz con escritura.
+    with Maquina("h387-o2", "ide", imagem=img, snapshot=False, memoria="256M") as m:
+        m.esperar_serial("sagui:", 180)
+        m.comando("mkdir /root/corte; echo antes > /root/corte/a.txt; sync")
+        m.comando("echo durante > /root/corte/b.txt; rm /root/corte/a.txt")
+        m.monitor("quit")   # el corte: sin desmontar
+    with Maquina("h387-o3", "ide", imagem=img, snapshot=False, memoria="256M") as m:
+        m.esperar_serial("sagui:", 180)
+        s = m.serial()
+        verificar(re.search(r"\[EXT2\] hda\d+: no se desmonto bien: fsck basico hecho", s), "O: tras el corte, la raíz pasa el fsck básico")
+        verificar(re.search(r"montada en / \[rw\];", s), "O: y se monta con escritura")
+        m.comando("echo despues > /root/corte/c.txt")
+        apagar_maquina(m)
+    cod, txt = e2fsck(particao_raiz(img))
+    verificar(cod == 0, f"O: tras el corte y un apagado limpio, e2fsck -fn de la raíz limpio ({txt.strip()[-300:]})")
+    os.remove(img)
+
+
+def pendrive_extra(img):
+    return ["-device", "usb-ehci,id=ehci", "-drive", f"if=none,id=pen,format=raw,file={img}",
+            "-device", "usb-storage,bus=ehci.0,drive=pen"]
+
+
 def parte_d():
     with Maquina("h387-d", "ide", memoria="256M") as m:
         m.esperar_serial("[ARRANQUE] escritorio", 180)
@@ -550,7 +882,7 @@ def parte_d():
 
 
 if __name__ == "__main__":
-    partes = sys.argv[1:] or ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]
+    partes = sys.argv[1:] or ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"]
     img = None
     if "a" in partes or "b" in partes or "e" in partes:
         img = parte_a()
@@ -574,4 +906,12 @@ if __name__ == "__main__":
         parte_j()
     if "k" in partes:
         parte_k()
+    if "l" in partes:
+        parte_l()
+    if "m" in partes:
+        parte_m()
+    if "n" in partes:
+        parte_n()
+    if "o" in partes:
+        parte_o()
     print("H387: OK")

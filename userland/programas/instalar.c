@@ -95,6 +95,7 @@ typedef struct {
     char     conf_vieja[16];     /* el volumen de una SAGUI-CONF que ya hay en el destino ("hdb7"), o "" */
     char     raiz_vieja[16];     /* D379: el de una SAGUI-RAIZ (su /etc cambiado y su /root se conservan), o "" */
     bool     formatear_home;     /* D379: borrar también la SAGUI-DATOS que ya hay; si no, se conserva entera */
+    bool     con_cambios;        /* v8.5.4.2: desde la live, copiar la raíz que se ve (con lo cambiado en la sesión) */
     bool     home_conservar;     /* D379: hay una SAGUI-DATOS en el destino y se deja tal cual */
     char     home_vieja[16];     /* su volumen ("hdb5") */
     uint32_t home_vieja_ini, home_vieja_set;   /* su sitio en el disco (no cambia) */
@@ -315,16 +316,24 @@ static bool fora_da_raiz(const char *nome)
     return false;
 }
 
+/* v8.5.4.2: en la live, el sistema de serie (la capa de abajo, sin lo cambiado en la sesión) está
+ * montado aquí (raiz.c); en lo demás (instalado, toram, el ramdisk de siempre) no existe. */
+#define RAIZ_SERIE "/sistema/serie"
+static bool ha_serie(void) { return existe_pasta(RAIZ_SERIE "/bin") && existe_pasta(RAIZ_SERIE "/etc"); }
+
 static uint32_t kb_raiz(void)
 {
     static uint32_t kb = 0xFFFFFFFFu;
     if (kb != 0xFFFFFFFFu) return kb;
     kb = 0;
+    /* v8.5.4.2: con el sistema de serie montado se mide ese (si no, /sistema/serie contaría la raíz dos veces);
+     * lo cambiado en la sesión es poco al lado y la partición lleva el doble de margen. */
+    const char *de = ha_serie() ? RAIZ_SERIE : "/";
     entrada_pasta_t e;
-    for (int i = 0; listar("/", i, &e) > 0; i++) {
+    for (int i = 0; listar(de, i, &e) > 0; i++) {
         if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0 || fora_da_raiz(e.nome)) continue;
         char f[80];
-        caminho_juntar(f, sizeof f, "/", e.nome);
+        caminho_juntar(f, sizeof f, de, e.nome);
         kb += e.tipo == TIPO_PASTA ? kb_pasta(f, 1) : e.tamanho / 1024 + 1;
     }
     return kb;
@@ -1161,12 +1170,14 @@ static int copiar_sistema(const char *de, const char *para, char *erro, int max)
         caminho_juntar(a, sizeof a, de, e.nome);
         caminho_juntar(b, sizeof b, para, e.nome);
         if (compara_texto(e.nome, "conf") == 0 && e.tipo == TIPO_PASTA) { criar_pasta(b); mudar_dono(b, UID_ROOT, GID_ROOT); mudar_permisos(b, 0700); continue; }
+        if (compara_texto(e.nome, "serie") == 0 && e.tipo == TIPO_PASTA) continue;   /* v8.5.4.2: el montaje del sistema de serie */
         if (compara_texto(e.nome, "raiz") == 0 && e.tipo == TIPO_PASTA) {
             criar_pasta(b);
             copiar_permisos(a, b);
             entrada_pasta_t f;
             for (int k = 0; r == 0 && listar(a, k, &f) > 0; k++) {
-                if (f.tipo == TIPO_PASTA || compara_texto(f.nome, "versao") == 0) continue;
+                /* la marca y el id (v8.5.4.2) del sistema que corre no: los escribe marcar_raiz, al final */
+                if (f.tipo == TIPO_PASTA || compara_texto(f.nome, "versao") == 0 || compara_texto(f.nome, "id") == 0) continue;
                 char a2[160], b2[192];
                 caminho_juntar(a2, sizeof a2, a, f.nome);
                 caminho_juntar(b2, sizeof b2, b, f.nome);
@@ -1179,28 +1190,55 @@ static int copiar_sistema(const char *de, const char *para, char *erro, int max)
     return r;
 }
 
-/* D379 (M1): lo último de la instalación con la raíz en disco: la marca de versión del sistema que corre. */
+/* v8.5.4.2 (D379): el identificador de esta instalación: va en la cabecera del disco (CAB_ID_INSTALACAO,
+ * "SGIN", aleatorio, hora) y en /sistema/raiz/id de su raíz. El núcleo solo usa como raíz la SAGUI-RAIZ
+ * cuyo id es el de la cabecera con la que arrancó (raiz.c): con dos discos SaguiOS (este y un pendrive
+ * live, o dos instalados) nunca monta la del otro. Se decide al empezar, antes de copiar la raíz. */
+static uint32_t id_inst, hora_inst;
+static void gerar_id_instalacao(void)
+{
+    id_inst = 0;
+    bytes_aleatorios(&id_inst, 4);
+    if (!id_inst) id_inst = tempo_ms() | 1;
+    hora_inst = hora_utc(NULL);
+}
+
+#define ID_RAIZ "/sistema/raiz/id"
+
+/* D379 (M1): lo último de la instalación con la raíz en disco: el identificador (v8.5.4.2) y la marca de
+ * versión del sistema que corre (la marca la última de todas). */
 static int marcar_raiz(const char *ponto, char *erro, int max)
 {
-    char b[128];
+    char b[128], t[32];
+    caminho_juntar(b, sizeof b, ponto, ID_RAIZ);
+    txt(t, sizeof t, "%08x%08x\n", id_inst, hora_inst);
+    int r = escrever_texto_arquivo(b, t);
+    if (r < 0) { txt(erro, max, "no se puede escribir %s: %s", ID_RAIZ, nome_erro(r)); return r; }
+    mudar_dono(b, UID_ROOT, GID_ROOT);
+    mudar_permisos(b, 0600);
+    registrar("instalar: identificador de la instalación en la raíz: %08x%08x", id_inst, hora_inst);
     caminho_juntar(b, sizeof b, ponto, MARCA_RAIZ);
-    int r = copiar_arquivo(MARCA_RAIZ, b, erro, max);
+    r = copiar_arquivo(MARCA_RAIZ, b, erro, max);
     if (r == 0) registrar("instalar: marca de versión escrita en la raíz (%s)", MARCA_RAIZ);
     return r;
 }
 
+
 /* D379: la raíz del sistema que corre, por ficheros (comparados uno a uno al copiarlos), sin lo que no es
- * sistema (montajes, RAM); esas carpetas se crean vacías: son puntos de montaje del sistema instalado. */
-static int copiar_raiz(const char *ponto, char *erro, int max)
+ * sistema (montajes, RAM); esas carpetas se crean vacías: son puntos de montaje del sistema instalado.
+ * v8.5.4.2: desde la live, por defecto, el sistema de serie (RAIZ_SERIE); con_cambios, la raíz que se ve. */
+static int copiar_raiz(const char *ponto, bool con_cambios, char *erro, int max)
 {
-    fase(fase_atual, 0, "Copiando la raíz del sistema...");
+    const char *de = !con_cambios && ha_serie() ? RAIZ_SERIE : "/";
+    fase(fase_atual, 0, de[1] ? "Copiando el sistema de serie..." : "Copiando la raíz del sistema...");
+    registrar("instalar: la raíz se copia de %s", de);
     uint32_t antes = arquivos_copiados;
     entrada_pasta_t e;
     int r = 0;
-    for (int i = 0; r == 0 && listar("/", i, &e) > 0; i++) {
+    for (int i = 0; r == 0 && listar(de, i, &e) > 0; i++) {
         if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
         char a[80], b[128];
-        caminho_juntar(a, sizeof a, "/", e.nome);
+        caminho_juntar(a, sizeof a, de, e.nome);
         caminho_juntar(b, sizeof b, ponto, e.nome);
         if (fora_da_raiz(e.nome)) {
             if (e.tipo == TIPO_PASTA && compara_texto(e.nome, "lost+found") != 0) { criar_pasta(b); copiar_permisos(a, b); }
@@ -1392,7 +1430,7 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
             mudar_permisos(ponto, 0755);
         }
     } else if (r < 0) txt(erro, max, "no se puede escribir en %s: %s", vol, nome_erro(r));
-    if (r == 0 && conf && modo_raiz()) r = copiar_raiz(ponto, erro, max);   /* D379 */
+    if (r == 0 && conf && modo_raiz()) r = copiar_raiz(ponto, p->con_cambios, erro, max);   /* D379 */
     if (r == 0 && conf && conf_respaldada && modo_raiz()) {
         /* D379 (P6 A): la SAGUI-CONF vieja se funde en la raíz: su etc/ sobre /etc y su raiz/ en /root. */
         fase(fase_atual, 0, "Pasando la configuración de SAGUI-CONF a la raíz...");
@@ -1453,6 +1491,7 @@ static int instalar(plano_t *p, char *erro, int max)
     bool gpt_novo = p->tabela == T_GPT;
     bool reservado = false, tocado = false;
     bytes_copiados = arquivos_copiados = arquivos_jogos = arquivos_apps = 0;
+    gerar_id_instalacao();
     registrar("instalar: de %s a %s, modo %d, tabla %s, sistema %u+%u, extendida %u+%u, home %u jogos %u apps %u, esp %u+%u",
               p->origem, p->destino, p->modo, gpt_novo ? "GPT" : "MBR", p->sys_ini, p->sys_set, p->ext_ini, p->ext_set, p->home_set, p->jogos_set, p->apps_set,
               p->esp_ini, p->esp_set);
@@ -1650,8 +1689,7 @@ tabela_pronta: ;
     po32(cab + 16, le32(cab + 16) + (uint32_t)delta);   /* kernel */
     po32(cab + 32, le32(cab + 32) + (uint32_t)delta);   /* ramdisk */
     po32(cab + 48, le32(cab + 48) + (uint32_t)delta);   /* final */
-    uint32_t id = 0;
-    bytes_aleatorios(&id, 4);
+    uint32_t id = id_inst;   /* v8.5.4.2: el mismo que se escribió en /sistema/raiz/id de la raíz */
     /* D207: la cabecera de una imagen de CD lleva OPC_CD; el disco instalado no es un CD. */
     {
         uint16_t op = (uint16_t)(cab[CAB_OPCOES] | cab[CAB_OPCOES + 1] << 8);
@@ -1663,8 +1701,8 @@ tabela_pronta: ;
     /* D379: el disco instalado monta su raíz con escritura, diga lo que diga el raiz.conf del initramfs (live). */
     if (modo_raiz()) cab[CAB_RAIZ_OPC] = RAIZ_OPC_DISCO;
     po32(cab + CAB_ID_INSTALACAO, 0x4E494753u);   /* "SGIN" */
-    po32(cab + CAB_ID_INSTALACAO + 4, id ? id : tempo_ms());
-    po32(cab + CAB_ID_INSTALACAO + 8, hora_utc(NULL));
+    po32(cab + CAB_ID_INSTALACAO + 4, id_inst);
+    po32(cab + CAB_ID_INSTALACAO + 8, hora_inst);
     uint32_t cab_lba = gpt_novo ? p->sys_ini : 1;   /* D266: en una GPT, el LBA 1 es su cabecera */
     if ((r = blocos_escrever(p->destino, cab_lba, 1, cab)) < 0 || (r = blocos_ler(p->destino, cab_lba, 1, s)) < 0 || memcmp(s, cab, 512) != 0) {
         txt(erro, max, "la cabecera de arranque no se ha podido escribir");
@@ -1828,6 +1866,7 @@ static int terminal(int argc, char **argv)
         else if (compara_texto(argv[i], "--copiar-jogos") == 0) p.copiar_jogos = true;
         else if (compara_texto(argv[i], "--formatear-conf") == 0) p.formatear_conf = true;
         else if (compara_texto(argv[i], "--formatear-home") == 0) p.formatear_home = true;   /* D379 */
+        else if (compara_texto(argv[i], "--con-cambios") == 0) p.con_cambios = true;         /* v8.5.4.2 */
         else if (compara_texto(argv[i], "--mbr") == 0) p.tabela = T_MBR;       /* D266 */
         else if (compara_texto(argv[i], "--gpt") == 0) p.tabela = T_GPT;
         else if (compara_texto(argv[i], "--auto") == 0) p.tabela = T_AUTO;
@@ -1836,7 +1875,7 @@ static int terminal(int argc, char **argv)
         else if (compara_texto(argv[i], "-s") == 0 || compara_texto(argv[i], "--si") == 0) sim = true;
         else if (argv[i][0] == '-') {
             imprimir_em(ERROS, "uso: instalar [disco [--entero | --hueco MB | --particion N | --reducir N:MB] [--sin-jogos] [--sin-apps]\n"
-                               "                      [--copiar-jogos] [--formatear-conf] [--formatear-home] [--mbr | --gpt | --auto] [--esp] [--sin-home]\n"
+                               "                      [--copiar-jogos] [--formatear-conf] [--formatear-home] [--con-cambios] [--mbr | --gpt | --auto] [--esp] [--sin-home]\n"
                                "                      [--home-mb N] [--apps-mb N] [--jogos-mb N] [--tmp-mb N] [--logs-mb N] [--fat32 home,apps,...]\n"
                                "                      [--nombre EQUIPO] [--zona Z] [--teclado es|abnt2] [--clave-root X] [--clave-usuario X]\n"
                                "                      [--sshd] [--vncd] [--copiar-config prefs,wifi,ssh,correo,ia,ia-clave,docs|todo] [-s]]\n"
@@ -1862,6 +1901,9 @@ static int terminal(int argc, char **argv)
     if (p.home_conservar)
         imprimir("  Se conserva /home (SAGUI-DATOS %s, %u MB) tal cual, sin formatear (--formatear-home la borra)\n", p.home_vieja, p.home_vieja_set / MB);
     if (p.copiar_jogos) imprimir("  Se copian también los datos de " JOGOS_ORIGEM "%s\n", ha_jogos() ? "" : " (no hay datos: nada que copiar)");
+    if (modo_raiz() && ha_serie())   /* v8.5.4.2 */
+        imprimir(p.con_cambios ? "  Se copia el sistema tal como está ahora, con lo cambiado en esta sesión\n"
+                               : "  Se copia el sistema de serie, sin lo cambiado en esta sesión (--con-cambios lo incluye)\n");
     if (p.reduzir) imprimir("  Antes: %s\n", p.reduzir_txt);
     if (p.copiar_conf) imprimir("  Se copia de esta sesión a /home: %u KB de configuración y documentos\n", kb_copia(p.copiar_conf));
     if (!sim) {

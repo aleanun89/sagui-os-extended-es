@@ -73,6 +73,11 @@ typedef struct EMPACOTADO {
 #define OPC_BOOT_RESCATE  0x4000  /* D255: modo rescate: consola con un shell de root, sin servicios (Ctrl al arrancar, o mkimagem.py --rescate) */
 #define OPC_BOOT_ACEL_SEGURO 0x10000  /* D323: modo seguro de la aceleración (Mayús al arrancar): 2D por la CPU, 3D por software y sin aplicar la configuración de aceleración. No cabe en CAB_OPCOES (u16): la etapa 2 lo pone en boot_info; con la cabecera, el bit CAB_ACEL_SEGURO de CAB_ACEL2D */
 #define CAB_ACEL_SEGURO 0x80  /* D323: bit de CAB_ACEL2D = lo mismo que Mayús al arrancar (mkimagem.py --acel-segura, y para las pruebas) */
+/* v8.5.4.2 (D379): el modo de la raíz elegido con la tecla M al arrancar (menú de la etapa 2 o del cargador
+ * UEFI), en los bits 17-19: 0 = no se eligió, o RAIZ_OPC_* (1 rescate, 2 instalado, 3 live, 4 toram). Solo en
+ * boot_info: la cabecera no se toca (el núcleo la compara con el disco para saber de cuál arrancó). */
+#define OPC_BOOT_RAIZ_MODO      0xE0000u
+#define OPC_BOOT_RAIZ_MODO_DESL 17
 #define OPC_BOOT_SESION_RAIZ 0x8000  /* D255: imagen de prueba: el escritorio y el Terminal como root (mkimagem.py --sesion-root) */
 /* D174: el planificador elegido al arrancar (mkimagem.py --planificador), en los
  * bits 9-11: 0 = el de por defecto, o PLANIFICADOR_* de abi.h. */

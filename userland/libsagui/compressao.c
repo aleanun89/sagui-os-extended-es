@@ -213,7 +213,10 @@ static int inflar_nucleo(const uint8_t *ent, int n_ent, uint8_t *saida, int max_
         int tipo = ler_bits(&b, 2);
         if (b.estourou) FALHA(COMP_ERRO_TRUNCADO);
         if (tipo == 0) {   /* guardado sem compressão */
-            b.bits = 0; b.qtd = 0;   /* alinha no byte */
+            /* v8.5.4.2: los bytes enteros que ya estaban en el acumulador se devuelven a la entrada (antes se
+             * perdían y un bloque guardado tras otro con bits de sobra no se leía bien); solo se tiran los bits
+             * sueltos hasta el siguiente byte. */
+            b.pos -= b.qtd / 8; b.bits = 0; b.qtd = 0;
             if (b.pos + 4 > b.n) FALHA(COMP_ERRO_TRUNCADO);
             int len = ent[b.pos] | ent[b.pos + 1] << 8, nlen = ent[b.pos + 2] | ent[b.pos + 3] << 8;
             b.pos += 4;

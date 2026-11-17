@@ -83,6 +83,7 @@ static const sistema_arquivos_t *fs_do_tipo(const char *tipo)
     if (txt_compara(tipo, "cdda") == 0) return &fs_cdda;         /* D233: CD de audio (pistas en WAV) */
     if (txt_compara(tipo, "ramfs") == 0) return &fs_ramfs;       /* D379: una carpeta del árbol en RAM */
     if (txt_compara(tipo, "sobreposicao") == 0) return &fs_sobreposicao;   /* D379: la raíz de la live */
+    if (txt_compara(tipo, "serie") == 0) return &fs_serie;                 /* v8.5.4.2: su capa inferior */
     return NULL;
 }
 

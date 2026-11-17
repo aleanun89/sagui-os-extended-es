@@ -11,5 +11,7 @@ int ramfs_montar(const char *ponto, const char *prefixo, const char *nome, uint3
 /* D379 (L1): un volumen de ramfs sin montarlo (la capa de la live) y soltarlo. */
 void *ramfs_volume(const char *prefixo);
 void  ramfs_volume_soltar(void *v);
+/* v8.5.4.2: el tope de los volúmenes que se creen después, en % de la RAM (kconfig capa_ram_pct). */
+void  ramfs_fixar_pct(uint32_t pct);
 
 #endif

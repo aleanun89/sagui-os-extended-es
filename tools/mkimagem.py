@@ -323,6 +323,9 @@ def main():
     ap.add_argument("--persist-mb", type=int, default=0,
                     help="D379 (L2): partición SAGUI-PERSIST (ext2 vacía) de N MB: la capa persistente de la live")
     ap.add_argument("--raiz-mb", type=int, default=0, help="tamaño de SAGUI-RAIZ en MB (0 = lo justo y margen)")
+    ap.add_argument("--raiz-sin-comprimir", action="store_true",
+                    help="v8.5.4.2 (D379 P5): con --cd, la raíz va como ext2 tal cual (por defecto va comprimida por "
+                         "bloques de 64 KB, partición 0x5A, kernel/fs/disco_comprimido.c)")
     ap.add_argument("--raiz-versao", default=None,
                     help="D379 (M1, solo pruebas): la marca de versión que se escribe en la raíz (/sistema/raiz/versao); "
                          "por defecto, SAGUI_VERSAO de kernel/inc/versao.h (la del núcleo)")
@@ -539,6 +542,8 @@ def main():
         tabela.append((ROTULO_CONF, conf_mb, "ext2", "/conf"))
         conteudos[ROTULO_CONF] = tmp_conf.name
     esquema = a.esquema
+    if a.cd and raiz_mb:
+        esquema = "primarias"   # v8.5.4.2: en el CD la raíz es la única partición (primaria): se comprime en su sitio
     if esquema == "primarias" and a.extendida:
         esquema = "mixto"           # --primarias --extendida: el antiguo --extendida
     # D264: la ESP va justo detrás del área de arranque (alineada a 1 MB) y antes de la
@@ -564,6 +569,8 @@ def main():
             f.write(entrada_mbr(0xEF, esp[0], esp[1]))
         print(f"mkimagem: ESP SAGUI-EFI (FAT32, tipo 0xEF) de {esp[1] // 2048} MB en el LBA {esp[0]}, "
               f"entrada {(livres[0] - 0x1BE) // 16 + 1} (D264)")
+    if a.cd and raiz_mb and not a.raiz_sin_comprimir:
+        comprimir_raiz(a.saida, ROTULO_RAIZ)
     if a.cd and raiz_mb:
         # D379 (T1): con la raíz dentro, la imagen del CD también tiene que acabar en un cilindro entero
         # (la BIOS, en la emulación de disco de El Torito, toma la geometría de la tabla).
@@ -651,6 +658,75 @@ def montar_esp(a, saida, tam, cab, kern, rd):
             f.truncate(max(os.path.getsize(saida), (inicio + qtd) * SETOR))
         copiar_disperso(vol, saida, inicio * SETOR)
     return inicio, qtd
+
+
+RZ_BLOCO = 65536
+RZ_TIPO = 0x5A   # kernel/inc/disco_comprimido.h: DISCO_TIPO_RAIZ_COMPRIMIDA
+
+
+def comprimir_raiz(saida, rotulo):
+    """v8.5.4.2 (D379 P5): la partición ext2 «rotulo» de la imagen, comprimida por bloques de 64 KB con
+    DEFLATE en su mismo sitio (tipo 0x5A); la imagen se recorta detrás. El núcleo la lee con
+    kernel/fs/disco_comprimido.c (formato descrito allí). Solo para la imagen del CD: es de solo lectura."""
+    import zlib
+    with open(saida, "r+b") as f:
+        mbr = bytearray(f.read(SETOR))
+        achada = None
+        for o in (0x1BE, 0x1CE, 0x1DE, 0x1EE):
+            tipo = mbr[o + 4]
+            ini, qtd = struct.unpack_from("<II", mbr, o + 8)
+            if tipo != 0x83 or not qtd:
+                continue
+            f.seek(ini * SETOR + 1024 + 120)
+            if f.read(16).split(b"\0")[0].decode("latin-1") == rotulo:
+                achada = (o, ini, qtd)
+        if not achada:
+            sys.exit(f"mkimagem: no se encuentra la partición {rotulo} para comprimirla")
+        o, ini, qtd = achada
+        # v8.5.4.2 (revisión): se recorta la imagen detrás de la raíz: nada puede ir detrás (p. ej. --persist-mb)
+        for o2 in (0x1BE, 0x1CE, 0x1DE, 0x1EE):
+            ini2, qtd2 = struct.unpack_from("<II", mbr, o2 + 8)
+            if o2 != o and mbr[o2 + 4] and qtd2 and ini2 >= ini:
+                sys.exit(f"mkimagem: con --cd, {rotulo} tiene que ser la última partición para comprimirla "
+                         f"(hay otra en el LBA {ini2}); quita las de detrás o usa --raiz-sin-comprimir")
+        f.seek(ini * SETOR)
+        ext2 = f.read(qtd * SETOR)
+    n = (len(ext2) + RZ_BLOCO - 1) // RZ_BLOCO
+    tam_tab = n * 12
+    dados0 = SETOR + (tam_tab + SETOR - 1) // SETOR * SETOR
+    tabela = bytearray()
+    corpo = bytearray()
+    for i in range(n):
+        bloco = ext2[i * RZ_BLOCO:(i + 1) * RZ_BLOCO]
+        crc = zlib.crc32(bloco) & 0xFFFFFFFF
+        if not bloco.strip(b"\0"):
+            tabela += struct.pack("<III", 0, 0, crc)
+            continue
+        c = zlib.compressobj(9, zlib.DEFLATED, -15)
+        z = c.compress(bloco) + c.flush()
+        # v8.5.4.2 (revisión): cada bloque se comprueba al generarlo (se descomprime y se compara con su CRC)
+        if (zlib.crc32(zlib.decompress(z, -15)) & 0xFFFFFFFF) != crc:
+            sys.exit(f"mkimagem: el bloque {i} de {rotulo} no se descomprime igual: no se genera la imagen")
+        cru = len(z) >= len(bloco)
+        if cru:
+            z = bloco
+        tabela += struct.pack("<III", dados0 + len(corpo), len(z) | (0x80000000 if cru else 0), crc)
+        corpo += z
+    cab = bytearray(SETOR)
+    struct.pack_into("<4sIIIII", cab, 0, b"SGRZ", 1, RZ_BLOCO, n, qtd, SETOR)
+    cab[24:40] = rotulo.encode("latin-1")[:16].ljust(16, b"\0")
+    struct.pack_into("<I", cab, 40, zlib.crc32(tabela) & 0xFFFFFFFF)
+    tudo = bytes(cab) + bytes(tabela).ljust(dados0 - SETOR, b"\0") + bytes(corpo)
+    novo = (len(tudo) + SETOR - 1) // SETOR
+    with open(saida, "r+b") as f:
+        f.seek(ini * SETOR)
+        f.write(tudo.ljust(novo * SETOR, b"\0"))
+        f.truncate((ini + novo) * SETOR)
+        mbr[o:o + 16] = entrada_mbr(RZ_TIPO, ini, novo)
+        f.seek(0)
+        f.write(mbr)
+    print(f"mkimagem: {rotulo} comprimida (D379 P5): {qtd // 2048} MB -> {novo * SETOR / 1048576:.1f} MB "
+          f"en {n} bloques de 64 KB (tipo 0x{RZ_TIPO:02X})")
 
 
 def versao_do_nucleo():
@@ -818,6 +894,13 @@ def normalizar_donos(saida, inicio, conteudo, uid, gid, ponto=""):
     no está, se queda como lo dejó mke2fs (el uid de quien compila) y se avisa."""
     debugfs = achar_ferramenta("debugfs")
     if not debugfs:
+        if ponto == "/":
+            # v8.5.4.2 (D378 §14, D379): en la raíz los dueños root son obligatorios: sin ellos /bin, /lib,
+            # /etc y /apps serían de quien compila (el uid 1000 es sagui dentro de SaguiOS: podría cambiar
+            # los programas del sistema y las bibliotecas). Nunca se genera una SAGUI-RAIZ así.
+            sys.exit("mkimagem: no se encuentra debugfs (paquete e2fsprogs): hace falta para dejar la raíz "
+                     "(SAGUI-RAIZ) de root. Instálalo (sudo apt install e2fsprogs) o carga "
+                     "'. ~/.local/saguitools/env.sh'.")
         print("mkimagem: aviso: sin debugfs, los archivos de la partición quedan con el dueño de quien compila")
         return
     ordens = []

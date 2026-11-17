@@ -192,7 +192,7 @@ def parte3():
     # D318: el asistente nuevo (ocho pasos); se maneja con las zonas que escribe en el registro
     # (la clase de h318). Camino corto: disco hdb, usar todo el disco y lo que propone.
     from h318_instalador import Asistente
-    dest = vazio("h149-gui-dest", 300)
+    dest = vazio("h149-gui-dest", 400)   # v8.5.4.2: con Java en /apps la raíz (x2 de margen) ya no cabe en 300
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw"]
     with Maquina("h149-gui", "ide", extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)

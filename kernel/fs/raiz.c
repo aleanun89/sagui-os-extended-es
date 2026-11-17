@@ -36,12 +36,17 @@
 #include "disco_ram.h"
 #include "raiz.h"
 #include "versao.h"
+#include "kconf.h"
+#include "disco_comprimido.h"
 
 #define RAIZ_CONF "/etc/raiz.conf"
 /* D379 (M1): la marca de versión que mkimagem.py (y el instalador, lo último que copia) dejan
  * en la raíz; y el punto donde se monta un momento, de solo lectura, para comprobarla. */
 #define RAIZ_VERSAO     "/sistema/raiz/versao"
 #define RAIZ_VERIFICAR  "/raiz-verificar"
+/* v8.5.4.2: el identificador de la instalación en su raíz (lo escribe «instalar»; las imágenes no lo llevan). */
+#define RAIZ_ID         "/sistema/raiz/id"
+#define CAB_ID_INST     144   /* CAB_ID_INSTALACAO (boot/cabecalho.inc): "SGIN", aleatorio, hora */
 
 static raiz_estado_t estado = RAIZ_NA_RAM;
 
@@ -74,8 +79,15 @@ static int raiz_montar_especial(disco_t *d, const char *modo)
         /* D379 (M1): «auto» (las imágenes de serie): SAGUI-PERSIST si la imagen la lleva; si no, la RAM,
          * sin aviso (es lo normal en la live sin persistencia). */
         bool automatica = txt_compara(capa_txt, "auto") == 0;
-        p = disco_resolver(automatica ? "LABEL=SAGUI-PERSIST" : capa_txt);
-        if (p && !p->pai && p->volume != p) p = p->volume;
+        /* v8.5.4.2: la capa, del mismo disco que la raíz (con dos pendrives live, cada uno con la suya). */
+        const char *nome_capa = automatica ? "LABEL=SAGUI-PERSIST" : capa_txt;
+        p = NULL;
+        for (int k = 0; k < MAX_DISCOS && !p; k++) {
+            disco_t *c = disco_resolver_n(nome_capa, k);
+            if (!c) break;
+            if (!c->pai && c->volume != c) c = c->volume;
+            if (c && (!txt_comeca_com(nome_capa, "LABEL=") || disco_raiz(c) == disco_raiz(d))) p = c;
+        }
         if (!p || !txt_comeca_com(p->tipo_fs, "ext") || p->montagem || p == d) {
             if (automatica && !p) {
                 klog("[RAIZ] sin SAGUI-PERSIST: la capa va en la RAM\n");
@@ -112,6 +124,11 @@ void raiz_pos_fstab(void)
     }
     int r = ramfs_montar("/initrd", "/", "initrd", MONTAR_SO_LEITURA);
     klog("[RAIZ] el initramfs en /initrd: %d\n", r);
+    if (estado == RAIZ_LIVE || estado == RAIZ_LIVE_PERSISTENTE) {
+        /* v8.5.4.2: el sistema de serie (la capa inferior), para instalar sin los cambios de la sesión */
+        r = sobreposicao_montar_serie("/sistema/serie");
+        klog("[RAIZ] el sistema de serie en /sistema/serie: %d\n", r);
+    }
 }
 
 /* Valor de "chave=" en el texto (línea entera, sin espacios al final). */
@@ -146,6 +163,66 @@ static void aviso(const char *msg, const char *disp)
     permisos_iniciar();   /* vuelve a leer la opción: la sesión pasa a root */
 }
 
+/* v8.5.4.2: los discos y volúmenes que el núcleo sí ve, en pantalla y en el registro: con «no se encuentra
+ * la partición raíz» es lo primero que hace falta saber (¿ve el disco de arranque? ¿con otra etiqueta?). */
+static void listar_discos(void)
+{
+    int n = 0;
+    kprintf("Discos que ve SaguiOS:\n");
+    for (int i = 0; i < MAX_DISCOS; i++) {
+        disco_t *d = disco_indice(i);
+        if (!d || !d->usado || !d->presente || d->audio_cd) continue;
+        n++;
+        kprintf("  %-8s %5u MB  %-8s %-14s %s%s\n", d->nome, d->setores / 2048, d->tipo_fs[0] ? d->tipo_fs : "-",
+                d->rotulo[0] ? d->rotulo : "", d->pai ? "" : d->formato, d->arranque_real ? " (arranque)" : "");
+        klog("[RAIZ] disco visto: %s %u MB fs=%s rotulo=%s%s\n", d->nome, d->setores / 2048, d->tipo_fs,
+             d->rotulo, d->arranque_real ? " (arranque)" : "");
+    }
+    if (!n) kprintf("  (ninguno)\n");
+}
+
+/* v8.5.4.2: no se encuentra la raíz: el aviso dice qué hacer. El caso típico (#36) es un PC cuyo
+ * controlador de disco o USB el núcleo no maneja: arranca (la BIOS lee el núcleo y el initramfs) pero
+ * después no ve el disco del que arrancó. La imagen «completo» lleva todo el sistema dentro y lo carga
+ * en la RAM: no necesita volver a ver el disco. */
+static void aviso_sin_raiz(const char *disp)
+{
+    aviso("No se encuentra la partición raíz", disp);
+    listar_discos();
+    console_cor(COR_AMARELO, COR_PRETO);
+    kprintf("Si el disco o pendrive de arranque no está en la lista, este PC no deja a SaguiOS verlo después\n"
+            "de arrancar. Prueba la imagen saguios-completo.img: carga todo el sistema en la RAM y no lo necesita.\n"
+            "Para cambiar el modo de arranque, pulsa la tecla M al arrancar (ver /etc/rescate.txt).\n");
+    console_cor(COR_CINZA, COR_PRETO);
+}
+
+/* v8.5.4.2 (D379): el identificador de la instalación (CAB_ID_INSTALACAO, que «instalar» pone en la
+ * cabecera de cada disco instalado y, en el mismo momento, en /sistema/raiz/id de su raíz), como texto;
+ * vacío en las imágenes (su cabecera no lo lleva y su raíz tampoco). */
+static void id_da_cabecera(char *saida, size_t max)
+{
+    const uint8_t *c = cabecalho_boot + CAB_ID_INST;
+    saida[0] = 0;
+    if (c[0] != 'S' || c[1] != 'G' || c[2] != 'I' || c[3] != 'N') return;
+    uint32_t a = (uint32_t)c[4] | (uint32_t)c[5] << 8 | (uint32_t)c[6] << 16 | (uint32_t)c[7] << 24;
+    uint32_t b = (uint32_t)c[8] | (uint32_t)c[9] << 8 | (uint32_t)c[10] << 16 | (uint32_t)c[11] << 24;
+    snformatar(saida, max, "%08x%08x", a, b);
+}
+
+/* La primera línea de un texto, sin los espacios, tabuladores y \r del final. false si no cabe. */
+static bool primeira_linha(const uint8_t *txt, uint32_t n, char *v, size_t max)
+{
+    uint32_t k = 0;
+    while (k < n && txt[k] != '\n') k++;
+    while (k > 0 && (txt[k - 1] == ' ' || txt[k - 1] == '\t' || txt[k - 1] == '\r')) k--;
+    bool cabe = k < max;
+    if (!cabe) k = (uint32_t)max - 1;
+    memcpy(v, txt, k);
+    v[k] = 0;
+    for (uint32_t i = 0; i < k; i++) if (v[i] == 0) cabe = false;   /* un 0 dentro tampoco casa */
+    return cabe;
+}
+
 /* D379 (M1): antes de usar un volumen como raíz se monta un momento, de solo lectura, y se mira que
  * tenga lo esencial (/bin/sagsh y /etc) y la marca de versión de este núcleo. Una raíz de otra versión
  * (un disco instalado con otra, una imagen mezclada) o a medias (una copia cortada: el instalador
@@ -168,14 +245,36 @@ static bool raiz_valida(disco_t *d, char *motivo, size_t max)
     } else if (vfs_ler_inteiro(RAIZ_VERIFICAR RAIZ_VERSAO, &txt, &n) < 0) {
         snformatar(motivo, max, "no tiene la marca de versión (" RAIZ_VERSAO ")");
     } else {
-        char v[32];
-        uint32_t k = 0;
-        while (k < n && k < sizeof v - 1 && txt[k] != '\n' && txt[k] != '\r' && txt[k] != ' ') { v[k] = (char)txt[k]; k++; }
-        v[k] = 0;
-        if (txt_compara(v, SAGUI_VERSAO) != 0)
+        /* v8.5.4.2: la primera línea ENTERA, quitando solo los espacios, tabuladores y \r del final
+         * (una versión con espacios, «v6.0 beta 2», no se corta en el primer espacio: antes «v6.0 beta 2»
+         * del núcleo no casaba nunca y una marca «v8.5.4.2 beta» casaba con «v8.5.4.2»). Una línea más
+         * larga que el búfer no se recorta: no casa. */
+        char v[64];
+        bool cabe = primeira_linha(txt, n, v, sizeof v);
+        if (!cabe || txt_compara(v, SAGUI_VERSAO) != 0) {
             snformatar(motivo, max, "es de la versión %s y este núcleo es %s", v[0] ? v : "?", SAGUI_VERSAO);
-        else
-            ok = true;
+        } else {
+            /* v8.5.4.2: y que sea la de ESTA instalación (dos discos SaguiOS de la misma versión: el
+             * instalado y el pendrive live, o dos instalados). La cabecera con la que se arrancó dice
+             * cuál: con identificador, la raíz tiene que llevar el mismo; sin él (una imagen), la raíz
+             * no puede llevar ninguno (sería la de un disco instalado). */
+            char esperado[24], tem[24] = "";
+            id_da_cabecera(esperado, sizeof esperado);
+            uint8_t *id = NULL;
+            uint32_t ni = 0;
+            if (vfs_ler_inteiro(RAIZ_VERIFICAR RAIZ_ID, &id, &ni) >= 0) {
+                if (!primeira_linha(id, ni, tem, sizeof tem) || !tem[0]) txt_copia_n(tem, "?", sizeof tem);
+                kfree(id);
+            }
+            if (txt_compara(esperado, tem) == 0)
+                ok = true;
+            else if (!esperado[0])
+                snformatar(motivo, max, "es la de un sistema instalado (id %s), no la de este medio", tem);
+            else if (!tem[0])
+                snformatar(motivo, max, "no es la de esta instalación (no lleva identificador; esta es %s)", esperado);
+            else
+                snformatar(motivo, max, "es de otra instalación (id %s; esta es %s)", tem, esperado);
+        }
     }
     if (txt) kfree(txt);
     montagem_desmontar(d->montagem, false);
@@ -184,7 +283,26 @@ static bool raiz_valida(disco_t *d, char *motivo, size_t max)
 
 bool raiz_montar(void)
 {
-    uint8_t forcado = cabecalho_boot[CAB_RAIZ_OPC];   /* D379: la opción de la cabecera manda sobre raiz.conf */
+    /* D379: la opción de la cabecera manda sobre raiz.conf; v8.5.4.2: encima, lo guardado con kconfig
+     * (raiz_modo, salvo en el modo rescate) y, encima de todo, lo elegido con la tecla M al arrancar. */
+    uint8_t forcado = cabecalho_boot[CAB_RAIZ_OPC];
+    uint32_t guardado = kconf_valor(KC_RAIZ_MODO);
+    if ((guardado == RAIZ_OPC_LIVE || guardado == RAIZ_OPC_TORAM) && forcado == RAIZ_OPC_DISCO) {
+        /* v8.5.4.2 (revisión): en un disco instalado no se aplica (lo escrito se perdería sin darse cuenta): solo
+         * la tecla M lo cambia para un arranque */
+        klog("[RAIZ] modo %u guardado con kconfig: no se aplica a un disco instalado\n", guardado);
+    } else if (guardado == RAIZ_OPC_LIVE || guardado == RAIZ_OPC_TORAM) {
+        klog("[RAIZ] modo %u guardado con kconfig (la imagen dice %u)\n", guardado, forcado);
+        forcado = (uint8_t)guardado;
+    }
+    uint32_t tecla = (info_boot.opcoes & OPC_BOOT_RAIZ_MODO) >> OPC_BOOT_RAIZ_MODO_DESL;
+    if (tecla >= RAIZ_OPC_RAM && tecla <= RAIZ_OPC_TORAM) {
+        static const char *const nomes[] = { "", "rescate (solo el initramfs)", "instalado", "live desde el medio", "todo a la RAM" };
+        klog("[RAIZ] modo %u elegido al arrancar (tecla M): %s\n", tecla, nomes[tecla]);
+        forcado = (uint8_t)tecla;
+    }
+    uint32_t pct = kconf_valor(KC_CAPA_RAM_PCT);
+    if (pct) ramfs_fixar_pct(pct);
     /* Solo el initramfs trae este fichero; se lee del árbol en RAM, antes de montar nada en "/". */
     no_t *x = vfs_achar(RAIZ_CONF);
     if (!x || x->tipo == TIPO_PASTA || montagem_da_raiz()) {
@@ -217,32 +335,69 @@ bool raiz_montar(void)
     for (const char *p = espera_txt; *p >= '0' && *p <= '9'; p++) espera = espera * 10 + (uint32_t)(*p - '0');
     if (espera > 60) espera = 60;
 
-    /* El volumen puede tardar en aparecer (pendrive que se enumera tarde). */
-    disco_t *d = disco_resolver(disp);
+    /* El volumen puede tardar en aparecer (pendrive que se enumera tarde). v8.5.4.2: se miran TODOS los
+     * volúmenes con esa etiqueta (disco_resolver_n), cada uno una vez, y se usa el primero que vale
+     * (raiz_valida: versión e identificador de la instalación). Así, con dos discos SaguiOS, uno que no es
+     * el nuestro (el instalado, cuando se arranca del pendrive; o al revés) no se toma por error, y se
+     * sigue esperando por si el bueno es un pendrive que aún no ha salido. */
+    disco_t *vistos[12];
+    int n_vistos = 0, validas = 0;
+    disco_t *d = NULL;
+    char motivo[160] = "", disp_ruim[16] = "";
     uint32_t limite = relogio_tiques() + espera * TIQUES_POR_SEGUNDO;
-    while (!d && (int32_t)(relogio_tiques() - limite) < 0) {
+    for (;;) {
+        for (int k = -1; k < MAX_DISCOS; k++) {
+            /* v8.5.4.2 (P5): primero, la raíz comprimida del CD (rz0, disco_comprimido.c), si la hay */
+            disco_t *c = k < 0 ? (txt_comeca_com(disp, "LABEL=") ? disco_comprimido_achar(disp + 6) : NULL)
+                               : disco_resolver_n(disp, k);
+            if (!c && k < 0) continue;
+            if (!c) break;
+            if (!c->pai && c->volume != c) c = c->volume;
+            if (!c) continue;
+            bool ja = false;
+            for (int j = 0; j < n_vistos; j++) if (vistos[j] == c) ja = true;
+            if (ja) continue;
+            if (n_vistos < (int)(sizeof vistos / sizeof vistos[0])) vistos[n_vistos++] = c;
+            char mot[160];
+            if (!txt_comeca_com(c->tipo_fs, "ext")) {
+                snformatar(mot, sizeof mot, "no es ext2/3/4");
+            } else if (raiz_valida(c, mot, sizeof mot)) {
+                validas++;
+                if (!d) d = c;
+                continue;
+            }
+            klog("[RAIZ] %s (%s) no vale como raiz: %s\n", c->nome, disp, mot);
+            if (!motivo[0]) { txt_copia_n(motivo, mot, sizeof motivo); txt_copia_n(disp_ruim, c->nome, sizeof disp_ruim); }
+        }
+        if (d || (int32_t)(relogio_tiques() - limite) >= 0 || n_vistos >= (int)(sizeof vistos / sizeof vistos[0])) break;
         cpu_espera();
-        d = disco_resolver(disp);
     }
     estado = RAIZ_RESCATE;
-    if (!d) {
+    if (!d && !n_vistos) {
         klog("[RAIZ] %s no encontrado tras %u s\n", disp, espera);
-        aviso("No se encuentra la partición raíz", disp);
+        aviso_sin_raiz(disp);
         return false;
     }
-    if (!d->pai && d->volume != d) d = d->volume;
-    if (!d || !txt_comeca_com(d->tipo_fs, "ext")) {
-        klog("[RAIZ] %s no es ext2/3/4\n", disp);
-        aviso("La partición raíz no es ext2", disp);
-        return false;
-    }
-    char motivo[96];
-    if (!raiz_valida(d, motivo, sizeof motivo)) {
-        klog("[RAIZ] %s (%s) no vale como raiz: %s\n", d->nome, disp, motivo);
-        char msg[160];
+    if (!d) {
+        char msg[224];
         snformatar(msg, sizeof msg, "La partición raíz no vale: %s", motivo);
-        aviso(msg, disp);
+        aviso(msg, disp_ruim[0] ? disp_ruim : disp);
         return false;
+    }
+    /* v8.5.4.2: con escritura (instalado) solo si se sabe de verdad que es nuestra. Si hay dos que valen
+     * (dos copias idénticas del mismo disco instalado), o no se sabe de qué disco se arrancó y la que vale
+     * está en un medio extraíble, nunca se monta con escritura: se arranca como live (la raíz de solo
+     * lectura con la capa en la RAM) y se avisa. */
+    if (txt_compara(modo, "rw") == 0 && (validas > 1 || (!disco_arranque_real() && disco_raiz(d)->removivel))) {
+        klog("[RAIZ] %s: %s: se monta como live (sin escribir en ella)\n", d->nome,
+             validas > 1 ? "hay mas de una raiz que vale" : "no se sabe el disco de arranque y es extraible");
+        console_cor(COR_AMARELO, COR_PRETO);
+        kprintf("[aviso] %s: la raíz %s se usa sin escribir en ella (lo que cambies se perderá al apagar).\n",
+                validas > 1 ? "Hay dos discos con este mismo SaguiOS instalado" : "No se sabe de qué disco se arrancó",
+                d->nome);
+        console_cor(COR_CINZA, COR_PRETO);
+        txt_copia_n(modo, "live", sizeof modo);
+        capa_txt[0] = 0;   /* la capa en la RAM: tampoco una SAGUI-PERSIST que no sepamos de quién es */
     }
     int r;
     if (txt_compara(modo, "live") == 0 || txt_compara(modo, "toram") == 0) {
@@ -259,7 +414,9 @@ bool raiz_montar(void)
     montagem_t *m = montagem_da_raiz();
     bool so_leitura = m && (m->opcoes & MONTAR_SO_LEITURA);
     if (estado == RAIZ_RESCATE) estado = so_leitura ? RAIZ_DISCO_SO_LEITURA : RAIZ_DISCO;
-    klog("[RAIZ] %s (%s, %s) montada en / [%s]%s; el initramfs queda debajo\n", d->nome, disp, d->tipo_fs, modo,
+    /* el modo de verdad: un toram que no cabe en la RAM acaba en live (v8.5.4.2) */
+    const char *real = estado == RAIZ_LIVE || estado == RAIZ_LIVE_PERSISTENTE ? "live" : estado == RAIZ_TORAM ? "toram" : modo;
+    klog("[RAIZ] %s (%s, %s) montada en / [%s]%s; el initramfs queda debajo\n", d->nome, disp, d->tipo_fs, real,
          so_leitura ? " en solo lectura" : "");
     return true;
 }

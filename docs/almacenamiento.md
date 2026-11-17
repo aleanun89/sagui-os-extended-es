@@ -3,7 +3,7 @@
 - **Estado: DECIDIDO (2026-11-17)**: el mantenedor acepta todas las recomendaciones (P1-P7 = A, sección 6).
   **Versión: v8.5.3.1** (rama `v8.5.3.1-almacenamiento`): imprescindibles R1-R3 (instalado) y L1-L2 (live desde
   el pendrive con capa escribible); T1 (toram del CD) si llega a tiempo. **M1 también en la v8.5.3.1** (el mantenedor:
-  no se publica hasta que las imágenes por defecto lo usen; §7); F queda para la v8.5.3.2. Es la continuación de la [mejora 035](../mejoras/035-arquitectura-almacenamiento.md),
+  no se publica hasta que las imágenes por defecto lo usen; §7); F queda para la v8.5.4.2. Es la continuación de la [mejora 035](../mejoras/035-arquitectura-almacenamiento.md),
   que se actualiza para apuntar aquí.
 - **Pedido del mantenedor (2026-11-17):** «No limites el ramdisk: abordar su funcionamiento como un
   Linux/Unix. Instalado en disco: el sistema de archivos en el disco (a RAM solo lo fundamental).»
@@ -349,7 +349,7 @@ cambio de modo por defecto de las imágenes, con la batería completa.
 
 ---
 
-## 7. Estado de las fases (v8.5.3.1)
+## 7. Estado de las fases (v8.5.3.1 y v8.5.4.2)
 
 | Fase | Estado | Qué se hizo | Prueba |
 | --- | --- | --- | --- |
@@ -361,7 +361,9 @@ cambio de modo por defecto de las imágenes, con la batería completa.
 | L2 | hecha | capa persistente SAGUI-PERSIST (`capa=LABEL=SAGUI-PERSIST`, `mkimagem.py --persist-mb N`); si falta o no vale, la capa va en la RAM con aviso | h387 G (cambios tras reiniciar, raíz intacta, los dos ext2 limpios) |
 | T1 | hecha (sin compresión) | `disco_ram.c`: la raíz copiada a `ram0` (páginas altas si las hay; si no cabe dejando 32 MB, aviso y live desde el medio) y el mismo ext2 encima, `rw`; `mkimagem.py --cd --raiz` mete SAGUI-RAIZ en la imagen El Torito (el kernel la ve en `cd0img`); 61 MB en ~4 s (QEMU) | h387 H (ISO, copia a RAM, se saca el CD y sigue) |
 | M1 | **hecha** (la 8.5.3.1 no se publica sin ella, decisión del mantenedor) | todas las imágenes de `make all`/`make variantes` con initramfs + SAGUI-RAIZ: disco/USB/VDI en live (capa en RAM; las persistentes en SAGUI-PERSIST, `capa=auto`), SAGUI-CONF como siempre; la ISO en toram con Freeciv; «completo» = el ramdisk de siempre; `RAIZ_DISCO=0` = como la 8.5.3. Marca de versión y sumas del `/etc` de serie en la raíz (rescate si no cuadra); reinstalar conserva SAGUI-DATOS en su sitio y lo cambiado de `/etc` y `/root` (de SAGUI-RAIZ o SAGUI-CONF). h324: initramfs ≤ 1 MB | h387 D, I, J, K; h119, h149, h159, h207, h254, h270, h324, h381 adaptadas |
-| F | v8.5.3.2 | `fsck` propio y carga bajo demanda | — |
+| T1+P5 | **hecha (v8.5.4.2)** | la raíz del CD comprimida por bloques de 64 KB (DEFLATE, formato SGRZ, partición 0x5A); el núcleo la ve como `rz0` (`disco_comprimido.c`, `kernel/lib/inflar.c`): toram la copia a `ram0`; sin RAM, live desde el CD descomprimiendo lo leído. ISO 94,2 → 47,1 MB | h387 H |
+| P4/P7 | **hecha (v8.5.4.2)** | tecla **M** al arrancar (etapa 2 y UEFI): live / todo a la RAM / instalado / rescate, en `boot_info`; `kconfig raiz_modo` y `capa_ram_pct` | h387 M, N |
+| F | **básico hecho (v8.5.4.2)** | ext2 sin el bit de limpio: fsck básico al montar con escritura (mapas y contadores rehechos de los inodos; si no se puede, solo lectura con aviso). Falta: directorios y enlaces (pasos 2-4 de e2fsck) y la carga bajo demanda (035 F3) | h387 O |
 
 **Pendiente de la 8.5.3.1 (pequeño) o para la 8.5.3.2:**
 - T1: la imagen de la raíz **comprimida por bloques** en el CD (P5); hoy va sin comprimir.
@@ -373,3 +375,9 @@ cambio de modo por defecto de las imágenes, con la batería completa.
 - Desde la live, el instalador copia la raíz que se ve (con la capa: lo cambiado en la sesión va también); leer solo la
   inferior («el sistema de serie») necesita exponer la capa inferior de `sobreposicao.c`: sigue pendiente.
 - El cerrojo único `trava_fs` (D095): con la raíz en disco todo pasa por él; medir con el escritorio.
+
+**Hecho en la v8.5.4.2** (detalle en D379): marca de versión por línea entera; el rescate lista los discos y recomienda
+`saguios-completo.img`; identificador de la instalación en la cabecera y en `/sistema/raiz/id` (con dos discos
+SaguiOS cada uno usa su raíz; un instalado dudoso nunca se monta con escritura); `mkimagem.py` falla sin `debugfs`
+para SAGUI-RAIZ; instalar desde la live copia el sistema de serie (`/sistema/serie`; `--con-cambios` para lo de la
+sesión); tope de lo escrito en la RAM con ENOSPC; renombrar en la live como en el ext2; fsck básico.

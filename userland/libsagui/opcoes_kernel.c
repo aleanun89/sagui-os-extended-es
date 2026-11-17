@@ -21,6 +21,8 @@ static const texto_op_t textos[] = {
     { "gobernador", N_("Gobernador de la frecuencia"), N_("Rendimiento, ahorro o a demanda; se aplica también al momento.") },
     { "swap", N_("Swap comprimida en la RAM"), N_("Cuando falta memoria, comprime en la RAM las páginas menos usadas; con «no», no hay swap.") },
     { "swap_mb", N_("Tamaño máximo de la swap"), N_("Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta).") },
+    { "capa_ram_pct", N_("Tope de lo escrito en la RAM (%)"), N_("Live y /tmp: cuánto de la RAM pueden ocupar los cambios; automático = 50 %.") },
+    { "raiz_modo", N_("Modo de arranque de la live"), N_("Live desde el medio o todo a la RAM; automático = el de la imagen (tecla M al arrancar para elegir una vez).") },
 };
 
 static const texto_op_t *texto_de(const char *nome)
@@ -79,6 +81,9 @@ void kconf_texto_valor(const info_kconf_t *o, unsigned v, char *buf, size_t n)
     else if (v == 0) copia_texto(buf, _("automático"), n);
     else if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "gobernador") == 0 && v <= 3)
         copia_texto(buf, v == 1 ? _("rendimiento") : v == 2 ? _("ahorro") : _("a demanda"), n);
+    else if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "raiz_modo") == 0 && v >= 1 && v <= 4)
+        copia_texto(buf, v == 1 ? _("rescate") : v == 2 ? _("instalado") : v == 3 ? _("live") : _("toram"), n);
+    else if (termina_em(o->nome, "_pct")) formatar_texto(buf, n, "%u %%", v);
     else if (termina_em(o->nome, "_mb")) formatar_texto(buf, n, "%u MB", v);
     else if (termina_em(o->nome, "_s")) formatar_texto(buf, n, "%u s", v);
     else formatar_texto(buf, n, "%u", v);
@@ -98,6 +103,10 @@ int kconf_interpretar(const info_kconf_t *o, const char *t, unsigned *v)
             if (compara_texto(t, gobernadores[i]) == 0) { *v = i + 1; return 0; }
         if (compara_texto(t, "a_demanda") == 0) { *v = 3; return 0; }
     }
+    if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "raiz_modo") == 0) {
+        if (compara_texto(t, "live") == 0) { *v = 3; return 0; }
+        if (compara_texto(t, "toram") == 0 || compara_texto(t, "ram") == 0) { *v = 4; return 0; }
+    }
     if (*t < '0' || *t > '9') return -1;
     for (const char *p = t; *p; p++)
         if (*p < '0' || *p > '9') return -1;
@@ -114,7 +123,7 @@ unsigned kconf_siguiente(const info_kconf_t *o, unsigned v)
     static const unsigned esc_vaciado[] = { 0, 1, 3, 5, 10, 30 };
     static const unsigned esc_swap[] = { 0, 16, 64, 256, 512, 1024 };
     if (o->tipo == KCONF_SINO) return !v;
-    if (o->tipo == KCONF_LISTA) return v >= o->max ? 0 : v + 1;
+    if (o->tipo == KCONF_LISTA) return v >= o->max ? 0 : v + 1 < o->min ? o->min : v + 1;
     const unsigned *e = NULL;
     unsigned n = 0;
     if (compara_texto(o->nome, "cache_max_mb") == 0) { e = esc_cache; n = 8; }

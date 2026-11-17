@@ -799,7 +799,9 @@ static disco_t *registrar_comum(const char *prefixo, const char *fabricante, con
     d->nvme = bloco_fisico != 0;        /* D265: solo el NVMe pasa su bloque real */
     d->bloco_fisico = bloco_fisico;
     d->ram = txt_compara(prefixo, "ram") == 0;   /* D379: el disco en RAM del toram (ram0) */
-    if (d->ram) snformatar(d->nome, sizeof d->nome, "ram%d", contador_ram++);
+    bool rz = txt_compara(prefixo, "rz") == 0;  /* v8.5.4.2: la raíz comprimida del CD (disco_comprimido.c): sin caché */
+    if (rz) { d->ram = true; snformatar(d->nome, sizeof d->nome, "rz0"); }
+    else if (d->ram) snformatar(d->nome, sizeof d->nome, "ram%d", contador_ram++);
     else if (prefixo[0] == 'n') snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_nvme++);   /* D265: nvme0, nvme1... */
     else if (removivel) snformatar(d->nome, sizeof d->nome, "%s%d", prefixo, contador_usb++);
     else snformatar(d->nome, sizeof d->nome, "%s%c", prefixo, 'a' + contador_ata++);
@@ -1024,6 +1026,14 @@ static bool irmao_de_boot(disco_t *d)
 
 disco_t *disco_resolver(const char *nome)
 {
+    return disco_resolver_n(nome, 0);
+}
+
+/* v8.5.4.2 (D379): el n-ésimo volumen con esa etiqueta (n = 0 es el de disco_resolver). raiz.c los
+ * recorre todos para quedarse con la SAGUI-RAIZ de esta instalación aunque haya otra que también valga
+ * (dos discos SaguiOS y no se sabe de cuál se arrancó). Con un nombre o "arranque", solo n = 0. */
+disco_t *disco_resolver_n(const char *nome, int n)
+{
     if (txt_comeca_com(nome, "LABEL=")) {
         for (int i = 0; i < MAX_DISCOS; i++) {
             disco_t *d = &discos[i];
@@ -1032,11 +1042,12 @@ disco_t *disco_resolver(const char *nome)
                 /* D120: SAGUI-DATOS/TMP/LOGS sólo valen en el disco que tiene la partición del
                  * SaguiOS: un pendrive cualquiera con esa etiqueta no se monta en /tmp ni /logs. */
                 if (txt_comeca_com(d->rotulo, "SAGUI-") && !irmao_de_boot(d)) continue;
-                return d;
+                if (n-- == 0) return d;
             }
         }
         return NULL;
     }
+    if (n) return NULL;
     if (txt_compara(nome, "arranque") == 0) {
         for (int i = 0; i < MAX_DISCOS; i++) {
             disco_t *d = &discos[i];

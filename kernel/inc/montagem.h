@@ -71,6 +71,7 @@ typedef struct {
 
 extern const sistema_arquivos_t fs_fat32, fs_exfat, fs_ext2, fs_iso9660, fs_udf, fs_cdda, fs_ramfs;
 extern sistema_arquivos_t fs_sobreposicao;   /* D379: su tam_arq lo pone sobreposicao_preparar */
+extern sistema_arquivos_t fs_serie;          /* v8.5.4.2: la capa inferior de la live, a la vista (sobreposicao.c) */
 extern trava_t trava_fs;   /* D095: una operación de sistema de archivos a la vez (ver montagem.c) */
 
 /* Si la ruta absoluta está dentro de un montaje, devuelve este y el resto en

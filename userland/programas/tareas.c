@@ -1023,8 +1023,11 @@ static void desenhar_red(void)
     g_retangulo(j, TAB_X, TAB_Y, TAB_L, TAB_A, COR_FUNDO);
     char t[160], a[16], b[16], c[24], d[24];
     if (!qtd_ifs) { g_texto(j, TAB_X, TAB_Y + 4, _("No hay interfaces de red."), COR_TEXTO); return; }
-    /* Selector de la interfaz y sus acciones. */
+    /* Selector de la interfaz y sus acciones. Los botones b_if los comparte el panel Red de
+     * Rendimiento, que los coloca en otro sitio: aquí se vuelven a colocar en cada dibujo (solo el
+     * sitio y el tamaño: «apertado» se conserva, o el clic se perdería entre pulsar y soltar). */
     for (int i = 0; i < qtd_ifs && i < MAXIF; i++) {
+        b_if[i].x = TAB_X + i * 66; b_if[i].y = TAB_Y; b_if[i].l = 62; b_if[i].a = 22;
         b_if[i].texto = ifs[i].nome;
         botao_desenhar(j, &b_if[i]);
         if (i == if_sel) g_retangulo(j, b_if[i].x + 2, b_if[i].y + b_if[i].a - 3, b_if[i].l - 4, 2, COR_DESTAQUE);

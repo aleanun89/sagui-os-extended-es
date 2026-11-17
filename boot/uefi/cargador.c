@@ -434,6 +434,30 @@ static UINT32 cabecera_do_disco(UINT8 *dest)
 
 /* Las dos cabeceras describen el mismo sistema (pueden diferir en lo que se graba
  * después: la resolución preferida, la marca de instalación...). */
+/* v8.5.4.2 (D379): el menú de la tecla M: el modo de la raíz para este arranque (RAIZ_OPC_* del núcleo:
+ * 3 live, 4 todo a la RAM, 2 instalado, 1 rescate; 0 = el de siempre). Vacía primero la M repetida. */
+static UINT32 menu_raiz(void)
+{
+    EFI_INPUT_KEY k;
+    while (!EFI_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) {}
+    escrever(L"M pulsada: modo de arranque\r\n"
+             L"  1 live desde el medio (los cambios, en la RAM)\r\n"
+             L"  2 todo a la RAM (despues se puede sacar el medio)\r\n"
+             L"  3 instalado (la raiz del disco, con escritura)\r\n"
+             L"  4 rescate (solo el sistema minimo)\r\n"
+             L"  Intro: el de siempre.  Elige: ");
+    static const UINT32 tabela[4] = { 3, 4, 2, 1 };
+    for (;;) {
+        if (EFI_ERROR(ST->ConIn->ReadKeyStroke(ST->ConIn, &k))) { BS->Stall(20000); continue; }
+        if (k.UnicodeChar == L'\r' || k.ScanCode == 0x17 /* Esc */) { escrever(L"el de siempre\r\n"); return 0; }
+        if (k.UnicodeChar >= L'1' && k.UnicodeChar <= L'4') {
+            CHAR16 eco[4] = { k.UnicodeChar, L'\r', L'\n', 0 };
+            escrever(eco);
+            return tabela[k.UnicodeChar - L'1'];
+        }
+    }
+}
+
 static int mesma_cabecera(const UINT8 *a, const UINT8 *b)
 {
     static const UINT8 campos[] = { 0, CAB_K_BYTES, CAB_K_ENDERECO, CAB_R_BYTES, CAB_R_ENDERECO,
@@ -699,7 +723,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
 
     /* D255: Ctrl pulsado al arrancar = modo rescate. UEFI solo da el estado de Ctrl con
      * una tecla en la cola: se mira si la hay, sin esperar. */
-    UINT32 rescate = 0, acel_segura = 0;
+    UINT32 rescate = 0, acel_segura = 0, raiz_modo = 0;
     {
         EFI_GUID gx = GUID_TEXT_INPUT_EX;
         EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *tx = 0;
@@ -717,6 +741,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
                 acel_segura = 1;
                 escrever(L"Mayus pulsado: aceleracion en modo seguro\r\n");
             }
+            /* v8.5.4.2 (D379): M = menú del modo de la raíz (como en la etapa 2 por BIOS). */
+            if (k.Key.UnicodeChar == L'm' || k.Key.UnicodeChar == L'M') raiz_modo = menu_raiz();
         }
     }
 
@@ -882,7 +908,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
     bi->ramdisk_bytes = r_bytes;
     bi->setores_lidos = (k_bytes + 511) / 512 + (r_bytes + 511) / 512;
     memcpy(bi->teste, cab + CAB_TESTE, 64);
-    bi->opcoes = le16(cab + CAB_OPCOES) | (cab[CAB_MOTOR] ? OPC_SGL_SOFTWARE : 0) | (rescate ? OPC_RESCATE : 0) | (acel_segura ? OPC_ACEL_SEGURA : 0);
+    bi->opcoes = le16(cab + CAB_OPCOES) | (cab[CAB_MOTOR] ? OPC_SGL_SOFTWARE : 0) | (rescate ? OPC_RESCATE : 0) | (acel_segura ? OPC_ACEL_SEGURA : 0) | raiz_modo << 17;
     bi->res_pref = le16(cab + CAB_RES_LARG) | (UINT32)le16(cab + CAB_RES_ALT) << 16;
     bi->bpp_pref = cab[CAB_BPP_PREF];
     bi->modos_qtd = qtd_modos;
