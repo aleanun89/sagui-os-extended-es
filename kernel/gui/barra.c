@@ -384,6 +384,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica }, { "convertir-audio", &arte_mini_musica },
         { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "tucan", &arte_mini_tucan }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
+        { "jabuti", &arte_mini_jabuti },   /* D377 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
         { "dosbox", &arte_mini_dosbox }, { "recreativa", &arte_mini_recreativa },   /* D294 */
@@ -1188,6 +1189,7 @@ static const programa_t programas[] = {
     { N_("Cámara"),                  "/apps/bin/camara",      NULL, "camara",      G_GRAFICOS,   &arte_mini_video, false },      /* D277: cámaras UVC y fuente de prueba */
     { N_("Cipó (navegador)"),        "/apps/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
     { N_("GebraMini (geometría dinámica)"), "/apps/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
+    { N_("Jabuti (programar jugando)"), "/apps/bin/jabuti",    NULL, "jabuti",     G_EDUCACION,  &arte_mini_jabuti, false },     /* D377: programación con bloques para niños */
     { N_("Actividades JClic"),       "/apps/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
     { N_("Actividades JClic (bajar)"), "/apps/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
 #ifndef SAGUI_SEM_GPL   /* D184: ni el nombre en la variante sin GPL (la auditoría h81 busca las marcas) */

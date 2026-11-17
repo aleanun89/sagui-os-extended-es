@@ -45,6 +45,7 @@ def tabla():
                               ("tecla", "ctrl-f"), ("esperar", 1.0), ("captura", "buscar"), ("tecla", "esc")]),
         ("macaco", "macaco &", [("esperar", 1.0), ("captura", "principal"), ("tecla", "ctrl-s"), ("esperar", 1.5), ("captura", "dialogo-guardar"), ("tecla", "esc")]),
         ("gebramini", "gebramini /ejemplos/gebramini/parabola.gbm &", [("esperar", 1.8), ("captura", "principal"), ("tecla", "ctrl-o"), ("esperar", 1.5), ("captura", "dialogo-abrir"), ("tecla", "esc")]),
+        ("jabuti", "jabuti /ejemplos/jabuti/02-atrapa-la-fruta.jbt &", [("esperar", 1.8), ("captura", "principal"), ("tecla", "ctrl-o"), ("esperar", 1.5), ("captura", "dialogo-abrir"), ("tecla", "esc")]),
         ("planomini", "planomini /ejemplos/planomini/pieza.pmini &", [("esperar", 2.0), ("captura", "principal"), ("tecla", "ctrl-o"), ("esperar", 1.5), ("captura", "dialogo-abrir"), ("tecla", "esc")]),
         ("correo", "correo &", [("esperar", 1.5), ("captura", "principal")]),
         ("chatia", "chatia &", [("esperar", 1.5), ("captura", "principal")]),

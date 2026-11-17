@@ -1,0 +1,22 @@
+JABUTI 1
+# Ejemplo: el sagui que salta. Flechas: izquierda y derecha; espacio: salta.
+fondo 1
+f "Blanco" biblioteca blanco
+f "Cielo" biblioteca cielo
+personaje "Sagui" biblioteca sagui
+  pos 0 -110 90 130 1 2 0
+  guion 20 40
+    bandera
+    ir-xy 0 -110
+    decir-t "¡Pulsa espacio para saltar!" 2
+    siempre
+      si (tecla-pulsada "flecha derecha")
+        sumar-x 5
+      si (tecla-pulsada "flecha izquierda")
+        sumar-x -5
+  guion 20 330
+    tecla "espacio"
+    repetir 12
+      sumar-y 9
+    repetir 12
+      sumar-y -9

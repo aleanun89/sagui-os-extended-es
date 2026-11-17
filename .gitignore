@@ -73,3 +73,5 @@ __pycache__/
 /entrega/personalizada/
 /userland/terceros/freeciv/fuentes
 /userland/terceros/zlib/fuentes
+# Fuentes de miniJVM (D376): las baja tools/minijvm_fuentes.sh; no van en git
+/userland/terceros/minijvm/fuentes

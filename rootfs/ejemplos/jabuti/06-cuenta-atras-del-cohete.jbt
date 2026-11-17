@@ -1,0 +1,24 @@
+JABUTI 1
+# Ejemplo: cuenta atrás con una variable y despegue del cohete.
+fondo 1
+f "Cielo" biblioteca cielo
+f "Espacio" biblioteca espacio
+variable "cuenta" 10 1
+personaje "Cohete" biblioteca cohete
+  pos 0 -130 0 120 1 0 0
+  guion 20 40
+    bandera
+    ir-xy 0 -130
+    apuntar 0
+    fondo "Cielo"
+    fijar-var "cuenta" 5
+    repetir-hasta (igual (var "cuenta") 0)
+      decir (var "cuenta")
+      nota 72 0.1
+      esperar 0.1
+      cambiar-var "cuenta" -1
+    decir "¡Despegue!"
+    traje "cohete2"
+    repetir 40
+      sumar-y 8
+    fondo "Espacio"

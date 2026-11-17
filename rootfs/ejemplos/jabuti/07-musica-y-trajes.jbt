@@ -1,0 +1,13 @@
+JABUTI 1
+# Ejemplo: notas musicales, cambio de traje y giros.
+fondo 0
+f "Noche" biblioteca noche
+personaje "Estrella" biblioteca estrella
+  pos 0 0 90 120 1 0 0
+  guion 20 40
+    bandera
+    repetir 8
+      nota 60 0.2
+      sig-traje
+      girar-der 45
+    decir-t "¡Bonita canción!" 2

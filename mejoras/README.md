@@ -137,3 +137,4 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 132 | [Componente «cinta» (Ribbon) en la libsagui y VisualPythonS](132-cinta-ribbon.md) | pendiente (v8.4.4) | media-alta |
 | 133 | [Editor de traducciones propio (al estilo de Poedit)](133-editor-traducciones.md) | hecho (v8.4.4, D335) | media-alta |
 | 134 | [3D en las 3dfx Voodoo Graphics y Voodoo2](134-voodoo1-2-3d.md) | pendiente (v8.5+) | media |
+| 137 | [Jabuti: programar con bloques para niños](137-jabuti.md) | hecha (v8.5.4, D377) | media |

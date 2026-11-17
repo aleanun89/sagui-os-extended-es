@@ -1,0 +1,19 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+# javac-sagui - javac del JDK del anfitrión (tools/java_entorno.sh) apuntando a la biblioteca de clases
+# de miniJVM (build/java-res/lib/minijvm_rt.jar): lo que miniJVM no tenga, no compila (D376).
+#
+#   tools/javac-sagui [opciones de javac] Fuente.java...
+#
+# Genera clases de Java 8 (-source 8 -target 8). Si la biblioteca no está, se hace con
+# «make build/java-res/lib/minijvm_rt.jar».
+set -euo pipefail
+RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JDK="${SAGUI_TOOLS:-$HOME/.local/saguitools}/jdk"
+RT="${MINIJVM_RT:-$RAIZ/build/java-res/lib/minijvm_rt.jar}"
+[ -x "$JDK/bin/javac" ] || { echo "javac-sagui: no hay JDK (tools/java_entorno.sh instalar)" >&2; exit 1; }
+[ -f "$RT" ] || { echo "javac-sagui: falta $RT (make build/java-res/lib/minijvm_rt.jar)" >&2; exit 1; }
+# la biblioteca gráfica sagui.gui (sagui.jar) va en el classpath si ya está compilada
+CP="${MINIJVM_SAGUI_JAR:-$(dirname "$RT")/sagui.jar}"
+[ -f "$CP" ] || CP=""
+exec "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -nowarn -encoding UTF-8 -bootclasspath "$RT" ${CP:+-cp "$CP"} "$@"

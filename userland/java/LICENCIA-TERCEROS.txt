@@ -1,0 +1,9 @@
+Terceros de Java en SaguiOS (D376)
+
+miniJVM (https://github.com/digitalgust/miniJVM): MIT, (c) 2023 Gust. La biblioteca de clases
+(minijvm_rt.jar) contiene ficheros derivados de OpenJDK bajo GPL-2.0-only con Classpath-exception;
+el jar lleva META-INF/MIT_LICENSE, LICENSE, CLASSPATH_EXCEPTION y NOTICE.
+
+Janino y commons-compiler 3.1.12 (https://github.com/janino-compiler/janino): BSD-3-Clause,
+(c) 2001-2016 Arno Unkrig y TIBCO Software Inc. Se distribuyen sin cambios como
+/apps/java/lib/janino.jar y commons-compiler.jar.

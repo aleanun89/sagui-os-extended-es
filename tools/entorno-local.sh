@@ -271,6 +271,8 @@ for _d in "$HOME/.local/saguitools/tinygo/bin" "$HOME/.local/saguitools/go/bin";
     [ -d "$_d" ] && PATH="$_d:$PATH"
 done
 unset _d
+# JDK para compilar Java en el PC (D376, tools/java_entorno.sh): al FINAL del PATH, solo si esta instalado.
+[ -d "$HOME/.local/saguitools/jdk/bin" ] && PATH="$PATH:$HOME/.local/saguitools/jdk/bin"
 export PATH
 # Las herramientas del propio checkout (convert, identify) van delante: cada
 # copia de trabajo (miniOS_master_os_*) usa las suyas, no las de otra copia.

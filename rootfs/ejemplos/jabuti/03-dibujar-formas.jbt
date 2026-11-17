@@ -1,0 +1,34 @@
+JABUTI 1
+# Ejemplo: dibujar formas con el lápiz (un cuadrado, un triángulo y un círculo).
+fondo 0
+f "Blanco" biblioteca blanco
+personaje "Sagui" biblioteca sagui
+  pos -150 50 90 40 1 0 0
+  guion 20 40
+    bandera
+    lapiz-borrar
+    lapiz-grosor 3
+    ir-xy -150 50
+    apuntar 90
+    lapiz-color "rojo"
+    lapiz-bajar
+    repetir 4
+      mover 80
+      girar-der 90
+    lapiz-subir
+    ir-xy -20 50
+    apuntar 90
+    lapiz-color "azul"
+    lapiz-bajar
+    repetir 3
+      mover 90
+      girar-der 120
+    lapiz-subir
+    ir-xy 120 50
+    apuntar 90
+    lapiz-color "verde"
+    lapiz-bajar
+    repetir 36
+      mover 6
+      girar-der 10
+    lapiz-subir

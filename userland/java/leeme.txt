@@ -1,0 +1,12 @@
+Java en SaguiOS (miniJVM, D376)
+
+  java Hola                       ejecuta Hola.class (classpath: el directorio actual)
+  java -cp ruta:otra.jar Clase    con classpath
+  java -jar app.jar               usa Main-Class del manifiesto
+  java -Xmx64M Clase              limita el montón
+
+  /apps/java/lib/minijvm_rt.jar   biblioteca de clases (subconjunto de Java 8, sin Swing ni AWT)
+  /apps/java/ejemplos/            ejemplos ya compilados:  java -cp /apps/java/ejemplos Hola
+
+Licencias: miniJVM es MIT; su biblioteca incluye partes de OpenJDK (GPL-2.0 con Classpath-exception),
+ver META-INF dentro del jar y docs/java.md.

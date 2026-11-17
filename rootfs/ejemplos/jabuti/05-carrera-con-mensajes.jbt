@@ -1,0 +1,26 @@
+JABUTI 1
+# Ejemplo: varios personajes a la vez; el sagui da la salida con un mensaje.
+fondo 0
+f "Pasto" biblioteca pasto
+personaje "Sagui" biblioteca sagui
+  pos -190 100 90 80 1 2 0
+  guion 20 40
+    bandera
+    ir-xy -190 100
+    decir-t "¡Preparados..." 1
+    decir-t "¡Ya!" 1
+    enviar "mensaje1"
+personaje "Pelota" biblioteca pelota
+  pos -190 -20 90 70 1 2 0
+  guion 20 40
+    recibir "mensaje1"
+    ir-xy -190 -20
+    deslizar 3 190 -20
+    decir-t "¡Gané!" 1
+personaje "Pez" biblioteca pez
+  pos -190 -120 90 70 1 1 0
+  guion 20 40
+    recibir "mensaje1"
+    ir-xy -190 -120
+    deslizar 5 190 -120
+    decir-t "¡Llegué!" 1

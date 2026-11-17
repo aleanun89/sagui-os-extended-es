@@ -1080,6 +1080,25 @@ static const char *const jclic[] = {   /* JClic: una pieza de puzle azul con una
     "................",
 };
 
+static const char *const jabuti[] = {   /* Jabuti: una tortuga vista desde arriba, con el caparazón verde (D377) */
+    "................",
+    ".....PPPPPP.....",
+    "....PGGGGGGP....",
+    "....PGPGGPGP....",
+    ".PP..PPGGPP..PP.",
+    "PGGPPggggggPPGGP",
+    "PGGPgGGggGGgPGGP",
+    ".PPPggGGGGggPPP.",
+    "...PgGggggGgP...",
+    "..PPggGGGGggPP..",
+    ".PGGPgggggPPGGP.",
+    ".PPP.PPPPPP.PPP.",
+    "................",
+    "................",
+    "................",
+    "................",
+};
+
 static const char *const jclicbajar[] = {   /* la misma pieza con una flecha verde hacia abajo (D185) */
     "................",
     "......PPPP......",
@@ -1332,6 +1351,7 @@ const desenho_t arte_mini_spider      = { spider, 16, 16 };   /* D173: el solita
 const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Buscaminas */
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */
 const desenho_t arte_mini_jclicbajar  = { jclicbajar, 16, 16 };   /* D185: bajar actividades JClic */
+const desenho_t arte_mini_jabuti      = { jabuti, 16, 16 };   /* D377: Jabuti */
 #ifndef SAGUI_SEM_GPL
 const desenho_t arte_mini_tyrian      = { tyrian, 16, 16 };   /* D180: o OpenTyrian */
 const desenho_t arte_mini_netsurf     = { netsurf, 16, 16 };  /* D184: el navegador NetSurf */

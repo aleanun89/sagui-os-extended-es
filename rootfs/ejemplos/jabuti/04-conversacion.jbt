@@ -1,0 +1,14 @@
+JABUTI 1
+# Ejemplo: una conversación con «preguntar» y «respuesta».
+fondo 0
+f "Cielo" biblioteca cielo
+variable "edad" 0 1
+personaje "Sagui" biblioteca sagui
+  pos 0 -60 90 150 1 2 0
+  guion 20 40
+    bandera
+    preguntar "¿Cómo te llamas?"
+    decir-t (unir "¡Hola, " (unir (respuesta) "!")) 2
+    preguntar "¿Cuántos años tienes?"
+    fijar-var "edad" (respuesta)
+    decir-t (unir "Dentro de 10 años tendrás " (suma (var "edad") 10)) 3

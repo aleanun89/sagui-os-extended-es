@@ -1,0 +1,56 @@
+--- a/minijvm/java/src/main/java/com/sun/cldc/io/ConsoleInputStream.java
++++ b/minijvm/java/src/main/java/com/sun/cldc/io/ConsoleInputStream.java
+@@ -9,6 +9,28 @@
+ public final class ConsoleInputStream extends InputStream {
+     public native int read() throws IOException;
+ 
++    /* SaguiOS (D376): la lectura por bloques de InputStream espera a llenar todo el búfer, y en una
++     * consola interactiva eso bloquea para siempre. Aquí se devuelve en cuanto llega una línea. */
++    public int read(byte[] b, int off, int len) throws IOException {
++        if (len == 0) {
++            return 0;
++        }
++        int c = read();
++        if (c == -1) {
++            return -1;
++        }
++        b[off] = (byte) c;
++        int i = 1;
++        while (c != '\n' && i < len) {
++            c = read();
++            if (c == -1) {
++                break;
++            }
++            b[off + i++] = (byte) c;
++        }
++        return i;
++    }
++
+     public String readLine() {
+         ByteArrayOutputStream line = new ByteArrayOutputStream();
+         try {
+--- a/minijvm/java/src/main/java/com/sun/cldc/i18n/j2me/UTF_8_Reader.java
++++ b/minijvm/java/src/main/java/com/sun/cldc/i18n/j2me/UTF_8_Reader.java
+@@ -37,6 +37,10 @@
+             }
+             if (codePoint <= 0xffff) {
+                 output[offset + count++] = (char) codePoint;
++                /* SaguiOS (D376): en una consola interactiva no se puede esperar a llenar el búfer */
++                if (codePoint == '\n') {
++                    return count;
++                }
+             } else {
+                 int value = codePoint - 0x10000;
+                 output[offset + count++] = (char) (0xd800 | (value >>> 10));
+--- a/minijvm/java/src/main/java/com/sun/cldc/i18n/j2me/ISO8859_1_Reader.java
++++ b/minijvm/java/src/main/java/com/sun/cldc/i18n/j2me/ISO8859_1_Reader.java
+@@ -32,6 +32,9 @@
+                 break;
+             }
+             output[offset + count++] = (char) value;
++            if (value == '\n') {
++                break;   /* SaguiOS (D376): consola interactiva, ver UTF_8_Reader */
++            }
+         }
+         return count;
+     }

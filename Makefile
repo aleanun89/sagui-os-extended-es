@@ -419,7 +419,7 @@ APPS_MB ?= 0
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
 APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini visorpdf chatia ia \
   reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo \
-  chip8 chip8asm jclic jclicbajar traductor convertir-audio
+  chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
 APPS_RECURSOS := videos:userland/apps/videos
@@ -441,6 +441,17 @@ FUENTES_RES :=
 ifneq ($(FUENTES_ZIP),)
 FUENTES_RES := $(B)/fuentes-res/.feito
 APPS_RECURSOS += fuentes:$(B)/fuentes-res
+endif
+
+# Java con miniJVM (D376): /apps/bin/java, /apps/bin/javac y /apps/java/. JAVA=0 lo deja fuera.
+# Va aquí (tras FONTES_OBJ) porque el programa java enlaza libfontes para sagui.gui.
+include userland/terceros/minijvm/java.mk
+ifneq ($(JV_PROGRAMAS),)
+APPS_PROGRAMAS += java javac
+APPS_BINS += $(JV_PROGRAMAS)
+endif
+ifneq ($(JV_RECURSOS),)
+APPS_RECURSOS += java:$(JV_RES)
 endif
 
 # El navegador NetSurf (D184): GPL-2.0 (solo la v2), aislado en userland/terceros/netsurf/
@@ -960,6 +971,18 @@ $(B)/userland/programas/tucan.o: userland/programas/tucan_cinta.h userland/progr
 $(B)/userland/programas/macaco.o: userland/programas/macaco_cinta.h
 $(B)/userland/bin/gebramini: $(GBM_OBJ)
 
+# Jabuti (D377, mejora 137): programación con bloques para niños; el intérprete y el modelo van en userland/jabuti/
+# (enteros, sin FPU, para un Pentium II). Solo el programa jabuti lo liga.
+JB_DIR  := userland/jabuti
+JB_OBJ  := $(patsubst $(JB_DIR)/%.c,$(B)/$(JB_DIR)/%.o,$(wildcard $(JB_DIR)/*.c))
+JB_HDR  := $(wildcard $(JB_DIR)/*.h) userland/programas/jabuti_ops.h
+$(B)/$(JB_DIR)/%.o: $(JB_DIR)/%.c $(JB_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -I$(JB_DIR) -c -o $@ $<
+$(B)/userland/programas/jabuti.o: UCFLAGS := $(UCFLAGS) -I$(JB_DIR)
+$(B)/userland/programas/jabuti.o: $(JB_HDR)
+$(B)/userland/bin/jabuti: $(JB_OBJ)
+
 # PlanoMini (D312, mejora 129): el motor del CAD 2D (órdenes, geometría, .pmini, DXF) con la x87 como GebraMini
 # (gbm_mat.h, sin libm). Solo el programa planomini lo liga.
 PM_DIR  := userland/planomini
@@ -1316,7 +1339,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \

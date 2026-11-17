@@ -1,0 +1,922 @@
+# Traducción de SaguiOS: catálogo «jabuti», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/jabuti.c:340
+msgid "si no"
+msgstr ""
+
+#: userland/programas/jabuti.c:446
+msgid "Crear una variable"
+msgstr ""
+
+#: userland/programas/jabuti.c:449
+msgid "Crear una lista"
+msgstr ""
+
+#: userland/programas/jabuti.c:509
+msgid "Arrastra bloques aquí"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673 userland/programas/jabuti.c:877
+msgid "Nuevo"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673
+msgid "Abrir"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673
+msgid "Guardar"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673
+msgid "Deshacer"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673
+msgid "Rehacer"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673
+msgid "Ejemplos"
+msgstr ""
+
+#: userland/programas/jabuti.c:646 userland/programas/jabuti.c:673
+msgid "Ayuda"
+msgstr ""
+
+#: userland/programas/jabuti.c:663
+msgid "Sin título"
+msgstr ""
+
+#: userland/programas/jabuti.c:697 userland/programas/jabuti.c:712
+msgid "Programa"
+msgstr ""
+
+#: userland/programas/jabuti.c:697 userland/programas/jabuti.c:712
+msgid "Trajes"
+msgstr ""
+
+#: userland/programas/jabuti.c:697 userland/programas/jabuti.c:712
+msgid "Fondos"
+msgstr ""
+
+#: userland/programas/jabuti.c:758
+msgid "Pantalla"
+msgstr ""
+
+#: userland/programas/jabuti.c:759
+msgid "Tamaño"
+msgstr ""
+
+#: userland/programas/jabuti.c:762 userland/programas/jabuti.c:1387
+msgid "Personaje"
+msgstr ""
+
+#: userland/programas/jabuti.c:767
+msgid "dir"
+msgstr ""
+
+#: userland/programas/jabuti.c:855
+msgid "No hay nada que pintar."
+msgstr ""
+
+#: userland/programas/jabuti.c:866 userland/programas/jabuti_ops.h:11
+msgid "Lápiz"
+msgstr ""
+
+#: userland/programas/jabuti.c:866
+msgid "Goma"
+msgstr ""
+
+#: userland/programas/jabuti.c:866
+msgid "Cubo"
+msgstr ""
+
+#: userland/programas/jabuti.c:877 userland/programas/jabuti.c:1348 userland/programas/jabuti.c:1789
+msgid "Duplicar"
+msgstr ""
+
+#: userland/programas/jabuti.c:877 userland/programas/jabuti.c:1347 userland/programas/jabuti.c:1348 userland/programas/jabuti.c:1789
+msgid "Borrar"
+msgstr ""
+
+#: userland/programas/jabuti.c:877
+msgid "Voltear"
+msgstr ""
+
+#: userland/programas/jabuti.c:877
+msgid "Limpiar"
+msgstr ""
+
+#: userland/programas/jabuti.c:877
+msgid "Importar PNG"
+msgstr ""
+
+#: userland/programas/jabuti.c:877
+msgid "Biblioteca"
+msgstr ""
+
+#: userland/programas/jabuti.c:877 userland/programas/jabuti.c:1092 userland/programas/jabuti.c:1769 userland/programas/jabuti.c:1969
+msgid "Nombre"
+msgstr ""
+
+#: userland/programas/jabuti.c:975
+msgid "Importar una imagen"
+msgstr ""
+
+#: userland/programas/jabuti.c:975
+msgid "Imágenes (*.png *.jpg *.bmp)|*.png;*.jpg;*.jpeg;*.bmp;*.gif|Todos los archivos (*.*)|*"
+msgstr ""
+
+#: userland/programas/jabuti.c:978
+msgid "No he podido leer esa imagen. Prueba con un PNG, JPG o BMP."
+msgstr ""
+
+#: userland/programas/jabuti.c:983
+msgid "Ya hay demasiados trajes."
+msgstr ""
+
+#: userland/programas/jabuti.c:990
+msgid "Ya hay demasiados fondos."
+msgstr ""
+
+#: userland/programas/jabuti.c:1010
+msgid "traje"
+msgstr ""
+
+#: userland/programas/jabuti.c:1018
+msgid "fondo"
+msgstr ""
+
+#: userland/programas/jabuti.c:1047
+msgid "Un personaje necesita al menos un traje."
+msgstr ""
+
+#: userland/programas/jabuti.c:1055
+msgid "El escenario necesita al menos un fondo."
+msgstr ""
+
+#: userland/programas/jabuti.c:1092
+msgid "¿Cómo se llama?"
+msgstr ""
+
+#: userland/programas/jabuti.c:1127
+msgid "Hay cambios sin guardar. ¿Seguro que quieres seguir sin guardarlos?"
+msgstr ""
+
+#: userland/programas/jabuti.c:1148
+msgid "No he podido abrir ese proyecto. Puede que no sea de Jabuti o que esté dañado."
+msgstr ""
+
+#: userland/programas/jabuti.c:1168
+msgid "Abrir un proyecto"
+msgstr ""
+
+#: userland/programas/jabuti.c:1188 userland/programas/jabuti.c:1193
+msgid "No he podido guardar el proyecto. Comprueba que hay sitio y que puedes escribir ahí."
+msgstr ""
+
+#: userland/programas/jabuti.c:1190
+msgid "Guardado como texto legible."
+msgstr ""
+
+#: userland/programas/jabuti.c:1203
+msgid "Guardar el proyecto"
+msgstr ""
+
+#: userland/programas/jabuti.c:1256
+msgid "Otra tecla..."
+msgstr ""
+
+#: userland/programas/jabuti.c:1277
+msgid "Todavía no hay nada que elegir aquí (crea primero una variable o una lista)."
+msgstr ""
+
+#: userland/programas/jabuti.c:1288
+msgid "Otra tecla"
+msgstr ""
+
+#: userland/programas/jabuti.c:1288
+msgid "Escribe la letra o el número de la tecla:"
+msgstr ""
+
+#: userland/programas/jabuti.c:1368
+msgid "No encuentro los ejemplos."
+msgstr ""
+
+#: userland/programas/jabuti.c:1377
+msgid "Pintar uno nuevo"
+msgstr ""
+
+#: userland/programas/jabuti.c:1379
+msgid "Importar una imagen..."
+msgstr ""
+
+#: userland/programas/jabuti.c:1389 userland/programas/jabuti.c:1406
+msgid "Ya hay demasiados personajes."
+msgstr ""
+
+#: userland/programas/jabuti.c:1419
+msgid "Nueva lista"
+msgstr ""
+
+#: userland/programas/jabuti.c:1419
+msgid "Nueva variable"
+msgstr ""
+
+#: userland/programas/jabuti.c:1419
+msgid "Nombre de la lista:"
+msgstr ""
+
+#: userland/programas/jabuti.c:1419
+msgid "Nombre de la variable:"
+msgstr ""
+
+#: userland/programas/jabuti.c:1422
+msgid "Ya hay demasiadas."
+msgstr ""
+
+#: userland/programas/jabuti.c:1619
+msgid "Bloque borrado (Ctrl+Z lo recupera)."
+msgstr ""
+
+#: userland/programas/jabuti.c:1630
+msgid "Ese bloque redondo va dentro de un hueco de otro bloque."
+msgstr ""
+
+#: userland/programas/jabuti.c:1647
+msgid "Ya hay demasiados grupos de bloques."
+msgstr ""
+
+#: userland/programas/jabuti.c:1722
+msgid "En marcha. Pulsa el botón rojo para parar."
+msgstr ""
+
+#: userland/programas/jabuti.c:1727
+msgid "Parado."
+msgstr ""
+
+#: userland/programas/jabuti.c:1769 userland/programas/jabuti.c:1969
+msgid "¿Cómo se llama este personaje?"
+msgstr ""
+
+#: userland/programas/jabuti.c:1789
+msgid "Cambiar el nombre"
+msgstr ""
+
+#: userland/programas/jabuti.c:1827
+msgid "Ordenar los grupos de bloques"
+msgstr ""
+
+#: userland/programas/jabuti.c:1985
+msgid "Tiene que quedar al menos un personaje."
+msgstr ""
+
+#: userland/programas/jabuti.c:2003
+msgid "Ya hay demasiados."
+msgstr ""
+
+#: userland/programas/jabuti.c:2187
+msgid "Arrastra bloques de la paleta al área de programa y pulsa la bandera verde."
+msgstr ""
+
+#: userland/programas/jabuti.c:2241
+msgid "Terminado."
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Eventos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Movimiento"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Apariencia"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Sonido"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Control"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Sensores"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Operadores"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:11
+msgid "Variables"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:19
+msgid "al pulsar la bandera verde"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:20
+msgid "al pulsar la tecla @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:21
+msgid "al hacer clic en este personaje"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:22
+msgid "al recibir @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:23
+msgid "enviar @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:25
+msgid "mover # pasos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:26
+msgid "girar a la derecha # °"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:27
+msgid "girar a la izquierda # °"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:28
+msgid "ir a x: # y: #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:29
+msgid "ir a @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:30
+msgid "deslizar # s a x: # y: #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:31
+msgid "apuntar en dirección #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:32
+msgid "apuntar hacia @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:33
+msgid "sumar # a x"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:34
+msgid "fijar x a #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:35
+msgid "sumar # a y"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:36
+msgid "fijar y a #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:37
+msgid "rebotar si toca un borde"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:38
+msgid "estilo de giro: @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:39
+msgid "posición x"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:40
+msgid "posición y"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:41
+msgid "dirección"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:43
+msgid "decir $ durante # segundos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:44
+msgid "decir $"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:45
+msgid "pensar $ durante # segundos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:46
+msgid "pensar $"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:47
+msgid "cambiar el traje a @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:48
+msgid "siguiente traje"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:49
+msgid "cambiar el fondo a @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:50
+msgid "cambiar el tamaño en #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:51
+msgid "fijar el tamaño a # %"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:52
+msgid "mostrar"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:53
+msgid "ocultar"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:54
+msgid "número de traje"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:55
+msgid "tamaño"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:57
+msgid "tocar la nota # durante # pulsos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:58
+msgid "tocar el sonido @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:59
+msgid "parar los sonidos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:61
+msgid "bajar el lápiz"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:62
+msgid "subir el lápiz"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:63
+msgid "borrar todo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:64
+msgid "poner el color del lápiz en @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:65
+msgid "poner el grosor del lápiz en #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:66
+msgid "sellar"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:67
+msgid "cambiar al siguiente color del lápiz"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:69
+msgid "esperar # segundos"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:70
+msgid "repetir #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:71
+msgid "por siempre"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:72 userland/programas/jabuti_ops.h:73
+msgid "si ^ entonces"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:74
+msgid "esperar hasta que ^"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:75
+msgid "repetir hasta que ^"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:76
+msgid "detener @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:78
+msgid "¿tocando @?"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:79
+msgid "¿tocando el color @?"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:80
+msgid "¿tecla @ pulsada?"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:81
+msgid "¿ratón pulsado?"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:82
+msgid "ratón x"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:83
+msgid "ratón y"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:84
+msgid "preguntar $ y esperar"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:85
+msgid "respuesta"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:86
+msgid "cronómetro"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:87
+msgid "reiniciar el cronómetro"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:88
+msgid "distancia a @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:92
+msgid "# × #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:93
+msgid "# ÷ #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:94
+msgid "número al azar entre # y #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:98
+msgid "^ y ^"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:99
+msgid "^ o ^"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:100
+msgid "no ^"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:101
+msgid "unir $ y $"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:102
+msgid "letra # de $"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:103
+msgid "longitud de $"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:104
+msgid "# resto # "
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:105
+msgid "redondear #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:106
+msgid "valor absoluto de #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:107
+msgid "raíz cuadrada de #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:109
+msgid "fijar @ a #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:110
+msgid "cambiar @ por #"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:111
+msgid "mostrar la variable @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:112
+msgid "ocultar la variable @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:114
+msgid "agregar $ a la lista @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:115
+msgid "vaciar la lista @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:116
+msgid "elemento # de la lista @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:117
+msgid "longitud de la lista @"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "espacio"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "flecha arriba"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "flecha abajo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "flecha izquierda"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "flecha derecha"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "Intro"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:122
+msgid "cualquiera"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:123
+msgid "puntero del ratón"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:123
+msgid "posición al azar"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:123
+msgid "borde"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:123
+msgid "todo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:123
+msgid "izquierda-derecha"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:123
+msgid "ninguno"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "pitido"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "salto"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "moneda"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "bocina"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "aplauso"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "este guion"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "mensaje1"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "mensaje2"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "mensaje3"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "mensaje4"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:124
+msgid "mensaje5"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "rojo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "naranja"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "amarillo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "verde"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "turquesa"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "azul"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "morado"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "rosa"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "negro"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "blanco"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "gris"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:125
+msgid "marron"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Sagui"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Pelota"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Cohete"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Estrella"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Manzana"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Cesta"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Pez"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:126
+msgid "Flor"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Blanco"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Cielo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Pasto"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Noche"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Espacio"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Cancha"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:127
+msgid "Mar"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:128
+msgid "¡Hola!"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:128
+msgid "Hmm..."
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:128
+msgid "¿Cómo te llamas?"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:128
+msgid "cosa"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:128
+msgid "hola "
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:128
+msgid "mundo"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:129
+msgid "No se puede dividir entre cero: el resultado es 0"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:129
+msgid "No existe la raíz de un número negativo: el resultado es 0"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:130
+msgid "Demasiados bloques metidos unos dentro de otros"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:130
+#, c-format
+msgid "La variable «%s» no existe todavía"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:130
+#, c-format
+msgid "La lista «%s» no existe todavía"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:131
+#, c-format
+msgid "No encuentro el traje «%s»"
+msgstr ""
+
+#: userland/programas/jabuti_ops.h:131
+#, c-format
+msgid "No encuentro el fondo «%s»"
+msgstr ""
+

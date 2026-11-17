@@ -1066,6 +1066,17 @@ static bool jclic_extensao(const char *c)
     return false;
 }
 
+/* .jbt y .blq (el nombre de antes): proyectos de Jabuti, la aplicación para aprender a programar (D377). */
+static bool jabuti_extensao(const char *c)
+{
+    size_t n = tam_texto(c);
+    if (n < 5) return false;
+    char e[5];
+    for (int k = 0; k < 4; k++) e[k] = (char)(c[n - 4 + k] | 0x20);
+    e[4] = 0;
+    return compara_texto(e, ".jbt") == 0 || compara_texto(e, ".blq") == 0;
+}
+
 /* .ttf .otf: la vista previa de la fuente con el botón «Instalar» (programa fuentes, D356) */
 static bool fuente_extensao(const char *c)
 {
@@ -1179,6 +1190,7 @@ static void abrir_item(int i)
         if (jclic_extensao(c)) prog = "jclic";   /* .jclic .jclic.zip: Actividades JClic (D183) */
         if (pdf_extensao(c)) prog = "visorpdf";   /* .pdf: el Visor de PDF (D138) */
         if (tucan_extensao(c)) prog = "tucan";   /* .pptx .tcn: Tucán (D369) */
+        if (jabuti_extensao(c)) prog = "jabuti";   /* .jbt .blq: Jabuti (D377) */
         if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg .mp4 .m4v: el Reproductor de vÃ­deo (D129) */
         char bin[40];
         ruta_programa(bin, sizeof bin, prog);
@@ -1712,7 +1724,7 @@ static int coluna_de_ponto(int x, int y)
 typedef struct { const char *nome; } app_t;
 static const app_t apps[] = {
     { "editor" }, { "visor" }, { "paint" }, { "markdown" },
-    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" }, { "tucan" },
+    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" }, { "tucan" }, { "jabuti" },
 };
 
 /* El programa que abrirÃ­a este archivo (la asociaciÃ³n por defecto). */

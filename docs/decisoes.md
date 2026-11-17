@@ -20018,6 +20018,23 @@ icono y entrada del menú Inicio (kernel/gui), asociación en Archivos. Ver docs
 
 **Pruebas:** `tests/h373_cipo_ui.py` (pestañas, marcadores, inicio, historial, ajustes, descargas y 1/4/12 hilos); `h47` adaptada a la barra nueva; pasan las demás del Cipó.
 
+## D377. Jabuti: programación con bloques para niños, aplicación original (v8.5.4, mejora 137, h379)
+
+**Pedido del mantenedor:** «una APP sencilla inspirada en Scratch para enseñar fundamentos de programación a niños en mi SO».
+
+**Decisión.** Una aplicación **original** en C sobre la libsagui, `jabuti` (**«Jabuti»**, la tortuga brasileña, en la línea de Pluma, Macaco y Tucán; nombre elegido por el mantenedor; la primera versión de trabajo se llamaba «Bloques»). **No es un porte de Scratch**: Scratch Desktop es Electron y su gato, su nombre y sus gráficos son marca de la Fundación Scratch; no se usa nada de ellos. Los personajes son propios (el sagui sale del arte de la mascota del escritorio, `arte_sagui`; pelota, cohete, estrella, manzana, cesta, pez y flor están dibujados en `userland/jabuti/jb_datos.c`). **GPL-3.0-or-later.**
+
+1. **Estructura.** `userland/jabuti/` (sin FPU: punto fijo con tres decimales y senos por tabla, para un Pentium II): `jb_modelo.c` (la tabla de bloques, el árbol, el fichero del proyecto y el deshacer), `jb_motor.c` (el intérprete), `jb_escena.c` (el dibujo del escenario, el lápiz y las colisiones) y `jb_datos.c` (paleta, biblioteca, trigonometría). La interfaz es `userland/programas/jabuti.c`, y la tabla de bloques con todos sus textos `userland/programas/jabuti_ops.h` (para que entren en el catálogo de traducción «jabuti»).
+2. **Bloques.** Nueve categorías con color (Eventos, Movimiento, Apariencia, Sonido, Lápiz, Control, Sensores, Operadores, Variables): 91 bloques con huecos de número, de texto, de condición (hexágono) y de lista desplegable; bloques en «C» para repetir, por siempre, si, si-no y repetir hasta; reporteros redondos y hexagonales que se anidan en los huecos; variables y listas; mensajes entre personajes; lápiz; preguntar y respuesta; sonido por `efeito_tocar` (tarjeta de sonido o bip).
+3. **Intérprete.** Cada guion que arranca es un **hilo verde** (un puntero al bloque y una pila de marcos para los bloques en C, hasta 96 hilos y 24 marcos). En cada cuadro (30 por segundo) cada hilo avanza hasta que cede el turno: al final de cada vuelta de un bucle y en los bloques que esperan (esperar, deslizar, decir con tiempo, nota, preguntar). Los personajes corren a la vez sin hilos reales. Los números son enteros con tres decimales; `dividir entre cero` y las variables o listas que no existen no detienen el programa: dan 0 y un aviso en palabras sencillas.
+4. **Interfaz.** Tres zonas (paleta, área de programa, escenario con el panel de personajes) y las pestañas Programa, Trajes y Fondos. **Arrastrar y soltar:** el bloque se encaja por sus conexiones (debajo de otro, dentro del brazo de un bloque en C, o encima de un grupo); se ve una barra blanca donde va a quedar; un bloque redondo o hexagonal cae dentro de un hueco; soltar sobre la paleta lo borra. Un clic en un bloque ejecuta ese grupo. Zoom de los bloques (tres tamaños), deshacer y rehacer (instantáneas del texto del proyecto, 40 pasos), escenario en cuatro tamaños (160x120 a 480x360; con 800x600 cabe el de 160 o 240) y pantalla completa. A 800x600 la ventana de 780x520 cabe entera.
+5. **Trajes y fondos.** Cada traje es un dibujo de 32x32 con una paleta de 31 colores (0 es transparente); cada fondo, de 48x36. Editor de pixel art con lápiz, goma, cubo, voltear, limpiar, duplicar, biblioteca e **importar un PNG, JPG, BMP o GIF** (se reduce a la rejilla, se lleva a la paleta y en los trajes el color liso del borde pasa a transparente). Hasta 16 personajes, 8 trajes y 6 fondos por proyecto.
+6. **Ficheros.** `.jbt` es un **ZIP** (los `.blq` de la primera versión de trabajo se siguen abriendo) con `proyecto.txt` (texto legible, Latin-1) y `leeme.txt`; el programa también lee el texto sin comprimir (los ejemplos van así). El formato está en `docs/jabuti.md`. Se asocia en Archivos (`.jbt` y `.blq` abren `jabuti`). Siete ejemplos en `/ejemplos/jabuti` (el sagui que salta, atrapa la fruta, dibujar formas con el lápiz, una conversación, una carrera con mensajes, la cuenta atrás del cohete, música y trajes).
+7. **Integración.** Icono propio (`arte_mini_jabuti`), entrada «Jabuti (programar jugando)» en el menú Inicio, grupo Educación, ayuda en `/ayuda/jabuti.md` (F1) y catálogos en/pt_BR. Va a `/apps/bin` con las demás aplicaciones (`APPS_MOVER_FIJO`).
+8. **Fuera de alcance, pendiente:** fuentes del sistema (D356) en los bloques (se usa la fuente de bitmap de 8x16, que va bien en equipos viejos), disfraces vectoriales, clones, listas con monitor en el escenario, bloques propios, subir a un sitio de proyectos, exportar a una página web.
+
+**Pruebas:** `tests/h379_jabuti.py`: la unidad del motor en el PC (`tests/jabuti_unidad.c`, 100 comprobaciones), los siete ejemplos sin ventana con resultados comprobables, el ZIP, y con ventana el arrastre de «al pulsar la bandera verde → repetir 10 → mover 10 pasos → girar 15 grados», la edición de una ranura, la ejecución con la posición final comprobada en el registro, guardar, cerrar, reabrir y repetir; capturas `H379-*`.
+
 ## D375. Aplicaciones con licencia incompatible con la GPL v3: repositorios públicos aparte y paquetes para /apps (propuesta, 2026-11-17)
 
 **Contexto.** El sistema publicado es GPL v3 (D260). Hay programas libres que se pueden portar pero cuya licencia no se puede
@@ -20086,6 +20103,38 @@ Guía completa en [`openttd.md`](openttd.md); prueba `tests/h377_openttd_paquete
    `partition`, `rotate`, `nth_element`, `splice`, `is_integral`, `sort` de tipos solo movibles...) con prueba en
    `tests/cxx_biblioteca_unidad.cpp`; una entrada de Inicio > Juegos en `kernel/gui/barra.c` (solo si existe `/apps/bin/openttd`).
    Pendiente para el instalador de la v9.0: tomar la entrada de menú del manifiesto.
+
+## D376. Java con miniJVM (v8.5.4, h378)
+
+**Decisión:** Java se soporta con **miniJVM** (<https://github.com/digitalgust/miniJVM>, commit fijo `76f904ea`): JVM pequeña en C
+con biblioteca de clases propia (subconjunto de Java 8) y recolector Immix. Licencia comprobada: el código de miniJVM es **MIT**;
+la biblioteca de clases (`minijvm_rt.jar`) contiene ficheros derivados de OpenJDK bajo **GPL-2.0-only con Classpath-exception**
+(el jar lleva `META-INF/{MIT_LICENSE,LICENSE,CLASSPATH_EXCEPTION,NOTICE}`). Compatible con la GPL v3 del conjunto: es un componente
+aparte, cargado como datos por la VM, y la excepción permite enlazar aplicaciones de cualquier licencia. Proyecto activo (último
+commit 2026-11-04).
+- **Fuentes** fuera de git: `tools/minijvm_fuentes.sh` (tarball del commit, SHA-256; se quitan mimalloc, sljit y mbedtls) más
+  `userland/terceros/minijvm/parches/*.patch` (`System.in` y los lectores de texto devuelven por líneas) y `plataforma/sustitutos/`.
+- **Plataforma** (`userland/terceros/minijvm/plataforma/`, propia): `pthread.h`/`pthread_sagui.c` (POSIX threads mínimos sobre
+  `SIS_HILO_CRIAR` y futex, tss con tabla por tid), `mimalloc.h` (todo al malloc común), `os_sagui.c` (sin fork/dlopen),
+  `minijvm_sustitutos.c` (sockets TCP/UDP sobre la API de red de la libsagui en lugar de mbedtls; TLS desde Java no soportado),
+  `depuracion_sagui.c` (sin JDWP ni JIT: el JIT de miniJVM ya está apagado en 32 bits), `consola_sagui.c` (UTF-8 de Java <->
+  Latin-1 del terminal, como D364), `java_main.c` (el programa `java`).
+- **Memoria:** montón por defecto 128 MB (`-Xmx` lo cambia); avisos `[INFO]` de la VM ocultos salvo `JAVA_INFO=1`.
+- **Compilar `.java`:** en el PC, `tools/javac-sagui` (JDK 17 de `tools/java_entorno.sh`, `-source 8 -target 8` con
+  `-bootclasspath minijvm_rt.jar`, así no se usa nada que miniJVM no tenga). Dentro de SaguiOS (Janino) y la biblioteca gráfica
+  `sagui.gui`: pendientes (ver `docs/java.md`).
+- **Límites:** sin Swing/AWT, sin `Runtime.exec`, sin TLS desde Java, nombres de fichero y `args` se tratan como Latin-1 -> UTF-8
+  solo en los argumentos.
+
+
+**Nota de integración (v8.5.4, antes de fusionar la 8.5.3.1, D379):** los programas `java`, `javac` y `jabuti` y el árbol
+`/apps/java/` viven en `/apps` (APPS_BINS/APPS_RECURSOS; `jabuti` en APPS_MOVER_FIJO), nunca en el ramdisk. Dependen de dónde
+quede `/apps` tras la rama de almacenamiento (initramfs + SAGUI-RAIZ): `java.mk` copia con `cp -r` a `$(B)/apps/raiz/java`, y
+el programa `java` busca sus clases por la ruta `/apps/java/` fija (`java_main.c`). Lo de Jabuti que sigue en el ramdisk/raíz
+base (unos 15 KB): `/ejemplos/jabuti/*.jbt` y `/ayuda/jabuti.md`. Al reintegrar `main`: si `/apps` pasa a ser otra partición,
+comprobar `APPS_DEP`, las rutas fijas y `tests/h378_java.py`/`h379_jabuti.py`. En esta integración, además, los sustitutos de
+sockets de miniJVM dejaron de definir `setsockopt`, `getsockopt`, `getpeername`, `getsockname` y `getaddrinfo`: ya los da la
+libc común (`libc/sockets.c`, D374).
 
 ## D379. Almacenamiento como un Unix: initramfs mínimo y raíz en disco (instalado), live desde el medio con capa escribible, «todo a RAM» solo para el CD o a petición (decidido el 2026-11-17; v8.5.3.1; mejora 035)
 
@@ -20231,3 +20280,7 @@ igual; ISO 40,7 MiB → **95,6 MiB** (la raíz con `/apps` y Freeciv sin comprim
 **Pendiente (v8.5.3.2):** compresión de la raíz en la ISO (P5); la tecla del cargador para elegir live/toram (P4/P7);
 desde la live, instalar solo «el sistema de serie» (hoy copia la raíz que se ve, con lo cambiado en la sesión); el tope
 de la capa en la RAM y lo de `sobreposicao.c` de la revisión; F (`fsck`).
+
+**Nota de integración (v8.5.4, tras la 8.5.3.1/D379):** reintegrado main; `java`, `javac`, `jabuti` y `/apps/java/` siguen
+en `/apps` (ahora dentro de la raíz SAGUI-RAIZ), las rutas fijas de `java_main.c` no cambian y `APPS_DEP` quedó igual. h378, h379,
+h324, h119, h387, h109, h81 y la batería reducida pasan (77/77).

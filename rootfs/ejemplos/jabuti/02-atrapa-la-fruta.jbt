@@ -1,0 +1,28 @@
+JABUTI 1
+# Ejemplo: atrapa la fruta. Mueve la cesta con las flechas (o con el ratón) y cuenta los puntos.
+fondo 1
+f "Blanco" biblioteca blanco
+f "Cielo" biblioteca cielo
+variable "puntos" 0 1
+personaje "Cesta" biblioteca cesta
+  pos 0 -140 90 160 1 2 0
+  guion 20 40
+    bandera
+    ir-xy 0 -140
+    siempre
+      si (tecla-pulsada "flecha derecha")
+        sumar-x 9
+      si (tecla-pulsada "flecha izquierda")
+        sumar-x -9
+personaje "Manzana" biblioteca manzana
+  pos 0 150 90 70 1 2 0
+  guion 20 40
+    bandera
+    fijar-var "puntos" 0
+    siempre
+      ir-xy (azar -200 200) 150
+      repetir-hasta (o (tocando "Cesta") (tocando "borde"))
+        sumar-y -7
+      si (tocando "Cesta")
+        cambiar-var "puntos" 1
+        sonido "moneda"
