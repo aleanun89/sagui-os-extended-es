@@ -68,6 +68,10 @@ int      vfs_fixar_datas(const char *caminho, uint32_t modificado, uint32_t aces
 
 void arquivos_herdar(struct processo *filho, struct processo *pai);
 int  arquivos_caminho(uint32_t fd, char *saida, size_t max);   /* D341: la ruta de un descriptor */
+/* D378 (fase 3): para MEM_COMPARTIR (imagens.c): ruta, tamaño y fecha de un fichero abierto para
+ * leer, y leer de él a un búfer del kernel sin mover su posición. */
+int  arquivos_imagem_info(uint32_t fd, char *caminho, size_t max, uint32_t *tamanho, uint32_t *modificado);
+int32_t arquivos_ler_em(uint32_t fd, uint32_t pos, void *buf, uint32_t n);
 
 void arquivos_fechar_todos(struct processo *p);
 

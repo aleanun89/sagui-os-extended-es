@@ -324,7 +324,7 @@ LMK_HDR := $(wildcard litemonkey/nucleo/*.h) litemonkey/plataforma.h
 LMK_PY  := $(wildcard litemonkey/python/litemonkey/*.py) litemonkey/python/lmk
 PROGRAMAS += $(B)/userland/bin/litemonkey
 # D378: las pruebas del enlace dinámico (dlprueba, dinamico y sus .so) van a /apps/testes, no al ramdisk.
-DL_PROG_TESTE := $(B)/userland/testes/dlprueba $(B)/userland/testes/dinamico
+DL_PROG_TESTE := $(B)/userland/testes/dlprueba $(B)/userland/testes/dinamico $(B)/userland/testes/compartidas
 PROG_TESTE := $(filter-out $(DL_PROG_TESTE),$(patsubst userland/testes/%.c,$(B)/userland/testes/%,$(wildcard userland/testes/*.c)))
 # O OpenTyrian (D156): um jogo de terceiros (opentyrian/opentyrian), com
 # licença GPL-2.0, por isso vive isolado em userland/terceros/opentyrian/ e
@@ -1298,7 +1298,7 @@ $(B)/userland/testes/%: $(B)/userland/testes/%.o $(LIBSAGUI_OBJ) userland/progra
 # propósito (relocaciones de texto): el cargador tiene que rechazarla.
 DL_OBJ     := $(B)/userland/libdl/ligador.o
 DL_SO_DIR  := $(B)/userland/testes/lib
-DL_TESTE_SO := $(addprefix $(DL_SO_DIR)/,libdlbase.so libdldep.so libdlsha.so libdlsha_simb.so libdlmal.so)
+DL_TESTE_SO := $(addprefix $(DL_SO_DIR)/,libdlbase.so libdldep.so libdlsha.so libdlsha_simb.so libdlmal.so libcomp_a.so libcomp_b.so)
 DL_PIC_CFLAGS := $(filter-out -fno-pic -fno-pie,$(UCFLAGS)) -fPIC -fno-tree-loop-distribute-patterns
 DL_SO_LDFLAGS := -m elf_i386 -shared -nostdlib -z now -z relro -z noseparate-code -z max-page-size=4096 -z noexecstack
 $(B)/userland/libdl/%.o: userland/libdl/%.c userland/inc/ligador.h $(USER_HDR)
@@ -1326,6 +1326,14 @@ $(DL_SO_DIR)/libdlmal.so: $(B)/userland/testes/dl/base.nopic.o
 	@mkdir -p $(dir $@)
 	$(LD) $(DL_SO_LDFLAGS) -z notext --hash-style=both -soname libdlmal.so -o $@ $<
 $(B)/userland/testes/dlprueba: $(DL_OBJ) $(B)/userland/testes/dl/sha.nopic.o $(DL_TESTE_SO)
+# D378 (fase 3, h390): libcomp.so en dos versiones del mismo tamaño (cambia una letra de un
+# texto), enlazadas como las del sistema (código y datos de solo lectura en páginas propias).
+$(B)/userland/testes/dl/comp_%.pic.o: userland/testes/dl/comp.c
+	@mkdir -p $(dir $@)
+	$(CC) $(DL_PIC_CFLAGS) -DVERSAO='"$(shell echo $* | tr a-z A-Z)"' -c -o $@ $<
+$(DL_SO_DIR)/libcomp_%.so: $(B)/userland/testes/dl/comp_%.pic.o
+	@mkdir -p $(dir $@)
+	$(LD) $(SO_LDFLAGS) -soname libcomp.so -o $@ $<
 
 # D378 fase 2: las bibliotecas del sistema como .so y el intérprete /lib/ld-sagui.so.1.
 #  - Los objetos PIC los compila una submake con B=$(B)/pic y PIC=1 (mismas reglas y banderas
@@ -1390,6 +1398,9 @@ $(B)/userland/bin/buscaminas: $(B)/userland/programas/buscaminas.o $(B)/userland
 # La prueba de la fase 2 (h386): un programa dinámico con libc.so y dlopen por el intérprete.
 $(B)/userland/testes/dinamico: $(B)/userland/testes/dinamico.o $(B)/userland/libsagui/inicio.asm.o $(LIBSAGUI_SO) $(LIBC_SO)
 	$(call enlazar_dinamico,$(B)/userland/testes/dinamico.o,$(LIBC_SO) $(LIBSAGUI_SO),--export-dynamic-symbol=anfitriao_registrar)
+# D378 (fase 3, h390): las páginas compartidas, con las tres bibliotecas del sistema.
+$(B)/userland/testes/compartidas: $(B)/userland/testes/compartidas.o $(B)/userland/libsagui/inicio.asm.o $(LIBSAGUI_SO) $(LIBC_SO) $(MEDIOS_SO)
+	$(call enlazar_dinamico,$(B)/userland/testes/compartidas.o,$(LIBC_SO) $(LIBSAGUI_SO) $(MEDIOS_SO))
 APPS_RECURSOS += lib:$(SO_APPS_DIR) testes:$(B)/apps-testes
 $(APPS_DEP): $(MEDIOS_SO) $(LIBSAGUI_SO) $(LIBC_SO) $(B)/apps-testes/.feito
 $(B)/apps-testes/.feito: $(DL_PROG_TESTE) $(DL_TESTE_SO)

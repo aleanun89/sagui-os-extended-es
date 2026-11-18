@@ -119,6 +119,45 @@ int arquivos_caminho(uint32_t fd, char *saida, size_t max)
     return 0;
 }
 
+/* D378 (fase 3, imagens.c): lo que necesita MEM_COMPARTIR de un descriptor: que sea un fichero
+ * (del árbol en RAM o de un volumen montado) abierto para leer, su ruta, su tamaño y su fecha. */
+int arquivos_imagem_info(uint32_t fd, char *caminho, size_t max, uint32_t *tamanho, uint32_t *modificado)
+{
+    arquivo_t *a = pegar(fd);
+    if (!a) return ERRO_DESCRITOR;
+    if ((a->tipo != A_NO && a->tipo != A_MONTADO) || !a->caminho) return ERRO_NAO_SUPORTADO;
+    if (!(a->modo & ABRIR_LER)) return ERRO_ACESSO;
+    if (a->tipo == A_MONTADO && !mnt_vivo(a)) return ERRO_NAO_EXISTE;
+    if (txt_tamanho(a->caminho) >= max) return ERRO_INVALIDO;
+    txt_copia_n(caminho, a->caminho, max);
+    if (a->tipo == A_NO) {
+        *tamanho = a->no->tamanho;
+        *modificado = a->no->modificado;
+    } else {
+        *tamanho = a->mnt->tamanho;
+        a->refs++;   /* puede leer el disco (dormir): como sis_ler */
+        *modificado = vfs_data_modificacao(caminho);
+        arquivo_soltar(a);
+    }
+    return 0;
+}
+
+/* D378 (fase 3): lee "n" bytes de "fd" desde "pos" a un búfer del KERNEL, sin mover la
+ * posición del descriptor. Devuelve los bytes leídos o un error. */
+int32_t arquivos_ler_em(uint32_t fd, uint32_t pos, void *buf, uint32_t n)
+{
+    arquivo_t *a = pegar(fd);
+    if (!a) return ERRO_DESCRITOR;
+    if ((a->tipo != A_NO && a->tipo != A_MONTADO) || !(a->modo & ABRIR_LER)) return ERRO_ACESSO;
+    a->refs++;   /* D167: otro hilo puede cerrarlo mientras se duerme */
+    int32_t r;
+    if (a->tipo == A_NO) r = (int32_t)vfs_ler(a->no, pos, buf, n);
+    else if (!mnt_vivo(a)) r = ERRO_NAO_EXISTE;
+    else r = a->mnt->m->fs->ler(a->mnt->m->priv, a->mnt->dados, pos, buf, n);
+    arquivo_soltar(a);
+    return r;
+}
+
 /* Los flujos de audio son descriptores (D088): cerrar el programa, o el
 
  * descriptor, silencia el flujo. */
@@ -304,8 +343,8 @@ int32_t sis_ler(uint32_t fd, uint32_t buf, uint32_t n, uint32_t d, uint32_t e)
     return r;
 }
 
-/* D371 (P14): /root se guarda en SAGUI-CONF (16 MB), junto a las contrase�as y las claves. Lo que se escribe en
- * /root no puede dejarla con menos de RAIZ_RESERVA_KB libres: una contrase�a nueva siempre tiene sitio. */
+/* D371 (P14): /root se guarda en SAGUI-CONF (16 MB), junto a las contraseñas y las claves. Lo que se escribe en
+ * /root no puede dejarla con menos de RAIZ_RESERVA_KB libres: una contraseña nueva siempre tiene sitio. */
 #define RAIZ_RESERVA_KB 4096u
 static bool raiz_sem_sitio(const arquivo_t *a, uint32_t n)
 {
@@ -389,7 +428,7 @@ int32_t sis_posicionar(uint32_t fd, uint32_t desloc, uint32_t origem, uint32_t d
 }
 
 /* truncar(fd, tamanho) (D116): reduce el archivo (libera clusters/bloques) o lo
- * aumenta rellenando con ceros. No mueve la posici�n. */
+ * aumenta rellenando con ceros. No mueve la posición. */
 int32_t sis_truncar(uint32_t fd, uint32_t tam, uint32_t c, uint32_t d, uint32_t e)
 {
     (void)c; (void)d; (void)e;

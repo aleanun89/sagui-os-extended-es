@@ -1610,6 +1610,10 @@ static void painel_mem(void)
         fmt_mb(a, sizeof a, mem.superior_livre_kb); fmt_mb(b, sizeof b, mem.superior_gerida_kb);
         CP(_("Por encima de 4 GB"), _("%s de %s"), a, b);
     }
+    if (mem.compartida_kb) {   /* D378 (fase 3): el código de las bibliotecas, una vez para todos */
+        fmt_mb(a, sizeof a, mem.compartida_kb); fmt_mb(b, sizeof b, mem.compartida_mapeada_kb);
+        CP(_("Bibliotecas compartidas"), _("%s (sin compartir: %s)"), a, b);
+    }
     unsigned m10 = qtd_hist ? hist_mem[qtd_hist - 1] : 0;
     fmt_mb(a, sizeof a, mem.usada_kb); fmt_mb(b, sizeof b, mem.gerida_kb);
     formatar_texto(t, sizeof t, _("Memoria: %s de %s (%u %%)"), a, b, (m10 + 5) / 10);

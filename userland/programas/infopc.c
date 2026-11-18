@@ -447,6 +447,10 @@ static void secao_memoria(texto_t *t)
     } else {
         ad(t, "Swap comprimida en RAM:      desactivada\n");
     }
+    /* D378 (fase 3): el código de las bibliotecas compartidas, una vez para todos. */
+    ad(t, "Bibliotecas compartidas:     %s en %u trozos (sin compartir serían %s; reutilizadas %u veces)\n",
+       tamanho(a, sizeof a, (uint64_t)m.compartida_kb << 10), m.compartida_objetos,
+       tamanho(b, sizeof b, (uint64_t)m.compartida_mapeada_kb << 10), m.compartida_reutilizadas);
     ad(t, "Paginación:                  %s; NX %s\n",
        (m.modo & MEM_MODO_PAE) ? "PAE (3 niveles, hasta 64 GB)" :
        (m.modo & MEM_MODO_CPU_PAE) ? "clásica sin PAE (desactivado al arrancar; hasta 4 GB)" :

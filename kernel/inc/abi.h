@@ -358,6 +358,16 @@ typedef struct {
 /* D352: (endereço, bytes) -> páginas del rango que están en la swap comprimida al terminar; las
  * presentes se sacan ya (como MADV_PAGEOUT de Linux; también para las pruebas). 0 sin swap. */
 #define MEM_SACAR     5
+/* D378 (fase 3): (endereço, bytes, fd << 8 | MEM_PROT_EXEC o 0, desloc) -> 1 si reutilizó páginas
+ * que ya tenía otro proceso, 0 si las cargó, o un error. Mapea de solo lectura (nunca escritura;
+ * ejecutables solo con MEM_PROT_EXEC) las páginas [desloc, desloc+bytes) del fichero abierto «fd»
+ * en [endereço, endereço+bytes) del área de datos, que tiene que estar sin asignar. Solo ficheros
+ * de root sin escritura de grupo ni de otros, con sus carpetas igual (si no, ERRO_ACESSO); lo que
+ * pasa del final del fichero queda a cero. Las páginas se comparten entre los procesos que mapean
+ * el mismo trozo del mismo fichero (comparado byte a byte). MEM_DEVOLVER las quita; MEM_PROTEGER
+ * no les cambia los permisos. Con error, el tramo puede quedar con páginas propias normales: hay
+ * que devolverlo con MEM_DEVOLVER. Es lo que usa ld-sagui para el código de las bibliotecas. */
+#define MEM_COMPARTIR 6
 #define MEM_PROT_ESCRITA 2   /* = PROT_WRITE */
 #define MEM_PROT_EXEC    4   /* = PROT_EXEC */
 
@@ -1697,10 +1707,17 @@ typedef struct {
     unsigned int troca_armazem_kb;    /* páginas del almacén (lo comprimido más el hueco entre trozos) */
     unsigned int troca_saidas;        /* páginas sacadas a la swap desde el arranque */
     unsigned int troca_entradas;      /* páginas traídas de vuelta */
+    /* D378 (fase 3): páginas de solo lectura de las bibliotecas compartidas entre procesos (el
+     * kernel las rellena si el programa pide este tamaño). Cuentan como usadas una sola vez. */
+    unsigned int compartida_kb;       /* lo que ocupan (una vez) */
+    unsigned int compartida_mapeada_kb; /* lo mapeado sumando todos los procesos */
+    unsigned int compartida_objetos;  /* trozos de fichero cargados */
+    unsigned int compartida_reutilizadas; /* veces que un proceso usó páginas que ya estaban */
 } info_memoria_t;
 #define INFO_MEMORIA_V1 16       /* bytes de la versión sin memoria alta */
 #define INFO_MEMORIA_V2 32       /* bytes de la versión sin memoria superior (D348) */
 #define INFO_MEMORIA_V3 48       /* bytes de la versión sin swap (D350) */
+#define INFO_MEMORIA_V4 72       /* bytes de la versión sin páginas compartidas (D378, fase 3) */
 #define MEM_MODO_PAE      1      /* paginación PAE (3 niveles, hasta 64 GB) */
 #define MEM_MODO_NX       2      /* NX activo: pila y montón no ejecutables */
 #define MEM_MODO_CPU_PAE  4      /* la CPU tiene PAE (aunque no se use: --sem-pae) */

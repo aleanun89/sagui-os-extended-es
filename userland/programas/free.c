@@ -73,6 +73,10 @@ int principal(int argc, char **argv)
     } else {
         imprimir("%-14s %s\n", "Swap (RAM):", "desactivada");
     }
+    /* D378 (fase 3): el código de las bibliotecas compartidas (cuenta una vez en «usado»). */
+    celda(g, sizeof g, m.compartida_kb, modo);
+    celda(u, sizeof u, m.compartida_mapeada_kb, modo);
+    imprimir("%-14s %12s  (bibliotecas, una vez; mapeado en todos los programas %s)\n", "Compartida:", g, u);
     imprimir("%-14s %12s\n", "RAM del PC:", t);
     imprimir("%-14s %s%s\n", "Paginacion:", (m.modo & MEM_MODO_PAE) ? "PAE (hasta 64 GB)" :
              (m.modo & MEM_MODO_CPU_PAE) ? "sin PAE (desactivado; hasta 4 GB)" : "sin PAE (la CPU no lo tiene; hasta 4 GB)",

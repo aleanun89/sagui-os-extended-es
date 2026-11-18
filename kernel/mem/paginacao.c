@@ -27,6 +27,7 @@
  * NX (D349, solo con PAE y si la CPU lo tiene): el mapa 1:1 por encima del fin
  * del kernel, la franja de ventanas y el APIC no son ejecutables; en los
  * programas lo deciden los llamadores con PG_NX (pila, montón, datos del ELF). */
+#include "imagens.h"
 #include "paginacao.h"
 #include "bootinfo.h"
 #include "kconf.h"
@@ -470,6 +471,10 @@ void espaco_destruir(espaco_t e)
         memfisica_liberar(pdpt[2] & END_32);
         memfisica_liberar(pdpt[3] & END_32);
     }
+    /* D378 (fase 3): las páginas compartidas (prestadas) no se liberaron arriba: bajan las
+     * cuentas de sus objetos. Ninguna CPU usa ya "e" (lo garantiza quien destruye). Antes de
+     * liberar el directorio: así su dirección no puede volver a ser otro espacio entretanto. */
+    imagens_espaco_destruido(e);
     memfisica_liberar(e);
 }
 

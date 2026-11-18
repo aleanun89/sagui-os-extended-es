@@ -108,6 +108,7 @@ typedef struct { uint32_t desloc, info; } elf_rel_t;
 #define MAX_NECESSARIAS 16
 #define MAX_PH 16
 #define MAX_PENDENTES 64
+#define MAX_COMP      8    /* tramos de páginas compartidas por biblioteca (D378, fase 3) */
 
 /* ------------------------------------------------------ biblioteca abierta */
 
@@ -131,6 +132,10 @@ typedef struct biblioteca {
     int        n_necessarias;
     uint32_t   init, init_array, init_array_tam;
     uint32_t   fini, fini_array, fini_array_tam;
+    /* D378 (fase 3): tramos [ini, fim) de la imagen que son páginas compartidas con otros
+     * procesos (de solo lectura, del kernel): ni se leen ni se relocan aquí. */
+    struct { uint32_t ini, fim; } comp[MAX_COMP];
+    int        n_comp;
 } biblioteca_t;
 
 static biblioteca_t *bibliotecas;
@@ -183,7 +188,8 @@ static biblioteca_t *bib_nova(void)
 
 static void bib_soltar(biblioteca_t *b) { reserva_usada[b - reserva] = false; }
 
-static uint8_t *paginas_pedir(uint32_t tam)
+/* Direcciones para "tam" bytes, sin asignar las páginas. */
+static uint8_t *paginas_reservar(uint32_t tam)
 {
     uint32_t r = 0;
     for (int i = 0; i < n_livres; i++)
@@ -198,15 +204,25 @@ static uint8_t *paginas_pedir(uint32_t tam)
         r = (uint32_t)memoria_paginas(MEM_RESERVAR, 0, tam);
         if (r > 0xFFFF0000u || r < 0x80000000u) return NULL;   /* un código de error */
     }
-    if (memoria_paginas(MEM_ASIGNAR, (void *)r, tam) < 0) {
-        if (n_livres < 32) { livres[n_livres].ini = r; livres[n_livres++].tam = tam; }
-        return NULL;
-    }
     return (uint8_t *)r;
+}
+
+/* D378 (fase 3): MEM_COMPARTIR (abi.h): las páginas [desloc, desloc+n) de "fd", de solo
+ * lectura y compartidas con los demás procesos que usan la misma biblioteca. */
+static int mem_compartir(uint32_t ini, uint32_t n, int fd, bool exec, uint32_t desloc)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r)
+                     : "a"(SIS_MEMORIA), "b"(MEM_COMPARTIR), "c"(ini), "d"(n),
+                       "S"((uint32_t)fd << 8 | (exec ? MEM_PROT_EXEC : 0)), "D"(desloc)
+                     : "memory");
+    return r;
 }
 
 static void paginas_devolver(uint8_t *p, uint32_t tam)
 {
+    /* Las compartidas no cambian de permisos (el kernel no lo deja) y MEM_DEVOLVER las quita
+     * también: el tramo queda sin asignar para otra biblioteca. */
     memoria_proteger(p, tam, MEM_PROT_ESCRITA);
     memoria_paginas(MEM_DEVOLVER, p, tam);
     if (n_livres < 32) { livres[n_livres].ini = (uint32_t)p; livres[n_livres++].tam = tam; }
@@ -289,6 +305,14 @@ static bool dentro(const biblioteca_t *b, uint32_t a, uint32_t n)
  * su entrada de la PLT del programa (sin sección, con valor): esa es la
  * dirección «canónica» para todos, salvo para las JMP_SLOT (que llevan a la
  * función de verdad). */
+/* D378 (fase 3): ¿toca [a, a+n) alguna página compartida de "b"? */
+static bool compartida(const biblioteca_t *b, uint32_t a, uint32_t n)
+{
+    for (int i = 0; i < b->n_comp; i++)
+        if (a < b->comp[i].fim && b->comp[i].ini < a + n) return true;
+    return false;
+}
+
 static bool definido(const biblioteca_t *b, const elf_sym_t *s, bool plt_canonica)
 {
     if ((s->info >> 4) == STB_LOCAL) return false;
@@ -374,6 +398,9 @@ static bool relocar(biblioteca_t *b, uint32_t tabela, uint32_t tam)
         if (tipo == R_386_NONE) continue;
         uint32_t *p = (uint32_t *)(b->base + r[i].desloc);
         if (!dentro(b, (uint32_t)p, 4)) { falhar("%s: relocación fuera de la imagen", b->nome, 0); return false; }
+        /* D378 (fase 3): una relocación en una página de solo lectura (compartida) sería escribir
+         * en el código de todos: con -z text no hay ninguna; si la hay, la biblioteca no vale. */
+        if (compartida(b, (uint32_t)p, 4)) { falhar("%s: relocación en una página de solo lectura", b->nome, 0); return false; }
         uint32_t s = 0;
         const elf_sym_t *def = NULL;
         const biblioteca_t *dono = NULL;
@@ -708,6 +735,74 @@ static bool pendente(biblioteca_t *b)
     return true;
 }
 
+#ifdef LD_INTERPRETE
+/* D378 (fase 3): la página "pag" (dirección del fichero) se comparte si todo lo que la toca
+ * es de segmentos sin escritura, viene entero del fichero (nada de BSS) y con el mismo
+ * desplazamiento fichero-memoria (el contenido es entonces el del fichero, igual para todos:
+ * el código PIC no se reloca). *desloc = dónde empieza en el fichero; *exec si algún segmento
+ * de la página es ejecutable (como permisos_pagina). */
+static bool pagina_compartivel(const elf_ph_t *ph, int nph, uint32_t pag, uint32_t *desloc, bool *exec)
+{
+    bool algum = false;
+    uint32_t delta = 0;
+    *exec = false;
+    for (int i = 0; i < nph; i++) {
+        if (ph[i].tipo != PT_LOAD || !ph[i].tam_memoria) continue;
+        uint32_t a = ph[i].virt > pag ? ph[i].virt : pag;
+        uint32_t b = ph[i].virt + ph[i].tam_memoria < pag + PAG ? ph[i].virt + ph[i].tam_memoria : pag + PAG;
+        if (a >= b) continue;
+        if ((ph[i].flags & PF_W) || b > ph[i].virt + ph[i].tam_arquivo) return false;
+        uint32_t d = ph[i].virt - ph[i].desloc;
+        if (algum && d != delta) return false;
+        delta = d;
+        algum = true;
+        if (ph[i].flags & PF_X) *exec = true;
+    }
+    if (!algum || (delta & (PAG - 1)) || pag < delta) return false;
+    *desloc = pag - delta;
+    return true;
+}
+
+/* Asigna las páginas de la biblioteca "b" (direcciones ya reservadas): pide al kernel
+ * (MEM_COMPARTIR) los tramos de páginas compartibles y asigna como propias las demás. Si el
+ * kernel no comparte (biblioteca que no es de root, kernel anterior, sin memoria), esas
+ * páginas también son propias, como antes de la fase 3. */
+static bool mapear_paginas(biblioteca_t *b, int fd, const elf_ph_t *ph, int nph, uint32_t menor)
+{
+    bool tentar = true;
+    b->n_comp = 0;
+    for (uint32_t p = 0; p < b->tam && tentar && b->n_comp < MAX_COMP; ) {
+        uint32_t desloc, d2;
+        bool exec, e2;
+        if (!pagina_compartivel(ph, nph, menor + p, &desloc, &exec)) { p += PAG; continue; }
+        uint32_t q = p + PAG;
+        while (q < b->tam && pagina_compartivel(ph, nph, menor + q, &d2, &e2) && e2 == exec &&
+               d2 == desloc + (q - p))
+            q += PAG;
+        int r = mem_compartir(b->base + menor + p, q - p, fd, exec, desloc);
+        if (r >= 0) {
+            b->comp[b->n_comp].ini = b->base + menor + p;
+            b->comp[b->n_comp++].fim = b->base + menor + q;
+        } else {
+            /* Con error el kernel puede dejar páginas propias a medias: fuera, para asignarlas
+             * a cero abajo. */
+            memoria_paginas(MEM_DEVOLVER, (void *)(b->base + menor + p), q - p);
+            if (r == ERRO_ACESSO || r == ERRO_INVALIDO) tentar = false;   /* no es de confianza o no se admite: todo propio */
+        }
+        p = q;
+    }
+    for (uint32_t p = 0; p < b->tam; ) {
+        uint32_t a = b->base + menor + p;
+        if (compartida(b, a, PAG)) { p += PAG; continue; }
+        uint32_t q = p + PAG;
+        while (q < b->tam && !compartida(b, b->base + menor + q, PAG)) q += PAG;
+        if (memoria_paginas(MEM_ASIGNAR, (void *)a, q - p) < 0) return false;
+        p = q;
+    }
+    return true;
+}
+#endif
+
 static biblioteca_t *carregar(const char *caminho, int profundidade)
 {
     biblioteca_t *b = NULL;
@@ -746,18 +841,41 @@ static biblioteca_t *carregar(const char *caminho, int profundidade)
     if (!b) { falhar("%s: demasiadas bibliotecas abiertas", caminho, 0); goto mal; }
     copia_texto(b->nome, caminho, sizeof b->nome);
     b->tam = (maior - menor + PAG - 1) & ~(PAG - 1);
+#ifdef LD_INTERPRETE
+    /* D378 (fase 3): lo de solo lectura, compartido con los demás procesos (el kernel); el
+     * resto, páginas propias. */
+    b->mapa = paginas_reservar(b->tam);
+    if (!b->mapa) { falhar("%s: sin memoria para cargarla", caminho, 0); goto mal; }
+    b->base = (uint32_t)b->mapa - menor;
+    if (!mapear_paginas(b, fd, ph, c.qtd_ph, menor)) { falhar("%s: sin memoria para cargarla", caminho, 0); goto mal; }
+#else
     b->mapa = paginas_pedir(b->tam);
     if (!b->mapa) { falhar("%s: sin memoria para cargarla", caminho, 0); goto mal; }
     b->base = (uint32_t)b->mapa - menor;
+#endif
     b->lim_ini = (uint32_t)b->mapa;
     b->lim_fim = (uint32_t)b->mapa + b->tam;
-    for (int i = 0; i < c.qtd_ph; i++)
-        if (ph[i].tipo == PT_LOAD && ph[i].tam_arquivo &&
-            (posicionar(fd, (int)ph[i].desloc, POS_INICIO) < 0 ||
-             ler_tudo(fd, (void *)(b->base + ph[i].virt), ph[i].tam_arquivo) < 0)) {
-            falhar("%s: fichero truncado", caminho, 0);
-            goto mal;
+    for (int i = 0; i < c.qtd_ph; i++) {
+        if (ph[i].tipo != PT_LOAD || !ph[i].tam_arquivo) continue;
+        /* Solo lo que cae en páginas propias: las compartidas ya traen el fichero. */
+        uint32_t ini = ph[i].virt, fim = ph[i].virt + ph[i].tam_arquivo;
+        while (ini < fim) {
+            uint32_t j = (ini & ~(PAG - 1)) + PAG;
+            if (j > fim) j = fim;
+            if (compartida(b, b->base + ini, j - ini)) { ini = j; continue; }
+            while (j < fim) {
+                uint32_t q = j + PAG < fim ? j + PAG : fim;
+                if (compartida(b, b->base + j, q - j)) break;
+                j = q;
+            }
+            if (posicionar(fd, (int)(ph[i].desloc + (ini - ph[i].virt)), POS_INICIO) < 0 ||
+                ler_tudo(fd, (void *)(b->base + ini), j - ini) < 0) {
+                falhar("%s: fichero truncado", caminho, 0);
+                goto mal;
+            }
+            ini = j;
         }
+    }
     fechar(fd);
     fd = -1;
 

@@ -1,6 +1,7 @@
 # 138 - Enlace dinámico de bibliotecas (.so, dlopen, ld-sagui)
 
-- **Estado:** fase 1 hecha (auditoría, diseño y prototipo de `dlopen`, D378); diseño decidido (2026-11-17); fase 2 en marcha
+- **Estado:** fases 1 y 2 hechas (publicadas en la v8.5.4.3); fase 3 (páginas compartidas en el kernel) hecha en la rama
+  `v8.5.4.5-paginas` (2026-11-18, pendiente de revisión); fases 3b-7 por hacer
 - **Prioridad:** media-alta
 - **Alta:** 2026-11-17
 
@@ -27,7 +28,11 @@ Fases: 1 `libdl` en usuario (hecha) · 2a `PT_INTERP` + `ld-sagui.so` · 2b `.so
 - [x] Medida del coste del PIC con un caso real (SHA-256: +2,2 %, +0,9 % con `-Bsymbolic-functions`)
 - [x] Decisión registrada en `docs/decisoes.md` (D378, propuesta)
 - [x] Respuestas del mantenedor a las preguntas de `enlace-dinamico.md` §11 (todas las recomendadas; 9: GPL-3.0)
-- [ ] Fases 2-7, cada una con su prueba
+- [x] Fase 2: intérprete `ld-sagui.so.1` y `.so` del sistema (`tests/h386_dinamico.py`, h247)
+- [x] Fase 3: páginas de solo lectura de las bibliotecas compartidas entre procesos en el kernel (`MEM_COMPARTIR`,
+  `kernel/mem/imagens.c`; `tests/h390_paginas_compartidas.py`: 8 hijos, sustitución en disco, W^X, sin fugas, `--smp`,
+  PAE con 6 GB, `--sem-pae`, swap). Medido: un hijo dinámico gasta 1150 KB en vez de 2450 KB
+- [ ] Fases 3b-7, cada una con su prueba
 
 ## Notas
 

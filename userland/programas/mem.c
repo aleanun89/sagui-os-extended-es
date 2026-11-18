@@ -30,6 +30,9 @@ int principal(int argc, char **argv)
     } else {
         imprimir("Swap comprimida:            desactivada\n");
     }
+    /* D378 (fase 3): el código de las bibliotecas, una vez para todos los programas. */
+    imprimir("Bibliotecas compartidas:    %u KB en %u trozos (mapeados %u KB en total)\n", m.compartida_kb,
+             m.compartida_objetos, m.compartida_mapeada_kb);
     imprimir("Paginacion:                 %s, NX %s\n", (m.modo & MEM_MODO_PAE) ? "PAE" : "sin PAE",
              (m.modo & MEM_MODO_NX) ? "activo" : "no");
     return 0;

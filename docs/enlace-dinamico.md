@@ -7,7 +7,8 @@ prueba `tests/h385_dlopen.py`.
 
 Índice: 1. Estado actual medido · 2. Qué se gana y qué cuesta · 3. Diseño propuesto · 4. Memoria y kernel ·
 5. Seguridad · 6. Bibliotecas y convivencia con lo estático · 7. Rendimiento del PIC · 8. Compiladores ·
-9. Plan por fases · 10. Licencias · 11. Preguntas para el mantenedor · 12. El prototipo.
+9. Plan por fases · 10. Licencias · 11. Preguntas para el mantenedor · 12. El prototipo · 13. Fase 2 ·
+14. Revisión de seguridad de la fase 2 · 15. Fase 3 (páginas compartidas).
 
 ---
 
@@ -151,6 +152,9 @@ salta a la entrada del intérprete. `AT_SECURE=1` si el proceso es root o un eje
 
 **Objetivo:** que el código y los datos de solo lectura de una biblioteca (y del ejecutable) estén **una vez** en la RAM
 aunque los usen N procesos.
+
+> **Hecho en la v8.5.4.5 (2026-11-18):** ver §15 — lo que se hizo y en qué difiere de esta propuesta (comparación byte a
+> byte en vez de confiar solo en la clave, objeto liberado al llegar a cero sin LRU, ejecutables sin compartir todavía).
 
 **Diseño recomendado: «imágenes compartidas» de solo lectura, sin copia al escribir.**
 1. Una tabla del kernel de **objetos imagen**: clave = (disco, nº de fichero o primer bloque, tamaño, fecha de
@@ -501,3 +505,107 @@ las rutas comprueban el `NULL` y devuelven error.
 **Hecho al integrar la 8.5.3.1 (D378, nota de integración):** la raíz SAGUI-RAIZ sale con esos dueños (`normalizar_donos`,
 y sin debugfs no se hace); el instalador fuerza `/lib`, `/apps` y `/apps/lib` a root sin escritura de otros
 (`blindar_raiz`); el ligador excluye `/apps/vps` y las carpetas con `..` de la búsqueda por nombre (`carpeta_excluida`).
+
+## 15. Fase 3: páginas compartidas (v8.5.4.5, hecha el 2026-11-18)
+
+**Qué se comparte:** las páginas de una biblioteca que solo tocan segmentos sin escritura, enteras dentro de la parte
+del fichero (sin BSS) y con el mismo desplazamiento fichero-memoria. Con el `-z separate-code` por defecto del `ld`, eso
+son las cabeceras y `.dynsym`/`.dynstr`/`.gnu.hash`/`.rel.*` (R), el código y la PLT (RX) y `.rodata`/`.eh_frame` (R).
+Lo escribible (`.data`, `.got`, `.data.rel.ro` antes de la RELRO, `.bss`) sigue privado de cada proceso, como antes: el
+código PIC no se reloca, así que **no hace falta copia al escribir** (tampoco hay `fork`).
+
+**Kernel (`kernel/mem/imagens.c`, llamada `SIS_MEMORIA` / `MEM_COMPARTIR`):**
+`memoria(MEM_COMPARTIR, dirección, bytes, fd << 8 | MEM_PROT_EXEC o 0, desplazamiento)` mapea de solo lectura las páginas
+`[desloc, desloc+bytes)` del fichero abierto `fd` en un tramo **sin asignar** del área de datos. Pasos:
+1. Comprobaciones sin tocar nada: el descriptor es un fichero (árbol en RAM o volumen montado) abierto para leer; el
+   fichero y todas sus carpetas hasta `/` son de root, sin escritura de grupo ni de otros, en un sistema con dueños (si
+   no, `ERRO_ACESSO` y el intérprete carga esas páginas como propias); el tramo está sin asignar y sin mapas viejos.
+2. Se asignan páginas **privadas** del proceso en el tramo (de solo lectura para él, con NX salvo `MEM_PROT_EXEC`) y se
+   lee el fichero en ellas por un búfer puente del kernel (protegido por un `trava_t`, a prueba de dueño muerto). Es lo
+   único que duerme: si el proceso muere aquí, las páginas son suyas y se van con su espacio; no queda nada a medias.
+3. Ya sin dormir (cerrojo general, D165): se busca un objeto con la misma clave (hash de la ruta, tamaño y fecha del
+   fichero, desplazamiento, páginas y ejecución) y se **compara byte a byte** con lo leído. Si es igual, se mapean sus
+   páginas (`PG_USUARIO | PG_EMPRESTADA`, sin `PG_ESCRITA`; NX si no es código), se sincroniza la TLB de las demás CPU y
+   se liberan las privadas. Si la clave coincide pero el contenido no (fichero cambiado sin cambiar su fecha ni su
+   tamaño), ese objeto se aparta (nadie más lo encuentra; los procesos que ya lo tienen siguen con él) y las páginas
+   recién leídas pasan a ser un objeto nuevo (solo se marca `PG_EMPRESTADA`, sin pasar por P=0).
+
+**Por qué la comparación:** con ella, una página compartida nunca tiene otro contenido que el que el proceso habría leído
+él mismo del fichero: ni una biblioteca sustituida en el disco (aunque sea en el mismo segundo y con el mismo tamaño) ni
+un fichero modificado a la vez se pueden «colar» a otro proceso. Cuesta lo mismo que leer el fichero (que ya se hacía) más
+un `memcmp` por página; ahorra la RAM, no el tiempo.
+
+**Cuenta de referencias:** una lista de mapas (espacio, dirección, páginas, páginas aún mapeadas, objeto); cada mapa es una
+referencia. Se sueltan en `espaco_destruir` (cuando ninguna CPU usa ya el espacio: lo garantiza quien destruye, D165/D167)
+y con `MEM_DEVOLVER` (quita solo las entradas con el marco del objeto, sincroniza la TLB y después baja la cuenta; un
+mapa queda vivo mientras le quede alguna página). Con la cuenta a cero, el objeto y sus páginas se liberan enseguida (sin
+LRU por ahora: un programa que se abre y cierra vuelve a leer, como antes). `PG_EMPRESTADA` hace que `espaco_destruir`,
+`espaco_tirar` (`MEM_DEVOLVER`), `espaco_ajustar` (`MEM_PROTEGER`: no se puede dar escritura ni ejecución), la swap (D352)
+y `MEM_SACAR` no las toquen. Los hilos comparten el espacio de su líder: la lista va por espacio, no por proceso.
+
+**Swap:** las páginas compartidas no se sacan (son limpias y se podrían soltar y releer, pero no hace falta todavía). Las
+privadas del tramo sí pueden salir mientras se lee el fichero: se vuelven a traducir después de cada lectura.
+
+**PAE / sin PAE / memoria alta:** las páginas salen de `memfisica_alocar_usuario` (superior, alta o baja) y se tocan solo
+por ventanas (`fisica_escrever`, `fisica_mapear`); las entradas se escriben con `espaco_mapear`/`pte_mudar`/`pte_esvaziar`,
+que saben el tamaño de la entrada. **SMP:** todo con el cerrojo general; un hilo en otra CPU que toque el tramo justo
+cuando cambia de marco ve un fallo de página que, con el cerrojo, encuentra la entrada presente y repite la instrucción
+(`troca_trazer` devuelve `TROCA_PRESENTE`). **W^X:** las compartidas nunca tienen escritura (ni el kernel con `CR0.WP`,
+ni `usuario_ok(..., true)`); las de datos llevan NX.
+
+**Intérprete (`ligador.c`, solo en `ld-sagui`):** reserva las direcciones de la biblioteca, pide con `MEM_COMPARTIR` los
+tramos compartibles (`pagina_compartivel`: mismo criterio que arriba; hasta 8 tramos por biblioteca), asigna como propias
+las demás páginas y solo lee del fichero lo que cae en ellas. Una relocación dentro de un tramo compartido es un error
+(con `-z text` no hay ninguna). Si el kernel no comparte (no es de confianza, kernel anterior, sin memoria), todo es
+propio como en la fase 2. El `libdl` estático (programas estáticos con `dlopen`) no comparte: sus páginas salen del malloc.
+
+**Cuentas:** `INFO_MEMORIA` añade `compartida_kb` (lo que ocupan, una vez), `compartida_mapeada_kb` (sumando todos los
+procesos), `compartida_objetos` y `compartida_reutilizadas` (versión 5 de la estructura; los programas anteriores piden
+72 bytes y no los reciben). `INFO_PROCESSOS` cuenta a cada proceso solo su parte de cada objeto (lo mapeado entre los
+procesos que lo usan; uno que solo usa él se le cuenta entero): así la suma no las repite. `free` («Compartida»), `mem`, `infopc` y el Administrador de tareas («Bibliotecas compartidas») las muestran.
+
+**Medido (h390, KVM, 2 GB):** el propio programa de prueba comparte 1032 KB en 9 objetos (libsagui 248 KB, medios
+700 KB, libc 84 KB; tres tramos cada una). Con 8 hijos más (que también usan `libcomp.so`, 268 KB): lo compartido pasa a
+1300 KB y no crece con los hijos; cada hijo gasta **1150 KB** de verdad en vez de **2450 KB** (−53 %; lo que queda es
+sobre todo la BSS de 376 KB de libsagui_medios, la pila y el montón). El Administrador de tareas le cuenta 1216 KB (su parte de lo compartido incluida).
+
+**Pruebas:** `tests/h390_paginas_compartidas.py` con `/apps/testes/compartidas` y `libcomp_a.so`/`libcomp_b.so` (iguales
+salvo una letra): `MEM_COMPARTIR` directo (un fichero de `/tmp` no se comparte, nunca con escritura, no encima de páginas
+asignadas, `MEM_SACAR` no las saca, `MEM_DEVOLVER` las quita); 8 hijos; sustitución en el disco con el mismo tamaño y la
+misma fecha (el hijo nuevo ve la B, los viejos siguen con la A); escribir en texto y código compartidos (también tras
+`MEM_PROTEGER`) mata al hijo; al terminar todo vuelve; 20 vueltas de 4 hijos sin fugas. Variantes: `smp` (4 CPU),
+`pae6g` (páginas por encima de 4 GB), `sempae` (3 GB) y `presion` (512 MB: 640 MB del padre, la swap saca 160 MB de
+privadas mientras 4 hijos comprueban sus páginas compartidas).
+
+**Huecos entre segmentos:** la última página de un segmento compartido lleva lo que el fichero tenga después (p. ej. el
+principio de `.data` en la de `.rodata`), no ceros como en la fase 2. Nadie lo lee (está fuera de todo segmento) y son
+bytes que el proceso ya podía leer del fichero.
+
+**Revisión independiente (2026-11-18) y lo corregido:**
+- **B1 (bloqueante): alias escribible.** Con dos hilos, mientras uno dormía en `MEM_COMPARTIR` leyendo el fichero, el otro
+  podía dar escritura a las páginas privadas del tramo con `MEM_PROTEGER` (dar permisos no espera a la barrera D351); el
+  objeto nuevo se quedaba con esas entradas escribibles y, más tarde, otro proceso (también root) lo reutilizaba: código
+  parcheado. Ahora cada entrada tiene que ser **exactamente** la puesta (presente, no en la swap, propia, sin escritura y
+  con la NX pedida) después de cada lectura y otra vez antes de compartir; si no, `ERRO_INVALIDO` y el tramo queda sin
+  asignar. El objeto nuevo reescribe sus entradas con sus permisos y sincroniza la TLB de todas las CPU antes de entrar
+  en la lista. h390 (parte 7): un hilo pide escritura sin parar mientras otro comparte 150 veces; con `--smp` y sin caché
+  de disco la carrera se da las 150 veces y las 150 se rechazan; ningún alias; un nieto reutiliza el objeto y lo ve igual
+  al fichero.
+- **I1: fijar memoria con cualquier fichero de root.** Ahora solo un ELF ET_DYN de i386 y solo páginas dentro de lo que el
+  fichero guarda de un PT_LOAD sin escritura (redondeado a páginas); tope global de una cuarta parte de la RAM
+  (`ERRO_LIMITE`, y `ld-sagui` carga esas páginas como propias); y `INFO_PROCESSOS` cobra a cada proceso su parte.
+- **Segunda pasada:** el tope se vuelve a mirar al crear el objeto; y, si la llamada falla después de dormir, las páginas
+  del tramo **no se quitan** (otro hilo podía estar dormido en una llamada con un puntero ya comprobado dentro: fallo de
+  página del kernel, visto en h390 `smp`): quedan como propias normales (RW, NX) y quien llama las devuelve con
+  `MEM_DEVOLVER`, que sí espera a la barrera D351 (`ld-sagui` lo hace siempre que hay error).
+- Menores: `kernel/fs/arquivos.c` entero en UTF-8; búfer de lectura por llamada (sin cerrojo); mapas en listas por espacio
+  (`MEM_DEVOLVER` y la destrucción solo miran las del suyo); los objetos se sueltan antes de liberar el directorio.
+
+**Riesgos y límites que quedan:**
+- Las páginas compartidas no se pueden sacar a la swap: un programa puede fijar como mucho una cuarta parte de la RAM con
+  partes de solo lectura de `.so` de root (y se le cobran en el Administrador de tareas).
+- Sin LRU: un objeto se libera con su último proceso; abrir y cerrar el mismo programa vuelve a leer la biblioteca.
+- Los ejecutables y el intérprete (que carga el kernel con `vfs_ler_inteiro`) no se comparten todavía: el siguiente paso
+  natural, con el mismo módulo, si `/bin` pasa a dinámico (fase 3b).
+- La comprobación de confianza es por la ruta con la que se abrió el descriptor; como el contenido se compara, solo decide
+  qué se comparte, no qué contenido ve un proceso.

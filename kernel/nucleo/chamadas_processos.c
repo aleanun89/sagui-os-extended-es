@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /* chamadas_processos.c - llamadas de los grupos "procesos" y "diversas". */
+#include "imagens.h"
 #include "irq_rotas.h"
 #include "aparencia.h"
 #include "acel2d.h"
@@ -117,8 +118,8 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_MEMORIA) {
         info_memoria_t *m = (info_memoria_t *)ptr;
         /* D348/D349: los campos de la memoria alta y la superior solo si el programa los pide (n). */
-        bool v2 = n >= INFO_MEMORIA_V2, v3 = n >= INFO_MEMORIA_V3, v4 = n >= sizeof *m;
-        if (!usuario_ok(m, v4 ? sizeof *m : v3 ? INFO_MEMORIA_V3 : v2 ? INFO_MEMORIA_V2 : INFO_MEMORIA_V1, true))
+        bool v2 = n >= INFO_MEMORIA_V2, v3 = n >= INFO_MEMORIA_V3, v4 = n >= INFO_MEMORIA_V4, v5 = n >= sizeof *m;
+        if (!usuario_ok(m, v5 ? sizeof *m : v4 ? INFO_MEMORIA_V4 : v3 ? INFO_MEMORIA_V3 : v2 ? INFO_MEMORIA_V2 : INFO_MEMORIA_V1, true))
             return ERRO_ENDERECO;
         estat_memoria_t est;
         memoria_estatisticas(&est);
@@ -151,6 +152,14 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
             m->troca_saidas = t.saidas;
             m->troca_entradas = t.entradas;
         }
+        if (v5) {   /* D378 (fase 3): páginas compartidas de las bibliotecas */
+            imagens_est_t im;
+            imagens_estatisticas(&im);
+            m->compartida_kb = im.paginas * 4;
+            m->compartida_mapeada_kb = im.mapeadas * 4;
+            m->compartida_objetos = im.objetos;
+            m->compartida_reutilizadas = im.reutilizadas;
+        }
         return 0;
     }
     if (tipo == INFO_PROCESSOS) {
@@ -164,7 +173,10 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
             v[k].pid = p->pid;
             v[k].pai = p->pai;
             v[k].estado = p->estado;
-            v[k].memoria_kb = (p->usuario && p->estado != P_ZUMBI ? espaco_paginas_usuario(p->espaco) * 4 : 0)
+            /* D378 (fase 3): de las páginas compartidas de las bibliotecas, solo su parte (las de un
+             * objeto entre los procesos que lo usan): así la suma de todos no las repite. */
+            v[k].memoria_kb = (p->usuario && p->estado != P_ZUMBI ?
+                               (espaco_paginas_usuario(p->espaco) - imagens_paginas_alheias(p->espaco)) * 4 : 0)
                               + (p->pid ? PILHA_KERNEL / 1024 : 0);
             uint32_t tiques = p->tiques_cpu;   /* D167: el de todos sus hilos */
             for (int h = 1; h < MAX_PROCESSOS; h++) {
@@ -408,7 +420,6 @@ static bool rango_de_dados(const processo_t *l, uint32_t ini, uint32_t n)
 
 int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t e)
 {
-    (void)e;
     processo_t *l = processo_recursos();
     if (op == MEM_RESERVAR) {
         uint32_t base = (l->dados_fim + PAGINA - 1) & ~(PAGINA - 1);
@@ -449,8 +460,15 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
     }
     if (op == MEM_SACAR)   /* D352 */
         return (int32_t)troca_sacar_faixa(l->espaco, ini, ini + n);
+    if (op == MEM_COMPARTIR) {   /* D378 (fase 3): d = fd << 8 | MEM_PROT_EXEC o 0; e = desplazamiento */
+        if (d & 0xFF & ~(uint32_t)MEM_PROT_EXEC) return ERRO_INVALIDO;   /* nunca escritura */
+        if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351: va a cambiar marcos del rango */
+        return imagens_mapear(l, ini, n, d >> 8, (d & MEM_PROT_EXEC) != 0, e);
+    }
     if (op != MEM_DEVOLVER) return ERRO_INVALIDO;
     if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351 */
+    /* D378 (fase 3): las páginas compartidas del rango (espaco_tirar no quita las prestadas). */
+    uint32_t compartidas = imagens_desmapear(l->espaco, ini, ini + n);
     fis_t fisicas[MEM_LOTE];
     uint32_t devolvidas = 0;
     uint32_t v = ini, fim = ini + n;
@@ -467,7 +485,7 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
         for (uint32_t i = 0; i < k; i++) memfisica_liberar(fisicas[i]);
         devolvidas += k;
     }
-    return (int32_t)devolvidas;
+    return (int32_t)(devolvidas + compartidas);
 }
 
 /* D216: con servicios en marcha, el reinicio lo hace la tarea "apagar" del

@@ -20550,3 +20550,53 @@ comillas o salto de línea en la raíz es un error. Pruebas: h387 L (dos `.so` s
 la raíz instalada). **Pendiente (M4):** `carpeta_excluida` compara la ruta tal cual; `/apps//vps` o `/apps/./vps` en
 `SAGUI_LIB_CAMINHO` de una cuenta normal no se excluyen (solo afecta a procesos no seguros de esa misma cuenta, que ya
 pueden cargar lo suyo; en los seguros `de_confianza` lo rechaza igual).
+
+**Fase 3: páginas compartidas en el kernel (v8.5.4.5, hecha el 2026-11-18; detalle en `enlace-dinamico.md` §15).**
+Pendiente de la revisión independiente (Opus) antes de fusionar. Diseño decidido:
+- **Qué:** las páginas de una `.so` que solo tocan segmentos sin escritura, enteras dentro del fichero (sin BSS) y con el
+  mismo desplazamiento fichero-memoria (cabeceras y tablas dinámicas, código y PLT, `.rodata`) se cargan **una vez** y se
+  comparten de **solo lectura, sin copia al escribir**; lo escribible (`.data`, GOT, RELRO, `.bss`) sigue privado (el
+  código PIC no se reloca y no hay `fork`). Ejecutables e intérprete, todavía no (siguiente paso, con `/bin`, fase 3b).
+- **Llamada:** `SIS_MEMORIA` / `MEM_COMPARTIR` (dirección, bytes, `fd << 8 | MEM_PROT_EXEC o 0`, desplazamiento), solo en
+  un tramo sin asignar del área de datos y **nunca con escritura**. La pide `ld-sagui` por tramos (hasta 8 por biblioteca);
+  si falla, esas páginas son propias como en la fase 2 (también con un kernel anterior).
+- **Identificación sin «envenenamiento»:** clave = hash de la ruta + tamaño + fecha del fichero + desplazamiento + páginas
+  + ejecución, **y además comparación byte a byte** con lo que el proceso acaba de leer del fichero. Nuestro VFS no tiene
+  número de inodo común a todos los sistemas de archivos ni fechas de menos de un segundo: con la comparación, una
+  biblioteca sustituida (aunque sea en el mismo segundo y con el mismo tamaño) nunca da páginas viejas a un proceso nuevo;
+  el objeto viejo se aparta y lo conservan solo quienes ya lo tenían. Además, solo se comparten ficheros **de confianza**
+  (de root sin escritura de grupo ni de otros, con todas sus carpetas hasta `/`, en un sistema con dueños: como
+  `de_confianza` e `interp_confiavel`); los demás se cargan como propios.
+- **Sin estados a medias:** el fichero se lee primero en páginas **privadas** del proceso (lo único que duerme; si el
+  proceso muere, se van con su espacio) y después, ya con el cerrojo general y sin dormir, se compara y se mapean las del
+  objeto (o las privadas pasan a ser el objeto nuevo, marcando solo `PG_EMPRESTADA`).
+- **Cuenta de referencias:** por mapa (espacio, tramo, objeto) en una lista del kernel; baja en `espaco_destruir` (ninguna
+  CPU usa ya el espacio) y en `MEM_DEVOLVER` (entrada a 0, TLB de las demás CPU sincronizada, después la cuenta). Con la
+  cuenta a cero el objeto se libera enseguida (sin LRU). Las entradas llevan `PG_EMPRESTADA`, así que `espaco_destruir`,
+  `MEM_DEVOLVER`, `MEM_PROTEGER` (no se puede dar escritura ni ejecución), la swap y `MEM_SACAR` no las tocan.
+- **Swap:** las compartidas no se sacan (límite aceptado: fijan memoria; solo partes de solo lectura de `.so` de root,
+  como mucho una cuarta parte de la RAM). **PAE/sin PAE/alta:** páginas de `memfisica_alocar_usuario`, tocadas por
+  ventanas; entradas por las funciones de `paginacao.c`. **SMP:** todo con el cerrojo general; una CPU que falle en el
+  tramo mientras cambia de marco encuentra la entrada presente y repite (`TROCA_PRESENTE`).
+- **Cuentas:** `INFO_MEMORIA` v5 (`compartida_kb`, `compartida_mapeada_kb`, `compartida_objetos`,
+  `compartida_reutilizadas`); `INFO_PROCESSOS` cuenta a cada proceso solo su parte de cada objeto. Lo muestran `free`,
+  `mem`, `infopc` y el Administrador de tareas.
+- **Medido (h390, KVM):** 8 hijos dinámicos: lo compartido se queda en 1300 KB (no crece con los hijos) y cada hijo gasta
+  1150 KB en vez de 2450 KB (−53 %).
+- **Revisión independiente (2026-11-18), corregido:** **B1** (bloqueante): un segundo hilo podía dar escritura con
+  `MEM_PROTEGER` a las páginas privadas del tramo mientras `MEM_COMPARTIR` dormía leyendo, y el objeto nuevo quedaba con
+  un alias escribible que después reutilizaba otro proceso. Ahora la entrada tiene que ser exactamente la puesta (sin
+  escritura, NX pedida, no en la swap) tras cada lectura y antes de compartir (si no, `ERRO_INVALIDO`), y el objeto nuevo
+  reescribe sus entradas y sincroniza la TLB antes de entrar en la lista; h390 parte 7 lo prueba (con `--smp` y sin caché
+  de disco, 150 de 150 carreras rechazadas). **I1:** solo ELF ET_DYN y dentro de sus PT_LOAD sin escritura (antes valía
+  cualquier fichero 644 de root), tope global de un cuarto de la RAM, e `INFO_PROCESSOS` cobra a cada proceso su parte de
+  cada objeto (antes se le restaban todas). Menores: `kernel/fs/arquivos.c` a UTF-8, búfer por llamada sin cerrojo, mapas
+  por espacio, objetos soltados antes de liberar el directorio; la última página de un segmento compartido lleva los
+  bytes siguientes del fichero (no ceros). **Segunda pasada (2026-11-18):** el tope de un cuarto de la RAM se vuelve a
+  mirar al crear el objeto (varios procesos durmiendo a la vez podían pasarlo); y la nueva prueba de la carrera destapó
+  un fallo más: si `MEM_COMPARTIR` fallaba después de dormir, quitaba las páginas mientras otro hilo podía estar dormido
+  en una llamada con un puntero ya comprobado dentro del tramo (pantalla de error del kernel, la barrera D351 solo se
+  miró al entrar). Ahora, tras dormir, las páginas no se quitan: quedan como propias normales (RW, NX) y quien llama las
+  devuelve con `MEM_DEVOLVER` (lo hace `ld-sagui`). h390 `smp` exige que la carrera se dé (149 de 150 rechazadas, la
+  escritura dada de verdad 459 veces). Prueba `tests/h390_paginas_compartidas.py` (normal, `--smp` con 4 CPU, PAE con 6 GB,
+  `--sem-pae`, swap con 512 MB).
