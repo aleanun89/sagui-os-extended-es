@@ -16,6 +16,7 @@
 #include "SDL_mixer.h"
 #include "audio_formato.h"
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,6 +30,7 @@ typedef struct {
     int vol;             /* 0..128 */
     int pausado;
     int activo;
+    int pan_i, pan_d;      /* panorama 0..255 por lado (D383, Mix_SetPanning) */
     long limite;         /* cuadros que quedan hasta parar (-1 = sin límite) */
     long fade_total, fade_resta;   /* fundido de salida en cuadros */
 } canal_t;
@@ -38,6 +40,7 @@ struct _Mix_Music {
     unsigned char *datos;   /* el fichero entero (Ogg) */
     size_t n;
     char ruta[160];         /* para MP3/FLAC/WAV/MIDI */
+    int copia;              /* ruta es una copia propia en /tmp (MIDI): se borra al liberar (D383) */
 };
 
 static int abierto, dev_freq, dev_ch, dev_bloque;
@@ -68,6 +71,11 @@ static struct {
 } mus;
 
 /* ------------------------------------------------------------------ conversión */
+static void (*gancho_musica)(void *, Uint8 *, int);
+static void *gancho_datos;
+static struct { Mix_EffectFunc_t f; void *datos; } post[4];
+static int n_post;
+
 static int16_t clip16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : (int16_t)v; }
 
 /* PCM de origen (cuadros intercalados, sch canales, srate) -> PCM del dispositivo (malloc). */
@@ -161,7 +169,10 @@ static void mezclar_callback(void *ud, Uint8 *stream, int len)
             for (int i = 0; i < f * dev_ch; i++) {
                 int v = vol;
                 if (c->fade_total > 0) v = (int)((long long)vol * c->fade_resta / c->fade_total);
-                acum[fr_hechos * dev_ch + i] += s[i] * v / 128;
+                int sv = s[i] * v / 128;
+                if (dev_ch == 2 && (c->pan_i | c->pan_d) && (c->pan_i != 255 || c->pan_d != 255))
+                    sv = sv * ((i & 1) ? c->pan_d : c->pan_i) / 255;
+                acum[fr_hechos * dev_ch + i] += sv;
                 if (c->fade_total > 0 && (i % dev_ch) == dev_ch - 1 && c->fade_resta > 0) c->fade_resta--;
             }
             c->pos += (Uint32)(f * bps);
@@ -231,7 +242,15 @@ static void mezclar_callback(void *ud, Uint8 *stream, int len)
         if (!mus.activa && al_acabar_musica) al_acabar_musica();
     }
 
+    if (gancho_musica) {   /* Mix_HookMusic: la música la genera el programa (D383) */
+        static int16_t gm[8192];
+        int nb = total * 2 < (int)sizeof gm ? total * 2 : (int)sizeof gm;
+        memset(gm, 0, sizeof gm);
+        gancho_musica(gancho_datos, (Uint8 *)gm, nb);
+        for (int i = 0; i < nb / 2; i++) acum[i] += gm[i];
+    }
     for (int i = 0; i < total; i++) out[i] = clip16(acum[i]);
+    for (int e = 0; e < n_post; e++) post[e].f(MIX_CHANNEL_POST, out, total * 2, post[e].datos);
     for (int k = 0; k < nac; k++) if (al_acabar_canal) al_acabar_canal(acabados[k]);
 }
 
@@ -246,7 +265,7 @@ int Mix_AllocateChannels(int n)
     canal_t *nc = realloc(canales, (size_t)(n ? n : 1) * sizeof *nc);
     if (!nc) return ncanales;
     for (int i = ncanales; i < n; i++) memset(&nc[i], 0, sizeof nc[i]);
-    for (int i = 0; i < n; i++) if (i >= ncanales) nc[i].vol = MIX_MAX_VOLUME;
+    for (int i = 0; i < n; i++) if (i >= ncanales) { nc[i].vol = MIX_MAX_VOLUME; nc[i].pan_i = nc[i].pan_d = 255; }
     canales = nc;
     ncanales = n;
     return n;
@@ -285,6 +304,8 @@ void Mix_CloseAudio(void)
     if (--abierto > 0) return;
     Mix_HaltChannel(-1);
     Mix_HaltMusic();
+    n_post = 0;   /* los efectos post-mix se registran de nuevo al reabrir */
+    gancho_musica = NULL;
     SDL_CloseAudio();
     free(acum); acum = NULL;
 }
@@ -468,6 +489,29 @@ Mix_Music *Mix_LoadMUS(const char *ruta)
     if (!m) return NULL;
     m->tipo = fmt == AUDIO_FMT_MP3 ? MUS_MP3 : fmt == AUDIO_FMT_FLAC ? MUS_FLAC : fmt == AUDIO_FMT_MIDI ? MUS_MID : MUS_WAV;
     strncpy(m->ruta, ruta, sizeof m->ruta - 1);
+    if (m->tipo == MUS_MID) {
+        /* Los programas (Chocolate Doom) borran el MIDI temporal justo después de cargarlo: se guarda una copia
+         * propia, que se borra con Mix_FreeMusic (D383). */
+        char c[64];
+        strcpy(c, "/tmp/mixmus-XXXXXX");   /* mkstemp: nombre único y nuevo (nunca un fichero ajeno) */
+        int fd = mkstemp(c);
+        FILE *o = fopen(ruta, "rb");
+        int ok = fd >= 0 && o;
+        if (ok) {
+            char b[1024];
+            size_t k;
+            while (ok && (k = fread(b, 1, sizeof b, o)) > 0)
+                if (write(fd, b, k) != (ssize_t)k) ok = 0;
+        }
+        if (o) fclose(o);
+        if (fd >= 0 && close(fd) != 0) ok = 0;
+        if (ok) {
+            strncpy(m->ruta, c, sizeof m->ruta - 1);
+            m->copia = 1;
+        } else if (fd >= 0) {
+            remove(c);   /* sin copia: se sigue con la ruta original (si el programa no la borra, suena igual) */
+        }
+    }
     return m;
 }
 
@@ -475,6 +519,7 @@ void Mix_FreeMusic(Mix_Music *m)
 {
     if (!m) return;
     if (mus.m == m) musica_cerrar();
+    if (m->copia) remove(m->ruta);
     free(m->datos);
     free(m);
 }
@@ -538,3 +583,31 @@ int Mix_PausedMusic(void) { return mus.pausada; }
 int Mix_PlayingMusic(void) { return mus.activa; }
 Mix_Fading Mix_FadingMusic(void) { return mus.fade_total > 0 && mus.activa ? MIX_FADING_OUT : MIX_NO_FADING; }
 void Mix_HookMusicFinished(void (*f)(void)) { al_acabar_musica = f; }
+
+/* ---- añadidos para Chocolate Doom (D383) ---- */
+int Mix_OpenAudioDevice(int frecuencia, Uint16 formato, int canales_, int tam_bloque, const char *dispositivo, int cambios)
+{
+    (void)dispositivo; (void)cambios;
+    return Mix_OpenAudio(frecuencia, formato, canales_, tam_bloque);
+}
+
+int Mix_SetPanning(int canal, Uint8 izq, Uint8 der)
+{
+    if (canal < 0 || canal >= ncanales) return 0;
+    canales[canal].pan_i = izq; canales[canal].pan_d = der;
+    if (!izq && !der) canales[canal].pan_i = canales[canal].pan_d = 255;
+    return 1;
+}
+
+void Mix_HookMusic(void (*f)(void *, Uint8 *, int), void *datos) { gancho_musica = f; gancho_datos = datos; }
+
+int Mix_RegisterEffect(int canal, Mix_EffectFunc_t f, Mix_EffectDone_t fin, void *datos)
+{
+    (void)fin;
+    if (canal != MIX_CHANNEL_POST || n_post >= 4) return 0;
+    post[n_post].f = f; post[n_post].datos = datos; n_post++;
+    return 1;
+}
+
+int Mix_SetMusicCMD(const char *cmd) { (void)cmd; return 0; }
+int Mix_SetMusicPosition(double segundos) { (void)segundos; return -1; }

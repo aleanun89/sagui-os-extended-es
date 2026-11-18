@@ -309,6 +309,7 @@ int  SDL_FillRect(SDL_Surface *d, const SDL_Rect *r, Uint32 cor);
 int  SDL_FillRects(SDL_Surface *d, const SDL_Rect *rs, int n, Uint32 cor);
 int  SDL_UpperBlit(SDL_Surface *o, const SDL_Rect *ro, SDL_Surface *d, SDL_Rect *rd);
 #define SDL_BlitSurface SDL_UpperBlit
+int  SDL_LowerBlit(SDL_Surface *o, SDL_Rect *ro, SDL_Surface *d, SDL_Rect *rd);
 int  SDL_UpperBlitScaled(SDL_Surface *o, const SDL_Rect *ro, SDL_Surface *d, SDL_Rect *rd);
 #define SDL_BlitScaled SDL_UpperBlitScaled
 SDL_Surface *SDL_ConvertSurfaceFormat(SDL_Surface *s, Uint32 formato, Uint32 flags);
@@ -880,6 +881,51 @@ char *SDL_GetBasePath(void);
 char *SDL_GetPrefPath(const char *org, const char *app);
 int SDL_GetCPUCount(void);
 int SDL_GetSystemRAM(void);
+
+
+/* ---- hilos, cerrojos y variables de condición (D383) ----
+ * El SaguiOS no tiene hilos de usuario: la SDL atiende el audio desde SDL_PollEvent y SDL_Delay en el
+ * mismo hilo. Los cerrojos y las condiciones son entonces nulos (siempre se obtienen) y
+ * SDL_CreateThread falla (los programas que lo usan tienen una ruta sin hilos). */
+#define SDL_HINT_WINDOWS_DISABLE_THREAD_NAMING "SDL_WINDOWS_DISABLE_THREAD_NAMING"
+#define SDL_HINT_NO_SIGNAL_HANDLERS "SDL_NO_SIGNAL_HANDLERS"
+#ifndef SDL_ALPHA_OPAQUE
+#define SDL_ALPHA_OPAQUE 255
+#define SDL_ALPHA_TRANSPARENT 0
+#endif
+typedef struct SDL_mutex SDL_mutex;
+typedef struct SDL_cond SDL_cond;
+typedef struct SDL_Thread SDL_Thread;
+typedef int (*SDL_ThreadFunction)(void *datos);
+SDL_mutex *SDL_CreateMutex(void);
+int SDL_LockMutex(SDL_mutex *m);
+int SDL_UnlockMutex(SDL_mutex *m);
+void SDL_DestroyMutex(SDL_mutex *m);
+SDL_cond *SDL_CreateCond(void);
+int SDL_CondSignal(SDL_cond *c);
+int SDL_CondWait(SDL_cond *c, SDL_mutex *m);
+void SDL_DestroyCond(SDL_cond *c);
+SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *nombre, void *datos);
+void SDL_WaitThread(SDL_Thread *t, int *estado);
+
+/* ---- conversión de audio (D383): formato, canales y frecuencia (SDL_BuildAudioCVT / SDL_ConvertAudio) ---- */
+#define SDL_AUDIOCVT_MAX_FILTERS 9
+typedef struct SDL_AudioCVT {
+    int needed;
+    SDL_AudioFormat src_format, dst_format;
+    double rate_incr;
+    Uint8 *buf;
+    int len, len_cvt, len_mult;
+    double len_ratio;
+    int src_channels, dst_channels, src_rate, dst_rate;   /* privados de nuestra implementación */
+} SDL_AudioCVT;
+int SDL_BuildAudioCVT(SDL_AudioCVT *cvt, SDL_AudioFormat src_fmt, Uint8 src_canales, int src_frec,
+                      SDL_AudioFormat dst_fmt, Uint8 dst_canales, int dst_frec);
+int SDL_ConvertAudio(SDL_AudioCVT *cvt);
+int SDL_GetWindowDisplayIndex(SDL_Window *w);
+#define SDL_CONTROLLER_TYPE_UNKNOWN 0
+int SDL_GameControllerTypeForIndex(int indice);
+SDL_JoystickGUID SDL_JoystickGetGUIDFromString(const char *texto);
 
 /* ---- el main ---- */
 /* En el SaguiOS el programa empieza en principal(); el port pone un

@@ -602,6 +602,17 @@ endif
 endif
 endif
 
+# Chocolate Doom (D383): GPL-2.0 o posterior, aislado en userland/terceros/chocolatedoom/ como Freeciv; solo
+# si se bajaron las fuentes (tools/doom_fuentes.sh) y fuera de la variante sin GPL. DOOM=0 lo deja fuera.
+DOOM ?= 1
+ifneq ($(SEM_GPL),1)
+ifeq ($(DOOM),1)
+ifneq ($(wildcard userland/terceros/chocolatedoom/fuentes/.preparado),)
+include userland/terceros/chocolatedoom/chocolatedoom.mk
+endif
+endif
+endif
+
 # Conversor de audio (D339): el MP3 lo codifica shine (LGPL-2.0+), aislado en userland/terceros/shine/. SHINE=0 o SEM_GPL=1
 # lo dejan fuera (el programa sale igual, sin la salida MP3).
 SHINE ?= 1
@@ -1459,6 +1470,9 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO
 	      echo "Makefile: $$x fuera del ramdisk completo (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; D379)"; \
 	      rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
 	  done; \
+	  if [ -e "$$d/apps/doom" ]; then \
+	    echo "Makefile: DOOM (Freedoom, unos 57 MB) fuera del ramdisk completo (D383; las imágenes con /apps en partición lo conservan)"; \
+	    rm -rf "$$d/apps/doom" "$$d/apps/bin"/chocolate-*; fi; \
 	else : > "$$d/etc/apps-fuera"; fi; \
 	mkdir -p "$$d/lib/python"; \
 	cp -r litemonkey/python/litemonkey "$$d/lib/python/"; \
@@ -1506,7 +1520,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(AOEN_RES) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(AOEN_RES) $(CD_RECURSOS) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \
@@ -1536,6 +1550,9 @@ $(B)/ramdisk-cd.sgfs: $(B)/ramdisk.sgfs $(APPS_DEP) tools/mksgfs.py
 	    echo "Makefile: $$x fuera del CD con RAIZ_DISCO=0 (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; con la raíz en ext2 sí va, D379)"; \
 	    rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
 	done; \
+	if [ -e "$$d/apps/doom" ]; then \
+	  echo "Makefile: DOOM (Freedoom) fuera del CD con RAIZ_DISCO=0 (D383; con la raíz en ext2 sí va)"; \
+	  rm -rf "$$d/apps/doom" "$$d/apps/bin"/chocolate-*; fi; \
 	$(PY) tools/mksgfs.py "$$d" "$@.novo"; \
 	mv -f "$@.novo" "$@"
 
@@ -1603,6 +1620,9 @@ priv_descargas:
 	@# D374: Freeciv (GPL-2.0 o posterior) también va en las públicas si sus fuentes están preparadas
 	@# (antes de «make variantes», ejecutar tools/freeciv_fuentes.sh); aquí se preparan para las privadas.
 	bash tools/freeciv_fuentes.sh
+	@# D383: Chocolate Doom (GPL-2.0 o posterior) y Freedoom (BSD-3-Clause) también van en las públicas
+	bash tools/doom_fuentes.sh
+	bash tools/doom_datos.sh
 	bash tools/quake_datos.sh
 	bash tools/openjazz_datos.sh
 	@$(PY) -c "import sys; sys.path.insert(0, 'tools'); import fuentes_typodermic as f; sys.exit(0 if f.buscar_zip() else 3)" || \

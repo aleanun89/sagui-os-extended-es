@@ -78,3 +78,6 @@ __pycache__/
 
 # D380: los modelos de IA (no libres, enormes) nunca van a git
 *.gguf
+# Fuentes de Chocolate Doom y Freedoom (D383): las bajan tools/doom_fuentes.sh y tools/doom_datos.sh; no van en git
+/userland/terceros/chocolatedoom/fuentes
+/userland/terceros/chocolatedoom/datos

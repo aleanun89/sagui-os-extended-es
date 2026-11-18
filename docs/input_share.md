@@ -27,6 +27,8 @@ input_share/
   OpenJazz la encuentra sola (busca en todas las carpetas de `/jogos` y prefiere la versión completa
   al shareware). Si la carpeta se llama como una del sistema (`opentyrian`, `openjazz`), su contenido
   se pone encima del de serie.
+- **DOOM clásico (D383):** `input_share/games/DOOM/` con los WAD originales (`doom.wad`, `doom2.wad`, `plutonia.wad`, `tnt.wad`; también
+  `heretic.wad`, `hexen.wad`, `strife1.wad`) acaba en `/jogos/DOOM` y Chocolate Doom los usa en lugar de Freedoom. Solo imágenes privadas.
 - **Juegos de DOS (D294):** cualquier carpeta de `input_share/games/` con un `.exe`, `.com` o `.bat` en su raíz
   (`input_share/games/DOOM/DOOM.EXE`) acaba en `/jogos/DOOM` y **Recreativa la muestra sola** (con su programa, que
   puede cambiarse en Propiedades); DOSBox la monta como C:. Otras carpetas conocidas del sistema (`chip8`, `sagui3d`,

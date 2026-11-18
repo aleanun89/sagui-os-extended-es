@@ -1202,7 +1202,8 @@ int SDL_SetRenderDrawColor(SDL_Renderer *r, Uint8 cr, Uint8 cg, Uint8 cb, Uint8 
 /* Un rectángulo de coordenadas del programa en el lienzo (con el tamaño lógico). */
 static SDL_Rect para_lienzo(SDL_Renderer *r, const SDL_Rect *rect, int l, int a)
 {
-    SDL_Rect d = rect ? *rect : (SDL_Rect){ 0, 0, r->log_l ? r->log_l : l, r->log_a ? r->log_a : a };
+    /* Con una textura como destino el tamaño lógico no cuenta (como en la SDL real): sin rectángulo, la textura entera (D383). */
+    SDL_Rect d = rect ? *rect : (SDL_Rect){ 0, 0, (r->log_l && !r->alvo) ? r->log_l : l, (r->log_a && !r->alvo) ? r->log_a : a };
     if (r->log_l > 0 && r->log_a > 0 && !r->alvo) {
         d.x = (int)((long long)d.x * l / r->log_l);
         d.w = (int)((long long)d.w * l / r->log_l);
@@ -2975,3 +2976,125 @@ void SDL_Quit(void)
     if (janela) SDL_DestroyWindow(janela);
     sub_sistemas = 0;
 }
+
+/* ---------------------------------------------------- hilos nulos (D383) */
+
+struct SDL_mutex { int x; };
+struct SDL_cond { int x; };
+SDL_mutex *SDL_CreateMutex(void) { return calloc(1, sizeof(SDL_mutex)); }
+int SDL_LockMutex(SDL_mutex *m) { (void)m; return 0; }
+int SDL_UnlockMutex(SDL_mutex *m) { (void)m; return 0; }
+void SDL_DestroyMutex(SDL_mutex *m) { free(m); }
+SDL_cond *SDL_CreateCond(void) { return calloc(1, sizeof(SDL_cond)); }
+int SDL_CondSignal(SDL_cond *c) { (void)c; return 0; }
+int SDL_CondWait(SDL_cond *c, SDL_mutex *m) { (void)c; (void)m; return 0; }
+void SDL_DestroyCond(SDL_cond *c) { free(c); }
+SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *nombre, void *datos)
+{
+    (void)fn; (void)nombre; (void)datos;
+    SDL_SetError("el SaguiOS no tiene hilos");
+    return NULL;
+}
+void SDL_WaitThread(SDL_Thread *t, int *estado) { (void)t; if (estado) *estado = 0; }
+
+SDL_JoystickGUID SDL_JoystickGetGUIDFromString(const char *texto)
+{
+    SDL_JoystickGUID g;
+    memset(&g, 0, sizeof g);
+    for (int i = 0; i < 16 && texto && texto[2 * i] && texto[2 * i + 1]; i++) {
+        char h[3] = { texto[2 * i], texto[2 * i + 1], 0 };
+        g.data[i] = (Uint8)strtoul(h, NULL, 16);
+    }
+    return g;
+}
+
+/* ------------------------------------------------ conversión de audio (D383) */
+
+static int fmt_bytes(SDL_AudioFormat f) { return SDL_AUDIO_BITSIZE(f) / 8; }
+
+static double leer_muestra(const Uint8 *p, SDL_AudioFormat f)
+{
+    switch (f) {
+    case AUDIO_U8: return ((int)p[0] - 128) / 128.0;
+    case AUDIO_S8: return (Sint8)p[0] / 128.0;
+    case AUDIO_U16LSB: return ((int)(p[0] | (p[1] << 8)) - 32768) / 32768.0;
+    case AUDIO_S16LSB: return (Sint16)(p[0] | (p[1] << 8)) / 32768.0;
+    case AUDIO_S32LSB: return (Sint32)((Uint32)p[0] | ((Uint32)p[1] << 8) | ((Uint32)p[2] << 16) | ((Uint32)p[3] << 24)) / 2147483648.0;
+    case AUDIO_F32LSB: { float v; memcpy(&v, p, 4); return v; }
+    }
+    return 0;
+}
+
+static void escribir_muestra(Uint8 *p, SDL_AudioFormat f, double v)
+{
+    if (v > 0.999969) v = 0.999969;
+    if (v < -1.0) v = -1.0;
+    switch (f) {
+    case AUDIO_U8: p[0] = (Uint8)((int)(v * 128.0) + 128); break;
+    case AUDIO_S8: p[0] = (Uint8)(Sint8)(int)(v * 128.0); break;
+    case AUDIO_U16LSB: { int x = (int)(v * 32768.0) + 32768; p[0] = x & 255; p[1] = (x >> 8) & 255; break; }
+    case AUDIO_S16LSB: { int x = (int)(v * 32768.0); p[0] = x & 255; p[1] = (x >> 8) & 255; break; }
+    case AUDIO_S32LSB: { Sint32 x = (Sint32)(v * 2147483648.0); for (int i = 0; i < 4; i++) p[i] = (Uint8)(x >> (8 * i)); break; }
+    case AUDIO_F32LSB: { float x = (float)v; memcpy(p, &x, 4); break; }
+    }
+}
+
+int SDL_BuildAudioCVT(SDL_AudioCVT *cvt, SDL_AudioFormat src_fmt, Uint8 src_canales, int src_frec,
+                      SDL_AudioFormat dst_fmt, Uint8 dst_canales, int dst_frec)
+{
+    memset(cvt, 0, sizeof *cvt);
+    if (src_frec <= 0 || dst_frec <= 0 || src_canales < 1 || dst_canales < 1 || src_canales > 2 || dst_canales > 2 ||
+        !fmt_bytes(src_fmt) || !fmt_bytes(dst_fmt))
+        return SDL_SetError("SDL_BuildAudioCVT: parámetros no admitidos (frecuencia > 0, 1 o 2 canales)");
+    cvt->src_format = src_fmt; cvt->dst_format = dst_fmt;
+    cvt->src_channels = src_canales; cvt->dst_channels = dst_canales;
+    cvt->src_rate = src_frec; cvt->dst_rate = dst_frec;
+    cvt->needed = !(src_fmt == dst_fmt && src_canales == dst_canales && src_frec == dst_frec);
+    cvt->len_ratio = ((double)dst_frec / src_frec) * ((double)dst_canales / src_canales) *
+                     ((double)fmt_bytes(dst_fmt) / fmt_bytes(src_fmt));
+    cvt->len_mult = (int)(cvt->len_ratio + 0.999999);
+    if (cvt->len_mult < 1) cvt->len_mult = 1;
+    cvt->rate_incr = (double)dst_frec / src_frec;
+    return cvt->needed;
+}
+
+/* El búfer cvt->buf tiene len * len_mult bytes; se convierte en el sitio (por un búfer temporal). */
+int SDL_ConvertAudio(SDL_AudioCVT *cvt)
+{
+    if (!cvt->needed) { cvt->len_cvt = cvt->len; return 0; }
+    int sb = fmt_bytes(cvt->src_format), db = fmt_bytes(cvt->dst_format);
+    int sc = cvt->src_channels, dc = cvt->dst_channels;
+    int n_src = cvt->len / (sb * sc);
+    long n_dst = (long)((double)n_src * cvt->dst_rate / cvt->src_rate);
+    if (n_dst * db * dc > (long)cvt->len * cvt->len_mult) n_dst = (long)cvt->len * cvt->len_mult / (db * dc);
+    Uint8 *tmp = malloc((size_t)(n_dst * db * dc) + 8);
+    if (!tmp) return -1;
+    for (long i = 0; i < n_dst; i++) {
+        /* interpolación lineal entre las muestras vecinas de la entrada */
+        double pos = (double)i * cvt->src_rate / cvt->dst_rate;
+        long i0 = (long)pos;
+        double fr = pos - i0;
+        long i1 = i0 + 1 < n_src ? i0 + 1 : n_src - 1;
+        if (i0 >= n_src) i0 = n_src - 1;
+        for (int c = 0; c < dc; c++) {
+            int cs = sc == dc ? c : (sc == 1 ? 0 : (c < sc ? c : sc - 1));
+            double a = leer_muestra(cvt->buf + (i0 * sc + cs) * sb, cvt->src_format);
+            double b = leer_muestra(cvt->buf + (i1 * sc + cs) * sb, cvt->src_format);
+            double v = a + (b - a) * fr;
+            if (sc > dc && dc == 1) {   /* de estéreo a mono: media */
+                double a2 = leer_muestra(cvt->buf + (i0 * sc + 1) * sb, cvt->src_format);
+                double b2 = leer_muestra(cvt->buf + (i1 * sc + 1) * sb, cvt->src_format);
+                v = (v + a2 + (b2 - a2) * fr) * 0.5;
+            }
+            escribir_muestra(tmp + (i * dc + c) * db, cvt->dst_format, v);
+        }
+    }
+    cvt->len_cvt = (int)(n_dst * db * dc);
+    memcpy(cvt->buf, tmp, (size_t)cvt->len_cvt);
+    free(tmp);
+    return 0;
+}
+
+int SDL_LowerBlit(SDL_Surface *o, SDL_Rect *ro, SDL_Surface *d, SDL_Rect *rd) { return SDL_UpperBlit(o, ro, d, rd); }
+int SDL_GetWindowDisplayIndex(SDL_Window *w) { (void)w; return 0; }
+int SDL_GameControllerTypeForIndex(int indice) { (void)indice; return SDL_CONTROLLER_TYPE_UNKNOWN; }

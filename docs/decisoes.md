@@ -20699,3 +20699,26 @@ con la SDL2 del sistema (la de Freeciv y los demás ports) y se mejora.
   original), el modo intercambio; la distancia es la recta entre los edificios para que el pago de una ruta no varíe; fórmulas
   en `docs/aoen.md`. Las tres opciones cambian `Setup`: formato de partida 5, y las de formato 4 se rechazan como incompatibles
   (lo más sencillo y seguro). Pruebas: `h389_aoen.py reglas` y mutaciones nuevas en `aoen_lectores`.
+
+## D383. DOOM clásico: Chocolate Doom 3.1.1 con Freedoom (v8.5.4.8, mejora 141; decidido el 2026-11-18)
+
+- **Qué.** Port nativo de **Chocolate Doom 3.1.1** (etiqueta `chocolate-doom-3.1.1`), que también da gratis **Heretic, Hexen y
+  Strife** (`chocolate-heretic`, `chocolate-hexen`, `chocolate-strife`). Licencia: GPL-2.0 o posterior (comprobado fichero a
+  fichero: `sha1.c` de GnuPG y `aes_prng.c` también «or later»; solo los datos de fuentes de textscreen son de DOSBox, GPL-2.0 o
+  posterior), compatible con la GPL v3 del conjunto: no hay ningún GPL-2.0-only (a diferencia de OpenTTD, D375).
+- **Fuentes fuera de git** (como Freeciv): `tools/doom_fuentes.sh` baja el tarball de la etiqueta (SHA-256 fijo) a
+  `userland/terceros/chocolatedoom/fuentes/` y aplica `parches/sagui.patch` (la configuración va a `$HOME/.config/chocolate-doom/`
+  en vez de `SDL_GetPrefPath`). `make` sin fuentes salta DOOM; `DOOM=0` y `SEM_GPL=1` lo dejan fuera.
+  Lo propio: `chocolatedoom.mk`, `plataforma/` (`config.h`, `principal_cd.c`).
+- **Datos.** **Freedoom 0.13.0** (BSD-3-Clause; `freedoom1.wad` y `freedoom2.wad`) lo baja `tools/doom_datos.sh` (SHA-256 fijo,
+  fuera de git) y va en `/apps/doom` también en las imágenes **públicas**. Los WAD originales (doom.wad, doom2.wad, plutonia,
+  tnt, heretic, hexen, strife1) solo por `input_share/games/DOOM` -> `/jogos/DOOM` (imágenes privadas); el lanzador los prefiere
+  y `--freedoom` fuerza el libre. Nunca un WAD comercial en git, pruebas ni imágenes públicas. La Recreativa (DOSBox) sigue
+  mostrando `/jogos/DOOM` si hay `DOOM.EXE`; no choca, porque Chocolate Doom solo busca los `.wad`.
+- **Capas reutilizables añadidas** (sin tocar el kernel): SDL 2 con cerrojos y condiciones nulos (no hay hilos; `SDL_CreateThread`
+  falla), `SDL_BuildAudioCVT`/`SDL_ConvertAudio` (formato, canales y frecuencia), `SDL_LowerBlit`, GUID de joystick; SDL2_mixer con
+  panorama por canal (`Mix_SetPanning`), `Mix_HookMusic`, efectos *post-mix*, `Mix_OpenAudioDevice`; libc con `putenv`.
+- **Sonido.** Efectos por SDL2_mixer; música MIDI por el sintetizador del sistema (decodificador MIDI de la libsagui) en vez del
+  OPL emulado, que gastaría la CPU de un Pentium II. Sin SDL2_net: el juego en red no conecta.
+- **Integración.** Inicio > Juegos > DOOM y Freedoom (icono propio, un cacodemonio), ayuda `/ayuda/doom.md`, `docs/doom.md`.
+- **Pruebas.** `tests/h391_doom.py` (licencias, arranque con Freedoom, partida, timedemo, sin WAD).

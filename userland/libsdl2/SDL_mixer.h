@@ -55,6 +55,15 @@ int  Mix_Playing(int canal);
 void Mix_ChannelFinished(void (*fin)(int canal));
 Mix_Chunk *Mix_GetChunk(int canal);
 int  Mix_ReserveChannels(int n);
+/* Añadidos para Chocolate Doom (D383) */
+typedef void (*Mix_EffectFunc_t)(int canal, void *flujo, int len, void *datos);
+typedef void (*Mix_EffectDone_t)(int canal, void *datos);
+int  Mix_OpenAudioDevice(int frecuencia, Uint16 formato, int canales, int tam_bloque, const char *dispositivo, int cambios);
+int  Mix_SetPanning(int canal, Uint8 izq, Uint8 der);
+void Mix_HookMusic(void (*f)(void *datos, Uint8 *flujo, int len), void *datos);
+int  Mix_RegisterEffect(int canal, Mix_EffectFunc_t f, Mix_EffectDone_t fin, void *datos);
+int  Mix_SetMusicCMD(const char *cmd);
+int  Mix_SetMusicPosition(double segundos);
 
 int  Mix_PlayMusic(Mix_Music *m, int veces);
 int  Mix_FadeInMusic(Mix_Music *m, int veces, int ms);

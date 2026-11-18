@@ -51,6 +51,8 @@ void  *bsearch(const void *chave, const void *base, size_t n, size_t tam,
 char  *getenv(const char *nome);
 int    setenv(const char *nome, const char *valor, int substituir);
 int    unsetenv(const char *nome);
+/* putenv: NO es la de POSIX: COPIA la cadena (como setenv), así que el búfer del llamador puede liberarse (D383). */
+int    putenv(char *cadena);
 char  *realpath(const char *caminho, char *resolvido);
 int    mkstemp(char *modelo);
 char  *mkdtemp(char *modelo);

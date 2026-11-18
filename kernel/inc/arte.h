@@ -40,6 +40,7 @@ extern const desenho_t arte_mini_openjazz;   /* D228: OpenJazz */
 extern const desenho_t arte_mini_freeciv;    /* D374: Freeciv */
 extern const desenho_t arte_mini_conquer;    /* D230: Command & Conquer (Vanilla Conquer) */
 extern const desenho_t arte_mini_quake;      /* D229: Quake */
+extern const desenho_t arte_mini_doom;       /* D383: DOOM (Chocolate Doom) */
 extern const desenho_t arte_mini_dosbox;     /* D294: DOSBox */
 extern const desenho_t arte_mini_recreativa; /* D294: Recreativa */
 extern const desenho_t arte_mini_gnuboy;     /* D235: Game Boy (SDL2-GNUBoy) */

@@ -389,6 +389,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
         { "dosbox", &arte_mini_dosbox }, { "recreativa", &arte_mini_recreativa },   /* D294 */
+        { "doom", &arte_mini_doom }, { "freedoom", &arte_mini_doom }, { "chocolate-doom", &arte_mini_doom },   /* D383 */
 #endif
     };
     for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++)
@@ -1210,6 +1211,8 @@ static const programa_t programas[] = {
     { N_("Command & Conquer"),       "/apps/bin/conquer", NULL, "conquer",    G_JUEGOS,     &arte_mini_conquer, false },   /* D230: Vanilla Conquer, en /apps; sólo si está */
     { N_("Quake"),                   "/apps/bin/quake",  NULL, "quake",       G_JUEGOS,     &arte_mini_quake, false },   /* D229: en /apps; sólo si está */
     { N_("Quake (pantalla completa)"), "/apps/bin/quake", "--pantalla-completa", "quake-cheia", G_JUEGOS, &arte_mini_quake, false },   /* D229 */
+    { N_("DOOM"),                    "/apps/bin/chocolate-doom", NULL, "doom", G_JUEGOS,   &arte_mini_doom, false },   /* D383: Chocolate Doom; usa el WAD original de /jogos/DOOM o Freedoom */
+    { N_("Freedoom"),                "/apps/bin/chocolate-doom", "--freedoom", "freedoom", G_JUEGOS, &arte_mini_doom, false },   /* D383: DOOM con el contenido libre Freedoom */
     { N_("Game Boy (GNUBoy)"),       "/apps/bin/gnuboy", NULL, "gnuboy",      G_JUEGOS,     &arte_mini_gnuboy, false },    /* D235: SDL2-GNUBoy, en /apps; sólo si está */
     { N_("Recreativa (juegos y consolas)"), "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
     { N_("DOSBox"),                  "/apps/bin/dosbox", NULL, "dosbox",      G_JUEGOS,     &arte_mini_dosbox, false },   /* D294: DOSBox 0.74, en /apps; sólo si está */

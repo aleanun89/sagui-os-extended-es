@@ -92,3 +92,7 @@ Las comprobaciones son heurísticas y pueden dar falsos positivos (una IP en un 
 en un volcado). Se resuelve en `tools/publicar.sh` (listas de permitidos, con comentario del porqué)
 o quitando el dato del repo de trabajo, **no** saltándose la comprobación. Prueba:
 `python3 tests/h260_publicar.py` (repositorio de juguete, sin QEMU).
+
+## DOOM (D383)
+
+Antes de `make variantes`, ejecutar `bash tools/doom_fuentes.sh` y `bash tools/doom_datos.sh` (o `make priv_descargas`): Chocolate Doom (GPL-2.0 o posterior) y Freedoom (BSD-3-Clause) van en las imágenes públicas. Nunca un WAD comercial.

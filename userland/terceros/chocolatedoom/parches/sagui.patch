@@ -1,0 +1,63 @@
+diff -u a/src/i_sound.c b/src/i_sound.c
+--- a/src/i_sound.c
++++ b/src/i_sound.c
+@@ -36,7 +36,7 @@
+ 
+ // Sound sample rate to use for digital output (Hz)
+ 
+-int snd_samplerate = 44100;
++int snd_samplerate = 22050;   // SaguiOS: la mitad de CPU en equipos antiguos (D383)
+ 
+ // Maximum number of bytes to dedicate to allocated sound effects.
+ // (Default: 64MB)
+@@ -57,7 +57,7 @@
+ 
+ int snd_pitchshift = -1;
+ 
+-int snd_musicdevice = SNDDEVICE_SB;
++int snd_musicdevice = SNDDEVICE_GENMIDI;   // SaguiOS: MIDI del sistema, no OPL emulado (D383)
+ int snd_sfxdevice = SNDDEVICE_SB;
+ 
+ // Low-level sound and music modules we are using
+diff -u a/src/i_video.c b/src/i_video.c
+--- a/src/i_video.c
++++ b/src/i_video.c
+@@ -122,7 +122,7 @@
+ 
+ // Run in full screen mode?  (int type for config code)
+ 
+-int fullscreen = true;
++int fullscreen = false;   // SaguiOS: ventana por defecto (D383)
+ 
+ // Aspect ratio correction mode
+ 
+diff -u a/src/m_config.c b/src/m_config.c
+--- a/src/m_config.c
++++ b/src/m_config.c
+@@ -2627,7 +2627,7 @@
+     char *result;
+     char *copy;
+ 
+-    result = SDL_GetPrefPath("", PACKAGE_TARNAME);
++    result = Sagui_ConfigDir(PACKAGE_TARNAME);
+     if (result != NULL)
+     {
+         copy = M_StringDuplicate(result);
+@@ -2689,7 +2689,7 @@
+         return;
+     }
+ 
+-    prefdir = SDL_GetPrefPath("", PACKAGE_TARNAME);
++    prefdir = Sagui_ConfigDir(PACKAGE_TARNAME);
+     if (prefdir == NULL)
+     {
+         printf("M_SetMusicPackDir: SDL_GetPrefPath failed, music pack directory not set\n");
+@@ -2790,7 +2790,7 @@
+     if (autoload_path == NULL || strlen(autoload_path) == 0)
+     {
+         char *prefdir;
+-        prefdir = SDL_GetPrefPath("", PACKAGE_TARNAME);
++        prefdir = Sagui_ConfigDir(PACKAGE_TARNAME);
+         if (prefdir == NULL)
+         {
+             printf("M_GetAutoloadDir: SDL_GetPrefPath failed\n");

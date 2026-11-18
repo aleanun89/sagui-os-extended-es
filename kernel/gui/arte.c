@@ -1299,6 +1299,25 @@ static const char *const quake[] = {   /* Quake: el emblema, el anillo con el cl
     ".......PP.......",
     "................",
 };
+
+static const char *const doom[] = {   /* DOOM: la cara de un cacodemonio, un ojo verde y dientes (D383) */
+    "................",
+    "....PPPPPPPP....",
+    "...PWWWWWWWWP...",
+    "..PWWWWWWWWWWP..",
+    ".PWWWPPPPPPWWWP.",
+    ".PWWPGGGGGGPWWP.",
+    ".PWWPGGPPGGPWWP.",
+    ".PWWPGGPPGGPWWP.",
+    ".PWWWPPPPPPWWWP.",
+    ".PWPPPPPPPPPPWP.",
+    ".PWPBPBPBPBPPWP.",
+    ".PWPPPPPPPPPPWP.",
+    "..PWWPBPBPBPWP..",
+    "..PwWWPPPPPWwP..",
+    "...PwwwwwwwwP...",
+    "....PPPPPPPP....",
+};
 #endif
 
 #ifndef SAGUI_SEM_GPL   /* D235: Game Boy (SDL2-GNUBoy) es GPL */
@@ -1399,6 +1418,7 @@ const desenho_t arte_mini_openjazz    = { openjazz, 16, 16 }; /* D228: OpenJazz 
 const desenho_t arte_mini_freeciv     = { freeciv, 16, 16 };  /* D374: Freeciv */
 const desenho_t arte_mini_conquer     = { conquer, 16, 16 };  /* D230: Command & Conquer */
 const desenho_t arte_mini_quake       = { quake, 16, 16 };    /* D229: Quake */
+const desenho_t arte_mini_doom        = { doom, 16, 16 };     /* D383: DOOM (Chocolate Doom) */
 const desenho_t arte_mini_gnuboy      = { gnuboy, 16, 16 };   /* D235: Game Boy (SDL2-GNUBoy) */
 const desenho_t arte_mini_dosbox      = { dosbox, 16, 16 };   /* D294: DOSBox */
 const desenho_t arte_mini_recreativa  = { recreativa, 16, 16 };   /* D294: Recreativa */

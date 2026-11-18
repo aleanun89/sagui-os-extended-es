@@ -669,6 +669,19 @@ int setenv(const char *nome, const char *valor, int substituir)
     return 0;
 }
 
+/* putenv("NOMBRE=valor"): como setenv, con copia (D383; Chocolate Doom la usa para SDL_VIDEODRIVER y TIMIDITY_CFG). */
+int putenv(char *cadena)
+{
+    if (!cadena) { errno = EINVAL; return -1; }
+    char *ig = strchr(cadena, '=');
+    if (!ig) { errno = EINVAL; return -1; }
+    size_t ln = (size_t)(ig - cadena);
+    char nome[64];
+    if (ln == 0 || ln >= sizeof nome) { errno = EINVAL; return -1; }
+    memcpy(nome, cadena, ln); nome[ln] = 0;
+    return setenv(nome, ig + 1, 1);
+}
+
 int unsetenv(const char *nome)
 {
     size_t ln = strlen(nome);

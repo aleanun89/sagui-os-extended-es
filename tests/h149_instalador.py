@@ -185,12 +185,12 @@ def parte1():
 
 
 def parte2():
-    dest = vazio("h149-usb-dest", 400)
+    dest = vazio("h149-usb-dest", 600)   # D383: con Freedoom la raíz ronda 280 MB
     origem = imagem_console(apps=True)
     extras = ["-device", "usb-ehci,id=ehci"] + pendrive_qemu(dest)
     with Maquina("h149-usbinst", "ide", imagem=origem, extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)
-        out = m.comando("instalar usb0 -s", 1200)
+        out = m.comando("instalar usb0 -s", 2400)   # USB emulado: con Freedoom (D383) la raíz crece
         verificar("SaguiOS instalado en usb0 y verificado" in out, f"instalar en el pendrive termina ({out.strip()[-300:]})")
     comprobar_disco(dest, origem, None, "usb")
     arrancar_instalado(dest, "usb", "usb", False)
@@ -200,7 +200,7 @@ def parte3():
     # D318: el asistente nuevo (ocho pasos); se maneja con las zonas que escribe en el registro
     # (la clase de h318). Camino corto: disco hdb, usar todo el disco y lo que propone.
     from h318_instalador import Asistente
-    dest = vazio("h149-gui-dest", 400)   # v8.5.4.2: con Java en /apps la raíz (x2 de margen) ya no cabe en 300
+    dest = vazio("h149-gui-dest", 700)   # v8.5.4.2: Java; D383: Freedoom (la raíz x2 de margen ya no cabe en 400)
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw"]
     with Maquina("h149-gui", "ide", extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)
