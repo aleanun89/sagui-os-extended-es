@@ -20,6 +20,7 @@ extern const desenho_t arte_mini_bluetooth;   /* D279 */
 /* 16x16 dos programas que estavam sem icone no menu Inicio (D139). */
 extern const desenho_t arte_mini_recortes, arte_mini_icones, arte_mini_musica, arte_mini_relogio,
                        arte_mini_visorpdf, arte_mini_video, arte_mini_ia;
+extern const desenho_t arte_marca_ia;   /* D380: logo «IA Powered» (escritorio, abajo a la izquierda) */
 extern const desenho_t arte_mini_vps;     /* mejora 123: VisualPythonS */
 extern const desenho_t arte_mini_exploradorbd;   /* mejora 127: Explorador de bases de datos */
 extern const desenho_t arte_mini_exploradorsqlite;   /* mejora 131: Explorador SQLite */

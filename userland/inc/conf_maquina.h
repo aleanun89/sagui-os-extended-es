@@ -36,6 +36,7 @@ int  maquina_migrar(void);
  * (casa_migrar.c). 1 = migrada ahora; 0 = no hacía falta o no se puede (en vivo, /home en la RAM o FAT32);
  * < 0 = error (se reintenta en el siguiente arranque). */
 int  casa_migrar_sagui(void);
+int  casa_pasta_modelos(void);   /* D380: /home/compartido/modelos de root con 1777 */
 /* La carpeta real de una cuenta (de /etc/usuarios; "/home" o "/root" si no tiene). false = no está la cuenta. */
 bool casa_real_de_uid(unsigned uid, char *casa, int max);
 #endif

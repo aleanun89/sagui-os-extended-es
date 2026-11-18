@@ -483,6 +483,65 @@ static void realcar(superficie_t *s, int x, int y, int l, int a, int pct)
             s->px[j * s->larg + i] = mistura(s->px[j * s->larg + i], 0xFFFFFF, pct, 100);
 }
 
+/* D380: el logo «IA Powered», abajo a la izquierda (la barra de tareas va arriba y la mascota
+ * abajo a la derecha), como una marca de agua: el chip de arte.c a escala 2 y el texto, mezclados
+ * con el fondo. Si un icono ocupa ese sitio, se corre a la derecha hasta un hueco libre. */
+static bool marca_ia;
+static int marca_vx = -1, marca_vy;   /* donde se dibujó la última vez (para repintar al mover iconos) */
+static void desenhar_fundo_em(int rx, int ry, int rl, int ra);
+#define MARCA_L 124
+#define MARCA_A 32
+static void marca_ia_rect(int *x, int *y)
+{
+    int pl, pa;
+    prim_tam(&pl, &pa);
+    *y = pa - MARCA_A - 12;
+    *x = 10;
+    for (int tent = 0; tent < 8; tent++) {
+        bool livre = true;
+        for (int i = 0; i < QTD_ICONES && livre; i++) {
+            if (!icone_visivel(i)) continue;
+            int ix, iy, il, ia;
+            area_icone_retangulo(i, &ix, &iy, &il, &ia);
+            if (ix < *x + MARCA_L && *x < ix + il && iy < *y + MARCA_A && *y < iy + ia) { livre = false; *x = ix + il + 6; }
+        }
+        if (livre) return;
+    }
+}
+
+static void desenhar_marca_ia(superficie_t *s)
+{
+    if (!marca_ia) return;
+    int x, y;
+    marca_ia_rect(&x, &y);
+    marca_vx = x; marca_vy = y;
+    for (int j = 0; j < arte_marca_ia.altura; j++)
+        for (int i = 0; i < arte_marca_ia.largura; i++) {
+            uint32_t cor;
+            if (!arte_cor(arte_marca_ia.linhas[j][i], &cor)) continue;
+            for (int dy = 0; dy < 2; dy++)
+                for (int dx = 0; dx < 2; dx++) {
+                    int px = x + i * 2 + dx, py = y + j * 2 + dy;
+                    if (px < s->cx0 || px >= s->cx1 || py < s->cy0 || py >= s->cy1) continue;
+                    uint32_t *p = &s->px[py * s->larg + px];
+                    *p = mistura(*p, cor, 70, 100);
+                }
+        }
+    texto_com_sombra(s, x + 38, y + 1, "IA", 0xFFFFFF);
+    texto_com_sombra(s, x + 38, y + 16, "Powered", 0xF0F0E0);
+}
+
+void area_marca_ia(bool ativa)
+{
+    if (ativa == marca_ia || !fundo) { marca_ia = ativa; return; }
+    int x, y;
+    marca_ia_rect(&x, &y);
+    marca_ia = ativa;
+    desenhar_fundo_em(x - 2, y - 2, MARCA_L + 4, MARCA_A + 4);
+    gui_redesenhar(x - 2, y - 2, MARCA_L + 4, MARCA_A + 4);
+    gui_mostrar();
+}
+
 /* Redibuja en la superficie del fondo solo el rectángulo dado (D268: así mover un icono no
  * repinta todo el escritorio). Con la imagen elegida se copian solo esas líneas. */
 static void desenhar_fundo_em(int rx, int ry, int rl, int ra)
@@ -514,6 +573,7 @@ static void desenhar_fundo_em(int rx, int ry, int rl, int ra)
     sup_desenho(&s, mx, my, &arte_sagui, esc);
     texto_com_sombra(&s, mx + 16 * esc - texto_largura(SAGUI_NOME) / 2, my + 32 * esc + 6, SAGUI_NOME, 0xFFFFFF);
 iconos:
+    desenhar_marca_ia(&s);   /* D380: debajo de los iconos */
     /* Íconos con el nombre abajo, cada uno en su casilla. */
     for (int i = 0; i < QTD_ICONES; i++) {
         if (!icone_visivel(i)) continue;
@@ -557,6 +617,14 @@ static void suja_todos(void) { for (int i = 0; i < N_ICONES; i++) if (icone_visi
 static void suja_aplicar(void)
 {
     if (suja_x0 >= suja_x1) return;
+    if (marca_ia) {   /* D380: el logo se aparta de los iconos: se repinta donde estaba y donde va */
+        int x, y;
+        marca_ia_rect(&x, &y);
+        if (marca_vx >= 0 && (x != marca_vx || y != marca_vy)) {
+            suja_rect(marca_vx - 2, marca_vy - 2, MARCA_L + 4, MARCA_A + 4);
+            suja_rect(x - 2, y - 2, MARCA_L + 4, MARCA_A + 4);
+        }
+    }
     desenhar_fundo_em(suja_x0, suja_y0, suja_x1 - suja_x0, suja_y1 - suja_y0);
     gui_redesenhar(suja_x0, suja_y0, suja_x1 - suja_x0, suja_y1 - suja_y0);
     suja_limpar();

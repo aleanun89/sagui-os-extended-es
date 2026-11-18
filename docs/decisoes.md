@@ -20360,6 +20360,96 @@ ser poco y la partición lleva el doble); `/sistema/serie` se desmonta antes que
 
 **Numeración (mantenedor, 2026-11-18):** el enlace dinámico de las fases 1-2 (D378), preparado como «v8.5.4.1», se publica como **v8.5.4.3** porque sale después de la 8.5.4.2 y la incluye; la IA local (D380) pasa a **v8.5.4.4** y las páginas compartidas (fase 3 de D378) a **v8.5.4.5**. Donde la documentación diga «8.5.4.1» para el enlace dinámico, entiéndase 8.5.4.3.
 
+## D380. IA local: modelos de lenguaje dentro de SaguiOS con un motor propio en C (decidido el 2026-11-17; v8.5.4.4, mejora 139)
+
+**Contexto:** los agentes de IA (`ia`, `chatia`, Pluma, Macaco, Correo, D134/D298) necesitan hoy un servidor fuera
+(llama.cpp en otro PC, Ollama, un proveedor de Internet). El mantenedor quiere ejecutar modelos pequeños dentro de
+SaguiOS, empezando por el LFM3 1.7B Q4_K_M de Liquid AI (arquitectura `lfm3`, 24 bloques: 13 de convolución corta y
+11 de atención GQA, 6 completas y 5 con ventana de 256), con la caché K/V en Q8_0 y un contexto configurable de 12k a 48k.
+
+**Decisión:**
+1. **Motor propio en C**, al estilo de llama2.c, en `userland/llm/` (GPL-3.0-or-later, sin C++ ni código de
+   llama.cpp): lector GGUF v2/v3; Q4_K, Q6_K, Q8_0, Q4_0, F16 y F32; la red LFM3 (convolución corta con compuertas
+   y estado de 6 posiciones, atención con normas RMS de Q y K, RoPE NEOX con `rope_freqs` en las completas y base
+   1e4 en las de ventana, compuerta sigmoide por cabeza, normas posteriores); caché K/V en Q8_0 (las capas de
+   ventana guardan un anillo de 256 + 16); tokenizador BPE gpt2 con el pretokenizador de llama3 escrito a mano
+   (tablas Unicode generadas, `tools/llm_unicode.py`); plantilla de chat de LFM3 (sin razonar de serie: `<think></think>`;
+   `--pensar` lo deja razonar); muestreo con temperatura, top-k, top-p, repetición y semilla (los del GGUF de serie).
+2. **Referencia: llama.cpp** (MIT, b12088 o posterior), solo en el PC y fuera de git (`~/.local/saguitools/llama.cpp`),
+   con `tools/llm_referencia.c` sobre la libllama y `tools/llm_comparar.py`. Con el LFM3 real y la caché q8 en los
+   dos: los mismos 15 tokens con el más probable, el mismo top-1 en 38 de 40 posiciones, coseno mínimo 0,995
+   (diferencia media de logits 0,03-0,15: la cuantización de las activaciones). La tokenización coincide con `llama-tokenize`.
+3. **Rutas de cálculo por CPUID:** SSSE3 (`pmaddubsw` + `pmaddwd`) > SSE2 (`pmaddwd`) > C con la x87; los productos
+   punto dan los mismos enteros en las tres y la aritmética de float va por la x87 en todas (también en
+   `make llm-pc`, el motor para el PC): así SaguiOS y el PC dan exactamente los mismos tokens (h388). La tabla de rutas
+   deja sitio para AVX2 (D381). f16 → f32 por una tabla de 64 Ki floats (F16C es VEX).
+4. **Contexto:** de 12k (de serie) a 48k con SSSE3 o mejor; **sin SSSE3** (Core Duo, Pentium 4, Athlon 64), de 4k (de
+   serie) a 48k, con la recomendación de 4k-8k y modelos Q4_0 (`llm --info`; `LLM_SIN_SSSE3=1` lo simula). Menos que
+   el mínimo solo si se pide explícitamente (para pruebas, mínimo 256, con aviso). Nunca más de 48k.
+5. **Memoria:** antes de cargar se suman pesos, caché, trabajo y tokenizador y se comparan con el hueco del proceso
+   (0x80000000-0xDBFFFFFF, ~1,44 GB) y con la memoria libre; si no cabe, un error en español que dice cuánto hace
+   falta. LFM3 1.7B Q4_K_M (el fichero mide 1,1 GB): pesos 1,0 GB; caché 79 MB a 12k, 155 MB a 24k, 308 MB a 48k;
+   total 1,1 GB a 12k y 1,3 GB a 48k: cabe. **Regla del equipo:** la IA local solo se activa con **más de 1,8 GB de
+   RAM** (`ram_total_kb` de INFO_MEMORIA, la de `free`); con menos, `llm` sale con «La IA local necesita más de 1,8 GB
+   de memoria; este equipo tiene X» sin cargar nada.
+6. **Los modelos nunca van dentro del sistema** (licencia LFM Open License 1.0, no libre; además pesan): viven en
+   `/home/compartido/modelos` o `~/modelos` (`LLM_MODELOS` añade otra carpeta); `llm` sin `-m` usa el activo
+   (`llm --activar`, apuntado en `~/.config/llm/modelo`) o el único que haya; `llm --modelos` los lista. El instalador
+   no cuenta ni copia los `.gguf` y avisa si los encuentra. `input_share/modelos` (del que compila) no va a la imagen.
+7. **Programa `llm`** en `/apps/bin` (no en el ramdisk), enlazado **estático** (como Java; el enlace dinámico de D378 no le aporta nada y así no depende de /apps/lib): `-p`, chat (`/nuevo`, `/salir`), `--info`, `--hilos`,
+   `--ruta`, y el servicio `llm` (`llm --anunciar` al arrancar).
+8. **Logo «IA Powered»**: abajo a la izquierda del escritorio (la barra va arriba y la mascota abajo a la derecha),
+   pixel art propio (un chip con «IA», `arte_marca_ia`) mezclado con el fondo como marca de agua y apartándose de los
+   iconos. Lo pone `llm --anunciar` con la operación nueva `FUNDO_MARCA_IA` de SIS_FUNDO solo si hay más de 1,8 GB y
+   un modelo que el motor sabe abrir.
+9. **Pruebas:** el modelo real no puede ir a git ni a las imágenes: `tools/llm_modelo_prueba.py` genera un LFM3
+   sintético diminuto (8 bloques, ventana de 8, Q4_K/Q6_K/Q8_0/Q4_0, BPE entrenado con frases en español) y
+   `--grande` (caché enorme) para el error de memoria. `tests/h388_llm.py` compara en QEMU los tokens con los del PC
+   por cada ruta, los límites de contexto, el error de memoria, el logo con 2 GB y su ausencia con 1 GB.
+
+10. **Servidor local** `llm --servidor` en 127.0.0.1:8080, compatible con la API de OpenAI que ya hablan `ia`, `chatia`
+    y los agentes (proveedor «llama.cpp»): solo conexiones de 127.0.0.1, con y sin streaming, y la caché se
+    reutiliza entre turnos. Las herramientas aún no (400 con «tools»: el cliente repite sin ellas).
+11. **Hilos** de serie: uno por CPU que trabaja (con la imagen SMP); `llm --info` estima tok/s y el tiempo de leer el
+    contexto (avisa por encima de 5 min).
+
+**Medidas:** en el PC (un hilo) SSSE3 10,8 tok/s, SSE2 7,6, C 1,9; en SaguiOS con QEMU/KVM (SSE2, un núcleo, 12k)
+6,6 tok/s de lectura y 5,6 de generación, con respuestas coherentes en español. Leer 12k de golpe lleva ~30-40 min en
+un núcleo así: la lectura con SSE está limitada por el cálculo.
+
+**Revisión de seguridad (2026-11-18), arreglado** (prueba de regresión en el PC con ASan+UBSan: `tests/llm_lector_asan.py`):
+- B1: la entrada cuantizada (`xq`) se reserva para la mayor entrada (E, F o n_cab·dim_cab) en Q8_K, con comprobación en matmul.
+- B2: dimensiones de 1 a 2^31 con producto comprobado; `bytes <= dados_n && desloc <= dados_n - bytes`; datos dentro del
+  fichero; alineación potencia de 2 hasta 4096; tensores de dos dimensiones; rangos de los hiperparámetros antes de pasarlos
+  a int (K/V 1..n_cab, key_length 32..512 múltiplo de 32, ventana y contexto hasta 2^20, vocabulario hasta 2^21); cabecera
+  hasta 64 MB, como mucho 16384 tensores y 4096 claves.
+- B3: los textos del vocabulario y de las fusiones se leen con el final real de la cabecera; un token o una fusión de más de 1 KB
+  es un error (o se salta).
+- B4: el embedding no puede tener más filas que el vocabulario; ids especiales fuera de rango, ignorados.
+- I1: `/home/compartido/modelos` la crea root al arrancar (Configuración --aplicar) con 1777; sin -m ni --activar solo se eligen
+  modelos de la cuenta o de root (los demás, con aviso).
+- I2: el instalador solo deja fuera los `.gguf` de la raíz del sistema, /apps y /jogos (los de /root y /home se copian y cuentan
+  como siempre); el aviso cuenta desde cero; `.GGUF` en mayúsculas también.
+- I3: el servidor da 10 s para la cabecera y el cuerpo (una conexión ociosa no lo bloquea).
+- Menores: el tokenizador nunca devuelve más de lo que cabe; Content-Length de 7 cifras como mucho (el primero); SIGPIPE
+  ignorado en el PC; el nombre del modelo escapado en el JSON; ESC y C1 filtrados en lo que sale al terminal; `role` solo
+  system/user/assistant/tool; `--contexto` sin desbordar; el logo se repinta al mover iconos; `*.gguf` en .gitignore y en
+  tools/publicar-excluir.txt; mkimagem.py y mksgfs.py paran si encuentran un `.gguf`.
+
+**Decidido después (por fases, pendiente):**
+- **Pesos por ventanas (PAE)** para que todos los modelos funcionen con 48k (VL-2B Q8_0 ~1,95 GB no cabe en el
+  proceso): un «almacén» de páginas físicas del proceso sin mapear y una llamada que mapea un rango en una ventana
+  fija, capa a capa. Es kernel: revisión de seguridad aparte. Medir el coste en tok/s.
+- **Descargador en Configuración > IA** (Hugging Face, progreso, reanudar, tamaño y SHA-256 de `lfs.oid`, destino
+  `/home/compartido/modelos`, modelo activo y contexto; LFM3-1.7B y LFM3-VL-2B en Q4_0/Q4_K_M/Q8_0 con su `mmproj`).
+- **VL** (codificador de visión `mmproj`, `--imagen`), después del texto.
+- **Perfil para equipos antiguos** (Core Duo T2300 sin SSSE3; Athlon 5350 con SSSE3): hilos por defecto = CPU
+  visibles, lectura por bloques que quepan en la L2, medida de la CPU al arrancar con el tiempo estimado de leer el
+  contexto y los tok/s esperados. El mínimo de 12k (con SSSE3) no se baja sin decisión del mantenedor.
+
+**Licencia:** el motor es GPL-3.0-or-later y propio; llama.cpp solo se usa en el PC para comparar. Los modelos de
+Liquid AI (LFM Open License 1.0) no se distribuyen con SaguiOS ni van al repositorio público.
+
 ## D381. AVX2 opcional: estado XSAVE en el kernel y rutas AVX2 en el motor de IA (decidido el 2026-11-17; prevista para una 8.5.x posterior a la IA local)
 
 **Pregunta del mantenedor:** «¿Implementar opcionalmente AVX para la IA local, o es poco útil en este kernel?»

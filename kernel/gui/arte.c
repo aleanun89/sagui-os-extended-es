@@ -966,6 +966,25 @@ static const char *const exploradorlmk[] = {   /* Explorador lite-monkey: la car
     "................",
 };
 
+static const char *const marca_ia[] = {   /* D380: «IA Powered», un chip con las letras IA */
+    "................",
+    "...P..P..P..P...",
+    "...P..P..P..P...",
+    "..PPPPPPPPPPPP..",
+    "PPPYYYYYYYYYYPPP",
+    "..PYggggggggYP..",
+    "..PYgBgggBggYP..",
+    "PPPYgBggBgBgYPPP",
+    "..PYgBggBBBgYP..",
+    "PPPYgBggBgBgYPPP",
+    "..PYggggggggYP..",
+    "PPPYYYYYYYYYYPPP",
+    "..PPPPPPPPPPPP..",
+    "...P..P..P..P...",
+    "...P..P..P..P...",
+    "................",
+};
+
 static const char *const ia[] = {   /* IA: uma cabeca de robo */
     "................",
     ".......P........",
@@ -1338,6 +1357,7 @@ const desenho_t arte_mini_relogio     = { relogio, 16, 16 };
 const desenho_t arte_mini_visorpdf    = { visorpdf, 16, 16 };
 const desenho_t arte_mini_video       = { video, 16, 16 };
 const desenho_t arte_mini_ia          = { ia, 16, 16 };
+const desenho_t arte_marca_ia         = { marca_ia, 16, 16 };   /* D380: logo «IA Powered» del escritorio */
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
 const desenho_t arte_mini_pluma       = { pluma, 16, 16 };
 const desenho_t arte_mini_tucan       = { tucan, 16, 16 };   /* D369: editor de presentaciones */   /* mejora 116, D291 */

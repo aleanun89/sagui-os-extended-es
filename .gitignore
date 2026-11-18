@@ -75,3 +75,6 @@ __pycache__/
 /userland/terceros/zlib/fuentes
 # Fuentes de miniJVM (D376): las baja tools/minijvm_fuentes.sh; no van en git
 /userland/terceros/minijvm/fuentes
+
+# D380: los modelos de IA (no libres, enormes) nunca van a git
+*.gguf

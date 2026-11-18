@@ -725,6 +725,7 @@ static int aplicar_tudo(int argc, char **argv)
     if (!sesion && sou_root()) { int rm = maquina_migrar(); if (rm) registrar("configuracion: configuracion de la maquina a /etc -> %d", rm); }
     /* D371 (fase 4): después (lee lo de la máquina de /home), sagui pasa a /home/sagui. */
     if (!sesion && sou_root()) { int rc = casa_migrar_sagui(); if (rc) registrar("configuracion: sagui a su carpeta -> %d", rc); }
+    if (!sesion && sou_root()) casa_pasta_modelos();   /* D380: la carpeta de los modelos de IA local */
     if (!sesion) aplicar_conectores();
     bool tem_conf = conf_ler() || maquina_separada();   /* D371: lo de la máquina se aplica aunque la cuenta no tenga sagui.conf */
     if (!sesion) acel_arranque(tem_conf);   /* D323: modo seguro, marca de arranque y aceleración (el kernel nos lanza como root) */

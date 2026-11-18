@@ -13,7 +13,13 @@ input_share/
   games/
     <carpeta>/      ->  /jogos/<carpeta>   (la partición de juegos SAGUI-JOGOS)
   apps/             ->  /apps              (la partición de aplicaciones SAGUI-APPS)
+  modelos/          ->  (no va a la imagen) modelos de IA locales (D380)
 ```
+
+- **`modelos/`** (D380) guarda los modelos de lenguaje (`.gguf`) del que compila, para medir el motor `llm`
+  en el PC (`tools/llm_comparar.py`) o en QEMU **como disco aparte o pendrive virtual**. El `make` no la
+  copia nunca: los modelos no van dentro del sistema (en SaguiOS viven en `/home/compartido/modelos` o
+  `~/modelos`, ver docs/llm.md). Tampoco se ponen en `apps/`: inflarían SAGUI-APPS y SAGUI-RAIZ.
 
 - **`games/<carpeta>/`** se copia, tal cual y con sus subcarpetas, a `/jogos/<carpeta>/` de la
   partición `SAGUI-JOGOS` (ext2 de lectura y escritura, montada en `/jogos`). Por ejemplo, la versión

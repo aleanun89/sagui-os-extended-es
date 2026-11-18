@@ -1962,6 +1962,9 @@ typedef struct { int x, y, largura, altura; } retangulo_t;
 #define FUNDO_PADRAO 0
 #define FUNDO_LINHAS 1
 #define FUNDO_FIM    2
+/* D380: el logo «IA Powered» abajo a la izquierda del escritorio (y = 1 lo muestra, 0 lo quita).
+ * Lo pone `llm --anunciar` cuando la IA local puede funcionar (más de 1,8 GB y un modelo). */
+#define FUNDO_MARCA_IA 3
 #define ACENTO_PADRAO 0x0B7A3E   /* o verde do SaguiOS */
 
 #define INFO_APARENCIA 58   /* (&info_aparencia_t, sizeof) -> 0 (D112) */

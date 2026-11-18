@@ -55,6 +55,9 @@ def coletar(raiz):
     itens = []
     for dirpath, dirs, arquivos in os.walk(raiz):
         dirs.sort()
+        for n in arquivos:
+            if n.lower().endswith(".gguf"):   # D380: los modelos de IA nunca van en las imágenes
+                sys.exit(f"mksgfs: hay un modelo de IA ({os.path.join(dirpath, n)}) en el ramdisk: los modelos van en /home/compartido/modelos")
         rel_dir = os.path.relpath(dirpath, raiz)
         if rel_dir != ".":
             itens.append((rel_dir.replace(os.sep, "/"), TIPO_PASTA, b""))

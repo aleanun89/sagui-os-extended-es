@@ -40,6 +40,7 @@ int  escrever_atomico(const char *dest, const char *tmp, const void *dados, uint
 bool area_tela_mudou(void);                /* fondo nuevo después de cambiar el modo de vídeo (D059) */
 bool area_fundo_personalizado(void);       /* D112: imagen de fondo elegida en la Configuración */
 void area_fundo_padrao(void);
+void area_marca_ia(bool ativa);            /* D380: logo «IA Powered» del escritorio */
 int  area_fundo_linhas(const uint32_t *px, int y, int n);   /* n líneas de píxeles de ancho de pantalla a partir de la línea y */
 void area_idioma_mudou(void);              /* D313: repinta los rótulos de los iconos con el idioma nuevo */
 void area_sessao_nova(void);               /* D340: otra sesión: las casillas de los iconos de su carpeta */

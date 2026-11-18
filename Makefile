@@ -210,6 +210,7 @@ PROGRAMAS := $(patsubst userland/programas/%.c,$(B)/userland/bin/%,$(wildcard us
 # O Sagui 3D (B4) tem vários arquivos, numa pasta própria.
 SAGUI3D_OBJ := $(patsubst userland/sagui3d/%.c,$(B)/userland/sagui3d/%.o,$(wildcard userland/sagui3d/*.c))
 PROGRAMAS += $(B)/userland/bin/sagui3d
+PROGRAMAS += $(B)/userland/bin/llm
 # O Mico (mejora 037, D075), editor de código, também tem vários arquivos.
 MICO_OBJ := $(patsubst userland/programas/mico/%.c,$(B)/userland/programas/mico/%.o,$(wildcard userland/programas/mico/*.c))
 PROGRAMAS += $(B)/userland/bin/mico
@@ -433,7 +434,7 @@ APPS_MB ?= 0
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
 APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini visorpdf chatia ia \
   reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo \
-  chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti
+  chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti llm
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
 APPS_RECURSOS := videos:userland/apps/videos
@@ -951,6 +952,36 @@ $(B)/userland/bin/sagui3d: $(SAGUI3D_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(ULDFLAGS) -o $@.elf $(SAGUI3D_OBJ) $(LIBSAGUI_OBJ)
 	objcopy --strip-all $@.elf $@
+
+# D380 (mejora 139): el motor de modelos de lenguaje locales y el programa `llm`, en su
+# carpeta. Con la x87 (como el motor de PDF); los productos punto de llm_quant_sse2.c y
+# llm_quant_ssse3.c, con SSE2/SSSE3, solo se llaman si CPUID lo dice. Su aritmética de float
+# también va por la x87: así todas las rutas dan exactamente los mismos logits. Va a /apps/bin (APPS_MOVER_FIJO).
+# `make llm-pc` compila el mismo motor para el PC: build/host/llm-pc (tools/llm_comparar.py, tests/h388).
+LLM_DIR   := userland/llm
+LLM_HDR   := $(wildcard $(LLM_DIR)/*.h)
+LLM_OBJ   := $(patsubst $(LLM_DIR)/%.c,$(B)/$(LLM_DIR)/%.o,$(wildcard $(LLM_DIR)/*.c))
+LLM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard
+$(B)/$(LLM_DIR)/%.o: $(LLM_DIR)/%.c $(LLM_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(LLM_FLAGS) -c -o $@ $<
+$(B)/$(LLM_DIR)/llm_quant_sse2.o: LLM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -msse -msse2 -mfpmath=387 -fexcess-precision=standard -mstackrealign
+$(B)/$(LLM_DIR)/llm_quant_ssse3.o: LLM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -msse -msse2 -mssse3 -mfpmath=387 -fexcess-precision=standard -mstackrealign
+$(B)/userland/bin/llm: $(LLM_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(ULDFLAGS) -o $@.elf $(LLM_OBJ) $(LIBSAGUI_OBJ)
+	objcopy --strip-all $@.elf $@
+	@$(PY) $(CHECK_ELF32) $@.elf
+# En el PC, la aritmética de float también con la x87 (como en SaguiOS): así los dos dan
+# exactamente los mismos tokens (con SSE, los redondeos distintos cambian alguno, h388).
+LLM_PC_FLAGS := -O2 -g -D_GNU_SOURCE -DLLM_ANFITRIAO -DLLM_MAT_X87
+$(B)/host/llm/%.o: $(LLM_DIR)/%.c $(LLM_HDR)
+	@mkdir -p $(dir $@)
+	CPATH="$(HOST_CPATH)" $(HOSTCC) $(LLM_PC_FLAGS) $(if $(filter llm_quant_ss%,$*),-msse2 -mssse3) -mfpmath=387 -fexcess-precision=standard -c -o $@ $<
+$(B)/host/llm-pc: $(patsubst $(LLM_DIR)/%.c,$(B)/host/llm/%.o,$(wildcard $(LLM_DIR)/*.c))
+	$(HOSTCC) -o $@ $^ -lm -lpthread
+.PHONY: llm-pc
+llm-pc: $(B)/host/llm-pc
 
 # O motor de PDF (D138): compila com a x87 (sem -mgeneral-regs-only), que é o
 # mesmo que usam o cc e o python-x87. O visorpdf liga com ele.

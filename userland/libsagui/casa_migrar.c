@@ -194,3 +194,27 @@ final:
     registrar("casa_migrar: hecha: %s en %s (%d)", v[ip].nome, dest, r);
     return r < 0 ? r : 1;
 }
+
+/* D380: la carpeta de los modelos de IA local, /home/compartido/modelos, de root con 1777 (pegajosa, como /tmp):
+ * cualquier cuenta deja ahí sus modelos, pero nadie puede borrar ni sustituir los de otro. La crea root al
+ * arrancar (Configuración --aplicar), solo si /home/compartido existe y es de root; si ya hay una
+ * «modelos» que no es de root (la creó otra cuenta antes), se deja y se avisa en el registro. */
+int casa_pasta_modelos(void)
+{
+    if (!sou_root()) return 0;
+    info_permisos_t p;
+    if (permisos_arquivo("/home/compartido", &p) != 0 || p.tipo != TIPO_PASTA || p.uid != UID_ROOT) return 0;
+    if (permisos_arquivo("/home/compartido/modelos", &p) != 0) {
+        int r = criar_pasta("/home/compartido/modelos");
+        if (r < 0) return r;
+        mudar_dono("/home/compartido/modelos", UID_ROOT, GID_ROOT);
+        mudar_permisos("/home/compartido/modelos", 01777);
+        return 1;
+    }
+    if (p.tipo != TIPO_PASTA || p.uid != UID_ROOT) {
+        registrar("casa_pasta_modelos: /home/compartido/modelos no es de root: no se toca (la IA local no elige solos sus modelos ajenos)");
+        return 0;
+    }
+    if ((p.modo & 01777) != 01777) mudar_permisos("/home/compartido/modelos", 01777);
+    return 0;
+}

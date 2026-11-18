@@ -228,6 +228,66 @@ static bool arrancou_por_uefi(void)
 static int tabela_automatica(uint32_t setores) { return setores >= 0xFFFF0000u || arrancou_por_uefi() ? T_GPT : T_MBR; }
 
 /* KB que ocupan los archivos de una carpeta (y sus subcarpetas). */
+/* D380: los modelos de IA (.gguf) nunca van dentro del sistema: en la raíz, /apps y /jogos no se cuentan
+ * para el tamaño de SAGUI-RAIZ ni de SAGUI-APPS, no se copian y se avisa (van en /home/compartido/modelos).
+ * Los de /root y /home (los datos de las cuentas) se copian y cuentan como siempre. */
+static uint32_t modelos_n, modelos_kb;
+static bool e_modelo_ia(const char *nome)
+{
+    size_t n = tam_texto(nome);
+    if (n <= 5) return false;
+    const char *f = nome + n - 5, *m = ".gguf";
+    for (int i = 0; i < 5; i++) {
+        char c = f[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c != m[i]) return false;
+    }
+    return true;
+}
+static bool prefixo_pasta(const char *c, const char *p)
+{
+    size_t n = tam_texto(p);
+    return compara_texto_n(c, p, n) == 0 && (c[n] == 0 || c[n] == '/');
+}
+/* ¿El fichero es del sistema (raíz, /apps, /jogos) y no de los datos de una cuenta? */
+static bool e_do_sistema(const char *c)
+{
+    if (prefixo_pasta(c, "/sistema/serie")) c += tam_texto("/sistema/serie");   /* la capa de serie de la live */
+    static const char *const dados[] = { "/root", "/home", "/mnt", "/tmp", "/usb", "/media" };
+    for (unsigned i = 0; i < sizeof dados / sizeof dados[0]; i++)
+        if (prefixo_pasta(c, dados[i])) return false;
+    return true;
+}
+
+/* Cuenta los modelos que hay dentro del sistema (para el aviso), cada vez desde cero. */
+static void modelos_somar(const char *c, int nivel)
+{
+    entrada_pasta_t e;
+    if (nivel > 12) return;
+    for (int i = 0; listar(c, i, &e) > 0; i++) {
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
+        char f[256];
+        caminho_juntar(f, sizeof f, c, e.nome);
+        if (!e_do_sistema(f)) continue;
+        if (e.tipo == TIPO_PASTA) modelos_somar(f, nivel + 1);
+        else if (e_modelo_ia(e.nome)) { modelos_n++; modelos_kb += e.tamanho / 1024 + 1; }
+    }
+}
+static void modelos_contar(void)
+{
+    modelos_n = modelos_kb = 0;
+    entrada_pasta_t e;
+    for (int i = 0; listar("/", i, &e) > 0; i++) {   /* la raíz sin lo montado de los datos */
+        if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0 || compara_texto(e.nome, "proc") == 0
+            || compara_texto(e.nome, "dev") == 0 || compara_texto(e.nome, "initrd") == 0) continue;
+        char f[80];
+        caminho_juntar(f, sizeof f, "/", e.nome);
+        if (!e_do_sistema(f)) continue;
+        if (e.tipo == TIPO_PASTA) modelos_somar(f, 1);
+        else if (e_modelo_ia(e.nome)) { modelos_n++; modelos_kb += e.tamanho / 1024 + 1; }
+    }
+}
+
 static uint32_t kb_pasta(const char *c, int nivel)
 {
     uint32_t kb = 0;
@@ -237,6 +297,7 @@ static uint32_t kb_pasta(const char *c, int nivel)
         if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0) continue;
         char f[256];
         caminho_juntar(f, sizeof f, c, e.nome);
+        if (e.tipo != TIPO_PASTA && e_modelo_ia(e.nome) && e_do_sistema(f)) continue;
         kb += e.tipo == TIPO_PASTA ? kb_pasta(f, nivel + 1) : e.tamanho / 1024 + 1;
     }
     return kb;
@@ -276,6 +337,7 @@ static uint32_t kb_jogos_de_verdade(bool todo)
         if (!todo && !e_jogo_base(e.nome)) continue;
         char f[256];
         caminho_juntar(f, sizeof f, JOGOS_ORIGEM, e.nome);
+        if (e.tipo != TIPO_PASTA && e_modelo_ia(e.nome) && e_do_sistema(f)) continue;   /* D380 */
         kb += e.tipo == TIPO_PASTA ? kb_pasta(f, 1) : e.tamanho / 1024 + 1;
     }
     return kb;
@@ -347,6 +409,7 @@ static uint32_t kb_raiz(void)
         if (compara_texto(e.nome, ".") == 0 || compara_texto(e.nome, "..") == 0 || fora_da_raiz(e.nome)) continue;
         char f[80];
         caminho_juntar(f, sizeof f, de, e.nome);
+        if (e.tipo != TIPO_PASTA && e_modelo_ia(e.nome) && e_do_sistema(f)) continue;   /* D380 */
         kb += e.tipo == TIPO_PASTA ? kb_pasta(f, 1) : e.tamanho / 1024 + 1;
     }
     return kb;
@@ -839,6 +902,7 @@ static int copiar_pasta(const char *de, const char *para, char *erro, int max, i
         char a[256], b[256];
         caminho_juntar(a, sizeof a, de, e.nome);
         caminho_juntar(b, sizeof b, para, e.nome);
+        if (e.tipo != TIPO_PASTA && e_modelo_ia(e.nome) && e_do_sistema(a)) continue;   /* D380: no dentro del sistema */
         int r = e.tipo == TIPO_PASTA ? copiar_pasta(a, b, erro, max, nivel + 1) : copiar_arquivo(a, b, erro, max);
         if (r < 0) return r;
         fase(fase_atual, (int)(arquivos_copiados % 100), NULL);
@@ -1198,6 +1262,7 @@ static int copiar_sistema(const char *de, const char *para, char *erro, int max)
             }
             continue;
         }
+        if (e.tipo != TIPO_PASTA && e_modelo_ia(e.nome) && e_do_sistema(a)) continue;   /* D380: no dentro del sistema */
         r = e.tipo == TIPO_PASTA ? copiar_pasta(a, b, erro, max, 2) : copiar_arquivo(a, b, erro, max);
     }
     return r;
@@ -1348,6 +1413,7 @@ static int copiar_raiz(const char *ponto, bool con_cambios, char *erro, int max)
             continue;
         }
         if (compara_texto(e.nome, "sistema") == 0 && e.tipo == TIPO_PASTA) { r = copiar_sistema(a, b, erro, max); continue; }
+        if (e.tipo != TIPO_PASTA && e_modelo_ia(e.nome) && e_do_sistema(a)) continue;   /* D380: no dentro del sistema */
         r = e.tipo == TIPO_PASTA ? copiar_pasta(a, b, erro, max, 1) : copiar_arquivo(a, b, erro, max);
     }
     static const char *const vazias[] = { "home", "tmp", "initrd", "jogos", "mnt", "logs", "root" };
@@ -1998,6 +2064,10 @@ static int terminal(int argc, char **argv)
     imprimir("  Tabla de particiones: %s%s\n", p.tabela == T_GPT ? "GPT (arranque UEFI; con la BIOS clásica no arranca)" : "MBR (arranque BIOS)",
              !p.tabela_auto ? "" : arrancou_por_uefi() ? " [automática: se arrancó por UEFI]" : " [automática: se arrancó por BIOS]");
     if (p.aviso[0]) imprimir("  AVISO: %s\n", p.aviso);
+    modelos_contar();
+    if (modelos_n)   /* D380 */
+        imprimir("  AVISO: hay %u modelos de IA (.gguf, %u MB) dentro del sistema: no se copian; muévelos a "
+                 "/home/compartido/modelos\n", modelos_n, modelos_kb / 1024);
     if (p.conf_vieja[0])
         imprimir(p.formatear_conf ? "  AVISO: se BORRA también SAGUI-CONF (%s): contraseñas y claves del sistema\n"
                                   : "  Se conserva el contenido de SAGUI-CONF (%s): contraseñas y claves (--formatear-conf lo borra)\n", p.conf_vieja);

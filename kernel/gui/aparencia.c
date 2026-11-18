@@ -49,6 +49,7 @@ int32_t sis_fundo(uint32_t op, uint32_t ptr, uint32_t y, uint32_t n, uint32_t e)
     if (!gui_ativa()) return ERRO_ACESSO;
     if (op == FUNDO_PADRAO) { area_fundo_padrao(); area_fundo_fim(); return 0; }
     if (op == FUNDO_FIM) { area_fundo_fim(); return 0; }
+    if (op == FUNDO_MARCA_IA) { area_marca_ia(y != 0); return 0; }   /* D380 */
     if (op != FUNDO_LINHAS) return ERRO_INVALIDO;
     uint32_t l = video_largura();
     if (n == 0 || n > 4096 || y > 8192 || !usuario_ok((void *)ptr, n * l * 4, false)) return ERRO_ENDERECO;

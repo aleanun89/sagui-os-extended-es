@@ -833,6 +833,10 @@ def mb_para_conteudo(pasta):
     for raiz, dirs, arquivos in os.walk(pasta):
         kb += 1 + len(dirs)
         for n in arquivos:
+            if n.lower().endswith(".gguf"):   # D380: los modelos de IA nunca van en las imágenes
+                sys.exit("mkimagem: hay un modelo de IA (%s) en lo que va a la imagen: los modelos van "
+                         "en /home/compartido/modelos (input_share/modelos no se copia; ver docs/llm.md)"
+                         % os.path.join(raiz, n))
             kb += (os.path.getsize(os.path.join(raiz, n)) + 1023) // 1024 + 1
     # Metadatos: bloques indirectos (~1/256 de los datos con bloques de 1 KB), mapas de
     # bits y descriptores de grupo, y la tabla de inodos, que mke2fs dimensiona por el
