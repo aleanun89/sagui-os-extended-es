@@ -431,3 +431,67 @@ void gfx_text(int x, int y, const char *s, u32 col, int size) {
 void gfx_text_c(int cx, int y, const char *s, u32 col, int size) {
 	gfx_text(cx - gfx_text_w(s, size) / 2, y, s, col, size);
 }
+
+/* ---------- texto de la interfaz: fuente de 8x16 con minúsculas y acentos (v8.5.4.7) ----------
+ * En SaguiOS se usa la fuente del sistema (fonte_sagui, Latin-1, de la libsagui): legible a 1x y con todos los acentos.
+ * Fuera de SaguiOS (sin AOEN_FONTE_SAGUI) se usa la de 5x7 de arriba, centrada en la misma línea de 16 píxeles. */
+#ifdef AOEN_FONTE_SAGUI
+extern const unsigned char fonte_sagui[256][16];
+#endif
+
+static unsigned cp_utf8(const char **ps) {
+	const unsigned char *s = (const unsigned char *)*ps;
+	unsigned cp = *s;
+	int n = 1;
+	if (cp >= 0xf0) { cp &= 7; n = 4; }
+	else if (cp >= 0xe0) { cp &= 15; n = 3; }
+	else if (cp >= 0xc0) { cp &= 31; n = 2; }
+	for (int i = 1; i < n && s[i]; ++i) cp = (cp << 6) | (s[i] & 63);
+	for (int i = 0; i < n && **ps; ++i) ++*ps;
+	return cp;
+}
+
+int gfx_t_w(const char *s, int tam) {
+	int n = 0;
+	while (*s) { cp_utf8(&s); ++n; }
+#ifdef AOEN_FONTE_SAGUI
+	return n * 8 * tam;
+#else
+	return n * 6 * tam;
+#endif
+}
+
+static void texto8x16(int x, int y, const char *s, u32 col, int tam) {
+#ifdef AOEN_FONTE_SAGUI
+	int us = gfx_us, cell = tam * us;
+	x *= us; y *= us;
+	while (*s) {
+		unsigned cp = cp_utf8(&s);
+		if (cp > 255) cp = '?';
+		const unsigned char *g = fonte_sagui[cp];
+		for (int r = 0; r < 16; ++r) {
+			unsigned b = g[r];
+			if (!b) continue;
+			int yy = y + r * cell;
+			/* tramos seguidos de píxeles encendidos: un relleno por tramo */
+			for (int c = 0; c < 8;) {
+				if (!(b & (0x80u >> c))) { ++c; continue; }
+				int c0 = c;
+				while (c < 8 && (b & (0x80u >> c))) ++c;
+				fill_raw(x + c0 * cell, yy, (c - c0) * cell, cell, col);
+			}
+		}
+		x += 8 * cell;
+	}
+#else
+	gfx_text(x, y + 4 * tam, s, col, tam);
+#endif
+}
+
+void gfx_t(int x, int y, const char *s, u32 col, int tam) { texto8x16(x, y, s, col, tam); }
+
+/* con sombra oscura abajo a la derecha: se lee sobre cualquier fondo */
+void gfx_ts(int x, int y, const char *s, u32 col, int tam) {
+	texto8x16(x + 1, y + 1, s, 0xff0a0604u, tam);
+	texto8x16(x, y, s, col, tam);
+}

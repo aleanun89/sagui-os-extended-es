@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # aoen.mk - cómo se compilan /apps/bin/aoen y /apps/bin/aoen-config (D382, mejora 140).
 # AoEN es un RTS estilo Age of Empires del mantenedor (C99 + SDL2, dibujo por software). Se compila
-# con la libc común, la SDL 2 del sistema (userland/libsdl2) y la libsagui, con la x87 como el resto
+# con la libc común, la SDL 2 del sistema (userland/libsdl2) y la libsagui (de la que toma la fuente de 8x16 de la
+# interfaz, AOEN_FONTE_SAGUI), con la x87 como el resto
 # de los ports en C; las rutas rápidas SSE2 las elige el propio juego por CPUID (rapido.c).
 # Los datos del juego original, las texturas y la música NO se distribuyen (docs/aoen.md): las
 # texturas y la música, si existen en $(INPUT_SHARE)/aoen, se copian solo a las imágenes privadas.
@@ -17,7 +18,7 @@ AOEN_FLAGS := -m32 -march=i686 -std=gnu99 -O2 \
   -mfpmath=387 -fexcess-precision=standard \
   -nostdinc -isystem $(shell $(CC) -print-file-name=include) \
   -Iuserland/terceros/stbimage -Iuserland/libsdl2 -I$(LIBC_DIR) -Iuserland/inc -idirafter kernel/inc \
-  -DSAGUI_AOEN -DSTBI_NO_THREAD_LOCALS -finput-charset=UTF-8 -fexec-charset=UTF-8 -Wall -Wno-unused-function -Wno-unused-parameter
+  -DSAGUI_AOEN -DAOEN_FONTE_SAGUI -DSTBI_NO_THREAD_LOCALS -finput-charset=UTF-8 -fexec-charset=UTF-8 -Wall -Wno-unused-function -Wno-unused-parameter
 
 AOEN_HDR := $(wildcard $(AOEN_DIR)/*.h) userland/terceros/stbimage/stb_image.h $(AOEN_DIR)/aoen.mk
 AOEN_OBJ := $(patsubst $(AOEN_DIR)/%.c,$(AOEN_O)/%.o,$(AOEN_SRC))

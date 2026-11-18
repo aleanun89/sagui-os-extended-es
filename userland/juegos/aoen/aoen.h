@@ -107,6 +107,11 @@ void gfx_diamond(int cx, int cy, int hw, int hh, u32 col);
 void gfx_text(int x, int y, const char *s, u32 col, int size);
 int gfx_text_w(const char *s, int size);
 void gfx_text_c(int cx, int y, const char *s, u32 col, int size);
+/* texto de la interfaz (fuente de 8x16 de SaguiOS, con minúsculas y acentos); tam 1 o 2; gfx_ts lleva sombra */
+#define GFX_T_ALTO 16
+int gfx_t_w(const char *s, int tam);
+void gfx_t(int x, int y, const char *s, u32 col, int tam);
+void gfx_ts(int x, int y, const char *s, u32 col, int tam);
 
 
 /* ---------- audio.c: efectos de sonido mezclados por software y reproducidos con el audio de SDL ---------- */

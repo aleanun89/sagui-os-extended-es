@@ -3,6 +3,7 @@
 /* Lógica del juego de AoEN: generación del mapa, búsqueda de caminos, unidades, economía, edificios, combate y niebla de guerra. */
 #include "game.h"
 #include "efectos.h"
+#include "ia.h"
 
 World W;
 
@@ -22,6 +23,8 @@ const BldDef bld_def[] = {
 	{ "Torre",          200, 1,  50, 0,   0, 100,  30, AGE_TOOL  },
 	{ "Mercado",        300, 3, 175, 0,   0,   0,  40, AGE_BRONZE },
 	{ "Taller de asedio",350, 3, 200, 0,   0,   0,  45, AGE_IRON  },
+	{ "Muralla",        250, 1,   0, 0,   0,   5,   6, AGE_TOOL  },
+	{ "Muelle",         350, 3, 150, 0,   0,   0,  45, AGE_TOOL  },
 	{ "Maravilla",     1500, 5, 600, 0, 600, 400, 160, AGE_IRON  },
 };
 
@@ -39,6 +42,21 @@ const UnitDef unit_def[] = {
 	{ "Caballería pesada",150,0,  80,  50, 0, 40, 2.3f,10.0f, 4.0f, 0.8f, AGE_IRON,   E_STABLE,      2, 2, 0 },
 	{ "Hoplita",        80,  0,  60,  40, 0, 28, 1.5f, 6.0f, 3.0f, 0.8f, AGE_BRONZE, E_ACADEMY,     3, 5, 0 },
 	{ "Sacerdote",      25,  0,   0, 125, 0, 35, 1.4f, 0.0f, 0.0f, 8.0f, AGE_BRONZE, E_TEMPLE,      0, 0, 0 },
+	{ "Balista",        75, 100,   0,  80, 0, 36, 1.2f,14.0f, 3.0f, 8.0f, AGE_IRON,   E_SIEGE,       0, 5, 1 },
+	{ "Catapulta",      90, 150,   0, 100, 0, 45, 0.9f, 8.0f,40.0f, 9.0f, AGE_IRON,   E_SIEGE,       0, 8, 1 },
+	{ "Catapulta pesada",120,200,  0, 150, 0, 55, 0.8f,10.0f,60.0f,11.0f, AGE_IRON,   E_SIEGE,       0,10, 1 },
+	{ "Lanzador de honda",30, 0,  30,   0,10, 22, 1.5f, 5.0f, 0.5f, 5.0f, AGE_BRONZE, E_ARCHERY,     0, 0, 1 },
+	{ "Elefante de guerra",220,0,100,  70, 0, 45, 1.9f,12.0f, 5.0f, 0.9f, AGE_IRON,   E_STABLE,      1, 4, 0 },
+	{ "Arquero de elefante",160,0, 90,  80, 0, 45, 1.9f, 7.0f, 1.0f, 7.0f, AGE_IRON,  E_STABLE,      1, 3, 1 },
+	{ "Barco de pesca", 45, 75,   0,   0, 0, 25, 2.0f, 0.0f, 0.0f, 0.8f, AGE_TOOL,   E_DOCK,        0, 0, 0 },
+	{ "Barco de transporte",100,125,0,  0, 0, 35, 1.8f, 0.0f, 0.0f, 0.8f, AGE_TOOL,   E_DOCK,        0, 2, 0 },
+	{ "Trirreme",      120, 100,   0,  50, 0, 40, 2.0f, 8.0f, 6.0f, 6.5f, AGE_BRONZE, E_DOCK,        0, 4, 1 },
+	{ "Falange",       120,   0,  70,  50, 0, 32, 1.3f, 7.0f, 3.0f, 0.8f, AGE_IRON,   E_ACADEMY,     5, 8, 0 },
+	{ "Centurión",     110,   0,  80,  60, 0, 30, 1.6f,11.0f, 4.0f, 0.8f, AGE_IRON,   E_ACADEMY,     3, 3, 0 },
+	{ "Catafracta",    190,   0, 110,  90, 0, 42, 2.1f,11.0f, 4.0f, 0.8f, AGE_IRON,   E_STABLE,      4, 6, 0 },
+	{ "Arquero a caballo",60, 0,  50,  70, 0, 34, 2.6f, 5.0f, 1.0f, 6.0f, AGE_BRONZE, E_STABLE,      0, 0, 1 },
+	{ "Barco mercante", 100,100,   0,   0, 0, 35, 2.0f, 0.0f, 0.0f, 0.8f, AGE_TOOL,   E_DOCK,        0, 2, 0 },
+	{ "Carro mercante",  70, 80,  60,   0, 0, 40, 1.8f, 0.0f, 0.0f, 0.8f, AGE_BRONZE, E_MARKET,      0, 1, 0 },
 	{ "Caballo salvaje",30,  0,   0,   0, 0,  0, 3.2f, 0.0f, 0.0f, 0.8f, AGE_STONE,  E_TYPE_COUNT,  0, 0, 0 },
 	{ "Elefante salvaje",200,0,   0,   0, 0,  0, 1.8f, 8.0f, 2.0f, 0.9f, AGE_STONE,  E_TYPE_COUNT,  1, 3, 0 },
 };
@@ -58,20 +76,34 @@ const TechDef tech_def[T_COUNT] = {
 	{ "Arcos compuestos",        "Ataque a distancia +1 y alcance +1",      E_ARCHERY,  AGE_BRONZE, 100, 200, 0, 0, 45, T_BOW },
 	{ "Armadura de caballería",  "Caballería: armadura +1 y +1 a flechas",  E_STABLE,   AGE_TOOL,   0, 150, 100, 0, 40, -1 },
 	{ "Medicina",                "Los sacerdotes curan el doble de rápido", E_TEMPLE,   AGE_BRONZE, 0, 0, 200, 0, 40, -1 },
+	{ "Ingeniería",              "Asedio: alcance +1; permite la catapulta pesada", E_SIEGE, AGE_IRON, 150, 0, 150, 0, 45, -1 },
+	{ "Balística",               "Asedio: ataque +25%",                     E_SIEGE,    AGE_IRON,   100, 0, 175, 0, 45, -1 },
+	{ "Arquitectura",            "Edificios: reciben un 15% menos de daño", E_GOVERNMENT, AGE_BRONZE, 150, 0, 120, 0, 45, -1 },
+	{ "Torre centinela",         "Torres: ataque +3",                       E_TOWER,    AGE_BRONZE, 0, 0, 80, 100, 35, -1 },
+	{ "Torre de guardia",        "Torres: ataque +3 y alcance +2",          E_TOWER,    AGE_IRON,   0, 0, 150, 150, 45, T_SENTRY },
+	{ "Torres de ballesta",      "Torres: disparan un 50% más rápido",      E_TOWER,    AGE_IRON,   0, 0, 200, 150, 50, T_GUARD },
+	{ "Muralla media",           "Murallas: resisten el doble",             E_GOVERNMENT, AGE_BRONZE, 0, 0, 0, 150, 40, -1 },
+	{ "Fortificación",           "Murallas: resisten el triple",            E_GOVERNMENT, AGE_IRON,  0, 0, 0, 300, 50, T_WALL_MED },
+	{ "Rueda",                   "Aldeanos y caballería: velocidad +10%",   E_MARKET,   AGE_BRONZE, 100, 0, 80, 0, 40, -1 },
+	{ "Monoteísmo",              "Sacerdotes: convierten el doble de rápido", E_TEMPLE, AGE_IRON,   0, 0, 300, 0, 50, -1 },
+	{ "Fe",                      "Sacerdotes: la conversión funciona el 90%", E_TEMPLE, AGE_BRONZE, 0, 0, 150, 0, 40, -1 },
+	{ "Astronomía",              "Todas las unidades y edificios ven +2",   E_MARKET,   AGE_BRONZE, 0, 0, 120, 0, 40, -1 },
+	{ "Mística",                 "Sacerdotes: curan un 50% más",            E_TEMPLE,   AGE_IRON,   0, 0, 200, 0, 45, T_FAITH },
+	{ "Logística",               "Población máxima +20",                    E_GOVERNMENT, AGE_IRON, 0, 200, 150, 0, 45, -1 },
 };
 
 const Civ civ_def[NUM_CIVS] = {
 	/* nombre      descripción                                              madera comida oro piedra  uhp  bhp  entrenar velocidad ma ra rng sw sf sg estilo */
-	{ "Egipcios",  "Oro +25%, edificios +15% de vida",                      { 1.0f, 1.0f, 1.25f, 1.0f }, 1.0f, 1.15f, 1.0f, 1.0f, 0, 0, 0,  0,  0, 100, 0 },
-	{ "Griegos",   "Entrenan un 15% más rápido, soldados +10% de vida",     { 1.0f, 1.0f, 1.0f, 1.0f }, 1.1f, 1.0f, 0.85f, 1.0f, 0, 0, 0,  0, 50,   0, 1 },
-	{ "Babilonios","Edificios +25% de vida, piedra +20%",                   { 1.0f, 1.0f, 1.0f, 1.2f }, 1.0f, 1.25f, 1.0f, 1.0f, 0, 0, 0, 50,  0,   0, 3 },
-	{ "Asirios",   "Arqueros con +1 de alcance y +1 de ataque",             { 1.0f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 1, 1,  0,  0,   0, 3 },
-	{ "Minoicos",  "Comida +20%, empiezan con comida extra",                { 1.0f, 1.2f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0, 0,  0,150,   0, 1 },
-	{ "Hititas",   "Soldados +10% más rápidos y +1 de ataque cuerpo a cuerpo",{ 1.0f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.1f, 1, 0, 0,  0,  0,   0, 3 },
-	{ "Fenicios",  "Madera +20%, empiezan con madera extra",                { 1.2f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0, 0,150,  0,   0, 0 },
-	{ "Persas",    "Todo se recolecta un 8% más rápido, unidades +5% de vida",{ 1.08f, 1.08f, 1.08f, 1.08f }, 1.05f, 1.0f, 1.0f, 1.0f, 0, 0, 0,  0,  0,   0, 0 },
-	{ "Shang",     "Madera y comida +10%",                                  { 1.1f, 1.1f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0, 0,  0,  0,   0, 2 },
-	{ "Yamato",    "Infantería +2 de ataque, entrenan un 10% más rápido",   { 1.0f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 0.9f, 1.0f, 2, 0, 0,  0,  0,   0, 2 },
+	{ "Egipcios",  "Oro +25%, edificios +15% de vida, sacerdotes convierten más rápido, sin Balística",                      { 1.0f, 1.0f, 1.25f, 1.0f }, 1.0f, 1.15f, 1.0f, 1.0f, 0, 0, 0,  0,  0, 100, 0, 0, 0, 1u << T_BALLISTICS , 0, 0, 1.5f },
+	{ "Griegos",   "Entrenan un 15% más rápido, soldados +10% de vida, barcos +10%",     { 1.0f, 1.0f, 1.0f, 1.0f }, 1.1f, 1.0f, 0.85f, 1.0f, 0, 0, 0,  0, 50,   0, 1, 0, 1.1f, 0 },
+	{ "Babilonios","Edificios +25% de vida, piedra +20%, asedio +25%, torres +3 de daño",                   { 1.0f, 1.0f, 1.0f, 1.2f }, 1.0f, 1.25f, 1.0f, 1.0f, 0, 0, 0, 50,  0,   0, 3, 1.25f, 0, 0 , 0, 3, 0 },
+	{ "Asirios",   "Arqueros con +1 de alcance y +1 de ataque, asedio +15%",             { 1.0f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 1, 1,  0,  0,   0, 3, 1.15f, 0, 0 },
+	{ "Minoicos",  "Comida +20%, empiezan con comida extra, barcos +20%, sin Fortificación",                { 1.0f, 1.2f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0, 0,  0,150,   0, 1, 0, 1.2f, 1u << T_FORTIFICATION },
+	{ "Hititas",   "Soldados +10% más rápidos y +1 de ataque cuerpo a cuerpo, asedio +10%",{ 1.0f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.1f, 1, 0, 0,  0,  0,   0, 3, 1.1f, 0, 0 },
+	{ "Fenicios",  "Madera +20%, empiezan con madera extra, barcos +30% de vida",                { 1.2f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0, 0,150,  0,   0, 0, 0, 1.3f, 0 , 1.15f, 0, 0 },
+	{ "Persas",    "Todo se recolecta un 8% más rápido, unidades +5% de vida, sin Arquitectura",{ 1.08f, 1.08f, 1.08f, 1.08f }, 1.05f, 1.0f, 1.0f, 1.0f, 0, 0, 0,  0,  0,   0, 0, 0, 0, 1u << T_ARCHITECTURE , 0, 0, 1.25f },
+	{ "Shang",     "Madera y comida +10%, construyen un 30% más rápido, sin Balística",                                  { 1.1f, 1.1f, 1.0f, 1.0f }, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0, 0,  0,  0,   0, 2, 0, 0, 1u << T_BALLISTICS , 1.3f, 0, 0 },
+	{ "Yamato",    "Infantería +2 de ataque, entrenan un 10% más rápido, sin Arcos compuestos",   { 1.0f, 1.0f, 1.0f, 1.0f }, 1.0f, 1.0f, 0.9f, 1.0f, 2, 0, 0,  0,  0,   0, 2, 0, 1.1f, 1u << T_COMPOSITE },
 };
 
 const AgeDef age_def[AGE_COUNT] = {
@@ -84,11 +116,21 @@ const AgeDef age_def[AGE_COUNT] = {
 #define CARRY_CAP 10
 #define GATHER_RATE 1.0f
 
-int is_building(EntType t) { return t >= E_TOWN_CENTER && t <= E_WONDER; }
+int is_building(EntType t) { return t >= E_TOWN_CENTER && t <= E_WONDER; }   /* E_WALL y E_DOCK están dentro del rango */
 int is_unit(EntType t) { return t >= E_VILLAGER && t <= E_ELEPHANT; }
+int is_naval(EntType t) { return t == E_FISHBOAT || t == E_TRANSPORT || t == E_WARSHIP || t == E_TRADESHIP; }
+int is_trader(EntType t) { return t == E_TRADESHIP || t == E_TRADECART; }
+int is_siege(EntType t) { return t == E_BALLISTA || t == E_CATAPULT || t == E_HEAVYCAT; }
+float unit_cooldown(EntType t) { return t == E_BALLISTA ? 3.0f : (t == E_CATAPULT || t == E_HEAVYCAT) ? 4.0f : unit_def[t - E_VILLAGER].ranged ? 2.0f : 1.5f; }
+float unit_min_range(EntType t) { return t == E_CATAPULT ? 2.5f : t == E_HEAVYCAT ? 3.0f : 0.0f; }
+float unit_splash(EntType t) { return t == E_CATAPULT ? 1.3f : t == E_HEAVYCAT ? 1.8f : 0.0f; }
+int unit_tech_req(EntType t) { return t == E_HEAVYCAT ? T_ENGINEERING : -1; }
+int pcolor(int p) { int c = (p >= 0 && p < MAX_PLAYERS) ? W.setup.color[p] : 0; return c >= 1 && c <= MAX_PLAYERS ? c - 1 : (p < 0 ? 0 : p & 7); }   /* color 0 = automático (el del número de jugador) */
 static int is_animal(EntType t) { return t == E_HORSE || t == E_ELEPHANT; }
 int is_resource(EntType t) { return t >= E_BERRIES && t <= E_RELIC; }
-int same_team(int a, int b) { return a >= 0 && b >= 0 && W.pl[a].team == W.pl[b].team; }
+/* diplomacia: el equipo de la partida fija las relaciones iniciales; después se pueden cambiar (cmd_diplomacy) */
+int same_team(int a, int b) { return a >= 0 && b >= 0 && a < MAX_PLAYERS && b < MAX_PLAYERS && (a == b || W.pl[a].dipl[b] == DIPL_ALLY); }
+const char *dipl_name(int level) { return level == DIPL_ALLY ? "Aliado" : level == DIPL_NEUTRAL ? "Neutral" : "Enemigo"; }
 
 /* ---------- aleatorio ---------- */
 
@@ -153,6 +195,14 @@ int tile_walk(int x, int y) {
 	return !W.block[i] && W.tile[i] < TILE_WATER;
 }
 
+int tile_sail(int x, int y) {
+	if (!in_map(x, y)) return 0;
+	int i = tidx(x, y);
+	return !W.block[i] && W.tile[i] >= TILE_WATER;
+}
+
+int tech_allowed(int p, int tech) { return p < 0 || p >= MAX_PLAYERS || !((civ_def[W.pl[p].civ].bans >> tech) & 1u); }
+
 static void block_rect(int x, int y, int s, int d) {
 	for (int j = y; j < y + s; ++j)
 		for (int i = x; i < x + s; ++i)
@@ -194,6 +244,8 @@ static int ent_new(EntType t, int owner, float x, float y) {
 	e->stance = STANCE_AGGRESSIVE;
 	e->hx = x; e->hy = y;
 	e->rtarget = NOREF;
+	e->com_origen = e->com_destino = NOREF;
+	e->com_dar = RES_FOOD; e->com_recibir = RES_GOLD; e->com_dado = RES_FOOD;
 	e->variant = irand(4);
 	e->angle = frand() * 6.2831853f;
 
@@ -207,6 +259,7 @@ static int ent_new(EntType t, int owner, float x, float y) {
 		block_rect(e->bx, e->by, e->size, 1);
 	} else if (is_unit(t)) {
 		e->maxhp = e->hp = (float)unit_def[t - E_VILLAGER].hp * (owner >= 0 && t != E_VILLAGER && t < E_HORSE ? civ_def[W.pl[owner].civ].unit_hp : 1.0f);
+		if (owner >= 0 && is_naval(t) && civ_def[W.pl[owner].civ].naval > 0) { e->maxhp *= civ_def[W.pl[owner].civ].naval; e->hp = e->maxhp; }
 	} else {
 		e->size = 1;
 		e->bx = (int)floorf(x); e->by = (int)floorf(y);
@@ -267,9 +320,13 @@ static HeapItem heap_pop(void) {
 }
 
 /* rectángulo objetivo [gx0,gx1]x[gy0,gy1] incluido; las casillas dentro del rectángulo interior (ix0..) no son objetivos válidos */
+static int pf_sea;   /* la búsqueda en curso es de un barco: solo casillas de agua */
+static int pf_pass(int x, int y) { return pf_sea ? tile_sail(x, y) : tile_walk(x, y); }
+
 static int find_path(Entity *e, int gx0, int gy0, int gx1, int gy1, int inner)
 {
 	int sx = (int)floorf(e->x), sy = (int)floorf(e->y);
+	pf_sea = is_naval(e->type);
 	free(e->path); e->path = NULL; e->plen = e->pidx = 0;
 	if (!in_map(sx, sy))
 		return 0;
@@ -306,8 +363,8 @@ static int find_path(Entity *e, int gx0, int gy0, int gx1, int gy1, int inner)
 			int ni = in_map(nx, ny) ? tidx(nx, ny) : -1;
 			if (ni < 0) continue;
 			/* las casillas objetivo dentro de un edificio están bloqueadas, así que se permite entrar en el anillo objetivo igualmente */
-			if (!tile_walk(nx, ny)) continue;
-			if (k >= 4 && (!tile_walk(cx + dx[k], cy) || !tile_walk(cx, cy + dy[k]))) continue;
+			if (!pf_pass(nx, ny)) continue;
+			if (k >= 4 && (!pf_pass(cx + dx[k], cy) || !pf_pass(cx, cy + dy[k]))) continue;
 
 			float ng = W.pf_g[cur] + (k >= 4 ? 1.4142f : 1.0f);
 			if (W.pf_stamp[ni] != W.pf_cur || ng < W.pf_g[ni]) {
@@ -334,20 +391,21 @@ static int find_path(Entity *e, int gx0, int gy0, int gx1, int gy1, int inner)
 }
 
 /* asegura que un objetivo puntual sea transitable: busca la casilla transitable más cercana */
-static void nearest_walk(float *x, float *y) {
+static void nearest_pass(float *x, float *y, int sea) {
 	int ix = (int)floorf(*x), iy = (int)floorf(*y);
-	if (tile_walk(ix, iy)) return;
+	if (sea ? tile_sail(ix, iy) : tile_walk(ix, iy)) return;
 	for (int r = 1; r < 14; ++r)
 		for (int dy = -r; dy <= r; ++dy)
 			for (int dx = -r; dx <= r; ++dx)
-				if (MAX(abs(dx), abs(dy)) == r && tile_walk(ix + dx, iy + dy)) {
+				if (MAX(abs(dx), abs(dy)) == r && (sea ? tile_sail(ix + dx, iy + dy) : tile_walk(ix + dx, iy + dy))) {
 					*x = ix + dx + 0.5f; *y = iy + dy + 0.5f;
 					return;
 				}
 }
+static void nearest_walk(float *x, float *y) { nearest_pass(x, y, 0); }
 
 static void goto_point(Entity *e, float x, float y) {
-	nearest_walk(&x, &y);
+	nearest_pass(&x, &y, is_naval(e->type));
 	e->tx = x; e->ty = y;
 	int gx = (int)floorf(x), gy = (int)floorf(y);
 	find_path(e, gx, gy, gx, gy, 0);
@@ -377,13 +435,38 @@ static void stop_unit(Entity *e) {
 	e->state = ST_IDLE; e->target = NOREF;
 }
 
+/* añade un punto de ruta a la unidad (órdenes en cola con Mayús); si está parada, va directa */
+void cmd_move_queue(Ref r, float x, float y) {
+	Entity *e = ent_get(r);
+	x = CLAMP(x, 0.0f, (float)W.w); y = CLAMP(y, 0.0f, (float)W.h);   /* dentro del mapa (lo exige también la carga) */
+	if (!e || !is_unit(e->type) || e->state == ST_DYING || e->state == ST_ABOARD) return;
+	if (e->state == ST_IDLE && e->nwp == 0) { cmd_move(r, x, y); return; }
+	if (e->nwp < 4) { e->wpx[e->nwp] = x; e->wpy[e->nwp] = y; ++e->nwp; }
+}
+
+/* patrulla entre la posición actual y el punto dado; se interrumpe para combatir y luego sigue */
+void cmd_patrol(Ref r, float x, float y) {
+	Entity *e = ent_get(r);
+	x = CLAMP(x, 0.0f, (float)W.w); y = CLAMP(y, 0.0f, (float)W.h);
+	if (!e || !is_unit(e->type) || e->type == E_VILLAGER || e->state == ST_DYING || e->state == ST_ABOARD) return;
+	float ox = e->x, oy = e->y;
+	cmd_move(r, x, y);
+	e->patrol = 1; e->wpx[0] = ox; e->wpy[0] = oy; e->ptx = x; e->pty = y;
+}
+
 void cmd_move(Ref r, float x, float y) {
 	Entity *e = ent_get(r);
-	if (!e || !is_unit(e->type) || e->state == ST_DYING) return;
+	x = CLAMP(x, 0.0f, (float)W.w); y = CLAMP(y, 0.0f, (float)W.h);
+	/* un pasajero no obedece: su target es el barco, y sin él moriría en el tic siguiente */
+	if (!e || !is_unit(e->type) || e->state == ST_DYING || e->state == ST_ABOARD) return;
 	e->target = NOREF;
 	e->auto_target = 0;
+	e->nwp = 0; e->patrol = 0;
+	if (is_trader(e->type)) { e->com_destino = NOREF; e->com_fase = 0; e->com_espera = 0; }   /* mover a mano deja la ruta */
 	if (e->stance == STANCE_GUARD) e->stance = STANCE_AGGRESSIVE;
 	e->hx = x; e->hy = y;
+	/* un transporte al que se manda a tierra se acerca a la costa y desembarca allí */
+	e->unload = e->type == E_TRANSPORT && e->ncargo > 0 && !tile_sail((int)floorf(x), (int)floorf(y));
 	goto_point(e, x, y);
 }
 
@@ -392,6 +475,7 @@ static int dropsite_accepts(const Entity *b, int kind) {
 	if (kind == RES_COUNT) return b->type == E_TEMPLE;
 	switch (b->type) {
 	case E_TOWN_CENTER: return 1;
+	case E_DOCK: return kind == RES_FOOD;
 	case E_GRANARY: return kind == RES_FOOD;
 	case E_STORAGE: return kind != RES_FOOD;
 	default: return 0;
@@ -413,6 +497,7 @@ static int find_dropsite(const Entity *u, int kind) {
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *b = &W.ents[i];
 		if (!b->alive || b->owner != u->owner || !dropsite_accepts(b, kind)) continue;
+		if ((u->type == E_FISHBOAT) != (b->type == E_DOCK)) continue;   /* los barcos descargan en muelles; el resto, no */
 		float d = (b->x - u->x) * (b->x - u->x) + (b->y - u->y) * (b->y - u->y);
 		if (d < bd) { bd = d; best = i; }
 	}
@@ -420,21 +505,187 @@ static int find_dropsite(const Entity *u, int kind) {
 }
 
 static int hostile(int a, int b) {
-	return a >= 0 && b >= 0 && a != b && W.pl[a].team != W.pl[b].team;
+	return a >= 0 && b >= 0 && a != b && W.pl[a].dipl[b] == DIPL_ENEMY;
+}
+
+static float dist_to_ent(const Entity *u, const Entity *t);
+
+/* ---------- comercio: barcos mercantes (entre muelles) y carros mercantes (entre mercados) ---------- */
+
+/* Fórmulas (docs/aoen.md). d es la distancia en línea recta entre los centros de los dos edificios de la ruta, la misma para
+ * barcos y carros (el camino real cambia con lo construido; así el pago de una ruta no varía de un viaje a otro).
+ *   modo oro:        oro = 5 + 0,6 · d por viaje de ida y vuelta, como mucho 120 (nadie pierde nada)
+ *   modo intercambio: recibido = floor(15 · bonus · tasa), bonus = min(3, 1 + d / 60),
+ *                     tasa = clamp(total_pedido / total_dado, 0,25, 4) con lo que TIENEN todos los jugadores vivos ahora
+ *                     (total_dado 0 cuenta como 1); al destino no se le quita ni se le da nada */
+int comercio_oro(float d) { return CLAMP((int)(5.0f + 0.6f * d), 0, 120); }
+
+int comercio_intercambio(int dar, int recibir, float d) {
+	if (dar < 0 || dar >= RES_COUNT || recibir < 0 || recibir >= RES_COUNT) return 0;
+	long tp = 0, td = 0;
+	for (int p = 0; p < MAX_PLAYERS; ++p) if (W.pl[p].active && W.pl[p].alive) { tp += W.pl[p].res[recibir]; td += W.pl[p].res[dar]; }
+	float tasa = CLAMP((float)tp / (float)MAX(1, td), 0.25f, 4.0f), bonus = MIN(3.0f, 1.0f + d / 60.0f);
+	return (int)floorf(15.0f * bonus * tasa);
+}
+
+static EntType puerto_de(const Entity *e) { return e->type == E_TRADESHIP ? E_DOCK : E_MARKET; }
+
+float comercio_distancia(const Entity *e) {
+	Entity *o = ent_get(e->com_origen), *d = ent_get(e->com_destino);
+	if (!o || !d) return 0;
+	return sqrtf((o->x - d->x) * (o->x - d->x) + (o->y - d->y) * (o->y - d->y));
+}
+
+/* el muelle o mercado propio terminado más cercano a un punto */
+static int puerto_propio(const Entity *e, float x, float y) {
+	int best = -1; float bd = 1e18f;
+	for (int i = 0; i < W.nents; ++i) {
+		Entity *b = &W.ents[i];
+		if (!b->alive || b->state == ST_DYING || b->owner != e->owner || b->type != puerto_de(e) || b->progress < 1) continue;
+		float d = (b->x - x) * (b->x - x) + (b->y - y) * (b->y - y);
+		if (d < bd) { bd = d; best = i; }
+	}
+	return best;
+}
+
+/* clic derecho de un mercante sobre un edificio: un muelle/mercado de otro jugador es el destino (cualquier jugador); uno
+ * propio, el origen. Otra cosa: solo se mueve allí y deja la ruta */
+static void comercio_ruta(Entity *e, Entity *t) {
+	e->target = NOREF;
+	if (!is_building(t->type) || t->type != puerto_de(e) || t->progress < 1 || t->owner < 0) {
+		e->com_destino = NOREF; e->com_fase = 0; e->com_espera = 0;
+		goto_point(e, t->x, t->y);
+		return;
+	}
+	if (t->owner == e->owner) {
+		e->com_origen = ent_ref((int)(t - W.ents));
+	} else {
+		int o = puerto_propio(e, e->x, e->y);
+		if (o < 0) { if (e->owner == W.human) world_msg(e->type == E_TRADESHIP ? "Necesitas un muelle propio" : "Necesitas un mercado propio"); return; }
+		if (!ent_get(e->com_origen)) e->com_origen = ent_ref(o);
+		e->com_destino = ent_ref((int)(t - W.ents));
+		if (e->owner == W.human) world_msg("Ruta comercial fijada");
+	}
+	/* la ruta empieza en el origen (allí carga en el modo intercambio) */
+	if (e->com_fase != 2) e->com_fase = 0;
+	e->com_espera = 0; e->timer = 0;
+	stop_unit(e);
+}
+
+int cmd_comercio(Ref r, int modo, int dar, int recibir) {
+	Entity *e = ent_get(r);
+	if (!e || !is_trader(e->type) || e->state == ST_DYING) return 0;
+	if (modo == 1 && !W.setup.comercio_mejorado) return 0;
+	if (modo < 0 || modo > 1 || dar < 0 || dar >= RES_COUNT || recibir < 0 || recibir >= RES_COUNT) return 0;
+	if ((modo != e->com_modo || dar != e->com_dar || recibir != e->com_recibir) && (e->carry > 0 || e->com_fase != 0)) {
+		/* cambiar el trato a mitad de ruta la reinicia: sin esto se cobraría sin haber cargado (o se perdería la carga
+		 * sin aviso). Si cargó 15 y aún no ha salido de su puerto, se le devuelven; si ya salió, se pierden */
+		Entity *o = ent_get(e->com_origen);
+		if (e->com_modo == 1 && e->carry > 0 && e->com_fase == 1 && e->carry_kind == e->com_dado && o &&
+		    dist_to_ent(e, o) <= (e->type == E_TRADESHIP ? 3.2f : 2.2f) && e->owner >= 0)
+			W.pl[e->owner].res[e->com_dado] += e->carry;
+		e->carry = 0; e->com_fase = 0; e->com_espera = 0; e->timer = 0;
+	}
+	e->com_modo = modo; e->com_dar = dar; e->com_recibir = recibir;
+	return 1;
+}
+
+static void actualizar_comercio(Entity *e, float dt) {
+	Entity *o = ent_get(e->com_origen), *d = ent_get(e->com_destino);
+	if (!d) {
+		/* sin ruta, obedece órdenes normales; si la tenía y el puerto ajeno ya no existe, queda libre */
+		if (e->com_destino.idx >= 0) {
+			e->com_destino = NOREF; e->com_fase = 0; e->com_espera = 0; e->carry = 0;
+			if (e->owner == W.human) world_msg("Ruta perdida");
+		}
+		return;
+	}
+	if (!o || o->owner != e->owner || o->state == ST_DYING || d->state == ST_DYING || d->owner == e->owner || d->owner < 0) {
+		/* se perdió un extremo de la ruta: busca otro origen propio; si no hay o falta el destino, se para */
+		int no = d && d->state != ST_DYING && d->owner != e->owner && d->owner >= 0 ? puerto_propio(e, e->x, e->y) : -1;
+		if (no >= 0) { e->com_origen = ent_ref(no); o = &W.ents[no]; }
+		else { e->com_destino = NOREF; e->com_fase = 0; e->com_espera = 0; if (e->com_modo == 0) e->carry = 0; return; }
+	}
+	if (e->state != ST_IDLE && e->state != ST_MOVE) return;
+	if (W.setup.comercio_mejorado == 0) e->com_modo = 0;
+	Entity *meta = e->com_fase == 1 ? d : o;
+	float alcance = e->type == E_TRADESHIP ? 3.2f : 2.2f;
+	if (dist_to_ent(e, meta) > alcance) {
+		if (e->state == ST_IDLE) {
+			/* reintenta el camino cada 2 s como mucho (si no lo hay, no se calcula en cada tic) */
+			e->timer -= dt;
+			if (e->timer <= 0) { e->timer = 2.0f; goto_point(e, meta->x, meta->y); }
+		}
+		return;
+	}
+	if (e->state == ST_MOVE) stop_unit(e);
+	float dist = comercio_distancia(e);
+	Player *pl = &W.pl[e->owner];
+	switch (e->com_fase) {
+	case 0:   /* en el origen: carga (intercambio) y sale */
+		if (e->com_modo == 1) {
+			if (e->carry <= 0) {
+				if (pl->res[e->com_dar] < 15) {   /* espera en su puerto sin zarpar */
+					if (!e->com_espera) AOEN_LOG("[AOEN] comercio: %s espera 15 de %d (tiene %d)", unit_def[e->type - E_VILLAGER].name, e->com_dar, pl->res[e->com_dar]);
+					e->com_espera = 1;
+					return;
+				}
+				pl->res[e->com_dar] -= 15;
+				e->carry = 15; e->carry_kind = e->com_dar; e->com_dado = e->com_dar;
+				AOEN_LOG("[AOEN] comercio: %s carga 15 de %d (jugador %d tiene %d)", unit_def[e->type - E_VILLAGER].name, e->com_dar, e->owner + 1, pl->res[e->com_dar]);
+			}
+		} else e->carry = 0;
+		e->com_espera = 0;
+		e->com_fase = 1; e->timer = 0;
+		goto_point(e, d->x, d->y);
+		break;
+	case 1:   /* en el puerto ajeno: cambia la carga (sin tocar al dueño) o recoge el oro, y vuelve */
+		if (e->com_modo == 1 && e->carry > 0) e->carry_kind = e->com_recibir;
+		else { e->carry = 1; e->carry_kind = RES_GOLD; }
+		e->com_fase = 2; e->timer = 0;
+		goto_point(e, o->x, o->y);
+		break;
+	default: {   /* de vuelta: descarga */
+		int k, n;
+		if (e->com_modo == 1 && e->carry > 0 && e->carry_kind == e->com_recibir) { k = e->com_recibir; n = comercio_intercambio(e->com_dado, k, dist); }
+		else { k = RES_GOLD; n = comercio_oro(dist); }
+		pl->res[k] += n;
+		pl->gathered += n;
+		pl->gathered_k[k] += n;
+		{
+			long tp = 0, td = 0;
+			for (int q = 0; q < MAX_PLAYERS; ++q) if (W.pl[q].active && W.pl[q].alive) { tp += W.pl[q].res[k]; td += W.pl[q].res[e->com_dado]; }
+			/* los totales son los de antes de sumar lo entregado (los que usó la fórmula) */
+			AOEN_LOG("[AOEN] comercio: %s entrega %d de %d (modo %d, distancia %.1f, total_pedido %ld, total_dado %ld)", unit_def[e->type - E_VILLAGER].name, n, k, e->com_modo, dist, tp - n, td);
+		}
+		e->carry = 0;
+		e->com_fase = 0; e->timer = 0;
+		break;
+	}
+	}
 }
 
 void cmd_target(Ref r, Ref tr) {
 	Entity *e = ent_get(r), *t = ent_get(tr);
-	if (!e || !t || !is_unit(e->type) || e->state == ST_DYING || t->state == ST_DYING) return;
+	if (!e || !t || !is_unit(e->type) || e->state == ST_DYING || t->state == ST_DYING || e->state == ST_ABOARD) return;
 
 	e->target = tr;
 	e->auto_target = 0;
+	e->nwp = 0; e->patrol = 0;
+	if (is_trader(e->type)) { comercio_ruta(e, t); return; }
 	if (t->type == E_RELIC) {
 		if (e->type != E_PRIEST) { goto_point(e, t->x, t->y); e->target = NOREF; return; }
 		e->carry_kind = RES_COUNT; e->carry = 0;
 		goto_target(e, t, ST_GATHER);
+	} else if (t->type == E_TRANSPORT && t->owner == e->owner && !is_naval(e->type)) {
+		/* subir a un transporte: se anda hasta la costa y se embarca al llegar */
+		if (t->ncargo >= 5) { if (e->owner == W.human) world_msg("El transporte está lleno"); goto_point(e, t->x, t->y); e->target = NOREF; return; }
+		goto_point(e, t->x, t->y);
+		e->target = tr;
+		e->state = ST_BOARD;
 	} else if (is_resource(t->type)) {
-		if (e->type != E_VILLAGER) { goto_point(e, t->x, t->y); e->target = NOREF; return; }
+		if (e->type == E_FISHBOAT && t->type == E_FISH) { e->carry_kind = RES_FOOD; goto_target(e, t, ST_GATHER); return; }
+		if (e->type != E_VILLAGER || t->type == E_FISH) { goto_point(e, t->x, t->y); e->target = NOREF; return; }
 		if (e->carry_kind != res_kind_of(t->type)) { e->carry = 0; }
 		e->carry_kind = res_kind_of(t->type);
 		goto_target(e, t, ST_GATHER);
@@ -468,18 +719,38 @@ int can_place(EntType t, int tx, int ty) {
 	for (int j = ty; j < ty + s; ++j)
 		for (int i = tx; i < tx + s; ++i)
 			if (!tile_walk(i, j)) return 0;
+	if (t == E_DOCK) {   /* el muelle va en la orilla: alguna casilla de agua libre pegada al borde */
+		int agua = 0;
+		for (int k = -1; k <= s; ++k) agua += tile_sail(tx + k, ty - 1) + tile_sail(tx + k, ty + s) + tile_sail(tx - 1, ty + k) + tile_sail(tx + s, ty + k);
+		if (!agua) return 0;
+	}
 	return 1;
 }
 
+/* La población máxima se calcula para todos los jugadores de una pasada y se guarda hasta el tic siguiente (la piden el
+ * mundo, la IA y la interfaz muchas veces por tic). La clave es el instante de juego y la generación del mundo, que cambia
+ * con cada partida nueva o cargada; un edificio terminado a mitad de tic cuenta en el siguiente. */
+static unsigned mundo_gen = 1;
+unsigned world_gen(void) { return mundo_gen; }
+static struct { unsigned gen; float t; int nents; int cap[MAX_PLAYERS]; } popcache;
+
 int world_pop_cap(int p) {
-	int cap = 0;
-	for (int i = 0; i < W.nents; ++i) {
-		Entity *e = &W.ents[i];
-		if (!e->alive || e->owner != p || e->progress < 1) continue;
-		if (e->type == E_TOWN_CENTER) cap += 10;
-		else if (e->type == E_HOUSE) cap += 5;
+	if (p < 0 || p >= MAX_PLAYERS) return 0;
+	if (popcache.gen != mundo_gen || popcache.t != W.time || popcache.nents != W.nents) {
+		int cap[MAX_PLAYERS] = { 0 };
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *e = &W.ents[i];
+			if (!e->alive || e->owner < 0 || e->owner >= MAX_PLAYERS || e->progress < 1) continue;
+			if (e->type == E_TOWN_CENTER) cap[e->owner] += 10;
+			else if (e->type == E_HOUSE) cap[e->owner] += 5;
+		}
+		for (int q = 0; q < MAX_PLAYERS; ++q) {
+			cap[q] += has_tech(q, T_LOGISTICS) ? 20 : 0;
+			popcache.cap[q] = MIN(cap[q], W.setup.popcap > 0 ? W.setup.popcap : 200);
+		}
+		popcache.gen = mundo_gen; popcache.t = W.time; popcache.nents = W.nents;
 	}
-	return MIN(cap, W.setup.popcap > 0 ? W.setup.popcap : 200);
+	return popcache.cap[p];
 }
 
 static int afford(int p, const int cost[RES_COUNT]) {
@@ -499,7 +770,7 @@ void cmd_set_stance(Ref r, int stance) {
 /* la unidad sigue y defiende a otra unidad o edificio de su propio equipo */
 void cmd_guard(Ref r, Ref prot) {
 	Entity *e = ent_get(r), *t = ent_get(prot);
-	if (!e || !t || e == t || !is_unit(e->type) || e->type == E_VILLAGER || !same_team(e->owner, t->owner)) return;
+	if (!e || !t || e == t || !is_unit(e->type) || e->type == E_VILLAGER || !same_team(e->owner, t->owner) || e->state == ST_ABOARD || e->state == ST_DYING) return;
 	e->stance = STANCE_GUARD;
 	e->target = prot;
 	if (e->state != ST_IDLE) { free(e->path); e->path = NULL; e->plen = e->pidx = 0; e->state = ST_IDLE; }
@@ -508,7 +779,7 @@ void cmd_guard(Ref r, Ref prot) {
 void cmd_set_rally(Ref r, float x, float y, Ref target) {
 	Entity *b = ent_get(r);
 	if (!b || !is_building(b->type)) return;
-	b->has_rally = 1; b->rx = x; b->ry = y; b->rtarget = target;
+	b->has_rally = 1; b->rx = CLAMP(x, 0.0f, (float)W.w); b->ry = CLAMP(y, 0.0f, (float)W.h); b->rtarget = target;
 }
 
 void world_score(int p, int *econ, int *mil, int *tech) {
@@ -525,7 +796,8 @@ int has_tech(int p, int t) { return p >= 0 && p < MAX_PLAYERS && ((W.pl[p].techs
 float eff_attack(int p, EntType t, int vs_building) {
 	const UnitDef *u = &unit_def[t - E_VILLAGER];
 	float d = vs_building ? u->dmg_bld : u->dmg;
-	if (u->ranged) d += has_tech(p, T_BOW) + has_tech(p, T_COMPOSITE) + (p >= 0 ? civ_def[W.pl[p].civ].ranged_atk : 0);
+	if (is_siege(t)) { if (has_tech(p, T_BALLISTICS)) d *= 1.25f; if (p >= 0 && civ_def[W.pl[p].civ].siege > 0) d *= civ_def[W.pl[p].civ].siege; }
+	else if (u->ranged) d += has_tech(p, T_BOW) + has_tech(p, T_COMPOSITE) + (p >= 0 ? civ_def[W.pl[p].civ].ranged_atk : 0);
 	else if (t != E_PRIEST && t != E_VILLAGER) d += 2 * has_tech(p, T_BRONZE_WEAPONS) + 2 * has_tech(p, T_IRON_WEAPONS) + (p >= 0 ? civ_def[W.pl[p].civ].melee_atk : 0);
 	return d;
 }
@@ -540,6 +812,7 @@ int eff_armor(int p, EntType t, int ranged) {
 
 float eff_range(int p, EntType t) {
 	const UnitDef *u = &unit_def[t - E_VILLAGER];
+	if (is_siege(t)) return u->range + (float)has_tech(p, T_ENGINEERING);
 	return u->range + (u->ranged ? (float)has_tech(p, T_COMPOSITE) + (p >= 0 ? (float)civ_def[W.pl[p].civ].range : 0.0f) : 0.0f);
 }
 
@@ -550,6 +823,7 @@ int cmd_research(int p, Ref bref, int tech) {
 	if (td->bld != b->type) return 0;
 	if (b->tech_cur) { if (p == W.human) world_msg("Ya se está investigando algo aquí"); return 0; }
 	if (has_tech(p, tech)) return 0;
+	if (!tech_allowed(p, tech)) { if (p == W.human) world_msg("Tu civilización no puede investigar esto"); return 0; }
 	if (W.pl[p].age < td->age) { if (p == W.human) world_msg("Necesitas una edad superior"); return 0; }
 	if (td->prereq >= 0 && !has_tech(p, td->prereq)) { if (p == W.human) world_msg("Necesitas investigar antes otra mejora"); return 0; }
 	int cost[RES_COUNT] = { td->wood, td->food, td->gold, td->stone };
@@ -614,6 +888,7 @@ int cmd_train(int p, Ref bref, EntType t) {
 	if (!b || b->owner != p || b->progress < 1 || !is_unit(t)) return 0;
 	if (unit_def[t - E_VILLAGER].trainer != b->type) return 0;
 	if (W.pl[p].age < unit_def[t - E_VILLAGER].age) { if (p == W.human) world_msg("Necesitas una edad superior"); return 0; }
+	if (unit_tech_req(t) >= 0 && !has_tech(p, unit_tech_req(t))) { if (p == W.human) { char m[96]; snprintf(m, sizeof m, "Necesitas la mejora: %s", tech_def[unit_tech_req(t)].name); world_msg(m); } return 0; }
 	if (b->ntrain >= 5) { if (p == W.human) world_msg("La cola de producción está llena"); return 0; }
 
 	const UnitDef *u = &unit_def[t - E_VILLAGER];
@@ -695,7 +970,8 @@ static float dist_to_ent(const Entity *u, const Entity *t) {
 
 static int walk_step(Entity *e, float dt) {
 	float speed = unit_def[e->type - E_VILLAGER].speed;
-	if (e->owner >= 0 && e->type != E_VILLAGER) speed *= civ_def[W.pl[e->owner].civ].speed;
+	if (e->owner >= 0 && e->type != E_VILLAGER && !is_naval(e->type)) speed *= civ_def[W.pl[e->owner].civ].speed;
+	if (e->owner >= 0 && has_tech(e->owner, T_WHEEL) && (e->type == E_VILLAGER || e->type == E_SCOUT || e->type == E_CAVALRY || e->type == E_HEAVYCAV || e->type == E_CHARIOT)) speed *= 1.1f;
 	float gx, gy;
 
 	if (e->path && e->pidx < e->plen) {
@@ -736,6 +1012,7 @@ static void find_next_resource(Entity *e, EntType kind) {
 		Entity *r = &W.ents[i];
 		int farm = r->type == E_FARM && r->owner == e->owner && r->progress >= 1;
 		if (!r->alive || !(is_resource(r->type) || farm) || res_kind_of(r->type) != res_kind_of(kind) || r->amount <= 0) continue;
+		if (res_kind_of(kind) == RES_FOOD && (e->type == E_FISHBOAT) != (r->type == E_FISH)) continue;   /* los barcos solo pescan; los aldeanos no */
 		if (W.fog[tidx(r->bx, r->by)] == 0 && e->owner == W.human) continue;
 		float d = (r->x - e->x) * (r->x - e->x) + (r->y - e->y) * (r->y - e->y);
 		if (d < bd && d < 18 * 18) { bd = d; best = i; }
@@ -745,6 +1022,23 @@ static void find_next_resource(Entity *e, EntType kind) {
 }
 
 static void start_dying(Entity *e) {
+	if (e->state == ST_DYING) return;
+	if (e->type == E_TRANSPORT) {   /* los pasajeros se hunden con el barco */
+		/* se marca y se vacía antes del bucle: una carga cruzada o a sí mismo (partida manipulada) no puede volver aquí */
+		int n = CLAMP(e->ncargo, 0, 5);
+		Ref carga[5];
+		memcpy(carga, e->cargo, sizeof(Ref) * (size_t)n);
+		e->ncargo = 0;
+		e->state = ST_DYING;
+		for (int k = 0; k < n; ++k) {
+			Entity *p = ent_get(carga[k]);
+			if (!p || p == e || p->state == ST_DYING || p->state != ST_ABOARD) continue;
+			p->state = ST_IDLE;
+			if (p->owner >= 0 && p->owner < MAX_PLAYERS) ++W.pl[p->owner].units_lost;
+			start_dying(p);
+		}
+		e->state = ST_IDLE;   /* se vuelve a marcar abajo, con el resto */
+	}
 	fx_evento(FX_EV_UNIDAD_MUERE, e);
 	snd_event(SND_DIE_UNIT, e->x, e->y);
 	if (e->carry_kind == RES_COUNT && e->carry > 0) { ent_new(E_RELIC, -1, e->x, e->y); e->carry = 0; e->carry_kind = RES_WOOD; }
@@ -752,6 +1046,7 @@ static void start_dying(Entity *e) {
 	e->die_t = 0;
 	free(e->path); e->path = NULL; e->plen = 0;
 	e->sel = 0;
+	if (is_naval(e->type)) ent_kill(e);   /* los barcos no dejan cadáver */
 }
 
 static void add_shot(float x0, float y0, float x1, float y1) {
@@ -774,6 +1069,10 @@ static void damage(Entity *t, float dmg, Entity *from, int ranged) {
 	if (t->state == ST_DYING) return;
 	if (from && t->owner == W.human && from->owner != W.human && !same_team(from->owner, W.human) && !is_resource(t->type)) raise_alert(t->x, t->y);
 	if (is_unit(t->type)) dmg = MAX(1.0f, dmg - (float)eff_armor(t->owner, t->type, ranged));
+	else if (is_building(t->type) && t->owner >= 0) {
+		if (has_tech(t->owner, T_ARCHITECTURE)) dmg *= 0.85f;
+		if (t->type == E_WALL) dmg /= 1.0f + has_tech(t->owner, T_WALL_MED) + has_tech(t->owner, T_FORTIFICATION);
+	}
 	t->hp -= dmg;
 
 	if (is_animal(t->type) && from) {
@@ -804,6 +1103,9 @@ static void damage(Entity *t, float dmg, Entity *from, int ranged) {
 
 	if (t->hp <= 0) {
 		t->hp = 0;
+		if (t->owner >= 0 && t->owner < MAX_PLAYERS && !is_animal(t->type)) { if (is_building(t->type)) ++W.pl[t->owner].bld_lost; else ++W.pl[t->owner].units_lost; }
+		if (from && is_naval(from->type)) AOEN_LOG("[AOEN] flota: %s destruye %s (t=%.0f)", unit_def[from->type - E_VILLAGER].name, is_building(t->type) ? bld_def[t->type].name : unit_def[t->type - E_VILLAGER].name, W.time);
+		if (from && is_siege(from->type)) AOEN_LOG("[AOEN] asedio: %s destruye %s (t=%.0f)", unit_def[from->type - E_VILLAGER].name, is_building(t->type) ? bld_def[t->type].name : unit_def[t->type - E_VILLAGER].name, W.time);
 		if (from && from->owner >= 0) {
 			if (is_building(t->type)) ++W.pl[from->owner].bld_razed;
 			else ++W.pl[from->owner].units_killed;
@@ -821,7 +1123,7 @@ static void damage(Entity *t, float dmg, Entity *from, int ranged) {
 		}
 	} else if (is_unit(t->type) && t->state == ST_IDLE) {
 		/* contraataca */
-		if (from && hostile(t->owner, from->owner) && t->type != E_VILLAGER && t->type != E_PRIEST && t->stance != STANCE_PASSIVE) {
+		if (from && hostile(t->owner, from->owner) && t->type != E_VILLAGER && t->type != E_PRIEST && !is_trader(t->type) && t->stance != STANCE_PASSIVE) {
 			int in_reach = 1;
 			if (t->stance == STANCE_STAND) {
 				float dx = from->x - t->x, dy = from->y - t->y;
@@ -836,11 +1138,51 @@ static void damage(Entity *t, float dmg, Entity *from, int ranged) {
 	}
 }
 
+/* Rejilla de enemigos posibles (entidades con dueño que no son recursos), por celdas de 8 casillas. Se rehace al principio
+ * de cada tic: lo que nace durante el tic entra en el siguiente. nearest_enemy solo mira las celdas a su alcance. */
+#define RJ_CELDA 8
+static int *rj_cab, *rj_sig, rj_w, rj_h, rj_cap, rj_ncab, rj_n;
+static unsigned rj_gen;
+
+static void rejilla_rehacer(void) {
+	rj_w = (W.w + RJ_CELDA - 1) / RJ_CELDA; rj_h = (W.h + RJ_CELDA - 1) / RJ_CELDA;
+	if (rj_ncab < rj_w * rj_h) { free(rj_cab); rj_ncab = rj_w * rj_h; rj_cab = (int *)malloc(sizeof(int) * (size_t)rj_ncab); }
+	if (rj_cap < W.nents) { free(rj_sig); rj_cap = W.nents + 1024; rj_sig = (int *)malloc(sizeof(int) * (size_t)rj_cap); }
+	if (!rj_cab || !rj_sig) { free(rj_cab); free(rj_sig); rj_cab = rj_sig = NULL; rj_gen = 0; rj_ncab = rj_cap = 0; return; }
+	for (int k = 0; k < rj_w * rj_h; ++k) rj_cab[k] = -1;
+	/* de atrás adelante: cada celda queda en orden creciente de índice, como el recorrido lineal */
+	for (int i = W.nents - 1; i >= 0; --i) {
+		Entity *t = &W.ents[i];
+		if (!t->alive || t->owner < 0 || t->state == ST_DYING || is_resource(t->type)) continue;
+		int cx = CLAMP((int)t->x / RJ_CELDA, 0, rj_w - 1), cy = CLAMP((int)t->y / RJ_CELDA, 0, rj_h - 1);
+		rj_sig[i] = rj_cab[cy * rj_w + cx];
+		rj_cab[cy * rj_w + cx] = i;
+	}
+	rj_n = W.nents;
+	rj_gen = mundo_gen;
+}
+
 static int nearest_enemy(const Entity *u, float range) {
 	int best = -1; float bd = range * range;
+	if (rj_gen == mundo_gen && range <= 40) {
+		/* los edificios cuentan a 0,6 de su distancia: se buscan hasta range / sqrt(0,6) */
+		float r = range * 1.30f;
+		int x0 = CLAMP((int)(u->x - r) / RJ_CELDA, 0, rj_w - 1), x1 = CLAMP((int)(u->x + r) / RJ_CELDA, 0, rj_w - 1);
+		int y0 = CLAMP((int)(u->y - r) / RJ_CELDA, 0, rj_h - 1), y1 = CLAMP((int)(u->y + r) / RJ_CELDA, 0, rj_h - 1);
+		for (int cy = y0; cy <= y1; ++cy)
+			for (int cx = x0; cx <= x1; ++cx)
+				for (int i = rj_cab[cy * rj_w + cx]; i >= 0; i = rj_sig[i]) {
+					Entity *t = &W.ents[i];
+					if (!t->alive || t->state == ST_DYING || t->state == ST_ABOARD || !hostile(u->owner, t->owner) || is_resource(t->type)) continue;
+					float d = (t->x - u->x) * (t->x - u->x) + (t->y - u->y) * (t->y - u->y);
+					if (is_building(t->type)) d *= 0.6f;
+					if (d < bd || (d == bd && i < best)) { bd = d; best = i; }
+				}
+		return best;
+	}
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *t = &W.ents[i];
-		if (!t->alive || t->state == ST_DYING || !hostile(u->owner, t->owner) || is_resource(t->type)) continue;
+		if (!t->alive || t->state == ST_DYING || t->state == ST_ABOARD || !hostile(u->owner, t->owner) || is_resource(t->type)) continue;
 		if (t->owner == W.human) { /* los enemigos solo se ven cuando no están ocultos */ }
 		float d = (t->x - u->x) * (t->x - u->x) + (t->y - u->y) * (t->y - u->y);
 		if (is_building(t->type)) d *= 0.6f;
@@ -883,10 +1225,40 @@ static void unstick(Entity *e) {
 	if (e->state == ST_MOVE) goto_point(e, e->tx, e->ty);
 }
 
+/* desembarca a los pasajeros en la tierra más cercana al barco; devuelve cuántos bajaron */
+static int unload_boat(Entity *b) {
+	int bajados = 0;
+	for (int k = 0; k < b->ncargo; ) {
+		Entity *u = ent_get(b->cargo[k]);
+		if (!u || u->state != ST_ABOARD || u->hp <= 0) { memmove(b->cargo + k, b->cargo + k + 1, sizeof(Ref) * (size_t)(b->ncargo - k - 1)); --b->ncargo; continue; }
+		int hecho = 0;
+		for (int r = 1; r <= 6 && !hecho; ++r)
+			for (int a = 0; a < 16 && !hecho; ++a) {
+				float ang = (a + k * 3) * 6.2831853f / 16.0f, x = b->x + cosf(ang) * r, y = b->y + sinf(ang) * r;
+				if (tile_walk((int)floorf(x), (int)floorf(y))) { u->x = x; u->y = y; hecho = 1; }
+			}
+		if (!hecho) { ++k; continue; }
+		u->state = ST_IDLE; u->target = NOREF; u->hx = u->x; u->hy = u->y;
+		free(u->path); u->path = NULL; u->plen = u->pidx = 0;
+		memmove(b->cargo + k, b->cargo + k + 1, sizeof(Ref) * (size_t)(b->ncargo - k - 1)); --b->ncargo;
+		++bajados;
+	}
+	if (bajados) {
+		AOEN_LOG("[AOEN] transporte: desembarcan %d unidades", bajados);
+		if (b->owner == W.human) world_msg("Unidades desembarcadas");
+	} else if (b->ncargo && b->owner == W.human) world_msg("No hay tierra libre cerca para desembarcar");
+	return bajados;
+}
+
+int transport_load(const Entity *boat) { return boat ? boat->ncargo : 0; }
+
+static void actualizar_comercio(Entity *e, float dt);
+
 static void update_unit(Entity *e, float dt) {
 	const UnitDef *ud = &unit_def[e->type - E_VILLAGER];
 	e->walking = 0;
 	e->acting = 0;
+	if (is_trader(e->type) && e->state != ST_DYING) actualizar_comercio(e, dt);
 
 	if (e->state == ST_DYING) {
 		e->die_t += dt;
@@ -894,10 +1266,47 @@ static void update_unit(Entity *e, float dt) {
 		return;
 	}
 
+	if (e->state == ST_ABOARD) {   /* el pasajero acompaña al barco */
+		Entity *b = ent_get(e->target);
+		if (!b || b->state == ST_DYING) { e->state = ST_IDLE; if (e->owner >= 0 && e->owner < MAX_PLAYERS) ++W.pl[e->owner].units_lost; start_dying(e); }
+		else { e->x = b->x; e->y = b->y; }
+		return;
+	}
+
 	Entity *t = ent_get(e->target);
 
 	switch (e->state) {
+	case ST_BOARD: {
+		if (!t || t->type != E_TRANSPORT || t->state == ST_DYING) { stop_unit(e); break; }
+		if (dist_to_ent(e, t) <= 3.6f) {
+			if (t->ncargo < 5) {
+				t->cargo[t->ncargo++] = ent_ref((int)(e - W.ents));
+				free(e->path); e->path = NULL; e->plen = e->pidx = 0;
+				e->state = ST_ABOARD; e->x = t->x; e->y = t->y;
+				e->sel = 0;   /* a bordo no se puede mandar: deja de estar seleccionado */
+				AOEN_LOG("[AOEN] transporte: embarca %s (%d a bordo)", unit_def[e->type - E_VILLAGER].name, t->ncargo);
+				if (e->owner == W.human) world_msg("Embarcado");
+			} else { stop_unit(e); if (e->owner == W.human) world_msg("El transporte está lleno"); }
+			break;
+		}
+		if (walk_step(e, dt)) {   /* llegó al final de la ruta: reintenta acercarse al barco, que puede haberse movido */
+			if (++e->stuck > 8) { stop_unit(e); break; }
+			Ref keep = e->target;
+			goto_point(e, t->x, t->y);
+			e->target = keep; e->state = ST_BOARD;
+		}
+		break;
+	}
 	case ST_IDLE: {
+		if (e->type == E_TRANSPORT && e->unload) { e->unload = 0; unload_boat(e); break; }
+		if (!is_animal(e->type) && e->nwp > 0) {
+			/* siguiente punto de ruta de las órdenes en cola */
+			float wx = e->wpx[0], wy = e->wpy[0];
+			memmove(e->wpx, e->wpx + 1, sizeof(float) * 3); memmove(e->wpy, e->wpy + 1, sizeof(float) * 3);
+			--e->nwp;
+			goto_point(e, wx, wy);
+			break;
+		}
 		if (is_animal(e->type)) {
 			/* deambula alrededor del lugar donde vive la manada */
 			e->timer -= dt;
@@ -916,9 +1325,9 @@ static void update_unit(Entity *e, float dt) {
 				if (d < bd) { bd = d; best = i; }
 			}
 			if (best >= 0) cmd_target(ent_ref((int)(e - W.ents)), ent_ref(best));
-		} else if (e->type != E_VILLAGER) {
+		} else if (e->type != E_VILLAGER && e->type != E_FISHBOAT && e->type != E_TRANSPORT && !is_trader(e->type)) {
 			Ref me = ent_ref((int)(e - W.ents));
-			int en = -1;
+			int en = -1, pat_antes = e->patrol;
 			switch (e->stance) {
 			case STANCE_PASSIVE: break;
 			case STANCE_STAND:
@@ -947,6 +1356,12 @@ static void update_unit(Entity *e, float dt) {
 				en = nearest_enemy(e, ud->ranged ? ud->range + 1.0f : 6.0f);
 				if (en >= 0) { cmd_target(me, ent_ref(en)); e->auto_target = 1; }
 				break;
+			}
+			if (en >= 0) e->patrol = pat_antes;   /* cmd_target la borra: el combate no cancela la patrulla */
+			/* patrulla: sin enemigos a la vista, va al otro extremo */
+			if (en < 0 && e->patrol && e->state == ST_IDLE) {
+				if (e->patrol == 1) { e->patrol = 2; goto_point(e, e->wpx[0], e->wpy[0]); }
+				else { e->patrol = 1; goto_point(e, e->ptx, e->pty); }
 			}
 		}
 		break;
@@ -1036,6 +1451,7 @@ static void update_unit(Entity *e, float dt) {
 		}
 		W.pl[e->owner].res[e->carry_kind] += e->carry;
 		W.pl[e->owner].gathered += e->carry;
+		if (e->carry_kind >= 0 && e->carry_kind < 4) W.pl[e->owner].gathered_k[e->carry_kind] += e->carry;
 		e->carry = 0;
 		/* vuelve al último recurso cercano */
 		find_next_resource(e, e->carry_kind == RES_FOOD ? E_BERRIES : e->carry_kind == RES_GOLD ? E_GOLD : e->carry_kind == RES_STONE ? E_STONE : E_TREE);
@@ -1055,6 +1471,7 @@ static void update_unit(Entity *e, float dt) {
 		/* más constructores ayudan, pero con rendimientos decrecientes */
 		t->nbuild_now += 1.0f;
 		float eff = dt / bld_def[t->type].build_time / sqrtf(MAX(1.0f, t->builders));
+		if (e->owner >= 0 && civ_def[W.pl[e->owner].civ].build > 0) eff *= civ_def[W.pl[e->owner].civ].build;
 		t->progress += eff;
 		t->hp = MIN(t->maxhp, t->hp + t->maxhp * 0.9f * eff);
 		if (t->progress >= 1) {
@@ -1092,19 +1509,27 @@ static void update_unit(Entity *e, float dt) {
 			break;
 		}
 
+		if (d < unit_min_range(e->type) && !is_building(t->type) && !friendly) {
+			/* demasiado cerca para una catapulta: retrocede hasta tener alcance */
+			float ax = e->x - t->x, ay = e->y - t->y, al = sqrtf(ax * ax + ay * ay) + 0.001f;
+			float nx = e->x + ax / al * unit_def[e->type - E_VILLAGER].speed * dt, ny = e->y + ay / al * unit_def[e->type - E_VILLAGER].speed * dt;
+			static int avisado;
+			if (!avisado) { avisado = 1; AOEN_LOG("[AOEN] asedio: %s se aparta, alcance mínimo %.1f", unit_def[e->type - E_VILLAGER].name, unit_min_range(e->type)); }
+			if (tile_walk((int)floorf(nx), (int)floorf(ny))) { e->x = nx; e->y = ny; e->walking = 1; e->anim += dt * 9.0f; e->timer = 0; break; }
+		}
 		e->angle = atan2f(t->y - e->y, t->x - e->x);
 		e->timer += dt;
 		e->acting = 1;
-		e->phase = MIN(1.0f, e->timer / (ud->ranged ? 2.0f : 1.5f));
+		e->phase = MIN(1.0f, e->timer / unit_cooldown(e->type));
 
 		if (e->type == E_PRIEST) {
 			if (friendly) {
-				t->hp = MIN(t->maxhp, t->hp + 4.0f * (has_tech(e->owner, T_MEDICINE) ? 2.0f : 1.0f) * dt);
+				t->hp = MIN(t->maxhp, t->hp + 4.0f * (has_tech(e->owner, T_MEDICINE) ? 2.0f : 1.0f) * (has_tech(e->owner, T_MYSTICISM) ? 1.5f : 1.0f) * dt);
 				e->timer = 0;
-			} else if (e->timer >= 5.0f) {
+			} else if (e->timer >= (has_tech(e->owner, T_MONOTHEISM) ? 2.5f : 5.0f) / (civ_def[W.pl[e->owner].civ].priest > 0 ? civ_def[W.pl[e->owner].civ].priest : 1.0f)) {
 				/* conversión */
 				e->timer = 0;
-				if (frand() < 0.7f && is_unit(t->type) && t->type != E_PRIEST) {
+				if (frand() < (has_tech(e->owner, T_FAITH) ? 0.9f : 0.7f) && is_unit(t->type) && t->type != E_PRIEST) {
 					t->owner = e->owner;
 					stop_unit(t);
 					t->carry = 0;
@@ -1116,14 +1541,28 @@ static void update_unit(Entity *e, float dt) {
 			break;
 		}
 
-		float cooldown = ud->ranged ? 2.0f : 1.5f;
+		float cooldown = unit_cooldown(e->type);
 		if (e->timer >= cooldown) {
 			e->timer = 0;
 			if (is_resource(t->type)) { stop_unit(e); break; }
 			float dmg = eff_attack(e->owner, e->type, is_building(t->type));
 			if (ud->ranged) add_shot(e->x, e->y, t->x, t->y);
 			snd_event(ud->ranged ? SND_SHOOT : SND_HIT_MELEE, e->x, e->y);
+			float tx0 = t->x, ty0 = t->y;
 			damage(t, dmg, e, ud->ranged);
+			/* las catapultas dañan en área a todo lo enemigo cerca del impacto (mitad de daño) */
+			float rad = unit_splash(e->type);
+			if (rad > 0) {
+				int golpes = 0;
+				for (int k = 0; k < W.nents; ++k) {
+					Entity *o = &W.ents[k];
+					if (!o->alive || o == t || o->state == ST_DYING || o->state == ST_ABOARD || is_resource(o->type) || !hostile(e->owner, o->owner)) continue;
+					float ox = o->x - tx0, oy = o->y - ty0;
+					float reachr = rad + (is_building(o->type) ? o->size * 0.5f : 0.0f);
+					if (ox * ox + oy * oy <= reachr * reachr) { damage(o, eff_attack(e->owner, e->type, is_building(o->type)) * 0.5f, e, 1); ++golpes; }
+				}
+				if (golpes) AOEN_LOG("[AOEN] área: %s alcanza %d objetivos más", unit_def[e->type - E_VILLAGER].name, golpes);
+			}
 		}
 		break;
 	}
@@ -1156,7 +1595,7 @@ static void separate_units(void) {
 
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *a = &W.ents[i];
-		if (!a->alive || !is_unit(a->type) || a->state == ST_DYING) continue;
+		if (!a->alive || !is_unit(a->type) || a->state == ST_DYING || a->state == ST_ABOARD) continue;
 		int c = CLAMP((int)a->y / 4, 0, gh - 1) * gw + CLAMP((int)a->x / 4, 0, gw - 1);
 		units[n] = i;
 		next[n] = cell_head[c];
@@ -1195,8 +1634,8 @@ static void separate_units(void) {
 						}
 					}
 
-					if (tile_walk((int)floorf(a->x + ax), (int)floorf(a->y + ay))) { a->x += ax; a->y += ay; }
-					if (tile_walk((int)floorf(b->x + bx), (int)floorf(b->y + by))) { b->x += bx; b->y += by; }
+					if (is_naval(a->type) ? tile_sail((int)floorf(a->x + ax), (int)floorf(a->y + ay)) : tile_walk((int)floorf(a->x + ax), (int)floorf(a->y + ay))) { a->x += ax; a->y += ay; }
+					if (is_naval(b->type) ? tile_sail((int)floorf(b->x + bx), (int)floorf(b->y + by)) : tile_walk((int)floorf(b->x + bx), (int)floorf(b->y + by))) { b->x += bx; b->y += by; }
 				}
 			}
 		}
@@ -1204,11 +1643,12 @@ static void separate_units(void) {
 }
 
 static void spawn_near(const Entity *b, EntType t) {
-	for (int r = 2; r < 8; ++r) {
+	int sea = is_naval(t);
+	for (int r = 2; r < (sea ? 12 : 8); ++r) {
 		for (int k = 0; k < 24; ++k) {
 			float a = (float)k / 24.0f * 6.2831853f;
 			float x = b->x + cosf(a) * (b->size * 0.5f + r * 0.5f), y = b->y + sinf(a) * (b->size * 0.5f + r * 0.5f);
-			if (tile_walk((int)floorf(x), (int)floorf(y))) {
+			if (sea ? tile_sail((int)floorf(x), (int)floorf(y)) : tile_walk((int)floorf(x), (int)floorf(y))) {
 				int i = ent_new(t, b->owner, x, y);
 				if (i < 0) return;
 				Entity *u = &W.ents[i];
@@ -1225,6 +1665,8 @@ static void spawn_near(const Entity *b, EntType t) {
 	}
 }
 
+static void terminar(int g);
+
 static void update_building(Entity *b, float dt) {
 	b->anim += dt * 8;
 	b->builders = b->nbuild_now;
@@ -1232,28 +1674,28 @@ static void update_building(Entity *b, float dt) {
 
 	if (b->type == E_TOWER && b->progress >= 1) {
 		b->timer += dt;
-		if (b->timer >= 2.0f) {
-			int best = -1; float bd = 8.0f * 8.0f;
+		float trange = 8.0f + 2.0f * has_tech(b->owner, T_GUARD), tdmg = 6.0f + 3.0f * has_tech(b->owner, T_SENTRY) + 3.0f * has_tech(b->owner, T_GUARD) + civ_def[W.pl[b->owner].civ].tower;
+		if (b->timer >= (has_tech(b->owner, T_BALLISTA_T) ? 1.33f : 2.0f)) {
+			int best = -1; float bd = trange * trange;
 			for (int i = 0; i < W.nents; ++i) {
 				Entity *t = &W.ents[i];
-				if (!t->alive || t->state == ST_DYING || !is_unit(t->type) || !hostile(b->owner, t->owner)) continue;
+				if (!t->alive || t->state == ST_DYING || t->state == ST_ABOARD || !is_unit(t->type) || !hostile(b->owner, t->owner)) continue;
 				float d = (t->x - b->x) * (t->x - b->x) + (t->y - b->y) * (t->y - b->y);
 				if (d < bd) { bd = d; best = i; }
 			}
 			if (best >= 0) {
 				b->timer = 0;
 				add_shot(b->x, b->y, W.ents[best].x, W.ents[best].y);
-				damage(&W.ents[best], 6.0f, b, 1);
+				damage(&W.ents[best], tdmg, b, 1);
 			}
 		}
 	}
 
-	if (b->type == E_WONDER && b->progress >= 1) {
+	if (b->type == E_WONDER && b->progress >= 1 && (W.setup.victory == VIC_STANDARD || W.setup.victory == VIC_WONDER)) {
 		if (b->timer == 0) world_msg("¡Se ha terminado una Maravilla! Hay que defenderla 10 minutos");
 		b->timer += dt;
 		if (b->timer >= 600.0f && !W.over) {
-			W.over = (b->owner >= 0 && same_team(b->owner, W.human)) ? 1 : 2;
-			snd_ui(W.over == 1 ? SND_VICTORY : SND_DEFEAT);
+			terminar(b->owner);
 		}
 	}
 
@@ -1295,7 +1737,7 @@ static void update_fog(void) {
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *e = &W.ents[i];
 		if (!e->alive || e->owner < 0 || !same_team(e->owner, W.human) || e->state == ST_DYING) continue;
-		int r = e->type == E_TOWN_CENTER ? 10 : is_building(e->type) ? 7 : 6;
+		int r = (e->type == E_TOWN_CENTER ? 10 : is_building(e->type) ? 7 : 6) + 2 * has_tech(e->owner, T_ASTRONOMY);
 		int cx = (int)floorf(e->x), cy = (int)floorf(e->y);
 		for (int dy = -r; dy <= r; ++dy) {
 			int y = cy + dy;
@@ -1309,293 +1751,63 @@ static void update_fog(void) {
 	}
 }
 
-/* ---------- inteligencia artificial ---------- */
+/* ---------- victoria ---------- */
 
-static int ai_count(int p, EntType t) {
-	int n = 0;
-	for (int i = 0; i < W.nents; ++i)
-		if (W.ents[i].alive && W.ents[i].owner == p && W.ents[i].type == t && W.ents[i].state != ST_DYING) ++n;
-	return n;
+/* puntuación total de un jugador (economía + militar + tecnología) */
+int world_team_score(int p) {
+	int ec, mi, te;
+	world_score(p, &ec, &mi, &te);
+	return ec + mi + te;
 }
 
-static int ai_find_site(int p, EntType t, float ax, float ay, int rmin, int rmax) {
-	int s = bld_def[t].size;
-	for (int r = rmin; r <= rmax; ++r) {
-		for (int k = 0; k < 8 * r; ++k) {
-			float a = (float)k / (8.0f * r) * 6.2831853f + (float)p;
-			int tx = (int)(ax + cosf(a) * r), ty = (int)(ay + sinf(a) * r);
-			if (can_place(t, tx, ty)) {
-				/* mantén un anillo libre para que las unidades puedan rodear */
-				int ok = 1;
-				for (int j = ty - 1; j <= ty + s && ok; ++j)
-					for (int i = tx - 1; i <= tx + s; ++i)
-						if (!tile_walk(i, j)) { ok = 0; break; }
-				if (ok) return tidx(tx, ty);
-			}
-		}
+/* cambia la relación entre dos jugadores (simétrica). Un jugador de la máquina acepta la paz si el otro es más fuerte que él,
+ * y la alianza solo si ya son neutrales y su dificultad no es la difícil. Declarar la guerra siempre se acepta. */
+int cmd_diplomacy(int from, int to, int level) {
+	if (from < 0 || to < 0 || from >= MAX_PLAYERS || to >= MAX_PLAYERS || from == to || !W.pl[from].active || !W.pl[to].active) return 0;
+	if (level < DIPL_ENEMY || level > DIPL_ALLY) return 0;
+	int cur = W.pl[from].dipl[to];
+	if (level == cur) return 1;
+	if (level > cur && W.pl[to].ai) {
+		int ok = world_team_score(from) >= world_team_score(to);
+		if (level == DIPL_ALLY && (cur != DIPL_NEUTRAL || W.pl[to].diff >= 2)) ok = 0;   /* difícil y muy difícil */
+		if (!ok) { if (from == W.human) world_msg("Rechazan tu propuesta"); return 0; }
 	}
-	return -1;
-}
-
-static int farm_workers(int j) {
-	int on = 0;
-	for (int q = 0; q < W.nents; ++q)
-		if (W.ents[q].alive && W.ents[q].target.idx == j && W.ents[q].state == ST_GATHER) ++on;
-	return on;
-}
-
-/* envía a un aldeano ocioso al recurso más cercano de un tipo */
-static int ai_send_gatherer(int p, int ui, Entity *tc, EntType kind) {
-	int best = -1; float bd = 1e9f;
-	for (int j = 0; j < W.nents; ++j) {
-		Entity *r = &W.ents[j];
-		int farm = r->type == E_FARM && r->owner == p && r->progress >= 1;
-		if (!r->alive || !(is_resource(r->type) || farm) || res_kind_of(r->type) != res_kind_of(kind) || r->amount <= 0) continue;
-		if (farm && farm_workers(j) >= 2) continue;
-		float d = (r->x - tc->x) * (r->x - tc->x) + (r->y - tc->y) * (r->y - tc->y);
-		if (farm) d *= 0.5f;
-		if (d < bd) { bd = d; best = j; }
+	W.pl[from].dipl[to] = W.pl[to].dipl[from] = level;
+	if (from == W.human || to == W.human) {
+		char m[96];
+		snprintf(m, sizeof m, "Relación con el jugador %d: %s", (from == W.human ? to : from) + 1, dipl_name(level));
+		world_msg(m);
 	}
-	if (best < 0) return 0;
-	cmd_target(ent_ref(ui), ent_ref(best));
 	return 1;
 }
 
-static void ai_assign_gatherers(int p, Entity *tc) {
-	int cnt[RES_COUNT] = { 0 }, total = 0;
-	for (int i = 0; i < W.nents; ++i) {
-		Entity *u = &W.ents[i];
-		if (!u->alive || u->owner != p || u->type != E_VILLAGER || (u->state != ST_GATHER && u->state != ST_RETURN)) continue;
-		++cnt[u->carry_kind];
-		++total;
-	}
-
-	int age = W.pl[p].age;
-	/* reparto deseado de trabajadores: comida, madera, oro, piedra */
-	float share[RES_COUNT] = { 0.35f, 0.45f, age >= 1 ? 0.15f : 0.0f, age >= 1 ? 0.05f : 0.0f };
-
-	/* exceso de existencias: pasa trabajadores a lo que escasea (también oro cuando la siguiente edad lo necesita) */
-	int need_gold = age + 1 < AGE_COUNT && age_requirements_met(p, age + 1) && W.pl[p].res[RES_GOLD] < age_def[age + 1].gold;
-	if (need_gold) { share[RES_GOLD] = 0.35f; share[RES_FOOD] = 0.3f; share[RES_WOOD] = 0.3f; }
-	for (int k = 0; k < RES_COUNT; ++k)
-		if (W.pl[p].res[k] > 900) share[k] *= 0.3f;
-	if (W.pl[p].res[RES_WOOD] < 150) share[RES_WOOD] += 0.2f;
-
-	/* mueve un trabajador de un recurso con exceso */
-	if (total > 6) {
-		int worst = -1, best = -1;
-		for (int k = 0; k < RES_COUNT; ++k) {
-			float have = (float)cnt[k] / (float)total;
-			if (share[k] > 0 && have > share[k] + 0.2f && (worst < 0 || have - share[k] > (float)cnt[worst] / total - share[worst])) worst = k;
-			if (share[k] > 0 && have < share[k] - 0.15f && (best < 0 || share[k] - have > share[best] - (float)cnt[best] / total)) best = k;
-		}
-		if (worst >= 0 && best >= 0) {
-			for (int i = 0; i < W.nents; ++i) {
-				Entity *u = &W.ents[i];
-				if (!u->alive || u->owner != p || u->type != E_VILLAGER || u->state != ST_GATHER || u->carry_kind != worst || u->carry > 3) continue;
-				EntType et = best == RES_FOOD ? E_BERRIES : best == RES_GOLD ? E_GOLD : best == RES_STONE ? E_STONE : E_TREE;
-				if (ai_send_gatherer(p, i, tc, et)) { --cnt[worst]; ++cnt[best]; break; }
-			}
-		}
-	}
-
-	for (int i = 0; i < W.nents; ++i) {
-		Entity *u = &W.ents[i];
-		if (!u->alive || u->owner != p || u->type != E_VILLAGER || u->state != ST_IDLE) continue;
-
-		/* elige el recurso que está más por debajo de su reparto deseado */
-		int order[RES_COUNT];
-		for (int k = 0; k < RES_COUNT; ++k) order[k] = k;
-		for (int a = 0; a < RES_COUNT; ++a)
-			for (int b = a + 1; b < RES_COUNT; ++b) {
-				float da = share[order[a]] - (float)cnt[order[a]] / (float)MAX(1, total + 1);
-				float db = share[order[b]] - (float)cnt[order[b]] / (float)MAX(1, total + 1);
-				if (db > da) { int t = order[a]; order[a] = order[b]; order[b] = t; }
-			}
-
-		for (int k = 0; k < RES_COUNT; ++k) {
-			int kind = order[k];
-			if (share[kind] <= 0) continue;
-			EntType et = kind == RES_FOOD ? E_BERRIES : kind == RES_GOLD ? E_GOLD : kind == RES_STONE ? E_STONE : E_TREE;
-			if (ai_send_gatherer(p, i, tc, et)) { ++cnt[kind]; ++total; break; }
-		}
-	}
+/* regala recursos a otro jugador (el mercado se queda un 20%) */
+int cmd_tribute(int from, int to, int kind, int amount) {
+	if (from < 0 || to < 0 || from >= MAX_PLAYERS || to >= MAX_PLAYERS || from == to || !W.pl[from].active || !W.pl[to].active) return 0;
+	if (kind < 0 || kind >= RES_COUNT || amount <= 0 || W.pl[from].dipl[to] == DIPL_ENEMY) return 0;
+	if (!count_bld_p(from, E_MARKET)) { if (from == W.human) world_msg("Necesitas un mercado para enviar tributo"); return 0; }
+	if (W.pl[from].res[kind] < amount) { if (from == W.human) world_msg("No tienes suficientes recursos"); return 0; }
+	W.pl[from].res[kind] -= amount;
+	W.pl[to].res[kind] += amount * 80 / 100;
+	return 1;
 }
 
-static Entity *ai_first(int p, EntType t) {
-	for (int i = 0; i < W.nents; ++i)
-		if (W.ents[i].alive && W.ents[i].owner == p && W.ents[i].type == t && W.ents[i].progress >= 1 && W.ents[i].state != ST_DYING) return &W.ents[i];
-	return NULL;
+/* ¿ganan juntos? Siempre el mismo equipo del menú; con la victoria compartida, también los aliados por la diplomacia */
+int mismo_bando(int a, int b) {
+	if (a < 0 || b < 0 || a >= MAX_PLAYERS || b >= MAX_PLAYERS) return 0;
+	if (a == b || W.setup.team[a] == W.setup.team[b]) return 1;
+	return W.setup.victoria_compartida && W.pl[a].dipl[b] == DIPL_ALLY;
 }
 
-static void ai_think(int p) {
-	Player *pl = &W.pl[p];
-	Entity *tc = NULL;
-	int n[E_TYPE_COUNT] = { 0 }, building = 0, army = 0;
-
-	for (int i = 0; i < W.nents; ++i) {
-		Entity *e = &W.ents[i];
-		if (!e->alive || e->owner != p || e->state == ST_DYING) continue;
-		++n[e->type];
-		if (e->type == E_TOWN_CENTER && !tc) tc = e;
-		if (is_building(e->type) && e->progress < 1) ++building;
-		if (is_unit(e->type) && e->type != E_VILLAGER && e->type != E_PRIEST) ++army;
-	}
-
-	if (!tc) {
-		/* sin centro urbano: sigue luchando */
-		for (int i = 0; i < W.nents; ++i) {
-			Entity *u = &W.ents[i];
-			if (u->alive && u->owner == p && is_unit(u->type) && u->type != E_VILLAGER && u->state == ST_IDLE) {
-				int en = nearest_enemy(u, 200);
-				if (en >= 0) cmd_target(ent_ref(i), ent_ref(en));
-			}
-		}
-		return;
-	}
-
-	ai_assign_gatherers(p, tc);
-
-	Ref tcr = ent_ref((int)(tc - W.ents));
-	int pop = pl->pop, cap = world_pop_cap(p), nvill = n[E_VILLAGER], age = pl->age;
-
-	/* economía: aldeanos */
-	int vill_target = pl->diff == 0 ? 10 + age * 2 : pl->diff == 1 ? 14 + age * 4 : 20 + age * 5;
-	if (nvill < vill_target && tc->ntrain < 2 && pop + tc->ntrain < cap) cmd_train(p, tcr, E_VILLAGER);
-
-	/* avanzar de edad */
-	if (age + 1 < AGE_COUNT && pl->age_t < 0 && nvill >= 10 + age * 3 && age_requirements_met(p, age + 1))
-		cmd_advance_age(p);
-
-	/* construcciones: una cada vez */
-	Entity *builder = NULL;
-	if (!building) {
-		for (int i = 0; i < W.nents && !builder; ++i) {
-			Entity *u = &W.ents[i];
-			if (u->alive && u->owner == p && u->type == E_VILLAGER && u->state != ST_BUILD && u->carry == 0) builder = u;
-		}
-	}
-
-	if (builder) {
-		EntType wants[12];
-		int nw = 0, wood = pl->res[RES_WOOD];
-		int berries = 0;
-		for (int j = 0; j < W.nents; ++j) {
-			Entity *r = &W.ents[j];
-			if (r->alive && r->type == E_BERRIES && r->amount > 0 && (r->x - tc->x) * (r->x - tc->x) + (r->y - tc->y) * (r->y - tc->y) < 22 * 22) ++berries;
-		}
-
-		if (pop + 3 >= cap && wood >= bld_def[E_HOUSE].wood) wants[nw++] = E_HOUSE;
-		if (!n[E_STORAGE] && nvill >= 6 && wood >= bld_def[E_STORAGE].wood) wants[nw++] = E_STORAGE;
-		if (!n[E_GRANARY] && nvill >= 8 && wood >= bld_def[E_GRANARY].wood) wants[nw++] = E_GRANARY;
-		if (age >= 1 && nvill >= 6 && berries < 4 && n[E_FARM] < 6 && n[E_FARM] < nvill / 3 && wood >= bld_def[E_FARM].wood) wants[nw++] = E_FARM;
-		if (!n[E_BARRACKS] && nvill >= 10 && wood >= bld_def[E_BARRACKS].wood) wants[nw++] = E_BARRACKS;
-		if (age >= 1 && !n[E_ARCHERY] && nvill >= 11 && wood >= bld_def[E_ARCHERY].wood) wants[nw++] = E_ARCHERY;
-		if (age >= 1 && !n[E_STABLE] && nvill >= 12 && wood >= bld_def[E_STABLE].wood) wants[nw++] = E_STABLE;
-		if (age >= 2 && !n[E_ACADEMY] && wood >= bld_def[E_ACADEMY].wood) wants[nw++] = E_ACADEMY;
-		if (age >= 2 && !n[E_TEMPLE] && wood >= bld_def[E_TEMPLE].wood) wants[nw++] = E_TEMPLE;
-		if (age >= 2 && !n[E_GOVERNMENT] && wood >= bld_def[E_GOVERNMENT].wood && pl->res[RES_GOLD] >= bld_def[E_GOVERNMENT].gold) wants[nw++] = E_GOVERNMENT;
-		if (age >= 1 && n[E_TOWER] < 2 && wood >= bld_def[E_TOWER].wood && pl->res[RES_STONE] >= bld_def[E_TOWER].stone) wants[nw++] = E_TOWER;
-		if (n[E_HOUSE] < 20 && pop + 6 >= cap && wood >= 100 && nw < 12) wants[nw++] = E_HOUSE;
-
-		for (int w = 0; w < nw; ++w) {
-			EntType want = wants[w];
-			float ax = tc->x, ay = tc->y;
-			if (want == E_STORAGE || want == E_GRANARY) {
-				float bd = 1e9f;
-				for (int j = 0; j < W.nents; ++j) {
-					Entity *r = &W.ents[j];
-					if (!r->alive || !is_resource(r->type)) continue;
-					int k = res_kind_of(r->type);
-					if ((want == E_GRANARY) != (k == RES_FOOD)) continue;
-					float d = (r->x - tc->x) * (r->x - tc->x) + (r->y - tc->y) * (r->y - tc->y);
-					if (d < bd) { bd = d; ax = r->x; ay = r->y; }
-				}
-			}
-			int site = ai_find_site(p, want, ax, ay, 3, want == E_FARM ? 16 : 20);
-			if (site < 0 && (want == E_STORAGE || want == E_GRANARY)) site = ai_find_site(p, want, tc->x, tc->y, 3, 20);
-			if (site >= 0 && cmd_build(p, ent_ref((int)(builder - W.ents)), want, site % W.w, site / W.w)) break;
-		}
-	}
-
-	/* tecnologías: una cada vez por edificio, cuando hay dinero sobrante */
-	for (int i = 0; i < W.nents; ++i) {
-		Entity *b = &W.ents[i];
-		if (!b->alive || b->owner != p || b->progress < 1 || b->tech_cur || b->state == ST_DYING) continue;
-		if (pl->diff == 0) break; /* fácil: sin tecnologías */
-		for (int t = 0; t < T_COUNT; ++t) {
-			if (tech_def[t].bld != b->type || has_tech(p, t) || nvill < 12) continue;
-			if (pl->res[RES_FOOD] < tech_def[t].food + 150 || pl->res[RES_GOLD] < tech_def[t].gold) continue;
-			if (cmd_research(p, ent_ref(i), t)) break;
-		}
-	}
-
-	/* ahorra para la siguiente edad en lugar de gastarlo todo en soldados */
-	int reserve_food = 0, reserve_gold = 0;
-	if (age + 1 < AGE_COUNT && pl->age_t < 0 && age_requirements_met(p, age + 1)) {
-		reserve_food = age_def[age + 1].food;
-		reserve_gold = age_def[age + 1].gold;
-	}
-
-	/* producción militar: la mejor unidad que ofrece la edad actual */
-	if (nvill >= 10 && pop < cap && pl->res[RES_FOOD] >= reserve_food + 60 && pl->res[RES_GOLD] >= reserve_gold) {
-		Entity *b;
-		static const struct { EntType bld; EntType units[3]; } prod[] = {
-			{ E_BARRACKS, { E_SHORTSWORD, E_AXEMAN, E_CLUBMAN } },
-			{ E_ARCHERY,  { E_CHARIOT, E_IMPBOW, E_BOWMAN } },
-			{ E_STABLE,   { E_HEAVYCAV, E_CAVALRY, E_SCOUT } },
-			{ E_ACADEMY,  { E_HOPLITE, E_HOPLITE, E_HOPLITE } },
-		};
-		for (int k = 0; k < 4; ++k) {
-			b = ai_first(p, prod[k].bld);
-			if (!b || b->ntrain >= 2) continue;
-			for (int u = 0; u < 3; ++u) {
-				EntType ut = prod[k].units[u];
-				if (unit_def[ut - E_VILLAGER].age <= age && cmd_train(p, ent_ref((int)(b - W.ents)), ut)) break;
-			}
-		}
-		b = ai_first(p, E_TEMPLE);
-		if (b && n[E_PRIEST] < 2 && b->ntrain < 1) cmd_train(p, ent_ref((int)(b - W.ents)), E_PRIEST);
-	}
-
-	/* los sacerdotes recogen reliquias cuando hay un templo donde guardarlas */
-	if (ai_first(p, E_TEMPLE)) {
-		for (int i = 0; i < W.nents; ++i) {
-			Entity *pr = &W.ents[i];
-			if (!pr->alive || pr->owner != p || pr->type != E_PRIEST || pr->state != ST_IDLE || pr->carry) continue;
-			int best = -1; float bd = 1e9f;
-			for (int j = 0; j < W.nents; ++j) {
-				Entity *r = &W.ents[j];
-				if (!r->alive || r->type != E_RELIC) continue;
-				float d = (r->x - pr->x) * (r->x - pr->x) + (r->y - pr->y) * (r->y - pr->y);
-				if (d < bd) { bd = d; best = j; }
-			}
-			if (best >= 0) cmd_target(ent_ref(i), ent_ref(best));
-		}
-	}
-
-	int wave = (pl->diff == 0 ? 14 : pl->diff == 1 ? 8 : 6) + pl->ai_attack_wave * 4;
-	if (army >= wave) {
-		int en = -1; float bd = 1e9f;
-		for (int i = 0; i < W.nents; ++i) {
-			Entity *t = &W.ents[i];
-			if (!t->alive || t->state == ST_DYING || !hostile(p, t->owner) || is_resource(t->type)) continue;
-			float d = (t->x - tc->x) * (t->x - tc->x) + (t->y - tc->y) * (t->y - tc->y);
-			if (t->type == E_TOWN_CENTER) d *= 0.5f;
-			if (d < bd) { bd = d; en = i; }
-		}
-		if (en >= 0) {
-			for (int i = 0; i < W.nents; ++i) {
-				Entity *u = &W.ents[i];
-				if (u->alive && u->owner == p && is_unit(u->type) && u->type != E_VILLAGER && u->state == ST_IDLE)
-					cmd_target(ent_ref(i), ent_ref(en));
-			}
-			++pl->ai_attack_wave;
-		}
-	}
+/* fin de la partida: gana el bando del jugador g (todos los que son de su bando, también los que ya cayeron) */
+static void terminar(int g) {
+	if (W.over) return;
+	W.ganadores = 0;
+	for (int p = 0; p < MAX_PLAYERS; ++p) if (W.pl[p].active && mismo_bando(p, g)) W.ganadores |= 1u << p;
+	W.over = (W.ganadores >> W.human) & 1u ? 1 : 2;
+	AOEN_LOG("[AOEN] fin: ganan %#x (compartida=%d) t=%.0f", W.ganadores, W.setup.victoria_compartida, W.time);
+	snd_ui(W.over == 1 ? SND_VICTORY : SND_DEFEAT);
 }
-
-/* ---------- victoria ---------- */
 
 static void check_victory(void) {
 	int has[MAX_PLAYERS] = { 0 };
@@ -1605,18 +1817,50 @@ static void check_victory(void) {
 			has[e->owner] = 1;
 	}
 
-	int enemies = 0;
+	/* conquista: la partida acaba cuando ha caído alguien y todos los que quedan son de un mismo bando (mismo equipo; con la
+	 * victoria compartida, también aliados entre sí). Sin ella, dos aliados de equipos distintos aún tienen que decidirlo. */
+	int caidos = 0, primero = -1, decidido = 1;
 	for (int p = 0; p < MAX_PLAYERS; ++p) {
 		W.pl[p].alive = has[p];
-		if (W.pl[p].active && p != W.human && W.pl[p].team != W.pl[W.human].team && has[p]) ++enemies;
+		if (!W.pl[p].active) continue;
+		if (!has[p]) { ++caidos; continue; }
+		if (primero < 0) primero = p;
+		else for (int q = 0; q < p; ++q) if (W.pl[q].active && has[q] && !mismo_bando(p, q)) decidido = 0;
+	}
+	/* el humano derrotado pierde enseguida; si su civilización la lleva la máquina (espectador), se sigue hasta el final */
+	if (!has[W.human] && !W.pl[W.human].ai) { W.ganadores = 0; W.over = 2; snd_ui(SND_DEFEAT); return; }
+	if (caidos > 0 && decidido && primero >= 0) { terminar(primero); return; }
+
+	if (W.setup.victory == VIC_RELICS && W.setup.relics_total > 0) {
+		/* un equipo con todas las reliquias guardadas en sus templos las conserva 60 s */
+		int owner = -1;
+		for (int p = 0; p < MAX_PLAYERS && owner < 0; ++p) {
+			if (!W.pl[p].active || !has[p]) continue;
+			int tot = 0;
+			for (int i = 0; i < W.nents; ++i) {
+				Entity *e = &W.ents[i];
+				if (e->alive && e->type == E_TEMPLE && e->progress >= 1 && e->owner >= 0 && mismo_bando(p, e->owner)) tot += e->relics;
+			}
+			if (tot >= W.setup.relics_total) owner = p;
+		}
+		if (owner < 0) { W.relic_t = 0; W.relic_team = -1; }
+		else {
+			if (W.relic_team < 0 || !mismo_bando(owner, W.relic_team)) { W.relic_team = owner; W.relic_t = 0; world_msg("¡Un equipo tiene todas las reliquias! Hay que conservarlas 60 s"); }
+			W.relic_t += 1.0f;
+			if (W.relic_t >= 60.0f) terminar(owner);
+		}
 	}
 
-	int others = 0;
-	for (int p = 0; p < MAX_PLAYERS; ++p)
-		if (W.pl[p].active && p != W.human && W.pl[p].team != W.pl[W.human].team) ++others;
-
-	if (!has[W.human]) { W.over = 2; snd_ui(SND_DEFEAT); }
-	else if (others > 0 && enemies == 0) { W.over = 1; snd_ui(SND_VICTORY); }
+	if (W.setup.victory == VIC_SCORE && W.time >= W.setup.time_limit * 60.0f) {
+		int best = -1, bs = -1;
+		for (int p = 0; p < MAX_PLAYERS; ++p) {
+			if (!W.pl[p].active || !has[p]) continue;
+			int sc = world_team_score(p);
+			if (sc > bs) { bs = sc; best = p; }
+		}
+		if (best >= 0) terminar(best);
+		else { W.over = 2; snd_ui(SND_DEFEAT); }
+	}
 }
 
 /* ---------- creación del mundo ---------- */
@@ -1656,6 +1900,29 @@ static void gen_terrain(const Setup *s) {
 	}
 }
 
+/* mapas de islas y costeros: cada inicio tiene tierra hasta 12 casillas y una ensenada de agua pegada (sitio para un muelle) */
+static void carve_bay(int sx, int sy) {
+	float ax = sx - W.w * 0.5f, ay = sy - W.h * 0.5f, al = sqrtf(ax * ax + ay * ay) + 0.001f;
+	float ux = ax / al, uy = ay / al;
+	int bx = (int)(sx + ux * 15.5f), by = (int)(sy + uy * 15.5f);
+	if (bx < 6 || by < 6 || bx > W.w - 7 || by > W.h - 7) { ux = -ux; uy = -uy; bx = (int)(sx + ux * 15.5f); by = (int)(sy + uy * 15.5f); }
+	for (int y = sy - 12; y <= sy + 12; ++y) for (int x = sx - 12; x <= sx + 12; ++x)
+		if (in_map(x, y) && (x - sx) * (x - sx) + (y - sy) * (y - sy) <= 144 && W.tile[tidx(x, y)] >= TILE_WATER) W.tile[tidx(x, y)] = TILE_DESERT;
+	for (int y = by - 5; y <= by + 5; ++y) for (int x = bx - 5; x <= bx + 5; ++x)
+		if (in_map(x, y) && (x - bx) * (x - bx) + (y - by) * (y - by) <= 25) W.tile[tidx(x, y)] = TILE_WATER;
+}
+
+/* ¿hay un sitio donde construir un muelle cerca del centro urbano del jugador? */
+static int dock_site(int p) {
+	for (int i = 0; i < W.nents; ++i) {
+		Entity *tc = &W.ents[i];
+		if (!tc->alive || tc->type != E_TOWN_CENTER || tc->owner != p) continue;
+		for (int y = tc->by - 14; y <= tc->by + 14; ++y) for (int x = tc->bx - 14; x <= tc->bx + 14; ++x)
+			if (can_place(E_DOCK, x, y)) return 1;
+	}
+	return 0;
+}
+
 static void place_start(int p, int sx, int sy) {
 	carve_land(sx, sy, 9);
 	int tc = ent_new(E_TOWN_CENTER, p, (float)sx + 0.5f, (float)sy + 0.5f);
@@ -1691,7 +1958,60 @@ static void place_start(int p, int sx, int sy) {
 	}
 }
 
+/* Recursos del mapa (Setup.recursos_mapa: 0 normales, 1 escasos, 2 abundantes). Además de lo de la base (place_start), cada
+ * jugador recibe los mismos parches «de expansión» de oro y piedra a la misma distancia, en su lado del mapa y en su isla;
+ * luego hay minas y bayas repartidas por el mapa según el tamaño y los jugadores, y en los mapas de islas una isla neutral rica.
+ * Cada sitio se busca con reintentos (con límite) hasta encontrar casillas andables. */
+static int nivel_recursos(const Setup *s) { return s->recursos_mapa == 1 ? 0 : s->recursos_mapa == 2 ? 2 : 1; }   /* 0 escasos, 1 normales, 2 abundantes */
+
+/* etiqueta de isla de cada casilla (0 agua), por relleno; devuelve el número de islas */
+static int etiquetar_islas(unsigned short *lab) {
+	int *cola = (int *)malloc(sizeof(int) * (size_t)W.w * W.h);
+	if (!cola) return 0;
+	memset(lab, 0, sizeof *lab * (size_t)W.w * W.h);
+	int n = 0;
+	for (int i = 0; i < W.w * W.h; ++i) {
+		if (lab[i] || W.tile[i] >= TILE_WATER) continue;
+		if (n < 65535) ++n;
+		int ini = 0, fin = 0;
+		cola[fin++] = i; lab[i] = (unsigned short)n;
+		while (ini < fin) {
+			int k = cola[ini++], x = k % W.w, y = k / W.w;
+			static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+			for (int d = 0; d < 4; ++d) {
+				int nx = x + dx[d], ny = y + dy[d];
+				if (!in_map(nx, ny)) continue;
+				int j = tidx(nx, ny);
+				if (!lab[j] && W.tile[j] < TILE_WATER) { lab[j] = (unsigned short)n; cola[fin++] = j; }
+			}
+		}
+	}
+	free(cola);
+	return n;
+}
+
+/* ¿cabe un parche de t casillas en (x,y)? andable, lejos de los inicios y, si se pide, en la isla dada */
+static int cabe_parche(int x, int y, int t, const int *sx, const int *sy, int n, float lejos, const unsigned short *lab, int isla) {
+	for (int j = 0; j < t; ++j) {
+		int xx = x + j % 2, yy = y + j / 2;
+		if (xx < 2 || yy < 2 || xx >= W.w - 2 || yy >= W.h - 2 || !tile_walk(xx, yy)) return 0;
+		if (lab && isla && lab[tidx(xx, yy)] != isla) return 0;
+	}
+	for (int p = 0; p < n; ++p)
+		if ((x - sx[p]) * (x - sx[p]) + (y - sy[p]) * (y - sy[p]) < lejos * lejos) return 0;
+	return 1;
+}
+
+static void poner_parche(EntType t, int x, int y, int cnt) {
+	for (int j = 0; j < cnt; ++j) {
+		int xx = x + j % 2, yy = y + j / 2;
+		if (tile_walk(xx, yy)) ent_new(t, -1, (float)xx, (float)yy);
+	}
+}
+
 static void scatter_resources(const Setup *s, const int *sx, const int *sy, int n) {
+	int nivel = nivel_recursos(s);
+	static const float umbral_bosque[3] = { 0.62f, 0.58f, 0.54f };
 	/* bosques a partir de ruido, con claro alrededor de las posiciones iniciales */
 	for (int y = 2; y < W.h - 2; ++y) {
 		for (int x = 2; x < W.w - 2; ++x) {
@@ -1702,26 +2022,78 @@ static void scatter_resources(const Setup *s, const int *sx, const int *sy, int 
 			if (near) continue;
 
 			float f = fbm(x * 9.0f / W.w, y * 9.0f / W.w, 3, (unsigned)s->seed + 99u);
-			if (f > 0.58f && frand() < 0.55f)
+			if (f > umbral_bosque[nivel] && frand() < 0.55f)
 				ent_new(E_TREE, -1, (float)x, (float)y);
 		}
 	}
 
-	/* unas pocas minas y parches de bayas extra */
-	int mines = W.w * W.h / 2500 + 2;
-	for (int k = 0; k < mines; ++k) {
-		int x = 3 + irand(W.w - 6), y = 3 + irand(W.h - 6);
-		int near = 0;
-		for (int p = 0; p < n; ++p)
-			if ((x - sx[p]) * (x - sx[p]) + (y - sy[p]) * (y - sy[p]) < 12 * 12) near = 1;
-		if (near || !tile_walk(x, y)) continue;
-		EntType t = k % 3 == 0 ? E_GOLD : k % 3 == 1 ? E_STONE : E_BERRIES;
-		int cnt = t == E_BERRIES ? 5 : 4;
-		for (int j = 0; j < cnt; ++j) {
-			int xx = x + j % 2, yy = y + j / 2;
-			if (tile_walk(xx, yy)) ent_new(t, -1, (float)xx, (float)yy);
+	unsigned short *lab = (unsigned short *)malloc(sizeof(unsigned short) * (size_t)W.w * W.h);
+	if (lab && !etiquetar_islas(lab)) { free(lab); lab = NULL; }
+
+	/* parches de expansión de cada jugador: los mismos y a la misma distancia para todos */
+	static const int parches[3] = { 1, 1, 2 }, casillas[3] = { 2, 4, 5 };
+	const float base_r = W.w >= 72 ? 24.0f : 16.0f;
+	for (int p = 0; p < n; ++p) {
+		int isla = lab ? lab[tidx(sx[p], sy[p])] : 0;
+		/* su lado del mapa: alrededor de la dirección que va del centro al inicio */
+		float a0 = atan2f(sy[p] - W.h * 0.5f, sx[p] - W.w * 0.5f);
+		for (int k = 0; k < 2 * parches[nivel]; ++k) {
+			EntType t = (k & 1) ? E_STONE : E_GOLD;
+			int puesto = 0;
+			for (int intento = 0; intento < 240 && !puesto; ++intento) {
+				/* primero la distancia ideal barriendo el ángulo (el lado propio y luego todo el círculo); solo después se
+				 * acerca o aleja de casilla en casilla, para que todos los jugadores lo tengan a una distancia parecida */
+				int vuelta = intento / 48, paso = intento % 48;
+				float r = base_r + (vuelta % 2 ? 1.0f : -1.0f) * (float)((vuelta + 1) / 2);
+				float an = a0 + (k * 1.3f - 0.65f) + (paso % 2 ? 1.0f : -1.0f) * (float)((paso + 1) / 2) * 0.13f;
+				int x = (int)(sx[p] + cosf(an) * r), y = (int)(sy[p] + sinf(an) * r);
+				if (cabe_parche(x, y, casillas[nivel], sx, sy, n, 14.0f, lab, isla)) {
+					poner_parche(t, x, y, casillas[nivel]); puesto = 1;
+					AOEN_LOG("[AOEN] recursos: parche de %s del jugador %d a %.1f casillas (%d)", t == E_GOLD ? "oro" : "piedra", p + 1,
+					         sqrtf((float)((x - sx[p]) * (x - sx[p]) + (y - sy[p]) * (y - sy[p]))), casillas[nivel]);
+				}
+			}
+			if (!puesto) AOEN_LOG("[AOEN] recursos: sin sitio para un parche de %s del jugador %d", t == E_GOLD ? "oro" : "piedra", p + 1);
 		}
 	}
+
+	/* minas y bayas repartidas por el mapa, según el tamaño y los jugadores (con reintentos) */
+	static const float factor[3] = { 0.5f, 1.0f, 2.0f };
+	int mines = (int)((W.w * W.h / 2500 + 2 * n) * factor[nivel] + 0.5f);
+	int puestas = 0;
+	for (int k = 0; k < mines; ++k) {
+		EntType t = k % 3 == 0 ? E_GOLD : k % 3 == 1 ? E_STONE : E_BERRIES;
+		int cnt = t == E_BERRIES ? 5 : casillas[nivel] < 4 ? 3 : casillas[nivel];
+		for (int intento = 0; intento < 40; ++intento) {
+			int x = 3 + irand(W.w - 6), y = 3 + irand(W.h - 6);
+			if (cabe_parche(x, y, cnt, sx, sy, n, 14.0f, NULL, 0)) { poner_parche(t, x, y, cnt); ++puestas; break; }
+		}
+	}
+	AOEN_LOG("[AOEN] recursos: nivel %d, %d de %d minas y bayas repartidas", nivel, puestas, mines);
+
+	/* islas: una isla sin jugadores (la mayor) recibe oro y piedra de sobra */
+	if (lab && s->map_kind == MAP_ISLANDS) {
+		int nis = 0;
+		for (int i = 0; i < W.w * W.h; ++i) if (lab[i] > nis) nis = lab[i];
+		int *tam = (int *)calloc((size_t)nis + 1, sizeof(int));
+		if (tam) {
+			for (int i = 0; i < W.w * W.h; ++i) ++tam[lab[i]];
+			for (int p = 0; p < n; ++p) tam[lab[tidx(sx[p], sy[p])]] = 0;
+			tam[0] = 0;
+			int mejor = 0;
+			for (int k = 1; k <= nis; ++k) if (tam[k] > tam[mejor]) mejor = k;
+			if (mejor && tam[mejor] >= 40) {
+				int puestos = 0;
+				for (int intento = 0; intento < 400 && puestos < 2 + nivel; ++intento) {
+					int x = 3 + irand(W.w - 6), y = 3 + irand(W.h - 6);
+					if (cabe_parche(x, y, 4, sx, sy, n, 14.0f, lab, mejor)) { poner_parche(puestos % 2 ? E_STONE : E_GOLD, x, y, 4); ++puestos; }
+				}
+				AOEN_LOG("[AOEN] recursos: isla neutral rica con %d parches", puestos);
+			}
+			free(tam);
+		}
+	}
+	free(lab);
 }
 
 static void spawn_animal(EntType t, float x, float y) {
@@ -1757,7 +2129,7 @@ static void place_wildlife(const Setup *s, const int *sx, const int *sy, int np)
 		for (int p = 0; p < np; ++p)
 			if ((x - sx[p]) * (x - sx[p]) + (y - sy[p]) * (y - sy[p]) < 18 * 18) near = 1;
 		if (near || !tile_walk((int)x, (int)y)) continue;
-		if (ent_new(E_RELIC, -1, x, y) >= 0) ++placed;
+		if (ent_new(E_RELIC, -1, x, y) >= 0) { ++placed; ++W.setup.relics_total; }
 	}
 
 	/* peces a lo largo de la costa: solo casillas de agua junto a tierra, para que los aldeanos pesquen desde la orilla */
@@ -1778,6 +2150,7 @@ int dev_place(EntType t, int owner, float x, float y) {
 
 int world_alloc(int w, int h) {
 	size_t n = (size_t)w * h;
+	++mundo_gen;   /* invalida las cachés (población, rejilla) */
 	W.w = w; W.h = h;
 	W.tile = (u8 *)calloc(n, 1); W.variant = (u8 *)calloc(n, 1);
 	W.block = (u8 *)calloc(n, 1); W.fog = (u8 *)calloc(n, 1);
@@ -1787,6 +2160,169 @@ int world_alloc(int w, int h) {
 	W.capents = (int)(n / 4) + 8192;
 	W.ents = (Entity *)calloc((size_t)W.capents, sizeof(Entity));
 	return W.tile && W.variant && W.block && W.fog && W.pf_g && W.pf_from && W.pf_stamp && W.ents;   /* 0: sin memoria (quien llama libera con world_free) */
+}
+
+/* Escenas de prueba (AOEN_ESCENA=nombre, solo para desarrollo y pruebas automáticas):
+ *   asedio: dos catapultas y una balista del jugador 0 frente a un cuartel y soldados del jugador 1, con ataque ya ordenado. */
+static int dev_tc(int p, float *x, float *y) {
+	for (int i = 0; i < W.nents; ++i)
+		if (W.ents[i].alive && W.ents[i].type == E_TOWN_CENTER && W.ents[i].owner == p) { *x = W.ents[i].x; *y = W.ents[i].y; return i; }
+	return -1;
+}
+
+/* una bahía de 21 casillas de agua con tierra a los lados, despejada de árboles (escenas «mar» y «flota») */
+static void dev_bahia(float cx, float cy) {
+	int x0 = (int)cx - 6, y0 = (int)cy - 8;
+	for (int i = 0; i < W.nents; ++i) {   /* despeja árboles y demás de la bahía */
+		Entity *r = &W.ents[i];
+		if (r->alive && is_resource(r->type) && r->bx >= x0 && r->bx <= x0 + 40 && r->by >= y0 && r->by <= y0 + 18) ent_kill(r);
+	}
+	for (int y = y0; y <= y0 + 18; ++y) for (int x = x0; x <= x0 + 40; ++x) {
+		if (x < 1 || y < 1 || x >= W.w - 1 || y >= W.h - 1) continue;
+		int i = tidx(x, y);
+		if (x > (int)cx + 4) W.block[i] = 0;
+		W.tile[i] = (x < (int)cx + 8 || x > (int)cx + 28) ? TILE_GRASS : TILE_WATER;
+	}
+}
+
+static char esc_nombre[16];
+static int esc_listo;
+
+static void dev_escena(const char *nombre) {
+	snprintf(esc_nombre, sizeof esc_nombre, "%s", nombre);
+	esc_listo = 0;
+	float cx, cy;
+	if (dev_tc(0, &cx, &cy) < 0) return;
+	/* las escenas son deterministas: sin IA que mueva a los jugadores (la de la v8.5.4.7 defiende su base y lo estropearía) */
+	for (int p = 0; p < MAX_PLAYERS; ++p) W.pl[p].ai = 0;
+	if (!strcmp(nombre, "asedio")) {
+		W.pl[0].age = AGE_IRON; W.pl[1].age = AGE_IRON;
+		W.pl[0].techs |= (1u << T_ENGINEERING);
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		for (int y = (int)cy - 6; y <= (int)cy + 10; ++y) for (int x = (int)cx - 10; x <= (int)cx + 16; ++x)
+			if (x > 0 && y > 0 && x < W.w - 1 && y < W.h - 1) { W.tile[tidx(x, y)] = TILE_GRASS; }
+		int cu = dev_place(E_BARRACKS, 1, cx + 11, cy + 2);
+		int sold[6];
+		for (int k = 0; k < 6; ++k) sold[k] = dev_place(E_CLUBMAN, 1, cx + 8 + (k % 3) * 0.6f, cy + 1 + (k / 3) * 0.6f);
+		int m[3] = { E_CATAPULT, E_HEAVYCAT, E_BALLISTA };
+		for (int k = 0; k < 3; ++k) {
+			int u = dev_place(m[k], 0, cx + 1 + k, cy + 5);
+			if (u >= 0 && cu >= 0) cmd_target(ent_ref(u), ent_ref(cu));
+		}
+		for (int k = 0; k < 6; ++k) if (sold[k] >= 0) { W.ents[sold[k]].stance = STANCE_STAND; }
+		AOEN_LOG("[AOEN] escena asedio: cuartel %d, soldados 6, máquinas 3", cu);
+	} else if (!strcmp(nombre, "mar")) {
+		/* una bahía: tierra (aldeanos y soldados), muelle, peces, un barco de pesca y un transporte; al otro lado, otra orilla */
+		W.pl[0].age = AGE_BRONZE;
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		dev_bahia(cx, cy);
+		AOEN_LOG("[AOEN] muelle: orilla=%d tierra_adentro=%d", can_place(E_DOCK, (int)cx + 5, (int)cy - 5), can_place(E_DOCK, (int)cx - 4, (int)cy - 5));
+		int muelle = dev_place(E_DOCK, 0, cx + 6.5f, cy + 3.5f);
+		for (int k = 0; k < 3; ++k) dev_place(E_FISH, -1, cx + 12 + k, cy + 5);
+		int pesca = dev_place(E_FISHBOAT, 0, cx + 10.5f, cy + 1.5f);
+		int trans = dev_place(E_TRANSPORT, 0, cx + 8.8f, cy + 7.5f);
+		int fish = -1;
+		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].type == E_FISH) { fish = i; break; }
+		if (pesca >= 0 && fish >= 0) cmd_target(ent_ref(pesca), ent_ref(fish));
+		for (int k = 0; k < 3; ++k) {
+			int u = dev_place(E_CLUBMAN, 0, cx + 7.2f, cy + 8.5f + k * 0.6f);
+			if (u >= 0 && trans >= 0) cmd_target(ent_ref(u), ent_ref(trans));
+		}
+		AOEN_LOG("[AOEN] escena mar: muelle %d, barco de pesca %d, transporte %d", muelle, pesca, trans);
+	} else if (!strcmp(nombre, "comercio")) {
+		/* una bahía con un muelle de cada jugador en cada orilla y, al sur, un mercado de cada uno unidos por tierra; un barco
+		 * y un carro mercantes del jugador 0 con la ruta puesta. AOEN_COMERCIO: oro (por defecto), cambio (da comida, pide
+		 * piedra) o espera (da piedra y no la tiene) */
+		const char *modo = getenv("AOEN_COMERCIO") ? getenv("AOEN_COMERCIO") : "oro";
+		W.pl[0].age = W.pl[1].age = AGE_BRONZE;
+		W.setup.comercio_mejorado = strcmp(modo, "oro") != 0;
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		dev_bahia(cx, cy);
+		for (int i = 0; i < W.nents; ++i) {   /* despeja el camino de tierra entre los mercados */
+			Entity *r = &W.ents[i];
+			if (r->alive && is_resource(r->type) && r->bx >= (int)cx - 6 && r->bx <= (int)cx + 40 && r->by >= (int)cy + 10 && r->by <= (int)cy + 18) ent_kill(r);
+		}
+		for (int y = (int)cy + 11; y <= (int)cy + 18; ++y) for (int x = (int)cx - 6; x <= (int)cx + 40; ++x)
+			if (x > 0 && y > 0 && x < W.w - 1 && y < W.h - 1) { W.tile[tidx(x, y)] = TILE_GRASS; W.block[tidx(x, y)] = 0; }
+		for (int y = (int)cy - 8; y <= (int)cy + 10; ++y) for (int x = (int)cx + 29; x <= (int)cx + 34; ++x)
+			if (x > 0 && y > 0 && x < W.w - 1 && y < W.h - 1) { W.tile[tidx(x, y)] = TILE_GRASS; W.block[tidx(x, y)] = 0; }
+		int m0 = dev_place(E_DOCK, 0, cx + 6.5f, cy + 3.5f), m1 = dev_place(E_DOCK, 1, cx + 30.5f, cy + 3.5f);
+		int k0 = dev_place(E_MARKET, 0, cx + 0.5f, cy + 14.5f), k1 = dev_place(E_MARKET, 1, cx + 30.5f, cy + 14.5f);
+		int barco = dev_place(E_TRADESHIP, 0, cx + 10.5f, cy + 3.5f), carro = dev_place(E_TRADECART, 0, cx + 3.5f, cy + 14.5f);
+		for (int p = 0; p < 2; ++p) { W.pl[p].res[RES_WOOD] = 500; W.pl[p].res[RES_FOOD] = 500; W.pl[p].res[RES_GOLD] = 500; W.pl[p].res[RES_STONE] = 500; }
+		int dar = RES_FOOD, recibir = RES_STONE;
+		if (!strcmp(modo, "espera")) { dar = RES_STONE; W.pl[0].res[RES_STONE] = 10; recibir = RES_WOOD; }
+		if (barco >= 0) { cmd_comercio(ent_ref(barco), strcmp(modo, "oro") != 0, dar, recibir); if (m1 >= 0) cmd_target(ent_ref(barco), ent_ref(m1)); }
+		if (carro >= 0) { cmd_comercio(ent_ref(carro), strcmp(modo, "oro") != 0, dar, recibir); if (k1 >= 0) cmd_target(ent_ref(carro), ent_ref(k1)); }
+		AOEN_LOG("[AOEN] escena comercio: modo %s, muelles %d %d, mercados %d %d, barco %d, carro %d, jugador 2 tiene %d/%d/%d/%d",
+		         modo, m0, m1, k0, k1, barco, carro, W.pl[1].res[0], W.pl[1].res[1], W.pl[1].res[2], W.pl[1].res[3]);
+	} else if (!strcmp(nombre, "minimo")) {
+		/* una catapulta con un soldado enemigo pegado: debe apartarse antes de disparar */
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		W.pl[0].age = AGE_IRON;
+		for (int y = (int)cy - 6; y <= (int)cy + 8; ++y) for (int x = (int)cx - 10; x <= (int)cx + 16; ++x)
+			if (x > 0 && y > 0 && x < W.w - 1 && y < W.h - 1) { W.tile[tidx(x, y)] = TILE_GRASS; W.block[tidx(x, y)] = 0; }
+		int u = dev_place(E_CATAPULT, 0, cx + 3, cy + 3);
+		int o = dev_place(E_CLUBMAN, 1, cx + 4.2f, cy + 3);
+		if (o >= 0) W.ents[o].stance = STANCE_PASSIVE;
+		if (u >= 0 && o >= 0) cmd_target(ent_ref(u), ent_ref(o));
+		AOEN_LOG("[AOEN] escena minimo: catapulta %d contra %d", u, o);
+	} else if (!strcmp(nombre, "flota")) {
+		/* un trirreme contra soldados enemigos quietos en la orilla (estando a más alcance que ellos) */
+		W.pl[0].age = AGE_BRONZE;
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		dev_bahia(cx, cy);
+		int nave = dev_place(E_WARSHIP, 0, cx + 9.5f, cy + 2.5f);
+		int obj = -1;
+		for (int k = 0; k < 3; ++k) {
+			int u = dev_place(E_CLUBMAN, 1, cx + 6.5f, cy + 2.0f + k * 0.8f);
+			if (u >= 0) { W.ents[u].stance = STANCE_STAND; if (obj < 0) obj = u; }
+		}
+		if (nave >= 0 && obj >= 0) cmd_target(ent_ref(nave), ent_ref(obj));
+		AOEN_LOG("[AOEN] escena flota: trirreme %d contra %d", nave, obj);
+	} else if (!strcmp(nombre, "muralla") || !strcmp(nombre, "muralla2")) {
+		/* una catapulta contra una muralla; «muralla2» con Muralla media y Fortificación del dueño de la muralla */
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		W.pl[0].age = AGE_IRON;
+		for (int y = (int)cy - 6; y <= (int)cy + 8; ++y) for (int x = (int)cx - 10; x <= (int)cx + 16; ++x)
+			if (x > 0 && y > 0 && x < W.w - 1 && y < W.h - 1) { W.tile[tidx(x, y)] = TILE_GRASS; W.block[tidx(x, y)] = 0; }
+		if (!strcmp(nombre, "muralla2")) W.pl[1].techs |= (1u << T_WALL_MED) | (1u << T_FORTIFICATION);
+		int primero = -1;
+		for (int k = 0; k < 5; ++k) { int w = dev_place(E_WALL, 1, cx + 10, cy + k); if (primero < 0) primero = w; }
+		int u = dev_place(E_CATAPULT, 0, cx + 3, cy + 1);
+		if (u >= 0 && primero >= 0) cmd_target(ent_ref(u), ent_ref(primero));
+		AOEN_LOG("[AOEN] escena %s: muralla %d", nombre, primero);
+	}
+}
+
+/* sigue las escenas de prueba: informes y órdenes diferidas */
+static void dev_escena_tick(void) {
+	if (!esc_nombre[0]) return;
+	if (!strcmp(esc_nombre, "mar") && esc_listo < 2 && W.time >= (esc_listo ? 40.0f : 14.0f)) {
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *b = &W.ents[i];
+			if (!b->alive) continue;
+			if (b->type == E_TRANSPORT) {
+				AOEN_LOG("[AOEN] escena mar: a bordo %d, posición %.1f,%.1f, estado %d", b->ncargo, b->x, b->y, b->state);
+				if (!esc_listo && b->ncargo > 0) cmd_move(ent_ref(i), b->x + 20.5f, b->y);
+			}
+			if (b->type == E_FISHBOAT) AOEN_LOG("[AOEN] escena mar: barco de pesca lleva %d de comida, entregado %d, estado %d", b->carry, W.pl[0].gathered_k[RES_FOOD], b->state);
+			if (b->type == E_CLUBMAN && b->owner == 0 && esc_listo) AOEN_LOG("[AOEN] escena mar: soldado en %.1f,%.1f estado %d", b->x, b->y, b->state);
+		}
+		++esc_listo;
+	}
+	if (!strcmp(esc_nombre, "minimo") && esc_listo < 2 && W.time >= (esc_listo ? 12.0f : 0.2f)) {
+		Entity *c = NULL, *o = NULL;
+		for (int i = 0; i < W.nents; ++i) { Entity *e = &W.ents[i]; if (!e->alive) continue; if (e->type == E_CATAPULT) c = e; else if (e->type == E_CLUBMAN && e->owner == 1) o = e; }
+		if (c && o) AOEN_LOG("[AOEN] minimo: distancia %s %.2f", esc_listo ? "final" : "inicial", sqrtf((c->x - o->x) * (c->x - o->x) + (c->y - o->y) * (c->y - o->y)));
+		++esc_listo;
+	}
+	if ((!strcmp(esc_nombre, "muralla") || !strcmp(esc_nombre, "muralla2")) && !esc_listo && W.time >= 20.0f) {
+		esc_listo = 1;
+		for (int i = 0; i < W.nents; ++i)
+			if (W.ents[i].alive && W.ents[i].type == E_WALL) { AOEN_LOG("[AOEN] %s: pv de la muralla %.0f de %.0f", esc_nombre, W.ents[i].hp, W.ents[i].maxhp); break; }
+		/* si no queda ninguna es que cayó: lo dice el registro de asedio */
+	}
 }
 
 void world_new(const Setup *s) {
@@ -1825,18 +2361,28 @@ void world_new(const Setup *s) {
 		W.pl[p].ai_t = 1.0f + p * 0.3f;
 		W.pl[p].age = AGE_STONE;
 		W.pl[p].age_t = -1;
-		W.pl[p].diff = CLAMP(s->ai_diff[p], 0, 2);
+		W.pl[p].diff = CLAMP(s->ai_diff[p], 0, 3);   /* 3 = muy difícil (ia.c) */
 		W.pl[p].ai_t = 1.0f + p * 0.3f;
 	}
+	/* diplomacia inicial: mismo equipo = aliados, resto = enemigos */
+	for (int p = 0; p < np; ++p)
+		for (int q = 0; q < np; ++q)
+			W.pl[p].dipl[q] = p == q || s->team[p] == s->team[q] ? DIPL_ALLY : DIPL_ENEMY;
+	W.setup.relics_total = 0; W.relic_team = -1;
+	W.setup.victory = CLAMP(s->victory, 0, VIC_COUNT - 1);
+	W.setup.time_limit = s->time_limit > 0 ? CLAMP(s->time_limit, 5, 240) : 30;
 
 	/* excava todos los inicios antes de colocar nada, para que los vecinos no se inunden entre sí */
 	for (int p = 0; p < np; ++p) carve_land(sx[p], sy[p], 9);
+	if (s->map_kind == MAP_ISLANDS || s->map_kind == MAP_COASTAL) for (int p = 0; p < np; ++p) carve_bay(sx[p], sy[p]);
 	for (int p = 0; p < np; ++p) place_start(p, sx[p], sy[p]);
 	scatter_resources(s, sx, sy, np);
 	place_wildlife(s, sx, sy, np);
+	if (s->map_kind == MAP_ISLANDS || s->map_kind == MAP_COASTAL) for (int p = 0; p < np; ++p) AOEN_LOG("[AOEN] costa: el jugador %d tiene sitio para un muelle: %d", p, dock_site(p));
 
 	memset(W.fog, s->explored ? 1 : 0, n);
 	update_fog();
+	if (getenv("AOEN_ESCENA")) dev_escena(getenv("AOEN_ESCENA"));
 }
 
 void world_free(void) {
@@ -1855,6 +2401,7 @@ void world_update(float dt) {
 		W.pl[p].pop = 0;
 		W.pl[p].popcap = world_pop_cap(p);
 	}
+	rejilla_rehacer();
 
 	int n = W.nents;
 	for (int i = 0; i < n; ++i) {
@@ -1894,13 +2441,20 @@ void world_update(float dt) {
 		}
 	}
 
-	for (int p = 0; p < MAX_PLAYERS; ++p) {
-		Player *pl = &W.pl[p];
-		if (!pl->active || !pl->ai) continue;
-		pl->ai_t -= dt;
-		if (pl->ai_t <= 0) { pl->ai_t = pl->diff == 0 ? 2.0f : pl->diff == 1 ? 1.0f : 0.6f; ai_think(p); }
+	ia_actualizar(dt); /* inteligencia artificial de la máquina: ia.c */
+
+	/* gráfica de puntuación: una muestra cada 15 s (los últimos 60 minutos) */
+	if ((W.hist_t -= dt) <= 0) {
+		W.hist_t = 15.0f;
+		for (int p = 0; p < MAX_PLAYERS; ++p) {
+			Player *pl = &W.pl[p];
+			if (!pl->active) continue;
+			if (pl->hist_n >= 240) { memmove(pl->hist, pl->hist + 1, sizeof(unsigned short) * 239); pl->hist_n = 239; }
+			pl->hist[pl->hist_n++] = (unsigned short)MIN(65535, world_team_score(p));
+		}
 	}
 
+	dev_escena_tick();
 	static float fog_t, win_t;
 	if ((fog_t -= dt) <= 0) { fog_t = 0.15f; update_fog(); }
 	if ((win_t -= dt) <= 0) { win_t = 1.0f; check_victory(); }

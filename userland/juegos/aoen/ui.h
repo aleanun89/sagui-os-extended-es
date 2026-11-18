@@ -27,7 +27,7 @@ void sheet_draw(const int *ids, int n);
 int tex_load(const char *dir);
 int tex_available(void);
 u32 tex_tile_color(int kind);
-void render_terrain_hd(float time);
+void render_terrain_hd(float time, int y0, int y1);   /* solo las filas [y0, y1) */
 extern int hd_enabled;
 void draw_background(int which);   /* 0 menú principal, 1 pantalla de un jugador */
 void render_world(int top_h, int bottom_h);
@@ -35,6 +35,15 @@ void render_placement(EntType t, int tx, int ty);
 void render_minimap(int x, int y, int w, int h);
 int minimap_pick(int x, int y, int w, int h, int mx, int my, float *wx, float *wy);
 
-/* colores */
+/* gráficos de la interfaz en INTERFAC.DRS (NULL si faltan) */
+Slp *iface_slp(u32 id);
+Sprite *iface_frame(u32 id, int frame, int min_w);
+/* minimapa: filtros (recursos, solo militar) */
+enum { MM_RECURSOS = 1, MM_MILITAR = 2 };
+extern int mm_filtro;
+/* marca breve en el mapa al dar una orden: 0 mover, 1 atacar, 2 patrullar o reunión */
+void marca_orden(float wx, float wy, int tipo);
+
+/* colores (índice: pcolor(jugador)) */
 extern u32 col_player[MAX_PLAYERS];
 #endif

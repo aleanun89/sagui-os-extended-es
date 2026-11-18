@@ -4,7 +4,8 @@
 #include "game.h"
 
 #define SAVE_MAGIC "AOENSAV1"
-#define SAVE_VERSION 3
+#define SAVE_VERSION 5   /* 5 (v8.5.4.7): victoria compartida y recursos del mapa en Setup; 4: asedio, diplomacia, victorias, órdenes en cola. Las anteriores se
+                           * rechazan como incompatibles (Setup cambia de tamaño) */
 
 typedef struct {
 	char magic[8];
@@ -87,8 +88,19 @@ static int world_validate(void) {
 	if (W.setup.players < 1 || W.setup.players > MAX_PLAYERS || W.setup.map_kind < 0 || W.setup.map_kind >= MAP_COUNT) return 0;
 	for (int p = 0; p < MAX_PLAYERS; ++p) {
 		const Player *pl = &W.pl[p];
-		if (pl->civ < 0 || pl->civ >= NUM_CIVS || pl->age < 0 || pl->age >= AGE_COUNT || pl->diff < 0 || pl->diff > 2) return 0;
-		if (W.setup.civ[p] < 0 || W.setup.civ[p] >= NUM_CIVS || W.setup.ai_diff[p] < 0 || W.setup.ai_diff[p] > 2) return 0;
+		if (pl->civ < 0 || pl->civ >= NUM_CIVS || pl->age < 0 || pl->age >= AGE_COUNT || pl->diff < 0 || pl->diff > 3) return 0;   /* 3 = muy difícil */
+		if (W.setup.civ[p] < 0 || W.setup.civ[p] >= NUM_CIVS || W.setup.ai_diff[p] < 0 || W.setup.ai_diff[p] > 3) return 0;
+	}
+	if (W.setup.victory < 0 || W.setup.victory >= VIC_COUNT || W.setup.time_limit < 0 || W.setup.time_limit > 240 || W.setup.relics_total < 0 || W.setup.relics_total > 4096) return 0;
+	if (W.setup.victoria_compartida < 0 || W.setup.victoria_compartida > 1) return 0;
+	if (W.setup.recursos_mapa < 0 || W.setup.recursos_mapa > 2) return 0;
+	if (W.setup.comercio_mejorado < 0 || W.setup.comercio_mejorado > 1) return 0;
+	for (int p = 0; p < MAX_PLAYERS; ++p) {
+		const Player *pl = &W.pl[p];
+		if (W.setup.color[p] < 0 || W.setup.color[p] > MAX_PLAYERS) return 0;
+		if (pl->hist_n < 0 || pl->hist_n > 240 || pl->units_lost < 0 || pl->bld_lost < 0) return 0;
+		for (int q = 0; q < MAX_PLAYERS; ++q) if (pl->dipl[q] < DIPL_ENEMY || pl->dipl[q] > DIPL_ALLY) return 0;
+		for (int k = 0; k < 4; ++k) if (pl->gathered_k[k] < 0) return 0;
 	}
 	if (!W.pl[W.human].active) return 0;
 	for (int i = 0; i < n; ++i) if (W.tile[i] > TILE_DEEP || W.fog[i] > 2) return 0;
@@ -104,7 +116,41 @@ static int world_validate(void) {
 		for (int k = 0; k < e->ntrain; ++k) if (e->train[k] < E_VILLAGER || e->train[k] > E_ELEPHANT) return 0;
 		if (e->carry_kind < 0 || e->carry_kind > RES_COUNT || e->stance < 0 || e->stance > STANCE_GUARD) return 0;
 		if (e->tech_cur < 0 || e->tech_cur > T_COUNT || e->pidx < 0 || e->plen < 0 || e->pidx > e->plen) return 0;
-		if (e->state < ST_IDLE || e->state > ST_DYING) return 0;
+		if (e->state < ST_IDLE || e->state > ST_ABOARD) return 0;
+		if (e->ncargo < 0 || e->ncargo > 5 || e->unload < 0 || e->unload > 1) return 0;
+		/* solo los transportes llevan carga, y cada pasajero es una unidad de tierra viva a bordo, distinta del barco y de
+		 * los demás pasajeros: sin esto, una carga cruzada o a sí mismo haría que start_dying no terminase */
+		if (e->ncargo > 0 && e->type != E_TRANSPORT) return 0;
+		for (int k = 0; k < e->ncargo; ++k) {
+			int c = e->cargo[k].idx;
+			if (c < 0 || c >= W.nents || c == i) return 0;
+			const Entity *pc = &W.ents[c];
+			if (!pc->alive || !is_unit(pc->type) || is_naval(pc->type) || pc->ncargo != 0) return 0;
+			for (int j = 0; j < k; ++j) if (e->cargo[j].idx == c) return 0;
+		}
+		if (e->state == ST_ABOARD) {
+			if (e->target.idx < 0 || !W.ents[e->target.idx].alive || W.ents[e->target.idx].type != E_TRANSPORT) return 0;
+		}
+		if (e->relics < 0 || e->relics > 64) return 0;
+		/* comercio: modos, recursos, fase y puertos (un puerto es un muelle o mercado vivo) */
+		if (e->com_modo < 0 || e->com_modo > 1 || e->com_dar < 0 || e->com_dar >= RES_COUNT || e->com_recibir < 0 || e->com_recibir >= RES_COUNT ||
+		    e->com_dado < 0 || e->com_dado >= RES_COUNT || e->com_fase < 0 || e->com_fase > 2 || e->com_espera < 0 || e->com_espera > 1) return 0;
+		if (e->com_origen.idx < -1 || e->com_origen.idx >= W.nents || e->com_destino.idx < -1 || e->com_destino.idx >= W.nents) return 0;
+		if ((e->com_origen.idx >= 0 || e->com_destino.idx >= 0) && !is_trader(e->type)) return 0;
+		/* los puertos de la ruta: vivos, del tipo del mercante; el origen suyo y el destino de otro jugador */
+		if (is_trader(e->type)) {
+			EntType pt = e->type == E_TRADESHIP ? E_DOCK : E_MARKET;
+			if (e->com_origen.idx >= 0) { const Entity *o = &W.ents[e->com_origen.idx]; if (!o->alive || o->type != pt || o->owner != e->owner) return 0; }
+			if (e->com_destino.idx >= 0) { const Entity *d = &W.ents[e->com_destino.idx]; if (!d->alive || d->type != pt || d->owner < 0 || d->owner == e->owner) return 0; }
+		}
+		if (is_trader(e->type) && (e->carry < 0 || e->carry > 15)) return 0;
+#define EN_MAPA(a, lim) ((a) >= 0 && (a) <= (lim))   /* también rechaza NaN */
+		if (!(e->racc >= 0 && e->racc <= 2) || !EN_MAPA(e->hx, W.w) || !EN_MAPA(e->hy, W.h) || !EN_MAPA(e->rx, W.w) || !EN_MAPA(e->ry, W.h) ||
+		    !EN_MAPA(e->tx, W.w) || !EN_MAPA(e->ty, W.h) || !EN_MAPA(e->lx, W.w) || !EN_MAPA(e->ly, W.h)) return 0;
+#undef EN_MAPA
+		if (e->nwp < 0 || e->nwp > 4 || e->patrol < 0 || e->patrol > 2) return 0;
+		for (int k = 0; k < 4; ++k) if (!(e->wpx[k] >= 0 && e->wpx[k] <= W.w && e->wpy[k] >= 0 && e->wpy[k] <= W.h)) return 0;
+		if (!(e->ptx >= 0 && e->ptx <= W.w && e->pty >= 0 && e->pty <= W.h)) return 0;
 		for (int k = 0; k < e->plen; ++k) if (e->path[k] < 0 || e->path[k] >= n) return 0;
 	}
 	return 1;
@@ -150,7 +196,7 @@ int world_load(const char *path) {
 		return 0;
 	}
 
-	W.time = h.time; W.over = h.over; W.human = h.human; W.rng = h.rng;
+	W.time = h.time; W.over = h.over; W.human = h.human; W.rng = h.rng; W.relic_team = -1;
 	W.setup.width = h.w; W.setup.height = h.h;
 
 	/* el mundo anterior ya puede liberarse */

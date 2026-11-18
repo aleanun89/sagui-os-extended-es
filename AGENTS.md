@@ -117,6 +117,9 @@ defecto mientras la suscripción sea limitada).
   **decisiones pendientes como preguntas con opciones**. El mantenedor contesta allí; al empezar una sesión,
   leer esas discusiones (`discusion-listar`, `discusion-leer N`) y pasar lo decidido a `docs/ROADMAP.md` y
   `docs/decisoes.md` (la fuente de verdad sigue siendo el repositorio). Al publicar una versión, actualizar #4.
+- **Capturas en las discusiones** (pedido del mantenedor, 2026-11-18): al escribir o actualizar Discussions (y notas de
+  versión), incluir capturas cuando las haya, enlazadas como `https://github.com/aleanun89/miniOS/blob/<rama>/docs/capturas/X.png?raw=true`.
+  Solo capturas versionadas y hechas con datos sintéticos o libres: nunca con datos de juegos comerciales (DRS, WAD, input_share).
 - Antes de abrir una issue, buscar si ya existe (`issue list --search`). No cerrar issues del
   mantenedor sin que lo diga. No publicar en ellas datos personales (números de serie, MAC, IP pública).
 

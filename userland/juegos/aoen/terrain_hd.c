@@ -115,7 +115,7 @@ static inline u32 kind_color(int kind, float wx, float wy, float time) {
 	return lerp_col(a, b, t);
 }
 
-void render_terrain_hd(float time) {
+static void render_terrain_hd_float(float time, int ry0, int ry1) {
 	float z = V.zoom;
 	/* posición en el mundo del píxel superior izquierdo, y pasos */
 	float pxp0 = (0 - V.sw * 0.5f) / z + V.cx, pyp0 = (0 - V.sh * 0.5f) / z + V.cy;
@@ -123,7 +123,7 @@ void render_terrain_hd(float time) {
 	float dxx = 1.0f / (64.0f * z), dxy = 1.0f / (32.0f * z); /* d(wx)/dsx, d(wx)/dsy */
 	int W_ = W.w, H_ = W.h;
 
-	for (int sy = 0; sy < fb.h; ++sy) {
+	for (int sy = ry0; sy < ry1; ++sy) {
 		float wx = wx0 + dxy * sy, wy = wy0 - dxy * sy;
 		u32 *dst = fb.px + (size_t)sy * fb.pitch;
 
@@ -171,6 +171,162 @@ void render_terrain_hd(float time) {
 			if (light < 0.99f) {
 				int l = (int)(light * 256);
 				col = 0xff000000u | ((((col >> 16) & 255) * l >> 8) << 16) | ((((col >> 8) & 255) * l >> 8) << 8) | ((col & 255) * l >> 8);
+			}
+			dst[sx] = col;
+		}
+	}
+}
+
+/* ---------- versión en punto fijo (v8.5.4.7) ----------
+ * La de coma flotante hacía por píxel dos senos (agua), un ruido con floorf y cuatro hashes (manchas de hierba y arena),
+ * la niebla bilineal en float y las mezclas de la costa en float: en SaguiOS (x87) daba unos 13 fps a 1024x768.
+ * Esta hace lo mismo con enteros:
+ *  - posición en el mundo en 16.16, que avanza sumando un paso constante por píxel;
+ *  - el ruido de las manchas se precalcula en las esquinas de las casillas (una vez por mapa) y se interpola dentro;
+ *    sus rasgos miden unas 9 casillas, así que la interpolación no se nota;
+ *  - las ondas del agua salen de una tabla de senos con la fase en 0.32 (una vuelta = 2^32, se desborda sola);
+ *  - niebla y mezclas con pesos de 0 a 256.
+ * AOEN_HD_FLOAT=1 vuelve a la versión antigua (para comparar imágenes y medir). */
+
+static u16 *ruido;               /* ruido de manchas en las esquinas de las casillas, (W+1)x(H+1), 0..65535 */
+static int ruido_w, ruido_h;
+static const void *ruido_mundo;
+static int16_t ola_lut[1024];    /* sin * 5 texeles, en 8.8 */
+static int ola_ok;
+
+static void ruido_preparar(void) {
+	if (ruido && ruido_mundo == (const void *)W.tile && ruido_w == W.w + 1 && ruido_h == W.h + 1) return;
+	free(ruido);
+	ruido_w = W.w + 1; ruido_h = W.h + 1; ruido_mundo = W.tile;
+	ruido = (u16 *)malloc((size_t)ruido_w * ruido_h * sizeof(u16));
+	if (!ruido) return;
+	for (int j = 0; j < ruido_h; ++j)
+		for (int i = 0; i < ruido_w; ++i) {
+			float n = smooth_noise(i * 0.11f, j * 0.11f);
+			ruido[j * ruido_w + i] = (u16)CLAMP((int)(n * 65535.0f), 0, 65535);
+		}
+	if (!ola_ok) {
+		for (int k = 0; k < 1024; ++k) ola_lut[k] = (int16_t)floorf(sinf(k * 6.2831853f / 1024.0f) * 5.0f * 256.0f + 0.5f);
+		ola_ok = 1;
+	}
+}
+
+/* redondeo al entero más cercano sin lrint (la libc de SaguiOS no lo tiene) */
+static long long redondear(double v) { return (long long)floor(v + 0.5); }
+
+static inline u32 tex_px(const Tex *t, int u, int v) { return t->px[(v & (TEX - 1)) * TEX + (u & (TEX - 1))]; }
+
+static inline u32 mezcla8(u32 a, u32 b, int t) {   /* t 0..256 de a hacia b */
+	u32 it = (u32)(256 - t), ut = (u32)t;
+	u32 rb = (((a & 0xff00ffu) * it + (b & 0xff00ffu) * ut) >> 8) & 0xff00ffu;
+	u32 g = (((a & 0x00ff00u) * it + (b & 0x00ff00u) * ut) >> 8) & 0x00ff00u;
+	return 0xff000000u | rb | g;
+}
+
+typedef struct {
+	u32 uf, vf;          /* coordenadas de textura en 16.16 (texeles); sin signo: se desbordan sin problema, solo cuentan los bits bajos */
+	u32 fa, fb_;         /* fases de las ondas del agua (una vuelta = 2^32) */
+	int du_t, dv_t;      /* deriva del agua por el tiempo, en 8.8 */
+	int wxf, wyf;        /* posición en el mundo, 16.16 */
+} PuntoHD;
+
+/* color de un tipo de terreno en un punto (versión entera de kind_color) */
+static inline u32 color_tipo(int kind, const PuntoHD *p) {
+	if (kind >= TILE_WATER) {
+		int u = (int)((p->uf >> 8) & 0xffffff) + ola_lut[p->fa >> 22] + p->du_t, v = (int)((p->vf >> 8) & 0xffffff) + ola_lut[p->fb_ >> 22];   /* 8.8 */
+		return tex_px(kind == TILE_WATER ? tex_water : tex_deep, u >> 8, v >> 8);
+	}
+	Tex **set = kind == TILE_GRASS ? tex_grass : tex_desert;
+	int u = (int)(p->uf >> 16), v = (int)(p->vf >> 16);
+	u32 a = tex_px(set[0], u, v);
+	if (set[1] == set[0] || !ruido) return a;
+	/* manchas: ruido bilineal entre las esquinas de la casilla */
+	int ix = p->wxf >> 16, iy = p->wyf >> 16, fx = (p->wxf >> 8) & 255, fy = (p->wyf >> 8) & 255;
+	if (ix >= ruido_w - 1) ix = ruido_w - 2;
+	if (iy >= ruido_h - 1) iy = ruido_h - 2;
+	const u16 *r0 = ruido + iy * ruido_w + ix, *r1 = r0 + ruido_w;
+	int n0 = r0[0] + (((r0[1] - r0[0]) * fx) >> 8), n1 = r1[0] + (((r1[1] - r1[0]) * fx) >> 8);
+	int n = n0 + (((n1 - n0) * fy) >> 8);
+	int t = ((n - 26214) * 5) >> 8;   /* (n - 0.4) * 5, de 0 a 256 */
+	if (t <= 0) return a;
+	if (t > 256) t = 256;
+	return mezcla8(a, tex_px(set[1], u + 211, v + 97), t);
+}
+
+void render_terrain_hd(float time, int ry0, int ry1) {
+	ry0 = CLAMP(ry0, 0, fb.h); ry1 = CLAMP(ry1, ry0, fb.h);
+	static int usar_float = -1;
+	if (usar_float < 0) usar_float = getenv("AOEN_HD_FLOAT") && atoi(getenv("AOEN_HD_FLOAT")) > 0;
+	if (usar_float) { render_terrain_hd_float(time, ry0, ry1); return; }
+	ruido_preparar();
+
+	float z = V.zoom;
+	float pxp0 = (0 - V.sw * 0.5f) / z + V.cx, pyp0 = (0 - V.sh * 0.5f) / z + V.cy;
+	float wx0 = pxp0 / 64.0f + pyp0 / 32.0f, wy0 = pxp0 / 64.0f - pyp0 / 32.0f;
+	float dxx = 1.0f / (64.0f * z), dxy = 1.0f / (32.0f * z);
+	const int W_ = W.w, H_ = W.h;
+	const int lim_x = W_ << 16, lim_y = H_ << 16;
+	const int paso = (int)redondear(dxx * 65536.0f);              /* wx y wy avanzan lo mismo por píxel */
+	const u32 paso_t = (u32)redondear(dxx * TEXELS_PER_TILE * 65536.0f);
+	/* fases de las ondas: sin(wy*1.7 + t*0.9) en u y sin(wx*1.3 + t*0.7) en v */
+	const double vuelta = 4294967296.0 / 6.283185307179586;
+	const u32 dfa = (u32)redondear(dxx * 1.7 * vuelta), dfb = (u32)redondear(dxx * 1.3 * vuelta);
+	const int deriva = (int)redondear(fmodf(time * 3.0f, (float)TEX) * 256.0f);
+	static const int luz_lv[3] = { 0, 128, 256 };
+
+	for (int sy = ry0; sy < ry1; ++sy) {
+		double wxr = wx0 + (double)dxy * sy, wyr = wy0 - (double)dxy * sy;
+		PuntoHD p;
+		p.wxf = (int)redondear(wxr * 65536.0); p.wyf = (int)redondear(wyr * 65536.0);
+		p.uf = (u32)redondear(wxr * TEXELS_PER_TILE * 65536.0); p.vf = (u32)redondear(wyr * TEXELS_PER_TILE * 65536.0);
+		p.fa = (u32)redondear(fmod(wyr * 1.7 + time * 0.9, 6.283185307179586 * 1024.0) * vuelta);
+		p.fb_ = (u32)redondear(fmod(wxr * 1.3 + time * 0.7, 6.283185307179586 * 1024.0) * vuelta);
+		p.du_t = deriva; p.dv_t = 0;
+		u32 *dst = fb.px + (size_t)sy * fb.pitch;
+
+		for (int sx = 0; sx < fb.w; ++sx, p.wxf += paso, p.wyf += paso, p.uf += paso_t, p.vf += paso_t, p.fa += dfa, p.fb_ += dfb) {
+			if ((unsigned)p.wxf >= (unsigned)lim_x || (unsigned)p.wyf >= (unsigned)lim_y) { dst[sx] = 0xff000000u; continue; }
+
+			/* los cuatro centros de casilla alrededor de este punto */
+			int fx = p.wxf - 32768, fy = p.wyf - 32768;
+			int tx = fx >> 16, ty = fy >> 16, ax = (fx >> 8) & 255, ay = (fy >> 8) & 255;
+			int x0 = tx < 0 ? 0 : tx, x1 = tx + 1 >= W_ ? W_ - 1 : tx + 1, y0 = ty < 0 ? 0 : ty, y1 = ty + 1 >= H_ ? H_ - 1 : ty + 1;
+			int i00 = y0 * W_ + x0, i10 = y0 * W_ + x1, i01 = y1 * W_ + x0, i11 = y1 * W_ + x1;
+
+			/* niebla bilineal */
+			int f00 = W.fog[i00], f10 = W.fog[i10], f01 = W.fog[i01], f11 = W.fog[i11];
+			int light;
+			if (f00 == 2 && f10 == 2 && f01 == 2 && f11 == 2) light = 256;
+			else {
+				int l0 = luz_lv[f00] * (256 - ax) + luz_lv[f10] * ax, l1 = luz_lv[f01] * (256 - ax) + luz_lv[f11] * ax;
+				light = (l0 * (256 - ay) + l1 * ay) >> 16;
+				if (light <= 2) { dst[sx] = 0xff000000u; continue; }
+			}
+
+			int k00 = W.tile[i00], k10 = W.tile[i10], k01 = W.tile[i01], k11 = W.tile[i11];
+			u32 col;
+			if (k00 == k10 && k00 == k01 && k00 == k11) {
+				col = color_tipo(k00, &p);
+			} else {
+				/* pesos de cada tipo (0..65536), realzados para que la costa quede clara sin dientes */
+				int w[4] = { 0, 0, 0, 0 };
+				w[k00] += (256 - ax) * (256 - ay); w[k10] += ax * (256 - ay);
+				w[k01] += (256 - ax) * ay; w[k11] += ax * ay;
+				int tot = 0;
+				for (int k = 0; k < 4; ++k)
+					if (w[k] > 0) { w[k] = CLAMP((w[k] - 32768) * 3 + 32768, 0, 65536) >> 8; tot += w[k]; }
+				if (tot <= 0) { tot = 256; w[0] = w[1] = w[2] = w[3] = 0; w[k00] = 256; }
+				unsigned r = 0, g = 0, b = 0;
+				for (int k = 0; k < 4; ++k) {
+					if (w[k] <= 0) continue;
+					u32 c = color_tipo(k, &p);
+					r += ((c >> 16) & 255) * (unsigned)w[k]; g += ((c >> 8) & 255) * (unsigned)w[k]; b += (c & 255) * (unsigned)w[k];
+				}
+				col = 0xff000000u | ((r / (unsigned)tot) << 16) | ((g / (unsigned)tot) << 8) | (b / (unsigned)tot);
+			}
+			if (light < 253) {
+				u32 l = (u32)light;
+				col = 0xff000000u | ((((col & 0xff00ffu) * l) >> 8) & 0xff00ffu) | ((((col & 0x00ff00u) * l) >> 8) & 0x00ff00u);
 			}
 			dst[sx] = col;
 		}

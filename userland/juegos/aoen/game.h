@@ -11,9 +11,16 @@ typedef enum { MAP_ISLANDS, MAP_CONTINENTS, MAP_COASTAL, MAP_INLAND, MAP_HIGHLAN
 
 typedef enum {
 	/* edificios */
-	E_TOWN_CENTER, E_BARRACKS, E_HOUSE, E_GRANARY, E_STORAGE, E_FARM, E_ARCHERY, E_STABLE, E_TEMPLE, E_ACADEMY, E_GOVERNMENT, E_TOWER, E_MARKET, E_SIEGE, E_WONDER,
+	E_TOWN_CENTER, E_BARRACKS, E_HOUSE, E_GRANARY, E_STORAGE, E_FARM, E_ARCHERY, E_STABLE, E_TEMPLE, E_ACADEMY, E_GOVERNMENT, E_TOWER, E_MARKET, E_SIEGE, E_WALL, E_DOCK, E_WONDER,
 	/* unidades */
 	E_VILLAGER, E_CLUBMAN, E_AXEMAN, E_SHORTSWORD, E_BOWMAN, E_IMPBOW, E_CHARIOT, E_SCOUT, E_CAVALRY, E_HEAVYCAV, E_HOPLITE, E_PRIEST,
+	/* máquinas de asedio (Taller de asedio, v8.5.4.7) */
+	E_BALLISTA, E_CATAPULT, E_HEAVYCAT,
+	/* unidades nuevas: honda, elefantes de guerra y flota (Muelle) */
+	E_SLINGER, E_WARELE, E_ELEARCHER, E_FISHBOAT, E_TRANSPORT, E_WARSHIP,
+	E_PHALANX, E_CENTURION, E_CATAPHRACT, E_HORSEARCHER,
+	/* comercio (v8.5.4.7): barco mercante (Muelle) y carro mercante (Mercado) */
+	E_TRADESHIP, E_TRADECART,
 	/* animales salvajes (unidades sin dueño) */
 	E_HORSE, E_ELEPHANT,
 	/* recursos */
@@ -30,7 +37,7 @@ typedef enum { RES_WOOD, RES_FOOD, RES_GOLD, RES_STONE, RES_COUNT } ResKind;
 
 typedef enum { STANCE_AGGRESSIVE, STANCE_DEFENSIVE, STANCE_PASSIVE, STANCE_STAND, STANCE_GUARD } Stance;
 
-typedef enum { ST_IDLE, ST_MOVE, ST_GATHER, ST_RETURN, ST_BUILD, ST_ATTACK, ST_DYING } EntState;
+typedef enum { ST_IDLE, ST_MOVE, ST_GATHER, ST_RETURN, ST_BUILD, ST_ATTACK, ST_DYING, ST_BOARD, ST_ABOARD } EntState;   /* ST_BOARD: va a embarcar; ST_ABOARD: viaja en un transporte */
 
 typedef struct { int idx, gen; } Ref;
 
@@ -61,6 +68,14 @@ typedef struct {
 	float hx, hy;         /* posición de origen para la postura defensiva */
 	int has_rally; float rx, ry; Ref rtarget; /* punto de reunión de los edificios de producción */
 	int relics; float racc; /* templo: reliquias guardadas dentro y fracción de oro */
+	int nwp; float wpx[4], wpy[4]; /* órdenes en cola con Mayús (puntos de ruta) */
+	Ref cargo[5]; int ncargo; int unload;   /* transporte: pasajeros y orden de desembarcar al llegar */
+	int patrol; float ptx, pty;    /* patrulla entre el punto de origen (hx,hy) y (ptx,pty) */
+	/* comercio: ruta entre un muelle o mercado propio (origen) y otro de otro jugador (destino); fase 0 hacia el origen o
+	 * cargando, 1 hacia el destino, 2 de vuelta con la mercancía. Modo 0 oro, 1 intercambio (da com_dar, pide com_recibir;
+	 * com_dado es lo que lleva cargado). La carga va en carry */
+	Ref com_origen, com_destino;
+	int com_modo, com_dar, com_recibir, com_dado, com_fase, com_espera;
 	int stuck;
 	float lx, ly, stuck_t; /* última posición comprobada y tiempo sin avanzar */
 	/* edificios */
@@ -92,16 +107,33 @@ typedef struct {
 	int civ;
 	int diff;             /* dificultad de la IA */
 	int price[4];         /* mercado: oro pagado por 100 de cada recurso, en porcentaje del precio base */
+	int units_lost, bld_lost;   /* estadísticas de la pantalla final */
+	int gathered_k[4];          /* recursos entregados, por tipo */
+	int dipl[MAX_PLAYERS];      /* relación con cada jugador: DIPL_ENEMY, DIPL_NEUTRAL o DIPL_ALLY (simétrica) */
+	int hist_n;                 /* muestras de la gráfica de puntuación (una cada 15 s) */
+	unsigned short hist[240];
 } Player;
+
+/* relaciones diplomáticas */
+enum { DIPL_ENEMY, DIPL_NEUTRAL, DIPL_ALLY };
+/* condiciones de victoria */
+typedef enum { VIC_STANDARD, VIC_CONQUEST, VIC_WONDER, VIC_RELICS, VIC_SCORE, VIC_COUNT } VictoryKind;
 
 typedef struct {
 	int width, height, seed, map_kind, players, villagers;
+	int victory;                /* VictoryKind */
+	int time_limit;             /* minutos de la victoria por puntuación */
+	int relics_total;           /* reliquias repartidas por el mapa (victoria por reliquias) */
+	int color[MAX_PLAYERS];     /* color elegido por cada jugador: 0 automático, 1..8 */
 	int team[MAX_PLAYERS];
 	int start_res[RES_COUNT];
 	int explored;
 	int popcap;                 /* población máxima por jugador */
 	int ai_diff[MAX_PLAYERS];   /* 0 fácil, 1 normal, 2 difícil */
 	int civ[MAX_PLAYERS];       /* índice en civ_def */
+	int victoria_compartida;    /* 1: la partida acaba cuando los que quedan son del mismo equipo o aliados, y ganan juntos */
+	int recursos_mapa;          /* oro, piedra, bayas y bosques del mapa: 0 normales, 1 escasos, 2 abundantes */
+	int comercio_mejorado;      /* 1: barcos y carros mercantes con el modo intercambio además del oro */
 } Setup;
 
 typedef struct {
@@ -115,6 +147,7 @@ typedef struct {
 	Player pl[MAX_PLAYERS];
 	float time;
 	int over;               /* 0 en juego, 1 victoria, 2 derrota */
+	unsigned ganadores;     /* al acabar: jugadores del bando ganador (bit p), 0 si no se sabe (no se guarda) */
 	char msg[96];
 	float msg_t;
 	struct { float x0, y0, x1, y1, t; } shots[64]; /* efectos de flechas y virotes */
@@ -127,6 +160,9 @@ typedef struct {
 	float *pf_g;
 	int *pf_from, *pf_stamp, pf_cur;
 	unsigned rng;
+	float relic_t; int relic_team;   /* cuenta atrás de la victoria por reliquias */
+	float popwarn_t;
+	float hist_t;
 } World;
 
 extern World W;
@@ -156,13 +192,21 @@ typedef struct {
 	int range;            /* alcance extra de los arqueros */
 	int start_wood, start_food, start_gold; /* recursos iniciales extra */
 	int style;            /* aspecto de los edificios: 0 egipcio, 1 griego, 2 asiático, 3 babilonio */
+	float siege;          /* multiplicador de daño de asedio (0 = 1) */
+	float naval;          /* multiplicador de vida de los barcos (0 = 1) */
+	unsigned bans;        /* tecnologías que esta civilización no puede investigar (máscara de TechId) */
+	float build;          /* velocidad de construcción (0 = 1) */
+	int tower;            /* daño extra de las torres */
+	float priest;         /* velocidad de conversión de los sacerdotes (0 = 1) */
 } Civ;
 #define NUM_CIVS 10
 extern const Civ civ_def[NUM_CIVS];
 
 typedef enum {
 	T_TOOLWORKING, T_BRONZE_AXE, T_MINING, T_DOMESTICATION, T_PLOW, T_LEATHER, T_SCALE,
-	T_BRONZE_WEAPONS, T_IRON_WEAPONS, T_BOW, T_COMPOSITE, T_CAVARMOR, T_MEDICINE, T_COUNT
+	T_BRONZE_WEAPONS, T_IRON_WEAPONS, T_BOW, T_COMPOSITE, T_CAVARMOR, T_MEDICINE,
+	T_ENGINEERING, T_BALLISTICS, T_ARCHITECTURE,
+	T_SENTRY, T_GUARD, T_BALLISTA_T, T_WALL_MED, T_FORTIFICATION, T_WHEEL, T_MONOTHEISM, T_FAITH, T_ASTRONOMY, T_MYSTICISM, T_LOGISTICS, T_COUNT
 } TechId;
 
 typedef struct {
@@ -179,6 +223,28 @@ int cmd_research(int player, Ref bld, int tech);
 float eff_attack(int player, EntType t, int vs_building);
 int eff_armor(int player, EntType t, int ranged);
 float eff_range(int player, EntType t);
+int is_siege(EntType t);
+int is_naval(EntType t);                 /* barcos: solo navegan por el agua */
+int is_trader(EntType t);                /* barco o carro mercante */
+int cmd_comercio(Ref e, int modo, int dar, int recibir);   /* modo de un mercante (el intercambio solo con comercio mejorado) */
+int comercio_oro(float d);               /* oro de un viaje de ida y vuelta entre dos puertos o mercados a distancia d */
+int comercio_intercambio(int dar, int recibir, float d);  /* lo que se recibe por 15 de «dar» a esa distancia, ahora */
+float comercio_distancia(const Entity *e);   /* distancia de su ruta (entre centros), 0 sin ruta */
+int tile_sail(int x, int y);             /* casilla de agua libre */
+int tech_allowed(int player, int tech);  /* la civilización puede investigarla */
+int transport_load(const Entity *boat);   /* pasajeros a bordo */
+float unit_cooldown(EntType t);          /* segundos entre golpes */
+float unit_splash(EntType t);
+float unit_min_range(EntType t);         /* alcance mínimo (catapultas): más cerca no pueden disparar */            /* radio del daño de área (casillas), 0 si no tiene */
+int unit_tech_req(EntType t);            /* tecnología necesaria para entrenarla, -1 ninguna */
+int pcolor(int player);                  /* color (0..7) del jugador */
+const char *dipl_name(int level);
+int cmd_diplomacy(int from, int to, int level);   /* devuelve 1 si el otro jugador acepta */
+int cmd_tribute(int from, int to, int kind, int amount);
+void cmd_move_queue(Ref e, float x, float y);     /* añade un punto de ruta (Mayús) */
+void cmd_patrol(Ref e, float x, float y);
+int world_team_score(int player);
+int mismo_bando(int a, int b);   /* ganan juntos: mismo equipo del menú, o aliados si la victoria es compartida */
 
 extern const AgeDef age_def[];
 int age_requirements_met(int player, int target_age);
@@ -192,7 +258,8 @@ int is_unit(EntType t);
 int is_resource(EntType t);
 
 void world_new(const Setup *s);
-int world_alloc(int w, int h);   /* reserva los arrays del mapa y el pool de entidades (lo usan la partida nueva y la carga) */
+int world_alloc(int w, int h);
+unsigned world_gen(void);       /* cambia con cada mundo nuevo o cargado (para invalidar cachés de la IA y de la interfaz) */   /* reserva los arrays del mapa y el pool de entidades (lo usan la partida nueva y la carga) */
 
 /* partidas guardadas */
 typedef struct { long long stamp; int players, w, h, map_kind, age; float time; } SaveInfo;

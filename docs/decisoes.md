@@ -20640,3 +20640,62 @@ con la SDL2 del sistema (la de Freeciv y los demás ports) y se mejora.
 - **Límites.** Los comentarios del código del mantenedor siguen en su idioma de origen (el resto del proyecto, D096, va en
   español): traducirlos es mecánico y se deja para después. El texto de la interfaz está en español dentro del código, sin
   catálogos `_()`. Sin sonido real de la tarjeta se prueba mudo.
+
+- **v8.5.4.7: asedio, flota, murallas y diplomacia (parte «funcionalidades»; la interfaz y la IA van en otra rama).**
+  Taller de asedio: balista, catapulta y catapulta pesada (daño de área de la catapulta, mitad de daño a lo que rodea el
+  impacto; la pesada exige la mejora Ingeniería). Muelle (solo en la orilla): barco de pesca (peces, entrega en el muelle),
+  transporte (5 plazas; embarcar con clic derecho sobre el barco, desembarcar al mandarlo a tierra) y trirreme; los barcos
+  solo navegan por agua (la búsqueda de caminos distingue `pf_sea`). Murallas (1x1, piedra) con Muralla media y Fortificación;
+  torres con Centinela, Guardia y Ballesta; mejoras nuevas (Ingeniería, Balística, Arquitectura, Rueda, Monoteísmo, Fe);
+  honda y elefantes de guerra (con gráficos provisionales: arquero y elefante); bonificaciones por civilización (asedio,
+  barcos, mejoras prohibidas). Condiciones de victoria (conquista, Maravilla, reliquias 60 s, tiempo/puntuación),
+  diplomacia (enemigo, neutral, aliado; la máquina acepta según la puntuación) y tributo por el mercado. Formato de partida 4
+  (las de la versión 3 se rechazan con el mensaje de «incompatible»); `world_validate` cubre los campos nuevos.
+
+- **v8.5.4.7: interfaz.** La interfaz se rehace en ficheros propios (`ui_comun.c`, `ui_menu.c`, `ui_hud.c`, `ui_paneles.c`,
+  `ui_pruebas.c`, `interfaz.h`; `main.c` queda con el bucle). Decisiones: (1) **texto con la fuente 8x16 de SaguiOS** (de la
+  libsagui, con minúsculas y acentos), no una fuente nueva: en SaguiOS ya está enlazada y es la que el usuario lee en todo el
+  sistema; fuera de SaguiOS sigue la 5x7. (2) **Con los datos originales, su aspecto:** texturas de las barras y diálogos de
+  INTERFAC.DRS según el estilo de la civilización del jugador (el relieve se repite con el periodo que se encuentra comparando
+  columnas, así la barra crece a cualquier ancho sin costuras), iconos de recursos, órdenes y mejoras y la bandera animada; lo
+  que el original no tenía (posturas, patrulla, embarcar, filtros) se dibuja, y sin datos se dibuja todo. Las texturas se
+  guardan ya dibujadas a la resolución real. (3) **Una disposición medida, no fija:** la barra inferior tiene 3 filas de
+  órdenes si el alto lógico llega a 600 y 2 si no (1920x1080 con la interfaz x2 es 960x540), la rejilla pone las columnas que
+  caben y pagina; los botones de inactivos y filtros van en las esquinas libres del rombo del minimapa. `AOEN_SOLAPES=1` cuenta
+  los bloques que se pisan o se salen y la prueba exige cero a 800x600 y 1920x1080. (4) **Cada botón gris dice por qué** en su
+  ayuda (edad, mejora, recursos que faltan con la cantidad, población, cola), calculado con las mismas reglas de `game.c`.
+  (5) **Teclas:** por posición (1..9, 0) para la rejilla, como antes, y letras fijas para las órdenes de unidades que no chocan
+  con WASD: Z X C V posturas, G, P, Q, E, R, Y. (6) **Avisos** a partir del estado del mundo (edades, mejoras, obras, pings de
+  ataque, diplomacia), sin tocar `game.c`; la línea central queda para los errores. (7) **La vista previa** genera el mapa de
+  verdad con `world_new` y lo libera (unos milisegundos). (8) **Pruebas** con guiones (`AOEN_PRUEBA`) que simulan ratón y
+  teclado cuadro a cuadro dentro del juego, más fiables en QEMU que mover el ratón del anfitrión. (9) **Terreno HD en punto
+  fijo** (16.16, ruido precalculado en las esquinas, tabla de senos con fase de 32 bits): mismas imágenes (PSNR 58,7 dB) y de
+  14,8 a 235 fps a 1024x768 con KVM; la versión antigua queda con `AOEN_HD_FLOAT=1`. Pendiente: aceptar o rechazar propuestas
+  de la máquina (la IA aún no propone nada al humano).
+
+- **v8.5.4.7: interfaz e IA (parte IA).** La IA de la máquina pasa de `game.c` a `ia.c` y se rehace. Decisiones: (1) **sin
+  trampas** en fácil, normal y difícil: cada jugador lleva su propia cuadrícula de exploración y visión (celdas de 4x4) y la
+  memoria de los edificios enemigos que ha visto; solo ataca lo conocido y, si no conoce nada, explora. (2) **«Muy difícil»**
+  (dificultad 3, se guarda en la partida) es la única con ventaja y la declara el menú; por decisión del mantenedor **no lo ve
+  todo**: su visión es un 20 % mayor y recoge +0,22 por segundo y recolector (medido con el arnés: gana a la difícil 14 de 18
+  partidas terminadas; solo con la visión perdía, y con +0,25 o más ganaba siempre). (3) Las tablas se recorren por su tamaño y los
+  papeles se reconocen por sus datos (`is_siege`, `is_naval`, `ent_is_trainer`, `unit_tech_req`, `tech_allowed`), para que las
+  unidades y mejoras nuevas entren solas. (4) Ataca solo si su ejército supera 1,3 veces la mayor fuerza rival vista (la fácil,
+  siempre), y se retira al perder dos tercios. (5) Murallas en tramos con huecos, porque la búsqueda de caminos no abre
+  brechas. (6) Diplomacia solo entre máquinas (contra el líder); la difícil y la muy difícil no aceptan alianzas. La memoria
+  de la IA no se guarda en la partida: al cargar se rehace. Medidas en `docs/aoen.md`; prueba `h389_aoen.py ia`. Segunda tanda:
+  (7) las paces y alianzas de la partida se rompen cuando no queda ningún enemigo vivo (los equipos del menú, nunca), porque
+  la conquista exige que no quede nadie que no sea aliado; (8) islas por relleno (no hay recursos «de otra isla» a la vista
+  de un aldeano) y colonias en transporte; (9) en `game.c`, `nearest_enemy` usa una rejilla por tic y la población máxima se
+  guarda por tic (37 s a 14 s con 8 jugadores en 400x400, sin cambiar el resultado de la partida guardada).
+
+- **v8.5.4.7: victoria compartida, riqueza del mapa y comercio (petición del mantenedor).** (1) `Setup.victoria_compartida`
+  (por defecto sí en el menú): la conquista acaba cuando los que quedan son de un mismo bando (`mismo_bando`: equipo del menú o,
+  con la opción, aliados) y ganan todos (`W.ganadores`); sin ella solo gana un equipo del menú y la IA rompe sus alianzas al
+  final. Si el humano es espectador, su caída no acaba la partida. (2) `Setup.recursos_mapa` (0 normales para que lo hecho sin
+  el menú siga igual, 1 escasos, 2 abundantes): parches de expansión iguales para cada jugador a la misma distancia y en su isla,
+  minas con reintentos escaladas con el tamaño y los jugadores, isla neutral rica en los mapas de islas. (3) Barco mercante
+  (Muelle) y carro mercante (Mercado) con el modo oro clásico y, con `Setup.comercio_mejorado` (por defecto no, como el juego
+  original), el modo intercambio; la distancia es la recta entre los edificios para que el pago de una ruta no varíe; fórmulas
+  en `docs/aoen.md`. Las tres opciones cambian `Setup`: formato de partida 5, y las de formato 4 se rechazan como incompatibles
+  (lo más sencillo y seguro). Pruebas: `h389_aoen.py reglas` y mutaciones nuevas en `aoen_lectores`.

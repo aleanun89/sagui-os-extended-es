@@ -13,7 +13,7 @@ static Drs d_graphics, d_interfac, d_terrain;
 static Slp *trn[4];
 Sprite *terrain_sprite(int kind, int variant) { return slp_frame(trn[kind], variant); }
 static AnimSet set_vill, set_wood, set_miner, set_forager;
-#define NUM_UNIT_ART 14
+#define NUM_UNIT_ART 29
 static AnimSet unit_art[NUM_UNIT_ART];
 /* gráficos de estar quieto, andar, atacar, morir y descomposición de cada unidad, en el orden de los tipos de unidad */
 static const u32 unit_art_ids[NUM_UNIT_ART][5] = {
@@ -29,6 +29,21 @@ static const u32 unit_art_ids[NUM_UNIT_ART][5] = {
 	{ 423, 662, 210, 319, 378 }, /* caballería pesada */
 	{ 416, 655, 206, 312, 371 }, /* hoplita */
 	{ 443, 685, 634, 341, 402 }, /* sacerdote */
+	{ 656, 656, 207, 316, 316 }, /* balista */
+	{ 660, 660, 208, 316, 316 }, /* catapulta */
+	{ 659, 659, 208, 316, 316 }, /* catapulta pesada */
+	{ 414, 653, 204, 309, 368 }, /* lanzador de honda (provisional: gráfico del arquero) */
+	{ 429, 668, 216, 386, 386 }, /* elefante de guerra */
+	{ 427, 666, 228, 386, 386 }, /* arquero de elefante */
+	{ 647, 647, 647, 647, 647 }, /* barco de pesca */
+	{ 640, 640, 640, 640, 640 }, /* barco de transporte */
+	{ 693, 693, 693, 693, 693 }, /* trirreme */
+	{ 438, 677, 221, 312, 371 }, /* falange */
+	{ 436, 676, 219, 335, 371 }, /* centurión */
+	{ 423, 662, 210, 319, 378 }, /* catafracta (gráfico de la caballería pesada) */
+	{ 424, 663, 211, 320, 379 }, /* arquero a caballo (gráfico de la caballería) */
+	{ 648, 648, 648, 648, 648 }, /* barco mercante (648: el barco de carga del original) */
+	{ 412, 665, 412, 318, 377 }, /* carro mercante (provisional: gráfico del carro arquero) */
 	{ 475, 696, 475, 386, 385 }, /* caballo salvaje: 475 quieto, 696 galopando */
 	{ 428, 667, 215, 386, 386 }, /* elefante salvaje (386 = cayendo) */
 };
@@ -144,6 +159,23 @@ int assets_load(const char *dir) {
 
 void assets_free(void) {
 	drs_close(&d_graphics); drs_close(&d_interfac); drs_close(&d_terrain);
+}
+
+/* gráficos de la interfaz (INTERFAC.DRS) que se cargan al pedirlos: iconos de órdenes, recursos y mejoras, paneles y banderas */
+Slp *iface_slp(u32 id) {
+	static struct { u32 id; Slp *s; int tried; } c[48];
+	for (int i = 0; i < ARRAY_LEN(c); ++i) if (c[i].tried && c[i].id == id) return c[i].s;
+	for (int i = 0; i < ARRAY_LEN(c); ++i)
+		if (!c[i].tried) { c[i].tried = 1; c[i].id = id; c[i].s = d_interfac.f ? slp_load(&d_interfac, id) : NULL; return c[i].s; }
+	return NULL;
+}
+
+/* un cuadro de la interfaz, solo si tiene un dibujo de verdad (los DRS sintéticos o recortados dan cuadros vacíos o diminutos) */
+Sprite *iface_frame(u32 id, int frame, int min_w) {
+	Slp *s = iface_slp(id);
+	if (!s || frame < 0 || frame >= s->nframes) return NULL;
+	Sprite *f = slp_frame(s, frame);
+	return f && f->px && f->w >= min_w && f->h >= 3 ? f : NULL;
 }
 
 Sprite *icon_unit(int idx) { return slp_frame(s_icons_unit, idx); }
@@ -285,7 +317,7 @@ static void draw_entity(const Entity *e, int shade) {
 		}
 
 		int f = dir_frame(s, anim, e->angle, &flip);
-		int owner = e->owner >= 0 ? e->owner : 0;
+		int owner = e->owner >= 0 ? pcolor(e->owner) : 0;   /* color elegido en la configuración de la partida */
 		if (e->sel) {
 			int rx = (int)(14 * V.zoom), ry = (int)(7 * V.zoom);
 			gfx_ellipse(sx, sy, rx, MAX(1, ry), gfx_rgb(90, 255, 90), 38);
@@ -395,6 +427,8 @@ static void draw_entity(const Entity *e, int shade) {
 	case E_TOWER: rel = 16; break;
 	case E_MARKET: rel = 9; break;
 	case E_SIEGE: rel = 4; break;
+	case E_WALL: rel = 10; break;
+	case E_DOCK: rel = 7; break;
 	case E_WONDER: s = style_slp_id(wonder_ids[style]); break;
 	default: s = s_storage; break;
 	}
@@ -417,7 +451,7 @@ static void draw_entity(const Entity *e, int shade) {
 	}
 	{
 		Sprite *sp = slp_frame(s, f);
-		int own = e->owner >= 0 ? e->owner : 0;
+		int own = e->owner >= 0 ? pcolor(e->owner) : 0;
 		int obra = efx.construccion && e->progress < 1 && sp, ruina = efx.construccion && g_sink > 0 && sp;
 		if (obra || ruina) {
 			/* obra: el edificio sube desde el suelo con andamios; ruina: se hunde en el suelo */
@@ -469,6 +503,38 @@ static void draw_entity(const Entity *e, int shade) {
 		if (e->progress >= 1) draw_hpbar(sx, sy - (int)(46 * V.zoom), e->hp / e->maxhp, (int)(50 * V.zoom));
 }
 
+/* línea de puntos (rutas, punto de reunión) */
+static void linea_puntos(int x0, int y0, int x1, int y1, u32 col) {
+	int n = MAX(abs(x1 - x0), abs(y1 - y0)) / 4;
+	for (int k = 0; k <= n; k += 2) {
+		int x = x0 + (n ? (x1 - x0) * k / n : 0), y = y0 + (n ? (y1 - y0) * k / n : 0);
+		gfx_fill(x - 1, y - 1, 3, 3, 0xff100c08u);
+		gfx_fill(x, y, 2, 2, col);
+	}
+}
+
+/* bandera del punto de reunión: la de los datos originales (animada, del color del jugador) o una dibujada */
+static void bandera(int x, int y, int color) {
+	Sprite *f = iface_frame(50404, (int)(SDL_GetTicks() / 120) % 7, 8);
+	int sc = (int)(V.zoom * 256);
+	if (f) { gfx_sprite(f, x, y, sc, color, 256, 0); return; }
+	int hh = (int)(26 * V.zoom), ww = (int)(14 * V.zoom);
+	gfx_fill(x - 1, y - hh, 2, hh, gfx_rgb(230, 225, 210));
+	gfx_fill(x + 1, y - hh, ww, ww * 2 / 3, col_player[color & 7]);
+	gfx_rect(x + 1, y - hh, ww, ww * 2 / 3, gfx_rgb(20, 14, 8));
+	gfx_ellipse(x, y, (int)(6 * V.zoom) + 1, (int)(3 * V.zoom) + 1, gfx_rgb(0, 0, 0), 90);
+}
+
+static struct { float x, y; Uint32 t0; int tipo; } marcas[6];
+static int marca_sig;
+void marca_orden(float wx, float wy, int tipo) {
+	marcas[marca_sig].x = wx; marcas[marca_sig].y = wy; marcas[marca_sig].t0 = SDL_GetTicks(); marcas[marca_sig].tipo = tipo;
+	if (!marcas[marca_sig].t0) marcas[marca_sig].t0 = 1;
+	marca_sig = (marca_sig + 1) % ARRAY_LEN(marcas);
+}
+
+int mm_filtro;
+
 void render_world(int top_h, int bottom_h) {
 	int ui_saved = gfx_ui_suspend();   /* el mundo se dibuja a la resolución real aunque la interfaz esté escalada */
 	gfx_fill(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0));
@@ -488,9 +554,12 @@ void render_world(int top_h, int bottom_h) {
 	y0 = CLAMP(y0, 0, W.h - 1); y1 = CLAMP(y1, 0, W.h - 1);
 
 	if (hd_enabled) {
-		render_terrain_hd((float)SDL_GetTicks() / 1000.0f);
+		render_terrain_hd((float)SDL_GetTicks() / 1000.0f, top_h, fb.h - bottom_h);
 	} else {
+		/* bajo las barras de la interfaz no hace falta dibujar el suelo: quedan tapadas */
+		gfx_clip(0, top_h, fb.w, fb.h - bottom_h);
 		render_terrain_tiles(x0, x1, y0, y1, (float)SDL_GetTicks() / 1000.0f);
+		gfx_clip_reset();
 	}
 
 	/* recoge las entidades */
@@ -534,7 +603,7 @@ void render_world(int top_h, int bottom_h) {
 		draw_entity(e, W.fog[fy * W.w + fx] == 2 ? 256 : 140);
 	}
 
-	/* puntos de reunión de los edificios de producción seleccionados */
+	/* puntos de reunión de los edificios de producción seleccionados: línea de puntos y la bandera del jugador */
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *b = &W.ents[i];
 		if (!b->alive || !b->sel || !b->has_rally || b->owner != W.human) continue;
@@ -542,9 +611,47 @@ void render_world(int top_h, int bottom_h) {
 		view_to_screen(b->x, b->y, &bx, &by);
 		Entity *rt = ent_get(b->rtarget);
 		view_to_screen(rt ? rt->x : b->rx, rt ? rt->y : b->ry, &fx, &fy);
-		gfx_line(bx, by, fx, fy, gfx_rgb(120, 220, 255));
-		gfx_fill(fx, fy - (int)(18 * V.zoom), 2, (int)(18 * V.zoom), gfx_rgb(230, 230, 230));
-		gfx_fill(fx + 2, fy - (int)(18 * V.zoom), (int)(11 * V.zoom), (int)(7 * V.zoom), gfx_rgb(60, 140, 255));
+		linea_puntos(bx, by, fx, fy, gfx_rgb(250, 240, 200));
+		bandera(fx, fy, pcolor(b->owner));
+	}
+
+	/* órdenes en cola (Mayús) y patrullas de las unidades propias seleccionadas */
+	for (int i = 0; i < W.nents; ++i) {
+		Entity *u = &W.ents[i];
+		if (!u->alive || !u->sel || u->owner != W.human || !is_unit(u->type) || u->state == ST_DYING) continue;
+		int px, py, qx, qy;
+		view_to_screen(u->x, u->y, &px, &py);
+		if (u->patrol) {
+			view_to_screen(u->wpx[0], u->wpy[0], &px, &py);
+			view_to_screen(u->ptx, u->pty, &qx, &qy);
+			linea_puntos(px, py, qx, qy, gfx_rgb(255, 200, 80));
+			gfx_diamond(px, py, 4, 2, gfx_rgb(255, 200, 80)); gfx_diamond(qx, qy, 4, 2, gfx_rgb(255, 200, 80));
+			continue;
+		}
+		if (u->nwp <= 0) continue;
+		if (u->state == ST_MOVE) { int ax, ay; view_to_screen(u->tx, u->ty, &ax, &ay); linea_puntos(px, py, ax, ay, gfx_rgb(140, 255, 140)); px = ax; py = ay; }
+		for (int k = 0; k < u->nwp && k < 4; ++k) {
+			view_to_screen(u->wpx[k], u->wpy[k], &qx, &qy);
+			linea_puntos(px, py, qx, qy, gfx_rgb(140, 255, 140));
+			gfx_diamond(qx, qy, 4, 2, gfx_rgb(140, 255, 140));
+			px = qx; py = qy;
+		}
+	}
+
+	/* marcas de las órdenes recién dadas (un rombo que se encoge) */
+	{
+		Uint32 now = SDL_GetTicks();
+		for (int k = 0; k < ARRAY_LEN(marcas); ++k) {
+			if (!marcas[k].t0 || now - marcas[k].t0 > 600) continue;
+			int sx, sy;
+			view_to_screen(marcas[k].x, marcas[k].y, &sx, &sy);
+			int r = 14 - (int)(now - marcas[k].t0) * 12 / 600;
+			u32 c = marcas[k].tipo == 1 ? gfx_rgb(255, 80, 60) : marcas[k].tipo == 2 ? gfx_rgb(255, 200, 80) : gfx_rgb(120, 255, 120);
+			for (int a = 0; a < 2; ++a) {
+				gfx_line(sx - r * 2, sy + a, sx, sy - r + a, c); gfx_line(sx, sy - r + a, sx + r * 2, sy + a, c);
+				gfx_line(sx + r * 2, sy + a, sx, sy + r + a, c); gfx_line(sx, sy + r + a, sx - r * 2, sy + a, c);
+			}
+		}
 	}
 
 	/* flechas y virotes */
@@ -640,16 +747,34 @@ void render_minimap(int x, int y, int w, int h) {
 			for (int px = 0; px < w; ++px) for (int q = 0; q < us; ++q) dst[px * us + q] = mm_cache[py * w + px];
 		}
 	}
+	/* recursos (filtro «recursos»): oro, piedra, bayas y peces */
+	if (mm_filtro & MM_RECURSOS) {
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *e = &W.ents[i];
+			if (!e->alive || !(e->type == E_GOLD || e->type == E_STONE || e->type == E_BERRIES || e->type == E_FISH)) continue;
+			int fx = CLAMP((int)e->x, 0, W.w - 1), fy = CLAMP((int)e->y, 0, W.h - 1);
+			if (!W.fog[fy * W.w + fx]) continue;
+			float u = e->x / W.w, v = e->y / W.h;
+			int mx = x + (int)((u + v) * 0.5f * w), my = y + (int)((0.5f + (u - v) * 0.5f) * h);
+			u32 c = e->type == E_GOLD ? gfx_rgb(255, 215, 40) : e->type == E_STONE ? gfx_rgb(200, 200, 205) : e->type == E_BERRIES ? gfx_rgb(230, 80, 200) : gfx_rgb(140, 220, 255);
+			gfx_fill(mx - 1, my - 1, 2, 2, c);
+		}
+	}
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *e = &W.ents[i];
-		if (!e->alive || e->owner < 0 || e->state == ST_DYING) continue;
+		if (!e->alive || e->owner < 0 || e->state == ST_DYING || e->state == ST_ABOARD) continue;
 		int fx = CLAMP((int)e->x, 0, W.w - 1), fy = CLAMP((int)e->y, 0, W.h - 1);
 		u8 f = W.fog[fy * W.w + fx];
 		if (!f || (is_unit(e->type) && !same_team(e->owner, W.human) && f < 2)) continue;
+		int militar = is_unit(e->type) && e->type != E_VILLAGER && e->type != E_FISHBOAT && e->type != E_TRANSPORT && !is_trader(e->type) && e->type < E_HORSE;
+		if ((mm_filtro & MM_MILITAR) && !militar && !is_building(e->type)) continue;
 		float u = e->x / W.w, v = e->y / W.h;
 		int mx = x + (int)((u + v) * 0.5f * w), my = y + (int)((0.5f + (u - v) * 0.5f) * h);
 		int s = is_building(e->type) ? 3 : 2;
-		gfx_fill(mx - s / 2, my - s / 2, s, s, col_player[e->owner]);
+		u32 c = col_player[pcolor(e->owner)];
+		if ((mm_filtro & MM_MILITAR) && !militar) c = (c >> 1) & 0x7f7f7fu;   /* solo militar: los edificios, apagados */
+		else if ((mm_filtro & MM_MILITAR) && militar) s = 3;
+		gfx_fill(mx - s / 2, my - s / 2, s, s, c | 0xff000000u);
 	}
 
 	/* reliquias */
@@ -663,7 +788,7 @@ void render_minimap(int x, int y, int w, int h) {
 		gfx_fill(mx - 1, my - 1, 3, 3, gfx_rgb(255, 230, 80));
 	}
 
-	/* alguien está siendo atacado: círculos rojos que crecen y se desvanecen */
+	/* alguien está siendo atacado: círculos rojos que crecen y una cruz que parpadea en el sitio */
 	for (int k = 0; k < W.npings; ++k) {
 		float u = W.pings[k].x / W.w, v = W.pings[k].y / W.h;
 		int mx = x + (int)((u + v) * 0.5f * w), my = y + (int)((0.5f + (u - v) * 0.5f) * h);
@@ -672,6 +797,9 @@ void render_minimap(int x, int y, int w, int h) {
 			float ang = a * 6.2831853f / 20;
 			gfx_fill(mx + (int)(cosf(ang) * rad * 1.6f), my + (int)(sinf(ang) * rad * 0.8f), 2, 2, gfx_rgb(255, 40, 40));
 		}
+		u32 pc = (SDL_GetTicks() / 250) & 1 ? gfx_rgb(255, 255, 255) : gfx_rgb(255, 40, 40);
+		gfx_fill(mx - 4, my - 1, 9, 3, pc);
+		gfx_fill(mx - 1, my - 4, 3, 9, pc);
 	}
 
 	/* cámara */
@@ -712,11 +840,15 @@ void sheet_draw(const int *ids, int n) {
 	gfx_fill(0, 0, fb.w, fb.h, gfx_rgb(50, 50, 50));
 	int cols = getenv("AOEN_COLS") ? atoi(getenv("AOEN_COLS")) : 8, cw = fb.w / cols, ch = getenv("AOEN_CELLH") ? atoi(getenv("AOEN_CELLH")) : 112;
 	int maxsc = getenv("AOEN_ZOOM") ? atoi(getenv("AOEN_ZOOM")) : 256;
+	/* AOEN_SHEETDRS=i: los gráficos de INTERFAC.DRS; AOEN_SLPFRAMES=id: todos los cuadros de ese SLP */
+	Drs *dd = getenv("AOEN_SHEETDRS") && getenv("AOEN_SHEETDRS")[0] == 'i' ? &d_interfac : &d_graphics;
+	int allf = getenv("AOEN_SLPFRAMES") ? atoi(getenv("AOEN_SLPFRAMES")) : 0;
+	if (allf) { Slp *s = slp_load(dd, (u32)allf); n = s ? MIN(s->nframes, 200) : 0; }
 	for (int k = 0; k < n; ++k) {
 		int cx = (k % cols) * cw, cy = (k / cols) * ch;
-		Slp *s = slp_load(&d_graphics, (u32)ids[k]);
+		Slp *s = slp_load(dd, allf ? (u32)allf : (u32)ids[k]);
 		if (s) {
-			Sprite *f = slp_frame(s, getenv("AOEN_FRAME") ? atoi(getenv("AOEN_FRAME")) + k * (getenv("AOEN_FSTEP") ? atoi(getenv("AOEN_FSTEP")) : 0) : 0);
+			Sprite *f = slp_frame(s, allf ? k : getenv("AOEN_FRAME") ? atoi(getenv("AOEN_FRAME")) + k * (getenv("AOEN_FSTEP") ? atoi(getenv("AOEN_FSTEP")) : 0) : 0);
 			if (f && f->w > 0) {
 				int sc = MIN(maxsc, MIN((cw - 6) * 256 / f->w, (ch - 24) * 256 / f->h));
 				gfx_clip(cx, cy, cx + cw, cy + ch);
@@ -725,7 +857,7 @@ void sheet_draw(const int *ids, int n) {
 			}
 		}
 		char b[32];
-		snprintf(b, sizeof b, "%d", ids[k]);
+		snprintf(b, sizeof b, "%d", allf ? k : ids[k]);
 		gfx_text(cx + 3, cy + ch - 12, b, gfx_rgb(255, 255, 0), 1);
 	}
 }
