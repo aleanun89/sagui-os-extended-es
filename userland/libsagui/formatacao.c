@@ -49,7 +49,8 @@ static uint32_t aleatorio32(void)
 int fs_zerar(const char *vol, uint32_t lba, uint32_t n, fs_zerar_t *z)
 {
     enum { TROZO = 256 };
-    static uint8_t buf[TROZO * 512];
+    static uint8_t *buf;   /* D378: 128 KB del malloc la primera vez, no de la BSS */
+    if (!buf && !(buf = aloca(TROZO * 512))) return ERRO_SEM_MEMORIA;
     if (!z->decidido) {
         info_bloco_t inf;
         z->decidido = true;

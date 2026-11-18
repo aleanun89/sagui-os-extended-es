@@ -8,27 +8,27 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: userland/programas/conky.c:377
+#: userland/programas/conky.c:383
 msgid "Tiempo en marcha"
 msgstr ""
 
-#: userland/programas/conky.c:377
+#: userland/programas/conky.c:383
 msgid "Memoria"
 msgstr ""
 
-#: userland/programas/conky.c:377
+#: userland/programas/conky.c:383
 msgid "Disco"
 msgstr ""
 
-#: userland/programas/conky.c:377
+#: userland/programas/conky.c:383
 msgid "Bajada"
 msgstr ""
 
-#: userland/programas/conky.c:377
+#: userland/programas/conky.c:383
 msgid "Subida"
 msgstr ""
 
-#: userland/programas/conky.c:377
+#: userland/programas/conky.c:383
 msgid "Procesos"
 msgstr ""
 

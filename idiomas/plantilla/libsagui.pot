@@ -307,28 +307,60 @@ msgstr ""
 msgid "Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta)."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:24
+msgid "Tope de lo escrito en la RAM (%)"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:24
+msgid "Live y /tmp: cuánto de la RAM pueden ocupar los cambios; automático = 50 %."
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:25
+msgid "Modo de arranque de la live"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:25
+msgid "Live desde el medio o todo a la RAM; automático = el de la imagen (tecla M al arrancar para elegir una vez)."
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:80
 msgid "sí"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:78
+#: userland/libsagui/opcoes_kernel.c:80
 msgid "no"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:79
+#: userland/libsagui/opcoes_kernel.c:81
 msgid "automático"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:81
+#: userland/libsagui/opcoes_kernel.c:83
 msgid "rendimiento"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:81
+#: userland/libsagui/opcoes_kernel.c:83
 msgid "ahorro"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:81
+#: userland/libsagui/opcoes_kernel.c:83
 msgid "a demanda"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:85
+msgid "rescate"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:85
+msgid "instalado"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:85
+msgid "live"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:85
+msgid "toram"
 msgstr ""
 
 #: userland/libsagui/widget.c:14

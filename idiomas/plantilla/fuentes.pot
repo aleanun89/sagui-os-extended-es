@@ -36,11 +36,11 @@ msgstr ""
 msgid "sin permiso para escribir en la carpeta de destino"
 msgstr ""
 
-#: userland/programas/fuentes.c:38 userland/programas/fuentes.c:319
+#: userland/programas/fuentes.c:38 userland/programas/fuentes.c:325
 msgid "base"
 msgstr ""
 
-#: userland/programas/fuentes.c:39 userland/programas/fuentes.c:318
+#: userland/programas/fuentes.c:39 userland/programas/fuentes.c:324
 msgid "todas las cuentas"
 msgstr ""
 
@@ -136,7 +136,7 @@ msgstr ""
 msgid "Actualizar"
 msgstr ""
 
-#: userland/programas/fuentes.c:157 userland/programas/fuentes.c:241
+#: userland/programas/fuentes.c:157 userland/programas/fuentes.c:247
 msgid "Instalar"
 msgstr ""
 
@@ -148,121 +148,121 @@ msgstr ""
 msgid "Cerrar"
 msgstr ""
 
-#: userland/programas/fuentes.c:204
+#: userland/programas/fuentes.c:208
 msgid "Sin muestra."
 msgstr ""
 
-#: userland/programas/fuentes.c:220
+#: userland/programas/fuentes.c:224
 msgid "Vista previa de la fuente"
 msgstr ""
 
-#: userland/programas/fuentes.c:226
+#: userland/programas/fuentes.c:230
 #, c-format
 msgid "No se puede instalar: %s."
 msgstr ""
 
-#: userland/programas/fuentes.c:236
-#: userland/programas/fuentes.c:241
-msgid "Instalada"
-msgstr ""
-
-#: userland/programas/fuentes.c:249
-#, c-format
-msgid "%d familias de fuentes instaladas"
-msgstr ""
-
-#: userland/programas/fuentes.c:264
-msgid "Para todas las cuentas (pide permisos de administrador)"
-msgstr ""
-
-#: userland/programas/fuentes.c:268
-msgid "Elige una fuente de la lista para verla, o instala una nueva."
-msgstr ""
-
-#: userland/programas/fuentes.c:286
-msgid "instalar fuentes para todas las cuentas"
-msgstr ""
-
-#: userland/programas/fuentes.c:297
-#, c-format
-msgid "No se instaló: %s."
-msgstr ""
-
-#: userland/programas/fuentes.c:303
-#, c-format
-msgid "Instalada «%s»."
-msgstr ""
-
-#: userland/programas/fuentes.c:314
-msgid "Elige primero una fuente de la lista."
-msgstr ""
-
-#: userland/programas/fuentes.c:319
-msgid "Las fuentes de la base del sistema no se quitan."
-msgstr ""
-
-#: userland/programas/fuentes.c:320
-#, c-format
-msgid "¿Quitar la fuente «%s»?"
-msgstr ""
-
-#: userland/programas/fuentes.c:321 userland/programas/fuentes.c:347
-msgid "Fuentes"
-msgstr ""
-
-#: userland/programas/fuentes.c:327
-msgid "quitar fuentes de todas las cuentas"
-msgstr ""
-
-#: userland/programas/fuentes.c:330
-msgid "No se pudo quitar (¿faltan permisos?)."
-msgstr ""
-
-#: userland/programas/fuentes.c:332
-#, c-format
-msgid "Quitada «%s»."
-msgstr ""
-
-#: userland/programas/fuentes.c:347 userland/programas/fuentes.c:375
-msgid "Instalar fuente"
-msgstr ""
-
-#: userland/programas/fuentes.c:348
-msgid "fuentes: no se pudo abrir la ventana (¿hay escritorio?)\n"
-msgstr ""
-
-#: userland/programas/fuentes.c:375
-msgid "Fuentes (*.ttf)|*.ttf|Fuentes (*.otf)|*.otf|Todos|*"
-msgstr ""
-
-#: userland/programas/fuentes.c:378
-msgid "Instalar las fuentes de una carpeta"
-msgstr ""
-
-#: userland/programas/fuentes.c:383
-#, c-format
-msgid "%d instaladas, %d rechazadas."
-msgstr ""
-
-#: userland/programas/fuentes.c:389
-msgid "Lista actualizada."
-msgstr ""
-
-#: userland/programas/fuentes.c:407
-#, c-format
-msgid "fuentes: lista actualizada, %d familias\n"
-msgstr ""
-
-#: userland/programas/fuentes.c:410
-msgid "uso: fuentes [listar | instalar [--sistema] ARCHIVO|CARPETA... | quitar [--sistema] FAMILIA | actualizar | --ventana [ARCHIVO]]\n"
-msgstr ""
-
-#: userland/programas/fuentes.c
+#: userland/programas/fuentes.c:240
 #, c-format
 msgid "Esta cuenta: %s"
 msgstr ""
 
-#: userland/programas/fuentes.c
+#: userland/programas/fuentes.c:242
 #, c-format
 msgid "Todas las cuentas: %s (pide permisos de administrador)"
 msgstr ""
+
+#: userland/programas/fuentes.c:247
+msgid "Instalada"
+msgstr ""
+
+#: userland/programas/fuentes.c:255
+#, c-format
+msgid "%d familias de fuentes instaladas"
+msgstr ""
+
+#: userland/programas/fuentes.c:270
+msgid "Para todas las cuentas (pide permisos de administrador)"
+msgstr ""
+
+#: userland/programas/fuentes.c:274
+msgid "Elige una fuente de la lista para verla, o instala una nueva."
+msgstr ""
+
+#: userland/programas/fuentes.c:292
+msgid "instalar fuentes para todas las cuentas"
+msgstr ""
+
+#: userland/programas/fuentes.c:303
+#, c-format
+msgid "No se instaló: %s."
+msgstr ""
+
+#: userland/programas/fuentes.c:309
+#, c-format
+msgid "Instalada «%s»."
+msgstr ""
+
+#: userland/programas/fuentes.c:320
+msgid "Elige primero una fuente de la lista."
+msgstr ""
+
+#: userland/programas/fuentes.c:325
+msgid "Las fuentes de la base del sistema no se quitan."
+msgstr ""
+
+#: userland/programas/fuentes.c:326
+#, c-format
+msgid "¿Quitar la fuente «%s»?"
+msgstr ""
+
+#: userland/programas/fuentes.c:327 userland/programas/fuentes.c:353
+msgid "Fuentes"
+msgstr ""
+
+#: userland/programas/fuentes.c:333
+msgid "quitar fuentes de todas las cuentas"
+msgstr ""
+
+#: userland/programas/fuentes.c:336
+msgid "No se pudo quitar (¿faltan permisos?)."
+msgstr ""
+
+#: userland/programas/fuentes.c:338
+#, c-format
+msgid "Quitada «%s»."
+msgstr ""
+
+#: userland/programas/fuentes.c:353 userland/programas/fuentes.c:381
+msgid "Instalar fuente"
+msgstr ""
+
+#: userland/programas/fuentes.c:354
+msgid "fuentes: no se pudo abrir la ventana (¿hay escritorio?)\n"
+msgstr ""
+
+#: userland/programas/fuentes.c:381
+msgid "Fuentes (*.ttf)|*.ttf|Fuentes (*.otf)|*.otf|Todos|*"
+msgstr ""
+
+#: userland/programas/fuentes.c:384
+msgid "Instalar las fuentes de una carpeta"
+msgstr ""
+
+#: userland/programas/fuentes.c:389
+#, c-format
+msgid "%d instaladas, %d rechazadas."
+msgstr ""
+
+#: userland/programas/fuentes.c:395
+msgid "Lista actualizada."
+msgstr ""
+
+#: userland/programas/fuentes.c:413
+#, c-format
+msgid "fuentes: lista actualizada, %d familias\n"
+msgstr ""
+
+#: userland/programas/fuentes.c:416
+msgid "uso: fuentes [listar | instalar [--sistema] ARCHIVO|CARPETA... | quitar [--sistema] FAMILIA | actualizar | --ventana [ARCHIVO]]\n"
+msgstr ""
+

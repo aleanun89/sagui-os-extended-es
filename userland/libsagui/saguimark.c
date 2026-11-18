@@ -765,7 +765,8 @@ static bool preparar(unsigned grupos, bool *mem_ok)
         for (uint32_t i = 0; i < MEM_PAL; i++) mem_a[i] = i * 2654435761u;
         memset(mem_b, 0, MEM_PAL * 4);
         /* Sattolo: permutación con un único ciclo. */
-        static uint32_t perm[NOS_N];
+        uint32_t *perm = aloca(NOS_N * sizeof *perm);   /* D378: 1 MB, fuera de la BSS */
+        if (!perm) { *mem_ok = false; return true; }
         for (uint32_t i = 0; i < NOS_N; i++) perm[i] = i;
         semente = 4242;
         for (uint32_t i = NOS_N - 1; i > 0; i--) {
@@ -774,6 +775,7 @@ static bool preparar(unsigned grupos, bool *mem_ok)
             perm[j] = t;
         }
         for (uint32_t i = 0; i < NOS_N; i++) nos[i * NOS_PASSO] = perm[i];
+        libera(perm);
     }
     return true;
 }

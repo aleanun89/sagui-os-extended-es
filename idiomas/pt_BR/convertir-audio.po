@@ -214,14 +214,18 @@ msgstr "Não é possível usar essa pasta de destino"
 msgid ""
 "Ya existe %d archivo en el destino.\n"
 "¿Sobrescribirlo? (No: se omite)"
-msgstr "%d arquivo já existe no destino.\nSobrescrevê-lo? (Não: é omitido)"
+msgstr ""
+"%d arquivo já existe no destino.\n"
+"Sobrescrevê-lo? (Não: é omitido)"
 
 #: userland/programas/convertir-audio.c:761
 #, c-format
 msgid ""
 "Ya existen %d archivos en el destino.\n"
 "¿Sobrescribirlos? (No: se omiten)"
-msgstr "%d arquivos já existem no destino.\nSobrescrevê-los? (Não: são omitidos)"
+msgstr ""
+"%d arquivos já existem no destino.\n"
+"Sobrescrevê-los? (Não: são omitidos)"
 
 #: userland/programas/convertir-audio.c:762
 msgid "El destino existe"

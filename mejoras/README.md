@@ -138,3 +138,4 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 133 | [Editor de traducciones propio (al estilo de Poedit)](133-editor-traducciones.md) | hecho (v8.4.4, D335) | media-alta |
 | 134 | [3D en las 3dfx Voodoo Graphics y Voodoo2](134-voodoo1-2-3d.md) | pendiente (v8.5+) | media |
 | 137 | [Jabuti: programar con bloques para niños](137-jabuti.md) | hecha (v8.5.4, D377) | media |
+| 138 | [Enlace dinámico de bibliotecas (.so, dlopen, ld-sagui)](138-enlace-dinamico.md) | fases 1-2 hechas (v8.5.4.3, D378); fase 3 en v8.5.4.5 | media-alta |

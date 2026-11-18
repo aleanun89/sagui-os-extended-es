@@ -103,14 +103,16 @@ typedef struct {
     const uint32_t *cod;
     int qtd;
 } huff_t;
-static huff_t hf[12];
+/* D378: las tablas (80 KB) se piden al malloc al iniciarlas, no van en la BSS. */
+static struct { huff_t hf[12]; float pot43[8192]; } *aac_tabs;
+#define hf    (aac_tabs->hf)
+#define pot43 (aac_tabs->pot43)
 static const uint32_t *const livros[12] = { aac_cb0, aac_cb1, aac_cb2, aac_cb3, aac_cb4, aac_cb5, aac_cb6, aac_cb7, aac_cb8, aac_cb9, aac_cb10, aac_cb11 };
 static const int livros_qtd[12] = { 121, 81, 81, 81, 81, 81, 81, 64, 64, 169, 169, 289 };
 static const int8_t livro_dim[12] = { 0, 4, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2 };
 static const int8_t livro_sinal[12] = { 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0 };
 static const int8_t livro_mod[12] = { 0, 3, 3, 3, 3, 9, 9, 8, 8, 13, 13, 17 };
 
-static float pot43[8192];
 static float jan_seno_l[1024], jan_seno_c[128], jan_kbd_l[1024], jan_kbd_c[128];
 static bool tabelas_ok;
 
@@ -212,6 +214,7 @@ static void kbd(float *w, int n, double alfa)
 static bool tabelas_iniciar(void)
 {
     if (tabelas_ok) return true;
+    if (!aac_tabs && !(aac_tabs = aloca_zerado(sizeof *aac_tabs))) return false;
     for (int c = 0; c < 12; c++) {
         huff_t *h = &hf[c];
         h->cod = livros[c];

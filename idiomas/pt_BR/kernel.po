@@ -12,19 +12,19 @@ msgstr ""
 msgid "Botón de encendido: apagando el ordenador..."
 msgstr "Botão de energia: desligando o computador..."
 
-#: kernel/gui/area_trabalho.c:43 kernel/gui/area_trabalho.c:1088 kernel/gui/barra.c:1165
+#: kernel/gui/area_trabalho.c:43 kernel/gui/area_trabalho.c:1087 kernel/gui/barra.c:1165
 msgid "Archivos"
 msgstr "Arquivos"
 
-#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1087 kernel/gui/barra.c:1219
+#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1086 kernel/gui/barra.c:1219
 msgid "Terminal"
 msgstr "Terminal"
 
-#: kernel/gui/area_trabalho.c:45 kernel/gui/area_trabalho.c:1089
+#: kernel/gui/area_trabalho.c:45 kernel/gui/area_trabalho.c:1088
 msgid "Editor"
 msgstr "Editor"
 
-#: kernel/gui/area_trabalho.c:46 kernel/gui/area_trabalho.c:1090 kernel/gui/barra.c:1166
+#: kernel/gui/area_trabalho.c:46 kernel/gui/area_trabalho.c:1089 kernel/gui/barra.c:1166
 msgid "Calculadora"
 msgstr "Calculadora"
 
@@ -72,76 +72,76 @@ msgstr "Discos"
 msgid "Instalar SaguiOS"
 msgstr "Instalar o SaguiOS"
 
-#: kernel/gui/area_trabalho.c:960
+#: kernel/gui/area_trabalho.c:959
 msgid "El pendrive no está montado: puedes retirarlo."
 msgstr "O pendrive não está montado: você pode retirá-lo."
 
-#: kernel/gui/area_trabalho.c:979 kernel/gui/area_trabalho.c:980
+#: kernel/gui/area_trabalho.c:978 kernel/gui/area_trabalho.c:979
 msgid "Abrir"
 msgstr "Abrir"
 
-#: kernel/gui/area_trabalho.c:979
+#: kernel/gui/area_trabalho.c:978
 msgid "Quitar con seguridad"
 msgstr "Remover com segurança"
 
-#: kernel/gui/area_trabalho.c:1019
+#: kernel/gui/area_trabalho.c:1018
 msgid "Resolución"
 msgstr "Resolução"
 
-#: kernel/gui/area_trabalho.c:1040
+#: kernel/gui/area_trabalho.c:1039
 msgid "No se pudo cambiar la resolución."
 msgstr "Não foi possível mudar a resolução."
 
-#: kernel/gui/area_trabalho.c:1092 kernel/gui/barra.c:1220
+#: kernel/gui/area_trabalho.c:1091 kernel/gui/barra.c:1220
 msgid "Administrador de tareas"
 msgstr "Gerenciador de tarefas"
 
-#: kernel/gui/area_trabalho.c:1093
+#: kernel/gui/area_trabalho.c:1092
 msgid "Configuración de pantalla..."
 msgstr "Configurações de tela..."
 
-#: kernel/gui/area_trabalho.c:1094
+#: kernel/gui/area_trabalho.c:1093
 msgid "Añadir widgets..."
 msgstr "Adicionar widgets..."
 
-#: kernel/gui/area_trabalho.c:1096 kernel/gui/janelas.c:443
+#: kernel/gui/area_trabalho.c:1095 kernel/gui/janelas.c:443
 msgid "Editar widgets"
 msgstr "Editar widgets"
 
-#: kernel/gui/area_trabalho.c:1100
+#: kernel/gui/area_trabalho.c:1099
 msgid "Ordenar iconos"
 msgstr "Organizar ícones"
 
-#: kernel/gui/area_trabalho.c:1102
+#: kernel/gui/area_trabalho.c:1101
 msgid "Por nombre"
 msgstr "Por nome"
 
-#: kernel/gui/area_trabalho.c:1104
+#: kernel/gui/area_trabalho.c:1103
 msgid "Por tipo"
 msgstr "Por tipo"
 
-#: kernel/gui/area_trabalho.c:1106
+#: kernel/gui/area_trabalho.c:1105
 msgid "Por fecha"
 msgstr "Por data"
 
-#: kernel/gui/area_trabalho.c:1108
+#: kernel/gui/area_trabalho.c:1107
 msgid "Alinear a la rejilla"
 msgstr "Alinhar à grade"
 
-#: kernel/gui/area_trabalho.c:1109
+#: kernel/gui/area_trabalho.c:1108
 msgid "Organización automática"
 msgstr "Organização automática"
 
-#: kernel/gui/area_trabalho.c:1113 kernel/gui/barra.c:1472
+#: kernel/gui/area_trabalho.c:1112 kernel/gui/barra.c:1472
 #, c-format
 msgid "Acerca de %s"
 msgstr "Sobre o %s"
 
-#: kernel/gui/area_trabalho.c:1126
+#: kernel/gui/area_trabalho.c:1125
 msgid "Este pendrive no está en FAT32, exFAT ni ext2/ext4: formato no soportado."
 msgstr "Este pendrive não está em FAT32, exFAT nem ext2/ext4: formato não suportado."
 
-#: kernel/gui/area_trabalho.c:1127
+#: kernel/gui/area_trabalho.c:1126
 msgid "No se pudo montar el pendrive."
 msgstr "Não foi possível montar o pendrive."
 
@@ -814,27 +814,27 @@ msgstr "Mover widget"
 msgid "Quitar widget"
 msgstr "Remover widget"
 
-#: kernel/gui/janelas.c:739
+#: kernel/gui/janelas.c:742
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
 msgstr "Não foi encontrada a partição de aplicativos (/apps): este PC não enxerga bem o disco de inicialização. Alguns aplicativos não estarão disponíveis. Use saguios-completo.img (mais informações: docs/imagenes.md)."
 
-#: kernel/gui/janelas.c:1603
+#: kernel/gui/janelas.c:1606
 msgid "Restaurar"
 msgstr "Restaurar"
 
-#: kernel/gui/janelas.c:1603
+#: kernel/gui/janelas.c:1606
 msgid "Minimizar"
 msgstr "Minimizar"
 
-#: kernel/gui/janelas.c:1604
+#: kernel/gui/janelas.c:1607
 msgid "Maximizar"
 msgstr "Maximizar"
 
-#: kernel/gui/janelas.c:1605
+#: kernel/gui/janelas.c:1608
 msgid "Pantalla completa"
 msgstr "Tela cheia"
 
-#: kernel/gui/janelas.c:1605
+#: kernel/gui/janelas.c:1608
 msgid "Cerrar"
 msgstr "Fechar"
 

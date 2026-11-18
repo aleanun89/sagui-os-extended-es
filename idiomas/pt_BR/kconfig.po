@@ -73,73 +73,73 @@ msgstr "uso: kconfig [OPÇÃO=VALOR ...] | kconfig --por-defecto\n"
 msgid "Valores: si|no, un número, auto, o «defecto» (vuelve al de la imagen).\n"
 msgstr "Valores: si|no, um número, auto, ou «defecto» (volta ao da imagem).\n"
 
-#: userland/programas/kconfig.c:80
+#: userland/programas/kconfig.c:81
 msgid "Si lo guardado impide arrancar: Ctrl al arrancar (modo rescate) y «kconfig --por-defecto».\n"
 msgstr "Se o que foi salvo impedir a inicialização: Ctrl ao iniciar (modo de resgate) e «kconfig --por-defecto».\n"
 
-#: userland/programas/kconfig.c:86
+#: userland/programas/kconfig.c:87
 #, c-format
 msgid "kconfig: hace falta ser administrador (usa: admin kconfig %s)\n"
 msgstr "kconfig: é preciso ser administrador (use: admin kconfig %s)\n"
 
-#: userland/programas/kconfig.c:88
+#: userland/programas/kconfig.c:89
 msgid "kconfig: SaguiOS ha arrancado desde un CD, que es de solo lectura: no se puede guardar\n"
 msgstr "kconfig: o SaguiOS foi iniciado a partir de um CD, que é somente leitura: não é possível salvar\n"
 
-#: userland/programas/kconfig.c:90
+#: userland/programas/kconfig.c:91
 msgid "kconfig: no se encontró el disco de arranque de SaguiOS para guardar\n"
 msgstr "kconfig: o disco de inicialização do SaguiOS não foi encontrado para salvar\n"
 
-#: userland/programas/kconfig.c:91
+#: userland/programas/kconfig.c:92
 #, c-format
 msgid "kconfig: %s: no se pudo guardar: %s\n"
 msgstr "kconfig: %s: não foi possível salvar: %s\n"
 
-#: userland/programas/kconfig.c:106
+#: userland/programas/kconfig.c:107
 msgid "Configuración del kernel borrada: al reiniciar, los valores de la imagen.\n"
 msgstr "Configuração do kernel apagada: ao reiniciar, os valores da imagem.\n"
 
-#: userland/programas/kconfig.c:118
+#: userland/programas/kconfig.c:119
 #, c-format
 msgid "kconfig: «%s»: se espera OPCION=VALOR (kconfig -h)\n"
 msgstr "kconfig: «%s»: esperado OPÇÃO=VALOR (kconfig -h)\n"
 
-#: userland/programas/kconfig.c:123
+#: userland/programas/kconfig.c:124
 #, c-format
 msgid "kconfig: no hay ninguna opción «%s» (kconfig -h)\n"
 msgstr "kconfig: não existe a opção «%s» (kconfig -h)\n"
 
-#: userland/programas/kconfig.c:127
+#: userland/programas/kconfig.c:128
 #, c-format
 msgid "kconfig: %s: «%s» no vale (si o no)\n"
 msgstr "kconfig: %s: «%s» não é válido (si ou no)\n"
 
-#: userland/programas/kconfig.c:128
+#: userland/programas/kconfig.c:129
 #, c-format
 msgid "kconfig: %s: «%s» fuera de rango (auto o de %u a %u)\n"
 msgstr "kconfig: %s: «%s» fora do intervalo (auto ou de %u a %u)\n"
 
-#: userland/programas/kconfig.c:141
+#: userland/programas/kconfig.c:142
 #, c-format
 msgid "kconfig: combinación no válida (%s); no se guarda nada\n"
 msgstr "kconfig: combinação inválida (%s); nada é gravado\n"
 
-#: userland/programas/kconfig.c:148
+#: userland/programas/kconfig.c:149
 #, c-format
 msgid "%s: ajustado a %s solo (%s)\n"
 msgstr "%s: ajustado para %s sozinho (%s)\n"
 
-#: userland/programas/kconfig.c:157
+#: userland/programas/kconfig.c:158
 #, c-format
 msgid "%s: vuelve al de la imagen (%s)"
 msgstr "%s: volta ao da imagem (%s)"
 
-#: userland/programas/kconfig.c:158
+#: userland/programas/kconfig.c:159
 #, c-format
 msgid "%s: guardado %s"
 msgstr "%s: salvo %s"
 
-#: userland/programas/kconfig.c:159
+#: userland/programas/kconfig.c:160
 msgid "; se aplica al reiniciar"
 msgstr "; aplicado ao reiniciar"
 

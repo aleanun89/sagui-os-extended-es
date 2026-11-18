@@ -261,11 +261,13 @@ int er_compilar(er_t *r, const char *padrao, bool estendida, bool ignorar)
 }
 
 #define PILHA_ER 4096
-static struct { short pc; int sp; } pilha[PILHA_ER];
+/* D378: 32 KB del malloc la primera vez, no de la BSS (la regex va en libsagui.so). */
+static struct er_pilha { short pc; int sp; } *pilha;
 
 static bool executar_er(const er_t *r, const char *t, int n, int inicio, int *fim)
 {
     int topo = 0, passos = 0;
+    if (!pilha && !(pilha = aloca(PILHA_ER * sizeof *pilha))) return false;
     pilha[topo].pc = 0; pilha[topo].sp = inicio; topo++;
     while (topo > 0) {
         int pc = pilha[--topo].pc, sp = pilha[topo].sp;

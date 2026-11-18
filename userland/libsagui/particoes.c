@@ -67,7 +67,8 @@ int blocos_descartar(const char *nome, uint32_t lba, uint32_t n)
 
 int blocos_zerar(const char *nome, uint32_t lba, uint32_t n)
 {
-    static uint8_t zeros[DBLOCO_MAX_SETORES * 512];
+    static uint8_t *zeros;   /* D378: 128 KB del malloc la primera vez, no de la BSS */
+    if (!zeros && !(zeros = aloca_zerado(DBLOCO_MAX_SETORES * 512))) return ERRO_SEM_MEMORIA;
     while (n) {
         uint32_t q = n > DBLOCO_MAX_SETORES ? DBLOCO_MAX_SETORES : n;
         int r = chamar_blocos(DBLOCO_ESCREVER, nome, lba, q, (unsigned)zeros);

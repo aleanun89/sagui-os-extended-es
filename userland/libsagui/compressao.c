@@ -310,10 +310,19 @@ static void alinhar(esc_t *w) { if (w->nb > 0) por_bits(w, 0, 8 - w->nb); }
 #define JANELA 32768
 #define MAX_SIM 32767   /* símbolos por bloco */
 
-static uint32_t cab[1 << 15];     /* última posição (+1) de cada hash */
-static uint32_t ant[JANELA];      /* posição anterior (+1) com o mesmo hash */
-static uint16_t sim_l[MAX_SIM + 1];   /* literal (dist 0) ou comprimento do par */
-static uint16_t sim_d[MAX_SIM + 1];
+/* D378: el estado del compresor (384 KB) se pide al malloc la primera vez que
+ * se comprime, en vez de estar en la BSS: así no lo paga cada programa que
+ * cargue la libsagui compartida solo para descomprimir. */
+static struct {
+    uint32_t cab[1 << 15];     /* última posição (+1) de cada hash */
+    uint32_t ant[JANELA];      /* posição anterior (+1) com o mesmo hash */
+    uint16_t sim_l[MAX_SIM + 1];   /* literal (dist 0) ou comprimento do par */
+    uint16_t sim_d[MAX_SIM + 1];
+} *deflar_estado;
+#define cab   (deflar_estado->cab)
+#define ant   (deflar_estado->ant)
+#define sim_l (deflar_estado->sim_l)
+#define sim_d (deflar_estado->sim_d)
 static uint8_t  tab_len[259];
 static bool     tab_len_pronta;
 
@@ -574,6 +583,7 @@ int deflar(const uint8_t *e, int n, uint8_t *saida, int max_saida, int nivel)
         alinhar(&w);
         return w.cheio ? COMP_ERRO_CHEIO : w.pos;
     }
+    if (!deflar_estado && !(deflar_estado = aloca(sizeof *deflar_estado))) return COMP_ERRO_MEMORIA;
     memset(cab, 0, sizeof cab);
     int cadeia = cadeias[nivel];
     int bom = nivel < 4 ? 32 : nivel < 7 ? 128 : 258;

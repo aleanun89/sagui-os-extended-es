@@ -48,218 +48,218 @@ msgstr ""
 msgid "ORDEN"
 msgstr ""
 
-#: userland/programas/htop.c:675
+#: userland/programas/htop.c:673
 msgid "Mem"
 msgstr ""
 
-#: userland/programas/htop.c:684
+#: userland/programas/htop.c:682
 msgid "sin swap"
 msgstr ""
 
-#: userland/programas/htop.c:687
+#: userland/programas/htop.c:685
 msgid "Swp"
 msgstr ""
 
-#: userland/programas/htop.c:694 userland/programas/htop.c:695
+#: userland/programas/htop.c:692 userland/programas/htop.c:693
 msgid "Tareas"
 msgstr ""
 
-#: userland/programas/htop.c:700
+#: userland/programas/htop.c:698
 #, c-format
 msgid ", %u hilos; %u en ejecución"
 msgstr ""
 
-#: userland/programas/htop.c:702
+#: userland/programas/htop.c:700
 msgid "Tiempo encendido"
 msgstr ""
 
-#: userland/programas/htop.c:703 userland/programas/htop.c:968
+#: userland/programas/htop.c:701 userland/programas/htop.c:966
 msgid "Intervalo"
 msgstr ""
 
-#: userland/programas/htop.c:784
+#: userland/programas/htop.c:782
 msgid "Ayuda"
 msgstr ""
 
-#: userland/programas/htop.c:784
+#: userland/programas/htop.c:782
 msgid "Config"
 msgstr ""
 
-#: userland/programas/htop.c:784
+#: userland/programas/htop.c:782
 msgid "Buscar"
 msgstr ""
 
-#: userland/programas/htop.c:784
+#: userland/programas/htop.c:782
 msgid "Filtro"
 msgstr ""
 
-#: userland/programas/htop.c:784
+#: userland/programas/htop.c:782
 msgid "Árbol"
 msgstr ""
 
-#: userland/programas/htop.c:785
+#: userland/programas/htop.c:783
 msgid "Orden"
 msgstr ""
 
-#: userland/programas/htop.c:785
+#: userland/programas/htop.c:783
 msgid "Nice -"
 msgstr ""
 
-#: userland/programas/htop.c:785
+#: userland/programas/htop.c:783
 msgid "Nice +"
 msgstr ""
 
-#: userland/programas/htop.c:785 userland/programas/htop.c:1015
+#: userland/programas/htop.c:783 userland/programas/htop.c:1013
 msgid "Matar"
 msgstr ""
 
-#: userland/programas/htop.c:785
+#: userland/programas/htop.c:783
 msgid "Salir"
 msgstr ""
 
-#: userland/programas/htop.c:901
+#: userland/programas/htop.c:899
 msgid "Flechas, Re/Av Pág, Inicio, Fin: moverse por la lista"
 msgstr ""
 
-#: userland/programas/htop.c:902
+#: userland/programas/htop.c:900
 msgid "F3 /: buscar      F4 \\: filtrar      Esc: quitar el filtro"
 msgstr ""
 
-#: userland/programas/htop.c:903
+#: userland/programas/htop.c:901
 msgid "F5 t: árbol       H: hilos           K: ocultar los del kernel"
 msgstr ""
 
-#: userland/programas/htop.c:904
+#: userland/programas/htop.c:902
 msgid "F6 > .: ordenar por una columna       I: invertir"
 msgstr ""
 
-#: userland/programas/htop.c:905
+#: userland/programas/htop.c:903
 msgid "P: por CPU   M: por memoria   T: por tiempo   N: por PID"
 msgstr ""
 
-#: userland/programas/htop.c:906
+#: userland/programas/htop.c:904
 msgid "F7 ]: más prioridad (nice -; solo root)  F8 [: menos (nice +)"
 msgstr ""
 
-#: userland/programas/htop.c:907
+#: userland/programas/htop.c:905
 msgid "F9 k: matar (a los marcados, o al seleccionado)"
 msgstr ""
 
-#: userland/programas/htop.c:908
+#: userland/programas/htop.c:906
 msgid "Espacio: marcar    U: desmarcar todos   F: seguir el proceso"
 msgstr ""
 
-#: userland/programas/htop.c:909
+#: userland/programas/htop.c:907
 msgid "u: solo los procesos de un usuario"
 msgstr ""
 
-#: userland/programas/htop.c:910
+#: userland/programas/htop.c:908
 msgid "F2 S: configuración (columnas, intervalo, colores)"
 msgstr ""
 
-#: userland/programas/htop.c:911
+#: userland/programas/htop.c:909
 msgid "Ctrl+L: redibujar    F10 q: salir"
 msgstr ""
 
-#: userland/programas/htop.c:912
+#: userland/programas/htop.c:910
 msgid "Ratón: clic en una línea, en un título de columna o en la barra de F"
 msgstr ""
 
-#: userland/programas/htop.c:914
+#: userland/programas/htop.c:912
 msgid "Ayuda de htop"
 msgstr ""
 
-#: userland/programas/htop.c:920
+#: userland/programas/htop.c:918
 msgid "Todos los usuarios"
 msgstr ""
 
-#: userland/programas/htop.c:933
+#: userland/programas/htop.c:931
 msgid "Usuario"
 msgstr ""
 
-#: userland/programas/htop.c:943
+#: userland/programas/htop.c:941
 msgid "Ordenar por"
 msgstr ""
 
-#: userland/programas/htop.c:950
+#: userland/programas/htop.c:948
 msgid "Matar (terminar el proceso)"
 msgstr ""
 
-#: userland/programas/htop.c:950
+#: userland/programas/htop.c:948
 msgid "Cancelar"
 msgstr ""
 
-#: userland/programas/htop.c:967
+#: userland/programas/htop.c:965
 msgid "Columna"
 msgstr ""
 
-#: userland/programas/htop.c:969
+#: userland/programas/htop.c:967
 msgid "Sin colores"
 msgstr ""
 
-#: userland/programas/htop.c:970
+#: userland/programas/htop.c:968
 msgid "Ocultar los procesos del kernel"
 msgstr ""
 
-#: userland/programas/htop.c:971
+#: userland/programas/htop.c:969
 msgid "Vista de árbol"
 msgstr ""
 
-#: userland/programas/htop.c:972
+#: userland/programas/htop.c:970
 msgid "Mostrar los hilos"
 msgstr ""
 
-#: userland/programas/htop.c:978
+#: userland/programas/htop.c:976
 msgid "Configuración (Intro cambia, Esc cierra)"
 msgstr ""
 
-#: userland/programas/htop.c:1005
+#: userland/programas/htop.c:1003
 #, c-format
 msgid "Nice: %s"
 msgstr ""
 
-#: userland/programas/htop.c:1006
+#: userland/programas/htop.c:1004
 #, c-format
 msgid "Nice cambiado en %d proceso(s)"
 msgstr ""
 
-#: userland/programas/htop.c:1016
+#: userland/programas/htop.c:1014
 #, c-format
 msgid "Matar %d procesos"
 msgstr ""
 
-#: userland/programas/htop.c:1026
+#: userland/programas/htop.c:1024
 #, c-format
 msgid "Matar: %s"
 msgstr ""
 
-#: userland/programas/htop.c:1026
+#: userland/programas/htop.c:1024
 #, c-format
 msgid "Terminados: %d"
 msgstr ""
 
-#: userland/programas/htop.c:1062
+#: userland/programas/htop.c:1060
 #, c-format
 msgid "No se encontró «%s»"
 msgstr ""
 
-#: userland/programas/htop.c:1103
+#: userland/programas/htop.c:1101
 msgid "Buscar: "
 msgstr ""
 
-#: userland/programas/htop.c:1105
+#: userland/programas/htop.c:1103
 msgid "Filtro: "
 msgstr ""
 
-#: userland/programas/htop.c:1116
+#: userland/programas/htop.c:1114
 msgid "Siguiendo el proceso"
 msgstr ""
 
-#: userland/programas/htop.c:1116
+#: userland/programas/htop.c:1114
 msgid "Ya no se sigue el proceso"
 msgstr ""
 
-#: userland/programas/htop.c:1177
+#: userland/programas/htop.c:1175
 msgid "htop: necesita un terminal (para listas en texto: ps o top -b)\n"
 msgstr ""
 

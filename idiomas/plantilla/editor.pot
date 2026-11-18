@@ -25,6 +25,10 @@ msgid ""
 "(%s)"
 msgstr ""
 
+#: userland/programas/editor.c:79
+msgid "Texto (*.txt)|*.txt|Código y Markdown|*.c;*.h;*.py;*.md;*.sh|Todos los archivos (*.*)|*"
+msgstr ""
+
 #: userland/programas/editor.c:90
 #, c-format
 msgid ""

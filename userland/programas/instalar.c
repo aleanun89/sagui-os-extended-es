@@ -321,6 +321,19 @@ static bool fora_da_raiz(const char *nome)
 #define RAIZ_SERIE "/sistema/serie"
 static bool ha_serie(void) { return existe_pasta(RAIZ_SERIE "/bin") && existe_pasta(RAIZ_SERIE "/etc"); }
 
+/* D378 (revisión de la integración): en «todo a RAM» (toram) la raíz es la copia en ram0 y no hay sistema de
+ * serie debajo: lo que se copia lleva lo cambiado en la sesión. Eso solo se hace si se pide (--con-cambios). */
+static bool raiz_toram(void)
+{
+    if (!modo_raiz() || ha_serie()) return false;
+    info_montagem_t m[16];
+    int n = info_sistema(INFO_MONTAGENS, m, 16);
+    for (int i = 0; i < n; i++)
+        if (compara_texto(m[i].ponto, "/") == 0)
+            return m[i].dispositivo[0] == 'r' && m[i].dispositivo[1] == 'a' && m[i].dispositivo[2] == 'm';
+    return false;
+}
+
 static uint32_t kb_raiz(void)
 {
     static uint32_t kb = 0xFFFFFFFFu;
@@ -1223,12 +1236,102 @@ static int marcar_raiz(const char *ponto, char *erro, int max)
     return r;
 }
 
+/* D378 (revisión): las bibliotecas que carga el intérprete (/lib, /apps/lib y lo de dentro) tienen
+ * que quedar de root y sin escritura de grupo ni de otros, o el kernel no carga /lib/ld-sagui.so.1 y el
+ * ligador las rechaza en los procesos seguros. La copia conserva los dueños del origen, que en un
+ * medio sin dueños pueden no ser esos: aquí se fuerzan; un fichero con dueño que no sea root no se
+ * promueve a root, se quita (vale igual para la copia de /sistema/serie y para --con-cambios). /apps solo la carpeta
+ * (/apps/vps es de sagui, D297). */
+static int blindar_bibliotecas(const char *pasta, int nivel, char *erro, int max)
+{
+    if (!existe_pasta(pasta)) return 0;
+    if (nivel > 12) { txt(erro, max, "%s: demasiadas carpetas anidadas en las bibliotecas", pasta); return ERRO_INVALIDO; }
+    info_permisos_t p;
+    int r = mudar_dono(pasta, UID_ROOT, GID_ROOT);
+    if (r == 0) r = mudar_permisos(pasta, permisos_arquivo(pasta, &p) == 0 && p.com_donos ? (p.modo & 0755u) | 0700u : 0755u);
+    if (r < 0) { txt(erro, max, "no se puede dejar %s de root: %s", pasta, nome_erro(r)); return r; }
+    if (nivel < 0) return 0;
+    /* Se lee la carpeta entera antes: borrar mientras se lista con un índice se saltaría la entrada siguiente. */
+    entrada_pasta_t *v = NULL;
+    int n = listar_tudo(pasta, &v);
+    if (n < 0) { txt(erro, max, "no se puede leer %s: %s", pasta, nome_erro(n)); return n; }
+    r = 0;
+    for (int i = 0; r == 0 && i < n; i++) {
+        entrada_pasta_t *e = &v[i];
+        if (compara_texto(e->nome, ".") == 0 || compara_texto(e->nome, "..") == 0) continue;
+        char c[256];
+        if (tam_texto(pasta) + 1 + tam_texto(e->nome) >= sizeof c) {
+            txt(erro, max, "%s/%s: ruta demasiado larga en las bibliotecas", pasta, e->nome);
+            r = ERRO_INVALIDO;
+            break;
+        }
+        caminho_juntar(c, sizeof c, pasta, e->nome);
+        if (e->tipo == TIPO_PASTA) { r = blindar_bibliotecas(c, nivel + 1, erro, max); continue; }
+        bool ok = permisos_arquivo(c, &p) == 0;
+        if (!ok || (p.com_donos && p.uid != UID_ROOT)) {
+            /* Copiado con dueño que no es root (p. ej. con --con-cambios, algo que dejó otra cuenta en la
+             * sesión live) o sin poder saberlo: no se le da la confianza de root; se quita. */
+            int a = apagar(c);
+            if (a < 0 || permisos_arquivo(c, &p) == 0) {
+                txt(erro, max, "no se puede quitar %s (no es de root): %s", c, nome_erro(a < 0 ? a : ERRO_INVALIDO));
+                r = a < 0 ? a : ERRO_INVALIDO;
+                break;
+            }
+            registrar("instalar: %s no era de root: no se instala (D378)", c);
+            continue;
+        }
+        r = mudar_dono(c, UID_ROOT, GID_ROOT);
+        if (r == 0) r = mudar_permisos(c, p.com_donos ? (p.modo & 0755u) : 0644u);
+        if (r < 0) txt(erro, max, "no se puede dejar %s de root: %s", c, nome_erro(r));
+    }
+    libera(v);
+    return r;
+}
+
+/* Comprueba que lo blindado quedó bien: de root, sin escritura de grupo ni de otros, con dueños. */
+static int exigir_de_root(const char *ponto, const char *rel, bool obrigatorio, char *erro, int max)
+{
+    char c[128];
+    info_permisos_t p;
+    caminho_juntar(c, sizeof c, ponto, rel);
+    if (permisos_arquivo(c, &p) < 0) {
+        if (!obrigatorio) return 0;
+        txt(erro, max, "falta %s en la raíz instalada", c);
+        return ERRO_INVALIDO;
+    }
+    if (!p.com_donos || p.uid != UID_ROOT || (p.modo & 022)) {
+        txt(erro, max, "%s no quedó de root sin escritura de otros (uid %d, modo %o)", c, (int)p.uid, (unsigned)p.modo);
+        return ERRO_INVALIDO;
+    }
+    return 0;
+}
+
+static int blindar_raiz(const char *ponto, char *erro, int max)
+{
+    static const char *const recursivas[] = { "lib", "apps/lib" };
+    char c[128];
+    caminho_juntar(c, sizeof c, ponto, "apps");
+    int r = blindar_bibliotecas(c, -1, erro, max);
+    for (unsigned i = 0; r == 0 && i < sizeof recursivas / sizeof recursivas[0]; i++) {
+        caminho_juntar(c, sizeof c, ponto, recursivas[i]);
+        r = blindar_bibliotecas(c, 0, erro, max);
+    }
+    if (r == 0) r = exigir_de_root(ponto, "lib", true, erro, max);
+    if (r == 0) r = exigir_de_root(ponto, "lib/ld-sagui.so.1", true, erro, max);
+    if (r == 0) r = exigir_de_root(ponto, "apps/lib", false, erro, max);
+    if (r == 0) registrar("instalar: /lib y /apps/lib de root, sin escritura de otros (D378)");
+    return r;
+}
 
 /* D379: la raíz del sistema que corre, por ficheros (comparados uno a uno al copiarlos), sin lo que no es
  * sistema (montajes, RAM); esas carpetas se crean vacías: son puntos de montaje del sistema instalado.
  * v8.5.4.2: desde la live, por defecto, el sistema de serie (RAIZ_SERIE); con_cambios, la raíz que se ve. */
 static int copiar_raiz(const char *ponto, bool con_cambios, char *erro, int max)
 {
+    if (!con_cambios && raiz_toram()) {
+        txt(erro, max, "la raíz está en la RAM (todo a RAM) y no hay sistema de serie: se copiaría lo cambiado en la sesión; usa --con-cambios");
+        return ERRO_INVALIDO;
+    }
     const char *de = !con_cambios && ha_serie() ? RAIZ_SERIE : "/";
     fase(fase_atual, 0, de[1] ? "Copiando el sistema de serie..." : "Copiando la raíz del sistema...");
     registrar("instalar: la raíz se copia de %s", de);
@@ -1262,6 +1365,7 @@ static int copiar_raiz(const char *ponto, bool con_cambios, char *erro, int max)
         mudar_permisos(b, 0700);
         mudar_dono(ponto, UID_ROOT, GID_ROOT);
         mudar_permisos(ponto, 0755);
+        r = blindar_raiz(ponto, erro, max);   /* D378: antes de marcar_raiz; si falla, la instalación falla */
     }
     arquivos_apps += arquivos_copiados - antes;
     registrar("instalar: raíz copiada por ficheros: %u archivos", arquivos_copiados - antes);
@@ -1428,6 +1532,8 @@ static int preparar_dados(plano_t *p, int num, const char *ponto, const char *le
             mudar_dono(v, UID_SAGUI, GID_SAGUI);
             mudar_dono(ponto, UID_ROOT, GID_ROOT);
             mudar_permisos(ponto, 0755);
+            caminho_juntar(v, sizeof v, ponto, "lib");
+            r = blindar_bibliotecas(v, 0, erro, max);   /* D378: /apps/lib de root, sin escritura de otros */
         }
     } else if (r < 0) txt(erro, max, "no se puede escribir en %s: %s", vol, nome_erro(r));
     if (r == 0 && conf && modo_raiz()) r = copiar_raiz(ponto, p->con_cambios, erro, max);   /* D379 */
@@ -1901,6 +2007,14 @@ static int terminal(int argc, char **argv)
     if (p.home_conservar)
         imprimir("  Se conserva /home (SAGUI-DATOS %s, %u MB) tal cual, sin formatear (--formatear-home la borra)\n", p.home_vieja, p.home_vieja_set / MB);
     if (p.copiar_jogos) imprimir("  Se copian también los datos de " JOGOS_ORIGEM "%s\n", ha_jogos() ? "" : " (no hay datos: nada que copiar)");
+    if (raiz_toram()) {   /* D378: en toram no hay sistema de serie */
+        if (!p.con_cambios) {
+            imprimir_em(ERROS, "instalar: la raíz está en la RAM (todo a RAM) y no hay sistema de serie: se copiaría el sistema con lo\n"
+                               "cambiado en esta sesión. Si es lo que quieres, añade --con-cambios (o arranca en live desde el medio).\n");
+            return 2;
+        }
+        imprimir("  AVISO: todo a RAM: se copia el sistema tal como está ahora, con lo cambiado en esta sesión\n");
+    }
     if (modo_raiz() && ha_serie())   /* v8.5.4.2 */
         imprimir(p.con_cambios ? "  Se copia el sistema tal como está ahora, con lo cambiado en esta sesión\n"
                                : "  Se copia el sistema de serie, sin lo cambiado en esta sesión (--con-cambios lo incluye)\n");

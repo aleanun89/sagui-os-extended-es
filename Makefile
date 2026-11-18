@@ -144,8 +144,11 @@ ROOTFS     := $(shell find rootfs -type f | sort)
 
 # Programas de usuário: libsagui + um .c por programa em userland/programas/
 # (vão para /bin) e em userland/testes/ (vão para /testes).
+# D378: con PIC=1 (solo lo usa la submake que compila las bibliotecas compartidas en $(B)/pic) el
+# código sale con -fPIC; si no, como siempre.
+CODIGO_PIC := $(if $(filter 1,$(PIC)),-fPIC,-fno-pic -fno-pie)
 UCFLAGS := -m32 -march=i686 -std=gnu11 $(OTIMIZACAO) \
-           -ffreestanding -fno-builtin -nostdlib -fno-pic -fno-pie \
+           -ffreestanding -fno-builtin -nostdlib $(CODIGO_PIC) \
            -fno-stack-protector -fno-asynchronous-unwind-tables -mgeneral-regs-only \
            -ffunction-sections -fdata-sections \
            -Wall -Wextra -Werror=implicit-function-declaration \
@@ -156,6 +159,15 @@ ULDFLAGS := -m elf_i386 -nostdlib -T userland/programa.ld --gc-sections -z max-p
 LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/userland/libsagui/sse1.o $(B)/userland/libsagui/sse3.o $(B)/userland/libsagui/ssse3.o $(B)/userland/libsagui/fuso.o $(B)/userland/libsagui/catalogo.o \
                 $(patsubst userland/libsagui/%.c,$(B)/userland/libsagui/%.o,$(filter-out userland/libsagui/sqlite_% $(if $(filter 1,$(SEM_GPL)),userland/libsagui/h264.c userland/libsagui/aac.c),$(wildcard userland/libsagui/*.c))) \
                 $(patsubst userland/libsagui/%.asm,$(B)/userland/libsagui/%.asm.o,$(wildcard userland/libsagui/*.asm))
+# D378: la libsagui se parte en dos para el enlace dinámico (libsagui.so.1 y libsagui_medios.so.1): la base
+# es lo que usan muchos programas (arranque, llamadas, texto, memoria, ventanas, imágenes, red, compresión) y no
+# depende de la otra; «medios» es el resto (sonido y vídeo, documentos, particiones, saguimark...). Los programas
+# estáticos siguen enlazando LIBSAGUI_OBJ entero, como siempre.
+LIBSAGUI_BASE_NOMES := ambiente catalogo chamadas compressao conf_maquina contas div64 empacotar entrada formatar fuso gui \
+  gui_arquivos gui_barras gui_revisar hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
+  inicio.asm mandos memoria rapido rede regex servicos sincronia sse1 sse2 sse3 ssse3 texto utilitarios zonas
+LIBSAGUI_BASE_OBJ := $(B)/userland/fonte8x16.o $(addprefix $(B)/userland/libsagui/,$(addsuffix .o,$(LIBSAGUI_BASE_NOMES)))
+LIBSAGUI_MEDIOS_OBJ := $(filter-out $(LIBSAGUI_BASE_OBJ),$(LIBSAGUI_OBJ))
 USER_HDR  := $(wildcard userland/inc/*.h) kernel/inc/abi.h kernel/inc/sha256.h kernel/inc/fuso.h kernel/inc/versao.h
 
 # La libc común (D210, mejora 094 A): stdio con búfer, printf completo, strtod,
@@ -169,7 +181,7 @@ LIBC_SRC := $(wildcard $(LIBC_DIR)/*.c)
 LIBC_OBJ := $(patsubst $(LIBC_DIR)/%.c,$(B)/$(LIBC_DIR)/%.o,$(LIBC_SRC))
 LIBC_HDR := $(wildcard $(LIBC_DIR)/*.h $(LIBC_DIR)/*/*.h)
 LIBC_CFLAGS := -m32 -march=i686 -std=gnu99 -Os \
-  -ffreestanding -fno-builtin -nostdlib -fno-pic -fno-pie \
+  -ffreestanding -fno-builtin -nostdlib $(CODIGO_PIC) \
   -fno-stack-protector -fno-asynchronous-unwind-tables \
   -ffunction-sections -fdata-sections -DNDEBUG -fcommon \
   -mfpmath=387 -fexcess-precision=standard \
@@ -282,7 +294,7 @@ MP_OBJ := $(patsubst %.c,$(B)/%.o,$(MP_SRC)) $(SQLITE_OBJ) $(B)/$(MP_DIR)/inicio
           $(B)/$(MP_DIR)/ponte_sagui.o
 MP_HDR := $(wildcard $(MP_DIR)/*.h $(MP_DIR)/libc/*.h $(MP_DIR)/micropython_embed/*/*.h) kernel/inc/abi.h
 MPCFLAGS := -m32 -march=i686 -std=gnu99 -Os \
-            -ffreestanding -fno-builtin -nostdlib -fno-pic -fno-pie \
+            -ffreestanding -fno-builtin -nostdlib $(CODIGO_PIC) \
             -fno-stack-protector -fno-asynchronous-unwind-tables -msse -msse2 -mfpmath=sse \
             -ffunction-sections -fdata-sections -DNDEBUG \
             -nostdinc -isystem $(shell $(CC) -print-file-name=include) \
@@ -310,7 +322,9 @@ LMK_OBJ := $(patsubst litemonkey/%.c,$(B)/litemonkey/%.o,$(LMK_SRC))
 LMK_HDR := $(wildcard litemonkey/nucleo/*.h) litemonkey/plataforma.h
 LMK_PY  := $(wildcard litemonkey/python/litemonkey/*.py) litemonkey/python/lmk
 PROGRAMAS += $(B)/userland/bin/litemonkey
-PROG_TESTE := $(patsubst userland/testes/%.c,$(B)/userland/testes/%,$(wildcard userland/testes/*.c))
+# D378: las pruebas del enlace dinámico (dlprueba, dinamico y sus .so) van a /apps/testes, no al ramdisk.
+DL_PROG_TESTE := $(B)/userland/testes/dlprueba $(B)/userland/testes/dinamico
+PROG_TESTE := $(filter-out $(DL_PROG_TESTE),$(patsubst userland/testes/%.c,$(B)/userland/testes/%,$(wildcard userland/testes/*.c)))
 # O OpenTyrian (D156): um jogo de terceiros (opentyrian/opentyrian), com
 # licença GPL-2.0, por isso vive isolado em userland/terceros/opentyrian/ e
 # NÃO entra na variante SEM_GPL=1 (que é sem nada de GPL, D109). O motor é o
@@ -1245,6 +1259,114 @@ $(B)/userland/testes/%: $(B)/userland/testes/%.o $(LIBSAGUI_OBJ) userland/progra
 	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
 	objcopy --strip-all $@.elf $@
 
+# D378 (fase 1 del enlace dinámico, docs/enlace-dinamico.md): el cargador de
+# bibliotecas compartidas en espacio de usuario (userland/libdl, dlopen/dlsym)
+# y las bibliotecas .so de prueba de /testes/lib (h385). Las .so se compilan
+# con -fPIC y se enlazan con -shared, enlace inmediato (-z now) y RELRO; una
+# usa solo DT_GNU_HASH y otra solo DT_HASH. libdlmal.so va sin -fPIC a
+# propósito (relocaciones de texto): el cargador tiene que rechazarla.
+DL_OBJ     := $(B)/userland/libdl/ligador.o
+DL_SO_DIR  := $(B)/userland/testes/lib
+DL_TESTE_SO := $(addprefix $(DL_SO_DIR)/,libdlbase.so libdldep.so libdlsha.so libdlsha_simb.so libdlmal.so)
+DL_PIC_CFLAGS := $(filter-out -fno-pic -fno-pie,$(UCFLAGS)) -fPIC -fno-tree-loop-distribute-patterns
+DL_SO_LDFLAGS := -m elf_i386 -shared -nostdlib -z now -z relro -z noseparate-code -z max-page-size=4096 -z noexecstack
+$(B)/userland/libdl/%.o: userland/libdl/%.c userland/inc/ligador.h $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -c -o $@ $<
+$(B)/userland/testes/dl/%.pic.o: userland/testes/dl/%.c kernel/lib/sha256.c kernel/inc/sha256.h
+	@mkdir -p $(dir $@)
+	$(CC) $(DL_PIC_CFLAGS) -c -o $@ $<
+$(B)/userland/testes/dl/%.nopic.o: userland/testes/dl/%.c kernel/lib/sha256.c kernel/inc/sha256.h
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -fno-tree-loop-distribute-patterns -c -o $@ $<
+$(DL_SO_DIR)/libdlbase.so: $(B)/userland/testes/dl/base.pic.o
+	@mkdir -p $(dir $@)
+	$(LD) $(DL_SO_LDFLAGS) --hash-style=gnu -soname libdlbase.so -o $@ $<
+$(DL_SO_DIR)/libdldep.so: $(B)/userland/testes/dl/dep.pic.o $(DL_SO_DIR)/libdlbase.so
+	$(LD) $(DL_SO_LDFLAGS) --hash-style=sysv -soname libdldep.so -rpath '$$ORIGIN' --enable-new-dtags \
+	  -o $@ $< -L$(DL_SO_DIR) -ldlbase
+$(DL_SO_DIR)/libdlsha.so: $(B)/userland/testes/dl/sha.pic.o
+	@mkdir -p $(dir $@)
+	$(LD) $(DL_SO_LDFLAGS) --hash-style=both -soname libdlsha.so -o $@ $<
+$(DL_SO_DIR)/libdlsha_simb.so: $(B)/userland/testes/dl/sha.pic.o
+	@mkdir -p $(dir $@)
+	$(LD) $(DL_SO_LDFLAGS) --hash-style=both -Bsymbolic-functions -soname libdlsha_simb.so -o $@ $<
+$(DL_SO_DIR)/libdlmal.so: $(B)/userland/testes/dl/base.nopic.o
+	@mkdir -p $(dir $@)
+	$(LD) $(DL_SO_LDFLAGS) -z notext --hash-style=both -soname libdlmal.so -o $@ $<
+$(B)/userland/testes/dlprueba: $(DL_OBJ) $(B)/userland/testes/dl/sha.nopic.o $(DL_TESTE_SO)
+
+# D378 fase 2: las bibliotecas del sistema como .so y el intérprete /lib/ld-sagui.so.1.
+#  - Los objetos PIC los compila una submake con B=$(B)/pic y PIC=1 (mismas reglas y banderas
+#    que los estáticos, más -fPIC). Los programas estáticos no cambian.
+#  - libsagui.so.1 (la base de LIBSAGUI_BASE_OBJ sin inicio.asm, más dl_ponte.c), libc.so.1 y
+#    libsagui_medios.so.1 (el resto de la libsagui) van a /apps/lib mientras solo haya programas
+#    dinámicos en /apps (decisión 4a; el ramdisk tiene un límite, h324). Solo el intérprete va a /lib.
+#  - Un programa dinámico enlaza inicio.asm.o (su _inicio) y las .so con el guion por defecto
+#    del ld, a 0x80000000, con PT_INTERP = /lib/ld-sagui.so.1, -z now y RELRO.
+#  - ld-sagui.so.1 es un ELF estático a 0xD8000000 (INTERP_BASE): ligador.c con LD_INTERPRETE.
+PIC_B    := $(B)/pic
+SO_DIR   := $(B)/lib
+SO_APPS_DIR := $(B)/lib-apps
+LIBSAGUI_SO := $(SO_APPS_DIR)/libsagui.so.1
+LIBC_SO  := $(SO_APPS_DIR)/libc.so.1
+LD_SAGUI := $(SO_DIR)/ld-sagui.so.1
+MEDIOS_SO := $(SO_APPS_DIR)/libsagui_medios.so.1
+SO_SISTEMA := $(LD_SAGUI)
+pic_de = $(patsubst $(B)/%,$(PIC_B)/%,$(1))
+LIBSAGUI_BASE_PIC := $(call pic_de,$(filter-out %/inicio.asm.o,$(LIBSAGUI_BASE_OBJ)) $(B)/userland/libdl/dl_ponte.o)
+LIBSAGUI_MEDIOS_PIC := $(call pic_de,$(LIBSAGUI_MEDIOS_OBJ) $(B)/userland/libtls/sha256.o)   # saguimark usa el SHA-256
+LIBC_PIC := $(call pic_de,$(LIBC_OBJ) $(QJS_LIBM))   # con la libm de doble precisión (la del MicroPython, x87)
+PIC_FUENTES := $(wildcard userland/libsagui/*.c userland/libsagui/*.asm userland/libc/*.c userland/libc/*.h userland/libc/*/*.h \
+  $(MP_DIR)/libm_dbl/*.c $(MP_DIR)/libm_sagui.c \
+  userland/inc/*.h kernel/lib/*.c kernel/inc/*.h userland/libdl/*.c)
+$(PIC_B)/.objetos: $(PIC_FUENTES) Makefile
+	+$(MAKE) --no-print-directory B=$(PIC_B) PIC=1 $(LIBSAGUI_BASE_PIC) $(LIBSAGUI_MEDIOS_PIC) $(LIBC_PIC)
+	@touch $@
+SO_LDFLAGS := -m elf_i386 -shared -nostdlib -z now -z relro -z text -z noexecstack -z max-page-size=4096 \
+  --hash-style=gnu -Bsymbolic-functions
+$(LIBSAGUI_SO): $(PIC_B)/.objetos
+	@mkdir -p $(dir $@)
+	$(LD) $(SO_LDFLAGS) -soname libsagui.so.1 -o $(PIC_B)/$(notdir $@).elf $(LIBSAGUI_BASE_PIC)
+	strip --strip-unneeded -o $@ $(PIC_B)/$(notdir $@).elf
+$(MEDIOS_SO): $(PIC_B)/.objetos $(LIBSAGUI_SO)
+	@mkdir -p $(dir $@)
+	$(LD) $(SO_LDFLAGS) -soname libsagui_medios.so.1 -o $(PIC_B)/$(notdir $@).elf $(LIBSAGUI_MEDIOS_PIC) $(LIBSAGUI_SO)
+	strip --strip-unneeded -o $@ $(PIC_B)/$(notdir $@).elf
+$(LIBC_SO): $(PIC_B)/.objetos $(LIBSAGUI_SO)
+	@mkdir -p $(dir $@)
+	$(LD) $(SO_LDFLAGS) -soname libc.so.1 -o $(PIC_B)/$(notdir $@).elf $(LIBC_PIC) $(LIBSAGUI_SO)
+	strip --strip-unneeded -o $@ $(PIC_B)/$(notdir $@).elf
+$(B)/userland/libdl/ligador_ld.o: userland/libdl/ligador.c userland/inc/ligador.h $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -DLD_INTERPRETE -c -o $@ $<
+$(LD_SAGUI): $(B)/userland/libdl/ld_sagui.o $(B)/userland/libdl/ligador_ld.o $(LIBSAGUI_OBJ) userland/libdl/ld-sagui.ld
+	@mkdir -p $(dir $@)
+	$(LD) -m elf_i386 -nostdlib -T userland/libdl/ld-sagui.ld --gc-sections -z max-page-size=4096 -z noexecstack \
+	  -o $@.elf $(B)/userland/libdl/ld_sagui.o $(B)/userland/libdl/ligador_ld.o $(filter-out %/inicio.asm.o,$(LIBSAGUI_OBJ))
+	objcopy --strip-all $@.elf $@
+# Enlace de un programa dinámico: $(call enlazar_dinamico,objetos,.so[,opciones del ld])
+ULDFLAGS_DIN := -m elf_i386 -nostdlib -Ttext-segment=0x80000000 -e _inicio --gc-sections -z max-page-size=4096 \
+  -z noexecstack -z now -z relro -z text --hash-style=gnu --dynamic-linker /lib/ld-sagui.so.1
+define enlazar_dinamico
+	@mkdir -p $(dir $@)
+	$(LD) $(ULDFLAGS_DIN) $(3) -o $@.elf $(B)/userland/libsagui/inicio.asm.o $(1) $(2)
+	objcopy --strip-all $@.elf $@
+endef
+# Programas de /apps que van dinámicos (D378, decisión 4a: /apps primero).
+$(B)/userland/bin/buscaminas: $(B)/userland/programas/buscaminas.o $(B)/userland/libsagui/inicio.asm.o $(LIBSAGUI_SO) $(MEDIOS_SO)
+	$(call enlazar_dinamico,$(B)/userland/programas/buscaminas.o,$(LIBSAGUI_SO) $(MEDIOS_SO))
+# La prueba de la fase 2 (h386): un programa dinámico con libc.so y dlopen por el intérprete.
+$(B)/userland/testes/dinamico: $(B)/userland/testes/dinamico.o $(B)/userland/libsagui/inicio.asm.o $(LIBSAGUI_SO) $(LIBC_SO)
+	$(call enlazar_dinamico,$(B)/userland/testes/dinamico.o,$(LIBC_SO) $(LIBSAGUI_SO),--export-dynamic-symbol=anfitriao_registrar)
+APPS_RECURSOS += lib:$(SO_APPS_DIR) testes:$(B)/apps-testes
+$(APPS_DEP): $(MEDIOS_SO) $(LIBSAGUI_SO) $(LIBC_SO) $(B)/apps-testes/.feito
+$(B)/apps-testes/.feito: $(DL_PROG_TESTE) $(DL_TESTE_SO)
+	@rm -rf $(B)/apps-testes && mkdir -p $(B)/apps-testes/lib
+	cp $(DL_PROG_TESTE) $(B)/apps-testes/
+	cp $(DL_TESTE_SO) $(B)/apps-testes/lib/
+	@touch $@
+
 # ---------- ramdisk (SGFS) ----------
 # O ramdisk é montado a partir de uma cópia do rootfs/ com os programas em
 # /bin e os programas de teste em /testes. Sem MicroPython, sai também o
@@ -1272,7 +1394,7 @@ $(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
 # ramdisk con /apps dentro («completo» y el CD con RAIZ_DISCO=0). Con la raíz en ext2 (M1, lo de por defecto:
 # imágenes de disco y la ISO) sí van: el SGFS queda solo para el initramfs y esos formatos de compatibilidad.
 SGFS_MAX_RUTA := 55
-$(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
+$(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO_SISTEMA) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
                   userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) \
                   $(UEFI_EFI) $(B)/boot/mbr.bin
 	@set -e; \
@@ -1286,6 +1408,7 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(C8
 	cp $(B)/chip8/testes/* "$$d/testes/chip8/"; \
 	if [ -n "$(PROGRAMAS)" ]; then cp $(PROGRAMAS) "$$d/bin/"; fi; \
 	if [ -n "$(PROG_TESTE)" ]; then cp $(PROG_TESTE) "$$d/testes/"; fi; \
+	cp $(SO_SISTEMA) "$$d/lib/"; \
 	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; \
 	  for x in freeciv openttd; do \
 	    if [ -e "$$d/apps/$$x" ]; then \

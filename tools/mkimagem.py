@@ -53,6 +53,7 @@ UUIDS_SISTEMA = {ROTULO_CONF: ("5a6a0005-5a61-434f-8000-434f4e460001", "5a6a0005
                  ROTULO_PERSIST: ("5a6a0005-5a61-5045-8000-504552530001", "5a6a0005-5a61-5045-8000-504552530002")}
 import argparse
 import os
+import re
 import shutil
 import struct
 import tempfile
@@ -805,8 +806,10 @@ def ordens_permisos_raiz(conteudo):
         for n in sorted(pastas) + sorted(arqs):
             real = os.path.join(raiz, n)
             rel = os.path.relpath(real, conteudo).replace(os.sep, "/")
-            if '"' in rel or os.path.islink(real):
+            if os.path.islink(real):
                 continue
+            if '"' in rel or "\n" in rel:
+                sys.exit(f"mkimagem: nombre con comillas o salto de línea en la raíz: /{rel!r}")
             pasta = os.path.isdir(real)
             if rel == "home" or rel.startswith("home/"):
                 ordens += [f'sif "/{rel}" uid 1000', f'sif "/{rel}" gid 1000']
@@ -911,6 +914,9 @@ def normalizar_donos(saida, inicio, conteudo, uid, gid, ponto=""):
                 continue
             rel = "/" + os.path.relpath(real, conteudo).replace(os.sep, "/")
             if '"' in rel or "\n" in rel:
+                if ponto == "/":
+                    # D378: en la raíz no se deja nada sin dueño root: un nombre que debugfs no sabe escribir para.
+                    sys.exit(f"mkimagem: nombre con comillas o salto de línea en la raíz: {rel!r}")
                 continue
             if os.path.isdir(real):
                 modo = 0o40755
@@ -929,11 +935,44 @@ def normalizar_donos(saida, inicio, conteudo, uid, gid, ponto=""):
         g.write("\n".join(ordens) + "\n")
         nome = g.name
     try:
-        subprocess.run([debugfs, "-w", "-f", nome, f"{saida}?offset={inicio * SETOR}"], check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       env=dict(os.environ, E2FSPROGS_FAKE_TIME=os.environ.get("SOURCE_DATE_EPOCH", "1762905600")))
+        p = subprocess.run([debugfs, "-w", "-f", nome, f"{saida}?offset={inicio * SETOR}"], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, errors="replace",
+                           env=dict(os.environ, E2FSPROGS_FAKE_TIME=os.environ.get("SOURCE_DATE_EPOCH", "1762905600")))
     finally:
         os.unlink(nome)
+    # debugfs sale con 0 aunque falle un «sif»: sus errores se muestran y, en la raíz, se comprueba lo que importa.
+    erros = [l for l in p.stderr.splitlines() if l.strip() and not l.startswith("debugfs ")
+             and "mkdir: Ext2 directory already exists" not in l and "File exists" not in l]
+    if erros:
+        print("mkimagem: debugfs avisó:\n  " + "\n  ".join(erros[:20]))
+    if ponto == "/":
+        comprovar_donos_raiz(debugfs, saida, inicio, conteudo)
+
+
+def donos_ext2(debugfs, saida, inicio, rel):
+    """(uid, modo) de una ruta de la ext2 en el desplazamiento «inicio» (sectores), o None si no está."""
+    p = subprocess.run([debugfs, "-R", f'stat "{rel}"', f"{saida}?offset={inicio * SETOR}"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
+    mu = re.search(r"User:\s+(\d+)", p.stdout)
+    mm = re.search(r"Mode:\s+(0?[0-7]+)", p.stdout)
+    return (int(mu.group(1)), int(mm.group(1), 8)) if mu and mm else None
+
+
+def comprovar_donos_raiz(debugfs, saida, inicio, conteudo):
+    """D378: /, /lib, /apps, /apps/lib, el intérprete y las .so de la raíz tienen que quedar de root sin
+    escritura de grupo ni de otros; si no, el kernel no carga /lib/ld-sagui.so.1 (o el ligador las rechaza)."""
+    rutas = ["/", "/lib", "/apps", "/apps/lib", "/bin"]
+    for pasta in ("lib", "apps/lib"):
+        d = os.path.join(conteudo, pasta)
+        if os.path.isdir(d):
+            rutas += [f"/{pasta}/{n}" for n in sorted(os.listdir(d)) if ".so" in n]
+    for rel in rutas:
+        if rel != "/" and not os.path.exists(os.path.join(conteudo, rel.lstrip("/"))):
+            continue
+        r = donos_ext2(debugfs, saida, inicio, rel)
+        if not r or r[0] != 0 or r[1] & 0o022:
+            sys.exit(f"mkimagem: {rel} no quedó de root sin escritura de otros en la raíz (uid/modo: {r}); "
+                     "no se genera la imagen")
 
 
 def formatar_particao(saida, inicio, mb, fs, etiqueta, ponto, mke2fs, mkfs_vfat, mcopy, conteudo_pronto=None):

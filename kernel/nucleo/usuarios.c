@@ -40,7 +40,8 @@ int32_t sis_usuario(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     case USU_ESTADO:
         return (permisos_modo_rescate() ? USU_EST_RESCATE : 0) | (eu->de_servico ? USU_EST_SERVICIO : 0) |
                (permisos_sesion_raiz() ? USU_EST_PRUEBA : 0) | (conf_sistema_montada() ? 0 : USU_EST_EN_VIVO) |
-               ((cabecalho_boot[CAB_USU_OPC] & CAB_USU_SIN_MIGRAR) ? USU_EST_SIN_MIGRAR : 0);
+               ((cabecalho_boot[CAB_USU_OPC] & CAB_USU_SIN_MIGRAR) ? USU_EST_SIN_MIGRAR : 0) |
+               (eu->exe_sistema != EXE_COMUM ? USU_EST_SISTEMA : 0);   /* D378: el ligador no lee el entorno */
     case USU_FIJAR:
         if (eu->uid != 0) return ERRO_ACESSO;
         if (!uid_valido(a, b)) return ERRO_INVALIDO;

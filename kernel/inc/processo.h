@@ -53,6 +53,7 @@ typedef struct processo {
     struct arquivo *arquivos[MAX_ARQUIVOS];
     char        pasta[CAMINHO_MAX];
     uint32_t    dados_inicio, dados_fim;   /* área que crece con aumentar_memoria */
+    uint32_t    dados_teto;       /* D378: hasta dónde puede crecer (0 = DADOS_LIMITE; menos con intérprete) */
     uint32_t    mmio_fim;          /* próxima dirección libre para los mapas de dispositivos (D158) */
     struct { uint32_t virt, bytes; } bar_mapas[BAR_MAPAS_MAX];   /* mapas de BAR vivos (D158) */
     uint32_t    tiques_cpu;
@@ -127,6 +128,10 @@ int       processo_executar_env(const char *caminho, int argc, char *const argv[
 #define PILHA_USUARIO_TAM   (USUARIO_FIM - USUARIO_PILHA)   /* 8 MB virtuales (D186) */
 #define PILHA_USUARIO_INICIAL (8u * 1024u)   /* lo que se asigna al cargar por debajo de argv/envp (D186) */
 #define DADOS_LIMITE        USUARIO_HILOS     /* el área de datos termina antes de las pilas de los hilos (D049, D186) */
+/* D378: los programas con PT_INTERP llevan su intérprete (/lib/ld-sagui.so.1, un ELF a dirección fija) en
+ * [INTERP_BASE, DADOS_LIMITE): para ellos el área de datos acaba en INTERP_BASE. */
+#define INTERP_BASE         0xD8000000u
+static inline uint32_t dados_teto(const processo_t *p) { return p->dados_teto ? p->dados_teto : DADOS_LIMITE; }
 
 /* pilha.c (D186): pilas de usuario que crecen bajo demanda. */
 typedef enum { PILHA_FORA, PILHA_CRESCER, PILHA_GUARDA } pilha_zona_t;

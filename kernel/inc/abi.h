@@ -222,6 +222,7 @@
 #define USU_EST_PRUEBA   0x04   /* imagen de prueba con la sesión como root (mkimagem.py --sesion-root) */
 #define USU_EST_EN_VIVO  0x08   /* sin la partición SAGUI-CONF: la configuración del sistema no se guarda */
 #define USU_EST_SIN_MIGRAR 0x10 /* D371: imagen de prueba que no pasa sagui a /home/sagui (mkimagem.py --sin-migrar-home) */
+#define USU_EST_SISTEMA  0x20   /* D378: el programa se cargó de una ruta del sistema que da permisos (/bin, D251/D269): proceso seguro */
 /* D340 (mejora 098, fase 3): varias cuentas. */
 #define USU_SESSAO     5   /* () -> uid | gid << 16 de la sesión local (la cuenta que entró en el escritorio) */
 #define USU_CERRAR_SESION 6 /* (USU_SAIR_*) -> 0: cierra todos los programas de la sesión local y vuelve a la

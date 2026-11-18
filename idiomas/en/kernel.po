@@ -12,19 +12,19 @@ msgstr ""
 msgid "Botón de encendido: apagando el ordenador..."
 msgstr "Power button: shutting down the computer..."
 
-#: kernel/gui/area_trabalho.c:43 kernel/gui/area_trabalho.c:1088 kernel/gui/barra.c:1165
+#: kernel/gui/area_trabalho.c:43 kernel/gui/area_trabalho.c:1087 kernel/gui/barra.c:1165
 msgid "Archivos"
 msgstr "Files"
 
-#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1087 kernel/gui/barra.c:1219
+#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1086 kernel/gui/barra.c:1219
 msgid "Terminal"
 msgstr "Terminal"
 
-#: kernel/gui/area_trabalho.c:45 kernel/gui/area_trabalho.c:1089
+#: kernel/gui/area_trabalho.c:45 kernel/gui/area_trabalho.c:1088
 msgid "Editor"
 msgstr "Editor"
 
-#: kernel/gui/area_trabalho.c:46 kernel/gui/area_trabalho.c:1090 kernel/gui/barra.c:1166
+#: kernel/gui/area_trabalho.c:46 kernel/gui/area_trabalho.c:1089 kernel/gui/barra.c:1166
 msgid "Calculadora"
 msgstr "Calculator"
 
@@ -72,76 +72,76 @@ msgstr "Disks"
 msgid "Instalar SaguiOS"
 msgstr "Install SaguiOS"
 
-#: kernel/gui/area_trabalho.c:960
+#: kernel/gui/area_trabalho.c:959
 msgid "El pendrive no está montado: puedes retirarlo."
 msgstr "The USB drive is not mounted: you can remove it."
 
-#: kernel/gui/area_trabalho.c:979 kernel/gui/area_trabalho.c:980
+#: kernel/gui/area_trabalho.c:978 kernel/gui/area_trabalho.c:979
 msgid "Abrir"
 msgstr "Open"
 
-#: kernel/gui/area_trabalho.c:979
+#: kernel/gui/area_trabalho.c:978
 msgid "Quitar con seguridad"
 msgstr "Safely remove"
 
-#: kernel/gui/area_trabalho.c:1019
+#: kernel/gui/area_trabalho.c:1018
 msgid "Resolución"
 msgstr "Resolution"
 
-#: kernel/gui/area_trabalho.c:1040
+#: kernel/gui/area_trabalho.c:1039
 msgid "No se pudo cambiar la resolución."
 msgstr "Could not change the resolution."
 
-#: kernel/gui/area_trabalho.c:1092 kernel/gui/barra.c:1220
+#: kernel/gui/area_trabalho.c:1091 kernel/gui/barra.c:1220
 msgid "Administrador de tareas"
 msgstr "Task Manager"
 
-#: kernel/gui/area_trabalho.c:1093
+#: kernel/gui/area_trabalho.c:1092
 msgid "Configuración de pantalla..."
 msgstr "Display settings..."
 
-#: kernel/gui/area_trabalho.c:1094
+#: kernel/gui/area_trabalho.c:1093
 msgid "Añadir widgets..."
 msgstr "Add widgets..."
 
-#: kernel/gui/area_trabalho.c:1096 kernel/gui/janelas.c:443
+#: kernel/gui/area_trabalho.c:1095 kernel/gui/janelas.c:443
 msgid "Editar widgets"
 msgstr "Edit widgets"
 
-#: kernel/gui/area_trabalho.c:1100
+#: kernel/gui/area_trabalho.c:1099
 msgid "Ordenar iconos"
 msgstr "Sort icons"
 
-#: kernel/gui/area_trabalho.c:1102
+#: kernel/gui/area_trabalho.c:1101
 msgid "Por nombre"
 msgstr "By name"
 
-#: kernel/gui/area_trabalho.c:1104
+#: kernel/gui/area_trabalho.c:1103
 msgid "Por tipo"
 msgstr "By type"
 
-#: kernel/gui/area_trabalho.c:1106
+#: kernel/gui/area_trabalho.c:1105
 msgid "Por fecha"
 msgstr "By date"
 
-#: kernel/gui/area_trabalho.c:1108
+#: kernel/gui/area_trabalho.c:1107
 msgid "Alinear a la rejilla"
 msgstr "Align to grid"
 
-#: kernel/gui/area_trabalho.c:1109
+#: kernel/gui/area_trabalho.c:1108
 msgid "Organización automática"
 msgstr "Auto arrange"
 
-#: kernel/gui/area_trabalho.c:1113 kernel/gui/barra.c:1472
+#: kernel/gui/area_trabalho.c:1112 kernel/gui/barra.c:1472
 #, c-format
 msgid "Acerca de %s"
 msgstr "About %s"
 
-#: kernel/gui/area_trabalho.c:1126
+#: kernel/gui/area_trabalho.c:1125
 msgid "Este pendrive no está en FAT32, exFAT ni ext2/ext4: formato no soportado."
 msgstr "This USB drive is not FAT32, exFAT or ext2/ext4: unsupported format."
 
-#: kernel/gui/area_trabalho.c:1127
+#: kernel/gui/area_trabalho.c:1126
 msgid "No se pudo montar el pendrive."
 msgstr "Could not mount the USB drive."
 
@@ -814,27 +814,27 @@ msgstr "Move widget"
 msgid "Quitar widget"
 msgstr "Remove widget"
 
-#: kernel/gui/janelas.c:739
+#: kernel/gui/janelas.c:742
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
 msgstr "The applications partition (/apps) was not found: this PC does not see the boot disk properly. Some applications will be missing. Use saguios-completo.img (more information: docs/imagenes.md)."
 
-#: kernel/gui/janelas.c:1603
+#: kernel/gui/janelas.c:1606
 msgid "Restaurar"
 msgstr "Restore"
 
-#: kernel/gui/janelas.c:1603
+#: kernel/gui/janelas.c:1606
 msgid "Minimizar"
 msgstr "Minimize"
 
-#: kernel/gui/janelas.c:1604
+#: kernel/gui/janelas.c:1607
 msgid "Maximizar"
 msgstr "Maximize"
 
-#: kernel/gui/janelas.c:1605
+#: kernel/gui/janelas.c:1608
 msgid "Pantalla completa"
 msgstr "Full screen"
 
-#: kernel/gui/janelas.c:1605
+#: kernel/gui/janelas.c:1608
 msgid "Cerrar"
 msgstr "Close"
 

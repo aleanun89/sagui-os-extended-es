@@ -347,78 +347,78 @@ msgstr "wg-quick: too many failed attempts; wait a minute\n"
 msgid "wg-quick: no se encendió: hace falta permiso de administrador\n"
 msgstr "wg-quick: not turned on: administrator permission is needed\n"
 
-#: userland/programas/wg.c:716
+#: userland/programas/wg.c:717
 #, c-format
 msgid "wg-quick: no se pudo lanzar el demonio: %s\n"
 msgstr "wg-quick: could not start the daemon: %s\n"
 
-#: userland/programas/wg.c:725
+#: userland/programas/wg.c:726
 msgid "permiso denegado"
 msgstr "permission denied"
 
-#: userland/programas/wg.c:725
+#: userland/programas/wg.c:726
 msgid "ya hay un túnel"
 msgstr "a tunnel is already up"
 
-#: userland/programas/wg.c:726
+#: userland/programas/wg.c:727
 msgid "no se pudo resolver el extremo"
 msgstr "could not resolve the endpoint"
 
-#: userland/programas/wg.c:726
+#: userland/programas/wg.c:727
 msgid "error"
 msgstr "error"
 
-#: userland/programas/wg.c:727
+#: userland/programas/wg.c:728
 #, c-format
 msgid "wg-quick: el túnel no arrancó (%s)\n"
 msgstr "wg-quick: the tunnel did not start (%s)\n"
 
-#: userland/programas/wg.c:731
+#: userland/programas/wg.c:732
 #, c-format
 msgid "[#] %s encendida (demonio: proceso %d). «wg show» da el estado.\n"
 msgstr "[#] %s is up (daemon: process %d). «wg show» gives the status.\n"
 
-#: userland/programas/wg.c:736
+#: userland/programas/wg.c:737
 msgid "wg-quick: el demonio no respondió\n"
 msgstr "wg-quick: the daemon did not respond\n"
 
-#: userland/programas/wg.c:746
+#: userland/programas/wg.c:747
 msgid "wg-quick: no hay ningún túnel encendido\n"
 msgstr "wg-quick: no tunnel is up\n"
 
-#: userland/programas/wg.c:752
+#: userland/programas/wg.c:753
 #, c-format
 msgid "wg-quick: %s no está encendida (la encendida es %s)\n"
 msgstr "wg-quick: %s is not up (the one up is %s)\n"
 
-#: userland/programas/wg.c:757
+#: userland/programas/wg.c:758
 #, c-format
 msgid "wg-quick: no se pudo apagar: %s\n"
 msgstr "wg-quick: could not turn off: %s\n"
 
-#: userland/programas/wg.c:760
+#: userland/programas/wg.c:761
 msgid "[#] túnel apagado\n"
 msgstr "[#] tunnel down\n"
 
-#: userland/programas/wg.c:767
+#: userland/programas/wg.c:768
 msgid "[#] túnel apagado (el demonio no respondía)\n"
 msgstr "[#] tunnel down (the daemon was not responding)\n"
 
-#: userland/programas/wg.c:770
+#: userland/programas/wg.c:771
 msgid "wg-quick: el demonio no se apagó\n"
 msgstr "wg-quick: the daemon did not shut down\n"
 
-#: userland/programas/wg.c:787
+#: userland/programas/wg.c:788
 #, c-format
 msgid "[#] %s es correcto\n"
 msgstr "[#] %s is valid\n"
 
-#: userland/programas/wg.c:791
+#: userland/programas/wg.c:792
 #, c-format
 msgid "uso: wg-quick up|down|check NOMBRE (el archivo es %s/NOMBRE.conf) o RUTA.conf\n"
 msgstr "usage: wg-quick up|down|check NAME (the file is %s/NAME.conf) or PATH.conf\n"
 
-#: userland/programas/wg.c:807
+#: userland/programas/wg.c:808
 msgid ""
 "uso: wg genkey | pubkey | genpsk | show [INTERFAZ]\n"
 "     wg-quick up|down NOMBRE    (encender y apagar la VPN)\n"

@@ -369,7 +369,11 @@ static bool montar_plano(bool com_tamanhos)
     pl.tmp = cs_usa[D_TMP].marcada;
     pl.logs = cs_usa[D_LOGS].marcada;
     pl.copiar_jogos = cs_jogos.marcada && ha_jogos();
-    pl.con_cambios = cs_cambios.marcada && ha_serie();
+    pl.con_cambios = cs_cambios.marcada && (ha_serie() || raiz_toram());
+    if (raiz_toram() && !pl.con_cambios) {   /* D378: en todo a RAM no hay sistema de serie */
+        txt(plano_erro, sizeof plano_erro, "todo a RAM: sin sistema de serie; marca «Llevar lo cambiado en esta sesión» para instalar lo que hay");
+        return false;
+    }
     pl.sem_copiar_apps = !cs_apps.marcada;
     pl.fs_home = fs_esc[D_HOME]; pl.fs_apps = fs_esc[D_APPS]; pl.fs_jogos = fs_esc[D_JOGOS]; pl.fs_tmp = fs_esc[D_TMP]; pl.fs_logs = fs_esc[D_LOGS];
     if (com_tamanhos) {
@@ -699,6 +703,8 @@ static void pagina_opcoes(void)
     marcar98("copiar-jogos", &cs_jogos, CX0 + 260, y + 20, t, ha_jogos());
     if (modo_raiz() && ha_serie())   /* v8.5.4.2: desde la live; sin marcar, el sistema de serie */
         marcar98("con-cambios", &cs_cambios, CX0 + 8, y + 40, "Llevar también lo cambiado en el sistema en esta sesión", true);
+    else if (raiz_toram())   /* D378: todo a RAM, sin sistema de serie: hay que pedirlo */
+        marcar98("con-cambios", &cs_cambios, CX0 + 8, y + 40, "Llevar lo cambiado en esta sesión (todo a RAM: obligatorio)", true);
     if (plano_erro[0]) texto_linhas(CX0, BOT_Y - 30, plano_erro, CXL / 8, 0xC00000);
 }
 

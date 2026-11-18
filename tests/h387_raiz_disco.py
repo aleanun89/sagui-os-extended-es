@@ -469,12 +469,30 @@ def su_root(m, pw):
     return not mal and "uid=0(root)" in m.serial()[marca:]
 
 
+def donos_ld(p, que):
+    """D378: /lib, /apps/lib, el intérprete y las .so de la raíz instalada: de root, sin escritura de otros."""
+    rutas = ["/lib", "/lib/ld-sagui.so.1", "/apps/lib"]
+    for pasta in ("/lib", "/apps/lib"):
+        rutas += [f"{pasta}/{n}" for n in re.findall(r"(\S+\.so\.\d+)", debugfs(p, f"ls {pasta}").decode("latin-1"))]
+    malas = []
+    for r in rutas:
+        st = debugfs(p, f'stat "{r}"').decode("latin-1")
+        u, mo = re.search(r"User:\s+(\d+)", st), re.search(r"Mode:\s+0?([0-7]+)", st)
+        if not u or not mo or int(u.group(1)) != 0 or int(mo.group(1), 8) & 0o022:
+            malas.append(r)
+    verificar(len(rutas) >= 5 and not malas, f"{que}: /lib, ld-sagui.so.1 y las .so de root sin escritura de otros ({malas or len(rutas)})")
+
+
 def instalar_em(img, dest, nome, args="-s", memoria="256M", antes=()):
     extras = ["-drive", f"file={dest},if=ide,index=1,format=raw"]
     with Maquina(nome, "ide", imagem=img, extras=extras, memoria=memoria) as m:
         m.esperar_serial("sagui:", 180)
         for c in antes:
-            m.comando(c)
+            if isinstance(c, tuple):   # (orden, expresión que tiene que salir, qué se comprueba)
+                o = m.comando(c[0])
+                verificar(re.search(c[1], o), f"{nome}: {c[2]} ({o.strip()[-300:]})")
+            else:
+                m.comando(c)
         out = m.comando(f"instalar hdb {args}", 1800)
         verificar("SaguiOS instalado en hdb y verificado" in out, f"{nome}: instalar hdb {args} termina y verifica ({out.strip()[-500:]})")
         return out, m.serial()
@@ -644,6 +662,7 @@ def parte_l():
     p = particao_raiz(dest)
     verificar(b"sesion387" not in debugfs(p, "ls /etc") and b"sesion-387" not in debugfs(p, "cat /etc/sagshrc"),
               "L: (punto 7) lo cambiado en la sesión live no se instala por defecto")
+    donos_ld(p, "L: (D378) de serie")
     ident, _ = id_raiz(dest)
     verificar(re.fullmatch(r"[0-9a-f]{16}", ident), f"L: la raíz instalada lleva su identificador ({ident})")
     with open(dest, "rb") as f:
@@ -701,11 +720,19 @@ def parte_l():
                   "L: y monta la raíz sin escribir en ella (live)")
     os.remove(gemelo)
     # 5. (punto 7) Reinstalar «con los cambios de la sesión».
-    out, serie = instalar_em(img, dest, "h387-l6", args="--con-cambios -s", antes=sesion)
+    # D378 (I1): dos bibliotecas seguidas de otra cuenta en /lib (y una en /apps/lib): ninguna llega al disco.
+    ajenas = ["echo x > /lib/zz387a.so.1", "echo x > /lib/zz387b.so.1", "echo x > /apps/lib/zz387c.so.1",
+              "chown sagui /lib/zz387a.so.1 /lib/zz387b.so.1 /apps/lib/zz387c.so.1",
+              ("ls -l /lib/zz387a.so.1 /lib/zz387b.so.1 /apps/lib/zz387c.so.1",
+               r"(?s)(sagui.*zz387[abc]\.so\.1.*){3}", "(D378) en la sesión hay tres .so de sagui en /lib y /apps/lib")]
+    out, serie = instalar_em(img, dest, "h387-l6", args="--con-cambios -s", antes=list(sesion) + ajenas)
     verificar("con lo cambiado en esta sesi" in out, "L: con --con-cambios, el instalador lo dice")
     p = particao_raiz(dest)
     verificar(b"sesion387" in debugfs(p, "ls /etc") and b"sesion-387" in debugfs(p, "cat /etc/sagshrc"),
               "L: y lo cambiado en la sesión live va al disco")
+    verificar(b"zz387" not in debugfs(p, "ls /lib") and b"zz387" not in debugfs(p, "ls /apps/lib"),
+              "L: (D378) las bibliotecas de otra cuenta en /lib y /apps/lib no se instalan (ninguna de las dos seguidas)")
+    donos_ld(p, "L: (D378) con --con-cambios")
     verificar(id_raiz(dest)[0] != ident, "L: la reinstalación lleva un identificador nuevo")
     os.remove(dest)
     os.remove(img)

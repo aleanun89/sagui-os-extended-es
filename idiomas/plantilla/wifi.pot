@@ -30,23 +30,23 @@ msgstr ""
 msgid "wifi: la contraseña de WPA3 tiene de 1 a 128 caracteres\n"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:95 userland/programas/wifi_ventana.h:229
+#: userland/programas/wifi_ventana.h:94 userland/programas/wifi_ventana.h:230
 msgid "Buscar de nuevo"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:96 userland/programas/wifi_ventana.h:99
+#: userland/programas/wifi_ventana.h:95 userland/programas/wifi_ventana.h:98
 msgid "Conectar"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:97
+#: userland/programas/wifi_ventana.h:96
 msgid "Desconectar"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:98
+#: userland/programas/wifi_ventana.h:97
 msgid "Olvidar"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:99
+#: userland/programas/wifi_ventana.h:98
 msgid "Cancelar"
 msgstr ""
 
@@ -62,150 +62,142 @@ msgstr ""
 msgid "recordada"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:198
+#: userland/programas/wifi_ventana.h:199
 msgid "sin adaptador"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:200
+#: userland/programas/wifi_ventana.h:201
 msgid "iniciando el adaptador..."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:201
+#: userland/programas/wifi_ventana.h:202
 msgid "sin conectar"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:202
+#: userland/programas/wifi_ventana.h:203
 msgid "conectando..."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:203
+#: userland/programas/wifi_ventana.h:204
 msgid "conectado"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:204
+#: userland/programas/wifi_ventana.h:205
 msgid "falta el firmware"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:206
+#: userland/programas/wifi_ventana.h:207
 msgid "error"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:222
+#: userland/programas/wifi_ventana.h:223
 msgid "Wi-Fi: no hay ningún adaptador (el pincho Realtek RTL8188EU)."
-msgstr ""
-
-#: userland/programas/wifi_ventana.h:225
-#, c-format
-msgid "Wi-Fi: conectado a %s (%u %%)"
 msgstr ""
 
 #: userland/programas/wifi_ventana.h:226
 #, c-format
+msgid "Wi-Fi: conectado a %s (%u %%)"
+msgstr ""
+
+#: userland/programas/wifi_ventana.h:227
+#, c-format
 msgid "Wi-Fi: %s"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:229
+#: userland/programas/wifi_ventana.h:230
 msgid "Buscando..."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:236
+#: userland/programas/wifi_ventana.h:237
 msgid "Buscando redes..."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:236
+#: userland/programas/wifi_ventana.h:237
 msgid "No se ve ninguna red. Pulsa «Buscar de nuevo»."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:238
+#: userland/programas/wifi_ventana.h:239
 #, c-format
 msgid "Contraseña de «%s»:"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:244
+#: userland/programas/wifi_ventana.h:245
 msgid "Mostrar la contraseña"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:255
-msgid "Conectado"
-msgstr ""
-
-#: userland/programas/wifi_ventana.h:255
-msgid "Desconectado"
-msgstr ""
-
-#: userland/programas/wifi_ventana.h:256
+#: userland/programas/wifi_ventana.h:257
 msgid "Elige una red y pulsa «Conectar» (o doble clic)."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:257
+#: userland/programas/wifi_ventana.h:258
 msgid "Conectar y desconectar no necesita ser administrador."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:268
+#: userland/programas/wifi_ventana.h:269
 msgid "Solo la sesión local o root pueden conectar o desconectar el Wi-Fi."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:269
+#: userland/programas/wifi_ventana.h:270
 msgid "No hay adaptador Wi-Fi."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:270
+#: userland/programas/wifi_ventana.h:271
 #, c-format
 msgid "No se pudo: %s"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:282
+#: userland/programas/wifi_ventana.h:283
 msgid "La clave de WPA/WPA2 tiene de 8 a 63 caracteres."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:299
+#: userland/programas/wifi_ventana.h:302
 #, c-format
 msgid "Conectando a %s..."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:305
+#: userland/programas/wifi_ventana.h:309
 msgid "Elige primero una red de la lista."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:307
+#: userland/programas/wifi_ventana.h:311
 msgid "Ya estás conectado a esa red."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:308
+#: userland/programas/wifi_ventana.h:312
 msgid "Esa red no se puede usar (Enterprise u otra no admitida)."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:324
+#: userland/programas/wifi_ventana.h:329
 msgid "Escribe la contraseña."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:349
+#: userland/programas/wifi_ventana.h:356
 #, c-format
 msgid "Conectado a %s."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:354
+#: userland/programas/wifi_ventana.h:363
 #, c-format
 msgid "No se pudo conectar: %s"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:358
+#: userland/programas/wifi_ventana.h:367
 msgid "No se pudo conectar: tiempo agotado."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:372 userland/programas/wifi_ventana.h:407
+#: userland/programas/wifi_ventana.h:381 userland/programas/wifi_ventana.h:417
 msgid "Redes Wi-Fi"
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:400
+#: userland/programas/wifi_ventana.h:410
 msgid "Desconectado."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:407
+#: userland/programas/wifi_ventana.h:417
 msgid "¿Olvidar esta red? Habrá que escribir la contraseña otra vez."
 msgstr ""
 
-#: userland/programas/wifi_ventana.h:412
+#: userland/programas/wifi_ventana.h:423
 msgid "Esa red no está entre las recordadas."
 msgstr ""
 

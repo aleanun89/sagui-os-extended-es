@@ -11,6 +11,12 @@
  *   4. crea la pila del programa en el tope del área del usuario y pone en ella
  *      los argumentos y el entorno (argc, argv, envp y los textos; D037);
  *   5. arma el cuadro inicial para el anillo 3 y deja el proceso listo.
+ * D378: si el ejecutable trae PT_INTERP (programa con bibliotecas compartidas),
+ * se carga además su intérprete (/lib/ld-sagui.so.1, un ELF a dirección fija en
+ * [INTERP_BASE, DADOS_LIMITE)), se añade un cuarto valor a la pila ([esp+12]: el
+ * vector auxiliar con las cabeceras de programa, la entrada y AT_SECURE) y el
+ * proceso empieza en el intérprete, que carga las bibliotecas y salta a la
+ * entrada del programa. Los programas sin PT_INTERP no cambian.
  * Los campos usados son los de la especificación ELF; el código es de este proyecto. */
 #include "sistema.h"
 #include "console.h"
@@ -39,7 +45,32 @@ typedef struct EMPACOTADO {
     uint32_t tipo, desloc, virt, fis, tam_arquivo, tam_memoria, flags, alinhamento;
 } elf_programa_t;
 
-#define PT_LOAD 1
+#define PT_LOAD   1
+#define PT_INTERP 3
+
+/* D378: vector auxiliar (los números son los del System V). */
+#define AT_NULL   0
+#define AT_PHDR   3
+#define AT_PHENT  4
+#define AT_PHNUM  5
+#define AT_PAGESZ 6
+#define AT_BASE   7
+#define AT_ENTRY  9
+#define AT_SECURE 23
+#define AT_EXECFN 31
+#define INTERP_MAX 64
+#define AUX_PARES  9
+#define PH_MAX     32
+
+/* Lo que el intérprete necesita saber del programa (D378). */
+typedef struct {
+    uint32_t entrada;               /* la del programa, no la del intérprete */
+    const char *caminho;            /* la ruta resuelta del programa (AT_EXECFN): el $ORIGIN de confianza */
+    uint32_t base_interp;
+    uint32_t qtd_ph;
+    elf_programa_t ph[PH_MAX];
+    uint32_t end_seguro;            /* dónde quedó el valor de AT_SECURE en la pila (se pone al final) */
+} auxiliar_t;
 #define PF_X    1
 #define PF_W    2
 
@@ -65,7 +96,33 @@ static bool copiar_para(espaco_t e, uint32_t virt, const void *origem, uint32_t 
     return true;
 }
 
-static int carregar_segmentos(espaco_t e, const uint8_t *img, uint32_t tam, uint32_t *entrada, uint32_t *fim)
+/* "interp": NULL al cargar el propio intérprete (que no puede traer PT_INTERP);
+ * si no, recibe la ruta del intérprete o "" si el programa es estático. Los
+ * segmentos tienen que caer en [ini, lim) (lim = 0: según haya intérprete). */
+/* D378: el intérprete corre dentro de todos los programas dinámicos, también los de root y los
+ * del sistema: tiene que ser de root y que nadie más pueda cambiarlo ni cambiar las carpetas
+ * por las que se llega a él (desde /lib). Sin dueños (FAT, ISO 9660), no vale. */
+static bool interp_confiavel(const char *interp)
+{
+    char c[INTERP_MAX];
+    txt_copia_n(c, interp, sizeof c);
+    for (;;) {
+        meta_t m;
+        if (vfs_meta(c, &m) < 0 || !m.com_donos || m.uid != 0 || (m.modo & 022)) {
+            klog("[SAGUI] interprete %s rechazado: %s no es solo de root\n", interp, c);
+            return false;
+        }
+        if (txt_compara(c, "/lib") == 0) return true;
+        char *barra = NULL;
+        for (char *q = c; *q; q++)
+            if (*q == '/') barra = q;
+        if (!barra || barra == c) return false;   /* no debería pasar: empieza por «/lib/» */
+        *barra = 0;
+    }
+}
+
+static int carregar_segmentos(espaco_t e, const uint8_t *img, uint32_t tam, uint32_t ini, uint32_t lim,
+                              uint32_t *entrada, uint32_t *fim, char *interp)
 {
     const elf_cabecalho_t *c = (const elf_cabecalho_t *)img;
     if (tam < sizeof *c || img[0] != 0x7F || img[1] != 'E' || img[2] != 'L' || img[3] != 'F')
@@ -74,12 +131,27 @@ static int carregar_segmentos(espaco_t e, const uint8_t *img, uint32_t tam, uint
         return ERRO_FORMATO;   /* 32 bits, little-endian, ejecutable, Intel 386 */
     if (c->desloc_ph > tam || (uint32_t)c->qtd_ph * sizeof(elf_programa_t) > tam - c->desloc_ph)
         return ERRO_FORMATO;
-    *fim = USUARIO_INICIO;
+    if (interp) interp[0] = 0;
+    for (uint32_t i = 0; i < c->qtd_ph; i++) {   /* D378: ¿con intérprete? */
+        const elf_programa_t *p = (const elf_programa_t *)(img + c->desloc_ph + i * sizeof(elf_programa_t));
+        if (p->tipo != PT_INTERP) continue;
+        if (!interp || p->desloc > tam || p->tam_arquivo > tam - p->desloc || p->tam_arquivo < 2 ||
+            p->tam_arquivo > INTERP_MAX || img[p->desloc + p->tam_arquivo - 1] != 0)
+            return ERRO_FORMATO;
+        txt_copia_n(interp, (const char *)img + p->desloc, INTERP_MAX);
+        /* Solo intérpretes de /lib (que solo root escribe), sin «..». */
+        if (interp[0] != '/' || interp[1] != 'l' || interp[2] != 'i' || interp[3] != 'b' || interp[4] != '/')
+            return ERRO_FORMATO;
+        for (const char *q = interp; q[0]; q++)
+            if (q[0] == '.' && q[1] == '.') return ERRO_FORMATO;
+    }
+    if (!lim) lim = interp && interp[0] ? INTERP_BASE : DADOS_LIMITE;
+    *fim = ini;
     bool algum = false;
     for (uint32_t i = 0; i < c->qtd_ph; i++) {
         const elf_programa_t *p = (const elf_programa_t *)(img + c->desloc_ph + i * sizeof(elf_programa_t));
         if (p->tipo != PT_LOAD || p->tam_memoria == 0) continue;
-        if (p->virt < USUARIO_INICIO || p->virt >= DADOS_LIMITE || p->tam_memoria > DADOS_LIMITE - p->virt ||
+        if (p->virt < ini || p->virt >= lim || p->tam_memoria > lim - p->virt ||
             p->tam_arquivo > p->tam_memoria || p->desloc > tam || p->tam_arquivo > tam - p->desloc)
             return ERRO_FORMATO;   /* segmento fuera del área de los programas o más allá del archivo */
         /* D349: sin PF_X, no ejecutable (con NX). Si dos segmentos comparten una
@@ -93,7 +165,7 @@ static int carregar_segmentos(espaco_t e, const uint8_t *img, uint32_t tam, uint
         if (p->virt + p->tam_memoria > *fim) *fim = p->virt + p->tam_memoria;
         algum = true;
     }
-    if (!algum || c->entrada < USUARIO_INICIO || c->entrada >= *fim)
+    if (!algum || c->entrada < ini || c->entrada >= *fim)
         return ERRO_FORMATO;
     *entrada = c->entrada;
     return 0;
@@ -126,7 +198,8 @@ static uint32_t empilhar_vetor(espaco_t e, uint32_t sp, int n, char *const v[], 
  * D186: la pila tiene 8 MB de direcciones, pero aquí solo se asignan las
  * páginas que ocupan esos datos y PILHA_USUARIO_INICIAL más por debajo; el
  * resto llega con el fallo de página (pilha.c) cuando el programa lo toca. */
-static uint32_t montar_pilha(espaco_t e, int argc, char *const argv[], int envc, char *const envp[])
+static uint32_t montar_pilha(espaco_t e, int argc, char *const argv[], int envc, char *const envp[],
+                             auxiliar_t *aux)
 {
     uint32_t sp = PILHA_USUARIO_TOPO;
     int maior = argc > envc ? argc : envc;
@@ -137,10 +210,33 @@ static uint32_t montar_pilha(espaco_t e, int argc, char *const argv[], int envc,
     if (sp) sp = empilhar_vetor(e, sp, argc, argv, ponteiros, &v_arg);
     kfree(ponteiros);
     if (!sp) return 0;
+    uint32_t v_aux = 0;
+    if (aux) {
+        /* D378: la ruta del programa (AT_EXECFN), la copia de las cabeceras de programa y, debajo,
+         * el vector auxiliar. La ruta la pone el kernel, no argv[0] (que elige quien lanza): de ella
+         * sale el $ORIGIN, que un proceso seguro también usa. */
+        uint32_t t = txt_tamanho(aux->caminho) + 1;
+        sp -= t;
+        if (!copiar_para(e, sp, aux->caminho, t)) return 0;
+        uint32_t v_fn = sp;
+        uint32_t tam_ph = aux->qtd_ph * sizeof(elf_programa_t);
+        sp = (sp - tam_ph) & ~15u;
+        uint32_t v_ph = sp;
+        if (!copiar_para(e, sp, aux->ph, tam_ph)) return 0;
+        uint32_t par[AUX_PARES * 2] = {
+            AT_PHDR, v_ph, AT_PHENT, sizeof(elf_programa_t), AT_PHNUM, aux->qtd_ph, AT_PAGESZ, PAGINA,
+            AT_BASE, aux->base_interp, AT_ENTRY, aux->entrada, AT_EXECFN, v_fn, AT_SECURE, 1, AT_NULL, 0,
+        };
+        sp = (sp - sizeof par) & ~15u;
+        if (!copiar_para(e, sp, par, sizeof par)) return 0;
+        v_aux = sp;
+        for (int i = 0; i < AUX_PARES; i++)   /* el valor de AT_SECURE: seguro hasta saber la identidad */
+            if (par[2 * i] == AT_SECURE) aux->end_seguro = sp + (uint32_t)(2 * i + 1) * 4;
+    }
     uint32_t c = (uint32_t)argc;
-    sp -= 12;
-    uint32_t cab[3] = { c, v_arg, v_env };
-    if (!copiar_para(e, sp, cab, sizeof cab)) return 0;
+    sp -= aux ? 16 : 12;
+    uint32_t cab[4] = { c, v_arg, v_env, v_aux };
+    if (!copiar_para(e, sp, cab, aux ? 16 : 12)) return 0;
     uint32_t margem = (sp & ~(PAGINA - 1)) - PILHA_USUARIO_INICIAL;
     if (!espaco_alocar(e, margem, sp - margem, PG_USUARIO | PG_ESCRITA | PG_NX)) return 0;
     return sp;
@@ -228,21 +324,54 @@ int processo_executar_env(const char *caminho, int argc, char *const argv[], int
     espaco_t e = espaco_criar();
     if (!e) { kfree(img); return ERRO_SEM_MEMORIA; }
     uint32_t entrada = 0, fim = 0;
-    int r = carregar_segmentos(e, img, tam, &entrada, &fim);
+    char interp[INTERP_MAX];
+    auxiliar_t *aux = NULL;
+    int r = carregar_segmentos(e, img, tam, USUARIO_INICIO, 0, &entrada, &fim, interp);
+    if (r == 0 && interp[0]) {
+        /* D378: el intérprete, en su zona; el proceso empieza en él. */
+        const elf_cabecalho_t *c = (const elf_cabecalho_t *)img;
+        aux = kcalloc(sizeof *aux);
+        if (!aux) r = ERRO_SEM_MEMORIA;
+        else if (c->qtd_ph > PH_MAX) r = ERRO_FORMATO;
+        else {
+            aux->entrada = entrada;
+            aux->caminho = caminho;
+            aux->base_interp = INTERP_BASE;
+            aux->qtd_ph = c->qtd_ph;
+            for (uint32_t i = 0; i < c->qtd_ph; i++)
+                aux->ph[i] = *(const elf_programa_t *)(img + c->desloc_ph + i * sizeof(elf_programa_t));
+            uint32_t ti;
+            uint8_t *ii;
+            r = interp_confiavel(interp) ? vfs_ler_inteiro(interp, &ii, &ti) : ERRO_ACESSO;
+            if (r >= 0) {
+                uint32_t fim_interp = 0;
+                r = carregar_segmentos(e, ii, ti, INTERP_BASE, DADOS_LIMITE, &entrada, &fim_interp, NULL);
+                kfree(ii);
+            }
+        }
+    }
     kfree(img);
     uint32_t pilha = 0;
-    if (r == 0 && !(pilha = montar_pilha(e, argc, argv, envc, envp))) r = ERRO_SEM_MEMORIA;
-    if (r < 0) { espaco_destruir(e); return r; }
+    if (r == 0 && !(pilha = montar_pilha(e, argc, argv, envc, envp, aux))) r = ERRO_SEM_MEMORIA;
+    if (r < 0) { espaco_destruir(e); kfree(aux); return r; }
 
     const char *nome = caminho;
     for (const char *p = caminho; *p; p++)
         if (*p == '/') nome = p + 1;
     processo_t *p = processo_novo(nome, pai ? pai->pid : 0);
-    if (!p) { espaco_destruir(e); return ERRO_LIMITE; }
+    if (!p) { espaco_destruir(e); kfree(aux); return ERRO_LIMITE; }
     p->espaco = e;
     p->exe_sistema = exe_do_caminho(caminho);   /* D251 */
     dar_identidade(p, pai);                     /* D255 */
     p->dados_inicio = p->dados_fim = (fim + PAGINA - 1) & ~(PAGINA - 1);
+    if (aux) {
+        /* D378: área de datos hasta el intérprete; AT_SECURE = 0 solo para una cuenta
+         * normal que ejecuta un programa sin permisos especiales (no root, no de /bin). */
+        p->dados_teto = INTERP_BASE;
+        uint32_t seguro = (p->uid == 0 || p->exe_sistema != EXE_COMUM) ? 1 : 0;
+        copiar_para(e, aux->end_seguro, &seguro, 4);
+        kfree(aux);
+    }
     p->grupo = pai ? pai->grupo : p->pid;   /* el hijo queda en el grupo del padre (D037) */
     if (pai) {
         txt_copia_n(p->pasta, pai->pasta, sizeof p->pasta);

@@ -214,14 +214,18 @@ msgstr "That destination folder cannot be used"
 msgid ""
 "Ya existe %d archivo en el destino.\n"
 "¿Sobrescribirlo? (No: se omite)"
-msgstr "%d file already exists in the destination.\nOverwrite it? (No: it is skipped)"
+msgstr ""
+"%d file already exists in the destination.\n"
+"Overwrite it? (No: it is skipped)"
 
 #: userland/programas/convertir-audio.c:761
 #, c-format
 msgid ""
 "Ya existen %d archivos en el destino.\n"
 "¿Sobrescribirlos? (No: se omiten)"
-msgstr "%d files already exist in the destination.\nOverwrite them? (No: they are skipped)"
+msgstr ""
+"%d files already exist in the destination.\n"
+"Overwrite them? (No: they are skipped)"
 
 #: userland/programas/convertir-audio.c:762
 msgid "El destino existe"

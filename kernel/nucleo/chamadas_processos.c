@@ -371,7 +371,7 @@ int32_t sis_aumentar_memoria(uint32_t n, uint32_t b, uint32_t c, uint32_t d, uin
     processo_t *l = processo_recursos();   /* D167: el área de datos es del proceso */
     uint32_t antigo = l->dados_fim;
     if (n == 0) return (int32_t)antigo;
-    if (n > DADOS_LIMITE - antigo) return ERRO_SEM_MEMORIA;
+    if (antigo > dados_teto(l) || n > dados_teto(l) - antigo) return ERRO_SEM_MEMORIA;   /* D378 */
     /* Solo se añaden páginas: las otras CPU no tienen nada que olvidar en
      * su TLB (una entrada no presente no se guarda en ella). */
     if (!espaco_alocar(l->espaco, antigo, n, PG_ESCRITA | PG_USUARIO | PG_NX)) return ERRO_SEM_MEMORIA;   /* D349 */
@@ -413,11 +413,17 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
     if (op == MEM_RESERVAR) {
         uint32_t base = (l->dados_fim + PAGINA - 1) & ~(PAGINA - 1);
         if (n & (PAGINA - 1)) return ERRO_INVALIDO;
-        if (base < l->dados_fim || base > DADOS_LIMITE || n > DADOS_LIMITE - base) return ERRO_SEM_MEMORIA;
+        uint32_t teto = dados_teto(l);   /* D378: con intérprete, antes de él */
+        if (base < l->dados_fim || base > teto || n > teto - base) return ERRO_SEM_MEMORIA;
         l->dados_fim = base + n;
         return (int32_t)base;
     }
-    if (!rango_de_dados(l, ini, n)) return ERRO_INVALIDO;
+    /* D378: el intérprete de los programas dinámicos (ld-sagui) deja en solo lectura la zona RELRO
+     * del ejecutable (su GOT) después de relocarlo: en la imagen del programa solo se puede pedir
+     * eso, solo lectura y sin ejecución; nunca dar escritura ni ejecución fuera del área de datos. */
+    bool so_ler_imagem = op == MEM_PROTEGER && d == 0 && !((ini | n) & (PAGINA - 1)) &&
+                         ini >= USUARIO_INICIO && ini < l->dados_inicio && n <= l->dados_inicio - ini;
+    if (!so_ler_imagem && !rango_de_dados(l, ini, n)) return ERRO_INVALIDO;
     if (op == MEM_ASIGNAR)
         return espaco_alocar(l->espaco, ini, n, PG_ESCRITA | PG_USUARIO | PG_NX) ? 0 : ERRO_SEM_MEMORIA;   /* D349 */
     if (op == MEM_PROTEGER) {

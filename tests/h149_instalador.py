@@ -69,6 +69,14 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
                   f"[{rotulo}] lógicas: /home, juegos y SAGUI-RAIZ (un ext2 sano; D379: sin SAGUI-APPS ni SAGUI-CONF)")
         verificar(subprocess.run(["/usr/sbin/debugfs", "-R", "cat /sistema/raiz/versao", raiz], capture_output=True).stdout.startswith(b"v"),
                   f"[{rotulo}] la raíz instalada lleva la marca de versión (lo último que se copia)")
+        # D378: el intérprete y las bibliotecas, de root y sin escritura de otros (si no, no arrancan los dinámicos)
+        malas = []
+        for r in ("/lib", "/lib/ld-sagui.so.1", "/apps/lib", "/apps/lib/libc.so.1", "/apps/lib/libsagui.so.1"):
+            st = subprocess.run(["/usr/sbin/debugfs", "-R", f"stat {r}", raiz], capture_output=True, text=True, errors="replace").stdout
+            u, mo = re.search(r"User:\s+(\d+)", st), re.search(r"Mode:\s+0?([0-7]+)", st)
+            if not u or not mo or int(u.group(1)) != 0 or int(mo.group(1), 8) & 0o022:
+                malas.append(r)
+        verificar(not malas, f"[{rotulo}] /lib, ld-sagui.so.1 y las .so de la raíz instalada, de root sin escritura de otros ({malas})")
         sis = t[6][1] + t[7][1]
     else:
         verificar(t.get(5) and t[5][2] == "83" and t.get(6) and t[6][2] == "83" and t.get(7) and t[7][2] == "83"

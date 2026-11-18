@@ -13,7 +13,7 @@
  * como hace ffmpeg al convertir a s16); de 8 bits, ganan 8 bits cero. */
 #include "audio_interno.h"
 
-static flac_t g_flac;
+static flac_t *g_flac;   /* D378: 128 KB del malloc al abrir el primer FLAC, no de la BSS */
 static fluxo_t *F;
 static flac_t *S;
 static uint16_t tab_crc16[256];
@@ -367,7 +367,8 @@ int flac_abrir(audio_arquivo_t *a)
 {
     preparar_crc();
     F = &a->fl;
-    S = &g_flac;
+    if (!g_flac && !(g_flac = aloca(sizeof *g_flac))) return ERRO_SEM_MEMORIA;
+    S = g_flac;
     memset(S, 0, sizeof *S);
     a->flac = S;
     uint8_t m[4];

@@ -20358,6 +20358,8 @@ fuera (e2fsck desde otra live) o reinstalar (no hay aún opción para forzar la 
 tabla de discos); con `--con-cambios` el tamaño de la raíz se mide del sistema de serie (lo cambiado en la sesión suele
 ser poco y la partición lleva el doble); `/sistema/serie` se desmonta antes que la raíz como los demás montajes.
 
+**Numeración (mantenedor, 2026-11-18):** el enlace dinámico de las fases 1-2 (D378), preparado como «v8.5.4.1», se publica como **v8.5.4.3** porque sale después de la 8.5.4.2 y la incluye; la IA local (D380) pasa a **v8.5.4.4** y las páginas compartidas (fase 3 de D378) a **v8.5.4.5**. Donde la documentación diga «8.5.4.1» para el enlace dinámico, entiéndase 8.5.4.3.
+
 ## D381. AVX2 opcional: estado XSAVE en el kernel y rutas AVX2 en el motor de IA (decidido el 2026-11-17; prevista para una 8.5.x posterior a la IA local)
 
 **Pregunta del mantenedor:** «¿Implementar opcionalmente AVX para la IA local, o es poco útil en este kernel?»
@@ -20368,3 +20370,93 @@ ser poco y la partición lleva el doble); `/sistema/serie` se desmonta antes que
 3. **Rutas AVX2 (+FMA) en el motor** elegidas en tiempo de ejecución, solo si el kernel anuncia el estado AVX guardado.
 
 **Por qué AVX2 y no AVX:** el AVX de 2011 solo ensancha la coma flotante; los productos punto de Q4_K/Q8_0 son de enteros y necesitan AVX2 (Haswell, Excavator, Zen y posteriores). Ganancia esperada: 1,7-2× al leer el prompt y 1,3-1,5× al generar (la generación la limita el ancho de banda de la RAM). En 32 bits solo hay 8 registros YMM. Equipos del foco con AVX2: i3-i7 de 4.ª a 7.ª generación, Ryzen B450 y el mini PC i3-1220P; Bulldozer/Piledriver solo tienen AVX1 y se quedan en SSSE3.
+
+## D378. Enlace dinámico de bibliotecas: diseño y prototipo de `dlopen` en espacio de usuario (v8.5.4.1, mejora 138; decidido el 2026-11-17)
+
+**Petición del mantenedor:** enlace dinámico «planteado bien», y que el `cc` interno, Pascal, TinyGo... puedan generar
+programas que lo usen. **Fase 1 (hecha):** auditoría, diseño completo y prototipo. Documento: [`enlace-dinamico.md`](enlace-dinamico.md).
+
+**Estado medido:** el cargador (D013) solo acepta ET_EXEC, copia todo el fichero y asigna toda la BSS al cargar; no hay
+páginas compartidas, ni cuenta de referencias por página, ni `fork`, ni TLS. Las bibliotecas repetidas ocupan ≈3,9 MB de
+los 6,7 MB de ELF del ramdisk (que se copia entero a la RAM al arrancar) y ≈5,3 MB de los 19,9 MB de `/apps/bin`. La
+libsagui entera: 848 KB de código y 2,3 MB de BSS. En RAM, 10 programas abiertos repiten ≈1,5 MB de bibliotecas.
+
+**Prototipo (sin tocar el kernel):** `userland/libdl/ligador.c` + `userland/inc/ligador.h`: `dlopen/dlsym/dlclose/dlerror`
+con relocaciones i386 (`RELATIVE`, `32`, `PC32`, `GLOB_DAT`, `JMP_SLOT`), `DT_GNU_HASH` y `DT_HASH`, `DT_NEEDED` con
+`DT_RUNPATH=$ORIGIN`, constructores/destructores, cuenta de referencias, código RX, RELRO de solo lectura y rechazo de
+`DT_TEXTREL`, W+X, TLS, IFUNC y RELA. Las bibliotecas se cargan en páginas del montón con `mapear_memoria` y
+`memoria_proteger` (D209/D349). `SAGUI_LIB_CAMINHO` se ignora para root. Prueba `tests/h385_dlopen.py` (`/testes/dlprueba`
+y `/testes/lib/*.so`): bien con TCG y con KVM.
+
+**Coste del PIC medido** (SHA-256, KVM): +2,2 % con llamadas internas por la PLT, +0,9 % con `-Bsymbolic-functions`.
+
+**Decisión del mantenedor (2026-11-17), todas las recomendaciones de `enlace-dinamico.md` §11:** 1a intérprete
+`ld-sagui.so` en usuario cargado por el kernel; 2a enlace inmediato + RELRO; 3a primero libsagui (base + medios) y libc;
+4a `/apps` primero, `/bin` después de la fase 3 salvo lo esencial (siempre estático); 5a páginas compartidas de solo
+lectura sin copia al escribir; 6a `cc` estático por defecto y `cc -dinamico` opcional; 7a sin ASLR por ahora; 8a soname
+con número mayor y la batería comprueba la lista de símbolos exportados; 9 el cargador y las `.so` del sistema siguen
+**GPL-3.0** como hoy. La fase 3 (páginas compartidas en el kernel) irá aparte, con revisión.
+
+**Diseño decidido:** intérprete `ld-sagui.so` en usuario
+cargado por el kernel (cambio pequeño en `carregador.c`: `PT_INTERP` y un cuarto valor de arranque con el `auxv`);
+ejecutables ET_EXEC a dirección fija con PLT/GOT, bibliotecas ET_DYN `-fPIC`; enlace inmediato + RELRO; rutas seguras con
+`AT_SECURE`; `soname` con versión; páginas compartidas de **solo lectura sin copia al escribir** (objetos imagen con
+cuenta de referencias, marcados `PG_EMPRESTADA` para que destrucción, `MEM_DEVOLVER` y swap no los toquen) en una fase
+propia; quitar antes la BSS grande de la libsagui; `/apps` primero y `/bin` después, con servicios, sagsh, login, admin, su
+e instalador siempre estáticos. `cc` fase A (llamar a `libc.so` por PLT, `R_386_COPY` para datos) y fase B (`cc -shared`
+con EBX = GOT), Pascal detrás.
+
+**Licencias:** el enlace dinámico **no cambia** la situación de los programas GPL-2.0-only frente a la libsagui con partes
+GPL-3.0-only (D375): siguen siendo solo fuentes y receta.
+
+**Fase 2 (hecha, 2026-11-17; detalle en `enlace-dinamico.md` §13):** BSS grande de la libsagui al malloc (≈1,8 MB) y
+partición base/medios; el kernel carga `/lib/ld-sagui.so.1` (ELF estático a `INTERP_BASE = 0xD8000000`, no ET_DYN, para
+que el kernel lo cargue como cualquier programa) cuando el ejecutable trae `PT_INTERP`, pasa el vector auxiliar en
+`[esp+12]` con `AT_SECURE`, limita el área de datos a `INTERP_BASE` y deja que `MEM_PROTEGER` ponga en solo lectura la
+RELRO de la imagen; `libsagui.so.1`, `libc.so.1` y `libsagui_medios.so.1` en `/apps/lib` (el ramdisk está a 60 KB de su límite de 12 MB,
+h324; pasarán a `/lib` con `/bin`); buscaminas dinámico (53,6 KB → 21,4 KB); en un proceso seguro (root o del sistema) la
+búsqueda ignora `SAGUI_LIB_CAMINHO` y los `DT_RUNPATH` literales fuera de `/lib` y `/apps/lib`, pero admite `$ORIGIN`;
+listas de símbolos del ABI comprobadas por h386. La fase 3 (páginas compartidas) va aparte, con revisión (v8.5.4.5).
+
+**Revisión de seguridad de la fase 2 (2026-11-17; detalle en `enlace-dinamico.md` §14):** el `$ORIGIN` del programa
+sale de `AT_EXECFN` (la ruta que resuelve el kernel), no de `argv[0]`; en un proceso seguro solo se cargan bibliotecas de
+root sin escritura de grupo ni de otros, con sus carpetas hasta la raíz igual (cubre `/apps` con dueños mal puestos,
+FAT, `$ORIGIN` en `/tmp` o `/home`); el kernel exige lo mismo al intérprete (desde `/lib`); «seguro» = `AT_SECURE`, root
+en el momento de la búsqueda (elevaciones posteriores, D255) o programa del sistema (`USU_EST_SISTEMA`, también para el
+`libdl` estático); rutas que no caben son error (antes se cortaban); tablas hash, nombres, `DT_FINI_ARRAY` y
+`R_386_COPY` acotados. Riesgo que queda: un programa dinámico no seguro que después se eleva por el diálogo conserva
+las bibliotecas que cargó. **Para la 8.5.3.1** (`/lib` en la raíz en disco): `/`, `/lib`, `/apps`, `/apps/lib` y sus
+ficheros tienen que quedar de root sin escritura de grupo ni de otros y en un sistema de archivos con dueños, o los
+programas dinámicos no arrancan; con `/lib` fuera del ramdisk, `libsagui.so.1` y `libc.so.1` pueden pasar a `/lib`.
+
+**Integración con la 8.5.3.1/8.5.4 (D379, Java/Jabuti; 2026-11-17):** fusionado main. En la SAGUI-RAIZ
+`normalizar_donos` (debugfs) deja `/`, `/lib`, `/lib/ld-sagui.so.1`, `/apps`, `/apps/lib` y sus `.so` de root 0755/0644 y
+solo `/apps/vps` de sagui (comprobado con `debugfs stat` en `saguios.img`); sin debugfs, `mkimagem` ya no hace la raíz
+(antes avisaba y la dejaba del uid de quien compila: programas dinámicos sin arrancar). El instalador, tras copiar la
+raíz (o la partición `/apps`), fuerza `/apps` (solo la carpeta), `/lib` y `/apps/lib` (enteras) a root sin escritura de
+grupo ni de otros (`blindar_raiz`), por si el origen no tenía dueños. El ligador no busca por nombre en `/apps/vps` (de
+sagui dentro de `/apps`) ni en carpetas con `..` (`carpeta_excluida`). `libsagui.so.1` y `libc.so.1` siguen en
+`/apps/lib` (el cambio a `/lib` queda para otra versión: no hace falta, `/apps` va dentro de la raíz). Java y Jabuti siguen
+estáticos (solo `buscaminas` y el de prueba son dinámicos).
+
+**Integración con la 8.5.4.2 (2026-11-18):** el fallo sin debugfs ya venía de main (se queda el suyo). `blindar_raiz`
+corre sobre el destino tanto si se copia de `/sistema/serie` como con `--con-cambios`; un fichero de `/lib` o
+`/apps/lib` con dueño que no sea root (algo dejado por otra cuenta en la sesión live) no se promueve a root: se quita y
+se anota en el registro. En la ISO la raíz comprimida (SGRZ) conserva los dueños: se comprime la ext2 ya normalizada
+(descomprimida y comprobada con `debugfs stat`: `ld-sagui.so.1` y las `.so` de root 0755, `/apps/vps` de sagui); el
+toram copia `rz0` a `ram0` por bloques.
+
+**Revisión de la integración (2026-11-18):** `blindar_bibliotecas` lee la carpeta entera antes de recorrerla
+(`listar_tudo`: borrar mientras se lista por índice se saltaba la entrada siguiente), devuelve error y la instalación
+falla **antes** de `marcar_raiz` si no puede cambiar dueño o permisos, borrar, la ruta no cabe (256) o hay más de 12
+niveles; un fichero cuyos permisos no se pueden leer se quita (no se asciende a root); al final se comprueba que `/lib`,
+`/lib/ld-sagui.so.1` y `/apps/lib` quedan de root sin bits 022. En **todo a RAM** (raíz en `ram0`, sin `/sistema/serie`)
+«instalar» exige `--con-cambios` (en el asistente, la casilla «todo a RAM: obligatorio»): si no, se instalaría lo
+cambiado en la sesión sin decirlo. `mkimagem.py` ya no calla el stderr de debugfs (que sale con 0 aunque falle un
+`sif`) y, en la raíz, comprueba con `debugfs stat` `/`, `/bin`, `/lib`, `/apps`, `/apps/lib`, el intérprete y las `.so`
+(en el CD, antes de comprimir) y no genera la imagen si alguno no es de root sin escritura de otros; un nombre con
+comillas o salto de línea en la raíz es un error. Pruebas: h387 L (dos `.so` seguidas de sagui en `/lib` y una en
+`/apps/lib` con `--con-cambios`: ninguna llega; dueños de `/lib` y las `.so` en las dos instalaciones) y h149 (dueños en
+la raíz instalada). **Pendiente (M4):** `carpeta_excluida` compara la ruta tal cual; `/apps//vps` o `/apps/./vps` en
+`SAGUI_LIB_CAMINHO` de una cuenta normal no se excluyen (solo afecta a procesos no seguros de esa misma cuenta, que ya
+pueden cargar lo suyo; en los seguros `de_confianza` lo rechaza igual).
