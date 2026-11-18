@@ -294,9 +294,10 @@ static int lancar_script(const char *caminho, char **argv, char **env)
 /* Inicia un programa; devuelve el pid, o -código ($? 126/127) si falló. */
 static int lancar(char **argv, lista_t *extras)
 {
+    if (aviso_nome_antigo(argv)) return -1;
     char *caminho = achar_programa(argv[0]);
     if (!caminho) {
-        erro("comando no encontrado: %s (escribe ajuda)", argv[0]);
+        erro("comando no encontrado: %s (escribe ayuda)", argv[0]);
         return -127;
     }
     char **env = ambiente(extras);
@@ -1190,8 +1191,11 @@ int executar_no(no_t *n)
 
 /* ------------------------------------------------------------ texto */
 
+int sh_erros_sintaxe;   /* D385: cuántos errores de sintaxis se han contado (para avisar de los de ~/.sagshrc) */
+
 void relatar_sintaxe(resultado_t *r)
 {
+    sh_erros_sintaxe++;
     sh.linha = r->linha_erro;
     if (r->perto[0]) erro("error de sintaxis cerca de '%s'", r->perto);
     else erro("error de sintaxis: el texto termina antes de tiempo (¿falta cerrar comillas, fi, done, esac o '}'?)");

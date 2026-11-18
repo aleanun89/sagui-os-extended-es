@@ -101,7 +101,7 @@ def provar_os(arqs):
         m.esperar_serial("sagui:/$", 120)
         out = m.comando("which sintonia")
         verificar("/apps/bin/sintonia" in out, f"sintonia está en /apps/bin ({out.strip()[-60:]})")
-        out = m.comando("ajuda sintonia")
+        out = m.comando("ayuda sintonia")
         verificar("sintonia [archivo | carpeta | lista.m3u" in out, "ajuda sintonia explica el uso")
         m.comando("montar usb0p1")
         m.comando("mkdir /tmp/m")

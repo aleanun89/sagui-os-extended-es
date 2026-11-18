@@ -126,7 +126,7 @@ def main():
 
         # Un programa sin float no lleva la biblioteca no usada.
         out = m.comando("cc /ejemplos/hola.c", tempo=120)
-        out = m.comando("ls")
+        out = m.comando("ls -s")
         tam = re.search(r"^hola\s+(\d+) bytes", out, re.M)
         print(f"    hola: {tam.group(1) if tam else '?'} bytes")
         verificar(tam and int(tam.group(1)) < 8000, "hola.c ocupa menos de 8 KB (antes ~13 KB)")

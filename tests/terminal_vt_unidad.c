@@ -220,6 +220,11 @@ static void p_respuestas(void)
     COMPROBAR(!strncmp(resp, "\033[>", 3), "DA2");
     resp[0] = 0; tx(&v, "\033[18t");
     COMPROBAR(!strcmp(resp, "\033[8;24;80t"), "18t");
+    /* D385: modo 2048 (aviso de tamaño): al activarse manda el tamaño; RIS lo apaga */
+    resp[0] = 0; tx(&v, "\033[?2048h");
+    COMPROBAR(!strcmp(resp, "\033[48;24;80;0;0t") && v.aviso_tam, "2048: aviso al activarse: %s", resp + 1);
+    resp[0] = 0; tx(&v, "\033[?2048l");
+    COMPROBAR(!resp[0] && !v.aviso_tam, "2048: apagado, sin aviso");
     resp[0] = 0; tx(&v, "\033[2;5r\033[?6h\033[3;3H\033[6n");
     COMPROBAR(!strcmp(resp, "\033[3;3R"), "DSR con modo origen: %s", resp + 1);
 }

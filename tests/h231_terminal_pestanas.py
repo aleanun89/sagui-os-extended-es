@@ -22,7 +22,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, cor_do_pixel, ler_ppm, reconhecer_texto, RAIZ, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, cor_do_pixel, ler_ppm, texto_terminal, RAIZ, SAIDA, TERM_MX, TERM_MY, TERM_FILA  # noqa: E402
 
 BORDA, TITULO = 2, 24
 DIR = os.path.join(SAIDA, "h231")
@@ -69,8 +69,7 @@ def texto_janela(m, j, x, y, cols, lins):
     time.sleep(0.2)
     larg, _, px = ler_ppm(ppm)
     x0, y0 = j["cx"] + x, j["cy"] + y
-    recorte = b"".join(px[((y0 + k) * larg + x0) * 3:((y0 + k) * larg + x0 + cols * 8) * 3] for k in range(lins * 16))
-    return reconhecer_texto(cols * 8, lins * 16, recorte)
+    return texto_terminal(px, larg, x0, y0, cols, lins)
 
 
 def prompts(m):
@@ -118,7 +117,7 @@ def parte_qemu():
         png = m.captura("H231-2-dos-pestanas")
         verificar(cor_do_pixel(png, t["cx"] + 2, t["cy"] + 2) != (0x12, 0x16, 0x1E),
                   "con dos pestañas aparece la barra de pestañas (más clara que el fondo)")
-        tela = texto_janela(m, t, 4, 4 + 26, 94, 24)
+        tela = texto_janela(m, t, TERM_MX, TERM_MY + 26, 94, 24)
         verificar(any("otra-57" in l and "echo" not in l for l in tela) and not any("marca-42" in l and "echo" not in l for l in tela),
                   "en pantalla solo se ve la salida de la pestaña 2")
 
@@ -127,7 +126,7 @@ def parte_qemu():
         m.tecla("ctrl-1", 0.5)
         esperar(m, r"terminal: pestana 1 de 2", desde=marca)
         time.sleep(0.6)
-        tela = texto_janela(m, t, 4, 4 + 26, 94, 24)
+        tela = texto_janela(m, t, TERM_MX, TERM_MY + 26, 94, 24)
         verificar(any("marca-42" in l and "echo" not in l for l in tela) and not any("otra-57" in l and "echo" not in l for l in tela),
                   "Ctrl+1 muestra la pestaña 1 con su propia salida")
         marca = len(m.serial())
@@ -173,13 +172,13 @@ def parte_qemu():
         verificar(cor_do_pixel(png, t["cx"] + 2, t["cy"] + 2) == (0x12, 0x16, 0x1E), "con una pestaña vuelve a desaparecer la barra")
 
         # ---- copiar y pegar con el ratón
-        tela = texto_janela(m, t, 4, 4, 94, 28)
+        tela = texto_janela(m, t, TERM_MX, TERM_MY, 94, 28)
         fila = [i for i, l in enumerate(tela) if "marca-42" in l and "echo" not in l]
         verificar(fila, "la salida marca-42 sigue en la pestaña 1")
         f = fila[-1]
         col = tela[f].index("marca-42")
-        y = t["cy"] + 4 + f * 16 + 8
-        m.arrastar(t["cx"] + 4 + col * 8 + 2, y, t["cx"] + 4 + (col + 7) * 8 + 4, y)
+        y = t["cy"] + TERM_MY + f * TERM_FILA + 8
+        m.arrastar(t["cx"] + TERM_MX + col * 8 + 2, y, t["cx"] + TERM_MX + (col + 7) * 8 + 4, y)
         marca = len(m.serial())
         m.tecla("ctrl-shift-c", 0.5)
         g = esperar(m, r"terminal: copiado (\d+) bytes", desde=marca)

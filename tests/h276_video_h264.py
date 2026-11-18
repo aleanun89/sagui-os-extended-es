@@ -180,7 +180,7 @@ def em_os(sumas):
     medidas = []
     with Maquina("h276-os", "ide", imagem=imagem_console(), extras=extras) as m:
         esperar(m, r"sagui:/\$", 120)
-        out = m.comando("ajuda reproductor")
+        out = m.comando("ayuda reproductor")
         verificar("MP4" in out and "H.264" in out, "ajuda reproductor dice que abre MP4 con H.264")
         m.comando("montar usb0p1")
         for nome in ("base", "main"):

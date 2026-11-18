@@ -23,6 +23,7 @@ static const texto_op_t textos[] = {
     { "swap_mb", N_("Tamaño máximo de la swap"), N_("Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta).") },
     { "capa_ram_pct", N_("Tope de lo escrito en la RAM (%)"), N_("Live y /tmp: cuánto de la RAM pueden ocupar los cambios; automático = 50 %.") },
     { "raiz_modo", N_("Modo de arranque de la live"), N_("Live desde el medio o todo a la RAM; automático = el de la imagen (tecla M al arrancar para elegir una vez).") },
+    { "serie_terminal", N_("Copia del Terminal al puerto serie"), N_("Para depurar: lo que sale en el Terminal también va al puerto serie. Con un COM1 real hace la salida muy lenta.") },
 };
 
 static const texto_op_t *texto_de(const char *nome)

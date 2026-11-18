@@ -136,6 +136,20 @@ def reconhecer_texto(larg, alt, pixels):
     return tela
 
 
+# D385: geometría del Terminal (userland/programas/terminal.c): margen izquierdo y de arriba dentro del
+# área de cliente, alto de una fila (16 de la letra interna + 2 de interlineado) y desplazamiento de la letra
+# dentro de la fila (la mitad del interlineado).
+TERM_MX, TERM_MY, TERM_FILA, TERM_DY = 8, 6, 18, 1
+
+
+def texto_terminal(px, larg, x0, y0, cols, lins, fila=TERM_FILA, dy=TERM_DY):
+    """Texto de la grilla del Terminal: (x0, y0) es el píxel de arriba a la izquierda de la primera celda
+    (área de cliente + TERM_MX, TERM_MY); cada fila mide `fila` píxeles y la letra empieza `dy` más abajo."""
+    recorte = b"".join(px[((y0 + l * fila + dy + k) * larg + x0) * 3:((y0 + l * fila + dy + k) * larg + x0 + cols * 8) * 3]
+                       for l in range(lins) for k in range(16))
+    return reconhecer_texto(cols * 8, lins * 16, recorte)
+
+
 def cor_do_pixel(png, x, y):
     """Lê a cor de um pixel de uma captura (via ImageMagick): (r, g, b)."""
     saida = subprocess.run(["convert", png, "-crop", f"1x1+{x}+{y}", "-depth", "8", "txt:-"],
@@ -169,26 +183,41 @@ os.environ.setdefault("SAGUI_SESION_ROOT", "1")
 os.environ.setdefault("SAGUI_PRUEBA_USUARIOS", "1")
 CAB_OPCOES_DESL = 512 + 6     # LBA 1, CAB_OPCOES (boot/cabecalho.inc)
 OPC_SESION_RAIZ = 0x8000
+CAB_USU_OPC_DESL = 512 + 162   # D371: CAB_USU_OPC; bit 0 sin pedir la contraseña de root, bit 1 sin migrar /home
+CAB_TERM_OPC_DESL = 512 + 164  # D385: CAB_TERM_OPC; bit 0 = sin la copia del Terminal al serie (la llevan las de serie)
 
 
-def imagem_sesion_root(origem=None):
+def imagem_sesion_root(origem=None, raiz=True):
     """build/testes/saguios-sesion-root.img: la imagen normal con OPC_SESION_RAIZ en la
-    cabecera (no tiene suma de comprobación). Se rehace cuando cambia la normal."""
+    cabecera (no tiene suma de comprobación). Se rehace cuando cambia la normal.
+    D385: también con la copia del Terminal al serie (las pruebas leen el Terminal por ahí); con raiz=False,
+    build/testes/saguios-prueba.img, solo con eso."""
     import struct
     origem = origem or IMAGEM
     # Una sola copia para toda la batería (no en SAIDA, que en paralelo es una carpeta por prueba).
     pasta = os.path.join(BUILD, "testes")
     os.makedirs(pasta, exist_ok=True)
-    destino = os.path.join(pasta, "saguios-sesion-root.img")
+    destino = os.path.join(pasta, "saguios-sesion-root.img" if raiz else "saguios-prueba.img")
     if os.path.exists(destino) and os.path.getmtime(destino) >= os.path.getmtime(origem):
         return destino
     tmp = f"{destino}.{os.getpid()}.tmp"
     subprocess.run(["cp", "--sparse=always", origem, tmp], check=True)
     with open(tmp, "r+b") as f:
-        f.seek(CAB_OPCOES_DESL)
-        (op,) = struct.unpack("<H", f.read(2))
-        f.seek(CAB_OPCOES_DESL)
-        f.write(struct.pack("<H", op | OPC_SESION_RAIZ))
+        if raiz:
+            f.seek(CAB_OPCOES_DESL)
+            (op,) = struct.unpack("<H", f.read(2))
+            f.seek(CAB_OPCOES_DESL)
+            f.write(struct.pack("<H", op | OPC_SESION_RAIZ))
+        # como las imágenes de prueba (mkimagem con SAGUI_PRUEBA_USUARIOS=1): sin la pantalla de la primera
+        # contraseña de root ni la migración de /home (la sesión normal, sin root, si no, se queda ahí)
+        f.seek(CAB_USU_OPC_DESL)
+        (u,) = struct.unpack("<B", f.read(1))
+        f.seek(CAB_USU_OPC_DESL)
+        f.write(struct.pack("<B", u | 3))
+        f.seek(CAB_TERM_OPC_DESL)
+        (t,) = struct.unpack("<B", f.read(1))
+        f.seek(CAB_TERM_OPC_DESL)
+        f.write(struct.pack("<B", t & ~1))
     os.replace(tmp, destino)   # atómico: otra prueba en paralelo ve la vieja o la nueva entera
     return destino
 
@@ -514,8 +543,9 @@ class Maquina:
         self.modo = modo
         if OPCOES_IMAGEM and imagem == IMAGEM:
             imagem = imagem_de_teste("", ["--vesa"])   # la normal, con las opciones de SAGUI_OPCOES_IMAGEM
-        elif imagem == IMAGEM and os.environ.get("SAGUI_SESION_ROOT") == "1" and os.path.exists(IMAGEM):
-            imagem = imagem_sesion_root()   # D255
+        elif imagem == IMAGEM and os.path.exists(IMAGEM):
+            # D255 (sesión root) y D385 (la copia del Terminal al serie, que las imágenes de serie no llevan)
+            imagem = imagem_sesion_root(raiz=os.environ.get("SAGUI_SESION_ROOT") == "1")
         self.imagem = imagem
         # A maquina arranca com 2 GB, que e tudo o que o kernel sabe gerir
         # (a fronteira esta em 0x78000000, D049). A bateria paralela baixa

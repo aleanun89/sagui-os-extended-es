@@ -29,7 +29,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import (Maquina, verificar, cor_do_pixel, tamanho_png, imagem_de_teste, RAIZ, SAIDA,  # noqa: E402
-                  IMAGEM)
+                  IMAGEM, imagem_sesion_root)
 
 BORDA, TITULO, BARRA = 2, 24, 24
 FUNDO_TERMINAL = (0x12, 0x16, 0x1E)
@@ -164,7 +164,7 @@ def troca_a_quente():
 
 def preferencia_reiniciando():
     img = os.path.join(SAIDA, "h58-persistente.img")
-    shutil.copy(IMAGEM, img)
+    shutil.copy(imagem_sesion_root(raiz=False), img)   # D385: la normal, con la copia del Terminal al serie
     verificar(preferencia_no_disco(img) == (0, 0), "a imagem nova não tem resolução preferida")
     with Maquina("h58-a", "ide", imagem=img, snapshot=False) as m:
         m.esperar_serial("sagui:/$", 120)

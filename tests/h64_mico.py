@@ -116,7 +116,7 @@ def classes(saida, arquivo):
 
 
 def parte_realce(m):
-    m.comando("ajuda mico")
+    m.comando("ayuda mico")
     verificar("mico [carpeta | archivo...] | mico -t archivo" in m.serial(), "ajuda mico explica o uso")
     saida = {}
     for a in ("hola.c", "saludo.py", "contar.sh", "notas.md", "parpadeo.asm"):

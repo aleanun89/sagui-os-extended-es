@@ -1,4 +1,6 @@
-# /etc/sagshrc - sagsh lo lee al abrirse en modo interactivo.
+# /etc/sagshrc - el de todo el sistema: sagsh lo lee al abrirse en modo interactivo, antes del
+# ~/.sagshrc de cada cuenta (D385; el de ejemplo está en /etc/skel/.sagshrc). Lo personal va
+# en ~/.sagshrc; aquí, lo común. «sagsh --sin-rc» no lee ninguno de los dos.
 # Aquí puedes poner alias, funciones y variables. Ejemplos:
 #   PS1='\w> '              (cambia el prompt; \w es la carpeta actual)
 #   export EDITOR=editor
@@ -14,5 +16,6 @@ if [ -n "$TERM" ] && [ "$TERM" != dumb ] && [ -z "$NO_COLOR" ]; then
         PS1='\[\e[32m\]\u@\h\[\e[0m\]:\[\e[34m\]\w\[\e[0m\]\$ '
     fi
 fi
-alias ll='ls'
+alias ll='ls -l'
+alias la='ls -a'
 alias ..='cd ..'

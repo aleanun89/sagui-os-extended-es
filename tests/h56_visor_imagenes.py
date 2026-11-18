@@ -101,7 +101,7 @@ def main():
     with Maquina("h56", "ide") as m:
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
-        out = m.comando("ajuda visor")
+        out = m.comando("ayuda visor")
         verificar("visor [-i] [archivo | carpeta]" in out, "ajuda visor explica o uso")
 
         # ---- (a) todos os formatos, conferidos pixel a pixel pela soma

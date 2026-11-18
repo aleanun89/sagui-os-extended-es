@@ -258,6 +258,8 @@ static const TL_USADA uint32_t tl_ansi_claro[16] = {
 #define TL_HIST_MAX 5000
 #define TL_PX_MIN 10
 #define TL_PX_MAX 48
+#define TL_INTER_MAX 8
+#define TL_INTER_PADRAO 2   /* D385: 2 px de aire entre filas (la letra interna es de 16: filas de 18) */
 
 enum { TL_CUR_BLOCO, TL_CUR_SUBLINHADO, TL_CUR_BARRA, TL_CUR_QTD };
 enum { TL_CAMP_NADA, TL_CAMP_VISUAL, TL_CAMP_SOM, TL_CAMP_QTD };
@@ -271,6 +273,7 @@ typedef struct {
     int      hist;              /* líneas de historial */
     int      cursor, parpadeo, campana;
     int      barra_siempre;     /* 1 = la barra de pestañas también con una sola */
+    int      inter;             /* D385: interlineado, píxeles de más entre filas (0..TL_INTER_MAX) */
 } tl_conf_t;
 
 static TL_USADA unsigned tl_luma(uint32_t c)
@@ -305,6 +308,7 @@ static TL_USADA void tl_conf_padrao(tl_conf_t *c)
     tl_conf_tema(c, 0);
     c->fpx = 16; c->cols = 94; c->lins = 28; c->hist = 500;
     c->cursor = TL_CUR_BLOCO; c->parpadeo = 0; c->campana = TL_CAMP_VISUAL;
+    c->inter = TL_INTER_PADRAO;
 }
 
 static const TL_USADA char *const tl_nomes_cursor[TL_CUR_QTD] = { "bloque", "subrayado", "barra" };
@@ -393,6 +397,7 @@ static TL_USADA void tl_conf_ler(tl_conf_t *c, const char *texto)
         else if (tl_comeca(p, "parpadeo=")) c->parpadeo = tl_comeca(p + 9, "si") ? 1 : 0;
         else if (tl_comeca(p, "campana=")) c->campana = tl_indice_nome(p + 8, tl_nomes_campana, TL_CAMP_QTD, c->campana);
         else if (tl_comeca(p, "barra=")) c->barra_siempre = tl_comeca(p + 6, "siempre") ? 1 : 0;
+        else if (tl_comeca(p, "interlineado=")) c->inter = tl_num(p + 13, 0, TL_INTER_MAX, c->inter);
         while (*p && *p != '\n') p++;
         if (*p) p++;
     }
@@ -406,13 +411,15 @@ static TL_USADA int tl_conf_escrever(const tl_conf_t *c, char *d, int max)
     TL_ADD("# Preferencias del Terminal (se escribe desde Ctrl+, o Preferencias)\n");
     TL_ADD("tema=%s\n", c->tema == TL_PERSONALIZADO ? "personalizado" : tl_temas[c->tema].id);
     if (c->tema == TL_PERSONALIZADO) {
-        TL_ADD("fondo=%06X\nletra=%06X\ncursor_color=%06X\nseleccion=%06X\n",
+        /* D385: «x» minúscula: el formatar_texto de SaguiOS no tiene «X» (salía «%X» y se perdían los colores) */
+        TL_ADD("fondo=%06x\nletra=%06x\ncursor_color=%06x\nseleccion=%06x\n",
                (unsigned)c->fundo, (unsigned)c->letra, (unsigned)c->cursor_cor, (unsigned)c->selecao);
-        for (int i = 0; i < 16; i++) TL_ADD("ansi%d=%06X\n", i, (unsigned)c->ansi[i]);
+        for (int i = 0; i < 16; i++) TL_ADD("ansi%d=%06x\n", i, (unsigned)c->ansi[i]);
     }
     TL_ADD("fuente=%s\ntamano=%d\ncolumnas=%d\nfilas=%d\nhistorial=%d\n", c->fonte, c->fpx, c->cols, c->lins, c->hist);
     TL_ADD("cursor=%s\nparpadeo=%s\ncampana=%s\nbarra=%s\n", tl_nomes_cursor[c->cursor], c->parpadeo ? "si" : "no",
            tl_nomes_campana[c->campana], c->barra_siempre ? "siempre" : "auto");
+    TL_ADD("interlineado=%d\n", c->inter);
 #undef TL_ADD
     if (n >= max) n = max - 1;
     return n;

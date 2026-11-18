@@ -53,6 +53,9 @@ static const kconf_op_t ops[] = {
      * kconf_valor(); «instalado» y «solo el initramfs» no se guardan: solo con la tecla M al arrancar. */
     { "capa_ram_pct",       KC_CAPA_RAM_PCT,       KCONF_NUM,   0, 0,                              0, 10, 90 },
     { "raiz_modo",          KC_RAIZ_MODO,          KCONF_LISTA, 0, 0,                              0, 3, 4 },
+    /* v8.5.4.10 (D385): la copia de la salida del Terminal al puerto serie. La lee el Terminal (INFO_KCONF, «efetivo»);
+     * el kernel no hace nada con ella. Las imágenes de serie la llevan apagada (mkimagem.py --sin-serie-terminal). */
+    { "serie_terminal",     KC_SERIE_TERMINAL,     KCONF_SINO,  CAB_TERM_OPC,  CAB_TERM_SIN_SERIE,     0, 0, 1 },
 };
 #define N_OPS ((int)(sizeof ops / sizeof ops[0]))
 

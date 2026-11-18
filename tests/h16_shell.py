@@ -38,19 +38,29 @@ def main():
                   f"o kernel inicia /bin/sagsh como primeiro programa (PID {sh})")
         verificar("Terminal provis" not in s, "o terminal provisório do kernel foi removido")
 
-        out = m.comando("ajuda")
-        for c in ("ls/listar", "cd/entrar", "pwd/onde", "cat/ver", "echo/eco", "cp/copiar", "mv/mover", "rm/apagar",
-                  "mkdir/criar-pasta", "rmdir/remover-pasta", "wc/conta", "ps/processos", "kill/matar", "clear/limpar",
-                  "ajuda", "mem", "data", "sobre", "ola", "contador", "falha", "reiniciar", "sair"):
-            verificar(c in out, f"ajuda lista {c}")
+        # D385: «ayuda» (antes «ajuda») lista las órdenes por secciones; los alias en español, «ayuda alias»;
+        # los nombres en portugués de antes siguen funcionando (ajuda, conta, limpar, apagar...).
+        out = m.comando("ayuda")
+        for c in ("ls", "cd", "pwd", "cat", "echo", "cp", "mv", "rm", "mkdir", "rmdir", "wc", "ps", "kill", "clear",
+                  "ayuda", "mem", "data", "sobre", "ola", "contador", "falha", "reiniciar", "salir"):
+            verificar(re.search(r"(^|\s)" + re.escape(c) + r"\s", out, re.M), f"ayuda lista {c}")
+        verificar("Archivos y carpetas" in out and "El shell" in out, "ayuda: por secciones")
         m.captura("H16-ajuda")
+        out = m.comando("ayuda alias")
+        for a, c in (("listar", "ls"), ("entrar", "cd"), ("donde", "pwd"), ("ver", "cat"), ("eco", "echo"), ("copiar", "cp"),
+                     ("mover", "mv"), ("borrar", "rm"), ("crear-carpeta", "mkdir"), ("borrar-carpeta", "rmdir"), ("contar", "wc"),
+                     ("procesos", "ps"), ("matar", "kill"), ("limpiar", "clear")):
+            verificar(f"{a} = {c}" in out, f"ayuda alias: {a} = {c}")
         out = m.comando("ajuda conta")
-        verificar("Uso: wc" in out and "Alias" in out, "ajuda <comando> explica o comando")
+        verificar("Uso: wc" in out and "Otros nombres" in out and "conta (el de antes)" in out,
+                  "ajuda (el nombre de antes) <comando> explica el comando y sus otros nombres")
+        out = m.comando("apagar; echo st=$?")
+        verificar("apagar-pc" in out and "st=1" in out, "«apagar» solo (el alias de rm de antes) explica y no hace nada")
 
         m.comando("limpar")
         out = m.comando("ls")
         verificar("bin/" in out and "leia-me.txt" in out, "ls")
-        out = m.comando("listar /bin")
+        out = m.comando("listar -s /bin")   # D385: -s, el formato de antes (con «programa»)
         verificar("sagsh" in out and "programa" in out, "listar (apelido de ls) /bin")
         out = m.comando("ls bin | conta")
         verificar(f"{len(PROGRAMAS)} líneas" in out, f"ls bin | conta = {len(PROGRAMAS)} linhas (um por programa)")

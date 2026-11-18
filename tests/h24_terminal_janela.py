@@ -35,7 +35,7 @@ def main():
         m.captura("H24-terminal-ps-conta")
         out = m.comando("echo abc", teclas_finais=("left", "left", "shift-x", "ret"))
         verificar("aXbc" in out, "edição com setas dentro do Terminal em janela")
-        out = m.comando("ajuda")
+        out = m.comando("ayuda")
         for c in ("arquivos", "editor", "calculadora", "banana"):
             verificar(c in out, f"ajuda lista o comando gráfico {c}")
         m.comando("limpar")

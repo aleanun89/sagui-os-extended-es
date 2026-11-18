@@ -126,7 +126,7 @@ def main():
         esperar(m, r"\na@b", desde=marca)
         verificar("Ctrl+Alt+Supr" not in m.serial()[marca:], "Ctrl+AltGr+2 también escribe @ (y no es Ctrl+Alt+Supr)")
 
-        out = m.comando("ajuda atajos")
+        out = m.comando("ayuda atajos")
         verificar("Windows+D" in out and "Alt+F4" in out and "Ctrl+Alt+Supr" in out, "ajuda atajos explica los atajos")
 
         # ---- tres ventanas: Terminal, Calculadora y Editor

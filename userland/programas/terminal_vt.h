@@ -45,6 +45,7 @@ struct vt_s {
     bool      rato_sgr;          /* D366: formato SGR (CSI ? 1006 h) */
     bool      lnm;               /* LF también vuelve a la columna 0 (el modo de siempre del sagsh) */
     bool      origem, autowrap, ins, cur_oculto, app_cur, app_kp, colar_cor;
+    bool      aviso_tam;         /* D385: modo 2048, avisar del tamaño (CSI 48 ; filas ; columnas ; alto ; ancho t) al cambiar */
     int       gl, cs[2];         /* juego activo (SO/SI) y juegos G0/G1: 0 ASCII, 1 dibujo DEC */
     vt_sv_t   sv, sv_alt;        /* DECSC / DECRC, y 1048 / 1049 */
     bool      alt;               /* pantalla alternativa en uso */
@@ -152,7 +153,7 @@ static TL_USADA void vt_restaurar(vt_t *v, bool alt)
 static TL_USADA void vt_reset(vt_t *v, bool duro)
 {
     v->at = 0; v->top = 0; v->bot = v->lins - 1; v->origem = false; v->autowrap = true; v->ins = false;
-    v->cur_oculto = false; v->app_cur = false; v->app_kp = false; v->colar_cor = false;
+    v->cur_oculto = false; v->app_cur = false; v->app_kp = false; v->colar_cor = false; v->aviso_tam = false;
     v->gl = 0; v->cs[0] = v->cs[1] = 0; v->pend = false;
     memset(&v->sv, 0, sizeof v->sv);
     if (duro) { v->col = v->lin = 0; vt_apagar_tudo(v); }
@@ -221,6 +222,15 @@ static TL_USADA void vt_imprimir(vt_t *v, unsigned c)
 
 /* ------------------------------------------------------------ modos */
 
+/* D385: el aviso de tamaño del modo 2048 (in-band resize): CSI 48 ; filas ; columnas ; alto ; ancho t (los píxeles, 0:
+ * el emulador no los sabe). Lo manda al activarse el modo y, desde terminal.c, cada vez que cambia el tamaño. */
+static TL_USADA void vt_aviso_tamanho(vt_t *v)
+{
+    char b[48];
+    int n = tl_formato(b, sizeof b, "\033[48;%d;%d;0;0t", v->lins, v->cols);
+    if (n > 0 && v->resp) v->resp(v->u, b, n);
+}
+
 static TL_USADA void vt_modo_priv(vt_t *v, int p, bool on)
 {
     switch (p) {
@@ -233,6 +243,7 @@ static TL_USADA void vt_modo_priv(vt_t *v, int p, bool on)
     case 1048: if (on) vt_guardar(v, true); else vt_restaurar(v, true); break;
     case 1049: vt_pantalha(v, on, true, true); break;
     case 2004: v->colar_cor = on; break;
+    case 2048: v->aviso_tam = on; if (on) vt_aviso_tamanho(v); break;   /* D385: como foot/kitty/contour; sagsh lo usa en su prompt */
     case 1000: case 1002: case 1003: v->rato = on ? p : 0; break;   /* D366: ratón para el programa (xterm) */
     case 1006: v->rato_sgr = on; break;
     case 7700:   /* SaguiOS: hay un xterm al otro lado (lo enciende ssh, lo apaga al salir y cada prompt del sagsh) */

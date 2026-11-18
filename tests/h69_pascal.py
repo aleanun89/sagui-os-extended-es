@@ -166,7 +166,7 @@ def compilar_y_comparar(m, fuente, esperada, opcion="", sufijo=""):
 def main():
     with Maquina("h69", "ide", imagem=imagem_console()) as m:
         m.esperar_serial("sagui:/$", 120)
-        out = m.comando("ajuda pascal")
+        out = m.comando("ayuda pascal")
         verificar("Uso: pascal" in out, "ajuda pascal explica el compilador")
         m.comando("cd /tmp")
 
@@ -179,7 +179,7 @@ def main():
             verificar("(pascal) terminou com codigo 0" in out, f"pascal /ejemplos/pascal/{f}.pas compila")
 
         # El hola mundo es pequeño (solo la parte de la biblioteca que usa).
-        out = m.comando("ls")
+        out = m.comando("ls -s")
         tam = re.search(r"^hola\s+(\d+) bytes", out, re.M)
         print(f"    hola: {tam.group(1) if tam else '?'} bytes")
         verificar(tam and int(tam.group(1)) < 4096, "hola.pas ocupa menos de 4 KB")

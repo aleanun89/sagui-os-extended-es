@@ -2,8 +2,8 @@
 
 Auditoría y estado de los comandos de shell (mejora «terminal-comandos», decisión D097).
 Los programas están en `userland/programas/` (van a `/bin`); los internos de sagsh, en
-`userland/sagsh/internos.c`. La tabla de nombres, alias en portugués y ayuda (`ajuda`) es
-`userland/sagsh/ajuda.c`.
+`userland/sagsh/internos.c`. La tabla de nombres, alias en español, secciones y ayuda (`ayuda`; antes
+`ajuda`, que sigue valiendo, D385) es `userland/sagsh/ayuda.c`.
 
 Convención: salida 0 = bien, 1 = error de ejecución, 2 = uso incorrecto. Los errores salen por
 la salida de errores con el estilo `comando: archivo: no existe`.
@@ -26,7 +26,7 @@ Probado en QEMU (`ls -a`, `cp a b carpeta`, `cat -n`, `rm -r`, `mkdir -p`, `kill
 | `ps` | ninguna | `-e/-A`, `-f`, columnas, ordenar | solo lista todo, con formato propio | media |
 | `kill` (interno) | `%trabajo`, pid | `-l`, `-s SEÑAL`, `-NÚMERO` útil | `kill -l` no hace nada; `-9`, `-TERM` se ignoran sin avisar (el kernel solo sabe terminar) | media |
 | `env` | `env` y `env NOMBRE` | `env VAR=valor orden`, `-i`, `-u` | `env FOO=1 orden` no ejecuta la orden | media |
-| `date`, `mem`, `ntp`, `zona`... | ver `ajuda` | — | `mem` no tiene `-h`; su salida no es la de `free` | baja |
+| `date`, `mem`, `ntp`, `zona`... | ver `ayuda` | — | `mem` no tiene `-h`; su salida no es la de `free` | baja |
 | `history` (interno) | lista | `-c`, `N`, `!!`, `!N`, Ctrl+R | sin búsqueda incremental | media |
 | edición de línea | flechas, Tab, Inicio/Fin, Ctrl+A/E/U/L/C | Ctrl+R, Ctrl+K, Ctrl+W | — | media |
 | `clear` (interno) | sí | — | — | — |
@@ -94,7 +94,7 @@ Todos aceptan `--help`/`--ayuda`. «Entrada» = leen la entrada estándar si no 
 
 ## 3. Comandos añadidos en la v7.4.2 (D232)
 
-Todos con `--help` y entrada en `ajuda`. Los marcados con (PC) tienen la lógica en un `*_logica.h` probada en el PC (`tests/comandos_unidad.c`); `tests/h232_comandos_nuevos.py` compara en QEMU lo estándar con el mismo comando del PC.
+Todos con `--help` y entrada en `ayuda`. Los marcados con (PC) tienen la lógica en un `*_logica.h` probada en el PC (`tests/comandos_unidad.c`); `tests/h232_comandos_nuevos.py` compara en QEMU lo estándar con el mismo comando del PC.
 
 | Comando | Opciones | Notas |
 |---|---|---|

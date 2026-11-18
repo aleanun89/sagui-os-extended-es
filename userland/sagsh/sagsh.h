@@ -9,7 +9,7 @@
  *   variaveis.c   variables, entorno, parámetros, funciones, alias
  *   executar.c    ejecución del árbol: redirecciones, pipes, trabajos
  *   internos.c    comandos internos (cd, echo, test, read, set...)
- *   ajuda.c       tabla de comandos (nombres en portugués) y el "ajuda"
+ *   ayuda.c       tabla de órdenes (nombre, alias en español, sección) y la orden "ayuda" (D385)
  *   edicao.c      edición de la línea: historial, Tab, flechas (modo crudo)
  *   principal.c   opciones, bucle de lectura, scripts, archivo de inicio
  *
@@ -225,17 +225,17 @@ int  status_de_codigo(int codigo);
 typedef int (*interno_f)(int argc, char **argv);
 interno_f interno_achar(const char *nome);
 bool      interno_especial(const char *nome);   /* las asignaciones antes de él quedan */
-const char *nome_canonico(const char *nome);    /* alias en portugués -> nombre */
+const char *nome_canonico(const char *nome);    /* alias (en español, o en portugués de antes) -> nombre */
 const char *nome_interno(int i);                /* para el Tab; NULL al final */
 char       *ler_arquivo_texto(const char *caminho, int *erro_r);   /* UTF-8 -> Latin-1 */
 void        rodar_trap_saida(void);
 
-/* ------------------------------------------------------------ ajuda.c */
+/* ------------------------------------------------------------ ayuda.c */
 typedef struct {
     const char *nome, *apelido;
     bool        interno;
     bool        grafico;   /* abre una ventana: se ejecuta en segundo plano, sin retener el shell */
-    const char *curta;     /* hasta 17 caracteres, para la lista de "ajuda" */
+    const char *curta;     /* hasta 24 caracteres, para la lista de "ayuda" */
     const char *uso;
     const char *explicacao;
 } comando_t;
@@ -243,6 +243,9 @@ extern const comando_t comandos[];
 extern const int qtd_comandos;
 const comando_t *achar_comando(const char *nome);
 int interno_ajuda(int argc, char **argv);
+extern int sh_erros_sintaxe;
+bool aviso_nome_antigo(char **argv);   /* «apagar» sin argumentos: explica (D385) */
+int  sh_largura(void);                 /* columnas de la salida: COLUMNS en un terminal, 80 si no (D385) */
 
 /* ------------------------------------------------------------ edicao.c */
 int  ler_linha_editada(const char *prompt, char **linha);   /* -1 al final de la entrada */

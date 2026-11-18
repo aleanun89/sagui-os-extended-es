@@ -5,6 +5,7 @@
  *   sagsh script.sh args...    ejecuta un script ($0 = script, $1... = args)
  *   sagsh -c 'órdenes' [nombre [args...]]
  *   sagsh -s args...           lee las órdenes de la entrada
+ *   sagsh --sin-rc             interactivo sin leer /etc/sagshrc ni ~/.sagshrc (D385)
  *
  * En el modo interactivo cada línea leída va a un buffer; si el comando
  * quedó abierto (comillas, if sin fi, "|" al final, here-doc), el shell muestra
@@ -77,6 +78,75 @@ static void titulo_ventana(void)
     tx_formatar(&t, "%s@saguios:%s\a", conta_nome(meu_uid(), n, sizeof n), pasta);
     escrever_texto(SAIDA, t.s);
     tx_liberar(&t);
+}
+
+/* D385: el saludo del shell interactivo. Sin «sagui:» dentro (las pruebas cuentan los prompts así). */
+static void boas_vindas(void)
+{
+    if (sh_cor() && eh_terminal(SAIDA))
+        escrever_texto(SAIDA, "\x1b[1mSaguiOS-Extended\x1b[0m \xb7 sagsh. Escribe \x1b[1;36mayuda\x1b[0m para ver las "
+                              "órdenes (Tab completa).\n");
+    else escrever_texto(SAIDA, "sagsh, el shell de SaguiOS. Escribe ayuda para ver las órdenes.\n");
+}
+
+/* D385: lee un archivo de arranque (/etc/sagshrc, ~/.sagshrc) con «.». Un error no cierra el shell: avisa,
+ * y lo que haya hecho el archivo hasta ahí se queda; un «exit» dentro se ignora (no deja sin shell). */
+static void ler_rc(const char *caminho)
+{
+    info_arquivo_t inf;
+    if (info_arquivo(caminho, &inf) < 0 || inf.tipo == TIPO_PASTA) return;
+    /* Revisión 8.5.4.10: solo se ejecuta un rc de confianza. /etc/sagshrc, de root y sin escritura de otros;
+     * ~/.sagshrc, del propio usuario (o de root) y sin escritura de otros, para que un HOME heredado (sudo,
+     * HOME=... sagsh) no haga ejecutar como root el archivo de otra cuenta. Sin dueños (FAT), se lee. */
+    info_permisos_t p;
+    if (permisos_arquivo(caminho, &p) == 0 && p.com_donos) {
+        bool global = caminho[0] == '/' && caminho[1] == 'e';   /* "/etc/sagshrc" */
+        unsigned yo = meu_uid();
+        bool dueno_ok = global ? p.uid == 0 : (p.uid == yo || p.uid == 0);
+        if (!dueno_ok || (p.modo & 022)) {
+            erro("aviso: %s no se lee: tiene que ser %s y no escribible por otros", caminho,
+                 global ? "de root" : "tuyo");
+            return;
+        }
+    }
+    int antes = sh_erros_sintaxe;
+    char *a[] = { ".", (char *)caminho, NULL };
+    interno_achar(".")(2, a);
+    bool saiu = sh.fluxo == F_SAIR;
+    sh.fluxo = F_NORMAL;
+    if (sh_erros_sintaxe != antes)
+        erro("aviso: %s tiene un error de sintaxis (arriba); el shell sigue sin el resto del archivo", caminho);
+    if (saiu) erro("aviso: %s hace «exit»; se ignora al abrir el shell", caminho);
+    sh.status = 0;
+}
+
+/* D385: la primera vez, el ~/.sagshrc de ejemplo (copia de /etc/skel/.sagshrc, todo comentado). Solo en un
+ * terminal (Terminal o SSH) y nunca en las imágenes de prueba; una marca en ~/.config evita volver a crearlo
+ * si la persona lo borra. No pisa uno que ya exista. Las cuentas nuevas lo reciben al crearse (contas.c). */
+static void copiar_rc_exemplo(const char *rc)
+{
+    if (!sh_tem_term()) return;
+    int e = usuario_op(USU_ESTADO, 0, 0);
+    if (e >= 0 && (e & USU_EST_PRUEBA)) return;
+    const char *h = var_obter("HOME");
+    char marca[110];
+    formatar_texto(marca, sizeof marca, "%s/.config/sagshrc-ejemplo", h ? h : "/home");
+    info_arquivo_t inf;
+    if (info_arquivo(rc, &inf) == 0 || info_arquivo(marca, &inf) == 0) return;
+    unsigned tam = 0;
+    int fd = abrir("/etc/skel/.sagshrc", ABRIR_LER);
+    if (fd < 0) return;
+    char *b = ler_todo_fd(fd, &tam);
+    fechar(fd);
+    if (!b) return;
+    fd = abrir(rc, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd >= 0) { escrever(fd, b, tam); fechar(fd); }
+    libera(b);
+    char cfg[100];
+    formatar_texto(cfg, sizeof cfg, "%s/.config", h ? h : "/home");
+    criar_pasta(cfg);
+    fd = abrir(marca, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd >= 0) fechar(fd);
 }
 
 /* Bucle de lectura de la entrada (terminal o pipe). */
@@ -168,7 +238,7 @@ int principal(int argc, char **argv)
     sh.nome0 = argc > 0 && argv[0] ? argv[0] : "sagsh";
     const char *comando = NULL, *script = NULL;
     char *texto_temp = NULL;
-    bool forcar_interativo = false, ler_entrada = false;
+    bool forcar_interativo = false, ler_entrada = false, sem_rc = false;
     int i = 1;
     for (; i < argc && argv[i][0] == '-'; i++) {
         const char *a = argv[i];
@@ -183,6 +253,7 @@ int principal(int argc, char **argv)
             break;
         }
         if (compara_texto(a, "--") == 0 || compara_texto(a, "-") == 0) { i++; break; }
+        if (compara_texto(a, "--sin-rc") == 0 || compara_texto(a, "--norc") == 0) { sem_rc = true; continue; }
         if (compara_texto(a, "--version") == 0) { imprimir("sagsh 2.0 (SaguiOS-Extended)\n"); return 0; }
         for (const char *c = a + 1; *c; c++) {
             switch (*c) {
@@ -227,13 +298,14 @@ int principal(int argc, char **argv)
     } else {
         if (sh.interativo) {
             definir_grupo(0, 0);   /* el shell lidera su propio grupo; cada trabajo tendrá el suyo */
-            imprimir("sagsh: el shell de SaguiOS (proceso %d). Escribe ajuda para ver los comandos.\n", meu_pid());
+            boas_vindas();
             historico_carregar();
-            info_arquivo_t inf;
-            if (info_arquivo("/etc/sagshrc", &inf) == 0) {
-                char *a[] = { ".", "/etc/sagshrc", NULL };
-                interno_achar(".")(2, a);
-                sh.fluxo = F_NORMAL;
+            if (!sem_rc) {
+                ler_rc("/etc/sagshrc");
+                char rc[96];
+                formatar_texto(rc, sizeof rc, "%s/.sagshrc", var_obter("HOME") ? var_obter("HOME") : "/home");
+                copiar_rc_exemplo(rc);
+                ler_rc(rc);
             }
         }
         st = laco_interativo();

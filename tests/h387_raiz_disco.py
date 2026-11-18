@@ -160,7 +160,7 @@ def parte_b(img):
         out = m.comando("cat /etc/raiz.conf")
         verificar("raiz=LABEL" not in out, "B: /etc es el del disco (el raiz.conf del initramfs no se ve)")
         print(m.comando("mem"))
-        out = m.comando("ls /bin")
+        out = m.comando("ls -s /bin")
         verificar(len(re.findall(r"\d+ bytes", out)) > 100, "B: /bin es el del disco (más de 100 programas)")
         out = m.comando("uname -a")
         verificar(re.search(r"SaguiOS|Sagui", out), "B: uname (solo en el disco) funciona")
@@ -172,7 +172,7 @@ def parte_b(img):
                   "B: sin particiones SAGUI-APPS ni SAGUI-CONF (P2 A: la raíz las absorbe)")
         verificar(re.search(r"tmpfs\s+en /tmp\s+tipo ramfs", out), "B: /tmp en la RAM (ramfs)")
         verificar(re.search(r"initrd\s+en /initrd\s+tipo ramfs\s+\(ro", out), "B: el initramfs en /initrd, solo lectura")
-        out = m.comando("ls /apps/bin")
+        out = m.comando("ls -s /apps/bin")
         verificar(len(re.findall(r"\d+ bytes", out)) > 5, "B: /apps/bin (dentro de la raíz) se lista")
         out = m.comando("ls /initrd/etc")
         verificar("raiz.conf" in out, "B: /initrd/etc/raiz.conf es el del initramfs")
@@ -214,7 +214,7 @@ def parte_c():
         m.esperar_serial("sagui:", 180)
         s = m.serial()
         verificar("[RAIZ] LABEL=SAGUI-NOEXISTE no encontrado" in s, "C: el kernel no encuentra la raíz y lo anota")
-        out = m.comando("ls /bin")
+        out = m.comando("ls -s /bin")
         n = len(re.findall(r"bytes\s+programa", out))
         verificar(5 < n < 40, f"C: sigue con el initramfs (/bin con {n} entradas)")
         out = m.comando("cat /etc/rescate.txt")
@@ -257,7 +257,7 @@ def parte_e(img):
         verificar(re.search(r"\[RAIZ\] hda\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[rw\]", s), "E: arranca del disco instalado con su raíz")
         out = m.comando("mount")
         verificar(re.search(r"en /home\s+tipo ext2", out), "E: /home en SAGUI-DATOS")
-        verificar(len(re.findall(r"\d+ bytes", m.comando("ls /bin"))) > 100, "E: /bin del disco instalado")
+        verificar(len(re.findall(r"\d+ bytes", m.comando("ls -s /bin"))) > 100, "E: /bin del disco instalado")
         m.comando("echo instalado-h387 > /home/e.txt")
         m.comando("sync")
         m.digitar("reiniciar\n", 0.04)
@@ -293,7 +293,7 @@ def reiniciar(m):
 def tem(m, caminho):
     """¿Existe la ruta? (por «ls» de la carpeta, que en SaguiOS no falla con un error distinto)"""
     pasta, nome = caminho.rsplit("/", 1)
-    out = m.comando(f"ls {pasta or '/'}")
+    out = m.comando(f"ls -1 {pasta or '/'}")
     return re.search(rf"^{re.escape(nome)}(/|\s)", out, re.M) is not None
 
 
@@ -314,7 +314,7 @@ def parte_f():
         verificar(tem(m, "/bin/yes"), "F: /bin/yes está (de serie)")
         m.comando("rm /bin/yes")
         verificar(not tem(m, "/bin/yes"), "F: borrar un programa de serie (marca de borrado)")
-        verificar(len(re.findall(r"\d+ bytes", m.comando("ls /bin"))) > 100, "F: el resto de /bin sigue")
+        verificar(len(re.findall(r"\d+ bytes", m.comando("ls -s /bin"))) > 100, "F: el resto de /bin sigue")
         m.comando("mkdir /etc/carpeta387")
         verificar(tem(m, "/etc/carpeta387"), "F: crear carpeta")
         m.comando("rmdir /etc/carpeta387")
@@ -401,7 +401,7 @@ def parte_h():
         verificar(re.search(r"Sagui", out), "H: sin el CD, un programa que no se había abierto funciona")
         m.comando("echo en-ram > /etc/h387cd.txt")
         verificar("en-ram" in m.comando("cat /etc/h387cd.txt"), "H: se escribe en la raíz (RAM)")
-        verificar(len(re.findall(r"\d+ bytes", m.comando("ls /apps/bin"))) > 5, "H: /apps, dentro de la raíz, sin el CD")
+        verificar(len(re.findall(r"\d+ bytes", m.comando("ls -s /apps/bin"))) > 5, "H: /apps, dentro de la raíz, sin el CD")
         t = re.search(r"\[RAM0\] \S+ copiado a la RAM: (\d+) MB en (\d+) ms", s)
         print(f"H387: toram desde la raíz comprimida: {t.group(1)} MB en {t.group(2)} ms" if t else "H387: (sin tiempo de copia)")
     verificar(re.search(r"\[RZ\] \S+: raiz comprimida SAGUI-RAIZ", s), "H: (P5) la raíz del CD va comprimida (rz0)")
@@ -570,7 +570,7 @@ def rescate_por(nome, img, motivo):
         verificar(re.search(r"\[RAIZ\] \S+ \(LABEL=SAGUI-RAIZ\) no vale como raiz: " + motivo, s), f"J: {nome}: el kernel la rechaza ({motivo})")
         verificar(re.search(r"La partici.n ra.z no vale", s), f"J: {nome}: lo dice en pantalla")
         verificar("montada en /" not in s, f"J: {nome}: no se monta en /")
-        n = len(re.findall(r"bytes\s+programa", m.comando("ls /bin")))
+        n = len(re.findall(r"bytes\s+programa", m.comando("ls -s /bin")))
         verificar(5 < n < 40, f"J: {nome}: sigue con el initramfs (rescate, /bin con {n} entradas)")
 
 
@@ -613,7 +613,7 @@ def parte_k():
         s = m.serial()
         verificar("[RAIZ]" not in s, "K: el instalado de antes arranca como siempre (sin raíz en disco)")
         verificar(re.search(r"/apps\s+tipo ext2", m.comando("mount")), "K: con SAGUI-APPS en /apps")
-        verificar(len(re.findall(r"\d+ bytes", m.comando("ls /bin"))) > 100, "K: /bin del ramdisk de siempre")
+        verificar(len(re.findall(r"\d+ bytes", m.comando("ls -s /bin"))) > 100, "K: /bin del ramdisk de siempre")
         m.comando("echo datos-h387-k > /home/datos-k.txt")
         m.comando("echo de-root-k > /root/marca-k.txt")
         sombra1 = re.search(r"^root:\S+", m.comando("grep root /etc/sombra"), re.M)

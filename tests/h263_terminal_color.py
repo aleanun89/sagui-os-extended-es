@@ -9,7 +9,7 @@ Criterio:
   - la copia del Terminal a la serial no lleva secuencias de color ni de título;
   - «ls /»: las carpetas en azul y los programas en verde (píxeles de la captura);
   - «ls / | cat» y «ls / > f» no llevan secuencias ESC; «ls --color=always» sí;
-  - «grep --color=always» resalta; «ajuda» lleva títulos en color solo en el terminal;
+  - «grep --color=always» resalta; «ayuda» lleva títulos en color solo en el terminal;
   - con NO_COLOR el prompt vuelve a ser sin colores;
   - «su» (modo en vivo, sin contraseña): el prompt pasa a «root@saguios:/#» en rojo, la pestaña lleva
     «[root]», la barra se tiñe de rojo con la franja ADMINISTRADOR; al salir de «su» todo vuelve
@@ -22,7 +22,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, ler_ppm, reconhecer_texto, imagem_de_teste, RAIZ, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, ler_ppm, texto_terminal, imagem_de_teste, RAIZ, SAIDA, TERM_MX, TERM_MY, TERM_FILA, TERM_DY  # noqa: E402
 
 BORDA, TITULO = 2, 24
 DIR = os.path.join(SAIDA, "h263")
@@ -58,9 +58,8 @@ def pantalla(m, j, barra, cols=94, lins=None):
     larg, _, px = ler_ppm(ppm)
     if lins is None:
         lins = 26 if barra else 28   # la barra de pestañas (26 px) le quita una fila y media a la grilla
-    x0, y0 = j["cx"] + 4, j["cy"] + 4 + (BARRA if barra else 0)
-    recorte = b"".join(px[((y0 + k) * larg + x0) * 3:((y0 + k) * larg + x0 + cols * 8) * 3] for k in range(lins * 16))
-    tela = reconhecer_texto(cols * 8, lins * 16, recorte)
+    x0, y0 = j["cx"] + TERM_MX, j["cy"] + TERM_MY + (BARRA if barra else 0)
+    tela = texto_terminal(px, larg, x0, y0, cols, lins)
 
     def pixel(x, y):   # coordenadas absolutas de la ventana (dentro del área de cliente)
         o = ((j["cy"] + y) * larg + j["cx"] + x) * 3
@@ -70,7 +69,7 @@ def pantalla(m, j, barra, cols=94, lins=None):
 
 def hay_color(pixel, fila, x_ini, x_fin, y0, x0, pred):
     """¿Algún píxel de la fila de texto `fila` (entre las columnas x_ini..x_fin) cumple pred?"""
-    for y in range(y0 + fila * 16, y0 + fila * 16 + 16):
+    for y in range(y0 + fila * TERM_FILA + TERM_DY, y0 + fila * TERM_FILA + TERM_DY + 16):
         for x in range(x0 + x_ini * 8, x0 + x_fin * 8):
             if pred(*pixel(x, y)):
                 return True
@@ -108,7 +107,7 @@ def parte_qemu():
         verificar(f >= 0, f"se lee «sagui@saguios:/$» en pantalla ({tela[-6:]})")
         verificar(hay_color(px, f, 0, 5, y0, x0, verde), "el usuario del prompt, en verde")
         verificar(hay_color(px, f, 14, 15, y0, x0, azul), "la carpeta del prompt, en azul")
-        verificar(px(x0 + 2, y0 + f * 16 + 20) == (0x12, 0x16, 0x1E) or True, "fondo del Terminal intacto")
+        verificar(px(x0 + 2, y0 + f * TERM_FILA + 20) == (0x12, 0x16, 0x1E) or True, "fondo del Terminal intacto")
         png = m.captura("H263-1-prompt-usuario")
         verificar(os.path.exists(png), "captura del prompt de usuario")
 
@@ -116,14 +115,16 @@ def parte_qemu():
         out = m.comando("ls /")
         time.sleep(0.6)
         tela, px, y0, x0 = pantalla(m, t, False)
-        fb = ultima_fila(tela, r"^bin/")
+        fb = ultima_fila(tela, r"(^|\s)bin/")   # D385: en columnas, «bin/» puede no ir al principio de la fila
         verificar(fb >= 0, f"ls / muestra «bin/» ({[l for l in tela if l.strip()][:8]})")
-        verificar(hay_color(px, fb, 0, 4, y0, x0, azul), "las carpetas de ls, en azul")
+        cb = max(tela[fb].find(" bin/") + 1, 0) if not tela[fb].startswith("bin/") else 0
+        verificar(hay_color(px, fb, cb, cb + 4, y0, x0, azul), "las carpetas de ls, en azul")
         out = m.comando("ls /bin/ls /bin/sagsh")
         time.sleep(0.6)
         tela, px, y0, x0 = pantalla(m, t, False)
-        fp = ultima_fila(tela, r"^/bin/sagsh")
-        verificar(fp >= 0 and hay_color(px, fp, 0, 9, y0, x0, verde), "los programas de ls, en verde")
+        fp = ultima_fila(tela, r"/bin/sagsh")
+        cp = tela[fp].find("/bin/sagsh") if fp >= 0 else 0
+        verificar(fp >= 0 and hay_color(px, fp, cp, cp + 9, y0, x0, verde), "los programas de ls, en verde")
         m.captura("H263-2-ls-colores")
 
         # ---- ni tuberías ni archivos llevan secuencias
@@ -157,9 +158,9 @@ def parte_qemu():
         out = m.comando(f"echo nc2=$(NO_COLOR=1 ls --color=auto / | grep -c {esc})")
         verificar("nc2=0" in out, "con NO_COLOR, ls --color=auto no pinta")
 
-        # ---- ajuda con títulos en color (solo en el terminal)
-        out = m.comando(f"echo ay=$(ajuda | grep -c {esc})")
-        verificar("ay=0" in out, "ajuda en una tubería: sin colores")
+        # ---- ayuda con títulos en color (solo en el terminal)
+        out = m.comando(f"echo ay=$(ayuda | grep -c {esc})")
+        verificar("ay=0" in out, "ayuda en una tubería: sin colores")
 
         # ---- root: su (modo en vivo, sin contraseña)
         m.digitar("su", 0.04)

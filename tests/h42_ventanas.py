@@ -19,7 +19,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, cor_do_pixel, tamanho_png, ler_ppm, reconhecer_texto, SAIDA  # noqa: E402
+import qemu  # noqa: E402
+from qemu import Maquina, verificar, cor_do_pixel, tamanho_png, ler_ppm, SAIDA, TERM_MX, TERM_MY, TERM_FILA  # noqa: E402
 
 BORDA, TITULO = 2, 24
 
@@ -51,9 +52,8 @@ def texto_terminal(m, j, cols, lins):
         time.sleep(0.1)
     time.sleep(0.2)
     larg, _, px = ler_ppm(ppm)
-    x, y = j["x"] + BORDA + 4, j["y"] + TITULO + 4
-    recorte = b"".join(px[((y + k) * larg + x) * 3:((y + k) * larg + x + cols * 8) * 3] for k in range(lins * 16))
-    return reconhecer_texto(cols * 8, lins * 16, recorte)
+    x, y = j["x"] + BORDA + TERM_MX, j["y"] + TITULO + TERM_MY
+    return qemu.texto_terminal(px, larg, x, y, cols, lins)
 
 
 def botao_na_barra(m, ident):
@@ -88,7 +88,7 @@ def main():
         g = esperar(m, rf"janela {t['id']} redimensionada para (\d+)x(\d+)")
         verificar((int(g[0]), int(g[1])) == (nl, na), f"arrastar o canto aumenta o Terminal para {g[0]}x{g[1]}")
         g = esperar(m, r"terminal: janela (\d+)x(\d+), (\d+) colunas x (\d+) linhas")
-        cols, lins = (nl - 8) // 8, (na - 8) // 16
+        cols, lins = (nl - TERM_MX - 12) // 8, (na - 2 * TERM_MY) // TERM_FILA   # D385: márgenes y barra de desplazamiento
         verificar((int(g[0]), int(g[1]), int(g[2]), int(g[3])) == (nl, na, cols, lins),
                   f"o Terminal recalcula a grade: {g[2]} colunas x {g[3]} linhas (antes 94 x 28)")
         time.sleep(0.5)

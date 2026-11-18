@@ -3,9 +3,9 @@
  *
  * Son internos los que necesitan cambiar el propio shell (cd, export, read,
  * exit...) y los muy usados en scripts, que serían lentos como programa
- * (echo, test, printf, true). Los textos están en español; los nombres
- * en portugués (entrar, onde, eco, limpar, matar, sair) llegan aquí por la
- * tabla de ajuda.c. */
+ * (echo, test, printf, true). Los textos están en español; los alias
+ * (entrar, donde, eco, limpiar, matar; y los de antes en portugués: onde, limpar,
+ * sair) llegan aquí por la tabla de ayuda.c. */
 #include "sagsh.h"
 
 static int fontes;   /* profundidad de "source": return vale allí dentro */
@@ -919,7 +919,7 @@ static int descrever(const char *nome, int modo)
     } else if (interno_achar(nome)) {
         if (modo == 1) tx_junta(&t, nome);
         else if (compara_texto(nome_canonico(nome), nome) != 0)
-            tx_formatar(&t, "%s es un comando interno del shell (alias en portugués de %s)", nome, nome_canonico(nome));
+            tx_formatar(&t, "%s es un comando interno del shell (otro nombre de %s)", nome, nome_canonico(nome));
         else tx_formatar(&t, "%s es un comando interno del shell", nome);
     } else {
         char *c = achar_programa(nome);
@@ -932,7 +932,7 @@ static int descrever(const char *nome, int modo)
         }
         if (modo == 1) tx_junta(&t, c);
         else if (compara_texto(nome_canonico(nome), nome) != 0)
-            tx_formatar(&t, "%s es %s (alias en portugués de %s)", nome, c, nome_canonico(nome));
+            tx_formatar(&t, "%s es %s (otro nombre de %s)", nome, c, nome_canonico(nome));
         else tx_formatar(&t, "%s es %s", nome, c);
         libera(c);
     }
@@ -1134,14 +1134,14 @@ static const interno_t internos[] = {
     { "printf", i_printf, false },   { "test", i_test, false },      { "[", i_colchete, false },
     { "export", i_export, true },    { "readonly", i_readonly, true }, { "unset", i_unset, true },
     { "local", i_local, true },      { "set", i_set, true },         { "shift", i_shift, true },
-    { "read", i_read, false },       { "exit", i_exit, true },       { "sair", i_exit, true },
+    { "read", i_read, false },       { "exit", i_exit, true },       { "salir", i_exit, true },
     { "return", i_return, true },    { "break", i_break, true },     { "continue", i_continue, true },
     { "source", i_source, true },    { ".", i_source, true },        { "eval", i_eval, true },
     { "let", i_let, false },         { "alias", i_alias, false },    { "unalias", i_unalias, false },
     { "type", i_type, false },       { "command", i_command, false }, { "history", i_history, false },
     { "jobs", i_jobs, false },       { "wait", i_wait, false },      { "fg", i_fg, false },
     { "bg", i_bg, false },           { "kill", i_kill, false },      { "clear", i_limpar, false },
-    { "ajuda", interno_ajuda, false }, { "reiniciar", i_reiniciar, false }, { "trap", i_trap, true },
+    { "ayuda", interno_ajuda, false }, { "reiniciar", i_reiniciar, false }, { "trap", i_trap, true },
     { "apagar-pc", i_apagar_pc, false }, { "acpi", i_acpi, false }, { "bateria", i_bateria, false },
     { "exec", i_exec, true },        { ".sagsh_estado", i_estado, true },
     { "umask", i_umask, false },

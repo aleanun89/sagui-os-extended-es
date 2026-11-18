@@ -621,6 +621,31 @@ static int apagar_arvore(const char *c, int prof)
     return remover_pasta(c);
 }
 
+/* D385: el ~/.sagshrc de ejemplo de /etc/skel para la cuenta nueva, suyo, y la marca que le dice a sagsh
+ * que ya se le dio (así no lo vuelve a crear si la persona lo borra). Si falla, la cuenta sigue igual. */
+static void rc_de_exemplo(const char *casa, unsigned uid)
+{
+    int fd = abrir("/etc/skel/.sagshrc", ABRIR_LER);
+    if (fd < 0) return;
+    unsigned tam = 0;
+    char *b = ler_todo_fd(fd, &tam);
+    fechar(fd);
+    if (!b) return;
+    char c[96];
+    formatar_texto(c, sizeof c, "%s/.sagshrc", casa);
+    fd = abrir(c, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd >= 0) {
+        escrever(fd, b, tam);
+        fechar(fd);
+        mudar_dono(c, (int)uid, (int)uid);
+        mudar_permisos(c, 0644);
+        formatar_texto(c, sizeof c, "%s/.config/sagshrc-ejemplo", casa);
+        fd = abrir(c, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+        if (fd >= 0) { fechar(fd); mudar_dono(c, (int)uid, (int)uid); }
+    }
+    libera(b);
+}
+
 int conta_criar(const char *nome, const char *descricao, const char *senha, bool admin, unsigned *uid_saida)
 {
     if (!sou_root()) return ERRO_ACESSO;
@@ -644,6 +669,7 @@ int conta_criar(const char *nome, const char *descricao, const char *senha, bool
     char cfg[80];
     formatar_texto(cfg, sizeof cfg, "%s/.config", casa);
     pasta_da_conta(cfg, uid, uid);
+    rc_de_exemplo(casa, uid);
     conta_t x;
     memset(&x, 0, sizeof x);
     copia_texto(x.nome, nome, sizeof x.nome);

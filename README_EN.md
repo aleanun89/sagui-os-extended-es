@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 81f0ded8 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 26f5d85e (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -32,7 +32,7 @@ and maintained by **Alejandro Anuncibay**, with improvements written with Claude
    **If Pluma, Macaco or Python do not appear on your PC** (on some PCs the disk controller does not locate the boot disk well and the `/apps` partition where they live is not mounted), use
    `saguios-completo.img`: it carries all the applications inside the system in memory (it needs about 64 MB more RAM).
 4. **First steps:** the **Start** menu opens the applications (Pluma, Macaco, Mail, VisualPythonS, GebraMini,
-   DOSBox…); in the **Terminal**, `ajuda` lists the commands; **Settings** changes keyboard, screen, sound
+   DOSBox…); in the **Terminal**, `ayuda` lists the commands; **Settings** changes keyboard, screen, sound
    and AI; **Instalar SaguiOS** (or `instalar`) installs it on the hard disk with a wizard: a step-by-step
    guide, with screenshots, in [docs/instalar.md](docs/instalar.md). If the pendrive is bigger than the image,
    the first boot offers to expand `/home` to all the free space.

@@ -40,7 +40,7 @@ def principal():
 
         # ---------------------------------------------------------------- ls
         m.comando("mkdir /tmp/d; echo aaaa > /tmp/d/a.txt; echo bb > /tmp/d/b.md; echo c > /tmp/d/.oculto")
-        out = m.comando("ls /tmp/d")
+        out = m.comando("ls -s /tmp/d")
         verificar(re.search(r"^a\.txt\s+5 bytes", out, re.M) and "oculto" not in out,
                   "ls: formato del terminal y sin ocultos")
         out = m.comando("ls -a /tmp/d")
@@ -73,7 +73,7 @@ def principal():
         verificar(tem_linha(out, "st=0"), "mkdir -p sobre una carpeta existente: sin error")
         out = m.comando("cp -rv /tmp/e /tmp/e2")
         verificar("'/tmp/e/f/x.txt' -> '/tmp/e2/f/x.txt'" in out, "cp -rv copia el árbol y lo explica")
-        out = m.comando("cp /tmp/e/f/x.txt /tmp/d/a.txt /tmp/e2; ls /tmp/e2")
+        out = m.comando("cp /tmp/e/f/x.txt /tmp/d/a.txt /tmp/e2; ls -1 /tmp/e2")
         verificar(re.search(r"^x\.txt", out, re.M) and re.search(r"^a\.txt", out, re.M), "cp con varios orígenes a una carpeta")
         out = m.comando("cp /tmp/e /tmp/e3; echo st=$?")
         verificar("es una carpeta (usa -r" in out and tem_linha(out, "st=1"), "cp de carpeta sin -r: error")
@@ -81,9 +81,9 @@ def principal():
         verificar(tem_linha(out, "aaaa"), "cp -n no sobrescribe")
         out = m.comando("cp /nada /tmp/zz; echo st=$?")
         verificar("cp: /nada: no existe" in out and tem_linha(out, "st=1"), "cp: origen inexistente")
-        out = m.comando("mv -v /tmp/e2/a.txt /tmp/e2/x.txt /tmp/d; ls /tmp/d")
+        out = m.comando("mv -v /tmp/e2/a.txt /tmp/e2/x.txt /tmp/d; ls -1 /tmp/d")
         verificar("'/tmp/e2/a.txt' -> '/tmp/d/a.txt'" in out and re.search(r"^x\.txt", out, re.M), "mv con varios orígenes y -v")
-        out = m.comando("mv /tmp/d/b.md /tmp/d/c.md; ls /tmp/d")
+        out = m.comando("mv /tmp/d/b.md /tmp/d/c.md; ls -1 /tmp/d")
         verificar(re.search(r"^c\.md", out, re.M) and not re.search(r"^b\.md", out, re.M), "mv renombra")
         out = m.comando("rm /tmp/e2; echo st=$?")
         verificar("es una carpeta (usa -r)" in out and tem_linha(out, "st=1"), "rm de carpeta sin -r")
@@ -334,10 +334,10 @@ def principal():
         verificar(re.search(r"^\d+$", out, re.M) is not None, "grep -r | cut | sort -u | wc -l")
 
         # --------------------------------------------------- ajuda y --help
-        out = m.comando("ajuda")
+        out = m.comando("ayuda")
         for c in ("head", "tail", "grep", "find", "sort", "uniq", "touch", "xargs", "diff", "tree", "stat"):
             verificar(re.search(r"\b" + c + r"\b", out) is not None, f"ajuda lista {c}")
-        out = m.comando("ajuda grep")
+        out = m.comando("ayuda grep")
         verificar("Uso: grep" in out and "procurar" in out, "ajuda grep")
         for c in ("cp", "mv", "rm", "cat", "wc", "head", "tail", "grep", "find", "sort", "uniq", "du", "tree", "cut", "seq", "diff", "xargs"):
             out = m.comando(f"{c} --help")

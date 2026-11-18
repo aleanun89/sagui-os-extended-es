@@ -32,6 +32,7 @@ enum {
     KC_CACHE_MAX_MB, KC_SUCIOS_MAX_MB, KC_VACIADO_S, KC_FRECUENCIA, KC_GOBERNADOR,
     KC_SWAP, KC_SWAP_MB,   /* D352: 11 y 12 */
     KC_CAPA_RAM_PCT, KC_RAIZ_MODO,   /* v8.5.4.2 (D379): 13 y 14 */
+    KC_SERIE_TERMINAL,               /* v8.5.4.10 (D385): 15 */
 };
 
 /* Al principio del arranque, con cabecalho_boot ya copiada y antes de la paginación: calcula los

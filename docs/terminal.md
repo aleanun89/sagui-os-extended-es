@@ -1,4 +1,4 @@
-# Terminal y sagsh: colores y aviso de administrador (D263)
+# Terminal y sagsh: colores, aviso de administrador (D263) y formato (D385)
 
 ## Colores
 
@@ -14,10 +14,10 @@ terminal del anfitrión los pinta.
 
 | Orden | Colores |
 |-------|---------|
-| `ls` | carpetas azul, programas verde, imágenes/sonido/vídeo magenta, comprimidos rojo |
+| `ls` | carpetas azul (y primero), programas verde, imágenes/sonido/vídeo magenta, comprimidos rojo |
 | `grep` | coincidencia en rojo, nombre de archivo en magenta, número de línea en verde |
 | sagsh | mensajes de error en rojo |
-| `ajuda` | títulos en cian |
+| `ayuda` | títulos de sección en cian, nombres en negrita |
 
 Todos aceptan `--color[=always|never|auto]`. Con `auto` (por defecto) solo pintan si la salida es un
 terminal con `TERM`; en tuberías (`ls | grep x`) y en archivos (`ls > f`) nunca.
@@ -26,7 +26,7 @@ terminal con `TERM`; en tuberías (`ls | grep x`) y en archivos (`ls > f`) nunca
 
 `PS1` admite los escapes de bash: `\u` usuario, `\h` máquina, `\w` carpeta, `\W` su último componente,
 `\$` (`$`, o `#` si el shell es root y se ve), `\e`/`\033` (ESC), `\a`, `\n`, `\[` y `\]`. El de
-`/etc/sagshrc` es `sagui@saguios:/carpeta$` (usuario verde, carpeta azul) y, para root,
+`/etc/sagshrc` (y lo puede cambiar `~/.sagshrc`, más abajo) es `sagui@saguios:/carpeta$` (usuario verde, carpeta azul) y, para root,
 `root@saguios:/carpeta#` en rojo. Sin colores se queda `sagui:/carpeta$`.
 
 ## Root siempre visible
@@ -86,3 +86,60 @@ DECSLRM, sixel. Copiar texto de un recuadro DEC copia las letras del juego (`qqq
 
 Probado con vim, less, htop y nano reales (flujos grabados en un pty de 80x24, comparados fila a fila con tmux),
 y por `ssh` contra el servidor de prueba de h317 (`tests/h320_terminal_vt.py`, capturas `H320-*.png`).
+
+## Formato del Terminal y del shell (D385)
+
+Lo que se veía raro antes (capturas `H393-antes-*.png`) y cómo queda (`H393-despues-*.png`, `H393-*.png` de la prueba):
+
+| Antes | Ahora |
+|-------|-------|
+| El texto pegado al borde (4 px) y las filas sin aire (16 px de alto) | Márgenes de 8 px a la izquierda y 6 arriba y abajo; **interlineado** de 2 px (filas de 18), configurable en Preferencias (0..8, `interlineado=` en `terminal.conf`) |
+| Un cursor «fantasma» al final de cada orden anterior (el salto de línea movía el cursor sin redibujar la fila vieja) | Se sigue dónde se dibujó el cursor; al moverse se redibujan la fila vieja y la nueva |
+| Sin barra de desplazamiento: el historial solo con la rueda | Barra fina a la derecha (solo con historial y fuera de la pantalla alternativa): clic fuera del pulgar = una página, arrastrar = a cualquier sitio; también **Mayús+RePág/AvPág** |
+| `ajuda`: dos columnas fijas de 39 letras que se rompían con las descripciones largas («reproduce W» / «AV, MP3...») | `ayuda`: por secciones, en columnas al ancho real de la ventana; nombre en negrita; las explicaciones de `ayuda ORDEN` se parten por palabras |
+| `ls`: un archivo por línea con «N bytes  programa» (300 líneas para `/bin`) | En columnas al ancho de la ventana, carpetas primero, colores por tipo; `ls -l` alineado; `ls -s` da el formato de antes |
+| El saludo técnico «sagsh: el shell de SaguiOS (proceso 9). Escribe ajuda...» | «SaguiOS-Extended · sagsh. Escribe ayuda para ver las órdenes (Tab completa).» |
+| `seq 1 20000`: 2,7 s (KVM) | ver «Rendimiento» |
+
+**El tamaño de la ventana para los programas.** No hay llamada al sistema para el tamaño de un terminal virtual. sagsh
+pregunta `ESC [ 18 t` antes de cada prompt (en modo crudo, para que no haya eco) y el Terminal contesta `ESC [ 8 ; filas ;
+columnas t` (D317); con eso pone `COLUMNS` y `LINES` (exportadas), como bash con `checkwinsize`. Lo que se teclee mientras
+llega la respuesta no se pierde: va a un búfer que el editor de línea lee primero. Si el terminal no contesta (300-500 ms) tres
+veces (un cliente SSH que no lo entiende), no se vuelve a preguntar. Además, mientras se edita la línea sagsh enciende el modo
+privado **2048** (aviso de tamaño «in-band», el de foot, kitty y contour): si la ventana cambia de tamaño en el prompt, el
+Terminal manda `CSI 48 ; filas ; columnas ; 0 ; 0 t` y el editor lo recoge, así que `COLUMNS` vale ya para la orden que se está
+escribiendo; al ejecutarla se apaga, para no mandárselo a otro programa. El editor entiende también las teclas CSI de un
+xterm (flechas, Inicio, Fin, Supr, RePág/AvPág por SSH). La copia a la serie quita las `CSI ... t` y el `?2048h/l`.
+
+**Ajuste de líneas largas.** El Terminal parte las líneas en la última columna, letra a letra, como cualquier xterm: es lo que
+esperan las aplicaciones de pantalla completa. Lo que sale bien partido por palabras es lo que maqueta el sistema (`ayuda`,
+`ayuda ORDEN`), al ancho de `COLUMNS`. No hay «reflow» al redimensionar (pendiente).
+
+**Mensajes del kernel.** Los `[SAGUI] ...` van al registro y a la serie, nunca a la ventana del Terminal: allí solo sale lo
+que escriben los programas. (En la serie, que es lo que leen las pruebas, se pueden mezclar; `tests/qemu.py` los aparta.)
+
+**Rendimiento.** El tubo del terminal virtual es de 512 bytes (`PIPE_TAM`). El Terminal miraba si había más con `disponivel` y,
+como seguía con la CPU, el programa que escribía (seq, cat) no volvía a llenarlo hasta el siguiente tic: 512 bytes cada 10 ms.
+Ahora lee todo lo que haya, hasta 64 KB o 25 ms, **cediendo el turno** (`hilo_ceder`) cuando el tubo se vacía, y dibuja
+después (unas 40 veces por segundo). Medidas en `tests/h393_terminal.py`.
+
+**La copia al puerto serie** (lo que leen las pruebas) es opcional desde la v8.5.4.10: opción del kernel `serie_terminal`
+(`admin kconfig serie_terminal=si`), apagada en las imágenes de serie y encendida en las de prueba. Con ella encendida, `seq 1
+20000` tarda 1,1 s (KVM); apagada, 0,04 s. En un PC real con COM1 la copia va al ritmo de la UART (unos 3,8 KB/s).
+
+## Nombres de las órdenes en español (D385)
+
+La orden de ayuda es **`ayuda`** (antes `ajuda`, del SaguiOS original en portugués). La tabla (`userland/sagsh/ayuda.c`) lleva
+el nombre de la orden y un alias en español (`listar`, `buscar`, `contar`, `limpiar`, `borrar`, `crear-carpeta`, `fecha`,
+`salir`...); `ayuda alias` los lista. Los nombres de antes en portugués (`ajuda`, `sair`, `limpar`, `conta`, `procurar`,
+`criar-pasta`, `processos`, `onde`...) siguen valiendo para los scripts, pero no salen en la ayuda ni en el Tab. `apagar` era
+el alias de `rm`: con argumentos sigue borrando; solo, explica que apagar el equipo es `apagar-pc` y no hace nada.
+
+## ~/.sagshrc (D385)
+
+Al abrirse en modo interactivo, sagsh lee `/etc/sagshrc` (de todo el sistema) y después `~/.sagshrc` (`/root/.sagshrc` para
+root; `/home/.sagshrc` para una cuenta, que es su carpeta). Un error de sintaxis avisa («aviso: ... tiene un error de
+sintaxis») y el shell se abre con lo que el archivo hizo hasta ahí; un `exit` dentro se ignora. `sagsh --sin-rc` no lee
+ninguno. El de ejemplo, todo comentado, es `/etc/skel/.sagshrc`: lo copian `conta_criar` (cuentas nuevas) y el propio sagsh la
+primera vez que se abre en un terminal (Terminal o SSH) si no hay ninguno, dejando la marca `~/.config/sagshrc-ejemplo` para no
+volver a crearlo si se borra; en las imágenes de prueba no se crea.

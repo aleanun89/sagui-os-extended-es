@@ -95,7 +95,7 @@ def parte_grafica():
     with Maquina("h43", "ide") as m:
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
-        out = m.comando("ajuda markdown")
+        out = m.comando("ayuda markdown")
         verificar("markdown [-t] [archivo.md]" in out, "ajuda markdown explica o uso")
 
         # ---- visor

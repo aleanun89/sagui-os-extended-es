@@ -223,6 +223,12 @@ def main():
                     help="D371: no pasar los archivos de sagui a /home/sagui en el primer arranque (para las pruebas; "
                          "las imágenes de prueba la llevan salvo con --migrar-home)")
     ap.add_argument("--migrar-home", dest="sin_migrar_home", action="store_false", help="lo contrario de --sin-migrar-home")
+    ap.add_argument("--sin-serie-terminal", action="store_true", default=os.environ.get("SAGUI_PRUEBA_USUARIOS") != "1",
+                    help="D385: el Terminal no copia su salida al puerto serie (en un PC con COM1, esa copia limita la salida "
+                         "a unos 3,8 KB/s). Lo llevan todas las imágenes salvo las de prueba (SAGUI_PRUEBA_USUARIOS=1), que "
+                         "leen el Terminal por el serie; desde el sistema, «kconfig serie_terminal=si|no»")
+    ap.add_argument("--serie-terminal", dest="sin_serie_terminal", action="store_false",
+                    help="lo contrario de --sin-serie-terminal: el Terminal copia su salida al puerto serie")
     ap.add_argument("--sesion-sagui", dest="sesion_root", action="store_false",
                     help="lo contrario de --sesion-root (aunque SAGUI_SESION_ROOT=1)")
     ap.add_argument("--uacpi", action="store_true",
@@ -474,7 +480,9 @@ def main():
     cab += struct.pack("<B", (1 if a.sin_pedir_root else 0) | (2 if a.sin_migrar_home else 0))   # CAB_USU_OPC (162, D371)
     assert len(cab) == 163, "CAB_RAIZ_OPC tiene que caer en el byte 163"
     cab += struct.pack("<B", MODOS_RAIZ[a.modo_raiz])   # CAB_RAIZ_OPC (163, D379)
-    # 163-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
+    assert len(cab) == 164, "CAB_TERM_OPC tiene que caer en el byte 164"
+    cab += struct.pack("<B", 1 if a.sin_serie_terminal else 0)   # CAB_TERM_OPC (164, D385): bit 0 sin copia al serie
+    # 165-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
     # aquí se deja a cero (preencher_setores): los valores de la imagen son los bits de arriba.
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre

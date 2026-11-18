@@ -127,6 +127,11 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define RAIZ_OPC_DISCO  2   /* la raíz del disco con escritura (instalado) */
 #define RAIZ_OPC_LIVE   3   /* la raíz del medio de solo lectura con una capa escribible */
 #define RAIZ_OPC_TORAM  4   /* la raíz copiada entera a la RAM */
+/* D385: u8 (mkimagem.py): bit 0 --sin-serie-terminal: el Terminal no copia lo que sale en la ventana al puerto serie
+ * (en un PC con COM1 esa copia espera a la UART byte a byte: unos 3,8 KB/s). Las imágenes de serie lo llevan; las
+ * de prueba no (las pruebas leen el Terminal por el serie). Se cambia con «kconfig serie_terminal=si|no». */
+#define CAB_TERM_OPC 164
+#define CAB_TERM_SIN_SERIE 0x01
 #define CAB_TROCA_MB 160   /* u16 D352 (mkimagem.py --swap-mb N): tope del almacén de la swap en MB; 0 = automático */
 /* D353: 192-255 = lo que guarda kconfig (KCONF_* de kconf.h). Quien lee CAB_MEM_OPC, CAB_DISCO_OPC o CAB_FREQ
  * usa kconf_cab(), que pone lo guardado encima de la imagen. */

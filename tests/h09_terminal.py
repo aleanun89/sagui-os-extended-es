@@ -35,8 +35,8 @@ def main():
                 verificar("leia-me.txt" in out, "[usb] comandos funcionam com boot pelo pendrive")
                 continue
 
-            out = m.comando("ajuda")
-            for c in ("ajuda", "ls", "cd", "cat", "limpar", "mem", "data", "reiniciar"):
+            out = m.comando("ayuda")
+            for c in ("ayuda", "ls", "cd", "cat", "clear", "mem", "data", "reiniciar"):
                 verificar(re.search(r"\b" + c + r"\b", out), f"ajuda lista o comando {c}")
             m.captura("H09-ajuda")
 

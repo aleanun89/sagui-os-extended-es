@@ -219,7 +219,7 @@ static const char *const sh_chaves[] = { "if", "then", "else", "elif", "fi", "fo
     "done", "case", "esac", "in", "function", "return", "local", "export", "break", "continue", "exit",
     "readonly", NULL };
 static const char *const sh_tipos[] = { "echo", "cd", "pwd", "read", "test", "printf", "set", "unset", "shift",
-    "source", "eval", "exec", "trap", "alias", "true", "false", "ajuda", NULL };
+    "source", "eval", "exec", "trap", "alias", "true", "false", "ayuda", "ajuda", NULL };
 
 static int variavel(const char *s, int n, int i)
 {

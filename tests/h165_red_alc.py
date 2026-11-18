@@ -55,7 +55,8 @@ def parte_fuentes():
     infopc = ler("userland/programas/infopc.c")
     for m in ("2060", "2062", "1073", "1083", "1063", "1062"):
         verificar(f'{{ 0x1969, 0x{m}, 0, 0, 0, EXPERIMENTAL, "alc" }}' in infopc, f"infopc: 1969:{m} experimental, driver alc")
-    verificar('case 0x19692060: return "AR8152 v1.1 Fast Ethernet";' in infopc, "infopc: nombre de la AR8152 v1.1")
+    nomes = infopc + ler("userland/inc/pcinomes.h")   # los nombres PCI se movieron a pcinomes.h (76bf3cee)
+    verificar('0x19692060' in nomes and 'AR8152 v1.1' in nomes, "infopc: nombre de la AR8152 v1.1")
     alc = ler("kernel/rede/alc.c")
     verificar("p->experimental = true;" in alc, "el alc siempre es experimental (sin probar en hardware)")
     verificar('p->nome = "alc";' in alc, "el driver se llama alc")

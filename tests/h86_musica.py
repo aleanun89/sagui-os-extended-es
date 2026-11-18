@@ -154,7 +154,7 @@ def sonido(arqs):
         m.comando("mkdir /tmp/m")
         for n in arqs:
             m.comando(f"cp /usb/{n} /tmp/m/{n}", 120)
-        out = m.comando("ajuda musica")
+        out = m.comando("ayuda musica")
         verificar("musica [archivo | carpeta]" in out, "ajuda musica explica el uso")
 
         # ---- doble clic en un .wav en Archivos

@@ -148,7 +148,7 @@ def console():
         verificar("sagui:/historia> " in m.serial(), "PS1 configurável (\\w = pasta)")
         m.comando("cd /; PS1='sagui:\\w$ '")
         m.captura("H38-shell-completo")
-        out = m.comando("ajuda sh")
+        out = m.comando("ayuda sh")
         verificar("El lenguaje de sagsh" in out, "ajuda sh resume o lenguaje")
         out = m.comando("echo o shell segue vivo")
         verificar(tem_linha(out, "o shell segue vivo"), "o shell continua funcionando")

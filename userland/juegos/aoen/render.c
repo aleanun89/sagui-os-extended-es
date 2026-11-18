@@ -182,11 +182,9 @@ Sprite *icon_unit(int idx) { return slp_frame(s_icons_unit, idx); }
 Sprite *icon_bld(int idx) { return slp_frame(s_icons_bld, idx); }
 
 void draw_background(int which) {
+	Sprite *s = (s_bkg[which] && have_bkg[which]) ? slp_frame(s_bkg[which], 0) : NULL;
+	if (!s) { fondo_propio(); return; }   /* sin arte original: paisaje propio (fondo.c) */
 	gfx_fill(0, 0, fb.w, fb.h, gfx_rgb(10, 8, 6));
-	if (!s_bkg[which] || !have_bkg[which]) return;
-
-	Sprite *s = slp_frame(s_bkg[which], 0);
-	if (!s) return;
 
 	u32 save[256];
 	memcpy(save, fb.pal, sizeof save);

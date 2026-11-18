@@ -33,7 +33,7 @@ y mantenido por **Alejandro Anuncibay**, con mejoras escritas con Claude
    `saguios-completo.img`: lleva todas las aplicaciones dentro del sistema en memoria (pide unos 64 MB
    más de RAM).
 4. **Primeros pasos:** el menú **Inicio** abre las aplicaciones (Pluma, Macaco, Correo, VisualPythonS, GebraMini,
-   DOSBox…); en el **Terminal**, `ajuda` lista las órdenes; **Configuración** cambia teclado, pantalla, sonido
+   DOSBox…); en el **Terminal**, `ayuda` lista las órdenes; **Configuración** cambia teclado, pantalla, sonido
    e IA; **Instalar SaguiOS** (o `instalar`) lo instala en el disco duro con un asistente: guía paso a paso,
    con capturas, en [docs/instalar.md](docs/instalar.md). Si el pendrive es mayor que la imagen, el primer
    arranque ofrece ampliar `/home` a todo el espacio libre.

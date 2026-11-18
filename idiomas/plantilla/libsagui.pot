@@ -323,43 +323,51 @@ msgstr ""
 msgid "Live desde el medio o todo a la RAM; automático = el de la imagen (tecla M al arrancar para elegir una vez)."
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:80
-msgid "sí"
+#: userland/libsagui/opcoes_kernel.c:26
+msgid "Copia del Terminal al puerto serie"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:80
-msgid "no"
+#: userland/libsagui/opcoes_kernel.c:26
+msgid "Para depurar: lo que sale en el Terminal también va al puerto serie. Con un COM1 real hace la salida muy lenta."
 msgstr ""
 
 #: userland/libsagui/opcoes_kernel.c:81
+msgid "sí"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:81
+msgid "no"
+msgstr ""
+
+#: userland/libsagui/opcoes_kernel.c:82
 msgid "automático"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:83
+#: userland/libsagui/opcoes_kernel.c:84
 msgid "rendimiento"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:83
+#: userland/libsagui/opcoes_kernel.c:84
 msgid "ahorro"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:83
+#: userland/libsagui/opcoes_kernel.c:84
 msgid "a demanda"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:85
+#: userland/libsagui/opcoes_kernel.c:86
 msgid "rescate"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:85
+#: userland/libsagui/opcoes_kernel.c:86
 msgid "instalado"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:85
+#: userland/libsagui/opcoes_kernel.c:86
 msgid "live"
 msgstr ""
 
-#: userland/libsagui/opcoes_kernel.c:85
+#: userland/libsagui/opcoes_kernel.c:86
 msgid "toram"
 msgstr ""
 

@@ -31,6 +31,7 @@ kconfig -h                                # qué hace cada opción y su rango
 | `gobernador` | auto, rendimiento, ahorro, demanda | política del control de frecuencia (manda sobre `frecuencia --guardar`) |
 | `swap` | si, no | swap comprimida en la RAM (D352) |
 | `swap_mb` | auto, 4-1024 | tope de la swap comprimida (automático: la mitad de la RAM) |
+| `serie_terminal` | si, no | el Terminal copia su salida al puerto serie (para depurar; D385). Las imágenes de serie la llevan en «no» (con un COM1 real, la copia limita la salida a unos 3,8 KB/s); las de prueba, en «si». La lee el Terminal al abrirse |
 
 ## Dependencias entre opciones (D367)
 

@@ -19,7 +19,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, imagem_de_teste, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, imagem_de_teste, SAIDA, TERM_MX, TERM_MY, TERM_FILA  # noqa: E402
 import h263_terminal_color as h263  # noqa: E402
 
 COLS, LINS = 94, 28
@@ -44,7 +44,7 @@ def esperar(m, t, patron, tiempo=10, cada=0.7):
 def fila_sel(px, y0, x0):
     """La fila resaltada (fondo cian a la derecha, donde no hay texto)."""
     for f in range(LINS - 1):
-        if cian(*px(x0 + (COLS - 3) * 8, y0 + f * 16 + 3)):
+        if cian(*px(x0 + (COLS - 3) * 8, y0 + f * TERM_FILA + 3)):
             return f
     return -1
 
@@ -60,7 +60,8 @@ def escribir(m, texto):
 
 
 def clic_celda(m, t, col, fila):
-    m.clique(t["cx"] + 4 + col * 8 + 4, t["cy"] + 4 + fila * 16 + 8)
+    m.clique(t["cx"] + TERM_MX + col * 8 + 4, t["cy"] + TERM_MY + fila * TERM_FILA + 8)
+    m.mouse_mover(t["cx"] + 300, t["cy"] - 12)   # D385: la flecha del ratón tapaba las letras que se leen después
     time.sleep(0.6)
 
 

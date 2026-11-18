@@ -29,6 +29,7 @@ int tex_available(void);
 u32 tex_tile_color(int kind);
 void render_terrain_hd(float time, int y0, int y1);   /* solo las filas [y0, y1) */
 extern int hd_enabled;
+void fondo_propio(void);   /* paisaje dibujado por código, cuando faltan los fondos originales (fondo.c) */
 void draw_background(int which);   /* 0 menú principal, 1 pantalla de un jugador */
 void render_world(int top_h, int bottom_h);
 void render_placement(EntType t, int tx, int ty);

@@ -67,7 +67,7 @@ def tiempo(ls):
 
 
 def tamano(m, nombre):
-    out = m.comando("ls")
+    out = m.comando("ls -s")
     t = re.search(rf"^{nombre}\s+(\d+) bytes", out, re.M)
     return int(t.group(1)) if t else None
 

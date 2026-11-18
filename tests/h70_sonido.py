@@ -204,7 +204,7 @@ def provar(placa, pen):
         verificar("Sonido: " in s and "kHz" in s, f"[{placa}] a linha do som aparece no arranque")
         out = m.comando("volumen")
         verificar("Volumen: 100 %" in out and "Tarjeta:" in out, f"[{placa}] volumen mostra 100 % e a placa")
-        out = m.comando("ajuda reproducir")
+        out = m.comando("ayuda reproducir")
         verificar("reproducir [-v 0-100] archivo.wav" in out, f"[{placa}] ajuda reproducir explica o uso")
         out = m.comando("infopc")
         verificar("Sonido:" in out and ("driver ac97" in out or "driver hda" in out),

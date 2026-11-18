@@ -311,8 +311,9 @@ static bool achou_oob, achou_rx_bloqueada, aspm_desligado;
  * o XID do HP dv7). */
 /* Probadas en hardware real: 25/26 = RTL8168d/8111d (HP dv7, DHCP y ping, 2026-11-07/08);
  * 34 = RTL8168evl/8111evl (Toshiba Satellite L850, perfil 8168e con RxConfig 0x870E,
- * DHCP y ping, 2026-11-08, D124). */
-static const int versoes_confirmadas[] = { 25, 26, 34 };
+ * DHCP y ping, 2026-11-08, D124); 4 = RTL8169sb/8110sb (10ec:8169 rev 10, inicio clásico:
+ * DHCP, SSH de DEBUG-APP, ping sin pérdidas y 0 errores; confirmado por el mantenedor, 2026-11-18). */
+static const int versoes_confirmadas[] = { 4, 25, 26, 34 };
 
 static bool versao_confirmada(int v)
 {

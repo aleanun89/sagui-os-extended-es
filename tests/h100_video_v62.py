@@ -230,7 +230,7 @@ def em_os(somas_host):
     extras = ["-device", "usb-ehci,id=ehci"] + pendrive_qemu(pen)
     with Maquina("h100-os", "ide", imagem=imagem_console(), extras=extras) as m:
         esperar(m, r"sagui:/\$", 120)
-        out = m.comando("ajuda reproductor")
+        out = m.comando("ayuda reproductor")
         verificar("reproductor" in out and "MJPEG" in out, "ajuda reproductor explica el uso")
         m.comando("montar usb0p1")
 

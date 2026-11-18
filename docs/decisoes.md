@@ -20757,3 +20757,77 @@ sin enlazar, sin `long long` ni `struct` por valor ni `goto`): se porta **TCC** 
   la IA, un color), `docs/aoen-modificar.md`. Prueba `tests/h392_tcc.py` (PC y SaguiOS; capturas H392-*).
 - **Fuera de mi terreno:** `userland/inc/sagui.h` (`NULL` con `#ifndef`: TCC avisa si se redefine distinto; nada cambia con
   gcc) y una línea en el `Makefile` (incluir `tcc.mk`, `priv_descargas`).
+
+## D385. El Terminal con mejor formato, «ayuda» en vez de «ajuda», ls en columnas y ~/.sagshrc (decidido el 2026-11-18; v8.5.4.10, rama `v8.5.4.10-terminal`)
+
+Pedido del mantenedor: «el terminal como formato está un poco raro; en vez de ajuda, ayuda; dale una vuelta», y después «ls se
+ve un poco mal» y un fichero de arranque del shell en el home. Diagnóstico con capturas (`docs/capturas/H393-antes-*.png`):
+texto pegado al borde (4 px) y sin aire entre filas; un **cursor fantasma** al final de cada orden anterior (el LF movía el
+cursor sin redibujar la fila vieja); sin barra de desplazamiento; `ajuda` en dos columnas fijas que se rompían con las
+descripciones largas (palabras partidas, `frecuencia/frequenciafrecuencia`); `ls` de un archivo por línea con «N bytes
+programa» (300 líneas para `/bin`); saludo técnico con el pid y en portugués; `seq 1 20000` en 2,7 s. Los `[SAGUI]` del kernel
+no llegan a la ventana (solo a la serie). Detalle en `docs/terminal.md` («Formato del Terminal y del shell»).
+
+- **Terminal** (`userland/programas/terminal.c`): márgenes de 8 px (izquierda) y 6 (arriba y abajo); interlineado de 2 px por
+  defecto (filas de 18 con la letra interna), en Preferencias y en `terminal.conf` (`interlineado=0..8`); barra de
+  desplazamiento fina a la derecha (solo con historial; clic = una página, arrastrar), Mayús+RePág/AvPág; se sigue el cursor
+  dibujado para no dejar fantasmas; F1 y el menú abren `/ayuda/terminal.md` (F1 solo fuera del modo xterm, que es de ssh/vim);
+  la copia a la serie quita también `CSI ... t`. Las pruebas que leen la pantalla toman la geometría de `tests/qemu.py`
+  (`TERM_MX`, `TERM_MY`, `TERM_FILA`, `TERM_DY` y `texto_terminal()`).
+- **Rendimiento**: el Terminal lee lo que haya (hasta 64 KB o 25 ms) antes de dibujar y **cede el turno** cuando el tubo de
+  512 bytes del terminal virtual se vacía: antes el escritor solo lo rellenaba en el siguiente tic (512 bytes cada 10 ms).
+  No se toca `PIPE_TAM` ni el kernel.
+- **Tamaño para los programas**: sin llamada al sistema nueva (no se toca la ABI). sagsh pregunta `ESC [ 18 t` antes de cada
+  prompt (modo crudo) y exporta `COLUMNS` y `LINES`; lo tecleado mientras tanto se guarda; tras tres veces sin respuesta no
+  se vuelve a preguntar. Mientras edita la línea enciende el modo 2048 (aviso de tamaño «in-band» de foot/kitty/contour) y el
+  Terminal le manda `CSI 48 ; filas ; columnas ; 0 ; 0 t` al redimensionar; el editor entiende además las teclas CSI de xterm
+  (flechas por SSH). Descartado: una llamada `tamanho_tv` (kernel y ABI para algo que xterm ya resuelve) y que el
+  Terminal escriba en el shell al redimensionar (se mezclaría con lo tecleado).
+- **«ayuda»** (`userland/sagsh/ayuda.c`, antes `ajuda.c`): por secciones (Archivos y carpetas, Texto, Procesos y sistema,
+  Energía, Discos y USB, Red, Comprimir, Sonido, Programación, Programas con ventana, Juegos, El shell), en columnas al ancho de
+  `COLUMNS`, descripciones de 24 letras como mucho, explicaciones partidas por palabras; `ayuda alias`. Los identificadores
+  siguen en portugués (`interno_ajuda`), como manda la convención.
+- **Nombres en español**: cada orden con alias en español (`listar`, `donde`, `borrar`, `crear-carpeta`, `borrar-carpeta`,
+  `contar`, `cabeza`, `cola`, `buscar`, `encontrar`, `espacio`, `cual`, `arbol`, `secuencia`, `encendido`, `libre`, `quien`,
+  `si`, `diferencia`, `procesos`, `limpiar`, `fecha`, `hola`, `fallo`, `archivos`) y `salir`/`ayuda` como nombres; los de antes
+  en portugués (`ajuda`, `sair`, `limpar`, `conta`, `procurar`...) siguen funcionando, ocultos (tabla `antigos[]`), para no
+  romper scripts. `apagar` (antes alias de rm) sin argumentos ya no hace nada y explica `apagar-pc` / `borrar`: en español
+  «apagar» es apagar el equipo. Los binarios no cambian de nombre (`/bin/data`, `/bin/arquivos`).
+- **ls** (`userland/programas/ls.c`): en el terminal, columnas de arriba abajo al ancho de `COLUMNS`, carpetas primero y en
+  color (azul carpetas, verde programas, magenta imagen/sonido/vídeo, rojo comprimidos; SaguiOS no tiene enlaces simbólicos);
+  orden alfabético sin distinguir mayúsculas ni acentos Latin-1; `-l` alineado (permisos, dueño, grupo, fecha, tamaño, nombre:
+  el orden de antes, que leen las pruebas), `-h`, `-a`; `-s` es el formato de antes (nombre, bytes, «programa»);
+  `--sin-agrupar`. En tuberías, archivos y con `-1`: un nombre por línea, sin agrupar ni colores. Las pruebas que leían «N bytes»
+  usan ahora `ls -s` (b5, b7, b8, h69, h74, h80, h387) o `ls -1`.
+- **~/.sagshrc**: sagsh lee `/etc/sagshrc` y luego `$HOME/.sagshrc` (alias, variables, PS1, funciones, órdenes); un error de
+  sintaxis avisa y el shell se abre con lo hecho hasta ahí, un `exit` se ignora; `sagsh --sin-rc` (o `--norc`) no lee ninguno.
+  El ejemplo comentado es `/etc/skel/.sagshrc`: lo copia `conta_criar` a las cuentas nuevas y sagsh la primera vez en un
+  terminal si no hay ninguno (marca `~/.config/sagshrc-ejemplo` para no recrearlo; nunca en imágenes de prueba). `ll` pasa a
+  ser `ls -l` y hay `la` en `/etc/sagshrc`.
+- **Arreglo de paso**: las Preferencias mostraban el color como «%X» y `terminal.conf` guardaba los colores del tema
+  personalizado como «fondo=%X» (se perdían): `formatar_texto` no tiene `%X`; ahora `%06x`.
+- **Medidas** (KVM, `time seq 1 20000` dentro del Terminal): 2,12 s antes, 1,68 s con la lectura por lotes. Lo que quedaba
+  era casi todo la **copia a la serie** del Terminal (`copiar_serie`): `serial_char` esperaba a la UART byte a byte (dos accesos
+  a puertos por byte; en KVM, dos salidas de la máquina virtual). **En un PC real con COM1 a 38400 baudios eso limitaba la salida
+  del Terminal a unos 3,8 KB/s.**
+- **La copia al serie, opcional** (pedido del mantenedor): opción del kernel `serie_terminal` (hueco 15 de kconf; byte 164 de la
+  cabecera, `CAB_TERM_OPC`, bit 0 = sin copia; `kconfig serie_terminal=si|no`, solo administrador, vale al reiniciar; también en
+  Configuración > Pantalla > Kernel). El Terminal la lee al abrirse (`INFO_KCONF`, valor efectivo) y lo anota en el registro;
+  el kernel no hace nada más con ella. **Apagada** en todas las imágenes que hace `mkimagem.py` (las de `make` y `make
+  variantes`: opción `--sin-serie-terminal`, por defecto), **encendida** en las de prueba: `mkimagem.py` con
+  `SAGUI_PRUEBA_USUARIOS=1` (lo pone `tests/qemu.py`, como D371) y la copia de la imagen normal que usan las pruebas
+  (`imagem_sesion_root`, ahora también con `SAGUI_SESION_ROOT=0`: `build/testes/saguios-prueba.img`). Una imagen anterior
+  (byte 164 a cero) la tiene encendida, como antes. `run_in_qemu.sh` usa la normal: sin la copia (se enciende con kconfig).
+  h58 copiaba la imagen normal a mano: ahora copia la de prueba.
+- **La UART con FIFO**: `serial_char` ya no lee el registro de línea antes de cada byte: con una 16550A (se comprueba en el IIR al
+  iniciar) caben 16 bytes cada vez que dice «vacío»; sin FIFO, uno, como antes. La cuenta y el byte van sin interrupciones (un
+  `klog` desde una interrupción no gasta los mismos huecos). Descartado por ahora: serie con búfer y vaciado por interrupción
+  (cambia el orden respecto al registro y lo que se ve en un pánico) y subir a 115200 baudios (cambia lo que espera quien
+  escucha el puerto); en hardware real la copia sigue limitada por los baudios, por eso va apagada.
+- **Medidas con la opción** (KVM, del Intro al aviso «(seq) terminou» del kernel, tres veces): copia **encendida** 1,95 s sin la
+  FIFO y **1,1 s** con ella; copia **apagada 0,04 s** (casi 50 veces menos).
+- **Pendiente**: «reflow» de las líneas al redimensionar; los catálogos de traducción solo cambian en `libsagui` (los dos textos
+  de `serie_terminal`, traducidos a en y pt_BR; `terminal.c`, `ls.c` y sagsh no usan `_()`); el README ya dice `ayuda`, falta
+  pasarlo a README_PT y README_EN (trabajador-haiku); la ayuda de `ia` sigue en portugués; la consola de texto del kernel no tiene interlineado ni barra.
+- **Pruebas**: `tests/h393_terminal.py` (nueva) y las que leen el Terminal o usan `ajuda`/`ls`: h09, h16, h24, h42, h45, h74,
+  h231, h263, h320, h368, b5, b7, b8, h69, h80, h387; con la opción del serie, h58.

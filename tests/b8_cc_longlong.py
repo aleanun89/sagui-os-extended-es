@@ -71,7 +71,7 @@ def main():
         # Um programa sem long long não leva a biblioteca de 64 bits.
         out = m.comando("cc /ejemplos/hola.c -o hola", tempo=150)
         verificar("(cc) terminou com codigo 0" in out, "cc compila /ejemplos/hola.c")
-        out = m.comando("ls")
+        out = m.comando("ls -s")
         tam = re.search(r"^hola\s+(\d+) bytes", out, re.M)
         print(f"    hola: {tam.group(1) if tam else '?'} bytes")
         verificar(tam and int(tam.group(1)) < 8000, "hola.c continua pequeno (a biblioteca de 64 bits só entra se for preciso)")

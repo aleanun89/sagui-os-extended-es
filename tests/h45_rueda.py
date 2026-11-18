@@ -20,7 +20,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, cor_do_pixel, ler_ppm, reconhecer_texto, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, cor_do_pixel, ler_ppm, texto_terminal, SAIDA, TERM_MX, TERM_MY  # noqa: E402
 from h36_vmmouse import Qmp, ABS_MAX  # noqa: E402
 
 BORDA, TITULO = 2, 24
@@ -70,8 +70,7 @@ def texto_janela(m, j, x, y, cols, lins):
     time.sleep(0.2)
     larg, _, px = ler_ppm(ppm)
     x0, y0 = j["x"] + BORDA + x, j["y"] + TITULO + y
-    recorte = b"".join(px[((y0 + k) * larg + x0) * 3:((y0 + k) * larg + x0 + cols * 8) * 3] for k in range(lins * 16))
-    return reconhecer_texto(cols * 8, lins * 16, recorte)
+    return texto_terminal(px, larg, x0, y0, cols, lins)
 
 
 def parte_ps2():
@@ -104,13 +103,13 @@ def parte_ps2():
         verificar(g[0] == "36", f"más arriba en el historial: {g[0]} líneas")
         time.sleep(0.5)
         m.captura("H45-1-terminal-historial")
-        tela = texto_janela(m, t, 4, 4, 94, 28)
+        tela = texto_janela(m, t, TERM_MX, TERM_MY, 94, 28)
         verificar(any("Historial: -36" in l for l in tela), "aviso «Historial: -36» en la esquina")
         verificar(not any("fin del ejemplo" in l and "echo" not in l for l in tela),
                   "volviendo atrás, la salida reciente ya no se ve")
         m.tecla("spc")
         time.sleep(0.6)
-        tela = texto_janela(m, t, 4, 4, 94, 28)
+        tela = texto_janela(m, t, TERM_MX, TERM_MY, 94, 28)
         verificar(not any("Historial" in l for l in tela) and any("fin del ejemplo" in l for l in tela),
                   "una tecla vuelve abajo (la salida reciente otra vez a la vista)")
         m.tecla("backspace")

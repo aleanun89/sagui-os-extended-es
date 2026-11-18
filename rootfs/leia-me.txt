@@ -8,46 +8,50 @@ arranque solo se lee una vez, cuando se enciende el ordenador.
 Cómo usar el terminal
 ---------------------
 
-El terminal es sagsh, un programa normal. Escribe un comando y pulsa Intro.
-Cada comando tiene también un alias en portugués:
+El terminal es sagsh, un programa normal. Escribe una orden y pulsa Intro.
+Muchas órdenes tienen también un nombre en español («ayuda alias» los lista):
 
-  ajuda              lista todos los comandos (ajuda <comando> explica uno)
-  ls / listar        muestra los archivos de la carpeta actual
+  ayuda              lista las órdenes por secciones (ayuda <orden> explica una)
+  ls / listar        muestra los archivos de la carpeta actual, en columnas
   cd / entrar        entra en una carpeta (cd .. sube una)
   cat / ver          muestra el contenido de un archivo
   echo / eco         escribe un texto (echo hola > tmp/a.txt lo guarda)
-  cp, mv, rm         copia, mueve y borra archivos
+  cp, mv, rm         copia, mueve y borra archivos (rm también es «borrar»)
   mkdir, rmdir       crea y borra carpetas
-  wc / conta         cuenta líneas, palabras y letras
-  ps / processos     muestra los programas en ejecución
+  wc / contar        cuenta líneas, palabras y letras
+  ps / procesos      muestra los programas en ejecución
   kill / matar       termina un programa
   mem, data, sobre   memoria, fecha y hora, y acerca del sistema
   contador 10 &      cuenta 10 segundos en segundo plano
   falha              provoca un error a propósito (solo muere el programa)
-  limpar, reiniciar, sair
+  clear (limpiar), reiniciar, salir
 
-Trucos: comando > archivo, comando >> archivo, comando < archivo,
-comando1 | comando2 (ej.: ls bin | conta), la flecha arriba repite
-comandos, Tab completa nombres, Ctrl+C para un programa (en la ventana
+Los nombres en portugués de las versiones anteriores (ajuda, conta, limpar,
+sair...) siguen funcionando.
+
+Trucos: orden > archivo, orden >> archivo, orden < archivo,
+orden1 | orden2 (ej.: ls bin | contar), la flecha arriba repite
+órdenes, Tab completa nombres, Ctrl+C para un programa (en la ventana
 Terminal).
 
 El lenguaje del shell
 ---------------------
 
-sagsh entiende lo esencial de sh/bash (ajuda sh lo resume):
+sagsh entiende lo esencial de sh/bash (ayuda sh lo resume):
 
   x=5; echo "x vale $x"            variables (export x: la ven los programas)
   ls /noexiste || echo fallo       && y || según el resultado ($? lo guarda)
   for f in /ejemplos/*.c; do echo $f; done
   if [ -d /tmp ]; then echo si; else echo no; fi
-  n=$(ls /bin | conta); echo $((2 + 3 * 4))
+  n=$(ls /bin | contar); echo $((2 + 3 * 4))
   saluda() { echo "hola $1"; }; saluda Tito
   cat <<FIN                        here-doc: el texto hasta la línea FIN
   sagsh /ejemplos/hola.sh Ana      scripts (o un archivo que empiece por
                                    #!/bin/sh: /ejemplos/funciones.sh)
 
 Si una línea queda abierta (comillas, if sin fi...), sagsh pide el resto
-con "> ". El archivo /etc/sagshrc se lee al abrir el shell (alias, PS1...).
+con "> ". Al abrir el shell se leen /etc/sagshrc y tu ~/.sagshrc (alias,
+PS1, variables...): el de ejemplo está en /etc/skel/.sagshrc.
 
 Programar en SaguiOS
 --------------------

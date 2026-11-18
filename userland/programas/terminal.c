@@ -60,10 +60,18 @@
 #include "fontes.h"
 #include "terminal_logica.h"
 #include "terminal_vt.h"
+#include "opcoes_kernel.h"
 
 #define COLS_MAX TL_COLS_MAX
 #define LINS_MAX TL_LINS_MAX
-#define MARGEM 4
+/* D385: márgenes interiores (el texto ya no va pegado al borde) y, a la derecha, la barra de desplazamiento
+ * del historial. Las pruebas que leen la pantalla los tienen en tests/qemu.py (TERM_MX, TERM_MY). */
+#define MARGEM_E 8                  /* izquierda */
+#define MARGEM_V 6                  /* arriba y abajo */
+#define ROL_L    6                  /* ancho de la barra de desplazamiento */
+#define MARGEM_D (ROL_L + 6)        /* derecha: 3 px, la barra y 3 px */
+#define MARGEM_H (MARGEM_E + MARGEM_D)
+#define LER_BUF  4096               /* D385: lo que se lee del shell de una vez */
 #define BARRA_A 26
 #define MAX_SESSOES 8
 #define COR_BUSCA 0xE5C07B
@@ -100,7 +108,8 @@ static bool barra_suja;
 static fonte_t *fnt;
 static char fonte_rota[96];
 static int fonte_px = 16;
-static int celL = LETRA_L, celA = LETRA_A, y0 = MARGEM;
+static int celL = LETRA_L, celA = LETRA_A, y0 = MARGEM_V;
+static int dy_letra;                           /* D385: la letra baja la mitad del interlineado dentro de la fila */
 
 static unsigned t_cursor, t_titulos, t_campana;
 static bool cursor_aceso = true, inverso;
@@ -148,10 +157,8 @@ static void conf_gravar(void)
 /* ------------------------------------------------------------ fuente */
 
 /* Abre la fuente de fonte_rota con fonte_px y calcula la celda; si no sirve, vuelve a la interna. */
-static void fonte_aplicar(void)
+static void fonte_abrir_vetorial(void)
 {
-    if (fnt) { fonte_fechar(fnt); fnt = NULL; }
-    celL = LETRA_L; celA = LETRA_A;
     if (!fonte_rota[0]) return;
     if (fonte_px < TL_PX_MIN) fonte_px = TL_PX_MIN;
     if (fonte_px > TL_PX_MAX) fonte_px = TL_PX_MAX;
@@ -160,6 +167,16 @@ static void fonte_aplicar(void)
     int l = (fonte_avanco(f, 'M', fonte_px) + 32) >> 6, a = fonte_altura_normal(f, fonte_px);
     if (l < 5 || a < 9) { fonte_fechar(f); fonte_rota[0] = 0; return; }
     fnt = f; celL = l; celA = a;
+}
+
+/* La celda: la de la letra (interna 8x16 o vectorial) más el interlineado (D385). */
+static void fonte_aplicar(void)
+{
+    if (fnt) { fonte_fechar(fnt); fnt = NULL; }
+    celL = LETRA_L; celA = LETRA_A;
+    fonte_abrir_vetorial();
+    dy_letra = conf.inter / 2;
+    celA += conf.inter;
 }
 
 /* ¿El nombre de familia parece de una fuente monoespaciada? */
@@ -187,10 +204,13 @@ static sessao_t *sa;
 /* D263: con un shell de root en la pestaña activa la barra se ve siempre (con la franja ADMINISTRADOR). */
 static bool barra_visivel(void) { return nsess > 1 || conf.barra_siempre || (sa && sa->raiz); }
 
-static void calcular_y0(void) { y0 = MARGEM + (barra_visivel() ? BARRA_A : 0); }
+static void calcular_y0(void) { y0 = MARGEM_V + (barra_visivel() ? BARRA_A : 0); }
 
+static bool rol_forcar = true;                 /* D385: redibujar la barra de desplazamiento */
 static void sujar(int l) { if (l < suj_l0) suj_l0 = l; if (l > suj_l1) suj_l1 = l; }
-static void sujar_tudo(void) { for (int l = 0; l < LINS; l++) sujar(l); }
+static void sujar_tudo(void) { for (int l = 0; l < LINS; l++) sujar(l); rol_forcar = true; }
+static int rol_x(void) { return j->larg - 3 - ROL_L; }
+static void rol_ir(int volta);
 
 /* ------------------------------------------------------------ historial y sesión */
 
@@ -289,6 +309,7 @@ static void rodar(int entalhes)
 
 static void cel_texto(int x, int y, const char *t, int n, uint32_t cor)
 {
+    y += dy_letra;
     if (!fnt) { g_texto_n(j, x, y, t, n, cor); return; }
     for (int i = 0; i < n; i++)
         if (t[i] != ' ') fonte_texto_buf_n(fnt, j->px, j->larg, j->alt, x + i * celL, y, &t[i], 1, fonte_px, cor);
@@ -368,7 +389,7 @@ static void desenhar_linha(int l)
     ch = lc;
     int y = y0 + l * celA;
     uint32_t fundo = inverso ? conf.letra : conf.fundo;
-    g_retangulo(j, 0, y, j->larg, celA, fundo);
+    g_retangulo(j, 0, y, rol_x() - 3, celA, fundo);   /* la columna de la barra la pinta desenhar_rolagem */
     for (int c = 0; c < COLS;) {
         uint32_t fg, bg, fg2, bg2;
         cores(l, c, at[c], &fg, &bg);
@@ -378,8 +399,8 @@ static void desenhar_linha(int l)
             if (fg2 != fg || bg2 != bg) break;
             e++;
         }
-        if (bg != fundo) g_retangulo(j, MARGEM + c * celL, y, (e - c) * celL, celA, bg);
-        cel_texto(MARGEM + c * celL, y, ch + c, e - c, fg);
+        if (bg != fundo) g_retangulo(j, MARGEM_E + c * celL, y, (e - c) * celL, celA, bg);
+        cel_texto(MARGEM_E + c * celL, y, ch + c, e - c, fg);
         c = e;
     }
     if (especial) {
@@ -387,20 +408,20 @@ static void desenhar_linha(int l)
             if (!(at[c] & (TL_AT_DEC | TL_AT_SUBRAYA))) continue;
             uint32_t fg, bg;
             cores(l, c, at[c], &fg, &bg);
-            if (at[c] & TL_AT_DEC) { int b; dec_letra(orig[c], &b); if (b) dibujar_dec(MARGEM + c * celL, y, b, fg, bg); }
-            if (at[c] & TL_AT_SUBRAYA) g_retangulo(j, MARGEM + c * celL, y + celA - 1, celL, 1, fg);
+            if (at[c] & TL_AT_DEC) { int b; dec_letra(orig[c], &b); if (b) dibujar_dec(MARGEM_E + c * celL, y, b, fg, bg); }
+            if (at[c] & TL_AT_SUBRAYA) g_retangulo(j, MARGEM_E + c * celL, y + dy_letra + celA - conf.inter - 1, celL, 1, fg);
         }
     }
     if (!sa->volta && l == sa->vt.lin && sa->vt.col < COLS && !sa->vt.cur_oculto && (!conf.parpadeo || cursor_aceso)) {
-        if (conf.cursor == TL_CUR_SUBLINHADO) g_retangulo(j, MARGEM + sa->vt.col * celL, y + celA - 2, celL, 2, conf.cursor_cor);
-        else if (conf.cursor == TL_CUR_BARRA) g_retangulo(j, MARGEM + sa->vt.col * celL, y, 2, celA, conf.cursor_cor);
+        if (conf.cursor == TL_CUR_SUBLINHADO) g_retangulo(j, MARGEM_E + sa->vt.col * celL, y + celA - 2, celL, 2, conf.cursor_cor);
+        else if (conf.cursor == TL_CUR_BARRA) g_retangulo(j, MARGEM_E + sa->vt.col * celL, y, 2, celA, conf.cursor_cor);
     }
     if (sa->volta && l == 0) {   /* aviso en la esquina: cuánto se volvió */
         char t[40];
         formatar_texto(t, sizeof t, " Historial: -%d ", sa->volta);
-        int w = g_largura_texto(t), x = j->larg - MARGEM - w;
-        g_retangulo(j, x, y, w, LETRA_A, COR_DESTAQUE);
-        g_texto(j, x, y, t, COR_BRANCO);
+        int w = g_largura_texto(t), x = MARGEM_E + COLS * celL - w;   /* alineado con la rejilla del texto */
+        g_retangulo(j, x, y, w, celA, COR_DESTAQUE);
+        g_texto(j, x, y + dy_letra, t, COR_BRANCO);
     }
 }
 
@@ -494,22 +515,76 @@ static void desenhar_busca(void)
     g_retangulo(j, 0, y, j->larg, 1, COR_DESTAQUE);
     char t[100];
     formatar_texto(t, sizeof t, "Buscar: %s_", busca);
-    g_texto(j, MARGEM + 4, y + 5, t, conf.letra);
+    g_texto(j, MARGEM_E, y + 5, t, conf.letra);
     const char *dica = !busca[0] ? "Intro: anterior  Mayús+Intro: siguiente  Esc: cerrar"
                        : busca_ok ? "" : "no encontrado";
     int w = g_largura_texto(dica);
-    if (w) g_texto(j, j->larg - w - MARGEM - 4, y + 5, dica, busca_ok || !busca[0] ? tl_misturar(conf.letra, conf.fundo, 50) : 0xE06C6C);
+    if (w) g_texto(j, j->larg - w - MARGEM_D, y + 5, dica, busca_ok || !busca[0] ? tl_misturar(conf.letra, conf.fundo, 50) : 0xE06C6C);
     jan_mostrar_area(j, 0, y, j->larg, a);
+}
+
+/* D385: la barra de desplazamiento del historial, en la columna de la derecha. Solo se ve si hay historial
+ * (y no en la pantalla alternativa de vim o htop). El tamaño del «pulgar» es la parte que se ve. */
+static bool rol_arrastrando;
+static int rol_desvio, rol_visto[3] = { -1, -1, -1 };
+
+static bool rol_visivel(void) { return sa && sa->hist_n > 0 && !sa->vt.alt; }
+
+static void rol_geom(int *ty, int *th, int *py, int *ph)
+{
+    int total = sa->hist_n + LINS;
+    *ty = y0; *th = LINS * celA;
+    *ph = *th * LINS / total;
+    if (*ph < 16) *ph = 16;
+    if (*ph > *th) *ph = *th;
+    int topo = sa->hist_n - sa->volta;   /* primera línea a la vista, en el documento (historial + grilla) */
+    *py = *ty + (sa->hist_n > 0 ? (int)((long long)(*th - *ph) * topo / sa->hist_n) : 0);
+}
+
+static void desenhar_rolagem(void)
+{
+    bool vis = rol_visivel();
+    int est[3] = { vis ? sa->hist_n : -1, vis ? sa->volta : -1, LINS * 1000 + (rol_arrastrando ? 1 : 0) };
+    if (!rol_forcar && est[0] == rol_visto[0] && est[1] == rol_visto[1] && est[2] == rol_visto[2]) return;
+    rol_forcar = false;
+    for (int i = 0; i < 3; i++) rol_visto[i] = est[i];
+    int x = rol_x(), ty, th, py, ph;
+    if (sa) rol_geom(&ty, &th, &py, &ph); else { ty = y0; th = LINS * celA; py = ty; ph = th; }
+    g_retangulo(j, x - 3, ty, ROL_L + 6, th, conf.fundo);
+    if (vis) {
+        g_retangulo(j, x, ty, ROL_L, th, tl_misturar(conf.fundo, conf.letra, 8));
+        uint32_t c = tl_misturar(conf.fundo, conf.letra, rol_arrastrando ? 70 : sa->volta ? 55 : 32);
+        g_retangulo(j, x + 1, py + 1, ROL_L - 2, ph - 2, c);
+        g_retangulo(j, x + 2, py, ROL_L - 4, ph, c);   /* esquinas algo redondeadas */
+    }
+    jan_mostrar_area(j, x - 3, ty, ROL_L + 6, th);
+}
+
+/* D385: dónde se dibujó el cursor por última vez. Al moverse (un salto de línea, ESC [ D del editor de
+ * línea) hay que redibujar también la línea vieja, o queda un cursor «fantasma» (pasaba antes). */
+static int cur_l_visto = -1, cur_c_visto = -1;
+static bool cur_oculto_visto;
+
+static void seguir_cursor(void)
+{
+    if (!sa) return;
+    int l = sa->volta ? -1 : sa->vt.lin, c = sa->vt.col;
+    if (l == cur_l_visto && c == cur_c_visto && sa->vt.cur_oculto == cur_oculto_visto) return;
+    if (cur_l_visto >= 0 && cur_l_visto < LINS) sujar(cur_l_visto);
+    if (l >= 0 && l < LINS) sujar(l);
+    cur_l_visto = l; cur_c_visto = c; cur_oculto_visto = sa->vt.cur_oculto;
 }
 
 static void mostrar(void)
 {
+    seguir_cursor();
     if (suj_l1 >= 0) {
         for (int l = suj_l0; l <= suj_l1; l++) desenhar_linha(l);
         jan_mostrar_area(j, 0, y0 + suj_l0 * celA, j->larg, (suj_l1 - suj_l0 + 1) * celA);
         suj_l0 = LINS_MAX; suj_l1 = -1;
         if (busca_ativa) desenhar_busca();
     }
+    if (sa) desenhar_rolagem();
     if (barra_suja) desenhar_barra();
 }
 
@@ -550,11 +625,26 @@ static void osc(sessao_t *s)
     reavaliar_barra(tinha);
 }
 
+/* D385: ¿se copia la salida al puerto serie? Opción del kernel «serie_terminal» (kconfig): las imágenes de serie la
+ * llevan apagada, porque en un PC con COM1 la copia espera a la UART byte a byte (unos 3,8 KB/s); las de prueba,
+ * encendida (las pruebas leen el Terminal por el serie). Un kernel que no la conoce: encendida, como antes. */
+static bool copia_serie = true;
+
+static void ler_copia_serie(void)
+{
+    static info_kconf_t v[32];
+    int n = kconf_ler(v, 32, NULL);
+    for (int i = 0; i < n; i++)
+        if (compara_texto(v[i].nome, "serie_terminal") == 0) copia_serie = v[i].efetivo != 0;
+}
+
 /* La copia a la serial (lo que leen las pruebas y SSH de depuración) no lleva colores ni títulos
- * (D263): se quitan ESC [ ... m y las OSC; el resto de secuencias (cursor, borrado) pasa como siempre. */
+ * (D263): se quitan ESC [ ... m, ESC [ ... t y las OSC; el resto de secuencias (cursor, borrado) pasa como
+ * siempre. */
 static void copiar_serie(sessao_t *s, const char *b, int n)
 {
-    char o[512 + 32];
+    if (!copia_serie) return;
+    static char o[LER_BUF + 32];
     int m = 0;
     for (int k = 0; k < n; k++) {
         unsigned char c = (unsigned char)b[k];
@@ -567,7 +657,9 @@ static void copiar_serie(sessao_t *s, const char *b, int n)
             else { s->se = 0; memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
         } else if (s->se == 2) {   /* CSI: parámetros hasta el final */
             if (c >= 0x40 && c <= 0x7E) {
-                if (c != 'm') { memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
+                /* D385: tampoco la pregunta del tamaño (ESC [ 18 t) ni el modo 2048 que sagsh pone en cada prompt */
+                bool m2048 = (c == 'h' || c == 'l') && s->sn == 7 && memcmp(s->sp + 2, "?2048", 5) == 0;
+                if (c != 'm' && c != 't' && !m2048) { memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
                 s->se = 0;
             } else if (s->sn < (int)sizeof s->sp - 1) s->sp[s->sn++] = (char)c;
             else { s->se = 0; memcpy(o + m, s->sp, (size_t)s->sn); m += s->sn; o[m++] = (char)c; }
@@ -611,12 +703,14 @@ static void receber(sessao_t *s, unsigned char c)
 static void novo_tamanho(bool avisar)
 {
     calcular_y0();
-    int nc = (j->larg - 2 * MARGEM) / celL, nl = (j->alt - y0 - MARGEM) / celA;
+    int nc = (j->larg - MARGEM_H) / celL, nl = (j->alt - y0 - MARGEM_V) / celA;
     nc = limitar(nc, 1, COLS_MAX);
     nl = limitar(nl, 1, LINS_MAX);
     for (int i = 0; i < nsess; i++) {
         sessao_t *s = sess[i];
+        bool mudou = s->vt.cols != nc || s->vt.lins != nl;
         vt_redimensionar(&s->vt, nc, nl);
+        if (mudou && s->vt.aviso_tam) vt_aviso_tamanho(&s->vt);   /* D385: el prompt de sagsh lo pide (modo 2048) */
         s->sel_ativa = s->selecionando = false;
         if (s->volta > s->hist_n) s->volta = s->hist_n;
     }
@@ -633,7 +727,7 @@ static void novo_tamanho(bool avisar)
 
 static void tamanho_minimo(void)
 {
-    jan_estilo(j, JAN_REDIMENSIONAVEL, 30 * celL + 2 * MARGEM, 6 * celA + 2 * MARGEM + (barra_visivel() ? BARRA_A : 0));
+    jan_estilo(j, JAN_REDIMENSIONAVEL, 30 * celL + MARGEM_H, 6 * celA + 2 * MARGEM_V + (barra_visivel() ? BARRA_A : 0));
 }
 
 /* ------------------------------------------------------------ sesiones (pestañas) */
@@ -869,9 +963,9 @@ static void selecionar_tudo(void)
 /* Línea y columna de la grilla debajo del mouse. */
 static void celula(int x, int y, int *l, int *c)
 {
-    *l = (y - y0) / celA; *c = (x - MARGEM) / celL;
+    *l = (y - y0) / celA; *c = (x - MARGEM_E) / celL;
     if (y < y0) *l = 0;
-    if (x < MARGEM) *c = 0;
+    if (x < MARGEM_E) *c = 0;
     *l = limitar(*l, 0, LINS - 1);
     *c = limitar(*c, 0, COLS - 1);
 }
@@ -1100,7 +1194,7 @@ typedef struct {
     int        nf;
     bool       todas;
     casilla_t  c_todas, c_parp, c_barra;
-    caixa_t    c_px, c_cols, c_lins, c_hist, c_hex;
+    caixa_t    c_px, c_cols, c_lins, c_hist, c_hex, c_inter;
     botao_t    b_cur, b_camp, b_ok, b_apl, b_can;
     int        item;           /* color elegido: 0..15 ANSI, 16 fondo, 17 letra, 18 cursor, 19 selección */
     fonte_t   *pf;             /* la fuente de la vista previa */
@@ -1148,7 +1242,7 @@ static void prefs_desenhar(void)
     /* vista previa */
     g_retangulo(w, PV_X, PV_Y, PV_W, PV_H, c->fundo);
     g_moldura(w, PV_X - 1, PV_Y - 1, PV_W + 2, PV_H + 2, COR_BORDA);
-    int lh = p->pf ? fonte_altura_normal(p->pf, c->fpx) : LETRA_A, cl = p->pf ? (fonte_avanco(p->pf, 'M', c->fpx) + 32) >> 6 : LETRA_L;
+    int lh = (p->pf ? fonte_altura_normal(p->pf, c->fpx) : LETRA_A) + c->inter, cl = p->pf ? (fonte_avanco(p->pf, 'M', c->fpx) + 32) >> 6 : LETRA_L;
     int x = PV_X + 8, y = PV_Y + 6;
     prefs_texto_prev(x, y, "sagui:/home$ ls", c->letra);
     y += lh;
@@ -1184,6 +1278,8 @@ static void prefs_desenhar(void)
     rotulo(w, PV_X, 258, "Columnas", COR_TEXTO);
     rotulo(w, PV_X + 150, 258, "Filas", COR_TEXTO);
     rotulo(w, PV_X, 292, "Historial (líneas)", COR_TEXTO);
+    rotulo(w, PV_X + 236, 292, "Interlineado", COR_TEXTO);
+    caixa_desenhar(w, &p->c_inter);
     caixa_desenhar(w, &p->c_hex);
     caixa_desenhar(w, &p->c_cols);
     caixa_desenhar(w, &p->c_lins);
@@ -1194,7 +1290,7 @@ static void prefs_desenhar(void)
     rotulo(w, PV_X + 20, 364, "Cursor parpadeante", COR_TEXTO);
     casilla_desenhar(w, &p->c_barra);
     rotulo(w, PV_X + 20, 388, "Barra de pestañas siempre visible", COR_TEXTO);
-    rotulo(w, PV_X, 424, "Tamaño, historial y barra valen para ventanas y pestañas nuevas.", COR_TEXTO_FRACO);
+    rotulo(w, PV_X, 424, "Tamaño, historial y barra: para ventanas nuevas.", COR_TEXTO_FRACO);
     botao_desenhar(w, &p->b_ok);
     botao_desenhar(w, &p->b_apl);
     botao_desenhar(w, &p->b_can);
@@ -1213,7 +1309,7 @@ static void prefs_botoes_texto(void)
 static void prefs_hex_da_cor(void)
 {
     char h[8];
-    formatar_texto(h, sizeof h, "%06X", (unsigned)*cor_do_item(&pf->ed, pf->item));
+    formatar_texto(h, sizeof h, "%06x", (unsigned)*cor_do_item(&pf->ed, pf->item));   /* D385: no hay «%X» */
     caixa_definir(&pf->c_hex, h);
 }
 
@@ -1253,6 +1349,7 @@ static void prefs_ler_campos(void)
     pf->ed.cols = tl_num(pf->c_cols.texto, TL_COLS_MIN, TL_COLS_MAX, pf->ed.cols);
     pf->ed.lins = tl_num(pf->c_lins.texto, TL_LINS_MIN, TL_LINS_MAX, pf->ed.lins);
     pf->ed.hist = tl_num(pf->c_hist.texto, 0, TL_HIST_MAX, pf->ed.hist);
+    pf->ed.inter = tl_num(pf->c_inter.texto, 0, TL_INTER_MAX, pf->ed.inter);
     pf->ed.parpadeo = pf->c_parp.marcada;
     pf->ed.barra_siempre = pf->c_barra.marcada;
     uint32_t cor;   /* un color escrito y no confirmado con Intro también cuenta */
@@ -1315,6 +1412,8 @@ static void prefs_abrir(void)
     formatar_texto(b, sizeof b, "%d", conf.lins); caixa_definir(&pf->c_lins, b);
     pf->c_hist = (caixa_t){ .x = PV_X + 140, .y = 288, .l = 80 };
     formatar_texto(b, sizeof b, "%d", conf.hist); caixa_definir(&pf->c_hist, b);
+    pf->c_inter = (caixa_t){ .x = PV_X + 344, .y = 288, .l = 44 };
+    formatar_texto(b, sizeof b, "%d", conf.inter); caixa_definir(&pf->c_inter, b);
     pf->c_hex = (caixa_t){ .x = PV_X, .y = 210, .l = 100 };
     pf->item = 17;
     prefs_hex_da_cor();
@@ -1363,8 +1462,8 @@ static void prefs_evento(const evento_t *e)
             }
         }
     }
-    caixa_t *cs[5] = { &p->c_px, &p->c_cols, &p->c_lins, &p->c_hist, &p->c_hex };
-    for (int i = 0; i < 5; i++) {
+    caixa_t *cs[6] = { &p->c_px, &p->c_cols, &p->c_lins, &p->c_hist, &p->c_hex, &p->c_inter };
+    for (int i = 0; i < 6; i++) {
         if (e->tipo == EV_CLIQUE && cs[i] != &p->c_hex) { /* el foco lo decide cada caja */ }
         if (caixa_tratar(p->jp, cs[i], e) && cs[i] == &p->c_hex) {
             uint32_t cor;
@@ -1391,17 +1490,30 @@ static void prefs_evento(const evento_t *e)
 
 /* ------------------------------------------------------------ teclas y ratón de la ventana */
 
+/* D385: la ayuda del Terminal (/ayuda/terminal.md) en el visor de Markdown. */
+static void abrir_ajuda(void)
+{
+    char *a[] = { "markdown", "/ayuda/terminal.md", NULL };
+    int r = executar("/bin/markdown", a);
+    registrar("terminal: ayuda (markdown %d)", r);
+}
+
 /* Atajos del Terminal. true = tratada (no va al shell). */
 static bool atalho(const evento_t *e)
 {
     unsigned t = e->tecla, m = e->modificadores;
     if (busca_ativa) { busca_tecla(e); return true; }
+    if (t == 0x10A && !m && !sa->vt.xterm) { abrir_ajuda(); return true; }   /* F1 (con ssh, vim o htop es suyo) */
     if ((m & 3) == 3) {   /* Ctrl+Mayús+... */
         if (t == 20) { nova_pestana(); return true; }
         if (t == 23) { fechar_pestana(atual, true); return true; }
         if (t == 6) { abrir_busca(); return true; }
         if (t == 3) { copiar(); return true; }
         if (t == 22) { colar(); return true; }
+    }
+    if ((m & 1) && !(m & 6) && (t == TECLA_PGUP || t == TECLA_PGDN) && !sa->vt.alt) {   /* D385: Mayús+RePág/AvPág: historial */
+        rol_ir(sa->volta + (t == TECLA_PGUP ? LINS - 1 : -(LINS - 1)));
+        return true;
     }
     if ((m & 2) && !(m & 4)) {   /* Ctrl solo */
         if (t == TECLA_PGUP) { trocar((atual + nsess - 1) % nsess); return true; }
@@ -1418,7 +1530,7 @@ static bool atalho(const evento_t *e)
 
 #define MENU_PRINCIPAL "Limpiar pantalla\tCtrl+L\n" "Copiar\tCtrl+Mayús+C\n" "Pegar\tCtrl+Mayús+V\n" "Seleccionar todo\n" \
                        "Buscar...\tCtrl+Mayús+F\n-\n" "Nueva pestaña\tCtrl+Mayús+T\n" "Nueva ventana\n-\n" \
-                       "Preferencias...\tCtrl+,\n-\n" "Cerrar pestaña\tCtrl+Mayús+W"
+                       "Preferencias...\tCtrl+,\n-\n" "Cerrar pestaña\tCtrl+Mayús+W\n-\n" "Ayuda del Terminal\tF1"
 
 /* D366: si el programa pidió ratón (CSI ? 1000/1002 h + 1006 h, como htop o vim), el clic y la rueda van
  * a él en formato xterm SGR en vez de seleccionar. Mayús+clic sigue seleccionando; la barra de pestañas es del Terminal. */
@@ -1426,7 +1538,7 @@ static bool rato_para_programa(const evento_t *e, bool roda, int entalhes)
 {
     if (!sa->vt.rato || !sa->vt.rato_sgr || !sa->vt.xterm || (e->modificadores & 1)) return false;
     if (!roda) {
-        if (barra_ponto(e->x, e->y) >= 0 || (e->y < y0 - MARGEM + 1 && barra_visivel())) return false;
+        if (barra_ponto(e->x, e->y) >= 0 || (e->y < y0 - MARGEM_V + 1 && barra_visivel())) return false;
         if (e->tipo == EV_MOVER && (sa->vt.rato < 1002 || !e->botoes)) return true;
     }
     int l, c, b;
@@ -1442,8 +1554,43 @@ static bool rato_para_programa(const evento_t *e, bool roda, int entalhes)
     return true;
 }
 
+/* D385: lleva la vista a «volta» líneas por encima del final. */
+static void rol_ir(int volta)
+{
+    if (volta > sa->hist_n) volta = sa->hist_n;
+    if (volta < 0) volta = 0;
+    if (volta == sa->volta) return;
+    sa->volta = volta;
+    sem_selecao(sa);
+    sujar_tudo();
+}
+
+/* D385: clic y arrastre en la barra de desplazamiento. true = el evento era suyo. */
+static bool rol_rato(const evento_t *e)
+{
+    int ty, th, py, ph;
+    if (rol_arrastrando) {
+        if (e->tipo == EV_SOLTOU || (e->tipo == EV_MOVER && !(e->botoes & 1))) { rol_arrastrando = false; rol_forcar = true; return true; }
+        if (e->tipo == EV_MOVER && rol_visivel()) {
+            rol_geom(&ty, &th, &py, &ph);
+            int rango = th - ph;
+            int topo = rango > 0 ? (int)((long long)(e->y - rol_desvio - ty) * sa->hist_n / rango) : 0;
+            rol_ir(sa->hist_n - topo);
+        }
+        return true;
+    }
+    if (e->tipo != EV_CLIQUE || !(e->botoes & 1) || !rol_visivel() || e->x < rol_x() - 3) return false;
+    rol_geom(&ty, &th, &py, &ph);
+    if (e->y < ty || e->y >= ty + th) return false;
+    if (e->y >= py && e->y < py + ph) { rol_arrastrando = true; rol_desvio = e->y - py; rol_forcar = true; }
+    else rol_ir(sa->volta + (e->y < py ? LINS - 1 : -(LINS - 1)));   /* fuera del pulgar: una página */
+    registrar("terminal: barra de desplazamiento, %d lineas arriba (de %d)", sa->volta, sa->hist_n);
+    return true;
+}
+
 static void ratom(const evento_t *e)
 {
+    if (rol_rato(e)) return;
     if (rato_para_programa(e, false, 0)) return;
     if (e->tipo == EV_CLIQUE && (e->botoes & 1)) {
         int b = barra_ponto(e->x, e->y);
@@ -1453,7 +1600,7 @@ static void ratom(const evento_t *e)
             else trocar(b);
             return;
         }
-        if (e->y < y0 - MARGEM + 1 && barra_visivel()) return;
+        if (e->y < y0 - MARGEM_V + 1 && barra_visivel()) return;
         int l, c;
         celula(e->x, e->y, &l, &c);
         if ((e->modificadores & 2) && abrir_enlace(l, c)) return;
@@ -1509,6 +1656,20 @@ static void menu_resposta(const evento_t *e)
     else if (k == 7) { char *a[] = { "terminal", NULL }; executar("/bin/terminal", a); }
     else if (k == 9) prefs_abrir();
     else if (k == 11) fechar_pestana(atual, true);
+    else if (k == 13) abrir_ajuda();
+}
+
+/* D385: ¿llega más salida? El tubo del terminal virtual es de 512 bytes: cuando se vacía, el programa que
+ * escribe (seq, cat) está esperando a que haya sitio. Si solo se mirara, el Terminal seguiría con la CPU hasta
+ * el próximo tic (10 ms) y pasarían 512 bytes por tic: «seq 1 20000» tardaba 2,7 s. Cediendo el turno, el
+ * programa vuelve a llenarlo enseguida. */
+static bool mais_dados(int fd)
+{
+    for (int k = 0; k < 3; k++) {
+        if (disponivel(fd) > 0) return true;
+        hilo_ceder();
+    }
+    return disponivel(fd) > 0;
 }
 
 /* ------------------------------------------------------------ principal */
@@ -1517,16 +1678,17 @@ int principal(int argc, char **argv)
 {
     (void)argc; (void)argv;
     conf_ler();
+    ler_copia_serie();
     tl_copiar(fonte_rota, sizeof fonte_rota, conf.fonte);
     fonte_px = conf.fpx;
     fonte_aplicar();
     calcular_y0();
-    j = jan_abrir("Terminal", conf.cols * celL + 2 * MARGEM, conf.lins * celA + 2 * MARGEM + (conf.barra_siempre ? BARRA_A : 0));
+    j = jan_abrir("Terminal", conf.cols * celL + MARGEM_H, conf.lins * celA + 2 * MARGEM_V + (conf.barra_siempre ? BARRA_A : 0));
     /* Con poca RAM (32 MB) el kernel puede no tener un hueco seguido para el búfer de la ventana
      * (documentado en D313/h95): se reintenta con menos líneas en vez de salir con error. */
     while (!j && conf.lins > 10) {
         conf.lins -= 2;
-        j = jan_abrir("Terminal", conf.cols * celL + 2 * MARGEM, conf.lins * celA + 2 * MARGEM + (conf.barra_siempre ? BARRA_A : 0));
+        j = jan_abrir("Terminal", conf.cols * celL + MARGEM_H, conf.lins * celA + 2 * MARGEM_V + (conf.barra_siempre ? BARRA_A : 0));
     }
     if (!j) return 1;
     tamanho_minimo();
@@ -1538,8 +1700,9 @@ int principal(int argc, char **argv)
     registrar("terminal: tema %s, fuente %s %d px, %d columnas x %d lineas, historial %d",
               conf.tema == TL_PERSONALIZADO ? "personalizado" : tl_temas[conf.tema].id,
               fonte_rota[0] ? fonte_rota : "interna", fonte_px, COLS, LINS, conf.hist);
+    registrar("terminal: copia al puerto serie %s (kconfig serie_terminal)", copia_serie ? "encendida" : "apagada");
 
-    char buf[512];
+    static char buf[LER_BUF];
     evento_t e;
     unsigned t_antes = tempo_ms();
     t_cursor = t_antes; t_titulos = t_antes;
@@ -1550,10 +1713,19 @@ int principal(int argc, char **argv)
             int d = disponivel(s->mestre);
             if (d == ERRO_PIPE_QUEBRADO) { shell_terminou(i); i--; fez = true; continue; }   /* el shell terminó (sair) */
             if (d > 0) {
-                int n = ler(s->mestre, buf, sizeof buf);
-                for (int k = 0; k < n; k++) receber(s, (unsigned char)buf[k]);
-                if (n > 0) copiar_serie(s, buf, n);  /* copia a la serial, sin colores ni títulos */
-                if (n > 0 && s == sa) { cursor_aceso = true; t_cursor = tempo_ms(); }
+                /* D385: con mucha salida (cat de un archivo grande, seq 1 20000) se lee todo lo que haya, hasta
+                 * 64 KB o 25 ms, antes de dibujar: así se dibuja unas 40 veces por segundo en vez de una vez por
+                 * cada trozo (antes, cada 512 bytes un dibujo entero de la ventana al desplazarse). */
+                unsigned t0 = tempo_ms();
+                int total = 0;
+                do {
+                    int n = ler(s->mestre, buf, sizeof buf);
+                    if (n <= 0) break;
+                    for (int k = 0; k < n; k++) receber(s, (unsigned char)buf[k]);
+                    copiar_serie(s, buf, n);  /* copia a la serial, sin colores ni títulos */
+                    total += n;
+                } while (total < 64 * 1024 && tempo_ms() - t0 < 25 && mais_dados(s->mestre));
+                if (total > 0 && s == sa) { cursor_aceso = true; t_cursor = tempo_ms(); }
                 fez = true;
             }
         }

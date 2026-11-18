@@ -167,7 +167,7 @@ def main():
     with Maquina("h63", "ide") as m:
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
-        out = m.comando("ajuda chip8")
+        out = m.comando("ayuda chip8")
         verificar("chip8 [-m chip8|schip|xochip]" in out, "ajuda chip8 explica o uso")
 
         # ---- (b) o montador dentro do SaguiOS

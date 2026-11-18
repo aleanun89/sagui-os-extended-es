@@ -159,7 +159,7 @@ static void prueba_conf(void)
     tl_conf_tema(&c, 0);
     c.tema = TL_PERSONALIZADO; c.fundo = 0x102030; c.ansi[5] = 0xABCDEF; c.selecao = 0x445566;
     n = tl_conf_escrever(&c, b, sizeof b);
-    COMPROBAR(strstr(b, "tema=personalizado") && strstr(b, "ansi5=ABCDEF") && strstr(b, "fondo=102030"), "personalizado escribe colores");
+    COMPROBAR(strstr(b, "tema=personalizado") && strstr(b, "ansi5=abcdef") && strstr(b, "fondo=102030"), "personalizado escribe colores");
     tl_conf_padrao(&d);
     tl_conf_ler(&d, b);
     COMPROBAR(d.tema == TL_PERSONALIZADO && d.fundo == 0x102030 && d.ansi[5] == 0xABCDEF && d.selecao == 0x445566 &&
@@ -173,6 +173,14 @@ static void prueba_conf(void)
     COMPROBAR(d.cols == TL_COLS_MIN && d.lins == TL_LINS_MAX && d.hist == TL_HIST_MAX && d.fpx == TL_PX_MIN, "limites");
     tl_conf_ler(&d, "columnas=abc\ncursor=raro\ncampana=\n");
     COMPROBAR(d.cols == TL_COLS_MIN && d.cursor == TL_CUR_BLOCO, "valores raros no rompen");
+    /* D385: interlineado */
+    tl_conf_padrao(&d);
+    COMPROBAR(d.inter == TL_INTER_PADRAO, "interlineado por defecto");
+    tl_conf_ler(&d, "interlineado=5\n");
+    n = tl_conf_escrever(&d, b, sizeof b);
+    COMPROBAR(d.inter == 5 && strstr(b, "interlineado=5"), "interlineado: leer y escribir");
+    tl_conf_ler(&d, "interlineado=99\n");
+    COMPROBAR(d.inter == TL_INTER_MAX, "interlineado: limite");
     char pequeno[20];
     n = tl_conf_escrever(&c, pequeno, sizeof pequeno);
     COMPROBAR(n < (int)sizeof pequeno, "escribir en un buffer pequeno no desborda");

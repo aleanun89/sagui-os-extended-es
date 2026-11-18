@@ -246,7 +246,7 @@ def os_():
             for c in nuevos:
                 out = m.comando("%s --help" % c)
                 verificar("uso:" in out.lower(), "%s --help explica el uso" % c)
-                out = m.comando("ajuda %s" % c)
+                out = m.comando("ayuda %s" % c)
                 verificar("Uso:" in out and "programa en /bin" in out, "ajuda %s: entrada de ayuda" % c)
             out = m.comando("hexdump --help")
             verificar("uso: od" in out, "hexdump es un alias de od")

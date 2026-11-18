@@ -254,7 +254,7 @@ def en_os():
     t0 = time.time()
     with Maquina("h75-os", "ide", imagem=imagem_console(), extras=extras) as m:
         m.esperar_serial("sagui:/$", 120)
-        out = m.comando("ajuda reproducir")
+        out = m.comando("ayuda reproducir")
         verificar("MP3" in out and "FLAC" in out and "--volcar" in out, "ajuda reproducir explica los formatos y --volcar")
         m.comando("montar usb0p1")
         for n in OS_ARCHIVOS:

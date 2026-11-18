@@ -31,6 +31,41 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RAIZ, "tests"))
 
 
+
+def png_rgb(ruta):
+    """Píxeles RGB (bytes r,g,b seguidos) de un PNG de 8 bits RGB o RGBA, en Python puro (sin ImageMagick)."""
+    import struct
+    import zlib
+    datos = open(ruta, "rb").read()
+    pos, idat, ancho, alto, tipo = 8, b"", 0, 0, 2
+    while pos < len(datos):
+        n, nombre = struct.unpack(">I4s", datos[pos:pos + 8])
+        cuerpo = datos[pos + 8:pos + 8 + n]
+        if nombre == b"IHDR":
+            ancho, alto, _, tipo = struct.unpack(">IIBB", cuerpo[:10])
+        elif nombre == b"IDAT":
+            idat += cuerpo
+        pos += 12 + n
+    bpp = 4 if tipo == 6 else 3
+    crudo = zlib.decompress(idat)
+    fila, ant, out, i = ancho * bpp, bytearray(ancho * bpp), bytearray(), 0
+    for _ in range(alto):
+        f, linea = crudo[i], bytearray(crudo[i + 1:i + 1 + fila])
+        i += 1 + fila
+        for x in range(fila):
+            a = linea[x - bpp] if x >= bpp else 0
+            b = ant[x]
+            c = ant[x - bpp] if x >= bpp else 0
+            if f == 1: linea[x] = (linea[x] + a) & 255
+            elif f == 2: linea[x] = (linea[x] + b) & 255
+            elif f == 3: linea[x] = (linea[x] + (a + b) // 2) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                linea[x] = (linea[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        ant = linea
+        out += linea if bpp == 3 else bytes(v for k, v in enumerate(linea) if k % 4 != 3)
+    return bytes(out)
+
 def generador():
     from qemu import verificar
     d = tempfile.mkdtemp(prefix="aoen-drs-")
@@ -312,6 +347,16 @@ def interfaz():
         verificar(g[0] == "DERROTA" and g[1].startswith("Jugador "), "si pierde el jugador, el título es DERROTA y dice qué rival gana (%s)" % g[1])
         t, g = correr(m, "AOEN_SCENE=final AOEN_FINAL=espectador AOEN_FFWD=300", 60, r"\[AOEN\] pantalla final: (.+?), \d jugadores, \d+ muestras en la gr\S+fica; Gana: ([^\r\n]+)[\r\n]")
         verificar(g[0] == "PARTIDA TERMINADA" and g[1].startswith("Jugador "), "en el modo espectador no hay victoria ni derrota propias: «Partida terminada» y quién gana (%s)" % g[1])
+
+        # v8.5.4.10: sin los fondos originales (DRS sintéticos) el menú principal usa el paisaje propio, no el negro liso
+        t, g = correr(m, "AOEN_FULL=1", 120, r"\[AOEN\] pantalla (\d+x\d+)", "H389-30-menu-fondo")
+        pix = png_rgb(os.path.join(RAIZ, "docs", "capturas", "H389-30-menu-fondo.png"))   # sin ImageMagick
+        n = len(pix) // 3
+        claros = sum(1 for i in range(0, 3 * n, 3 * 4) if pix[i] + pix[i + 1] + pix[i + 2] > 45)
+        muestras = len(range(0, 3 * n, 12))
+        colores = len({(pix[i] >> 4, pix[i + 1] >> 4, pix[i + 2] >> 4) for i in range(0, 3 * n, 12)})
+        verificar(claros * 100 // muestras >= 80, "el menú sin arte original no es negro: %d%% de los píxeles muestreados tienen color" % (claros * 100 // muestras))
+        verificar(colores >= 40, "el paisaje propio tiene degradados y capas (%d colores distintos)" % colores)
 
     for res, cap in (("800x600", "H389-28-800x600"), (os.environ.get("H389_GRANDE", "1920x1080"), "H389-29-1080p")):
         img = imagem_de_teste("h389i-" + res, ["--vesa", "--resolucao", res, "--apps", APPS_RAIZ, "--jogos", jogos, "--jogos-mb", "64"])

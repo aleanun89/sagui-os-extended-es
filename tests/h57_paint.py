@@ -136,7 +136,7 @@ def main():
     with Maquina("h57", "ide") as m:
         m.esperar_serial("sagui:/$", 120)
         time.sleep(1)
-        out = m.comando("ajuda paint")
+        out = m.comando("ayuda paint")
         verificar("paint [archivo.bmp]" in out, "ajuda paint explica o uso")
 
         # ---- (a)

@@ -43,7 +43,7 @@ def main():
     with Maquina("b5", "ide", imagem=imagem_console()) as m:
         m.esperar_serial("sagui:/$", 120)
 
-        out = m.comando("ajuda cc")
+        out = m.comando("ayuda cc")
         verificar("Uso: cc" in out and "compilar" in out, "ajuda cc explica o compilador (apelido compilar)")
 
         out = m.comando("cc /ejemplos/hola.c -o /tmp/hola", tempo=90)
@@ -58,7 +58,7 @@ def main():
         verificar("(cc) terminou com codigo 0" in out, "compilar (apelido) /ejemplos/primos.c gera ./primos na pasta atual")
         out = m.comando("./primos 30")
         verificar("2 3 5 7 11 13 17 19 23 29" in out and "10 primos hasta 30" in out, "./primos 30 (vetor global de 100 KB na BSS)")
-        out = m.comando("ls")
+        out = m.comando("ls -s")
         verificar(re.search(r"^primos\s+\d+ bytes", out, re.M), "ls mostra o executável primos")
 
         # Um programa digitado no próprio SaguiOS.
@@ -86,7 +86,7 @@ def main():
         out = m.comando("cc mal.c")
         verificar("mal.c:1: error: 'x' no declarado" in out, "erro de compilação com arquivo:linha")
         verificar("(cc) terminou com codigo 1" in out, "cc termina com código 1 no erro")
-        out = m.comando("ls")
+        out = m.comando("ls -s")
         verificar(not re.search(r"^mal\s", out, re.M), "nenhum executável é gerado quando há erro")
         out = m.comando("echo o shell segue vivo")
         verificar("o shell segue vivo" in out, "o shell continua funcionando")

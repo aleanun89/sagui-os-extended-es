@@ -25,7 +25,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, ler_ppm, reconhecer_texto, imagem_de_teste, RAIZ, SAIDA  # noqa: E402
+from qemu import Maquina, verificar, ler_ppm, texto_terminal, imagem_de_teste, RAIZ, SAIDA, TERM_MX, TERM_MY, TERM_DY  # noqa: E402
+from qemu import TERM_FILA as F  # noqa: E402
 
 BORDA, TITULO = 2, 24
 DIR = os.path.join(SAIDA, "h320")
@@ -171,9 +172,8 @@ def pantalla(m, j, cols=94, lins=28):
         time.sleep(0.1)
     time.sleep(0.3)
     larg, _, px = ler_ppm(ppm)
-    x0, y0 = j["cx"] + 4, j["cy"] + 4
-    recorte = b"".join(px[((y0 + k) * larg + x0) * 3:((y0 + k) * larg + x0 + cols * 8) * 3] for k in range(lins * 16))
-    tela = reconhecer_texto(cols * 8, lins * 16, recorte)
+    x0, y0 = j["cx"] + TERM_MX, j["cy"] + TERM_MY
+    tela = texto_terminal(px, larg, x0, y0, cols, lins)
 
     def pixel(x, y):   # relativos a la rejilla
         o = ((y0 + y) * larg + x0 + x) * 3
@@ -244,7 +244,7 @@ def cores(m, t):
 
     def colores_fila(fila, c0, c1):
         s = set()
-        for y in range(fila * 16, fila * 16 + 16):
+        for y in range(fila * F, fila * F + F):
             for x in range(c0 * 8, c1 * 8):
                 s.add(px(x, y))
         return s
@@ -256,24 +256,24 @@ def cores(m, t):
     verificar(VERDE_VIVO in colores_fila(0, 21, 25), "38;2;0;255;0 (truecolor) -> verde vivo")
     # subrayado: la última fila de píxeles de la celda lleva la línea
     letra = (0xD8, 0xDD, 0xE2)
-    verificar(all(px(c * 8 + 4, 16 + 15) == letra for c in range(14, 23)), "subrayado: línea en la última fila de la celda")
+    verificar(all(px(c * 8 + 4, F + TERM_DY + 15) == letra for c in range(14, 23)), "subrayado: línea en la última fila de la letra")
     # oculto: tras «INVERSO » el oculto no se ve y «|fin» sigue (cols 38..45)
     verificar(tela[1][38:45].strip() == "" or "OCULTO" not in tela[1], "el texto oculto no se ve")
     # cajas DEC: en la fila 3..7, la esquina y las líneas son trazos del color de la letra
     fondo = (0x12, 0x16, 0x1E)
-    cx, cy = 4, 8
-    verificar(px(cx, 2 * 16 + cy) == letra and px(1, 2 * 16 + cy) == fondo and px(7, 2 * 16 + cy) == letra
-              and px(cx, 2 * 16 + 15) == letra and px(cx, 2 * 16 + 1) == fondo,
+    cx, cy = 4, F // 2   # D385: la celda mide F (letra + interlineado); las cajas ocupan la celda entera
+    verificar(px(cx, 2 * F + cy) == letra and px(1, 2 * F + cy) == fondo and px(7, 2 * F + cy) == letra
+              and px(cx, 2 * F + F - 1) == letra and px(cx, 2 * F + 1) == fondo,
               "caja DEC: la esquina ┌ (línea hacia la derecha y hacia abajo)")
-    verificar(px(2 * 8 + 1, 2 * 16 + cy) == letra and px(2 * 8 + 6, 2 * 16 + cy) == letra, "caja DEC: la línea horizontal ─")
-    verificar(px(0 * 8 + cx, 3 * 16 + 5) == letra and px(0 * 8 + 1, 3 * 16 + 5) == fondo, "caja DEC: la línea vertical │")
-    verificar(px(cx, 4 * 16 + 4) == letra and px(7, 4 * 16 + cy) == letra and px(1, 4 * 16 + cy) == fondo,
+    verificar(px(2 * 8 + 1, 2 * F + cy) == letra and px(2 * 8 + 6, 2 * F + cy) == letra, "caja DEC: la línea horizontal ─")
+    verificar(px(0 * 8 + cx, 3 * F + 5) == letra and px(0 * 8 + 1, 3 * F + 5) == fondo, "caja DEC: la línea vertical │")
+    verificar(px(cx, 4 * F + 4) == letra and px(7, 4 * F + cy) == letra and px(1, 4 * F + cy) == fondo,
               "caja DEC: el cruce ├ (arriba, abajo y derecha, sin izquierda)")
-    verificar(px(5 * 8 + cx, 4 * 16 + cy) == letra and px(5 * 8 + 1, 4 * 16 + cy) == letra and px(5 * 8 + 7, 4 * 16 + cy) == fondo,
+    verificar(px(5 * 8 + cx, 4 * F + cy) == letra and px(5 * 8 + 1, 4 * F + cy) == letra and px(5 * 8 + 7, 4 * F + cy) == fondo,
               "caja DEC: el cruce ┤ (arriba, abajo y izquierda)")
     verificar(tela[2].strip() == "" and "q" not in tela[2], "las cajas no escriben letras")
     # bce: «ESC [ 44 m ESC [ K» pinta el resto de la fila con el fondo
-    verificar(px(90 * 8 + 3, 7 * 16 + 8) == (0x6C, 0x9E, 0xE0), "borrar con el fondo actual (bce): resto de la fila en azul")
+    verificar(px(90 * 8 + 3, 7 * F + 8) == (0x6C, 0x9E, 0xE0), "borrar con el fondo actual (bce): resto de la fila en azul")
     m.captura("H320-5-colores-cajas")
     time.sleep(5)
 

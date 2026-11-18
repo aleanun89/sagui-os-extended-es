@@ -1,0 +1,42 @@
+# ~/.sagshrc - tu configuración del shell (sagsh, D385).
+#
+# sagsh lo lee cada vez que abres un shell interactivo (el Terminal, una pestaña nueva, SSH),
+# después de /etc/sagshrc, que es el de todo el sistema. Aquí van tus alias, variables, el
+# prompt, funciones y órdenes que quieras al arrancar. Las líneas que empiezan por «#» no
+# hacen nada: quita el «#» de lo que quieras usar.
+#
+# Si algo está mal escrito, el shell avisa y se abre igual (sin el resto del archivo).
+# Para abrir un shell sin leerlo: sagsh --sin-rc. Para probar un cambio sin cerrar
+# el Terminal: . ~/.sagshrc
+# Más en «ayuda sh» y en /ayuda/terminal.md.
+
+# --- Alias: un nombre corto para una orden ------------------------------------------
+# alias ll='ls -l'
+# alias la='ls -a'
+# alias lh='ls -lh'
+# alias ..='cd ..'
+# alias c='clear'
+
+# --- Variables -----------------------------------------------------------------------
+# export EDITOR=mico                      # el editor que usan otros programas
+# export PATH="$PATH:$HOME/bin"           # tus propios programas en ~/bin
+
+# --- El prompt (PS1) -------------------------------------------------------------------
+# Escapes: \u usuario, \h máquina, \w carpeta, \W solo su nombre, \$ («#» si eres root),
+# \e[..m colores (32 verde, 34 azul, 31 rojo, 33 amarillo, 36 cian, 1 negrita, 0 normal),
+# encerrados entre \[ y \] para que no cuenten como letras. Ejemplos:
+# PS1='\w\$ '
+# PS1='\[\e[1;36m\]\u\[\e[0m\] en \[\e[33m\]\W\[\e[0m\] \$ '
+
+# --- Colores de ls ----------------------------------------------------------------------
+# ls pinta las carpetas en azul, los programas en verde, los enlaces en cian, las imágenes,
+# el sonido y el vídeo en magenta y los comprimidos en rojo. Sin colores en ninguna orden:
+# export NO_COLOR=1
+# Solo sin los de ls:
+# alias ls='ls --color=never'
+
+# --- Funciones -------------------------------------------------------------------------
+# mkcd() { mkdir -p "$1" && cd "$1"; }     # crea una carpeta y entra en ella
+
+# --- Al arrancar -------------------------------------------------------------------------
+# echo "Hola, $(whoami). Hoy es $(fecha)."
