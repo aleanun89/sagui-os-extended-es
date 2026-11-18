@@ -1118,6 +1118,25 @@ static const char *const jabuti[] = {   /* Jabuti: una tortuga vista desde arrib
     "................",
 };
 
+static const char *const aoen[] = {   /* AoEN: una torre de castillo con bandera roja (D382) */
+    "................",
+    ".......PPPPPP...",
+    ".......PrrrrrP..",
+    ".......PrrrPP...",
+    ".......P.PP.....",
+    "..PP.PP.P.PP.PP.",
+    "..PCPPCPCPPCPPC.",
+    "..PCCCCCCCCCCCP.",
+    "...PCCcCCCcCCP..",
+    "...PCCCCCCCCCP..",
+    "...PCCPPPPCCCP..",
+    "...PCCPEEPCCCP..",
+    "...PCCPEEPCCCP..",
+    "..PPPPPEEPPPPPP.",
+    "..PCCCCCCCCCCCP.",
+    "................",
+};
+
 static const char *const jclicbajar[] = {   /* la misma pieza con una flecha verde hacia abajo (D185) */
     "................",
     "......PPPP......",
@@ -1372,6 +1391,7 @@ const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Bu
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */
 const desenho_t arte_mini_jclicbajar  = { jclicbajar, 16, 16 };   /* D185: bajar actividades JClic */
 const desenho_t arte_mini_jabuti      = { jabuti, 16, 16 };   /* D377: Jabuti */
+const desenho_t arte_mini_aoen        = { aoen, 16, 16 };     /* D382: AoEN */
 #ifndef SAGUI_SEM_GPL
 const desenho_t arte_mini_tyrian      = { tyrian, 16, 16 };   /* D180: o OpenTyrian */
 const desenho_t arte_mini_netsurf     = { netsurf, 16, 16 };  /* D184: el navegador NetSurf */

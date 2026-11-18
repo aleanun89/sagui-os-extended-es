@@ -1,0 +1,7 @@
+AoEN en SaguiOS (D382)
+======================
+AoEN es un motor de estrategia en tiempo real estilo Age of Empires, escrito desde cero (C99 + SDL2,
+dibujo por software), licencia GPL-3.0-or-later. No incluye ningun dato del juego original: hace falta
+una copia legitima (GRAPHICS.DRS, INTERFAC.DRS y TERRAIN.DRS). Por defecto se busca en /jogos/AOE.
+Las carpetas texturas/ y musica/ de aqui, si existen, no son de AoEN ni se pueden redistribuir.
+Mas informacion: /ayuda/aoen.md

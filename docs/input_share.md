@@ -98,6 +98,18 @@ cambian. A mano: `tools/cnc_extraer.py --buscar input_share/games/CnC /ruta/dest
 ISO` enseña lo que hay dentro). Sin las ISO, también vale copiar a `/jogos/CnC` la carpeta de un
 C&C95 instalado (con `GENERAL.MIX` en la raíz o en `gdi/` y `nod/`).
 
+## `games/AOE/` y `aoen/`: AoEN (D382)
+
+- **Datos del juego original:** `input_share/games/AOE/` (con `DATA/GRAPHICS.DRS`, `INTERFAC.DRS`, `TERRAIN.DRS` y, para el
+  sonido, `SOUNDS.DRS`) acaba, como todo `games/<carpeta>/`, en `/jogos/AOE`; **AoEN** los busca ahí por defecto (también
+  `/jogos/AOE/DATA`, y los de `aoen-config`, `AOEN_DATA` y el argumento). Son tuyos: nunca van a git ni a las imágenes
+  públicas.
+- **Texturas HD y música de AoEN:** si existen `input_share/aoen/texturas/` (PNG de 512x512) y `input_share/aoen/musica/`
+  (archivos `.mid`), el `make` los copia a `/apps/aoen/texturas` y `/apps/aoen/musica` (`userland/juegos/aoen/aoen.mk`) y el
+  juego los usa solos. **No son de AoEN ni se pueden redistribuir:** solo van a las imágenes privadas; con `INPUT_SHARE=`
+  (la variante pública) no se copian. El resto de `input_share/aoen/` (fuentes, binarios, `dist/`, `*:Zone.Identifier`) no se
+  usa: las fuentes de AoEN van en git en `userland/juegos/aoen/` (GPL-3.0-or-later).
+
 ## Compilar
 
 Basta con poner los ficheros y hacer `make` (o la imagen que se quiera): el `Makefile` vigila lo que

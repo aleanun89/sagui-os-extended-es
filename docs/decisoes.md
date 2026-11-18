@@ -20600,3 +20600,43 @@ Pendiente de la revisión independiente (Opus) antes de fusionar. Diseño decidi
   devuelve con `MEM_DEVOLVER` (lo hace `ld-sagui`). h390 `smp` exige que la carrera se dé (149 de 150 rechazadas, la
   escritura dada de verdad 459 veces). Prueba `tests/h390_paginas_compartidas.py` (normal, `--smp` con 4 CPU, PAE con 6 GB,
   `--sem-pae`, swap con 512 MB).
+
+## D382. AoEN: un RTS estilo Age of Empires del mantenedor, portado a SaguiOS y mejorado gráficamente (v8.5.4.6, mejora 140; decidido el 2026-11-18)
+
+**AoEN** es un motor de estrategia en tiempo real escrito desde cero por el mantenedor (C99 + SDL2, dibujo por software,
+unas 6700 líneas) que juega escaramuzas con los datos de una copia legítima del Age of Empires original. Se porta a SaguiOS
+con la SDL2 del sistema (la de Freeciv y los demás ports) y se mejora.
+
+- **Licencia.** El código de `userland/juegos/aoen/` es del mantenedor y va como **GPL-3.0-or-later** (SPDX y cabecera en
+  cada fuente). `stb_image.h` (v2.32, Sean Barrett, **dominio público o MIT**) está en `userland/terceros/stbimage/` y en
+  `docs/terceros.md`. **Ni los datos del juego original (`*.DRS`) ni las texturas de terreno ni la música MIDI** son
+  redistribuibles: no van a git ni a las imágenes públicas.
+- **Dónde está cada cosa.** `/apps/bin/aoen` y `/apps/bin/aoen-config` (en `/apps`, no en el ramdisk), entrada
+  **Inicio > Juegos > AoEN** con icono propio, ayuda `/ayuda/aoen.md`. Los datos se buscan, por este orden, en el argumento,
+  `AOEN_DATA`, `aoen.cfg`, y por defecto en **`/jogos/AOE`** (con `DATA` o `GAME/DATA` dentro): `input_share/games/AOE` los
+  deja ahí en las imágenes privadas. La configuración y las partidas, en `~/.config/aoen/`. Sin los DRS la ventana enseña las
+  instrucciones. Las texturas HD y la música, si existen en `$(INPUT_SHARE)/aoen/texturas` y `musica`, el `make` las copia a
+  `/apps/aoen/` (nunca con `INPUT_SHARE=`, que es lo que hacen las imágenes públicas); el juego las busca ahí.
+- **Compilación.** `userland/juegos/aoen/aoen.mk` (incluido tras `teste.mk`): x87 y libc común, sin tocar la libc ni el
+  kernel (`readlink`, `dirent`, `stat`, `time` ya estaban). El puente `puente.c` da `principal()` y el registro `[AOEN]`
+  (serie) que leen las pruebas. En SaguiOS una ventana mide como mucho 1000x700: la pantalla completa (F11) pide a la SDL el
+  tamaño del escritorio y el búfer se rehace a esa resolución (la SDL del sistema no cambia sola el lienzo).
+- **Rendimiento.** Se mide antes y después con `AOEN_BENCH=N` (cuadros sin limitar, con la cámara en vaivén; `h389_aoen.py
+  bench`). `gfx_sprite` sin una división por píxel y con paletas con sombra en caché; rellenos, mezclas y oscurecidos por las
+  rutas de la libsagui (`preencher32`, `misturar32`, `escurecer32`: SSE2 elegido por CPUID con alternativa en C; `rapido.c`);
+  búfer XRGB (sin alfa); minimapa en caché (se rehace 3 veces por segundo, antes w*h flotantes por cuadro). El clic que baja y
+  sube dentro de un mismo cuadro ya no se pierde (en máquinas lentas no se podía seleccionar).
+- **Mejoras gráficas** (todas con los gráficos de los DRS originales, graduables en Opciones, tres perfiles: *Equipos
+  lentos* = todo apagado como el AoEN original, *Normal* = los baratos, *Completo*; por defecto, Normal si la CPU tiene SSE2 y
+  Lentos si no): transiciones suaves entre terrenos y espuma en la costa; agua con reflejos que se mueven; niebla de guerra
+  difuminada (luz interpolada por esquinas de casilla); sombras de unidades, árboles y edificios; humo, polvo, fuego y
+  escombros; andamios al construir y derrumbe al destruir; día y noche (solo en Completo); zoom suave con filtrado
+  bilineal (solo en Completo); interfaz rediseñada (degradados, bisel, barras) y **escalada en enteros** (x2 de 1600x960 hacia
+  arriba, o a mano) con zoom inicial 1.5 a 1080p; renderizador 2D del sistema opcional (`render2d`, usa la aceleración 2D de
+  la SDL si hay GPU 3D, y si no sigue por software sin pérdida).
+- **Pruebas.** `tests/h389_aoen.py`: generador de DRS **sintéticos** (`tools/aoen_drs_sintetico.py`, nada del juego
+  original), licencias y documentos, instrucciones sin datos, escaramuza con selección, movimiento, guardar y cargar, perfil
+  por defecto, obras y ruinas, 1080p y la medida de fps. Los datos reales solo se probaron a mano, fuera de git.
+- **Límites.** Los comentarios del código del mantenedor siguen en su idioma de origen (el resto del proyecto, D096, va en
+  español): traducirlos es mecánico y se deja para después. El texto de la interfaz está en español dentro del código, sin
+  catálogos `_()`. Sin sonido real de la tarjeta se prueba mudo.

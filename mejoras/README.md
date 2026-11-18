@@ -140,3 +140,4 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 137 | [Jabuti: programar con bloques para niños](137-jabuti.md) | hecha (v8.5.4, D377) | media |
 | 138 | [Enlace dinámico de bibliotecas (.so, dlopen, ld-sagui)](138-enlace-dinamico.md) | fases 1-2 hechas (v8.5.4.3, D378); fase 3 en v8.5.4.5 | media-alta |
 | 139 | [IA local: modelos de lenguaje dentro de SaguiOS](139-ia-local.md) | hecha la fase de texto (v8.5.4.4, D380); ventanas PAE, descargador y VL pendientes | alta |
+| 140 | [AoEN: un RTS estilo Age of Empires, portado y mejorado](140-aoen.md) | hecha (v8.5.4.6, D382) | media |

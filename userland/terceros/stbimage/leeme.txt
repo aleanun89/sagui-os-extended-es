@@ -1,0 +1,2 @@
+stb_image v2.32 (Sean Barrett), dominio público o MIT a elegir (el texto está al final de stb_image.h).
+Lo usa AoEN (userland/juegos/aoen/terrain_hd.c) para leer las texturas PNG opcionales. Sin cambios.

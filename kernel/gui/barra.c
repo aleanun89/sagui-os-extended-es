@@ -385,6 +385,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "tucan", &arte_mini_tucan }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "jabuti", &arte_mini_jabuti },   /* D377 */
+        { "aoen", &arte_mini_aoen }, { "aoen-config", &arte_mini_aoen },   /* D382 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
         { "dosbox", &arte_mini_dosbox }, { "recreativa", &arte_mini_recreativa },   /* D294 */
@@ -1198,6 +1199,7 @@ static const programa_t programas[] = {
     { N_("Sagui Atrapa Bananas"),    "/apps/bin/banana",      NULL, "banana",      G_JUEGOS,     &arte_icone_banana, false },
     { N_("Solitario Spider"),        "/apps/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
     { N_("Buscaminas"),              "/apps/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
+    { N_("AoEN"),                    "/apps/bin/aoen",        NULL, "aoen",        G_JUEGOS,     &arte_mini_aoen, false },   /* D382: estrategia en tiempo real; en /apps, sólo si está */
 #ifndef SAGUI_SEM_GPL   /* D184: la h81 encontraba «OpenTyrian» en el kernel sin GPL */
     { N_("OpenTyrian"),              "/apps/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
     { N_("OpenTyrian (pantalla completa)"), "/apps/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */

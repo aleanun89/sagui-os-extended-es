@@ -33,6 +33,7 @@ extern const desenho_t arte_mini_planomini;   /* mejora 129: mini CAD 2D */
 extern const desenho_t arte_mini_jclic;   /* D185: actividades JClic */
 extern const desenho_t arte_mini_jclicbajar;   /* D185: bajar actividades JClic */
 extern const desenho_t arte_mini_jabuti;   /* D377: Jabuti */
+extern const desenho_t arte_mini_aoen;     /* D382: AoEN */
 #ifndef SAGUI_SEM_GPL
 extern const desenho_t arte_mini_tyrian;   /* D180: o OpenTyrian */
 extern const desenho_t arte_mini_openjazz;   /* D228: OpenJazz */
