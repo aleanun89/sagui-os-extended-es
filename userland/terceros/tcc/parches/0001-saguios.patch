@@ -1,0 +1,88 @@
+SaguiOS (D384): TCC para SaguiOS con CONFIG_SAGUIOS (plataforma/config.h).
+- i386-link.c: los programas en 0x80000000 (D049).
+- libtcc.c: enlace estatico por defecto.
+- tccpp.c: define __saguios__ (ademas de __linux__, como el gcc con el que se compila SaguiOS).
+- tccrun.c: -run y libtcc con la libc y la libsagui del propio programa (plataforma/tcc_sagui_run.c,
+  llamado desde tcc_relocate) y principal() como main().
+
+--- a/i386-link.c	2026-11-18 14:46:39.924673694 +0100
++++ b/i386-link.c	2026-11-18 14:46:39.924673694 +0100
+@@ -12,7 +12,12 @@
+ 
+ #define R_NUM       R_386_NUM
+ 
++#ifdef CONFIG_SAGUIOS
++/* SaguiOS: los programas van en 0x80000000 (D049); el kernel no carga nada por debajo */
++#define ELF_START_ADDR 0x80000000
++#else
+ #define ELF_START_ADDR 0x08048000
++#endif
+ #define ELF_PAGE_SIZE  0x1000
+ 
+ #if defined CONFIG_TCC_PIC
+--- a/libtcc.c	2026-11-18 14:46:39.924673694 +0100
++++ b/libtcc.c	2026-11-18 14:46:39.924673694 +0100
+@@ -879,6 +879,9 @@
+     s->gnu_ext = 1;
+     s->tcc_ext = 1;
+     s->nocommon = 1;
++#ifdef CONFIG_SAGUIOS
++    s->static_link = 1; /* SaguiOS: con TCC solo se enlaza en estático (D384) */
++#endif
+     s->dollars_in_identifiers = 1; /*on by default like in gcc/clang*/
+     s->cversion = 199901; /* default unless -std=c11 is supplied */
+     s->warn_implicit_function_declaration = 1;
+--- a/tccpp.c	2026-11-18 14:46:39.924673694 +0100
++++ b/tccpp.c	2026-11-18 14:46:39.928652636 +0100
+@@ -3562,6 +3562,9 @@
+ # else
+     "__linux__\0"
+     "__linux\0"
++#  ifdef CONFIG_SAGUIOS
++    "__saguios__\0"
++#  endif
+ #  if TARGETOS_ANDROID
+     "__ANDROID__\0"
+ #  endif
+--- a/tccrun.c	2026-11-18 14:46:39.928652636 +0100
++++ b/tccrun.c	2026-11-18 14:46:39.928652636 +0100
+@@ -83,6 +83,9 @@
+ static int tcc_relocate_ex(TCCState *s1, void *ptr, unsigned ptr_diff);
+ static void st_link(TCCState *s1);
+ static void st_unlink(TCCState *s1);
++#ifdef CONFIG_SAGUIOS
++static void tcc_sagui_antes_de_run(TCCState *s1);
++#endif
+ #ifdef CONFIG_TCC_BACKTRACE
+ static int _tcc_backtrace(rt_frame *f, const char *fmt, va_list ap);
+ #endif
+@@ -157,6 +160,10 @@
+ 
+     if (s1->run_ptr)
+         exit(tcc_error_noabort("'tcc_relocate()' twice is no longer supported"));
++#ifdef CONFIG_SAGUIOS
++    /* también para libtcc (tcc_relocate sin tcc_run): la libc del propio programa */
++    tcc_sagui_antes_de_run(s1);
++#endif
+ #ifdef CONFIG_TCC_BACKTRACE
+     if (s1->do_backtrace)
+         tcc_add_symbol(s1, "_tcc_backtrace", _tcc_backtrace); /* for bt-log.c */
+@@ -1571,6 +1578,10 @@
+     { NULL, NULL },
+ };
+ 
++#if defined CONFIG_SAGUIOS && !defined CONFIG_TCC_BACKTRACE_ONLY
++/* SaguiOS: los símbolos de la libc y la libsagui del propio tcc (D384, tcc_sagui_run.c) */
++#include "tcc_sagui_run.c"
++#else
+ ST_FUNC void *dlsym(void *handle, const char *symbol)
+ {
+     TCCSyms *p;
+@@ -1582,6 +1593,7 @@
+     }
+     return NULL;
+ }
++#endif
+ 
+ #endif /* CONFIG_TCC_STATIC */
+ #endif /* TCC_IS_NATIVE */

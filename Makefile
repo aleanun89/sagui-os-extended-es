@@ -628,6 +628,12 @@ endif
 include userland/libsdl2/teste.mk
 # AoEN (D382): RTS propio estilo Age of Empires (GPL-3.0-or-later); los datos del juego original no se distribuyen.
 include userland/juegos/aoen/aoen.mk
+# TCC (D384): el compilador de C dentro de SaguiOS (/apps/bin/tcc) y los fuentes de AoEN para recompilarlo dentro.
+# Solo si se bajaron sus fuentes (tools/tcc_fuentes.sh); TCC=0 lo deja fuera.
+# Fuera de la variante sin GPL (lo que compila lleva la libsagui GPL-3.0-only y libtcc1.c es GPL-2.0+), como Freeciv.
+ifneq ($(SEM_GPL),1)
+include userland/terceros/tcc/tcc.mk
+endif
 
 # Soporte de Go con TinyGo (D364): solo si TinyGo está instalado (tools/tinygo_entorno.sh).
 include userland/go/go.mk
@@ -1620,6 +1626,8 @@ priv_descargas:
 	@# D374: Freeciv (GPL-2.0 o posterior) también va en las públicas si sus fuentes están preparadas
 	@# (antes de «make variantes», ejecutar tools/freeciv_fuentes.sh); aquí se preparan para las privadas.
 	bash tools/freeciv_fuentes.sh
+	@# D384: TCC (LGPL-2.1 o posterior), el compilador de C de dentro y AoEN compilable dentro (públicas y privadas).
+	@[ -f userland/terceros/tcc/fuentes/.preparado ] || bash tools/tcc_fuentes.sh
 	@# D383: Chocolate Doom (GPL-2.0 o posterior) y Freedoom (BSD-3-Clause) también van en las públicas
 	bash tools/doom_fuentes.sh
 	bash tools/doom_datos.sh

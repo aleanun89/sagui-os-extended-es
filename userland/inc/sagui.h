@@ -35,7 +35,9 @@ typedef unsigned int       size_t;
 typedef _Bool              bool;
 #define true  1
 #define false 0
+#ifndef NULL   /* D384: TCC ya lo define en su stddef.h (y avisa si se redefine) */
 #define NULL  ((void *)0)
+#endif
 
 typedef __builtin_va_list va_list;
 #ifndef va_start   /* la stdarg.h del gcc (que trae la libc común) ya las define */

@@ -1,0 +1,115 @@
+SaguiOS (D384): la comprobacion de limites (-b, lib/bcheck.c) en SaguiOS.
+- Rama __saguios__: sin hilos, senales ni TLS; malloc, calloc, free y realloc se redirigen a las de
+  la libsagui (aloca, aloca_zerado, libera, realoca) sin dlsym.
+- Sin sys/syscall.h; el identificador de hilo es 0.
+- Un acceso fuera de limites termina el programa con exit(255) tras el mensaje (en Linux se devuelve
+  un puntero invalido y el SIGSEGV hace el resto; SaguiOS no entrega esa senal al programa).
+
+--- a/lib/bcheck.c	2026-11-18 14:46:39.928652636 +0100
++++ b/lib/bcheck.c	2026-11-18 14:46:39.928652636 +0100
+@@ -35,8 +35,10 @@
+ 
+ #if !defined(_WIN32)
+ #include <unistd.h>
++#if !defined(__saguios__)
+ #include <sys/syscall.h>
+ #endif
++#endif
+ 
+ #include "config.h"
+ 
+@@ -65,7 +67,35 @@
+ # define DLL_EXPORT
+ #endif
+ 
+-#if defined(__FreeBSD__) \
++#if defined(__saguios__)
++/* SaguiOS (D384): estático y sin dlsym; malloc y compañía se redirigen a las de la libsagui
++ * (aloca, libera...), que son las que usa por dentro el malloc de la libc común. Sin hilos
++ * (un programa con -b no debe usarlos), sin señales del procesador ni TLS. */
++#include <sys/mman.h>
++#include <ctype.h>
++#include <errno.h>
++#define INIT_SEM()
++#define EXIT_SEM()
++#define WAIT_SEM()
++#define POST_SEM()
++#define TRY_SEM()
++#define HAVE_MEMALIGN          (0)
++#define MALLOC_REDIR           (1)
++#define HAVE_PTHREAD_CREATE    (0)
++#define HAVE_CTYPE             (0)
++#define HAVE_ERRNO             (0)
++#define HAVE_SIGNAL            (0)
++#define HAVE_SIGACTION         (0)
++#define HAVE_FORK              (0)
++#define HAVE_TLS_FUNC          (0)
++#define HAVE_TLS_VAR           (0)
++void *aloca(size_t n);
++void *aloca_zerado(size_t n);
++void libera(void *p);
++void *realoca(void *p, size_t n);
++static void *sagui_calloc(size_t n, size_t t) { return t && n > (size_t)-1 / t ? NULL : aloca_zerado(n * t); }
++
++#elif defined(__FreeBSD__) \
+  || defined(__FreeBSD_kernel__) \
+  || defined(__DragonFly__) \
+  || defined(__OpenBSD__) \
+@@ -227,7 +257,10 @@
+     struct alloca_list_struct *next;
+ } alloca_list_type;
+ 
+-#if defined(_WIN32)
++#if defined(__saguios__)
++#define BOUND_TID_TYPE		int
++#define BOUND_GET_TID(id)	id = 0
++#elif defined(_WIN32)
+ #define BOUND_TID_TYPE		DWORD
+ #define BOUND_GET_TID(id)	id = GetCurrentThreadId()
+ #elif defined(__OpenBSD__)
+@@ -469,6 +502,14 @@
+             exit(255);              \
+     } while (0)
+ 
++/* SaguiOS no entrega SIGSEGV al programa: en vez de devolver un puntero inválido para que el
++ * acceso falle (y el tratador de señales termine), se termina aquí, ya con el mensaje escrito. */
++#if defined(__saguios__)
++#define BOUND_SALIR_SIN_SENALES() do { if (never_fatal == 0) exit(255); } while (0)
++#else
++#define BOUND_SALIR_SIN_SENALES() do { } while (0)
++#endif
++
+ #define bounds_loc(fp, ...) \
+     do {                            \
+         WAIT_SEM (); \
+@@ -596,6 +637,7 @@
+                               "(0x%lx..0x%lx)",                                \
+                               p + offset, dsize, (long)tree->start,            \
+                               (long)(tree->start + tree->size - 1));           \
++                BOUND_SALIR_SIN_SENALES();                                     \
+                 if (never_fatal <= 0)                                          \
+                     return INVALID_POINTER; /* return an invalid pointer */    \
+                 return p + offset;                                             \
+@@ -959,7 +1001,12 @@
+ 
+     INIT_SEM ();
+ 
+-#if MALLOC_REDIR
++#if MALLOC_REDIR && defined(__saguios__)
++    malloc_redir = aloca;
++    calloc_redir = sagui_calloc;
++    free_redir = libera;
++    realloc_redir = realoca;
++#elif MALLOC_REDIR
+     {
+         void *addr = mode > 0 ? RTLD_DEFAULT : RTLD_NEXT;
+ 
+@@ -1175,7 +1222,7 @@
+     if (inited) {
+ #if !defined(_WIN32) && !defined(__APPLE__) && !defined CONFIG_TCC_MUSL && \
+     !defined(__OpenBSD__) && !defined(__FreeBSD__) && !defined(__NetBSD__) && \
+-    !defined(__ANDROID__)
++    !defined(__ANDROID__) && !defined(__saguios__)
+         if (print_heap) {
+             extern void __libc_freeres (void);
+             __libc_freeres ();

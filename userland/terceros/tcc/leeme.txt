@@ -1,0 +1,28 @@
+TCC (Tiny C Compiler) en SaguiOS
+================================
+
+/apps/bin/tcc es TCC 0.9.28rc (https://repo.or.cz/tinycc.git), licencia LGPL 2.1 o posterior
+(LICENCIA-TCC.txt). Compila C99 (y buena parte de C11) a programas de SaguiOS en un instante.
+
+  tcc hola.c -o hola                 un programa
+  tcc -o calc principal.c calculos.c varios ficheros (o -c y después enlazar los .o)
+  tcc -run hola.c                    compilar en memoria y ejecutar
+  tcc sdl.c -o sdl -lSDL2            con la SDL 2 de SaguiOS
+
+Los programas salen estáticos: llevan dentro lo que usan de la libc y la libsagui
+(lib/libc.a); no hace falta -lm ni -lsagui. Aquí:
+
+  include/          cabeceras de C (stdio.h...), include/sagui (sagui.h, gui.h...),
+                    include/SDL2 (SDL.h, SDL_image.h, SDL_ttf.h, SDL_mixer.h)
+  lib/              crt1.o, libc.a, libSDL2*.a, libtcc1.a
+  ejemplos/         hola.c, principal.c + calculos.c, ventana.c (libsagui), sdl.c (SDL 2)
+
+Licencia de lo que compilas: los programas enlazados con crt1.o y libc.a (libc común y libsagui) o
+con la SDL 2 de SaguiOS llevan código GPL-3.0-only: si los distribuyes, van bajo la GPL-3.0-only (un
+programa GPL-2.0-only o propietario no puede distribuirse así). libtcc1.a tiene excepción de enlace;
+bcheck.o (-b) y libtcc.a son LGPL-2.1 o posterior. Mejora futura 143: libsagui con licencia MIT.
+Fuentes de lo que va en binario: fuentes/ y fuentes/lib/.
+
+Ayuda: /ayuda/tcc.md. Para modificar y recompilar AoEN: /ayuda/modificar-aoen.md
+y /apps/aoen/fuentes. Código fuente de TCC: tools/tcc_fuentes.sh en el repositorio de SaguiOS
+(los cambios para SaguiOS están en userland/terceros/tcc/parches).

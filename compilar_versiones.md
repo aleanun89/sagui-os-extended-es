@@ -27,6 +27,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: programas en Java.** `tools/java_entorno.sh instalar` baja un JDK 17 y Janino a `~/.local/saguitools` (sin sudo) y `tools/minijvm_fuentes.sh` baja miniJVM (commit fijo, SHA-256) a `userland/terceros/minijvm/fuentes/`; con eso `make` compila `/apps/bin/java`, `/apps/bin/javac`, la biblioteca de clases en `/apps/java/lib/` y los ejemplos de `userland/java/ejemplos/`. Sin las fuentes o sin el JDK se saltan con un aviso (`JAVA=0` los desactiva). Ver `docs/java.md`.
 
+**Opcional: compilador de C dentro (TCC).** `tools/tcc_fuentes.sh` baja TCC 0.9.28rc (commit fijo, SHA-256; LGPL-2.1 o posterior) a `userland/terceros/tcc/fuentes/` y aplica sus parches; con eso `make` también compila `/apps/bin/tcc`, `/apps/tcc/` (cabeceras, `libc.a`, `libSDL2.a`, `libtcc.a`, ejemplos y los fuentes de TCC para compilarse a sí mismo) y `/apps/aoen/fuentes` (AoEN compilable dentro con `sh compilar.sh`). Sin las fuentes se salta con un aviso (`TCC=0` lo desactiva). Ver `docs/tcc.md`.
+
 | Paquete | Para qué |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar el kernel y los programas en 32 bits |
@@ -373,6 +375,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Optional: Java programs.** `tools/java_entorno.sh instalar` downloads a JDK 17 and Janino into `~/.local/saguitools` (no sudo) and `tools/minijvm_fuentes.sh` downloads miniJVM (pinned commit, SHA-256) into `userland/terceros/minijvm/fuentes/`; with those, `make` also builds `/apps/bin/java`, `/apps/bin/javac`, the class library in `/apps/java/lib/` and the examples in `userland/java/ejemplos/`. Without the sources or the JDK they are skipped with a notice (`JAVA=0` disables them). See `docs/java.md`.
 
+**Optional: C compiler inside (TCC).** `tools/tcc_fuentes.sh` downloads TCC 0.9.28rc (pinned commit, SHA-256; LGPL-2.1 or later) into `userland/terceros/tcc/fuentes/` and applies its patches; with them `make` also builds `/apps/bin/tcc`, `/apps/tcc/` (headers, `libc.a`, `libSDL2.a`, `libtcc.a`, examples and the TCC sources so it can compile itself) and `/apps/aoen/fuentes` (AoEN, buildable inside with `sh compilar.sh`). Without the sources it is skipped with a notice (`TCC=0` disables it). See `docs/tcc.md`.
+
 | Package | What for |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | building the kernel and the programs in 32 bits |
@@ -718,6 +722,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Opcional: programas em Go.** `tools/tinygo_entorno.sh instalar` baixa o TinyGo e o Go para `~/.local/saguitools` (sem sudo); com isso o `make` também compila os exemplos de `userland/go/ejemplos/` para `/apps/go/`. Sem o TinyGo eles são pulados com um aviso (`GO=0` os desativa). Ver `docs/go.md`.
 
 **Opcional: programas em Java.** `tools/java_entorno.sh instalar` baixa um JDK 17 e o Janino para `~/.local/saguitools` (sem sudo) e `tools/minijvm_fuentes.sh` baixa o miniJVM (commit fixo, SHA-256) para `userland/terceros/minijvm/fuentes/`; com isso o `make` também compila `/apps/bin/java`, `/apps/bin/javac`, a biblioteca de classes em `/apps/java/lib/` e os exemplos de `userland/java/ejemplos/`. Sem as fontes ou sem o JDK eles são pulados com um aviso (`JAVA=0` os desativa). Ver `docs/java.md`.
+
+**Opcional: compilador de C dentro (TCC).** `tools/tcc_fuentes.sh` baixa o TCC 0.9.28rc (commit fixo, SHA-256; LGPL-2.1 ou posterior) para `userland/terceros/tcc/fuentes/` e aplica seus patches; com isso o `make` também compila `/apps/bin/tcc`, `/apps/tcc/` (cabeçalhos, `libc.a`, `libSDL2.a`, `libtcc.a`, exemplos e as fontes do TCC para se compilar a si mesmo) e `/apps/aoen/fuentes` (o AoEN, compilável dentro com `sh compilar.sh`). Sem as fontes ele é pulado com um aviso (`TCC=0` o desativa). Ver `docs/tcc.md`.
 
 | Pacote | Para quê |
 | --- | --- |

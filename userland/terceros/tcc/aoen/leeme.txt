@@ -1,0 +1,18 @@
+Fuentes de AoEN (GPL 3 o posterior) para modificarlo y recompilarlo dentro de SaguiOS
+=================================================================================
+
+  sh compilar.sh      compila con /apps/bin/tcc y deja ./aoen (opciones extra: sh compilar.sh -g)
+  ./aoen              arranca tu versión (la del sistema, /apps/bin/aoen, no cambia)
+
+Guía con ejercicios: /ayuda/modificar-aoen.md. Dónde está cada cosa:
+
+  game.c        reglas: tablas de unidades (unit_def) y edificios (bld_def), costes, vida, ataque,
+                tecnologías, recolección, combate
+  ia.c          la inteligencia artificial de los rivales
+  ui_*.c        la interfaz (menús, barra inferior, paneles); interfaz.h, sus colores y medidas
+  render.c      el dibujo del mapa y las unidades; terreno.c y terrain_hd.c, el terreno
+  main.c        el bucle principal; puente.c, la entrada desde SaguiOS
+  stb_image.h   el lector de PNG (de terceros: dominio público o MIT)
+
+Si estropeas algo, copia de nuevo estos ficheros desde una imagen limpia de SaguiOS o desde
+el repositorio (userland/juegos/aoen).

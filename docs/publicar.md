@@ -75,6 +75,9 @@ compatible con la libsagui GPL-3.0-only: `netsurf/fuentes/` y `gnuboy/jogo/`; `d
 `gnuboy.mk`, `plataforma/`, `libc/`, SPDX GPL-2.0-or-later) y los guiones que descargan el original
 (D261): cada usuario se los compila para uso propio con `make priv_variantes`.
 Sí van `docs/capturas/` (25 MB) y `testes_eli/` (980 KB, fotos del proyecto original).
+Las fuentes de **TCC** (D384, LGPL-2.1 o posterior, compatible) tampoco van al repositorio (se bajan con
+`tools/tcc_fuentes.sh`, que `make priv_descargas` llama), pero el compilador **sí va en las imágenes públicas**
+(`/apps/bin/tcc`, `/apps/tcc` con sus fuentes parcheadas y `LICENCIA-TCC.txt`): antes de `make variantes`, bajarlas.
 `publicar.sh` y `auditar_licencias.py --publico` fallan si aparece código de NetSurf o GNUBoy.
 
 La amalgama de SQLite (9,5 MB, dominio público) es la única excepción al límite de 5 MB.

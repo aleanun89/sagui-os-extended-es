@@ -20722,3 +20722,38 @@ con la SDL2 del sistema (la de Freeciv y los demás ports) y se mejora.
   OPL emulado, que gastaría la CPU de un Pentium II. Sin SDL2_net: el juego en red no conecta.
 - **Integración.** Inicio > Juegos > DOOM y Freedoom (icono propio, un cacodemonio), ayuda `/ayuda/doom.md`, `docs/doom.md`.
 - **Pruebas.** `tests/h391_doom.py` (licencias, arranque con Freedoom, partida, timedemo, sin WAD).
+
+## D384. TCC dentro de SaguiOS y AoEN compilable dentro (v8.5.4.9, mejora 142; decidido el 2026-11-18)
+
+El mantenedor quiere modificar y recompilar AoEN (D382) **dentro** de SaguiOS. El `cc` propio (D033) no basta (un fichero,
+sin enlazar, sin `long long` ni `struct` por valor ni `goto`): se porta **TCC** (Tiny C Compiler). Detalle en `docs/tcc.md`.
+
+- **Versión y licencia.** TCC **0.9.28rc**, rama `mob` del repositorio oficial (repo.or.cz/tinycc.git), commit fijo
+  `f830a169` (2026-11-13), bajado del espejo de GitHub con SHA-256 por `tools/tcc_fuentes.sh`; las fuentes no van a git.
+  La 0.9.27 (2017) es la última etiqueta, pero el proyecto solo publica `mob` desde entonces (lo que empaquetan las
+  distribuciones) y tiene años de arreglos de i386. **LGPL-2.1-or-later** (`lib/libtcc1.c`, GPL-2.0-or-later con excepción
+  de enlace): compatible con la GPL v3; la imagen lleva `/apps/tcc/LICENCIA-TCC.txt` y el código está en los guiones.
+- **Dos compiladores de las mismas fuentes** (`plataforma/config.h`, `CONFIG_SAGUIOS`): el cruzado del PC
+  (`build/tcc/anfitrion/i386-tcc`, compila `libtcc1.a` y demás como el `lib/Makefile` de TCC) y `/apps/bin/tcc` (gcc,
+  libc común, x87). Dos parches pequeños: programas a `0x80000000` (D049), estático por defecto, `__saguios__`, `-run`
+  con la libc propia; y `bcheck.c` para SaguiOS.
+- **Enlace estático, no dinámico.** Los programas de TCC son ET_EXEC estáticos a `0x80000000` contra `/apps/tcc/lib/libc.a`
+  (libc común + libm x87 + libsagui entera + `principal()` que llama a `main()`), `libSDL2*.a` y `libtcc1.a`; `crt1.o` es
+  `inicio.asm`. Más robusto que D378 (sin depender del ABI de las `.so` ni de cómo genera TCC la PLT frente a `ld-sagui`) y
+  la SDL 2 no existe como `.so`. Coste: un «hola» de 125 KB. El enlace dinámico queda para más adelante.
+- **`-run` y libtcc con la libc del propio programa.** Sin `dlopen(NULL)`, una tabla generada (`tools/tcc_simbolos.py`,
+  845 símbolos de la libc, la libm y la base de la libsagui) se define débil y absoluta en `tcc_relocate` antes de
+  `libc.a`: no hay una segunda copia de `stdout` ni de `malloc`. `principal()` vale como `main()`.
+- **`-b` (pedido el mismo día).** `bcheck.c` se adapta (rama `__saguios__`: sin hilos, señales ni TLS; `malloc` y compañía a
+  `aloca`/`libera` de la libsagui sin `dlsym`; tras el mensaje con fichero y línea, `exit(255)`, porque SaguiOS no entrega
+  `SIGSEGV` al programa). Necesita las trazas de TCC (`CONFIG_TCC_BACKTRACE`), que se activan por eso; `-bt` como opción para
+  fallos del procesador no sirve sin señales y queda pendiente, igual que los compiladores cruzados de TCC.
+- **libtcc y autocompilación (pedidos el mismo día).** `/apps/tcc/lib/libtcc.a` y `<libtcc.h>` (ejemplo `libtcc_hola.c`);
+  `/apps/tcc/fuentes` con `compilar.sh`: TCC se compila a sí mismo dentro (0,03 s con KVM, 0,30 s con TCG).
+- **AoEN dentro.** `/apps/aoen/fuentes` con los `.c`/`.h` del juego, `stb_image.h` y `compilar.sh` (lista de `AOEN_SRC`;
+  `-DSTBI_NO_SIMD` porque TCC no tiene los intrínsecos SSE2). No hubo que tocar AoEN. Compila en **0,03-0,04 s con KVM y
+  0,39-0,41 s con TCG** (h392) y el binario arranca, dibuja el menú y juega una escaramuza, también con `-b` sin avisos.
+- **Guías:** `/ayuda/tcc.md` y `/ayuda/modificar-aoen.md` (cuatro ejercicios: coste y vida de una unidad, una tecnología,
+  la IA, un color), `docs/aoen-modificar.md`. Prueba `tests/h392_tcc.py` (PC y SaguiOS; capturas H392-*).
+- **Fuera de mi terreno:** `userland/inc/sagui.h` (`NULL` con `#ifndef`: TCC avisa si se redefine distinto; nada cambia con
+  gcc) y una línea en el `Makefile` (incluir `tcc.mk`, `priv_descargas`).

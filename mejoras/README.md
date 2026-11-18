@@ -142,4 +142,5 @@ Al crear o cerrar una mejora, actualiza esta tabla.
 | 139 | [IA local: modelos de lenguaje dentro de SaguiOS](139-ia-local.md) | hecha la fase de texto (v8.5.4.4, D380); ventanas PAE, descargador y VL pendientes | alta |
 | 140 | [AoEN: un RTS estilo Age of Empires, portado y mejorado](140-aoen.md) | hecha (v8.5.4.6, D382) | media |
 | 141 | [DOOM clásico: Chocolate Doom con Freedoom](141-doom.md) | hecha (v8.5.4.8, D383) | media |
+| 142 | [TCC dentro de SaguiOS y AoEN compilable dentro](142-tcc.md) | hecha la fase 1 (v8.5.4.9, D384); mods con libtcc y laboratorio de C pendientes | media |
 | 143 | [libsagui con licencia MIT](143-libsagui-mit.md) | idea, sin versión | media |
