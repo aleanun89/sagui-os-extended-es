@@ -28,6 +28,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Opcional: programas en Java.** `tools/java_entorno.sh instalar` baja un JDK 17 y Janino a `~/.local/saguitools` (sin sudo) y `tools/minijvm_fuentes.sh` baja miniJVM (commit fijo, SHA-256) a `userland/terceros/minijvm/fuentes/`; con eso `make` compila `/apps/bin/java`, `/apps/bin/javac`, la biblioteca de clases en `/apps/java/lib/` y los ejemplos de `userland/java/ejemplos/`. Sin las fuentes o sin el JDK se saltan con un aviso (`JAVA=0` los desactiva). Ver `docs/java.md`.
 
 **Opcional: compilador de C dentro (TCC).** `tools/tcc_fuentes.sh` baja TCC 0.9.28rc (commit fijo, SHA-256; LGPL-2.1 o posterior) a `userland/terceros/tcc/fuentes/` y aplica sus parches; con eso `make` también compila `/apps/bin/tcc`, `/apps/tcc/` (cabeceras, `libc.a`, `libSDL2.a`, `libtcc.a`, ejemplos y los fuentes de TCC para compilarse a sí mismo) y `/apps/aoen/fuentes` (AoEN compilable dentro con `sh compilar.sh`). Sin las fuentes se salta con un aviso (`TCC=0` lo desactiva). Ver `docs/tcc.md`.
+**Opcional: git dentro (D400).** `tools/git_fuentes.sh` baja libgit2 1.9.1 (etiqueta fija, SHA-256 comprobado) a `userland/terceros/git/fuentes/`; con eso `make` también compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote y config; HTTP(S) con TLS, y SSH). Sin las fuentes se salta con un aviso (`GIT=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/git.md`.
 
 | Paquete | Para qué |
 | --- | --- |
@@ -120,6 +121,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `FUENTES_RED` | (sin definir) | `1`: si falta el zip de Typodermic, que lo baje (ver 5) |
 | `FREECIV` | `1` | Freeciv 3.1.6 (cliente SDL2 y servidor local, en español, D374): solo entra si están preparadas las fuentes (ver 5). `FREECIV=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `DOOM` | `1` | Chocolate Doom 3.1.1 con Heretic, Hexen y Strife (D383): solo entra si están preparadas las fuentes (`tools/doom_fuentes.sh`). `DOOM=0` lo quita; con `SEM_GPL=1` tampoco entra. Freedoom (BSD-3-Clause, `tools/doom_datos.sh`) va a `/apps/doom` también en las imágenes públicas; los WAD originales, solo por `input_share/games/DOOM` |
+| `GIT` | `1` | git de SaguiOS (`/apps/bin/git`, D400): solo entra si están las fuentes de libgit2 (`tools/git_fuentes.sh`, ver 1 y 5). `GIT=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `GO` | `1` | programas en Go con TinyGo (`/apps/go/`, ver 1). Sin TinyGo instalado se saltan con un aviso; `GO=0` los desactiva |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | solo para `make priv_descargas`: dónde está el repositorio de OpenTTD (o de dónde clonarlo). Sin él, la imagen privada no lleva OpenTTD (ver 5) |
 
@@ -164,6 +166,7 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--sem-wc` | apagado | no activar write-combining en el framebuffer |
 | `--sem-pae` | apagado | paginación clásica de 2 niveles aunque la CPU tenga PAE: hasta 4 GB de RAM y sin NX (para probar o para hardware con problemas) |
 | `--sem-nx` | apagado | no activar NX (pila y montón no ejecutables) aunque la CPU lo tenga |
+| `--sem-avx` | apagado | (D381) el kernel no enciende AVX (XSAVE y los registros YMM) aunque la CPU lo tenga: todo queda como antes (FXSAVE y rutas SSE). Desde el sistema, `kconfig avx` con `si` o `no` |
 | `--cache-disco-baja` | apagado | la caché de disco en la memoria baja (hasta 64 MB) aunque haya memoria alta (por si el hardware da problemas) |
 | `--sin-swap` | apagado | sin swap comprimida en RAM: cuando se acaba la memoria, el programa falla como antes |
 | `--swap-mb N` | 0 (automático) | tope del almacén de la swap comprimida en MB (1-1024); automático = la mitad de la RAM con memoria alta, un cuarto sin ella, 1 GB como mucho |
@@ -187,6 +190,8 @@ Sin `--con-input-share`, `gerar_versao.sh` compila con `INPUT_SHARE= OPENJAZZ_DA
 | `--persist-mb N` | 0 | (D379) partición `SAGUI-PERSIST`: la capa persistente de la live |
 | `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) fuerza cómo se usa la raíz (por defecto, lo que diga el initramfs; con `--cd`, `toram`) |
 | `--raiz-sin-comprimir` | apagado | (D379, v8.5.4.2) con `--cd`, la raíz va como ext2 tal cual; por defecto va comprimida por bloques (la ISO pesa la mitad) |
+
+Las opciones de energía de la GPU (D399), `--gpu-energia-simulada` y `--gpu-energia-prueba`, son solo para las pruebas automáticas en QEMU y no aparecen en la tabla.
 
 Un disco con particiones a medida: `python3 tools/crear-disco.py -i` (asistente) o `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas las imágenes de disco, arranca por BIOS y por UEFI (D270; `crear-disco.py --sin-uefi`: solo BIOS).
 
@@ -226,6 +231,8 @@ Ficheros que deja `make variantes` en la carpeta de entrega:
 
 Desde la v8.5.3.1 (D379) todas las imágenes de disco llevan el sistema en `SAGUI-RAIZ` (ext2, con `/apps` dentro: ya no hay partición `SAGUI-APPS`), además de `SAGUI-JOGOS` (juegos, `/jogos`) y `SAGUI-CONF` (configuración, 16 MB); las persistentes, también `SAGUI-PERSIST`. Arrancan en live desde el medio (`docs/imagenes.md`). Con `RAIZ_DISCO=0` salen como hasta la v8.5.3 (ramdisk con la base y `SAGUI-APPS`).
 
+Desde la v8.5.4.10r2 (D388) el orden en el disco es: arranque, la ESP, y la extendida la última con `SAGUI-CONF`, `SAGUI-RAIZ`, `SAGUI-PERSIST`, `SAGUI-JOGOS`… y `/home` (`SAGUI-DATOS`) la última lógica: grabada en un disco mayor, «Ampliar /home» la estira hasta el final sin mover nada. `mkimagem.py --orden-antiguo` da la disposición de antes (solo para pruebas).
+
 ### 5. Qué se descarga y cuándo
 
 **`make` normal no descarga nada de la red.** Todo lo de abajo lo ejecutas tú, o lo ejecuta `make priv_descargas` / `make priv_variantes`. Todos los guiones comprueban el SHA-256 de lo que bajan y no repiten la descarga si ya está hecha; si no hay red, fallan con un mensaje y el sistema se construye igual sin esa pieza (los datos shareware y las fuentes tipográficas son opcionales).
@@ -240,6 +247,8 @@ Desde la v8.5.3.1 (D379) todas las imágenes de disco llevan el sistema en `SAGU
 | ROM libre de Game Boy (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, versión v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (solo útil con GNUBoy, ver 7) |
 | Fuentes de Freeciv 3.1.6 y de zlib 1.3.1 (unos 90 MB) | `bash tools/freeciv_fuentes.sh [--tarball FICHERO] [--zlib-tarball FICHERO] [--forzar]` | `https://github.com/freeciv/freeciv/archive/refs/tags/R3_1_6.tar.gz` (zlib: `https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz`) | GPL-2.0 o posterior (Freeciv); licencia zlib (zlib) | `userland/terceros/freeciv/fuentes/` y `userland/terceros/zlib/fuentes/` (ignoradas por git) |
 | Fuentes de Chocolate Doom 3.1.1 y Freedoom 0.13.0 (unos 12 y 57 MB) | `bash tools/doom_fuentes.sh [--tarball FICHERO] [--forzar]` y `bash tools/doom_datos.sh [--zip FICHERO] [--forzar]` | `https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-3.1.1.tar.gz` y `https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip` | GPL-2.0 o posterior (Chocolate Doom); BSD-3-Clause (Freedoom) | `userland/terceros/chocolatedoom/fuentes/` y `datos/` (ignoradas por git) |
+| Fuentes de libgit2 1.9.1 (la orden `git`, D400) | `bash tools/git_fuentes.sh [--tarball FICHERO]` | `https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.1.tar.gz` | GPL-2.0 con excepción de enlace | `userland/terceros/git/fuentes/` (ignorada por git) |
+| Modelos 3D CC0 para la demo de SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` y `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (dominio público) | `userland/terceros/modelos3d/datos/` (ignorada por git); no entran en las imágenes |
 
 Notas:
 
@@ -296,6 +305,7 @@ SaguiOS-Extended es **GPL v3** (`LICENSE`, `docs/licencia.md`). Cuatro piezas so
 | **r8169 derivado de Linux** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | no está; el driver de la tarjeta Realtek RTL8168/8111 usa su inicio clásico propio (`kernel/rede/r8169_sem_gpl.h`): funciona, pero sin las secuencias de inicio de los chips más nuevos (RTL8111G/H) |
 | **Freeciv** (juego de estrategia, `userland/terceros/freeciv/`) | GPL-2.0 o posterior | su código (`fuentes/`, unos 90 MB) no está en git: lo baja `tools/freeciv_fuentes.sh`; el pegamento propio (`freeciv.mk`, `plataforma/`, `parches/`, `traducciones/`) sí |
 | **Chocolate Doom** (DOOM, Heretic, Hexen y Strife, `userland/terceros/chocolatedoom/`) | GPL-2.0 o posterior | su código (`fuentes/`) no está en git: lo baja `tools/doom_fuentes.sh`; el pegamento propio (`chocolatedoom.mk`, `plataforma/`, `parches/`) sí. Freedoom (BSD-3-Clause) lo baja `tools/doom_datos.sh` |
+| **libgit2** (la orden `git`, `userland/terceros/git/`) | GPL-2.0 con excepción de enlace | su código (`fuentes/`) no está en git: lo baja `tools/git_fuentes.sh` con SHA-256 fijo; el pegamento propio (`git.c`, `git.mk`, `plataforma/`) sí |
 | **OpenTTD** (juego, repositorio aparte `../openttd-saguios`) | GPL-2.0 solo | no está en este repositorio ni en las imágenes públicas: se compila como paquete aparte y solo entra en las imágenes privadas (D375) |
 
 **Usarlos en privado está permitido; redistribuir esas imágenes, no.** Compilarte una imagen con ellos y usarla tú no es distribuir (`docs/licencia.md`).
@@ -329,6 +339,8 @@ Después, la imagen a otro sitio (el paso a paso está en `docs/como-gravar.md`)
 | **QEMU** | `./run_in_qemu.sh --imagen ...` como arriba |
 
 Comprueba las descargas con `sha256sum -c SHA256SUMS.txt`. En una máquina real, empieza por `saguios.img`; si funciona, prueba `-smp` y, en portátiles, `-uacpi`.
+
+Para cambiar las opciones de una imagen ya grabada sin volver a grabarla, desde el propio SaguiOS: `arranque opciones [smp=si|no] [ioapic=si|no] [uacpi=si|no]` (sin opciones, muestra las actuales). Valen desde el siguiente arranque (D392).
 
 ### Generador con ventana (opcional)
 
@@ -376,6 +388,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Optional: Java programs.** `tools/java_entorno.sh instalar` downloads a JDK 17 and Janino into `~/.local/saguitools` (no sudo) and `tools/minijvm_fuentes.sh` downloads miniJVM (pinned commit, SHA-256) into `userland/terceros/minijvm/fuentes/`; with those, `make` also builds `/apps/bin/java`, `/apps/bin/javac`, the class library in `/apps/java/lib/` and the examples in `userland/java/ejemplos/`. Without the sources or the JDK they are skipped with a notice (`JAVA=0` disables them). See `docs/java.md`.
 
 **Optional: C compiler inside (TCC).** `tools/tcc_fuentes.sh` downloads TCC 0.9.28rc (pinned commit, SHA-256; LGPL-2.1 or later) into `userland/terceros/tcc/fuentes/` and applies its patches; with them `make` also builds `/apps/bin/tcc`, `/apps/tcc/` (headers, `libc.a`, `libSDL2.a`, `libtcc.a`, examples and the TCC sources so it can compile itself) and `/apps/aoen/fuentes` (AoEN, buildable inside with `sh compilar.sh`). Without the sources it is skipped with a notice (`TCC=0` disables it). See `docs/tcc.md`.
+**Optional: git inside (D400).** `tools/git_fuentes.sh` downloads libgit2 1.9.1 (fixed tag, SHA-256 checked) into `userland/terceros/git/fuentes/`; with it, `make` also builds `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote and config; HTTP(S) with TLS, and SSH). Without the sources it is skipped with a notice (`GIT=0` disables it). It is left out of `SEM_GPL=1`. See `docs/git.md`.
 
 | Package | What for |
 | --- | --- |
@@ -468,6 +481,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `FUENTES_RED` | (unset) | `1`: if the Typodermic zip is missing, download it (see 5) |
 | `FREECIV` | `1` | Freeciv 3.1.6 (SDL2 client and local server, in Spanish, D374): only included if the sources are prepared (see 5). `FREECIV=0` removes it; with `SEM_GPL=1` it is not included either |
 | `DOOM` | `1` | Chocolate Doom 3.1.1 with Heretic, Hexen and Strife (D383): only included if the sources are prepared (`tools/doom_fuentes.sh`). `DOOM=0` removes it; with `SEM_GPL=1` it is not included either. Freedoom (BSD-3-Clause, `tools/doom_datos.sh`) goes to `/apps/doom`, also in the public images; the original WADs only through `input_share/games/DOOM` |
+| `GIT` | `1` | SaguiOS git (`/apps/bin/git`, D400): only included if the libgit2 sources are there (`tools/git_fuentes.sh`, see 1 and 5). `GIT=0` removes it; with `SEM_GPL=1` it is not included either |
 | `GO` | `1` | programs in Go with TinyGo (`/apps/go/`, see 1). Without TinyGo installed they are skipped with a notice; `GO=0` disables them |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | only for `make priv_descargas`: where the OpenTTD repository is (or where to clone it from). Without it the private image does not carry OpenTTD (see 5) |
 
@@ -512,6 +526,7 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--sem-wc` | off | do not enable write-combining on the framebuffer |
 | `--sem-pae` | off | classic 2-level paging even if the CPU has PAE: up to 4 GB of RAM and no NX (for testing or for troublesome hardware) |
 | `--sem-nx` | off | do not enable NX (non-executable stack and heap) even if the CPU has it |
+| `--sem-avx` | off | (D381) the kernel does not turn on AVX (XSAVE and the YMM registers) even if the CPU has it: everything stays as before (FXSAVE and SSE paths). From the system, `kconfig avx` with `si` or `no` |
 | `--cache-disco-baja` | off | keep the disk cache in low memory (up to 64 MB) even if there is high memory (in case the hardware has problems) |
 | `--sin-swap` | off | no compressed swap in RAM: when memory runs out, the program fails as before |
 | `--swap-mb N` | 0 (automatic) | cap of the compressed swap store in MB (1-1024); automatic = half the RAM with high memory, a quarter without it, at most 1 GB |
@@ -535,6 +550,8 @@ Without `--con-input-share`, `gerar_versao.sh` builds with `INPUT_SHARE= OPENJAZ
 | `--persist-mb N` | 0 | (D379) `SAGUI-PERSIST` partition: the live persistent layer |
 | `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) forces how the root is used (by default, what the initramfs says; with `--cd`, `toram`) |
 | `--raiz-sin-comprimir` | off | (D379, v8.5.4.2) with `--cd`, the root goes as a plain ext2; by default it is compressed in blocks (the ISO is half the size) |
+
+The GPU power options (D399), `--gpu-energia-simulada` and `--gpu-energia-prueba`, are only for the automatic tests in QEMU and are not in the table.
 
 A disk with custom partitions: `python3 tools/crear-disco.py -i` (wizard) or `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Like every disk image, it boots by BIOS and by UEFI (D270; `crear-disco.py --sin-uefi`: BIOS only).
 
@@ -574,6 +591,8 @@ Files that `make variantes` leaves in the delivery folder:
 
 Since v8.5.3.1 (D379) every disk image carries the system in `SAGUI-RAIZ` (ext2, with `/apps` inside: there is no `SAGUI-APPS` partition any more), plus `SAGUI-JOGOS` (games, `/jogos`) and `SAGUI-CONF` (configuration, 16 MB); the persistent ones also `SAGUI-PERSIST`. They boot live from the medium (`docs/imagenes.md`). With `RAIZ_DISCO=0` they come out as up to v8.5.3 (ramdisk with the base system and `SAGUI-APPS`).
 
+Since v8.5.4.10r2 (D388) the order on the disk is: boot, the ESP, and the extended partition last, with `SAGUI-CONF`, `SAGUI-RAIZ`, `SAGUI-PERSIST`, `SAGUI-JOGOS`… and `/home` (`SAGUI-DATOS`) last of all, as a logical partition: written on a larger disk, “Expand /home” stretches it to the end without moving anything. `mkimagem.py --orden-antiguo` gives the previous layout (for tests only).
+
 ### 5. What is downloaded, and when
 
 **A plain `make` downloads nothing from the network.** Everything below is run by you, or by `make priv_descargas` / `make priv_variantes`. Every script checks the SHA-256 of what it downloads and does not download again if it is already done; with no network they fail with a message and the system is built anyway without that piece (the shareware data and the typefaces are optional).
@@ -588,6 +607,8 @@ Since v8.5.3.1 (D379) every disk image carries the system in `SAGUI-RAIZ` (ext2,
 | Free Game Boy ROM (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, version v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (only useful with GNUBoy, see 7) |
 | Freeciv 3.1.6 and zlib 1.3.1 sources (about 90 MB) | `bash tools/freeciv_fuentes.sh [--tarball FILE] [--zlib-tarball FILE] [--forzar]` | `https://github.com/freeciv/freeciv/archive/refs/tags/R3_1_6.tar.gz` (zlib: `https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz`) | GPL-2.0 or later (Freeciv); zlib license (zlib) | `userland/terceros/freeciv/fuentes/` and `userland/terceros/zlib/fuentes/` (ignored by git) |
 | Chocolate Doom 3.1.1 and Freedoom 0.13.0 sources (about 12 and 57 MB) | `bash tools/doom_fuentes.sh [--tarball FILE] [--forzar]` and `bash tools/doom_datos.sh [--zip FILE] [--forzar]` | `https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-3.1.1.tar.gz` and `https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip` | GPL-2.0 or later (Chocolate Doom); BSD-3-Clause (Freedoom) | `userland/terceros/chocolatedoom/fuentes/` and `datos/` (ignored by git) |
+| libgit2 1.9.1 sources (the `git` command, D400) | `bash tools/git_fuentes.sh [--tarball FILE]` | `https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.1.tar.gz` | GPL-2.0 with linking exception | `userland/terceros/git/fuentes/` (ignored by git) |
+| CC0 3D models for the SaguiGL demo (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` and `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (public domain) | `userland/terceros/modelos3d/datos/` (ignored by git); not in the images |
 
 Notes:
 
@@ -644,6 +665,7 @@ SaguiOS-Extended is **GPL v3** (`LICENSE`, `docs/licencia.md`). Four pieces are 
 | **Linux-derived r8169** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | not there; the driver for the Realtek RTL8168/8111 card uses its own classic init (`kernel/rede/r8169_sem_gpl.h`): it works, but without the init sequences of the newest chips (RTL8111G/H) |
 | **Freeciv** (strategy game, `userland/terceros/freeciv/`) | GPL-2.0 or later | its code (`fuentes/`, about 90 MB) is not in git: `tools/freeciv_fuentes.sh` downloads it; our own glue (`freeciv.mk`, `plataforma/`, `parches/`, `traducciones/`) is there |
 | **Chocolate Doom** (DOOM, Heretic, Hexen and Strife, `userland/terceros/chocolatedoom/`) | GPL-2.0 or later | its code (`fuentes/`) is not in git: `tools/doom_fuentes.sh` downloads it; our own glue (`chocolatedoom.mk`, `plataforma/`, `parches/`) is. Freedoom (BSD-3-Clause) is downloaded by `tools/doom_datos.sh` |
+| **libgit2** (the `git` command, `userland/terceros/git/`) | GPL-2.0 with linking exception | its code (`fuentes/`) is not in git: `tools/git_fuentes.sh` downloads it with a fixed SHA-256; our own glue (`git.c`, `git.mk`, `plataforma/`) is there |
 | **OpenTTD** (game, separate repository `../openttd-saguios`) | GPL-2.0 only | not in this repository nor in the public images: it is built as a separate package and only goes into the private images (D375) |
 
 **Using them privately is allowed; redistributing those images is not.** Building an image with them and using it yourself is not distributing (`docs/licencia.md`).
@@ -677,6 +699,8 @@ Then the image to somewhere else (step by step in `docs/como-gravar.md`):
 | **QEMU** | `./run_in_qemu.sh --imagen ...` as above |
 
 Check downloads with `sha256sum -c SHA256SUMS.txt`. On a real machine, start with `saguios.img`; if it works, try `-smp` and, on laptops, `-uacpi`.
+
+To change the options of an image already written, without writing it again, from SaguiOS itself: `arranque opciones [smp=si|no] [ioapic=si|no] [uacpi=si|no]` (with no options it shows the current ones). They take effect from the next boot (D392).
 
 ### Window-based generator (optional)
 
@@ -724,6 +748,7 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Opcional: programas em Java.** `tools/java_entorno.sh instalar` baixa um JDK 17 e o Janino para `~/.local/saguitools` (sem sudo) e `tools/minijvm_fuentes.sh` baixa o miniJVM (commit fixo, SHA-256) para `userland/terceros/minijvm/fuentes/`; com isso o `make` também compila `/apps/bin/java`, `/apps/bin/javac`, a biblioteca de classes em `/apps/java/lib/` e os exemplos de `userland/java/ejemplos/`. Sem as fontes ou sem o JDK eles são pulados com um aviso (`JAVA=0` os desativa). Ver `docs/java.md`.
 
 **Opcional: compilador de C dentro (TCC).** `tools/tcc_fuentes.sh` baixa o TCC 0.9.28rc (commit fixo, SHA-256; LGPL-2.1 ou posterior) para `userland/terceros/tcc/fuentes/` e aplica seus patches; com isso o `make` também compila `/apps/bin/tcc`, `/apps/tcc/` (cabeçalhos, `libc.a`, `libSDL2.a`, `libtcc.a`, exemplos e as fontes do TCC para se compilar a si mesmo) e `/apps/aoen/fuentes` (o AoEN, compilável dentro com `sh compilar.sh`). Sem as fontes ele é pulado com um aviso (`TCC=0` o desativa). Ver `docs/tcc.md`.
+**Opcional: git dentro (D400).** `tools/git_fuentes.sh` baixa o libgit2 1.9.1 (tag fixa, SHA-256 verificado) para `userland/terceros/git/fuentes/`; com isso o `make` também compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote e config; HTTP(S) com TLS, e SSH). Sem as fontes ele é pulado com um aviso (`GIT=0` o desativa). Fica fora de `SEM_GPL=1`. Ver `docs/git.md`.
 
 | Pacote | Para quê |
 | --- | --- |
@@ -816,6 +841,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `FUENTES_RED` | (não definida) | `1`: se faltar o zip da Typodermic, baixá-lo (veja 5) |
 | `FREECIV` | `1` | Freeciv 3.1.6 (cliente SDL2 e servidor local, em espanhol, D374): só entra se as fontes estiverem preparadas (veja 5). `FREECIV=0` o remove; com `SEM_GPL=1` também não entra |
 | `DOOM` | `1` | Chocolate Doom 3.1.1 com Heretic, Hexen e Strife (D383): só entra se as fontes estiverem preparadas (`tools/doom_fuentes.sh`). `DOOM=0` o tira; com `SEM_GPL=1` também não entra. O Freedoom (BSD-3-Clause, `tools/doom_datos.sh`) vai para `/apps/doom`, também nas imagens públicas; os WAD originais, só por `input_share/games/DOOM` |
+| `GIT` | `1` | o git do SaguiOS (`/apps/bin/git`, D400): só entra se as fontes do libgit2 estiverem (`tools/git_fuentes.sh`, ver 1 e 5). `GIT=0` o remove; com `SEM_GPL=1` também não entra |
 | `GO` | `1` | programas em Go com TinyGo (`/apps/go/`, veja 1). Sem o TinyGo instalado são pulados com um aviso; `GO=0` os desativa |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | só para `make priv_descargas`: onde está o repositório do OpenTTD (ou de onde cloná-lo). Sem ele, a imagem privada não leva o OpenTTD (veja 5) |
 
@@ -860,6 +886,7 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--sem-wc` | desligado | não ativar o write-combining no framebuffer |
 | `--sem-pae` | desligado | paginação clássica de 2 níveis mesmo que a CPU tenha PAE: até 4 GB de RAM e sem NX (para testar ou para hardware com problemas) |
 | `--sem-nx` | desligado | não ativar o NX (pilha e heap não executáveis) mesmo que a CPU o tenha |
+| `--sem-avx` | desligado | (D381) o kernel não liga o AVX (XSAVE e os registradores YMM) mesmo que a CPU o tenha: tudo fica como antes (FXSAVE e caminhos SSE). Pelo sistema, `kconfig avx` com `si` ou `no` |
 | `--cache-disco-baja` | desligado | manter o cache de disco na memória baixa (até 64 MB) mesmo que haja memória alta (caso o hardware dê problemas) |
 | `--sin-swap` | desligado | sem swap comprimida na RAM: quando a memória acaba, o programa falha como antes |
 | `--swap-mb N` | 0 (automático) | limite do armazém da swap comprimida em MB (1-1024); automático = metade da RAM com memória alta, um quarto sem ela, no máximo 1 GB |
@@ -883,6 +910,8 @@ Sem `--con-input-share`, o `gerar_versao.sh` compila com `INPUT_SHARE= OPENJAZZ_
 | `--persist-mb N` | 0 | (D379) partição `SAGUI-PERSIST`: a camada persistente da live |
 | `--modo-raiz {auto,disco,live,toram,ram}` | `auto` | (D379) força como a raiz é usada (por padrão, o que o initramfs diz; com `--cd`, `toram`) |
 | `--raiz-sin-comprimir` | desligado | (D379, v8.5.4.2) com `--cd`, a raiz vai como ext2 sem mudanças; por padrão vai comprimida por blocos (a ISO fica com a metade do tamanho) |
+
+As opções de energia da GPU (D399), `--gpu-energia-simulada` e `--gpu-energia-prueba`, são só para os testes automáticos no QEMU e não aparecem na tabela.
 
 Um disco com partições sob medida: `python3 tools/crear-disco.py -i` (assistente) ou `make imagem-particoes-xz HOME_MB=4096 TMP_MB=512 LOGS_MB=256 PART_FS=fat32`. Como todas as imagens de disco, arranca por BIOS e por UEFI (D270; `crear-disco.py --sin-uefi`: só BIOS).
 
@@ -922,6 +951,8 @@ Arquivos que o `make variantes` deixa na pasta de entrega:
 
 Desde a v8.5.3.1 (D379) todas as imagens de disco levam o sistema na `SAGUI-RAIZ` (ext2, com `/apps` dentro: já não há partição `SAGUI-APPS`), além da `SAGUI-JOGOS` (jogos, `/jogos`) e da `SAGUI-CONF` (configuração, 16 MB); as persistentes, também a `SAGUI-PERSIST`. Iniciam em modo live a partir da mídia (`docs/imagenes.md`). Com `RAIZ_DISCO=0` saem como até a v8.5.3 (ramdisk com a base e `SAGUI-APPS`).
 
+Desde a v8.5.4.10r2 (D388) a ordem no disco é: inicialização, a ESP, e a estendida por último, com `SAGUI-CONF`, `SAGUI-RAIZ`, `SAGUI-PERSIST`, `SAGUI-JOGOS`… e `/home` (`SAGUI-DATOS`) por último de tudo, como partição lógica: gravada em um disco maior, “Ampliar /home” a estende até o fim sem mover nada. `mkimagem.py --orden-antiguo` dá a disposição anterior (só para testes).
+
 ### 5. O que é baixado e quando
 
 **Um `make` normal não baixa nada da rede.** Tudo o que está abaixo é executado por você, ou por `make priv_descargas` / `make priv_variantes`. Todos os scripts verificam o SHA-256 do que baixam e não repetem o download se já estiver feito; sem rede, falham com uma mensagem e o sistema é construído mesmo assim, sem essa peça (os dados shareware e as fontes tipográficas são opcionais).
@@ -936,6 +967,8 @@ Desde a v8.5.3.1 (D379) todas as imagens de disco levam o sistema na `SAGUI-RAIZ
 | ROM livre de Game Boy (Libbet) | `bash tools/gnuboy_roms_libres.sh` | `github.com/pinobatch/libbet`, versão v0.08 | zlib | `userland/terceros/gnuboy/roms-libres/` (só útil com o GNUBoy, veja 7) |
 | Fontes do Freeciv 3.1.6 e do zlib 1.3.1 (cerca de 90 MB) | `bash tools/freeciv_fuentes.sh [--tarball ARQUIVO] [--zlib-tarball ARQUIVO] [--forzar]` | `https://github.com/freeciv/freeciv/archive/refs/tags/R3_1_6.tar.gz` (zlib: `https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz`) | GPL-2.0 ou posterior (Freeciv); licença zlib (zlib) | `userland/terceros/freeciv/fuentes/` e `userland/terceros/zlib/fuentes/` (ignoradas pelo git) |
 | Fontes do Chocolate Doom 3.1.1 e do Freedoom 0.13.0 (cerca de 12 e 57 MB) | `bash tools/doom_fuentes.sh [--tarball ARQUIVO] [--forzar]` e `bash tools/doom_datos.sh [--zip ARQUIVO] [--forzar]` | `https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-3.1.1.tar.gz` e `https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip` | GPL-2.0 ou posterior (Chocolate Doom); BSD-3-Clause (Freedoom) | `userland/terceros/chocolatedoom/fuentes/` e `datos/` (ignoradas pelo git) |
+| Fontes do libgit2 1.9.1 (o comando `git`, D400) | `bash tools/git_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.1.tar.gz` | GPL-2.0 com exceção de ligação | `userland/terceros/git/fuentes/` (ignorada pelo git) |
+| Modelos 3D CC0 para a demo do SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` e `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (domínio público) | `userland/terceros/modelos3d/datos/` (ignorada pelo git); não entram nas imagens |
 
 Notas:
 
@@ -992,6 +1025,7 @@ O SaguiOS-Extended é **GPL v3** (`LICENSE`, `docs/licencia.md`). Quatro peças 
 | **r8169 derivado do Linux** (`kernel/terceros/linux/r8169/`) | GPL-2.0-only | não está; o driver da placa Realtek RTL8168/8111 usa seu início clássico próprio (`kernel/rede/r8169_sem_gpl.h`): funciona, mas sem as sequências de início dos chips mais novos (RTL8111G/H) |
 | **Freeciv** (jogo de estratégia, `userland/terceros/freeciv/`) | GPL-2.0 ou posterior | o código dele (`fuentes/`, cerca de 90 MB) não está no git: o `tools/freeciv_fuentes.sh` o baixa; a cola própria (`freeciv.mk`, `plataforma/`, `parches/`, `traducciones/`) está |
 | **Chocolate Doom** (DOOM, Heretic, Hexen e Strife, `userland/terceros/chocolatedoom/`) | GPL-2.0 ou posterior | o código dele (`fuentes/`) não está no git: `tools/doom_fuentes.sh` o baixa; a cola própria (`chocolatedoom.mk`, `plataforma/`, `parches/`) está. O Freedoom (BSD-3-Clause) é baixado por `tools/doom_datos.sh` |
+| **libgit2** (o comando `git`, `userland/terceros/git/`) | GPL-2.0 com exceção de ligação | o código dele (`fuentes/`) não está no git: o `tools/git_fuentes.sh` o baixa, com SHA-256 fixo; a cola própria (`git.c`, `git.mk`, `plataforma/`) está |
 | **OpenTTD** (jogo, repositório separado `../openttd-saguios`) | GPL-2.0 só | não está neste repositório nem nas imagens públicas: é compilado como pacote à parte e só entra nas imagens privadas (D375) |
 
 **Usá-los em privado é permitido; redistribuir essas imagens, não.** Compilar para si uma imagem com eles e usá-la não é distribuir (`docs/licencia.md`).
@@ -1025,6 +1059,8 @@ Depois, a imagem para outro lugar (o passo a passo está em `docs/como-gravar.md
 | **QEMU** | `./run_in_qemu.sh --imagen ...` como acima |
 
 Verifique os downloads com `sha256sum -c SHA256SUMS.txt`. Em uma máquina real, comece por `saguios.img`; se funcionar, teste `-smp` e, em notebooks, `-uacpi`.
+
+Para mudar as opções de uma imagem já gravada, sem gravá-la de novo, pelo próprio SaguiOS: `arranque opciones [smp=si|no] [ioapic=si|no] [uacpi=si|no]` (sem opções, mostra as atuais). Valem a partir do próximo arranque (D392).
 
 ### Gerador com janela (opcional)
 

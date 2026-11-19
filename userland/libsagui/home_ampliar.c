@@ -5,8 +5,11 @@
  *
  * Dos casos:
  *   - /home es una partición del disco de arranque (imagen persistente, disco instalado):
- *     crece hasta el final del disco con pt_mudar_tamanho, que mueve antes al final las
- *     lógicas que tenga detrás (juegos, /apps, SAGUI-CONF) si no hay otro modo;
+ *     crece hasta el final del disco con pt_mudar_tamanho. Desde la v8.5.4.10r2 (D388) /home es
+ *     la última lógica de las imágenes y del instalador: solo crecen la extendida y ella, sin mover
+ *     nada. Con la disposición de antes (/home la primera), las lógicas de detrás se mueven antes
+ *     al final (juegos, /apps, SAGUI-CONF), salvo si entre ellas está la raíz en uso (SAGUI-RAIZ o
+ *     su capa SAGUI-PERSIST): entonces no se puede y se dice que hay que regrabar o reinstalar;
  *   - /home está en la RAM (la imagen básica no lleva partición de datos): se crea una
  *     lógica ext2 SAGUI-DATOS con todo el espacio libre (la extendida crece antes), se le
  *     copia lo que hay ahora en /home y se monta en /home. El kernel la monta sola en los
@@ -35,7 +38,7 @@ static bool disco_arranque(char *nome, int max)
     return false;
 }
 
-int home_planejar(home_plano_t *h, char *m, int max)
+int home_planejar_ate(home_plano_t *h, uint32_t total, char *m, int max)
 {
     memset(h, 0, sizeof *h);
     if (!disco_arranque(h->disco, sizeof h->disco)) { txt(m, max, "no se sabe de qué disco arrancó el sistema (¿un CD?)"); return ERRO_NAO_EXISTE; }
@@ -48,12 +51,31 @@ int home_planejar(home_plano_t *h, char *m, int max)
     if (pt_volume_de_ponto("/home", h->vol, sizeof h->vol) && pt_separar_nome(h->vol, disco, sizeof disco, &num) &&
         compara_texto(disco, h->disco) == 0 && num) {
         char e[200];
-        if ((r = pt_planejar_tamanho(&t, num, 0, true, &h->plano, e, sizeof e)) < 0) { txt(m, max, "%s", e); return r; }
+        if ((r = pt_planejar_tamanho(&t, num, total, true, &h->plano, e, sizeof e)) < 0) { txt(m, max, "%s", e); return r; }
+        /* D388: el ext2 no crece más de lo que dejan los GDT reservados: se ofrece el máximo y se dice (no se falla). */
+        uint32_t lim = fs_ext2_maximo(h->vol);
+        if (lim && h->plano.depois > lim && lim > h->plano.antes) {
+            h->limitado = true;
+            h->limite_fs = lim;
+            if ((r = pt_planejar_tamanho(&t, num, lim, true, &h->plano, e, sizeof e)) < 0) { txt(m, max, "%s", e); return r; }
+        }
         h->ganho = h->plano.depois > h->plano.antes ? h->plano.depois - h->plano.antes : 0;
         h->total_novo = h->plano.depois;
         if (!h->ganho) { txt(m, max, "/home (%s) ya ocupa todo el espacio libre que tiene al lado", h->vol); return 0; }
-        txt(m, max, "/home (%s) puede pasar de %u a %u MB%s", h->vol, h->plano.antes / PT_MB, h->plano.depois / PT_MB,
-            h->plano.nmover ? " (las particiones de detrás se mueven al final del disco)" : "");
+        /* D388: con la disposición de antes (/home la primera lógica), ampliarla obliga a mover lo de detrás; si
+         * ahí está la raíz en uso (la SAGUI-RAIZ y su capa SAGUI-PERSIST en la live, o la raíz instalada), no se
+         * puede con el sistema en marcha. Se dice qué hacer en vez de intentarlo. */
+        char uso[16];
+        if (h->plano.nmover && pt_tamanho_raiz_em_uso(&h->plano, uso, sizeof uso)) {
+            h->bloqueado = true;
+            txt(m, max, "/home (%s) no se puede ampliar con el sistema en marcha: detrás tiene la raíz en uso (%s; disposición de "
+                        "antes de la v8.5.4.10r2). Para usar los %u MB libres, graba la imagen nueva (con /home al final) o instala "
+                        "SaguiOS en este disco con «instalar» desde un pendrive.", h->vol, uso, h->ganho / PT_MB);
+            return 0;
+        }
+        txt(m, max, "/home (%s) puede pasar de %u a %u MB%s%s", h->vol, h->plano.antes / PT_MB, h->plano.depois / PT_MB,
+            h->plano.nmover ? " (las particiones de detrás se mueven al final del disco)" : "",
+            h->limitado ? " (es lo máximo que admite su tabla de grupos; para usar todo el disco habría que rehacer /home: grabar la imagen nueva)" : "");
         return 0;
     }
     /* /home en la RAM: el hueco más grande, con la extendida ampliada hasta el final. */
@@ -80,10 +102,59 @@ int home_planejar(home_plano_t *h, char *m, int max)
         for (int i = 0; i < 4; i++) if (!t.prim[i].tipo) libres++;
         if (!libres) { txt(m, max, "%s no tiene extendida ni entradas libres en la tabla", h->disco); return ERRO_LIMITE; }
     }
+    if (total && total / PT_MB * PT_MB < h->criar_set) h->criar_set = total / PT_MB * PT_MB;   /* D388: un tamaño menor */
     h->ganho = h->total_novo = h->criar_set;
     if (!h->ganho) { txt(m, max, "no hay espacio libre en %s", h->disco); return 0; }
     txt(m, max, "/home está en la RAM: se puede crear una partición SAGUI-DATOS de %u MB para él", h->criar_set / PT_MB);
     return 0;
+}
+
+int home_planejar(home_plano_t *h, char *m, int max) { return home_planejar_ate(h, 0, m, max); }
+
+/* ---- estimación del trabajo (D388) ---- */
+void home_texto_tempo(uint32_t seg, char *s, int max)
+{
+    if (seg < 60) formatar_texto(s, (size_t)max, "menos de 1 min");
+    else if (seg < 3600) formatar_texto(s, (size_t)max, "unos %u min", (seg + 30) / 60);
+    else formatar_texto(s, (size_t)max, "%u h %u min", seg / 3600, (seg % 3600 + 30) / 60);
+}
+
+/* Velocidad de escritura prudente (MB/s): se lee de 8 MB del final del disco (que es lo que se va a poner a cero)
+ * y se supone que escribir va a la mitad, entre 3 y 120 MB/s. Si no se puede leer, 15 MB/s. */
+static uint32_t medir_mbs(const char *disco)
+{
+    enum { TROZO = 256, TROZOS = 32 };   /* 128 KB por lectura, 4 MB en total */
+    info_bloco_t b;
+    uint8_t *buf = aloca(TROZO * 512);
+    uint32_t mbs = 15;
+    if (buf && blocos_info(disco, &b) == 0 && b.setores > TROZO * TROZOS * 2) {
+        uint32_t lba = (b.setores - TROZO * TROZOS - 64) & ~255u, t0 = tempo_ms();
+        int ok = 1;
+        for (int i = 0; i < TROZOS && ok; i++) ok = blocos_ler(disco, lba + (uint32_t)i * TROZO, TROZO, buf) == 0;
+        uint32_t ms = tempo_ms() - t0;
+        if (ok) {
+            if (!ms) ms = 1;
+            uint32_t leitura = 4u * 1000 / ms;   /* MB/s */
+            mbs = leitura / 2;
+            if (mbs < 3) mbs = 3;
+            if (mbs > 120) mbs = 120;
+        }
+    }
+    if (buf) libera(buf);
+    return mbs;
+}
+
+int home_estimar(const home_plano_t *h, uint32_t mbs, home_estim_t *e)
+{
+    fs_ext2_est_t x;
+    memset(e, 0, sizeof *e);
+    int r = h->criar ? fs_ext2_estimar_novo(h->criar_set, &x) : fs_ext2_estimar(h->vol, h->plano.depois, &x);
+    if (r < 0) memset(&x, 0, sizeof x);
+    e->grupos = x.grupos;
+    e->mb = x.mb;
+    e->mbs = mbs ? mbs : medir_mbs(h->disco);
+    e->segundos = (e->mb + e->mbs - 1) / e->mbs + 5;
+    return r;
 }
 
 /* ---- copiar /home (RAM) a la partición nueva ---- */
@@ -124,6 +195,7 @@ static int copiar_arvore(const char *de, const char *para, int nivel)
 int home_ampliar(home_plano_t *h, fs_progresso_t prog, void *ctx, char *m, int max)
 {
     if (!h->ganho) { txt(m, max, "no hay nada que ampliar"); return 0; }
+    if (h->bloqueado) { txt(m, max, "/home no se puede ampliar sin mover la raíz del sistema en uso: no se ha cambiado nada"); return ERRO_OCUPADO; }
     if (!h->criar) {
         h->plano.progresso = prog;
         h->plano.ctx = ctx;

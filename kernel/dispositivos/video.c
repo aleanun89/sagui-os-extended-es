@@ -285,6 +285,7 @@ bool video_mover(int x, int y, int l, int a, int ddx, int ddy)
     bool sim = int_salva_desliga();
     bool gpu = acel2d_ativo();
     if (gpu) video_mostrar();   /* la pantalla igual al búfer de atrás antes de mover en ella */
+    acel_sincronizar();         /* D387: y la GPU sin leer el búfer de atrás, que va a cambiar */
     mover_tras(ox, oy, dx, dy, l, a);
     if (gpu) gpu = acel_copiar(ox, oy, dx, dy, l, a) && acel_esperar();
     if (gpu) cursor_depois_da_gpu(dx, dy, l, a, ddx, ddy);
@@ -299,6 +300,7 @@ void video_rolar(int y, int altura, int linhas, cor_t fundo)
     if (acel2d_ativo()) {   /* D195: la GPU sube la franja y borra la línea nueva en la pantalla */
         bool sim = int_salva_desliga();
         video_mostrar();
+        acel_sincronizar();   /* D387: la GPU sin leer el búfer de atrás, que va a cambiar */
         mover_tras(0, y + linhas, 0, y, (int)larg, altura - linhas);
         for (int j = y + altura - linhas; j < y + altura; j++)
             rapido_preencher32(tras + (uint32_t)j * larg, fundo, larg);
@@ -402,21 +404,38 @@ void video_mostrar(void)
         video_marcar(cur_ant_x, cur_ant_y, CUR_L, CUR_A);
     if (suj_x0 >= suj_x1 && cur_ant_visivel == visivel && cur_ant_x == cur_x && cur_ant_y == cur_y)
         return;
-    bool toca_cursor = false;
+    bool toca_cursor = false, pela_gpu = false;
     if (suj_x0 < suj_x1) {
-        bool sse = rapido_inicio();
-        copiar_regiao(suj_x0, suj_y0, suj_x1, suj_y1);
-        acel2d_contar_sw(ACEL_SW_MOSTRAR, (uint32_t)((suj_x1 - suj_x0) * (suj_y1 - suj_y0)));   /* D346 */
-        rapido_fim(sse);
-        acel_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);   /* D195: VMware en modo SVGA */
+        /* D387: con una sola pantalla, la GPU puede copiar el rectángulo leyendo el búfer de atrás
+         * (GART): la CPU solo pone la orden y sigue. Si no (o si es pequeño), la copia de siempre. */
+        pela_gpu = telas_qtd() <= 1 && acel_volcar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);
+        if (!pela_gpu) {
+            bool sse = rapido_inicio();
+            copiar_regiao(suj_x0, suj_y0, suj_x1, suj_y1);
+            acel2d_contar_sw(ACEL_SW_MOSTRAR, (uint32_t)((suj_x1 - suj_x0) * (suj_y1 - suj_y0)));   /* D346 */
+            rapido_fim(sse);
+            acel_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);   /* D195: VMware en modo SVGA */
+        }
         toca_cursor = cur_x < suj_x1 && cur_x + CUR_L > suj_x0 && cur_y < suj_y1 && cur_y + CUR_A > suj_y0;
     }
     if (visivel && (toca_cursor || cur_ant_x != cur_x || cur_ant_y != cur_y || !cur_ant_visivel)) {
+        if (pela_gpu) acel_sincronizar();   /* D387: el cursor va encima de lo que la GPU está copiando */
         desenhar_cursor(cur_x, cur_y);
         acel_atualizar(cur_x, cur_y, CUR_L, CUR_A);
     }
     cur_ant_x = cur_x; cur_ant_y = cur_y; cur_ant_visivel = visivel;
     suj_x0 = suj_x1 = 0;
+}
+
+/* D387: la copia de la CPU de un rectángulo del escritorio a la pantalla, sin tocar lo marcado
+ * (para medirla contra la de la GPU: «acel2d volcado medir»). */
+void video_volcar_cpu(int x0, int y0, int x1, int y1)
+{
+    if (!ativo) return;
+    bool sse = rapido_inicio();
+    copiar_regiao(x0, y0, x1, y1);
+    rapido_fim(sse);
+    acel_atualizar(x0, y0, x1 - x0, y1 - y0);
 }
 
 void video_mostrar_tudo(void)
@@ -450,6 +469,7 @@ bool video_trocar_modo(uint32_t l, uint32_t a)
     uint32_t novo_bpp = video_bpp_a_quente();
     if (l * a * 4 > fb_mapeado) return false;
     if (acel2d_ativo()) acel2d_desligar("cambio de modo de video");   /* D195: el acelerador conoce el modo de antes */
+    acel_volcado_buffer(true);   /* D387: la GPU (o la simulada) deja de leer el búfer de atrás viejo */
     uint32_t dl, da;
     telas_desktop(0, l, a, &dl, &da);   /* D290: con varias pantallas el escritorio es más que este modo */
     uint32_t *novo = kmalloc(dl * da * 4);
@@ -460,6 +480,7 @@ bool video_trocar_modo(uint32_t l, uint32_t a)
     tras = novo;
     memset(tras, 0, dl * da * 4);
     prim_l = l; prim_a = a; larg = dl; alt = da; pitch = p; bpp = novo_bpp;
+    acel_volcado_buffer(false);   /* D387: el nuevo, a la GART (la simulada; la de verdad se apagó con el 2D) */
     telas_cabeca0(l, a);
     /* Quien lee boot_info (INFO_VERSAO, infopc) pasa a ver el modo nuevo.
      * La tarjeta de Bochs/QEMU usa siempre el formato por defecto de cada profundidad. */
@@ -489,9 +510,11 @@ bool video_refazer(void)
     if (dl != larg || da != alt) {
         uint32_t *novo = kmalloc(dl * da * 4);
         if (!novo) return false;
+        acel_volcado_buffer(true);   /* D387 */
         kfree(tras);
         tras = novo;
         larg = dl; alt = da;
+        acel_volcado_buffer(false);
     }
     memset(tras, 0, larg * alt * 4);
     acel_sincronizar();

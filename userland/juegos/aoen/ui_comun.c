@@ -65,6 +65,22 @@ int button(int x, int y, int w, int h, const char *label, int enabled, int size)
 
 int boton_t(int x, int y, int w, int h, const char *label, int enabled) { return button(x, y, w, h, label, enabled, 1); }
 
+/* pestaña (v8.5.5.3): la activa se ve clara y unida al panel; las otras, oscuras. Devuelve 1 al pulsarla. */
+int pestana(int x, int y, int w, int h, const char *label, int activa) {
+	int foco = foco_control(x, y, w, h);
+	int over = hit(x, y, w, h);
+	u32 top = activa ? gfx_rgb(96, 66, 40) : over ? gfx_rgb(70, 46, 30) : gfx_rgb(40, 27, 18);
+	u32 bot = activa ? gfx_rgb(62, 42, 26) : gfx_rgb(26, 17, 11);
+	gfx_fill_grad(x, y, w, h, top, bot);
+	bevel(x, y, w, h, foco ? COL_CREAM : activa ? COL_GOLD : gfx_rgb(110, 85, 50));
+	if (activa) gfx_fill(x + 3, y + h - 3, w - 6, 3, COL_GOLD);
+	int tw = gfx_t_w(label, 1);
+	gfx_ts(x + (w - tw) / 2, y + (h - 16) / 2, label, activa ? COL_GOLD : over ? COL_CREAM : COL_DIM, 1);
+	int pulsado = !activa && ((over && in.mclick) || (foco && tecla(SDL_SCANCODE_RETURN)));
+	if (pulsado) { snd_ui(SND_CLICK); in.bloqueo = 1; }
+	return pulsado;
+}
+
 /* selector "< valor >": devuelve -1, 0 o +1. Con el foco del teclado, Izquierda/Derecha lo cambian. */
 int cycler(int x, int y, int w, const char *label) {
 	int h = 26, ret = 0;

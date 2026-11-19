@@ -100,6 +100,39 @@ puertos de por medio, conecta con `--host` y `--puerto`.
   o es de una sesión anterior. Genera otro.
 - **«la suma de control no cuadra»**: alguna letra está mal copiada.
 
+## Cómo probar un kernel por DEBUG-APP (D392)
+
+`arranque probar` deja un kernel en la ranura de prueba del disco de arranque y lo arranca **una sola vez**: la
+etapa 2 borra la marca antes de cargarlo, así que si el kernel nuevo se cuelga, basta con reiniciar (o que alguien
+apriete el botón) para volver al **último bueno** (el último confirmado; si no hay, el de la imagen). Solo por BIOS.
+
+Hay tres kernels, y `arranque estado` los muestra: el **original** (el de la imagen, que `arranque` no cambia nunca),
+el **último bueno** (lo deja `confirmar`) y el **en prueba**. Se puede probar otro aunque haya un último bueno: si
+falla, vuelve ese. `arranque cancelar` quita la prueba (vuelve el último bueno) y `arranque original` quita también
+el último bueno (vuelve el de la imagen).
+
+```
+export DEBUG_APP_CODIGO=...                    # el código de la ventana (no queda en el historial)
+R=tools/depurar-remoto.py
+$R env subir build/kernel.bin /tmp/
+$R env ejecutar "arranque estado"              # etapa 2, kernel, ramdisk, sitio libre, con qué arrancó
+$R env ejecutar "arranque probar /tmp/kernel.bin"
+$R env ejecutar "reiniciar"                    # arranca la prueba (una vez); la conexión se corta
+# ... nueva sesión de DEBUG-APP (otro código):
+$R env ejecutar "arranque estado"              # «Este arranque: el KERNEL DE PRUEBA (una vez)»
+$R env ejecutar "dmesg | grep 'kernel de prueba'"
+$R env ejecutar "arranque confirmar"           # si va bien: queda como el último bueno
+# si va mal: reiniciar (vuelve el último bueno), o «arranque cancelar» si aún no se reinició
+# volver al kernel de la imagen: «arranque original» y reiniciar
+```
+
+**Un disco grabado antes de D392** (la etapa 2 no sabe de la ranura: `arranque estado` dice «ANTIGUA») recibe la
+etapa 2 nueva con `arranque etapa2 /tmp/estagio2.bin` (va a sitio libre y la cabecera pasa a apuntar a ella; la
+vieja no se toca). Si el disco no tiene sitio en la partición de SaguiOS (las imágenes de antes de D392), la prueba
+va como fichero en la ESP. Con un kernel de antes de D392, `arranque` solo puede escribir si no hay **nada montado**
+del disco de arranque: arrancar con **M** pulsada → «2 todo a la RAM», desmontar lo que quede (`mount`, `umount`) y
+repetir. Lo dice el propio `arranque` si hace falta. Detalles y riesgos: D392 en `docs/decisoes.md`.
+
 ## Qué protege y qué no
 
 - **Un secreto de un solo uso** (64 bits del generador aleatorio del kernel, D061). No viaja por la

@@ -172,7 +172,8 @@ static void panel_diplomacia(void) {
 }
 
 /* ---------- ayuda de teclas (F1) ---------- */
-static void panel_ayuda(void) {
+/* tabla de teclas: en dos columnas si caben (ayuda F1 y Opciones > Teclas) */
+void dibujar_teclas(int x, int y, int w, int h) {
 	static const char *izq[][2] = {
 		{ "Clic", "elegir; arrastrar: caja" }, { "Mayús+clic", "añadir o quitar de la selección" }, { "Doble clic", "todos los de ese tipo a la vista" },
 		{ "Clic derecho", "mover, atacar, recoger, construir" }, { "Mayús+clic der.", "encadenar órdenes (hasta 4)" },
@@ -184,24 +185,34 @@ static void panel_ayuda(void) {
 		{ "Q", "detener" }, { "E / R", "desembarcar / embarcar" }, { "Y", "punto de reunión (o clic der.)" }, { ". / ,", "aldeano / soldado inactivo" },
 		{ "Espacio", "ir al último aviso (ataque)" }, { "H", "centro urbano" }, { "Tab", "marcador: pequeño, ampliado, nada" },
 		{ "F1 F3", "ayuda, diplomacia" }, { "F5 F9", "guardado rápido, cargar" }, { "+ / -", "velocidad" }, { "Esc / F10", "cancelar / pausa" },
+		{ "F11", "pantalla completa" },
 	};
-	int w = MIN(fb.w - 20, 860), h = MIN(fb.h - top_h - bottom_h - 10, 26 + 40 + 15 * 18 + 30), x = (fb.w - w) / 2, y = top_h + 5;
+	/* ancho de la columna de las teclas y de la más larga de las descripciones: dos columnas solo si caben enteras */
+	int ki = 0, di = 0, kd = 0, dd = 0;
+	for (int i = 0; i < ARRAY_LEN(izq); ++i) { ki = MAX(ki, gfx_t_w(izq[i][0], 1)); di = MAX(di, gfx_t_w(izq[i][1], 1)); }
+	for (int i = 0; i < ARRAY_LEN(der); ++i) { kd = MAX(kd, gfx_t_w(der[i][0], 1)); dd = MAX(dd, gfx_t_w(der[i][1], 1)); }
+	ki += 8; kd += 8;
+	int dos = ki + di + 4 <= w / 2 && kd + dd <= w / 2, colw = dos ? w / 2 : w;
+	int max_filas = h / 18;
+	for (int i = 0; i < ARRAY_LEN(izq) && i < max_filas; ++i) {
+		gfx_ts(x, y + i * 18, izq[i][0], COL_AVISO, 1);
+		gfx_ts(x + ki, y + i * 18, izq[i][1], COL_CREAM, 1);
+	}
+	int dx = dos ? x + colw : x, dy = dos ? y : y + ARRAY_LEN(izq) * 18 + 8;
+	for (int i = 0; i < ARRAY_LEN(der) && (dy - y) / 18 + i < max_filas; ++i) {
+		gfx_ts(dx, dy + i * 18, der[i][0], COL_AVISO, 1);
+		gfx_ts(dx + (dos ? kd : ki), dy + i * 18, der[i][1], COL_CREAM, 1);
+	}
+}
+
+static void panel_ayuda(void) {
+	int w = MIN(fb.w - 20, 860), h = MIN(fb.h - top_h - bottom_h - 10, 26 + 40 + 16 * 18 + 30), x = (fb.w - w) / 2, y = top_h + 5;
 	ui_modal = (Rect){ x, y, w, h }; ui_modal_on = 1; ui_en_modal = 1;
 	panel(x, y, w, h);
 	gfx_ts(x + 20, y + 14, "Ayuda: teclas y órdenes", COL_GOLD, 2);
 	if (button(x + w - 44, y + 14, 28, 26, "X", 1, 1)) panel_abierto = PANEL_NINGUNO;
-	int dos = w >= 760, colw = dos ? (w - 40) / 2 : w - 40, ky = y + 56;
-	int max_filas = (h - 80) / 18;
-	for (int i = 0; i < ARRAY_LEN(izq) && i < max_filas; ++i) {
-		gfx_ts(x + 20, ky + i * 18, izq[i][0], COL_AVISO, 1);
-		gfx_ts(x + 20 + 130, ky + i * 18, izq[i][1], COL_CREAM, 1);
-	}
-	int dx = dos ? x + 20 + colw : x + 20, dy = dos ? ky : ky + ARRAY_LEN(izq) * 18 + 8;
-	for (int i = 0; i < ARRAY_LEN(der) && (dy - ky) / 18 + i < max_filas; ++i) {
-		gfx_ts(dx, dy + i * 18, der[i][0], COL_AVISO, 1);
-		gfx_ts(dx + 90, dy + i * 18, der[i][1], COL_CREAM, 1);
-	}
-	gfx_text(x + 20, y + h - 22, "Ayuda completa en /ayuda/aoen.md (Ayuda de SaguiOS). Los botones grises dicen en su ayuda por qué no se pueden usar.", COL_DIM, 1);
+	dibujar_teclas(x + 20, y + 56, w - 40, h - 80);
+	gfx_t(x + 20, y + h - 24, w >= 820 ? "Ayuda completa en /ayuda/aoen.md. Los botones grises dicen en su ayuda por qué no se pueden usar." : "Ayuda completa en /ayuda/aoen.md.", COL_DIM, 1);
 	ui_en_modal = 0;
 }
 

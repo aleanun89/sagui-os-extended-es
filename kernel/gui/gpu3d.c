@@ -19,7 +19,14 @@
  * La opción de arranque SGL_MOTOR=software (D158) o --gpu3d=no lo quitan.
  *
  * Las piezas que comparten los drivers (memoria de GPU por bloques, búferes y
- * coma flotante con enteros) están en gpu3d_mem.c, que también se prueba en el PC. */
+ * coma flotante con enteros) están en gpu3d_mem.c, que también se prueba en el PC.
+ *
+ * D390: el diagnóstico es común a todos los drivers (gpu3d_diag.h): con «gpu3d probar
+ * --detalle» o «--ver», antes de cada etapa de la autoprueba la CPU pone sentinelas en el
+ * color y el Z del destino y, tras leerlo, el log dice cuánto sigue intacto y qué colores
+ * dejó la GPU; con «--ver» se guarda además la imagen de cada etapa para que la orden la
+ * enseñe en una ventana. Los ajustes de registros de /sistema/conf/gpu3d-<driver>.conf se
+ * leen aquí, antes de encender, y se filtran con los rangos que declara el driver. */
 #include "gpu3d.h"
 #include "bootinfo.h"
 #include "console.h"
@@ -30,6 +37,7 @@
 #include "sensores_conv.h"
 #include "sistema.h"
 #include "texto.h"
+#include "vfs.h"
 
 static const gpu3d_driver_t *drv;
 static pci_disp_t disp;
@@ -46,6 +54,21 @@ static gpu3d_estado_t est_atual;
 static uint32_t n_tri, n_lotes, n_quadros, n_falhas, n_recusas, us_autoprova, n_desenhos_prova;
 static uint32_t pontos, tri_s, kpix_s;
 static bool desligando;
+
+/* D390: diagnóstico común (gpu3d_diag.h). */
+g3d_ajustes_t gpu3d_ajustes;
+static uint32_t diag;                     /* GPU3D_PROVA_* de la «gpu3d probar» en curso (0: la autoprueba de siempre) */
+static int ap_etapa = -1;                 /* la prueba de la autoprueba en curso */
+typedef struct {
+    int           estado;                 /* GPU3D_ETAPA_* */
+    bool          com_imagem;
+    g3d_analise_t an;
+    int           x, y;
+    uint32_t      esperado, obtido;
+    uint32_t      px[GPU3D_VER_L * GPU3D_VER_A];
+    uint16_t      z[GPU3D_VER_L * GPU3D_VER_A];
+} etapa_vista_t;
+static etapa_vista_t *etapas;             /* con GPU3D_PROVA_VER: una por prueba (~74 KB cada una) */
 
 /* ------------------------------------------------------------ utilidades */
 
@@ -73,12 +96,16 @@ static void soltar_driver(void)
     dono = 0; alvo_l = alvo_a = 0;
 }
 
+static void diag_destino(const char *fase);
+static void diag_etapa(uint32_t *buf);
+
 /* El vigilante: la GPU falló. Software hasta «gpu3d encender». */
 static void falha(const char *m)
 {
     n_falhas++;
     klog("[GPU3D] apagado: %s\n", m);
     if (drv && drv->detalle) drv->detalle("tras el fallo");
+    diag_destino("tras el fallo");
     soltar_driver();
     estado = GPU3D_FALHOU;
     snformatar(motivo, sizeof motivo, "%s: apagado, SaguiGL sigue por software (%s)", placa_nome, m);
@@ -99,6 +126,7 @@ void gpu3d_anel_parado(void)
 #define AP_L 128
 #define AP_A 96
 #define AP_FUNDO 0x00102030u
+_Static_assert(AP_L == GPU3D_VER_L && AP_A == GPU3D_VER_A, "las imagenes de --ver son el destino de la autoprueba");
 
 static void vert(gpu3d_vert_t *v, int x, int y, int z_q16, uint32_t cor, uint32_t espec, int u_q16, int v_q16)
 {
@@ -140,6 +168,7 @@ static bool conferir(uint32_t *buf, const amostra_t *am, int n, info_gpu3d_prova
 {
     if (drv->ler(buf, AP_L) != G3D_OK) { r->x = r->y = -1; return false; }
     if (estragar) buf[am[0].y * AP_L + am[0].x] ^= 0x00F0F0u;
+    diag_etapa(buf);
     for (int i = 0; i < n; i++) {
         uint32_t p = buf[am[i].y * AP_L + am[i].x] & 0x00FFFFFFu;
         if (!perto(p, am[i].esperado, am[i].tol)) {
@@ -154,10 +183,119 @@ static const char *const nomes_prova[GPU3D_N_PROVAS] = {
     "limpiar", "rectangulo de color", "Z", "mezcla", "textura", "color interpolado", "especular", "Z de 16 bits",
 };
 
+/* ------------------------------------------------------------ diagnóstico común (D390) */
+
+/* Con caché (RAM del GTT de Intel, que exige CLFLUSH y SSE2): escribe y descarta las líneas,
+ * tras escribir con la CPU y antes de leer lo que escribió la GPU. */
+static void vaciar_cache(const g3d_vista_t *v)
+{
+    if (!v->cpu || !v->cache) return;
+    uint32_t a = (uint32_t)v->cpu & ~31u, fim = (uint32_t)v->cpu + v->passo * (uint32_t)v->alt;
+    __asm__ volatile("mfence" ::: "memory");
+    for (; a < fim; a += 32) __asm__ volatile("clflush (%0)" :: "r"(a) : "memory");
+    __asm__ volatile("mfence" ::: "memory");
+}
+
+static void vistas_atuais(g3d_vista_t *c, g3d_vista_t *z)
+{
+    memset(c, 0, sizeof *c);
+    memset(z, 0, sizeof *z);
+    if (drv && drv->vistas) drv->vistas(c, z);
+}
+
+/* Antes de una etapa (solo con --detalle o --ver): la sentinela en el color y en el Z. Si la
+ * GPU no termina lo anterior, no se toca nada (la etapa lo dirá). */
+static void sentinelas(void)
+{
+    if (!diag || drv->esperar(0, GPU3D_PRAZO_MS) != G3D_OK) return;
+    g3d_vista_t c, z;
+    vistas_atuais(&c, &z);
+    if (c.cpu) { g3d_vista_encher(&c, G3D_SENTINELA_COR); vaciar_cache(&c); }
+    if (z.cpu) { g3d_vista_encher(&z, G3D_SENTINELA_Z); vaciar_cache(&z); }
+    __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");   /* lo escrito sale antes de la siguiente orden */
+}
+
+static void log_analise(const char *fase, const g3d_analise_t *an)
+{
+    klog("[GPU3D] %s: color (%u pixeles): %u sin tocar (%x); otros: %x x%u, %x x%u, %x x%u, %x x%u, resto %u\n", fase, an->total,
+         an->cor_intacta, G3D_SENTINELA_COR, an->cores[0], an->n_cores[0], an->cores[1], an->n_cores[1], an->cores[2],
+         an->n_cores[2], an->cores[3], an->n_cores[3], an->resto);
+    if (an->tem_z) klog("[GPU3D] %s: Z: %u sin tocar (%x), %u al maximo\n", fase, an->z_intacto, G3D_SENTINELA_Z, an->z_maximo);
+    else klog("[GPU3D] %s: Z: la CPU no lo ve en esta tarjeta\n", fase);
+}
+
+/* Tras leer el cuadro de una etapa por la interfaz común (drv->ler, en buf): el análisis al log
+ * y, con --ver, la imagen de la etapa (el color leído y el Z tal como está). */
+static void diag_etapa(uint32_t *buf)
+{
+    if (!diag || ap_etapa < 0 || ap_etapa >= GPU3D_N_PROVAS) return;
+    g3d_vista_t c = { (volatile uint8_t *)buf, AP_L * 4, AP_L, AP_A, 32, 0, 0, false }, cv, z;
+    vistas_atuais(&cv, &z);
+    if (z.cpu) {
+        vaciar_cache(&z);
+        if (z.larg > AP_L) z.larg = AP_L;
+        if (z.alt > AP_A) z.alt = AP_A;
+    }
+    g3d_analise_t an;
+    g3d_analisar(&c, &z, &an);
+    char fase[48];
+    snformatar(fase, sizeof fase, "etapa %d (%s)", ap_etapa, nomes_prova[ap_etapa]);
+    log_analise(fase, &an);
+    if (!etapas) return;
+    etapa_vista_t *e = &etapas[ap_etapa];
+    e->com_imagem = true;
+    e->an = an;
+    memcpy(e->px, buf, sizeof e->px);
+    for (int y = 0; y < AP_A; y++)
+        for (int x = 0; x < AP_L; x++)
+            e->z[y * AP_L + x] = z.cpu && x < z.larg && y < z.alt ? g3d_z_codigo(&z, g3d_vista_ler(&z, x, y)) : 0;
+}
+
+/* El destino tal como está, sin pasar por la GPU (tras un fallo puede no responder). Solo
+ * destinos pequeños (la autoprueba y la medida): leer sin caché un destino grande tardaría. */
+static void diag_destino(const char *fase)
+{
+    if (!drv || !drv->vistas) return;
+    g3d_vista_t c, z;
+    vistas_atuais(&c, &z);
+    if (!c.cpu || c.larg * c.alt > 256 * 192) return;
+    vaciar_cache(&c);
+    vaciar_cache(&z);
+    g3d_analise_t an;
+    g3d_analisar(&c, &z, &an);
+    char f[48];
+    snformatar(f, sizeof f, "destino %dx%d %s", c.larg, c.alt, fase);
+    log_analise(f, &an);
+}
+
+/* Antes de encender: los ajustes de /sistema/conf/gpu3d-<driver>.conf (D386 para la R5xx;
+ * D390 para todos), solo dentro de los rangos que declara el driver. */
+static void ajustes_carregar(void)
+{
+    memset(&gpu3d_ajustes, 0, sizeof gpu3d_ajustes);
+    if (!drv || !drv->conf) return;
+    char cam[64];
+    snformatar(cam, sizeof cam, "/sistema/conf/gpu3d-%s.conf", drv->conf);
+    uint8_t *t = NULL;
+    uint32_t n = 0;
+    if (vfs_ler_inteiro(cam, &t, &n) < 0 || !t) {
+        if (t) kfree(t);
+        return;
+    }
+    g3d_ajustes_ler((const char *)t, n, drv->faixas, drv->n_faixas, &gpu3d_ajustes);
+    kfree(t);
+    klog("[GPU3D] %s: %d ajustes de depuracion de %s (%d lineas malas, %d fuera de los registros permitidos)%s\n", drv->nome,
+         gpu3d_ajustes.n, cam, gpu3d_ajustes.malas, gpu3d_ajustes.fora, drv->n_faixas ? "" : "; este driver no admite ajustes");
+    for (int i = 0; i < gpu3d_ajustes.n; i++)
+        klog("[GPU3D] %s:   %s %x = %x\n", drv->nome, gpu3d_ajustes.quando[i] == G3D_AJ_DIBUJO ? "dibujo" : "inicio",
+             gpu3d_ajustes.reg[i], gpu3d_ajustes.val[i]);
+}
+
 /* Las tres capas de la prueba del Z: rojo en medio, verde detrás (no lo tapa) y azul delante (sí). */
 static bool prova_z(uint32_t *buf, info_gpu3d_prova_t *r)
 {
     gpu3d_estado_t e = { G3D_Z_TESTE | G3D_Z_ESCRITA, G3D_Z_MENOR, G3D_F_UM, G3D_F_ZERO, 0 };
+    sentinelas();
     if (drv->limpar(3, AP_FUNDO) != G3D_OK) return false;
     if (quad(&e, 16, 16, 80, 64, 32768, 0xFFFF0000u, 0) != G3D_OK) return false;
     if (quad(&e, 40, 8, 110, 90, 49152, 0xFF00FF00u, 0) != G3D_OK) return false;
@@ -175,16 +313,19 @@ static bool autoprova(info_gpu3d_prova_t *r, char *m, int nm)
     if (!buf) { snformatar(m, (size_t)nm, "sin memoria para la autoprueba"); return false; }
     uint64_t t0 = tsc();
     r->provas = r->feitas = 0; r->falhou = -1;
+    if (etapas) memset(etapas, 0, sizeof *etapas * GPU3D_N_PROVAS);
     int p = 0;
     bool ok = false;
     gpu3d_estado_t e;
-    #define PASSO(n) do { p = (n); r->feitas |= 1u << p; } while (0)
+    #define PASSO(n) do { p = (n); ap_etapa = p; r->feitas |= 1u << p; } while (0)
     #define FEITO()  (r->provas |= 1u << p)
     do {
         if (drv->alvo(AP_L, AP_A, 24) != G3D_OK) { snformatar(m, (size_t)nm, "no se pudo crear el destino de %dx%d", AP_L, AP_A); p = -1; break; }
         /* 0: limpiar (todos los píxeles). */
         PASSO(0);
+        sentinelas();
         if (drv->limpar(3, AP_FUNDO) != G3D_OK || drv->ler(buf, AP_L) != G3D_OK) break;
+        diag_etapa(buf);
         bool igual = true;
         for (int i = 0; i < AP_L * AP_A && igual; i++)
             if ((buf[i] & 0x00FFFFFFu) != AP_FUNDO) { igual = false; r->x = i % AP_L; r->y = i / AP_L; r->esperado = AP_FUNDO; r->obtido = buf[i] & 0x00FFFFFFu; }
@@ -206,6 +347,7 @@ static bool autoprova(info_gpu3d_prova_t *r, char *m, int nm)
         FEITO();
         /* 3: mezcla: blanco con alfa 128 sobre el fondo. */
         PASSO(3);
+        sentinelas();
         if (drv->limpar(3, AP_FUNDO) != G3D_OK) break;
         e = (gpu3d_estado_t){ G3D_MEZCLA, G3D_Z_SEMPRE, G3D_F_ALFA, G3D_F_UM_MENOS_ALFA, 0 };
         if (quad(&e, 16, 16, 80, 64, 32768, 0x80FFFFFFu, 0) != G3D_OK) break;
@@ -223,6 +365,7 @@ static bool autoprova(info_gpu3d_prova_t *r, char *m, int nm)
             }
         int rt = drv->textura(0, 4, 4, tx);
         if (rt != G3D_OK) break;
+        sentinelas();
         if (drv->limpar(3, AP_FUNDO) != G3D_OK) break;
         e = (gpu3d_estado_t){ G3D_TEXTURA, G3D_Z_SEMPRE, G3D_F_UM, G3D_F_ZERO, 0 };
         if (quad(&e, 16, 16, 80, 80, 32768, 0xFFFFFFFFu, 0) != G3D_OK) break;
@@ -231,6 +374,7 @@ static bool autoprova(info_gpu3d_prova_t *r, char *m, int nm)
         FEITO();
         /* 5: un triángulo con un color en cada vértice: en el centro, la media. */
         PASSO(5);
+        sentinelas();
         if (drv->limpar(3, AP_FUNDO) != G3D_OK) break;
         e = (gpu3d_estado_t){ 0, G3D_Z_SEMPRE, G3D_F_UM, G3D_F_ZERO, 0 };
         gpu3d_vert_t v[3];
@@ -257,6 +401,7 @@ static bool autoprova(info_gpu3d_prova_t *r, char *m, int nm)
     #undef PASSO
     #undef FEITO
     r->us_autoprova = us_desde(t0);
+    ap_etapa = -1;
     if (!ok) {
         r->falhou = p;
         if (p >= 0 && r->x >= 0 && (r->esperado || r->obtido))
@@ -267,6 +412,15 @@ static bool autoprova(info_gpu3d_prova_t *r, char *m, int nm)
     }
     klog("[GPU3D] autoprueba: %s en %u us (pruebas hechas %x, superadas %x)%s%s\n", ok ? "BIEN" : "FALLO", r->us_autoprova,
          r->feitas, r->provas, ok ? "" : ": ", ok ? "" : m);
+    /* D390: el resultado de cada imagen guardada para «gpu3d probar --ver». */
+    for (int i = 0; etapas && i < GPU3D_N_PROVAS; i++) {
+        etapa_vista_t *e = &etapas[i];
+        e->x = e->y = -1;
+        if (r->provas & (1u << i)) e->estado = GPU3D_ETAPA_BIEN;
+        else if (r->feitas & (1u << i)) e->estado = e->com_imagem ? GPU3D_ETAPA_MAL : GPU3D_ETAPA_SIN_IMAGEN;
+        else e->estado = GPU3D_ETAPA_NADA;
+        if (i == r->falhou && r->x >= 0 && (r->esperado || r->obtido)) { e->x = r->x; e->y = r->y; e->esperado = r->esperado; e->obtido = r->obtido; }
+    }
     kfree(buf);
     return ok;
 }
@@ -335,7 +489,7 @@ void gpu3d_iniciar(void)
     int pedido = cab & GPU3D_CAB_MODO;
     bool seguro = (info_boot.opcoes & OPC_BOOT_ACEL_SEGURO) || (cabecalho_boot[CAB_ACEL2D] & CAB_ACEL_SEGURO);   /* D323 */
     if (seguro) pedido = GPU3D_CAB_NAO;
-    variante = cab & (GPU3D_CAB_ANEL | GPU3D_CAB_GTT);
+    variante = cab & (GPU3D_CAB_ANEL | GPU3D_CAB_GTT | GPU3D_CAB_SEM_GTT);
     drv = NULL; estado = GPU3D_SEM_GPU;
     snformatar(placa_nome, sizeof placa_nome, "ninguna");
     if ((info_boot.opcoes & OPC_BOOT_SGL_SOFTWARE) || pedido == GPU3D_CAB_NAO) {
@@ -401,6 +555,7 @@ static uint32_t variante_real(uint32_t *ram_kb)
 {
     uint32_t v = (variante & GPU3D_CAB_ANEL ? GPU3D_VAR_ANEL : 0) | (variante & GPU3D_CAB_GTT ? GPU3D_VAR_GTT : 0), kb = 0;
     if (drv == &gpu3d_intel && estado == GPU3D_ATIVO) gpu3d_intel_estado(&v, &kb);
+    if (drv == &gpu3d_r600 && estado == GPU3D_ATIVO) gpu3d_r600_estado(&v, &kb);   /* D406: la GART de las R7xx */
     if (ram_kb) *ram_kb = kb;
     return v;
 }
@@ -466,6 +621,7 @@ static bool ligar(info_gpu3d_prova_t *r)
     }
     klog("[GPU3D] encender %s (%s)%s%s\n", drv->nome, placa_nome, variante & GPU3D_CAB_ANEL ? ", ordenes en el anillo" : "",
          variante & GPU3D_CAB_GTT ? ", RAM en el GTT" : "");
+    ajustes_carregar();
     int ri = drv->iniciar(&disp, geracao, &tela, variante, m, sizeof m);
     if (ri != G3D_OK) {
         if (ri == G3D_FALHA) n_falhas++;
@@ -622,13 +778,68 @@ int32_t gpu3d_info(uint32_t ptr, uint32_t n)
     return 0;
 }
 
+/* D399 (gpu_energia.c): lotes del 3D desde el arranque (gobernador «auto»), la memoria de la GPU que usa
+ * y la comprobación después de cambiar los relojes. 0: no hay 3D encendido; 1: responde; -1: no (el 3D
+ * no se apaga aquí: quien llama vuelve antes a los relojes de la BIOS y repite). Con un programa dueño
+ * del motor no se toca su destino: solo se mira que el motor conteste (una valla en las R5xx). */
+uint32_t gpu3d_lotes_total(void) { return n_lotes + n_quadros; }
+void gpu3d_memoria_uso(uint32_t *total_kb, uint32_t *livre_kb)
+{
+    *total_kb = *livre_kb = 0;
+    if (drv && drv->memoria && estado == GPU3D_ATIVO) drv->memoria(total_kb, livre_kb);
+}
+int gpu3d_r500_ocioso(uint32_t ms);
+int gpu3d_energia_comprobar(char *m, int nm)
+{
+    if (estado != GPU3D_ATIVO || !drv) return 0;
+    if (dono_vivo()) {
+        if (drv == &gpu3d_r500) {
+            if (gpu3d_r500_ocioso(GPU3D_PRAZO_MS) > 0) return 1;
+            snformatar(m, (size_t)nm, "el CP del 3D no contesta tras el cambio");
+            return -1;
+        }
+        return 1;   /* otros drivers: sin comprobar con el motor en uso */
+    }
+    info_gpu3d_prova_t r;
+    memset(&r, 0, sizeof r);
+    if (autoprova(&r, m, nm)) { alvo_l = alvo_a = 0; return 1; }
+    return -1;
+}
+
+/* D390: la imagen de una etapa de la última «gpu3d probar --ver». */
+static int32_t etapa_info(info_gpu3d_etapa_t *v)
+{
+    int i = v->etapa;
+    memset(v, 0, sizeof *v);
+    v->versao = 1; v->etapa = i; v->larg = GPU3D_VER_L; v->alt = GPU3D_VER_A; v->x = v->y = -1;
+    if (i < 0 || i >= GPU3D_N_PROVAS) return ERRO_INVALIDO;
+    if (!etapas) return 0;   /* GPU3D_ETAPA_NADA */
+    const etapa_vista_t *e = &etapas[i];
+    v->estado = e->estado;
+    v->com_z = e->an.tem_z;
+    v->cor_intacta = e->an.cor_intacta; v->z_intacto = e->an.z_intacto; v->z_maximo = e->an.z_maximo;
+    for (int k = 0; k < 4; k++) { v->cores[k] = e->an.cores[k]; v->n_cores[k] = e->an.n_cores[k]; }
+    v->resto = e->an.resto;
+    v->x = e->x; v->y = e->y; v->esperado = e->esperado; v->obtido = e->obtido;
+    if (e->com_imagem) {
+        memcpy(v->px, e->px, sizeof v->px);
+        memcpy(v->z, e->z, sizeof v->z);
+    }
+    return 0;
+}
+
 /* «gpu3d probar»: la autoprueba y la medida, ahora. Si el motor es de un
- * programa, no se le quita. */
+ * programa, no se le quita. D390: con GPU3D_PROVA_DETALLE o GPU3D_PROVA_VER, sentinelas y
+ * análisis del destino en cada etapa; con GPU3D_PROVA_VER, además, sus imágenes. */
 int32_t gpu3d_prova(uint32_t ptr, uint32_t n)
 {
+    if (n >= sizeof(info_gpu3d_etapa_t) && usuario_ok((void *)ptr, sizeof(info_gpu3d_etapa_t), true) &&
+        ((info_gpu3d_etapa_t *)ptr)->versao == GPU3D_ETAPA_VERSAO)
+        return etapa_info((info_gpu3d_etapa_t *)ptr);
     info_gpu3d_prova_t *r = (info_gpu3d_prova_t *)ptr;
     if (n < sizeof *r || !usuario_ok(r, sizeof *r, true)) return ERRO_ENDERECO;
-    bool com_detalhe = r->versao == 2;
+    uint32_t modo = r->versao & (GPU3D_PROVA_DETALLE | GPU3D_PROVA_VER);
+    bool com_detalhe = (modo & GPU3D_PROVA_DETALLE) != 0;
     memset(r, 0, sizeof *r);
     r->versao = 1; r->falhou = -1;
     if (!drv || estado == GPU3D_DESATIVADO || estado == GPU3D_SEM_GPU) {
@@ -641,6 +852,14 @@ int32_t gpu3d_prova(uint32_t ptr, uint32_t n)
         snformatar(r->texto, sizeof r->texto, "el motor 3D lo esta usando el proceso %d: cierre ese programa y repita", dono);
         return 0;
     }
+    /* Las imágenes de la prueba anterior se tiran: las nuevas, si se piden. */
+    if (etapas) { kfree(etapas); etapas = NULL; }
+    if (modo & GPU3D_PROVA_VER) {
+        etapas = kmalloc(sizeof *etapas * GPU3D_N_PROVAS);
+        if (etapas) memset(etapas, 0, sizeof *etapas * GPU3D_N_PROVAS);
+        else klog("[GPU3D] prueba: sin memoria para las imagenes de --ver; sigue sin ellas\n");
+    }
+    diag = modo;
     bool ok;
     char m[120] = "";
     if (estado != GPU3D_ATIVO) {
@@ -651,10 +870,14 @@ int32_t gpu3d_prova(uint32_t ptr, uint32_t n)
         ok = autoprova(r, m, sizeof m);
         if (!ok) { char mm[140]; snformatar(mm, sizeof mm, "autoprueba fallida: %s", m); falha(mm); }
     }
+    diag = 0;
     if (ok && !medir(r)) { ok = false; snformatar(m, sizeof m, "la medida no termino"); falha("la GPU no termino la medida"); }
     if (ok && com_detalhe && drv->detalle) drv->detalle("tras la prueba");
     alvo_l = alvo_a = 0;
     r->resultado = ok ? 1 : 0;
+    r->reservado[0] = (uint32_t)gpu3d_ajustes.n;       /* D390: ajustes del fichero del driver en este encendido */
+    r->reservado[1] = (uint32_t)gpu3d_ajustes.malas;
+    r->reservado[2] = etapas ? 1u : 0u;                /* hay imágenes de las etapas (--ver) */
     if (ok)
         snformatar(r->texto, sizeof r->texto, "%s: las %d pruebas dan los pixeles esperados; %u triangulos/s, %u kpix/s, %u puntos",
                    drv->nome, GPU3D_N_PROVAS, r->tri_s, r->kpix_s, r->pontos);
@@ -675,11 +898,13 @@ int32_t gpu3d_ctl(uint32_t op)
         klog("[GPU3D] apagado: a mano (gpu3d apagar)\n");
         return 0;
     }
-    /* 1 lotes, 2 anillo; D358: 3 lotes y 4 anillo, con la RAM del sistema en el GTT. */
-    if (op < 1 || op > 4) return ERRO_INVALIDO;
+    /* 1 lotes, 2 anillo; D358: 3 lotes y 4 anillo, con la RAM del sistema en el GTT; D406: 5 lotes y 6 anillo
+     * sin la GART que las R7xx confirmadas encienden solas. */
+    if (op < 1 || op > 6) return ERRO_INVALIDO;
     if (dono_vivo()) return ERRO_OCUPADO;
     if (estado == GPU3D_ATIVO) soltar_driver();
-    variante = (op == 2 || op == 4 ? GPU3D_CAB_ANEL : 0) | (op >= 3 ? GPU3D_CAB_GTT : 0);
+    variante = (op == 2 || op == 4 || op == 6 ? GPU3D_CAB_ANEL : 0) | (op == 3 || op == 4 ? GPU3D_CAB_GTT : 0) |
+              (op >= 5 ? GPU3D_CAB_SEM_GTT : 0);
     estado = GPU3D_SIN_PROBAR;
     return ligar(NULL) ? 0 : ERRO_INVALIDO;
 }

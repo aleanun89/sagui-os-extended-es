@@ -18,6 +18,7 @@
  *   llm_gguf.c        lector GGUF (metadatos y tensores)
  *   llm_quant.c       bloques cuantizados: decuantizar y productos punto (C puro)
  *   llm_quant_sse2.c  los mismos productos punto con SSE2 (solo si CPUID lo dice)
+ *   llm_quant_ssse3.c y llm_quant_avx2.c  lo mismo con SSSE3 y con AVX2 (D381: solo si el kernel guarda los YMM)
  *   llm_modelo.c      la red LFM3, la caché K/V Q8_0 y la multiplicación por lotes
  *   llm_token.c       tokenizador BPE byte a byte (gpt2) con el pretokenizador llama3
  *   llm_amostra.c     muestreo: temperatura, top-k, top-p, penalización, semilla
@@ -58,6 +59,7 @@ void    *llm_memset(void *d, int v, size_t n);
 int      llm_memcmp(const void *a, const void *b, size_t n);
 bool     llm_cpu_sse2(void);
 bool     llm_cpu_ssse3(void);
+bool     llm_cpu_avx2(void);                   /* D381: AVX2 y el kernel guarda los YMM (XCR0) */
 int      llm_cpus(void);                       /* CPU que trabajan (1 sin SMP) */
 unsigned long long llm_ram_fisica(void);      /* bytes de RAM del PC (0 = no se sabe) */
 unsigned long long llm_memoria_livre(void);   /* bytes que un programa aún puede pedir (aprox.) */
@@ -147,8 +149,9 @@ typedef struct { uint16_t d, dmin; uint8_t scales[12]; uint8_t qs[QK_K / 2]; } b
 typedef struct { uint8_t ql[QK_K / 2]; uint8_t qh[QK_K / 4]; int8_t scales[QK_K / 16]; uint16_t d; } bloco_q6_K;   /* 210 */
 
 float    llm_f16_f32_calc(uint16_t h);
-/* f16 -> f32 por tabla (65536 floats, 256 KB, como llama.cpp): F16C es VEX y el kernel aún no
- * guarda el estado AVX (D381). La rellena llm_quant_escolher. */
+/* f16 -> f32 por tabla (65536 floats, 256 KB, como llama.cpp): F16C es VEX y no todas las CPU
+ * (ni todos los arranques, D381) tienen AVX; la conversión es exacta, así que la tabla da lo
+ * mismo en todas las rutas. La rellena llm_quant_escolher. */
 extern float llm_f16_tab[65536];
 static inline float llm_f16_f32(uint16_t h) { return llm_f16_tab[h]; }
 uint16_t llm_f32_f16(float f);
@@ -166,11 +169,15 @@ float llm_dot_q8_0_c(const void *w, const void *x, int n);
 float llm_dot_q4_K_sse2(const void *w, const void *x, int n);
 float llm_dot_q6_K_sse2(const void *w, const void *x, int n);
 float llm_dot_q8_0_sse2(const void *w, const void *x, int n);
-bool  llm_quant_escolher(const char *nome);   /* NULL = la mejor; "c", "sse2", "ssse3" */
+bool  llm_quant_escolher(const char *nome);   /* NULL = la mejor; "c", "sse2", "ssse3", "avx2" */
 float llm_dot_q4_K_ssse3(const void *w, const void *x, int n);
 float llm_dot_q6_K_ssse3(const void *w, const void *x, int n);
 float llm_dot_q8_0_ssse3(const void *w, const void *x, int n);
 float llm_dot_q4_0_ssse3(const void *w, const void *x, int n);
+float llm_dot_q4_K_avx2(const void *w, const void *x, int n);
+float llm_dot_q6_K_avx2(const void *w, const void *x, int n);
+float llm_dot_q8_0_avx2(const void *w, const void *x, int n);
+float llm_dot_q4_0_avx2(const void *w, const void *x, int n);
 const char *llm_quant_rota(void);
 
 /* ------------------------------------------------------------ modelo LFM3 */

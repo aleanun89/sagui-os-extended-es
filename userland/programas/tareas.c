@@ -1307,7 +1307,8 @@ static int rsel;                       /* recurso elegido */
 
 static info_acel2d_t a2d;
 static info_gpu3d_t g3d;
-static bool a2d_ok, g3d_ok;
+static info_gpu_energia_t gen;   /* D399: relojes, temperatura y estado de energía */
+static bool a2d_ok, g3d_ok, gen_ok;
 static unsigned g2d_ant, g3d_ant, t_gpu_ant;
 static info_bateria_t bat;
 static bool bat_ok;
@@ -1319,6 +1320,8 @@ static void amostrar_gpu_bateria(void)
     memset(&g3d, 0, sizeof g3d);
     a2d_ok = info_sistema(INFO_ACEL2D, &a2d, sizeof a2d) == 0 && a2d.versao == 1;
     g3d_ok = info_sistema(INFO_GPU3D, &g3d, sizeof g3d) == 0 && g3d.versao == 1;
+    memset(&gen, 0, sizeof gen);
+    gen_ok = info_sistema(INFO_GPU_ENERGIA, &gen, sizeof gen) == 0 && gen.versao == 1;
     unsigned o2 = a2d.copias + a2d.rellenos, o3 = g3d.quadros;
     gpu2d_s = gpu3d_s = 0;
     if (t_gpu_ant && dt >= 200) {
@@ -1764,6 +1767,30 @@ static void painel_red(void)
     campos_desenhar();
 }
 
+/* D399: relojes, temperatura, VRAM y estado de energía de la tarjeta (solo lectura). */
+static void painel_gpu_energia(void)
+{
+    char a[24], b[24];
+    if (!gen_ok || gen.soporte == GPU_EN_SIN) {
+        CP(_("Relojes de la GPU"), "%s", _("sin driver de energía para esta tarjeta"));
+        return;
+    }
+    static const char *const modos[] = { "?", N_("BIOS (sin tocar)"), N_("bajo"), N_("alto"), N_("automático"), N_("manual") };
+    if (gen.sclk_khz) fmt_khz(a, sizeof a, gen.sclk_khz); else copia_texto(a, "?", sizeof a);
+    if (gen.sclk_def_khz) fmt_khz(b, sizeof b, gen.sclk_def_khz); else copia_texto(b, "?", sizeof b);
+    CP(_("Reloj del motor"), _("%s (BIOS: %s)%s"), a, b, gen.relojes_fuente == 2 ? _(", sin leer") : "");
+    if (gen.mclk_khz) fmt_khz(a, sizeof a, gen.mclk_khz); else copia_texto(a, "?", sizeof a);
+    if (gen.mclk_def_khz) fmt_khz(b, sizeof b, gen.mclk_def_khz); else copia_texto(b, "?", sizeof b);
+    CP(_("Reloj de la memoria"), _("%s (BIOS: %s)"), a, b);
+    if (gen.temp_mili_c != GPU_EN_SIN_SENSOR) CP(_("Temperatura de la GPU"), "%s", sensores_grau(a, sizeof a, gen.temp_mili_c));
+    else if (gen.n_zonas) CP(_("Temperatura de la GPU"), _("sin sensor; ACPI %s: %s"), gen.zona_nome[0], sensores_grau(a, sizeof a, gen.zona_mili_c[0]));
+    else CP(_("Temperatura de la GPU"), "%s", gen.temp_fuente);
+    if (gen.vram_kb) CP(_("VRAM usada"), _("unos %u de %u MB"), (gen.vram_usada_kb + 1023) / 1024, gen.vram_kb / 1024);
+    if (gen.estado >= 0) formatar_texto(a, sizeof a, _("estado %d"), gen.estado);
+    else copia_texto(a, _("relojes de la BIOS"), sizeof a);
+    CP(_("Energía"), "%s, %s%s", _(modos[gen.modo <= 5 ? gen.modo : 0]), a, gen.bloqueado ? _(" (bloqueado tras un fallo)") : "");
+}
+
 static void painel_gpu(void)
 {
     char t[96];
@@ -1772,6 +1799,7 @@ static void painel_gpu(void)
     if (a2d_ok) {
         CP(_("2D del escritorio"), "%s", a2d.ativo ? a2d.nome : _("CPU (software)"));
         if (a2d.placa[0]) CP(_("Tarjeta"), "%s", a2d.placa);
+        if (a2d.vram_kb) CP(_("Memoria de vídeo"), "%u MB", a2d.vram_kb / 1024);   /* D387: la de la tarjeta */
         CP(_("Órdenes 2D (copias + rellenos)"), "%u + %u", a2d.copias, a2d.rellenos);
         CP(_("Fallos 2D"), "%u", a2d.falhas);
         CP(_("Cuadros de arrastre"), "%u", a2d.quadros);
@@ -1782,8 +1810,9 @@ static void painel_gpu(void)
         if (g3d.placa[0]) CP(_("Tarjeta 3D"), "%s", g3d.placa);
         CP(_("Estado 3D"), "%s", _(e3[g3d.estado < 4 ? g3d.estado : 3]));
         CP(_("Triángulos / lotes"), "%u / %u", g3d.triangulos, g3d.lotes);
-        if (g3d.memoria_kb) CP(_("Memoria de GPU"), _("%u de %u MB libres"), g3d.livre_kb / 1024, g3d.memoria_kb / 1024);
+        if (g3d.memoria_kb) CP(_("Memoria de GPU (3D)"), _("%u de %u MB usados"), (g3d.memoria_kb - g3d.livre_kb) / 1024, g3d.memoria_kb / 1024);
     } else CP(_("3D"), _("sin información"));
+    painel_gpu_energia();
     int livre = RP_Y + RP_A - y - campos_altura() - 4;
     int gl = ajusta(RP_L - 16), th = livre - 16 - 20;
     if (th < 36) th = 36;
@@ -2097,6 +2126,10 @@ static void registrar_amostra(void)
         registrar("tareas: disco ativa %u bloques %u/%u sucios %u aciertos %u fallos %u grabados %u lee %u KB/s escribe %u KB/s",
                   disco_i.ativa, disco_i.blocos, disco_i.max_blocos, disco_i.sujos, disco_i.acertos, disco_i.falhas,
                   disco_i.gravados, disco_rd_s, disco_wr_s);
+        if (gen_ok)   /* D399 */
+            registrar("tareas: gpu energia soporte %u modo %u estado %d motor %u memoria %u kHz temp %d zonas %u vram %u/%u KB",
+                      gen.soporte, gen.modo, gen.estado, gen.sclk_khz, gen.mclk_khz, gen.temp_mili_c, gen.n_zonas,
+                      gen.vram_usada_kb, gen.vram_kb);
         registrar("tareas: gpu 2d %s %u ops/s 3d %s %u cuadros/s bateria %d%%", a2d_ok && a2d.ativo ? a2d.nome : "cpu", gpu2d_s,
                   g3d_ok && g3d.nome[0] ? g3d.nome : "software", gpu3d_s, bat_ok ? bat.porcentagem : -1);
     }

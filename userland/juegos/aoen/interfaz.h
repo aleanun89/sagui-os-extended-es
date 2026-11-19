@@ -21,6 +21,10 @@ typedef struct {
 	int us;                 /* escala de la interfaz de este cuadro (1 o 2) */
 	int fps;
 	float last_autosave;
+	Uint32 t_pantalla;      /* SDL_GetTicks() al entrar en la pantalla actual (animaciones y fundido de entrada) */
+	int cursor_propio;      /* 1: el juego dibuja su cursor según lo que hay debajo (y oculta el del sistema) */
+	int nombres_raton;      /* 1: nombre y datos de lo que hay bajo el ratón en el mapa */
+	int escala_dibujo;      /* % de la resolución del escritorio en pantalla completa (100, 75, 50): el sistema amplía */
 	char data_dir[1100];
 } App;
 extern App app;
@@ -62,6 +66,7 @@ void panel(int x, int y, int w, int h);                 /* panel de diálogo (te
 void panel_hueco(int x, int y, int w, int h);           /* hueco oscuro sobre un panel, para texto */
 int button(int x, int y, int w, int h, const char *label, int enabled, int size);
 int boton_t(int x, int y, int w, int h, const char *label, int enabled);   /* con la fuente de 8x16 */
+int pestana(int x, int y, int w, int h, const char *label, int activa);  /* pestaña de una pantalla con páginas */
 int cycler(int x, int y, int w, const char *label);    /* selector "< valor >": -1, 0 o +1 */
 int checkbox(int x, int y, const char *label, int *v);
 void texto_ajustado(int x, int y, int w, const char *s, u32 col, int max_lineas);   /* parte en líneas; 8x16 */
@@ -137,6 +142,7 @@ void setup_desde_menu(Setup *s);
 void draw_menu(void);
 void draw_setup(void);
 void draw_options(void);
+void opciones_pagina(int p);                             /* 0 gráficos, 1 interfaz, 2 sonido, 3 teclas */
 void draw_saves(void);
 void setup_tecla_texto(const char *t);                  /* texto escrito (semilla) */
 int setup_tecla(int sym);                               /* teclas especiales en la configuración; 1 si la usó */
@@ -158,8 +164,18 @@ int saltar_aviso(void);
 int hud_orden_pos(int k, int *x, int *y);               /* centro del botón k de la rejilla, en píxeles reales (pruebas) */
 void hud_mm_pos(float wx, float wy, int *x, int *y);    /* un punto del mundo en el minimapa, en píxeles reales */
 extern Rect prueba_tributo, prueba_relacion;            /* botones de la diplomacia (pruebas) */
+extern Rect prueba_comercio;                            /* casilla «Comercio mejorado» de la configuración (pruebas) */
 void prueba_paso(int frame);                            /* AOEN_PRUEBA: guiones de las pruebas de la interfaz */
+extern int prueba_activa;                               /* hay guion AOEN_PRUEBA (el ratón simulado está dentro) */
 extern int final_pest;
+
+/* cursor propio y lo que hay bajo el ratón (ui_cursor.c, ui_hud.c; v8.5.5.3) */
+enum { CUR_FLECHA, CUR_ATACAR, CUR_MADERA, CUR_COMIDA, CUR_ORO, CUR_PIEDRA, CUR_CONSTRUIR, CUR_OBJETIVO, CUR_PROHIBIDO, CUR_DESPLAZAR, CUR_COUNT };
+void cursor_dibujar(int tipo, int x, int y, int s, int dx, int dy);   /* en píxeles reales; s: escala */
+void aro_elipse(int cx, int cy, int rx, int ry, u32 col, int grueso);
+int hud_cursor(int *dx, int *dy);                      /* el cursor que toca en la partida (dx, dy: desplazamiento) */
+void hud_rotulo_raton(void);                            /* rótulo de lo que hay bajo el ratón (coordenadas lógicas) */
+void dibujar_teclas(int x, int y, int w, int h);        /* la tabla de teclas (ayuda F1 y Opciones > Teclas) */
 
 /* paneles (ui_paneles.c) */
 enum { PANEL_NINGUNO, PANEL_DIPLOMACIA, PANEL_AYUDA, PANEL_PUNTOS };

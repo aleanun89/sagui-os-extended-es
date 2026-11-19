@@ -780,6 +780,20 @@ void gpu3d_intel_estado(uint32_t *variante, uint32_t *ram_kb)
     *ram_kb = pronto && ram_ativa ? (ram.bytes - RAM_TESTE) >> 10 : 0;
 }
 
+/* D390: lo que la CPU ve del destino, para las sentinelas y el análisis de la capa. En la RAM
+ * del GTT con caché (la capa la vacía); en la memoria del VBE, sin caché. El Z24 de Gen3
+ * (24_FIXED_8_OTHER) va en los bits bajos. Sin ajustes de registros: en Gen3 el estado del 3D
+ * va en órdenes 3DSTATE, no en registros, y escribir MMIO desde el ring no se arriesga. */
+static void i3_vistas(g3d_vista_t *c, g3d_vista_t *z)
+{
+    if (!pronto || !b_cor.usado || !b_cor.cpu || !alvo.larg) return;
+    *c = (g3d_vista_t){ b_cor.cpu, alvo.cor_passo, alvo.larg, alvo.alt, 32, 0, 0, na_ram(&b_cor) };
+    if (b_z.usado && b_z.cpu)
+        *z = (g3d_vista_t){ b_z.cpu, alvo.z_passo, alvo.larg, alvo.alt, (uint8_t)(alvo.zbits == 16 ? 16 : 32),
+                            (uint8_t)(alvo.zbits == 16 ? 16 : 24), 0, na_ram(&b_z) };
+}
+
 const gpu3d_driver_t gpu3d_intel = {
     "intel-gen3", i3_iniciar, i3_alvo, i3_limpar, i3_textura, i3_desenhar, i3_esperar, i3_ler, i3_desligar, i3_detalle, i3_memoria,
+    "intel", NULL, 0, i3_vistas,
 };

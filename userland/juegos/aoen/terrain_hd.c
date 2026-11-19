@@ -7,6 +7,7 @@
 #include "stb_image.h"
 #include "ui.h"
 #include "config.h"
+#include "hilos.h"
 
 #define TEX 512
 #define TEXELS_PER_TILE 48
@@ -253,13 +254,8 @@ static inline u32 color_tipo(int kind, const PuntoHD *p) {
 	return mezcla8(a, tex_px(set[1], u + 211, v + 97), t);
 }
 
-void render_terrain_hd(float time, int ry0, int ry1) {
-	ry0 = CLAMP(ry0, 0, fb.h); ry1 = CLAMP(ry1, ry0, fb.h);
-	static int usar_float = -1;
-	if (usar_float < 0) usar_float = getenv("AOEN_HD_FLOAT") && atoi(getenv("AOEN_HD_FLOAT")) > 0;
-	if (usar_float) { render_terrain_hd_float(time, ry0, ry1); return; }
-	ruido_preparar();
-
+/* las filas [ry0, ry1) en punto fijo; cada fila depende solo de la vista, el mapa y la niebla (D393: franjas en paralelo) */
+static void render_terrain_hd_filas(float time, int ry0, int ry1) {
 	float z = V.zoom;
 	float pxp0 = (0 - V.sw * 0.5f) / z + V.cx, pyp0 = (0 - V.sh * 0.5f) / z + V.cy;
 	float wx0 = pxp0 / 64.0f + pyp0 / 32.0f, wy0 = pxp0 / 64.0f - pyp0 / 32.0f;
@@ -331,4 +327,25 @@ void render_terrain_hd(float time, int ry0, int ry1) {
 			dst[sx] = col;
 		}
 	}
+}
+
+/* ---------- reparto en franjas (D393) ----------
+ * Las filas de la pantalla son independientes: cada hilo dibuja franjas enteras. Lo que se prepara una vez (el ruido de
+ * las manchas, la tabla de ondas, la elección de la versión) se hace antes en el hilo principal, así los hilos solo leen. */
+typedef struct { float time; int y0, y1, flotante; } FranjasHD;
+
+static void franja_hd(void *ctx, int k, int partes) {
+	const FranjasHD *f = (const FranjasHD *)ctx;
+	int h = f->y1 - f->y0, a = f->y0 + h * k / partes, b = f->y0 + h * (k + 1) / partes;
+	if (f->flotante) render_terrain_hd_float(f->time, a, b);
+	else render_terrain_hd_filas(f->time, a, b);
+}
+
+void render_terrain_hd(float time, int ry0, int ry1) {
+	ry0 = CLAMP(ry0, 0, fb.h); ry1 = CLAMP(ry1, ry0, fb.h);
+	static int usar_float = -1;
+	if (usar_float < 0) usar_float = getenv("AOEN_HD_FLOAT") && atoi(getenv("AOEN_HD_FLOAT")) > 0;
+	if (!usar_float) ruido_preparar();
+	FranjasHD f = { time, ry0, ry1, usar_float };
+	hilos_repartir(franja_hd, &f, hilos_partes());
 }

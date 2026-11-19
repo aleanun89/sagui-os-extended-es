@@ -380,6 +380,7 @@ static bool g_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ch
     uint64_t mc_tela = ((uint64_t)hdp << 8) + desloc;
     uint64_t vram_ini = (uint64_t)(fbloc & 0xFFFFu) << 24, vram_fim = ((uint64_t)(fbloc >> 16) << 24) | 0xFFFFFFu;
     uint64_t memsize = gcn_memsize_bytes(memreg);
+    acel2d_vram_real(memsize, "CONFIG_MEMSIZE");   /* D387 */
     klog("[ACEL2D] gcn: CONFIG_MEMSIZE %u MB, HDP_NONSURFACE_BASE %x, MC_VM_FB_LOCATION %x (VRAM %x:%x-%x:%x), "
          "VM_CONTEXT0_CNTL %x, L1_TLB_CNTL %x, SRBM_SOFT_RESET %x\n", memreg, hdp, fbloc, (uint32_t)(vram_ini >> 32),
          (uint32_t)vram_ini, (uint32_t)(vram_fim >> 32), (uint32_t)vram_fim, vm0, tlb, srst);
@@ -565,4 +566,5 @@ const acel_driver_t acel_gcn = {
     true,    /* el DMA sigue copiando tras copiar() */
     g_detalle,
     false,   /* solo 32 bits */
+    NULL,    /* D387: sin volcado por la GPU */
 };

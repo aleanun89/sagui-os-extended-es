@@ -79,6 +79,37 @@ static void t_inicio(void)
     bt_g_iniciar(); bt_hci_iniciar(&sim_plat); sim_bombear();
     CHECA(info().estado == BT_PRONTO, "sin SSP el inicio sigue");
 
+    /* El clon CSR del Amilo Pi 1536 (0a12:0001, BT 2.0): Write_Inquiry_Mode 2 rechazada con 0x11 y
+     * Write_Simple_Pairing_Mode contestada con Command Status 0x01. Antes se quedaba en «iniciando». */
+    sim_reiniciar(); sim_cfg.clon_csr = true;
+    bt_g_iniciar(); bt_hci_iniciar(&sim_plat); sim_bombear();
+    CHECA(info().estado == BT_PRONTO, "clon CSR BT 2.0: listo (%u)", info().estado);
+    CHECA(info().hci_ver == 3 && info().erros_hci == 0, "clon CSR: HCI 3 y sin errores (%u)", info().erros_hci);
+    CHECA(sim_cfg.inq_modo == 1, "clon CSR: busqueda con RSSI (modo %d)", sim_cfg.inq_modo);
+    CHECA(strstr(sim_log, "Write_Simple_Pairing_Mode se salta") != NULL, "clon CSR: SSP se salta y se anota");
+
+    sim_reiniciar(); sim_cfg.clon_csr = true; sim_cfg.sin_features = true; sim_log[0] = 0;
+    bt_g_iniciar(); bt_hci_iniciar(&sim_plat); sim_bombear();
+    CHECA(info().estado == BT_PRONTO, "clon CSR sin caracteristicas: listo (%u)", info().estado);
+    CHECA(sim_cfg.inq_modo == 1, "clon CSR sin caracteristicas: modo 2 rechazado, se usa el 1 (%d)", sim_cfg.inq_modo);
+    CHECA(info().erros_hci == 3, "clon CSR sin caracteristicas: tres errores (%u)", info().erros_hci);
+    CHECA(strstr(sim_log, "Write_Simple_Pairing_Mode (0c56) rechazada (estado 01)") != NULL &&
+          strstr(sim_log, "Write_Inquiry_Mode (0c45) rechazada (estado 11)") != NULL, "clon CSR: el registro dice que ordenes fallaron");
+    sim_cfg.inq_formato = 0;
+    buscar();
+    CHECA(bt_n_disp() == 3 && !info().buscando, "clon CSR: la busqueda funciona (%d)", bt_n_disp());
+
+    sim_reiniciar(); sim_cfg.cs_mudo_op = OP_WR_CLASE;   /* devuelve el crédito pero la orden nunca acaba */
+    bt_g_iniciar(); bt_hci_iniciar(&sim_plat); sim_bombear();
+    CHECA(info().estado == BT_INICIANDO, "paso que no acaba: iniciando");
+    sim_avanzar(6000);
+    CHECA(info().estado == BT_PRONTO, "paso opcional que no acaba: se salta por tiempo (%u)", info().estado);
+
+    sim_reiniciar(); sim_cfg.cs_mudo_op = OP_RD_ADDR;
+    bt_g_iniciar(); bt_hci_iniciar(&sim_plat); sim_bombear();
+    sim_avanzar(6000);
+    CHECA(info().estado == BT_FALHOU, "paso critico que no acaba: fallo (%u)", info().estado);
+
     sim_reiniciar(); sim_cfg.mudo = true;
     bt_g_iniciar(); bt_hci_iniciar(&sim_plat); sim_bombear();
     CHECA(info().estado == BT_INICIANDO, "controlador mudo: iniciando");

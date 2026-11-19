@@ -32,12 +32,25 @@ def main():
     # 0x83); la sin GPL, ninguna (o solo la de aplicaciones). D213 (v7.3): van como lógicas
     # dentro de una extendida (entrada 2) que empieza tras la de SaguiOS, alineada en 1 MB; la
     # de SaguiOS es la única primaria. El resto de la tabla, vacío.
-    n = 0
-    e = mbr[0x1CE:0x1DE]
-    if e != bytes(16):
+    # D388 (v8.5.4.10r2): orden de entradas 1 = SaguiOS (arranque), 2 = ESP (si es híbrida),
+    # 3 = extendida (la última, para ampliar /home sin mover nada). Se buscan por tipo.
+    entradas = [mbr[0x1BE + 16 * i:0x1BE + 16 * (i + 1)] for i in range(1, 4)]
+    usadas = 0
+    ext = [(i, e) for i, e in enumerate(entradas) if e[4] == 0x0F]
+    esp = [(i, e) for i, e in enumerate(entradas) if e[4] == 0xEF]
+    verificar(len(ext) <= 1 and len(esp) <= 1, "como mucho una extendida y una ESP")
+    if esp:
+        i, e = esp[0]
+        ie, qe = struct.unpack("<II", e[8:16])
+        verificar(e[0] == 0 and ie % 2048 == 0 and ie >= inicio + qtd and qe >= 34 * 2048,
+                  f"entrada {i + 2}: la ESP (0xEF, LBA {ie}, {qe // 2048} MB, D264)")
+        usadas += 1
+    if ext:
+        i, e = ext[0]
         i2, q2 = struct.unpack("<II", e[8:16])
-        verificar(e[0] == 0 and e[4] == 0x0F and i2 % 2048 == 0 and i2 >= inicio + qtd and q2 > 0,
-                  f"entrada 2: la extendida (0x0F, LBA {i2}, {q2} sectores, no activa, D213)")
+        verificar(e[0] == 0 and i2 % 2048 == 0 and i2 >= inicio + qtd and q2 > 0,
+                  f"entrada {i + 2}: la extendida (0x0F, LBA {i2}, {q2} sectores, no activa, D213/D388)")
+        verificar(not esp or esp[0][0] < i, "D388: la ESP va antes de la extendida")
         logicas = [p for p in particoes_img(os.path.join(B, "saguios.img")) if p[0] >= 5]
         fim = i2
         for num, tipo, ini, cnt in logicas:
@@ -45,16 +58,8 @@ def main():
                       f"lógica {num}: partición del sistema (ext2, LBA {ini}, {cnt} sectores, D181/D194/D213)")
             fim = ini + cnt
         verificar(logicas and fim == i2 + q2, "la extendida acaba con la última lógica")
-        n = 1
-    # D264: la imagen híbrida lleva la ESP (0xEF, FAT32) en la entrada siguiente, entre el área
-    # de arranque y la extendida, alineada en 1 MB y no activa.
-    e = mbr[0x1BE + 16 * (n + 1):0x1BE + 16 * (n + 2)]
-    if e[4] == 0xEF:
-        ie, qe = struct.unpack("<II", e[8:16])
-        verificar(e[0] == 0 and ie % 2048 == 0 and ie >= inicio + qtd and qe >= 34 * 2048,
-                  f"entrada {n + 2}: la ESP (0xEF, LBA {ie}, {qe // 2048} MB, D264)")
-        n += 1
-    verificar(mbr[0x1BE + 16 * (n + 1):0x1FE] == bytes(16 * (3 - n)), "demais entradas da tabela vazias")
+        usadas += 1
+    verificar(all(e == bytes(16) for e in entradas[usadas:]), "demais entradas da tabela vazias (sin huecos)")
 
     os.makedirs(SAIDA, exist_ok=True)
     stub = os.path.join(SAIDA, "estagio2_parado.bin")

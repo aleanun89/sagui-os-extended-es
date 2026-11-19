@@ -9,7 +9,7 @@
  * (MEM_DEVOLVER, free) y el kernel fallaba al copiar: pantalla de error.
  *
  *   - dos hilos leen sin parar trozos de 256 KB (lectura directa del disco,
- *     sin la caché) de un fichero grande de /apps: uno en un buffer del área
+ *     sin la caché) de un fichero grande (/apps/bin, /bin o /lib): uno en un buffer del área
  *     de datos y otro en un buffer de su propia pila (que crece al copiar);
  *   - el principal, a la vez, quita y devuelve la escritura del buffer y lo
  *     devuelve al kernel y lo vuelve a pedir, durante unos segundos;
@@ -29,16 +29,29 @@ static volatile int parar;
 static volatile unsigned lidas_dados, lidas_pilha, erros_dados, erros_pilha;
 static volatile unsigned protecoes, devolucoes, falhas_principal;
 
-/* El fichero más grande de /apps/bin (lo que hay depende de la compilación). */
+/* El fichero más grande de las carpetas de programas del disco (lo que hay depende de la compilación). Desde
+ * D379 las aplicaciones van dentro de SAGUI-RAIZ, y con la raíz en disco /bin y /lib también son del disco: se
+ * mira en las tres y se dice cuántas entradas vio en cada una. Los ejecutables los da listar como TIPO_PROGRAMA,
+ * no como TIPO_ARQUIVO (por eso antes no encontraba ninguno: solo quedaban scripts pequeños). */
 static unsigned escolher_arquivo(void)
 {
+    static const char *const pastas[] = { "/apps/bin", "/bin", "/lib" };
     entrada_pasta_t e;
     unsigned maior = 0;
-    for (int i = 0; listar("/apps/bin", i, &e) > 0; i++)
-        if (e.tipo == TIPO_ARQUIVO && e.tamanho > maior) {
-            maior = e.tamanho;
-            formatar_texto(arquivo, sizeof arquivo, "/apps/bin/%s", e.nome);
+    for (unsigned p = 0; p < sizeof pastas / sizeof pastas[0]; p++) {
+        int n = 0;
+        for (int i = 0; listar(pastas[p], i, &e) > 0; i++, n++) {
+            char c[96];
+            formatar_texto(c, sizeof c, "%s/%s", pastas[p], e.nome);
+            unsigned tam = e.tamanho;
+            bool arq = e.tipo == TIPO_ARQUIVO || e.tipo == TIPO_PROGRAMA;   /* los ejecutables salen como programa */
+            if (arq && tam > maior) {
+                maior = tam;
+                formatar_texto(arquivo, sizeof arquivo, "%s", c);
+            }
         }
+        imprimir("ENDURECER %s: %d entradas\n", pastas[p], n);
+    }
     return maior;
 }
 
@@ -100,7 +113,7 @@ int principal(int argc, char **argv)
     (void)argc; (void)argv;
     unsigned tam = escolher_arquivo();
     imprimir("ENDURECER fichero %s (%u bytes)\n", arquivo[0] ? arquivo : "-", tam);
-    verifica(tam >= 2 * TROZO, "hay un fichero grande en /apps (lectura del disco)");
+    verifica(tam >= 2 * TROZO, "hay un fichero grande en /apps/bin, /bin o /lib (lectura del disco)");
     if (tam < 2 * TROZO) return resultado("endurecer");
 
     int base = memoria_paginas(MEM_RESERVAR, 0, TROZO);

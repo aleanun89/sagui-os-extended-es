@@ -18,6 +18,8 @@ int  mando_registrar(uint8_t tipo, const char *nome, const char *via, uint16_t f
                      uint8_t eixos, uint8_t botoes, uint8_t hats, uint8_t mapa);
 void mando_atualizar(int h, const hid_estado_t *e);   /* nuevo estado (desde la tarea del driver) */
 void mando_retirar(int h);
+void mando_informe_crudo(int h, const uint8_t *b, int n);   /* el último informe sin decodificar */
+void mando_descriptor(int h, const uint8_t *d, int n);      /* el descriptor de informe (HID) */
 int32_t mandos_info(uint32_t ptr, uint32_t n);       /* INFO_MANDOS */
 
 /* ---- portajogos.c: el joystick analógico del puerto de juegos (0x201) ---- */

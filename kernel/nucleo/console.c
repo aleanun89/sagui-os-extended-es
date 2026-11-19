@@ -76,11 +76,12 @@ void console_mostrar(void)
     if (grafico && !escondido) termgraf_mostrar();
 }
 
-/* Últimos 32 KB del log del kernel, en anillo (D076): el infopc --informe lo
+/* Últimos 128 KB del log del kernel, en anillo (D076; 32 KB hasta el 2026-11-19: en el Amilo, las líneas de
+ * sshd echaban del anillo el diagnóstico de la GPU en pocos minutos, D387): el infopc --informe lo
  * copia al archivo, porque en un PC sin puerto serie ese log se perdería
  * perdido. Solo lo que pasa por kprintf y klog (el kernel y el registrar() de los
  * programas); la salida común de los programas no entra. */
-#define LOG_TAM (32 * 1024)
+#define LOG_TAM (128 * 1024)
 static char log_anel[LOG_TAM];
 static uint32_t log_fim;      /* bytes ya escritos desde el arranque (la posición es log_fim % LOG_TAM) */
 

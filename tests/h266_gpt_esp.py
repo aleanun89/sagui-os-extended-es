@@ -102,6 +102,11 @@ def parte_img(img, e, destino):
     return extrair_particao(img, e["ini"], e["setores"] // 2048, destino)
 
 
+def conf_de(ents):
+    """D388: la entrada de configuración (SAGUI-CONF) se busca por nombre: /home va la última."""
+    return [e for e in ents if e["nome"] == "SAGUI-CONF"][-1]
+
+
 def comprobar_gpt_sagui(img, rotulo, origem, efi, com_home=True):
     ents, _ = ler_gpt(img)
     verificar(True, f"[{rotulo}] GPT válida: CRC de las dos cabeceras y de las entradas, respaldo al final, MBR protector, GUID únicos, 1 MiB")
@@ -111,9 +116,9 @@ def comprobar_gpt_sagui(img, rotulo, origem, efi, com_home=True):
     verificar(r["label"] == "gpt" and len(r["partitions"]) == len(ents), f"[{rotulo}] sfdisk --json: tabla gpt con {len(ents)} particiones")
     verificar(r["partitions"][0]["type"].upper() == "C12A7328-F81F-11D2-BA4B-00A0C93EC93B", f"[{rotulo}] la primera es la EFI System")
     esperadas = [ESP, SAGUI] + ([LINUX] if com_home else []) + [LINUX]
-    verificar([e["tipo"] for e in ents] == esperadas, f"[{rotulo}] GUID de tipo: ESP, SaguiOS{', /home' if com_home else ''}, SAGUI-CONF")
+    verificar([e["tipo"] for e in ents] == esperadas, f"[{rotulo}] GUID de tipo: ESP, SaguiOS, SAGUI-CONF{', /home (la última, D388)' if com_home else ''}")
     verificar(ents[0]["setores"] == 256 * 2048, f"[{rotulo}] la ESP mide 256 MB")
-    verificar(ents[-1]["setores"] == 16 * 2048 and ents[-1]["nome"] == "SAGUI-CONF", f"[{rotulo}] SAGUI-CONF: 16 MB y su nombre")
+    verificar(conf_de(ents)["setores"] == 16 * 2048, f"[{rotulo}] SAGUI-CONF: 16 MB y su nombre")
     # ESP: FAT32 sano con EFI/BOOT
     p = parte_img(img, ents[0], os.path.join(SAIDA, "h266-esp.part"))
     r = subprocess.run(["fsck.vfat", "-n", p], capture_output=True, text=True)
@@ -146,17 +151,17 @@ def comprobar_gpt_sagui(img, rotulo, origem, efi, com_home=True):
     verificar(copiado == orig_blob, f"[{rotulo}] etapa 2, kernel y ramdisk iguales byte a byte al origen")
     # /home y SAGUI-CONF: ext2 sanos
     if com_home:
-        h = parte_img(img, ents[2], os.path.join(SAIDA, "h266-home.part"))
+        h = parte_img(img, ents[-1], os.path.join(SAIDA, "h266-home.part"))
         rc, o = e2fsck(h)
         verificar(rc == 0 and b"SAGUI-DATOS" in subprocess.run([E2LABEL, h], capture_output=True).stdout, f"[{rotulo}] /home: ext2 SAGUI-DATOS sano")
-    c = parte_img(img, ents[-1], os.path.join(SAIDA, "h266-conf.part"))
+    c = parte_img(img, conf_de(ents), os.path.join(SAIDA, "h266-conf.part"))
     rc, o = e2fsck(c)
     verificar(rc == 0 and b"SAGUI-CONF" in subprocess.run([E2LABEL, c], capture_output=True).stdout, f"[{rotulo}] SAGUI-CONF: ext2 sano con su etiqueta")
     return ents
 
 
 def poner_en_conf(img, ents, nombre, contenido):
-    c = ents[-1]
+    c = conf_de(ents)
     p = parte_img(img, c, os.path.join(SAIDA, "h266-conf-w.part"))
     tmp = os.path.join(SAIDA, "h266-conf.tmp")
     with open(tmp, "wb") as f:
@@ -229,7 +234,7 @@ def partes_instalacion():
     # --- parte 2: reinstalar conservando SAGUI-CONF
     secreto = os.urandom(3000)
     poner_en_conf(dest, ents, "clave-prueba", secreto)
-    verificar(leer_de_conf(dest, ents[-1]["ini"], ents[-1]["setores"], "/clave-prueba") == secreto, "el fichero de prueba está en SAGUI-CONF (GPT)")
+    verificar(leer_de_conf(dest, conf_de(ents)["ini"], conf_de(ents)["setores"], "/clave-prueba") == secreto, "el fichero de prueba está en SAGUI-CONF (GPT)")
     with Maquina("h266-inst2", "ide", imagem=origem, extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)
         montar_efi(m)
@@ -237,12 +242,14 @@ def partes_instalacion():
         verificar("SaguiOS instalado en hdb y verificado" in out, "la reinstalación GPT termina")
         verificar("Se conserva el contenido de SAGUI-CONF" in out and "contenido anterior conservado" in out, "reinstalar en GPT conserva SAGUI-CONF y lo dice")
     ents = comprobar_gpt_sagui(dest, "gpt-reinstalado", origem, efi)
-    verificar(leer_de_conf(dest, ents[-1]["ini"], ents[-1]["setores"], "/clave-prueba") == secreto, "la reinstalación GPT conserva el fichero de SAGUI-CONF byte a byte")
+    verificar(leer_de_conf(dest, conf_de(ents)["ini"], conf_de(ents)["setores"], "/clave-prueba") == secreto, "la reinstalación GPT conserva el fichero de SAGUI-CONF byte a byte")
     # --- GPT -> MBR con ESP, conservando SAGUI-CONF
     with Maquina("h266-inst3", "ide", imagem=origem, extras=extras) as m:
         m.esperar_serial("sagui:/$", 180)
         montar_efi(m)
-        out = m.comando("instalar hdb --mbr --esp -s", 1500)
+        # D388: con una SAGUI-DATOS que se conserva (la última), apps y juegos tienen que caber delante de ella; en este
+        # disco de 1,5 GB, ocupado casi todo por /home, no caben: aquí solo se comprueba GPT -> MBR con ESP y SAGUI-CONF.
+        out = m.comando("instalar hdb --mbr --esp --sin-apps --sin-jogos -s", 1500)
         verificar("SaguiOS instalado en hdb y verificado" in out, f"instalar --mbr --esp sobre el disco GPT termina ({out.strip()[-300:]})")
         verificar("contenido anterior conservado" in out, "pasar de GPT a MBR conserva SAGUI-CONF")
     t = subprocess.run(["sfdisk", "-d", dest], capture_output=True, text=True).stdout

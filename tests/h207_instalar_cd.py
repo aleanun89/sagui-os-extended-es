@@ -112,7 +112,9 @@ def desde_cd(m, rotulo, img_cd, controlador):
               f"[{rotulo}] en el CD no se puede instalar")
     out = m.comando("instalar cd0 -s")
     verificar("no se instala en cd0" in out, f"[{rotulo}] instalar cd0 se niega")
-    out = m.comando("instalar hda -s", 1200)
+    # D378: arrancado del CD con la raíz en la RAM no hay sistema de serie debajo; la sesión es recién arrancada, así que
+    # se pide copiar la raíz tal cual (--con-cambios).
+    out = m.comando("instalar hda -s --con-cambios", 1200)
     verificar("SaguiOS instalado en hda y verificado" in out, f"[{rotulo}] instalar hda termina y verifica ({out.strip()[-300:]})")
     verificar("saca el CD" in out, f"[{rotulo}] el final dice que se saque el CD")
     verificar(re.search(r"(Aplicaciones de /apps copiadas|Sistema copiado por ficheros a SAGUI-RAIZ \(\d+ MB, con /apps\)): [1-9]\d* archivos", out),

@@ -43,6 +43,14 @@ SEL_CODIGO      equ 0x08
 SEL_DADOS       equ 0x10
 
 inicio:
+        jmp short inicio_real
+        ; D392: marca para «arranque estado/etapa2»: 'SGE2' y las capacidades de esta etapa 2
+        ; (bit 0 = sabe arrancar el kernel de prueba de la cabecera, bytes 256-391; bit 1 = y el
+        ; último bueno, bytes 392-511). Las etapas 2 de antes no la llevan (o solo con el bit 0):
+        ; «arranque probar» se niega con ellas (la marca no serviría de nada).
+        db 'SGE2'
+        dw E2_CAPACIDADES
+inicio_real:
         cli
         xor ax, ax
         mov ds, ax
@@ -116,6 +124,11 @@ inicio:
 
         call preparar_disco
 
+        ; D392: ¿hay que arrancar el kernel de prueba? Si toca, la marca de «una vez» se
+        ; borra en el disco AHORA, antes de leer nada de la prueba: si se cuelga, el
+        ; siguiente arranque ya es el normal.
+        call decidir_prueba
+
 ; ---------------------------------------------------------------- [1/6] A20
         call habilitar_a20
         jc .falha_a20
@@ -140,7 +153,38 @@ inicio:
 ; ---------------------------------------------------------------- [3/6] kernel
         mov si, msg_kernel
         call escrever
+        cmp byte [usar_prueba], 0
+        je .ler_kernel
+.tentar_ranura:
+        call carregar_prueba            ; D392: kernel y ramdisk de la ranura; CF=1 = no valen
+        jnc .prueba_ok
+        mov si, msg_prueba_mal
+        call escrever
+        cmp byte [usar_prueba], 1       ; falló la prueba: el último bueno; si falló este, el de la imagen
+        mov byte [usar_prueba], 0       ; (la marca de una vez ya está borrada)
+        jne .ranura_esgotada
+        call usar_bueno
+        cmp byte [usar_prueba], 0
+        je .ranura_esgotada
+        mov si, msg_kernel
+        call escrever
+        jmp .tentar_ranura
+.ranura_esgotada:
+        mov si, msg_kernel
+        call escrever
+        jmp .ler_kernel
+.prueba_ok:
+        or dword [BOOTINFO + BI_OPCOES], OPC_KERNEL_PRUEBA
+        test byte [CAB_ENDERECO + CAB_PR_ESTADO], PR_FIXA
+        jz .prueba_avisada
+        or dword [BOOTINFO + BI_OPCOES], OPC_KERNEL_FIXO
+.prueba_avisada:
+        mov eax, [CAB_ENDERECO + CAB_PR_K_ENTRADA]
+        mov [entrada_kernel], eax
+        jmp .depois_ramdisk
 .ler_kernel:
+        mov eax, [CAB_ENDERECO + CAB_K_ENTRADA]
+        mov [entrada_kernel], eax
         mov eax, [CAB_ENDERECO + CAB_K_ENDERECO]
         mov [BOOTINFO + BI_K_INICIO], eax
         mov eax, [CAB_ENDERECO + CAB_K_BYTES]
@@ -187,6 +231,7 @@ inicio:
 .ramdisk_ok:
         mov si, msg_ok
         call escrever
+.depois_ramdisk:
 
         ; v8.5.4.2: y otra vez tras leer el núcleo y el initramfs (la M que llegó mientras tanto).
         call olhar_m
@@ -709,6 +754,287 @@ ler_chs:
         jnz .trecho
         pop di
         pop es
+        ret
+
+; ============================================================================
+; Kernel de prueba de una vez (D392)
+; ============================================================================
+
+; decidir_prueba: [usar_prueba] = 1 si la cabecera describe una ranura de prueba
+; válida (firma 'SGPR' y suma de los bytes 261-351) que toca arrancar: PR_PENDENTE
+; (una vez: la marca se borra en el disco ANTES de leer la prueba, y si no se puede
+; borrar no se arranca) o PR_FIXA (fijada en la ranura de prueba: formato de antes).
+; Si no, [usar_prueba] = 2 si hay un último bueno válido (usar_bueno). Si no, 0: el
+; kernel de la imagen. Nunca desde un CD ni con Ctrl (modo rescate: con el kernel de
+; la imagen, y las marcas siguen).
+decidir_prueba:
+        pushad
+        mov byte [usar_prueba], 0
+        test dword [BOOTINFO + BI_OPCOES], OPC_CD | OPC_RESCATE
+        jnz .fim
+        cmp dword [CAB_ENDERECO + CAB_PR], CAB_PR_ASSINATURA_VAL
+        jne .bueno
+        test byte [CAB_ENDERECO + CAB_PR_ESTADO], PR_PENDENTE | PR_FIXA
+        jz .bueno
+        call validar_ranura
+        jc .invalida
+        mov si, msg_prueba
+        call escrever
+        test byte [CAB_ENDERECO + CAB_PR_ESTADO], PR_PENDENTE
+        jz .fixa
+        mov al, [CAB_ENDERECO + CAB_PR_ESTADO]
+        mov [estado_antes], al
+        and byte [CAB_ENDERECO + CAB_PR_ESTADO], ~PR_PENDENTE & 0xFF
+        or byte [CAB_ENDERECO + CAB_PR_ESTADO], PR_ARRANCADA
+        call gravar_cabecalho
+        jc .nao_gravou
+        mov si, msg_prueba_una
+        call escrever
+        jmp .usar
+.fixa:
+        mov si, msg_prueba_fija
+        call escrever
+.usar:
+        mov byte [usar_prueba], 1
+.fim:
+        popad
+        ret
+.invalida:
+        mov si, msg_prueba_invalida
+        call escrever
+        jmp .bueno
+.nao_gravou:
+        mov al, [estado_antes]          ; la copia en memoria vuelve a ser la del disco
+        mov [CAB_ENDERECO + CAB_PR_ESTADO], al
+        mov si, msg_prueba_sin_grabar
+        call escrever
+.bueno:
+        call usar_bueno                 ; después ya no se escribe la cabecera: se puede pisar en memoria
+        jmp .fim
+
+; validar_ranura: la ranura de los bytes 256-391 (en memoria) suma lo que dice y tiene
+; de 1 a 4 tramos de kernel y como mucho 4 de ramdisk. CF=1 si no.
+validar_ranura:
+        pushad
+        mov si, CAB_ENDERECO + CAB_PR_NK
+        mov cx, CAB_PR_SOMA - CAB_PR_NK
+        xor eax, eax
+        xor edx, edx
+.soma:  mov dl, [si]
+        add eax, edx
+        inc si
+        loop .soma
+        cmp eax, [CAB_ENDERECO + CAB_PR_SOMA]
+        jne .mal
+        mov al, [CAB_ENDERECO + CAB_PR_NK]
+        dec al
+        cmp al, 3
+        ja .mal                         ; de 1 a 4 tramos
+        cmp byte [CAB_ENDERECO + CAB_PR_NR], 4
+        ja .mal
+        popad
+        clc
+        ret
+.mal:
+        popad
+        stc
+        ret
+
+; usar_bueno: si la cabecera describe un último bueno (bytes 392-511, 'SGPR' y PR_FIXA),
+; lo copia EN MEMORIA encima de la ranura de prueba (misma disposición: bytes 256-375,
+; y la nota cortada a 16) y, si es válido, [usar_prueba] = 2. La copia del disco no
+; cambia: no se llama antes de escribir la cabecera.
+usar_bueno:
+        pushad
+        push es
+        cmp dword [CAB_ENDERECO + CAB_PB], CAB_PR_ASSINATURA_VAL
+        jne .fim
+        test byte [CAB_ENDERECO + CAB_PB_ESTADO], PR_FIXA
+        jz .fim
+        xor ax, ax
+        mov es, ax
+        mov si, CAB_ENDERECO + CAB_PB
+        mov di, CAB_ENDERECO + CAB_PR
+        mov cx, CAB_PB_COPIA
+        cld
+        rep movsb
+        mov cx, CAB_PB - CAB_PR - CAB_PB_COPIA   ; el resto de la nota de la prueba, a cero
+        rep stosb
+        call validar_ranura
+        jc .invalido
+        mov si, msg_bueno
+        call escrever
+        mov byte [usar_prueba], 2
+.fim:
+        pop es
+        popad
+        ret
+.invalido:
+        mov dword [CAB_ENDERECO + CAB_PR], 0
+        mov si, msg_bueno_invalido
+        call escrever
+        jmp .fim
+
+; gravar_cabecalho: escribe la cabecera de CAB_ENDERECO en el LBA 1, la vuelve a leer
+; al búfer bajo y la compara. CF=1 si la BIOS dio error o lo leído no es lo escrito.
+gravar_cabecalho:
+        push es
+        xor bx, bx
+        mov es, bx
+        mov bx, CAB_ENDERECO
+        mov al, 1
+        call setor_cabecalho
+        jc .fim
+        mov bx, BUFFER_SEG
+        mov es, bx
+        xor bx, bx
+        xor al, al
+        call setor_cabecalho
+        jc .fim
+        xor di, di
+        mov si, CAB_ENDERECO
+        mov cx, 256
+        cld
+        repe cmpsw
+        jne .distinta
+        clc
+        jmp .fim
+.distinta:
+        stc
+.fim:
+        pop es
+        ret
+
+; setor_cabecalho: AL = 0 leer, 1 escribir el LBA 1 con ES:BX como búfer; por LBA
+; (AH=42h/43h) o por CHS (AH=02h/03h, cilindro 0, cabeza 0, sector 2) según lea
+; la etapa 2. Tres intentos. CF=1 si no sale; nunca se para (a diferencia de
+; ler_setores): un fallo aquí solo deja la prueba sin arrancar.
+setor_cabecalho:
+        push di
+        mov [operacao_cab], al
+        mov di, 3
+.tentar:
+        cmp byte [spt], 0
+        jne .chs
+        mov word [dap_qtd], 1
+        mov [dap_destino], bx
+        mov [dap_destino + 2], es
+        mov dword [dap_lba], CAB_LBA
+        mov dword [dap_lba + 4], 0
+        mov si, dap
+        mov ax, 0x4200
+        cmp byte [operacao_cab], 0
+        je .lba
+        mov ax, 0x4300                  ; escribir, sin verificación de la BIOS (se relee después)
+.lba:
+        mov dl, [disco]
+        push bx
+        int 0x13
+        pop bx
+        jnc .ok
+        jmp .erro
+.chs:
+        mov ah, 0x02
+        cmp byte [operacao_cab], 0
+        je .chs_op
+        mov ah, 0x03
+.chs_op:
+        mov al, 1
+        mov cx, 0x0002
+        xor dh, dh
+        mov dl, [disco]
+        push bx
+        int 0x13
+        pop bx
+        jnc .ok
+.erro:
+        push bx
+        xor ah, ah
+        mov dl, [disco]
+        int 0x13
+        pop bx
+        dec di
+        jnz .tentar
+        pop di
+        stc
+        ret
+.ok:
+        pop di
+        clc
+        ret
+
+; carregar_prueba: el kernel de la ranura a CAB_K_ENDERECO (1 MB) y el ramdisk (el
+; de la ranura o, con CAB_PR_NR = 0, el normal) en CAB_PR_R_ENDERECO, tras la BSS de
+; este kernel; comprueba las dos sumas. CF=1 si algo no cuadra (se arranca el normal).
+carregar_prueba:
+        mov eax, [CAB_ENDERECO + CAB_K_ENDERECO]
+        mov [BOOTINFO + BI_K_INICIO], eax
+        mov eax, [CAB_ENDERECO + CAB_PR_K_BYTES]
+        mov [BOOTINFO + BI_K_BYTES], eax
+        mov word [tramo_ptr], CAB_ENDERECO + CAB_PR_TRAMOS
+        mov al, [CAB_ENDERECO + CAB_PR_NK]
+        mov [tramo_qtd], al
+        mov edi, [CAB_ENDERECO + CAB_K_ENDERECO]
+        call carregar_tramos
+        mov esi, [CAB_ENDERECO + CAB_K_ENDERECO]
+        mov ecx, [CAB_ENDERECO + CAB_PR_K_BYTES]
+        call somar_bytes
+        cmp eax, [CAB_ENDERECO + CAB_PR_K_SOMA]
+        jne .mal
+        mov si, msg_ok
+        call escrever
+        mov si, msg_ramdisk
+        call escrever
+        mov edi, [CAB_ENDERECO + CAB_PR_R_ENDERECO]
+        mov [BOOTINFO + BI_R_INICIO], edi
+        cmp byte [CAB_ENDERECO + CAB_PR_NR], 0
+        je .ramdisk_normal
+        mov ecx, [CAB_ENDERECO + CAB_PR_R_BYTES]
+        mov [BOOTINFO + BI_R_BYTES], ecx
+        call conferir_ram
+        mov word [tramo_ptr], CAB_ENDERECO + CAB_PR_TRAMOS + 32
+        mov al, [CAB_ENDERECO + CAB_PR_NR]
+        mov [tramo_qtd], al
+        call carregar_tramos
+        mov ebx, [CAB_ENDERECO + CAB_PR_R_SOMA]
+        jmp .somar_ramdisk
+.ramdisk_normal:
+        mov ecx, [CAB_ENDERECO + CAB_R_BYTES]
+        mov [BOOTINFO + BI_R_BYTES], ecx
+        call conferir_ram
+        mov eax, [CAB_ENDERECO + CAB_R_LBA]
+        mov ecx, [CAB_ENDERECO + CAB_R_SETORES]
+        call carregar_regiao
+        mov ebx, [CAB_ENDERECO + CAB_R_SOMA]
+.somar_ramdisk:
+        push ebx
+        mov esi, [BOOTINFO + BI_R_INICIO]
+        mov ecx, [BOOTINFO + BI_R_BYTES]
+        call somar_bytes
+        pop ebx
+        cmp eax, ebx
+        jne .mal
+        mov si, msg_ok
+        call escrever
+        clc
+        ret
+.mal:
+        stc
+        ret
+
+; carregar_tramos: [tramo_ptr] = tabla de (u32 LBA, u32 sectores) con [tramo_qtd]
+; tramos; EDI = destino (avanza con lo leído: los tramos van seguidos en memoria).
+carregar_tramos:
+        cmp byte [tramo_qtd], 0
+        je .fim
+        mov si, [tramo_ptr]
+        mov eax, [si]
+        mov ecx, [si + 4]
+        add word [tramo_ptr], 8
+        dec byte [tramo_qtd]
+        call carregar_regiao
+        jmp carregar_tramos
+.fim:
         ret
 
 ; conferir_ram (D181): EDI = inicio físico, ECX = bytes. Comprueba que
@@ -1416,13 +1742,20 @@ modo_protegido:
         mov esp, 0x7C00                 ; pila provisional; el kernel monta la suya
         mov eax, BOOT_MAGICO
         mov ebx, BOOTINFO
-        jmp [CAB_ENDERECO + CAB_K_ENTRADA]
+        jmp [entrada_kernel]            ; CAB_K_ENTRADA, o la del kernel de prueba (D392)
 
 ; ============================================================================
 ; Dados
 ; ============================================================================
 
 disco:          db 0
+usar_prueba:    db 0                    ; D392: 1 = este arranque es el kernel de la ranura de prueba
+align 4
+entrada_kernel: dd 0
+tramo_ptr:      dw 0
+tramo_qtd:      db 0
+estado_antes:   db 0
+operacao_cab:   db 0
 spt:            db 0                    ; 0 = lectura por LBA (AH=42h)
 cabecas:        db 0
 tem_ext:        db 0                    ; D330: la BIOS anuncia las extensiones (AH=41h)
@@ -1494,6 +1827,14 @@ msg_falha_a20:  db "ERROR: no se pudo activar la linea A20", 0
 msg_falha_mem:  db "ERROR: la BIOS no dio el mapa de memoria (E820)", 0
 msg_falha_leitura: db 13, 10, "ERROR: fallo de lectura del disco (INT 13h)", 0
 msg_lba_ruim:   db 13, 10, "Aviso: la BIOS lee mal el disco por LBA; se lee por CHS (D330)", 13, 10, 0
+msg_prueba:     db "Kernel de prueba: ", 0
+msg_prueba_una: db "esta vez (marca borrada: el siguiente arranque es el ultimo bueno)", 13, 10, 0
+msg_prueba_fija: db "fijado (arranque confirmar)", 13, 10, 0
+msg_prueba_invalida: db "Kernel de prueba: la cabecera no cuadra, se ignora", 13, 10, 0
+msg_prueba_sin_grabar: db "no se pudo borrar la marca en el disco: no se arranca", 13, 10, 0
+msg_prueba_mal: db 13, 10, "Kernel de la ranura: datos corruptos o ilegibles: se arranca el anterior", 13, 10, 0
+msg_bueno:      db "Kernel: el ultimo bueno (arranque confirmar)", 13, 10, 0
+msg_bueno_invalido: db "Kernel ultimo bueno: la cabecera no cuadra, se ignora", 13, 10, 0
 msg_falha_soma: db 13, 10, "ERROR: datos leidos corruptos (la suma no coincide)", 0
 msg_aviso_ram:  db 13, 10, "AVISO: el ramdisk no cabe en la RAM que da la BIOS; hacen falta ", 0
 msg_aviso_ram2: db " MB", 13, 10, 0

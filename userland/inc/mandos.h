@@ -23,6 +23,10 @@ int  mandos_detectar(void);                          /* 1 = hay joystick en el p
 int  mandos_calibracao(unsigned short cal[4][3], int *manual);
 int  mandos_calibrar(const unsigned short cal[4][3]); /* NULL = vuelve a la automática */
 int  mandos_inyectar(int indice, const void *informe, unsigned n);   /* solo --mandos-prueba */
+/* Diagnóstico (USB HID): el último informe crudo (n bytes) y el descriptor de informe
+ * (devuelve su tamaño total; copia como mucho max bytes). */
+int  mando_ler_informe(int indice, estado_mando_t *e, unsigned char informe[64], unsigned *n);
+int  mando_descriptor(int indice, unsigned char *d, unsigned max);
 const char *mando_nome_tipo(unsigned tipo);          /* "USB HID", "Xbox 360", "puerto de juegos", "prueba" */
 
 /* La calibración en texto (sagui.conf, clave mando_puerto): "min,centro,max/..." por eje. */

@@ -159,6 +159,14 @@ static int escrever(disco_t *d, uint32_t lba, uint32_t n, const uint8_t *k)
     }
     if (r->reservado_flags & DBLOCO_CONF_MONTADO) {   /* D213 */
         disco_t *p = disco_toca_protegida(r, abs, n);
+        /* D392: con DBLOCO_CONF_SAGUI, dentro de la partición de SaguiOS (sin montar) del disco de
+         * arranque sí: la escritura entera cae en ella, así que no toca ninguna otra. */
+        if (p && (r->reservado_flags & DBLOCO_CONF_SAGUI) && (r->reservado_flags & DBLOCO_CONF_ARRANQUE)
+            && p->tipo_mbr == 0xDA && !p->montagem && abs >= p->inicio && n <= p->inicio + p->setores - abs) {
+            klog("[BLOCOS] %s: escritura en la partición de SaguiOS %s (sectores %u-%u, D392)\n",
+                 r->nome, p->nome, abs, abs + n - 1);
+            p = NULL;
+        }
         if (p) {
             klog("[BLOCOS] %s: escritura en %s (%s) rechazada\n", d->nome, p->nome, p->montagem ? "montada" : "SaguiOS");
             return ERRO_OCUPADO;

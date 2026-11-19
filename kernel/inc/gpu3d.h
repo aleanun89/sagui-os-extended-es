@@ -28,6 +28,7 @@
 #include "abi.h"
 #include "acel2d.h"
 #include "pci.h"
+#include "gpu3d_diag.h"
 
 /* Lo que pide la cabecera de arranque (CAB_GPU3D; mkimagem.py --gpu3d). */
 #define GPU3D_CAB_MODO      0x07
@@ -40,6 +41,7 @@
 #define GPU3D_CAB_P_PIXEL   0x10  /* pruebas: la autoprueba ve un píxel distinto */
 #define GPU3D_CAB_P_TEMPO   0x20  /* pruebas: la GPU deja de responder tras la autoprueba */
 #define GPU3D_CAB_GTT       0x40  /* D358: RAM del sistema en el GTT (Intel Gen3; --gpu3d-gtt, «gpu3d encender gtt») */
+#define GPU3D_CAB_SEM_GTT   0x80  /* D406: no encender sola la GART de las R7xx confirmadas («gpu3d encender sin-gtt») */
 
 #define GPU3D_PRAZO_MS      2000  /* vigilante: lo más que se espera a una valla (D158) */
 
@@ -112,7 +114,21 @@ typedef struct {
     void (*desligar)(void);
     void (*detalle)(const char *fase);     /* registros clave al log [GPU3D] */
     void (*memoria)(uint32_t *total_kb, uint32_t *livre_kb);
+    /* D390: diagnóstico común (gpu3d_diag.h). «conf»: nombre corto del fichero de ajustes
+     * (/sistema/conf/gpu3d-<conf>.conf); «faixas»: los registros que ese fichero puede tocar
+     * (n_faixas 0: ninguno; nunca el MC, los relojes, la energía ni la pantalla). El driver
+     * escribe gpu3d_ajustes en su cola: los G3D_AJ_INICIO tras el estado fijo y los
+     * G3D_AJ_DIBUJO con el estado de cada dibujo. */
+    const char        *conf;
+    const g3d_faixa_t *faixas;
+    int                n_faixas;
+    /* Lo que la CPU ve del destino actual (cpu NULL: nada). Sin destino, las dos vacías. */
+    void (*vistas)(g3d_vista_t *cor, g3d_vista_t *z);
 } gpu3d_driver_t;
+
+/* D390: los ajustes del fichero del driver, leídos por la capa antes de iniciar() y ya
+ * filtrados por sus rangos (n = 0 sin fichero). */
+extern g3d_ajustes_t gpu3d_ajustes;
 
 extern const gpu3d_driver_t gpu3d_intel;   /* Gen3: 915, 945, G33, Pineview (gpu3d_intel.c) */
 extern const gpu3d_driver_t gpu3d_r600;    /* Radeon R7xx por el CP (gpu3d_r600.c, D284): no se enciende solo */
@@ -121,6 +137,8 @@ extern const gpu3d_driver_t gpu3d_sim;     /* de mentira, por la CPU (gpu3d_sim.
 
 /* D358: lo que quedó en marcha en la Intel (GPU3D_VAR_*) y los KB de RAM en el GTT. */
 void gpu3d_intel_estado(uint32_t *variante, uint32_t *ram_kb);
+/* D406: lo mismo para las R7xx (GPU3D_VAR_GTT si la vuelta del cuadro va por la GART). */
+void gpu3d_r600_estado(uint32_t *variante, uint32_t *ram_kb);
 
 /* ------------------------------------------------------------ la capa */
 

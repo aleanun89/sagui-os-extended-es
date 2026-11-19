@@ -6,6 +6,7 @@
 #include "interfaz.h"
 
 static Uint8 teclas_falsas[512];
+int prueba_activa;   /* hay guion: el ratón simulado cuenta como dentro de la ventana */
 
 static int centro_humano(float *x, float *y) {
 	for (int i = 0; i < W.nents; ++i)
@@ -32,7 +33,7 @@ static void soldados(int n, float x, float y) {
 void prueba_paso(int f) {
 	static const char *p;
 	static int leido;
-	if (!leido) { leido = 1; p = getenv("AOEN_PRUEBA"); if (p && !*p) p = NULL; if (p) AOEN_LOG("[AOEN] prueba de interfaz: %s", p); }
+	if (!leido) { leido = 1; p = getenv("AOEN_PRUEBA"); if (p && !*p) p = NULL; if (p) AOEN_LOG("[AOEN] prueba de interfaz: %s", p); prueba_activa = p != NULL; }
 	if (!p) return;
 	float cx = 0, cy = 0;
 	int tc = W.nents ? centro_humano(&cx, &cy) : -1;
@@ -44,7 +45,39 @@ void prueba_paso(int f) {
 		if (f == 12) AOEN_LOG("[AOEN] prueba teclado: civilización del jugador 1 = %s, foco %d", civ_def[su.civ[0]].name, foco_actual);
 		return;
 	}
+	if (!strcmp(p, "comercio") && app.screen == SC_SETUP) {
+		/* configuración: clic en la casilla «Comercio mejorado» y empezar con Intro */
+		if (f == 4) { in.mx = (prueba_comercio.x + 8) * app.us; in.my = (prueba_comercio.y + 8) * app.us; in.mclick = 1; }
+		if (f == 6) AOEN_LOG("[AOEN] prueba comercio: casilla=%d", su.comercio);
+		if (f == 8) in.key[SDL_SCANCODE_RETURN] = 1;
+		return;
+	}
 	if (tc < 0 || app.screen != SC_GAME) return;
+
+	if (!strcmp(p, "comercio")) {
+		/* un carro mercante elegido: I (modo intercambio), clic en «Dar», M (recibir) y la ayuda del botón del modo */
+		static int f0 = -1;
+		if (f0 < 0) f0 = f;
+		int g = f - f0;
+		if (g == 3) {
+			select_none();
+			int i = dev_place(E_TRADECART, W.human, cx + 3, cy + 4);
+			if (i >= 0) W.ents[i].sel = 1;
+		}
+		if (g == 6) in.key[SDL_SCANCODE_I] = 1;
+		if (g == 9) hud_orden_pos(3, &in.mx, &in.my);
+		if (g == 10) in.mclick = 1;
+		if (g == 13) in.key[SDL_SCANCODE_M] = 1;
+		if (g == 16) {
+			for (int i = 0; i < W.nents; ++i)
+				if (W.ents[i].alive && W.ents[i].sel && is_trader(W.ents[i].type)) {
+					AOEN_LOG("[AOEN] prueba comercio: mejorado=%d modo=%d dar=%d recibir=%d", W.setup.comercio_mejorado, W.ents[i].com_modo, W.ents[i].com_dar, W.ents[i].com_recibir);
+					break;
+				}
+		}
+		if (g >= 18) hud_orden_pos(2, &in.mx, &in.my);   /* la ayuda de «Modo intercambio» */
+		return;
+	}
 
 	if (!strcmp(p, "ayuda")) {
 		/* ayuda emergente de la rejilla: el centro urbano entrena aldeanos (coste) y su botón de edad está gris (motivo) */
@@ -89,6 +122,30 @@ void prueba_paso(int f) {
 		if (f == 12) { in.mx = (prueba_tributo.x + 10) * app.us; in.my = (prueba_tributo.y + 10) * app.us; in.mclick = 1; }
 		if (f == 14) AOEN_LOG("[AOEN] prueba diplomacia: relación con el jugador 2 = %s, madera de 2 = %d", dipl_name(W.pl[W.human].dipl[1]), W.pl[1].res[RES_WOOD]);
 		if (f > 14) { in.mx = (prueba_tributo.x + 10) * app.us; in.my = (prueba_tributo.y + 10) * app.us; }
+	} else if (!strcmp(p, "cursor")) {
+		/* v8.5.5.3: el cursor según lo que hay debajo: soldados sobre un enemigo (atacar), un aldeano sobre oro (extraer),
+		 * una casa que no cabe (prohibido) y al final el rótulo de la mina bajo el ratón */
+		static int c_ataque = -1, c_oro = -1, c_obra = -1, enemigo = -1, mina = -1;
+		int dx, dy;
+		if (f == 3) {
+			soldados(3, cx + 3, cy + 4);
+			enemigo = dev_place(E_AXEMAN, 1, cx + 7, cy + 1);
+			mina = dev_place(E_GOLD, -1, cx - 4, cy + 4);
+			if (mina >= 0) W.ents[mina].amount = 400;
+		}
+		if (f >= 5 && f < 10 && enemigo >= 0 && W.ents[enemigo].alive) raton_en_mundo(W.ents[enemigo].x, W.ents[enemigo].y - 0.3f);
+		if (f == 9) c_ataque = hud_cursor(&dx, &dy);
+		if (f == 11) {
+			select_none();
+			for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].owner == W.human && W.ents[i].type == E_VILLAGER) { W.ents[i].sel = 1; break; }
+			if (enemigo >= 0) W.ents[enemigo].alive = 0;   /* que no estorbe a la captura */
+		}
+		if (f >= 12 && f < 16 && mina >= 0) raton_en_mundo(W.ents[mina].x, W.ents[mina].y - 0.3f);
+		if (f == 15) c_oro = hud_cursor(&dx, &dy);
+		if (f == 17) { placing = E_HOUSE; raton_en_mundo(cx, cy); }   /* encima del centro urbano: no cabe */
+		if (f == 19) { c_obra = hud_cursor(&dx, &dy); placing = E_TYPE_COUNT; }
+		if (f == 20) AOEN_LOG("[AOEN] prueba cursor: ataque=%d oro=%d obra=%d (atacar=%d oro=%d prohibido=%d)", c_ataque, c_oro, c_obra, CUR_ATACAR, CUR_ORO, CUR_PROHIBIDO);
+		if (f >= 21 && mina >= 0) raton_en_mundo(W.ents[mina].x, W.ents[mina].y - 0.3f);
 	} else if (!strcmp(p, "teclas")) {
 		if (f == 5) in.key[SDL_SCANCODE_F1] = 1;   /* la ayuda de teclas */
 	} else if (!strcmp(p, "pausa")) {

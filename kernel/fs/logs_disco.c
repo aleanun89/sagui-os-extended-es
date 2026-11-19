@@ -2,7 +2,7 @@
 /* logs_disco.c - el registro del kernel en la partición SAGUI-LOGS (D120).
  *
  * Si hay un volumen montado en /logs para escribir, el kernel guarda en él el anillo de klog
- * (console_log_copiar, los últimos 32 KB) en /logs/kernel-AAAAMMDD-HHMM.log: al montar el
+ * (console_log_copiar, los últimos 128 KB) en /logs/kernel-AAAAMMDD-HHMM.log: al montar el
  * volumen (lo acumulado hasta entonces) y otra vez antes de desmontar todo al apagar o
  * reiniciar (montagem_desmontar_tudo). Un archivo por arranque, siempre el mismo nombre; se
  * conservan los LOGS_CONSERVAR más recientes (los nombres ordenan por fecha). Sin /logs no
@@ -14,7 +14,7 @@
 #include "texto.h"
 
 #define LOGS_CONSERVAR 10
-#define LOGS_TAM       (33 * 1024)   /* un poco más que el anillo, con la cabecera */
+#define LOGS_TAM       (129 * 1024)   /* un poco más que el anillo, con la cabecera */
 
 static char nome_log[48];   /* vacío = aún no se ha creado el de este arranque */
 

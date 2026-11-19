@@ -385,7 +385,7 @@ def parte2():
     print("    tabla:", t)
     verificar(t[1][2] == "da" and t[1][3] and any(v[2] == "ef" for v in t.values()), "SaguiOS (0xDA, activa) y la partición EFI (BIOS y UEFI)")
     logicas = {n: v for n, v in t.items() if n >= 5}
-    rotulos, tipos = {}, {}
+    rotulos, tipos, num_rot = {}, {}, {}
     for n, v in logicas.items():
         p = extrair_particao(dest, v[0], v[1] // 2048)
         if v[2] == "c":
@@ -396,9 +396,15 @@ def parte2():
             rot = subprocess.run([os.path.join(E2, "e2label"), p], capture_output=True, text=True).stdout.strip()
         rotulos[rot] = p
         tipos[rot] = v[2]
+        num_rot[rot] = n
         verificar(rc == 0, f"{rot} ({'FAT32' if v[2] == 'c' else 'ext2'}) sano en el anfitrión")
     verificar(tipos.get("SAGUI-TMP") == "c", "/tmp en FAT32, como se eligió")
-    home, conf = rotulos["SAGUI-DATOS"], rotulos["SAGUI-CONF"]
+    # D379: con la raíz en disco no hay SAGUI-CONF: la configuración va en /etc de SAGUI-RAIZ (mismas rutas)
+    home, conf = rotulos["SAGUI-DATOS"], rotulos.get("SAGUI-CONF") or rotulos["SAGUI-RAIZ"]
+    ext = [v for n, v in t.items() if n < 5 and v[2] in ("f", "5", "85")][0]
+    ult = t[max(logicas)]
+    verificar(num_rot.get("SAGUI-DATOS") == max(logicas) and ult[0] + ult[1] == ext[0] + ext[1],
+              "D388: /home es la última lógica y llega al final de la extendida")
     verificar(b"CasaH318" in debugfs(home, "cat /.config/wifi.conf") and b"fondo=azul" in debugfs(home, "cat /.config/prueba318.conf"),
               "/home instalado: preferencias y Wi-Fi copiadas")
     verificar(b"AAAAH318" in debugfs(home, "cat /.ssh/authorized_keys") and b"documento h318" in debugfs(home, "cat /carta318.txt"),
@@ -513,6 +519,7 @@ def parte4():
                     "--mbr", f"{b}/boot/mbr.bin", "--estagio2", f"{b}/boot/estagio2.bin", "--kernel", f"{b}/kernel.bin",
                     "--kernel-elf", f"{b}/kernel.elf", "--ramdisk", f"{b}/ramdisk.sgfs", "--saida", img,
                     "--vesa", "--dados-mb", "64", "--sin-pedir-root", "--sin-migrar-home",   # D371: como las demás de prueba
+                    "--orden-antiguo",   # D388: la disposición de antes (/home la primera): ampliar mueve lo de detrás
                     *opcoes_apps()], check=True, stdout=subprocess.DEVNULL)
     t0 = sfdisk(img)
     # Un archivo en /home antes de arrancar (escrito desde el PC en la partición de datos).

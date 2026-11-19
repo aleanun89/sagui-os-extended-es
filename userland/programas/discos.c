@@ -64,6 +64,18 @@ static const info_montagem_t *montagem_de(const char *nome)
     return NULL;
 }
 
+/* D388: la de un volumen. En la live, la base SAGUI-RAIZ y la capa SAGUI-PERSIST salen las dos «montadas en
+ * /»: el uso de la base es el del sistema de serie (/sistema/serie) y el de la capa, el de «/». */
+static const info_montagem_t *montagem_vol(const info_disco_t *d)
+{
+    const char *papel = pt_papel_raiz(d);
+    if (papel && (comeca_com(papel, "sistema de serie") || comeca_com(papel, "tus cambios")))
+        for (int i = 0; i < qtd_montagens; i++)
+            if (papel[0] == 's' ? compara_texto(montagens[i].tipo, "serie") == 0 : compara_texto(montagens[i].ponto, "/") == 0)
+                return &montagens[i];
+    return montagem_de(d->nome);
+}
+
 /* ------------------------------------------------------------ texto */
 
 static void barra_texto(unsigned pct, char *s, int max)
@@ -80,7 +92,7 @@ static bool barras;   /* -u */
 
 static void uso_texto(const info_disco_t *d)
 {
-    const info_montagem_t *m = d->montado ? montagem_de(d->nome) : NULL;
+    const info_montagem_t *m = d->montado ? montagem_vol(d) : NULL;
     if (!m || !m->total_kb) return;
     char u[16], t[16];
     tamanho_kb(m->total_kb - m->livre_kb, u, sizeof u);
@@ -117,6 +129,8 @@ static int listar_grupo(int grupo)
             if (d.suportado) {
                 imprimir("   %-7s %s  %s  \"%s\"  (%s)", d.nome, tam, d.formato, d.rotulo, est); uso_texto(&d);
                 if (compara_texto(d.rotulo, "SAGUI-CONF") == 0) imprimir("  [configuración del sistema: no la borres]");   /* D256 */
+                const char *papel = pt_papel_raiz(&d);   /* D388: la raíz doble de la live */
+                if (papel) imprimir("  [%s]", papel);
                 imprimir("\n");
             }
             else imprimir("   %-7s %s  %s\n", d.nome, tam, d.formato);
@@ -192,7 +206,11 @@ static void ler_estado(void)
     for (int i = 0; i < qtd_montagens; i++) if (compara_texto(montagens[i].ponto, "/") == 0) mr = &montagens[i];
     if (mr) { l.total_kb = mr->total_kb; l.livre_kb = mr->livre_kb; }
     else if (info_sistema(INFO_MEMORIA, &mem, sizeof mem) == 0) { l.total_kb = mem.gerida_kb; l.livre_kb = mem.livre_kb; }
-    copia_texto(l.descr, "/  (incluye /tmp)   ramfs", sizeof l.descr);
+    char rb[16], rc[16];
+    if (pt_raiz_live(rb, rc, sizeof rb)) {   /* D388: la live: la base y la capa (el espacio es el de la capa) */
+        if (rc[0]) formatar_texto(l.descr, sizeof l.descr, "/  live: sistema de serie (%s) + tus cambios (%s)", rb, rc);
+        else formatar_texto(l.descr, sizeof l.descr, "/  live: sistema de serie (%s) + tus cambios en la RAM", rb);
+    } else copia_texto(l.descr, "/  (incluye /tmp)   ramfs", sizeof l.descr);
     adicionar(&l);
 
     info_disco_t d, p;
@@ -229,9 +247,11 @@ static void ler_estado(void)
             l.so_leitura = (v->flags & DISCO_SO_LEITURA) != 0;
             copia_texto(l.ponto, v->ponto, sizeof l.ponto);
             tamanho(v->setores, tam, sizeof tam);
-            if (v->suportado) formatar_texto(l.descr, sizeof l.descr, "%s  %s  %s  \"%s\"", v->nome, tam, v->formato, v->rotulo);
+            const char *papel = pt_papel_raiz(v);   /* D388: la raíz doble de la live */
+            if (v->suportado && papel) formatar_texto(l.descr, sizeof l.descr, "%s  %s  \"%s\"  -  %s", v->nome, tam, v->rotulo, papel);
+            else if (v->suportado) formatar_texto(l.descr, sizeof l.descr, "%s  %s  %s  \"%s\"", v->nome, tam, v->formato, v->rotulo);
             else formatar_texto(l.descr, sizeof l.descr, "%s  %s  %s", v->nome, tam, v->formato);
-            const info_montagem_t *m = l.montado ? montagem_de(v->nome) : NULL;
+            const info_montagem_t *m = l.montado ? montagem_vol(v) : NULL;
             if (m) { l.total_kb = m->total_kb; l.livre_kb = m->livre_kb; }
             adicionar(&l);
         }
@@ -542,10 +562,10 @@ static void tratar_menu(int indice)
 #define MENU_PART   4
 #define MENU_CRIAR  5
 #define MENU_FMT    6
-#define PV_W_BT     100
-enum { PV_CRIAR, PV_BORRAR, PV_REDIM, PV_FORMATEAR, PV_ACTIVA, PV_TRIM, PV_DESHACER, PV_AMPLIAR, PV_NBT };
+#define PV_W_BT     92
+enum { PV_CRIAR, PV_BORRAR, PV_REDIM, PV_FORMATEAR, PV_ACTIVA, PV_TRIM, PV_DESHACER, PV_AMPLIAR, PV_REPARAR, PV_NBT };
 static const char *const pv_bt_texto[PV_NBT] = { "Crear...", "Borrar", "Tamaño...", "Formatear...", "Activa", "TRIM", "Deshacer",
-                                                 "Ampliar" };
+                                                 "Ampliar", "Reparar..." };
 
 typedef struct {
     int      num;            /* 0 = espacio libre */
@@ -808,6 +828,13 @@ static bool pv_pode(int bt)
     case PV_TRIM: return tabela_ok && pv_bloco.trim == TRIM_SIM && s && !(p && pt_tipo_extendida(p->tipo));
     case PV_DESHACER: return pv_passos > 0;
     case PV_AMPLIAR: return pv_t.esquema == PT_MBR && pv_fim_ampliar() != 0;
+    case PV_REPARAR: {   /* D397: solo un ext2 */
+        char n[16];
+        info_disco_t d;
+        if (!p || !s->num || pt_tipo_extendida(p->tipo)) return false;
+        pv_nome_seg(s, n, sizeof n);
+        return pv_info_de(n, &d) && d.suportado && (compara_texto(d.tipo_fs, "ext2") == 0 || compara_texto(d.formato, "ext2") == 0);
+    }
     }
     return false;
 }
@@ -1140,6 +1167,57 @@ static void pv_formatear(int escolha)
     pv_executar(&a);
 }
 
+/* D397: «Reparar...»: pasa «reparar -n» (dice qué está mal, sin escribir), enseña el resultado y, si hay algo y
+ * se confirma, «reparar -y» (desmonta, repara, comprueba y vuelve a montar). Las dos van por /bin/reparar con la
+ * salida a un archivo de /tmp, que se muestra en el diálogo. */
+static int pv_reparar_correr(const char *vol, const char *modo, char *saida, int max)
+{
+    const char *arq = "/tmp/reparar-discos.txt";
+    char *argv[] = { "reparar", (char *)modo, (char *)vol, "--salida", (char *)arq, NULL };
+    int pid = executar("/bin/reparar", argv), cod = 8;
+    saida[0] = 0;
+    if (pid < 0) { formatar_texto(saida, (size_t)max, "No se pudo ejecutar reparar: %s", nome_erro(pid)); return 8; }
+    esperar(pid, &cod);
+    int fd = abrir(arq, ABRIR_LER);
+    if (fd >= 0) {
+        char *grande = aloca(8192);
+        int n = grande ? ler(fd, grande, 8191) : 0;
+        if (n < 0) n = 0;
+        if (grande) {
+            grande[n] = 0;
+            /* lo importante está al final (resumen, resultado): se enseña el último trozo */
+            int ini = n > max - 1 ? n - (max - 1) : 0;
+            while (ini < n && ini > 0 && grande[ini - 1] != '\n') ini++;
+            copia_texto(saida, grande + ini, (size_t)max);
+            libera(grande);
+        }
+        fechar(fd);
+    }
+    apagar(arq);
+    return cod;
+}
+
+static void pv_reparar(const pv_seg_t *s)
+{
+    char vol[16], txt[380];
+    pv_nome_seg(s, vol, sizeof vol);
+    if (pv_pedir_admin() < 0) { pv_mensagem("Reparar", "Hacen falta permisos de administrador."); return; }
+    int cod = pv_reparar_correr(vol, "-n", txt, sizeof txt);
+    registrar("discos: reparar -n %s -> %d", vol, cod);
+    if (cod == 0) { pv_mensagem("Reparar", "Todo cuadra: no hay nada que reparar."); return; }
+    if (cod != 4) { pv_mensagem("Reparar", txt[0] ? txt : "No se pudo comprobar el volumen."); return; }
+    char q[600];
+    formatar_texto(q, sizeof q, "%s\n\n¿Reparar %s? Se desmontará, se arreglará y se volverá a montar. Antes se guarda una copia de lo que cambia en /tmp/reparar.", txt, vol);
+    if (!pv_confirmar("Reparar", q)) return;
+    cod = pv_reparar_correr(vol, "-y", txt, sizeof txt);
+    registrar("discos: reparar -y %s -> %d", vol, cod);
+    formatar_texto(q, sizeof q, "%s", txt[0] ? txt : (cod == 1 ? "Reparado." : "No se pudo reparar."));
+    pv_msg_erro = cod != 1 && cod != 0;
+    copia_texto(pv_msg, cod == 1 ? "Reparado: el volumen está limpio." : "Reparar no ha podido arreglarlo del todo (mira el registro).", sizeof pv_msg);
+    pv_mensagem("Reparar", q);
+    pv_atualizar();
+}
+
 static void pv_acao(int bt)
 {
     if (!pv_pode(bt)) return;
@@ -1156,6 +1234,9 @@ static void pv_acao(int bt)
         menu_contextual(j->id, pv_bt_x(PV_CRIAR), pv_bt_y() - 4, m, MENU_CRIAR);
         return;
     }
+    case PV_REPARAR:
+        pv_reparar(s);
+        return;
     case PV_FORMATEAR:
         menu_contextual(j->id, pv_bt_x(PV_FORMATEAR), pv_bt_y() - 4, "Formatear en FAT32\nFormatear en ext2\nFormatear en exFAT", MENU_FMT);
         return;
@@ -1342,7 +1423,7 @@ static int janela(const char *disco_part, bool part)
         if (alto < 300) alto = 300;
         if (alto > 900) alto = 900;
     }
-    j = jan_abrir("Discos", part ? 870 : 700, part ? 600 : alto);
+    j = jan_abrir("Discos", part ? 900 : 700, part ? 600 : alto);
     if (!j) { imprimir("discos: no se pudo abrir la ventana (¿hay escritorio?)\n"); return 1; }
     jan_estilo(j, JAN_REDIMENSIONAVEL, 520, 240);
     qtd = 0;

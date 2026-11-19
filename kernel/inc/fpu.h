@@ -14,16 +14,27 @@
 #define CPU_SSSE3  0x040
 #define CPU_SSE41  0x080
 #define CPU_SSE42  0x100
+/* D381: AVX solo si el kernel lo activó (CR4.OSXSAVE y XCR0 con x87|SSE|AVX): entonces el estado
+ * se guarda con XSAVE (los YMM enteros) en vez de FXSAVE. AVX2 y FMA solo se anotan si CPU_AVX. */
+#define CPU_AVX    0x200
+#define CPU_AVX2   0x400
+#define CPU_FMA    0x800
 
-#define FPU_ESTADO 512   /* tamaño del área del FXSAVE (el FNSAVE usa solo 108) */
+/* D381: área por proceso. FXSAVE usa 512 bytes (el FNSAVE solo 108); XSAVE con x87|SSE|AVX en
+ * el formato estándar, 512 + 64 de cabecera + 256 de las mitades altas de los YMM = 832. El
+ * tamaño real lo da CPUID 0xD al arrancar: si no cabe aquí, el kernel no enciende AVX. XSAVE
+ * exige el área alineada a 64 bytes. */
+#define FPU_ESTADO        832
+#define FPU_ESTADO_ALINHA 64
 
 struct processo;
 
 void        fpu_iniciar(void);                 /* CPUID, CR0/CR4, #NM; antes de los procesos */
-void        fpu_iniciar_secundaria(void);      /* D164: CR0/CR4 y FPU limpia en un procesador secundario */
+bool        fpu_iniciar_secundaria(void);      /* D164: CR0/CR4 y FPU limpia en un secundario; false = no puede (D381: sin AVX) */
 uint32_t    fpu_recursos(void);                /* CPU_* */
 const char *cpu_fabricante(void);              /* "GenuineIntel", "AuthenticAMD"... */
-int         fpu_descrever(char *s, int max);   /* "FPU MMX SSE SSE2 ..." */
+int         fpu_descrever(char *s, int max);   /* "FPU MMX SSE SSE2 ... AVX AVX2 FMA" */
+const char *fpu_avx_motivo(void);              /* D381: por qué AVX está o no está encendido (para el registro) */
 void        fpu_trocar(struct processo *prox); /* planificador: activa CR0.TS si el estado no es del siguiente */
 void        fpu_esquecer(struct processo *p);  /* el proceso terminó: su estado ya no vale */
 

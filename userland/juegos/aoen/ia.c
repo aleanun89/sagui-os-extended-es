@@ -19,6 +19,7 @@
  * (p. ej. asedio = mucho daño a edificios y alcance) y se comprueba antes de usarlo (ver NOTAS-IA.md). */
 #include "game.h"
 #include "ia.h"
+#include "hilos.h"
 
 /* ---------- copias locales de ayudas internas de game.c (allí son static) ---------- */
 
@@ -115,8 +116,34 @@ typedef struct {
 } Ia;
 
 static Ia ia[MAX_PLAYERS];
-static int *ocupa;  /* aldeanos que van a cada entidad (índice), se rehace en cada vuelta */
-static int ocupa_cap;
+/* aldeanos que van a cada entidad (índice), se rehace en cada vuelta; uno por jugador (D393: piensan a la vez) */
+static int *ocupa[MAX_PLAYERS];
+static int ocupa_cap[MAX_PLAYERS];
+
+/* ---------- obras aplazadas (D393) ----------
+ * Mientras las IA piensan a la vez (cada una en un hilo), nadie crea entidades ni cambia el mapa: las obras se apuntan (con
+ * el coste ya apartado de los recursos del jugador, el sitio y el aldeano reservados para las siguientes decisiones de esa
+ * misma vuelta) y se ponen después en el hilo principal, jugador por jugador y en orden (ia_aplicar). Con 1 hilo se hace
+ * exactamente lo mismo, así que la partida sale igual con 1 o con N hilos. */
+#define MAX_OBRAS 32
+typedef struct { int obrero, ayudante, t, tx, ty, coste[RES_COUNT]; } Obra;
+static struct { Obra v[MAX_OBRAS]; int n; } obras[MAX_PLAYERS];
+
+/* ¿choca el edificio t en (tx,ty) con una obra ya apuntada por el jugador? (con una casilla de margen) */
+static int choca_obra(int p, int t, int tx, int ty) {
+	int s = bld_def[t].size;
+	for (int k = 0; k < obras[p].n; ++k) {
+		const Obra *o = &obras[p].v[k];
+		int os = bld_def[o->t].size;
+		if (tx - 1 < o->tx + os && o->tx < tx + s + 1 && ty - 1 < o->ty + os && o->ty < ty + s + 1) return 1;
+	}
+	return 0;
+}
+
+static int obrero_reservado(int p, int i) {
+	for (int k = 0; k < obras[p].n; ++k) if (obras[p].v[k].obrero == i || obras[p].v[k].ayudante == i) return 1;
+	return 0;
+}
 static const Ref SIN = { -1, 0 };
 
 static void ia_reiniciar(int p) {
@@ -231,8 +258,8 @@ typedef struct {
 static void censar(int p, Censo *c) {
 	memset(c, 0, sizeof *c);
 	float sx = 0, sy = 0; int nb = 0;
-	if (ocupa_cap < W.nents) { free(ocupa); ocupa_cap = W.nents + 256; ocupa = malloc(sizeof(int) * (size_t)ocupa_cap); if (!ocupa) ocupa_cap = 0; }
-	if (ocupa) memset(ocupa, 0, sizeof(int) * (size_t)ocupa_cap);
+	if (ocupa_cap[p] < W.nents) { free(ocupa[p]); ocupa_cap[p] = W.nents + 256; ocupa[p] = malloc(sizeof(int) * (size_t)ocupa_cap[p]); if (!ocupa[p]) ocupa_cap[p] = 0; }
+	if (ocupa[p]) memset(ocupa[p], 0, sizeof(int) * (size_t)ocupa_cap[p]);
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *e = &W.ents[i];
 		if (!vivo(e) || e->owner != p) continue;
@@ -245,7 +272,7 @@ static void censar(int p, Censo *c) {
 			++c->aldeanos;
 			if ((e->state == ST_GATHER || e->state == ST_RETURN) && e->carry_kind < RES_COUNT) ++c->tarea[e->carry_kind];
 			if (e->state == ST_BUILD) ++c->constructores;
-			if (ocupa && e->target.idx >= 0 && e->target.idx < W.nents && (e->state == ST_GATHER || e->state == ST_MOVE)) ++ocupa[e->target.idx];
+			if (ocupa[p] && e->target.idx >= 0 && e->target.idx < W.nents && (e->state == ST_GATHER || e->state == ST_MOVE)) ++ocupa[p][e->target.idx];
 		} else if (e->type == E_PRIEST) ++c->sacerdotes;
 		else if (militar(e->type)) ++c->ejercito;
 	}
@@ -262,7 +289,7 @@ static int ia_find_site(int p, int t, float ax, float ay, int rmin, int rmax) {
 		for (int k = 0; k < pasos; ++k) {
 			float an = (float)k / (float)pasos * 6.2831853f + (float)p;
 			int tx = (int)(ax + cosf(an) * r) - s / 2, ty = (int)(ay + sinf(an) * r) - s / 2;
-			if (!can_place((EntType)t, tx, ty)) continue;
+			if (!can_place((EntType)t, tx, ty) || choca_obra(p, t, tx, ty)) continue;
 			/* mantén un anillo libre para que las unidades puedan rodear */
 			int ok = 1;
 			for (int j = ty - 1; j <= ty + s && ok && t != E_DOCK && t != E_WALL; ++j)
@@ -294,12 +321,40 @@ static int constructor(int p, float x, float y) {
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *u = &W.ents[i];
 		if (!vivo(u) || u->owner != p || u->type != E_VILLAGER || u->state == ST_BUILD || u->carry > 6) continue;
-		if (ia[p].explorador_ini.idx == i) continue;
+		if (ia[p].explorador_ini.idx == i || obrero_reservado(p, i)) continue;
 		float d = d2(u->x, u->y, x, y);
 		if (u->state == ST_IDLE) d *= 0.5f;
 		if (d < bd) { bd = d; best = i; }
 	}
 	return best;
+}
+
+/* apunta la obra (D393): aparta el coste, reserva el sitio y el aldeano y, en la difícil, un segundo aldeano que ayudará en
+ * los edificios grandes. La pone ia_aplicar. */
+static int encargar_obra(int p, int b, int t, int tx, int ty) {
+	if (obras[p].n >= MAX_OBRAS || !puede_pagar(p, t, 0, 0) || !can_place((EntType)t, tx, ty) || choca_obra(p, t, tx, ty)) return 0;
+	Obra *o = &obras[p].v[obras[p].n++];
+	o->obrero = b; o->ayudante = -1; o->t = t; o->tx = tx; o->ty = ty;
+	coste(t, o->coste);
+	for (int k = 0; k < RES_COUNT; ++k) W.pl[p].res[k] -= o->coste[k];
+	if (W.pl[p].diff >= 2 && bld_def[t].size >= 3) {
+		int b2 = constructor(p, tx, ty);
+		if (b2 >= 0 && b2 != b) o->ayudante = b2;
+	}
+	return 1;
+}
+
+/* pone las obras apuntadas por p (hilo principal, en orden): devuelve el coste y deja que cmd_build lo vuelva a cobrar */
+static void poner_obras(int p) {
+	for (int k = 0; k < obras[p].n; ++k) {
+		const Obra *o = &obras[p].v[k];
+		for (int r = 0; r < RES_COUNT; ++r) W.pl[p].res[r] += o->coste[r];
+		if (!W.ents[o->obrero].alive || !cmd_build(p, ent_ref(o->obrero), (EntType)o->t, o->tx, o->ty)) continue;
+		if (o->ayudante >= 0 && W.ents[o->ayudante].alive)
+			for (int j = W.nents - 1; j >= 0; --j)
+				if (W.ents[j].alive && (int)W.ents[j].type == o->t && W.ents[j].owner == p && W.ents[j].bx == o->tx && W.ents[j].by == o->ty) { cmd_target(ent_ref(o->ayudante), ent_ref(j)); break; }
+	}
+	obras[p].n = 0;
 }
 
 static int construir(int p, int t, float ax, float ay, int rmin, int rmax) {
@@ -309,14 +364,7 @@ static int construir(int p, int t, float ax, float ay, int rmin, int rmax) {
 	int tx = site % W.w, ty = site / W.w;
 	int b = constructor(p, tx, ty);
 	if (b < 0) return 0;
-	if (!cmd_build(p, ent_ref(b), (EntType)t, tx, ty)) return 0;
-	/* en la difícil un segundo aldeano ayuda en los edificios grandes */
-	if (W.pl[p].diff >= 2 && bld_def[t].size >= 3) {
-		int b2 = constructor(p, tx, ty);
-		if (b2 >= 0 && b2 != b)
-			for (int j = W.nents - 1; j >= 0; --j)
-				if (W.ents[j].alive && (int)W.ents[j].type == t && W.ents[j].owner == p && W.ents[j].bx == tx && W.ents[j].by == ty) { cmd_target(ent_ref(b2), ent_ref(j)); break; }
-	}
+	if (!encargar_obra(p, b, t, tx, ty)) return 0;
 	snprintf(ia[p].ultimo, sizeof ia[p].ultimo, "construye %s", bld_def[t].name);
 	return 1;
 }
@@ -377,7 +425,7 @@ static int recurso_cercano(int p, int kind, float x, float y, float maxd) {
 		int farm = r->type == E_FARM && r->owner == p && r->progress >= 1;
 		if (!(is_resource(r->type) || farm) || r->type == E_RELIC || res_kind_of(r->type) != kind || r->amount <= 0) continue;
 		int lim = farm ? 2 : r->type == E_TREE ? 2 : 4;
-		if (ocupa && j < ocupa_cap && ocupa[j] >= lim) continue;
+		if (ocupa[p] && j < ocupa_cap[p] && ocupa[p][j] >= lim) continue;
 		if (!farm && !ia[p].explorada[celda(r->x, r->y, &ia[p])]) continue; /* solo lo que conoce */
 		if (r->type == E_FISH) continue;   /* los peces, para los barcos de pesca */
 		if (isla && isla_de(r->x, r->y) != isla) continue;
@@ -412,7 +460,7 @@ static int enviar_recolector(int p, int ui, int kind, const Censo *c) {
 	if (r < 0) r = recurso_cercano(p, kind, u->x, u->y, 70);
 	if (r < 0) return 0;
 	cmd_target(ent_ref(ui), ent_ref(r));
-	if (ocupa && r < ocupa_cap) ++ocupa[r];
+	if (ocupa[p] && r < ocupa_cap[p]) ++ocupa[p][r];
 	return 1;
 }
 
@@ -661,9 +709,9 @@ static void edificios(int p, Censo *c) {
 		/* dos tramos de 7 a cada lado del eje; la casilla central del eje queda libre */
 		float lado = (k % 2 ? 1.0f : -1.0f) * (2 + k / 2);
 		int wx = (int)(c->bx + dx * 13 - dy * lado), wy = (int)(c->by + dy * 13 + dx * lado);
-		if (c->obras + hechas < nv->obras && can_place(E_WALL, wx, wy)) {
+		if (c->obras + hechas < nv->obras && can_place(E_WALL, wx, wy) && !choca_obra(p, E_WALL, wx, wy)) {
 			int b = constructor(p, (float)wx, (float)wy);
-			if (b >= 0 && cmd_build(p, ent_ref(b), E_WALL, wx, wy)) { ++hechas; ++c->n[E_WALL]; }
+			if (b >= 0 && encargar_obra(p, b, E_WALL, wx, wy)) { ++hechas; ++c->n[E_WALL]; }
 		}
 	}
 	/* mercado en la difícil, para cambiar lo que sobra */
@@ -712,7 +760,8 @@ static void investigar(int p, const Censo *c, int reserva_comida, int reserva_or
 			if (td->bld != b->type || has_tech(p, t) || td->age > pl->age) continue;
 			if (td->prereq >= 0 && !has_tech(p, td->prereq)) continue;
 			if (!tech_allowed(p, t)) continue;
-			int economia = td->bld == E_STORAGE || td->bld == E_GRANARY;
+			/* las de recolección (no todo lo del Almacén y el Granero: allí están también armas, armaduras y torres) */
+			int economia = t == T_TOOLWORKING || t == T_BRONZE_AXE || t == T_MINING || t == T_DOMESTICATION || t == T_PLOW;
 			if (nv->tecnologias < 2 && !economia && pl->age < AGE_BRONZE) continue;
 			/* lo económico va primero y con menos colchón */
 			int colchon = economia ? 50 : 150;
@@ -1013,6 +1062,9 @@ static void ejercito(int p, Censo *c) {
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *t = &W.ents[i];
 		if (!vivo(t) || !hostile(p, t->owner) || !is_unit(t->type) || t->type == E_VILLAGER) continue;
+		/* los barcos y quien va a bordo no son amenaza para el ejército de tierra (no los alcanza: se quedaría defendiendo
+		 * para siempre); de los barcos se ocupa la flota */
+		if (is_naval(t->type) || t->state == ST_ABOARD) continue;
 		if (!a->casa[celda(t->x, t->y, a)] || !ve(p, t->x, t->y)) continue;
 		ax += t->x; ay += t->y; ++nam; fam += fuerza(t);
 	}
@@ -1408,6 +1460,8 @@ static void diplomacia(int p) {
 
 /* ---------- vuelta de un jugador ---------- */
 
+static int toca_diplomacia[MAX_PLAYERS];   /* llegó a la diplomacia en esta vuelta: se hace en ia_aplicar (D393) */
+
 static void ia_pensar(int p) {
 	Player *pl = &W.pl[p];
 	const Nivel *nv = &niveles[pl->diff];
@@ -1471,7 +1525,7 @@ static void ia_pensar(int p) {
 	barcos(p, &c);
 	mercantes(p, &c);
 	reliquias(p, &c);
-	diplomacia(p);
+	toca_diplomacia[p] = 1;   /* la diplomacia, después y en el hilo principal (ia_aplicar): toca a otros jugadores */
 	ejercito(p, &c);
 
 	/* muy difícil: recoge más deprisa, +0,22 por segundo y recolector (ventaja declarada en el menú; medida con tests/aoen_ia.c:
@@ -1480,7 +1534,20 @@ static void ia_pensar(int p) {
 		for (int k = 0; k < RES_COUNT; ++k) pl->res[k] += (int)(c.tarea[k] * nv->pensar * 0.22f + 0.5f);
 }
 
+/* D393: la vuelta de cada jugador que piensa en este tic, repartida entre los hilos. Cada IA solo escribe lo suyo (su
+ * memoria, sus recursos, las órdenes de sus unidades, sus obras y pedidos de caminos apuntados) y lee el mundo, que
+ * nadie más cambia mientras tanto. */
+static int quien[MAX_PLAYERS], n_quien;
+static void pensar_parte(void *ctx, int k, int partes) { (void)ctx; (void)partes; ia_pensar(quien[k]); }
+
+/* lo que toca a otros jugadores o al mapa, en el hilo principal y en orden de jugador */
+static void ia_aplicar(int p) {
+	poner_obras(p);
+	if (toca_diplomacia[p]) { toca_diplomacia[p] = 0; diplomacia(p); }
+}
+
 void ia_actualizar(float dt) {
+	n_quien = 0;
 	for (int p = 0; p < MAX_PLAYERS; ++p) {
 		Player *pl = &W.pl[p];
 		if (!pl->active || !pl->ai) continue;
@@ -1492,9 +1559,26 @@ void ia_actualizar(float dt) {
 		if (pl->ai_t <= 0) {
 			if (pl->diff < 0 || pl->diff >= IA_DIFICULTADES) pl->diff = 1;
 			pl->ai_t = niveles[pl->diff].pensar;
-			ia_pensar(p);
+			obras[p].n = 0;
+			quien[n_quien++] = p;
 		}
 	}
+	if (!n_quien) return;
+	/* lo que se calcula una vez y luego solo se lee: las islas y la población máxima de este tic */
+	componentes();
+	world_pop_cap(0);
+	/* AOEN_IA_ORDEN=inverso (pruebas, con un hilo): las IA piensan en orden inverso; si alguna leyera lo que otra cambia
+	 * mientras piensan, la partida saldría distinta */
+	static int inverso = -1;
+	if (inverso < 0) inverso = getenv("AOEN_IA_ORDEN") && !strcmp(getenv("AOEN_IA_ORDEN"), "inverso");
+	if (inverso)
+		for (int i = 0, j = n_quien - 1; i < j; ++i, --j) { int t = quien[i]; quien[i] = quien[j]; quien[j] = t; }
+	caminos_aplazar(1);
+	hilos_repartir(pensar_parte, NULL, n_quien);
+	if (inverso)
+		for (int i = 0, j = n_quien - 1; i < j; ++i, --j) { int t = quien[i]; quien[i] = quien[j]; quien[j] = t; }
+	for (int k = 0; k < n_quien; ++k) ia_aplicar(quien[k]);
+	caminos_resolver();
 }
 
 const char *ia_estado(int p) {

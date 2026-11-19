@@ -305,7 +305,7 @@ def parte_f():
         s = m.serial()
         verificar(re.search(r"\[RAIZ\] usb\d+p\d+ \(LABEL=SAGUI-RAIZ, ext2\) montada en / \[live\]", s), "F: la raíz de la live se monta desde el pendrive")
         out = m.comando("mount")
-        verificar(re.search(r"en /\s+tipo live\s+\(rw", out), "F: «/» es la sobreposición (rw)")
+        verificar(re.search(r"en /\s+tipo live\b[^\n]*\(rw", out), "F: «/» es la sobreposición (rw)")
         verificar("tipo ext2" not in out.split("en /  ")[0], "F: el ext2 del medio no se ve montado aparte")
         m.comando("echo nuevo-h387 > /etc/h387.txt")
         verificar("nuevo-h387" in m.comando("cat /etc/h387.txt"), "F: se crea un archivo en /etc (capa)")

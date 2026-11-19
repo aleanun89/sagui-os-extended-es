@@ -99,6 +99,8 @@ typedef struct {
     bool     home_conservar;     /* D379: hay una SAGUI-DATOS en el destino y se deja tal cual */
     char     home_vieja[16];     /* su volumen ("hdb5") */
     uint32_t home_vieja_ini, home_vieja_set;   /* su sitio en el disco (no cambia) */
+    bool     home_ao_fim;        /* D388: /home la última (las del sistema delante); false = la disposición de antes,
+                                  * solo al conservar una SAGUI-DATOS que está la primera */
     /* calculado por planejar() */
     char     origem[12];
     uint8_t  cab[512], mbr_origem[512];
@@ -456,6 +458,17 @@ static bool planejar(plano_t *p, char *erro, int max)
     }
     p->blob_src = le32(p->cab + 8);
     uint32_t total = le32(p->cab + 48);
+    /* D392: «arranque etapa2» o «arranque confirmar» pueden haber dejado la etapa 2 o el kernel en otro
+     * sitio de la partición (detrás del ramdisk): se copia desde la primera de las tres partes hasta el
+     * final de la última. Las ranuras del kernel de prueba y del último bueno (bytes 256-511) no se copian
+     * (van a cero abajo): el disco nuevo arranca el kernel original. */
+    static const int partes[3] = { 8, 16, 32 };   /* CAB_E2_LBA, CAB_K_LBA, CAB_R_LBA (y sus sectores detrás) */
+    for (int k = 0; k < 3; k++) {
+        uint32_t ini = le32(p->cab + partes[k]), n = le32(p->cab + partes[k] + 4);
+        if (ini > p->cab_origem && ini < p->blob_src) p->blob_src = ini;
+        if (ini + n > total && n < 1024u * MB) total = ini + n;
+    }
+    memset(p->cab + 256, 0, 256);
     if (p->blob_src <= p->cab_origem || total <= p->blob_src || total - p->blob_src > 1024u * MB) {
         txt(erro, max, "la cabecera de arranque de %s es incoherente", p->origem);
         return false;
@@ -559,27 +572,31 @@ static bool planejar(plano_t *p, char *erro, int max)
         p->sys_ini = p->esp_ini + p->esp_set;
         p->sys_set = smb * MB;
         p->blob_dst = p->sys_ini + (p->blob_src - p->cab_origem);   /* la cabecera va en el primer sector de la partición */
-        p->home_ini = p->sys_ini + p->sys_set;
+        uint32_t fim_s = p->sys_ini + p->sys_set;   /* el final del sistema */
         uint32_t fim_g = (t.setores - ((d.flags & DISCO_BLOCO4K) ? 41u : 33u)) / MB * MB;   /* D283: en 4096 la GPT final ocupa 5 bloques de 4096 */
         p->conf_set = mb_ultima() * MB;   /* D379: o SAGUI-RAIZ */
         if (p->home_conservar) {   /* D379: la SAGUI-DATOS de antes, en su sitio */
             if (p->sin_home) { txt(erro, max, "--sin-home borraría la SAGUI-DATOS que ya hay (%s): usa también --formatear-home", p->home_vieja); return false; }
-            if (p->home_vieja_ini < p->home_ini || p->home_vieja_ini + p->home_vieja_set + p->conf_set > fim_g) {
+            p->home_ini = p->home_vieja_ini;
+            p->home_set = p->home_vieja_set;
+            if (p->home_vieja_ini >= fim_s + p->conf_set) { p->conf_ini = fim_s; p->home_ao_fim = true; return true; }   /* D388: delante */
+            if (p->home_vieja_ini < fim_s || p->home_vieja_ini + p->home_vieja_set + p->conf_set > fim_g) {
                 txt(erro, max, "la SAGUI-DATOS que ya hay (%s) no deja sitio en su lugar para el sistema y %s: "
                                "cópiala a otro disco y usa «instalar ... --formatear-home» en el Terminal", p->home_vieja, modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF");
                 return false;
             }
-            p->home_ini = p->home_vieja_ini;
-            p->home_set = p->home_vieja_set;
-            p->conf_ini = p->home_ini + p->home_set;
+            p->conf_ini = p->home_ini + p->home_set;   /* la disposición de antes: detrás de /home */
             return true;
         }
-        if (fim_g < p->home_ini + p->conf_set + (p->sin_home ? 0u : 16u * MB)) { txt(erro, max, "no cabe: hacen falta al menos %u MB para ESP, sistema, configuración%s", (p->home_ini + p->conf_set) / MB + (p->sin_home ? 0u : 16u), p->sin_home ? "" : " y /home"); return false; }
-        p->home_set = p->sin_home ? 0 : fim_g - p->home_ini - p->conf_set;
+        if (fim_g < fim_s + p->conf_set + (p->sin_home ? 0u : 16u * MB)) { txt(erro, max, "no cabe: hacen falta al menos %u MB para ESP, sistema, configuración%s", (fim_s + p->conf_set) / MB + (p->sin_home ? 0u : 16u), p->sin_home ? "" : " y /home"); return false; }
+        /* D388: la configuración (o la raíz) justo detrás del sistema y /home la última, hasta el final */
+        p->conf_ini = fim_s;
+        p->home_ini = fim_s + p->conf_set;
+        p->home_ao_fim = true;
+        p->home_set = p->sin_home ? 0 : fim_g - p->home_ini;
         if (!p->sin_home && p->home_mb && p->home_mb * MB < p->home_set) p->home_set = p->home_mb * MB;   /* D318 */
         if (p->home_set > 0xFFFFFFFFu - MB) p->home_set = 0xFFFFFFFFu - MB;
         p->home_set = p->home_set / MB * MB;
-        p->conf_ini = p->home_ini + p->home_set;
             return true;
     }
         p->sys_set = sys_mb * MB - 1;
@@ -654,9 +671,22 @@ static bool planejar(plano_t *p, char *erro, int max)
     if (p->ext_ini >= fim) { txt(erro, max, "no cabe: SaguiOS necesita al menos %u MB más espacio para los datos", sys_mb); return false; }
     uint32_t ult = mb_ultima();   /* D379: SAGUI-CONF, o SAGUI-RAIZ con la raíz en disco */
     uint32_t disp;
-    if (p->home_conservar) {
-        /* D379: la SAGUI-DATOS de antes se queda donde está: la extendida empieza en su EBR (1 MB antes; lo que
-         * quede entre el sistema y ella no se usa) y el resto de lógicas van detrás de ella. */
+    p->home_ao_fim = true;   /* D388: /home la última lógica: crece luego sin mover nada */
+    if (p->home_conservar && p->modo == M_ENTERO && p->home_vieja_ini >= p->ext_ini + (3 + ult) * MB &&
+        p->home_vieja_ini + p->home_vieja_set <= fim) {
+        /* D388: la SAGUI-DATOS de antes se queda donde está y las demás lógicas van delante de ella (la
+         * disposición nueva; también la de un disco instalado así): sitio entre la extendida y su EBR. */
+        p->ext_set = fim - p->ext_ini;
+        disp = (p->home_vieja_ini - MB - p->ext_ini) / MB;
+        disp -= 1 + ult;  /* el EBR de la primera (SAGUI-CONF o SAGUI-RAIZ) y ella */
+    } else if (p->home_conservar) {
+        /* D379: la SAGUI-DATOS de antes (la primera lógica, disposición de antes de la v8.5.4.10r2) se queda donde
+         * está: la extendida empieza en su EBR (1 MB antes; lo que quede entre el sistema y ella no se usa) y el
+         * resto de lógicas van detrás de ella. */
+        p->home_ao_fim = false;
+        if (!p->aviso[0])
+            txt(p->aviso, sizeof p->aviso, "la SAGUI-DATOS que se conserva (%s) está la primera: queda la disposición de antes y /home no se "
+                                          "podrá ampliar luego; para la nueva, copia /home a otro disco e instala con --formatear-home", p->home_vieja);
         if (p->modo != M_ENTERO || p->home_vieja_ini < p->ext_ini + MB || p->home_vieja_ini + p->home_vieja_set >= fim) {
             txt(erro, max, "la SAGUI-DATOS que ya hay (%s) no deja sitio en su lugar para el sistema: cópiala a otro disco y usa «instalar ... --formatear-home» en el Terminal",
                 p->home_vieja);
@@ -1744,12 +1774,17 @@ static int instalar(plano_t *p, char *erro, int max)
         num_esp = gpt_numero_kernel(g, sl);
         if ((sl = gpt_adicionar(g, GPT_TIPO_SAGUI, p->sys_ini, p->sys_set, "SaguiOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (sistema): %s", e); r = sl; goto falha; }
         num_sys = gpt_numero_kernel(g, sl);
-        if (p->home_set) {
-            if ((sl = gpt_adicionar(g, p->fs_home == PA_FS_FAT32 ? GPT_TIPO_DADOS_MS : GPT_TIPO_LINUX, p->home_ini, p->home_set, "SAGUI-DATOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (/home): %s", e); r = sl; goto falha; }
-            num_home = gpt_numero_kernel(g, sl);
+        /* D388: las entradas en el orden del disco (con /home la última, o la disposición de antes si se conserva así) */
+        for (int k = 0; k < 2; k++) {
+            bool conf_agora = (k == 0) == p->home_ao_fim;
+            if (conf_agora) {
+                if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->conf_ini, p->conf_set, modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (SAGUI-CONF): %s", e); r = sl; goto falha; }
+                num_conf = gpt_numero_kernel(g, sl);
+            } else if (p->home_set) {
+                if ((sl = gpt_adicionar(g, p->fs_home == PA_FS_FAT32 ? GPT_TIPO_DADOS_MS : GPT_TIPO_LINUX, p->home_ini, p->home_set, "SAGUI-DATOS", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (/home): %s", e); r = sl; goto falha; }
+                num_home = gpt_numero_kernel(g, sl);
+            }
         }
-        if ((sl = gpt_adicionar(g, GPT_TIPO_LINUX, p->conf_ini, p->conf_set, modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", e, sizeof e)) < 0) { libera(g); txt(erro, max, "la GPT (SAGUI-CONF): %s", e); r = sl; goto falha; }
-        num_conf = gpt_numero_kernel(g, sl);
         r = gpt_gravar(g, true, cod, e, sizeof e);
         libera(g);
         if (r < 0) { txt(erro, max, "la tabla GPT: %s", e); goto falha; }
@@ -1771,12 +1806,21 @@ static int instalar(plano_t *p, char *erro, int max)
     }
     num_ext = pt_criar(&t, p->ext_ini, p->ext_set, 0x0F, false, e, sizeof e);
     if (num_ext < 0) { txt(erro, max, "la extendida: %s", e); r = num_ext; goto falha; }
-    uint32_t pos = p->ext_ini + MB;   /* D379: con /home conservada, ext_ini es su EBR: pos es su sitio de siempre */
-    if (p->home_conservar && (pos != p->home_vieja_ini || p->home_set != p->home_vieja_set)) { txt(erro, max, "error interno: /home no queda en su sitio"); r = ERRO_INVALIDO; goto falha; }
-    num_home = pt_criar(&t, pos, p->home_set, p->fs_home == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
-    if (num_home < 0) { txt(erro, max, "/home: %s", e); r = num_home; goto falha; }
-    pos += p->home_set + MB;
-    if (p->tmp) {   /* D318: el orden de las imágenes (mkimagem): DATOS, TMP, LOGS, JOGOS, APPS, CONF */
+    uint32_t pos = p->ext_ini + MB;   /* D379: con /home conservada la primera, ext_ini es su EBR: pos es su sitio de siempre */
+    /* D388: el orden de las imágenes (mkimagem): CONF (o RAIZ), TMP, LOGS, JOGOS, APPS y /home la última, que
+     * así crece después sin mover nada. Con una SAGUI-DATOS conservada que está la primera (la disposición de
+     * antes), la de antes: DATOS, TMP, LOGS, JOGOS, APPS, CONF. */
+    if (!p->home_ao_fim) {
+        if (pos != p->home_vieja_ini || p->home_set != p->home_vieja_set) { txt(erro, max, "error interno: /home no queda en su sitio"); r = ERRO_INVALIDO; goto falha; }
+        num_home = pt_criar(&t, pos, p->home_set, p->fs_home == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
+        if (num_home < 0) { txt(erro, max, "/home: %s", e); r = num_home; goto falha; }
+        pos += p->home_set + MB;
+    } else {
+        num_conf = pt_criar(&t, pos, p->conf_set, 0x83, true, e, sizeof e);
+        if (num_conf < 0) { txt(erro, max, "%s: %s", modo_raiz() ? "SAGUI-RAIZ" : "SAGUI-CONF", e); r = num_conf; goto falha; }
+        pos += p->conf_set + MB;
+    }
+    if (p->tmp) {
         num_tmp = pt_criar(&t, pos, p->tmp_set, p->fs_tmp == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
         if (num_tmp < 0) { txt(erro, max, "/tmp: %s", e); r = num_tmp; goto falha; }
         pos += p->tmp_set + MB;
@@ -1796,9 +1840,15 @@ static int instalar(plano_t *p, char *erro, int max)
         if (num_apps < 0) { txt(erro, max, "/apps: %s", e); r = num_apps; goto falha; }
         pos += p->apps_set + MB;
     }
-    /* D256: SAGUI-CONF, ext2 de 16 MB, la última de las lógicas (como en las imágenes). */
-    num_conf = pt_criar(&t, pos, p->conf_set, 0x83, true, e, sizeof e);
-    if (num_conf < 0) { txt(erro, max, "SAGUI-CONF: %s", e); r = num_conf; goto falha; }
+    if (!p->home_ao_fim) {   /* D256: SAGUI-CONF, la última de las lógicas (la disposición de antes) */
+        num_conf = pt_criar(&t, pos, p->conf_set, 0x83, true, e, sizeof e);
+        if (num_conf < 0) { txt(erro, max, "SAGUI-CONF: %s", e); r = num_conf; goto falha; }
+    } else {   /* D388: /home la última, hasta el final de la extendida (o en su sitio, si se conserva) */
+        uint32_t ph = p->home_conservar ? p->home_vieja_ini : pos;
+        if (ph < pos || (p->home_conservar && p->home_set != p->home_vieja_set)) { txt(erro, max, "error interno: /home no queda en su sitio"); r = ERRO_INVALIDO; goto falha; }
+        num_home = pt_criar(&t, ph, p->home_set, p->fs_home == PA_FS_FAT32 ? 0x0C : 0x83, true, e, sizeof e);
+        if (num_home < 0) { txt(erro, max, "/home: %s", e); r = num_home; goto falha; }
+    }
     if ((r = pt_gravar(&t, "instalar SaguiOS", e, sizeof e)) < 0) { txt(erro, max, "la tabla: %s", e); goto falha; }
 tabela_pronta: ;
     char vol[16];

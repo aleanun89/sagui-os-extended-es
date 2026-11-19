@@ -38,44 +38,34 @@ static uint32_t aleatorio32(void)
     return v;
 }
 
-/* D338: poner a cero sin volver a escribir lo que ya es cero. Las tablas de inodos de un ext2 que
- * crece, o las de uno nuevo, son cientos de MB en un disco grande; en un pendrive nuevo (o en el
- * espacio que nunca se ha usado de una imagen grabada en él) casi todo ya es cero, y leer va
- * varias veces más deprisa que escribir. Se lee de 128 KB en 128 KB y solo se escribe el trozo
- * que no es todo ceros. Para no perder si el disco está lleno de datos viejos: si de los
- * primeros 16 trozos leídos más de la mitad no eran cero, se deja de leer y se escribe todo.
- * En un disco con TRIM (un SSD) no se lee nunca: lo descartado puede leerse como ceros ahora y
- * con otra cosa después. "z" lleva la cuenta entre llamadas (un ext2 lo usa en cada grupo). */
+/* Poner a cero los metadatos de un sistema de archivos (tablas de inodos de ext2, FAT, mapa de exFAT).
+ *
+ * D338 (v8.4.4) leía antes cada trozo de 128 KB y solo escribía los que no eran todo ceros. D388 (2026-11-19) lo
+ * quita: SIEMPRE se escribe. Un /home ampliado en un portátil real (el Amilo, 884 grupos) quedó con cientos de
+ * inodos basura (restos de un ext4 viejo) en las tablas de los grupos nuevos y el kernel lo dejó de solo lectura.
+ * En QEMU (IDE y AHCI, con el disco sin TRIM para que lea) sale limpio (h388 F y G): fiarse de una lectura que dice
+ * «ceros» para NO escribir metadatos es lo único que puede dejar basura, y basta con que esa lectura no sea fiel una
+ * vez (un SSD que devuelve ceros de lo descartado y luego otra cosa, la caché, un controlador): el precio es un
+ * sistema de archivos que no se monta con escritura. La ganancia era pequeña (la tabla de D338: 22,2 s con el
+ * espacio limpio y 22,0 s con el sucio, en el que todo se escribe). "z" lleva la cuenta (sectores escritos). */
 int fs_zerar(const char *vol, uint32_t lba, uint32_t n, fs_zerar_t *z)
 {
-    enum { TROZO = 256 };
-    static uint8_t *buf;   /* D378: 128 KB del malloc la primera vez, no de la BSS */
-    if (!buf && !(buf = aloca(TROZO * 512))) return ERRO_SEM_MEMORIA;
-    if (!z->decidido) {
-        info_bloco_t inf;
-        z->decidido = true;
-        z->so_escrever = blocos_info(vol, &inf) < 0 || inf.trim != TRIM_NAO;
-    }
-    while (n) {
-        uint32_t q = n > TROZO ? TROZO : n;
-        bool escrever = true;
-        if (!z->so_escrever && blocos_ler(vol, lba, q, buf) == 0) {
-            const uint32_t *w = (const uint32_t *)buf;
-            uint32_t acc = 0;
-            for (uint32_t i = 0; i < q * 128; i++) acc |= w[i];
-            escrever = acc != 0;
-            z->lidos++;
-            if (escrever) z->sujos++;
-            if (z->lidos >= 16 && z->sujos * 2 > z->lidos) z->so_escrever = true;
-        }
-        if (escrever) {
-            int r = blocos_zerar(vol, lba, q);
-            if (r < 0) return r;
-            z->escritos += q;
-        }
-        lba += q; n -= q;
-    }
+    z->decidido = true;
+    z->so_escrever = true;
+    int r = blocos_zerar(vol, lba, n);   /* de DBLOCO_MAX_SETORES (128 KB) en DBLOCO_MAX_SETORES */
+    if (r < 0) return r;
+    z->escritos += n;
     return 0;
+}
+
+/* D388 (2026-11-19): el TRIM al formatear, SOLO de los datos libres [de, ate) (sectores del volumen), nunca de lo que
+ * el formateo escribe después (superbloques, tablas de grupos, mapas, tablas de inodos, FAT, raíz). Antes se descartaba
+ * el volumen entero y luego se escribían los metadatos encima: el /home del Amilo (SSD TOSHIBA A100, AHCI con TRIM),
+ * formateado así, tenía al rato en las tablas de inodos restos del ext4 de antes, como si el SSD hubiera aplicado el
+ * descarte después de las escrituras (hay SSD que descartan en segundo plano). Sin solaparse, eso no puede pasar. */
+static void fs_descartar_dados(const char *vol, uint32_t de, uint32_t ate)
+{
+    if (ate > de) blocos_descartar(vol, de, ate - de);
 }
 
 /* Pone a cero n sectores avisando del progreso entre pc0 y pc1. */
@@ -138,7 +128,9 @@ int fs_formatar_fat32(const char *vol, const char *rotulo, fs_progresso_t prog, 
     if (clusters > fatsz * 128 - 2) clusters = fatsz * 128 - 2;
 
     avisar(prog, ctx, 0);
-    if (inf.trim == TRIM_SIM) blocos_descartar(vol, 1, tot - 1);   /* SSD: todo lo de antes, fuera */
+    /* SSD: lo de antes, fuera (TRIM), pero solo los clústeres de datos que quedan libres, nunca lo que se escribe aquí
+     * (reservados, FAT, raíz): ver fs_descartar_dados. */
+    if (inf.trim == TRIM_SIM && tot > rsvd + nfats * fatsz + spc) fs_descartar_dados(vol, rsvd + nfats * fatsz + spc, tot);
     /* Los reservados (y con ellos cualquier superbloque ext viejo en el sector 2). */
     r = blocos_zerar(vol, 0, rsvd);
     if (r < 0) goto falha;
@@ -244,7 +236,10 @@ int fs_formatar_exfat(const char *vol, const char *rotulo, fs_progresso_t prog, 
     if (c_raiz - 1 > count) { erro_txt(erro, max, "%s es demasiado pequeña para exFAT", vol); return ERRO_INVALIDO; }
 
     avisar(prog, ctx, 0);
-    if (inf.trim == TRIM_SIM) blocos_descartar(vol, 1, tot - 1);
+    {   /* SSD: solo los clústeres libres (tras la raíz), nunca lo que se escribe aquí (fs_descartar_dados) */
+        uint32_t livre = heap_off + (c_raiz - 1) * spc;
+        if (inf.trim == TRIM_SIM && livre < tot) fs_descartar_dados(vol, livre, tot);
+    }
     /* Lo que diga cómo era el volumen anterior fuera (región de arranque, FAT, mapa y raíz). */
     if ((r = blocos_zerar(vol, 0, 32)) < 0) goto falha;
     if ((r = zerar_com_progresso(vol, fat_off, fat_len, prog, ctx, 2, 40, NULL)) < 0) goto falha;
@@ -407,12 +402,12 @@ static bool potencia(uint32_t g, uint32_t b) { while (g > 1 && g % b == 0) g /= 
 static bool tem_super(uint32_t g) { return g == 0 || g == 1 || potencia(g, 3) || potencia(g, 5) || potencia(g, 7); }
 
 typedef struct {
-    uint32_t bs, spb, blocos, fdb, bpg, grupos, ipg, itb, gdt, inodos;
+    uint32_t bs, spb, blocos, fdb, bpg, grupos, ipg, itb, gdt, rgdt, inodos;
 } ext_geo_t;
 
 static uint32_t sobrecarga(const ext_geo_t *g, uint32_t grupo)
 {
-    return (tem_super(grupo) ? 1 + g->gdt : 0) + 2 + g->itb;
+    return (tem_super(grupo) ? 1 + g->gdt + g->rgdt : 0) + 2 + g->itb;
 }
 
 static bool calcular_ext(uint32_t setores, ext_geo_t *g)
@@ -433,6 +428,14 @@ static bool calcular_ext(uint32_t setores, ext_geo_t *g)
         if (g->ipg > g->bpg) g->ipg = g->bpg;
         g->itb = g->ipg * 128 / g->bs;
         g->gdt = (g->grupos * 32 + g->bs - 1) / g->bs;
+        /* D397: resize_inode como mke2fs: bloques reservados en la tabla de grupos para poder crecer hasta
+         * 1024 veces (con tope de 2^32 bloques); sin ellos, /home no se puede ampliar sin rehacerlo. */
+        uint64_t maximo = (uint64_t)g->blocos * 1024;
+        if (maximo > 0xFFFFFFFFull) maximo = 0xFFFFFFFFull;
+        uint64_t gr_max = (maximo - g->fdb + g->bpg - 1) / g->bpg;
+        uint64_t gdt_max = (gr_max * 32 + g->bs - 1) / g->bs;
+        g->rgdt = gdt_max > g->gdt ? (uint32_t)(gdt_max - g->gdt) : 0;
+        if (g->rgdt > g->bs / 4) g->rgdt = g->bs / 4;
         uint32_t ult = g->grupos - 1, ini = g->fdb + ult * g->bpg, tam = g->blocos - ini;
         if (g->grupos > 1 && tam < sobrecarga(g, ult) + 50) { g->blocos = ini; continue; }   /* el último grupo no da: fuera */
         break;
@@ -478,6 +481,56 @@ static void entrada_dir(uint8_t *e, uint32_t inodo, uint32_t rec, const char *no
     memcpy(e + 8, nome, n);
 }
 
+/* D388: lo que escribirá fs_formatar_ext2 en una partición de "setores" (tablas de inodos y mapas). */
+int fs_ext2_estimar_novo(uint32_t setores, fs_ext2_est_t *est)
+{
+    ext_geo_t g;
+    memset(est, 0, sizeof *est);
+    if (setores < 4096 || !calcular_ext(setores, &g)) return ERRO_INVALIDO;
+    est->grupos = g.grupos;
+    est->mb = (uint32_t)((uint64_t)g.grupos * (g.itb + 2) * g.bs / 1048576);
+    return 0;
+}
+
+/* El inodo 7 (resize_inode): archivo de 0100600 con un doble indirecto que apunta a los bloques reservados. */
+static void inodo_resize(uint8_t *in, const ext_geo_t *g, uint32_t dind, uint32_t agora)
+{
+    uint32_t apb = g->bs / 4, nb = 0;
+    for (uint32_t gr = 1; gr < g->grupos; gr++) if (tem_super(gr)) nb++;
+    uint64_t tam = ((uint64_t)apb * apb + apb + 12) * g->bs;
+    memset(in, 0, 128);
+    po16(in, 0x8180);
+    po32(in + 4, (uint32_t)tam);
+    po32(in + 8, agora); po32(in + 12, agora); po32(in + 16, agora);
+    po16(in + 26, 1);
+    po32(in + 28, (1 + g->rgdt * (1 + nb)) * g->spb);
+    po32(in + 40 + 13 * 4, dind);
+    po32(in + 108, (uint32_t)(tam >> 32));
+}
+
+/* El doble indirecto y los indirectos de los reservados del grupo 0: cada reservado lista sus copias en los
+ * grupos con copia del superbloque (como ext2fs_create_resize_inode). */
+static int escrever_resize(const char *vol, const ext_geo_t *g, uint32_t dind)
+{
+    uint32_t apb = g->bs / 4;
+    uint8_t *d = aloca_zerado(g->bs), *x = aloca(g->bs);
+    int r = 0;
+    if (!d || !x) { r = ERRO_SEM_MEMORIA; goto fim; }
+    for (uint32_t k = 0; k < g->rgdt && r == 0; k++) {
+        uint32_t pos = g->gdt + k, pblk = g->fdb + 1 + pos, n = 0;
+        po32(d + (pos % apb) * 4, pblk);
+        memset(x, 0, g->bs);
+        for (uint32_t gr = 1; gr < g->grupos; gr++)
+            if (tem_super(gr)) po32(x + 4 * n++, g->fdb + gr * g->bpg + 1 + pos);
+        r = escrever_bloco(vol, g, pblk, x);
+    }
+    if (r == 0) r = escrever_bloco(vol, g, dind, d);
+fim:
+    if (d) libera(d);
+    if (x) libera(x);
+    return r;
+}
+
 int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, void *ctx, char *erro, int max)
 {
     info_bloco_t inf;
@@ -489,19 +542,27 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     uint8_t *b = aloca(g.bs), *gdt = aloca_zerado(g.gdt * g.bs);
     if (!b || !gdt) { if (b) libera(b); if (gdt) libera(gdt); return ERRO_SEM_MEMORIA; }
     avisar(prog, ctx, 0);
-    if (inf.trim == TRIM_SIM) blocos_descartar(vol, 4, inf.setores - 4);
+    if (inf.trim == TRIM_SIM)   /* SSD: de cada grupo, solo los bloques de datos libres (fs_descartar_dados) */
+        for (uint32_t gr = 0; gr < g.grupos; gr++) {
+            uint32_t ini = g.fdb + gr * g.bpg, tam = g.blocos - ini > g.bpg ? g.bpg : g.blocos - ini;
+            /* tras la tabla de inodos (y raíz, lost+found y, con resize_inode, su doble indirecto: D397) */
+            uint32_t livre = ini + sobrecarga(&g, gr) + (gr == 0 ? (g.rgdt ? 3 : 2) : 0);
+            if (livre < ini + tam) fs_descartar_dados(vol, livre * g.spb, (ini + tam) * g.spb);
+        }
 
     /* Lo que delataba al volumen anterior: los primeros 4 KB. */
     if ((r = blocos_zerar(vol, 0, 8)) < 0) goto falha;
 
-    uint32_t raiz_blk = 0, lf_blk = 0, livres_tot = 0, inodos_livres_tot = 0;
+    uint32_t raiz_blk = 0, lf_blk = 0, dind_blk = 0, livres_tot = 0, inodos_livres_tot = 0;
     fs_zerar_t z;   /* D338: una cuenta para todas las tablas de inodos */
     memset(&z, 0, sizeof z);
     for (uint32_t gr = 0; gr < g.grupos; gr++) {
         uint32_t ini = g.fdb + gr * g.bpg, tam = g.blocos - ini > g.bpg ? g.bpg : g.blocos - ini;
-        uint32_t meta = tem_super(gr) ? 1 + g.gdt : 0;
+        uint32_t meta = tem_super(gr) ? 1 + g.gdt + g.rgdt : 0;
         uint32_t bb = ini + meta, ib = bb + 1, it = ib + 1, usados = sobrecarga(&g, gr);
-        if (gr == 0) { raiz_blk = it + g.itb; lf_blk = raiz_blk + 1; usados += 2; }
+        if (gr == 0) { raiz_blk = it + g.itb; lf_blk = raiz_blk + 1; dind_blk = lf_blk + 1; usados += g.rgdt ? 3 : 2; }
+        /* Los reservados de la tabla de grupos (resize_inode): a cero (el grupo 0 los rellena después) */
+        if (g.rgdt && tem_super(gr) && (r = blocos_zerar(vol, (ini + 1 + g.gdt) * g.spb, g.rgdt * g.spb)) < 0) goto falha;
         /* Tabla de inodos a cero. */
         if ((r = zerar_com_progresso(vol, it * g.spb, g.itb * g.spb, NULL, NULL, 0, 0, &z)) < 0) goto falha;
         /* Mapa de bloques: la sobrecarga (y raíz y lost+found), y el relleno tras el final del grupo. */
@@ -523,14 +584,19 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
         avisar(prog, ctx, 5 + (int)(80u * (gr + 1) / g.grupos));
     }
     /* Raíz (inodo 2) y lost+found (inodo 11): los dos en el primer bloque de la tabla del grupo 0. */
-    uint32_t it0 = g.fdb + 1 + g.gdt + 2;
+    uint32_t it0 = g.fdb + 1 + g.gdt + g.rgdt + 2;
     memset(b, 0, g.bs);
     inodo_pasta(b + 1 * 128, 040755, 3, raiz_blk, g.bs, agora);
     dono_raiz(b + 1 * 128, rotulo);
+    if (g.rgdt) inodo_resize(b + 6 * 128, &g, dind_blk, agora);
     if ((r = escrever_bloco(vol, &g, it0, b)) < 0) goto falha;
     memset(b, 0, g.bs);
     uint32_t bloco_lf = (11 - 1) * 128 / g.bs, desl_lf = (11 - 1) * 128 % g.bs;
-    if (bloco_lf == 0) { inodo_pasta(b + 1 * 128, 040755, 3, raiz_blk, g.bs, agora); dono_raiz(b + 1 * 128, rotulo); }
+    if (bloco_lf == 0) {
+        inodo_pasta(b + 1 * 128, 040755, 3, raiz_blk, g.bs, agora);
+        dono_raiz(b + 1 * 128, rotulo);
+        if (g.rgdt) inodo_resize(b + 6 * 128, &g, dind_blk, agora);
+    }
     inodo_pasta(b + desl_lf, 040700, 2, lf_blk, g.bs, agora);
     if ((r = escrever_bloco(vol, &g, it0 + bloco_lf, b)) < 0) goto falha;
     memset(b, 0, g.bs);
@@ -542,6 +608,8 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     entrada_dir(b, 11, 12, ".");
     entrada_dir(b + 12, 2, g.bs - 12, "..");
     if ((r = escrever_bloco(vol, &g, lf_blk, b)) < 0) goto falha;
+
+    if (g.rgdt && (r = escrever_resize(vol, &g, dind_blk)) < 0) goto falha;
 
     /* Superbloque (y sus copias con la tabla de grupos en los grupos con copia). */
     uint8_t sb[1024];
@@ -555,12 +623,13 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     po16(sb + 56, 0xEF53); po16(sb + 58, 1); po16(sb + 60, 1); po16(sb + 62, 0);
     po32(sb + 64, agora); po32(sb + 68, 0); po32(sb + 72, 0); po32(sb + 76, 1);
     po32(sb + 84, 11); po16(sb + 88, 128);
-    po32(sb + 92, 0); po32(sb + 96, 0x0002); po32(sb + 100, 0x0001 | 0x0002);
+    po32(sb + 92, g.rgdt ? 0x0010 : 0); po32(sb + 96, 0x0002); po32(sb + 100, 0x0001 | 0x0002);
     for (int i = 0; i < 4; i++) po32(sb + 104 + i * 4, aleatorio32());
     sb[104 + 6] = (uint8_t)((sb[104 + 6] & 0x0F) | 0x40);   /* UUID versión 4 */
     sb[104 + 8] = (uint8_t)((sb[104 + 8] & 0x3F) | 0x80);
     for (int i = 0; rotulo && rotulo[i] && i < 16; i++) sb[120 + i] = (uint8_t)rotulo[i];
     po32(sb + 264, agora);   /* s_mkfs_time */
+    po16(sb + 206, g.rgdt);  /* s_reserved_gdt_blocks */
     for (uint32_t gr = g.grupos; gr-- > 0; ) {   /* la del grupo 0 la última */
         if (!tem_super(gr)) continue;
         uint32_t ini = g.fdb + gr * g.bpg;
@@ -575,8 +644,8 @@ int fs_formatar_ext2(const char *vol, const char *rotulo, fs_progresso_t prog, v
     libera(gdt);
     avisar(prog, ctx, 100);
     registrar("formatar: %s ext2 \"%s\", bloques de %u, %u bloques, %u grupos, %u inodos; tablas de inodos: %u MB escritos, "
-              "%u de %u trozos leídos ya eran cero%s", vol, rotulo ? rotulo : "", g.bs, g.blocos, g.grupos, g.inodos,
-              z.escritos / 2048, z.lidos - z.sujos, z.lidos, z.so_escrever ? " (escritura sin leer)" : "");
+              "siempre, sin fiarse de lo que ya hubiera (D388)", vol, rotulo ? rotulo : "", g.bs, g.blocos, g.grupos, g.inodos,
+              z.escritos / 2048);
     return 0;
 falha:
     libera(b);

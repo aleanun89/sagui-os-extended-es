@@ -47,6 +47,38 @@ Las extras se llaman `SAGUI-X1`, `SAGUI-X2`... y no tienen carpeta fija (se mont
 El kernel reconoce cualquier extendida (0x05, 0x0F, 0x85), también las creadas con otras herramientas;
 una cadena rota, en bucle o con tamaños absurdos se ignora con un aviso en el registro, sin colgar nada.
 
+## Orden de las particiones y «Ampliar /home» (D388, v8.5.4.10r2)
+
+Desde la v8.5.4.10r2 todas las imágenes de disco (y el instalador) dejan **`/home` la última**, para que al grabar
+la imagen en un disco grande se pueda ampliar sin mover nada, también en la live:
+
+| N.º (MBR) | Tipo | Etiqueta | Qué es |
+| --- | --- | --- | --- |
+| 1 | 0xDA, activa | — | arranque: etapa 2, núcleo e initramfs |
+| 2 | 0xEF | `SAGUI-EFI` | la ESP (arranque UEFI), delante de la extendida |
+| 3 | 0x0F | — | la extendida, la **última** partición, hasta el final de la imagen |
+| 5 | lógica | `SAGUI-CONF` | la configuración del sistema |
+| 6 | lógica | `SAGUI-RAIZ` | el sistema de serie (en la live, la base de `/`, solo lectura) |
+| 7 | lógica | `SAGUI-PERSIST` | (persistentes) tus cambios a `/`: la capa de la live |
+| … | lógica | `SAGUI-JOGOS`, `SAGUI-APPS`, `SAGUI-TMP`, `SAGUI-LOGS`, `SAGUI-X*` | las que lleve la imagen |
+| la última | lógica | `SAGUI-DATOS` | `/home` |
+
+Los números dependen de qué particiones lleve cada imagen: SaguiOS las monta **por etiqueta**, nunca por número.
+El primer arranque en un disco con 512 MB o más libres ofrece «Ampliar /home» (`ampliar-home`): crecen solo la
+extendida y `/home` (y su ext2), comprobado antes y después. En el terminal: `ampliar-home` (dice cuánto) y
+`particiones ampliar /home`.
+
+**Imágenes grabadas antes de la v8.5.4.10r2** (`/home` la primera lógica, la ESP en la entrada 3): siguen
+arrancando igual. Ampliar `/home` obligaría a mover lo de detrás; si ahí están la raíz y su capa en uso (la live
+desde la v8.5.3.1, o un sistema instalado), SaguiOS **no lo intenta** y explica que hay que grabar la imagen nueva
+o instalar SaguiOS en el disco con `instalar` desde un pendrive. Ojo: si el instalador conserva una SAGUI-DATOS que
+está la primera, la conserva en su sitio (con la disposición de antes); para la nueva, copia antes lo de `/home` a
+otro disco e instala con `--formatear-home`. Con una
+imagen antigua sin raíz en disco, se mueve como antes (copiado y releído antes de cambiar la tabla).
+
+En la live, `/` son dos particiones: `discos` las marca como «sistema de serie (base de /, solo lectura)» y «tus
+cambios (capa de /)», y `df` y `mount` dan una sola línea `/` de tipo `live` con el espacio de la capa.
+
 ## Cómo arrancan las imágenes desde la v8.5.3.1 (D379)
 
 Todas las imágenes de serie (`saguios.img`, `-smp`, `-uacpi`, las persistentes, la de particiones, la VDI y

@@ -58,6 +58,9 @@ int     link(const char *de, const char *para);
 #define _SC_PAGESIZE 30
 #define _SC_NPROCESSORS_ONLN 84
 #define _SC_CLK_TCK 2
+#define _SC_GETPW_R_SIZE_MAX 70   /* D400: libgit2 */
+pid_t   getpgid(pid_t pid);
+pid_t   getsid(pid_t pid);
 #define _SC_PAGE_SIZE _SC_PAGESIZE
 #include <getopt.h>
 #endif

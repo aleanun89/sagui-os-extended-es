@@ -94,6 +94,101 @@ static void dual_action_prueba(void)
     VER(e.botoes == 0xFFF, "Dual Action: los 12 botones, sin los bits del fabricante (%08x)", e.botoes);
 }
 
+/* Joystick de 3 ejes de 8 bits (X, Y y el acelerador como Z) y 11 botones con 5 bits de
+ * relleno, informe de 5 bytes: la forma del Logitech Attack 3 (046d:c214) según los volcados
+ * públicos (la D250, 8.5.4.10r2). En reposo, X e Y tienen que salir cerca de 0. */
+static const uint8_t joy3[] = {
+    0x05, 0x01, 0x09, 0x04, 0xA1, 0x01, 0xA1, 0x02,
+    0x75, 0x08, 0x95, 0x02, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x35, 0x00, 0x46, 0xFF, 0x00,
+    0x09, 0x30, 0x09, 0x31, 0x81, 0x02,
+    0x95, 0x01, 0x09, 0x32, 0x81, 0x02,
+    0x75, 0x01, 0x95, 0x0B, 0x25, 0x01, 0x45, 0x01, 0x05, 0x09, 0x19, 0x01, 0x29, 0x0B, 0x81, 0x02,
+    0x95, 0x01, 0x75, 0x05, 0x81, 0x01,
+    0xC0, 0xC0,
+};
+
+/* Mando genérico con el máximo lógico 255 en UN byte (0x25 0xFF, que con signo sería -1) y,
+ * después de un eje con signo (-127..127), un X/Y que da el máximo ANTES que el mínimo: el
+ * signo del máximo no puede decidirse con el mínimo del campo anterior. */
+static const uint8_t max_1byte[] = {
+    0x05, 0x01, 0x09, 0x05, 0xA1, 0x01,
+    0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x01, 0x09, 0x35, 0x81, 0x02,   /* Rz con signo */
+    0x25, 0xFF, 0x15, 0x00, 0x09, 0x30, 0x09, 0x31, 0x95, 0x02, 0x81, 0x02,   /* X, Y 0..255 */
+    0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x05, 0x09, 0x19, 0x01, 0x29, 0x08, 0x81, 0x02,
+    0xC0,
+};
+
+/* Joystick de 10 bits (0..1023 en dos bytes, 0x26 0xFF 0x03), como el Extreme 3D Pro: X e Y
+ * de 10 bits seguidos, un hat de 4 bits, 8 botones y el giro de 8 bits. */
+static const uint8_t diez_bits[] = {
+    0x05, 0x01, 0x09, 0x04, 0xA1, 0x01, 0xA1, 0x02,
+    0x75, 0x0A, 0x95, 0x02, 0x15, 0x00, 0x26, 0xFF, 0x03, 0x09, 0x30, 0x09, 0x31, 0x81, 0x02,
+    0x75, 0x04, 0x95, 0x01, 0x25, 0x07, 0x09, 0x39, 0x81, 0x42,
+    0x75, 0x08, 0x95, 0x01, 0x26, 0xFF, 0x00, 0x09, 0x35, 0x81, 0x02,
+    0x75, 0x01, 0x95, 0x08, 0x25, 0x01, 0x05, 0x09, 0x19, 0x01, 0x29, 0x08, 0x81, 0x02,
+    0xC0, 0xC0,
+};
+
+static void joy3_prueba(void)
+{
+    static hid_desc_t d;
+    hid_mando_t m;
+    VER(hid_analisar(joy3, sizeof joy3, &d) > 0 && hid_mando_extrair(&d, &m), "joystick 3 ejes: es un mando");
+    VER(m.n_eixos == 3 && m.n_botoes == 11 && m.n_hats == 0, "joystick 3 ejes: 3 ejes, 11 botones (%d %d)", m.n_eixos, m.n_botoes);
+    VER(m.eixo[0].lmin == 0 && m.eixo[0].lmax == 255 && !m.eixo[0].sinal && m.eixo[2].bit == 16,
+        "joystick 3 ejes: 0..255 sin signo, Z en el bit 16");
+    hid_estado_t e;
+    memset(&e, 0, sizeof e);
+    const uint8_t reposo[5] = { 0x80, 0x7F, 0x00, 0x00, 0x00 };
+    VER(hid_mando_decodificar(&m, reposo, 5, &e), "joystick 3 ejes: informe aceptado");
+    VER(e.eixo[0] > -300 && e.eixo[0] < 300 && e.eixo[1] > -300 && e.eixo[1] < 300,
+        "joystick 3 ejes: en reposo X e Y cerca de 0 (%d %d)", e.eixo[0], e.eixo[1]);
+    VER(e.eixo[2] == -32768, "joystick 3 ejes: acelerador a 0 = -32768 (%d)", e.eixo[2]);
+    const uint8_t esquina[5] = { 0xFF, 0x00, 0xFF, 0x01, 0x04 };
+    hid_mando_decodificar(&m, esquina, 5, &e);
+    VER(e.eixo[0] == 32767 && e.eixo[1] == -32768 && e.eixo[2] == 32767, "joystick 3 ejes: esquina (%d %d %d)",
+        e.eixo[0], e.eixo[1], e.eixo[2]);
+    VER(e.botoes == ((1u << 0) | (1u << 10)), "joystick 3 ejes: botones 1 y 11 (%08x)", e.botoes);
+}
+
+static void max_1byte_prueba(void)
+{
+    static hid_desc_t d;
+    hid_mando_t m;
+    VER(hid_analisar(max_1byte, sizeof max_1byte, &d) > 0 && hid_mando_extrair(&d, &m), "máximo de un byte: es un mando");
+    VER(m.n_eixos == 3, "máximo de un byte: 3 ejes (%d)", m.n_eixos);
+    VER(m.eixo[0].uso == HID_USO_X && m.eixo[0].lmin == 0 && m.eixo[0].lmax == 255 && !m.eixo[0].sinal,
+        "máximo de un byte: X 0..255 aunque el máximo venga antes que el mínimo (%d..%d)", m.eixo[0].lmin, m.eixo[0].lmax);
+    VER(m.eixo[2].uso == HID_USO_RZ && m.eixo[2].lmin == -127 && m.eixo[2].lmax == 127 && m.eixo[2].sinal,
+        "máximo de un byte: Rz -127..127 con signo");
+    hid_estado_t e;
+    memset(&e, 0, sizeof e);
+    const uint8_t r[4] = { 0x00, 0x80, 0x80, 0x00 };   /* Rz 0 (con signo: 0), X 128, Y 128 */
+    hid_mando_decodificar(&m, r, 4, &e);
+    VER(e.eixo[0] > -300 && e.eixo[0] < 300 && e.eixo[1] > -300 && e.eixo[1] < 300 && e.eixo[2] > -300 && e.eixo[2] < 300,
+        "máximo de un byte: en reposo todo cerca de 0 (%d %d %d)", e.eixo[0], e.eixo[1], e.eixo[2]);
+}
+
+static void diez_bits_prueba(void)
+{
+    static hid_desc_t d;
+    hid_mando_t m;
+    VER(hid_analisar(diez_bits, sizeof diez_bits, &d) > 0 && hid_mando_extrair(&d, &m), "10 bits: es un mando");
+    VER(m.n_eixos == 3 && m.n_hats == 1 && m.n_botoes == 8, "10 bits: 3 ejes, 1 hat, 8 botones");
+    VER(m.eixo[0].tam == 10 && m.eixo[0].lmax == 1023 && m.eixo[1].bit == 10, "10 bits: X 0..1023, Y en el bit 10");
+    hid_estado_t e;
+    memset(&e, 0, sizeof e);
+    /* X = 512, Y = 511, hat 8 (suelto), giro 128, botón 3 */
+    uint32_t x = 512, y = 511;
+    uint8_t r[5];
+    r[0] = (uint8_t)x; r[1] = (uint8_t)((x >> 8) | (y << 2)); r[2] = (uint8_t)((y >> 6) | (8u << 4));
+    r[3] = 0x80; r[4] = 0x04;
+    hid_mando_decodificar(&m, r, 5, &e);
+    VER(e.eixo[0] > -100 && e.eixo[0] < 100 && e.eixo[1] > -100 && e.eixo[1] < 100,
+        "10 bits: en el centro X e Y cerca de 0 (%d %d)", e.eixo[0], e.eixo[1]);
+    VER(e.hat[0] == HAT_CENTRO && e.botoes == 4, "10 bits: hat suelto y botón 3");
+}
+
 static void dragonrise_prueba(void)
 {
     static hid_desc_t d;
@@ -223,6 +318,9 @@ int main(void)
 {
     dual_action_prueba();
     dragonrise_prueba();
+    joy3_prueba();
+    max_1byte_prueba();
+    diez_bits_prueba();
     com_id_prueba();
     rato_prueba();
     rotos_prueba();

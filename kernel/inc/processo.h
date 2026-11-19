@@ -84,7 +84,9 @@ typedef struct processo {
     uint64_t    pronto_tsc;       /* TSC cuando quedó listo al despertar (0 = no se mide) */
     uint32_t    lat_soma_kc, lat_max_kc, lat_n;   /* latencia de despertar a correr, en miles de ciclos */
     bool        fpu_usada;        /* ya usó FPU/MMX/SSE: "fpu" guarda sus registros */
-    uint8_t     fpu[FPU_ESTADO] __attribute__((aligned(16)));   /* área del FXSAVE */
+    /* área del FXSAVE o del XSAVE (D381): XSAVE pide 64 bytes de alineación y la cabecera
+     * (bytes 512-575) a cero hasta el primer guardado; memset al crear el proceso lo deja así. */
+    uint8_t     fpu[FPU_ESTADO] __attribute__((aligned(FPU_ESTADO_ALINHA)));
 } processo_t;
 
 processo_t *processo_atual(void);   /* o processo que esta CPU esta a executar (D157) */

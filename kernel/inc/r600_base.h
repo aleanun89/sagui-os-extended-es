@@ -25,6 +25,12 @@ typedef struct {
 /* No escribe ningún registro de la GPU (solo, si hiciera falta, el bit de memoria
  * del PCI). false: no es un modelo de la lista o algo no cuadra (motivo en m). */
 bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_base_t *b, char *m, int nm);
+/* D402: VRAM real de la tarjeta (CONFIG_MEMSIZE, en bytes) tras la primera sonda; 0 si no se ha
+ * sondado. Para la información del sistema (la del VBE solo cuenta lo que el VBE mapea). */
+uint64_t r600_vram_real_bytes(void);
+/* D406: la memoria virtual de la GPU (contexto 0) está encendida por la GART del 3D (gpu3d_r600.c): la
+ * sonda no la toma por «de otro». */
+bool gpu3d_r600_gart_nossa(void);
 
 /* Bytes, desde el principio de la pantalla, que puede llegar a usar el driver 2D
  * (pantalla, zona de prueba, anillo del DMA, página de control, fila del color y

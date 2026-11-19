@@ -11,8 +11,10 @@
  * Una tarea del kernel, «bluetooth», hace de bomba (cada tic, 10 ms) y es la única que toca la pila
  * de kernel/bluetooth/: las llamadas al sistema solo dejan peticiones en una cola. Los informes de los
  * teclados y ratones Bluetooth entran por hid.c, el mismo camino que los USB.
- * Sin recepción ACL (controladores UHCI/OHCI: no tienen recepción bulk continua) solo funcionan las
- * órdenes y los eventos: se puede buscar pero no emparejar ni conectar.
+ * Por UHCI (D389) la recepción ACL es un flujo de paquetes de 64 bytes (uhci_rx_*) y aquí se
+ * reconstruyen los paquetes ACL por la longitud de su cabecera, como los eventos.
+ * Sin recepción ACL (OHCI: no tiene recepción bulk continua) solo funcionan las órdenes y los
+ * eventos: se puede buscar pero no emparejar ni conectar.
  * Las claves de enlace se guardan en /etc/bluetooth.conf y, si está montada, en SAGUI-CONF (D255). */
 #include "usb.h"
 #include "abi.h"
@@ -54,6 +56,9 @@ static uint32_t ev_t;
 static uint32_t errores_int, errores_acl;
 static uint8_t tx[1100] ALINHADO(4);
 static uint8_t rx[1100] ALINHADO(4);
+static uint8_t acl_buf[4 + 1024];  /* UHCI: paquete ACL a medio reconstruir */
+static int acl_n;
+static uint32_t acl_t, acl_descartados;
 
 typedef struct { int op, arg; } pedido_t;
 static pedido_t fila[FILA_MAX];
@@ -158,9 +163,35 @@ static void evento_paquete(const uint8_t *b, int n)
     }
 }
 
+/* UHCI: trozo del flujo bulk de entrada. Un paquete ACL es cabecera (manejador 2, longitud 2) y datos;
+ * llega partido en paquetes USB de 64 bytes y, si mide un múltiplo de 64, sin paquete corto al final:
+ * se corta por la longitud. */
+static void acl_fluxo(const uint8_t *b, int n)
+{
+    uint32_t ahora = relogio_tiques();
+    if (acl_n && ahora - acl_t > 50) { acl_n = 0; acl_descartados++; }   /* resto de un paquete que no acabó */
+    acl_t = ahora;
+    while (n > 0) {
+        int falta = acl_n < 4 ? 4 - acl_n : 4 + (int)bt_le16(acl_buf + 2) - acl_n;
+        int k = n < falta ? n : falta;
+        memcpy(acl_buf + acl_n, b, (size_t)k);
+        acl_n += k; b += k; n -= k;
+        if (acl_n == 4 && 4 + (int)bt_le16(acl_buf + 2) > (int)sizeof acl_buf) {   /* longitud imposible: se pierde el paso */
+            if (++acl_descartados <= 5) klog("[BT] paquete ACL imposible (%u bytes): se descarta lo recibido\n", bt_le16(acl_buf + 2));
+            acl_n = 0;
+            return;
+        }
+        if (acl_n >= 4 && acl_n == 4 + (int)bt_le16(acl_buf + 2)) {
+            bt_hci_acl_entrada(acl_buf, acl_n);
+            acl_n = 0;
+        }
+    }
+}
+
 static void abrir_dispositivo(usb_disp_t *d)
 {
     ev_n = 0;
+    acl_n = 0;
     if (!d->ep_int) { klog("[BT] el controlador no tiene endpoint de eventos\n"); return; }
     if (d->tipo_ctl == USB_XHCI) {
         if (xhci_int_armar(d, d->ep_int, d->mps_int > 64 ? 64 : d->mps_int) < 0) { klog("[BT] no se pudo armar el endpoint de eventos\n"); return; }
@@ -175,7 +206,8 @@ static void abrir_dispositivo(usb_disp_t *d)
             uint32_t b = memfisica_alocar_seguidas(8);   /* dentro, 16 KB alineados a 16 KB: no cruzan 64 KB */
             if (b) rx_buf = (b + 0x3FFFu) & ~0x3FFFu;
         }
-        rx_h = rx_buf ? usb_rx_abrir(d, rx_buf, RX_TAM) : USB_ERRO;
+        if (d->tipo_ctl == USB_UHCI) rx_h = uhci_rx_abrir(d, d->ep_entrada, d->mps_entrada);   /* D389 */
+        else rx_h = rx_buf ? usb_rx_abrir(d, rx_buf, RX_TAM) : USB_ERRO;
         if (rx_h < 0) {
             sin_acl = true;
             klog("[BT] sin recepcion ACL en este controlador USB (%s): solo se podra buscar\n", usb_nome_ctl(d->tipo_ctl));
@@ -208,6 +240,7 @@ static void cerrar_dispositivo(void)
     if (dev) {
         if (dev->tipo_ctl != USB_XHCI && int_h >= 0) usb_int_fechar(dev, int_h);
         if (rx_h >= 0 && dev->tipo_ctl == USB_EHCI) usb_rx_fechar(dev, rx_h);
+        if (rx_h >= 0 && dev->tipo_ctl == USB_UHCI) uhci_rx_fechar(rx_h);
     }
     int_h = rx_h = -1;
     dev = NULL;
@@ -253,11 +286,13 @@ static void tarea_bt(void *arg)
             }
             if (!sin_acl) {
                 for (int k = 0; k < 8; k++) {
-                    int n = usb_rx_ler(dev, rx_h, rx, sizeof rx);
+                    bool u = dev->tipo_ctl == USB_UHCI;
+                    int n = u ? uhci_rx_ler(rx_h, rx, sizeof rx) : usb_rx_ler(dev, rx_h, rx, sizeof rx);
                     if (n < 0) { if (++errores_acl == 50) klog("[BT] el controlador no responde (ACL)\n"); break; }
                     if (n == 0) break;
                     errores_acl = 0;
-                    bt_hci_acl_entrada(rx, n);
+                    if (u) acl_fluxo(rx, n);
+                    else bt_hci_acl_entrada(rx, n);
                 }
             }
             atender_pedidos();
@@ -312,6 +347,10 @@ int bt_relatorio(char *s, int max)
                        i.estado == BT_PRONTO ? "listo" : i.estado == BT_APAGADO ? "apagado" : i.estado == BT_INICIANDO ? "iniciando" :
                        i.estado == BT_FALHOU ? "con fallo" : "sin controlador", i.eventos, i.acl_rx, i.acl_tx,
                        sin_acl && dev ? " (sin recepcion ACL)" : "");
+    uint32_t pq, er;
+    if (dev && dev->tipo_ctl == USB_UHCI && rx_h >= 0 && uhci_rx_info(rx_h, &pq, &er) && k < max - 100)
+        k += snformatar(s + k, (size_t)(max - k), "Bluetooth: ACL por UHCI, %u paquetes USB, %u errores, %u descartados\n", pq, er,
+                        acl_descartados);
     for (int j = 0; j < bt_n_disp() && k < max - 80; j++) {
         const bt_disp_t *x = bt_disp(j);
         if (x->estado == BT_D_CONECTADO)

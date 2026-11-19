@@ -494,6 +494,14 @@ static usb_disp_t *enumerar(const usb_disp_t *m, int tentativa)
         if (!antigo) {
             if (descritor(d, 1, 0, 0, b, 8) < 8) goto falhou;
             d->mps0 = b[7] ? b[7] : 64;
+            /* D389: en la raíz de un UHCI, otro reset entre el primer descriptor y SET_ADDRESS, como el
+             * esquema nuevo de Linux (drivers/usb/core/hub.c, hub_port_init): el clon CSR 0a12:0001 del
+             * Amilo, sin él, daba la dirección pero no el descriptor completo («paso 3») al primer intento. */
+            if (d->tipo_ctl == USB_UHCI && !d->hub) {
+                int vel = uhci_porta_resetar(d->uctl, d->porta);
+                if (vel < 0) { ultimo_passo = 9; goto falhou; }
+                d->velocidade = (uint8_t)vel;
+            }
         }
         ultimo_passo = 2;
         uint8_t endereco = endereco_livre(d);
@@ -602,15 +610,29 @@ static usb_disp_t *enumerar_xhci(xhci_t *c, int p, int tentativa)
 /* D267: los puertos de un UHCI y de un OHCI (reset, velocidad por el estado del puerto). */
 static usb_disp_t *enumerar_uhci(uhci_t *c, int p, int tentativa)
 {
+    c->ultimo_td = 0;
     int vel = uhci_porta_resetar(c, p);
-    if (vel < 0) { ultimo_passo = 9; c->resultado[p] = 9; return NULL; }
-    usb_disp_t m;
-    memset(&m, 0, sizeof m);
-    m.tipo_ctl = USB_UHCI;
-    m.uctl = c;
-    m.porta = m.porta_raiz = (uint8_t)p;
-    m.velocidade = (uint8_t)vel;
-    return enumerar(&m, tentativa);
+    usb_disp_t *d = NULL;
+    if (vel < 0) { ultimo_passo = 9; c->resultado[p] = 9; }
+    else {
+        usb_disp_t m;
+        memset(&m, 0, sizeof m);
+        m.tipo_ctl = USB_UHCI;
+        m.uctl = c;
+        m.porta = m.porta_raiz = (uint8_t)p;
+        m.velocidade = (uint8_t)vel;
+        d = enumerar(&m, tentativa);
+    }
+    if (!d) {
+        /* D389: lo necesario para saber qué es y por qué no contesta: el estado del puerto (bit 8 = baja
+         * velocidad, bits 4-5 = líneas D+/D-, bit 2 = habilitado) y los bits de error del último TD. */
+        char e[64];
+        uhci_erro_texto(c->ultimo_td, e, sizeof e);
+        klog("[UHCI] puerto %d: intento %d fallido en el paso %d; PORTSC %04x antes del reset, %04x despues; ultimo TD %s; %s\n",
+             p, tentativa, ultimo_passo, c->porta_antes, c->porta_depois, c->ultimo_td ? e : "sin error", vel == USB_VEL_BAIXA ?
+             "baja velocidad" : "velocidad completa");
+    }
+    return d;
 }
 
 static usb_disp_t *enumerar_ohci(ohci_t *c, int p, int tentativa)

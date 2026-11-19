@@ -195,6 +195,26 @@ static int copiar_zona(const char *disco, uint32_t de, uint32_t para, uint32_t n
     return r;
 }
 
+/* D388: ¿lo que se cambia o se mueve está en uso como raíz del sistema? En la live, la SAGUI-RAIZ (base de
+ * solo lectura) y la SAGUI-PERSIST (la capa de cambios) están montadas las dos en «/»; en un sistema
+ * instalado, la SAGUI-RAIZ. Eso no se desmonta con el sistema en marcha: no se toca. Devuelve el número de
+ * la primera que lo está (y su nombre en vol) o 0. */
+int pt_tamanho_raiz_em_uso(const pt_tamanho_t *p, char *vol, int max)
+{
+    for (int j = 0; j <= p->nmover; j++) {
+        int num = j < p->nmover ? p->mover[j] : p->numero;
+        char v[16];
+        info_disco_t d;
+        pt_nome_particao(p->disco, num, v, sizeof v);
+        for (int i = 0; listar_discos(i, &d) == 1; i++)
+            if (compara_texto(d.nome, v) == 0 && d.montado && compara_texto(d.ponto, "/") == 0) {
+                if (vol && max > 0) copia_texto(vol, v, (size_t)max);
+                return num;
+            }
+    }
+    return 0;
+}
+
 int pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *m, int max)
 {
     if (m && max) m[0] = 0;
@@ -208,6 +228,14 @@ int pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *
     if (q.depois != p->depois || q.nmover != p->nmover || q.ext_fim != p->ext_fim) { txt(m, max, "la tabla de %s ha cambiado desde que se calculó el plan: no se toca", p->disco); return ERRO_INVALIDO; }
     char vol[16], cmp[200] = "", extra[200] = "";
     pt_nome_particao(p->disco, p->numero, vol, sizeof vol);
+    {   /* D388: nunca la raíz en uso (ni su base ni su capa), ni siquiera para moverla */
+        char v[16];
+        if (pt_tamanho_raiz_em_uso(&q, v, sizeof v)) {
+            txt(m, max, "%s es parte de la raíz del sistema en marcha (montada en /): no se puede mover ni cambiar de tamaño "
+                        "ahora. No se ha cambiado nada", v);
+            return ERRO_OCUPADO;
+        }
+    }
     if (p->depois < p->antes) {   /* encoger: pt_executar ya lo hace en el orden seguro */
         montagem_guardada_t g;
         if ((r = desmontar_se(p->disco, p->numero, &g)) < 0 || (g.ponto[0] && !desmontar_permitido)) {
@@ -314,3 +342,4 @@ bool pt_volume_de_ponto(const char *ponto, char *vol, int max)
         if (d.particao && d.montado && compara_texto(d.ponto, ponto) == 0) { copia_texto(vol, d.nome, (size_t)max); return true; }
     return false;
 }
+

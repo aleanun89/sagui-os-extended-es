@@ -7,6 +7,85 @@
  * (ganador=0 si se acaba el tiempo: gana entonces quien tiene más puntuación, «ganador_puntos=»). */
 #include "../userland/juegos/aoen/game.h"
 #include "../userland/juegos/aoen/ia.h"
+#include "../userland/juegos/aoen/hilos.h"
+
+/* Comprobación de terreno: ningún barco fuera del agua y ninguna unidad de tierra en el agua (salvo a bordo o muriendo).
+ * Cuenta las unidades mal colocadas en este momento; la primera de cada partida se cuenta en stderr. */
+static long terreno_malas, terreno_comprobaciones;
+static void comprobar_terreno(void) {
+	++terreno_comprobaciones;
+	for (int i = 0; i < W.nents; ++i) {
+		Entity *e = &W.ents[i];
+		if (!e->alive || !is_unit(e->type) || e->state == ST_DYING || e->state == ST_ABOARD) continue;
+		int x = (int)floorf(e->x), y = (int)floorf(e->y);
+		if (x < 0 || y < 0 || x >= W.w || y >= W.h) { if (!terreno_malas++) fprintf(stderr, "terreno: %s fuera del mapa en %.2f,%.2f\n", unit_def[e->type - E_VILLAGER].name, e->x, e->y); continue; }
+		int agua = W.tile[y * W.w + x] >= TILE_WATER;
+		if (agua != is_naval(e->type)) {
+			if (!terreno_malas++) fprintf(stderr, "terreno: %s del jugador %d en %s (%.2f,%.2f) estado %d t=%.1f\n", unit_def[e->type - E_VILLAGER].name, e->owner, agua ? "agua" : "tierra", e->x, e->y, e->state, W.time);
+		}
+	}
+}
+
+/* AOEN_IA_AZAR=SEGUNDOS: sin IA, cada jugador recibe barcos (en agua) y soldados y aldeanos (en tierra) junto a su centro
+ * urbano y, cada medio segundo, órdenes al azar (moverse a cualquier sitio del mapa, atacar o seguir a cualquier entidad,
+ * embarcar, desembarcar en cualquier punto, cola, patrulla). Al final imprime «terreno malas=N comprobaciones=M». */
+static unsigned azar_s = 12345;
+static int azar(int n) { azar_s = azar_s * 1103515245u + 12345u; return (int)((azar_s >> 8) % (unsigned)n); }
+static void prueba_azar(float segundos) {
+	int np = W.setup.players;
+	for (int p = 0; p < np; ++p) W.pl[p].ai = 0;
+	for (int p = 0; p < np; ++p) {
+		float cx = 0, cy = 0;
+		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].type == E_TOWN_CENTER && W.ents[i].owner == p) { cx = W.ents[i].x; cy = W.ents[i].y; }
+		static const EntType barcos[] = { E_WARSHIP, E_WARSHIP, E_TRANSPORT, E_TRANSPORT, E_FISHBOAT, E_TRADESHIP };
+		static const EntType tierra[] = { E_CLUBMAN, E_CLUBMAN, E_VILLAGER, E_VILLAGER, E_BOWMAN, E_SCOUT, E_PRIEST, E_CATAPULT };
+		int nb = 0, nt = 0;
+		for (int r = 2; r < 40 && (nb < 6 || nt < 8); ++r)
+			for (int k = 0; k < 16 && (nb < 6 || nt < 8); ++k) {
+				int x = (int)cx + azar(2 * r + 1) - r, y = (int)cy + azar(2 * r + 1) - r;
+				if (nb < 6 && tile_sail(x, y)) { dev_place(barcos[nb], p, x + 0.5f, y + 0.5f); ++nb; }
+				else if (nt < 8 && tile_walk(x, y)) { dev_place(tierra[nt], p, x + 0.5f, y + 0.5f); ++nt; }
+			}
+		fprintf(stderr, "azar: jugador %d con %d barcos y %d de tierra\n", p, nb, nt);
+	}
+	float next = 0, rec_barcos = 0, rec_tierra = 0;
+	static float px[1 << 16], py[1 << 16];
+	while (W.time < segundos) {
+		int n0 = MIN(W.nents, 1 << 16);
+		for (int i = 0; i < n0; ++i) { px[i] = W.ents[i].x; py[i] = W.ents[i].y; }
+		world_update(1.0f / 30);
+		comprobar_terreno();
+		for (int i = 0; i < n0; ++i) {   /* lo que anda cada clase de unidad: que nadie se quede clavado en la orilla */
+			Entity *e = &W.ents[i];
+			if (!e->alive || !is_unit(e->type) || e->owner < 0 || e->state == ST_ABOARD) continue;
+			float d = fabsf(e->x - px[i]) + fabsf(e->y - py[i]);
+			if (d > 1.0f) continue;   /* desembarco o aparición: no es andar */
+			if (is_naval(e->type)) rec_barcos += d; else rec_tierra += d;
+		}
+		if (W.time < next) continue;
+		next += 0.5f;
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *e = &W.ents[i];
+			if (!e->alive || !is_unit(e->type) || e->owner < 0 || e->state == ST_DYING || e->state == ST_ABOARD || azar(4)) continue;
+			Ref r = ent_ref(i);
+			float x = (float)azar(W.w * 10) / 10.0f, y = (float)azar(W.h * 10) / 10.0f;
+			int q = azar(100);
+			if (q < 35) cmd_move(r, x, y);
+			else if (q < 60) {
+				int j = azar(W.nents);
+				if (W.ents[j].alive) cmd_target(r, ent_ref(j));
+			} else if (q < 75 && !is_naval(e->type)) {
+				for (int j = 0; j < W.nents; ++j) if (W.ents[j].alive && W.ents[j].type == E_TRANSPORT && W.ents[j].owner == e->owner && !azar(2)) { cmd_target(r, ent_ref(j)); break; }
+			} else if (q < 85) cmd_move_queue(r, x, y);
+			else if (q < 92) cmd_patrol(r, x, y);
+			else cmd_set_stance(r, azar(4));
+		}
+	}
+	int a_bordo = 0;
+	for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].type == E_TRANSPORT) a_bordo += W.ents[i].ncargo;
+	printf("azar recorrido barcos=%.0f tierra=%.0f a_bordo=%d\n", rec_barcos, rec_tierra, a_bordo);
+	printf("terreno malas=%ld comprobaciones=%ld\n", terreno_malas, terreno_comprobaciones);
+}
 
 int main(int argc, char **argv) {
 	if (argc < 4) { fprintf(stderr, "uso: aoen_ia SEMILLA DIF_A DIF_B [MAPA] [TAMAÑO] [MINUTOS] [JUGADORES]\n"); return 2; }
@@ -26,6 +105,7 @@ int main(int argc, char **argv) {
 	s.recursos_mapa = getenv("AOEN_IA_RECURSOS") ? atoi(getenv("AOEN_IA_RECURSOS")) : 0;   /* 0 normales, 1 escasos, 2 abundantes */
 	s.victoria_compartida = getenv("AOEN_IA_COMPARTIDA") ? atoi(getenv("AOEN_IA_COMPARTIDA")) : 0;
 	world_new(&s);
+	hilos_iniciar();   /* D393: AOEN_HILOS=N reparte la IA y los caminos entre N hilos */
 	/* AOEN_IA_REPARTO=1: solo genera el mapa y cuenta las casillas de oro y piedra (el reparto lo escribe game.c en el registro) */
 	if (getenv("AOEN_IA_REPARTO")) {
 		int oro = 0, piedra = 0;
@@ -62,12 +142,35 @@ int main(int argc, char **argv) {
 		}
 		return 0;
 	}
+	/* AOEN_IA_EDIFICIOS=1: qué entrena, qué investiga y qué recoge cada edificio (la tabla de docs/aoen.md) */
+	if (getenv("AOEN_IA_EDIFICIOS")) {
+		static const char *rn[] = { "madera", "comida", "oro", "piedra" };
+		for (int b = E_TOWN_CENTER; b <= E_WONDER; ++b) {
+			printf("edificio %s|entrena:", bld_def[b].name);
+			for (int t = E_VILLAGER; t < E_HORSE; ++t) if (unit_def[t - E_VILLAGER].trainer == b) printf(" %s;", unit_def[t - E_VILLAGER].name);
+			printf("|investiga:");
+			for (int t = 0; t < T_COUNT; ++t) if (tech_def[t].bld == b) printf(" %s;", tech_def[t].name);
+			printf("|recoge:");
+			/* el muelle solo recoge lo que traen los barcos de pesca */
+			if (b == E_DOCK) printf(" pescado;");
+			else {
+				for (int k = 0; k < RES_COUNT; ++k) if (edificio_recoge(b, k, 0)) printf(" %s;", rn[k]);
+				if (edificio_recoge(b, RES_FOOD, 1)) printf(" carne;");
+			}
+			printf("\n");
+		}
+		return 0;
+	}
+	if (getenv("AOEN_IA_AZAR")) { prueba_azar((float)atof(getenv("AOEN_IA_AZAR"))); return 0; }
 	int age_t[MAX_PLAYERS][AGE_COUNT] = { { 0 } }, peak_vill[MAX_PLAYERS] = { 0 }, peak_army[MAX_PLAYERS] = { 0 };
 	int alive_t[MAX_PLAYERS];
 	for (int p = 0; p < np; ++p) alive_t[p] = -1;
-	float next = 0;
+	float next = 0, sig_suma = 60;
+	int suma = getenv("AOEN_IA_SUMA") != NULL;   /* D393: suma del mundo cada minuto (h398: igual con 1 y con N hilos) */
 	while (!W.over && W.time < maxt) {
 		world_update(1.0f / 30);
+		comprobar_terreno();
+		if (suma && W.time >= sig_suma) { printf("suma t=%.0f %08x\n", W.time, world_suma()); sig_suma += 60; }
 		if (W.time >= next) {
 			next += 5;
 			for (int p = 0; p < np; ++p) {
@@ -127,7 +230,10 @@ int main(int argc, char **argv) {
 	if (getenv("AOEN_IA_FFA"))
 		for (int p = 0; p < np; ++p) for (int q = p + 1; q < np; ++q) if (W.pl[p].dipl[q] != DIPL_ENEMY) printf("diplomacia %d-%d: %s\n", p, q, dipl_name(W.pl[p].dipl[q]));
 	for (int p = 0; p < np; ++p) printf("recursos jugador %d: %d %d %d %d\n", p + 1, W.pl[p].res[0], W.pl[p].res[1], W.pl[p].res[2], W.pl[p].res[3]);
+	printf("terreno malas=%ld comprobaciones=%ld\n", terreno_malas, terreno_comprobaciones);
 	printf("fin over=%d ganadores=%#x alianza01=%s\n", W.over, W.ganadores, dipl_name(W.pl[0].dipl[1]));
+	if (suma) printf("suma final t=%.0f %08x hilos=%d\n", W.time, world_suma(), hilos_n());
+	hilos_parar();
 	printf("resultado ganador=%d tiempo=%d ganador_puntos=%d como=%s\n", win, (int)W.time, team_score[1] >= team_score[2] ? 1 : 2, como);
 	return 0;
 }

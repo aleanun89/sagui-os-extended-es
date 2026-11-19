@@ -60,6 +60,16 @@ def fuentes():
               "el driver es un gpu3d_driver_t con sus diez funciones")
     verificar("g3d_arena_iniciar" in drv and "g3d_buffer_criar" in drv and "g3d_buffer_soltar" in drv,
               "usa la memoria de GPU y los búferes comunes (g3d_*)")
+    # D390: diagnóstico común. Los ajustes de /sistema/conf/gpu3d-r600.conf, solo registros que van por la cola
+    # (contexto y configuración del 3D), nunca GRBM ni CP (0x8000-0x87FF), el MC ni la pantalla.
+    verificar('"r600", r3_faixas_ajustes,' in drv and "r3_vistas" in drv and "ajustes_por(&l, G3D_AJ_INICIO);" in drv
+              and "ajustes_por(&l, G3D_AJ_DIBUJO);" in drv, "r600: fichero, rangos, vistas y ajustes en la cola (D390)")
+    fx = re.search(r"r3_faixas_ajustes\[\] = \{(.*?)\};", drv, re.S)
+    verificar(fx is not None, "r600: la tabla de rangos de los ajustes")
+    for a, b in re.findall(r"\{ 0x([0-9A-F]+)u, 0x([0-9A-F]+)u \}", fx.group(1)):
+        a, b = int(a, 16), int(b, 16)
+        verificar((0x28000 <= a <= b <= 0x28FFC) or (0x8800 <= a <= b < 0xAC00),
+                  f"r600: el rango {a:#x}-{b:#x} es del contexto o de la configuración por la cola, fuera de GRBM y CP")
     # No se enciende solo: la capa lo deja apagado salvo --gpu3d=radeon.
     ini = capa[capa.index("void gpu3d_iniciar(void)"):capa.index("const char *gpu3d_resumo")]
     r7 = ini[ini.index("d2 == &acel_r600 && (geracao == 7 || geracao == 6)"):]   # D357: también R6xx
@@ -79,7 +89,11 @@ def fuentes():
     permitidos = {"R6_CP_ME_CNTL", "R6_SCRATCH_UMSK", "R6_GRBM_SOFT_RESET", "R6_CP_RB_CNTL", "R6_CP_PFP_UCODE_ADDR",
                   "R6_CP_PFP_UCODE_DATA", "R6_CP_ME_RAM_WADDR", "R6_CP_ME_RAM_DATA", "R6_CP_ME_RAM_RADDR", "R6_CP_SEM_WAIT_TIMER",
                   "R6_CP_RB_WPTR_DELAY", "R6_CP_RB_RPTR_WR", "R6_CP_RB_WPTR", "R6_CP_RB_RPTR_ADDR", "R6_CP_RB_RPTR_ADDR_HI",
-                  "R6_CP_RB_BASE", "R6_CP_DEBUG", "SCRATCH_TESTE", "SCRATCH_VALLA", "pares"}
+                  "R6_CP_RB_BASE", "R6_CP_DEBUG", "SCRATCH_TESTE", "SCRATCH_VALLA", "pares",
+                  # D406: la GART (solo con «gpu3d encender gtt»): sus registros de gart_r700_logica.h, la lista de
+                  # encender/apagar (p) y los valores guardados antes (gart.regs); nada del MC fuera de la apertura.
+                  "R7G_MC_VM_SYS_APER_HIGH", "R7G_MC_VM_SYS_APER_LOW", "R7G_VM_CONTEXT0_INVAL_HI", "R7G_VM_CONTEXT0_INVAL_LO",
+                  "R7G_VM_CONTEXT0_REQUEST_RESPONSE", "gart", "p"}
     verificar(escritos <= permitidos, f"el driver solo escribe registros del CP y la lista de inicio ({sorted(escritos - permitidos)})")
     verificar("wr(R6_GRBM_SOFT_RESET, R6_SOFT_RESET_CP)" in drv and "0x7fff" not in drv.lower() and "SRBM_SOFT_RESET" not in drv,
               "solo se reinicia el CP: nunca el motor entero ni SRBM")
@@ -121,7 +135,7 @@ def fuentes():
     verificar("gpu3d_r600.c" in ter and "firmware/radeon/" in ter, "docs/terceros.md registra las referencias y el microcódigo")
     guia = ler("docs/gpu3d.md")
     verificar(re.search(r"^## Radeon (R6xx y )?R7xx", guia, re.M) and "gpu3d probar --detalle" in guia and "dmesg > /home/gpu3d.txt" in guia
-              and "Sin probar en hardware" in guia, "docs/gpu3d.md dice qué ejecutar en el dv7 y que no está probado")
+              and "Probado en el HP dv7" in guia, "docs/gpu3d.md dice qué ejecutar en el dv7 y que ya está probado allí (D402)")
     for rel in ("kernel/dispositivos/gpu3d_r600.c", "kernel/dispositivos/r600_3d_pacotes.c", "kernel/inc/r600_3d.h",
                 "kernel/inc/r600_base.h"):
         verificar("SPDX-License-Identifier: GPL-2.0-or-later" in ler(rel), f"{rel} lleva su SPDX")

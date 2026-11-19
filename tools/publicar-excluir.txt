@@ -19,6 +19,8 @@
 /input_share/
 /NEW_FONTS/
 /data_extra/
+# D404: modelos 3D CC0 que baja tools/modelos3d_datos.sh (fuera de git; se publica el script, no los datos)
+/userland/terceros/modelos3d/datos/
 # Audio y vídeo personales (también están en .gitignore)
 /*.mp3
 /*.wav

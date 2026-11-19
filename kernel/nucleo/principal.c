@@ -6,10 +6,12 @@
  * interrupciones y reloj, memoria física y asignador, teclado, sistema de
  * archivos y, por último, la terminal. Todo cabe en pocas líneas de pantalla: en
  * el G470 el mapa de memoria grande empujaba el saludo hacia afuera (error 1). */
+#include "rastro.h"
 #include "kconf.h"
 #include "bootinfo.h"
 #include "acel2d.h"
 #include "gpu3d.h"
+#include "gpu_energia.h"
 #include "console.h"
 #include "texto.h"
 #include "cpu.h"
@@ -312,6 +314,10 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     }
     klog("[BOOT] cd=%u leitura_chs=%u bpp_pref=%u\n", (info_boot.opcoes & OPC_BOOT_CD) ? 1 : 0,
          info_boot.leitura_chs, info_boot.bpp_pref);
+    if (info_boot.opcoes & OPC_BOOT_KERNEL_PRUEBA)   /* D392: lo arrancó la etapa 2 desde la ranura de prueba */
+        klog("[BOOT] kernel de prueba (arranque probar, D392): %s; %u bytes\n",
+             (info_boot.opcoes & OPC_BOOT_KERNEL_FIXO) ? "el ultimo bueno (confirmado)" : "esta vez, el siguiente arranque es el ultimo bueno",
+             info_boot.kernel_bytes);
 
     etapa("Interrupciones: GDT e IDT propias, PIC reasignado, reloj a 100 Hz");
     {
@@ -331,6 +337,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
                    !paginacao_pse() ? "" : paginacao_com_pae ? " en páginas de 2 MB" : " en páginas de 4 MB");
         etapa(linha);
     }
+    rastro_iniciar();   /* depuración: las marcas del arranque anterior (si hubo reinicio en caliente) y empieza */
     fpu_iniciar();
     aleatorio_iniciar();   /* después del TSC medido y antes de la red (ISN del TCP, D061) */
     rapido_iniciar();   /* rep movsd o SSE2 para los gráficos: mide y elige (D042) */
@@ -342,10 +349,14 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         char linha[128];
         snformatar(linha, sizeof linha, "Aceleración 2D: %s (%s)", acel2d_ativo() ? acel2d_nome() : "CPU", acel2d_motivo());
         etapa(linha);
+        acel2d_volcado_iniciar();   /* D387: el volcado del búfer de atrás por la GPU (GART), si el 2D lo sabe hacer */
     }
     /* D285: 3D por la GPU: aquí solo se mira si hay driver para la tarjeta; se
      * enciende y se prueba con el primer uso (un fallo no retrasa el arranque). */
     gpu3d_iniciar();
+    /* D399: energía de la GPU: solo lee las tablas de datos de la BIOS de vídeo (nada se ejecuta ni se
+     * cambia en una tarjeta sin confirmar); kconfig gpu_energia lo aplica unos segundos después. */
+    gpu_energia_iniciar();
     {
         char linha[96], rec[64];
         fpu_descrever(rec, sizeof rec);

@@ -56,6 +56,18 @@ static const kconf_op_t ops[] = {
     /* v8.5.4.10 (D385): la copia de la salida del Terminal al puerto serie. La lee el Terminal (INFO_KCONF, «efetivo»);
      * el kernel no hace nada con ella. Las imágenes de serie la llevan apagada (mkimagem.py --sin-serie-terminal). */
     { "serie_terminal",     KC_SERIE_TERMINAL,     KCONF_SINO,  CAB_TERM_OPC,  CAB_TERM_SIN_SERIE,     0, 0, 1 },
+    /* v8.5.4.10r2 (D387): el volcado del búfer de atrás a la pantalla por la GPU (GART de las R5xx). acel2d.c lo lee
+     * con kconf_cab(CAB_ACEL_OPC). Encendido de serie: solo se usa si su autoprueba pasa. */
+    { "volcado_gpu",        KC_VOLCADO_GPU,        KCONF_SINO,  CAB_ACEL_OPC,  CAB_ACEL_SIN_VOLCADO,   0, 0, 1 },
+    /* v8.5.4.10r2 (D391): la vuelta del cuadro del 3D a la RAM por la GPU (la misma GART). acel2d.c lo lee con
+     * kconf_cab(CAB_ACEL_OPC). Encendido de serie: solo se usa si su autoprueba pasa. */
+    { "vuelta_gpu",         KC_VUELTA_GPU,         KCONF_SINO,  CAB_ACEL_OPC,  CAB_ACEL_SIN_RETORNO,   0, 0, 1 },
+    /* v8.5.5 (D381): AVX (estado YMM con XSAVE). Lo lee fpu_iniciar() con kconf_cab(CAB_CPU_OPC). */
+    { "avx",                KC_AVX,                KCONF_SINO,  CAB_CPU_OPC,   CAB_CPU_SEM_AVX,        0, 0, 1 },
+    /* v8.5.5 (D399): el modo de energía de la GPU al arrancar: 1 bios (no tocar), 2 bajo, 3 alto, 4 dinámico (el
+     * «auto» del gobernador); 0 (automático) = dinámico si la tarjeta está confirmada, si no bios. gpu_energia.c lo
+     * lee con kconf_valor(); el modo rescate y Mayús al arrancar no lo aplican. */
+    { "gpu_energia",        KC_GPU_ENERGIA,        KCONF_LISTA, 0, 0,                              0, 1, 4 },
 };
 #define N_OPS ((int)(sizeof ops / sizeof ops[0]))
 

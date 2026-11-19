@@ -23,6 +23,7 @@
  * decodifica aquí. Nada se escribe en el hardware. */
 #include "pcinomes.h"
 #include "sagui.h"
+#include "particoes.h"
 #include "gui.h"
 #include "saguimark.h"
 #include "versao.h"
@@ -338,7 +339,14 @@ static void secao_cpu(texto_t *t)
         n += k;
     }
     if (n) ad(t, "  %s\n", linha);
-    if ((s1[2] >> 28) & 1) ad(t, "  (AVX existe en la CPU, pero SaguiOS solo activa FPU, MMX y SSE: D032)\n");
+    /* D381: AVX solo se puede usar si el kernel lo encendió (XSAVE de los YMM). */
+    if ((s1[2] >> 28) & 1) {
+        if (cpu_tem_avx())
+            ad(t, "  AVX activo: el kernel guarda los registros YMM (XSAVE)%s%s\n", cpu_tem_avx2() ? "; AVX2" : "",
+               cpu_tem_fma() ? " y FMA" : "");
+        else
+            ad(t, "  (AVX existe en la CPU pero está apagado: kconfig avx=no, --sem-avx o modo rescate; D381)\n");
+    }
     rutas_rapidas(t);
 
     if ((s1[2] >> 31) & 1) {
@@ -1512,6 +1520,38 @@ static void gb_medir_e_guardar(void)
               gb_arquivo[0] ? gb_arquivo : "-");
 }
 
+/* D399: energía de la GPU (relojes, estados de la BIOS, temperatura, zonas del ACPI, VRAM y modo). En el
+ * informe sirve para ver en una máquina real qué leyó el driver sin tocar nada. */
+static void g_en_texto(texto_t *t)
+{
+    static info_gpu_energia_t v;
+    memset(&v, 0, sizeof v);
+    if (info_sistema(INFO_GPU_ENERGIA, &v, sizeof v) != 0 || v.versao != 1) { ad(t, "Energía de la GPU: el kernel no lo sabe\n"); return; }
+    static const char *const sop[] = { "sin driver", "solo lectura", "control" };
+    static const char *const modos[] = { "?", "bios", "bajo", "alto", "auto", "manual" };
+    static const char *const fuentes[] = { "no se sabe", "leídos por la BIOS", "por defecto de la BIOS, sin leer", "los puestos" };
+    ad(t, "\nEnergía de la GPU: %s (%s)\n  %s\n", v.driver[0] ? v.driver : "-", sop[v.soporte < 3 ? v.soporte : 0], v.motivo);
+    if (!v.soporte) return;
+    if (v.bios[0]) ad(t, "  BIOS de vídeo: %s\n", v.bios);
+    ad(t, "  Modo: %s (kconfig gpu_energia=%u)%s%s; estado %d; cambios %u, fallos %u\n", modos[v.modo <= 5 ? v.modo : 0], v.modo_kconfig,
+       v.confirmada ? ", tarjeta confirmada" : ", tarjeta sin confirmar", v.bloqueado ? ", BLOQUEADO" : "", v.estado, v.cambios, v.fallos);
+    ad(t, "  Relojes: motor %u kHz, memoria %u kHz (%s); por defecto %u/%u kHz, máximos %u/%u kHz, arranque %u/%u kHz, referencia %u kHz\n",
+       v.sclk_khz, v.mclk_khz, fuentes[v.relojes_fuente < 4 ? v.relojes_fuente : 0], v.sclk_def_khz, v.mclk_def_khz, v.sclk_max_khz,
+       v.mclk_max_khz, v.sclk_arranque_khz, v.mclk_arranque_khz, v.ref_khz);
+    if (v.tensao_mv) ad(t, "  Tensión de arranque (BIOS): %u mV\n", v.tensao_mv);
+    if (v.temp_mili_c != GPU_EN_SIN_SENSOR) ad(t, "  Temperatura: %d mC (%s)\n", v.temp_mili_c, v.temp_fuente);
+    else ad(t, "  Temperatura: %s\n", v.temp_fuente);
+    for (unsigned i = 0; i < v.n_zonas && i < GPU_EN_MAX_ZONAS; i++) ad(t, "  Zona térmica del ACPI %s: %d mC (no es de la tarjeta)\n", v.zona_nome[i], v.zona_mili_c[i]);
+    if (v.vram_kb) ad(t, "  VRAM: %u KB; usada por SaguiOS (estimada): %u KB\n", v.vram_kb, v.vram_usada_kb);
+    ad(t, "  Estados de la BIOS (bajo = %d, alto = %d):\n", v.estado_bajo, v.estado_alto);
+    for (unsigned i = 0; i < v.n_estados && i < GPU_EN_MAX_ESTADOS_ABI; i++) {
+        const info_gpu_estado_t *e = &v.estados[i];
+        ad(t, "    %u: motor %u kHz, memoria %u kHz, tipo %u, tensión %u, misc %08x/%08x, PCIe x%u%s%s\n", i, e->sclk_khz, e->mclk_khz, e->tipo,
+           e->tensao, e->misc, e->misc2, e->pcie_lanes, e->sem_ecra ? ", sin pantalla" : "", e->so_um_ecra ? ", una pantalla" : "");
+    }
+    if (v.ultimo[0]) ad(t, "  Último: %s\n", v.ultimo);
+}
+
 static void secao_gpu(texto_t *t)
 {
     info_video_t v;
@@ -1547,9 +1587,15 @@ static void secao_gpu(texto_t *t)
         achou++;
     }
     if (!achou) ad(t, "GPU:               ninguna tarjeta de vídeo en el PCI\n");
-    if (v.vbe_versao) ad(t, "Memoria de vídeo: %s (VBE %u.%u%s%s)\n", tamanho(a, sizeof a, (uint64_t)v.memoria_kb << 10),
-                         v.vbe_versao >> 8, v.vbe_versao & 0xFF, v.oem[0] ? ", " : "", v.oem);
-    else ad(t, "Memoria de vídeo: no informada (sin VBE)\n");
+    /* D387: la que tiene la tarjeta, según su driver (el VBE a veces anuncia solo una parte: 16 MB en una X1400
+     * de 128 MB), y aparte la que anuncia la BIOS. */
+    info_acel2d_t avr;
+    memset(&avr, 0, sizeof avr);
+    info_sistema(INFO_ACEL2D, &avr, sizeof avr);
+    if (avr.vram_kb) ad(t, "Memoria de vídeo: %s (de la tarjeta: %s)\n", tamanho(a, sizeof a, (uint64_t)avr.vram_kb << 10), avr.vram_fonte);
+    if (v.vbe_versao) ad(t, "%s%s (VBE %u.%u%s%s)\n", avr.vram_kb ? "  Anunciada por la BIOS: " : "Memoria de vídeo: ",
+                         tamanho(a, sizeof a, (uint64_t)v.memoria_kb << 10), v.vbe_versao >> 8, v.vbe_versao & 0xFF, v.oem[0] ? ", " : "", v.oem);
+    else if (!avr.vram_kb) ad(t, "Memoria de vídeo: no informada (sin VBE)\n");
     if (v.grafico) {
         info_tela_t te;
         memset(&te, 0, sizeof te);
@@ -1571,16 +1617,27 @@ static void secao_gpu(texto_t *t)
         if (ac.ativo)
             ad(t, "  Órdenes de la GPU: %u copias, %u rellenos, %u fallos\n", ac.copias, ac.rellenos, ac.falhas);
         /* D346: el reparto (sin ser administrador) */
-        ad(t, "  Reparto GPU / software (desde el arranque; copias y rellenos son lo único que acelera la GPU):\n");
+        ad(t, "  Reparto GPU / software (desde el arranque; la GPU acelera copias, rellenos y, en las R5xx, el volcado):\n");
         ad(t, "    GPU:      %u copias (%u kpíxeles), %u rellenos (%u kpíxeles)\n", ac.copias, ac.kpx_gpu_copias, ac.rellenos, ac.kpx_gpu_rellenos);
         ad(t, "    Software: %u mover ventanas (%u kpx), %u desplazar consola (%u kpx), %u rellenos (%u kpx), %u volcados a pantalla (%u kpx)\n",
            ac.sw_ops[0], ac.sw_kpx[0], ac.sw_ops[1], ac.sw_kpx[1], ac.sw_ops[2], ac.sw_kpx[2], ac.sw_ops[3], ac.sw_kpx[3]);
+        /* D387: el volcado del búfer de atrás a la pantalla por la GPU (GART) */
+        static const char *const vest[] = { "no", "activo", "apagado (kconfig volcado_gpu=no)", "apagado a mano", "falló", "más lento que la CPU" };
+        ad(t, "    Volcados por GPU: %u (%u kpx), %u pequeños por la CPU; estado: %s%s\n", ac.volcado_ops, ac.volcado_kpx,
+           ac.volcado_cpu_ops, ac.volcado_estado < 6 ? vest[ac.volcado_estado] : "?", ac.volcado_simulado ? " (simulado)" : "");
+        ad(t, "      %s\n", ac.volcado_motivo);
+        /* D391: la vuelta del cuadro del 3D a la RAM por la GPU (la misma GART) */
+        static const char *const rest[] = { "no", "activa", "apagada (kconfig vuelta_gpu=no)", "apagada a mano", "falló", "más lenta que la CPU" };
+        ad(t, "    Vuelta del 3D por GPU: %u cuadros (%u kpx), %u por la CPU; estado: %s\n", ac.retorno_ops, ac.retorno_kpx,
+           ac.retorno_cpu_ops, ac.retorno_estado < 6 ? rest[ac.retorno_estado] : "?");
+        ad(t, "      %s\n", ac.retorno_motivo);
         ad(t, "    Líneas, texto, mezclas y el dibujo dentro de cada ventana: siempre por software (ninguna GPU soportada los acelera).\n");
         if (ac.us_gpu || ac.us_cpu) ad(t, "  Velocidad al arrancar: GPU %u us, CPU %u us\n", ac.us_gpu, ac.us_cpu);
     } else {
         ad(t, "Acelerador 2D:    por software (CPU): sin modo gráfico\n");
     }
     g3_texto(t);
+    g_en_texto(t);
     ad(t, "\nBenchmark 2D: botón \"Medir\" (tecla M) o \"infopc --bench-gpu\". Compara el acelerador 2D de la GPU\n");
     ad(t, "con el camino por software (CPU) en rellenos, copias, solapes, líneas, texto y ventana.\n\n");
     if (gb_tem) {
@@ -1811,7 +1868,9 @@ static void informe_discos(texto_t *t)
             ad(t, "  %-10s %s %s %s, %s%s, %s%s\n", d.nome, tipo, d.fabricante, d.produto,
                tamanho(a, sizeof a, (uint64_t)d.setores * 512), (d.flags & DISCO_BLOCO4K) ? ", bloque 4096" : (d.flags & DISCO_NVME) ? ", bloque 512" : "",
                d.formato, (d.flags & DISCO_BOOT) ? " (arranque)" : "");
-        if (d.montado && d.ponto[0])
+        const char *papel = pt_papel_raiz(&d);   /* D388: la raíz doble de la live */
+        if (papel) ad(t, "             montado en / (%s)\n", papel);
+        else if (d.montado && d.ponto[0])
             ad(t, "             montado en %s%s\n", d.ponto, (d.flags & DISCO_SO_LEITURA) ? " (solo lectura)" : "");
     }
     if (!k) ad(t, "  ninguno (ni ATA ni USB)\n");

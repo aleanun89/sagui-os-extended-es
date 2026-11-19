@@ -57,10 +57,13 @@ void fx_guardar(void) {
 	cfg_set_int("fx_diaynoche", efx.diaynoche); cfg_set_int("fx_suave", efx.suave);
 }
 
-/* La interfaz se dibuja en un espacio lógico y se multiplica por un entero (píxeles nítidos): de 1600x960 hacia arriba, x2. */
+/* La interfaz se dibuja en un espacio lógico y se multiplica por un entero (píxeles nítidos): de 1600x960 hacia arriba, x2;
+ * de 2880x1620, x3 (v8.5.5.3). La escala elegida a mano baja si la interfaz no cabe: hacen falta 640x480 lógicos y, para
+ * x2 o más, la altura de la barra inferior con dos filas de órdenes (480/2 = 240 no basta). */
 int fx_escala_ui(int w, int h) {
-	if (efx.escala == 1 || efx.escala == 2) return efx.escala;
-	return (w >= 1600 && h >= 960) ? 2 : 1;
+	int us = efx.escala >= 1 && efx.escala <= 3 ? efx.escala : (w >= 2880 && h >= 1620) ? 3 : (w >= 1600 && h >= 960) ? 2 : 1;
+	while (us > 1 && (w / us < 640 || h / us < 480)) --us;
+	return us;
 }
 
 /* ---------- aleatorio propio: no toca la semilla del juego (las partidas guardadas no dependen de los efectos) ---------- */
@@ -88,6 +91,10 @@ static void nueva(int tipo, float x, float y, float z, float vx, float vy, float
 
 static void humo(float x, float y, float z, float fuerza) {
 	nueva(P_HUMO, x + rnd2(-0.15f, 0.15f), y + rnd2(-0.15f, 0.15f), z, rnd2(-0.05f, 0.1f), rnd2(-0.1f, 0.05f), rnd2(14, 26) * fuerza, rnd2(1.4f, 2.4f), 3 + (int)(rnd() * 3));
+}
+/* llama: sube deprisa y vive poco; el dibujo la estira y la enfría de amarillo a rojo */
+static void fuego(float x, float y, float z) {
+	nueva(P_FUEGO, x + rnd2(-0.1f, 0.1f), y + rnd2(-0.1f, 0.1f), z, rnd2(-0.05f, 0.05f), rnd2(-0.05f, 0.05f), rnd2(16, 28), rnd2(0.35f, 0.7f), 2 + (int)(rnd() * 3));
 }
 static void polvo(float x, float y, int n, float radio) {
 	for (int k = 0; k < n; ++k)
@@ -170,6 +177,16 @@ void fx_actualizar(float dt) {
 			else if (e->progress >= 1 && e->hp < e->maxhp * 0.66f) {
 				float dano = 1.0f - e->hp / e->maxhp;
 				if (rnd() < dt * (2 + 8 * dano)) { humo(e->x + rnd2(-0.3f, 0.3f) * e->size, e->y + rnd2(-0.3f, 0.3f) * e->size, 22 + 12 * e->size * 0.3f, 0.8f + dano); --budget; }
+				/* por debajo del 40 % arde (v8.5.5.3): llamas en dos o tres puntos fijos del tejado, según el edificio */
+				if (e->hp < e->maxhp * 0.4f) {
+					int focos = e->hp < e->maxhp * 0.2f ? 3 : 2;
+					for (int f = 0; f < focos; ++f) {
+						unsigned hs = (unsigned)(i * 2654435761u) ^ (unsigned)(f * 40503u);
+						float ox = ((hs & 255) / 255.0f - 0.5f) * e->size * 0.6f, oy = (((hs >> 8) & 255) / 255.0f - 0.5f) * e->size * 0.6f;
+						if (rnd() < dt * (10 + 14 * dano)) fuego(e->x + ox, e->y + oy, 14 + 10 * e->size * 0.3f + ((hs >> 16) & 7));
+					}
+					--budget;
+				}
 			}
 		}
 	}
@@ -196,9 +213,13 @@ void fx_dibujar(void) {
 		case P_POLVO:
 			gfx_ellipse(sx, sy, r + (int)((1 - k) * 3 * V.zoom), MAX(1, (r + (int)((1 - k) * 3 * V.zoom)) / 2), gfx_rgb(196, 170, 120), (int)(90 * k));
 			break;
-		case P_FUEGO:
-			gfx_ellipse(sx, sy, r, MAX(1, r), gfx_rgb(255, 150 + (int)(90 * (1 - k)), 30), (int)(200 * k));
+		case P_FUEGO: {
+			/* llama alargada: capa roja por fuera y núcleo amarillo que se apaga antes; menguan al subir */
+			int rx = MAX(1, (int)(r * (0.5f + 0.5f * k))), ry = MAX(2, rx * 2);
+			gfx_ellipse(sx, sy, rx + 1, ry + 1, gfx_rgb(200, 50 + (int)(60 * k), 20), (int)(150 * k));
+			if (k > 0.35f) gfx_ellipse(sx, sy + ry / 3, MAX(1, rx / 2 + 1), MAX(1, ry / 2), gfx_rgb(255, 210 + (int)(40 * k), 90), (int)(230 * k));
 			break;
+		}
 		case P_ESCOMBRO:
 			gfx_fill(sx, sy, r, r, gfx_rgb(96, 70, 44));
 			break;

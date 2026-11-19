@@ -60,6 +60,7 @@ void *llm_memset(void *d, int v, size_t n) { return memset(d, v, n); }
 int  llm_memcmp(const void *a, const void *b, size_t n) { return memcmp(a, b, n); }
 bool llm_cpu_sse2(void) { return true; }
 bool llm_cpu_ssse3(void) { return __builtin_cpu_supports("ssse3"); }
+bool llm_cpu_avx2(void) { return __builtin_cpu_supports("avx2"); }   /* la libgcc mira también XCR0 */
 int  llm_cpus(void) { long n = sysconf(_SC_NPROCESSORS_ONLN); return n < 1 ? 1 : (int)n; }
 unsigned long long llm_ram_fisica(void) { struct sysinfo si; return sysinfo(&si) ? 0 : (unsigned long long)si.totalram * si.mem_unit; }
 unsigned long long llm_memoria_livre(void) { return 0; }   /* en el PC no se comprueba */
@@ -174,6 +175,7 @@ void *llm_memset(void *d, int v, size_t n) { return memset(d, v, n); }
 int  llm_memcmp(const void *a, const void *b, size_t n) { return memcmp(a, b, n); }
 bool llm_cpu_sse2(void) { return cpu_tem_sse2(); }
 bool llm_cpu_ssse3(void) { return cpu_tem_ssse3(); }
+bool llm_cpu_avx2(void) { return cpu_tem_avx2(); }   /* D381: con el estado YMM guardado por el kernel */
 /* Las CPU que trabajan (D157): sin la imagen SMP (D164) los secundarios no arrancan y no tienen tiques. */
 int llm_cpus(void)
 {

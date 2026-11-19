@@ -101,7 +101,7 @@ def fuentes():
     verificar(re.search(r"gen < 7 && !acel2d_forcado\(\)", codigo), "las R6xx siguen solo forzadas")
     comum = ler("kernel/gui/acel2d.c")
     conf = re.search(r"confirmadas\[\]\s*=\s*\{(.*?)\};", comum, re.S).group(1)
-    verificar("0x1002" not in sem_comentarios(conf), "ninguna Radeon está en «confirmadas»: autoprueba completa hasta que el mantenedor la pruebe")
+    verificar(re.sub(r"\{\s*0x1002,\s*0x(?:7145|9553)\s*\}", "", sem_comentarios(conf)).count("0x1002") == 0, "ninguna Radeon (salvo la X1400 del Amilo, D386, y la HD 4530 del dv7, D402) está en «confirmadas»: autoprueba completa hasta que el mantenedor la pruebe")
     verificar("## D286" in ler("docs/decisoes.md"), "la decisión D286 está en docs/decisoes.md")
     verificar("evergreen_dma.c" in ler("docs/terceros.md"), "docs/terceros.md registra las referencias")
     verificar("D286" in ler("docs/gpus.md"), "docs/gpus.md lleva la fila de Evergreen/NI")

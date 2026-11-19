@@ -512,4 +512,5 @@ const acel_driver_t acel_s3 = {
     0, false,      /* D246: sin mínimo; escribir los registros ya es la orden */
     s3_detalle,
     true,          /* D308: también 24 bits (ViRGE) y RGB565 */
+    NULL,    /* D387: sin volcado por la GPU */
 };

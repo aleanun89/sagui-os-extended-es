@@ -12,6 +12,7 @@
  * mapa del layout elegido (ES o ABNT2, PRD 4.4) y combinar las teclas muertas (´ ` ~ ^ ¨) con la letra
  * siguiente. El resultado va a un búfer circular que lee el terminal. */
 #include "teclado.h"
+#include "acoes.h"
 #include "console.h"
 #include "cpu.h"
 #include "portas.h"
@@ -216,6 +217,15 @@ void teclado_byte(uint8_t b)
     }
     if (solta)
         return;
+
+    /* D403: teclas multimedia (silencio E0 20, bajar E0 2E y subir E0 30 el volumen), las del
+     * teclado y las del panel táctil de los HP (QuickTouch, D405): no van al búfer, son acciones
+     * del sistema (con su aviso en pantalla); aquí solo se encolan (acoes.c). */
+    if (ext && (sc == 0x20 || sc == 0x2E || sc == 0x30)) {
+        acao_sistema(sc == 0x20 ? ACAO_SILENCIO : sc == 0x2E ? ACAO_VOLUME_MENOS : ACAO_VOLUME_MAIS,
+                     ORIGEM_ACAO_TECLADO);
+        return;
+    }
 
     /* Impr Pant: E0 37 (Alt+Impr Pant sale como SysRq, 0x54 sin E0). D125 */
     if ((ext && sc == 0x37) || (!ext && sc == 0x54)) { guardar(TECLA_IMPRPANT); return; }

@@ -263,11 +263,12 @@ float llm_dot_q6_K_c(const void *w, const void *x, int n)
 }
 
 /* ------------------------------------------------------------ elección de la ruta */
-/* Las rutas, de la mejor a la peor; cada una solo si la CPU la tiene. Para añadir otra
- * (AVX2, cuando el kernel guarde los YMM con XSAVE), una fila más arriba. */
+/* Las rutas, de la mejor a la peor; cada una solo si la CPU la tiene. AVX2 (D381) solo si,
+ * además, el kernel guarda los YMM (llm_cpu_avx2 lo mira con XGETBV). */
 typedef struct { const char *nome; bool (*tem)(void); llm_dot_t q4_K, q6_K, q8_0, q4_0; } rota_t;
 static bool sempre(void) { return true; }
 static const rota_t rotas[] = {
+    { "AVX2", llm_cpu_avx2, llm_dot_q4_K_avx2, llm_dot_q6_K_avx2, llm_dot_q8_0_avx2, llm_dot_q4_0_avx2 },
     { "SSSE3", llm_cpu_ssse3, llm_dot_q4_K_ssse3, llm_dot_q6_K_ssse3, llm_dot_q8_0_ssse3, llm_dot_q4_0_ssse3 },
     { "SSE2", llm_cpu_sse2, llm_dot_q4_K_sse2, llm_dot_q6_K_sse2, llm_dot_q8_0_sse2, llm_dot_q4_0_sse2 },
     { "C (x87)", sempre, llm_dot_q4_K_c, llm_dot_q6_K_c, llm_dot_q8_0_c, llm_dot_q4_0_c },
@@ -277,7 +278,7 @@ llm_dot_t llm_dot_q4_K = llm_dot_q4_K_c, llm_dot_q6_K = llm_dot_q6_K_c, llm_dot_
           llm_dot_q4_0 = llm_dot_q4_0_c;
 static const char *rota = "C (x87)";
 
-/* nome NULL: la mejor que tenga la CPU; si no, esa ("c", "sse2", "ssse3"). false si no la tiene. */
+/* nome NULL: la mejor que tenga la CPU; si no, esa ("c", "sse2", "ssse3", "avx2"). false si no la tiene. */
 bool llm_quant_escolher(const char *nome)
 {
     if (llm_f16_tab[0x3C00] != 1.0f)

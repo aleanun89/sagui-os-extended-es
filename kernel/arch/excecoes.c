@@ -5,6 +5,7 @@
  * a memoria que no existe...), no hay forma de seguir con seguridad. La pantalla
  * muestra el nombre de la excepción en portugués y el estado de los registros, que es lo
  * que permite encontrar la causa a partir de una foto. */
+#include "rastro.h"
 #include "cpu.h"
 #include "cpu_dados.h"
 #include "console.h"
@@ -37,6 +38,7 @@ SEM_RETORNO void excecao_fatal(quadro_t *q)
 {
     int_desliga();
     uint32_t cr2 = le_cr2();
+    rastro_excecao(q->vetor, q->erro, q->eip);   /* depuración: sobrevive a un reinicio en caliente (rastro.h) */
     /* Primero el log (D164): si la pantalla se queda a medias (otra CPU
      * dibujando), la línea del puerto serie ya ha salido. */
     klog("\n[SAGUI] EXCECAO %u (%s) erro=%x eip=%x cr2=%x cpu=%u\n", q->vetor, nome_excecao(q->vetor),

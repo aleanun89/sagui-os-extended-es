@@ -9,7 +9,9 @@ R5xx (el Amilo con la Mobility X1400). Aquí se prueba lo que sí se puede:
   unidad    en el PC (tests/r500_3d_unidad.c): las órdenes del CP recorridas como
             lo haría la tarjeta, el formato del vértice, el programa de vértices y
             los dos de fragmentos contra sus palabras escritas a mano, el destino,
-            el Z, la mezcla, la textura, la valla y los triángulos;
+            el Z, la mezcla, la textura, la valla y los triángulos; y el
+            diagnóstico común de todas las tarjetas (tests/gpu3d_diag_unidad.c,
+            D390: sentinelas, análisis del destino y fichero de ajustes);
   fuentes   lo que tiene que estar en el árbol: lista de modelos, esperas con
             plazo, sin bus maestro ni reinicios, el microcódigo con su licencia y
             su SHA-256, la opción --gpu3d=radeon, D287 y los documentos;
@@ -72,6 +74,25 @@ def unidad():
     print("   ", r.stdout.strip().replace("\n", "\n    ")[-600:])
     verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
               "órdenes del CP de R5xx, formato del vértice, programa de vértices y programas de fragmentos")
+    # D386: dónde va la zona 3D en la VRAM, con los registros del Amilo (D2 activo en c0100000).
+    exe = os.path.join(DIR, "vram_zona_unidad")
+    r = subprocess.run(["gcc", "-O1", "-Wall", "-Wextra", "-Werror", "-I", os.path.join(RAIZ, "kernel", "dispositivos"),
+                        "-o", exe, os.path.join(RAIZ, "tests", "vram_zona_unidad.c")], capture_output=True, text=True)
+    verificar(r.returncode == 0, "la prueba de la zona en la VRAM compila\n" + r.stderr)
+    r = subprocess.run([exe], capture_output=True, text=True)
+    print("   ", r.stdout.strip().replace("\n", "\n    ")[-600:])
+    verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
+              "zona 3D en el primer hueco detrás de las superficies activas y los cursores (D386)")
+    # D390: el diagnóstico común (sentinelas, análisis del destino, ajustes con rangos por driver).
+    exe = os.path.join(DIR, "gpu3d_diag_unidad")
+    r = subprocess.run(["gcc", "-O1", "-fno-builtin", "-Wall", "-Wextra", "-Werror", "-Wno-builtin-declaration-mismatch",
+                        "-I", os.path.join(RAIZ, "kernel", "inc"), "-o", exe, os.path.join(RAIZ, "tests", "gpu3d_diag_unidad.c")],
+                       capture_output=True, text=True)
+    verificar(r.returncode == 0, "la prueba del diagnóstico común compila\n" + r.stderr)
+    r = subprocess.run([exe], capture_output=True, text=True)
+    print("   ", r.stdout.strip().replace("\n", "\n    ")[-600:])
+    verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
+              "diagnóstico común del 3D: vistas, sentinelas, análisis y ajustes con rangos (D390)")
 
 
 def fuentes():
@@ -83,18 +104,34 @@ def fuentes():
               "gpu3d_r500.c: esperas con plazo")
     verificar("pci_escreve32" not in drv, "gpu3d_r500.c: no cambia el registro de órdenes del PCI (sin bus maestro)")
     verificar("wr(SCRATCH_UMSK, 0)" in drv and "RB_SEM_ATUALIZAR" in drv,
-              "gpu3d_r500.c: sin escrituras de vuelta de la tarjeta a la memoria")
+              "gpu3d_r500.c: sin escrituras de vuelta de la tarjeta a la RAM (D387: solo a su página de la VRAM)")
     verificar("SOFT_RESET" not in drv.replace("RBBM_SOFT_RESET;", ""), "gpu3d_r500.c: no reinicia el motor")
     verificar("SEM_FIRMWARE" in drv and "/lib/firmware/radeon/R520_cp.bin" in drv,
               "gpu3d_r500.c: el microcódigo es opcional (sin él, software)")
     verificar(drv.count("[GPU3D] r500: etapa") >= 7 and "r5_detalle" in drv, "gpu3d_r500.c: diagnóstico por etapas y volcado de registros")
+    verificar(("vram_zona_buscar(oc, noc" in drv or "r5_zona3d_buscar(oc, noc" in drv) and "vram_zona_pisa(oc, noc" in drv and "avivo_superficie_bytes(" in drv,
+              "gpu3d_r500.c: la zona 3D detrás de todas las superficies y cursores, con la comprobación aparte (D386)")
+    verificar("r5_zona3d_buscar(oc, noc" in ler("kernel/dispositivos/acel_radeon.c") and "ZONA_VISTA" in drv and "janela_reservar(JANELA_BYTES)" in drv,
+              "D387: la zona 3D grande, con la misma búsqueda en la GART del volcado y la ventana móvil de la CPU")
+    # D390: el diagnóstico es de la capa; el driver solo declara su fichero, sus rangos y sus vistas.
+    verificar('"r500", r5_faixas_ajustes, R5_N_FAIXAS_AJUSTES, r5_vistas' in drv and "SENTINELA" not in drv
+              and "gpu3d-r500.conf\", &" not in drv and "r5_ajustes_por(&f, &gpu3d_ajustes, G3D_AJ_INICIO)" in drv
+              and "r5_ajustes_por(&f, &gpu3d_ajustes, G3D_AJ_DIBUJO)" in drv,
+              "gpu3d_r500.c: ajustes y vistas por la capa común (D390), con el mismo gpu3d-r500.conf")
     pac = ler("kernel/dispositivos/r500_pacotes.h")
+    verificar("{ 0x2000u, 0x4FFCu }" in pac, "r500_pacotes.h: los ajustes solo en los registros del 3D (0x2000-0x4FFC)")
     verificar("GPL-2.0-or-later" in pac.split("\n")[0] and "MIT" in pac, "r500_pacotes.h: código propio con sus fuentes anotadas")
-    for f in ("kernel/dispositivos/gpu3d_r500.c", "kernel/dispositivos/r500_pacotes.h", "tests/r500_3d_unidad.c"):
+    for f in ("kernel/dispositivos/gpu3d_r500.c", "kernel/dispositivos/r500_pacotes.h", "tests/r500_3d_unidad.c",
+              "kernel/dispositivos/radeon2d_ordens.h",
+              "kernel/dispositivos/vram_zona_logica.h", "tests/vram_zona_unidad.c"):
         t = ler(f)
         verificar("SPDX-License-Identifier: GPL-2.0-or-later" in t.split("\n")[0], f"{f}: marca SPDX")
         verificar("GPL-2.0-only" not in t, f"{f}: nada «GPL-2.0-only»")
     capa = ler("kernel/gui/gpu3d.c")
+    verificar('"/sistema/conf/gpu3d-%s.conf", drv->conf' in capa and "g3d_ajustes_ler(" in capa and "sentinelas();" in capa
+              and "diag_etapa(buf);" in capa and "GPU3D_ETAPA_VERSAO" in capa,
+              "gpu3d.c: el diagnóstico común (ajustes, sentinelas, análisis por etapa y --ver, D390)")
+    verificar("## D390." in ler("docs/decisoes.md"), "la decisión D390 está en docs/decisoes.md")
     verificar("&gpu3d_r500" in capa and "GPU3D_CAB_RADEON" in capa and "estado = GPU3D_APAGADO;" in capa,
               "gpu3d.c: elige el driver de R5xx y lo deja apagado salvo --gpu3d=radeon")
     verificar('"radeon": 4' in ler("tools/mkimagem.py") and "GPU3D_CAB_RADEON    4" in ler("kernel/inc/gpu3d.h"),

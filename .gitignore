@@ -52,7 +52,7 @@ __pycache__/
 # ROM libres de Game Boy (D235): las baja tools/gnuboy_roms_libres.sh; nunca van a git
 /userland/terceros/gnuboy/roms-libres
 # Zip de las fuentes de Typodermic (D196), bajado por «make priv_descargas»
-/NEW_FONTS/
+/NEW_FONTS
 .env_agents
 # ROM/BIOS de 86Box: con copyright, NO SE PUEDEN SUBIR NUNCA (D301). Viven en
 # ~/.local/saguitools/86box/roms; esto es por si alguien las copia dentro del repositorio.
@@ -83,3 +83,7 @@ __pycache__/
 # Fuentes de Chocolate Doom y Freedoom (D383): las bajan tools/doom_fuentes.sh y tools/doom_datos.sh; no van en git
 /userland/terceros/chocolatedoom/fuentes
 /userland/terceros/chocolatedoom/datos
+/userland/terceros/modelos3d/datos
+
+# Fuentes de libgit2 (D400): las baja tools/git_fuentes.sh; no van en git
+/userland/terceros/git/fuentes

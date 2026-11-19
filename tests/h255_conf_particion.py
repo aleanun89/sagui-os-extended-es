@@ -3,7 +3,7 @@
 """H255 (D256, mejora 098) - la partición SAGUI-CONF en las imágenes y el instalador.
 
 Parte 1 (anfitrión): mkimagem.py crea SAGUI-CONF (ext2, 16 MB, tipo 0x83, lógica de la extendida,
-  la última, con un LEEME) en la imagen normal, la multinúcleo, la uACPI, las de /home persistente
+  la primera desde D388, antes la última, con un LEEME) en la imagen normal, la multinúcleo, la uACPI, las de /home persistente
   (ext2 y FAT32), la de particiones y la sin GPL; no la crea con --sin-conf ni en la imagen de CD.
   Si existen, se comprueban también las imágenes de build/ (saguios.img, .vdi).
 Parte 2 (QEMU): "discos" la lista, con su nota de configuración del sistema.
@@ -69,8 +69,10 @@ def comprobar(img, rotulo, solo_leeme=True):
         return None
     tipo, ini, qtd = c
     verificar(tipo == 0x83 and qtd == 16 * 2048, f"[{rotulo}] SAGUI-CONF: tipo 0x83 y 16 MB (tipo {tipo:02X}, {qtd // 2048} MB)")
-    ultima = max((p for p in tabla(img) if p[0] not in (0x05, 0x0F, 0x85)), key=lambda p: p[1])
-    verificar(ultima[1] == ini, f"[{rotulo}] SAGUI-CONF es la última partición")
+    # D388: SAGUI-CONF es la primera lógica (antes, la última: ahora lo es /home, para ampliarla sin mover nada)
+    logs = [p for p in tabla(img) if p[0] not in (0, 0x05, 0x0F, 0x85, 0xDA, 0xEF)]
+    primera = min(logs, key=lambda p: p[1])
+    verificar(primera[1] == ini, f"[{rotulo}] SAGUI-CONF es la primera de las de datos y del sistema")
     p = extrair_particao(img, ini, 16, os.path.join(SAIDA, "h255-conf.part"))
     rc, o = e2fsck(p)
     verificar(rc == 0, f"[{rotulo}] e2fsck da por buena SAGUI-CONF ({o.strip()[-100:]})")
@@ -201,7 +203,11 @@ def comprobar_instalado(dest, rotulo, solo_leeme=True):
         with open(dest, "rb") as f:
             f.seek(512)
             cab = f.read(512)
-        sis = [p for p in t if p[0] == 0x83][1:]   # todas menos /home
+        def es_home(p):   # D388: /home ya no es la primera: se reconoce por la etiqueta
+            with open(dest, "rb") as f:
+                f.seek(p[1] * 512 + 1024 + 120)
+                return f.read(16).split(b"\0")[0] == b"SAGUI-DATOS"
+        sis = [p for p in t if p[0] == 0x83 and not es_home(p)]   # todas menos /home
         verificar(int.from_bytes(cab[136:140], "little") == sum(p[2] for p in sis),
                   f"[{rotulo}] CAB_SIS_SETORES incluye SAGUI-CONF")
 

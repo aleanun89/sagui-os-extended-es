@@ -73,73 +73,73 @@ msgstr ""
 msgid "Valores: si|no, un número, auto, o «defecto» (vuelve al de la imagen).\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:81
+#: userland/programas/kconfig.c:82
 msgid "Si lo guardado impide arrancar: Ctrl al arrancar (modo rescate) y «kconfig --por-defecto».\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:87
+#: userland/programas/kconfig.c:88
 #, c-format
 msgid "kconfig: hace falta ser administrador (usa: admin kconfig %s)\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:89
+#: userland/programas/kconfig.c:90
 msgid "kconfig: SaguiOS ha arrancado desde un CD, que es de solo lectura: no se puede guardar\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:91
+#: userland/programas/kconfig.c:92
 msgid "kconfig: no se encontró el disco de arranque de SaguiOS para guardar\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:92
+#: userland/programas/kconfig.c:93
 #, c-format
 msgid "kconfig: %s: no se pudo guardar: %s\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:107
+#: userland/programas/kconfig.c:108
 msgid "Configuración del kernel borrada: al reiniciar, los valores de la imagen.\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:119
+#: userland/programas/kconfig.c:120
 #, c-format
 msgid "kconfig: «%s»: se espera OPCION=VALOR (kconfig -h)\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:124
+#: userland/programas/kconfig.c:125
 #, c-format
 msgid "kconfig: no hay ninguna opción «%s» (kconfig -h)\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:128
+#: userland/programas/kconfig.c:129
 #, c-format
 msgid "kconfig: %s: «%s» no vale (si o no)\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:129
+#: userland/programas/kconfig.c:130
 #, c-format
 msgid "kconfig: %s: «%s» fuera de rango (auto o de %u a %u)\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:142
+#: userland/programas/kconfig.c:143
 #, c-format
 msgid "kconfig: combinación no válida (%s); no se guarda nada\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:149
+#: userland/programas/kconfig.c:150
 #, c-format
 msgid "%s: ajustado a %s solo (%s)\n"
 msgstr ""
 
-#: userland/programas/kconfig.c:158
+#: userland/programas/kconfig.c:159
 #, c-format
 msgid "%s: vuelve al de la imagen (%s)"
 msgstr ""
 
-#: userland/programas/kconfig.c:159
+#: userland/programas/kconfig.c:160
 #, c-format
 msgid "%s: guardado %s"
 msgstr ""
 
-#: userland/programas/kconfig.c:160
+#: userland/programas/kconfig.c:161
 msgid "; se aplica al reiniciar"
 msgstr ""
 

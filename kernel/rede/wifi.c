@@ -41,6 +41,7 @@
  * No se admiten: Enterprise, A-MPDU, 40 MHz, ahorro de energía ni 5 GHz (el
  * RTL8188EU no lo tiene; el AR9485 es de 2,4 GHz). */
 #include "wifi.h"
+#include "acoes.h"
 #include "ar9485.h"
 #include "wpa.h"
 #include "wpa_cifra.h"
@@ -1690,6 +1691,8 @@ void wifi_info(info_wifi_t *v)
 int32_t sis_wifi(uint32_t op, uint32_t ptr, uint32_t n, uint32_t d_, uint32_t e_)
 {
     (void)d_; (void)e_;
+    /* D403: con el modo avión (la tecla de la radio) no se busca ni se conecta. */
+    if (acoes_radio_apagada() && (op == WIFI_BUSCAR || op == WIFI_CONECTAR)) return ERRO_OCUPADO;
     switch (op) {
     case WIFI_ESTADO: {
         uint32_t tam = (n && n < sizeof(info_wifi_t)) ? n : sizeof(info_wifi_t);

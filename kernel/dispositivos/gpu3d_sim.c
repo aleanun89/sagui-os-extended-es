@@ -8,8 +8,15 @@
  * elige nunca solo y no sirve para ir más rápido.
  *
  * Es un rasterizador pequeño con enteros (el kernel no usa coma flotante):
- * regla de arriba-izquierda, color, especular y textura interpolados sin
- * corrección de perspectiva (rhw no se usa), Z de 24 bits y mezcla. */
+ * regla de arriba-izquierda, color, especular y textura interpolados, Z de 24
+ * bits y mezcla. D404: con rhw distinto en los tres vértices, color, especular
+ * y textura con corrección de perspectiva (como una GPU); con G3D_TEX_LINEAR,
+ * textura bilineal. Con rhw igual y sin LINEAR, el mismo píxel de antes.
+ *
+ * D390: para probar en QEMU el diagnóstico común (sentinelas, análisis del destino,
+ * «gpu3d probar --ver» y /sistema/conf/gpu3d-simulado.conf) tiene dos «registros» de
+ * mentira, 0x1000-0x10FC: 0x1000 hace XOR del color que escribe cada dibujo, y 0x1004
+ * distinto de 0 hace que no escriba nada (como una GPU que ejecuta sin tocar la memoria). */
 #include "gpu3d.h"
 #include "console.h"
 #include "memoria.h"
@@ -22,6 +29,15 @@ static struct { uint32_t *px; int larg, alt; } tex[GPU3D_TEXTURAS];
 static bool pronto;
 static g3d_vala_t vala;
 static uint32_t usados_kb;
+static uint32_t regs[0x40];                 /* D390: 0x1000-0x10FC */
+#define R_XOR     regs[0]
+#define R_MUDO    regs[1]
+
+static void ajustes(int quando)
+{
+    for (int i = 0; i < gpu3d_ajustes.n; i++)
+        if (gpu3d_ajustes.quando[i] == quando) regs[(gpu3d_ajustes.reg[i] - 0x1000u) >> 2 & 0x3Fu] = gpu3d_ajustes.val[i];
+}
 
 static void soltar_alvo(void)
 {
@@ -42,6 +58,8 @@ static int s_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, uin
     (void)d; (void)geracao; (void)t; (void)m; (void)nm;
     s_desligar();
     pronto = true; vala = 0; usados_kb = 0;
+    memset(regs, 0, sizeof regs);
+    ajustes(G3D_AJ_INICIO);
     klog("[GPU3D] simulado: driver de pruebas por la CPU (no es una GPU)%s\n",
          variante & GPU3D_CAB_GTT ? "; RAM en el GTT pedida (D358): en el simulado no cambia nada" : "");
     return G3D_OK;
@@ -64,6 +82,8 @@ static int s_alvo(int larg, int alt, int zbits)
 static int s_limpar(uint32_t mascara, uint32_t c)
 {
     if (!pronto || !cor) return G3D_FALHA;
+    ajustes(G3D_AJ_DIBUJO);
+    if (R_MUDO) return G3D_OK;
     for (int i = 0; i < L * A; i++) {
         if (mascara & 1) cor[i] = c & 0x00FFFFFFu;
         if (mascara & 2) zb[i] = 0x00FFFFFFu;
@@ -85,7 +105,7 @@ static int s_textura(int vaga, int larg, int alt, const uint32_t *argb)
     return G3D_OK;
 }
 
-typedef struct { int32_t x, y, z, u, v; uint8_t c[4], e[3]; } sv_t;   /* x, y con 4 bits; z de 24 bits; u, v con 16 bits */
+typedef struct { int32_t x, y, z, u, v, q; uint8_t c[4], e[3]; } sv_t;   /* x, y con 4 bits; z de 24 bits; u, v, q (rhw) con 16 bits */
 
 static void converter(const gpu3d_vert_t *g, sv_t *s)
 {
@@ -95,6 +115,8 @@ static void converter(const gpu3d_vert_t *g, sv_t *s)
     s->z = z < 0 ? 0 : z > 0xFFFFFF ? 0xFFFFFF : z;
     s->u = g3d_fixo_de_float(g->u, 16);
     s->v = g3d_fixo_de_float(g->v, 16);
+    int32_t q = g3d_fixo_de_float(g->rhw, 16);
+    s->q = q < 1 ? 1 : q > 0x7FFFFFF ? 0x7FFFFFF : q;
     s->c[0] = (uint8_t)(g->cor >> 16); s->c[1] = (uint8_t)(g->cor >> 8); s->c[2] = (uint8_t)g->cor; s->c[3] = (uint8_t)(g->cor >> 24);
     s->e[0] = (uint8_t)(g->espec >> 16); s->e[1] = (uint8_t)(g->espec >> 8); s->e[2] = (uint8_t)g->espec;
 }
@@ -122,8 +144,34 @@ static inline uint32_t fator(uint8_t f, uint32_t alfa)
     return f == G3D_F_ZERO ? 0 : f == G3D_F_ALFA ? alfa : f == G3D_F_UM_MENOS_ALFA ? 255 - alfa : 255;
 }
 
+/* D404: un texel con la repetición o el borde de la textura. */
+static inline uint32_t texel_sim(const uint32_t *tpx, int tl, int ta, int tx, int ty, uint32_t flags)
+{
+    if (flags & G3D_TEX_REPETE_S) { tx %= tl; if (tx < 0) tx += tl; } else { if (tx < 0) tx = 0; else if (tx >= tl) tx = tl - 1; }
+    if (flags & G3D_TEX_REPETE_T) { ty %= ta; if (ty < 0) ty += ta; } else { if (ty < 0) ty = 0; else if (ty >= ta) ty = ta - 1; }
+    return tpx[ty * tl + tx];
+}
+
+/* D404: pesos con corrección de perspectiva: (l1, l2) de pantalla -> del triángulo, en 16 bits. */
+static void perspectiva(int32_t l1, int32_t l2, const sv_t *v0, const sv_t *v1, const sv_t *v2, int32_t *p1, int32_t *p2)
+{
+    int64_t w0 = 65536 - (int64_t)l1 - l2, w1 = l1, w2 = l2;
+    if (w0 < 0) w0 = 0;
+    if (w1 < 0) w1 = 0;
+    if (w2 < 0) w2 = 0;
+    uint64_t b0 = (uint64_t)w0 * (uint32_t)v0->q, b1 = (uint64_t)w1 * (uint32_t)v1->q, b2 = (uint64_t)w2 * (uint32_t)v2->q;
+    uint64_t soma = b0 + b1 + b2;
+    if (!soma) { *p1 = l1; *p2 = l2; return; }
+    int k = 0;
+    while ((soma >> k) > 0x7FFFFFFFu) k++;
+    uint32_t d = (uint32_t)(soma >> k);
+    *p1 = (int32_t)sconv_div64((b1 >> k) << 16, d);
+    *p2 = (int32_t)sconv_div64((b2 >> k) << 16, d);
+}
+
 static void triangulo(const gpu3d_estado_t *e, sv_t *v0, sv_t *v1, sv_t *v2)
 {
+    int persp = v0->q != v1->q || v0->q != v2->q;
     int64_t area = aresta(v0, v1, v2->x, v2->y);
     if (area == 0) return;
     if (area < 0) { sv_t *t = v1; v1 = v2; v2 = t; area = -area; }
@@ -162,6 +210,7 @@ static void triangulo(const gpu3d_estado_t *e, sv_t *v0, sv_t *v1, sv_t *v2)
                 if (e->flags & G3D_Z_ESCRITA) zb[i] = z;
             }
             uint32_t c[4];
+            if (persp) perspectiva(l1, l2, v0, v1, v2, &l1, &l2);
             for (int k = 0; k < 4; k++) {
                 int32_t q = mistura3((int32_t)v0->c[k] << 8, (int32_t)v1->c[k] << 8, (int32_t)v2->c[k] << 8, l1, l2);
                 c[k] = (uint32_t)(q < 0 ? 0 : (q + 128) >> 8);
@@ -169,10 +218,24 @@ static void triangulo(const gpu3d_estado_t *e, sv_t *v0, sv_t *v1, sv_t *v2)
             }
             if (tpx) {
                 int32_t u = mistura3(v0->u, v1->u, v2->u, l1, l2), w = mistura3(v0->v, v1->v, v2->v, l1, l2);
-                int tx = (int)(((int64_t)u * tl) >> 16), ty = (int)(((int64_t)w * ta) >> 16);
-                if (e->flags & G3D_TEX_REPETE_S) { tx %= tl; if (tx < 0) tx += tl; } else { if (tx < 0) tx = 0; else if (tx >= tl) tx = tl - 1; }
-                if (e->flags & G3D_TEX_REPETE_T) { ty %= ta; if (ty < 0) ty += ta; } else { if (ty < 0) ty = 0; else if (ty >= ta) ty = ta - 1; }
-                uint32_t t = tpx[ty * tl + tx];
+                uint32_t t;
+                if (e->flags & G3D_TEX_LINEAR) {
+                    /* D404: bilineal, con los centros de los texels en .5 */
+                    int64_t sx = (int64_t)u * tl - 32768, sy = (int64_t)w * ta - 32768;
+                    int tx = (int)(sx >> 16), ty = (int)(sy >> 16);
+                    uint32_t fx = (uint32_t)(sx & 0xFFFF) >> 8, fy = (uint32_t)(sy & 0xFFFF) >> 8;
+                    uint32_t a = texel_sim(tpx, tl, ta, tx, ty, e->flags), b = texel_sim(tpx, tl, ta, tx + 1, ty, e->flags);
+                    uint32_t cc = texel_sim(tpx, tl, ta, tx, ty + 1, e->flags), d = texel_sim(tpx, tl, ta, tx + 1, ty + 1, e->flags);
+                    t = 0;
+                    for (int k = 0; k < 32; k += 8) {
+                        uint32_t cima = ((a >> k) & 0xFF) * (256 - fx) + ((b >> k) & 0xFF) * fx;
+                        uint32_t baixo = ((cc >> k) & 0xFF) * (256 - fx) + ((d >> k) & 0xFF) * fx;
+                        t |= ((cima * (256 - fy) + baixo * fy + 32768) >> 16) << k;
+                    }
+                } else {
+                    int tx = (int)(((int64_t)u * tl) >> 16), ty = (int)(((int64_t)w * ta) >> 16);
+                    t = texel_sim(tpx, tl, ta, tx, ty, e->flags);
+                }
                 c[0] = (c[0] * ((t >> 16) & 0xFF) + 127) / 255;
                 c[1] = (c[1] * ((t >> 8) & 0xFF) + 127) / 255;
                 c[2] = (c[2] * (t & 0xFF) + 127) / 255;
@@ -191,14 +254,15 @@ static void triangulo(const gpu3d_estado_t *e, sv_t *v0, sv_t *v1, sv_t *v2)
                     if (c[k] > 255) c[k] = 255;
                 }
             }
-            cor[i] = (c[0] << 16) | (c[1] << 8) | c[2];
+            cor[i] = ((c[0] << 16) | (c[1] << 8) | c[2]) ^ (R_XOR & 0x00FFFFFFu);
         }
 }
 
 static int s_desenhar(const gpu3d_estado_t *e, const gpu3d_vert_t *v, int n, g3d_vala_t *va)
 {
     if (!pronto || !cor) return G3D_FALHA;
-    for (int i = 0; i + 2 < n; i += 3) {
+    ajustes(G3D_AJ_DIBUJO);
+    for (int i = 0; i + 2 < n && !R_MUDO; i += 3) {
         sv_t a, b, c;
         converter(&v[i], &a); converter(&v[i + 1], &b); converter(&v[i + 2], &c);
         triangulo(e, &a, &b, &c);
@@ -213,6 +277,10 @@ static int s_esperar(g3d_vala_t va, uint32_t ms) { (void)va; (void)ms; return pr
 static int s_ler(uint32_t *dest, int passo_px)
 {
     if (!pronto || !cor) return G3D_FALHA;
+    /* D391: con la GPU simulada del volcado (--volcado-gpu-simulado), el cuadro vuelve por su GART de
+     * software, como lo haría el motor 2D de una R5xx; sin ella (o si no se puede), como siempre. */
+    acel_origem_t o = { 0, cor, (uint32_t)L * 4u, 0 };
+    if (acel_retornar(&o, L, A, dest, passo_px)) return G3D_OK;
     for (int y = 0; y < A; y++) memcpy(dest + y * passo_px, cor + y * L, (uint32_t)L * 4);
     return G3D_OK;
 }
@@ -220,6 +288,16 @@ static int s_ler(uint32_t *dest, int passo_px)
 static void s_detalle(const char *fase) { klog("[GPU3D] simulado %s: destino %dx%d, vallas %u\n", fase, L, A, vala); }
 static void s_memoria(uint32_t *total_kb, uint32_t *livre_kb) { *total_kb = 16384; *livre_kb = 16384 - usados_kb; }
 
+static const g3d_faixa_t s_faixas[] = { { 0x1000u, 0x10FCu } };
+
+static void s_vistas(g3d_vista_t *c, g3d_vista_t *z)
+{
+    if (!pronto || !cor) return;
+    *c = (g3d_vista_t){ (volatile uint8_t *)cor, (uint32_t)L * 4u, L, A, 32, 0, 0, false };
+    *z = (g3d_vista_t){ (volatile uint8_t *)zb, (uint32_t)L * 4u, L, A, 32, 24, 0, false };
+}
+
 const gpu3d_driver_t gpu3d_sim = {
     "simulado", s_iniciar, s_alvo, s_limpar, s_textura, s_desenhar, s_esperar, s_ler, s_desligar, s_detalle, s_memoria,
+    "simulado", s_faixas, 1, s_vistas,
 };

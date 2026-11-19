@@ -126,6 +126,9 @@ copiar_texto
 cor_do_ambiente
 cor_opcao
 cor_para
+cpu_tem_avx
+cpu_tem_avx2
+cpu_tem_fma
 cpu_tem_sse
 cpu_tem_sse2
 cpu_tem_sse3

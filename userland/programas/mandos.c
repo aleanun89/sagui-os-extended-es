@@ -11,6 +11,7 @@
  *   mandos --calibracion VALORES  la pone y la guarda («min,centro,max/» por eje, en décimas de us)
  *   mandos --aplicar              pone la calibración guardada (lo hace «configuracion --aplicar»)
  *   mandos --inyectar N HEX       informe crudo para un mando de prueba (imagen --mandos-prueba)
+ *   mandos --crudo [N] [SEG]      descriptor de informe e informes crudos (diagnóstico de mandos USB)
  *
  * La calibración se guarda en /home/.config/sagui.conf (clave mando_puerto=) si /home persiste. */
 #include "sagui.h"
@@ -20,7 +21,8 @@
 static void ayuda(void)
 {
     imprimir("uso: mandos [--lista | --probar [N] [SEG] | --estado [N] | --detectar | --calibrar [SEG]\n"
-             "              | --calibracion [auto | VALORES] | --aplicar | --inyectar N HEX]\n"
+             "              | --calibracion [auto | VALORES] | --aplicar | --inyectar N HEX\n"
+             "              | --crudo [N] [SEG]]\n"
              "  Mandos USB (HID y Xbox 360 con cable) y el joystick del puerto de juegos (0x201).\n"
              "  Los ejes van de -32768 a 32767; la calibración del puerto se guarda en sagui.conf.\n");
 }
@@ -75,6 +77,49 @@ static int linha_estado(int k, const info_mando_t *m, const estado_mando_t *e, c
         u += formatar_texto(t + u, sizeof t - (unsigned)u, " us");
     }
     imprimir("%s\n", t);
+    return 0;
+}
+
+static void imprimir_hex(const char *pre, const unsigned char *b, unsigned n)
+{
+    imprimir("%s", pre);
+    for (unsigned i = 0; i < n; i++) imprimir(" %02x", b[i]);
+    imprimir("\n");
+}
+
+static int obter(int k, info_mando_t *m);
+
+/* Diagnóstico de un mando USB: el descriptor de informe y, durante SEG segundos, cada informe
+ * crudo nuevo con los ejes que salen de él. Con eso se ve en una máquina real si un eje mal
+ * leído es culpa del analizador (kernel/lib/hid_informe.c) o del propio mando. */
+static int crudo(int k, int seg)
+{
+    info_mando_t m;
+    if (obter(k, &m) < 0) return 1;
+    static unsigned char d[1024];
+    int total = mando_descriptor(k, d, sizeof d);
+    if (total < 0) { imprimir_em(ERROS, "mandos: no se puede leer el descriptor (%d)\n", total); return 1; }
+    imprimir("%s (%04x:%04x): descriptor de informe de %d bytes\n", m.nome, m.fabricante, m.produto, total);
+    for (int i = 0; i < total && i < (int)sizeof d; i += 16) {
+        char pre[16];
+        formatar_texto(pre, sizeof pre, "  %3d:", i);
+        imprimir_hex(pre, d + i, (unsigned)(total - i < 16 ? total - i : 16));
+    }
+    imprimir("Informes (cambia cuando se mueve o se pulsa algo; %d s):\n", seg);
+    unsigned char ant[64], inf[64];
+    unsigned n_ant = 1000, n = 0;
+    unsigned fim = tempo_ms() + (unsigned)seg * 1000u;
+    do {
+        estado_mando_t e;
+        if (mando_ler_informe(k, &e, inf, &n) < 0) { imprimir("El mando se ha desconectado.\n"); return 1; }
+        if (n != n_ant || memcmp(inf, ant, n) != 0) {
+            imprimir_hex("informe:", inf, n);
+            linha_estado(k, &m, &e, NULL);
+            memcpy(ant, inf, n);
+            n_ant = n;
+        }
+        if (seg > 0) dormir(50);
+    } while ((int)(fim - tempo_ms()) > 0);
     return 0;
 }
 
@@ -195,6 +240,8 @@ int principal(int argc, char **argv)
     if (compara_texto(op, "--estado") == 0) return estado(argc >= 3 ? texto_para_int(argv[2]) : 0);
     if (compara_texto(op, "--probar") == 0)
         return probar(argc >= 3 ? texto_para_int(argv[2]) : 0, argc >= 4 ? texto_para_int(argv[3]) : 15);
+    if (compara_texto(op, "--crudo") == 0)
+        return crudo(argc >= 3 ? texto_para_int(argv[2]) : 0, argc >= 4 ? texto_para_int(argv[3]) : 0);
     if (compara_texto(op, "--detectar") == 0) {
         int r = mandos_detectar();
         imprimir(r > 0 ? "Hay un joystick en el puerto de juegos.\n" : "No hay joystick en el puerto de juegos.\n");

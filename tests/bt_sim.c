@@ -527,8 +527,25 @@ static void cmd(uint16_t op, const uint8_t *p, int n)
         q_cc(op, b, 1);
         return;
     }
+    if (sim_cfg.cs_mudo_op && sim_cfg.cs_mudo_op == op) { q_cs(op, 0); return; }
+    if (sim_cfg.clon_csr) {
+        if (op == OP_WR_SSP) { q_cs(op, 0x01); return; }   /* desconocida: Command Status, no Complete */
+        if (op == OP_WR_INQMODE && p[0] > 1) { b[0] = 0x11; q_cc(op, b, 1); return; }
+        if (op == OP_RD_VERSAO) {
+            b[0] = 0; b[1] = 3; b[2] = 0x3B; b[3] = 0x09; b[4] = 3; b[5] = 0x0A; b[6] = 0; b[7] = 0x3B; b[8] = 0x09;
+            q_cc(op, b, 9);
+            return;
+        }
+    }
     switch (op) {
     case OP_RESET: b[0] = 0; q_cc(op, b, 1); break;
+    case OP_RD_FEATURES:
+        if (sim_cfg.sin_features) { b[0] = 0x01; q_cc(op, b, 1); break; }
+        if (sim_cfg.clon_csr) { static const uint8_t f[8] = { 0xFF, 0xFF, 0x8F, 0xFE, 0x9B, 0xF9, 0x00, 0x80 }; memcpy(b + 1, f, 8); }
+        else { static const uint8_t f[8] = { 0xFF, 0xFF, 0x8F, 0xFE, 0xDB, 0xFF, 0x5B, 0x87 }; memcpy(b + 1, f, 8); }
+        b[0] = 0;
+        q_cc(op, b, 9);
+        break;
     case OP_RD_VERSAO: b[0] = 0; b[1] = 6; b[2] = 0x34; b[3] = 0x12; b[4] = 6; b[5] = 0x0A; b[6] = 0; b[7] = 0x34; b[8] = 0x12; q_cc(op, b, 9); break;
     case OP_RD_ADDR: b[0] = 0; memcpy(b + 1, ADDR_CTL, 6); q_cc(op, b, 7); break;
     case OP_RD_BUFFER:
@@ -537,7 +554,8 @@ static void cmd(uint16_t op, const uint8_t *p, int n)
         q_cc(op, b, 8);
         break;
     case OP_WR_SSP: b[0] = sim_cfg.sin_ssp ? 0x11 : 0; q_cc(op, b, 1); break;
-    case OP_SET_EVMASK: case OP_WR_INQMODE: case OP_WR_NOME: case OP_WR_CLASE: case OP_WR_SCAN:
+    case OP_WR_INQMODE: sim_cfg.inq_modo = p[0]; b[0] = 0; q_cc(op, b, 1); break;
+    case OP_SET_EVMASK: case OP_WR_NOME: case OP_WR_CLASE: case OP_WR_SCAN:
         b[0] = 0; q_cc(op, b, 1);
         break;
     case OP_INQUIRY:
@@ -677,6 +695,7 @@ static void cmd(uint16_t op, const uint8_t *p, int n)
         }
         break;
     default:
+        if (sim_cfg.clon_csr) { q_cs(op, 0x01); break; }
         b[0] = 0x01;   /* orden desconocida */
         q_cc(op, b, 1);
         break;

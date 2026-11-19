@@ -146,6 +146,7 @@ uint32_t bt_agora(void);
 #define OP_WR_SSP        BT_OP(3, 0x56)
 #define OP_RD_VERSAO     BT_OP(4, 0x01)
 #define OP_RD_BUFFER     BT_OP(4, 0x05)
+#define OP_RD_FEATURES   BT_OP(4, 0x03)
 #define OP_RD_ADDR       BT_OP(4, 0x09)
 #define OP_INQUIRY       BT_OP(1, 0x01)
 #define OP_INQUIRY_CANC  BT_OP(1, 0x02)

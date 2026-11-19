@@ -23,7 +23,11 @@ static const texto_op_t textos[] = {
     { "swap_mb", N_("Tamaño máximo de la swap"), N_("Tope del almacén comprimido; automático = la mitad de la RAM (un cuarto sin memoria alta).") },
     { "capa_ram_pct", N_("Tope de lo escrito en la RAM (%)"), N_("Live y /tmp: cuánto de la RAM pueden ocupar los cambios; automático = 50 %.") },
     { "raiz_modo", N_("Modo de arranque de la live"), N_("Live desde el medio o todo a la RAM; automático = el de la imagen (tecla M al arrancar para elegir una vez).") },
+    { "avx", N_("AVX (registros YMM)"), N_("Deja que los programas usen AVX/AVX2 (la IA local va más rápida). Con «no», solo SSE, como antes: por si un equipo falla con AVX.") },
     { "serie_terminal", N_("Copia del Terminal al puerto serie"), N_("Para depurar: lo que sale en el Terminal también va al puerto serie. Con un COM1 real hace la salida muy lenta.") },
+    { "volcado_gpu", N_("Volcado a pantalla por la GPU"), N_("La tarjeta copia el escritorio de la RAM a la pantalla (Radeon X1000). Solo se usa si su autoprueba pasa; con «no», lo copia la CPU.") },
+    { "gpu_energia", N_("Energía de la GPU al arrancar"), N_("BIOS (no tocar los relojes), bajo, alto o dinámico (bajo en reposo y alto con el 3D o el volcado trabajando). Automático: dinámico en tarjetas confirmadas, BIOS en las demás (Radeon X1000).") },
+    { "vuelta_gpu", N_("Cuadro 3D a la RAM por la GPU"), N_("La tarjeta trae cada cuadro del 3D a la ventana del programa sin que la CPU lea la memoria de vídeo (Radeon X1000). Solo se usa si su autoprueba pasa; con «no», lo lee la CPU.") },
 };
 
 static const texto_op_t *texto_de(const char *nome)
@@ -75,6 +79,7 @@ static bool termina_em(const char *s, const char *fim)
 }
 
 static const char *const gobernadores[] = { "rendimiento", "ahorro", "demanda" };
+static const char *const modos_gpu[] = { "bios", "bajo", "alto", "dinamico" };   /* D399: gpu_energia 1-4 */
 
 void kconf_texto_valor(const info_kconf_t *o, unsigned v, char *buf, size_t n)
 {
@@ -82,6 +87,8 @@ void kconf_texto_valor(const info_kconf_t *o, unsigned v, char *buf, size_t n)
     else if (v == 0) copia_texto(buf, _("automático"), n);
     else if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "gobernador") == 0 && v <= 3)
         copia_texto(buf, v == 1 ? _("rendimiento") : v == 2 ? _("ahorro") : _("a demanda"), n);
+    else if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "gpu_energia") == 0 && v >= 1 && v <= 4)
+        copia_texto(buf, v == 1 ? _("BIOS (sin tocar)") : v == 2 ? _("bajo") : v == 3 ? _("alto") : _("dinámico"), n);
     else if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "raiz_modo") == 0 && v >= 1 && v <= 4)
         copia_texto(buf, v == 1 ? _("rescate") : v == 2 ? _("instalado") : v == 3 ? _("live") : _("toram"), n);
     else if (termina_em(o->nome, "_pct")) formatar_texto(buf, n, "%u %%", v);
@@ -103,6 +110,11 @@ int kconf_interpretar(const info_kconf_t *o, const char *t, unsigned *v)
         for (unsigned i = 0; i < 3; i++)
             if (compara_texto(t, gobernadores[i]) == 0) { *v = i + 1; return 0; }
         if (compara_texto(t, "a_demanda") == 0) { *v = 3; return 0; }
+    }
+    if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "gpu_energia") == 0) {
+        for (unsigned i = 0; i < 4; i++)
+            if (compara_texto(t, modos_gpu[i]) == 0) { *v = i + 1; return 0; }
+        if (compara_texto(t, "dinámico") == 0) { *v = 4; return 0; }
     }
     if (o->tipo == KCONF_LISTA && compara_texto(o->nome, "raiz_modo") == 0) {
         if (compara_texto(t, "live") == 0) { *v = 3; return 0; }

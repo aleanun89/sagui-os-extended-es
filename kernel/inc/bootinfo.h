@@ -78,6 +78,11 @@ typedef struct EMPACOTADO {
  * boot_info: la cabecera no se toca (el núcleo la compara con el disco para saber de cuál arrancó). */
 #define OPC_BOOT_RAIZ_MODO      0xE0000u
 #define OPC_BOOT_RAIZ_MODO_DESL 17
+/* D392: este arranque es el kernel de la ranura de prueba de la cabecera («arranque probar»), que la
+ * etapa 2 arrancó una vez (y ya borró la marca), o el último bueno confirmado (con OPC_BOOT_KERNEL_FIXO). Solo en
+ * boot_info (u32); INFO_ARRANQUE lo da en «opcoes» (también con los kernels de antes, que lo copian). */
+#define OPC_BOOT_KERNEL_PRUEBA 0x100000u
+#define OPC_BOOT_KERNEL_FIXO   0x200000u
 #define OPC_BOOT_SESION_RAIZ 0x8000  /* D255: imagen de prueba: el escritorio y el Terminal como root (mkimagem.py --sesion-root) */
 /* D174: el planificador elegido al arrancar (mkimagem.py --planificador), en los
  * bits 9-11: 0 = el de por defecto, o PLANIFICADOR_* de abi.h. */
@@ -132,6 +137,30 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
  * de prueba no (las pruebas leen el Terminal por el serie). Se cambia con «kconfig serie_terminal=si|no». */
 #define CAB_TERM_OPC 164
 #define CAB_TERM_SIN_SERIE 0x01
+/* D387: u8 (mkimagem.py): el volcado del búfer de atrás a la pantalla por la GPU. bit 0 --sin-volcado-gpu (kconfig
+ * volcado_gpu=no); los demás, solo para las pruebas: bit 1 --volcado-gpu-simulado (una «GPU» de software con la misma
+ * tabla de páginas, que copia con retraso como el motor de verdad), bit 2 --volcado-gpu-prueba=fallo (la autoprueba
+ * ve un píxel distinto), bit 3 --volcado-gpu-prueba=cuelgue (una espera se agota en sesión). */
+#define CAB_ACEL_OPC 165
+#define CAB_ACEL_SIN_VOLCADO     0x01
+#define CAB_ACEL_VOLCADO_SIM     0x02
+#define CAB_ACEL_VOLCADO_FALLO   0x04
+#define CAB_ACEL_VOLCADO_CUELGUE 0x08
+#define CAB_ACEL_SIN_RETORNO     0x10   /* D391: --sin-vuelta-gpu / kconfig vuelta_gpu=no */
+#define CAB_ACEL_RETORNO_FALLO   0x20   /* D391, pruebas: la autoprueba de la vuelta ve un píxel distinto */
+#define CAB_ACEL_RETORNO_CUELGUE 0x40   /* D391, pruebas: la simulada deja de contestar en la 4.ª vuelta */
+/* D381: u8 (mkimagem.py): bit 0 --sem-avx: el kernel no enciende AVX (CR4.OSXSAVE, XCR0, XSAVE) aunque la CPU lo
+ * tenga; todo como antes (FXSAVE, rutas SSE). Por si un equipo real falla con AVX. «kconfig avx=si|no». El modo
+ * rescate (Ctrl al arrancar) tampoco lo enciende. */
+#define CAB_CPU_OPC 166
+#define CAB_CPU_SEM_AVX 0x01
+/* D399: u8 (mkimagem.py), solo para las pruebas: bit 0 --gpu-energia-simulada (driver de energía de mentira con una
+ * BIOS ATOM de juguete); bit 1 --gpu-energia-prueba=fallo (escribe mal el reloj); bit 2 =cuelgue (la tabla no termina).
+ * 166 es CAB_CPU_OPC (D381). */
+#define CAB_GPU_OPC 167
+#define CAB_GPU_EN_SIM      0x01
+#define CAB_GPU_EN_FALLO    0x02
+#define CAB_GPU_EN_CUELGUE  0x04
 #define CAB_TROCA_MB 160   /* u16 D352 (mkimagem.py --swap-mb N): tope del almacén de la swap en MB; 0 = automático */
 /* D353: 192-255 = lo que guarda kconfig (KCONF_* de kconf.h). Quien lee CAB_MEM_OPC, CAB_DISCO_OPC o CAB_FREQ
  * usa kconf_cab(), que pone lo guardado encima de la imagen. */

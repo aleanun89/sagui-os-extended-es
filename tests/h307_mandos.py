@@ -74,6 +74,11 @@ def provar_os():
         out = m.comando("mandos --estado 0")
         verificar("ejes -32768 32767 128 128; botones 2 10; hat 0 centro" in out,
                   "Dual Action: X, Y, Z, Rz, botones 2 y 10 y el hat suelto")
+        # Diagnóstico de la 8.5.4.10r2 (Attack 3 en la D250): descriptor y último informe crudo
+        out = m.comando("mandos --crudo 0")
+        verificar("descriptor de informe de 99 bytes" in out and "0: 05 01 09 04 a1 01 a1 02 75 08 95 04 15 00 26 ff" in out,
+                  "mandos --crudo enseña el descriptor del Dual Action")
+        verificar("informe: 00 ff 80 80 28 20 00 00" in out, "mandos --crudo enseña el último informe crudo")
         # Xbox 360: A + Start + cruceta arriba-izquierda, LT a fondo, LX a la derecha, LY arriba
         xbox = bytes([0x00, 0x14, 0x15, 0x10, 0xFF, 0x00, 0xFF, 0x7F, 0xFF, 0x7F, 0, 0, 0x00, 0x80]) + bytes(6)
         m.comando("mandos --inyectar 1 " + xbox.hex())

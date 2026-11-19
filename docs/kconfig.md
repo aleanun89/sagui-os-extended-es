@@ -32,6 +32,8 @@ kconfig -h                                # qué hace cada opción y su rango
 | `swap` | si, no | swap comprimida en la RAM (D352) |
 | `swap_mb` | auto, 4-1024 | tope de la swap comprimida (automático: la mitad de la RAM) |
 | `serie_terminal` | si, no | el Terminal copia su salida al puerto serie (para depurar; D385). Las imágenes de serie la llevan en «no» (con un COM1 real, la copia limita la salida a unos 3,8 KB/s); las de prueba, en «si». La lee el Terminal al abrirse |
+| `volcado_gpu` | si, no | el volcado del escritorio a la pantalla lo hace la GPU leyendo la RAM por la GART (Radeon X1000/R5xx con PCI Express; D387). Encendido de serie, pero solo se usa si su autoprueba pasa; con «no», lo copia la CPU. Para probar sin reiniciar: `acel2d volcado apagar|encender` |
+| `vuelta_gpu` | si, no | cada cuadro del 3D por la GPU vuelve a la ventana del programa escrito por la GPU en la RAM (la misma GART), sin que la CPU lea la memoria de vídeo (Radeon X1000/R5xx con PCI Express; D391). Encendido de serie, pero solo se usa si su autoprueba pasa (y la de la lectura del volcado); con «no», lo lee la CPU. Para probar sin reiniciar: `acel2d vuelta apagar|encender` |
 
 ## Dependencias entre opciones (D367)
 

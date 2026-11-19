@@ -202,6 +202,25 @@ static void paquetes(void)
     r63d_lote(&l, b, 64);
     r63d_desenhar(&l, 0x10200000u, 4, 1, false);
     VERIFICA(l.p[1] == 1u << 24 && l.p[16] == 2, "líneas y caché de vértices en las demás familias");
+    /* D402: vértices que no empiezan en 256 bytes: el SURFACE_SYNC cubre hasta el último. */
+    r63d_lote(&l, b, 64);
+    r63d_desenhar(&l, 0x102000C0u, 6, 4, true);
+    VERIFICA(l.p[2] == 2 && l.p[3] == 0x102000, "SURFACE_SYNC de vértices no alineados cubre todo el rango");
+
+    /* D406: CP_DMA (r600_copy_cpdma): vaciar el color, trozos de 0x1FFFFF, CP_SYNC solo en el último. */
+    r63d_lote(&l, b, 64);
+    VERIFICA(!r63d_cp_dma(&l, 0x7A0000u, 0x20000000u, 0), "CP_DMA de 0 bytes: nada");
+    VERIFICA(r63d_cp_dma(&l, 0x7A0000u, 0x20000000u, 0x300000u), "CP_DMA de 3 MB");
+    {
+        static const uint32_t cd[] = {
+            0xC0004600u, 0x16, 0xC0016800u, 0x40 / 4, (1u << 15) | (1u << 17),
+            0xC0034300u, (1u << 25) | (1u << 6), 0x3000, 0x7A00, 10,
+            0xC0044100u, 0x7A0000u, 0, 0x20000000u, 0, 0x1FFFFFu,
+            0xC0044100u, 0x7A0000u + 0x1FFFFFu, 1u << 31, 0x20000000u + 0x1FFFFFu, 0, 0x300000u - 0x1FFFFFu,
+            0xC0016800u, 0x40 / 4, 1u << 8,
+        };
+        compara("CP_DMA de 3 MB", l.p, l.n, cd, (int)(sizeof cd / sizeof cd[0]));
+    }
 
     /* Valla. */
     r63d_lote(&l, b, 64);
@@ -290,6 +309,10 @@ static void paquetes(void)
     recorre("programas", &l);
     VERIFICA(tem_reg(&l, 0x28858, 0x101100) && tem_reg(&l, 0x28840, 0x101102) && tem_reg(&l, 0x28850, 3u | (1u << 28)) &&
              tem_reg(&l, 0x28868, 5) && tem_reg(&l, 0x28854, 2), "direcciones y recursos de los sombreadores");
+
+    /* D402: paso de las superficies lineales alineadas según GROUP_SIZE (dv7: GB_TILING_CONFIG cb52). */
+    VERIFICA(r63d_alinhamento_passo(0xcb52u) == 128 && r63d_alinhamento_passo(0xcb12u) == 64 && r63d_passo(4, 128) == 128 &&
+             r63d_passo(128, 128) == 128 && r63d_passo(400, 128) == 512 && r63d_passo(400, 64) == 448, "paso alineado al grupo (D402)");
 
     r63d_lote(&l, b, 128);
     r63d_textura(&l, 0x10500000u, 100, 50, 128, true, false, true);

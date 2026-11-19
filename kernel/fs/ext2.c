@@ -2496,7 +2496,7 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
     /* D326: ¿se puede escribir? El primer motivo que lo impida deja el volumen en solo lectura. */
     uint16_t estado = le16(sb + 58);
     const char *motivo = NULL;
-    static char texto[112];
+    static char texto[176];   /* D397: cabe el «ejecuta reparar hdaN» */
     const char *falta = caracteristica_nao_suportada(v);
     if (falta) { snformatar(texto, sizeof texto, "característica %s no soportada para escribir: solo lectura", falta); motivo = texto; }
     else if (rev > 1) motivo = "revisión desconocida: solo lectura";
@@ -2509,8 +2509,8 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
     if (!motivo && gd64(v))
         for (uint32_t g = 0; g < v->grupos; g++)
             if (le32(gd(v, g) + 0x20) || le32(gd(v, g) + 0x24) || le32(gd(v, g) + 0x28)) { motivo = "descriptores con direcciones de 64 bits: solo lectura"; break; }
-    if (!motivo && (estado & 2)) motivo = "el sistema de archivos tiene errores (usa e2fsck): solo lectura";
-    if (!motivo && inodes_curto) motivo = "la cuenta de inodos no cuadra con los grupos (usa e2fsck): solo lectura";
+    if (!motivo && (estado & 2)) motivo = "el sistema de archivos tiene errores (usa «reparar» o e2fsck): solo lectura";
+    if (!motivo && inodes_curto) motivo = "la cuenta de inodos no cuadra con los grupos (usa «reparar» o e2fsck): solo lectura";
     bool quer_escrever = (*opcoes & MONTAR_SO_LEITURA) == 0;
     bool reproduziu = false;
     /* El diario: sólo se abre (y se reproduce lo pendiente) si se va a escribir (D040: un
@@ -2583,13 +2583,15 @@ static int e2_montar(disco_t *d, uint32_t *opcoes, void **priv)
         kprintf("Comprobando %s (no se desmontó bien la última vez)...\n", d->nome);   /* puede tardar en discos grandes */
         const char *falha = fsck_basico(v, &mud);
         if (falha) {
-            snformatar(texto, sizeof texto, "no se desmontó bien y no se puede comprobar (%s): solo lectura", falha);
+            snformatar(texto, sizeof texto, "no se desmontó bien y no se puede comprobar (%s): solo lectura; ejecuta «reparar %s»",
+                       falha, d->nome);
             klog("[EXT2] %s: %s\n", d->nome, texto);
             disco_avisar(AVISO_INFO, "%s: %s", d->nome, texto);
             console_cor(COR_AMARELO, COR_PRETO);
-            kprintf("[aviso] %s: %s.\nLo que hay se puede leer y copiar. Para repararlo: e2fsck desde otro sistema\n"
-                    "(una live de Linux) y vuelve a arrancar; si es la raíz instalada, también se puede reinstalar\n"
-                    "(se conservan /home y la configuración).\n", d->nome, texto);
+            /* D397: «reparar» (userland, reparo_ext2.c) lo arregla desde el propio SaguiOS. */
+            kprintf("[aviso] %s: %s.\nLo que hay se puede leer y copiar. Para repararlo: «reparar %s» (como root; la\n"
+                    "desmonta, la repara y la vuelve a montar con escritura), o e2fsck desde Linux. Si es la raíz\n"
+                    "instalada, también se puede reinstalar (se conservan /home y la configuración).\n", d->nome, texto, d->nome);
             console_cor(COR_CINZA, COR_PRETO);
             v->so_leitura = true;
             *opcoes |= MONTAR_SO_LEITURA;

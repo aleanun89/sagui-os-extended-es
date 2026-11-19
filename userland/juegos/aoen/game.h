@@ -73,7 +73,8 @@ typedef struct {
 	int patrol; float ptx, pty;    /* patrulla entre el punto de origen (hx,hy) y (ptx,pty) */
 	/* comercio: ruta entre un muelle o mercado propio (origen) y otro de otro jugador (destino); fase 0 hacia el origen o
 	 * cargando, 1 hacia el destino, 2 de vuelta con la mercancía. Modo 0 oro, 1 intercambio (da com_dar, pide com_recibir;
-	 * com_dado es lo que lleva cargado). La carga va en carry */
+	 * com_dado es lo que lleva cargado). La carga va en carry. En los aldeanos, com_espera = 1 marca que su comida es carne
+	 * de caza (se entrega también en el almacén) */
 	Ref com_origen, com_destino;
 	int com_modo, com_dar, com_recibir, com_dado, com_fase, com_espera;
 	int stuck;
@@ -268,6 +269,10 @@ int world_load(const char *path);
 int save_info(const char *path, SaveInfo *si);
 void world_free(void);
 void world_update(float dt);
+unsigned world_suma(void);       /* suma del estado del mundo: igual con 1 y con N hilos (D393) */
+/* D393: mientras piensan las IA los caminos se apuntan y luego se buscan todos juntos, repartidos entre los hilos */
+void caminos_aplazar(int si);
+void caminos_resolver(void);
 
 Entity *ent_get(Ref r);
 Ref ent_ref(int idx);
@@ -289,6 +294,7 @@ void world_score(int player, int *econ, int *military, int *tech);
 int same_team(int a, int b);
 int dev_place(EntType t, int owner, float x, float y); /* ayuda para desarrollo: coloca una entidad terminada en cualquier sitio */ /* quita una unidad de la cola y la reembolsa */
 int can_place(EntType t, int tx, int ty);
+int edificio_recoge(EntType b, int kind, int carne);   /* el edificio recoge ese recurso (carne: comida de caza) */
 int ent_is_trainer(EntType b);
 void world_msg(const char *s);
 int world_pop_cap(int player);

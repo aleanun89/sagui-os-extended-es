@@ -29,8 +29,8 @@ int principal(int argc, char **argv)
         else return opcao_invalida("dmesg", r, &o);
     }
     const char *busca = o.indice < argc ? argv[o.indice] : NULL;
-    static char log[32768 + 8];
-    int n = info_sistema(INFO_LOG, log, 32768);
+    static char log[131072 + 8];   /* el anillo del kernel (128 KB desde D387) */
+    int n = info_sistema(INFO_LOG, log, 131072);
     if (n < 0) { imprimir_em(ERROS, "dmesg: no se puede leer el registro: %s\n", nome_erro(n)); return 1; }
     log[n] = 0;
     /* líneas: [ini, fin) */

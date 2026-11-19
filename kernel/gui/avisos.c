@@ -7,7 +7,9 @@
  * líneas (si hay más, la última acaba en «...»); cada aviso dura según su longitud (mínimo 5 s) y
  * los que llegan mientras hay uno visible esperan en una cola. */
 #include "avisos.h"
+#include "acoes.h"
 #include "gui.h"
+#include "idioma.h"
 #include "console.h"
 #include "processo.h"
 #include "relogio.h"
@@ -25,7 +27,9 @@
 #define AV_CABECERA    24
 #define AV_ALTO_MIN    62
 
-typedef struct { char texto[AV_TEXTO]; char caminho[160]; bool audio; uint32_t seg; } av_t;
+typedef struct { char texto[AV_TEXTO]; char caminho[160]; bool audio; uint32_t seg; bool osd; } av_t;
+
+#define OSD_SEGUNDOS 2   /* D403: lo que dura el aviso de una tecla (volumen, brillo...) */
 
 static av_t fila[AV_FILA];
 static int f_ini, f_qtd;
@@ -120,7 +124,7 @@ static void ativar(void)
     redibujar();
 }
 
-void gui_aviso_ex(const char *texto, const char *caminho, bool audio, uint32_t segundos)
+static void encolar(const char *texto, const char *caminho, bool audio, uint32_t segundos, bool osd)
 {
     if (f_qtd == AV_FILA) { f_ini = (f_ini + 1) % AV_FILA; f_qtd--; }   /* cola llena: se pierde el más viejo */
     av_t *n = &fila[(f_ini + f_qtd) % AV_FILA];
@@ -128,9 +132,49 @@ void gui_aviso_ex(const char *texto, const char *caminho, bool audio, uint32_t s
     txt_copia_n(n->caminho, caminho ? caminho : "", sizeof n->caminho);
     n->audio = audio && n->caminho[0];
     n->seg = segundos;
+    n->osd = osd;
     f_qtd++;
     klog("[GUI] notificacao: %s\n", texto);
     if (!ativo) ativar();
+}
+
+void gui_aviso_ex(const char *texto, const char *caminho, bool audio, uint32_t segundos)
+{
+    encolar(texto, caminho, audio, segundos, false);
+}
+
+/* D403: el aviso de una tecla de función (acoes.h). Si ya se ve uno de estos, se
+ * cambia su texto y vuelve a durar OSD_SEGUNDOS; si hay uno en la cola, se
+ * cambia ese; si no, se encola como cualquier aviso, pero corto. */
+void gui_aviso_osd(int tipo, int valor)
+{
+    char t[96];
+    switch (tipo) {
+    case OSD_VOLUME:     snformatar(t, sizeof t, _("Volumen: %d %%"), valor); break;
+    case OSD_SILENCIO:   snformatar(t, sizeof t, _("Volumen: silencio")); break;
+    case OSD_SEM_SOM:    snformatar(t, sizeof t, _("No hay tarjeta de sonido.")); break;
+    case OSD_BRILHO:     snformatar(t, sizeof t, _("Brillo: %d %%"), valor); break;
+    case OSD_SEM_BRILHO: snformatar(t, sizeof t, _("Este equipo no deja cambiar el brillo.")); break;
+    case OSD_RADIO:
+        snformatar(t, sizeof t, "%s", valor ? _("Radio inalámbrica: apagada (modo avión)") : _("Radio inalámbrica: encendida"));
+        break;
+    case OSD_TELA:       snformatar(t, sizeof t, _("Cambio de pantalla: usa la ventana Pantalla.")); break;
+    default: return;
+    }
+    klog("[GUI] osd %d %d: %s\n", tipo, valor, t);
+    if (ativo && atual.osd) {
+        redibujar();   /* lo viejo (la caja puede cambiar de alto) */
+        txt_copia_n(atual.texto, t, sizeof atual.texto);
+        quebrar(atual.texto);
+        ate = relogio_tiques() + OSD_SEGUNDOS * TIQUES_POR_SEGUNDO;
+        redibujar();
+        return;
+    }
+    for (int k = 0; k < f_qtd; k++) {
+        av_t *a = &fila[(f_ini + k) % AV_FILA];
+        if (a->osd) { txt_copia_n(a->texto, t, sizeof a->texto); return; }
+    }
+    encolar(t, NULL, false, OSD_SEGUNDOS, true);
 }
 
 void gui_aviso(const char *texto) { gui_aviso_ex(texto, NULL, false, 0); }

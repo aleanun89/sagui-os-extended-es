@@ -297,6 +297,16 @@ static int mudar_tamanho(const char *alvo, const char *qtd, bool ampliar)
         }
     }
     if (p.depois == p.antes && !p.nmover) { imprimir("%s ya mide %u MB.\n", vol, p.antes / 2048); return 0; }
+    {   /* D388: la raíz en uso (SAGUI-RAIZ, o su capa SAGUI-PERSIST en la live) no se mueve ni cambia */
+        char uso[16];
+        if (pt_tamanho_raiz_em_uso(&p, uso, sizeof uso)) {
+            imprimir_em(ERROS, "particiones: %s es parte de la raíz del sistema en marcha (montada en /)%s: no se puede %s ahora.\n"
+                               "Con la disposición de antes de la v8.5.4.10r2 (/home la primera lógica) /home no crece sin moverla: graba la "
+                               "imagen nueva o instala SaguiOS con «instalar» desde un pendrive.\n",
+                        uso, p.nmover ? " y habría que moverla" : "", p.nmover ? "hacerlo" : "cambiar su tamaño");
+            return 1;
+        }
+    }
     info_disco_t d;
     bool arranque = info_de(disco, &d) && (d.flags & DISCO_ARRANQUE_REAL);
     char que[360];

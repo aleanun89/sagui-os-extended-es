@@ -19,6 +19,9 @@
 #include "info_hardware.h"
 #include "eist_antiguo.h"
 #include "acpi.h"
+#include "radios.h"
+#include "paginacao.h"
+#include "memoria.h"
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
@@ -242,6 +245,45 @@ static void capturar_acpi(void)
 }
 
 const info_acpi_t *hw_acpi(void) { return &acpi; }
+
+/* INFO_ACPI_TABELA (D405): un trozo de una tabla de la lista, tal cual está en la memoria,
+ * para volcar la DSDT y las SSDT de una máquina real y estudiar su AML. Solo lee. Las
+ * tablas se ven por dos páginas de ventana propias (las llamadas al sistema corren en la
+ * CPU 0, como la tarea de ACPI). La tabla tiene que estar entera en memoria que no es RAM
+ * libre del E820 (ACPI, NVS o reservada): nunca se lee la de los programas. */
+int32_t acpi_tabela_ler(uint32_t ptr, uint32_t n)
+{
+    static uint32_t janela;
+    if (n < sizeof(info_acpi_tabela_dados_t) || !usuario_ok((void *)ptr, sizeof(info_acpi_tabela_dados_t), true))
+        return ERRO_ENDERECO;
+    info_acpi_tabela_dados_t *u = (info_acpi_tabela_dados_t *)ptr;
+    uint32_t ind = u->indice, desl = u->deslocamento;
+    if (ind >= acpi.qtd) return ERRO_NAO_EXISTE;
+    const info_acpi_tabela_t *t = &acpi.tabela[ind];
+    if (t->tamanho < 36 || t->tamanho > (16u << 20)) return ERRO_FORMATO;
+    uint64_t ini = t->endereco, fim = ini + t->tamanho;
+    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
+        const regiao_e820_t *r = &mapa_memoria[i];
+        if (!(r->extra & 1) || r->tipo != E820_LIVRE) continue;
+        uint64_t rini = r->base, rfim = r->base + r->tamanho;
+        if (rfim <= 0x100000) continue;   /* lo de debajo de 1 MB es de la BIOS (tablas viejas en 0xE0000) */
+        if (ini < rfim && fim > rini) return ERRO_ACESSO;
+    }
+    u->tamanho = t->tamanho;
+    memcpy(u->assinatura, t->assinatura, 5);
+    if (desl >= t->tamanho) return 0;
+    uint32_t qtd = t->tamanho - desl;
+    if (qtd > ACPI_TABELA_TROZO) qtd = ACPI_TABELA_TROZO;
+    if (!janela) janela = janela_reservar(3 * PAGINA);
+    if (!janela) return ERRO_SEM_MEMORIA;
+    uint32_t fis = t->endereco + desl;
+    uint32_t base = fis & ~(PAGINA - 1);
+    uint32_t pags = ((fis & (PAGINA - 1)) + qtd + PAGINA - 1) / PAGINA;
+    for (uint32_t k = 0; k < pags; k++) janela_pagina(janela + k * PAGINA, base + k * PAGINA, 0);
+    memcpy(u->dados, (const void *)(janela + (fis & (PAGINA - 1))), qtd);
+    for (uint32_t k = 0; k < pags; k++) janela_soltar(janela + k * PAGINA);
+    return (int32_t)qtd;
+}
 
 void hw_capturar_boot(void)
 {

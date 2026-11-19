@@ -28,7 +28,8 @@
  *   - audio:   el programa mezcla en su llamada de vuelta o pone datos en la
  *              cola (SDL_QueueAudio); aquí se pasan al flujo de sonido del
  *              sistema cuando cabe otro bloque, en SDL_PollEvent, SDL_Delay
- *              y SDL_RenderPresent (no hay hilos). Sin tarjeta, mudo.
+ *              y SDL_RenderPresent del hilo principal (los hilos de la D393
+ *              no lo mueven). Sin tarjeta, mudo.
  *              Esos mismos puntos hacen avanzar la OpenAL del SaguiOS
  *              (userland/libopenal) si el programa la enlaza.
  *   - reloj:   SDL_GetTicks y SDL_Delay sobre tempo_ms() y dormir().
@@ -131,7 +132,17 @@ size_t sagui_sdl_strlcpy(char *dst, const char *src, size_t n)
 
 void SDL_GetVersion(SDL_version *v) { SDL_VERSION(v); }
 const char *SDL_GetPlatform(void) { return "SaguiOS"; }
-int SDL_GetCPUCount(void) { return 1; }
+/* CPU que pueden correr hilos de este programa: la principal y los secundarios arrancados (con --smp). */
+int SDL_GetCPUCount(void)
+{
+    static int n;
+    if (n) return n;
+    static info_nucleo_t v[64];
+    int k = info_sistema(INFO_NUCLEOS, v, 64), c = 0;
+    for (int i = 0; i < k; i++) if (i == 0 || v[i].estado != 0) c++;   /* estado 0: no arrancó */
+    n = c > 0 ? c : 1;
+    return n;
+}
 int SDL_GetSystemRAM(void) { return 256; }
 
 /* ---- pistas: se guardan unas pocas, por si el programa las vuelve a leer ---- */
@@ -1628,6 +1639,7 @@ unsigned sagui_sdl2_hash_janela(void) { return janela && janela->px ? fnv32(jane
 unsigned sagui_sdl2_hash_lienzo(void) { return janela && janela->tela ? fnv32(janela->tela, (size_t)janela->l * janela->a) : 0; }
 
 static void bombear_audio(void);
+static int es_principal(void);   /* D393: el audio solo se mueve en el hilo principal */
 
 /* Cuenta un cuadro y, cada ~3 s, escribe la media de cada fase (en microsegundos). */
 static void medir_cuadro(void)
@@ -2399,6 +2411,7 @@ const char *SDL_GetCurrentAudioDriver(void) { return "saguios"; }
  * por tocar y quepa otro bloque. Y hace avanzar la OpenAL, si está. */
 static void bombear_audio(void)
 {
+    if (!es_principal()) return;   /* D393: un hilo de trabajo no mueve el audio */
     if (sagui_al_bombear) sagui_al_bombear();
     if (!audio_aberto || audio_pausado || !audio_buf) return;
     if (audio_fd < 0) {
@@ -2977,25 +2990,233 @@ void SDL_Quit(void)
     sub_sistemas = 0;
 }
 
-/* ---------------------------------------------------- hilos nulos (D383) */
+/* ------------------------------------------------- hilos (D383, D393) */
 
-struct SDL_mutex { int x; };
-struct SDL_cond { int x; };
-SDL_mutex *SDL_CreateMutex(void) { return calloc(1, sizeof(SDL_mutex)); }
-int SDL_LockMutex(SDL_mutex *m) { (void)m; return 0; }
-int SDL_UnlockMutex(SDL_mutex *m) { (void)m; return 0; }
+/* Hasta la D393 esto eran cerrojos nulos y SDL_CreateThread fallaba. Ahora son de verdad, sobre los
+ * hilos del SaguiOS (D167: thread_create, futex, atómicas de la libsagui):
+ *   - el cerrojo es recursivo (como el de la SDL): dueño, profundidad y un mutex_t debajo. Los
+ *     programas de antes (Chocolate Doom: el audio llamado desde SDL_Delay con el cerrojo ya tomado
+ *     en el mismo hilo) siguen igual, porque el mismo hilo lo vuelve a tomar;
+ *   - la condición es un contador de avisos y un futex. En el hilo principal la espera se corta cada
+ *     2 ms para mover el audio (que solo se mueve en el principal): quien esperaba a que la llamada
+ *     de vuelta del audio le avisara (OPL_Delay de Chocolate Doom) sigue funcionando sin otro hilo;
+ *   - el semáforo es el de la libsagui con espera con plazo;
+ *   - SDL_GetCPUCount cuenta las CPU arrancadas (INFO_NUCLEOS, D157): sin --smp, una. */
+
+static int hay_hilos;   /* se creó algún hilo: desde entonces el audio solo se mueve en el principal */
+
+static int pid_proceso;  /* el tid del hilo principal es el pid del proceso */
+
+static int hilo_actual(void) { return thread_id(); }
+static int es_principal(void)
+{
+    if (!hay_hilos) return 1;
+    if (!pid_proceso) pid_proceso = meu_pid();
+    return thread_id() == pid_proceso;
+}
+
+struct SDL_mutex { mutex_t m; volatile uint32_t dono; int prof; };
+struct SDL_cond { volatile uint32_t avisos; volatile uint32_t esperando; };
+
+SDL_mutex *SDL_CreateMutex(void)
+{
+    SDL_mutex *m = calloc(1, sizeof(SDL_mutex));
+    if (m) mutex_criar(&m->m);
+    return m;
+}
+
+int SDL_LockMutex(SDL_mutex *m)
+{
+    if (!m) return SDL_SetError("cerrojo nulo");
+    uint32_t eu = (uint32_t)hilo_actual();
+    if (m->prof > 0 && m->dono == eu) { m->prof++; return 0; }
+    mutex_tomar(&m->m);
+    m->dono = eu;
+    m->prof = 1;
+    return 0;
+}
+
+int SDL_TryLockMutex(SDL_mutex *m)
+{
+    if (!m) return SDL_SetError("cerrojo nulo");
+    uint32_t eu = (uint32_t)hilo_actual();
+    if (m->prof > 0 && m->dono == eu) { m->prof++; return 0; }
+    if (!mutex_tentar(&m->m)) return SDL_MUTEX_TIMEDOUT;
+    m->dono = eu;
+    m->prof = 1;
+    return 0;
+}
+
+int SDL_UnlockMutex(SDL_mutex *m)
+{
+    if (!m) return SDL_SetError("cerrojo nulo");
+    if (m->prof <= 0 || m->dono != (uint32_t)hilo_actual()) return SDL_SetError("el cerrojo no es de este hilo");
+    if (--m->prof == 0) { m->dono = 0; mutex_largar(&m->m); }
+    return 0;
+}
+
 void SDL_DestroyMutex(SDL_mutex *m) { free(m); }
+
 SDL_cond *SDL_CreateCond(void) { return calloc(1, sizeof(SDL_cond)); }
-int SDL_CondSignal(SDL_cond *c) { (void)c; return 0; }
-int SDL_CondWait(SDL_cond *c, SDL_mutex *m) { (void)c; (void)m; return 0; }
 void SDL_DestroyCond(SDL_cond *c) { free(c); }
+
+int SDL_CondSignal(SDL_cond *c)
+{
+    if (!c) return SDL_SetError("condición nula");
+    atomico_inc32(&c->avisos);
+    if (c->esperando) futex_acordar(&c->avisos, 1);
+    return 0;
+}
+
+int SDL_CondBroadcast(SDL_cond *c)
+{
+    if (!c) return SDL_SetError("condición nula");
+    atomico_inc32(&c->avisos);
+    if (c->esperando) futex_acordar(&c->avisos, 0x7fffffff);
+    return 0;
+}
+
+/* Suelta el cerrojo (del todo, aunque esté tomado varias veces), espera un aviso o el plazo y lo
+ * vuelve a tomar con la misma profundidad. ms = SDL_MUTEX_MAXWAIT: sin plazo. */
+int SDL_CondWaitTimeout(SDL_cond *c, SDL_mutex *m, Uint32 ms)
+{
+    if (!c || !m) return SDL_SetError("condición o cerrojo nulos");
+    uint32_t eu = (uint32_t)hilo_actual();
+    if (m->prof <= 0 || m->dono != eu) return SDL_SetError("el cerrojo no es de este hilo");
+    int prof = m->prof, principal = es_principal(), r = 0;
+    atomico_inc32(&c->esperando);
+    uint32_t visto = c->avisos;   /* tras la atómica: un aviso posterior cambia el valor y el futex no duerme */
+    m->prof = 0; m->dono = 0;
+    mutex_largar(&m->m);
+    if (principal) {
+        /* el principal mueve el audio cada 2 ms; vuelve con el primer aviso o al acabar el plazo */
+        unsigned fim = tempo_ms() + (ms == SDL_MUTEX_MAXWAIT ? 0u : (unsigned)ms);
+        for (;;) {
+            unsigned trozo = 2;
+            if (ms != SDL_MUTEX_MAXWAIT) {
+                int falta = (int)(fim - tempo_ms());
+                if (falta <= 0) { r = SDL_MUTEX_TIMEDOUT; break; }
+                if ((unsigned)falta < trozo) trozo = (unsigned)falta;
+            }
+            futex_esperar(&c->avisos, visto, trozo);
+            if (c->avisos != visto) break;
+            bombear_audio();
+            if (c->avisos != visto) break;
+            if (ms == SDL_MUTEX_MAXWAIT && !hay_hilos) break;   /* sin hilos solo el audio avisa: se vuelve a mirar */
+        }
+    } else if (ms == SDL_MUTEX_MAXWAIT) {
+        while (c->avisos == visto) futex_esperar(&c->avisos, visto, 0);
+    } else {
+        unsigned fim = tempo_ms() + (unsigned)ms;
+        while (c->avisos == visto) {
+            int falta = (int)(fim - tempo_ms());
+            if (falta <= 0) { r = SDL_MUTEX_TIMEDOUT; break; }
+            futex_esperar(&c->avisos, visto, (unsigned)falta);
+        }
+    }
+    atomico_dec32(&c->esperando);
+    mutex_tomar(&m->m);
+    m->dono = eu;
+    m->prof = prof;
+    return r;
+}
+
+int SDL_CondWait(SDL_cond *c, SDL_mutex *m) { return SDL_CondWaitTimeout(c, m, SDL_MUTEX_MAXWAIT); }
+
+struct SDL_semaphore { semaforo_t s; };
+
+SDL_sem *SDL_CreateSemaphore(Uint32 valor)
+{
+    SDL_sem *s = calloc(1, sizeof(SDL_sem));
+    if (s) semaforo_criar(&s->s, valor);
+    return s;
+}
+
+void SDL_DestroySemaphore(SDL_sem *s) { free(s); }
+int SDL_SemTryWait(SDL_sem *s) { if (!s) return SDL_SetError("semáforo nulo"); return semaforo_tentar(&s->s) ? 0 : SDL_MUTEX_TIMEDOUT; }
+int SDL_SemPost(SDL_sem *s) { if (!s) return SDL_SetError("semáforo nulo"); semaforo_sinalizar(&s->s); return 0; }
+Uint32 SDL_SemValue(SDL_sem *s) { return s ? semaforo_valor(&s->s) : 0; }
+
+int SDL_SemWaitTimeout(SDL_sem *s, Uint32 ms)
+{
+    if (!s) return SDL_SetError("semáforo nulo");
+    if (semaforo_tentar(&s->s)) return 0;
+    if (ms == SDL_MUTEX_MAXWAIT && !es_principal()) { semaforo_tomar(&s->s); return 0; }
+    /* con plazo, o en el principal (que mueve el audio cada 2 ms) */
+    unsigned fim = tempo_ms() + (ms == SDL_MUTEX_MAXWAIT ? 0u : (unsigned)ms);
+    for (;;) {
+        if (semaforo_tentar(&s->s)) return 0;
+        unsigned trozo = es_principal() ? 2u : 20u;
+        if (ms != SDL_MUTEX_MAXWAIT) {
+            int falta = (int)(fim - tempo_ms());
+            if (falta <= 0) return SDL_MUTEX_TIMEDOUT;
+            if ((unsigned)falta < trozo) trozo = (unsigned)falta;
+        }
+        atomico_inc32(&s->s.esperando);
+        if (s->s.valor == 0) futex_esperar(&s->s.valor, 0, trozo);
+        atomico_dec32(&s->s.esperando);
+        if (es_principal()) bombear_audio();
+    }
+}
+
+int SDL_SemWait(SDL_sem *s) { return SDL_SemWaitTimeout(s, SDL_MUTEX_MAXWAIT); }
+
+/* Atómicas: lock xadd / cmpxchg de la libsagui (barrera completa en x86). */
+SDL_bool SDL_AtomicCAS(SDL_atomic_t *a, int viejo, int nuevo) { return atomico_cas32((volatile uint32_t *)&a->value, (uint32_t)viejo, (uint32_t)nuevo) ? SDL_TRUE : SDL_FALSE; }
+int SDL_AtomicSet(SDL_atomic_t *a, int v) { return (int)atomico_troca32((volatile uint32_t *)&a->value, (uint32_t)v); }
+int SDL_AtomicGet(SDL_atomic_t *a) { atomico_barreira(); return *(volatile int *)&a->value; }
+int SDL_AtomicAdd(SDL_atomic_t *a, int v) { return (int)atomico_add32((volatile uint32_t *)&a->value, (uint32_t)v); }
+void SDL_MemoryBarrierReleaseFunction(void) { atomico_barreira(); }
+void SDL_MemoryBarrierAcquireFunction(void) { atomico_barreira(); }
+
+struct SDL_Thread {
+    thread_t *t;
+    SDL_ThreadFunction fn;
+    void *datos;
+    int estado;
+    char nombre[32];
+};
+
+static void *inicio_hilo_sdl(void *arg)
+{
+    SDL_Thread *h = arg;
+    h->estado = h->fn(h->datos);
+    return (void *)(long)h->estado;
+}
+
+SDL_Thread *SDL_CreateThreadWithStackSize(SDL_ThreadFunction fn, const char *nombre, size_t pila, void *datos)
+{
+    if (!fn) { SDL_SetError("hilo sin función"); return NULL; }
+    SDL_Thread *h = calloc(1, sizeof(SDL_Thread));
+    if (!h) { SDL_SetError("sin memoria"); return NULL; }
+    h->fn = fn; h->datos = datos;
+    sagui_sdl_strlcpy(h->nombre, nombre ? nombre : "SDL", sizeof h->nombre);
+    if (!hay_hilos) { hay_hilos = 1; atomico_barreira(); }
+    /* pila 0: la del kernel (1 MB con guarda, D186); si se pide más, una propia */
+    h->t = thread_create(inicio_hilo_sdl, h, pila > 960u * 1024u ? (unsigned)pila : 0u);
+    if (!h->t) { free(h); SDL_SetError("no se pudo crear el hilo"); return NULL; }
+    return h;
+}
+
 SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *nombre, void *datos)
 {
-    (void)fn; (void)nombre; (void)datos;
-    SDL_SetError("el SaguiOS no tiene hilos");
-    return NULL;
+    return SDL_CreateThreadWithStackSize(fn, nombre, 0, datos);
 }
-void SDL_WaitThread(SDL_Thread *t, int *estado) { (void)t; if (estado) *estado = 0; }
+
+void SDL_WaitThread(SDL_Thread *t, int *estado)
+{
+    if (!t) return;
+    thread_join(t->t);
+    if (estado) *estado = t->estado;
+    free(t);
+}
+
+/* Se deja de seguir al hilo: su SDL_Thread queda (unos bytes) porque el hilo puede seguir usándolo. */
+void SDL_DetachThread(SDL_Thread *t) { (void)t; }
+SDL_threadID SDL_ThreadID(void) { return (SDL_threadID)hilo_actual(); }
+SDL_threadID SDL_GetThreadID(SDL_Thread *t) { return t ? (SDL_threadID)thread_tid(t->t) : SDL_ThreadID(); }
+const char *SDL_GetThreadName(SDL_Thread *t) { return t ? t->nombre : NULL; }
+int SDL_SetThreadPriority(SDL_ThreadPriority prioridad) { (void)prioridad; return 0; }
 
 SDL_JoystickGUID SDL_JoystickGetGUIDFromString(const char *texto)
 {

@@ -50,6 +50,8 @@
 #define   R5_WAIT_2D_LIMPO     (1u << 16)
 #define   R5_WAIT_3D_LIMPO     (1u << 17)
 #define R5_ISYNC_CNTL          0x1724
+#define R5_HOST_PATH_CNTL      0x0130        /* D387 (Amilo): el HDP, la ventana de la CPU a la VRAM */
+#define   R5_HDP_LEITURA_INVALIDAR (1u << 27)
 #define   R5_ISYNC_PADRAO      0x33u         /* 2D espera al 3D, 3D al 2D, y los apuntes al motor parado */
 #define R5_DST_PIPE_CONFIG     0x170C
 #define   R5_PIPE_AUTO         (1u << 31)
@@ -203,7 +205,11 @@
 #define R5_PVS_SOMA_SAIDA(n)   (3u | (2u << 8) | ((uint32_t)(n) << 13) | (0xFu << 20))   /* ADD -> salida n, xyzw */
 #define R5_PVS_ENTRADA(n)      (1u | ((uint32_t)(n) << 5) | (0u << 13) | (1u << 16) | (2u << 19) | (3u << 22))   /* entrada n .xyzw */
 #define R5_PVS_ENTRADA_XY01(n) (1u | ((uint32_t)(n) << 5) | (0u << 13) | (1u << 16) | (4u << 19) | (5u << 22))   /* entrada n .xy01 */
-#define R5_PVS_ZERO            (1u | (4u << 13) | (4u << 16) | (4u << 19) | (4u << 22))                           /* 0, 0, 0, 0 */
+/* El cero de los orígenes 1 y 2: la MISMA entrada n con las cuatro componentes a 0, como hace
+ * Mesa (r3xx_vertprog.c, __CONST(0, RC_SWIZZLE_ZERO)). D386: en la X1400 del Amilo, con el cero
+ * leído de la entrada 0 (otra entrada), el PVS leía la entrada 0 también en el origen 0 y los
+ * colores salían con la posición (degradado x/ancho, y/alto); con la misma entrada, bien. */
+#define R5_PVS_ZERO(n)         (1u | ((uint32_t)(n) << 5) | (4u << 13) | (4u << 16) | (4u << 19) | (4u << 22))   /* entrada n .0000 */
 #define R5_PVS_INSTRUCOES      4
 
 /* ------------------------------------------------------------ programa de fragmentos */
@@ -274,11 +280,46 @@ static inline void r5_vaciar(g3d_fila_t *f)
     r5_reg(f, R5_WAIT_UNTIL, R5_WAIT_2D_LIMPO | R5_WAIT_3D_LIMPO);
 }
 
-/* La valla: cuando todo lo anterior ha terminado, el CP escribe «seq» en un registro de apuntes. */
-static inline void r5_valla(g3d_fila_t *f, uint32_t apunte, uint32_t seq)
+/* La valla: cuando todo lo anterior ha terminado, el CP escribe «seq» en un registro de apuntes.
+ * Por defecto (banderas 0), la de siempre: vaciar las cachés de color y de Z del 3D, WAIT_UNTIL 2D y 3D
+ * parados y limpios, y el apunte (con ISYNC_CPSCRATCH_IDLEGUI, el CP lo escribe con el motor parado).
+ * D387 (Amilo, 2026-11-19): cada añadido de la valla de Linux (r300_fence_ring_emit, drivers/gpu/drm/radeon/
+ * r300.c, 6.6) es una bandera, para quitarlo o ponerlo sin reiniciar: con la tijera y el HDP el CP se paraba
+ * ANTES (19.494 cuadros sin nada, 1.986 con la tijera, 971 con la tijera y el HDP).
+ *   R5V_TIJERA  delante, la tijera del rasterizador (SC_SCISSOR0/1: «Write SC register so SC & US assert idle»),
+ *               con la del destino actual («tijera1»; Linux escribe 0, pero aquí la valla puede caer entre dos
+ *               trozos de un dibujo)
+ *   R5V_LINUX   las cachés con los valores de Linux (RB3D_DC_FLUSH 2, ZC_FLUSH 1, sin «soltar») y WAIT_UNTIL
+ *               también con WAIT_DMA_GUI_IDLE (bit 9)
+ *   R5V_SEM_ESPERA  sin el WAIT_UNTIL (queda la espera del apunte por ISYNC_CPSCRATCH_IDLEGUI)
+ *   R5V_HDP     detrás de la espera, invalidar el búfer de lectura del HDP (HOST_PATH_CNTL con el bit 27 y otra
+ *               vez sin él, como r100_ring_hdp_flush; «hdp», el valor que tenía al encender) */
+#define R5V_TIJERA      0x1u
+#define R5V_LINUX       0x2u
+#define R5V_SEM_ESPERA  0x4u
+#define R5V_HDP         0x8u
+#define R5_WAIT_DMA_GUI (1u << 9)
+static inline void r5_valla(g3d_fila_t *f, uint32_t apunte, uint32_t seq, uint32_t banderas, uint32_t tijera1, uint32_t hdp)
 {
-    r5_vaciar(f);
+    if (banderas & R5V_TIJERA) {
+        r5_reg(f, R5_SC_SCISSOR0, 0);
+        r5_reg(f, R5_SC_SCISSOR1, tijera1);
+    }
+    r5_reg(f, R5_RB3D_DSTCACHE, (banderas & R5V_LINUX) ? 0x2u : R5_DC_VACIAR);
+    r5_reg(f, R5_ZB_ZCACHE, (banderas & R5V_LINUX) ? 0x1u : R5_ZC_VACIAR);
+    if (!(banderas & R5V_SEM_ESPERA))
+        r5_reg(f, R5_WAIT_UNTIL, R5_WAIT_2D_LIMPO | R5_WAIT_3D_LIMPO | ((banderas & R5V_LINUX) ? R5_WAIT_DMA_GUI : 0));
+    if (banderas & R5V_HDP) {
+        r5_reg(f, R5_HOST_PATH_CNTL, hdp | R5_HDP_LEITURA_INVALIDAR);
+        r5_reg(f, R5_HOST_PATH_CNTL, hdp);
+    }
     r5_reg(f, apunte, seq);
+}
+
+/* La tijera de un destino (SC_SCISSOR1): la esquina de abajo a la derecha. */
+static inline uint32_t r5_tijera1(int larg, int alt)
+{
+    return larg > 0 && alt > 0 ? (uint32_t)(larg - 1) | ((uint32_t)(alt - 1) << 13) : 0;
 }
 
 /* VAP_CNTL: tamaño de las memorias del procesador de vértices, por familia (fpus: 2 la RV515,
@@ -351,8 +392,8 @@ static inline void r5_inicio(g3d_fila_t *f, uint32_t tuberias, uint32_t fpus)
     for (uint32_t i = 0; i < R5_PVS_INSTRUCOES; i++) {
         r5_reg(f, R5_VAP_PVS_DADOS, R5_PVS_SOMA_SAIDA(i));
         r5_reg(f, R5_VAP_PVS_DADOS, i == 3 ? R5_PVS_ENTRADA_XY01(i) : R5_PVS_ENTRADA(i));
-        r5_reg(f, R5_VAP_PVS_DADOS, R5_PVS_ZERO);
-        r5_reg(f, R5_VAP_PVS_DADOS, R5_PVS_ZERO);
+        r5_reg(f, R5_VAP_PVS_DADOS, R5_PVS_ZERO(i));
+        r5_reg(f, R5_VAP_PVS_DADOS, R5_PVS_ZERO(i));
     }
     r5_reg(f, R5_VAP_PVS_CONST_CNTL, 0);
     r5_reg(f, R5_VAP_PVS_CODE_CNTL_0, 0u | ((R5_PVS_INSTRUCOES - 1u) << 10) | ((R5_PVS_INSTRUCOES - 1u) << 20));
@@ -435,7 +476,7 @@ static inline void r5_estado_alvo(g3d_fila_t *f, const r5_alvo_t *a)
     r5_reg(f, R5_ZB_DEPTHPITCH, a->passo_px);
     r5_reg(f, R5_ZB_FORMAT, a->zbits == 16 ? R5_ZFMT_16 : R5_ZFMT_24_8);
     r5_reg(f, R5_SC_SCISSOR0, 0);
-    r5_reg(f, R5_SC_SCISSOR1, (uint32_t)(a->larg - 1) | ((uint32_t)(a->alt - 1) << 13));
+    r5_reg(f, R5_SC_SCISSOR1, r5_tijera1(a->larg, a->alt));
 }
 
 /* Z, mezcla, textura y programa de fragmentos de un dibujo. t: la textura o NULL. */
@@ -497,6 +538,21 @@ static inline void r5_triangulos(g3d_fila_t *f, const gpu3d_vert_t *v, int n)
         g3d_por(f, v[i].cor); g3d_por(f, v[i].espec);
         g3d_por(f, v[i].u); g3d_por(f, v[i].v);
     }
+}
+
+/* ------------------------------------------------------------ ajustes de depuración (D386, D390) */
+
+/* Los registros que /sistema/conf/gpu3d-r500.conf puede tocar (la capa lee el fichero,
+ * gpu3d_diag.h): solo los del 3D, 0x2000-0x4FFC (VAP, GA, SU, RS, SC, US, FG, RB3D, ZB):
+ * nunca la pantalla, la memoria ni los relojes. */
+#define R5_N_FAIXAS_AJUSTES 1
+static const g3d_faixa_t r5_faixas_ajustes[R5_N_FAIXAS_AJUSTES] = { { 0x2000u, 0x4FFCu } };
+
+static inline void r5_ajustes_por(g3d_fila_t *f, const g3d_ajustes_t *a, int quando)
+{
+    if (!a) return;
+    for (int i = 0; i < a->n; i++)
+        if (a->quando[i] == quando) r5_reg(f, a->reg[i], a->val[i]);
 }
 
 #endif

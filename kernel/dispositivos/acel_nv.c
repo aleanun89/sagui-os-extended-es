@@ -315,6 +315,7 @@ static bool nv_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     klog("[ACEL2D] nvidia: PFB cfg %x %x, 0x20c %x: %u MB%s; el VBE dice %u KB\n", rd(NV40_PFB_CFG0), rd(NV40_PFB_CFG1),
          p20c, vram >> 20, nv_chip_integrado(chip) ? " (integrada: RAM del sistema)" : "", t->memoria >> 10);
     if (vram < 16u * 1024 * 1024) { snformatar(m, (size_t)nm, "PFB 0x10020c (%x) da menos de 16 MB", p20c); return false; }
+    acel2d_vram_real(vram, nv_chip_integrado(chip) ? "PFB 0x10020c (RAM del sistema)" : "PFB 0x10020c");   /* D387 */
     /* Contra lo que dice PFB sin el tope de 256 MB (una 7900 GTX de 512 MB). */
     if (t->memoria > (p20c & 0xFFF00000u)) {
         snformatar(m, (size_t)nm, "el VBE dice %u KB y PFB %u KB: no cuadran", t->memoria >> 10, (p20c & 0xFFF00000u) >> 10);

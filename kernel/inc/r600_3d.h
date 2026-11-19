@@ -35,6 +35,7 @@
 #define R63D_IT_INDEX_TYPE      0x2A
 #define R63D_IT_DRAW_INDEX_AUTO 0x2D
 #define R63D_IT_NUM_INSTANCES   0x2F
+#define R63D_IT_CP_DMA          0x41   /* D406: copia de memoria por el CP (r600_copy_cpdma) */
 #define R63D_IT_SURFACE_SYNC    0x43
 #define R63D_IT_ME_INITIALIZE   0x44
 #define R63D_IT_EVENT_WRITE     0x46
@@ -167,6 +168,12 @@ void r63d_estado(r6_lote_t *l, bool z_teste, bool z_escrita, uint32_t z_func, bo
 void r63d_desenhar(r6_lote_t *l, uint32_t mc_vb, int n, int prim, bool sem_cache_vertices);
 /* Vacía las cachés de color y Z, espera al motor y escribe «valor» en un registro de apuntes. */
 void r63d_valla(r6_lote_t *l, uint32_t mc_cor, uint32_t bytes_cor, uint32_t mc_z, uint32_t bytes_z, uint32_t scratch, uint32_t valor);
+/* D406: copia «bytes» de «orig» a «dest» (direcciones del MC; «dest» puede ser la ventana de la GART) con
+ * CP_DMA, como r600_copy_cpdma de Linux 6.6: antes, esperar al 3D parado y vaciar la caché del color del
+ * rango de origen; trozos de 0x1FFFFF bytes como mucho, el último con CP_SYNC, y al final esperar a que
+ * el CP_DMA termine (WAIT_UNTIL bit 8). Devuelve false si «bytes» es 0. */
+bool r63d_cp_dma(r6_lote_t *l, uint32_t orig, uint32_t dest, uint32_t bytes);
+#define R63D_CP_DMA_MAX 0x1FFFFFu
 
 /* Los sombreadores, escritos a mano (ISA de la R600). Devuelven cuántas palabras (<= R63D_SH_MAX).
  *   vértices:  R1 = posición (4 flotantes), R2 = color y R3 = especular (4 bytes -> RGBA 0..1),
@@ -179,5 +186,18 @@ int r63d_ps_cor(uint32_t *p, bool r7xx);
 int r63d_ps_tex(uint32_t *p, bool r7xx);
 
 #define R63D_VERT_BYTES 32   /* gpu3d_vert_t: x, y, z, 1/w, color, especular, u, v */
+
+/* D402: alineación del paso (en píxeles de 32 bits) de una superficie lineal alineada
+ * (ARRAY_LINEAR_ALIGNED: destino de color y texturas), según el GB_TILING_CONFIG que quedó
+ * en el motor: max(64, tamaño del grupo / 4 bytes), como r600_get_array_mode_alignment de
+ * Linux 6.6 (r600_cs.c). GROUP_SIZE (bit 6) es 256 o 512 bytes; con 512 (el HP dv7, RV710)
+ * el motor redondea el paso a 128 píxeles, y una textura con paso 64 se leía con las filas
+ * de dos en dos (prueba 4 de la autoprueba, 2026-11-19). */
+static inline int r63d_alinhamento_passo(uint32_t gb_tiling_config)
+{
+    uint32_t grupo = (gb_tiling_config >> 6) & 1u ? 512u : 256u;
+    return grupo / 4u > 64u ? (int)(grupo / 4u) : 64;
+}
+static inline int r63d_passo(int larg, int alin) { return (larg + alin - 1) / alin * alin; }
 
 #endif

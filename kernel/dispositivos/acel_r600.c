@@ -415,6 +415,9 @@ static bool tem_agp(const pci_disp_t *d)
 }
 
 /* D284: la sonda de solo lectura, compartida con el 3D (r600_base.h). */
+static uint64_t r600_vram_real;
+uint64_t r600_vram_real_bytes(void) { return r600_vram_real; }
+
 bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_base_t *b, char *m, int nm)
 {
     const r600_modelo_t *mod = modelo_de(d->modelo);
@@ -470,6 +473,8 @@ bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_ba
     } else
     klog("[ACEL2D] r600: CONFIG_MEMSIZE %u MB, CONFIG_APER_SIZE %u MB, HDP_NONSURFACE_BASE %x, MC_VM_FB_LOCATION %x, "
          "VM_CONTEXT0_CNTL %x\n", memsize >> 20, aper >> 20, hdp, fbloc, vm0);
+    /* D402: la VRAM real (CONFIG_MEMSIZE) para quien la pida (infopc dice la del VBE, 16 MB en el dv7). */
+    if (memsize && memsize != 0xFFFFFFFFu) r600_vram_real = memsize;
     if (mc64 >> 32) { snformatar(m, (size_t)nm, "la pantalla en el MC pasa de 4 GB (HDP %x)", hdp); return false; }
     uint32_t mc_tela = (uint32_t)mc64;
 
@@ -566,6 +571,7 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
     uint32_t mem = t->memoria;
     /* CONFIG_MEMSIZE va en bytes en las R6xx/R7xx; si no lo parece, solo cuenta el VBE. */
     if (memsize >= (16u << 20) && memsize < mem) mem = memsize;
+    if (memsize >= (16u << 20)) acel2d_vram_real(memsize, "CONFIG_MEMSIZE");   /* D387 */
     /* D286: en las Evergreen/NI no hay registro con el tamaño de la apertura de la CPU (BAR 0) y medir el
      * BAR obligaría a escribirlo: no se usa nada más allá de 64 MB desde su principio (toda tarjeta de
      * estas tiene 128 MB de apertura o más; la zona de paso se encoge si hace falta). */
@@ -612,7 +618,7 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
             return false;
         }
     }
-    if (vm0 & 1) {
+    if ((vm0 & 1) && !gpu3d_r600_gart_nossa()) {   /* D406: la de la GART del 3D no es de otro */
         snformatar(m, (size_t)nm, "la memoria virtual de la GPU esta encendida (VM_CONTEXT0_CNTL %x): no se arriesga", vm0);
         return false;
     }
@@ -720,4 +726,5 @@ const acel_driver_t acel_r600 = {
     true,    /* D246: el DMA sigue copiando tras copiar() */
     r6_detalle,
     false,   /* D305: solo 32 bits */
+    NULL,    /* D387: sin volcado por la GPU */
 };

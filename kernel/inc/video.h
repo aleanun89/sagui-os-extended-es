@@ -37,6 +37,7 @@ bool video_mover(int x, int y, int l, int a, int dx, int dy);
 void video_marcar(int x, int y, int l, int a);   /* región cambiada, para copiar la próxima vez */
 void video_mostrar(void);                         /* copia lo que cambió a la pantalla */
 void video_mostrar_tudo(void);
+void video_volcar_cpu(int x0, int y0, int x1, int y1);   /* D387: la copia de la CPU, para medirla */
 
 /* Cambio de modo sin reiniciar (tarjeta de Bochs/QEMU, D059). El contenido
  * del búfer de atrás se pierde: quien llama redibuja todo. La profundidad

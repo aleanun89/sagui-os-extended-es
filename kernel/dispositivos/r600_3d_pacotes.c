@@ -56,12 +56,17 @@ uint32_t r63d_float(int v)
     return s | r;
 }
 
+/* SURFACE_SYNC sobre [mc, mc + bytes). CP_COHER_BASE va en unidades de 256 bytes: si «mc» no está
+ * alineada, la base se redondea hacia abajo y el tamaño tiene que llegar hasta el final del rango
+ * (D402: en el dv7 los vértices que caían detrás de los primeros 256 bytes se leían viejos de la
+ * caché de texturas, porque el tamaño se contaba desde «mc» y no desde la base redondeada). */
 static void sync(r6_lote_t *l, uint32_t tipo, uint32_t bytes, uint32_t mc)
 {
+    uint32_t base = mc & ~0xFFu;
     r63d_p(l, R63D_PKT3(R63D_IT_SURFACE_SYNC, 4));
     r63d_p(l, tipo);
-    r63d_p(l, (bytes + 255) >> 8);
-    r63d_p(l, mc >> 8);
+    r63d_p(l, (mc - base + bytes + 255) >> 8);
+    r63d_p(l, base >> 8);
     r63d_p(l, 10);   /* intervalo de sondeo */
 }
 
@@ -520,6 +525,28 @@ void r63d_valla(r6_lote_t *l, uint32_t mc_cor, uint32_t bytes_cor, uint32_t mc_z
     if (bytes_cor) sync(l, SYNC_CB0, bytes_cor, mc_cor);
     if (bytes_z) sync(l, SYNC_DB, bytes_z, mc_z);
     r63d_reg(l, scratch, valor);
+}
+
+bool r63d_cp_dma(r6_lote_t *l, uint32_t orig, uint32_t dest, uint32_t bytes)
+{
+    if (!bytes) return false;
+    r63d_p(l, R63D_PKT3(R63D_IT_EVENT_WRITE, 1));
+    r63d_p(l, 0x16);                                            /* vaciar e invalidar cachés (el color a la VRAM) */
+    r63d_reg(l, R6_WAIT_UNTIL, (1u << 15) | (1u << 17));        /* 3D parado y limpio (como la valla) */
+    sync(l, SYNC_CB0, bytes, orig);
+    while (bytes) {
+        uint32_t t = bytes > R63D_CP_DMA_MAX ? R63D_CP_DMA_MAX : bytes;
+        bytes -= t;
+        r63d_p(l, R63D_PKT3(R63D_IT_CP_DMA, 5));
+        r63d_p(l, orig);
+        r63d_p(l, bytes ? 0u : 1u << 31);                       /* bits altos de la dirección a 0; CP_SYNC en el último */
+        r63d_p(l, dest);
+        r63d_p(l, 0);
+        r63d_p(l, t);                                           /* memoria a memoria, sin cambiar el orden de los bytes */
+        orig += t; dest += t;
+    }
+    r63d_reg(l, R6_WAIT_UNTIL, 1u << 8);                        /* WAIT_CP_DMA_IDLE */
+    return true;
 }
 
 /* ------------------------------------------------------------------ sombreadores */

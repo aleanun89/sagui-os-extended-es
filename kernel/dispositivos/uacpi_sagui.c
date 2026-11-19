@@ -31,11 +31,18 @@
  * bloquear()/acordar() y un tiempo máximo. */
 #include "uacpi_sagui.h"
 #include <uacpi/kernel_api.h>
+#include <uacpi/internal/opregion.h>   /* D405: solo para encontrar el manejador de serie de SystemMemory */
+#include <uacpi/internal/io.h>
 #include "acpi.h"
+#include "acoes.h"
 #include "bateria.h"
+#include "gpu_energia.h"
+#include "gui.h"
+#include "portatil.h"
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
+#include "gui.h"
 #include "info_hardware.h"
 #include "irq_rotas.h"
 #include "memoria.h"
@@ -51,6 +58,7 @@
 #define GUARDA_PADRAO    0x5A6B7C8Du
 #define FILA_TRABALHO    32
 #define PERIODO_MS       1000
+#define PERIODO_EC_MS    200    /* D403: con EC, sus eventos (teclas Fn) se miran 5 veces por segundo */
 #define ESPERA_ARRANQUE_MS 1000
 
 static const char canal_tarefa = 0;
@@ -331,6 +339,8 @@ static bool pode_dormir(void)
     return p && p->pid != 0 && !contexto_irq() && ints_ligadas();
 }
 
+bool uacpi_sagui_pode_dormir(void) { return pode_dormir(); }
+
 /* Duerme hasta "tiques" tiques o hasta acordar(canal). Con las interrupciones
  * desactivadas al entrar (quien llama ya miró su condición). */
 static void dormir_em(const void *canal, uint32_t tiques)
@@ -522,6 +532,17 @@ void uacpi_kernel_schedule_work(uacpi_work_type tipo, uacpi_handle item, uacpi_w
     int_restaura(i0);
 }
 
+/* D403/D405: alguien dejó un pedido para la tarea (brillo, teclas, radios del HP): que lo mire ya. */
+static volatile bool pedido_novo;
+
+void uacpi_sagui_acordar(void)
+{
+    bool i0 = int_salva_desliga();
+    pedido_novo = true;
+    acordar(&canal_tarefa);
+    int_restaura(i0);
+}
+
 void uacpi_sagui_trabalho_pendente(void)
 {
     for (int n = 0; n < 4 * FILA_TRABALHO; n++) {   /* un trabajo puede encolar otro, pero no sin fin */
@@ -550,6 +571,95 @@ uacpi_status uacpi_kernel_handle_firmware_request(uacpi_firmware_request *r)
         klog("[UACPI] el firmware pide Fatal: tipo %x codigo %x arg %x\n", r->fatal.type, r->fatal.code,
              (uint32_t)r->fatal.arg);
     return UACPI_STATUS_OK;
+}
+
+/* ------------------------------------------------------------ SystemMemory por páginas (D405) */
+
+/* El manejador de serie de uACPI mapea la OperationRegion ENTERA al adjuntarla (su propio
+ * código dice «FIXME: this really shouldn't try to map everything at once»). El HP dv7
+ * declara \PCFG = SystemMemory 0xE0000000, 256 MB (el MMCONFIG entero) en lo alto de la
+ * DSDT: no cabe en la franja de 8 MB, el mapa falla y uACPI aborta la carga de la DSDT
+ * entera. Aquí, sin tocar uACPI: las regiones que caben (hasta REGIAO_INTEIRA) se mapean
+ * enteras como siempre; las más grandes se mapean página a página en cada acceso. Las
+ * reglas de uacpi_kernel_map (nunca RAM libre; sin caché lo que no es RAM ni tablas)
+ * valen igual en los dos casos. */
+#define REGIAO_INTEIRA (1024u * 1024u)
+
+typedef struct {
+    uint64_t base, tam;
+    uint8_t *virt;          /* NULL = por páginas */
+} regiao_mem_t;
+
+static uacpi_status regiao_memoria(uacpi_region_op op, uacpi_handle dados)
+{
+    if (op == UACPI_REGION_OP_ATTACH) {
+        uacpi_region_attach_data *a = dados;
+        regiao_mem_t *r = kmalloc(sizeof *r);
+        if (!r) return UACPI_STATUS_OUT_OF_MEMORY;
+        r->base = a->generic_info.base;
+        r->tam = a->generic_info.length;
+        r->virt = NULL;
+        if (r->tam <= REGIAO_INTEIRA) {
+            void *v = uacpi_kernel_map(r->base, (uacpi_size)r->tam);
+            if (v == UACPI_MAP_FAILED) {
+                kfree(r);
+                uacpi_trace_region_error(a->region_node, "unable to map", UACPI_STATUS_MAPPING_FAILED);
+                return UACPI_STATUS_MAPPING_FAILED;
+            }
+            r->virt = v;
+        } else {
+            const char *n = uacpi_namespace_node_generate_absolute_path(a->region_node);
+            klog("[UACPI] region %s: %x+%x MB, se mapea pagina a pagina al usarla\n", n ? n : "?", (uint32_t)r->base,
+                 (uint32_t)(r->tam >> 20));
+            if (n) uacpi_free_absolute_path(n);
+        }
+        a->out_region_context = r;
+        return UACPI_STATUS_OK;
+    }
+    if (op == UACPI_REGION_OP_DETACH) {
+        uacpi_region_detach_data *d = dados;
+        regiao_mem_t *r = d->region_context;
+        if (r) {
+            if (r->virt) uacpi_kernel_unmap(r->virt, (uacpi_size)r->tam);
+            kfree(r);
+        }
+        return UACPI_STATUS_OK;
+    }
+    if (op != UACPI_REGION_OP_READ && op != UACPI_REGION_OP_WRITE) return UACPI_STATUS_INVALID_ARGUMENT;
+    uacpi_region_rw_data *rw = dados;
+    regiao_mem_t *r = rw->region_context;
+    uint64_t desl = rw->address - r->base;
+    if (r->virt)
+        return op == UACPI_REGION_OP_READ ? uacpi_system_memory_read(r->virt, (uacpi_size)desl, rw->byte_width, &rw->value)
+                                          : uacpi_system_memory_write(r->virt, (uacpi_size)desl, rw->byte_width, rw->value);
+    void *v = uacpi_kernel_map(rw->address, rw->byte_width);
+    if (v == UACPI_MAP_FAILED) return UACPI_STATUS_MAPPING_FAILED;
+    uacpi_status s = op == UACPI_REGION_OP_READ ? uacpi_system_memory_read(v, 0, rw->byte_width, &rw->value)
+                                                : uacpi_system_memory_write(v, 0, rw->byte_width, rw->value);
+    uacpi_kernel_unmap(v, rw->byte_width);
+    return s;
+}
+
+/* Cambia el manejador de serie de SystemMemory de la raíz por el de arriba. Antes de
+ * cargar las tablas: aún no hay regiones adjuntadas. Si algo falla, sigue el de serie. */
+static void trocar_manejador_memoria(void)
+{
+    uacpi_namespace_node *raiz = uacpi_namespace_root();
+    uacpi_address_space_handlers *hs = uacpi_node_get_address_space_handlers(raiz);
+    uacpi_region_handler serie = NULL;
+    for (uacpi_address_space_handler *h = hs ? hs->head : NULL; h; h = h->next)
+        if (h->space == UACPI_ADDRESS_SPACE_SYSTEM_MEMORY) { serie = h->callback; break; }
+    if (!serie) { klog("[UACPI] sin manejador de SystemMemory de serie: se deja como esta\n"); return; }
+    uacpi_status r = uacpi_uninstall_address_space_handler(raiz, UACPI_ADDRESS_SPACE_SYSTEM_MEMORY, serie);
+    if (r != UACPI_STATUS_OK) {
+        klog("[UACPI] no se pudo quitar el manejador de SystemMemory de serie: %s\n", uacpi_status_to_string(r));
+        return;
+    }
+    r = uacpi_install_address_space_handler(raiz, UACPI_ADDRESS_SPACE_SYSTEM_MEMORY, regiao_memoria, NULL);
+    if (r != UACPI_STATUS_OK) {
+        klog("[UACPI] manejador de SystemMemory propio: %s; vuelve el de serie\n", uacpi_status_to_string(r));
+        uacpi_install_address_space_handler(raiz, UACPI_ADDRESS_SPACE_SYSTEM_MEMORY, serie, NULL);
+    }
 }
 
 /* ------------------------------------------------------------ la tarea */
@@ -588,6 +698,7 @@ static void executar(void)
             acpi_botao_rearmar();
         }
     }
+    trocar_manejador_memoria();   /* D405: regiones grandes (el MMCONFIG del dv7) por páginas */
     r = uacpi_namespace_load();
     if (r != UACPI_STATUS_OK) { falhou("espacio de nombres", r); return; }
     /* El EC antes de los _INI: muchos leen el EC (o miran si ya se puede). */
@@ -598,6 +709,11 @@ static void executar(void)
     /* D211: con el IOAPIC, el enrutado PCI de verdad (\_PIC(1) y _PRT). */
     irq_rotas_prt();
     bateria_iniciar();
+    zonas_termicas_iniciar();   /* D399 */
+    wmi_iniciar();       /* D405: el puente WMI (PNP0C14) y, encima, el de HP */
+    hp_wmi_iniciar();
+    portatil_iniciar();   /* D403: brillo y teclas de los portátiles (ACPI Video, Fujitsu, Toshiba) */
+    uacpi_sagui_trabalho_pendente();
     uint64_t ms = (uacpi_kernel_get_nanoseconds_since_boot() - t0) / 1000000ull;
     klog("[UACPI] listo en %u ms (ventanas: %u paginas en uso, maximo %u)\n", (uint32_t)ms, janela_em_uso,
          janela_maximo);
@@ -607,13 +723,19 @@ static void executar(void)
         uacpi_sagui_trabalho_pendente();
         ec_atender_eventos();
         bateria_ciclo();
+        zonas_termicas_ciclo();   /* D399: solo si alguien mira la GPU */
+        hp_wmi_ciclo();           /* D405 */
+        if (!gui_ativa()) acoes_atender();   /* D403: sin escritorio, las acciones y los avisos se hacen aquí */
+        portatil_ciclo();
         if (!guarda_intacta()) {
             klog("[UACPI] la pila de uACPI se ha desbordado: se detiene (reinicia pronto)\n");
             bateria_uacpi_estado(UACPI_FALHOU, "pila desbordada");
             for (;;) { int_desliga(); dormir_em(&canal_tarefa, 0x7FFFFFFF); int_liga(); }
         }
         int_desliga();
-        if (fila_ini == fila_fim) dormir_em(&canal_tarefa, PERIODO_MS * TIQUES_POR_SEGUNDO / 1000);
+        if (fila_ini == fila_fim && !pedido_novo && !portatil_pendente())
+            dormir_em(&canal_tarefa, (ec_presente() ? PERIODO_EC_MS : PERIODO_MS) * TIQUES_POR_SEGUNDO / 1000);
+        pedido_novo = false;
         int_liga();
     }
 }

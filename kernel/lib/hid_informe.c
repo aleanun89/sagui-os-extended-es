@@ -15,21 +15,27 @@
 
 typedef struct {
     uint32_t pagina, tam, cont, id;
-    int32_t  lmin, lmax;
-    bool     lmin_sinal;   /* el mínimo vino con el bit de signo puesto (es negativo de verdad) */
+    int32_t  lmin;
+    uint32_t lmax_v;       /* el máximo lógico tal como vino (sin signo) y su tamaño en bytes: */
+    int      lmax_t;       /* el signo se decide al usarlo, cuando ya se sabe el mínimo */
 } globais_t;
 
 /* El máximo lógico se lee con signo, pero muchos descriptores ponen 255 en un byte (0xFF)
- * con el mínimo en 0: si el mínimo no es negativo, el máximo se toma sin signo. */
-static int32_t corrigir_max(int32_t lmin, int32_t sv, uint32_t v, int t)
+ * con el mínimo en 0: si el mínimo no es negativo, el máximo se toma sin signo. Se decide en
+ * cada Input y no al leer el item: un descriptor puede dar el máximo antes que el mínimo, y
+ * el mínimo que hubiera entonces puede ser el negativo de un campo anterior. */
+static int32_t lmax_efetivo(const globais_t *g)
 {
-    if (lmin >= 0 && sv < 0 && t < 4) return (int32_t)v;
+    uint32_t v = g->lmax_v;
+    int t = g->lmax_t;
+    int32_t sv = t == 1 ? (int8_t)v : t == 2 ? (int16_t)v : (int32_t)v;
+    if (g->lmin >= 0 && sv < 0 && t < 4) return (int32_t)v;
     return sv;
 }
 
 int hid_analisar(const uint8_t *d, int n, hid_desc_t *out)
 {
-    globais_t g = { 0, 0, 0, 0, 0, 0, false };
+    globais_t g = { 0, 0, 0, 0, 0, 0, 0 };
     globais_t pilha[PILHA_MAX];
     int n_pilha = 0;
     uint32_t usos[HID_CAMPOS_MAX], n_usos = 0, uso_min = 0, uso_max = 0;
@@ -60,8 +66,8 @@ int hid_analisar(const uint8_t *d, int n, hid_desc_t *out)
         if (tipo == 1) {           /* global */
             switch (tag) {
             case 0: g.pagina = v; break;
-            case 1: g.lmin = sv; g.lmin_sinal = sv < 0; break;
-            case 2: g.lmax = corrigir_max(g.lmin, sv, v, t); break;
+            case 1: g.lmin = sv; break;
+            case 2: g.lmax_v = v; g.lmax_t = t; break;
             case 7: g.tam = v; break;
             case 8:
                 if (v == 0 || v > 255) return -1;
@@ -95,6 +101,7 @@ int hid_analisar(const uint8_t *d, int n, hid_desc_t *out)
                 if (prof == 0) aplicacao = 0;
             } else if (tag == 8) {    /* Input */
                 bool constante = v & 1, variavel = (v >> 1) & 1, relativo = (v >> 2) & 1;
+                int32_t lmax = lmax_efetivo(&g);
                 uint16_t *ds = &desloc[g.id & 0xFF];
                 if (g.tam > 32 || g.cont > 255) return -1;
                 if (!constante && g.tam) {
@@ -105,7 +112,7 @@ int hid_analisar(const uint8_t *d, int n, hid_desc_t *out)
                             if (tem_min && uso_max && !n_usos && u > uso_max) u = uso_max;
                             hid_campo_t *c = &out->c[out->n++];
                             c->uso = u; c->uso_max = u; c->aplicacao = aplicacao;
-                            c->lmin = g.lmin; c->lmax = g.lmax;
+                            c->lmin = g.lmin; c->lmax = lmax;
                             c->bit = (uint16_t)(*ds + k * g.tam);
                             c->tam = (uint8_t)g.tam; c->id = (uint8_t)g.id; c->cont = 1;
                             c->matriz = 0; c->relativo = relativo; c->sinal = g.lmin < 0;
@@ -115,7 +122,7 @@ int hid_analisar(const uint8_t *d, int n, hid_desc_t *out)
                         c->uso = tem_min ? uso_min : n_usos ? usos[0] : 0;
                         c->uso_max = tem_min ? (uso_max ? uso_max : uso_min) : n_usos ? usos[n_usos - 1] : 0;
                         c->aplicacao = aplicacao;
-                        c->lmin = g.lmin; c->lmax = g.lmax;
+                        c->lmin = g.lmin; c->lmax = lmax;
                         c->bit = (uint16_t)*ds;
                         c->tam = (uint8_t)g.tam; c->id = (uint8_t)g.id; c->cont = (uint8_t)g.cont;
                         c->matriz = 1; c->relativo = relativo; c->sinal = g.lmin < 0;

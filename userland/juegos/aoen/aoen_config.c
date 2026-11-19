@@ -50,10 +50,17 @@ int main(int argc, char **argv) {
 
 	for (int i = 1; i < argc; ++i) {
 		if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
-			printf("Uso:\n  aoen-config                 asistente interactivo\n  aoen-config --set RUTA      guardar la carpeta de datos\n  aoen-config --show          mostrar la configuracion actual\n  aoen-config --check RUTA    solo comprobar una carpeta\n  --textures RUTA            carpeta con texturas HD opcionales (PNG 512x512)\n  --portable                  guardar junto al ejecutable (aoen.cfg) en vez de en el perfil de usuario\n\n%s", cfg_instructions());
+			printf("Uso:\n  aoen-config                 asistente interactivo\n  aoen-config --set RUTA      guardar la carpeta de datos\n  aoen-config --show          mostrar la configuracion actual\n  aoen-config --check RUTA    solo comprobar una carpeta\n  --textures RUTA            carpeta con texturas HD opcionales (PNG 512x512)\n  --hilos N                  hilos de trabajo: 0 tantos como nucleos (por defecto), 1 sin hilos (D393)\n  --portable                  guardar junto al ejecutable (aoen.cfg) en vez de en el perfil de usuario\n\n%s", cfg_instructions());
 			return 0;
 		} else if (!strcmp(argv[i], "--portable")) portable = 1;
 		else if (!strcmp(argv[i], "--show")) { show(); return 0; }
+		else if (!strcmp(argv[i], "--hilos") && i + 1 < argc) {
+			/* D393: cuántos hilos usa el juego (0: uno por núcleo; 1: ninguno, el camino de siempre) */
+			int n = atoi(argv[i + 1]);
+			if (n < 0 || n > 8 || !cfg_set_int("hilos", n)) { printf("No se pudo guardar la configuracion (hilos de 0 a 8).\n"); return 1; }
+			printf("Hilos: %d%s\n", n, n == 0 ? " (uno por nucleo)" : n == 1 ? " (sin hilos)" : "");
+			return 0;
+		}
 		else if (!strcmp(argv[i], "--textures") && i + 1 < argc) {
 			if (!cfg_save_textures_dir(argv[i + 1], portable)) { printf("No se pudo guardar la configuracion.\n"); return 1; }
 			printf("Carpeta de texturas HD: %s\n(debe contener g_gr2_00_color.png, g_des_00_color.png, g_wt5_00_color.png y g_wt3_00_color.png, de 512x512)\n", argv[i + 1]);

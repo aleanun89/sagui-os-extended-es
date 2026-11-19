@@ -20,12 +20,17 @@
  *   - los dos programas de fragmentos, también contra sus palabras a mano, y que
  *     solo leen registros temporales que el rasterizador rellena;
  *   - el destino, el Z, la mezcla, la textura y la valla de un dibujo;
- *   - los triángulos: cabecera, cuenta y los vértices tal cual.
+ *   - los triángulos: cabecera, cuenta y los vértices tal cual;
+ *   - D387: la valla con la escritura de la tijera delante (r300_fence_ring_emit) y con
+ *     la tijera del destino actual; y las órdenes del 2D (radeon2d_ordens.h): las mismas
+ *     escrituras que iban por MMIO, como PACKET0 solo de registros del 2D, con el
+ *     vaciado de la caché del 2D y WAIT_UNTIL detrás.
  *
  * Usa las cabeceras del kernel (con sus tipos): por eso no incluye las de la libc
  * y declara a mano lo poco que usa. */
 #include "gpu3d.h"
 #include "r500_pacotes.h"
+#include "radeon2d_ordens.h"
 
 int printf(const char *, ...);
 void *memset(void *d, int c, size_t n) { unsigned char *p = d; while (n--) *p++ = (unsigned char)c; return d; }
@@ -50,7 +55,7 @@ typedef struct {
 static bool reg_permitido(uint32_t r)
 {
     if (r & 3) return false;
-    if (r == R5_WAIT_UNTIL || r == R5_ISYNC_CNTL || r == R5_DST_PIPE_CONFIG) return true;
+    if (r == R5_WAIT_UNTIL || r == R5_ISYNC_CNTL || r == R5_DST_PIPE_CONFIG || r == R5_HOST_PATH_CNTL) return true;
     if (r >= R5_SCRATCH_REG0 && r <= R5_SCRATCH_REG0 + 20) return true;
     if (r >= 0x2080 && r < 0x2300) return true;      /* VAP */
     if (r >= 0x4000 && r < 0x4800) return true;      /* GB, GA, SU, RS, SC, TX, US */
@@ -156,14 +161,15 @@ static void prova_inicio(int tuberias, uint32_t fpus)
     VER(R(&c, R5_VAP_VTX_SIZE) == sizeof(gpu3d_vert_t) / 4 && R5_VERT_PALAVRAS == sizeof(gpu3d_vert_t) / 4, "VAP_VTX_SIZE = 8");
     VER(R(&c, R5_VAP_PSC_EXT_0) == 0xF688F688u && R(&c, R5_VAP_PSC_EXT_1) == 0xFB08F688u, "xyzw en posicion y colores; xy01 en la textura");
     VER(R(&c, R5_VAP_OUT_VTX_FMT_0) == 7 && R(&c, R5_VAP_OUT_VTX_FMT_1) == 2, "salen posicion, dos colores y una textura de 2");
-    /* El programa de vértices, palabra a palabra: ADD salida[i] = entrada[i] + 0.
+    /* El programa de vértices, palabra a palabra: ADD salida[i] = entrada[i] + entrada[i].0000
+     * (el cero, de la misma entrada: D386, con otra entrada el PVS leía esa en los dos orígenes).
      *   operación: opcode 3 (ADD) | tipo de destino 2 (salida) << 8 | i << 13 | xyzw << 20
      *   origen:    tipo 1 (entrada) | i << 5 | x << 13 | y << 16 | z << 19 | w << 22  (0 = 4, 1 = 5) */
     static const uint32_t pvs[16] = {
         0x00F00203u, 0x00D10001u, 0x01248001u, 0x01248001u,
-        0x00F02203u, 0x00D10021u, 0x01248001u, 0x01248001u,
-        0x00F04203u, 0x00D10041u, 0x01248001u, 0x01248001u,
-        0x00F06203u, 0x01610061u, 0x01248001u, 0x01248001u,
+        0x00F02203u, 0x00D10021u, 0x01248021u, 0x01248021u,
+        0x00F04203u, 0x00D10041u, 0x01248041u, 0x01248041u,
+        0x00F06203u, 0x01610061u, 0x01248061u, 0x01248061u,
     };
     VER(c.n_pvs == 16, "programa de vertices de 4 instrucciones (%u palabras)", c.n_pvs);
     for (int i = 0; i < 16; i++) VER(c.pvs[i] == pvs[i], "PVS palabra %d: %08x, a mano %08x", i, c.pvs[i], pvs[i]);
@@ -237,9 +243,39 @@ static void prova_desenho(void)
     r5_estado_desenho(&f, &e, NULL);
     VER(r5_pal_triangulos(6) == 2 + 48, "palabras de 6 vertices");
     r5_triangulos(&f, v, 6);
-    r5_valla(&f, R5_SCRATCH_REG0 + 8, 0x3D500001u);
+    uint32_t n_sem_valla = f.n;
+    r5_valla(&f, R5_SCRATCH_REG0 + 8, 0x3D500001u, R5V_TIJERA, r5_tijera1(a.larg, a.alt), 0);
     VER(!f.transbordou, "un dibujo cabe");
     VER(percorrer(b, f.n, &c, false), "estado fijo + dibujo se recorren enteros");
+    /* D387: la valla escribe la tijera (para que el SC y el US digan que han terminado) con la del destino. */
+    VER(R(&c, R5_SC_SCISSOR0) == 0 && R(&c, R5_SC_SCISSOR1) == (127u | (95u << 13)), "la valla deja la tijera del destino");
+    VER(b[n_sem_valla] == R5_PACOTE0(R5_SC_SCISSOR0, 0) && b[n_sem_valla + 2] == R5_PACOTE0(R5_SC_SCISSOR1, 0),
+        "la valla empieza escribiendo la tijera (r300_fence_ring_emit)");
+    {   /* D387: con el HDP, HOST_PATH_CNTL con la invalidación y otra vez como estaba, justo antes del apunte. */
+        static uint32_t bh[64];
+        static cp_t ch;
+        g3d_fila_t fh;
+        g3d_fila_iniciar(&fh, bh, 64);
+        r5_valla(&fh, R5_SCRATCH_REG0 + 8, 7, R5V_TIJERA | R5V_HDP, 0, 0x12345678u);
+        VER(percorrer(bh, fh.n, &ch, false) && fh.n == 16 && bh[10] == R5_PACOTE0(R5_HOST_PATH_CNTL, 0) &&
+            bh[11] == (0x12345678u | (1u << 27)) && bh[12] == R5_PACOTE0(R5_HOST_PATH_CNTL, 0) && bh[13] == 0x12345678u &&
+            bh[14] == R5_PACOTE0(R5_SCRATCH_REG0 + 8, 0) && bh[15] == 7, "valla con HDP: invalidar el bufer de lectura y volver (r300_fence_ring_emit)");
+    }
+    {   /* D387: la valla por defecto es la de siempre (8 palabras); LINUX: los valores de r300_fence_ring_emit; sin espera. */
+        static uint32_t bv[64];
+        g3d_fila_t fv;
+        g3d_fila_iniciar(&fv, bv, 64);
+        r5_valla(&fv, R5_SCRATCH_REG0 + 8, 9, 0, 0, 0);
+        VER(fv.n == 8 && bv[0] == R5_PACOTE0(R5_RB3D_DSTCACHE, 0) && bv[1] == 0xA && bv[3] == 3 && bv[5] == 0x30000 && bv[7] == 9,
+            "valla por defecto: la de siempre");
+        g3d_fila_iniciar(&fv, bv, 64);
+        r5_valla(&fv, R5_SCRATCH_REG0 + 8, 9, R5V_LINUX, 0, 0);
+        VER(fv.n == 8 && bv[1] == 2 && bv[3] == 1 && bv[5] == (0x30000u | (1u << 9)), "valla LINUX: DC_FLUSH, ZC_FLUSH y DMA_GUI_IDLE");
+        g3d_fila_iniciar(&fv, bv, 64);
+        r5_valla(&fv, R5_SCRATCH_REG0 + 8, 9, R5V_SEM_ESPERA, 0, 0);
+        VER(fv.n == 6 && bv[4] == R5_PACOTE0(R5_SCRATCH_REG0 + 8, 0), "valla sin WAIT_UNTIL");
+    }
+    VER(r5_tijera1(0, 0) == 0 && r5_tijera1(1, 1) == 0 && r5_tijera1(320, 240) == (319u | (239u << 13)), "tijera de un destino");
     VER(f.n - n0 < 160, "un dibujo sin textura de 6 vertices son %u palabras", f.n - n0);
     VER(c.n_prim == 1 && c.n_vert == 6 && c.vf_cntl == (4u | (3u << 4) | (6u << 16)), "una orden de dibujo con 6 vertices");
     bool iguais = true;
@@ -299,12 +335,90 @@ static void prova_desenho(void)
     VER(percorrer(b, n0, &c, false) && percorrer(g, f.n, &c, true) && c.n_vert == R5_VERT_POR_PACOTE, "y se recorre entero");
 }
 
+/* D386, D390: el fichero de ajustes de depuración (lo lee la capa con los rangos del driver). */
+static void prova_ajustes(void)
+{
+    static const char t[] = "# comentario\n\n  inicio 0x46A4 0x1B00\r\ndibujo 4e0c f\n"
+                            "inicio 0x6110 0\n"          /* pantalla: fuera */
+                            "inicio 0x4E0D 1\n"          /* sin alinear */
+                            "otra 0x4000 1\n"            /* palabra desconocida */
+                            "dibujo 0x4000 123456789\n"  /* más de 8 cifras */
+                            "dibujo 0x4F28 ffffff extra\n"
+                            "dibujo 0x4F28 ffffff";       /* sin salto al final */
+    g3d_ajustes_t a;
+    g3d_ajustes_ler(t, sizeof t - 1, r5_faixas_ajustes, R5_N_FAIXAS_AJUSTES, &a);
+    VER(a.n == 3 && a.malas == 5 && a.fora == 2, "ajustes: 3 buenos y 5 malos, 2 fuera (%d, %d, %d)", a.n, a.malas, a.fora);
+    VER(a.reg[0] == 0x46A4 && a.val[0] == 0x1B00 && a.quando[0] == G3D_AJ_INICIO, "ajuste 0: inicio US_OUT_FMT");
+    VER(a.reg[1] == 0x4E0C && a.val[1] == 0xF && a.quando[1] == G3D_AJ_DIBUJO, "ajuste 1: dibujo RB3D_COLOR_CHANNEL_MASK");
+    VER(a.reg[2] == 0x4F28 && a.val[2] == 0xFFFFFF && a.quando[2] == G3D_AJ_DIBUJO, "ajuste 2: el último sin salto de línea");
+    uint32_t b[64];
+    g3d_fila_t f;
+    g3d_fila_iniciar(&f, b, 64);
+    r5_ajustes_por(&f, &a, G3D_AJ_DIBUJO);
+    VER(f.n == 4 && b[0] == R5_PACOTE0(0x4E0C, 0) && b[1] == 0xF && b[2] == R5_PACOTE0(0x4F28, 0), "ajustes de cada dibujo en la cola");
+    g3d_ajustes_ler("", 0, r5_faixas_ajustes, R5_N_FAIXAS_AJUSTES, &a);
+    VER(a.n == 0 && a.malas == 0, "fichero vacío: nada");
+}
+
+/* ------------------------------------------------------------ D387: el 2D por el anillo */
+
+static void prova_2d(void)
+{
+    ra2d_ordem_t o;
+    uint32_t p[64];
+    /* El relleno, como lo escribía ra_preencher por MMIO. */
+    ra2d_preencher(&o, 0x10300000u, 5, 7, 100, 20, 0x00ABCDEFu);
+    static const uint32_t rel[7][2] = {
+        { 0x146C, (1u << 1) | (13u << 4) | (6u << 8) | (3u << 12) | 0x00F00000u | (1u << 28) }, { 0x147C, 0x00ABCDEFu },
+        { 0x16CC, 0xFFFFFFFFu }, { 0x16C0, 3 }, { 0x142C, 0x10300000u }, { 0x1438, (7u << 16) | 5u }, { 0x143C, (20u << 16) | 100u },
+    };
+    bool ig = o.n == 7;
+    for (int i = 0; ig && i < 7; i++) ig = o.e[i].reg == rel[i][0] && o.e[i].val == rel[i][1];
+    VER(ig, "relleno: las 7 escrituras de ra_preencher, en su orden");
+    /* La copia (ra_copiar y el volcado): 8 escrituras; la de la vuelta con máscara: 9, con el patrón. */
+    ra2d_copiar(&o, 0x10300000u, 0x10340000u, 1, 3, 4, 13, 14, 64, 32, false, false);
+    static const uint32_t cop[8][2] = {
+        { 0x146C, 3u | (15u << 4) | (6u << 8) | (3u << 12) | 0x00CC0000u | (2u << 24) | (1u << 28) }, { 0x16CC, 0xFFFFFFFFu },
+        { 0x16C0, 1 }, { 0x142C, 0x10340000u }, { 0x1428, 0x10300000u }, { 0x1434, (4u << 16) | 3u }, { 0x1438, (14u << 16) | 13u },
+        { 0x143C, (32u << 16) | 64u },
+    };
+    ig = o.n == 8;
+    for (int i = 0; ig && i < 8; i++) ig = o.e[i].reg == cop[i][0] && o.e[i].val == cop[i][1];
+    VER(ig, "copia: las 8 escrituras de ra_copiar, en su orden");
+    ra2d_copiar(&o, 1, 2, 3, 0, 0, 0, 0, 8, 8, true, true);
+    VER(o.n == 9 && o.e[0].val == (3u | (13u << 4) | (6u << 8) | (3u << 12) | 0x00C00000u | (2u << 24) | (1u << 28)) &&
+        o.e[1].reg == 0x147C && o.e[1].val == 0x00FFFFFFu, "vuelta con mascara: patron 00FFFFFF y ROP origen AND patron");
+    ra2d_copiar(&o, 1, 2, 3, 0, 0, 0, 0, 8, 8, false, true);
+    VER(o.n == 9 && (o.e[0].val & 0x00FF00F0u) == (0x00CC0000u | (15u << 4)), "vuelta sin mascara: copia tal cual (con el patron escrito)");
+    /* Por el anillo: PACKET0 de un registro cada una, solo registros del 2D, y el vaciado detrás. */
+    ra2d_copiar(&o, 0x10300000u, 0x10340000u, 3, 0, 0, 0, 0, 64, 32, false, false);
+    ra2d_fim_cp(&o);
+    uint32_t n = ra2d_pacotes(&o, p, 64);
+    VER(n == 20, "copia por el anillo: 10 PACKET0 (%u palabras)", n);
+    bool fmt = true;
+    for (uint32_t i = 0; i < n; i += 2) fmt = fmt && (p[i] >> 30) == 0 && ((p[i] >> 16) & 0x3FFF) == 0 && ra2d_reg_permitido((p[i] & 0x1FFF) << 2);
+    VER(fmt, "cada escritura es un PACKET0 de un registro del 2D");
+    VER(p[16] == (0x1714u >> 2) && p[17] == 0xF && p[18] == (0x1720u >> 2) && p[19] == ((1u << 16) | (1u << 9)),
+        "detras: vaciar la cache de destino del 2D y WAIT_UNTIL 2D parado y limpio (RADEONFlush2D)");
+    VER(p[14] == (0x143Cu >> 2) && p[15] == ((32u << 16) | 64u), "la orden la lanza DST_HEIGHT_WIDTH, antes del vaciado");
+    VER(ra2d_pacotes(&o, p, 19) == 0, "sin sitio, nada");
+    o.n = 0; ra2d_por(&o, 0x0E40, 0);
+    VER(ra2d_pacotes(&o, p, 64) == 0, "un registro que no es del 2D no va al anillo");
+    o.n = 0; ra2d_por(&o, 0x0714, 0);
+    VER(ra2d_pacotes(&o, p, 64) == 0, "ni los del CP");
+    o.n = 0;
+    for (int i = 0; i < RA2D_MAX_ESCRITAS + 1; i++) ra2d_por(&o, 0x1438, 0);
+    VER(!ra2d_ok(&o) && ra2d_pacotes(&o, p, 64) == 0, "demasiadas escrituras: error, nada al anillo");
+}
+
 int main(void)
 {
+    prova_ajustes();
     static const uint32_t fpus[4] = { 2, 5, 8, 8 };
     for (int t = 1; t <= 4; t++) prova_inicio(t, fpus[t - 1]);
     prova_fp();
     prova_desenho();
+    prova_2d();
     printf("r500_3d_unidad: %d comprobaciones, %d fallos\n", feitas, falhas);
     return falhas ? 1 : 0;
 }

@@ -381,3 +381,57 @@ cambio de modo por defecto de las imágenes, con la batería completa.
 SaguiOS cada uno usa su raíz; un instalado dudoso nunca se monta con escritura); `mkimagem.py` falla sin `debugfs`
 para SAGUI-RAIZ; instalar desde la live copia el sistema de serie (`/sistema/serie`; `--con-cambios` para lo de la
 sesión); tope de lo escrito en la RAM con ENOSPC; renombrar en la live como en el ext2; fsck básico.
+
+## 8. Orden de las particiones (D388, v8.5.4.10r2)
+
+Desde la v8.5.4.10r2 todas las imágenes de disco (y el instalador) dejan **`/home` la última**, para que al grabar
+la imagen en un disco grande se pueda ampliar sin mover nada, también en la live:
+
+| N.º (MBR) | Tipo | Etiqueta | Qué es |
+| --- | --- | --- | --- |
+| 1 | 0xDA, activa | — | arranque: etapa 2, núcleo e initramfs |
+| 2 | 0xEF | `SAGUI-EFI` | la ESP (arranque UEFI), delante de la extendida |
+| 3 | 0x0F | — | la extendida, la **última** partición, hasta el final de la imagen |
+| 5 | lógica | `SAGUI-CONF` | la configuración del sistema |
+| 6 | lógica | `SAGUI-RAIZ` | el sistema de serie (en la live, la base de `/`, solo lectura) |
+| 7 | lógica | `SAGUI-PERSIST` | (persistentes) tus cambios a `/`: la capa de la live |
+| … | lógica | `SAGUI-JOGOS`, `SAGUI-APPS`, `SAGUI-TMP`, `SAGUI-LOGS`, `SAGUI-X*` | las que lleve la imagen |
+| la última | lógica | `SAGUI-DATOS` | `/home` |
+
+Los números dependen de qué particiones lleve cada imagen: SaguiOS las monta **por etiqueta**, nunca por número.
+El primer arranque en un disco con 512 MB o más libres ofrece «Ampliar /home» (`ampliar-home`): crecen solo la
+extendida y `/home` (y su ext2), comprobado antes y después. En el terminal: `ampliar-home` (dice cuánto) y
+`particiones ampliar /home`.
+
+**Imágenes grabadas antes de la v8.5.4.10r2** (`/home` la primera lógica, la ESP en la entrada 3): siguen
+arrancando igual. Ampliar `/home` obligaría a mover lo de detrás; si ahí están la raíz y su capa en uso (la live
+desde la v8.5.3.1, o un sistema instalado), SaguiOS **no lo intenta** y explica que hay que grabar la imagen nueva
+o instalar SaguiOS en el disco con `instalar` desde un pendrive. Ojo: si el instalador conserva una SAGUI-DATOS que
+está la primera, la conserva en su sitio (con la disposición de antes); para la nueva, copia antes lo de `/home` a
+otro disco e instala con `--formatear-home`. Con una
+imagen antigua sin raíz en disco, se mueve como antes (copiado y releído antes de cambiar la tabla).
+
+En la live, `/` son dos particiones: `discos` las marca como «sistema de serie (base de /, solo lectura)» y «tus
+cambios (capa de /)», y `df` y `mount` dan una sola línea `/` de tipo `live` con el espacio de la capa.
+
+## 9. Un ext2 que no se desmontó bien: «reparar» (D397, v8.5.4.10r2)
+
+ext2 no tiene diario. Al montar un ext2 que no se desmontó bien, el kernel rehace los mapas de bits y los contadores
+(`fsck_basico`, D379 F); si encuentra algo más grave (un inodo que apunta fuera del volumen, un bloque que usan dos
+sitios), lo monta **de solo lectura** y dice qué ejecutar:
+
+    hda9: no se desmontó bien y no se puede comprobar (un inodo apunta fuera del volumen): solo lectura; ejecuta «reparar hda9»
+
+`reparar` (como root) lo arregla desde el propio SaguiOS: `reparar -n hda9` solo lo dice, `reparar hda9` pregunta,
+`reparar -y hda9` no pregunta. Si la partición está montada de solo lectura, la desmonta, la repara, la comprueba otra
+vez y la vuelve a montar donde estaba, con escritura. Antes de escribir guarda los bloques que cambian
+(`/tmp/reparar/…copia`, o `--copia` en otro disco) y `reparar --deshacer COPIA hda9` lo deja como estaba. Ayuda:
+`/ayuda/reparar.md`.
+
+| Volumen | Cómo repararlo |
+| --- | --- |
+| `/home` (SAGUI-DATOS), `/jogos` (SAGUI-JOGOS), `/apps`, un pendrive | `reparar -y hdaN` (se desmonta y se vuelve a montar sola) |
+| La capa de la live (SAGUI-PERSIST) | en uso como `/`: arrancar con **M → «2 todo a la RAM»** y entonces `reparar -y hdaN` |
+| La raíz instalada | desde la live o el modo rescate (no está montada), o reinstalar (se conservan `/home` y la configuración) |
+
+Solo ext2 (ni ext3 ni ext4, que llevan diario: para esos, e2fsck en Linux).

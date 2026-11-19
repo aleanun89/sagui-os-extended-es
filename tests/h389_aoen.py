@@ -17,7 +17,11 @@ Partes (por defecto todas; o las que se pidan: h389_aoen.py generador sin-datos 
   ia         en el PC: partidas de IA contra IA aceleradas (tests/aoen_ia.c) que terminan, con la difícil ganando a la fácil.
   interfaz   v8.5.4.7: la interfaz con los guiones AOEN_PRUEBA (configuración, ayudas, reunión, cola, patrulla, alerta,
              diplomacia, pantalla final) y sin solapes a 800x600 y 1920x1080 (capturas H389-20 a H389-29).
-  bench      (aparte) fps a 800x600 y 1024x768, con efectos 0, 1 y 2; H389_RES, H389_EFECTOS, H389_BENCH, H389_RENDER.
+  presentacion v8.5.5.3: rótulo del menú, opciones en pestañas (interfaz y teclas), cursor propio según la orden con el
+             rótulo de lo que hay bajo el ratón, la hoja de cursores y la resolución de dibujo al 75 % en pantalla completa
+             (capturas H389-33 a H389-38; H389-8 enseña el fuego de los edificios muy dañados).
+  bench      (aparte) fps a 800x600 y 1024x768, con efectos 0, 1 y 2; H389_RES, H389_EFECTOS, H389_BENCH, H389_RENDER,
+             H389_DIBUJO (resolución de dibujo en %, v8.5.5.3).
 Capturas en docs/capturas/H389-*.png. Los DRS reales nunca se usan aquí.
 """
 import os
@@ -348,6 +352,16 @@ def interfaz():
         t, g = correr(m, "AOEN_SCENE=final AOEN_FINAL=espectador AOEN_FFWD=300", 60, r"\[AOEN\] pantalla final: (.+?), \d jugadores, \d+ muestras en la gr\S+fica; Gana: ([^\r\n]+)[\r\n]")
         verificar(g[0] == "PARTIDA TERMINADA" and g[1].startswith("Jugador "), "en el modo espectador no hay victoria ni derrota propias: «Partida terminada» y quién gana (%s)" % g[1])
 
+        # v8.5.4.10r2: el modo intercambio del mercante. Con la casilla «Comercio mejorado» marcada en la configuración, I, el
+        # clic en «Dar» y M cambian el modo y los recursos; sin ella, el botón está gris y dice cómo activarlo
+        t, g = correr(m, "AOEN_SCENE=setup AOEN_SEED=7 AOEN_PRUEBA=comercio", 300, r"\[AOEN\] prueba comercio: mejorado=(\d) modo=(\d) dar=(\d) recibir=(\d)", "H389-31-comercio")
+        verificar("prueba comercio: casilla=1" in t, "el clic marca la casilla «Comercio mejorado» de la configuración")
+        verificar(g == ("1", "1", "3", "0"), "con la opción, I pone el modo intercambio, el clic en Dar pasa a piedra y M a madera (%s)" % (g,))
+        verificar(re.search(r"ayuda: Modo intercambio \| coste 0/0/0/0 \| disponible", t) is not None, "el botón «Modo intercambio» está disponible")
+        t, g = correr(m, juego + " AOEN_PRUEBA=comercio", 260, r"\[AOEN\] prueba comercio: mejorado=(\d) modo=(\d) dar=(\d) recibir=(\d)", "H389-32-comercio-sin-opcion")
+        verificar(g[0] == "0" and g[1] == "0", "sin la opción, el mercante sigue en modo oro (%s)" % (g,))
+        verificar("ayuda: Modo intercambio | coste 0/0/0/0 | Activa Comercio mejorado al crear la partida" in t, "sin la opción, el botón gris explica cómo activarlo")
+
         # v8.5.4.10: sin los fondos originales (DRS sintéticos) el menú principal usa el paisaje propio, no el negro liso
         t, g = correr(m, "AOEN_FULL=1", 120, r"\[AOEN\] pantalla (\d+x\d+)", "H389-30-menu-fondo")
         pix = png_rgb(os.path.join(RAIZ, "docs", "capturas", "H389-30-menu-fondo.png"))   # sin ImageMagick
@@ -369,6 +383,77 @@ def interfaz():
             sol = re.findall(r"\[AOEN\] solapes: (\d+) de (\d+) bloques, (\d+) fuera \(pantalla l\S+gica (\d+)x(\d+)\)", t)
             verificar(bool(sol) and all(s[0] == "0" and s[2] == "0" for s in sol[1:] or sol),
                       "a %s (interfaz lógica %sx%s) ningún bloque se pisa ni se sale (%s)" % (res, sol[-1][3] if sol else "?", sol[-1][4] if sol else "?", sol[-1] if sol else "sin registro"))
+
+
+def presentacion():
+    """v8.5.5.3, en SaguiOS con DRS sintéticos: lo nuevo de la presentación. Rótulo del menú principal, opciones en cuatro
+    pestañas, cursor del juego según lo que hay debajo (atacar, extraer oro, no cabe) y rótulo de lo que hay bajo el ratón,
+    la hoja con todos los cursores y la resolución de dibujo al 75 % en pantalla completa. Capturas H389-33 a H389-38."""
+    from qemu import Maquina, imagem_de_teste, verificar, APPS_RAIZ
+    from h60_barra_tareas import esperar
+    import h136_opentyrian as h136
+    if not os.path.isfile(os.path.join(APPS_RAIZ, "bin", "aoen")):
+        print("AVISO: la imagen no lleva aoen (make): se salta la parte «presentacion»")
+        return
+    jogos = tempfile.mkdtemp(prefix="aoen-jogos-")
+    subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "aoen_drs_sintetico.py"), os.path.join(jogos, "AOE", "DATA")], check=True, stdout=subprocess.DEVNULL)
+
+    def correr(m, extra, frames, espera, captura=None):
+        marca = len(m.serial())
+        m.digitar("AOEN_SHOT=/tmp/aoen.bmp AOEN_FRAMES=%d %s /apps/bin/aoen" % (frames, extra), 0.03)
+        m.tecla("ret")
+        g = esperar(m, espera, 300, desde=marca)
+        if not isinstance(g, tuple):
+            g = (g,)
+        if captura:
+            time.sleep(1.0)
+            m.captura(captura)
+        if "AOEN_SCENE=cursores" not in extra:
+            esperar(m, r"\[AOEN\] captura guardada en el cuadro", 400, desde=marca)
+        esperar(m, r"sagui:/\$", 60, desde=marca)
+        return m.serial()[marca:], g
+
+    img = imagem_de_teste("h389-presentacion", ["--vesa", "--apps", APPS_RAIZ, "--jogos", jogos, "--jogos-mb", "64"])
+    with Maquina("h389-presentacion", "ide", imagem=img, memoria="256M") as m:
+        esperar(m, r"sagui:/\$", 150)
+        time.sleep(4)
+        h136.focar_terminal(m)
+        t, g = correr(m, "AOEN_FULL=1", 120, r"\[AOEN\] pantalla (\d+x\d+)", "H389-33-menu-rotulo")
+        pix = png_rgb(os.path.join(RAIZ, "docs", "capturas", "H389-33-menu-rotulo.png"))
+        w = 1024   # la imagen de prueba es de 1024x768
+        # el rótulo «AoEN» es de bronce: hay píxeles muy cálidos (rojo alto, azul bajo) en la franja de arriba
+        franja = range(3 * w * 40, 3 * w * 250, 3)
+        bronce = sum(1 for i in franja if pix[i] > 190 and pix[i + 2] < 110 and pix[i] - pix[i + 2] > 110)
+        verificar(bronce > 2000, "el menú principal lleva el rótulo AoEN en bronce (%d píxeles)" % bronce)
+
+        t, g = correr(m, "AOEN_SCENE=options AOEN_PAG=1", 60, r"\[AOEN\] opciones: p\S+gina (\S+)", "H389-34-opciones-interfaz")
+        verificar(g[0] == "Interfaz", "las opciones abren en la pestaña Interfaz (%s)" % g[0])
+        t, g = correr(m, "AOEN_SCENE=options AOEN_PAG=3", 60, r"\[AOEN\] opciones: p\S+gina (\S+)", "H389-35-opciones-teclas")
+        verificar(g[0] == "Teclas", "la pestaña Teclas enseña la tabla de teclas (%s)" % g[0])
+
+        t, g = correr(m, "AOEN_SCENE=game AOEN_SEED=7 AOEN_EFECTOS=1 AOEN_PRUEBA=cursor", 160,
+                      r"\[AOEN\] prueba cursor: ataque=(\d+) oro=(\d+) obra=(\d+) \(atacar=(\d+) oro=(\d+) prohibido=(\d+)\)", "H389-36-cursor-mina")
+        verificar(g[0] == g[3], "con soldados elegidos, sobre un enemigo el cursor es la espada (%s)" % g[0])
+        verificar(g[1] == g[4], "con un aldeano elegido, sobre una mina de oro el cursor es el pico (%s)" % g[1])
+        verificar(g[2] == g[5], "una casa sobre el centro urbano no cabe: cursor de prohibido (%s)" % g[2])
+        t, g = correr(m, "AOEN_SCENE=cursores", 1, r"\[AOEN\] escena cursores: (\d+) cursores", "H389-37-cursores")
+        verificar(int(g[0]) >= 10, "la hoja de cursores dibuja los %s cursores del juego" % g[0])
+
+    # resolución de dibujo: en pantalla completa a 1024x768, al 75 % el búfer es de 768x576 y la SDL del sistema amplía
+    img = imagem_de_teste("h389-dibujo", ["--vesa", "--apps", APPS_RAIZ, "--jogos", jogos, "--jogos-mb", "64"])
+    with Maquina("h389-dibujo", "ide", imagem=img, memoria="256M") as m:
+        esperar(m, r"sagui:/\$", 150)
+        time.sleep(4)
+        h136.focar_terminal(m)
+        marca = len(m.serial())
+        m.digitar("AOEN_SHOT=/tmp/aoen.bmp AOEN_FRAMES=600 AOEN_FULL=1 AOEN_DIBUJO=75 AOEN_SCENE=game AOEN_SEED=7 /apps/bin/aoen", 0.03)
+        m.tecla("ret")
+        g = esperar(m, r"\[AOEN\] pantalla completa: escritorio (\d+)x(\d+), dibujo al (\d+)% \((\d+)x(\d+)\)", 300, desde=marca)
+        verificar(g[2] == "75" and int(g[3]) * 4 == int(g[0]) * 3, "al 75 %% se dibuja a %sx%s en un escritorio de %sx%s" % (g[3], g[4], g[0], g[1]))
+        esperar(m, r"\[AOEN\] pantalla %sx%s" % (g[3], g[4]), 120, desde=marca)
+        time.sleep(1.2)
+        m.captura("H389-38-dibujo-75")
+        esperar(m, r"\[AOEN\] captura guardada en el cuadro", 400, desde=marca)
 
 
 def lectores():
@@ -519,6 +604,64 @@ def reglas():
     verificar(rec.get(1, [0] * 4)[3] == 10, "y no se le quita nada al jugador (%s de piedra)" % rec.get(1, ["?"] * 4)[3])
 
 
+def terreno():
+    """v8.5.4.10r2, en el PC (tests/aoen_ia.c, AOEN_IA_AZAR): barcos y unidades de tierra con órdenes al azar cada medio
+    segundo (moverse a cualquier punto, atacar o seguir a cualquier entidad, embarcar, desembarcar, cola, patrulla) en islas
+    y en costa. Ningún barco pisa tierra y ninguna unidad de tierra el agua, y todos siguen moviéndose."""
+    from qemu import verificar
+    exe = compilar_arnes()
+    for mapa, nombre in ((0, "islas"), (2, "costa")):
+        total_emb = total_des = 0
+        for sem in (1, 2, 3):
+            r = subprocess.run([exe, str(sem), "1", "1", str(mapa), "100"], capture_output=True, text=True, timeout=600,
+                               env=dict(os.environ, AOEN_IA_AZAR="150"))
+            g = re.search(r"terreno malas=(\d+) comprobaciones=(\d+)", r.stdout)
+            rec = re.search(r"azar recorrido barcos=(\d+) tierra=(\d+)", r.stdout)
+            mal = re.findall(r"terreno: [^\n]+", r.stderr)
+            verificar(g and int(g.group(1)) == 0 and int(g.group(2)) > 4000,
+                      "%s, semilla %d: %s comprobaciones y ninguna unidad en el terreno que no es suyo (%s)" % (nombre, sem, g.group(2) if g else "?", mal[0] if mal else "bien"))
+            verificar(rec and int(rec.group(1)) > 500 and int(rec.group(2)) > 1000,
+                      "%s, semilla %d: los barcos navegan (%s casillas) y los de tierra andan (%s)" % (nombre, sem, rec.group(1) if rec else "?", rec.group(2) if rec else "?"))
+            emb = len(re.findall(r"transporte: embarca", r.stderr)); des = len(re.findall(r"transporte: desembarcan", r.stderr))
+            print("    %s, semilla %d: %d embarques, %d desembarcos" % (nombre, sem, emb, des))
+            total_emb += emb; total_des += des
+        # según la semilla el transporte puede quedar en un lago sin nadie cerca: se mira el total
+        verificar(total_emb > 0 and total_des > 0, "%s: las unidades suben a los transportes y bajan a tierra (%d embarques, %d desembarcos)" % (nombre, total_emb, total_des))
+
+
+def edificios():
+    """v8.5.4.10r2, en el PC: qué entrena, qué investiga y qué recoge cada edificio, contra la tabla de docs/aoen.md (las
+    reglas del Age of Empires original, con las diferencias anotadas allí)."""
+    from qemu import verificar
+    exe = compilar_arnes()
+    r = subprocess.run([exe, "1", "1", "1"], capture_output=True, text=True, timeout=60, env=dict(os.environ, AOEN_IA_EDIFICIOS="1")).stdout
+    tabla = {}
+    for nom, ent, inv, rec in re.findall(r"edificio ([^|]+)\|entrena:([^|]*)\|investiga:([^|]*)\|recoge:([^\n]*)", r):
+        tabla[nom] = tuple(set(x.strip() for x in c.split(";") if x.strip()) for c in (ent, inv, rec))
+    esperado = {
+        "Centro urbano": ({"Aldeano"}, set(), {"madera", "comida", "oro", "piedra", "carne"}),
+        "Cuartel": ({"Clubman", "Hachero", "Espadachín", "Lanzador de honda"}, set(), set()),
+        "Granero": (set(), {"Domesticación", "Arado", "Torre centinela", "Torre de guardia", "Torres de ballesta", "Muralla media", "Fortificación"}, {"comida", "carne"}),
+        "Almacén": (set(), {"Herramientas", "Hachas de bronce", "Minería", "Armadura de cuero", "Armadura de escamas", "Armas de bronce", "Armas de hierro", "Armadura de caballería"}, {"madera", "oro", "piedra", "carne"}),
+        "Campo de tiro": ({"Arquero", "Arquero mejorado", "Carro arquero", "Arquero a caballo", "Arquero de elefante"}, {"Flechas mejoradas", "Arcos compuestos"}, set()),
+        "Establo": ({"Explorador", "Caballería", "Caballería pesada", "Elefante de guerra", "Catafracta"}, set(), set()),
+        "Templo": ({"Sacerdote"}, {"Medicina", "Monoteísmo", "Fe", "Mística"}, set()),
+        "Academia": ({"Hoplita", "Falange", "Centurión"}, set(), set()),
+        "Centro de gobierno": (set(), {"Ingeniería", "Balística", "Arquitectura", "Logística"}, set()),
+        "Mercado": ({"Carro mercante"}, {"Rueda", "Astronomía"}, set()),
+        "Taller de asedio": ({"Balista", "Catapulta", "Catapulta pesada"}, set(), set()),
+        "Muelle": ({"Barco de pesca", "Barco de transporte", "Trirreme", "Barco mercante"}, set(), {"pescado"}),
+    }
+    for nom, (ent, inv, rec) in esperado.items():
+        t = tabla.get(nom)
+        verificar(t is not None and t[0] == ent, "%s entrena %s" % (nom, ", ".join(sorted(t[0])) if t else "?"))
+        verificar(t is not None and t[1] == inv, "%s investiga %s" % (nom, ", ".join(sorted(t[1])) if t and t[1] else "nada"))
+        verificar(t is not None and t[2] == rec, "%s recoge %s" % (nom, ", ".join(sorted(t[2])) if t and t[2] else "nada"))
+    for nom in ("Casa", "Granja", "Torre", "Muralla", "Maravilla"):
+        t = tabla.get(nom)
+        verificar(t is not None and not any(t), "%s no entrena, ni investiga, ni recoge" % nom)
+
+
 def ia():
     """En el PC (tests/aoen_ia.c, sin ventana y a toda velocidad): partidas de IA contra IA en mapas con camino por tierra.
     Todas terminan antes de 60 minutos de juego; la difícil gana a la fácil en todas, la normal a la fácil casi siempre y la
@@ -542,6 +685,8 @@ def ia():
             out = subprocess.run([exe, str(11 + k), str(da), str(db), "0" if islas else str(mapas[k % len(mapas)]), "100", "60"],
                                  capture_output=True, text=True, timeout=900, env=dict(os.environ, **(entorno or {}))).stdout
             g = re.search(r"resultado ganador=(\d) tiempo=(\d+)", out)
+            tm = re.search(r"terreno malas=(\d+)", out)
+            verificar(tm is not None and tm.group(1) == "0", "partida %d: ningún barco en tierra ni unidad de tierra en el agua (%s)" % (11 + k, tm.group(1) if tm else "?"))
             edades = re.findall(r"dif (\d) civ \S+ edades (\d+)/(\d+)/(\d+)", out)
             r.append((int(g.group(1)), int(g.group(2)), edades))
         gana_a = sum(1 for x in r if x[0] == 1)
@@ -619,7 +764,7 @@ def bench():
             h136.focar_terminal(m)
             for ef in os.environ.get("H389_EFECTOS", "0,1").split(","):
                 marca = len(m.serial())
-                m.digitar("AOEN_FULL=1 AOEN_SCENE=game AOEN_EFECTOS=%s AOEN_RENDER=%s AOEN_BENCH=%s /apps/bin/aoen" % (ef, os.environ.get("H389_RENDER", "0"), os.environ.get("H389_BENCH", "600")), 0.04)
+                m.digitar("AOEN_FULL=1 AOEN_SCENE=game AOEN_EFECTOS=%s AOEN_RENDER=%s AOEN_DIBUJO=%s AOEN_BENCH=%s /apps/bin/aoen" % (ef, os.environ.get("H389_RENDER", "0"), os.environ.get("H389_DIBUJO", "100"), os.environ.get("H389_BENCH", "600")), 0.04)
                 m.tecla("ret")
                 g = esperar(m, r"\[AOEN\] bench (\d+)x(\d+) cuadros=(\d+) ms=(\d+) fps=([\d.]+)", 300, desde=marca)
                 print("    %s efectos=%s -> bench %sx%s: %s cuadros en %s ms = %s fps" % (res, ef, g[0], g[1], g[2], g[3], g[4]))
@@ -631,8 +776,8 @@ def bench():
 
 
 if __name__ == "__main__":
-    partes = sys.argv[1:] or ["generador", "licencia", "lectores", "sin-datos", "con-datos", "efectos", "funciones", "ia", "interfaz", "reglas"]  # "bench" se pide aparte
+    partes = sys.argv[1:] or ["generador", "licencia", "lectores", "sin-datos", "con-datos", "efectos", "funciones", "ia", "interfaz", "presentacion", "reglas", "terreno", "edificios"]  # "bench" se pide aparte
     for p in partes:
         print("== " + p)
-        {"generador": generador, "licencia": licencia, "sin-datos": sin_datos, "con-datos": con_datos, "efectos": efectos, "lectores": lectores, "bench": bench, "funciones": funciones, "ia": ia, "interfaz": interfaz, "reglas": reglas}[p]()
+        {"generador": generador, "licencia": licencia, "sin-datos": sin_datos, "con-datos": con_datos, "efectos": efectos, "lectores": lectores, "bench": bench, "funciones": funciones, "ia": ia, "interfaz": interfaz, "presentacion": presentacion, "reglas": reglas, "terreno": terreno, "edificios": edificios}[p]()
     print("H389 ok")

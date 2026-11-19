@@ -62,9 +62,21 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
     verificar(t.get(1) and t[1][0] == 1 and t[1][2] == "da" and t[1][3], f"[{rotulo}] partición 1: SaguiOS (0xDA), activa, desde el LBA 1")
     verificar(t.get(2) and t[2][2] == "f", f"[{rotulo}] partición 2: extendida")
     ultima = max(k for k in t if k >= 5)
+    # D388: las lógicas, por etiqueta (el orden es CONF o RAIZ, juegos, /apps y /home la última)
+    rot = {}
+    for k in sorted(t):
+        if k >= 5:
+            with open(img, "rb") as f:
+                f.seek(t[k][0] * 512 + 1024 + 120)
+                rot[f.read(16).split(b"\0")[0].decode("latin-1")] = k
+    print("    lógicas:", rot)
+    verificar(rot.get("SAGUI-DATOS") == ultima, f"[{rotulo}] /home (SAGUI-DATOS) es la última lógica (D388: se amplía sin mover nada)")
+    nh, nj = rot.get("SAGUI-DATOS", 5), rot.get("SAGUI-JOGOS", 6)
     raiz = None
-    if ultima == 7:   # D379 (M1): /home, juegos y SAGUI-RAIZ
-        raiz = extrair_particao(img, t[7][0], t[7][1] // 2048)
+    if "SAGUI-RAIZ" in rot:   # D379 (M1): /home, juegos y SAGUI-RAIZ
+        nr = rot["SAGUI-RAIZ"]
+        verificar(len(rot) == 3, f"[{rotulo}] tres lógicas: SAGUI-RAIZ, juegos y /home")
+        raiz = extrair_particao(img, t[nr][0], t[nr][1] // 2048)
         verificar(rotulo_ext2(raiz) == "SAGUI-RAIZ" and e2fsck(raiz)[0] == 0,
                   f"[{rotulo}] lógicas: /home, juegos y SAGUI-RAIZ (un ext2 sano; D379: sin SAGUI-APPS ni SAGUI-CONF)")
         verificar(subprocess.run(["/usr/sbin/debugfs", "-R", "cat /sistema/raiz/versao", raiz], capture_output=True).stdout.startswith(b"v"),
@@ -77,12 +89,12 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
             if not u or not mo or int(u.group(1)) != 0 or int(mo.group(1), 8) & 0o022:
                 malas.append(r)
         verificar(not malas, f"[{rotulo}] /lib, ld-sagui.so.1 y las .so de la raíz instalada, de root sin escritura de otros ({malas})")
-        sis = t[6][1] + t[7][1]
+        sis = t[nj][1] + t[nr][1]
     else:
-        verificar(t.get(5) and t[5][2] == "83" and t.get(6) and t[6][2] == "83" and t.get(7) and t[7][2] == "83"
-                  and t.get(8) and t[8][2] == "83" and t[8][1] == 16 * 2048,
+        na, nc = rot.get("SAGUI-APPS", 7), rot.get("SAGUI-CONF", 8)
+        verificar(all(t.get(k) and t[k][2] == "83" for k in (nh, nj, na, nc)) and t[nc][1] == 16 * 2048,
                   f"[{rotulo}] lógicas: /home, juegos, /apps y SAGUI-CONF de 16 MB (83, ext2; como en la imagen, D194, D256)")
-        sis = t[6][1] + t[7][1] + t[8][1]
+        sis = t[nj][1] + t[na][1] + t[nc][1]
     with open(img, "rb") as f:
         dst = f.read(2 * 512)
         cab = dst[512:1024]
@@ -97,10 +109,10 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
     verificar(copiado == orig[e2 * 512:total * 512], f"[{rotulo}] etapa 2, kernel y ramdisk iguales byte a byte al origen")
     verificar(dst[:440] == orig[:440] and dst[510:512] == b"\x55\xAA", f"[{rotulo}] el código del MBR es el de SaguiOS")
     verificar(cab[:136] == orig[512:648], f"[{rotulo}] la cabecera es la del origen (salvo el tamaño y el identificador)")
-    home = extrair_particao(img, t[5][0], t[5][1] // 2048)
+    home = extrair_particao(img, t[nh][0], t[nh][1] // 2048)
     rc, o = e2fsck(home)
     verificar(rc == 0, f"[{rotulo}] e2fsck da por bueno el /home ({o.strip()[-120:]})")
-    jg = extrair_particao(img, t[6][0], t[6][1] // 2048)
+    jg = extrair_particao(img, t[nj][0], t[nj][1] // 2048)
     rc, o = e2fsck(jg)
     verificar(rc == 0 and "SAGUI-JOGOS" in subprocess.run(["/usr/sbin/e2label", jg], capture_output=True, text=True).stdout,
               f"[{rotulo}] la partición de juegos es un ext2 SAGUI-JOGOS sano, como en la imagen (D181)")
@@ -115,11 +127,11 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
             r = subprocess.run(["/usr/sbin/debugfs", "-R", "cat /apps/bin/netsurf", raiz], capture_output=True).stdout
             verificar(r == open(ns, "rb").read(), f"[{rotulo}] /apps/bin/netsurf copiado byte a byte a SAGUI-RAIZ")
         return t
-    ap = extrair_particao(img, t[7][0], t[7][1] // 2048)
+    ap = extrair_particao(img, t[na][0], t[na][1] // 2048)
     rc, o = e2fsck(ap)
     verificar(rc == 0 and "SAGUI-APPS" in rotulo_ext2(ap),
               f"[{rotulo}] la partición /apps es un ext2 SAGUI-APPS sano, como en la imagen (D194)")
-    cf = extrair_particao(img, t[8][0], t[8][1] // 2048)
+    cf = extrair_particao(img, t[nc][0], t[nc][1] // 2048)
     rc, o = e2fsck(cf)
     verificar(rc == 0 and "SAGUI-CONF" in rotulo_ext2(cf),
               f"[{rotulo}] SAGUI-CONF es un ext2 sano con su etiqueta (D256)")

@@ -8,6 +8,7 @@
  * D282: -o uid=N,gid=N,umask=022 dan dueño y permisos a lo que hay en un FAT32,
  * ISO 9660 o UDF (no tienen los suyos); sin ellas, de sagui con 022. */
 #include "sagui.h"
+#include "particoes.h"
 #include "contas.h"
 
 /* "1000", "sagui", "root" -> número (o -1). Para el grupo, el gid de esa cuenta. */
@@ -27,10 +28,22 @@ static void listar_montagens(void)
     info_montagem_t m[16];   /* D379: hasta 12 montajes (raíz, /tmp, /initrd...) */
     int n = info_sistema(INFO_MONTAGENS, m, 16);
     if (n <= 0) { imprimir("No hay nada montado.\n"); return; }
+    /* D388: en la live, «/» es el sistema de serie (SAGUI-RAIZ, solo lectura) con la capa de cambios encima
+     * (SAGUI-PERSIST o la RAM): se dice así, y /sistema/serie es esa misma base vista sola. */
+    char base[16] = "", capa[16] = "";
+    bool live = pt_raiz_live(base, capa, sizeof base);
     for (int i = 0; i < n; i++) {
-        imprimir("%-7s en %s  tipo %s  (%s", m[i].dispositivo, m[i].ponto, m[i].tipo,
-                 (m[i].opcoes & MONTAR_SO_LEITURA) ? "ro" : "rw");
-        if (m[i].total_kb) imprimir(", %u MB libres de %u MB", m[i].livre_kb / 1024, m[i].total_kb / 1024);
+        bool raiz_live = live && compara_texto(m[i].ponto, "/") == 0;
+        if (raiz_live && capa[0])
+            imprimir("%s+%s en /  tipo live: sistema de serie (%s, SAGUI-RAIZ, solo lectura) + tus cambios (%s, SAGUI-PERSIST)  (rw",
+                     base, capa, base, capa);
+        else if (raiz_live)
+            imprimir("%-7s en /  tipo live: sistema de serie (%s, SAGUI-RAIZ, solo lectura) + tus cambios en la RAM  (rw", base, base);
+        else
+            imprimir("%-7s en %s  tipo %s  (%s", m[i].dispositivo, m[i].ponto, m[i].tipo,
+                     (m[i].opcoes & MONTAR_SO_LEITURA) ? "ro" : "rw");
+        if (m[i].total_kb) imprimir(", %u MB libres de %u MB%s", m[i].livre_kb / 1024, m[i].total_kb / 1024, raiz_live ? " en la capa" : "");
+        if (live && compara_texto(m[i].tipo, "serie") == 0) imprimir("; la base de / sin tus cambios");
         imprimir(")\n");
     }
 }

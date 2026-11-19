@@ -261,6 +261,8 @@ static void columna_jugadores(int x, int y, int w, int h) {
 	}
 }
 
+Rect prueba_comercio;
+
 static int fila_opcion(int x, int y, int w, const char *etiqueta, const char *valor, int lbl) {
 	gfx_ts(x, y + 5, etiqueta, COL_CREAM, 1);
 	return cycler(x + lbl, y, w - lbl, valor);
@@ -280,7 +282,10 @@ static void columna_mapa(int x, int y, int w, int h) {
 	int c, lbl = MIN(130, w / 3);
 	gfx_ts(x, y + 4, "Mapa y reglas", COL_GOLD, 1);
 	y += 30;
-	int pw = MIN(w - 8, 2 * MAX(60, MIN(160, h - 8 * 30 - 30 - 16))), ph = pw / 2;
+	/* la vista previa usa el alto que dejan las filas de debajo (7 filas, las 2 casillas de reglas y, según lo elegido, los
+	 * recursos a medida, el tiempo límite y las casillas extra): así «Comercio mejorado» nunca queda fuera del panel */
+	int filas = 7 * 30 + 2 * 28 + (su.recursos == 4 ? 30 : 0) + (su.victoria == VIC_SCORE ? 30 : 0) + (extra_a_la_izquierda ? 0 : 2 * 28);
+	int pw = MIN(w - 8, 2 * MAX(30, MIN(160, (h - filas - 30 - 16)))), ph = pw / 2;
 	dibujar_prevista(x + (w - pw) / 2, y + 4, pw, ph);
 	y += ph + 16;
 	if ((c = fila_opcion(x, y, w, "Tipo", map_names[su.map], lbl))) su.map = (su.map + c + 6) % 6;
@@ -334,6 +339,7 @@ static void columna_mapa(int x, int y, int w, int h) {
 		if (hit(x + lbl, y, w - lbl, 26)) tip_simple((Rect){ x + lbl, y, w - lbl, 26 }, "Recursos del mapa", rmd[CLAMP(su.recursos_mapa, 0, 2)]);
 		y += 30;
 	}
+	prueba_comercio = (Rect){ x, y, w, 22 };
 	checkbox(x, y, "Comercio mejorado (barcos y carros)", &su.comercio);
 	if (hit(x, y, w, 22))
 		tip_simple((Rect){ x, y, w, 22 }, "Comercio mejorado (barcos y carros)",
@@ -350,6 +356,10 @@ static void columna_mapa(int x, int y, int w, int h) {
 }
 
 void draw_setup(void) {
+	/* «Empezar partida» (v8.5.5.3): un cuadro con el aviso «Preparando la partida» y en el siguiente se genera el mapa (en
+	 * mapas grandes o equipos lentos tarda: así no parece colgado) */
+	static int preparar;
+	if (preparar == 2) { preparar = 0; start_game(); return; }
 	draw_background(1);
 	gfx_fill_a(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0), 120);
 	foco_inicio();
@@ -367,16 +377,25 @@ void draw_setup(void) {
 		gfx_fill(ix + lw + 12, iy, 1, ih, gfx_rgb(110, 85, 45));
 		columna_mapa(ix + lw + 26, iy, iw - lw - 26, ih);
 	} else {
-		if (button(ix, iy, 150, 24, "Jugadores", setup_pest != 0, 1)) setup_pest = 0;
-		if (button(ix + 156, iy, 150, 24, "Mapa y reglas", setup_pest != 1, 1)) setup_pest = 1;
+		if (pestana(ix, iy, 150, 26, "Jugadores", setup_pest == 0)) setup_pest = 0;
+		if (pestana(ix + 156, iy, 150, 26, "Mapa y reglas", setup_pest == 1)) setup_pest = 1;
 		if (setup_pest == 0) columna_jugadores(ix, iy + 32, iw, ih - 32);
 		else columna_mapa(ix, iy + 32, iw, ih - 32);
 	}
 	if (button(12, fb.h - 50, 140, 40, "< Volver", 1, 2) || tecla(SDL_SCANCODE_ESCAPE)) app.screen = SC_MENU;
 	const char *pie = "Flechas o Tab: moverse · Izq./Der.: cambiar · Intro: empezar";
-	if (fb.w >= 760) gfx_text(fb.w / 2 - gfx_text_w(pie, 1) / 2, fb.h - 34, pie, COL_DIM, 1);
+	if (gfx_t_w(pie, 1) <= fb.w - 152 - 272 - 24) gfx_ts(162 + (fb.w - 152 - 272 - gfx_t_w(pie, 1)) / 2, fb.h - 38, pie, COL_DIM, 1);
+	else if (fb.w >= 760) gfx_text(fb.w / 2 - gfx_text_w(pie, 1) / 2, fb.h - 34, pie, COL_DIM, 1);
 	int empezar = button(fb.w - 12 - 260, fb.h - 52, 260, 44, "Empezar partida", su.players >= 1, 3);
-	if (empezar || (tecla(SDL_SCANCODE_RETURN) && foco_actual < 0 && !su.seed_focus)) start_game();
+	if (empezar || (tecla(SDL_SCANCODE_RETURN) && foco_actual < 0 && !su.seed_focus)) preparar = 1;
+	if (preparar == 1) {
+		const char *m = "Preparando la partida...";
+		int w = gfx_t_w(m, 2) + 60, h = 70;
+		gfx_fill_a(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0), 120);
+		panel((fb.w - w) / 2, (fb.h - h) / 2, w, h);
+		gfx_ts((fb.w - gfx_t_w(m, 2)) / 2, (fb.h - 32) / 2, m, COL_GOLD, 2);
+		preparar = 2;
+	}
 	solape_registrar(px, py, pw, ph, "panel");
 	solape_registrar(12, fb.h - 50, 140, 40, "volver");
 	solape_registrar(fb.w - 272, fb.h - 52, 260, 44, "empezar");
@@ -396,18 +415,56 @@ int setup_tecla(int sym) {
 }
 
 /* ---------- menú principal ---------- */
+
+/* curva de entrada (0..1 -> 0..1, frena al final) para las animaciones de las pantallas */
+static float suavizar(float t) { t = CLAMP(t, 0.0f, 1.0f); return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t); }
+/* tiempo (s) desde que se entró en la pantalla actual */
+static float t_pantalla(void) { return (SDL_GetTicks() - app.t_pantalla) / 1000.0f; }
+
+/* rótulo del juego: «AoEN» grande con degradado de bronce, una línea de adorno y el subtítulo (v8.5.5.3) */
+static int rotulo(int y) {
+	const char *t = "AoEN";
+	int tam = CLAMP(fb.w * 34 / 100 / (8 * 4), 3, 7);
+	float a = suavizar(t_pantalla() / 0.45f);
+	int dy = (int)((1.0f - a) * -30);
+	int tw = gfx_t_w(t, tam);
+	gfx_titulo(fb.w / 2 - tw / 2, y + dy, t, gfx_rgb(255, 238, 176), gfx_rgb(200, 112, 40), gfx_rgb(36, 18, 8), tam);
+	int sy = y + 16 * tam + 10;
+	const char *sub = "Estrategia en tiempo real";
+	int sw = gfx_t_w(sub, 1);
+	/* líneas de adorno a los lados del subtítulo, que crecen al entrar */
+	int lw = (int)(MIN(140, fb.w / 6) * a);
+	gfx_fill(fb.w / 2 - sw / 2 - 12 - lw, sy + 8, lw, 2, COL_GOLD);
+	gfx_fill(fb.w / 2 + sw / 2 + 12, sy + 8, lw, 2, COL_GOLD);
+	gfx_fill(fb.w / 2 - sw / 2 - 12 - lw, sy + 10, lw, 1, gfx_rgb(60, 34, 14));
+	gfx_fill(fb.w / 2 + sw / 2 + 12, sy + 10, lw, 1, gfx_rgb(60, 34, 14));
+	gfx_ts(fb.w / 2 - sw / 2, sy, sub, COL_CREAM, 1);
+	return sy + 20;
+}
+
 void draw_menu(void) {
 	draw_background(0);
 	foco_inicio();
 	int bw = 320, bh = 50, gap = 14, x = (fb.w - bw) / 2, y = fb.h * 44 / 100;
 	if (y + 4 * (bh + gap) + 40 > fb.h) y = fb.h - 4 * (bh + gap) - 40;
-	if (button(x, y, bw, bh, "Un jugador", 1, 3)) app.screen = SC_SETUP;
+	/* el rótulo arriba, sin pisar los botones: en pantallas bajas se encoge el margen */
+	int ry = MAX(10, fb.h * 9 / 100);
+	int fin_rotulo = rotulo(ry);
+	if (fin_rotulo + 24 > y) y = fin_rotulo + 24;
+	solape_registrar(fb.w / 2 - gfx_t_w("AoEN", 3) / 2, ry, gfx_t_w("AoEN", 3), fin_rotulo - ry, "rótulo");
+	/* fondo translúcido detrás de los botones: se leen sobre cualquier paisaje */
+	gfx_fill_a(x - 18, y - 16, bw + 36, 4 * (bh + gap) - gap + 32, gfx_rgb(16, 10, 6), 120);
+	bevel(x - 18, y - 16, bw + 36, 4 * (bh + gap) - gap + 32, gfx_rgb(120, 92, 52));
+	/* los botones entran uno tras otro desde abajo */
+	int off[4];
+	for (int k = 0; k < 4; ++k) off[k] = (int)((1.0f - suavizar((t_pantalla() - 0.06f * k) / 0.35f)) * 24);
+	if (button(x, y + off[0], bw, bh, "Un jugador", 1, 3)) app.screen = SC_SETUP;
 	static int has_saves = -1;
 	if (has_saves < 0 || (SDL_GetTicks() / 1000) % 2 == 0) has_saves = any_save();
-	if (button(x, y + (bh + gap), bw, bh, "Cargar partida", has_saves, 3)) { refresh_slots(); saves_msg[0] = 0; app.saves_mode = 0; app.saves_back = SC_MENU; app.screen = SC_SAVES; }
+	if (button(x, y + (bh + gap) + off[1], bw, bh, "Cargar partida", has_saves, 3)) { refresh_slots(); saves_msg[0] = 0; app.saves_mode = 0; app.saves_back = SC_MENU; app.screen = SC_SAVES; }
 	if (!has_saves && hit(x, y + (bh + gap), bw, bh)) tip_simple((Rect){ x, y + (bh + gap), bw, bh }, "Cargar partida", "Aún no hay partidas guardadas: guarda con F5 o desde la pausa.");
-	if (button(x, y + 2 * (bh + gap), bw, bh, "Opciones", 1, 3)) { app.options_back = SC_MENU; app.screen = SC_OPTIONS; }
-	if (button(x, y + 3 * (bh + gap), bw, bh, "Salir", 1, 3)) app.running = 0;
+	if (button(x, y + 2 * (bh + gap) + off[2], bw, bh, "Opciones", 1, 3)) { app.options_back = SC_MENU; app.screen = SC_OPTIONS; }
+	if (button(x, y + 3 * (bh + gap) + off[3], bw, bh, "Salir", 1, 3)) app.running = 0;
 	const char *pie = "AoEN - motor nuevo en C. Age of Empires (c) Microsoft. Se necesita una copia legítima del juego.";
 	gfx_fill_a(0, fb.h - 26, fb.w, 26, gfx_rgb(0, 0, 0), 140);
 	gfx_ts(fb.w / 2 - gfx_t_w(pie, 1) / 2, fb.h - 21, pie, gfx_rgb(220, 210, 190), 1);
@@ -415,7 +472,8 @@ void draw_menu(void) {
 }
 
 /* ---------- opciones ---------- */
-static int opt_page;   /* 0 gráficos, 1 sonido y control */
+static int opt_page;   /* 0 gráficos, 1 interfaz, 2 sonido, 3 teclas */
+void opciones_pagina(int p) { opt_page = CLAMP(p, 0, 3); }
 
 static void fx_toggle_changed(void) {
 	efx.perfil = FX_PERSONAL;
@@ -428,24 +486,28 @@ void draw_options(void) {
 	gfx_fill_a(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0), 150);
 	foco_inicio();
 	int c;
-	int pw = MIN(fb.w - 20, 640), ph = MIN(fb.h - 20, 520), px = (fb.w - pw) / 2, py = (fb.h - ph) / 2;
+	int pw = MIN(fb.w - 20, 860), ph = MIN(fb.h - 20, 540), px = (fb.w - pw) / 2, py = (fb.h - ph) / 2;
 	panel(px, py, pw, ph);
-	gfx_ts(fb.w / 2 - gfx_t_w("Opciones", 2) / 2, py + 16, "Opciones", COL_GOLD, 2);
-	if (button(px + 24, py + 56, pw / 2 - 30, 28, "Gráficos", opt_page != 0, 1)) opt_page = 0;
-	if (button(px + pw / 2 + 6, py + 56, pw / 2 - 30, 28, "Sonido y control", opt_page != 1, 1)) opt_page = 1;
-	int y = py + 98;
+	gfx_ts(fb.w / 2 - gfx_t_w("Opciones", 2) / 2, py + 14, "Opciones", COL_GOLD, 2);
+	/* pestañas (v8.5.5.3): gráficos, interfaz, sonido y teclas */
+	static const char *pest[] = { "Gráficos", "Interfaz", "Sonido", "Teclas" };
+	int tw = (pw - 48 - 3 * 6) / 4;
+	for (int k = 0; k < 4; ++k) if (pestana(px + 24 + k * (tw + 6), py + 52, tw, 30, pest[k], opt_page == k)) opt_page = k;
+	gfx_fill(px + 24, py + 82, pw - 48, 1, COL_GOLD);
+	{ static int pag_ant = -1; if (opt_page != pag_ant) { pag_ant = opt_page; AOEN_LOG("[AOEN] opciones: página %s", pest[opt_page]); } }
+	int y = py + 98, cx = px + pw - 270, cw = 240;   /* columna de los selectores */
 	if (opt_page == 0) {
 		int fs = app.fullscreen;
-		if (checkbox(px + 30, y, "Pantalla completa", &fs)) { app.fullscreen = fs; cfg_set_int("fullscreen", fs); apply_fullscreen(); }
+		if (checkbox(px + 30, y, "Pantalla completa (F11)", &fs)) { app.fullscreen = fs; cfg_set_int("fullscreen", fs); apply_fullscreen(); }
 		checkbox(px + pw / 2, y, "Mostrar FPS", &app.show_fps);
 		y += 32;
 		if (tex_available()) {
 			int hd = hd_enabled;
 			if (checkbox(px + 30, y, "Terreno con texturas HD", &hd)) { hd_enabled = hd; cfg_set_int("hd_terrain", hd); }
-		} else gfx_text(px + 30, y + 6, "Texturas HD no encontradas (aoen-config --textures RUTA)", COL_DIM, 1);
+		} else gfx_t(px + 30, y + 3, "Texturas HD no encontradas (aoen-config --textures RUTA)", COL_DIM, 1);
 		y += 34;
 		gfx_ts(px + 30, y + 5, "Efectos gráficos:", COL_GOLD, 1);
-		if ((c = cycler(px + pw - 250, y, 220, fx_nombre_perfil(efx.perfil)))) {
+		if ((c = cycler(cx, y, cw, fx_nombre_perfil(efx.perfil)))) {
 			int p = (efx.perfil + c + 4) % 4;
 			if (p == FX_PERSONAL) { efx.perfil = FX_PERSONAL; fx_guardar(); }
 			else { fx_perfil(p); gfx_smooth = efx.suave; fx_guardar(); }
@@ -453,39 +515,65 @@ void draw_options(void) {
 		y += 36;
 		struct { const char *n; int *v; } Lx[] = {
 			{ "Transiciones", &efx.transiciones }, { "Agua animada", &efx.agua }, { "Niebla suave", &efx.niebla }, { "Sombras", &efx.sombras },
-			{ "Humo y polvo", &efx.particulas }, { "Obras y ruinas", &efx.construccion }, { "Día y noche", &efx.diaynoche }, { "Zoom suave", &efx.suave },
+			{ "Humo, fuego y polvo", &efx.particulas }, { "Obras y ruinas", &efx.construccion }, { "Día y noche", &efx.diaynoche }, { "Zoom suave", &efx.suave },
 		};
 		for (int k = 0; k < 8; ++k) if (checkbox(px + 30 + (k & 1) * (pw / 2 - 10), y + (k >> 1) * 28, Lx[k].n, Lx[k].v)) fx_toggle_changed();
 		y += 4 * 28 + 8;
-		gfx_ts(px + 30, y + 5, "Tamaño de la interfaz:", COL_CREAM, 1);
-		static const char *en[] = { "Automático", "Normal (1x)", "Grande (2x)" };
-		if ((c = cycler(px + pw - 250, y, 220, en[CLAMP(efx.escala, 0, 2)]))) { efx.escala = (efx.escala + c + 3) % 3; fx_guardar(); }
+#ifdef SAGUI_AOEN
+		/* resolución de dibujo: en pantalla completa se dibuja a menos píxeles y el sistema amplía (más cuadros por segundo) */
+		static const int esc[] = { 100, 75, 50 };
+		static const char *escn[] = { "100 % (nativa)", "75 %", "50 %" };
+		int ei = app.escala_dibujo <= 50 ? 2 : app.escala_dibujo <= 75 ? 1 : 0;
+		gfx_ts(px + 30, y + 5, "Resolución de dibujo:", COL_CREAM, 1);
+		if ((c = cycler(cx, y, cw, escn[ei]))) {
+			ei = (ei + c + 3) % 3; app.escala_dibujo = esc[ei]; cfg_set_int("escala_dibujo", app.escala_dibujo);
+			if (app.fullscreen) apply_fullscreen();
+		}
 		y += 34;
+#endif
+		texto_ajustado(px + 30, y, pw - 60, "Equipos lentos: sin efectos, como el AoEN original. Normal: los baratos. Completo: todo. "
+#ifdef SAGUI_AOEN
+			"La resolución de dibujo solo cuenta en pantalla completa: al 50 % se dibuja la cuarta parte de los píxeles."
+#endif
+			, COL_DIM, MAX(0, MIN(3, (py + ph - 60 - y) / 16)));
+	} else if (opt_page == 1) {
+		gfx_ts(px + 30, y + 5, "Tamaño de la interfaz:", COL_CREAM, 1);
+		static const char *en[] = { "Automático", "Normal (1x)", "Grande (2x)", "Enorme (3x)" };
+		if ((c = cycler(cx, y, cw, en[CLAMP(efx.escala, 0, 3)]))) { efx.escala = (efx.escala + c + 4) % 4; fx_guardar(); }
+		y += 40;
+		if (checkbox(px + 30, y, "Cursor del juego (cambia según la orden)", &app.cursor_propio)) cfg_set_int("cursor_propio", app.cursor_propio);
+		y += 32;
+		if (checkbox(px + 30, y, "Nombre y datos de lo que hay bajo el ratón", &app.nombres_raton)) cfg_set_int("nombres_raton", app.nombres_raton);
+		y += 32;
 		int r2 = cfg_get_int("render2d", 0);
 		if (checkbox(px + 30, y, "Renderizador 2D del sistema (al reiniciar)", &r2)) cfg_set_int("render2d", r2);
-		y += 30;
-		gfx_text(px + 30, y, "Equipos lentos: sin efectos, como el AoEN original. Normal: los baratos. Completo: todo.", COL_DIM, 1);
-	} else {
+		y += 40;
+		texto_ajustado(px + 30, y, pw - 60, "Automático: la interfaz se amplía x2 desde 1600x960 y x3 desde 2880x1620. Si la interfaz no "
+			"cabe a ese tamaño, se usa el mayor que quepa (como mínimo 640x480 lógicos). El renderizador 2D solo ayuda con algunas "
+			"tarjetas: el juego dibuja por la CPU y la GPU solo copia el cuadro.", COL_DIM, MAX(0, MIN(5, (py + ph - 60 - y) / 16)));
+	} else if (opt_page == 2) {
 		static const char *vn[] = { "0%", "25%", "50%", "75%", "100%" };
 		int vs = CLAMP((int)(audio_sfx_volume() * 4 + 0.5f), 0, 4), va = CLAMP((int)(audio_ambience_volume() * 4 + 0.5f), 0, 4);
 		gfx_ts(px + 30, y + 5, "Volumen de efectos:", COL_CREAM, 1);
-		if ((c = cycler(px + pw - 210, y, 170, vn[vs]))) { vs = (vs + c + 5) % 5; audio_set_volumes(vs / 4.0f, audio_ambience_volume()); cfg_set_int("volume_sfx", vs * 25); snd_ui(SND_CLICK); }
+		if ((c = cycler(cx, y, cw, vn[vs]))) { vs = (vs + c + 5) % 5; audio_set_volumes(vs / 4.0f, audio_ambience_volume()); cfg_set_int("volume_sfx", vs * 25); snd_ui(SND_CLICK); }
 		y += 38;
 		int vm = CLAMP((int)(music_volume() * 4 + 0.5f), 0, 4);
 		gfx_ts(px + 30, y + 5, "Volumen de música:", COL_CREAM, 1);
-		if ((c = cycler(px + pw - 210, y, 170, vn[vm]))) { vm = (vm + c + 5) % 5; music_set_volume(vm / 4.0f); cfg_set_int("volume_music", vm * 25); }
+		if ((c = cycler(cx, y, cw, vn[vm]))) { vm = (vm + c + 5) % 5; music_set_volume(vm / 4.0f); cfg_set_int("volume_music", vm * 25); }
 		y += 38;
 		gfx_ts(px + 30, y + 5, "Volumen de ambiente:", COL_CREAM, 1);
-		if ((c = cycler(px + pw - 210, y, 170, vn[va]))) { va = (va + c + 5) % 5; audio_set_volumes(audio_sfx_volume(), va / 4.0f); cfg_set_int("volume_amb", va * 25); }
+		if ((c = cycler(cx, y, cw, vn[va]))) { va = (va + c + 5) % 5; audio_set_volumes(audio_sfx_volume(), va / 4.0f); cfg_set_int("volume_amb", va * 25); }
 		y += 44;
 		static const char *sp[] = { "Lenta", "Normal", "Rápida" };
 		gfx_ts(px + 30, y + 5, "Velocidad de desplazamiento:", COL_CREAM, 1);
-		c = cycler(px + pw - 210, y, 170, sp[app.scroll_speed - 1]);
+		c = cycler(cx, y, cw, sp[app.scroll_speed - 1]);
 		if (c) { app.scroll_speed = (app.scroll_speed - 1 + c + 3) % 3 + 1; cfg_set_int("scroll_speed", app.scroll_speed); }
 		y += 52;
-		gfx_text(px + 30, y, "Carpeta de datos (se cambia con aoen-config):", COL_DIM, 1);
-		gfx_text(px + 30, y + 14, app.data_dir, COL_DIM, 1);
-		{ char cp[1100]; cfg_path(cp, sizeof cp); gfx_text(px + 30, y + 28, cp, COL_DIM, 1); }
+		gfx_t(px + 30, y, "Carpeta de datos (se cambia con aoen-config):", COL_DIM, 1);
+		texto_ajustado(px + 30, y + 18, pw - 60, app.data_dir, COL_DIM, 2);
+		{ char cp[1100]; cfg_path(cp, sizeof cp); texto_ajustado(px + 30, y + 54, pw - 60, cp, COL_DIM, 2); }
+	} else {
+		dibujar_teclas(px + 30, y, pw - 60, ph - (y - py) - 64);
 	}
 	if (button(px + (pw - 200) / 2, py + ph - 52, 200, 38, "Volver", 1, 2) || tecla(SDL_SCANCODE_ESCAPE)) app.screen = app.options_back;
 }

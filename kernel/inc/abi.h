@@ -201,7 +201,11 @@
  * valen igual; el tamaño es fijo (SIS_ESTILO_JANELA y SIS_REDIMENSIONAR_JANELA dan ERRO_INVALIDO). */
 #define SIS_CRIAR_WIDGET  139
 #define WIDGET_CLAVE      0x100
-#define SIS_MAX           140
+/* D403 (v8.5.5): funciones propias de los portátiles por ACPI (brillo de la pantalla, teclas de función,
+ * radio) y el volcado de las tablas ACPI. Operación en el primer argumento (PORTATIL_*, abajo). La 150 y no la
+ * 140: las 140-146 son de la rama de procesos POSIX (v8.5.5.1). */
+#define SIS_PORTATIL      150   /* (PORTATIL_*, a, b, c) -> según la operación */
+#define SIS_MAX           151
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que
@@ -394,6 +398,12 @@ typedef struct {
  * se escribe ni se descarta nada dentro de ellas, y cada escritura de la tabla (MBR o EBR) tiene
  * que dejarlas exactamente donde estaban (mismo inicio, tamaño y tipo). */
 #define DBLOCO_CONF_MONTADO  4
+/* D392: con DBLOCO_CONF_MONTADO (y DBLOCO_CONF_ARRANQUE), la partición de SaguiOS (0xDA) del disco de
+ * arranque deja de ser intocable: se puede escribir DENTRO de ella (la etapa 2 nueva, el kernel de
+ * prueba, la cabecera). Lo montado sigue protegido y la tabla tiene que seguir describiéndola igual.
+ * Es lo que usa «arranque» (probar un kernel con el sistema en marcha). Un kernel de antes lo ignora
+ * (la escritura se rechaza con ERRO_OCUPADO, sin escribir nada). */
+#define DBLOCO_CONF_SAGUI    8
 #define DBLOCO_MAX_SETORES 256   /* D338: 128 KB por llamada (antes 64 KB) */
 
 typedef struct {
@@ -743,8 +753,34 @@ typedef struct {
      * búfer de atrás a la pantalla (regiones). Operaciones y miles de píxeles. */
     unsigned int kpx_gpu_copias, kpx_gpu_rellenos;
     unsigned int sw_ops[4], sw_kpx[4];
+    /* D387: volcado del búfer de atrás por la GPU (GART). El kernel acepta también el tamaño de antes (sin esto). */
+    unsigned int volcado_estado;            /* VOLCADO_* de acel2d.h: 0 no hay, 1 activo, 2 apagado (kconfig), 3 a mano, 4 falló, 5 más lento */
+    unsigned int volcado_ops, volcado_kpx;  /* volcados hechos por la GPU y miles de píxeles */
+    unsigned int volcado_us_gpu, volcado_us_cpu;   /* medida de la autoprueba: lo mismo por la GPU y por la CPU */
+    unsigned int volcado_cpu_ops;           /* volcados que hizo la CPU estando el de la GPU activo (pequeños, cursor...) */
+    unsigned int volcado_simulado;          /* 1 = la «GPU» de software de las pruebas */
+    unsigned int volcado_reservado[3];
+    char         volcado_motivo[96];        /* por qué no, o con qué (GART en MC ...) */
+    /* D391: la vuelta del cuadro del 3D (VRAM) a la RAM por la GPU. El kernel acepta también los dos tamaños de antes. */
+    unsigned int retorno_estado;            /* VOLCADO_* (los mismos valores; 2 = kconfig vuelta_gpu=no) */
+    unsigned int retorno_ops, retorno_kpx;  /* cuadros que trajo la GPU y miles de píxeles */
+    unsigned int retorno_cpu_ops;           /* cuadros que tuvo que leer la CPU estando la vuelta activa (destino que no sirve...) */
+    unsigned int retorno_us_gpu, retorno_us_cpu;   /* medida de la autoprueba (o de «acel2d vuelta medir»): GPU y CPU */
+    unsigned int retorno_mascara;           /* 1 = la GPU quita el alfa (como la CPU); 0 = lo copia (solo RGB igual) */
+    unsigned int retorno_reservado[3];
+    char         retorno_motivo[96];
+    /* D387 (Amilo, 2026-11-19): la memoria de vídeo REAL de la tarjeta, leída por su driver (el VBE anuncia a
+     * veces solo una parte: 16 MB en una X1400 de 128 MB). 0 = el driver no la sabe. */
+    unsigned int vram_kb;
+    unsigned int vram_reservado[3];
+    char         vram_fonte[32];            /* de dónde sale («CONFIG_MEMSIZE», «PFB 0x10020c»...) */
 } info_acel2d_t;
-#define INFO_ACEL2D_CTL   69  /* D244: (op, 0): op 0 = apagar, 1 = encender -> 0 / error */
+#define INFO_ACEL2D_TAM_V1 ((unsigned int)__builtin_offsetof(info_acel2d_t, volcado_estado))
+#define INFO_ACEL2D_TAM_V2 ((unsigned int)__builtin_offsetof(info_acel2d_t, retorno_estado))
+#define INFO_ACEL2D_TAM_V3 ((unsigned int)__builtin_offsetof(info_acel2d_t, vram_kb))
+#define INFO_ACEL2D_CTL   69  /* D244: (op, 0): op 0 = apagar, 1 = encender -> 0 / error; D387: 2 = volcado por GPU apagar,
+                                * 3 = encender (repite su autoprueba), 4 = medir (volcados de la pantalla entera, al log);
+                                * D391: 5 = vuelta por GPU apagar, 6 = encender (repite su autoprueba), 7 = medir */
 /* Cámara (D277): INFO_CAMARA (&info_camara_t, sizeof) -> el campo "resultado" y el valor devuelto
  * (>= 0 bien, < 0 error). La orden va en el primer campo. Una sola cámara a la vez: la UVC integrada
  * o enchufada, o la fuente de prueba del kernel (un generador de patrón que pasa por el mismo montador
@@ -821,6 +857,75 @@ typedef struct {
     unsigned int cpu;       /* la CPU donde corre */
 } info_hilo_t;
 #define INFO_WG           85  /* (&info_wg_t, sizeof) -> 1 si el túnel wg0 está activo, 0 si no (D363; sin secretos) */
+/* D399: energía de la GPU: relojes del motor y de la memoria (actuales y por defecto), los estados de la BIOS,
+ * la temperatura (o «sin sensor») con las zonas térmicas del ACPI aparte, la VRAM y el modo. Leer lo puede
+ * cualquiera; INFO_GPU_ENERGIA_CTL (cambiar el modo, leer los relojes por la BIOS, ensayar) solo el administrador.
+ * Los relojes van en kHz; 0 = no se sabe. */
+#define INFO_GPU_ENERGIA     86  /* (&info_gpu_energia_t, sizeof) -> 0 */
+#define INFO_GPU_ENERGIA_CTL 87  /* (GPU_EN_PEDIDO(op, arg), 0) -> 0 bien, < 0 no (el porqué en info_gpu_energia_t.ultimo) */
+#define GPU_EN_PEDIDO(op, arg)  ((((unsigned int)(op)) << 16) | ((unsigned int)(arg) & 0xFFFFu))
+#define GPU_EN_OP_MODO       1   /* arg = GPU_EN_MODO_*: lo aplica ahora (bios vuelve a los relojes del arranque) */
+#define GPU_EN_OP_LEER       2   /* lee los relojes ahora por la BIOS (GetEngineClock/GetMemoryClock) */
+#define GPU_EN_OP_ESTADO     3   /* arg = índice de la tabla: ese estado, a mano (el modo pasa a «manual») */
+#define GPU_EN_OP_SIMULAR    4   /* arg = índice: ensaya el cambio sin escribir nada (lo que haría la BIOS, al registro) */
+#define GPU_EN_OP_DETALLE    5   /* registros de los PLL y las tablas al registro [GPUENERGIA] */
+#define GPU_EN_OP_DESBLOQUEAR 6  /* tras un fallo: deja volver a intentarlo en este arranque (a mano) */
+#define GPU_EN_MODO_BIOS     1   /* no se toca nada (los relojes que dejó la BIOS) */
+#define GPU_EN_MODO_BAJO     2
+#define GPU_EN_MODO_ALTO     3
+#define GPU_EN_MODO_AUTO     4   /* bajo en reposo, sube con el 3D o el volcado trabajando (como el dynpm de Linux) */
+#define GPU_EN_MODO_MANUAL   5   /* un estado elegido con GPU_EN_OP_ESTADO */
+#define GPU_EN_SIN           0   /* soporte: no hay driver de energía para esta tarjeta */
+#define GPU_EN_LECTURA       1   /* se leen las tablas; cambiar no se puede (o falta algo) */
+#define GPU_EN_CONTROL       2   /* se puede cambiar */
+#define GPU_EN_SIN_SENSOR    (-300000)   /* temp_mili_c: la tarjeta no tiene sensor legible */
+#define GPU_EN_MAX_ESTADOS_ABI 8
+#define GPU_EN_MAX_ZONAS     4
+typedef struct {
+    unsigned int  sclk_khz, mclk_khz;
+    unsigned int  misc, misc2;          /* ulMiscInfo de la BIOS (ATOM_PM_MISCINFO_*) */
+    unsigned char tipo;                 /* 0 -, 1 ahorro, 2 batería, 3 equilibrado, 4 rendimiento, 5 por defecto */
+    unsigned char tensao;               /* 0 ninguna, 1 por GPIO, 2 por identificador de VDDC */
+    unsigned char sem_ecra, so_um_ecra; /* no vale con la pantalla encendida / solo con una pantalla */
+    unsigned char pcie_lanes, indice_bios, reservado[2];
+} info_gpu_estado_t;
+typedef struct {
+    unsigned int versao;                /* 1 */
+    unsigned int soporte;               /* GPU_EN_SIN, GPU_EN_LECTURA, GPU_EN_CONTROL */
+    unsigned int fabricante, modelo;
+    char         driver[16];            /* "radeon-r5xx", "simulado" o "" */
+    char         motivo[120];           /* qué tarjeta y qué se pudo leer, o por qué no */
+    char         bios[32];              /* el nombre de la BIOS de vídeo (ATOM) */
+    unsigned int modo;                  /* GPU_EN_MODO_* en uso */
+    unsigned int modo_kconfig;          /* lo que dice kconfig gpu_energia (0 = automático) */
+    unsigned int confirmada;            /* 1: la tarjeta está en la lista de probadas (el automático la usa) */
+    unsigned int bloqueado;             /* 1: falló un cambio y se volvió a la BIOS: no se reintenta en este arranque */
+    int          estado;                /* índice del estado puesto; -1 = los relojes de la BIOS (sin tocar) */
+    unsigned int sclk_khz, mclk_khz;    /* relojes actuales */
+    unsigned int relojes_fuente;        /* 0 no se sabe, 1 leídos por la BIOS (GetEngineClock), 2 los de la BIOS sin leer (por defecto), 3 los últimos puestos */
+    unsigned int relojes_edad_s;        /* hace cuánto se leyeron (fuente 1) */
+    unsigned int sclk_def_khz, mclk_def_khz;   /* por defecto de la BIOS (FirmwareInfo) */
+    unsigned int sclk_max_khz, mclk_max_khz;   /* máximos del chip según la BIOS */
+    unsigned int sclk_arranque_khz, mclk_arranque_khz;   /* los del arranque (a los que vuelve «bios») */
+    unsigned int ref_khz;               /* reloj de referencia de los PLL */
+    unsigned int tensao_mv;             /* tensión actual si se sabe (0 = no) */
+    unsigned int tensao_txt_baixa;      /* 1 = el estado puesto baja la tensión (GPIO) */
+    unsigned int n_estados;
+    info_gpu_estado_t estados[GPU_EN_MAX_ESTADOS_ABI];
+    int          estado_bajo, estado_alto;   /* lo que serían «bajo» y «alto» con las pantallas de ahora */
+    int          temp_mili_c;           /* GPU_EN_SIN_SENSOR si la tarjeta no lo tiene */
+    char         temp_fuente[48];       /* de dónde sale, o por qué no hay */
+    unsigned int n_zonas;               /* zonas térmicas del ACPI (aparte: no son de la tarjeta) */
+    int          zona_mili_c[GPU_EN_MAX_ZONAS];
+    char         zona_nome[GPU_EN_MAX_ZONAS][8];
+    unsigned int vram_kb;               /* memoria de la tarjeta */
+    unsigned int vram_usada_kb;         /* lo que usa SaguiOS: pantalla, 3D y tablas (estimado) */
+    unsigned int cambios, fallos;       /* cambios de estado desde el arranque */
+    unsigned int ultimo_us;             /* lo que tardó el último cambio (con todo parado) */
+    unsigned int actividad;             /* auto: ventanas ocupadas seguidas (0-) */
+    char         ultimo[96];            /* el resultado de la última orden o cambio */
+    unsigned int reservado[8];
+} info_gpu_energia_t;
 /* D368 (Administrador de tareas): actividad de la caché de disco, para las gráficas de Disco. Los contadores
  * son de 32 bits desde el arranque; el programa saca las tasas por segundo de la diferencia entre dos lecturas.
  * Un bloque son 4 KB. Sin caché de disco (--sem-cache-disco) todo vale 0 y "ativa" 0. */
@@ -858,7 +963,7 @@ typedef struct {
     unsigned short efetivo;      /* el de este arranque (el gobernador: el de ahora) */
     unsigned short proximo;      /* el del siguiente arranque: el guardado o, sin él, el de la imagen */
 } info_kconf_t;
-#define INFO_GPU3D_CTL    74  /* (op, 0): 0 = apagar, 1 = encender (lotes), 2 = encender con las órdenes en el anillo; D358: 3/4 = como 1/2 con RAM en el GTT (Intel Gen3) */
+#define INFO_GPU3D_CTL    74  /* (op, 0): 0 = apagar, 1 = encender (lotes), 2 = encender con las órdenes en el anillo; D358: 3/4 = como 1/2 con RAM en el GTT (Intel Gen3); D406: 5/6 = como 1/2 sin la GART que las R7xx confirmadas encienden solas */
 
 /* Captura de sonido / micrófono (D292). Una sola llamada, como la cámara: info_sistema(INFO_CAPTURA,
  * &info_captura_t, sizeof). El campo "orden" dice qué se pide; el resultado va también en "resultado".
@@ -932,6 +1037,9 @@ typedef struct {
  *                    la automática.
  *   MANDOS_INYECTAR  solo con la imagen de prueba (mkimagem.py --mandos-prueba): un informe
  *                    crudo para el mando de prueba "indice", por el mismo camino que los USB.
+ *   MANDOS_ESTADO también deja en "informe"/"informe_n" el último informe crudo del mando (USB).
+ *   MANDOS_DESCRIPTOR  el descriptor de informe del mando "indice" desde el byte "escribir":
+ *                    hasta 64 bytes en "informe" ("informe_n" bytes); "n" = su tamaño total.
  * El número 77 (el 76 es INFO_ISA de la v8.3.3-sb16). */
 #define INFO_MANDOS       77  /* (&info_mandos_t, sizeof) -> 0 / ERRO_* (< 0) */
 #define MANDOS_LISTA      0
@@ -939,6 +1047,7 @@ typedef struct {
 #define MANDOS_DETECTAR   2
 #define MANDOS_CALIBRAR   3
 #define MANDOS_INYECTAR   4
+#define MANDOS_DESCRIPTOR 5
 #define MANDOS_MAX        8
 #define MANDO_EIXOS_MAX   8
 #define MANDO_BOTOES_MAX  32
@@ -985,8 +1094,8 @@ typedef struct {
     unsigned short cal[4][3];    /* CALIBRAR: mínimo, centro y máximo de cada eje (décimas de us) */
     unsigned int   escribir;     /* CALIBRAR */
     unsigned int   calibrado;    /* CALIBRAR: 1 = puesta a mano; 0 = la automática */
-    unsigned int   informe_n;    /* INYECTAR */
-    unsigned char  informe[64];  /* INYECTAR */
+    unsigned int   informe_n;    /* INYECTAR, ESTADO (último informe crudo) y DESCRIPTOR */
+    unsigned char  informe[64];  /* INYECTAR, ESTADO y DESCRIPTOR */
 } info_mandos_t;
 
 /* Estados de la capa. */
@@ -999,7 +1108,8 @@ typedef struct {
 
 #define GPU3D_SEM_SUPORTE  1  /* la GPU no sabe hacer eso (textura grande, destino que no cabe): quien
                                  llama sigue por software, sin apagar el 3D para los demás */
-#define GPU3D_TEXTURAS     8  /* huecos de textura por dueño */
+#define GPU3D_TEXTURAS    32  /* huecos de textura por dueño (D404: eran 8; la SaguiGL lo pregunta
+                                 subiendo una de 1x1 al hueco 31, y la SDL 2 sigue con 8) */
 #define GPU3D_MAX_LADO  2048  /* lado máximo del destino y de una textura */
 #define GPU3D_MAX_VERT  3072  /* vértices por petición (múltiplo de 3) */
 
@@ -1064,8 +1174,11 @@ typedef struct {
 #define GPU3D_VAR_GTT_TEX   0x04  /* y también las texturas */
 
 #define GPU3D_N_PROVAS 8
+/* info_gpu3d_prova_t.versao de entrada (bits; D390). 2 sigue siendo «con detalle». */
+#define GPU3D_PROVA_DETALLE 0x02  /* los registros y el análisis del destino al log [GPU3D] */
+#define GPU3D_PROVA_VER     0x04  /* guarda la imagen de cada etapa (info_gpu3d_etapa_t) */
 typedef struct {
-    unsigned int versao;        /* entrada: 2 = con detalle en el log; salida: 1 */
+    unsigned int versao;        /* entrada: GPU3D_PROVA_* (2 = con detalle en el log); salida: 1 */
     int          resultado;     /* 1 = bien, 0 = mal, -1 = sin GPU con 3D */
     char         texto[160];
     unsigned int provas;        /* bit n = la prueba n pasó */
@@ -1078,8 +1191,34 @@ typedef struct {
     unsigned int tri_pequenos, us_pequenos, tri_grandes, us_grandes, pix_grandes;
     unsigned int us_leitura, pix_leitura;   /* traer el cuadro a la RAM */
     unsigned int tri_s, kpix_s, pontos;
-    unsigned int reservado[6];
+    unsigned int reservado[6];  /* D390: [0] ajustes de /sistema/conf/gpu3d-<driver>.conf en uso, [1] líneas malas,
+                                 * [2] 1 = hay imágenes de las etapas (GPU3D_PROVA_VER) */
 } info_gpu3d_prova_t;
+/* D390: «gpu3d probar --ver»: la imagen de una etapa de la última autoprueba con
+ * GPU3D_PROVA_VER. Se pide por INFO_GPU3D_PROVA con versao = GPU3D_ETAPA_VERSAO y
+ * n = sizeof(info_gpu3d_etapa_t) (no gasta un número de INFO nuevo). */
+#define GPU3D_ETAPA_VERSAO  0x45544150u   /* «PATE» */
+#define GPU3D_VER_L 128                   /* el destino de la autoprueba */
+#define GPU3D_VER_A 96
+#define GPU3D_ETAPA_NADA        0         /* no se llegó a ella (o no hubo --ver) */
+#define GPU3D_ETAPA_BIEN        1
+#define GPU3D_ETAPA_MAL         2
+#define GPU3D_ETAPA_SIN_IMAGEN  3         /* falló antes de poder leer el destino */
+typedef struct {
+    unsigned int   versao;      /* entrada: GPU3D_ETAPA_VERSAO; salida: 1 */
+    int            etapa;       /* entrada: 0 .. GPU3D_N_PROVAS - 1 */
+    int            estado;      /* GPU3D_ETAPA_* */
+    unsigned int   larg, alt;
+    int            com_z;       /* z[] vale (la CPU ve el Z de esta tarjeta) */
+    /* el análisis del destino tras la etapa (gpu3d_diag.h): la sentinela de color es a1b2c3 */
+    unsigned int   cor_intacta, z_intacto, z_maximo;
+    unsigned int   cores[4], n_cores[4], resto;
+    int            x, y;        /* píxel que no cuadra (-1: ninguno) */
+    unsigned int   esperado, obtido;
+    unsigned int   reservado[4];
+    unsigned int   px[GPU3D_VER_L * GPU3D_VER_A];   /* 0x00RRGGBB, lo que dejó la GPU */
+    unsigned short z[GPU3D_VER_L * GPU3D_VER_A];    /* 8 bits altos del Z; 0xFFFF = sentinela intacta */
+} info_gpu3d_etapa_t;
 typedef struct {
     unsigned int versao;        /* 1 */
     int          resultado;     /* 1 = la GPU dio los mismos píxeles que la CPU; 0 = no; -1 = sin acelerador */
@@ -2252,5 +2391,128 @@ typedef struct {
     char         modelo[24], serie[16], tipo[12], fabricante[24];
     char         motivo[64];      /* por qué uACPI no está activo o la batería no se lee */
 } info_bateria_t;
+
+/* INFO_RADIOS (D405): las radios (Wi-Fi, Bluetooth, WWAN) y el panel de teclas de los
+ * portátiles HP, por el puente WMI de ACPI (PNP0C14) con uACPI. Además, los bloques que
+ * se encontraron en los _WDG (de cualquier fabricante): sirven para identificar
+ * máquinas nuevas.
+ * INFO_RADIOS_MUDAR: (radio | ligar << 8, 0) -> 0 o ERRO_*: enciende o apaga una radio
+ * (RADIO_*); espera hasta 5 s a la tarea de ACPI (ERRO_OCUPADO si no ha terminado aún).
+ * INFO_ACPI_TABELA: (&info_acpi_tabela_dados_t, sizeof) -> bytes copiados: un trozo de
+ * una tabla ACPI de la lista de INFO_ACPI (indice, deslocamento), tal cual está en la
+ * memoria (solo lectura: para volcarlas y estudiar el AML de una máquina). */
+#define INFO_RADIOS        90
+#define INFO_RADIOS_MUDAR  91
+#define INFO_ACPI_TABELA   92
+#define RADIO_WIFI   0
+#define RADIO_BT     1
+#define RADIO_WWAN   2
+#define RADIOS_MAX   3
+#define RADIOS_WMI_MAX 16
+typedef struct {
+    char          guid[37];
+    char          id[3];          /* ObjectId (WMxx/WQxx); "" en un evento */
+    unsigned char flags;          /* 1 caro, 2 método, 4 texto, 8 evento */
+    unsigned char instancias;
+    unsigned char notificacao;    /* NotifyId de un evento */
+} info_wmi_bloco_t;
+typedef struct {
+    unsigned int  versao;         /* 1 */
+    unsigned int  uacpi;          /* UACPI_* */
+    unsigned int  hp;             /* 1 = hay WMI de HP (GUID 5FB7F034-...) */
+    unsigned int  lido;           /* 1 = el estado de las radios se leyó bien */
+    unsigned int  codigo;         /* último código de la BIOS (0 = bien) */
+    unsigned int  presentes;      /* bit RADIO_*: la radio existe */
+    unsigned int  sw;             /* bit RADIO_*: encendida por software */
+    unsigned int  hw;             /* bit RADIO_*: no bloqueada por el botón o el interruptor */
+    unsigned int  eventos;        /* eventos WMI atendidos */
+    unsigned int  teclas;         /* teclas del panel */
+    unsigned int  ultimo_evento, ultimo_dado, ultima_tecla;
+    unsigned int  pci_novos;      /* funciones PCI que han aparecido desde el arranque */
+    unsigned int  reiniciar;      /* 1 = la tarjeta se encendió pero hay que reiniciar para usarla */
+    unsigned int  n_wmi;          /* bloques WMI (puede haber más que RADIOS_WMI_MAX) */
+    info_wmi_bloco_t wmi[RADIOS_WMI_MAX];
+    char          nota[96];       /* lo último que pasó o por qué no hay radios */
+} info_radios_t;
+#define ACPI_TABELA_TROZO 4096
+typedef struct {
+    unsigned int  indice;         /* en la lista de INFO_ACPI */
+    unsigned int  deslocamento;   /* desde el principio de la tabla */
+    unsigned int  tamanho;        /* (salida) de la tabla entera */
+    char          assinatura[5];  /* (salida) */
+    unsigned char reservado[3];
+    unsigned char dados[ACPI_TABELA_TROZO];
+} info_acpi_tabela_dados_t;
+
+/* SIS_PORTATIL (D403): lo propio de los portátiles, leído y manejado con el intérprete de AML
+ * (uACPI, solo con --uacpi) desde la tarea "acpi-aml":
+ *   - el brillo de la pantalla: ACPI Video (salida con _BCL/_BCM/_BQC de un dispositivo de vídeo
+ *     con _DOD/_DOS), si no Fujitsu (FUJ02B1: GBLL/SBLL/RBLL), si no Toshiba (HCI 0x002A);
+ *   - las teclas de función que avisa el firmware: Notify 0x86/0x87 (brillo) y 0x80-0x84 (pantalla)
+ *     del ACPI Video, FUJ02E3 (FUNC 0x1002, anillo de botones) y TOS1900/TOS620x (INFO o HCI 0x0016);
+ *   - las acciones comunes (ACAO_*): volumen, silencio, brillo, radio, que llegan también por las
+ *     teclas multimedia del teclado (E0 20, E0 2E, E0 30) y salen con un aviso en pantalla. */
+#define PORTATIL_ESTADO     0   /* (&info_portatil_t, sizeof) -> 0 */
+#define PORTATIL_BRILHO     1   /* (PORTATIL_BRILHO_*, valor) -> brillo en % tras el cambio; ERRO_NAO_EXISTE sin control */
+#define PORTATIL_NOTIFICAR  2   /* (PORTATIL_ALVO_*, valor) -> 0; solo root: como un Notify del firmware (pruebas) */
+#define PORTATIL_TABELA     3   /* (índice de INFO_ACPI, buf, n) -> bytes de la tabla (copia hasta n); solo root */
+#define PORTATIL_ACAO       4   /* (ACAO_*) -> 0: como la tecla (con su aviso) */
+#define PORTATIL_BRILHO_LER    0
+#define PORTATIL_BRILHO_FIXAR  1   /* valor = 0-100 % (se elige el nivel más cercano) */
+#define PORTATIL_BRILHO_PASSO  2   /* valor = pasos, con signo (+1 sube un nivel, -1 baja) */
+#define PORTATIL_ALVO_VIDEO    1   /* la salida con brillo (0x86 sube, 0x87 baja...) */
+#define PORTATIL_ALVO_BUS      2   /* el dispositivo de vídeo (0x80: cambio de pantalla) */
+#define PORTATIL_ALVO_FUJ_BL   3   /* FUJ02B1 (0x80: el brillo cambió) */
+#define PORTATIL_ALVO_FUJ_EXT  4   /* FUJ02E3 (0x80: hay botones en el anillo) */
+#define PORTATIL_ALVO_TOSHIBA  5   /* TOS1900/TOS620x (0x80: hay una tecla) */
+#define PORTATIL_FONTE_NADA    0
+#define PORTATIL_FONTE_VIDEO   1
+#define PORTATIL_FONTE_FUJITSU 2
+#define PORTATIL_FONTE_TOSHIBA 3
+/* Acciones del sistema (el punto de entrada común, kernel/nucleo/acoes.c). */
+#define ACAO_VOLUME_MAIS   1
+#define ACAO_VOLUME_MENOS  2
+#define ACAO_SILENCIO      3   /* alterna */
+#define ACAO_BRILHO_MAIS   4
+#define ACAO_BRILHO_MENOS  5
+#define ACAO_RADIO         6   /* alterna el modo avión */
+#define ACAO_TELA          7   /* la tecla de cambio de pantalla (solo el aviso) */
+#define ACAO_MAX           8
+/* De dónde vino (para el registro y info_portatil_t.ultima_acao). */
+#define ORIGEM_ACAO_TECLADO  1
+#define ORIGEM_ACAO_VIDEO    2
+#define ORIGEM_ACAO_FUJITSU  3
+#define ORIGEM_ACAO_TOSHIBA  4
+#define ORIGEM_ACAO_ORDEN    5
+#define ORIGEM_ACAO_HP       6   /* HP WMI: el panel QuickTouch (D405) */
+typedef struct {
+    unsigned int versao;            /* 1 */
+    unsigned int uacpi;             /* UACPI_* */
+    unsigned int brilho_fonte;      /* PORTATIL_FONTE_* */
+    int          brilho_pct;        /* 0-100; -1 = desconocido o sin control */
+    unsigned int brilho_nivel;      /* índice del nivel actual (0 = el más bajo) */
+    unsigned int brilho_niveis;     /* cuántos niveles hay */
+    unsigned int brilho_valor;      /* valor del nivel tal como lo da el firmware (_BCL, GBLL, HCI) */
+    unsigned int brilho_min, brilho_max;   /* valores del primer y del último nivel */
+    unsigned int bqc_indice;        /* 1 = el _BQC de esta BIOS da el índice y no el valor */
+    unsigned int video_buses;       /* dispositivos con _DOD o _DOS */
+    unsigned int video_saidas;      /* salidas con _BCL y _BCM */
+    unsigned int dos_chamado;       /* 1 = se llamó a _DOS(0) */
+    unsigned int fujitsu;           /* bit 0: FUJ02B1 (brillo); bit 1: FUJ02E3 (teclas) */
+    unsigned int fujitsu_funcoes;   /* FUNC(0x1000, 0): lo que declara el FUJ02E3 */
+    unsigned int toshiba;           /* 1 = hay TOS1900/TOS620x con GHCI o SPFC */
+    unsigned int toshiba_teclas;    /* 0 no; 1 por INFO; 2 por HCI_SYSTEM_EVENT */
+    int          toshiba_ventilador;   /* -1 = no lo expone; si no, el valor de HCI_FAN */
+    int          toshiba_radio;     /* -1 = no se sabe; 1 = el interruptor de la radio está encendido */
+    unsigned int radio_apagada;     /* 1 = modo avión (ACAO_RADIO) */
+    unsigned int eventos;           /* avisos del firmware atendidos */
+    unsigned int ultimo_evento;     /* PORTATIL_ALVO_* << 16 | valor (Notify o código de tecla) */
+    unsigned int acoes;             /* acciones hechas */
+    unsigned int ultima_acao;       /* ACAO_* << 8 | ORIGEM_ACAO_* */
+    char         video_lcd[40];     /* ruta de la salida con brillo */
+    char         fujitsu_no[40];
+    char         toshiba_no[40];
+    char         motivo[64];        /* por qué no hay control del brillo */
+} info_portatil_t;
 
 #endif

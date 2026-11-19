@@ -80,7 +80,7 @@ void select_none(void) {
 
 static int es_militar(EntType t) { return is_unit(t) && t != E_VILLAGER && t != E_FISHBOAT && t != E_TRANSPORT && !is_trader(t) && t < E_HORSE; }
 
-typedef struct { int n, ntipos, tipo[24], cuenta[24], primero[24], propias, militares, aldeanos, transportes; } ResumenSel;
+typedef struct { int n, ntipos, tipo[24], cuenta[24], primero[24], propias, militares, aldeanos, transportes, navales; } ResumenSel;
 static ResumenSel RS;
 
 static void resumir_seleccion(void) {
@@ -95,6 +95,7 @@ static void resumir_seleccion(void) {
 			if (e->type == E_VILLAGER) ++RS.aldeanos;
 			else if (es_militar(e->type)) ++RS.militares;
 			if (e->type == E_TRANSPORT) ++RS.transportes;
+			if (is_naval(e->type)) ++RS.navales;
 		}
 		int k = 0;
 		while (k < RS.ntipos && RS.tipo[k] != (int)e->type) ++k;
@@ -508,12 +509,12 @@ static void orden_construir(EntType t) {
 	o->tip.con_coste = 1; o->tip.tiempo = d->build_time;
 	static const char *desc[NUM_BLD_TYPES] = {
 		"Entrena aldeanos, recoge todos los recursos y avanza de edad. Población +10.",
-		"Entrena infantería y mejora su ataque.", "Población +5.", "Almacena comida y mejora las granjas.",
-		"Almacena madera, oro y piedra; mejoras de recolección y armaduras.", "Comida inagotable mientras se trabaja.",
-		"Entrena arqueros y honderos.", "Entrena caballería, carros y elefantes.", "Entrena sacerdotes; guarda reliquias (dan oro).",
-		"Entrena hoplitas, falanges y centuriones.", "Mejoras de edificios, murallas y logística.", "Dispara a los enemigos cercanos.",
-		"Cambia recursos por oro y permite enviar tributo.", "Construye máquinas de asedio.", "Corta el paso. Se construyen tramos de 1x1.",
-		"En la orilla: barcos de pesca, transporte y guerra.", "Si resiste 10 minutos terminada, ganas la partida.",
+		"Entrena infantería: clubman, hacheros, espadachines y honderos.", "Población +5.", "Recoge comida (bayas, granjas y caza); mejoras de agricultura, torres y murallas.",
+		"Recoge madera, oro, piedra y carne de caza; mejoras de recolección, armas y armaduras.", "250 de comida para un aldeano; agotada, se reconstruye.",
+		"Entrena arqueros, carros arqueros, arqueros a caballo y de elefante.", "Entrena exploradores, caballería, catafractas y elefantes.", "Entrena sacerdotes; mejoras religiosas; guarda reliquias (dan oro).",
+		"Entrena hoplitas, falanges y centuriones.", "Mejoras de gobierno: arquitectura, ingeniería, balística y logística.", "Dispara a los enemigos cercanos.",
+		"Compra y vende recursos, envía tributo, entrena carros mercantes; la Rueda y la Astronomía.", "Construye máquinas de asedio.", "Corta el paso. Se construyen tramos de 1x1.",
+		"En la orilla: barcos de pesca, mercantes, de transporte y trirremes; recoge el pescado.", "Si resiste 10 minutos terminada, ganas la partida.",
 	};
 	snprintf(o->tip.desc, sizeof o->tip.desc, "%s", desc[t - E_TOWN_CENTER]);
 	snprintf(o->tip.extra, sizeof o->tip.extra, "Tamaño %dx%d, %d puntos de vida.", d->size, d->size, d->hp);
@@ -627,15 +628,21 @@ static void construir_ordenes(void) {
 				char d[200];
 				snprintf(d, sizeof d, "Va y viene entre tu %s y el de otro jugador (clic derecho en él) y trae oro según la distancia: %d por viaje en esta ruta. A nadie se le quita nada.",
 				         m->type == E_TRADESHIP ? "muelle" : "mercado", comercio_oro(comercio_distancia(m)));
-				orden_simple(OR_COM_MODO, 0, SDL_SCANCODE_O, "O", "Comercio: modo oro", d, m->com_modo == 0);
+				orden_simple(OR_COM_MODO, 0, SDL_SCANCODE_O, "O", "Modo oro", d, m->com_modo == 0);
 				if (W.setup.comercio_mejorado) {
 					snprintf(d, sizeof d, "Carga 15 de %s en tu puerto (si no los tienes, espera), los cambia en el ajeno por %s y te trae 15 x bonus de distancia x escasez (ahora: %d). Al otro jugador no se le quita nada.",
 					         rn[CLAMP(m->com_dar, 0, 3)], rn[CLAMP(m->com_recibir, 0, 3)], comercio_intercambio(m->com_dar, m->com_recibir, comercio_distancia(m)));
-					orden_simple(OR_COM_MODO, 1, SDL_SCANCODE_I, "I", "Comercio: modo intercambio", d, m->com_modo == 1);
-					snprintf(d, sizeof d, "Recurso que carga en tu puerto: %s (clic para cambiar).", rn[CLAMP(m->com_dar, 0, 3)]);
-					orden_simple(OR_COM_DAR, 0, SDL_SCANCODE_N, "N", "Dar", d, 0);
-					snprintf(d, sizeof d, "Recurso que trae a cambio: %s (clic para cambiar).", rn[CLAMP(m->com_recibir, 0, 3)]);
-					orden_simple(OR_COM_RECIBIR, 0, SDL_SCANCODE_M, "M", "Recibir", d, 0);
+					orden_simple(OR_COM_MODO, 1, SDL_SCANCODE_I, "I", "Modo intercambio", d, m->com_modo == 1);
+					/* el arg de Dar y Recibir es el recurso elegido: lo dibuja el icono (ejecutar no lo usa) */
+					snprintf(d, sizeof d, "Recurso que carga en tu puerto: %s. Clic o N: el siguiente.", rn[CLAMP(m->com_dar, 0, 3)]);
+					orden_simple(OR_COM_DAR, CLAMP(m->com_dar, 0, 3), SDL_SCANCODE_N, "N", "Dar", d, 0);
+					snprintf(d, sizeof d, "Recurso que trae a cambio: %s. Clic o M: el siguiente.", rn[CLAMP(m->com_recibir, 0, 3)]);
+					orden_simple(OR_COM_RECIBIR, CLAMP(m->com_recibir, 0, 3), SDL_SCANCODE_M, "M", "Recibir", d, 0);
+				} else {
+					/* sin la opción de partida, el botón está gris y dice cómo tenerlo */
+					orden_simple(OR_COM_MODO, 1, SDL_SCANCODE_I, "I", "Modo intercambio", "Lleva 15 de un recurso tuyo al puerto ajeno y trae otro.", 0);
+					ord[nord - 1].ok = 0;
+					snprintf(ord[nord - 1].tip.motivo, sizeof ord[nord - 1].tip.motivo, "Activa Comercio mejorado al crear la partida");
 				}
 			}
 		}
@@ -644,7 +651,7 @@ static void construir_ordenes(void) {
 			for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].sel && W.ents[i].type == E_TRANSPORT && W.ents[i].owner == W.human) carga += W.ents[i].ncargo;
 			orden_simple(OR_DESEMBARCAR, 0, SDL_SCANCODE_E, "E", "Desembarcar", "Clic en la orilla: el transporte se acerca y deja allí a los pasajeros.", modo == MODO_DESEMBARCAR);
 			if (!carga) { ord[nord - 1].ok = 0; snprintf(ord[nord - 1].tip.motivo, sizeof ord[nord - 1].tip.motivo, "El transporte va vacío"); }
-		} else if (RS.propias > RS.transportes) {
+		} else if (RS.propias > RS.navales) {   /* los barcos no embarcan */
 			orden_simple(OR_EMBARCAR, 0, SDL_SCANCODE_R, "R", "Embarcar", "Clic en un transporte propio: las unidades van a la orilla y suben (5 plazas).", modo == MODO_EMBARCAR);
 			int hay = 0;
 			for (int i = 0; i < W.nents && !hay; ++i) hay = W.ents[i].alive && W.ents[i].type == E_TRANSPORT && W.ents[i].owner == W.human;
@@ -754,8 +761,17 @@ static void icono_orden(const Orden *o, int x, int y, int sz) {
 		gfx_clip_reset();
 		return;
 	}
+	if (o->tipo == OR_COM_MODO || o->tipo == OR_COM_DAR || o->tipo == OR_COM_RECIBIR) {
+		/* comercio: el oro, o el recurso que se da o se recibe con una flecha (antes leía fuera de por_tipo) */
+		int k = o->tipo == OR_COM_MODO ? RES_GOLD : CLAMP(o->arg, 0, RES_COUNT - 1);
+		icono_rec(k, x + 4, y + 6, sz / 2);
+		u32 c = o->tipo == OR_COM_DAR ? gfx_rgb(255, 120, 90) : o->tipo == OR_COM_RECIBIR ? gfx_rgb(130, 255, 130) : COL_CREAM;
+		gfx_ts(x + 3, y + sz - 17, o->tipo == OR_COM_DAR ? "Dar" : o->tipo == OR_COM_RECIBIR ? "Rec" : o->arg ? "<>" : "Oro", c, 1);
+		return;
+	}
 	static const int por_tipo[] = { IC_CONSTRUIR, IC_SOLDADO, IC_MEJORA, IC_EDAD, IC_AGRESIVA, IC_PROTEGER, IC_PATRULLA, IC_DETENER, IC_DESEMBARCAR, IC_EMBARCAR,
 		IC_REUNION, IC_VENDER, IC_COMPRAR, IC_TRIBUTO, IC_SIGUIENTE, IC_ELIMINAR };
+	if (o->tipo < 0 || o->tipo >= ARRAY_LEN(por_tipo)) return;
 	int ic = por_tipo[o->tipo];
 	if (o->tipo == OR_POSTURA) ic = o->arg == STANCE_AGGRESSIVE ? IC_AGRESIVA : o->arg == STANCE_DEFENSIVE ? IC_DEFENSIVA : o->arg == STANCE_STAND ? IC_QUIETA : IC_PASIVA;
 	if (o->tipo == OR_ENTRENAR && o->arg == E_VILLAGER) ic = IC_ALDEANO;
@@ -939,6 +955,11 @@ static void ficha_unidad(const Entity *e, Rect r, int cx, int cy) {
 		else if (e->com_espera) snprintf(b, sizeof b, "Esperando 15 de %s", rn[CLAMP(e->com_dar, 0, 3)]);
 		else snprintf(b, sizeof b, "Ruta con el jugador %d (%.0f casillas) · %s", dst->owner + 1, comercio_distancia(e), e->com_modo ? "intercambio" : "oro");
 		gfx_ts(r.x + 6, y, b, e->com_espera ? COL_AVISO : COL_CREAM, 1);
+		if (y + 34 <= r.y + r.h) {
+			if (W.setup.comercio_mejorado) snprintf(b, sizeof b, "Intercambio: da %s, trae %s (N, M)", rn[CLAMP(e->com_dar, 0, 3)], rn[CLAMP(e->com_recibir, 0, 3)]);
+			else snprintf(b, sizeof b, "Intercambio: actívalo al crear la partida");
+			gfx_ts(r.x + 6, y + 18, b, COL_DIM, 1);
+		}
 	} else if (e->type == E_TRANSPORT) {
 		snprintf(b, sizeof b, "Pasajeros: %d de 5", e->ncargo);
 		gfx_ts(r.x + 6, y, b, COL_CREAM, 1);
@@ -1183,7 +1204,109 @@ void draw_hud(void) {
 	nzonas_prev = nzonas;
 }
 
+/* ---------- lo que hay bajo el ratón (v8.5.5.3): aro, rótulo y cursor ---------- */
+static int raton_ent = -1;          /* entidad bajo el ratón en el mapa (-1: nada) */
+static Uint32 raton_desde;          /* desde cuándo está ahí (el rótulo sale tras una pausa corta) */
+
+static int es_animal(EntType t) { return t == E_HORSE || t == E_ELEPHANT; }
+static int hostil(const Entity *e) { return (e->owner >= 0 && !same_team(e->owner, W.human)) || (e->owner < 0 && es_animal(e->type)); }
+
+static void raton_actualizar(void) {
+	int antes = raton_ent;
+	raton_ent = -1;
+	if (!in.mouse_seen || !(in.foco || prueba_activa) || app.paused || W.over || selecting || en_interfaz() || placing != E_TYPE_COUNT || !W.fog) { raton_desde = SDL_GetTicks(); return; }
+	float wx, wy;
+	screen_to_world(in.mx, in.my, &wx, &wy);
+	raton_ent = pick_entity(wx, wy);
+	if (raton_ent != antes) raton_desde = SDL_GetTicks();
+}
+
+/* cursor de la partida: qué haría el clic derecho con lo que hay debajo */
+int hud_cursor(int *dx, int *dy) {
+	*dx = *dy = 0;
+	if (app.paused || W.over || panel_modal()) return CUR_FLECHA;
+	int sw = gfx_real_w(), sh = gfx_real_h();
+	if (in.foco) {
+		if (in.mx <= 2) *dx = -1; else if (in.mx >= sw - 3) *dx = 1;
+		if (in.my <= 2) *dy = -1; else if (in.my >= sh - 3) *dy = 1;
+		if (*dx || *dy) return CUR_DESPLAZAR;
+	}
+	if (en_interfaz()) return CUR_FLECHA;
+	if (placing != E_TYPE_COUNT) {
+		float wx, wy;
+		screen_to_world(in.mx, in.my, &wx, &wy);
+		int s = bld_def[placing].size;
+		return can_place(placing, (int)floorf(wx - s / 2.0f + 0.5f), (int)floorf(wy - s / 2.0f + 0.5f)) ? CUR_CONSTRUIR : CUR_PROHIBIDO;
+	}
+	if (modo != MODO_NADA) return CUR_OBJETIVO;
+	if (RS.propias == 0 || raton_ent < 0) return CUR_FLECHA;
+	const Entity *e = &W.ents[raton_ent];
+	if (hostil(e)) return CUR_ATACAR;
+	if (RS.aldeanos > 0) {
+		switch (e->type) {
+		case E_TREE: return CUR_MADERA;
+		case E_GOLD: return CUR_ORO;
+		case E_STONE: return CUR_PIEDRA;
+		case E_BERRIES: case E_FISH: case E_CARCASS: return CUR_COMIDA;
+		default: break;
+		}
+		if (is_building(e->type) && e->owner == W.human && (e->progress < 1 || e->hp < e->maxhp)) return CUR_CONSTRUIR;
+		if (e->type == E_FARM && e->owner == W.human) return CUR_COMIDA;
+	}
+	return CUR_FLECHA;
+}
+
+static const char *nombre_ent(const Entity *e) {
+	if (is_building(e->type)) return bld_def[e->type].name;
+	if (is_unit(e->type)) return unit_def[e->type - E_VILLAGER].name;
+	switch (e->type) {
+	case E_TREE: return "Árbol"; case E_GOLD: return "Mina de oro"; case E_STONE: return "Cantera de piedra";
+	case E_BERRIES: return "Arbustos de bayas"; case E_FISH: return "Banco de peces"; case E_CARCASS: return "Presa";
+	case E_RELIC: return "Reliquia";
+	default: return "?";
+	}
+}
+
+/* rótulo pequeño junto al ratón: nombre, dueño y vida o recurso que queda */
+void hud_rotulo_raton(void) {
+	if (!app.nombres_raton || raton_ent < 0 || raton_ent >= W.nents || !W.ents[raton_ent].alive) return;
+	if (SDL_GetTicks() - raton_desde < 350 || tip_actual()) return;
+	const Entity *e = &W.ents[raton_ent];
+	char l1[96], l2[96] = "";
+	snprintf(l1, sizeof l1, "%s", nombre_ent(e));
+	u32 c1 = COL_CREAM;
+	if (e->owner >= 0) {
+		char nb[64];
+		snprintf(l2, sizeof l2, "%s · %d/%d", e->owner == W.human ? "Tú" : nombre_jugador(e->owner, nb, sizeof nb), (int)ceilf(e->hp), (int)e->maxhp);
+		c1 = e->owner == W.human ? COL_CREAM : same_team(e->owner, W.human) ? COL_OK : COL_MAL;
+		if (is_building(e->type) && e->progress < 1) snprintf(l2, sizeof l2, "En obras: %d%%", (int)(e->progress * 100));
+	} else if (is_resource(e->type) && e->type != E_RELIC) snprintf(l2, sizeof l2, "Quedan %d", (int)ceilf(e->amount));
+	else if (es_animal(e->type)) { snprintf(l2, sizeof l2, "Salvaje · %d/%d", (int)ceilf(e->hp), (int)e->maxhp); c1 = COL_AVISO; }
+	int w = MAX(gfx_t_w(l1, 1), gfx_t_w(l2, 1)) + 12, h = l2[0] ? 40 : 22;
+	int x = in.mx / app.us + 16, y = in.my / app.us + 20;
+	if (x + w > fb.w - 4) x = in.mx / app.us - w - 8;
+	if (y + h > L.inf.y - 2) y = in.my / app.us - h - 8;
+	gfx_fill_a(x, y, w, h, gfx_rgb(16, 11, 7), 205);
+	bevel(x, y, w, h, gfx_rgb(120, 92, 52));
+	gfx_ts(x + 6, y + 3, l1, c1, 1);
+	if (l2[0]) gfx_ts(x + 6, y + 21, l2, COL_DIM, 1);
+}
+
 void hud_mundo(void) {
+	raton_actualizar();
+	/* aro de lo que hay bajo el ratón: blanco lo propio, verde lo aliado, rojo lo enemigo, oro los recursos */
+	if (raton_ent >= 0 && !W.ents[raton_ent].sel) {
+		const Entity *e = &W.ents[raton_ent];
+		int sx, sy;
+		view_to_screen(e->x, e->y, &sx, &sy);
+		u32 col = e->owner == W.human ? gfx_rgb(240, 236, 220) : e->owner >= 0 ? (same_team(e->owner, W.human) ? COL_OK : gfx_rgb(255, 80, 64)) : es_animal(e->type) ? COL_AVISO : COL_GOLD;
+		float z = V.zoom;
+		int rx = is_building(e->type) ? (int)(e->size * 22 * z) : e->type == E_TREE ? (int)(14 * z) : (int)(12 * z);
+		int ry = MAX(3, rx / 2);
+		int g = MAX(1, (int)(z + 0.5f));
+		aro_elipse(sx, sy + 1, rx, ry, gfx_rgb(10, 8, 6), g + 1);
+		aro_elipse(sx, sy, rx, ry, col, g);
+	}
 	if (placing != E_TYPE_COUNT && !app.paused) {
 		float wx, wy;
 		screen_to_world(in.mx, in.my, &wx, &wy);

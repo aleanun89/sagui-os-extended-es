@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* df - espacio libre en los sistemas de archivos montados (D097). */
 #include "sagui.h"
+#include "particoes.h"
 
 static const char *AYUDA =
     "uso: df [-h] [-k] [carpeta...]\n"
@@ -45,6 +46,17 @@ int principal(int argc, char **argv)
             n++;
         }
     }
+    /* D388: en la live, «/» es el sistema de serie (SAGUI-RAIZ, solo lectura) con la capa de cambios encima
+     * (SAGUI-PERSIST o la RAM): una sola línea «/» con el espacio de la capa, y /sistema/serie (la misma base
+     * vista sola) no se repite salvo que se pida. */
+    char base[16] = "", capa[16] = "";
+    bool live = pt_raiz_live(base, capa, sizeof base);
+    for (int i = 0; live && i < n; i++) {
+        if (compara_texto(m[i].ponto, "/") == 0) {
+            if (capa[0]) formatar_texto(m[i].dispositivo, sizeof m[i].dispositivo, "%s+%s", base, capa);
+            copia_texto(m[i].tipo, "live", sizeof m[i].tipo);
+        }
+    }
     imprimir("%-12s %-7s %9s %9s %9s %5s  %s\n", "Sistema", "Tipo", humano ? "Tamaño" : "Bloques-1K", "Usado", "Libre", "Uso%", "Montado en");
     int erros = 0;
     int nargs = argc - o.indice;
@@ -65,6 +77,7 @@ int principal(int argc, char **argv)
             if (mejor < 0) continue;
         }
         for (int i = nargs ? mejor : 0; i < (nargs ? mejor + 1 : n); i++) {
+            if (live && !nargs && compara_texto(m[i].tipo, "serie") == 0) continue;
             uint32_t usado = m[i].total_kb >= m[i].livre_kb ? m[i].total_kb - m[i].livre_kb : 0;
             char t[16], u[16], l[16], pct[8];
             celda(t, sizeof t, m[i].total_kb, humano);
@@ -74,6 +87,13 @@ int principal(int argc, char **argv)
             else copia_texto(pct, "-", sizeof pct);
             imprimir("%-12s %-7s %9s %9s %9s %5s  %s\n", m[i].dispositivo, m[i].tipo, t, u, l, pct, m[i].ponto);
         }
+    }
+    if (live) {
+        if (capa[0])
+            imprimir("/ es una live: el sistema de serie (%s, SAGUI-RAIZ, solo lectura) con tus cambios encima (%s, SAGUI-PERSIST);\n"
+                     "el espacio de / es el que queda en la capa de cambios.\n", base, capa);
+        else
+            imprimir("/ es una live: el sistema de serie (%s, SAGUI-RAIZ, solo lectura) con tus cambios en la RAM (se pierden al apagar).\n", base);
     }
     return erros ? 1 : 0;
 }

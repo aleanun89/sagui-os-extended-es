@@ -311,67 +311,115 @@ msgstr "Limit of the compressed store; automatic = half the RAM (a quarter witho
 
 #: userland/libsagui/opcoes_kernel.c:24
 msgid "Tope de lo escrito en la RAM (%)"
-msgstr ""
+msgstr "Limit of what is written to RAM (%)"
 
 #: userland/libsagui/opcoes_kernel.c:24
 msgid "Live y /tmp: cuánto de la RAM pueden ocupar los cambios; automático = 50 %."
-msgstr ""
+msgstr "Live and /tmp: how much RAM the changes may use; automatic = 50 %."
 
 #: userland/libsagui/opcoes_kernel.c:25
 msgid "Modo de arranque de la live"
-msgstr ""
+msgstr "Live boot mode"
 
 #: userland/libsagui/opcoes_kernel.c:25
 msgid "Live desde el medio o todo a la RAM; automático = el de la imagen (tecla M al arrancar para elegir una vez)."
-msgstr ""
+msgstr "Live from the medium or everything to RAM; automatic = the image's (M key at boot to choose once)."
 
 #: userland/libsagui/opcoes_kernel.c:26
+msgid "AVX (registros YMM)"
+msgstr "AVX (YMM registers)"
+
+#: userland/libsagui/opcoes_kernel.c:26
+msgid "Deja que los programas usen AVX/AVX2 (la IA local va más rápida). Con «no», solo SSE, como antes: por si un equipo falla con AVX."
+msgstr "Lets programs use AVX/AVX2 (the local AI runs faster). With «no», only SSE, as before: in case a computer fails with AVX."
+
+#: userland/libsagui/opcoes_kernel.c:27
 msgid "Copia del Terminal al puerto serie"
 msgstr "Terminal copy to the serial port"
 
-#: userland/libsagui/opcoes_kernel.c:26
+#: userland/libsagui/opcoes_kernel.c:27
 msgid "Para depurar: lo que sale en el Terminal también va al puerto serie. Con un COM1 real hace la salida muy lenta."
 msgstr "For debugging: what the Terminal shows also goes to the serial port. With a real COM1 it makes the output very slow."
 
-#: userland/libsagui/opcoes_kernel.c:81
+#: userland/libsagui/opcoes_kernel.c:28
+msgid "Volcado a pantalla por la GPU"
+msgstr "GPU screen copy"
+
+#: userland/libsagui/opcoes_kernel.c:28
+msgid "La tarjeta copia el escritorio de la RAM a la pantalla (Radeon X1000). Solo se usa si su autoprueba pasa; con «no», lo copia la CPU."
+msgstr "The card copies the desktop from RAM to the screen (Radeon X1000). Only used if its self-test passes; with «no», the CPU copies it."
+
+#: userland/libsagui/opcoes_kernel.c:29
+msgid "Energía de la GPU al arrancar"
+msgstr "GPU power at boot"
+
+#: userland/libsagui/opcoes_kernel.c:29
+msgid "BIOS (no tocar los relojes), bajo, alto o dinámico (bajo en reposo y alto con el 3D o el volcado trabajando). Automático: dinámico en tarjetas confirmadas, BIOS en las demás (Radeon X1000)."
+msgstr "BIOS (do not touch the clocks), low, high or dynamic (low when idle, high while 3D or the GPU screen copy work). Automatic: dynamic on confirmed cards, BIOS on the rest (Radeon X1000)."
+
+#: userland/libsagui/opcoes_kernel.c:30
+msgid "Cuadro 3D a la RAM por la GPU"
+msgstr "GPU 3D frame to RAM"
+
+#: userland/libsagui/opcoes_kernel.c:30
+msgid "La tarjeta trae cada cuadro del 3D a la ventana del programa sin que la CPU lea la memoria de vídeo (Radeon X1000). Solo se usa si su autoprueba pasa; con «no», lo lee la CPU."
+msgstr "The card brings each 3D frame to the program window without the CPU reading video memory (Radeon X1000). Only used if its self-test passes; with «no», the CPU reads it."
+
+#: userland/libsagui/opcoes_kernel.c:86
 msgid "sí"
 msgstr "yes"
 
-#: userland/libsagui/opcoes_kernel.c:81
+#: userland/libsagui/opcoes_kernel.c:86
 msgid "no"
 msgstr "no"
 
-#: userland/libsagui/opcoes_kernel.c:82
+#: userland/libsagui/opcoes_kernel.c:87
 msgid "automático"
 msgstr "automatic"
 
-#: userland/libsagui/opcoes_kernel.c:84
+#: userland/libsagui/opcoes_kernel.c:89
 msgid "rendimiento"
 msgstr "performance"
 
-#: userland/libsagui/opcoes_kernel.c:84
+#: userland/libsagui/opcoes_kernel.c:89
 msgid "ahorro"
 msgstr "power saving"
 
-#: userland/libsagui/opcoes_kernel.c:84
+#: userland/libsagui/opcoes_kernel.c:89
 msgid "a demanda"
 msgstr "on demand"
 
-#: userland/libsagui/opcoes_kernel.c:86
+#: userland/libsagui/opcoes_kernel.c:91
+msgid "BIOS (sin tocar)"
+msgstr "BIOS (untouched)"
+
+#: userland/libsagui/opcoes_kernel.c:91
+msgid "bajo"
+msgstr "low"
+
+#: userland/libsagui/opcoes_kernel.c:91
+msgid "alto"
+msgstr "high"
+
+#: userland/libsagui/opcoes_kernel.c:91
+msgid "dinámico"
+msgstr "dynamic"
+
+#: userland/libsagui/opcoes_kernel.c:93
 msgid "rescate"
-msgstr ""
+msgstr "rescue"
 
-#: userland/libsagui/opcoes_kernel.c:86
+#: userland/libsagui/opcoes_kernel.c:93
 msgid "instalado"
-msgstr ""
+msgstr "installed"
 
-#: userland/libsagui/opcoes_kernel.c:86
+#: userland/libsagui/opcoes_kernel.c:93
 msgid "live"
-msgstr ""
+msgstr "live"
 
-#: userland/libsagui/opcoes_kernel.c:86
+#: userland/libsagui/opcoes_kernel.c:93
 msgid "toram"
-msgstr ""
+msgstr "toram"
 
 #: userland/libsagui/widget.c:14
 msgid "Reloj"

@@ -10,6 +10,7 @@
  *     resultado y cede el turno;
  *   - el proceso terminó (salir, o fue terminado): cede el turno.
  * Ver D010. */
+#include "portatil.h"
 #include "sistema.h"
 #include "console.h"
 #include "cpu.h"
@@ -110,6 +111,7 @@ static const chamada_t tabela[SIS_MAX] = {
     [SIS_PERMISOS_ARQ] = sis_permisos_arq,   /* D282 */
     [SIS_IDIOMA] = sis_idioma, /* D313 */
     [SIS_CRIAR_WIDGET] = sis_criar_widget, /* D365 */
+    [SIS_PORTATIL] = sis_portatil,         /* D403: brillo, teclas de función, tablas ACPI */
 };
 
 bool sistema_tem_chamada(uint32_t n)

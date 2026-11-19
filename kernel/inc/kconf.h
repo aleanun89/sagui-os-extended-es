@@ -33,6 +33,10 @@ enum {
     KC_SWAP, KC_SWAP_MB,   /* D352: 11 y 12 */
     KC_CAPA_RAM_PCT, KC_RAIZ_MODO,   /* v8.5.4.2 (D379): 13 y 14 */
     KC_SERIE_TERMINAL,               /* v8.5.4.10 (D385): 15 */
+    KC_VOLCADO_GPU,                  /* v8.5.4.10r2 (D387): 16 */
+    KC_VUELTA_GPU,                   /* v8.5.4.10r2 (D391): 17 */
+    KC_AVX,                          /* v8.5.5 (D381): 18 */
+    KC_GPU_ENERGIA,                  /* v8.5.5 (D399): 19 */
 };
 
 /* Al principio del arranque, con cabecalho_boot ya copiada y antes de la paginación: calcula los

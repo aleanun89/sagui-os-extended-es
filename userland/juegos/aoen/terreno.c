@@ -8,6 +8,7 @@
  * Sin efectos activados dibuja exactamente lo de antes: una loseta por casilla. */
 #include "ui.h"
 #include "efectos.h"
+#include "hilos.h"
 
 Sprite *terrain_sprite(int kind, int variant);
 
@@ -56,6 +57,7 @@ typedef struct {
 	int use_trans, use_water, light_mode;   /* light_mode: 0 ninguna, 1 uniforme a la mitad, 2 interpolada */
 	int L00, L10, L01, L11;
 	float time;
+	Recorte r;                /* recorte de esta franja (D393: cada hilo dibuja la suya) */
 } TileCtx;
 
 /* una pasada por los píxeles del rombo, con las coordenadas dentro de la casilla en 16.16 */
@@ -67,9 +69,9 @@ static void pasada_pixeles(const TileCtx *c, int sc, int left, int top) {
 	int t1 = (int)(c->time * 40.0f), t2 = (int)(c->time * 33.0f);
 	for (int dy = -th; dy <= th; ++dy) {
 		int yy = c->sy + dy;
-		if (yy < fb.cy0 || yy >= fb.cy1) continue;
+		if (yy < c->r.y0 || yy >= c->r.y1) continue;
 		int hw = tw * (th - (dy < 0 ? -dy : dy)) / th;
-		int xa = MAX(c->sx - hw, fb.cx0), xb = MIN(c->sx + hw + 1, fb.cx1);
+		int xa = MAX(c->sx - hw, c->r.x0), xb = MIN(c->sx + hw + 1, c->r.x1);
 		if (xb <= xa) continue;
 		u32 *row = fb.px + (size_t)yy * fb.pitch;
 		int dx0 = xa - c->sx;
@@ -124,9 +126,9 @@ static void pasada_luz(const TileCtx *c) {
 	int k1 = 65536 / (2 * tw), k2 = 65536 / (2 * th);
 	for (int dy = -th; dy <= th; ++dy) {
 		int yy = c->sy + dy;
-		if (yy < fb.cy0 || yy >= fb.cy1) continue;
+		if (yy < c->r.y0 || yy >= c->r.y1) continue;
 		int hw = tw * (th - (dy < 0 ? -dy : dy)) / th;
-		int xa = MAX(c->sx - hw, fb.cx0), xb = MIN(c->sx + hw + 1, fb.cx1);
+		int xa = MAX(c->sx - hw, c->r.x0), xb = MIN(c->sx + hw + 1, c->r.x1);
 		if (xb <= xa) continue;
 		u32 *row = fb.px + (size_t)yy * fb.pitch;
 		if (c->light_mode == 1) { px_dim(row + xa, xb - xa, 1, 0x7f7f7f7fu); continue; }
@@ -141,54 +143,115 @@ static void pasada_luz(const TileCtx *c) {
 	}
 }
 
+/* una casilla visible: dónde cae en la pantalla y qué filas toca (sprite y rombo de los efectos) */
+typedef struct { int x, y, sx, sy, f0, f1; } Visible;
+
+/* lo que comparten las franjas: se prepara en el hilo principal (paletas, tablas, la lista de casillas visibles) y los
+ * hilos solo lo leen */
+typedef struct {
+	int sc, tw, th, any_fx;
+	float time;
+	Recorte r;
+	const u32 *pal_luz, *pal_niebla;
+	const Visible *vis;
+	int nvis;
+} Franjas;
+
+static Visible *vis_buf;
+static int vis_cap;
+
+/* las casillas que tocan las filas [r->y0, r->y1), en el mismo orden que siempre: el resultado es el mismo que de una vez */
+static void terreno_franja(const Franjas *f, const Recorte *r, GfxTemp *tmp) {
+	int sc = f->sc, tw = f->tw, th = f->th;
+	for (int n = 0; n < f->nvis; ++n) {
+		const Visible *v = &f->vis[n];
+		if (v->f1 <= r->y0 || v->f0 >= r->y1) continue;   /* fuera de la franja: ni el sprite ni el rombo la tocan */
+		int x = v->x, y = v->y, sx = v->sx, sy = v->sy;
+		int i = y * W.w + x;
+		u8 fg = W.fog[i];
+		int kind = W.tile[i];
+		int frame = kind >= TILE_WATER ? 0 : W.variant[i] % 9;
+		Sprite *sp = terrain_sprite(kind, frame);
+		gfx_sprite_franja(sp, sx - tw, sy - th, sc, 0, (fg == 2 || efx.niebla) ? f->pal_luz : f->pal_niebla, 0, r, tmp);
+		if (!f->any_fx) continue;
+
+		TileCtx c;
+		memset(&c, 0, sizeof c);
+		c.sx = sx; c.sy = sy; c.tw = tw; c.th = th; c.kind = kind; c.x = x; c.y = y; c.time = f->time; c.r = *r;
+		if (efx.transiciones) {
+			static const int ox[4] = { 1, -1, 0, 0 }, oy[4] = { 0, 0, 1, -1 };
+			for (int d = 0; d < 4; ++d) {
+				int nx = x + ox[d], ny = y + oy[d];
+				c.dir_kind[d] = -1;
+				if (nx < 0 || ny < 0 || nx >= W.w || ny >= W.h || !W.fog[ny * W.w + nx]) continue;
+				int nk = W.tile[ny * W.w + nx];
+				/* grass/arena entre sí se mezclan; agua y agua profunda también, pero más tenue */
+				if (nk == kind) continue;
+				c.dir_kind[d] = nk;
+				c.dir_spr[d] = terrain_sprite(nk, nk >= TILE_WATER ? 0 : W.variant[ny * W.w + nx] % 9);
+				c.use_trans = 1;
+			}
+		}
+		c.use_water = efx.agua && kind >= TILE_WATER;
+		if (efx.niebla) {
+			c.L00 = vertice(x, y); c.L10 = vertice(x + 1, y); c.L01 = vertice(x, y + 1); c.L11 = vertice(x + 1, y + 1);
+			if (c.L00 == 256 && c.L10 == 256 && c.L01 == 256 && c.L11 == 256) c.light_mode = 0;
+			else if (c.L00 == 128 && c.L10 == 128 && c.L01 == 128 && c.L11 == 128) c.light_mode = 1;
+			else c.light_mode = 2;
+		}
+		if (c.use_trans || c.use_water) pasada_pixeles(&c, sc, sx - tw, sy - th);
+		if (c.light_mode) pasada_luz(&c);
+	}
+}
+
+static void franja(void *ctx, int k, int partes) {
+	const Franjas *f = (const Franjas *)ctx;
+	int h = f->r.y1 - f->r.y0;
+	Recorte r = f->r;
+	r.y0 = f->r.y0 + h * k / partes; r.y1 = f->r.y0 + h * (k + 1) / partes;
+	GfxTemp tmp;
+	terreno_franja(f, &r, &tmp);
+}
+
+/* D393: la pantalla se parte en franjas horizontales que dibujan los hilos (hilos.c). Primero se apuntan, en el orden de
+ * siempre, las casillas visibles y las filas que toca cada una; cada franja recorre esa lista y dibuja solo las que la
+ * tocan, así que los solapes entre losetas vecinas quedan igual que con un hilo */
 void render_terrain_tiles(int x0, int x1, int y0, int y1, float time) {
 	if (!lut_ok) init_lut();
-	int sc = (int)(V.zoom * 256) + (V.zoom == 1.0f ? 0 : 1);   /* a zoom 1 la loseta se dibuja exacta (65x33): sin píxeles de borde perdidos */
-	int tw = (int)(32 * V.zoom), th = (int)(16 * V.zoom);
-	int any_fx = efx.transiciones || efx.agua || efx.niebla;
+	Franjas f;
+	f.time = time;
+	f.sc = (int)(V.zoom * 256) + (V.zoom == 1.0f ? 0 : 1);   /* a zoom 1 la loseta se dibuja exacta (65x33): sin píxeles de borde perdidos */
+	f.tw = (int)(32 * V.zoom); f.th = (int)(16 * V.zoom);
+	f.any_fx = efx.transiciones || efx.agua || efx.niebla;
+	f.r.x0 = fb.cx0; f.r.y0 = fb.cy0; f.r.x1 = fb.cx1; f.r.y1 = fb.cy1;
+	if (f.r.y1 <= f.r.y0 || f.r.x1 <= f.r.x0) return;
+	f.pal_luz = gfx_paleta(256); f.pal_niebla = gfx_paleta(130);
+	/* los cuadros de las losetas se decodifican la primera vez que se piden: aquí, en el hilo principal, antes de repartir */
+	for (int k = 0; k < 4; ++k) for (int v = 0; v < 9; ++v) terrain_sprite(k, v);
 
+	int n = (x1 - x0 + 1) * (y1 - y0 + 1);
+	if (n <= 0) return;
+	if (vis_cap < n) { free(vis_buf); vis_cap = n + 1024; vis_buf = (Visible *)malloc(sizeof(Visible) * (size_t)vis_cap); if (!vis_buf) { vis_cap = 0; return; } }
+	int tw = f.tw, th = f.th, nv = 0;
 	for (int y = y0; y <= y1; ++y) {
 		for (int x = x0; x <= x1; ++x) {
 			int i = y * W.w + x;
-			u8 f = W.fog[i];
-			if (!f) continue;
-
+			if (!W.fog[i]) continue;
 			int sx, sy;
 			view_to_screen(x + 0.5f, y + 0.5f, &sx, &sy);
 			if (sx < -tw * 2 || sx > V.sw + tw * 2 || sy < -th * 2 || sy > V.sh + th * 2) continue;
-
 			int kind = W.tile[i];
-			int frame = kind >= TILE_WATER ? 0 : W.variant[i] % 9;
-			Sprite *sp = terrain_sprite(kind, frame);
-			gfx_sprite(sp, sx - tw, sy - th, sc, 0, (f == 2 || efx.niebla) ? 256 : 130, 0);
-			if (!any_fx) continue;
-
-			TileCtx c;
-			memset(&c, 0, sizeof c);
-			c.sx = sx; c.sy = sy; c.tw = tw; c.th = th; c.kind = kind; c.x = x; c.y = y; c.time = time;
-			if (efx.transiciones) {
-				static const int ox[4] = { 1, -1, 0, 0 }, oy[4] = { 0, 0, 1, -1 };
-				for (int d = 0; d < 4; ++d) {
-					int nx = x + ox[d], ny = y + oy[d];
-					c.dir_kind[d] = -1;
-					if (nx < 0 || ny < 0 || nx >= W.w || ny >= W.h || !W.fog[ny * W.w + nx]) continue;
-					int nk = W.tile[ny * W.w + nx];
-					/* grass/arena entre sí se mezclan; agua y agua profunda también, pero más tenue */
-					if (nk == kind) continue;
-					c.dir_kind[d] = nk;
-					c.dir_spr[d] = terrain_sprite(nk, nk >= TILE_WATER ? 0 : W.variant[ny * W.w + nx] % 9);
-					c.use_trans = 1;
-				}
+			const Sprite *sp = terrain_sprite(kind, kind >= TILE_WATER ? 0 : W.variant[i] % 9);
+			int a = sy - th, b = sy + th + 1;
+			if (sp && sp->px) {
+				int dy0 = sy - th - ((sp->hy * f.sc) >> 8), dh = (sp->h * f.sc + 255) >> 8;
+				a = MIN(a, dy0); b = MAX(b, dy0 + dh);
 			}
-			c.use_water = efx.agua && kind >= TILE_WATER;
-			if (efx.niebla) {
-				c.L00 = vertice(x, y); c.L10 = vertice(x + 1, y); c.L01 = vertice(x, y + 1); c.L11 = vertice(x + 1, y + 1);
-				if (c.L00 == 256 && c.L10 == 256 && c.L01 == 256 && c.L11 == 256) c.light_mode = 0;
-				else if (c.L00 == 128 && c.L10 == 128 && c.L01 == 128 && c.L11 == 128) c.light_mode = 1;
-				else c.light_mode = 2;
-			}
-			if (c.use_trans || c.use_water) pasada_pixeles(&c, sc, sx - tw, sy - th);
-			if (c.light_mode) pasada_luz(&c);
+			if (b <= f.r.y0 || a >= f.r.y1) continue;
+			Visible *v = &vis_buf[nv++];
+			v->x = x; v->y = y; v->sx = sx; v->sy = sy; v->f0 = a; v->f1 = b;
 		}
 	}
+	f.vis = vis_buf; f.nvis = nv;
+	hilos_repartir(franja, &f, hilos_partes());
 }

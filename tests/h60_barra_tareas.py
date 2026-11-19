@@ -362,7 +362,7 @@ def main():
                   "Inicio à esquerda e a barra até a borda nova")
 
         marca = len(m.serial())
-        p = menu_escritorio(m, 400, 590)
+        p = menu_escritorio(m, 10, 590)   # el Terminal (772x516 + título) ya tapa el centro y la parte baja
         s = submenu_pelo_mouse(m, p, "Resolución", "640x480")
         verificar("*800x600" in s["linhas"], "agora a marca está em 800x600")
         clicar_aqui(m)

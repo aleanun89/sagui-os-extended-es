@@ -29,6 +29,9 @@ void aoen_registro(const char *texto);
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : (v) > (hi) ? (hi) : (v))
+/* (int)floorf(v) sin llamar a floorf (en SaguiOS es la de la libm en software, por double): el mismo resultado para todo v
+ * que quepa en un int. Se usa en lo que se hace miles de veces por cuadro (D393) */
+static inline int piso(float v) { int i = (int)v; return i - (v < (float)i); }
 
 /* ---------- data.c: datos originales del juego (archivos DRS, sprites SLP, paletas) ---------- */
 
@@ -103,6 +106,17 @@ void gfx_rect(int x, int y, int w, int h, u32 col);
 void gfx_line(int x0, int y0, int x1, int y1, u32 col);
 /* dibuja el sprite con el punto de anclaje en x,y. Escala en unidades de 1/256, color de jugador 0..7, sombra 0..256 (256 = normal) */
 void gfx_sprite(const Sprite *s, int x, int y, int scale, int player, int shade, int flip);
+/* D393: dibujo por franjas en varios hilos. gfx_sprite_franja es gfx_sprite sin la escala de la interfaz, con su propio
+ * recorte (en píxeles reales, x1/y1 excluidos), una paleta ya hecha (gfx_paleta, pedida antes en el hilo principal) y
+ * sus propias tablas (una GfxTemp por hilo, p. ej. en la pila) */
+typedef struct { int x0, y0, x1, y1; } Recorte;
+typedef struct { int a[4096]; u8 xf[4096]; } GfxTemp;
+const u32 *gfx_paleta(int shade);
+void gfx_sprite_franja(const Sprite *s, int x, int y, int scale, int player, const u32 *pal, int flip, const Recorte *r, GfxTemp *tmp);
+/* D393: entre gfx_lista_empezar y gfx_lista_terminar las primitivas se graban y al terminar se dibujan por franjas en varios
+ * hilos (igual que directamente). Solo con más de un hilo; render_world la usa para lo que va encima del terreno */
+void gfx_lista_empezar(void);
+void gfx_lista_terminar(void);
 void gfx_diamond(int cx, int cy, int hw, int hh, u32 col);
 void gfx_text(int x, int y, const char *s, u32 col, int size);
 int gfx_text_w(const char *s, int size);
@@ -112,6 +126,8 @@ void gfx_text_c(int cx, int y, const char *s, u32 col, int size);
 int gfx_t_w(const char *s, int tam);
 void gfx_t(int x, int y, const char *s, u32 col, int tam);
 void gfx_ts(int x, int y, const char *s, u32 col, int tam);
+/* título grande: degradado vertical, borde y sombra (rótulo del menú principal) */
+void gfx_titulo(int x, int y, const char *s, u32 arriba, u32 abajo, u32 borde, int tam);
 
 
 /* ---------- audio.c: efectos de sonido mezclados por software y reproducidos con el audio de SDL ---------- */

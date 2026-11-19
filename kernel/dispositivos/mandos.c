@@ -20,11 +20,17 @@
 #include "sistema.h"
 #include "texto.h"
 
+#define MANDO_DESC_MAX 512   /* descriptor de informe que se guarda para «mandos --crudo» */
+
 typedef struct {
     bool         usado;
     info_mando_t info;
     hid_estado_t est;
     uint32_t     informes;
+    uint8_t      crudo[64];          /* el último informe tal como llegó (diagnóstico) */
+    uint8_t      crudo_n;
+    uint16_t     desc_n;
+    uint8_t      desc[MANDO_DESC_MAX];
 } mando_t;
 
 static mando_t mandos[MANDOS_MAX];
@@ -72,6 +78,32 @@ void mando_atualizar(int h, const hid_estado_t *e)
     int_restaura(i0);
 }
 
+/* El último informe crudo, para «mandos --crudo» y --estado: con él y el descriptor se ve en
+ * una máquina real si un eje mal leído es culpa del analizador o del mando. */
+void mando_informe_crudo(int h, const uint8_t *b, int n)
+{
+    if (h < 0 || h >= MANDOS_MAX || n < 0) return;
+    if (n > (int)sizeof mandos[h].crudo) n = (int)sizeof mandos[h].crudo;
+    bool i0 = int_salva_desliga();
+    if (mandos[h].usado) {
+        memcpy(mandos[h].crudo, b, (size_t)n);
+        mandos[h].crudo_n = (uint8_t)n;
+    }
+    int_restaura(i0);
+}
+
+void mando_descriptor(int h, const uint8_t *d, int n)
+{
+    if (h < 0 || h >= MANDOS_MAX || n < 0) return;
+    if (n > MANDO_DESC_MAX) n = MANDO_DESC_MAX;
+    bool i0 = int_salva_desliga();
+    if (mandos[h].usado) {
+        memcpy(mandos[h].desc, d, (size_t)n);
+        mandos[h].desc_n = (uint16_t)n;
+    }
+    int_restaura(i0);
+}
+
 void mando_retirar(int h)
 {
     if (h < 0 || h >= MANDOS_MAX) return;
@@ -113,6 +145,7 @@ static void registrar_prova(void)
     prova_ativa = true;
     prova_h[0] = mando_registrar(MANDO_TIPO_PRUEBA, "Mando de prueba (Dual Action)", "prueba HID", 0x046D, 0xC216,
                                  prova_hid.n_eixos, prova_hid.n_botoes, prova_hid.n_hats, MANDO_MAPA_DUALACTION);
+    mando_descriptor(prova_h[0], desc_dual_action, (int)sizeof desc_dual_action);
     prova_h[1] = mando_registrar(MANDO_TIPO_PRUEBA, "Mando de prueba (Xbox 360)", "prueba Xbox", 0x045E, 0x028E,
                                  XBOX360_EIXOS, XBOX360_BOTOES, 1, MANDO_MAPA_XBOX360);
 }
@@ -171,6 +204,8 @@ int32_t mandos_info(uint32_t ptr, uint32_t n)
         for (int i = 0; i < MANDO_EIXOS_MAX; i++) s->estado.eixos[i] = m->est.eixo[i];
         s->estado.botoes = m->est.botoes;
         for (int i = 0; i < MANDO_HATS_MAX; i++) s->estado.hats[i] = m->est.hat[i];
+        s->informe_n = m->crudo_n;
+        memcpy(s->informe, m->crudo, m->crudo_n);
         int_restaura(i0);
         for (int i = 0; i < 4; i++) s->crudo[i] = 0xFFFF;
         r = 0;
@@ -191,6 +226,19 @@ int32_t mandos_info(uint32_t ptr, uint32_t n)
         r = 0;
         break;
     }
+    case MANDOS_DESCRIPTOR: {
+        int h = por_indice(s->indice);
+        if (h < 0) { r = ERRO_NAO_EXISTE; break; }
+        bool i0 = int_salva_desliga();
+        mando_t *m = &mandos[h];
+        uint32_t de = s->escribir, k = 0;
+        s->n = m->desc_n;
+        for (; de + k < m->desc_n && k < sizeof s->informe; k++) s->informe[k] = m->desc[de + k];
+        s->informe_n = k;
+        int_restaura(i0);
+        r = 0;
+        break;
+    }
     case MANDOS_INYECTAR: {
         if (!prova_ativa) { r = ERRO_ACESSO; break; }
         int h = por_indice(s->indice);
@@ -199,6 +247,7 @@ int32_t mandos_info(uint32_t ptr, uint32_t n)
         hid_estado_t *e = &prova_est[k];
         bool ok = k == 0 ? hid_mando_decodificar(&prova_hid, s->informe, (int)s->informe_n, e)
                          : xbox360_decodificar(s->informe, (int)s->informe_n, e);
+        mando_informe_crudo(h, s->informe, (int)s->informe_n);
         if (ok) mando_atualizar(h, e);
         r = ok ? 0 : ERRO_INVALIDO;
         break;

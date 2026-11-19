@@ -883,10 +883,15 @@ int SDL_GetCPUCount(void);
 int SDL_GetSystemRAM(void);
 
 
-/* ---- hilos, cerrojos y variables de condición (D383) ----
- * El SaguiOS no tiene hilos de usuario: la SDL atiende el audio desde SDL_PollEvent y SDL_Delay en el
- * mismo hilo. Los cerrojos y las condiciones son entonces nulos (siempre se obtienen) y
- * SDL_CreateThread falla (los programas que lo usan tienen una ruta sin hilos). */
+/* ---- hilos, cerrojos, condiciones, semáforos y atómicas (D383, D393) ----
+ * Hilos de verdad sobre los del SaguiOS (D167): con --smp corren a la vez en las otras CPU.
+ * La SDL sigue atendiendo el audio en el hilo principal (SDL_PollEvent, SDL_Delay, SDL_RenderPresent
+ * y las esperas de SDL_CondWait en el principal); los demás hilos no deben llamar a vídeo, eventos ni
+ * audio. Los cerrojos son recursivos, como en la SDL de verdad: el hilo que ya lo tiene lo vuelve a
+ * tomar (así siguen igual los programas que se llamaban a sí mismos con el cerrojo tomado).
+ * SDL_CondWait en el hilo principal se despierta además cada pocos milisegundos para mover el audio
+ * (las esperas pueden despertarse sin aviso: quien espera vuelve a mirar su condición, como manda la SDL).
+ * SDL_GetCPUCount cuenta las CPU arrancadas (1 sin --smp). */
 #define SDL_HINT_WINDOWS_DISABLE_THREAD_NAMING "SDL_WINDOWS_DISABLE_THREAD_NAMING"
 #define SDL_HINT_NO_SIGNAL_HANDLERS "SDL_NO_SIGNAL_HANDLERS"
 #ifndef SDL_ALPHA_OPAQUE
@@ -907,6 +912,40 @@ int SDL_CondWait(SDL_cond *c, SDL_mutex *m);
 void SDL_DestroyCond(SDL_cond *c);
 SDL_Thread *SDL_CreateThread(SDL_ThreadFunction fn, const char *nombre, void *datos);
 void SDL_WaitThread(SDL_Thread *t, int *estado);
+/* D393: lo que faltaba para usar hilos de verdad */
+#define SDL_MUTEX_TIMEDOUT 1
+#define SDL_MUTEX_MAXWAIT (~(Uint32)0)
+typedef unsigned long SDL_threadID;
+typedef enum { SDL_THREAD_PRIORITY_LOW, SDL_THREAD_PRIORITY_NORMAL, SDL_THREAD_PRIORITY_HIGH, SDL_THREAD_PRIORITY_TIME_CRITICAL } SDL_ThreadPriority;
+int SDL_TryLockMutex(SDL_mutex *m);
+int SDL_CondBroadcast(SDL_cond *c);
+int SDL_CondWaitTimeout(SDL_cond *c, SDL_mutex *m, Uint32 ms);
+SDL_Thread *SDL_CreateThreadWithStackSize(SDL_ThreadFunction fn, const char *nombre, size_t pila, void *datos);
+void SDL_DetachThread(SDL_Thread *t);
+SDL_threadID SDL_ThreadID(void);
+SDL_threadID SDL_GetThreadID(SDL_Thread *t);
+const char *SDL_GetThreadName(SDL_Thread *t);
+int SDL_SetThreadPriority(SDL_ThreadPriority prioridad);
+typedef struct SDL_semaphore SDL_sem;
+SDL_sem *SDL_CreateSemaphore(Uint32 valor);
+void SDL_DestroySemaphore(SDL_sem *s);
+int SDL_SemWait(SDL_sem *s);
+int SDL_SemTryWait(SDL_sem *s);
+int SDL_SemWaitTimeout(SDL_sem *s, Uint32 ms);
+int SDL_SemPost(SDL_sem *s);
+Uint32 SDL_SemValue(SDL_sem *s);
+typedef struct { int value; } SDL_atomic_t;
+SDL_bool SDL_AtomicCAS(SDL_atomic_t *a, int viejo, int nuevo);
+int SDL_AtomicSet(SDL_atomic_t *a, int v);
+int SDL_AtomicGet(SDL_atomic_t *a);
+int SDL_AtomicAdd(SDL_atomic_t *a, int v);
+#define SDL_AtomicIncRef(a) SDL_AtomicAdd(a, 1)
+#define SDL_AtomicDecRef(a) (SDL_AtomicAdd(a, -1) == 1)
+void SDL_MemoryBarrierReleaseFunction(void);
+void SDL_MemoryBarrierAcquireFunction(void);
+#define SDL_MemoryBarrierRelease() SDL_MemoryBarrierReleaseFunction()
+#define SDL_MemoryBarrierAcquire() SDL_MemoryBarrierAcquireFunction()
+#define SDL_CompilerBarrier() __asm__ __volatile__("" ::: "memory")
 
 /* ---- conversión de audio (D383): formato, canales y frecuencia (SDL_BuildAudioCVT / SDL_ConvertAudio) ---- */
 #define SDL_AUDIOCVT_MAX_FILTERS 9

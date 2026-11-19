@@ -70,6 +70,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_COPIAR_TEXTO] = L, [SIS_COLAR_TEXTO] = L, [SIS_COPIAR_IMAGEM] = L, [SIS_COLAR_IMAGEM] = L,
     [SIS_TECLAS_SEGURADAS] = L, [SIS_TECLADO] = L,   /* la distribución del teclado: preferencia del usuario */
     [SIS_MODOS_VIDEO] = L, [SIS_MUDAR_MODO] = L,      /* la resolución: preferencia del usuario */
+    [SIS_PORTATIL] = O,                    /* D403: estado, brillo y acciones; los avisos simulados y las tablas, root */
     [SIS_TELAS] = O,                       /* D290: varias pantallas; D371: guardarlas es de la máquina */
     [SIS_FUNDO] = L, [SIS_ACENTO] = L,
     [SIS_ALEATORIO] = L, [SIS_INFO_ALEATORIO] = L,
@@ -188,7 +189,7 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_INFO_SISTEMA:
         return a != INFO_ACEL2D_CTL && a != INFO_ACEL2D_PROVA && a != INFO_MSR_PROVA &&
                a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA && a != INFO_CAB_OPC &&
-               a != INFO_KCONF_GRAVAR;   /* D353: kconfig solo lee sin ser administrador */   /* D284/D285: encender y probar el 3D tocan la GPU */
+               a != INFO_KCONF_GRAVAR && a != INFO_GPU_ENERGIA_CTL;   /* D399: cambiar relojes de la GPU */   /* D353: kconfig solo lee sin ser administrador */   /* D284/D285: encender y probar el 3D tocan la GPU */
     case SIS_HORA:
         return a == HORA_UTC || a == HORA_LER_RTC;
     case SIS_ZONA:
@@ -219,6 +220,10 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
                ((a == WIFI_CONECTAR || a == WIFI_DESCONECTAR) && !eu->de_servico);
     case SIS_BLUETOOTH:
         return a == BT_ESTADO || a == BT_DISPOSITIVOS || a == BT_BUSCAR;
+    case SIS_PORTATIL:
+        /* D403: el brillo y las acciones (volumen, radio) son como las teclas: de la sesión, no de un
+         * servicio; simular avisos del firmware y leer las tablas ACPI, solo root. */
+        return a == PORTATIL_ESTADO || ((a == PORTATIL_BRILHO || a == PORTATIL_ACAO) && !eu->de_servico);
     case SIS_TELAS:
         /* D371 (P6): las pantallas son de la máquina: cambiarlas para la sesión, cualquiera; guardarlas en
          * /etc (con la configuración de la máquina separada), el administrador. */

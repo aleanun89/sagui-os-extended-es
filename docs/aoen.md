@@ -236,7 +236,117 @@ incompatibles, porque `Setup` cambia de tamaño):
 Medidas con el arnés (10 partidas por serie): en tierra, difícil contra fácil 10-0, normal contra difícil 1-8, muy difícil
 contra difícil 9-1; en islas, difícil contra fácil 10-0 (18 min), y entre rivales parejos aún 4 de cada 10 pasan de 60 min.
 
+## v8.5.4.10r2: barcos en tierra, modo intercambio y edificios contra el original
+
+Fallos que vio el mantenedor jugando, y lo que se cambió:
+
+1. **Los barcos atravesaban tierra.** `walk_step` seguía la ruta casilla a casilla, pero cuando no había ruta (la búsqueda no
+   encontraba camino y la casilla más cercana era la de salida), en el tramo final hacia `tx,ty` y al atacar algo en tierra (con
+   un `tx,ty` viejo) iba en línea recta sin mirar el terreno; además, `unstick` apartaba a los barcos buscando casillas **de
+   tierra**. Con 4 unidades por jugador y órdenes al azar, en islas había miles de casos por partida, y en las partidas de IA
+   contra IA en islas la tropa también **andaba por el agua** (así era como la IA invadía otras islas). Ahora todo movimiento
+   pasa por `mover_a`: una unidad no cambia de casilla a otra de distinto terreno (agua para los barcos, tierra para el resto;
+   en diagonal tampoco cruza una esquina), y si el paso no vale se desliza por un eje o se para en la orilla y suelta la ruta
+   (quien la pidió la vuelve a buscar o se detiene). Lo usan también los empujones entre unidades, `unstick` (que ya busca la
+   casilla de la unidad) y el retroceso de las catapultas. Una unidad que ya estuviera en terreno ajeno (partida antigua) puede
+   moverse para salir. Al atacar, el `tx,ty` es el del objetivo. La IA ya no cuenta barcos ni pasajeros como amenaza dentro de
+   su base (el ejército de tierra no los alcanza y se quedaba «defendiendo» para siempre); ahora invade en transporte.
+   Prueba: `h389 terreno` (6 partidas de 150 s con barcos y tropa recibiendo órdenes al azar cada medio segundo, en islas y
+   costa: 0 unidades en terreno ajeno en 27 000 comprobaciones, y todos siguen moviéndose, embarcando y desembarcando) y las
+   partidas de `h389 ia` comprueban el terreno en cada tic. Como la tropa ya no cruza el mar andando, en islas la difícil tarda
+   más en acabar con la fácil (media de 40 min en vez de 20; 5 de 6 antes de una hora, como antes del arreglo).
+2. **No se podía configurar el modo intercambio del mercante.** El botón de cada orden de comercio (`OR_COM_*`) buscaba su
+   icono en `por_tipo[]`, que acababa en `OR_ELIMINAR`: leía fuera de la tabla. Ahora tienen icono propio (oro, o el recurso
+   que se da o se recibe). Los botones se llaman «Modo oro» (O), «Modo intercambio» (I), «Dar» (N) y «Recibir» (M). Sin la
+   opción «Comercio mejorado», «Modo intercambio» sale gris y su ayuda dice «Activa Comercio mejorado al crear la partida»; la
+   ficha del mercante lo repite en una segunda línea (con la opción, resume las teclas y los recursos). Los barcos ya no ofrecen
+   «Embarcar». En la configuración, la vista previa del mapa deja sitio a las filas de debajo, para que la casilla no se salga
+   del panel con «Recursos: a medida» y «Victoria: puntuación». La opción va en la partida guardada (`Setup`). Prueba: guion
+   `AOEN_PRUEBA=comercio` en `h389 interfaz` (capturas H389-31 y H389-32).
+3. **Edificios.** Revisados uno a uno contra las reglas del Age of Empires original (manual y tablas de tecnologías de los
+   sitios de aficionados; solo las reglas). Lo que se corrigió: las armas y la armadura de caballería se investigan en el
+   **Almacén** (antes en el Cuartel y el Establo), las mejoras de torres y murallas en el **Granero** (antes en la Torre y el
+   Centro de gobierno), Ingeniería y Balística en el **Centro de gobierno** (antes en el Taller de asedio); el arquero a caballo
+   y el de elefante salen del **Campo de tiro** (antes del Establo) y el hondero del **Cuartel** (como en Rise of Rome); la
+   **carne de caza** se entrega también en el Almacén. La IA clasifica como «economía» solo las mejoras de recolección. Prueba:
+   `h389 edificios` (lo que entrena, investiga y recoge cada edificio, contra esta tabla).
+
+| Edificio | Original (AoE 1997) | AoEN (v8.5.4.10r2) | Pendiente o diferencia deliberada |
+|---|---|---|---|
+| Centro urbano | Aldeanos; avanzar de edad; recoge todo | Igual; población +10 | Original: más centros urbanos solo con un Centro de gobierno (en AoEN se construyen sin él) |
+| Casa | Población +4 | Población +5 | Diferencia deliberada (equilibrio de AoEN) |
+| Granero | Recoge comida (bayas, granjas); investiga murallas y torres (Pequeña, Media, Fortificación; Atalaya, Centinela, Guardia, Ballesta) | Recoge comida (bayas, granjas y caza); investiga Domesticación y Arado, Torre centinela, de guardia y de ballesta, Muralla media y Fortificación | Agricultura: en el original va en el Mercado (Herramientas); aquí el Mercado es del Bronce. La muralla y la torre se construyen sin investigarlas |
+| Almacén | Recoge madera, oro, piedra y carne; investiga armas (Herramientas, Metalurgia...), armaduras de infantería, arqueros y caballería y escudos | Recoge madera, oro, piedra y carne; investiga Herramientas, Hachas de bronce, Minería (recolección), Armadura de cuero y de escamas, Armas de bronce y de hierro, Armadura de caballería | Las de recolección van en el Mercado en el original. Faltan los escudos y la tercera armadura y arma |
+| Granja | 250 de comida, se agota y se reconstruye; necesita Mercado | 250 de comida para un aldeano; se agota | Pendiente: exigir el Mercado (aquí es del Bronce y la granja de Herramientas) |
+| Cuartel | Clubman, hachero, espadachines; mejoras de unidad | Clubman, hachero, espadachín y hondero | Faltan las mejoras de espada (corta, ancha, larga, legión) |
+| Campo de tiro | Arqueros, carro arquero, arquero a caballo, arquero de elefante; arco mejorado y compuesto | Igual; Flechas mejoradas y Arcos compuestos | — |
+| Establo | Explorador, carro, caballería, elefante de guerra; caballería pesada, catafracta | Explorador, caballería, caballería pesada, catafracta, elefante de guerra | Falta el carro (no arquero) |
+| Academia | Hoplita; falange, centurión | Igual | — |
+| Taller de asedio | Lanzapiedras (Bronce), catapulta, balista, helépolis | Balista, catapulta, catapulta pesada (Hierro) | Pendiente: taller en el Bronce; falta la helépolis |
+| Muelle | Pesca, mercante, transporte, barcos de guerra; recoge pescado; mejoras de barcos; de la Edad de Piedra | Pesca, mercante, transporte y trirreme; recoge el pescado de los barcos; de Herramientas | Pendiente: mejoras de barcos, trirreme de catapultas; los aldeanos no pescan desde la orilla |
+| Mercado | Mejoras económicas (madera, minería, agricultura, Rueda, Acuñación); necesario para las granjas y el tributo | Rueda y Astronomía; compra y venta de recursos; tributo (se queda el 20 %); carro mercante | Compra/venta y carro mercante son de AoEN; las de recolección están en Almacén y Granero |
+| Templo | Sacerdotes; mejoras religiosas; (las reliquias no existen en el original) | Sacerdotes; Medicina, Fe, Mística, Monoteísmo; guarda reliquias (dan oro) | Faltan Politeísmo, Más allá y Fanatismo |
+| Centro de gobierno | Arquitectura, Nobleza, Escritura, Aristocracia, Alquimia, Balística, Ingeniería; permite más centros urbanos | Arquitectura, Ingeniería, Balística, Logística | Faltan Nobleza, Escritura, Aristocracia y Alquimia |
+| Torre | Defiende; se mejora en el Granero | Igual | — |
+| Muralla | Corta el paso; se mejora en el Granero | Igual | — |
+| Maravilla | Victoria si resiste | Igual (10 minutos terminada) | — |
+
+## v8.5.5.3: interfaz y presentación (D394)
+
+- **Cursor propio** según la orden y **aro y rótulo** de lo que hay bajo el ratón (`ui_cursor.c`, `hud_cursor` y
+  `hud_rotulo_raton` en `ui_hud.c`). Opciones `cursor_propio` y `nombres_raton` en `aoen.cfg`; `AOEN_CURSOR=0` lo apaga.
+- **Menú principal** con rótulo (`gfx_titulo`), **fundido** de 0,25 s entre pantallas y aviso **«Preparando la partida»**.
+- **Opciones en pestañas**: Gráficos, Interfaz (tamaño Automático/1x/2x/3x, cursor, rótulo, renderizador 2D), Sonido y
+  Teclas (la misma tabla que F1).
+- **Fuego** en los edificios por debajo del 40 % (con «Humo, fuego y polvo»).
+- **Resolución de dibujo** en pantalla completa (SaguiOS): `escala_dibujo` = 100, 75 o 50 (`AOEN_DIBUJO`); el búfer se
+  hace más pequeño y la SDL del sistema lo amplía. Nunca por debajo de 640x480.
+- **GPU**: el renderizador de la SDL (`render2d`) sube el cuadro hecho por la CPU y lo vuelve a leer para presentarlo
+  (D288): no gana nada con AoEN y sigue apagado por defecto. Ver D394.
+- Escenas nuevas: `AOEN_SCENE=cursores` (todos los cursores ampliados), `AOEN_SCENE=options AOEN_PAG=0..3`; guion
+  `AOEN_PRUEBA=cursor`.
+
+## v8.5.5.3: varios núcleos (D393)
+
+AoEN usa un hilo por núcleo (hasta 8; con `--smp` en SaguiOS, los secundarios): el terreno (HD y clásico) y lo que va encima
+(entidades, sombras, barras de vida, partículas, día y noche) se dibujan por franjas horizontales, y los jugadores de la máquina
+piensan a la vez. El resultado es el mismo que con un hilo, bit a bit: la imagen y la partida (misma semilla, misma suma).
+
+- **Forzar un hilo**: `AOEN_HILOS=1`, `hilos=1` en `aoen.cfg` o `aoen-config --hilos 1` (`hilos=0`, por defecto: tantos
+  como núcleos). Con un núcleo no se crea ningún hilo.
+- **Medir**: `AOEN_PERFIL=1` con `AOEN_BENCH=N` escribe `[AOEN] perfil: por cuadro (ms): simulación ... ia ... terreno ...
+  entidades ... interfaz ... presentar ...`. Partida cargada: `AOEN_SCENE=game AOEN_PLAYERS=8 AOEN_SIZE=4 AOEN_DIF=2
+  AOEN_ESPECTADOR=1 AOEN_REVEAL=1 AOEN_FFWD=600` (la máquina lleva también al jugador 1, así nadie pierde enseguida).
+- **Determinismo**: `AOEN_SIM=segundos` simula sin dibujo y escribe `[AOEN] sim t=... suma=...` cada minuto;
+  `AOEN_IA_ORDEN=inverso`; `AOEN_PASO_FIJO=1`, `AOEN_TIEMPO_ANIM=s` y `AOEN_SUMA_CUADRO=N` para comparar cuadros.
+- **Texturas HD sintéticas** para probar sin las del mantenedor: `python3 tools/aoen_texturas_sintetico.py CARPETA` y
+  `AOEN_TEX=CARPETA`.
+
+Medidas (KVM, 1024x768 a pantalla completa, DRS y texturas sintéticos, partida de 8 jugadores de la máquina adelantada 10
+minutos, `--smp`; `tests/h398_aoen_multinucleo.py bench`), en fps; el detalle, en D393 (`docs/decisoes.md`):
+
+| | 1 CPU | 2 CPU | 4 CPU |
+|---|---|---|---|
+| Terreno HD, antes / ahora | 107 / 131 | 124 / 224 | 120 / 260 |
+| Clásico con efectos, antes / ahora | 201 / 283 | 206 / 359 | 201 / 323 |
+
+## Plan: gráficos propios de las unidades (solo documentado)
+
+Decisión del mantenedor (2026-11-19): **sin trabajo previsto** en la 8.5.5.3; aquí solo el plan y el alcance.
+
+- **Qué**: sustituir los gráficos de unidades «prestados» (los que se ven con los DRS del juego original del
+  mantenedor) por gráficos propios o con licencia libre, para que AoEN se pueda jugar y publicar entero sin datos ajenos.
+- **Alcance**: todas las unidades y sus animaciones (andar, atacar, morir; 8 direcciones), con la paleta y el tamaño de
+  sprite que ya usa el motor; los edificios y el terreno ya tienen sustituto sintético (`tools/aoen_drs_sintetico.py`,
+  `tools/aoen_texturas_sintetico.py`) y servirían de base.
+- **Cómo** (cuando se haga): generados por código o dibujados, con licencia compatible con la GPL v3 (CC0/CC-BY o
+  propios), anotados en `docs/terceros.md`; el motor no cambia (mismo formato de DRS).
+- **Pruebas**: las de `h389` con los gráficos nuevos en vez de los sintéticos.
+
 ## Pruebas
 
-`python3 tests/h389_aoen.py [generador licencia sin-datos con-datos efectos funciones ia interfaz reglas]` y, aparte, `bench`. Usan DRS sintéticos de
+`python3 tests/h389_aoen.py [generador licencia sin-datos con-datos efectos funciones ia interfaz presentacion reglas terreno edificios]` y, aparte, `bench`.
+Varios núcleos: `python3 tests/h398_aoen_multinucleo.py [pc determinismo-pc tcc saguios]` y, aparte, `bench` (mejor con
+`SAGUI_KVM=1`; `H398_CPUS="1,2,4"`).
+Usan DRS sintéticos de
 `tools/aoen_drs_sintetico.py`; nunca los reales.

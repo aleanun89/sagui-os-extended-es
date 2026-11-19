@@ -4,6 +4,7 @@
 #include "game.h"
 #include "efectos.h"
 #include "ia.h"
+#include "hilos.h"
 
 World W;
 
@@ -45,22 +46,25 @@ const UnitDef unit_def[] = {
 	{ "Balista",        75, 100,   0,  80, 0, 36, 1.2f,14.0f, 3.0f, 8.0f, AGE_IRON,   E_SIEGE,       0, 5, 1 },
 	{ "Catapulta",      90, 150,   0, 100, 0, 45, 0.9f, 8.0f,40.0f, 9.0f, AGE_IRON,   E_SIEGE,       0, 8, 1 },
 	{ "Catapulta pesada",120,200,  0, 150, 0, 55, 0.8f,10.0f,60.0f,11.0f, AGE_IRON,   E_SIEGE,       0,10, 1 },
-	{ "Lanzador de honda",30, 0,  30,   0,10, 22, 1.5f, 5.0f, 0.5f, 5.0f, AGE_BRONZE, E_ARCHERY,     0, 0, 1 },
+	{ "Lanzador de honda",30, 0,  30,   0,10, 22, 1.5f, 5.0f, 0.5f, 5.0f, AGE_BRONZE, E_BARRACKS,     0, 0, 1 },
 	{ "Elefante de guerra",220,0,100,  70, 0, 45, 1.9f,12.0f, 5.0f, 0.9f, AGE_IRON,   E_STABLE,      1, 4, 0 },
-	{ "Arquero de elefante",160,0, 90,  80, 0, 45, 1.9f, 7.0f, 1.0f, 7.0f, AGE_IRON,  E_STABLE,      1, 3, 1 },
+	{ "Arquero de elefante",160,0, 90,  80, 0, 45, 1.9f, 7.0f, 1.0f, 7.0f, AGE_IRON,  E_ARCHERY,      1, 3, 1 },
 	{ "Barco de pesca", 45, 75,   0,   0, 0, 25, 2.0f, 0.0f, 0.0f, 0.8f, AGE_TOOL,   E_DOCK,        0, 0, 0 },
 	{ "Barco de transporte",100,125,0,  0, 0, 35, 1.8f, 0.0f, 0.0f, 0.8f, AGE_TOOL,   E_DOCK,        0, 2, 0 },
 	{ "Trirreme",      120, 100,   0,  50, 0, 40, 2.0f, 8.0f, 6.0f, 6.5f, AGE_BRONZE, E_DOCK,        0, 4, 1 },
 	{ "Falange",       120,   0,  70,  50, 0, 32, 1.3f, 7.0f, 3.0f, 0.8f, AGE_IRON,   E_ACADEMY,     5, 8, 0 },
 	{ "Centurión",     110,   0,  80,  60, 0, 30, 1.6f,11.0f, 4.0f, 0.8f, AGE_IRON,   E_ACADEMY,     3, 3, 0 },
 	{ "Catafracta",    190,   0, 110,  90, 0, 42, 2.1f,11.0f, 4.0f, 0.8f, AGE_IRON,   E_STABLE,      4, 6, 0 },
-	{ "Arquero a caballo",60, 0,  50,  70, 0, 34, 2.6f, 5.0f, 1.0f, 6.0f, AGE_BRONZE, E_STABLE,      0, 0, 1 },
+	{ "Arquero a caballo",60, 0,  50,  70, 0, 34, 2.6f, 5.0f, 1.0f, 6.0f, AGE_BRONZE, E_ARCHERY,      0, 0, 1 },
 	{ "Barco mercante", 100,100,   0,   0, 0, 35, 2.0f, 0.0f, 0.0f, 0.8f, AGE_TOOL,   E_DOCK,        0, 2, 0 },
 	{ "Carro mercante",  70, 80,  60,   0, 0, 40, 1.8f, 0.0f, 0.0f, 0.8f, AGE_BRONZE, E_MARKET,      0, 1, 0 },
 	{ "Caballo salvaje",30,  0,   0,   0, 0,  0, 3.2f, 0.0f, 0.0f, 0.8f, AGE_STONE,  E_TYPE_COUNT,  0, 0, 0 },
 	{ "Elefante salvaje",200,0,   0,   0, 0,  0, 1.8f, 8.0f, 2.0f, 0.9f, AGE_STONE,  E_TYPE_COUNT,  1, 3, 0 },
 };
 
+/* Cada mejora se investiga donde en el Age of Empires original (v8.5.4.10r2, tabla en docs/aoen.md): armas y armaduras en el
+ * Almacén, torres y murallas en el Granero, Ingeniería y Balística en el Centro de gobierno. Las de recolección siguen en el
+ * Almacén y el Granero (en el original, en el Mercado, que aquí llega en la Edad del Bronce) */
 const TechDef tech_def[T_COUNT] = {
 	/* nombre                      efecto                                     edificio    edad        madera comida oro piedra tiempo requisito */
 	{ "Herramientas",            "Madera +25%",                             E_STORAGE,  AGE_TOOL,   60, 120,  0, 0, 30, -1 },
@@ -70,20 +74,20 @@ const TechDef tech_def[T_COUNT] = {
 	{ "Arado",                   "Granjas y bayas +25% más",                E_GRANARY,  AGE_BRONZE, 100, 250, 0, 0, 40, T_DOMESTICATION },
 	{ "Armadura de cuero",       "Armadura +1 a todas las unidades",        E_STORAGE,  AGE_TOOL,   0, 100, 80, 0, 35, -1 },
 	{ "Armadura de escamas",     "Armadura +1 más",                         E_STORAGE,  AGE_BRONZE, 0, 150, 120, 0, 45, T_LEATHER },
-	{ "Armas de bronce",         "Ataque cuerpo a cuerpo +2",               E_BARRACKS, AGE_TOOL,   0, 100, 80, 0, 35, -1 },
-	{ "Armas de hierro",         "Ataque cuerpo a cuerpo +2 más",           E_BARRACKS, AGE_BRONZE, 0, 200, 160, 0, 45, T_BRONZE_WEAPONS },
+	{ "Armas de bronce",         "Ataque cuerpo a cuerpo +2",               E_STORAGE, AGE_TOOL,   0, 100, 80, 0, 35, -1 },
+	{ "Armas de hierro",         "Ataque cuerpo a cuerpo +2 más",           E_STORAGE, AGE_BRONZE, 0, 200, 160, 0, 45, T_BRONZE_WEAPONS },
 	{ "Flechas mejoradas",       "Ataque a distancia +1",                   E_ARCHERY,  AGE_TOOL,   60, 100, 0, 0, 35, -1 },
 	{ "Arcos compuestos",        "Ataque a distancia +1 y alcance +1",      E_ARCHERY,  AGE_BRONZE, 100, 200, 0, 0, 45, T_BOW },
-	{ "Armadura de caballería",  "Caballería: armadura +1 y +1 a flechas",  E_STABLE,   AGE_TOOL,   0, 150, 100, 0, 40, -1 },
+	{ "Armadura de caballería",  "Caballería: armadura +1 y +1 a flechas",  E_STORAGE,   AGE_TOOL,   0, 150, 100, 0, 40, -1 },
 	{ "Medicina",                "Los sacerdotes curan el doble de rápido", E_TEMPLE,   AGE_BRONZE, 0, 0, 200, 0, 40, -1 },
-	{ "Ingeniería",              "Asedio: alcance +1; permite la catapulta pesada", E_SIEGE, AGE_IRON, 150, 0, 150, 0, 45, -1 },
-	{ "Balística",               "Asedio: ataque +25%",                     E_SIEGE,    AGE_IRON,   100, 0, 175, 0, 45, -1 },
+	{ "Ingeniería",              "Asedio: alcance +1; permite la catapulta pesada", E_GOVERNMENT, AGE_IRON, 150, 0, 150, 0, 45, -1 },
+	{ "Balística",               "Asedio: ataque +25%",                     E_GOVERNMENT,    AGE_IRON,   100, 0, 175, 0, 45, -1 },
 	{ "Arquitectura",            "Edificios: reciben un 15% menos de daño", E_GOVERNMENT, AGE_BRONZE, 150, 0, 120, 0, 45, -1 },
-	{ "Torre centinela",         "Torres: ataque +3",                       E_TOWER,    AGE_BRONZE, 0, 0, 80, 100, 35, -1 },
-	{ "Torre de guardia",        "Torres: ataque +3 y alcance +2",          E_TOWER,    AGE_IRON,   0, 0, 150, 150, 45, T_SENTRY },
-	{ "Torres de ballesta",      "Torres: disparan un 50% más rápido",      E_TOWER,    AGE_IRON,   0, 0, 200, 150, 50, T_GUARD },
-	{ "Muralla media",           "Murallas: resisten el doble",             E_GOVERNMENT, AGE_BRONZE, 0, 0, 0, 150, 40, -1 },
-	{ "Fortificación",           "Murallas: resisten el triple",            E_GOVERNMENT, AGE_IRON,  0, 0, 0, 300, 50, T_WALL_MED },
+	{ "Torre centinela",         "Torres: ataque +3",                       E_GRANARY,    AGE_BRONZE, 0, 0, 80, 100, 35, -1 },
+	{ "Torre de guardia",        "Torres: ataque +3 y alcance +2",          E_GRANARY,    AGE_IRON,   0, 0, 150, 150, 45, T_SENTRY },
+	{ "Torres de ballesta",      "Torres: disparan un 50% más rápido",      E_GRANARY,    AGE_IRON,   0, 0, 200, 150, 50, T_GUARD },
+	{ "Muralla media",           "Murallas: resisten el doble",             E_GRANARY, AGE_BRONZE, 0, 0, 0, 150, 40, -1 },
+	{ "Fortificación",           "Murallas: resisten el triple",            E_GRANARY, AGE_IRON,  0, 0, 0, 300, 50, T_WALL_MED },
 	{ "Rueda",                   "Aldeanos y caballería: velocidad +10%",   E_MARKET,   AGE_BRONZE, 100, 0, 80, 0, 40, -1 },
 	{ "Monoteísmo",              "Sacerdotes: convierten el doble de rápido", E_TEMPLE, AGE_IRON,   0, 0, 300, 0, 50, -1 },
 	{ "Fe",                      "Sacerdotes: la conversión funciona el 90%", E_TEMPLE, AGE_BRONZE, 0, 0, 150, 0, 40, -1 },
@@ -201,6 +205,33 @@ int tile_sail(int x, int y) {
 	return !W.block[i] && W.tile[i] >= TILE_WATER;
 }
 
+/* el terreno de la casilla es el de la unidad: agua para los barcos, tierra para el resto (sin mirar edificios) */
+static int terreno_propio(const Entity *e, int x, int y) {
+	if (!in_map(x, y)) return 0;
+	return (W.tile[tidx(x, y)] >= TILE_WATER) == (is_naval(e->type) != 0);
+}
+
+/* casilla libre por la que puede ir la unidad */
+static int casilla_paso(const Entity *e, int x, int y) { return is_naval(e->type) ? tile_sail(x, y) : tile_walk(x, y); }
+
+/* Mueve la unidad a (nx, ny) si no cambia de terreno: ningún barco entra en tierra ni ninguna unidad de tierra en el agua,
+ * pase lo que pase con la ruta (tramo final en línea recta, sin ruta, empujones, pasos a un lado). Si el paso entero no
+ * vale, prueba a deslizarse por un solo eje. Una unidad que ya está en terreno ajeno (partida antigua) puede moverse para
+ * salir. Devuelve 1 si se movió. */
+static int mover_a(Entity *e, float nx, float ny) {
+	int cx = (int)floorf(e->x), cy = (int)floorf(e->y);
+	int ix = (int)floorf(nx), iy = (int)floorf(ny);
+	if ((ix == cx && iy == cy) || !terreno_propio(e, cx, cy) || terreno_propio(e, ix, iy)) {
+		if (!in_map(ix, iy)) return 0;
+		/* en diagonal se exige también una de las dos casillas de lado: sin ella cruzaría una esquina de tierra */
+		if (ix != cx && iy != cy && terreno_propio(e, cx, cy) && !terreno_propio(e, ix, cy) && !terreno_propio(e, cx, iy)) return 0;
+		e->x = nx; e->y = ny; return 1;
+	}
+	if (terreno_propio(e, ix, cy)) { e->x = nx; return 1; }
+	if (terreno_propio(e, cx, iy)) { e->y = ny; return 1; }
+	return 0;
+}
+
 int tech_allowed(int p, int tech) { return p < 0 || p >= MAX_PLAYERS || !((civ_def[W.pl[p].civ].bans >> tech) & 1u); }
 
 static void block_rect(int x, int y, int s, int d) {
@@ -291,12 +322,23 @@ static void ent_kill(Entity *e) {
 
 /* ---------- búsqueda de caminos (A* sobre casillas, 8 vecinos) ---------- */
 
+/* D393: el espacio de trabajo de una búsqueda va aparte (Busca), para poder buscar varios caminos a la vez en varios hilos.
+ * La 0 usa los arrays del mundo (W.pf_*) y es la de siempre; las demás son de los hilos de trabajo. */
 typedef struct { float f; int i; } HeapItem;
-static HeapItem *heap; static int heap_n, heap_cap;
+typedef struct {
+	float *g; int *from, *stamp, *cur;
+	HeapItem *heap; int heap_n, heap_cap;
+	int sea;              /* la búsqueda en curso es de un barco: solo casillas de agua */
+	int own_cur, n;       /* las de los hilos: su contador y el tamaño de sus arrays */
+} Busca;
 
-static void heap_push(float f, int i) {
-	if (heap_n == heap_cap) { heap_cap = heap_cap ? heap_cap * 2 : 4096; heap = (HeapItem *)realloc(heap, sizeof(HeapItem) * (size_t)heap_cap); }
-	int k = heap_n++;
+static Busca busca0;
+static Busca busca_hilo[HILOS_MAX];
+
+static void heap_push(Busca *b, float f, int i) {
+	if (b->heap_n == b->heap_cap) { b->heap_cap = b->heap_cap ? b->heap_cap * 2 : 4096; b->heap = (HeapItem *)realloc(b->heap, sizeof(HeapItem) * (size_t)b->heap_cap); }
+	HeapItem *heap = b->heap;
+	int k = b->heap_n++;
 	while (k > 0) {
 		int p = (k - 1) / 2;
 		if (heap[p].f <= f) break;
@@ -305,9 +347,10 @@ static void heap_push(float f, int i) {
 	heap[k].f = f; heap[k].i = i;
 }
 
-static HeapItem heap_pop(void) {
-	HeapItem top = heap[0], last = heap[--heap_n];
-	int k = 0;
+static HeapItem heap_pop(Busca *b) {
+	HeapItem *heap = b->heap;
+	HeapItem top = heap[0], last = heap[--b->heap_n];
+	int k = 0, heap_n = b->heap_n;
 	for (;;) {
 		int c = 2 * k + 1;
 		if (c >= heap_n) break;
@@ -320,33 +363,33 @@ static HeapItem heap_pop(void) {
 }
 
 /* rectángulo objetivo [gx0,gx1]x[gy0,gy1] incluido; las casillas dentro del rectángulo interior (ix0..) no son objetivos válidos */
-static int pf_sea;   /* la búsqueda en curso es de un barco: solo casillas de agua */
-static int pf_pass(int x, int y) { return pf_sea ? tile_sail(x, y) : tile_walk(x, y); }
+static int pf_pass(const Busca *b, int x, int y) { return b->sea ? tile_sail(x, y) : tile_walk(x, y); }
 
-static int find_path(Entity *e, int gx0, int gy0, int gx1, int gy1, int inner)
+static int find_path_en(Busca *b, Entity *e, int gx0, int gy0, int gx1, int gy1, int inner)
 {
 	int sx = (int)floorf(e->x), sy = (int)floorf(e->y);
-	pf_sea = is_naval(e->type);
+	b->sea = is_naval(e->type);
 	free(e->path); e->path = NULL; e->plen = e->pidx = 0;
 	if (!in_map(sx, sy))
 		return 0;
 
-	++W.pf_cur;
+	float *pf_g = b->g; int *pf_from = b->from, *pf_stamp = b->stamp;
+	int cur_n = ++*b->cur;
 	int start = tidx(sx, sy);
 	float gcx = (gx0 + gx1) * 0.5f, gcy = (gy0 + gy1) * 0.5f;
 	int best = start; float bestd = 1e9f;
 	int expanded = 0, found = -1;
 
-	W.pf_stamp[start] = W.pf_cur; W.pf_g[start] = 0; W.pf_from[start] = -1;
-	heap_n = 0;
-	heap_push(0, start);
+	pf_stamp[start] = cur_n; pf_g[start] = 0; pf_from[start] = -1;
+	b->heap_n = 0;
+	heap_push(b, 0, start);
 
 	static const int dx[8] = { 1, -1, 0, 0, 1, 1, -1, -1 }, dy[8] = { 0, 0, 1, -1, 1, -1, 1, -1 };
 
-	while (heap_n > 0 && expanded < 120000) {
-		HeapItem it = heap_pop();
+	while (b->heap_n > 0 && expanded < 120000) {
+		HeapItem it = heap_pop(b);
 		int cur = it.i, cx = cur % W.w, cy = cur / W.w;
-		if (it.f > W.pf_g[cur] + 4000) continue;
+		if (it.f > pf_g[cur] + 4000) continue;
 		++expanded;
 
 		int inrect = cx >= gx0 && cx <= gx1 && cy >= gy0 && cy <= gy1;
@@ -363,31 +406,101 @@ static int find_path(Entity *e, int gx0, int gy0, int gx1, int gy1, int inner)
 			int ni = in_map(nx, ny) ? tidx(nx, ny) : -1;
 			if (ni < 0) continue;
 			/* las casillas objetivo dentro de un edificio están bloqueadas, así que se permite entrar en el anillo objetivo igualmente */
-			if (!pf_pass(nx, ny)) continue;
-			if (k >= 4 && (!pf_pass(cx + dx[k], cy) || !pf_pass(cx, cy + dy[k]))) continue;
+			if (!pf_pass(b, nx, ny)) continue;
+			if (k >= 4 && (!pf_pass(b, cx + dx[k], cy) || !pf_pass(b, cx, cy + dy[k]))) continue;
 
-			float ng = W.pf_g[cur] + (k >= 4 ? 1.4142f : 1.0f);
-			if (W.pf_stamp[ni] != W.pf_cur || ng < W.pf_g[ni]) {
-				W.pf_stamp[ni] = W.pf_cur; W.pf_g[ni] = ng; W.pf_from[ni] = cur;
+			float ng = pf_g[cur] + (k >= 4 ? 1.4142f : 1.0f);
+			if (pf_stamp[ni] != cur_n || ng < pf_g[ni]) {
+				pf_stamp[ni] = cur_n; pf_g[ni] = ng; pf_from[ni] = cur;
 				float hx = nx - gcx, hy = ny - gcy;
-				heap_push(ng + sqrtf(hx * hx + hy * hy), ni);
+				heap_push(b, ng + sqrtf(hx * hx + hy * hy), ni);
 			}
 		}
 	}
 
 	int goal = found >= 0 ? found : best;
 	int n = 0;
-	for (int i = goal; i >= 0 && i != start; i = W.pf_from[i]) ++n;
+	for (int i = goal; i >= 0 && i != start; i = pf_from[i]) ++n;
 	if (n == 0)
 		return found >= 0;
 
 	e->path = (int *)malloc(sizeof(int) * (size_t)n);
 	e->plen = n;
 	int k = n - 1;
-	for (int i = goal; i >= 0 && i != start; i = W.pf_from[i])
+	for (int i = goal; i >= 0 && i != start; i = pf_from[i])
 		e->path[k--] = i;
 	e->pidx = 0;
 	return found >= 0;
+}
+
+/* ---------- caminos aplazados (D393) ----------
+ * Mientras piensan las IA (ia.c, en varios hilos) las órdenes no buscan el camino: lo apuntan (uno por entidad, el último
+ * que pidió) y al acabar caminos_resolver() los busca todos de una vez, repartidos entre los hilos. Cada camino depende solo
+ * del mapa y de su entidad, así que sale igual lo busque quien lo busque. */
+typedef struct { int gx0, gy0, gx1, gy1, inner, pendiente; } PedidoCamino;
+static PedidoCamino *pedidos;
+static int pedidos_cap, caminos_aplazados, *lista_pedidos, lista_cap, n_lista;
+
+void caminos_aplazar(int si) {
+	if (si && pedidos_cap < W.capents) {
+		free(pedidos);
+		pedidos_cap = W.capents;
+		pedidos = (PedidoCamino *)calloc((size_t)pedidos_cap, sizeof(PedidoCamino));
+		if (!pedidos) pedidos_cap = 0;
+	}
+	caminos_aplazados = si && pedidos;
+}
+
+static int find_path(Entity *e, int gx0, int gy0, int gx1, int gy1, int inner) {
+	if (caminos_aplazados) {
+		/* lo que haría find_path ahora (sin camino) y el pedido para luego; la entidad es de un solo jugador, así que su
+		 * casilla de pedidos solo la escribe el hilo de ese jugador */
+		free(e->path); e->path = NULL; e->plen = e->pidx = 0;
+		PedidoCamino *pc = &pedidos[e - W.ents];
+		pc->gx0 = gx0; pc->gy0 = gy0; pc->gx1 = gx1; pc->gy1 = gy1; pc->inner = inner; pc->pendiente = 1;
+		return 0;
+	}
+	busca0.g = W.pf_g; busca0.from = W.pf_from; busca0.stamp = W.pf_stamp; busca0.cur = &W.pf_cur;
+	return find_path_en(&busca0, e, gx0, gy0, gx1, gy1, inner);
+}
+
+static void resolver_parte(void *ctx, int k, int partes) {
+	(void)ctx;
+	Busca *b = k == 0 ? &busca0 : &busca_hilo[k];
+	for (int j = k; j < n_lista; j += partes) {
+		int i = lista_pedidos[j];
+		PedidoCamino *pc = &pedidos[i];
+		find_path_en(b, &W.ents[i], pc->gx0, pc->gy0, pc->gx1, pc->gy1, pc->inner);
+	}
+}
+
+void caminos_resolver(void) {
+	caminos_aplazados = 0;
+	if (!pedidos) return;
+	n_lista = 0;
+	int lim = MIN(W.nents, pedidos_cap);
+	for (int i = 0; i < lim; ++i) {
+		if (!pedidos[i].pendiente) continue;
+		pedidos[i].pendiente = 0;
+		if (!W.ents[i].alive) continue;
+		if (n_lista == lista_cap) { lista_cap = lista_cap ? lista_cap * 2 : 256; lista_pedidos = (int *)realloc(lista_pedidos, sizeof(int) * (size_t)lista_cap); }
+		lista_pedidos[n_lista++] = i;
+	}
+	if (!n_lista) return;
+	busca0.g = W.pf_g; busca0.from = W.pf_from; busca0.stamp = W.pf_stamp; busca0.cur = &W.pf_cur;
+	int partes = MIN(hilos_n(), n_lista);
+	/* los espacios de trabajo de los hilos, del tamaño del mapa (se rehacen si cambia) */
+	int n = W.w * W.h;
+	for (int k = 1; k < partes; ++k) {
+		Busca *b = &busca_hilo[k];
+		if (b->n != n) {
+			free(b->g); free(b->from); free(b->stamp);
+			b->g = (float *)calloc((size_t)n, sizeof(float)); b->from = (int *)calloc((size_t)n, sizeof(int)); b->stamp = (int *)calloc((size_t)n, sizeof(int));
+			b->n = n; b->own_cur = 0; b->cur = &b->own_cur;
+			if (!b->g || !b->from || !b->stamp) { free(b->g); free(b->from); free(b->stamp); b->g = NULL; b->from = b->stamp = NULL; b->n = 0; partes = k; break; }
+		}
+	}
+	hilos_repartir(resolver_parte, NULL, partes);
 }
 
 /* asegura que un objetivo puntual sea transitable: busca la casilla transitable más cercana */
@@ -470,16 +583,32 @@ void cmd_move(Ref r, float x, float y) {
 	goto_point(e, x, y);
 }
 
-static int dropsite_accepts(const Entity *b, int kind) {
+/* la comida que lleva un aldeano es carne de caza (los aldeanos no comercian: com_espera, 0 o 1, no se usa para otra cosa
+ * en ellos y así la partida guardada no cambia) */
+static int lleva_carne(const Entity *u) { return u && u->type == E_VILLAGER && u->carry_kind == RES_FOOD && u->com_espera == 1; }
+
+/* Dónde se entrega cada recurso (como en el original): todo en el centro urbano; bayas, granjas y caza en el granero; madera,
+ * oro, piedra y también la carne de caza en el almacén; el pescado de los barcos en el muelle. u es quien lo lleva (puede
+ * ser NULL: entonces la comida no se toma por carne) */
+static int dropsite_accepts_u(const Entity *b, int kind, const Entity *u) {
 	if (!is_building(b->type) || b->progress < 1) return 0;
 	if (kind == RES_COUNT) return b->type == E_TEMPLE;
 	switch (b->type) {
 	case E_TOWN_CENTER: return 1;
 	case E_DOCK: return kind == RES_FOOD;
 	case E_GRANARY: return kind == RES_FOOD;
-	case E_STORAGE: return kind != RES_FOOD;
+	case E_STORAGE: return kind != RES_FOOD || lleva_carne(u);
 	default: return 0;
 	}
+}
+
+/* para la interfaz y las pruebas: el edificio b (terminado) recoge ese recurso; carne = comida de caza */
+int edificio_recoge(EntType b, int kind, int carne) {
+	Entity f, u;
+	memset(&f, 0, sizeof f); memset(&u, 0, sizeof u);
+	f.type = b; f.progress = 1;
+	u.type = E_VILLAGER; u.carry_kind = kind; u.com_espera = carne ? 1 : 0;
+	return dropsite_accepts_u(&f, kind, &u);
 }
 
 static int res_kind_of(EntType t) {
@@ -496,7 +625,7 @@ static int find_dropsite(const Entity *u, int kind) {
 	int best = -1; float bd = 1e9f;
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *b = &W.ents[i];
-		if (!b->alive || b->owner != u->owner || !dropsite_accepts(b, kind)) continue;
+		if (!b->alive || b->owner != u->owner || !dropsite_accepts_u(b, kind, u)) continue;
 		if ((u->type == E_FISHBOAT) != (b->type == E_DOCK)) continue;   /* los barcos descargan en muelles; el resto, no */
 		float d = (b->x - u->x) * (b->x - u->x) + (b->y - u->y) * (b->y - u->y);
 		if (d < bd) { bd = d; best = i; }
@@ -697,7 +826,7 @@ void cmd_target(Ref r, Ref tr) {
 			goto_target(e, t, ST_GATHER);
 		} else if (t->progress < 1) {
 			goto_target(e, t, ST_BUILD);
-		} else if (e->carry > 0 && dropsite_accepts(t, e->carry_kind)) {
+		} else if (e->carry > 0 && dropsite_accepts_u(t, e->carry_kind, e)) {
 			goto_target(e, t, ST_RETURN);
 		} else {
 			goto_point(e, t->x, t->y + t->size);
@@ -989,14 +1118,17 @@ static int walk_step(Entity *e, float dt) {
 	float reach = on_route ? 0.4f : MAX(step, 0.12f);
 
 	if (d < 1e-4f || d <= reach) {
-		e->x = gx; e->y = gy;
+		if (!mover_a(e, gx, gy)) { free(e->path); e->path = NULL; e->plen = e->pidx = 0; return 1; }   /* el punto está en otro terreno: se queda en la orilla */
 		if (e->path && e->pidx < e->plen) { ++e->pidx; return e->pidx >= e->plen; }
 		return 1;
 	}
 
 	e->angle = atan2f(dy, dx);
-	e->x += dx / d * step;
-	e->y += dy / d * step;
+	if (!mover_a(e, e->x + dx / d * step, e->y + dy / d * step)) {
+		/* bloqueado por la orilla: deja la ruta (quien llama vuelve a buscar camino o se para) */
+		free(e->path); e->path = NULL; e->plen = e->pidx = 0;
+		return 1;
+	}
 	e->walking = 1;
 	e->anim += dt * speed * 9.0f; /* los cuadros por segundo siguen la velocidad de andar */
 	return 0;
@@ -1209,7 +1341,7 @@ static void unstick(Entity *e) {
 		float a = e->angle + side * 1.5708f;
 		float sx = e->x + cosf(a) * 1.1f, sy = e->y + sinf(a) * 1.1f;
 		int tx = (int)floorf(sx), ty = (int)floorf(sy);
-		if (tile_walk(tx, ty)) {
+		if (casilla_paso(e, tx, ty)) {   /* los barcos se apartan por el agua; el resto, por tierra */
 			int remaining = e->plen - e->pidx;
 			int *np = (int *)malloc(sizeof(int) * (size_t)(remaining + 1));
 			np[0] = ty * W.w + tx;
@@ -1410,6 +1542,7 @@ static void update_unit(Entity *e, float dt) {
 		if (e->owner >= 0 && W.pl[e->owner].ai) rate *= W.pl[e->owner].diff == 0 ? 0.8f : W.pl[e->owner].diff == 2 ? 1.3f : 1.0f;
 		if (e->carry_kind >= 0 && e->carry_kind < RES_COUNT) rate *= civ_def[W.pl[e->owner].civ].gather[e->carry_kind];
 		e->gacc += rate * dt;
+		if (e->type == E_VILLAGER) e->com_espera = t->type == E_CARCASS;   /* carne: también se entrega en el almacén */
 		while (e->gacc >= 1.0f && t && t->amount > 0 && e->carry < CARRY_CAP) {
 			e->gacc -= 1.0f;
 			t->amount -= 1;
@@ -1430,7 +1563,7 @@ static void update_unit(Entity *e, float dt) {
 	}
 	case ST_RETURN: {
 		Entity *d = t;
-		if (!d || !dropsite_accepts(d, e->carry_kind)) {
+		if (!d || !dropsite_accepts_u(d, e->carry_kind, e)) {
 			int di = find_dropsite(e, e->carry_kind);
 			if (di < 0) { stop_unit(e); break; }
 			e->target = ent_ref(di);
@@ -1502,6 +1635,7 @@ static void update_unit(Entity *e, float dt) {
 				if (!is_building(t->type) && !is_resource(t->type)) {
 					int gx = (int)floorf(t->x), gy = (int)floorf(t->y);
 					find_path(e, gx, gy, gx, gy, 0);
+					e->tx = t->x; e->ty = t->y;   /* sin ruta, walk_step va hacia aquí (y se queda en la orilla si es otro terreno) */
 				} else goto_target(e, t, ST_ATTACK);
 			}
 			if (walk_step(e, dt) && dist_to_ent(e, t) > reach + 0.2f) ++e->stuck;
@@ -1515,7 +1649,7 @@ static void update_unit(Entity *e, float dt) {
 			float nx = e->x + ax / al * unit_def[e->type - E_VILLAGER].speed * dt, ny = e->y + ay / al * unit_def[e->type - E_VILLAGER].speed * dt;
 			static int avisado;
 			if (!avisado) { avisado = 1; AOEN_LOG("[AOEN] asedio: %s se aparta, alcance mínimo %.1f", unit_def[e->type - E_VILLAGER].name, unit_min_range(e->type)); }
-			if (tile_walk((int)floorf(nx), (int)floorf(ny))) { e->x = nx; e->y = ny; e->walking = 1; e->anim += dt * 9.0f; e->timer = 0; break; }
+			if (casilla_paso(e, (int)floorf(nx), (int)floorf(ny)) && mover_a(e, nx, ny)) { e->walking = 1; e->anim += dt * 9.0f; e->timer = 0; break; }
 		}
 		e->angle = atan2f(t->y - e->y, t->x - e->x);
 		e->timer += dt;
@@ -1634,8 +1768,8 @@ static void separate_units(void) {
 						}
 					}
 
-					if (is_naval(a->type) ? tile_sail((int)floorf(a->x + ax), (int)floorf(a->y + ay)) : tile_walk((int)floorf(a->x + ax), (int)floorf(a->y + ay))) { a->x += ax; a->y += ay; }
-					if (is_naval(b->type) ? tile_sail((int)floorf(b->x + bx), (int)floorf(b->y + by)) : tile_walk((int)floorf(b->x + bx), (int)floorf(b->y + by))) { b->x += bx; b->y += by; }
+					if (casilla_paso(a, (int)floorf(a->x + ax), (int)floorf(a->y + ay))) mover_a(a, a->x + ax, a->y + ay);
+					if (casilla_paso(b, (int)floorf(b->x + bx), (int)floorf(b->y + by))) mover_a(b, b->x + bx, b->y + by);
 				}
 			}
 		}
@@ -2441,7 +2575,11 @@ void world_update(float dt) {
 		}
 	}
 
-	ia_actualizar(dt); /* inteligencia artificial de la máquina: ia.c */
+	{
+		PERF_INI();
+		ia_actualizar(dt); /* inteligencia artificial de la máquina: ia.c */
+		PERF_FIN(PERF_IA);
+	}
 
 	/* gráfica de puntuación: una muestra cada 15 s (los últimos 60 minutos) */
 	if ((W.hist_t -= dt) <= 0) {
@@ -2458,4 +2596,40 @@ void world_update(float dt) {
 	static float fog_t, win_t;
 	if ((fog_t -= dt) <= 0) { fog_t = 0.15f; update_fog(); }
 	if ((win_t -= dt) <= 0) { win_t = 1.0f; check_victory(); }
+}
+
+/* ---------- suma del estado del mundo (D393) ----------
+ * Para comprobar que la partida es determinista: con la misma semilla y los mismos pasos, la suma tiene que salir igual
+ * con 1 hilo que con N (y en el orden que sea en que piensen las IA). Entra todo lo que decide la partida: entidades
+ * (posición, vida, estado, órdenes y caminos), jugadores (recursos, edad, tecnologías, diplomacia), el reloj y el azar. */
+static unsigned suma_u(unsigned h, unsigned v) {
+	for (int k = 0; k < 4; ++k) { h = (h ^ (v & 255u)) * 16777619u; v >>= 8; }
+	return h;
+}
+static unsigned suma_f(unsigned h, float f) { unsigned v; memcpy(&v, &f, 4); return suma_u(h, v); }
+
+unsigned world_suma(void) {
+	unsigned h = 2166136261u;
+	h = suma_f(h, W.time); h = suma_u(h, W.rng); h = suma_u(h, (unsigned)W.nents); h = suma_u(h, (unsigned)W.over);
+	for (int i = 0; i < W.nents; ++i) {
+		const Entity *e = &W.ents[i];
+		h = suma_u(h, (unsigned)e->alive); h = suma_u(h, (unsigned)e->gen);
+		if (!e->alive) continue;
+		h = suma_u(h, (unsigned)e->type); h = suma_u(h, (unsigned)e->owner);
+		h = suma_f(h, e->x); h = suma_f(h, e->y); h = suma_f(h, e->hp); h = suma_u(h, (unsigned)e->state);
+		h = suma_u(h, (unsigned)e->target.idx); h = suma_u(h, (unsigned)e->target.gen); h = suma_f(h, e->tx); h = suma_f(h, e->ty);
+		h = suma_u(h, (unsigned)e->plen); h = suma_u(h, (unsigned)e->pidx);
+		for (int k = 0; k < e->plen && e->path; ++k) h = suma_u(h, (unsigned)e->path[k]);
+		h = suma_u(h, (unsigned)e->carry_kind); h = suma_u(h, (unsigned)e->carry); h = suma_f(h, e->amount); h = suma_f(h, e->progress);
+		h = suma_u(h, (unsigned)e->ntrain); for (int k = 0; k < e->ntrain; ++k) h = suma_u(h, (unsigned)e->train[k]);
+		h = suma_u(h, (unsigned)e->tech_cur); h = suma_u(h, (unsigned)e->stance); h = suma_u(h, (unsigned)e->nwp); h = suma_u(h, (unsigned)e->patrol);
+	}
+	for (int p = 0; p < MAX_PLAYERS; ++p) {
+		const Player *pl = &W.pl[p];
+		for (int k = 0; k < RES_COUNT; ++k) h = suma_u(h, (unsigned)pl->res[k]);
+		h = suma_u(h, (unsigned)pl->age); h = suma_u(h, pl->techs); h = suma_f(h, pl->age_t); h = suma_u(h, (unsigned)pl->pop);
+		h = suma_u(h, (unsigned)pl->alive); h = suma_u(h, (unsigned)pl->units_killed);
+		for (int q = 0; q < MAX_PLAYERS; ++q) h = suma_u(h, (unsigned)pl->dipl[q]);
+	}
+	return h;
 }

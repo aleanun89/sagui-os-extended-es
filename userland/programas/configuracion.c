@@ -51,6 +51,7 @@ bool sou_root(void);
 #include "opcoes_kernel.h"   /* D353: Pantalla > Kernel */
 #include "conf_maquina.h"    /* D371: la configuración de la máquina en /etc */
 #include "conf_reglas.h"      /* D367: dependencias entre opciones */
+#include "pcinomes.h"      /* nombres PCI de la tarjeta (solo lectura, como infopc) */
 
 #define DIR_CONF   "/home/.config"
 #define ARQ_CONF   "/home/.config/sagui.conf"
@@ -549,12 +550,33 @@ static bool acel_seguro_pedido(void)
 /* El estado que enseñan la ventana y «configuracion aceleracion». */
 static info_acel2d_t ac2;
 static info_gpu3d_t  ac3;
+static info_video_t  ac_vid;     /* memoria de vídeo (VBE), para el bloque de la tarjeta */
+static info_gpu_energia_t ac_en; /* D399: relojes, temperatura, VRAM y modo de energía */
+static char          ac_modelo[96];   /* nombre PCI de la tarjeta, como «infopc -t gpu» */
+static bool          ac_modelo_ok;
 static void acel_ler_estado(void)
 {
     memset(&ac2, 0, sizeof ac2);
     memset(&ac3, 0, sizeof ac3);
+    memset(&ac_vid, 0, sizeof ac_vid);
     info_sistema(INFO_ACEL2D, &ac2, sizeof ac2);
     info_sistema(INFO_GPU3D, &ac3, sizeof ac3);
+    info_sistema(INFO_VIDEO, &ac_vid, sizeof ac_vid);
+    memset(&ac_en, 0, sizeof ac_en);
+    if (info_sistema(INFO_GPU_ENERGIA, &ac_en, sizeof ac_en) != 0 || ac_en.versao != 1) memset(&ac_en, 0, sizeof ac_en);
+    if (!ac_modelo_ok) {   /* el PCI no cambia: se lee una vez (solo lectura, D346) */
+        ac_modelo_ok = true;
+        ac_modelo[0] = 0;
+        static info_pci_t pv[64];
+        int np = info_sistema(INFO_PCI, pv, 64);
+        for (int i = 0; i < np && !ac_modelo[0]; i++) {
+            const info_pci_t *p = &pv[i];
+            if (p->classe != 0x03) continue;
+            const char *f = pci_nome_fabricante(p->fabricante), *d = pci_nome_dispositivo(p->fabricante, p->modelo);
+            if (!d && ac2.placa[0] && ac2.fabricante == p->fabricante && ac2.modelo == p->modelo) { f = NULL; d = ac2.placa; }
+            formatar_texto(ac_modelo, sizeof ac_modelo, "%s%s%s (%04x:%04x)", f ? f : "", f && d ? " " : "", d ? d : "", p->fabricante, p->modelo);
+        }
+    }
 }
 
 /* Tarjetas con 3D sin probar en hardware (D284, D287, D357): R5xx, R6xx y R7xx. */
@@ -563,22 +585,22 @@ static bool acel_3d_hay_driver(void) { return ac3.estado != GPU3D_SEM_GPU && ac3
 
 static const char *acel_texto_2d(void)
 {
-    if (ac2.ativo) return "activo (la GPU copia y rellena)";
-    if (ac2.apagado == 2) return "apagado a mano (la CPU hace todo)";
-    if (ac2.apagado == 1) return "apagado por el vigilante: la GPU no respondió";
-    if ((ac2.modo & 0x0F) == 1 || (ac2.modo & 0x80)) return "desactivado (la CPU hace todo)";
-    return "CPU (sin acelerador o la autoprueba falló)";
+    if (ac2.ativo) return _("activo (la GPU copia y rellena)");
+    if (ac2.apagado == 2) return _("apagado a mano (la CPU hace todo)");
+    if (ac2.apagado == 1) return _("apagado por el vigilante: la GPU no respondió");
+    if ((ac2.modo & 0x0F) == 1 || (ac2.modo & 0x80)) return _("desactivado (la CPU hace todo)");
+    return _("CPU (sin acelerador o la autoprueba falló)");
 }
 
 static const char *acel_texto_3d(void)
 {
     switch (ac3.estado) {
-    case GPU3D_SIN_PROBAR:  return "disponible, sin probar (se prueba con el primer uso)";
-    case GPU3D_ATIVO:       return "activo";
-    case GPU3D_FALHOU:      return "falló: SaguiGL va por software";
-    case GPU3D_APAGADO:     return "apagado (SaguiGL por software)";
-    case GPU3D_DESATIVADO:  return "desactivado en el arranque (software)";
-    default:                return "sin driver 3D para esta tarjeta (software)";
+    case GPU3D_SIN_PROBAR:  return _("disponible, sin probar (se prueba con el primer uso)");
+    case GPU3D_ATIVO:       return _("activo");
+    case GPU3D_FALHOU:      return _("falló: SaguiGL va por software");
+    case GPU3D_APAGADO:     return _("apagado (SaguiGL por software)");
+    case GPU3D_DESATIVADO:  return _("desactivado en el arranque (software)");
+    default:                return _("sin driver 3D para esta tarjeta (software)");
     }
 }
 
@@ -2249,6 +2271,62 @@ static bool acel_permiso(const char *motivo)
     return false;
 }
 
+/* D399: energía de la tarjeta en el bloque «Tarjeta gráfica»: relojes (actuales y de la BIOS), temperatura (o
+ * «sin sensor») con las zonas térmicas del ACPI aparte, la VRAM usada y el modo, con «Cambiar» (aplica ahora:
+ * BIOS, bajo, alto, automático). En una tarjeta sin confirmar el botón queda gris: se cambia con «acel2d energia»
+ * como administrador; el modo al arrancar está en Sistema > Kernel (gpu_energia). */
+static const char *const en_modos[] = { "?", N_("BIOS (sin tocar)"), N_("bajo"), N_("alto"), N_("automático"), N_("manual") };
+
+static void acel_energia_cambiar(void)
+{
+    if (!acel_permiso(_("cambiar el modo de energía de la tarjeta"))) return;
+    unsigned sig = ac_en.modo >= GPU_EN_MODO_AUTO ? GPU_EN_MODO_BIOS : ac_en.modo + 1;
+    int r = info_sistema(INFO_GPU_ENERGIA_CTL, (void *)(long)GPU_EN_PEDIDO(GPU_EN_OP_MODO, sig), 0);
+    acel_ler_estado();
+    registrar("configuracion: gpu energia modo %u -> %d (%s)", sig, r, ac_en.ultimo);
+    formatar_texto(estado, sizeof estado, r == 0 ? _("Energía de la GPU: %s") : _("No se pudo: %s"), r == 0 ? _(en_modos[ac_en.modo <= 5 ? ac_en.modo : 0]) : ac_en.ultimo);
+    elevacao_soltar();
+}
+
+static int acel_bloque_energia(int ey, int w)
+{
+    char t[200], a[24], b[24], c[24], d[24];
+    if (!ac_en.versao || ac_en.soporte == GPU_EN_SIN) {
+        return ui_parrafo(XL, ey, w, _("Energía: sin driver de energía para esta tarjeta (relojes y temperatura no se leen)."), COR_TEXTO_FRACO);
+    }
+    formatar_texto(a, sizeof a, "%u MHz", (ac_en.sclk_khz + 500) / 1000);
+    formatar_texto(b, sizeof b, "%u MHz", (ac_en.sclk_def_khz + 500) / 1000);
+    formatar_texto(c, sizeof c, "%u MHz", (ac_en.mclk_khz + 500) / 1000);
+    formatar_texto(d, sizeof d, "%u MHz", (ac_en.mclk_def_khz + 500) / 1000);
+    formatar_texto(t, sizeof t, _("Relojes: motor %s (BIOS %s), memoria %s (BIOS %s)%s"), a, b, c, d,
+                   ac_en.relojes_fuente == 2 ? _("; sin leer: los de por defecto") : "");
+    ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
+    if (ac_en.temp_mili_c != GPU_EN_SIN_SENSOR) formatar_texto(t, sizeof t, _("Temperatura de la tarjeta: %d °C"), ac_en.temp_mili_c / 1000);
+    else formatar_texto(t, sizeof t, _("Temperatura de la tarjeta: %s"), ac_en.temp_fuente);
+    for (unsigned i = 0; i < ac_en.n_zonas && i < GPU_EN_MAX_ZONAS; i++) {
+        char z[40];
+        formatar_texto(z, sizeof z, i ? ", %s %d °C" : _("; zonas del ACPI: %s %d °C"), ac_en.zona_nome[i], ac_en.zona_mili_c[i] / 1000);
+        junta_texto(t, z, sizeof t);
+    }
+    ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
+    if (ac_en.vram_kb) {
+        formatar_texto(t, sizeof t, _("VRAM usada por SaguiOS: unos %u de %u MB"), (ac_en.vram_usada_kb + 1023) / 1024, ac_en.vram_kb / 1024);
+        ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
+    }
+    if (ac_en.estado >= 0) formatar_texto(a, sizeof a, _("estado %d"), ac_en.estado);
+    else copia_texto(a, _("relojes de la BIOS"), sizeof a);
+    formatar_texto(t, sizeof t, _("Energía: %s, %s%s"), _(en_modos[ac_en.modo <= 5 ? ac_en.modo : 0]), a,
+                   ac_en.bloqueado ? _(" (bloqueado tras un fallo hasta reiniciar)") : "");
+    ey = ui_parrafo(XL, ey + 4, w - 140, t, COR_TEXTO);
+    bool puede = ac_en.soporte == GPU_EN_CONTROL && !ac_en.bloqueado && ac_en.confirmada;
+    ui_gris = !puede;
+    if (ui_boton(XR - 130, ey - 20, 130, N_("Cambiar modo"), false)) { acel_energia_cambiar(); ui_mudou = true; }
+    ui_gris = false;
+    if (ac_en.soporte == GPU_EN_CONTROL && !ac_en.confirmada)
+        ey = ui_parrafo(XL, ey, w, _("Cambiar los relojes en esta tarjeta está sin confirmar: «acel2d energia» como administrador."), COR_TEXTO_FRACO);
+    return ey + 4;
+}
+
 static int acel_valor(int f) { int v = f == 0 ? conf.a_2d : f == 1 ? conf.a_3d : f == 2 ? conf.a_sdl : conf.a_disco; return v < 0 ? 0 : v; }
 
 /* El valor de la fila Disco según la cabecera (kconfig): 0 automático, 2 desactivado, -1 una mezcla (DMA y caché distintos). */
@@ -2364,21 +2442,46 @@ static void pg_acel(void)
         if (!ui_ev) ui_grupo(gy, 88, rot_fila[f]);
         y += 98;
     }
-    /* El estado de la tarjeta y de los drivers */
+    /* El estado de la tarjeta y de los drivers: bloque fijo de solo lectura (nada se enciende por mirar, D346) */
     int ey = y + 26;
-    if (ac2.modelo) formatar_texto(t, sizeof t, "Tarjeta: PCI %04x:%04x; 3D: %s", ac2.fabricante, ac2.modelo, ac3.placa[0] && acel_3d_hay_driver() ? ac3.placa : "sin driver");
-    else formatar_texto(t, sizeof t, "Tarjeta: %s", ac3.placa[0] && acel_3d_hay_driver() ? ac3.placa : "sin acelerador reconocido");
+    char t2[200];
+    formatar_texto(t, sizeof t, _("Tarjeta: %s"), ac_modelo[0] ? ac_modelo : (ac3.placa[0] ? ac3.placa : _("sin acelerador reconocido")));
     ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
-    formatar_texto(t, sizeof t, "2D (driver %s): %s", ac2.nome, acel_texto_2d());
+    /* D387: la de la tarjeta (su driver) y, si es otra, la que anuncia la BIOS (VBE). */
+    if (ac2.vram_kb) {
+        formatar_texto(t, sizeof t, _("Memoria de vídeo: %u MB"), ac2.vram_kb / 1024);
+        if (ac_vid.vbe_versao && ac_vid.memoria_kb && ac_vid.memoria_kb != ac2.vram_kb) {
+            formatar_texto(t2, sizeof t2, _(" (la BIOS anuncia %u MB)"), ac_vid.memoria_kb / 1024);
+            junta_texto(t, t2, sizeof t);
+        }
+    } else if (ac_vid.vbe_versao && ac_vid.memoria_kb) formatar_texto(t, sizeof t, _("Memoria de vídeo: %u MB (anunciada por la BIOS)"), ac_vid.memoria_kb / 1024);
+    else formatar_texto(t, sizeof t, "%s", _("Memoria de vídeo: no informada"));
+    if (ac3.memoria_kb && ac3.estado == GPU3D_ATIVO) {
+        formatar_texto(t2, sizeof t2, _("; 3D: %u de %u MB usados"), (ac3.memoria_kb - ac3.livre_kb) / 1024, ac3.memoria_kb / 1024);
+        junta_texto(t, t2, sizeof t);
+    }
     ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
-    if (ac3.pontos) formatar_texto(t, sizeof t, "3D (driver %s): %s; puntuación %u", ac3.nome, acel_texto_3d(), ac3.pontos);
-    else formatar_texto(t, sizeof t, "3D (driver %s): %s", ac3.nome, acel_texto_3d());
+    formatar_texto(t, sizeof t, _("2D (driver %s): %s"), ac2.nome, acel_texto_2d());
     ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
+    formatar_texto(t, sizeof t, _("3D (driver %s): %s"), ac3.nome, acel_texto_3d());
+    if (ac3.pontos) { formatar_texto(t2, sizeof t2, _("; puntuación %u"), ac3.pontos); junta_texto(t, t2, sizeof t); }
+    ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
+    {
+        static const char *const ev[6] = { N_("no disponible"), N_("activo"), N_("apagado (kconfig)"), N_("apagado a mano"), N_("falló"),
+                                           N_("más lento que la CPU") };
+        formatar_texto(t, sizeof t, _("Volcado por la GPU: %s"), _(ev[ac2.volcado_estado < 6 ? ac2.volcado_estado : 0]));
+        if (ac2.volcado_estado == 1) {
+            formatar_texto(t2, sizeof t2, _("; %u volcados (%u kpíxeles)"), ac2.volcado_ops, ac2.volcado_kpx);
+            junta_texto(t, t2, sizeof t);
+        }
+        ey = ui_parrafo(XL, ey, w, t, COR_TEXTO);
+    }
+    ey = acel_bloque_energia(ey, w);
     /* D346: el reparto GPU / software, para cualquier usuario (INFO_ACEL2D es de lectura) */
-    formatar_texto(t, sizeof t, "2D: GPU %u copias y %u rellenos; software %u mover, %u consola, %u rellenos, %u volcados",
+    formatar_texto(t, sizeof t, _("2D: GPU %u copias y %u rellenos; software %u mover, %u consola, %u rellenos, %u volcados"),
                    ac2.copias, ac2.rellenos, ac2.sw_ops[0], ac2.sw_ops[1], ac2.sw_ops[2], ac2.sw_ops[3]);
     ey = ui_parrafo(XL, ey, w, t, COR_TEXTO_FRACO);
-    if (!ui_ev) ui_grupo(y, ey - y + 6, N_("Estado"));
+    if (!ui_ev) ui_grupo(y, ey - y + 6, N_("Tarjeta gráfica"));
     y = ey + 16;
     if (acel_3d_hay_driver() && acel_3d_experimental()) {
         if (conf.a_3d == TRI_SI)
@@ -2469,7 +2572,7 @@ static int kc_grupo(const char *nome)
 {
     static const char *const mem[] = { "pae", "nx", "swap", "swap_mb", NULL };
     static const char *const cac[] = { "cache_disco", "cache_alta", "escritura_diferida", "dma", "cache_max_mb", "sucios_max_mb", "vaciado_s", NULL };
-    static const char *const cpu[] = { "frecuencia", "gobernador", NULL };
+    static const char *const cpu[] = { "frecuencia", "gobernador", "avx", NULL };   /* avx: D381 */
     for (int i = 0; mem[i]; i++) if (compara_texto(nome, mem[i]) == 0) return 0;
     for (int i = 0; cac[i]; i++) if (compara_texto(nome, cac[i]) == 0) return 1;
     for (int i = 0; cpu[i]; i++) if (compara_texto(nome, cpu[i]) == 0) return 2;
@@ -3813,7 +3916,16 @@ PAGINA_UI(widgets)
 PAGINA_UI(vpn)
 
 static void p_tela(void) { ler_modos_video(); }
-static void p_acel(void) { acel_preparar(); registrar("configuracion: pantalla vista aceleracion"); }
+static void p_acel(void)
+{
+    acel_preparar();
+    registrar("configuracion: pantalla vista aceleracion");
+    /* el bloque fijo de la tarjeta (solo lectura): lo que se ve, también al registro para las pruebas */
+    registrar("configuracion: tarjeta [%s] vram_kb=%u 2d=%s 3d=%s volcado=%u", ac_modelo, ac_vid.vbe_versao ? ac_vid.memoria_kb : 0,
+              ac2.ativo ? ac2.nome : "cpu", ac3.nome, ac2.volcado_estado);
+    registrar("configuracion: gpu energia soporte=%u modo=%u estado=%d motor=%u memoria=%u temp=%d zonas=%u vram=%u/%u", ac_en.soporte,
+              ac_en.modo, ac_en.estado, ac_en.sclk_khz, ac_en.mclk_khz, ac_en.temp_mili_c, ac_en.n_zonas, ac_en.vram_usada_kb, ac_en.vram_kb);
+}
 static void p_kernel(void) { kc_preparar(); registrar("configuracion: pantalla vista kernel"); }
 static void p_sonido(void) { mic_abrir(); }
 static void p_colores(void) { listar_imagens(); }

@@ -635,6 +635,12 @@ ifneq ($(SEM_GPL),1)
 include userland/terceros/tcc/tcc.mk
 endif
 
+# git (D400): la orden git sobre libgit2 (/apps/bin/git). Solo si se bajaron sus fuentes (tools/git_fuentes.sh); GIT=0 la deja fuera.
+# Fuera de la variante sin GPL, como TCC (enlaza con la libsagui GPL-3.0-only; libgit2 es GPL-2.0 con excepción de enlace).
+ifneq ($(SEM_GPL),1)
+include userland/terceros/git/git.mk
+endif
+
 # Soporte de Go con TinyGo (D364): solo si TinyGo está instalado (tools/tinygo_entorno.sh).
 include userland/go/go.mk
 
@@ -855,6 +861,8 @@ $(B)/userland/bin/servicios $(B)/userland/bin/login $(B)/userland/testes/usuario
 # D318: el instalador escribe las contraseñas elegidas en la sombra de SAGUI-CONF (PBKDF2) y su
 # asistente va en instalar_asistente.h.
 $(B)/userland/bin/instalar: $(B)/userland/libtls/sha256.o
+# D392: «arranque estado» da el sha256 del kernel y del ramdisk del disco.
+$(B)/userland/bin/arranque: $(B)/userland/libtls/sha256.o
 $(B)/userland/programas/instalar.o: userland/programas/instalar_asistente.h
 
 # As rotinas SSE2 da libsagui são o mesmo kernel/lib/sse2.c, compilado sem
@@ -921,13 +929,15 @@ $(B)/userland/ia/%.o: userland/ia/%.c $(USER_HDR)
 # el CPUID), sin FMA y sin errno en la raíz, para que el anfitrión dé los mismos bits.
 SGL_FLAGS := -msse -msse2 -mfpmath=sse -ffp-contract=off -fno-math-errno -mstackrealign -Iuserland/libsgl
 SGL_OBJ   := $(B)/userland/libsgl/sgl.o $(B)/userland/libsgl/cenas.o
+# D404: el paisaje y el cargador de OBJ, solo para el sgldemo.
+SGL_OBJ_DEMO := $(B)/userland/libsgl/paisaje.o $(B)/userland/libsgl/sgl_obj.o
 SGL_HDR   := $(wildcard userland/libsgl/*.h)
 # A prova da rota v6 (texturas, mistura, neblina e luzes, D130): o mesmo programa
 # compila-se no anfitrião (tests/h101_sagui_gl_v6.py) e dentro do SaguiOS.
 SGL_PROG_OBJ := $(B)/userland/programas/sglv6.o
-$(SGL_OBJ) $(SGL_PROG_OBJ) $(B)/userland/programas/sgldemo.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) $(SGL_FLAGS)
-$(SGL_OBJ) $(SGL_PROG_OBJ) $(B)/userland/programas/sgldemo.o: $(SGL_HDR)
-$(B)/userland/bin/sgldemo: $(SGL_OBJ)
+$(SGL_OBJ) $(SGL_OBJ_DEMO) $(SGL_PROG_OBJ) $(B)/userland/programas/sgldemo.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) $(SGL_FLAGS)
+$(SGL_OBJ) $(SGL_OBJ_DEMO) $(SGL_PROG_OBJ) $(B)/userland/programas/sgldemo.o: $(SGL_HDR)
+$(B)/userland/bin/sgldemo: $(SGL_OBJ) $(SGL_OBJ_DEMO)
 $(SGL_PROG_OBJ): tests/sgl/sglv6.c $(SGL_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(UCFLAGS) -c -o $@ $<
@@ -986,6 +996,9 @@ $(B)/$(LLM_DIR)/%.o: $(LLM_DIR)/%.c $(LLM_HDR) $(USER_HDR)
 	$(CC) $(LLM_FLAGS) -c -o $@ $<
 $(B)/$(LLM_DIR)/llm_quant_sse2.o: LLM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -msse -msse2 -mfpmath=387 -fexcess-precision=standard -mstackrealign
 $(B)/$(LLM_DIR)/llm_quant_ssse3.o: LLM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -msse -msse2 -mssse3 -mfpmath=387 -fexcess-precision=standard -mstackrealign
+# D381: AVX2 solo en este fichero (y solo se llama si el kernel guarda los YMM). Sin -mfma: la cuenta
+# de float de cada bloque va por la x87, como en las demás rutas, para dar los mismos tokens.
+$(B)/$(LLM_DIR)/llm_quant_avx2.o: LLM_FLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -msse -msse2 -mssse3 -mavx -mavx2 -mfpmath=387 -fexcess-precision=standard -mstackrealign
 $(B)/userland/bin/llm: $(LLM_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(ULDFLAGS) -o $@.elf $(LLM_OBJ) $(LIBSAGUI_OBJ)
@@ -996,7 +1009,7 @@ $(B)/userland/bin/llm: $(LLM_OBJ) $(LIBSAGUI_OBJ) userland/programa.ld
 LLM_PC_FLAGS := -O2 -g -D_GNU_SOURCE -DLLM_ANFITRIAO -DLLM_MAT_X87
 $(B)/host/llm/%.o: $(LLM_DIR)/%.c $(LLM_HDR)
 	@mkdir -p $(dir $@)
-	CPATH="$(HOST_CPATH)" $(HOSTCC) $(LLM_PC_FLAGS) $(if $(filter llm_quant_ss%,$*),-msse2 -mssse3) -mfpmath=387 -fexcess-precision=standard -c -o $@ $<
+	CPATH="$(HOST_CPATH)" $(HOSTCC) $(LLM_PC_FLAGS) $(if $(filter llm_quant_ss%,$*),-msse2 -mssse3) $(if $(filter llm_quant_avx2,$*),-mavx2) -mfpmath=387 -fexcess-precision=standard -c -o $@ $<
 $(B)/host/llm-pc: $(patsubst $(LLM_DIR)/%.c,$(B)/host/llm/%.o,$(wildcard $(LLM_DIR)/*.c))
 	$(HOSTCC) -o $@ $^ -lm -lpthread
 .PHONY: llm-pc

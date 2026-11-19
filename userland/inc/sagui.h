@@ -382,6 +382,12 @@ bool cpu_tem_sse2(void);
 bool cpu_tem_sse(void);     /* D208: CPUID.1 (con FXSR): para elegir variantes de las rutas rápidas */
 bool cpu_tem_sse3(void);
 bool cpu_tem_ssse3(void);
+/* D381: AVX solo si la CPU lo tiene Y el kernel guarda los YMM (CR4.OSXSAVE, que se ve en
+ * CPUID.1:ECX bit 27, y XCR0 con SSE y AVX, que se lee con XGETBV). Sin eso, una instrucción
+ * AVX da #UD o, peor, otro proceso pisa los YMM. AVX2 y FMA, además, con su bit de CPUID. */
+bool cpu_tem_avx(void);
+bool cpu_tem_avx2(void);
+bool cpu_tem_fma(void);
 int  mem_descrever(char *s, size_t max);   /* "copias: SSE3, memset: SSE2, ..." (mide si hace falta) */
 void trocar_rb32(uint32_t *d, const uint32_t *o, size_t n);   /* intercambia rojo y azul: 0xAARRGGBB <-> 0xAABBGGRR */
 void misturar32(uint32_t *d, const uint32_t *o, size_t n, unsigned a);   /* d = (o*a + d*(256-a)) >> 8 por canal, a de 0 a 256 */

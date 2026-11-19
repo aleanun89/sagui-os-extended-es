@@ -42,6 +42,10 @@ def criar_imagem(nome, fs, partes=(True, True, True)):
     return img
 
 
+# D388: orden de la tabla sin ESP: SaguiOS, SAGUI-TMP, SAGUI-LOGS y SAGUI-DATOS (/home) la última.
+K_TMP, K_LOGS, K_HOME = 1, 2, 3
+
+
 def tabela(img):
     """[(inicio, sectores)]: la de SaguiOS y luego las de datos (D213: lógicas de la extendida)."""
     return [(ini, qtd) for _n, _t, ini, qtd in particoes_img(img)]
@@ -119,12 +123,12 @@ def probar(fs):
         apagar(m)
 
     # El anfitrión comprueba
-    nombres = re.findall(r"kernel-\d{8}-\d{4}[-0-9]*\.log", listar_host(img, fs, 3))
+    nombres = re.findall(r"kernel-\d{8}-\d{4}[-0-9]*\.log", listar_host(img, fs, K_LOGS))
     verificar(len(set(nombres)) >= 2, f"[{fs}] el anfitrión ve los registros del kernel en la partición")
-    txt = ler_host(img, fs, 3, sorted(set(nombres))[0]).decode("latin-1")
+    txt = ler_host(img, fs, K_LOGS, sorted(set(nombres))[0]).decode("latin-1")
     verificar("[FSTAB]" in txt and "[SAGUI] apagando" in txt, f"[{fs}] el registro guardado contiene el arranque y el apagado")
-    verificar(ler_host(img, fs, 1, "h91.txt").strip() == b"en-home", f"[{fs}] /home/h91.txt en la partición")
-    verificar(ler_host(img, fs, 2, "h91.txt").strip() == b"en-tmp", f"[{fs}] /tmp/h91.txt en la partición")
+    verificar(ler_host(img, fs, K_HOME, "h91.txt").strip() == b"en-home", f"[{fs}] /home/h91.txt en la partición")
+    verificar(ler_host(img, fs, K_TMP, "h91.txt").strip() == b"en-tmp", f"[{fs}] /tmp/h91.txt en la partición")
     for k in range(1, 4):
         ini, qtd = tabela(img)[k]
         p = extrair_particao(img, ini, qtd // 2048)

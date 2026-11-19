@@ -68,8 +68,15 @@ volver a emparejar.
   Energy*: no); la mayoría de los teclados y ratones «Bluetooth» baratos son clásicos.
 - **Controladores sin firmware.** Los Intel, Realtek y Broadcom que lo piden (los integrados de los portátiles, muchos pinchos
   modernos) aparecen en `usb` pero no inician. Quedan para la fase con firmware (D073).
-- **Recepción ACL solo con EHCI y xHCI** (la recepción *bulk* continua del Wi-Fi). Con UHCI/OHCI (puertos USB 1.1) se puede buscar pero no
-  emparejar ni conectar: la ventana lo dice. Con el EHCI comparte la recepción continua con el pincho Wi-Fi RTL8188EU.
+- **Recepción ACL con EHCI, xHCI y, desde D389, UHCI.** Por UHCI (puertos USB 1.1 de Intel/VIA, el pincho CSR es de velocidad
+  completa y en los ICH con EHCI cae en el compañero) la recibe `uhci_rx_*`: 16 TD de 64 bytes encadenados en profundidad detrás de
+  la cabeza de interrupción (cada 8 ms, hasta ~128 KB/s) y `usbbt.c` reconstruye los paquetes ACL por la longitud de la cabecera.
+  **Sin probar aún en hardware real** (QEMU no emula Bluetooth). Con OHCI se puede buscar pero no emparejar ni conectar: la ventana
+  lo dice. Con el EHCI comparte la recepción continua con el pincho Wi-Fi RTL8188EU.
+- **Controladores Bluetooth 2.0 (clones CSR).** El inicio lee las características LMP (*Read_Local_Supported_Features*) y salta lo que
+  el controlador no anuncia: sin EIR, la búsqueda va con RSSI (modo 1); sin SSP, no se pide *Simple Pairing* y el emparejamiento es
+  con PIN (`0000`). Una orden de inicio opcional rechazada, contestada con *Command Status* o que nunca acaba (5 s) se salta y se anota
+  en el registro con su nombre (D389).
 - Un solo controlador y un solo emparejamiento a la vez; hasta 8 dispositivos conocidos y 4 enlaces.
 - Teclados con informe distinto del *boot* (sin protocolo boot) y ratones cuyo descriptor no se entiende: no funcionan. Los ratones
   con descriptor entendible se usan en protocolo normal (con rueda y botones); los demás, en protocolo boot (3 o 4 bytes).
@@ -99,4 +106,20 @@ el resultado de cada paso y pega el registro (`dmesg | grep -E "BT|HID"` y la sa
 9. **Apagar/encender.** `bluetooth apagar` desconecta todo; `bluetooth encender` lo deja listo otra vez.
 
 Si algo falla, lo más útil es: el modelo exacto del pincho y del dispositivo, `usb`, y el registro `[BT]`. Los controladores «CSR clónicos»
-con firmware raro pueden rechazar órdenes de inicio: el registro dice `orden de inicio ... rechazada: se sigue`.
+con firmware raro pueden rechazar órdenes de inicio: el registro dice `inicio: Write_Inquiry_Mode (0c45) rechazada (estado 11): se sigue`
+o `inicio: Write_Simple_Pairing_Mode se salta`, y `[BT] caracteristicas LMP ...` dice qué anuncia el pincho. Por UHCI, `usb` añade la
+línea `Bluetooth: ACL por UHCI, N paquetes USB, E errores` (D389).
+
+### El clon CSR del Fujitsu AMILO Pi 1536 (D389)
+
+Pincho `0a12:0001` («CSR», HCI/LMP 3 = Bluetooth 2.0, fabricante 10) por el UHCI del ICH7. Con la 8.5.4.10 se quedaba en «iniciando»:
+*Write_Inquiry_Mode* 2 se rechazaba con `0x11` (bien, se seguía) y *Write_Simple_Pairing_Mode*, que un 2.0 no conoce, la contestaba con
+*Command Status* `0x01` en vez de *Command Complete*: el inicio solo avanzaba con *Command Complete* y esperaba para siempre (7 eventos,
+«errores 2» = esas dos órdenes). Guion para el mantenedor con la imagen nueva:
+
+1. `bluetooth` debe decir **listo**, HCI 3, y `dmesg | grep BT` traer `caracteristicas LMP ...: RSSI si, EIR no, SSP no` y
+   `Write_Simple_Pairing_Mode se salta`.
+2. Con un **móvil visible** (Ajustes > Bluetooth abierto) o un teclado en modo de emparejamiento cerca: `bluetooth buscar` y
+   `bluetooth lista` lo muestran (con RSSI).
+3. Con un teclado o ratón Bluetooth: `bluetooth emparejar N` (con PIN `0000` si lo pide) y `usb` → la línea `ACL por UHCI` con
+   paquetes > 0. Si el ratón/teclado no responde, pegar `bluetooth`, `usb` y `dmesg | grep -E "BT|UHCI"`.

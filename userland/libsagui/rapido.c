@@ -58,6 +58,37 @@ bool cpu_tem_sse2(void)  { return cpu_v(V_SSE2); }
 bool cpu_tem_sse3(void)  { return cpu_v(V_SSE3); }
 bool cpu_tem_ssse3(void) { return cpu_v(V_SSSE3); }
 
+/* D381: 0 = sin AVX utilizable, bit 0 AVX, bit 1 AVX2, bit 2 FMA; -1 = sin leer. */
+static int avx = -1;
+
+static int ler_avx(void)
+{
+    uint32_t a, b, c, d;
+    int r = 0;
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(0), "c"(0));
+    uint32_t max = a;
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
+    /* OSXSAVE (27) y AVX (28): sin OSXSAVE, XGETBV da #UD, así que va primero. */
+    if ((c & (3u << 27)) == (3u << 27)) {
+        uint32_t x0, x1;
+        __asm__ volatile("xgetbv" : "=a"(x0), "=d"(x1) : "c"(0));
+        if ((x0 & 6) == 6) {   /* el kernel guarda XMM (bit 1) e YMM (bit 2) */
+            r = 1;
+            if (c & (1u << 12)) r |= 4;
+            if (max >= 7) {
+                __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(7), "c"(0));
+                if (b & (1u << 5)) r |= 2;
+            }
+        }
+    }
+    return r;
+}
+
+static inline int avx_bits(void) { if (avx < 0) avx = ler_avx(); return avx; }
+bool cpu_tem_avx(void)  { return (avx_bits() & 1) != 0; }
+bool cpu_tem_avx2(void) { return (avx_bits() & 2) != 0; }
+bool cpu_tem_fma(void)  { return (avx_bits() & 4) != 0; }
+
 static inline int met(void)
 {
     if (metodo < 0) metodo = cpu_tem_sse() ? MEM_AUTO : MEM_REP;

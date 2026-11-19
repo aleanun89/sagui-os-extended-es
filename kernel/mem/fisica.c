@@ -144,14 +144,51 @@ static void iniciar_zona(zona_t *z, uint64_t ini, uint64_t fim, const char *nome
          (uint32_t)((fim - 1) >> 32), (uint32_t)(fim - 1), pags_mapa * 4);
 }
 
+/* Depuración (rastro.h): la página de las marcas que sobreviven a un reinicio en caliente. La misma en cada
+ * arranque de la misma máquina, lejos de lo que carga la etapa 2: 64 KB por debajo del fin de la región libre
+ * más alta bajo 4 GB que tenga al menos 1 MB, y siempre DENTRO de esa región.
+ *
+ * Antes (dbg5) era «el fin de la RAM libre menos 64 KB» sin mirar en qué región caía: en el HP dv7 la última
+ * región libre es una sola página (0xBFEFF000) justo detrás de las tablas ACPI, y la marca se escribía encima
+ * de la DSDT (0xBFEF0000): uACPI no arrancaba («unable to find DSDT», la firma leída era «SRA1»). D402, D405. */
+static uint64_t rastro_fis;
+uint64_t rastro_pagina(void) { return rastro_fis; }
+
+static uint64_t rastro_escolher(void)
+{
+    uint64_t melhor = 0;
+    for (uint32_t i = 0; i < info_boot.mapa_qtd; i++) {
+        regiao_e820_t *r = &mapa_memoria[i];
+        if (r->tipo != E820_LIVRE || !(r->extra & 1) || r->base >= LIMITE_32) continue;
+        uint64_t ini = (r->base + PAGINA - 1) & ~(uint64_t)(PAGINA - 1);
+        uint64_t fim = (r->base + r->tamanho) & ~(uint64_t)(PAGINA - 1);
+        if (fim > LIMITE_32) fim = LIMITE_32;
+        if (ini < 0x100000) ini = 0x100000;
+        if (fim <= ini || fim - ini < 0x100000) continue;   /* menos de 1 MB: no (las sueltas junto a ACPI) */
+        uint64_t p = fim - 16u * PAGINA;
+        if (p < 0x2000000u || p < ini) continue;
+        if (p > melhor) melhor = p;
+    }
+    /* La página entera tiene que ser libre según TODO el mapa (un E820 con regiones solapadas). */
+    for (uint32_t i = 0; melhor && i < info_boot.mapa_qtd; i++) {
+        regiao_e820_t *r = &mapa_memoria[i];
+        if (r->tipo == E820_LIVRE || !(r->extra & 1)) continue;
+        if (melhor < r->base + r->tamanho && melhor + PAGINA > r->base) melhor = 0;
+    }
+    return melhor;
+}
+
 void memfisica_iniciar(void)
 {
     memset(mapa_bits, 0xFF, sizeof mapa_bits);
     baixa.livres = 0;
     preencher(&baixa);
     baixa.dica = 0;
+    rastro_fis = rastro_escolher();
+    if (rastro_fis && rastro_fis < MEMFIS_LIMITE) marcar(&baixa, rastro_fis, rastro_fis + PAGINA, true);
     /* D348: la alta, hasta el fin de la RAM bajo 4 GB (sin PAE no se ve más allá). */
     iniciar_zona(&alta, MEMFIS_LIMITE, fim_ram(MEMFIS_LIMITE, LIMITE_32), "alta");
+    if (rastro_fis >= MEMFIS_LIMITE && alta.paginas) marcar(&alta, rastro_fis, rastro_fis + PAGINA, true);
     /* D349: con PAE, la superior: de 4 GB al fin de la RAM, sin pasar del límite físico. */
     if (paginacao_com_pae) {
         uint64_t lim = paginacao_limite_fisico();

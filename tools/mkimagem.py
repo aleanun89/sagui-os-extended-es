@@ -19,7 +19,14 @@ Distribución (PRD 4.1):
                todo el sistema; el ramdisk es entonces un initramfs pequeño (tools/mkinitramfs.py)
                cuyo /etc/raiz.conf dice al kernel que monte esta partición en "/"
   por defecto  la partición de configuración SAGUI-CONF (D256, mejora 098): ext2 de 16 MB con
-               un LEEME, la última de todas (--sin-conf la quita; la ISO no la lleva)
+               un LEEME (--sin-conf la quita; la ISO no la lleva)
+
+D388 (v8.5.4.10r2): el orden en el disco. En el MBR, SaguiOS (1), la ESP SAGUI-EFI si la hay (2) y la
+extendida (3, la última, hasta el final de la imagen). Dentro de la extendida, las del sistema primero y
+/home la ÚLTIMA: SAGUI-CONF, SAGUI-RAIZ, SAGUI-PERSIST, SAGUI-JOGOS, SAGUI-APPS, SAGUI-TMP, SAGUI-LOGS,
+SAGUI-X*, SAGUI-DATOS. Grabada en un disco mayor, ampliar /home es solo estirar la extendida y la última
+lógica, sin mover nada (también en la live, donde la raíz y su capa están en uso). --orden-antiguo da la
+disposición de antes (/home la primera, CONF la última, la ESP en la entrada 3) para probar la compatibilidad.
 
 La meta de tamaño (META_BYTES, D181) cuenta los bytes útiles de la imagen del
 sistema: el área de arranque (MBR, cabecera, etapa 2, kernel y ramdisk) más las
@@ -229,6 +236,28 @@ def main():
                          "leen el Terminal por el serie; desde el sistema, «kconfig serie_terminal=si|no»")
     ap.add_argument("--serie-terminal", dest="sin_serie_terminal", action="store_false",
                     help="lo contrario de --sin-serie-terminal: el Terminal copia su salida al puerto serie")
+    ap.add_argument("--sem-avx", action="store_true",
+                    help="D381: el kernel no enciende AVX (XSAVE y los registros YMM) aunque la CPU lo tenga; todo queda "
+                         "como antes (FXSAVE, rutas SSE). Desde el sistema, «kconfig avx=si|no»")
+    ap.add_argument("--sin-volcado-gpu", action="store_true",
+                    help="D387: el búfer de atrás lo copia siempre la CPU a la pantalla, nunca la GPU por la GART "
+                         "(desde el sistema, «kconfig volcado_gpu=si|no»)")
+    ap.add_argument("--volcado-gpu-simulado", action="store_true",
+                    help="D387, pruebas: una «GPU» de software con la misma tabla de páginas hace el volcado (QEMU no "
+                         "emula ninguna tarjeta que lea la RAM del sistema)")
+    ap.add_argument("--volcado-gpu-prueba", default="", choices=("", "fallo", "cuelgue", "vuelta-fallo", "vuelta-cuelgue"),
+                    help="D387, pruebas: la autoprueba del volcado ve un píxel distinto (fallo) o una espera se agota "
+                         "en sesión (cuelgue); D391: lo mismo con la vuelta del 3D (vuelta-fallo, vuelta-cuelgue: la "
+                         "simulada deja de contestar en la 4.ª vuelta)")
+    ap.add_argument("--sin-vuelta-gpu", action="store_true",
+                    help="D391: el cuadro del 3D lo lee siempre la CPU de la VRAM, nunca vuelve por la GPU a la RAM "
+                         "(desde el sistema, «kconfig vuelta_gpu=si|no»)")
+    ap.add_argument("--gpu-energia-simulada", action="store_true",
+                    help="D399, pruebas: driver de energía de la GPU de mentira (una BIOS ATOM de juguete en el intérprete "
+                         "de verdad, sin tocar hardware): modos, gobernador «auto» y vuelta a la BIOS en QEMU")
+    ap.add_argument("--gpu-energia-prueba", default="", choices=("", "fallo", "cuelgue"),
+                    help="D399, pruebas (con --gpu-energia-simulada): SetEngineClock escribe mal el reloj (fallo) o no "
+                         "termina (cuelgue): la capa tiene que volver a los relojes de la BIOS y bloquearse")
     ap.add_argument("--sesion-sagui", dest="sesion_root", action="store_false",
                     help="lo contrario de --sesion-root (aunque SAGUI_SESION_ROOT=1)")
     ap.add_argument("--uacpi", action="store_true",
@@ -287,6 +316,10 @@ def main():
                     help="los bytes 0-0x59 del MBR: 'cero' (salto + BPB a cero, como siempre), "
                          "'valido' (BPB con la geometría) o 'sin' (sin la firma de sector FAT) (D203)")
     ap.add_argument("--cd", action="store_true", help="imagem para a ISO de CD (tools/mkiso.py, D077)")
+    ap.add_argument("--ranura-mb", type=int, default=None,
+                    help="D392: sitio libre en la partición de SaguiOS para «arranque probar» (un kernel y un ramdisk "
+                         "de prueba) y para cambiar la etapa 2; por defecto, 1,5 veces el kernel y el ramdisk, en MB "
+                         "enteros (0 = sin sitio; el CD no lo lleva)")
     ap.add_argument("--sin-frecuencia", action="store_true",
                     help="arrancar con el driver de frecuencia desactivado: la CPU como la deja la BIOS (D106)")
     ap.add_argument("--frecuencia-simulada", action="store_true",
@@ -338,6 +371,9 @@ def main():
                          "por defecto, SAGUI_VERSAO de kernel/inc/versao.h (la del núcleo)")
     ap.add_argument("--part-fs", default="ext2", choices=("ext2", "fat32"),
                     help="sistema das partições sem --*-fs próprio (padrão ext2)")
+    ap.add_argument("--orden-antiguo", action="store_true",
+                    help="D388: la disposición de antes de la v8.5.4.10r2 (/home la primera lógica, SAGUI-CONF la última "
+                         "y la ESP en la entrada 3, detrás de la extendida en la tabla): solo para probar la compatibilidad")
     ap.add_argument("--sin-conf", action="store_true",
                     help="sin la partición de configuración SAGUI-CONF (ext2, 16 MB, con un LEEME; D256): por "
                          "defecto va en todas las imágenes de disco, la última; la ISO (--cd) no la lleva")
@@ -482,14 +518,36 @@ def main():
     cab += struct.pack("<B", MODOS_RAIZ[a.modo_raiz])   # CAB_RAIZ_OPC (163, D379)
     assert len(cab) == 164, "CAB_TERM_OPC tiene que caer en el byte 164"
     cab += struct.pack("<B", 1 if a.sin_serie_terminal else 0)   # CAB_TERM_OPC (164, D385): bit 0 sin copia al serie
-    # 165-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
+    assert len(cab) == 165, "CAB_ACEL_OPC tiene que caer en el byte 165"
+    cab += struct.pack("<B", (1 if a.sin_volcado_gpu else 0) | (2 if a.volcado_gpu_simulado else 0) |
+                       {"": 0, "fallo": 4, "cuelgue": 8, "vuelta-fallo": 0x20, "vuelta-cuelgue": 0x40}[a.volcado_gpu_prueba] |
+                       (0x10 if a.sin_vuelta_gpu else 0))   # CAB_ACEL_OPC (165, D387; D391: bits 4-6)
+    assert len(cab) == 166, "CAB_CPU_OPC tiene que caer en el byte 166"
+    cab += struct.pack("<B", 1 if a.sem_avx else 0)   # CAB_CPU_OPC (166, D381): bit 0 sin AVX
+    assert len(cab) == 167, "CAB_GPU_OPC tiene que caer en el byte 167"
+    cab += struct.pack("<B", (1 if a.gpu_energia_simulada else 0) |
+                       {"": 0, "fallo": 2, "cuelgue": 4}[a.gpu_energia_prueba])   # CAB_GPU_OPC (167, D399): pruebas
+    # D392: 256-511 = la ranura del kernel de prueba (CAB_PR_*, la escribe «arranque probar»): a cero.
+    # 168-191 libres. 192-255 = CAB_KCONF (D353): lo que guarda «kconfig» desde el sistema;
     # aquí se deja a cero (preencher_setores): los valores de la imagen son los bits de arriba.
+    assert len(cab) <= 192, "la cabecera no puede pisar CAB_KCONF ni la ranura de prueba (D392)"
 
     # Tamaño del archivo: redondeado a múltiplo de 32 KB. La partición cubre
     # desde el LBA 1 hasta el fin del archivo y es la única, marcada como activa (0x80),
     # porque algunas BIOS solo tratan un pendrive como disco duro si hay
     # una partición activa válida.
-    tam_arquivo = ((total * SETOR) + ALINHAMENTO_ARQUIVO - 1) // ALINHAMENTO_ARQUIVO * ALINHAMENTO_ARQUIVO
+    # D392: la partición de SaguiOS lleva detrás de lo que se arranca un hueco libre (a cero) para la
+    # ranura del kernel de prueba («arranque probar») y una etapa 2 nueva («arranque etapa2»): sin él no
+    # caben en ella y la imagen grabada no podría probar un kernel sin regrabarse. No cuenta en la meta
+    # (D306: no se carga en la RAM).
+    if a.ranura_mb is None:
+        reserva = 0 if a.cd else (setores(len(kern)) + setores(len(rd))) * 3 // 2 + 128
+        reserva = (reserva + 2047) // 2048 * 2048
+    else:
+        if a.ranura_mb < 0 or (a.cd and a.ranura_mb):
+            sys.exit("mkimagem: --ranura-mb tiene que ser 0 o más (y 0 con --cd)")
+        reserva = a.ranura_mb * 2048
+    tam_arquivo = (((total + reserva) * SETOR) + ALINHAMENTO_ARQUIVO - 1) // ALINHAMENTO_ARQUIVO * ALINHAMENTO_ARQUIVO
     setores_arquivo = setores(max(tam_arquivo, TAMANHO_MINIMO))
     if a.cd:
         if a.home_mb or a.tmp_mb or a.logs_mb:
@@ -523,33 +581,42 @@ def main():
     img += b"\0" * (setores_arquivo * SETOR - len(img))
     with open(a.saida, "wb") as f:
         f.write(img)
-    tabela = [("SAGUI-DATOS", a.home_mb, a.home_fs or a.part_fs, "/home"),
-              ("SAGUI-TMP", a.tmp_mb, a.tmp_fs or a.part_fs, "/tmp"),
-              ("SAGUI-LOGS", a.logs_mb, a.logs_fs or a.part_fs, "/logs")]
-    tabela += [(f"SAGUI-X{k + 1}", mb, a.part_fs, "uma carpeta à tua escolha") for k, mb in enumerate(a.extra_mb)]
-    # Las del sistema van las últimas (juegos y luego aplicaciones): así /home sigue siendo
-    # la primera de datos (D040, D120) y las imágenes de antes no cambian de orden.
+    datos = [("SAGUI-DATOS", a.home_mb, a.home_fs or a.part_fs, "/home"),
+             ("SAGUI-TMP", a.tmp_mb, a.tmp_fs or a.part_fs, "/tmp"),
+             ("SAGUI-LOGS", a.logs_mb, a.logs_fs or a.part_fs, "/logs")]
+    datos += [(f"SAGUI-X{k + 1}", mb, a.part_fs, "uma carpeta à tua escolha") for k, mb in enumerate(a.extra_mb)]
     conteudos = {}
-    if jogos_mb:
-        tabela.append((ROTULO_JOGOS, jogos_mb, "ext2", "/jogos"))
-        conteudos[ROTULO_JOGOS] = a.jogos
-    if apps_mb:
-        tabela.append((ROTULO_APPS, apps_mb, "ext2", "/apps"))
-        conteudos[ROTULO_APPS] = a.apps
-    if raiz_mb:   # D379: la raíz, justo antes de la de configuración
-        tabela.append((ROTULO_RAIZ, raiz_mb, "ext2", "/"))
+    sistema = []   # (etiqueta, MB, fs, punto), en el orden de D388
+    tmp_conf = tempfile.TemporaryDirectory()
+    if conf_mb:   # D256: solo lleva un LEEME
+        with open(os.path.join(tmp_conf.name, "LEEME"), "w", encoding="utf-8") as g:
+            g.write(TEXTO_LEEME_CONF)
+        sistema.append((ROTULO_CONF, conf_mb, "ext2", "/conf"))
+        conteudos[ROTULO_CONF] = tmp_conf.name
+    if raiz_mb:
+        sistema.append((ROTULO_RAIZ, raiz_mb, "ext2", "/"))
         conteudos[ROTULO_RAIZ] = tmp_raiz.name
     tmp_persist = tempfile.TemporaryDirectory()
     if a.persist_mb:   # D379 (L2): vacía (sin leeme: lo que hay en ella aparece en la raíz de la live)
-        tabela.append((ROTULO_PERSIST, a.persist_mb, "ext2", "/persist"))
+        sistema.append((ROTULO_PERSIST, a.persist_mb, "ext2", "/persist"))
         conteudos[ROTULO_PERSIST] = tmp_persist.name
-    # D256: la de configuración es la última de todas; lleva solo un LEEME.
-    tmp_conf = tempfile.TemporaryDirectory()
-    if conf_mb:
-        with open(os.path.join(tmp_conf.name, "LEEME"), "w", encoding="utf-8") as g:
-            g.write(TEXTO_LEEME_CONF)
-        tabela.append((ROTULO_CONF, conf_mb, "ext2", "/conf"))
-        conteudos[ROTULO_CONF] = tmp_conf.name
+    if jogos_mb:
+        sistema.append((ROTULO_JOGOS, jogos_mb, "ext2", "/jogos"))
+        conteudos[ROTULO_JOGOS] = a.jogos
+    if apps_mb:
+        sistema.append((ROTULO_APPS, apps_mb, "ext2", "/apps"))
+        conteudos[ROTULO_APPS] = a.apps
+    # El esquema «mixto» (el antiguo --extendida: /home primaria y el resto lógicas) es un formato de compatibilidad:
+    # conserva el orden de antes.
+    if a.orden_antiguo or a.esquema == "mixto" or (a.esquema == "primarias" and a.extendida):
+        # La de antes (D040, D120, D181, D256, D379): /home la primera de datos; juegos, aplicaciones, raíz,
+        # capa y, la última de todas, SAGUI-CONF.
+        orden = [ROTULO_JOGOS, ROTULO_APPS, ROTULO_RAIZ, ROTULO_PERSIST, ROTULO_CONF]
+        tabela = datos + sorted(sistema, key=lambda t: orden.index(t[0]))
+    else:
+        # D388: las del sistema primero (CONF, RAIZ, PERSIST, JOGOS, APPS), luego /tmp, /logs y las extra, y
+        # /home (SAGUI-DATOS) la última: es la que crece hasta el final del disco sin mover nada.
+        tabela = sistema + datos[1:] + datos[:1]
     esquema = a.esquema
     if a.cd and raiz_mb:
         esquema = "primarias"   # v8.5.4.2: en el CD la raíz es la única partición (primaria): se comprime en su sitio
@@ -564,9 +631,11 @@ def main():
             sys.exit("mkimagem: --uefi no combina con --cd todavía (la ISO híbrida UEFI está pendiente, D264)")
         esp = montar_esp(a, a.saida, len(img), preencher_setores(cab), kern, rd)
         fim_arranque = (esp[0] + esp[1]) * SETOR
+    # D388: la ESP va en la tabla justo detrás de SaguiOS y antes de la extendida (la entrada 2, como en el
+    # disco); con --orden-antiguo, en la primera libre tras las de datos (la 3), como antes.
     acrescentar_particoes(a.saida, fim_arranque, [t for t in tabela if t[1] > 0], a.mke2fs, a.mkfs_vfat,
-                          esquema, conteudos=conteudos)
-    if esp:
+                          esquema, conteudos=conteudos, esp=None if a.orden_antiguo else esp)
+    if esp and a.orden_antiguo:
         with open(a.saida, "r+b") as f:
             tab = bytearray(f.read(512))
             livres = [o for o in (0x1BE, 0x1CE, 0x1DE, 0x1EE) if o != SLOT_SAGUIOS and tab[o + 4] == 0 and o > SLOT_DADOS - 1]
@@ -987,6 +1056,10 @@ def comprovar_donos_raiz(debugfs, saida, inicio, conteudo):
                      "no se genera la imagen")
 
 
+# D388: 2 TB en bloques de 4 KB (el máximo de un MBR)
+RESIZE_MAX_BLOQUES = 2 ** 29
+
+
 def formatar_particao(saida, inicio, mb, fs, etiqueta, ponto, mke2fs, mkfs_vfat, mcopy, conteudo_pronto=None):
     """Formatea una partición dentro del archivo (desplazamiento en sectores) y copia su leeme.txt.
     Con conteudo_pronto (solo ext2, las particiones del sistema: juegos, D181, y aplicaciones,
@@ -1013,8 +1086,12 @@ def formatar_particao(saida, inicio, mb, fs, etiqueta, ponto, mke2fs, mkfs_vfat,
             os.makedirs(conteudo)
             with open(os.path.join(conteudo, "leeme.txt"), "w", encoding="utf-8") as g:
                 g.write(texto_leeme(ponto, "ext2"))
-            subprocess.run([mke2fs, "-q", "-F", "-t", "ext2", "-L", etiqueta, "-m", "0", "-d", conteudo,
-                            "-E", f"offset={inicio * SETOR},root_owner={uid}:{gid},lazy_itable_init=1,nodiscard",
+            # D388: bloques de 4 KB (el valor por omisión de mke2fs depende del anfitrión: 1 KB en algunos) y GDT
+            # reservados para crecer hasta 2 TB (el límite del MBR): ampliar-home lleva /home de 64 MB a todo el disco
+            # sin rehacerla (con 1 KB y los reservados por omisión, 1024 veces el tamaño de partida: 64 GB).
+            # -i 8192: un inodo cada 8 KB (los grupos nuevos llevan la misma proporción: tablas de inodos más cortas).
+            subprocess.run([mke2fs, "-q", "-F", "-t", "ext2", "-L", etiqueta, "-m", "0", "-b", "4096", "-i", "8192", "-d", conteudo,
+                            "-E", f"offset={inicio * SETOR},root_owner={uid}:{gid},lazy_itable_init=1,nodiscard,resize={RESIZE_MAX_BLOQUES}",
                             saida, f"{mb * 1024}k"],
                            check=True, stdout=subprocess.DEVNULL)
             normalizar_donos(saida, inicio, conteudo, uid, gid, ponto)
@@ -1100,7 +1177,7 @@ def entrada_mbr(tipo, inicio, qtd):
     return bytes([0x00]) + chs(inicio) + bytes([tipo]) + chs(inicio + qtd - 1) + struct.pack("<II", inicio, qtd)
 
 
-def acrescentar_particoes(saida, tam, lista, mke2fs, mkfs_vfat, esquema="logicas", conteudos=None):
+def acrescentar_particoes(saida, tam, lista, mke2fs, mkfs_vfat, esquema="logicas", conteudos=None, esp=None):
     """Particiones de datos (D040, D120): una por elemento de lista = (etiqueta, MB, sistema,
     carpeta). Cada una alineada en 1 MB tras la anterior, tipo 0x83 (ext2) o 0x0C (FAT32 LBA).
     Se formatea directo en el archivo, con desplazamiento: queda disperso (una imagen de
@@ -1111,11 +1188,18 @@ def acrescentar_particoes(saida, tam, lista, mke2fs, mkfs_vfat, esquema="logicas
     extendida para crear y redimensionar particiones desde SaguiOS (Discos > Particiones).
     Esquema "primarias" (el de antes): primarias 2 a 4 (máximo 3 de datos; con más, "mixto").
     Esquema "mixto" (el antiguo --extendida, D120): la primera de datos es primaria y el resto,
-    lógicas en una extendida."""
+    lógicas en una extendida.
+    D388: con esp = (LBA, sectores), la entrada de la ESP (tipo 0xEF) va la primera tras la de SaguiOS, antes
+    de las de datos y de la extendida: en la tabla queda en el mismo orden que en el disco."""
+    entradas = [entrada_mbr(0xEF, esp[0], esp[1])] if esp else []
     if not lista:
+        escrever_entradas(saida, entradas)
         return
     if esquema == "primarias" and len(lista) > 3:
         esquema = "mixto"
+    if esp and esquema == "primarias" and len(lista) > 2:
+        sys.exit("mkimagem: --uefi necesita una entrada libre en la tabla MBR para la ESP "
+                 "(con --esquema primarias y 3 particiones de datos no queda ninguna)")
     if len(lista) > 16 + (1 if esquema == "mixto" else 0):
         sys.exit("mkimagem: demasiadas particiones (máximo 16 lógicas)")
     mke2fs = mke2fs if os.path.exists(mke2fs) else achar_ferramenta("mke2fs")
@@ -1131,7 +1215,6 @@ def acrescentar_particoes(saida, tam, lista, mke2fs, mkfs_vfat, esquema="logicas
         if fs == "ext2" and mb < 2:
             sys.exit(f"mkimagem: ext2 precisa de pelo menos 2 MB ({etiqueta} tem {mb})")
     inicio = (tam // SETOR + 2047) // 2048 * 2048
-    entradas = []
     primarias = {"logicas": [], "primarias": lista, "mixto": lista[:1]}[esquema]
     logicas = lista[len(primarias):]
     with open(saida, "r+b") as f:
@@ -1164,6 +1247,13 @@ def acrescentar_particoes(saida, tam, lista, mke2fs, mkfs_vfat, esquema="logicas
             ebr = proximo
         entradas.append(entrada_mbr(0x0F, ext, ebr - ext))
         print(f"mkimagem: partição extendida de {(ebr - ext) // 2048} MB no LBA {ext} con {len(logicas)} lógicas")
+    escrever_entradas(saida, entradas)
+
+
+def escrever_entradas(saida, entradas):
+    """Las entradas del MBR detrás de la de SaguiOS (o, con --usb-zip, desde la 1), en este orden."""
+    if len(entradas) > 3:
+        sys.exit("mkimagem: no caben tantas entradas en la tabla MBR (como mucho 3 además de SaguiOS)")
     with open(saida, "r+b") as f:
         for k, e in enumerate(entradas):
             f.seek(SLOT_DADOS + 16 * k)

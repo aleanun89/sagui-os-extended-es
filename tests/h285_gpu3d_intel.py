@@ -23,8 +23,14 @@ QEMU no emula el 3D de ninguna GPU de Intel, así que el driver de verdad
   fallos    autoprueba con un píxel distinto y GPU que deja de responder
             (simulados): el 3D se apaga con su motivo, SaguiGL sigue por
             software y el sistema no se cuelga; --gpu3d=no.
+  diag      (D390) el diagnóstico común con el driver simulado: análisis del
+            destino por etapas en el log, «gpu3d probar --ver» (ventana con
+            cada etapa, avanza sola sin teclado), y los ajustes de
+            /sistema/conf/gpu3d-simulado.conf (una GPU que «no escribe» deja
+            la sentinela a1b2c3; un registro fuera de rango no se aplica);
+            con --guardar, las etapas en /home/gpu3d-etapaN.bmp.
 
-Uso: h285_gpu3d_intel.py [unidad] [fuentes] [std] [simulado] [fallos]
+Uso: h285_gpu3d_intel.py [unidad] [fuentes] [std] [simulado] [fallos] [diag]
 """
 import os
 import re
@@ -221,8 +227,63 @@ def fallos():
                   "SGL_MOTOR=software (D158) manda sobre todo lo demás")
 
 
+def diag():
+    img = imagem_de_teste("", ["--vesa", "--gpu3d=simulado"])
+    with Maquina("h285d", "ide", imagem=img) as m:
+        arrancar(m)
+        # --ver con 1 s por etapa y sin tocar el teclado: tiene que avanzar sola y terminar.
+        t0 = time.time()
+        out = m.comando("gpu3d probar --ver 1", 300)
+        out = re.sub(r"\[GUI\] janela [^\r\n]*\(\d+,\d+\)\r?\n?", "", out)
+        print("   ", "\n    ".join(l for l in out.splitlines() if "--ver" in l)[:1500])
+        verificar("gpu3d probar: BIEN" in out, "--ver: la autoprueba y la medida siguen bien")
+        etapas = re.findall(r"gpu3d probar --ver: etapa (\d) \([^)]*\): BIEN; color: 0 sin tocar", out)
+        verificar(len(etapas) == 8, f"--ver: las ocho etapas, BIEN y sin sentinela ({len(etapas)})")
+        verificar(re.search(r"etapa 0 \(limpiar\): BIEN; color: 0 sin tocar; colores: 102030 x12288; Z: 0 sin tocar, 12288 al maximo", out),
+                  "--ver: limpiar deja todo el color de fondo y el Z al máximo")
+        verificar("sin escritorio" not in out and time.time() - t0 >= 7, "--ver: en una ventana, una etapa por segundo, sin teclado")
+        s = m.serial()
+        verificar(re.search(r"\[GPU3D\] etapa 2 \(Z\): color \(12288 pixeles\): 0 sin tocar \(a1b2c3\)", s)
+                  and "[GPU3D] etapa 7 (Z de 16 bits): Z:" in s, "el log tiene el análisis del destino de cada etapa")
+        # Mientras enseña una etapa, una captura de la ventana (el color a 3x, el Z a 2x).
+        m.comando("gpu3d probar --ver 6 &", 30)
+        time.sleep(9)
+        m.captura("H285-ver")
+        time.sleep(50)
+        # Una GPU que ejecuta sin escribir: la sentinela queda y el fallo lo dice.
+        m.comando("echo 'inicio 1004 1' > /sistema/conf/gpu3d-simulado.conf")
+        m.comando("echo 'inicio 2000 0' >> /sistema/conf/gpu3d-simulado.conf")
+        m.comando("gpu3d apagar", 30)
+        out = m.comando("gpu3d probar --detalle --guardar", 300)
+        out = re.sub(r"\[GUI\] janela [^\r\n]*\(\d+,\d+\)\r?\n", "", out)   # el kernel escribe en medio de la línea
+        print("   ", "\n    ".join(l for l in out.splitlines() if "gpu3d probar" in l)[:1500])
+        verificar("gpu3d probar: MAL" in out and "pixel 0,0: a1b2c3, se esperaba 102030" in out,
+                  "ajuste «no escribir»: limpiar falla con la sentinela a1b2c3 en el píxel 0,0")
+        verificar(re.search(r"etapa 0 \(limpiar\): MAL; color: 12288 sin tocar", out) and "Z: 12288 sin tocar" in out,
+                  "--ver: la etapa 0 dice que nada se tocó (color y Z)")
+        verificar("con 1 ajustes de registros" in out and "1 lineas malas" in out, "un ajuste bueno y uno fuera de rango")
+        verificar("guardada en /home/gpu3d-etapa0.bmp" in out, "--guardar: la etapa en BMP")
+        out = m.comando("ls /home", 30)
+        verificar("gpu3d-etapa0.bmp" in out, "el BMP está en /home")
+        s = m.serial()
+        verificar("[GPU3D] simulado: 1 ajustes de depuracion de /sistema/conf/gpu3d-simulado.conf (1 lineas malas, 1 fuera" in s
+                  and "[GPU3D] simulado:   inicio 2000" not in s and "[GPU3D] simulado:   inicio 1004 = 1" in s,
+                  "el log lista los ajustes aplicados y cuenta el de fuera")
+        verificar("[GPU3D] destino 128x96 tras el fallo: color (12288 pixeles): 12288 sin tocar" in s,
+                  "tras el fallo, el destino leído sin la GPU")
+        # XOR del color en cada dibujo: falla el rectángulo de color, con el píxel cambiado.
+        m.comando("echo 'dibujo 1000 ff' > /sistema/conf/gpu3d-simulado.conf")
+        out = m.comando("gpu3d probar", 300)
+        verificar("gpu3d probar: MAL" in out and re.search(r"1 rectangulo de color\s+MAL", out) and "c080bf, se esperaba c08040" in out,
+                  "ajuste «dibujo»: se aplica en cada dibujo")
+        m.comando("rm /sistema/conf/gpu3d-simulado.conf")
+        out = m.comando("gpu3d encender", 120)
+        verificar("gpu3d encender: activo" in out, "sin el fichero, todo vuelve a estar bien")
+        sano(m.serial(), "diagnostico")
+
+
 def main():
-    todas = {"unidad": unidad, "fuentes": fuentes, "std": std, "simulado": simulado, "fallos": fallos}
+    todas = {"unidad": unidad, "fuentes": fuentes, "std": std, "simulado": simulado, "fallos": fallos, "diag": diag}
     quais = [a for a in sys.argv[1:] if a in todas] or list(todas)
     try:
         for q in quais:

@@ -16,11 +16,11 @@ msgstr ""
 msgid "Nombre"
 msgstr ""
 
-#: userland/programas/tareas.c:268 userland/programas/tareas.c:1911
+#: userland/programas/tareas.c:268 userland/programas/tareas.c:1940
 msgid "Padre"
 msgstr ""
 
-#: userland/programas/tareas.c:268 userland/programas/tareas.c:740 userland/programas/tareas.c:888 userland/programas/tareas.c:1745
+#: userland/programas/tareas.c:268 userland/programas/tareas.c:740 userland/programas/tareas.c:888 userland/programas/tareas.c:1748
 msgid "Estado"
 msgstr ""
 
@@ -28,11 +28,11 @@ msgstr ""
 msgid "CPU %"
 msgstr ""
 
-#: userland/programas/tareas.c:269 userland/programas/tareas.c:1939
+#: userland/programas/tareas.c:269 userland/programas/tareas.c:1968
 msgid "T. CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:269 userland/programas/tareas.c:740 userland/programas/tareas.c:1297 userland/programas/tareas.c:1620
+#: userland/programas/tareas.c:269 userland/programas/tareas.c:740 userland/programas/tareas.c:1297 userland/programas/tareas.c:1623
 msgid "Memoria"
 msgstr ""
 
@@ -44,11 +44,11 @@ msgstr ""
 msgid "Núcleo"
 msgstr ""
 
-#: userland/programas/tareas.c:270 userland/programas/tareas.c:1544 userland/programas/tareas.c:1917
+#: userland/programas/tareas.c:270 userland/programas/tareas.c:1547 userland/programas/tareas.c:1946
 msgid "Hilos"
 msgstr ""
 
-#: userland/programas/tareas.c:270 userland/programas/tareas.c:1939
+#: userland/programas/tareas.c:270 userland/programas/tareas.c:1968
 msgid "Prior."
 msgstr ""
 
@@ -57,7 +57,7 @@ msgstr ""
 msgid " (%u hilos)"
 msgstr ""
 
-#: userland/programas/tareas.c:440 userland/programas/tareas.c:1543
+#: userland/programas/tareas.c:440 userland/programas/tareas.c:1546
 msgid "Procesos"
 msgstr ""
 
@@ -65,11 +65,11 @@ msgstr ""
 msgid "Rendimiento"
 msgstr ""
 
-#: userland/programas/tareas.c:440 userland/programas/tareas.c:1918
+#: userland/programas/tareas.c:440 userland/programas/tareas.c:1947
 msgid "Ventanas"
 msgstr ""
 
-#: userland/programas/tareas.c:440 userland/programas/tareas.c:1297 userland/programas/tareas.c:1734
+#: userland/programas/tareas.c:440 userland/programas/tareas.c:1297 userland/programas/tareas.c:1737
 msgid "Red"
 msgstr ""
 
@@ -81,11 +81,11 @@ msgstr ""
 msgid "Detalles"
 msgstr ""
 
-#: userland/programas/tareas.c:444 userland/programas/tareas.c:1986
+#: userland/programas/tareas.c:444 userland/programas/tareas.c:2015
 msgid "Pausar"
 msgstr ""
 
-#: userland/programas/tareas.c:445 userland/programas/tareas.c:1998 userland/programas/tareas.c:2163 userland/programas/tareas.c:2168
+#: userland/programas/tareas.c:445 userland/programas/tareas.c:2027 userland/programas/tareas.c:2196 userland/programas/tareas.c:2201
 msgid "Finalizar proceso"
 msgstr ""
 
@@ -93,7 +93,7 @@ msgstr ""
 msgid "Reiniciar"
 msgstr ""
 
-#: userland/programas/tareas.c:447 userland/programas/tareas.c:1993
+#: userland/programas/tareas.c:447 userland/programas/tareas.c:2022
 msgid "Desactivar"
 msgstr ""
 
@@ -172,11 +172,11 @@ msgstr ""
 msgid "Proceso"
 msgstr ""
 
-#: userland/programas/tareas.c:1009 userland/programas/tareas.c:1009 userland/programas/tareas.c:1557 userland/programas/tareas.c:1620
+#: userland/programas/tareas.c:1009 userland/programas/tareas.c:1009 userland/programas/tareas.c:1560 userland/programas/tareas.c:1623
 msgid "últimos 60 s"
 msgstr ""
 
-#: userland/programas/tareas.c:1025 userland/programas/tareas.c:1735
+#: userland/programas/tareas.c:1025 userland/programas/tareas.c:1738
 msgid "No hay interfaces de red."
 msgstr ""
 
@@ -294,7 +294,7 @@ msgstr ""
 msgid "Desactivar interfaz..."
 msgstr ""
 
-#: userland/programas/tareas.c:1297 userland/programas/tareas.c:1557 userland/programas/tareas.c:1912 userland/programas/tareas.c:1939
+#: userland/programas/tareas.c:1297 userland/programas/tareas.c:1560 userland/programas/tareas.c:1941 userland/programas/tareas.c:1968
 msgid "CPU"
 msgstr ""
 
@@ -306,624 +306,713 @@ msgstr ""
 msgid "Disco"
 msgstr ""
 
-#: userland/programas/tareas.c:1297 userland/programas/tareas.c:1771
+#: userland/programas/tareas.c:1297 userland/programas/tareas.c:1798
 msgid "GPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1297 userland/programas/tareas.c:1807
+#: userland/programas/tareas.c:1297 userland/programas/tareas.c:1836
 msgid "Sensores"
 msgstr ""
 
-#: userland/programas/tareas.c:1425 userland/programas/tareas.c:1743
+#: userland/programas/tareas.c:1428 userland/programas/tareas.c:1746
 msgid "Desactivada"
 msgstr ""
 
-#: userland/programas/tareas.c:1429
+#: userland/programas/tareas.c:1432
 msgid "Sin caché"
 msgstr ""
 
-#: userland/programas/tareas.c:1445
+#: userland/programas/tareas.c:1448
 #, c-format
 msgid "Batería %d%%"
 msgstr ""
 
-#: userland/programas/tareas.c:1539
+#: userland/programas/tareas.c:1542
 msgid "Utilización"
 msgstr ""
 
-#: userland/programas/tareas.c:1540 userland/programas/tareas.c:1540 userland/programas/tareas.c:1815
+#: userland/programas/tareas.c:1543 userland/programas/tareas.c:1543 userland/programas/tareas.c:1844
 msgid "Frecuencia"
 msgstr ""
 
-#: userland/programas/tareas.c:1541 userland/programas/tareas.c:1542
+#: userland/programas/tareas.c:1544 userland/programas/tareas.c:1545
 msgid "Gobernador"
 msgstr ""
 
-#: userland/programas/tareas.c:1541
+#: userland/programas/tareas.c:1544
 msgid " (limitada)"
 msgstr ""
 
-#: userland/programas/tareas.c:1542
+#: userland/programas/tareas.c:1545
 msgid "sin control"
 msgstr ""
 
-#: userland/programas/tareas.c:1545
+#: userland/programas/tareas.c:1548
 msgid "Encendido"
 msgstr ""
 
-#: userland/programas/tareas.c:1546
+#: userland/programas/tareas.c:1549
 msgid "Núcleos lógicos"
 msgstr ""
 
-#: userland/programas/tareas.c:1550
+#: userland/programas/tareas.c:1553
 msgid "Por turnos (round-robin)"
 msgstr ""
 
-#: userland/programas/tareas.c:1551
+#: userland/programas/tareas.c:1554
 msgid "Por afinidad de CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1552
+#: userland/programas/tareas.c:1555
 msgid "Equilibrado entre CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1553
+#: userland/programas/tareas.c:1556
 msgid "Por prioridad"
 msgstr ""
 
-#: userland/programas/tareas.c:1554
+#: userland/programas/tareas.c:1557
 msgid "Planificador"
 msgstr ""
 
-#: userland/programas/tareas.c:1556
+#: userland/programas/tareas.c:1559
 msgid "Multiplicador"
 msgstr ""
 
-#: userland/programas/tareas.c:1563
+#: userland/programas/tareas.c:1566
 #, c-format
 msgid "Uso total de la CPU: %u,%u %%"
 msgstr ""
 
-#: userland/programas/tareas.c:1573
+#: userland/programas/tareas.c:1576
 msgid "Núcleos lógicos (cada uno con su uso)"
 msgstr ""
 
-#: userland/programas/tareas.c:1595
+#: userland/programas/tareas.c:1598
 msgid "RAM física"
 msgstr ""
 
-#: userland/programas/tareas.c:1597
+#: userland/programas/tareas.c:1600
 msgid "En uso (programas)"
 msgstr ""
 
-#: userland/programas/tareas.c:1599 userland/programas/tareas.c:1646
+#: userland/programas/tareas.c:1602 userland/programas/tareas.c:1649
 msgid "Libre"
 msgstr ""
 
-#: userland/programas/tareas.c:1601
+#: userland/programas/tareas.c:1604
 msgid "Caché de disco"
 msgstr ""
 
-#: userland/programas/tareas.c:1601
+#: userland/programas/tareas.c:1604
 #, c-format
 msgid "%s baja + %s alta"
 msgstr ""
 
-#: userland/programas/tareas.c:1602
+#: userland/programas/tareas.c:1605
 msgid "sin PAE"
 msgstr ""
 
-#: userland/programas/tareas.c:1603
+#: userland/programas/tareas.c:1606
 msgid " (NX apagado)"
 msgstr ""
 
-#: userland/programas/tareas.c:1604
+#: userland/programas/tareas.c:1607
 msgid "Modo de memoria"
 msgstr ""
 
-#: userland/programas/tareas.c:1607
+#: userland/programas/tareas.c:1610
 msgid "Memoria alta libre"
 msgstr ""
 
-#: userland/programas/tareas.c:1607 userland/programas/tareas.c:1611
+#: userland/programas/tareas.c:1610 userland/programas/tareas.c:1614
 #, c-format
 msgid "%s de %s"
 msgstr ""
 
-#: userland/programas/tareas.c:1611
+#: userland/programas/tareas.c:1614
 msgid "Por encima de 4 GB"
 msgstr ""
 
-#: userland/programas/tareas.c:1615
+#: userland/programas/tareas.c:1618
 msgid "Bibliotecas compartidas"
 msgstr ""
 
-#: userland/programas/tareas.c:1615
+#: userland/programas/tareas.c:1618
 #, c-format
 msgid "%s (sin compartir: %s)"
 msgstr ""
 
-#: userland/programas/tareas.c:1619
+#: userland/programas/tareas.c:1622
 #, c-format
 msgid "Memoria: %s de %s (%u %%)"
 msgstr ""
 
-#: userland/programas/tareas.c:1629
+#: userland/programas/tareas.c:1632
 msgid "Reparto de la memoria"
 msgstr ""
 
-#: userland/programas/tareas.c:1646
+#: userland/programas/tareas.c:1649
 msgid "En uso"
 msgstr ""
 
-#: userland/programas/tareas.c:1646
+#: userland/programas/tareas.c:1649
 msgid "Caché"
 msgstr ""
 
-#: userland/programas/tareas.c:1646
+#: userland/programas/tareas.c:1649
 msgid "Caché alta"
 msgstr ""
 
-#: userland/programas/tareas.c:1660
+#: userland/programas/tareas.c:1663
 msgid "Swap (comprimida en RAM)"
 msgstr ""
 
-#: userland/programas/tareas.c:1662
+#: userland/programas/tareas.c:1665
 msgid "La swap está desactivada (arranque con --sin-swap)."
 msgstr ""
 
-#: userland/programas/tareas.c:1663
+#: userland/programas/tareas.c:1666
 msgid "Sin ella, los programas solo pueden usar la RAM libre."
 msgstr ""
 
-#: userland/programas/tareas.c:1669
+#: userland/programas/tareas.c:1672
 msgid "Tope del almacén"
 msgstr ""
 
-#: userland/programas/tareas.c:1671
+#: userland/programas/tareas.c:1674
 msgid "Usada (almacén)"
 msgstr ""
 
-#: userland/programas/tareas.c:1673
+#: userland/programas/tareas.c:1676
 msgid "Páginas en la swap"
 msgstr ""
 
-#: userland/programas/tareas.c:1673
+#: userland/programas/tareas.c:1676
 #, c-format
 msgid "%s sin comprimir"
 msgstr ""
 
-#: userland/programas/tareas.c:1675
+#: userland/programas/tareas.c:1678
 msgid "Comprimida en RAM"
 msgstr ""
 
-#: userland/programas/tareas.c:1676
+#: userland/programas/tareas.c:1679
 msgid "Ratio de compresión"
 msgstr ""
 
-#: userland/programas/tareas.c:1677
+#: userland/programas/tareas.c:1680
 msgid "Sacadas por segundo"
 msgstr ""
 
-#: userland/programas/tareas.c:1677 userland/programas/tareas.c:1678
+#: userland/programas/tareas.c:1680 userland/programas/tareas.c:1681
 #, c-format
 msgid "%u págs/s"
 msgstr ""
 
-#: userland/programas/tareas.c:1678
+#: userland/programas/tareas.c:1681
 msgid "Traídas por segundo"
 msgstr ""
 
-#: userland/programas/tareas.c:1682
+#: userland/programas/tareas.c:1685
 msgid "Total sacadas / traídas"
 msgstr ""
 
-#: userland/programas/tareas.c:1687
+#: userland/programas/tareas.c:1690
 msgid "Ocupación de la swap"
 msgstr ""
 
-#: userland/programas/tareas.c:1692
+#: userland/programas/tareas.c:1695
 msgid "sacadas"
 msgstr ""
 
-#: userland/programas/tareas.c:1693
+#: userland/programas/tareas.c:1696
 msgid "traídas"
 msgstr ""
 
-#: userland/programas/tareas.c:1694
+#: userland/programas/tareas.c:1697
 msgid "págs/s"
 msgstr ""
 
-#: userland/programas/tareas.c:1702
+#: userland/programas/tareas.c:1705
 msgid "Disco (caché de bloques)"
 msgstr ""
 
-#: userland/programas/tareas.c:1704
+#: userland/programas/tareas.c:1707
 msgid "No hay caché de disco: el kernel no cuenta los accesos."
 msgstr ""
 
-#: userland/programas/tareas.c:1705
+#: userland/programas/tareas.c:1708
 msgid "(imagen con --sem-cache-disco o disco sin caché)"
 msgstr ""
 
-#: userland/programas/tareas.c:1709
+#: userland/programas/tareas.c:1712
 msgid "Lectura"
 msgstr ""
 
-#: userland/programas/tareas.c:1710
+#: userland/programas/tareas.c:1713
 msgid "Escritura"
 msgstr ""
 
-#: userland/programas/tareas.c:1712
+#: userland/programas/tareas.c:1715
 msgid "Caché ocupada"
 msgstr ""
 
-#: userland/programas/tareas.c:1714
+#: userland/programas/tareas.c:1717
 msgid "Tope de la caché"
 msgstr ""
 
-#: userland/programas/tareas.c:1715
+#: userland/programas/tareas.c:1718
 msgid "Pendiente de grabar"
 msgstr ""
 
-#: userland/programas/tareas.c:1715 userland/programas/tareas.c:1717
+#: userland/programas/tareas.c:1718 userland/programas/tareas.c:1720
 #, c-format
 msgid "%u bloques"
 msgstr ""
 
-#: userland/programas/tareas.c:1716
+#: userland/programas/tareas.c:1719
 msgid "Aciertos de caché"
 msgstr ""
 
-#: userland/programas/tareas.c:1717
+#: userland/programas/tareas.c:1720
 msgid "Leído por adelantado"
 msgstr ""
 
-#: userland/programas/tareas.c:1718
+#: userland/programas/tareas.c:1721
 msgid "Grabados / errores"
 msgstr ""
 
-#: userland/programas/tareas.c:1724
+#: userland/programas/tareas.c:1727
 msgid "lectura"
 msgstr ""
 
-#: userland/programas/tareas.c:1725
+#: userland/programas/tareas.c:1728
 msgid "escritura"
 msgstr ""
 
-#: userland/programas/tareas.c:1743
+#: userland/programas/tareas.c:1746
 msgid "sin driver activo"
 msgstr ""
 
-#: userland/programas/tareas.c:1743
+#: userland/programas/tareas.c:1746
 msgid "Activa"
 msgstr ""
 
-#: userland/programas/tareas.c:1744
+#: userland/programas/tareas.c:1747
 msgid "Conectada"
 msgstr ""
 
-#: userland/programas/tareas.c:1744
+#: userland/programas/tareas.c:1747
 msgid "Sin cable"
 msgstr ""
 
-#: userland/programas/tareas.c:1746 userland/programas/tareas.c:1823
+#: userland/programas/tareas.c:1749 userland/programas/tareas.c:1852
 msgid "Adaptador"
 msgstr ""
 
-#: userland/programas/tareas.c:1747
+#: userland/programas/tareas.c:1750
 msgid "IPv4"
 msgstr ""
 
-#: userland/programas/tareas.c:1749
+#: userland/programas/tareas.c:1752
 msgid "Envío"
 msgstr ""
 
-#: userland/programas/tareas.c:1750
+#: userland/programas/tareas.c:1753
 msgid "Recepción"
 msgstr ""
 
-#: userland/programas/tareas.c:1752
+#: userland/programas/tareas.c:1755
 msgid "Total enviado"
 msgstr ""
 
-#: userland/programas/tareas.c:1753
+#: userland/programas/tareas.c:1756
 msgid "Total recibido"
 msgstr ""
 
-#: userland/programas/tareas.c:1755
+#: userland/programas/tareas.c:1758
 msgid "Paquetes (env. / rec.)"
 msgstr ""
 
-#: userland/programas/tareas.c:1761
+#: userland/programas/tareas.c:1764
 msgid "recepción"
 msgstr ""
 
-#: userland/programas/tareas.c:1762
+#: userland/programas/tareas.c:1765
 msgid "envío"
 msgstr ""
 
-#: userland/programas/tareas.c:1771
-msgid "actividad, últimos 60 s"
-msgstr ""
-
-#: userland/programas/tareas.c:1773 userland/programas/tareas.c:1778
-msgid "2D del escritorio"
-msgstr ""
-
-#: userland/programas/tareas.c:1773
-msgid "CPU (software)"
-msgstr ""
-
-#: userland/programas/tareas.c:1774
-msgid "Tarjeta"
+#: userland/programas/tareas.c:1775
+msgid "Relojes de la GPU"
 msgstr ""
 
 #: userland/programas/tareas.c:1775
-msgid "Órdenes 2D (copias + rellenos)"
+msgid "sin driver de energía para esta tarjeta"
 msgstr ""
 
-#: userland/programas/tareas.c:1776
-msgid "Fallos 2D"
+#: userland/programas/tareas.c:1778
+msgid "BIOS (sin tocar)"
 msgstr ""
 
-#: userland/programas/tareas.c:1777
-msgid "Cuadros de arrastre"
+#: userland/programas/tareas.c:1778
+msgid "bajo"
 msgstr ""
 
-#: userland/programas/tareas.c:1778 userland/programas/tareas.c:1786
-msgid "sin información"
+#: userland/programas/tareas.c:1778
+msgid "alto"
 msgstr ""
 
-#: userland/programas/tareas.c:1780
-msgid "sin probar"
+#: userland/programas/tareas.c:1778
+msgid "automático"
 msgstr ""
 
-#: userland/programas/tareas.c:1780
-msgid "activo"
+#: userland/programas/tareas.c:1778
+msgid "manual"
 msgstr ""
 
-#: userland/programas/tareas.c:1780
-msgid "software"
+#: userland/programas/tareas.c:1781
+msgid "Reloj del motor"
 msgstr ""
 
-#: userland/programas/tareas.c:1780
-msgid "fallo"
+#: userland/programas/tareas.c:1781
+#, c-format
+msgid "%s (BIOS: %s)%s"
 msgstr ""
 
-#: userland/programas/tareas.c:1781 userland/programas/tareas.c:1786
-msgid "3D"
-msgstr ""
-
-#: userland/programas/tareas.c:1782
-msgid "Tarjeta 3D"
-msgstr ""
-
-#: userland/programas/tareas.c:1783
-msgid "Estado 3D"
+#: userland/programas/tareas.c:1781
+msgid ", sin leer"
 msgstr ""
 
 #: userland/programas/tareas.c:1784
+msgid "Reloj de la memoria"
+msgstr ""
+
+#: userland/programas/tareas.c:1784
+#, c-format
+msgid "%s (BIOS: %s)"
+msgstr ""
+
+#: userland/programas/tareas.c:1785 userland/programas/tareas.c:1786 userland/programas/tareas.c:1787
+msgid "Temperatura de la GPU"
+msgstr ""
+
+#: userland/programas/tareas.c:1786
+#, c-format
+msgid "sin sensor; ACPI %s: %s"
+msgstr ""
+
+#: userland/programas/tareas.c:1788
+msgid "VRAM usada"
+msgstr ""
+
+#: userland/programas/tareas.c:1788
+#, c-format
+msgid "unos %u de %u MB"
+msgstr ""
+
+#: userland/programas/tareas.c:1789
+#, c-format
+msgid "estado %d"
+msgstr ""
+
+#: userland/programas/tareas.c:1790
+msgid "relojes de la BIOS"
+msgstr ""
+
+#: userland/programas/tareas.c:1791
+msgid "Energía"
+msgstr ""
+
+#: userland/programas/tareas.c:1791
+msgid " (bloqueado tras un fallo)"
+msgstr ""
+
+#: userland/programas/tareas.c:1798
+msgid "actividad, últimos 60 s"
+msgstr ""
+
+#: userland/programas/tareas.c:1800 userland/programas/tareas.c:1806
+msgid "2D del escritorio"
+msgstr ""
+
+#: userland/programas/tareas.c:1800
+msgid "CPU (software)"
+msgstr ""
+
+#: userland/programas/tareas.c:1801
+msgid "Tarjeta"
+msgstr ""
+
+#: userland/programas/tareas.c:1802
+msgid "Memoria de vídeo"
+msgstr ""
+
+#: userland/programas/tareas.c:1803
+msgid "Órdenes 2D (copias + rellenos)"
+msgstr ""
+
+#: userland/programas/tareas.c:1804
+msgid "Fallos 2D"
+msgstr ""
+
+#: userland/programas/tareas.c:1805
+msgid "Cuadros de arrastre"
+msgstr ""
+
+#: userland/programas/tareas.c:1806 userland/programas/tareas.c:1814
+msgid "sin información"
+msgstr ""
+
+#: userland/programas/tareas.c:1808
+msgid "sin probar"
+msgstr ""
+
+#: userland/programas/tareas.c:1808
+msgid "activo"
+msgstr ""
+
+#: userland/programas/tareas.c:1808
+msgid "software"
+msgstr ""
+
+#: userland/programas/tareas.c:1808
+msgid "fallo"
+msgstr ""
+
+#: userland/programas/tareas.c:1809 userland/programas/tareas.c:1814
+msgid "3D"
+msgstr ""
+
+#: userland/programas/tareas.c:1810
+msgid "Tarjeta 3D"
+msgstr ""
+
+#: userland/programas/tareas.c:1811
+msgid "Estado 3D"
+msgstr ""
+
+#: userland/programas/tareas.c:1812
 msgid "Triángulos / lotes"
 msgstr ""
 
-#: userland/programas/tareas.c:1785
-msgid "Memoria de GPU"
-msgstr ""
-
-#: userland/programas/tareas.c:1785
-#, c-format
-msgid "%u de %u MB libres"
-msgstr ""
-
-#: userland/programas/tareas.c:1792
-msgid "2D (órdenes/s)"
-msgstr ""
-
-#: userland/programas/tareas.c:1793
-msgid "3D (cuadros/s)"
-msgstr ""
-
-#: userland/programas/tareas.c:1812 userland/programas/tareas.c:1814 userland/programas/tareas.c:1832
-msgid "Temperatura"
+#: userland/programas/tareas.c:1813
+msgid "Memoria de GPU (3D)"
 msgstr ""
 
 #: userland/programas/tareas.c:1813
-msgid "Máxima admitida"
+#, c-format
+msgid "%u de %u MB usados"
 msgstr ""
 
-#: userland/programas/tareas.c:1814
-msgid "sin sensor (máquina virtual)"
-msgstr ""
-
-#: userland/programas/tareas.c:1814
-msgid "sin sensor conocido"
-msgstr ""
-
-#: userland/programas/tareas.c:1816
-msgid "limitada por temperatura"
-msgstr ""
-
-#: userland/programas/tareas.c:1818
-msgid "en reposo"
-msgstr ""
-
-#: userland/programas/tareas.c:1818
-msgid "descargando"
-msgstr ""
-
-#: userland/programas/tareas.c:1818
-msgid "cargando"
-msgstr ""
-
-#: userland/programas/tareas.c:1818
-msgid "crítica"
-msgstr ""
-
-#: userland/programas/tareas.c:1821 userland/programas/tareas.c:1824
-msgid "Batería"
+#: userland/programas/tareas.c:1821
+msgid "2D (órdenes/s)"
 msgstr ""
 
 #: userland/programas/tareas.c:1822
+msgid "3D (cuadros/s)"
+msgstr ""
+
+#: userland/programas/tareas.c:1841 userland/programas/tareas.c:1843 userland/programas/tareas.c:1861
+msgid "Temperatura"
+msgstr ""
+
+#: userland/programas/tareas.c:1842
+msgid "Máxima admitida"
+msgstr ""
+
+#: userland/programas/tareas.c:1843
+msgid "sin sensor (máquina virtual)"
+msgstr ""
+
+#: userland/programas/tareas.c:1843
+msgid "sin sensor conocido"
+msgstr ""
+
+#: userland/programas/tareas.c:1845
+msgid "limitada por temperatura"
+msgstr ""
+
+#: userland/programas/tareas.c:1847
+msgid "en reposo"
+msgstr ""
+
+#: userland/programas/tareas.c:1847
+msgid "descargando"
+msgstr ""
+
+#: userland/programas/tareas.c:1847
+msgid "cargando"
+msgstr ""
+
+#: userland/programas/tareas.c:1847
+msgid "crítica"
+msgstr ""
+
+#: userland/programas/tareas.c:1850 userland/programas/tareas.c:1853
+msgid "Batería"
+msgstr ""
+
+#: userland/programas/tareas.c:1851
 msgid "Tiempo restante"
 msgstr ""
 
-#: userland/programas/tareas.c:1823
+#: userland/programas/tareas.c:1852
 msgid "enchufado"
 msgstr ""
 
-#: userland/programas/tareas.c:1823
+#: userland/programas/tareas.c:1852
 msgid "desenchufado"
 msgstr ""
 
-#: userland/programas/tareas.c:1824
+#: userland/programas/tareas.c:1853
 msgid "no hay"
 msgstr ""
 
-#: userland/programas/tareas.c:1837
+#: userland/programas/tareas.c:1866
 msgid "Frecuencia de la CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1902
+#: userland/programas/tareas.c:1931
 msgid "Elige un proceso en la pestaña Procesos para ver sus detalles e hilos."
 msgstr ""
 
-#: userland/programas/tareas.c:1914
+#: userland/programas/tareas.c:1943
 msgid "Tiempo de CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1916
+#: userland/programas/tareas.c:1945
 msgid "Pila"
 msgstr ""
 
-#: userland/programas/tareas.c:1919
+#: userland/programas/tareas.c:1948
 msgid "Última CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1921
+#: userland/programas/tareas.c:1950
 msgid "Prioridad (nice)"
 msgstr ""
 
-#: userland/programas/tareas.c:1922
+#: userland/programas/tareas.c:1951
 msgid "Prioridad efectiva"
 msgstr ""
 
-#: userland/programas/tareas.c:1923 userland/programas/tareas.c:1923
+#: userland/programas/tareas.c:1952 userland/programas/tareas.c:1952
 msgid "Afinidad"
 msgstr ""
 
-#: userland/programas/tareas.c:1923
+#: userland/programas/tareas.c:1952
 msgid "todas las CPU"
 msgstr ""
 
-#: userland/programas/tareas.c:1924
+#: userland/programas/tareas.c:1953
 msgid "Migraciones"
 msgstr ""
 
-#: userland/programas/tareas.c:1925
+#: userland/programas/tareas.c:1954
 msgid "Latencia media"
 msgstr ""
 
-#: userland/programas/tareas.c:1926
+#: userland/programas/tareas.c:1955
 msgid "Latencia máxima"
 msgstr ""
 
-#: userland/programas/tareas.c:1939
+#: userland/programas/tareas.c:1968
 msgid "TID"
 msgstr ""
 
-#: userland/programas/tareas.c:1966
+#: userland/programas/tareas.c:1995
 msgid "Este proceso solo tiene su hilo principal."
 msgstr ""
 
-#: userland/programas/tareas.c:1968
+#: userland/programas/tareas.c:1997
 #, c-format
 msgid "... y %d hilos más"
 msgstr ""
 
-#: userland/programas/tareas.c:1979
+#: userland/programas/tareas.c:2008
 #, c-format
 msgid "Buscar: %s_  (%d de %d; Esc borra)"
 msgstr ""
 
-#: userland/programas/tareas.c:1981
+#: userland/programas/tareas.c:2010
 #, c-format
 msgid "Procesos: %d  CPU: %u%%  Mem.: %u%%%s"
 msgstr ""
 
-#: userland/programas/tareas.c:1986
+#: userland/programas/tareas.c:2015
 msgid "Reanudar"
 msgstr ""
 
-#: userland/programas/tareas.c:1992 userland/programas/tareas.c:2419
+#: userland/programas/tareas.c:2021 userland/programas/tareas.c:2452
 msgid "Parar"
 msgstr ""
 
-#: userland/programas/tareas.c:1992
+#: userland/programas/tareas.c:2021
 msgid "Iniciar"
 msgstr ""
 
-#: userland/programas/tareas.c:1993 userland/programas/tareas.c:2421
+#: userland/programas/tareas.c:2022 userland/programas/tareas.c:2454
 msgid "Activar"
 msgstr ""
 
-#: userland/programas/tareas.c:1998 userland/programas/tareas.c:2195
+#: userland/programas/tareas.c:2027 userland/programas/tareas.c:2228
 msgid "Cerrar ventana"
 msgstr ""
 
-#: userland/programas/tareas.c:2003
+#: userland/programas/tareas.c:2032
 #, c-format
 msgid "Política: %s"
 msgstr ""
 
-#: userland/programas/tareas.c:2163
+#: userland/programas/tareas.c:2196
 msgid "Selecciona primero un proceso de la lista."
 msgstr ""
 
-#: userland/programas/tareas.c:2178
+#: userland/programas/tareas.c:2211
 #, c-format
 msgid "¿Finalizar el proceso \"%s\" (PID %d)?%s"
 msgstr ""
 
-#: userland/programas/tareas.c:2187
+#: userland/programas/tareas.c:2220
 #, c-format
 msgid ""
 "No se pudo finalizar el proceso %d:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/tareas.c:2195
+#: userland/programas/tareas.c:2228
 msgid "Selecciona primero una ventana de la lista."
 msgstr ""
 
-#: userland/programas/tareas.c:2240
+#: userland/programas/tareas.c:2273
 msgid "Árbol de procesos"
 msgstr ""
 
-#: userland/programas/tareas.c:2251
+#: userland/programas/tareas.c:2284
 msgid "Prioridad más alta"
 msgstr ""
 
-#: userland/programas/tareas.c:2251
+#: userland/programas/tareas.c:2284
 msgid "Prioridad más baja"
 msgstr ""
 
-#: userland/programas/tareas.c:2252
+#: userland/programas/tareas.c:2285
 msgid "Detalles e hilos"
 msgstr ""
 
-#: userland/programas/tareas.c:2271
+#: userland/programas/tareas.c:2304
 #, c-format
 msgid ""
 "No se pudo cambiar la prioridad del proceso %d:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/tareas.c:2272
+#: userland/programas/tareas.c:2305
 msgid "Prioridad"
 msgstr ""
 
-#: userland/programas/tareas.c:2379
+#: userland/programas/tareas.c:2412
 msgid "Administrador de tareas"
 msgstr ""
 

@@ -3,6 +3,7 @@
 /* Carga de recursos y dibujo del mundo (terreno isométrico, entidades, niebla, minimapa). */
 #include "ui.h"
 #include "efectos.h"
+#include "hilos.h"
 
 void render_terrain_tiles(int x0, int x1, int y0, int y1, float time);
 
@@ -207,8 +208,8 @@ void view_proj(float wx, float wy, float *px, float *py) { *px = (wx + wy) * 32.
 void view_to_screen(float wx, float wy, int *sx, int *sy) {
 	float px, py;
 	view_proj(wx, wy, &px, &py);
-	*sx = (int)floorf(V.sw * 0.5f + (px - V.cx) * V.zoom);
-	*sy = (int)floorf(V.sh * 0.5f + (py - V.cy) * V.zoom);
+	*sx = piso(V.sw * 0.5f + (px - V.cx) * V.zoom);
+	*sy = piso(V.sh * 0.5f + (py - V.cy) * V.zoom);
 }
 
 void screen_to_world(int sx, int sy, float *wx, float *wy) {
@@ -551,16 +552,27 @@ void render_world(int top_h, int bottom_h) {
 	x0 = CLAMP(x0, 0, W.w - 1); x1 = CLAMP(x1, 0, W.w - 1);
 	y0 = CLAMP(y0, 0, W.h - 1); y1 = CLAMP(y1, 0, W.h - 1);
 
-	if (hd_enabled) {
-		render_terrain_hd((float)SDL_GetTicks() / 1000.0f, top_h, fb.h - bottom_h);
-	} else {
-		/* bajo las barras de la interfaz no hace falta dibujar el suelo: quedan tapadas */
-		gfx_clip(0, top_h, fb.w, fb.h - bottom_h);
-		render_terrain_tiles(x0, x1, y0, y1, (float)SDL_GetTicks() / 1000.0f);
-		gfx_clip_reset();
+	/* el reloj de las animaciones del suelo (agua); AOEN_TIEMPO_ANIM=segundos lo fija (pruebas: el mismo cuadro con 1 y N hilos) */
+	static int anim_fija = -1; static float anim_t;
+	if (anim_fija < 0) { anim_fija = getenv("AOEN_TIEMPO_ANIM") != NULL; anim_t = anim_fija ? (float)atof(getenv("AOEN_TIEMPO_ANIM")) : 0; }
+	float t_anim = anim_fija ? anim_t : (float)SDL_GetTicks() / 1000.0f;
+	{
+		PERF_INI();
+		if (hd_enabled) {
+			render_terrain_hd(t_anim, top_h, fb.h - bottom_h);
+		} else {
+			/* bajo las barras de la interfaz no hace falta dibujar el suelo: quedan tapadas */
+			gfx_clip(0, top_h, fb.w, fb.h - bottom_h);
+			render_terrain_tiles(x0, x1, y0, y1, t_anim);
+			gfx_clip_reset();
+		}
+		PERF_FIN(PERF_TERRENO);
 	}
+	PERF_INI();
+	gfx_lista_empezar();   /* D393: lo de encima del terreno se graba y se dibuja por franjas en los hilos (gfx.c) */
 
 	/* recoge las entidades */
+	unsigned long long t_recoger = perf_activo ? perf_reloj() : 0;
 	static DrawItem *items; static int icap;
 	int n = 0;
 	if (icap < W.nents) { icap = W.nents + 256; items = (DrawItem *)realloc(items, sizeof(DrawItem) * (size_t)icap); }
@@ -568,7 +580,7 @@ void render_world(int top_h, int bottom_h) {
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *e = &W.ents[i];
 		if (!e->alive) continue;
-		int fx = CLAMP((int)floorf(e->x), 0, W.w - 1), fy = CLAMP((int)floorf(e->y), 0, W.h - 1);
+		int fx = CLAMP(piso(e->x), 0, W.w - 1), fy = CLAMP(piso(e->y), 0, W.h - 1);
 		u8 f = W.fog[fy * W.w + fx];
 		if (!f) continue;
 		if (is_unit(e->type) && !same_team(e->owner, W.human) && f < 2) continue;
@@ -585,6 +597,7 @@ void render_world(int top_h, int bottom_h) {
 	}
 
 	qsort(items, (size_t)n, sizeof(DrawItem), cmp_depth);
+	if (perf_activo) perf_sumar(PERF_RECOGER, t_recoger);
 
 	/* edificios que se derrumban (se dibujan antes, a ras de suelo) */
 	for (int k = 0; k < fx_derrumbes(); ++k) {
@@ -597,7 +610,7 @@ void render_world(int top_h, int bottom_h) {
 	if (efx.sombras) for (int k = 0; k < n; ++k) draw_shadow(&W.ents[items[k].idx]);
 	for (int k = 0; k < n; ++k) {
 		Entity *e = &W.ents[items[k].idx];
-		int fx = CLAMP((int)floorf(e->x), 0, W.w - 1), fy = CLAMP((int)floorf(e->y), 0, W.h - 1);
+		int fx = CLAMP(piso(e->x), 0, W.w - 1), fy = CLAMP(piso(e->y), 0, W.h - 1);
 		draw_entity(e, W.fog[fy * W.w + fx] == 2 ? 256 : 140);
 	}
 
@@ -668,6 +681,12 @@ void render_world(int top_h, int bottom_h) {
 	/* partículas (humo, polvo, fuego, escombros) y la luz del día y la noche */
 	fx_dibujar();
 	fx_luz(top_h, fb.h - bottom_h);
+	{
+		unsigned long long t_lista = perf_activo ? perf_reloj() : 0;
+		gfx_lista_terminar();
+		if (perf_activo) perf_sumar(PERF_LISTA, t_lista);
+	}
+	PERF_FIN(PERF_ENTIDADES);
 	gfx_ui_resume(ui_saved);
 }
 

@@ -168,6 +168,7 @@ la libsagui» = ¿se puede enlazar con la libsagui, que tiene código `GPL-3.0-o
 | LGPL-2.1 o posterior | Sí | Sí | «O posterior» permite pasarla a la v3; solo LGPL-2.1 sin «o posterior»: sí como biblioteca enlazada dinámicamente, no mezclada en el mismo ejecutable estático con la v3 |
 | GPL-2.0-or-later | Sí | Sí | Se usa bajo la v3 y el resultado es GPL v3 (el código nuevo del fork) |
 | GPL-2.0-only | **No** | **No** | v2 sola y v3 incompatibles (Linux, NetSurf, GNUBoy en la práctica) |
+| GPL-2.0 con excepción de enlace | Sí | Sí | libgit2 (D400): la excepción permite enlazar la biblioteca con cualquier programa; por eso sirve donde el git original (GPL-2.0-only) no |
 | GPL-3.0 | Sí | Sí | La misma licencia (Vanilla Conquer, con los términos de EA) |
 | Apache-2.0 | Sí (con la v3, no con la v2 sola) | Sí | Compatible con la v3 por su cláusula de patentes; no con la GPL-2.0-only |
 

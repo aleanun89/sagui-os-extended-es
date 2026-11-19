@@ -220,11 +220,14 @@ bool uhci_porta_mudou(uhci_t *c, int p)
 }
 
 /* Reinicia el puerto (USB 2.0, 7.1.7.5: 50 ms en la raíz) y lo habilita; devuelve
- * la velocidad del dispositivo. */
+ * la velocidad del dispositivo, leída DESPUÉS del reset (D389: como hace el hub de Linux; antes
+ * del reset el bit LSDA puede ser el de una conexión anterior). */
 int uhci_porta_resetar(uhci_t *c, int p)
 {
     int reg = R_PORTA + 2 * p;
     uint16_t v = le16(c, reg);
+    c->porta_antes = v;
+    c->porta_depois = 0;
     if (!(v & P_CCS)) return USB_ERRO;
     int vel = (v & P_LSDA) ? USB_VEL_BAIXA : USB_VEL_PLENA;
     esc16(c, reg, P_PR);
@@ -238,10 +241,20 @@ int uhci_porta_resetar(uhci_t *c, int p)
         if (!(v & P_CCS)) return USB_ERRO;
         if (v & P_PE) break;
     }
+    c->porta_depois = v;
     if (!(v & P_PE)) { klog("[UHCI] puerto %d: no se habilitó tras el reset (estado %x)\n", p, v); return USB_ERRO; }
+    vel = (v & P_LSDA) ? USB_VEL_BAIXA : USB_VEL_PLENA;
     esc16(c, reg, (uint16_t)(P_PE | P_CSC | P_PEC));
-    usb_pausa_ms(NULL, 10);                              /* recuperación tras el reset */
+    usb_pausa_ms(NULL, 10);                              /* recuperación tras el reset (TRSTRCY, USB 2.0 7.1.7.5) */
     return vel;
+}
+
+/* Los bits de error de la palabra de estado de un TD (UHCI 1.1, 3.2.2), para el registro. */
+int uhci_erro_texto(uint32_t f, char *s, int max)
+{
+    return snformatar(s, (size_t)max, "%08x%s%s%s%s%s%s", f, (f & (1u << 22)) ? " stall" : "", (f & (1u << 21)) ? " buffer" : "",
+                      (f & (1u << 20)) ? " babble" : "", (f & (1u << 19)) ? " nak" : "", (f & (1u << 18)) ? " crc/tiempo" : "",
+                      (f & (1u << 17)) ? " bitstuff" : "");
 }
 
 /* ------------------------------------------------------------ transferencias */
@@ -279,11 +292,15 @@ static int rodar(uhci_t *c, utd_t *t, int ini, int fim, uint32_t ms, int *curto)
         for (int i = ini; i <= fim; i++) {
             uint32_t f = t[i].ctrl;
             if (f & TD_ATIVO) { tudo = false; break; }
-            if (f & TD_ERROS) { r = ((f & TD_ERROS) == TD_PAROU) ? USB_ERRO_PAROU : USB_ERRO; break; }
+            if (f & TD_ERROS) { r = ((f & TD_ERROS) == TD_PAROU) ? USB_ERRO_PAROU : USB_ERRO; c->ultimo_td = f; break; }
             if ((f & TD_SPD) && td_feito(&t[i]) < td_pedido(&t[i])) { *curto = i; break; }
         }
         if (r || *curto >= 0 || tudo) break;
-        if (prazo_vencido(&p)) { r = USB_ERRO_TEMPO; break; }
+        if (prazo_vencido(&p)) {
+            r = USB_ERRO_TEMPO;
+            for (int i = ini; i <= fim; i++) if (t[i].ctrl & TD_ATIVO) { c->ultimo_td = t[i].ctrl; break; }   /* NAK sin fin */
+            break;
+        }
         if (ehci_pode_dormir()) ceder();
     }
     if (r || *curto >= 0) {
@@ -488,6 +505,136 @@ void uhci_int_fechar(int h)
     memfisica_liberar(e->pagina);
     e->usado = false;
     int_restaura(i0);
+}
+
+/* ------------------------------------------------------------ recepción bulk continua (D389) */
+
+/* Para los datos ACL de un controlador Bluetooth por UHCI (antes no había: «solo se puede buscar»).
+ * Una página por flujo: QH (0), dos juegos de RX_TDS TD (64 y 64 + 32*RX_TDS) y sus buffers de un
+ * paquete (desde 2048). La QH cuelga, como las de interrupción, detrás de la cabeza «int» (cada 8 ms);
+ * los TD van encadenados en profundidad, así que en una visita entran varios paquetes seguidos hasta
+ * el primer NAK (16 x 64 bytes cada 8 ms: unos 128 KB/s, de sobra para HID por Bluetooth).
+ * Cada TD lleva SPD: un paquete corto detiene la cola sobre ese TD (que queda inactivo). Al leer, se
+ * recogen en orden los TD acabados y, cuando el juego se acaba (paquete corto, error o los RX_TDS
+ * hechos), se arma el OTRO juego y se apunta la QH a él de una sola escritura: el controlador nunca ve
+ * un TD a medio escribir. Lo que se devuelve es un flujo de bytes: quien lo usa reconstruye sus
+ * paquetes (el Bluetooth, por la longitud de la cabecera ACL). */
+#define RX_TDS   16
+#define MAX_RX   2
+
+typedef struct {
+    bool     usado;
+    uhci_t  *c;
+    uint32_t pagina;
+    uint16_t mps;
+    uint8_t  alterna, endereco, ep, lenta;
+    int      conj, lidos;
+    uint32_t paquetes, erros;
+} uhci_rx_t;
+
+static uhci_rx_t rxs[MAX_RX];
+
+static utd_t *rx_td(uhci_rx_t *e, int conj) { return (utd_t *)(e->pagina + 64 + (uint32_t)conj * 32u * RX_TDS); }
+static uint32_t rx_buf(uhci_rx_t *e, int conj, int i) { return e->pagina + 2048 + ((uint32_t)conj * RX_TDS + (uint32_t)i) * 64u; }
+
+static void rx_armar(uhci_rx_t *e, int conj)
+{
+    utd_t *t = rx_td(e, conj);
+    uint32_t tog = e->alterna;
+    for (int i = 0; i < RX_TDS; i++) {
+        td_preparar(&t[i], PID_ENTRADA, e->endereco, e->ep, tog, e->mps, rx_buf(e, conj, i), e->lenta, true);
+        tog ^= 1;
+    }
+    encadear(t, RX_TDS);
+    e->conj = conj;
+    e->lidos = 0;
+    ((uqh_t *)e->pagina)->elem = (uint32_t)t;   /* una escritura: el juego viejo ya no se visita */
+}
+
+int uhci_rx_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps)
+{
+    uhci_t *c = d->uctl;
+    if (!c || !mps || mps > 64) return USB_ERRO;
+    bool i0 = int_salva_desliga();
+    int h = -1;
+    for (int i = 0; i < MAX_RX; i++) if (!rxs[i].usado) { h = i; break; }
+    uint32_t pg = h >= 0 ? memfisica_alocar() : 0;
+    if (!pg) { int_restaura(i0); return USB_ERRO; }
+    memset((void *)pg, 0, PAGINA);
+    uhci_rx_t *e = &rxs[h];
+    memset(e, 0, sizeof *e);
+    e->usado = true;
+    e->c = c;
+    e->pagina = pg;
+    e->mps = mps;
+    e->alterna = d->alterna_entrada;
+    e->endereco = d->endereco;
+    e->ep = ep;
+    e->lenta = lenta(d);
+    uqh_t *q = (uqh_t *)pg;
+    rx_armar(e, 0);
+    q->link = qh_int(c)->link;
+    qh_int(c)->link = pg | L_QH;
+    int_restaura(i0);
+    return h;
+}
+
+/* Lo recibido desde la última lectura (hasta max bytes; nunca parte un paquete), 0 si nada o <0. */
+int uhci_rx_ler(int h, uint8_t *dados, int max)
+{
+    if (h < 0 || h >= MAX_RX || !rxs[h].usado) return USB_ERRO;
+    uhci_rx_t *e = &rxs[h];
+    bool i0 = int_salva_desliga();
+    utd_t *t = rx_td(e, e->conj);
+    int n = 0, r = 0;
+    bool reamar = false;
+    while (e->lidos < RX_TDS) {
+        int i = e->lidos;
+        uint32_t f = t[i].ctrl;
+        if (f & TD_ATIVO) break;
+        if (f & TD_ERROS) {
+            e->erros++;
+            r = ((f & TD_ERROS) == TD_PAROU) ? USB_ERRO_PAROU : USB_ERRO;
+            reamar = true;   /* el TD con error no cambió la alternancia */
+            break;
+        }
+        int k = (int)td_feito(&t[i]);
+        if (k > e->mps) k = e->mps;
+        if (n + k > max) break;   /* no cabe: se queda para la próxima lectura */
+        memcpy(dados + n, (const void *)rx_buf(e, e->conj, i), (uint32_t)k);
+        n += k;
+        e->paquetes++;
+        e->alterna ^= 1;
+        e->lidos++;
+        if ((uint32_t)k < td_pedido(&t[i])) { reamar = true; break; }   /* corto: la cola se detuvo aquí */
+    }
+    if (e->lidos >= RX_TDS) reamar = true;
+    if (reamar) rx_armar(e, e->conj ^ 1);
+    int_restaura(i0);
+    return n ? n : r;
+}
+
+void uhci_rx_fechar(int h)
+{
+    if (h < 0 || h >= MAX_RX || !rxs[h].usado) return;
+    uhci_rx_t *e = &rxs[h];
+    bool i0 = int_salva_desliga();
+    uqh_t *q = (uqh_t *)e->pagina;
+    uqh_t *p = qh_int(e->c);
+    while ((p->link & ~0xFu) != (uint32_t)q && (p->link & L_QH) && !(p->link & L_TERMINA)) p = (uqh_t *)(p->link & ~0xFu);
+    if ((p->link & ~0xFu) == (uint32_t)q) p->link = q->link;
+    pausa_ms(3);
+    memfisica_liberar(e->pagina);
+    e->usado = false;
+    int_restaura(i0);
+}
+
+bool uhci_rx_info(int h, uint32_t *paquetes, uint32_t *erros)
+{
+    if (h < 0 || h >= MAX_RX || !rxs[h].usado) return false;
+    *paquetes = rxs[h].paquetes;
+    *erros = rxs[h].erros;
+    return true;
 }
 
 /* ------------------------------------------------------------ transferencias isócronas (D275) */

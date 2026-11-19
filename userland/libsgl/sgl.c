@@ -60,16 +60,31 @@
 #define MAX_BEGIN  3072
 #define LIM_VIEW   2048
 
-typedef struct { float x, y, z, w, r, g, b; float u, v, a, luz; float ex, ey, ez; } vert_t;
+/* sr, sg, sb: especular de la luz por vértice (D404, 0..255), que se suma
+ * después de la textura; ff: factor de la niebla por la distancia al ojo
+ * (1 = sin niebla). */
+typedef struct { float x, y, z, w, r, g, b; float u, v, a, luz; float ex, ey, ez; float sr, sg, sb, ff; } vert_t;
 
-#define MAX_TEX 4
+/* D404: hasta 512 texturas por contexto (eran 4), para medir con muchas. */
+#define MAX_TEX    512
+#define MAX_NIVEIS 12      /* 2048 -> 1 */
+#define GPU_VAGAS_MAX 32   /* huecos de textura de la GPU que la biblioteca sabe usar */
 
 typedef struct {
     int           usada;
     GLuint        id;
     int           larg, alt;
-    unsigned char *px;      /* RGBA, 4 bytes por píxel */
+    unsigned char *px;      /* RGBA, 4 bytes por píxel (el nivel 0) */
     int           wrap_s, wrap_t;
+    /* D404: filtros y mipmaps. nivel_px[0] = px; los demás, NULL hasta que
+     * se den con glTexImage2D(nivel > 0) o se generen (caja de 2x2). */
+    int           filtro_min, filtro_mag;
+    int           gerar_mip;            /* GL_GENERATE_MIPMAP */
+    int           mip_pronto;           /* todos los niveles hasta 1x1 están */
+    int           n_niveis;             /* niveles válidos si mip_pronto (si no, 1) */
+    unsigned char *nivel_px[MAX_NIVEIS];
+    int           nivel_l[MAX_NIVEIS], nivel_a[MAX_NIVEIS];
+    uint32_t      geracao;              /* cambia con los píxeles: la copia de la GPU caduca */
 } textura_t;
 
 struct sgl_ctx {
@@ -112,8 +127,33 @@ struct sgl_ctx {
     int       gpu;             /* 1: este contexto dibuja por la GPU */
     int       gpu_n;           /* vértices pendientes en gpu_v */
     int       gpu_sujo;        /* la GPU tiene dibujo que px todavía no tiene */
-    int       gpu_tex_ok[MAX_TEX];   /* la textura ya está en la GPU */
     void     *gpu_v;
+    /* D404: caché de texturas en la GPU. Cada hueco del kernel guarda qué
+     * textura tiene y con qué generación; se reutiliza mientras no cambie y
+     * se reemplaza el que lleva más tiempo sin usarse. */
+    int       gpu_vagas;                     /* huecos que da el kernel (8 o GPU_VAGAS_MAX) */
+    int       vaga_tex[GPU_VAGAS_MAX];       /* índice en tex[], -1 si libre */
+    uint32_t  vaga_ger[GPU_VAGAS_MAX], vaga_uso[GPU_VAGAS_MAX];
+    uint32_t  relogio, ger_cont;
+    /* D404: ruta realista, luces por vértice y niebla por distancia */
+    int       realista;        /* este dibujo va por triangulo_v7 */
+    int       persp;           /* GL_PERSPECTIVE_CORRECTION_HINT = GL_NICEST */
+    int       luz_nova;        /* se usaron normales, materiales o glEnable(GL_LIGHTn) */
+    int       luz_v7;          /* luz_on && luz_nova: la luz de GL ES por vértice */
+    int       luz_ligada[SGL_MAX_LUZES];
+    float     l_pos[SGL_MAX_LUZES][4], l_amb[SGL_MAX_LUZES][3], l_dif[SGL_MAX_LUZES][3], l_esp[SGL_MAX_LUZES][3];
+    float     l_att[SGL_MAX_LUZES][3];
+    float     m_amb[4], m_dif[4], m_esp[3], m_emi[3], m_brilho;
+    float     modelo_amb[3];
+    int       cor_material;
+    float     normal[3];
+    int       n_ativo, n_passo;
+    const void *n_ptr;
+    float     nm[9];           /* matriz de las normales (cofactores de la modelo/vista) */
+    float     begin_nv[MAX_BEGIN][3];
+    int       fog_modo;        /* 0: el de v6 (z de la ventana); GL_LINEAR, GL_EXP, GL_EXP2: distancia al ojo */
+    float     fog_dens;
+    sgl_estat_t est;
 };
 
 /* Motor de sombreado: 1 = SIMD (SSE2), 0 = referencia. Las dos rutas dan
@@ -121,6 +161,8 @@ struct sgl_ctx {
 static int sgl_simd = 1;
 
 static sgl_ctx_t *C;   /* contexto actual */
+
+static int tex_preparar_mip(textura_t *t);   /* D404: genera los niveles que falten */
 
 /* ------------------------------------------------------------ utilidades */
 
@@ -145,6 +187,8 @@ float sgl_cos(float x) { return sgl_sen(x + 1.5707964f); }
  * sqrtsd del GCC y el fsqrt del cc dan el mismo float (el doble redondeo es
  * seguro con 53 bits de mantisa para un resultado de 24). */
 static inline float raiz(float x) { return (float)__builtin_sqrt((double)x); }
+
+static float sat01(float v) { return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v; }
 
 /* ---- aritmética entera en double (D127) ----
  *
@@ -206,6 +250,7 @@ static void gpu_cair(sgl_ctx_t *c)
 {
     if (!c->gpu) return;
     c->gpu = 0; c->gpu_n = 0; c->gpu_sujo = 0;
+    for (int i = 0; i < GPU_VAGAS_MAX; i++) c->vaga_tex[i] = -1;
     if (gpu_ctx == c) { gpu_chamar(GPU3D_OP_FECHAR, 0, 0, 0, 0); gpu_ctx = 0; }
     if (c->gpu_v) { SGL_LIBERAR(c->gpu_v); c->gpu_v = 0; }
     /* El Z por software empieza limpio. */
@@ -227,7 +272,15 @@ int sgl_gpu_ligar(sgl_ctx_t *c)
         return 0;
     }
     c->gpu = 1; c->gpu_n = 0; c->gpu_sujo = 0;
-    for (int i = 0; i < MAX_TEX; i++) c->gpu_tex_ok[i] = 0;
+    /* D404: ¿cuántos huecos de textura da el kernel? Los de antes, 8 (un
+     * hueco de más se contesta con error, sin apagar nada). */
+    uint32_t prova = 0xFFFFFFFFu;
+    c->gpu_vagas = 8;
+    if (gpu_chamar(GPU3D_OP_TEXTURA, GPU_VAGAS_MAX - 1, 1, 1, &prova) == 0) {
+        c->gpu_vagas = GPU_VAGAS_MAX;
+        gpu_chamar(GPU3D_OP_TEXTURA, GPU_VAGAS_MAX - 1, 0, 0, 0);
+    }
+    for (int i = 0; i < GPU_VAGAS_MAX; i++) c->vaga_tex[i] = -1;
     gpu_ctx = c;
     return 1;
 }
@@ -239,6 +292,64 @@ void sgl_gpu_automatica(int ativa) { gpu_auto = ativa ? 1 : 0; }
 static unsigned gpu_fator(int f)
 {
     return f == GL_ZERO ? G3D_F_ZERO : f == GL_SRC_ALPHA ? G3D_F_ALFA : f == GL_ONE_MINUS_SRC_ALPHA ? G3D_F_UM_MENOS_ALFA : G3D_F_UM;
+}
+
+/* D404: sube el nivel k de t al hueco s. 0 = bien, 1 = no cabe, < 0 = error. */
+static int gpu_subir_nivel(textura_t *t, int s, int k)
+{
+    int l = t->nivel_l[k], a = t->nivel_a[k], n = l * a;
+    const unsigned char *px = t->nivel_px[k];
+    uint32_t *argb = SGL_ALOCAR((size_t)n * 4);
+    if (!argb) return -1;
+    for (int i = 0; i < n; i++)
+        argb[i] = ((uint32_t)px[i * 4 + 3] << 24) | ((uint32_t)px[i * 4] << 16) | ((uint32_t)px[i * 4 + 1] << 8) | px[i * 4 + 2];
+    int r = gpu_chamar(GPU3D_OP_TEXTURA, (unsigned)s, (unsigned)l, (unsigned)a, argb);
+    SGL_LIBERAR(argb);
+    if (r == 0) { C->est.tex_subidas++; C->est.tex_kb_subidos += (uint32_t)((n * 4 + 1023) / 1024); }
+    return r;
+}
+
+static void gpu_soltar_vaga(int s)
+{
+    if (C->vaga_tex[s] < 0) return;
+    gpu_chamar(GPU3D_OP_TEXTURA, (unsigned)s, 0, 0, 0);
+    C->vaga_tex[s] = -1;
+}
+
+/* D404: el hueco de la GPU con la textura t, subiéndola solo si no está o
+ * cambió. Si no cabe, suelta las que llevan más tiempo sin usarse y, como
+ * último recurso, sube un nivel de mipmap más pequeño. -1 = no se pudo. */
+static int gpu_textura_vaga(textura_t *t)
+{
+    int ti = (int)(t - C->tex);
+    for (int s = 0; s < C->gpu_vagas; s++)
+        if (C->vaga_tex[s] == ti && C->vaga_ger[s] == t->geracao) {
+            C->vaga_uso[s] = ++C->relogio;
+            C->est.tex_reusos++;
+            return s;
+        }
+    int s = 0;
+    for (int i = 0; i < C->gpu_vagas; i++) {
+        if (C->vaga_tex[i] < 0) { s = i; break; }
+        if (C->vaga_uso[i] < C->vaga_uso[s]) s = i;
+    }
+    C->vaga_tex[s] = -1;
+    int nivel = 0;
+    for (int tent = 0; tent < 2 * GPU_VAGAS_MAX + MAX_NIVEIS; tent++) {
+        int r = gpu_subir_nivel(t, s, nivel);
+        if (r == 0) {
+            C->vaga_tex[s] = ti; C->vaga_ger[s] = t->geracao; C->vaga_uso[s] = ++C->relogio;
+            return s;
+        }
+        if (r < 0) return -1;
+        int o = -1;
+        for (int i = 0; i < C->gpu_vagas; i++)
+            if (i != s && C->vaga_tex[i] >= 0 && (o < 0 || C->vaga_uso[i] < C->vaga_uso[o])) o = i;
+        if (o >= 0) { gpu_soltar_vaga(o); continue; }
+        if (!tex_preparar_mip(t) || nivel + 1 >= t->n_niveis) return -1;
+        nivel++;
+    }
+    return -1;
 }
 
 /* Manda lo pendiente: textura (si cambió), estado y triángulos. */
@@ -257,20 +368,14 @@ static void gpu_despejar(void)
         e.flags |= G3D_TEXTURA;
         if (t->wrap_s == GL_REPEAT) e.flags |= G3D_TEX_REPETE_S;
         if (t->wrap_t == GL_REPEAT) e.flags |= G3D_TEX_REPETE_T;
-        e.textura = (unsigned char)C->tex_sel;
-        if (!C->gpu_tex_ok[C->tex_sel]) {
-            int n = t->larg * t->alt;
-            uint32_t *argb = SGL_ALOCAR((size_t)n * 4);
-            if (!argb) r = 1;
-            else {
-                for (int i = 0; i < n; i++)
-                    argb[i] = ((uint32_t)t->px[i * 4 + 3] << 24) | ((uint32_t)t->px[i * 4] << 16) |
-                              ((uint32_t)t->px[i * 4 + 1] << 8) | t->px[i * 4 + 2];
-                r = gpu_chamar(GPU3D_OP_TEXTURA, (unsigned)C->tex_sel, (unsigned)t->larg, (unsigned)t->alt, argb);
-                SGL_LIBERAR(argb);
-                if (r == 0) C->gpu_tex_ok[C->tex_sel] = 1;
-            }
-        }
+        /* D404: bilineal si lo pide el filtro de ampliar o el de reducir (la
+         * GPU todavía no tiene mipmaps: usa el nivel 0, ver docs/gpu3d.md). */
+        if (t->filtro_mag == GL_LINEAR || t->filtro_min == GL_LINEAR ||
+            t->filtro_min == GL_LINEAR_MIPMAP_NEAREST || t->filtro_min == GL_LINEAR_MIPMAP_LINEAR)
+            e.flags |= G3D_TEX_LINEAR;
+        int s = gpu_textura_vaga(t);
+        if (s < 0) r = 1;
+        else e.textura = (unsigned char)s;
     }
     if (r == 0) r = gpu_chamar(GPU3D_OP_ESTADO, 0, 0, 0, &e);
     if (r == 0) r = gpu_chamar(GPU3D_OP_TRIANGULOS, (unsigned)C->gpu_n, 0, 0, C->gpu_v);
@@ -319,18 +424,20 @@ static void gpu_vertice(const vert_t *v, gvert_t *o)
     if (iw > 1.0e6f) iw = 1.0e6f;
     o->x = sx; o->y = sy; o->z = zw; o->rhw = iw;
     float r = v->r, g = v->g, b = v->b, a = 255.0f, er = 0, eg = 0, eb = 0;
-    if (C->extras) {
-        float m = v->luz * (1.0f / 255.0f);
-        r *= m * C->luz_dif[0] + C->luz_amb[0];
-        g *= m * C->luz_dif[1] + C->luz_amb[1];
-        b *= m * C->luz_dif[2] + C->luz_amb[2];
+    if (C->extras || C->realista) {
+        if (!C->luz_v7) {
+            float m = v->luz * (1.0f / 255.0f);
+            r *= m * C->luz_dif[0] + C->luz_amb[0];
+            g *= m * C->luz_dif[1] + C->luz_amb[1];
+            b *= m * C->luz_dif[2] + C->luz_amb[2];
+        } else { er = v->sr; eg = v->sg; eb = v->sb; }   /* D404: el especular se suma tras la textura */
         a = v->a;
         if (C->fog) {
-            float f = (C->fog_fim - zw) / (C->fog_fim - C->fog_ini);
+            float f = C->fog_modo ? v->ff : (C->fog_fim - zw) / (C->fog_fim - C->fog_ini);
             if (!(f >= 0.0f)) f = 0.0f;
             else if (f > 1.0f) f = 1.0f;
             r *= f; g *= f; b *= f;
-            er = C->fog_cor[0] * (1.0f - f); eg = C->fog_cor[1] * (1.0f - f); eb = C->fog_cor[2] * (1.0f - f);
+            er = er * f + C->fog_cor[0] * (1.0f - f); eg = eg * f + C->fog_cor[1] * (1.0f - f); eb = eb * f + C->fog_cor[2] * (1.0f - f);
         }
     }
     o->cor = (gpu_byte(a) << 24) | (gpu_byte(r) << 16) | (gpu_byte(g) << 8) | gpu_byte(b);
@@ -429,6 +536,21 @@ static void ctx_estado_inicial(sgl_ctx_t *c)
     c->luz_pos[0] = 0.0f; c->luz_pos[1] = 0.0f; c->luz_pos[2] = 1.0f; c->luz_pos[3] = 0.0f;
     c->luz_dif[0] = c->luz_dif[1] = c->luz_dif[2] = 1.0f;
     c->luz_amb[0] = c->luz_amb[1] = c->luz_amb[2] = 0.0f;
+    /* D404: valores iniciales de OpenGL ES 1.1 */
+    for (int i = 0; i < SGL_MAX_LUZES; i++) {
+        float um = i == 0 ? 1.0f : 0.0f;
+        c->luz_ligada[i] = 0;
+        c->l_pos[i][0] = 0; c->l_pos[i][1] = 0; c->l_pos[i][2] = 1; c->l_pos[i][3] = 0;
+        for (int k = 0; k < 3; k++) { c->l_amb[i][k] = 0; c->l_dif[i][k] = um; c->l_esp[i][k] = um; }
+        c->l_att[i][0] = 1; c->l_att[i][1] = 0; c->l_att[i][2] = 0;
+    }
+    for (int k = 0; k < 3; k++) {
+        c->m_amb[k] = 0.2f; c->m_dif[k] = 0.8f; c->m_esp[k] = 0; c->m_emi[k] = 0; c->modelo_amb[k] = 0.2f;
+    }
+    c->m_amb[3] = 1; c->m_dif[3] = 1; c->m_brilho = 0;
+    c->normal[0] = 0; c->normal[1] = 0; c->normal[2] = 1;
+    c->fog_modo = 0; c->fog_dens = 1.0f;
+    for (int i = 0; i < GPU_VAGAS_MAX; i++) c->vaga_tex[i] = -1;
 }
 
 static sgl_ctx_t *criar(uint32_t *px, int larg, int alt, int zbits, void *janela, int dono)
@@ -488,6 +610,12 @@ void sgl_destruir_contexto(sgl_ctx_t *c)
 {
     if (!c) return;
     sgl_gpu_desligar(c);
+    /* D404: las texturas y sus niveles (antes se quedaban). */
+    for (int i = 0; i < MAX_TEX; i++) {
+        textura_t *t = &c->tex[i];
+        for (int k = 1; k < MAX_NIVEIS; k++) if (t->nivel_px[k]) SGL_LIBERAR(t->nivel_px[k]);
+        if (t->px) SGL_LIBERAR(t->px);
+    }
     if (C == c) C = 0;
     SGL_LIBERAR(c->zbuf);
     SGL_LIBERAR(c);
@@ -657,6 +785,7 @@ void glClear(GLbitfield m)
 static void refaz_extras(void)
 {
     C->extras = (C->tex_on || C->blend || C->fog || C->luz_on) ? 1 : 0;
+    C->luz_v7 = C->luz_on && C->luz_nova;
 }
 
 void glEnable(GLenum cap)
@@ -669,6 +798,9 @@ void glEnable(GLenum cap)
     else if (cap == GL_BLEND) { C->blend = 1; refaz_extras(); }
     else if (cap == GL_FOG) { C->fog = 1; refaz_extras(); }
     else if (cap == GL_LIGHTING) { C->luz_on = 1; refaz_extras(); }
+    else if (cap >= GL_LIGHT0 && cap <= GL_LIGHT7) { C->luz_ligada[cap - GL_LIGHT0] = 1; C->luz_nova = 1; refaz_extras(); }
+    else if (cap == GL_COLOR_MATERIAL) { C->cor_material = 1; C->luz_nova = 1; refaz_extras(); }
+    else if (cap == GL_NORMALIZE || cap == GL_RESCALE_NORMAL) {}   /* las normales se normalizan siempre */
     else erro(GL_INVALID_ENUM);
 }
 
@@ -682,6 +814,9 @@ void glDisable(GLenum cap)
     else if (cap == GL_BLEND) { C->blend = 0; refaz_extras(); }
     else if (cap == GL_FOG) { C->fog = 0; refaz_extras(); }
     else if (cap == GL_LIGHTING) { C->luz_on = 0; refaz_extras(); }
+    else if (cap >= GL_LIGHT0 && cap <= GL_LIGHT7) C->luz_ligada[cap - GL_LIGHT0] = 0;
+    else if (cap == GL_COLOR_MATERIAL) C->cor_material = 0;
+    else if (cap == GL_NORMALIZE || cap == GL_RESCALE_NORMAL) {}
     else erro(GL_INVALID_ENUM);
 }
 
@@ -1105,6 +1240,255 @@ static void a_pantalha(const vert_t *v, sv_t *s)
     s->a[7] = (double)(int)(v->luz * 256.0f + 0.5f);
 }
 
+/* ------------------------------------------------- D404: ruta realista
+ *
+ * La misma cobertura (aristas en 28.4, regla top-left) y el mismo Z que las
+ * rutas de antes; los demás atributos van en float divididos por w (q = 1/w)
+ * y se recuperan en cada píxel multiplicando por w: corrección de
+ * perspectiva de las texturas, los colores, el especular y la niebla. La
+ * textura se muestrea con el filtro pedido (vecino, bilineal, mipmaps por el
+ * nivel de detalle de cada píxel o trilineal). Un píxel cada vez y sin SIMD:
+ * determinista con el mismo compilador (el anfitrión y el SaguiOS dan la
+ * misma suma, prueba h405). */
+
+#define NAT7 10   /* r, g, b, a, sr, sg, sb, ff, u, v */
+typedef struct { int X, Y; double z; float q; float at[NAT7]; } sv7_t;
+
+/* Suelo de un float sin libm (|v| < 2^30). */
+static inline int piso_f(float v) { int i = (int)v; return v < (float)i ? i - 1 : i; }
+
+static inline int envolver(int i, int n, int repete)
+{
+    if (repete) {
+        if ((n & (n - 1)) == 0) return i & (n - 1);
+        i %= n;
+        return i < 0 ? i + n : i;
+    }
+    return i < 0 ? 0 : i >= n ? n - 1 : i;
+}
+
+static inline const unsigned char *texel(const textura_t *t, int k, int x, int y)
+{
+    int l = t->nivel_l[k], a = t->nivel_a[k];
+    x = envolver(x, l, t->wrap_s == GL_REPEAT);
+    y = envolver(y, a, t->wrap_t == GL_REPEAT);
+    return t->nivel_px[k] + ((size_t)y * (size_t)l + (size_t)x) * 4;
+}
+
+/* Un nivel con vecino (lin = 0) o bilineal (lin = 1), en enteros: c[] 0..255. */
+static void amostra_nivel(const textura_t *t, int k, float u, float v, int lin, int *c)
+{
+    float s = u * (float)t->nivel_l[k], r = v * (float)t->nivel_a[k];
+    if (!lin) {
+        const unsigned char *q = texel(t, k, piso_f(s), piso_f(r));
+        c[0] = q[0]; c[1] = q[1]; c[2] = q[2]; c[3] = q[3];
+        return;
+    }
+    s -= 0.5f; r -= 0.5f;
+    int x0 = piso_f(s), y0 = piso_f(r);
+    int fx = (int)((s - (float)x0) * 256.0f), fy = (int)((r - (float)y0) * 256.0f);
+    if (fx < 0) fx = 0; else if (fx > 256) fx = 256;
+    if (fy < 0) fy = 0; else if (fy > 256) fy = 256;
+    const unsigned char *a = texel(t, k, x0, y0), *b = texel(t, k, x0 + 1, y0);
+    const unsigned char *e = texel(t, k, x0, y0 + 1), *d = texel(t, k, x0 + 1, y0 + 1);
+    for (int i = 0; i < 4; i++) {
+        int cima = a[i] * (256 - fx) + b[i] * fx;
+        int baixo = e[i] * (256 - fx) + d[i] * fx;
+        c[i] = (cima * (256 - fy) + baixo * fy + 32768) >> 16;
+    }
+}
+
+/* log2 aproximado para x >= 1 (error < 0,01): basta para elegir el nivel. */
+static float log2_aprox(float x)
+{
+    if (!(x < 1.0e30f)) return 100.0f;
+    float e = 0.0f;
+    while (x >= 16.0f) { x *= 0.0625f; e += 4.0f; }
+    while (x >= 2.0f) { x *= 0.5f; e += 1.0f; }
+    float m = x - 1.0f;
+    return e + m * (1.3465552f - 0.3465552f * m);
+}
+
+/* La textura con su filtro; lod <= 0 = ampliar (el filtro de ampliar). */
+static void amostra7(const textura_t *t, float u, float v, float lod, int *c)
+{
+    if (u > 4096.0f) u = 4096.0f; else if (u < -4096.0f) u = -4096.0f;
+    if (v > 4096.0f) v = 4096.0f; else if (v < -4096.0f) v = -4096.0f;
+    int f = lod <= 0.0f ? t->filtro_mag : t->filtro_min;
+    if (f == GL_NEAREST || f == GL_LINEAR || t->n_niveis <= 1) {
+        amostra_nivel(t, 0, u, v, f == GL_LINEAR || f == GL_LINEAR_MIPMAP_NEAREST || f == GL_LINEAR_MIPMAP_LINEAR, c);
+        return;
+    }
+    int lin = f == GL_LINEAR_MIPMAP_NEAREST || f == GL_LINEAR_MIPMAP_LINEAR;
+    int ult = t->n_niveis - 1;
+    if (f == GL_NEAREST_MIPMAP_NEAREST || f == GL_LINEAR_MIPMAP_NEAREST) {
+        int k = lod <= 0.5f ? 0 : (int)(lod + 0.5f);
+        amostra_nivel(t, k > ult ? ult : k, u, v, lin, c);
+        return;
+    }
+    int k = (int)lod;
+    if (k >= ult) { amostra_nivel(t, ult, u, v, lin, c); return; }
+    int fr = (int)((lod - (float)k) * 256.0f), c2[4];
+    amostra_nivel(t, k, u, v, lin, c);
+    amostra_nivel(t, k + 1, u, v, lin, c2);
+    for (int i = 0; i < 4; i++) c[i] = (c[i] * (256 - fr) + c2[i] * fr + 128) >> 8;
+}
+
+static void a_pantalha7(const vert_t *v, sv7_t *s)
+{
+    float iw = 1.0f / v->w;
+    float nx = v->x * iw, ny = v->y * iw, nz = v->z * iw;
+    float sx = (float)C->vx + (nx + 1.0f) * 0.5f * (float)C->vw;
+    float sy = (float)(C->alt - C->vy) - (ny + 1.0f) * 0.5f * (float)C->vh;
+    float zw = (nz + 1.0f) * 0.5f;
+    if (zw < 0) zw = 0;
+    if (zw > 1) zw = 1;
+    s->X = arred16(sx);
+    s->Y = arred16(sy);
+    s->z = (double)(int)(zw * 2147483520.0f);
+    float q = iw;
+    if (!(q > 1.0e-12f)) q = 1.0e-12f;
+    if (q > 1.0e12f) q = 1.0e12f;
+    float r = v->r, g = v->g, b = v->b;
+    if (C->luz_on && !C->luz_v7) {
+        /* la luz de cara de v6 (la misma en los tres vértices) */
+        float m = v->luz * (1.0f / 255.0f);
+        r *= m * C->luz_dif[0] + C->luz_amb[0];
+        g *= m * C->luz_dif[1] + C->luz_amb[1];
+        b *= m * C->luz_dif[2] + C->luz_amb[2];
+    }
+    s->q = q;
+    s->at[0] = r * q; s->at[1] = g * q; s->at[2] = b * q; s->at[3] = v->a * q;
+    s->at[4] = v->sr * q; s->at[5] = v->sg * q; s->at[6] = v->sb * q; s->at[7] = v->ff * q;
+    s->at[8] = v->u * q; s->at[9] = v->v * q;
+}
+
+static const textura_t *textura_ativa(void)
+{
+    if (C->tex_on && C->tex_sel >= 0 && C->tex[C->tex_sel].usada && C->tex[C->tex_sel].px) return &C->tex[C->tex_sel];
+    return 0;
+}
+
+static void triangulo_v7(sv7_t v[3])
+{
+    double area = (double)(v[1].X - v[0].X) * (double)(v[2].Y - v[0].Y)
+                - (double)(v[2].X - v[0].X) * (double)(v[1].Y - v[0].Y);
+    if (area == 0) return;
+    int frente = C->frente == GL_CCW ? area < 0 : area > 0;
+    if (C->cull) {
+        if (C->cull_face == GL_BACK && !frente) return;
+        if (C->cull_face == GL_FRONT && frente) return;
+    }
+    if (area < 0) { sv7_t t = v[1]; v[1] = v[2]; v[2] = t; area = -area; }
+
+    int cx0, cy0, cx1, cy1;
+    caixa(&cx0, &cy0, &cx1, &cy1);
+    int minX = v[0].X, maxX = v[0].X, minY = v[0].Y, maxY = v[0].Y;
+    for (int i = 1; i < 3; i++) {
+        if (v[i].X < minX) minX = v[i].X;
+        if (v[i].X > maxX) maxX = v[i].X;
+        if (v[i].Y < minY) minY = v[i].Y;
+        if (v[i].Y > maxY) maxY = v[i].Y;
+    }
+    int bx0 = minX >> 4, bx1 = maxX >> 4, by0 = minY >> 4, by1 = maxY >> 4;
+    if (bx0 < cx0) bx0 = cx0;
+    if (by0 < cy0) by0 = cy0;
+    if (bx1 > cx1 - 1) bx1 = cx1 - 1;
+    if (by1 > cy1 - 1) by1 = cy1 - 1;
+    if (bx0 > bx1 || by0 > by1) return;
+
+    double e0[3], ex[3], ey[3];
+    double Px = (double)bx0 * 16.0 + 8.0, Py = (double)by0 * 16.0 + 8.0;
+    for (int i = 0; i < 3; i++) {
+        const sv7_t *a = &v[(i + 1) % 3], *b = &v[(i + 2) % 3];
+        int dx = b->X - a->X, dy = b->Y - a->Y;
+        e0[i] = (double)dx * (Py - (double)a->Y) - (double)dy * (Px - (double)a->X)
+              - (canto_superior_esquerdo(dx, dy) ? 0.0 : 1.0);
+        ex[i] = -(double)dy * 16.0;
+        ey[i] = (double)dx * 16.0;
+    }
+    /* Z: igual que en las otras rutas */
+    double gzx, gzy, z0;
+    {
+        double d1 = v[1].z - v[0].z, d2 = v[2].z - v[0].z;
+        double nx = d1 * (double)(v[2].Y - v[0].Y) - d2 * (double)(v[1].Y - v[0].Y);
+        double ny = d2 * (double)(v[1].X - v[0].X) - d1 * (double)(v[2].X - v[0].X);
+        gzx = trun(nx * 65536.0 / area);
+        gzy = trun(ny * 65536.0 / area);
+        z0 = v[0].z * 65536.0 + gzx * (Px - (double)v[0].X) + gzy * (Py - (double)v[0].Y);
+    }
+    /* Planos de q y de los atributos, por píxel */
+    float x1 = (float)(v[1].X - v[0].X) * 0.0625f, y1 = (float)(v[1].Y - v[0].Y) * 0.0625f;
+    float x2 = (float)(v[2].X - v[0].X) * 0.0625f, y2 = (float)(v[2].Y - v[0].Y) * 0.0625f;
+    float af = x1 * y2 - x2 * y1;
+    if (!(af > 0.0f)) return;
+    float ia = 1.0f / af;
+    float ox = (float)bx0 + 0.5f - (float)v[0].X * 0.0625f, oy = (float)by0 + 0.5f - (float)v[0].Y * 0.0625f;
+    float gqx, gqy, q0, gx[NAT7], gy[NAT7], a0[NAT7];
+    {
+        float d1 = v[1].q - v[0].q, d2 = v[2].q - v[0].q;
+        gqx = (d1 * y2 - d2 * y1) * ia; gqy = (d2 * x1 - d1 * x2) * ia;
+        q0 = v[0].q + gqx * ox + gqy * oy;
+    }
+    for (int k = 0; k < NAT7; k++) {
+        float d1 = v[1].at[k] - v[0].at[k], d2 = v[2].at[k] - v[0].at[k];
+        gx[k] = (d1 * y2 - d2 * y1) * ia; gy[k] = (d2 * x1 - d1 * x2) * ia;
+        a0[k] = v[0].at[k] + gx[k] * ox + gy[k] * oy;
+    }
+    const textura_t *t = textura_ativa();
+    int precisa_lod = t && (t->n_niveis > 1 || t->filtro_min != t->filtro_mag);
+    float tl = t ? (float)t->larg : 0.0f, ta = t ? (float)t->alt : 0.0f;
+    int neblina_olho = C->fog && C->fog_modo;
+    float fdiv = C->fog_fim - C->fog_ini;
+
+    for (int y = by0; y <= by1; y++) {
+        float fyo = (float)(y - by0);
+        double E0 = e0[0], E1 = e0[1], E2 = e0[2];
+        double Z = z0 + gzy * 16.0 * (double)(y - by0);
+        float Q = q0 + gqy * fyo, A[NAT7];
+        for (int k = 0; k < NAT7; k++) A[k] = a0[k] + gy[k] * fyo;
+        for (int x = bx0; x <= bx1; x++) {
+            if (E0 >= 0 && E1 >= 0 && E2 >= 0) {
+                float q = Q > 1.0e-12f ? Q : 1.0e-12f;
+                float w = 1.0f / q;
+                int tc[4];
+                tc[0] = tc[1] = tc[2] = tc[3] = 255;
+                if (t) {
+                    float u = A[8] * w, vv = A[9] * w, lod = 0.0f;
+                    if (precisa_lod) {
+                        float dudx = (gx[8] - u * gqx) * w * tl, dvdx = (gx[9] - vv * gqx) * w * ta;
+                        float dudy = (gy[8] - u * gqy) * w * tl, dvdy = (gy[9] - vv * gqy) * w * ta;
+                        float rx = dudx * dudx + dvdx * dvdx, ry = dudy * dudy + dvdy * dvdy;
+                        float rho2 = rx > ry ? rx : ry;
+                        lod = rho2 > 1.0f ? 0.5f * log2_aprox(rho2) : -1.0f;
+                    }
+                    amostra7(t, u, vv, lod, tc);
+                }
+                float fr = (float)tc[0] * (A[0] * w) * (1.0f / 255.0f) + A[4] * w;
+                float fg = (float)tc[1] * (A[1] * w) * (1.0f / 255.0f) + A[5] * w;
+                float fb = (float)tc[2] * (A[2] * w) * (1.0f / 255.0f) + A[6] * w;
+                float fa = (float)tc[3] * (A[3] * w) / 65025.0f;
+                double z = deszc(Z, 16);
+                if (C->fog) {
+                    float f;
+                    if (neblina_olho) f = A[7] * w;
+                    else f = (C->fog_fim - (float)(z * (1.0 / 2147483520.0))) / fdiv;
+                    f = sat01(f);
+                    fr = fr * f + C->fog_cor[0] * (1.0f - f);
+                    fg = fg * f + C->fog_cor[1] * (1.0f - f);
+                    fb = fb * f + C->fog_cor[2] * (1.0f - f);
+                }
+                escreve_v6(x, y, z, fr, fg, fb, fa);
+            }
+            E0 += ex[0]; E1 += ex[1]; E2 += ex[2];
+            Z += gzx * 16.0;
+            Q += gqx;
+            for (int k = 0; k < NAT7; k++) A[k] += gx[k];
+        }
+        e0[0] += ey[0]; e0[1] += ey[1]; e0[2] += ey[2];
+    }
+}
+
 static inline float dist_plano(const vert_t *v, int p)
 {
     switch (p) {
@@ -1133,6 +1517,10 @@ static void interpolar(vert_t *r, const vert_t *a, const vert_t *b, float t)
     r->ex = a->ex + (b->ex - a->ex) * t;
     r->ey = a->ey + (b->ey - a->ey) * t;
     r->ez = a->ez + (b->ez - a->ez) * t;
+    r->sr = a->sr + (b->sr - a->sr) * t;
+    r->sg = a->sg + (b->sg - a->sg) * t;
+    r->sb = a->sb + (b->sb - a->sb) * t;
+    r->ff = a->ff + (b->ff - a->ff) * t;
 }
 
 static void emitir_triangulo(vert_t t[3])
@@ -1152,9 +1540,20 @@ static void emitir_triangulo(vert_t t[3])
         n = m; cur ^= 1;
     }
     if (n < 3) return;
+    C->est.triangulos += (uint32_t)(n - 2);
 #ifdef SGL_TEM_GPU
     if (C->gpu) { gpu_poligono(pol[cur], n); return; }
 #endif
+    if (C->realista) {
+        sv7_t s7[12];
+        for (int i = 0; i < n; i++) a_pantalha7(&pol[cur][i], &s7[i]);
+        for (int i = 1; i + 1 < n; i++) {
+            sv7_t tri[3];
+            tri[0] = s7[0]; tri[1] = s7[i]; tri[2] = s7[i + 1];
+            triangulo_v7(tri);
+        }
+        return;
+    }
     sv_t s[12];
     for (int i = 0; i < n; i++) a_pantalha(&pol[cur][i], &s[i]);
     for (int i = 1; i + 1 < n; i++) {
@@ -1213,7 +1612,109 @@ typedef struct {
     int          tem_tc;
     const float *tcv;          /* coordenadas por vértice (glBegin) */
     float        tc_uv[2];
+    const char  *n; int n_passo;   /* D404: normales (NULL: la actual) */
+    const float *nv;               /* normales por vértice (glBegin) */
 } fonte_t;
+
+/* ---- D404: luz de OpenGL ES 1.1 por vértice y niebla por distancia ---- */
+
+/* x^n con n entero (el brillo se redondea): sin libm y determinista. */
+static float potencia(float x, float brilho)
+{
+    int n = (int)(brilho + 0.5f);
+    float r = 1.0f;
+    while (n > 0) { if (n & 1) r *= x; x *= x; n >>= 1; }
+    return r;
+}
+
+/* e^-x para x >= 0: se divide x hasta que la serie converge y se eleva al cuadrado. */
+static float exp_neg(float x)
+{
+    if (!(x > 0.0f)) return 1.0f;
+    if (x > 80.0f) return 0.0f;
+    int m = 0;
+    while (x > 0.25f) { x *= 0.5f; m++; }
+    float y = 1.0f - x * (1.0f - x * (0.5f - x * (1.0f / 6 - x * (1.0f / 24 - x * (1.0f / 120)))));
+    while (m-- > 0) y *= y;
+    return y;
+}
+
+static float fator_neblina(float d)
+{
+    float f;
+    if (C->fog_modo == GL_EXP) f = exp_neg(C->fog_dens * d);
+    else if (C->fog_modo == GL_EXP2) f = exp_neg(C->fog_dens * d * C->fog_dens * d);
+    else f = C->fog_fim != C->fog_ini ? (C->fog_fim - d) / (C->fog_fim - C->fog_ini) : 1.0f;
+    return sat01(f);
+}
+
+/* La matriz de las normales: los cofactores del 3x3 de la modelo/vista (la
+ * inversa traspuesta salvo un factor, que se va al normalizar). */
+static void preparar_normais(void)
+{
+    const float *M = C->mv[C->mv_n - 1];
+    float a = M[0], b = M[4], c = M[8], d = M[1], e = M[5], f = M[9], g = M[2], h = M[6], k = M[10];
+    float *n = C->nm;
+    n[0] = e * k - f * h; n[1] = -(d * k - f * g); n[2] = d * h - e * g;
+    n[3] = -(b * k - c * h); n[4] = a * k - c * g; n[5] = -(a * h - b * g);
+    n[6] = b * f - c * e; n[7] = -(a * f - c * d); n[8] = a * e - b * d;
+    float det = a * n[0] + b * n[1] + c * n[2];
+    if (det < 0.0f) for (int i = 0; i < 9; i++) n[i] = -n[i];
+}
+
+/* Color de un vértice: emisión + ambiente global + por cada luz encendida
+ * (ambiente + difusa + especular, con atenuación). El difuso y el ambiente
+ * van en r, g, b (0..255); el especular aparte, en sr, sg, sb. El observador
+ * está en el infinito (GL_LIGHT_MODEL_LOCAL_VIEWER falso). */
+static void luz_vertice(vert_t *o, const float *nn)
+{
+    /* normal (fila i de nm) */
+    const float *m = C->nm;
+    float nx = m[0] * nn[0] + m[3] * nn[1] + m[6] * nn[2];
+    float ny = m[1] * nn[0] + m[4] * nn[1] + m[7] * nn[2];
+    float nz = m[2] * nn[0] + m[5] * nn[1] + m[8] * nn[2];
+    float ln = raiz(nx * nx + ny * ny + nz * nz);
+    if (ln > 0.0f) { ln = 1.0f / ln; nx *= ln; ny *= ln; nz *= ln; }
+    float ma[3], md[3], alfa;
+    if (C->cor_material) {
+        ma[0] = md[0] = o->r * (1.0f / 255.0f); ma[1] = md[1] = o->g * (1.0f / 255.0f); ma[2] = md[2] = o->b * (1.0f / 255.0f);
+        alfa = o->a;
+    } else {
+        for (int k = 0; k < 3; k++) { ma[k] = C->m_amb[k]; md[k] = C->m_dif[k]; }
+        alfa = sat01(C->m_dif[3]) * 255.0f;
+    }
+    float c[3], es[3] = { 0, 0, 0 };
+    for (int k = 0; k < 3; k++) c[k] = C->m_emi[k] + C->modelo_amb[k] * ma[k];
+    for (int i = 0; i < SGL_MAX_LUZES; i++) {
+        if (!C->luz_ligada[i]) continue;
+        const float *p = C->l_pos[i];
+        float lx = p[0], ly = p[1], lz = p[2], att = 1.0f;
+        if (p[3] != 0.0f) {
+            float iw = 1.0f / p[3];
+            lx = lx * iw - o->ex; ly = ly * iw - o->ey; lz = lz * iw - o->ez;
+            float d = raiz(lx * lx + ly * ly + lz * lz);
+            float den = C->l_att[i][0] + C->l_att[i][1] * d + C->l_att[i][2] * d * d;
+            att = den > 0.0f ? 1.0f / den : 1.0f;
+        }
+        float dl = raiz(lx * lx + ly * ly + lz * lz);
+        if (dl > 0.0f) { dl = 1.0f / dl; lx *= dl; ly *= dl; lz *= dl; }
+        float ndl = nx * lx + ny * ly + nz * lz;
+        if (ndl < 0.0f) ndl = 0.0f;
+        for (int k = 0; k < 3; k++) c[k] += att * (C->l_amb[i][k] * ma[k] + ndl * C->l_dif[i][k] * md[k]);
+        if (ndl > 0.0f && C->m_brilho >= 0.0f) {
+            float hx = lx, hy = ly, hz = lz + 1.0f;
+            float dh = raiz(hx * hx + hy * hy + hz * hz);
+            float ndh = dh > 0.0f ? (nx * hx + ny * hy + nz * hz) / dh : 0.0f;
+            if (ndh > 0.0f) {
+                float sp = att * potencia(ndh, C->m_brilho);
+                for (int k = 0; k < 3; k++) es[k] += sp * C->l_esp[i][k] * C->m_esp[k];
+            }
+        }
+    }
+    o->r = sat01(c[0]) * 255.0f; o->g = sat01(c[1]) * 255.0f; o->b = sat01(c[2]) * 255.0f;
+    o->a = alfa;
+    o->sr = sat01(es[0]) * 255.0f; o->sg = sat01(es[1]) * 255.0f; o->sb = sat01(es[2]) * 255.0f;
+}
 
 static void buscar(const fonte_t *f, int i, vert_t *o)
 {
@@ -1259,6 +1760,14 @@ static void buscar(const fonte_t *f, int i, vert_t *o)
         o->r = f->cor[0]; o->g = f->cor[1]; o->b = f->cor[2]; o->a = f->cor[3];
     }
     o->luz = 255.0f;
+    o->sr = o->sg = o->sb = 0.0f; o->ff = 1.0f;
+    if (C->luz_v7) {
+        const float *n = C->normal;
+        if (f->nv) n = f->nv + (size_t)i * 3;
+        else if (f->n) n = (const float *)(f->n + (size_t)i * f->n_passo);
+        luz_vertice(o, n);
+    }
+    if (C->fog && C->fog_modo) o->ff = fator_neblina(raiz(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]));
 }
 
 /* Luz difusa por cara: normal de la cara en el espacio de la vista y producto
@@ -1291,8 +1800,8 @@ static void tri_prim(const vert_t *a, const vert_t *b, const vert_t *c)
 {
     vert_t t[3] = { *a, *b, *c };
     if (C->plano)
-        for (int i = 0; i < 3; i++) { t[i].r = c->r; t[i].g = c->g; t[i].b = c->b; }
-    if (C->luz_on) luz_cara(t);
+        for (int i = 0; i < 3; i++) { t[i].r = c->r; t[i].g = c->g; t[i].b = c->b; t[i].sr = c->sr; t[i].sg = c->sg; t[i].sb = c->sb; }
+    if (C->luz_on && !C->luz_v7) luz_cara(t);
     emitir_triangulo(t);
 }
 
@@ -1306,6 +1815,13 @@ static void linha_prim(const vert_t *a, const vert_t *b)
 /* idx = NULL: índices consecutivos desde primeiro. */
 static void desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum tipo, const fonte_t *f)
 {
+    /* D404: ¿ruta realista? Se decide una vez por dibujo (el estado no cambia dentro). */
+    const textura_t *ta = textura_ativa();
+    C->realista = C->persp || C->luz_v7 || (C->fog && C->fog_modo) ||
+                  (ta && (ta->filtro_min != GL_NEAREST || ta->filtro_mag != GL_NEAREST));
+    if (C->realista && ta && ta->filtro_min != GL_NEAREST && ta->filtro_min != GL_LINEAR && !C->gpu)
+        tex_preparar_mip(&C->tex[C->tex_sel]);
+    if (C->luz_v7) preparar_normais();
     #define VERT(k, out) do { int _i = idx ? (tipo == GL_UNSIGNED_BYTE ? ((const uint8_t *)idx)[k] : ((const uint16_t *)idx)[k]) : primeiro + (k); buscar(f, _i, &out); } while (0)
     vert_t a, b, c;
     switch (modo) {
@@ -1336,8 +1852,25 @@ static void desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum t
     #undef VERT
 }
 
-void glEnableClientState(GLenum m) { if (!C) return; if (m == GL_VERTEX_ARRAY) C->v_ativo = 1; else if (m == GL_COLOR_ARRAY) C->c_ativo = 1; else if (m == GL_TEXTURE_COORD_ARRAY) C->t_ativo = 1; else erro(GL_INVALID_ENUM); }
-void glDisableClientState(GLenum m) { if (!C) return; if (m == GL_VERTEX_ARRAY) C->v_ativo = 0; else if (m == GL_COLOR_ARRAY) C->c_ativo = 0; else if (m == GL_TEXTURE_COORD_ARRAY) C->t_ativo = 0; else erro(GL_INVALID_ENUM); }
+void glEnableClientState(GLenum m)
+{
+    if (!C) return;
+    if (m == GL_VERTEX_ARRAY) C->v_ativo = 1;
+    else if (m == GL_COLOR_ARRAY) C->c_ativo = 1;
+    else if (m == GL_TEXTURE_COORD_ARRAY) C->t_ativo = 1;
+    else if (m == GL_NORMAL_ARRAY) { C->n_ativo = 1; C->luz_nova = 1; refaz_extras(); }
+    else erro(GL_INVALID_ENUM);
+}
+
+void glDisableClientState(GLenum m)
+{
+    if (!C) return;
+    if (m == GL_VERTEX_ARRAY) C->v_ativo = 0;
+    else if (m == GL_COLOR_ARRAY) C->c_ativo = 0;
+    else if (m == GL_TEXTURE_COORD_ARRAY) C->t_ativo = 0;
+    else if (m == GL_NORMAL_ARRAY) C->n_ativo = 0;
+    else erro(GL_INVALID_ENUM);
+}
 
 void glVertexPointer(GLint tam, GLenum tipo, GLsizei passo, const void *p)
 {
@@ -1364,6 +1897,7 @@ static int fonte_do_contexto(fonte_t *f)
     f->tem_tc = C->t_ativo && C->t_ptr;
     f->tc = C->t_ptr; f->tc_tam = C->t_tam; f->tc_tipo = C->t_tipo; f->tc_passo = C->t_passo;
     f->tc_uv[0] = C->tc[0]; f->tc_uv[1] = C->tc[1];
+    f->n = C->n_ativo && C->n_ptr ? (const char *)C->n_ptr : 0; f->n_passo = C->n_passo; f->nv = 0;
     return 1;
 }
 
@@ -1408,6 +1942,7 @@ void glVertex3f(GLfloat x, GLfloat y, GLfloat z)
     C->begin_v[i][0] = x; C->begin_v[i][1] = y; C->begin_v[i][2] = z;
     for (int k = 0; k < 4; k++) C->begin_c[i][k] = C->cor[k] * (1.0f / 255.0f);
     C->begin_t[i][0] = C->tc[0]; C->begin_t[i][1] = C->tc[1];
+    for (int k = 0; k < 3; k++) C->begin_nv[i][k] = C->normal[k];
 }
 
 void glVertex2f(GLfloat x, GLfloat y) { glVertex3f(x, y, 0.0f); }
@@ -1423,6 +1958,7 @@ void glEnd(void)
     f.tem_tc = 0; f.tc = 0; f.tc_tam = 2; f.tc_tipo = GL_FLOAT; f.tc_passo = 8;
     f.tcv = &C->begin_t[0][0];
     f.tc_uv[0] = C->tc[0]; f.tc_uv[1] = C->tc[1];
+    f.n = 0; f.n_passo = 12; f.nv = &C->begin_nv[0][0];
     desenhar((GLenum)C->begin_modo, 0, C->begin_n, 0, 0, &f);
 }
 
@@ -1441,17 +1977,36 @@ static int textura_livre(void)
     return -1;
 }
 
+static void textura_nova(textura_t *t, GLuint id)
+{
+    t->usada = 1; t->id = id; t->larg = t->alt = 0; t->px = 0;
+    t->wrap_s = t->wrap_t = GL_REPEAT;
+    /* D404: el filtro de partida es el de siempre en SaguiGL (el vecino más
+     * próximo), no el de OpenGL (NEAREST_MIPMAP_LINEAR), para que los
+     * programas de antes no cambien de píxel. */
+    t->filtro_min = t->filtro_mag = GL_NEAREST;
+    t->gerar_mip = 0; t->mip_pronto = 0; t->n_niveis = 1;
+    for (int k = 0; k < MAX_NIVEIS; k++) { t->nivel_px[k] = 0; t->nivel_l[k] = t->nivel_a[k] = 0; }
+    t->geracao = ++C->ger_cont;
+}
+
+/* D404: suelta los niveles 1 en adelante. */
+static void soltar_niveis(textura_t *t)
+{
+    for (int k = 1; k < MAX_NIVEIS; k++) {
+        if (t->nivel_px[k]) SGL_LIBERAR(t->nivel_px[k]);
+        t->nivel_px[k] = 0; t->nivel_l[k] = t->nivel_a[k] = 0;
+    }
+    t->mip_pronto = 0; t->n_niveis = 1;
+}
+
 void glGenTextures(GLsizei n, GLuint *ids)
 {
     if (!C || !ids || n < 0) return;
     for (int i = 0; i < n; i++) {
         int k = textura_livre();
         if (k < 0) { ids[i] = 0; continue; }
-        C->tex[k].usada = 1;
-        C->tex[k].id = ids[i] ? ids[i] : (GLuint)(k + 1);
-        C->tex[k].larg = C->tex[k].alt = 0;
-        C->tex[k].px = 0;
-        C->tex[k].wrap_s = C->tex[k].wrap_t = GL_REPEAT;
+        textura_nova(&C->tex[k], ids[i] ? ids[i] : (GLuint)(k + 1));
         ids[i] = C->tex[k].id;
     }
 }
@@ -1467,39 +2022,156 @@ void glBindTexture(GLenum alvo, GLuint id)
         int k = textura_livre();
         if (k < 0) { erro(GL_INVALID_OPERATION); return; }
         t = &C->tex[k];
-        t->usada = 1; t->id = id; t->larg = t->alt = 0; t->px = 0;
-        t->wrap_s = t->wrap_t = GL_REPEAT;
+        textura_nova(t, id);
     }
     C->tex_sel = (int)(t - C->tex);
+}
+
+/* D404: un nivel a partir del anterior, con una caja de 2x2 (los lados
+ * impares o de 1 repiten el último texel). Enteros: el mismo resultado en
+ * cualquier compilador. */
+static int gerar_nivel(textura_t *t, int k)
+{
+    int lo = t->nivel_l[k - 1], ao = t->nivel_a[k - 1];
+    int l = lo > 1 ? lo / 2 : 1, a = ao > 1 ? ao / 2 : 1;
+    unsigned char *d = (unsigned char *)SGL_ALOCAR((size_t)l * (size_t)a * 4);
+    if (!d) return 0;
+    const unsigned char *o = t->nivel_px[k - 1];
+    for (int y = 0; y < a; y++) {
+        int y0 = 2 * y, y1 = 2 * y + 1 < ao ? 2 * y + 1 : ao - 1;
+        if (y0 >= ao) y0 = ao - 1;
+        for (int x = 0; x < l; x++) {
+            int x0 = 2 * x, x1 = 2 * x + 1 < lo ? 2 * x + 1 : lo - 1;
+            if (x0 >= lo) x0 = lo - 1;
+            const unsigned char *p00 = o + ((size_t)y0 * lo + x0) * 4, *p01 = o + ((size_t)y0 * lo + x1) * 4;
+            const unsigned char *p10 = o + ((size_t)y1 * lo + x0) * 4, *p11 = o + ((size_t)y1 * lo + x1) * 4;
+            unsigned char *q = d + ((size_t)y * l + x) * 4;
+            for (int c = 0; c < 4; c++) q[c] = (unsigned char)((p00[c] + p01[c] + p10[c] + p11[c] + 2) >> 2);
+        }
+    }
+    if (t->nivel_px[k]) SGL_LIBERAR(t->nivel_px[k]);
+    t->nivel_px[k] = d; t->nivel_l[k] = l; t->nivel_a[k] = a;
+    return 1;
+}
+
+/* D404: deja todos los niveles hasta 1x1; los que dio el programa con su
+ * tamaño correcto se quedan, los que falten o no cuadren se generan. */
+static int tex_preparar_mip(textura_t *t)
+{
+    if (t->mip_pronto) return 1;
+    if (!t->px || t->larg <= 0 || t->alt <= 0) return 0;
+    t->nivel_px[0] = t->px; t->nivel_l[0] = t->larg; t->nivel_a[0] = t->alt;
+    int k = 0;
+    while ((t->nivel_l[k] > 1 || t->nivel_a[k] > 1) && k + 1 < MAX_NIVEIS) {
+        int l = t->nivel_l[k] > 1 ? t->nivel_l[k] / 2 : 1, a = t->nivel_a[k] > 1 ? t->nivel_a[k] / 2 : 1;
+        k++;
+        if (!t->nivel_px[k] || t->nivel_l[k] != l || t->nivel_a[k] != a)
+            if (!gerar_nivel(t, k)) { t->n_niveis = 1; return 0; }
+    }
+    t->n_niveis = k + 1;
+    t->mip_pronto = 1;
+    return 1;
+}
+
+/* D404: un texel de entrada a RGBA de 8 bits. comp = bytes por texel. */
+static void desempacotar(const unsigned char *q, GLenum formato, GLenum tipo, unsigned char *o)
+{
+    if (tipo == GL_UNSIGNED_SHORT_5_6_5) {
+        unsigned v = (unsigned)q[0] | ((unsigned)q[1] << 8);
+        unsigned r = v >> 11, g = (v >> 5) & 63, b = v & 31;
+        o[0] = (unsigned char)((r << 3) | (r >> 2)); o[1] = (unsigned char)((g << 2) | (g >> 4));
+        o[2] = (unsigned char)((b << 3) | (b >> 2)); o[3] = 255;
+    } else if (tipo == GL_UNSIGNED_SHORT_4_4_4_4) {
+        unsigned v = (unsigned)q[0] | ((unsigned)q[1] << 8);
+        o[0] = (unsigned char)((v >> 12) * 17); o[1] = (unsigned char)(((v >> 8) & 15) * 17);
+        o[2] = (unsigned char)(((v >> 4) & 15) * 17); o[3] = (unsigned char)((v & 15) * 17);
+    } else if (tipo == GL_UNSIGNED_SHORT_5_5_5_1) {
+        unsigned v = (unsigned)q[0] | ((unsigned)q[1] << 8);
+        unsigned r = v >> 11, g = (v >> 6) & 31, b = (v >> 1) & 31;
+        o[0] = (unsigned char)((r << 3) | (r >> 2)); o[1] = (unsigned char)((g << 3) | (g >> 2));
+        o[2] = (unsigned char)((b << 3) | (b >> 2)); o[3] = (unsigned char)((v & 1) ? 255 : 0);
+    } else if (formato == GL_RGBA) { o[0] = q[0]; o[1] = q[1]; o[2] = q[2]; o[3] = q[3]; }
+    else if (formato == GL_RGB) { o[0] = q[0]; o[1] = q[1]; o[2] = q[2]; o[3] = 255; }
+    else if (formato == GL_LUMINANCE) { o[0] = o[1] = o[2] = q[0]; o[3] = 255; }
+    else if (formato == GL_LUMINANCE_ALPHA) { o[0] = o[1] = o[2] = q[0]; o[3] = q[1]; }
+    else { o[0] = o[1] = o[2] = 255; o[3] = q[0]; }   /* GL_ALPHA */
+}
+
+/* Bytes por texel de una combinación válida; 0 si no vale. */
+static int bytes_texel(GLenum formato, GLenum tipo)
+{
+    if (tipo == GL_UNSIGNED_BYTE) {
+        if (formato == GL_RGBA) return 4;
+        if (formato == GL_RGB) return 3;
+        if (formato == GL_LUMINANCE_ALPHA) return 2;
+        if (formato == GL_LUMINANCE || formato == GL_ALPHA) return 1;
+        return 0;
+    }
+    if (tipo == GL_UNSIGNED_SHORT_5_6_5) return formato == GL_RGB ? 2 : 0;
+    if (tipo == GL_UNSIGNED_SHORT_4_4_4_4 || tipo == GL_UNSIGNED_SHORT_5_5_5_1) return formato == GL_RGBA ? 2 : 0;
+    return -1;
 }
 
 void glTexImage2D(GLenum alvo, GLint nivel, GLint formato_interno, GLsizei larg,
                    GLsizei alt, GLint bord, GLenum formato, GLenum tipo, const void *dados)
 {
-    (void)nivel; (void)formato_interno; (void)bord;
+    (void)formato_interno; (void)bord;
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
     if (C->tex_sel < 0) { erro(GL_INVALID_OPERATION); return; }
-    if (larg <= 0 || alt <= 0 || larg > 1024 || alt > 1024) { erro(GL_INVALID_VALUE); return; }
+    if (nivel < 0 || nivel >= MAX_NIVEIS) { erro(GL_INVALID_VALUE); return; }
+    if (larg <= 0 || alt <= 0 || larg > SGL_MAX_LADO || alt > SGL_MAX_LADO) { erro(GL_INVALID_VALUE); return; }
     GPU_DESPEJAR();
-    C->gpu_tex_ok[C->tex_sel] = 0;
-    if (tipo != GL_UNSIGNED_BYTE) { erro(GL_INVALID_ENUM); return; }
-    if (formato != GL_RGB && formato != GL_RGBA) { erro(GL_INVALID_ENUM); return; }
-    if (!dados) { erro(GL_INVALID_VALUE); return; }
     textura_t *t = &C->tex[C->tex_sel];
-    if (t->px) SGL_LIBERAR(t->px);
-    t->px = (unsigned char *)SGL_ALOCAR((size_t)larg * (size_t)alt * 4);
-    if (!t->px) { erro(GL_OUT_OF_MEMORY); return; }
-    t->larg = larg; t->alt = alt;
-    int comp = (formato == GL_RGBA) ? 4 : 3;
+    t->geracao = ++C->ger_cont;     /* la copia de la GPU caduca */
+    int comp = bytes_texel(formato, tipo);
+    if (comp < 0) { erro(GL_INVALID_ENUM); return; }
+    if (comp == 0) { erro(tipo == GL_UNSIGNED_BYTE ? GL_INVALID_ENUM : GL_INVALID_OPERATION); return; }
+    if (!dados) { erro(GL_INVALID_VALUE); return; }
+    if (nivel > 0 && (!t->px || larg != (t->larg >> nivel > 0 ? t->larg >> nivel : 1) ||
+                      alt != (t->alt >> nivel > 0 ? t->alt >> nivel : 1))) { erro(GL_INVALID_VALUE); return; }
+    unsigned char *px = (unsigned char *)SGL_ALOCAR((size_t)larg * (size_t)alt * 4);
+    if (!px) { erro(GL_OUT_OF_MEMORY); return; }
     const unsigned char *q = (const unsigned char *)dados;
-    for (int i = 0; i < larg * alt; i++) {
-        t->px[i * 4 + 0] = q[i * comp + 0];
-        t->px[i * 4 + 1] = q[i * comp + 1];
-        t->px[i * 4 + 2] = q[i * comp + 2];
-        t->px[i * 4 + 3] = (comp == 4) ? q[i * comp + 3] : 255;
+    if (comp == 4 || (comp == 3 && formato == GL_RGB && tipo == GL_UNSIGNED_BYTE)) {
+        /* el camino de v6, tal cual */
+        for (int i = 0; i < larg * alt; i++) {
+            px[i * 4 + 0] = q[i * comp + 0];
+            px[i * 4 + 1] = q[i * comp + 1];
+            px[i * 4 + 2] = q[i * comp + 2];
+            px[i * 4 + 3] = (comp == 4) ? q[i * comp + 3] : 255;
+        }
+    } else
+        for (int i = 0; i < larg * alt; i++) desempacotar(q + (size_t)i * comp, formato, tipo, px + (size_t)i * 4);
+    if (nivel == 0) {
+        if (t->px) SGL_LIBERAR(t->px);
+        soltar_niveis(t);
+        t->px = px; t->larg = larg; t->alt = alt;
+        t->nivel_px[0] = px; t->nivel_l[0] = larg; t->nivel_a[0] = alt;
+        if (t->gerar_mip) tex_preparar_mip(t);
+    } else {
+        if (t->nivel_px[nivel]) SGL_LIBERAR(t->nivel_px[nivel]);
+        t->nivel_px[nivel] = px; t->nivel_l[nivel] = larg; t->nivel_a[nivel] = alt;
+        t->mip_pronto = 0; t->n_niveis = 1;
     }
     refaz_extras();
+}
+
+void glGenerateMipmap(GLenum alvo)
+{
+    if (!C) return;
+    if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
+    if (C->tex_sel < 0 || !C->tex[C->tex_sel].px) { erro(GL_INVALID_OPERATION); return; }
+    textura_t *t = &C->tex[C->tex_sel];
+    soltar_niveis(t);
+    if (!tex_preparar_mip(t)) erro(GL_OUT_OF_MEMORY);
+}
+
+static int filtro_valido(GLenum nome, GLint v)
+{
+    if (v == GL_NEAREST || v == GL_LINEAR) return 1;
+    return nome == GL_TEXTURE_MIN_FILTER && (v == GL_NEAREST_MIPMAP_NEAREST || v == GL_LINEAR_MIPMAP_NEAREST ||
+                                             v == GL_NEAREST_MIPMAP_LINEAR || v == GL_LINEAR_MIPMAP_LINEAR);
 }
 
 void glTexParameteri(GLenum alvo, GLenum nome, GLint valor)
@@ -1516,8 +2188,12 @@ void glTexParameteri(GLenum alvo, GLenum nome, GLint valor)
         if (valor != GL_REPEAT && valor != GL_CLAMP_TO_EDGE) { erro(GL_INVALID_ENUM); return; }
         t->wrap_t = valor;
     } else if (nome == GL_TEXTURE_MIN_FILTER || nome == GL_TEXTURE_MAG_FILTER) {
-        /* Solo el vecino más próximo: el filtrado bilineal no está. */
-        if (valor != GL_NEAREST) { erro(GL_INVALID_ENUM); return; }
+        /* D404: vecino más próximo, bilineal y, al reducir, los mipmaps. */
+        if (!filtro_valido(nome, valor)) { erro(GL_INVALID_ENUM); return; }
+        if (nome == GL_TEXTURE_MIN_FILTER) t->filtro_min = valor; else t->filtro_mag = valor;
+    } else if (nome == GL_GENERATE_MIPMAP) {
+        t->gerar_mip = valor ? 1 : 0;
+        if (t->gerar_mip && t->px) tex_preparar_mip(t);
     } else erro(GL_INVALID_ENUM);
 }
 
@@ -1528,9 +2204,16 @@ void glDeleteTextures(GLsizei n, const GLuint *ids)
     for (int i = 0; i < n; i++) {
         textura_t *t = textura_por_id(ids[i]);
         if (!t) continue;
+        int ti = (int)(t - C->tex);
+#ifdef SGL_TEM_GPU
+        if (C->gpu)
+            for (int s = 0; s < C->gpu_vagas; s++) if (C->vaga_tex[s] == ti) gpu_soltar_vaga(s);
+#endif
+        soltar_niveis(t);
         if (t->px) SGL_LIBERAR(t->px);
-        t->px = 0; t->usada = 0; t->larg = t->alt = 0;
-        if (C->tex_sel == (int)(t - C->tex)) C->tex_sel = -1;
+        t->px = 0; t->usada = 0; t->larg = t->alt = 0; t->nivel_px[0] = 0;
+        t->geracao = ++C->ger_cont;
+        if (C->tex_sel == ti) C->tex_sel = -1;
     }
 }
 
@@ -1565,7 +2248,14 @@ void glFogf(GLenum nome, GLfloat valor)
     if (!C) return;
     if (nome == GL_FOG_START) C->fog_ini = valor;
     else if (nome == GL_FOG_END) C->fog_fim = valor;
-    else erro(GL_INVALID_ENUM);
+    else if (nome == GL_FOG_DENSITY) { if (valor < 0.0f) erro(GL_INVALID_VALUE); else C->fog_dens = valor; }
+    else if (nome == GL_FOG_MODE) {
+        /* D404: con un modo dado, la niebla va por la distancia al ojo, como en GL. */
+        int m = (int)valor;
+        if (m != GL_LINEAR && m != GL_EXP && m != GL_EXP2) { erro(GL_INVALID_ENUM); return; }
+        GPU_DESPEJAR();
+        C->fog_modo = m;
+    } else erro(GL_INVALID_ENUM);
 }
 
 void glFogfv(GLenum nome, const GLfloat *valor)
@@ -1582,22 +2272,105 @@ void glFogfv(GLenum nome, const GLfloat *valor)
 void glLightfv(GLenum luz, GLenum nome, const GLfloat *valor)
 {
     if (!C || !valor) return;
-    if (luz != GL_LIGHT0) { erro(GL_INVALID_ENUM); return; }
-    if (nome == GL_LIGHT_POSITION) {
-        for (int k = 0; k < 4; k++) C->luz_pos[k] = valor[k];
-    } else if (nome == GL_LIGHT_DIFFUSE) {
-        for (int k = 0; k < 3; k++) {
-            float v = valor[k];
-            if (v < 0.0f) v = 0.0f; else if (v > 1.0f) v = 1.0f;
-            C->luz_dif[k] = v;
-        }
-    } else if (nome == GL_LIGHT_AMBIENT) {
-        for (int k = 0; k < 3; k++) {
-            float v = valor[k];
-            if (v < 0.0f) v = 0.0f; else if (v > 1.0f) v = 1.0f;
-            C->luz_amb[k] = v;
-        }
+    if (luz < GL_LIGHT0 || luz > GL_LIGHT7) { erro(GL_INVALID_ENUM); return; }
+    int i = (int)(luz - GL_LIGHT0);
+    if (nome == GL_LIGHT_POSITION || nome == GL_POSITION) {
+        /* v6 (solo la luz 0): tal cual, ya en el espacio de la vista. */
+        if (i == 0) for (int k = 0; k < 4; k++) C->luz_pos[k] = valor[k];
+        /* D404: como en GL, se transforma con la modelo/vista de ahora. */
+        const float *M = C->mv[C->mv_n - 1];
+        for (int l = 0; l < 4; l++)
+            C->l_pos[i][l] = M[l] * valor[0] + M[4 + l] * valor[1] + M[8 + l] * valor[2] + M[12 + l] * valor[3];
+    } else if (nome == GL_LIGHT_DIFFUSE || nome == GL_DIFFUSE) {
+        for (int k = 0; k < 3; k++) { if (i == 0) C->luz_dif[k] = sat01(valor[k]); C->l_dif[i][k] = valor[k]; }
+    } else if (nome == GL_LIGHT_AMBIENT || nome == GL_AMBIENT) {
+        for (int k = 0; k < 3; k++) { if (i == 0) C->luz_amb[k] = sat01(valor[k]); C->l_amb[i][k] = valor[k]; }
+    } else if (nome == GL_SPECULAR) {
+        for (int k = 0; k < 3; k++) C->l_esp[i][k] = valor[k];
+    } else if (nome == GL_CONSTANT_ATTENUATION || nome == GL_LINEAR_ATTENUATION || nome == GL_QUADRATIC_ATTENUATION) {
+        if (valor[0] < 0.0f) { erro(GL_INVALID_VALUE); return; }
+        C->l_att[i][nome - GL_CONSTANT_ATTENUATION] = valor[0];
     } else erro(GL_INVALID_ENUM);
+}
+
+void glLightf(GLenum luz, GLenum nome, GLfloat valor)
+{
+    if (nome != GL_CONSTANT_ATTENUATION && nome != GL_LINEAR_ATTENUATION && nome != GL_QUADRATIC_ATTENUATION) {
+        erro(GL_INVALID_ENUM); return;
+    }
+    GLfloat v[4] = { valor, 0, 0, 0 };
+    glLightfv(luz, nome, v);
+}
+
+void glLightModelfv(GLenum nome, const GLfloat *valor)
+{
+    if (!C || !valor) return;
+    if (nome != GL_LIGHT_MODEL_AMBIENT) { erro(GL_INVALID_ENUM); return; }
+    for (int k = 0; k < 3; k++) C->modelo_amb[k] = valor[k];
+}
+
+void glMaterialfv(GLenum face, GLenum nome, const GLfloat *valor)
+{
+    if (!C || !valor) return;
+    /* Un solo material para las dos caras (sin luz de dos caras). */
+    if (face != GL_FRONT && face != GL_BACK && face != GL_FRONT_AND_BACK) { erro(GL_INVALID_ENUM); return; }
+    if (nome == GL_AMBIENT || nome == GL_AMBIENT_AND_DIFFUSE) for (int k = 0; k < 4; k++) C->m_amb[k] = valor[k];
+    if (nome == GL_DIFFUSE || nome == GL_AMBIENT_AND_DIFFUSE) for (int k = 0; k < 4; k++) C->m_dif[k] = valor[k];
+    if (nome == GL_SPECULAR) for (int k = 0; k < 3; k++) C->m_esp[k] = valor[k];
+    else if (nome == GL_EMISSION) for (int k = 0; k < 3; k++) C->m_emi[k] = valor[k];
+    else if (nome == GL_SHININESS) {
+        if (valor[0] < 0.0f || valor[0] > 128.0f) { erro(GL_INVALID_VALUE); return; }
+        C->m_brilho = valor[0];
+    } else if (nome != GL_AMBIENT && nome != GL_DIFFUSE && nome != GL_AMBIENT_AND_DIFFUSE) { erro(GL_INVALID_ENUM); return; }
+    C->luz_nova = 1;
+    refaz_extras();
+}
+
+void glMaterialf(GLenum face, GLenum nome, GLfloat valor)
+{
+    if (nome != GL_SHININESS) { erro(GL_INVALID_ENUM); return; }
+    GLfloat v[4] = { valor, 0, 0, 0 };
+    glMaterialfv(face, nome, v);
+}
+
+void glNormal3f(GLfloat x, GLfloat y, GLfloat z)
+{
+    if (!C) return;
+    C->normal[0] = x; C->normal[1] = y; C->normal[2] = z;
+    if (!C->luz_nova) { C->luz_nova = 1; refaz_extras(); }
+}
+
+void glNormalPointer(GLenum tipo, GLsizei passo, const void *p)
+{
+    if (!C) return;
+    if (tipo != GL_FLOAT || passo < 0) { erro(GL_INVALID_ENUM); return; }
+    C->n_passo = passo ? passo : 12; C->n_ptr = p;
+}
+
+void glHint(GLenum alvo, GLenum modo)
+{
+    if (!C) return;
+    if (modo != GL_FASTEST && modo != GL_NICEST && modo != GL_DONT_CARE) { erro(GL_INVALID_ENUM); return; }
+    if (alvo == GL_PERSPECTIVE_CORRECTION_HINT) { GPU_DESPEJAR(); C->persp = modo == GL_NICEST; }
+    /* los demás (niebla, mipmaps...) se aceptan sin efecto */
+}
+
+void sgl_estatisticas(sgl_estat_t *e, int zerar)
+{
+    if (!e) return;
+    if (!C) { e->triangulos = e->tex_subidas = e->tex_kb_subidos = e->tex_reusos = e->tex_kb = e->gpu_vagas = 0; return; }
+    uint32_t bytes = 0;
+    for (int i = 0; i < MAX_TEX; i++) {
+        const textura_t *t = &C->tex[i];
+        if (!t->usada || !t->px) continue;
+        bytes += (uint32_t)t->larg * (uint32_t)t->alt * 4u;
+        for (int k = 1; k < MAX_NIVEIS; k++)
+            if (t->nivel_px[k]) bytes += (uint32_t)t->nivel_l[k] * (uint32_t)t->nivel_a[k] * 4u;
+    }
+    C->est.tex_kb = (bytes + 1023u) / 1024u;
+    C->est.gpu_vagas = C->gpu ? (uint32_t)C->gpu_vagas : 0;
+    *e = C->est;
+    if (zerar) { C->est.triangulos = C->est.tex_subidas = C->est.tex_kb_subidos = C->est.tex_reusos = 0; }
 }
 
 /* ------------------------------------------------------------ v6: motor */

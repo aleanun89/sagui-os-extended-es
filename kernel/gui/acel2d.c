@@ -35,6 +35,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "info_hardware.h"
+#include "memalta.h"
 #include "memoria.h"
 #include "paginacao.h"
 #include "rapido.h"
@@ -42,6 +43,9 @@
 #include "sistema.h"
 #include "texto.h"
 #include "video.h"
+#include "kconf.h"
+#include "../dispositivos/volcado_logica.h"   /* D387 */
+#include "rastro.h"
 
 #define ZONA_A        ACEL2D_ZONA_A   /* filas de la zona de prueba */
 #define ZONA_BOOT_A   48     /* la autoprueba del arranque usa solo las primeras */
@@ -224,18 +228,44 @@ static const acel_placa_t *placa;
 /* D244: tarjetas confirmadas, es decir, probadas con éxito. En esas basta la autoprueba corta del
  * arranque; en las demás el acelerador solo se activa si pasa la autoprueba completa (copias
  * solapadas en las cuatro direcciones, rellenos, bordes y muchas órdenes al azar, con tiempo).
- * Aquí solo va la VMware SVGA II (la del emulador, donde corre la batería). Ninguna tarjeta real
- * consta como probada en hardware (Intel 945GM, X1400, HD 3000, HD 4550 y GeForce siguen «por
- * probar» en docs/decisoes.md): cuando el mantenedor confirme una, se añade aquí con su fecha. */
+ * La VMware SVGA II (la del emulador, donde corre la batería) y las tarjetas reales que el
+ * mantenedor ha probado, con su fecha (las demás siguen «por probar» en docs/decisoes.md). */
 static const struct { uint16_t fab, modelo; } confirmadas[] = {
     { 0x15AD, 0x0405 },   /* VMware SVGA II */
+    { 0x1002, 0x7145 },   /* Mobility X1400 (RV515) del Amilo: acel2d probar --detalle, 176 órdenes iguales, 2026-11-18 (D386) */
+    { 0x1002, 0x9553 },   /* Mobility HD 4530/4570 (RV710) del HP dv7: acel2d probar --detalle, 176 órdenes iguales, y junto al 3D, 2026-11-19 (D402) */
 };
 static bool confirmada;       /* la tarjeta elegida está en la lista */
-static bool apagado_a_mano;   /* «acel2d apagar» */
 static pci_disp_t disp;
+/* El volcado por la GPU (D387, GART) y la vuelta (D391) solo se encienden solos al arrancar en las tarjetas
+ * donde ya se han probado en hardware real (como D244), cada uno por separado. La X1400 del Amilo se colgó
+ * con la primera versión (2026-11-19); con el arreglo de esperar a cada franja pasó más de 20.000 volcados
+ * sin fallo, y 60.000 cuadros 3D con volcado con el 3D por el CP (v8.5.5, D387): el volcado se enciende solo
+ * en ella. La vuelta, no (sin prueba propia en hardware real): «acel2d vuelta encender». */
+static const struct { uint16_t fab, modelo; bool volcado, vuelta; } volcado_confirmadas[] = {
+    { 0x1002, 0x7145, true, false },   /* Mobility X1400 (RV515) del Amilo: volcado, 2026-11-19 */
+};
+static bool volcado_confirmada(bool vuelta)
+{
+    for (unsigned k = 0; k < sizeof volcado_confirmadas / sizeof volcado_confirmadas[0]; k++)
+        if (volcado_confirmadas[k].fab && volcado_confirmadas[k].fab == disp.fabricante && volcado_confirmadas[k].modelo == disp.modelo)
+            return vuelta ? volcado_confirmadas[k].vuelta : volcado_confirmadas[k].volcado;
+    return false;
+}
+static bool apagado_a_mano;   /* «acel2d apagar» */
 static bool ativo, iniciado;
 static uint8_t modo;                 /* CAB_ACEL2D */
 static char motivo[160] = "sin iniciar";
+static uint32_t vram_real_kb;          /* D387: la memoria de vídeo real (0 = no se sabe) */
+static char vram_real_fonte[32];
+
+void acel2d_vram_real(uint64_t bytes, const char *fonte)
+{
+    if (vram_real_kb || bytes < (4ull << 20) || bytes > (64ull << 30)) return;
+    vram_real_kb = (uint32_t)(bytes >> 10);
+    txt_copia_n(vram_real_fonte, fonte, sizeof vram_real_fonte);
+    klog("[ACEL2D] memoria de video real: %u MB (%s); el VBE anuncia %u KB\n", vram_real_kb >> 10, fonte, hw_video_memoria_kb());
+}
 static acel_tela_t tela;
 static uint32_t n_copias, n_rellenos, n_falhas, n_arrastos, n_quadros;
 static uint64_t ciclos_arrasto;
@@ -255,6 +285,29 @@ static uint32_t px_mascara = 0x00FFFFFF;   /* D305: los bits de un píxel de la 
 static int zona_y;                   /* su primera fila */
 static uint32_t cmd_original;        /* registro de órdenes del PCI de la tarjeta antes de tocarla */
 static uint32_t us_autoprova, us_gpu_boot, us_cpu_boot;   /* medidas del arranque (infopc, acel2d) */
+
+/* D387: el volcado del búfer de atrás por la GPU (más abajo). */
+static int  vg_estado = VOLCADO_NO;
+static bool vg_pendente, vg_sim, vg_mapeado, vg_gart;
+static const acel_volcado_t *vops;
+static char vg_motivo[96] = "sin iniciar";
+static void volcado_soltar(int novo_estado, const char *m);
+static void volcado_falhou(const char *m);
+static uint32_t vg_ops, vg_kpx, vg_resto, vg_cpu_ops, vg_us_gpu, vg_us_cpu;
+#define VOLCADO_PRAZO_MS 100     /* espera de un volcado (la pantalla entera son unos ms) */
+#define VOLCADO_MIN_PX   4096    /* rectángulos más pequeños: la CPU (no compensa dejar la GPU pendiente) */
+#define VOLCADO_PROVA_A  ZONA_BOOT_A
+static void sim_executar(void);
+static void volcado_probar(bool detalle);
+
+/* D391: la vuelta del cuadro del 3D a la RAM por la GPU (más abajo). Usa la misma GART que el volcado:
+ * la GART queda encendida mientras uno de los dos esté activo (vg_gart). */
+static int  rt_estado = VOLCADO_NO;
+static bool rt_mascara = true;          /* la GPU quita el alfa (ROP origen AND 0x00FFFFFF) */
+static bool rt_lectura_ok;              /* la lectura por la GART superó su autoprueba en esta sesión */
+static char rt_motivo[96] = "sin iniciar";
+static uint32_t rt_ops, rt_kpx, rt_resto, rt_cpu_ops, rt_us_gpu, rt_us_cpu, rt_avisos;
+static void retorno_soltar(int novo_estado, const char *m);
 
 /* ------------------------------------------------------------------ plazos */
 
@@ -292,6 +345,14 @@ bool acel_prazo_esgotado(acel_prazo_t *p)
 }
 
 /* Vacía los búferes de write-combining antes de que la GPU lea lo que la CPU escribió. */
+/* Depuración del Amilo: marcas de progreso en la pantalla (ver vmarca, más abajo). */
+static void vmarca_cuadro(int x0, int y0, uint32_t cor, bool tras);
+static bool vmarca_ocupado_ok(void);   /* dbg5 */
+#define VMARCA_A_X 2
+#define VMARCA_B_X 14
+#define VMARCA_C_X 26
+#define VMARCA_EST_Y (2 + 3 * 12)
+
 static inline void vaciar_wc(void)
 {
     __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
@@ -676,6 +737,12 @@ static int dona_da_tela(const pci_disp_t *v, int n, uint32_t fb)
 /* Apaga el acelerador y deja el registro de órdenes del PCI como estaba. */
 static void soltar(void)
 {
+    /* D387: la GART, antes que el motor (el volcado real va sobre el 2D: sin 2D, sin volcado). D391: la vuelta
+     * también (la misma GART y el mismo motor). */
+    if (vg_gart && !vg_sim) {
+        if (rt_estado == VOLCADO_ACTIVO) retorno_soltar(VOLCADO_FALLO, "se apago el acelerador 2D");
+        volcado_soltar(vg_estado == VOLCADO_ACTIVO ? VOLCADO_FALLO : vg_estado, "se apago el acelerador 2D");
+    }
     if (drv && drv->desligar) drv->desligar();
     if (placa) pci_escreve32(&disp, 0x04, cmd_original & 0xFFFFu);   /* el estado (bits altos) no se toca */
     iniciado = false;
@@ -916,6 +983,10 @@ int32_t acel2d_apagar(void)
     if (!ativo) return 0;
     ativo = false;
     apagado_a_mano = true;
+    if (vg_gart && !vg_sim) {
+        if (rt_estado == VOLCADO_ACTIVO) retorno_soltar(VOLCADO_A_MANO, "apagado a mano con el 2D (acel2d apagar)");
+        volcado_soltar(VOLCADO_A_MANO, "apagado a mano con el 2D (acel2d apagar)");
+    }
     soltar();
     snformatar(motivo, sizeof motivo, "%s: apagado a mano (acel2d apagar), sigue la CPU", placa ? placa->nome : "?");
     klog("[ACEL2D] apagado: a mano (acel2d apagar)\n");
@@ -930,6 +1001,7 @@ int32_t acel2d_acender(void)
     klog("[ACEL2D] encender a mano: se repite la autoprueba\n");
     placa = NULL; drv = NULL; iniciado = false;
     acel2d_iniciar();
+    if (ativo && !vg_sim && vg_estado != VOLCADO_ACTIVO && rt_estado != VOLCADO_ACTIVO) acel2d_volcado_iniciar();   /* D387, D391 */
     return ativo ? 0 : ERRO_INVALIDO;
 }
 
@@ -961,6 +1033,7 @@ bool acel_copiar(int ox, int oy, int dx, int dy, int l, int a)
      * se devuelve false sin apagar nada y quien llama la hace con el búfer de atrás. */
     if (drv->min_pixeis && (uint32_t)l * (uint32_t)a < drv->min_pixeis) return false;
     bool sim = int_salva_desliga();
+    if (vg_pendente && vg_sim) sim_executar();   /* D387: el motor hace las órdenes en orden */
     vaciar_wc();
     bool ok = drv->copiar(ox, oy, dx, dy, l, a);
     int_restaura(sim);
@@ -976,6 +1049,7 @@ bool acel_rellenar(int x, int y, int l, int a, uint32_t cor)
     int dx = x, dy = y;
     if (!recortar(&x, &y, &dx, &dy, &l, &a)) return true;
     bool sim = int_salva_desliga();
+    if (vg_pendente && vg_sim) sim_executar();   /* D387 */
     vaciar_wc();
     bool ok = drv->preencher(x, y, l, a, cor_placa(cor));
     int_restaura(sim);
@@ -1000,6 +1074,17 @@ bool acel_esperar(void)
  * práctica ya se espera tras cada orden; esto lo garantiza para cualquier camino nuevo). */
 void acel_sincronizar(void)
 {
+    if (vg_pendente) {   /* D387: un volcado por la GPU sin terminar */
+        bool sim = int_salva_desliga();
+        if (!vg_sim) rastro_marca(0x0300u);   /* dbg5: B, esperando a la GPU */
+        if (vmarca_ocupado_ok()) vmarca_cuadro(VMARCA_B_X, VMARCA_EST_Y, 0x00FF0000u, true);   /* B: esperando a la GPU */
+        bool ok = vops && vops->esperar(VOLCADO_PRAZO_MS);
+        if (!vg_sim) rastro_marca(0x0301u);
+        vmarca_cuadro(VMARCA_B_X, VMARCA_EST_Y, 0x0000FF00u, true);   /* B: fuera */
+        vg_pendente = false;
+        int_restaura(sim);
+        if (!ok) volcado_falhou("tiempo agotado esperando un volcado de la GPU");
+    }
     if (!ativo || !drv->assincrono) return;
     (void)acel_esperar();
 }
@@ -1030,8 +1115,11 @@ void acel2d_contar_arrasto(uint32_t quadros, uint64_t ciclos)
 int32_t acel2d_info(uint32_t ptr, uint32_t n)
 {
     info_acel2d_t *v = (info_acel2d_t *)ptr;
-    if (n < sizeof *v || !usuario_ok((void *)ptr, sizeof *v, true)) return ERRO_ENDERECO;
-    memset(v, 0, sizeof *v);
+    /* D387: los programas de antes piden el tamaño sin los campos del volcado. */
+    if (n < INFO_ACEL2D_TAM_V1 || !usuario_ok((void *)ptr, n < sizeof *v ? n : sizeof *v, true)) return ERRO_ENDERECO;
+    /* D391: y los del 8.5.4.10r2 sin la vuelta; D387: y los de antes de la memoria de vídeo real. */
+    bool com_volcado = n >= INFO_ACEL2D_TAM_V2, com_retorno = n >= INFO_ACEL2D_TAM_V3, com_vram = n >= sizeof *v;
+    memset(v, 0, com_vram ? sizeof *v : com_retorno ? INFO_ACEL2D_TAM_V3 : com_volcado ? INFO_ACEL2D_TAM_V2 : INFO_ACEL2D_TAM_V1);
     v->versao = 1;
     v->ativo = ativo;
     v->modo = modo;
@@ -1049,7 +1137,38 @@ int32_t acel2d_info(uint32_t ptr, uint32_t n)
     v->prazo_ms = PRAZO_SESION_MS;
     v->kpx_gpu_copias = gpu_kpx_copia; v->kpx_gpu_rellenos = gpu_kpx_relleno;
     for (int i = 0; i < ACEL_SW_N; i++) { v->sw_ops[i] = sw_ops[i]; v->sw_kpx[i] = sw_kpx[i]; }
+    if (com_volcado) {
+        v->volcado_estado = (unsigned)vg_estado;
+        v->volcado_ops = vg_ops; v->volcado_kpx = vg_kpx; v->volcado_cpu_ops = vg_cpu_ops;
+        v->volcado_us_gpu = vg_us_gpu; v->volcado_us_cpu = vg_us_cpu;
+        v->volcado_simulado = vg_sim;
+        txt_copia_n(v->volcado_motivo, vg_motivo, sizeof v->volcado_motivo);
+    }
+    if (com_retorno) {
+        v->retorno_estado = (unsigned)rt_estado;
+        v->retorno_ops = rt_ops; v->retorno_kpx = rt_kpx; v->retorno_cpu_ops = rt_cpu_ops;
+        v->retorno_us_gpu = rt_us_gpu; v->retorno_us_cpu = rt_us_cpu;
+        v->retorno_mascara = rt_mascara;
+        txt_copia_n(v->retorno_motivo, rt_motivo, sizeof v->retorno_motivo);
+    }
+    if (com_vram) {
+        v->vram_kb = vram_real_kb;
+        txt_copia_n(v->vram_fonte, vram_real_fonte, sizeof v->vram_fonte);
+    }
     return 0;
+}
+
+/* D399 (gpu_energia.c): lo que el motor 2D ha hecho desde el arranque (órdenes, volcados y vueltas),
+ * para el gobernador «auto»; y la autoprueba corta del arranque después de cambiar los relojes de la
+ * tarjeta. 0: no hay 2D por la GPU (nada que probar); 1: igual que la CPU; -1: falló (no apaga nada:
+ * decide quien llama, que antes vuelve a los relojes de la BIOS). */
+uint32_t acel2d_ordens_total(void) { return n_copias + n_rellenos + vg_ops + rt_ops; }
+bool acel2d_volcado_em_uso(void) { return vg_estado == VOLCADO_ACTIVO && !vg_sim; }
+int acel2d_energia_autoprova(char *m, int nm)
+{
+    if (!ativo || !drv || !zona) return 0;
+    acel_sincronizar();
+    return autoprova(false, false, NULL, m, nm) ? 1 : -1;
 }
 
 /* D246: «acel2d probar --detalle». Órdenes sueltas de varios tamaños por la GPU y por la CPU, con el
@@ -1128,6 +1247,7 @@ int32_t acel2d_prova(uint32_t ptr, uint32_t n)
     bool ok = preparar_zona() && autoprova(true, false, r, m, sizeof m);
     if (ok) { medir(r); medir_tandas(r); }
     if (com_detalhe) { if (ok) detalhar(); else if (drv->detalle) drv->detalle("tras el fallo de la autoprueba"); }
+    if (ok && !temporal) volcado_probar(com_detalhe);   /* D387 */
     zona_restaurar(ZONA_A);
     if (temporal) soltar();
     int_restaura(sim);
@@ -1140,4 +1260,1053 @@ int32_t acel2d_prova(uint32_t ptr, uint32_t n)
         snformatar(r->texto, sizeof r->texto, "%s: FALLO: %s", drv->nome, m);
     klog("[ACEL2D] prueba: %s\n", r->texto);
     return 0;
+}
+
+/* ================================================================== D387: volcado por la GPU
+ *
+ * Lo que más pesa del escritorio en una máquina antigua es copiar el búfer de atrás (RAM) a la
+ * pantalla (video_mostrar): cada píxel cruza el bus hacia la tarjeta escrito por la CPU. Con un
+ * driver que sepa dar a la GPU acceso a la RAM del sistema (GART de las Radeon R5xx), esa copia la
+ * hace el motor 2D de la tarjeta leyendo el búfer, y la CPU queda libre mientras tanto.
+ *
+ * Reglas (las mismas del 2D, D195/D244):
+ *   - solo se enciende si su autoprueba da los mismos píxeles que la CPU (una región de prueba con
+ *     un dibujo conocido y unas filas del búfer de atrás, copiadas a la zona de prueba de la VRAM)
+ *     y no es más del doble de lenta que la CPU (a mano, «acel2d volcado encender», aunque lo sea);
+ *   - la GPU copia sola: antes de que la CPU escriba en la pantalla o mueva el búfer de atrás se
+ *     espera (acel_sincronizar), con un plazo; si se agota, el vigilante apaga el 2D y el volcado y
+ *     la CPU redibuja todo;
+ *   - solo con una pantalla de 32 bits 0x00RRGGBB; los rectángulos pequeños, la CPU;
+ *   - se apaga con «kconfig volcado_gpu=no» (vale al reiniciar) o «acel2d volcado apagar».
+ *
+ * Para las pruebas en QEMU (que no emula ninguna GPU capaz de esto) hay una «GPU» de software
+ * (--volcado-gpu-simulado): la misma tabla de páginas que la GART de la R5xx y las mismas franjas
+ * (volcado_logica.h), copiando con retraso, cuando el motor de verdad lo haría (en la siguiente
+ * orden o al esperar): así un camino que olvide esperar se ve en la pantalla. */
+
+/* ------------------------------------------------------------ la «GPU» de software */
+
+#define SIM_FILA 16
+static struct { uint32_t *tabela; uint32_t npag; volcado_fonte_t f; } sim_reg[2];
+static struct { int reg, x, y, l, a, dx, dy; } sim_fila[SIM_FILA];
+static int sim_n;
+static uint32_t sim_volcados;
+
+static bool sim_preparar(char *m, int nm)
+{
+    (void)m; (void)nm;
+    klog("[ACEL2D] volcado simulado: GART de software (pruebas)\n");
+    return true;
+}
+
+static bool sim_mapear(int reg, const void *buf, uint32_t passo, uint32_t larg, uint32_t alt, char *m, int nm)
+{
+    if (!buf) {   /* revisión: la región sin uso */
+        if (sim_reg[reg].tabela) kfree(sim_reg[reg].tabela);
+        sim_reg[reg].tabela = NULL; sim_reg[reg].npag = 0;
+        return true;
+    }
+    uint32_t v = (uint32_t)buf, desl = v & 0xFFFu;
+    uint32_t np = volcado_paginas(desl, passo, alt);
+    if (sim_reg[reg].tabela) kfree(sim_reg[reg].tabela);
+    sim_reg[reg].tabela = kmalloc(np * 4);
+    if (!sim_reg[reg].tabela) { snformatar(m, (size_t)nm, "sin memoria para la tabla"); return false; }
+    for (uint32_t i = 0; i < np; i++) {
+        uint32_t fl;
+        fis_t f = espaco_traduzir(espaco_kernel(), (v & ~0xFFFu) + i * 4096u, &fl);
+        if (!f || !gart_r300_pte(f & ~0xFFFull, GART_R300_LEITURA, &sim_reg[reg].tabela[i])) {
+            snformatar(m, (size_t)nm, "la pagina %u del bufer no se puede apuntar", i);
+            return false;
+        }
+    }
+    sim_reg[reg].npag = np;
+    sim_reg[reg].f = (volcado_fonte_t){ reg ? 0x20000000u : 0x10000000u, desl, passo, larg, alt };
+    const char *porque;
+    if (!volcado_fonte_ok(&sim_reg[reg].f, &porque)) { snformatar(m, (size_t)nm, "%s", porque); return false; }
+    return true;
+}
+
+/* Lo que haría el motor con una franja: la dirección de cada fila, traducida por la tabla, página a página. */
+static void sim_faixa(int reg, const volcado_faixa_t *fx)
+{
+    uint8_t *placa = video_placa();
+    uint32_t pitch = video_pitch(), passo = sim_reg[reg].f.passo, g0 = sim_reg[reg].f.gtt_base;
+    for (int j = 0; j < fx->a; j++) {
+        uint32_t mc = fx->base + (uint32_t)(fx->sy + j) * passo + (uint32_t)fx->sx * 4u;
+        uint32_t *d = (uint32_t *)(placa + (uint32_t)(fx->dy + j) * pitch) + fx->dx;
+        uint32_t resta = (uint32_t)fx->l * 4u;
+        while (resta) {
+            uint32_t idx = (mc - g0) >> 12, dentro = 4096u - (mc & 0xFFFu), n = resta < dentro ? resta : dentro;
+            if (idx >= sim_reg[reg].npag) return;   /* fuera de la ventana: la GART lo descartaría */
+            const uint8_t *o = (const uint8_t *)(uint32_t)gart_r300_fis(sim_reg[reg].tabela[idx]) + (mc & 0xFFFu);
+            rapido_copiar_tela(d, o, n);
+            d += n / 4; mc += n; resta -= n;
+        }
+    }
+}
+
+/* D391: la región de escritura (2) de la simulada: entradas de la R5xx con ESCRITA solo mientras dura
+ * una vuelta, y las vueltas pendientes (se hacen al esperar, como el motor de verdad). Una escritura
+ * que caiga fuera de la región o en una entrada sin ESCRITA se pierde y se cuenta: la autoprueba y
+ * h394 lo miran (una GART de verdad la descartaría o la mandaría a la página de relleno). */
+#define SIM_GTT2 0x30000000u
+static uint32_t *sim_tab2, sim_npag2, sim_perdidas;
+static struct { acel_origem_t o; int l, a; retorno_destino_t d; bool mascara; } sim_rt[4];
+static int sim_nrt;
+
+static bool sim_mapear_escrita(const uint64_t *pag, uint32_t npag, char *m, int nm)
+{
+    if (!npag) {   /* todo a solo lectura otra vez */
+        for (uint32_t i = 0; i < sim_npag2; i++) sim_tab2[i] &= ~GART_R300_ESCRITA;
+        return true;
+    }
+    if (npag > sim_npag2 || !sim_tab2) {
+        if (sim_tab2) kfree(sim_tab2);
+        sim_tab2 = kmalloc(npag * 4);
+        sim_npag2 = sim_tab2 ? npag : 0;
+        if (!sim_tab2) { snformatar(m, (size_t)nm, "sin memoria para la tabla de escritura"); return false; }
+    }
+    for (uint32_t i = 0; i < sim_npag2; i++) sim_tab2[i] = 0;
+    for (uint32_t i = 0; i < npag; i++) {
+        if (!gart_r300_pte(pag[i], GART_R300_LEITURA | GART_R300_ESCRITA, &sim_tab2[i])) {
+            for (uint32_t k = 0; k < sim_npag2; k++) sim_tab2[k] = 0;
+            snformatar(m, (size_t)nm, "la pagina %u (fisica %x:%x) no la alcanza la GPU simulada", i, (uint32_t)(pag[i] >> 32), (uint32_t)pag[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sim_retornar(const acel_origem_t *o, int l, int a, uint32_t desl, uint32_t passo, bool mascara)
+{
+    if (!sim_tab2 || !o->cpu) return false;
+    if (sim_nrt == 4) sim_executar();
+    sim_rt[sim_nrt].o = *o; sim_rt[sim_nrt].l = l; sim_rt[sim_nrt].a = a;
+    sim_rt[sim_nrt].d = (retorno_destino_t){ SIM_GTT2, desl, passo };
+    sim_rt[sim_nrt].mascara = mascara;
+    sim_nrt++;
+    return true;
+}
+
+/* Lo que haría el motor con las vueltas pendientes: cada fila de cada franja, traducida por la tabla. */
+static void sim_executar_retornos(void)
+{
+    for (int i = 0; i < sim_nrt; i++) {
+        const retorno_destino_t *d = &sim_rt[i].d;
+        int l = sim_rt[i].l, a = sim_rt[i].a, n = retorno_n_faixas(d, a, 128);
+        for (int k = 0; k < n; k++) {
+            volcado_faixa_t f;
+            if (!retorno_faixa(d, l, a, 128, k, &f)) { sim_perdidas += (uint32_t)l; continue; }
+            uint32_t p = (f.pitch_offset >> 22) * 64u;
+            for (int j = 0; j < f.a; j++) {
+                const uint32_t *src = (const uint32_t *)((const uint8_t *)sim_rt[i].o.cpu + (uint32_t)(f.sy + j) * sim_rt[i].o.passo);
+                uint32_t mc = f.base + (uint32_t)j * p + (uint32_t)f.dx * 4u;
+                for (int x = 0; x < l; ) {
+                    /* Lo que queda de la fila dentro de esta página, por la tabla (la página puede ser alta: ventana temporal). */
+                    uint32_t idx = (mc - SIM_GTT2) >> 12, n = (4096u - (mc & 0xFFFu)) / 4u;
+                    if (n > (uint32_t)(l - x)) n = (uint32_t)(l - x);
+                    if (mc < SIM_GTT2 || idx >= sim_npag2 || !(sim_tab2[idx] & GART_R300_ESCRITA)) sim_perdidas += n;
+                    else {
+                        uint32_t *d = fisica_mapear(gart_r300_fis(sim_tab2[idx]) + (mc & 0xFFFu));
+                        for (uint32_t k = 0; k < n; k++) d[k] = sim_rt[i].mascara ? src[x + (int)k] & 0x00FFFFFFu : src[x + (int)k];
+                        fisica_soltar(d);
+                    }
+                    x += (int)n; mc += n * 4u;
+                }
+            }
+        }
+    }
+    sim_nrt = 0;
+}
+
+static void sim_executar(void)
+{
+    static volcado_faixa_t fx[64];
+    sim_executar_retornos();
+    bool sse = rapido_inicio();
+    for (int i = 0; i < sim_n; i++) {
+        int r = sim_fila[i].reg;
+        /* La franja se calcula sobre el origen; el destino se desplaza aparte. */
+        int n = volcado_trocear(&sim_reg[r].f, sim_fila[i].x, sim_fila[i].y, sim_fila[i].l, sim_fila[i].a, 128, fx, 64);
+        for (int k = 0; k < n; k++) {
+            fx[k].dx += sim_fila[i].dx - sim_fila[i].x;
+            fx[k].dy += sim_fila[i].dy - sim_fila[i].y;
+            sim_faixa(r, &fx[k]);
+        }
+        if (ativo && drv->atualizar) drv->atualizar(sim_fila[i].dx, sim_fila[i].dy, sim_fila[i].l, sim_fila[i].a);
+    }
+    rapido_fim(sse);
+    sim_n = 0;
+}
+
+static bool sim_volcar(int reg, int x, int y, int l, int a, int dx, int dy)
+{
+    if (!sim_reg[reg].tabela) return false;
+    if (sim_n == SIM_FILA) sim_executar();
+    sim_fila[sim_n].reg = reg; sim_fila[sim_n].x = x; sim_fila[sim_n].y = y; sim_fila[sim_n].l = l; sim_fila[sim_n].a = a;
+    sim_fila[sim_n].dx = dx; sim_fila[sim_n].dy = dy;
+    sim_n++;
+    sim_volcados++;
+    return true;
+}
+
+static bool sim_esperar(uint32_t ms)
+{
+    (void)ms;
+    bool havia_retorno = sim_nrt > 0;
+    sim_executar();
+    /* --volcado-gpu-prueba=vuelta-cuelgue (D391): a la 4.ª vuelta de la sesión la «GPU» deja de contestar. */
+    if ((kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_RETORNO_CUELGUE) && havia_retorno && rt_estado == VOLCADO_ACTIVO && rt_ops >= 3) return false;
+    /* --volcado-gpu-prueba=cuelgue: a los 8 volcados de la sesión la «GPU» deja de contestar. */
+    if ((kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_VOLCADO_CUELGUE) && vg_estado == VOLCADO_ACTIVO && vg_ops >= 8) return false;
+    return true;
+}
+
+static void sim_soltar(void)
+{
+    sim_n = 0; sim_nrt = 0;
+    if (sim_tab2) kfree(sim_tab2);
+    sim_tab2 = NULL; sim_npag2 = 0;
+    for (int r = 0; r < 2; r++) { if (sim_reg[r].tabela) kfree(sim_reg[r].tabela); sim_reg[r].tabela = NULL; sim_reg[r].npag = 0; }
+}
+
+static void sim_detalle(const char *fase)
+{
+    klog("[ACEL2D] volcado simulado (%s): %u volcados, region 0 %u paginas, region 1 %u paginas; region 2 (escritura) %u paginas, "
+         "%u escrituras perdidas\n", fase, sim_volcados, sim_reg[0].npag, sim_reg[1].npag, sim_npag2, sim_perdidas);
+}
+
+static const acel_volcado_t volcado_sim = { sim_preparar, sim_mapear, sim_volcar, sim_esperar, sim_soltar, sim_detalle,
+                                            sim_mapear_escrita, sim_retornar };
+
+/* ------------------------------------------------------------ autoprueba y medida */
+
+/* La zona de prueba de la VRAM: la del 2D (debajo de la pantalla visible si cabe) o, sin acelerador
+ * (solo con la simulada), las últimas filas visibles, que después se redibujan. */
+static uint8_t *vz;
+static int vz_y;
+static bool vz_preparar(void)
+{
+    if (ativo && zona) { vz = zona; vz_y = zona_y; return true; }
+    vz_y = (int)video_altura() - VOLCADO_PROVA_A;
+    vz = video_placa() + video_pitch() * (uint32_t)vz_y;
+    return vz_y > 0;
+}
+static inline uint32_t *vz_px(int x, int y) { return (uint32_t *)(vz + (uint32_t)y * video_pitch()) + x; }
+static inline uint32_t prova_px(int x, int y) { return ((uint32_t)x * 2654435761u ^ (uint32_t)y * 40503u ^ 0x00A5C3u) & 0x00FFFFFFu; }
+
+/* true si la GPU puso los mismos píxeles que la CPU. us_g/us_c: la misma copia de la región de
+ * prueba hecha VOLTAS_VOLCADO veces por la GPU (con la espera) y por la CPU. */
+/* ------------------------------------------------------------ depuración del Amilo (rama v8.5.4.10r2-amilo-dbg2)
+ *
+ * Marcas de progreso del volcado pintadas por la CPU en la esquina de arriba a la izquierda de la pantalla
+ * visible, para que se vean en una foto aunque el equipo se cuelgue (sin depender del log). Cuadrados de
+ * 10x10 en filas de 20: blancos, y naranja cada 5.º (para contar). Fila 4 (más abajo), tres cuadrados de
+ * estado del volcado en marcha: A «dentro de vops->volcar» (rojo) / fuera (verde), B «esperando a la GPU en
+ * acel_sincronizar» (rojo) / fuera (verde), C cambia de color en cada volcado (azul, cian, magenta, amarillo).
+ * Mientras dura la autoprueba solo se pintan en la pantalla (el búfer de atrás se compara con la VRAM); antes
+ * de video_mostrar_tudo se copian también al búfer de atrás, y desde entonces van a los dos. */
+#define VMARCA_SI 1
+static bool gart_decidindo;
+static uint32_t vmarcas;   /* bit k-1: la marca k ya salió */
+static void vmarca_cuadro(int x0, int y0, uint32_t cor, bool tras)
+{
+    uint8_t *t = video_placa();
+    uint32_t *b = video_buffer(), p = video_pitch(), L = video_largura();
+    if (!VMARCA_SI || vg_sim || !t || !video_formato_direto()) return;   /* solo con una GPU de verdad (h394 compara píxeles) */
+    for (int y = 0; y < 10; y++)
+        for (int x = 0; x < 10; x++) {
+            ((volatile uint32_t *)(t + (uint32_t)(y0 + y) * p))[x0 + x] = cor;
+            if (tras && b) b[(uint32_t)(y0 + y) * L + (uint32_t)(x0 + x)] = cor;
+        }
+    vaciar_wc();
+}
+/* dbg5: ¿se puede pintar una marca en la pantalla con el motor (quizá) ocupado? Solo con la opción MARCAS
+ * («acel2d volcado paso 25»): hasta saber si la CPU escribiendo en la VRAM mientras el motor lee la RAM por la
+ * GART tiene que ver con el cuelgue, esas marcas van solo al rastro. */
+static bool vmarca_ocupado_ok(void) { return acel_radeon_dbg_marcas(); }
+
+/* dbg5: una marca de los experimentos («acel2d volcado paso 7-17»), pintada por quien sabe que el motor está parado. */
+void acel_marca_paso(int fila, int col, int estado, bool tras)
+{
+    vmarca_cuadro(2 + col * 12, 2 + fila * 12, estado == 0 ? 0x00FFFF00u : estado == 1 ? 0x00FFFFFFu : 0x00FF0000u, tras);
+}
+
+void acel_marca_fina(int fila, int col, int estado)
+{
+    /* Al búfer de atrás también solo con el volcado ya activo y fuera de la autoprueba (que lo compara con la VRAM). */
+    bool tras = vg_estado == VOLCADO_ACTIVO && !gart_decidindo;
+    if (!vg_sim) rastro_marca(0x10000u | ((uint32_t)fila << 12) | ((uint32_t)col << 4) | (uint32_t)estado);
+    if (fila == 4 && !vmarca_ocupado_ok()) return;   /* las de gv_volcar: el motor está con las franjas de antes */
+    vmarca_cuadro(2 + col * 12, 2 + fila * 12, estado == 0 ? 0x00FFFF00u : estado == 1 ? 0x00FFFFFFu : 0x00FF0000u, tras);
+}
+static void vmarca_pos(int k, int *x, int *y) { *x = 2 + ((k - 1) % 20) * 12; *y = 2 + ((k - 1) / 20) * 12; }
+static void vmarca(int k, bool tras)
+{
+    int x, y;
+    if (k < 1 || k > 32) return;
+    if (!vg_sim) rastro_marca(0x0100u | (uint32_t)k);
+    vmarcas |= 1u << (k - 1);
+    /* dbg5: la 7, la 10 y la 13 salen con órdenes puestas y sin esperar (el motor ocupado): solo al rastro. */
+    if ((k == 7 || k == 10 || k == 13) && !tras && !vmarca_ocupado_ok()) return;
+    vmarca_pos(k, &x, &y);
+    vmarca_cuadro(x, y, k % 5 == 0 ? 0x00FF8000u : 0x00FFFFFFu, tras);
+}
+static void vmarcas_limpar(void)
+{
+    vmarcas = 0;
+    for (int k = 1; k <= 40; k++) { int x, y; vmarca_pos(k, &x, &y); vmarca_cuadro(x, y, 0x00000000u, false); }
+}
+static void vmarcas_ao_tras(void)
+{
+    for (int k = 1; k <= 32; k++) if (vmarcas & (1u << (k - 1))) vmarca(k, true);
+}
+
+#define VOLTAS_VOLCADO 8
+static bool volcado_autoprova(char *m, int nm, uint32_t *us_g, uint32_t *us_c)
+{
+    int L = (int)video_largura(), A = VOLCADO_PROVA_A;
+    uint32_t khz = hw_tsc_khz();
+    if (!vz_preparar()) { snformatar(m, (size_t)nm, "sin zona de prueba"); return false; }
+    uint32_t *p = kmalloc((uint32_t)(L * A) * 4), *ref = kmalloc((uint32_t)(L * A) * 4);
+    if (!p || !ref) { if (p) kfree(p); if (ref) kfree(ref); snformatar(m, (size_t)nm, "sin memoria para la autoprueba"); return false; }
+    vmarca(4, false);   /* autoprueba: memoria reservada */
+    for (int y = 0; y < A; y++)
+        for (int x = 0; x < L; x++) {
+            p[y * L + x] = prova_px(x, y);
+            ref[y * L + x] = 0x00102030u ^ (uint32_t)(x * 7 + y);
+            *vz_px(x, y) = ref[y * L + x];
+        }
+    vaciar_wc();
+    vmarca(5, false);   /* zona de prueba rellenada por la CPU */
+    bool ok = vops->mapear(1, p, (uint32_t)L * 4u, (uint32_t)L, (uint32_t)A, m, nm);
+    vmarca(6, false);   /* región 1 apuntada */
+    /* Rectángulos: filas enteras, sueltos y desplazados, el primer y el último píxel, bordes de página. */
+    static const struct { int x, y, l, a, dx, dy; } rs[] = {
+        { 0, 0, 0, 6, 0, 0 },          /* l = 0: todo el ancho */
+        { 5, 8, 100, 20, 200, 10 },
+        { -64, 30, 64, 18, 0, 30 },    /* x < 0: desde el borde derecho */
+        { 0, 47, 1, 1, -1, 0 },        /* dx < 0: al último píxel de la fila */
+        { 1000, 6, 48, 2, 1000, 6 },   /* cruza el final de una fila de 4 KB (1024 de ancho) */
+        { 3, 40, 300, 7, 3, 40 },
+    };
+    for (unsigned i = 0; ok && i < sizeof rs / sizeof rs[0]; i++) {
+        int l = rs[i].l ? rs[i].l : L, a = rs[i].a;
+        int x = rs[i].x < 0 ? L + rs[i].x : rs[i].x, y = rs[i].y, dx = rs[i].dx < 0 ? L + rs[i].dx : rs[i].dx, dy = rs[i].dy;
+        if (x + l > L) l = L - x;
+        if (dx + l > L) l = L - dx;
+        if (l <= 0 || y + a > A || dy + a > A) continue;
+        if (!vops->volcar(1, x, y, l, a, dx, vz_y + dy)) { snformatar(m, (size_t)nm, "la GPU rechazo el volcado %u", i); ok = false; break; }
+        for (int j = 0; j < a; j++)
+            for (int k = 0; k < l; k++) ref[(dy + j) * L + dx + k] = p[(y + j) * L + x + k];
+    }
+    vmarca(7, false);   /* los 6 rectángulos puestos al motor */
+    if (ok && !vops->esperar(PRAZO_MS)) { snformatar(m, (size_t)nm, "tiempo agotado en la autoprueba"); ok = false; }
+    vmarca(8, false);   /* espera terminada */
+    if (ok && (kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_VOLCADO_FALLO)) *vz_px(L / 3, A / 2) ^= 0x00FF00u;
+    uint32_t dif = 0;
+    for (int y = 0; ok && y < A; y++)
+        for (int x = 0; x < L; x++)
+            if ((*vz_px(x, y) & 0x00FFFFFFu) != ref[y * L + x]) {
+                if (!dif) {
+                    klog("[ACEL2D] volcado: primer pixel distinto en %d,%d: gpu %x cpu %x\n", x, y, *vz_px(x, y), ref[y * L + x]);
+                    snformatar(m, (size_t)nm, "pixeles distintos de la CPU (el primero en %d,%d)%s", x, y,
+                               (kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_VOLCADO_FALLO) ? " (simulado)" : "");
+                }
+                dif++;
+            }
+    if (dif) ok = false;
+    vmarca(9, false);   /* comparada la región 1 */
+    if (!ok) vmarca(31, false);   /* (31: la autoprueba ya ha fallado) */
+    /* El búfer de atrás de verdad (región 0): sus primeras filas a la zona, comparadas con él. */
+    if (ok) {
+        const uint32_t *tras = video_buffer();
+        int a = A < (int)video_altura() ? A : (int)video_altura();
+        bool v0 = vops->volcar(0, 0, 0, L, a, 0, vz_y);
+        vmarca(10, false);   /* región 0 (búfer de atrás): copia puesta */
+        if (!v0 || !vops->esperar(PRAZO_MS)) { snformatar(m, (size_t)nm, "fallo al volcar el bufer de atras"); ok = false; }
+        vmarca(11, false);   /* región 0: espera terminada */
+        for (int y = 0; ok && y < a; y++)
+            for (int x = 0; x < L; x++)
+                if ((*vz_px(x, y) & 0x00FFFFFFu) != (tras[(uint32_t)y * (uint32_t)L + (uint32_t)x] & 0x00FFFFFFu)) {
+                    snformatar(m, (size_t)nm, "el bufer de atras llega distinto (fila %d, columna %d)", y, x);
+                    ok = false;
+                    break;
+                }
+    }
+    vmarca(12, false);   /* región 0 comparada */
+    /* dbg4 (Amilo): el búfer de atrás ENTERO, en franjas de A filas a la zona de prueba y comparadas una a una
+     * (antes solo se probaban sus primeras A filas, y el primer volcado de verdad colgó el equipo dentro de
+     * vops->volcar). Marcas en la fila 6 (columna = franja): amarillo antes de la copia, blanco igual, rojo
+     * distinta. */
+    if (ok) {
+        const uint32_t *tras = video_buffer();
+        int H = (int)video_altura();
+        for (int y0 = 0, b = 0; ok && y0 < H; y0 += A, b++) {
+            int a = H - y0 < A ? H - y0 : A;
+            acel_marca_fina(5, b, 0);
+            if (!vops->volcar(0, 0, y0, L, a, 0, vz_y) || !vops->esperar(PRAZO_MS)) {
+                snformatar(m, (size_t)nm, "fallo al volcar la franja %d del bufer de atras", b);
+                ok = false;
+                acel_marca_fina(5, b, 2);
+                break;
+            }
+            for (int y = 0; ok && y < a; y++)
+                for (int x = 0; x < L; x++)
+                    if ((*vz_px(x, y) & 0x00FFFFFFu) != (tras[(uint32_t)(y0 + y) * (uint32_t)L + (uint32_t)x] & 0x00FFFFFFu)) {
+                        snformatar(m, (size_t)nm, "el bufer de atras llega distinto (franja %d, fila %d, columna %d)", b, y0 + y, x);
+                        ok = false;
+                        break;
+                    }
+            acel_marca_fina(5, b, ok ? 1 : 2);
+        }
+        klog("[ACEL2D] volcado: bufer de atras entero por franjas de %d filas: %s\n", A, ok ? "IGUAL" : m);
+    }
+    /* La medida: la región de prueba entera por la GPU y por la CPU. */
+    if (ok && khz) {
+        uint64_t t0 = tsc();
+        for (int k = 0; ok && k < VOLTAS_VOLCADO; k++) ok = vops->volcar(1, 0, 0, L, A, 0, vz_y);
+        vmarca(13, false);   /* medida: copias puestas */
+        if (ok) ok = vops->esperar(PRAZO_MS);
+        vmarca(14, false);   /* medida: GPU terminada */
+        uint64_t t1 = tsc();
+        bool sse = rapido_inicio();
+        for (int k = 0; k < VOLTAS_VOLCADO; k++)
+            for (int y = 0; y < A; y++) rapido_copiar_tela(vz_px(0, y), p + y * L, (uint32_t)L * 4u);
+        rapido_fim(sse);
+        vaciar_wc();
+        uint64_t t2 = tsc();
+        *us_g = (uint32_t)sconv_div64((t1 - t0) * 1000, khz);
+        *us_c = (uint32_t)sconv_div64((t2 - t1) * 1000, khz);
+        if (!ok) snformatar(m, (size_t)nm, "tiempo agotado al medir");
+        vmarca(15, false);   /* medida: CPU terminada */
+    }
+    klog("[ACEL2D] volcado: autoprueba %s%s%s; %d volcados de %dx%d: GPU %u us, CPU %u us\n", ok ? "IGUAL que la CPU" : "FALLO",
+         ok ? "" : ": ", ok ? "" : m, VOLTAS_VOLCADO, L, A, *us_g, *us_c);
+    /* Revisión: la región 1 no puede quedar apuntando a «p» ya liberado (la GART de la R5xx no respeta el
+     * «solo lectura» de las entradas: ver gart_vaciar en acel_radeon.c). Antes, el motor parado. */
+    char m2[8];
+    bool parado = ok || vops->esperar(PRAZO_MS);
+    if (parado) vops->mapear(1, NULL, 0, 0, 0, m2, sizeof m2);
+    else klog("[ACEL2D] volcado: el motor no para: el bufer de la autoprueba no se libera (la GART aun lo apunta)\n");
+    if (parado) kfree(p);
+    kfree(ref);
+    vmarca(16, false);   /* autoprueba: región 1 soltada y memoria liberada */
+    return ok;
+}
+
+/* ------------------------------------------------------------ encender, apagar */
+
+/* D391: la GART se suelta cuando ni el volcado ni la vuelta la usan (no a mitad de gart_encender: el volcado
+ * puede quedar apagado por lento antes de que se pruebe la vuelta, que necesita la GART). (gart_decidindo está
+ * declarada con las marcas de depuración.) */
+static void gart_soltar_se_livre(void)
+{
+    /* Revisión: la GART sigue por la vuelta pero sin volcado: la región 0 no se queda apuntando a un búfer de
+     * atrás que puede liberarse (video_refazer) sin que nadie la vuelva a apuntar. */
+    if (!gart_decidindo && vg_gart && vg_estado != VOLCADO_ACTIVO && rt_estado == VOLCADO_ACTIVO && vops) {
+        char m2[8];
+        vops->mapear(0, NULL, 0, 0, 0, m2, sizeof m2);
+        vg_mapeado = false;
+    }
+    if (gart_decidindo || !vg_gart || vg_estado == VOLCADO_ACTIVO || rt_estado == VOLCADO_ACTIVO) return;
+    if (vops) vops->soltar();
+    vg_gart = false;
+    rt_lectura_ok = false;
+}
+
+static void volcado_soltar(int novo_estado, const char *m)
+{
+    vg_mapeado = vg_pendente = false;
+    vg_estado = novo_estado;
+    if (m) {
+        snformatar(vg_motivo, sizeof vg_motivo, "%s", m);
+        klog("[ACEL2D] volcado por la GPU apagado: %s\n", m);
+    }
+    gart_soltar_se_livre();
+}
+
+/* El vigilante del volcado: con una GPU de verdad el motor es el del 2D, así que se apaga todo
+ * (acel2d_desligar, que también suelta la GART) y la CPU redibuja; con la simulada, solo el volcado. */
+static void volcado_falhou(const char *m)
+{
+    klog("[ACEL2D] volcado: %s\n", m);
+    if (!vg_sim && ativo) { acel2d_desligar(m); vg_estado = VOLCADO_FALLO; snformatar(vg_motivo, sizeof vg_motivo, "%s", m); return; }
+    volcado_soltar(VOLCADO_FALLO, m);
+    video_mostrar_tudo();
+}
+
+static bool retorno_decidir(bool forcado);
+
+/* Enciende la GART (si no lo estaba), apunta el búfer de atrás y prueba la LECTURA por ella (la
+ * autoprueba del volcado: solo lee la RAM). Con eso decide el volcado (si «volcado») y, D391, la vuelta
+ * (si «retorno»): la GPU solo escribe en la RAM si antes se ha visto que lee por la tabla justo las
+ * páginas que se le apuntaron. */
+static void gart_encender(bool volcado, bool retorno, bool forcado)
+{
+    char m[96] = "";
+    uint32_t ug = 0, uc = 0;
+    acel_sincronizar();
+    bool sim = int_salva_desliga();
+    vmarcas_limpar();
+    vmarca(1, false);   /* gart_encender: empieza */
+    if (!vg_gart) {
+        if (!vops->preparar(m, sizeof m)) {
+            int_restaura(sim);
+            if (volcado) { vg_estado = VOLCADO_NO; snformatar(vg_motivo, sizeof vg_motivo, "%s", m); }
+            if (retorno) { rt_estado = VOLCADO_NO; snformatar(rt_motivo, sizeof rt_motivo, "%s", m); }
+            klog("[ACEL2D] volcado: no se puede: %s\n", m);
+            return;
+        }
+        vg_gart = true;
+    }
+    vmarca(2, false);   /* GART preparada (como los pasos 0-4) */
+    gart_decidindo = true;
+    vg_mapeado = false;
+    bool ok = vops->mapear(0, video_buffer(), video_largura() * 4u, video_largura(), video_altura(), m, sizeof m);
+    vmarca(3, false);   /* región 0 (búfer de atrás) apuntada */
+    if (!ok) vmarca(31, false);
+    if (ok) ok = volcado_autoprova(m, sizeof m, &ug, &uc);
+    rt_lectura_ok = ok;
+    if (!ok && vops->detalle) vops->detalle("tras el fallo de la autoprueba");
+    if (ok && vg_estado == VOLCADO_ACTIVO) vg_mapeado = true;   /* ya estaba activo (se enciende la vuelta) */
+    if (!ok && !volcado && vg_estado == VOLCADO_ACTIVO) volcado_soltar(VOLCADO_FALLO, m);
+    if (volcado) {
+        vg_us_gpu = ug; vg_us_cpu = uc;
+        if (!ok) volcado_soltar(VOLCADO_FALLO, m);
+        else if (!forcado && ug > 2 * uc) {
+            char t[96];
+            snformatar(t, sizeof t, "autoprueba superada, pero la GPU (%u us) tarda mas del doble que la CPU (%u us)", ug, uc);
+            volcado_soltar(VOLCADO_LENTO, t);
+        } else {
+            vg_mapeado = true;
+            vg_estado = VOLCADO_ACTIVO;
+            snformatar(vg_motivo, sizeof vg_motivo, "%s%s: GPU %u us, CPU %u us en la autoprueba", vg_sim ? "simulado" : drv->nome,
+                       forcado ? " (a mano)" : "", ug, uc);
+            klog("[ACEL2D] volcado por la GPU activo: %s\n", vg_motivo);
+        }
+    }
+    if (retorno) {
+        if (!ok) {
+            rt_estado = VOLCADO_FALLO;
+            snformatar(rt_motivo, sizeof rt_motivo, "sin probar: la lectura por la GART fallo (%s)", m);
+            klog("[ACEL2D] vuelta: %s\n", rt_motivo);
+        } else (void)retorno_decidir(forcado);
+    }
+    gart_decidindo = false;
+    vmarca(17, false);   /* decidido (si la autoprueba falló, sale también la 31) */
+    if (!ok) vmarca(31, false);
+    if (vg_estado == VOLCADO_ACTIVO) vmarca(32, false);   /* (32: el volcado queda activo) */
+    int_restaura(sim);
+    vmarca(18, false);   /* interrupciones abiertas otra vez */
+    gart_soltar_se_livre();
+    vmarca(19, false);   /* GART soltada si nadie la usa */
+    vmarcas_ao_tras();   /* las marcas también en el búfer de atrás, para que video_mostrar_tudo no las borre */
+    video_mostrar_tudo();   /* la zona de prueba visible (sin acelerador) vuelve a su sitio */
+    vmarca(20, true);   /* el primer video_mostrar_tudo ha vuelto */
+}
+
+void acel2d_volcado_iniciar(void)
+{
+    uint8_t op = kconf_cab(CAB_ACEL_OPC);
+    vg_sim = (op & CAB_ACEL_VOLCADO_SIM) != 0;
+    bool seguro = (info_boot.opcoes & OPC_BOOT_ACEL_SEGURO) || (modo & CAB_ACEL_SEGURO);
+    const char *no = NULL;
+    if (!video_ativo()) no = "sin modo grafico";
+    else if (!video_formato_direto()) no = "la pantalla no es de 32 bits 0x00RRGGBB";
+    else if (seguro) no = "modo seguro de la aceleracion";
+    bool volcado = !no, retorno = !no;
+    /* Lo apagado en kconfig se dice antes que la falta de acelerador (como antes de D391). */
+    if (volcado && (op & CAB_ACEL_SIN_VOLCADO)) {
+        volcado = false;
+        vg_estado = VOLCADO_KCONFIG;
+        txt_copia_n(vg_motivo, "apagado en las opciones del kernel (kconfig volcado_gpu=no)", sizeof vg_motivo);
+        klog("[ACEL2D] volcado: %s\n", vg_motivo);
+    }
+    if (retorno && (op & CAB_ACEL_SIN_RETORNO)) {
+        retorno = false;
+        rt_estado = VOLCADO_KCONFIG;
+        txt_copia_n(rt_motivo, "apagada en las opciones del kernel (kconfig vuelta_gpu=no)", sizeof rt_motivo);
+        klog("[ACEL2D] vuelta: %s\n", rt_motivo);
+    }
+    if (!no && !vg_sim && !ativo) no = "sin acelerador 2D activo";
+    else if (!no && !vg_sim && !drv->volcado) no = "este acelerador no sabe leer la RAM del sistema (solo Radeon R5xx, D387)";
+    if (no) {
+        if (vg_estado != VOLCADO_KCONFIG) {
+            vg_estado = VOLCADO_NO;
+            snformatar(vg_motivo, sizeof vg_motivo, "%s: copia la CPU", no);
+            klog("[ACEL2D] volcado: %s\n", vg_motivo);
+        }
+        if (rt_estado != VOLCADO_KCONFIG) {
+            rt_estado = VOLCADO_NO;
+            snformatar(rt_motivo, sizeof rt_motivo, "%s: lee la CPU", no);
+        }
+        return;
+    }
+    vops = vg_sim ? &volcado_sim : drv->volcado;
+    if (retorno && (!vops->mapear_escrita || !vops->retornar)) {
+        retorno = false;
+        rt_estado = VOLCADO_NO;
+        txt_copia_n(rt_motivo, "este acelerador no sabe escribir en la RAM: lee la CPU", sizeof rt_motivo);
+    }
+    /* Amilo (2026-11-19): con la GART encendida al arrancar, la X1400 colgó el equipo entero (con las
+     * interrupciones cerradas, sin volver de una lectura). Hasta que una tarjeta pase el volcado en hardware
+     * real (lista volcado_confirmadas, el volcado y la vuelta por separado), la GART no se toca sola: solo
+     * «acel2d volcado encender» o «acel2d vuelta encender» (que avisan de que pueden colgar), y «acel2d volcado
+     * paso N» para depurar. La GPU simulada de las pruebas sigue igual. */
+    if (!vg_sim && ((volcado && !volcado_confirmada(false)) || (retorno && !volcado_confirmada(true)))) {
+        if (volcado && !volcado_confirmada(false)) {
+            volcado = false;
+            vg_estado = VOLCADO_NO;
+            txt_copia_n(vg_motivo, "sin probar en esta tarjeta (puede colgar el equipo): «acel2d volcado encender» lo prueba",
+                        sizeof vg_motivo);
+            klog("[ACEL2D] volcado: %s\n", vg_motivo);
+        }
+        if (retorno && !volcado_confirmada(true)) {
+            retorno = false;
+            rt_estado = VOLCADO_NO;
+            txt_copia_n(rt_motivo, "sin probar en esta tarjeta (puede colgar el equipo): «acel2d vuelta encender» la prueba",
+                        sizeof rt_motivo);
+            klog("[ACEL2D] vuelta: %s\n", rt_motivo);
+        }
+        /* Lo que sí está confirmado (el volcado de la X1400) sigue adelante solo. */
+    }
+    if (volcado || retorno) gart_encender(volcado, retorno, false);
+}
+
+bool acel_volcar(int x, int y, int l, int a)
+{
+    if (vg_estado != VOLCADO_ACTIVO || !vg_mapeado || (!vg_sim && !ativo)) return false;
+    if ((uint32_t)l * (uint32_t)a < VOLCADO_MIN_PX) { vg_cpu_ops++; return false; }
+    bool sim = int_salva_desliga();
+    vmarca_cuadro(VMARCA_C_X, VMARCA_EST_Y, (const uint32_t[]){ 0x000000FFu, 0x0000FFFFu, 0x00FF00FFu, 0x00FFFF00u }[vg_ops & 3], true);
+    vmarca_cuadro(VMARCA_A_X, VMARCA_EST_Y, 0x00FF0000u, true);   /* A: dentro de vops->volcar */
+    vaciar_wc();
+    if (!vg_sim) rastro_marca(0x0310u);   /* dbg5: A, dentro de vops->volcar */
+    bool ok = vops->volcar(0, x, y, l, a, x, y);
+    if (!vg_sim) rastro_marca(0x0311u);
+    if (vmarca_ocupado_ok()) vmarca_cuadro(VMARCA_A_X, VMARCA_EST_Y, 0x0000FF00u, true);    /* A: fuera (el motor copia) */
+    if (ok) {
+        vg_pendente = true;
+        vg_ops++;
+        vg_resto += (uint32_t)l * (uint32_t)a; vg_kpx += vg_resto / 1000; vg_resto %= 1000;
+    }
+    int_restaura(sim);
+    if (!ok) { volcado_falhou("la GPU rechazo un volcado"); return false; }
+    return true;
+}
+
+void acel_volcado_buffer(bool antes)
+{
+    if (antes) { acel_sincronizar(); vg_mapeado = false; return; }
+    if (vg_estado != VOLCADO_ACTIVO || !vops) return;
+    char m[96] = "";
+    bool sim = int_salva_desliga();
+    vg_mapeado = vops->mapear(0, video_buffer(), video_largura() * 4u, video_largura(), video_altura(), m, sizeof m);
+    int_restaura(sim);
+    if (!vg_mapeado) {
+        char t[96];
+        snformatar(t, sizeof t, "el bufer de atras nuevo no se puede apuntar: %s", m);
+        volcado_soltar(VOLCADO_NO, t);
+    }
+}
+
+/* «acel2d volcado medir»: la pantalla entera (lo que ya muestra: no cambia nada) por la GPU y por la CPU. */
+#define VOLTAS_MEDIR 10
+static int32_t volcado_medir(void)
+{
+    uint32_t khz = hw_tsc_khz();
+    if (vg_estado != VOLCADO_ACTIVO || !khz) return ERRO_INVALIDO;
+    int L = (int)video_largura(), A = (int)video_altura();
+    acel_sincronizar();
+    bool sim = int_salva_desliga();
+    uint64_t t0 = tsc();
+    bool ok = true;
+    for (int k = 0; ok && k < VOLTAS_MEDIR; k++) ok = vops->volcar(0, 0, 0, L, A, 0, 0);
+    uint64_t t1 = tsc();
+    if (ok) ok = vops->esperar(VOLCADO_PRAZO_MS * VOLTAS_MEDIR);
+    uint64_t t2 = tsc();
+    int_restaura(sim);
+    /* La CPU, pantalla a pantalla con las interrupciones cerradas solo en cada una (sin WC, una
+     * pantalla puede tardar decenas de ms: diez seguidas dejarían el reloj parado demasiado). */
+    uint64_t tc = 0;
+    for (int k = 0; k < VOLTAS_MEDIR; k++) {
+        sim = int_salva_desliga();
+        uint64_t a0 = tsc();
+        video_volcar_cpu(0, 0, L, A);
+        tc += tsc() - a0;
+        int_restaura(sim);
+    }
+    uint64_t t3 = t2 + tc;
+    uint32_t ug = (uint32_t)sconv_div64((t2 - t0) * 1000, khz), uq = (uint32_t)sconv_div64((t1 - t0) * 1000, khz);
+    uint32_t uc = (uint32_t)sconv_div64((t3 - t2) * 1000, khz);
+    uint32_t mb = (uint32_t)L * (uint32_t)A * 4u / 1000u * VOLTAS_MEDIR;   /* KB en total */
+    klog("[ACEL2D] volcado medir: %d pantallas de %dx%d: GPU %u us (la CPU solo %u us poniendo las ordenes), CPU %u us; "
+         "GPU %u MB/s, CPU %u MB/s%s\n", VOLTAS_MEDIR, L, A, ug, uq, uc, ug ? mb * 1000u / ug : 0, uc ? mb * 1000u / uc : 0,
+         ok ? "" : " (la GPU no termino)");
+    vg_us_gpu = ug / VOLTAS_MEDIR; vg_us_cpu = uc / VOLTAS_MEDIR;
+    if (!ok) { volcado_falhou("tiempo agotado al medir el volcado"); return ERRO_INVALIDO; }
+    return 0;
+}
+
+int32_t acel2d_volcado_ctl(int op)
+{
+    if (op == 2) {
+        if (vg_estado != VOLCADO_ACTIVO) return 0;
+        acel_sincronizar();
+        volcado_soltar(VOLCADO_A_MANO, "apagado a mano (acel2d volcado apagar)");
+        video_mostrar_tudo();
+        return 0;
+    }
+    if (op == 3) {
+        if (vg_estado == VOLCADO_ACTIVO) return 0;
+        if (!vops) acel2d_volcado_iniciar();
+        if (vg_estado != VOLCADO_ACTIVO && vops && (vg_sim || ativo) && video_formato_direto()) gart_encender(true, false, true);
+        return vg_estado == VOLCADO_ACTIVO ? 0 : ERRO_INVALIDO;
+    }
+    if (op == 4) return volcado_medir();
+    if (op >= 5 && op <= 7) return acel2d_retorno_ctl(op);   /* D391 */
+    if (op >= 37 && op <= 45) {   /* D387: las opciones de la valla del 3D (gpu3d_r500.c): también con el 2D ya apagado */
+        extern bool gpu3d_r500_opcao(int paso);
+        return gpu3d_r500_opcao(op - 10) ? 0 : ERRO_INVALIDO;
+    }
+    if (op >= 10 && op <= 36) {   /* depuración (dbg5: hasta el 25; 26, D387): «acel2d volcado paso N» (ver gv_preparar_ate en acel_radeon.c) */
+        if (!vops) acel2d_volcado_iniciar();
+        if (vg_sim || !ativo || !drv || !drv->volcado || !drv->volcado->paso) {
+            klog("[ACEL2D] volcado paso: este acelerador no tiene pasos de depuracion\n");
+            return ERRO_INVALIDO;
+        }
+        /* D387: la opción 26 (el 2D por MMIO con el CP en marcha) solo cambia cómo se mandan las órdenes: vale con la
+         * GART en uso. */
+        if (vg_gart && op != 36) { klog("[ACEL2D] volcado paso: la GART esta en uso (apagar antes el volcado y la vuelta)\n"); return ERRO_INVALIDO; }
+        char m[96] = "";
+        acel_sincronizar();
+        bool sim = int_salva_desliga();   /* como en el arranque (gart_encender) */
+        bool ok = drv->volcado->paso(op - 10, m, sizeof m);
+        int_restaura(sim);
+        /* dbg5: tras un experimento la CPU repone la pantalla (marcas, testigos). */
+        if (!(ativo && zona) || (op - 10 >= 7 && op - 10 < 20)) video_mostrar_tudo();
+        return ok ? 0 : ERRO_INVALIDO;
+    }
+    return ERRO_INVALIDO;
+}
+
+/* «acel2d probar»: con el volcado activo, su autoprueba otra vez (y los registros con --detalle). */
+static bool retorno_autoprova(char *m, int nm, uint32_t *us_g, uint32_t *us_c, bool *mascara);
+static void retorno_falhou(const char *m);
+
+static void volcado_probar(bool detalle)
+{
+    char m[96] = "";
+    uint32_t ug = 0, uc = 0;
+    if (vg_estado != VOLCADO_ACTIVO || !vops) klog("[ACEL2D] volcado: %s\n", vg_motivo);
+    else {
+        if (detalle && vops->detalle) vops->detalle("antes de probar");
+        bool ok = volcado_autoprova(m, sizeof m, &ug, &uc);
+        if (detalle && vops->detalle) vops->detalle(ok ? "al final" : "tras el fallo");
+        if (!ok) volcado_falhou(m);
+    }
+    /* D391: la vuelta, si está activa (y lo sigue tras lo anterior). */
+    if (rt_estado != VOLCADO_ACTIVO || !vops) { klog("[ACEL2D] vuelta: %s\n", rt_motivo); return; }
+    bool mascara = rt_mascara;
+    bool sim = int_salva_desliga();
+    bool ok = retorno_autoprova(m, sizeof m, &ug, &uc, &mascara);
+    int_restaura(sim);
+    if (detalle && vops->detalle) vops->detalle(ok ? "tras la autoprueba de la vuelta" : "tras el fallo de la vuelta");
+    if (!(ativo && zona)) video_mostrar_tudo();
+    if (!ok) retorno_falhou(m);
+}
+
+/* ================================================================== D391: la vuelta del 3D a la RAM
+ *
+ * El 3D por la GPU dibuja en la VRAM; para que el cuadro llegue a la ventana, hasta ahora la CPU lo
+ * leía de la VRAM (r5_ler), y la CPU lee la memoria de la tarjeta muy despacio (sin caché ni
+ * combinación de lecturas: cada píxel es una lectura por el bus). Con la GART del volcado (D387) el
+ * motor 2D puede ESCRIBIR en la RAM: copia el destino del 3D directamente al búfer del programa, y la
+ * CPU no toca la VRAM. Después todo sigue igual (el escritorio compone la ventana y el volcado, D387,
+ * la lleva a la pantalla), así que vale con ventanas tapadas, movidas o a medias.
+ *
+ * Reglas, porque aquí la GPU escribe en la RAM del sistema (un error podría estropear memoria):
+ *   - solo si la LECTURA por la GART superó su autoprueba en esta sesión (la GPU usa nuestra tabla y
+ *     lee justo las páginas apuntadas) y la vuelta supera la suya: un búfer del kernel con guardas
+ *     delante, detrás y entre filas; si la GPU escribe un solo píxel fuera, no se enciende;
+ *   - las entradas con permiso de escritura existen solo mientras dura cada copia (con las
+ *     interrupciones cerradas y esperando a que termine, con plazo); después vuelven a la página de
+ *     relleno, solo de lectura. Fuera de esa ventana la GPU no puede escribir en la RAM;
+ *   - solo páginas presentes, de RAM (E820) y, si son del programa, suyas y con escritura;
+ *   - un plazo agotado o una orden rechazada apaga la vuelta y, con la GPU de verdad, el 2D entero
+ *     (el vigilante, D244): las entradas ya se han quitado y el bus maestro se apaga con la GART.
+ *     Ese cuadro, y los siguientes, los lee la CPU como antes. */
+
+#define RETORNO_PRAZO_MS 100
+#define RETORNO_MAX_PAG  2048    /* 8 MB: la ventana más grande (ESPACO_JANELA, D059) */
+#define RETORNO_PROVA_A  32
+#define VOLTAS_RETORNO   8
+
+static void retorno_soltar(int novo_estado, const char *m)
+{
+    rt_estado = novo_estado;
+    if (m) {
+        snformatar(rt_motivo, sizeof rt_motivo, "%s", m);
+        klog("[ACEL2D] vuelta por la GPU apagada: %s\n", m);
+    }
+    gart_soltar_se_livre();
+}
+
+/* El vigilante de la vuelta: como el del volcado (el motor es el mismo). */
+static void retorno_falhou(const char *m)
+{
+    klog("[ACEL2D] vuelta: %s\n", m);
+    if (!vg_sim && ativo) {
+        acel2d_desligar(m);
+        rt_estado = VOLCADO_FALLO;
+        snformatar(rt_motivo, sizeof rt_motivo, "%s", m);
+        return;
+    }
+    retorno_soltar(VOLCADO_FALLO, m);
+}
+
+/* Una copia del origen a «dest» por la GPU, con las interrupciones ya cerradas. 1 = hecha (la GPU
+ * terminó); 0 = no se puede (sin daño: la hace la CPU; motivo en m); -1 = la GPU falló (motivo en m). */
+static int retorno_copiar(espaco_t e, bool usuario, const acel_origem_t *o, int l, int a, uint32_t *dest, int passo_px,
+                          bool mascara, char *m, int nm)
+{
+    static uint64_t pag[RETORNO_MAX_PAG];
+    const char *porque;
+    retorno_destino_t d = { 0x1000u, (uint32_t)dest & 0xFFFu, (uint32_t)passo_px * 4u };
+    if (passo_px <= 0 || !retorno_destino_ok(&d, l, a, &porque)) { snformatar(m, (size_t)nm, "%s", passo_px <= 0 ? "paso nulo" : porque); return 0; }
+    /* La GPU de verdad lee el origen por su dirección del MC: alineada a 1 KB, paso múltiplo de 64. */
+    if (!vg_sim && o->gpu != ACEL_ORIGEM_TELA && (!o->gpu || (o->gpu & 0x3FFu) || o->gpu > 0xFFFFFFFFull || (o->passo & 63u) ||
+                                                   o->passo > 255u * 64u)) {
+        snformatar(m, (size_t)nm, "el origen (MC %x, paso %u) no sirve al motor 2D", (uint32_t)o->gpu, o->passo);
+        return 0;
+    }
+    uint32_t np = (retorno_bytes(&d, l, a) + 4095u) >> 12, v0 = (uint32_t)dest & ~0xFFFu;
+    if (np > RETORNO_MAX_PAG) { snformatar(m, (size_t)nm, "destino de %u paginas: demasiado grande", np); return 0; }
+    for (uint32_t i = 0; i < np; i++) {
+        uint32_t fl = 0;
+        fis_t f = espaco_traduzir(e, v0 + i * 4096u, &fl);
+        if (!f) { snformatar(m, (size_t)nm, "la pagina %u del destino no esta presente", i); return 0; }
+        if (usuario && (!(fl & PG_USUARIO) || !(fl & PG_ESCRITA))) {
+            snformatar(m, (size_t)nm, "la pagina %u del destino no es del programa con escritura", i);
+            return 0;
+        }
+        f &= ~(fis_t)0xFFF;
+        if (!memfisica_sobre_ram(f, f + 4096u)) {
+            snformatar(m, (size_t)nm, "la pagina %u del destino (fisica %x:%x) no es RAM", i, (uint32_t)(f >> 32), (uint32_t)f);
+            return 0;
+        }
+        pag[i] = f;
+    }
+    if (!vops->mapear_escrita(pag, np, m, nm)) { vops->mapear_escrita(NULL, 0, m, nm); return 0; }
+    bool ok = vops->retornar(o, l, a, d.desl, d.passo, mascara);
+    if (!ok) snformatar(m, (size_t)nm, "la GPU rechazo la vuelta de %dx%d", l, a);
+    else if (!vops->esperar(RETORNO_PRAZO_MS)) { snformatar(m, (size_t)nm, "tiempo agotado esperando la vuelta de %dx%d", l, a); ok = false; }
+    /* Siempre: fuera de la copia la GPU no puede escribir en la RAM. */
+    char m2[8];
+    vops->mapear_escrita(NULL, 0, m2, sizeof m2);
+    if (ok) vg_pendente = false;   /* la espera cubre también los volcados de antes (la misma cola) */
+    return ok ? 1 : -1;
+}
+
+/* Lo de la zona de prueba (con un alfa que la vuelta tiene que quitar). */
+static inline uint32_t retorno_px(int x, int y) { return (prova_px(y, x) ^ 0x000F0F0Fu) | ((uint32_t)(0x80 | ((x + y) & 0x7F)) << 24); }
+
+/* La autoprueba: la zona de prueba de la VRAM (con un dibujo y alfa) a dos búferes del kernel, uno con el
+ * paso del escritorio y otro con un paso torcido (fila a fila), rodeados de guardas. true si cada píxel
+ * es el de la CPU y ninguna guarda cambió. *mascara: false si la GPU deja el alfa (lo demás igual). */
+#define GUARDA 0xC3D2E1F0u
+static bool retorno_autoprova(char *m, int nm, uint32_t *us_g, uint32_t *us_c, bool *mascara)
+{
+    int L = (int)video_largura(), A = RETORNO_PROVA_A;
+    uint32_t khz = hw_tsc_khz();
+    if (!vz_preparar()) { snformatar(m, (size_t)nm, "sin zona de prueba"); return false; }
+    for (int y = 0; y < A; y++)
+        for (int x = 0; x < L; x++) *vz_px(x, y) = retorno_px(x, y);
+    vaciar_wc();
+    acel_origem_t o = { ACEL_ORIGEM_TELA, (const uint32_t *)vz_px(0, 0), video_pitch(), vz_y };
+    bool ok = true;
+    *mascara = true;
+    for (int caso = 0; ok && caso < 2; caso++) {
+        /* caso 0: paso del escritorio; caso 1: siete píxeles más (no múltiplo de 64: fila a fila) y el
+         * destino empezando 1016 bytes dentro de una página. */
+        int passo_px = caso ? L + 7 : L;
+        uint32_t frente = caso ? 1016u + 4096u : 4096u, bytes = frente + (uint32_t)passo_px * 4u * (uint32_t)A + 8192u;
+        uint8_t *bruto = kmalloc(bytes + 4096u);
+        if (!bruto) { snformatar(m, (size_t)nm, "sin memoria para la autoprueba de la vuelta"); return false; }
+        uint32_t *todo = (uint32_t *)(((uint32_t)bruto + 4095u) & ~4095u);   /* alineado: el desplazamiento lo pone «frente» */
+        for (uint32_t i = 0; i < bytes / 4u; i++) todo[i] = GUARDA ^ i;
+        uint32_t *dest = todo + frente / 4u;
+        int r = -1;
+        for (int intento = 0; intento < 2; intento++) {
+            r = retorno_copiar(espaco_kernel(), false, &o, L, A, dest, passo_px, *mascara, m, nm);
+            if (r != 1) break;
+            if (kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_RETORNO_FALLO) dest[(A / 2) * passo_px + L / 3] ^= 0x00FF00u;
+            /* Comparar todo el bloque: dentro del rectángulo el origen; fuera, la guarda. */
+            uint32_t dif = 0, so_alfa = 0, fora = 0;
+            int px = -1, py = -1;
+            for (uint32_t i = 0; i < bytes / 4u; i++) {
+                int32_t k = (int32_t)i - (int32_t)(frente / 4u);
+                int y = k >= 0 ? k / passo_px : -1, x = k >= 0 ? k % passo_px : -1;
+                uint32_t esperado = GUARDA ^ i;
+                bool dentro = k >= 0 && y < A && x < L;
+                if (dentro) esperado = *mascara ? retorno_px(x, y) & 0x00FFFFFFu : retorno_px(x, y);
+                if (todo[i] == esperado) continue;
+                if (!dentro) fora++;
+                else if (*mascara && todo[i] == retorno_px(x, y)) so_alfa++;
+                else { dif++; if (px < 0) { px = x; py = y; } }
+            }
+            if (fora) {
+                snformatar(m, (size_t)nm, "la GPU escribio %u palabras FUERA del destino", fora);
+                klog("[ACEL2D] vuelta: autoprueba: %u palabras fuera del destino (caso %d): la vuelta queda apagada\n", fora, caso);
+                ok = false;
+            } else if (dif) {
+                snformatar(m, (size_t)nm, "pixeles distintos de la CPU (el primero en %d,%d)%s", px, py,
+                           (kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_RETORNO_FALLO) ? " (simulado)" : "");
+                klog("[ACEL2D] vuelta: primer pixel distinto en %d,%d (caso %d): gpu %x esperado %x\n", px, py, caso,
+                     dest[py * passo_px + px], retorno_px(px, py) & 0x00FFFFFFu);
+                ok = false;
+            } else if (so_alfa) {
+                /* La GPU no aplicó la máscara (ROP origen AND color): se prueba sin ella; el alfa no lo usa el escritorio. */
+                klog("[ACEL2D] vuelta: la GPU deja el alfa (%u pixeles): se prueba copiando tal cual\n", so_alfa);
+                *mascara = false;
+                for (uint32_t i = 0; i < bytes / 4u; i++) todo[i] = GUARDA ^ i;
+                continue;
+            }
+            break;
+        }
+        if (r == 0) { klog("[ACEL2D] vuelta: autoprueba: no se puede: %s\n", m); ok = false; }
+        if (r < 0) ok = false;
+        /* La medida, con el primer búfer: la región entera por la GPU y la CPU leyendo la VRAM. */
+        if (ok && caso == 0 && khz) {
+            uint64_t t0 = tsc();
+            for (int k = 0; ok && k < VOLTAS_RETORNO; k++) ok = retorno_copiar(espaco_kernel(), false, &o, L, A, dest, L, *mascara, m, nm) == 1;
+            uint64_t t1 = tsc();
+            /* La CPU, una sola vez (leer la VRAM es lo lento: con las interrupciones cerradas, no ocho). */
+            for (int y = 0; y < A; y++) {
+                const volatile uint32_t *src = vz_px(0, y);
+                uint32_t *d = dest + y * L;
+                for (int x = 0; x < L; x++) d[x] = src[x] & 0x00FFFFFFu;
+            }
+            uint64_t t2 = tsc();
+            *us_g = (uint32_t)sconv_div64((t1 - t0) * 1000, khz);
+            *us_c = (uint32_t)sconv_div64((t2 - t1) * 1000 * VOLTAS_RETORNO, khz);
+            if (!ok) snformatar(m, (size_t)nm, "tiempo agotado al medir la vuelta");
+        }
+        kfree(bruto);
+    }
+    klog("[ACEL2D] vuelta: autoprueba %s%s%s; %d vueltas de %dx%d: GPU %u us, CPU leyendo la VRAM %u us%s\n",
+         ok ? "IGUAL que la CPU" : "FALLO", ok ? "" : ": ", ok ? "" : m, VOLTAS_RETORNO, L, A, *us_g, *us_c,
+         ok && !*mascara ? " (con el alfa de la VRAM)" : "");
+    return ok;
+}
+
+/* Con la lectura por la GART ya probada: la autoprueba de la vuelta y el estado. Interrupciones cerradas. */
+static bool retorno_decidir(bool forcado)
+{
+    char m[96] = "";
+    uint32_t ug = 0, uc = 0;
+    bool mascara = true;
+    bool ok = retorno_autoprova(m, sizeof m, &ug, &uc, &mascara);
+    rt_us_gpu = ug; rt_us_cpu = uc;
+    if (!ok) {
+        if (vops->detalle) vops->detalle("tras el fallo de la autoprueba de la vuelta");
+        rt_estado = VOLCADO_FALLO;
+        snformatar(rt_motivo, sizeof rt_motivo, "%s", m);
+        klog("[ACEL2D] vuelta por la GPU apagada: %s\n", m);
+        return false;
+    }
+    /* Con la GPU de verdad la CPU lee la VRAM muchas veces más despacio; si aun así la GPU tarda más
+     * del doble, algo raro pasa (a mano se enciende igual). La simulada no se mide. */
+    if (!vg_sim && !forcado && ug > 2 * uc) {
+        rt_estado = VOLCADO_LENTO;
+        snformatar(rt_motivo, sizeof rt_motivo, "autoprueba superada, pero la GPU (%u us) tarda mas del doble que la CPU (%u us)", ug, uc);
+        klog("[ACEL2D] vuelta por la GPU apagada: %s\n", rt_motivo);
+        return false;
+    }
+    rt_mascara = mascara;
+    rt_estado = VOLCADO_ACTIVO;
+    snformatar(rt_motivo, sizeof rt_motivo, "%s%s: GPU %u us, CPU %u us en la autoprueba%s", vg_sim ? "simulada" : drv->nome,
+               forcado ? " (a mano)" : "", ug, uc, mascara ? "" : "; sin quitar el alfa");
+    klog("[ACEL2D] vuelta por la GPU activa: %s\n", rt_motivo);
+    return true;
+}
+
+bool acel_retornar(const acel_origem_t *o, int l, int a, uint32_t *dest, int passo_px)
+{
+    if (rt_estado != VOLCADO_ACTIVO || !vg_gart || !rt_lectura_ok || !vops || (!vg_sim && !ativo)) return false;
+    bool usuario = (uint32_t)dest >= USUARIO_INICIO;
+    char m[96] = "";
+    bool sim = int_salva_desliga();
+    int r = retorno_copiar(usuario ? espaco_atual() : espaco_kernel(), usuario, o, l, a, dest, passo_px, rt_mascara, m, sizeof m);
+    int_restaura(sim);
+    if (r < 0) { retorno_falhou(m); return false; }
+    if (r == 0) {
+        rt_cpu_ops++;
+        if (rt_avisos < 4) { rt_avisos++; klog("[ACEL2D] vuelta: este cuadro (%dx%d) lo lee la CPU: %s\n", l, a, m); }
+        return false;
+    }
+    rt_ops++;
+    rt_resto += (uint32_t)l * (uint32_t)a; rt_kpx += rt_resto / 1000; rt_resto %= 1000;
+    return true;
+}
+
+/* «acel2d vuelta medir»: la zona de prueba (filas de la pantalla, sin cambiarlas) a un búfer del kernel,
+ * VOLTAS_RETORNO veces por la GPU y por la CPU leyendo la VRAM, con el tamaño del cubo de sgldemo. */
+static int32_t retorno_medir(void)
+{
+    uint32_t khz = hw_tsc_khz();
+    if (rt_estado != VOLCADO_ACTIVO || !khz || !vz_preparar()) return ERRO_INVALIDO;
+    int L = (int)video_largura() < 320 ? (int)video_largura() : 320, A = RETORNO_PROVA_A;
+    uint32_t *dest = kmalloc((uint32_t)(L * A) * 4u);
+    if (!dest) return ERRO_SEM_MEMORIA;
+    acel_origem_t o = { ACEL_ORIGEM_TELA, (const uint32_t *)vz_px(0, 0), video_pitch(), vz_y };
+    char m[96] = "";
+    acel_sincronizar();
+    bool sim = int_salva_desliga();
+    uint64_t t0 = tsc();
+    int r = 1;
+    for (int k = 0; r == 1 && k < VOLTAS_RETORNO; k++) r = retorno_copiar(espaco_kernel(), false, &o, L, A, dest, L, rt_mascara, m, sizeof m);
+    uint64_t t1 = tsc();
+    int_restaura(sim);
+    uint64_t tc = 0;
+    for (int k = 0; k < VOLTAS_RETORNO; k++) {
+        sim = int_salva_desliga();
+        uint64_t a0 = tsc();
+        for (int y = 0; y < A; y++) {
+            const volatile uint32_t *src = vz_px(0, y);
+            for (int x = 0; x < L; x++) dest[y * L + x] = src[x] & 0x00FFFFFFu;
+        }
+        tc += tsc() - a0;
+        int_restaura(sim);
+    }
+    kfree(dest);
+    uint32_t ug = (uint32_t)sconv_div64((t1 - t0) * 1000, khz), uc = (uint32_t)sconv_div64(tc * 1000, khz);
+    uint32_t kb = (uint32_t)L * (uint32_t)A * 4u / 1000u * VOLTAS_RETORNO;
+    klog("[ACEL2D] vuelta medir: %d vueltas de %dx%d: GPU %u us, CPU leyendo la VRAM %u us; GPU %u MB/s, CPU %u MB/s%s%s\n",
+         VOLTAS_RETORNO, L, A, ug, uc, ug ? kb * 1000u / ug : 0, uc ? kb * 1000u / uc : 0, r == 1 ? "" : "; fallo: ", r == 1 ? "" : m);
+    if (vops->detalle) vops->detalle("tras medir la vuelta");
+    if (r < 0) { retorno_falhou(m); return ERRO_INVALIDO; }
+    if (r == 1) { rt_us_gpu = ug / VOLTAS_RETORNO; rt_us_cpu = uc / VOLTAS_RETORNO; }
+    if (!(ativo && zona)) video_mostrar_tudo();   /* sin acelerador la zona son filas visibles */
+    return r == 1 ? 0 : ERRO_INVALIDO;
+}
+
+int32_t acel2d_retorno_ctl(int op)
+{
+    if (op == 5) {
+        if (rt_estado != VOLCADO_ACTIVO) return 0;
+        acel_sincronizar();
+        retorno_soltar(VOLCADO_A_MANO, "apagada a mano (acel2d vuelta apagar)");
+        return 0;
+    }
+    if (op == 6) {
+        if (rt_estado == VOLCADO_ACTIVO) return 0;
+        if (!vops) acel2d_volcado_iniciar();
+        if (rt_estado != VOLCADO_ACTIVO && vops && vops->retornar && (vg_sim || ativo) && video_formato_direto())
+            gart_encender(false, true, true);
+        return rt_estado == VOLCADO_ACTIVO ? 0 : ERRO_INVALIDO;
+    }
+    if (op == 7) return retorno_medir();
+    return ERRO_INVALIDO;
 }

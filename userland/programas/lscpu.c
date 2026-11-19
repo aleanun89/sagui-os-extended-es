@@ -71,10 +71,13 @@ int principal(int argc, char **argv)
     static const flag_t flags[] = {
         { 0, 0, "fpu" }, { 0, 4, "tsc" }, { 0, 5, "msr" }, { 0, 6, "pae" }, { 0, 8, "cx8" }, { 0, 9, "apic" }, { 0, 11, "sep" },
         { 0, 15, "cmov" }, { 0, 23, "mmx" }, { 0, 24, "fxsr" }, { 0, 25, "sse" }, { 0, 26, "sse2" }, { 0, 28, "ht" },
-        { 1, 0, "pni" }, { 1, 5, "vmx" }, { 1, 9, "ssse3" }, { 1, 13, "cx16" }, { 1, 19, "sse4_1" }, { 1, 20, "sse4_2" },
-        { 1, 23, "popcnt" }, { 1, 25, "aes" }, { 1, 28, "avx" }, { 1, 31, "hypervisor" }, { 2, 5, "avx2" },
+        { 1, 0, "pni" }, { 1, 5, "vmx" }, { 1, 9, "ssse3" }, { 1, 12, "fma" }, { 1, 13, "cx16" }, { 1, 19, "sse4_1" },
+        { 1, 20, "sse4_2" }, { 1, 23, "popcnt" }, { 1, 25, "aes" }, { 1, 26, "xsave" }, { 1, 27, "osxsave" }, { 1, 28, "avx" },
+        { 1, 31, "hypervisor" }, { 2, 5, "avx2" },
         { 3, 2, "svm" }, { 3, 6, "sse4a" }, { 4, 20, "nx" }, { 4, 29, "lm" } };
     uint32_t fuentes[5] = { s1[3], s1[2], s7[1], sx[2], sx[3] };
+    /* D381: como Linux, avx, avx2 y fma solo si el kernel guarda los YMM (si no, no se pueden usar). */
+    if (!cpu_tem_avx()) { fuentes[1] &= ~((1u << 12) | (1u << 28)); fuentes[2] &= ~(1u << 5); }
     char f[600];
     int n = 0;
     f[0] = 0;

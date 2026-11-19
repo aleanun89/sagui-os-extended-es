@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /* chamadas_processos.c - llamadas de los grupos "procesos" y "diversas". */
+#include "radios.h"
 #include "imagens.h"
 #include "irq_rotas.h"
 #include "aparencia.h"
 #include "acel2d.h"
 #include "gpu3d.h"
+#include "gpu_energia.h"
 #include "mandos.h"
 #include "audio.h"
 #include "sistema.h"
@@ -336,12 +338,15 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
         return frequencia_info_nucleos(ptr, n);
     }
     if (tipo == INFO_ACEL2D) return acel2d_info(ptr, n);         /* D195 */
-    if (tipo == INFO_ACEL2D_CTL) return ptr == 0 ? acel2d_apagar() : ptr == 1 ? acel2d_acender() : ERRO_INVALIDO;  /* D244 */
+    if (tipo == INFO_ACEL2D_CTL)   /* D244; D387: 2-4, el volcado por GPU; D391: 5-7, la vuelta */
+        return ptr == 0 ? acel2d_apagar() : ptr == 1 ? acel2d_acender() : ptr <= 35 ? acel2d_volcado_ctl((int)ptr) : ERRO_INVALIDO;
     if (tipo == INFO_ACEL2D_PROVA) return acel2d_prova(ptr, n);  /* D195: acel2d probar */
     if (tipo == INFO_GPU3D) return gpu3d_info(ptr, n);           /* D285: 3D por la GPU */
     if (tipo == INFO_GPU3D_OP) return gpu3d_op(ptr, n);
     if (tipo == INFO_GPU3D_PROVA) return gpu3d_prova(ptr, n);
     if (tipo == INFO_GPU3D_CTL) return gpu3d_ctl(ptr);
+    if (tipo == INFO_GPU_ENERGIA) return gpu_energia_info(ptr, n);   /* D399 */
+    if (tipo == INFO_GPU_ENERGIA_CTL) return gpu_energia_ctl(ptr);
     if (tipo == INFO_CAB_OPC) {   /* D323: configuración de aceleración y disco en la cabecera de arranque */
         int32_t cab_opc_gravar(uint32_t pedido);
         return cab_opc_gravar(ptr);
@@ -367,6 +372,9 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_BANDEJA) return barra_info_bandeja(ptr, n);   /* D114 */
     if (tipo == INFO_ENERGIA) return acpi_info(ptr, n);   /* D113 */
     if (tipo == INFO_BATERIA) return bateria_info(ptr, n);   /* D192 */
+    if (tipo == INFO_RADIOS) return radios_info(ptr, n);   /* D405: radios y panel del HP */
+    if (tipo == INFO_RADIOS_MUDAR) return radios_mudar(ptr);
+    if (tipo == INFO_ACPI_TABELA) return acpi_tabela_ler(ptr, n);
     if (tipo == INFO_IRQ_VIAS) return irq_rotas_info(ptr, n);   /* D211 */
     if (tipo == INFO_SENSORES || tipo == INFO_MSR_PROVA) {   /* monitor de hardware (D092) */
         int32_t sensores_info(uint32_t tipo, uint32_t ptr, uint32_t n);

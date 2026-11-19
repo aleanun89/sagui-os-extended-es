@@ -118,7 +118,9 @@ def tinta(filas, umbral_blanco=235):
 
 def parte_a(m):
     out = m.comando("ls /apps/fuentes | wc -l")
-    n = int(re.findall(r"\b(\d+)\b", out.replace("\r", ""))[-1])
+    # solo las líneas que son un número suelto: tras el prompt pueden llegar avisos del kernel
+    # ("[SAGUI] processo N (wc) terminou com codigo 0") y el último número del texto sería el 0
+    n = int(re.findall(r"^\s*(\d+)\s*$", out.replace("\r", ""), re.M)[-1])
     verificar(n >= 25, f"A: /apps/fuentes lleva la selección y la licencia ({n} entradas)")
     out = m.comando("ls /apps/fuentes")
     verificar("LICENCIA-Typodermic.txt" in out and "Kingsbridge-Rg.otf" in out, "A: y la licencia CC0 junto a las fuentes")

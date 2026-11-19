@@ -181,6 +181,7 @@ def criar_imagem():
                     "--mbr", f"{b}/boot/mbr.bin", "--estagio2", f"{b}/boot/estagio2.bin", "--kernel", f"{b}/kernel.bin",
                     "--kernel-elf", f"{b}/kernel.elf", "--ramdisk", f"{b}/ramdisk.sgfs", "--saida", img,
                     "--vesa", "--console", "--dados-mb", "64", "--tmp-mb", "8", "--logs-mb", "40", "--logs-fs", "fat32",
+                    "--orden-antiguo",   # D388: las órdenes de particiones sobre la disposición de antes (/home la 5); la nueva, h388
                     *opcoes_apps()], check=True, stdout=subprocess.DEVNULL)
     return img
 

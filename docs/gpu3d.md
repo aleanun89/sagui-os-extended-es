@@ -142,9 +142,14 @@ la variante del driver) e `INFO_*` 71 a 74.
 2. Una línea en `gpu3d_iniciar()` (`kernel/gui/gpu3d.c`) que lo elija para su tarjeta (la da
    `acel2d_placa()`: la que tiene la pantalla, con su familia y generación).
 3. Devolver `G3D_NAO` para lo que no cabe o no se soporta y `G3D_FALHA` solo si la GPU no responde.
-4. Nada más: la autoprueba, el vigilante, `gpu3d`, `infopc` y SaguiGL ya lo usan.
+4. Los cuatro campos del diagnóstico común (D390): `conf` (el nombre de `/sistema/conf/gpu3d-<conf>.conf`), `faixas` y
+   `n_faixas` (los registros que ese fichero puede tocar, por la cola; `NULL, 0` si ninguno) y `vistas()` (lo que la CPU ve
+   del color y del Z del destino; si no se ve, se deja vacío). El driver escribe `gpu3d_ajustes` en su cola: los
+   `G3D_AJ_INICIO` tras el estado fijo y los `G3D_AJ_DIBUJO` tras el estado de cada dibujo. Las sentinelas, el análisis
+   y `gpu3d probar --ver` los hace la capa.
+5. Nada más: la autoprueba, el vigilante, `gpu3d`, `infopc` y SaguiGL ya lo usan.
 
-5. Probarlo en QEMU sin la tarjeta: `tests/h285*.py std` debe seguir pasando (la capa no toca nada si
+6. Probarlo en QEMU sin la tarjeta: `tests/h285*.py std` debe seguir pasando (la capa no toca nada si
    la tarjeta no es la suya), y su propia prueba de unidad de paquetes en el PC, como `gen3_3d_unidad.c`.
 
 La interfaz es deliberadamente mínima (triángulos transformados, un destino, texturas ARGB) para que
@@ -230,7 +235,18 @@ secuencias; código propio (`docs/terceros.md`). Nada del driver i915 de Linux c
 `kernel/dispositivos/gpu3d_r600.c` + `r600_3d_pacotes.c` / `kernel/inc/r600_3d.h` (paquetes PM4, tres
 sombreadores a mano y valores de inicio: lógica pura, probada en el PC) + `r600_sondar`
 (`kernel/inc/r600_base.h`, la sonda de solo lectura que comparte con el 2D por DMA de la D223).
-**Sin probar en hardware.** La máquina es el HP dv7 (`1002:9553`, RV710).
+**Probado en el HP dv7** (`1002:9553`, RV710; D402, 2026-11-19): las 8 pruebas BIEN, `sgldemo -g` BIEN y 5 minutos
+de `sgldemo` en ventana sin fallos, también con el 2D por DMA a la vez. Dos fallos corregidos entonces (`SURFACE_SYNC`
+que no cubría el final de un rango sin alinear; paso de las superficies alineado al grupo de `GB_TILING_CONFIG`). La
+zona va hasta 128 MB (16 con ventana fija de la CPU; el Z y las texturas en el resto, las texturas escritas por una
+ventana móvil). Lo lento es **traer el cuadro** (la CPU lee la VRAM sin caché por el PCIe: ~10 MB/s con SSE2), así que
+en ventanas pequeñas el software es más rápido; el detalle dice cuánto se va en la valla y cuánto en la copia. Ninguna
+R6xx probada.
+
+**GART de las R7xx (D406, sin probar todavía):** `gpu3d encender gtt` enciende la memoria virtual de la GPU (ventana
+de 16 MB detrás de la VRAM, como Linux) y el cuadro vuelve a la RAM copiado por la propia GPU (CP_DMA) en vez de
+leerlo la CPU. Por pasos con `/sistema/conf/gart-r700.paso` (0 solo lee ... 4 la GPU lee de la RAM); las líneas
+`[GPU3D] r600 GART paso N` del log dicen hasta dónde llegó. `gpu3d encender` (sin `gtt`) vuelve a lo de antes.
 
 **R6xx (D357, v8.5.2):** el mismo driver lleva desde la D357 las HD 2000/3000 (R600, RV610, RV620, RV630,
 RV635, RV670; no las integradas RS780/RS880). Cambia el microcódigo (`R600_*`, `RV610_*` también para la
@@ -364,6 +380,7 @@ Con la imagen normal (el 3D queda apagado; nada cambia hasta que se pida):
    | Se para en | Qué quiere decir | Qué mandar |
    | --- | --- | --- |
    | antes de la etapa 1, con un motivo | modelo fuera de la lista, memoria rara, pantalla en otro sitio, cursor en la zona | la línea del motivo y la `etapa 1` |
+   | etapa 1, «no caben 2 MB ... detrás de la pantalla y de las superficies activas» | no hay hueco detrás de lo que muestran D1, D2 y los cursores (D386; antes, con D2 activo, «la superficie de D2 ... está cerca de la zona 3D») | todas las líneas `etapa 1` (dicen CRTC, fin, ventana y KB de cada controlador) |
    | etapa 2 | falta el microcódigo o la VRAM de la zona no guarda lo escrito | el motivo |
    | etapa 4 («el puntero de lectura no quedó a cero») | el CP no aceptó la cola | las líneas `r500 al iniciar` |
    | **etapa 5 («el CP no ejecuta la prueba de la cola»)** | **el CP no lee la cola desde la VRAM** (la hipótesis de la D287, punto 3) o el microcódigo no arranca | las líneas `r500 prueba de la cola` (RPTR, WPTR, RBBM_STATUS, CP_CSQ_STAT) |
@@ -406,10 +423,14 @@ arrancar con Mayús pulsado (modo seguro, D323).
 | --- | --- |
 | `gpu3d` | estado, driver, motivo, dueño del motor, memoria de GPU, contadores |
 | `gpu3d probar` | enciende si hace falta, autoprueba (qué prueba falla y qué píxel) y medida |
-| `gpu3d probar --detalle` | además, los registros de la GPU en el log (`[GPU3D]`) |
+| `gpu3d probar --detalle` | además, los registros de la GPU en el log (`[GPU3D]`) y, tras cada etapa, lo que dejó la GPU en el destino (sentinelas `a1b2c3`/`5a5a5a5a`, D390) |
+| `gpu3d probar --ver [s] [--guardar]` | además, una ventana con lo que dibujó la tarjeta en cada etapa (tecla o `s` segundos; sin escritorio, `/home/gpu3d-etapaN.bmp`) (D390) |
+| `/sistema/conf/gpu3d-<driver>.conf` | ajustes de registros para depurar (`inicio`/`dibujo REG VALOR`), solo en los rangos del driver (D386, D390; `docs/gpus.md`) |
 | `gpu3d apagar` / `gpu3d encender [anillo] [gtt]` | software / volver a encender y probar (por lotes o en el anillo; `gtt`: RAM del sistema en el GTT, D358) |
 | `sgldemo -g [N]` | las escenas de SaguiGL por software y por la GPU: píxeles que se apartan y fps de cada camino |
 | `sgldemo` | el cubo en una ventana; el título de fps dice `(GPU)` o `(CPU)` |
+| `sgldemo -n N [-s]` | D391: la ventana del cubo, N cuadros y se cierra: ms, fps reales, camino y suma del último cuadro (`-s`: sin ninguna pausa) |
+| `acel2d vuelta [apagar\|encender\|medir]` | D391: el cuadro vuelve a la RAM por la GPU (R5xx con PCI Express): estado, cuadros por GPU y por CPU, medida |
 | `infopc` (pestaña GPU) e `infopc --informe` | estado del 3D y última puntuación 3D |
 | `infopc --bench-gpu` | añade la medida 3D a la 2D y la guarda en `/home/saguimark-gpu-*.txt` |
 
@@ -468,8 +489,61 @@ pantalla), arrancar con `--gpu3d=no` y decirlo.
   simulado, `gpu3d encender gtt` / `anillo gtt` e imágenes `--gpu3d-gtt`.
 
 `tests/h287_gpu3d_r500.py` (Radeon R5xx, D287): `unidad` (`tests/r500_3d_unidad.c`: órdenes del CP, formato del
-vértice, programa de vértices y programas de fragmentos contra sus palabras a mano), `fuentes`, `firmware` (el
-microcódigo en la imagen) y `std` (QEMU sin Radeon, con y sin `--gpu3d=radeon`: nada cambia).
+vértice, programa de vértices y programas de fragmentos contra sus palabras a mano; y `tests/gpu3d_diag_unidad.c`, el
+diagnóstico común de la D390), `fuentes`, `firmware` (el microcódigo en la imagen) y `std` (QEMU sin Radeon, con y sin
+`--gpu3d=radeon`: nada cambia).
+
+`tests/h405_saguigl.py` (D404): unidad del filtro, mipmaps, perspectiva, luces, formatos y OBJ en el anfitrión; sumas del
+paisaje en QEMU; medida por software; con el simulado, `sgldemo -g` (siete escenas) y la caché de texturas.
+
+`tests/h285_gpu3d_intel.py diag` (D390): con el driver simulado, `gpu3d probar --ver` en una ventana que avanza sola, el
+análisis por etapas en el log y los ajustes de `gpu3d-simulado.conf` (una GPU que no escribe deja `a1b2c3`; un registro
+fuera de rango no se aplica; `--guardar` deja los BMP).
+
+## SaguiGL realista: filtro, mipmaps, luces y caché de texturas (D404)
+
+Para probar el 3D de las tarjetas con algo más parecido a un juego, la SaguiGL (`userland/libsgl`) tiene una ruta
+«realista» que solo se usa cuando el programa la pide (filtro distinto de `GL_NEAREST`, `glHint(GL_PERSPECTIVE_
+CORRECTION_HINT, GL_NICEST)`, normales, `glMaterial`, `glEnable(GL_LIGHTn)` o `glFogf(GL_FOG_MODE, ...)`): los programas
+de antes dan los mismos píxeles (lo comprueba `h405 unidad` contra el `sgl.c` anterior).
+
+| | Software | GPU (capa `gpu3d`) |
+|---|---|---|
+| Perspectiva de texturas y colores | sí (q = 1/w por píxel) | sí (el rasterizador con `rhw`; el simulado también desde la D404) |
+| Bilineal (`GL_LINEAR`) | sí | `G3D_TEX_LINEAR` (R5xx: `TX_MAG/MIN_LINEAR`; simulado: desde la D404) |
+| Mipmaps (`*_MIPMAP_*`, nivel por píxel, trilineal) | sí; niveles generados (caja 2x2) o dados | **no**: se sube el nivel 0 (o uno menor si no cabe) |
+| Luz por vértice (8 luces, ambiente, difusa, especular, atenuación, materiales) | sí | sí (la calcula la CPU: color + especular del vértice) |
+| Niebla por distancia (`GL_LINEAR`, `GL_EXP`, `GL_EXP2`) | por vértice, con perspectiva | por vértice (en el especular, como la de v6) |
+| Formatos | RGBA, RGB, L, LA, A de 8 bits, RGB565, RGBA4444, RGBA5551 (guardados en RGBA8) | ARGB8888 |
+| Texturas | hasta 2048x2048, 512 por contexto | 32 huecos por dueño (8 con un kernel de antes) |
+
+**Caché de texturas en la GPU.** Cada hueco guarda qué textura tiene y su *generación* (cambia con `glTexImage2D` o al
+borrarla): una textura se sube una sola vez y se reutiliza en los cuadros siguientes; si no hay hueco, se reemplaza el que
+lleva más tiempo sin usarse; si la GPU contesta que no cabe, se sueltan otras y, al final, se sube un nivel de mipmap más
+pequeño. La biblioteca pregunta cuántos huecos hay subiendo una textura de 1x1 al hueco 31 (un kernel de antes contesta
+error sin apagar nada y se usan 8). `GPU3D_TEXTURAS` pasó de 8 a 32 en un commit aparte (la SDL 2 sigue con 8).
+
+**Lo que necesitaría el driver (descrito, no hecho):** mipmaps en la GPU. La ABI se ampliaría por el final con
+`GPU3D_OP_TEXTURA` + `c` = alto | (niveles << 16) y los niveles seguidos en `ptr`; en R5xx, `TX_FORMAT0` lleva el número
+de niveles (bits 26-29 en `r300_reg.h`) y `TX_FILTER0` el filtro entre niveles (`MIP_NEAREST`/`MIP_LINEAR`, bits 13-14),
+con los niveles uno detrás de otro en la VRAM y **sin** `TX_PASSO_PROPRIO` (el paso propio no vale con mipmaps), así que el
+ancho tendría que ser potencia de 2 o múltiplo de lo que pida el muestreador; en R6xx/R7xx, `SQ_TEX_RESOURCE_WORD4/5`
+(`BASE_LEVEL`, `LAST_LEVEL`) y `MIP_ADDRESS` en la palabra 3, y el filtro en `SQ_TEX_SAMPLER_WORD0` (`MIP_FILTER`). Hasta
+entonces, `sgldemo -g` compara el paisaje sin mipmaps.
+
+**Escena y medida** (`sgldemo`, todo generado por código):
+- `sgldemo -c paisaje` / `-c avion`: sumas (cuadros 0 y 40, 160x120) que `h405 somas` compara con el anfitrión.
+- `sgldemo -p [N]`: el paisaje en una ventana de 640x480 (terreno de 64x64 celdas con hierba, roca y arena mezcladas,
+  agua con olas, unos 50 árboles, rocas, casas, nubes, niebla EXP2, sol y luz del cielo, un avión que vuela) durante N
+  cuadros, y al final: fps, triángulos por cuadro y por segundo, texturas subidas (KB y por cuadro), reutilizadas, huecos
+  y memoria de la GPU usada. `--texturas MB` añade MB de texturas de 256x256 distintas en cada cuadro (carteles en corro):
+  con más de las que caben en los huecos, mide la subida por cuadro. `--mem` sin ventana, `--sw` por software, `--sin-mip`,
+  `--detalle N`, `--avion` (cámara detrás del avión), `--modelo F.obj --giro G` (un OBJ con su MTL y texturas).
+- `sgldemo -g`: además de las cuatro escenas de antes, `bilineal`, `luces` y `paisaje` (sin mipmaps).
+
+**Qué probar en el Amilo (X1400) y el HP (HD 4500)**, con `sgldemo` de `/home/aanun/SO/private/saguigl/` (no hace falta
+otro kernel; con el de antes salen 8 huecos): `sgldemo -g 30`, `sgldemo -p 300` (con escritorio), `sgldemo -p 300 --sw`
+para comparar, y `sgldemo -p 300 --texturas 16`, `--texturas 64` para ver cuándo deja de caber en la VRAM.
 
 ## Pendiente
 

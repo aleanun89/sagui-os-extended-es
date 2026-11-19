@@ -177,8 +177,9 @@ bool ehci_rx_info(int h, uint32_t *emvoo, uint32_t *completadas, uint32_t *erros
 
 /* ---- uhci.c y ohci.c (D267): USB 1.1, baja y plena velocidad ----
  * Misma interfaz que el EHCI: control, bulk (con su alternancia) y endpoints
- * de interrupción para el HID. Sin isócrono (v8.1) ni transferencias continuas
- * (el Wi-Fi no va por aquí). Los puertos devuelven la velocidad (USB_VEL_*). */
+ * de interrupción para el HID. Sin transferencias continuas por usb_rx_* (el Wi-Fi no
+ * va por aquí); el UHCI tiene su propia recepción bulk en flujo (uhci_rx_*, D389) para
+ * el Bluetooth. Los puertos devuelven la velocidad (USB_VEL_*). */
 struct uhci {
     pci_disp_t pci;
     uint16_t  io;              /* base de los puertos de E/S (BAR 4) */
@@ -189,6 +190,8 @@ struct uhci {
     int       resultado[USB_MAX_PORTAS];
     uint32_t  quadros;         /* lista de 1024 cuadros */
     uint32_t  pagina;          /* QH, paquete de setup y 256 TD */
+    uint32_t  ultimo_td;       /* D389: palabra de estado del último TD con error (diagnóstico) */
+    uint16_t  porta_antes, porta_depois;   /* D389: PORTSC antes y después del último reset */
 };
 int  uhci_iniciar_todos(void);
 int  uhci_quantidade(void);
@@ -197,11 +200,16 @@ uint32_t uhci_porta_estado(uhci_t *c, int porta);
 bool uhci_porta_conectada(uhci_t *c, int porta);
 bool uhci_porta_mudou(uhci_t *c, int porta);
 int  uhci_porta_resetar(uhci_t *c, int porta);      /* velocidad USB_VEL_* o <0 */
+int  uhci_erro_texto(uint32_t ctrl, char *s, int max);   /* D389: los bits de error de un TD, en texto */
 int  uhci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, bool entrada);
 int  uhci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam);
 int  uhci_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);
 int  uhci_int_ler(int h, uint8_t *dados, int max);
 void uhci_int_fechar(int h);
+int  uhci_rx_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);   /* D389: bulk de entrada continuo (flujo de bytes) */
+int  uhci_rx_ler(int h, uint8_t *dados, int max);
+void uhci_rx_fechar(int h);
+bool uhci_rx_info(int h, uint32_t *paquetes, uint32_t *erros);
 
 struct ohci {
     pci_disp_t pci;

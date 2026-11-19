@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* sgl.h - SaguiGL (mejora 054, v5): subconjunto de OpenGL ES 1.1 por software.
  *
- * Biblioteca de usuario `libsgl`. Sin texturas, luces, niebla ni mezcla (v6).
+ * Biblioteca de usuario `libsgl`. v6: texturas, luces, niebla y mezcla;
+ * D404: filtrado bilineal y mipmaps, perspectiva, luces por vértice.
  * El motor (sgl.c) es determinista y no usa libc ni libm: compila igual en
  * el anfitrión (pruebas de píxeles, tests/h77_sgl.py) y en el SaguiOS.
  * Usa coma flotante con SSE2 (el programa debe comprobar el CPUID antes). */
@@ -159,8 +160,10 @@ void glVertex2f(GLfloat x, GLfloat y);
 void glEnd(void);
 
 /* ---- v6: texturas ----
- * Texturas RGBA de 8 bits, filtrado del vecino más próximo (GL_NEAREST) y
- * repetición (GL_REPEAT) o borde (GL_CLAMP_TO_EDGE). */
+ * Texturas RGBA de 8 bits (D404: también RGB565, RGBA4444, RGBA5551,
+ * luminancia y alfa, que se guardan como RGBA), hasta SGL_MAX_LADO de lado,
+ * con repetición (GL_REPEAT) o borde (GL_CLAMP_TO_EDGE). Filtro: GL_NEAREST
+ * (el de v6), GL_LINEAR y los cuatro *_MIPMAP_* (D404). */
 void glGenTextures(GLsizei n, GLuint *ids);
 void glBindTexture(GLenum alvo, GLuint id);
 void glTexImage2D(GLenum alvo, GLint nivel, GLint formato_interno, GLsizei larg,
@@ -182,6 +185,85 @@ void glLightfv(GLenum luz, GLenum nome, const GLfloat *valor);
  * mismo píxel; la de referencia sirve para comparar (prueba h101). */
 void sgl_motor_simd(int ativo);
 int  sgl_motor_simd_ativo(void);
+
+/* ---- v8.5.4.10r2 (D404): texturas filtradas, mipmaps, luces por vértice ----
+ * Lo de antes no cambia de píxel: la ruta nueva («realista») solo se usa
+ * cuando el programa pide algo de esto: un filtro distinto de GL_NEAREST,
+ * glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST), normales (glNormal3f o
+ * GL_NORMAL_ARRAY), glMaterial, glEnable(GL_LIGHTn) o glFogf(GL_FOG_MODE, ...).
+ * En esa ruta las texturas y los colores se interpolan con corrección de
+ * perspectiva, el filtro es bilineal o trilineal con mipmaps, y la luz es la
+ * de OpenGL ES 1.1 por vértice (ambiente + difusa + especular, hasta 8 luces,
+ * atenuación y materiales) con el especular sumado después de la textura. */
+#define GL_NEAREST_MIPMAP_NEAREST 0x2700
+#define GL_LINEAR_MIPMAP_NEAREST  0x2701
+#define GL_NEAREST_MIPMAP_LINEAR  0x2702
+#define GL_LINEAR_MIPMAP_LINEAR   0x2703
+#define GL_GENERATE_MIPMAP        0x8191
+
+#define GL_ALPHA           0x1906
+#define GL_LUMINANCE       0x1909
+#define GL_LUMINANCE_ALPHA 0x190A
+#define GL_UNSIGNED_SHORT_4_4_4_4 0x8033
+#define GL_UNSIGNED_SHORT_5_5_5_1 0x8034
+#define GL_UNSIGNED_SHORT_5_6_5   0x8363
+
+#define GL_PERSPECTIVE_CORRECTION_HINT 0x0C50
+#define GL_DONT_CARE 0x1100
+#define GL_FASTEST   0x1101
+#define GL_NICEST    0x1102
+
+#define GL_LIGHT1 0x4001
+#define GL_LIGHT2 0x4002
+#define GL_LIGHT3 0x4003
+#define GL_LIGHT4 0x4004
+#define GL_LIGHT5 0x4005
+#define GL_LIGHT6 0x4006
+#define GL_LIGHT7 0x4007
+#define GL_AMBIENT               0x1200
+#define GL_DIFFUSE               0x1201
+#define GL_SPECULAR              0x1202
+#define GL_POSITION              0x1203
+#define GL_CONSTANT_ATTENUATION  0x1207
+#define GL_LINEAR_ATTENUATION    0x1208
+#define GL_QUADRATIC_ATTENUATION 0x1209
+#define GL_EMISSION              0x1600
+#define GL_SHININESS             0x1601
+#define GL_AMBIENT_AND_DIFFUSE   0x1602
+#define GL_FRONT_AND_BACK        0x0408
+#define GL_COLOR_MATERIAL        0x0B57
+#define GL_NORMALIZE             0x0BA1
+#define GL_RESCALE_NORMAL        0x803A
+#define GL_LIGHT_MODEL_AMBIENT   0x0B53
+#define GL_NORMAL_ARRAY          0x8075
+
+#define GL_FOG_MODE    0x0B65
+#define GL_FOG_DENSITY 0x0B62
+#define GL_EXP         0x0800
+#define GL_EXP2        0x0801
+
+#define SGL_MAX_LADO   2048   /* lado máximo de una textura */
+#define SGL_MAX_LUZES  8
+
+void glHint(GLenum alvo, GLenum modo);
+void glNormal3f(GLfloat x, GLfloat y, GLfloat z);
+void glNormalPointer(GLenum tipo, GLsizei passo, const void *p);     /* GL_FLOAT */
+void glMaterialf(GLenum face, GLenum nome, GLfloat valor);
+void glMaterialfv(GLenum face, GLenum nome, const GLfloat *valor);
+void glLightf(GLenum luz, GLenum nome, GLfloat valor);
+void glLightModelfv(GLenum nome, const GLfloat *valor);
+void glGenerateMipmap(GLenum alvo);   /* genera los niveles desde el 0 (caja de 2x2) */
+
+/* Cuentas desde el último sgl_estatisticas(..., 1): para medir. */
+typedef struct {
+    uint32_t triangulos;       /* triángulos que llegaron al rasterizador o a la GPU */
+    uint32_t tex_subidas;      /* texturas subidas a la GPU */
+    uint32_t tex_kb_subidos;   /* KB subidos a la GPU */
+    uint32_t tex_reusos;       /* dibujos con la textura ya en la GPU */
+    uint32_t tex_kb;           /* KB de texturas de este contexto (con mipmaps) */
+    uint32_t gpu_vagas;        /* huecos de textura que da el kernel (0 si no hay GPU) */
+} sgl_estat_t;
+void sgl_estatisticas(sgl_estat_t *e, int zerar);
 
 /* ---- v8.3: 3D por la GPU (D285) ----
  * Si el kernel tiene un driver 3D para la tarjeta (Intel Gen3...) y el motor

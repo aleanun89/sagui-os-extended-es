@@ -222,7 +222,12 @@ def principal():
         dlg = janela(m, "Guardar proyecto", marca6)
         m.captura("H297-6-guardar", guardar=False)
         m.tecla("ret", 1.0)
-        esperar(m, "vps: guardado /tmp/MiProyecto", marca6)
+        # El diálogo propone /home si existe (carpeta_proyectos) y, si no, /tmp: en la imagen de prueba
+        # actual hay /home (D388), así que la carpeta se toma de lo que dice el log.
+        esperar(m, "vps: guardado /", marca6)
+        ruta = re.search(r"vps: guardado (/\S*/MiProyecto)", m.serial()[marca6:])
+        verificar(ruta is not None, "el proyecto se guardó en una carpeta MiProyecto")
+        ruta = ruta.group(1)
 
         # ---------------------------------------------------------- 5. generar la aplicación
         marca7 = len(m.serial())
@@ -236,14 +241,14 @@ def principal():
         time.sleep(0.5)
         cerrar(m, d)
         time.sleep(1.5)
-        out = m.comando("cat /tmp/MiProyecto/formulario.vpf; cat /tmp/MiProyecto/codigo.py; ls /apps/vps/MiProyecto")
+        out = m.comando("cat " + ruta + "/formulario.vpf; cat " + ruta + "/codigo.py; ls /apps/vps/MiProyecto")
         verificar("control Boton Boton1" in out and "control Etiqueta Etiqueta1" in out, "formulario.vpf guardado con los controles")
         verificar("def Boton1_click():" in out and 'Etiqueta1.texto = "Hola"' in out, "codigo.py guardado con el evento")
         verificar("lanzador.py" in out and "formulario.vpf" in out and "codigo.py" in out, "la aplicación generada tiene su carpeta")
 
         # reabrir el proyecto guardado
         marca8 = len(m.serial())
-        m.digitar("python /lib/python/vps/disenador.py --sonda /tmp/MiProyecto\n", 0.03)
+        m.digitar("python /lib/python/vps/disenador.py --sonda " + ruta + "\n", 0.03)
         d2 = janela(m, "VisualPythonS", marca8)
         s2 = sonda(m, marca8)
         verificar("ctl:Boton1" in s2 and "ctl:Etiqueta1" in s2, "el proyecto reabierto trae sus controles")

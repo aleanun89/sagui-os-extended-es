@@ -31,7 +31,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import (Maquina, verificar, ler_ppm, extrair_particao, debugfs, RAIZ, SAIDA,  # noqa: E402
-                  FalhaTeste, IMAGEM, particao_dados_img)
+                  FalhaTeste, IMAGEM, particoes_img, opcoes_apps)
 from b7_cc_flotante import salida_gcc, salida_programa  # noqa: E402
 
 ISO = os.path.join(RAIZ, "build", "saguios.iso")
@@ -187,7 +187,8 @@ pronto = {k: threading.Event() for k in ("32", "16")}
 
 def video(bpp):
     """bpp = "32" (referência, a imagem normal) ou "16"."""
-    img = IMAGEM if bpp == "32" else imagem("h65-16bits", "--bpp", "16")
+    # con /apps igual que la imagen normal: sin ella sale el aviso de «no se encontró /apps» y faltan iconos
+    img = IMAGEM if bpp == "32" else imagem("h65-16bits", "--bpp", "16", *opcoes_apps())
     with Maquina(f"h65v{bpp}", "ide", imagem=img) as m:
         area_de_trabalho(m, f"{bpp} bits")
         if bpp == "16":
@@ -218,7 +219,7 @@ def bits15_informe():
     """15 bits (RGB555) no terminal de tela cheia, com a partição de dados em
     /home: o informe vai para lá e é lido depois do disco, no computador."""
     img = imagem("h65-informe", "--console", "--bpp", "15", "--dados-mb", str(DADOS_MB))
-    ini = particao_dados_img(img)[0]
+    ini = particoes_img(img)[-1][2]   # D388: /home (SAGUI-DATOS) es la última lógica
     with Maquina("h65inf", "ide", imagem=img, snapshot=False) as m:
         m.esperar_serial("sagui:/$", 150)
         s = m.serial()

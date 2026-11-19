@@ -114,6 +114,12 @@ int  fs_verificar(const char *volume, char *msg, int max);
  * datos: encoger se niega si lo que se corta está en uso). La partición ya tiene que medir
  * al menos eso. */
 int  fs_redimensionar_ext2(const char *volume, uint32_t setores, fs_progresso_t p, void *ctx, char *msg, int max);
+/* D388: lo que se va a escribir al crecer un ext2 (o al formatear uno nuevo): grupos nuevos y MB de tablas de
+ * inodos y mapas. Es un máximo (lo que ya es cero no se reescribe). */
+typedef struct { uint32_t grupos, mb; } fs_ext2_est_t;
+int  fs_ext2_estimar(const char *volume, uint32_t setores, fs_ext2_est_t *est);
+int  fs_ext2_estimar_novo(uint32_t setores, fs_ext2_est_t *est);
+uint32_t fs_ext2_maximo(const char *volume);   /* hasta dónde crece sin rehacerlo (sectores; 0 = no se reconoce) */
 /* Lo mínimo (sectores, múltiplo de 1 MB) a lo que se puede encoger un ext2 sin mover datos. */
 uint32_t fs_ext2_minimo(const char *volume);
 /* D318: encoger un FAT32 sin mover datos (solo si lo que se corta está libre y quedan al menos
@@ -121,6 +127,26 @@ uint32_t fs_ext2_minimo(const char *volume);
 int      fs_reduzir_fat32(const char *volume, uint32_t setores, char *msg, int max);
 uint32_t fs_fat32_minimo(const char *volume);
 uint32_t fs_minimo(const char *volume);
+
+/* D397 (reparo_ext2.c): reparar un ext2 que quedó mal tras un corte (lo que hace e2fsck con -y, con una
+ * implementación propia). reparo_analisar lo recorre entero SIN ESCRIBIR NADA: todo lo que habría que
+ * cambiar se prepara en memoria y se cuenta (cada problema, por aviso, una línea). Devuelve cuántos
+ * problemas hay (0 = está bien) o un error (con el motivo en msg: un volumen que no sabe tratar, ext3/ext4,
+ * la raíz destruida...). Con lo analizado: reparo_resumo (el resumen y los archivos tocados, por aviso),
+ * reparo_guardar_copia (los bloques que se van a cambiar, tal y como están ahora, a un archivo),
+ * reparo_gravar (lo escribe en un orden seguro: el disco tiene que estar reservado y el volumen sin montar)
+ * y reparo_fechar. reparo_desfazer vuelve a poner una copia. */
+typedef struct reparo reparo_t;
+typedef void (*reparo_aviso_t)(const char *linha, void *ctx);
+int      reparo_analisar(const char *volume, reparo_aviso_t aviso, void *ctx, reparo_t **r, char *msg, int max);
+uint32_t reparo_problemas(const reparo_t *r);
+uint32_t reparo_arriscados(const reparo_t *r);   /* arreglos que pierden algo (preen: no se hacen solos) */
+uint32_t reparo_blocos(const reparo_t *r, uint32_t *bytes);   /* bloques que cambian (y lo que ocupa su copia) */
+void     reparo_resumo(reparo_t *r);
+int      reparo_guardar_copia(reparo_t *r, const char *arquivo, char *msg, int max);
+int      reparo_gravar(reparo_t *r, char *msg, int max);
+void     reparo_fechar(reparo_t *r);
+int      reparo_desfazer(const char *arquivo, const char *volume, char *msg, int max);
 
 /* Una operación completa (particoes_acoes.c): reserva el disco, cambia, verifica, escribe,
  * guarda el deshacer y suelta el disco (el kernel vuelve a leer la tabla). La usan el
@@ -175,6 +201,16 @@ int  pt_planejar_tamanho(const pt_tabela_t *t, int numero, uint32_t setores, boo
  * que se toca se desmonta y se vuelve a montar donde estaba al acabar (también si falla). */
 int  pt_mudar_tamanho(pt_tamanho_t *p, int conf, bool desmontar_permitido, char *msg, int max);
 bool pt_volume_de_ponto(const char *ponto, char *vol, int max);   /* "/home" -> "hda5" */
+/* D388: la raíz doble de la live. «/» es la SAGUI-RAIZ (el sistema de serie, de solo lectura) con la capa de
+ * cambios encima (SAGUI-PERSIST, o la RAM): las dos particiones salen «montadas en /». pt_raiz_live dice si
+ * «/» es una live (y, si sus punteros no son NULL, los volúmenes de la base y de la capa: "" si la capa va en
+ * la RAM); pt_papel_raiz, qué es una partición montada en «/» ("sistema de serie (base de /, solo lectura)",
+ * "tus cambios (capa de /)", "raíz del sistema") o NULL si no lo está. */
+bool pt_raiz_live(char *base, char *capa, int max);
+const char *pt_papel_raiz(const info_disco_t *d);
+/* D388: la primera partición del plan (la que cambia o una que se mueve) montada en «/» (la raíz en uso:
+ * SAGUI-RAIZ, o SAGUI-PERSIST en la live), con su nombre en vol; 0 si ninguna. pt_mudar_tamanho se niega. */
+int  pt_tamanho_raiz_em_uso(const pt_tamanho_t *p, char *vol, int max);
 
 /* D318 (home_ampliar.c): «ampliar /home a todo el espacio libre» en el disco de arranque. Si /home
  * es una partición, crece con pt_mudar_tamanho; si está en la RAM, se crea una lógica ext2
@@ -188,8 +224,25 @@ typedef struct {
     uint32_t     ganho;          /* sectores que gana /home (0 = nada que hacer) */
     uint32_t     total_novo;     /* el tamaño final de /home */
     pt_tamanho_t plano;          /* !criar */
+    /* D388: el espacio está, pero no se puede usar sin mover la raíz en uso (la disposición de antes de
+     * la v8.5.4.10r2 en la live o en un sistema instalado): home_ampliar se niega y msg lo explica. */
+    bool         bloqueado;
+    /* D388: el ext2 de /home no puede crecer hasta el final del disco (poca reserva de la tabla de grupos, imágenes
+     * grabadas con bloques de 1 KB): se ofrece el máximo posible y se dice. limite_fs = ese máximo (sectores). */
+    bool         limitado;
+    uint32_t     limite_fs;
 } home_plano_t;
 int home_planejar(home_plano_t *h, char *msg, int max);
+/* D388: lo mismo pero con /home de "total" sectores como mucho (0 = todo lo posible): el tamaño menor que elige
+ * el usuario. Rehace el plan entero (h se pisa). */
+int home_planejar_ate(home_plano_t *h, uint32_t total, char *msg, int max);
+/* D388: la estimación del trabajo antes de empezar: grupos nuevos, MB que se escribirán como mucho, la velocidad
+ * de escritura que se calcula (MB/s, medida leyendo unos MB del disco, con prudencia) y los segundos. La
+ * velocidad se mide una vez (mbs = 0) y se pasa de vuelta en las siguientes. */
+typedef struct { uint32_t grupos, mb, mbs, segundos; } home_estim_t;
+int home_estimar(const home_plano_t *h, uint32_t mbs, home_estim_t *e);
+/* "unos 3 min", "menos de 1 min", "1 h 20 min": para los textos de estimación y de tiempo restante. */
+void home_texto_tempo(uint32_t segundos, char *s, int max);
 int home_ampliar(home_plano_t *h, fs_progresso_t p, void *ctx, char *msg, int max);
 bool pt_separar_nome(const char *nome, char *disco, int max, int *numero);   /* "hdb5" -> "hdb", 5 */
 const char *pt_nome_fs(int fs);

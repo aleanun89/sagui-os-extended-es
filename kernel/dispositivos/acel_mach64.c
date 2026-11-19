@@ -329,4 +329,5 @@ const acel_driver_t acel_mach64 = {
     0, false,      /* D246: sin mínimo (se mide en la autoprueba); escribir los registros ya es la orden */
     m64_detalle,
     true,          /* D308: también 24 bits (x3) y RGB565 */
+    NULL,    /* D387: sin volcado por la GPU */
 };

@@ -333,6 +333,7 @@ def compilar_volcado():
     """tools/uacpi_volcado.c con uACPI tal cual, para el PC."""
     exe = os.path.join(DIR, "uacpi_volcado")
     fontes = [os.path.join(RAIZ, "tools", "uacpi_volcado.c"), os.path.join(RAIZ, "kernel", "lib", "bateria_conv.c"),
+              os.path.join(RAIZ, "kernel", "lib", "brilho_conv.c"),   # D403: --portatil
               os.path.join(RAIZ, "kernel", "dispositivos", "prt.c")]   # D211: el _PRT con --prt
     srcdir = os.path.join(RAIZ, "kernel", "terceros", "uacpi", "source")
     fontes += sorted(os.path.join(srcdir, f) for f in os.listdir(srcdir) if f.endswith(".c"))

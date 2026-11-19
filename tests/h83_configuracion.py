@@ -160,7 +160,7 @@ def parte2e3():
         t = janela(m.serial(), "Terminal")
         cor = cor_do_pixel(png, t["x"] + t["l"] - 120, t["y"] + 8)
         verificar(perto(cor, ACENTO, 2), f"a barra de título do Terminal usa o acento {cor}")
-        for (x, y) in ((1000, 740), (700, 600)):
+        for (x, y) in ((1000, 740), (700, 680)):
             c = cor_do_pixel(png, x, y)
             e = esperado_estirado(ref, x, y)
             verificar(perto(c, e, 40), f"fundo estirado em ({x},{y}): {c} ~ {e}")

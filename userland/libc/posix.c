@@ -753,6 +753,16 @@ int kill(pid_t pid, int sinal)
 
 struct passwd *getpwnam(const char *nome) { (void)nome; return NULL; }
 struct passwd *getpwuid(uid_t uid) { (void)uid; return NULL; }
+int getpwuid_r(uid_t uid, struct passwd *pw, char *buf, size_t n, struct passwd **res)
+{
+    (void)uid; (void)pw; (void)buf; (void)n;
+    *res = NULL;
+    return 0;
+}
+
+/* D400: no hay grupos ni sesiones; el propio proceso hace de ambos (libgit2 los mezcla en su semilla). */
+pid_t getpgid(pid_t pid) { return pid ? pid : meu_pid(); }
+pid_t getsid(pid_t pid) { return pid ? pid : meu_pid(); }
 
 pid_t getpid(void) { return meu_pid(); }
 pid_t getppid(void) { return 1; }

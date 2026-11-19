@@ -642,6 +642,7 @@ const acel_driver_t acel_intel = {
     false,   /* cada orden se espera en el propio driver cuando hace falta */
     in_detalle,   /* D359 */
     false,   /* D305: solo 32 bits */
+    NULL,    /* D387: sin volcado por la GPU */
 };
 
 /* ------------------------------------------------------------ D285: el ring para el 3D de Gen3 */

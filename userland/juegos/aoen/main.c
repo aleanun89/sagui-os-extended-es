@@ -5,6 +5,7 @@
 #include "interfaz.h"
 #include "config.h"
 #include "efectos.h"
+#include "hilos.h"
 #include <time.h>
 
 static SDL_Window *win;
@@ -51,7 +52,18 @@ void apply_fullscreen(void) {
 	SDL_SetWindowFullscreen(win, app.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 #ifdef SAGUI_AOEN
 	int w = win_w, h = win_h;
-	if (app.fullscreen) { SDL_DisplayMode dm; if (SDL_GetDesktopDisplayMode(0, &dm) == 0 && dm.w > 0 && dm.h > 0) { w = dm.w; h = dm.h; } }
+	if (app.fullscreen) {
+		SDL_DisplayMode dm;
+		if (SDL_GetDesktopDisplayMode(0, &dm) == 0 && dm.w > 0 && dm.h > 0) {
+			w = dm.w; h = dm.h;
+			/* resolución de dibujo (v8.5.5.3): al 75 % o al 50 % el búfer es más pequeño y la SDL del sistema lo amplía a la
+			 * pantalla (al 50 %, x2 exacto); nunca por debajo de 640x480 */
+			int pct = app.escala_dibujo > 0 && app.escala_dibujo < 100 ? app.escala_dibujo : 100;
+			int ew = (dm.w * pct / 100) & ~1, eh = (dm.h * pct / 100) & ~1;
+			if (pct < 100 && ew >= 640 && eh >= 480) { w = ew; h = eh; }
+			AOEN_LOG("[AOEN] pantalla completa: escritorio %dx%d, dibujo al %d%% (%dx%d)", dm.w, dm.h, w == dm.w ? 100 : pct, w, h);
+		}
+	}
 	SDL_SetWindowSize(win, w, h);
 	resize_fb(w, h);
 #endif
@@ -233,6 +245,8 @@ int main(int argc, char **argv) {
 		if (getenv("AOEN_CLASSIC")) hd_enabled = 0;
 	}
 	fx_init();
+	hilos_iniciar();   /* D393: hilos de trabajo, uno por núcleo (AOEN_HILOS=1 o «hilos=1» en aoen.cfg: sin hilos) */
+	perf_activo = getenv("AOEN_PERFIL") && atoi(getenv("AOEN_PERFIL")) > 0;
 	{
 		int want = getenv("AOEN_RENDER") ? atoi(getenv("AOEN_RENDER")) : cfg_get_int("render2d", 0);
 		if (want) {
@@ -247,6 +261,9 @@ int main(int argc, char **argv) {
 	music_set_volume(cfg_get_int("volume_music", 50) / 100.0f);
 	music_setup(app.data_dir);
 	app.scroll_speed = CLAMP(cfg_get_int("scroll_speed", 2), 1, 3);
+	app.cursor_propio = getenv("AOEN_CURSOR") ? atoi(getenv("AOEN_CURSOR")) : cfg_get_int("cursor_propio", 1);
+	app.nombres_raton = cfg_get_int("nombres_raton", 1);
+	app.escala_dibujo = getenv("AOEN_DIBUJO") ? atoi(getenv("AOEN_DIBUJO")) : cfg_get_int("escala_dibujo", 100);
 	{
 		int hd = cfg_get_int("hd_terrain", 1);
 		if (!hd) hd_enabled = 0;
@@ -277,6 +294,33 @@ int main(int argc, char **argv) {
 		int c1 = dev_place(E_GRANARY, 0, cx + 6, cy + 6);
 		if (c1 >= 0) { fx_evento(FX_EV_EDIFICIO_DESTRUIDO, &W.ents[c1]); W.ents[c1].alive = 0; }
 		for (int k = 0; k < 40; ++k) fx_actualizar(1.0f / 30);
+	}
+
+	if (scene && !strcmp(scene, "cursores")) {
+		/* ayuda de desarrollo y de la documentación (v8.5.5.3): todos los cursores del juego, ampliados, sobre el fondo */
+		draw_background(0);
+		gfx_fill_a(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0), 120);
+		static const char *nom[CUR_COUNT] = { "Normal", "Atacar", "Talar", "Recoger", "Oro", "Piedra", "Construir", "Destino", "No cabe", "Desplazar" };
+		int s = MAX(2, fb.w / 256), paso = fb.w / 5;
+		for (int k = 0; k < CUR_COUNT; ++k) {
+			int x = paso / 2 + (k % 5) * paso, y = fb.h / 4 + (k / 5) * fb.h / 2;
+			gfx_fill_a(x - 12 * s, y - 12 * s, 24 * s, 24 * s, gfx_rgb(60, 110, 50), 255);
+			bevel(x - 12 * s, y - 12 * s, 24 * s, 24 * s, COL_GOLD);
+			cursor_dibujar(k, x - (k == CUR_OBJETIVO || k == CUR_PROHIBIDO || k == CUR_DESPLAZAR ? 0 : 4 * s), y - (k == CUR_OBJETIVO || k == CUR_PROHIBIDO || k == CUR_DESPLAZAR ? 0 : 4 * s), s, k == CUR_DESPLAZAR ? 1 : 0, k == CUR_DESPLAZAR ? -1 : 0);
+			gfx_ts(x - gfx_t_w(nom[k], 1) / 2, y + 14 * s, nom[k], COL_CREAM, 1);
+		}
+		if (shot) SDL_SaveBMP(fbs, shot);
+		AOEN_LOG("[AOEN] escena cursores: %d cursores", CUR_COUNT);
+		/* se queda unos segundos en pantalla (para la captura de la prueba); Esc sale antes */
+		for (int k = 0; k < (shot ? 100 : 1000); ++k) {
+			SDL_Event e;
+			int fin = 0;
+			while (SDL_PollEvent(&e)) if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)) fin = 1;
+			if (fin) break;
+			present_frame();
+			SDL_Delay(40);
+		}
+		return 0;
 	}
 
 	if (scene && !strcmp(scene, "styles")) {
@@ -469,14 +513,36 @@ int main(int argc, char **argv) {
 
 	if (scene && !strcmp(scene, "saves")) { start_game(); do_save(2); do_save(1); world_free(); refresh_slots(); app.saves_mode = 0; app.screen = SC_SAVES; }
 	else if (scene && !strcmp(scene, "setup")) app.screen = SC_SETUP;
-	else if (scene && !strcmp(scene, "options")) app.screen = SC_OPTIONS;
+	else if (scene && !strcmp(scene, "options")) { app.screen = SC_OPTIONS; if (getenv("AOEN_PAG")) opciones_pagina(atoi(getenv("AOEN_PAG"))); }
 	else if (scene && !strcmp(scene, "game")) {
 		if (getenv("AOEN_PLAYERS")) su.players = atoi(getenv("AOEN_PLAYERS"));
 		if (getenv("AOEN_SIZE")) su.size = atoi(getenv("AOEN_SIZE"));
 		if (getenv("AOEN_MAP")) su.map = atoi(getenv("AOEN_MAP"));
 		if (getenv("AOEN_SEED")) su.seed = atoi(getenv("AOEN_SEED"));
+		/* D393, partidas cargadas para medir: AOEN_DIF=0..3 dificultad de todas las IA; AOEN_ESPECTADOR=1 la máquina lleva
+		 * también al jugador 1 (así nadie pierde enseguida por no hacer nada) */
+		if (getenv("AOEN_DIF")) for (int i = 0; i < MAX_PLAYERS; ++i) su.diff[i] = atoi(getenv("AOEN_DIF"));
 		start_game();
+		if (getenv("AOEN_ESPECTADOR") && atoi(getenv("AOEN_ESPECTADOR")) > 0) { W.pl[0].ai = 1; W.pl[0].diff = su.diff[0]; }
 		for (float t = 0; t < ffwd; t += 1.0f / 30) world_update(1.0f / 30);
+		if (getenv("AOEN_SIM")) {
+			/* D393: simulación sin dibujo, AOEN_SIM segundos de juego a pasos fijos, con la suma del mundo cada minuto: las
+			 * pruebas comparan las sumas con 1 y con N hilos (deben ser iguales) y miden el tiempo de la simulación */
+			float fin = (float)atof(getenv("AOEN_SIM")), siguiente = 60.0f;
+			Uint32 t0 = SDL_GetTicks();
+			int pasos = 0;
+			while (W.time < fin && !W.over) {
+				world_update(1.0f / 30);
+				++pasos;
+				if (W.time >= siguiente) { AOEN_LOG("[AOEN] sim t=%.0f suma=%08x ents=%d", W.time, world_suma(), W.nents); siguiente += 60.0f; }
+			}
+			Uint32 ms = SDL_GetTicks() - t0;
+			AOEN_LOG("[AOEN] sim final t=%.0f pasos=%d ms=%u suma=%08x ents=%d hilos=%d", W.time, pasos, (unsigned)ms, world_suma(), W.nents, hilos_n());
+			hilos_parar();
+			world_free();
+			SDL_Quit();
+			return 0;
+		}
 		if (getenv("AOEN_FOCUS")) {
 			/* ayuda para desarrollo: mira al animal salvaje más cercano y lo hace andar */
 			EntType want = !strcmp(getenv("AOEN_FOCUS"), "elephant") ? E_ELEPHANT : E_HORSE;
@@ -515,6 +581,10 @@ int main(int argc, char **argv) {
 	int frame = 0;
 	static int fps_frames;
 	int bench_frames = getenv("AOEN_BENCH") ? atoi(getenv("AOEN_BENCH")) : 0, bench_n = 0, bench_warm = 0;
+	/* D393, para las pruebas: AOEN_PASO_FIJO=1 avanza un tic de juego por cuadro (el mundo no depende del reloj) y
+	 * AOEN_SUMA_CUADRO=N escribe la suma de los píxeles del mundo dibujado en el cuadro N (igual con 1 y con N hilos) */
+	int paso_fijo = getenv("AOEN_PASO_FIJO") && atoi(getenv("AOEN_PASO_FIJO")) > 0;
+	int suma_cuadro = getenv("AOEN_SUMA_CUADRO") ? atoi(getenv("AOEN_SUMA_CUADRO")) : -1;
 	Uint32 bench_t0 = 0;
 	static Uint32 fps_t;
 
@@ -525,6 +595,7 @@ int main(int argc, char **argv) {
 		memset(in.key, 0, sizeof in.key);
 
 		SDL_Event ev;
+		unsigned long long t_eventos = perf_activo ? perf_reloj() : 0;
 		while (SDL_PollEvent(&ev)) {
 			switch (ev.type) {
 			case SDL_QUIT: app.running = 0; break;
@@ -557,6 +628,7 @@ int main(int argc, char **argv) {
 				break;
 			}
 		}
+		if (perf_activo) perf_sumar(PERF_EVENTOS, t_eventos);
 		if (full_pendiente && frame >= 3) { full_pendiente = 0; app.fullscreen = 1; apply_fullscreen(); }
 		in.keys = SDL_GetKeyboardState(NULL);
 		in.foco = (SDL_GetWindowFlags(win) & SDL_WINDOW_MOUSE_FOCUS) != 0;
@@ -573,12 +645,16 @@ int main(int argc, char **argv) {
 		Uint32 now = SDL_GetTicks();
 		float dt = MIN((now - last) / 1000.0f, 0.1f);
 		last = now;
+		if (paso_fijo) dt = 1.0f / 30;   /* D393: también las partículas y los avisos, para que el cuadro no dependa del reloj */
 
 		if (app.screen == SC_GAME && W.nents) {
 			if (!app.paused && !W.over) {
 				accum += dt * app.game_speed;
 				int steps = 0;
-				while (accum >= 1.0f / 30 && steps < 8) { world_update(1.0f / 30); accum -= 1.0f / 30; ++steps; }
+				PERF_INI();
+				if (paso_fijo) { world_update(1.0f / 30); accum = 0; }
+				else while (accum >= 1.0f / 30 && steps < 8) { world_update(1.0f / 30); accum -= 1.0f / 30; ++steps; }
+				PERF_FIN(PERF_SIM);
 				if (steps == 8) accum = 0;
 				audio_ambience_tick(dt);
 				fx_actualizar(dt);
@@ -601,6 +677,7 @@ int main(int argc, char **argv) {
 		}
 
 		/* dibujo */
+		PERF_INI();
 		hud_disponer();
 		switch (app.screen) {
 		case SC_MENU: gfx_ui_begin(app.us); draw_menu(); break;
@@ -612,6 +689,12 @@ int main(int argc, char **argv) {
 			if (!app.paused && !W.over) game_input(dt);
 			if (!W.nents || app.screen != SC_GAME) { gfx_ui_begin(app.us); break; }
 			render_world(top_h * app.us, bottom_h * app.us);
+			if (frame == suma_cuadro) {
+				unsigned h = 2166136261u;
+				for (int y = top_h * app.us; y < fb.h - bottom_h * app.us; ++y)
+					for (int x = 0; x < fb.w; ++x) h = (h ^ (fb.px[(size_t)y * fb.pitch + x] & 0xffffffu)) * 16777619u;
+				AOEN_LOG("[AOEN] suma del cuadro %d: %08x (t=%.2f, hilos %d)", frame, h, W.time, hilos_n());
+			}
 			hud_mundo();
 			gfx_ui_begin(app.us);
 			if (app.paused || W.over) { int c = in.mclick, d = in.mdown; in.mclick = 0; in.mdown = 0; paneles_cerrar(); draw_hud(); tip_cancelar(); in.mclick = c; in.mdown = d; }
@@ -621,8 +704,28 @@ int main(int argc, char **argv) {
 			break;
 		}
 		tip_dibujar();
+		if (app.screen == SC_GAME && W.nents && !app.paused && !W.over) hud_rotulo_raton();
 		solape_fin_cuadro();
 		gfx_ui_end();
+
+		/* fundido de entrada al cambiar de pantalla (v8.5.5.3): un cuarto de segundo desde negro */
+		{
+			static int pantalla_ant = -1;
+			if ((int)app.screen != pantalla_ant) { if (pantalla_ant >= 0) app.t_pantalla = SDL_GetTicks(); else app.t_pantalla = SDL_GetTicks() - 1000; pantalla_ant = (int)app.screen; }
+			Uint32 el = SDL_GetTicks() - app.t_pantalla;
+			if (el < 250) gfx_fill_a(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0), 255 - (int)(el * 255 / 250));
+		}
+		/* cursor propio (v8.5.5.3): se oculta el del sistema y se dibuja el del juego encima de todo */
+		{
+			static int oculto;
+			int quiero = app.cursor_propio && in.mouse_seen;
+			if (quiero != oculto) { SDL_ShowCursor(quiero ? SDL_DISABLE : SDL_ENABLE); oculto = quiero; }
+			if (quiero && (in.foco || prueba_activa)) {
+				int cdx = 0, cdy = 0, tipo = CUR_FLECHA;
+				if (app.screen == SC_GAME && W.nents) tipo = hud_cursor(&cdx, &cdy);
+				cursor_dibujar(tipo, in.mx, in.my, app.us, cdx, cdy);
+			}
+		}
 
 		++fps_frames;
 		if (now - fps_t >= 1000) {
@@ -640,7 +743,12 @@ int main(int argc, char **argv) {
 			gfx_text(fb.w - 80, top_h * app.us + 4, b, gfx_rgb(255, 255, 0), 1);
 		}
 
-		present_frame();
+		PERF_FIN(PERF_INTERFAZ);
+		{
+			PERF_INI();
+			present_frame();
+			PERF_FIN(PERF_PRESENTAR);
+		}
 
 		++frame;
 		if (shot && frame == shot_frame) {
@@ -666,10 +774,11 @@ int main(int argc, char **argv) {
 			if (++bench_warm <= 30) continue;   /* los primeros cuadros (cambio de tamaño, cachés) no cuentan */
 			/* la cámara se desplaza en vaivén: cada cuadro cambia entero, como al mover el mapa (el peor caso de dibujo y presentación) */
 			{ static float bx0, by0; if (!bench_t0) { bx0 = V.cx; by0 = V.cy; } V.cx = bx0 + 500.0f * sinf(bench_n * 0.07f); V.cy = by0 + 160.0f * sinf(bench_n * 0.05f); }
-			if (!bench_t0) bench_t0 = SDL_GetTicks();
+			if (!bench_t0) { bench_t0 = SDL_GetTicks(); perf_empezar(); }
 			if (++bench_n >= bench_frames) {
 				Uint32 ms = SDL_GetTicks() - bench_t0;
-				AOEN_LOG("[AOEN] bench %dx%d cuadros=%d ms=%u fps=%.1f efectos=%d", fb.w, fb.h, bench_n, (unsigned)ms, ms ? bench_n * 1000.0f / ms : 0.0f, getenv("AOEN_EFECTOS") ? atoi(getenv("AOEN_EFECTOS")) : -1);
+				AOEN_LOG("[AOEN] bench %dx%d cuadros=%d ms=%u fps=%.1f efectos=%d hilos=%d", fb.w, fb.h, bench_n, (unsigned)ms, ms ? bench_n * 1000.0f / ms : 0.0f, getenv("AOEN_EFECTOS") ? atoi(getenv("AOEN_EFECTOS")) : -1, hilos_n());
+				perf_informe(bench_n);
 				break;
 			}
 			continue;
@@ -678,6 +787,7 @@ int main(int argc, char **argv) {
 		if (spent < 16) SDL_Delay(16 - spent);
 	}
 
+	hilos_parar();
 	world_free();
 	audio_shutdown();
 	assets_free();

@@ -51,7 +51,7 @@ static const char AYUDA[] =
 "  --servidor [--puerto P]  API compatible con OpenAI en 127.0.0.1:P (8080 de serie):\n"
 "                       ia, chatia y los agentes la usan con el proveedor «llama.cpp»\n"
 "  --anunciar           muestra el logo «IA Powered» si la IA local puede funcionar\n"
-"  --ruta c|sse2|ssse3  fuerza la ruta de cálculo (de serie, la mejor que tenga la CPU)\n"
+"  --ruta c|sse2|ssse3|avx2  fuerza la ruta de cálculo (de serie, la mejor que tenga la CPU)\n"
 "La IA local necesita más de 1,8 GB de memoria y que el modelo y la caché quepan en el\n"
 "proceso (llm --info lo calcula). Los modelos nunca van dentro del sistema: se bajan en\n"
 "Configuración > IA (o se copian) a " PASTA_MODELOS " o a ~/modelos.\n";
@@ -847,7 +847,10 @@ int main(int argc, char **argv)
         else if (igual(a, "--activar")) { VALOR(); ativar = v; }
         else if (igual(a, "--ruta")) {
             VALOR(); rota = v;
-            if (!igual(v, "c") && !igual(v, "sse2") && !igual(v, "ssse3")) { llm_eprintf("llm: --ruta c, sse2 o ssse3\n"); return 2; }
+            if (!igual(v, "c") && !igual(v, "sse2") && !igual(v, "ssse3") && !igual(v, "avx2")) {
+                llm_eprintf("llm: --ruta c, sse2, ssse3 o avx2\n");
+                return 2;
+            }
         }
         /* para las pruebas y la comparación con llama.cpp */
         else if (igual(a, "--tokens")) { VALOR(); tokens = v; }

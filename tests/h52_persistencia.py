@@ -33,9 +33,10 @@ def imagem_persistente(nome):
 
 def inicio_dados(img):
     dados = [p for p in particoes_img(img) if p[1] != 0xDA]
-    verificar(dados and dados[0][1] == 0x83 and dados[0][0] == 5,
-              "a imagem tem a partição de dados do tipo Linux (0x83), lógica na extendida (D213)")
-    return dados[0][2]
+    # D388: /home (SAGUI-DATOS) es la última lógica de la extendida
+    verificar(dados and dados[-1][1] == 0x83 and dados[-1][0] >= 5,
+              "a imagem tem a partição de dados do tipo Linux (0x83), a última lógica na extendida (D213, D388)")
+    return dados[-1][2]
 
 
 def rodada(modo):

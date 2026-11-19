@@ -126,6 +126,10 @@ def main():
     # ---- o infopc mostra os processadores ----
     with Maquina("h133-info", "ide", imagem=imagem_de_teste("/bin/infopc -t sistema", ["--smp"]), nucleos=4) as m:
         m.esperar_serial("Processadores:", 120)
+        try:   # las líneas de cada CPU llegan después de «Processadores:» (leer enseguida las cortaba)
+            m.esperar_serial("  CPU 3: ", 30)
+        except Exception:
+            pass
         s = m.serial().replace("\r", "")
         verificar("Processadores:     4" in s, "o infopc mostra os quatro processadores")
         verificar("CPU 0:" in s and "CPU 3:" in s, "o infopc lista cada processador")

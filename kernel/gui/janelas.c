@@ -14,6 +14,7 @@
  * teclado, arrastra, enfoca y cierra ventanas, y entrega los eventos. Ella y las
  * llamadas al sistema tocan las mismas listas; por eso la tarea trabaja
  * con las interrupciones desactivadas (las llamadas ya corren así). */
+#include "acoes.h"
 #include "gui.h"
 #include "idioma.h"
 #include "avisos.h"
@@ -709,6 +710,12 @@ static void tarefa_gerenciador(void *arg)
         while (disco_proximo_aviso(&tipo, texto, sizeof texto, caminho, sizeof caminho))
             gui_aviso_ex(texto, tipo == AVISO_AUDIO && caminho[0] ? caminho : NULL, tipo == AVISO_AUDIO,
                          tipo == AVISO_AUDIO && caminho[0] ? 10 : 0);   /* D233: pulsable, reproduce el CD */
+        /* D403: las teclas de función (volumen, brillo, radio) y su aviso en pantalla. */
+        acoes_atender();
+        int osd_t, osd_v;
+        if (acoes_osd_proximo(&osd_t, &osd_v)) gui_aviso_osd(osd_t, osd_v);
+        char aviso_k[ACOES_AVISO_BYTES];   /* D405: avisos de texto del kernel (radios del HP...) */
+        while (acoes_aviso_proximo(aviso_k, sizeof aviso_k)) gui_aviso(aviso_k);
         sessao_tique();  /* D340: inicio y fin de sesión */
         pd_tique();      /* D269: ¿hay un programa pidiendo permisos de administrador? */
         avisos_tique();  /* caduca el aviso y muestra el siguiente de la cola */

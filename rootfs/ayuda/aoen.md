@@ -62,6 +62,23 @@ numerados. Con el teclado: flechas o `Tab` para moverse, izquierda y derecha par
   oro yendo y viniendo a un muelle o mercado de otro jugador (clic derecho en él); cuanto más lejos, más oro. Con la opción
   también pueden **intercambiar**: llevan 15 de un recurso tuyo y traen otro (más si está lejos y si lo que das escasea en la
   partida). Si no tienes 15 de lo que hay que llevar, el barco espera en su puerto.
+  Con un mercante elegido: **O** modo oro, **I** modo intercambio, **N** qué das y **M** qué recibes (cada pulsación pasa al
+  siguiente recurso). Si «Modo intercambio» sale gris, es que la partida se creó sin «Comercio mejorado».
+
+## Qué hace cada edificio (8.5.4.10r2)
+
+- **Centro urbano:** aldeanos, avanzar de edad; recoge todos los recursos.
+- **Casa:** población +5. **Granja:** 250 de comida; agotada, se reconstruye.
+- **Granero:** recoge comida (bayas, granjas y caza); agricultura, mejoras de torres y de murallas.
+- **Almacén:** recoge madera, oro, piedra y carne de caza; mejoras de recolección, armas y armaduras.
+- **Cuartel:** clubman, hachero, espadachín, hondero. **Campo de tiro:** arqueros, carro arquero, arquero a caballo y de
+  elefante; mejoras de flechas y arcos. **Establo:** explorador, caballería, catafracta, elefante de guerra.
+- **Academia:** hoplita, falange, centurión. **Taller de asedio:** balista y catapultas.
+- **Muelle:** barcos de pesca, mercantes, de transporte y trirremes; recoge el pescado. Los barcos solo navegan por el agua y
+  las tropas solo andan por tierra: para cruzar el mar, súbelas a un transporte.
+- **Mercado:** compra y venta, tributo, carro mercante, Rueda y Astronomía. **Templo:** sacerdotes, mejoras religiosas,
+  reliquias. **Centro de gobierno:** Arquitectura, Ingeniería, Balística y Logística.
+- **Torre**, **Muralla** y **Maravilla** (si resiste 10 minutos terminada, ganas).
 
 ## La máquina
 
@@ -74,8 +91,18 @@ unidades, exploran el mapa, se reúnen antes de atacar, se retiran si pierden y 
 
 En **Opciones > Gráficos** eliges el perfil de efectos: **Equipos lentos** (todo apagado, el más rápido), **Normal** (por
 defecto en equipos con SSE2) o **Completo**, y cada efecto por separado: transiciones del terreno, agua animada, niebla
-suave, sombras, humo y polvo, obras y ruinas, día y noche y zoom suave. También el tamaño de la interfaz (Automático escala
-x2 desde 1600x960) y la pantalla completa. En un equipo antiguo (Pentium III o Athlon) a 800x600, usa **Equipos lentos**.
+suave, sombras, humo, fuego y polvo, obras y ruinas, día y noche y zoom suave, y la pantalla completa (F11). Con una pantalla
+grande y un equipo lento, la **Resolución de dibujo** al 75 % o al 50 % dibuja menos píxeles en pantalla completa y el
+sistema los amplía. En un equipo antiguo (Pentium III o Athlon) a 800x600, usa **Equipos lentos**.
+
+En **Opciones > Interfaz**: el tamaño de la interfaz (Automático: x2 desde 1600x960 y x3 desde 2880x1620), el **cursor del
+juego** (cambia según lo que haría el clic derecho: espada para atacar, hacha, cesta o pico para recoger, martillo para
+construir, círculo tachado si un edificio no cabe) y el rótulo con el nombre de lo que hay bajo el ratón. **Opciones >
+Teclas** tiene la lista de teclas (también con F1 en la partida).
+
+**Varios núcleos** (8.5.5.3): AoEN reparte el dibujo y la máquina entre todos los núcleos que tenga el sistema (en SaguiOS,
+los que arranca con varios procesadores). La partida y la imagen son las mismas que con uno. Para usar solo uno, pon
+`hilos=1` en `~/.config/aoen/aoen.cfg` (`aoen-config --hilos 1` lo hace por ti; o arranca con `AOEN_HILOS=1 aoen`).
 
 Texturas HD y música (opcionales, tuyas): carpetas `/apps/aoen/texturas` y `/apps/aoen/musica`. La configuración y las
 partidas están en `~/.config/aoen/`.

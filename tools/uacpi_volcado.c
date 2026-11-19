@@ -37,13 +37,19 @@
  * PCI es de mentira, el registro de enrutado PIRQ del puente LPC tiene los
  * valores de una BIOS típica (--pirq cambia los ocho bytes).
  *
- * Uso: uacpi_volcado [--io-ff] [--ec-ff] [--limite S] [-v] [--prt 945|hm55] volcado.txt
+ * Con --portatil (D403) mira lo que buscan video_acpi.c, fujitsu.c y toshiba.c:
+ * los dispositivos de vídeo (_DOD/_DOS) y sus salidas con _BCL/_BCM/_BQC (con
+ * los niveles ya ordenados por kernel/lib/brilho_conv.c), FUJ02B1/FUJ02E3 y
+ * TOS1900/TOS620x (métodos, _STA, FUNC(0x1000, 0), y la HCI: brillo,
+ * ventilador, radio). Llama a _DOS(0) y a ENAB como el kernel; nunca a _BCM.
+ *
+ * Uso: uacpi_volcado [--io-ff] [--ec-ff] [--limite S] [-v] [--prt 945|hm55] [--portatil] volcado.txt
  * El volcado es la salida de `acpidump` (texto: "DSDT @ 0x..." y las líneas
  * "    0000: 44 53 44 54 ...").
  * Se compila en el anfitrión (tests/h158_bateria.py, parte 0b):
  *   cc -O1 -g -Ikernel/terceros/uacpi/include -Ikernel/inc -DSAGUI_HOST
- *      tools/uacpi_volcado.c kernel/lib/bateria_conv.c kernel/dispositivos/prt.c
- *      kernel/terceros/uacpi/source/(todos).c -o uacpi_volcado */
+ *      tools/uacpi_volcado.c kernel/lib/bateria_conv.c kernel/lib/brilho_conv.c
+ *      kernel/dispositivos/prt.c kernel/terceros/uacpi/source/(todos).c -o uacpi_volcado */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,6 +69,7 @@
 #include <uacpi/event.h>
 
 #include "bateria_conv.h"
+#include "brilho_conv.h"
 #include "prt.h"
 
 #define MEM_BYTES     (1ull << 32)
@@ -662,11 +669,169 @@ static void colgado(int s)
     _exit(3);
 }
 
+/* ------------------------------------------------------------ portátiles (D403) */
+
+static const char *caminho(uacpi_namespace_node *no)
+{
+    static char b[4][96];
+    static int k;
+    const char *p = uacpi_namespace_node_generate_absolute_path(no);
+    char *d = b[k++ & 3];
+    snprintf(d, 96, "%s", p ? p : "?");
+    if (p) uacpi_free_absolute_path(p);
+    return d;
+}
+
+static int tem(uacpi_namespace_node *no, const char *m)
+{
+    uacpi_namespace_node *x = NULL;
+    uacpi_object_type t;
+    return uacpi_namespace_node_find(no, m, &x) == UACPI_STATUS_OK && x &&
+           uacpi_namespace_node_type(x, &t) == UACPI_STATUS_OK && t == UACPI_OBJECT_METHOD;
+}
+
+static uacpi_status eval_ints(uacpi_namespace_node *no, const char *m, const uint64_t *a, int n, uacpi_object **ret)
+{
+    uacpi_object *o[6];
+    for (int i = 0; i < n; i++) o[i] = uacpi_object_create_integer(a[i]);
+    uacpi_object_array arr = { o, (uacpi_size)n };
+    uacpi_status r = uacpi_eval(no, m, n ? &arr : NULL, ret);
+    for (int i = 0; i < n; i++) uacpi_object_unref(o[i]);
+    return r;
+}
+
+static int saidas_brilho, buses_video, fuj, tos;
+
+static uacpi_iteration_decision p_saida(void *u, uacpi_namespace_node *no, uacpi_u32 prof)
+{
+    (void)u; (void)prof;
+    if (!tem(no, "_BCL") || !tem(no, "_BCM")) return UACPI_ITERATION_DECISION_CONTINUE;
+    saidas_brilho++;
+    uacpi_object *o = NULL;
+    uacpi_object_array a;
+    uacpi_status r = uacpi_eval_simple_package(no, "_BCL", &o);
+    uint64_t bruto[BRILHO_MAX_NIVEIS + 2];
+    int k = 0;
+    if (r == UACPI_STATUS_OK && uacpi_object_get_package(o, &a) == UACPI_STATUS_OK)
+        for (uacpi_size i = 0; i < a.count && k < BRILHO_MAX_NIVEIS + 2; i++) {
+            uacpi_u64 v;
+            if (uacpi_object_get_integer(a.objects[i], &v) == UACPI_STATUS_OK) bruto[k++] = v;
+        }
+    if (o) uacpi_object_unref(o);
+    uint32_t niv[BRILHO_MAX_NIVEIS];
+    int n = brilho_niveis(bruto, k, niv, BRILHO_MAX_NIVEIS);
+    printf("  salida %s: _BCL %s, %d valores, %d niveles", caminho(no), estado_txt(r), k, n);
+    if (n >= 2) printf(" (%u-%u)", niv[0], niv[n - 1]);
+    if (tem(no, "_BQC")) {
+        uacpi_u64 q = 0;
+        uacpi_status rq = uacpi_eval_simple_integer(no, "_BQC", &q);
+        bool ei = false;
+        int i = n >= 2 && rq == UACPI_STATUS_OK ? brilho_bqc(niv, n, q, &ei) : -1;
+        printf(", _BQC %s %llu -> nivel %d%s", estado_txt(rq), (unsigned long long)q, i, ei ? " (indice)" : "");
+    } else {
+        printf(", sin _BQC");
+    }
+    printf("\n");
+    correr_fila();
+    return UACPI_ITERATION_DECISION_CONTINUE;
+}
+
+static uacpi_iteration_decision p_dispositivo(void *u, uacpi_namespace_node *no, uacpi_u32 prof)
+{
+    (void)u; (void)prof;
+    static const char *const id_fuj[] = { "FUJ02B1", "FUJ02E3", NULL };
+    static const char *const id_tos[] = { "TOS1900", "TOS6200", "TOS6207", "TOS6208", NULL };
+    uacpi_u32 sta = 0xF;
+    uacpi_status rs = uacpi_eval_sta(no, &sta);
+    if (tem(no, "_DOD") || tem(no, "_DOS")) {
+        buses_video++;
+        printf("video %s: _STA %s %x%s%s\n", caminho(no), estado_txt(rs), sta, tem(no, "_DOS") ? ", _DOS" : "",
+               tem(no, "_DOD") ? ", _DOD" : "");
+        if (tem(no, "_DOS")) {
+            uint64_t z = 0;
+            uacpi_object *o = NULL;
+            uacpi_status r = eval_ints(no, "_DOS", &z, 1, &o);
+            if (o) uacpi_object_unref(o);
+            printf("  _DOS(0): %s\n", estado_txt(r));
+            correr_fila();
+        }
+        uacpi_namespace_for_each_child(no, p_saida, NULL, UACPI_OBJECT_DEVICE_BIT, 1, NULL);
+    }
+    if (uacpi_device_matches_pnp_id(no, id_fuj)) {
+        fuj++;
+        printf("fujitsu %s: _STA %s %x, GBLL %d RBLL %d SBLL %d SBL2 %d FUNC %d\n", caminho(no), estado_txt(rs), sta,
+               tem(no, "GBLL"), tem(no, "RBLL"), tem(no, "SBLL"), tem(no, "SBL2"), tem(no, "FUNC"));
+        uacpi_u64 v;
+        if (tem(no, "RBLL") && uacpi_eval_simple_integer(no, "RBLL", &v) == UACPI_STATUS_OK) printf("  RBLL %llu\n", (unsigned long long)v);
+        if (tem(no, "GBLL") && uacpi_eval_simple_integer(no, "GBLL", &v) == UACPI_STATUS_OK) printf("  GBLL %llx\n", (unsigned long long)v);
+        if (tem(no, "FUNC")) {
+            uint64_t a[4] = { 0x1000, 0, 0, 0 }, b[4] = { 0x1002, 0, 0, 0 };
+            uacpi_object *o = NULL;
+            uacpi_status r = eval_ints(no, "FUNC", a, 4, &o);
+            uacpi_u64 f = 0;
+            if (o) { uacpi_object_get_integer(o, &f); uacpi_object_unref(o); o = NULL; }
+            uacpi_status r2 = eval_ints(no, "FUNC", b, 4, &o);
+            uacpi_u64 bt = 0;
+            if (o) { uacpi_object_get_integer(o, &bt); uacpi_object_unref(o); }
+            printf("  FUNC(0x1000,0) %s %llx; FUNC(0x1002,0) %s %llx\n", estado_txt(r), (unsigned long long)f,
+                   estado_txt(r2), (unsigned long long)bt);
+        }
+        correr_fila();
+    }
+    if (uacpi_device_matches_pnp_id(no, id_tos)) {
+        tos++;
+        const char *m = tem(no, "GHCI") ? "GHCI" : tem(no, "SPFC") ? "SPFC" : NULL;
+        printf("toshiba %s: _STA %s %x, HCI %s, INFO %d, ENAB %d\n", caminho(no), estado_txt(rs), sta, m ? m : "no",
+               tem(no, "INFO"), tem(no, "ENAB"));
+        if (m && (sta & 1)) {
+            static const struct { uint32_t reg, extra; const char *n; } regs[] = {
+                { 0x002A, 0, "brillo" }, { 0x0004, 0, "ventilador" }, { 0x0056, 1, "radio" }, { 0x0016, 0, "cola" } };
+            for (unsigned i = 0; i < 4; i++) {
+                uint64_t in[6] = { 0xF300, regs[i].reg, 0, regs[i].extra, 0, 0 };
+                uacpi_object *o = NULL;
+                uacpi_object_array a;
+                uacpi_status r = eval_ints(no, m, in, 6, &o);
+                uacpi_u64 r0 = 0xFFFF, r2 = 0;
+                if (o && uacpi_object_get_package(o, &a) == UACPI_STATUS_OK && a.count >= 3) {
+                    uacpi_object_get_integer(a.objects[0], &r0);
+                    uacpi_object_get_integer(a.objects[2], &r2);
+                }
+                if (o) uacpi_object_unref(o);
+                printf("  HCI %s (%04x): %s, resultado %llx valor %llx\n", regs[i].n, regs[i].reg, estado_txt(r),
+                       (unsigned long long)r0, (unsigned long long)r2);
+            }
+            if (tem(no, "ENAB")) {
+                uacpi_object *o = NULL;
+                uacpi_status r = uacpi_eval(no, "ENAB", NULL, &o);
+                if (o) uacpi_object_unref(o);
+                printf("  ENAB: %s\n", estado_txt(r));
+            }
+            if (tem(no, "INFO")) {
+                uacpi_u64 v = 0;
+                uacpi_status r = uacpi_eval_simple_integer(no, "INFO", &v);
+                printf("  INFO: %s %llx\n", estado_txt(r), (unsigned long long)v);
+            }
+            correr_fila();
+        }
+    }
+    return UACPI_ITERATION_DECISION_CONTINUE;
+}
+
+static void prova_portatil(void)
+{
+    uacpi_namespace_for_each_child(uacpi_namespace_root(), p_dispositivo, NULL, UACPI_OBJECT_DEVICE_BIT,
+                                   UACPI_MAX_DEPTH_ANY, NULL);
+    printf("portatil: %d dispositivos de video, %d salidas con brillo, %d de Fujitsu, %d de Toshiba\n", buses_video,
+           saidas_brilho, fuj, tos);
+}
+
 int main(int argc, char **argv)
 {
     const char *nome = NULL, *prt = NULL;
+    int portatil = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-v")) verboso = 1;
+        else if (!strcmp(argv[i], "--portatil")) portatil = 1;
         else if (!strcmp(argv[i], "--io-ff")) io_ff = 1;
         else if (!strcmp(argv[i], "--ec-ff")) ec_ff = 1;
         else if (!strcmp(argv[i], "--limite") && i + 1 < argc) limite_s = (unsigned)atoi(argv[++i]);
@@ -677,7 +842,7 @@ int main(int argc, char **argv)
         }
         else nome = argv[i];
     }
-    if (!nome) { fprintf(stderr, "uso: %s [--io-ff] [--ec-ff] [--limite S] [-v] [--prt 945|hm55] [--pirq a,b,...] volcado.txt\n", argv[0]); return 2; }
+    if (!nome) { fprintf(stderr, "uso: %s [--io-ff] [--ec-ff] [--limite S] [-v] [--prt 945|hm55] [--pirq a,b,...] [--portatil] volcado.txt\n", argv[0]); return 2; }
     setvbuf(stdout, NULL, _IOLBF, 0);
     mem = mmap(NULL, MEM_BYTES, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (mem == MAP_FAILED) { perror("mmap"); return 2; }
@@ -713,6 +878,13 @@ int main(int argc, char **argv)
     if (r != UACPI_STATUS_OK) return 1;
     uacpi_namespace_for_each_child(uacpi_namespace_root(), achar_bat, NULL, UACPI_OBJECT_DEVICE_BIT,
                                    UACPI_MAX_DEPTH_ANY, NULL);
+    if (portatil) {
+        prova_portatil();
+        alarm(0);
+        printf("fin: %u errores y %u avisos de uACPI; Notify %u\n", erros_log, avisos_log, notificacoes);
+        printf("SIN COLGARSE\n");
+        return 0;
+    }
     if (prt) {
         int k = prova_prt(prt);
         alarm(0);

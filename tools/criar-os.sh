@@ -53,6 +53,21 @@ else
     git worktree add -b "$NOME" "$DESTINO" "$BASE"
 fi
 
+# Fuentes de terceros y fuentes tipográficas que no están en git (las bajan
+# tools/*_fuentes.sh): se enlazan a las del árbol principal. Solo DENTRO de la
+# copia: un «ln» en el árbol principal deja un enlace a sí mismo y borra las
+# fuentes (pasó el 2026-11-13). Los datos de juegos no se enlazan, salvo
+# Freedoom (libre).
+if [ "$(cd "$DESTINO" && pwd)" != "$RAIZ" ]; then
+    for rel in NEW_FONTS userland/terceros/*/fuentes userland/terceros/chocolatedoom/datos; do
+        [ -d "$RAIZ/$rel" ] && [ ! -L "$RAIZ/$rel" ] || continue
+        [ -e "$DESTINO/$rel" ] && continue
+        mkdir -p "$(dirname "$DESTINO/$rel")"
+        ln -s "$RAIZ/$rel" "$DESTINO/$rel"
+        echo "criar-os: enlazado $rel"
+    done
+fi
+
 echo
 echo "Copia lista: $DESTINO"
 echo "  rama: $NOME (base: $BASE)"

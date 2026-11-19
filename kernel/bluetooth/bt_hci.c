@@ -28,9 +28,22 @@ static struct { uint16_t manejador; int n; } sinack[BT_MAX_LIGACOES + 4];   /* p
 static int acl_libres, acl_num;
 static uint16_t acl_mtu;
 
-enum { P_RESET, P_VERSAO, P_ADDR, P_BUFFER, P_EVMASK, P_INQMODE, P_SSP, P_NOME, P_CLASE, P_SCAN, P_FIM };
+enum { P_RESET, P_VERSAO, P_FEATURES, P_ADDR, P_BUFFER, P_EVMASK, P_INQMODE, P_SSP, P_NOME, P_CLASE, P_SCAN, P_FIM };
+static const uint16_t paso_op[] = { OP_RESET, OP_RD_VERSAO, OP_RD_FEATURES, OP_RD_ADDR, OP_RD_BUFFER, OP_SET_EVMASK, OP_WR_INQMODE,
+                                    OP_WR_SSP, OP_WR_NOME, OP_WR_CLASE, OP_WR_SCAN };
 static int passo;
+static uint32_t paso_desde;       /* ms: cuándo se pidió el paso actual del inicio (vigilancia) */
 static bool listo;
+/* Características LMP (Read_Local_Supported_Features, Core vol. 2 parte C §3.3). Sin ellas (orden
+ * rechazada) se supone todo y se prueba: lo que el controlador rechace se salta. */
+static uint8_t feat[8];
+static bool tem_feat;
+static uint8_t inq_modo;          /* 2 = con EIR, 1 = con RSSI, 0 = clásico */
+static int erros_logados;
+
+#define FEAT_RSSI_INQ(f) ((f)[3] & 0x40)   /* byte 3 bit 6: RSSI with inquiry results */
+#define FEAT_EIR(f)      ((f)[6] & 0x01)   /* byte 6 bit 0: Extended Inquiry Response */
+#define FEAT_SSP(f)      ((f)[6] & 0x08)   /* byte 6 bit 3: Secure Simple Pairing */
 
 const bt_plat_t *bt_plat(void) { return plat; }
 uint32_t bt_agora(void) { return plat && plat->ms ? plat->ms() : 0; }
@@ -126,19 +139,57 @@ int bt_hci_cmd(uint16_t op, const void *par, int n)
     return 0;
 }
 
+/* Nombre corto de las órdenes de inicio, para el registro (qué orden contó como error). */
+static const char *nome_op(uint16_t op)
+{
+    switch (op) {
+    case OP_RESET: return "Reset";
+    case OP_RD_VERSAO: return "Read_Local_Version";
+    case OP_RD_FEATURES: return "Read_Local_Features";
+    case OP_RD_ADDR: return "Read_BD_ADDR";
+    case OP_RD_BUFFER: return "Read_Buffer_Size";
+    case OP_SET_EVMASK: return "Set_Event_Mask";
+    case OP_WR_INQMODE: return "Write_Inquiry_Mode";
+    case OP_WR_SSP: return "Write_Simple_Pairing_Mode";
+    case OP_WR_NOME: return "Write_Local_Name";
+    case OP_WR_CLASE: return "Write_Class_of_Device";
+    case OP_WR_SCAN: return "Write_Scan_Enable";
+    case OP_INQUIRY: return "Inquiry";
+    case OP_CRIAR_CONEX: return "Create_Connection";
+    default: return "orden";
+    }
+}
+
+/* Pasos que dependen de lo que el controlador anuncia: con las características leídas, se saltan los
+ * que no soporta (un clon CSR BT 2.0, HCI/LMP 3, no tiene EIR ni SSP: Write_Simple_Pairing_Mode le
+ * es desconocida y contesta con Command Status 0x01, no con Command Complete). */
+static bool paso_soportado(int p)
+{
+    if (!tem_feat) return true;
+    if (p == P_INQMODE) return inq_modo != 0;
+    if (p == P_SSP) return FEAT_SSP(feat) != 0;
+    return true;
+}
+
 static void init_paso(void)
 {
     uint8_t b[248];
+    while (passo < P_FIM && !paso_soportado(passo)) {
+        bt_log("[BT] inicio: %s se salta (el controlador no la anuncia)", nome_op(paso_op[passo]));
+        passo++;
+    }
+    paso_desde = bt_agora();
     switch (passo) {
     case P_RESET: bt_hci_cmd(OP_RESET, NULL, 0); break;
     case P_VERSAO: bt_hci_cmd(OP_RD_VERSAO, NULL, 0); break;
+    case P_FEATURES: bt_hci_cmd(OP_RD_FEATURES, NULL, 0); break;
     case P_ADDR: bt_hci_cmd(OP_RD_ADDR, NULL, 0); break;
     case P_BUFFER: bt_hci_cmd(OP_RD_BUFFER, NULL, 0); break;
     case P_EVMASK:
         for (int i = 0; i < 8; i++) b[i] = (uint8_t)(EVENTOS_MASCARA >> (8 * i));
         bt_hci_cmd(OP_SET_EVMASK, b, 8);
         break;
-    case P_INQMODE: b[0] = 2; bt_hci_cmd(OP_WR_INQMODE, b, 1); break;   /* resultados con RSSI y nombre (EIR) */
+    case P_INQMODE: b[0] = inq_modo; bt_hci_cmd(OP_WR_INQMODE, b, 1); break;   /* 2: RSSI y nombre (EIR); 1: RSSI */
     case P_SSP: b[0] = 1; bt_hci_cmd(OP_WR_SSP, b, 1); break;
     case P_NOME:
         memset(b, 0, sizeof b);
@@ -171,6 +222,10 @@ void bt_hci_iniciar(const bt_plat_t *p)
     acl_libres = acl_num = 0;
     acl_mtu = 0;
     listo = false;
+    memset(feat, 0, sizeof feat);
+    tem_feat = false;
+    inq_modo = 2;
+    erros_logados = 0;
     passo = P_RESET;
     info.estado = BT_INICIANDO;
     bt_l2cap_reiniciar();
@@ -190,14 +245,27 @@ void bt_hci_energia(bool e)
 }
 
 /* Terminó la orden "op" con el estado "st". Si es parte del inicio, sigue con el siguiente paso. */
+static bool paso_critico(int p) { return p == P_RESET || p == P_VERSAO || p == P_ADDR || p == P_BUFFER; }
+
+/* Un error de orden fuera del inicio: se cuenta y se anota (las primeras, para no llenar el registro). */
+static void erro_orden(uint16_t op, uint8_t st)
+{
+    info.erros_hci++;
+    if (erros_logados < 16) {
+        erros_logados++;
+        bt_log("[BT] %s (%04x) rechazada (estado %02x)", nome_op(op), op, st);
+    }
+}
+
 static void orden_acabada(uint16_t op, uint8_t st, const uint8_t *r, int n)
 {
+    bool en_inicio = info.estado == BT_INICIANDO && passo < P_FIM && op == paso_op[passo];
+    if (!en_inicio) {
+        if (st) erro_orden(op, st);
+        return;
+    }
     if (st) info.erros_hci++;
-    if (info.estado != BT_INICIANDO) return;
-    static const uint16_t esperada[] = { OP_RESET, OP_RD_VERSAO, OP_RD_ADDR, OP_RD_BUFFER, OP_SET_EVMASK, OP_WR_INQMODE,
-                                         OP_WR_SSP, OP_WR_NOME, OP_WR_CLASE, OP_WR_SCAN };
-    if (passo > P_SCAN || op != esperada[passo]) return;
-    bool critico = passo <= P_BUFFER;
+    bool critico = paso_critico(passo);
     if (st && critico) {
         info.estado = BT_FALHOU;
         bt_log("[BT] el controlador rechazo la orden %04x de inicio (estado %02x)", op, st);
@@ -211,6 +279,13 @@ static void orden_acabada(uint16_t op, uint8_t st, const uint8_t *r, int n)
             info.lmp_ver = r[3];
             info.fabricante = bt_le16(r + 4);
             info.lmp_sub = bt_le16(r + 6);
+        } else if (passo == P_FEATURES && n >= 8) {
+            memcpy(feat, r, 8);
+            tem_feat = true;
+            inq_modo = FEAT_EIR(feat) ? 2 : FEAT_RSSI_INQ(feat) ? 1 : 0;
+            bt_log("[BT] caracteristicas LMP %02x%02x%02x%02x%02x%02x%02x%02x: RSSI %s, EIR %s, SSP %s", feat[0], feat[1], feat[2],
+                   feat[3], feat[4], feat[5], feat[6], feat[7], FEAT_RSSI_INQ(feat) ? "si" : "no", FEAT_EIR(feat) ? "si" : "no",
+                   FEAT_SSP(feat) ? "si" : "no");
         } else if (passo == P_ADDR && n >= 6) {
             memcpy(info.addr, r, 6);
         } else if (passo == P_BUFFER && n >= 7) {
@@ -227,7 +302,12 @@ static void orden_acabada(uint16_t op, uint8_t st, const uint8_t *r, int n)
             }
         }
     } else {
-        bt_log("[BT] orden de inicio %04x rechazada (estado %02x): se sigue", op, st);
+        bt_log("[BT] inicio: %s (%04x) rechazada (estado %02x): se sigue", nome_op(op), op, st);
+        if (passo == P_INQMODE && inq_modo == 2) {   /* sin EIR: se prueba con RSSI solo */
+            inq_modo = 1;
+            init_paso();
+            return;
+        }
     }
     passo++;
     init_paso();
@@ -374,8 +454,14 @@ static void ev_estado(const uint8_t *p, int n)
     if (n < 4) return;
     cred_cmd = p[1];
     uint16_t op = bt_le16(p + 2);
+    /* Una orden de inicio rechazada con Command Status (los clones CSR lo hacen con las órdenes que no
+     * conocen) acaba ahí: sin esto el inicio se quedaba en «iniciando» para siempre. */
+    if (p[0] && info.estado == BT_INICIANDO && passo < P_FIM && op == paso_op[passo]) {
+        orden_acabada(op, p[0], NULL, 0);
+        return;
+    }
     if (p[0]) {
-        info.erros_hci++;
+        erro_orden(op, p[0]);
         if (op == OP_CRIAR_CONEX) bt_g_conexao(p[0], 0xFFFF, NULL, false);   /* sin dirección: el gestor la tiene */
         else if (op == OP_INQUIRY) bt_g_inq_fim();
         else if (op == OP_AUTENTICAR || op == OP_CIFRAR) bt_g_autenticacao(0xFFFF, p[0]);
@@ -504,6 +590,20 @@ void bt_hci_tic(void)
         }
         bt_log("[BT] la orden %04x no obtuvo respuesta", cmd_op);
         cred_cmd = 1;
+    }
+    /* Vigilancia del inicio: el crédito volvió (Command Status) pero el paso nunca acabó. */
+    if (info.estado == BT_INICIANDO && passo < P_FIM && cred_cmd > 0 && !c_cnt && (ahora - paso_desde) > TIEMPO_CMD_MS) {
+        uint16_t op = paso_op[passo];
+        info.erros_hci++;
+        if (paso_critico(passo)) {
+            info.estado = BT_FALHOU;
+            bt_log("[BT] inicio: %s (%04x) no acabo nunca", nome_op(op), op);
+            bt_g_set_estado_adaptador(BT_FALHOU);
+            return;
+        }
+        bt_log("[BT] inicio: %s (%04x) no acabo: se sigue", nome_op(op), op);
+        passo++;
+        init_paso();
     }
     enviar_cmds();
     drenar_acl();

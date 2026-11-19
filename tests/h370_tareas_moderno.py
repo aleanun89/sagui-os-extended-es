@@ -67,6 +67,10 @@ def main():
         # Un programa que llena 700 MB en una máquina de 512: la swap comprimida tiene que trabajar.
         m.comando("/testes/troca llenar 700 12 &")
         time.sleep(5)
+        # El Terminal ampliado (772x516, D385) tapa entero al Administrador: se baja 500 px arrastrando su barra de
+        # título, para que los clics de la prueba caigan en el Administrador (como en h60/h83).
+        m.arrastar(t["fx"] + 30, t["fy"] + 8, t["fx"] + 30, t["fy"] + 8 + 500)
+        time.sleep(1)
 
         # --- Procesos: búsqueda, menús, doble clic
         m.clique(ox + 300, oy + 470 - 34)   # un sitio inofensivo para dar el foco

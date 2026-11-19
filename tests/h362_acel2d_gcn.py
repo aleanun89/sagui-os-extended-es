@@ -127,7 +127,7 @@ def fuentes():
     verificar("usar_encher = bem" in codigo, "CONSTANT_FILL solo si su prueba al encender da lo esperado")
     comum = ler("kernel/gui/acel2d.c")
     conf = re.search(r"confirmadas\[\]\s*=\s*\{(.*?)\};", comum, re.S).group(1)
-    verificar("0x1002" not in sem_comentarios(conf), "ninguna Radeon está en «confirmadas»: autoprueba completa")
+    verificar(re.sub(r"\{\s*0x1002,\s*0x(?:7145|9553)\s*\}", "", sem_comentarios(conf)).count("0x1002") == 0, "ninguna Radeon (salvo la X1400 del Amilo, D386, y la HD 4530 del dv7, D402) está en «confirmadas»: autoprueba completa")
     verificar("## D360" in ler("docs/decisoes.md"), "la decisión D360 está en docs/decisoes.md")
     verificar("gcn_dma.c" in ler("docs/terceros.md"), "docs/terceros.md registra las referencias")
     verificar("D360" in ler("docs/gpus.md"), "docs/gpus.md lleva la fila de GCN")

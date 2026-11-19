@@ -188,6 +188,7 @@ static bool vm_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, c
     if (id != SVGA_ID_2) { snformatar(m, (size_t)nm, "no habla SVGA II (id %x)", id); return false; }
     caps = ler(REG_CAPABILITIES);
     uint32_t fb = ler(REG_FB_START), vram = ler(REG_VRAM_SIZE);
+    acel2d_vram_real(vram, "SVGA VRAM_SIZE");   /* D387 */
     uint32_t mem = ler(REG_MEM_START), mem_tam = ler(REG_MEM_SIZE);
     uint32_t maxl = ler(REG_MAX_WIDTH), maxa = ler(REG_MAX_HEIGHT);
     klog("[ACEL2D] vmware: puertos %x, capacidades %x (copia %s, relleno %s), framebuffer %x, %u KB, FIFO %x (%u KB), maximo %ux%u\n",

@@ -18,7 +18,7 @@
  * (o SAGUI_SDL2_GPU=1 para cualquiera que no pida SOFTWARE; SAGUI_SDL2_GPU=0 lo apaga). */
 
 #define SDLG_MAXV 1020          /* vertices por lote (multiplo de 3, el kernel admite 3072) */
-#define SDLG_VAGAS GPU3D_TEXTURAS
+#define SDLG_VAGAS 8   /* D404: el kernel da 32 (GPU3D_TEXTURAS); la SDL 2 sigue con los 8 de antes */
 
 typedef struct { float x, y, z, rhw; uint32_t cor, espec; float u, v; } sdlg_vert_t;   /* = gpu3d_vert_t */
 typedef struct { float x, y, u, v; } sdlg_pt_t;

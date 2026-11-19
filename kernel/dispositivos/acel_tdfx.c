@@ -260,4 +260,5 @@ const acel_driver_t acel_tdfx = {
     true,    /* el motor sigue trabajando tras copiar(): acel_sincronizar espera */
     tf_detalle,
     true,    /* D305: 16, 24 y 32 bits */
+    NULL,    /* D387: sin volcado por la GPU */
 };

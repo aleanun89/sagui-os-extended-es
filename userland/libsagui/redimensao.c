@@ -486,6 +486,41 @@ fim:
     return r;
 }
 
+/* D388: cuánto escribirá fs_redimensionar_ext2 al crecer hasta "setores": grupos nuevos y MB de sus tablas de
+ * inodos y mapas (lo que casi todo el tiempo se va en poner a cero). Solo lee el superbloque. Es lo que se escribe
+ * (desde D388 todo, aunque ya sea cero). 0 si el volumen no es un ext2 que se pueda leer. */
+int fs_ext2_estimar(const char *vol, uint32_t setores, fs_ext2_est_t *est)
+{
+    uint8_t sb[1024];
+    memset(est, 0, sizeof *est);
+    if (blocos_ler(vol, 2, 2, sb) < 0 || le16(sb + 56) != 0xEF53 || le32(sb + 24) > 2) return ERRO_FORMATO;
+    uint32_t bs = 1024u << le32(sb + 24), bpg = le32(sb + 32), ipg = le32(sb + 40), fdb = le32(sb + 20), blocos = le32(sb + 4);
+    uint32_t isz = le32(sb + 76) ? le16(sb + 88) : 128;
+    if (!bpg || !ipg || !isz || blocos <= fdb) return ERRO_FORMATO;
+    uint32_t novos = setores / (bs / 512);
+    if (novos <= blocos) return 0;
+    uint32_t g0 = (blocos - fdb + bpg - 1) / bpg, g1 = (novos - fdb + bpg - 1) / bpg;
+    uint32_t itb = (uint32_t)(((uint64_t)ipg * isz + bs - 1) / bs);
+    est->grupos = g1 > g0 ? g1 - g0 : 0;
+    est->mb = (uint32_t)((uint64_t)est->grupos * (itb + 2) * bs / 1048576);
+    return 0;
+}
+
+/* D388: hasta dónde puede crecer el ext2 sin rehacerlo (sectores, tope de 32 bits = 2 TB, múltiplo de 1 MB): lo que da
+ * la tabla de grupos (con resize_inode, los GDT reservados; sin él, los que hay). 0 si no se reconoce. */
+uint32_t fs_ext2_maximo(const char *vol)
+{
+    uint8_t sb[1024];
+    if (blocos_ler(vol, 2, 2, sb) < 0 || le16(sb + 56) != 0xEF53 || le32(sb + 24) > 2) return 0;
+    uint32_t rev = le32(sb + 76), bs = 1024u << le32(sb + 24), bpg = le32(sb + 32), fdb = le32(sb + 20), blocos = le32(sb + 4);
+    if (!bpg || blocos <= fdb) return 0;
+    uint32_t grupos = (blocos - fdb + bpg - 1) / bpg, gdt = (grupos * 32 + bs - 1) / bs;
+    uint32_t cap = gdt + ((rev && (le32(sb + 92) & EXT_COMPAT_RESIZE)) ? le16(sb + 206) : 0);
+    uint64_t sec = ((uint64_t)fdb + (uint64_t)cap * (bs / 32) * bpg) * (bs / 512);
+    if (sec > 0xFFFFFFFFull) sec = 0xFFFFFFFFull;
+    return (uint32_t)(sec / 2048 * 2048);
+}
+
 int fs_redimensionar_ext2(const char *vol, uint32_t setores, fs_progresso_t prog, void *ctx, char *m, int max)
 {
     ext_t e;
@@ -566,11 +601,12 @@ int fs_redimensionar_ext2(const char *vol, uint32_t setores, fs_progresso_t prog
 
     /* --- Crecer: los grupos nuevos, que nadie mira todavía --- */
     uint32_t cab1 = manter ? gdt1 + rgdt1 : gdt1;   /* tras el superbloque, en los grupos con copia */
-    fs_zerar_t z;   /* D338: la tabla de inodos de los grupos nuevos, sin reescribir lo que ya es cero */
+    fs_zerar_t z;   /* la tabla de inodos de los grupos nuevos, a cero siempre (D388: aunque parezca que ya lo está) */
     memset(&z, 0, sizeof z);
     if (crescer && G1 > G0) {
         zeros = aloca_zerado(e.bs * 2);   /* aquí, los dos mapas de un grupo nuevo (van seguidos) */
         if (!zeros) { r = ERRO_SEM_MEMORIA; goto fim; }
+        if (prog) prog(0, ctx);   /* D388: de aquí en adelante, el avance es lineal en los grupos (0..99 %) */
         for (uint32_t g = G0; g < G1; g++) {
             uint32_t ini = ext_ini(&e, g), tam = ext_tam(&e, g, novos);
             uint32_t bb = ini + (ext_tem_sb(&e, g) ? 1 + cab1 : 0), ib = bb + 1, it = bb + 2;
@@ -586,7 +622,7 @@ int fs_redimensionar_ext2(const char *vol, uint32_t setores, fs_progresso_t prog
             memset(d, 0, 32);
             po32(d, bb); po32(d + 4, ib); po32(d + 8, it);
             po16(d + 12, livres); po16(d + 14, e.ipg);
-            if (prog) prog((int)((g - G0 + 1) * 80 / (G1 - G0)), ctx);
+            if (prog) prog((int)((uint64_t)(g - G0 + 1) * 99 / (G1 - G0)), ctx);
         }
     }
 
@@ -637,8 +673,8 @@ int fs_redimensionar_ext2(const char *vol, uint32_t setores, fs_progresso_t prog
     msg_txt(m, max, "el ext2 de %s pasa de %u a %u MB (%u grupos)%s", vol, (uint32_t)((uint64_t)velhos * e.bs / 1048576),
             (uint32_t)((uint64_t)novos * e.bs / 1048576), G1, tirar ? "; ya no le quedan bloques reservados para crecer" : "");
     registrar("redimensao: %s ext2 de %u a %u bloques, grupos %u -> %u, tabla %u -> %u, reservados %u -> %u; tablas de inodos nuevas: "
-              "%u MB escritos, %u de %u trozos leídos ya eran cero%s", vol, velhos, novos, G0, G1, e.gdt, gdt1, e.rgdt, rgdt1,
-              z.escritos / 2048, z.lidos - z.sujos, z.lidos, z.so_escrever ? " (escritura sin leer)" : "");
+              "%u MB escritos (siempre, sin fiarse de lo que ya hubiera: D388)", vol, velhos, novos, G0, G1, e.gdt, gdt1, e.rgdt, rgdt1,
+              z.escritos / 2048);
     r = 0;
     goto fim;
 erro_es:

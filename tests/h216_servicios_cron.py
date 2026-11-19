@@ -332,7 +332,7 @@ def main():
     img = imagem = construir_imagen()
     pid_eco = primeira(img)
     dados = [p for p in particoes_img(imagem) if p[1] != 0xDA]
-    p = extrair_particao(imagem, dados[0][2], DADOS_MB)
+    p = extrair_particao(imagem, dados[-1][2], DADOS_MB)  # D388: /home es la última lógica
     eco = debugfs(p, "cat /eco.txt").decode("latin-1").split("\n")
     verificar(f"parado {pid_eco}" in eco, f"debugfs: eco dejó «parado {pid_eco}» al apagar")
     segunda(img)

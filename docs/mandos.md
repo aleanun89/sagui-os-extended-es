@@ -31,6 +31,7 @@ mandos                       # la lista: nombre, tipo, vía (USB xHCI, puerto 0x
 mandos --probar 0 20         # el estado del mando 0 en vivo durante 20 s
 mandos --estado 1            # una lectura del mando 1, en una línea
 mandos --detectar            # volver a buscar el joystick del puerto de juegos
+mandos --crudo 0 20          # diagnóstico: descriptor de informe e informes crudos (ver más abajo)
 ```
 
 Los ejes van de -32768 a 32767, con X a la derecha e Y hacia abajo positivos (como en SDL); los
@@ -93,18 +94,40 @@ if (mando_ler(0, &e) == 0 && e.id == l[0].id) {
 
 Por debajo es la llamada `info_sistema(INFO_MANDOS, &info_mandos_t, sizeof)` (`kernel/inc/abi.h`,
 número 77) con las órdenes `MANDOS_LISTA`, `MANDOS_ESTADO`, `MANDOS_DETECTAR`, `MANDOS_CALIBRAR` y
-`MANDOS_INYECTAR` (solo en las imágenes de prueba). Se lee por sondeo, en cada cuadro: `gen` cambia al
+`MANDOS_INYECTAR` (solo en las imágenes de prueba); para diagnosticar, `MANDOS_DESCRIPTOR` y el último
+informe crudo que devuelve `MANDOS_ESTADO` (`mando_descriptor`, `mando_ler_informe`). Se lee por sondeo, en cada cuadro: `gen` cambia al
 conectar o desconectar un mando.
 
 ## Pruebas
 
 `tests/h307_mandos.py`: la prueba de unidad del analizador de descriptores HID con descriptores reales
-(Dual Action/F310, joystick genérico DragonRise, uno con Report ID) y de las cuentas del puerto de
+(Dual Action/F310, joystick genérico DragonRise, uno con Report ID, un joystick de 3 ejes y 11 botones como el
+Attack 3, un máximo lógico de un byte dado antes que el mínimo y ejes de 10 bits) y de las cuentas del puerto de
 juegos; y en el QEMU, que no emula ningún joystick USB, dos **mandos de prueba** del kernel
 (`mkimagem.py --mandos-prueba`: un Dual Action cuyo descriptor pasa por el analizador y un Xbox 360)
 a los que se mandan informes crudos con `mandos --inyectar`: la lista, el estado, la calibración, la
 página de Configuración, GNUBoy (SDL 2) y DOSBox (SDL 1.2). El puerto de juegos se prueba en 86Box
 (`tests/emu_86box_mandos.py`, fuera de la batería).
+
+## Diagnóstico de un mando USB que se lee mal
+
+Si un eje no está cerca de 0 con la palanca suelta, o no llega a los extremos:
+
+```
+mandos --crudo 0 20        # descriptor de informe y, durante 20 s, cada informe crudo con sus ejes
+dmesg | grep HID           # el descriptor, sus bytes leídos/anunciados y los ejes tal como los entiende el kernel
+```
+
+Con la palanca suelta, luego en las cuatro esquinas, el acelerador de punta a punta y pulsando cada botón,
+se ve qué bytes cambian: si el informe crudo es correcto y el eje no, el fallo está en el analizador
+(`kernel/lib/hid_informe.c`); si el informe ya viene raro, en el transporte (UHCI/OHCI/EHCI/xHCI). Por
+DEBUG-APP: `tools/depurar-remoto.py env ejecutar "mandos --crudo 0 20"`.
+
+Probados en máquinas reales: **Logitech Attack 3** (046d:c214) por UHCI (Fujitsu Siemens AMILO Pi 1536,
+v8.5.4.10r2, 2026-11-18): ejes centrados en reposo (informe `7f 80 7f`, ≈ 0) y recorrido completo (−32768 a +32767)
+en X, Y y acelerador tras el arreglo del analizador; los botones llegan cada uno en su bit (1, 3, 4, 8, 9, 10 y 11).
+Los botones 2, 5, 6 y 7 de ese ejemplar no ponen ningún bit en el informe crudo aunque se pulsen: fallo físico
+probable del mando, no del driver (issue #45).
 
 ## Qué probar en hardware real
 

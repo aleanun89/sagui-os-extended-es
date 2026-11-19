@@ -81,3 +81,39 @@ CAB_KCONF           equ 192        ; 64 bytes D353 (192-255): lo que guarda «kc
 CAB_MANDOS_PRUEBA   equ 156        ; u8 mandos de prueba (D307; lo pone mkimagem.py --mandos-prueba): no 144, que es CAB_ID_INSTALACAO
                                    ; cada disco instalado; mkimagem.py lo deja a cero. El kernel compara los 256
                                    ; primeros bytes de la cabecera para saber de qué disco arrancó
+
+; D392: el kernel de prueba que se arranca UNA vez («arranque probar»). Va en la segunda mitad de la
+; cabecera (bytes 256-511), que el kernel no compara para reconocer su disco (solo los 256 primeros):
+; prepararlo o gastarlo no cambia qué disco es el de arranque. mkimagem.py la deja a cero.
+CAB_PR              equ 256        ; u32 'SGPR': hay una ranura descrita
+CAB_PR_ASSINATURA_VAL equ 0x52504753
+CAB_PR_ESTADO       equ 260        ; u8, bits PR_* (fuera de la suma: la etapa 2 lo cambia)
+CAB_PR_NK           equ 261        ; u8 tramos del kernel (1-4)
+CAB_PR_NR           equ 262        ; u8 tramos del ramdisk (0-4; 0 = el ramdisk normal, cargado tras este kernel)
+CAB_PR_ONDE         equ 263        ; u8 0 = en la partición de SaguiOS, 1 = fichero de la ESP (solo informa)
+CAB_PR_K_BYTES      equ 264        ; u32
+CAB_PR_K_SOMA       equ 268        ; u32 la misma suma simple que CAB_K_SOMA
+CAB_PR_K_ENTRADA    equ 272        ; u32
+CAB_PR_R_ENDERECO   equ 276        ; u32 dónde va el ramdisk con este kernel (tras su BSS, alineado a 4 KB)
+CAB_PR_R_BYTES      equ 280        ; u32 (con NR = 0, no se usa)
+CAB_PR_R_SOMA       equ 284        ; u32
+CAB_PR_TRAMOS       equ 288        ; 8 x (u32 LBA, u32 sectores): 4 del kernel y 4 del ramdisk (hasta 351)
+CAB_PR_SOMA         equ 352        ; u32 suma de los bytes 261-351 (la ranura no es basura)
+CAB_PR_HORA         equ 356        ; u32 cuándo se preparó (segundos desde 1970; solo informa)
+CAB_PR_NOTA         equ 360        ; char[32] el nombre del fichero (solo informa)
+PR_PENDENTE         equ 1          ; arrancar la prueba en el siguiente arranque, UNA vez (la etapa 2 lo borra antes)
+PR_ARRANCADA        equ 2          ; la etapa 2 la arrancó (lo pone al borrar PR_PENDENTE)
+PR_FIXA             equ 4          ; se arranca siempre: en la ranura del último bueno (392); en la de prueba
+                                   ; solo la dejaba el primer «arranque confirmar» (ESP), y se sigue respetando
+; D392 (último bueno): el kernel confirmado va en una segunda ranura, bytes 392-511, con la MISMA
+; disposición relativa que la de prueba hasta la nota (firma, estado, tramos, sumas; la nota, de 16
+; bytes). La etapa 2 la copia en memoria encima de la de prueba (bytes 256-375) y la carga igual.
+; Orden: prueba PR_PENDENTE (una vez) > prueba PR_FIXA (formato de antes) > último bueno PR_FIXA >
+; el kernel de la imagen (CAB_K_*, que «arranque» ya no cambia nunca).
+CAB_PB              equ 392        ; u32 'SGPR': hay un último bueno
+CAB_PB_ESTADO       equ 396        ; u8 PR_FIXA
+CAB_PB_COPIA        equ 120        ; bytes 392-511 -> 256-375 (la nota, cortada a 16)
+CAB_PB_NOTA         equ 496        ; char[16]
+OPC_KERNEL_PRUEBA   equ 0x100000   ; en boot_info (u32): este arranque es el kernel de una ranura (prueba o último bueno)
+OPC_KERNEL_FIXO     equ 0x200000   ; y además fijado (PR_FIXA: el último bueno)
+E2_CAPACIDADES      equ 3          ; marca SGE2 de la etapa 2: bit 0 ranura de prueba, bit 1 último bueno

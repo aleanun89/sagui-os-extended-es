@@ -49,6 +49,12 @@ typedef struct {
     bool     sin_ssp;
     int      inq_formato;        /* 0 = RSSI, 1 = clásico */
     bool     retener_acl;        /* no confirma los ACL hasta sim_soltar_acl() */
+    bool     clon_csr;           /* como el 0a12:0001 del Amilo: BT 2.0 (HCI/LMP 3), sin EIR ni SSP; las
+                                    órdenes desconocidas acaban con Command Status 0x01 y el modo de
+                                    búsqueda 2 se rechaza con 0x11 */
+    bool     sin_features;       /* Read_Local_Supported_Features desconocida */
+    int      inq_modo;           /* último Write_Inquiry_Mode aceptado */
+    int      cs_mudo_op;         /* opcode que solo recibe Command Status 0 y nunca acaba */
 } sim_cfg_t;
 
 extern sim_cfg_t sim_cfg;

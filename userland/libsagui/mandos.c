@@ -34,6 +34,39 @@ int mando_ler_crudo(int indice, estado_mando_t *e, unsigned short crudo[4])
 
 int mando_ler(int indice, estado_mando_t *e) { return mando_ler_crudo(indice, e, NULL); }
 
+int mando_ler_informe(int indice, estado_mando_t *e, unsigned char informe[64], unsigned *n)
+{
+    static info_mandos_t i;
+    memset(&i, 0, sizeof i);
+    i.orden = MANDOS_ESTADO;
+    i.indice = (unsigned)indice;
+    int r = llamar(&i);
+    if (r < 0) return r;
+    if (e) *e = i.estado;
+    unsigned k = i.informe_n > 64 ? 64 : i.informe_n;
+    memcpy(informe, i.informe, k);
+    *n = k;
+    return 0;
+}
+
+int mando_descriptor(int indice, unsigned char *d, unsigned max)
+{
+    static info_mandos_t i;
+    unsigned total = 0, k = 0;
+    do {
+        memset(&i, 0, sizeof i);
+        i.orden = MANDOS_DESCRIPTOR;
+        i.indice = (unsigned)indice;
+        i.escribir = k;
+        int r = llamar(&i);
+        if (r < 0) return r;
+        total = i.n;
+        if (!i.informe_n) break;
+        for (unsigned j = 0; j < i.informe_n && k < max; j++) d[k++] = i.informe[j];
+    } while (k < total && k < max);
+    return (int)total;
+}
+
 int mandos_detectar(void)
 {
     static info_mandos_t i;

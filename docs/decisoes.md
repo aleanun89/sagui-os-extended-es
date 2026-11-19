@@ -16330,6 +16330,21 @@ llevaba teclado y ratón (D214, D267), las SDL decían «ningún joystick» y DO
 (USB-IF), IBM PC Technical Reference (Game Control Adapter), joy(4) y uhid(4) de FreeBSD como consulta; nada de
 código de Linux. Detalles en `docs/mandos.md`.
 
+**Ampliación (v8.5.4.10r2, 2026-11-18): diagnóstico en hardware real y el signo del máximo lógico.** Primer mando USB
+probado en una máquina real: un **Logitech Attack 3** (046d:c214, baja velocidad por UHCI, ICH7). Se detecta (3 ejes,
+11 botones, informes de 5 bytes, 0 errores), pero en reposo `mandos --estado 0` da `-21974 -22231 -1414`: con un
+rango 0..255 son exactamente los valores crudos 42, 41 y 122, cuando X e Y centrados deberían estar cerca de 128. Sin
+el descriptor real no se puede decir si el fallo es del analizador (desplazamientos, tamaños) o del transporte, así que:
+- **`mandos --crudo [N] [SEG]`** enseña el descriptor de informe y cada informe crudo nuevo con los ejes que salen de él
+  (`MANDOS_DESCRIPTOR` nuevo; `MANDOS_ESTADO` devuelve también el último informe sin decodificar, en `informe`); al
+  conectar un mando HID, el registro lleva el descriptor en hexadecimal, cuántos bytes se leyeron frente a los que
+  anuncia la interfaz y cada eje tal como lo entiende el analizador (`[HID] eje N: uso, bit, bits, rango`).
+- **El signo del Logical Maximum se decide en cada Input**, no al leer el item: un descriptor que da `25 FF` (255 en un
+  byte) antes que el Logical Minimum, con el mínimo negativo de un campo anterior aún vigente, dejaba el rango en
+  0..-1 y el eje muerto. Pruebas de unidad nuevas: joystick de 3 ejes de 8 bits y 11 botones (la forma pública del
+  Attack 3), máximo de un byte en orden inverso y ejes de 10 bits (0..1023). Este arreglo no explica el Attack 3 (con
+  el rango 0..-1 el eje saldría 0): la causa queda pendiente del volcado real.
+
 ## D308. 2D por la GPU en las ATI Mach64/Rage y las S3 Trio64/ViRGE (v8.3.3, mejora 126)
 
 **Encargo (mantenedor, 2026-11-15).** «Drivers de la época»: aceleración 2D de la capa común `acel2d` (D195, D223,
@@ -20461,6 +20476,49 @@ Liquid AI (LFM Open License 1.0) no se distribuyen con SaguiOS ni van al reposit
 
 **Por qué AVX2 y no AVX:** el AVX de 2011 solo ensancha la coma flotante; los productos punto de Q4_K/Q8_0 son de enteros y necesitan AVX2 (Haswell, Excavator, Zen y posteriores). Ganancia esperada: 1,7-2× al leer el prompt y 1,3-1,5× al generar (la generación la limita el ancho de banda de la RAM). En 32 bits solo hay 8 registros YMM. Equipos del foco con AVX2: i3-i7 de 4.ª a 7.ª generación, Ryzen B450 y el mini PC i3-1220P; Bulldozer/Piledriver solo tienen AVX1 y se quedan en SSSE3.
 
+**Hecho en la v8.5.5 (2026-11-19, rama `v8.5.5-avx2`; revisión de Opus pendiente):**
+- **Kernel (`kernel/arch/fpu.c`):** `avx_possivel()` lo mira todo antes de tocar nada: SSE2, CPUID.1 (AVX bit 28, XSAVE bit 26),
+  hoja 0xD (XCR0 admite x87|SSE|AVX; subhoja 2: AVX de 256 bytes y que quepa en el área), alineación, la opción y el modo
+  rescate. Si vale, `avx_ligar_cpu()` pone `CR4.OSXSAVE`, `XCR0 = 7` (nada de AVX-512 ni MPX) y comprueba con CPUID 0xD
+  (EBX con ese XCR0) que el área cabe; si no, lo deshace. El registro dice `[CPU] AVX: encendido ...` o el motivo.
+- **Área:** `FPU_ESTADO` pasa de 512 a **832 bytes** (formato estándar: 512 + 64 de cabecera + 256 de las mitades altas),
+  alineada a 64 (`processo_t` entero va a 64; `_Static_assert`). Coste: unos 320 bytes más por entrada de la tabla de
+  procesos (~25 KB de BSS). Las áreas se ponen a cero al crear el proceso y solo las escribe XSAVE, así que la cabecera
+  (XCOMP_BV y lo reservado) siempre es válida para XRSTOR.
+- **Guardar/restaurar:** solo cambian `salvar()`/`carregar()`: `XSAVE`/`XRSTOR` con máscara x87|SSE|AVX; el resto (cambio
+  perezoso con CR0.TS y #NM, `fpu_kernel_inicio/fim`, guardado al cambiar de proceso con SMP) es el de siempre. **XSAVE y no
+  XSAVEOPT**: la optimización de «modificado» de XSAVEOPT depende de que nadie más escriba el área desde el último XRSTOR de
+  esa dirección; con el cambio perezoso se guarda poco y no compensa el riesgo. El SSE del kernel (sse2.c...) es el clásico,
+  que no toca las mitades altas, y además corre después de guardar al dueño.
+- **SMP:** el trampolín ya **no copia `OSXSAVE`** del CR4 del principal; `fpu_iniciar_secundaria()` mira CPUID en esa CPU y
+  enciende CR4/XCR0 allí. Como un proceso con YMM puede pasar a cualquier CPU, un secundario que no pueda se queda parado y
+  no se cuenta (paso 10 del trampolín, como el 9 de NX).
+- **Hilos y señales:** cada hilo tiene su área (empieza en el estado limpio, mitades altas a cero). No hay `fork` ni señales con
+  manejador en el kernel, así que no hay área que copiar; **cuando lleguen las señales POSIX (v8.5.5.1) el marco de la señal
+  tendrá que guardar el área entera (832 bytes con XSAVE)**, no solo 512.
+- **Apagarlo:** `kconfig avx=si|no` (hueco **18**, `KC_AVX`; el 16 y el 17 son de la r2, D387/D391), `mkimagem.py --sem-avx`
+  (byte **166** de la cabecera, `CAB_CPU_OPC`, bit 0; el 165 es `CAB_ACEL_OPC` de la r2) y en Configuración > Kernel, grupo Procesador. El **modo rescate** (Ctrl al arrancar) tampoco lo enciende: si un
+  equipo real no arranca con AVX, se entra con Ctrl y se guarda `kconfig avx=no`.
+- **Userland:** `cpu_tem_avx/avx2/fma()` en la libsagui (CPUID.1 OSXSAVE+AVX, `XGETBV` con los bits 1 y 2, CPUID.7 AVX2):
+  así sabe un programa que el kernel guarda los YMM, sin llamada nueva. `lscpu` quita avx/avx2/fma si no (como Linux) e
+  `infopc` dice «AVX activo» o por qué no.
+- **Motor `llm`:** `llm_quant_avx2.c` (Q4_K, Q6_K, Q8_0, Q4_0) con `vpmaddubsw`/`vpmaddwd` de 256 bits, elegido el primero si
+  `cpu_tem_avx2()`; `--ruta avx2`. **Logits idénticos bit a bit** a SSSE3 y SSE2 (los enteros de cada bloque son los mismos y
+  la cuenta de float de cada bloque va por la x87 en el mismo orden). Por eso **sin FMA**: cambiaría los redondeos y los
+  tokens dejarían de coincidir con los del PC. Las escalas de Q4_K se pasan a los registros sin la pila (en 32 bits, dos
+  escrituras de 4 bytes leídas como una de 8 hacían fallar el reenvío de la escritura y la ruta AVX2 quedaba por debajo
+  de la SSSE3).
+- **Prueba `tests/h399_avx2.py`:** TCG `-cpu max` (AVX encendido, `/testes/ymm` con 3 procesos y 2 hilos con ymm0-7 cargados
+  que se cruzan sin pisarse, estado limpio, lscpu/infopc, tokens de llm por AVX2/SSSE3/SSE2 iguales a los del PC), imagen
+  `--sem-avx` (apagado y sin VEX), `qemu32` (sin AVX), `--smp` con 2 CPU; con KVM, además, la medida.
+- **Medidas** (LFM3 1.7B Q4_K_M real, 41 tokens leídos + 8 generados, un hilo, contexto 512; Ryzen 9 9900X):
+  - en SaguiOS con QEMU/KVM (`-cpu max`, en WSL2), la mejor de tres tras una vuelta de calentamiento: **SSE2 5,9/5,8 tok/s,
+    SSSE3 9,6/9,0, AVX2 16,2/16,2** (lectura/generación): **AVX2 ×1,69 al leer y ×1,80 al generar** frente a SSSE3;
+  - en el PC (`llm-pc`, 64 bits): SSSE3 10,9/10,4, AVX2 18,8/18,8 (×1,7).
+  - Con KVM en WSL2 la primera pasada por memoria nueva del invitado es mucho más lenta (virtualización anidada): sin
+    calentar, las cifras bailan hasta ×2. En la generación no se nota el límite de la RAM con este modelo (1 GB de pesos).
+  - Pendiente: probarlo en hardware real (mini PC i3-1220P, Ryzen B450, L850 sin AVX2 → debe quedarse en SSSE3).
+
 ## D378. Enlace dinámico de bibliotecas: diseño y prototipo de `dlopen` en espacio de usuario (v8.5.4.1, mejora 138; decidido el 2026-11-17)
 
 **Petición del mantenedor:** enlace dinámico «planteado bien», y que el `cc` interno, Pascal, TinyGo... puedan generar
@@ -20700,6 +20758,19 @@ con la SDL2 del sistema (la de Freeciv y los demás ports) y se mejora.
   en `docs/aoen.md`. Las tres opciones cambian `Setup`: formato de partida 5, y las de formato 4 se rechazan como incompatibles
   (lo más sencillo y seguro). Pruebas: `h389_aoen.py reglas` y mutaciones nuevas en `aoen_lectores`.
 
+- **v8.5.4.10r2: arreglos que vio el mantenedor jugando (2026-11-18).** (1) **Ningún movimiento cambia de terreno**: todo
+  paso de una unidad pasa por `mover_a`, que no deja a un barco entrar en tierra ni a una unidad de tierra en el agua (tampoco
+  cruzando una esquina en diagonal) y la detiene en la orilla soltando la ruta. Se eligió un guardián en el paso, y no solo
+  arreglar la búsqueda de caminos, porque los tramos sin ruta, los empujones y los pasos a un lado también movían unidades; una
+  unidad ya en terreno ajeno (partida antigua) puede salir. La IA deja de contar barcos y pasajeros como amenaza en su base.
+  (2) Los botones del comercio leían su icono fuera de la tabla; sin «Comercio mejorado», «Modo intercambio» sale gris y dice
+  cómo activarlo. (3) **Edificios como en el original** donde no cambia el equilibrio de AoEN: armas y armaduras en el Almacén,
+  torres y murallas en el Granero, Ingeniería y Balística en el Centro de gobierno, arqueros a caballo y de elefante en el
+  Campo de tiro, hondero en el Cuartel y carne de caza también al Almacén (marcada en `com_espera` del aldeano, que solo usan
+  los mercantes, para no cambiar el formato de la partida guardada). Se dejan como diferencias anotadas en `docs/aoen.md` las que
+  cambiarían el ritmo de la partida (casas +5, agricultura en el Granero, Mercado y Taller de asedio en edades más tardías,
+  granjas sin Mercado). Tabla y pendientes en `docs/aoen.md`.
+
 ## D383. DOOM clásico: Chocolate Doom 3.1.1 con Freedoom (v8.5.4.8, mejora 141; decidido el 2026-11-18)
 
 - **Qué.** Port nativo de **Chocolate Doom 3.1.1** (etiqueta `chocolate-doom-3.1.1`), que también da gratis **Heretic, Hexen y
@@ -20831,3 +20902,1532 @@ no llegan a la ventana (solo a la serie). Detalle en `docs/terminal.md` («Forma
   pasarlo a README_PT y README_EN (trabajador-haiku); la ayuda de `ia` sigue en portugués; la consola de texto del kernel no tiene interlineado ni barra.
 - **Pruebas**: `tests/h393_terminal.py` (nueva) y las que leen el Terminal o usan `ajuda`/`ls`: h09, h16, h24, h42, h45, h74,
   h231, h263, h320, h368, b5, b7, b8, h69, h80, h387; con la opción del serie, h58.
+
+## D386. La zona 3D de las Radeon R5xx/R6xx/R7xx, detrás de todo lo que muestra la tarjeta (decidido el 2026-11-18; v8.5.4.10, rama `v8.5.4.10-r500`)
+
+**Contexto**: primera prueba del 3D de R5xx (D287) en el Amilo (Mobility X1400, RV515 `1002:7145`, 128 MB), por
+DEBUG-APP (D362) con SaguiOS 8.5.4.9. El 2D va bien, pero `gpu3d probar --detalle` se paraba en la **etapa 1** (sonda de
+solo lectura): la BIOS deja **los dos controladores AVIVO con la imagen activa**: D1 con la pantalla del VBE (MC
+`c0000000`, 1024x768, pitch 1024) y D2 en `c0100000` con pitch 1280 (por el pitch, el modo nativo del panel, 1280x800, que
+la BIOS deja programado; empieza 1 MB dentro de la pantalla de D1 y no se ve basura, así que su salida no es la del panel
+o su CRTC está parado: la etapa 1 ahora lo dice). La zona 3D iba siempre **justo detrás de la pantalla de D1**
+(`c0400000`) y se rechazaba si otra superficie activa caía a menos de 8 MB, aunque quedaban 120 MB libres.
+
+**Decisión**:
+- La etapa 1 apunta todas las regiones que la tarjeta muestra o lee: la pantalla del VBE con la zona de prueba del 2D, la
+  superficie de **cada** controlador con la imagen activa (con su tamaño de `D1GRPH_CONTROL`, `PITCH`, `Y_END`,
+  `SURFACE_OFFSET_Y` y `D1MODE_VIEWPORT_*`, como los programa `avivo_crtc_do_set_base` de Linux; con **8 MB** si los
+  registros no tienen sentido) y los **cursores** por hardware (16 KB). La zona (2-16 MB, alineada a 1 MB) va al **primer
+  hueco libre detrás de la pantalla** que no pise nada, dentro del menor de la VRAM real, la apertura de la CPU y la VRAM
+  del MC. La comprobación final («nada de lo que se muestra en la zona») sigue aparte de la búsqueda.
+- La lógica pura está en `kernel/dispositivos/vram_zona_logica.h` y se prueba en el PC (`tests/vram_zona_unidad.c`, dentro
+  de `h287 unidad`) con los valores del Amilo: con D2 de 1280x800 la zona queda en `c0500000`; con D2 sin tamaño, en `c0900000`.
+- Lo mismo en el 3D de R6xx/R7xx (`gpu3d_r600.c`, D284), que solo miraba los cursores: con dos controladores activos habría
+  dibujado en la imagen del otro. El 2D por DMA de R6xx/R7xx (`acel_r600.c`, ya probado en el dv7) no se toca (un cambio sin
+  probar en un camino que funciona): su anillo va justo detrás de la pantalla y solo comprueba los cursores; si un equipo
+  con dos salidas activas lo pide, se le aplica la misma búsqueda.
+- La etapa 1 escribe por cada controlador el CRTC (encendido o no), `GRPH_CONTROL`, el fin, la ventana visible, los KB que
+  ocupa y el cursor: con eso, la próxima prueba en el Amilo dice qué es D2.
+
+- De paso, el **2D de la X1400 queda confirmado** en hardware real (la misma sesión: `acel2d probar --detalle`, 176 órdenes
+  con los mismos píxeles que la CPU, 60 copias en 6,7 ms por la GPU frente a 226 ms por la CPU): entra en `confirmadas[]`
+  (D244, `kernel/gui/acel2d.c`), así que al arrancar le basta la autoprueba corta; h286 y h362 la excluyen de «ninguna Radeon».
+
+- **Segunda prueba en el Amilo** (2026-11-18, imagen `prueba-amilo`): pasan las 6 etapas (zona 3D de 16 MB en MC `c0500000`;
+  D2 tenía el CRTC **apagado**, 1280x768, 3840 KB desde `c0100000`), pero la autoprueba falla en «limpiar»: el píxel 0,0 es
+  `0202ff` (se esperaba `102030`), con la valla vista y RPTR = WPTR (la GPU ejecutó todo). El mismo valor en dos pruebas
+  seguidas: puede ser memoria sin tocar. **Diagnóstico** (sin grabar más imágenes después de esta): al crear el destino la
+  CPU lo llena con `a1b2c3` (color) y `5a5a5a5a` (Z), y el detalle «tras el fallo» cuenta lo que sigue intacto, los valores
+  distintos y unas muestras; y `/sistema/conf/gpu3d-r500.conf` (solo root) añade escrituras de registros del 3D
+  (`inicio|dibujo REG VALOR`, solo 0x2000-0x4FFC) al estado fijo o a cada dibujo, para probar hipótesis por DEBUG-APP
+  (ROP «set», un programa de fragmentos que da blanco, la salida sin el especular...).
+
+- **Causa del color y arreglo** (2026-11-18, por DEBUG-APP con los ajustes, sin grabar otra imagen): con las sentinelas, la
+  GPU sí escribía todo el destino (y el Z a 1.0); con ROP «set» (E1) y con un programa de fragmentos de blanco constante
+  (E2) salía bien, así que el rasterizado, la escritura y el US funcionaban. Con la salida = t0 sola (E3), t0 era un
+  degradado (x/ancho, y/alto, 1, 1): **la posición del vértice recortada a 0..1**, no su color. Más pruebas acotaron: un
+  swizzle constante en el elemento 1 del PSC no cambiaba nada; uno en el elemento 0 sí cambiaba los colores; leer las
+  entradas 1, 2 o 3 del PVS daba siempre la 0. La causa estaba en el **programa de vértices**: cada `ADD salida[i] =
+  entrada[i] + 0` leía el cero de la **entrada 0** (`R5_PVS_ZERO`), y el PVS de la RV515 leía entonces la entrada 0
+  también en el origen 0. Mesa (`src/gallium/drivers/r300/compiler/r3xx_vertprog.c`, `ei_vector1` con
+  `__CONST(0, RC_SWIZZLE_ZERO)`) toma el cero de **la misma entrada** que el origen 0. Con eso (`R5_PVS_ZERO(n)`) pasan
+  **las 8 pruebas** de la autoprueba en el Amilo: 348432 triángulos/s, 152515 kpíxeles/s con mezcla, puntuación 3D 2504.
+  Las sentinelas, el detalle del destino y el fichero de ajustes se quedan para depurar otras R5xx.
+
+**Pendiente**: comprobar en el Amilo la imagen con el arreglo dentro (sin fichero de ajustes), `sgldemo -g` y `sgldemo`
+contra la GPU, y que el escritorio y el 2D siguen igual tras usar el 3D; decidir (mantenedor) si la X1400 pasa a encender
+el 3D con el primer uso, como las tarjetas probadas.
+
+## D387. Volcado del búfer de atrás a la pantalla por la GPU: GART PCIE en las Radeon R5xx (decidido el 2026-11-18; v8.5.4.10r2, rama `v8.5.4.10r2-volcado`)
+
+**Contexto (medido por el mantenedor en el Amilo, Mobility X1400 RV515 `1002:7145`, 128 MB, Core Duo):** AoEN a 1024x768
+va a 60,5 fps y la GPU no interviene: `infopc` («Reparto GPU / software») enseña el 2D parado (112 copias, las de la
+autoprueba) y unos 2.300 «volcados a pantalla» por software cada 1.200 cuadros (unos 420 millones de píxeles copiados por
+la CPU). El 2D de SaguiOS (D195, D244) solo acelera lo que ya está en la VRAM (mover ventanas, desplazar la consola); el
+escritorio se compone en un búfer en la RAM (`video.c`, el «búfer de atrás») y `video_mostrar` lo copia con la CPU a la
+pantalla. Ese volcado es lo que más cuesta en una máquina antigua: cada píxel cruza el bus escrito por la CPU (con WC si
+lo hay, D057/D245; sin él, a unos 60 MB/s).
+
+**Decisión:**
+1. **Qué se acelera: el volcado del búfer de atrás, no el de cada ventana.** Todo lo que sale en la pantalla pasa por
+   `video_mostrar` (rectángulo sucio del búfer de atrás → pantalla), así que con un solo camino se acelera todo (juegos,
+   escritorio, terminal). El búfer de atrás es un `kmalloc` del kernel: memoria baja, físicamente seguida, que no cambia
+   en toda la sesión (salvo un cambio de modo o de pantallas, que avisa a la capa). Componer ventana → búfer de atrás
+   sigue siendo de la CPU, pero es RAM a RAM (varios GB/s); lo caro es RAM → tarjeta. Copiar directamente desde el búfer
+   de cada ventana (páginas del proceso en `0xE0000000`, D044/D059) ahorraría también la composición, pero exige fijar
+   esas páginas en la GART mientras la GPU lee, recortar contra las ventanas de encima y tratar la memoria alta con PAE:
+   queda como fase 2 si las medidas en el Amilo dicen que la composición pesa.
+2. **Cómo: GART PCIE de las R300-R5xx** (`rv370_pcie_gart_*` de Linux 6.6, `drivers/gpu/drm/radeon/r300.c`; solo
+   valores y orden, código propio en `acel_radeon.c`). Una ventana de 16 MB del mapa de la GPU (MC) se traduce, página a
+   página, por una tabla de 4096 entradas (16 KB) en la VRAM a páginas físicas de la RAM. El motor 2D de la D195 copia
+   desde esa ventana a la pantalla con `SRC_PITCH_OFFSET` apuntando a ella (lo mismo que hace Linux con `r100_copy_blit`
+   para mover búferes entre GTT y VRAM). Detalles:
+   - **entradas** de 32 bits: bits 39:32 de la dirección arriba, 31:12 en 23:4, `READABLE`; **con snoop** (sin el bit 0
+     «unsnooped»): el puente mira la caché de la CPU y no hace falta vaciarla antes de que la GPU lea. Caben direcciones de
+     40 bits, así que **PAE no es un problema** (el búfer de atrás está además en la memoria baja); una página que no
+     cupiera no se apunta y el volcado sigue por la CPU;
+   - **la tabla** va en las 64 filas que hay detrás de la zona de prueba del 2D (la capa las deja para los drivers; el 3D
+     de la D386 empieza más allá), alineada a 4 KB, comprobando la VRAM real, la apertura y los cursores por hardware;
+   - **la ventana** en el mapa del MC va delante de la VRAM si hay más sitio delante (como `radeon_gtt_location`), sin
+     pisar la VRAM ni la ventana AGP; **no se toca** `MC_FB_LOCATION`, `MC_AGP_LOCATION`, la pantalla, relojes ni energía;
+     fuera de la ventana se descarta y lo no encontrado lee la VRAM (`TX_DISCARD_RD_ADDR`): un fallo de la tabla da
+     píxeles malos, que la autoprueba ve; nunca escrituras en la RAM, porque el motor 2D solo **lee** de la ventana;
+   - se enciende el **bus maestro** del PCI (si no lo estaba) y al apagar todo vuelve a los valores de antes; si la GART ya
+     estaba encendida (la usa otro), no se toca;
+   - el búfer no empieza al principio de una página (cabecera del `kmalloc`): cada franja de hasta 128 filas toma como
+     base su primera fila bajada a 1 KB y suma el resto a la x del origen; el paso tiene que ser múltiplo de 64 bytes
+     (anchos como 1366 siguen por la CPU). Tras las franjas se vacía la caché de destino del 2D por la FIFO.
+   - solo las R5xx **discretas con PCI Express** (lista de modelos como la del 3D, D287; las AGP con puente y las
+     integradas RS600/RS690, que tienen otra GART, no).
+3. **Alternativa más sencilla descartada: un búfer de rebote en la VRAM.** Que la CPU escriba en un búfer de la VRAM y la
+   GPU lo componga a la pantalla mueve los **mismos bytes por el bus** que escribir directamente en la pantalla, que es lo
+   que ya se hace con write-combining (D057; `[VIDEO] framebuffer: WC por ..., N MB/s` en el log): no ahorra CPU. Lo único
+   que ganaría es no tener que esperar al barrido, y eso no es lo que se mide. Si el Amilo enseñara WC apagado o lento, el
+   arreglo sería el WC, no un rebote.
+4. **Capa común** (`acel2d.c`, interfaz `acel_volcado_t` en `acel2d.h`, campo `volcado` del driver; los demás a `NULL`):
+   - al arrancar, tras el 2D: solo si el 2D está activo, la pantalla es de 32 bits 0x00RRGGBB, el driver sabe hacerlo y
+     no está apagado por `kconfig volcado_gpu=no` (byte 165 de la cabecera, `CAB_ACEL_OPC`, bit 0; `mkimagem.py
+     --sin-volcado-gpu`) ni en el modo seguro de la aceleración (D323);
+   - **autoprueba**: un búfer de prueba (48 filas) con un dibujo conocido, seis rectángulos (filas enteras, sueltos,
+     desplazados, primer y último píxel, cruzando páginas) a la zona de prueba de la VRAM, comparados píxel a píxel con la
+     CPU; después las primeras filas del búfer de atrás de verdad (región 0); y una medida (8 copias de la región por la
+     GPU y por la CPU). Se enciende si todo coincide y la GPU no tarda más del doble que la CPU (a mano, aunque tarde);
+   - **en sesión**: `video_mostrar` pide el volcado a la GPU (con una pantalla y 4096 píxeles o más; lo pequeño, la CPU) y
+     sigue sin esperar. Antes de que la CPU escriba en la pantalla (el cursor, la copia por CPU) o **mueva el búfer de
+     atrás** (`video_mover`, `video_rolar`: la GPU podría estar leyéndolo) se espera (`acel_sincronizar`, plazo 100 ms).
+     Un plazo agotado o una orden rechazada apaga el 2D y el volcado (vigilante, D244: el motor es el mismo) y la CPU
+     redibuja todo. Cambiar el búfer de atrás (`video_trocar_modo`, `video_refazer`) espera y lo vuelve a apuntar;
+   - contadores e informe: `info_acel2d_t` crece al final (el kernel acepta el tamaño de antes): estado, volcados por GPU y
+     sus kpx, los pequeños que hizo la CPU, la medida y el motivo. `acel2d`, `acel2d volcado [apagar|encender|medir]`
+     (`INFO_ACEL2D_CTL` 2, 3 y 4; administrador) e `infopc` («Volcados por GPU: N (kpx) ...; estado: ...»). `acel2d
+     volcado medir` copia 10 veces la pantalla entera (lo que ya muestra: no cambia nada) por la GPU y por la CPU y da
+     microsegundos y MB/s al log. `acel2d probar --detalle` repite la autoprueba del volcado y vuelca los registros de la
+     GART (`[ACEL2D] radeon: GART (...): CNTL ... BASE ... START ... ERROR ...`).
+5. **Para las pruebas, una GPU simulada** (`--volcado-gpu-simulado`, bit 1): la misma tabla de páginas (con las entradas
+   de la R5xx) y las mismas franjas, copiando con la CPU **con retraso**, cuando el motor de verdad lo haría (al esperar o
+   con la siguiente orden del 2D). Así un camino que no espere a la GPU deja la pantalla distinta de la de la CPU, y la
+   prueba lo ve. Bits 2 y 3: autoprueba con un píxel distinto y espera agotada en sesión.
+6. **Intel y otras.** El camino es genérico: un driver que dé acceso a la RAM rellena `acel_volcado_t`. En las Intel Gen3
+   en adelante el equivalente es el **GTT** (ya se escribe para el 3D de Gen3, D358, `gen3_gtt.h`): entradas del GTT
+   detrás de la memoria robada que anunció el VBE apuntando al búfer de atrás y `XY_SRC_COPY_BLT` desde ahí. No se hace en
+   esta tanda (sin máquina para probarlo); las demás tarjetas siguen por la CPU sin cambios.
+
+**Pruebas:** `tests/h394_volcado_gpu.py`: `unidad` (`tests/volcado_unidad.c`, la lógica pura de
+`kernel/dispositivos/volcado_logica.h`: entradas de 40 bits, ventana del MC, franjas y un motor simulado que traduce
+píxel a píxel por la tabla con páginas desordenadas, también por encima de 4 GB), `simulado`, `vmware`, `fallos` y `std`.
+Con KVM pasan h394 y, sin cambios, h161, h223, h226, h242, h243, h245, h286, h323, h348, h355, h359, h361, h362, h24, h42,
+h109, h119, h389 y h81; el kernel de `SEM_GPL=1` compila. En QEMU las cifras de la GPU simulada no dicen nada de la
+velocidad (es la CPU copiando con traducción por la tabla: autoprueba 135 us frente a 94 us; 10 pantallas, 5,6 ms frente
+a 1,9 ms): lo que prueban es que la pantalla queda **igual píxel a píxel** que con la CPU (arrastrando el Terminal, también
+con el 2D de la VMware activo y tras un cuelgue simulado).
+
+**Pendiente (hardware):** probar en el Amilo. Qué mirar: `[ACEL2D] radeon: GART: RV515 7145, MC_FB_LOCATION ...`
+(que la VRAM esté donde dice D386, `c0000000`), `GART PCIE de 16 MB en MC bf000000-bfffffff`, `volcado: autoprueba IGUAL
+que la CPU` (si dice FALLO, el primer píxel distinto: todo negro o el color de la VRAM de `DISCARD` = la GPU no lee la RAM;
+basura = tabla o snoop), la medida de la autoprueba y la de `acel2d volcado medir`, y AoEN con y sin el volcado.
+
+**Amilo, 2026-11-19 (depurador-drivers, rama `v8.5.4.10r2-volcado-amilo`):** con la imagen `prueba-amilo-r2` el arranque
+se queda colgado justo después de «Aceleración 2D: radeon» (la etapa siguiente, «CPU ...», no sale): el cuelgue está en
+`acel2d_volcado_iniciar` → `gart_encender` (con las interrupciones cerradas; todas las esperas tienen plazo por TSC, así que
+un cuelgue total apunta a un acceso al bus que no vuelve). Con `kconfig volcado_gpu=no` arranca y el 2D y el 3D van bien.
+La secuencia de registros es la de `rv370_pcie_gart_enable` (Linux 6.6, `r300.c`) y el MC indirecto el de `rv515_mc_rreg`;
+sin datos del equipo no se ve la causa. Decisiones: (1) el volcado y la vuelta **ya no se encienden solos** en una tarjeta
+real que no esté en `volcado_confirmadas` (acel2d.c; vacía): solo `acel2d volcado encender` / `acel2d vuelta encender`; la
+GPU simulada de las pruebas sigue igual; (2) `acel2d volcado paso N` (0-6) hace la puesta en marcha solo hasta el paso N
+con los registros al log y la deshace (0 solo lee, también el puente PCIe de encima; 1 tabla; 2 registros sin encender;
+3 GART_EN; 4 bus maestro; 5 copia de una página; 6 copia de 1024x64), para guardar el log entre paso y paso por DEBUG-APP.
+
+**Amilo, 2026-11-19, dbg5 (especialista-drivers, rama `v8.5.4.10r2-volcado-fable`).** Hechos: los pasos 0-6 pasan (también
+con la tabla en c0340000); la autoprueba pasa (órdenes de 48 filas como mucho, 8 en cola de las MISMAS 48 páginas); el
+primer volcado de la pantalla entera cuelga (dbg3, 6 órdenes de 128 filas, 769 páginas distintas) y dbg4 reinicia el
+equipo. Lo que diferencia lo que va de lo que no: cuánta RAM distinta lee el motor seguida (y a dónde escribe), no la
+puesta en marcha de la GART, que es la de `rv370_pcie_gart_enable`. Comparado con el driver radeon (Linux/radeonkms, de
+memoria: no hay copia de las fuentes en el repositorio): (a) `rv515_clock_startup` **fuerza siempre encendido el reloj de
+los bloques CP, E2 (el motor 2D) e IDCT** (bit 0 de los registros 0x0F, 0x11 y 0x13 del PLL, «We need to force on some of
+the block»); nosotros dejamos los relojes dinámicos de la BIOS del portátil, y un motor que espera a la RAM por PCI
+Express es justo el caso en que un bloque «parece» parado: es la hipótesis principal; (b) `rv515_mc_program` pone
+MC_AGP_LOCATION a 0xFFFFFFFF en una tarjeta que no es AGP (la BIOS deja 0x003F0000); (c) Linux manda las copias por el CP
+(`r100_copy_blit`: BITBLT_MULTI, vaciado de la caché y WAIT_UNTIL en el anillo), nunca por MMIO, pero el motor es el
+mismo; (d) el kernel no encendía CR4.MCE: un error de máquina (un acceso al bus que no termina) era un reinicio mudo, lo
+que cuadra con dbg4. Decisiones de dbg5 (todo de depuración, nada cambia sin pedirlo): (1) **rastro** (`rastro.c`): una
+página de RAM fija sin caché con las marcas, leída en el arranque siguiente; causas de reinicio del ICH (TCO), errores del
+PCI y **CR4.MCE encendido** con los MCi_STATUS al log (los del arranque anterior también); no se usa la CMOS (en una BIOS
+de portátil sin documentar, un byte cambiado puede costar la configuración); (2) **opciones** `acel2d volcado paso 20-25`
+(20 borra; 21 RELOJ, 22 AGP, 23 sin snoop + wbinvd, 24 espera ciega, 25 marcas con el motor ocupado), que valen para los
+pasos y para `acel2d volcado encender`, y que `gv_soltar` deshace; (3) **experimentos** `paso 7-17`: la pantalla entera por
+la GART cambiando una cosa cada vez (búfer de prueba o el de atrás, 16/64/128 filas o una orden, esperadas o en cola,
+destino fuera de la pantalla o la pantalla, la CPU escribiendo en la VRAM mientras, y por el CP con el 3D encendido),
+con marcas en pantalla solo con el motor parado y al rastro; (4) las marcas de dbg3/dbg4 que la CPU pintaba en la VRAM con
+el motor ocupado van ahora solo al rastro (salvo con la opción 25). Si la causa es el reloj, el arreglo definitivo es
+forzarlo en `gv_preparar` (y devolverlo en `gv_soltar`). Alternativa si la lectura de la RAM por PCIe no se arregla:
+componer en la VRAM (búfer de atrás en la VRAM y copias VRAM→VRAM, que van a 6,7 ms), con el coste de que toda lectura
+del búfer por la CPU (mezclas con alfa, capturas) cruza el bus.
+
+**Amilo, 2026-11-19: el motor colgado con el 3D encendido y el volcado (depurador-drivers, rama
+`v8.5.4.10r2-volcado-cp`).** Hechos (el coordinador, por SSH): con las franjas esperadas de una en una (commits
+`6395cd6f` y `bb841610`) el volcado aguanta 20.162 pantallas seguidas con el 3D apagado; con `gpu3d encender` y
+`sgldemo` en ventana, tras 1.748 a 12.149 cuadros el motor queda **ocupado para siempre**: `RBBM_STATUS 90010140`,
+cola del CP vacía (RPTR = WPTR), la última valla vista; lo nota primero el 3D («la GPU no respondió a tiempo al leer
+el cuadro») o el volcado («el motor no para»); el equipo no se cuelga (la protección pasa a la CPU y aparca la GART).
+Igual con la vuelta (D391) apagada; sin el volcado, el 3D no fallaba.
+- **Qué dice `90010140`** (bits de `RBBM_STATUS` de `rv515d.h`, Linux 6.6): `CMDFIFO_AVAIL` 64 (la FIFO vacía),
+  bit 8 `HIRQ_ON_RBB` (una petición **del host**, es decir, de la CPU por MMIO, en el bus de registros), bit 16
+  `CP_CMDSTRM_BUSY`, bit 28 `RBBM_HIBUSY` (la interfaz del host ocupada) y bit 31 `GUI_ACTIVE`. Ninguno de los
+  bloques que trabajan (`E2`, `RB2D`, `RB3D`, `VAP`, `RE`, `TAM`, `TDM`, `PB`, `GA`, bits 17-27) está ocupado: no hay
+  una copia ni un dibujo a medias, sino el árbitro del RBBM atascado entre una escritura del host y el CP.
+- **Causa:** mezclar órdenes del 2D por MMIO con el CP en marcha. El software ya las ordenaba (el CP solo trabaja dentro
+  de `sincronizar`, con las interrupciones cerradas y el cerrojo general; el volcado espera al motor parado antes y
+  después), pero el hardware no lo admite: con `ISYNC_CNTL` del 3D (`ANY2D_IDLE3D`, `ANY3D_IDLE2D`, `WAIT_IDLEGUI`,
+  `CPSCRATCH_IDLEGUI`, como `rv515_ring_start`) cada escritura del 2D, venga del host o del CP, la sincroniza el RBBM con
+  el 3D, y una del host puede quedarse esperando una condición que el CP ya no va a dar. El driver radeon de Linux y
+  xf86-video-ati **nunca** escriben el motor por MMIO con el CP en marcha: Linux copia con `r100_copy_blit`
+  (`BITBLT_MULTI`, vaciado de la caché del 2D y `WAIT_UNTIL` en el anillo, `drivers/gpu/drm/radeon/r100.c`, 6.6) y
+  xf86-video-ati compila su 2D dos veces (`radeon_exa_funcs.c` con `ACCEL_MMIO` sin CP y `ACCEL_CP` con él: los mismos
+  registros, cada uno como `PACKET0` en el anillo, y tras cada orden `RADEONFlush2D`: `DSTCACHE_CTLSTAT` y
+  `WAIT_UNTIL 2D_IDLECLEAN | DMA_GUI_IDLE`). La espera por franjas no basta: entre paquetes del CP `GUI_ACTIVE` puede
+  leerse a 0 y el problema no es cuántas órdenes hay en cola, sino quién escribe los registros.
+- **Arreglo:**
+  1. con el CP en marcha (`gpu3d_r500_cp_em_marcha`), **todo el 2D de `acel_radeon.c` va por el anillo**: volcado,
+     vuelta, `copiar`, `rellenar`, las esperas y los experimentos. Las escrituras de cada orden salen de un único
+     constructor (`kernel/dispositivos/radeon2d_ordens.h`) que usan los dos caminos: por MMIO (CP apagado, lo de
+     siempre, las mismas escrituras en el mismo orden) o como `PACKET0` de un registro cada una, solo registros del 2D
+     (0x1400-0x17FC), seguidas del vaciado de la caché del 2D y `WAIT_UNTIL` (`gpu3d_r500_2d`). Las esperas son la valla
+     del CP y el motor parado (`gpu3d_r500_2d_esperar`). Se sigue esperando cada franja antes de mandar la siguiente
+     (lo probado en el Amilo), ahora con la valla;
+  2. la valla del CP escribe antes la tijera del rasterizador, como `r300_fence_ring_emit` (que usan las RV515: «Write SC
+     register so SC & US assert idle»), con los valores del destino actual (la valla puede caer entre dos trozos de un
+     dibujo cuando la cola se llena);
+  3. `acel2d volcado paso 26` (opción `MMIO`) vuelve al 2D por MMIO con el CP en marcha, solo para comparar.
+- **Riesgos:** el camino por el CP no se puede probar en QEMU (no hay Radeon); lo que sí se prueba en el PC es que las
+  escrituras son las mismas que iban por MMIO y que los paquetes están bien formados (`h287 unidad`). Si el CP no
+  terminara una orden del 2D, el vigilante de siempre apaga el 2D, el volcado y la vuelta (la GART se aparca) y la CPU
+  sigue; el 3D lo nota en su siguiente valla.
+- **Segunda tanda, el mismo día (resultado del Amilo con el 2D por el anillo):** B y C bien (el 2D por el CP:
+  176 órdenes iguales, 6,8 ms frente a 226 ms), pero `sgldemo -s -n 30000` con el volcado falla tras 1.986 cuadros con
+  el mismo `90010140` (bits 8 y 28 siguen), RPTR = WPTR, la valla emitida **y vista**; y, dato clave, con el kernel
+  anterior y el volcado **apagado**, solo el 3D también falla, tras 19.494 cuadros. El atasco está en el propio camino
+  del 3D y el volcado solo lo hace más frecuente (con el 2D por el CP hay muchas más vallas por cuadro). Lo que hacía la
+  CPU mientras el CP trabajaba: tras avisar (`CP_RB_WPTR` y su lectura de vuelta, como `r100_gfx_set_wptr`), **leer sin
+  pausa por MMIO el registro de apuntes de la valla** (`SCRATCH_REG2`, que el CP escribe al final) y después
+  `RBBM_STATUS`. Que el atasco aparezca justo después de que el CP escriba la valla, con una petición de la CPU
+  colgada en el bus de registros, apunta a esa lectura del mismo registro en el mismo instante. Linux no lo hace: con la
+  escritura de vuelta encendida (lo normal en las R5xx PCIe), `r100_cp_init` pone `SCRATCH_UMSK` y quita
+  `RB_NO_UPDATE`, el CP copia los apuntes a la memoria y la valla se lee de ahí (`radeon_fence_read`); tras la valla no
+  se espera a `RBBM_STATUS`; y `r300_fence_ring_emit` invalida el búfer de lectura del HDP (`HOST_PATH_CNTL`, bit 27).
+  **Cambio:** la escritura de vuelta de los apuntes 1 y 2 y del puntero de lectura va a la página de reserva de la zona
+  3D (VRAM: la tarjeta sigue sin escribir la RAM); se comprueba en la etapa 5 (si no llega, la valla se lee del
+  registro como antes). Por defecto, como Linux: la valla se lee de la VRAM (y, si la copia no cambia, una lectura del
+  registro cada 2 ms, contada como «rescate»), sin esperar a `RBBM_STATUS` y con la invalidación del HDP en la valla.
+  `acel2d volcado paso 27-30` cambia una cosa sin reiniciar (27 VRAM/registro, 28 esperar también a `RBBM_STATUS`,
+  29 HDP, 30 pausas de 20 us entre lecturas). Tras un plazo agotado, una «prueba de vida» del CP (una escritura por la
+  cola) dice si el CP sigue ejecutando o está parado. El anillo del log del kernel pasa de 32 a 128 KB (y `dmesg` lo
+  lee entero): en el Amilo las líneas de sshd echaban el diagnóstico en minutos. Kernel en
+  `/home/aanun/SO/private/amilo-3d-volcado-2/`.
+- **Tercera tanda (resultado del segundo kernel):** la escritura de vuelta llega (etapa 5), pero `sgldemo` con el
+  volcado falla **antes**, a los 971 cuadros: «prueba de vida del CP: el CP NO ejecuta la cola», RPTR = WPTR, tres
+  vallas sin hacer, 0 rescates por MMIO. La lectura del registro no era la causa (ya no se leía), y el patrón es claro:
+  valla de siempre y solo el 3D, 19.494 cuadros; + tijera en la valla (y el 2D por el anillo), 1.986; + HDP en la valla y
+  la valla leída sin parar de la VRAM, 971. Cuanto más se añade alrededor de la valla (y más se usa la ventana de la CPU
+  a la VRAM, el HDP, mientras el CP trabaja), antes se para el CP. Dos cosas comunes a todos los casos y distintas de
+  Linux: la **cola del CP está en la VRAM** (Linux la tiene en la RAM, GTT) y la CPU la escribe por el HDP sin comprobar
+  que lo escrito ha llegado antes de avisar al CP (solo un `lock orl`, que ordena la CPU, no el bus); y la valla se
+  esperaba leyendo sin pausa. **Cambio:** cada añadido es una opción que se cambia sin reiniciar con `acel2d volcado
+  paso 27-35` (27 la valla leída de la VRAM, que además enciende la escritura de vuelta solo si está puesta al
+  `gpu3d encender`; 28 esperar a `RBBM_STATUS`; 29 HDP; 30 pausas de 50 us entre lecturas; 31 tijera; 32 cachés y
+  `WAIT_UNTIL` con los valores de Linux; 33 valla sin `WAIT_UNTIL`; 34 leer de vuelta la última palabra de la cola antes
+  de avisar al CP; 35 las órdenes del 2D por el anillo sin su `WAIT_UNTIL`). Las opciones 27-35 funcionan aunque el 2D
+  ya se haya apagado (el paso 29 del segundo kernel decía «FALLO o no disponible» porque, tras el fallo, la capa del 2D
+  rechazaba los pasos). Por defecto: la valla de siempre (la que más aguantó), la valla leída del registro con pausas
+  (Linux sin escritura de vuelta lee el registro, pero durmiendo entre lecturas) y la cola leída de vuelta antes del
+  aviso (34). Kernel en `/home/aanun/SO/private/amilo-3d-volcado-3/`.
+- **Resultado de la tercera tanda:** con las opciones por defecto (30 PAUSA y 34 LEERCOLA), `sgldemo -s -n 30000`
+  con el volcado y el 3D: **30.000 cuadros por la GPU, 0 fallos**. Falta confirmar cuál de las dos lo arregla (sin la
+  34; si sin ella vuelve a pararse, la causa es la cola en la VRAM leída por el CP antes de que llegaran las escrituras
+  del HDP, y el paso siguiente es la cola en la RAM por la GART, como Linux).
+- **Cuarta tanda (2026-11-19): la memoria de vídeo real y una zona 3D grande.**
+  1. El VBE del Amilo anuncia 16 MB y la X1400 tiene 128 MB (`CONFIG_MEMSIZE`, `MC_FB_LOCATION` c0000000-c7ffffff). Cada
+     driver 2D da la real a la capa al leer sus registros (`acel2d_vram_real`: `CONFIG_MEMSIZE` en las Radeon R100-R500,
+     R6xx-NI y GCN; `SVGA VRAM_SIZE` en la VMware; `PFB 0x10020c` en las NVIDIA, «RAM del sistema» en las integradas; las
+     Intel, sin dato: memoria robada). Sale en `INFO_ACEL2D` (`vram_kb`, `vram_fonte`; crece al final, el kernel acepta
+     los tamaños de antes), en `infopc` («Memoria de vídeo: 128 MB (de la tarjeta: CONFIG_MEMSIZE)» y «Anunciada por la
+     BIOS: 16 MB (VBE 3.0, ...)»), en Configuración («Memoria de vídeo: 128 MB (la BIOS anuncia 16 MB)») y en Tareas.
+  2. La zona 3D de las R5xx ya no tiene 16 MB como mucho: ocupa el primer hueco libre detrás de lo que la tarjeta
+     muestra hasta **8 MB antes del final de la VRAM útil** (`r5_zona3d_buscar`, `vram_zona_logica.h`). En el Amilo: de 5
+     a 120 MB, **115 MB**. Esos 8 MB del final son para la tabla de la GART del volcado (16 KB; `acel_radeon.c` la busca
+     detrás de la zona con la misma función), el destino de los experimentos del volcado (una pantalla, 3 MB) y margen
+     para lo que el firmware ATOM use al final de la VRAM. El kernel tiene solo 128 MB de ventanas para todos los
+     dispositivos y no se pueden soltar (`paginacao.h`): no se mapea la zona entera. La CPU ve siempre sus primeros
+     16 MB (cola, página de reserva y los búferes que caben ahí, lo mismo que antes) y el resto, solo cuando tiene que
+     escribirlo o leerlo (texturas; el cuadro sin la vuelta), por una **ventana móvil de 1 MB** que se vuelve a apuntar
+     a trozos de filas (`r5_janela`, con `janela_pagina` y su invalidación del TLB), como la apertura que Linux mapea
+     por búfer. Los búferes se piden de abajo arriba, así que los pequeños (la autoprueba y su diagnóstico, que lee el
+     destino y el Z) siguen en la parte que se ve. `gpu3d`, Tareas y Configuración dan la memoria del 3D usada de la
+     total. Pruebas: `vram_zona_unidad` (h287): zona del Amilo de 115 MB desde 5 MB, tabla de la GART en 120 MB, VRAM de
+     16 MB con zona de 4 MB y de 8 MB sin zona. Kernel en `/home/aanun/SO/private/amilo-3d-volcado-4/`.
+- **Pendiente (Amilo):** `ORDENES.txt` de `/home/aanun/SO/private/amilo-3d-volcado/`: `sgldemo -s -n 30000` con el
+  volcado y el 3D encendidos (y después con la vuelta), y en el log la línea «el 2D va por su anillo». Si aguanta, la
+  X1400 entra en `volcado_confirmadas`.
+
+
+**El volcado se enciende solo en la X1400 (v8.5.5, 2026-11-19, al integrar).** Con el arreglo de esperar a cada franja,
+el Amilo (Mobility X1400, `1002:7145`) pasó más de 20.000 volcados sin fallo, y 60.000 cuadros 3D con volcado con el 3D
+por el CP (rama `v8.5.4.10r2-volcado-cp`). Entra en `volcado_confirmadas` (`acel2d.c`), que ahora separa el volcado y la
+vuelta (D391): en la X1400 el volcado se enciende solo al arrancar y la vuelta no (no tiene prueba propia en hardware
+real; sigue con `acel2d vuelta encender`). `kconfig volcado_gpu=no` lo apaga. El 3D sigue apagado por defecto.
+
+## D388. Orden de las particiones con /home la última, para ampliarla sin mover nada; la raíz doble de la live explicada (decidido el 2026-11-18; v8.5.4.10r2, rama `v8.5.4.10r2-particiones`)
+
+**Problema (portátil del mantenedor).** La imagen persistente grabada tal cual en un SSD de 111,7 GB: hda1 arranque,
+hda2 extendida (hda5 SAGUI-DATOS 64 MB, hda6 SAGUI-JOGOS, hda7 SAGUI-RAIZ, hda8 SAGUI-PERSIST, hda9 SAGUI-CONF), hda3 la
+ESP y ~110 GB libres. `/home` era la **primera** lógica: ampliarla (D318) obligaba a mover hda6..hda9 al final, y en la
+live (D379) hda7 y hda8 son la raíz en uso (base y capa). Además `/` salía dos veces en `discos` sin explicación. (La ESP
+ya estaba en el disco delante de la extendida desde D264; solo su entrada de la tabla, la 3, iba detrás.)
+
+**Decisión.**
+1. **Orden nuevo** (`tools/mkimagem.py`, todas las imágenes con extendida): MBR = SaguiOS (1), ESP (2), extendida (3, la
+   última, hasta el final). Lógicas: SAGUI-CONF, SAGUI-RAIZ, SAGUI-PERSIST, SAGUI-JOGOS, SAGUI-APPS, SAGUI-TMP, SAGUI-LOGS,
+   SAGUI-X*, y **SAGUI-DATOS la última**. Ampliar `/home` = estirar la extendida y la última lógica y su ext2 (la ruta de
+   D318 sin mover: `pt_planejar_tamanho` ya lo hacía para la última lógica). La ISO no cambia (sin extendida). `--orden-antiguo`
+   da la disposición de antes, solo para las pruebas de compatibilidad (h213, h318 parte 4, h388 C).
+2. **Nada depende del número**: el núcleo monta por etiqueta (`LABEL=`, `arranque` = la primera ext/FAT32 no SAGUI-* salvo
+   SAGUI-DATOS, del disco de arranque; raíz y capa por `LABEL=` en `raiz.c`); el instalador busca SAGUI-CONF/RAIZ/DATOS por
+   etiqueta. Comprobado: arranca, monta todo y es live persistente con el orden nuevo.
+3. **Nunca mover ni redimensionar la raíz en uso**: `pt_tamanho_raiz_em_uso` (particoes_tamanho.c) mira si lo que cambia o se
+   mueve está montado en «/» (en la live la base y la capa lo están las dos; instalado, SAGUI-RAIZ); `pt_mudar_tamanho` se niega
+   (ERRO_OCUPADO, sin tocar nada) y `particiones` lo dice antes de preguntar. `home_planejar` marca el plan como `bloqueado` y
+   `ampliar-home` (también `--primer-arranque`) muestra «No se puede ampliar /home» con la salida: grabar la imagen nueva o
+   `instalar` desde un pendrive («Ahora no» / «No volver a preguntar»). Con imágenes viejas sin raíz en disco se sigue moviendo
+   como en D318.
+4. **Instalador**: el mismo orden (CONF o RAIZ primero, /home la última; en GPT, la entrada de configuración antes de /home).
+   Al reinstalar conservando una SAGUI-DATOS: si deja sitio delante (la disposición nueva) las demás van delante; si es la
+   primera (la de antes) se conserva la disposición de antes con un aviso (para la nueva: `--formatear-home`).
+5. **La raíz doble**: `pt_raiz_live`/`pt_papel_raiz` (libsagui): en la live «/» tiene el tipo `live` sobre la base. `df` da una
+   línea `/` («hda6+hda7», tipo live, el espacio de la capa) y una nota, y no repite `/sistema/serie`; `mount` dice «tipo live:
+   sistema de serie (…) + tus cambios (…)»; `discos` (texto y ventana) marca «[sistema de serie (base de /, solo lectura)]» y
+   «[tus cambios (capa de /)]» con el uso de cada una (el de la base, el de `/sistema/serie`); infopc lo mismo.
+
+**Descartado por ahora**: ampliar SAGUI-PERSIST (la capa) cuando no es la última (habría que mover /home y lo de detrás; con
+`particiones tamaño` se puede a mano con /home desmontada) y «trasladar /home» de una imagen antigua a una partición nueva al
+final (crear, copiar, cambiar las etiquetas): seguro pero más pasos que regrabar una live; si el mantenedor lo quiere, va aparte.
+
+**Nota (ampliar con estimación y avance, rama `v8.5.4.10r2-home-avance`).** En un SSD de 111 GB /home pasa de 64 MB a ~110 GB con
+bloques de 1 KB: ~14.000 grupos nuevos, cada uno con su tabla de inodos (con la geometría de `mke2fs`/`calcular_ext`, 256 KB) y dos
+mapas: ~3,5 GB que `fs_zerar` pone a cero, minutos o decenas de minutos en un portátil antiguo. Ahora:
+1. **Antes de empezar** (ventana del primer arranque, `ampliar-home --ventana` y `ampliar-home --texto`) sale la estimación:
+   `fs_ext2_estimar` (superbloque: grupos nuevos × (itb + 2) × bloque; `fs_ext2_estimar_novo` para un ext2 recién creado) da los MB
+   como máximo (lo que ya es cero no se reescribe), `home_estimar` mide leyendo 4 MB del final del disco y supone que escribir va a la
+   mitad (acotada a 3..120 MB/s; 15 MB/s si no se puede leer) y `home_texto_tempo` lo dice en minutos. Se elige **todo, 8/16/32 GB
+   (los que quepan y ganen algo) o «Ahora no»**; cada opción rehace el plan (`home_planejar_ate`) y la estimación. Con `--texto` también
+   vale un tamaño cualquiera (`8G`, `512M`).
+2. **Durante**: `fs_redimensionar_ext2` avisa de 0 a 99 % linealmente por grupo nuevo (antes 0..80 y un salto) y la ventana y el
+   terminal muestran barra, porcentaje, MB escritos (porcentaje × MB estimados) y tiempo restante (extrapolado del ritmo real tras el
+   3 %; antes, de la estimación), con «NO APAGUES EL EQUIPO». La serie lleva `ampliar-home: avance N % - X de Y MB escritos - quedan ...`
+   de 10 en 10 %. No hizo falta ampliar `fs_progresso_t` (el porcentaje por grupo ya tiene granularidad de sobra).
+3. **Velocidad** (anotado, sin cambiar): ya se salta lo que es cero (D338) y en un SSD con TRIM se escribe siempre (leer no es fiable).
+   Las tablas de inodos de grupos distintos no son contiguas, así que no hay escrituras mayores que juntar; la mejora real sería
+   `lazy_itable_init`/`uninit_bg` (ext4: no poner a cero y marcarlo en el descriptor), que cambia el formato y el comprobador:
+   queda como idea para una versión aparte. Sobre el límite de crecimiento, ver la nota 2.
+
+**Nota 2 (límite de crecimiento de /home).** `mkimagem` formateaba SAGUI-DATOS con el `mke2fs` por omisión del anfitrión: bloques de
+1 o 4 KB según su `mke2fs.conf` y GDT reservados para crecer solo 1024 veces (64 MB -> 64 GB), así que en el SSD de 111 GB con 1 KB
+(~14.000 grupos) no llegaba y además había que escribir ~3,5 GB. Ahora (`tools/mkimagem.py`, ext2 de datos sin contenido de sistema):
+`-b 4096 -i 8192 -E resize=2^29` (2 TB, el límite del MBR: 127 GDT reservados). 110 GB = ~880 grupos de 128 MB con tabla de inodos de
+2 MB: **~1,8 GB a escribir** (antes ~3,5 GB). Medido en h388 E: 64 MB -> 200 GB en un disco disperso, 1598 grupos nuevos, 3,2 GB, 126 s
+en KVM, e2fsck limpio. **Imágenes ya grabadas** (1 KB, o con pocos reservados) y los ext2 de nuestro formateador (`fs_formatar_ext2`,
+sin `resize_inode`: lo que tiene la tabla de grupos al formatear): `home_planejar` calcula con `fs_ext2_maximo` hasta dónde llega el
+ext2 y **ofrece ese máximo** (campos `limitado`/`limite_fs`), diciendo en el diálogo y en el terminal que para usar todo el disco hay
+que rehacer /home (grabar la imagen nueva); ya no falla con «la tabla de grupos no tiene sitio». Pendiente (no hecho): que
+`fs_formatar_ext2` escriba `resize_inode` con reservados, para que un /home que crea el instalador pequeño pueda crecer después.
+
+**Pruebas**: `tests/h388_particiones_orden.py` (A: tabla MBR/EBR de mkimagem con sfdisk; B: live persistente en 2 GB,
+primer arranque, «Ampliar» sin mover, raíz intacta, e2fsck, segundo arranque; C: la disposición de antes no se toca).
+
+### D388 (ampliación del 2026-11-19, rama `v8.5.4.10r2-ampliar-fix`): metadatos siempre escritos y TRIM solo de datos libres
+
+**Problema (Amilo, SSD TOSHIBA A100 de 111 GB por AHCI, con TRIM).** El `/home` (SAGUI-DATOS, 113.121 MB, 884 grupos,
+7.241.728 inodos: 8192 por grupo, lo que da `calcular_ext` con 4 KB; **lo formateó SaguiOS** con `fs_formatar_ext2` en una
+partición nueva de 113.121 MB justos (instalador o «crear SAGUI-DATOS»); no lo amplió `fs_redimensionar_ext2`, que habría
+conservado los 16.384 inodos por grupo del `/home` de 64 MB que se ve en los informes del Amilo, en una partición de 113.195 MB) quedó tras un apagado forzado en solo lectura: «no se
+desmontó bien y no se puede comprobar (un inodo con extents)». `reparar -n hda9` veía, desde el inodo 575.489 (grupo 70, a
+mitad de tabla), cientos de inodos basura: restos de un ext4 viejo del SSD y bytes sin sentido. Con solo 891 MB usados.
+
+**Causa.** En el código no hay un camino en el que la tabla de inodos de un grupo quede sin escribir: con TRIM (`TRIM_SIM`)
+`fs_zerar` ya escribía siempre, y en QEMU (IDE y AHCI, con y sin TRIM, con restos detrás) sale limpio. Lo que hacía el
+formateo en un SSD era **descartar el volumen entero** (`blocos_descartar(vol, 4, setores - 4)`, ~56 órdenes DATA SET
+MANAGEMENT de 2 GB) y **justo después escribir los metadatos encima** (tablas de inodos, mapas, descriptores). Si el SSD
+aplica el descarte en segundo plano (o sin respetar el orden con las escrituras que siguen), lo escrito puede perderse y
+leerse otra vez lo que había en la NAND: exactamente restos de un ext4 viejo en sitios dispersos. Es la única explicación
+compatible con lo visto, pero no se puede reproducir en QEMU (su TRIM es síncrono). Además, `fs_zerar` en discos sin TRIM
+(D338) se fiaba de una lectura que decía «ceros» para **no** escribir; tampoco era el caso del Amilo, pero es el mismo tipo
+de riesgo (metadatos sin escribir por fiarse de algo que no se puede comprobar) y la ganancia era casi nula (tabla de D338:
+22,2 s con el espacio limpio y 22,0 s con el sucio).
+
+**Decisión.**
+1. **El TRIM del formateo solo cubre datos libres**, nunca lo que el formateo escribe después (`fs_descartar_dados`,
+   formatacao.c): ext2, por grupo, del final de su tabla de inodos (y en el grupo 0 tras la raíz y lost+found) al final del
+   grupo; FAT32, tras el clúster de la raíz; exFAT, tras la raíz. Sin solaparse, un descarte tardío no puede borrar metadatos.
+   Los bloques de datos libres siguen descartándose (el SSD los da por libres y no se gasta).
+2. **`fs_zerar` escribe siempre** (ext2 nuevo, ext2 que crece, FAT y mapa de exFAT): nada de leer antes. Coste: en el Amilo,
+   884 × 1 MB (inodos de 128 bytes) o, con el `/home` de la imagen, 884 × 2 MB = ~1,8 GB; medido en h388 E (que ya escribía
+   todo: el IDE de QEMU anuncia TRIM) 3,2 GB en 126 s en KVM, unos 25 MB/s: **~70 s** para los 110 GB del Amilo en QEMU, menos en
+   un SSD real. El registro dice ahora «N MB escritos (siempre, sin fiarse de lo que ya hubiera)».
+3. Lo ya estropeado lo arregla `reparar` (D397, ampliación del 2026-11-19): la basura de las tablas de los grupos vacíos se
+   pone a cero sin interpretarla.
+
+**Pruebas** (h388): F, `/home` de la imagen ampliado a todo un disco de 2 GB **sin TRIM** (IDE con `discard_granularity=0`) con
+64 KB de restos cada 512 KB detrás: las tablas nuevas se escriben enteras y e2fsck -fn limpio; G, lo mismo en un disco SATA (AHCI)
+sin TRIM con `particiones ampliar hdb1`; H, formatear un ext2 en un SSD AHCI con TRIM (discard=unmap) lleno de 0xAB: ningún TRIM
+(líneas `[BLOCOS] hdb1: TRIM de N sectores desde S`) cae en los metadatos que da dumpe2fs, los datos libres sí se descartan y
+e2fsck limpio. Antes del cambio F y G ya pasaban (el software estaba bien en QEMU); H es la regresión del TRIM.
+
+**Pendiente.** Comprobar en el Amilo (`[BLOCOS] hda9: TRIM de ...` en el registro del formateo, si se guardó). Si un SSD pierde
+escrituras incluso sin TRIM de por medio, haría falta releer los metadatos tras escribirlos; no se hace (no hay indicio).
+
+## D389. Bluetooth con clones CSR 2.0 y por UHCI; enumeración por UHCI con diagnóstico (decidido el 2026-11-18; v8.5.4.10r2, rama `v8.5.4.10r2-bt`)
+
+**Datos (Fujitsu AMILO Pi 1536, ICH7, DEBUG-APP, 2026-11-18).** Pincho `0a12:0001` por UHCI 2 (velocidad completa), HCI/LMP 3
+(Bluetooth 2.0), fabricante 10 (CSR). `bluetooth` se quedaba en «iniciando» con 7 eventos y «errores 2»; el registro solo traía
+`orden de inicio 0c45 rechazada (estado 11): se sigue`. La cuenta encaja así: Reset, versión, BD_ADDR, búferes, máscara y
+*Write_Inquiry_Mode* (6 *Command Complete*, el último con 0x11) y *Write_Simple_Pairing_Mode* contestada con **Command Status 0x01**
+(orden desconocida: un 2.0 no tiene SSP). El inicio solo avanzaba con *Command Complete*; el *Command Status* devolvía el crédito y
+sumaba el error, sin anotar nada, y el paso no acababa nunca (la vigilancia de 5 s solo miraba el crédito). La especificación dice que
+una orden desconocida se contesta con *Command Complete*, pero admite *Command Status*, y los clones CSR lo hacen (Linux lo tolera
+porque `hci_cmd_status_evt` acaba la petición en curso; `net/bluetooth/hci_event.c`).
+
+**Decisión (bt_hci.c).**
+1. El inicio lee *Read_Local_Supported_Features* (0x1003, Core vol. 2 parte C §3.3) tras la versión (no crítica) y **salta** lo que
+   el controlador no anuncia: SSP (byte 6 bit 3) y el modo de búsqueda: 2 con EIR (byte 6 bit 0), 1 con RSSI (byte 3 bit 6), ninguno
+   sin ellos. Como hace Linux en `hci_init*_req` (`net/bluetooth/hci_sync.c`: `lmp_ssp_capable`, `hci_inquiry_mode`).
+2. Un *Command Status* con error para la orden del paso en curso **acaba ese paso** (crítico: fallo; opcional: se sigue).
+3. Si el modo 2 se rechaza sin conocer las características, se prueba con el 1.
+4. Vigilancia: un paso que no acaba en 5 s aunque el crédito haya vuelto se salta (opcional) o falla (crítico).
+5. Cada orden rechazada se anota con su nombre (`inicio: Write_Inquiry_Mode (0c45) rechazada (estado 11): se sigue`; fuera del
+   inicio, las 16 primeras), y `[BT] caracteristicas LMP ...` dice qué anuncia. Así «errores N» se explica en `dmesg`.
+Pruebas en el PC (`tests/bt_unidad.c`, h279 unidad): un simulador «clon CSR» (HCI 3, sin EIR/SSP, Command Status 0x01 para lo
+desconocido, modo 2 rechazado) con y sin características, búsqueda con él, y pasos que no acaban (opcional y crítico).
+
+**Recepción ACL por UHCI (usbbt.c, uhci.c).** Antes no había («solo se puede buscar»): `usb_rx_*` es la recepción continua del EHCI/xHCI
+y su contrato (un paquete por lectura) lo usa el Wi-Fi, así que no se toca. Nuevo `uhci_rx_abrir/ler/fechar/info`: una página con una
+QH detrás de la cabeza de interrupción (cada 8 ms) y **dos juegos de 16 TD** de un paquete (64 bytes), encadenados en profundidad y con
+SPD. Se leen en orden los TD acabados; con un paquete corto, un error o el juego entero hecho se arma el otro juego y se apunta la QH a
+él de una escritura (el controlador nunca ve un TD a medio escribir); la alternancia de datos se lleva por TD completado. Lo leído es un
+flujo de bytes y `usbbt.c` reconstruye los paquetes ACL por la longitud de su cabecera (un ACL múltiplo de 64 no trae paquete corto);
+un resto de más de 0,5 s o una longitud imposible se descarta. Hasta ~128 KB/s: de sobra para HID. `usb` añade «ACL por UHCI: N paquetes
+USB, E errores, D descartados». OHCI sigue sin ACL. **Sin probar en hardware** (QEMU no emula Bluetooth).
+
+**Enumeración por UHCI (usb.c, uhci.c).** El pincho falló el primer intento en el paso 3 (descriptor de 18 bytes tras SET_ADDRESS) y
+entró al segundo (esquema antiguo). El esquema nuevo leía 8 bytes en la dirección 0 y pasaba a SET_ADDRESS **sin reset**; Linux
+(`drivers/usb/core/hub.c`, `hub_port_init`) hace otro reset del puerto entre el primer descriptor y SET_ADDRESS. Se hace igual en la
+raíz de un UHCI (no en hubs ni en EHCI/OHCI/xHCI, que funcionan). La velocidad del puerto se lee **después** del reset. Los tiempos ya
+cumplían USB 2.0 §7.1.7.5 (reset de 50 ms en la raíz, 10 ms de recuperación, 10 ms tras SET_ADDRESS). Para el dispositivo de UHCI 3
+que nunca entra («paso 1» y «paso 2» alternos: no contesta ni en la dirección 0), cada intento fallido deja
+`[UHCI] puerto P: intento N fallido en el paso K; PORTSC X antes del reset, Y despues; ultimo TD ...` con los bits de error del TD
+(stall, buffer, babble, nak, crc/tiempo, bitstuff): crc/tiempo sin respuesta = el dispositivo no contesta (apagado, interno sin
+alimentar); stall = contesta pero rechaza; y las líneas D+/D- (bits 4-5) dicen si de verdad hay algo de velocidad completa.
+
+**Pendiente (Amilo, imagen `pruebas-remotas/amilo-diag2/`):** `bluetooth` listo y `bluetooth buscar` con un móvil visible; emparejar
+un teclado/ratón Bluetooth (PIN `0000`) por UHCI; que el pincho entre al primer intento; el registro del dispositivo de UHCI 3.
+
+## D390. Diagnóstico del 3D común a todas las tarjetas y `gpu3d probar --ver` (decidido el 2026-11-18; v8.5.4.10r2, rama `v8.5.4.10r2-gpu3d-diag`)
+
+**Contexto**: en la D386 el driver de R5xx ganó, para depurar en el Amilo por DEBUG-APP, sentinelas en el destino, un
+análisis de lo que dejó la GPU y un fichero de ajustes de registros; con eso se encontró el fallo del programa de vértices
+sin grabar más imágenes. El mantenedor quiere lo mismo para depurar las próximas gráficas (R6xx/R7xx del dv7, Intel Gen3 y
+las que vengan) y, además, **ver** en la pantalla del portátil qué dibuja la tarjeta en cada etapa de la autoprueba.
+
+**Decisión**:
+- Lo genérico pasa a la capa común (`kernel/gui/gpu3d.c`) con la lógica pura en `kernel/inc/gpu3d_diag.h` (probada en el PC,
+  `tests/gpu3d_diag_unidad.c`, dentro de `h287 unidad`). Cada driver solo declara, en cuatro campos nuevos de
+  `gpu3d_driver_t`: `conf` (nombre del fichero), `faixas` / `n_faixas` (registros que el fichero puede tocar) y `vistas()`
+  (lo que la CPU ve del color y del Z del destino: dirección, paso, 32/16 bits, dónde va el Z en la palabra y si hay caché).
+- **Sentinelas** (`a1b2c3` en el color, `5a5a5a5a` en el Z): solo con `gpu3d probar --detalle` o `--ver`, antes de cada
+  etapa que empieza borrando (limpiar, Z, mezcla, textura, color interpolado, Z de 16 bits; las otras dos dibujan sobre
+  la anterior), tras esperar a que la GPU termine; con la RAM del GTT de Intel se vacía la caché (CLFLUSH). El uso normal
+  (primer uso, SaguiGL) no escribe sentinelas: el camino probado en hardware no cambia. La D386 las ponía en cada destino.
+- **Análisis**: tras leer el cuadro de cada etapa por la interfaz común (`drv->ler`), el log dice
+  `[GPU3D] etapa N (nombre): color (12288 pixeles): X sin tocar (a1b2c3); otros: …` y `Z: X sin tocar, Y al maximo`
+  (o «la CPU no lo ve en esta tarjeta»: el Z de R6xx/R7xx va en mosaico). Tras un fallo (vigilante o autoprueba), lo mismo
+  leyendo el destino directamente si es pequeño (hasta 256x192), sin depender de la GPU.
+- **Ajustes**: `/sistema/conf/gpu3d-<conf>.conf` (solo root; `inicio|dibujo REG VALOR` en hexadecimal, como en la D386). Los
+  lee la capa antes de `iniciar()` y los filtra con los rangos del driver: **r500** `0x2000-0x4FFC` (el mismo fichero
+  `gpu3d-r500.conf` de la D386 sigue valiendo); **r600** el contexto `0x28000-0x28FFC` y la configuración de VGT/PA/SQ
+  `0x8800-0x8DFC`, SPI `0x9100-0x91FC` y `DB_DEBUG`/`DB_WATERMARKS` `0x9830-0x983C`, por la cola (SET_CONTEXT_REG /
+  SET_CONFIG_REG; nunca GRBM ni CP, `0x8000-0x87FF`); **intel** ninguno (el estado de Gen3 va en órdenes 3DSTATE y escribir
+  MMIO desde el ring no se arriesga); **simulado** `0x1000-0x10FC` (dos registros de mentira para las pruebas: XOR del color
+  y «no escribir»). Nunca el MC, los relojes, la energía ni la pantalla. Los rangos sí incluyen las direcciones del destino
+  (p. ej. `RB3D_COLOROFFSET0`, `CB_COLOR0_BASE`): un valor malo puede pintar en otra parte de la VRAM (la imagen se arregla
+  al redibujar o reiniciar; nada persiste), es una herramienta de root para depurar.
+- **`gpu3d probar --ver [segundos]`**: el kernel guarda la imagen de cada etapa (el color leído de 128x96 y el Z en 8 bits,
+  `0xFFFF` = sentinela) y su análisis; la orden las pide una a una (`INFO_GPU3D_PROVA` con `versao = GPU3D_ETAPA_VERSAO`:
+  no gasta un número de INFO, que otras ramas r2 podrían estar usando) y las enseña **en una ventana** del escritorio: el
+  color a 3x, el Z a 2x en gris (magenta = sentinela intacta), el nombre de la etapa, BIEN/MAL, el píxel que no cuadra con
+  un recuadro y las cuentas. Una tecla pasa a la siguiente, Esc o cerrar termina, y **sin teclado avanza sola** a los
+  `segundos` (5 por defecto, de 1 a 60). No toca el modo de vídeo ni la pantalla: es una ventana normal. Sin escritorio
+  (consola, DEBUG-APP) o con `--guardar`, cada etapa queda en `/home/gpu3d-etapaN.bmp` (color | Z). Se eligió guardar y
+  enseñar después, y no dibujar desde el kernel en medio de la prueba: la autoprueba no se para con la GPU a medias, no se
+  pisa el compositor y una GPU colgada no deja la pantalla bloqueada (se ven las etapas que llegaron).
+- `info_gpu3d_prova_t.versao` de entrada pasa a ser de bits (`GPU3D_PROVA_DETALLE` 2, `GPU3D_PROVA_VER` 4): el 2 de antes
+  sigue siendo «con detalle». `reservado[0..2]`: ajustes en uso, líneas malas y si hay imágenes.
+
+**Pendiente**: probar `--ver` en el Amilo (X1400) y en el dv7 (R7xx); ajustes para Intel Gen3 si hiciera falta (con órdenes
+3DSTATE de prueba en vez de registros); capturar también una imagen de la medida si alguna tarjeta falla solo ahí.
+
+## D391. El cuadro del 3D vuelve a la RAM escrito por la GPU (la «vuelta» por la GART de las R5xx) (decidido el 2026-11-18; v8.5.4.10r2, rama `v8.5.4.10r2-gpu3d-directo`)
+
+**Contexto (Amilo, Mobility X1400 RV515, 128 MB, Core Duo T2400):** con el 3D por la GPU (D287, D386) el cubo de `sgldemo`
+(320x240) va a unos 49 fps aunque la GPU hace 348.000 triángulos/s. Dos frenos: (a) cada cuadro, `glFinish`/`sgl_trocar`
+pedía a `r5_ler` que **la CPU leyera el destino de color de la VRAM** (lecturas sin caché por el bus: lo más lento que
+hay en esa máquina) para dejarlo en la ventana; (b) `sgldemo` dormía un tic tras cada cuadro (`dormir(1)`, con el reloj a
+100 Hz: tope de 50-100 fps). El mantenedor pide que el 3D llegue a la pantalla sin esa copia de vuelta por la CPU.
+
+**Opciones valoradas:**
+1. *Copia GPU→GPU del destino 3D a la pantalla* cuando la ventana está entera a la vista: lo más rápido, pero obliga a
+   que el compositor sepa qué tapa a la ventana, reserve ese rectángulo en el búfer de atrás y vuelva a la CPU al mover o
+   tapar. Mucho código en el escritorio y caminos que QEMU no puede probar bien.
+2. **La GPU escribe el cuadro en la RAM por la GART** (elegida). El motor 2D copia el destino del 3D (VRAM) al búfer del
+   programa (la ventana o su memoria) a través de la GART del volcado (D387). Todo lo demás sigue igual: el escritorio
+   compone la ventana (RAM a RAM) y el volcado la lleva a la pantalla por la GPU. Vale con ventanas tapadas, movidas,
+   minimizadas o con el cuadro en memoria (`sgldemo -g`, SDL), y la CPU no toca la VRAM en ningún paso.
+3. *Pantalla completa dibujando en el búfer visible*: solo juegos a pantalla completa; queda para después (puede
+   apoyarse en lo de aquí).
+
+**Decisión:**
+1. **Dónde:** en el «leer el cuadro» del driver 3D (`r5_ler`, y el simulado `s_ler`), con el CP ya parado (su valla):
+   `acel_retornar()` de la capa 2D (`acel2d.c`) intenta la vuelta por la GPU; si dice que no, la CPU lee como antes. No
+   se toca la capa `gpu3d` ni su ABI (otra rama, D390, cambia el diagnóstico común). El destino del 3D se da por su
+   dirección del MC (alineada a 4 KB, paso múltiplo de 64).
+2. **Cómo (driver, `acel_radeon.c`):** una **región 2 de escritura** en la ventana de 16 MB de la GART, justo detrás del
+   búfer de atrás (región 0) y antes de la de la autoprueba. Por cada cuadro: la capa traduce las páginas del destino,
+   el driver las apunta con `LEITURA|ESCRITA` (entradas de la R5xx, con snoop), vacía la TLB de la GART, el motor 2D
+   copia en franjas (`SRC_PITCH_OFFSET` = destino 3D en la VRAM, `DST_PITCH_OFFSET` = región 2 bajada a 1 KB y el resto a
+   la x, como las franjas de D387; si el paso del destino no es múltiplo de 64, fila a fila, con el paso mínimo que cubre
+   la fila), se espera al motor con plazo y **las entradas vuelven a la página de relleno, solo de lectura**. El alfa se
+   quita en la propia copia (ROP3 `0xC0`, origen AND patrón, patrón sólido `0x00FFFFFF`) para que el píxel sea el de la
+   CPU (`& 0x00FFFFFF`); si una tarjeta no aplicara el ROP, la autoprueba lo ve y se copia tal cual (el escritorio no usa
+   el alfa; `infopc` lo dice).
+3. **Seguridad (aquí la GPU escribe en la RAM del sistema, al revés que en D387):**
+   - solo si la **lectura** por la GART superó su autoprueba en esta sesión (la del volcado, que comprueba que la GPU lee
+     justo las páginas apuntadas): con `volcado_gpu=no` esa prueba se hace igualmente, sin encender el volcado;
+   - **autoprueba propia**: la zona de prueba de la VRAM (con alfa) a dos búferes del kernel, uno con el paso del
+     escritorio y otro con un paso torcido que empieza a mitad de página, **rodeados de guardas** (una página delante y
+     dos detrás, y el hueco de cada fila). Un píxel distinto apaga la vuelta; **una sola palabra escrita fuera** también, y
+     lo dice el log («la GPU escribio N palabras FUERA del destino»);
+   - **escritura solo durante la copia**: las entradas con escritura existen entre `mapear_escrita` y la espera (con las
+     interrupciones cerradas; el kernel corre en la CPU 0, así que ni la swap ni otro proceso pueden mover esas páginas en
+     medio); después, siempre, a solo lectura. Un cuelgue posterior de la GPU no puede escribir en la RAM;
+   - páginas: presentes, de **RAM del E820** (`memfisica_sobre_ram`: nunca un BAR mapeado por un programa) y, si son del
+     programa, con `PG_USUARIO|PG_ESCRITA` en su propio espacio. Las ventanas de los programas son memoria contigua del
+     kernel prestada (D059), así que la GPU escribe lo mismo que escribiría la CPU;
+   - un plazo agotado o una orden rechazada: las entradas se quitan, el vigilante apaga la vuelta y, con la GPU de verdad,
+     el 2D entero (el motor es el mismo; la GART y el bus maestro se apagan con él). Ese cuadro lo lee la CPU;
+   - nada nuevo en MC_FB_LOCATION, relojes, energía ni modos: la misma GART de D387.
+4. **La GART** queda encendida mientras el volcado **o** la vuelta estén activos (`gart_encender`, `gart_soltar_se_livre`);
+   apagar uno (`acel2d volcado apagar`, `acel2d vuelta apagar`) no apaga el otro.
+5. **Rendimiento esperado:** el cuadro de 320x240 son 300 KB escritos por la GPU por PCI Express (del orden de 1 ms) en vez
+   de 76.800 lecturas de la CPU por el bus; lo que queda en la CPU es SaguiGL (matrices y recorte) y componer la ventana
+   en la RAM. Medidas en QEMU: no dicen nada (la GPU simulada copia con la CPU).
+6. **`sgldemo`** ya no duerme un tic por cuadro: solo si van tres cuadros en el mismo tic de 10 ms (unos 300 fps; si no,
+   cede el turno). `sgldemo -n N` abre la ventana, dibuja N cuadros y escribe ms, fps reales, el camino y la suma del
+   último cuadro; `-s` quita cualquier pausa. `sgldemo -g` escribe la suma de cada escena por la GPU y cuántos cuadros
+   volvieron por la GPU.
+7. **Opciones y diagnóstico:** `kconfig vuelta_gpu=si|no` (hueco 17; bit 4 de `CAB_ACEL_OPC`, `mkimagem.py
+   --sin-vuelta-gpu`); `acel2d vuelta [apagar|encender|medir]` (`INFO_ACEL2D_CTL` 5-7, administrador; medir trae 8 veces
+   320x32 de la VRAM por la GPU y por la CPU y lo escribe en el log); `acel2d` e `infopc` («Vuelta del 3D por GPU»);
+   `info_acel2d_t` crece al final (el kernel acepta los tamaños de antes). Log: `[ACEL2D] vuelta: autoprueba ...`,
+   `vuelta por la GPU activa|apagada`, `este cuadro (LxA) lo lee la CPU: motivo` (las cuatro primeras veces) y, con
+   `acel2d probar --detalle`, la región 2 (`region 2 (escritura) desde la pagina N ..., entrada X`: fuera de una vuelta
+   tiene que ser la página de relleno). Para las pruebas: la GPU simulada de D387 gana la región 2 (tabla con las
+   entradas de la R5xx; cuenta las escrituras que caerían en una entrada sin escritura) y `--volcado-gpu-prueba=
+   vuelta-fallo|vuelta-cuelgue` (bits 5 y 6).
+8. **Intel:** el mismo camino vale con el GTT de las Gen3 (D358) cuando haya máquina; no se hace en esta tanda.
+
+**Pruebas (QEMU, KVM):** `tests/volcado_unidad.c` (h394 `unidad`): franjas de destino con pasos múltiplos de 64 y
+torcidos, destinos que empiezan a mitad de página, páginas por encima de 4 GB, y un motor que solo escribe donde la
+entrada lo permite: el rectángulo queda con el origen sin alfa y **nada más cambia** (ni las filas, ni las páginas de
+alrededor). h394 `vuelta`: autoprueba superada; `sgldemo -g` y la ventana del cubo (`sgldemo -n 12`) dan **las mismas
+sumas** con la vuelta y sin ella (todos los cuadros por la GPU, también los de la memoria alta del programa), 0
+escrituras perdidas, `acel2d vuelta medir`, `infopc`, `kconfig`, `--sin-vuelta-gpu`; h394 `vfallos`: autoprueba con un
+píxel distinto (no se enciende) y un cuelgue en sesión (se apaga y las sumas siguen iguales).
+
+**Revisión (depurador-drivers, 2026-11-18):** (1) la GART PCIE de las R300-R5xx **no comprueba** los bits de lectura y
+escritura de las entradas salvo con `PCIE_TX_GART_CHK_RW_VALID_EN` (bit 5 de `PCIE_TX_GART_CNTL`, `radeon_reg.h`), que Linux 6.6
+no enciende (`rv370_pcie_gart_enable`, `r300.c`): una entrada «solo de lectura» es escribible por el motor. Lo que protege de
+verdad es que fuera de una vuelta **todas las entradas no usadas apuntan a la página de relleno**; por eso ahora también se
+vacían la región 1 tras la autoprueba (antes quedaba apuntando al búfer ya liberado) y la región 0 cuando la GART sigue solo por
+la vuelta. (2) Apagar la GART con el motor ocupado (cuelgue, plazo agotado) dejaría pasar sus escrituras pendientes tal cual
+(la dirección del MC de la ventana como física) si el bus maestro ya estaba encendido por la BIOS: `gv_soltar` deja entonces la
+GART **aparcada** (encendida, todo a la página de relleno, fuera de la ventana descartado) y no la reutiliza en la sesión
+(log `GART aparcada`). La GPU simulada sigue contando como «perdida» la escritura en una entrada sin escritura: eso modela
+una GART más estricta que la real.
+
+**Pendiente (hardware):** el Amilo. Qué mirar: `[ACEL2D] vuelta: autoprueba IGUAL que la CPU` (si FALLO, el primer píxel
+y si hubo palabras FUERA del destino), la medida de la autoprueba y de `acel2d vuelta medir` (GPU frente a CPU leyendo
+la VRAM), `sgldemo -n 300` con la vuelta y sin ella (fps y suma iguales), y que el escritorio y el 2D siguen igual tras
+usar el 3D.
+
+**Amilo, 2026-11-19 (depurador-drivers, rama `v8.5.4.10r2-volcado-cp`):** la vuelta comparte el motor con el CP del
+3D, que está en marcha justo cuando se usa (leer el cuadro). Con el arreglo de D387 («Amilo, 2026-11-19: el motor
+colgado con el 3D encendido y el volcado») sus franjas también van por el anillo del CP (las mismas escrituras, con el
+patrón y el ROP de la máscara), cada una esperada con la valla antes de la siguiente; la GART (tabla y TLB) solo se toca
+con el CP parado (`r5_ler` ya esperó su valla). El cuelgue de `90010140` pasaba también con la vuelta apagada: la
+vuelta no era la causa, pero por MMIO tenía el mismo riesgo.
+
+## D392. Kernel de prueba que se arranca una sola vez (`arranque`), y cambiar la etapa 2 en un disco ya grabado (decidido el 2026-11-19; v8.5.4.10r2, rama `v8.5.4.10r2-kernel-prueba`)
+
+**Problema.** Probar un kernel nuevo en una máquina real (el Amilo, por DEBUG-APP) sin regrabar el disco y sin el
+riesgo de dejarla sin arrancar: si el kernel nuevo se cuelga, nadie está delante para arreglarlo.
+
+**Decisión.** Como `grub-reboot`: una **ranura de prueba** descrita en la cabecera de arranque y una marca de «una vez»
+que **la etapa 2 borra en el disco antes de cargar la prueba**.
+
+1. **Dónde se describe.** En la segunda mitad de la cabecera (LBA 1, bytes 256-511, `CAB_PR_*` en `boot/cabecalho.inc`),
+   que estaba a cero y que el kernel **no compara** para reconocer su disco (`detectar_arranque` mira los 256 primeros):
+   preparar o gastar la prueba no cambia qué disco es el de arranque, ni estorba a `pantalla --guardar` y `kconfig`
+   (`cab_regravar` lee el sector del disco y conserva lo demás). Firma `SGPR`, estado (`PR_PENDENTE` una vez,
+   `PR_ARRANCADA`, `PR_FIXA`), hasta 4 tramos del kernel y 4 de un ramdisk propio (0 = el ramdisk normal), bytes, suma
+   simple (la de `CAB_K_SOMA`), entrada, dirección del ramdisk detrás de la BSS de ese kernel, suma de la descripción
+   (bytes 261-351; el estado queda fuera porque lo cambia la etapa 2), hora y nombre.
+2. **Etapa 2.** Si ve la ranura válida y `PR_PENDENTE`: quita la marca (y pone `PR_ARRANCADA`) en su copia, **escribe el
+   LBA 1** (INT 13h AH=43h, o AH=03h por CHS), lo relee y lo compara; solo si salió bien carga la prueba. Si no se pudo
+   escribir, arranca el normal (si arrancase la prueba sin poder borrar la marca, un cuelgue se repetiría siempre).
+   Si los datos de la prueba no suman lo que dicen, arranca el normal **en ese mismo arranque**. Nunca desde un CD ni
+   con Ctrl (rescate: con el kernel normal y la marca intacta). La etapa 2 pone `OPC_KERNEL_PRUEBA` (0x100000) y, si
+   está fijada, `OPC_KERNEL_FIXO` en `boot_info.opcoes`, que `INFO_ARRANQUE` da tal cual (también un kernel de antes):
+   `arranque estado` sabe con qué arrancó. El kernel nuevo lo apunta (`[BOOT] kernel de prueba ...`). Sin marca, la
+   etapa 2 hace exactamente lo de antes (la cabecera de siempre vale tal cual). Lleva una marca `SGE2` en el byte 2
+   (detrás de un `jmp short`): `arranque` sabe si la etapa 2 del disco entiende la ranura.
+3. **Dónde va la prueba.** En **sitio libre de la partición de SaguiOS (0xDA)**, nunca encima de la etapa 2, el kernel o
+   el ramdisk que arrancan ahora. `mkimagem.py` deja ese sitio: `--ranura-mb` (por defecto 1,5 veces kernel y ramdisk,
+   en MB enteros; el CD, nada); los discos instalados ya lo tenían (la partición mide el doble del sistema, 64 MB como
+   mínimo). Una imagen grabada antes **no tiene sitio** (la partición acaba donde el ramdisk): entonces la prueba va
+   como **fichero en la ESP** (FAT32 0xEF) del mismo disco, escrita por el sistema de archivos, y `arranque` lee la FAT
+   para dar a la etapa 2 sus sectores (hasta 4 trozos). El arranque por BIOS no usa la ESP; el UEFI no la ve como
+   kernel (`/SAGUI/KERNEL.BIN` sigue igual).
+4. **`arranque`** (userland, como root): `estado` (etapa 2, kernel y ramdisk con LBA, tamaño, suma comprobada y sha256;
+   sitio libre; la ranura; con qué arrancó), `probar KERNEL [RAMDISK]`, `confirmar [--forzar]`, `cancelar`, `etapa2
+   FICHERO`. Comprueba que el kernel es un `kernel.bin` de SaguiOS por su primera instrucción (`kernel/arch/entrada.asm`:
+   `cli; mov esi,eax; mov edx,ebx; cld; mov edi,_bss_inicio; mov ecx,_bss_fim`): de ahí salen el fin de la BSS (la
+   dirección del ramdisk, como `_kernel_fim` en mkimagem) y que el fichero esté entero (la BSS empieza justo detrás).
+   El ramdisk tiene que ser un SGFS entero. Orden de escritura en `probar`: quitar una marca vieja, escribir los datos,
+   releer y comparar, y **la cabecera la última** (un sector). Antes de escribir la cabecera se relee y tiene que seguir
+   igual que al empezar.
+5. **`confirmar`.** Con la ranura en la partición y de una pieza: la cabecera pasa a apuntar a ella (kernel y, si lo
+   lleva, ramdisk; `CAB_IMG_SETORES` hasta la última parte) en **una escritura de un sector**; el kernel de antes queda
+   como sitio libre. No se copia nada encima de lo que arranca (una copia cortada a medias dejaría el disco sin
+   arrancar). En la ESP: se fija (`PR_FIXA`: la etapa 2 la arranca siempre; si un día no suma, el normal);
+   `cancelar` vuelve al de antes. Sin `--forzar`, solo desde el propio arranque de prueba.
+6. **`etapa2`.** La nueva se escribe en sitio libre de la partición (en sus primeros 8 MB, por el MBR por CHS), se relee
+   y después la cabecera pasa a apuntar a ella (`CAB_E2_LBA`/`CAB_E2_SETORES`, un sector). Nunca encima de la que
+   arranca. Así un disco con la etapa 2 vieja (el Amilo, imagen `prueba-amilo-r2`) recibe la nueva por DEBUG-APP.
+7. **Permisos de escritura.** Por `SIS_DISCO_BLOCOS`, como el instalador: sin nada montado del disco, la reserva de
+   siempre (`DBLOCO_CONF_ARRANQUE`); con particiones montadas, D213 más **`DBLOCO_CONF_SAGUI`** (nuevo): con él el
+   kernel deja escribir **dentro** de la partición de SaguiOS sin montar del disco de arranque; lo montado sigue
+   intocable y la tabla tiene que seguir igual. Un kernel de antes no lo conoce y rechaza la escritura sin escribir
+   nada (`arranque` lo explica: arrancar con M → «2 todo a la RAM» y desmontar lo que quede del disco).
+8. **instalar.** Copia desde la primera de las tres partes hasta el final de la última (la etapa 2 o el kernel pueden
+   estar detrás del ramdisk) y no copia la ranura (bytes 256-511 a cero en el disco nuevo).
+
+**Riesgos que quedan.** (a) La escritura de un sector de la cabecera (etapa 2 al borrar la marca, y `arranque` al
+cambiarla) es el único momento en que un corte de luz puede dejar el disco sin arrancar («Cabecera invalida»); es lo
+mismo que ya hacían `pantalla --guardar` y `kconfig`. (b) Tras `etapa2` o `confirmar`, la cabecera del disco ya no es la
+de la memoria: hasta reiniciar, el kernel no la reconoce como la del disco de arranque (`pantalla --guardar` y `kconfig`
+no la cambian; `arranque` encuentra el disco por `DISCO_BOOT` o `--disco`). (c) Un `instalar` de antes de D392 desde un
+disco con la etapa 2 movida copiaría mal (cree que la etapa 2 va primero). (d) Solo BIOS: por UEFI la ranura se ignora
+(y `probar` se niega); la marca queda para el siguiente arranque por BIOS.
+
+**Pruebas:** h396 (QEMU): disco con la etapa 2 de antes → `etapa2`; `probar` un kernel distinto (arranca una vez y vuelve
+el normal); un kernel que se cuelga al entrar (el siguiente arranque, el normal); `cancelar`; `confirmar` (queda fijo);
+imagen sin hueco (`--ranura-mb 0`) con ESP: la prueba desde la ESP, fijada y cancelada.
+Además (a mano, sin prueba en el repositorio): el `arranque` nuevo sobre el sistema de `prueba-amilo-r2` (kernel y
+etapa 2 de antes, la misma disposición que el disco del Amilo: partición de SaguiOS de 4415 sectores y ESP en el 6144):
+con la live montada se niega sin escribir nada; en toram (`--modo-raiz toram`, lo que da M → 2) y tras `umount
+/sistema/conf`, `etapa2` (al LBA 4384) y `probar` (en la ESP) funcionan, el reinicio arranca la prueba y el siguiente
+vuelve al normal.
+
+### D392 (ampliación del 2026-11-19, rama `v8.5.4.10r2-arranque-respaldo`): el último bueno
+
+**Problema (visto en un portátil real).** Con un kernel de prueba ya fijado (`confirmar` en la ESP), `probar` se negaba
+(«cancelar antes») y `cancelar` volvía al kernel **de la imagen**, no al último que se sabía bueno: para probar uno
+nuevo había que renunciar al bueno, y un fallo de la prueba devolvía un kernel aún más viejo. En la partición,
+`confirmar` cambiaba el kernel de la cabecera y el de la imagen quedaba como sitio libre (se perdía).
+
+**Decisión.** Tres kernels, y la cabecera de la imagen (bytes 0-255) ya no la cambia `arranque` nunca:
+
+1. **Original**: `CAB_K_*`/`CAB_R_*`, lo que grabó `mkimagem`/`instalar`. Es lo que arranca una etapa 2 vieja, el modo
+   rescate (Ctrl) y el CD, y el último recurso.
+2. **Último bueno**: una **segunda ranura** en los bytes 392-511 (`CAB_PB`), con la **misma disposición relativa** que
+   la de prueba hasta la nota (firma `SGPR`, estado `PR_FIXA`, tramos, sumas, la misma suma de +5..+95) y la nota de
+   16 bytes. Cabe justo: la de prueba usa 256-391. La deja `confirmar`, copiando la ranura de prueba en una escritura
+   de un sector (lo que hubiese antes queda como sitio libre).
+3. **En prueba**: la ranura de siempre (256-391), con `PR_PENDENTE` una vez.
+
+**Etapa 2** (capacidades `SGE2` = 3: bit 0 la prueba, bit 1 el último bueno): prueba pendiente (borra la marca en
+el disco y la arranca) > prueba con `PR_FIXA` (lo que dejaba el primer `confirmar`; se respeta) > último bueno >
+original. Para el último bueno **copia en memoria** los bytes 392-511 encima de 256-375 (nota cortada, el resto a
+cero) y usa el mismo código de carga: casi nada de código nuevo (la etapa 2 sigue en 11 sectores). Se copia solo
+después de la última escritura de la cabecera, así que el disco nunca recibe esa mezcla. Si la prueba no suma o no
+se lee, en ese mismo arranque pasa al último bueno, y si tampoco, al original. `OPC_KERNEL_PRUEBA` solo = prueba de
+una vez; con `OPC_KERNEL_FIXO` = el último bueno (`[BOOT] kernel de prueba ...: el ultimo bueno (confirmado)`).
+
+**Datos sin pisarse.** En la partición, la prueba nueva va en sitio libre fuera de la etapa 2, el original **y el
+último bueno** (la prueba vieja sí se reutiliza). En la ESP, dos juegos de ficheros: `sagui-prueba-kernel.bin`
+(`CAB_PR_ONDE` = 1, el nombre de antes) y `sagui-prueba2-kernel.bin` (= 2); la prueba va al que **no** usa el último
+bueno. Con ramdisk propio, igual (`...-ramdisk.bin`).
+
+**Órdenes.** `probar` acepta un kernel nuevo aunque haya un último bueno; `confirmar` (desde el arranque de la prueba,
+o `--forzar`) la pasa a último bueno; `cancelar` quita solo la prueba (vuelve el último bueno); **`original`** quita
+las dos ranuras (vuelve el de la imagen; los ficheros de la ESP quedan, sin uso); `estado` muestra los tres.
+
+**Compatibilidad.** (a) Discos de antes de D392: los bytes 256-511 están a cero, todo igual. (b) Etapa 2 de D392 sin
+el bit 1: no ve el último bueno (arrancaría el original), así que `probar` y `confirmar` se niegan hasta `arranque
+etapa2`; una prueba pendiente que ya hubiese la sigue arrancando bien (el formato de la ranura de prueba no cambia).
+(c) Un fijado del primer `confirmar` (en la ranura de prueba, ESP) se sigue arrancando con las dos etapas 2, `estado`
+lo muestra como último bueno «[formato de antes]» y `probar`/`cancelar` lo pasan a la ranura del último bueno en la
+misma escritura de la cabecera. (d) Un disco que la primera versión confirmó en la partición tiene ya ese kernel
+como original: no hay nada que migrar. (e) `instalar` copia el original (la ranura sigue sin copiarse): un último
+bueno no pasa al disco instalado (pendiente si hiciera falta).
+
+**Riesgos.** Los de antes, salvo el (b): `confirmar` ya no cambia los 256 primeros bytes, así que el kernel sigue
+reconociendo su disco. El espacio: con `--ranura-mb` por defecto (1,5 veces kernel y ramdisk) caben dos kernels sin
+ramdisk propio; con ramdisk propio en las dos ranuras puede no caber y la prueba va a la ESP (o, sin ESP, `probar`
+dice cuánto falta).
+
+**Pruebas:** h396 B (partición): `probar` A y `confirmar` (la cabecera de la imagen intacta); `probar` B sin confirmar
+→ el siguiente reinicio vuelve A; un kernel que se cuelga → vuelve A; B con los datos estropeados en el disco → en
+ese mismo arranque A; `probar` C y `confirmar` → C fijo; `cancelar` sin prueba no cambia nada; `original` → el de la
+imagen. h396 C (ESP, `--ranura-mb 0`): un fijado del formato de antes arranca y pasa a último bueno al probar B (que
+va al otro fichero); B sin confirmar → A; C confirmado (fichero 2) arranca fijo; `original`.
+
+## D397. «reparar»: un reparador de ext2 propio dentro de SaguiOS (decidido el 2026-11-19; v8.5.4.10r2, rama `v8.5.4.10r2-reparar-ext2`)
+
+**Contexto (Amilo):** tras varios cuelgues totales, tres ext2 del disco de arranque quedaron «no se desmontó bien» y
+el comprobador del kernel (`fsck_basico`, D379 F: solo rehace mapas y contadores) los montó **de solo lectura**:
+hda7 SAGUI-PERSIST (la capa de la live) y hda9 SAGUI-DATOS (`/home`) con «un inodo apunta fuera del volumen», hda8
+SAGUI-JOGOS con «un bloque lo usan dos sitios». Hasta ahora la única salida era e2fsck desde otro sistema.
+
+**Decisión:** una orden `reparar` (alias `fsck`) con el motor en la libsagui (`userland/libsagui/reparo_ext2.c`,
+API en `particoes.h`), escrito desde la descripción del formato ext2, **sin código de e2fsprogs** (que tiene partes
+GPL-2.0-only, incompatibles con la GPL v3 del proyecto). Los pasos son los clásicos de un comprobador de ext2 (los
+describe el comentario del archivo): 0 superbloque (con copia de respaldo si el principal está mal) y descriptores (con
+la copia de la tabla), 1 inodos, 1B bloques compartidos, 2 carpetas, 3 conexión, 4 enlaces, 5 mapas y contadores.
+
+1. **Nada se escribe hasta el final.** El análisis prepara todo en memoria (un mapa de bloques «sucios»; el disco no
+   se toca). `reparar -n` se queda ahí. Así el informe de `-n` es exactamente lo que haría `-y`, y la pregunta de
+   confirmación llega con todo el informe delante.
+2. **Copia de seguridad antes de escribir** (por defecto `/tmp/reparar/<vol>-<fecha>.copia`; `--copia` para otro
+   disco, `--sin-copia` para ninguna): los bloques que van a cambiar tal y como están, y el superbloque.
+   `reparar --deshacer COPIA vol` lo deja exactamente como estaba (h397 lo comprueba byte a byte).
+3. **Orden de escritura seguro:** bloques que estaban libres (copias de bloques compartidos, lost+found nueva),
+   carpetas, indirectos e inodos, mapas, tabla de grupos y **el superbloque el último** (con «desmontado bien»). Un
+   corte a medias deja el volumen marcado como «no se desmontó bien»: el kernel no lo monta con escritura sin
+   comprobarlo y `reparar` se puede repetir.
+4. **Bloques que usan dos sitios: se copian**, no se sueltan. No hay forma de saber de quién era el bloque; con la
+   copia ninguno de los dos archivos pierde nada (uno de ellos tendrá el contenido del otro en ese trozo) y el informe
+   los lista con su ruta para revisarlos. El de número de inodo más alto conserva el original; si el otro dueño son
+   metadatos (mapas, tabla de inodos), el archivo recibe la copia. Solo si no queda ni un bloque libre se suelta del
+   archivo (queda un hueco). Lo mismo hace e2fsck por defecto.
+5. **Punteros fuera del volumen: se quitan** (hueco o archivo más corto). Con más de 12, el inodo es basura (una tabla de
+   inodos a medio escribir) y se borra, como e2fsck.
+6. **Seguridad del volumen:** solo sin montar o montado de solo lectura; uno montado con escritura se niega, también
+   con `-n`. La raíz en uso no se toca (la base y la capa de la live: para la capa, arrancar con M → «2 todo a la
+   RAM»). Con `-n` no se desmonta nada; para reparar, se desmonta antes de analizar (lo analizado es lo que se escribe),
+   se reserva el disco con `DBLOCO_CONF_MONTADO` (el kernel no deja escribir fuera de la partición ni en lo montado) y
+   al acabar se comprueba otra vez y se vuelve a montar donde estaba, con escritura. En el disco de arranque basta la
+   confirmación de `reparar` (no la doble de `particiones`): solo se escribe dentro de esa partición.
+7. **Solo ext2 puro** (lo que crean `mke2fs -t ext2` y SaguiOS: sparse_super, large_file, filetype, resize_inode,
+   dir_index, ext_attr): ext3/ext4, flex_bg, sumas o 64 bits se niegan con el motivo. Una carpeta indexada (htree) que
+   se cambia pierde la marca de índice (se lee entera; sigue siendo válida). resize_inode se comprueba y, si no cuadra con
+   la geometría, se rehace como lo hace D213. La raíz del volumen destruida: se niega (e2fsck).
+8. **El kernel** dice ahora «no se desmontó bien y no se puede comprobar (...): solo lectura; ejecuta «reparar hdaN»» y lo
+   mismo en el aviso de la consola.
+
+**Salida:** 0 estaba bien, 1 reparado, 4 quedan problemas (con `-n`, o si no se confirma), 8 error (como e2fsck). Registro:
+líneas `reparar:` (análisis, copia, escritura, comprobación de después, desmontar/montar).
+
+**Pruebas:** h397. A (anfitrión, el motor compilado para el PC como h318, `tests/recursos/reparo_anfitriao/`): ext2 de 1 KB
+(3 grupos) y 4 KB generados con mke2fs y estropeados a propósito (puntero fuera, bloque compartido, mapa desfasado en los
+dos sentidos, contadores, entrada a un inodo borrado, huérfano, enlaces de archivo y de carpeta, fecha de borrado en un
+inodo vivo, «..» mal, cadena de entradas rota, «no se desmontó bien»): analizar no cambia la imagen (sha256), reparar deja
+`e2fsck -fn` limpio y los archivos sanos idénticos, deshacer devuelve la imagen exacta, y un superbloque principal a cero se
+rehace con su copia. B (QEMU): lo mismo en un pendrive con `reparar -n` / `reparar -y` y el kernel la monta con escritura.
+C (QEMU): el caso del Amilo, `/home` estropeada en el disco de arranque: el kernel la monta de solo lectura con el aviso
+nuevo, `reparar -y` la desmonta, repara y vuelve a montar con escritura.
+
+**Reparación al arranque, botón y resize_inode (v8.5.4.10r2, rama `v8.5.4.10r2-reparar-arranque`):**
+
+1. **Modo `-p` (preen)** de `reparar`: sin preguntar, pero solo si lo que hay que escribir no pierde nada que se pudiera
+   leer. Se permiten mapas, contadores, enlaces, la marca de «no se desmontó bien», lost+found, punteros a bloques que no
+   existen y bloques compartidos (cada archivo se queda su copia; el registro y el aviso lo dicen). NO se permiten
+   (`reparo_arriscados`): inodos borrados (también el bloque de atributos quitado), bloques soltados sin sitio, entradas de
+   carpeta descartadas (nombres que se pierden) y un superbloque rehecho con su copia. Con algo de eso, no toca nada y sale
+   con 4.
+2. **Servicio `reparar-arranque`** (`/etc/servicios/reparar-arranque.conf`, `arrancar=si`, una vez por arranque):
+   `reparar --arranque` recorre los ext2 montados de solo lectura cuyo superbloque está marcado sucio (el kernel no lo toca en
+   ro), y a cada uno le aplica `-p`; si queda limpio, lo vuelve a montar con escritura y avisa (registro, consola y
+   notificación). Lo demás se queda en solo lectura y el aviso dice «ejecuta reparar hdaN». La raíz y la capa de la live en uso
+   se niegan (solo se avisa). Se apaga con `servicio desactivar reparar-arranque` o con el archivo
+   `/sistema/conf/reparar-arranque.no`; encendido por defecto.
+3. **Botón «Reparar...»** en Discos > Particiones (ext2 seleccionado): pasa `reparar -n` (opción `--salida` escribe el
+   resultado a un archivo que la ventana muestra), pide confirmación y pasa `reparar -y`. La ventana de particiones pasa a
+   900 px (nueve botones de 92 px).
+4. **resize_inode en el formateador ext2 propio** (`formatacao.c`): como mke2fs, bloques de la tabla de grupos reservados
+   para crecer hasta 1024 veces (tope de 2^32 bloques y de bs/4 bloques) e inodo 7 con su doble indirecto; así `/home`
+   formateado en SaguiOS se puede ampliar (`ampliar-home`, `fs_ext2_maximo`) sin rehacerlo.
+
+Pruebas: h397 C (el caso del Amilo ahora se repara solo al arrancar), E (algo arriesgado: queda en ro y avisa; a mano
+`reparar -y`; era la D en su rama, que pasó a E al fusionar con la D de la basura de abajo) y F (host: formatear + e2fsck limpio + crecer x3 y x16).
+
+**Al fusionar las dos ramas en `v8.5.5` (2026-11-19):** (a) poner a cero las tablas de inodos con basura de los grupos
+vacíos (la ampliación de D397 de abajo) cuenta como **arriesgado** para `-p` (`reparo_arriscados` suma `g_lixo`): no pierde
+nada si la heurística acierta, pero escribe metadatos por una suposición, y el servicio del arranque no tiene a nadie delante;
+el volumen queda de solo lectura con el aviso y se arregla con `reparar -y`. (b) El TRIM del formateo (D388) descarta en el
+grupo 0 desde detrás del doble indirecto de resize_inode (3 bloques tras la tabla de inodos, no 2): lo que se escribe nunca
+se descarta. (c) h397: la D de la rama del arranque (lo arriesgado en QEMU) pasa a ser la E.
+
+**Pendiente:** ext3/ext4 (el diario ya lo reproduce el kernel); probar el botón con captura en una máquina real.
+
+### D397 (ampliación del 2026-11-19, rama `v8.5.4.10r2-ampliar-fix`): tablas de inodos con basura en grupos vacíos
+
+**Problema.** El `/home` del Amilo (D388, ampliación del 2026-11-19) tiene en las tablas de inodos de grupos que no usa
+ningún archivo cientos de «inodos» que son restos de otro sistema de archivos. El reparador (como e2fsck) los trataba como
+archivos: los de extents o con más de 12 punteros fuera se borraban (dejando la basura con fecha de borrado), pero un inodo
+basura «creíble» (tipo normal, sin fecha de borrado, punteros dentro del volumen) se tomaba por un archivo vivo: sus bloques
+pasaban a «en uso» (y a copiarse si coincidían con los de un archivo de verdad), iba a /lost+found y, lo peor, si su indirecto
+caía en el bloque de un archivo de verdad casi todo ceros, ese bloque se leía como indirecto y se «arreglaba»: **se cambiaba
+el contenido de un archivo de verdad** (reproducido en el anfitrión: h397 D, `esparso.bin`).
+
+**Decisión.** Antes del paso 1, `grupos_vazios`: un grupo (nunca el 0) es **vacío** si su mapa de inodos está a cero, su
+descriptor dice todos libres y ninguna carpeta, y **ningún inodo del primer bloque de su tabla parece de verdad**
+(`parece_vivo`: en uso, sin fecha de borrado, tipo que existe, sin extents, punteros dentro del volumen). Lo último cubre el
+único caso legítimo de un inodo en uso fuera del mapa: un archivo creado justo antes de un corte con el mapa sin grabar; el
+kernel da siempre el inodo libre más bajo del grupo (`alocar_inode`), así que estaría al principio de la tabla. En un grupo
+vacío los inodos no se interpretan: cuentan como libres, ningún bloque se marca, y los bloques de la tabla que no son todo
+ceros se anotan (`zerar`, un bit por bloque de tabla) y se **ponen a cero al escribir**, los primeros, por tramos de 64 KB y
+sin pasar por los «sucios» (en un disco grande podrían ser cientos de MB; en el Amilo, unos KB por grupo). El análisis los ve
+ya a cero (`ler_bloco`/`sujar`). Si una carpeta de verdad (paso 2) apunta a un inodo no nulo de un grupo vacío, ese grupo deja
+de ser de fiar y **el análisis se repite entero** (`reparo_analisar`, hasta 4 veces; en la última, sin fiarse de ningún grupo:
+todo inodo a inodo, como antes). La basura va a la copia de «deshacer» mientras no pase de 64 MB (si es más, se dice y no se
+guarda: no la usa nada). Las pasadas siguientes (1B) se saltan los grupos vacíos. Informe: una línea por grupo («grupo N: no
+tiene inodos en uso, pero su tabla de inodos tiene basura (X inodos...): se pone a cero») y una en el resumen.
+
+**Tiempo y memoria.** La tabla de cada grupo se lee una vez (en el Amilo, 884 × 1 MB): lo que tarde el disco en leer ~1 GB; las
+demás pasadas solo leen los grupos con inodos. En el anfitrión, un ext2 con la geometría exacta del Amilo (113.121 MB, 884 grupos,
+7.241.728 inodos) y basura en 272 grupos: 0,9 s y 11 MB de memoria. `reparar` vuelve a analizar después de escribir (otra lectura).
+
+**El kernel** (`fsck_basico`) no cambia: con un inodo así se niega y monta de solo lectura (no escribe nada), que es lo seguro.
+
+**Pruebas:** h397 D (anfitrión): ext2 de 1 GB con la geometría del Amilo (4 KB, 8192 inodos de 256 bytes por grupo), archivos de
+verdad en el grupo 0, inodos de un ext4 viejo (enlaces simbólicos y dispositivos) y bloques aleatorios desde la mitad de las
+tablas de los grupos 3-7, el inodo basura creíble del grupo 6, un archivo de verdad en el índice 0 del grupo 7 sin carpeta ni mapa
+(va a /lost+found entero: el grupo no se toma por vacío) y una carpeta de verdad que apunta a un inodo del grupo 5 (se repite el
+análisis y el archivo se conserva). reparar: e2fsck -fn limpio, todos los archivos iguales (sha256), las tablas de los grupos 3, 4
+y 6 a cero, ni un bloque de más en uso, una segunda pasada limpia y deshacer devuelve la imagen exacta.
+
+## D404. SaguiGL más realista: filtro bilineal, mipmaps, perspectiva, luces por vértice, la escena «paisaje», OBJ y caché de texturas en la GPU (decidido el 2026-11-19; v8.5.4.10r2, rama `v8.5.4.10r2-saguigl`)
+
+**Contexto**: la SaguiGL se usa para probar el 3D en hardware real (Radeon X1400 R5xx del Amilo, HD 4500 R7xx del HP),
+pero solo tenía texturas RGBA con el vecino más próximo, luz plana por cara de una luz y niebla por la z de la ventana, y
+sgldemo cuatro escenas pequeñas. El mantenedor pidió algo más parecido a un juego para medir (fps según la VRAM), y
+después un cargador de modelos OBJ con un avión.
+
+**Decisión**:
+- **Ruta «realista» aparte** (`triangulo_v7` en `sgl.c`), que solo se usa cuando el programa pide algo nuevo: filtro
+  distinto de `GL_NEAREST`, `glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST)`, normales (`glNormal3f`,
+  `GL_NORMAL_ARRAY`), `glMaterial`, `glEnable(GL_LIGHTn)` o `glFogf(GL_FOG_MODE, ...)`. Las rutas de v5 y v6 no cambian:
+  los programas de antes dan los mismos píxeles (h405 compila h77 y h101 con el `sgl.c` de antes y el de ahora y compara).
+  Se descartó cambiar la ruta de v6 (corrección de perspectiva para todos) porque movería las sumas de las pruebas y de lo
+  ya comparado en el Amilo sin ganar nada para esos programas. El filtro de partida sigue siendo `GL_NEAREST` (no el de GL).
+- En la ruta realista: misma cobertura (aristas 28.4, top-left) y mismo Z que antes; los demás atributos en float divididos
+  por w y recuperados por píxel (perspectiva de texturas, color, especular y niebla). Textura: vecino, bilineal en enteros,
+  mipmaps con el nivel de detalle de cada píxel (derivadas de u, v con la perspectiva; log2 aproximado sin libm) y
+  trilineal. Niveles: dados por el programa (`glTexImage2D` con nivel > 0) o generados con una caja de 2x2 en enteros
+  (`GL_GENERATE_MIPMAP`, `glGenerateMipmap`, o solos al usar un filtro con mipmaps).
+- **Luz de OpenGL ES 1.1 por vértice**: 8 luces (direccionales o puntuales con atenuación), ambiente global, materiales
+  (`GL_AMBIENT`, `GL_DIFFUSE`, `GL_AMBIENT_AND_DIFFUSE`, `GL_SPECULAR`, `GL_EMISSION`, `GL_SHININESS`), `GL_COLOR_MATERIAL`,
+  observador en el infinito, normales con la inversa traspuesta (cofactores) y siempre normalizadas. El especular se suma
+  **después** de la textura (como `GL_SEPARATE_SPECULAR_COLOR`), que es justo el «especular» que ya tiene el vértice de
+  `gpu3d`: la GPU no necesita nada nuevo. La potencia del brillo, con exponente entero; `e^-x` propia para la niebla.
+  Las posiciones de las luces se transforman con la modelo/vista al darlas (como GL); la luz 0 sigue rellenando también
+  el estado de v6.
+- **Formatos y tamaños**: RGB565, RGBA4444, RGBA5551, luminancia, luminancia+alfa y alfa (se guardan en RGBA8: el ahorro
+  de memoria no compensaba otra ruta de muestreo); texturas hasta 2048 (`SGL_MAX_LADO`), 512 por contexto (eran 4), que se
+  liberan al destruir el contexto (antes se quedaban).
+- **Caché de texturas en la GPU** (sin tocar los drivers): cada hueco del kernel guarda la textura y su generación; se
+  reutiliza mientras no cambie, se reemplaza la menos usada, y si no cabe se sueltan otras y luego se sube un nivel menor.
+  La GPU no tiene mipmaps todavía (sube el nivel 0, con bilineal si lo pide el filtro). Lo que haría falta en el driver
+  queda descrito en `docs/gpu3d.md` («SaguiGL realista»). `GPU3D_TEXTURAS` pasa de 8 a 32 en **un commit aislado**
+  (`abi.h`; la SDL 2 se queda en 8): la SaguiGL lo pregunta subiendo 1x1 al hueco 31, así que un `sgldemo` nuevo funciona
+  con un kernel de antes (8 huecos) y el commit se puede quitar sin más.
+- **Driver simulado** (`gpu3d_sim.c`): perspectiva (con rhw distinto en los vértices) y bilineal (`G3D_TEX_LINEAR`), para
+  que `sgldemo -g` compare la ruta nueva en QEMU; con rhw igual y sin LINEAR da el píxel de antes (autoprueba igual).
+- **Escena** `paisaje.c` (todo por código: ruido de valores con enteros): terreno con relieve en tres pasadas (hierba;
+  roca por la pendiente y arena junto al agua mezcladas con el alfa del vértice y `GL_LEQUAL`), agua translúcida con olas
+  y brillo, ~50 árboles, rocas, casas, nubes, niebla EXP2, sol y luz del cielo, y un avión hecho por código o un OBJ.
+  `sgldemo -c paisaje|avion` (sumas), `sgldemo -p` (medida: fps, triángulos/s, subidas y reusos de texturas, huecos y
+  memoria de la GPU; `--texturas MB`, `--mem`, `--sw`, `--sin-mip`, `--avion`, `--modelo`), y `bilineal`, `luces` y
+  `paisaje` en `sgldemo -g`.
+- **OBJ/MTL** (`sgl_obj.c`): v, vt, vn, f (polígonos, todas las formas de índices, negativos), usemtl, mtllib; Kd, Ks, Ns,
+  d, map_Kd. Análisis en memoria (igual en el anfitrión); las texturas con `imagem_ler` de la libsagui (PNG, BMP, JPEG,
+  PPM...); sin MTL, `<nombre>.png` al lado. **Modelos fuera de git** (`tools/modelos3d_datos.sh`, SHA-256 fijo) y fuera de
+  la imagen (el ramdisk solo lleva lo esencial): tres aviones de OpenGameArt con **CC0** comprobada en la página de cada
+  fichero (biplane de mfep, 668 triángulos y PNG; funky de Savino; WW1 de Kala1987, sin MTL). El pack de Quaternius (103 MB)
+  no se usa. Ninguno va en git aunque sean pequeños: así el repositorio público no lleva recursos que no se usan en las
+  pruebas y la política es la de Freedoom. Las capturas con el biplane se hacen en el anfitrión, sin su textura.
+
+**Medidas en QEMU (TCG, sin KVM)**: `sgldemo -p 6 --mem` (320x240, software, mipmaps): 3,9 fps, ~6100 triángulos por
+cuadro (los que quedan tras el recorte), 24 400 triángulos/s. Con el simulado, 160x120 y 48 texturas de carga: 32 huecos,
+26 subidas y 146 reutilizaciones en 4 cuadros.
+
+**Pruebas**: `tests/h405_saguigl.py` (unidad, modelos, capturas, somas, medida, simulado). Siguen pasando h77, h99 (el cc de
+dentro compila el `sgl.c` nuevo), h101 y h285.
+
+**Pendiente**: mipmaps en la GPU (R5xx y R6xx/R7xx, descrito en `docs/gpu3d.md`); probar en el Amilo y el HP con
+`/home/aanun/SO/private/saguigl/ORDENES.txt`.
+
+**Pendiente:** el botón «Reparar» en Discos > Particiones; que un servicio del arranque ofrezca reparar los volúmenes de
+datos (`/home`, `/jogos`, la capa) antes de montarlos con escritura; ext3/ext4 (el diario ya lo reproduce el kernel).
+
+### D392 (ampliación del 2026-11-19, rama `v8.5.4.10r2-arranque-respaldo`): el último bueno
+
+**Problema (visto en un portátil real).** Con un kernel de prueba ya fijado (`confirmar` en la ESP), `probar` se negaba
+(«cancelar antes») y `cancelar` volvía al kernel **de la imagen**, no al último que se sabía bueno: para probar uno
+nuevo había que renunciar al bueno, y un fallo de la prueba devolvía un kernel aún más viejo. En la partición,
+`confirmar` cambiaba el kernel de la cabecera y el de la imagen quedaba como sitio libre (se perdía).
+
+**Decisión.** Tres kernels, y la cabecera de la imagen (bytes 0-255) ya no la cambia `arranque` nunca:
+
+1. **Original**: `CAB_K_*`/`CAB_R_*`, lo que grabó `mkimagem`/`instalar`. Es lo que arranca una etapa 2 vieja, el modo
+   rescate (Ctrl) y el CD, y el último recurso.
+2. **Último bueno**: una **segunda ranura** en los bytes 392-511 (`CAB_PB`), con la **misma disposición relativa** que
+   la de prueba hasta la nota (firma `SGPR`, estado `PR_FIXA`, tramos, sumas, la misma suma de +5..+95) y la nota de
+   16 bytes. Cabe justo: la de prueba usa 256-391. La deja `confirmar`, copiando la ranura de prueba en una escritura
+   de un sector (lo que hubiese antes queda como sitio libre).
+3. **En prueba**: la ranura de siempre (256-391), con `PR_PENDENTE` una vez.
+
+**Etapa 2** (capacidades `SGE2` = 3: bit 0 la prueba, bit 1 el último bueno): prueba pendiente (borra la marca en
+el disco y la arranca) > prueba con `PR_FIXA` (lo que dejaba el primer `confirmar`; se respeta) > último bueno >
+original. Para el último bueno **copia en memoria** los bytes 392-511 encima de 256-375 (nota cortada, el resto a
+cero) y usa el mismo código de carga: casi nada de código nuevo (la etapa 2 sigue en 11 sectores). Se copia solo
+después de la última escritura de la cabecera, así que el disco nunca recibe esa mezcla. Si la prueba no suma o no
+se lee, en ese mismo arranque pasa al último bueno, y si tampoco, al original. `OPC_KERNEL_PRUEBA` solo = prueba de
+una vez; con `OPC_KERNEL_FIXO` = el último bueno (`[BOOT] kernel de prueba ...: el ultimo bueno (confirmado)`).
+
+**Datos sin pisarse.** En la partición, la prueba nueva va en sitio libre fuera de la etapa 2, el original **y el
+último bueno** (la prueba vieja sí se reutiliza). En la ESP, dos juegos de ficheros: `sagui-prueba-kernel.bin`
+(`CAB_PR_ONDE` = 1, el nombre de antes) y `sagui-prueba2-kernel.bin` (= 2); la prueba va al que **no** usa el último
+bueno. Con ramdisk propio, igual (`...-ramdisk.bin`).
+
+**Órdenes.** `probar` acepta un kernel nuevo aunque haya un último bueno; `confirmar` (desde el arranque de la prueba,
+o `--forzar`) la pasa a último bueno; `cancelar` quita solo la prueba (vuelve el último bueno); **`original`** quita
+las dos ranuras (vuelve el de la imagen; los ficheros de la ESP quedan, sin uso); `estado` muestra los tres.
+
+**Compatibilidad.** (a) Discos de antes de D392: los bytes 256-511 están a cero, todo igual. (b) Etapa 2 de D392 sin
+el bit 1: no ve el último bueno (arrancaría el original), así que `probar` y `confirmar` se niegan hasta `arranque
+etapa2`; una prueba pendiente que ya hubiese la sigue arrancando bien (el formato de la ranura de prueba no cambia).
+(c) Un fijado del primer `confirmar` (en la ranura de prueba, ESP) se sigue arrancando con las dos etapas 2, `estado`
+lo muestra como último bueno «[formato de antes]» y `probar`/`cancelar` lo pasan a la ranura del último bueno en la
+misma escritura de la cabecera. (d) Un disco que la primera versión confirmó en la partición tiene ya ese kernel
+como original: no hay nada que migrar. (e) `instalar` copia el original (la ranura sigue sin copiarse): un último
+bueno no pasa al disco instalado (pendiente si hiciera falta).
+
+**Riesgos.** Los de antes, salvo el (b): `confirmar` ya no cambia los 256 primeros bytes, así que el kernel sigue
+reconociendo su disco. El espacio: con `--ranura-mb` por defecto (1,5 veces kernel y ramdisk) caben dos kernels sin
+ramdisk propio; con ramdisk propio en las dos ranuras puede no caber y la prueba va a la ESP (o, sin ESP, `probar`
+dice cuánto falta).
+
+**Pruebas:** h396 B (partición): `probar` A y `confirmar` (la cabecera de la imagen intacta); `probar` B sin confirmar
+→ el siguiente reinicio vuelve A; un kernel que se cuelga → vuelve A; B con los datos estropeados en el disco → en
+ese mismo arranque A; `probar` C y `confirmar` → C fijo; `cancelar` sin prueba no cambia nada; `original` → el de la
+imagen. h396 C (ESP, `--ranura-mb 0`): un fijado del formato de antes arranca y pasa a último bueno al probar B (que
+va al otro fichero); B sin confirmar → A; C confirmado (fichero 2) arranca fijo; `original`.
+
+## D399. Energía de la GPU: relojes, estados de la BIOS ATOM, temperatura y modos (empieza por las Radeon R5xx) (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-gpu-energia`)
+
+**Pedido del mantenedor.** Ver en Tareas (Rendimiento > GPU) y en Configuración (bloque «Tarjeta gráfica») los relojes
+del motor y de la memoria, la temperatura si la tarjeta la da, la VRAM usada y el estado de energía, y que los estados
+de energía se usen bien: la X1400 del Amilo (RV515, `1002:7145`) va con los relojes que deja la BIOS y solo con el reloj
+dinámico por bloques que ella enciende (PLL 0x0F/0x11/0x13 = `0x0f3ff01a`).
+
+**Decisión.**
+1. **Capa común** (`kernel/gui/gpu_energia.c`, `kernel/inc/gpu_energia.h`) con drivers por familia; `INFO_GPU_ENERGIA`
+   (86, cualquiera) e `INFO_GPU_ENERGIA_CTL` (87, solo administrador). Orden: **`acel2d energia [leer | bios | bajo |
+   alto | auto | estado N | simular N|bios | detalle | desbloquear]`** (dentro de `acel2d`, la herramienta de la GPU que
+   ya existe; sin más, solo lee y no pide administrador). Modo al arrancar: **`kconfig gpu_energia`** (hueco 19; el 18
+   es `KC_AVX` en la rama `v8.5.5-avx2`): `bios`, `bajo`, `alto`, `dinamico` o automático (= dinámico en tarjetas
+   confirmadas, `bios` en las demás). «auto» en kconfig ya significa «automático», por eso el gobernador se llama allí
+   `dinamico`.
+2. **R5xx por la BIOS ATOM**, como Linux (método «profile» y «dynpm» de `radeon_pm.c`; `radeon_atombios.c`; `rs600.c`
+   para el `prepare`/`misc`/`finish` que usan las R5xx):
+   - **Leer** (`sondar`, al arrancar, sin ejecutar nada de la BIOS): la ROM de vídeo se copia de la sombra de C0000
+     solo si su PCIR es de esta tarjeta (con UEFI no hay sombra: «solo lectura» sin tablas; el BAR de la ROM queda para
+     más adelante); FirmwareInfo (relojes por defecto, máximos, referencia, VDDC de arranque en 1.4), PowerPlayInfo 1-3
+     (los estados con su tensión por GPIO o por identificador de VDDC, las marcas «sin pantalla» y «una pantalla») y
+     GPIO_Pin_LUT. Todo con lecturas acotadas a la imagen (`gpu_energia_logica.h`), también el índice de las tablas
+     maestras (las BIOS antiguas las tienen más cortas).
+   - **Relojes actuales**: `GetEngineClock`/`GetMemoryClock` de la BIOS (lo que hace `radeon_pm_info` de Linux): leen
+     los PLL (SPLL/MPLL) de verdad. Se leen solo a petición (`acel2d energia leer`) o antes del primer cambio (sin los
+     relojes del arranque no hay vuelta y no se cambia nada). El formato del SPLL de las R5xx no está confirmado: el
+     detalle vuelca los 64 registros del PLL y la cuenta con el formato clásico (R100-R4xx) para compararlos.
+   - **Cambiar**: con las interrupciones cerradas, el 2D sincronizado, el motor parado (RBBM_STATUS y una valla del CP
+     del 3D, `gpu3d_r500_ocioso`), espera al borrado vertical (40 ms como mucho), `DISP_READ_REQUEST_DISABLE` en los
+     controladores encendidos, la tensión antes de subir el reloj o después de bajarlo (pin GPIO del estado como
+     `rs600_pm_misc`, o `SetVoltage` 1.1 con el identificador), `SetEngineClock`/`SetMemoryClock` (nunca por encima de
+     los de por defecto de FirmwareInfo, como `radeon_set_power_state`), las lecturas de vuelta y la comprobación con
+     `GetEngineClock`/`GetMemoryClock` (3 % o 2 MHz). Después, la autoprueba corta del 2D y la del 3D si está encendido
+     (con un programa dueño del 3D, solo su valla). **No se hace** lo demás de `rs600_pm_misc` (DYN_PWRMGT_SCLK_LENGTH,
+     DYN_SCLK_VOL_CNTL, HDP_DYN_CNTL, DYN_BACKBIAS_CNTL, carriles PCIe): solo relojes y tensión por los caminos de la BIOS.
+   - **«bajo»** = el estado de menos reloj que vale con las pantallas encendidas (Linux, perfil «low», usaría el 0
+     aunque sea «sin pantalla»; aquí no, como el dynpm). **«alto»** = el de por defecto. **«auto»** = el gobernador cada
+     100 ms: sube un estado con 300 ms seguidos de 3D o de 2D/volcado (8 órdenes por ventana), baja uno tras 2 s en
+     reposo y no cambia dos veces en menos de 1 s (Linux: 200 ms y 3 vallas pendientes); en «auto» la autoprueba solo
+     la primera vez que se entra en cada estado.
+   - **Si algo falla** (la tabla se corta, la BIOS dice otro reloj, la autoprueba): vuelta a los relojes y la tensión del
+     arranque (las dos tablas otra vez, aunque el fallo parezca no haber cambiado nada), modo `bios` y **bloqueado** el
+     resto del arranque (`acel2d energia desbloquear` a mano); si tras volver el 2D no da los píxeles de la CPU, el
+     vigilante lo apaga (D244).
+   - **Temperatura**: las R5xx no tienen sensor legible (Linux: `THERMAL_TYPE_NONE`): «sin sensor en la tarjeta»; si
+     PowerPlay nombra un sensor externo por I2C (LM63, ADM1032…), se dice cuál y que no se lee. Las **zonas térmicas
+     del ACPI** (`_TMP`, con uACPI) se enseñan aparte, con su nombre, y solo se leen mientras alguien mira (como D092).
+   - **VRAM**: la de `CONFIG_MEMSIZE`; «usada por SaguiOS» es una estimación (pantalla + lo ocupado de la zona 3D + la
+     tabla de la GART si el volcado está activo).
+3. **Intérprete ATOM**: copia de `atom.c`/`atom.h`/`atom-bits.h` de Linux 6.6 (MIT) en `kernel/terceros/mit/atom/`,
+   con los cambios marcados «SaguiOS» (D073; fila en `docs/terceros.md`): sin cabeceras de Linux; esperas y reloj del
+   vigilante los da el driver (TSC: con las interrupciones cerradas no hay jiffies); ningún byte fuera de la imagen
+   (fuera lee 0xFF: termina la tabla); zonas de parámetros y de trabajo de 256 palabras; tope de anidamiento; plazos de
+   **500 ms por bucle y 1 s por tabla** (Linux: 5 s por bucle; en una tabla de relojes no hace falta más); los
+   desplazamientos de 32 bits o más valen lo de la x86; sin mutex, sin `atom_asic_init`. Lo vigila la prueba del PC con
+   3000 imágenes rotas al azar bajo ASan/UBSan.
+4. **Seguridad en hardware real sin confirmar**: al arrancar solo se leen tablas de datos (nada se ejecuta); el
+   automático de kconfig no cambia nada hasta que el modelo esté en `confirmadas` de `energia_radeon.c` (vacía; la
+   X1400 entra cuando el Amilo lo confirme); en Configuración el botón «Cambiar modo» está gris y remite a `acel2d
+   energia`; el modo rescate y Mayús al arrancar no aplican kconfig; `acel2d energia simular N` ensaya el cambio sin
+   escribir nada en la tarjeta (solo los registros índice que hacen falta para leer) y deja en el registro cada
+   escritura que la BIOS haría.
+5. **Para las demás familias** la capa ya sirve: falta en cada driver leer su tabla (R6xx/R7xx y Evergreen: PPLib,
+   `radeon_atombios_parse_power_table_4_5/6`, con sensor interno legible; Intel: RPS/RC6) y cambiar por su camino.
+
+**Pruebas.** `tests/gpu_energia_unidad.c` (en el PC, con ASan/UBSan): las tablas sobre una BIOS de juguete escrita a
+mano (`atom_sintetica.h`; nunca una BIOS de fabricante en git), el intérprete con registros de mentira (llamada anidada
+con PS desplazado, DELAY, COMPARE/JUMP, la variante que escribe mal y la que se cuelga), imágenes rotas, PLL y
+gobernador. **h401** en QEMU: con `--gpu-energia-simulada` (la misma BIOS de juguete en el intérprete dentro del
+kernel) los modos, el «auto» bajando en reposo y subiendo con el 3D simulado, el ensayo, la vuelta, kconfig, infopc,
+Tareas y Configuración con capturas; `--gpu-energia-prueba=fallo|cuelgue` la vuelta a la BIOS y el bloqueo; `-vga std`
+«sin driver».
+
+**Sin probar en hardware.** Todo lo de `energia_radeon.c`. Órdenes para el Amilo (de menos a más riesgo):
+`/home/aanun/SO/private/amilo-energia/ORDENES.txt`. Qué mirar: que la sombra de C0000 sea la ROM de la X1400 y tenga
+PowerPlay; cuánto tardan `GetEngineClock` y `SetEngineClock` (líneas `[GPUENERGIA] radeon: tabla N ... en X us`); que
+la pantalla no parpadee al cambiar la memoria; la autoprueba después; el ensayo antes de cada cambio real.
+
+## D402. HP dv7 (Radeon HD 4530/4570, RV710): el 3D de las R7xx funciona en hardware; dos fallos corregidos, zona de 128 MB y VRAM real (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-hp-gpu`)
+
+**Contexto.** Primera prueba del 3D por GPU de las R6xx/R7xx (D284, D357) en una tarjeta real: el HP dv7 del mantenedor
+(`1002:9553`, RV710/M92, 512 MB de VRAM, apertura de la CPU de 256 MB), por SSH (D250) con un kernel de prueba de una
+vez (`arranque probar`, D392) en cada intento (kernels en `private/hp-dv7/k1`…`k6`). Issue #23. Lecciones de la X1400
+(D387, D391) tenidas en cuenta: en las R7xx el 2D va por el motor DMA (otro anillo) y el 3D por el CP, nunca registros
+del motor por MMIO con el CP en marcha.
+
+**Lo que salió en el dv7, sin cambiar nada (kernel `v8.5.4.10r2`).** El 2D por DMA pasa `acel2d probar --detalle`
+(176 órdenes iguales a la CPU; 60 copias: GPU 3,3 ms, CPU 24,6 ms). El encendido del 3D pasa las 6 etapas a la primera
+(microcódigo RV710, CP en marcha con la cola en VRAM, prueba de la cola, estado base de 292 palabras) y la autoprueba
+pasa limpiar, rectángulo, Z y mezcla, pero falla en la **prueba 4 (textura)**: el píxel 24,40 es `28aaaf` (se esperaba
+`28645f`). La imagen de `--ver`/`--guardar` (D390) lo aclaró: la textura salía entera y bien orientada, pero en un
+cuadrado de 64x48 en vez de 64x64.
+
+**Fallos y arreglos.**
+1. **`SURFACE_SYNC` que no cubría los últimos vértices** (la causa de la prueba 4). `CP_COHER_BASE` va en unidades de
+   256 bytes; `sync()` mandaba la base redondeada hacia abajo y el tamaño contado desde la dirección real, así que un
+   dibujo cuyos vértices empezaban a mitad de un bloque de 256 bytes dejaba sin invalidar el final. La RV710 lee los
+   vértices por la caché de texturas (sin caché de vértices) y los últimos salían **viejos** de la prueba anterior (la
+   esquina de abajo, `y = 64`, era la de la mezcla). Ahora el tamaño cubre desde la base redondeada hasta el final del
+   rango. Afecta a todas las R6xx/R7xx y a todo `SURFACE_SYNC` (vértices, texturas, color y Z). `tests/r600_3d_unidad.c`
+   lo fija.
+2. **Paso de las superficies lineales alineadas** (preventivo, de Linux): `r600_get_array_mode_alignment` (`r600_cs.c`,
+   Linux 6.6) pide para `ARRAY_LINEAR_ALIGNED` un paso múltiplo de `max(64, tamaño del grupo / bytes por píxel)`; el
+   dv7 tiene `GB_TILING_CONFIG cb52`, grupo de 512 bytes, así que 128 píxeles. El destino y las texturas usaban 64. Se
+   lee `GB_TILING_CONFIG` tras la etapa 3 y se alinea a lo que diga (`r63d_alinhamento_passo`). No era la causa de la
+   prueba 4 (con este cambio solo, fallaba igual), pero un destino de 400 píxeles de ancho habría tenido un paso que el
+   motor no admite.
+
+Con los dos: **las 8 pruebas BIEN** (40-75 ms), 1,40 M triángulos/s, 479 Mpx/s con mezcla, puntuación 3D ~9400.
+`sgldemo -g`: las cuatro escenas BIEN (textura con diferencia máxima 1). **Estabilidad:** `sgldemo -s -n 15000` en una
+ventana del escritorio, 303 s seguidos, con el 2D por DMA encendido: 15 000 cuadros, 0 fallos, 0 peticiones no
+atendidas; y 3000 cuadros más mientras `acel2d probar` corría diez veces (DMA y CP a la vez): 0 fallos en los dos.
+
+**El cuello de botella es traer el cuadro.** La GPU tarda ~0,2 ms por cuadro del cubo, pero la CPU lee el destino por la
+apertura sin caché (UC) y cada lectura cruza el PCIe: 5,5 MB/s de 4 en 4 bytes. Se lee ahora con SSE2 (`movdqu`, una
+fila cada vez, porque `fpu_kernel_inicio` cierra las interrupciones) y el alfa se quita en la RAM: 10,5 MB/s (la K8 parte
+los 16 bytes en dos lecturas de 8). Aun así una ventana de 320x240 da ~50 fps por la GPU frente a ~1200-1500 por
+software para esa escena tan simple: **en el dv7 la GPU solo compensa con escenas pesadas** (muchos píxeles con mezcla o
+textura). El detalle dice ahora cuánto se va en la valla y cuánto en la copia (y lo escribe cada 600 cuadros). Lo que
+lo arreglaría de verdad es que la GPU escriba el cuadro en la RAM (GART de las R7xx, como `rv770_pcie_gart_enable`, o la
+«vuelta» de la D391): cambia la memoria virtual de la GPU con la pantalla en marcha, queda para otra pieza con su propia
+prueba en el dv7.
+
+**Zona 3D de hasta 128 MB y la VRAM real (encargo del coordinador).** La zona iba de 4 a 16 MB y se mapeaba entera en la
+franja de ventanas del kernel (128 MB para todo el sistema). Ahora va hasta **128 MB** (dentro de la VRAM real, la
+apertura de la CPU y la VRAM del MC, como antes; en el dv7, 128 MB en MC `700000`) en dos partes: los primeros 16 MB con
+ventana fija (cola, sombreadores, vértices y destino de color, que se lee cada cuadro) y el resto sin ventana: el Z (la
+CPU no lo toca) y las texturas, que la CPU escribe una vez por una **ventana móvil** de 4 MB (`janela_reservar` +
+`janela_pagina`, con `janela_soltar` para invalidar el TLB). Al encender se comprueba que la última página de la zona
+guarda lo escrito. Medido en el dv7: autoprueba, `sgldemo -g` y la medida iguales que con 16 MB (la textura de la prueba
+ya va en la parte grande). Para la información del sistema, `r600_vram_real_bytes()` (`r600_base.h`) da la VRAM real
+leída de `CONFIG_MEMSIZE` en la sonda (512 MB en el dv7; `infopc` decía 16 MB, lo del VBE). La parte común (que
+`infopc`, Configuración y Tareas la muestren) la hace la rama `v8.5.4.10r2-volcado-cp`: al unir, su función común llama
+a esta para las R6xx/R7xx/Evergreen.
+
+**La cola del CP en VRAM y el HDP (lo de la X1400).** En la R5xx hizo falta leer de vuelta la última palabra de la cola
+antes de escribir el `WPTR`. Aquí `avisar()` ya vacía el HDP como `r600_mmio_hdp_flush` (escribe `HDP_DEBUG1` y **lee
+una palabra de la VRAM**), y esa lectura obliga a que lleguen antes todas las escrituras de la CPU (orden del PCIe); en
+18 000 cuadros no se vio ni una cola leída a medias. Se deja así. Poner la cola en la RAM por la GART, como Linux, va con
+la GART de arriba.
+
+**2D del dv7 confirmado:** `1002:9553` entra en `confirmadas[]` de `acel2d.c` (D244: al arrancar basta la autoprueba
+corta); h286 y h362 la excluyen de «ninguna Radeon».
+
+**Lo que no cambia:** el 3D de las R6xx/R7xx sigue **apagado por defecto** (`gpu3d probar`/`gpu3d encender`; `--gpu3d=radeon`
+lo prueba con el primer uso). En el dv7 ya funciona, pero por lo de traer el cuadro SaguiGL iría más lento por la GPU que
+por software en ventanas pequeñas: que se encienda solo lo decide el mantenedor. Ninguna R6xx probada.
+
+**Pruebas:** `h284` y `h359` (`unidad`: `SURFACE_SYNC` con dirección sin alinear y la alineación del paso), `h286` y
+`h362` (`fuentes`). En el dv7 (registros en `private/hp-dv7/registros`): `gpu3d probar --detalle --guardar`,
+`gpu3d probar --ver 2`, `sgldemo -g`, `sgldemo -s -n 15000`, `infopc --bench-gpu`, `acel2d probar --detalle`.
+
+## D406. GART (memoria virtual, contexto 0) de las Radeon R7xx y la vuelta del cuadro del 3D por CP_DMA (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-r7xx-gart`)
+
+**Contexto.** En el dv7 (D402) el 3D de las R7xx funciona, pero traer el cuadro a la RAM lo hace la CPU leyendo la
+VRAM sin caché por el PCIe (~10 MB/s): una ventana de 320x240 va a ~50 fps por la GPU frente a ~1200 por software. El
+mantenedor autorizó (2026-11-19) la GART de las R6xx/R7xx como pieza aparte, para que la GPU deje el cuadro en la RAM
+(como la «vuelta» de la X1400, D391) y, si sale bien, la cola del CP en la RAM. El HP lo estaba usando otro agente: esta
+pieza se entrega **sin probar en hardware**, con un kernel y una lista de órdenes de menos a más riesgo
+(`private/hp-dv7/gart/`).
+
+**Decisión.**
+1. **Solo R7xx** (RV710, RV730, RV740, RV770) y **solo a petición**: `gpu3d encender gtt` (la variante `GPU3D_CAB_GTT`
+   que la D358 creó para la Intel). Las R6xx encienden la GART con otro juego de registros (`r600_pcie_gart_enable`):
+   sin máquina, no se hace. Sin `gtt`, nada cambia respecto de la D402.
+2. **Como Linux 6.6** (`rv770_pcie_gart_enable`/`_disable`, `r600_pcie_gart_tlb_flush`, entradas de
+   `rs600_gart_get_page_entry`, sitio de la ventana de `radeon_gtt_location`), con la lógica pura en
+   `kernel/dispositivos/gart_r700_logica.h` y probada en el PC (`tests/gart_r700_unidad.c`, `h406`): L2 de la VM,
+   las TLB L1 MD/MB con `SYSTEM_ACCESS_MODE_NOT_IN_SYS` (lo que cae en la apertura del sistema, la VRAM, va directo; lo
+   demás, por la tabla), contexto 0 con profundidad 0 sobre la ventana, página de fallo por defecto y los contextos 1-6
+   apagados; invalidación de la TLB con su respuesta (plazo de 10 ms).
+3. **Ventana de 16 MB** en el mapa del MC justo detrás de la VRAM (dv7: MC `20000000-20FFFFFF`), por debajo de 4 GB,
+   comprobando que no cae en la apertura del sistema ni en la AGP. **No se reprograma el MC** (`MC_VM_FB_LOCATION`,
+   `HDP_NONSURFACE_*`, AGP: Linux lo hace con el MC parado en `rv770_mc_program`). La única excepción: si la apertura del
+   sistema no cubre toda la VRAM (por ejemplo, la BIOS la dejó a 0), se pone como Linux (inicio y fin de la VRAM) antes
+   de encender las TLB, porque si no la pantalla y el DMA del 2D pasarían por la tabla; se deja como estaba al apagar.
+4. **Memoria:** la tabla (4096 entradas de 64 bits, 32 KB) en la parte visible de la zona 3D (VRAM); las entradas 0-1023
+   apuntan a **4 MB seguidos de RAM baja** del kernel (el destino de hasta 1024x1024; el kernel la ve 1:1 y con caché),
+   dos más a páginas de prueba, y el resto a una página de relleno a ceros con la entrada «solo sistema» (la *dummy* de
+   Linux: un acceso es un fallo que el MC manda a la página de fallo). Entradas con snoop: la CPU ve lo que escribe la GPU
+   sin vaciar su caché. La memoria no se devuelve (se reutiliza al volver a encender).
+5. **Autoprueba por pasos** (cada uno escribe su línea `[GPU3D] r600 GART paso N` antes de seguir):
+   0 solo leer (MC, apertura, AGP, VM, PCI de la tarjeta y del puente) y calcular la ventana; 1 + la tabla escrita y leída
+   de vuelta; 2 + los registros y la TLB; 3 + el bus maestro del PCI (después de la GART, como en la X1400) y la GPU
+   escribe en la RAM (CP_DMA de una página de VRAM a la ventana; se comparan las 1024 palabras); 4 + la GPU lee de la RAM
+   (de la ventana a la VRAM). `/sistema/conf/gart-r700.paso` con un número para y deshace en ese paso, para probar una
+   máquina nueva sin arriesgar el siguiente; sin el fichero, todo, y la GART queda encendida.
+6. **La vuelta:** con la GART encendida, `ler` copia el destino entero (VRAM) a la ventana con **CP_DMA**
+   (`r63d_cp_dma`, como `r600_copy_cpdma`: vaciar la caché del color, `WAIT_UNTIL` 3D parado, trozos de 0x1FFFFF bytes,
+   `CP_SYNC` en el último, `WAIT_UNTIL` CP_DMA parado) y la valla de siempre; la CPU copia de la RAM con caché. Todo va
+   por el mismo anillo del CP (nada del 2D por MMIO con el CP en marcha: el 2D sigue en su motor DMA, que lee y escribe
+   la VRAM, dentro de la apertura del sistema, sin pasar por la tabla). Si el destino no cabe en 4 MB, la CPU como antes.
+7. **Apagar** (`gpu3d apagar`, fallo o vigilante): antes de parar el CP. Con el motor parado y la cola vacía, como
+   `rv770_pcie_gart_disable` y después los valores de antes de cada registro, la apertura y el bus maestro si era nuestro.
+   Si el motor no para: **aparcada** (encendida, todas las entradas al relleno, TLB invalidada; no se reutiliza hasta
+   reiniciar), como la GART de la X1400 (D387): apagarla con la GPU a medias podría mandar sus accesos a cualquier sitio.
+   Si en los pasos 3 o 4 la valla no llega, el 3D se apaga (`G3D_FALHA`); si la GART no se enciende por cualquier otra
+   cosa, el 3D sigue y el cuadro vuelve por la CPU (el motivo, en el log y en el detalle).
+8. **La sonda del 2D** (`acel_r600.c`) y la del 3D rechazan la memoria virtual encendida «de otro»; la de la GART del 3D
+   ya no (`gpu3d_r600_gart_nossa()`). `gpu3d` e `infopc` la enseñan como «RAM del sistema en el GTT» (`gpu3d_r600_estado`).
+
+**Lo que no se hace todavía:** la cola del CP en la RAM (paso siguiente si la vuelta va bien); las texturas o el destino
+directamente en la RAM; las R6xx; el bus maestro del puente raíz (solo se apunta en el paso 0: si estuviera apagado, el
+paso 3 fallaría por plazo, sin colgar, y lo diría).
+
+**Riesgos.** La GART cambia cómo el MC traduce direcciones con la pantalla encendida; Linux lo hace igual (la pantalla y
+el 2D están en la apertura del sistema y no pasan por la tabla), pero aquí no se ha ejecutado nunca: por eso los pasos,
+el `arranque probar` y la aparcada. Una entrada mal escrita podría hacer que la GPU escriba en RAM que no es nuestra:
+solo apuntan a nuestra memoria o al relleno, y la tabla se lee de vuelta antes de encender.
+
+**Pruebas:** `h406` (`unidad`: ventana, entradas, encender y apagar contra los valores de Linux; `fuentes`: las reglas de
+arriba), `h359 unidad` (el paquete CP_DMA), `h284`, `h359`. En el dv7: `private/hp-dv7/gart/ORDENES.txt`.
+
+**Encendida sola en la tarjeta probada (v8.5.5, 2026-11-19, al integrar).** En el HP dv7 (RV710 `1002:9553`), con
+`gpu3d encender gtt`: pasos 0-4 bien, 945 fps frente a 50 trayendo el cuadro por la CPU, 15.000 cuadros sin fallos y
+apagado limpio. Por eso, en las R7xx de la lista `gart_confirmadas` (`gpu3d_r600.c`; solo esa tarjeta, como D244), al
+encender el 3D la GART se pide sola, como con `gtt`. Para no usarla: `gpu3d encender sin-gtt` (`INFO_GPU3D_CTL` 5/6,
+bit `GPU3D_CAB_SEM_GTT` 0x80 de la variante). Si no se enciende (`gart_ligar` da 0), el cuadro vuelve por la CPU como
+antes y el 3D sigue; si la GPU no responde, el 3D se apaga (como con `gtt`). **El 3D sigue apagado por defecto**: esto
+solo cambia lo que pasa cuando alguien lo enciende. Se descartó un hueco de kconfig nuevo: la opción solo tiene sentido
+al encender el 3D, que ya es a mano.
+
+## D405. El puente WMI de ACPI (PNP0C14) y el WMI de los HP: radios, botón inalámbrico y teclas del panel (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-hp-wmi`)
+
+**Problema.** En el HP Pavilion dv7 (Quanta 3063, BIOS F.18, AMD RS780/SB7xx) el piloto de la Wi-Fi está naranja,
+la tarjeta no aparece en el PCI y el panel QuickTouch no hace nada. En estos HP la BIOS lo lleva todo por ACPI: el
+botón inalámbrico es el evento `_Q15` del EC, que enciende o apaga las GPIO 70 (Wi-Fi) y 13 (Bluetooth) del SB7xx;
+con la radio apagada la tarjeta se queda sin corriente y desaparece del bus. SaguiOS no ejecutaba nada de eso.
+
+**Lo que se encontró en el dv7** (volcado con `tablasacpi`, privado en `../private/hp-dv7/acpi/`):
+1. **uACPI no arrancaba en el dv7 por dos fallos nuestros**, que valen para cualquier máquina:
+   - el rastro de dbg5 (`kernel/nucleo/rastro.c`) escribía su página en «fin de la RAM libre bajo 4 GB menos
+     64 KB» sin mirar la región: en el dv7 la última región libre es una página suelta (0xBFEFF000) detrás de las
+     tablas ACPI y la marca caía encima de la DSDT (0xBFEF0000): «unable to find DSDT», firma leída «SRA1». Ahora,
+     64 KB por debajo del fin de la región libre más alta de **al menos 1 MB**, y la página no puede solapar ninguna
+     región que no sea libre (`kernel/mem/fisica.c`, `rastro_escolher`). **Afecta a la r2: conviene llevarlo a
+     `v8.5.4.10r2`** (commit propio, sin nada más);
+   - la DSDT declara `\PCFG` = SystemMemory 0xE0000000 de **256 MB** (el MMCONFIG entero) y la lee al cargarse; el
+     manejador de serie de uACPI mapea la región entera (su propio código lo marca como FIXME), no cabe en la franja
+     de 8 MB y uACPI aborta la DSDT. Sin tocar uACPI: antes de cargar las tablas se cambia el manejador de
+     SystemMemory de la raíz por uno propio (`uacpi_sagui.c`) que mapea enteras las regiones de hasta 1 MB (como
+     antes) y las mayores página a página en cada acceso, con las mismas reglas de `uacpi_kernel_map`. Para quitar el
+     de serie hace falta su puntero: se lee de la lista interna de la raíz (`uacpi/internal/opregion.h`).
+   Con los dos, en el dv7: DSDT y SSDT cargadas, EC `\_SB.PCI0.LPC0.EC0`, batería `\_SB.BAT0` y cargador
+   `\_SB.ACAD`, 86 dispositivos.
+2. **El WMI del dv7**: `\_SB.WMID` con 4 bloques: `5FB7F034-2C63-45E9-BE91-3D44E2C707E4` método `AD` (WMAD →
+   HWMC), `95F24279-4D7B-4334-9387-ACCDC67EF61C` evento Notify 0x80 (`_WED`, sin `WE80`), `05901221-D566-11D1-
+   B2F0-00A0C9062910` datos `AE` (el MOF) y `D0992BD4-A47C-4EFE-B072-324AEC92296C` datos `BC`. Radios: `GWLS`
+   (consulta 5) devuelve `(BTWL & 3) | 0x20` y un byte por radio (0x02 software = WWLS/BWLS, 0x08 hardware = BTLS,
+   0x10/0x01 la GPIO); `SWLS` solo hace algo si `BTWL & 3` (las radios que la BIOS vio al arrancar, en la CMOS
+   extendida 0xC0); `GWLS` pone `WMIF = 1` y desde ahí `_Q15` solo enciende la Wi-Fi si WWLS = 1. **En el dv7,
+   BTWL = 0** (la tarjeta no estaba en el bus al arrancar): la consulta da «20 0 0 0», no hay radios por WMI.
+
+**Decisión.**
+- **Capa común** `kernel/dispositivos/wmi.c` (sobre uACPI, en la tarea `acpi-aml`) y `kernel/lib/wmi_wdg.c` (sin
+  hardware, probada en el anfitrión): busca los PNP0C14, lee `_WDG`, llama `WMxx`/`WQxx` (con `WCxx` si es caro),
+  enciende los eventos con `WExx(1)` y entrega `_WED(NotifyId)` a quien se suscriba por GUID. Sirve para Acer,
+  ASUS, Dell, Lenovo... con otros GUID.
+- **HP** (`hp_wmi.c`): consulta 5 (radios) y escritura 5 (`máscara << 8 | encendidas`), evento 5 (botón: releer y
+  avisar), evento 4 (tecla del panel: consulta 0x0C y tabla de códigos; los desconocidos al registro con su código).
+  Al encender la Wi-Fi se mira el PCI a los 3, 6 y 12 s (el PCI de SaguiOS se lee siempre del hardware): si aparece
+  una función nueva o no, se avisa de **reiniciar** (los drivers se eligen al arrancar y la BIOS no le dio recursos;
+  la BIOS de HP guarda la radio en la CMOS).
+- **Si la BIOS no ve ninguna radio** (el dv7 hoy), el sistema no puede encenderla por WMI y, con `WMIF = 1`, el botón
+  tampoco: se pone a 0 la marca (`WMIF`, o `WAOK` en los G62) para devolver el botón a la BIOS, y al pulsarlo se mira
+  el PCI. Es solo un Name entero del propio dispositivo WMI; el hardware lo sigue tocando el AML de la BIOS.
+- **Volumen y silencio**: las teclas multimedia del conjunto 1 (E0 30, E0 2E, E0 20), que es como mandan el volumen
+  del QuickTouch los HP de esa época (por el teclado, no por WMI), se encolan en la IRQ y se aplican fuera
+  (`acoes_sistema.c` en la rama; en la v8.5.5, las acciones comunes de D403, ver abajo): ±5 % y silencio. La tabla de teclas del panel admite volumen si algún HP lo manda por WMI.
+- **Órdenes**: `radios [estado | wifi si|no | bluetooth si|no | wwan si|no | wmi]` (INFO_RADIOS 90,
+  INFO_RADIOS_MUDAR 91: el programa espera hasta 5 s a la tarea; la llamada cede el turno como `ata.c`, porque corre
+  con las interrupciones apagadas) y `tablasacpi [carpeta]` (INFO_ACPI_TABELA 92: un trozo de 4 KB de una tabla de la
+  lista de INFO_ACPI, solo lectura, nunca de RAM libre).
+
+**Licencia y fuentes.** El driver `hp-wmi` de Linux es GPL-2.0-only: **no se ha mirado ni copiado su código**. Fuentes:
+el documento público de Microsoft «Windows Instrumentation: WMI and ACPI» (formato de `_WDG`, `WMxx`/`WQxx`/`WSxx`/
+`WCxx`/`WExx`/`_WED`), el AML de la propia BIOS del dv7 y de los volcados públicos de uACPI/ACPIDumps (HP G62,
+Pavilion dv8, Compaq 6730b; CC-BY-4.0, ver `docs/terceros.md`) y hechos de interfaz (GUID, números de consulta y de
+evento, formato de los búferes y códigos de teclas), que no son código.
+
+**Pruebas:** `tests/h407_hp_wmi.py`: (0) anfitrión, `wmi_wdg.c` con el `_WDG` real del G62, casos rotos, GUID,
+búferes, radios y eventos, también con ASan/UBSan; (a) QEMU con una SSDT hecha a mano (sin iasl) que imita el WMID de
+HP: radios, `radios wifi si`, aviso de reiniciar, botón (evento 5), tecla DVD/música (evento 4), `radios bluetooth
+no`, teclas de volumen y `tablasacpi`; (b) sin `--uacpi`; (c) BIOS sin radios: `WMIF` vuelve a 0 y el botón avisa.
+h158 (batería) sigue pasando con el manejador de SystemMemory nuevo. En el dv7 (kernel de prueba, sin confirmar):
+uACPI, EC, batería y WMI funcionan; falta pulsar el botón inalámbrico a mano (`ORDENES.txt` en `../private/hp-wmi/`).
+
+## D403. Funciones de los portátiles por ACPI: ACPI Video, Fujitsu, Toshiba y las teclas de función (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-portatiles-acpi`)
+
+**Contexto:** con uACPI (D192) el kernel ya ejecuta el AML de los portátiles (batería, EC), pero el brillo de la
+pantalla, las teclas Fn y la radio no hacían nada. El mantenedor pidió soporte de las funciones propias de los
+portátiles de prueba: en paralelo, HP WMI (D402, rama `v8.5.5-hp-wmi`: la capa WMI común PNP0C14 y HP); aquí, lo
+que no es WMI.
+
+**Decisión:**
+
+1. **ACPI Video estándar primero** (`kernel/dispositivos/video_acpi.c`; vale para casi todas las marcas desde la
+   época de Windows XP): dispositivos con `_DOD`/`_DOS`, salidas con `_BCL`/`_BCM` (y `_BQC` si lo hay), avisos
+   0x86/0x87 (subir/bajar), 0x85 (ciclo), 0x88 (a cero) en la salida y 0x80-0x84 (cambio de pantalla) en el
+   dispositivo. Se llama a `_DOS(0)` como Linux con las BIOS anteriores a Windows 8 (la BIOS sigue cambiando de
+   pantalla ella sola: SaguiOS no sabe hacerlo con varias salidas). De las salidas se elige una para el brillo: la de
+   un dispositivo cuya tarjeta responde en el PCI (por `_ADR` y los puentes con su `_BBN`/bus secundario); nunca
+   una de una tarjeta que no está (los Toshiba L655/L850 describen la integrada y la discreta). Los niveles del
+   `_BCL` (sin los dos primeros, ordenados, sin repetir; un `_BQC` que da el índice en vez del valor) los decide
+   `kernel/lib/brilho_conv.c`, compilable en el anfitrión.
+2. **Sin doble paso:** muchas BIOS cambian el brillo ellas mismas y además avisan. Si al llegar 0x86/0x87 (o el 0x80
+   del FUJ02B1) el nivel ya no es el que dejó SaguiOS, lo hizo el firmware y solo se avisa.
+3. **Fujitsu** (`fujitsu.c`): FUJ02B1 (RBLL/GBLL/SBLL o SBL2: el brillo si no hay ACPI Video; con aviso 0x80 se lee
+   el nivel nuevo y se confirma con SBLL) y FUJ02E3 (`FUNC(función, op, campo, valor)`: anillo de botones 0x1002,
+   botón de la radio 0x420, teclas blandas de 0x1000 op 1, luz de la radio con op 5 en los que tienen el bit 17).
+   **Toshiba** (`toshiba.c`): TOS1900/TOS6200/TOS6207/TOS6208 con `GHCI` o `SPFC` (la HCI de seis enteros): teclas
+   por `INFO` (o la cola HCI 0x0016) tras `ENAB` y HCI 0x001E = 0x09; códigos 0x140/0x141 brillo, 0x101 silencio,
+   0x142 radio, 0x13F pantalla (al soltar, código | 0x80: se ignora); brillo HCI 0x002A (3 bits) si no hay ACPI
+   Video; ventilador (0x0004) e interruptor de la radio (0x0056) **solo se leen**. **Escritos para SaguiOS desde el
+   AML** de los Satellite L630/L655/L850 y del Lifebook U938 (volcados de uACPI/ACPIDumps, CC-BY-4.0, que no se
+   suben a git); los números de funciones, registros y códigos son los que usan `fujitsu-laptop` y `toshiba_acpi` de
+   Linux (GPL-2.0-or-later), que se miraron como referencia del protocolo; **no se copió código** (por eso no van en
+   `kernel/terceros/` ni en `docs/terceros.md`).
+4. **Acciones comunes con un único punto de entrada** (`kernel/nucleo/acoes.c`, `acoes.h`): `acao_sistema(ACAO_*,
+   ORIGEM_ACAO_*)` vale desde una IRQ (solo encola en una cola de 16). Las hace el gestor de ventanas en cada tic (sin
+   escritorio, la tarea `acpi-aml`): volumen ±5 (subir quita el silencio), silencio (alterna), brillo (lo pide a la
+   tarea `acpi-aml`), radio (modo avión: el Wi-Fi se desconecta y no busca ni conecta; la luz de los Fujitsu; la radio
+   de las tarjetas que SaguiOS no maneja sigue como la dejó la BIOS) y pantalla (solo el aviso). El aviso en pantalla
+   (`gui_aviso_osd`, `avisos.c`) dura 2 s y **sustituye** al anterior del mismo estilo en vez de hacer cola. Es el
+   sitio para unir HP WMI (D402): `ORIGEM_ACAO_HP` ya está reservado; su driver solo tiene que llamar a
+   `acao_sistema()`.
+5. **Teclado:** E0 20 (silencio), E0 2E (bajar) y E0 30 (subir) del PS/2 (antes se ignoraban) son acciones; el HID
+   USB traduce los usos 0x7F-0x81 del teclado a esos mismos códigos. Las teclas de brillo de casi todos los portátiles
+   no son códigos del teclado: llegan por el EC (`_Qxx` → Notify) y por eso **el EC se mira cada 200 ms** (antes 1 s)
+   cuando lo hay; los GPE siguen apagados (D192).
+6. **`SIS_PORTATIL` (150):** `PORTATIL_ESTADO` (`info_portatil_t`), `PORTATIL_BRILHO` (leer, fijar %, pasos;
+   espera hasta 3 s a la tarea), `PORTATIL_ACAO` (de la sesión, no de un servicio), `PORTATIL_NOTIFICAR` (root: un
+   Notify simulado, para las pruebas) y `PORTATIL_TABELA` (root: copia una tabla ACPI de la lista de `INFO_ACPI` por
+   una ventana de una página; funciona sin `--uacpi`). La 150 y no la 140: las 140-146 son de la rama de procesos
+   POSIX. Órdenes: `brillo [0-100|+|-|+N|-N]` y `portatil [radio | accion NOMBRE | tablas [ARCHIVO] | notificar
+   DESTINO VALOR]`; `portatil tablas` escribe el formato de texto de `acpidump` (lo leen `acpixtract`/`iasl` y
+   `tools/uacpi_volcado`), para traer el AML de una máquina real.
+7. **Seguridad:** sin `--uacpi` no se ejecuta nada de esto (solo las teclas de volumen y el volcado de tablas). Al
+   arrancar solo se hace lo que hace Linux con estos dispositivos (`_DOS(0)`, `ENAB` y activar las teclas de
+   Toshiba); el brillo solo cambia cuando alguien lo pide. Ojo con Toshiba (visto en el AML del L850): con las teclas
+   activadas, el firmware deja de cambiar él la radio con Fn+F8 y de avisar al ACPI Video del brillo; todo llega a
+   SaguiOS.
+
+**Pruebas:** h404. (0) anfitrión: `brilho_conv.c` con casos raros (también ASan/UBSan). (0b) `tools/uacpi_volcado
+--portatil` (nuevo: lo que buscan los drivers, sobre un volcado) con las SSDT de la prueba y, con
+`SAGUI_ACPIDUMPS`, con volcados reales (L850, L655 y Lifebook U938 cargan sin colgarse y salen las salidas con
+brillo, la HCI de Toshiba y el FUJ02E3). QEMU con SSDT propias (`-acpitable`, AML generado por la prueba): (a) ACPI
+Video + FUJ02B1 + FUJ02E3, con un `_DOS` que hace Notify(LCD0, 0x86) de verdad, `brillo`, avisos simulados, el
+firmware que ya cambió el brillo, el botón de la radio y su luz, la tecla de pantalla y las teclas de volumen; (b)
+Toshiba TOS1900 con `ENAB` que avisa, la cola de `INFO`, brillo HCI, ventilador e interruptor; (c) uACPI sin esos
+dispositivos; (d) imagen sin `--uacpi` y `portatil tablas` (DSDT y FACP con la suma bien).
+
+**Pendiente:** el AML del Amilo Pi 1536 (su DSDT es de Uniwill, «UW F29»: probablemente sin FUJ02B1/FUJ02E3; las
+órdenes para traerlo con `portatil tablas` están en el kit privado); probar en el L635/L850; la tecla de cambio de
+pantalla de verdad (con varias salidas); el ventilador de Toshiba con escritura; después Dell, Lenovo, Acer, ASUS.
+
+### D403 + D405 (2026-11-19, al fusionar en `v8.5.5`): una sola implementación de las acciones del sistema
+
+Las dos ramas traían su cola de «acciones del sistema»: `acoes_sistema.c` (HP WMI, D405: volumen y silencio con
+`acoes_pedir`, y avisos de texto con `acoes_aviso`) y `kernel/nucleo/acoes.c` (D403: `acao_sistema(ACAO_*, ORIGEM_ACAO_*)`
+con volumen, silencio, brillo, radio y pantalla, y su aviso en pantalla, OSD). Las dos mapeaban las teclas E0 20/2E/30 en
+`teclado.c` (la de HP dentro de `if (ext)`, después de la de D403: nunca llegaba a usarse).
+
+**Decisión:** se queda la de D403. `acoes_sistema.c/.h` desaparecen; `hp_wmi.c` llama a
+`acao_sistema(ACAO_VOLUME_MAIS|ACAO_VOLUME_MENOS|ACAO_SILENCIO, ORIGEM_ACAO_HP)` (el aviso OSD es el mismo que con el
+teclado, y tocar el volumen quita el silencio como en D403). Los avisos de texto del kernel (radios del HP, botón
+inalámbrico, teclas del panel) pasan a `acoes_aviso()` en `acoes.c`: **una sola cola** (4 avisos, se pierde el más
+viejo) que el gestor de ventanas vacía con `acoes_aviso_proximo()` → `gui_aviso()`, y que sin escritorio
+`acoes_atender()` (llamado por la tarea "acpi-aml") escribe en la consola. Las teclas E0 20/2E/30 se mapean **una sola
+vez**, en el bloque de D403 de `teclado.c` (también llegan del HID USB, `hid.c`). La tarea "acpi-aml" despierta con
+`uacpi_sagui_acordar()` (pedido de HP o de los portátiles) y no duerme si `portatil_pendente()`; el periodo es el de
+D403 (200 ms con EC). Pendiente de unificar: el volcado de tablas ACPI existe dos veces (`INFO_ACPI_TABELA` de
+`tablasacpi`, D405, y `PORTATIL_TABELA` de `portatil tablas`, D403).
+
+## D398. «escaner»: un escáner de red propio, escrito desde cero (decidido el 2026-11-19 por el mantenedor; rama `v8.5.5-escaner`)
+
+**Decisión.** SaguiOS lleva un escáner de red propio, `escaner` (`userland/programas/escaner.c`, GPL-3.0-or-later),
+inspirado en el *uso* de los escáneres clásicos (objetivos, `-sn`, `-p`, `--top-ports`, `-F`, `-sV`, `-T1..4`, `-oN`, `-v`).
+**No se copia código de nmap**: su licencia (NPSL, GPLv2 con añadidos) no es compatible con la GPL v3 del proyecto; tampoco
+se usa su nombre como alias (marca registrada). Tablas de servicios y de puertos comunes, propias.
+
+**Diseño según la pila.** SaguiOS no tiene `connect` no bloqueante ni `select` sobre varios sockets (la libc lo emula), así
+que el paralelismo son hilos (`thread_create`) que sacan tareas (equipo, puerto) de una cola común con mutex; cada connect
+lleva su plazo (`tempo_limite`). Estados: aceptada = abierto, recusada (RST) = cerrado, plazo agotado = filtrado. Tope de 24
+hilos porque el kernel tiene 32 conexiones TCP. Descubrimiento: conexión a 80/443/22/445 (un RST también delata un equipo) y,
+si solo hay plazos, eco ICMP; el kernel admite un eco a la vez por proceso, así que va en serie con un mutex. `-sV` lee el
+rótulo (SSH, FTP/SMTP, POP3, IMAP, VNC) o manda un `HEAD /` y saca `Server:`.
+
+**Límites.** Solo TCP por conexión completa (sin SYN a medias, UDP, ARP ni huellas de sistema); objetivos hasta /22; sin
+IPv6. No toca el kernel. Ayuda en `rootfs/ayuda/escaner.md` con el aviso de escanear solo redes propias o con permiso.
+
+**Prueba:** `tests/h400_escaner.py`.
+
+## D400. La orden `git` de SaguiOS: libgit2 con una orden propia, HTTPS por la libtls y SSH por `/bin/ssh` (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-git`; [`git.md`](git.md))
+
+**Pedido del mantenedor:** `git` dentro de SaguiOS, por HTTPS y por SSH (clone, fetch, pull, push, status, add, commit, log,
+diff, branch, checkout, remote, config).
+
+**Licencia, la restricción de diseño.** El git original (proyecto Git) es **GPL-2.0-only** y no puede enlazarse con
+nuestra libc y libsagui (GPL-3.0): **no se porta**. Se usa **libgit2 1.9.1**, que es GPL-2.0 **con excepción de enlace**
+(COPYING: «unlimited permission to link the compiled version of this library into combinations with other programs»), y una
+**orden `git` propia** (`userland/terceros/git/git.c`, GPL-3.0-only) escrita contra la API pública; no se copia código del
+ejemplo `lg2`. Dependencias de libgit2 que entran (revisadas una a una, todas compatibles con la GPL v3): `deps/xdiff`
+LGPL-2.1-or-later, `deps/llhttp` MIT, `deps/zlib` licencia zlib, `sha1dc` MIT, `rfc6234`, `wildmatch` y `basename_r` BSD,
+xoroshiro y partes de utf8.h dominio público; **fuera**: PCRE (se usa la regex de la libc, `GIT_REGEX_REGCOMP`), ntlmclient,
+winhttp, OpenSSL, mbedTLS y libssh2. Fila en [`terceros.md`](terceros.md) y en la tabla de [`licencia.md`](licencia.md).
+
+**Fuentes.** Fuera de git, como TCC: `tools/git_fuentes.sh` (tarball de la etiqueta, SHA-256 fijo) a
+`userland/terceros/git/fuentes/`; las fuentes de libgit2 **no se modifican**: la configuración
+(`plataforma/git2_features.h`), el proceso y los flujos están en `userland/terceros/git/plataforma/`. `git.mk` compila a
+`/apps/bin/git` (705 KB, ELF estático de 32 bits; D379: el ramdisk no tiene sitio para 700 KB). Como TCC, fuera de la variante `SEM_GPL`. `GIT=0` lo salta.
+
+**HTTPS sin TLS de terceros.** libgit2 deja registrar flujos de red (`git_stream_register`): `flujo_sagui.c` registra un flujo
+TCP (`conectar_tcp`; SaguiOS no tiene `select`/`poll`, que usa el flujo de sockets de libgit2) y otro **TLS sobre la libtls
+propia** (la de `curl`, `wget` y Cipó: TLS 1.2/1.3, RSA y ECDSA, cadena y nombre contra el almacén `certificados`). La
+verificación se hace al conectar. `GIT_SSL_CAINFO` y `GIT_SSL_NO_VERIFY` como en git. Se descartó meter OpenSSL o mbedTLS: sería
+una segunda pila criptográfica (y de licencias) para lo que ya tenemos.
+
+**SSH: el transporte «exec» de libgit2 sobre nuestro `ssh` (elegido frente a libssh2 y frente a un transporte en proceso).**
+Razones: (1) reutiliza entero el cliente D317 (claves de `/home/.ssh`, `known_hosts` con su política estricta sin atajos,
+ed25519, chacha20-poly1305, modo estricto contra Terrapin), ya probado contra OpenSSH, sin duplicar criptografía ni política de
+claves; (2) libssh2 traería otra biblioteca con su propia criptografía que habría que enlazar con OpenSSL/mbedTLS; (3) un
+transporte en proceso con `ssh_cliente_logica.h` y `ssh_transporte.h` repetiría el bucle de canales, ventanas y la
+autenticación de ssh.c (1400 líneas) dentro de un programa de 700 KB con otro modelo de errores; el exec solo pide
+`git_process`. Lo que falta (SaguiOS no tiene `fork`) se hace con `executar()`: `plataforma/proceso.c` + `ponte.c` redirigen
+la entrada y la salida del proceso a dos tuberías, lanzan `/bin/ssh` y las restauran, como el sagsh en sus tuberías; el hijo
+solo hereda 0-2 (D010), así que cerrar la escritura da el fin de archivo al `ssh` y no hay fugas de descriptores. Coste: `ssh`
+no puede preguntar la huella dentro de `git` (no hay terminal): se acepta antes con un `ssh host` o con
+`GIT_SSH="ssh -o StrictHostKeyChecking=accept-new"`.
+
+**Libc común.** Se añade lo pequeño que faltaba: `getpwuid_r` (nunca encuentra: no hay usuarios), `getpgid`, `getsid`, `_SC_GETPW_R_SIZE_MAX`.
+Sin hilos (`GIT_THREADS` sin definir), sin NSEC; `mmap`, `lstat`, `rename`, `ftruncate`, `fsync` ya estaban. `libc/zlib.o` se
+deja fuera del enlace (solo descomprime) y va la zlib de libgit2, como hace Freeciv con la suya.
+
+**Pruebas:** `tests/h402_git.py` (ELF y documentación; repositorio local; clone, commit, push, fetch y pull por SSH contra el
+servidor SSH de h317 ampliado con `git upload-pack`/`receive-pack` del anfitrión, comprobado con el git del anfitrión y
+`git fsck`; HTTPS con `git http-backend` tras un servidor TLS con CA de prueba, y HTTP plano).
+
+**Pendiente / no está:** `rebase`, `stash`, `tag`, `merge` suelto, submódulos, hooks, proxies, editor de mensajes; credenciales
+con ayudantes; claves SSH que no sean ed25519; pruebas contra un GitHub real.
+
+## D394. AoEN: interfaz y presentación (cursor propio, rótulo, opciones en pestañas, fuego, resolución de dibujo) y qué hace la GPU (v8.5.5.3, mejora 140; decidido el 2026-11-19, rama `v8.5.5.3-aoen-interfaz`)
+
+Mejoras de lo que más se nota jugando, sin tocar el dibujo del terreno ni la IA (los lleva la rama
+`v8.5.5.3-aoen-multinucleo`, D393). Todo es diseño propio: ningún gráfico ni estética copiados de un juego comercial; las
+capturas se hacen con los DRS sintéticos.
+
+- **Cursor propio según la orden** (`ui_cursor.c`): flecha, espada (atacar a un enemigo o a un animal salvaje), hacha (talar),
+  cesta (bayas, peces, presas, granjas), pico dorado o gris (oro, piedra), martillo (construir, reparar y colocar un edificio
+  que cabe), círculo tachado (el edificio no cabe), mira (patrullar, punto de reunión, embarcar, desembarcar, proteger) y
+  flechas en los bordes al desplazar la vista. Son mapas de bits de 16x16 en texto, ampliados con la escala de la interfaz.
+  `hud_cursor()` (`ui_hud.c`) decide con lo mismo que el clic derecho. El cursor del sistema se oculta con
+  `SDL_ShowCursor(SDL_DISABLE)` (D230) solo cuando el juego ya ha visto el ratón; el kernel lo devuelve al salir. Opción
+  «Cursor del juego» (`cursor_propio`, por defecto sí; `AOEN_CURSOR=0`).
+- **Lo que hay bajo el ratón**: aro (blanco lo propio, verde lo aliado, rojo lo enemigo, oro los recursos) y, tras 0,35 s,
+  un rótulo con nombre, dueño y vida o recurso que queda (`hud_rotulo_raton`). Opción `nombres_raton`.
+- **Menú principal**: rótulo «AoEN» con la fuente de 8x16 ampliada, degradado de bronce, borde y sombra (`gfx_titulo` en
+  `gfx.c`), subtítulo, fondo translúcido tras los botones y entrada animada. **Fundido de 0,25 s** desde negro al cambiar de
+  pantalla y aviso «Preparando la partida...» antes de generar el mapa (en mapas grandes parecía colgado).
+- **Opciones en cuatro pestañas** (Gráficos, Interfaz, Sonido, Teclas; `pestana()` en `ui_comun.c`): la activa se ve
+  clara (antes la pulsada salía gris, como desactivada); textos de ayuda con la fuente de 8x16 en vez de la de 5x7 en
+  mayúsculas; la tabla de teclas es la misma de F1 (`dibujar_teclas`) y pasa a una columna si no caben dos.
+  La configuración de la partida usa las mismas pestañas en pantallas estrechas.
+- **Escala de la interfaz x3** (Automático: x2 desde 1600x960, x3 desde 2880x1620); la elegida a mano baja si la
+  interfaz lógica quedaría por debajo de 640x480 (`fx_escala_ui`).
+- **Fuego**: los edificios por debajo del 40 % arden en dos o tres puntos fijos (tres por debajo del 20 %), con llamas
+  alargadas que pasan de amarillo a rojo; con «Humo, fuego y polvo» apagado no hay. Las partículas de fuego ya existían en el
+  dibujo pero no salían nunca.
+- **Resolución de dibujo** (solo en SaguiOS, Opciones > Gráficos; `escala_dibujo`, `AOEN_DIBUJO`): en pantalla completa el
+  búfer puede ser el 75 % o el 50 % del escritorio y la SDL del sistema lo amplía (al 50 %, la copia x2 exacta de
+  `sdl2_sagui.c`); nunca por debajo de 640x480. El ratón ya llega en coordenadas del lienzo. Es lo que de verdad ayuda a un
+  equipo antiguo con pantalla grande: se dibuja la mitad o la cuarta parte de los píxeles. Medida (KVM, bench de `h389`, efectos Normal,
+  escritorio 1920x1080): 349 fps al 100 % y 833 fps al 50 % (960x540), 2,4 veces más; en un equipo lento la proporción es
+  parecida porque casi todo el tiempo es dibujo por píxel.
+- **GPU (pedido: usar `SDL_RENDERER_ACCELERATED`)**: AoEN compone todo el cuadro por la CPU (sprites con paleta, colores de
+  jugador, sombras, niebla). Con el renderizador de la SDL de SaguiOS (D288) el cuadro entero se sube como textura, la GPU lo
+  copia y `SDL_RenderPresent` **lo vuelve a leer** de la GPU al lienzo para que el sistema de ventanas lo presente: una subida
+  y una lectura de más por cuadro, sin trabajo que ahorrar. Por eso la opción «Renderizador 2D del sistema» sigue apagada por
+  defecto (no empeora por CPU: sin GPU 3D la SDL sigue por software) y se explica en Opciones > Interfaz. Que la GPU ayude
+  de verdad exige (1) sprites como texturas (un atlas por SLP y color de jugador) dibujados con `SDL_RenderCopy`, y (2) que
+  el sistema de ventanas presente desde la GPU sin leer el cuadro: queda propuesto para después.
+- **Pruebas**: `h389_aoen.py presentacion` (rótulo en bronce en la captura, pestañas, cursor de atacar/oro/prohibido con el
+  guion `AOEN_PRUEBA=cursor`, hoja de cursores `AOEN_SCENE=cursores`, dibujo al 75 % en pantalla completa; capturas H389-33
+  a H389-38) y `H389_DIBUJO` en el bench.
+
+## D393. AoEN en varios núcleos: hilos de verdad en la SDL 2, terreno y entidades por franjas, IA en paralelo con aplicación ordenada (v8.5.5.3, mejora 140; decidido el 2026-11-19, rama `v8.5.5.3-aoen-multinucleo`)
+
+Pedido del mantenedor (adelantado de la 8.5.5.3): AoEN multinúcleo y más rápido, con las partidas igual de deterministas.
+
+- **SDL 2 del sistema con hilos de verdad.** Hasta ahora (D383) los cerrojos eran nulos y `SDL_CreateThread` fallaba. Ahora:
+  `SDL_CreateThread` (y `WithStackSize`, `WaitThread`, `DetachThread`, `ThreadID`) sobre `thread_create` de la libsagui (D167;
+  pila del kernel de 1 MB con guarda, D186), **cerrojos recursivos** como los de la SDL (dueño + profundidad sobre un
+  `mutex_t`; el mismo hilo lo vuelve a tomar, así que los programas de antes que se llamaban a sí mismos con el cerrojo tomado
+  siguen igual), **condiciones** con un contador de avisos y futex (`Signal`, `Broadcast`, `Wait`, `WaitTimeout`),
+  **semáforos** (`semaforo_t` con espera con plazo) y **atómicas** (`SDL_AtomicAdd/CAS/Get/Set`, barreras).
+  `SDL_GetCPUCount` cuenta las CPU **arrancadas** (`INFO_NUCLEOS`, estado distinto de «libre»): sin `--smp` da 1.
+- **El audio sigue en el hilo principal.** La SDL del sistema no tiene hilo de audio: lo mueven `SDL_PollEvent`, `SDL_Delay`
+  y `SDL_RenderPresent`. Desde que hay hilos, `bombear_audio` solo hace algo en el principal (tid = pid). Una espera de
+  `SDL_CondWait` o `SDL_SemWait` **en el hilo principal** se corta cada 2 ms para mover el audio y vuelve a mirar (la SDL permite
+  despertar sin aviso): así Chocolate Doom, que esperaba en `OPL_Delay` a que la llamada de vuelta del audio le avisara, sigue
+  funcionando sin hilo de audio. Los hilos de trabajo no deben llamar a vídeo, eventos ni audio.
+- **AoEN: reparto en trozos** (`userland/juegos/aoen/hilos.c`). Un grupo fijo de hilos (uno por núcleo, hasta 8) espera
+  tareas; `hilos_repartir(fn, ctx, partes)` publica una tarea y cada hilo, también el principal, toma el siguiente trozo libre.
+  Solo un cerrojo y dos condiciones de la SDL (nada de atómicas del compilador): compila igual con gcc, con TCC dentro de
+  SaguiOS (D384) y en Windows. **Con un núcleo** (o `AOEN_HILOS=1`, o `hilos=1` en `aoen.cfg`) no se crea ningún hilo y
+  `hilos_repartir` es un bucle: el camino de siempre, sin sobrecoste. La opción va en `aoen.cfg` y no en la pantalla de
+  Opciones para no tocar la interfaz (la cambia otra rama, D394).
+- **Regla de todo el reparto: cada trozo escribe solo lo suyo**, así que el resultado no depende de qué hilo haga qué ni en qué
+  orden. Con 1 hilo y con N la imagen y la partida salen iguales **bit a bit**; las pruebas lo comprueban (h398).
+- **Terreno por franjas.** HD: las filas son independientes (`render_terrain_hd_filas`); el ruido y las tablas se preparan
+  antes en el principal. Clásico: primero se apuntan, en el orden de siempre, las casillas visibles y las filas que tocan;
+  cada franja recorre esa lista y dibuja solo las suyas con su propio recorte (`gfx_sprite_franja`, `Recorte`, `GfxTemp` por
+  hilo) y paletas ya hechas; los cuadros de las losetas se decodifican antes (la decodificación es diferida).
+- **Entidades por franjas: lista de dibujo** (`gfx.c`). Entre `gfx_lista_empezar` y `gfx_lista_terminar` (en `render_world`,
+  de las entidades a la luz del día) las cinco primitivas de bajo nivel (relleno, mezcla, línea, oscurecer, sprite) **apuntan**
+  lo que harían con el recorte del momento (y una copia de la paleta con sombra); al terminar, la lista se reproduce por
+  franjas en los hilos, cada franja en el mismo orden. `draw_entity` y el resto no cambian. Condición para quien toque
+  `gfx.c`: **toda escritura en `fb.px` dentro de `render_world` debe pasar por esas primitivas** (o grabarse igual).
+- **IA en paralelo, aplicada en un punto fijo.** Los jugadores de la máquina que piensan en el mismo tic (casi siempre todos
+  a la vez) lo hacen en paralelo. Cada IA solo escribe lo suyo: su memoria, su `ocupa` (ahora uno por jugador), sus
+  recursos, las órdenes de sus unidades. Lo que toca a otros o al mapa se aplaza y se aplica **después, en el hilo
+  principal y en orden de jugador** (`ia_aplicar`): las **obras** (se apuntan con el coste ya apartado, el sitio y el aldeano
+  reservados para el resto de la vuelta; `cmd_build` crea la entidad y usa el azar del mundo) y la **diplomacia** (tributos,
+  alianzas). Antes de pensar se calculan en el principal lo que luego solo se lee (islas, población máxima del tic).
+  Cambio de comportamiento pequeño respecto a la 8.5.4.10: la diplomacia va al final de la vuelta y una obra se ve en la
+  vuelta siguiente; las pruebas de IA de h389 (la difícil gana a la fácil, victoria compartida, comercio) siguen pasando.
+- **Caminos por lotes.** La búsqueda A* tiene su espacio de trabajo aparte (`Busca`: montón, g, from, sellos); la 0 usa los
+  arrays del mundo, como antes. Mientras piensan las IA, las órdenes no buscan el camino: lo apuntan (uno por entidad, el
+  último) y al acabar `caminos_resolver` los busca todos repartidos entre los hilos. Los caminos que piden las unidades en
+  `world_update` siguen buscándose en el momento (aplazarlos cambiaría cuándo empiezan a andar).
+- **Comprobación del determinismo.** `world_suma()` (entidades con sus caminos, jugadores, reloj y azar); `AOEN_SIM=segundos`
+  simula sin dibujo y escribe la suma cada minuto; `AOEN_IA_ORDEN=inverso` hace pensar a las IA al revés (si alguna leyera lo
+  que cambia otra, la suma cambiaría); `AOEN_PASO_FIJO=1` y `AOEN_TIEMPO_ANIM` fijan el mundo y las animaciones para comparar
+  cuadros (`AOEN_SUMA_CUADRO=N`). Para medir: `AOEN_PERFIL=1` (ms por cuadro de simulación, IA, terreno, entidades,
+  interfaz y presentación, con el TSC), `AOEN_DIF` y `AOEN_ESPECTADOR=1` (partidas cargadas en las que nadie pierde enseguida).
+- **Texturas HD sintéticas** (`tools/aoen_texturas_sintetico.py`): seis PNG de 512x512 hechas con ruido, para probar y medir
+  el terreno HD sin las texturas del mantenedor.
+- **Un arreglo de un solo hilo que salió al medir**: en SaguiOS `floorf` es la de la libm en software (por `double`); elegir
+  las entidades visibles en `render_world` (dos `floorf` por entidad, unas 5000 en una partida de 8) costaba **1,4 ms por
+  cuadro** (en el PC, 0,05). `piso()` (en `aoen.h`) da el mismo resultado sin llamarla: **0,12 ms**. Los cuadros salen
+  iguales.
+- **Medidas** (KVM, 1024x768 a pantalla completa, DRS y texturas sintéticos, partida de 8 jugadores de la máquina en
+  difícil, mapa de 200, adelantada 10 minutos, `REVEAL`, `--smp`; `tests/h398_aoen_multinucleo.py bench` con
+  `H398_ANTES=1`, que mide también la versión de la rama de partida compilada aparte como `/apps/bin/aoen-antes`), en fps:
+
+  | | 1 CPU | 2 CPU | 4 CPU |
+  |---|---|---|---|
+  | Terreno HD, antes | 107 | 124 | 120 |
+  | Terreno HD, ahora | 131 | **224** | **260** |
+  | Clásico con efectos, antes | 201 | 206 | 201 |
+  | Clásico con efectos, ahora | 283 | **359** | 323 |
+  | Simulación sola (`AOEN_SIM`, ms por tic) | 0,580 | 0,466 | 0,463 |
+
+  Con 2 núcleos, frente a 1 núcleo con el código nuevo: **HD x1,71**, clásico x1,27, simulación x1,24; frente a antes: HD
+  x1,81 y clásico x1,74 (aquí cuenta también `piso()`). Reparto por cuadro con 2 CPU (`AOEN_PERFIL`): HD terreno 5,19 ->
+  2,50 ms; clásico terreno 1,38 -> 0,86 ms; lo que sigue en un hilo es la interfaz (0,25 ms), la copia a la ventana
+  (0,4 ms), grabar las entidades y lo que no se mide (eventos, música), por eso el clásico gana menos. Con 4 CPU el clásico
+  no gana más que con 2 (tres repartos por cuadro con poco trabajo cada uno: despertar 3 hilos cuesta lo que se ahorra) y las
+  medidas varían de una pasada a otra con la carga del PC (hasta un 20 %). La simulación gana poco porque la IA es una
+  cuarta parte del tic: lo demás (unidades, caminos de `world_update`, torres, separación) sigue en un hilo.
+- **Determinismo comprobado**: en el PC (`tests/aoen_ia.c` con `AOEN_IA_SUMA`), dos partidas (8 jugadores costero, 6
+  jugadores islas) dan las mismas 16 y 13 sumas con 1, 2 y 4 hilos y con las IA en orden inverso; en SaguiOS con `--smp` y 4
+  CPU, la simulación da la misma suma con 1 y 4 hilos, y la de 25 minutos del banco la misma con 1, 2 y 4 CPU (`ded8b9df`);
+  los cuadros (HD, clásico, completo, partida de 8 adelantada) son iguales bit a bit con 1 y 4 hilos.
+- **Pendiente**: buscar por lotes también los caminos que piden las unidades en `world_update` (cambia cuándo empiezan a
+  andar), torres con la rejilla de `nearest_enemy` (exacto solo si se tienen en cuenta las entidades nuevas del tic), repartir
+  la copia de `present_frame` y elegir cuántos hilos usar según el trabajo de cada reparto; medir en hardware real (dv7,
+  L850, mini PC i3-1220P).
+- **Pruebas**: `tests/h398_aoen_multinucleo.py` (nueva: `pc`, `determinismo-pc`, `tcc`, `saguios`; `bench` aparte), h389
+  (todas sus partes) y h392 (TCC compila AoEN dentro, ahora con `hilos.c`).

@@ -119,7 +119,12 @@ void smp_ap_entrada(uint32_t indice)
 {
     gdt_carregar(indice);
     idt_carregar();
-    fpu_iniciar_secundaria();
+    /* D381: un proceso con YMM puede pasar a cualquier CPU: si esta no puede encender AVX como
+     * el principal, se queda parada y el kernel no la cuenta (como sin NX, paso 9). */
+    if (!fpu_iniciar_secundaria()) {
+        *buraco(_ap_progresso) = 10;
+        for (;;) __asm__ volatile("cli; hlt");
+    }
     uint64_t pat = wc_iniciar_secundaria();   /* D198: la misma PAT/MTRR que el principal (el framebuffer en WC también aquí) */
     cpu_definir_indice(indice);
     cpu_topologia_ler(indice);   /* D174: su núcleo físico, por CPUID en esta misma CPU */
@@ -152,6 +157,7 @@ static const char *passo_nome(uint32_t p)
     case 4: return "paginación activa";
     case 5: return "saltando a C";
     case 9: return "sin NX en esta CPU (XD desactivado): se deja parada";   /* D349 */
+    case 10: return "sin AVX/XSAVE en esta CPU (el principal lo tiene): se deja parada";   /* D381 */
     default: return "?";
     }
 }
@@ -188,7 +194,8 @@ uint32_t smp_iniciar(void)
     memcpy((void *)SMP_TRAMPOLIM, _ap_trampolim, tam);
     *buraco(_ap_gdt_base) = SMP_TRAMPOLIM + (uint32_t)(_ap_gdt_local - _ap_trampolim);
     *buraco(_ap_cr0) = ler_cr0();
-    *buraco(_ap_cr4) = ler_cr4();
+    /* D381: sin OSXSAVE; fpu_iniciar_secundaria() lo pone después de mirar CPUID en esa CPU. */
+    *buraco(_ap_cr4) = ler_cr4() & ~(uint32_t)0x40000;
     *buraco(_ap_cr3) = espaco_kernel();   /* con PAE, el PDPT (D349) */
     *buraco(_ap_nxe) = paginacao_nx() ? 1 : 0;   /* D349: EFER.NXE en cada CPU */
     *buraco(_ap_xd) = paginacao_xd_liberado() ? 1 : 0;
