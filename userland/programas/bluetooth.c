@@ -48,8 +48,8 @@ static const char *nome_adaptador(unsigned e)
 
 static const char *nome_tipo(unsigned t)
 {
-    static const char *const n[] = { "dispositivo", "teclado", "ratón", "teclado y ratón" };
-    return t < 4 ? n[t] : "?";
+    static const char *const n[] = { "dispositivo", "teclado", "ratón", "teclado y ratón", "BLE", "BLE (teclado/ratón)" };
+    return t < 6 ? n[t] : "?";
 }
 
 static void texto_estado(const disp_bt_t *d, char *o, int max)

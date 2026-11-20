@@ -312,6 +312,8 @@ void processo_encerrar(processo_t *p, int codigo, const char *motivo)
     for (int i = 1; i < MAX_PROCESSOS; i++)
         if (tabela[i].estado != P_LIVRE && tabela[i].pai == p->pid)
             tabela[i].pai = 0;
+    p->alarme_em = 0;
+    sinais_filho_terminou(p);           /* D401: SIGCHLD (o, si lo ignora, que no quede zombi) */
     acordar(processo_por_pid(p->pai));   /* el padre puede estar en "esperar" */
     klog("[SAGUI] processo %u (%s) terminou com codigo %d%s%s\n", p->pid, p->nome, codigo,
          motivo ? ": " : "", motivo ? motivo : "");
@@ -339,15 +341,36 @@ void bloquear(const void *canal)
     atual->espera = canal;
 }
 
-void acordar(const void *canal)
+/* D401: poll y select. Quien espera en ellos duerme aquí; cualquier acordar() del kernel (datos
+ * en una tubería, una tecla, la red, un cierre) lo despierta también y vuelve a mirar todos sus
+ * descriptores: despertares de más, nunca de menos. */
+static const char canal_sondar = 0;
+static bool sondas_ativas;
+
+void sondar_esperar(void)
 {
-    if (!canal) return;
+    bloquear(&canal_sondar);
+    sondas_ativas = true;
+}
+
+static void acordar_canal(const void *canal)
+{
     for (int i = 0; i < MAX_PROCESSOS; i++)
         if (tabela[i].estado == P_BLOQUEADO && tabela[i].espera == canal) {
             tabela[i].estado = P_PRONTO;
             tabela[i].espera = NULL;
             avisar_ociosa(&tabela[i]);
         }
+}
+
+void acordar(const void *canal)
+{
+    if (!canal) return;
+    acordar_canal(canal);
+    if (sondas_ativas && canal != &canal_sondar) {
+        sondas_ativas = false;
+        acordar_canal(&canal_sondar);
+    }
 }
 
 /* D165: hay trabajo para "p": si hay una CPU ociosa que puede tomarlo, se
@@ -637,6 +660,7 @@ quadro_t *escalonador_tique(quadro_t *q)
     }
 
     planificador_tique0(agora);   /* D174: el uso reciente y el reparto de la carga */
+    sinais_tique(agora);          /* D401: las alarmas (SIGALRM) */
 
     /* Cambia cuando se acaba la rebanada, o al instante si el ocioso está corriendo y
      * alguien quedó listo, o si el planificador lo pidió (D174). */
@@ -668,6 +692,20 @@ quadro_t *escalonador_tique_secundaria(quadro_t *q)
     if (!planificar || !trava_geral_tentar())
         return q;
     return escalonar(q);
+}
+
+/* D401: el hijo de un fork empieza donde estaba el que llamó, con eax = 0. */
+void processo_preparar_copia(processo_t *p, const quadro_t *q)
+{
+    quadro_t *n = (quadro_t *)(p->pilha_kernel + PILHA_KERNEL - sizeof(quadro_t));
+    *n = *q;
+    n->eax = 0;
+    p->quadro = n;
+    p->usuario = true;
+    p->estado = P_PRONTO;
+    p->espera = NULL;
+    planificador_pronto_novo(p);
+    avisar_ociosa(p);
 }
 
 /* Cuadro inicial de un programa en el anillo 3: segmentos de usuario, la pila

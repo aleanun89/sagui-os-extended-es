@@ -359,7 +359,7 @@ static uint32_t lote(processo_t *p, uint32_t *examinadas, bool *parar)
             continue;
         }
         pte_t v = pte_ler(pt);
-        if ((v & PG_PRESENTE) && (v & PG_USUARIO) && !(v & PG_EMPRESTADA)) {
+        if ((v & PG_PRESENTE) && (v & PG_USUARIO) && !(v & PG_EMPRESTADA) && !pte_partilhada(v)) {   /* D401 */
             if (v & PG_ACESSADA) pte_mudar(pt, 0, PG_ACESSADA);    /* segunda oportunidad */
             else if ((v & PG_INCOMPRIMIVEL) && !(v & PG_SUJA)) { } /* no ha cambiado */
             else if (!e_futex(pte_endereco(v))) { pts[n] = pt; virts[n] = mao_virt; n++; }
@@ -424,7 +424,8 @@ uint32_t troca_sacar_faixa(espaco_t e, uint32_t ini, uint32_t fim)
         for (uint32_t vistas = 0; v < fim && n < LOTE && vistas < EXAMINAR_LOTE; v += PAGINA, vistas++) {
             void *pt = espaco_pte(e, v);
             pte_t x = pt ? pte_ler(pt) : 0;
-            if ((x & PG_PRESENTE) && (x & PG_USUARIO) && !(x & PG_EMPRESTADA) && !e_futex(pte_endereco(x))) {
+            if ((x & PG_PRESENTE) && (x & PG_USUARIO) && !(x & PG_EMPRESTADA) && !pte_partilhada(x) &&   /* D401 */
+                !e_futex(pte_endereco(x))) {
                 pts[n] = pt;
                 virts[n++] = v;
             }
@@ -513,6 +514,26 @@ int troca_trazer(espaco_t e, uint32_t virt, bool do_kernel)
 fim:
     int_restaura(irq);
     return r;
+}
+
+/* D401: una copia nueva de la página que guarda la entrada de swap "v" (el fork: el hijo recibe
+ * la suya sin traer la del padre). La entrada y su trozo no cambian. 0 = sin memoria o trozo
+ * corrupto. */
+fis_t troca_copiar(pte_t v)
+{
+    if (!troca_e_entrada(v)) return 0;
+    bool irq = int_salva_desliga();
+    fis_t nova = memfisica_alocar_usuario();   /* puede sacar otras páginas: el trozo de "v" no se mueve */
+    if (nova && !ler_trozo(v)) {
+        memfisica_liberar(nova);
+        nova = 0;
+        est.corrompidas++;
+    } else if (nova) {
+        if (v & TROCA_ZERO) fisica_zerar(nova);
+        else fisica_escrever(nova, buf_volta, PAGINA);
+    }
+    int_restaura(irq);
+    return nova;
 }
 
 /* ------------------------------------------------------------ arranque y tarea */

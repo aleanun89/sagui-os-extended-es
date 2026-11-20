@@ -23,6 +23,8 @@
 #define F_GETFD 1
 #define F_SETFD 2
 #define FD_CLOEXEC 1
+#define F_DUPFD 0
+#define F_DUPFD_CLOEXEC 1030
 #define AT_FDCWD (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR 0x200

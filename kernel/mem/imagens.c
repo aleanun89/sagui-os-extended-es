@@ -381,6 +381,39 @@ uint32_t imagens_desmapear(espaco_t e, uint32_t ini, uint32_t fim)
     return tiradas;
 }
 
+bool imagens_clonar(espaco_t de, espaco_t para)
+{
+    for (mapa_t *m = *balde(de); m; m = m->prox) {
+        if (m->e != de) continue;
+        mapa_t *n = kmalloc(sizeof *n);
+        if (!n) return false;
+        n->e = para;
+        n->virt = m->virt;
+        n->paginas = m->paginas;
+        n->restantes = 0;
+        n->im = m->im;
+        m->im->refs++;
+        bool ok = true;
+        for (uint32_t i = 0; i < m->paginas && ok; i++) {
+            uint32_t v = m->virt + i * PAGINA;
+            void *p = espaco_pte(de, v);
+            pte_t x = p ? pte_ler(p) : 0;
+            /* Solo la entrada que puso imagens_mapear (MEM_DEVOLVER pudo quitar unas). */
+            if (!(x & PG_PRESENTE) || !(x & PG_EMPRESTADA) || pte_endereco(x) != m->im->fis[i]) continue;
+            ok = espaco_mapear(para, v, pte_endereco(x), pte_flags(x) & ~(uint32_t)(PG_ACESSADA | PG_SUJA));
+            if (ok) n->restantes++;
+        }
+        /* En la lista aunque falle: destruir "para" lo suelta. Se inserta en la cabeza: si es la
+         * misma lista que se recorre, queda detrás de "m" y no se vuelve a ver. */
+        n->prox = *balde(para);
+        *balde(para) = n;
+        n_mapas++;
+        mapeadas_total += n->restantes;
+        if (!ok) return false;
+    }
+    return true;
+}
+
 void imagens_espaco_destruido(espaco_t e)
 {
     for (mapa_t *m = *balde(e), *seg; m; m = seg) {

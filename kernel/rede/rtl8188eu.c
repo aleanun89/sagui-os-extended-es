@@ -31,6 +31,7 @@
 #define nitems(a) ((int)(sizeof(a) / sizeof((a)[0])))
 #define __packed __attribute__((packed))
 #include "../terceros/bsd/rtwn/r92creg_88e.h"
+#include "rtl8192cu_logica.h"   /* D409: los RTL8188CU/8192CU (la parte pura) */
 
 /* De if_urtwn.c: páginas de las colas del 8188E. */
 #define R88E_HQ_NPAGES        0
@@ -40,9 +41,13 @@
 #define R88E_TX_PAGE_COUNT    168
 #define R88E_MAX_RX_DMA_SIZE  0x2400
 #define R92C_REQ_REGS         0x05
-#define R92C_MACID_BSS        0      /* la entrada de la estación del AP (r92creg.h, fw_cmd_macid_cfg) */
-#define R92C_TXDESC_SUMSIZE   32
-#define R92C_TXDESC_SUMOFFSET 14
+
+/* D409: familia C (RTL8188CU/8192CU/8188RU), de if_urtwn.c: páginas de las colas con un solo endpoint
+ * de salida (ntx = 1: todo por la cola de prioridad alta). */
+#define R92C_HQ_NPAGES        12
+#define R92C_TXPKTBUF_COUNT   256
+#define R92C_TX_PAGE_COUNT    248
+#define R92C_MAX_RX_DMA_SIZE  0x2800
 
 #define RX_TAM 16384
 #define TX_MAX 2400
@@ -59,6 +64,10 @@ static bool vivo(r88e_t *r)
 {
     return r->presente && r->d && r->d->usado && r->d->wifi;
 }
+
+/* D409: true = RTL8188CU/8192CU (todo lo que cambia respecto del 8188EU cuelga de esto). */
+static bool fc(const r88e_t *r) { return r->familia == WUSB_RTL8192CU; }
+static int encender_c(r88e_t *r);
 
 static int regiao(r88e_t *r, bool ler, uint16_t end, void *buf, uint16_t n)
 {
@@ -108,23 +117,32 @@ static void esperar_ms(uint32_t ms)
     int_restaura(i0);
 }
 
-static void rf_w(r88e_t *r, uint16_t end, uint32_t v)
+/* D409: por cadena de RF (los 8192CU tienen dos; el EU, una). */
+static void rf_wc(r88e_t *r, int ch, uint16_t end, uint32_t v)
 {
-    bb_w(r, R92C_LSSI_PARAM(0), SM(R88E_LSSI_PARAM_ADDR, end) | SM(R92C_LSSI_PARAM_DATA, v));
+    uint32_t a = fc(r) ? SM(R92C_LSSI_PARAM_ADDR, end) : SM(R88E_LSSI_PARAM_ADDR, end);
+    bb_w(r, R92C_LSSI_PARAM(ch), a | SM(R92C_LSSI_PARAM_DATA, v));
 }
 
-static uint32_t rf_r(r88e_t *r, uint8_t end)
+static uint32_t rf_rc(r88e_t *r, int ch, uint8_t end)
 {
-    uint32_t reg0 = bb_r(r, R92C_HSSI_PARAM2(0));
+    uint32_t reg0 = bb_r(r, R92C_HSSI_PARAM2(0)), regc = ch ? bb_r(r, R92C_HSSI_PARAM2(ch)) : reg0;
     bb_w(r, R92C_HSSI_PARAM2(0), reg0 & ~R92C_HSSI_PARAM2_READ_EDGE);
     esperar_ms(1);
-    bb_w(r, R92C_HSSI_PARAM2(0), RW(reg0, R92C_HSSI_PARAM2_READ_ADDR, end) | R92C_HSSI_PARAM2_READ_EDGE);
+    bb_w(r, R92C_HSSI_PARAM2(ch), RW(regc, R92C_HSSI_PARAM2_READ_ADDR, end) | R92C_HSSI_PARAM2_READ_EDGE);
     esperar_ms(1);
+    if (fc(r)) {
+        bb_w(r, R92C_HSSI_PARAM2(0), reg0 | R92C_HSSI_PARAM2_READ_EDGE);
+        esperar_ms(1);
+    }
     uint32_t v;
-    if (bb_r(r, R92C_HSSI_PARAM1(0)) & R92C_HSSI_PARAM1_PI) v = bb_r(r, R92C_HSPI_READBACK(0));
-    else v = bb_r(r, R92C_LSSI_READBACK(0));
+    if (bb_r(r, R92C_HSSI_PARAM1(ch)) & R92C_HSSI_PARAM1_PI) v = bb_r(r, R92C_HSPI_READBACK(ch));
+    else v = bb_r(r, R92C_LSSI_READBACK(ch));
     return MS(v, R92C_LSSI_READBACK_DATA);
 }
+
+static void rf_w(r88e_t *r, uint16_t end, uint32_t v) { rf_wc(r, 0, end, v); }
+static uint32_t rf_r(r88e_t *r, uint8_t end) { return rf_rc(r, 0, end); }
 
 /* ------------------------------------------------------------ eFuse */
 
@@ -144,13 +162,25 @@ static uint8_t efuse_byte(r88e_t *r, uint16_t end)
 int r88e_ler_efuse(r88e_t *r, const char **motivo)
 {
     *motivo = "";
+    if (fc(r) && !r->c_ligado) {   /* D409: en los CU el encendido va antes de leer la eFuse (urtwn_attach) */
+        int e = encender_c(r);
+        if (e < 0) { *motivo = "el chip no se encendió (secuencia del RTL8192CU)"; return -1; }
+        r->c_ligado = true;
+    }
     r->sys_cfg = r4(r, R92C_SYS_CFG);
     if (!vivo(r) || r->sys_cfg == 0xFFFFFFFFu) { *motivo = "el pincho no responde a los registros"; return -1; }
-    /* El 8188ETV comparte el ID con el EU: lo distingue el registro de versión
-     * (bits 15..12, «chip version»; el ETV es la versión de prueba sin
-     * corte comercial, según el fabricante). Solo se anota. */
-    r->etv = (r->sys_cfg & R92C_SYS_CFG_TRP_VAUX_EN) != 0;
-    w1(r, R92C_EFUSE_ACCESS, R92C_EFUSE_ACCESS_ON);
+    if (fc(r)) {
+        r92c_chip_t c = r92c_tipo_chip(r->sys_cfg, r4(r, R92C_HPON_FSM));
+        if (!c.ok) { *motivo = "chip de prueba de Realtek, no soportado"; return -1; }
+        r->c_c2t2r = c.c2t2r; r->c_c1t2r = c.c1t2r; r->c_umc = c.umc; r->c_acut = c.a_cut;
+        r->c_ntx = c.ntx; r->c_nrx = c.nrx;
+    } else {
+        /* El 8188ETV comparte el ID con el EU: lo distingue el registro de versión
+         * (bits 15..12, «chip version»; el ETV es la versión de prueba sin
+         * corte comercial, según el fabricante). Solo se anota. */
+        r->etv = (r->sys_cfg & R92C_SYS_CFG_TRP_VAUX_EN) != 0;
+        w1(r, R92C_EFUSE_ACCESS, R92C_EFUSE_ACCESS_ON);
+    }
     uint16_t reg = r2(r, R92C_SYS_ISO_CTRL);
     if (!(reg & R92C_SYS_ISO_CTRL_PWC_EV12V)) w2(r, R92C_SYS_ISO_CTRL, reg | R92C_SYS_ISO_CTRL_PWC_EV12V);
     reg = r2(r, R92C_SYS_FUNC_EN);
@@ -163,12 +193,12 @@ int r88e_ler_efuse(r88e_t *r, const char **motivo)
      * desplazamiento del bloque de 8 bytes y una máscara de qué palabras faltan. */
     memset(r->rom, 0xFF, sizeof r->rom);
     uint16_t end = 0;
-    while (end < 256 && vivo(r)) {
+    while (end < (fc(r) ? 512 : 256) && vivo(r)) {
         uint8_t h = efuse_byte(r, end);
         if (h == 0xFF) break;
         end++;
         uint8_t off;
-        if ((h & 0x1F) == 0x0F) {
+        if (!fc(r) && (h & 0x1F) == 0x0F) {   /* cabecera extendida: solo el 88E */
             uint8_t tmp = (uint8_t)((h & 0xE0) >> 5);
             h = efuse_byte(r, end);
             end++;
@@ -183,8 +213,17 @@ int r88e_ler_efuse(r88e_t *r, const char **motivo)
             if (k + 1 < sizeof r->rom) { r->rom[k] = a; r->rom[k + 1] = b; }
         }
     }
-    w1(r, R92C_EFUSE_ACCESS, R92C_EFUSE_ACCESS_OFF);
+    if (fc(r)) r->c_pa = efuse_byte(r, 0x1fa);   /* «raro, pero es lo que hace el driver del fabricante» (urtwn) */
+    else w1(r, R92C_EFUSE_ACCESS, R92C_EFUSE_ACCESS_OFF);
     if (!vivo(r)) { *motivo = "el pincho se retiró al leer la eFuse"; return -1; }
+    if (fc(r)) {
+        r92c_efuse_t e = r92c_leer_rom(r->rom);
+        if (!e.valida) { *motivo = "la eFuse no tiene una MAC válida"; return -1; }
+        memcpy(r->mac, e.mac, 6);
+        r->c_placa = e.placa;
+        r->c_regulacao = e.regulacion;
+        return 0;
+    }
     const struct r88e_rom *rom = (const struct r88e_rom *)r->rom;
     memcpy(r->mac, rom->r88eu_rom.macaddr, 6);
     r->xtal = rom->xtal;
@@ -196,9 +235,46 @@ int r88e_ler_efuse(r88e_t *r, const char **motivo)
 
 /* ------------------------------------------------------------ encendido */
 
+/* D409: encendido de los RTL8188CU/8192CU (urtwn_r92c_power_on). */
+static int encender_c(r88e_t *r)
+{
+    int i;
+    for (i = 0; i < 1000 && vivo(r); i++) if (r1(r, R92C_APS_FSMCO) & R92C_APS_FSMCO_PFM_ALDN) break;
+    if (i == 1000) return -1;
+    w1(r, R92C_RSV_CTRL, 0);
+    w1(r, R92C_SPS0_CTRL, 0x2b);
+    esperar_ms(1);
+    uint8_t reg = r1(r, R92C_LDOV12D_CTRL);
+    if (!(reg & R92C_LDOV12D_CTRL_LDV12_EN)) {
+        w1(r, R92C_LDOV12D_CTRL, reg | R92C_LDOV12D_CTRL_LDV12_EN);
+        esperar_ms(1);
+        w1(r, R92C_SYS_ISO_CTRL, r1(r, R92C_SYS_ISO_CTRL) & ~R92C_SYS_ISO_CTRL_MD2PP);
+    }
+    w2(r, R92C_APS_FSMCO, r2(r, R92C_APS_FSMCO) | R92C_APS_FSMCO_APFM_ONMAC);
+    for (i = 0; i < 1000 && vivo(r); i++) if (!(r2(r, R92C_APS_FSMCO) & R92C_APS_FSMCO_APFM_ONMAC)) break;
+    if (i == 1000) return -2;
+    w2(r, R92C_APS_FSMCO, R92C_APS_FSMCO_AFSM_HSUS | R92C_APS_FSMCO_PDN_EN | R92C_APS_FSMCO_PFM_ALDN);
+    w2(r, R92C_SYS_ISO_CTRL, r2(r, R92C_SYS_ISO_CTRL) & ~R92C_SYS_ISO_CTRL_DIOR);
+    w1(r, R92C_APSD_CTRL, r1(r, R92C_APSD_CTRL) & ~R92C_APSD_CTRL_OFF);
+    for (i = 0; i < 1000 && vivo(r); i++) if (!(r1(r, R92C_APSD_CTRL) & R92C_APSD_CTRL_OFF_STATUS)) break;
+    if (i == 1000) return -3;
+    uint16_t cr = r2(r, R92C_CR);
+    cr |= R92C_CR_HCI_TXDMA_EN | R92C_CR_HCI_RXDMA_EN | R92C_CR_TXDMA_EN | R92C_CR_RXDMA_EN | R92C_CR_PROTOCOL_EN |
+          R92C_CR_SCHEDULE_EN | R92C_CR_MACTXEN | R92C_CR_MACRXEN | R92C_CR_ENSEC;
+    w2(r, R92C_CR, cr);
+    w1(r, 0xfe10, 0x19);
+    return vivo(r) ? 0 : -4;
+}
+
 static int encender(r88e_t *r)
 {
     int i;
+    if (fc(r)) {
+        if (r->c_ligado) return 0;
+        int e = encender_c(r);
+        r->c_ligado = e == 0;
+        return e;
+    }
     for (i = 0; i < 500 && vivo(r); i++) {
         if (r4(r, R92C_APS_FSMCO) & R92C_APS_FSMCO_SUS_HOST) break;
     }
@@ -234,14 +310,16 @@ static int llt_escrever(r88e_t *r, uint32_t end, uint32_t dado)
  * en el urtwn): la de prioridad alta, con las páginas públicas. */
 static int dma_iniciar(r88e_t *r)
 {
-    int paginas = R88E_TX_PAGE_COUNT, limite = paginas + 1, i;
+    bool c = fc(r);
+    int paginas = c ? R92C_TX_PAGE_COUNT : R88E_TX_PAGE_COUNT, limite = paginas + 1, i;
+    int total = c ? R92C_TXPKTBUF_COUNT : R88E_TXPKTBUF_COUNT, hq = c ? R92C_HQ_NPAGES : R88E_HQ_NPAGES;
     for (i = 0; i < paginas; i++) if (llt_escrever(r, (uint32_t)i, (uint32_t)i + 1) < 0) return -1;
     if (llt_escrever(r, (uint32_t)i, 0xFF) < 0) return -1;
-    for (++i; i < R88E_TXPKTBUF_COUNT - 1; i++) if (llt_escrever(r, (uint32_t)i, (uint32_t)i + 1) < 0) return -1;
+    for (++i; i < total - 1; i++) if (llt_escrever(r, (uint32_t)i, (uint32_t)i + 1) < 0) return -1;
     if (llt_escrever(r, (uint32_t)i, (uint32_t)paginas + 1) < 0) return -1;
-    paginas -= R88E_HQ_NPAGES;
+    paginas -= hq;
     w1(r, R92C_RQPN_NPQ, 0);
-    w4(r, R92C_RQPN, SM(R92C_RQPN_PUBQ, paginas) | SM(R92C_RQPN_HPQ, R88E_HQ_NPAGES) | SM(R92C_RQPN_LPQ, 0) | R92C_RQPN_LD);
+    w4(r, R92C_RQPN, SM(R92C_RQPN_PUBQ, paginas) | SM(R92C_RQPN_HPQ, hq) | SM(R92C_RQPN_LPQ, 0) | R92C_RQPN_LD);
     w1(r, R92C_TXPKTBUF_BCNQ_BDNY, (uint8_t)limite);
     w1(r, R92C_TXPKTBUF_MGQ_BDNY, (uint8_t)limite);
     w1(r, R92C_TXPKTBUF_WMAC_LBK_BF_HD, (uint8_t)limite);
@@ -251,7 +329,7 @@ static int dma_iniciar(r88e_t *r)
     reg &= ~R92C_TRXDMA_CTRL_QMAP_M;
     reg |= R92C_TRXDMA_CTRL_QMAP_HQ;
     w2(r, R92C_TRXDMA_CTRL, reg);
-    w2(r, R92C_TRXFF_BNDY + 2, R88E_MAX_RX_DMA_SIZE - 1);
+    w2(r, R92C_TRXFF_BNDY + 2, (c ? R92C_MAX_RX_DMA_SIZE : R88E_MAX_RX_DMA_SIZE) - 1);
     w1(r, R92C_PBP, SM(R92C_PBP_PSRX, R92C_PBP_128) | SM(R92C_PBP_PSTX, R92C_PBP_128));
     return vivo(r) ? 0 : -1;
 }
@@ -285,12 +363,15 @@ static void edca_iniciar(r88e_t *r)
 static void agregacao_iniciar(r88e_t *r)
 {
     uint32_t reg = r4(r, R92C_TDECTRL);
-    reg = RW(reg, R92C_TDECTRL_BLK_DESC_NUM, 1);
+    reg = RW(reg, R92C_TDECTRL_BLK_DESC_NUM, fc(r) ? 6 : 1);
     w4(r, R92C_TDECTRL, reg);
     w1(r, R92C_TRXDMA_CTRL, r1(r, R92C_TRXDMA_CTRL) | R92C_TRXDMA_CTRL_RXDMA_AGG_EN);
     w1(r, R92C_RXDMA_AGG_PG_TH, 48);
-    w1(r, R92C_RXDMA_AGG_PG_TH + 1, 4);
-    w1(r, R92C_USB_SPECIAL_OPTION, r1(r, R92C_USB_SPECIAL_OPTION) & ~R92C_USB_SPECIAL_OPTION_AGG_EN);
+    if (fc(r)) w1(r, R92C_USB_DMA_AGG_TO, 4);   /* urtwn: en los CU el plazo va en otro registro */
+    else {
+        w1(r, R92C_RXDMA_AGG_PG_TH + 1, 4);
+        w1(r, R92C_USB_SPECIAL_OPTION, r1(r, R92C_USB_SPECIAL_OPTION) & ~R92C_USB_SPECIAL_OPTION_AGG_EN);
+    }
     w4(r, R92C_TXDMA_OFFSET_CHK, r4(r, R92C_TXDMA_OFFSET_CHK) | R92C_TXDMA_OFFSET_CHK_DROP_DATA_EN);
 }
 
@@ -298,6 +379,18 @@ static void agregacao_iniciar(r88e_t *r)
 
 static void fw_reiniciar(r88e_t *r)
 {
+    if (fc(r)) {   /* urtwn: rtwn_r92c_fw_reset */
+        w1(r, R92C_HMETFR + 3, 0x20);
+        uint16_t reg = 0;
+        int i;
+        for (i = 0; i < 100 && vivo(r); i++) {
+            reg = r2(r, R92C_SYS_FUNC_EN);
+            if (!(reg & R92C_SYS_FUNC_EN_CPUEN)) return;
+            esperar_ms(1);
+        }
+        w2(r, R92C_SYS_FUNC_EN, reg & ~R92C_SYS_FUNC_EN_CPUEN);
+        return;
+    }
     w1(r, R92C_RSV_CTRL, r1(r, R92C_RSV_CTRL) & ~R92C_RSV_CTRL_WLOCK_00);
     w2(r, R92C_RSV_CTRL, r2(r, R92C_RSV_CTRL) & ~R88E_RSV_CTRL_MCU_RST);
     w2(r, R92C_SYS_FUNC_EN, r2(r, R92C_SYS_FUNC_EN) & ~R92C_SYS_FUNC_EN_CPUEN);
@@ -325,8 +418,16 @@ static int carregar_firmware(r88e_t *r, const uint8_t *fw, uint32_t n, const cha
 {
     if (n < sizeof(struct r92c_fw_hdr) + 1024) { *motivo = "firmware demasiado corto"; return -1; }
     const struct r92c_fw_hdr *h = (const struct r92c_fw_hdr *)fw;
-    if ((h->signature >> 4) != 0x88e) { *motivo = "el archivo no es un firmware del RTL8188E"; return -1; }
-    snformatar(r->fw_versao, sizeof r->fw_versao, "%u.%u (%02u-%02u)", h->version, h->subversion, h->month, h->date);
+    if (fc(r)) {
+        uint32_t saltar;
+        unsigned v, sv;
+        const char *m = r92c_firmware_ok(fw, n, &saltar, &v, &sv);
+        if (m) { *motivo = m; return -1; }
+        snformatar(r->fw_versao, sizeof r->fw_versao, "%u.%u (%02u-%02u)", v, sv, h->month, h->date);
+    } else {
+        if ((h->signature >> 4) != 0x88e) { *motivo = "el archivo no es un firmware del RTL8188E"; return -1; }
+        snformatar(r->fw_versao, sizeof r->fw_versao, "%u.%u (%02u-%02u)", h->version, h->subversion, h->month, h->date);
+    }
     fw += sizeof *h;
     n -= sizeof *h;
     if (r1(r, R92C_MCUFWDL) & R92C_MCUFWDL_RAM_DL_SEL) {
@@ -349,7 +450,11 @@ static int carregar_firmware(r88e_t *r, const uint8_t *fw, uint32_t n, const cha
     w1(r, R92C_MCUFWDL + 1, 0);
     uint32_t reg = r4(r, R92C_MCUFWDL);
     w4(r, R92C_MCUFWDL, (reg & ~R92C_MCUFWDL_WINTINI_RDY) | R92C_MCUFWDL_RDY);
-    fw_reiniciar(r);
+    if (fc(r)) {   /* urtwn: en los CU, la CPU se apaga y enciende de nuevo */
+        uint16_t f = r2(r, R92C_SYS_FUNC_EN);
+        w2(r, R92C_SYS_FUNC_EN, f & ~R92C_SYS_FUNC_EN_CPUEN);
+        w2(r, R92C_SYS_FUNC_EN, f | R92C_SYS_FUNC_EN_CPUEN);
+    } else fw_reiniciar(r);
     for (i = 0; i < 1000 && vivo(r); i++) if (r4(r, R92C_MCUFWDL) & R92C_MCUFWDL_WINTINI_RDY) break;
     if (i == 1000 || !vivo(r)) { *motivo = "el firmware no arrancó"; return -1; }
     return 0;
@@ -359,6 +464,10 @@ static int carregar_firmware(r88e_t *r, const uint8_t *fw, uint32_t n, const cha
 
 static void mac_iniciar(r88e_t *r)
 {
+    if (fc(r)) {
+        for (int i = 0; i < nitems(rtl8192cu_mac); i++) w1(r, rtl8192cu_mac[i].reg, rtl8192cu_mac[i].val);
+        return;
+    }
     for (int i = 0; i < nitems(rtl8188eu_mac); i++) w1(r, rtl8188eu_mac[i].reg, rtl8188eu_mac[i].val);
     w1(r, R92C_MAX_AGGR_NUM, 0x07);
 }
@@ -367,65 +476,144 @@ static void bb_iniciar(r88e_t *r)
 {
     w2(r, R92C_SYS_FUNC_EN, r2(r, R92C_SYS_FUNC_EN) | R92C_SYS_FUNC_EN_BBRSTB | R92C_SYS_FUNC_EN_BB_GLB_RST |
                             R92C_SYS_FUNC_EN_DIO_RF);
+    if (fc(r)) w2(r, R92C_AFE_PLL_CTRL, 0xdb83);
     w1(r, R92C_RF_CTRL, R92C_RF_CTRL_EN | R92C_RF_CTRL_RSTB | R92C_RF_CTRL_SDMRSTB);
     w1(r, R92C_SYS_FUNC_EN, R92C_SYS_FUNC_EN_USBA | R92C_SYS_FUNC_EN_USBD | R92C_SYS_FUNC_EN_BB_GLB_RST |
                             R92C_SYS_FUNC_EN_BBRSTB);
+    if (fc(r)) {
+        w1(r, R92C_LDOHCI12_CTRL, 0x0f);
+        w1(r, 0x15, 0xe9);
+        w1(r, R92C_AFE_XTAL_CTRL + 1, 0x80);
+    }
     const struct r92c_bb_prog *p = &rtl8188eu_bb_prog;
+    if (fc(r)) p = r->c_c2t2r ? &rtl8192cu_bb_prog : r->c_placa == R92C_BOARD_TYPE_HIGHPA ? &rtl8188ru_bb_prog
+                                                                                        : &rtl8188cu_bb_prog;
     for (int i = 0; i < p->count; i++) bb_w(r, p->regs[i], p->vals[i]);
+    uint32_t reg;
+    if (fc(r) && r->c_c1t2r) {   /* RTL8192C capado a 1T2R */
+        reg = bb_r(r, R92C_FPGA0_TXINFO);       bb_w(r, R92C_FPGA0_TXINFO, (reg & ~0x00000003u) | 0x2);
+        reg = bb_r(r, R92C_FPGA1_TXINFO);       bb_w(r, R92C_FPGA1_TXINFO, (reg & ~0x00300033u) | 0x00200022);
+        reg = bb_r(r, R92C_CCK0_AFESETTING);    bb_w(r, R92C_CCK0_AFESETTING, (reg & ~0xff000000u) | 0x45u << 24);
+        reg = bb_r(r, R92C_OFDM0_TRXPATHENA);   bb_w(r, R92C_OFDM0_TRXPATHENA, (reg & ~0x000000ffu) | 0x23);
+        reg = bb_r(r, R92C_OFDM0_AGCPARAM1);    bb_w(r, R92C_OFDM0_AGCPARAM1, (reg & ~0x00000030u) | 1 << 4);
+        static const uint16_t rr[] = { 0xe74, 0xe78, 0xe7c, 0xe80, 0xe88 };
+        for (int i = 0; i < 5; i++) { reg = bb_r(r, rr[i]); bb_w(r, rr[i], (reg & ~0x0c000000u) | 2u << 26); }
+    }
     for (int i = 0; i < p->agccount; i++) bb_w(r, R92C_OFDM0_AGCRSSITABLE, p->agcvals[i]);
-    bb_w(r, R92C_OFDM0_AGCCORE1(0), 0x69553422);
-    bb_w(r, R92C_OFDM0_AGCCORE1(0), 0x69553420);
-    uint8_t x = r->xtal & 0x3F;
-    uint32_t reg = bb_r(r, R92C_AFE_XTAL_CTRL);
-    bb_w(r, R92C_AFE_XTAL_CTRL, RW(reg, R92C_AFE_XTAL_CTRL_ADDR, (uint32_t)x | (uint32_t)x << 6));
+    if (!fc(r)) {
+        bb_w(r, R92C_OFDM0_AGCCORE1(0), 0x69553422);
+        bb_w(r, R92C_OFDM0_AGCCORE1(0), 0x69553420);
+        uint8_t x = r->xtal & 0x3F;
+        reg = bb_r(r, R92C_AFE_XTAL_CTRL);
+        bb_w(r, R92C_AFE_XTAL_CTRL, RW(reg, R92C_AFE_XTAL_CTRL_ADDR, (uint32_t)x | (uint32_t)x << 6));
+    }
     r->cck_alta_potencia = (bb_r(r, R92C_HSSI_PARAM2(0)) & R92C_HSSI_PARAM2_CCK_HIPWR) != 0;
 }
 
 static void rf_iniciar(r88e_t *r)
 {
-    const struct r92c_rf_prog *p = &rtl8188eu_rf_prog[0];
-    uint32_t reg = bb_r(r, R92C_FPGA0_RFIFACESW(0));
-    uint32_t tipo = reg & 0x10;
-    bb_w(r, R92C_FPGA0_RFIFACEOE(0), bb_r(r, R92C_FPGA0_RFIFACEOE(0)) | 0x100000);
-    bb_w(r, R92C_FPGA0_RFIFACEOE(0), bb_r(r, R92C_FPGA0_RFIFACEOE(0)) | 0x10);
-    bb_w(r, R92C_HSSI_PARAM2(0), bb_r(r, R92C_HSSI_PARAM2(0)) & ~R92C_HSSI_PARAM2_ADDR_LENGTH);
-    bb_w(r, R92C_HSSI_PARAM2(0), bb_r(r, R92C_HSSI_PARAM2(0)) & ~R92C_HSSI_PARAM2_DATA_LENGTH);
-    for (int j = 0; j < p->count; j++) {
-        switch (p->regs[j]) {
-        case 0xfe: case 0xffe: esperar_ms(50); continue;
-        case 0xfd: esperar_ms(5); continue;
-        case 0xfc: esperar_ms(1); continue;
-        case 0xfb: case 0xfa: case 0xf9: continue;   /* microsegundos: ya pasan en la transferencia */
-        }
-        rf_w(r, p->regs[j], p->vals[j]);
+    const struct r92c_rf_prog *prog = &rtl8188eu_rf_prog[0];
+    int ncad = 1;
+    if (fc(r)) {
+        prog = r->c_c2t2r ? rtl8192cu_rf_prog : r->c_placa == R92C_BOARD_TYPE_HIGHPA ? rtl8188ru_rf_prog : rtl8188cu_rf_prog;
+        ncad = r->c_nrx;
     }
-    reg = bb_r(r, R92C_FPGA0_RFIFACESW(0));
-    reg &= ~0x10u | tipo;
-    bb_w(r, R92C_FPGA0_RFIFACESW(0), reg);
-    r->rf_chnlbw = rf_r(r, R92C_RF_CHNLBW);
+    for (int ch = 0; ch < ncad; ch++) {
+        const struct r92c_rf_prog *p = &prog[ch];
+        int idx = ch / 2, off = (ch % 2) * 16;
+        uint32_t reg = bb_r(r, R92C_FPGA0_RFIFACESW(idx));
+        uint32_t tipo = (reg >> off) & 0x10;
+        bb_w(r, R92C_FPGA0_RFIFACEOE(ch), bb_r(r, R92C_FPGA0_RFIFACEOE(ch)) | 0x100000);
+        bb_w(r, R92C_FPGA0_RFIFACEOE(ch), bb_r(r, R92C_FPGA0_RFIFACEOE(ch)) | 0x10);
+        bb_w(r, R92C_HSSI_PARAM2(ch), bb_r(r, R92C_HSSI_PARAM2(ch)) & ~R92C_HSSI_PARAM2_ADDR_LENGTH);
+        bb_w(r, R92C_HSSI_PARAM2(ch), bb_r(r, R92C_HSSI_PARAM2(ch)) & ~R92C_HSSI_PARAM2_DATA_LENGTH);
+        for (int j = 0; j < p->count; j++) {
+            switch (p->regs[j]) {
+            case 0xfe: case 0xffe: esperar_ms(50); continue;
+            case 0xfd: esperar_ms(5); continue;
+            case 0xfc: esperar_ms(1); continue;
+            case 0xfb: case 0xfa: case 0xf9: continue;   /* microsegundos: ya pasan en la transferencia */
+            }
+            rf_wc(r, ch, p->regs[j], p->vals[j]);
+        }
+        reg = bb_r(r, R92C_FPGA0_RFIFACESW(idx));
+        reg &= ~(0x10u << off) | (tipo << off);
+        bb_w(r, R92C_FPGA0_RFIFACESW(idx), reg);
+        uint32_t c = rf_rc(r, ch, R92C_RF_CHNLBW);
+        if (ch == 0) r->rf_chnlbw = c; else r->rf_chnlbw1 = c;
+    }
+    if (fc(r) && r->c_umc && r->c_acut && !r->c_c2t2r) {   /* UMC de corte A, 1T1R */
+        rf_wc(r, 0, R92C_RF_RX_G1, 0x30255);
+        rf_wc(r, 0, R92C_RF_RX_G2, 0x50a00);
+    }
 }
 
 /* Calibración LC (la del oscilador). La IQ del urtwn no se hace todavía (D215). */
 static void lc_calibrar(r88e_t *r)
 {
     uint8_t modo = r1(r, R92C_OFDM1_LSTF + 3);
-    uint32_t ac = 0;
+    uint32_t ac[2] = { 0, 0 };
+    int ncad = fc(r) ? r->c_nrx : 1;
     if (modo & 0x70) {
         w1(r, R92C_OFDM1_LSTF + 3, modo & ~0x70);
-        ac = rf_r(r, R92C_RF_AC);
-        rf_w(r, R92C_RF_AC, RW(ac, R92C_RF_AC_MODE, R92C_RF_AC_MODE_STANDBY));
+        for (int i = 0; i < ncad; i++) {
+            ac[i] = rf_rc(r, i, R92C_RF_AC);
+            rf_wc(r, i, R92C_RF_AC, RW(ac[i], R92C_RF_AC_MODE, R92C_RF_AC_MODE_STANDBY));
+        }
     } else w1(r, R92C_TXPAUSE, R92C_TXPAUSE_ALL);
     rf_w(r, R92C_RF_CHNLBW, rf_r(r, R92C_RF_CHNLBW) | R92C_RF_CHNLBW_LCSTART);
     esperar_ms(10);
     if (modo & 0x70) {
         w1(r, R92C_OFDM1_LSTF + 3, modo);
-        rf_w(r, R92C_RF_AC, ac);
+        for (int i = 0; i < ncad; i++) rf_wc(r, i, R92C_RF_AC, ac[i]);
     } else w1(r, R92C_TXPAUSE, 0x00);
 }
 
 /* Potencia por tasa del canal, con los valores de la eFuse (rtwn_r88e_get_txpower). */
+/* D409: potencia de las dos cadenas de los CU (rtwn_write_txpower). */
+static void potencia_c(r88e_t *r, uint8_t canal)
+{
+    for (int ch = 0; ch < r->c_ntx; ch++) {
+        uint16_t p[R92C_NPOTENCIAS];
+        r92c_potencia(r->rom, r->c_c2t2r, r->c_placa, r->c_ntx, ch, canal, p);
+        uint32_t reg;
+        if (ch == 0) {
+            reg = bb_r(r, R92C_TXAGC_A_CCK1_MCS32);
+            bb_w(r, R92C_TXAGC_A_CCK1_MCS32, RW(reg, R92C_TXAGC_A_CCK1, p[RTWN_POWER_CCK1]));
+            reg = bb_r(r, R92C_TXAGC_B_CCK11_A_CCK2_11);
+            reg = RW(reg, R92C_TXAGC_A_CCK2, p[RTWN_POWER_CCK2]);
+            reg = RW(reg, R92C_TXAGC_A_CCK55, p[RTWN_POWER_CCK55]);
+            reg = RW(reg, R92C_TXAGC_A_CCK11, p[RTWN_POWER_CCK11]);
+            bb_w(r, R92C_TXAGC_B_CCK11_A_CCK2_11, reg);
+        } else {
+            reg = bb_r(r, R92C_TXAGC_B_CCK1_55_MCS32);
+            reg = RW(reg, R92C_TXAGC_B_CCK1, p[RTWN_POWER_CCK1]);
+            reg = RW(reg, R92C_TXAGC_B_CCK2, p[RTWN_POWER_CCK2]);
+            reg = RW(reg, R92C_TXAGC_B_CCK55, p[RTWN_POWER_CCK55]);
+            bb_w(r, R92C_TXAGC_B_CCK1_55_MCS32, reg);
+            reg = bb_r(r, R92C_TXAGC_B_CCK11_A_CCK2_11);
+            bb_w(r, R92C_TXAGC_B_CCK11_A_CCK2_11, RW(reg, R92C_TXAGC_B_CCK11, p[RTWN_POWER_CCK11]));
+        }
+        bb_w(r, R92C_TXAGC_RATE18_06(ch), SM(R92C_TXAGC_RATE06, p[RTWN_POWER_OFDM6]) | SM(R92C_TXAGC_RATE09, p[RTWN_POWER_OFDM9]) |
+                                          SM(R92C_TXAGC_RATE12, p[RTWN_POWER_OFDM12]) | SM(R92C_TXAGC_RATE18, p[RTWN_POWER_OFDM18]));
+        bb_w(r, R92C_TXAGC_RATE54_24(ch), SM(R92C_TXAGC_RATE24, p[RTWN_POWER_OFDM24]) | SM(R92C_TXAGC_RATE36, p[RTWN_POWER_OFDM36]) |
+                                          SM(R92C_TXAGC_RATE48, p[RTWN_POWER_OFDM48]) | SM(R92C_TXAGC_RATE54, p[RTWN_POWER_OFDM54]));
+        bb_w(r, R92C_TXAGC_MCS03_MCS00(ch), SM(R92C_TXAGC_MCS00, p[RTWN_POWER_MCS(0)]) | SM(R92C_TXAGC_MCS01, p[RTWN_POWER_MCS(1)]) |
+                                            SM(R92C_TXAGC_MCS02, p[RTWN_POWER_MCS(2)]) | SM(R92C_TXAGC_MCS03, p[RTWN_POWER_MCS(3)]));
+        bb_w(r, R92C_TXAGC_MCS07_MCS04(ch), SM(R92C_TXAGC_MCS04, p[RTWN_POWER_MCS(4)]) | SM(R92C_TXAGC_MCS05, p[RTWN_POWER_MCS(5)]) |
+                                            SM(R92C_TXAGC_MCS06, p[RTWN_POWER_MCS(6)]) | SM(R92C_TXAGC_MCS07, p[RTWN_POWER_MCS(7)]));
+        if (r->c_ntx > 1) {
+            bb_w(r, R92C_TXAGC_MCS11_MCS08(ch), SM(R92C_TXAGC_MCS08, p[RTWN_POWER_MCS(8)]) | SM(R92C_TXAGC_MCS09, p[RTWN_POWER_MCS(9)]) |
+                                                SM(R92C_TXAGC_MCS10, p[RTWN_POWER_MCS(10)]) | SM(R92C_TXAGC_MCS11, p[RTWN_POWER_MCS(11)]));
+            bb_w(r, R92C_TXAGC_MCS15_MCS12(ch), SM(R92C_TXAGC_MCS12, p[RTWN_POWER_MCS(12)]) | SM(R92C_TXAGC_MCS13, p[RTWN_POWER_MCS(13)]) |
+                                                SM(R92C_TXAGC_MCS14, p[RTWN_POWER_MCS(14)]) | SM(R92C_TXAGC_MCS15, p[RTWN_POWER_MCS(15)]));
+        }
+    }
+}
+
 static void potencia(r88e_t *r, uint8_t canal)
 {
+    if (fc(r)) { potencia_c(r, canal); return; }
     const struct r88e_rom *rom = (const struct r88e_rom *)r->rom;
     int grupo = canal <= 2 ? 0 : canal <= 5 ? 1 : canal <= 8 ? 2 : canal <= 11 ? 3 : canal <= 13 ? 4 : 5;
     uint16_t p[RTWN_POWER_COUNT];
@@ -467,12 +655,23 @@ void r88e_canal(r88e_t *r, uint8_t canal)
     w1(r, R92C_BWOPMODE, r1(r, R92C_BWOPMODE) | R92C_BWOPMODE_20MHZ);
     bb_w(r, R92C_FPGA0_RFMOD, bb_r(r, R92C_FPGA0_RFMOD) & ~R92C_RFMOD_40MHZ);
     bb_w(r, R92C_FPGA1_RFMOD, bb_r(r, R92C_FPGA1_RFMOD) & ~R92C_RFMOD_40MHZ);
+    if (fc(r)) {
+        bb_w(r, R92C_FPGA0_ANAPARAM2, bb_r(r, R92C_FPGA0_ANAPARAM2) | R92C_FPGA0_ANAPARAM2_CBW20);
+        for (int ch = 0; ch < r->c_nrx; ch++)
+            rf_wc(r, ch, R92C_RF_CHNLBW, ((ch ? r->rf_chnlbw1 : r->rf_chnlbw) & ~0xFFFu) | canal | R92C_RF_CHNLBW_BW20);
+    } else
     rf_w(r, R92C_RF_CHNLBW, (r->rf_chnlbw & ~0xFFFu) | canal | R88E_RF_CHNLBW_BW20);
     r->canal = canal;
 }
 
 static void led(r88e_t *r, bool aceso)
 {
+    if (fc(r)) {
+        uint8_t v = r1(r, R92C_LEDCFG0) & 0x70;
+        if (!aceso) v |= R92C_LEDCFG0_DIS;
+        w1(r, R92C_LEDCFG0, v);
+        return;
+    }
     uint8_t reg = r1(r, R92C_LEDCFG2) & 0xF0;
     w1(r, R92C_LEDCFG2, reg | R92C_LEDCFG2_EN);
     if (!aceso) {
@@ -599,6 +798,11 @@ void r88e_ht(r88e_t *r, bool ht, bool sgi, uint8_t mcs_ap)
     r->sgi = r->ht && sgi;
     r->mcs_ap = r->ht ? mcs_ap : 0;
     r->taxa = wn_taxa_inicial(r->ht, r->mcs_ap);
+    if (fc(r)) {   /* D409: sin informes de transmisión no hay AMRR: OFDM 24 Mb/s fijos, sin HT */
+        r->ht = r->sgi = false;
+        r->mcs_ap = 0;
+        r->taxa = RTWN_RIDX_OFDM6 + 4;
+    }
     r->tx_ok = r->tx_falhas = r->tx_reintentos = 0;
 }
 
@@ -608,16 +812,27 @@ int r88e_iniciar(r88e_t *r, const uint8_t *fw, uint32_t nfw, const char **motivo
     if (encender(r) < 0) { *motivo = "el chip no se encendió (APS_FSMCO)"; return -1; }
     if (dma_iniciar(r) < 0) { *motivo = "no se pudo preparar la tabla LLT de las colas"; return -1; }
     w1(r, R92C_RX_DRVINFO_SZ, 4);
-    w4(r, R88E_HISR, 0xFFFFFFFFu);
-    w4(r, R88E_HIMR, R88E_HIMR_CPWM | R88E_HIMR_CPWM2 | R88E_HIMR_TBDER | R88E_HIMR_PSTIMEOUT);
-    w4(r, R88E_HIMRE, R88E_HIMRE_RXFOVW | R88E_HIMRE_TXFOVW | R88E_HIMRE_RXERR | R88E_HIMRE_TXERR);
-    w1(r, R92C_USB_SPECIAL_OPTION, r1(r, R92C_USB_SPECIAL_OPTION) | R92C_USB_SPECIAL_OPTION_INT_BULK_SEL);
+    if (fc(r)) {
+        w4(r, R92C_HISR, 0xFFFFFFFFu);
+        w4(r, R92C_HIMR, 0xFFFFFFFFu);
+    } else {
+        w4(r, R88E_HISR, 0xFFFFFFFFu);
+        w4(r, R88E_HIMR, R88E_HIMR_CPWM | R88E_HIMR_CPWM2 | R88E_HIMR_TBDER | R88E_HIMR_PSTIMEOUT);
+        w4(r, R88E_HIMRE, R88E_HIMRE_RXFOVW | R88E_HIMRE_TXFOVW | R88E_HIMRE_RXERR | R88E_HIMRE_TXERR);
+        w1(r, R92C_USB_SPECIAL_OPTION, r1(r, R92C_USB_SPECIAL_OPTION) | R92C_USB_SPECIAL_OPTION_INT_BULK_SEL);
+    }
     for (int i = 0; i < 6; i++) w1(r, (uint16_t)(R92C_MACID + i), r->mac[i]);
     tipo_rede(r, R92C_MSR_NETTYPE_NOLINK);
     filtros_iniciar(r);
     w4(r, R92C_RRSR, RW(r4(r, R92C_RRSR), R92C_RRSR_RATE_BITMAP, R92C_RRSR_RATE_CCK_ONLY_1M));
     w2(r, R92C_RL, SM(R92C_RL_SRL, 0x30) | SM(R92C_RL_LRL, 0x30));
     edca_iniciar(r);
+    if (fc(r)) {   /* reintentos automáticos de tasa de los datos y de las respuestas (USB) */
+        w4(r, R92C_DARFRC + 0, 0x00000000);
+        w4(r, R92C_DARFRC + 4, 0x10080404);
+        w4(r, R92C_RARFRC + 0, 0x04030201);
+        w4(r, R92C_RARFRC + 4, 0x08070605);
+    }
     w1(r, R92C_FWHW_TXQ_CTRL, r1(r, R92C_FWHW_TXQ_CTRL) | R92C_FWHW_TXQ_CTRL_AMPDU_RTY_NEW);
     w1(r, R92C_ACKTO, 0x40);
     agregacao_iniciar(r);
@@ -626,12 +841,18 @@ int r88e_iniciar(r88e_t *r, const uint8_t *fw, uint32_t nfw, const char **motivo
     w1(r, R92C_DRVERLYINT, R92C_DRVERLYINT_INIT_TIME);
     w1(r, R92C_BCNDMATIM, R92C_BCNDMATIM_INIT_TIME);
     w2(r, R92C_BCNTCFG, 0x660f);
+    if (fc(r)) {
+        w4(r, R92C_AGGLEN_LMT, 0x99997631);   /* MCS7~0 */
+        w1(r, R92C_AGGR_BREAK_TIME, 0x16);
+        w2(r, R92C_MAX_AGGR_NUM, 0x0708);
+        w1(r, R92C_BCN_MAX_ERR, 0xff);
+    }
     if (!vivo(r)) { *motivo = "el pincho se retiró durante el inicio"; return -1; }
     if (carregar_firmware(r, fw, nfw, motivo) < 0) return -1;
     mac_iniciar(r);
     bb_iniciar(r);
     rf_iniciar(r);
-    w2(r, R92C_CR, r2(r, R92C_CR) | R92C_CR_MACTXEN | R92C_CR_MACRXEN);
+    if (!fc(r)) w2(r, R92C_CR, r2(r, R92C_CR) | R92C_CR_MACTXEN | R92C_CR_MACRXEN);
     bb_w(r, R92C_FPGA0_RFMOD, bb_r(r, R92C_FPGA0_RFMOD) | R92C_RFMOD_CCK_EN);
     bb_w(r, R92C_FPGA0_RFMOD, bb_r(r, R92C_FPGA0_RFMOD) | R92C_RFMOD_OFDM_EN);
     r88e_limpar_chaves(r);
@@ -639,9 +860,23 @@ int r88e_iniciar(r88e_t *r, const uint8_t *fw, uint32_t nfw, const char **motivo
                        R92C_SECCFG_RXENC_ENA | R92C_SECCFG_TXBCKEY_DEF | R92C_SECCFG_RXBCKEY_DEF);
     w1(r, R92C_HWSEQ_CTRL, 0xFF);
     lc_calibrar(r);
+    if (fc(r)) {   /* «arreglo de la interferencia USB» y polarización de la PA (urtwn) */
+        w1(r, 0xfe40, 0xe0);
+        w1(r, 0xfe41, 0x8d);
+        w1(r, 0xfe42, 0x80);
+        for (int ch = 0; ch < r->c_nrx; ch++) {
+            if (r->c_pa & (1 << ch)) continue;
+            rf_wc(r, ch, R92C_RF_IPA, 0x0f406);
+            rf_wc(r, ch, R92C_RF_IPA, 0x4f406);
+            rf_wc(r, ch, R92C_RF_IPA, 0x8f406);
+            rf_wc(r, ch, R92C_RF_IPA, 0xcf406);
+        }
+        if (!(r->c_pa & 0x10)) w1(r, 0x16, (uint8_t)((r1(r, 0x16) & ~0xf0) | 0x90));
+    }
     w1(r, R92C_GPIO_MUXCFG, r1(r, R92C_GPIO_MUXCFG) & ~R92C_GPIO_MUXCFG_ENBT);
+    if (fc(r)) w1(r, 0x15, 0xe9);
     r88e_canal(r, 1);
-    w1(r, R88E_TX_RPT_CTRL, r1(r, R88E_TX_RPT_CTRL) | R88E_TX_RPT_CTRL_EN);
+    if (!fc(r)) w1(r, R88E_TX_RPT_CTRL, r1(r, R88E_TX_RPT_CTRL) | R88E_TX_RPT_CTRL_EN);
     if (!vivo(r)) { *motivo = "el pincho se retiró durante el inicio"; return -1; }
 
     if (!abrir_recepcao(r)) { *motivo = "no se pudo armar la recepción USB"; return -1; }
@@ -649,6 +884,13 @@ int r88e_iniciar(r88e_t *r, const uint8_t *fw, uint32_t nfw, const char **motivo
     r88e_ht(r, false, false, 0);
     led(r, false);
     return 0;
+}
+
+const char *r88e_nome_firmware(const r88e_t *r)
+{
+    if (!fc(r)) return "rtl8188eufw.bin";
+    r92c_chip_t c = { true, r->c_c2t2r, r->c_c1t2r, r->c_umc, r->c_acut, r->c_ntx, r->c_nrx };
+    return r92c_nome_firmware(&c);
 }
 
 void r88e_parar(r88e_t *r)
@@ -750,6 +992,11 @@ int r88e_enviar(r88e_t *r, const uint8_t *q, uint32_t n, int tipo, bool cifrar)
     uint32_t desl = 32;
     bool hueco = ((32 + n) % mps) == 0;
     if (hueco) desl += 8;
+    if (fc(r)) {
+        r92c_montar_txdesc(buf, n, desl, tipo == R88E_TX_GESTAO, (q[4] & 1) != 0, cifrar, hueco, tipo == R88E_TX_EAPOL ? 0 : r->taxa);
+        memcpy(buf + desl, q, n);
+        goto enviar;
+    }
     memset(buf, 0, desl);
     uint32_t w0 = SM(R92C_TXDW0_PKTLEN, n) | SM(R92C_TXDW0_OFFSET, desl) | R92C_TXDW0_OWN | R92C_TXDW0_FSG | R92C_TXDW0_LSG;
     if (q[4] & 1) w0 |= R92C_TXDW0_BMCAST;
@@ -783,6 +1030,7 @@ int r88e_enviar(r88e_t *r, const uint8_t *q, uint32_t n, int tipo, bool cifrar)
     buf[2 * R92C_TXDESC_SUMOFFSET] = (uint8_t)soma;
     buf[2 * R92C_TXDESC_SUMOFFSET + 1] = (uint8_t)(soma >> 8);
     memcpy(buf + desl, q, n);
+enviar:
     if (r->tx_fila) return enviar_fila(r, buf, desl + n);
     int e = usb_bulk(r->d, false, buf, desl + n);
     if (e < 0) { r->erros_usb++; r->tx_perdidas++; return e; }
@@ -842,7 +1090,7 @@ typedef struct { r88e_t *r; r88e_rx_t chegou; } rx_ctx_t;
 static void rx_quadro(void *ctx, const wn_rx_t *q)
 {
     rx_ctx_t *x = ctx;
-    int rssi = q->phy ? rssi_de(x->r, q->taxa, q->phy) : -100;
+    int rssi = !q->phy ? -100 : fc(x->r) ? r92c_rssi(q->taxa, q->phy, x->r->cck_alta_potencia) : rssi_de(x->r, q->taxa, q->phy);
     if ((q->quadro[0] & 0x0C) == 0x08) x->r->taxa_rx = q->taxa;   /* la de los datos (las balizas van a 1 Mb/s) */
     x->chegou(q->quadro, q->n, rssi, q->decifrada);
 }
@@ -862,6 +1110,7 @@ int r88e_receber(r88e_t *r, r88e_rx_t chegou)
     r->rx_transf++;
     r->rx_bytes_usb += (uint32_t)len;
     rx_ctx_t x = { r, chegou };
+    r->rx.sem_informes = fc(r);   /* D409: en los CU esos bits del descriptor no son un informe de TX */
     int quadros = wn_rx_desglosar(buf, (uint32_t)len, rx_quadro, rx_relatorio, &x, &r->rx);
     return quadros ? quadros : 1;
 }

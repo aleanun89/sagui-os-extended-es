@@ -42,6 +42,7 @@ void elevacao_soltar(void);
 bool sou_root(void);
 #include "imagem.h"
 #include "ia.h"
+#include "ia_modelos.h"   /* D380 fase 2: el descargador de modelos de la IA local */
 #include "fontes.h"
 #include "servicos.h"
 #include "captura.h"
@@ -88,6 +89,9 @@ typedef struct {
     /* D361: la barra de tareas y el menú Inicio (BC_* de abi.h). barra_def = 1 si alguna clave está en el archivo. */
     int      barra_def;
     unsigned char barra[BC_N];
+    /* D407: el panel táctil (CP_* abajo). pnl_def = 1 si alguna clave está en el archivo. */
+    int      pnl_def;
+    int      pnl[8];
 } conf_t;
 
 static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1, .a_2d = -1, .a_3d = -1, .a_sdl = -1, .a_disco = -1 };
@@ -119,6 +123,24 @@ static const char *const claves_barra[BC_N] = {
     "bandeja_volumen", "bandeja_red", "bandeja_temperatura", "bandeja_bateria", "barra_agrupar", "barra_rotulos",
     "barra_iconos", "inicio_texto", "barra_tema", "inicio_menu", "inicio_buscador", "inicio_translucido",
 };
+/* D407: las claves del panel táctil en sagui.conf (de la persona, como el teclado), sus valores de serie y sus topes.
+ * En la orden «configuracion panel» y en «panel» van sin el «panel_» de delante. */
+enum { CP_TOQUE, CP_DOS_DEDOS, CP_BORDE, CP_NATURAL, CP_SENSIB, CP_ESCRIBIR, CP_SIN_USB, CP_PS2, CP_N };
+static const char *const claves_panel[CP_N] = {
+    "panel_toque", "panel_dos_dedos", "panel_borde", "panel_natural", "panel_sensibilidad", "panel_escribir_ms",
+    "panel_sin_usb", "panel_ps2",
+};
+static const int panel_padrao[CP_N] = { 1, 1, 0, 0, 5, 300, 0, 0 };
+static const int panel_minimo[CP_N] = { 0, 0, 0, 0, 1, 0, 0, 0 };
+static const int panel_maximo[CP_N] = { 1, 1, 1, 1, 10, 2000, 1, 1 };
+
+static void panel_poner(int k, int x)
+{
+    if (!conf.pnl_def) memcpy(conf.pnl, panel_padrao, sizeof panel_padrao);
+    conf.pnl_def = 1;
+    conf.pnl[k] = x < panel_minimo[k] ? panel_minimo[k] : x > panel_maximo[k] ? panel_maximo[k] : x;
+}
+
 static const unsigned char barra_padrao[BC_N] = { 0, 24, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1 };
 static const unsigned char barra_maximo[BC_N] = { 1, 48, 1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1, 2, 4, 3, 1, 1 };
 
@@ -237,6 +259,8 @@ static bool conf_ler_arq(const char *arq, int modo)
             else if (compara_texto(k, "sdl2_gpu") == 0) conf.a_sdl = tri_texto(v);
             else if (compara_texto(k, "disco_dma_cache") == 0) conf.a_disco = tri_texto(v);
             else {
+                for (int b = 0; b < CP_N; b++)   /* D407 */
+                    if (compara_texto(k, claves_panel[b]) == 0) panel_poner(b, texto_para_int(v));
                 for (int b = 0; b < BC_N; b++)
                     if (compara_texto(k, claves_barra[b]) == 0) {
                         if (!conf.barra_def) memcpy(conf.barra, barra_padrao, sizeof conf.barra);
@@ -312,6 +336,11 @@ static int conf_gravar(void)
         int u = 0;
         for (int b = 0; b < BC_N; b++) u += formatar_texto(bar + u, sizeof bar - (unsigned)u, "%s=%d\n", claves_barra[b], conf.barra[b]);
     }
+    char pnl[260] = "";   /* D407: el panel táctil */
+    if (conf.pnl_def) {
+        int u = 0;
+        for (int b = 0; b < CP_N; b++) u += formatar_texto(pnl + u, sizeof pnl - (unsigned)u, "%s=%d\n", claves_panel[b], conf.pnl[b]);
+    }
     char zon[80] = "";
     if (conf.zona[0]) formatar_texto(zon, sizeof zon, "zona=%s\n", conf.zona);
     char idi[32] = "";
@@ -322,8 +351,8 @@ static int conf_gravar(void)
     if (conf.fundo[0]) formatar_texto(fun, sizeof fun, "fondo=%s\nfondo_modo=%s\n", conf.fundo, nomes_modo[conf.modo]);
     formatar_texto(t, sizeof t,
                    "# Configuración de SaguiOS (la escribe el programa \"configuracion\"; D112).\n"
-                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s%s%s",
-                   tec, vol, ecu, son, zon, ace, fun, cap, fnt, idi, ace2, bar);
+                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s%s%s%s",
+                   tec, vol, ecu, son, zon, ace, fun, cap, fnt, idi, ace2, bar, pnl);
     int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
     int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
@@ -349,6 +378,35 @@ static int aplicar_barra(void)
     ib.versao = 1;
     memcpy(ib.v, conf.barra, sizeof conf.barra);
     return info_sistema(INFO_BARRA_GRAVAR, &ib, sizeof ib);
+}
+
+/* D407: pone las opciones del panel táctil en el kernel (se aplican al momento; el modo PS/2 reinicia el ratón). */
+static int aplicar_panel(void)
+{
+    info_painel_t ip;
+    memset(&ip, 0, sizeof ip);
+    info_sistema(INFO_PAINEL, &ip, sizeof ip);
+    ip.versao = 1;
+    ip.toque = (unsigned char)conf.pnl[CP_TOQUE];
+    ip.dois_dedos = (unsigned char)conf.pnl[CP_DOS_DEDOS];
+    ip.borda = (unsigned char)conf.pnl[CP_BORDE];
+    ip.natural = (unsigned char)conf.pnl[CP_NATURAL];
+    ip.sensib = (unsigned char)conf.pnl[CP_SENSIB];
+    ip.ms_teclado = (unsigned)conf.pnl[CP_ESCRIBIR];
+    ip.sem_usb = (unsigned char)conf.pnl[CP_SIN_USB];
+    ip.modo_ps2 = (unsigned char)conf.pnl[CP_PS2];
+    return info_sistema(INFO_PAINEL_GRAVAR, &ip, sizeof ip);
+}
+
+/* Lo que el kernel tiene ahora, en conf.pnl (si el archivo no dice nada del panel). */
+static void panel_del_kernel(info_painel_t *ip)
+{
+    memset(ip, 0, sizeof *ip);
+    info_sistema(INFO_PAINEL, ip, sizeof *ip);
+    if (conf.pnl_def) return;
+    conf.pnl[CP_TOQUE] = ip->toque; conf.pnl[CP_DOS_DEDOS] = ip->dois_dedos; conf.pnl[CP_BORDE] = ip->borda;
+    conf.pnl[CP_NATURAL] = ip->natural; conf.pnl[CP_SENSIB] = ip->sensib ? ip->sensib : 5;
+    conf.pnl[CP_ESCRIBIR] = (int)ip->ms_teclado; conf.pnl[CP_SIN_USB] = ip->sem_usb; conf.pnl[CP_PS2] = ip->modo_ps2;
 }
 
 static int aplicar_teclado(int l)
@@ -782,6 +840,9 @@ static int aplicar_tudo(int argc, char **argv)
         if (compara_texto(z.nome, conf.zona) != 0) registrar("configuracion: zona %s -> %d", conf.zona, aplicar_zona(conf.zona));
     }
     if (conf.acento != 0xFFFFFFFFu) registrar("configuracion: acento %06x -> %d", conf.acento, acento_cor((int)conf.acento) < 0);
+    if (conf.pnl_def) registrar("configuracion: panel tactil toque %d dos dedos %d borde %d natural %d sensibilidad %d escribir %d ms sin usb %d ps2 %d -> %d",
+                                conf.pnl[CP_TOQUE], conf.pnl[CP_DOS_DEDOS], conf.pnl[CP_BORDE], conf.pnl[CP_NATURAL], conf.pnl[CP_SENSIB],
+                                conf.pnl[CP_ESCRIBIR], conf.pnl[CP_SIN_USB], conf.pnl[CP_PS2], aplicar_panel());
     if (conf.barra_def) registrar("configuracion: barra posicion %d altura %d menu %d tema %d -> %d", conf.barra[BC_POSICION], conf.barra[BC_ALTURA],
                                   conf.barra[BC_MENU], conf.barra[BC_TEMA], aplicar_barra());
     if (conf.fundo[0] && conf.modo != M_DEGRADE)
@@ -818,6 +879,64 @@ static int barra_cli(int argc, char **argv)
     conf.barra_def = 1;
     int r = aplicar_barra();
     imprimir("barra: aplicada (%d)\n", r);
+    return 0;
+}
+
+/* configuracion panel [mostrar] | restablecer | CLAVE=N ... (D407). -1 = nada que guardar, > 0 = error. */
+static const char *panel_tipo_texto(unsigned t)
+{
+    return t == PAINEL_TIPO_SYNAPTICS ? "Synaptics" : t == PAINEL_TIPO_ALPS ? "ALPS" : t == PAINEL_TIPO_ELANTECH ? "Elantech" : "ninguno";
+}
+
+static int panel_cli(int argc, char **argv)
+{
+    info_painel_t ip;
+    panel_del_kernel(&ip);
+    if (argc < 3 || compara_texto(argv[2], "mostrar") == 0) {
+        if (ip.reconhecido)
+            imprimir("Panel táctil: %s (%s), en uso como %s%s\n", ip.nome, panel_tipo_texto(ip.reconhecido),
+                     ip.tipo ? "panel (modo absoluto, con gestos)" : "ratón PS/2 (sin gestos)",
+                     ip.desligado ? "; ahora no hace caso (ratón USB o paquetes fuera de formato)" : "");
+        else
+            imprimir("Panel táctil: no se ha reconocido ninguno (%s); el ratón PS/2 funciona como siempre\n", ip.nome);
+        if (ip.reconhecido)
+            imprimir("  rango x %d-%d, y %d-%d; varios dedos %s, posición del segundo %s, palanca %s\n", ip.xmin, ip.xmax, ip.ymin,
+                     ip.ymax, ip.multidedo ? "sí" : "no", ip.dois_dedos_pos ? "sí" : "no", ip.palanca ? "sí" : "no");
+        imprimir("  paquetes %u (inválidos %u), toques %u, desplazamientos %u, palmas %u, ignorados al escribir %u; ratones USB %u\n",
+                 ip.pacotes, ip.invalidos, ip.toques, ip.rolagens, ip.palmas, ip.por_teclado, ip.ratos_usb);
+        for (int b = 0; b < CP_N; b++) imprimir("%s=%d\n", claves_panel[b] + 6, conf.pnl[b]);
+        return -1;
+    }
+    if (compara_texto(argv[2], "restablecer") == 0) {
+        memcpy(conf.pnl, panel_padrao, sizeof panel_padrao);
+        conf.pnl_def = 1;
+    } else {
+        int base[CP_N];
+        memcpy(base, conf.pnl, sizeof base);   /* lo actual (del archivo o del kernel) */
+        conf.pnl_def = 1;
+        memcpy(conf.pnl, base, sizeof base);
+        for (int i = 2; i < argc; i++) {
+            char *eq = acha_char(argv[i], '=');
+            int b = -1;
+            if (eq) {
+                *eq = 0;
+                const char *k = argv[i];
+                if (compara_texto(k, "modo") == 0) {   /* modo=ps2 | modo=auto */
+                    conf.pnl[CP_PS2] = compara_texto(eq + 1, "ps2") == 0;
+                    continue;
+                }
+                for (int c = 0; c < CP_N; c++)
+                    if (compara_texto(k, claves_panel[c]) == 0 || compara_texto(k, claves_panel[c] + 6) == 0) b = c;
+            }
+            if (b < 0) {
+                imprimir_em(ERROS, "configuracion panel: %s no es CLAVE=N (toque, dos_dedos, borde, natural, sensibilidad, escribir_ms, sin_usb, ps2, modo=auto|ps2)\n", argv[i]);
+                return 2;
+            }
+            panel_poner(b, texto_para_int(eq + 1));
+        }
+    }
+    int r = aplicar_panel();
+    imprimir("panel: aplicado (%d)\n", r);
     return 0;
 }
 
@@ -1084,6 +1203,10 @@ static int linha_de_comandos(int argc, char **argv)
         conf.modo = modo;
         r = fundo_aplicar(conf.fundo, modo);
         if (r < 0) { imprimir_em(ERROS, "configuracion: fondo: %s\n", texto_erro(r)); if (r == ERRO_ACESSO) imprimir("(sin escritorio gráfico)\n"); }
+    } else if (compara_texto(c, "panel") == 0 || compara_texto(c, "touchpad") == 0) {   /* D407 */
+        int r = panel_cli(argc, argv);
+        if (r < 0) return 0;
+        if (r > 0) return r;
     } else if (compara_texto(c, "barra") == 0 && argc >= 3) {   /* D361 */
         int r = barra_cli(argc, argv);
         if (r < 0) return 0;
@@ -1103,7 +1226,7 @@ static int linha_de_comandos(int argc, char **argv)
                            "                      salida N | balance -100..100 | latencia MS | microfono entrada N|ganancia N|silencio|activar |\n"
                            "                      acento RRGGBB | fondo ARCHIVO [modo] | fondo ninguno |\n"
                            "                      fuente documentos|titulos RUTA|ninguna | aceleracion [2d|3d|sdl|disco VALOR | restablecer] |\n"
-                           "                      barra mostrar | restablecer | CLAVE=N...]\n");
+                           "                      barra mostrar | restablecer | CLAVE=N... | panel [mostrar | restablecer | CLAVE=N...]]\n");
         return 2;
     }
     aviso_persistencia(conf_gravar());
@@ -1286,7 +1409,7 @@ enum { S_SISTEMA, S_TELA, S_ACEL, S_KERNEL, S_ZONA, S_IDIOMA, S_USUARIOS,
        S_ESCRITORIO, S_COLORES, S_BARRA, S_WIDGETS, S_FUENTES, S_CAPTURAS,
        S_DISPOSITIVOS, S_TECLADO, S_MANDOS, S_SONIDO,
        S_REDES, S_BLOQUEO, S_VPN, S_VNC,
-       S_IA, S_QTD };
+       S_IA, S_IA_LOCAL, S_QTD };
 
 static int pagina = S_TELA;      /* la sección abierta (índice de la tabla) */
 static char estado[160];
@@ -2830,6 +2953,68 @@ static void eq_mudar(int banda, int db)
 }
 /* ------------------------------------------------------------ las secciones nuevas (D367) */
 
+/* D407: el bloque «Panel táctil» (dentro de Teclado): lo reconocido y sus opciones, que se aplican y guardan al
+ * momento. Devuelve la y del final. */
+static void panel_casilla(int *y, int k, const char *rot)
+{
+    if (ui_casilla(XL, *y, rot, conf.pnl[k] != 0)) {
+        panel_poner(k, !conf.pnl[k]);
+        aplicar_panel();
+        dizer_gravado(conf_gravar());
+        ui_mudou = true;
+    }
+    *y += 24;
+}
+
+static int pg_panel(int g0)
+{
+    static info_painel_t ip;
+    static bool registrado;
+    if (!ui_ev) panel_del_kernel(&ip);
+    if (!ui_ev && !registrado) {   /* una vez por apertura: lo miran las pruebas (h408) */
+        registrado = true;
+        registrar("configuracion: bloque Panel tactil (%s, %s)", ip.reconhecido ? ip.nome : "ninguno", ip.tipo ? "con gestos" : "raton PS/2");
+    }
+    int y = g0 + 26;
+    char t[160];
+    if (ip.reconhecido)
+        formatar_texto(t, sizeof t, _("Reconocido: %s, en uso %s."), ip.nome,
+                       ip.tipo ? _("con gestos (modo absoluto)") : _("como ratón PS/2 (sin gestos)"));
+    else
+        copia_texto(t, _("No se ha reconocido ningún panel táctil Synaptics, ALPS o Elantech: el ratón funciona como siempre."), sizeof t);
+    y = ui_parrafo(XL, y, XR - XL, t, COR_TEXTO_FRACO) + 6;
+    ui_gris = !ip.reconhecido;
+    panel_casilla(&y, CP_TOQUE, N_("Tocar para hacer clic (dos dedos: botón derecho; tres: central)"));
+    panel_casilla(&y, CP_DOS_DEDOS, N_("Desplazamiento con dos dedos (vertical y horizontal)"));
+    panel_casilla(&y, CP_BORDE, N_("Desplazamiento por el borde derecho e inferior"));
+    panel_casilla(&y, CP_NATURAL, N_("Sentido natural (el contenido sigue a los dedos)"));
+    {
+        bool lig = conf.pnl[CP_ESCRIBIR] > 0;
+        if (ui_casilla(XL, y, N_("Desactivar mientras se escribe"), lig)) {
+            panel_poner(CP_ESCRIBIR, lig ? 0 : panel_padrao[CP_ESCRIBIR]);
+            aplicar_panel();
+            dizer_gravado(conf_gravar());
+            ui_mudou = true;
+        }
+        y += 24;
+    }
+    panel_casilla(&y, CP_SIN_USB, N_("Desactivar el panel si hay un ratón USB"));
+    ui_texto(XL, y + 2, _("Sensibilidad"), ui_gris ? COR_TEXTO_FRACO : COR_TEXTO);
+    if (!ui_gris && ui_boton(XL + 150, y - 2, 24, "-", false) && conf.pnl[CP_SENSIB] > 1) {
+        panel_poner(CP_SENSIB, conf.pnl[CP_SENSIB] - 1); aplicar_panel(); dizer_gravado(conf_gravar()); ui_mudou = true;
+    }
+    formatar_texto(t, sizeof t, "%d", conf.pnl[CP_SENSIB]);
+    ui_texto(XL + 150 + 34, y + 2, t, COR_TEXTO);
+    if (!ui_gris && ui_boton(XL + 150 + 64, y - 2, 24, "+", false) && conf.pnl[CP_SENSIB] < 10) {
+        panel_poner(CP_SENSIB, conf.pnl[CP_SENSIB] + 1); aplicar_panel(); dizer_gravado(conf_gravar()); ui_mudou = true;
+    }
+    y += 28;
+    panel_casilla(&y, CP_PS2, N_("Usar como ratón PS/2 de siempre (sin gestos; si el panel va mal)"));
+    ui_gris = false;
+    if (!ui_ev) ui_grupo(g0, y - g0 + 2, N_("Panel táctil"));
+    return y;
+}
+
 /* Dispositivos > Teclado */
 static void pg_teclado(void)
 {
@@ -2844,7 +3029,7 @@ static void pg_teclado(void)
         }
     int fin = ui_parrafo(XL, y + 62, XR - XL, _("Prueba: la ñ, la ç y los acentos cambian según la distribución."), COR_TEXTO_FRACO);
     if (!ui_ev) ui_grupo(0, fin + 4, N_("Distribución del teclado"));
-    cont_h = fin + 12;
+    cont_h = pg_panel(fin + 16) + 12;
 }
 
 /* Sistema > Idioma (D313: antes iba dentro de Teclado) */
@@ -3884,6 +4069,202 @@ static void pg_vpn(void)
     cont_h = y + 12;
 }
 
+/* ------------------------------------------------ IA > IA local: modelos (D380, fase 2) */
+
+/* La lista sale de /etc/ia/modelos.lista. La descarga la hace `ia descargar ID --estado FICHERO` en otro
+ * proceso (así la ventana no se queda parada con 1 GB por bajar y la descarga es la misma que la del
+ * terminal); la página lee ese fichero cada medio segundo y pinta la barra. Cancelar mata el proceso: lo
+ * bajado se queda en NOMBRE.gguf.parte y la próxima vez sigue desde ahí. */
+static ia_modelo_cat_t il_cat[IA_CAT_MAX];
+static int  il_n, il_sel = -1, il_pid, il_pct;
+static unsigned il_ult_cambio;
+static char il_estado_arq[64], il_linha[200], il_msg[200], il_ativo[256];
+static unsigned long long il_livre_kb;
+static unsigned il_ram_mb;
+static bool il_pos_dita;   /* las posiciones de las filas y los botones, una vez al registro (para las pruebas) */
+
+static void il_ler_ativo(void)
+{
+    const char *h = obter_env("HOME");
+    char c[200];
+    formatar_texto(c, sizeof c, "%s/.config/llm/modelo", h && *h ? h : "/home");
+    il_ativo[0] = 0;
+    int fd = abrir(c, ABRIR_LER);
+    if (fd < 0) return;
+    int n = ler(fd, il_ativo, sizeof il_ativo - 1);
+    fechar(fd);
+    if (n < 0) n = 0;
+    il_ativo[n] = 0;
+    for (int i = 0; i < n; i++) if (il_ativo[i] == '\n' || il_ativo[i] == '\r') { il_ativo[i] = 0; break; }
+}
+
+static void p_ialocal(void)
+{
+    il_n = ia_catalogo_ler(NULL, il_cat, IA_CAT_MAX);
+    if (il_n < 0) il_n = 0;
+    if (il_sel >= il_n) il_sel = -1;
+    il_livre_kb = ia_espaco_livre_kb(IA_PASTA_MODELOS);
+    info_memoria_t mem;
+    il_ram_mb = info_sistema(INFO_MEMORIA, &mem, sizeof mem) == 0 ? mem.ram_total_kb / 1024 : 0;
+    il_ler_ativo();
+    il_pos_dita = false;
+    registrar("configuracion: ia local %d modelos en la lista, %u MB libres, RAM %u MB", il_n, (unsigned)(il_livre_kb / 1024), il_ram_mb);
+}
+
+/* Lee el fichero de estado de la descarga en marcha. true = cambió algo. */
+static bool il_ler_estado(void)
+{
+    if (!il_pid) return false;
+    char b[200];
+    int n = -1, fd = abrir(il_estado_arq, ABRIR_LER);
+    if (fd >= 0) { n = ler(fd, b, sizeof b - 1); fechar(fd); }
+    int cod;
+    int fin = recolher(&cod);   /* el hijo terminó (sin esperar) */
+    if (n > 0) {
+        b[n] = 0;
+        char *f = acha_char(b, '\n');
+        if (f) *f = 0;
+        if (compara_texto(b, il_linha)) { copia_texto(il_linha, b, sizeof il_linha); il_ult_cambio = tempo_ms(); }
+    }
+    char *ult = acha_ultimo_char(il_linha, ' ');
+    if (comeca_com(il_linha, "bajando ") || comeca_com(il_linha, "comprobando ")) il_pct = ult ? texto_para_int(ult + 1) : 0;
+    if (fin == il_pid || comeca_com(il_linha, "fin ") || comeca_com(il_linha, "error ") || comeca_com(il_linha, "cancelado")) {
+        if (comeca_com(il_linha, "fin ")) { formatar_texto(il_msg, sizeof il_msg, _("Bajado y comprobado: %s"), il_linha + 4); il_pct = 100; }
+        else if (comeca_com(il_linha, "error ")) formatar_texto(il_msg, sizeof il_msg, _("No se pudo bajar: %s"), il_linha + 6);
+        else if (comeca_com(il_linha, "cancelado")) copia_texto(il_msg, _("Cancelado: lo bajado se guarda y la próxima vez sigue desde ahí."), sizeof il_msg);
+        else copia_texto(il_msg, _("La descarga terminó sin decir cómo (mira «ia descargar» en el terminal)."), sizeof il_msg);
+        registrar("configuracion: ia local fin [%s]", il_linha);
+        if (fin != il_pid) esperar(il_pid, &cod);
+        il_pid = 0;
+        apagar(il_estado_arq);
+        p_ialocal();
+    }
+    return true;
+}
+
+static void il_descargar(void)
+{
+    if (il_pid || il_sel < 0) return;
+    formatar_texto(il_estado_arq, sizeof il_estado_arq, "/tmp/ia-descarga-%d.estado", meu_pid());
+    apagar(il_estado_arq);
+    char *av[] = { "ia", "descargar", il_cat[il_sel].id, "--estado", il_estado_arq, NULL };
+    int pid = executar("/apps/bin/ia", av);   /* `ia` va en /apps (D306); en una imagen sin /apps, en /bin */
+    if (pid < 0) pid = executar("/bin/ia", av);
+    registrar("configuracion: ia local descarga %s -> %d", il_cat[il_sel].id, pid);
+    if (pid < 0) { formatar_texto(il_msg, sizeof il_msg, _("No se pudo lanzar «ia descargar»: %s"), nome_erro(pid)); return; }
+    il_pid = pid;
+    il_pct = 0;
+    il_linha[0] = 0;
+    il_ult_cambio = tempo_ms();
+    copia_texto(il_msg, _("Conectando..."), sizeof il_msg);
+}
+
+static void il_cancelar(void)
+{
+    if (!il_pid) return;
+    matar(il_pid);
+    int cod;
+    esperar(il_pid, &cod);
+    registrar("configuracion: ia local cancelada");
+    il_pid = 0;
+    apagar(il_estado_arq);
+    copia_texto(il_msg, _("Cancelado: lo bajado se guarda y la próxima vez sigue desde ahí."), sizeof il_msg);
+    p_ialocal();
+}
+
+static void il_activar(void)
+{
+    if (il_sel < 0) return;
+    unsigned long long f;
+    if (ia_modelo_estado(&il_cat[il_sel], NULL, &f) != 2) { copia_texto(il_msg, _("Ese modelo aún no está bajado."), sizeof il_msg); return; }
+    const char *h = obter_env("HOME");
+    char d[200], c[300];
+    formatar_texto(d, sizeof d, "%s/.config", h && *h ? h : "/home");
+    criar_pasta(d);
+    junta_texto(d, "/llm", sizeof d);
+    criar_pasta(d);
+    junta_texto(d, "/modelo", sizeof d);
+    formatar_texto(c, sizeof c, "%s/%s\n", IA_PASTA_MODELOS, il_cat[il_sel].ficheiro);
+    int fd = abrir(d, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) { copia_texto(il_msg, _("No se pudo guardar el modelo activo."), sizeof il_msg); return; }
+    escrever_texto(fd, c);
+    fechar(fd);
+    il_ler_ativo();
+    formatar_texto(il_msg, sizeof il_msg, _("Modelo activo: %s. «llm» y «llm --servidor» lo usan sin -m."), il_cat[il_sel].ficheiro);
+    registrar("configuracion: ia local activo %s", il_cat[il_sel].ficheiro);
+}
+
+static void pg_ialocal(void)
+{
+    char t[260];
+    int y = 26;
+    formatar_texto(t, sizeof t, _("Se bajan de Hugging Face (HTTPS) a %s, se comprueba su suma SHA-256 y una descarga cortada sigue donde iba. "
+                                  "Este equipo: %u MB de RAM, %u MB libres en el disco. La lista está en %s."),
+                   IA_PASTA_MODELOS, il_ram_mb, (unsigned)(il_livre_kb / 1024), IA_CATALOGO);
+    y = ui_parrafo(XL, y, XR - XL, t, COR_TEXTO) + 6;
+    if (!il_n) y = ui_parrafo(XL, y, XR - XL, _("No se puede leer la lista de modelos."), 0xB03000) + 6;
+    int y_filas = y;
+    for (int i = 0; i < il_n; i++) {
+        const ia_modelo_cat_t *m = &il_cat[i];
+        unsigned long long f;
+        int e = ia_modelo_estado(m, NULL, &f);
+        char est[48] = "";
+        if (e == 2) copia_texto(est, _(" - bajado"), sizeof est);
+        else if (e == 1) formatar_texto(est, sizeof est, _(" - a medias (%u MB)"), (unsigned)(f >> 20));
+        formatar_texto(t, sizeof t, "%s, %u MB%s", m->nome, (unsigned)(m->bytes >> 20), est);
+        if (ui_opcion(XL, y, t, il_sel == i) && !il_pid) { il_sel = i; ui_mudou = true; }
+        y += 18;
+        bool falta_ram = il_ram_mb && il_ram_mb < m->ram_mb;
+        formatar_texto(t, sizeof t, "%s%s%s", falta_ram ? _("¡Necesita más memoria! ") : "", m->nota,
+                       falta_ram ? "" : "");
+        if (t[0]) ui_texto(XL + 22, y, t, falta_ram ? 0xB03000 : COR_TEXTO_FRACO);
+        y += 22;
+    }
+    y += 4;
+    if (!ui_ev && !il_pos_dita) {
+        il_pos_dita = true;
+        registrar("configuracion: ia local posiciones filas=%d paso=40 x=%d botones=%d", y_filas, XL, y);
+    }
+    if (ui_boton(XL, y, 130, N_("Descargar"), false) && !il_pid) { il_descargar(); ui_mudou = true; }
+    if (ui_boton(XL + 140, y, 130, N_("Cancelar"), false) && il_pid) { il_cancelar(); ui_mudou = true; }
+    if (ui_boton(XL + 280, y, 170, N_("Usar este modelo"), false) && !il_pid) { il_activar(); ui_mudou = true; }
+    y += 36;
+    /* la barra de avance */
+    if (il_pid || il_pct) {
+        int L = XR - XL;
+        g_retangulo(jn, XL, y, L, 16, COR_BRANCO);
+        g_moldura(jn, XL, y, L, 16, COR_BORDA);
+        if (il_pct > 0) g_retangulo(jn, XL + 1, y + 1, (L - 2) * (il_pct > 100 ? 100 : il_pct) / 100, 14, COR_DESTAQUE);
+        y += 22;
+        if (il_pid && il_linha[0]) {
+            char a[16] = "", b[16] = "", c[16] = "";
+            /* «bajando FEITO TOTAL KBS PCT» o «comprobando ...» */
+            const char *p = acha_char(il_linha, ' ');
+            int k = 0;
+            for (int q = 0; p && q < 3; q++) {
+                p++;
+                char *d = q == 0 ? a : q == 1 ? b : c;
+                for (k = 0; p[k] && p[k] != ' ' && k < 15; k++) d[k] = p[k];
+                d[k] = 0;
+                p = acha_char(p, ' ');
+            }
+            if (comeca_com(il_linha, "comprobando")) formatar_texto(t, sizeof t, _("Comprobando la suma SHA-256: %d%% (%s de %s MB)"), il_pct, a, b);
+            else formatar_texto(t, sizeof t, _("Bajando: %d%% (%s de %s MB, %s KB/s)"), il_pct, a, b, c);
+            ui_texto(XL, y, t, COR_TEXTO);
+            y += 20;
+        }
+    }
+    if (il_msg[0]) y = ui_parrafo(XL, y, XR - XL, il_msg, COR_TEXTO) + 4;
+    formatar_texto(t, sizeof t, _("Modelo activo: %s"), il_ativo[0] ? il_ativo : _("ninguno (llm usa el único que haya)"));
+    y = ui_parrafo(XL, y + 4, XR - XL, t, COR_TEXTO_FRACO);
+    y += 8;
+    if (!ui_ev) ui_grupo(0, y, N_("Modelos para la IA local"));
+    cont_h = y + 12;
+}
+
+static int iv_ialocal(void) { return il_pid ? 500 : 0; }
+static bool tq_ialocal(void) { return il_ler_estado(); }
+
 /* Para añadir una sección: una entrada en seccoes[] (y su índice en el enum de más arriba, en el mismo orden) y las
  * funciones que use. Ver la guía «cómo portar una sección al árbol» en docs/decisoes.md (D367). */
 typedef struct {
@@ -3914,6 +4295,7 @@ PAGINA_UI(bloqueo)
 PAGINA_UI(barra)
 PAGINA_UI(widgets)
 PAGINA_UI(vpn)
+PAGINA_UI(ialocal)
 
 static void p_tela(void) { ler_modos_video(); }
 static void p_acel(void)
@@ -3993,6 +4375,7 @@ static const seccao_t seccoes[S_QTD] = {
     [S_VPN]       = { "vpn", N_("VPN (WireGuard)"), "VPN", 1, NULL, NULL, d_vpn, t_vpn, NULL, NULL, NULL, NULL },
     [S_VNC]       = { "vnc", N_("Escritorio remoto"), "Escritorio remoto", 1, p_vnc, NULL, d_vnc, t_vnc, NULL, NULL, iv_vnc, tq_vnc },
     [S_IA]        = { "ia", N_("IA"), "IA", 0, p_ia, NULL, d_ia, t_ia, NULL, ia_guardar, NULL, NULL },
+    [S_IA_LOCAL]  = { "ialocal", N_("IA local: modelos"), "IA local", 1, p_ialocal, NULL, d_ialocal, t_ialocal, NULL, NULL, iv_ialocal, tq_ialocal },
 };
 
 /* Nombres antiguos y alias que acepta «--ventana SECCION». */

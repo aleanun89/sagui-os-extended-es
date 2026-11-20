@@ -40,6 +40,10 @@
 #include "memalta.h"
 #include "msr.h"
 #include "troca.h"
+#include "copia_escrita.h"
+#include "abi.h"
+
+void espaco_sincronizar(espaco_t e);   /* processos.c (D165) */
 
 #define PG_GRANDE     0x080   /* PDE: página grande (PS): 4 MB sin PAE, 2 MB con PAE */
 #define PG_GLOBAL     0x100   /* queda en el TLB al cambiar el CR3 (con CR4.PGE) */
@@ -51,6 +55,11 @@
 #define END_32        0xFFFFF000ull            /* dirección en una entrada de 4 bytes */
 #define END_PAE       0x000FFFFFFFFFF000ull    /* en una de 8 bytes (bits 12 a 51) */
 #define APIC_VIRT     0xFFC00000u              /* APIC local e IOAPIC (D157, D166) */
+/* D401: bit 10 de la entrada (libre para el sistema en los dos formatos): página compartida de
+ * copia al escribir. Presente y sin W; «lógicamente escribible, copiar antes». El API usa 0x400
+ * para PG_NX, que nunca llega al hardware como bit 10 (ent_valor y ent_flags lo quitan): por eso
+ * esta marca no se ve en pte_flags() y solo la ponen y la quitan las funciones de aquí. */
+#define HW_COW        0x400u
 
 bool     paginacao_com_pae;
 uint64_t paginacao_bit_nx;
@@ -570,7 +579,16 @@ void espaco_ajustar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t por, uin
             continue;
         }
         if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) continue;
-        ent_trocar(p, bits_hw(por), bits_hw(tirar));   /* el marco no cambia: nunca P=0 */
+        if ((pte & HW_COW) || cow_refs(ent_end(pte)) > 1) {
+            /* D401: una página compartida nunca recibe W: dar escritura la deja de copia al
+             * escribir (el fallo hará la copia) y quitarla quita también la marca. */
+            pte_t pv = bits_hw(por) & ~(pte_t)PG_ESCRITA, tv = bits_hw(tirar);
+            if (por & PG_ESCRITA) pv |= HW_COW;
+            if (tirar & PG_ESCRITA) tv |= HW_COW;
+            ent_trocar(p, pv, tv);
+        } else {
+            ent_trocar(p, bits_hw(por), bits_hw(tirar));   /* el marco no cambia: nunca P=0 */
+        }
         if (espaco_atual() == e) invalidar(v);
     }
 }
@@ -613,6 +631,160 @@ uint32_t espaco_paginas_usuario(espaco_t e)
             if (ent_ler(pte_de(pde, k)) & PG_PRESENTE) n++;
     }
     return n;
+}
+
+/* ------------------------------------------------- copia al escribir (D401) */
+
+/* Cambia una entrada presente por otra de golpe: con PAE, un cmpxchg8b (nunca pasa por P=0 ni
+ * por una mitad vieja y otra nueva, que otra CPU podría ver al recorrer la tabla). */
+static void ent_substituir(void *p, pte_t novo)
+{
+    if (PAE) {
+        uint32_t lo = ((volatile uint32_t *)p)[0], hi = ((volatile uint32_t *)p)[1];
+        bool igual;
+        do {
+            __asm__ volatile("lock cmpxchg8b %1"
+                             : "=@ccz"(igual), "+m"(*(volatile uint64_t *)p), "+a"(lo), "+d"(hi)
+                             : "b"((uint32_t)novo), "c"((uint32_t)(novo >> 32))
+                             : "memory");
+        } while (!igual);
+    } else {
+        __atomic_store_n((uint32_t *)p, (uint32_t)novo, __ATOMIC_SEQ_CST);
+    }
+}
+
+bool pte_partilhada(pte_t v)
+{
+    return (v & PG_PRESENTE) && ((v & HW_COW) || cow_refs(ent_end(v)) > 1);
+}
+
+/* El fallo de escritura en "virt" (página presente sin W). 0: no es de copia al escribir (un
+ * fallo de verdad); 1: resuelto (o ya lo resolvió otra CPU), repetir la instrucción; -1: sin
+ * memoria para la copia. Con el cerrojo general; no duerme. */
+int espaco_cow_falta(espaco_t e, uint32_t virt)
+{
+    virt &= ~(PAGINA - 1);
+    void *p = espaco_pte(e, virt);
+    if (!p) return 0;
+    pte_t v = ent_ler(p);
+    if (!(v & PG_PRESENTE) || !(v & PG_USUARIO)) return 0;   /* revisión D401: una del kernel nunca es COW */
+    if (v & PG_ESCRITA) return 1;            /* otra CPU ya la rompió: solo repetir */
+    if (!(v & HW_COW)) return 0;
+    fis_t velha = ent_end(v);
+    if (cow_refs(velha) <= 1) {
+        /* Ya es solo nuestra (el otro escribió antes, hizo exec o terminó): sin copiar. Dar W
+         * no necesita avisar a las demás CPU (con la traducción vieja solo vuelven a fallar). */
+        ent_trocar(p, PG_ESCRITA | PG_SUJA, HW_COW);
+        if (espaco_atual() == e) invalidar(virt);
+        return 1;
+    }
+    bool irq = int_salva_desliga();
+    fis_t nova = memfisica_alocar_usuario();   /* puede sacar otras páginas a la swap, nunca esta */
+    if (!nova) { int_restaura(irq); return -1; }
+    v = ent_ler(p);
+    fisica_copiar_pagina(nova, velha);
+    uint32_t fl = ent_flags(v) & (PG_USUARIO | PG_NX | PG_PWT | PG_PCD | PG_PAT);
+    ent_substituir(p, ent_valor(nova, fl | PG_PRESENTE | PG_ESCRITA | PG_ACESSADA | PG_SUJA));
+    if (espaco_atual() == e) invalidar(virt);
+    int_restaura(irq);
+    /* Otros hilos del proceso en otras CPU pueden tener aún el marco viejo en su TLB. */
+    espaco_sincronizar(e);
+    memfisica_liberar(velha);   /* baja su cuenta (copia_escrita.c); la libera si era la última */
+    return 1;
+}
+
+bool espaco_romper_cow(espaco_t e, uint32_t virt)
+{
+    return espaco_cow_falta(e, virt) > 0;
+}
+
+fis_t espaco_traduzir_escrita(espaco_t e, uint32_t virt)
+{
+    void *p = espaco_pte(e, virt);
+    if (p && (ent_ler(p) & (PG_PRESENTE | HW_COW)) == (PG_PRESENTE | HW_COW) && espaco_cow_falta(e, virt) < 0)
+        return 0;
+    return espaco_traduzir(e, virt, NULL);
+}
+
+/* Clona la mitad del programa de "de" en "para" (un espacio recién creado): cada página propia
+ * presente pasa a compartirse (la cuenta sube; las escribibles quedan de copia al escribir en
+ * los dos), las que están en la swap se copian para el hijo (la del padre se queda allí) y las
+ * prestadas (ventanas, BAR, bibliotecas compartidas) no se tocan: las de las bibliotecas las
+ * clona imagens_clonar(). "copiar_ja" (o NULL) dice qué páginas se copian ya en vez de
+ * compartirse (las palabras de un futex con alguien esperando). Quien llama sincroniza después
+ * las TLB de las demás CPU que corran "de" (espaco_sincronizar). Con el cerrojo general. Si
+ * falla, "para" queda a medias y quien llama lo destruye (las cuentas bajan solas). */
+int espaco_clonar(espaco_t de, espaco_t para, bool (*copiar_ja)(fis_t))
+{
+    uint32_t n = 0;
+    for (uint32_t i = PDE_KERNEL; i < PDE_USUARIO_FIM; i++) {
+        pte_t pde = ent_ler(pde_de(de, i));
+        if (!(pde & PG_PRESENTE) || grande(pde)) continue;
+        for (uint32_t k = 0; k < n_tab; k++) {
+            pte_t pte = ent_ler(pte_de(pde, k));
+            if ((pte & PG_PRESENTE) && !(pte & PG_EMPRESTADA)) n++;
+        }
+    }
+    if (!cow_reservar(n)) return ERRO_SEM_MEMORIA;
+    bool atual = espaco_atual() == de;
+    for (uint32_t i = PDE_KERNEL; i < PDE_USUARIO_FIM; i++) {
+        pte_t pde = ent_ler(pde_de(de, i));
+        if (!(pde & PG_PRESENTE) || grande(pde)) continue;
+        for (uint32_t k = 0; k < n_tab; k++) {
+            void *pp = pte_de(pde, k);
+            pte_t pte = ent_ler(pp);
+            uint32_t v = (i << d_desl) | (k << 12);
+            if (troca_e_entrada(pte)) {
+                fis_t c = troca_copiar(pte);   /* puede sacar otras: las que faltan se ven al llegar */
+                uint32_t b = (uint32_t)pte;
+                uint32_t fl = PG_USUARIO | ((b & TROCA_ESCRITA) ? PG_ESCRITA : 0) | ((b & TROCA_NX) ? PG_NX : 0);
+                if (!c) return ERRO_SEM_MEMORIA;
+                if (!espaco_mapear(para, v, c, fl | PG_ACESSADA)) { memfisica_liberar(c); return ERRO_SEM_MEMORIA; }
+                continue;
+            }
+            if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) continue;
+            fis_t f = ent_end(pte);
+            uint32_t fl = ent_flags(pte) & (PG_USUARIO | PG_NX | PG_PWT | PG_PCD | PG_PAT);
+            bool escrevivel = (pte & PG_ESCRITA) || (pte & HW_COW);
+            if (escrevivel && copiar_ja && copiar_ja(f)) {
+                fis_t c = memfisica_alocar_usuario();
+                if (!c) return ERRO_SEM_MEMORIA;
+                fisica_copiar_pagina(c, f);
+                if (!espaco_mapear(para, v, c, fl | PG_ESCRITA | PG_ACESSADA)) { memfisica_liberar(c); return ERRO_SEM_MEMORIA; }
+                continue;
+            }
+            if (!espaco_mapear(para, v, f, fl | PG_ACESSADA)) return ERRO_SEM_MEMORIA;
+            cow_somar(f);   /* desde aquí, destruir "para" baja la cuenta en vez de liberarla */
+            if (escrevivel) {
+                if (pte & PG_ESCRITA) {
+                    ent_trocar(pp, HW_COW, PG_ESCRITA);
+                    if (atual) invalidar(v);
+                }
+                void *ph = espaco_pte(para, v);
+                if (ph) ent_trocar(ph, HW_COW, 0);
+            }
+        }
+    }
+    return 0;
+}
+
+/* Páginas de "e" que comparte con otros espacios y que no se le cuentan: de cada una paga su
+ * parte (1/referencias), como imagens_paginas_alheias() con las bibliotecas (D378). */
+uint32_t espaco_paginas_cow_alheias(espaco_t e)
+{
+    if (!cow_paginas()) return 0;
+    uint32_t mil = 0;   /* en milésimas de página */
+    for (uint32_t i = PDE_KERNEL; i < PDE_USUARIO_FIM; i++) {
+        pte_t pde = ent_ler(pde_de(e, i));
+        if (!(pde & PG_PRESENTE) || grande(pde)) continue;
+        for (uint32_t k = 0; k < n_tab; k++) {
+            pte_t pte = ent_ler(pte_de(pde, k));
+            if (!(pte & PG_PRESENTE) || (pte & PG_EMPRESTADA)) continue;
+            uint32_t r = cow_refs(ent_end(pte));
+            if (r > 1) mil += 1000u - 1000u / r;
+        }
+    }
+    return mil / 1000u;
 }
 
 /* ------------------------------------------------------ la swap (D352) */

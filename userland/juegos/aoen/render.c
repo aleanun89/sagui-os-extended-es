@@ -234,6 +234,11 @@ void view_clamp(void) {
 
 /* ---------- dibujo del mundo ---------- */
 
+/* Reloj de las animaciones del mundo (agua, peces, reliquias, banderas). Con AOEN_TIEMPO_ANIM fijo (pruebas: el mismo cuadro con
+ * 1 y N hilos, h398) no depende del reloj real; render_world lo prepara en el hilo principal antes de dibujar nada. */
+static int anim_fija = -1; static float anim_t;
+static float tiempo_anim(void) { return anim_fija > 0 ? anim_t : (float)SDL_GetTicks() / 1000.0f; }
+
 static int anim_frames(Slp *s) { return s ? MAX(1, s->nframes / 5) : 1; }
 
 /* devuelve el índice de cuadro para una animación de 8 direcciones con 5 orientaciones guardadas */
@@ -357,7 +362,7 @@ static void draw_entity(const Entity *e, int shade) {
 
 	if (e->type == E_RELIC) {
 		/* una urna dorada con un brillo suave */
-		float t = (float)SDL_GetTicks() / 1000.0f;
+		float t = tiempo_anim();
 		int rr = (int)((12 + 2 * sinf(t * 3.0f)) * V.zoom);
 		gfx_fill_a(sx - rr, sy - rr / 2 - (int)(10 * V.zoom), rr * 2, rr, gfx_rgb(255, 220, 90), shade >= 256 ? 40 : 18);
 		int w = MAX(4, (int)(9 * V.zoom)), h = MAX(6, (int)(13 * V.zoom));
@@ -371,7 +376,7 @@ static void draw_entity(const Entity *e, int shade) {
 
 	if (e->type == E_FISH) {
 		/* banco de peces dibujado con unos pocos trazos: ondas y tres pececillos */
-		float t = (float)SDL_GetTicks() / 1000.0f;
+		float t = tiempo_anim();
 		int rx = (int)(18 * V.zoom), ry = (int)(9 * V.zoom);
 		u32 rip = shade >= 256 ? gfx_rgb(190, 225, 240) : gfx_rgb(110, 130, 140);
 		for (int k = 0; k < 2; ++k) {
@@ -514,7 +519,7 @@ static void linea_puntos(int x0, int y0, int x1, int y1, u32 col) {
 
 /* bandera del punto de reunión: la de los datos originales (animada, del color del jugador) o una dibujada */
 static void bandera(int x, int y, int color) {
-	Sprite *f = iface_frame(50404, (int)(SDL_GetTicks() / 120) % 7, 8);
+	Sprite *f = iface_frame(50404, (int)(tiempo_anim() * 1000.0f / 120.0f) % 7, 8);
 	int sc = (int)(V.zoom * 256);
 	if (f) { gfx_sprite(f, x, y, sc, color, 256, 0); return; }
 	int hh = (int)(26 * V.zoom), ww = (int)(14 * V.zoom);
@@ -553,9 +558,8 @@ void render_world(int top_h, int bottom_h) {
 	y0 = CLAMP(y0, 0, W.h - 1); y1 = CLAMP(y1, 0, W.h - 1);
 
 	/* el reloj de las animaciones del suelo (agua); AOEN_TIEMPO_ANIM=segundos lo fija (pruebas: el mismo cuadro con 1 y N hilos) */
-	static int anim_fija = -1; static float anim_t;
 	if (anim_fija < 0) { anim_fija = getenv("AOEN_TIEMPO_ANIM") != NULL; anim_t = anim_fija ? (float)atof(getenv("AOEN_TIEMPO_ANIM")) : 0; }
-	float t_anim = anim_fija ? anim_t : (float)SDL_GetTicks() / 1000.0f;
+	float t_anim = tiempo_anim();
 	{
 		PERF_INI();
 		if (hd_enabled) {

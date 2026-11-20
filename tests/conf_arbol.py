@@ -12,7 +12,7 @@ BORDA, TITULO = 2, 24
 SECCIONES = ("sistema", "tela", "aceleracion", "kernel", "zona", "idioma", "usuarios",
              "escritorio-cat", "escritorio", "barra", "widgets", "fuentes", "capturas",
              "dispositivos", "teclado", "mandos", "sonido",
-             "redes", "red", "vpn", "vnc", "ia")
+             "redes", "red", "vpn", "vnc", "ia", "ialocal")
 
 
 def ventana(m, desde=0):

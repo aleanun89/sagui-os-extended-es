@@ -139,7 +139,8 @@ static int16_t *gerar_tabela(int tim, int banda)
         int32_t a = s < 0 ? -s : s;
         if (a > pico) pico = a;
     }
-    for (int i = 0; i < TAB_N; i++) t[i] = (int16_t)(tmp[i] * 22000 / pico);
+    /* en 64 bits: tmp[i] * 22000 pasa de 2^31 con los timbres fuertes (|tmp| hasta ~98 000) */
+    for (int i = 0; i < TAB_N; i++) t[i] = (int16_t)((int64_t)tmp[i] * 22000 / pico);
     libera(tmp);
     return t;
 }

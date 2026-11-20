@@ -104,8 +104,19 @@ endif
 ifeq ($(SEM_FIRMWARE),1)
 FIRMWARE_RAMDISK :=
 FIRMWARE_RADEON :=
+FIRMWARE_BT_RTL :=
+FIRMWARE_BT_ATH :=
 else
-FIRMWARE_RAMDISK := firmware/realtek/rtl8188eufw.bin firmware/realtek/LICENCE.rtlwifi_firmware.txt
+# D409: los pinchos experimentales (RTL8188CU/8192CU y RT2870/RT3070/RT5370): firmware de
+# linux-firmware con su licencia al lado (tools/firmware_wifi_usb.sh los baja y comprueba).
+FIRMWARE_RAMDISK := firmware/realtek/rtl8188eufw.bin firmware/realtek/LICENCE.rtlwifi_firmware.txt \
+                    firmware/realtek/rtl8192cufw_A.bin firmware/realtek/rtl8192cufw_TMSC.bin \
+                    firmware/ralink/rt2870.bin firmware/ralink/LICENCE.ralink-firmware.txt \
+                    firmware/atheros/ath3k-1.fw firmware/atheros/LICENCE.atheros_firmware
+# D411: firmware de los controladores Bluetooth (linux-firmware, tools/firmware_bt.sh): Realtek en
+# /lib/firmware/rtl_bt y Atheros AR3012 en /lib/firmware/ar3k. Los .hcd de Broadcom no se distribuyen.
+FIRMWARE_BT_RTL := $(wildcard firmware/realtek/rtl_bt/*.bin)
+FIRMWARE_BT_ATH := $(wildcard firmware/atheros/ar3k/*.dfu)
 # D284/D287: microcódigo del procesador de órdenes (CP) de las Radeon (R7xx y R520_cp.bin de las R5xx),
 # de linux-firmware (tools/firmware_radeon.sh y tools/firmware_r5xx.sh), en /lib/firmware/radeon.
 FIRMWARE_RADEON := $(wildcard firmware/radeon/*.bin) firmware/radeon/LICENSE.radeon.txt
@@ -628,11 +639,18 @@ endif
 include userland/libsdl2/teste.mk
 # AoEN (D382): RTS propio estilo Age of Empires (GPL-3.0-or-later); los datos del juego original no se distribuyen.
 include userland/juegos/aoen/aoen.mk
+# Tzar (D417): visor de mapas de Tzar con lectores traducidos de ReTzar (GPL-3.0-or-later); los datos no se distribuyen.
+# Fuera de la variante sin GPL, como los demás ports de código GPL de terceros.
+ifneq ($(SEM_GPL),1)
+include userland/juegos/tzar/tzar.mk
+endif
 # TCC (D384): el compilador de C dentro de SaguiOS (/apps/bin/tcc) y los fuentes de AoEN para recompilarlo dentro.
 # Solo si se bajaron sus fuentes (tools/tcc_fuentes.sh); TCC=0 lo deja fuera.
 # Fuera de la variante sin GPL (lo que compila lleva la libsagui GPL-3.0-only y libtcc1.c es GPL-2.0+), como Freeciv.
 ifneq ($(SEM_GPL),1)
 include userland/terceros/tcc/tcc.mk
+# GNU make (D413): /apps/bin/make; sus fuentes las baja tools/make_fuentes.sh.
+include userland/terceros/make/make.mk
 endif
 
 # git (D400): la orden git sobre libgit2 (/apps/bin/git). Solo si se bajaron sus fuentes (tools/git_fuentes.sh); GIT=0 la deja fuera.
@@ -848,7 +866,7 @@ $(B)/userland/sae.o: kernel/lib/sae.c $(WIFI_LIB_H)
 $(B)/userland/bin/wifi: $(B)/userland/wpa.o $(B)/userland/wpa_cifra.o $(B)/userland/p256.o $(B)/userland/sae.o \
                         $(B)/userland/libtls/sha256.o
 # D354: la ventana de redes va en wifi_ventana.h (incluida por wifi.c)
-$(B)/userland/programas/wifi.o: userland/programas/wifi_ventana.h
+$(B)/userland/programas/wifi.o: userland/programas/wifi_ventana.h kernel/rede/wifi_usb_logica.h kernel/rede/wifi_usb_ids.h
 # D363: la ventana de la VPN va en wg_ventana.h (incluida por wg.c)
 $(B)/userland/programas/wg.o: userland/programas/wg_ventana.h userland/inc/wireguard.h
 
@@ -1129,6 +1147,17 @@ $(B)/userland/testes/quickjs.o: userland/testes/quickjs.c $(QJS_DIR)/qjs_bridge.
 	CPATH= $(CC) $(QJSFLAGS) -c -o $@ $<
 
 $(B)/userland/testes/quickjs: $(B)/userland/testes/quickjs.o $(QJS_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
+	objcopy --strip-all $@.elf $@
+
+# D401: la prueba de los procesos POSIX (h403) es un programa con la libc común.
+$(B)/userland/testes/posix.o: userland/testes/posix.c $(LIBC_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(LIBC_CFLAGS) -O2 -Wall -Wno-unused-parameter -finput-charset=UTF-8 -fexec-charset=ISO-8859-1 \
+	  -Iuserland/inc -idirafter kernel/inc -c -o $@ $<
+
+$(B)/userland/testes/posix: $(B)/userland/testes/posix.o $(LIBC_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
 	objcopy --strip-all $@.elf $@
@@ -1469,7 +1498,7 @@ $(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
 # imágenes de disco y la ISO) sí van: el SGFS queda solo para el initramfs y esos formatos de compatibilidad.
 SGFS_MAX_RUTA := 55
 $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO_SISTEMA) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
-                  userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) \
+                  userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) $(FIRMWARE_BT_RTL) $(FIRMWARE_BT_ATH) \
                   $(UEFI_EFI) $(B)/boot/mbr.bin
 	@set -e; \
 	d="$$(mktemp -d $(B)/rootfs.XXXXXX)"; \
@@ -1500,6 +1529,8 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO
 	if [ "$(MICROPYTHON)" = "0" ]; then rm -rf "$$d/lib/python" "$$d/bin/lmk"; fi; \
 	if [ -n "$(FIRMWARE_RAMDISK)" ]; then mkdir -p "$$d/lib/firmware"; cp $(FIRMWARE_RAMDISK) "$$d/lib/firmware/"; fi; \
 	if [ -n "$(FIRMWARE_RADEON)" ]; then mkdir -p "$$d/lib/firmware/radeon"; cp $(FIRMWARE_RADEON) "$$d/lib/firmware/radeon/"; fi; \
+	if [ -n "$(FIRMWARE_BT_RTL)" ]; then mkdir -p "$$d/lib/firmware/rtl_bt"; cp $(FIRMWARE_BT_RTL) "$$d/lib/firmware/rtl_bt/"; fi; \
+	if [ -n "$(FIRMWARE_BT_ATH)" ]; then mkdir -p "$$d/lib/firmware/ar3k"; cp $(FIRMWARE_BT_ATH) "$$d/lib/firmware/ar3k/"; fi; \
 	mkdir -p "$$d/sistema/efi/EFI/BOOT" "$$d/sistema/arranque" "$$d/sistema/idiomas"; \
 	cp -r $(B)/idiomas/* "$$d/sistema/idiomas/"; \
 	cp $(UEFI_EFI) "$$d/sistema/efi/EFI/BOOT/"; \
@@ -1599,7 +1630,7 @@ OJ_DATOS_DIR := userland/terceros/openjazz/datos
 QUAKE_DATOS ?= 1
 QK_DATOS_DIR := userland/terceros/quake/datos
 JOGOS_MARCA := $(B)/jogos/entradas.txt
-$(shell mkdir -p $(B)/jogos && $(PY) tools/marca_carpeta.py $(JOGOS_MARCA) "OPENJAZZ_DATOS=$(OPENJAZZ_DATOS) QUAKE_DATOS=$(QUAKE_DATOS) INPUT_SHARE=$(INPUT_SHARE) CNC_VIDEOS=$(CNC_VIDEOS)" "$(INPUT_SHARE)/games" $(OJ_DATOS_DIR) $(QK_DATOS_DIR))
+$(shell mkdir -p $(B)/jogos && $(PY) tools/marca_carpeta.py $(JOGOS_MARCA) "OPENJAZZ_DATOS=$(OPENJAZZ_DATOS) QUAKE_DATOS=$(QUAKE_DATOS) INPUT_SHARE=$(INPUT_SHARE) CNC_VIDEOS=$(CNC_VIDEOS)" "$(INPUT_SHARE)/games" "$(INPUT_SHARE)/Tzar Anthology" $(OJ_DATOS_DIR) $(QK_DATOS_DIR))
 JOGOS_BASE := $(shell find rootfs/jogos -type f 2>/dev/null | grep -v ' ')
 $(B)/jogos/.feito: $(OT_DIR)/dados.img.xz $(OT_DIR)/dados-leeme.txt $(JOGOS_MARCA) $(C8_ROMS) $(JOGOS_BASE) \
                    userland/terceros/openjazz/datos-leeme.txt userland/terceros/quake/datos-leeme.txt userland/terceros/gnuboy/roms-leeme.txt \

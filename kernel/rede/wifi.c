@@ -43,6 +43,7 @@
 #include "wifi.h"
 #include "acoes.h"
 #include "ar9485.h"
+#include "wifi_pcie.h"
 #include "wpa.h"
 #include "wpa_cifra.h"
 #include "sae.h"
@@ -60,7 +61,7 @@
 #include "vfs.h"
 #include "conf_sistema.h"
 
-#define FIRMWARE "/lib/firmware/rtl8188eufw.bin"
+#define DIR_FIRMWARE "/lib/firmware/"   /* D409: el archivo lo dice la familia del pincho (r88e_nome_firmware) */
 #define CONFIG   "/home/.config/wifi.conf"
 #define AJUSTES  "/home/.config/wifi-desempenho.conf"   /* D238: «ht 0» y «filas 0» apagan lo nuevo */
 
@@ -165,8 +166,13 @@ static void chip_sincronizar(void)
     chip.erros_usb = 0;
 }
 
+/* D409: el pincho USB puede ser el RTL8188EU (probado), los RTL8188CU/8192CU (rtl8188eu.c con la familia C)
+ * o los Ralink RT2870/RT3070/RT5370 (rt2870.c): los dos primeros comparten las funciones r88e_*. */
+static bool via_rt(void) { return !via_pci && chip.familia == WUSB_RT2870; }
+
 static int drv_enviar(r88e_t *c, const uint8_t *q, uint32_t n, int tipo, bool cifrar)
 {
+    if (via_rt()) return rt28_enviar(c, q, n, tipo, cifrar);
     if (!via_pci) return r88e_enviar(c, q, n, tipo, cifrar);
     int r = ar9485_enviar(q, n, tipo == R88E_TX_GESTAO ? AR9485_TX_GESTAO : tipo == R88E_TX_EAPOL ? AR9485_TX_EAPOL : AR9485_TX_DADOS,
                           cifrar);
@@ -176,6 +182,7 @@ static int drv_enviar(r88e_t *c, const uint8_t *q, uint32_t n, int tipo, bool ci
 
 static int drv_receber(r88e_t *c, r88e_rx_t cb)
 {
+    if (via_rt()) return rt28_receber(c, cb);
     if (!via_pci) return r88e_receber(c, cb);
     int r = ar9485_receber(cb);
     ar9485_periodico();
@@ -185,6 +192,7 @@ static int drv_receber(r88e_t *c, r88e_rx_t cb)
 
 static void drv_canal(r88e_t *c, uint8_t canal)
 {
+    if (via_rt()) { rt28_canal(c, canal); return; }
     if (!via_pci) { r88e_canal(c, canal); return; }
     ar9485_canal(canal);
     chip_sincronizar();
@@ -194,23 +202,49 @@ static void drv_canal(r88e_t *c, uint8_t canal)
     }
 }
 
-static void drv_modo_busca(r88e_t *c, bool b) { if (via_pci) ar9485_modo_busca(b); else r88e_modo_busca(c, b); }
-static void drv_desassociado(r88e_t *c) { if (via_pci) ar9485_desassociado(); else r88e_desassociado(c); }
-static void drv_limpar_chaves(r88e_t *c) { if (via_pci) ar9485_limpar_chaves(); else r88e_limpar_chaves(c); }
-static void drv_rx_simples(r88e_t *c) { if (!via_pci) r88e_rx_simples(c); }
-static void drv_em_voo(r88e_t *c, uint32_t *rx, uint32_t *tx) { if (via_pci) *rx = *tx = 0; else r88e_em_voo(c, rx, tx); }
+static void drv_modo_busca(r88e_t *c, bool b)
+{
+    if (via_pci) ar9485_modo_busca(b);
+    else if (via_rt()) rt28_modo_busca(c, b);
+    else r88e_modo_busca(c, b);
+}
+static void drv_desassociado(r88e_t *c)
+{
+    if (via_pci) ar9485_desassociado();
+    else if (via_rt()) rt28_desassociado(c);
+    else r88e_desassociado(c);
+}
+static void drv_associado(r88e_t *c, const uint8_t b[6], uint16_t intervalo, bool slot_curto, bool preambulo_curto)
+{
+    if (via_rt()) rt28_associado(c, b, intervalo, slot_curto, preambulo_curto);
+    else r88e_associado(c, b, intervalo, slot_curto, preambulo_curto);
+}
+static void drv_limpar_chaves(r88e_t *c)
+{
+    if (via_pci) ar9485_limpar_chaves();
+    else if (via_rt()) rt28_limpar_chaves(c);
+    else r88e_limpar_chaves(c);
+}
+static void drv_rx_simples(r88e_t *c) { if (!via_pci && !via_rt()) r88e_rx_simples(c); }
+static void drv_em_voo(r88e_t *c, uint32_t *rx, uint32_t *tx)
+{
+    if (via_pci || via_rt()) *rx = *tx = 0;
+    else r88e_em_voo(c, rx, tx);
+}
 static void drv_chave(r88e_t *c, int entrada, const uint8_t k[16], const uint8_t *mac, uint8_t keyid)
 {
     if (via_pci) ar9485_chave(entrada, k, mac);
+    else if (via_rt()) rt28_chave(c, entrada, k, mac, keyid);
     else r88e_chave(c, entrada, k, mac, keyid);
 }
 static void drv_ht(r88e_t *c, bool ht, bool sgi, uint8_t mcs)
 {
     if (via_pci) { c->ht = false; c->sgi = false; c->taxa = ar9485_info()->taxa; }
+    else if (via_rt()) rt28_ht(c, ht, sgi, mcs);
     else r88e_ht(c, ht, sgi, mcs);
 }
 /* El CCMP de los datos lo hace el chip (RTL8188EU siempre; AR9485 solo si se pide). */
-static bool ccmp_por_hw(void) { return !via_pci || ar9485_info()->cifra_hw; }
+static bool ccmp_por_hw(void) { return via_rt() ? false : (!via_pci || ar9485_info()->cifra_hw); }   /* D409: los RT, todo por software */
 
 static bool wl_enviar(const void *q, uint32_t n)
 {
@@ -413,6 +447,7 @@ static void ht_vetar(const uint8_t *bssid, const char *motivo)
 static bool ht_possivel(const bss_t *b)
 {
     if (via_pci) return false;                              /* D280: el AR9485 se asocia como b/g */
+    if (via_rt()) return false;                             /* D409: los Ralink también (tasas fijas, sin HT) */
     if (!ajuste_ht || !b->n.ht || !b->n.wmm || ht_vetado(b->bssid)) return false;
     if (modo == MODO_ABERTA) return true;
     return modo >= MODO_WPA && par.cifra_par == WPA_CIFRA_CCMP;
@@ -649,7 +684,7 @@ static void dados_chegou(const uint8_t *q, uint32_t n, bool decifrada)
          * las claves en la CAM): una trama con MIC malo llega con ICVERR y
          * rtl8188eu.c ya la tiró. El bit 27 del descriptor (SWDEC en el
          * fabricante: «hay que descifrar por software») solo se cuenta. */
-        if (!decifrada && via_pci) {
+        if (!decifrada && (via_pci || via_rt())) {
             /* D280: el AR9485 trae la trama cifrada (el descifrado por hardware va apagado): CCMP
              * por software, con la clave de par o la de grupo, en una copia. */
             static uint8_t cq[2400];
@@ -1227,7 +1262,7 @@ static void conectar(void)
         return;
     }
     if (via_pci) ar9485_associado(alvo.bssid, aid, (alvo.capacidade & 0x0400) != 0, (alvo.capacidade & 0x0020) != 0);
-    else r88e_associado(&chip, alvo.bssid, alvo.intervalo, (alvo.capacidade & 0x0400) != 0, (alvo.capacidade & 0x0020) != 0);
+    else drv_associado(&chip, alvo.bssid, alvo.intervalo, (alvo.capacidade & 0x0400) != 0, (alvo.capacidade & 0x0020) != 0);
     /* D238: tasas HT solo si las anunciamos y el punto de acceso las aceptó
      * (su respuesta trae HT Capabilities); si no, la escalera b/g de siempre. */
     usar_ht = usar_ht && resp_assoc_ht;
@@ -1419,11 +1454,19 @@ static void arrancar_chip(void)
     erro[0] = 0;
     const char *motivo;
     chip.erros_usb = 0;
-    if (r88e_ler_efuse(&chip, &motivo) < 0) { estado = WIFI_FALHOU; anotar_erro(motivo); return; }
-    snformatar(nome_chip, sizeof nome_chip, "Realtek RTL8188%s (versión %x)", chip.etv ? "ETV" : "EUS",
-               (chip.sys_cfg >> 12) & 0xF);
-    klog("[WIFI] %s, MAC %02x:%02x:%02x:%02x:%02x:%02x (eFuse)\n", nome_chip, chip.mac[0], chip.mac[1], chip.mac[2],
-         chip.mac[3], chip.mac[4], chip.mac[5]);
+    int fam = chip.familia;
+    int le = fam == WUSB_RT2870 ? rt28_ler_efuse(&chip, &motivo) : r88e_ler_efuse(&chip, &motivo);
+    if (le < 0) { estado = WIFI_FALHOU; anotar_erro(motivo); return; }
+    if (fam == WUSB_RTL8192CU)
+        snformatar(nome_chip, sizeof nome_chip, "Realtek RTL81%s2CU (experimental)", chip.c_c2t2r ? "9" : "8");
+    else if (fam == WUSB_RT2870)
+        snformatar(nome_chip, sizeof nome_chip, "Ralink RT%x (experimental)", (unsigned)chip.rt_mac_ver);
+    else
+        snformatar(nome_chip, sizeof nome_chip, "Realtek RTL8188%s (versión %x)", chip.etv ? "ETV" : "EUS",
+                   (chip.sys_cfg >> 12) & 0xF);
+    klog("[WIFI] %s, MAC %02x:%02x:%02x:%02x:%02x:%02x (%s)%s\n", nome_chip, chip.mac[0], chip.mac[1], chip.mac[2],
+         chip.mac[3], chip.mac[4], chip.mac[5], fam == WUSB_RT2870 ? "EEPROM/eFuse" : "eFuse",
+         wusb_experimental(fam) ? "; EXPERIMENTAL: sin probar en hardware (D409)" : "");
 #ifdef SAGUI_SEM_FIRMWARE
     estado = WIFI_SEM_FIRMWARE;
     anotar_erro("esta compilación no lleva firmware (SEM_FIRMWARE=1): el Wi-Fi no se puede usar");
@@ -1431,19 +1474,26 @@ static void arrancar_chip(void)
 #else
     uint8_t *fw;
     uint32_t nfw;
-    if (vfs_ler_inteiro(FIRMWARE, &fw, &nfw) < 0) {
+    static char ruta_fw[96];
+    snformatar(ruta_fw, sizeof ruta_fw, DIR_FIRMWARE "%s", fam == WUSB_RT2870 ? rt28_nome_firmware(&chip) : r88e_nome_firmware(&chip));
+    if (vfs_ler_inteiro(ruta_fw, &fw, &nfw) < 0) {
         estado = WIFI_SEM_FIRMWARE;
-        anotar_erro("falta el firmware " FIRMWARE);
+        char m[80];
+        snformatar(m, sizeof m, "falta el firmware %s", ruta_fw);
+        anotar_erro(m);
         return;
     }
     ler_ajustes();
     chip.usar_filas = ajuste_filas;
-    int r = r88e_iniciar(&chip, fw, nfw, &motivo);
+    int r = fam == WUSB_RT2870 ? rt28_iniciar(&chip, fw, nfw, &motivo) : r88e_iniciar(&chip, fw, nfw, &motivo);
     kfree(fw);
     if (r < 0) { estado = WIFI_FALHOU; anotar_erro(motivo); return; }
     klog("[WIFI] firmware %s cargado; chip listo (%u errores USB)\n", chip.fw_versao, chip.erros_usb);
     estado = WIFI_PRONTO;
-    registrar_placa("rtl8188eu", "Realtek RTL8188EU (Wi-Fi USB)", 0x0BDA, 0x8179);
+    registrar_placa(fam == WUSB_RTL8192CU ? "rtl8192cu" : fam == WUSB_RT2870 ? "rt2870" : "rtl8188eu",
+                    fam == WUSB_RTL8192CU ? "Realtek RTL8188CU/8192CU (Wi-Fi USB, experimental)" :
+                    fam == WUSB_RT2870 ? "Ralink RT2870/RT3070/RT5370 (Wi-Fi USB, experimental)" : "Realtek RTL8188EU (Wi-Fi USB)",
+                    chip.vid, chip.pid);
 #endif
 }
 
@@ -1583,10 +1633,17 @@ bool wifi_usb_reconhecer(usb_disp_t *d)
         trocar_modo(d);
         return true;
     }
-    if (d->id_fabricante != 0x0BDA || d->id_produto != 0x8179) return false;
-    klog("[WIFI] pincho Realtek RTL8188EU (0bda:8179), %s\n",
+    int fam = wusb_familia(d->id_fabricante, d->id_produto);
+    if (fam == WUSB_NINGUNO) return false;
+    klog("[WIFI] pincho %s (%04x:%04x)%s, %s\n", wusb_nome_familia(fam), d->id_fabricante, d->id_produto,
+         wusb_experimental(fam) ? " EXPERIMENTAL: sin probar en hardware (D409)" : "",
+         fam == WUSB_AR9271 ? "reconocido, todavía sin driver (el firmware libre de ath9k_htc está por integrar)" :
          chip.presente ? "ya hay otro: este no se usa" : "se enciende en la tarea wifi");
+    if (fam == WUSB_AR9271) return true;   /* D409: descrito, no implementado */
     if (chip.presente || disp_novo || pci_novo) return true;
+    chip.familia = (uint8_t)fam;
+    chip.vid = d->id_fabricante;
+    chip.pid = d->id_produto;
     if (!d->ep_entrada || !d->ep_saida) { klog("[WIFI] sin endpoints bulk\n"); return true; }
     d->wifi = true;
     disp_novo = d;
@@ -1601,7 +1658,7 @@ bool wifi_usb_reconhecer(usb_disp_t *d)
 void wifi_pci_iniciar(void)
 {
     if (chip.presente || disp_novo || pci_novo) return;
-    if (!ar9485_procurar()) return;
+    if (!ar9485_procurar()) { wifi_pcie_identificar(); return; }   /* D410: otras Wi-Fi PCIe, solo se registran */
     pci_novo = true;
     estado = WIFI_INICIANDO;
     if (!tarefa_criada) { tarefa_criada = true; tarefa_kernel("wifi", tarefa_wifi, (void *)0); }

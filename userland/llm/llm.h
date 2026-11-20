@@ -251,6 +251,8 @@ void llm_estado_reiniciar(llm_estado_t *e);     /* vacía la caché */
 /* Pasa n tokens por la red desde la posición actual; deja en e->logits los del último
  * (todos si logits_todos: [n][n_vocab], para comparar). 0 = ok, <0 = contexto lleno. */
 int  llm_avaliar(llm_estado_t *e, const int *toks, int n, float *logits_todos);
+/* Lo mismo con vectores de entrada ya hechos ([n][n_embd]): los de una imagen (fase 2). */
+int  llm_avaliar_emb(llm_estado_t *e, const float *emb, int n);
 
 /* ------------------------------------------------------------ tokenizador */
 typedef struct {

@@ -32,6 +32,7 @@
 #include "vfs.h"
 #include "xhci.h"
 #include "../bluetooth/bt.h"
+#include "../bluetooth/bt_fw.h"
 
 #define CONF_RAM   "/etc/bluetooth.conf"
 #define CONF_DISCO CONF_PONTO "/etc/bluetooth.conf"
@@ -40,11 +41,14 @@
 
 _Static_assert(BT_PRONTO == BTA_PRONTO && BT_APAGADO == BTA_APAGADO && BT_FALHOU == BTA_FALHOU, "ABI de estados Bluetooth");
 _Static_assert(BT_D_CONECTADO == BTD_CONECTADO && BT_D_ERRO == BTD_ERRO && BT_T_COMBO == BTT_COMBO, "ABI de dispositivos Bluetooth");
+_Static_assert(BT_T_BLE == BTT_BLE && BT_T_BLE_HID == BTT_BLE_HID, "ABI de dispositivos BLE");
 
 static usb_disp_t *dev;            /* el controlador atendido */
 static usb_disp_t *dev_novo;       /* recién enchufado: la tarea lo abre */
 static bool retirado;              /* se retiró: la tarea limpia */
 static bool tarea_creada, gestor_listo;
+static bool ath_pend;              /* Atheros: firmware cargado, esperando la reenumeración */
+static uint32_t ath_hasta;
 static int  int_h = -1, rx_h = -1;
 static uint32_t rx_buf;            /* buffer físico de recepción ACL (16 KB alineado a 16 KB) */
 static bool sin_acl;
@@ -131,10 +135,46 @@ static void p_teclado(const uint8_t *r, int n) { hid_bt_teclado(r, n); }
 static void p_raton(const uint8_t *r, int n, bool boot) { hid_bt_raton(r, n, boot); }
 static void p_soltar(int tipo) { hid_bt_soltar(tipo); }
 
-static const bt_plat_t plat = {
+/* D411: firmware de los controladores que lo piden (Broadcom, Realtek, Atheros). Experimental. */
+#define FW_RUTA "/lib/firmware/"
+
+static int p_firmware(const char *nome, const uint8_t **d, int *n)
+{
+    char ruta[96];
+    uint8_t *buf;
+    uint32_t tam;
+    if (txt_tamanho(nome) + sizeof FW_RUTA >= sizeof ruta) return -1;
+    snformatar(ruta, sizeof ruta, FW_RUTA "%s", nome);
+    if (!vfs_existe_arquivo(ruta) || vfs_ler_inteiro(ruta, &buf, &tam) < 0 || !tam) return -1;
+    *d = buf;
+    *n = (int)tam;
+    return 0;
+}
+
+static void p_firmware_liberar(const uint8_t *d) { kfree((void *)d); }
+
+static int p_usb_vendor(uint8_t tipo, uint8_t pedido, uint16_t valor, uint16_t indice, void *d, int n)
+{
+    if (!dev || n < 0 || n > (int)sizeof tx) return -1;
+    if (!(tipo & 0x80) && n) memcpy(tx, d, (size_t)n);
+    int r = usb_controle(dev, tipo, pedido, valor, indice, n ? tx : NULL, (uint16_t)n);
+    if (r >= 0 && (tipo & 0x80) && n) memcpy(d, tx, (size_t)n);
+    return r;
+}
+
+static int p_usb_bulk(const void *d, int n)
+{
+    if (!dev || n < 0 || n > (int)sizeof tx) return -1;
+    memcpy(tx, d, (size_t)n);
+    return usb_bulk(dev, false, tx, (uint32_t)n) < 0 ? -1 : n;
+}
+
+static bt_plat_t plat = {
     .enviar_cmd = p_cmd, .enviar_acl = p_acl, .ms = p_ms, .guardar = p_guardar,
     .hid_conectar = p_hid_conectar, .teclado = p_teclado, .raton = p_raton, .soltar_entrada = p_soltar,
     .registro = p_registro,
+    .firmware = p_firmware, .firmware_liberar = p_firmware_liberar,
+    .usb_vendor = p_usb_vendor, .usb_bulk_salida = p_usb_bulk,
 };
 
 /* ------------------------------------------------------------ transporte */
@@ -227,6 +267,16 @@ static void abrir_dispositivo(usb_disp_t *d)
     }
     klog("[BT] controlador %s %s (%04x:%04x) por %s: iniciando\n", d->fabricante, d->produto, d->id_fabricante,
          d->id_produto, usb_nome_ctl(d->tipo_ctl));
+    plat.usb_vid = d->id_fabricante;
+    plat.usb_pid = d->id_produto;
+    /* D411: los Atheros (ath3k) se cargan antes del HCI por peticiones de fabricante. Si cargaron algo el
+     * dispositivo se reenumera y esta instancia desaparece; si en 3 s no pasa, se sigue con el HCI. */
+    if (bt_ath_cargar(&plat) > 0) {
+        ath_pend = true;
+        ath_hasta = relogio_tiques() + 3 * TIQUES_POR_SEGUNDO;
+        klog("[BT] Atheros: firmware cargado, esperando a que el dispositivo se reenumere\n");
+        return;
+    }
     bt_hci_iniciar(&plat);
 }
 
@@ -243,6 +293,7 @@ static void cerrar_dispositivo(void)
         if (rx_h >= 0 && dev->tipo_ctl == USB_UHCI) uhci_rx_fechar(rx_h);
     }
     int_h = rx_h = -1;
+    ath_pend = false;
     dev = NULL;
     f_cnt = f_cab = 0;
 }
@@ -275,7 +326,12 @@ static void tarea_bt(void *arg)
             dev_novo = NULL;
             if (d->usado) abrir_dispositivo(d);
         }
-        if (dev) {
+        if (dev && ath_pend && (int32_t)(relogio_tiques() - ath_hasta) >= 0) {
+            ath_pend = false;
+            klog("[BT] Atheros: el dispositivo no se reenumero: se inicia el HCI\n");
+            bt_hci_iniciar(&plat);
+        }
+        if (dev && !ath_pend) {
             uint8_t b[64];
             for (int k = 0; k < 8; k++) {
                 int n = ler_int(b, sizeof b);

@@ -81,6 +81,7 @@ void draw_marcador(int xr, int y, int ancho_max) {
 
 /* ---------- diplomacia y tributo ---------- */
 static int tributo_cant = 1;
+static int modo_pedir;   /* D415: los botones de recurso piden un tributo a la máquina en vez de enviarlo */
 static const int tributo_val[] = { 50, 100, 200, 500 };
 
 static void panel_diplomacia(void) {
@@ -102,7 +103,7 @@ static void panel_diplomacia(void) {
 	int yy = y + 58;
 	gfx_text(c_nom, yy, "JUGADOR", COL_GOLD, 1);
 	gfx_text(c_rel, yy, "RELACIÓN", COL_GOLD, 1);
-	snprintf(b, sizeof b, "TRIBUTO (%d, LLEGA EL 80%%)", tributo_val[tributo_cant]);
+	snprintf(b, sizeof b, modo_pedir ? "PEDIR TRIBUTO (%d)" : "TRIBUTO (%d, LLEGA EL 80%%)", tributo_val[tributo_cant]);
 	gfx_text(c_trib, yy, b, COL_GOLD, 1);
 	yy += 16;
 	for (int i = 0; i < n; ++i, yy += rowh) {
@@ -123,16 +124,25 @@ static void panel_diplomacia(void) {
 		int rel = W.pl[W.human].dipl[p];
 		if (W.pl[p].alive) {
 			if (i == 0) prueba_relacion = (Rect){ c_rel, yy + 2, compacto ? 140 : 156, 26 };
-			int cyc = cycler(c_rel, yy + 2, compacto ? 140 : 156, dipl_name(rel));
+			/* propuesta de la máquina (D415): dos botones en lugar del selector de relación */
+			int propone = W.prop_nivel[p] && W.time <= W.prop_t[p];
+			int cyc = 0;
+			if (propone) {
+				snprintf(b, sizeof b, "Propone: %s", dipl_name(W.prop_nivel[p] - 1));
+				gfx_text(c_rel, yy + 1, b, COL_AVISO, 1);
+				int bw2 = compacto ? 66 : 74;
+				if (boton_t(c_rel, yy + 13, bw2, 20, "Aceptar", 1)) { cmd_responder_propuesta(p, 1); snd_ui(SND_CLICK); }
+				if (boton_t(c_rel + bw2 + 4, yy + 13, bw2, 20, "Rechazar", 1)) { cmd_responder_propuesta(p, 0); snd_ui(SND_CLICK); }
+			} else cyc = cycler(c_rel, yy + 2, compacto ? 140 : 156, dipl_name(rel));
 			if (cyc) {
 				int nuevo = CLAMP(rel + cyc, DIPL_ENEMY, DIPL_ALLY);
 				if (nuevo != rel) { int ok = cmd_diplomacy(W.human, p, nuevo); AOEN_LOG("[AOEN] diplomacia: jugador %d -> %s (%s)", p + 1, dipl_name(nuevo), ok ? "aceptada" : "rechazada"); }
 			}
-			if (hit(c_rel, yy + 2, 156, 26)) tip_simple((Rect){ c_rel, yy + 2, 156, 26 }, "Relación", "Declarar la guerra siempre se puede. La máquina acepta la paz si eres más fuerte, y la alianza solo si ya sois neutrales (en «difícil» o más, nunca).");
+			if (!propone && hit(c_rel, yy + 2, 156, 26)) tip_simple((Rect){ c_rel, yy + 2, 156, 26 }, "Relación", "Declarar la guerra siempre se puede. La máquina decide según su personalidad y dificultad, vuestra fuerza, los enemigos comunes, los tributos que le envías y si la traicionaste. La alianza solo si ya sois neutrales. Romper un pacto es una traición que recuerda."); 
 			/* tributo: un botón por recurso */
 			int bx = c_trib;
 			for (int k = 0; k < RES_COUNT; ++k) {
-				int bw = compacto ? 46 : 64, can = hay_mercado && rel != DIPL_ENEMY && W.pl[W.human].res[k] >= tributo_val[tributo_cant];
+				int bw = compacto ? 46 : 64, can = modo_pedir ? (rel != DIPL_ENEMY && W.pl[p].ai) : (hay_mercado && rel != DIPL_ENEMY && W.pl[W.human].res[k] >= tributo_val[tributo_cant]);
 				if (i == 0 && k == RES_WOOD) prueba_tributo = (Rect){ bx, yy + 2, bw, 26 };
 				int over = hit(bx, yy + 2, bw, 26);
 				gfx_fill_grad(bx, yy + 2, bw, 26, over && can ? gfx_rgb(90, 60, 36) : gfx_rgb(46, 31, 20), gfx_rgb(22, 15, 10));
@@ -142,16 +152,22 @@ static void panel_diplomacia(void) {
 				if (over) {
 					static const char *rn[4] = { "madera", "comida", "oro", "piedra" };
 					Tip t; memset(&t, 0, sizeof t);
-					snprintf(t.titulo, sizeof t.titulo, "Enviar %d de %s a %s", tributo_val[tributo_cant], rn[k], nombre_corto(p, nb, sizeof nb));
-					snprintf(t.desc, sizeof t.desc, "Llegan %d: el mercado se queda el 20 %%.", tributo_val[tributo_cant] * 80 / 100);
-					if (!hay_mercado) snprintf(t.motivo, sizeof t.motivo, "Necesitas un mercado terminado");
+					snprintf(t.titulo, sizeof t.titulo, modo_pedir ? "Pedir %d de %s a %s" : "Enviar %d de %s a %s", tributo_val[tributo_cant], rn[k], nombre_corto(p, nb, sizeof nb));
+					if (modo_pedir) snprintf(t.desc, sizeof t.desc, "La máquina lo envía si es tu aliada (o si le has enviado tributo) y le sobra.");
+					else snprintf(t.desc, sizeof t.desc, "Llegan %d: el mercado se queda el 20 %%.", tributo_val[tributo_cant] * 80 / 100);
+					if (modo_pedir) { if (rel == DIPL_ENEMY) snprintf(t.motivo, sizeof t.motivo, "No se pide tributo a un enemigo"); }
+					else if (!hay_mercado) snprintf(t.motivo, sizeof t.motivo, "Necesitas un mercado terminado");
 					else if (rel == DIPL_ENEMY) snprintf(t.motivo, sizeof t.motivo, "No se envía tributo a un enemigo");
-					else if (W.pl[W.human].res[k] < tributo_val[tributo_cant]) snprintf(t.motivo, sizeof t.motivo, "Falta %s: %d", rn[k], tributo_val[tributo_cant] - W.pl[W.human].res[k]);
+					else if (!modo_pedir && W.pl[W.human].res[k] < tributo_val[tributo_cant]) snprintf(t.motivo, sizeof t.motivo, "Falta %s: %d", rn[k], tributo_val[tributo_cant] - W.pl[W.human].res[k]);
 					t.ancla = (Rect){ bx, yy + 2, bw, 26 };
 					tip_poner(&t);
 					if (in.mclick) {
 						in.bloqueo = 1;
-						if (can && cmd_tribute(W.human, p, k, tributo_val[tributo_cant])) {
+						if (modo_pedir && can) {
+							int ok = cmd_pedir(W.human, p, k, tributo_val[tributo_cant]);
+							AOEN_LOG("[AOEN] petición: %d de recurso %d al jugador %d (%s)", tributo_val[tributo_cant], k, p + 1, ok ? "enviado" : "rechazada");
+							snd_ui(ok ? SND_CLICK : SND_ERROR);
+						} else if (!modo_pedir && can && cmd_tribute(W.human, p, k, tributo_val[tributo_cant])) {
 							snprintf(b, sizeof b, "Tributo: %d de %s a %s", tributo_val[tributo_cant] * 80 / 100, rn[k], nombre_corto(p, nb, sizeof nb));
 							world_msg(b); snd_ui(SND_CLICK);
 							AOEN_LOG("[AOEN] tributo: %d de recurso %d al jugador %d", tributo_val[tributo_cant], k, p + 1);
@@ -167,7 +183,8 @@ static void panel_diplomacia(void) {
 	snprintf(b, sizeof b, "%d", tributo_val[tributo_cant]);
 	int c = cycler(x + 104, yy, 110, b);
 	if (c) tributo_cant = (tributo_cant + c + ARRAY_LEN(tributo_val)) % ARRAY_LEN(tributo_val);
-	gfx_text(x + 230, yy + 9, hay_mercado ? "El tributo necesita un mercado: lo tienes." : "Para enviar tributo hace falta un mercado terminado.", hay_mercado ? COL_DIM : COL_MAL, 1);
+	if (boton_t(x + 224, yy, 104, 26, modo_pedir ? "Modo: pedir" : "Modo: enviar", 1)) modo_pedir = !modo_pedir;
+	gfx_text(x + 340, yy + 9, hay_mercado ? "El tributo necesita un mercado: lo tienes." : "Para enviar tributo hace falta un mercado terminado.", hay_mercado ? COL_DIM : COL_MAL, 1);
 	ui_en_modal = 0;
 }
 

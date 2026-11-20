@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Makefile - TCC se compila a sí mismo dentro de SaguiOS con make y tcc (D413; la alternativa es compilar.sh).
+#
+#   cp -r /apps/tcc/fuentes /tmp/tcc && cd /tmp/tcc
+#   make              deja ./tcc, que compila igual que /apps/bin/tcc
+#   ./tcc -run /apps/tcc/ejemplos/hola.c
+CC = tcc
+CFLAGS = -DONE_SOURCE=1 -I.
+FUENTES = tcc.c tcc_libc_extra.c tcc_simbolos.c $(wildcard *.h)
+
+tcc: $(FUENTES)
+	$(CC) $(CFLAGS) -o $@ tcc.c tcc_libc_extra.c tcc_simbolos.c
+	@echo "listo: ./tcc"
+
+clean:
+	rm -f tcc
+
+.PHONY: clean

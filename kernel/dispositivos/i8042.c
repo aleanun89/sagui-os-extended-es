@@ -21,6 +21,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "portas.h"
+#include "painel.h"
 
 #define DADOS  0x60
 #define ESTADO 0x64
@@ -108,6 +109,67 @@ static int detectar_roda(void)
     return id;
 }
 
+/* D407: las órdenes al ratón para painel.c (reconocer el panel táctil y pasarlo al modo absoluto),
+ * con las interrupciones desactivadas. */
+int i8042_rato_cmd(uint8_t c) { return para_mouse(c); }
+int i8042_rato_ler(void) { return ler_resposta_mouse(); }
+
+/* La parte del ratón del arranque: valores por defecto, panel táctil (D407) o rueda (D048) y «empieza
+ * a enviar». painel: se puede probar el modo absoluto del panel táctil. true = el ratón respondió. */
+static bool iniciar_rato(bool painel)
+{
+    diag.resposta_padrao = para_mouse(0xF6);   /* valores por defecto */
+    if (diag.resposta_padrao != 0xFA) {
+        /* Algunos touchpads solo responden después de un reset (0xFF -> FA, AA, 00). */
+        diag.resposta_reset = para_mouse(0xFF);
+        if (diag.resposta_reset == 0xFA) { ler_resposta(); ler_resposta(); }
+        diag.resposta_padrao = para_mouse(0xF6);
+    }
+    bool abs = false;
+    if (diag.resposta_padrao == 0xFA) {
+        /* D407: primero el panel táctil (deja el ratón como estaba si no lo es o algo falla) */
+        abs = painel_detectar(painel);
+        diag.id_mouse = abs ? 0 : detectar_roda();
+    }
+    mouse_formato(diag.id_mouse);              /* antes de la IRQ 12: el tamaño del paquete ya correcto */
+    diag.resposta_ligar = para_mouse(0xF4);    /* empezar a enviar */
+    bool ok = diag.resposta_padrao == 0xFA && diag.resposta_ligar == 0xFA;
+    if (!ok && abs) painel_desligar();         /* el panel no empezó: el ratón (si responde) como siempre */
+    return ok;
+}
+
+/* D407: vuelve a empezar el ratón (desde una llamada al sistema: pasar el panel táctil al modo PS/2 de
+ * siempre o volver al absoluto). Para el ratón, lo reinicia (0xFF) y repite lo del arranque. Tarda un
+ * momento con las interrupciones desactivadas: solo cuando la persona cambia la opción. */
+bool i8042_rato_reiniciar(bool painel)
+{
+    bool ints = int_salva_desliga();
+    bool antes = mouse_ligado;
+    mouse_ligado = false;                      /* lo que llegue mientras tanto se descarta */
+    for (int i = 0; i < 3; i++) {              /* parar el envío; entre medias pueden llegar datos */
+        comando(0xD4);
+        esperar_escrita();
+        porta_escreve8(DADOS, 0xF5);
+        int r = -1;
+        for (int k = 0; k < 64 && r != 0xFA; k++) {
+            r = ler_resposta_mouse();
+            if (r < 0) break;                  /* nada en medio segundo: no insistir */
+        }
+        if (r == 0xFA) break;
+    }
+    descartar_pendentes();
+    painel_desligar();
+    diag.resposta_reset = para_mouse(0xFF);    /* el reinicio deja el panel en relativo */
+    if (diag.resposta_reset == 0xFA) { ler_resposta(); ler_resposta(); }
+    bool ok = iniciar_rato(painel);
+    descartar_pendentes();
+    mouse_ligado = ok || antes;
+    int_restaura(ints);
+    klog("[I8042] raton reiniciado (%s): padrao=%x id=%x ligar=%x -> %s\n", painel ? "panel permitido" : "solo PS/2",
+         (uint32_t)diag.resposta_padrao, (uint32_t)diag.id_mouse, (uint32_t)diag.resposta_ligar, ok ? "ligado" : "nao respondeu");
+    return ok;
+}
+
 /* Entrega todo lo que haya en la cola. */
 void i8042_esvaziar(void)
 {
@@ -133,6 +195,7 @@ void i8042_tique(void)
 {
     if (porta_le8(ESTADO) & 1)
         i8042_esvaziar();
+    if (mouse_ligado) painel_tique();   /* D407: los clics de los toques que se sueltan solos */
 }
 
 static void gravar_config(uint8_t cfg)
@@ -170,17 +233,7 @@ bool i8042_iniciar(bool com_mouse)
         cfg &= (uint8_t)~0x20;
         gravar_config(cfg);
         descartar_pendentes();
-        diag.resposta_padrao = para_mouse(0xF6);   /* valores por defecto */
-        if (diag.resposta_padrao != 0xFA) {
-            /* Algunos touchpads solo responden después de un reset (0xFF -> FA, AA, 00). */
-            diag.resposta_reset = para_mouse(0xFF);
-            if (diag.resposta_reset == 0xFA) { ler_resposta(); ler_resposta(); }
-            diag.resposta_padrao = para_mouse(0xF6);
-        }
-        if (diag.resposta_padrao == 0xFA) diag.id_mouse = detectar_roda();
-        mouse_formato(diag.id_mouse);              /* antes de la IRQ 12: el tamaño del paquete ya correcto */
-        diag.resposta_ligar = para_mouse(0xF4);    /* empezar a enviar */
-        ok = diag.resposta_padrao == 0xFA && diag.resposta_ligar == 0xFA;
+        ok = iniciar_rato(true);
         if (ok) {
             cfg |= 0x02;                 /* ahora sí: IRQ 12 */
         } else {

@@ -20,6 +20,7 @@
  * A chave nunca se escreve no repositorio nem na imagem. */
 #include "ia.h"
 #include "agentes.h"
+#include "ia_modelos.h"
 
 static const char *AJUDA =
     "uso: ia [opcoes] \"pergunta\"\n"
@@ -37,6 +38,9 @@ static const char *AJUDA =
     "  --agentes             lista los agentes disponibles\n"
     "  --registro            muestra el registro de lo que hicieron los agentes\n"
     "  --config              mostra a configuracao\n"
+    "  descargar [ID...]     IA local (D380): baja modelos de la lista /etc/ia/modelos.lista\n"
+    "                        (sin ID, la lista). Opciones: --carpeta DIR, --activar, -k,\n"
+    "                        --estado FICHERO (para Configuración), --catalogo FICHERO\n"
     "  --ajuda               esta ajuda\n"
     "\n"
     "A configuracao tambem vem do ambiente: IA_URL, IA_MODELO, IA_CHAVE,\n"
@@ -207,6 +211,149 @@ static int ver_registro(void)
     return 0;
 }
 
+/* ---- D380 fase 2: `ia descargar`, el descargador de modelos de la IA local ---- */
+
+static const char *desc_estado;    /* --estado FICHERO: Configuración lee de ahí el avance */
+static unsigned desc_ult;
+
+static void estado_escrever(const char *t)
+{
+    if (!desc_estado) return;
+    int fd = abrir(desc_estado, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    escrever_texto(fd, t);
+    fechar(fd);
+}
+
+static void mb_texto(unsigned long long b, char *s, int max) { formatar_texto(s, (size_t)max, "%u", (unsigned)(b >> 20)); }
+
+static void desc_progresso(void *ctx, int fase, unsigned long long feito, unsigned long long total, unsigned kbs)
+{
+    (void)ctx;
+    unsigned pct = total ? (unsigned)(feito / (total / 100 + 1)) : 0;
+    if (pct > 100) pct = 100;
+    char a[16], b[16], l[160];
+    mb_texto(feito, a, sizeof a);
+    mb_texto(total, b, sizeof b);
+    char barra[31];
+    for (unsigned i = 0; i < 30; i++) barra[i] = i < pct * 30 / 100 ? '=' : ' ';
+    barra[30] = 0;
+    if (fase == 0) formatar_texto(l, sizeof l, "\r%3u%% [%s] %s/%s MB %u KB/s   ", pct, barra, a, b, kbs);
+    else formatar_texto(l, sizeof l, "\rcomprobando la suma: %3u%% [%s] %s/%s MB   ", pct, barra, a, b);
+    escrever_texto(ERROS, l);
+    unsigned agora = tempo_ms();
+    if (desc_estado && agora - desc_ult >= 500) {
+        desc_ult = agora;
+        char e[96];
+        formatar_texto(e, sizeof e, "%s %s %s %u %u\n", fase ? "comprobando" : "bajando", a, b, kbs, pct);
+        estado_escrever(e);
+    }
+}
+
+static int desc_parar(void *ctx) { (void)ctx; return interrupcoes() != ctrl_c_antes; }
+
+static void desc_aviso(void *ctx, const char *t)
+{
+    (void)ctx;
+    imprimir_em(ERROS, "\nia: %s\n", t);
+}
+
+/* Apunta el modelo como el activo de `llm` (~/.config/llm/modelo, como llm --activar). */
+static void desc_activar(const char *caminho)
+{
+    const char *h = obter_env("HOME");
+    char d[200];
+    formatar_texto(d, sizeof d, "%s/.config", h && *h ? h : "/home");
+    criar_pasta(d);
+    junta_texto(d, "/llm", sizeof d);
+    criar_pasta(d);
+    junta_texto(d, "/modelo", sizeof d);
+    int fd = abrir(d, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    escrever_texto(fd, caminho);
+    escrever_texto(fd, "\n");
+    fechar(fd);
+    imprimir("Modelo activo: %s\n", caminho);
+}
+
+static int descargar(int argc, char **argv)
+{
+    const char *pasta = IA_PASTA_MODELOS, *catalogo = NULL, *ids[8];
+    int nids = 0;
+    bool inseguro = false, activar = false;
+    for (int i = 0; i < argc; i++) {
+        const char *a = argv[i];
+        if (compara_texto(a, "--carpeta") == 0 && i + 1 < argc) pasta = argv[++i];
+        else if (compara_texto(a, "--estado") == 0 && i + 1 < argc) desc_estado = argv[++i];
+        else if (compara_texto(a, "--catalogo") == 0 && i + 1 < argc) catalogo = argv[++i];
+        else if (compara_texto(a, "-k") == 0 || compara_texto(a, "--inseguro") == 0) inseguro = true;
+        else if (compara_texto(a, "--activar") == 0) activar = true;
+        else if (compara_texto(a, "--lista") == 0) ;
+        else if (a[0] == '-') { imprimir_em(ERROS, "ia descargar: opción desconocida %s\n", a); return 2; }
+        else if (nids < 8) ids[nids++] = a;
+    }
+    static ia_modelo_cat_t cat[IA_CAT_MAX];
+    int n = ia_catalogo_ler(catalogo, cat, IA_CAT_MAX);
+    if (n <= 0) {
+        imprimir_em(ERROS, "ia: no se puede leer la lista de modelos %s\n", catalogo ? catalogo : IA_CATALOGO);
+        estado_escrever("error no se puede leer la lista de modelos\n");
+        return 1;
+    }
+    if (!nids) {
+        imprimir("Modelos para la IA local (se bajan a %s con «ia descargar ID»):\n", pasta);
+        for (int i = 0; i < n; i++) {
+            unsigned long long f;
+            int e = ia_modelo_estado(&cat[i], pasta, &f);
+            char t[16];
+            mb_texto(cat[i].bytes, t, sizeof t);
+            imprimir("  %-20s %-44s %5s MB  RAM %u MB%s\n", cat[i].id, cat[i].nome, t, cat[i].ram_mb,
+                     e == 2 ? "  [bajado]" : e == 1 ? "  [a medias]" : "");
+            if (cat[i].nota[0]) imprimir("  %-20s %s\n", "", cat[i].nota);
+        }
+        return 0;
+    }
+    /* los pedidos y lo que va con ellos (el mmproj de un VL), sin repetir */
+    const ia_modelo_cat_t *fila[16];
+    int nf = 0;
+    for (int k = 0; k < nids; k++) {
+        const ia_modelo_cat_t *m = ia_catalogo_buscar(cat, n, ids[k]);
+        if (!m) { imprimir_em(ERROS, "ia: «%s» no está en la lista (ia descargar la enseña)\n", ids[k]); estado_escrever("error modelo desconocido\n"); return 2; }
+        for (int r = 0; m && r < 2; r++) {
+            bool ya = false;
+            for (int q = 0; q < nf; q++) ya |= fila[q] == m;
+            if (!ya && nf < 16) fila[nf++] = m;
+            m = m->extra[0] ? ia_catalogo_buscar(cat, n, m->extra) : NULL;
+        }
+    }
+    ctrl_c_antes = interrupcoes();
+    int grupo_antes = primeiro_plano(0);
+    ia_desc_cb_t cb = { desc_progresso, desc_parar, desc_aviso, NULL, inseguro };
+    int r = 0;
+    for (int q = 0; q < nf && !r; q++) {
+        char erro[300], t[16];
+        mb_texto(fila[q]->bytes, t, sizeof t);
+        imprimir_em(ERROS, "ia: %s (%s, %s MB)\n", fila[q]->nome, fila[q]->ficheiro, t);
+        r = ia_modelo_baixar(fila[q], pasta, &cb, erro, sizeof erro);
+        escrever_texto(ERROS, "\n");
+        if (r < 0) {
+            imprimir_em(ERROS, "ia: %s\n", erro);
+            char e[340];
+            formatar_texto(e, sizeof e, "error %s\n", erro);
+            estado_escrever(e);
+        } else if (r == 1) estado_escrever("cancelado\n");
+    }
+    primeiro_plano(grupo_antes);
+    if (r) return r < 0 ? 1 : 3;
+    char c[300];
+    formatar_texto(c, sizeof c, "%s/%s", pasta, fila[0]->ficheiro);
+    imprimir("Bajado y comprobado: %s\n", c);
+    if (activar) desc_activar(c);
+    char e[340];
+    formatar_texto(e, sizeof e, "fin %s\n", c);
+    estado_escrever(e);
+    return 0;
+}
+
 static int uso(void)
 {
     imprimir_em(ERROS, "%s", AJUDA);
@@ -215,6 +362,7 @@ static int uso(void)
 
 int principal(int argc, char **argv)
 {
+    if (argc >= 2 && compara_texto(argv[1], "descargar") == 0) return descargar(argc - 2, argv + 2);
     ia_config_t cfg;
     ia_config_carregar(&cfg);
     /* Cada programa usa el modelo que le asignó la ventana de Configuración (D145). */

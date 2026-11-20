@@ -20424,7 +20424,7 @@ SaguiOS, empezando por el LFM3 1.7B Q4_K_M de Liquid AI (arquitectura `lfm3`, 24
 
 10. **Servidor local** `llm --servidor` en 127.0.0.1:8080, compatible con la API de OpenAI que ya hablan `ia`, `chatia`
     y los agentes (proveedor «llama.cpp»): solo conexiones de 127.0.0.1, con y sin streaming, y la caché se
-    reutiliza entre turnos. Las herramientas aún no (400 con «tools»: el cliente repite sin ellas).
+    reutiliza entre turnos. Las herramientas, desde la fase 2 (abajo).
 11. **Hilos** de serie: uno por CPU que trabaja (con la imagen SMP); `llm --info` estima tok/s y el tiempo de leer el
     contexto (avisa por encima de 5 min).
 
@@ -20455,12 +20455,63 @@ un núcleo así: la lectura con SSE está limitada por el cálculo.
 - **Pesos por ventanas (PAE)** para que todos los modelos funcionen con 48k (VL-2B Q8_0 ~1,95 GB no cabe en el
   proceso): un «almacén» de páginas físicas del proceso sin mapear y una llamada que mapea un rango en una ventana
   fija, capa a capa. Es kernel: revisión de seguridad aparte. Medir el coste en tok/s.
-- **Descargador en Configuración > IA** (Hugging Face, progreso, reanudar, tamaño y SHA-256 de `lfs.oid`, destino
-  `/home/compartido/modelos`, modelo activo y contexto; LFM3-1.7B y LFM3-VL-2B en Q4_0/Q4_K_M/Q8_0 con su `mmproj`).
-- **VL** (codificador de visión `mmproj`, `--imagen`), después del texto.
+- ~~Descargador en Configuración > IA~~ y ~~VL~~: hechos en la fase 2 (abajo).
 - **Perfil para equipos antiguos** (Core Duo T2300 sin SSSE3; Athlon 5350 con SSSE3): hilos por defecto = CPU
   visibles, lectura por bloques que quepan en la L2, medida de la CPU al arrancar con el tiempo estimado de leer el
   contexto y los tok/s esperados. El mínimo de 12k (con SSSE3) no se baja sin decisión del mantenedor.
+
+**Fase 2 (v8.5.5.1, 2026-11-19, rama `v8.5.5.1-ia-fase2`): descargador, herramientas y visión.**
+1. **Descargador** (`ia descargar`, Configuración > IA > «IA local: modelos»; `userland/ia/modelos.c`). La lista va en
+   un fichero de datos, `/etc/ia/modelos.lista` (`id | nombre | fichero | bytes | sha256 | url | RAM | fichero que va
+   con este | nota`), no en el código: LFM3 1.7B y LFM3-VL 2B en Q4_K_M, Q4_0 (en los repositorios de Liquid AI el
+   Q4_0 es el «QAD») y Q8_0, y el `mmproj` Q8_0 del VL (que se baja solo con un VL). URL de Hugging Face
+   (`resolve/main`), tamaños y SHA-256 (`lfs.oid` de la API, comprobados el 2026-11-19; los tres que había en el PC,
+   también con `sha256sum`). Por qué así:
+   - HTTPS con el TLS propio (D062) **por trozos de 32 MB con `Range`**: el Content-Length de cada respuesta cabe en
+     un int (el cliente HTTP de la libsagui no lee más de 9 cifras), un corte solo pierde su trozo, se reintenta 5
+     veces desde el último byte escrito y, de una sesión a otra, se sigue desde `NOMBRE.gguf.parte`.
+   - La redirección de Hugging Face lleva a una URL firmada de más de 1 KB que no cabe en `url_t` (512): petición y
+     cabecera se leen con búferes propios; firma caducada (403/410) -> se vuelve a la URL original; HTTPS -> HTTP no
+     se sigue; caracteres de control en la URL, rechazados (no se inyectan cabeceras).
+   - Antes de empezar, el espacio libre (lo que falta + 1 MB); la RAM recomendada solo avisa (se puede bajar para otro
+     equipo). Al final, SHA-256 del fichero entero (también lo bajado otro día); si no coincide, se borra.
+   - Configuración no descarga ella misma: lanza `ia descargar ID --estado FICHERO` y lee ese fichero cada 500 ms
+     (barra, MB, KB/s, «comprobando»); así la ventana no se para y el código es uno. Cancelar mata el proceso (lo
+     bajado se queda). «Usar este modelo» escribe `~/.config/llm/modelo` (como `llm --activar`).
+   - Los Q8_0 (1,8 GB) se listan pero aún no caben en `llm` (~1,44 GB): hace falta la fase de pesos por ventanas.
+     Ficheros de más de 2 GB, error claro (las llamadas de ficheros son de 32 bits).
+2. **Herramientas en el servidor** (`llm_ferramentas.c`). Los agentes de Pluma, Macaco y Correo (D298) y `ia --agente`
+   (D295) llaman a la IA con `tools`/`tool_choice` de OpenAI y una historia con `tool_calls` y mensajes `tool`; el
+   servidor ya no contesta 400: escribe la conversación **igual que la plantilla jinja del GGUF de LFM3** (herramientas
+   en `<tools>` al final del sistema como `json.dumps` de Python; llamadas `<tool_call>\n<function=X>\n<parameter=K>\n
+   V\n</parameter>...`; respuestas en `<tool_response>`) y devuelve los `<tool_call>` generados como `tool_calls` (con
+   streaming: el texto se manda hasta la marca y la llamada va en un delta con `index`; `finish_reason:
+   "tool_calls"`). Los tipos de los argumentos salen del esquema (`string` -> texto; si no, el JSON del valor).
+   `tool_choice` `none` / `required` / función con nombre. La plantilla en C se comprueba contra la jinja real con
+   jinja2 (h412, si el modelo está en `input_share/modelos`). Con el LFM3 1.7B real en el PC: llama a la herramienta
+   con los argumentos correctos y contesta con su resultado; el turno siguiente reutiliza la caché. El cliente
+   (`ia.c`, `erro_de_ferramentas`) no cambia: con un servidor sin herramientas sigue repitiendo sin ellas.
+3. **Visión** (`llm_visao.c`, `llm --imagen`, `--mmproj`, imágenes `data:` en el servidor). El proyector de LFM3-VL
+   **no es SigLIP**: es un codificador híbrido de 14 bloques (convolución 3x3 por canal y atención con RoPE 2D, base
+   1e6), parches de 16 con dos núcleos sumados, LayerNorm, fusión 2x2 y MLP con GELU (erf) a 2048 (referencia:
+   llama.cpp `tools/mtmd/models/lfm3vl.cpp`). Preprocesado como el de llama.cpp/transformers: `smart_resize` a
+   múltiplos de 32 y reescalado bicúbico con antialias en punto fijo (escrito aquí), normalización 0,5/0,5. Las
+   multiplicaciones van como las del texto (entrada Q8_0, productos de enteros por la mejor ruta de la CPU, AVX2
+   incluida, D381): SaguiOS y el PC dan los mismos vectores (h412). Contra llama.cpp (libmtmd,
+   `tools/llm_visao_referencia.c`): coseno medio 0,999 con el proyector real y mínimo 0,9997 con el sintético; el
+   LFM3-VL 2B describe bien la imagen de prueba. **Tope de serie: 144 vectores por imagen** (~384x384; el modelo
+   admite hasta 4096x4096): la atención es cuadrática y en un equipo antiguo una imagen grande tardaría minutos;
+   `--imagen-max` hasta 1024. Con imágenes no se reutiliza la caché (no hay tokens que comparar). El servidor no lee
+   `file://` (otra cuenta del equipo podría hacerle leer ficheros).
+4. **Prueba `tests/h412_ia_fase2.py`** (libre en todas las ramas v8.5.*): plantilla y lectura de llamadas en el PC;
+   en QEMU con 2 GB y red, el descargador contra un servidor HTTPS del anfitrión con su CA (redirección de 1,4 KB,
+   trozos, corte a medias, `.parte` tras matar el proceso, suma mala, sin sitio), la página de Configuración
+   (capturas `H412-ia-local-*`) y el servidor con herramientas e imagen y `--imagen` con los mismos resultados que el
+   PC. Generador del proyector sintético: `tools/llm_modelo_prueba.py --mmproj`.
+
+**Pendiente tras la fase 2:** pesos por ventanas (PAE) para los Q8_0 y 48k; vídeo y mosaico de imágenes grandes;
+medir la visión en hardware real; la plantilla no fusiona dos mensajes `tool` seguidos con el mismo `tool_call_id`
+(la jinja sí; los agentes de SaguiOS no los mandan así).
 
 **Licencia:** el motor es GPL-3.0-or-later y propio; llama.cpp solo se usa en el PC para comparar. Los modelos de
 Liquid AI (LFM Open License 1.0) no se distribuyen con SaguiOS ni van al repositorio público.
@@ -21807,6 +21858,270 @@ dentro compila el `sgl.c` nuevo), h101 y h285.
 **Pendiente:** el botón «Reparar» en Discos > Particiones; que un servicio del arranque ofrezca reparar los volúmenes de
 datos (`/home`, `/jogos`, la capa) antes de montarlos con escritura; ext3/ext4 (el diario ya lo reproduce el kernel).
 
+## D401. Procesos POSIX en el núcleo: `fork` con copia al escribir, `execve`, `waitpid`, señales y `poll`/`select` (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-procesos-posix`)
+
+**Contexto.** Hasta aquí SaguiOS crea procesos solo con `executar` (D010, D037): un espacio nuevo cargado de un ELF,
+que hereda 0, 1 y 2 y el entorno. No hay `fork`, ni `exec` que conserve el pid, ni señales (un fallo del procesador
+mata el programa; Ctrl+C termina el grupo en primer plano; `kill` solo termina), ni `poll`/`select` de verdad (la libc
+común duerme con `esperar_rede` y mira `disponivel`). Muchos ports (TCC `-bt`, git, Python, shells, servidores) dan
+por hechas esas piezas. Se diseñan juntas porque tocan lo mismo: la tabla de procesos, las tablas de páginas, la
+salida del kernel hacia el programa y las esperas.
+
+### 1. Copia al escribir (COW) y cuenta de referencias por página
+
+- **Cuenta dispersa, no un vector por página.** Con PAE hay hasta 64 GB (16 M páginas): un `uint16_t` por página
+  serían 32 MB de memoria baja. Solo las páginas que comparten dos o más espacios están en una tabla hash
+  (`kernel/mem/copia_escrita.c`, direccionamiento abierto con sondeo lineal y borrado por desplazamiento hacia atrás,
+  clave = número de página física, valor = referencias ≥ 2). Una página que no está tiene una referencia. La tabla
+  crece al doble antes de un `fork` (se reserva sitio para todas las páginas que se van a compartir), así que clonar
+  nunca falla a medias por la tabla. Alternativas descartadas: vector denso (memoria baja), cuenta en la `struct` de
+  cada página (no existe: el asignador es un mapa de bits).
+- **`memfisica_liberar` consulta la tabla** (atajo: si la tabla está vacía, no cuesta nada): si la página tiene más de
+  una referencia, solo baja la cuenta. Así ningún camino de liberación (`espaco_destruir`, `MEM_DEVOLVER`, la swap,
+  `imagens.c`) puede liberar una página que otro proceso aún usa, sin tocar cada uno.
+- **Marca COW en la entrada:** el bit 10 de la entrada (libre para el sistema en los dos formatos; el API usa 0x400 para
+  `PG_NX`, que nunca llega al hardware como bit 10). Una entrada COW es presente, sin `W`, con el bit 10: «lógicamente
+  escribible, copiar antes». `ent_flags`/`pte_flags` no la muestran: el resto del kernel ve una página de solo lectura.
+  Las páginas de solo lectura de verdad (código) también se comparten (cuenta ≥ 2) pero sin marca: escribir en ellas
+  sigue siendo un fallo (SIGSEGV).
+- **El fallo de escritura** (vector 14, presente + escritura, en modo usuario **o en modo kernel**: CR0.WP está puesto,
+  así que el kernel que copia a la memoria del programa también falla) en una entrada COW: si la página ya solo tiene
+  una referencia, se le devuelve `W` y se quita la marca (sin copiar); si no, página nueva (de la alta o la superior,
+  D348/D349), `fisica_copiar_pagina`, entrada nueva, `invlpg`, `espaco_sincronizar` (otros hilos del proceso en otras
+  CPU con la traducción vieja, D165) y la cuenta de la vieja baja. Sin memoria: el proceso termina («Sin memoria para
+  copiar al escribir»), como con la pila (D186).
+- **`usuario_ok(..., escrita)`** rompe la COW de las páginas que va a escribir el kernel (antes daba `ERRO_ENDERECO`
+  porque no tienen `W`). `espaco_traduzir_escrita` hace lo mismo para quien escribe por la dirección física
+  (pila de un hilo nuevo, `hilos.c`).
+- **`MEM_PROTEGER` (D349) sobre una página compartida:** dar escritura pone la marca COW en vez de `W`; quitarla quita
+  la marca. Nunca queda un alias escribible de una página compartida.
+- **La swap (D352)** no saca páginas compartidas ni COW (su entrada de swap no sabría a quién más avisar). Un hijo que
+  no escribe deja esas páginas en RAM: aceptable (lo normal es `fork` + `exec` enseguida). Antes de clonar, las páginas
+  del padre que están en la swap se traen (`troca_trazer`); sin memoria, `fork` da `ENOMEM` sin cambiar nada.
+- **Futex (D167):** la clave es la dirección física. Una palabra en una página COW cambiaría de marco al escribirla y
+  el que espera se quedaría dormido en el marco viejo. Por eso `futex_esperar`/`futex_acordar` rompen la COW de la
+  página antes de calcular la clave, y al clonar, las páginas que son clave de un hilo dormido del padre se copian ya
+  para el hijo (el padre conserva la suya escribible).
+- **Páginas compartidas de las bibliotecas (D378, `imagens.c`):** el hijo recibe mapas propios de los mismos objetos
+  (`imagens_clonar`, la cuenta del objeto sube). Las demás prestadas (píxeles de ventanas, BAR) no se heredan.
+- **Lo que cuenta Tareas:** de cada página compartida, cada proceso paga su parte (1/referencias), como D378
+  (`espaco_paginas_cow_alheias`). La suma de todos los procesos no repite nada.
+- **Memoria alta/PAE:** todo va por direcciones físicas de 64 bits y ventanas (`memalta.h`); la tabla guarda el número
+  de página (24 bits con 64 GB).
+
+### 2. `fork`, `execve`, `waitpid`, `_exit`
+
+- **`fork` (SIS_BIFURCAR, 140)** necesita el cuadro del que llama: el despachador se lo pasa. Pasos, todos con el
+  cerrojo general y sin dormir: barrera D351 (`espaco_pode_tirar`: ningún otro hilo del proceso dormido dentro de una
+  llamada con punteros ya comprobados, ni a mitad de `MEM_COMPARTIR`); entrada nueva de la tabla; espacio nuevo;
+  `espaco_clonar` (COW) e `imagens_clonar`; `espaco_sincronizar` del padre (le quitamos `W`); copia de los campos
+  (identidad, carpeta, `umask`, `casa_conta`, área de datos y su techo, huecos de pila de los hilos, grupo, máscara de
+  CPU y `nice`), de la FPU del hilo que llama (guardada antes: el área de 832 bytes de XSAVE, D381, se copia entera)
+  y de los descriptores (cada fichero abierto sube su cuenta: ficheros, tuberías, terminales, sockets, audio). El
+  hijo es un solo hilo con los registros del hilo que llamó y `eax = 0`. No hereda ventanas, mapas de BAR, señales
+  pendientes ni la alarma. Si algo falla, todo se deshace (`espaco_destruir` del hijo baja las cuentas).
+- **SMP (D165):** quitar `W` al padre se ve en las demás CPU por `espaco_sincronizar`; poner `W` (al romper la COW con
+  una sola referencia) no necesita aviso (una CPU con la traducción vieja solo vuelve a fallar y ve la nueva). Cambiar
+  el marco sí avisa.
+- **`execve` (SIS_SUBSTITUIR, 141):** primero se comprueba todo lo que puede fallar sin tocar el proceso (ruta,
+  permisos D282, que sea un ELF que se pueda cargar: se carga entero en un espacio NUEVO, con su intérprete D378 y su
+  pila). Si falla, se vuelve con el error y el proceso sigue igual. Si sale bien: los demás hilos terminan (y se
+  espera, con la llamada repetida, a que ninguna CPU los tenga), se cierran sus ventanas, se cambia el espacio, se
+  destruye el viejo, se cierran los descriptores con `FD_CLOEXEC`, los tratadores de señales vuelven a `SIG_DFL` (las
+  ignoradas siguen ignoradas, la máscara y las pendientes se conservan), la FPU queda limpia, y el cuadro empieza en la
+  entrada nueva. Pid, padre, grupo, identidad, carpeta y descriptores se conservan. Desde un hilo que no es el
+  principal: `ENOTSUP` (carencia anotada; lo normal es `fork` + `exec` en un hijo de un solo hilo).
+- **`waitpid` (SIS_ESPERAR_PID, 142):** `pid > 0`, `-1` (cualquiera), `0` (su grupo) o `< -1` (el grupo |pid|), con
+  `WNOHANG`. El estado, como Linux: `código << 8` si salió, el número de la señal (y 0x80 si «core») si la mató una
+  señal (`sinal_fim`, nuevo en `processo_t`). `SIS_ESPERAR` (`esperar`, `recolher`) no cambia: los programas de siempre
+  siguen viendo 130 tras Ctrl+C y -1000 si los terminó el kernel.
+- **`_exit`** es `SIS_SAIR`. Al terminar un hijo, su padre recibe `SIGCHLD`; si el padre ignora `SIGCHLD`
+  explícitamente (`SIG_IGN`), el hijo no queda zombi (lo recoge el proceso 0), como en Linux.
+
+### 3. Señales
+
+- **Números y estructuras de Linux i386** (los de `signal.h` de la libc común): `siginfo_t` de 128 bytes,
+  `ucontext_t` con `uc_mcontext.gregs[REG_EIP]`, `REG_EBP`… en el orden de Linux (es lo que lee TCC para `-bt`), el
+  área de la FPU (FXSAVE o XSAVE de 832 bytes, alineada a 64) apuntada por `uc_mcontext.fpregs`.
+- **Estado:** por proceso (en el líder) las 32 acciones (tratador, máscara, banderas `SA_SIGINFO`, `SA_RESTART`,
+  `SA_NODEFER`, `SA_RESETHAND`, `SA_ONSTACK`, `SA_NOCLDWAIT`, y el `restorer` que pone la libc) y las pendientes del
+  proceso; por hilo la máscara, las pendientes del hilo, la pila alternativa (`sigaltstack`) y lo de `sigsuspend`.
+- **A qué hilo:** las síncronas (fallos del procesador, `SIGPIPE` al escribir en una tubería sin lector, `raise`,
+  `pthread_kill`/`SINAL_HILO`) van al hilo que las causa o al pedido; las del proceso (`kill`, Ctrl+C, `SIGCHLD`,
+  `SIGALRM`) quedan pendientes en el proceso y las toma el primer hilo que no las bloquea y vuelve a modo usuario. Al
+  enviarlas se despierta (o se saca de su CPU con una IPI) a un hilo que no la bloquee.
+- **Entrega:** solo al volver al anillo 3, con el cerrojo general, al final de `tratar_interrupcao` (llamadas,
+  excepciones, IRQ, IPI y el tic de un secundario cuando planifica). El marco va en la pila del programa (o en la
+  alternativa): el área de la FPU (64 alineada), el `ucontext`, el `siginfo`, y debajo la dirección de vuelta (el
+  `restorer` de la libc, que llama a SIS_SINAL_VOLTAR) y los tres argumentos; además `eax/edx/ecx` llevan los
+  argumentos. La memoria se comprueba con `usuario_ok` (hace crecer la pila y rompe la COW); si no cabe, el proceso
+  termina con `SIGSEGV`. Nada se ejecuta en la pila del kernel ni en páginas escribibles: el `restorer` es código de la
+  libc (la pila es NX, D349).
+- **Llamadas interrumpidas:** una llamada que se bloqueó con `SIS_REPETIR` (tubería, `waitpid`, socket, terminal,
+  `poll`) se puede interrumpir: al enviar, el hilo se despierta si su cuadro guardado es de usuario (nunca uno
+  dormido dentro del kernel, en un disco o una trava: esos reciben la señal al acabar). Al entregar: con
+  `SA_RESTART` la llamada se repite al volver del tratador; sin él devuelve `ERRO_INTERROMPIDO` (`EINTR`). Las
+  esperas de la barrera D351 siempre se repiten. `sleep`/`futex` despiertan antes (permitido).
+- **`sigreturn` (SIS_SINAL_VOLTAR, 144)** restaura lo que diga el `ucontext`, saneado: los selectores siempre los de
+  usuario; de `EFLAGS` solo los bits que un programa puede cambiar (CF, PF, AF, ZF, SF, TF, DF, OF, AC; IF siempre
+  puesto, IOPL 0); el área XSAVE con la cabecera revisada (XSTATE_BV dentro de x87|SSE|AVX, XCOMP_BV y lo reservado a
+  cero) y el MXCSR con la máscara de la CPU, porque un XRSTOR/FXRSTOR con basura daría #GP en el kernel. Un `ucontext`
+  falso no da más poder que poner esos registros a mano.
+- **Acciones por defecto:** terminar (casi todas; `SIGSEGV`, `SIGFPE`, `SIGILL`, `SIGBUS`, `SIGABRT`, `SIGQUIT`,
+  `SIGTRAP`, `SIGSYS`, `SIGXCPU` y `SIGXFSZ` con «core»), ignorar (`SIGCHLD`, `SIGURG`, `SIGWINCH`, `SIGCONT`). Parar
+  (`SIGSTOP`, `SIGTSTP`, `SIGTTIN`, `SIGTTOU`) no existe todavía: se ignoran (carencia anotada). `SIGKILL` no se
+  bloquea ni se atrapa. Terminar por defecto se hace ya al enviar si ningún hilo la bloquea (así un proceso dormido
+  dentro del kernel también muere, como el Ctrl+C de siempre).
+- **Excepciones a señales:** #DE, #MF y #XM → `SIGFPE` (`FPE_INTDIV`/`FPE_FLTDIV`…), #UD → `SIGILL`, #GP, #PF, #SS,
+  BOUND e INTO → `SIGSEGV` (`SEGV_MAPERR`/`SEGV_ACCERR`, `si_addr` = CR2), #AC → `SIGBUS`, #BP y #DB → `SIGTRAP`. Si la
+  señal está bloqueada, ignorada o por defecto, el proceso termina como siempre (el mismo mensaje). El desbordamiento
+  de la pila de guarda (D186) da `SIGSEGV`, que solo se puede atrapar con `sigaltstack`.
+- **Ctrl+C** envía `SIGINT` al grupo en primer plano (antes lo terminaba): sin tratador, termina con 130, igual que
+  antes. `kill` desde un programa: los procesos del mismo usuario (root, todos); `matar` (SIS_MATAR) sigue siendo
+  terminar.
+- **Compatibilidad: `SIGPIPE`.** Los programas de SaguiOS esperan el error de «tubería rota» (el gestor de servicios,
+  `sshd`, `vncd`, `cron`...). Matarlos por la acción por defecto sería una regresión grave. Por eso **los procesos
+  lanzados con `executar` nacen con `SIGPIPE` ignorada**; `fork` y `execve` la heredan como dice POSIX, y quien la quiera
+  la pone a `SIG_DFL` o le da un tratador. Solo se genera en tuberías (no en sockets: en Linux tampoco con
+  `MSG_NOSIGNAL`, que es lo que hacen los servidores).
+- **`alarm`** (y `setitimer` de un disparo, en ms): un plazo por proceso que mira el tic de la CPU 0 (`SIGALRM`).
+- **`raise`, `kill`, `sigprocmask`, `sigsuspend`, `sigpending`, `sigaltstack`, `sigsetjmp`/`siglongjmp`** (la máscara
+  se guarda en el `sigjmp_buf`) en la libc común.
+
+### 4. `poll`, `select` y descriptores no bloqueantes
+
+- **`poll` (SIS_SONDAR, 145)** con `struct pollfd` de Linux (`POLLIN`, `POLLOUT`, `POLLERR`, `POLLHUP`, `POLLNVAL`)
+  sobre ficheros (siempre listos), tuberías, terminal del kernel, terminal virtual (maestro y esclavo) y sockets (TCP:
+  datos, fin, conexión entrante, conexión terminada; UDP: datagrama). Con plazo (ms; -1 sin plazo; 0 sin esperar).
+  **Espera:** el hilo duerme en un canal propio; cualquier `acordar()` del kernel (llegan datos a una tubería, una
+  tecla, la red, un cierre) despierta también a los que esperan en `poll`, que vuelven a mirar (despertares de más,
+  nunca de menos); además, como red de seguridad, cada 100 ms. El plazo se guarda en el hilo la primera vez y la
+  llamada repetida (D010) lo reutiliza. Una señal la interrumpe con `EINTR` (nunca se repite, como en POSIX).
+- **`select`** en la libc común sobre `poll` (`FD_SETSIZE` 64; los descriptores de SaguiOS son 32).
+- **`O_NONBLOCK`** es del fichero abierto (como POSIX), `FD_CLOEXEC` del descriptor. SIS_DESCRITOR (146) hace
+  `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL` y `F_DUPFD`. Una lectura o escritura que tendría que esperar devuelve
+  `ERRO_TENTAR` (`EAGAIN`) sin bloquearse; `connect` no bloqueante devuelve `ERRO_EM_CURSO` (`EINPROGRESS`), `poll`
+  da `POLLOUT` cuando termina y `getsockopt(SO_ERROR)` el resultado (`OPC_ERRO_CONEXAO`); `accept` sin nadie,
+  `EAGAIN`. La emulación que tenía la libc para los sockets (D374) sigue, pero ahora con el kernel debajo.
+
+### 5. La libc común
+
+`fork`, `execve`, `execv`, `execvp`, `execvpe`, `execl`, `execlp`, `execle`, `_exit`, `waitpid`, `wait`, `getppid`,
+`alarm`, `pause`, `popen`/`pclose` y `system` sobre `fork` + `exec` (con `/bin/sh -c`), `signal`, `sigaction`,
+`raise`, `kill`, `killpg`, `sigprocmask`, `sigsuspend`, `sigpending`, `sigaltstack`, `sigsetjmp`/`siglongjmp`,
+`strsignal`, `poll`, `select`, `fcntl` con todo lo anterior. Dejan de devolver `ENOSYS`.
+
+### Riesgos y cómo se cubren
+
+- **Liberar una página compartida:** imposible por construcción (`memfisica_liberar` mira la cuenta).
+- **Alias escribible de una página compartida:** solo se pone `W` en `cow_romper` (con una referencia) o en una copia
+  nueva; `espaco_ajustar` y `usuario_ok` pasan por ahí.
+- **El kernel escribiendo en una COW:** CR0.WP lo convierte en fallo y el manipulador la rompe; además `usuario_ok`.
+- **TLB vieja en otra CPU:** `espaco_sincronizar` al quitar `W` y al cambiar un marco.
+- **XRSTOR con un área falsa (#GP en el kernel = pantalla de error):** área saneada en `sigreturn`.
+- **Regresiones:** `SIGPIPE` ignorada al lanzar con `executar`; sin tratadores nada cambia (Ctrl+C sigue dando 130,
+  los fallos los mismos mensajes); `esperar` igual.
+- **Lo que no se hace en esta fase:** parar/continuar procesos (`SIGSTOP`, control de trabajos con señales), `execve`
+  desde un hilo secundario, señales de tiempo real, `SIGPIPE` en sockets, `vfork` (es `fork`).
+
+**Pruebas:** h403 (`/testes/posix`, C con la libc común) con SMP y sin él, con KVM y TCG; además las de procesos,
+hilos, tuberías, sagsh, swap, memoria y red (h11, h12, h15, h46, h133, h163, las de hilos y red) y h399 (AVX).
+
+### D401: lo hecho (2026-11-19)
+
+- **Kernel:** `kernel/mem/copia_escrita.c` (la cuenta dispersa), `paginacao.c` (marca COW en el bit 10,
+  `espaco_clonar`, `espaco_cow_falta`, `espaco_ajustar` que no da W a una compartida, la parte de cada uno para
+  Tareas), `fisica.c` (`memfisica_liberar` mira la cuenta), `troca.c` (no saca compartidas; `troca_copiar`),
+  `imagens.c` (`imagens_clonar`), `pilha.c` (el fallo de escritura COW, también en modo kernel; la guarda da
+  SIGSEGV), `nucleo/bifurcar.c` (fork, waitpid), `carregador.c` (`carregar_programa` común a executar y execve),
+  `nucleo/sinais.c` (todo lo de las señales), `excecoes.c` (fallos a señales), `idt.c` (la entrega al salir),
+  `sistema.c` (el cuadro de la llamada, `repetindo`, sigreturn), `processos.c` (SIGCHLD, alarmas, poll en
+  `acordar`), `arquivos.c` (fork de descriptores, FD_CLOEXEC, O_NONBLOCK, SIGPIPE, `poll`, `fcntl`), `socket.c`
+  (no bloqueante, connect en curso, `socket_sondar`), `tv.c` (Ctrl+C = SIGINT), `fpu.c` (`fpu_guardar`,
+  `fpu_area_sanear`).
+- **Libc común:** `userland/libc/sinais.c` (fork, exec*, waitpid, system, señales, poll, select), `es.c` (popen),
+  `signal.h`, `sys/ucontext.h`, `ucontext.h`, `poll.h`, `setjmp.h` (sigsetjmp con máscara), `fcntl`. `poll` y
+  `select` son débiles: openrsync conserva el suyo (D314). La `sys/ucontext.h` de la plataforma de TCC sobra.
+- **Medidas (h403):** 200 fork + `_exit` + waitpid en 80 ms con KVM y 100 ms con TCG; fork de un proceso con 8 MB
+  gasta unos pocos KB (tablas y pila del kernel) hasta que el hijo escribe.
+- **`tcc -bt`** funciona (ejecutable y `-run`): «bt.c:5: at falla: RUNTIME ERROR: invalid memory access / bt.c:11:
+  by main».
+- **Pruebas:** h403 con KVM (normal, `--smp` con 4 CPU, 6 GB con PAE) y TCG (normal y `--smp`): todo bien. Además
+  con KVM pasan h06, h09, h11, h12, h13, h15, h16, h24, h38, h41, h44, h46, h66, h126, h133, h140, h141, h144,
+  h163, h248, h254, h350, h354, h374, h386, h390, h392 y h399. h353 falla igual con y sin KVM antes de llegar a lo
+  que prueba: no encuentra ficheros en `/apps/bin` con `listar` (sus aplicaciones van ahora dentro de SAGUI-RAIZ,
+  D379); no toca nada de esta decisión (pendiente de mirar aparte).
+
+### D401: revisión aparte (2026-11-19, antes de la v8.5.5.1)
+
+Revisión del núcleo con ojo de auditor, sobre el diff contra `v8.5.5-avx2` y con `main` (v8.5.5) ya unido. Se buscó
+sobre todo que un proceso pudiera escribir en memoria del kernel o de otro proceso, fugas de memoria física, carreras
+con SMP y cuelgues. **No se encontró ninguna escalada de privilegios**; sí cuatro fallos (ninguno de seguridad) y dos
+endurecimientos, todos arreglados y con prueba en h403 (parte «revision», que sin los arreglos falla en las tres
+primeras).
+
+**Fallos encontrados y arreglados:**
+
+| Gravedad | Fallo | Arreglo |
+|---|---|---|
+| Media | El tratador heredaba la FPU del código interrumpido: tras un SIGFPE de la x87 (#MF) la excepción seguía pendiente y la primera instrucción x87 del tratador volvía a fallar con SIGFPE bloqueada: el proceso moría. | `montar_marco` deja la FPU limpia para el tratador (`fpu_usada = false`, como Linux); `sigreturn` la restaura desde `fpregs`. |
+| Media | `execve` desde un proceso con hilos: los hilos muertos conservaban su hueco de pila y, al recogerlos `escalonar()` más tarde, soltaban el hueco de un hilo **nuevo** del programa cargado: dos hilos con la misma pila. | `sis_substituir` pone `vaga_pilha = 0` a los hilos que mata (los huecos se vacían con `vagas_hilos = 0`). |
+| Baja | `thread_join` (SIS_HILO_ESPERAR) devolvía `ERRO_INTERROMPIDO` si llegaba una señal sin `SA_RESTART`; POSIX dice que `pthread_join` nunca da EINTR. | Fuera de `sinais_chamada_interrompivel`: se repite siempre tras el tratador. |
+| Baja | `execve` que se repetía (un hilo seguía en otra CPU) y fallaba después (fichero borrado, sin memoria) volvía con el error a un proceso al que ya le había matado los hilos. | `exec_falhou`: tras matar hilos (`exec_sem_volta`), un fallo termina el proceso (SIGKILL en waitpid), como Linux tras el punto de no retorno. |
+
+**Endurecimientos:** el hijo de `fork` solo hereda ocupado el hueco de pila del hilo que llamó (antes, todos los de
+los hilos del padre, que nadie soltaba: a cada generación quedaban menos para sus hilos); `espaco_cow_falta` no trata como de copia al escribir una entrada sin `PG_USUARIO` (antes, con W,
+devolvía «repetir» para siempre); `getpgid`/`getpgrp` dan el grupo de verdad (`SINOP_GRUPO`, 9), no el pid (era un
+pendiente del autor; `main` había añadido otro `getpgid` aproximado en `posix.c` para libgit2, que se quita).
+
+**Revisado y correcto (con prueba nueva donde no la había):**
+
+- **Copia al escribir:** la cuenta dispersa nunca deja una página compartida con cuenta 1 (la tabla se reserva antes de
+  clonar, `cow_somar` no puede fallar tras `cow_reservar`); todos los caminos de liberación de páginas de programa pasan
+  por `memfisica_liberar` (los `memfisica_liberar_seguidas` directos son de memoria del kernel o de ventanas, que son
+  prestadas y no se clonan); la swap no saca compartidas; las tablas de páginas están en memoria baja 1:1 (los punteros
+  de `espaco_clonar` no se invalidan al asignar); CR0.WP está puesto en todas las CPU (`ap_trampolim.asm`), así que el
+  kernel que escribe en una página COW falla y la rompe; ningún driver guarda direcciones físicas de páginas de
+  programa más allá de una llamada (la vuelta por GPU de `acel2d.c` exige W y espera a la GPU). Prueba: `read`,
+  `waitpid` y `poll` del hijo escriben en sus páginas COW (una lectura que cruza dos) y el padre no ve nada.
+- **SMP y TLB:** `espaco_sincronizar` es síncrono (espera a que la otra CPU salga del programa y recarga su CR3 al tomar
+  el cerrojo), así que ningún hilo sigue con una traducción escribible a un marco compartido ni con una vieja a un marco
+  liberado. Dar W a una página que ya solo es nuestra no necesita aviso.
+- **fork:** barrera D351 antes de tocar nada; las palabras de futex con alguien esperando se copian ya; descriptores con
+  su cuenta (`arquivo_t` compartido, como POSIX); FPU guardada antes de copiar el área de 832 bytes; si algo falla se
+  deshace entero.
+- **sigreturn:** el contexto se copia al kernel y se valida la copia (sin TOCTOU con otro hilo); selectores siempre los
+  de usuario; de EFLAGS solo CF, PF, AF, ZF, SF, TF, DF, OF y AC (nunca IOPL, NT, VM, VIF, VIP); el área de la FPU se
+  valida (formato, alineación, memoria del programa) y se sanea en la copia del kernel (MXCSR con `MXCSR_MASK`, que en
+  AMD admite el bit 17; XSTATE_BV dentro de XCR0, XCOMP_BV y lo reservado a cero). Prueba: todo eso a la vez, y después
+  `cli` sigue dando #GP; `fpregs` en el kernel o desalineado: SIGSEGV.
+- **Entrega:** solo con el cuadro del anillo 3 y el cerrojo; el marco se comprueba con `usuario_ok` (el rango entero
+  dentro de lo del programa, sin vuelta); `siginfo` y `ucontext` a cero antes de llenarlos (nada de la pila del kernel
+  sale). Prueba: ESP en el kernel, en el borde de abajo, por encima de `USUARIO_FIM` y dando la vuelta: SIGSEGV;
+  tratador en el kernel: EINVAL; `SA_NODEFER` con un tratador que falla: SIGSEGV sin colgar.
+- **waitpid, zombis y SIGCHLD:** `SIG_IGN` deja los hijos al proceso 0 (prueba: 150 fork con una tabla de 64); nietos
+  huérfanos e hijos con hilos matados con SIGKILL: la memoria vuelve entera.
+- **Señales durante llamadas dormidas:** solo se despierta a un hilo cuyo cuadro guardado es de usuario (las esperas
+  dentro del kernel reciben la señal al acabar), y la llamada se repite o da EINTR según `repetindo`.
+- **poll/select:** sin despertares perdidos (todo con el cerrojo; además, la red de 100 ms); un descriptor cerrado
+  mientras se espera sale como POLLNVAL a la vuelta siguiente.
+- **sigaltstack** (era un pendiente sin prueba): el desbordamiento de la pila se atrapa en la alternativa, con
+  `SS_ONSTACK` dentro y no fuera; menos de `MINSIGSTKSZ` da ENOMEM.
+
+**Siguen como carencias anotadas** (no son fallos): `SIGSTOP`/`SIGTSTP`/`SIGTTIN`/`SIGTTOU` se ignoran (parar y continuar
+necesitan un estado nuevo del proceso); `execve` desde un hilo que no es el principal da `ENOTSUP` (habría que pasar la
+identidad del líder al hilo que llama o reescribir el cuadro del líder estando en otra CPU: mucho riesgo para lo que
+se usa); `SIGFPE` de #MF/#XM da siempre `FPE_FLTINV` (no mira la palabra de estado);
+una tabla de procesos llena de zombis (un padre que nunca espera) sigue siendo posible, como antes con `executar`.
+
+**Pruebas de la revisión:** h403 con KVM (normal, `--smp` con 4 CPU, 6 GB con PAE) y con TCG (normal y `--smp`) pasa
+entero con los arreglos (antes del cambio de los huecos de pila del fork; con él, h403 normal con KVM). De la batería
+reducida con KVM pasan 50 (entre ellas h374, h399, h354, h385, h402, h403, h149, h250, h254, h264, h270, b5, b6, h38,
+h74, h83 y h95). h265, h266, h267, h29 y h33 se quedaron sin tiempo con `sfdisk`/`sgdisk` colgados en el anfitrión
+(la E/S de disco de WSL en estado D, también en las pruebas de otras copias; no llegan a arrancar QEMU): pendientes
+tras reiniciar WSL, junto con las que no llegaron a correr (h11, h12, h15, h46, h133, h163, h140, h353, h386, h390 y
+el resto de la reducida).
+
 ### D392 (ampliación del 2026-11-19, rama `v8.5.4.10r2-arranque-respaldo`): el último bueno
 
 **Problema (visto en un portátil real).** Con un kernel de prueba ya fijado (`confirmar` en la ESP), `probar` se negaba
@@ -22431,3 +22746,428 @@ Pedido del mantenedor (adelantado de la 8.5.5.3): AoEN multinúcleo y más rápi
   L850, mini PC i3-1220P).
 - **Pruebas**: `tests/h398_aoen_multinucleo.py` (nueva: `pc`, `determinismo-pc`, `tcc`, `saguios`; `bench` aparte), h389
   (todas sus partes) y h392 (TCC compila AoEN dentro, ahora con `hilos.c`).
+## D407. Paneles táctiles PS/2: Synaptics, ALPS y Elantech en modo absoluto, con gestos (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-touchpad`)
+
+**Pedido del mantenedor:** mejor soporte de los paneles táctiles de portátiles, que hasta ahora `mouse.c` trataba como
+un ratón PS/2 (sin desplazamiento; el toque solo si lo hacía el firmware del panel). **Estado: hecho en la rama; sin
+probar en un panel de verdad** (QEMU no emula ninguno). Órdenes para el portátil en `../private/touchpad/ORDENES.txt`.
+
+**Fuentes.** Synaptics: la guía pública «Synaptics PS/2 TouchPad Interfacing Guide», PN 511-000275-01, revisión B
+(órdenes especiales con cuatro `E8`, consultas 0x00/0x01/0x02/0x03/0x0C/0x0D, byte de modo, paquete absoluto de 6
+bytes con W). AGM, ALPS y Elantech no tienen guía pública completa: los hechos (firmas, registros, formatos de
+paquete) se han contrastado con la documentación del kernel Linux (`Documentation/input/devices/alps.rst`,
+`elantech.rst`) y sus constantes. El código de Linux (`psmouse`, `synaptics.c`, `alps.c`, `elantech.c`) es
+GPL-2.0-only: **no se ha copiado**; todo es propio (`kernel/dispositivos/painel_logica.h`, `painel.c`). No hay código de
+terceros (nada que añadir a `docs/terceros.md`).
+
+**Qué se reconoce y qué no** (todo lo que no, sigue como ratón PS/2 con la rueda IntelliMouse de siempre):
+
+| Fabricante | En modo absoluto | Se queda como ratón PS/2 |
+|---|---|---|
+| Synaptics | versión ≥ 4 con «capacidades extendidas» (modo W): HP, Toshiba, Fujitsu, Lenovo de 2004-2015. Dos y tres dedos (W 0/1) si `capMultiFinger`; posición del segundo dedo (AGM, W = 2) si 0x0C lo dice; botón central; palanca por el puerto de paso (W = 3). Máximos de 0x0D o los nominales de la guía | versiones < 4; sin modo W |
+| ALPS | protocolo v2 por la firma E7 (13 firmas: Dell Vostro 1400, Toshiba, Fujitsu S6010, HP ze1115, ThinkPad R61 con palanca en el paquete...) | v1; v3-v8 (Rushmore, Pinnacle, Dolphin...: Dell 2009-2015); los que tienen palanca por el puerto de paso; los que intercalan paquetes PS/2 (Dell E6400/E6500, `62 02 14`) |
+| Elantech | hardware v2 con firmware ≥ 0x020800 (los que dan la presión; Acer, ASUS 2008-2010), v3 y v4 (ASUS, Acer, Lenovo 2010-2016), con y sin CRC; dos dedos en todos | hardware v1 (firmware < 0x020030 o 0x020600); v2 sin presión (firmware < 0x020800, otros bits fijos); firmware desconocido |
+
+**Arranque (i8042.c, `iniciar_rato`).** Tras `F6` y **antes** del «golpe» del IntelliMouse: golpe mágico de Elantech
+(`E6 E6 E6 E9` = `3C 03 C8/00`), «identificar» de Synaptics (`0x47` en el byte del medio), informe E6 y E7 de ALPS. El
+ratón PS/2 de QEMU responde `00 02 64`/`00 00 64`: no pasa por ninguno (lo vigila h408). Si se reconoce, al modo
+absoluto: Synaptics, byte de modo `0xC5` (absoluto, 80 paquetes/s, sin gestos del firmware, W) + tasa 20, AGM
+(especial 0x03 + tasa 200) y comprobación con «leer modos»; ALPS v2, cuatro `F5`, `F4`, `F0`, `EA`; Elantech, los
+registros (v2: 0x10 = 0x54, 0x11 = 0x88, 0x21 = 0x60; v3: 0x10 = 0x0B; v4: 0x07 = 0x01). Cualquier orden que no dé
+`FA` → reinicio del ratón (`FF`), `F6` y lo de siempre. El panel en absoluto no prueba el vmmouse.
+
+**Que nunca se quede sin ratón.** (1) Reconocer o activar falla → ratón PS/2. (2) **Vigilancia**: en ventanas de 300
+bytes, si se descartan más bytes por no encajar en el formato que los que encajan (el panel no entró de verdad en
+absoluto, o está en una variante que no conocemos), se deja de decodificar como panel, los bytes vuelven al parser de
+3 bytes (registro `[PAINEL] ... vuelve al raton PS/2`) y en el tic siguiente se reinicia el ratón (`FF`, en el tic
+del reloj con las interrupciones desactivadas: un momento, una sola vez) para dejarlo en relativo con su rueda; sin
+modo absoluto hasta el próximo arranque. Un paquete relativo nunca encaja: el bit 3 del primer byte es 1 en PS/2 y 0 en Synaptics y
+Elantech v4, y ALPS exige otro valor en los bits altos. (3) Opción **«Usar como ratón PS/2»** (Configuración o `panel
+ps2`): reinicia el ratón (`FF`) y lo deja en relativo; se recuerda en `sagui.conf` y se aplica en cada arranque con
+`configuracion --aplicar` (el kernel siempre reconoce, el modo lo pone después la persona). No hay opción de kconfig
+(los huecos 18 y 19 ya son de AVX y GPU energía en otras ramas; un panel que fuera mal se apaga desde la consola o con
+el ratón USB).
+
+**Gestos (painel_logica.h, en el kernel).** Todo en unidades del panel con la y hacia abajo. Mover: ganancia de unos
+700 px por el ancho del panel cuando se va despacio, hasta el triple deprisa, por la sensibilidad (1-10, 5 = ×1), con
+restos de fracción de píxel. Toque = clic: contacto de menos de 180 ms y que se mueve menos del 4 % del ancho; uno =
+izquierdo (se pulsa al levantar y se suelta a los 220 ms si no llega otro), dos = derecho, tres = central (pulsado y
+suelto enseguida). Doble toque: el segundo contacto dentro de esos 220 ms arrastra con el izquierdo pulsado hasta
+levantar; si es corto, es doble clic. Un contacto durante el que se pulsa un botón físico (clickpad: se hunde el panel entero) no cuenta como toque al levantar. Dos dedos: desplazamiento (un eje cada vez, el que más se mueve; una muesca cada
+5,5 % del alto o 4,5 % del ancho) sin clic derecho ni salto del cursor al volver a un dedo. Borde (si se pide): un
+contacto que empieza en el 7 % derecho desplaza en vertical; en el 9 % inferior, en horizontal. Sentido natural:
+invierte las dos ruedas. Palma: Synaptics con W ≥ 11 o presión ≥ 200 (los demás no lo dicen): el contacto se ignora
+entero. Al escribir: un contacto que empieza menos de N ms (300 de serie, 0 = nunca) tras una tecla (no los
+modificadores solos; también teclados USB) se ignora entero; los botones físicos funcionan siempre. Con un ratón USB
+o Bluetooth enchufado y la opción puesta, el panel no hace nada. Un contacto del que no llega nada en 400 ms se da por
+levantado (sin clic).
+
+**Rueda horizontal: `EV_RODA_H` (20).** No se manda como `EV_RODA` con Shift (lo pensé: los programas que no miran los
+modificadores habrían desplazado en vertical al mover los dedos en horizontal). Un evento nuevo, con los mismos
+campos que `EV_RODA` (+ = derecha) y la misma ventana destino (la de debajo del cursor); quien no lo trata, lo ignora.
+Lo tratan la SDL 2 (`SDL_MOUSEWHEEL` con `x`) y Paint; `evento_mouse_t` gana `dw`. La rueda vertical del panel es la
+misma `EV_RODA` de siempre (`dz`).
+
+**Configuración y consola.** Bloque «Panel táctil» dentro de Teclado (no una sección nueva: las capturas numeradas de
+h315 cuentan las secciones): lo reconocido y en uso, siete casillas y la sensibilidad, aplicadas y guardadas al momento.
+Claves de la persona en `sagui.conf` (D371: no son de la máquina): `panel_toque`, `panel_dos_dedos`, `panel_borde`,
+`panel_natural`, `panel_sensibilidad`, `panel_escribir_ms`, `panel_sin_usb`, `panel_ps2`. `INFO_PAINEL` (96) e
+`INFO_PAINEL_GRAVAR` (97) (cualquier usuario, como `INFO_BARRA_GRAVAR`; 93-95 libres para otras ramas). Orden
+`panel` (y `touchpad`, el mismo programa): sin argumentos, el modelo, contadores (paquetes, inválidos, toques,
+desplazamientos, palmas, ignorados al escribir) y opciones; `panel CLAVE=N...`, `panel ps2|auto`, `panel restablecer`
+(lo hace `configuracion panel ...`, que guarda). Traducciones en `en` y `pt_BR`.
+
+**Pruebas.** `tests/painel_unidad.c` (h408 unidad, 93 comprobaciones con paquetes construidos bit a bit) y h408 qemu: el
+ratón PS/2 de QEMU (sin vmmouse) sigue igual (IntelliMouse id 3, posición, clic, rueda), `panel`/`touchpad`, opciones
+en el kernel, `panel ps2` sin panel no reinicia nada, y la Configuración dibuja el bloque. **Pendiente:** probarlo en
+el HP dv7 y el Amilo (órdenes en `ORDENES.txt`); ALPS v3+ y Elantech v1 si alguna máquina de prueba los tiene;
+reconocer el panel otra vez tras suspender (SaguiOS aún no suspende).
+## D408. Radeon R7xx/Evergreen/NI: direcciones del MC de 40 bits en el 2D por DMA (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-turks-40bits`)
+
+**Contexto (Toshiba con Radeon HD 7600M «Thames»/Turks, `1002:6840`, 1 GB):** el 2D por DMA (D286) se paraba en la
+etapa 1 con «la pantalla en el MC pasa de 4 GB (HDP f000000)». La BIOS de esa máquina coloca la VRAM en el espacio del
+controlador de memoria (MC) de la GPU en **0xF_0000_0000-0xF_3FFF_FFFF** (`MC_VM_FB_LOCATION` 0x0f3f0f00,
+`HDP_NONSURFACE_BASE` 0x0f000000, que va desplazado 8 bits). Es legal: el MC de las R7xx, Evergreen y NI tiene 40 bits
+y Linux (radeon) usa esas direcciones tal cual. Nuestro driver lo tenía todo en 32 bits y rechazaba lo que pasara de 4 GB.
+
+**Decisión:** soportar direcciones de 40 bits como hace Linux 6.6 (r600_dma.c, evergreen_dma.c, evergreen_reg.h), **sin
+reprogramar el MC** (bajar la VRAM por debajo de 4 GB obligaría a parar la pantalla y reescribir el MC, que es justo lo
+que el driver se prohíbe desde la D223; queda como último recurso no usado):
+- La sonda (`r600_sondar`) acepta la pantalla hasta 40 bits y guarda los bits 39:32 en `r600_base_t.mc_alto`. El
+  controlador de pantalla se compara con la dirección entera: en Evergreen/NI con `GRPH_PRIMARY_SURFACE_ADDRESS_HIGH`
+  (`evg_crtc_mostra` recibe 64 bits), en R7xx con `D1/D2GRPH_PRIMARY_SURFACE_ADDRESS_HIGH`. Las R6xx no tienen ese
+  registro: con la VRAM por encima de 4 GB se rechazan.
+- Todo lo que toca el DMA (pantalla, zona de prueba, anillo, página de control, fila del color, zona de paso) tiene que
+  caer en la VRAM del MC **y en un mismo tramo de 4 GB**: así basta un solo byte alto (`alto`) para todos los paquetes y
+  la geometría (`r600_geo_t`) sigue en 32 bits (los bajos) sin cambiar el reparto de rectángulos. Es el mismo esquema
+  que el 2D de GCN (D360). Las comprobaciones de rango (VRAM del MC, cursor por hardware) se hacen en 64 bits; el cursor
+  de Evergreen/NI con su `CUR_SURFACE_ADDRESS_HIGH` (0x69A4).
+- Paquetes con el byte alto donde lo pone Linux: copiar R6xx `alto << 16 | alto` en la palabra 3; copiar R7xx y
+  Evergreen/NI palabras 3 y 4; escribir y valla, palabra 2. Funciones nuevas `*_alto`; las de siempre llaman a ellas con
+  0 y dan **las mismas palabras que antes** (lo comprueban `tests/r600_dma_unidad.c` y `tests/evergreen_dma_unidad.c`,
+  que además simula los rectángulos con la VRAM en 0xF_0000_0000 y el motor leyendo la dirección de 40 bits).
+- Anillo: `DMA_RB_BASE` = bits 39:8 de su dirección, `DMA_RB_RPTR_ADDR_HI` = byte alto (la escritura de vuelta sigue
+  apagada).
+- El 3D de R6xx/R7xx (`gpu3d_r600.c`, 32 bits) rechaza `mc_alto != 0`: con la VRAM alta se queda en software. Para la
+  HD 7600M el soporte es **solo 2D** (decidido por el mantenedor); el volcado por GPU (D387) no se intenta (necesitaría la
+  GART de Evergreen, otra pieza).
+- Diagnóstico: las líneas `[ACEL2D] r600:` escriben las direcciones del MC como `alto:bajo` (p. ej. `f:0`), hay una
+  línea propia cuando la VRAM está por encima de 4 GB y `acel2d probar --detalle` añade `RPTR_ADDR_HI`.
+
+**De paso:** el Administrador de tareas escribía en el log una línea de sensores y otra de la GPU cada segundo mientras
+estaba en Rendimiento, y llenaban el `dmesg` en hardware real. Ahora salen al abrir la pestaña y cuando cambia algo que
+importa (fuente o temperatura en 3 °C, frecuencia en más de un 25 %, driver 2D/3D, GPU parada/trabajando, batería);
+`h71` lo comprueba. El resto de líneas de Rendimiento (las usan h41/h370 cada segundo) no cambian.
+
+**Pruebas:** unidad (h223, h286 `unidad`), fuentes (h286), QEMU (h223/h286 `std`, h71, h41, h370, h359, h362).
+**Toshiba (2026-11-19, kernel de prueba con `arranque probar`, sin confirmar):** la sonda ve la pantalla en `f:0`, el
+controlador 1 con la superficie alta `f`; anillo en `f:340000` (`DMA_RB_BASE` f003400, `RPTR_ADDR_HI` f); autoprueba
+completa del arranque (176 órdenes) IGUAL que la CPU en 59 ms; `acel2d probar --detalle` BIEN (60 copias: GPU 11,6 ms,
+CPU 199,6 ms) y diez veces más BIEN; `infopc --bench-gpu`: rellenos 14.096 op/s (x3,79), copias 28.790 op/s (x7,25),
+solapadas 23.640 op/s (x5,62), sumas OK, puntuación 2D 152; ningún plazo agotado. Por eso entra en `confirmadas`
+(D244). Sin probar a mano: mover ventanas con el ratón (no había nadie delante). Registros en el directorio privado
+del mantenedor.
+
+## D409. Más pinchos Wi-Fi USB: Realtek RTL8188CU/8192CU y Ralink RT2870/RT3070/RT5370 (experimentales); el Atheros AR9271 reconocido (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-wifi-usb`; [`wifi_usb.md`](wifi_usb.md))
+
+**Contexto.** Hasta ahora solo iba el **Realtek RTL8188EU** (`0bda:8179`, D215) sobre la pila 802.11/WPA de
+`kernel/rede/wifi.c` (D215, D220, D238). El mantenedor pidió más pinchos de los baratos y comunes, por este orden
+y reutilizando la pila: (1) la **misma familia Realtek «C»** (RTL8188CUS/RTL8192CU), (2) los **Ralink
+RT2870/RT3070/RT5370** y (3) el **Atheros AR9271**. **El mantenedor no tiene estos pinchos** (solo el RTL8188EU y los
+integrados): todo lo nuevo se escribió sin el dispositivo y es **experimental, sin probar en hardware**.
+
+**Decisión.**
+1. **Un solo chip Wi-Fi a la vez**, como hoy. `wifi_usb_reconhecer` (kernel/rede/wifi.c) clasifica por VID:PID con
+   `kernel/rede/wifi_usb_logica.h` (familias `WUSB_*`); las tablas (`wifi_usb_ids.h`: 80 + 248 + 13 dispositivos) las genera
+   `tools/gerar_ids_wifi_usb.py` desde las listas de dispositivos de OpenBSD (`if_urtwn.c`, `if_run.c`,
+   `if_athn_usb.c`, ISC). La tarea «wifi» y la pila no cambian: `drv_*` de wifi.c despacha por familia.
+2. **RTL8188CU/8192CU (familia C).** Comparten casi todo con el 8188EU, así que el driver **sigue siendo
+   `rtl8188eu.c`** con ramas `fc(r)` donde difieren (encendido de `urtwn_r92c_power_on`, LLT de 256 páginas con un
+   solo endpoint de salida, agregación de recepción con `USB_DMA_AGG_TO`, tablas MAC/BB/AGC/RF de los 8188CU, 8188RU y
+   8192CU de dos cadenas, firmware con reinicio de la CPU, potencia por cadena, descriptor de transmisión sin
+   informes). La parte pura va en `rtl8192cu_logica.h` (tipo de chip desde `SYS_CFG`/`HPON_FSM`, nombre del firmware,
+   cabecera del firmware, eFuse, potencia por tasa y canal, descriptor de TX con su suma de control, RSSI). Las tablas
+   de OpenBSD van sin cambios en `kernel/terceros/bsd/rtwn/r92creg_92c.h` (extracto por
+   `tools/gerar_r92creg_92c.py`). **Firmware:** `rtl8192cufw_A.bin` (UMC corte A 1T1R) y `rtl8192cufw_TMSC.bin` (el
+   resto), de linux-firmware `20241110`, con `LICENCE.rtlwifi_firmware.txt` (la misma del 8188EU), como el urtwn.
+3. **Ralink RT2870/RT3070/RT3071/RT3072/RT5370.** Otro chip, otro driver: `kernel/rede/rt2870.c`, escrito leyendo
+   `run(4)` de OpenBSD (ISC); registros, descriptores y tablas, sin cambios, en
+   `kernel/terceros/bsd/run/rt2860reg.h` (`tools/gerar_rt2860reg.py`). Parte pura en `rt2870_logica.h` (chips
+   soportados, mitad de `rt2870.bin`, ROM, TXD+TXWI, desglose de la recepción con RXWI y L2PAD, RSSI). Soporta los
+   MAC `0x2872` (RT2870), `0x3070`, `0x3071` (RT3071/3072) y `0x5390` (RT5370); los demás (RT3572, RT3593, RT5392,
+   RT5592) se reconocen por VID:PID y el driver dice «todavía sin soporte». **Firmware:** `rt2870.bin` (8 KB, dos
+   firmwares de 4 KB: el primero para RT2870/RT3070, el segundo para los demás) con `LICENCE.ralink-firmware.txt`.
+4. **Alcance común (para no complicar lo no probado).** Solo 2,4 GHz a 20 MHz; tasas **b/g fijas** (OFDM 24 Mb/s:
+   los CU no dan informes de transmisión y los RT no llevan control de tasa); sin 802.11n/A-MPDU (`ht_possivel` dice
+   no); **los RT hacen todo el cifrado por software** (CCMP, TKIP, WEP: el chip pasa las tramas cifradas tal cual y
+   `wifi.c` las trata como con el AR9485, D280), porque nadie sabe sin el pincho cómo quita el IV y el MIC; los CU
+   siguen con el CCMP por hardware de la CAM como el EU. Sin calibración IQ (como el 8188EU), sin ahorro de energía.
+   `kernel/lib/wifi_n.c` gana `wn_rx_conta_t.sem_informes` (en los CU los bits 15..14 del descriptor no son un
+   informe de TX).
+5. **Atheros AR9271 (ath9k_htc): reconocido, sin driver.** `wifi_usb_reconhecer` lo identifica (0cf3:9271 y los de
+   athn(4)), lo dice en el registro y no lo enciende. Su firmware `htc_9271.fw` es **libre** (open-ath9k-htc-firmware,
+   ClearBSD/ISC) y el protocolo HTC/WMI (host de ath9k_htc, en OpenBSD `athn_usb`) es un trabajo del tamaño de los dos
+   anteriores juntos: queda **descrito** en `wifi_usb.md` y pendiente de otra versión.
+6. **Aviso del sistema.** Los experimentales lo dicen en el registro al enchufarlos («EXPERIMENTAL: sin probar en
+   hardware»), en el nombre del adaptador (`Realtek RTL8192CU (experimental)`), en `wifi` (una línea de AVISO) y en la
+   documentación. `wifi compatibles [VID:PID]` dice qué reconoce el sistema y de qué familia es un VID:PID.
+7. **Licencias** (D073): urtwn y run son ISC (compatibles); el aviso y el texto de la licencia van en las cabeceras
+   extraídas; los drivers son propios. Los firmware, en `firmware/<fabricante>/` con su licencia al lado (no entran
+   con `SEM_FIRMWARE=1`); todo en [`terceros.md`](terceros.md).
+
+**Pruebas:** h409 (`tests/h409_wifi_usb.py`, con `tests/recursos/wifi_usb_anfitriao.c`, ASan y UBSan): tablas de VID:PID,
+tipo de chip, firmware reales, eFuse y ROM sintéticas, potencia, descriptores de TX (suma de control), desglose de la
+recepción de los dos chips (agregadas, L2PAD, CRC malo, cortadas, 2000 transferencias de basura), `sem_informes`;
+fuentes (enganches, firmware con SHA-256, licencias, documentación); QEMU sin pincho (`wifi compatibles` con los VID:PID
+nuevos, `wifi` sin adaptador, ningún mensaje `[WIFI]`) y, con `h215`, la parte sin pincho de h215 para comprobar que el
+8188EU sigue igual. QEMU no puede falsear un VID:PID de USB: la conexión real la prueba quien tenga el pincho
+(guía en `wifi_usb.md`).
+## D410. Más Wi-Fi integradas PCIe de portátiles: familia Atheros ath9k, Broadcom BCM4313 y Ralink RT3090; primera pieza = reconocimiento y lógica pura (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-wifi-pcie`; [`wifi-pcie.md`](wifi-pcie.md))
+
+**Contexto.** Hoy solo funciona la Atheros AR9485 (D280, Toshiba L850). Los portátiles del mantenedor llevan otras: el
+Toshiba L635 una Broadcom BCM4313 (`14e4:4727`) y el HP dv7 una tarjeta que desaparece del PCI con la radio apagada
+(probablemente una Atheros AR9285, `168c:002b`; la radio la enciende ahora el WMI de HP, D405).
+
+**Hecho (esta pieza).** (1) `kernel/rede/wifi_pcie_logica.h`: la lógica pura de la familia, probada en el anfitrión con el
+mismo archivo que compila el kernel: catálogo de identificadores PCI (AR9280, AR9285, AR2427, AR9287, AR9227, AR9380,
+AR9485, AR9580, AR9462, AR9565, BCM4313, BCM43224/5, RT3060/62/90), decodificación del SREV a versión de MAC y de ahí a
+familia (AR5008/AR9002 frente a AR9003), tipo de ROM y cadenas; geometría, magia (0xA55A, con o sin intercambio de
+bytes), suma de control (XOR = 0xFFFF) y cabecera de la ROM de la familia AR5008 (AR9285 «4K»: base 64 palabras y 376
+bytes; AR5416/AR9280: 256 y 3256; AR9287: 128 y 727; MAC, máscaras de cadenas, 11a/11g/11n, interruptor de radio,
+claves de la caché); canales de 2,4 GHz y la palabra del sintetizador del AR9280/AR9285/AR9287
+(`((MHz << 16) / 15) | BMODE | FRACMODE`). (2) `kernel/rede/wifi_pcie.c`: tras la búsqueda del AR9485, si no hay, recorre el
+PCI y **registra** (`[WPCI]`) cada tarjeta conocida con identificador, revisión, subsistema, familia, cadenas, ROM y
+firmware previsto; marcada «experimental: sin driver todavía». **No escribe nada en la tarjeta ni lee sus registros**: solo
+el espacio de configuración PCI. Sirve para confirmar qué lleva cada portátil (la del dv7 era desconocida) antes de
+escribir su driver. (3) El AR9485 (`ar9485.c`, `ar9485_logica.h`, `ar9485.h`) **no se toca**: el único cambio en `wifi.c`
+es una llamada cuando `ar9485_procurar()` no encuentra nada.
+
+**No hecho y por qué (alcance).** El driver del AR9285/AR9287 es otro MAC que el del AR9485: el AR5008 usa el DMA de
+descriptores de 20 palabras (`ar5008.c` de OpenBSD, ~3000 líneas), tablas de inicio por chip (decenas de cientos de
+registros por revisión), calibración propia (PA, IQ, ADC) y la ROM por palabras; con el estado de este árbol (sin
+tarjeta que probar y sin QEMU que la emule) escribirlo entero a ciegas habría sido código sin ninguna forma de
+comprobarlo. El AR9380/AR9462/AR9565 comparten el MAC y la ROM del AR9485 (AR9003): `ar9485.c` se puede generalizar a ellos
+cuando alguien los tenga delante (requiere tablas de inicio por chip). Broadcom y Ralink: plan en `wifi-pcie.md`.
+
+**Licencias.** ath9k/athn: ISC, sin firmware. brcmsmac: ISC el código; el microcódigo `bcm43xx-0.fw`/`bcm43xx_hdr-0.fw`
+(610.812) va bajo `LICENCE.broadcom_bcm43xx` de linux-firmware: redistribuible **completo y sin modificar**, solo para
+chips Broadcom, con una copia del acuerdo al lado, sin ingeniería inversa; no se ha añadido ningún binario todavía (no hay
+driver que lo cargue). Ralink: `rt2860.bin` (v40, también para el RT3090) bajo `LICENCE.ralink-firmware.txt`, redistribuible.
+
+**Pruebas:** h410 (anfitrión con ASan/UBSan: catálogo, SREV, ROM 4K y AR5416 construidas a mano, canales y sintetizador,
+recalculados en Python; fuentes: el AR9485 sin cambios respecto a la base; QEMU sin tarjeta y con una PCI ajena: sin
+`[WPCI]`, `wifi` igual, la red sigue). h280 (AR9485) debe seguir pasando igual.
+## D411. Bluetooth con controladores que necesitan firmware (Broadcom, Realtek, Atheros) y búsqueda BLE (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-bt-firmware`; **experimental, sin probar en hardware real**)
+
+**Contexto.** Hasta la D389 el Bluetooth solo funcionaba con controladores USB que arrancan listos (el CSR8510 `0a12:0001`). Los
+que piden un parche por HCI o por USB (los integrados de muchos portátiles y los pinchos modernos) «aparecían en `usb` pero no
+iniciaban». El mantenedor no tiene estos controladores a mano (salvo los integrados de sus portátiles, que pueden estar
+apagados y **no se tocan**): todo se prueba con un controlador HCI simulado en el PC, y lo que sigue **no se ha visto funcionar
+en un chip real**.
+
+**Decisión.** Un módulo nuevo, `kernel/bluetooth/bt_fw.c` (lógica pura, compilable en el PC), con la parte de protocolo escrita
+a partir de las especificaciones y de lo que se sabe del comportamiento de `btusb`/`btbcm`/`btrtl`/`ath3k` de Linux **solo como
+referencia** (no se copió código). El inicio HCI gana un paso, `P_FW`, entre *Read_Local_Version* y *Read_Local_Features*:
+
+- **Broadcom** (fabricante 15). *Read_Local_Name* (`0x0C14`) da el nombre del chip («BCM20702A1»); se busca
+  `/lib/firmware/brcm/<chip>-<vid>-<pid>.hcd` y después `<chip>.hcd`. Secuencia: *Download_Minidriver* (`0xFC2E`), 50 ms, cada
+  registro del `.hcd` (opcode, longitud, datos; el último es *Launch_RAM* `0xFC4E`), 250 ms y *HCI_Reset*. **Los `.hcd` no
+  están en linux-firmware y no se distribuyen**: el usuario los pone en `/lib/firmware/brcm/`; sin ellos (o con uno corrupto o
+  rechazado) se sigue con lo que el controlador tenga en ROM.
+- **Realtek** (fabricante 93; RTL8723B/D, RTL8761BU, RTL8821A/C). Se reconoce el chip en estado de ROM por
+  (`lmp_subversion`, revisión HCI, versión HCI); *Read_ROM_Version* (`0xFC6D`) elige el parche del archivo «Realtech» (cabecera
+  con `fw_version`, parches por identificador `rom + 1`, epílogo `51 04 fd 77` y extensión con el identificador de proyecto); el
+  flujo es el parche (con sus 4 últimos bytes cambiados por `fw_version`) más `*_config.bin`, en fragmentos de 252 bytes por la
+  orden `0xFC20` (índice 0..0x7F, que da la vuelta empezando en 1, con el bit 7 en el último; si el total es múltiplo de 252 el
+  último va vacío), *HCI_Reset* y relectura de la versión. El formato nuevo «RTBTCore» (RTL8852 y siguientes) se detecta y se
+  rechaza. El firmware (`rtl_bt/*_fw.bin`, `*_config.bin` de linux-firmware `20241110`) va en git y en el ramdisk (D073).
+- **Atheros** (AR3011 y AR3012 por una tabla de identificadores USB). No es HCI: peticiones de control de fabricante y bulk de
+  salida, **antes** del inicio HCI. AR3012: `GETSTATE`, `GETVERSION` (versión de ROM y reloj), parche
+  `ar3k/AthrBT_0x<rom>.dfu` y configuración `ar3k/ramps_0x<rom>_<MHz>.dfu` (20 bytes por control `DNLOAD` y el resto por bulk en
+  bloques de 1 KB), modo normal y cambio de PID; AR3011: `ath3k-1.fw` y cambio de PID. El dispositivo se reenumera; si en 3 s no
+  desaparece, se inicia el HCI. **Corrección al encargo:** el AR3012 de Linux no carga el parche por órdenes HCI sino por estas
+  peticiones USB (ath3k), y así está hecho. Los detalles (códigos de petición, orden de los pasos, tabla de identificadores)
+  están escritos de memoria, sin poder contrastarlos aquí: son la parte menos segura.
+- **Fallos.** Una orden de firmware que se rechaza o que no contesta en 5 s no hace fallar el adaptador: se anota en el registro y
+  se sigue sin parche. Los controladores de otros fabricantes (CSR incluido) no ejecutan ni una orden nueva.
+- **BLE básico.** Si el controlador anuncia LE (característica 4.6), la máscara de eventos incluye *LE Meta Event* y, tras la
+  búsqueda clásica, `bluetooth buscar` hace una búsqueda LE activa de 4 s (*LE Set Scan Parameters* y *LE Set Scan Enable*). Se
+  guardan los anuncios con nombre o con apariencia/servicio HID (los demás son balizas anónimas) como dispositivos «BLE» o «BLE
+  (teclado/ratón)». **Conectar uno BLE da un error claro: el emparejamiento LE (SMP) y el HID sobre GATT (HOGP) no están hechos.**
+
+**Plan para el BLE completo (pendiente):** L2CAP en el canal fijo LE (ATT 4, SMP 6) y conexiones LE (*LE Create Connection*), SMP
+(emparejamiento *Just Works* y *Passkey*, claves LTK que se guardan junto a las de enlace), cliente GATT (descubrimiento de
+servicios, características y descriptores, notificaciones) y HOGP (servicio HID 0x1812: mapa de informes, informe de entrada
+por notificación, que ya entra por `hid_bt_*`). Intel (AX200/AX210, `ibt`) queda fuera.
+
+**Pruebas:** h411 (`tests/bt_fw_unidad.c` con `tests/bt_sim.c`, ASan/UBSan): análisis de los archivos reales de Realtek y de los
+Atheros, fragmentos e índices, la máquina de estados de Broadcom, Realtek y Atheros contra el controlador simulado (incluidos
+los rechazos, el tiempo agotado, ROM sin parche y sin archivo) y la búsqueda LE; la prueba de la pila con CSR (`bt_unidad.c`)
+sigue igual; en QEMU, el firmware en `/lib/firmware` y la orden `bluetooth` sin controlador.
+## D413. GNU make dentro de SaguiOS: `/apps/bin/make` (decidido el 2026-11-19; v8.5.5.3, rama `v8.5.5.3-make`)
+
+**Qué.** `make` de verdad dentro del sistema: **GNU make 4.4.1** (GPL-3.0-or-later, tarball oficial de ftp.gnu.org con SHA-256
+fijo, `tools/make_fuentes.sh`; las fuentes no van a git). Instalado en `/apps/bin/make` (200 KB), con `/apps/make`
+(léeme, licencia, `ejemplos/proyecto`) y ayuda en `/ayuda/make.md`. Documentación técnica: `docs/make.md`.
+
+**Por qué GNU make y no bmake/pdpmake.** Las tres cosas que pide el encargo (`-jN`, `include`, reglas implícitas y
+funciones de texto) las da GNU make completo, y es el make que esperan los Makefile de casi todos los proyectos que alguien
+querrá portar (TCC, AoEN, SQLite, Lua...). pdpmake es más pequeño pero no hace `-j`; bmake necesita sus `mk/*.mk`. El coste de
+GNU make estaba en su portabilidad (configure, gnulib), y resultó pequeño: la libc de SaguiOS ya trae `fork`/`execve`/`waitpid`/
+`pipe`/`sigaction` (D401). Licencia: GPL-3.0-or-later = la de SaguiOS.
+
+**Cómo se porta.** `userland/terceros/make/`: `make.mk` (compila con gcc contra la libc común, `-Os`, sin posix_spawn), `plataforma/config.h`
+(el de `./configure` del PC con lo que SaguiOS no tiene apagado), `glob.c` (glob mínimo con `GLOB_ALTDIRFUNC`: la libc no trae `glob`),
+`compat.c` (`mempcpy`, `getloadavg`, `getlogin`, `guile_gmake_setup`), `ar.h`, `make_sagui.h` y `principal_main.c`. `make_fuentes.sh`
+anula los bloqueos de fichero de `--output-sync` (SaguiOS no tiene `fcntl` con
+`F_SETLKW`). Las recetas las ejecuta `/bin/sh` (sagsh) con `fork` + `exec`; el jobserver de `-jN` usa tuberías.
+
+**Con tcc.** `/apps/aoen/fuentes/Makefile` (un `.o` por fichero, `make -j2`) y `/apps/tcc/fuentes/Makefile` (TCC se compila a sí mismo)
+conviven con `compilar.sh`. `ejemplos/proyecto`: tres `.c`, cabeceras, `include`, regla implícita y `clean`.
+
+**Límites conocidos.** Sin guile ni `load`; marca de tiempo de un segundo (la libc no da nanosegundos): dos cambios en el mismo
+segundo pueden pasar inadvertidos; `-l` no limita (no hay carga media).
+
+**Pruebas.** `tests/h413_make.py` (ver el resultado en el informe del commit). Pasan además h392 (TCC) y h403 (procesos).
+
+## D414. Laboratorio de C: aplicación educativa con libtcc (decidido el 2026-11-19; v8.5.5.3, rama `v8.5.5.3-make`)
+
+**Qué.** `/apps/bin/labc` («Laboratorio de C», Inicio > Educación, junto a Jabuti): un editor con resaltado, el botón **Ejecutar (F5)** que
+compila con **libtcc en memoria** y ejecuta lo compilado, los **errores con su línea** (pestaña Errores; un clic lleva el editor a
+esa línea y el margen lleva una marca roja), la casilla **Comprobar límites (-b)**, la salida del programa y un cuadro
+**Entrada** para `fgets`, diez **ejemplos** (`/apps/labc/ejemplos`: hola, bucles, arrays, punteros, estructuras, ficheros, entrada,
+una ventana con la libsagui, un error de límites y uno de compilación), Nuevo/Abrir/Guardar y ayuda en `/ayuda/laboratorio-c.md`.
+
+**Cómo.**
+- El editor es el del Mico: `labc` enlaza sus `documento.c`, `realce.c`, `desenho.c` y `vista.c` (colores de C, números de línea,
+  paréntesis, deshacer, selección con ratón, completar) con las pocas variables que esperan (`principal.c`), sin tocarlos.
+- `compilador.c` usa libtcc (`tcc_compile_string` + `tcc_relocate`, `-b -g` para los límites) con la tabla de símbolos de TCC (D384):
+  el programa compilado usa la libc y la libsagui del propio Laboratorio. Los errores llegan por `tcc_set_error_func`.
+- **Se ejecuta en un proceso hijo** (`fork`, D401): el código ya relocado se copia al hijo, que redirige stdin/stdout/stderr a dos
+  tuberías y llama a `main` (o `principal`). Un fallo o un bucle infinito no se llevan el Laboratorio; **Detener (F6/Esc)** envía
+  SIGKILL. El padre lee la salida sin bloqueo en su bucle de eventos.
+- Va en `userland/programas/labc/` (`labc.mk` se incluye desde `tcc.mk`: solo existe con las fuentes de TCC) y se instala en
+  `/apps/bin`. Menú: grupo Educación (`barra.c`, `idiomas/*`). Un grupo nuevo «Programación» desplazó los submenús del Inicio y rompió h109 (la fila del grupo vacío sin /apps), y no se tocó el menú: queda como mejora.
+
+**Límites.** Un solo documento; TCC se detiene en el primer error de sintaxis (se ve el siguiente al corregirlo); los programas
+con libc/libsagui ya enlazados en el Laboratorio (no se pueden pedir `-l` a bibliotecas aparte; SDL 2 no está en la tabla de
+símbolos: para eso, `tcc` en el Terminal).
+
+**Pruebas.** `tests/h414_labc.py` (con capturas `H414-*`); h392 (TCC) y h403 siguen pasando.
+
+
+## D415. AoEN: islas que terminan, conquista sin bloqueos y diplomacia de la máquina con el humano (decidido el 2026-11-19; v8.5.5.3, rama `v8.5.5.3-aoen-islas`)
+
+**Contexto.** En mapas de islas las partidas se quedaban atascadas (la IA no cruzaba, la flota no salía o desembarcaba en su
+propia isla, había unidades varadas y la conquista no se alcanzaba por un último aldeano o un barco de pesca). Además, la
+diplomacia con el humano era una sola regla («la máquina acepta la paz si el otro es más fuerte») y la máquina nunca proponía.
+
+**Decisión.**
+1. *Causas medidas con el arnés de IA contra IA* (`tests/aoen_ia.c`, a velocidad máxima y sin ventana; ver `docs/aoen.md`): el
+   generador de «islas» deja a los jugadores en la misma masa de tierra o separados por bosque casi todas las veces; los
+   soldados esperaban un transporte que no hacía falta; los transportes desembarcaban en una ensenada de su propia isla; uno o
+   dos infiltrados deshacían la invasión; la población llena de tropa impedía el segundo transporte; y la ensenada de cada
+   jugador (`carve_bay`) era a veces un estanque cerrado (o unida al mar solo por una diagonal que los barcos no cruzan), con los
+   peces cerrando canales, de modo que la flota quedaba encerrada.
+2. *IA* (`ia.c`): zonas por las que se anda y masas de agua; objetivos solo en islas alcanzables por mar; plan de desembarco en la
+   orilla más cercana al objetivo (`sitio_orilla`), con flota de guerra previa; recoger varados con un transporte (`rescatar`);
+   solo los de casa defienden de pocos infiltrados; plazas de población para los transportes.
+3. *Generador* (`game.c`): `conectar_bahias` abre un canal de 3 casillas desde cada ensenada hasta el mar si no comunica, y los
+   peces no se ponen en canales de una casilla. Cambia los mapas de islas y costeros (mismas semillas, distinto agua).
+4. *Regla clara de conquista* (`reglas_caida`): un jugador sin edificios (las murallas no cuentan) cae enseguida si solo le quedan
+   barcos de pesca, mercantes o transportes y a los 180 s si le quedan unidades; sus unidades se rinden. Vale para todas las
+   partidas. Motivo de los 180 s: lo que tarda un aldeano en levantar un edificio; al humano se le avisa.
+5. *Diplomacia con el humano*: personalidad (belicosa, equilibrada, pacífica) y dificultad + fuerza relativa + enemigo común +
+   tributos recibidos - traiciones (ver `docs/aoen.md` para los números); responde por el chat de la partida; recuerda las
+   traiciones (15 minutos sin tratos y desconfianza permanente); acepta peticiones de tributo (botón «Modo: pedir» de F3); y
+   propone paz, alianza y tributos con «Aceptar»/«Rechazar» en F3. Entre máquinas no cambia.
+6. *Los gráficos propios de AoEN siguen solo documentados* (plan en `docs/aoen.md`): no se toca.
+
+**Alternativas descartadas.** Rendir al jugador cuando no le queda ninguna unidad ofensiva aunque tenga edificios (no: el
+edificio puede entrenar); contar las murallas como edificio (un jugador con un muro suelto no caería nunca); mover fuera del
+generador el arreglo de las ensenadas (la IA no puede arreglar lo que el mapa deja cerrado).
+
+**Pruebas.** `tests/h415_aoen_islas_diplomacia.py` (`islas`, `caida`, `diplomacia`, `fuentes`; `compat` aparte), y h389 (ia,
+reglas, terreno), h392 y h398 (pc, determinismo-pc) siguen pasando.
+
+**Arreglo al integrar en la v8.5.5.1 (2026-11-20): h398 y el reloj de las animaciones.** Con las ensenadas comunicadas con el mar
+(parte 3), en la partida de 8 de h398 entra un banco de peces en la vista, y el pez (como la reliquia y la bandera del punto de
+reunión) se animaba con `SDL_GetTicks()` en vez del reloj de las animaciones: el cuadro cambiaba de una ejecución a otra incluso con
+1 hilo (la simulación salía igual: misma `world_suma`). Ahora los tres usan `tiempo_anim()` de `render.c`, que con
+`AOEN_TIEMPO_ANIM` es fijo. La línea «suma del cuadro» lleva también la suma del mundo, y h398 la enseña si falla, para separar
+un fallo de la simulación de uno del dibujo.
+
+## D417. Port de Tzar en C99 + SDL2 traduciendo ReTzar (GPL-3.0-or-later); fase 2: lectores y visor (decidido el 2026-11-19; rama `tzar-port`)
+
+**Contexto.** El mantenedor pide portar **Tzar** (edición FX en castellano, datos en `input_share/Tzar Anthology/`) con la
+SDL2 de SaguiOS y lo nativo del sistema, tomando como referencia **ReTzar** (Rust + Bevy + wgpu, GPL-3.0-or-later,
+<https://github.com/ColCarlo/ReTzar>). Estudio y plan completos en `docs/tzar.md`.
+
+**Decisiones.**
+- **Traducir, no enlazar.** ReTzar depende de Bevy, wgpu y Vulkan, que SaguiOS no tiene; se traduce a **C99** el código
+  que lee los datos y, en fases siguientes, la simulación y la IA. Es obra derivada GPL-3.0-or-later (compatible con el
+  proyecto): cada fichero traducido lo dice en su cabecera (fichero de ReTzar y licencia) y ReTzar va en `docs/terceros.md`.
+  Es una excepción explícita del mantenedor a «sin código de terceros» (como D034/D073), limitada a `userland/juegos/tzar/`.
+  Los comentarios son nuestros, en español; los nombres, en portugués/español como el resto.
+- **Lo que no se traduce:** el frontend de Bevy (se rehace con dibujo por software), los idiomas (la edición FX ya está en
+  castellano), los vídeos DDV y sus tablas del Tzar.exe (la FX trae `intro.MPG`, MPEG-1), la copia portátil cifrada, los
+  paquetes HD y el selector de carpetas. **Nunca se ejecuta nada de los datos** (ni del Tzar.exe).
+- **Memoria:** los paquetes (107 MB descomprimidos el de imágenes) se leen **trozo LZSS a trozo bajo demanda** con una caché
+  de un trozo; las campañas HPFS se abren como vistas sobre el fichero (sin copiarlas). Solo se decodifican los cuadros que
+  se dibujan, a ARGB (0 = transparente; alfa 128 = sombra al 50 %), con caché por sección, color y cuadro.
+- **Coordenadas:** píxeles del mundo con y hacia abajo; la casilla (x, y) empieza en (32x, 32y) (ReTzar usa y hacia arriba:
+  se invierte al traducir). Orden de pintado como el original (prioridad de clase, fila, columna de derecha a izquierda,
+  sombra < cuerpo < estandarte); terreno, parches de suelo y acantilados debajo.
+- **Robustez:** todos los lectores comprueban límites (los datos pueden estar dañados o ser maliciosos): tamaño máximo de
+  recurso 512 MB, recuentos máximos, desplazamientos dentro del fichero, ciclos en los directorios HPFS, nombres sin `..`
+  ni rutas absolutas.
+- **Datos:** `/jogos/TZAR` (desde `input_share/games/TZAR/` en las imágenes privadas), `TZAR_DATA` o el primer argumento;
+  vale una instalación con `Packs/` o con las carpetas sueltas. Nunca en git, en imágenes públicas, en la batería ni en
+  capturas públicas: las pruebas usan datos sintéticos de `tools/tzar_sintetico.py`; la comprobación con los datos reales
+  (`tests/h417_tzar.py privado`) es a mano y deja sus capturas en `/home/aanun/SO/private/tzar/capturas/`.
+- **Tamaño:** Tzar es unas cinco veces AoEN (55 000-70 000 líneas de C estimadas). Va por fases publicables (visor,
+  animación, interfaz, simulación sin IA, IA, campañas, rendimiento): `docs/tzar.md`.
+- **Licencias:** `userland/juegos/tzar/` es código GPL derivado de terceros: va en `GPL_AISLADAS` de
+  `tools/auditar_licencias.py` y queda fuera de la variante sin GPL (`SEM_GPL=1`), como los demás ports. Sí va en lo
+  publicable (es GPL-3.0-or-later, compatible).
+- **Fase 2 hecha** (2026-11-19): lectores y visor `/apps/bin/tzar`; con la instalación FX real se leen sin fallos las
+  2 421 entradas, 590 BMP, 961 RLE y los 71 mapas (sueltos y de campañas). Pendiente y resultados: `docs/tzar.md`.
+- **Fase 5, simulación** (2026-11-20, rama `tzar-sim`): el contrato entre módulos es `userland/juegos/tzar/mundo.h`
+  (explicado en `docs/tzar.md`, «Arquitectura del juego»). Decisiones razonadas:
+  - **Determinismo antes que fidelidad al milisegundo**: solo enteros, un generador (`NativeRng` del original), orden
+    fijo por índice; todo lo que cambia el mundo entra como **comando** aplicado al principio del tic, o desde un
+    **gancho** dentro del tic (IA, guiones). Así sirven para repeticiones, red y pruebas con suma, y la IA juega con
+    las mismas reglas que el jugador.
+  - **Los índices de objeto no se reutilizan** en la partida (los muertos quedan marcados): referencias estables
+    entre módulos y en las partidas guardadas, a cambio de algo de memoria (unos 100 bytes por muerto).
+  - **Un solo recorrido para sumar, guardar y cargar** (`gravar.c`): la suma cubre exactamente lo guardado y una
+    partida cargada sigue igual; formato propio campo a campo en little-endian (vale en 32 y 64 bits), no el JSON
+    cifrado de ReTzar.
+  - **Simplificaciones frente a ReTzar** (anotadas en cada fichero): el grafo de regiones 8x8 se sustituye por islas
+    conexas y un límite de nodos del A*; las unidades grandes ocupan una casilla; la elección de blanco es la más
+    cercana por prioridad (no las tablas de `combat.rs`); hechizos, objetos, comercio, mercenarios, héroes y efectos
+    quedan para después (las órdenes existen y se descartan). Lo que sí está: pasos al ritmo de `move_len`, golpes al
+    ritmo de `image_attack`/`actionrow`, daño A²/(A+D) con BONUS.INI, proyectiles de `missile()`, recogida con
+    `resource_yield`, almacenes de `store_accepts`, obras y reparación de 0x4aba10, colas de producción, población con
+    `pop_count`, investigación con sus efectos sobre ataque y defensa, victoria de `check_end`.
+
+### D417, fase 6 (2026-11-20, rama `tzar-ia`): la IA original
+
+- **Qué se traduce.** El lenguaje de los guiones de IA del juego (`DATA\AI\*.ais` y sus `*.ai`) con su compilador fiel
+  al del Tzar.exe (rarezas incluidas: tramos de la lista compartida, grupos vacíos que desaparecen, nombres pendientes),
+  el intérprete de reglas (vigilancia, evaluación, fase de construir, reservas por partes) y los gestores de ReTzar:
+  economía, obras, almacenes, guerra por lugares y registros, defensa, milicia y unidades ociosas. Va en
+  `userland/juegos/tzar/ia/` (subcarpeta propia para no tocar la lista de fuentes de los demás módulos).
+- **La IA es un jugador más.** Un `TzGancho` por reino que solo ve lo suyo y lo que dejan `tz_mundo_ve`/`tz_mundo_nevoa`,
+  y solo actúa con comandos. El original lo ve todo (su gestor de lugares es global); por eso la nuestra **explora** y
+  cuenta solo lo visto en `ENEMY`/`ALLY`. Es la diferencia de juego más grande y es a propósito (lo pidió el
+  mantenedor: «como un jugador»).
+- **Determinismo y partidas guardadas.** Enteros, `TzRng` propio por reino (semilla de la partida y reino; no toca el
+  generador de la simulación), orden por índice. El estado que no se rehace en cada mirada va en el bloque `IA<k>`; como
+  la simulación no guarda la cola de eventos, al guardar la IA lee antes lo pendiente (igual en la partida que sigue).
+- **Simplificaciones** (documentadas en `docs/tzar.md`, «La IA (fase 6)»): listas y lugares rehechos en cada mirada,
+  grupos con «mover», busca de sitio en una mirada, sin flota, hechizos, brechas, invocaciones, yihad, cruzada,
+  `CONVERT` ni `RESIGN`.
+- **Pruebas sin datos reales.** Una instalación sintética **jugable** (`tools/tzar_ia_sintetico.py`: catálogo, mapa y
+  guiones hechos a mano) permite que la batería juegue IA contra IA con la simulación real. Los guiones y mapas reales
+  solo en `h417_tzar.py privado_ia`, a mano.

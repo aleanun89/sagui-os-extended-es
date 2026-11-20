@@ -1,4 +1,4 @@
-/* sys/select.h - select() (no existe; solo espera) (D184).
+/* sys/select.h - select() (D184; sobre poll desde la D401).
  *
  * Parte de la libc común (userland/libc, D210; nació con NetSurf, D184)
  * sobre la libsagui; las funciones están en los .c de userland/libc/. */
@@ -12,7 +12,6 @@ typedef struct { unsigned int bits[FD_SETSIZE / 32]; } fd_set;
 #define FD_SET(fd, s)   ((s)->bits[(fd) / 32] |= (1u << ((fd) % 32)))
 #define FD_CLR(fd, s)   ((s)->bits[(fd) / 32] &= ~(1u << ((fd) % 32)))
 #define FD_ISSET(fd, s) (((s)->bits[(fd) / 32] >> ((fd) % 32)) & 1u)
-/* No hay select() en el SaguiOS (ver disponivel() y esperar_rede()):
- * esta solo duerme el plazo y no marca nada (carencia anotada). */
+/* D401: sobre poll() (sinais.c): ficheros, tuberías, terminales y sockets, con plazo. */
 int select(int n, fd_set *l, fd_set *e, fd_set *x, struct timeval *prazo);
 #endif

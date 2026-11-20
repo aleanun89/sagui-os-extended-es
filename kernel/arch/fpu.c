@@ -66,6 +66,7 @@ static bool kernel_int_cpu[CPU_MAX];    /* las interrupciones estaban activadas 
 #define kernel_nivel kernel_nivel_cpu[cpu_atual()]
 #define kernel_int   kernel_int_cpu[cpu_atual()]
 static uint8_t estado_limpo[FPU_ESTADO] __attribute__((aligned(FPU_ESTADO_ALINHA)));
+static uint32_t mxcsr_mascara = 0xFFBFu;   /* D401: bits del MXCSR que admite la CPU */
 static const char *avx_motivo = "la CPU no tiene AVX";
 _Static_assert(FPU_ESTADO % FPU_ESTADO_ALINHA == 0, "el área del XSAVE tiene que medir un múltiplo de 64");
 /* Las áreas de los procesos van en tablas estáticas de processo_t (processos.c): con la
@@ -175,6 +176,45 @@ void fpu_kernel_fim(void)
 }
 
 bool fpu_kernel_ativo(void) { return kernel_nivel > 0; }
+
+/* D401: el estado de "p" pasa a su área si está en los registros de esta CPU; nadie queda como
+ * dueño, así que el próximo uso de la FPU (#NM) carga el área, que quien llama puede cambiar
+ * (marco de una señal, sigreturn, fork). "p" es el que corre en esta CPU (o ninguno lo tiene). */
+void fpu_guardar(processo_t *p)
+{
+    if (!(recursos & CPU_FPU)) return;
+    bool irq = int_salva_desliga();
+    if (dono == p && p) {
+        __asm__ volatile("clts" ::: "memory");
+        salvar(p->fpu);
+        dono = NULL;
+        escreve_cr0(le_cr0() | CR0_TS);
+    }
+    int_restaura(irq);
+}
+
+uint32_t fpu_formato(void)
+{
+    if (!(recursos & CPU_FPU)) return 0;
+    return (recursos & CPU_AVX) ? 3 : (recursos & CPU_FXSR) ? 2 : 1;   /* = SINAL_FPU_* de abi.h */
+}
+
+/* D401: un área que viene del programa (sigreturn) se deja de forma que XRSTOR/FXRSTOR no den #GP
+ * en el kernel: en XSAVE, XSTATE_BV dentro de lo que se enciende, XCOMP_BV (formato estándar) y lo
+ * reservado de la cabecera a cero; el MXCSR solo con los bits que la CPU admite. */
+void fpu_area_sanear(uint8_t *area)
+{
+    if (recursos & CPU_FXSR) {
+        uint32_t m;
+        memcpy(&m, area + 24, 4);
+        m &= mxcsr_mascara;
+        memcpy(area + 24, &m, 4);
+    }
+    if (recursos & CPU_AVX) {
+        area[512] &= XCR0_SAGUI;
+        memset(area + 513, 0, 63);
+    }
+}
 
 void fpu_esquecer(processo_t *p)
 {
@@ -295,6 +335,11 @@ void fpu_iniciar(void)
     }
     salvar(estado_limpo);
     if (!(recursos & CPU_FXSR)) carregar(estado_limpo);   /* el FNSAVE reinicia la FPU; deja igual al guardado */
+    if (recursos & CPU_FXSR) {   /* D401: los bits del MXCSR que la CPU admite (MXCSR_MASK; 0 = 0xFFBF) */
+        uint32_t m;
+        memcpy(&m, estado_limpo + 28, 4);
+        mxcsr_mascara = m ? m : 0xFFBFu;
+    }
     idt_registrar(7, dispositivo_indisponivel);
     escreve_cr0(le_cr0() | CR0_TS);   /* nadie es dueño todavía */
 

@@ -36,6 +36,7 @@
 #include "telas.h"
 #include "i8042.h"
 #include "relogio.h"
+#include "painel.h"
 
 #define FILA   64
 
@@ -97,11 +98,14 @@ static bool vmmouse_ligar(void)
 
 const void *mouse_canal(void) { return &canal; }
 
+static int dw_pendente;   /* D407: rueda horizontal del paquete que se está tratando (panel táctil) */
+
 static void guardar(int16_t dx, int16_t dy, uint8_t mudaram, int dz)
 {
     uint32_t prox = (fim + 1) % FILA;
     if (prox == ini) ini = (ini + 1) % FILA;   /* cola llena: olvida el más antiguo */
-    fila[fim] = (evento_mouse_t){ (int16_t)mx, (int16_t)my, dx, dy, botoes, mudaram, (int8_t)dz };
+    fila[fim] = (evento_mouse_t){ (int16_t)mx, (int16_t)my, dx, dy, botoes, mudaram, (int8_t)dz, (int8_t)dw_pendente };
+    dw_pendente = 0;
     fim = prox;
     acordar(&canal);
 }
@@ -160,7 +164,7 @@ static void mover_para(int x, int y, uint8_t novos, int dz)
         if (dx < -32768) dx = -32768;
         if (dy > 32767) dy = 32767;
         if (dy < -32768) dy = -32768;
-        if (dx || dy || mud || dz) guardar((int16_t)dx, (int16_t)dy, mud, dz);
+        if (dx || dy || mud || dz || dw_pendente) guardar((int16_t)dx, (int16_t)dy, mud, dz);
         return;
     }
     mx = x;
@@ -177,6 +181,7 @@ static void mover_para(int x, int y, uint8_t novos, int dz)
     if (mudaram & BOTAO_DIREITO)
         klog("[MOUSE] botao direito %s em (%d,%d)\n", novos & BOTAO_DIREITO ? "apertado" : "solto", mx, my);
     if (dz) klog("[MOUSE] roda %d em (%d,%d)\n", dz, mx, my);
+    if (dw_pendente) klog("[MOUSE] roda horizontal %d em (%d,%d)\n", dw_pendente, mx, my);
     guardar((int16_t)dx, (int16_t)dy, mudaram, dz);
     if (video_ativo()) {
         video_cursor(mx, my, true);
@@ -188,6 +193,7 @@ static void mover_para(int x, int y, uint8_t novos, int dz)
  * de la comprobación del reloj. */
 void mouse_byte(uint8_t b)
 {
+    if (painel_ativo()) { painel_byte(b); return; }   /* D407: panel táctil en modo absoluto (paquetes de 6 bytes) */
     uint32_t agora = relogio_tiques();
     if (pos_pacote > 0 && agora - tique_ultimo_byte > 50) pos_pacote = 0;   /* paquete a medias, viejo */
     tique_ultimo_byte = agora;
@@ -208,7 +214,19 @@ void mouse_formato(int id)
 
 static bool usb_com_roda;   /* D214: hay un ratón USB con rueda */
 
-bool mouse_tem_roda(void) { return tam_pacote == 4 || absoluto || usb_com_roda; }
+bool mouse_tem_roda(void) { return tam_pacote == 4 || absoluto || usb_com_roda || painel_ativo(); }
+
+/* D407: un evento de los gestos del panel táctil. La rueda va recortada a lo que cabe en el evento. */
+void mouse_painel(int dx, int dy, int rv, int rh, uint8_t novos)
+{
+    if (rv > 127) rv = 127;
+    if (rv < -127) rv = -127;
+    if (rh > 127) rh = 127;
+    if (rh < -127) rh = -127;
+    dw_pendente = rh;
+    mover_para(mx + dx, my + dy, novos, rv);
+    dw_pendente = 0;
+}
 
 void mouse_usb_presente(bool com_roda)
 {
@@ -312,7 +330,7 @@ bool mouse_iniciar(void)
     my = alt / 2;
     pos_pacote = 0;
     bool ok = i8042_iniciar(true);
-    if (ok) absoluto = vmmouse_ligar();
+    if (ok && !painel_ativo()) absoluto = vmmouse_ligar();
     if (ok && video_ativo()) {
         video_cursor(mx, my, true);
         video_mostrar();
@@ -320,7 +338,8 @@ bool mouse_iniciar(void)
     klog("[MOUSE] %s\n", ok ? "mouse PS/2 ligado" : "mouse PS/2 nao respondeu");
     if (ok) {
         int id = i8042_diagnostico()->id_mouse;
-        if (tam_pacote == 4) klog("[MOUSE] IntelliMouse (id 3): roda ligada, pacotes de 4 bytes\n");
+        if (painel_ativo()) klog("[MOUSE] painel tactil %s: modo absoluto, pacotes de 6 bytes (D407)\n", painel_nome());
+        else if (tam_pacote == 4) klog("[MOUSE] IntelliMouse (id 3): roda ligada, pacotes de 4 bytes\n");
         else klog("[MOUSE] id %d: sem roda, pacotes de 3 bytes\n", id);
     }
     if (absoluto) klog("[MOUSE] vmmouse: posicao absoluta da maquina virtual (roda na quarta palavra)\n");

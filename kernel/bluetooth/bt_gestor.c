@@ -27,6 +27,10 @@ static int conf_idx = -1;
 static char erro_ad[64];
 static int est_ad = BT_SEM_ADAPTADOR;
 static bool energia = true;
+/* D411: búsqueda de baja energía (BLE), tras la clásica: 0 = no, 1 = parámetros enviados, 2 = escuchando. */
+#define T_LE_BUSCA 4000
+static uint8_t le_fase;
+static uint32_t le_ini;
 static bool nome_pedido;          /* un Remote_Name_Request en curso */
 static bt_sdp_hid_t sdp_res;
 static int sdp_dono = -1;
@@ -36,6 +40,7 @@ void bt_g_iniciar(void)
 {
     memset(disp, 0, sizeof disp);
     buscando = false;
+    le_fase = 0;
     conf_modo = BT_CONF_NADA;
     conf_idx = -1;
     erro_ad[0] = 0;
@@ -206,6 +211,7 @@ void bt_g_adaptador_retirado(void)
 {
     est_ad = BT_SEM_ADAPTADOR;
     buscando = false;
+    le_fase = 0;
     nome_pedido = false;
     conf_modo = BT_CONF_NADA;
     for (int i = 0; i < BT_MAX_DISP; i++) {
@@ -325,8 +331,87 @@ static void pedir_nombre(void)
     }
 }
 
+/* ------------------------------------------------------------------ baja energía (D411, experimental) */
+
+static void le_parar(void)
+{
+    if (le_fase == 2) { uint8_t b[2] = { 0, 0 }; bt_hci_cmd(OP_LE_SCAN, b, 2); }
+    le_fase = 0;
+}
+
+/* Termina la búsqueda entera (clásica y LE) y pide los nombres que falten. */
+static void busca_fin(void)
+{
+    le_parar();
+    buscando = false;
+    pedir_nombre();
+}
+
+static void le_empezar(void)
+{
+    /* LE Set Scan Parameters: activa (pide también las respuestas con el nombre), intervalo 60 ms, ventana 30 ms,
+     * dirección propia pública, sin filtro. */
+    uint8_t b[7] = { 1, 0x60, 0x00, 0x30, 0x00, 0, 0 };
+    if (bt_hci_cmd(OP_LE_PARAM_SCAN, b, 7) < 0) { busca_fin(); return; }
+    le_fase = 1;
+    le_ini = busca_ini = bt_agora();
+}
+
+void bt_g_le_orden(uint16_t op, uint8_t st)
+{
+    if (!le_fase) return;
+    if (st) { bt_log("[BT] busqueda LE rechazada (orden %04x, estado %02x): solo la clasica", op, st); le_fase = 0; busca_fin(); return; }
+    if (op == OP_LE_PARAM_SCAN && le_fase == 1) {
+        uint8_t b[2] = { 1, 1 };   /* activar, filtrando repetidos */
+        if (bt_hci_cmd(OP_LE_SCAN, b, 2) < 0) { busca_fin(); return; }
+        le_fase = 2;
+        le_ini = bt_agora();
+    }
+}
+
+/* Los datos de un anuncio: secuencia de (longitud, tipo, datos). Nombre (0x08 corto, 0x09 completo),
+ * apariencia (0x19) y listas de servicios de 16 bits (0x02, 0x03): el HID es 0x1812. */
+void bt_g_le_anuncio(const uint8_t *addr, uint8_t addr_tipo, int8_t rssi, const uint8_t *ad, int n)
+{
+    char nome[BT_NOME_MAX];
+    bool hid = false, tem_nome = false;
+    nome[0] = 0;
+    for (int i = 0; i + 1 < n && ad[i];) {
+        int l = ad[i];
+        if (i + 1 + l > n) break;
+        uint8_t t = ad[i + 1];
+        const uint8_t *d = ad + i + 2;
+        int dl = l - 1;
+        if ((t == 0x09 || (t == 0x08 && !tem_nome)) && dl > 0) {
+            int k = dl < BT_NOME_MAX - 1 ? dl : BT_NOME_MAX - 1;
+            memcpy(nome, d, (size_t)k);
+            nome[k] = 0;
+            tem_nome = true;
+        } else if (t == 0x19 && dl >= 2) {
+            uint16_t a = bt_le16(d);   /* apariencia: 0x03C0..0x03C2 = HID, teclado, ratón */
+            if (a >= 0x03C0 && a <= 0x03C4) hid = true;
+        } else if (t == 0x02 || t == 0x03) {
+            for (int k = 0; k + 1 < dl; k += 2) if (bt_le16(d + k) == 0x1812) hid = true;
+        }
+        i += l + 1;
+    }
+    /* Muchos anuncios son balizas anónimas: solo se guardan los que dicen su nombre o son HID. */
+    bt_disp_t *x = bt_g_por_addr(addr, false);
+    if (!x && !tem_nome && !hid) return;
+    if (!x) x = bt_g_por_addr(addr, true);
+    if (!x) return;
+    x->visto = true;
+    x->le = true;
+    x->addr_tipo_le = addr_tipo;
+    x->rssi = rssi;
+    if (tem_nome && !x->nome[0]) bt_copia(x->nome, nome, BT_NOME_MAX);
+    if (!x->tipo) x->tipo = hid ? BT_T_BLE_HID : BT_T_BLE;
+}
+
 void bt_g_inq_fim(void)
 {
+    if (buscando && !le_fase && bt_hci_le() && est_ad == BT_PRONTO) { le_empezar(); return; }
+    if (le_fase) return;   /* fin de una búsqueda clásica cancelada mientras la LE sigue */
     buscando = false;
     pedir_nombre();
 }
@@ -349,10 +434,17 @@ int bt_conectar(int idx, bool so_parear)
     bt_disp_t *d = disp_n(idx);
     if (!d || est_ad != BT_PRONTO || !energia) return -1;
     if (d->estado != BT_D_LIVRE && d->estado != BT_D_ERRO) return -2;
+    if (d->le && !d->tem_chave && (d->tipo == BT_T_BLE || d->tipo == BT_T_BLE_HID)) {   /* D411: solo se detectan */
+        d->estado = BT_D_ERRO;
+        bt_copia(d->erro, "baja energia (BLE): aun no se puede emparejar, solo se detecta", sizeof d->erro);
+        bt_log("[BT] %s: %s", d->nome[0] ? d->nome : "dispositivo BLE", d->erro);
+        return -5;
+    }
     for (int i = 0; i < BT_MAX_DISP; i++)   /* un flujo a la vez: el emparejamiento tiene una sola pantalla */
         if (disp[i].usado && disp[i].estado >= BT_D_LIGANDO && disp[i].estado <= BT_D_HID && &disp[i] != d) return -3;
     if (buscando) {
-        bt_hci_cmd(OP_INQUIRY_CANC, NULL, 0);
+        if (!le_fase) bt_hci_cmd(OP_INQUIRY_CANC, NULL, 0);
+        le_parar();
         buscando = false;
     }
     d->estado = BT_D_LIGANDO;
@@ -495,7 +587,7 @@ int bt_energia(bool on)
     if (on == energia) return 0;
     energia = on;
     if (!on) {
-        if (buscando) { bt_hci_cmd(OP_INQUIRY_CANC, NULL, 0); buscando = false; }
+        if (buscando) { if (!le_fase) bt_hci_cmd(OP_INQUIRY_CANC, NULL, 0); le_parar(); buscando = false; }
         for (int i = 0; i < BT_MAX_DISP; i++) {
             if (!disp[i].usado) continue;
             if (disp[i].estado == BT_D_CONECTADO) libera_hid(&disp[i]);
@@ -778,7 +870,8 @@ void bt_g_hid_desenchufado(int canal)
 void bt_g_tic(void)
 {
     uint32_t ahora = bt_agora();
-    if (buscando && ahora - busca_ini > 15000) buscando = false;
+    if (le_fase == 2 && ahora - le_ini > T_LE_BUSCA) busca_fin();
+    if (buscando && ahora - busca_ini > 15000) { le_fase = 0; buscando = false; }
     if (conf_modo == BT_CONF_COMPARAR && ahora - conf_desde > T_CONFIRMAR) bt_confirmar(false);
     for (int i = 0; i < BT_MAX_DISP; i++) {
         bt_disp_t *d = &disp[i];

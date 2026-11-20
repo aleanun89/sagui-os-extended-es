@@ -12,6 +12,7 @@
  * a Latin-1 (lo que no cabe, a un parecido o «?»). */
 #include "llm.h"
 #include "llm_programa.h"
+#include "llm_ferramentas.h"
 
 #ifdef LLM_ANFITRIAO
 #include <stdlib.h>
@@ -52,6 +53,10 @@ static const char AYUDA[] =
 "                       ia, chatia y los agentes la usan con el proveedor «llama.cpp»\n"
 "  --anunciar           muestra el logo «IA Powered» si la IA local puede funcionar\n"
 "  --ruta c|sse2|ssse3|avx2  fuerza la ruta de cálculo (de serie, la mejor que tenga la CPU)\n"
+"  --imagen FICHERO     con -p o en el chat: la imagen va con la pregunta (modelos VL; PNG, JPEG, BMP...)\n"
+"  --mmproj FICHERO     el proyector de imágenes del modelo VL (sin él: el mmproj-*.gguf que esté\n"
+"                       junto al modelo con su mismo nombre; «--mmproj no» no lo carga)\n"
+"  --imagen-max N       vectores por imagen como mucho (144 de serie, ~384x384; hasta 1024, más lento)\n"
 "La IA local necesita más de 1,8 GB de memoria y que el modelo y la caché quepan en el\n"
 "proceso (llm --info lo calcula). Los modelos nunca van dentro del sistema: se bajan en\n"
 "Configuración > IA (o se copian) a " PASTA_MODELOS " o a ~/modelos.\n";
@@ -478,6 +483,8 @@ int llm_preparar(llm_sessao_t *s, const char *caminho, int ctx, bool silencio, c
 
 void llm_fechar_sessao(llm_sessao_t *s)
 {
+    llm_visao_fechar(s->visao);
+    s->visao = NULL;
     llm_estado_libera(&s->e);
     llm_tokens_libera(&s->t);
     llm_modelo_fechar(&s->m);
@@ -676,6 +683,108 @@ static int modo_info(const char *caminho, int ctx)
     return 0;
 }
 
+/* Un fichero entero en memoria (con un cero al final). NULL si no se puede. */
+static char *ler_ficheiro(const char *c, size_t *n, size_t max)
+{
+    int fd = llm_abrir(c);
+    if (fd < 0) return NULL;
+    long long t = llm_tamanho_fd(fd);
+    char *d = t >= 0 && (unsigned long long)t <= max ? llm_aloca((size_t)t + 1) : NULL;
+    if (d && llm_ler_em(fd, 0, d, (size_t)t)) { llm_libera(d); d = NULL; }
+    llm_fechar(fd);
+    if (d) { d[t] = 0; *n = (size_t)t; }
+    return d;
+}
+
+/* ---- para las pruebas (h412): la plantilla de una petición y la lectura de una respuesta, sin modelo ---- */
+static void seg_imprimir(void *ctx, int tipo, const char *t, int n)
+{
+    (void)ctx;
+    if (tipo == SEG_IMAGEM) llm_escrever(1, "<|image|>", 9);
+    else llm_escrever(1, t, (size_t)n);
+}
+
+static void seg_nada(void *ctx, int tipo, const char *t, int n) { (void)ctx; (void)tipo; (void)t; (void)n; }
+
+static int modo_probar(const char *peticao, const char *resposta)
+{
+    static json_tok_t tk[16384];
+    size_t n, nr = 0;
+    char *c = ler_ficheiro(peticao, &n, 8u << 20), *r = NULL;
+    if (!c) { llm_eprintf("llm: no se puede leer %s\n", peticao); return 1; }
+    int nt = json_analisar(c, (int)n, tk, 16384);
+    if (nt < 1 || tk[0].tipo != JSON_OBJ) { llm_eprintf("llm: JSON no válido\n"); llm_libera(c); return 1; }
+    llm_segs_t sg = { seg_imprimir, NULL };
+    llm_plantilla_t info;
+    char erro[200];
+    if (!resposta) {
+        int e = llm_plantilla(c, tk, NULL, &sg, &info, erro, sizeof erro);
+        if (e) llm_eprintf("llm: %s\n", erro);
+        llm_libera(c);
+        return e ? 1 : 0;
+    }
+    llm_segs_t nada = { seg_nada, NULL };
+    if (llm_plantilla(c, tk, NULL, &nada, &info, erro, sizeof erro)) { llm_eprintf("llm: %s\n", erro); llm_libera(c); return 1; }
+    r = ler_ficheiro(resposta, &nr, 1u << 20);
+    if (!r) { llm_eprintf("llm: no se puede leer %s\n", resposta); llm_libera(c); return 1; }
+    llm_buf_t todo = { 0 }, cont = { 0 }, ch = { 0 };
+    llm_buf_txt(&todo, info.prefixo);
+    llm_buf_add(&todo, r, (int)nr);
+    int q = llm_ferramentas_ler(c, tk, &info, todo.p ? todo.p : "", todo.n, &cont, &ch, false);
+    llm_printf("CONTENIDO: ");
+    llm_buf_t j = { 0 };
+    llm_json_cadeia(&j, cont.p ? cont.p : "", cont.n);
+    llm_printf("%s\nLLAMADAS: %d %s\n", j.p, q, ch.p ? ch.p : "[]");
+    llm_buf_libera(&j); llm_buf_libera(&todo); llm_buf_libera(&cont); llm_buf_libera(&ch);
+    llm_libera(c); llm_libera(r);
+    return 0;
+}
+
+/* El mmproj de un modelo VL: el que se pide o, si no, «mmproj-BASE*.gguf» en la carpeta del modelo
+ * (BASE: el nombre del modelo sin la cuantización, p. ej. LFM3-VL-2B de LFM3-VL-2B-Q4_K_M.gguf). */
+static bool mmproj_junto(const char *modelo, char *dst, size_t max)
+{
+    char pasta[256], base[160];
+    const char *b = modelo;
+    for (const char *p = modelo; *p; p++) if (*p == '/') b = p + 1;
+    size_t lp = (size_t)(b - modelo);
+    if (lp >= sizeof pasta) return false;
+    llm_memcpy(pasta, modelo, lp);
+    pasta[lp ? lp - 1 : 0] = 0;
+    if (!lp) llm_formatar(pasta, sizeof pasta, ".");
+    size_t lb = llm_strlen(b);
+    if (lb >= sizeof base) return false;
+    llm_memcpy(base, b, lb + 1);
+    char *ult = NULL;
+    for (char *p = base; *p; p++) if (*p == '-') ult = p;
+    if (!ult || ult == base) return false;
+    *ult = 0;
+    char pref[200];
+    llm_formatar(pref, sizeof pref, "mmproj-%s-", base);
+    size_t lpref = llm_strlen(pref);
+#ifdef LLM_ANFITRIAO
+    DIR *d = opendir(pasta);
+    if (!d) return false;
+    struct dirent *de;
+    bool ok = false;
+    while (!ok && (de = readdir(d)))
+        if (!llm_strncmp(de->d_name, pref, lpref) && acabar_em(de->d_name, ".gguf")) {
+            llm_formatar(dst, max, "%s/%s", pasta, de->d_name);
+            ok = true;
+        }
+    closedir(d);
+    return ok;
+#else
+    entrada_pasta_t ent;
+    for (int i = 0; listar(pasta, i, &ent) > 0; i++)
+        if (!llm_strncmp(ent.nome, pref, lpref) && acabar_em(ent.nome, ".gguf")) {
+            llm_formatar(dst, max, "%s/%s", pasta, ent.nome);
+            return true;
+        }
+    return false;
+#endif
+}
+
 /* Lista de ids "1,2,3" */
 static int ler_ids(const char *s, int *v, int max)
 {
@@ -756,6 +865,48 @@ static int ler_linha_entrada(char *b, int max)
 #endif
 }
 
+/* La imagen de --imagen (va con la primera pregunta). */
+static uint8_t *imagem_dados;
+static size_t imagem_n;
+
+/* Un turno del usuario; con --imagen, la imagen delante del texto (como la pone la plantilla).
+ * 0 ok, -1 contexto lleno, -3 imagen no válida (ya avisado). */
+static int turno(llm_sessao_t *s, const char *u, bool pensar)
+{
+    if (!imagem_dados) return llm_turno_usuario(s, u, pensar);
+    char erro[200];
+    int r = llm_alimentar_texto(s, "<|im_start|>user\n<|vision_start|>", true);
+    if (r) return r;
+    int nt = llm_imagem_alimentar(s, imagem_dados, imagem_n, erro, sizeof erro);
+    llm_libera(imagem_dados);
+    imagem_dados = NULL;
+    if (nt < 0) { llm_eprintf("llm: %s\n", erro); return -3; }
+    r = llm_alimentar_texto(s, "<|vision_end|>", true);
+    if (!r) r = llm_alimentar_texto(s, u, false);
+    if (!r) r = llm_alimentar_texto(s, pensar ? "<|im_end|>\n<|im_start|>assistant\n<think>"
+                                              : "<|im_end|>\n<|im_start|>assistant\n<think></think>", true);
+    return r;
+}
+
+/* Para las pruebas: los vectores de la imagen (en el PC, a un fichero de float32) y su suma. */
+static int modo_volcar_imagem(llm_sessao_t *s, const char *saida)
+{
+    char erro[200];
+    float *emb = NULL;
+    int w, h;
+    int nt = imagem_dados ? llm_imagem_vetores(s, imagem_dados, imagem_n, &emb, &w, &h, erro, sizeof erro) : -1;
+    if (nt < 0) { llm_eprintf("llm: %s\n", imagem_dados ? erro : "falta --imagen"); return 1; }
+    llm_printf("VECTORES: %d de %d\n", nt, s->m.n_embd);
+#ifdef LLM_ANFITRIAO
+    FILE *f = fopen(saida, "wb");
+    if (f) { fwrite(emb, 4, (size_t)nt * s->m.n_embd, f); fclose(f); }
+#else
+    (void)saida;
+#endif
+    llm_libera(emb);
+    return 0;
+}
+
 static int modo_chat(llm_sessao_t *s, const char *sistema, bool pensar, int n_max)
 {
     char ini[4200];
@@ -782,7 +933,9 @@ static int modo_chat(llm_sessao_t *s, const char *sistema, bool pensar, int n_ma
         llm_latin1_utf8(linha, u, sizeof u);
         for (int intento = 0; intento < 2; intento++) {
             int pos_antes = s->e.kv.pos;
-            if (!llm_turno_usuario(s, u, pensar)) break;
+            int e = turno(s, u, pensar);
+            if (e == -3) return 1;
+            if (!e) break;
             /* contexto lleno: se empieza de nuevo con solo esta pregunta */
             (void)pos_antes;
             llm_printf("(el contexto se ha llenado: se olvida la conversación anterior)\n");
@@ -814,6 +967,9 @@ int main(int argc, char **argv)
     bool ctx_explicito = false, info = false, pensar = false, crudo = false, servidor = false, anunciar = false;
     bool mostrar_ids = false, listar_modelos = false;
     const char *ativar = NULL;
+    const char *imagem = NULL, *mmproj = NULL, *probar_pet = NULL, *probar_resp = NULL, *volcar_imagem = NULL;
+    int imagem_max = 0;
+    const char *probar_srv = NULL;
     bool temp_d = false, topk_d = false, topp_d = false, rep_d = false, sem_d = false, especiais = false;
     float temp = 0, topp = 0, rep = 0;
     int topk = 0;
@@ -858,6 +1014,20 @@ int main(int argc, char **argv)
         else if (igual(a, "--tokenizar")) { VALOR(); tokenizar = v; }
         else if (igual(a, "--especiales")) especiais = true;
         else if (igual(a, "--mostrar-ids")) mostrar_ids = true;
+        else if (igual(a, "--imagen")) { VALOR(); imagem = v; }
+        else if (igual(a, "--mmproj")) { VALOR(); mmproj = v; }
+        else if (igual(a, "--imagen-max")) {
+            VALOR(); imagem_max = (int)numero(v, &ok);
+            if (!ok || imagem_max < 16 || imagem_max > 1024) { llm_eprintf("llm: --imagen-max de 16 a 1024\n"); return 2; }
+        }
+        else if (igual(a, "--probar-plantilla")) { VALOR(); probar_pet = v; }
+        else if (igual(a, "--probar-respuesta")) {
+            VALOR(); probar_pet = v;
+            if (i + 1 >= argc) { llm_eprintf("llm: --probar-respuesta PETICION.json RESPUESTA.txt\n"); return 2; }
+            probar_resp = argv[++i];
+        }
+        else if (igual(a, "--volcar-imagen")) { VALOR(); volcar_imagem = v; }
+        else if (igual(a, "--probar-servidor")) { VALOR(); probar_srv = v; }
         else { llm_eprintf("llm: opción desconocida: %s (llm --ayuda)\n", a); return 2; }
 #undef VALOR
     }
@@ -871,6 +1041,15 @@ int main(int argc, char **argv)
     if (!llm_quant_escolher(rota)) { llm_eprintf("llm: esta CPU no tiene %s\n", rota); return 2; }
 
     char erro[320], caminho[256];
+    if (probar_pet) return modo_probar(probar_pet, probar_resp);
+    if (probar_srv) {
+        size_t n;
+        char *c = ler_ficheiro(probar_srv, &n, 8u << 20);
+        if (!c) { llm_eprintf("llm: no se puede leer %s\n", probar_srv); return 1; }
+        int r = llm_servidor_pedir(porta, c, n);
+        llm_libera(c);
+        return r;
+    }
     if (anunciar) return llm_anunciar(modelo);
     if (listar_modelos) return modo_modelos();
     if (ativar) return modo_ativar(ativar);
@@ -897,13 +1076,36 @@ int main(int argc, char **argv)
     }
     if (!hilos) hilos = llm_cpus() > 8 ? 8 : llm_cpus();   /* de serie, un hilo por CPU (D380) */
     if (hilos > 1) hilos = llm_hilos_iniciar(hilos);
+    /* fase 2: el proyector de imágenes, si hace falta y lo hay */
+    if ((imagem || servidor || volcar_imagem) && !(mmproj && igual(mmproj, "no"))) {
+        char mp[300];
+        bool tem = mmproj != NULL;
+        if (tem) llm_formatar(mp, sizeof mp, "%s", mmproj);
+        else tem = mmproj_junto(modelo, mp, sizeof mp);
+        if (tem && llm_visao_abrir(&s.visao, mp, s.m.n_embd, imagem_max, tokens != NULL, erro, sizeof erro)) {
+            llm_eprintf("llm: %s\n", erro);
+            if (mmproj || imagem || volcar_imagem) { llm_fechar_sessao(&s); return 1; }
+        }
+    }
+    if ((imagem || volcar_imagem) && !s.visao) {
+        llm_eprintf("llm: para --imagen hace falta el proyector del modelo VL (--mmproj FICHERO)\n");
+        llm_fechar_sessao(&s);
+        return 1;
+    }
+    if (imagem) {
+        size_t ni;
+        imagem_dados = (uint8_t *)ler_ficheiro(imagem, &ni, 64u << 20);
+        imagem_n = ni;
+        if (!imagem_dados) { llm_eprintf("llm: no se puede leer la imagen %s\n", imagem); llm_fechar_sessao(&s); return 1; }
+    }
     if (temp_d) s.a.temperatura = temp;
     if (topk_d) s.a.top_k = topk;
     if (topp_d) s.a.top_p = topp;
     if (rep_d) s.a.penalizacao = rep;
     if (sem_d) llm_amostra_iniciar_semente(&s.a, semente);
     int r = 0;
-    if (tokenizar) r = modo_tokenizar(&s, tokenizar, especiais);
+    if (volcar_imagem) r = modo_volcar_imagem(&s, volcar_imagem);
+    else if (tokenizar) r = modo_tokenizar(&s, tokenizar, especiais);
     else if (tokens) r = modo_tokens(&s, tokens, n_max, volcado);
     else if (servidor) r = llm_servidor(&s, porta, sistema);
     else if (prompt) {
@@ -915,9 +1117,10 @@ int main(int argc, char **argv)
             char ini[4200];
             inicio_chat(&s, sistema, ini, sizeof ini);
             e = llm_alimentar_texto(&s, ini, true);
-            if (!e) e = llm_turno_usuario(&s, u, pensar);
+            if (!e) e = turno(&s, u, pensar);
         }
-        if (e) { llm_eprintf("llm: el texto no cabe en el contexto (%d tokens)\n", s.e.kv.ctx); r = 1; }
+        if (e == -3) r = 1;
+        else if (e) { llm_eprintf("llm: el texto no cabe en el contexto (%d tokens)\n", s.e.kv.ctx); r = 1; }
         else {
             llm_saida_t sd = { 0 };
             sd.ocultar_think = true;
@@ -935,5 +1138,6 @@ int main(int argc, char **argv)
     } else r = modo_chat(&s, sistema, pensar, n_max);
     if (hilos > 1) llm_hilos_parar();
     llm_fechar_sessao(&s);
+    llm_libera(imagem_dados);
     return r;
 }

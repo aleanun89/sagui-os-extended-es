@@ -74,5 +74,7 @@ int  arquivos_imagem_info(uint32_t fd, char *caminho, size_t max, uint32_t *tama
 int32_t arquivos_ler_em(uint32_t fd, uint32_t pos, void *buf, uint32_t n);
 
 void arquivos_fechar_todos(struct processo *p);
+void arquivos_herdar_todos(struct processo *filho, struct processo *pai);   /* D401: fork */
+void arquivos_fechar_exec(struct processo *l);                               /* D401: exec, FD_CLOEXEC */
 
 #endif

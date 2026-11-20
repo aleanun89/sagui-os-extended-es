@@ -1376,7 +1376,7 @@ static int unload_boat(Entity *b) {
 		++bajados;
 	}
 	if (bajados) {
-		AOEN_LOG("[AOEN] transporte: desembarcan %d unidades", bajados);
+		AOEN_LOG("[AOEN] transporte: desembarcan %d unidades (jugador %d, en %.0f,%.0f, t=%.0f)", bajados, b->owner, b->x, b->y, W.time);
 		if (b->owner == W.human) world_msg("Unidades desembarcadas");
 	} else if (b->ncargo && b->owner == W.human) world_msg("No hay tierra libre cerca para desembarcar");
 	return bajados;
@@ -1901,11 +1901,23 @@ int cmd_diplomacy(int from, int to, int level) {
 	if (level < DIPL_ENEMY || level > DIPL_ALLY) return 0;
 	int cur = W.pl[from].dipl[to];
 	if (level == cur) return 1;
-	if (level > cur && W.pl[to].ai) {
+	/* D415: la máquina responde según su personalidad y dificultad, la fuerza relativa, las amenazas comunes, los tributos
+	 * recibidos y las traiciones que recuerda (ia_responde); su respuesta sale en el chat */
+	if (level > cur && W.pl[to].ai && !W.pl[from].ai) {
+		char m[112] = "";
+		int ok = ia_responde(to, from, level, m, sizeof m);
+		if (from == W.human) {
+			if (m[0]) world_chat(to, m); else if (!ok) world_msg("Rechazan tu propuesta");
+		}
+		if (!ok) return 0;
+	} else if (level > cur && W.pl[to].ai) {   /* entre máquinas, la regla de siempre */
 		int ok = world_team_score(from) >= world_team_score(to);
 		if (level == DIPL_ALLY && (cur != DIPL_NEUTRAL || W.pl[to].diff >= 2)) ok = 0;   /* difícil y muy difícil */
-		if (!ok) { if (from == W.human) world_msg("Rechazan tu propuesta"); return 0; }
+		if (!ok) return 0;
 	}
+	/* romper un pacto con la máquina es una traición que recuerda (la guerra se puede declarar siempre) */
+	if (level == DIPL_ENEMY && cur != DIPL_ENEMY && W.pl[to].ai && !W.pl[from].ai) ia_traicion(to, from);
+	if (from == W.human) W.prop_nivel[to] = 0;
 	W.pl[from].dipl[to] = W.pl[to].dipl[from] = level;
 	if (from == W.human || to == W.human) {
 		char m[96];
@@ -1923,6 +1935,46 @@ int cmd_tribute(int from, int to, int kind, int amount) {
 	if (W.pl[from].res[kind] < amount) { if (from == W.human) world_msg("No tienes suficientes recursos"); return 0; }
 	W.pl[from].res[kind] -= amount;
 	W.pl[to].res[kind] += amount * 80 / 100;
+	if (W.pl[to].ai && !W.pl[from].ai) ia_tributo(to, from, kind, amount * 80 / 100);   /* D415: la máquina recuerda lo recibido */
+	return 1;
+}
+
+/* D415: pide un tributo. A un jugador de la máquina le toca decidir (ia_pide); si acepta, lo envía con el mismo 20 % del mercado */
+int cmd_pedir(int from, int to, int kind, int amount) {
+	if (from < 0 || to < 0 || from >= MAX_PLAYERS || to >= MAX_PLAYERS || from == to || !W.pl[from].active || !W.pl[to].active) return 0;
+	if (kind < 0 || kind >= RES_COUNT || amount <= 0) return 0;
+	if (!W.pl[to].ai) { if (from == W.human) world_msg("Ese jugador es una persona: pídeselo por otro medio"); return 0; }
+	char m[112] = "";
+	int ok = ia_pide(to, from, kind, amount, m, sizeof m);
+	if (ok && !cmd_tribute(to, from, kind, amount)) { ok = 0; snprintf(m, sizeof m, "No puedo enviarlo ahora"); }
+	if (from == W.human && m[0]) world_chat(to, m);
+	return ok;
+}
+
+/* ---------- chat y propuestas de la máquina (D415) ---------- */
+
+void world_chat(int de, const char *texto) {
+	int k = (int)(W.chat_n++ % ARRAY_LEN(W.chat));
+	W.chat[k].de = de;
+	snprintf(W.chat[k].texto, sizeof W.chat[k].texto, "%s", texto);   /* la interfaz lo enseña como aviso (ui_hud.c) */
+}
+
+/* el jugador de la máquina `de` propone al humano pasar al nivel de relación `nivel`; caduca a los 90 s */
+void world_proponer(int de, int nivel) {
+	if (de < 0 || de >= MAX_PLAYERS || nivel < DIPL_ENEMY || nivel > DIPL_ALLY) return;
+	W.prop_nivel[de] = nivel + 1; W.prop_t[de] = W.time + 90.0f;
+}
+
+/* el humano acepta o rechaza la propuesta del jugador `de`; devuelve 1 si la relación cambió */
+int cmd_responder_propuesta(int de, int acepta) {
+	if (de < 0 || de >= MAX_PLAYERS || !W.prop_nivel[de]) return 0;
+	int nivel = W.prop_nivel[de] - 1;
+	W.prop_nivel[de] = 0;
+	if (!acepta || W.time > W.prop_t[de]) return 0;
+	W.pl[W.human].dipl[de] = W.pl[de].dipl[W.human] = nivel;
+	char m[96];
+	snprintf(m, sizeof m, "Relación con el jugador %d: %s", de + 1, dipl_name(nivel));
+	world_msg(m);
 	return 1;
 }
 
@@ -1943,6 +1995,41 @@ static void terminar(int g) {
 	snd_ui(W.over == 1 ? SND_VICTORY : SND_DEFEAT);
 }
 
+/* Regla de conquista (D415): quién sigue «en pie». Un jugador sin ningún edificio (las murallas no cuentan) cae:
+ *  - enseguida, si solo le quedan barcos de pesca, mercantes o transportes (no pueden ni luchar ni construir), y
+ *  - a los 180 s, si le quedan unidades (un aldeano escondido, tropa varada en un islote): es el tiempo que tarda en
+ *    levantar otro edificio; al caer, el resto de sus unidades se rinde y desaparece.
+ * Así la partida no se bloquea por unidades inalcanzables. Con un edificio en pie, el contador vuelve a cero. */
+#define CAIDA_SIN_EDIFICIOS 180.0f
+static float caida_t[MAX_PLAYERS];     /* segundos sin edificios */
+static unsigned char tuvo_edif[MAX_PLAYERS], rendido[MAX_PLAYERS];
+
+static void reglas_caida(int has[MAX_PLAYERS]) {
+	int bld[MAX_PLAYERS] = { 0 }, activas[MAX_PLAYERS] = { 0 };
+	for (int i = 0; i < W.nents; ++i) {
+		Entity *e = &W.ents[i];
+		if (!e->alive || e->owner < 0 || is_resource(e->type) || e->state == ST_DYING) continue;
+		if (is_building(e->type)) { if (e->type != E_WALL) ++bld[e->owner]; }
+		else if (e->type != E_FISHBOAT && !is_trader(e->type) && e->type != E_TRANSPORT) ++activas[e->owner];
+	}
+	for (int p = 0; p < MAX_PLAYERS; ++p) {
+		if (!W.pl[p].active || rendido[p]) { if (rendido[p]) has[p] = 0; continue; }
+		if (bld[p]) { tuvo_edif[p] = 1; caida_t[p] = 0; continue; }
+		if (!tuvo_edif[p] || !has[p]) continue;
+		int cae = !activas[p];
+		if (!cae) {
+			caida_t[p] += 1.0f;
+			if (caida_t[p] == 1.0f && p == W.human && !W.pl[p].ai) world_msg("¡Sin edificios! Levanta uno en 3 minutos o perderás");
+			cae = caida_t[p] >= CAIDA_SIN_EDIFICIOS;
+		}
+		if (!cae) continue;
+		rendido[p] = 1; has[p] = 0;
+		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].owner == p && !is_resource(W.ents[i].type)) ent_kill(&W.ents[i]);
+		AOEN_LOG("[AOEN] caida: el jugador %d se queda sin edificios y cae (t=%.0f)", p, W.time);
+		if (p != W.human) world_msg("Un jugador se queda sin edificios y cae");
+	}
+}
+
 static void check_victory(void) {
 	int has[MAX_PLAYERS] = { 0 };
 	for (int i = 0; i < W.nents; ++i) {
@@ -1950,6 +2037,7 @@ static void check_victory(void) {
 		if (e->alive && e->owner >= 0 && !is_resource(e->type) && e->state != ST_DYING)
 			has[e->owner] = 1;
 	}
+	reglas_caida(has);
 
 	/* conquista: la partida acaba cuando ha caído alguien y todos los que quedan son de un mismo bando (mismo equipo; con la
 	 * victoria compartida, también aliados entre sí). Sin ella, dos aliados de equipos distintos aún tienen que decidirlo. */
@@ -2035,7 +2123,7 @@ static void gen_terrain(const Setup *s) {
 }
 
 /* mapas de islas y costeros: cada inicio tiene tierra hasta 12 casillas y una ensenada de agua pegada (sitio para un muelle) */
-static void carve_bay(int sx, int sy) {
+static void carve_bay(int sx, int sy, int *obx, int *oby) {
 	float ax = sx - W.w * 0.5f, ay = sy - W.h * 0.5f, al = sqrtf(ax * ax + ay * ay) + 0.001f;
 	float ux = ax / al, uy = ay / al;
 	int bx = (int)(sx + ux * 15.5f), by = (int)(sy + uy * 15.5f);
@@ -2044,6 +2132,54 @@ static void carve_bay(int sx, int sy) {
 		if (in_map(x, y) && (x - sx) * (x - sx) + (y - sy) * (y - sy) <= 144 && W.tile[tidx(x, y)] >= TILE_WATER) W.tile[tidx(x, y)] = TILE_DESERT;
 	for (int y = by - 5; y <= by + 5; ++y) for (int x = bx - 5; x <= bx + 5; ++x)
 		if (in_map(x, y) && (x - bx) * (x - bx) + (y - by) * (y - by) <= 25) W.tile[tidx(x, y)] = TILE_WATER;
+	if (obx) *obx = bx;
+	if (oby) *oby = by;
+}
+
+/* D415: la ensenada de cada jugador comunica con el mar. Si carve_bay la dejó como un estanque (a veces solo la une al mar un
+ * paso en diagonal, que los barcos no cruzan), se abre un canal de 3 casillas hasta el agua del mar (la mayor masa de agua) más
+ * cercana, sin pasar a menos de 11 casillas de ningún inicio. Sin esto, la flota se quedaba encerrada y la partida no acababa. */
+static void conectar_bahias(const int *sx, const int *sy, const int *bx, const int *by, int np) {
+	size_t n = (size_t)W.w * W.h;
+	unsigned short *c = (unsigned short *)calloc(n, sizeof *c);
+	int *cola = (int *)malloc(sizeof(int) * n), *tam = (int *)calloc(n + 2, sizeof(int));
+	if (!c || !cola || !tam) { free(c); free(cola); free(tam); return; }
+	int ncomp = 0, mayor = 0;
+	for (size_t i = 0; i < n; ++i) {
+		if (c[i] || W.tile[i] < TILE_WATER) continue;
+		++ncomp;
+		int ini = 0, fin = 0; cola[fin++] = (int)i; c[i] = (unsigned short)ncomp;
+		while (ini < fin) {
+			int k = cola[ini++], x = k % W.w, y = k / W.w;
+			static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+			for (int d = 0; d < 4; ++d) {
+				int nx = x + dx[d], ny = y + dy[d];
+				if (!in_map(nx, ny)) continue;
+				int j = ny * W.w + nx;
+				if (!c[j] && W.tile[j] >= TILE_WATER) { c[j] = (unsigned short)ncomp; cola[fin++] = j; }
+			}
+		}
+		tam[ncomp] = fin;
+		if (!mayor || tam[ncomp] > tam[mayor]) mayor = ncomp;
+	}
+	for (int p = 0; p < np; ++p) {
+		if (!in_map(bx[p], by[p]) || c[by[p] * W.w + bx[p]] == mayor) continue;
+		int mejor = -1; float md = 1e18f;
+		for (int y = 0; y < W.h; ++y)
+			for (int x = 0; x < W.w; ++x)
+				if (c[y * W.w + x] == mayor) { float d = (float)((x - bx[p]) * (x - bx[p]) + (y - by[p]) * (y - by[p])); if (d < md) { md = d; mejor = y * W.w + x; } }
+		if (mejor < 0) continue;
+		float tx = (float)(mejor % W.w), ty = (float)(mejor / W.w), l = sqrtf(md) + 0.001f;
+		for (float t = 0; t <= l; t += 0.5f) {
+			int x = (int)(bx[p] + (tx - bx[p]) * t / l), y = (int)(by[p] + (ty - by[p]) * t / l);
+			int cerca = 0;
+			for (int q = 0; q < np; ++q) if ((x - sx[q]) * (x - sx[q]) + (y - sy[q]) * (y - sy[q]) < 11 * 11) cerca = 1;
+			if (cerca) continue;
+			for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) if (in_map(x + dx, y + dy)) W.tile[tidx(x + dx, y + dy)] = TILE_WATER;
+		}
+		AOEN_LOG("[AOEN] costa: canal de la ensenada del jugador %d al mar (%.0f casillas)", p, l);
+	}
+	free(c); free(cola); free(tam);
 }
 
 /* ¿hay un sitio donde construir un muelle cerca del centro urbano del jugador? */
@@ -2271,7 +2407,12 @@ static void place_wildlife(const Setup *s, const int *sx, const int *sy, int np)
 		for (int x = 1; x < W.w - 1; ++x) {
 			if (W.tile[tidx(x, y)] != TILE_WATER || W.block[tidx(x, y)]) continue;
 			if (!(tile_walk(x + 1, y) || tile_walk(x - 1, y) || tile_walk(x, y + 1) || tile_walk(x, y - 1))) continue;
-			if (frand() < 0.05f) ent_new(E_FISH, -1, (float)x, (float)y);
+			/* D415: nunca en un canal de una casilla de ancho (tierra a los dos lados): un pez cerraba la salida de las
+			 * ensenadas y los barcos de un jugador se quedaban encerrados para siempre */
+			#define TIERRA_T(xx, yy) (W.tile[tidx((xx), (yy))] < TILE_WATER)
+			int canal = (TIERRA_T(x + 1, y) && TIERRA_T(x - 1, y)) || (TIERRA_T(x, y + 1) && TIERRA_T(x, y - 1));
+#undef TIERRA_T
+			if (frand() < 0.05f && !canal) ent_new(E_FISH, -1, (float)x, (float)y);
 		}
 	}
 	(void)s;
@@ -2462,6 +2603,7 @@ static void dev_escena_tick(void) {
 void world_new(const Setup *s) {
 	world_free();
 	memset(&W, 0, sizeof W);
+	memset(caida_t, 0, sizeof caida_t); memset(tuvo_edif, 0, sizeof tuvo_edif); memset(rendido, 0, sizeof rendido);   /* D415 */
 	W.setup = *s;
 	W.w = CLAMP(s->width, 48, 512);
 	W.h = CLAMP(s->height, 48, 512);
@@ -2508,7 +2650,11 @@ void world_new(const Setup *s) {
 
 	/* excava todos los inicios antes de colocar nada, para que los vecinos no se inunden entre sí */
 	for (int p = 0; p < np; ++p) carve_land(sx[p], sy[p], 9);
-	if (s->map_kind == MAP_ISLANDS || s->map_kind == MAP_COASTAL) for (int p = 0; p < np; ++p) carve_bay(sx[p], sy[p]);
+	if (s->map_kind == MAP_ISLANDS || s->map_kind == MAP_COASTAL) {
+		int bbx[MAX_PLAYERS], bby[MAX_PLAYERS];
+		for (int p = 0; p < np; ++p) carve_bay(sx[p], sy[p], &bbx[p], &bby[p]);
+		conectar_bahias(sx, sy, bbx, bby, np);
+	}
 	for (int p = 0; p < np; ++p) place_start(p, sx[p], sy[p]);
 	scatter_resources(s, sx, sy, np);
 	place_wildlife(s, sx, sy, np);
@@ -2523,7 +2669,7 @@ void world_free(void) {
 	for (int i = 0; i < W.nents; ++i) free(W.ents[i].path);
 	free(W.ents); free(W.tile); free(W.variant); free(W.block); free(W.fog);
 	free(W.pf_g); free(W.pf_from); free(W.pf_stamp);
-	memset(&W, 0, sizeof W);
+	memset(&W, 0, sizeof W); memset(caida_t, 0, sizeof caida_t); memset(tuvo_edif, 0, sizeof tuvo_edif); memset(rendido, 0, sizeof rendido);
 }
 
 void world_update(float dt) {

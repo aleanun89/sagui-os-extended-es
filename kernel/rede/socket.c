@@ -44,6 +44,7 @@ struct socket {
     uint32_t  tempo_ms;          /* 0 = sem limite */
     uint32_t  prazo;             /* tique em que a espera atual desiste (0 = nenhuma) */
     bool      conectando, escutando;
+    bool      nao_bloquear;      /* D401: O_NONBLOCK: lo que tendría que esperar da ERRO_TENTAR */
     tcp_t    *tcp;               /* conexão ou escuta */
     /* UDP */
     uint16_t  porta_local;
@@ -60,6 +61,7 @@ static uint32_t agora(void) { return relogio_tiques(); }
 
 static int32_t esperar(socket_t *s, const void *canal)
 {
+    if (s->nao_bloquear) return ERRO_TENTAR;   /* D401 */
     if (s->tempo_ms) {
         if (!s->prazo) s->prazo = agora() + (s->tempo_ms * TIQUES_POR_SEGUNDO + 999) / 1000;
         else if ((int32_t)(agora() - s->prazo) >= 0) { s->prazo = 0; return ERRO_TEMPO; }
@@ -212,6 +214,31 @@ int32_t socket_disponivel(socket_t *s)
     return tcp_disponivel(s->tcp);
 }
 
+/* D401: O_NONBLOCK (SIS_DESCRITOR). */
+void socket_nao_bloquear(socket_t *s, bool sim)
+{
+    s->nao_bloquear = sim;
+    s->prazo = 0;
+}
+
+/* D401: lo que poll ve en un socket (SONDA_*). */
+uint32_t socket_sondar(socket_t *s)
+{
+    if (s->tipo == SOCK_UDP) return (s->primeiro ? SONDA_LER : 0) | SONDA_ESCREVER;
+    if (s->tipo == SOCK_TUN) return (tunel_disponivel(s) > 0 ? SONDA_LER : 0) | SONDA_ESCREVER;
+    if (!s->tcp) return s->conectando ? (SONDA_ERRO | SONDA_FECHADO | SONDA_ESCREVER) : 0;
+    if (s->escutando) return tcp_disponivel(s->tcp) > 0 ? SONDA_LER : 0;
+    int32_t sit = tcp_situacao(s->tcp);
+    if (sit == 1) return 0;                                      /* conectando */
+    if (sit < 0) return SONDA_ERRO | SONDA_FECHADO | SONDA_ESCREVER;
+    if (s->conectando) return SONDA_ESCREVER;                    /* conectada: falta recoger el resultado */
+    int32_t d = tcp_disponivel(s->tcp);
+    if (d > 0) return SONDA_LER | SONDA_ESCREVER;
+    if (d == ERRO_PIPE_QUEBRADO) return SONDA_LER | SONDA_FECHADO | SONDA_ESCREVER;
+    if (d < 0) return SONDA_ERRO | SONDA_FECHADO;
+    return SONDA_ESCREVER;
+}
+
 void socket_fechar(socket_t *s)
 {
     if (s->tcp) tcp_soltar(s->tcp);
@@ -277,6 +304,10 @@ int32_t sis_conectar(uint32_t fd, uint32_t ip, uint32_t porta, uint32_t d, uint3
         s->tcp = tcp_abrir(ip, (uint16_t)porta, &erro);
         if (!s->tcp) return erro;
         s->conectando = true;
+        /* D401: no bloqueante: vuelve ya; poll da POLLOUT al acabar y OPC_ERRO_CONEXAO el resultado. */
+        if (s->nao_bloquear && tcp_situacao(s->tcp) == 1) return ERRO_EM_CURSO;
+    } else if (s->nao_bloquear && tcp_situacao(s->tcp) == 1) {
+        return ERRO_JA_EM_CURSO;
     }
     int32_t r = tcp_situacao(s->tcp);
     if (r == 1) {
@@ -444,6 +475,17 @@ int32_t sis_opcao_socket(uint32_t fd, uint32_t opcao, uint32_t valor, uint32_t d
     case OPC_TUN_ESTADO:
         if (s->tipo != SOCK_TUN) return ERRO_INVALIDO;
         return tunel_publicar(s, valor);
+    case OPC_ERRO_CONEXAO: {   /* D401: SO_ERROR de un connect no bloqueante */
+        if (s->tipo != SOCK_TCP) return 0;
+        if (!s->tcp) return s->conectando ? ERRO_RECUSADA : 0;
+        int32_t r = tcp_situacao(s->tcp);
+        if (r == 1) return 1;
+        if (s->conectando) {
+            s->conectando = false;
+            if (r < 0) { tcp_soltar(s->tcp); s->tcp = NULL; }
+        }
+        return r;
+    }
     }
     return ERRO_INVALIDO;
 }

@@ -54,12 +54,15 @@ int                 evg_n_modelos(void);
 const evg_modelo_t *evg_modelo_n(int i);
 
 /* Paquete de copia lineal: cabecera (orden 3, subcódigo 0, n palabras), destino,
- * origen, bits 39:32 del destino, bits 39:32 del origen (aquí siempre 0). */
+ * origen, bits 39:32 del destino, bits 39:32 del origen (evergreen_copy_dma de
+ * Linux). evg_pkt_copiar los pone a 0; evg_pkt_copiar_alto (D408) pone el mismo
+ * byte alto en los dos (el driver mantiene todo en un tramo de 4 GB del MC). */
 #define EVG_DMA_COPIAR      0x3u
 #define EVG_DMA_CABECA(op, sub, n) ((((uint32_t)(op) & 0xFu) << 28) | (((uint32_t)(sub) & 0xFFu) << 20) | ((uint32_t)(n) & 0xFFFFFu))
 #define EVG_DMA_MAX_DW      0xFFFFFu
 #define EVG_PKT_COPIAR_DW   5
 int evg_pkt_copiar(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw);   /* 5, o 0 si ndw no cabe */
+int evg_pkt_copiar_alto(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, uint8_t alto);
 
 /* Desplazamiento de los registros del controlador de pantalla n (0..5). */
 #define EVG_MAX_CRTC        6
@@ -77,9 +80,11 @@ typedef struct {
 } evg_crtc_t;
 
 /* ¿Muestra ese controlador, tal cual, el framebuffer que está en mc_tela con
- * ese pitch (en píxeles)? Encendido, 32 bits ARGB8888, lineal, sin
- * desplazamiento y por debajo de 4 GB. */
-bool evg_crtc_mostra(const evg_crtc_t *c, uint32_t mc_tela, uint32_t pitch_px);
+ * ese pitch (en píxeles)? Encendido, 32 bits ARGB8888, lineal y sin
+ * desplazamiento. D408: mc_tela es la dirección entera del MC (40 bits); los
+ * bits 39:32 se comparan con GRPH_PRIMARY_SURFACE_ADDRESS_HIGH (antes se exigía
+ * que la pantalla estuviera por debajo de 4 GB). */
+bool evg_crtc_mostra(const evg_crtc_t *c, uint64_t mc_tela, uint32_t pitch_px);
 
 /* CONFIG_MEMSIZE (en MB) a bytes; 0 si no dice nada creíble (0, todo unos o 4 GB o más). */
 uint32_t evg_memsize_bytes(uint32_t reg);

@@ -192,6 +192,13 @@ static bool r3_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ch
 {
     sondado = false;
     if (!r600_sondar(d, geracao, t, &base, m, nm)) return false;
+    /* D408: la sonda ya acepta la VRAM por encima de 4 GB en el MC (para el 2D); el 3D trabaja con
+     * direcciones de 32 bits y no se ha adaptado: se queda en software. */
+    if (base.mc_alto) {
+        snformatar(m, (size_t)nm, "la VRAM esta en el MC por encima de 4 GB (%x:%x): el 3D no lo admite todavia (D408)",
+                   base.mc_alto, base.mc_tela);
+        return false;
+    }
     tela = *t;
     disp3 = *d;
     if (!txt_compara_n(base.nome, "RV710", 5)) familia = R63D_RV710;

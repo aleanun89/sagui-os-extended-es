@@ -125,6 +125,22 @@ void     espaco_desmapear(espaco_t e, uint32_t virt);
  * dirección física para liberarla después; 0 si no había o es prestada. */
 fis_t    espaco_tirar(espaco_t e, uint32_t virt);
 
+/* D401: copia al escribir (fork). espaco_clonar() comparte las páginas propias de "de" con
+ * "para" (recién creado); las escribibles quedan de copia al escribir en los dos. "copiar_ja"
+ * (o NULL) elige las que se copian ya. 0 o ERRO_SEM_MEMORIA (entonces se destruye "para").
+ * espaco_cow_falta() atiende el fallo de escritura en una página presente sin W: 0 no era de
+ * copia al escribir, 1 resuelto (repetir), -1 sin memoria. espaco_romper_cow() la rompe si lo es
+ * (para que el kernel escriba ahí); espaco_traduzir_escrita() traduce rompiéndola antes (quien
+ * escribe por la dirección física). pte_partilhada(): la entrada es de una página compartida
+ * (la swap no la saca). espaco_paginas_cow_alheias(): la parte de las compartidas que no se le
+ * cuenta a "e" (cada uno paga 1/referencias). */
+int      espaco_clonar(espaco_t de, espaco_t para, bool (*copiar_ja)(fis_t));
+int      espaco_cow_falta(espaco_t e, uint32_t virt);
+bool     espaco_romper_cow(espaco_t e, uint32_t virt);
+fis_t    espaco_traduzir_escrita(espaco_t e, uint32_t virt);
+bool     pte_partilhada(pte_t v);
+uint32_t espaco_paginas_cow_alheias(espaco_t e);
+
 /* Asigna páginas nuevas y a cero para [virt, virt+bytes) en el espacio del usuario. */
 bool     espaco_alocar(espaco_t e, uint32_t virt, uint32_t bytes, uint32_t flags);
 

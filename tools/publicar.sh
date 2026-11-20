@@ -95,6 +95,9 @@ comp_correos() {
     # D363: el identificador del protocolo WireGuard («WireGuard v1 zx2c4 Jason@zx2c4.com») es una constante del
     # protocolo (entra en el hash del saludo); sin ella no hay interoperabilidad. No es un contacto.
     printf '%s\n' 'Jason@zx2c4.com' >> "$permitidos"
+    # Avisos de copyright de terceros que la licencia obliga a conservar (ISC de OpenBSD, en
+    # tools/gerar_r92creg_92c.py, D409): son de autores públicos, no datos personales del proyecto.
+    printf '%s\n' 'damien.bergamini@free.fr' 'stsp@openbsd.org' >> "$permitidos"
     r="$(cd "$a" && grep -rIoE --exclude-dir=.git --exclude-dir=terceros --exclude-dir=micropython --exclude='LICENSE*' --exclude='LICENCA*' --exclude='COPYING*' \
         --exclude=publicar.sh --exclude=h260_publicar.py --exclude=publicar.md \
         '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' . 2>/dev/null \

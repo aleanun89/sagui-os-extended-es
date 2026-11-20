@@ -29,8 +29,8 @@
  *     el BAR 0 y la pantalla): dos registros independientes que tienen que
  *     coincidir;
  *   - que todo lo que va a tocar el DMA (pantalla, zona de prueba, anillo, zona
- *     de paso) cae dentro de la VRAM del MC (MC_VM_FB_LOCATION), por debajo de
- *     4 GB y dentro de la memoria que anunció el VBE;
+ *     de paso) cae dentro de la VRAM del MC (MC_VM_FB_LOCATION), en un mismo
+ *     tramo de 4 GB del MC (D408) y dentro de la memoria que anunció el VBE;
  *   - que el contexto 0 de memoria virtual de la GPU está apagado (si estuviera
  *     encendido, una dirección podría acabar en la RAM del PC);
  *   - que el anillo del DMA está apagado y el motor parado (no se toca uno que
@@ -80,6 +80,7 @@
 #define EVG_GRPH_Y_END         0x6838
 #define EVG_CUR_CONTROL        0x6998      /* bit 0: cursor por hardware encendido */
 #define EVG_CUR_SUPERFICIE     0x699C
+#define EVG_CUR_SUPERFICIE_HI  0x69A4      /* D408: bits 39:32 (EVERGREEN_CUR_SURFACE_ADDRESS_HIGH) */
 #define EVG_CRTC_CONTROL       0x6E70      /* bit 0: encendido */
 /* Pantalla (AVIVO; D2 = D1 + 0x800). */
 #define D1CRTC_CONTROL         0x6080
@@ -192,7 +193,12 @@ static uint32_t mmio_fis;
 static volatile uint32_t *area;       /* anillo + página de control + fila del color (ventana sin caché) */
 static uint32_t area_fis, area_tam;
 static volatile uint32_t *ring, *ctrl, *linha_cor;
-static uint32_t mc_ring, mc_ctrl, mc_linha_cor;
+static uint32_t mc_ring, mc_ctrl, mc_linha_cor;   /* los 32 bits bajos en el MC */
+/* D408: bits 39:32 de todo lo anterior y de la pantalla. Algunas BIOS (la HD 7600M 1002:6840 del Toshiba)
+ * ponen la VRAM en el MC por encima de 4 GB (MC_VM_FB_LOCATION 0x0f3f0f00 = 0xF_0000_0000-0xF_3FFF_FFFF). El
+ * MC de estas tarjetas tiene 40 bits y el DMA lleva el byte alto aparte en cada paquete (como Linux). Todo lo
+ * que toca el DMA va en el mismo tramo de 4 GB, así que un solo byte vale para todo. */
+static uint8_t alto;
 static r600_geo_t geo;
 static int gen, larg, alt_util;       /* alt_util: filas que se pueden tocar (pantalla + zona de prueba) */
 static int n_crtc, crtc_tela;         /* D286: controladores de pantalla del chip y el que muestra el VBE */
@@ -290,7 +296,7 @@ static bool r6_esperar(void)
     if (!pendente) return true;
     uint32_t p[4];
     seq++;
-    r600_pkt_valla(p, mc_ctrl + CTRL_VALLA * 4, seq);
+    r600_pkt_valla_alto(p, mc_ctrl + CTRL_VALLA * 4, seq, alto);
     if (!pacote(p, 4)) return false;
     submeter();
     acel_prazo_t pz;
@@ -306,7 +312,8 @@ static bool saida_copia(void *ctx, uint32_t dst, uint32_t src, uint32_t ndw)
     (void)ctx;
     uint32_t p[R600_PKT_MAX];
     /* 5 palabras en R7xx y Evergreen/NI (cuenta de 20 bits), 4 en R6xx. */
-    int n = gen >= EVG_GEN_EVERGREEN ? evg_pkt_copiar(p, dst, src, ndw) : r600_pkt_copiar(p, dst, src, ndw, gen >= 7);
+    int n = gen >= EVG_GEN_EVERGREEN ? evg_pkt_copiar_alto(p, dst, src, ndw, alto)
+                                     : r600_pkt_copiar_alto(p, dst, src, ndw, gen >= 7, alto);   /* D408: byte alto */
     if (n <= 0) return false;
     return pacote(p, n);
 }
@@ -330,8 +337,9 @@ static void r6_detalle(const char *fase)
     klog("[ACEL2D] r600 detalle (%s): MC_VM_FB_LOCATION %x HDP_NONSURFACE_BASE %x VM_CONTEXT0_CNTL %x "
          "CONFIG_MEMSIZE %x APER %x\n", fase, fbl, rd(HDP_NONSURFACE_BASE), rd(VM_CONTEXT0_CNTL), rd(CONFIG_MEMSIZE),
          gen >= EVG_GEN_EVERGREEN ? 0 : rd(CONFIG_APER_SIZE));
-    klog("[ACEL2D] r600 detalle (%s): DMA_RB_CNTL %x BASE %x (anillo en MC %x) RPTR %x WPTR %x (escrito %x) "
-         "DMA_CNTL %x IB_CNTL %x MODE %x STATUS %x SRBM_STATUS %x\n", fase, rd(DMA_RB_CNTL), rd(DMA_RB_BASE), mc_ring,
+    klog("[ACEL2D] r600 detalle (%s): DMA_RB_CNTL %x BASE %x (anillo en MC %x:%x) RPTR_ADDR_HI %x RPTR %x WPTR %x (escrito %x) "
+         "DMA_CNTL %x IB_CNTL %x MODE %x STATUS %x SRBM_STATUS %x\n", fase, rd(DMA_RB_CNTL), rd(DMA_RB_BASE), alto, mc_ring,
+         rd(DMA_RB_RPTR_ADDR_HI),
          rd(DMA_RB_RPTR), rd(DMA_RB_WPTR), (wptr << 2) & PTR_MASCARA, rd(DMA_CNTL), rd(DMA_IB_CNTL),
          tem_dma_mode() ? rd(DMA_MODE) : 0, rd(DMA_STATUS_REG), rd(SRBM_STATUS));
     if (gen >= EVG_GEN_EVERGREEN && crtc_tela >= 0) {
@@ -341,8 +349,8 @@ static void r6_detalle(const char *fase)
              rd(EVG_GRPH_ENABLE + o), rd(EVG_GRPH_CONTROL + o), rd(EVG_GRPH_SUPERFICIE + o), rd(EVG_GRPH_SUPERFICIE_HI + o),
              rd(EVG_GRPH_PITCH + o), rd(EVG_GRPH_X_END + o), rd(EVG_GRPH_Y_END + o), rd(EVG_CUR_CONTROL + o));
     }
-    klog("[ACEL2D] r600 detalle (%s): valla %x (esperada %x), pendiente %d, pantalla en MC %x, pitch %u, zona de paso %d filas\n",
-         fase, ctrl ? ctrl[CTRL_VALLA] : 0, seq, pendente, geo.mc_tela, geo.pitch, geo.filas_rascunho);
+    klog("[ACEL2D] r600 detalle (%s): valla %x (esperada %x), pendiente %d, pantalla en MC %x:%x, pitch %u, zona de paso %d filas\n",
+         fase, ctrl ? ctrl[CTRL_VALLA] : 0, seq, pendente, alto, geo.mc_tela, geo.pitch, geo.filas_rascunho);
 }
 
 static bool r6_copiar(int ox, int oy, int dx, int dy, int l, int a)
@@ -475,8 +483,18 @@ bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_ba
          "VM_CONTEXT0_CNTL %x\n", memsize >> 20, aper >> 20, hdp, fbloc, vm0);
     /* D402: la VRAM real (CONFIG_MEMSIZE) para quien la pida (infopc dice la del VBE, 16 MB en el dv7). */
     if (memsize && memsize != 0xFFFFFFFFu) r600_vram_real = memsize;
-    if (mc64 >> 32) { snformatar(m, (size_t)nm, "la pantalla en el MC pasa de 4 GB (HDP %x)", hdp); return false; }
+    /* D408: el MC tiene 40 bits; la pantalla puede estar por encima de 4 GB (bits 39:32 en mc_alto). */
+    if (mc64 >> 40) { snformatar(m, (size_t)nm, "la pantalla en el MC pasa de 40 bits (HDP %x)", hdp); return false; }
     uint32_t mc_tela = (uint32_t)mc64;
+    uint8_t mc_alto = (uint8_t)(mc64 >> 32);
+    if (mc_alto) {
+        if (gen < 7) {   /* las R6xx no tienen registro de los bits altos de la superficie */
+            snformatar(m, (size_t)nm, "R6xx con la pantalla en el MC por encima de 4 GB (HDP %x): no se toca", hdp);
+            return false;
+        }
+        klog("[ACEL2D] r600: la VRAM esta en el MC por encima de 4 GB (D408): pantalla en %x:%x, VRAM del MC %x:%x-%x:%x\n",
+             mc_alto, mc_tela, (uint32_t)(vram_ini >> 32), (uint32_t)vram_ini, (uint32_t)(vram_fim >> 32), (uint32_t)vram_fim);
+    }
 
     /* El controlador de pantalla que muestra el framebuffer del VBE. */
     int ctrl_ok = -1;
@@ -492,7 +510,7 @@ bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_ba
                  "desplazamiento %u,%u, fin %ux%u, orden de colores %x\n", c + 1, e.crtc_control & 1 ? "encendido" : "apagado",
                  e.grph_enable & 1 ? "activo" : "apagado", e.grph_control, e.superficie, e.superficie_alta, e.pitch, e.off_x,
                  e.off_y, rd(EVG_GRPH_X_END + o), rd(EVG_GRPH_Y_END + o), rd(EVG_GRPH_SWAP_CONTROL + o));
-            if (ctrl_ok < 0 && evg_crtc_mostra(&e, mc_tela, t->pitch / 4)) ctrl_ok = c;
+            if (ctrl_ok < 0 && evg_crtc_mostra(&e, mc64, t->pitch / 4)) ctrl_ok = c;   /* D408: dirección entera */
         }
     } else
     for (int c = 0; c < 2; c++) {
@@ -504,15 +522,15 @@ bool r600_sondar(const pci_disp_t *d, int geracao, const acel_tela_t *t, r600_ba
         klog("[ACEL2D] r600: D%d %s, GRPH %s, control %x, superficie %x (alta %x), pitch %u, desplazamiento %u,%u\n",
              c + 1, crtc & 1 ? "encendido" : "apagado", en & 1 ? "activo" : "apagado", gc, sup, hi, pit, ox, oy);
         if ((crtc & 1) && (en & 1) && (gc & 3) == 2 && !((gc >> 8) & 7) && ((gc >> 20) & 0xF) <= 1 && pit == t->pitch / 4 && !ox && !oy &&
-            !hi && sup == mc_tela && ctrl_ok < 0)
+            hi == mc_alto && sup == mc_tela && ctrl_ok < 0)   /* D408: bits 39:32 en SURFACE_HIGH (antes, !hi) */
             ctrl_ok = c;
     }
     if (ctrl_ok < 0) {
-        snformatar(m, (size_t)nm, "ningun controlador %s muestra la pantalla del VBE (32 bits, lineal, pitch %u, MC %x)",
-                   gen >= EVG_GEN_EVERGREEN ? "de pantalla" : "D1/D2", t->pitch / 4, mc_tela);
+        snformatar(m, (size_t)nm, "ningun controlador %s muestra la pantalla del VBE (32 bits, lineal, pitch %u, MC %x:%x)",
+                   gen >= EVG_GEN_EVERGREEN ? "de pantalla" : "D1/D2", t->pitch / 4, mc_alto, mc_tela);
         return false;
     }
-    b->bar0 = bar0; b->desloc = desloc; b->mc_tela = mc_tela;
+    b->bar0 = bar0; b->desloc = desloc; b->mc_tela = mc_tela; b->mc_alto = mc_alto;
     b->vram_ini = vram_ini; b->vram_fim = vram_fim;
     b->fbloc = fbloc; b->hdp = hdp; b->vm0 = vm0;
     b->memsize = memsize; b->aper = aper;
@@ -558,6 +576,8 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
     gen = base.gen;
     agp = base.agp;
     uint32_t memsize = base.memsize, aper = base.aper, desloc = base.desloc, mc_tela = base.mc_tela, fbloc = base.fbloc;
+    alto = base.mc_alto;
+    uint64_t mc64 = ((uint64_t)alto << 32) | mc_tela;   /* D408: la pantalla en el MC, entera */
     uint32_t vm0 = base.vm0;
     uint64_t vram_ini = base.vram_ini, vram_fim = base.vram_fim;
     int ctrl_ok = base.controlador;
@@ -586,15 +606,21 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
         return false;
     }
     uint32_t total = fixo + (uint32_t)filas * t->pitch;
-    if ((uint64_t)mc_tela < vram_ini || (uint64_t)mc_tela + total - 1 > vram_fim || ((uint64_t)mc_tela + total) >> 32) {
-        snformatar(m, (size_t)nm, "la zona del DMA (MC %x, %u KB) no cae en la VRAM (MC_VM_FB_LOCATION %x)", mc_tela,
+    if (mc64 < vram_ini || mc64 + total - 1 > vram_fim) {
+        snformatar(m, (size_t)nm, "la zona del DMA (MC %x:%x, %u KB) no cae en la VRAM (MC_VM_FB_LOCATION %x)", alto, mc_tela,
                    total >> 10, fbloc);
+        return false;
+    }
+    /* D408: un solo byte alto para todo: la zona no puede cruzar un límite de 4 GB del MC (y así la cuenta
+     * en 32 bits de las direcciones bajas nunca da la vuelta). */
+    if ((mc64 >> 32) != ((mc64 + total) >> 32)) {
+        snformatar(m, (size_t)nm, "la zona del DMA (MC %x:%x, %u KB) cruza un limite de 4 GB del MC", alto, mc_tela, total >> 10);
         return false;
     }
     /* D246: la base del anillo se escribe >> 8 (256 bytes) y la CPU llega a la zona por el BAR 0: tiene
      * que caber en su apertura (CONFIG_APER_SIZE; si el registro no dice nada, no se comprueba). */
     if ((mc_tela + area_off) & 0xFFu) {
-        snformatar(m, (size_t)nm, "el anillo (MC %x) no esta alineado a 256 bytes", mc_tela + area_off);
+        snformatar(m, (size_t)nm, "el anillo (MC %x:%x) no esta alineado a 256 bytes", alto, mc_tela + area_off);
         return false;
     }
     if (aper >= (16u << 20) && aper != 0xFFFFFFFFu && desloc + total > aper) {
@@ -604,17 +630,22 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
     }
     /* Un cursor por hardware encendido (64x64, 16 KB) no puede tener su imagen
      * en la zona de prueba ni donde va el anillo. */
+    /* D408: en 64 bits. En las Evergreen/NI con su byte alto (CUR_SURFACE_ADDRESS_HIGH); en las R6xx/R7xx
+     * se supone el de la pantalla (si el cursor estuviera en otro tramo de 4 GB, como mucho se rechaza de más). */
     for (int c = 0; c < (gen >= EVG_GEN_EVERGREEN ? n_crtc : 2); c++) {
-        uint32_t cc, cs;
+        uint32_t cc;
+        uint64_t cs;
         if (gen >= EVG_GEN_EVERGREEN) {
             cc = rd(EVG_CUR_CONTROL + evg_crtc_desloc(c));
-            cs = rd(EVG_CUR_SUPERFICIE + evg_crtc_desloc(c)) & 0xFFFFF000u;
+            cs = ((uint64_t)(rd(EVG_CUR_SUPERFICIE_HI + evg_crtc_desloc(c)) & 0xFFu) << 32) |
+                 (rd(EVG_CUR_SUPERFICIE + evg_crtc_desloc(c)) & 0xFFFFF000u);
         } else {
             cc = rd(D1CUR_CONTROL + (c ? D2_DESLOC : 0));
-            cs = rd(D1CUR_SURFACE + (c ? D2_DESLOC : 0));
+            cs = ((uint64_t)alto << 32) | rd(D1CUR_SURFACE + (c ? D2_DESLOC : 0));
         }
-        if ((cc & 1) && cs + 0x4000u > mc_tela + t->pitch * (uint32_t)t->alt && cs < mc_tela + total) {
-            snformatar(m, (size_t)nm, "el cursor por hardware del controlador %d (MC %x) esta donde iria el anillo", c + 1, cs);
+        if ((cc & 1) && cs + 0x4000u > mc64 + t->pitch * (uint32_t)t->alt && cs < mc64 + total) {
+            snformatar(m, (size_t)nm, "el cursor por hardware del controlador %d (MC %x:%x) esta donde iria el anillo", c + 1,
+                       (uint32_t)(cs >> 32), (uint32_t)cs);
             return false;
         }
     }
@@ -651,8 +682,8 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
     seq = 0x52700000u;
     ctrl[CTRL_VALLA] = seq;
     ctrl[CTRL_TESTE] = 0;
-    klog("[ACEL2D] r600: controlador %d, pantalla en el MC %x, anillo en %x, zona de paso de %d filas en %x (%u KB)\n",
-         ctrl_ok + 1, mc_tela, mc_ring, filas, geo.mc_rascunho, total >> 10);
+    klog("[ACEL2D] r600: controlador %d, pantalla en el MC %x:%x, anillo en %x:%x, zona de paso de %d filas en %x:%x (%u KB)\n",
+         ctrl_ok + 1, alto, mc_tela, alto, mc_ring, filas, alto, geo.mc_rascunho, total >> 10);
 
     /* Encender el anillo (como r600_dma_resume, sin escritura de vuelta ni IB). */
     etapa = 4;
@@ -673,9 +704,9 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
     wr(DMA_RB_CNTL, cntl);
     wr(DMA_RB_RPTR, 0);
     wr(DMA_RB_WPTR, 0);
-    wr(DMA_RB_RPTR_ADDR_HI, 0);
+    wr(DMA_RB_RPTR_ADDR_HI, alto);                 /* D408: bits 39:32 (la escritura de vuelta va apagada) */
     wr(DMA_RB_RPTR_ADDR_LO, mc_ctrl + CTRL_RPTR * 4);
-    wr(DMA_RB_BASE, mc_ring >> 8);
+    wr(DMA_RB_BASE, (uint32_t)((((uint64_t)alto << 32) | mc_ring) >> 8));   /* bits 39:8 */
     /* D286: en Cayman, además, CMD_VMID_FORCE (cayman_dma_resume) y sin DMA_MODE. */
     wr(DMA_IB_CNTL, gen == EVG_GEN_CAYMAN ? DMA_IB_ENABLE | DMA_CMD_VMID_FORCE : DMA_IB_ENABLE);
     wr(DMA_CNTL, o_cntl & ~(DMA_INTERRUPCOES | DMA_TROCA_BYTES));
@@ -687,7 +718,7 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
     /* Prueba del anillo: escribir una palabra y leerla. */
     etapa = 5;
     uint32_t p[4];
-    r600_pkt_escrever(p, mc_ctrl + CTRL_TESTE * 4, 0xCAFEDEADu);
+    r600_pkt_escrever_alto(p, mc_ctrl + CTRL_TESTE * 4, 0xCAFEDEADu, alto);
     if (!pacote(p, 4)) { snformatar(m, (size_t)nm, "el anillo del DMA no avanza"); return false; }
     submeter();
     acel_prazo_t pz;

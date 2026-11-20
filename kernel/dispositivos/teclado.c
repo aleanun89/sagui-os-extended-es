@@ -19,6 +19,7 @@
 #include "processo.h"
 #include "sistema.h"
 #include "texto.h"
+#include "relogio.h"
 
 #define PORTA_DADOS  0x60
 #define PORTA_ESTADO 0x64
@@ -184,6 +185,10 @@ void teclado_seguradas(uint8_t mapa[32])
     int_restaura(i);
 }
 
+static volatile uint32_t tique_tecla;   /* D407: tic de la última tecla pulsada (sin los modificadores solos) */
+
+uint32_t teclado_ultima_tecla(void) { return tique_tecla; }
+
 void teclado_byte(uint8_t b)
 {
     if (b == 0xFA || b == 0xFE || b == 0x00 || b == 0xFF)
@@ -217,6 +222,7 @@ void teclado_byte(uint8_t b)
     }
     if (solta)
         return;
+    tique_tecla = relogio_tiques();   /* D407: el panel táctil no hace caso un momento tras escribir */
 
     /* D403: teclas multimedia (silencio E0 20, bajar E0 2E y subir E0 30 el volumen), las del
      * teclado y las del panel táctil de los HP (QuickTouch, D405): no van al búfer, son acciones

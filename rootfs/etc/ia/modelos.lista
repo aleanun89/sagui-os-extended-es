@@ -1,0 +1,14 @@
+# Modelos que se pueden bajar para la IA local (D380, fase 2): `ia descargar` y Configuración > IA.
+# Una línea por fichero, campos separados por «|»:
+#   id | nombre | fichero | bytes | sha256 | url | RAM recomendada (MB) | otro fichero que va con este | nota
+# Tamaños y sumas SHA-256 (el «lfs.oid») comprobados en la API de Hugging Face el 2026-11-19 y, los
+# que había en el PC del mantenedor, también con sha256sum. Los modelos (LFM Open License 1.0, de
+# Liquid AI) nunca van dentro de SaguiOS: se bajan a /home/compartido/modelos.
+# Q8_0 (1,8 GB) aún no cabe en el proceso de `llm` (~1,44 GB): hace falta la fase de pesos por ventanas (PAE).
+lfm3-1.7b-q4km|LFM3 1.7B Q4_K_M (texto, recomendado)|LFM3-1.7B-Q4_K_M.gguf|1099627808|3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4|https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-Q4_K_M.gguf|2048||el de serie: 1,1 GB; con 12k de contexto usa ~1,2 GB
+lfm3-1.7b-q4_0|LFM3 1.7B Q4_0 (texto, CPU sin SSSE3)|LFM3-1.7B-QAD-Q4_0.gguf|1049615680|43a7d09a0e9cba91b63eb7052488b9564569bddfd65754d2e426465e572a7452|https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-QAD-Q4_0.gguf|2048||el más rápido en Core Duo, Pentium 4 y Athlon 64 (versión QAD de Liquid AI)
+lfm3-1.7b-q8_0|LFM3 1.7B Q8_0 (texto, más preciso)|LFM3-1.7B-Q8_0.gguf|1846238496|8f6b24182258205e9e01e21f1f24a1f208c1e8115578825d202ce39976af20b6|https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-Q8_0.gguf|3072||aún no cabe en el proceso de llm (falta la fase de pesos por ventanas)
+lfm3-vl-2b-q4km|LFM3-VL 2B Q4_K_M (texto e imágenes)|LFM3-VL-2B-Q4_K_M.gguf|1099627808|56dac2e192ff0d9ab8507f4f1aeb4aed0463449bbbefaac79497f041c95f21eb|https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/resolve/main/LFM3-VL-2B-Q4_K_M.gguf|2048|mmproj-lfm3-vl-2b|baja también el proyector de imágenes (194 MB)
+lfm3-vl-2b-q4_0|LFM3-VL 2B Q4_0 (texto e imágenes, CPU sin SSSE3)|LFM3-VL-2B-QAD-Q4_0.gguf|1049615648|621c455376cb96a20891697deb9975c6fb47dd5ea98ed3ad1f3b7e8f24f0b1e6|https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/resolve/main/LFM3-VL-2B-QAD-Q4_0.gguf|2048|mmproj-lfm3-vl-2b|baja también el proyector de imágenes (194 MB)
+lfm3-vl-2b-q8_0|LFM3-VL 2B Q8_0 (texto e imágenes, más preciso)|LFM3-VL-2B-Q8_0.gguf|1846238496|e138e54189a751d90ea8c0b236360490613ecd465d28d68fa6094d3db7fa6727|https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/resolve/main/LFM3-VL-2B-Q8_0.gguf|3072|mmproj-lfm3-vl-2b|aún no cabe en el proceso de llm (falta la fase de pesos por ventanas)
+mmproj-lfm3-vl-2b|Proyector de imágenes de LFM3-VL 2B (Q8_0)|mmproj-LFM3-VL-2B-Q8_0.gguf|203031872|c5c5b58d544a18da919172d2d0368090ea1a4a351b6feb7f8a326a264a5918ab|https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/resolve/main/mmproj-LFM3-VL-2B-Q8_0.gguf|2048||se usa solo con un modelo LFM3-VL

@@ -80,6 +80,8 @@ __pycache__/
 *.gguf
 # Fuentes de TCC (D384): las baja tools/tcc_fuentes.sh; no van en git
 /userland/terceros/tcc/fuentes
+# Fuentes de GNU make (D413): las baja tools/make_fuentes.sh; no van en git
+/userland/terceros/make/fuentes
 # Fuentes de Chocolate Doom y Freedoom (D383): las bajan tools/doom_fuentes.sh y tools/doom_datos.sh; no van en git
 /userland/terceros/chocolatedoom/fuentes
 /userland/terceros/chocolatedoom/datos

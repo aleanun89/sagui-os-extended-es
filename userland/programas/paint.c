@@ -935,6 +935,7 @@ static bool tratar(evento_t *e)
         if (e->modificadores & 1) rolar(n, 0); else rolar(0, n);
         return true;
     }
+    if (e->tipo == EV_RODA_H) { rolar((int)e->cliques * 48, 0); return true; }   /* D407: panel táctil */
     if (e->tipo == EV_CLIQUE || e->tipo == EV_SOLTOU)
         for (int i = 0; i < QTD_BT; i++)
             if (botao_tratar(j, &bt[i], e)) {

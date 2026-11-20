@@ -39,12 +39,25 @@ unsigned sleep(unsigned s);
 int     usleep(unsigned us);
 pid_t   getpid(void);
 pid_t   getppid(void);
-/* Sin fork ni exec en el SaguiOS (se lanza con executar() de la libsagui):
- * devuelven -1 con ENOSYS. */
+/* D401: fork con copia al escribir, exec que conserva el pid y los descriptores (menos los
+ * FD_CLOEXEC), alarm y pause (sinais.c). */
 pid_t   fork(void);
+pid_t   vfork(void);
+int     execve(const char *caminho, char *const argv[], char *const envp[]);
 int     execv(const char *caminho, char *const argv[]);
 int     execvp(const char *arq, char *const argv[]);
+int     execvpe(const char *arq, char *const argv[], char *const envp[]);
+int     execl(const char *caminho, const char *arg, ...);
+int     execlp(const char *arq, const char *arg, ...);
+int     execle(const char *caminho, const char *arg, ...);
+unsigned alarm(unsigned segundos);
+int     pause(void);
+pid_t   setsid(void);
+pid_t   getpgrp(void);
+int     setpgid(pid_t pid, pid_t grupo);
+pid_t   getpgid(pid_t pid);
 int     pipe(int fds[2]);
+int     pipe2(int fds[2], int flags);
 void    _exit(int codigo) __attribute__((noreturn));
 int     getpagesize(void);
 uid_t   getuid(void);
@@ -59,7 +72,6 @@ int     link(const char *de, const char *para);
 #define _SC_NPROCESSORS_ONLN 84
 #define _SC_CLK_TCK 2
 #define _SC_GETPW_R_SIZE_MAX 70   /* D400: libgit2 */
-pid_t   getpgid(pid_t pid);
 pid_t   getsid(pid_t pid);
 #define _SC_PAGE_SIZE _SC_PAGESIZE
 #include <getopt.h>

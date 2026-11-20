@@ -330,6 +330,82 @@ minutos, `--smp`; `tests/h398_aoen_multinucleo.py bench`), en fps; el detalle, e
 | Terreno HD, antes / ahora | 107 / 131 | 124 / 224 | 120 / 260 |
 | Clásico con efectos, antes / ahora | 201 / 283 | 206 / 359 | 201 / 323 |
 
+## v8.5.5.3: islas que terminan y diplomacia con la máquina (D415)
+
+**Qué fallaba en las islas.** El generador de «islas» casi nunca deja a los jugadores en islas de verdad: de 25 mapas de
+100x100, un tercio dejaba a los dos jugadores separados por agua **o por bosque** (los árboles bloquean a las unidades; el
+arnés lo cuenta con `tile_walk`, línea `mapa separadas=1`). Eso rompía a la IA de cuatro maneras:
+1. Con rivales en la misma masa de tierra, los soldados esperaban un transporte en la reunión para siempre (la regla «en las
+   islas, esperan el transporte» valía aunque se pudiera ir andando).
+2. Los transportes iban al agua más cercana al objetivo **en línea recta**, que a menudo era una ensenada cerrada junto a casa:
+   desembarcaban en su propia isla y volvían andando (`desembarcan 5 unidades (jugador 0, en 72,16)` una y otra vez).
+3. Un uno o dos infiltrados (un transporte rival con 1 soldado) hacían que el ejército entero «defendiera» y deshiciera la
+   reunión y la invasión, indefinidamente.
+4. Con la población llena de tropa de tierra no cabía el segundo transporte; y los peces del generador cerraban a veces
+   el único canal de una ensenada, con toda la flota del jugador dentro.
+
+**Qué hace ahora la IA** (`ia.c`):
+- **Zonas por las que se anda** (`terr`, al empezar la partida: tierra sin edificios ni recursos, 4 vecinos) y **masas de agua**
+  (`marc`). Un rival está «por mar» si su edificio conocido está en otra zona; las islas a las que no se llega por mar desde el
+  agua del muelle no son objetivo (`isla_alcanzable`). Con todos los rivales en la misma zona no se hacen transportes ni flota
+  de más y el ejército marcha por tierra.
+- **Plan de desembarco** (`sitio_orilla`): la orilla de la isla del objetivo más cercana a él, alcanzable desde el agua del muelle
+  (casilla de agua y casilla de tierra pegadas), lejos de las torres que conoce. La flota navega a esa agua y los transportes
+  bajan a la tropa allí; lo desembarcado va directo al objetivo (grupo en la isla enemiga) y los refuerzos esperan en casa el
+  siguiente viaje. Antes de zarpar hay **flota de guerra** para dominar el agua (rivales vistos + 1, hasta 4; la fácil no la
+  exige; si en 150 s no la hay, salen igualmente). Se reservan plazas de población para los transportes que faltan.
+- **Recoger varados** (`rescatar`): una unidad militar o un sacerdote ocioso en otra zona que la de la base (desembarcado que no
+  sigue el ataque, dejado en un islote) lo recoge un transporte libre (un rescate a la vez, 4 minutos como máximo) y lo lleva al
+  muelle; si no se llega, se aparta 10 minutos a esa unidad.
+- **Infiltrados**: con 1-3 soldados rivales dentro de la base y menos del 35 % de la fuerza del ejército, solo defienden los de
+  casa; la reunión y la invasión siguen.
+- **Los peces no cierran canales** (`game.c`, generador): no se pone un pez en una casilla de agua con tierra a los dos lados.
+  El resto del mapa y los recursos salen igual (el generador consume los mismos números aleatorios).
+
+**Regla de victoria por conquista sin bloqueos** (`reglas_caida` en `game.c`). Un jugador **sin ningún edificio** (las murallas no
+cuentan) cae: **enseguida** si solo le quedan barcos de pesca, mercantes o transportes (ni luchan ni construyen), y **a los 180
+s** si le quedan unidades (un aldeano escondido, tropa en un islote): es lo que tardaría en levantar otro edificio. Al caer, el
+resto de sus unidades se rinden. Con un edificio en pie el contador vuelve a cero; el humano sin edificios ve el aviso
+«¡Sin edificios! Levanta uno en 3 minutos o perderás». Se aplica a todas las partidas (no solo islas) y a todos los modos de
+victoria; `W.pl[p].alive` y el final los decide el mismo `check_victory`.
+
+**Diplomacia con el humano** (F3; `ia_responde`, `ia_pide`, `ia_tributo`, `ia_traicion` y `proponer_al_humano` en `ia.c`; el chat en
+`game.c`/`ui_hud.c`):
+- *Personalidad* (fija por jugador y semilla: belicosa, equilibrada o pacífica) y *dificultad* (fácil +0,6, normal 0, difícil
+  -0,5, muy difícil -0,8) dan una puntuación base; se suma la *fuerza relativa* de quien pide (de -1,5 a +1,5, doble de la razón
+  menos uno), +1,5 si hay un *enemigo común* (un tercero vivo, enemigo de los dos y no más débil que ella), hasta +2,5 por los
+  *tributos recibidos* (1 por cada 200 llegados) y se resta 0,7 por cada *traición* recordada (hasta 2) y 4 durante los 15
+  minutos siguientes a una. La paz (enemigo a neutral) necesita 0,4 y la alianza 2,0 y venir de la paz; en difícil y muy
+  difícil, además, un enemigo común y algún tributo.
+- *Responde en el chat* (avisos arriba a la izquierda): «Eres fuerte: acepto la paz», «Tus regalos cuentan: acepto la alianza»,
+  «Eres demasiado débil para pedirme la paz», «Todavía no me fío: envíame un tributo», «Me traicionaste hace poco: no me fío
+  de ti», «Primero hagamos las paces»...
+- *Traición*: romper una paz o una alianza con la máquina la anota; responde «¡Traidor! No olvidaré esto», no acepta nada ni da
+  tributo en 15 minutos y después sigue desconfiando.
+- *Tributos y peticiones*: enviar tributo a la máquina suma a su confianza («Gracias por el tributo: lo recordaré»). El botón
+  **Modo: pedir** de F3 le pide un tributo: lo envía (con el mismo 20 % del mercado) si es aliada, o neutral y le has enviado tributo,
+  y le sobra (300, o 600 si es belicosa, por encima de lo pedido); no lo envía a un enemigo ni a quien la traicionó.
+- *La máquina propone* (normal y más, pasados 5 minutos, cada 4 minutos por jugador): la paz si es más débil (menos del 70 %),
+  si hay un enemigo común o si es pacífica y no es mucho más fuerte; la alianza si hay un enemigo común (y no es belicosa) o le
+  has enviado 200 en tributos; y te pide un recurso que le falta si a ti te sobra. La propuesta sale en la fila del jugador en
+  F3 con «Aceptar» y «Rechazar» (caduca a los 90 s). Si la traicionaste, no propone nada y te lo recuerda cada 5 minutos.
+- Entre máquinas la diplomacia sigue como antes (`cmd_diplomacy`, la más fuerte acepta).
+- AoEN no tiene tablas de traducción: los textos van en castellano como el resto de la interfaz, así que no hay nada que
+  traducir.
+
+**Medidas** (arnés de IA contra IA, 100x100, 2 jugadores, 60 minutos de juego como máximo; mapas de islas con los jugadores
+separados): difícil contra fácil, **antes** (sin cambios, 10 semillas separadas): 6 terminan, 5 por conquista, el resto no
+termina en una hora o gana por Maravilla tras 50 minutos; con solo la IA nueva y el generador viejo, 7 de 10 (5 por
+conquista); **ahora**, con la IA y el generador nuevos (15 semillas separadas): **14 de 15 terminan por conquista**, de 12 a
+27 minutos de juego (media 20), y la que falta (semilla 4) deja a un rival con un almacén y dos aldeanos en una isla que
+la flota no llega a ver. Normal contra normal en 6 semillas: antes 0 terminaban, ahora 3 (las otras 3 siguen parejas a
+los 60 minutos). Sin unidades en terreno ajeno en ningún caso, y la misma semilla da las mismas sumas del mundo.
+
+**Pruebas** (`tests/h415_aoen_islas_diplomacia.py`; arnés `tests/aoen_ia.c`): `islas` (semillas con jugadores separados),
+`caida` (`AOEN_IA_CAIDA=1|2|3`), `diplomacia` (`AOEN_IA_DIPLO=1`, guion del humano contra dos jugadores de la máquina),
+`fuentes` y, aparte, `compat` (h389 ia/reglas/terreno y h398 pc/determinismo-pc). Variables nuevas del arnés:
+`AOEN_IA_MAPA=1` (dibuja el mapa), `AOEN_IA_VOLCAR=segundos` (vuelca entidades a esa hora) y la línea `mapa separadas=N`.
+
 ## Plan: gráficos propios de las unidades (solo documentado)
 
 Decisión del mantenedor (2026-11-19): **sin trabajo previsto** en la 8.5.5.3; aquí solo el plan y el alcance.

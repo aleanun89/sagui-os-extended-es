@@ -693,7 +693,7 @@ int main(int argc, char **argv) {
 				unsigned h = 2166136261u;
 				for (int y = top_h * app.us; y < fb.h - bottom_h * app.us; ++y)
 					for (int x = 0; x < fb.w; ++x) h = (h ^ (fb.px[(size_t)y * fb.pitch + x] & 0xffffffu)) * 16777619u;
-				AOEN_LOG("[AOEN] suma del cuadro %d: %08x (t=%.2f, hilos %d)", frame, h, W.time, hilos_n());
+				AOEN_LOG("[AOEN] suma del cuadro %d: %08x (t=%.2f, hilos %d, mundo %08x)", frame, h, W.time, hilos_n(), world_suma());
 			}
 			hud_mundo();
 			gfx_ui_begin(app.us);

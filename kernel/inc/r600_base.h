@@ -15,7 +15,8 @@ typedef struct {
     bool        agp;
     uint32_t    bar0;             /* base física de la apertura de la CPU */
     uint32_t    desloc;           /* de la pantalla dentro del BAR 0 */
-    uint32_t    mc_tela;          /* la pantalla en el controlador de memoria de la GPU */
+    uint32_t    mc_tela;          /* la pantalla en el controlador de memoria de la GPU (32 bits bajos) */
+    uint8_t     mc_alto;          /* D408: bits 39:32 de mc_tela (0 por debajo de 4 GB; la HD 7600M del Toshiba: 0x0F) */
     uint64_t    vram_ini, vram_fim;   /* MC_VM_FB_LOCATION */
     uint32_t    fbloc, hdp, vm0;
     uint32_t    memsize, aper;    /* CONFIG_MEMSIZE, CONFIG_APER_SIZE */

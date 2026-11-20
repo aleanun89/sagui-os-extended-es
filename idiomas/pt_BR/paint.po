@@ -206,11 +206,11 @@ msgstr "Imagens|*.bmp;*.ppm;*.pgm;*.png|Todos os arquivos (*.*)|*"
 msgid "Texto a escribir en el dibujo:"
 msgstr "Texto a escrever no desenho:"
 
-#: userland/programas/paint.c:997
+#: userland/programas/paint.c:998
 msgid "Paint - sin nombre"
 msgstr "Paint - sem nome"
 
-#: userland/programas/paint.c:1006
+#: userland/programas/paint.c:1007
 #, c-format
 msgid "Archivo nuevo: %s"
 msgstr "Arquivo novo: %s"

@@ -208,3 +208,14 @@ void texto_modo(unsigned modo, char saida[10])
     if (modo & MODO_PEGAJOSO) saida[8] = saida[8] == 'x' ? 't' : 'T';
     saida[9] = 0;
 }
+
+/* D401: procesos POSIX (fork, exec, waitpid, señales, poll y fcntl). La libc común los envuelve
+ * con los nombres de siempre; aquí solo la llamada. */
+int  bifurcar(void)                   { return chamar(SIS_BIFURCAR, 0, 0, 0); }
+int  substituir(const char *c, char *const argv[], char *const envp[])
+                                      { return chamar(SIS_SUBSTITUIR, (unsigned)c, (unsigned)argv, (unsigned)envp); }
+int  esperar_pid(int pid, int *estado, int opcoes)
+                                      { return chamar(SIS_ESPERAR_PID, (unsigned)pid, (unsigned)estado, (unsigned)opcoes); }
+int  sinal_op(int op, unsigned a, unsigned b, unsigned c) { return chamar4(SIS_SINAL, (unsigned)op, a, b, c); }
+int  sondar(sondagem_t *v, unsigned n, int ms) { return chamar(SIS_SONDAR, (unsigned)v, n, (unsigned)ms); }
+int  descritor_op(int fd, int op, unsigned arg) { return chamar(SIS_DESCRITOR, (unsigned)fd, (unsigned)op, arg); }

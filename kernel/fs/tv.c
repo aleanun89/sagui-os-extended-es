@@ -89,11 +89,13 @@ static void interromper(tv_t *t)
         acordar(t->entrada);
         return;
     }
+    /* D401: SIGINT a cada proceso del grupo. Sin tratador termina como siempre (código 130,
+     * «interrumpido con Ctrl+C»); con tratador, lo atiende el programa. */
     for (int i = 0; i < MAX_PROCESSOS; i++) {
         processo_t *p = processo_indice(i);
-        if (!p || !p->usuario || p->estado == P_ZUMBI || p->estado == P_LIVRE) continue;
+        if (!p || !p->usuario || p->lider || p->estado == P_ZUMBI || p->estado == P_LIVRE) continue;
         if (p->pid == t->primeiro_plano || p->grupo == t->primeiro_plano)
-            processo_encerrar(p, SAIDA_INTERROMPIDO, "interrumpido con Ctrl+C");
+            sinais_enviar(p, SINAL_INT, 0, 0, SINAL_SI_KERNEL);
     }
 }
 

@@ -7,6 +7,7 @@
  *   wifi desconectar
  *   wifi recordadas             las redes recordadas
  *   wifi olvidar SSID
+ *   wifi compatibles [VID:PID]  qué pinchos USB reconoce el sistema; con un VID:PID (hex), de qué familia es (D409)
  *   wifi --ventana              la ventana de redes (la que abre el icono Wi-Fi de la bandeja, D354)
  *
  * Conectar y desconectar no piden ser root: vale la sesión local (D354). Las redes recordadas son
@@ -57,6 +58,17 @@ static void avisa(bool erro, const char *fmt, ...)
         if (erro) imprimir_em(ERROS, "%s", t); else imprimir("%s", t);
     }
     va_end(ap);
+}
+
+/* ¿«t» contiene «frag»? */
+static int contem_texto(const char *t, const char *frag)
+{
+    for (; *t; t++) {
+        const char *a = t, *b = frag;
+        while (*a && *b && *a == *b) { a++; b++; }
+        if (!*b) return 1;
+    }
+    return 0;
 }
 
 static const char *nome_estado(unsigned e)
@@ -217,6 +229,8 @@ static int estado(void)
         return 1;
     }
     imprimir("Adaptador: %s\n", v.chip[0] ? v.chip : "Realtek RTL8188EU");
+    if (contem_texto(v.chip, "experimental"))   /* D409: RTL8188CU/8192CU y RT2870/RT3070/RT5370 */
+        avisa(false, _("AVISO: este pincho es experimental: el driver se escribió sin tener el dispositivo y no se ha probado en hardware (D409).\n"));
     imprimir("MAC:       %02x:%02x:%02x:%02x:%02x:%02x\n", v.mac[0], v.mac[1], v.mac[2], v.mac[3], v.mac[4], v.mac[5]);
     if (v.firmware[0]) imprimir("Firmware:  %s\n", v.firmware);
     imprimir("Estado:    %s\n", nome_estado(v.estado));
@@ -469,6 +483,51 @@ static int olvidar(const char *ssid)
 }
 
 #include "wifi_ventana.h"
+#include "../../kernel/rede/wifi_usb_logica.h"   /* D409: qué pinchos reconoce el kernel (por VID:PID) */
+
+/* D409: «wifi compatibles [VID:PID]». */
+static int hex4(const char *t, unsigned *v, const char **fin)
+{
+    unsigned r = 0;
+    int n = 0;
+    for (; n < 4; n++, t++) {
+        unsigned d;
+        if (*t >= '0' && *t <= '9') d = (unsigned)(*t - '0');
+        else if (*t >= 'a' && *t <= 'f') d = (unsigned)(*t - 'a' + 10);
+        else if (*t >= 'A' && *t <= 'F') d = (unsigned)(*t - 'A' + 10);
+        else break;
+        r = r << 4 | d;
+    }
+    if (!n) return 0;
+    *v = r;
+    *fin = t;
+    return 1;
+}
+
+static int compatibles(int argc, char **argv)
+{
+    if (argc >= 3) {
+        unsigned vid, pid;
+        const char *f;
+        if (!hex4(argv[2], &vid, &f) || *f != ':' || !hex4(f + 1, &pid, &f) || *f) {
+            imprimir_em(ERROS, "uso: wifi compatibles [VID:PID]   (por ejemplo 148f:3070)\n");
+            return 2;
+        }
+        int fam = wusb_familia((uint16_t)vid, (uint16_t)pid);
+        if (fam == WUSB_NINGUNO) { imprimir("%04x:%04x: no es un pincho Wi-Fi USB reconocido\n", vid, pid); return 1; }
+        imprimir("%04x:%04x: %s%s\n", vid, pid, wusb_nome_familia(fam),
+                 fam == WUSB_AR9271 ? " (reconocido, todavía sin driver)" :
+                 wusb_experimental(fam) ? " (experimental, sin probar en hardware)" : " (probado)");
+        return 0;
+    }
+    imprimir("Pinchos Wi-Fi USB reconocidos (por VID:PID):\n");
+    imprimir("  %-30s %3d  probado en hardware\n", wusb_nome_familia(WUSB_RTL8188EU), 1);
+    imprimir("  %-30s %3d  experimental, sin probar en hardware\n", wusb_nome_familia(WUSB_RTL8192CU), WUSB_N(wusb_ids_rtl8192cu));
+    imprimir("  %-30s %3d  experimental, sin probar en hardware\n", wusb_nome_familia(WUSB_RT2870), WUSB_N(wusb_ids_rt2870));
+    imprimir("  %-30s %3d  reconocido, todavía sin driver\n", wusb_nome_familia(WUSB_AR9271), WUSB_N(wusb_ids_ar9271));
+    imprimir("Un solo adaptador Wi-Fi a la vez. Comprueba el tuyo con: wifi compatibles VID:PID (el VID:PID lo ves con el programa usb).\n");
+    return 0;
+}
 
 int principal(int argc, char **argv)
 {
@@ -483,8 +542,9 @@ int principal(int argc, char **argv)
         imprimir("Desconectado.\n");
         return 0;
     }
+    if (!compara_texto(argv[1], "compatibles")) return compatibles(argc, argv);
     if (!compara_texto(argv[1], "recordadas")) return recordadas();
     if (!compara_texto(argv[1], "olvidar") && argc >= 3) return olvidar(argv[2]);
-    imprimir_em(ERROS, "uso: wifi [estado | buscar | conectar SSID [clave] | desconectar | recordadas | olvidar SSID | --ventana]\n");
+    imprimir_em(ERROS, "uso: wifi [estado | buscar | conectar SSID [clave] | desconectar | recordadas | olvidar SSID | compatibles [VID:PID] | --ventana]\n");
     return 2;
 }

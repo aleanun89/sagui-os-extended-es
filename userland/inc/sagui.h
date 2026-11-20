@@ -60,6 +60,15 @@ int  recolher(int *codigo);   /* un hijo que ya terminó, sin esperar; 0 si ning
 void sair(int codigo) __attribute__((noreturn));
 int  meu_pid(void);
 int  matar(int pid);
+/* D401: procesos POSIX. bifurcar = fork (0 en el hijo); substituir = execve (no vuelve si va bien);
+ * esperar_pid = waitpid (estado como Linux, ESPERA_*); sinal_op = SIS_SINAL (SINOP_*); sondar = poll
+ * (sondagem_t, ms < 0 sin plazo); descritor_op = fcntl (DESC_*). La libc común los envuelve. */
+int  bifurcar(void);
+int  substituir(const char *caminho, char *const argv[], char *const envp[]);
+int  esperar_pid(int pid, int *estado, int opcoes);
+int  sinal_op(int op, unsigned a, unsigned b, unsigned c);
+int  sondar(sondagem_t *v, unsigned n, int ms);
+int  descritor_op(int fd, int op, unsigned arg);
 /* ---- archivos ---- */
 int  abrir(const char *caminho, int modo);
 int  ler(int fd, void *buf, unsigned n);

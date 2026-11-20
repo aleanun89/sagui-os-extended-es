@@ -108,6 +108,16 @@ if [ -n "$ENTRADA" ] && [ -d "$ENTRADA/games" ]; then
         echo "copiar_jogos: $ENTRADA/games/$n -> /jogos/$n (sin imágenes de disco)"
     done
 fi
+# Tzar (D417): la instalación del mantenedor, «INPUT_SHARE/Tzar Anthology», va a /jogos/TZAR con solo lo que
+# lee el port (paquetes, mapas, campañas, la introducción y Tzar.ini); nada del Tzar.exe ni de sus DLL. Solo con
+# INPUT_SHARE (imágenes privadas): las entregas lo dejan vacío. Unos 500 MB: hace falta JOGOS_MB grande.
+if [ -n "$ENTRADA" ] && [ -d "$ENTRADA/Tzar Anthology/Packs" ]; then
+    t="$ENTRADA/Tzar Anthology"
+    mkdir -p "$R/TZAR"
+    for x in Packs Maps Campaign; do [ -d "$t/$x" ] && cp -r "$t/$x" "$R/TZAR/"; done
+    for x in intro.MPG Tzar.ini; do [ -f "$t/$x" ] && cp "$t/$x" "$R/TZAR/"; done
+    echo "copiar_jogos: $t -> /jogos/TZAR (paquetes, mapas, campañas e introducción)"
+fi
 # Las marcas de descarga de Windows no son del juego.
 find "$R" -name '*:Zone.Identifier' -exec rm -f {} +
 

@@ -27,6 +27,8 @@ input_share/
   OpenJazz la encuentra sola (busca en todas las carpetas de `/jogos` y prefiere la versión completa
   al shareware). Si la carpeta se llama como una del sistema (`opentyrian`, `openjazz`), su contenido
   se pone encima del de serie.
+- **Tzar (D417):** la carpeta de la instalación (con `Packs/`, `Maps/` y `Campaign/`) en `input_share/games/TZAR/` acaba en
+  `/jogos/TZAR`, donde la busca el visor `tzar` (`docs/tzar.md`). Solo imágenes privadas: los datos de Tzar no se distribuyen.
 - **DOOM clásico (D383):** `input_share/games/DOOM/` con los WAD originales (`doom.wad`, `doom2.wad`, `plutonia.wad`, `tnt.wad`; también
   `heretic.wad`, `hexen.wad`, `strife1.wad`) acaba en `/jogos/DOOM` y Chocolate Doom los usa en lugar de Freedoom. Solo imágenes privadas.
 - **Juegos de DOS (D294):** cualquier carpeta de `input_share/games/` con un `.exe`, `.com` o `.bat` en su raíz

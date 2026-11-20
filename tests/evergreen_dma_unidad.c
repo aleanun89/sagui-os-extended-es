@@ -10,7 +10,12 @@
  *
  * El motor simulado decodifica cada paquete con el formato de evergreend.h
  * (orden en 31:28, subcódigo en 27:20, cuenta en 19:0) y copia en un orden
- * cualquiera: el resultado tiene que ser el de memmove. */
+ * cualquiera: el resultado tiene que ser el de memmove.
+ *
+ * D408: los rectángulos se prueban dos veces: con la pantalla en el MC por
+ * debajo de 4 GB y como en la HD 7600M del Toshiba (VRAM del MC en
+ * 0xF_0000_0000): el motor lee la dirección entera de 40 bits (bits 39:32 en
+ * las palabras 3 y 4) y comprueba que cae en la memoria simulada. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,11 +26,14 @@
 #define PASSO    208
 #define A        120
 #define BASE_MC  0x10000000u
+#define BASE_ALTA 0xF00000000ull   /* D408: la VRAM del MC del Toshiba (MC_VM_FB_LOCATION 0x0f3f0f00) */
 #define RASC_F   5
 #define TOTAL    (PASSO * (A + 1 + RASC_F + 1))
 
 static uint32_t vram[TOTAL], ref[PASSO * A];
 static int falhas, verificacoes, modo_ordem, pacotes;
+static uint64_t base_sim = BASE_MC;   /* dirección entera en el MC del principio de vram[] */
+static uint8_t alto_sim;              /* el byte alto que pone el driver en los paquetes */
 static uint32_t semente = 2861;
 static uint32_t aleat(uint32_t n) { semente = semente * 1103515245u + 12345u; return (semente >> 8) % n; }
 
@@ -42,9 +50,12 @@ static bool motor(const uint32_t *p, int np)
     if (np != 5) { falha("la copia de Evergreen son 5 palabras"); return false; }
     uint32_t op = p[0] >> 28, sub = (p[0] >> 20) & 0xFF, n = p[0] & 0xFFFFF;
     if (op != 3 || sub != 0) { falha("orden o subcódigo del paquete"); return false; }
-    if (p[3] || p[4] || (p[1] & 3) || (p[2] & 3)) { falha("bits altos o alineación"); return false; }
-    if (p[1] < BASE_MC || p[2] < BASE_MC) { falha("fuera de la memoria"); return false; }
-    uint32_t d = (p[1] - BASE_MC) / 4, o = (p[2] - BASE_MC) / 4;
+    if (p[3] > 0xFF || p[4] > 0xFF || (p[1] & 3) || (p[2] & 3)) { falha("bits altos o alineación"); return false; }
+    uint64_t dst = ((uint64_t)p[3] << 32) | p[1], src = ((uint64_t)p[4] << 32) | p[2];   /* 40 bits */
+    if (dst < base_sim || src < base_sim) { falha("fuera de la memoria"); return false; }
+    uint64_t d64 = (dst - base_sim) / 4, o64 = (src - base_sim) / 4;
+    if (d64 > TOTAL || o64 > TOTAL) { falha("fuera de la memoria (40 bits)"); return false; }
+    uint32_t d = (uint32_t)d64, o = (uint32_t)o64;
     if (n == 0 || d + n > TOTAL || o + n > TOTAL) { falha("fuera de la memoria"); return false; }
     if (d < o + n && o < d + n) falha("origen y destino de un paquete se tocan");
     switch (modo_ordem) {
@@ -60,11 +71,11 @@ static bool sim_copia(void *ctx, uint32_t dst, uint32_t src, uint32_t n)
 {
     (void)ctx;
     uint32_t p[8] = { 0 };
-    return motor(p, evg_pkt_copiar(p, dst, src, n));
+    return motor(p, alto_sim ? evg_pkt_copiar_alto(p, dst, src, n, alto_sim) : evg_pkt_copiar(p, dst, src, n));
 }
 static bool sim_barreira(void *ctx) { (void)ctx; return true; }
 
-static const r600_geo_t geo = { BASE_MC, PASSO * 4, BASE_MC + PASSO * 4 * (A + 1), RASC_F };
+static r600_geo_t geo = { BASE_MC, PASSO * 4, BASE_MC + PASSO * 4 * (A + 1), RASC_F };
 static const r600_saida_t saida = { NULL, sim_copia, sim_barreira };
 
 static void copia(int ox, int oy, int dx, int dy, int l, int a)
@@ -171,12 +182,41 @@ int main(void)
         c = bom; c.superficie_alta = 1;   COMPROBAR(!evg_crtc_mostra(&c, 0xD0000000u, 1376), "por encima de 4 GB");
         c = bom;                          COMPROBAR(!evg_crtc_mostra(&c, 0xD0100000u, 1376), "otra superficie");
         c = bom; c.superficie = 0xD0000080u; COMPROBAR(!evg_crtc_mostra(&c, 0xD0000080u, 1376), "pantalla sin alinear a 256 bytes");
+        /* D408: la superficie por encima de 4 GB (la del Toshiba: 0xF_0000_0000). */
+        const evg_crtc_t alta = { 1, 1, 0x00100002u, 0x00000000u, 0x0F, 1024, 0, 0 };
+        c = alta;                         COMPROBAR(evg_crtc_mostra(&c, BASE_ALTA, 1024), "40 bits: pantalla en 0xF_0000_0000");
+        c = alta;                         COMPROBAR(!evg_crtc_mostra(&c, 0x00000000u, 1024), "40 bits: el byte alto cuenta");
+        c = alta; c.superficie_alta = 0x0E; COMPROBAR(!evg_crtc_mostra(&c, BASE_ALTA, 1024), "40 bits: otro byte alto");
+        c = alta; c.superficie_alta = 0x10F; COMPROBAR(evg_crtc_mostra(&c, BASE_ALTA, 1024), "40 bits: solo los bits 7:0 del registro alto");
+        c = alta;                         COMPROBAR(!evg_crtc_mostra(&c, 0x10000000000ull, 1024), "más de 40 bits se rechaza");
+        c = bom;                          COMPROBAR(!evg_crtc_mostra(&c, 0x1D0000000ull, 1376), "bits altos que el registro no tiene");
+    }
+    /* D408: los paquetes con byte alto 0 son los de siempre; con byte alto, en las palabras 3 y 4. */
+    {
+        uint32_t q[8];
+        evg_pkt_copiar(q, 0x1003u, 0x2002u, 77);
+        COMPROBAR(evg_pkt_copiar_alto(p, 0x1003u, 0x2002u, 77, 0) == 5 && !memcmp(p, q, 5 * sizeof p[0]),
+                  "copia con byte alto 0 = la de siempre");
+        COMPROBAR(evg_pkt_copiar_alto(p, 0x1003u, 0x2002u, 77, 0x0F) == 5 && p[0] == q[0] && p[1] == 0x1000u &&
+                  p[2] == 0x2000u && p[3] == 0x0Fu && p[4] == 0x0Fu, "copia con byte alto 0x0F (Toshiba)");
+        COMPROBAR(evg_pkt_copiar_alto(p, 0x1000u, 0x2000u, 0x100000u, 0x0F) == 0, "copia con byte alto: la cuenta sigue limitada");
+        r600_pkt_valla_alto(p, 0x1000u, 9, 0x0F);
+        COMPROBAR(p[0] == EVG_DMA_CABECA(6, 0, 0) && p[1] == 0x1000u && p[2] == 0x0Fu && p[3] == 9, "valla con byte alto");
+        r600_pkt_escrever_alto(p, 0x1004u, 0xCAFEDEADu, 0x0F);
+        COMPROBAR(p[0] == EVG_DMA_CABECA(2, 0, 1) && p[1] == 0x1004u && p[2] == 0x0Fu && p[3] == 0xCAFEDEADu,
+                  "escribir con byte alto");
     }
     COMPROBAR(evg_memsize_bytes(512) == (512u << 20) && evg_memsize_bytes(1024) == (1u << 30) && evg_memsize_bytes(0) == 0 &&
               evg_memsize_bytes(4096) == 0 && evg_memsize_bytes(0xFFFFFFFFu) == 0 && evg_memsize_bytes(4095) == 0xFFF00000u,
               "CONFIG_MEMSIZE en MB");
 
-    /* 4. Rectángulos con el paquete de Evergreen: como memmove con el motor copiando en cualquier orden. */
+    /* 4. Rectángulos con el paquete de Evergreen: como memmove con el motor copiando en cualquier orden.
+     * D408: primero por debajo de 4 GB y después con la VRAM del MC en 0xF_0000_0000 (byte alto 0x0F). */
+    for (int vez = 0; vez < 2; vez++) {
+    base_sim = vez ? BASE_ALTA : BASE_MC;
+    alto_sim = (uint8_t)(base_sim >> 32);
+    geo.mc_tela = (uint32_t)base_sim;
+    geo.mc_rascunho = (uint32_t)base_sim + PASSO * 4 * (A + 1);
     for (modo_ordem = 0; modo_ordem < 3; modo_ordem++) {
         for (uint32_t i = 0; i < TOTAL; i++) vram[i] = i * 2654435761u;
         memcpy(ref, vram, sizeof ref);
@@ -194,11 +234,12 @@ int main(void)
             copia(ox, oy, dx, dy, l, a);
         }
         uint32_t fila = geo.mc_rascunho + (uint32_t)RASC_F * geo.pitch;
-        for (int i = 0; i < L; i++) vram[(fila - BASE_MC) / 4 + (uint32_t)i] = 0x00A1B2C3u;
+        for (int i = 0; i < L; i++) vram[(fila - (uint32_t)base_sim) / 4 + (uint32_t)i] = 0x00A1B2C3u;
         if (!r600_preencher_ret(&geo, &saida, fila, 10, 20, 100, 50)) falha("relleno");
         for (int j = 0; j < 50; j++)
             for (int i = 0; i < 100; i++) ref[(20 + j) * PASSO + 10 + i] = 0x00A1B2C3u;
         COMPROBAR(!memcmp(vram, ref, sizeof ref), "relleno");
+    }
     }
     printf("%d comprobaciones, %d paquetes\n", verificacoes, pacotes);
     if (falhas) { printf("%d fallos\n", falhas); return 1; }

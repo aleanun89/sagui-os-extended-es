@@ -27,6 +27,8 @@
 #include "permisos.h"
 #include "texto.h"
 #include "vfs.h"
+#include "relogio.h"
+#include "gui.h"
 
 /* Límites de argumentos y entorno (D037): los textos van a la pila del
  * programa, así que el total queda en 16 KB. */
@@ -313,11 +315,21 @@ static uint8_t exe_do_caminho(const char *caminho)
     return EXE_COMUM;
 }
 
-int processo_executar_env(const char *caminho, int argc, char *const argv[], int envc, char *const envp[],
-                          processo_t *pai)
+/* D401: lo que deja cargado un programa en un espacio nuevo, sin proceso todavía (lo usan
+ * executar, que crea uno, y exec, que cambia el espacio del que llama). */
+typedef struct {
+    espaco_t e;
+    uint32_t entrada, pilha, fim;
+    bool     dinamico;       /* con intérprete (D378): el área de datos acaba en INTERP_BASE */
+    uint32_t end_seguro;     /* dónde va el valor de AT_SECURE (0 = sin vector auxiliar) */
+} carga_t;
+
+static int carregar_programa(const char *caminho, int argc, char *const argv[], int envc, char *const envp[],
+                             carga_t *cg)
 {
     uint32_t tam;
     uint8_t *img;
+    memset(cg, 0, sizeof *cg);
     int erro = vfs_ler_inteiro(caminho, &img, &tam);
     if (erro < 0) return erro;
 
@@ -354,31 +366,55 @@ int processo_executar_env(const char *caminho, int argc, char *const argv[], int
     uint32_t pilha = 0;
     if (r == 0 && !(pilha = montar_pilha(e, argc, argv, envc, envp, aux))) r = ERRO_SEM_MEMORIA;
     if (r < 0) { espaco_destruir(e); kfree(aux); return r; }
+    cg->e = e;
+    cg->entrada = entrada;
+    cg->pilha = pilha;
+    cg->fim = fim;
+    cg->dinamico = aux != NULL;
+    cg->end_seguro = aux ? aux->end_seguro : 0;
+    kfree(aux);
+    return 0;
+}
 
+/* D378: AT_SECURE = 0 solo para una cuenta normal que ejecuta un programa sin permisos
+ * especiales (no root, no de /bin). */
+static void fixar_seguro(const carga_t *cg, const processo_t *p)
+{
+    if (!cg->end_seguro) return;
+    uint32_t seguro = (p->uid == 0 || p->exe_sistema != EXE_COMUM) ? 1 : 0;
+    copiar_para(cg->e, cg->end_seguro, &seguro, 4);
+}
+
+static const char *nome_de(const char *caminho)
+{
     const char *nome = caminho;
     for (const char *p = caminho; *p; p++)
         if (*p == '/') nome = p + 1;
-    processo_t *p = processo_novo(nome, pai ? pai->pid : 0);
-    if (!p) { espaco_destruir(e); kfree(aux); return ERRO_LIMITE; }
-    p->espaco = e;
+    return nome;
+}
+
+int processo_executar_env(const char *caminho, int argc, char *const argv[], int envc, char *const envp[],
+                          processo_t *pai)
+{
+    carga_t cg;
+    int r = carregar_programa(caminho, argc, argv, envc, envp, &cg);
+    if (r < 0) return r;
+    processo_t *p = processo_novo(nome_de(caminho), pai ? pai->pid : 0);
+    if (!p) { espaco_destruir(cg.e); return ERRO_LIMITE; }
+    p->espaco = cg.e;
     p->exe_sistema = exe_do_caminho(caminho);   /* D251 */
     dar_identidade(p, pai);                     /* D255 */
-    p->dados_inicio = p->dados_fim = (fim + PAGINA - 1) & ~(PAGINA - 1);
-    if (aux) {
-        /* D378: área de datos hasta el intérprete; AT_SECURE = 0 solo para una cuenta
-         * normal que ejecuta un programa sin permisos especiales (no root, no de /bin). */
-        p->dados_teto = INTERP_BASE;
-        uint32_t seguro = (p->uid == 0 || p->exe_sistema != EXE_COMUM) ? 1 : 0;
-        copiar_para(e, aux->end_seguro, &seguro, 4);
-        kfree(aux);
-    }
+    p->dados_inicio = p->dados_fim = (cg.fim + PAGINA - 1) & ~(PAGINA - 1);
+    if (cg.dinamico) p->dados_teto = INTERP_BASE;   /* D378: área de datos hasta el intérprete */
+    fixar_seguro(&cg, p);
     p->grupo = pai ? pai->grupo : p->pid;   /* el hijo queda en el grupo del padre (D037) */
     if (pai) {
         txt_copia_n(p->pasta, pai->pasta, sizeof p->pasta);
         permisos_pasta_herdada(p, pai);   /* D371: si nace con otra carpeta que su padre */
     }
     arquivos_herdar(p, pai);
-    processo_preparar_usuario(p, entrada, pilha);
+    sinais_iniciar_processo(p, NULL, false);   /* D401: todo por defecto (SIGPIPE ignorada) */
+    processo_preparar_usuario(p, cg.entrada, cg.pilha);
     klog("[SAGUI] executar %s -> processo %d\n", caminho, p->pid);
     return p->pid;
 }
@@ -434,4 +470,127 @@ int32_t sis_executar(uint32_t ptr_caminho, uint32_t ptr_argv, uint32_t ptr_envp,
     kfree(textos);
     kfree(argv);
     return r;
+}
+
+/* Revisión D401: un error de execve. Si ya se mataron los demás hilos (la llamada se repitió
+ * esperando a que dejaran su CPU) no se puede volver al programa como si nada: el proceso termina,
+ * como en Linux tras el punto de no retorno. */
+static int32_t exec_falhou(processo_t *l, int32_t r)
+{
+    if (!l->exec_sem_volta) return r;
+    l->exec_sem_volta = false;
+    kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: execve fallo (%d) tras terminar sus hilos\n", l->pid, l->nome, r);
+    l->sinal_fim = SINAL_KILL;
+    processo_encerrar(l, SAIDA_ENCERRADO_PELO_KERNEL, "execve fallo tras terminar sus hilos");
+    return r;
+}
+
+/* D401: execve(caminho, argv, envp). El proceso que llama pasa a ejecutar otro programa con el
+ * mismo pid, padre, grupo, identidad, carpeta y descriptores (menos los FD_CLOEXEC).
+ *   1. Todo lo que puede fallar va antes de tocar nada: la ruta, los permisos (D282) y la carga
+ *      entera del programa (y de su intérprete, D378) en un espacio NUEVO. Si falla, vuelve con
+ *      el error y el proceso sigue igual.
+ *   2. Los demás hilos terminan. Si alguno sigue aún en otra CPU (sacándolo de su código), se
+ *      suelta lo cargado y la llamada se repite en el tic siguiente: el espacio viejo no se puede
+ *      destruir mientras una CPU lo tenga en su CR3 (D165, D167).
+ *   3. Sin vuelta atrás: se cierran las ventanas (sus píxeles están en el espacio viejo), se
+ *      cambia el espacio y se destruye el viejo, se cierran los FD_CLOEXEC, los tratadores de
+ *      señales vuelven a SIG_DFL, la FPU queda limpia y el cuadro empieza en la entrada nueva.
+ * Desde un hilo que no es el principal: ERRO_NAO_SUPORTADO (carencia anotada en D401). */
+int32_t sis_substituir(uint32_t ptr_caminho, uint32_t ptr_argv, uint32_t ptr_envp, uint32_t d, uint32_t e)
+{
+    (void)d; (void)e;
+    processo_t *t = processo_atual(), *l = processo_lider(t);
+    quadro_t *q = t->quadro_chamada;
+    if (!q || !l->usuario) return ERRO_ACESSO;
+    if (t != l) return ERRO_NAO_SUPORTADO;
+    char bruto[CAMINHO_MAX], caminho[CAMINHO_MAX];
+    int r = usuario_texto((const char *)ptr_caminho, bruto, sizeof bruto);
+    if (r < 0) return exec_falhou(l, r);
+    if (!caminho_resolver(l->pasta, bruto, caminho, sizeof caminho)) return exec_falhou(l, ERRO_INVALIDO);
+    if (!permisos_casa_traduzir(l, caminho)) return exec_falhou(l, ERRO_INVALIDO);   /* D340 */
+    if ((r = permisos_acesso(caminho, PERM_LER | PERM_EXECUTAR)) < 0) return exec_falhou(l, r);   /* D282 */
+
+    char **argv = kmalloc((MAX_ARGS + 1 + MAX_ENV + 1) * sizeof(char *));
+    char *textos = kmalloc(MAX_ARGS_BYTES);
+    if (!argv || !textos) { kfree(argv); kfree(textos); return exec_falhou(l, ERRO_SEM_MEMORIA); }
+    char **envp = argv + MAX_ARGS + 1;
+    uint32_t usado = 0;
+    int argc = copiar_vetor((const char *const *)ptr_argv, argv, MAX_ARGS, textos, &usado);
+    int envc = argc < 0 ? 0 : copiar_vetor((const char *const *)ptr_envp, envp, MAX_ENV, textos, &usado);
+    carga_t cg;
+    if (argc < 0) r = argc;
+    else if (envc < 0) r = envc;
+    else {
+        if (argc == 0) argv[argc++] = bruto;
+        argv[argc] = NULL;
+        envp[envc] = NULL;
+        r = carregar_programa(caminho, argc, argv, envc, envp, &cg);
+    }
+    kfree(textos);
+    kfree(argv);
+    if (r < 0) return exec_falhou(l, r);
+
+    /* 2. Los demás hilos. Primero la barrera D351 (ninguno dormido dentro de una llamada con
+     * punteros del espacio viejo); los que corren en otra CPU se sacan de su código; quedan
+     * zombis sin padre (los recoge escalonar). */
+    if (!espaco_pode_tirar()) { espaco_destruir(cg.e); return SIS_REPETIR; }
+    bool ainda = false;
+    for (int i = 1; i < MAX_PROCESSOS; i++) {
+        processo_t *h = processo_indice(i);
+        if (h->lider != l || h->estado == P_LIVRE) continue;
+        if (h->estado != P_ZUMBI) {
+            l->exec_sem_volta = true;   /* desde aquí, un fallo de la llamada repetida termina el proceso */
+            if (h->na_cpu) processo_tirar_da_cpu(h);
+            fpu_esquecer(h);
+            h->estado = P_ZUMBI;
+            h->espera = NULL;
+            h->acordar_em = 0;
+        }
+        h->pai = 0;
+        /* Revisión D401: su hueco de pila ya no es suyo (vagas_hilos vuelve a 0 abajo). Si no, al
+         * recogerlo escalonar() más tarde soltaría el hueco de un hilo NUEVO del programa cargado y
+         * dos hilos acabarían con la misma pila. */
+        h->vaga_pilha = 0;
+        if (h->na_cpu) ainda = true;
+    }
+    if (ainda) {
+        espaco_destruir(cg.e);
+        t->acordar_em = relogio_tiques() + 1;
+        bloquear(&l->espaco);
+        return SIS_REPETIR;
+    }
+
+    /* 3. Sin vuelta atrás. */
+    l->exec_sem_volta = false;
+    janelas_do_processo_fechar(l);
+    espaco_t velho = l->espaco;
+    l->espaco = cg.e;
+    espaco_ativar(cg.e);
+    espaco_destruir(velho);
+    l->exe_sistema = exe_do_caminho(caminho);   /* D251: como al lanzarlo */
+    txt_copia_n(l->nome, nome_de(caminho), sizeof l->nome);
+    l->dados_inicio = l->dados_fim = (cg.fim + PAGINA - 1) & ~(PAGINA - 1);
+    l->dados_teto = cg.dinamico ? INTERP_BASE : 0;
+    fixar_seguro(&cg, l);
+    l->mmio_fim = USUARIO_MMIO;
+    memset(l->bar_mapas, 0, sizeof l->bar_mapas);
+    l->vagas_hilos = 0;
+    l->tirando = 0;
+    arquivos_fechar_exec(l);
+    sinais_exec(l);
+    fpu_guardar(l);
+    fpu_esquecer(l);
+    memset(l->fpu, 0, FPU_ESTADO);   /* la cabecera del XSAVE a cero (D381) */
+    l->fpu_usada = false;
+    memset(q, 0, sizeof *q);
+    q->ds = q->es = q->fs = q->gs = SEL_UDADOS;
+    q->cs = SEL_UCODIGO;
+    q->ss_usuario = SEL_UDADOS;
+    q->esp_usuario = cg.pilha;
+    q->eip = cg.entrada;
+    q->eflags = 0x202;
+    q->vetor = VETOR_SISTEMA;
+    klog("[SAGUI] exec %s en el proceso %d\n", caminho, l->pid);
+    return 0;
 }

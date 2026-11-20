@@ -22,6 +22,32 @@ Cuando las dos cosas se cumplen, el escritorio muestra el logo **IA Powered** ab
     llm --activar FICHERO.gguf   el que se usa sin -m
     llm -m FICHERO.gguf ...      otro modelo solo esta vez
 
+## Bajar modelos
+
+En **Configuración > IA > IA local: modelos** está la lista de modelos que se pueden bajar
+(LFM3 1.7B y LFM3-VL 2B en Q4_K_M, Q4_0 y Q8_0, y el proyector de imágenes del VL): elige uno y
+pulsa **Descargar**; la barra enseña el avance. **Usar este modelo** lo deja como el activo. Lo
+mismo en el terminal:
+
+    ia descargar                     la lista (y lo que ya está bajado o a medias)
+    ia descargar lfm3-1.7b-q4km      baja ese modelo a /home/compartido/modelos
+    ia descargar lfm3-vl-2b-q4km --activar   el VL con su proyector, y lo deja activo
+
+La descarga va por HTTPS desde Hugging Face, comprueba antes que haya sitio en el disco y al
+final la **suma SHA-256** (si no coincide, borra lo bajado). Si se corta (o la cancelas), lo bajado
+se queda en `NOMBRE.gguf.parte` y la próxima vez **sigue desde ahí**. Los Q8_0 aún no caben en la
+memoria de `llm` (hará falta otra fase). La lista está en `/etc/ia/modelos.lista`.
+
+## Imágenes (modelos VL)
+
+Con un modelo **LFM3-VL** y su proyector (`mmproj-...gguf`, en la misma carpeta) `llm` ve imágenes:
+
+    llm -m /home/compartido/modelos/LFM3-VL-2B-Q4_K_M.gguf --imagen foto.png -p "¿Qué hay en la foto?"
+
+Lee PNG, JPEG, BMP, GIF y PPM. La imagen se reduce a unos 384x384 (144 vectores; `--imagen-max N`
+cambia cuántos, hasta 1024, que es más lento): en un equipo antiguo tarda de unos segundos a un
+par de minutos. El servidor (`llm --servidor`) también acepta imágenes en los mensajes.
+
 ## Contexto
 
 El contexto es cuánto texto recuerda el modelo (pregunta, respuestas y lo anterior):
@@ -52,7 +78,9 @@ Al terminar, `llm` dice cuántos tokens por segundo ha leído y generado.
 
 deja el modelo cargado y lo ofrece como un servidor compatible con OpenAI en
 `http://127.0.0.1:8080/v1` (solo para este equipo). En Configuración > IA, elige el proveedor
-**llama.cpp**: `ia`, el chat con ventana y los asistentes de Pluma, Macaco y Correo lo usarán.
+**llama.cpp**: `ia`, el chat con ventana y los asistentes de Pluma, Macaco y Correo lo usarán,
+**también con sus herramientas** (leer ficheros, buscar, proponer cambios...: el modelo pide la
+herramienta y el asistente la ejecuta, con tu permiso como siempre).
 
 ## Velocidad
 

@@ -390,6 +390,7 @@ static const desenho_t *icone_do_processo(const char *nome)
 #ifndef SAGUI_SEM_GPL
         { "dosbox", &arte_mini_dosbox }, { "recreativa", &arte_mini_recreativa },   /* D294 */
         { "doom", &arte_mini_doom }, { "freedoom", &arte_mini_doom }, { "chocolate-doom", &arte_mini_doom },   /* D383 */
+        { "tzar", &arte_mini_tzar },   /* D417 */
 #endif
     };
     for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++)
@@ -1192,6 +1193,7 @@ static const programa_t programas[] = {
     { N_("Cipó (navegador)"),        "/apps/bin/cipo",        NULL, "cipo",        G_INTERNET,   &arte_mini_cipo, false },
     { N_("GebraMini (geometría dinámica)"), "/apps/bin/gebramini", NULL, "gebramini", G_EDUCACION, &arte_mini_gebramini, false },   /* D309: mejora 128 */
     { N_("Jabuti (programar jugando)"), "/apps/bin/jabuti",    NULL, "jabuti",     G_EDUCACION,  &arte_mini_jabuti, false },     /* D377: programación con bloques para niños */
+    { N_("Laboratorio de C"),        "/apps/bin/labc",        NULL, "labc",        G_EDUCACION,  &arte_mini_mico, false },   /* D414: editor, compilador (libtcc) y ejemplos para aprender C; en /apps, sólo si está */
     { N_("Actividades JClic"),       "/apps/bin/jclic",       NULL, "jclic",       G_EDUCACION,  &arte_mini_jclic, false },        /* D185: visor de actividades educativas */
     { N_("Actividades JClic (bajar)"), "/apps/bin/jclicbajar", NULL, "jclicbajar", G_EDUCACION,  &arte_mini_jclicbajar, true },   /* D185: descargador del repositorio del XTEC */
 #ifndef SAGUI_SEM_GPL   /* D184: ni el nombre en la variante sin GPL (la auditoría h81 busca las marcas) */
@@ -1213,6 +1215,7 @@ static const programa_t programas[] = {
     { N_("Quake (pantalla completa)"), "/apps/bin/quake", "--pantalla-completa", "quake-cheia", G_JUEGOS, &arte_mini_quake, false },   /* D229 */
     { N_("DOOM"),                    "/apps/bin/chocolate-doom", NULL, "doom", G_JUEGOS,   &arte_mini_doom, false },   /* D383: Chocolate Doom; usa el WAD original de /jogos/DOOM o Freedoom */
     { N_("Freedoom"),                "/apps/bin/chocolate-doom", "--freedoom", "freedoom", G_JUEGOS, &arte_mini_doom, false },   /* D383: DOOM con el contenido libre Freedoom */
+    { N_("Tzar"),                    "/apps/bin/tzar",        NULL, "tzar",        G_JUEGOS,     &arte_mini_tzar, false },   /* D417: Tzar, port en C de ReTzar; datos del juego en /jogos/TZAR */
     { N_("Game Boy (GNUBoy)"),       "/apps/bin/gnuboy", NULL, "gnuboy",      G_JUEGOS,     &arte_mini_gnuboy, false },    /* D235: SDL2-GNUBoy, en /apps; sólo si está */
     { N_("Recreativa (juegos y consolas)"), "/apps/bin/recreativa", NULL, "recreativa", G_JUEGOS, &arte_mini_recreativa, false },   /* D294: el lanzador de juegos de DOS, en /apps; sólo si está */
     { N_("DOSBox"),                  "/apps/bin/dosbox", NULL, "dosbox",      G_JUEGOS,     &arte_mini_dosbox, false },   /* D294: DOSBox 0.74, en /apps; sólo si está */

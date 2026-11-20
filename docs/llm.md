@@ -18,7 +18,10 @@ Motor propio en C para ejecutar modelos de lenguaje GGUF dentro de SaguiOS. Ayud
 | `llm_amostra.c` | temperatura, top-k, top-p, repetición, semilla (xorshift64*) |
 | `llm_principal.c`, `llm_programa.h` | el programa: opciones, chat, `--info`, modelos, memoria |
 | `llm_anuncio.c` | `llm --anunciar`: logo «IA Powered» (SIS_FUNDO `FUNDO_MARCA_IA`) |
-| `llm_servidor.c` | `llm --servidor`: API compatible con OpenAI en 127.0.0.1 (usa el lector JSON de `userland/ia/json.c`) |
+| `llm_servidor.c` | `llm --servidor`: API compatible con OpenAI en 127.0.0.1, con herramientas e imágenes (fase 2) |
+| `llm_ferramentas.c/.h` | fase 2: la plantilla de chat de LFM3 (herramientas, llamadas, respuestas, imágenes) y la lectura de los `<tool_call>` (compila `userland/ia/json.c`) |
+| `llm_visao.c` | fase 2: el proyector de imágenes de LFM3-VL (`mmproj`, `--imagen`) |
+| `userland/ia/modelos.c`, `userland/inc/ia_modelos.h` | fase 2: el descargador (`ia descargar`, Configuración > IA local); lista en `rootfs/etc/ia/modelos.lista` |
 
 ## La red LFM3
 
@@ -68,6 +71,12 @@ PC compila el motor con ASan+UBSan y le pasa GGUF mutados, textos largos y petic
 - `make llm-pc`: el motor para el PC (`build/host/llm-pc`), con la x87 como en SaguiOS.
 - `tests/h388_llm.py`: en QEMU, tokens iguales a los del PC por cada ruta, límites de contexto (y sin SSSE3 con
   `LLM_SIN_SSSE3=1`), error de memoria, logo con 2 GB (captura `H388-ia-powered`) y nada con 1 GB.
+- `tools/llm_modelo_prueba.py SALIDA.gguf --mmproj`: proyector sintético de LFM3-VL para el modelo sintético.
+- `tests/h412_ia_fase2.py`: la plantilla (contra la jinja del GGUF real si está), la lectura de llamadas, el
+  descargador contra un servidor HTTPS del anfitrión (redirección larga, trozos, corte y reintento, `.parte`, suma
+  mala, sin sitio), la página de Configuración (capturas `H412-ia-local-*`) y, en QEMU, la visión y el servidor con
+  herramientas e imágenes iguales al PC.
+- `tools/llm_visao_referencia.c`: la referencia de llama.cpp (libmtmd) para los vectores de una imagen (solo PC).
 
 ## Modelos
 
@@ -79,11 +88,92 @@ aparte o pendrive virtual.
 
 `llm --servidor [--puerto 8080]` carga el modelo y atiende `GET /v1/models` y `POST /v1/chat/completions` (con y sin
 `stream`, `max_tokens`, `temperature`, `seed`) solo desde 127.0.0.1. En Configuración > IA, el proveedor «llama.cpp»
-(`http://127.0.0.1:8080/v1`) ya apunta ahí: `ia`, `chatia` y los agentes lo usan sin cambios. Las herramientas
-(`tools`) aún no: se contesta 400 con «tools» y el cliente repite sin ellas. Entre peticiones se conserva la caché si
+(`http://127.0.0.1:8080/v1`) ya apunta ahí: `ia`, `chatia` y los agentes lo usan sin cambios, **con herramientas**
+(fase 2, ver abajo). Entre peticiones se conserva la caché si
 la conversación nueva empieza por lo que ya está (las respuestas anteriores se escriben con su `<think></think>`
 vacío, como el modelo las generó): en un chat solo se lee lo nuevo. Probado en el PC con el LFM3 real (dos turnos;
 el segundo, 16 tokens nuevos y 34 reutilizados).
+
+## Herramientas (fase 2)
+
+Los agentes (D295/D298: `ia --agente`, Pluma, Macaco, Correo) mandan `tools` (formato de OpenAI), `tool_choice`
+«auto» y, en la historia, mensajes `assistant` con `tool_calls` (argumentos como texto JSON) y mensajes `tool`.
+`llm_ferramentas.c` escribe la conversación igual que la plantilla jinja del GGUF de LFM3 (`tokenizer.chat_template`):
+
+- las herramientas, al final del sistema: `\n\n<tools>\n{...}\n{...}\n</tools>`, cada una como `json.dumps` de
+  Python (separadores `", "` y `": "`, sin `\uXXXX` para lo que no es ASCII) y sin `defer_loading`;
+- cada llamada: `<tool_call>\n<function=NOMBRE>\n<parameter=CLAVE>\nVALOR\n</parameter>\n...</function>\n</tool_call>`
+  (varias, separadas por `\n\n`; los valores de texto tal cual, los demás en JSON);
+- cada respuesta: `<|im_start|>tool\n<tool_response>\nTEXTO\n</tool_response><|im_end|>`.
+
+Lo que genera el modelo se mira al vuelo: el texto se manda hasta `<tool_call>` (nunca la marca ni lo que podría ser
+su principio) y al acabar cada `<tool_call>` vuelve como `tool_calls` (`finish_reason: "tool_calls"`; en streaming,
+un delta con `index`, `id`, `name` y `arguments`). Los argumentos llevan el tipo del esquema: si el parámetro es
+`string`, texto; si no, el valor si es JSON válido (número, booleano, objeto...). `tool_choice: "none"` quita las
+herramientas; `"required"` o `{"type":"function","function":{"name":X}}` dejan empezada la llamada
+(`<tool_call>\n<function=X>\n`) para que el modelo la siga. Los `<tool_call>` y demás marcas son tokens
+«definidos por el usuario» (tipo 4) del vocabulario: no paran la generación. Probado en el PC con el LFM3 real: pide
+`listar_carpeta` con `{"ruta": "/home/ana/documentos"}` y, con la respuesta de la herramienta, contesta con la lista
+(el segundo turno reutiliza 157 tokens de la caché). `llm --probar-plantilla PETICION.json` escribe la conversación y
+`llm --probar-respuesta PETICION.json RESPUESTA.txt` las llamadas que se leen (sin modelo; para las pruebas).
+
+## Visión: LFM3-VL (fase 2)
+
+El `mmproj` de LFM3-VL (arquitectura `clip`, proyector `lfm3vl`, 194 MB en Q8_0) **no es un SigLIP**: es un
+codificador propio de 14 bloques que alterna convolución 3x3 por canal (como la convolución corta del texto, pero en
+2D) y atención con RoPE 2D. La referencia es llama.cpp (`tools/mtmd/models/lfm3vl.cpp`, `mtmd-image.cpp`):
+
+1. **Tamaño:** `smart_resize` de Qwen2-VL: lados múltiplos de 32 (parche 16 x fusión 2), entre `image_min_pixels`
+   (65536) y el máximo; el modelo admite hasta 4096x4096, pero aquí el máximo de serie son **144 vectores**
+   (~384x384, `--imagen-max N` hasta 1024) porque el coste crece con el cuadrado en la atención.
+2. **Reescalado:** bicúbico con antialias (núcleo de Keys a=-0,5, ancho escalado al reducir), separable, en punto
+   fijo de 22 bits con los pesos redondeados a 16 bits como torchvision; escrito aquí (no es código de Pillow).
+3. **Normalización:** `(x/255 - 0,5)/0,5` y redondeo a f16 (como el im2col de ggml).
+4. **Parches 16x16:** dos núcleos (`v.patch_embd.weight` y `.weight.1`, los dos cuadros de un vídeo); una foto llena
+   los dos y se suman. Norma RMS (`v.embedding_norm`).
+5. **Bloques:** norma RMS; convolución: `in_proj` -> `[a | m | b]`, `g = a·b`, convolución 3x3 por canal con ceros
+   alrededor, `out_proj(m·g)`; atención: Q/K/V (16 cabezas de 64, 8 de K/V), norma RMS de Q y K por cabeza, RoPE 2D
+   (parejas `(i, i+32)`: las 16 primeras giran con la fila y las 16 siguientes con la columna, base 1e6), atención
+   completa, `attn_out`; FFN SwiGLU. Residuos.
+6. **Proyector:** LayerNorm con sesgo (eps 1e-6), cada 2x2 parches juntos (`[p(2i,2j), p(2i,2j+1), p(2i+1,2j),
+   p(2i+1,2j+1)]`, 4096), `mm.0` + sesgo, GELU (erf), `mm.2` + sesgo = un vector de 2048 por cada 2x2 parches.
+
+Los vectores entran en la caché entre `<|vision_start|>` y `<|vision_end|>` (`llm_avaliar_emb`), en posiciones
+seguidas. Las multiplicaciones van como las del texto (entrada en Q8_0, productos de enteros por la mejor ruta de la
+CPU, también AVX2, D381): SaguiOS y `llm-pc` dan los mismos números. **Comparado con llama.cpp** (libmtmd,
+`tools/llm_visao_referencia.c`): con el proyector real, 80 vectores de una imagen de 320x240, coseno medio 0,999 y
+mínimo 0,972; con el sintético de las pruebas (otra forma: D=32, 234 vectores), mínimo 0,9997. Con el LFM3-VL 2B real
+describe bien la imagen de prueba («un círculo rojo centrado sobre un fondo que transita del azul al verde»); en el PC
+(AVX2, 4 hilos) codificarla lleva 3 s.
+
+Uso: `llm --imagen FICHERO -p "..."` (o en el chat, con la primera pregunta) y, en el servidor, partes
+`{"type":"image_url","image_url":{"url":"data:image/...;base64,..."}}` en el `content` (como mucho 4 imágenes; nada de
+`file://`: el servidor no lee ficheros por encargo de otro). El `mmproj` se busca solo (`mmproj-BASE-*.gguf` junto al
+modelo, BASE = el nombre del modelo sin la cuantización) o con `--mmproj`; `--mmproj no` no lo carga. En SaguiOS lee
+todo lo que lee la libsagui (PNG, JPEG, BMP, PNM, GIF); `llm-pc` solo PPM y BMP de 24 bits. Memoria: los 194 MB del
+proyector se suman a los del modelo (con 12k cabe).
+
+## Descargador (fase 2)
+
+`ia descargar` (y Configuración > IA > «IA local: modelos», que lanza `ia descargar ID --estado FICHERO` y pinta la
+barra con lo que ese fichero dice) baja los modelos de `/etc/ia/modelos.lista`: `id | nombre | fichero | bytes |
+sha256 | url | RAM | fichero que va con este | nota`. Tamaños y sumas (el `lfs.oid` de la API de Hugging Face,
+comprobado el 2026-11-19, y con `sha256sum` los tres que había en el PC): LFM3 1.7B Q4_K_M, QAD-Q4_0 y Q8_0, LFM3-VL 2B
+Q4_K_M, QAD-Q4_0 y Q8_0 (con su `mmproj` Q8_0). No hay Q4_0 «a secas» en los repositorios de Liquid AI: el Q4_0 es el
+QAD. Los Q8_0 (1,8 GB) aún no caben en el proceso de `llm` (~1,44 GB, falta la fase de pesos por ventanas).
+
+- Por **trozos de 32 MB con `Range`**: cada respuesta mide menos de 10^9 bytes, un corte solo pierde su trozo, se
+  reintenta 5 veces (con pausa creciente) desde el último byte escrito y, de una sesión a otra, se sigue desde
+  `NOMBRE.gguf.parte`.
+- Hugging Face redirige a una URL firmada de más de 1 KB: la petición y la cabecera se leen con búferes propios (no
+  caben en `url_t`); si la firma caduca (403/410), se vuelve a pedir la original; de HTTPS a HTTP no se sigue.
+- Antes de empezar: el espacio libre del sistema de archivos de la carpeta (lo que falta + 1 MB) y un aviso si el
+  equipo tiene menos RAM que la recomendada. Al acabar, SHA-256 del fichero entero; si no coincide, se borra.
+- Ficheros de más de 2 GB: error claro (los `posicionar`/`info_arquivo` del sistema son de 32 bits).
+- Probado contra Hugging Face de verdad en QEMU (2026-11-19): el `mmproj` del VL, con el TLS propio, la redirección a
+  `us.aws.cdn.hf.co` (Location de ~1,1 KB) y los trozos con `Range` (206 con `Content-Range`): 64 MB en menos de
+  90 s, hasta que el `/tmp` en RAM se llenó (ese ramfs tiene su propio tope, que el cálculo de espacio libre no ve;
+  en `/home/compartido/modelos`, en disco, no pasa).
 
 ## Hilos y estimación
 
@@ -110,6 +200,6 @@ el chat reutilizan la caché), no para pegar un documento de 12k de golpe. Lo qu
 
 ## Pendiente
 
-Pesos por ventanas (PAE) para 48k con cualquier modelo, descargador en
-Configuración, VL (`mmproj`), perfil para equipos antiguos (hilos por defecto, bloques para la L2, estimación de
-tiempos). Ver mejora 139.
+Pesos por ventanas (PAE) para 48k con cualquier modelo y para los Q8_0, perfil para equipos antiguos (bloques para
+la L2). Visión: vídeo (dos cuadros por paso), imágenes grandes por mosaico, medir en hardware real; con
+`--imagen-max` alto la atención (cuadrática) es lo que más pesa. Ver mejora 139 y D380.

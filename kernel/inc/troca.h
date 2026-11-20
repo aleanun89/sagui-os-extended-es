@@ -70,5 +70,7 @@ void     troca_estatisticas(troca_est_t *e);
 /* Saca todo lo presente de [ini, fim) de "e" (MEM_SACAR y la autoprueba); devuelve cuántas
  * páginas del rango están en la swap al terminar. */
 uint32_t troca_sacar_faixa(espaco_t e, uint32_t ini, uint32_t fim);
+/* D401: copia nueva de la página guardada en la entrada de swap "v" (fork); 0 si no hay memoria. */
+fis_t    troca_copiar(pte_t v);
 
 #endif

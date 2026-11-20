@@ -40,8 +40,16 @@ numerados. Con el teclado: flechas o `Tab` para moverse, izquierda y derecha par
 - **Avisos:** arriba a la izquierda salen los ataques (con una marca que parpadea en el minimapa), las edades, las mejoras y
   obras terminadas, la población llena y los cambios de diplomacia. Si alguien termina una Maravilla o reúne las reliquias, la
   cuenta atrás se ve arriba.
-- **Diplomacia (`F3`):** cambia la relación con cada jugador (la máquina acepta la paz si eres más fuerte) y envía tributo:
-  hace falta un mercado, y el mercado se queda el 20 %.
+- **Diplomacia (`F3`):** cambia la relación con cada jugador y envía tributo (hace falta un mercado, y el mercado se queda
+  el 20 %). La máquina contesta en el chat (los avisos de arriba a la izquierda) según su personalidad (belicosa,
+  equilibrada o pacífica) y su dificultad, vuestra fuerza, los enemigos comunes, los tributos que le has enviado y si la
+  traicionaste (romper una paz o una alianza se recuerda: durante 15 minutos no acepta nada y después sigue desconfiando).
+  El botón «Modo: pedir» pide tributo a un jugador de la máquina: lo envía si es tu aliada (o si le has enviado tributo) y
+  le sobra. La máquina también te propone la paz o una alianza y te pide recursos: la propuesta sale en la fila de ese
+  jugador con «Aceptar» y «Rechazar» (caduca a los 90 s).
+- **Quién cae:** un jugador sin edificios (las murallas no cuentan) pierde: enseguida si solo le quedan barcos de pesca,
+  mercantes o transportes, y a los 3 minutos si le quedan unidades (un aldeano escondido, tropa en un islote), que se
+  rinden. Si levantas un edificio, el contador vuelve a cero.
 - **Al terminar:** estadísticas de cada jugador (militar, economía, tecnología) y la gráfica de la puntuación en el tiempo.
 
 ## Novedades de la 8.5.4.7

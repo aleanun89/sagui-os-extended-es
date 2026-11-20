@@ -105,6 +105,7 @@ static void desenhar_contorno_redimensionar(void);
 static bool desenhar_tela_cheia(void);
 static bool tratar_mouse_extras(evento_mouse_t *m);
 static void tratar_roda(evento_mouse_t *m);
+static void tratar_roda_h(evento_mouse_t *m);
 static bool comecar_redimensionar(int idx, int rx, int ry);
 static bool clique_titulo(janela_t *j, int rx, int ry);
 static bool tecla_do_gerenciador(janela_t *j, int t);
@@ -393,6 +394,7 @@ static bool tratar_captura(evento_mouse_t *m)
     if (!j) return false;
     int cx = j->larg / 2, cy = j->alt / 2;
     if (m->dz) tratar_roda(m);
+    if (m->dw) tratar_roda_h(m);
     if (m->dx || m->dy) {
         evento_t e = { .tipo = EV_MOVER_CRU, .x = m->dx, .y = m->dy, .botoes = m->botoes };
         entregar(j, &e);
@@ -495,6 +497,11 @@ static void tratar_mouse(evento_mouse_t *m)
     bool apertou = (m->mudaram & m->botoes) != 0;
     bool soltou = (m->mudaram & ~m->botoes) != 0;
 
+    if (m->dw) {   /* D407: rueda horizontal: a la ventana de debajo, aparte */
+        if (!menu_aberto() && !barra_popup_visivel()) tratar_roda_h(m);
+        m->dw = 0;
+        if (!m->mudaram && !m->dx && !m->dy && !m->dz) return;
+    }
     if (m->dz && inicio_painel_roda(m->dz)) {   /* D361: la rueda desplaza la lista del menú Inicio de columnas */
         m->dz = 0;
         if (!m->mudaram && !m->dx && !m->dy) return;
@@ -1357,10 +1364,16 @@ static void mouse_tela_cheia(janela_t *j, evento_mouse_t *m)
  * mientras se escribe en otro. En pantalla completa va a la ventana de la pantalla
  * completa. Sobre el marco o la barra de título también vale (x, y pueden ser
  * negativos). Mientras se arrastra o redimensiona una ventana, se ignora. */
-static void tratar_roda(evento_mouse_t *m)
+static void roda_para(evento_mouse_t *m, int tipo, int n);
+static void tratar_roda(evento_mouse_t *m) { roda_para(m, EV_RODA, m->dz); }
+
+/* D407: la rueda horizontal (panel táctil) va igual, como EV_RODA_H. */
+static void tratar_roda_h(evento_mouse_t *m) { roda_para(m, EV_RODA_H, m->dw); }
+
+static void roda_para(evento_mouse_t *m, int tipo, int n)
 {
     janela_t *f = focada();
-    evento_t e = { .tipo = EV_RODA, .cliques = (unsigned)(int)m->dz, .botoes = m->botoes,
+    evento_t e = { .tipo = (unsigned)tipo, .cliques = (unsigned)n, .botoes = m->botoes,
                    .modificadores = teclado_modificadores() & 3 };
     janela_t *j;
     if (f && f->tela_cheia) {
@@ -1378,7 +1391,7 @@ static void tratar_roda(evento_mouse_t *m)
         e.y = m->y - j->y - td(j);
     }
     entregar(j, &e);
-    klog("[GUI] roda %d para janela %d (%s) em (%d,%d)\n", (int)m->dz, j->id, j->titulo, e.x, e.y);
+    klog("[GUI] roda%s %d para janela %d (%s) em (%d,%d)\n", tipo == EV_RODA_H ? " horizontal" : "", n, j->id, j->titulo, e.x, e.y);
 }
 
 /* Llamado al comienzo de tratar_mouse: true = el evento ya fue tratado aquí. */

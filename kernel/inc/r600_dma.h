@@ -12,8 +12,11 @@
  *   bit 22      «s» (siempre 0);
  *   bits 15:0   cuántas palabras de 32 bits (copiar, escribir).
  * Las direcciones son del controlador de memoria de la GPU (MC), de 40 bits:
- * aquí solo se usan por debajo de 4 GB, así que las palabras de los bits altos
- * van siempre a cero (el driver comprueba que la pantalla está ahí).
+ * los 32 bits bajos van en su palabra y los bits 39:32 («alto») en otra. D408:
+ * el driver pone todo lo que toca el DMA (pantalla, anillo, zona de paso) en un
+ * mismo tramo de 4 GB del MC, así que un solo byte alto vale para el destino y
+ * el origen de todos los paquetes; las funciones sin «_alto» son las de siempre
+ * (byte alto 0) y dan exactamente las mismas palabras que antes de la D408.
  *
  * La copia lineal NO es igual en las dos generaciones (r600_copy_dma y
  * rv770_copy_dma de Linux, y r600_dma_cs_parse):
@@ -49,6 +52,13 @@
 int r600_pkt_copiar(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, bool r7xx);   /* 4 o 5 */
 int r600_pkt_escrever(uint32_t *p, uint32_t dst, uint32_t valor);   /* una palabra */
 int r600_pkt_valla(uint32_t *p, uint32_t dst, uint32_t valor);      /* escribe valor al acabar lo anterior */
+/* D408: lo mismo con los bits 39:32 de las direcciones (el mismo byte para destino y origen), como
+ * r600_copy_dma/rv770_copy_dma, r600_dma_ring_test y r600_dma_fence_ring_emit de Linux:
+ *   R6xx copiar: palabra 3 = alto << 16 | alto;  R7xx: palabras 3 y 4 = alto;
+ *   escribir y valla: palabra 2 = alto. */
+int r600_pkt_copiar_alto(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, bool r7xx, uint8_t alto);
+int r600_pkt_escrever_alto(uint32_t *p, uint32_t dst, uint32_t valor, uint8_t alto);
+int r600_pkt_valla_alto(uint32_t *p, uint32_t dst, uint32_t valor, uint8_t alto);
 
 /* La pantalla vista por el motor. */
 typedef struct {

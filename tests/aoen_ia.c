@@ -87,6 +87,93 @@ static void prueba_azar(float segundos) {
 	printf("terreno malas=%ld comprobaciones=%ld\n", terreno_malas, terreno_comprobaciones);
 }
 
+/* AOEN_IA_DIPLO=1 (D415): diplomacia entre el humano (jugador 0) y la máquina (jugador 1 normal, jugador 2 difícil), con
+ * guion fijo y sin dibujo. Cada paso imprime «diplo: paso -> resultado» y, si lo hay, lo que dijo la máquina en el chat. */
+static unsigned chat_visto;
+static void chat_volcar(void) {
+	for (; chat_visto < W.chat_n; ++chat_visto) printf("chat: jugador %d dice \"%s\"\n", W.chat[chat_visto % 8].de + 1, W.chat[chat_visto % 8].texto);
+}
+static void paso(const char *nombre, int ok) { printf("diplo: %s -> %s\n", nombre, ok ? "si" : "no"); chat_volcar(); }
+static void avanzar(float s) { float t = W.time + s; while (W.time < t && !W.over) world_update(1.0f / 30); }
+static void prueba_diplo(void) {
+	W.human = 0; W.pl[0].ai = 0;
+	/* el jugador 1 es de personalidad equilibrada (1): se ajusta la semilla, que solo la usa la personalidad */
+	while (ia_personalidad(1) != 1) ++W.setup.seed;
+	printf("diplo: personalidad jugador 1 = %d, jugador 2 = %d\n", ia_personalidad(1), ia_personalidad(2));
+	for (int p = 0; p < 3; ++p) for (int q = 0; q < 3; ++q) if (p != q) W.pl[p].dipl[q] = DIPL_ENEMY;
+	W.pl[0].dipl[1] = W.pl[1].dipl[0] = DIPL_NEUTRAL;
+	W.pl[1].dipl[2] = W.pl[2].dipl[1] = DIPL_NEUTRAL;   /* sin enemigo común */
+	for (int k = 0; k < RES_COUNT; ++k) { W.pl[0].res[k] = 3000; W.pl[1].res[k] = 3000; }
+	for (int p = 0; p < 2; ++p) for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].owner == p && W.ents[i].type == E_TOWN_CENTER) {
+		int m = dev_place(E_MARKET, p, W.ents[i].x + 5, W.ents[i].y + 5);
+		if (m >= 0) { W.ents[m].progress = 1; W.ents[m].hp = W.ents[m].maxhp; }
+		break;
+	}
+	W.pl[1].diff = 1;
+	paso("alianza sin tributos", cmd_diplomacy(0, 1, DIPL_ALLY));
+	paso("tributo de 200 de oro", cmd_tribute(0, 1, RES_GOLD, 200));
+	paso("alianza con un solo tributo", cmd_diplomacy(0, 1, DIPL_ALLY));
+	for (int k = 0; k < 3; ++k) cmd_tribute(0, 1, RES_GOLD, 200);
+	chat_volcar();
+	paso("alianza tras 800 en tributos", cmd_diplomacy(0, 1, DIPL_ALLY));
+	/* peticiones: un aliado con sobra de recursos envía; con poco, no */
+	int antes = W.pl[0].res[RES_WOOD];
+	paso("pide 200 de madera al aliado", cmd_pedir(0, 1, RES_WOOD, 200));
+	printf("diplo: madera del humano %+d\n", W.pl[0].res[RES_WOOD] - antes);
+	W.pl[1].res[RES_FOOD] = 100;
+	paso("pide 200 de comida al aliado sin comida", cmd_pedir(0, 1, RES_FOOD, 200));
+	/* traición: romper la alianza; la máquina la recuerda y no acepta la paz */
+	paso("declara la guerra al aliado (traición)", cmd_diplomacy(0, 1, DIPL_ENEMY));
+	paso("paz justo después de traicionar", cmd_diplomacy(0, 1, DIPL_NEUTRAL));
+	paso("pide madera al traicionado", cmd_pedir(0, 1, RES_WOOD, 100));
+	/* el tiempo pasa; la máquina piensa y el humano se hace mucho más fuerte: la traición se recuerda, pero la paz cuenta */
+	W.pl[0].units_killed = 1000;   /* el humano pasa a ser, con mucho, el más fuerte de la puntuación */
+	W.pl[1].ai = 1; W.pl[2].ai = 1;
+	avanzar(60.0f);
+	paso("paz con la traición reciente y el humano más fuerte", cmd_diplomacy(0, 1, DIPL_NEUTRAL));
+	/* la máquina propone: tras 5 minutos, si es mucho más débil que el humano, propone la paz (se responde en F3) */
+	int quien = 0;
+	for (int t = 0; t < 1500 && !quien; t += 5) {
+		avanzar(5.0f);
+		for (int p = 1; p < 3; ++p) if (W.prop_nivel[p] && W.time <= W.prop_t[p] && !quien) quien = p;
+	}
+	chat_volcar();
+	printf("diplo: puntuaciones t=%.0f humano %d, jugador 2 %d, jugador 3 %d (vivos %d %d %d)\n", W.time, world_team_score(0), world_team_score(1), world_team_score(2), W.pl[0].alive, W.pl[1].alive, W.pl[2].alive);
+	printf("diplo: propuesta pendiente del jugador %d, nivel %s\n", quien + 1, quien ? dipl_name(W.prop_nivel[quien] - 1) : "ninguna");
+	if (quien) {
+		paso("el humano acepta la propuesta", cmd_responder_propuesta(quien, 1));
+		printf("diplo: relación con el jugador %d = %s\n", quien + 1, dipl_name(W.pl[0].dipl[quien]));
+	}
+}
+
+/* AOEN_IA_CAIDA=1|2|3 (D415, regla de conquista sin bloqueos): el jugador 1 pierde todos sus edificios.
+ *   1: le quedan aldeanos y tropa (nadie los reconstruye: sin IA); debe caer a los 180 s y la partida acabar;
+ *   2: solo le queda un barco de pesca; cae enseguida;
+ *   3: le queda un aldeano y construye un edificio a los 100 s; no cae (el contador vuelve a cero). */
+static void prueba_caida(int modo) {
+	W.human = 0; W.pl[1].ai = 0; W.pl[0].ai = 0;
+	while (W.time < 3) world_update(1.0f / 30);   /* el mundo anota que ambos tuvieron edificios */
+	float bx = 0, by = 0;
+	for (int i = 0; i < W.nents; ++i) {
+		Entity *e = &W.ents[i];
+		if (!e->alive || e->owner != 1) continue;
+		if (e->type == E_TOWN_CENTER) { bx = e->x; by = e->y; }
+		if (is_building(e->type) || (modo == 2 && is_unit(e->type))) e->alive = 0;
+	}
+	if (modo == 2) dev_place(E_FISHBOAT, 1, bx, by);
+	int ini = 0;
+	for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].owner == 1 && is_unit(W.ents[i].type)) ++ini;
+	float cae = -1; int construido = 0;
+	while (W.time < 400 && !W.over) {
+		world_update(1.0f / 30);
+		if (modo == 3 && !construido && W.time >= 100) { construido = 1; int c = dev_place(E_HOUSE, 1, bx + 2, by + 2); if (c >= 0) { W.ents[c].progress = 1; W.ents[c].hp = W.ents[c].maxhp; } }
+		if (cae < 0 && !W.pl[1].alive && W.time > 1) cae = W.time;
+	}
+	int quedan = 0;
+	for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].owner == 1 && is_unit(W.ents[i].type)) ++quedan;
+	printf("caida: modo=%d unidades_antes=%d unidades_despues=%d cae_en=%.0f vivo=%d fin=%d\n", modo, ini, quedan, cae, W.pl[1].alive, W.over);
+}
+
 int main(int argc, char **argv) {
 	if (argc < 4) { fprintf(stderr, "uso: aoen_ia SEMILLA DIF_A DIF_B [MAPA] [TAMAÑO] [MINUTOS] [JUGADORES]\n"); return 2; }
 	int seed = atoi(argv[1]), da = atoi(argv[2]), db = atoi(argv[3]);
@@ -105,6 +192,31 @@ int main(int argc, char **argv) {
 	s.recursos_mapa = getenv("AOEN_IA_RECURSOS") ? atoi(getenv("AOEN_IA_RECURSOS")) : 0;   /* 0 normales, 1 escasos, 2 abundantes */
 	s.victoria_compartida = getenv("AOEN_IA_COMPARTIDA") ? atoi(getenv("AOEN_IA_COMPARTIDA")) : 0;
 	world_new(&s);
+	/* AOEN_IA_MAPA=1: dibuja el mapa en stderr (agua «.», tierra «o», tierra con edificio o recurso «b», agua con barco o pez «#») */
+	if (getenv("AOEN_IA_MAPA"))
+		for (int y = 0; y < W.h; ++y) { for (int x = 0; x < W.w; ++x) { int i = y * W.w + x; fputc(W.tile[i] >= TILE_WATER ? (W.block[i] ? '#' : '.') : (W.block[i] ? 'b' : 'o'), stderr); } fputc('\n', stderr); }
+	/* ¿están todos los jugadores en la misma masa de tierra? (4 vecinos). «separadas=1» si algún centro urbano no se alcanza andando */
+	{
+		static unsigned char vis[512 * 512]; static int cola[512 * 512];
+		int tcx = -1, tcy = -1, separadas = 0;
+		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].type == E_TOWN_CENTER && W.ents[i].owner == 0) { tcx = (int)W.ents[i].x; tcy = (int)W.ents[i].y; }
+		memset(vis, 0, sizeof vis);
+		int ini = 0, fin = 0;
+		for (int y = tcy - 4; y <= tcy + 4 && tcx >= 0; ++y)
+			for (int x = tcx - 4; x <= tcx + 4; ++x) if (tile_walk(x, y) && !vis[y * W.w + x]) { cola[fin++] = y * W.w + x; vis[y * W.w + x] = 1; }
+		while (ini < fin) {
+			int k = cola[ini++], x = k % W.w, y = k / W.w;
+			static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+			for (int d = 0; d < 4; ++d) { int nx = x + dx[d], ny = y + dy[d]; if (nx < 0 || ny < 0 || nx >= W.w || ny >= W.h) continue; int j = ny * W.w + nx; if (!vis[j] && tile_walk(nx, ny)) { vis[j] = 1; cola[fin++] = j; } }
+		}
+		for (int i = 0; i < W.nents; ++i) {
+			if (!W.ents[i].alive || W.ents[i].type != E_TOWN_CENTER) continue;
+			int ve = 0, ex = (int)W.ents[i].x, ey = (int)W.ents[i].y;
+			for (int y = ey - 4; y <= ey + 4; ++y) for (int x = ex - 4; x <= ex + 4; ++x) if (tile_walk(x, y) && vis[y * W.w + x]) ve = 1;
+			if (!ve) separadas = 1;
+		}
+		printf("mapa separadas=%d\n", separadas);
+	}
 	hilos_iniciar();   /* D393: AOEN_HILOS=N reparte la IA y los caminos entre N hilos */
 	/* AOEN_IA_REPARTO=1: solo genera el mapa y cuenta las casillas de oro y piedra (el reparto lo escribe game.c en el registro) */
 	if (getenv("AOEN_IA_REPARTO")) {
@@ -161,15 +273,27 @@ int main(int argc, char **argv) {
 		}
 		return 0;
 	}
+	if (getenv("AOEN_IA_CAIDA")) { prueba_caida(atoi(getenv("AOEN_IA_CAIDA"))); return 0; }
+	if (getenv("AOEN_IA_DIPLO")) { prueba_diplo(); return 0; }
 	if (getenv("AOEN_IA_AZAR")) { prueba_azar((float)atof(getenv("AOEN_IA_AZAR"))); return 0; }
 	int age_t[MAX_PLAYERS][AGE_COUNT] = { { 0 } }, peak_vill[MAX_PLAYERS] = { 0 }, peak_army[MAX_PLAYERS] = { 0 };
 	int alive_t[MAX_PLAYERS];
 	for (int p = 0; p < np; ++p) alive_t[p] = -1;
 	float next = 0, sig_suma = 60;
+	float volcar = getenv("AOEN_IA_VOLCAR") ? (float)atof(getenv("AOEN_IA_VOLCAR")) : 0;
 	int suma = getenv("AOEN_IA_SUMA") != NULL;   /* D393: suma del mundo cada minuto (h398: igual con 1 y con N hilos) */
 	while (!W.over && W.time < maxt) {
 		world_update(1.0f / 30);
 		comprobar_terreno();
+		/* AOEN_IA_VOLCAR=SEGUNDOS: a esa hora vuelca en stderr las unidades y edificios de cada jugador (depuración) */
+		if (volcar > 0 && W.time >= volcar) {
+			volcar = 0;
+			for (int i = 0; i < W.nents; ++i) {
+				Entity *e = &W.ents[i];
+				if (!e->alive || e->owner < 0 || is_resource(e->type)) continue;
+				fprintf(stderr, "volcado: P%d %s %.1f,%.1f estado %d vida %.0f obj %d destino %.1f,%.1f carga %d\n", e->owner, is_building(e->type) ? bld_def[e->type].name : unit_def[e->type - E_VILLAGER].name, e->x, e->y, e->state, e->hp, e->target.idx, e->tx, e->ty, e->ncargo);
+			}
+		}
 		if (suma && W.time >= sig_suma) { printf("suma t=%.0f %08x\n", W.time, world_suma()); sig_suma += 60; }
 		if (W.time >= next) {
 			next += 5;

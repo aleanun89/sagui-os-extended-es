@@ -22,6 +22,13 @@ int  usuario_texto(const char *origem, char *destino, uint32_t max);
 
 /* Implementadas em vários arquivos: */
 int32_t sis_sair(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+/* D401: procesos POSIX */
+int32_t sis_bifurcar(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+int32_t sis_substituir(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+int32_t sis_esperar_pid(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+int32_t sis_sinal(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+int32_t sis_sondar(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+int32_t sis_descritor(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_pid(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_matar(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_executar(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);

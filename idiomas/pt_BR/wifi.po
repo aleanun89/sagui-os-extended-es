@@ -8,25 +8,29 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: userland/programas/wifi.c:332
+#: userland/programas/wifi.c:233
+msgid "AVISO: este pincho es experimental: el driver se escribió sin tener el dispositivo y no se ha probado en hardware (D409).\n"
+msgstr "AVISO: este adaptador é experimental: o driver foi escrito sem ter o dispositivo e não foi testado em hardware (D409).\n"
+
+#: userland/programas/wifi.c:346
 msgid "wifi: la clave WEP tiene 5 o 13 caracteres, o 10 o 26 cifras hexadecimales\n"
 msgstr "wifi: a chave WEP tem 5 ou 13 caracteres, ou 10 ou 26 dígitos hexadecimais\n"
 
-#: userland/programas/wifi.c:336
+#: userland/programas/wifi.c:350
 #, c-format
 msgid "AVISO: %s usa WEP, que no protege nada: cualquiera cerca puede leer y falsificar el tráfico. Cámbialo a WPA2-AES o WPA3.\n"
 msgstr "AVISO: %s usa WEP, que não protege nada: qualquer um por perto pode ler e falsificar o tráfego. Mude para WPA2-AES ou WPA3.\n"
 
-#: userland/programas/wifi.c:342
+#: userland/programas/wifi.c:356
 msgid "wifi: la clave de WPA/WPA2 tiene de 8 a 63 caracteres ASCII\n"
 msgstr "wifi: a chave WPA/WPA2 tem de 8 a 63 caracteres ASCII\n"
 
-#: userland/programas/wifi.c:346
+#: userland/programas/wifi.c:360
 #, c-format
 msgid "AVISO: %s usa TKIP, que está obsoleto. Mejor WPA2-AES o WPA3.\n"
 msgstr "AVISO: %s usa TKIP, que está obsoleto. Melhor WPA2-AES ou WPA3.\n"
 
-#: userland/programas/wifi.c:349
+#: userland/programas/wifi.c:363
 msgid "wifi: la contraseña de WPA3 tiene de 1 a 128 caracteres\n"
 msgstr "wifi: a senha do WPA3 tem de 1 a 128 caracteres\n"
 

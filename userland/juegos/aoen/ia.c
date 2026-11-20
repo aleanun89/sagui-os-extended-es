@@ -33,6 +33,7 @@ static int res_kind_of(EntType t) {
 	}
 }
 
+static int islas(void) { return W.setup.map_kind == MAP_ISLANDS; }   /* mapa de islas (puede que haya tierra entre rivales) */
 static int hostile(int a, int b) {
 	return a >= 0 && b >= 0 && a != b && W.pl[a].dipl[b] == DIPL_ENEMY;
 }
@@ -113,6 +114,12 @@ typedef struct {
 	float primer_ataque_t;
 	int ataques_rechazados;
 	char ultimo[80];              /* lo último que decidió (para la depuración) */
+	/* islas (D415): isla y agua de la base, sitio de desembarco y rescate de varados */
+	int base_isla, base_mar;
+	int anf_ok; float anf_wx, anf_wy, anf_lx, anf_ly, anf_ox, anf_oy, anf_t;   /* agua y tierra donde desembarcar junto al objetivo */
+	int resc_fase;                /* 0 nada, 1 el transporte va a por un varado, 2 vuelve a casa con él */
+	Ref resc_tr, resc_u, resc_ign; float resc_t, resc_ign_t, resc_wx, resc_wy;
+	unsigned alc_gen; int alc_isla[12], alc_mar[12], alc_ok[12], alc_n;   /* islas ya comprobadas: ¿hay orilla alcanzable por mar? */
 } Ia;
 
 static Ia ia[MAX_PLAYERS];
@@ -153,6 +160,7 @@ static void ia_reiniciar(int p) {
 	a->gen = world_gen();
 	a->cw = (W.w + CELDA - 1) / CELDA; a->ch = (W.h + CELDA - 1) / CELDA;
 	a->objetivo = a->explorador = a->explorador_ini = SIN;
+	a->resc_tr = a->resc_u = a->resc_ign = SIN;
 	a->primer_ataque_t = -1;
 }
 
@@ -373,23 +381,25 @@ static int construir(int p, int t, float ax, float ay, int rmin, int rmax) {
 
 /* Cada casilla de tierra lleva el número de su isla (0 = agua), calculado una vez por mapa por relleno: así un aldeano no
  * va a por un árbol de otra isla, al que no puede llegar. Se rehace si cambia el mapa. */
-static unsigned short *comp;
+static unsigned short *comp, *marc, *terr;   /* terr: zonas por las que se anda al empezar la partida (con los bosques como barrera) */
+
+static unsigned terr_gen;   /* cambia cada vez que se rehacen las zonas: invalida lo recordado por zona */   /* isla de cada casilla de tierra y «mar» (masa de agua) de cada casilla de agua */
 static int comp_w, comp_h;
 static unsigned comp_gen;   /* generación del mundo (world_gen): el puntero W.tile se reutiliza entre partidas */
 
-static void componentes(void) {
-	if (comp && comp_w == W.w && comp_h == W.h && comp_gen == world_gen()) return;
-	free(comp);
-	comp_w = W.w; comp_h = W.h; comp_gen = world_gen();
-	comp = (unsigned short *)calloc((size_t)W.w * W.h, sizeof *comp);
-	int *cola = (int *)malloc(sizeof(int) * (size_t)W.w * W.h);
-	if (!comp || !cola) { free(cola); free(comp); comp = NULL; return; }
+/* etiqueta con 1, 2, 3... las masas conexas (4 vecinos) de tierra (modo 0), de agua (1) o de tierra por la que se puede ir
+ * andando (2: sin edificios ni recursos, como tile_walk) */
+static int es_modo(int i, int modo) {
+	if (modo == 2) return W.tile[i] < TILE_WATER && !W.block[i];
+	return (W.tile[i] >= TILE_WATER) == modo;
+}
+static void etiquetar(unsigned short *dst, int agua, int *cola) {
 	unsigned short n = 0;
 	for (int i = 0; i < W.w * W.h; ++i) {
-		if (comp[i] || W.tile[i] >= TILE_WATER) continue;
+		if (dst[i] || !es_modo(i, agua)) continue;
 		if (n < 65535) ++n;
 		int ini = 0, fin = 0;
-		cola[fin++] = i; comp[i] = n;
+		cola[fin++] = i; dst[i] = n;
 		while (ini < fin) {
 			int k = cola[ini++], x = k % W.w, y = k / W.w;
 			static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
@@ -397,10 +407,24 @@ static void componentes(void) {
 				int nx = x + dx[d], ny = y + dy[d];
 				if (nx < 0 || ny < 0 || nx >= W.w || ny >= W.h) continue;
 				int j = ny * W.w + nx;
-				if (!comp[j] && W.tile[j] < TILE_WATER) { comp[j] = n; cola[fin++] = j; }
+				if (!dst[j] && es_modo(j, agua)) { dst[j] = n; cola[fin++] = j; }
 			}
 		}
 	}
+}
+
+static void componentes(void) {
+	if (comp && comp_w == W.w && comp_h == W.h && comp_gen == world_gen()) return;
+	free(comp); free(marc); free(terr);
+	comp_w = W.w; comp_h = W.h; comp_gen = world_gen();
+	comp = (unsigned short *)calloc((size_t)W.w * W.h, sizeof *comp);
+	marc = (unsigned short *)calloc((size_t)W.w * W.h, sizeof *marc);
+	terr = (unsigned short *)calloc((size_t)W.w * W.h, sizeof *terr);
+	int *cola = (int *)malloc(sizeof(int) * (size_t)W.w * W.h);
+	if (!comp || !marc || !terr || !cola) { free(cola); free(comp); free(marc); free(terr); comp = marc = terr = NULL; return; }
+	etiquetar(comp, 0, cola);
+	etiquetar(marc, 1, cola);
+	etiquetar(terr, 2, cola); ++terr_gen;
 	free(cola);
 }
 
@@ -413,6 +437,77 @@ static int isla_de(float x, float y) {
 			for (int i = cx - r; i <= cx + r; ++i)
 				if (i >= 0 && j >= 0 && i < W.w && j < W.h && comp[j * W.w + i]) return comp[j * W.w + i];
 	return 0;
+}
+
+/* zona por la que se anda de un punto (0 si no se sabe); mira las casillas vecinas (radio 2) por si el punto está sobre un obstáculo */
+static int zona_de(float x, float y) {
+	if (!terr) return 0;
+	int cx = CLAMP((int)x, 0, W.w - 1), cy = CLAMP((int)y, 0, W.h - 1);
+	for (int r = 0; r <= 2; ++r)
+		for (int j = cy - r; j <= cy + r; ++j)
+			for (int i = cx - r; i <= cx + r; ++i)
+				if (i >= 0 && j >= 0 && i < W.w && j < W.h && terr[j * W.w + i]) return terr[j * W.w + i];
+	return 0;
+}
+
+/* masa de agua de un punto (0 si no se sabe); busca el agua más cercana en un radio de 3 casillas */
+static int mar_de(float x, float y) {
+	if (!marc) return 0;
+	int cx = CLAMP((int)x, 0, W.w - 1), cy = CLAMP((int)y, 0, W.h - 1);
+	for (int r = 0; r <= 3; ++r)
+		for (int j = cy - r; j <= cy + r; ++j)
+			for (int i = cx - r; i <= cx + r; ++i)
+				if (i >= 0 && j >= 0 && i < W.w && j < W.h && marc[j * W.w + i]) return marc[j * W.w + i];
+	return 0;
+}
+
+/* D415: orilla de la isla `isla` alcanzable desde la masa de agua `mar`: una casilla de tierra libre (lx,ly) con una de agua
+ * libre pegada (wx,wy); la más cercana a (ox,oy) dentro de `radio` casillas (0 = todo el mapa). Las torres del rival que
+ * ya se conocen alejan el sitio. Devuelve 0 si no hay orilla (la isla no se alcanza con barcos desde esa agua). */
+static int sitio_orilla(const Ia *a, int p, int isla, int mar, float ox, float oy, float radio, float *wx, float *wy, float *lx, float *ly) {
+	if (!terr || !marc || !isla || !mar) return 0;
+	int x0 = 0, x1 = W.w - 1, y0 = 0, y1 = W.h - 1;
+	if (radio > 0) { x0 = MAX(0, (int)(ox - radio)); x1 = MIN(W.w - 1, (int)(ox + radio)); y0 = MAX(0, (int)(oy - radio)); y1 = MIN(W.h - 1, (int)(oy + radio)); }
+	static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+	float mejor = 1e18f; int hay = 0;
+	for (int y = y0; y <= y1; ++y)
+		for (int x = x0; x <= x1; ++x) {
+			if (terr[y * W.w + x] != isla) continue;
+			for (int d = 0; d < 4; ++d) {
+				int nx = x + dx[d], ny = y + dy[d];
+				if (nx < 0 || ny < 0 || nx >= W.w || ny >= W.h || marc[ny * W.w + nx] != mar || !tile_sail(nx, ny)) continue;
+				float v = d2(x + 0.5f, y + 0.5f, ox, oy);
+				for (int k = 0; k < a->ncon; ++k)
+					if (a->con[k].t == E_TOWER && hostile(p, a->con[k].owner) && d2(a->con[k].x, a->con[k].y, x + 0.5f, y + 0.5f) < 8 * 8) { v += 900; break; }
+				if (v < mejor) { mejor = v; hay = 1; *wx = nx + 0.5f; *wy = ny + 0.5f; *lx = x + 0.5f; *ly = y + 0.5f; }
+			}
+		}
+	return hay;
+}
+
+/* D415: ¿hay rivales a los que solo se llega por mar? Con la base en una isla y algún edificio rival conocido en otra (o
+ * ninguno conocido aún). El generador de «islas» a veces deja a todos en la misma masa de tierra. */
+static int hay_rivales_por_mar(int p) {
+	Ia *a = &ia[p];
+	if (!islas()) return 0;
+	int base = a->base_isla, conocidos = 0;
+	for (int k = 0; k < a->ncon; ++k) {
+		if (!hostile(p, a->con[k].owner) || a->con[k].t == E_WALL) continue;
+		++conocidos;
+		if (zona_de(a->con[k].x, a->con[k].y) != base) return 1;
+	}
+	return !conocidos;
+}
+
+/* ¿se llega por mar a la isla desde el agua de la base? (se recuerda por isla) */
+static int isla_alcanzable(Ia *a, int p, int isla) {
+	if (!isla || !a->base_mar || isla == a->base_isla) return 1;
+	if (a->alc_gen != terr_gen) { a->alc_gen = terr_gen; a->alc_n = 0; }
+	for (int k = 0; k < a->alc_n; ++k) if (a->alc_isla[k] == isla && a->alc_mar[k] == a->base_mar) return a->alc_ok[k];
+	float wx, wy, lx, ly;
+	int ok = sitio_orilla(a, p, isla, a->base_mar, 0, 0, 0, &wx, &wy, &lx, &ly);
+	if (a->alc_n < 12) { a->alc_isla[a->alc_n] = isla; a->alc_mar[a->alc_n] = a->base_mar; a->alc_ok[a->alc_n++] = ok; }
+	return ok;
 }
 
 /* recurso conocido más cercano a un punto de un tipo, en la misma isla y no demasiado lleno de aldeanos */
@@ -604,7 +699,6 @@ static int construir_entrega(int p, Censo *c, int t) {
 }
 
 /* mapa de islas: no se llega por tierra al rival (se necesitan transportes) */
-static int islas(void) { return W.setup.map_kind == MAP_ISLANDS; }
 
 static int peces_cerca(int p, const Censo *c) {
 	int n = 0;
@@ -815,8 +909,14 @@ static void producir(int p, Censo *c, int reserva_comida, int reserva_oro) {
 	if (pl->pop >= cap || c->aldeanos < (pl->diff == 0 ? 10 : 8)) return;
 	int tope = pl->diff == 0 ? 8 + 6 * pl->age : 12 + 12 * pl->age;
 	/* en las islas, el ejército de tierra se limita a lo que caben en cuatro viajes: el resto de la población, para la flota */
-	if (islas()) tope = MIN(tope, 20);
-	if (c->ejercito >= tope && (!ia[p].amenaza || (islas() && c->ejercito >= 30))) return;
+	if (hay_rivales_por_mar(p)) {
+		tope = MIN(tope, 20);
+		/* D415: y se dejan plazas libres para los transportes que faltan (con la población llena no se puede construir ninguno
+		 * y el ejército se quedaba en tierra para siempre) */
+		int falta = MAX(0, 2 + pl->age - c->n[E_TRANSPORT]);
+		if (c->n[E_DOCK] && falta && pl->pop + MIN(6, 2 * falta) >= cap && c->ejercito >= 8) return;
+	}
+	if (c->ejercito >= tope && (!ia[p].amenaza || (hay_rivales_por_mar(p) && c->ejercito >= 30))) return;
 	/* un ejército mínimo según la edad se mantiene aunque se esté ahorrando para la edad siguiente */
 	int minimo = pl->diff == 0 ? 0 : pl->diff == 1 ? 4 + 4 * pl->age : 6 + 5 * pl->age;
 	if (c->ejercito < minimo || ia[p].amenaza) { reserva_comida = 0; reserva_oro = 0; }
@@ -1007,8 +1107,15 @@ static int maravilla_rival(int p, float *x, float *y, Ref *r) {
 static int elegir_objetivo(int p, float x, float y) {
 	Ia *a = &ia[p];
 	int best = -1; float bd = 1e18f;
+	int isla_ref = islas() ? zona_de(x, y) : 0;
 	for (int k = 0; k < a->ncon; ++k) {
 		float d = d2(a->con[k].x, a->con[k].y, x, y);
+		if (islas()) {
+			/* D415: un edificio en una isla a la que no se llega por mar no es objetivo; los de la isla donde ya está el ejército, primero */
+			int ik = zona_de(a->con[k].x, a->con[k].y);
+			if (!isla_alcanzable(a, p, ik)) continue;
+			if (ik && isla_ref && ik != isla_ref) d *= 3.0f;
+		}
 		if (a->con[k].t == E_TOWN_CENTER) d *= 0.7f;
 		if (a->con[k].t == E_TOWER) d *= 1.6f;   /* rodea las torres si puede */
 		if (a->con[k].t == E_WONDER) d *= 0.02f; /* una Maravilla rival es lo primero */
@@ -1016,9 +1123,18 @@ static int elegir_objetivo(int p, float x, float y) {
 		if (d < bd) { bd = d; best = k; }
 	}
 	if (best >= 0) { a->obj_x = a->con[best].x; a->obj_y = a->con[best].y; a->objetivo = a->con[best].r; return 1; }
-	int cel = celda_sin_explorar(p, x, y, 1);
-	if (cel < 0) cel = celda_sin_explorar(p, x, y, 0);
-	if (cel < 0) cel = celda_olvidada(p, x, y);
+	int cel = -1;
+	/* D415: en las islas, una celda en una zona a la que no se llega por mar se da por explorada y se busca otra */
+	for (int intento = 0; intento < 12; ++intento) {
+		cel = celda_sin_explorar(p, x, y, 1);
+		if (cel < 0) cel = celda_sin_explorar(p, x, y, 0);
+		if (cel < 0) cel = celda_olvidada(p, x, y);
+		if (cel < 0 || !islas()) break;
+		float cx = (cel % a->cw) * CELDA + CELDA * 0.5f, cy = (cel / a->cw) * CELDA + CELDA * 0.5f;
+		if (isla_alcanzable(a, p, zona_de(cx, cy))) break;
+		a->vista[cel] = a->vuelta; a->explorada[cel] = 1;
+		cel = -1;
+	}
 	if (cel < 0) return 0;
 	a->obj_x = (cel % a->cw) * CELDA + CELDA * 0.5f; a->obj_y = (cel / a->cw) * CELDA + CELDA * 0.5f;
 	a->objetivo = SIN;
@@ -1073,17 +1189,37 @@ static void ejercito(int p, Censo *c) {
 	if (nam) { a->amenaza_x = ax / nam; a->amenaza_y = ay / nam; }
 	else if (habia) { a->defendido_t = W.time; ++a->ataques_rechazados; }
 
-	/* fuerza y centro del ejército */
-	float fz = 0, cx = 0, cy = 0; int n = 0;
+	/* fuerza y centro del ejército (en las islas, aparte el de los que están en la isla de la base y el de los desembarcados) */
+	a->base_isla = islas() ? zona_de(c->bx, c->by) : 0;
+	int isla_obj = islas() ? zona_de(a->obj_x, a->obj_y) : 0;
+	int por_mar = islas() && isla_obj && a->base_isla && isla_obj != a->base_isla;
+	float fz = 0, cx = 0, cy = 0, bcx = 0, bcy = 0, lcx = 0, lcy = 0; int n = 0, nb = 0, nl = 0;
 	for (int i = 0; i < W.nents; ++i) {
 		Entity *u = &W.ents[i];
 		if (!del_ejercito(p, u)) continue;
 		fz += fuerza(u); cx += u->x; cy += u->y; ++n;
+		if (!por_mar) continue;
+		int iu = zona_de(u->x, u->y);
+		if (iu == a->base_isla) { bcx += u->x; bcy += u->y; ++nb; }
+		else if (iu == isla_obj) { lcx += u->x; lcy += u->y; ++nl; }
 	}
 	if (n) { cx /= n; cy /= n; }
+	if (nb) { bcx /= nb; bcy /= nb; } else { bcx = cx; bcy = cy; nb = n; }
+	if (nl) { lcx /= nl; lcy /= nl; } else { lcx = cx; lcy = cy; }
+	if (!por_mar) { nb = n; bcx = cx; bcy = cy; }
 
 	/* defensa: si hay amenaza, el ejército de casa (y el que está fuera si la amenaza es seria) a por ella */
-	if (nam && (a->modo != M_ATAQUE || fam > fz * 0.5f || d2(cx, cy, c->bx, c->by) < 30 * 30)) {
+	/* D415: en las islas, uno o dos infiltrados (un transporte con 1-2 soldados) los frenan los de casa y las torres; no se
+	 * deshace por ellos la reunión ni la invasión (antes el ejército entero se quedaba «defendiendo» para siempre) */
+	int pequena = islas() && nam <= 3 && fam < fz * 0.35f;
+	if (nam && pequena) {
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *u = &W.ents[i];
+			if (!del_ejercito(p, u) || d2(u->x, u->y, c->bx, c->by) > 30 * 30 || zona_de(u->x, u->y) != a->base_isla) continue;
+			if (!ordenar_ataque(p, i, 12) && u->state == ST_IDLE) mover_si_lejos(i, a->amenaza_x, a->amenaza_y, 3);
+		}
+	}
+	if (nam && !pequena && (a->modo != M_ATAQUE || fam > fz * 0.5f || d2(cx, cy, c->bx, c->by) < 30 * 30)) {
 		if (a->modo == M_ATAQUE || a->modo == M_REUNIR) a->modo = M_RETIRADA;
 		for (int i = 0; i < W.nents; ++i) {
 			if (!del_ejercito(p, &W.ents[i])) continue;
@@ -1112,10 +1248,11 @@ static void ejercito(int p, Censo *c) {
 		for (int i = 0; i < W.nents; ++i) {
 			Entity *u = &W.ents[i];
 			if (!del_ejercito(p, u)) continue;
+			if (islas() && a->base_isla && zona_de(u->x, u->y) != a->base_isla) continue;   /* los varados los recoge un transporte */
 			if (u->state == ST_ATTACK && a->modo == M_PAZ) continue;
 			if (u->state == ST_IDLE || a->modo == M_RETIRADA) mover_si_lejos(i, a->reunion_x + (i % 5) - 2, a->reunion_y + (i / 5 % 5) - 2, 4);
 		}
-		if (a->modo == M_RETIRADA && (n == 0 || d2(cx, cy, a->reunion_x, a->reunion_y) < 8 * 8)) a->modo = M_PAZ;
+		if (a->modo == M_RETIRADA && (nb == 0 || d2(bcx, bcy, a->reunion_x, a->reunion_y) < 8 * 8)) a->modo = M_PAZ;
 		/* normal y difícil solo atacan si su ejército supera lo que han visto del rival (o si ya no caben más soldados) */
 		int torres = 0;
 		for (int k = 0; k < a->ncon; ++k) torres += a->con[k].t == E_TOWER;
@@ -1136,11 +1273,12 @@ static void ejercito(int p, Censo *c) {
 		for (int i = 0; i < W.nents; ++i) {
 			Entity *u = &W.ents[i];
 			if (!del_ejercito(p, u)) continue;
+			if (islas() && a->base_isla && zona_de(u->x, u->y) != a->base_isla) continue;
 			if (d2(u->x, u->y, a->reunion_x, a->reunion_y) < 7 * 7) ++juntos;
 			else mover_si_lejos(i, a->reunion_x, a->reunion_y, 5);
 		}
 		if (n == 0) { a->modo = M_PAZ; break; }
-		if (juntos >= n * 8 / 10 || W.time - a->modo_t > 45) {
+		if (juntos >= nb * 8 / 10 || W.time - a->modo_t > 45) {
 			if (elegir_objetivo(p, a->reunion_x, a->reunion_y)) {
 				a->modo = M_ATAQUE; a->modo_t = W.time; a->fuerza_inicial = fz;
 				if (a->primer_ataque_t < 0) a->primer_ataque_t = W.time;
@@ -1165,24 +1303,33 @@ static void ejercito(int p, Censo *c) {
 		/* objetivo destruido o alcanzado: el siguiente */
 		Entity *ob = ent_get(a->objetivo);
 		if ((a->objetivo.idx >= 0 && (!ob || ob->state == ST_DYING || !hostile(p, ob->owner))) || (a->objetivo.idx < 0 && d2(cx, cy, a->obj_x, a->obj_y) < 5 * 5) ||
-		    W.time - a->modo_t > (a->objetivo.idx < 0 ? 120 : 240)) {
+		    W.time - a->modo_t > (a->objetivo.idx < 0 ? (por_mar ? 420 : 120) : 240)) {
 			a->modo_t = W.time;
 			/* una celda que no se alcanza se da por vista, para que la siguiente búsqueda elija otra */
 			if (a->objetivo.idx < 0) { int ce = celda(a->obj_x, a->obj_y, a); a->vista[ce] = a->vuelta; a->explorada[ce] = 1; }
-			if (!elegir_objetivo(p, cx, cy)) { a->modo = M_RETIRADA; break; }
+				if (!elegir_objetivo(p, por_mar ? lcx : cx, por_mar ? lcy : cy)) { a->modo = M_RETIRADA; break; }
+			isla_obj = zona_de(a->obj_x, a->obj_y);
+			por_mar = islas() && isla_obj && a->base_isla && isla_obj != a->base_isla;
 		}
 		/* avance en grupo: cada unidad va a un punto algo por delante del centro del grupo */
+		if (por_mar) { cx = lcx; cy = lcy; }
 		float dx = a->obj_x - cx, dy = a->obj_y - cy, l = sqrtf(dx * dx + dy * dy) + 0.01f;
 		float paso = MIN(l, 7.0f);
 		float px = cx + dx / l * paso, py = cy + dy / l * paso;
 		for (int i = 0; i < W.nents; ++i) {
 			Entity *u = &W.ents[i];
 			if (!del_ejercito(p, u)) continue;
+			int iu = por_mar ? zona_de(u->x, u->y) : 0;
 			/* los heridos vuelven a casa (con los sacerdotes) */
-			if (nv->retirada && u->hp < u->maxhp * 0.25f && fe > 0 && !ud(u->type)->ranged) { mover_si_lejos(i, a->reunion_x, a->reunion_y, 3); continue; }
+			if (nv->retirada && u->hp < u->maxhp * 0.25f && fe > 0 && !ud(u->type)->ranged && (!por_mar || iu == a->base_isla)) { mover_si_lejos(i, a->reunion_x, a->reunion_y, 3); continue; }
 			if (ordenar_ataque(p, i, 8)) continue;
-			/* en las islas, los que siguen en casa esperan el transporte en la reunión */
-			if (islas() && d2(u->x, u->y, a->reunion_x, a->reunion_y) < 14 * 14 && d2(a->obj_x, a->obj_y, a->reunion_x, a->reunion_y) > 30 * 30) { mover_si_lejos(i, a->reunion_x, a->reunion_y, 5); continue; }
+			if (por_mar) {
+				/* D415: los desembarcados van directos al objetivo; los de casa esperan el transporte en la reunión; los que
+				 * estén en otra isla los recoge un transporte (rescate) */
+				if (iu == isla_obj) { mover_si_lejos(i, ob ? ob->x : a->obj_x, ob ? ob->y : a->obj_y, 2); continue; }
+				if (iu == a->base_isla) { mover_si_lejos(i, a->reunion_x, a->reunion_y, 5); }
+				continue;
+			}
 			/* el objetivo está a la vista: a por él */
 			if (ob && d2(u->x, u->y, ob->x, ob->y) < 8 * 8) { cmd_target(ent_ref(i), a->objetivo); continue; }
 			/* los rezagados se acercan al grupo; los demás avanzan */
@@ -1229,6 +1376,57 @@ static void reliquias(int p, Censo *c) {
 
 static int en_barco(const Entity *u) { return u->state == ST_BOARD || u->state == ST_ABOARD; }
 
+/* D415: recoger varados. Una unidad militar ociosa en otra isla que la de la base (desembarcada que no sigue el ataque, o
+ * dejada en un islote) la recoge un transporte libre: va a la orilla más cercana, la unidad embarca y vuelve al muelle.
+ * Si en el viaje no se llega o pasan 4 minutos, se aparta a esa unidad 10 minutos. Un rescate a la vez. */
+static void rescatar(int p, Entity *dock, int isla_obj, int por_mar) {
+	Ia *a = &ia[p];
+	if (!a->base_isla || !a->base_mar) return;
+	Entity *tr = ent_get(a->resc_tr), *v = ent_get(a->resc_u);
+	if (a->resc_fase && (!tr || !vivo(tr) || tr->type != E_TRANSPORT)) { a->resc_fase = 0; a->resc_tr = a->resc_u = SIN; return; }
+	if (!a->resc_fase) {
+		if (W.time - a->resc_t < 20) return;
+		a->resc_t = W.time;
+		/* un transporte libre en casa (si solo hay uno y se ataca, no se toca) */
+		int libre = -1, total = 0;
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *b = &W.ents[i];
+			if (!vivo(b) || b->owner != p || b->type != E_TRANSPORT) continue;
+			++total;
+			if (libre < 0 && b->state == ST_IDLE && transport_load(b) == 0 && d2(b->x, b->y, dock->x, dock->y) < 16 * 16) libre = i;
+		}
+		if (libre < 0 || (a->modo == M_ATAQUE && total < 2)) return;
+		for (int j = 0; j < W.nents; ++j) {
+			Entity *u = &W.ents[j];
+			if (!vivo(u) || u->owner != p || !(militar(u->type) || u->type == E_PRIEST) || u->state != ST_IDLE) continue;
+			int iu = zona_de(u->x, u->y);
+			if (!iu || iu == a->base_isla || (a->modo == M_ATAQUE && por_mar && iu == isla_obj)) continue;
+			if (ent_get(a->resc_ign) == u && W.time - a->resc_ign_t < 600) continue;
+			if (enemigo_cerca(p, u, 10) >= 0) continue;
+			if (!sitio_orilla(a, p, iu, a->base_mar, u->x, u->y, 16, &a->resc_wx, &a->resc_wy, &(float){ 0 }, &(float){ 0 })) { a->resc_ign = ent_ref(j); a->resc_ign_t = W.time; continue; }
+			a->resc_fase = 1; a->resc_tr = ent_ref(libre); a->resc_u = ent_ref(j); a->resc_t = W.time;
+			cmd_move(a->resc_tr, a->resc_wx, a->resc_wy);
+			snprintf(a->ultimo, sizeof a->ultimo, "rescata a un varado en %.0f,%.0f", u->x, u->y);
+			break;
+		}
+		return;
+	}
+	if (a->resc_fase == 1) {
+		int carga = transport_load(tr);
+		if (carga > 0 || !v || !vivo(v) || v->state == ST_ABOARD) { a->resc_fase = 2; a->resc_t = W.time; cmd_move(a->resc_tr, dock->x, dock->y); return; }
+		if (W.time - a->resc_t > 240) { a->resc_ign = a->resc_u; a->resc_ign_t = W.time; a->resc_fase = 2; a->resc_t = W.time; cmd_move(a->resc_tr, dock->x, dock->y); return; }
+		if (d2(tr->x, tr->y, a->resc_wx, a->resc_wy) > 4 * 4) { if (tr->state == ST_IDLE) cmd_move(a->resc_tr, a->resc_wx, a->resc_wy); }
+		else if (v->state != ST_BOARD) cmd_target(a->resc_u, a->resc_tr);
+		return;
+	}
+	/* fase 2: de vuelta; en casa baja a los rescatados (en un ataque, se quedan a bordo para la siguiente oleada) */
+	if (d2(tr->x, tr->y, dock->x, dock->y) < 10 * 10 && tr->state == ST_IDLE) {
+		if (transport_load(tr) > 0 && a->modo != M_ATAQUE) { cmd_move(a->resc_tr, dock->x, dock->y); }
+		else { a->resc_fase = 0; a->resc_tr = a->resc_u = SIN; }
+	} else if (tr->state == ST_IDLE) cmd_move(a->resc_tr, dock->x, dock->y);
+	else if (W.time - a->resc_t > 300) { a->resc_fase = 0; a->resc_tr = a->resc_u = SIN; }
+}
+
 static void barcos(int p, Censo *c) {
 	Ia *a = &ia[p];
 	Player *pl = &W.pl[p];
@@ -1237,6 +1435,19 @@ static void barcos(int p, Censo *c) {
 		if (vivo(&W.ents[i]) && W.ents[i].owner == p && W.ents[i].type == E_DOCK && W.ents[i].progress >= 1) dock = &W.ents[i];
 	if (!dock) return;
 	int dk = (int)(dock - W.ents);
+	/* D415: isla y agua de la base, isla del objetivo y sitio de desembarco (agua y tierra de la misma agua que el muelle, junto al objetivo) */
+	a->base_isla = zona_de(c->bx, c->by);
+	a->base_mar = mar_de(dock->x, dock->y);
+	int isla_obj = zona_de(a->obj_x, a->obj_y);
+	int por_mar = islas() && isla_obj && a->base_isla && isla_obj != a->base_isla;
+	if (por_mar && (!a->anf_ok || fabsf(a->anf_ox - a->obj_x) + fabsf(a->anf_oy - a->obj_y) > 0.5f || W.time - a->anf_t > 90)) {
+		a->anf_ok = sitio_orilla(a, p, isla_obj, a->base_mar, a->obj_x, a->obj_y, 0, &a->anf_wx, &a->anf_wy, &a->anf_lx, &a->anf_ly);
+		a->anf_ox = a->obj_x; a->anf_oy = a->obj_y; a->anf_t = W.time;
+	}
+	/* a dónde navegan la flota y los transportes: el agua del sitio de desembarco (o el objetivo, si no hay) */
+	float nav_x = por_mar && a->anf_ok ? a->anf_wx : a->obj_x, nav_y = por_mar && a->anf_ok ? a->anf_wy : a->obj_y;
+	rescatar(p, dock, isla_obj, por_mar);
+	int t_rescate = a->resc_fase ? (int)(ent_get(a->resc_tr) - W.ents) : -1;
 	/* producción: pesqueros según los peces, trirremes y un transporte en las islas */
 	int peces = peces_cerca(p, c);
 	int barcos_rivales = 0;
@@ -1244,11 +1455,14 @@ static void barcos(int p, Censo *c) {
 		Entity *e = &W.ents[i];
 		if (vivo(e) && is_naval(e->type) && hostile(p, e->owner) && ve(p, e->x, e->y)) ++barcos_rivales;
 	}
-	int quiero[3] = { MIN(6, (peces + 3) / 4), islas() ? 3 + 3 * pl->age : pl->diff >= 2 ? 2 : 0, islas() ? 2 + pl->age : 0 };
+	/* D415: transportes y flota de guerra solo si hay rivales a los que no se llega andando (el generador de «islas» a veces
+	 * deja a todos en la misma masa de tierra); mientras no se conozca ninguno, se supone que sí */
+	int hay_mar = hay_rivales_por_mar(p);
+	int quiero[3] = { MIN(6, (peces + 3) / 4), islas() && hay_mar ? 3 + 3 * pl->age : pl->diff >= 2 ? 2 : 0, islas() && hay_mar ? 2 + pl->age : 0 };
 	static const int tipos[3] = { E_FISHBOAT, E_WARSHIP, E_TRANSPORT };
 	if (barcos_rivales) quiero[1] = MAX(quiero[1], MIN(barcos_rivales + 1, 6));
 	/* sin el primer transporte no hay ataque: va antes que los trirremes */
-	if (islas() && c->n[E_TRANSPORT] == 0 && quiero[2] > 0) { quiero[1] = MIN(quiero[1], c->n[E_WARSHIP]); }
+	if (islas() && hay_mar && c->n[E_TRANSPORT] == 0 && quiero[2] > 0) { quiero[1] = MIN(quiero[1], c->n[E_WARSHIP]); }
 	if (dock->ntrain == 0 && pl->pop < world_pop_cap(p))
 		for (int k = 0; k < 3; ++k)
 			if (c->n[tipos[k]] < quiero[k] && ud(tipos[k])->age <= pl->age && puede_pagar(p, tipos[k], 0, 0) && cmd_train(p, ent_ref(dk), (EntType)tipos[k])) break;
@@ -1272,6 +1486,18 @@ static void barcos(int p, Censo *c) {
 	}
 	if (!cargados) a->embarque_t = W.time;
 	int zarpar = cargados > 0 && ((en_casa == total_t && (llenos == en_casa || esperando == 0)) || W.time - a->embarque_t > 60);
+	/* D415: antes de zarpar, flota de guerra para dominar el agua del desembarco (los rivales vistos + 1, hasta 4; la fácil, sin
+	 * flota mínima); si tarda más de 150 s en tenerla, salen igualmente */
+	{
+		int guerra = 0, rivales_g = 0;
+		for (int i = 0; i < W.nents; ++i) {
+			Entity *e = &W.ents[i];
+			if (!vivo(e) || e->type != E_WARSHIP) continue;
+			if (e->owner == p) ++guerra; else if (hostile(p, e->owner) && ve(p, e->x, e->y)) ++rivales_g;
+		}
+		int minima = pl->diff == 0 ? 0 : MIN(4, 1 + rivales_g);
+		if (guerra < minima && W.time - a->embarque_t < 150) zarpar = 0;
+	}
 	/* colonia: si en la isla propia no queda madera u oro y se conoce en otra, un transporte lleva allí 5 aldeanos (que
 	 * levantan un almacén al llegar) */
 	int isla_base = isla_de(c->bx, c->by), colonos = 0;
@@ -1333,7 +1559,7 @@ static void barcos(int p, Censo *c) {
 			if (en >= 0) { cmd_target(ent_ref(i), ent_ref(en)); continue; }
 			if (b->state != ST_IDLE) continue;
 			/* en un ataque por mar, escoltan a los transportes hacia el objetivo y bombardean la costa */
-			if (a->modo == M_ATAQUE && islas() && d2(b->x, b->y, a->obj_x, a->obj_y) > 8 * 8) { cmd_move(ent_ref(i), a->obj_x, a->obj_y); continue; }
+			if (a->modo == M_ATAQUE && islas() && d2(b->x, b->y, nav_x, nav_y) > 8 * 8) { cmd_move(ent_ref(i), nav_x, nav_y); continue; }
 			int best = -1; float bd = 1e18f;
 			for (int j = 0; j < a->ch; ++j)
 				for (int k = 0; k < a->cw; ++k) {
@@ -1343,11 +1569,17 @@ static void barcos(int p, Censo *c) {
 					if (d < bd) { bd = d; best = j * a->cw + k; }
 				}
 			if (best >= 0) cmd_move(ent_ref(i), (best % a->cw) * CELDA + CELDA * 0.5f, (best / a->cw) * CELDA + CELDA * 0.5f);
-			else if (a->modo == M_ATAQUE) cmd_move(ent_ref(i), a->obj_x, a->obj_y);
-		} else if (b->type == E_TRANSPORT && i != t_colonia) {
+			else if (a->modo == M_ATAQUE) cmd_move(ent_ref(i), nav_x, nav_y);
+		} else if (b->type == E_TRANSPORT && i != t_colonia && i != t_rescate) {
 			int carga = transport_load(b);
 			if (b->state != ST_IDLE) continue;
-			if (a->modo == M_ATAQUE && islas()) {
+			/* D415: llegó al agua del desembarco con tropa: a tierra (baja al llegar a la orilla) */
+			if (carga > 0 && por_mar && a->anf_ok && d2(b->x, b->y, a->anf_wx, a->anf_wy) < 5 * 5) { cmd_move(ent_ref(i), a->anf_lx, a->anf_ly); continue; }
+			/* con tropa a bordo y sin ataque (o en el muelle esperando más de 90 s sin zarpar): baja en casa */
+			if (carga > 0 && d2(b->x, b->y, dock->x, dock->y) < 16 * 16 && (a->modo != M_ATAQUE || !por_mar) && W.time - a->embarque_t > 90) { cmd_move(ent_ref(i), dock->x, dock->y); continue; }
+			/* con tropa lejos del muelle y de la costa de desembarco (se quedó parado): sigue hacia el sitio, o vuelve */
+			if (carga > 0 && d2(b->x, b->y, dock->x, dock->y) >= 16 * 16) { if (por_mar && a->anf_ok && a->modo == M_ATAQUE) cmd_move(ent_ref(i), a->anf_wx, a->anf_wy); else cmd_move(ent_ref(i), dock->x, dock->y); continue; }
+			if (a->modo == M_ATAQUE && por_mar) {
 				/* embarca a los soldados que siguen en casa y, lleno o sin más que esperar, zarpa hacia el objetivo */
 				int subiendo = 0;
 				if (d2(b->x, b->y, dock->x, dock->y) >= 16 * 16) { if (!carga) cmd_move(ent_ref(i), dock->x, dock->y); continue; }
@@ -1359,7 +1591,7 @@ static void barcos(int p, Censo *c) {
 					cmd_target(ent_ref(j), ent_ref(i));
 					++subiendo;
 				}
-				if (carga > 0 && zarpar) cmd_move(ent_ref(i), a->obj_x, a->obj_y);
+				if (carga > 0 && zarpar) cmd_move(ent_ref(i), nav_x, nav_y);
 			} else if (carga == 0 && d2(b->x, b->y, dock->x, dock->y) > 10 * 10) cmd_move(ent_ref(i), dock->x, dock->y);
 		}
 	}
@@ -1413,6 +1645,139 @@ static void mercantes(int p, Censo *c) {
 	}
 }
 
+/* ---------- diplomacia con el humano (D415) ---------- */
+
+/* Lo que cada jugador de la máquina recuerda de los demás (sobre todo del humano): lo recibido en tributos (`conf`, en
+ * recursos) y las traiciones (romper un pacto). Se olvida con cada partida nueva. */
+typedef struct {
+	unsigned gen;
+	float conf[MAX_PLAYERS], traicion_t[MAX_PLAYERS], prop_t[MAX_PLAYERS], pide_t[MAX_PLAYERS], queja_t[MAX_PLAYERS];
+	int traiciones[MAX_PLAYERS];
+} Dip;
+static Dip dip[MAX_PLAYERS];
+
+static Dip *dipm(int p) {
+	Dip *d = &dip[p];
+	if (d->gen != world_gen() + 1) {
+		memset(d, 0, sizeof *d);
+		d->gen = world_gen() + 1;
+		for (int q = 0; q < MAX_PLAYERS; ++q) d->traicion_t[q] = -1e9f;
+	}
+	return d;
+}
+
+/* personalidad fija de cada jugador de la máquina: 0 belicosa, 1 equilibrada, 2 pacífica */
+int ia_personalidad(int p) { return (int)(((unsigned)W.setup.seed * 7u + (unsigned)p * 5u + (unsigned)W.pl[p].civ * 3u) % 3u); }
+
+/* un tercero vivo que es enemigo de los dos y más fuerte que `p` (amenaza común); devuelve su jugador + 1, o 0 */
+static int amenaza_comun(int p, int q) {
+	int mejor = 0, sp = world_team_score(p);
+	for (int r = 0; r < MAX_PLAYERS; ++r) {
+		if (r == p || r == q || !W.pl[r].active || !W.pl[r].alive) continue;
+		if (W.pl[p].dipl[r] != DIPL_ENEMY || W.pl[q].dipl[r] != DIPL_ENEMY) continue;
+		if (world_team_score(r) >= sp) mejor = r + 1;
+	}
+	return mejor;
+}
+
+int ia_responde(int p, int de, int nivel, char *msg, int n) {
+	Dip *d = dipm(p);
+	Player *pl = &W.pl[p];
+	int cur = pl->dipl[de], pers = ia_personalidad(p);
+	float sp = (float)MAX(1, world_team_score(p)), sd = (float)MAX(1, world_team_score(de));
+	float rel = sd / sp;   /* >1: el que pide es más fuerte que yo */
+	int com = amenaza_comun(p, de), trai = W.time - d->traicion_t[de] < 900.0f;
+	/* puntuación de la propuesta: personalidad, dificultad, fuerza relativa, amenaza común, tributos recibidos y traiciones */
+	static const float dif_v[IA_DIFICULTADES] = { 0.6f, 0.0f, -0.5f, -0.8f };
+	float v = (pers - 1) * 1.0f + dif_v[CLAMP(pl->diff, 0, IA_DIFICULTADES - 1)];
+	v += CLAMP((rel - 1.0f) * 2.0f, -1.5f, 1.5f);
+	if (com) v += 1.5f;
+	v += MIN(2.5f, d->conf[de] / 200.0f);
+	v -= trai ? 4.0f : MIN(2, d->traiciones[de]) * 0.7f;
+	int paz = nivel == DIPL_NEUTRAL;
+	float need = paz ? 0.4f : 2.0f;
+	const char *r = NULL; int ok = 0;
+	if (nivel == DIPL_ALLY && cur != DIPL_NEUTRAL) r = "Primero hagamos las paces.";
+	else if (trai) r = "Me traicionaste hace poco: no me fío de ti.";
+	else if (nivel == DIPL_ALLY && pl->diff >= 2 && !(com && d->conf[de] > 0)) r = "No me alío sin un motivo: un enemigo común y un gesto tuyo.";
+	else if (v < need) {
+		if (rel < 0.7f) r = paz ? "Eres demasiado débil para pedirme la paz." : "No necesito aliados tan débiles.";
+		else if (pers == 0) r = "Prefiero la guerra.";
+		else r = "Todavía no me fío: envíame un tributo.";
+	} else {
+		ok = 1;
+		if (com) r = paz ? "Tenemos un enemigo común: acepto la paz." : "Contra nuestro enemigo común, acepto la alianza.";
+		else if (d->conf[de] >= 200) r = paz ? "Tu tributo cuenta: acepto la paz." : "Tus regalos cuentan: acepto la alianza.";
+		else if (rel > 1.0f) r = paz ? "Eres fuerte: acepto la paz." : "Eres un buen aliado: acepto.";
+		else r = paz ? "Acepto la paz." : "Acepto la alianza.";
+	}
+	snprintf(msg, (size_t)n, "%s", r);
+	return ok;
+}
+
+void ia_tributo(int p, int de, int kind, int cantidad) {
+	Dip *d = dipm(p);
+	(void)kind;
+	d->conf[de] += (float)cantidad;
+	if (de == W.human) world_chat(p, "Gracias por el tributo: lo recordaré.");
+}
+
+void ia_traicion(int p, int de) {
+	Dip *d = dipm(p);
+	d->traicion_t[de] = W.time; ++d->traiciones[de]; d->conf[de] = 0;
+	if (de == W.human) world_chat(p, "¡Traidor! No olvidaré esto.");
+}
+
+int ia_pide(int p, int de, int kind, int cantidad, char *msg, int n) {
+	Dip *d = dipm(p);
+	Player *pl = &W.pl[p];
+	int cur = pl->dipl[de], pers = ia_personalidad(p);
+	const char *r; int ok = 0;
+	int reserva = pers == 0 ? 600 : 300;
+	if (cur == DIPL_ENEMY) r = "No doy nada a un enemigo.";
+	else if (W.time - d->traicion_t[de] < 900.0f) r = "Después de tu traición, nada.";
+	else if (pl->res[kind] < cantidad + reserva) r = "No me sobra tanto.";
+	else if (cur == DIPL_NEUTRAL && d->conf[de] < cantidad * 0.5f) r = "Solo a los aliados o a quien me ha enviado tributo.";
+	else if (pers == 0 && cur != DIPL_ALLY) r = "Pídeselo a otro.";
+	else { r = "Te lo envío; contamos con tu ayuda."; ok = 1; d->conf[de] = MAX(0.0f, d->conf[de] - cantidad * 0.5f); }
+	snprintf(msg, (size_t)n, "%s", r);
+	return ok;
+}
+
+/* La máquina propone al humano (cada 2,5 min, normal y más, pasados 5 min de partida): la paz si es más débil, si hay un
+ * enemigo común o si es pacífica; la alianza si hay un enemigo común o ya ha recibido tributos; y pide tributo si le falta un
+ * recurso. Si el humano la traicionó hace poco, no propone nada y se lo recuerda. La propuesta se responde en F3. */
+static void proponer_al_humano(int p) {
+	Player *pl = &W.pl[p];
+	Dip *d = dipm(p);
+	if (pl->diff == 0 || W.time < 300) return;
+	for (int q = 0; q < MAX_PLAYERS; ++q) {
+		if (q == p || !W.pl[q].active || !W.pl[q].alive || W.pl[q].ai || (W.prop_nivel[p] && W.time <= W.prop_t[p])) continue;
+		if (W.time - d->prop_t[q] < 240.0f) continue;
+		d->prop_t[q] = W.time;
+		int cur = pl->dipl[q], pers = ia_personalidad(p), com = amenaza_comun(p, q);
+		if (W.time - d->traicion_t[q] < 900.0f) {
+			if (W.time - d->queja_t[q] > 300.0f) { world_chat(p, "No olvido tu traición: no habrá paz."); d->queja_t[q] = W.time; }
+			continue;
+		}
+		float sp = (float)world_team_score(p), sq = (float)world_team_score(q);
+		if (cur == DIPL_ENEMY && (sp < sq * 0.7f || com || (pers == 2 && sp < sq * 1.5f))) {
+			world_proponer(p, DIPL_NEUTRAL);
+			world_chat(p, com ? "Tenemos un enemigo común: ¿hacemos las paces? (F3)" : "Propongo la paz. Respóndeme en la diplomacia (F3).");
+		} else if (cur == DIPL_NEUTRAL && pers != 0 && ((com && pl->diff <= 1) || d->conf[q] >= 200.0f)) {
+			world_proponer(p, DIPL_ALLY);
+			world_chat(p, "Te propongo una alianza. Respóndeme en la diplomacia (F3).");
+		} else if (cur != DIPL_ENEMY && W.time - d->pide_t[q] > 300.0f) {
+			static const char *rn[RES_COUNT] = { "madera", "comida", "oro", "piedra" };
+			for (int k = 0; k < RES_COUNT; ++k)
+				if (pl->res[k] < 60 && W.pl[q].res[k] > 800) {
+					char m[112]; snprintf(m, sizeof m, "Me falta %s: ¿puedes enviarme algo?", rn[k]);
+					world_chat(p, m); d->pide_t[q] = W.time; break;
+				}
+		}
+	}
+}
+
 /* ---------- diplomacia entre jugadores de la máquina ---------- */
 
 /* Cada dos minutos (normal y más): si hay un líder claro entre los rivales, el jugador busca la paz y luego la alianza con otro
@@ -1434,6 +1799,7 @@ static void diplomacia(int p) {
 				cmd_diplomacy(p, q, DIPL_ENEMY);
 				snprintf(a->ultimo, sizeof a->ultimo, "declara la guerra al jugador %d", q + 1);
 			}
+	proponer_al_humano(p);
 	if (pl->diff == 0 || W.time - a->diplo_t < 120) return;
 	a->diplo_t = W.time;
 	int lider = -1, enemigos = 0, mejor = -1;

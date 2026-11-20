@@ -234,6 +234,7 @@ static const struct { uint16_t fab, modelo; } confirmadas[] = {
     { 0x15AD, 0x0405 },   /* VMware SVGA II */
     { 0x1002, 0x7145 },   /* Mobility X1400 (RV515) del Amilo: acel2d probar --detalle, 176 órdenes iguales, 2026-11-18 (D386) */
     { 0x1002, 0x9553 },   /* Mobility HD 4530/4570 (RV710) del HP dv7: acel2d probar --detalle, 176 órdenes iguales, y junto al 3D, 2026-11-19 (D402) */
+    { 0x1002, 0x6840 },   /* HD 7600M (Turks) del Toshiba, VRAM del MC en 0xF_0000_0000: autoprueba completa, 11 «probar» BIEN y bench-gpu, 2026-11-19 (D408) */
 };
 static bool confirmada;       /* la tarjeta elegida está en la lista */
 static pci_disp_t disp;

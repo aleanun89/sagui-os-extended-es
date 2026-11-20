@@ -2138,6 +2138,14 @@ static void tratar_evento(evento_t *pe)
         ev.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
         enfileirar(&ev);
         break;
+    case EV_RODA_H:   /* D407: rueda horizontal (panel táctil); en la SDL, + hacia la derecha como aquí */
+        ev.type = SDL_MOUSEWHEEL;
+        ev.wheel.windowID = 1;
+        ev.wheel.x = (int)e.cliques;
+        ev.wheel.preciseX = (float)ev.wheel.x;
+        ev.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+        enfileirar(&ev);
+        break;
     case EV_FECHAR:
         evento_janela(SDL_WINDOWEVENT_CLOSE);
         ev.type = SDL_QUIT;

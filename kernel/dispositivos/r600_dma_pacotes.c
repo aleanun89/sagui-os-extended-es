@@ -3,34 +3,46 @@
  * también en el PC (tests/r600_dma_unidad.c). Ver r600_dma.h. */
 #include "r600_dma.h"
 
-int r600_pkt_copiar(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, bool r7xx)
+int r600_pkt_copiar_alto(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, bool r7xx, uint8_t alto)
 {
     p[0] = R600_DMA_CABECA(R600_DMA_COPIAR, ndw);
     p[1] = dst & 0xFFFFFFFCu;
     p[2] = src & 0xFFFFFFFCu;
-    p[3] = 0;                      /* bits 39:32: siempre por debajo de 4 GB */
-    if (!r7xx) return 4;           /* R6xx: los dos en la misma palabra */
-    p[4] = 0;                      /* R7xx: los del origen, aparte */
+    if (!r7xx) {                   /* R6xx: los dos en la misma palabra (destino << 16 | origen) */
+        p[3] = ((uint32_t)alto << 16) | alto;
+        return 4;
+    }
+    p[3] = alto;                   /* R7xx: bits 39:32 del destino */
+    p[4] = alto;                   /* y los del origen, aparte */
     return 5;
 }
 
-int r600_pkt_escrever(uint32_t *p, uint32_t dst, uint32_t valor)
+int r600_pkt_escrever_alto(uint32_t *p, uint32_t dst, uint32_t valor, uint8_t alto)
 {
     p[0] = R600_DMA_CABECA(R600_DMA_ESCREVER, 1);
     p[1] = dst & 0xFFFFFFFCu;
-    p[2] = 0;
+    p[2] = alto;
     p[3] = valor;
     return 4;
 }
 
-int r600_pkt_valla(uint32_t *p, uint32_t dst, uint32_t valor)
+int r600_pkt_valla_alto(uint32_t *p, uint32_t dst, uint32_t valor, uint8_t alto)
 {
     p[0] = R600_DMA_CABECA(R600_DMA_VALLA, 0);
     p[1] = dst & 0xFFFFFFFCu;
-    p[2] = 0;
+    p[2] = alto;
     p[3] = valor;
     return 4;
 }
+
+/* Las de siempre (por debajo de 4 GB): byte alto 0, las mismas palabras que antes de la D408. */
+int r600_pkt_copiar(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, bool r7xx)
+{
+    return r600_pkt_copiar_alto(p, dst, src, ndw, r7xx, 0);
+}
+
+int r600_pkt_escrever(uint32_t *p, uint32_t dst, uint32_t valor) { return r600_pkt_escrever_alto(p, dst, valor, 0); }
+int r600_pkt_valla(uint32_t *p, uint32_t dst, uint32_t valor)    { return r600_pkt_valla_alto(p, dst, valor, 0); }
 
 /* Una copia lineal de n palabras, partida si pasa del máximo de un paquete.
  * Solo se usa con origen y destino que no se tocan. */

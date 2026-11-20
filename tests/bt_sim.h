@@ -55,7 +55,43 @@ typedef struct {
     bool     sin_features;       /* Read_Local_Supported_Features desconocida */
     int      inq_modo;           /* último Write_Inquiry_Mode aceptado */
     int      cs_mudo_op;         /* opcode que solo recibe Command Status 0 y nunca acaba */
+    /* D411: controlador que pide firmware (0 = como antes) */
+    int      fab;                /* fabricante de Read_Local_Version (15 Broadcom, 93 Realtek) */
+    int      lmp_sub, hci_rev, hci_ver_fw;
+    char     nome_local[32];     /* Read_Local_Name */
+    uint8_t  rtl_rom;            /* versión de ROM de Realtek (orden 0xFC6D) */
+    int      rechaza_op;         /* orden de fabricante que se rechaza con 0x01 (0 = ninguna) */
+    int      rtl_falla_frag;     /* fragmento Realtek que se rechaza (-1 = ninguno) */
+    bool     mudo_fw;            /* tras la primera orden de fabricante no contesta más */
+    bool     parcheado;          /* el parche se cargó (lo pone el simulador) */
+    bool     le;                 /* anuncia baja energía (LE) en las características */
 } sim_cfg_t;
+
+/* D411: anuncios de baja energía que el controlador devuelve al activar LE Set Scan Enable */
+typedef struct { uint8_t addr[6]; uint8_t tipo; int8_t rssi; uint8_t ad[31]; int ad_n; } sim_le_t;
+extern sim_le_t sim_le[8];
+extern int sim_n_le, sim_le_param, sim_le_activo, sim_le_activaciones;
+extern uint8_t sim_le_param_datos[7];
+extern uint64_t sim_evmask;               /* último Set_Event_Mask recibido */
+
+/* D411: firmware simulado y huellas de lo que el controlador recibió */
+typedef struct { const char *nome; const uint8_t *d; int n; } sim_arq_t;
+extern sim_arq_t sim_arqs[8];
+extern int sim_n_arqs, sim_arq_leidos, sim_arq_liberados;
+extern uint16_t sim_fw_ops[1024];                /* órdenes de fabricante (OGF 0x3F) recibidas, en orden */
+extern uint32_t sim_fw_ms[1024];                 /* y la hora (ms) de cada una */
+extern int sim_fw_nops;
+extern uint8_t sim_rtl_flujo[200000];            /* lo que llegó por 0xFC20 (sin los índices) */
+extern int sim_rtl_n, sim_rtl_indices_mal;
+extern int sim_resets;                           /* HCI_Reset recibidos */
+extern uint32_t sim_ms_launch;                   /* ms de la última orden Launch_RAM (0xFC4E) */
+extern uint32_t sim_ms_reset_tras_launch;
+/* Atheros: peticiones USB */
+typedef struct { uint8_t tipo, pedido; int n; } sim_usbv_t;
+extern sim_usbv_t sim_usbv[64];
+extern int sim_n_usbv, sim_bulk_bytes;
+extern uint8_t sim_ath_estado;                   /* respuesta de GETSTATE */
+extern uint8_t sim_ath_version[16];
 
 extern sim_cfg_t sim_cfg;
 extern sim_remoto_t sim_remotos[SIM_MAX_REMOTOS];

@@ -15,6 +15,8 @@
 #include "string.h"
 #include "numeros_libc.h"
 
+extern char **environ;
+
 #define TAM_BUF 4096
 
 struct ns_ficheiro {
@@ -384,10 +386,54 @@ int setvbuf(FILE *f, char *buf, int modo, size_t tam)
 
 void setlinebuf(FILE *f) { setvbuf(f, NULL, _IOLBF, 0); }
 
-/* Sin fork ni sh -c con tuberías a la vista del FILE (carencia): popen no
- * lanza nada. */
-FILE *popen(const char *cmd, const char *modo) { (void)cmd; (void)modo; errno = ENOSYS; return NULL; }
-int pclose(FILE *f) { (void)f; errno = ECHILD; return -1; }
+/* D401: popen/pclose con fork + exec de /bin/sh -c y una tubería. */
+#define POPEN_MAX 16
+static struct { FILE *f; int pid; } popens[POPEN_MAX];
+
+FILE *popen(const char *cmd, const char *modo)
+{
+    if (!cmd || !modo || (modo[0] != 'r' && modo[0] != 'w')) { errno = EINVAL; return NULL; }
+    int k = 0;
+    while (k < POPEN_MAX && popens[k].f) k++;
+    if (k == POPEN_MAX) { errno = EMFILE; return NULL; }
+    int fds[2];
+    int r = criar_pipe(fds);
+    if (r < 0) { errno = __ns_errno_de(r); return NULL; }
+    int ler_ = modo[0] == 'r';
+    int meu = ler_ ? fds[0] : fds[1], dele = ler_ ? fds[1] : fds[0];
+    fflush(NULL);
+    int pid = bifurcar();
+    if (pid < 0) { fechar(fds[0]); fechar(fds[1]); errno = __ns_errno_de(pid); return NULL; }
+    if (pid == 0) {
+        int alvo = ler_ ? 1 : 0;
+        if (dele != alvo) { duplicar(dele, alvo); fechar(dele); }
+        fechar(meu);
+        for (int i = 0; i < POPEN_MAX; i++)   /* POSIX: los de otros popen no pasan al hijo */
+            if (popens[i].f) fechar(popens[i].f->fd);
+        char *argv[] = { "sh", "-c", (char *)cmd, NULL };
+        substituir("/bin/sh", argv, environ);
+        sair(127);
+    }
+    fechar(dele);
+    FILE *f = novo_ficheiro(meu, ler_, !ler_, 0);
+    if (!f) { fechar(meu); errno = ENOMEM; return NULL; }
+    popens[k].f = f;
+    popens[k].pid = pid;
+    return f;
+}
+
+int pclose(FILE *f)
+{
+    int pid = -1;
+    for (int i = 0; i < POPEN_MAX; i++)
+        if (popens[i].f == f && f) { pid = popens[i].pid; popens[i].f = NULL; break; }
+    if (pid < 0) { errno = ECHILD; return -1; }
+    fclose(f);
+    int st = 0, r;
+    while ((r = esperar_pid(pid, &st, 0)) == ERRO_INTERROMPIDO) { }
+    if (r < 0) { errno = ECHILD; return -1; }
+    return st;
+}
 
 int remove(const char *caminho)
 {

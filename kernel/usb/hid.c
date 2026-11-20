@@ -89,6 +89,9 @@ static const char canal = 0;
 static bool tarefa_criada;
 static uint32_t teclados, ratos;
 
+/* D407: ratones USB (y Bluetooth) enchufados ahora: el panel táctil se puede apagar mientras haya alguno. */
+uint32_t hid_ratos(void) { return ratos; }
+
 /* ------------------------------------------------------------ teclado: uso HID -> PS/2 (set 1) */
 
 #define E0 0x100

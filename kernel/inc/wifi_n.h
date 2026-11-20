@@ -57,6 +57,7 @@ typedef struct {
     uint32_t erros;              /* con CRC o ICV malos (tiradas) */
     uint32_t cortadas;           /* descriptores que se salían de la transferencia */
     uint32_t max_por_transf;     /* el máximo de tramas en una transferencia */
+    uint8_t  sem_informes;       /* D409: chip sin informes de TX en la recepción (RTL8188CU/8192CU) */
 } wn_rx_conta_t;
 
 typedef void (*wn_quadro_f)(void *ctx, const wn_rx_t *q);

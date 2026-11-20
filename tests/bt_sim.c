@@ -21,6 +21,24 @@ bool sim_rep_raton_boot[64];
 int sim_n_raton;
 int sim_soltar, sim_hid_conectar_n, sim_hid_devuelve, sim_hid_desc_n;
 char sim_log[8192];
+sim_arq_t sim_arqs[8];
+int sim_n_arqs, sim_arq_leidos, sim_arq_liberados;
+uint16_t sim_fw_ops[1024];
+uint32_t sim_fw_ms[1024];
+int sim_fw_nops;
+uint8_t sim_rtl_flujo[200000];
+int sim_rtl_n, sim_rtl_indices_mal;
+int sim_resets;
+uint32_t sim_ms_launch, sim_ms_reset_tras_launch;
+sim_usbv_t sim_usbv[64];
+int sim_n_usbv, sim_bulk_bytes;
+uint8_t sim_ath_estado;
+uint8_t sim_ath_version[16];
+static int rtl_siguiente;
+sim_le_t sim_le[8];
+int sim_n_le, sim_le_param, sim_le_activo, sim_le_activaciones;
+uint8_t sim_le_param_datos[7];
+uint64_t sim_evmask;
 
 static const uint8_t ADDR_CTL[6] = { 0x01, 0x00, 0x00, 0xA0, 0x12, 0x0A };   /* ya en orden HCI */
 
@@ -148,6 +166,16 @@ void sim_reiniciar(void)
     sim_hid_desc_n = -1;
     sim_log[0] = 0;
     sim_ms = 100000;
+    sim_cfg.rtl_falla_frag = -1;
+    sim_n_arqs = sim_arq_leidos = sim_arq_liberados = 0;
+    sim_fw_nops = sim_rtl_n = sim_rtl_indices_mal = sim_resets = 0;
+    sim_ms_launch = sim_ms_reset_tras_launch = 0;
+    sim_n_usbv = sim_bulk_bytes = 0;
+    sim_ath_estado = 0;
+    memset(sim_ath_version, 0, sizeof sim_ath_version);
+    rtl_siguiente = 0;
+    sim_n_le = sim_le_param = sim_le_activo = sim_le_activaciones = 0;
+    sim_evmask = 0;
     sim_remoto_t *k = nuevo("Teclado BT", 0x01, 0x000540, 2);
     k->inquiry_ext = true;
     k->subclasse = 0x40;
@@ -528,6 +556,38 @@ static void cmd(uint16_t op, const uint8_t *p, int n)
         return;
     }
     if (sim_cfg.cs_mudo_op && sim_cfg.cs_mudo_op == op) { q_cs(op, 0); return; }
+    if ((op >> 10) == 0x3F) {   /* D411: órdenes de fabricante de un controlador que pide firmware */
+        if (sim_fw_nops < 1024) { sim_fw_ms[sim_fw_nops] = sim_ms; sim_fw_ops[sim_fw_nops++] = op; }
+        if (sim_cfg.mudo_fw && sim_fw_nops > 1) return;
+        if (sim_cfg.rechaza_op && sim_cfg.rechaza_op == op) { q_cs(op, 0x01); return; }
+        if (op == OP_FW_RTL_ROM) { b[0] = 0; b[1] = sim_cfg.rtl_rom; q_cc(op, b, 2); return; }
+        if (op == OP_FW_RTL_DESCARGA) {
+            int idx = p[0];
+            int esperado = rtl_siguiente > 0x7F ? (rtl_siguiente & 0x7F) + 1 : rtl_siguiente;
+            if ((idx & 0x7F) != esperado) sim_rtl_indices_mal++;
+            if (sim_cfg.rtl_falla_frag == rtl_siguiente) { b[0] = 0x42; b[1] = (uint8_t)idx; q_cc(op, b, 2); return; }
+            if (sim_rtl_n + n - 1 <= (int)sizeof sim_rtl_flujo) { memcpy(sim_rtl_flujo + sim_rtl_n, p + 1, (size_t)(n - 1)); sim_rtl_n += n - 1; }
+            rtl_siguiente++;
+            if (idx & 0x80) sim_cfg.parcheado = true;
+            b[0] = 0; b[1] = (uint8_t)idx;
+            q_cc(op, b, 2);
+            return;
+        }
+        if (op == BT_OP(0x3F, 0x4E)) { sim_ms_launch = sim_ms; sim_cfg.parcheado = true; }
+        b[0] = 0;
+        q_cc(op, b, 1);
+        return;
+    }
+    if (op == OP_RD_VERSAO && sim_cfg.fab) {
+        int sub = sim_cfg.parcheado ? 0x1234 : sim_cfg.lmp_sub;
+        b[0] = 0; b[1] = (uint8_t)sim_cfg.hci_ver_fw; b[2] = (uint8_t)sim_cfg.hci_rev; b[3] = (uint8_t)(sim_cfg.hci_rev >> 8);
+        b[4] = (uint8_t)sim_cfg.hci_ver_fw; b[5] = (uint8_t)sim_cfg.fab; b[6] = (uint8_t)(sim_cfg.fab >> 8);
+        b[7] = (uint8_t)sub; b[8] = (uint8_t)(sub >> 8);
+        q_cc(op, b, 9);
+        return;
+    }
+    if (op == OP_RD_NOME) { b[0] = 0; memset(b + 1, 0, 248); strncpy((char *)b + 1, sim_cfg.nome_local, 247); q_cc(op, b, 249); return; }
+    if (op == OP_RESET) { sim_resets++; if (sim_ms_launch && !sim_ms_reset_tras_launch) sim_ms_reset_tras_launch = sim_ms; rtl_siguiente = 0; }
     if (sim_cfg.clon_csr) {
         if (op == OP_WR_SSP) { q_cs(op, 0x01); return; }   /* desconocida: Command Status, no Complete */
         if (op == OP_WR_INQMODE && p[0] > 1) { b[0] = 0x11; q_cc(op, b, 1); return; }
@@ -543,6 +603,7 @@ static void cmd(uint16_t op, const uint8_t *p, int n)
         if (sim_cfg.sin_features) { b[0] = 0x01; q_cc(op, b, 1); break; }
         if (sim_cfg.clon_csr) { static const uint8_t f[8] = { 0xFF, 0xFF, 0x8F, 0xFE, 0x9B, 0xF9, 0x00, 0x80 }; memcpy(b + 1, f, 8); }
         else { static const uint8_t f[8] = { 0xFF, 0xFF, 0x8F, 0xFE, 0xDB, 0xFF, 0x5B, 0x87 }; memcpy(b + 1, f, 8); }
+        if (sim_cfg.le) b[1 + 4] |= 0x40; else b[1 + 4] &= (uint8_t)~0x40;
         b[0] = 0;
         q_cc(op, b, 9);
         break;
@@ -555,7 +616,32 @@ static void cmd(uint16_t op, const uint8_t *p, int n)
         break;
     case OP_WR_SSP: b[0] = sim_cfg.sin_ssp ? 0x11 : 0; q_cc(op, b, 1); break;
     case OP_WR_INQMODE: sim_cfg.inq_modo = p[0]; b[0] = 0; q_cc(op, b, 1); break;
-    case OP_SET_EVMASK: case OP_WR_NOME: case OP_WR_CLASE: case OP_WR_SCAN:
+    case OP_SET_EVMASK:
+        sim_evmask = 0;
+        for (int i = 0; i < 8; i++) sim_evmask |= (uint64_t)p[i] << (8 * i);
+        b[0] = 0; q_cc(op, b, 1);
+        break;
+    case OP_LE_PARAM_SCAN: sim_le_param++; memcpy(sim_le_param_datos, p, 7); b[0] = 0; q_cc(op, b, 1); break;
+    case OP_LE_SCAN:
+        b[0] = 0; q_cc(op, b, 1);
+        sim_le_activo = p[0];
+        if (p[0]) {
+            sim_le_activaciones++;
+            for (int i = 0; i < sim_n_le; i++) {
+                uint8_t e[2 + 9 + 31 + 1];
+                int k = 0;
+                e[k++] = 0x02; e[k++] = 1;       /* subevento 2, un anuncio */
+                e[k++] = 0;                      /* ADV_IND */
+                e[k++] = sim_le[i].tipo;
+                memcpy(e + k, sim_le[i].addr, 6); k += 6;
+                e[k++] = (uint8_t)sim_le[i].ad_n;
+                memcpy(e + k, sim_le[i].ad, (size_t)sim_le[i].ad_n); k += sim_le[i].ad_n;
+                e[k++] = (uint8_t)sim_le[i].rssi;
+                q_evento(EV_LE, e, k);
+            }
+        }
+        break;
+    case OP_WR_NOME: case OP_WR_CLASE: case OP_WR_SCAN:
         b[0] = 0; q_cc(op, b, 1);
         break;
     case OP_INQUIRY:
@@ -724,6 +810,28 @@ static int enviar_cmd(const uint8_t *p, int n)
     return 0;
 }
 
+static int p_firmware(const char *nome, const uint8_t **d, int *n)
+{
+    for (int i = 0; i < sim_n_arqs; i++)
+        if (!strcmp(sim_arqs[i].nome, nome)) { *d = sim_arqs[i].d; *n = sim_arqs[i].n; sim_arq_leidos++; return 0; }
+    return -1;
+}
+
+static void p_firmware_liberar(const uint8_t *d) { (void)d; sim_arq_liberados++; }
+
+static int p_usb_vendor(uint8_t tipo, uint8_t pedido, uint16_t valor, uint16_t indice, void *d, int n)
+{
+    (void)valor; (void)indice;
+    if (sim_n_usbv < 64) sim_usbv[sim_n_usbv++] = (sim_usbv_t){ tipo, pedido, n };
+    if (tipo & 0x80) {
+        if (pedido == 0x05 && n >= 1) { ((uint8_t *)d)[0] = sim_ath_estado; if (sim_ath_estado & 0x80) { } return 1; }
+        if (pedido == 0x09 && n >= 16) { memcpy(d, sim_ath_version, 16); return 16; }
+    }
+    return n;
+}
+
+static int p_usb_bulk(const void *d, int n) { (void)d; sim_bulk_bytes += n; return n; }
+
 static int enviar_acl(const uint8_t *p, int n)
 {
     sim_acl_tx++;
@@ -807,4 +915,6 @@ static void p_soltar(int tipo) { (void)tipo; sim_soltar++; }
 bt_plat_t sim_plat = {
     .enviar_cmd = enviar_cmd, .enviar_acl = enviar_acl, .ms = p_ms, .guardar = p_guardar,
     .hid_conectar = p_hid_conectar, .teclado = p_teclado, .raton = p_raton, .soltar_entrada = p_soltar, .registro = p_log,
+    .firmware = p_firmware, .firmware_liberar = p_firmware_liberar,
+    .usb_vendor = p_usb_vendor, .usb_bulk_salida = p_usb_bulk,
 };

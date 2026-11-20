@@ -154,11 +154,11 @@ def saguios():
         cuadro = ("AOEN_NOSOUND=1 AOEN_SCENE=game AOEN_PLAYERS=8 AOEN_SIZE=4 AOEN_SEED=7 AOEN_DIF=2 AOEN_ESPECTADOR=1 AOEN_FFWD="
                   + ("400" if KVM else "60") + " AOEN_REVEAL=1 AOEN_PASO_FIJO=1 AOEN_TIEMPO_ANIM=3.5 AOEN_SUMA_CUADRO=20 "
                   "AOEN_SHOT=/tmp/c.bmp AOEN_FRAMES=21 AOEN_EFECTOS=%s %s %s /apps/bin/aoen")
-        pc = r"\[AOEN\] suma del cuadro 20: ([0-9a-f]{8}) \(t=([\d.]+), hilos (\d)\)"
+        pc = r"\[AOEN\] suma del cuadro 20: ([0-9a-f]{8}) \(t=([\d.]+), hilos (\d)(?:, mundo ([0-9a-f]{8}))?\)"
         for nombre, ef, tex in (("HD", "1", "AOEN_TEX=/jogos/AOE/TEX"), ("clásico", "1", ""), ("clásico completo", "2", "")):
             a, _ = orden(m, cuadro % (ef, tex, "AOEN_HILOS=1"), pc, 600 * lento)
             b, _ = orden(m, cuadro % (ef, tex, ""), pc, 600 * lento)
-            verificar(a[0] == b[0] and a[2] == "1" and b[2] == "4", "terreno %s: el cuadro sale igual con 1 y con 4 hilos (%s)" % (nombre, a[0]))
+            verificar(a[0] == b[0] and a[2] == "1" and b[2] == "4", "terreno %s: el cuadro sale igual con 1 y con 4 hilos (%s; con 4 hilos %s; suma del mundo %s y %s)" % (nombre, a[0], b[0], a[3], b[3]))
         # captura: la partida de 8 jugadores con el terreno HD sintético, dibujada con 4 hilos
         marca = len(m.serial())
         m.digitar("AOEN_NOSOUND=1 AOEN_SCENE=game AOEN_PLAYERS=8 AOEN_SIZE=4 AOEN_SEED=7 AOEN_DIF=2 AOEN_ESPECTADOR=1 AOEN_REVEAL=1 "

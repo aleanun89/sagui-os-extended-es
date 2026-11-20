@@ -13,7 +13,13 @@ imágenes. Mismo formato y mismas piezas, en pequeño:
   - tokenizador BPE «gpt2» (pretokenizador lfm2) entrenado aquí sobre unas frases en
     español, con los tokens especiales de la plantilla de chat de LFM3.
 
-Sin numpy (solo la biblioteca estándar). Uso: python3 tools/llm_modelo_prueba.py SALIDA.gguf [--grande]"""
+Con --mmproj genera en su lugar un proyector de imágenes sintético de LFM3-VL (arquitectura
+«clip», proyector «lfm3vl», D380 fase 2) que encaja con ese modelo (salida de 256): 4 bloques
+(convolución 3x3 y atención alternas), embedding 64, 2 cabezas de 32 (1 de K/V), parches de 8,
+pesos en Q8_0 y los dos núcleos de parche en F16.
+
+Sin numpy (solo la biblioteca estándar).
+Uso: python3 tools/llm_modelo_prueba.py SALIDA.gguf [--grande | --mmproj]"""
 import random
 import re
 import struct
@@ -50,7 +56,7 @@ def bloco_q4_0(r, d):
     return struct.pack("<H", f16(d)) + bytes(r.randrange(256) for _ in range(16))
 
 
-TIPOS = {"F32": 0, "Q4_0": 2, "Q8_0": 8, "Q4_K": 12, "Q6_K": 14}
+TIPOS = {"F32": 0, "F16": 1, "Q4_0": 2, "Q8_0": 8, "Q4_K": 12, "Q6_K": 14}
 BLOCO = {"Q4_K": (256, bloco_q4_K, 1.2e-4), "Q6_K": (256, bloco_q6_K, 2.5e-5),
          "Q8_0": (32, bloco_q8_0, 4e-4), "Q4_0": (32, bloco_q4_0, 8e-3)}
 
@@ -154,8 +160,78 @@ def kv(nome, tipo, valor):
         st, vals = valor
         o += struct.pack("<IQ", st, len(vals))
         for v in vals:
-            o += texto(v) if st == 8 else struct.pack({4: "<I", 5: "<i", 7: "<B"}[st], v)
+            o += texto(v) if st == 8 else struct.pack({4: "<I", 5: "<i", 6: "<f", 7: "<B"}[st], v)
     return o
+
+
+def escrever_gguf(saida, meta, tens):
+    cab = b"GGUF" + struct.pack("<IQQ", 3, len(tens), len(meta)) + b"".join(meta)
+    desl, info, dados = 0, b"", b""
+    for nome, ne, tipo, d in tens:
+        info += texto(nome) + struct.pack("<I", len(ne)) + b"".join(struct.pack("<Q", x) for x in ne)
+        info += struct.pack("<IQ", TIPOS[tipo], desl)
+        pad = (-len(d)) % ALIN
+        dados += d + b"\0" * pad
+        desl += len(d) + pad
+    cab += info
+    cab += b"\0" * ((-len(cab)) % ALIN)
+    with open(saida, "wb") as f:
+        f.write(cab + dados)
+    return len(cab) + len(dados)
+
+
+def gerar_mmproj(saida):
+    """Proyector sintético de LFM3-VL para el modelo de arriba (embedding 256)."""
+    r = random.Random(SEMILLA + 1)
+    E, F, L, H, KVH, P, SAIDA = 64, 128, 4, 2, 1, 8, 256
+    D = E // H
+    meta = [
+        kv("general.architecture", 8, "clip"), kv("general.type", 8, "mmproj"),
+        kv("general.name", 8, "LFM3 VL sintetico de prueba"), kv("general.file_type", 4, 7),
+        kv("clip.has_vision_encoder", 7, True), kv("clip.vision.projection_dim", 4, SAIDA),
+        kv("clip.vision.image_size", 4, 64), kv("clip.vision.patch_size", 4, P),
+        kv("clip.vision.embedding_length", 4, E), kv("clip.vision.feed_forward_length", 4, F),
+        kv("clip.vision.block_count", 4, L), kv("clip.vision.attention.head_count", 4, H),
+        kv("clip.vision.attention.head_count_kv", 4, KVH),
+        kv("clip.vision.image_mean", 9, (6, [0.5, 0.5, 0.5])), kv("clip.vision.image_std", 9, (6, [0.5, 0.5, 0.5])),
+        kv("clip.vision.projector_type", 8, "lfm3vl"), kv("clip.vision.spatial_merge_size", 4, 2),
+        kv("clip.vision.attention.layer_norm_epsilon", 6, 1e-5), kv("clip.use_silu", 7, True),
+        kv("clip.vision.image_min_pixels", 4, 64 * 64), kv("clip.vision.image_max_pixels", 4, 256 * 256),
+        kv("clip.vision.image_resize_algo", 8, "bicubic"),
+    ]
+    tens = []
+
+    def f16v(n, esc):
+        return struct.pack("<%dH" % n, *[f16(r.uniform(-esc, esc)) for _ in range(n)])
+    tens.append(("v.patch_embd.weight", [P, P, 3, E], "F16", f16v(P * P * 3 * E, 0.08)))
+    tens.append(("v.patch_embd.weight.1", [P, P, 3, E], "F16", f16v(P * P * 3 * E, 0.08)))
+    tens.append(("v.embedding_norm.weight", [E], "F32", vetor(r, E)))
+    for i in range(L):
+        p = "v.blk.%d." % i
+        tens.append((p + "ln1.weight", [E], "F32", vetor(r, E)))
+        tens.append((p + "ln2.weight", [E], "F32", vetor(r, E)))
+        tens.append((p + "ffn_gate.weight", [E, F], "Q8_0", matriz(r, "Q8_0", E, F, 4.0)))
+        tens.append((p + "ffn_up.weight", [E, F], "Q8_0", matriz(r, "Q8_0", E, F, 4.0)))
+        tens.append((p + "ffn_down.weight", [F, E], "Q8_0", matriz(r, "Q8_0", F, E, 4.0)))
+        if i % 2 == 0:
+            tens.append((p + "conv2d_in_proj.weight", [E, 3 * E], "Q8_0", matriz(r, "Q8_0", E, 3 * E, 4.0)))
+            tens.append((p + "conv2d_spatial.weight", [3, 3, 1, E], "F32", vetor(r, 9 * E, 0.0, 0.5)))
+            tens.append((p + "conv2d_out_proj.weight", [E, E], "Q8_0", matriz(r, "Q8_0", E, E, 4.0)))
+        else:
+            tens.append((p + "attn_q.weight", [E, E], "Q8_0", matriz(r, "Q8_0", E, E, 4.0)))
+            tens.append((p + "attn_k.weight", [E, KVH * D], "Q8_0", matriz(r, "Q8_0", E, KVH * D, 4.0)))
+            tens.append((p + "attn_v.weight", [E, KVH * D], "Q8_0", matriz(r, "Q8_0", E, KVH * D, 4.0)))
+            tens.append((p + "attn_out.weight", [E, E], "Q8_0", matriz(r, "Q8_0", E, E, 4.0)))
+            tens.append((p + "attn_q_norm.weight", [D], "F32", vetor(r, D)))
+            tens.append((p + "attn_k_norm.weight", [D], "F32", vetor(r, D)))
+    tens.append(("mm.input_norm.weight", [E], "F32", vetor(r, E)))
+    tens.append(("mm.input_norm.bias", [E], "F32", vetor(r, E, 0.0, 0.1)))
+    tens.append(("mm.0.weight", [4 * E, 4 * E], "Q8_0", matriz(r, "Q8_0", 4 * E, 4 * E, 4.0)))
+    tens.append(("mm.0.bias", [4 * E], "F32", vetor(r, 4 * E, 0.0, 0.2)))
+    tens.append(("mm.2.weight", [4 * E, SAIDA], "Q8_0", matriz(r, "Q8_0", 4 * E, SAIDA, 4.0)))
+    tens.append(("mm.2.bias", [SAIDA], "F32", vetor(r, SAIDA, 0.0, 0.2)))
+    n = escrever_gguf(saida, meta, tens)
+    print("%s: proyector sintético, %d tensores, %d bytes" % (saida, len(tens), n))
 
 
 def gerar(saida, grande=False):
@@ -220,21 +296,13 @@ def gerar(saida, grande=False):
             tens.append((p + "shortconv.in_proj.weight", [E, 3 * E], "Q4_K", matriz(r, "Q4_K", E, 3 * E)))
             to = "Q4_0" if i == 3 else "Q4_K"
             tens.append((p + "shortconv.out_proj.weight", [E, E], to, matriz(r, to, E, E)))
-    cab = b"GGUF" + struct.pack("<IQQ", 3, len(tens), len(meta)) + b"".join(meta)
-    desl, info, dados = 0, b"", b""
-    for nome, ne, tipo, d in tens:
-        info += texto(nome) + struct.pack("<I", len(ne)) + b"".join(struct.pack("<Q", x) for x in ne)
-        info += struct.pack("<IQ", TIPOS[tipo], desl)
-        pad = (-len(d)) % ALIN
-        dados += d + b"\0" * pad
-        desl += len(d) + pad
-    cab += info
-    cab += b"\0" * ((-len(cab)) % ALIN)
-    with open(saida, "wb") as f:
-        f.write(cab + dados)
-    print("%s: %d tensores, vocabulario %d, %d fusiones, %d bytes" % (saida, len(tens), V, len(fusoes), len(cab) + len(dados)))
+    n = escrever_gguf(saida, meta, tens)
+    print("%s: %d tensores, vocabulario %d, %d fusiones, %d bytes" % (saida, len(tens), V, len(fusoes), n))
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--grande"]
-    gerar(args[0] if args else "sintetico.gguf", "--grande" in sys.argv[1:])
+    args = [a for a in sys.argv[1:] if a not in ("--grande", "--mmproj")]
+    if "--mmproj" in sys.argv[1:]:
+        gerar_mmproj(args[0] if args else "mmproj-sintetico.gguf")
+    else:
+        gerar(args[0] if args else "sintetico.gguf", "--grande" in sys.argv[1:])

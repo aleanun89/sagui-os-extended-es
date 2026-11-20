@@ -32,6 +32,7 @@
 #define BT_ACL_FILA      16    /* paquetes ACL esperando crédito del controlador */
 #define BT_ACL_FILA_TAM  96    /* bytes de cada uno (todo lo que mandamos es corto) */
 #define BT_CMD_FILA      16
+#define BT_CMD_PAR       255   /* parámetros de una orden (los registros .hcd y los fragmentos Realtek pasan de 248) */
 #define BT_SDP_MAX       1024  /* bytes de la respuesta SDP completa */
 #define BT_DESC_MAX      512   /* descriptor de informe HID guardado */
 #define BT_NOME_MAX      32
@@ -50,6 +51,13 @@ typedef struct {
     void     (*raton)(const uint8_t *r, int n, bool boot);   /* informe de ratón: boot (3 o 4 bytes) o el del descriptor */
     void     (*soltar_entrada)(int tipo);              /* un dispositivo HID se fue: suelta teclas */
     void     (*registro)(const char *texto);           /* línea de registro (dmesg) */
+    /* D411: firmware de los controladores que lo piden. NULL = no hay (el inicio sigue sin parche). */
+    uint16_t usb_vid, usb_pid;                         /* identificador USB del controlador (0 = se desconoce) */
+    int      (*firmware)(const char *nome, const uint8_t **dados, int *n);   /* /lib/firmware/<nome>; 0 o <0 */
+    void     (*firmware_liberar)(const uint8_t *dados);
+    /* Atheros (ath3k): petición de control de fabricante (tipo con el bit de dirección) y bulk de salida. Bloquean. */
+    int      (*usb_vendor)(uint8_t tipo, uint8_t pedido, uint16_t valor, uint16_t indice, void *d, int n);
+    int      (*usb_bulk_salida)(const void *d, int n);
 } bt_plat_t;
 
 /* ------------------------------------------------------------------ estado del adaptador */
@@ -74,6 +82,8 @@ typedef struct {
 #define BT_T_TECLADO  1
 #define BT_T_RATO     2
 #define BT_T_COMBO    3
+#define BT_T_BLE      4   /* baja energía (BLE): solo se detecta (D411) */
+#define BT_T_BLE_HID  5   /* BLE con apariencia o servicio HID (HOGP): se detecta, aún no se conecta */
 
 /* Modo de la confirmación pendiente. */
 #define BT_CONF_NADA     0
@@ -101,6 +111,8 @@ typedef struct {
     uint8_t  subclasse_hid;
     bool     hid_ok;           /* el SDP dijo que es HID */
     bool     modo_boot;        /* el dispositivo está en protocolo boot (informes fijos) */
+    bool     le;               /* salió en una búsqueda de baja energía */
+    uint8_t  addr_tipo_le;     /* 0 pública, 1 aleatoria (de la última publicidad LE) */
     bool     cerrando;         /* lo cerramos nosotros */
     uint32_t desde;            /* ms: inicio del paso actual (tiempo límite) */
     char     erro[48];
@@ -130,7 +142,8 @@ int  bt_hci_cmd(uint16_t op, const void *par, int n);/* encola una orden */
 int  bt_hci_acl_enviar(uint16_t manejador, const uint8_t *dados, int n);   /* 0 o <0 */
 void bt_hci_tic(void);                               /* tiempos límite y fila de órdenes */
 bool bt_hci_listo(void);
-void bt_hci_energia(bool e);                         /* conectable o no (y se recuerda) */
+void bt_hci_energia(bool e);
+bool bt_hci_le(void);                                /* el controlador anuncia baja energía (LE) */                         /* conectable o no (y se recuerda) */
 void bt_hci_info(bt_info_t *i);
 const bt_plat_t *bt_plat(void);
 void bt_log(const char *fmt, ...);
@@ -144,6 +157,12 @@ uint32_t bt_agora(void);
 #define OP_WR_CLASE      BT_OP(3, 0x24)
 #define OP_WR_INQMODE    BT_OP(3, 0x45)
 #define OP_WR_SSP        BT_OP(3, 0x56)
+#define OP_RD_NOME       BT_OP(3, 0x14)
+#define OP_FW_BCM_MINI   BT_OP(0x3F, 0x2E)   /* Broadcom: Download_Minidriver */
+#define OP_FW_RTL_DESCARGA BT_OP(0x3F, 0x20) /* Realtek: un fragmento del parche */
+#define OP_FW_RTL_ROM    BT_OP(0x3F, 0x6D)   /* Realtek: leer la versión de la ROM */
+#define OP_LE_PARAM_SCAN BT_OP(8, 0x0B)
+#define OP_LE_SCAN       BT_OP(8, 0x0C)
 #define OP_RD_VERSAO     BT_OP(4, 0x01)
 #define OP_RD_BUFFER     BT_OP(4, 0x05)
 #define OP_RD_FEATURES   BT_OP(4, 0x03)
@@ -180,6 +199,7 @@ uint32_t bt_agora(void);
 #define EV_CMD_ESTADO    0x0F
 #define EV_ERRO_HW       0x10
 #define EV_PACOTES_COMP  0x13
+#define EV_LE            0x3E
 #define EV_PEDIDO_CHAVE  0x17
 #define EV_NOVA_CHAVE    0x18
 #define EV_PEDIDO_PIN    0x16
@@ -258,6 +278,9 @@ void bt_g_adaptador_pronto(void);                        /* HCI terminó de inic
 /* eventos HCI hacia el gestor */
 void bt_g_inq_resultado(const uint8_t *addr, uint32_t clase, int8_t rssi, const char *nome);
 void bt_g_inq_fim(void);
+/* D411: baja energía. Un anuncio visto en la búsqueda LE; el resultado de las órdenes LE. */
+void bt_g_le_anuncio(const uint8_t *addr, uint8_t addr_tipo, int8_t rssi, const uint8_t *ad, int n);
+void bt_g_le_orden(uint16_t op, uint8_t estado);
 void bt_g_nome_remoto(const uint8_t *addr, int estado, const char *nome);
 void bt_g_conexao(int estado, uint16_t manejador, const uint8_t *addr, bool entrante);
 void bt_g_desconexao(uint16_t manejador, uint8_t motivo);

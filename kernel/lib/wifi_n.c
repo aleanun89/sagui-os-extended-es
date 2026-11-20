@@ -24,7 +24,7 @@ int wn_rx_desglosar(const uint8_t *buf, uint32_t len, wn_quadro_f quadro, wn_rel
                     wn_rx_conta_t *c)
 {
     if (!buf || len < WN_RXDESC) return 0;
-    uint32_t rpt0 = (le32(buf + 12) >> WN_DW3_RPT_S) & 3;
+    uint32_t rpt0 = c->sem_informes ? 0 : (le32(buf + 12) >> WN_DW3_RPT_S) & 3;
     if (rpt0 != WN_RPT_RX) {
         c->relatorios++;
         if (rpt0 == WN_RPT_TX1 && relatorio) relatorio(ctx, buf + WN_RXDESC, len - WN_RXDESC);
@@ -43,7 +43,7 @@ int wn_rx_desglosar(const uint8_t *buf, uint32_t len, wn_quadro_f quadro, wn_rel
         if (pktlen == 0) break;
         uint32_t total = WN_RXDESC + info + shift + pktlen;
         if (total > resto) { c->cortadas++; break; }
-        uint32_t rpt = (dw3 >> WN_DW3_RPT_S) & 3;
+        uint32_t rpt = c->sem_informes ? 0 : (dw3 >> WN_DW3_RPT_S) & 3;
         const uint8_t *q = p + WN_RXDESC + info + shift;
         if (rpt != WN_RPT_RX) {
             c->relatorios++;

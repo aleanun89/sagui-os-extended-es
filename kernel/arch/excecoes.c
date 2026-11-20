@@ -86,7 +86,18 @@ quadro_t *excecao_usuario(quadro_t *q)
     } else if (q->vetor == 14)
         snformatar(motivo, sizeof motivo, "%s: %s 0x%08x", nome_excecao(14),
                    q->erro & 2 ? "escritura" : "lectura", le_cr2());
-    kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: %s\n", processo_recursos()->pid, processo_atual()->nome, motivo);
-    processo_encerrar(processo_atual(), SAIDA_ENCERRADO_PELO_KERNEL, motivo);
-    return escalonar(q);
+    /* D401: el fallo pasa a ser una señal síncrona del hilo que falló. Sin tratador (o bloqueada,
+     * o ignorada), el proceso termina como siempre, con este mismo mensaje. */
+    int sinal = SINAL_SEGV, codigo = SINAL_SI_KERNEL;
+    uint32_t endereco = q->eip;
+    switch (q->vetor) {
+    case 0:  sinal = SINAL_FPE; codigo = SINAL_FPE_INTDIV; break;
+    case 16: case 19: sinal = SINAL_FPE; codigo = SINAL_FPE_FLTINV; break;
+    case 6:  sinal = SINAL_ILL; codigo = SINAL_ILL_ILLOPC; break;
+    case 1:  case 3: sinal = SINAL_TRAP; codigo = SINAL_TRAP_BRKPT; break;
+    case 17: sinal = SINAL_BUS; codigo = SINAL_BUS_ADRALN; break;
+    case 14: codigo = (q->erro & 1) ? SINAL_SEGV_ACCERR : SINAL_SEGV_MAPERR; endereco = le_cr2(); break;
+    case 13: endereco = 0; break;
+    }
+    return sinais_excecao(q, sinal, codigo, endereco, motivo);
 }

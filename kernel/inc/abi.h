@@ -201,6 +201,14 @@
  * valen igual; el tamaño es fijo (SIS_ESTILO_JANELA y SIS_REDIMENSIONAR_JANELA dan ERRO_INVALIDO). */
 #define SIS_CRIAR_WIDGET  139
 #define WIDGET_CLAVE      0x100
+/* D401 (v8.5.5.1): procesos POSIX. Ver «Procesos POSIX» más abajo. */
+#define SIS_BIFURCAR      140   /* () -> pid del hijo al padre, 0 al hijo (fork con copia al escribir) */
+#define SIS_SUBSTITUIR    141   /* (caminho, argv, envp ou 0) -> no vuelve; error si no se pudo cargar (execve) */
+#define SIS_ESPERAR_PID   142   /* (pid, &estado ou 0, ESPERA_*) -> pid; 0 con ESPERA_SEM_BLOQUEAR y nadie (waitpid) */
+#define SIS_SINAL         143   /* (SINOP_*, a, b, c) -> según la operación (señales) */
+#define SIS_SINAL_VOLTAR  144   /* (&contexto_sinal_t) -> no vuelve: restaura el contexto (sigreturn) */
+#define SIS_SONDAR        145   /* (&sondagem_t[], n, ms o -1) -> descriptores listos (poll) */
+#define SIS_DESCRITOR     146   /* (fd, DESC_*, arg) -> según la operación (fcntl) */
 /* D403 (v8.5.5): funciones propias de los portátiles por ACPI (brillo de la pantalla, teclas de función,
  * radio) y el volcado de las tablas ACPI. Operación en el primer argumento (PORTATIL_*, abajo). La 150 y no la
  * 140: las 140-146 son de la rama de procesos POSIX (v8.5.5.1). */
@@ -458,6 +466,147 @@ typedef struct {
 #define ERRO_SEM_SENHA     -19  /* D255: la cuenta no tiene contraseña y hay que fijarla desde la sesión local */
 #define ERRO_ESPERA        -20  /* D255: demasiados intentos fallidos: hay que esperar */
 #define ERRO_SEM_ESPACO    -21  /* v8.5.4.2 (D379): no queda espacio en el volumen (ENOSPC; la capa de la live en la RAM, /tmp) */
+#define ERRO_INTERROMPIDO  -22  /* D401: una señal interrumpió la espera (EINTR) */
+#define ERRO_TENTAR        -23  /* D401: descriptor no bloqueante: tendría que esperar (EAGAIN) */
+#define ERRO_EM_CURSO      -24  /* D401: connect no bloqueante: la conexión sigue en curso (EINPROGRESS) */
+#define ERRO_JA_EM_CURSO   -25  /* D401: connect otra vez mientras sigue en curso (EALREADY) */
+
+/* ------------------------------------------------------------ Procesos POSIX (D401) */
+/* SIS_ESPERAR_PID: pid > 0 ese hijo; -1 cualquiera; 0 los de mi grupo; < -1 los del grupo -pid.
+ * El estado, como en Linux: (código & 0xff) << 8 si salió; el número de la señal (| 0x80 si
+ * «core») si lo terminó una señal. Un proceso que terminó el kernel sin señal cuenta como SIGKILL. */
+#define ESPERA_SEM_BLOQUEAR  1   /* = WNOHANG */
+
+/* Señales: los números de Linux (los mismos de signal.h de la libc común). */
+#define SINAL_HUP    1
+#define SINAL_INT    2
+#define SINAL_QUIT   3
+#define SINAL_ILL    4
+#define SINAL_TRAP   5
+#define SINAL_ABRT   6
+#define SINAL_BUS    7
+#define SINAL_FPE    8
+#define SINAL_KILL   9
+#define SINAL_USR1  10
+#define SINAL_SEGV  11
+#define SINAL_USR2  12
+#define SINAL_PIPE  13
+#define SINAL_ALRM  14
+#define SINAL_TERM  15
+#define SINAL_CHLD  17
+#define SINAL_CONT  18
+#define SINAL_STOP  19
+#define SINAL_TSTP  20
+#define SINAL_TTIN  21
+#define SINAL_TTOU  22
+#define SINAL_URG   23
+#define SINAL_XCPU  24
+#define SINAL_XFSZ  25
+#define SINAL_WINCH 28
+#define SINAL_SYS   31
+#define SINAIS_N    32           /* 1..31; el bit n de una máscara es la señal n */
+#define SINAL_TRATADOR_DFL 0u    /* = SIG_DFL */
+#define SINAL_TRATADOR_IGN 1u    /* = SIG_IGN */
+/* Banderas de la acción (las de Linux). */
+#define SINAL_SA_NOCLDSTOP 0x00000001u
+#define SINAL_SA_NOCLDWAIT 0x00000002u
+#define SINAL_SA_SIGINFO   0x00000004u
+#define SINAL_SA_RESTORER  0x04000000u
+#define SINAL_SA_ONSTACK   0x08000000u
+#define SINAL_SA_RESTART   0x10000000u
+#define SINAL_SA_NODEFER   0x40000000u
+#define SINAL_SA_RESETHAND 0x80000000u
+/* Operaciones de SIS_SINAL. */
+#define SINOP_ACAO        0   /* (sinal, &acao_sinal_t nueva o 0, &acao_sinal_t vieja o 0) -> 0 (sigaction) */
+#define SINOP_MASCARA     1   /* (SINOP_BLOQUEAR..., &nueva o 0, &vieja o 0) -> 0 (sigprocmask, del hilo) */
+#define SINOP_ENVIAR      2   /* (pid, sinal) -> 0; pid > 0 ese proceso, 0 mi grupo, -1 todos los míos, < -1 el grupo -pid;
+                               * sinal 0 = solo comprobar (kill) */
+#define SINOP_HILO        3   /* (tid, sinal) -> 0: a un hilo de mi proceso (raise, pthread_kill) */
+#define SINOP_PENDENTES   4   /* (&mascara) -> 0 (sigpending) */
+#define SINOP_SUSPENDER   5   /* (&mascara) -> ERRO_INTERROMPIDO cuando llega una (sigsuspend) */
+#define SINOP_ALARME      6   /* (ms, 0 = quitarla) -> ms que le quedaban a la anterior (alarm, setitimer) */
+#define SINOP_PILHA       7   /* (&pilha_sinal_t nueva o 0, &pilha_sinal_t vieja o 0) -> 0 (sigaltstack) */
+#define SINOP_PAI         8   /* () -> pid del padre (getppid; 0 = ninguno) */
+#define SINOP_GRUPO       9   /* (pid o 0 = yo) -> su grupo de procesos (getpgid, getpgrp) */
+#define SINOP_BLOQUEAR    0   /* como SIG_BLOCK */
+#define SINOP_DESBLOQUEAR 1   /* SIG_UNBLOCK */
+#define SINOP_FIXAR       2   /* SIG_SETMASK */
+typedef struct {
+    unsigned int tratador;     /* función, SINAL_TRATADOR_DFL o SINAL_TRATADOR_IGN */
+    unsigned int mascara;      /* bloqueadas mientras corre el tratador */
+    unsigned int flags;        /* SINAL_SA_* */
+    unsigned int restaurador;  /* la función de la libc que llama a SIS_SINAL_VOLTAR (obligatoria con tratador) */
+} acao_sinal_t;
+typedef struct {
+    unsigned int base, flags, tamanho;   /* = stack_t (ss_sp, ss_flags, ss_size) */
+} pilha_sinal_t;
+#define SINAL_PILHA_EM_USO  1   /* SS_ONSTACK */
+#define SINAL_PILHA_DESLIGADA 2 /* SS_DISABLE */
+/* Lo que el kernel deja en la pila al llamar a un tratador, como en Linux i386: el siginfo_t de
+ * 128 bytes y el ucontext_t (gregs en el orden de Linux: REG_GS 0 ... REG_EIP 14 ... REG_SS 18).
+ * El área de la FPU (FXSAVE de 512 bytes o XSAVE de 832, alineada a 64) va encima y «fpregs»
+ * la apunta (0 = el hilo no había usado la FPU). */
+typedef struct {
+    int signo, erro, codigo;   /* si_signo, si_errno, si_code */
+    union {                    /* desde el byte 12, como la unión de Linux */
+        struct { int pid; unsigned int uid; int estado; } proc;   /* kill (si_pid, si_uid) y SIGCHLD (+ si_status) */
+        unsigned int endereco;                                  /* SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGTRAP: si_addr */
+    } u;
+    unsigned int resto[26];
+} info_sinal_t;                /* 128 bytes */
+typedef struct {
+    unsigned int flags, ligacao;
+    unsigned int pilha_base, pilha_flags, pilha_tamanho;   /* uc_stack */
+    unsigned int gregs[19];
+    unsigned int fpregs, oldmask, cr2;
+    unsigned int mascara;      /* uc_sigmask: la máscara del hilo antes del tratador */
+    unsigned int fpu_formato;  /* SINAL_FPU_* */
+    unsigned int reservado[3];
+} contexto_sinal_t;
+#define SINAL_FPU_NENHUM 0
+#define SINAL_FPU_FNSAVE 1
+#define SINAL_FPU_FXSAVE 2
+#define SINAL_FPU_XSAVE  3
+/* si_code */
+#define SINAL_SI_USER    0
+#define SINAL_SI_KERNEL  0x80
+#define SINAL_SEGV_MAPERR 1
+#define SINAL_SEGV_ACCERR 2
+#define SINAL_FPE_INTDIV 1
+#define SINAL_FPE_FLTDIV 3
+#define SINAL_FPE_FLTINV 7
+#define SINAL_ILL_ILLOPC 1
+#define SINAL_BUS_ADRALN 1
+#define SINAL_TRAP_BRKPT 1
+#define SINAL_CLD_EXITED 1
+#define SINAL_CLD_KILLED 2
+#define SINAL_CLD_DUMPED 3
+
+/* SIS_SONDAR: como struct pollfd de Linux. */
+typedef struct {
+    int   fd;
+    short eventos;    /* events */
+    short prontos;    /* revents */
+} sondagem_t;
+#define SONDA_LER     0x001   /* POLLIN */
+#define SONDA_URGENTE 0x002   /* POLLPRI */
+#define SONDA_ESCREVER 0x004  /* POLLOUT */
+#define SONDA_ERRO    0x008   /* POLLERR */
+#define SONDA_FECHADO 0x010   /* POLLHUP */
+#define SONDA_INVALIDO 0x020  /* POLLNVAL */
+#define SONDA_MAX     256     /* entradas por llamada */
+
+/* SIS_DESCRITOR (fcntl). */
+#define DESC_LER_FD     1   /* () -> DESC_FD_* del descriptor (F_GETFD) */
+#define DESC_FIXAR_FD   2   /* (DESC_FD_*) -> 0 (F_SETFD) */
+#define DESC_LER_FL     3   /* () -> DESC_FL_* del fichero abierto (F_GETFL) */
+#define DESC_FIXAR_FL   4   /* (DESC_FL_*) -> 0 (F_SETFL: solo NAO_BLOQUEAR y ACRESCENTAR) */
+#define DESC_DUPLICAR   5   /* (mínimo) -> el primer descriptor libre >= mínimo, al mismo fichero (F_DUPFD) */
+#define DESC_FD_FECHAR_EXEC 1     /* FD_CLOEXEC */
+#define DESC_FL_LER         0x0001
+#define DESC_FL_ESCREVER    0x0002
+#define DESC_FL_ACRESCENTAR 0x0400   /* O_APPEND */
+#define DESC_FL_NAO_BLOQUEAR 0x0800  /* O_NONBLOCK */
 
 /* D255: la configuración del sistema. Los programas leen /etc como siempre; la
  * partición SAGUI-CONF (ext2, solo root) se monta en CONF_SISTEMA_PONTO y su
@@ -1346,6 +1495,8 @@ typedef struct {
 #define BTT_TECLADO 1
 #define BTT_RATO    2
 #define BTT_COMBO   3
+#define BTT_BLE     4   /* baja energía (BLE): solo se detecta (D411) */
+#define BTT_BLE_HID 5   /* BLE con apariencia o servicio HID: se detecta, aún no se conecta */
 #define BTC_NADA     0
 #define BTC_COMPARAR 1   /* ¿coincide el número con el del dispositivo? BT_CONFIRMAR 1 o 0 */
 #define BTC_MOSTRAR  2   /* escribe el número en el teclado del dispositivo (sin respuesta) */
@@ -1397,6 +1548,7 @@ typedef struct disp_bt {
                                 solo el proceso dueño del túnel (su demonio) o root */
 #define OPC_TUN_CONFIG   6   /* SOCK_TUN: (&config_tunel_t) dirección, máscara, MTU, DNS y rutas -> 0 */
 #define OPC_TUN_ESTADO   7   /* SOCK_TUN: (&info_wg_demonio_t) el demonio publica el estado para «wg show» -> 0 */
+#define OPC_ERRO_CONEXAO 8   /* D401: TCP: 0 conectada, 1 aún en curso, < 0 el error de la conexión (SO_ERROR) */
 /* D363: la interfaz del túnel (SOCK_TUN, OPC_TUN_*, INFO_WG) */
 #define TUNEL_ROTAS_MAX  32
 #define WG_INFO_PARES    8
@@ -2042,6 +2194,9 @@ typedef struct {
 #define EV_WIDGET    19  /* D365: aviso a una ventana de escritorio (SIS_CRIAR_WIDGET); tecla = EVW_*:
                             EVW_MOVIDO (x, y = posición nueva en la pantalla), EVW_QUITAR (la persona eligió
                             «Quitar widget»: el programa se desactiva y termina), EVW_FIN_SESION (termina). */
+#define EV_RODA_H    20  /* D407: rueda horizontal (desplazar con dos dedos o por el borde inferior del panel táctil):
+                            "cliques" = muescas con signo (+ hacia la derecha), x, y y la ventana como EV_RODA.
+                            Quien no la trata, la ignora (no se convierte en vertical). Ler com (int)e.cliques. */
 #define EVW_MOVIDO     1
 #define EVW_QUITAR     2
 #define EVW_FIN_SESION 3
@@ -2167,6 +2322,40 @@ typedef struct {
     int          menu_aberto;      /* solo lectura: el menú Inicio está abierto */
     int          menu_x, menu_y, menu_l, menu_a;   /* solo lectura: su rectángulo (0 si no hay) */
 } info_barra_t;
+/* D407: el panel táctil (touchpad) PS/2. INFO_PAINEL dice qué se reconoció (Synaptics, ALPS, Elantech o nada: ratón
+ * PS/2 de siempre), sus contadores y las opciones; INFO_PAINEL_GRAVAR aplica las opciones (cualquier usuario: es
+ * preferencia de su sesión, como el teclado). Los números 96 y 97 dejan sitio a los INFO_* de otras ramas de la v8.5.5. */
+#define INFO_PAINEL        96   /* (&info_painel_t, sizeof) -> 0 */
+#define INFO_PAINEL_GRAVAR 97   /* (&info_painel_t, sizeof) -> 0: aplica las opciones; versao tiene que ser 1 */
+#define PAINEL_TIPO_NENHUM    0
+#define PAINEL_TIPO_SYNAPTICS 1
+#define PAINEL_TIPO_ALPS      2
+#define PAINEL_TIPO_ELANTECH  3
+typedef struct {
+    unsigned int  versao;          /* 1 */
+    /* las opciones (se leen y se escriben) */
+    unsigned char toque;           /* tocar = clic (dos dedos = derecho, tres = central) */
+    unsigned char dois_dedos;      /* desplazamiento con dos dedos */
+    unsigned char borda;           /* desplazamiento por el borde derecho e inferior */
+    unsigned char natural;         /* sentido natural */
+    unsigned char sensib;          /* 1-10 (5 = normal) */
+    unsigned char sem_usb;         /* no usar el panel mientras haya un ratón USB */
+    unsigned char modo_ps2;        /* 1 = no usar el modo absoluto: el panel como ratón PS/2 de siempre */
+    unsigned char pad0;
+    unsigned int  ms_teclado;      /* no hacer caso del panel estos ms tras una tecla (0 = nunca; hasta 2000) */
+    /* solo lectura */
+    unsigned int  tipo;            /* PAINEL_TIPO_* en uso (NENHUM = ratón PS/2) */
+    unsigned int  reconhecido;     /* PAINEL_TIPO_* reconocido al arrancar aunque se use como ratón PS/2 */
+    unsigned int  versao_hw;       /* Synaptics: mayor; ALPS: 2; Elantech: 2, 3 o 4 */
+    unsigned int  firmware;        /* Synaptics: mayor << 8 | menor; Elantech: los 3 bytes del firmware */
+    unsigned int  capacidades;     /* Synaptics: capacidades; ALPS: firma E7 */
+    int           xmin, xmax, ymin, ymax;
+    unsigned int  multidedo, dois_dedos_pos, palanca;   /* cuenta dedos; da la posición del segundo; tiene palanca */
+    unsigned int  pacotes, invalidos, toques, rolagens, palmas, por_teclado;   /* contadores */
+    unsigned int  ratos_usb;       /* ratones USB enchufados ahora */
+    unsigned int  desligado;       /* el panel no hace caso ahora (ratón USB, o vuelta al PS/2 por paquetes malos) */
+    char          nome[40];        /* "Synaptics 8.1", "ALPS v2 (73 02 50)", "Elantech v4 (fw 381f17)"... */
+} info_painel_t;
 #define INFO_MSR_PROVA 55   /* (0, 0) -> bit 0: MSR inexistente deu "não disponível"; bit 1: idem o x2APIC ID (0x802) */
 
 #define INFO_BANDEJA   60   /* (&info_bandeja_t, sizeof) -> 0: o que a bandeja da barra mostra agora (D114) */

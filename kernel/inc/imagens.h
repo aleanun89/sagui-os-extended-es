@@ -24,6 +24,9 @@ int32_t  imagens_mapear(struct processo *l, uint32_t ini, uint32_t n, uint32_t f
 uint32_t imagens_desmapear(espaco_t e, uint32_t ini, uint32_t fim);
 /* espaco_destruir(): el espacio "e" ya no lo usa ninguna CPU; se sueltan sus objetos. */
 void     imagens_espaco_destruido(espaco_t e);
+/* D401 (fork): "para" recibe mapas propios de los mismos objetos que "de" (sus páginas prestadas y
+ * la cuenta de cada objeto). false = sin memoria (quien llama destruye "para"). */
+bool     imagens_clonar(espaco_t de, espaco_t para);
 /* Páginas compartidas de "e" que NO se le cuentan: de cada objeto paga su parte
  * (mapeadas / procesos que lo usan); un objeto que solo usa él se le cuenta entero. */
 uint32_t imagens_paginas_alheias(espaco_t e);

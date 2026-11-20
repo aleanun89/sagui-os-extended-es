@@ -164,6 +164,9 @@ typedef struct {
 	float relic_t; int relic_team;   /* cuenta atrás de la victoria por reliquias */
 	float popwarn_t;
 	float hist_t;
+	/* D415: chat de la partida (lo que dicen los jugadores de la máquina al humano) y sus propuestas de diplomacia pendientes */
+	struct { int de; char texto[112]; } chat[8]; unsigned chat_n;
+	int prop_nivel[MAX_PLAYERS]; float prop_t[MAX_PLAYERS];   /* propuesta del jugador p al humano: nivel DIPL_* + 1 (0 = ninguna) y cuándo caduca */
 } World;
 
 extern World W;
@@ -242,6 +245,10 @@ int pcolor(int player);                  /* color (0..7) del jugador */
 const char *dipl_name(int level);
 int cmd_diplomacy(int from, int to, int level);   /* devuelve 1 si el otro jugador acepta */
 int cmd_tribute(int from, int to, int kind, int amount);
+int cmd_pedir(int from, int to, int kind, int amount);   /* D415: pide un tributo a otro jugador; si es de la máquina, decide ella (1 si lo envía) */
+int cmd_responder_propuesta(int de, int acepta);          /* D415: el humano responde a la propuesta de diplomacia del jugador `de` */
+void world_chat(int de, const char *texto);               /* D415: mensaje del jugador `de` al chat de la partida (-1: del sistema) */
+void world_proponer(int de, int nivel);                   /* D415: el jugador de la máquina `de` propone al humano un nivel de relación */
 void cmd_move_queue(Ref e, float x, float y);     /* añade un punto de ruta (Mayús) */
 void cmd_patrol(Ref e, float x, float y);
 int world_team_score(int player);

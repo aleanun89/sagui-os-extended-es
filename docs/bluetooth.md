@@ -2,12 +2,14 @@
 
 SaguiOS maneja teclados y ratones Bluetooth con un **controlador USB estándar sin firmware**, como el
 **CSR8510** (`0a12:0001`) que llevan casi todos los «pinchos» baratos. Esta es la primera fase de la mejora 059;
-el audio (A2DP), los archivos (OBEX), el BLE y los controladores integrados con firmware (Intel AX210) van después.
+el audio (A2DP), los archivos (OBEX), el BLE completo y los controladores Intel (AX210) van después; los de Broadcom, Realtek y
+Atheros con firmware y la detección BLE llegaron en la 8.5.5.1 (D411, experimental).
 
 ## Qué hay
 
 | Capa | Dónde | Qué hace |
 | --- | --- | --- |
+| Firmware | `kernel/bluetooth/bt_fw.c` | D411: parches de Broadcom (.hcd), Realtek (`rtl_bt/`) y Atheros (ath3k, por USB) durante el inicio; lógica pura probada en el PC |
 | Transporte USB | `kernel/usb/usbbt.c` | Reconoce la clase `0xE0/0x01/0x01`; órdenes HCI por control, eventos por interrupción (reensamblados por su longitud) y ACL por *bulk*; la tarea del kernel `bluetooth` bombea cada tic (10 ms) |
 | HCI | `kernel/bluetooth/bt_hci.c` | Inicio (Reset, versión, BD_ADDR, búferes ACL, máscara de eventos, SSP, nombre, clase), cola de órdenes con créditos, créditos ACL, fragmentación, eventos |
 | L2CAP | `bt_l2cap.c` | Señalización (conexión, configuración, desconexión, eco, información), canales en modo básico, reensamblado, tiempos |
@@ -64,10 +66,11 @@ volver a emparejar.
 
 ## Límites conocidos
 
-- **Solo HID** (teclados, ratones, combos). Sin audio, archivos, red ni **BLE** (teclados BLE como los de Apple/Logitech *Bluetooth Low
-  Energy*: no); la mayoría de los teclados y ratones «Bluetooth» baratos son clásicos.
-- **Controladores sin firmware.** Los Intel, Realtek y Broadcom que lo piden (los integrados de los portátiles, muchos pinchos
-  modernos) aparecen en `usb` pero no inician. Quedan para la fase con firmware (D073).
+- **Solo HID clásico** (teclados, ratones, combos). Sin audio, archivos ni red. El **BLE** solo se *detecta* (D411): teclados BLE
+  como los de Apple/Logitech *Bluetooth Low Energy* salen en la lista pero no se emparejan (falta SMP y HOGP); la mayoría de los
+  teclados y ratones «Bluetooth» baratos son clásicos.
+- **Controladores con firmware: experimental (D411).** Broadcom, Realtek y Atheros se cargan desde la 8.5.5.1 (ver más abajo);
+  **sin probar en hardware real**. Los Intel (AX200/AX210, `ibt`) siguen sin iniciar.
 - **Recepción ACL con EHCI, xHCI y, desde D389, UHCI.** Por UHCI (puertos USB 1.1 de Intel/VIA, el pincho CSR es de velocidad
   completa y en los ICH con EHCI cae en el compañero) la recibe `uhci_rx_*`: 16 TD de 64 bytes encadenados en profundidad detrás de
   la cabeza de interrupción (cada 8 ms, hasta ~128 KB/s) y `usbbt.c` reconstruye los paquetes ACL por la longitud de la cabecera.
@@ -82,6 +85,53 @@ volver a emparejar.
   con descriptor entendible se usan en protocolo normal (con rueda y botones); los demás, en protocolo boot (3 o 4 bytes).
 - No hay reconexión automática iniciada por nosotros: si se corta, se vuelve a pulsar *Conectar* (o el dispositivo reconecta si
   es un teclado/ratón que lo hace).
+
+## Controladores que necesitan firmware (D411, experimental, sin probar en hardware)
+
+Los controladores que no arrancan listos reciben un parche **durante el inicio**, antes de leer sus características. Todo lo de
+esta sección está probado **solo contra un controlador HCI simulado** (`tests/h411_bluetooth_firmware.py`); si un chip real se
+comporta distinto, el registro (`dmesg | grep BT`) lo dice y el inicio sigue sin parche.
+
+| Fabricante | Chips | Cómo | Archivos (en `/lib/firmware/`) | Distribución |
+| --- | --- | --- | --- | --- |
+| **Broadcom** | BCM20702, BCM20703 y familia (`0a5c:21e*`, integrados de muchos portátiles) | HCI: *Download_Minidriver*, registros del `.hcd`, *Reset* | `brcm/<chip>-<vid>-<pid>.hcd` o `brcm/<chip>.hcd` | **No se distribuyen**: ponlos tú |
+| **Realtek** | RTL8723B/BE/D, RTL8761B/BU, RTL8821A/C (`0bda:...`) | HCI vendor `0xFC20` en fragmentos de 252 bytes | `rtl_bt/<chip>_fw.bin` y `<chip>_config.bin` | De linux-firmware, en git y en la imagen |
+| **Atheros** | AR3011, AR3012 (`0cf3:3000`, `0cf3:3004`, `04ca:300x`, `13d3:33xx`...) | USB: peticiones de fabricante y bulk (ath3k), antes del HCI | `ath3k-1.fw`; `ar3k/AthrBT_0x<rom>.dfu` y `ar3k/ramps_0x<rom>_<MHz>.dfu` | De linux-firmware, en git y en la imagen |
+
+- **Broadcom.** El nombre del chip sale de *Read_Local_Name* («BCM20702A1»). Copia el `.hcd` que extraigas del controlador de
+  Windows de tu equipo a `/lib/firmware/brcm/BCM20702A1-0a5c-21e8.hcd` (con el identificador USB de tu chip; `usb` lo muestra) o a
+  `/lib/firmware/brcm/BCM20702A1.hcd`. Con la raíz en disco (D379) el archivo persiste; con el ramdisk, solo hasta apagar. Sin
+  archivo: `[BT] Broadcom: sin parche (/lib/firmware/brcm/...hcd no existe): se sigue con lo que tenga la ROM`.
+- **Realtek.** Se reconoce el chip por (`lmp_subversion`, revisión y versión HCI) y se elige el parche por la versión de ROM. Una
+  `lmp_subversion` que no está en la tabla (por ejemplo un chip ya parcheado) no se toca. Registro: `[BT] Realtek RTL8761B en
+  ROM ...: hace falta rtl_bt/rtl8761bu_fw.bin`, `ROM 1, parche 44470 bytes + config 6, 177 fragmentos` y, al acabar,
+  `firmware: rtl_bt/rtl8761bu_fw.bin cargado, se relee la version`.
+- **Atheros.** Pide al dispositivo su estado y su versión de ROM por USB y sube el parche y la configuración que le tocan; luego
+  el dispositivo se reenumera (aparece otra vez en `usb`) y el HCI arranca ya con el parche. Un AR3011/AR3012 que enumera con
+  clase de fabricante (0xFF) en vez de la de Bluetooth **todavía no se reconoce** (solo se atienden los de clase `0xE0/0x01/0x01`).
+- **Lo que no hace:** Intel; el formato nuevo «RTBTCore» de Realtek (RTL8852 y siguientes); cambiar la dirección BD de los
+  Realtek/Broadcom que vienen sin ella.
+- Los firmware (`firmware/`, SHA-256 en `tools/firmware_bt.sh`) no entran con `make SEM_FIRMWARE=1`; licencias y origen en
+  `docs/terceros.md`. Los controladores integrados que el mantenedor tiene en sus portátiles pueden estar apagados: no se tocan.
+
+### Probar un controlador con firmware (guion)
+
+1. Enchufa el pincho (o enciende el integrado) y mira `usb`: debe salir con clase inalámbrico y `[BT] controlador ... iniciando`.
+2. `dmesg | grep -E "BT"` debe contar la carga (arriba) y terminar sin `rechazad`/`dejo de contestar`. `bluetooth` debe decir
+   **listo** y mostrar la dirección y la versión (que **cambia** tras el parche: es buena señal).
+3. Sigue como con el CSR (pasos 2 a 9 de la sección siguiente). Si falla, pega `usb`, `bluetooth` y `dmesg | grep BT`.
+
+## Búsqueda de baja energía (BLE, D411, experimental)
+
+Si el controlador anuncia LE (casi todos los de Bluetooth 4.0 en adelante), `bluetooth buscar` hace, tras la búsqueda clásica, una
+**búsqueda LE activa de 4 s** (parámetros 60 ms / 30 ms, sin filtro de repetidos en el controlador) y añade a la lista los
+anuncios que dicen su **nombre** o que son **HID** (apariencia 0x03C0 a 0x03C4 o servicio 0x1812). Salen como `BLE` o `BLE
+(teclado/ratón)`; los anuncios anónimos (balizas, relojes sin nombre) se descartan para no llenar la tabla de 8 dispositivos.
+`bluetooth conectar N` sobre uno de ellos da el error «baja energia (BLE): aun no se puede emparejar, solo se detecta».
+
+**Plan para el BLE completo (pendiente):** canales fijos LE de L2CAP (ATT y SMP) y *LE Create Connection*; SMP (*Just Works* y
+*Passkey*, claves LTK guardadas junto a las de enlace); cliente GATT (servicios, características, descriptores y notificaciones);
+y HOGP (servicio HID 0x1812: mapa de informes y informes de entrada por notificación, que ya entrarían por `hid_bt_*`).
 
 ## Probar con el CSR8510 y un teclado o ratón Bluetooth reales
 

@@ -90,9 +90,18 @@ def fuentes():
     verificar("SRBM_SOFT_RESET" not in codigo, "sin reiniciar ningún bloque de la GPU")
     verificar(not re.search(r"\b(irq\w*|msi\w*|pci_msi\w*)\b", codigo, re.I), "sin interrupciones ni MSI")
     verificar("evg_modelo(d->modelo)" in codigo and "d->fabricante != 0x1002" in codigo, "el modelo exacto se comprueba antes de tocar nada")
-    verificar(re.search(r"gen >= EVG_GEN_EVERGREEN \? evg_pkt_copiar\(", codigo), "las Evergreen/NI usan su paquete de copia")
+    verificar(re.search(r"gen >= EVG_GEN_EVERGREEN \? evg_pkt_copiar(_alto)?\(", codigo), "las Evergreen/NI usan su paquete de copia")
     verificar(re.search(r"if \(gen == 7 && !agp\)", codigo), "HDP_DEBUG1 solo en las R7xx; Evergreen/NI vacían el HDP por registro")
-    verificar("evg_crtc_mostra(&e, mc_tela, t->pitch / 4)" in codigo, "se comprueba qué controlador muestra la pantalla del VBE/GOP")
+    verificar("evg_crtc_mostra(&e, mc64, t->pitch / 4)" in codigo, "se comprueba qué controlador muestra la pantalla del VBE/GOP")
+    # D408: direcciones del MC de 40 bits (la HD 7600M del Toshiba tiene la VRAM en 0xF_0000_0000).
+    verificar("if (mc64 >> 40)" in codigo and "if (mc64 >> 32)" not in codigo, "D408: la pantalla puede estar por encima de 4 GB en el MC (40 bits)")
+    verificar("wr(DMA_RB_RPTR_ADDR_HI, alto)" in codigo and "(((uint64_t)alto << 32) | mc_ring) >> 8" in codigo,
+              "D408: el anillo con sus bits 39:32 (RPTR_ADDR_HI y la base de 39:8)")
+    verificar("evg_pkt_copiar_alto(p, dst, src, ndw, alto)" in codigo and "r600_pkt_valla_alto(" in codigo
+              and "r600_pkt_escrever_alto(" in codigo, "D408: copiar, escribir y valla llevan el byte alto")
+    verificar("cruza un limite de 4 GB del MC" in codigo, "D408: la zona del DMA no cruza un límite de 4 GB del MC (un solo byte alto)")
+    verificar("hi == mc_alto && sup == mc_tela" in codigo, "D408: R7xx compara los bits 39:32 de la superficie")
+    verificar("if (base.mc_alto)" in sem_comentarios(ler("kernel/dispositivos/gpu3d_r600.c")), "D408: el 3D R6xx/R7xx no acepta la VRAM por encima de 4 GB")
     verificar(re.search(r"tem_dma_mode\(void\)\s*\{\s*return gen == 7 \|\| gen == EVG_GEN_EVERGREEN;", codigo)
               and "if (tem_dma_mode()) wr(DMA_MODE, 1);" in codigo and "wr(DMA_MODE, 1)" in codigo
               and codigo.count("wr(DMA_MODE") == 2, "DMA_MODE solo donde existe (ni R6xx ni Cayman)")
@@ -101,7 +110,7 @@ def fuentes():
     verificar(re.search(r"gen < 7 && !acel2d_forcado\(\)", codigo), "las R6xx siguen solo forzadas")
     comum = ler("kernel/gui/acel2d.c")
     conf = re.search(r"confirmadas\[\]\s*=\s*\{(.*?)\};", comum, re.S).group(1)
-    verificar(re.sub(r"\{\s*0x1002,\s*0x(?:7145|9553)\s*\}", "", sem_comentarios(conf)).count("0x1002") == 0, "ninguna Radeon (salvo la X1400 del Amilo, D386, y la HD 4530 del dv7, D402) está en «confirmadas»: autoprueba completa hasta que el mantenedor la pruebe")
+    verificar(re.sub(r"\{\s*0x1002,\s*0x(?:7145|9553|6840)\s*\}", "", sem_comentarios(conf)).count("0x1002") == 0, "ninguna Radeon (salvo la X1400 del Amilo, D386, la HD 4530 del dv7, D402, y la HD 7600M del Toshiba, D408) está en «confirmadas»: autoprueba completa hasta que el mantenedor la pruebe")
     verificar("## D286" in ler("docs/decisoes.md"), "la decisión D286 está en docs/decisoes.md")
     verificar("evergreen_dma.c" in ler("docs/terceros.md"), "docs/terceros.md registra las referencias")
     verificar("D286" in ler("docs/gpus.md"), "docs/gpus.md lleva la fila de Evergreen/NI")

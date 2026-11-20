@@ -4,6 +4,7 @@
  * los usaría un jugador, y dejan en el registro lo que pasó. Los usa tests/h389_aoen.py (parte «interfaz»). Sin
  * AOEN_PRUEBA no hacen nada. */
 #include "interfaz.h"
+#include "ia.h"
 
 static Uint8 teclas_falsas[512];
 int prueba_activa;   /* hay guion: el ratón simulado cuenta como dentro de la ventana */
@@ -116,7 +117,10 @@ void prueba_paso(int f) {
 		}
 		if (f == 70 || f == 100) in.key[SDL_SCANCODE_SPACE] = 1;
 	} else if (!strcmp(p, "diplomacia")) {
-		if (f == 3) dev_place(E_MARKET, W.human, cx + 6, cy - 2);
+		if (f == 3) {
+			dev_place(E_MARKET, W.human, cx + 6, cy - 2);
+			ia_tributo(1, W.human, RES_GOLD, 400);   /* D415: la máquina ya no acepta la paz sin más: antes recibe un tributo y confía */
+		}
 		if (f == 5) in.key[SDL_SCANCODE_F3] = 1;
 		if (f == 8) { in.mx = (prueba_relacion.x + prueba_relacion.w - 10) * app.us; in.my = (prueba_relacion.y + 12) * app.us; in.mclick = 1; }
 		if (f == 12) { in.mx = (prueba_tributo.x + 10) * app.us; in.my = (prueba_tributo.y + 10) * app.us; in.mclick = 1; }

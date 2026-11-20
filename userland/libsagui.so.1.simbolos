@@ -67,6 +67,7 @@ barra_ferr_x
 barra_menu_desenhar
 barra_menu_iniciar
 barra_menu_tratar
+bifurcar
 bip
 bloqueo_dns
 botao_desenhar
@@ -144,6 +145,7 @@ datas_arquivo
 definir_grupo
 deflar
 deflar_limite
+descritor_op
 desligar
 desmapear_memoria
 desmontar
@@ -178,6 +180,7 @@ escurecer32
 escutar
 esperar
 esperar_evento
+esperar_pid
 esperar_rede
 estilo_janela
 executar
@@ -417,10 +420,12 @@ servicos_pasta_registros
 servicos_pedir
 servicos_texto_estado
 silenciar
+sinal_op
 sincronizar
 sombra_gravar
 sombra_ler
 sombra_remover
+sondar
 sou_root
 sse1_ampliar2x
 sse1_copiar
@@ -441,6 +446,7 @@ sse2_trocar_rb32
 sse3_copiar
 sse3_copiar_nt
 ssse3_trocar_rb32
+substituir
 tam_texto
 tar_adicionar
 tar_concluir

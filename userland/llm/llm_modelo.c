@@ -545,13 +545,15 @@ static void somar_norma(llm_estado_t *e, const gguf_tensor_t *pos_norma, int n)
     }
 }
 
-static int avaliar_lote(llm_estado_t *e, const int *toks, int n, float *logits_todos)
+/* toks o, si es NULL, emb: los vectores de entrada ya hechos ([n][n_embd], las imágenes, fase 2). */
+static int avaliar_lote(llm_estado_t *e, const int *toks, const float *emb, int n, float *logits_todos)
 {
     llm_modelo_t *m = e->m;
     const int E = m->n_embd, F = m->n_ff, pos0 = e->kv.pos;
     if (pos0 + n > e->kv.ctx) return -1;
     const size_t linha_emb = gguf_tamanho_linha(m->emb->tipo, (uint64_t)E);
-    for (int b = 0; b < n; b++) {
+    if (!toks) llm_memcpy(e->x, emb, (size_t)n * E * 4);
+    else for (int b = 0; b < n; b++) {
         int t = toks[b];
         if (t < 0 || t >= m->n_vocab) t = 0;
         llm_decuant_linha(m->emb->tipo, (const uint8_t *)m->emb->dados + (size_t)t * linha_emb, e->x + (size_t)b * E, E);
@@ -588,9 +590,20 @@ int llm_avaliar(llm_estado_t *e, const int *toks, int n, float *logits_todos)
     const int V = e->m->n_vocab;
     while (n > 0) {
         int k = n > e->lote_max ? e->lote_max : n;
-        if (avaliar_lote(e, toks, k, logits_todos)) return -1;
+        if (avaliar_lote(e, toks, NULL, k, logits_todos)) return -1;
         toks += k; n -= k;
         if (logits_todos) logits_todos += (size_t)k * V;
+    }
+    return 0;
+}
+
+int llm_avaliar_emb(llm_estado_t *e, const float *emb, int n)
+{
+    const int E = e->m->n_embd;
+    while (n > 0) {
+        int k = n > e->lote_max ? e->lote_max : n;
+        if (avaliar_lote(e, NULL, emb, k, NULL)) return -1;
+        emb += (size_t)k * E; n -= k;
     }
     return 0;
 }

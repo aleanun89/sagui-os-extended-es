@@ -13,6 +13,7 @@
 #include "tipos.h"
 #include "usb.h"
 #include "wifi_n.h"
+#include "../rede/wifi_usb_logica.h"   /* D409: las familias de pincho (WUSB_*) */
 
 /* ---- usb.c llama a esto al enumerar y al retirar ---- */
 bool wifi_usb_reconhecer(usb_disp_t *d);   /* true = era el pincho (o su CD virtual) y ya está atendido */
@@ -56,6 +57,18 @@ typedef struct {
     uint32_t tx_cheia, tx_perdidas;      /* la cola de envío estaba llena; tramas que no salieron */
     uint32_t tx_erros_seguidos;
     wn_rx_conta_t rx;             /* el desglose de las agregaciones */
+    /* D409: la familia del pincho y lo propio de cada una (experimentales, sin probar en hardware). */
+    uint8_t  familia;             /* WUSB_RTL8188EU (0 = sin fijar: se trata como el EU), WUSB_RTL8192CU, WUSB_RT2870 */
+    uint16_t vid, pid;            /* los del dispositivo */
+    /* RTL8188CU/8192CU (rtl8188eu.c con familia C, rtl8192cu_logica.h) */
+    bool     c_c2t2r, c_c1t2r, c_umc, c_acut, c_ligado;
+    uint8_t  c_ntx, c_nrx, c_placa, c_regulacao, c_pa;
+    uint32_t rf_chnlbw1;          /* RF_CHNLBW cacheado de la cadena 1 */
+    /* RT2870/RT3070/RT5370 (rt2870.c) */
+    uint16_t rt_mac_ver, rt_rev;  /* ASIC_VER_ID */
+    uint16_t rt_rf;               /* RT2860_RF_* / RT3070_RF_* / RT5390_RF_* */
+    uint8_t  rt_ntx, rt_nrx;
+    uint8_t  rt_wcid_seq;
 } r88e_t;
 
 /* 0 = bien; si no, *motivo dice por qué (texto para el usuario). */
@@ -81,6 +94,23 @@ void r88e_ht(r88e_t *r, bool ht, bool sgi, uint8_t mcs_ap);
 void r88e_rx_simples(r88e_t *r);
 /* D238: transferencias en vuelo de cada cola (0 sin cola). */
 void r88e_em_voo(r88e_t *r, uint32_t *rx, uint32_t *tx);
+
+/* Nombre del archivo de firmware de /lib/firmware según la familia y el chip (tras leer la eFuse). */
+const char *r88e_nome_firmware(const r88e_t *r);
+
+/* ---- rt2870.c (D409): Ralink RT2870/RT3070/RT5370, misma interfaz que arriba ---- */
+int  rt28_ler_efuse(r88e_t *r, const char **motivo);
+const char *rt28_nome_firmware(const r88e_t *r);
+int  rt28_iniciar(r88e_t *r, const uint8_t *fw, uint32_t nfw, const char **motivo);
+void rt28_canal(r88e_t *r, uint8_t canal);
+int  rt28_enviar(r88e_t *r, const uint8_t *q, uint32_t n, int tipo, bool cifrar);
+int  rt28_receber(r88e_t *r, r88e_rx_t chegou);
+void rt28_modo_busca(r88e_t *r, bool busca);
+void rt28_associado(r88e_t *r, const uint8_t bssid[6], uint16_t intervalo, bool slot_curto, bool preambulo_curto);
+void rt28_desassociado(r88e_t *r);
+void rt28_chave(r88e_t *r, int entrada, const uint8_t chave[16], const uint8_t *mac, uint8_t keyid);
+void rt28_limpar_chaves(r88e_t *r);
+void rt28_ht(r88e_t *r, bool ht, bool sgi, uint8_t mcs_ap);
 
 /* ---- wifi.c ---- */
 int32_t sis_wifi(uint32_t op, uint32_t ptr, uint32_t n, uint32_t d, uint32_t e);

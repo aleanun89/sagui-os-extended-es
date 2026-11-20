@@ -1,0 +1,16 @@
+GNU make dentro de SaguiOS
+==========================
+
+/apps/bin/make es GNU make 4.4.1 (https://www.gnu.org/software/make/), licencia GPL-3.0-or-later
+(LICENCIA-MAKE.txt). Ejecuta las recetas con /bin/sh (sagsh) y combina bien con tcc:
+
+  make                 compila el primer objetivo del Makefile
+  make -f otro.mk      otro fichero; make -C carpeta, make -n (solo mostrar), make -j2 (dos a la vez)
+  make CC=tcc          variables desde la línea de órdenes; reglas implícitas (%.o: %.c) e include
+  make -p              las reglas y variables que trae
+
+  ejemplos/proyecto/   tres ficheros .c, cabeceras, dependencias, include y clean
+  Para AoEN:  cp -r /apps/aoen/fuentes /tmp/aoen && cd /tmp/aoen && make
+  Para TCC:   cp -r /apps/tcc/fuentes /tmp/tcc && cd /tmp/tcc && make
+
+Ayuda: /ayuda/make.md.

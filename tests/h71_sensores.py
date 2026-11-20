@@ -201,12 +201,16 @@ def main():
         verificar("tareas: sensores" not in m.serial(), "fuera de Rendimiento no se consultan los sensores")
         m.clique(j["x"] + 112 + 58, j["y"] + 20)
         m.esperar_serial("tareas: pestana rendimiento", 15)
+        # D408: la línea de sensores sale al abrir la pestaña y luego solo si cambia algo (en QEMU no cambia
+        # nada); el muestreo sigue cada segundo (lo dicen las líneas de rendimiento).
         fim = time.time() + 20
-        while time.time() < fim and len(re.findall(r"tareas: sensores temp -1 mC freq 0 kHz fonte 0 muestras (\d+)",
-                                                     m.serial())) < 3:
+        while time.time() < fim and len(re.findall(r"tareas: rendimiento cpu \d+% mem \d+/\d+ KB \(\d+%\) procesos \d+ muestras (\d+)",
+                                                     m.serial())) < 4:
             time.sleep(0.3)
+        r = re.findall(r"tareas: rendimiento cpu \d+% mem \d+/\d+ KB \(\d+%\) procesos \d+ muestras (\d+)", m.serial())
+        verificar(len(r) >= 4, f"Rendimiento: muestras cada segundo ({len(r)})")
         g = re.findall(r"tareas: sensores temp (-?\d+) mC freq (\d+) kHz fonte (\d+) muestras (\d+)", m.serial())
-        verificar(len(g) >= 3 and int(g[-1][3]) >= 3, f"Rendimiento: muestras de sensores cada segundo ({len(g)})")
+        verificar(len(g) == 1, f"Rendimiento: una línea de sensores al abrir y ninguna más si no cambia nada ({len(g)})")
         verificar(g and g[-1][0] == "-1" and g[-1][2] == "0", "Rendimiento: temperatura no disponible en QEMU")
         time.sleep(0.5)
         m.captura("H71-tareas-rendimiento")

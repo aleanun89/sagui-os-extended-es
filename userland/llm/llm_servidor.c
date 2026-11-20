@@ -4,14 +4,18 @@
  * cambios (proveedor «llama.cpp», http://127.0.0.1:8080/v1).
  *
  *   GET  /v1/models              el modelo cargado
- *   POST /v1/chat/completions    messages, stream, max_tokens, temperature, seed
+ *   POST /v1/chat/completions    messages, stream, max_tokens, temperature, seed,
+ *                                tools y tool_choice (fase 2), imágenes en «content» (fase 2)
  *
  * Solo atiende conexiones de 127.0.0.1 (el modelo es del equipo, no de la red) y una
- * petición cada vez. Las herramientas («tools») aún no: se contesta 400 con «tools» en el
- * mensaje y el cliente de la libsagui repite sin ellas (ia.c, erro_de_ferramentas).
+ * petición cada vez. Fase 2: las herramientas («tools») van en el sistema como pide la
+ * plantilla de LFM3 y los <tool_call> que genera el modelo vuelven como «tool_calls»
+ * (llm_ferramentas.c), así que los agentes (D295) funcionan igual que con la API remota; las
+ * imágenes (data:image/...;base64) pasan por el proyector de visión (llm_visao.c, --mmproj).
  * Entre peticiones se conserva la caché: si la conversación nueva empieza por todo lo que ya
  * está en la caché (lo normal en un chat), solo se lee lo que falta. El estado de la
- * convolución no se puede rebobinar, así que con cualquier otra cosa se empieza de cero. */
+ * convolución no se puede rebobinar, así que con cualquier otra cosa (o con imágenes) se
+ * empieza de cero. */
 #include "llm_programa.h"
 
 #ifdef LLM_ANFITRIAO
@@ -28,13 +32,11 @@
 #else
 #include "sagui.h"
 #endif
-/* El lector de JSON de los agentes (userland/ia/json.c, D295) entra aquí tal cual: así `llm`
- * no enlaza toda la biblioteca de IA (TLS incluido) solo por él. */
-#include "../ia/json.c"
+/* El lector de JSON (userland/ia/json.c) se compila en llm_ferramentas.c. */
+#include "llm_ferramentas.h"
 
-#define CORPO_MAX (1u << 20)
+#define CORPO_MAX (8u << 20)   /* con imágenes en base64 */
 #define TOKS_MAX 8192
-#define TEXTO_MAX (64 * 1024)
 #define PRAZO_MS 10000   /* lo que espera la cabecera y el cuerpo: una conexión ociosa no bloquea el servidor */
 
 /* ------------------------------------------------------------ red */
@@ -126,41 +128,66 @@ static int json_cadena(char *o, int max, const char *s, int n)
 typedef struct {
     int fd;
     bool stream;
-    char modelo[200];   /* ya como cadena JSON (con comillas y escapes) */
-    char buf[512]; int n;               /* texto pendiente de enviar (se agrupa un poco) */
-    char *todo; int todo_n, todo_max;   /* sin stream: la respuesta entera */
+    bool herramientas;       /* la petición trae «tools»: se buscan <tool_call> en la respuesta */
+    bool em_ferramenta;      /* ya salió <tool_call>: lo que sigue no se manda como texto */
+    char modelo[200];        /* ya como cadena JSON (con comillas y escapes) */
+    llm_buf_t todo;          /* lo generado, con el prefijo forzado (tool_choice) delante */
+    int enviado;             /* bytes de «todo» ya mandados por el streaming */
 } envio_t;
 
-static void sse_enviar(envio_t *e, const char *t, int n, const char *fim)
+static void sse_dados(envio_t *e, const char *delta, const char *fim)
 {
-    char j[3300], c[3100];
-    json_cadena(c, sizeof c, t, n);
-    int k = llm_formatar(j, sizeof j, "data: {\"id\":\"llm-local\",\"object\":\"chat.completion.chunk\",\"model\":%s,"
-                         "\"choices\":[{\"index\":0,\"delta\":{\"content\":%s},\"finish_reason\":%s}]}\n\n",
-                         e->modelo, c, fim ? fim : "null");
-    enviar(e->fd, j, k);
+    llm_buf_t j = { 0 };
+    llm_buf_txt(&j, "data: {\"id\":\"llm-local\",\"object\":\"chat.completion.chunk\",\"model\":");
+    llm_buf_txt(&j, e->modelo);
+    llm_buf_txt(&j, ",\"choices\":[{\"index\":0,\"delta\":");
+    llm_buf_txt(&j, delta);
+    llm_buf_txt(&j, ",\"finish_reason\":");
+    llm_buf_txt(&j, fim ? fim : "null");
+    llm_buf_txt(&j, "}]}\n\n");
+    if (j.p) enviar(e->fd, j.p, j.n);
+    llm_buf_libera(&j);
+}
+
+static void sse_texto(envio_t *e, const char *t, int n)
+{
+    if (n <= 0) return;
+    llm_buf_t d = { 0 };
+    llm_buf_txt(&d, "{\"content\":");
+    llm_json_cadeia(&d, t, n);
+    llm_buf_txt(&d, "}");
+    if (d.p) sse_dados(e, d.p, NULL);
+    llm_buf_libera(&d);
+}
+
+/* Manda lo que ya se puede (en trozos que acaban en espacio o salto de línea). Si hay
+ * herramientas, nunca la marca <tool_call> ni lo que podría ser su principio. */
+static void mandar_pendente(envio_t *e, bool tudo)
+{
+    if (!e->stream || e->em_ferramenta || !e->todo.p) return;
+    int lim = e->todo.n;
+    if (e->herramientas) {
+        int g, p = llm_ferramentas_marca(e->todo.p + e->enviado, lim - e->enviado, &g);
+        if (p >= 0) { lim = e->enviado + p; e->em_ferramenta = true; tudo = true; }
+        else lim -= g;
+    }
+    if (lim <= e->enviado) return;
+    if (!tudo) {
+        int corte = -1;
+        for (int i = lim - 1; i >= e->enviado; i--) if (e->todo.p[i] == ' ' || e->todo.p[i] == '\n') { corte = i + 1; break; }
+        if (corte < 0 && lim - e->enviado < 400) return;
+        if (corte > 0) lim = corte;
+    }
+    sse_texto(e, e->todo.p + e->enviado, lim - e->enviado);
+    e->enviado = lim;
 }
 
 static void ao_texto(void *ctx, const char *t, int n)
 {
     envio_t *e = ctx;
-    if (!e->stream) {
-        if (e->todo_n + n + 1 > e->todo_max) return;
-        llm_memcpy(e->todo + e->todo_n, t, (size_t)n);
-        e->todo_n += n;
-        return;
-    }
-    for (int i = 0; i < n; i++) {
-        e->buf[e->n++] = t[i];
-        if (e->n >= (int)sizeof e->buf - 8 || t[i] == ' ' || t[i] == '\n') { sse_enviar(e, e->buf, e->n, NULL); e->n = 0; }
-    }
-}
-
-/* Junta los tokens de un trozo de texto. */
-static int juntar(llm_sessao_t *s, int *t, int n, const char *txt, bool esp)
-{
-    if (n >= TOKS_MAX) return n;
-    return n + llm_tokenizar(&s->t, txt, llm_strlen(txt), esp, t + n, TOKS_MAX - n);
+    if (e->todo.n + n > 256 * 1024) return;
+    llm_buf_add(&e->todo, t, n);
+    mandar_pendente(e, false);
 }
 
 static float numero_json(const char *corpo, const json_tok_t *tk, int i, float por_omision)
@@ -177,15 +204,121 @@ static float numero_json(const char *corpo, const json_tok_t *tk, int i, float p
     return v;
 }
 
+/* La conversación en tokens; las imágenes, aparte, con la posición donde van. */
+#define IMAGENS_MAX 4
+typedef struct {
+    llm_sessao_t *s;
+    int *t, n;
+    int n_img, img_pos[IMAGENS_MAX];
+    llm_buf_t img[IMAGENS_MAX];
+    bool demasiadas;
+} coletor_t;
+
+static void ao_seg(void *ctx, int tipo, const char *x, int n)
+{
+    coletor_t *c = ctx;
+    if (tipo == SEG_IMAGEM) {
+        if (c->n_img >= IMAGENS_MAX) { c->demasiadas = true; return; }
+        c->img_pos[c->n_img] = c->n;
+        llm_buf_add(&c->img[c->n_img], x, n);
+        c->n_img++;
+        return;
+    }
+    if (c->n >= TOKS_MAX) return;
+    c->n += llm_tokenizar(&c->s->t, x, (size_t)n, tipo == SEG_CONTROLE, c->t + c->n, TOKS_MAX - c->n);
+}
+
+static void coletor_libera(coletor_t *c)
+{
+    for (int i = 0; i < IMAGENS_MAX; i++) llm_buf_libera(&c->img[i]);
+    llm_libera(c->t);
+}
+
+/* «data:image/...;base64,XXXX» -> bytes. -> bytes (<0 si no vale) */
+static int base64_url(const char *u, int n, uint8_t **dados)
+{
+    int i = 0;
+    *dados = NULL;
+    if (n < 5 || llm_strncmp(u, "data:", 5)) return -1;
+    while (i < n && u[i] != ',') i++;
+    if (i >= n || i < 7 || llm_strncmp(u + i - 7, ";base64", 7)) return -1;
+    i++;
+    uint8_t *d = llm_aloca((size_t)(n - i) / 4 * 3 + 4);
+    if (!d) return -2;
+    int k = 0, bits = 0;
+    uint32_t acc = 0;
+    for (; i < n; i++) {
+        char c = u[i];
+        int v = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52 :
+                c == '+' || c == '-' ? 62 : c == '/' || c == '_' ? 63 : -1;
+        if (c == '=') break;
+        if (v < 0) { if (c == '\n' || c == '\r' || c == ' ') continue; llm_libera(d); return -1; }
+        acc = acc << 6 | (uint32_t)v;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; d[k++] = (uint8_t)(acc >> bits); }
+    }
+    *dados = d;
+    return k;
+}
+
+/* Lee la petición en «tk» y la pasa por la red. -> tokens leídos; <0 con el error ya contestado */
+static int ler_conversa(llm_sessao_t *s, int fd, const char *corpo, const json_tok_t *tk, const char *sistema, llm_plantilla_t *info)
+{
+    char erro[200];
+    coletor_t c;
+    llm_memset(&c, 0, sizeof c);
+    c.s = s;
+    c.t = llm_aloca(TOKS_MAX * sizeof(int));
+    if (!c.t) { erro_json(fd, 400, "sin memoria"); return -1; }
+    llm_segs_t sg = { ao_seg, &c };
+    if (llm_plantilla(corpo, tk, sistema, &sg, info, erro, sizeof erro)) { coletor_libera(&c); erro_json(fd, 400, erro); return -1; }
+    if (c.demasiadas) { coletor_libera(&c); erro_json(fd, 400, "demasiadas imagenes en la conversacion (como mucho 4)"); return -1; }
+    int n = c.n;
+    if (n >= TOKS_MAX || n + 8 > s->e.kv.ctx) {
+        coletor_libera(&c);
+        erro_json(fd, 400, "la conversacion no cabe en el contexto de la IA local");
+        return -1;
+    }
+    if (c.n_img && !llm_visao_ativa(s)) {
+        coletor_libera(&c);
+        erro_json(fd, 400, "la IA local no ve imagenes con este modelo: falta el proyector de vision (mmproj, llm --mmproj)");
+        return -1;
+    }
+    /* ¿Sigue lo que ya está en la caché? (con imágenes, siempre de cero) */
+    int base = 0;
+    if (!c.n_img && s->hist_n > 0 && s->hist_n < n && s->e.kv.pos == s->hist_n) {
+        bool igual = true;
+        for (int k = 0; k < s->hist_n && igual; k++) igual = s->hist[k] == c.t[k];
+        if (igual) base = s->hist_n;
+    }
+    if (!base) { llm_estado_reiniciar(&s->e); s->hist_n = 0; }
+    unsigned t0 = llm_ms();
+    int r = 0, feito = base, n_img_tok = 0;
+    for (int i = 0; i < c.n_img && !r; i++) {
+        r = llm_alimentar(s, c.t + feito, c.img_pos[i] - feito);
+        feito = c.img_pos[i];
+        if (r) break;
+        uint8_t *d = NULL;
+        int nd = c.img[i].p ? base64_url(c.img[i].p, c.img[i].n, &d) : -1;
+        if (nd <= 0) { llm_libera(d); coletor_libera(&c); erro_json(fd, 400, "imagen no valida: solo data:image/...;base64,"); return -1; }
+        int nt = llm_imagem_alimentar(s, d, (size_t)nd, erro, sizeof erro);
+        llm_libera(d);
+        if (nt < 0) { coletor_libera(&c); erro_json(fd, 400, erro); return -1; }
+        n_img_tok += nt;
+    }
+    if (!r) r = llm_alimentar(s, c.t + feito, n - feito);
+    coletor_libera(&c);
+    if (r) { erro_json(fd, 400, "la conversacion no cabe en el contexto de la IA local"); return -1; }
+    llm_eprintf("[llm] petición: %d tokens nuevos (%d ya en la caché)%s en %u ms\n", n - base + n_img_tok, base,
+                n_img_tok ? " con imágenes" : "", llm_ms() - t0);
+    return n + n_img_tok;
+}
+
 static void chat(llm_sessao_t *s, int fd, const char *corpo, int ncorpo, const char *sistema)
 {
-    static json_tok_t tk[8192];
-    int nt = json_analisar(corpo, ncorpo, tk, 8192);
+    static json_tok_t tk[16384];
+    int nt = json_analisar(corpo, ncorpo, tk, 16384);
     if (nt < 1 || tk[0].tipo != JSON_OBJ) { erro_json(fd, 400, "JSON no valido"); return; }
-    int tools = json_campo(corpo, tk, 0, "tools");
-    if (tools >= 0 && tk[tools].tipo == JSON_ARR && tk[tools].n > 0) { erro_json(fd, 400, "tools: la IA local aun no usa herramientas"); return; }
-    int msgs = json_campo(corpo, tk, 0, "messages");
-    if (msgs < 0 || tk[msgs].tipo != JSON_ARR) { erro_json(fd, 400, "faltan los messages"); return; }
     int i;
     bool stream = (i = json_campo(corpo, tk, 0, "stream")) >= 0 && json_verdadero(corpo, tk, i);
     int n_max = (i = json_campo(corpo, tk, 0, "max_tokens")) >= 0 ? json_int(corpo, tk, i, 512) : 512;
@@ -194,110 +327,61 @@ static void chat(llm_sessao_t *s, int fd, const char *corpo, int ncorpo, const c
     s->a.temperatura = numero_json(corpo, tk, json_campo(corpo, tk, 0, "temperature"), temp_antes);
     if ((i = json_campo(corpo, tk, 0, "seed")) >= 0) llm_amostra_iniciar_semente(&s->a, (uint32_t)json_int(corpo, tk, i, 0));
 
-    /* la conversación con la plantilla de LFM3 */
-    int *t = llm_aloca(TOKS_MAX * sizeof(int));
-    char *txt = llm_aloca(TEXTO_MAX);
-    if (!t || !txt) { llm_libera(t); llm_libera(txt); erro_json(fd, 400, "sin memoria"); s->a.temperatura = temp_antes; return; }
-    int n = juntar(s, t, 0, "<|startoftext|>", true);
-    bool tem_sistema = false;
-    for (int k = 0; k < tk[msgs].n && n < TOKS_MAX; k++) {
-        int m = json_elem(tk, msgs, k);
-        int pr = json_campo(corpo, tk, m, "role"), ct = json_campo(corpo, tk, m, "content");
-        char papel[16] = "user";
-        if (pr >= 0) json_texto(corpo, tk, pr, papel, sizeof papel);
-        txt[0] = 0;
-        if (ct >= 0 && tk[ct].tipo == JSON_STR) json_texto(corpo, tk, ct, txt, TEXTO_MAX);
-        else if (ct >= 0 && tk[ct].tipo == JSON_ARR) {   /* [{"type":"text","text":...}] */
-            int L = 0;
-            for (int q = 0; q < tk[ct].n && L < TEXTO_MAX - 1; q++) {
-                int it = json_elem(tk, ct, q), tx = json_campo(corpo, tk, it, "text");
-                if (tx >= 0) { int r = json_texto(corpo, tk, tx, txt + L, TEXTO_MAX - L); if (r > 0) L += r; }
-            }
-        }
-        /* solo los papeles de la plantilla: nada de tokens especiales metidos en «role» */
-        if (llm_strcmp(papel, "system") && llm_strcmp(papel, "user") && llm_strcmp(papel, "assistant") && llm_strcmp(papel, "tool"))
-            llm_formatar(papel, sizeof papel, "user");
-        if (!llm_strcmp(papel, "system")) tem_sistema = true;
-        if (!llm_strcmp(papel, "assistant")) {   /* lo pensado no vuelve a la conversación */
-            const char *f = txt;
-            for (const char *p = txt; *p; p++) if (!llm_strncmp(p, "</think>", 8)) f = p + 8;
-            while (*f == ' ' || *f == '\n') f++;
-            size_t L = llm_strlen(f);
-            for (size_t q = 0; q <= L; q++) txt[q] = f[q];
-        }
-        if (k == 0 && !tem_sistema && sistema && *sistema) {
-            n = juntar(s, t, n, "<|im_start|>system\n", true);
-            n = juntar(s, t, n, sistema, false);
-            n = juntar(s, t, n, "<|im_end|>\n", true);
-        }
-        char cab[64];
-        /* Las respuestas anteriores, como el modelo las generó (con el <think></think> vacío): así la
-         * conversación nueva empieza por lo que ya está en la caché y no se vuelve a leer. */
-        llm_formatar(cab, sizeof cab, "<|im_start|>%s\n%s", papel, llm_strcmp(papel, "assistant") ? "" : "<think></think>");
-        n = juntar(s, t, n, cab, true);
-        n = juntar(s, t, n, txt, false);
-        n = juntar(s, t, n, "<|im_end|>\n", true);
-    }
-    n = juntar(s, t, n, "<|im_start|>assistant\n<think></think>", true);
-    llm_libera(txt);
-    if (n >= TOKS_MAX || n + 8 > s->e.kv.ctx) {
-        llm_libera(t);
-        erro_json(fd, 400, "la conversacion no cabe en el contexto de la IA local");
-        s->a.temperatura = temp_antes;
-        return;
-    }
-    /* ¿Sigue lo que ya está en la caché? */
-    int base = 0;
-    if (s->hist_n > 0 && s->hist_n < n && s->e.kv.pos == s->hist_n) {
-        bool igual = true;
-        for (int k = 0; k < s->hist_n && igual; k++) igual = s->hist[k] == t[k];
-        if (igual) base = s->hist_n;
-    }
-    if (!base) { llm_estado_reiniciar(&s->e); s->hist_n = 0; }
-    unsigned t0 = llm_ms();
-    int r = llm_alimentar(s, t + base, n - base);
-    llm_libera(t);
-    if (r) { erro_json(fd, 400, "la conversacion no cabe en el contexto de la IA local"); s->a.temperatura = temp_antes; return; }
-    llm_eprintf("[llm] petición: %d tokens nuevos (%d ya en la caché) en %u ms\n", n - base, base, llm_ms() - t0);
+    llm_plantilla_t info;
+    int n = ler_conversa(s, fd, corpo, tk, sistema, &info);
+    if (n < 0) { s->a.temperatura = temp_antes; return; }
 
     envio_t e;
     llm_memset(&e, 0, sizeof e);
-    e.fd = fd; e.stream = stream;
+    e.fd = fd; e.stream = stream; e.herramientas = info.tools >= 0;
     {
         const char *nm = s->m.nome[0] ? s->m.nome : "local";
         json_cadena(e.modelo, sizeof e.modelo, nm, (int)llm_strlen(nm));
     }
-    if (stream) {
-        enviar_txt(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
-    } else {
-        e.todo_max = 256 * 1024;
-        e.todo = llm_aloca((size_t)e.todo_max);
-        if (!e.todo) { erro_json(fd, 400, "sin memoria"); s->a.temperatura = temp_antes; return; }
+    if (info.prefixo[0]) {   /* tool_choice forzado: el modelo sigue desde ahí; eso no se manda como texto */
+        llm_buf_txt(&e.todo, info.prefixo);
+        e.enviado = e.todo.n;
+        e.em_ferramenta = true;
     }
+    if (stream) enviar_txt(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n");
     llm_saida_t sd;
     llm_memset(&sd, 0, sizeof sd);
     sd.f = ao_texto; sd.ctx = &e; sd.utf8 = true; sd.ocultar_think = true;
     bool cheio;
     int g = llm_gerar(s, n_max, &sd, &cheio);
-    const char *fim = cheio || g >= n_max ? "\"length\"" : "\"stop\"";
     if (!cheio && s->ultimo_fim >= 0) llm_fim_turno(s);   /* el <|im_end|> en la caché, para seguir */
+    llm_buf_t conteudo = { 0 }, chamadas = { 0 };
+    int qtd = e.todo.p ? llm_ferramentas_ler(corpo, tk, &info, e.todo.p, e.todo.n, &conteudo, &chamadas, stream) : 0;
+    const char *fim = qtd ? "\"tool_calls\"" : cheio || g >= n_max ? "\"length\"" : "\"stop\"";
     if (stream) {
-        if (e.n) sse_enviar(&e, e.buf, e.n, NULL);
-        sse_enviar(&e, "", 0, fim);
+        mandar_pendente(&e, true);
+        if (qtd && chamadas.p) {
+            llm_buf_t d = { 0 };
+            llm_buf_txt(&d, "{\"tool_calls\":");
+            llm_buf_add(&d, chamadas.p, chamadas.n);
+            llm_buf_txt(&d, "}");
+            if (d.p) sse_dados(&e, d.p, NULL);
+            llm_buf_libera(&d);
+        }
+        sse_dados(&e, "{}", fim);
         enviar_txt(fd, "data: [DONE]\n\n");
     } else {
-        int max = e.todo_n * 6 + 1024;
-        char *j = llm_aloca((size_t)max), *c = llm_aloca((size_t)e.todo_n * 6 + 8);
-        if (j && c) {
-            json_cadena(c, e.todo_n * 6 + 8, e.todo, e.todo_n);
-            llm_formatar(j, (size_t)max, "{\"id\":\"llm-local\",\"object\":\"chat.completion\",\"model\":%s,\"choices\":[{\"index\":0,"
-                         "\"message\":{\"role\":\"assistant\",\"content\":%s},\"finish_reason\":%s}],"
-                         "\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d}}",
-                         e.modelo, c, fim, n, g, n + g);
-            resposta(fd, 200, "application/json", j);
-        }
-        llm_libera(j); llm_libera(c); llm_libera(e.todo);
+        llm_buf_t j = { 0 };
+        char u[160];
+        llm_buf_txt(&j, "{\"id\":\"llm-local\",\"object\":\"chat.completion\",\"model\":");
+        llm_buf_txt(&j, e.modelo);
+        llm_buf_txt(&j, ",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":");
+        if (qtd && !conteudo.n) llm_buf_txt(&j, "null");
+        else llm_json_cadeia(&j, conteudo.p ? conteudo.p : "", conteudo.n);
+        if (qtd && chamadas.p) { llm_buf_txt(&j, ",\"tool_calls\":"); llm_buf_add(&j, chamadas.p, chamadas.n); }
+        llm_formatar(u, sizeof u, "},\"finish_reason\":%s}],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d}}",
+                     fim, n, g, n + g);
+        llm_buf_txt(&j, u);
+        if (j.p && !j.sem_memoria) resposta(fd, 200, "application/json", j.p);
+        else erro_json(fd, 400, "sin memoria");
+        llm_buf_libera(&j);
     }
+    llm_buf_libera(&conteudo); llm_buf_libera(&chamadas); llm_buf_libera(&e.todo);
     s->a.temperatura = temp_antes;
 }
 
@@ -353,4 +437,30 @@ int llm_servidor(llm_sessao_t *s, int porta, const char *sistema)
         } else erro_json(c, 404, "solo /v1/models y /v1/chat/completions");
         fechar_c(c);
     }
+}
+
+/* Para las pruebas (h412): manda una petición (JSON de un fichero) a /v1/chat/completions de un
+ * `llm --servidor` de este equipo y escribe la respuesta tal cual (cabecera incluida). */
+int llm_servidor_pedir(int porta, const char *corpo, size_t n)
+{
+#ifdef LLM_ANFITRIAO
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET; a.sin_port = htons((uint16_t)porta); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (fd < 0 || connect(fd, (struct sockaddr *)&a, sizeof a)) { llm_eprintf("llm: no hay servidor en el puerto %d\n", porta); return 1; }
+#else
+    int fd = conectar_tcp("127.0.0.1", porta, 10000);
+    if (fd < 0) { llm_eprintf("llm: no hay servidor en el puerto %d\n", porta); return 1; }
+#endif
+    char cab[200];
+    int k = llm_formatar(cab, sizeof cab, "POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                         "Content-Length: %u\r\nConnection: close\r\n\r\n", (unsigned)n);
+    enviar(fd, cab, k);
+    enviar(fd, corpo, (int)n);
+    char b[4096];
+    int r;
+    while ((r = receber(fd, b, sizeof b)) > 0) llm_escrever(1, b, (size_t)r);
+    fechar_c(fd);
+    return 0;
 }

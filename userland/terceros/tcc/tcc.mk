@@ -80,7 +80,7 @@ TCC_EJEMPLOS := $(wildcard $(TCC_DIR)/ejemplos/*)
 TCC_LIBC_OBJ := $(LIBC_OBJ) $(QJS_LIBM) $(filter-out %/inicio.asm.o,$(LIBSAGUI_OBJ)) $(TCC_B)/principal_main.o
 TCC_SDL_OBJ := $(SDL2_OBJ) $(B)/userland/libsdl2/sdl2_rwops.o
 $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B)/tcc_simbolos.c $(TCC_B)/tcc_simbolos.o \
-                    $(TCC_DIR)/autocompilar.sh $(TCC_LIBC_OBJ) $(TCC_SDL_OBJ) $(SDL2CAPAS_OBJ) $(FONTES_OBJ) $(B)/userland/libsagui/inicio.asm.o \
+                    $(TCC_DIR)/autocompilar.sh $(TCC_DIR)/Makefile.autocompilar $(TCC_LIBC_OBJ) $(TCC_SDL_OBJ) $(SDL2CAPAS_OBJ) $(FONTES_OBJ) $(B)/userland/libsagui/inicio.asm.o \
                     $(LIBC_HDR) $(USER_HDR) $(TCC_KERNEL_H) $(wildcard userland/libsdl2/*.h userland/libsdl2/SDL2/*.h) \
                     $(wildcard $(TCC_DIR)/plataforma/include/*.h) $(TCC_EJEMPLOS) $(TCC_DIR)/leeme.txt $(TCC_DIR)/tcc.mk
 	rm -rf $(TCC_RAIZ) && mkdir -p $(TCC_RAIZ)/include/sagui $(TCC_RAIZ)/include/kernel $(TCC_RAIZ)/include/SDL2 \
@@ -121,6 +121,7 @@ $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B
 	cp $(addprefix $(TCC_F)/,$(TCC_AUTO)) $(TCC_DIR)/plataforma/config.h $(TCC_DIR)/plataforma/tcc_sagui_run.c \
 	  $(TCC_DIR)/plataforma/tcc_libc_extra.c $(TCC_B)/tcc_simbolos.c $(TCC_RAIZ)/fuentes/
 	cp $(TCC_DIR)/autocompilar.sh $(TCC_RAIZ)/fuentes/compilar.sh
+	cp $(TCC_DIR)/Makefile.autocompilar $(TCC_RAIZ)/fuentes/Makefile
 	@# y las de lo que va en binario en lib/ (libtcc1.a, -run, -b y sus trazas), ya parcheadas
 	mkdir -p $(TCC_RAIZ)/fuentes/lib
 	cp $(addprefix $(TCC_F)/lib/,$(TCC_LIBTCC1) runmain.c bt-exe.c bt-log.c bcheck.c) $(TCC_RAIZ)/fuentes/lib/
@@ -135,16 +136,19 @@ $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B
 # ---- los fuentes de AoEN, para compilarlo dentro (/apps/aoen/fuentes, mejora 142) ----
 TCC_AOEN := $(B)/aoen-fuentes
 $(TCC_AOEN)/.feito: $(AOEN_SRC) $(wildcard $(AOEN_DIR)/*.h) userland/terceros/stbimage/stb_image.h \
-                    $(TCC_DIR)/aoen/compilar.sh $(TCC_DIR)/aoen/leeme.txt $(TCC_DIR)/tcc.mk
+                    $(TCC_DIR)/aoen/compilar.sh $(TCC_DIR)/aoen/Makefile $(TCC_DIR)/aoen/leeme.txt $(TCC_DIR)/tcc.mk
 	rm -rf $(TCC_AOEN) && mkdir -p $(TCC_AOEN)
 	cp $(AOEN_SRC) $(wildcard $(AOEN_DIR)/*.h) userland/terceros/stbimage/stb_image.h $(TCC_AOEN)/
 	sed 's/@FUENTES@/$(notdir $(AOEN_SRC))/' $(TCC_DIR)/aoen/compilar.sh > $(TCC_AOEN)/compilar.sh
+	sed 's/@FUENTES@/$(notdir $(AOEN_SRC))/' $(TCC_DIR)/aoen/Makefile > $(TCC_AOEN)/Makefile
 	cp $(TCC_DIR)/aoen/leeme.txt $(TCC_AOEN)/leeme.txt
 	@touch $@
 
 APPS_BINS += $(B)/userland/bin/tcc
 APPS_RECURSOS += tcc:$(TCC_RAIZ) aoen/fuentes:$(TCC_AOEN)
 TCC_RECURSOS := $(TCC_RAIZ)/.feito $(TCC_AOEN)/.feito
+# El Laboratorio de C (D414) usa libtcc: va con TCC.
+include userland/programas/labc/labc.mk
 # (el árbol de /apps, APPS_DEP en el Makefile, se define después de incluir este fichero)
 $(B)/apps/.feito: $(TCC_RECURSOS)
 else

@@ -51,7 +51,8 @@ static uint32_t pilha_de_hilo(processo_t *l, processo_t *t, uint32_t arg)
     if (!pilha_crescer(t, topo)) return 0;   /* la primera página; las demás, al tocarlas */
     /* D348: la página puede ser alta: se escribe por una ventana temporal. */
     uint32_t palavras[2] = { 0, arg };   /* retorno (la función del hilo no vuelve) y su argumento */
-    fis_t f = espaco_traduzir(l->espaco, topo, NULL);   /* D352: puede estar en la swap (hueco reutilizado) */
+    /* D352: puede estar en la swap (hueco reutilizado); D401: o compartida con un hijo del fork. */
+    fis_t f = espaco_traduzir_escrita(l->espaco, topo);
     if (!f) return 0;
     fisica_escrever(f, palavras, sizeof palavras);
     return topo;
@@ -74,6 +75,7 @@ int32_t sis_hilo_criar(uint32_t entrada, uint32_t pilha, uint32_t arg, uint32_t 
     }
     t->espaco = l->espaco;
     t->grupo = l->grupo;
+    t->sinais_mascara = processo_atual()->sinais_mascara;   /* D401: como pthread_create */
     t->mmio_fim = l->mmio_fim;
     txt_copia_n(t->pasta, "/", sizeof t->pasta);   /* no se usa: la carpeta es la del líder */
     processo_preparar_usuario(t, entrada, pilha);
@@ -137,7 +139,9 @@ int32_t sis_hilo_id(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 static uint64_t palavra_fisica(uint32_t ptr)
 {
     if ((ptr & 3) || !usuario_ok((void *)ptr, 4, false)) return 0;
-    return espaco_traduzir(processo_atual()->espaco, ptr, NULL);
+    /* D401: la clave es el marco: en una página de copia al escribir cambiaría al escribirla y el
+     * que espera se quedaría en el viejo. Se copia antes (una palabra de futex siempre se escribe). */
+    return espaco_traduzir_escrita(processo_atual()->espaco, ptr);
 }
 
 /* futex_esperar(&palabra, valor, ms): duerme si la palabra vale "valor". */

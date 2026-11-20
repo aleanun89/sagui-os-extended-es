@@ -34,6 +34,7 @@ uint32_t teclado_modificadores(void);
 int      teclado_layout(int novo);   /* TECLADO_ES o TECLADO_ABNT2; -1 solo consulta. Devuelve el actual. */
 const void *teclado_canal(void);
 void     teclado_seguradas(uint8_t mapa[32]);   /* un bit por código de rastreo (128+ = extendida) */
+uint32_t teclado_ultima_tecla(void);   /* D407: tic de la última tecla pulsada (0 = ninguna aún) */
 void     teclado_byte(uint8_t b);   /* un byte del teclado (set 1): del i8042 o del teclado USB (D214) */
 uint8_t  teclado_leds_usb(void);    /* luces para un teclado USB: bit 0 Bloq Num, bit 1 Bloq Mayús */
 /* D251: teclas del escritorio remoto (injecao.c), por el mismo búfer. tecla 0 = solo

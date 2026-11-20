@@ -203,7 +203,7 @@ int saltar_aviso(void) {
 }
 
 /* lo que se vigila para avisar: edades, mejoras, obras terminadas, población, diplomacia y derrotas */
-static struct { int edad[MAX_PLAYERS]; unsigned techs; int lleno, vivo[MAX_PLAYERS], dipl[MAX_PLAYERS], npings, maravilla; Ref obras[96]; int nobras; int listo; } vig;
+static struct { int edad[MAX_PLAYERS]; unsigned techs; int lleno, vivo[MAX_PLAYERS], dipl[MAX_PLAYERS], npings, maravilla; unsigned chat; Ref obras[96]; int nobras; int listo; } vig;
 
 void hud_reiniciar(void) {
 	memset(&vig, 0, sizeof vig);
@@ -227,7 +227,16 @@ void avisos_actualizar(float dt) {
 	Player *pl = &W.pl[W.human];
 	if (!vig.listo) {
 		for (int p = 0; p < MAX_PLAYERS; ++p) { vig.edad[p] = W.pl[p].age; vig.vivo[p] = W.pl[p].active; vig.dipl[p] = pl->dipl[p]; }
-		vig.techs = pl->techs; vig.npings = W.npings; vig.listo = 1;
+		vig.techs = pl->techs; vig.npings = W.npings; vig.chat = W.chat_n; vig.listo = 1;
+	}
+	/* chat de la partida (D415): lo que dicen los jugadores de la máquina al humano, como avisos */
+	if (W.chat_n < vig.chat) vig.chat = W.chat_n;
+	if (W.chat_n - vig.chat > ARRAY_LEN(W.chat)) vig.chat = W.chat_n - ARRAY_LEN(W.chat);
+	for (; vig.chat < W.chat_n; ++vig.chat) {
+		char cb[160], cn[64], *t = W.chat[vig.chat % ARRAY_LEN(W.chat)].texto;
+		int de = W.chat[vig.chat % ARRAY_LEN(W.chat)].de;
+		snprintf(cb, sizeof cb, "%s: %s", de >= 0 ? nombre_jugador(de, cn, sizeof cn) : "Sistema", t);
+		aviso(IC_DIPLOMACIA, cb, COL_AVISO, -1, -1);
 	}
 	char b[120], nb[64];
 	/* ataques: los círculos del minimapa */

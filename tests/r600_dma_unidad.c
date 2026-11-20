@@ -128,6 +128,30 @@ int main(void)
     if (r600_pkt_copiar(p, 0x1000u, 0x2000u, 3, true) != 5 || p[0] != 0x30000003u || p[3] != 0 || p[4] != 0)
         falha("copiar R7xx: 5 palabras (bits altos del destino y del origen aparte)");
     verificacoes += 5;
+    /* D408: con byte alto 0 salen las mismas palabras que siempre; con byte alto, donde lo pone Linux
+     * (r600_copy_dma: destino << 16 | origen en R6xx; rv770_copy_dma: palabras 3 y 4; escribir y valla: palabra 2). */
+    {
+        uint32_t q[R600_PKT_MAX];
+        for (int r7 = 0; r7 < 2; r7++) {
+            memset(p, 0, sizeof p); memset(q, 0, sizeof q);
+            int a1 = r600_pkt_copiar(q, 0x1003u, 0x2002u, 99, r7), a2 = r600_pkt_copiar_alto(p, 0x1003u, 0x2002u, 99, r7, 0);
+            if (a1 != a2 || memcmp(p, q, sizeof p)) falha("copiar con byte alto 0 = la de siempre");
+        }
+        memset(p, 0, sizeof p); memset(q, 0, sizeof q);
+        r600_pkt_valla(q, 0x12345678u, 7); r600_pkt_valla_alto(p, 0x12345678u, 7, 0);
+        if (memcmp(p, q, 4 * sizeof p[0])) falha("valla con byte alto 0 = la de siempre");
+        r600_pkt_escrever(q, 0x1000u, 5); r600_pkt_escrever_alto(p, 0x1000u, 5, 0);
+        if (memcmp(p, q, 4 * sizeof p[0])) falha("escribir con byte alto 0 = la de siempre");
+        if (r600_pkt_copiar_alto(p, 0x1000u, 0x2000u, 3, false, 0x0F) != 4 || p[3] != 0x000F000Fu)
+            falha("copiar R6xx con byte alto: destino << 16 | origen");
+        if (r600_pkt_copiar_alto(p, 0x1000u, 0x2000u, 3, true, 0x0F) != 5 || p[0] != 0x30000003u || p[3] != 0x0Fu || p[4] != 0x0Fu)
+            falha("copiar R7xx con byte alto: palabras 3 y 4");
+        r600_pkt_valla_alto(p, 0x1000u, 7, 0xAB);
+        if (p[0] != 0x60000000u || p[1] != 0x1000u || p[2] != 0xABu || p[3] != 7) falha("valla con byte alto");
+        r600_pkt_escrever_alto(p, 0x1000u, 0xCAFEDEADu, 0xAB);
+        if (p[0] != 0x20000001u || p[1] != 0x1000u || p[2] != 0xABu || p[3] != 0xCAFEDEADu) falha("escribir con byte alto");
+        verificacoes += 7;
+    }
 
     for (int caso = 0; caso < 6; caso++) {
         modo_ordem = caso % 3;

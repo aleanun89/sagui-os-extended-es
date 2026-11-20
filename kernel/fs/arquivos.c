@@ -24,6 +24,7 @@
 #include "rede.h"
 #include "aleatorio.h"
 #include "audio.h"
+#include "relogio.h"
 
 enum { A_NO = 1, A_TERMINAL, A_PIPE_LER, A_PIPE_ESCREVER, A_MONTADO, A_TV_MESTRE, A_TV_ESCRAVO, A_SOCKET, A_ALEATORIO, A_AUDIO };
 
@@ -40,6 +41,7 @@ typedef struct arquivo {
     char    *criado;     /* D282: ruta, si esta apertura lo creó y aún no se escribió el principio */
     char    *caminho;    /* D341: la ruta con que se abrió (A_NO, A_MONTADO), para futimens */
     int      refs;
+    bool     nao_bloquear;   /* D401: O_NONBLOCK (del fichero abierto, como en POSIX) */
 } arquivo_t;
 
 /* Un archivo de volumen montado sólo vale mientras la misma montura continúe. */
@@ -203,6 +205,43 @@ void arquivos_fechar_todos(processo_t *p)
             arquivo_soltar(p->arquivos[i]);
             p->arquivos[i] = NULL;
         }
+    p->fd_fechar_exec = 0;
+}
+
+/* D401 (fork): el hijo recibe todos los descriptores del padre (cada fichero abierto, una
+ * referencia más: ficheros, tuberías, terminales, sockets, audio). */
+void arquivos_herdar_todos(processo_t *filho, processo_t *pai)
+{
+    for (int i = 0; i < MAX_ARQUIVOS; i++) {
+        arquivo_t *a = pai->arquivos[i];
+        if (!a || a == (arquivo_t *)1) continue;
+        a->refs++;
+        filho->arquivos[i] = a;
+    }
+}
+
+/* D401 (exec): se cierran los descriptores con FD_CLOEXEC. */
+void arquivos_fechar_exec(processo_t *l)
+{
+    for (int i = 0; i < MAX_ARQUIVOS; i++)
+        if ((l->fd_fechar_exec >> i) & 1u && l->arquivos[i]) {
+            arquivo_t *a = l->arquivos[i];
+            l->arquivos[i] = NULL;
+            arquivo_soltar(a);
+        }
+    l->fd_fechar_exec = 0;
+}
+
+/* D401: la llamada que tendría que esperar (bloqueó y devolvió SIS_REPETIR) y el fichero es no
+ * bloqueante: se deshace el bloqueo y vuelve con ERRO_TENTAR (EAGAIN). */
+static int32_t sem_esperar(int32_t r)
+{
+    if (r != SIS_REPETIR) return r;
+    processo_t *eu = processo_atual();
+    eu->estado = P_EXECUTANDO;
+    eu->espera = NULL;
+    eu->acordar_em = 0;
+    return ERRO_TENTAR;
 }
 
 /* Texto del programa -> ruta absoluta simplificada, como la ve el programa ("vista") y la real
@@ -339,6 +378,7 @@ int32_t sis_ler(uint32_t fd, uint32_t buf, uint32_t n, uint32_t d, uint32_t e)
     if (!usuario_ok((void *)buf, n, true)) return ERRO_ENDERECO;
     a->refs++;
     int32_t r = ler_de(a, buf, n);
+    if (a->nao_bloquear) r = sem_esperar(r);   /* D401 */
     arquivo_soltar(a);
     return r;
 }
@@ -397,6 +437,10 @@ int32_t sis_escrever(uint32_t fd, uint32_t buf, uint32_t n, uint32_t d, uint32_t
     if (!usuario_ok((void *)buf, n, false)) return ERRO_ENDERECO;
     a->refs++;   /* D167: ver sis_ler */
     int32_t r = escrever_em(a, buf, n);
+    if (a->nao_bloquear) r = sem_esperar(r);   /* D401 */
+    /* D401: escribir en una tubería sin lector: SIGPIPE al hilo (ignorada si se lanzó con executar). */
+    if (r == ERRO_PIPE_QUEBRADO && a->tipo == A_PIPE_ESCREVER)
+        sinais_enviar_hilo(processo_atual(), SINAL_PIPE, processo_recursos()->pid, processo_recursos()->uid, SINAL_SI_KERNEL);
     arquivo_soltar(a);
     return r;
 }
@@ -407,6 +451,7 @@ int32_t sis_fechar(uint32_t fd, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
     arquivo_t *a = pegar(fd);
     if (!a) return ERRO_DESCRITOR;
     processo_recursos()->arquivos[fd] = NULL;
+    processo_recursos()->fd_fechar_exec &= ~(1u << fd);   /* D401 */
     arquivo_soltar(a);
     return 0;
 }
@@ -684,6 +729,7 @@ int32_t sis_duplicar(uint32_t antigo, uint32_t novo, uint32_t c, uint32_t d, uin
     a->refs++;
     if (processo_recursos()->arquivos[novo]) arquivo_soltar(processo_recursos()->arquivos[novo]);
     processo_recursos()->arquivos[novo] = a;
+    processo_recursos()->fd_fechar_exec &= ~(1u << novo);   /* D401: como dup2 */
     return (int32_t)novo;
 }
 
@@ -809,4 +855,119 @@ socket_t *arquivos_socket(uint32_t fd)
 {
     arquivo_t *a = pegar(fd);
     return a && a->tipo == A_SOCKET ? a->sock : NULL;
+}
+
+/* ------------------------------------------------------------------ poll y fcntl (D401) */
+
+/* Lo que poll ve en un fichero abierto (SONDA_*), sin esperar. */
+static uint32_t sondar(arquivo_t *a)
+{
+    switch (a->tipo) {
+    case A_PIPE_LER:
+        if (a->pipe->qtd) return SONDA_LER;
+        return a->pipe->escritores ? 0 : SONDA_FECHADO;   /* leer devolverá 0 (fin) */
+    case A_PIPE_ESCREVER:
+        if (a->pipe->leitores <= 0) return SONDA_ERRO;
+        return a->pipe->qtd < PIPE_TAM ? SONDA_ESCREVER : 0;
+    case A_TERMINAL:
+        return (terminal_disponivel() > 0 ? SONDA_LER : 0) | SONDA_ESCREVER;
+    case A_TV_ESCRAVO: {
+        int32_t d = tv_escravo_disponivel(a->tv);
+        uint32_t r = d > 0 ? SONDA_LER : d < 0 ? SONDA_FECHADO : 0;
+        if (!a->tv->mestre_aberto) r |= SONDA_FECHADO;
+        else if (a->tv->saida->qtd < PIPE_TAM) r |= SONDA_ESCREVER;
+        return r;
+    }
+    case A_TV_MESTRE: {
+        int32_t d = tv_mestre_disponivel(a->tv);
+        uint32_t r = d > 0 ? SONDA_LER : d < 0 ? SONDA_FECHADO : 0;
+        return r | (a->tv->escravo_aberto ? SONDA_ESCREVER : 0);
+    }
+    case A_SOCKET:
+        return socket_sondar(a->sock);
+    case A_AUDIO:
+        return SONDA_ESCREVER;
+    default:   /* ficheros y /dev/random: siempre listos, como en POSIX */
+        return SONDA_LER | SONDA_ESCREVER;
+    }
+}
+
+/* poll(fds, n, ms): ms < 0 sin plazo, 0 sin esperar. Duerme hasta cualquier acordar() del kernel
+ * (sondar_esperar) o, como mucho, 100 ms, y vuelve a mirarlo todo; el plazo se guarda en el hilo
+ * la primera vez y la llamada repetida (D010) lo reutiliza. Una señal la corta con EINTR. */
+int32_t sis_sondar(uint32_t ptr, uint32_t n, uint32_t ms, uint32_t d, uint32_t e)
+{
+    (void)d; (void)e;
+    processo_t *eu = processo_atual();
+    if (n > SONDA_MAX) return ERRO_INVALIDO;
+    sondagem_t *v = (sondagem_t *)ptr;
+    if (n && !usuario_ok(v, n * sizeof *v, true)) return ERRO_ENDERECO;
+    int32_t prontos = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        if (v[i].fd < 0) { v[i].prontos = 0; continue; }
+        arquivo_t *a = pegar((uint32_t)v[i].fd);
+        if (!a) { v[i].prontos = SONDA_INVALIDO; prontos++; continue; }
+        uint32_t r = sondar(a) & ((uint16_t)v[i].eventos | SONDA_ERRO | SONDA_FECHADO);
+        v[i].prontos = (short)r;
+        if (r) prontos++;
+    }
+    if (prontos || ms == 0) { eu->sondar_prazo = 0; return prontos; }
+    uint32_t agora = relogio_tiques();
+    if (!eu->chamada_repetida) {
+        eu->sondar_prazo = 0;
+        if ((int32_t)ms > 0) {
+            uint32_t m = ms > 0x7FFFFFFFu / TIQUES_POR_SEGUNDO ? 0x7FFFFFFFu / TIQUES_POR_SEGUNDO : ms;
+            eu->sondar_prazo = agora + (m * TIQUES_POR_SEGUNDO + 999) / 1000;
+            if (!eu->sondar_prazo) eu->sondar_prazo = 1;
+        }
+    } else if (eu->sondar_prazo && (int32_t)(agora - eu->sondar_prazo) >= 0) {
+        eu->sondar_prazo = 0;
+        return 0;   /* venció el plazo */
+    }
+    uint32_t despertar = agora + TIQUES_POR_SEGUNDO / 10;   /* red de seguridad: 100 ms */
+    if (eu->sondar_prazo && (int32_t)(eu->sondar_prazo - despertar) < 0) despertar = eu->sondar_prazo;
+    eu->acordar_em = despertar;
+    sondar_esperar();
+    return SIS_REPETIR;
+}
+
+/* fcntl: FD_CLOEXEC es del descriptor; O_NONBLOCK y O_APPEND, del fichero abierto. */
+int32_t sis_descritor(uint32_t fd, uint32_t op, uint32_t arg, uint32_t d, uint32_t e)
+{
+    (void)d; (void)e;
+    processo_t *l = processo_recursos();
+    arquivo_t *a = pegar(fd);
+    if (!a) return ERRO_DESCRITOR;
+    switch (op) {
+    case DESC_LER_FD:
+        return (int32_t)((l->fd_fechar_exec >> fd) & 1u);
+    case DESC_FIXAR_FD:
+        if (arg & DESC_FD_FECHAR_EXEC) l->fd_fechar_exec |= 1u << fd;
+        else l->fd_fechar_exec &= ~(1u << fd);
+        return 0;
+    case DESC_LER_FL:
+        return (int32_t)(((a->modo & ABRIR_LER) ? DESC_FL_LER : 0) | ((a->modo & ABRIR_ESCREVER) ? DESC_FL_ESCREVER : 0) |
+                         ((a->modo & ABRIR_ACRESCENTAR) ? DESC_FL_ACRESCENTAR : 0) |
+                         (a->nao_bloquear ? DESC_FL_NAO_BLOQUEAR : 0));
+    case DESC_FIXAR_FL:
+        a->nao_bloquear = (arg & DESC_FL_NAO_BLOQUEAR) != 0;
+        if (a->tipo == A_SOCKET) socket_nao_bloquear(a->sock, a->nao_bloquear);
+        if (a->tipo == A_NO || a->tipo == A_MONTADO) {
+            if (arg & DESC_FL_ACRESCENTAR) a->modo |= ABRIR_ACRESCENTAR;
+            else a->modo &= ~ABRIR_ACRESCENTAR;
+        }
+        return 0;
+    case DESC_DUPLICAR: {
+        if (arg >= MAX_ARQUIVOS) return ERRO_INVALIDO;
+        for (uint32_t i = arg; i < MAX_ARQUIVOS; i++)
+            if (!l->arquivos[i]) {
+                a->refs++;
+                l->arquivos[i] = a;
+                l->fd_fechar_exec &= ~(1u << i);
+                return (int32_t)i;
+            }
+        return ERRO_LIMITE;
+    }
+    }
+    return ERRO_INVALIDO;
 }

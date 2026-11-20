@@ -14,6 +14,7 @@ typedef struct {
     int ultimo_fim;                       /* el token que paró la generación (-1 si ninguno) */
     unsigned ms_carga, ms_leitura, ms_geracao;
     int n_leitura, n_geracao;
+    struct llm_visao *visao;              /* el proyector de imágenes (mmproj), si se cargó (fase 2) */
 } llm_sessao_t;
 
 /* A dónde va el texto generado: al terminal (f NULL) o a una función (el servidor). */
@@ -46,5 +47,19 @@ int  llm_fim_turno(llm_sessao_t *s);
 void llm_amostra_iniciar_semente(llm_amostra_t *a, uint32_t semente);
 
 int  llm_servidor(llm_sessao_t *s, int porta, const char *sistema);   /* llm_servidor.c */
+int  llm_servidor_pedir(int porta, const char *corpo, size_t n);       /* --probar-servidor (pruebas) */
+/* Visión (llm_visao.c, fase 2): la imagen (PNG, JPEG, BMP o PPM en memoria) pasa por el
+ * proyector y sus embeddings entran en la caché como si fueran tokens. -> posiciones usadas (<0 error) */
+bool llm_visao_ativa(const llm_sessao_t *s);
+int  llm_imagem_alimentar(llm_sessao_t *s, const uint8_t *dados, size_t n, char *erro, size_t max);
+int  llm_alimentar_emb(llm_sessao_t *s, const float *emb, int n);
+/* Abre el mmproj; tokens_max: vectores por imagen como mucho (0 = de serie, 144). */
+int  llm_visao_abrir(struct llm_visao **v, const char *caminho, int n_embd, int tokens_max, bool silencio, char *erro, size_t max);
+void llm_visao_fechar(struct llm_visao *v);
+/* Los vectores de una imagen sin meterlos en la caché (*emb es memoria nueva). -> cuántos */
+int  llm_imagem_vetores(llm_sessao_t *s, const uint8_t *dados, size_t n, float **emb, int *largura, int *altura, char *erro, size_t max);
+/* llm_plat.c: imagen en memoria -> RGB8 (*rgb es memoria nueva). En SaguiOS, todo lo que lee la
+ * libsagui (PNG, JPEG, BMP, PNM, GIF); en el PC, PPM (P6) y BMP de 24 bits, para las pruebas. */
+int  llm_imagem_decodificar(const uint8_t *dados, size_t n, uint8_t **rgb, int *w, int *h, char *erro, size_t max);
 int  llm_anunciar(const char *modelo);                                 /* llm_anuncio.c */
 #endif

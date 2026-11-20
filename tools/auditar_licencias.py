@@ -88,7 +88,9 @@ GPL_AISLADA = "kernel/terceros/linux/"
 # userland/web/terceros/ffmpeg-h264-tablas/ (LGPL-2.1+) y userland/web/terceros/faad2-huffman/
 # (GPL-2.0+) son las tablas del H.264 y del AAC del reproductor de vídeo (D276): fuera de la
 # variante sin GPL (el MP4 no se decodifica en ella: video_mp4.c y el Makefile lo respetan).
-GPL_AISLADAS = (GPL_AISLADA, "userland/terceros/opentyrian/", "userland/terceros/netsurf/", "userland/terceros/gprolog/",
+# userland/juegos/tzar/ es el visor de Tzar, con lectores traducidos a C de ReTzar (GPL-3.0-or-later, D417): fuera
+# de la variante sin GPL como los demás ports.
+GPL_AISLADAS = (GPL_AISLADA, "userland/juegos/tzar/", "userland/terceros/opentyrian/", "userland/terceros/netsurf/", "userland/terceros/gprolog/",
                 "userland/terceros/openjazz/", "userland/terceros/conquer/", "userland/terceros/quake/",
                 "userland/terceros/gnuboy/", "userland/terceros/dosbox/", "userland/terceros/mgba/", "userland/terceros/shine/",
                 "userland/terceros/laines/", "userland/terceros/gearsystem/",

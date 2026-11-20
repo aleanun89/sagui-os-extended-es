@@ -4,8 +4,8 @@
  * Nació con el port de Freeciv (cliente y servidor en procesos distintos, por TCP en 127.0.0.1).
  * Solo IPv4, TCP y UDP. El SaguiOS no tiene sockets «no bloqueantes»: se emulan mirando
  * disponivel(fd) antes de leer o aceptar, y un plazo de un tic (tempo_limite) al escribir.
- * select() mira disponivel() de cada descriptor y, si ninguno está listo, duerme con
- * esperar_rede() hasta que la red se mueva o venza el plazo (sin consumir CPU). */
+ * D401: O_NONBLOCK lo sabe también el kernel (fcntl), connect no bloqueante da EINPROGRESS y
+ * select() es de sinais.c, sobre poll. */
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -52,6 +52,8 @@ int socket(int dominio, int tipo, int protocolo)
         tabla[fd].tipo = (unsigned char)(t == SOCK_STREAM ? SOCK_TCP : SOCK_UDP);
         tabla[fd].nb = (tipo & SOCK_NONBLOCK) ? 1 : 0;
     }
+    if (tipo & SOCK_NONBLOCK) descritor_op(fd, DESC_FIXAR_FL, DESC_FL_NAO_BLOQUEAR);   /* D401 */
+    if (tipo & SOCK_CLOEXEC) descritor_op(fd, DESC_FIXAR_FD, DESC_FD_FECHAR_EXEC);
     return fd;
 }
 
@@ -129,6 +131,8 @@ int connect(int fd, const struct sockaddr *a, socklen_t n)
     if (!a || n < sizeof(struct sockaddr_in)) { errno = EINVAL; return -1; }
     const struct sockaddr_in *s = (const struct sockaddr_in *)a;
     int r = conectar(fd, ntohl(s->sin_addr.s_addr), ntohs(s->sin_port));
+    if (r == ERRO_EM_CURSO) { errno = EINPROGRESS; return -1; }   /* D401: no bloqueante */
+    if (r == ERRO_JA_EM_CURSO) { errno = EALREADY; return -1; }
     if (r < 0) {
         if (r == ERRO_RECUSADA) errno = ECONNREFUSED;
         else if (r == ERRO_INALCANCAVEL || r == ERRO_SEM_REDE) errno = ENETUNREACH;
@@ -226,7 +230,10 @@ int getsockopt(int fd, int nivel, int opcion, void *v, socklen_t *n)
 {
     if (!es_socket(fd)) { errno = ENOTSOCK; return -1; }
     if (nivel == SOL_SOCKET && opcion == SO_ERROR && v && n && *n >= sizeof(int)) {
-        *(int *)v = 0;
+        /* D401: el resultado de un connect no bloqueante. */
+        int r = opcao_socket(fd, OPC_ERRO_CONEXAO, 0);
+        *(int *)v = r == 1 ? EINPROGRESS : r == ERRO_RECUSADA ? ECONNREFUSED :
+                    (r == ERRO_INALCANCAVEL || r == ERRO_SEM_REDE) ? ENETUNREACH : r < 0 ? __ns_errno_de(r) : 0;
         *n = sizeof(int);
         return 0;
     }
@@ -241,45 +248,7 @@ int shutdown(int fd, int como)
     return 0;
 }
 
-/* ---------------------------------------------------------------- select */
-
-static int listo_lectura(int fd)
-{
-    int d = disponivel(fd);
-    if (d > 0 || d == ERRO_PIPE_QUEBRADO) return 1;      /* datos, conexión pendiente o fin */
-    return 0;
-}
-
-int select(int n, fd_set *l, fd_set *e, fd_set *x, struct timeval *prazo)
-{
-    unsigned ms = prazo ? (unsigned)(prazo->tv_sec * 1000 + (prazo->tv_usec + 999) / 1000) : 0xFFFFFFFFu;
-    unsigned t0 = tempo_ms();
-    unsigned visto = (unsigned)esperar_rede(0, 0);
-    fd_set l0, e0;
-    if (l) l0 = *l; else FD_ZERO(&l0);
-    if (e) e0 = *e; else FD_ZERO(&e0);
-    if (n > FD_SETSIZE) n = FD_SETSIZE;
-    for (;;) {
-        int listos = 0;
-        fd_set lr, er;
-        FD_ZERO(&lr);
-        FD_ZERO(&er);
-        for (int fd = 0; fd < n; fd++) {
-            if (FD_ISSET(fd, &l0) && listo_lectura(fd)) { FD_SET(fd, &lr); listos++; }
-            if (FD_ISSET(fd, &e0)) { FD_SET(fd, &er); listos++; }   /* siempre se puede escribir (o se bloquea) */
-        }
-        unsigned pasado = tempo_ms() - t0;
-        if (listos || (prazo && pasado >= ms)) {
-            if (l) *l = lr;
-            if (e) *e = er;
-            if (x) FD_ZERO(x);
-            return listos;
-        }
-        unsigned resta = prazo ? ms - pasado : 100;
-        if (resta > 100) resta = 100;                      /* despertar de vez en cuando: stdin y archivos no avisan */
-        visto = (unsigned)esperar_rede(visto, resta ? resta : 1);
-    }
-}
+/* select() está en sinais.c, sobre poll (D401). */
 
 /* ---------------------------------------------------------------- nombres */
 

@@ -37,6 +37,9 @@ int         fpu_descrever(char *s, int max);   /* "FPU MMX SSE SSE2 ... AVX AVX2
 const char *fpu_avx_motivo(void);              /* D381: por qué AVX está o no está encendido (para el registro) */
 void        fpu_trocar(struct processo *prox); /* planificador: activa CR0.TS si el estado no es del siguiente */
 void        fpu_esquecer(struct processo *p);  /* el proceso terminó: su estado ya no vale */
+void        fpu_guardar(struct processo *p);   /* D401: los registros de "p" a su área; el próximo #NM la carga */
+uint32_t    fpu_formato(void);                 /* D401: SINAL_FPU_* (0 sin FPU, 1 FNSAVE, 2 FXSAVE, 3 XSAVE) */
+void        fpu_area_sanear(uint8_t *area);    /* D401: área que viene del programa: sin #GP al cargarla */
 
 /* SSE2 dentro del kernel (D042), como kernel_fpu_begin/end de Linux: guarda
  * los registros del proceso dueño, desactiva CR0.TS y las interrupciones; el fin

@@ -138,6 +138,8 @@ int32_t socket_ler(socket_t *s, char *buf, uint32_t n);
 int32_t socket_escrever(socket_t *s, const char *buf, uint32_t n);
 int32_t socket_disponivel(socket_t *s);
 void    socket_fechar(socket_t *s);
+void    socket_nao_bloquear(socket_t *s, bool sim);   /* D401: O_NONBLOCK */
+uint32_t socket_sondar(socket_t *s);                  /* D401: SONDA_* para poll */
 int32_t rede_info(uint32_t tipo, uint32_t ptr, uint32_t n);
 
 /* arquivos.c: um descritor novo para um socket (ou erro). */

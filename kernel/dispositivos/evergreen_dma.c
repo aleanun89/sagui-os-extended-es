@@ -70,16 +70,19 @@ const evg_modelo_t *evg_modelo(uint16_t id)
 int evg_n_modelos(void) { return N_MODELOS; }
 const evg_modelo_t *evg_modelo_n(int i) { return i >= 0 && i < N_MODELOS ? &modelos[i] : NULL; }
 
-int evg_pkt_copiar(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw)
+int evg_pkt_copiar_alto(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw, uint8_t alto)
 {
     if (ndw == 0 || ndw > EVG_DMA_MAX_DW) return 0;
     p[0] = EVG_DMA_CABECA(EVG_DMA_COPIAR, 0, ndw);
     p[1] = dst & 0xFFFFFFFCu;
     p[2] = src & 0xFFFFFFFCu;
-    p[3] = 0;                      /* bits 39:32 del destino: siempre por debajo de 4 GB */
-    p[4] = 0;                      /* y los del origen */
+    p[3] = alto;                   /* bits 39:32 del destino (D408) */
+    p[4] = alto;                   /* y los del origen */
     return EVG_PKT_COPIAR_DW;
 }
+
+/* Por debajo de 4 GB: las mismas palabras que antes de la D408. */
+int evg_pkt_copiar(uint32_t *p, uint32_t dst, uint32_t src, uint32_t ndw) { return evg_pkt_copiar_alto(p, dst, src, ndw, 0); }
 
 /* EVERGREEN_CRTCn_REGISTER_OFFSET: los dos primeros en los 64 KB bajos, los
  * otros cuatro por encima (el MMIO de estas tarjetas es de 128 KB). */
@@ -89,7 +92,7 @@ uint32_t evg_crtc_desloc(int n)
     return n >= 0 && n < EVG_MAX_CRTC ? d[n] : 0;
 }
 
-bool evg_crtc_mostra(const evg_crtc_t *c, uint32_t mc_tela, uint32_t pitch_px)
+bool evg_crtc_mostra(const evg_crtc_t *c, uint64_t mc_tela, uint32_t pitch_px)
 {
     if (!(c->crtc_control & 1) || !(c->grph_enable & 1)) return false;
     uint32_t gc = c->grph_control;
@@ -97,9 +100,10 @@ bool evg_crtc_mostra(const evg_crtc_t *c, uint32_t mc_tela, uint32_t pitch_px)
     if ((gc >> 8) & 7) return false;               /* ARGB8888 */
     if (((gc >> 20) & 7) > 1) return false;        /* lineal (general o alineado) */
     if (c->pitch != pitch_px || c->off_x || c->off_y) return false;
-    if (c->superficie_alta & 0xFF) return false;   /* por debajo de 4 GB */
+    if (mc_tela >> 40) return false;               /* el MC tiene 40 bits */
+    if ((c->superficie_alta & 0xFFu) != (uint32_t)(mc_tela >> 32)) return false;   /* D408: bits 39:32 */
     if (mc_tela & 0xFFu) return false;             /* la superficie va en múltiplos de 256 bytes */
-    return (c->superficie & 0xFFFFFF00u) == mc_tela;
+    return (c->superficie & 0xFFFFFF00u) == (uint32_t)mc_tela;
 }
 
 uint32_t evg_memsize_bytes(uint32_t reg)

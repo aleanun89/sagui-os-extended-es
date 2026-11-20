@@ -12,6 +12,7 @@
  * solo valen para los programas (memfisica_alocar_usuario) y el kernel las toca
  * por las ventanas de memalta.c. Todo lo demás (memfisica_alocar*) sale de la baja. */
 #include "memoria.h"
+#include "copia_escrita.h"
 #include "bootinfo.h"
 #include "console.h"
 #include "cpu.h"
@@ -404,6 +405,8 @@ void memfisica_liberar_seguidas(uint64_t endereco, uint32_t n)
 
 void memfisica_liberar(uint64_t endereco)
 {
+    /* D401: una página que comparten varios espacios (copia al escribir) solo baja su cuenta. */
+    if (cow_soltar(endereco)) return;
     memfisica_liberar_seguidas(endereco, 1);
 }
 

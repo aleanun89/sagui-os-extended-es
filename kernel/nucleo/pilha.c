@@ -124,6 +124,26 @@ static quadro_t *falta_pagina(quadro_t *q)
      * para él en una llamada al sistema). */
     if (z != PILHA_FORA && !usuario && espaco_atual() != processo_lider(p)->espaco) z = PILHA_FORA;
 
+    /* D401: escribir en una página de copia al escribir (fork): se copia y se repite. También en
+     * modo kernel (CR0.WP: el kernel copiando a la memoria del programa), si el CR3 es el suyo. */
+    if ((q->erro & (PF_PRESENTE | PF_ESCRITA)) == (PF_PRESENTE | PF_ESCRITA) && p && p->pid != 0 &&
+        cr2 >= USUARIO_INICIO && cr2 < USUARIO_FIM && processo_lider(p)->usuario &&
+        (usuario || espaco_atual() == processo_lider(p)->espaco)) {
+        int r = espaco_cow_falta(processo_lider(p)->espaco, cr2);
+        if (r > 0) return q;
+        if (r < 0) {
+            klog("[COW] sin memoria para copiar %08x (proceso %d, %s)\n", cr2, processo_lider(p)->pid,
+                 usuario ? "usuario" : "kernel");
+            if (usuario) {
+                char motivo[64];
+                snformatar(motivo, sizeof motivo, "Sin memoria para copiar al escribir (0x%08x)", cr2);
+                kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: %s\n", processo_lider(p)->pid, p->nome, motivo);
+                processo_encerrar(p, SAIDA_ENCERRADO_PELO_KERNEL, motivo);
+                return escalonar(q);
+            }
+        }
+    }
+
     /* D352: una página del programa en la swap comprimida se trae y se repite la instrucción.
      * También en modo kernel (una llamada al sistema que copia a la memoria del programa: la
      * página pudo salir mientras el hilo dormía en el disco), si el CR3 es el del programa.
@@ -166,13 +186,12 @@ static quadro_t *falta_pagina(quadro_t *q)
         char motivo[64];
         snformatar(motivo, sizeof motivo, "Desbordamiento de pila: %s 0x%08x",
                    q->erro & PF_ESCRITA ? "escritura" : "lectura", cr2);
-        if (p->lider)
-            kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: %s (hilo %d)\n", processo_lider(p)->pid, p->nome,
-                    motivo, p->pid);
-        else
-            kprintf("\n[SaguiOS] Proceso %d (%s) finalizado: %s\n", p->pid, p->nome, motivo);
-        processo_encerrar(p, SAIDA_ENCERRADO_PELO_KERNEL, motivo);
-        return escalonar(q);
+        if (p->lider) {
+            char m2[80];
+            snformatar(m2, sizeof m2, "%s (hilo %d)", motivo, p->pid);
+            return sinais_excecao(q, SINAL_SEGV, SINAL_SEGV_MAPERR, cr2, m2);   /* D401: solo con sigaltstack */
+        }
+        return sinais_excecao(q, SINAL_SEGV, SINAL_SEGV_MAPERR, cr2, motivo);
     }
     if (usuario) return excecao_usuario(q);
     excecao_fatal(q);

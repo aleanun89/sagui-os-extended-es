@@ -299,8 +299,10 @@ quadro_t *tratar_interrupcao(quadro_t *q)
 
     if (v == LAPIC_ESPURIO && !manipuladores[v])
         return q;                      /* espuria del APIC local: sin EOI ni aviso */
-    if (v == VETOR_TIC_CPU && manipuladores[v])
-        return manipuladores[v](q);    /* relogio_tic_cpu: toma el cerrojo si lo necesita */
+    if (v == VETOR_TIC_CPU && manipuladores[v]) {
+        quadro_t *t = manipuladores[v](q);   /* relogio_tic_cpu: toma el cerrojo si lo necesita */
+        return trava_geral_minha() ? sinais_ao_sair(t) : t;   /* D401: solo con el cerrojo */
+    }
 
     trava_geral_pegar();
 
@@ -365,5 +367,6 @@ quadro_t *tratar_interrupcao(quadro_t *q)
     a = processo_atual();
     if (a && a->pid != 0 && a->estado == P_ZUMBI)
         r = escalonar(r);
-    return r;
+    /* D401: al volver al anillo 3, las señales pendientes que no estén bloqueadas. */
+    return sinais_ao_sair(r);
 }

@@ -57,6 +57,13 @@ int __ns_errno_de(int e)
     case ERRO_RECUSADA:      return ECONNREFUSED;
     case ERRO_INALCANCAVEL:  return EHOSTUNREACH;
     case ERRO_CONEXAO_CAIU:  return ECONNRESET;
+    case ERRO_SEM_PROCESSO:  return ESRCH;
+    case ERRO_INTERROMPIDO:  return EINTR;       /* D401 */
+    case ERRO_TENTAR:        return EAGAIN;
+    case ERRO_EM_CURSO:      return EINPROGRESS;
+    case ERRO_JA_EM_CURSO:   return EALREADY;
+    case ERRO_NAO_SUPORTADO: return ENOTSUP;
+    case ERRO_FORMATO:       return ENOEXEC;
     default:                 return EIO;
     }
 }
@@ -92,6 +99,10 @@ void _exit(int codigo) { sair(codigo); }
 
 void abort(void)
 {
+    /* D401: con un tratador de SIGABRT instalado, se le llama (TCC -bt, por ejemplo); sin él, como
+     * siempre: código 134 (128 + SIGABRT), que es lo que ven sagsh y las pruebas. */
+    struct sigaction a;
+    if (sigaction(SIGABRT, NULL, &a) == 0 && a.sa_handler != SIG_DFL && a.sa_handler != SIG_IGN) raise(SIGABRT);
     registrar("netsurf: abort()\n");
     fflush(NULL);
     sair(134);
@@ -120,7 +131,10 @@ int open(const char *caminho, int flags, ...)
         if (info_arquivo(caminho, &inf) == 0) { errno = EEXIST; return -1; }
     }
     int fd = abrir(caminho, m);
-    return fd < 0 ? falha(fd) : fd;
+    if (fd < 0) return falha(fd);
+    if (flags & O_CLOEXEC) descritor_op(fd, DESC_FIXAR_FD, DESC_FD_FECHAR_EXEC);   /* D401 */
+    if (flags & O_NONBLOCK) descritor_op(fd, DESC_FIXAR_FL, DESC_FL_NAO_BLOQUEAR);
+    return fd;
 }
 
 int openat(int pasta, const char *caminho, int flags, ...)
@@ -136,15 +150,44 @@ int creat(const char *caminho, mode_t modo)
 }
 
 int __sock_fcntl(int fd, int op, int arg);   /* sockets.c: F_GETFL/F_SETFL de los sockets (D374) */
+/* D401: FD_CLOEXEC del descriptor; O_NONBLOCK y O_APPEND del fichero abierto (en el kernel);
+ * F_DUPFD. Los sockets guardan además su O_NONBLOCK en la tabla de sockets.c. */
 int fcntl(int fd, int op, ...)
 {
-    /* Sin banderas de descriptor en el SaguiOS salvo O_NONBLOCK de los sockets: lo demás va bien. */
     va_list ap;
     va_start(ap, op);
     int arg = va_arg(ap, int);
     va_end(ap);
-    int r = __sock_fcntl(fd, op, arg);
-    return r == -2 ? 0 : r;
+    int r;
+    switch (op) {
+    case F_GETFD:
+        r = descritor_op(fd, DESC_LER_FD, 0);
+        return r < 0 ? falha(r) : (r & DESC_FD_FECHAR_EXEC ? FD_CLOEXEC : 0);
+    case F_SETFD:
+        r = descritor_op(fd, DESC_FIXAR_FD, (arg & FD_CLOEXEC) ? DESC_FD_FECHAR_EXEC : 0);
+        return r < 0 ? falha(r) : 0;
+    case F_GETFL: {
+        r = descritor_op(fd, DESC_LER_FL, 0);
+        if (r < 0) return falha(r);
+        int fl = (r & DESC_FL_LER) && (r & DESC_FL_ESCREVER) ? O_RDWR : (r & DESC_FL_ESCREVER) ? O_WRONLY : O_RDONLY;
+        if (r & DESC_FL_ACRESCENTAR) fl |= O_APPEND;
+        if (r & DESC_FL_NAO_BLOQUEAR) fl |= O_NONBLOCK;
+        return fl;
+    }
+    case F_SETFL:
+        r = descritor_op(fd, DESC_FIXAR_FL, ((arg & O_NONBLOCK) ? DESC_FL_NAO_BLOQUEAR : 0) |
+                                            ((arg & O_APPEND) ? DESC_FL_ACRESCENTAR : 0));
+        if (r < 0) return falha(r);
+        __sock_fcntl(fd, op, arg);
+        return 0;
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC:
+        r = descritor_op(fd, DESC_DUPLICAR, (unsigned)arg);
+        if (r < 0) return falha(r);
+        if (op == F_DUPFD_CLOEXEC) descritor_op(r, DESC_FIXAR_FD, DESC_FD_FECHAR_EXEC);
+        return r;
+    }
+    return 0;   /* lo demás (bloqueos de registros...) no existe: se da por bueno */
 }
 
 ssize_t read(int fd, void *buf, size_t n)
@@ -697,57 +740,11 @@ int unsetenv(const char *nome)
 
 /* ------------------------------------------------------------- procesos */
 
-/* El SaguiOS no tiene fork ni exec: un programa se lanza con executar() de la
- * libsagui (el hijo hereda los descriptores y el entorno). */
-pid_t fork(void) { errno = ENOSYS; return -1; }
-int execv(const char *c, char *const argv[]) { (void)c; (void)argv; errno = ENOSYS; return -1; }
-int execvp(const char *c, char *const argv[]) { (void)c; (void)argv; errno = ENOSYS; return -1; }
+/* fork, exec*, waitpid, wait, system y las señales: sinais.c (D401). */
 
 int pipe(int fds[2])
 {
     int r = criar_pipe(fds);
-    return r < 0 ? falha(r) : 0;
-}
-
-/* El estado como en Linux (código << 8). Un proceso terminado por el kernel o
- * con kill da un código negativo: se informa como la señal 9 (SIGKILL). */
-pid_t waitpid(pid_t pid, int *estado, int opcoes)
-{
-    int codigo = 0;
-    if (opcoes & WNOHANG) {
-        int r = recolher(&codigo);
-        if (r <= 0) return r == 0 ? 0 : falha(r);
-        if (estado) *estado = codigo < 0 ? 9 : (codigo & 0xff) << 8;
-        return r;
-    }
-    if (pid <= 0) { errno = ECHILD; return -1; }   /* carencia: no hay «cualquier hijo» */
-    int r = esperar(pid, &codigo);
-    if (r < 0) return falha(r);
-    if (estado) *estado = codigo < 0 ? 9 : (codigo & 0xff) << 8;
-    return pid;
-}
-
-pid_t wait(int *estado) { (void)estado; errno = ECHILD; return -1; }
-
-/* system: el intérprete de órdenes con -c, y se espera a que acabe. */
-int system(const char *cmd)
-{
-    if (!cmd) return 1;
-    fflush(NULL);
-    char *argv[] = { "sh", "-c", (char *)cmd, NULL };
-    int pid = executar("/bin/sh", argv);
-    if (pid < 0) return falha(pid);
-    int st;
-    if (waitpid(pid, &st, 0) < 0) return -1;
-    return st;
-}
-
-/* kill: el SaguiOS solo sabe terminar un proceso; la señal 0 pregunta si
- * existe (y se dice que sí). */
-int kill(pid_t pid, int sinal)
-{
-    if (sinal == 0) return 0;
-    int r = matar(pid);
     return r < 0 ? falha(r) : 0;
 }
 
@@ -760,12 +757,11 @@ int getpwuid_r(uid_t uid, struct passwd *pw, char *buf, size_t n, struct passwd 
     return 0;
 }
 
-/* D400: no hay grupos ni sesiones; el propio proceso hace de ambos (libgit2 los mezcla en su semilla). */
-pid_t getpgid(pid_t pid) { return pid ? pid : meu_pid(); }
+/* D400: no hay sesiones; el propio proceso hace de ella (libgit2 la mezcla en su semilla). getpgid
+ * está en sinais.c (D401: el grupo de verdad). */
 pid_t getsid(pid_t pid) { return pid ? pid : meu_pid(); }
 
 pid_t getpid(void) { return meu_pid(); }
-pid_t getppid(void) { return 1; }
 int getpagesize(void) { return 4096; }
 uid_t getuid(void) { return 0; }
 uid_t geteuid(void) { return 0; }
@@ -801,59 +797,6 @@ unsigned sleep(unsigned s) { dormir(s * 1000); return 0; }
 int usleep(unsigned us) { dormir((us + 999) / 1000); return 0; }
 
 /* select() está en sockets.c (D374). */
-
-/* ------------------------------------------------------------- señales */
-
-/* Carencia: el SaguiOS no tiene señales. Se recuerda el tratador; raise()
- * lo llama (es lo único que puede hacer una señal aquí). */
-static sighandler_t tratadores[32];
-
-sighandler_t signal(int sinal, sighandler_t tratador)
-{
-    if (sinal <= 0 || sinal >= 32) { errno = EINVAL; return SIG_ERR; }
-    sighandler_t antes = tratadores[sinal];
-    tratadores[sinal] = tratador;
-    return antes;
-}
-
-/* sigaction: como signal() (sa_handler; con SA_SIGINFO no se guarda nada). */
-int sigaction(int sinal, const struct sigaction *a, struct sigaction *antiga)
-{
-    if (sinal <= 0 || sinal >= 32) { errno = EINVAL; return -1; }
-    if (antiga) {
-        memset(antiga, 0, sizeof *antiga);
-        antiga->sa_handler = tratadores[sinal];
-    }
-    if (a && !(a->sa_flags & SA_SIGINFO)) tratadores[sinal] = a->sa_handler;
-    return 0;
-}
-
-int sigemptyset(sigset_t *s) { *s = 0; return 0; }
-int sigfillset(sigset_t *s) { *s = ~0ul; return 0; }
-int sigaddset(sigset_t *s, int sinal) { *s |= 1ul << (sinal & 31); return 0; }
-int sigdelset(sigset_t *s, int sinal) { *s &= ~(1ul << (sinal & 31)); return 0; }
-int sigismember(const sigset_t *s, int sinal) { return (int)((*s >> (sinal & 31)) & 1); }
-
-static sigset_t mascara;
-int sigprocmask(int como, const sigset_t *s, sigset_t *antigo)
-{
-    if (antigo) *antigo = mascara;
-    if (s) {
-        if (como == SIG_BLOCK) mascara |= *s;
-        else if (como == SIG_UNBLOCK) mascara &= ~*s;
-        else mascara = *s;
-    }
-    return 0;
-}
-
-int raise(int sinal)
-{
-    if (sinal <= 0 || sinal >= 32) { errno = EINVAL; return -1; }
-    sighandler_t t = tratadores[sinal];
-    if (t == SIG_IGN) return 0;
-    if (t && t != SIG_DFL) { t(sinal); return 0; }
-    exit(128 + sinal);
-}
 
 /* ------------------------------------------------------------- locale */
 

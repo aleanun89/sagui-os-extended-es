@@ -14,6 +14,7 @@ typedef struct {
     uint8_t  botoes;        /* estado actual de los botones */
     uint8_t  mudaram;       /* botones que cambiaron en este paquete */
     int8_t   dz;            /* rueda: muescas, + hacia abajo (D048) */
+    int8_t   dw;            /* rueda horizontal: muescas, + hacia la derecha (D407, panel táctil) */
 } evento_mouse_t;
 
 bool mouse_iniciar(void);
@@ -37,5 +38,8 @@ bool mouse_capturado(void);
 void mouse_injetar(int x, int y, uint8_t botoes);
 void mouse_injetar_aqui(uint8_t botoes, int dz);
 uint8_t mouse_botoes(void);
+/* D407: lo que sale de los gestos del panel táctil (painel.c), con las interrupciones desactivadas:
+ * desplazamiento (y hacia abajo), rueda vertical y horizontal y el estado de los botones. */
+void mouse_painel(int dx, int dy, int rv, int rh, uint8_t botoes);
 
 #endif

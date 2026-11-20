@@ -1309,6 +1309,7 @@ static info_acel2d_t a2d;
 static info_gpu3d_t g3d;
 static info_gpu_energia_t gen;   /* D399: relojes, temperatura y estado de energía */
 static bool a2d_ok, g3d_ok, gen_ok;
+static bool log_sens_forcar = true, log_gpu_forcar = true, log_energia_forcar = true;   /* D408/D399 */
 static unsigned g2d_ant, g3d_ant, t_gpu_ant;
 static info_bateria_t bat;
 static bool bat_ok;
@@ -1895,6 +1896,7 @@ static bool tratar_rendimento(const evento_t *e)
         if (r >= 0 && r < QTD_R && r != rsel) {
             rsel = r;
             registrar("tareas: recurso %s", nomes_r_log[r]);
+            log_sens_forcar = log_gpu_forcar = log_energia_forcar = true;   /* D408: las líneas una vez al cambiar */
             return true;
         }
         return false;
@@ -2077,6 +2079,52 @@ static void layout(void)
     layout_red();
 }
 
+/* D408 (de paso): las líneas de sensores y de la GPU se escribían en cada muestra (una por segundo) y llenaban
+ * el dmesg en hardware real. Ahora solo al abrir la pestaña Rendimiento y cuando cambia algo que importa: la
+ * fuente o la temperatura en 3 grados o más, la frecuencia en más de un 25 %, el driver 2D/3D, si la GPU pasa
+ * de parada a trabajando (o al revés) y la batería. */
+
+static bool log_sensores_mudou(int temp, unsigned freq, unsigned fonte)
+{
+    static int t0;
+    static unsigned f0, fo0;
+    int dt = temp > t0 ? temp - t0 : t0 - temp;
+    unsigned df = freq > f0 ? freq - f0 : f0 - freq;
+    if (!log_sens_forcar && fonte == fo0 && dt < 3000 && df * 4u <= f0) return false;
+    log_sens_forcar = false;
+    t0 = temp; f0 = freq; fo0 = fonte;
+    return true;
+}
+
+/* D399 + D408: la línea de energía de la GPU, al abrir la pestaña o el recurso y cuando cambia el modo, el
+ * estado, un reloj, la temperatura en 3 grados o más, o la VRAM usada en 1 MB o más. */
+static bool log_energia_mudou(const info_gpu_energia_t *g)
+{
+    static info_gpu_energia_t a;
+    int dt = g->temp_mili_c > a.temp_mili_c ? g->temp_mili_c - a.temp_mili_c : a.temp_mili_c - g->temp_mili_c;
+    unsigned dv = g->vram_usada_kb > a.vram_usada_kb ? g->vram_usada_kb - a.vram_usada_kb : a.vram_usada_kb - g->vram_usada_kb;
+    if (!log_gpu_forcar && !log_energia_forcar && g->soporte == a.soporte && g->modo == a.modo && g->estado == a.estado &&
+        g->sclk_khz == a.sclk_khz && g->mclk_khz == a.mclk_khz && dt < 3000 && dv < 1024)
+        return false;
+    log_energia_forcar = false;
+    a = *g;
+    return true;
+}
+
+static bool log_gpu_mudou(const char *n2d, const char *n3d, bool ativa2d, bool ativa3d, int bateria)
+{
+    static char a2[24], a3[24];
+    static bool v2, v3;
+    static int b0;
+    if (!log_gpu_forcar && !compara_texto(n2d, a2) && !compara_texto(n3d, a3) && ativa2d == v2 && ativa3d == v3 && bateria == b0)
+        return false;
+    log_gpu_forcar = false;
+    copia_texto(a2, n2d, sizeof a2);
+    copia_texto(a3, n3d, sizeof a3);
+    v2 = ativa2d; v3 = ativa3d; b0 = bateria;
+    return true;
+}
+
 /* Línea del log en cada muestra: las pruebas siguen el programa por aquí. */
 static void registrar_amostra(void)
 {
@@ -2113,8 +2161,10 @@ static void registrar_amostra(void)
         for (int i = 0; i < qtd_freq_nuc; i++)   /* D175 */
             if (freq_nuc[i].ligada)
                 registrar("tareas: frecuencia cpu %u atual %d %u kHz", freq_nuc[i].cpu, freq_nuc[i].atual, freq_nuc[i].khz);
-        registrar("tareas: sensores temp %d mC freq %u kHz fonte %u muestras %d", sens_ok && sens.qtd_temp ?
-                  sensores_temp_maior(&sens) : -1, sens_ok ? sensores_freq_atual(&sens, NULL) : 0, sens.fonte, qtd_hist_sens);
+        int s_temp = sens_ok && sens.qtd_temp ? sensores_temp_maior(&sens) : -1;
+        unsigned s_freq = sens_ok ? sensores_freq_atual(&sens, NULL) : 0;
+        if (log_sensores_mudou(s_temp, s_freq, sens.fonte))
+            registrar("tareas: sensores temp %d mC freq %u kHz fonte %u muestras %d", s_temp, s_freq, sens.fonte, qtd_hist_sens);
         if (freq_ok)
             registrar("tareas: frecuencia estado %u atual %d %u kHz limitada %u temp %d", freq.estado, freq.atual,
                       freq_mostrada(NULL), freq.limitada, freq.temp_mc);
@@ -2126,12 +2176,14 @@ static void registrar_amostra(void)
         registrar("tareas: disco ativa %u bloques %u/%u sucios %u aciertos %u fallos %u grabados %u lee %u KB/s escribe %u KB/s",
                   disco_i.ativa, disco_i.blocos, disco_i.max_blocos, disco_i.sujos, disco_i.acertos, disco_i.falhas,
                   disco_i.gravados, disco_rd_s, disco_wr_s);
-        if (gen_ok)   /* D399 */
+        if (gen_ok && log_energia_mudou(&gen))   /* D399 (al abrir y si cambia algo, como D408) */
             registrar("tareas: gpu energia soporte %u modo %u estado %d motor %u memoria %u kHz temp %d zonas %u vram %u/%u KB",
                       gen.soporte, gen.modo, gen.estado, gen.sclk_khz, gen.mclk_khz, gen.temp_mili_c, gen.n_zonas,
                       gen.vram_usada_kb, gen.vram_kb);
-        registrar("tareas: gpu 2d %s %u ops/s 3d %s %u cuadros/s bateria %d%%", a2d_ok && a2d.ativo ? a2d.nome : "cpu", gpu2d_s,
-                  g3d_ok && g3d.nome[0] ? g3d.nome : "software", gpu3d_s, bat_ok ? bat.porcentagem : -1);
+        const char *n2d = a2d_ok && a2d.ativo ? a2d.nome : "cpu", *n3d = g3d_ok && g3d.nome[0] ? g3d.nome : "software";
+        int pct = bat_ok ? bat.porcentagem : -1;
+        if (log_gpu_mudou(n2d, n3d, gpu2d_s > 0, gpu3d_s > 0, pct))
+            registrar("tareas: gpu 2d %s %u ops/s 3d %s %u cuadros/s bateria %d%%", n2d, gpu2d_s, n3d, gpu3d_s, pct);
     }
     else if (aba == ABA_DET) {
         int nh = 0;
@@ -2391,6 +2443,7 @@ static void mudar_aba(int i)
 {
     aba = i;
     registrar("tareas: pestana %s", nomes_log[i]);
+    log_sens_forcar = log_gpu_forcar = log_energia_forcar = true;   /* al abrir una pestaña, las líneas de sensores y GPU una vez */
     atualizar_nice();
     if (aba == 3) amostrar_red();   /* a velocidade aparece na amostra seguinte */
     if (aba == 1) { amostrar_red(); amostrar_sensores(); }

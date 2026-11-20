@@ -267,3 +267,82 @@ void llm_hilos_repartir(llm_tarefa_t f, void *ctx, int n)
     for (int i = 1; i < n_hilos; i++) semaforo_tomar(&sem_fim);
 }
 #endif
+
+/* ------------------------------------------------------------ imágenes (fase 2) */
+#ifdef LLM_ANFITRIAO
+/* En el PC, solo lo que usan las pruebas: PPM P6 de 8 bits y BMP de 24 bits sin comprimir. */
+static int ppm_num(const uint8_t *d, size_t n, size_t *p)
+{
+    int v = -1;
+    for (;;) {
+        while (*p < n && (d[*p] == ' ' || d[*p] == '\n' || d[*p] == '\r' || d[*p] == '\t')) (*p)++;
+        if (*p < n && d[*p] == '#') { while (*p < n && d[*p] != '\n') (*p)++; continue; }
+        break;
+    }
+    while (*p < n && d[*p] >= '0' && d[*p] <= '9') { v = (v < 0 ? 0 : v) * 10 + (d[*p] - '0'); (*p)++; if (v > 100000) return -1; }
+    return v;
+}
+
+int llm_imagem_decodificar(const uint8_t *d, size_t n, uint8_t **rgb, int *w, int *h, char *erro, size_t max)
+{
+    *rgb = NULL;
+    if (n > 2 && d[0] == 'P' && d[1] == '6') {
+        size_t p = 2;
+        int L = ppm_num(d, n, &p), A = ppm_num(d, n, &p), M = ppm_num(d, n, &p);
+        if (L < 1 || A < 1 || M != 255 || L > 8192 || A > 8192 || p >= n) { llm_formatar(erro, max, "PPM no válido"); return -1; }
+        p++;
+        if ((size_t)L * A * 3 > n - p) { llm_formatar(erro, max, "PPM cortado"); return -1; }
+        *rgb = malloc((size_t)L * A * 3);
+        if (!*rgb) { llm_formatar(erro, max, "sin memoria"); return -1; }
+        memcpy(*rgb, d + p, (size_t)L * A * 3);
+        *w = L; *h = A;
+        return 0;
+    }
+    if (n > 54 && d[0] == 'B' && d[1] == 'M') {
+        uint32_t off = d[10] | d[11] << 8 | d[12] << 16 | (uint32_t)d[13] << 24;
+        int32_t L = (int32_t)(d[18] | d[19] << 8 | d[20] << 16 | (uint32_t)d[21] << 24);
+        int32_t A = (int32_t)(d[22] | d[23] << 8 | d[24] << 16 | (uint32_t)d[25] << 24);
+        int bpp = d[28] | d[29] << 8, comp = d[30];
+        bool baixo = A > 0;
+        if (A < 0) A = -A;
+        if (bpp != 24 || comp != 0 || L < 1 || A < 1 || L > 8192 || A > 8192) { llm_formatar(erro, max, "BMP no admitido (solo 24 bits)"); return -1; }
+        size_t linha = ((size_t)L * 3 + 3) & ~(size_t)3;
+        if (off > n || linha * A > n - off) { llm_formatar(erro, max, "BMP cortado"); return -1; }
+        *rgb = malloc((size_t)L * A * 3);
+        if (!*rgb) { llm_formatar(erro, max, "sin memoria"); return -1; }
+        for (int y = 0; y < A; y++) {
+            const uint8_t *s = d + off + linha * (size_t)(baixo ? A - 1 - y : y);
+            for (int x = 0; x < L; x++) {
+                (*rgb)[((size_t)y * L + x) * 3 + 0] = s[x * 3 + 2];
+                (*rgb)[((size_t)y * L + x) * 3 + 1] = s[x * 3 + 1];
+                (*rgb)[((size_t)y * L + x) * 3 + 2] = s[x * 3 + 0];
+            }
+        }
+        *w = L; *h = A;
+        return 0;
+    }
+    llm_formatar(erro, max, "en el PC solo se leen imágenes PPM (P6) y BMP de 24 bits");
+    return -1;
+}
+#else
+#include "imagem.h"
+int llm_imagem_decodificar(const uint8_t *d, size_t n, uint8_t **rgb, int *w, int *h, char *erro, size_t max)
+{
+    imagem_t im;
+    *rgb = NULL;
+    if (n > 0x7FFFFFFF) { llm_formatar(erro, max, "imagen demasiado grande"); return -1; }
+    int r = imagem_decodificar(d, (int)n, &im);
+    if (r) { llm_formatar(erro, max, "imagen no válida: %s", imagem_erro(r)); return -1; }
+    *rgb = aloca((size_t)im.larg * im.alt * 3);
+    if (!*rgb) { imagem_liberar(&im); llm_formatar(erro, max, "sin memoria"); return -1; }
+    for (size_t i = 0; i < (size_t)im.larg * im.alt; i++) {
+        uint32_t c = im.px[i];
+        (*rgb)[i * 3 + 0] = (uint8_t)(c >> 16);
+        (*rgb)[i * 3 + 1] = (uint8_t)(c >> 8);
+        (*rgb)[i * 3 + 2] = (uint8_t)c;
+    }
+    *w = im.larg; *h = im.alt;
+    imagem_liberar(&im);
+    return 0;
+}
+#endif

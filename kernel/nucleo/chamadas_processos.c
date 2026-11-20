@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /* chamadas_processos.c - llamadas de los grupos "procesos" y "diversas". */
 #include "radios.h"
+#include "painel.h"
 #include "imagens.h"
 #include "irq_rotas.h"
 #include "aparencia.h"
@@ -178,7 +179,8 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
             /* D378 (fase 3): de las páginas compartidas de las bibliotecas, solo su parte (las de un
              * objeto entre los procesos que lo usan): así la suma de todos no las repite. */
             v[k].memoria_kb = (p->usuario && p->estado != P_ZUMBI ?
-                               (espaco_paginas_usuario(p->espaco) - imagens_paginas_alheias(p->espaco)) * 4 : 0)
+                               (espaco_paginas_usuario(p->espaco) - imagens_paginas_alheias(p->espaco) -
+                                espaco_paginas_cow_alheias(p->espaco)) * 4 : 0)   /* D401: idem con las del fork */
                               + (p->pid ? PILHA_KERNEL / 1024 : 0);
             uint32_t tiques = p->tiques_cpu;   /* D167: el de todos sus hilos */
             for (int h = 1; h < MAX_PROCESSOS; h++) {
@@ -285,6 +287,8 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     if (tipo == INFO_APARENCIA) return aparencia_info(ptr, n);   /* D112 */
     if (tipo == INFO_BARRA) return barra_info(ptr, n);   /* D361 */
     if (tipo == INFO_BARRA_GRAVAR) return barra_gravar(ptr, n);   /* D361 */
+    if (tipo == INFO_PAINEL) return painel_info(ptr, n);           /* D407 */
+    if (tipo == INFO_PAINEL_GRAVAR) return painel_gravar(ptr, n);  /* D407 */
     if (tipo == INFO_JANELAS) {   /* D043: el administrador de tareas lista las ventanas */
         if (n > 64) n = 64;
         if (!usuario_ok((void *)ptr, n * sizeof(info_janela_t), true)) return ERRO_ENDERECO;

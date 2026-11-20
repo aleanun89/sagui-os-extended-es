@@ -43,6 +43,9 @@ static const uint8_t classe[SIS_MAX] = {
     /* Procesos */
     [SIS_EXECUTAR] = L, [SIS_ESPERAR] = L, [SIS_SAIR] = L, [SIS_PID] = L,
     [SIS_MATAR] = O,                       /* los suyos (mismo uid) */
+    /* D401: fork, exec, waitpid, señales (kill mira el uid dentro), poll y fcntl */
+    [SIS_BIFURCAR] = L, [SIS_SUBSTITUIR] = L, [SIS_ESPERAR_PID] = L, [SIS_SINAL] = L,
+    [SIS_SINAL_VOLTAR] = L, [SIS_SONDAR] = L, [SIS_DESCRITOR] = L,
     /* Ficheros: los permisos de cada ruta se miran dentro (D282) */
     [SIS_ABRIR] = L, [SIS_LER] = L, [SIS_ESCREVER] = L, [SIS_FECHAR] = L, [SIS_POSICIONAR] = L,
     [SIS_INFO_ARQUIVO] = L, [SIS_CRIAR_PASTA] = L, [SIS_REMOVER_PASTA] = L, [SIS_APAGAR] = L,

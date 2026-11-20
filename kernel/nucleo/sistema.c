@@ -27,6 +27,14 @@
 #include "bloqueo.h"
 #include "permisos.h"
 
+/* D401: SIS_SINAL_VOLTAR necesita el cuadro y no escribe EAX (restaura uno entero): la atiende
+ * tratar_sistema antes de la tabla. Aquí solo ocupa su sitio (sistema_tem_chamada, permisos). */
+static int32_t sis_sinal_voltar_marca(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
+{
+    (void)a; (void)b; (void)c; (void)d; (void)e;
+    return ERRO_INVALIDO;
+}
+
 static const chamada_t tabela[SIS_MAX] = {
     [SIS_EXECUTAR] = sis_executar,       [SIS_ESPERAR] = sis_esperar,
     [SIS_SAIR] = sis_sair,               [SIS_PID] = sis_pid,
@@ -111,6 +119,11 @@ static const chamada_t tabela[SIS_MAX] = {
     [SIS_PERMISOS_ARQ] = sis_permisos_arq,   /* D282 */
     [SIS_IDIOMA] = sis_idioma, /* D313 */
     [SIS_CRIAR_WIDGET] = sis_criar_widget, /* D365 */
+    /* Procesos POSIX (D401) */
+    [SIS_BIFURCAR] = sis_bifurcar,       [SIS_SUBSTITUIR] = sis_substituir,
+    [SIS_ESPERAR_PID] = sis_esperar_pid, [SIS_SINAL] = sis_sinal,
+    [SIS_SINAL_VOLTAR] = sis_sinal_voltar_marca,   /* la atiende tratar_sistema con el cuadro */
+    [SIS_SONDAR] = sis_sondar,           [SIS_DESCRITOR] = sis_descritor,
     [SIS_PORTATIL] = sis_portatil,         /* D403: brillo, teclas de función, tablas ACPI */
 };
 
@@ -133,7 +146,8 @@ bool usuario_ok(const void *p, uint32_t n, bool escrita)
             !(pilha_crescer(processo_atual(), pag) && espaco_traduzir(processo_atual()->espaco, pag, &flags)))
             return false;
         if (!(flags & PG_USUARIO)) return false;
-        if (escrita && !(flags & PG_ESCRITA)) return false;
+        /* D401: una página de copia al escribir se copia ya: el kernel va a escribir en ella. */
+        if (escrita && !(flags & PG_ESCRITA) && !espaco_romper_cow(processo_atual()->espaco, pag)) return false;
     }
     return true;
 }
@@ -154,6 +168,10 @@ int usuario_texto(const char *origem, char *destino, uint32_t max)
 static quadro_t *tratar_sistema(quadro_t *q)
 {
     uint32_t n = q->eax;
+    processo_t *eu = processo_atual();
+    /* D401: ¿es la repetición de una llamada que se bloqueó (D010)? (el plazo de poll) */
+    eu->chamada_repetida = eu->repetindo != 0;
+    eu->repetindo = 0;
     if (n >= SIS_MAX || !tabela[n]) {
         q->eax = (uint32_t)ERRO_INVALIDO;
         return q;
@@ -162,8 +180,10 @@ static quadro_t *tratar_sistema(quadro_t *q)
      * las llamadas nuevas esperan a que lo haga (la llamada se repite). */
     if (!espaco_porta()) {
         q->eip -= 2;
+        eu->repetindo = 2;   /* D401: una señal no la corta: se repite siempre */
         return escalonar(q);
     }
+    if (n == SIS_SINAL_VOLTAR) return sinais_voltar(q);   /* D401: sigreturn */
     /* D255: quien no es root solo puede lo que permisos.c dice que es libre. */
     int32_t r = permisos_chamada(n, q->ebx, q->ecx, q->edx, q->esi, q->edi);
     if (r < 0) {
@@ -176,10 +196,14 @@ static quadro_t *tratar_sistema(quadro_t *q)
     /* D351: dentro de la llamada, los punteros ya comprobados (usuario_ok)
      * siguen valiendo aunque duerma: espaco_pode_tirar espera a que salga. */
     processo_atual()->em_chamada = true;
+    eu->quadro_chamada = q;   /* D401: fork y exec lo necesitan */
     r = tabela[n](q->ebx, q->ecx, q->edx, q->esi, q->edi);
+    eu->quadro_chamada = NULL;
     espaco_chamada_fim();
     if (r == SIS_REPETIR) {
         q->eip -= 2;               /* ejecuta el "int 0x80" de nuevo al despertar */
+        /* D401: una señal puede interrumpir esta espera (EINTR) o solo retrasarla. */
+        eu->repetindo = sinais_chamada_interrompivel(n) ? 1 : 2;
         return escalonar(q);
     }
     q->eax = (uint32_t)r;

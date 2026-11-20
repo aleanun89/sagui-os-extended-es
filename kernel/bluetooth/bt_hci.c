@@ -3,6 +3,7 @@
  * inicio del controlador y el registro del adaptador. Solo especificación pública (Core,
  * volumen 4 parte E: HCI funcional). */
 #include "bt.h"
+#include "bt_fw.h"
 #ifdef BT_ANFITRION
 #include <stdarg.h>
 #include <stdio.h>
@@ -16,7 +17,7 @@
 static const bt_plat_t *plat;
 static bt_info_t info;
 
-static struct { uint16_t op; uint8_t n; uint8_t par[248]; } cfila[BT_CMD_FILA];
+static struct { uint16_t op; uint8_t n; uint8_t par[BT_CMD_PAR]; } cfila[BT_CMD_FILA];
 static int c_cab, c_cola, c_cnt;
 static int cred_cmd;
 static uint32_t cmd_envio;
@@ -28,8 +29,8 @@ static struct { uint16_t manejador; int n; } sinack[BT_MAX_LIGACOES + 4];   /* p
 static int acl_libres, acl_num;
 static uint16_t acl_mtu;
 
-enum { P_RESET, P_VERSAO, P_FEATURES, P_ADDR, P_BUFFER, P_EVMASK, P_INQMODE, P_SSP, P_NOME, P_CLASE, P_SCAN, P_FIM };
-static const uint16_t paso_op[] = { OP_RESET, OP_RD_VERSAO, OP_RD_FEATURES, OP_RD_ADDR, OP_RD_BUFFER, OP_SET_EVMASK, OP_WR_INQMODE,
+enum { P_RESET, P_VERSAO, P_FW, P_FEATURES, P_ADDR, P_BUFFER, P_EVMASK, P_INQMODE, P_SSP, P_NOME, P_CLASE, P_SCAN, P_FIM };
+static const uint16_t paso_op[] = { OP_RESET, OP_RD_VERSAO, 0 /* P_FW: lo lleva bt_fw.c */, OP_RD_FEATURES, OP_RD_ADDR, OP_RD_BUFFER, OP_SET_EVMASK, OP_WR_INQMODE,
                                     OP_WR_SSP, OP_WR_NOME, OP_WR_CLASE, OP_WR_SCAN };
 static int passo;
 static uint32_t paso_desde;       /* ms: cuándo se pidió el paso actual del inicio (vigilancia) */
@@ -43,6 +44,7 @@ static int erros_logados;
 
 #define FEAT_RSSI_INQ(f) ((f)[3] & 0x40)   /* byte 3 bit 6: RSSI with inquiry results */
 #define FEAT_EIR(f)      ((f)[6] & 0x01)   /* byte 6 bit 0: Extended Inquiry Response */
+#define FEAT_LE(f)       ((f)[4] & 0x40)   /* byte 4 bit 6: LE Supported (Controller) */
 #define FEAT_SSP(f)      ((f)[6] & 0x08)   /* byte 6 bit 3: Secure Simple Pairing */
 
 const bt_plat_t *bt_plat(void) { return plat; }
@@ -110,7 +112,7 @@ bool bt_addr_ler(const char *s, uint8_t *a)
 static void enviar_cmds(void)
 {
     while (c_cnt && cred_cmd > 0) {
-        uint8_t p[3 + 248];
+        uint8_t p[3 + BT_CMD_PAR];
         bt_poe16(p, cfila[c_cab].op);
         p[2] = cfila[c_cab].n;
         memcpy(p + 3, cfila[c_cab].par, cfila[c_cab].n);
@@ -129,7 +131,7 @@ static void enviar_cmds(void)
 
 int bt_hci_cmd(uint16_t op, const void *par, int n)
 {
-    if (n < 0 || n > 248 || c_cnt >= BT_CMD_FILA) return -1;
+    if (n < 0 || n > BT_CMD_PAR || c_cnt >= BT_CMD_FILA) return -1;
     cfila[c_cola].op = op;
     cfila[c_cola].n = (uint8_t)n;
     if (n) memcpy(cfila[c_cola].par, par, (size_t)n);
@@ -171,6 +173,16 @@ static bool paso_soportado(int p)
     return true;
 }
 
+static void init_paso(void);
+
+/* El motor de firmware acabó: si cargó un parche se relee la versión (cambia) y se sigue. */
+static void fw_fin(void)
+{
+    if (bt_fw_cargado()) bt_log("[BT] firmware: %s cargado, se relee la version", bt_fw_estado());
+    passo = bt_fw_cargado() ? P_VERSAO : P_FEATURES;
+    init_paso();
+}
+
 static void init_paso(void)
 {
     uint8_t b[248];
@@ -182,13 +194,21 @@ static void init_paso(void)
     switch (passo) {
     case P_RESET: bt_hci_cmd(OP_RESET, NULL, 0); break;
     case P_VERSAO: bt_hci_cmd(OP_RD_VERSAO, NULL, 0); break;
+    case P_FW: {   /* D411: parches de Broadcom y Realtek; sin ellos (o sin firmware) se sigue */
+        bt_fw_ident_t id = { plat->usb_vid, plat->usb_pid, info.hci_ver, info.hci_rev, info.lmp_sub, info.fabricante };
+        if (bt_fw_empezar(&id) == BTF_FIN) fw_fin();
+        break;
+    }
     case P_FEATURES: bt_hci_cmd(OP_RD_FEATURES, NULL, 0); break;
     case P_ADDR: bt_hci_cmd(OP_RD_ADDR, NULL, 0); break;
     case P_BUFFER: bt_hci_cmd(OP_RD_BUFFER, NULL, 0); break;
-    case P_EVMASK:
-        for (int i = 0; i < 8; i++) b[i] = (uint8_t)(EVENTOS_MASCARA >> (8 * i));
+    case P_EVMASK: {
+        uint64_t m = EVENTOS_MASCARA;
+        if (tem_feat && FEAT_LE(feat)) m |= 1ull << 61;   /* LE Meta Event: los anuncios de la búsqueda de baja energía */
+        for (int i = 0; i < 8; i++) b[i] = (uint8_t)(m >> (8 * i));
         bt_hci_cmd(OP_SET_EVMASK, b, 8);
         break;
+    }
     case P_INQMODE: b[0] = inq_modo; bt_hci_cmd(OP_WR_INQMODE, b, 1); break;   /* 2: RSSI y nombre (EIR); 1: RSSI */
     case P_SSP: b[0] = 1; bt_hci_cmd(OP_WR_SSP, b, 1); break;
     case P_NOME:
@@ -223,6 +243,7 @@ void bt_hci_iniciar(const bt_plat_t *p)
     acl_mtu = 0;
     listo = false;
     memset(feat, 0, sizeof feat);
+    bt_fw_reiniciar();
     tem_feat = false;
     inq_modo = 2;
     erros_logados = 0;
@@ -234,6 +255,7 @@ void bt_hci_iniciar(const bt_plat_t *p)
 }
 
 bool bt_hci_listo(void) { return listo; }
+bool bt_hci_le(void) { return listo && tem_feat && FEAT_LE(feat); }
 
 void bt_hci_energia(bool e)
 {
@@ -259,9 +281,15 @@ static void erro_orden(uint16_t op, uint8_t st)
 
 static void orden_acabada(uint16_t op, uint8_t st, const uint8_t *r, int n)
 {
-    bool en_inicio = info.estado == BT_INICIANDO && passo < P_FIM && op == paso_op[passo];
+    bool en_inicio = info.estado == BT_INICIANDO && passo < P_FIM && (passo == P_FW ? bt_fw_espera(op) : op == paso_op[passo]);
+    if (en_inicio && passo == P_FW) {
+        if (st) info.erros_hci++;
+        if (bt_fw_respuesta(op, st, r, n) == BTF_FIN) fw_fin();
+        return;
+    }
     if (!en_inicio) {
         if (st) erro_orden(op, st);
+        if (op == OP_LE_PARAM_SCAN || op == OP_LE_SCAN) bt_g_le_orden(op, st);
         return;
     }
     if (st) info.erros_hci++;
@@ -439,6 +467,20 @@ static void ev_inquiry(uint8_t code, const uint8_t *p, int n)
     }
 }
 
+/* LE Meta Event, subevento 2 (LE Advertising Report): por anuncio, tipo de evento, tipo de dirección, dirección,
+ * longitud de los datos, datos y RSSI (los controladores mandan de uno en uno; se lee así, en serie). */
+static void ev_le(const uint8_t *p, int n)
+{
+    if (n < 2 || p[0] != 0x02) return;
+    int num = p[1], k = 2;
+    for (int i = 0; i < num && k + 9 <= n; i++) {
+        int dl = p[k + 8];
+        if (k + 9 + dl + 1 > n) return;
+        bt_g_le_anuncio(p + k + 2, p[k + 1], (int8_t)p[k + 9 + dl], p + k + 9, dl);
+        k += 9 + dl + 1;
+    }
+}
+
 static void ev_completo(const uint8_t *p, int n)
 {
     if (n < 3) return;
@@ -456,7 +498,7 @@ static void ev_estado(const uint8_t *p, int n)
     uint16_t op = bt_le16(p + 2);
     /* Una orden de inicio rechazada con Command Status (los clones CSR lo hacen con las órdenes que no
      * conocen) acaba ahí: sin esto el inicio se quedaba en «iniciando» para siempre. */
-    if (p[0] && info.estado == BT_INICIANDO && passo < P_FIM && op == paso_op[passo]) {
+    if (p[0] && info.estado == BT_INICIANDO && passo < P_FIM && (passo == P_FW ? bt_fw_espera(op) : op == paso_op[passo])) {
         orden_acabada(op, p[0], NULL, 0);
         return;
     }
@@ -517,6 +559,7 @@ void bt_hci_evento(const uint8_t *p, int n)
             bt_g_nome_remoto(q + 1, q[0], nome);
         }
         break;
+    case EV_LE: ev_le(q, len); break;
     case EV_CMD_COMPLETO: ev_completo(q, len); break;
     case EV_CMD_ESTADO: ev_estado(q, len); break;
     case EV_ERRO_HW:
@@ -582,6 +625,11 @@ void bt_hci_tic(void)
     uint32_t ahora = bt_agora();
     if (cred_cmd <= 0 && (ahora - cmd_envio) > TIEMPO_CMD_MS) {
         info.erros_hci++;
+        if (info.estado == BT_INICIANDO && passo == P_FW) {   /* firmware: se sigue sin parche */
+            cred_cmd = 1;
+            if (bt_fw_abortar() == BTF_FIN) fw_fin();
+            return;
+        }
         if (info.estado == BT_INICIANDO) {
             info.estado = BT_FALHOU;
             bt_log("[BT] el controlador no contesta a la orden %04x", cmd_op);
@@ -591,8 +639,9 @@ void bt_hci_tic(void)
         bt_log("[BT] la orden %04x no obtuvo respuesta", cmd_op);
         cred_cmd = 1;
     }
+    if (info.estado == BT_INICIANDO && passo == P_FW && bt_fw_tic() == BTF_FIN) fw_fin();
     /* Vigilancia del inicio: el crédito volvió (Command Status) pero el paso nunca acabó. */
-    if (info.estado == BT_INICIANDO && passo < P_FIM && cred_cmd > 0 && !c_cnt && (ahora - paso_desde) > TIEMPO_CMD_MS) {
+    if (info.estado == BT_INICIANDO && passo < P_FIM && passo != P_FW && cred_cmd > 0 && !c_cnt && (ahora - paso_desde) > TIEMPO_CMD_MS) {
         uint16_t op = paso_op[passo];
         info.erros_hci++;
         if (paso_critico(passo)) {
