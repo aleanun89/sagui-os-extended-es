@@ -969,7 +969,7 @@ void rte_desenhar(jan_t *j, rte_t *r)
                 continue;
             }
             bool sel = tem_sel && i >= s0 && i < s1;
-            uint32_t cor = sel ? COR_BRANCO : f->cor;
+            uint32_t cor = sel ? COR_SEL_TEXTO : f->cor;
             int em = em_px(r, f->tam);
             if (c != '\t' && c != '\f' && c >= 32) glifo(j, xa, base, xb - xa, em, f->fam, c, f->est, cor);
             if ((f->est & RTE_SUBLINHADO) && c >= 32) retang_clip(j, xa, base + 1 + em / 16, xb - xa, em / 14 > 1 ? em / 14 : 1, cor);

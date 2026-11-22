@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "efectos.h"
 #include "hilos.h"
+#include "gpu.h"
 
 void render_terrain_tiles(int x0, int x1, int y0, int y1, float time);
 
@@ -16,42 +17,53 @@ Sprite *terrain_sprite(int kind, int variant) { return slp_frame(trn[kind], vari
 static AnimSet set_vill, set_wood, set_miner, set_forager;
 #define NUM_UNIT_ART 29
 static AnimSet unit_art[NUM_UNIT_ART];
+/* capas que se dibujan encima (vela y remos de los barcos del original); 0 = ninguna. Orden de unit_art_ids */
+static const u32 unit_art_sup[NUM_UNIT_ART][2] = {
+	[18] = { 697, 0 },     /* barco de pesca: pescador con la red, solo al pescar (unit_art_sup_acting) */
+	[19] = { 583, 0 },     /* transporte: vela A */
+	[20] = { 694, 584 },   /* trirreme: remos + vela B */
+};
+/* animaciones de muerte de un solo ángulo (barcos: 262, 263, 264 no tienen 5 orientaciones) */
+/* capas que solo se dibujan cuando la unidad actúa (pescar) */
+static int unit_art_sup_acting(int i, int k) { return i == 18 && k == 0; }
+static int unit_art_die_sin_dir(int i) { return i == 18 || i == 19 || i == 20 || i == 25; }
 /* gráficos de estar quieto, andar, atacar, morir y descomposición de cada unidad, en el orden de los tipos de unidad */
 static const u32 unit_art_ids[NUM_UNIT_ART][5] = {
 	{ 418, 657, 224, 314, 373 }, /* aldeano */
 	{ 425, 664, 212, 321, 380 }, /* garrotero */
 	{ 415, 654, 205, 311, 370 }, /* hachero */
-	{ 437, 678, 226, 335, 371 }, /* espadachín corto */
-	{ 413, 652, 203, 309, 368 }, /* arquero */
+	{ 416, 655, 206, 312, 371 }, /* espadachín corto (Inf3 del EMPIRES.DAT) */
+	{ 413, 652, 203, 308, 367 }, /* arquero */
 	{ 414, 653, 204, 309, 368 }, /* arquero mejorado */
-	{ 412, 665, 202, 318, 377 }, /* arquero en carro */
-	{ 422, 661, 209, 318, 377 }, /* explorador */
+	{ 412, 650, 202, 310, 369 }, /* arquero en carro (Chariot2: andar 650, muerte 310) */
+	{ 445, 651, 227, 343, 403 }, /* explorador (Soldier-Scout) */
 	{ 424, 663, 211, 320, 379 }, /* caballería */
 	{ 423, 662, 210, 319, 378 }, /* caballería pesada */
-	{ 416, 655, 206, 312, 371 }, /* hoplita */
+	{ 442, 684, 225, 340, 401 }, /* hoplita (Phal1) */
 	{ 443, 685, 634, 341, 402 }, /* sacerdote */
-	{ 656, 656, 207, 316, 316 }, /* balista */
-	{ 660, 660, 208, 316, 316 }, /* catapulta */
-	{ 659, 659, 208, 316, 316 }, /* catapulta pesada */
+	{ 417, 656, 207, 313, 372 }, /* balista */
+	{ 421, 660, 629, 317, 376 }, /* catapulta */
+	{ 420, 659, 208, 316, 375 }, /* catapulta pesada */
 	{ 414, 653, 204, 309, 368 }, /* lanzador de honda (provisional: gráfico del arquero) */
-	{ 429, 668, 216, 386, 386 }, /* elefante de guerra */
-	{ 427, 666, 228, 386, 386 }, /* arquero de elefante */
-	{ 647, 647, 647, 647, 647 }, /* barco de pesca */
-	{ 640, 640, 640, 640, 640 }, /* barco de transporte */
-	{ 693, 693, 693, 693, 693 }, /* trirreme */
-	{ 438, 677, 221, 312, 371 }, /* falange */
-	{ 436, 676, 219, 335, 371 }, /* centurión */
+	{ 429, 669, 216, 325, 387 }, /* elefante de guerra */
+	{ 427, 666, 214, 323, 385 }, /* arquero de elefante */
+	{ 473, 473, 473, 262, 262 }, /* barco de pesca (fsh_1; al pescar se le suma la capa 697) */
+	{ 647, 647, 647, 262, 262 }, /* barco de transporte (casco trns_1 + vela 583) */
+	{ 693, 693, 693, 264, 264 }, /* trirreme (casco ws_3 + remos 694 + vela 584) */
+	{ 438, 679, 221, 335, 396 }, /* falange (Phal2) */
+	{ 436, 677, 219, 333, 394 }, /* centurión (Inf5/legión) */
 	{ 423, 662, 210, 319, 378 }, /* catafracta (gráfico de la caballería pesada) */
-	{ 424, 663, 211, 320, 379 }, /* arquero a caballo (gráfico de la caballería) */
-	{ 648, 648, 648, 648, 648 }, /* barco mercante (648: el barco de carga del original) */
-	{ 412, 665, 412, 318, 377 }, /* carro mercante (provisional: gráfico del carro arquero) */
+	{ 422, 661, 209, 318, 377 }, /* arquero a caballo (Cavalry3_Arch) */
+	{ 639, 639, 639, 262, 262 }, /* barco mercante (trd_1, con vela propia) */
+	{ 412, 650, 412, 310, 369 }, /* carro mercante (provisional: el AoE original no tiene carro; gráfico del carro arquero) */
 	{ 475, 696, 475, 386, 385 }, /* caballo salvaje: 475 quieto, 696 galopando */
-	{ 428, 667, 215, 386, 386 }, /* elefante salvaje (386 = cayendo) */
+	{ 428, 667, 215, 324, 386 }, /* elefante salvaje (324 muriendo, 386 cuerpo) */
 };
 static Slp *s_tc, *s_tc_flag, *s_barracks, *s_house, *s_granary, *s_storage, *s_farm;
 static Slp *s_archery, *s_stable, *s_temple, *s_academy, *s_government, *s_tower;
 static Slp *s_berries, *s_gold, *s_stone, *s_tree_d[4], *s_tree_g[4], *s_tree_dead;
 static Slp *s_icons_unit, *s_icons_bld, *s_fire[3];
+static Slp *s_proy_piedra, *s_proy_fuego, *s_proy_virote, *s_impacto;   /* piedra 360, piedra de fuego 461, virote 242 e impacto 409 del original (D443) */
 static Slp *s_bkg[2];
 static u32 pal_game[256], pal_bkg[2][256];
 static int have_bkg[2];
@@ -124,8 +136,12 @@ int assets_load(const char *dir) {
 	load_set(&set_wood, 440, 682, 625, 338, 399);
 	load_set(&set_miner, 441, 683, 633, 339, 400);
 	load_set(&set_forager, 418, 657, 632, 314, 373);
-	for (int i = 0; i < NUM_UNIT_ART; ++i)
+	for (int i = 0; i < NUM_UNIT_ART; ++i) {
 		load_set(&unit_art[i], unit_art_ids[i][0], unit_art_ids[i][1], unit_art_ids[i][2], unit_art_ids[i][3], unit_art_ids[i][4]);
+		for (int k = 0; k < 2; ++k) unit_art[i].over[k] = unit_art_sup[i][k] ? slp_load(&d_graphics, unit_art_sup[i][k]) : NULL;
+		unit_art[i].die_sin_dir = unit_art_die_sin_dir(i);
+		unit_art[i].over_acting = (unit_art_sup_acting(i, 0) ? 1 : 0) | (unit_art_sup_acting(i, 1) ? 2 : 0);
+	}
 
 	s_tc = slp_load(&d_graphics, 280); s_tc_flag = slp_load(&d_graphics, 230);
 	s_barracks = slp_load(&d_graphics, 254);
@@ -142,6 +158,8 @@ int assets_load(const char *dir) {
 	s_tree_dead = slp_load(&d_graphics, 636);
 
 	for (int i = 0; i < 3; ++i) s_fire[i] = slp_load(&d_graphics, 2 + i);
+	s_proy_piedra = slp_load(&d_graphics, 360); s_proy_fuego = slp_load(&d_graphics, 461);
+	s_proy_virote = slp_load(&d_graphics, 242); s_impacto = slp_load(&d_graphics, 409);
 	s_icons_unit = slp_load(&d_interfac, 50730);
 	s_icons_bld = slp_load(&d_interfac, 50704);
 
@@ -239,11 +257,20 @@ void view_clamp(void) {
 static int anim_fija = -1; static float anim_t;
 static float tiempo_anim(void) { return anim_fija > 0 ? anim_t : (float)SDL_GetTicks() / 1000.0f; }
 
-static int anim_frames(Slp *s) { return s ? MAX(1, s->nframes / 5) : 1; }
+/* los SLP de 16 ángulos guardan 9 orientaciones (casco ws_3, vela B): nframes múltiplo de 9 y no de 5 */
+static int slp_16ang(const Slp *s) { return s && s->nframes >= 9 && s->nframes % 9 == 0 && s->nframes % 5 != 0; }
+static int anim_frames(Slp *s) { return s ? MAX(1, s->nframes / (slp_16ang(s) ? 9 : 5)) : 1; }
 
 /* devuelve el índice de cuadro para una animación de 8 direcciones con 5 orientaciones guardadas */
 static int dir_frame(Slp *s, float anim, float angle, int *flip) {
 	static const int faces[8] = { 1, 2, 3, 4, 3, 2, 1, 0 };
+	if (slp_16ang(s)) {
+		/* 16 direcciones: el eje de simetría pasa por los cubos 15 (cara 0) y 7 (cara 8) */
+		float b = fmodf(angle + 0.19634954f + 6.2831853f * 4, 6.2831853f);
+		int u = (int)(b / 0.39269908f) % 16, n16 = anim_frames(s);
+		*flip = u < 7;
+		return ((int)anim % n16) + (u >= 7 ? 15 - u : u + 1) * n16;
+	}
 	float a = fmodf(angle + 0.3926991f + 6.2831853f * 4, 6.2831853f);
 	int uface = (int)(a / 0.7853982f) % 8;
 	int n = anim_frames(s);
@@ -268,6 +295,33 @@ static const AnimSet *unit_set(const Entity *e) {
 		}
 	}
 	return &set_vill;
+}
+
+/* Carro mercante (D447): usa el gráfico provisional del carro arquero y se le tapa el arquero con una carga de fardos y cajas
+ * y una banda dorada de comercio. Solo primitivas de relleno (gfx_fill / gfx_fill_a), así sale igual por la CPU y por la GPU
+ * (D436) y no hace falta ningún gráfico nuevo. (sx, sy) es el punto del suelo de la unidad; sc, la escala en 1/256. */
+void carro_mercante_carga(int sx, int sy, int sc, int shade) {
+	#define ESC(v) MAX(1, (int)((v) * sc / 256))
+	int s = shade > 255 ? 256 : shade;
+	#define TINTE(r, g, b) gfx_rgb((r) * s >> 8, (g) * s >> 8, (b) * s >> 8)
+	u32 madera = TINTE(150, 100, 52), madera_osc = TINTE(92, 58, 28), cuerda = TINTE(214, 186, 110), saco = TINTE(196, 172, 120), oro = TINTE(250, 208, 60), oro_osc = TINTE(170, 124, 20);
+	int cx = sx, cy = sy - ESC(14);   /* centro de la carga, a la altura del arquero */
+	/* caja grande detrás, con tapa y tablas */
+	gfx_fill(cx - ESC(11), cy - ESC(10), ESC(15), ESC(12), madera_osc);
+	gfx_fill(cx - ESC(10), cy - ESC(9), ESC(13), ESC(10), madera);
+	gfx_fill(cx - ESC(10), cy - ESC(5), ESC(13), 1, madera_osc);
+	/* fardo redondeado delante, atado con una cuerda */
+	gfx_fill(cx + ESC(1), cy - ESC(6), ESC(11), ESC(9), saco);
+	gfx_fill(cx + ESC(2), cy - ESC(7), ESC(9), 1, saco);
+	gfx_fill(cx + ESC(1), cy + ESC(2), ESC(11), 1, madera_osc);
+	gfx_fill(cx + ESC(6), cy - ESC(7), MAX(1, ESC(1)), ESC(10), cuerda);
+	/* banda dorada de comercio a lo largo del carro y una moneda sobre la carga */
+	gfx_fill(cx - ESC(12), cy + ESC(4), ESC(25), MAX(2, ESC(2)), oro_osc);
+	gfx_fill(cx - ESC(12), cy + ESC(4), ESC(25), MAX(1, ESC(1)), oro);
+	gfx_fill(cx - ESC(3), cy - ESC(14), ESC(5), ESC(5), oro_osc);
+	gfx_fill(cx - ESC(2), cy - ESC(13), ESC(3), ESC(3), oro);
+	#undef TINTE
+	#undef ESC
 }
 
 static void draw_hpbar(int sx, int sy, float frac, int w) {
@@ -321,6 +375,7 @@ static void draw_entity(const Entity *e, int shade) {
 		}
 
 		int f = dir_frame(s, anim, e->angle, &flip);
+		if (e->state == ST_DYING && as->die_sin_dir) { f = MIN((int)anim, MAX(0, s->nframes - 1)); flip = 0; }
 		int owner = e->owner >= 0 ? pcolor(e->owner) : 0;   /* color elegido en la configuración de la partida */
 		if (e->sel) {
 			int rx = (int)(14 * V.zoom), ry = (int)(7 * V.zoom);
@@ -332,8 +387,23 @@ static void draw_entity(const Entity *e, int shade) {
 			}
 		}
 		gfx_sprite(slp_frame(s, f), sx, sy, sc, owner, shade, flip);
+		if (e->state != ST_DYING)
+			for (int k = 0; k < 2; ++k) {
+				if (!as->over[k] || ((as->over_acting >> k) & 1 && !e->acting)) continue;
+				int fl2 = 0, f2 = dir_frame(as->over[k], W.time * 5.0f + e->variant, e->angle, &fl2);
+				gfx_sprite(slp_frame(as->over[k], f2), sx, sy, sc, owner, shade, fl2);
+			}
+		if (e->type == E_TRADECART && e->state != ST_DYING) carro_mercante_carga(sx, sy, sc, shade);
 		if (e->sel || e->hp < e->maxhp) {
 			if (e->state != ST_DYING) draw_hpbar(sx, sy - (int)(42 * V.zoom), e->hp / e->maxhp, (int)(26 * V.zoom));
+			if (e->state != ST_DYING && e->type == E_PRIEST && e->sel) {
+				/* barra de fe del sacerdote seleccionado: se llena mientras se recarga (azul) y queda llena cuando puede convertir */
+				float fe = 1.0f - priest_fe(e) / priest_recarga(e->owner), w = 26 * V.zoom;
+				int bx = sx - (int)w / 2, by = sy - (int)(42 * V.zoom) + 7;
+				gfx_fill(bx - 1, by - 1, (int)w + 2, 5, gfx_rgb(10, 8, 6));
+				gfx_fill(bx, by, (int)w, 3, gfx_rgb(24, 30, 60));
+				if (fe > 0) gfx_fill(bx, by, (int)(w * CLAMP(fe, 0, 1)), 3, fe >= 1.0f ? gfx_rgb(120, 190, 255) : gfx_rgb(60, 110, 200));
+			}
 		}
 		return;
 	}
@@ -541,7 +611,7 @@ int mm_filtro;
 
 void render_world(int top_h, int bottom_h) {
 	int ui_saved = gfx_ui_suspend();   /* el mundo se dibuja a la resolución real aunque la interfaz esté escalada */
-	gfx_fill(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0));
+	if (!gpu_ativo) gfx_fill(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0));   /* D436: por la GPU ya se borró al empezar el cuadro */
 
 	/* rango de casillas visibles: proyecta las cuatro esquinas de la pantalla */
 	float wx[4], wy[4];
@@ -562,7 +632,12 @@ void render_world(int top_h, int bottom_h) {
 	float t_anim = tiempo_anim();
 	{
 		PERF_INI();
-		if (hd_enabled) {
+		if (gpu_ativo) {   /* D436: como la CPU, nada bajo las barras de la interfaz (se ahorra relleno en la GPU) */
+			gpu_recorte(top_h, fb.h - bottom_h);
+			if (hd_enabled) render_terrain_hd_gpu(t_anim, top_h, fb.h - bottom_h);
+			else render_terrain_tiles_gpu(x0, x1, y0, y1);
+			gpu_recorte(0, 0);
+		} else if (hd_enabled) {
 			render_terrain_hd(t_anim, top_h, fb.h - bottom_h);
 		} else {
 			/* bajo las barras de la interfaz no hace falta dibujar el suelo: quedan tapadas */
@@ -573,7 +648,8 @@ void render_world(int top_h, int bottom_h) {
 		PERF_FIN(PERF_TERRENO);
 	}
 	PERF_INI();
-	gfx_lista_empezar();   /* D393: lo de encima del terreno se graba y se dibuja por franjas en los hilos (gfx.c) */
+	if (gpu_ativo) gpu_mundo_empezar();   /* D436: lo de encima del terreno va a la GPU, en orden */
+	else gfx_lista_empezar();   /* D393: lo de encima del terreno se graba y se dibuja por franjas en los hilos (gfx.c) */
 
 	/* recoge las entidades */
 	unsigned long long t_recoger = perf_activo ? perf_reloj() : 0;
@@ -678,8 +754,37 @@ void render_world(int top_h, int bottom_h) {
 		int sx, sy, bx, by;
 		view_to_screen(x, y, &sx, &sy);
 		view_to_screen(xb, yb, &bx, &by);
+		int kind = W.shots[k].kind;
+		if (kind >= 2) {
+			/* piedra de catapulta: sube en arco y gira; si faltan los datos del original se dibuja una piedra sencilla */
+			float alto = sinf(t * 3.1416f) * 46 * V.zoom;
+			Slp *ps = kind == 3 && s_proy_fuego ? s_proy_fuego : s_proy_piedra;
+			Sprite *sp = ps ? slp_frame(ps, (int)(t * 12) % MAX(1, ps->nframes)) : NULL;
+			if (sp && sp->w > 0) gfx_sprite(sp, sx, sy - (int)alto - (int)(6 * V.zoom), (int)(V.zoom * 256), 0, 256, 0);
+			else gfx_fill(sx - 2, sy - (int)alto - 8, 5, 5, gfx_rgb(110, 105, 98));
+			continue;
+		}
+		if (kind == 1 && s_proy_virote && s_proy_virote->nframes >= 8) {
+			/* virote de balista: 8 cuadros de dirección (el ángulo de la trayectoria en pantalla) */
+			int sx0, sy0, sx1, sy1;
+			view_to_screen(W.shots[k].x0, W.shots[k].y0, &sx0, &sy0);
+			view_to_screen(W.shots[k].x1, W.shots[k].y1, &sx1, &sy1);
+			float ang = atan2f((float)(sy1 - sy0), (float)(sx1 - sx0));
+			int fr = ((int)floorf(ang / 0.7853982f + 0.5f) + 8 + 6) & 7;
+			Sprite *sp = slp_frame(s_proy_virote, fr);
+			if (sp && sp->w > 0) { gfx_sprite(sp, sx, sy - (int)(10 * V.zoom) - (int)(sinf(t * 3.1416f) * 8 * V.zoom), (int)(V.zoom * 256), 0, 256, 0); continue; }
+		}
 		float arc = sinf(t * 3.1416f) * 14 * V.zoom;
 		gfx_line(bx, by - (int)(10 * V.zoom) - (int)arc, sx, sy - (int)(10 * V.zoom) - (int)arc, gfx_rgb(240, 230, 200));
+	}
+	/* impacto de las piedras: polvo y explosión donde caen */
+	for (int k = 0; k < W.nimpactos; ++k) {
+		int sx, sy;
+		view_to_screen(W.impactos[k].x, W.impactos[k].y, &sx, &sy);
+		if (s_impacto && s_impacto->nframes > 0) {
+			Sprite *sp = slp_frame(s_impacto, MIN(s_impacto->nframes - 1, (int)(W.impactos[k].t * s_impacto->nframes)));
+			if (sp && sp->w > 0) gfx_sprite(sp, sx, sy, (int)(V.zoom * 256), 0, 256, 0);
+		} else gfx_ellipse(sx, sy, (int)(10 * V.zoom), MAX(1, (int)(5 * V.zoom)), gfx_rgb(200, 190, 170), 40);
 	}
 
 	/* partículas (humo, polvo, fuego, escombros) y la luz del día y la noche */
@@ -687,7 +792,8 @@ void render_world(int top_h, int bottom_h) {
 	fx_luz(top_h, fb.h - bottom_h);
 	{
 		unsigned long long t_lista = perf_activo ? perf_reloj() : 0;
-		gfx_lista_terminar();
+		if (gpu_ativo) gpu_mundo_terminar();
+		else gfx_lista_terminar();
 		if (perf_activo) perf_sumar(PERF_LISTA, t_lista);
 	}
 	PERF_FIN(PERF_ENTIDADES);
@@ -758,6 +864,7 @@ void render_minimap(int x, int y, int w, int h) {
 	if (!mm_cache) return;
 	Uint32 now = SDL_GetTicks();
 	if (!mm_t || now - mm_t > 350 || mm_world != W.fog) { mm_t = now; mm_world = W.fog; minimap_refresh(w, h); }
+	gpu_capa_marca(y * us, (y + h) * us);   /* D436: se copia directamente en el búfer */
 	for (int py = 0; py < h; ++py) {
 		int yy0 = (y + py) * us;
 		for (int k = 0; k < us; ++k) {

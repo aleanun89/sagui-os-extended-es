@@ -1,0 +1,10 @@
+Sonidos del esquema «Kenney» de SaguiOS-Extended
+================================================
+Paquete: «Interface Sounds» de Kenney (www.kenney.nl)
+Página:  https://kenney.nl/assets/interface-sounds
+         (copia: https://opengameart.org/content/interface-sounds)
+Licencia: Creative Commons Zero (CC0 1.0), dominio público: http://creativecommons.org/publicdomain/zero/1.0/
+          La atribución no es obligatoria; se da por cortesía. Ver LICENCIA.txt.
+Descargado: 2026-11-20 (ZIP con SHA-256 f2193d072726d6758a5f7871b2dcc54dcce0d5c35c6f0a62f92549b327c81232)
+Cambios: convertidos de OGG a WAV mono de 22050 Hz y 16 bits (tools/sonidos_datos.sh); sin más edición.
+Elección (evento: fichero original): arranque:glass_004 apagar:close_004 reiniciar:switch_001 aviso:glass_001 error:error_005 pregunta:question_001 usb_conectar:maximize_001 usb_desconectar:minimize_001 bateria:error_003 papelera:drop_004 

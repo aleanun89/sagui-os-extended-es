@@ -9,6 +9,7 @@
 #include "avisos.h"
 #include "acoes.h"
 #include "gui.h"
+#include "aparencia.h"
 #include "idioma.h"
 #include "console.h"
 #include "processo.h"
@@ -186,10 +187,11 @@ void avisos_desenhar(superficie_t *t)
     if (!ativo) return;
     int x, y, l, a;
     avisos_retangulo(&x, &y, &l, &a);
-    sup_retangulo(t, x, y, l, a, 0x18202A);
-    sup_moldura(t, x, y, l, a, 0xFFDF4A);
-    sup_retangulo(t, x, y, 6, a, 0xFFDF4A);
-    sup_texto(t, x + AV_MARGEN, y + 6, SAGUI_NOME, 0xFFDF4A);
+    const esquema_t *q = esquema();   /* D428 */
+    sup_retangulo(t, x, y, l, a, q->painel_fundo);
+    sup_moldura(t, x, y, l, a, q->painel_borde);
+    sup_retangulo(t, x, y, 6, a, q->painel_borde);
+    sup_texto(t, x + AV_MARGEN, y + 6, SAGUI_NOME, q->painel_borde);
     for (int i = 0; i < qtd_linhas; i++) {
         char b[128];
         int n = linha_tam[i];
@@ -197,7 +199,7 @@ void avisos_desenhar(superficie_t *t)
         for (int k = 0; k < n; k++) b[k] = atual.texto[linha_ini[i] + k];
         b[n] = 0;
         if (linha_reticencias && i == qtd_linhas - 1) { b[n++] = '.'; b[n++] = '.'; b[n++] = '.'; b[n] = 0; }
-        sup_texto(t, x + AV_MARGEN, y + AV_CABECERA + i * AV_LINEA_A, b, 0xFFFFFF);
+        sup_texto(t, x + AV_MARGEN, y + AV_CABECERA + i * AV_LINEA_A, b, q->painel_texto);
     }
 }
 

@@ -224,6 +224,10 @@ def analizar(ruta):
             copia = True
         if RE_GPL_TEXTO.search(l):
             gpl = True
+    # La salida de GNU Bison (un analizador generado, p. ej. awkgram.tab.c de awk, D440) lleva la GPL, pero con la
+    # «excepción especial» que permite distribuirla con los términos que se quiera: no cuenta como GPL.
+    if gpl and re.search(r"special exception.{0,300}Bison parser skeleton", re.sub(r"[\s*/#]+", " ", " ".join(cabecera(ruta))), re.I):
+        gpl = False
     return spdx, copia, gpl
 
 

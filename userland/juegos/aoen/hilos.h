@@ -27,7 +27,10 @@ int hilos_partes(void);
 
 /* ---- medidas (AOEN_PERFIL=1): tiempo por fase del cuadro, para el banco (main.c) ---- */
 /* RECOGER (elegir y ordenar las entidades visibles) y LISTA (reproducir la lista de dibujo) van dentro de ENTIDADES */
-enum { PERF_SIM, PERF_IA, PERF_TERRENO, PERF_ENTIDADES, PERF_INTERFAZ, PERF_PRESENTAR, PERF_EVENTOS, PERF_RECOGER, PERF_LISTA, PERF_N };
+/* D436, con el dibujo por GPU: GEOM (mandar triángulos a la SDL), CAPA (subir las franjas de la interfaz) y MOSTRAR
+ * (SDL_RenderPresent: la GPU acaba y copia a la pantalla) van dentro de las otras fases */
+enum { PERF_SIM, PERF_IA, PERF_TERRENO, PERF_ENTIDADES, PERF_INTERFAZ, PERF_PRESENTAR, PERF_EVENTOS, PERF_RECOGER, PERF_LISTA,
+       PERF_GEOM, PERF_CAPA, PERF_MOSTRAR, PERF_N };
 extern int perf_activo;
 unsigned long long perf_reloj(void);         /* contador de alta resolución (TSC en SaguiOS) */
 void perf_sumar(int fase, unsigned long long desde);

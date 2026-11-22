@@ -16,10 +16,10 @@ Estado a 2026-11-16 (v8.0; 3dfx, Mach64 y S3, v8.3.3; Radeon de la v8.3 completa
 | **Intel Gen7** HD 2500/4000 (Ivy Bridge), Gen7.5 HD 4200-5200 (Haswell) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, blitter por el anillo BCS heredado, con VESA y con GOP (D359), sin probar en hardware | 📅 v11 (111) | 📅 v11, hasvk (64 bits) | **Toshiba L850** (HD 4000, `8086:0166`) |
 | **Intel Gen8** HD 5300-6300, Iris 6100 (Broadwell) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, blitter por el anillo BCS heredado (D359), sin probar en hardware | 📅 v11 (111) | 📅 v11, ANV (64 bits) | (ninguna) |
 | **Intel Gen9-Gen12** Skylake…Alder Lake (HD/UHD 6xx, Iris Xe) | ✅ (GOP) | 📅 v11 (111): necesita execlists; hoy la CPU, con el motivo en el log (D359) | 📅 v11 (111) | 📅 v11, ANV (64 bits) | **mini PC i3-1220P** (Gen12) |
-| **Radeon R5xx** X1300-X1950 (Mobility X1400) | ✅ | ✅ v7.2, **confirmado en el Amilo** (X1400, 2026-11-18: 176 órdenes iguales a la CPU, 34 veces más rápido; issue #3, D386) | ✅ **v8.3** (D287), **autoprueba superada en el Amilo** (X1400, 2026-11-18: 8 de 8, 348 mil triángulos/s, puntuación 2504) tras D386 (zona detrás de todas las superficies y el cero del programa de vértices); sigue apagado hasta `gpu3d encender`; diagnóstico por etapas (D357) | — | Fujitsu Amilo |
- **Radeon R6xx/R7xx** HD 2000-4000 (HD 4530/4550) | ✅ | ✅ v7.4, motor DMA (D223, D246); **confirmado en el dv7** (D402); R6xx solo con `--acel2d=radeon` | ✅ **R7xx probado en el dv7** (D402, v8.5.5: 8 pruebas BIEN, 5 min de `sgldemo` sin fallos; traer el cuadro limita a ~50 fps en 320x240); sigue apagado hasta `gpu3d probar`/`gpu3d encender`; GART y vuelta del cuadro por CP_DMA (D406): **probada en el dv7** (945 fps frente a 50, 15.000 cuadros) y, desde la v8.5.5, **encendida sola** con el 3D en la RV710 `1002:9553` (`gpu3d encender sin-gtt` la evita); R6xx sin probar (D357) | — | **HP dv7** |
- **Radeon Evergreen/NI** HD 5000-6000 (Cedar…Hemlock, Barts, Turks, Caicos, Cayman; sin las APU) | ✅ (VESA/GOP) | 🟡 **v8.3**, motor DMA (D286); ✅ **HD 7600M Turks `1002:6840` confirmada en v8.5.5** (VRAM del MC por encima de 4 GB, D408): copias x7, rellenos x3,8; el resto sin probar en hardware | — (solo 2D en la HD 7600M) | — | Toshiba L635 (Mobility HD 5000, `1002:68e0`); Toshiba con HD 7600M (`1002:6840`) |
-| **Radeon GCN 1.0** HD 7700-7900, R7 240/250, R9 270/280 (Tahiti, Pitcairn, Cape Verde, Oland) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, motor DMA sin microcódigo (D360), sin probar en hardware | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | (por definir; Ryzen B450 si lleva una) |
+| **Radeon R5xx** X1300-X1950 (Mobility X1400) | ✅ | ✅ v7.2, **confirmado en el Amilo** (X1400, 2026-11-18: 176 órdenes iguales a la CPU, 34 veces más rápido; issue #3, D386) | ✅ **v8.3** (D287), **autoprueba superada en el Amilo** (X1400, 2026-11-18: 8 de 8, 348 mil triángulos/s, puntuación 2504) tras D386 (zona detrás de todas las superficies y el cero del programa de vértices); sigue apagado hasta `gpu3d encender`; diagnóstico por etapas (D357); 🟡 **gpu3d v2 (D426, v8.5.5.2)**: **en el Amilo (2026-11-20) colgaba el CP; corregido** (vaciar las cachés antes de esperar al cambiar el formato del vértice): la X1400 anuncia v2 con **una unidad**, prueba alfa, tijera, máscaras, Z, mezcla separada, lógica, espejo, anisótropo, DXT y destino textura; combinar con varias unidades, DOT3 y niebla fallan sus pruebas en la máquina, y esténcil/LIMPAR2 se quitaron (rayas en «sombra» de es11demo): van por software; sin NPOT con repetición, mipmaps ni cubos | — | Fujitsu Amilo |
+| **Radeon R6xx/R7xx** HD 2000-4000 (HD 4530/4550) | ✅ | ✅ v7.4, motor DMA (D223, D246); **confirmado en el dv7** (D402); R6xx solo con `--acel2d=radeon` | ✅ **R7xx probado en el dv7** (D402, v8.5.5: 8 pruebas BIEN, 5 min de `sgldemo` sin fallos; traer el cuadro limita a ~50 fps en 320x240); sigue apagado hasta `gpu3d probar`/`gpu3d encender`; GART y vuelta del cuadro por CP_DMA (D406): **probada en el dv7** (945 fps frente a 50, 15.000 cuadros) y, desde la v8.5.5, **encendida sola** con el 3D en la RV710 `1002:9553` (`gpu3d encender sin-gtt` la evita); R6xx sin probar (D357); 🟡 **gpu3d v2 (D426, v8.5.5.2)**: 4 unidades con COMBINE/DOT3 (sombreador generado, caché en la VRAM), esténcil, prueba alfa, tijera, máscaras, mezcla separada, lógica, niebla, NPOT, espejo, anisótropo, DXT, destino textura; anuncia solo lo que pasa sus pruebas en la máquina; sin mipmaps ni cubos | — | **HP dv7** |
+| **Radeon Evergreen/NI** HD 5000-6000 (Cedar…Hemlock, Barts, Turks, Caicos, Cayman; sin las APU) | ✅ (VESA/GOP) | 🟡 **v8.3**, motor DMA (D286); ✅ **HD 7600M Turks `1002:6840` confirmada en v8.5.5.1** (VRAM del MC por encima de 4 GB, D408): copias x7, rellenos x3,8; el resto sin probar en hardware | 🔧 **v8.5.5.2** (D427): driver `gpu3d_evergreen` (CP con microcódigo, sombreadores de Evergreen, VRAM del MC de 40 bits) para Cedar…Hemlock, Barts, Turks y Caicos (Cayman no: VLIW4); apagado hasta `gpu3d probar`/`gpu3d encender`; en prueba en la HD 7600M del Toshiba | — | Toshiba L635 (Mobility HD 5000, `1002:68e0`); Toshiba con HD 7600M (`1002:6840`) |
+| **Radeon GCN 1.0** HD 7700-7900, R7 240/250, R9 270/280 (Tahiti, Pitcairn, Cape Verde, Oland) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, motor DMA sin microcódigo (D360), sin probar en hardware | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | **Radeon R9 270X del mantenedor** (Pitcairn/Curacao) |
 | **Radeon GCN 1.1-5** HD 7790, R9 290/390, RX 400/500 (Polaris), Vega | ✅ (GOP) | 📅 v11 por SDMA (110); desde v8.5.2 el log dice la familia y por qué copia la CPU (D360) | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | (por definir) |
 | **Radeon RDNA 1/2/3** RX 5000-7000 | ✅ (GOP) | 📅 v11 (110, tras GCN) | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | (por definir) |
 | **NVIDIA GeForce 6/7**, nForce 6100-7050 | ✅ | 🟡 v7.4 (D226), sin probar en hardware | — | — | — |
@@ -35,6 +35,14 @@ del sistema a la pantalla por la **GART PCIE** (la CPU solo pone la orden). ✅ 
 desde la v8.5.5; en las demás R5xx, a mano (`acel2d volcado encender`; `acel2d volcado medir`, `infopc` «Volcados por GPU»). Las demás
 tarjetas siguen copiando por la CPU; las Intel con GTT (Gen3 en adelante) son las siguientes candidatas. Se apaga con
 `kconfig volcado_gpu=no`.
+
+**Presentar sin volver a la RAM (D432, v8.5.5.2).** Un juego de la SDL 2 a pantalla completa con el renderizador por GPU
+ya no trae cada cuadro a la RAM: la GPU lo copia, escalado, **a la superficie de la pantalla** y el compositor se la cede
+mientras dure (la recupera con Alt+Tab, avisos, salvapantallas, bloqueo...). Lo tienen los drivers 3D de **Radeon R5xx**
+(X1400), **R6xx/R7xx** (HD 4500) y **Evergreen/NI** (HD 7600M); Intel Gen3, no. ✅ **Probado en el Amilo** (X1400,
+2026-11-20: DOOM a 109 fps frente a 82 por software; `sdl2presentar` 640x480 a 177 frente a 83); 🟡 **sin probar** en el dv7
+ni en el Toshiba. Es opcional (`SDL_SAGUI_GPU=1` y el 3D encendido): `docs/gpu3d.md`,
+«Presentar sin volver a la RAM», y `docs/sdl-gpu.md`.
 
 **El cuadro del 3D vuelve a la RAM por la GPU (D391, v8.5.4.10r2).** En las mismas **Radeon R5xx con PCI Express**, el 3D
 ya no obliga a la CPU a leer cada cuadro de la VRAM (lo más lento del cubo en el Amilo): el motor 2D lo escribe en la
@@ -88,6 +96,8 @@ el diálogo de administrador.
 | v10.0 | SaguiOS de **64 bits** (base para Vulkan), sin quitar los 32 bits |
 | **v11** | **GPU modernas, Intel primero**: Intel Gen5-Gen12 (111) y luego AMD GCN/RDNA (107, 110): pantalla nativa, 2D, 3D en 32 bits y **Vulkan** en 64 bits (ANV/hasvk, RADV) (108) |
 
+**Posible (sin versión): 3D propio y pequeño para Intel Gen 9-12.** Un driver de `gpu3d` como los de la X1400 y la HD 4500 (estado mínimo del cauce 3D y unos pocos sombreadores fijos en la ISA de Intel), sobre las execlists del 2D (D434), para que SaguiGL cumpla **OpenGL ES 1.1 y un poco más** por la GPU sin esperar a Mesa ni a la v11. Requisito: el 2D por execlists confirmado en el mini PC i3-1220P.
+
 ## Depurar el 3D de una tarjeta (cualquier driver de `gpu3d`, D390)
 
 Lo que sirvió para encontrar el fallo de la X1400 del Amilo (D386) vale ahora para todas las tarjetas con driver 3D
@@ -110,6 +120,7 @@ Lo que sirvió para encontrar el fallo de la X1400 del Amilo (D386) vale ahora p
    | --- | --- | --- |
    | Radeon R5xx | `gpu3d-r500.conf` | `0x2000-0x4FFC` (VAP, GA, SU, RS, SC, US, FG, RB3D, ZB) |
    | Radeon R6xx/R7xx | `gpu3d-r600.conf` | contexto `0x28000-0x28FFC`; VGT/PA/SQ `0x8800-0x8DFC`, SPI `0x9100-0x91FC`, `0x9830-0x983C` |
+   | Radeon Evergreen/NI (D427) | `gpu3d-evergreen.conf` | contexto `0x28000-0x28FFC`; VGT/PA/SQ `0x8800-0x8EFC`, SPI `0x9100-0x91FC`, DB `0x9830-0x985C`, `GB_ADDR_CONFIG`/`GB_BACKEND_MAP` `0x98F8-0x98FC` |
    | Intel Gen3 | `gpu3d-intel.conf` | ninguno (el estado va en órdenes 3DSTATE) |
    | simulado (pruebas) | `gpu3d-simulado.conf` | `0x1000` XOR del color, `0x1004` no escribir |
 
@@ -148,6 +159,16 @@ Lo que sirvió para encontrar el fallo de la X1400 del Amilo (D386) vale ahora p
 5. Toshiba con la HD 7600M (`1002:6840`, D408): la BIOS pone la VRAM en el MC en 0xF_0000_0000; el arranque tiene que
    decir `[ACEL2D] r600: la VRAM esta en el MC por encima de 4 GB (D408): pantalla en f:0` y `activo: Radeon HD
    7500M/7600M (Turks)`. Mover ventanas y desplazar texto (los contadores de `acel2d` «copias … por la GPU» suben).
+   D424: el VBE deja la prioridad de la pantalla sin programar (`PRIORITY_A_CNT`/`PRIORITY_B_CNT` 0x6B18/0x6B1C y
+   `PIPE0_LATENCY_CONTROL` 0x0BF4 a 0) y, con la CPU escribiendo en la VRAM con write-combining (~3 GB/s), salían
+   zonas pálidas o lavadas y rayas de 1 px donde la CPU acababa de escribir (menú, juegos a pantalla completa). Con el
+   2D en marcha el driver pone `PRIORITY_ALWAYS_ON` (bit 20; A y B pasan de 0 a 0x100000, como
+   `radeon.disp_priority=2`). Contraprueba del 2026-11-20: con ALTA bien, con la BIOS vuelve a fallar. Con `acel2d
+   apagar` vuelve la de la BIOS (y el fallo).
+6. **Si aparece en otra Radeon** (zonas pálidas y rayas de 1 px donde se acaba de dibujar): `acel2d probar --detalle`
+   (en Evergreen/NI y R6xx/R7xx escribe la prioridad en el log; en la HD 7600M estaba a 0) y, en Evergreen/NI,
+   `acel2d prioridad alta`, `bios` y `estres` mirando la pantalla. Registros de R5xx y R6xx/R7xx
+   (`D1MODE_PRIORITY_A/B_CNT` 0x6548/0x654C, D2 0x6D48/0x6D4C) y de SI/CIK, y la función de Linux de cada familia: D424.
 
 ## Qué probar en una Radeon GCN (D360)
 

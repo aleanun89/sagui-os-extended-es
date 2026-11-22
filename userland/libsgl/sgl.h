@@ -20,6 +20,17 @@
 #include "sagui.h"
 #endif
 
+/* D425: fuera del cc de dentro (que compila solo el motor de siempre en
+ * /ejemplos/sagui_gl), SaguiGL es OpenGL ES 1.1 completo: los nombres, tipos
+ * y funciones son los de las cabeceras estándar (userland/inc/GLES). Las
+ * definiciones de abajo solo valen cuando no están (SGL_POR_CC). */
+#ifndef SGL_POR_CC
+#include "../inc/GLES/gl.h"
+#include "../inc/GLES/glext.h"
+#define SGL_ES 1
+#endif
+
+#ifndef __gles1_gl_h_
 typedef float    GLfloat;
 typedef int      GLint;
 typedef unsigned GLenum;
@@ -87,9 +98,6 @@ typedef unsigned GLuint;
 #define GL_FOG_END   0x0B64
 #define GL_FOG_COLOR 0x0B66
 
-#define GL_LIGHT_POSITION 0x0B03
-#define GL_LIGHT_DIFFUSE  0x0B22
-#define GL_LIGHT_AMBIENT  0x0B00
 
 #define GL_TEXTURE_COORD_ARRAY 0x8078
 
@@ -105,6 +113,13 @@ typedef unsigned GLuint;
 #define GL_STACK_UNDERFLOW   0x0504
 #define GL_OUT_OF_MEMORY     0x0505
 
+#endif /* __gles1_gl_h_ */
+
+/* Nombres propios de SaguiGL v6 (no son de GL ES): glLightfv(GL_LIGHT0, ...). */
+#define GL_LIGHT_POSITION 0x0B03
+#define GL_LIGHT_DIFFUSE  0x0B22
+#define GL_LIGHT_AMBIENT  0x0B00
+
 struct jan_s;
 
 typedef struct sgl_ctx sgl_ctx_t;
@@ -118,8 +133,13 @@ sgl_ctx_t *sgl_criar_contexto(void *janela, int zbits);
 sgl_ctx_t *sgl_criar_contexto_mem(uint32_t *px, int larg, int alt, int zbits);
 void       sgl_destruir_contexto(sgl_ctx_t *c);
 void       sgl_usar_contexto(sgl_ctx_t *c);
+sgl_ctx_t *sgl_contexto_atual(void);   /* D426: el contexto actual (el de EGL también) */
 void       sgl_redimensionar(sgl_ctx_t *c);   /* tras cambiar el tamaño de la ventana */
 void       sgl_trocar(void);                   /* muestra el cuadro (ventana) */
+/* D425 (para EGL): otro destino para el contexto (janela o px en memoria), y
+ * bits de esténcil de la configuración (0 = no tiene; 8 por defecto). */
+int        sgl_mudar_destino(sgl_ctx_t *c, void *janela, uint32_t *px, int larg, int alt);
+void       sgl_estencil(sgl_ctx_t *c, int bits);
 uint32_t   sgl_soma(const uint32_t *px, int n); /* suma FNV-1a, para las pruebas */
 
 /* ---- estado ---- */
@@ -195,6 +215,7 @@ int  sgl_motor_simd_ativo(void);
  * perspectiva, el filtro es bilineal o trilineal con mipmaps, y la luz es la
  * de OpenGL ES 1.1 por vértice (ambiente + difusa + especular, hasta 8 luces,
  * atenuación y materiales) con el especular sumado después de la textura. */
+#ifndef __gles1_gl_h_
 #define GL_NEAREST_MIPMAP_NEAREST 0x2700
 #define GL_LINEAR_MIPMAP_NEAREST  0x2701
 #define GL_NEAREST_MIPMAP_LINEAR  0x2702
@@ -242,6 +263,8 @@ int  sgl_motor_simd_ativo(void);
 #define GL_EXP         0x0800
 #define GL_EXP2        0x0801
 
+#endif /* __gles1_gl_h_ */
+
 #define SGL_MAX_LADO   2048   /* lado máximo de una textura */
 #define SGL_MAX_LUZES  8
 
@@ -274,6 +297,13 @@ void sgl_estatisticas(sgl_estat_t *e, int zerar);
  * glFinish(). Los contextos en memoria (sgl_criar_contexto_mem) son siempre
  * por software salvo que se pida con sgl_gpu_ligar(). La GPU no da los mismos
  * píxeles bit a bit que el motor por software (bordes, redondeo). */
+/* D451: el contexto de ventana dibuja en un búfer propio y sgl_trocar copia el cuadro entero a la ventana (EGL lo
+ * pide para sus superficies de ventana). Con la GPU a pantalla completa, sgl_trocar presenta directo (D432). */
+void sgl_tras_proprio(sgl_ctx_t *c);
+/* D451: escala de dibujo (25 a 100 %; 100 = el tamaño de la ventana) de un contexto con búfer propio; el cuadro se
+ * amplía a la ventana al presentar. sgl_escala_medida da el lado que resulta. */
+int  sgl_escala(sgl_ctx_t *c, int pct);
+int  sgl_escala_medida(int lado, int pct);
 int  sgl_gpu_ligar(sgl_ctx_t *c);      /* 1 = el contexto dibuja por la GPU; 0 = sigue por software */
 void sgl_gpu_desligar(sgl_ctx_t *c);
 int  sgl_gpu_ativa(void);              /* el contexto actual, ahora */

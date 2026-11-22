@@ -46,15 +46,15 @@ msgid ""
 "¿Guardar antes?"
 msgstr ""
 
-#: userland/programas/editor.c:123 userland/programas/editor.c:298
+#: userland/programas/editor.c:123 userland/programas/editor.c:308
 msgid "Nuevo"
 msgstr ""
 
-#: userland/programas/editor.c:123 userland/programas/editor.c:325
+#: userland/programas/editor.c:123 userland/programas/editor.c:335
 msgid "Abrir"
 msgstr ""
 
-#: userland/programas/editor.c:124 userland/programas/editor.c:298
+#: userland/programas/editor.c:124 userland/programas/editor.c:308
 msgid "Guardar"
 msgstr ""
 
@@ -74,31 +74,31 @@ msgstr ""
 msgid "Edición"
 msgstr ""
 
-#: userland/programas/editor.c:224
+#: userland/programas/editor.c:233
 msgid "Editor - sin nombre"
 msgstr ""
 
-#: userland/programas/editor.c:298
+#: userland/programas/editor.c:308
 msgid "Abrir..."
 msgstr ""
 
-#: userland/programas/editor.c:298
+#: userland/programas/editor.c:308
 msgid "Guardar como..."
 msgstr ""
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Cortar"
 msgstr ""
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Copiar"
 msgstr ""
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Pegar"
 msgstr ""
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Seleccionar todo"
 msgstr ""
 

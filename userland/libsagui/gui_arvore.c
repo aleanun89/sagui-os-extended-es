@@ -93,7 +93,7 @@ void arvore_mostrar(arvore_t *a, int i)
 void arvore_desenhar(jan_t *j, arvore_t *a)
 {
     limitar_topo(a);
-    g_retangulo(j, a->x, a->y, a->l, a->a, COR_BRANCO);
+    g_retangulo(j, a->x, a->y, a->l, a->a, COR_CAMPO);
     g_moldura(j, a->x, a->y, a->l, a->a, COR_BORDA);
     int cab = filas_caben(a), f = 0;
     for (int i = 0; i < a->n; i++) {
@@ -105,21 +105,21 @@ void arvore_desenhar(jan_t *j, arvore_t *a)
         bool sel = i == a->sel;
         if (sel) g_retangulo(j, a->x + 2, y, a->l - 4, ARV_FILA, COR_SELECAO);
         if (arvore_tem_filhos(a, i)) {
-            g_retangulo(j, sx, y + 5, 9, 9, COR_BRANCO);
-            g_moldura(j, sx, y + 5, 9, 9, sel ? COR_BRANCO : COR_BORDA);
-            g_retangulo(j, sx + 2, y + 9, 5, 1, sel ? COR_BRANCO : COR_TEXTO);
-            if (!a->aberto[i]) g_retangulo(j, sx + 4, y + 7, 1, 5, sel ? COR_BRANCO : COR_TEXTO);
+            g_retangulo(j, sx, y + 5, 9, 9, COR_CAMPO);
+            g_moldura(j, sx, y + 5, 9, 9, sel ? COR_SEL_TEXTO : COR_BORDA);
+            g_retangulo(j, sx + 2, y + 9, 5, 1, sel ? COR_SEL_TEXTO : COR_TEXTO);
+            if (!a->aberto[i]) g_retangulo(j, sx + 4, y + 7, 1, 5, sel ? COR_SEL_TEXTO : COR_TEXTO);
         }
         int tx = sx + (arvore_tem_filhos(a, i) ? 14 : 4), cols = (a->x + a->l - tx - 8) / LETRA_L;
-        if (cols > 0) g_texto_n(j, tx, y + 2, a->textos[i], cols, sel ? COR_BRANCO : COR_TEXTO);
-        if (a->nivel[i] == 0) g_texto_n(j, tx + 1, y + 2, a->textos[i], cols > 0 ? cols : 0, sel ? COR_BRANCO : COR_TEXTO);   /* las ramas, en negrita */
+        if (cols > 0) g_texto_n(j, tx, y + 2, a->textos[i], cols, sel ? COR_SEL_TEXTO : COR_TEXTO);
+        if (a->nivel[i] == 0) g_texto_n(j, tx + 1, y + 2, a->textos[i], cols > 0 ? cols : 0, sel ? COR_SEL_TEXTO : COR_TEXTO);   /* las ramas, en negrita */
     }
     int total = filas_visiveis(a);
     if (total > cab) {
         int trilho = a->a - 4, pol_a = trilho * cab / total;
         if (pol_a < 8) pol_a = 8;
         int pol_y = (trilho - pol_a) * a->topo / (total - cab);
-        g_retangulo(j, a->x + a->l - 6, a->y + 2 + pol_y, 4, pol_a, 0x9AA3AC);
+        g_retangulo(j, a->x + a->l - 6, a->y + 2 + pol_y, 4, pol_a, sagui_esq.scroll_polegar);
     }
     jan_mostrar_area(j, a->x, a->y, a->l, a->a);
     GR_REG(j, "arvore", a, a->x, a->y, a->l, a->a, "", 0, 0);

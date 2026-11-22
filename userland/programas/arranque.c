@@ -31,7 +31,13 @@
  * en sitio libre (nunca encima de la etapa 2, el kernel o el ramdisk que arrancan ahora). Si la
  * partición no tiene sitio para el kernel, va como fichero en la ESP (FAT32, tipo 0xEF) del mismo
  * disco, a través del sistema de archivos, y la etapa 2 lee esos sectores. Cada escritura se relee y
- * se compara; la cabecera se cambia la última, en una sola escritura de un sector. */
+ * se compara; la cabecera se cambia la última, en una sola escritura de un sector.
+ *
+ * Por UEFI (D439): el cargador (boot/uefi/cargador.c) lee las mismas ranuras de la misma cabecera del disco
+ * y hace lo mismo que la etapa 2: borra la marca en el disco (un sector, con Block I/O) antes de cargar la
+ * prueba y lee sus datos por sectores. Así un disco se comporta igual arranque por BIOS o por UEFI, y el
+ * kernel de la ESP (\SAGUI\KERNEL.BIN) no se toca nunca. Un cargador UEFI de antes no sabe de las ranuras:
+ * lo dice OPC_BOOT_UEFI_RANURA en la boot_info, y sin ella «probar» y «confirmar» se niegan por UEFI. */
 #include "sagui.h"
 #include "particoes.h"
 #include "sha256.h"
@@ -76,6 +82,8 @@
 #define PR_FIXA      4
 #define OPC_BOOT_KERNEL_PRUEBA 0x100000u   /* kernel/inc/bootinfo.h */
 #define OPC_BOOT_KERNEL_FIXO   0x200000u
+#define OPC_BOOT_UEFI_RANURA   0x400000u   /* D439: el cargador UEFI sabe de las ranuras */
+#define ESP_MARGEM_KB 256       /* sitio que se deja libre en la ESP (directorios, FAT) */
 #define KERNEL_END   0x100000u
 #define E2_MAX_SET   64          /* ESTAGIO2_MAX_SET: el MBR la lee a 0x8000-0xFFFF */
 #define E2_LBA_MAX   16000u      /* el MBR por CHS (CD) divide con 8 bits: la etapa 2, en los primeros 8 MB */
@@ -167,8 +175,8 @@ static bool abrir_disco(const char *pedido)
     }
     info_bloco_t b;
     if (blocos_info(D.disco, &b) < 0 || b.inicio) { erro("%s no es un disco entero", D.disco); return false; }
-    if (b.gpt) { erro("%s tiene GPT: el kernel de prueba solo existe para el arranque por BIOS con MBR", D.disco); return false; }
-    if (b.bloco_fisico != 512) { erro("%s tiene bloques de %u bytes: no arranca por BIOS", D.disco, b.bloco_fisico); return false; }
+    if (b.gpt) { erro("%s tiene GPT: el kernel de prueba solo existe en discos con MBR (la imagen grabada, o instalados con MBR)", D.disco); return false; }
+    if (b.bloco_fisico != 512) { erro("%s tiene bloques de %u bytes: el kernel de prueba solo existe en discos de bloques de 512", D.disco, b.bloco_fisico); return false; }
     uint8_t mbr[512];
     if (blocos_ler(D.disco, 0, 1, mbr) < 0 || blocos_ler(D.disco, 1, 1, D.cab) < 0) { erro("no se puede leer %s", D.disco); return false; }
     if (le32(D.cab) != CAB_ASSIN) { erro("%s no tiene la cabecera de arranque de SaguiOS en el LBA 1", D.disco); return false; }
@@ -548,6 +556,16 @@ static bool achar_esp(char *nome, int max, uint32_t *ini)
     return false;
 }
 
+/* Lo libre (KB) del sistema de archivos montado en ESP_PONTO; 0xFFFFFFFF si no se sabe. */
+static uint32_t esp_livre_kb(void)
+{
+    info_montagem_t m[16];
+    int n = info_sistema(INFO_MONTAGENS, m, 16);
+    for (int i = 0; i < n; i++)
+        if (compara_texto(m[i].ponto, ESP_PONTO) == 0 && m[i].total_kb) return m[i].livre_kb;
+    return 0xFFFFFFFFu;
+}
+
 /* Copia el kernel (y el ramdisk) como ficheros de la ESP (el juego «onde», 1 o 2: nunca el del último
  * bueno) y devuelve sus tramos en t (kernel en t, ramdisk en t + 32). Se escribe por el sistema de
  * archivos y se desmonta antes de reservar el disco. */
@@ -570,6 +588,18 @@ static bool para_esp(int onde, const uint8_t *k, uint32_t nk, const uint8_t *r, 
     formatar_texto(c2, sizeof c2, "%s/%s", ESP_PONTO, ESP_RAMDISK[onde]);
     apagar(c1);
     apagar(c2);
+    /* D439: la ESP es pequeña (40 MB en la imagen; SAGUI-EFI): un kernel con su ramdisk puede no caber.
+     * Se mira antes de escribir nada (con los ficheros viejos de este juego ya borrados). */
+    uint32_t libre_kb = esp_livre_kb(), falta_kb = (nk + nr + 1023) / 1024 + ESP_MARGEM_KB;
+    if (libre_kb != 0xFFFFFFFFu && libre_kb < falta_kb) {
+        int dm0 = desmontar(ESP_PONTO);
+        if (dm0 >= 0) apagar(ESP_PONTO);
+        erro("la ESP %s no tiene sitio para el kernel de prueba%s: %u KB libres, hacen falta %u KB. %s", esp,
+             r ? " y su ramdisk" : "", libre_kb, falta_kb,
+             r ? "Prueba sin ramdisk propio (con el normal) o deja sitio en la partición de SaguiOS" :
+                 "Borra ficheros de la ESP o deja sitio en la partición de SaguiOS (mkimagem.py --ranura-mb)");
+        return false;
+    }
     bool ok = gravar_arquivo(c1, k, nk) && (!r || gravar_arquivo(c2, r, nr));
     int dm = desmontar(ESP_PONTO);
     if (dm >= 0) apagar(ESP_PONTO);
@@ -648,6 +678,10 @@ static int cmd_estado(void)
              (v & E2_SABE_BOM) ? "sabe arrancar el kernel de prueba y el último bueno (D392)" :
              v ? "ANTIGUA: sabe del kernel de prueba pero no del último bueno (arranque etapa2)" :
                  "ANTIGUA: no sabe del kernel de prueba (arranque etapa2)");
+    if (D.arr_ok && D.arr.firmware != 0)
+        imprimir("Cargador UEFI (%s): %s\n", D.arr.firmware == 2 ? "IA32" : "x64",
+                 (D.arr.opcoes & OPC_BOOT_UEFI_RANURA) ? "sabe arrancar el kernel de prueba y el último bueno (D439)" :
+                 "ANTIGUO: no sabe del kernel de prueba (graba una imagen nueva)");
     imprimir("Kernel original (el de la imagen):\n");
     mostrar_parte("Kernel:", le32(D.cab + CAB_K_LBA), le32(D.cab + CAB_K_LBA + 4), le32(D.cab + CAB_K_BYTES), le32(D.cab + CAB_K_SOMA));
     mostrar_parte("Ramdisk:", le32(D.cab + CAB_R_LBA), le32(D.cab + CAB_R_LBA + 4), le32(D.cab + CAB_R_BYTES), le32(D.cab + CAB_R_SOMA));
@@ -671,14 +705,23 @@ static int cmd_estado(void)
     int nu = usados(u, D.cab, true, true);
     imprimir("Libre en %s: %u sectores seguidos como mucho\n", D.part, maior_livre(u, nu));
     if (D.arr_ok)
-        imprimir("Este arranque: %s\n", !(D.arr.opcoes & OPC_BOOT_KERNEL_PRUEBA) ? "el kernel original" :
-                 (D.arr.opcoes & OPC_BOOT_KERNEL_FIXO) ? "el último bueno" : "el KERNEL DE PRUEBA (una vez)");
+        imprimir("Este arranque: %s (por %s)\n", !(D.arr.opcoes & OPC_BOOT_KERNEL_PRUEBA) ? "el kernel original" :
+                 (D.arr.opcoes & OPC_BOOT_KERNEL_FIXO) ? "el último bueno" : "el KERNEL DE PRUEBA (una vez)", D.arr.firmware ? "UEFI" : "BIOS");
     return 0;
+}
+
+/* D439: arrancó por UEFI con un cargador que no sabe de las ranuras (las ignoraría: arrancaría siempre el
+ * kernel de la imagen y la marca quedaría para el siguiente arranque por BIOS). */
+static bool uefi_antiguo(void)
+{
+    return D.arr_ok && D.arr.firmware != 0 && !(D.arr.opcoes & OPC_BOOT_UEFI_RANURA);
 }
 
 static int cmd_probar(const char *fk, const char *fr)
 {
-    if (D.arr_ok && D.arr.firmware != 0) return erro("este arranque es por UEFI: el kernel de prueba solo existe por BIOS (la etapa 2)");
+    if (uefi_antiguo())
+        return erro("este arranque es por UEFI y el cargador UEFI de este disco es de antes de D439: no sabe del kernel de "
+                    "prueba. Graba una imagen nueva (o arranca por BIOS)");
     if (le16(D.cab + CAB_OPCOES) & OPC_CD) return erro("el disco de arranque es un CD");
     int v = estagio2_versao(le32(D.cab + CAB_E2_LBA));
     if (v <= 0 || !(v & E2_SABE_BOM))
@@ -764,7 +807,7 @@ static int cmd_probar(const char *fk, const char *fr)
     registrar("arranque: kernel de prueba %s (%u bytes, suma 0x%08x) preparado en %s, %s", fk, nk, soma(k, nk),
               lk ? D.part : "la ESP", r ? "con su ramdisk" : "con el ramdisk normal");
     imprimir("Kernel de prueba preparado: %s (%u bytes, suma 0x%08x)%s%s\n", fk, nk, soma(k, nk), r ? " y ramdisk " : "", r ? fr : "");
-    imprimir("En el siguiente reinicio arranca UNA vez (la etapa 2 borra la marca antes de cargarlo).\n"
+    imprimir("En el siguiente reinicio arranca UNA vez (la etapa 2 o el cargador UEFI borran la marca antes de cargarlo).\n"
              "Si se cuelga, reinicia y vuelve %s. Si va bien: «arranque confirmar».\n",
              bom ? "el último bueno" : "el original (el de la imagen)");
     return 0;
@@ -777,6 +820,9 @@ static int cmd_confirmar(bool forzar)
     int v = estagio2_versao(le32(D.cab + CAB_E2_LBA));
     if (v <= 0 || !(v & E2_SABE_BOM))
         return erro("la etapa 2 de %s no sabe del último bueno: primero «arranque etapa2 estagio2.bin»", D.disco);
+    if (uefi_antiguo())
+        return erro("este arranque es por UEFI y el cargador UEFI de este disco es de antes de D439: no arrancaría el "
+                    "último bueno. Graba una imagen nueva (o arranca por BIOS)");
     bool agora = D.arr_ok && (D.arr.opcoes & OPC_BOOT_KERNEL_PRUEBA) && !(D.arr.opcoes & OPC_BOOT_KERNEL_FIXO);
     if (!agora && !forzar)
         return erro("este arranque no es el kernel de prueba: arráncalo antes (o --forzar, si ya se probó: %s)",
@@ -914,7 +960,10 @@ static void uso(void)
              "     arranque original                      quitar también el último bueno: vuelve el de la imagen\n"
              "     arranque etapa2 ESTAGIO2.BIN           poner otra etapa 2 en el disco\n"
              "     arranque opciones [smp=si|no] [ioapic=si|no] [uacpi=si|no]   ver o cambiar las opciones de la imagen\n"
-             "     --disco NOMBRE                         el disco de arranque, si no se sabe solo\n");
+             "     --disco NOMBRE                         el disco de arranque, si no se sabe solo\n"
+             "El kernel de prueba vale arrancando por BIOS (la etapa 2) y por UEFI (el cargador de la ESP, D439):\n"
+             "los dos borran la marca en el disco antes de cargarlo, así que si se cuelga el siguiente arranque es\n"
+             "el último bueno o el original. Solo root; discos con MBR (la imagen grabada o instalados con MBR).\n");
 }
 
 int principal(int argc, char **argv)
@@ -930,6 +979,9 @@ int principal(int argc, char **argv)
         else { uso(); return 2; }
     }
     const char *o = na ? a[0] : "estado";
+    /* Lee y escribe el disco en crudo: solo root (el kernel también lo exige, D255). */
+    if ((usuario_op(USU_CONSULTAR, 0, 0) & 0xFFFF) != 0)
+        return erro("solo root puede usarlo (lee y escribe el disco de arranque en crudo): «su» o el diálogo de administrador");
     if (!abrir_disco(disco)) return 1;
     if (compara_texto(o, "estado") == 0 && na <= 1) return cmd_estado();
     if (compara_texto(o, "probar") == 0 && (na == 2 || na == 3)) return cmd_probar(a[1], na == 3 ? a[2] : NULL);

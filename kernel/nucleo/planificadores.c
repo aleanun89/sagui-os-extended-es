@@ -33,6 +33,11 @@
  * hilo del mismo núcleo físico) trabaja y hay un núcleo entero ocioso, el
  * proceso se deja para ese núcleo (como el reparto SMT de Linux).
  *
+ * Alta prioridad de audio (D436, PLAN_AUDIO, con cualquier política): un hilo marcado que queda listo pasa
+ * delante de los demás y, si su CPU corre otro, se le pide planificar ya. Solo mientras gaste poco (su uso
+ * reciente, como mucho PLAN_AUDIO_MAX_USO tics por periodo): un hilo que acapara la CPU vuelve a ir por
+ * turnos él solo, así que no hace falta ser root. Pensado para un hilo que mezcla sonido y duerme enseguida.
+ *
  * Todo corre con el cerrojo general (D165). Solo "trocar" se lee sin él (en
  * el tic de un secundario), y por eso es volatile. */
 #include "planificador.h"
@@ -127,6 +132,25 @@ static bool casa_valida(const processo_t *p, uint32_t ativas)
 }
 
 static bool ociosa(uint32_t c) { return cpu_dados(c)->estado == CPU_OCIOSA; }
+
+/* D436: ¿cuenta ahora su alta prioridad de audio? Solo si gasta poco. */
+static bool audio_vale(const processo_t *p)
+{
+    if (!p->prio_audio || !p->usuario) return false;
+    return p->recente + (p->tiques_cpu - p->tiques_vistos) <= PLAN_AUDIO_MAX_USO;
+}
+
+/* D436: el hilo de audio listo que lleva más tiempo esperando (NULL: ninguno). */
+static processo_t *escolher_audio(uint32_t cpu, processo_t *atual)
+{
+    processo_t *m = NULL;
+    for (int i = 1; i < MAX_PROCESSOS; i++) {
+        processo_t *c = processo_indice(i);
+        if (!c->prio_audio || !elegivel(c, cpu, atual) || !audio_vale(c)) continue;
+        if (!m || (int32_t)(c->saiu_em - m->saiu_em) < 0) m = c;
+    }
+    return m;
+}
 
 /* Despertar la CPU "c" al salir del kernel (kernel_saida, D165). */
 static void avisar_cpu(uint32_t c)
@@ -333,6 +357,8 @@ processo_t *planificador_escolher(uint32_t cpu, processo_t *atual)
 {
     if (cpu < CPU_MAX) por_cpu[cpu].trocar = 0;   /* la petición se atiende ahora */
     uint32_t agora = relogio_tiques();
+    processo_t *a = escolher_audio(cpu, atual);   /* D436 */
+    if (a) return a;
     switch (ativo) {
     case PLANIFICADOR_AFINIDAD:   return escolher_afinidade(cpu, atual, agora, cpus_ativas());
     case PLANIFICADOR_EQUILIBRIO: return escolher_equilibrio(cpu, atual, agora, cpus_ativas());
@@ -425,8 +451,23 @@ void planificador_despertou(processo_t *p)
 {
     if (!p || p->pid == 0) return;
     if (!p->pronto_tsc) p->pronto_tsc = ler_tsc();   /* para medir la latencia */
+    uint32_t ativas = cpus_ativas();
+    if (audio_vale(p)) {
+        /* D436: alta prioridad de audio. Con una CPU ociosa la despierta avisar_ociosa; si no, la primera que
+         * corre algo sin esa prioridad planifica ya (en la CPU 0, al salir de este tic o de esta llamada). */
+        int alvo_cpu = -1;
+        for (uint32_t c = 0; c < CPU_MAX; c++) {
+            if (!(ativas & (1u << c)) || !planificador_pode_cpu(p, c)) continue;
+            processo_t *a = cpu_dados(c)->atual;
+            if (!a || a->pid == 0 || ociosa(c)) return;
+            if (a == p || audio_vale(a)) continue;
+            if (alvo_cpu < 0) alvo_cpu = (int)c;
+        }
+        if (alvo_cpu >= 0) planificador_pedir_troca((uint32_t)alvo_cpu);
+        return;
+    }
     if (ativo != PLANIFICADOR_PRIORIDAD) return;
-    uint32_t agora = relogio_tiques(), ativas = cpus_ativas();
+    uint32_t agora = relogio_tiques();
     int pp = prioridade(p, agora);
     int pior = -1, pior_pr = 0;
     for (uint32_t c = 0; c < CPU_MAX; c++) {
@@ -579,6 +620,24 @@ int32_t sis_planificador(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32
             if (t->estado != P_LIVRE && (t == l || t->lider == l)) t->nice = n;
         }
         return 0;
+    }
+    case PLAN_AUDIO: {
+        /* D436: solo el hilo que llama; uno por proceso (al encenderlo en uno, se apaga en los demás). */
+        processo_t *eu = processo_atual();
+        int32_t antes = eu->prio_audio ? 1 : 0;
+        if (a == 0xFFFFFFFFu) return antes;
+        if (a > 1) return ERRO_INVALIDO;
+        if (!eu->usuario) return ERRO_ACESSO;
+        if (a) {
+            processo_t *l = processo_lider(eu);
+            for (int i = 1; i < MAX_PROCESSOS; i++) {
+                processo_t *t = processo_indice(i);
+                if (t != eu && t->estado != P_LIVRE && (t == l || t->lider == l)) t->prio_audio = false;
+            }
+        }
+        eu->prio_audio = a != 0;
+        if (a && !antes) klog("[PLANIFICADOR] hilo %d (%s): alta prioridad de audio\n", eu->pid, eu->nome);
+        return antes;
     }
     case PLAN_INFO: {
         processo_t *p = alvo(a);

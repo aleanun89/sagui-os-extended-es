@@ -249,10 +249,20 @@ static void executar_acao(char a)
     desenhar_visor();
 }
 
+/* D428: otro esquema de apariencia: se repinta todo con los colores nuevos. */
+static void repintar_tema(void)
+{
+    g_retangulo(j, 0, 0, LARG, ALT, COR_FUNDO);
+    for (int i = 0; i < qtd_teclas; i++) botao_desenhar(j, &teclas[i].b);
+    desenhar_visor();
+    jan_mostrar(j);
+}
+
 int principal(int argc, char **argv)
 {
     (void)argc; (void)argv;
     j = jan_abrir(_("Calculadora"), LARG, ALT);
+    tema_ao_mudar(repintar_tema);   /* D428 */
     if (!j) return 1;
     static const char *const nomes_num[] = { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
     nova_tecla(0, 0, 1, 1, "C", 'C');  nova_tecla(1, 0, 1, 1, "<-", 'B');

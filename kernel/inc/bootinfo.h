@@ -83,6 +83,9 @@ typedef struct EMPACOTADO {
  * boot_info (u32); INFO_ARRANQUE lo da en «opcoes» (también con los kernels de antes, que lo copian). */
 #define OPC_BOOT_KERNEL_PRUEBA 0x100000u
 #define OPC_BOOT_KERNEL_FIXO   0x200000u
+/* D439: el cargador UEFI que arrancó sabe de esas ranuras (arranca la prueba de una vez y el último bueno como la
+ * etapa 2): «arranque probar» por UEFI solo se permite con él. La etapa 2 no lo pone. */
+#define OPC_BOOT_UEFI_RANURA   0x400000u
 #define OPC_BOOT_SESION_RAIZ 0x8000  /* D255: imagen de prueba: el escritorio y el Terminal como root (mkimagem.py --sesion-root) */
 /* D174: el planificador elegido al arrancar (mkimagem.py --planificador), en los
  * bits 9-11: 0 = el de por defecto, o PLANIFICADOR_* de abi.h. */
@@ -125,6 +128,7 @@ extern modo_vbe_t modos_vbe[MODOS_MAX];
 #define CAB_MEM_SEM_TROCA 4   /* D352: bit 2 de CAB_MEM_OPC: sin swap comprimida (mkimagem.py --sin-swap) */
 #define CAB_USU_OPC  162   /* u8 D371 (mkimagem.py): bit 0 --sin-pedir-root (imágenes de prueba: el primer arranque no pide la contraseña de root) */
 #define CAB_USU_SIN_PEDIR_ROOT 0x01
+#define CAB_USU_DEPURACAO      0x04   /* D418: imagen de depuracion (make debug_variantes): aviso rojo en el escritorio */
 #define CAB_USU_SIN_MIGRAR     0x02   /* --sin-migrar-home: no pasar sagui a /home/sagui (imágenes de prueba) */
 #define CAB_RAIZ_OPC 163   /* u8 D379 (mkimagem.py --modo-raiz): fuerza el modo de la raíz sobre /etc/raiz.conf del initramfs */
 #define RAIZ_OPC_AUTO   0   /* lo que diga /etc/raiz.conf (sin él, el ramdisk es la raíz, como siempre) */

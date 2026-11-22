@@ -31,6 +31,7 @@ copia (y los valida con enteros).
 | `GPU3D_OP_ESTADO` | Z (prueba, función, escritura), mezcla (factores), textura (hueco, repetir o sujetar, filtro) |
 | `GPU3D_OP_TRIANGULOS` | hasta 3072 vértices (de 3 en 3) con el estado actual |
 | `GPU3D_OP_LER` | espera a la GPU y copia el cuadro (`0x00RRGGBB`) a la memoria del programa |
+| `GPU3D_OP_APRESENTAR` (D432) | la GPU copia el destino (o una textura) a la pantalla, sin volver a la RAM; solo a pantalla completa (ver «Presentar sin volver a la RAM») |
 | `GPU3D_OP_FECHAR` | suelta el motor |
 
 Devuelven 0, `GPU3D_SEM_SUPORTE` (> 0: «eso no lo hago, sigue por software»; el 3D no se apaga
@@ -133,6 +134,8 @@ la variante del driver) e `INFO_*` 71 a 74.
 | 2026-11-15 | Al fusionar main: `INFO_GPU3D*` pasan de 70-73 a **71-74** (el 70 es `INFO_CAMARA`, D277). Solo cambia el número: quien use los nombres de `abi.h` recompila y ya |
 | 2026-11-15 | D284 (sin cambio de interfaz): driver `gpu3d_r600`, que arranca en `GPU3D_APAGADO`; modo 4 de `CAB_GPU3D` (`--gpu3d=radeon`); `INFO_GPU3D_CTL` e `INFO_GPU3D_PROVA` solo para el administrador |
 | 2026-11-16 | D358 (se amplía, nada incompatible): bit `0x40` de `CAB_GPU3D` (`GPU3D_CAB_GTT`, RAM del sistema en el GTT) que llega al driver en `variante` (los que no lo usan lo ignoran); `INFO_GPU3D_CTL` acepta 3 (lotes + GTT) y 4 (anillo + GTT); `info_gpu3d_t.variante` pasa a bits `GPU3D_VAR_*` de `abi.h` (el 1 sigue siendo «anillo») con lo que de verdad quedó, y `reservado[0]` = KB de RAM en el GTT; `gpu3d_intel_estado()` en `gpu3d.h`. `gpu3d_driver_t` no cambia |
+| 2026-11-20 | D432 (se amplía, nada incompatible): **presentar sin volver a la RAM**: operación 14 (`GPU3D_OP_APRESENTAR`, `gpu3d_apresentar_t`), bit `G3D_CAP_APRESENTAR` (0x00400000), una función más al final de `gpu3d_driver_t` (`apresentar`, puede ser `NULL`), `info_gpu3d_t.reservado[3..5]`. Ver «Presentar sin volver a la RAM» |
+| 2026-11-20 | D425 (se amplía, nada incompatible): **gpu3d v2** (operaciones 8-13, estado de varias unidades, esténcil, DXT, cubos, destino = textura) y bits de capacidad; cinco funciones nuevas al final de `gpu3d_driver_t` que pueden ser `NULL`. Ver «gpu3d v2» |
 
 ### Cómo añadir un driver (como se hizo con las Radeon R7xx, D284)
 
@@ -155,6 +158,365 @@ la variante del driver) e `INFO_*` 71 a 74.
 La interfaz es deliberadamente mínima (triángulos transformados, un destino, texturas ARGB) para que
 cualquier GPU la cumpla; lo que una familia necesite de más (sombreadores de vértices propios, varias
 texturas) queda dentro de su driver.
+
+## gpu3d v2: OpenGL ES 1.1 completo por la GPU (D425)
+
+Desde la v8.5.5.2 SaguiGL es OpenGL ES 1.1 completo (multitextura, `GL_COMBINE`, esténcil, prueba alfa,
+tijera, máscaras, mezcla separada, cubos, DXT, dibujar en una textura...). La interfaz v1 no puede llevar
+eso, así que hay una **v2 que se añade a la v1 sin cambiarla**:
+
+- un driver que no sabe nada de v2 **sigue igual**: la capa le da `G3D_CAP_*` = 0 y SaguiGL le manda solo
+  lo que cabe en v1 (una textura con MODULATE o REPLACE, mezcla de v1, Z de v1); lo demás lo dibuja por
+  software;
+- un driver que implementa v2 **anuncia lo que sabe** con bits de capacidad, y SaguiGL le manda un dibujo
+  solo si **todo** lo que el dibujo necesita está anunciado. Si falta una sola cosa, ese cuadro va por
+  software (ver «Qué hace SaguiGL cuando un dibujo no cabe», abajo).
+
+Desde la D426 los drivers de **R5xx** (`gpu3d_r500.c`) y **R6xx/R7xx** (`gpu3d_r600.c`) implementan v2 y anuncian lo
+que pasa sus pruebas en la máquina (`kernel/dispositivos/g3d_v2_provas.c`; ver sus secciones). Evergreen lo irá
+añadiendo; cada bit se anuncia solo cuando pasa su prueba. El driver simulado de QEMU (`gpu3d_sim.c`) todavía no tiene v2: el camino
+v2 de SaguiGL se prueba en el PC con `tests/sgl/es11_gpu_falsa.c` (una GPU falsa por la CPU que anuncia todo y
+compara cada escena por v2, por v1 y por software; h424 «unidad»).
+
+### Lo que ve el programa (`kernel/inc/abi.h`)
+
+| Operación | Qué hace |
+| --- | --- |
+| `GPU3D_OP_CAPACIDADES` (8) | `ptr` = `gpu3d_capas_t`. Se puede pedir sin ser dueño. Con el motor sin probar devuelve lo de v1 |
+| `GPU3D_OP_ESTADO2` (9) | `ptr` = `gpu3d_estado2_t`. `GPU3D_SEM_SUPORTE` si pide algo no anunciado; error si tiene valores fuera de rango |
+| `GPU3D_OP_TRIANGULOS2` (10) | `ptr` = `gpu3d_vert2_t[]`, `a` = vértices (múltiplo de 3, hasta 3072) con el último `ESTADO2` aceptado |
+| `GPU3D_OP_TEXTURA2` (11) | `ptr` = `gpu3d_textura2_t`: un nivel de una cara (ARGB o DXT1/3/5; 2D o cubo). `dados` = 0 suelta el hueco |
+| `GPU3D_OP_LIMPAR2` (12) | `ptr` = `gpu3d_limpar2_t`: color/Z/esténcil con valor de Z y de esténcil, máscaras y tijera |
+| `GPU3D_OP_DESTINO` (13) | `a` = hueco de textura (su nivel 0, cara 0) o `GPU3D_DESTINO_PRINCIPAL`; `b` = bits de Z (0/16/24); `c` = esténcil (0/8) |
+
+`GPU3D_OP_LER` lee **el destino actual** (el principal o la textura). Las operaciones v1 siguen valiendo
+mezcladas con las v2 (`TEXTURA` v1 = `TEXTURA2` ARGB 2D de un nivel).
+
+`info_gpu3d_t.reservado[1]` = bits `G3D_CAP_*` del driver encendido y `reservado[2]` = sus unidades de
+textura (para `gpu3d` e `infopc`).
+
+Tamaños fijos (comprobados con `_Static_assert` en `gpu3d.c`): `gpu3d_capas_t` 64 bytes,
+`gpu3d_vert2_t` 88, `gpu3d_unidade_t` 28, `gpu3d_estado2_t` 168, `gpu3d_textura2_t` 48,
+`gpu3d_limpar2_t` 36. Solo enteros de 8, 16 y 32 bits: valen igual en 64 bits.
+
+### Bits de capacidad (`gpu3d_capas_t.bits`)
+
+| Bit | Qué significa | Qué lo usa en GL |
+| --- | --- | --- |
+| `G3D_CAP_V2` | entiende `gpu3d_estado2_t` y `gpu3d_vert2_t` (`desenhar2`) | todo lo de abajo |
+| `G3D_CAP_COMBINAR` | todas las `G3D_CB_*` salvo DOT3, con escala 1/2/4 | `GL_COMBINE`, `GL_ADD`, `GL_BLEND`, `GL_DECAL` |
+| `G3D_CAP_DOT3` | `G3D_CB_DOT3_RGB/RGBA` | mapas de normales |
+| `G3D_CAP_ALFA_TESTE` | prueba alfa con las 8 funciones | `glAlphaFunc` |
+| `G3D_CAP_ESTENCIL` | esténcil de 8 bits (`estencil_bits` = 8) | `glStencil*`, sombras |
+| `G3D_CAP_TIJERA` | recorte a un rectángulo | `glScissor` |
+| `G3D_CAP_MASCARAS` | máscara de color por canal | `glColorMask` |
+| `G3D_CAP_Z_FUNCS` | las 8 funciones del Z (v1 solo tiene <, <= y siempre) | `glDepthFunc` |
+| `G3D_CAP_MEZCLA_EXT` | factores `G3D_F_*` 4 a 10 (color de origen/destino, alfa de destino, saturado) | `glBlendFunc` |
+| `G3D_CAP_MEZCLA_SEP` | factores y ecuación distintos para el color y el alfa | OES_blend_func_separate / equation_separate |
+| `G3D_CAP_MEZCLA_EQ` | resta y resta invertida | OES_blend_subtract |
+| `G3D_CAP_LOGICA` | operación lógica (en vez de la mezcla) | `glLogicOp` |
+| `G3D_CAP_NEBLINA` | niebla con el factor de cada vértice y `cor_neblina` | `GL_FOG` con varias texturas o COMBINE |
+| `G3D_CAP_TEX_ESPELHO` | `G3D_ENV_ESPELHO` | OES_texture_mirrored_repeat |
+| `G3D_CAP_TEX_NPOT` | lados que no son potencia de 2 con cualquier envoltura, **sin** mipmaps | OES_texture_npot |
+| `G3D_CAP_TEX_NPOT_MIP` | además, lados que no son potencia de 2 **con** mipmaps (pide también `TEX_NPOT` y `TEX_MIPMAP`) | OES_texture_npot con mipmaps |
+| `G3D_CAP_TEX_MIPMAP` | niveles > 0 en `TEXTURA2` y filtros `G3D_FIL_MIP_*` | mipmaps (v1 usa siempre el nivel 0) |
+| `G3D_CAP_TEX_CUBO` | texturas de cubo (`G3D_TEX_CUBO`, seis caras cuadradas) | OES_texture_cube_map |
+| `G3D_CAP_TEX_ANISO` | `aniso` > 1, hasta `max_aniso` | EXT_texture_filter_anisotropic |
+| `G3D_CAP_TEX_PROJ` | coordenadas proyectivas en 2D (s/q, t/q con q ≠ 1) | matriz de textura proyectiva |
+| `G3D_CAP_DESTINO_TEX` | `GPU3D_OP_DESTINO` | OES_framebuffer_object |
+| `G3D_CAP_LIMPAR2` | `GPU3D_OP_LIMPAR2` | `glClear` con máscaras, tijera, `glClearDepthf`, esténcil |
+
+Además: `unidades` (1 a 4), `max_lado`, `max_aniso`, `formatos` (bits `1 << G3D_FMT_*`: ARGB8888,
+DXT1, DXT3, DXT5), `zbits` (1 = 16, 2 = 24) y `estencil_bits`.
+
+La capa **quita** los bits que dependen de funciones que el driver no tiene: sin `desenhar2` no hay v2;
+sin `textura2`, solo ARGB y ni cubos ni mipmaps; sin `destino`, no hay `DESTINO_TEX`; sin `limpar2`, ni
+`LIMPAR2` ni esténcil. Y `ESTADO2` comprueba otra vez cada cosa pedida contra los bits, así que el driver
+**nunca** recibe algo que no anunció.
+
+### El estado v2 (`gpu3d_estado2_t`)
+
+Va completo en cada dibujo (como en v1, el driver no guarda estado entre entregas). Por orden de la
+tubería de un píxel:
+
+1. **Unidades de textura** `u[0..unidades-1]`. Cada una: `ativa`, `vaga` (hueco), `tipo` (2D o cubo),
+   `filtro` (`G3D_FIL_*`), `env_s/env_t` (repetir, borde, espejo), `aniso`, `coord` (qué juego de
+   coordenadas del vértice; hoy siempre el de su número) y la **combinación**:
+   - `rgb_func` y `alfa_func` (`G3D_CB_*`): sustituir, modular, sumar, sumar con signo, interpolar, restar,
+     DOT3 (solo color);
+   - tres argumentos por canal: `rgb_fonte[k]` / `alfa_fonte[k]` (`G3D_FT_TEXTURA`, `CONSTANTE`,
+     `PRIMARIA`, `ANTERIOR`) con su operando `rgb_opd[k]` (color, 1-color, alfa, 1-alfa) / `alfa_opd[k]`
+     (alfa, 1-alfa);
+   - `rgb_escala`, `alfa_escala` (1, 2, 4) y `constante` (0xAARRGGBB).
+
+   Resultado = `saturar(escala × func(arg0, arg1, arg2))`. `ANTERIOR` en la unidad 0 es la primaria (el
+   color del vértice). Una unidad no `ativa` deja pasar lo anterior. Los modos clásicos de GL los convierte
+   SaguiGL (tabla de la especificación de ES 1.1, §3.7.12): el driver **solo ve combinaciones**, que es
+   justo lo que necesita para escribir su programa de píxeles. Por ejemplo, MODULATE con una textura RGBA es
+   `rgb_func = MODULAR (TEXTURA·COR, ANTERIOR·COR)`, `alfa_func = MODULAR (TEXTURA·ALFA, ANTERIOR·ALFA)`.
+   DOT3_RGBA pone el mismo valor en el alfa y la `alfa_func` de esa unidad se ignora.
+2. **Especular**: el RGB de `espec` del vértice se suma tras la última unidad (saturando), como en v1.
+3. **Niebla** (`G3D2_NEBLINA`): `color = f × color + (1 - f) × cor_neblina`, con `f` = byte alto de `espec`
+   / 255 (interpolado). SaguiGL calcula `f` por vértice (lineal, EXP o EXP2) con la CPU.
+4. **Prueba alfa** (`G3D2_ALFA_TESTE`, `func_alfa`, `ref_alfa`).
+5. **Tijera** (`G3D2_TIJERA`, `tijera_x/y/l/a`, en píxeles del destino, origen arriba a la izquierda).
+6. **Esténcil** (`G3D2_ESTENCIL`): `est_func`, `est_ref`, `est_mascara` (lectura), `est_escrita`, y qué hacer
+   si falla el esténcil, si falla el Z o si pasan los dos (`G3D_EST_*`).
+7. **Z**: `G3D2_Z_TESTE`, `G3D2_Z_ESCRITA` (la máscara de Z) y `func_z` (`G3D_CMP_*`, el orden de GL).
+8. **Mezcla** (`G3D2_MEZCLA`): factores para color y alfa (`mez_orig_rgb`, `mez_dest_rgb`,
+   `mez_orig_alfa`, `mez_dest_alfa`; los `G3D_F_*` 0-3 son los de v1) y ecuaciones (`G3D_EQ_*`). O bien
+   **operación lógica** (`G3D2_LOGICA`, `op_logica` en el orden de GL), que la sustituye.
+9. **Máscara de color** (`mascara_cor`, bits R, G, B, A).
+
+El destino principal **no tiene alfa** (es la ventana, `0x00RRGGBB`): SaguiGL ya cambia los factores de
+alfa de destino por 1 o 0 antes de mandar el estado; en una textura de destino el alfa sí se guarda.
+
+Lo que **no** llega al driver porque SaguiGL lo hace con la CPU: matrices (también la de textura y la paleta
+de OES_matrix_palette), luces, generación de coordenadas (REFLECTION_MAP/NORMAL_MAP), planos de recorte
+(`glClipPlanef`), recorte al frustum, descarte de caras, desplazamiento del polígono (`glPolygonOffset`, ya
+sumado al z de cada vértice), puntos y sprites (llegan como dos triángulos con sus coordenadas), líneas
+anchas (rectángulos) y `glDrawTexOES` (un rectángulo).
+
+### Vértices v2 (`gpu3d_vert2_t`)
+
+`x, y, z, rhw, cor, espec` como en v1 (bits de float; `espec` lleva además el factor de niebla en el byte
+alto) y `tc[4][4]`: (s, t, r, q) por unidad. En 2D se muestrea en (s/q, t/q) (SaguiGL ya divide cuando
+q = 1 no basta y el driver no tiene `G3D_CAP_TEX_PROJ`); en un cubo, la dirección (s, t, r) sin normalizar
+(cara por el eje mayor, como en GL). La capa comprueba que todo sea finito y que |coordenada| < 2^15.
+
+### Texturas v2 (`gpu3d_textura2_t`)
+
+- Un nivel de una cara por llamada. El **nivel 0 de la cara 0** (re)crea el hueco: `tipo`, `formato`,
+  `larg × alt` y cuántos `niveis` tendrá (para reservar la memoria de todos de una vez).
+- Formatos: ARGB8888 (`0xAARRGGBB`, como v1) o **DXT1/DXT3/DXT5** tal cual vienen (bloques de 4x4, 8 o 16
+  bytes, el orden de S3TC). `bytes` debe ser exacto (la capa lo comprueba).
+- Cubo: caras 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z, cuadradas.
+- Sin `G3D_CAP_TEX_NPOT`, SaguiGL solo manda lados potencia de 2 (si no, ese dibujo va por software). Una textura
+  de lado no potencia de 2 con filtro de mipmaps pide además `G3D_CAP_TEX_NPOT_MIP` (la capa lo comprueba con el
+  tamaño del hueco).
+
+### Dibujar en una textura (`GPU3D_OP_DESTINO`)
+
+El hueco debe tener ya su nivel 0 (con `TEXTURA` o `TEXTURA2`, ARGB, al menos 8x8). El driver crea un Z
+(y esténcil) propio para ese destino si se pide. Mientras dure, `TRIANGULOS*`, `LIMPAR*` y `LER` van a la
+textura, y la capa no deja leer de ese mismo hueco (`ESTADO2` con esa `vaga` da error) ni cargarlo. Al
+volver al principal (`GPU3D_DESTINO_PRINCIPAL`) el contenido queda en el hueco para muestrearlo. `FECHAR`
+vuelve solo al principal.
+
+### Lo que debe hacer un driver para v2
+
+Añadir al final de su `gpu3d_driver_t` (después de `vistas`; las que falten quedan `NULL`):
+
+```c
+void (*capacidades)(gpu3d_capas_t *c);   /* tras iniciar: cambia lo que sepa hacer */
+int  (*desenhar2)(const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n, g3d_vala_t *vala);
+int  (*textura2)(const gpu3d_textura2_t *t);
+int  (*limpar2)(const gpu3d_limpar2_t *l);
+int  (*destino)(int vaga, int zbits, int estencil);   /* vaga < 0: el principal */
+```
+
+Reglas (las de v1 siguen valiendo):
+
+1. **Anunciar solo lo probado.** Mejor pocos bits ciertos que muchos dudosos: un bit sin anunciar solo
+   cuesta velocidad (va por software); uno mal anunciado da píxeles malos. La capa llama a `capacidades`
+   tras cada `iniciar` y el modelo exacto ya se conoce (una R5xx y una R7xx no saben lo mismo).
+2. **La combinación es la que manda.** El programa de píxeles se genera de `u[]` en cada `desenhar2` (o se
+   guarda en una caché por la combinación). El orden de la tubería y las fórmulas son las de arriba.
+3. **Lo que no se pueda en un caso concreto** (un DOT3 con escala 4 que el hardware no tiene, más
+   instrucciones de las que caben...) se contesta con `G3D_NAO` en `desenhar2`: SaguiGL lo repite por
+   software y la GPU sigue encendida.
+4. **El resultado debe parecerse al de software** (no bit a bit): las pruebas de conformidad del PC
+   (`tests/sgl/es11_conformidad.c`) dan los píxeles de referencia de cada modo.
+5. Probar sin la tarjeta lo que se pueda: un generador de paquetes con su prueba de unidad en el PC (como
+   `gen3_3d_unidad.c`), y que `tests/h285*.py` siga pasando.
+
+### Qué hace SaguiGL cuando un dibujo no cabe
+
+Antes de cada dibujo SaguiGL calcula qué necesita (bits, unidades, formatos). Si cabe en v1 o en lo
+anunciado, va a la GPU. Si no:
+
+- el contexto trae el cuadro de la GPU (`LER`) y **sigue por software hasta el final del cuadro** (el Z de
+  la GPU no se puede traer, así que en ese primer cuadro mezclado el Z de lo dibujado antes por la GPU no
+  cuenta para lo de software);
+- los cuadros siguientes empiezan ya por software (desde el `glClear`), sin mezcla;
+- cuando un cuadro entero por software ha cabido todo en la GPU, el siguiente vuelve a la GPU.
+
+Así un programa que siempre usa algo no anunciado va entero por software (sin parpadeo) y uno que lo usa
+de vez en cuando vuelve solo a la GPU.
+
+### Cambios en la interfaz
+
+| Fecha | Cambio |
+| --- | --- |
+| 2026-11-20 | Primera versión de gpu3d v2 (D425): operaciones 8 a 13, `gpu3d_capas_t`, `gpu3d_estado2_t`, `gpu3d_unidade_t`, `gpu3d_vert2_t`, `gpu3d_textura2_t`, `gpu3d_limpar2_t`, bits `G3D_CAP_*`, cinco funciones al final de `gpu3d_driver_t`, `info_gpu3d_t.reservado[1..2]`. Ningún driver la usa todavía; nada de v1 cambia |
+| 2026-11-20 | (a petición de los drivers, D426) `G3D_CAP_TEX_NPOT` pasa a ser «sin mipmaps» y hay un bit nuevo, `G3D_CAP_TEX_NPOT_MIP` (0x00200000), para lados no potencia de 2 con mipmaps; la capa lo comprueba en `ESTADO2` con el tamaño del hueco. `GPU3D_OP_ABRIR`: `c` = bits de Z \| bits de esténcil << 8 (SaguiGL pide 8 salvo que EGL diga 0); la capa quita el esténcil antes de `alvo()` y, con esténcil, pide Z de 24 (Z24S8). Ningún driver cambia |
+
+## Presentar sin volver a la RAM (D432)
+
+Hasta la v8.5.5.1 un programa que dibujaba por la GPU (el renderizador «saguios-gpu» de la SDL 2, D288) tenía que
+**traer cada cuadro a la RAM** (`GPU3D_OP_LER`) para que el compositor lo copiara a su búfer de atrás y de ahí otra vez a
+la memoria de vídeo: la lectura por la apertura de la CPU (sin caché, ~10 MB/s en las R7xx) se comía toda la ganancia.
+Desde la D432 la capa tiene una operación más, **presentar**: la GPU copia (escalando) el destino del 3D, o una textura,
+**a la superficie visible de la pantalla**, y el cuadro no vuelve a la RAM.
+
+### La operación (`kernel/inc/abi.h`)
+
+`GPU3D_OP_APRESENTAR` (14), `ptr` = `gpu3d_apresentar_t` (40 bytes, solo enteros):
+
+| Campo | Qué es |
+| --- | --- |
+| `fonte` | `GPU3D_DESTINO_PRINCIPAL` (el destino del 3D) o un hueco de textura ARGB (la textura va **directa** a la pantalla) |
+| `janela` | la ventana del programa: tiene que ser suya, estar a pantalla completa y tener el foco |
+| `ox, oy, ol, oa` | rectángulo de la fuente, en sus píxeles |
+| `dx, dy, dl, da` | rectángulo de destino, en píxeles **del contenido de la ventana** (la capa lo lleva a la pantalla con la misma cuenta que la pantalla completa del compositor); lo que queda fuera se pinta de negro (bandas) |
+| `flags` | `G3D_APRES_LINEAR` (filtro bilineal; sin él, vecino más próximo, como el software) y `G3D_APRES_VSYNC` (esperar al retrazado vertical) |
+
+Devuelve 0 (presentado; la GPU ya terminó), `GPU3D_SEM_SUPORTE` («**ahora no**»: el compositor no cede la pantalla, o
+el driver no puede: ese cuadro se presenta como siempre, con `LER` y la ventana) o un error (< 0: la GPU falló y la capa
+la apagó, como en cualquier otra operación). El bit de capacidad es **`G3D_CAP_APRESENTAR`** (`GPU3D_OP_CAPACIDADES`); no
+depende de `G3D_CAP_V2` (Evergreen lo tiene siendo v1). `info_gpu3d_t.reservado[3..5]` = cuadros directos, cuadros que
+no se pudieron y la ventana que tiene la pantalla + 1 (lo enseña `gpu3d`).
+
+### Quién tiene la pantalla: la exclusiva del compositor (`kernel/gui/janelas.c`)
+
+Dos que escriben a la vez en la pantalla se pisan, así que **solo presenta quien tiene la pantalla completa en exclusiva**:
+
+- La capa pregunta al compositor antes de **cada** cuadro (`gui_exclusiva_apresentar`). Se la cede a la ventana si es del
+  proceso que llama, está **a pantalla completa y con el foco** y no hay nada que deba verse encima.
+- Mientras la tiene, el compositor **no pinta**: `gui_mostrar` descarta lo marcado y `video_mostrar` tampoco escribe (ni la
+  flecha: la pone la capa 3D encima de cada cuadro, con la zona «sin cursor» de la ventana respetada, D230).
+- **La recupera** (y repinta todo) en cuanto: la ventana pierde el foco o la pantalla completa (**Alt+Tab**, otra ventana,
+  Esc, F11, se cierra, el programa muere), aparece un **aviso**, un menú, el panel de la bandeja, el diálogo de permisos,
+  la pantalla de **sesión o de bloqueo**, el **salvapantallas** o la pantalla apagada (D422), hay más de una pantalla
+  (D290), el programa vuelve a actualizar su ventana por el camino normal, suelta el motor (`FECHAR`), el 3D se apaga
+  (`gpu3d apagar`, el vigilante) o pasan 3 s sin presentar. La comprobación se repite en cada vuelta del gestor de ventanas
+  (cada tic), no solo cuando el programa presenta.
+- Al recuperarla, **el último cuadro de la pantalla se trae a los píxeles de la ventana** (una lectura de la memoria de
+  vídeo, lenta pero una sola vez): lo que se ve detrás del aviso o del panel de Alt+Tab es ese cuadro aunque el programa
+  esté en pausa. El programa lo nota porque su siguiente `APRESENTAR` devuelve «ahora no»; cuando el motivo desaparece (el
+  aviso caduca), el siguiente cuadro vuelve a ir directo. En el log: `[GUI] pantalla exclusiva: cedida a la ventana N` y
+  `... la ventana N la devuelve tras M cuadros (motivo)`.
+- Solo con la pantalla de **32 bits** (`0x00RRGGBB`) y **una** pantalla. Una captura de pantalla (`SIS_CAPTURAR_TELA`, Impr
+  Pant) hecha mientras dura ve el búfer del compositor, no el cuadro de la GPU (pendiente).
+
+### Lo que hace un driver (`int (*apresentar)(const g3d_apres_t *p)`, al final de `gpu3d_driver_t`; puede ser `NULL`)
+
+- `p == NULL`: «¿puedes escribir en la pantalla de ahora?» (`G3D_OK` / `G3D_NAO`), sin tocar la GPU. La capa lo pregunta
+  al encender y de ahí sale el bit de capacidad.
+- Si no: copia el rectángulo de la fuente al de la pantalla (ya recortados y en píxeles de pantalla), pinta antes las
+  bandas negras si lleva `G3D_APRES_BANDAS` (la capa lo pone al tomar la pantalla, si cambia el rectángulo o si la flecha
+  cayó sobre una banda), **espera a que la GPU termine, con plazo**, y deja el destino de dibujo como estaba.
+- La pantalla vive en la misma VRAM que el 3D en las tres familias, así que **el destino de la copia es la superficie del
+  CRTC, con su paso**: no hay copia intermedia. Es un dibujo normal (dos triángulos con la fuente como textura, sin Z ni
+  mezcla) con el destino de color cambiado mientras dura. Piezas comunes en `gpu3d_mem.c`: `g3d_apres_bandas`,
+  `g3d_apres_quad`, `g3d_quad_cor`.
+- **Seguridad:** de la pantalla solo se **leen** registros (superficie, paso y modo del controlador, para comprobar que
+  siguen como al encender, y el bit de retrazado); **no se escribe ninguno** (ni la base del CRTC: no hay doble búfer).
+  Si la pantalla cambió, está en mosaico o su paso no sirve, el driver contesta «no puedo» y todo sigue como antes.
+
+| Familia | Dónde está la pantalla | Cómo | Estado |
+| --- | --- | --- | --- |
+| **R5xx** (`gpu3d_r500.c`, X1400 del Amilo) | `mc_tela` (MC `c0000000` en el Amilo), ARGB8888 lineal | `r5_vaciar` (vaciar las cachés **antes** de esperar al 3D limpio, D426) → `RB3D_COLOROFFSET0/COLORPITCH0` a la pantalla → bandas y rectángulo con `desenhar_int` (v1) → la valla de siempre. La ventana móvil de la CPU no interviene en la copia; las texturas se suben por ella en write-combining | ✅ **probado en el Amilo** (abajo) |
+| **R6xx/R7xx** (`gpu3d_r600.c`, HD 4500 del dv7) | `base.mc_tela` (32 bits) | valla → `r63d_alvo_modo` (color = pantalla con el `ARRAY_MODE` de `D1GRPH_CONTROL`, sin Z) → sombreadores de v1, `r63d_textura`, `r63d_estado` → valla con `SURFACE_SYNC` sobre la pantalla → `r63d_alvo` del programa. Exige el paso de la pantalla alineado al grupo de la tarjeta (D402) y fuente de hasta 1024x1024 | **sin probar en hardware** (el dv7 estaba apagado) |
+| **Evergreen/NI** (`gpu3d_evergreen.c`, HD 7600M del Toshiba) | `mc_tela` de **40 bits** (D408: `f:00000000`); `CB_COLOR0_BASE` lleva los bits 39:8 | como las R7xx con `eg3d_alvo_modo` (modo de `GRPH_CONTROL`; el VBE del Toshiba deja lineal alineada). La **prioridad de la pantalla** (D424) la pone y mantiene el 2D (`acel_r600.c`); presentar no la toca y el log dice cómo está | **sin probar en hardware** (el Toshiba estaba apagado) |
+| **Simulado** (`gpu3d_sim.c`, QEMU) | el framebuffer de la tarjeta (`video_placa`) | la CPU escala y escribe ahí (no en el búfer del compositor): una captura del QEMU lo ve. `inicio 1008 1` en `gpu3d-simulado.conf`: «no puedo» | probado (h432) |
+| Intel Gen3 | — | sin la operación: sigue como hasta ahora | — |
+
+**Probado en el Amilo (X1400 `1002:7145`, pantalla de 1024x768, 2026-11-20; kernel de prueba con `arranque probar`, sin
+confirmar).** La imagen que deja la GPU es la correcta (el patrón de `sdl2presentar`, traído de la memoria de vídeo y
+capturado: colores, orientación, escalado y bandas), 0 fallos de la GPU y el 2D sigue activo. Medidas (cuadros por
+segundo; «textura» = una textura por cuadro generada por la CPU, 200 cuadros):
+
+| | GPU directo (D432) | GPU con vuelta a la RAM (antes) | Software |
+| --- | --- | --- | --- |
+| `sdl2presentar` 320x200 | **333** | 46 | 122 |
+| `sdl2presentar` 640x480 | **177** | 32 | 83 |
+| `sdl2presentar` 800x600 | **123** | 29 | 67 |
+| `sdl2presentar` 1024x768 (1:1) | **73** | — | 53 |
+| `sdl2presentar -m dibujo` 640x480 | **238** | — | — |
+| DOOM (Freedoom, `-timedemo demo1 -fullscreen`, lienzo 800x600) | **109** | — | 82 |
+
+La primera tanda, con la textura subida por la ventana **sin caché** de la CPU (~100 MB/s), perdía contra el software
+salvo a 320x200 (147 / 68 / 61 fps, y DOOM a ~23): por eso `r5_textura` sube ahora con **write-combining** por la ventana
+móvil cuando el framebuffer ya lo usa por la PAT (`inicio 4ff0 40` en `gpu3d-r500.conf` lo quita). **Falta ver con los
+ojos** (nadie miraba la pantalla): desgarro, parpadeo de la flecha, Alt+Tab y avisos en la máquina.
+
+### Desgarro
+
+La copia va a la superficie que se está mostrando (búfer frontal): si cruza el barrido, ese cuadro se ve partido por una
+línea. Con **`G3D_APRES_VSYNC`** el driver espera al principio del retrazado vertical antes de avisar al procesador de
+órdenes: **solo lee** el bit de estado del CRTC (`D1CRTC_STATUS` 0x609C en R5xx-R7xx, `CRTC_STATUS` 0x6E8C en Evergreen),
+con un plazo de 20 ms (si no llega, presenta igual y lo cuenta: «sin retrazado a tiempo» en el detalle). Es una espera
+activa de hasta un cuadro, por eso **no va por defecto** (`SDL_SAGUI_GPU_VSYNC=1`). El doble búfer cambiando la base del
+CRTC (sin desgarro y sin espera activa) **no se ha hecho**: obliga a escribir registros de pantalla (`D1GRPH_PRIMARY_SURFACE_
+ADDRESS` y el bloqueo de actualización), que hasta ahora ningún driver 3D toca, y a devolverlos bien en cada salida
+(Alt+Tab, fallo, apagado); queda anotado para cuando el camino directo esté confirmado en las tres máquinas.
+
+### La SDL 2 (`userland/libsdl2/sdl2gpu.h`, `sdl2_sagui.c`; detalles y cómo se enciende en cada juego: `docs/sdl-gpu.md`)
+
+- Con el renderizador por GPU y la ventana **a pantalla completa**, `SDL_RenderPresent` pide `APRESENTAR` en vez de `LER`.
+  Si el kernel dice «ahora no», ese cuadro va como antes (y el lienzo se presenta entero al compositor).
+- **Una textura por cuadro** (DOOM, AoEN con `render2d`, emuladores): el `SDL_RenderCopy` opaco que cubre todo el lienzo
+  **se aplaza**; si nada se dibuja encima, la fuente de la presentación es **la textura** y la GPU la lleva escalada a la
+  pantalla: la subida va a la VRAM, una sola copia por la GPU, y el escalado deja de hacerlo la CPU.
+- **Superficie de la ventana** (`SDL_UpdateWindowSurface`: Tzar, OpenTTD), experimental y solo con `SDL_SAGUI_GPU=1`: el
+  lienzo se sube a una textura cuando cambia y se presenta igual.
+- El renderizador por GPU **sigue siendo opcional** (D288, D394): nada cambia para quien no lo pide.
+
+### Cómo leerlo en el log y en `gpu3d`
+
+- Al encender: `[GPU3D] v2: capacidades ...; presentar sin volver a la RAM (D432): si|no` (en Evergreen, `[GPU3D] v1:
+  presentar ...`) y, en R7xx/Evergreen, `[GPU3D] r600|evergreen presentar (D432): se puede | <por qué no> (pantalla MC ...,
+  paso, tamaño, modo de superficie, alineación[, prioridad de la pantalla])`.
+- La primera vez que un programa presenta: `[GPU3D] presentar (D432): fuente textura|destino LxA+x+y de LxA -> pantalla
+  LxA+x+y de LxA` y la del driver: `[GPU3D] r500|r600|evergreen presentar (D432): primera copia a la pantalla: fuente MC
+  ... -> pantalla MC ...`.
+- `gpu3d`: `presentar en la pantalla (D432): si; N cuadros directos, M por la RAM; pantalla en exclusiva: ...`.
+- `gpu3d probar --detalle`: la línea `presentar (D432)` del detalle de cada driver (copias hechas y cuántas sin retrazado
+  a tiempo). Si la GPU no termina una copia, es un fallo como cualquier otro: `[GPU3D] apagado: la GPU no respondio a
+  tiempo al presentar en la pantalla`, el compositor recupera la pantalla y todo sigue por software.
+
+### Qué ejecutar en cada máquina (para el mantenedor y `depurador-drivers`)
+
+Con un kernel de esta rama (`arranque probar`, sin confirmar) y `/apps/bin/sdl2presentar` de esta rama (un juego sintético
+a pantalla completa; vale copiarlo a `/home`). En las tres, con el escritorio:
+
+```
+gpu3d probar --detalle           (BIEN y «presentar sin volver a la RAM (D432): si»)
+sdl2presentar -n 300 -l 640x480                              (GPU, directo: fps y «directos 300, por la RAM 0»)
+SDL_SAGUI_GPU_PRESENTAR=0 sdl2presentar -n 300 -l 640x480    (GPU trayendo el cuadro a la RAM: lo de antes)
+SDL_SAGUI_GPU=0 sdl2presentar -n 300 -l 640x480              (software)
+sdl2presentar -n 300 -l 640x480 -m dibujo                    (la fuente es el destino del 3D)
+sdl2presentar -n 60 -l 320x180 -e 20 -a                      (patrón fijo: rojo, verde, azul, blanco; bandas negras
+                                                              arriba y abajo; a los 10 s un aviso; Alt+Tab y F11)
+SDL_SAGUI_GPU_VSYNC=1 sdl2presentar -n 300 -l 640x480        (con espera al retrazado: como mucho los Hz de la pantalla)
+dmesg > /home/d432.txt
+```
+
+Qué mirar: que el patrón se ve entero, con los colores en su sitio (rojo arriba a la izquierda, verde arriba a la derecha,
+azul abajo a la izquierda, blanco abajo a la derecha) y las bandas negras; que no parpadea ni deja basura; que el aviso y
+Alt+Tab devuelven el escritorio bien y que F11 vuelve al juego; que `gpu3d` sigue «activo» con «fallos 0»; y los fps de
+las tres primeras órdenes. Después, un juego: `SDL_SAGUI_GPU=1 chocolate-doom` (o `AOEN_RENDER=1 aoen`) a pantalla
+completa. Si la pantalla se queda negra o con basura: Alt+Tab (o Ctrl+Esc) la devuelve al compositor; `gpu3d apagar`
+quita el 3D; nada queda grabado, un reinicio vuelve al kernel bueno.
+
+## OpenGL ES por la GPU en un juego de verdad: Brumacanto (D451)
+
+- **Niebla en el vértice para v2:** sin `G3D_CAP_NEBLINA`, con una unidad en MODULATE o ninguna, SaguiGL mezcla la niebla
+  en el color y el especular (como v1); un dibujo con prueba alfa y niebla (el mundo de Brumacanto) ya cabe en la X1400.
+- **Búfer de atrás propio** en las superficies de ventana de EGL (la ventana solo ve cuadros enteros) y **presentar directo**
+  (`GPU3D_OP_APRESENTAR`) desde `sgl_trocar` cuando el kernel lo acepta (pantalla completa con el foco).
+- **Escala de dibujo:** `SDL_SAGUI_GL_ESCALA=25..100` (pista o entorno) o `sgl_escala()`; se amplía al presentar.
+- **Lotes de 3072 vértices**, descarte de caras antes de recortar, recorte sin copias.
+- **R5xx:** espera al 3D antes de cada orden del 2D por el anillo (sin ella, una copia del compositor entre dos dibujos v2
+  colgaba la X1400), cola de 256 KB en write-combining; la vuelta por la GART (D391) se enciende sola en la X1400.
+- **Perfil:** `SAGUI_GL_PERFIL=1 programa` escribe en el log cada 2 s lotes y vértices por cuadro, ms en SaguiGL y en el
+  kernel, vuelta a la RAM, copia a la ventana, presentar y cuántos cuadros fueron directos, por la RAM o por software.
+  Para aislar un fallo de un driver: `SAGUI_GL_LOTE=N`, `SAGUI_GL_NEBLINA_CPU=0`, `SAGUI_GL_PRESENTAR=0`,
+  `SAGUI_GL_DIAG=1` (forzar v2) o `2` (sin prueba alfa en la GPU); en R5xx, `inicio 4ff0 N` con los bits 80, 100, 200, 400.
+
+Medidas (Amilo, vista 64): por la GPU 8,3 cuadros/s en ventana y 8,4 a pantalla completa (antes 0,9); el límite son los
+vértices (unos 55.000 por cuadro: ~40 ms en el kernel y ~55 ms en SaguiGL).
 
 ## Intel Gen3 (915, 945, G33, Pineview)
 
@@ -262,6 +624,32 @@ de quien la tenga. El 2D por DMA de las R6xx sigue solo con `--acel2d=radeon` (D
 estado inicial de las R7xx: en el dv7 `gpu3d` decía «sin GPU con driver 3D» y `gpu3d probar` no encendía
 nada. Vuelven a estar (y `tests/h284` y `tests/h359` lo vigilan).
 
+### gpu3d v2 en R6xx/R7xx (D426, sin probar en hardware)
+
+| Qué | Cómo | Bit |
+| --- | --- | --- |
+| Hasta 4 unidades con COMBINE y DOT3 | sombreador de píxeles generado (`r63d_ps2_gerar`): cláusula TEX (una `SAMPLE` por unidad) y cláusulas ALU; caché de 8 en la VRAM (`0x1000`-`0x8FFF` de la zona de sombreadores) | `COMBINAR`, `DOT3`, `unidades` = 4 |
+| Niebla con el factor del vértice | en el sombreador (alfa del especular, color como literal) | `NEBLINA` |
+| Esténcil de 8 bits | el Z de 24 bits es `DEPTH_8_24` (también en v1); `DB_DEPTH_CONTROL`, `DB_STENCILREFMASK(_BF)` | `ESTENCIL`, `LIMPAR2` |
+| Prueba alfa | `SX_ALPHA_TEST_CONTROL` / `SX_ALPHA_REF`, con el Z tarde (`DB_SHADER_CONTROL`, como Mesa) | `ALFA_TESTE` |
+| Tijera, máscara de color, 8 funciones de Z | `PA_SC_GENERIC_SCISSOR`, `CB_TARGET_MASK`, `DB_DEPTH_CONTROL` | `TIJERA`, `MASCARAS`, `Z_FUNCS` |
+| Mezcla ampliada, separada, resta | `CB_BLEND(0)_CONTROL` con `SEPARATE_ALPHA_BLEND` | `MEZCLA_EXT/SEP/EQ` |
+| Operación lógica | `ROP3` de `CB_COLOR_CONTROL` (sin mezcla) | `LOGICA` |
+| DXT1/3/5 | `FMT_BC1/2/3` en 1D en mosaico (en lineal la tarjeta no las lee bien; D426, «DXT en la HD 4500»), paso de 8 bloques | `formatos` |
+| NPOT con repetición, espejo, anisótropo | el muestreador (`WRAP`, `MIRROR`, `ANISO_*` y `MAX_ANISO_RATIO`) | `TEX_NPOT`, `TEX_ESPELHO`, `TEX_ANISO` |
+| Dibujar en una textura | `r63d_alvo` sobre el hueco (ARGB, su paso), con un Z propio; `LER` lee la textura | `DESTINO_TEX` |
+
+Va por software: mipmaps, cubos, coordenadas proyectivas y lados de más de 1024. Los vértices v2 van tal cual
+(`gpu3d_vert2_t`, 88 bytes) con un sombreador de vértices v2 fijo; al volver a un dibujo v1 se restauran el SPI
+(3 parámetros), los sombreadores de v1, la prueba alfa y el orden del Z.
+
+**Cómo leerlo en el log** (al encender, tras la autoprueba común): `[GPU3D] r600 v2: pruebas: pedidas 0x..., superadas
+0x... (faltan 0x...); 4 unidades; formatos 0xf` y, por cada prueba que falla, `[GPU3D] r600 v2: prueba N (<qué>) MAL:
+pixel (x,y) esperado ... obtenido ...` (las pruebas: 0 base, 1 combinar, 2 DOT3, 3 alfa, 4 esténcil y LIMPAR2, 5 tijera y
+máscara, 6 funciones del Z, 7 mezcla, 8 lógica, 9 niebla, 10 espejo, 11 DXT, 12 NPOT, 13 anisótropo, 14 destino textura, 15 mipmaps).
+`gpu3d probar --detalle` añade `r600 detalle (...): v2 (D426): capacidades ...; sombreadores de pixeles: N generados, M de
+la cache`. Si la prueba 0 falla, no hay v2 y todo sigue como en la v8.5.5.1.
+
 ### No se enciende sola
 
 A diferencia de la Intel, **no se prueba con el primer uso**: arranca «apagado» y solo el
@@ -346,8 +734,75 @@ la autoprueba común (`prueba N`, 0 a 7). En el log, `[GPU3D] r600: etapa N` es 
 ### Qué no hace todavía
 
 Las integradas RS780/RS880; destinos de más de 1024x1024 y texturas de más de 1024x1024 (la SDL 2 por GPU y
-SaguiGL siguen por software en esos casos); presentar sin pasar por la RAM (el cuadro se lee por la apertura
-de la CPU, que es lento); recuperarse de un bloqueo del motor.
+SaguiGL siguen por software en esos casos); recuperarse de un bloqueo del motor. Presentar sin pasar por la RAM: desde
+la D432, a pantalla completa (sin probar en hardware; SaguiGL en ventana sigue leyendo el cuadro).
+
+## Radeon Evergreen/NI (HD 5000-6000, HD 7500M/7600M: Cedar…Hemlock, Barts, Turks, Caicos) — D427
+
+`kernel/dispositivos/gpu3d_evergreen.c` + `evergreen_3d_pacotes.c` / `kernel/inc/evergreen_3d.h` (paquetes PM4, tres
+sombreadores a mano en el ISA de Evergreen y valores de inicio: lógica pura, probada en el PC con
+`tests/evergreen_3d_unidad.c`) + la sonda de solo lectura del 2D (`r600_sondar`, D286/D408). **Cayman (HD 6900) no**:
+otra arquitectura de sombreadores (VLIW4); se queda en software.
+
+Mismo esquema que las R7xx (sección anterior): el CP con su microcódigo (`/lib/firmware/radeon/<FAMILIA>_pfp.bin` y
+`_me.bin`, de linux-firmware) lee la cola en la VRAM; un sombreador de vértices que copia y dos de píxeles (color y
+textura) que interpolan los parámetros con `INTERP_XY/ZW`; el cuadro vuelve a la RAM leído por la CPU. Lo propio:
+
+- **VRAM por encima de 4 GB en el MC (D408):** la zona usa las mismas direcciones de 40 bits que el 2D (en el Toshiba,
+  `f:xxxxxxxx`); el log las escribe como `alto:bajo`.
+- **Zona 3D** detrás del 2D, de las superficies de los otros controladores (hasta 6) y de los cursores, dentro de los
+  **primeros 64 MB del BAR 0** (sin registro del tamaño de la apertura, D286): de 4 a unos 50 MB.
+- **No se enciende sola** (como las R7xx): `gpu3d` la muestra «apagado»; `gpu3d probar` / `gpu3d encender` la ponen en
+  marcha con la autoprueba; `gpu3d apagar` para el CP. `--gpu3d=radeon` al grabar la imagen la deja «sin probar» (se
+  prueba con el primer programa que abra el motor). «gtt» no hace nada aquí (sin GART en Evergreen todavía).
+- **Registros:** los del CP, `GRBM_SOFT_RESET` del CP y de los bloques del 3D que dependen de él (PA, SPI, SH, SX,
+  VGT), unos 40 valores por defecto del motor (`eg3d_inicio_motor`, de `evergreen_gpu_init`) y el contexto por la cola.
+  **No toca** pantalla, DMIF, HDP (salvo su vaciado), MC, relojes, energía, DMA ni `SRBM_SOFT_RESET`; `GB_ADDR_CONFIG` y
+  `GB_BACKEND_MAP` se dejan como los dejó la BIOS (solo se escriben si están a cero).
+
+### Cómo leer el log
+
+`[GPU3D] evergreen: etapa N` es el último paso que terminó; si el encendido falla, `gpu3d probar` dice `etapa N
+(nombre): motivo`. Etapas: 0 sonda, 1 microcódigo y VRAM de la zona, 2 parar el CP y cargarlo, 3 valores por defecto
+del motor, 4 cola y arranque del CP, 5 prueba de la cola, 6 sombreadores y estado base.
+
+| Última línea | Qué significa | Dónde mirar |
+| --- | --- | --- |
+| `etapa 0 (sonda de solo lectura): ...` | la sonda del 2D o la zona rechazaron la tarjeta (modelo, pantalla, VRAM, cursor, Cayman) | el motivo y las líneas `[GPU3D] evergreen: controlador N` |
+| `etapa 1: falta el microcodigo` | no está `/lib/firmware/radeon/TURKS_*.bin` (imagen de antes de la D427 o `sem-firmware`) | copiar los dos ficheros |
+| `etapa 1: la VRAM ... no guarda lo escrito` | la zona no es memoria utilizable por la CPU | `zona 3D: ... en MC`, `CONFIG_MEMSIZE` |
+| `etapa 3` con `secuenciador del MC PARADO` | la BIOS no dejó el MC en marcha (raro): el 3D no puede ir | `MC_SEQ_SUP_CNTL` |
+| `etapa 4` y nada más / `etapa 5: el CP no ejecuta la prueba de la cola` | el CP no lee la cola de la VRAM o el microcódigo no arranca | `RPTR` (¿avanza?), `CP_RB_BASE`, `CP_STAT` |
+| `etapa 6: el CP no termina el estado base` | un paquete del estado base (preámbulo, `CLEAR_STATE`, SQ) lo bloquea | `RPTR` (en qué palabra), `GRBM_STATUS` |
+| autoprueba: prueba 0 o 1 | no salen triángulos o salen mal: sombreadores, `SPI_*`, formato del destino | `--ver` (D390), `CB_COLOR0_INFO` |
+| prueba 2 o 7 (Z) | el Z en mosaico 1D (`DB_Z_INFO`, `DB_DEPTH_SIZE`) | `GB_ADDR_CONFIG` del detalle |
+| prueba 3 (mezcla) | `CB_BLEND0_CONTROL` (bit 30) | |
+| prueba 4 (textura) | recurso o muestreador (palabras 4 y 7, `NUM_BANKS`) | paso alineado del detalle |
+| prueba 5 o 6 (interpolado, especular) | `INTERP_XY/ZW`, `SPI_BARYC_CNTL`, semánticas | |
+
+### Qué probar en el Toshiba (HD 7600M Turks `1002:6840`)
+
+Con una imagen de la v8.5.5.2 o posterior (lleva el microcódigo `TURKS_*`), con el escritorio:
+
+```
+gpu3d                      (debe decir «apagado» y «Radeon Evergreen/NI 1002:6840»)
+gpu3d probar --detalle     (las 6 etapas y las 8 pruebas)
+dmesg > /home/evg3d.txt
+```
+
+Si dice **BIEN**: `sgldemo -g` (SaguiGL por software contra la GPU, escena a escena: debe decir BIEN), `sgldemo` (el cubo
+en ventana: el título dice `(GPU)` y los fps), `sgldemo -n 300 -s` (fps sin pausas, GPU) y `gpu3d apagar; sgldemo -n 300
+-s` (lo mismo por software), `infopc --bench-gpu`, y otro `dmesg > /home/evg3d-2.txt`. Mover la ventana del cubo y abrir
+el menú mientras gira (el 2D por DMA sigue a la vez). `gpu3d apagar` y `gpu3d encender` (tiene que volver a encender sin
+reiniciar). Reiniciar con normalidad al final.
+
+Si algo sale mal: la línea `etapa N` o `prueba N` y el `dmesg`; `gpu3d apagar` deja todo como estaba (la pantalla no se
+toca). Si la máquina se queda colgada (no debería: solo se toca el CP), reiniciar: nada queda grabado.
+
+### Qué no hace todavía
+
+Cayman; GART (el cuadro vuelve por la CPU, que es lo lento: ~10 MB/s por el PCIe en las R7xx); destinos y texturas de
+más de 1024x1024; plantilla, varias texturas y el resto de la interfaz v2 (fase B de la D427).
 
 ## Radeon R5xx (X1300 a X1950; la Mobility X1400 del Amilo) (D287)
 
@@ -367,6 +822,51 @@ de la CPU, que es lento); recuperarse de un bloqueo del motor.
 
 Desde la D357, si el encendido falla, `gpu3d probar` dice `etapa N (nombre): ...` en su propia salida, sin
 mirar el log; `--detalle` añade `[GPU3D] r500 ...: ultima etapa del encendido: N de 6`.
+
+### gpu3d v2 en R5xx (D426; probado en la X1400 del Amilo el 2026-11-20)
+
+**La regresión de la X1400 y su arreglo** (D426, «Amilo»): con el kernel de la v8.5.5.2, la autoprueba de v1 salía
+bien, la prueba v2 0 (una unidad) también, y en la prueba 1 (combinar, cuatro unidades) el motor se quedaba ocupado
+para siempre (`RBBM_STATUS 9401c100`, GA ocupado; RPTR fijo; ninguna valla). Después fallaban la medida y el 2D («la
+FIFO no se vacia», GART aparcada). Causa: al cambiar el número de juegos de coordenadas, `r5_estado_vertices` mandaba
+`WAIT_UNTIL` con «3D parado **y limpio**» sin pedir antes el vaciado de las cachés de color y de Z; tras un dibujo la
+espera no termina nunca. Ahora va `r5_vaciar` delante (vaciado y espera, como la valla), y `r500_3d_unidad` lo vigila.
+
+**Qué anuncia la X1400** (lo que pasa las pruebas en la máquina): v2 con **una unidad**, prueba alfa, tijera,
+máscaras, 8 funciones de Z, mezcla ampliada/separada/resta, operación lógica, espejo, anisótropo, dibujar en una
+textura y DXT1/3/5 (`capacidades 0xa2fe9`, formatos `0xf`). **No**: COMBINAR y DOT3 con varias unidades (la prueba 1
+da negro en (4,4): sin cuelgue, pero mal), niebla (la prueba 9 sale sin niebla), y **esténcil y LIMPAR2**, que se
+quitaron de los candidatos: pasan la prueba pequeña pero en la escena «sombra» de `es11demo` la X1400 dejaba rayas
+negras en el fondo y la sombra con huecos. Todo eso va por software, como antes de v2.
+
+**Ajustes de depuración** en `/sistema/conf/gpu3d-r500.conf`, línea `inicio 4ff0 N` (no es un registro: no se
+escribe; N en hexadecimal, suma de): `1` sin v2; `2` cada parte del estado de un dibujo v2 (espera y `PVS_FLUSH`, PSC,
+programa de vértices, formato, RS, destino, unidades, constantes, programa del US, fragmento, triángulos) y el primer
+dibujo v1 tras uno v2, cada uno con su valla y una línea `r500 v2 sinc: <parte>: bien|CUELGA`; `4` solo las pruebas de
+una unidad; `8` los semáforos de textura en todas las lecturas (como el primer generador; ahora van como en Mesa, solo
+en la última); `20` pedir también esténcil y LIMPAR2. Al agotarse el tiempo, el log lleva la cola alrededor del RPTR
+(`r500 cola ...`). Un cuelgue obliga a reiniciar: el motor no se reinicia nunca.
+
+| Qué | Cómo | Bit |
+| --- | --- | --- |
+| Hasta 4 unidades con COMBINE y DOT3 | programa del US generado (`r5_fp_gerar`), con las constantes de las unidades en las del US; caché de 8 (se vuelve a cargar en el US solo si cambia) | `COMBINAR`, `DOT3`, `unidades` = 4 |
+| Niebla con el factor del vértice | en el programa (alfa del especular; color en la constante 4) | `NEBLINA` |
+| Esténcil de 8 bits | el Z de 24 bits ya era `24_8`; `ZB_CNTL`, `ZB_ZSTENCILCNTL`, `ZB_STENCILREFMASK` | `ESTENCIL`, `LIMPAR2` |
+| Prueba alfa | fija, en el FG (`FG_ALPHA_FUNC`, valor de 8 bits) | `ALFA_TESTE` |
+| Tijera, máscara de color, 8 funciones de Z | `SC_SCISSOR0/1`, `RB3D_COLOR_CHANNEL_MASK`, `ZB_ZSTENCILCNTL` | `TIJERA`, `MASCARAS`, `Z_FUNCS` |
+| Mezcla ampliada, separada, resta | `RB3D_CBLEND`/`ABLEND` con `SEPARATE_ALPHA_ENABLE` y `COMB_FCN` | `MEZCLA_EXT/SEP/EQ` |
+| Operación lógica | `RB3D_ROPCNTL` | `LOGICA` |
+| DXT1/3/5 | `TX_FORMAT_DXT1/3/5` con la mezcla de canales de las R500 (la de ARGB8888), paso de 16 texels | `formatos` |
+| Espejo, anisótropo | `TX_FILTER0` (`MIRRORED`, `ANISO`, `MAX_ANISO`) y `R500_TX_MAX_ANISO` | `TEX_ESPELHO`, `TEX_ANISO` |
+| Dibujar en una textura | el destino del RB3D sobre el hueco (ARGB, su paso), con un Z propio; `LER` lee la textura | `DESTINO_TEX` |
+
+Va por software: **NPOT con repetición o espejo** (con borde sí; como la limitación de Gen3: el paso propio de la
+textura no deja repetir), mipmaps, cubos y coordenadas proyectivas. El vértice v2 va en la orden con 6 + 2 palabras por
+juego de coordenadas usado (con uno es el de v1); al cambiar de número de juegos se vuelve a cargar el programa de
+vértices (con el motor parado), y al volver a v1 se restaura lo que v1 no pone (mezcla del alfa, ROP, prueba alfa).
+
+**En el log:** igual que en R7xx, con `r500` (`[GPU3D] r500 v2: pruebas: ...`, `prueba N (...) MAL ...`) y en el
+detalle `r500 ...: v2 (D426): capacidades ...; programas: N generados, M de la cache, K cargas`.
 
 ### Qué probar en el Amilo (para el mantenedor)
 
@@ -404,13 +904,27 @@ Cosas a mirar si funciona: bordes de los triángulos comparados con el software 
 píxel), texturas no potencia de 2 con repetición (van por software), y la velocidad de `sgldemo` (traer el
 cuadro de la VRAM a la RAM es lento: es lo siguiente a mejorar).
 
+### Qué probar de gpu3d v2 (D426) en el Amilo (X1400) y en el HP dv7 (HD 4500)
+
+Con un kernel de esta rama (la raíz de la máquina puede quedarse: SaguiGL de antes no usa v2 y sigue igual):
+
+1. `gpu3d probar --detalle` y `dmesg > /home/v2.txt`. Lo que importa: la línea `v2: pruebas: pedidas ..., superadas
+   ...` y las de `prueba N (...) MAL`. La autoprueba de v1 (las 8 de siempre) tiene que seguir BIEN: en R7xx el Z de 24
+   bits cambió a `DEPTH_8_24` (con esténcil) también para v1.
+2. `gpu3d` (bits en `infopc --informe` y la pestaña GPU cuando SaguiGL ES 1.1 lo enseñe) y, con la SaguiGL de la rama
+   `v8.5.5.2-sgl-es11`, sus demos de ES 1.1 (`sgldemo -g`, la escena de multitextura) por GPU y por software.
+3. Mover ventanas mientras gira: el 2D sigue por su camino (R5xx por el anillo del CP, R7xx por DMA).
+
+Si algo cuelga la GPU durante las pruebas v2, el vigilante apaga el 3D y todo sigue por software (como con v1).
+
 ## Qué probar en cada máquina Radeon (resumen, D357)
 
 | Máquina | Tarjeta | Qué ejecutar | Qué mandar |
 | --- | --- | --- | --- |
 | **HP dv7** | HD 4530/4570 `1002:9553` (RV710, R7xx) | `acel2d probar --detalle`; `acel2d apagar`; `gpu3d`; `gpu3d probar --detalle`; si BIEN: `sgldemo -g`, `sgldemo`, `infopc --bench-gpu`; `sdl2gpu` (D288) | `dmesg > /home/dv7-radeon.txt` y la salida de las órdenes (o foto) |
 | **Fujitsu Amilo** | Mobility X1400 `1002:7145` (R5xx) | `acel2d`; `gpu3d probar --detalle`; la lista de «Qué probar en el Amilo» | `dmesg > /home/r500.txt` |
-| **Toshiba L635** | Mobility HD 5000 `1002:68e0` (Cedar, Evergreen) | 2D (D286): `dmesg > /home/evg.txt`; `acel2d`; `acel2d probar --detalle`. El 3D no existe para Evergreen: `gpu3d` dirá «sin driver 3D» (correcto) | `/home/evg.txt` y la salida de `acel2d probar --detalle` |
+| **Toshiba L635** | Mobility HD 5000 `1002:68e0` (Cedar, Evergreen) | 2D (D286): `dmesg > /home/evg.txt`; `acel2d`; `acel2d probar --detalle`. 3D (D427): `gpu3d probar --detalle` y, si BIEN, `sgldemo -g` | `/home/evg.txt` y la salida de `acel2d probar --detalle` y `gpu3d probar --detalle` |
+| **Toshiba (HD 7600M)** | Turks `1002:6840` (NI, VRAM del MC en 0xF_0000_0000) | la lista de «Qué probar en el Toshiba» de la sección Evergreen/NI | `dmesg > /home/evg3d.txt` y la salida de `gpu3d probar --detalle` |
 
 En las tres: si `acel2d probar` falla al iniciar, el texto empieza por `etapa N:` (1 modelo y sonda, 2 memoria y
 zona del DMA, 3 estado previo del DMA, 4 encender el anillo, 5 prueba del anillo, 6 valla); si pasa el inicio y
@@ -493,6 +1007,12 @@ vértice, programa de vértices y programas de fragmentos contra sus palabras a 
 diagnóstico común de la D390), `fuentes`, `firmware` (el microcódigo en la imagen) y `std` (QEMU sin Radeon, con y sin
 `--gpu3d=radeon`: nada cambia).
 
+`tests/h432_presentar_gpu.py` (D432): `unidad` (`tests/g3d_apres_unidad.c`: bandas, vértices de la copia y la pantalla
+como destino en R5xx; `tests/g3d_apres_r600_unidad.c`: lo mismo en R6xx/R7xx y Evergreen con direcciones de 40 bits, y
+que los destinos de siempre no cambian), `fuentes`, `std` (sin GPU nada cambia) y `simulado` (QEMU: el cuadro llega a la
+pantalla escalado y con bandas, el compositor no pinta encima, y la recupera con Alt+Tab, un aviso, al salir y con
+`gpu3d apagar`; en ventana, con la opción apagada o con un driver que no puede, como antes).
+
 `tests/h405_saguigl.py` (D404): unidad del filtro, mipmaps, perspectiva, luces, formatos y OBJ en el anfitrión; sumas del
 paisaje en QEMU; medida por software; con el simulado, `sgldemo -g` (siete escenas) y la caché de texturas.
 
@@ -553,7 +1073,10 @@ para comparar, y `sgldemo -p 300 --texturas 16`, `--texturas 64` para ver cuánd
 - ~~Renderizador de la SDL 2 por GPU~~: D288 (sobre la misma capa, vale para Intel). Varias pantallas
   (mejora 060), pendiente.
 - Intel: destino y Z con mosaico (Y) si el Z lineal diera problemas en alguna máquina; presentar sin
-  copiar el cuadro (búfer compartido con el compositor).
+  copiar el cuadro (la operación de la D432 solo la tienen las Radeon y el simulado).
+- D432: probar `APRESENTAR` en las tres Radeon; doble búfer con cambio de base del CRTC (sin desgarro); presentar en
+  ventana (hoy solo a pantalla completa); que SaguiGL/EGL la use; subida parcial de texturas para los programas que
+  pintan en la superficie de la ventana; que la captura de pantalla vea el cuadro de la GPU.
 - Gen4 en adelante (X3100, GM45, HD Graphics): otra tubería.
 
 

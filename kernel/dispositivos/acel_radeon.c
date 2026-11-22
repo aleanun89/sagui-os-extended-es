@@ -1208,7 +1208,7 @@ static bool gv_opcao(int paso)
 static bool gv_paso(int paso, char *m, int nm)
 {
     if (paso >= 20 && paso <= 26) return gv_opcao(paso);
-    if (paso >= 27 && paso <= 35) return gpu3d_r500_opcao(paso);   /* D387: la valla del 3D y su espera */
+    if (paso >= 27 && paso <= 36) return gpu3d_r500_opcao(paso);   /* D387: la valla del 3D y su espera (36: D436) */
     if (paso < 0 || paso > GV_EXP_ULTIMO) { snformatar(m, (size_t)nm, "pasos del 0 al %d y del 20 al 35", GV_EXP_ULTIMO); return false; }
     if (gt.ligada) { snformatar(m, (size_t)nm, "la GART esta en uso: antes «acel2d volcado apagar» y «acel2d vuelta apagar»"); return false; }
     gv_marca(paso, 0, "solo lectura de registros");

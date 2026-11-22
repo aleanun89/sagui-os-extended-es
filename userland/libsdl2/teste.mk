@@ -45,3 +45,17 @@ $(B)/userland/bin/sdl2gpu: $(S2G_OBJ) $(SDL2_OBJ) $(LIBC_OBJ) $(QJS_LIBM) $(LIBS
 	@$(PY) $(CHECK_ELF32) $@.elf
 
 APPS_BINS += $(B)/userland/bin/sdl2gpu
+
+# D432: prueba y medida de «presentar sin volver a la RAM» (h432): un juego sintético a pantalla completa.
+S2P_OBJ := $(B)/userland/libsdl2/sdl2presentarprova.o
+$(S2P_OBJ): userland/libsdl2/sdl2presentarprova.c userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(SDL2_FLAGS) -c -o $@ $<
+
+$(B)/userland/bin/sdl2presentar: $(S2P_OBJ) $(SDL2_OBJ) $(LIBC_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
+	objcopy --strip-all $@.elf $@
+	@$(PY) $(CHECK_ELF32) $@.elf
+
+APPS_BINS += $(B)/userland/bin/sdl2presentar

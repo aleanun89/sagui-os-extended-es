@@ -53,15 +53,15 @@ msgstr ""
 "O texto tem alterações não salvas.\n"
 "Salvar antes?"
 
-#: userland/programas/editor.c:123 userland/programas/editor.c:298
+#: userland/programas/editor.c:123 userland/programas/editor.c:308
 msgid "Nuevo"
 msgstr "Novo"
 
-#: userland/programas/editor.c:123 userland/programas/editor.c:325
+#: userland/programas/editor.c:123 userland/programas/editor.c:335
 msgid "Abrir"
 msgstr "Abrir"
 
-#: userland/programas/editor.c:124 userland/programas/editor.c:298
+#: userland/programas/editor.c:124 userland/programas/editor.c:308
 msgid "Guardar"
 msgstr "Salvar"
 
@@ -81,31 +81,31 @@ msgstr "Ctrl+S salva"
 msgid "Edición"
 msgstr "Edição"
 
-#: userland/programas/editor.c:224
+#: userland/programas/editor.c:233
 msgid "Editor - sin nombre"
 msgstr "Editor - sem nome"
 
-#: userland/programas/editor.c:298
+#: userland/programas/editor.c:308
 msgid "Abrir..."
 msgstr "Abrir..."
 
-#: userland/programas/editor.c:298
+#: userland/programas/editor.c:308
 msgid "Guardar como..."
 msgstr "Salvar como..."
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Cortar"
 msgstr "Recortar"
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Copiar"
 msgstr "Copiar"
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Pegar"
 msgstr "Colar"
 
-#: userland/programas/editor.c:299
+#: userland/programas/editor.c:309
 msgid "Seleccionar todo"
 msgstr "Selecionar tudo"
 

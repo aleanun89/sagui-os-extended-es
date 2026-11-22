@@ -916,8 +916,8 @@ static const icone_t tabela[] = {
 uint32_t icones_cor(char c)
 {
     switch (c) {
-    case 'P': return 0x202428;
-    case 'D': return 0x4A5460;
+    case 'P': return esq_trazo(0x202428);   /* D428: con un esquema oscuro, el trazo oscuro se aclara */
+    case 'D': return esq_trazo(0x4A5460);
     case 'B': return 0xFFFFFF;
     case 'C': return 0x9AA3AC;
     case 'L': return 0xE3E8EE;

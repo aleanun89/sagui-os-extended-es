@@ -125,6 +125,13 @@ int      memoria_paginas(int op, void *endereco, unsigned bytes);
  * tienen que estar asignadas (MEM_ASIGNAR o malloc): si no, ERRO_SEM_MEMORIA. */
 int      memoria_proteger(void *endereco, unsigned bytes, int prot);
 int      reiniciar(void);          /* no vuelve (con servicios, el kernel los para antes, D216); ERRO_ACESSO si no se puede (D255) */
+/* D450: lo mismo, empezando por un método (para probar cuál funciona en una máquina): */
+#define REINICIO_AUTO    0   /* ACPI, teclado, 0xCF9 y triple fallo */
+#define REINICIO_ACPI    1   /* RESET_REG de la FADT */
+#define REINICIO_TECLADO 2   /* 8042 (0xFE) */
+#define REINICIO_CF9     3   /* 0xCF9 */
+#define REINICIO_TRIPLE  4   /* triple fallo */
+int      reiniciar_metodo(int m);
 int      servicos_kernel(int op, int arg);   /* SIS_SERVICOS: SERV_* en abi.h (D216); lo usan servicios y servicio */
 int      servicos_kernel3(int op, int a, int b);   /* lo mismo con dos argumentos (SERV_RESPONDER, D255) */
 int      usuario_op(int op, int a, int b);   /* SIS_USUARIO: USU_* en abi.h (D255); ver contas.h */
@@ -213,6 +220,7 @@ int planificador_numero(const char *nome);                 /* "afinidad" -> PLAN
 int afinidade_cpu(int pid, unsigned mascara);              /* -> la máscara anterior */
 int afinidade_consultar(int pid);
 int prioridade_processo(int pid, int nice);                /* -> 0 (el nice actual, en planificacion_info) */
+int planificador_hilo_audio(int ligar);                    /* D436: alta prioridad de audio del hilo que llama; -> antes */
 int planificacion_info(int pid, info_planificacion_t *v);
 
 /* ---- ventanas (las funciones de dibujo y los componentes están en gui.h) ---- */
@@ -294,6 +302,8 @@ int  teclado_layout(int layout);   /* TECLADO_ES, TECLADO_ABNT2 o -1 = sólo con
 /* ---- apariencia del escritorio (D112) ---- */
 int  fundo_enviar(int op, const uint32_t *px, int y, int n);   /* FUNDO_LINHAS/FIM/PADRAO; n líneas del ancho de la pantalla */
 int  acento_cor(int rgb);                                      /* -1 = sólo consultar; devuelve el color actual */
+void tema_ao_mudar(void (*repintar)(void));   /* D428: el programa dice cómo repintarse cuando llega EV_TEMA (tras recargar el esquema) */
+int  esquema_op(unsigned op, void *ptr, unsigned n);   /* D428: SIS_ESQUEMA (esquemas.h): ESQ_OP_LER / VERSAO / FIJAR / FIJAR_LOGIN */
 
 /* ---- red (D046). IPs como número: 10.0.2.15 = 0x0A00020F ---- */
 int  criar_socket(int tipo);                                      /* SOCK_TCP o SOCK_UDP -> fd */

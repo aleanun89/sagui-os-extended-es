@@ -301,8 +301,9 @@ typedef struct EFI_BLOCK_IO_PROTOCOL {
     EFI_BLOCK_IO_MEDIA *Media;
     void *Reset;
     EFI_STATUS (EFIAPI *ReadBlocks)(struct EFI_BLOCK_IO_PROTOCOL *, UINT32, UINT64, UINTN, void *);
-    void *WriteBlocks;
-    void *FlushBlocks;
+    /* D439: el cargador escribe un sector, la cabecera, para borrar la marca del kernel de prueba */
+    EFI_STATUS (EFIAPI *WriteBlocks)(struct EFI_BLOCK_IO_PROTOCOL *, UINT32, UINT64, UINTN, void *);
+    EFI_STATUS (EFIAPI *FlushBlocks)(struct EFI_BLOCK_IO_PROTOCOL *);
 } EFI_BLOCK_IO_PROTOCOL;
 
 /* D270: Disk I/O, lectura por bytes sobre el Block I/O (cualquier tamaño de bloque y

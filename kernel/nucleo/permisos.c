@@ -22,6 +22,7 @@
  * Cada negativa se anota en el registro del kernel, con un límite para no
  * llenarlo (y con él /logs). */
 #include "permisos.h"
+#include "ocio.h"
 #include "abi.h"
 #include "bootinfo.h"
 #include "console.h"
@@ -75,7 +76,7 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_MODOS_VIDEO] = L, [SIS_MUDAR_MODO] = L,      /* la resolución: preferencia del usuario */
     [SIS_PORTATIL] = O,                    /* D403: estado, brillo y acciones; los avisos simulados y las tablas, root */
     [SIS_TELAS] = O,                       /* D290: varias pantallas; D371: guardarlas es de la máquina */
-    [SIS_FUNDO] = L, [SIS_ACENTO] = L,
+    [SIS_FUNDO] = L, [SIS_ACENTO] = L, [SIS_ESQUEMA] = L,
     [SIS_ALEATORIO] = L, [SIS_INFO_ALEATORIO] = L,
     /* Sonido */
     [SIS_BIP] = L, [SIS_AUDIO_ABRIR] = L, [SIS_AUDIO_ESCREVER] = L, [SIS_AUDIO_CONTROLE] = L,
@@ -190,6 +191,7 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_MATAR:
         return do_mesmo_usuario(a, eu);
     case SIS_INFO_SISTEMA:
+        if (a == INFO_OCIO_CTL) return ocio_op_libre(b);   /* D422: recargar, no molestar, actividad y probar; simular y batería simulada, solo el administrador */
         return a != INFO_ACEL2D_CTL && a != INFO_ACEL2D_PROVA && a != INFO_MSR_PROVA &&
                a != INFO_GPU3D_CTL && a != INFO_GPU3D_PROVA && a != INFO_CAB_OPC &&
                a != INFO_KCONF_GRAVAR && a != INFO_GPU_ENERGIA_CTL;   /* D399: cambiar relojes de la GPU */   /* D353: kconfig solo lee sin ser administrador */   /* D284/D285: encender y probar el 3D tocan la GPU */
@@ -236,7 +238,8 @@ static bool operacao_livre(uint32_t n, uint32_t a, uint32_t b, const processo_t 
     case SIS_PLANIFICADOR:
         /* b es el pid (o 0) en AFINIDADE y PRIORIDADE: aquí llega como "b"
          * porque el primer argumento es la operación. */
-        if (a == PLAN_CONSULTAR || a == PLAN_NOME || a == PLAN_INFO) return true;
+        /* D436: PLAN_AUDIO, sí: solo vale para el hilo que llama y el planificador la quita a quien gasta mucho */
+        if (a == PLAN_CONSULTAR || a == PLAN_NOME || a == PLAN_INFO || a == PLAN_AUDIO) return true;
         return false;
     case SIS_SERVICOS:
         return a == SERV_APAGANDO || a == SERV_SUPERVISOR || a == SERV_PEDIR || a == SERV_RESULTADO;

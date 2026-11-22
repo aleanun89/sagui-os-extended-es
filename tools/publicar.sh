@@ -83,6 +83,33 @@ comp_secretos() {
     else ok "sin tokens ni claves privadas"; fi
 }
 
+# D418: las imagenes de depuracion (clave de root por SSH en SAGUI-CONF) y sus claves no se publican jamas.
+MARCA_DEPURACION="IMAGEN-DE-DEPURACION-D418-NO-DISTRIBUIR"
+# $1 = fichero de imagen (.img, .img.xz, .vdi, .iso...): ¿lleva la marca de depuracion?
+imagen_de_depuracion() {
+    case "$1" in
+        *.xz) xz -dc "$1" 2>/dev/null | grep -a -q -F "$MARCA_DEPURACION";;
+        *) grep -a -q -F "$MARCA_DEPURACION" "$1";;
+    esac
+}
+comp_depuracion() {
+    local a="$1" r
+    r="$(cd "$a" && find . -path ./.git -prune -o \( -name authorized_keys -o -name 'ssh_host_*_key' -o -name 'ssh_host_*_key.pub' -o -name debug-ssh -o -name 'IMAGEN-DE-DEPURACION*' \) -print 2>/dev/null | { grep -v -E '/(terceros|micropython)/' || true; })"
+    if [ -n "$r" ]; then fallo "claves o marcas de imagen de depuración (D418) en el árbol: $(echo "$r" | head -3 | tr '\n' ' ')"
+    else ok "sin claves ni marcas de imágenes de depuración"; fi
+}
+
+# D418: rechaza (die) una carpeta de imagenes con la marca de depuracion (VERSION.txt o dentro de las imagenes).
+comp_imagenes_depuracion() {
+    local imagenes="$1" im
+    grep -qi "IMAGEN DE DEPURACI" "$imagenes/VERSION.txt" 2>/dev/null && die "$imagenes lleva la marca de IMAGEN DE DEPURACIÓN (D418): no se publica"
+    for im in "$imagenes"/saguios*; do
+        [ -f "$im" ] || continue
+        imagen_de_depuracion "$im" && die "$im es una imagen de depuración (clave de root por SSH, D418): no se publica"
+    done
+    return 0
+}
+
 comp_correos() {
     local a="$1" mio="" permitidos r
     mio="$(git -C "$RAIZ" config user.email 2>/dev/null || true)"
@@ -171,6 +198,14 @@ comp_roms_86box() {
     local a="$1" r
     if r="$("$AQUI/86box_roms_prohibidas.sh" --arbol "$a" 2>&1)"; then ok "sin ROM de 86Box"
     else fallo "ROM de 86Box en el árbol público (NO SE PUEDEN SUBIR NUNCA):"; echo "$r" | tail -8 | sed 's/^/      /'; fi
+}
+
+# D421: los sonidos privados (jingles de Windows, MP3 de Pixabay) no se publican nunca.
+comp_sonidos_privados() {
+    local a="$1" r
+    r="$(cd "$a" && find . -type f \( -iname 'Windows_*.wav' -o -ipath '*/sonidos/windows*' -o -ipath '*/sonidos/pixabay*' -o -ipath '*/pixbay_free/*' -o -ipath '*/only_private/*' \) | head -8 || true)"
+    if [ -z "$r" ]; then ok "sin sonidos privados (D421)"
+    else fallo "sonidos privados en el árbol público (NO SE PUEDEN PUBLICAR):"; echo "$r" | sed 's/^/      /'; fi
 }
 
 # D261: ni código de NetSurf (y sus bibliotecas) ni de GNUBoy en lo público: solo el pegamento propio.
@@ -291,10 +326,12 @@ cmd_preparar() {
     aplicar_exclusiones "$parcial"
     echo "comprobaciones:"
     comp_secretos "$parcial"
+    comp_depuracion "$parcial"
     comp_correos "$parcial"
     comp_mac_ip_serie "$parcial"
     comp_tamano "$parcial"
     comp_roms_86box "$parcial"
+    comp_sonidos_privados "$parcial"
     comp_terceros_v2 "$parcial"
     comp_licencia "$parcial"
     [ "$compilar" -eq 1 ] && comp_compilar "$parcial"
@@ -387,6 +424,7 @@ release() {
         if [ -f "$imagenes/VERSION.txt" ] && ! grep -q "^input_share: *no incluido" "$imagenes/VERSION.txt"; then
             die "$imagenes/VERSION.txt no dice «input_share: no incluido»: no son imágenes publicables (make variantes)"
         fi
+        comp_imagenes_depuracion "$imagenes"
         grep -i "^Aplicaciones:" "$imagenes/VERSION.txt" 2>/dev/null | grep -qi "netsurf\|gnuboy" && die "$imagenes lleva NetSurf o GNUBoy: no se publica"
     fi
     local notas="${PUBLICAR_TRABAJO:-$HOME/.cache/saguios-publicar}/notas-$version.md"
@@ -417,6 +455,7 @@ NOTAS
 case "${1:-}" in
     preparar) shift; cmd_preparar "$@";;
     subir) shift; cmd_subir "$@";;
+    comprobar-imagenes) shift; comp_imagenes_depuracion "${1:?falta DIR}"; echo "publicar: sin imágenes de depuración en $1";;
     -h|--help|"") uso 0;;
     *) uso;;
 esac

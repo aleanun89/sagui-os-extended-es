@@ -59,6 +59,7 @@ static bool cur_visivel, cur_ant_visivel;
 static int zona_x0, zona_y0, zona_x1, zona_y1;
 #define CUR_L 12
 #define CUR_A 19
+_Static_assert(CUR_L == VIDEO_CUR_L && CUR_A == VIDEO_CUR_A, "video.h: tamaño de la flecha");
 static const char *const seta[CUR_A] = {
     "#           ", "##          ", "#.#         ", "#..#        ", "#...#       ",
     "#....#      ", "#.....#     ", "#......#    ", "#.......#   ", "#........#  ",
@@ -334,13 +335,34 @@ static void copiar_linha(int y, int x0, int x1, int ox, int oy)
     }
 }
 
+static void escrever_pixel_tela(int x, int y, uint32_t c);
+
+/* D424: una fila con la flecha ya puesta encima (cx, cy: su esquina). Lo de fuera de la flecha va
+ * como siempre; sus píxeles van con el color de la flecha o, donde es transparente, con el del
+ * búfer de atrás. Así la pantalla nunca enseña la zona sin el cursor entre la copia y el dibujo. */
+static void copiar_linha_cursor(int y, int x0, int x1, int cx, int cy)
+{
+    int j = y - cy;
+    int a = x0 > cx ? x0 : cx, b = x1 < cx + CUR_L ? x1 : cx + CUR_L;
+    if (j < 0 || j >= CUR_A || a >= b) { copiar_linha(y, x0, x1, 0, 0); return; }
+    if (x0 < a) copiar_linha(y, x0, a, 0, 0);
+    for (int x = a; x < b; x++) {
+        char p = seta[j][x - cx];
+        escrever_pixel_tela(x, y, p == '#' ? 0x000000u : p == '.' ? 0xFFFFFFu : tras[(uint32_t)y * larg + (uint32_t)x]);
+    }
+    if (b < x1) copiar_linha(y, b, x1, 0, 0);
+}
+
 /* El rectángulo (x0, y0)-(x1, y1) del escritorio a todas las cabezas que lo muestran. Con una
- * sola pantalla es la copia de siempre. */
-static void copiar_regiao(int x0, int y0, int x1, int y1)
+ * sola pantalla es la copia de siempre; con `com_cursor`, la flecha va dentro de la copia (D424). */
+static void copiar_regiao(int x0, int y0, int x1, int y1, bool com_cursor, int cx, int cy)
 {
     int nc = telas_qtd();
     if (nc <= 1) {
-        for (int y = y0; y < y1; y++) copiar_linha(y, x0, x1, 0, 0);
+        if (com_cursor)
+            for (int y = y0; y < y1; y++) copiar_linha_cursor(y, x0, x1, cx, cy);
+        else
+            for (int y = y0; y < y1; y++) copiar_linha(y, x0, x1, 0, 0);
         return;
     }
     for (int i = 0; i < nc; i++) {
@@ -393,9 +415,48 @@ static void desenhar_cursor(int x, int y)
         }
 }
 
+/* D432: mientras un programa a pantalla completa presenta por la GPU directamente en la pantalla
+ * (gpu3d, GPU3D_OP_APRESENTAR), ni el compositor ni la flecha escriben en ella: lo marcado se olvida
+ * (al devolver la pantalla se rehace todo) y la flecha la pone la capa 3D tras cada cuadro. */
+static bool exclusiva;
+void video_exclusiva(bool ligar)
+{
+    if (exclusiva == ligar) return;
+    exclusiva = ligar;
+    cur_ant_visivel = false;      /* lo que hubiera bajo la flecha ya no es lo del búfer de atrás */
+    suj_x0 = suj_x1 = 0;
+}
+bool video_exclusiva_ativa(void) { return exclusiva; }
+
+/* La flecha encima del cuadro que la GPU acaba de dejar en la pantalla (si se ve y no está sobre la
+ * zona de una ventana que la esconde). Devuelve true si la dibujó y dónde. */
+bool video_cursor_exclusiva(int *x, int *y)
+{
+    if (!ativo || !exclusiva) return false;
+    if (!cur_visivel || (cur_x >= zona_x0 && cur_x < zona_x1 && cur_y >= zona_y0 && cur_y < zona_y1)) return false;
+    int cx = cur_x, cy = cur_y;
+    desenhar_cursor(cx, cy);
+    if (x) *x = cx;
+    if (y) *y = cy;
+    return true;
+}
+
+/* Lee de la pantalla (32 bits directos, una sola cabeza) el rectángulo (x, y, l, a) a «dest» (0x00RRGGBB,
+ * «passo_px» píxeles por fila). Leer la memoria de vídeo es lento (no tiene caché): solo se usa al devolver
+ * la pantalla al compositor, para que la ventana se quede con el último cuadro que puso la GPU. */
+bool video_ler_placa(int x, int y, int l, int a, uint32_t *dest, int passo_px)
+{
+    if (!ativo || !formato_direto || bytes_px != 4 || telas_qtd() > 1 || !dest) return false;
+    if (x < 0 || y < 0 || l <= 0 || a <= 0 || (uint32_t)(x + l) > larg || (uint32_t)(y + a) > alt || passo_px < l) return false;
+    for (int j = 0; j < a; j++)
+        memcpy(dest + (uint32_t)j * (uint32_t)passo_px, tela + (uint32_t)(y + j) * pitch + (uint32_t)x * 4u, (uint32_t)l * 4u);
+    return true;
+}
+
 void video_mostrar(void)
 {
     if (!ativo) return;
+    if (exclusiva) { suj_x0 = suj_x1 = 0; return; }   /* D432 */
     acel_sincronizar();   /* D246: la CPU no escribe en la pantalla mientras el motor DMA aún copia */
     /* D230: sobre el contenido de una ventana con JAN_SEM_CURSOR, la flecha no se ve. */
     bool visivel = cur_visivel && !(cur_x >= zona_x0 && cur_x < zona_x1 && cur_y >= zona_y0 && cur_y < zona_y1);
@@ -411,7 +472,7 @@ void video_mostrar(void)
         pela_gpu = telas_qtd() <= 1 && acel_volcar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);
         if (!pela_gpu) {
             bool sse = rapido_inicio();
-            copiar_regiao(suj_x0, suj_y0, suj_x1, suj_y1);
+            copiar_regiao(suj_x0, suj_y0, suj_x1, suj_y1, visivel, cur_x, cur_y);   /* D424: la flecha dentro */
             acel2d_contar_sw(ACEL_SW_MOSTRAR, (uint32_t)((suj_x1 - suj_x0) * (suj_y1 - suj_y0)));   /* D346 */
             rapido_fim(sse);
             acel_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);   /* D195: VMware en modo SVGA */
@@ -433,7 +494,7 @@ void video_volcar_cpu(int x0, int y0, int x1, int y1)
 {
     if (!ativo) return;
     bool sse = rapido_inicio();
-    copiar_regiao(x0, y0, x1, y1);
+    copiar_regiao(x0, y0, x1, y1, false, 0, 0);
     rapido_fim(sse);
     acel_atualizar(x0, y0, x1 - x0, y1 - y0);
 }

@@ -9,8 +9,8 @@ import re
 
 BORDA, TITULO = 2, 24
 # El orden del enum de secciones (y de seccoes[]); el árbol las enseña todas desplegadas.
-SECCIONES = ("sistema", "tela", "aceleracion", "kernel", "zona", "idioma", "usuarios",
-             "escritorio-cat", "escritorio", "barra", "widgets", "fuentes", "capturas",
+SECCIONES = ("sistema", "tela", "aceleracion", "energia", "kernel", "zona", "idioma", "usuarios",
+             "escritorio-cat", "escritorio", "estilos", "barra", "widgets", "fuentes", "capturas", "sonidos",
              "dispositivos", "teclado", "mandos", "sonido",
              "redes", "red", "vpn", "vnc", "ia", "ialocal")
 
@@ -51,14 +51,42 @@ def boton_pie(v, nombre):
     return (v["x"] + xs[nombre], v["y"] + a - 40 + 14)
 
 
+_desplazado = 0   # filas que lleva desplazadas el árbol tras llegar a una sección que no cabe (D428)
+
+
+def filas_visibles(alto):
+    """Filas del árbol que se ven en una ventana de `alto` de contenido (arvore: alto - 16 del margen, 20 por fila, 4 de marco)."""
+    return (alto - 16 - 4) // 20
+
+
 def ir(m, v, chave):
-    x, y = arbol(v, chave)
-    m.clique(x, y)
+    """Clic en la fila de la sección. Con las secciones nuevas (Estilos, D428) el árbol ya no cabe entero a 800x600 (500 de alto):
+    las últimas filas se alcanzan con el teclado (clic en la última fila visible y flechas hacia abajo), como haría una persona,
+    y al volver a las de arriba se devuelve el árbol a su sitio (clic en una fila y Inicio)."""
+    global _desplazado
+    i = SECCIONES.index(chave)
+    cab = filas_visibles(v.get("a", 640))
+    if i < cab:
+        if _desplazado:
+            m.clique(*arbol(v, SECCIONES[1]))
+            m.tecla("home")
+            _desplazado = 0
+        x, y = arbol(v, chave)
+        m.clique(x, y)
+        return
+    if _desplazado:
+        m.clique(*arbol(v, SECCIONES[1]))
+        m.tecla("home")
+        _desplazado = 0
+    m.clique(*arbol(v, SECCIONES[cab - 1]))
+    for _ in range(i - (cab - 1)):
+        m.tecla("down", 0.3)
+    _desplazado = i - cab + 1
 
 
-def ir_ox(m, ox, oy, chave):
+def ir_ox(m, ox, oy, chave, alto=None):
     """Como ir(), con el origen (ox, oy) del área de cliente en vez del diccionario de la ventana."""
-    ir(m, dict(x=ox, y=oy), chave)
+    ir(m, dict(x=ox, y=oy, a=alto) if alto else dict(x=ox, y=oy), chave)
 
 
 def panel_ox(ox, oy, xl, yl, l=788, a=500, rolagem=0):
@@ -72,7 +100,7 @@ def clic_panel(m, ox, oy, xl, yl, l=788, a=500, rolagem=0):
 
 # Las secciones por su nombre de siempre («configuracion: pagina X»): clave -> nombre del registro
 LOG = {"tela": "Pantalla", "aceleracion": "Aceleración gráfica", "kernel": "Kernel", "zona": "Fecha y hora",
-       "idioma": "Idioma", "usuarios": "Usuarios", "escritorio": "Escritorio", "barra": "Barra y menú Inicio", "widgets": "Widgets", "fuentes": "Fuentes", "capturas": "Capturas",
+       "idioma": "Idioma", "usuarios": "Usuarios", "escritorio": "Escritorio", "estilos": "Estilos", "barra": "Barra y menú Inicio", "widgets": "Widgets", "fuentes": "Fuentes", "capturas": "Capturas", "sonidos": "Sonidos del sistema",
        "teclado": "Teclado", "mandos": "Mandos", "sonido": "Sonido", "red": "Red", "vpn": "VPN", "vnc": "Escritorio remoto", "ia": "IA"}
 HOJAS = tuple(LOG)
 # Sección de Colores: las muestras de acento (26 px, paso 32) empiezan en y = 48 (tras la línea de texto)

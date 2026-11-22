@@ -22,6 +22,7 @@
 #include "vfs.h"
 #include "permisos_dialogo.h"
 #include "sessao.h"
+#include "ocio.h"
 #include "aparencia.h"
 #include "abi.h"
 #include "console.h"
@@ -39,6 +40,7 @@
 #include "telas.h"
 #include "disco.h"
 #include "acel2d.h"
+#include "gpu3d.h"
 #include "sensores_conv.h"
 
 #define MAX_JANELAS     32
@@ -152,19 +154,22 @@ static janela_t *focada(void)
 static void desenhar_moldura(janela_t *j, bool foco)
 {
     int x = j->x, y = j->y, l = moldura_l(j), a = moldura_a(j);
-    uint32_t barra = foco ? aparencia_acento() : 0x5A6470;
-    sup_retangulo(&tela, x, y, l, BARRA_TITULO, barra);
-    sup_retangulo(&tela, x, y + BARRA_TITULO, BORDA, a - BARRA_TITULO, barra);
-    sup_retangulo(&tela, x + l - BORDA, y + BARRA_TITULO, BORDA, a - BARRA_TITULO, barra);
-    sup_retangulo(&tela, x, y + a - BORDA, l, BORDA, barra);
-    sup_moldura(&tela, x - 1, y - 1, l + 2, a + 2, 0x101010);
-    sup_texto(&tela, x + 10, y + 4, j->titulo, foco ? 0xFFFFFF : 0xD0D4D8);
+    const esquema_t *q = esquema();   /* D428: los colores del marco salen del esquema (con SaguiOS, los de siempre) */
+    uint32_t marco = foco ? q->marco_a : q->marco_i;
+    uint32_t c1 = foco ? q->titulo_a1 : q->titulo_i1, c2 = foco ? q->titulo_a2 : q->titulo_i2;
+    if (c1 == c2) sup_retangulo(&tela, x, y, l, BARRA_TITULO, c1);
+    else for (int k = 0; k < l; k++) sup_retangulo(&tela, x + k, y, 1, BARRA_TITULO, esq_mix(c1, c2, k * 100 / (l > 1 ? l - 1 : 1)));   /* degradado de izquierda a derecha */
+    sup_retangulo(&tela, x, y + BARRA_TITULO, BORDA, a - BARRA_TITULO, marco);
+    sup_retangulo(&tela, x + l - BORDA, y + BARRA_TITULO, BORDA, a - BARRA_TITULO, marco);
+    sup_retangulo(&tela, x, y + a - BORDA, l, BORDA, marco);
+    sup_moldura(&tela, x - 1, y - 1, l + 2, a + 2, q->contorno);
+    sup_texto(&tela, x + 10, y + 4, j->titulo, foco ? q->titulo_a_texto : q->titulo_i_texto);
     /* Botón de cerrar: un cuadrado rojo con una X. */
     int bx = x + l - BORDA - 20, by = y + 4;
-    sup_retangulo(&tela, bx, by, 16, 16, foco ? 0xD03C32 : 0x8A5A56);
+    sup_retangulo(&tela, bx, by, 16, 16, foco ? q->cerrar_a : q->cerrar_i);
     for (int k = 3; k < 13; k++) {
-        sup_retangulo(&tela, bx + k, by + k, 2, 1, 0xFFFFFF);
-        sup_retangulo(&tela, bx + 15 - k - 1, by + k, 2, 1, 0xFFFFFF);
+        sup_retangulo(&tela, bx + k, by + k, 2, 1, q->cerrar_x);
+        sup_retangulo(&tela, bx + 15 - k - 1, by + k, 2, 1, q->cerrar_x);
     }
     desenhar_botoes_extras(j, foco);
 }
@@ -188,14 +193,30 @@ static int primeira_visivel(const superficie_t *t)
 /* Recompone el rectángulo sucio y muestra. Las copias y los rectángulos grandes
  * usan SSE2 cuando la medición del arranque lo eligió (rapido.c); el inicio/fin
  * envuelve todo para guardar los XMM del proceso sólo una vez. */
+static void excl_vigiar(void);
+static void excl_soltar(const char *motivo, bool trazer);
+static janela_t *janela_por_id(int id);
+static int excl_id = -1;
+
 void gui_mostrar(void)
 {
+    if (excl_id >= 0) {   /* D432: la pantalla está cedida a una ventana que presenta por la GPU */
+        excl_vigiar();
+        if (excl_id >= 0) { suj_x0 = suj_x1 = 0; return; }
+    }
     if (!ativa || suj_x0 >= suj_x1) return;
     int x = suj_x0, y = suj_y0, l = suj_x1 - suj_x0, a = suj_y1 - suj_y0;
     suj_x0 = suj_x1 = 0;
     sup_recorte(&tela, x, y, l, a);
     if (tela.cx0 >= tela.cx1 || tela.cy0 >= tela.cy1) return;
     bool sse = rapido_inicio();
+    if (ocio_cobre()) {   /* D422: salvapantallas o pantalla apagada: lo de detrás no se dibuja */
+        ocio_desenhar(&tela);
+        video_marcar(tela.cx0, tela.cy0, tela.cx1 - tela.cx0, tela.cy1 - tela.cy0);
+        video_mostrar();
+        rapido_fim(sse);
+        return;
+    }
     if (desenhar_tela_cheia()) {
         atalhos_desenhar(&tela);
         menu_desenhar(&tela);
@@ -254,6 +275,19 @@ static void entregar(janela_t *j, evento_t *e)
     j->fila[j->fim] = *e;
     j->fim = prox;
     acordar(processo_por_pid(j->pid));
+}
+
+/* D428: cambió el esquema de apariencia: todas las ventanas reciben EV_TEMA (la libsagui recarga los colores al
+ * entregarlo) y el kernel repinta marcos, menús y barras. */
+void janelas_tema_mudou(void)
+{
+    for (int i = 0; i < MAX_JANELAS; i++) {
+        janela_t *j = &janelas[i];
+        if (!j->usada) continue;
+        evento_t e = { .tipo = EV_TEMA };
+        entregar(j, &e);
+    }
+    gui_redesenhar(0, 0, (int)video_largura(), (int)video_altura());
 }
 
 /* D230: el puntero del sistema no se dibuja sobre el contenido de la ventana
@@ -683,11 +717,14 @@ static void tarefa_gerenciador(void *arg)
         uint64_t t_volta = ler_tsc();   /* D195: medida del arrastre */
         arr_moveu = false;
         evento_mouse_t m;
-        while (mouse_tentar(&m))
+        while (mouse_tentar(&m)) {
+            if (ocio_entrada()) continue;   /* D422: el primer movimiento solo despierta */
             tratar_mouse(&m);
+        }
         int t;
         uint32_t mods;   /* los modificadores de cuando se pulsó la tecla, no los de ahora (D119) */
         while ((t = teclado_tentar_mods(&mods)) >= 0) {
+            if (ocio_entrada()) continue;   /* D422: la primera tecla solo despierta el salvapantallas o la pantalla */
             if (sessao_tecla(t)) continue;   /* D340: la pantalla de inicio de sesión, con todo el teclado */
             if (pd_tecla(t)) continue;   /* D269: el diálogo de permisos se queda con todo el teclado */
             if (atalhos_tecla(t, mods)) continue;   /* Alt+Tab, Alt+F4, Windows, Ctrl+Alt+Supr (D119) */
@@ -723,6 +760,7 @@ static void tarefa_gerenciador(void *arg)
         if (acoes_osd_proximo(&osd_t, &osd_v)) gui_aviso_osd(osd_t, osd_v);
         char aviso_k[ACOES_AVISO_BYTES];   /* D405: avisos de texto del kernel (radios del HP...) */
         while (acoes_aviso_proximo(aviso_k, sizeof aviso_k)) gui_aviso(aviso_k);
+        ocio_tique();    /* D422: salvapantallas, bloqueo y apagado de la pantalla por inactividad */
         sessao_tique();  /* D340: inicio y fin de sesión */
         pd_tique();      /* D269: ¿hay un programa pidiendo permisos de administrador? */
         avisos_tique();  /* caduca el aviso y muestra el siguiente de la cola */
@@ -764,6 +802,7 @@ bool gui_iniciar(void)
     ativa = true;
     gui_redesenhar(0, 0, (int)video_largura(), (int)video_altura());
     gui_mostrar();
+    ocio_iniciar();   /* D422 */
     tarefa_kernel("janelas", tarefa_gerenciador, NULL);
     klog("[GUI] area de trabalho pronta\n");
     aviso_apps_ausentes();
@@ -850,7 +889,7 @@ static int32_t criar_janela_comum(uint32_t ptitulo, uint32_t dims, uint32_t ppix
     j->paginas = paginas;
     j->virt = JANELAS_USUARIO + (uint32_t)i * ESPACO_JANELA;
     txt_copia_n(j->titulo, titulo, sizeof j->titulo);
-    for (uint32_t k = 0; k < (uint32_t)(l * a); k++) j->px[k] = 0xF4F4F0;
+    for (uint32_t k = 0; k < (uint32_t)(l * a); k++) j->px[k] = esquema()->fundo;
     for (uint32_t k = 0; k < paginas; k++)
         espaco_mapear(processo_atual()->espaco, j->virt + k * PAGINA, fis + k * PAGINA, PG_USUARIO | PG_ESCRITA | PG_EMPRESTADA | PG_NX);
     /* Posición en cascada, sin pasar de la pantalla. */
@@ -929,6 +968,7 @@ int32_t sis_atualizar_janela(uint32_t id, uint32_t pret, uint32_t c, uint32_t d,
         if (x + l > j->larg) l = j->larg - x;
         if (y + a > j->alt) a = j->alt - y;
     }
+    if (j->id == excl_id) excl_soltar("el programa vuelve a pintar su ventana por el compositor", false);   /* D432 */
     if (j->tela_cheia) {
         /* D245: solo la zona que cambió, no la pantalla entera (las bandas negras ya están). */
         int ox, oy, dl, da;
@@ -1067,7 +1107,8 @@ static int botao_min_x(janela_t *j) { return moldura_l(j) - BORDA - (redimension
 
 static void desenhar_botoes_extras(janela_t *j, bool foco)
 {
-    uint32_t fundo = foco ? aparencia_clarear(aparencia_escurecer(aparencia_acento(), 25), 25) : 0x6E7680, risco = 0xFFFFFF;
+    const esquema_t *q = esquema();
+    uint32_t fundo = foco ? q->boton_a : q->boton_i, risco = foco ? q->titulo_a_texto : q->titulo_i_texto;
     int by = j->y + 4;
     if (redimensionavel(j)) {
         int bx = j->x + botao_max_x(j);
@@ -1095,8 +1136,8 @@ static void desenhar_alca(janela_t *j)
     int x1 = j->x + moldura_l(j) - BORDA - 1, y1 = j->y + moldura_a(j) - BORDA - 1;
     for (int r = 4; r <= 12; r += 4)
         for (int k = 0; k < r; k++) {
-            sup_retangulo(&tela, x1 - r + k + 1, y1 - k, 1, 1, 0x5A6470);
-            sup_retangulo(&tela, x1 - r + k + 2, y1 - k, 1, 1, 0xFFFFFF);
+            sup_retangulo(&tela, x1 - r + k + 1, y1 - k, 1, 1, esquema()->titulo_i1);
+            sup_retangulo(&tela, x1 - r + k + 2, y1 - k, 1, 1, esquema()->titulo_a_texto);
         }
 }
 
@@ -1121,9 +1162,9 @@ static void desenhar_contorno_redimensionar(void)
     if (redimensionando < 0) return;
     int x, y, l, a;
     contorno_retangulo(&janelas[redimensionando], &x, &y, &l, &a);
-    sup_moldura(&tela, x, y, l, a, 0x101010);
-    sup_moldura(&tela, x + 1, y + 1, l - 2, a - 2, 0xFFDF4A);
-    sup_moldura(&tela, x + 2, y + 2, l - 4, a - 4, 0xFFDF4A);
+    sup_moldura(&tela, x, y, l, a, esquema()->contorno);
+    sup_moldura(&tela, x + 1, y + 1, l - 2, a - 2, esquema()->painel_borde);
+    sup_moldura(&tela, x + 2, y + 2, l - 4, a - 4, esquema()->painel_borde);
 }
 
 static bool comecar_redimensionar(int idx, int rx, int ry)
@@ -1296,6 +1337,13 @@ static void tc_contar(void)
     }
 }
 
+/* D422: ¿la ventana con el foco está a pantalla completa? (cuenta como «no molestar») */
+bool gui_tela_cheia_ativa(void)
+{
+    janela_t *j = focada();
+    return j && j->tela_cheia;
+}
+
 static bool desenhar_tela_cheia(void)
 {
     janela_t *j = focada();
@@ -1312,6 +1360,107 @@ static bool desenhar_tela_cheia(void)
     else sup_escalar(&tela, ox, oy, dl, da, j->px, j->larg, j->alt);
     avisos_desenhar(&tela);
     return true;
+}
+
+/* ---- D432: pantalla exclusiva (presentar por la GPU sin volver a la RAM; docs/gpu3d.md)
+ *
+ * Una ventana a pantalla completa y con el foco cuyo programa presenta con GPU3D_OP_APRESENTAR se
+ * queda con la pantalla: la GPU escribe el cuadro en la superficie visible y el compositor deja de
+ * pintar (gui_mostrar no hace nada y video_mostrar tampoco). La pantalla vuelve al compositor, que
+ * la rehace entera, en cuanto algo tiene que verse encima o la ventana deja de cumplir: pierde el
+ * foco o la pantalla completa (Alt+Tab, otra ventana, Esc, F11, se cierra o el programa muere), un
+ * aviso, un menú, el diálogo de permisos, la pantalla de sesión o de bloqueo, el salvapantallas o
+ * la pantalla apagada (D422), más de una pantalla, el programa vuelve a actualizar su ventana por el
+ * camino normal, suelta el motor 3D o pasa EXCL_PRAZO sin presentar. El programa lo nota porque su
+ * siguiente APRESENTAR devuelve «ahora no» y ese cuadro lo presenta como siempre. Al devolverla, el
+ * último cuadro de la pantalla se trae a los píxeles de la ventana (excl_soltar). */
+#define EXCL_PRAZO (3 * TIQUES_POR_SEGUNDO)
+static uint32_t excl_tique, excl_n, excl_vezes;
+
+static const char *excl_impedimento(const janela_t *j)
+{
+    if (!ativa || !j || !j->usada || j != focada() || !j->tela_cheia || j->minimizada)
+        return "la ventana ya no tiene el foco a pantalla completa";
+    if (ocio_cobre()) return "salvapantallas o pantalla apagada";
+    if (sessao_ativa() || sessao_bloqueada()) return "pantalla de sesion o de bloqueo";
+    if (pd_ativo()) return "dialogo de permisos";
+    if (atalhos_visivel()) return "panel de Alt+Tab";
+    if (menu_aberto() || barra_popup_visivel()) return "menu";
+    if (avisos_visivel()) return "aviso";
+    if (telas_qtd() > 1) return "varias pantallas";
+    if (!video_formato_direto() || video_bpp() != 32) return "la pantalla no es de 32 bits";
+    return NULL;
+}
+
+static void excl_soltar(const char *motivo, bool trazer)
+{
+    if (excl_id < 0) return;
+    /* Lo que la GPU dejó en la pantalla no está en los píxeles de la ventana (el programa no los ha tocado
+     * mientras presentaba directo). Si el contenido ocupa la pantalla 1:1 (lo normal: la ventana se
+     * redimensiona a la pantalla), se trae de la memoria de vídeo antes de repintar: así, aunque el programa
+     * no presente otro cuadro (en pausa, cargando), lo que se ve detrás de un aviso o del panel de Alt+Tab es
+     * su último cuadro y no uno viejo. Es una lectura lenta, una vez por devolución. */
+    janela_t *j = janela_por_id(excl_id);
+    bool trazido = false;
+    if (trazer && j && j->usada && !j->widget && j->larg == (int)video_largura() && j->alt == (int)video_altura() && !ocio_cobre())
+        trazido = video_ler_placa(0, 0, j->larg, j->alt, j->px, j->larg);
+    klog("[GUI] pantalla exclusiva: la ventana %d la devuelve tras %u cuadros (%s)%s\n", excl_id, excl_n, motivo,
+         trazido ? "; ultimo cuadro traido a la ventana" : "");
+    excl_id = -1;
+    video_exclusiva(false);
+    gpu3d_exclusiva_perdida();
+    gui_redesenhar(0, 0, (int)video_largura(), (int)video_altura());
+}
+
+static void excl_vigiar(void)
+{
+    if (excl_id < 0) return;
+    const char *imp = excl_impedimento(janela_por_id(excl_id));
+    if (!imp && relogio_tiques() - excl_tique > EXCL_PRAZO) imp = "sin cuadros presentados en 3 s";
+    if (imp) excl_soltar(imp, true);
+}
+
+/* La capa 3D, antes de cada presentación directa: ¿la ventana «id» del proceso «pid» tiene (o puede
+ * tomar) la pantalla? Si sí, dónde cae su contenido (jl x ja) en la pantalla y si la acaba de tomar
+ * (hay que pintar las bandas negras). */
+bool gui_exclusiva_apresentar(int pid, int id, int *ox, int *oy, int *dl, int *da, int *jl, int *ja, bool *nova)
+{
+    janela_t *j = janela_por_id(id);
+    if (!j || j->pid != pid || j->widget) return false;
+    const char *imp = excl_impedimento(j);
+    if (imp) {
+        if (excl_id == id) excl_soltar(imp, true);
+        return false;
+    }
+    if (excl_id >= 0 && excl_id != id) excl_soltar("otra ventana la pide", true);
+    *nova = excl_id != id;
+    if (*nova) {
+        excl_id = id; excl_n = 0; excl_vezes++;
+        video_exclusiva(true);
+        klog("[GUI] pantalla exclusiva: cedida a la ventana %d (pid %d, contenido %dx%d)\n", id, pid, j->larg, j->alt);
+    }
+    excl_tique = relogio_tiques(); excl_n++;
+    geometria_tela_cheia(j, ox, oy, dl, da);
+    *jl = j->larg; *ja = j->alt;
+    tc_contar();
+    return true;
+}
+
+/* El programa suelta el motor 3D (o la GPU falló): la pantalla vuelve al compositor. */
+void gui_exclusiva_soltar(int pid, const char *motivo)
+{
+    if (excl_id < 0) return;
+    janela_t *j = janela_por_id(excl_id);
+    if (j && pid && j->pid != pid) return;
+    excl_soltar(motivo, true);
+    gui_mostrar();
+}
+
+/* Para «gpu3d» y las pruebas: la ventana que tiene la pantalla (-1: nadie) y cuántas veces se cedió. */
+int gui_exclusiva_estado(uint32_t *vezes)
+{
+    if (vezes) *vezes = excl_vezes;
+    return excl_id;
 }
 
 /* F11 enciende y apaga la pantalla completa de la ventana con foco (si ella lo acepta);

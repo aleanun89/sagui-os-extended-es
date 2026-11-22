@@ -4,6 +4,7 @@
  * Todo se maneja con el ratón y con el teclado (Arriba/Abajo o Tab mueven el foco, Izquierda/Derecha cambian el valor,
  * Intro pulsa, Esc vuelve). */
 #include "interfaz.h"
+#include "gpu.h"
 #include "config.h"
 #include "efectos.h"
 #include <time.h>
@@ -55,6 +56,7 @@ void setup_desde_menu(Setup *s) {
 	s->time_limit = tiempo_values[CLAMP(su.tiempo, 0, ARRAY_LEN(tiempo_values) - 1)];
 	s->victoria_compartida = su.compartida ? 1 : 0;
 	s->comercio_mejorado = su.comercio ? 1 : 0;
+	s->fuego_amigo = su.fuego_amigo ? 1 : 0;
 	/* en Setup, 0 es «normales» (lo de antes, también en las partidas hechas sin el menú); 1 escasos, 2 abundantes */
 	s->recursos_mapa = su.recursos_mapa == 0 ? 1 : su.recursos_mapa == 2 ? 2 : 0;
 	s->explored = su.revelado || getenv("AOEN_REVEAL");
@@ -261,7 +263,7 @@ static void columna_jugadores(int x, int y, int w, int h) {
 	}
 }
 
-Rect prueba_comercio;
+Rect prueba_comercio, prueba_fuego;
 
 static int fila_opcion(int x, int y, int w, const char *etiqueta, const char *valor, int lbl) {
 	gfx_ts(x, y + 5, etiqueta, COL_CREAM, 1);
@@ -284,7 +286,7 @@ static void columna_mapa(int x, int y, int w, int h) {
 	y += 30;
 	/* la vista previa usa el alto que dejan las filas de debajo (7 filas, las 2 casillas de reglas y, según lo elegido, los
 	 * recursos a medida, el tiempo límite y las casillas extra): así «Comercio mejorado» nunca queda fuera del panel */
-	int filas = 7 * 30 + 2 * 28 + (su.recursos == 4 ? 30 : 0) + (su.victoria == VIC_SCORE ? 30 : 0) + (extra_a_la_izquierda ? 0 : 2 * 28);
+	int filas = 7 * 30 + 2 * 28 + (su.recursos == 4 ? 30 : 0) + (su.victoria == VIC_SCORE ? 30 : 0) + 3 * 28 - 2 * 28 + (extra_a_la_izquierda ? 0 : 2 * 28);
 	int pw = MIN(w - 8, 2 * MAX(30, MIN(160, (h - filas - 30 - 16)))), ph = pw / 2;
 	dibujar_prevista(x + (w - pw) / 2, y + 4, pw, ph);
 	y += ph + 16;
@@ -351,6 +353,12 @@ static void columna_mapa(int x, int y, int w, int h) {
 		           su.compartida ? "Activada: la partida acaba cuando todos los que quedan son del mismo equipo o están aliados, y ganan juntos. La Maravilla y las reliquias de un aliado cuentan para el bando."
 		                         : "Desactivada: solo un equipo del menú puede ganar. Las alianzas de la partida se rompen al final y los aliados tienen que decidirlo entre ellos.");
 	y += 28;
+	prueba_fuego = (Rect){ x, y, w, 22 };
+	checkbox(x, y, "Fuego amigo (daño en área)", &su.fuego_amigo);
+	if (hit(x, y, w, 22))
+		tip_simple((Rect){ x, y, w, 22 }, "Fuego amigo (daño en área)",
+		           su.fuego_amigo ? "Activado, como en el AoE original: las piedras de catapulta también dañan a tus unidades y a las de tus aliados que estén en el radio."
+		                          : "Desactivado: el daño en área de las catapultas solo alcanza a los enemigos.");
 	y += 28;
 	if (!extra_a_la_izquierda) casillas_extra(x, y, w);
 }
@@ -505,6 +513,16 @@ void draw_options(void) {
 			int hd = hd_enabled;
 			if (checkbox(px + 30, y, "Terreno con texturas HD", &hd)) { hd_enabled = hd; cfg_set_int("hd_terrain", hd); }
 		} else gfx_t(px + 30, y + 3, "Texturas HD no encontradas (aoen-config --textures RUTA)", COL_DIM, 1);
+		{   /* D436: HUD de rendimiento */
+			int hv = hud_rend_visible;
+			if (checkbox(px + pw / 2, y, "HUD de rendimiento (Ctrl+F)", &hv) && hv != hud_rend_visible) hud_rend_alternar();
+		}
+		y += 32;
+		{   /* D436: dibujo de la partida por la GPU */
+			int dg = cfg_get_int("dibujo_gpu", 0);
+			if (checkbox(px + 30, y, "Dibujo por GPU (tarjetas con 3D)", &dg)) { cfg_set_int("dibujo_gpu", dg); gpu_opcion(dg); }
+			gfx_t(px + pw / 2, y + 3, gpu_opcion_texto(), COL_DIM, 1);
+		}
 		y += 34;
 		gfx_ts(px + 30, y + 5, "Efectos gráficos:", COL_GOLD, 1);
 		if ((c = cycler(cx, y, cw, fx_nombre_perfil(efx.perfil)))) {
@@ -563,7 +581,12 @@ void draw_options(void) {
 		y += 38;
 		gfx_ts(px + 30, y + 5, "Volumen de ambiente:", COL_CREAM, 1);
 		if ((c = cycler(cx, y, cw, vn[va]))) { va = (va + c + 5) % 5; audio_set_volumes(audio_sfx_volume(), va / 4.0f); cfg_set_int("volume_amb", va * 25); }
-		y += 44;
+		y += 40;
+		/* D436: sube un poco el hilo de audio en el planificador (sin acaparar: el kernel lo limita); de serie, con el dibujo por GPU */
+		int ap = audio_prioridad_opcion();
+		if (checkbox(px + 30, y, "Alta prioridad de audio", &ap)) { audio_prioridad_elegir(ap); cfg_set_int("audio_prioridad", ap); }
+		if (audio_alta_prioridad() < 0) gfx_t(px + 300, y + 4, "(este sistema no la tiene)", COL_DIM, 1);
+		y += 40;
 		static const char *sp[] = { "Lenta", "Normal", "Rápida" };
 		gfx_ts(px + 30, y + 5, "Velocidad de desplazamiento:", COL_CREAM, 1);
 		c = cycler(cx, y, cw, sp[app.scroll_speed - 1]);

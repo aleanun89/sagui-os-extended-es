@@ -22,6 +22,10 @@ edición *Tzar Anthology*).
 
 - **Menú:** *Un solo jugador* lleva a las campañas, a la escaramuza (un mapa de la instalación o uno aleatorio, contra
   la IA) y a cargar una partida. *Opciones* tiene el volumen del sonido y de la música.
+- **Mapa aleatorio:** su pantalla deja elegir el tamaño, el tipo de mapa (islas, lagos, continente...), el terreno, los
+  recursos, las torres de guardia, los animales, los objetos y las puertas mágicas, los reinos con su civilización y su equipo
+  (los del mismo equipo son aliados) y las reglas. A la derecha de las reglas se ve el mapa (clic para verlo grande) y
+  *Otro mapa* cambia la semilla. Lo último elegido se recuerda.
 - **Ratón:** clic o arrastre para seleccionar, **clic derecho** para la orden por defecto (andar, atacar, recoger,
   talar, construir, reparar, entrar). Los botones del panel izquierdo dan las órdenes, construyen y entrenan.
 - **Teclado:** las letras de los botones, `+` y `-` para la velocidad, **F5** guarda la partida rápida y **F9** la carga,

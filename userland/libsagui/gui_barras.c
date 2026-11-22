@@ -126,7 +126,7 @@ static void ferr_item(jan_t *j, barra_ferr_t *b, int i)
         return;
     }
     bool ap = b->apertado == i && b->sobre == i, ch = it->marcado;
-    uint32_t fundo = (ch && !ap) ? 0xE0E0E0 : W98_FACE;
+    uint32_t fundo = (ch && !ap) ? W98_MARCADA : W98_FACE;
     g_retangulo(j, x, y, l, BTN_A, fundo);
     if (!it->desativado) {
         if (ap || ch) g_bisel(j, x, y, l, BTN_A, true);
@@ -213,13 +213,13 @@ void combo_definir(combo_t *c, const char *texto) { copia_texto(c->texto, texto,
 
 void combo_desenhar(jan_t *j, combo_t *c)
 {
-    g_retangulo(j, c->x, c->y, c->l, c->a, COR_BRANCO);
+    g_retangulo(j, c->x, c->y, c->l, c->a, COR_CAMPO);
     g_bisel(j, c->x, c->y, c->l, c->a, true);
     int cols = (c->l - 4 - 17 - 4) / LETRA_L;
     int n = (int)tam_texto(c->texto);
     if (c->foco && c->editavel) {
         g_retangulo(j, c->x + 2, c->y + 2, c->l - 4 - 16, c->a - 4, W98_AZUL);
-        g_texto_n(j, c->x + 4, c->y + 2, c->texto, cols, COR_BRANCO);
+        g_texto_n(j, c->x + 4, c->y + 2, c->texto, cols, COR_SEL_TEXTO);
     } else g_texto_n(j, c->x + 4, c->y + 2, c->texto, cols, W98_NEGRO);
     (void)n;
     int bx = c->x + c->l - 18;
@@ -328,7 +328,7 @@ void regua_desenhar(jan_t *j, regua_t *r)
     int a = x0 < r->x ? r->x : x0, b = x1 > r->x + r->l ? r->x + r->l : x1;
     if (b > a) g_retangulo(j, a, ty, b - a, ta, W98_SOMBRA);
     a = xm0 < r->x ? r->x : xm0; b = xm1 > r->x + r->l ? r->x + r->l : xm1;
-    if (b > a) g_retangulo(j, a, ty, b - a, ta, COR_BRANCO);
+    if (b > a) g_retangulo(j, a, ty, b - a, ta, COR_CAMPO);
     g_retangulo(j, r->x, ty - 1, r->l, 1, W98_SOMBRA);
     g_retangulo(j, r->x, ty + ta, r->l, 1, W98_LUZ);
     /* graduación en cm desde el margen izquierdo, en ambos sentidos */

@@ -61,9 +61,10 @@ static void capturas_menus(TzUiSkin *skin, const char *raiz, const char *saida, 
 	static const struct { int tela; const char *n; } pantallas[] = {
 		{ TZ_MN_PRINCIPAL, "menu-principal" }, { TZ_MN_UM, "menu-un-jugador" }, { TZ_MN_CAMPANHAS, "menu-campanas" }, { TZ_MN_MAPAS, "menu-misiones" },
 		{ TZ_MN_CONFIG, "menu-escaramuza" }, { TZ_MN_OPCOES, "menu-opciones" }, { TZ_MN_CARREGAR, "menu-cargar" }, { TZ_MN_GUARDAR, "menu-guardar" },
-		{ TZ_MN_SAIR, "menu-salir" }, { TZ_MN_PARTIDA, "menu-partida" },
+		{ TZ_MN_SAIR, "menu-salir" }, { TZ_MN_PARTIDA, "menu-partida" }, { TZ_MN_ALEAT, "menu-aleatorio" },
 	};
 	m.campanha_sel = 2; m.mapa_sel = 0; m.guardado_sel = 0; m.cfg.jogadores = 3;
+	m.aleat.c.jogadores = 5; m.aleat.c.equipe[1] = 1; m.aleat.c.equipe[2] = 1; m.aleat.c.equipe[3] = 2; m.aleat.c.raca[1] = 2; m.aleat.c.raca[2] = 3; m.aleat.tipo = 3; m.aleat.lado = 4;
 	for (unsigned i = 0; i < sizeof pantallas / sizeof *pantallas; ++i) {
 		m.tela = pantallas[i].tela;
 		m.sobre = -1;

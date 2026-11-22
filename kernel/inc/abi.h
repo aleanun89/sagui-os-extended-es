@@ -213,7 +213,8 @@
  * radio) y el volcado de las tablas ACPI. Operación en el primer argumento (PORTATIL_*, abajo). La 150 y no la
  * 140: las 140-146 son de la rama de procesos POSIX (v8.5.5.1). */
 #define SIS_PORTATIL      150   /* (PORTATIL_*, a, b, c) -> según la operación */
-#define SIS_MAX           151
+#define SIS_ESQUEMA       151   /* D428: (op ESQ_OP_*, ptr, n) esquema de apariencia de todo el sistema (esquemas.h) */
+#define SIS_MAX           152
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que
@@ -1005,6 +1006,43 @@ typedef struct {
     unsigned int cpu_ms;    /* tiempo de CPU de este hilo */
     unsigned int cpu;       /* la CPU donde corre */
 } info_hilo_t;
+/* D422: energía y pantalla: salvapantallas, bloqueo y apagado de la pantalla por inactividad, aviso de batería y
+ * «no molestar». La configuración es de la máquina: /etc/energia.conf (clave=valor); el kernel la lee al arrancar y
+ * con OCIO_OP_RECARGAR. INFO_OCIO la puede leer cualquiera; INFO_OCIO_CTL: recargar, no molestar y actividad, cualquiera;
+ * simular, probar y batería simulada, solo el administrador (son para las pruebas). */
+#define INFO_OCIO      100  /* (&info_ocio_t, sizeof) -> 0 */
+#define INFO_OCIO_CTL  101  /* (OCIO_PEDIDO(op, arg), 0) -> 0 o ERRO_* */
+#define OCIO_PEDIDO(op, arg)  ((((unsigned int)(op)) << 16) | ((unsigned int)(arg) & 0xFFFFu))
+#define OCIO_OP_RECARGAR      1   /* vuelve a leer /etc/energia.conf */
+#define OCIO_OP_NO_MOLESTAR   2   /* arg 1/0: el programa que llama pide / suelta «no molestar» (se suelta solo si acaba) */
+#define OCIO_OP_ACTIVIDAD     3   /* como si se hubiera tocado una tecla (despierta y reinicia la cuenta) */
+#define OCIO_OP_SIMULAR       4   /* arg = segundos de inactividad que se suman (pruebas) */
+#define OCIO_OP_PROBAR        5   /* arg = efecto (OCIO_EF_*): lo muestra ya, aunque esté apagado en la configuración */
+#define OCIO_OP_BATERIA_SIM   6   /* arg = porcentaje | 0x100 si está enchufada | 0x200 sin batería; 0xFFFF = la real */
+#define OCIO_ESTADO_ACTIVO    0
+#define OCIO_ESTADO_SALVA     1   /* salvapantallas en marcha */
+#define OCIO_ESTADO_APAGADA   2   /* pantalla apagada (en negro) */
+typedef struct {
+    unsigned int versao;             /* 1 */
+    unsigned int estado;             /* OCIO_ESTADO_* */
+    unsigned int inactivo_s;         /* segundos sin teclado ni ratón (sin «no molestar») */
+    unsigned int no_molestar;        /* peticiones vivas de «no molestar» (+1 si hay una ventana a pantalla completa) */
+    unsigned int bloqueada;          /* 1 = la pantalla de bloqueo está puesta */
+    unsigned int cargado;            /* 1 = había /etc/energia.conf */
+    unsigned int salva_efecto;       /* 0 = apagado, 1-4 (OCIO_EF_*) */
+    unsigned int salva_min;
+    unsigned int bloqueo_modo;       /* 0 nunca, 1 tras bloqueo_min, 2 al salir del salvapantallas */
+    unsigned int bloqueo_min;
+    unsigned int pantalla_bat_min;   /* 0 = nunca */
+    unsigned int pantalla_red_min;
+    unsigned int bat_aviso, bat_critica, bat_accion;   /* %, %, 1 = apagar ordenadamente al llegar a crítico */
+    unsigned int gob_bat, gob_red;   /* 0 rendimiento, 1 ahorro, 2 a demanda, 3 no tocar */
+    unsigned int con_bateria;        /* hay batería (o simulada) */
+    int          bat_pct;            /* -1 = no se sabe */
+    unsigned int enchufado;          /* 1 = con el cargador */
+    unsigned int simulada;           /* la batería es simulada */
+    unsigned int veces_salva, veces_bloqueo, veces_apagada, avisos_bateria;
+} info_ocio_t;
 #define INFO_WG           85  /* (&info_wg_t, sizeof) -> 1 si el túnel wg0 está activo, 0 si no (D363; sin secretos) */
 /* D399: energía de la GPU: relojes del motor y de la memoria (actuales y por defecto), los estados de la BIOS,
  * la temperatura (o «sin sensor») con las zonas térmicas del ACPI aparte, la VRAM y el modo. Leer lo puede
@@ -1290,7 +1328,7 @@ typedef struct {
     unsigned char textura;      /* hueco */
 } gpu3d_estado_t;
 
-#define GPU3D_OP_ABRIR      1   /* a = ancho, b = alto, c = bits de Z (16 o 24): toma el motor para este proceso */
+#define GPU3D_OP_ABRIR      1   /* a = ancho, b = alto, c = bits de Z (16 o 24) | bits de esténcil << 8 (D425: 0 u 8): toma el motor para este proceso */
 #define GPU3D_OP_FECHAR     2
 #define GPU3D_OP_LIMPAR     3   /* a = 1 color | 2 Z, b = color 0x00RRGGBB (Z siempre al fondo) */
 #define GPU3D_OP_TEXTURA    4   /* a = hueco, b = ancho, c = alto, ptr = píxeles 0xAARRGGBB (ptr 0: soltarla) */
@@ -1298,6 +1336,234 @@ typedef struct {
 #define GPU3D_OP_TRIANGULOS 6   /* ptr = gpu3d_vert_t[], a = vértices (múltiplo de 3) */
 #define GPU3D_OP_LER        7   /* ptr = destino 0x00RRGGBB, a = píxeles por fila del destino: espera a la GPU y copia */
 typedef struct { unsigned int op, a, b, c, ptr, bytes; } gpu3d_pedido_t;
+
+/* ---- gpu3d v2 (D425): OpenGL ES 1.1 completo por la GPU ----
+ *
+ * Todo lo de arriba (v1) sigue igual: un driver sin v2 funciona como antes y
+ * SaguiGL solo usa estas operaciones si el driver las anuncia en sus bits de
+ * capacidad (GPU3D_OP_CAPACIDADES). Lo que no cabe en lo anunciado lo dibuja
+ * SaguiGL por software. Detalles y reglas para los drivers: docs/gpu3d.md,
+ * sección «gpu3d v2». Como en v1, solo enteros de 32 bits o menos. */
+#define GPU3D_OP_CAPACIDADES 8  /* ptr = gpu3d_capas_t: qué sabe hacer el driver (antes o después de ABRIR) */
+#define GPU3D_OP_ESTADO2     9  /* ptr = gpu3d_estado2_t */
+#define GPU3D_OP_TRIANGULOS2 10 /* ptr = gpu3d_vert2_t[], a = vértices (múltiplo de 3, hasta GPU3D_MAX_VERT) */
+#define GPU3D_OP_TEXTURA2    11 /* ptr = gpu3d_textura2_t: un nivel de una cara de una textura (o soltar el hueco) */
+#define GPU3D_OP_LIMPAR2     12 /* ptr = gpu3d_limpar2_t */
+#define GPU3D_OP_DESTINO     13 /* a = hueco de textura o GPU3D_DESTINO_PRINCIPAL, b = bits de Z (0, 16, 24), c = bits de esténcil (0, 8) */
+#define GPU3D_DESTINO_PRINCIPAL 0xFFFFFFFFu
+/* D432: presentar sin volver a la RAM. Copia (escalando) un rectángulo del destino principal o de un
+ * hueco de textura a la superficie visible de la pantalla. Solo para el dueño del motor, con una ventana
+ * suya a pantalla completa y con el foco: el compositor le cede la pantalla mientras dure (docs/gpu3d.md,
+ * «Presentar sin volver a la RAM»). GPU3D_SEM_SUPORTE: ahora no (hay un aviso, Alt+Tab, el salvapantallas,
+ * varias pantallas, el driver no sabe...): se presenta como siempre (LER y actualizar la ventana). */
+#define GPU3D_OP_APRESENTAR  14 /* ptr = gpu3d_apresentar_t */
+typedef struct {
+    unsigned int   fonte;          /* GPU3D_DESTINO_PRINCIPAL o un hueco de textura ARGB */
+    unsigned int   janela;         /* la ventana (del proceso, a pantalla completa y con el foco) */
+    unsigned short ox, oy, ol, oa; /* rectángulo de la fuente, en sus píxeles */
+    unsigned short dx, dy, dl, da; /* rectángulo de destino, en píxeles del contenido de la ventana; el resto queda negro */
+    unsigned int   flags;          /* G3D_APRES_* */
+    unsigned int   reservado[3];
+} gpu3d_apresentar_t;
+#define G3D_APRES_LINEAR     0x1u   /* filtro bilineal al escalar (sin él, vecino más próximo) */
+#define G3D_APRES_VSYNC      0x2u   /* esperar al retrazado vertical antes de copiar (si el driver sabe; con plazo) */
+
+/* Bits de capacidad (gpu3d_capas_t.bits). Un driver solo anuncia lo que pasa
+ * su propia prueba; la capa quita los que dependen de una función que el
+ * driver no tiene (G3D_CAP_V2 sin desenhar2, formatos sin textura2...). */
+#define G3D_CAP_V2           0x00000001u  /* entiende gpu3d_estado2_t y gpu3d_vert2_t (desenhar2) */
+#define G3D_CAP_COMBINAR     0x00000002u  /* todas las funciones de G3D_CB_* salvo DOT3 */
+#define G3D_CAP_DOT3         0x00000004u  /* G3D_CB_DOT3_RGB y G3D_CB_DOT3_RGBA */
+#define G3D_CAP_ALFA_TESTE   0x00000008u
+#define G3D_CAP_ESTENCIL     0x00000010u  /* esténcil de 8 bits (y LIMPAR2 con esténcil) */
+#define G3D_CAP_TIJERA       0x00000020u
+#define G3D_CAP_MASCARAS     0x00000040u  /* máscara de color por canal (la de Z ya está en v1) */
+#define G3D_CAP_Z_FUNCS      0x00000080u  /* las 8 funciones de comparación para el Z */
+#define G3D_CAP_MEZCLA_EXT   0x00000100u  /* factores de mezcla G3D_F_* 4 a 10 */
+#define G3D_CAP_MEZCLA_SEP   0x00000200u  /* factores distintos para el color y el alfa */
+#define G3D_CAP_MEZCLA_EQ    0x00000400u  /* ecuaciones de resta (G3D_EQ_*) */
+#define G3D_CAP_LOGICA       0x00000800u  /* operación lógica (G3D_LOG_*) */
+#define G3D_CAP_NEBLINA      0x00001000u  /* niebla por el factor del vértice (alfa de espec) */
+#define G3D_CAP_TEX_ESPELHO  0x00002000u  /* G3D_ENV_ESPELHO */
+#define G3D_CAP_TEX_NPOT     0x00004000u  /* lados que no son potencia de 2, con cualquier envoltura, sin mipmaps */
+#define G3D_CAP_TEX_MIPMAP   0x00008000u  /* niveles > 0 y filtros G3D_FIL_MIP_* */
+#define G3D_CAP_TEX_CUBO     0x00010000u  /* G3D_TEX_CUBO */
+#define G3D_CAP_TEX_ANISO    0x00020000u  /* gpu3d_unidade_t.aniso > 1 */
+#define G3D_CAP_TEX_PROJ     0x00040000u  /* coordenadas proyectivas (s/q, t/q) en 2D */
+#define G3D_CAP_DESTINO_TEX  0x00080000u  /* GPU3D_OP_DESTINO: dibujar en una textura */
+#define G3D_CAP_LIMPAR2      0x00100000u  /* GPU3D_OP_LIMPAR2 (máscaras, tijera, Z y esténcil dados) */
+#define G3D_CAP_TEX_NPOT_MIP 0x00200000u  /* 2026-11-20: además, lados que no son potencia de 2 con mipmaps (con G3D_CAP_TEX_MIPMAP) */
+#define G3D_CAP_APRESENTAR   0x00400000u  /* D432: GPU3D_OP_APRESENTAR (no depende de G3D_CAP_V2) */
+
+/* Formatos de textura (gpu3d_textura2_t.formato; gpu3d_capas_t.formatos = bits 1 << G3D_FMT_*). */
+#define G3D_FMT_ARGB8888 0   /* palabras 0xAARRGGBB, como en v1 */
+#define G3D_FMT_DXT1     1   /* S3TC: bloques de 4x4 de 8 bytes (con alfa de 1 bit) */
+#define G3D_FMT_DXT3     2   /* bloques de 16 bytes, alfa explícito de 4 bits */
+#define G3D_FMT_DXT5     3   /* bloques de 16 bytes, alfa interpolado */
+
+typedef struct {
+    unsigned int versao;        /* 2 */
+    unsigned int bits;          /* G3D_CAP_* */
+    unsigned int unidades;      /* unidades de textura en un dibujo (1 a 4; 1 en un driver v1) */
+    unsigned int max_lado;      /* lado máximo de textura y destino */
+    unsigned int max_aniso;     /* 1 = sin anisótropo */
+    unsigned int formatos;      /* bits 1 << G3D_FMT_* */
+    unsigned int zbits;         /* bits: 1 = Z de 16, 2 = Z de 24 */
+    unsigned int estencil_bits; /* 0 u 8 */
+    unsigned int reservado[8];
+} gpu3d_capas_t;
+
+/* Un vértice v2: como gpu3d_vert_t (bits de float en x, y, z, rhw) pero con
+ * cuatro juegos de coordenadas de textura (s, t, r, q), uno por unidad. Para
+ * una textura 2D se muestrea en (s/q, t/q); para un cubo, la dirección (s, t, r).
+ * espec = 0xFFRRGGBB: el RGB se suma tras la última unidad; el byte alto es el
+ * factor de niebla (255 = sin niebla) si el estado lleva G3D2_NEBLINA. */
+typedef struct {
+    unsigned int x, y, z, rhw, cor, espec;
+    unsigned int tc[4][4];
+} gpu3d_vert2_t;
+
+/* Funciones de comparación (Z, alfa, esténcil): el orden de GL (GL_NEVER + n). */
+#define G3D_CMP_NUNCA        0
+#define G3D_CMP_MENOR        1
+#define G3D_CMP_IGUAL        2
+#define G3D_CMP_MENOR_IGUAL  3
+#define G3D_CMP_MAIOR        4
+#define G3D_CMP_DIFERENTE    5
+#define G3D_CMP_MAIOR_IGUAL  6
+#define G3D_CMP_SEMPRE       7
+/* Factores de mezcla: los cuatro de v1 (G3D_F_ZERO..G3D_F_UM_MENOS_ALFA) y estos. */
+#define G3D_F_COR_ORIG          4
+#define G3D_F_UM_MENOS_COR_ORIG 5
+#define G3D_F_COR_DEST          6
+#define G3D_F_UM_MENOS_COR_DEST 7
+#define G3D_F_ALFA_DEST         8
+#define G3D_F_UM_MENOS_ALFA_DEST 9
+#define G3D_F_ALFA_SATURADO     10   /* GL_SRC_ALPHA_SATURATE (solo de origen) */
+#define G3D_EQ_SOMA          0
+#define G3D_EQ_SUBTRAI       1   /* origen - destino */
+#define G3D_EQ_SUBTRAI_INV   2   /* destino - origen */
+/* Operación lógica: el orden de GL (GL_CLEAR + n): 0 CLEAR, 1 AND, 2 AND_REVERSE, 3 COPY,
+ * 4 AND_INVERTED, 5 NOOP, 6 XOR, 7 OR, 8 NOR, 9 EQUIV, 10 INVERT, 11 OR_REVERSE,
+ * 12 COPY_INVERTED, 13 OR_INVERTED, 14 NAND, 15 SET. */
+#define G3D_LOG_COPIA        3
+/* Esténcil: qué hacer con el valor. */
+#define G3D_EST_MANTER       0
+#define G3D_EST_ZERO         1
+#define G3D_EST_SUBSTITUIR   2
+#define G3D_EST_INCR         3   /* saturando en 255 */
+#define G3D_EST_DECR         4   /* saturando en 0 */
+#define G3D_EST_INVERTER     5
+#define G3D_EST_INCR_CICLO   6
+#define G3D_EST_DECR_CICLO   7
+
+/* Combinación de una unidad (GL_COMBINE de TexEnv). SaguiGL convierte los
+ * modos clásicos (MODULATE, REPLACE, DECAL, BLEND, ADD) a esta forma: el
+ * driver solo ve combinaciones. Resultado = escala × func(arg0, arg1, arg2),
+ * saturado a 0..1, con argN = operando(fonte). */
+#define G3D_CB_SUBSTITUIR    0   /* arg0 */
+#define G3D_CB_MODULAR       1   /* arg0 × arg1 */
+#define G3D_CB_SOMAR         2   /* arg0 + arg1 */
+#define G3D_CB_SOMAR_SINAL   3   /* arg0 + arg1 - 0,5 */
+#define G3D_CB_INTERPOLAR    4   /* arg0 × arg2 + arg1 × (1 - arg2) */
+#define G3D_CB_SUBTRAIR      5   /* arg0 - arg1 */
+#define G3D_CB_DOT3_RGB      6   /* 4 × suma((arg0 - 0,5) × (arg1 - 0,5)) en R, G y B (solo color) */
+#define G3D_CB_DOT3_RGBA     7   /* lo mismo también en el alfa (solo color; el alfa de la unidad se ignora) */
+#define G3D_FT_TEXTURA       0   /* el texel de esta unidad */
+#define G3D_FT_CONSTANTE     1   /* gpu3d_unidade_t.constante */
+#define G3D_FT_PRIMARIA      2   /* el color del vértice (cor) */
+#define G3D_FT_ANTERIOR      3   /* lo que sale de la unidad anterior (en la 0, la primaria) */
+#define G3D_OPD_COR          0   /* solo para el color */
+#define G3D_OPD_UM_MENOS_COR 1
+#define G3D_OPD_ALFA         2
+#define G3D_OPD_UM_MENOS_ALFA 3
+
+#define G3D_TEX_2D           0
+#define G3D_TEX_CUBO         1
+#define G3D_ENV_REPETIR      0
+#define G3D_ENV_BORDE        1   /* GL_CLAMP_TO_EDGE */
+#define G3D_ENV_ESPELHO      2   /* GL_MIRRORED_REPEAT */
+#define G3D_FIL_LINEAR_MAG   0x01   /* ampliar bilineal (si no, vecino) */
+#define G3D_FIL_LINEAR_MIN   0x02   /* reducir bilineal dentro del nivel */
+#define G3D_FIL_MIP_VECINO   0x04   /* con mipmaps: el nivel más próximo */
+#define G3D_FIL_MIP_LINEAR   0x08   /* con mipmaps: entre dos niveles */
+
+typedef struct {
+    unsigned char ativa;        /* 0: la unidad pasa lo anterior tal cual */
+    unsigned char vaga;         /* hueco de la textura */
+    unsigned char tipo;         /* G3D_TEX_* */
+    unsigned char filtro;       /* G3D_FIL_* */
+    unsigned char env_s, env_t; /* G3D_ENV_* (en un cubo, siempre borde) */
+    unsigned char aniso;        /* 1 a max_aniso */
+    unsigned char coord;        /* juego de coordenadas del vértice (0..3); hoy siempre = la unidad */
+    unsigned char rgb_func, alfa_func;          /* G3D_CB_* (alfa: hasta SUBTRAIR) */
+    unsigned char rgb_escala, alfa_escala;      /* 1, 2 o 4 */
+    unsigned char rgb_fonte[3], rgb_opd[3];     /* G3D_FT_*, G3D_OPD_* */
+    unsigned char alfa_fonte[3], alfa_opd[3];   /* G3D_FT_*, G3D_OPD_ALFA o UM_MENOS_ALFA */
+    unsigned int  constante;    /* 0xAARRGGBB (GL_TEXTURE_ENV_COLOR) */
+} gpu3d_unidade_t;
+
+/* gpu3d_estado2_t.flags */
+#define G3D2_Z_TESTE      0x0001
+#define G3D2_Z_ESCRITA    0x0002
+#define G3D2_MEZCLA       0x0004
+#define G3D2_ALFA_TESTE   0x0008
+#define G3D2_ESTENCIL     0x0010
+#define G3D2_TIJERA       0x0020
+#define G3D2_NEBLINA      0x0040
+#define G3D2_LOGICA       0x0080   /* en vez de la mezcla */
+#define G3D_MC_R 1
+#define G3D_MC_G 2
+#define G3D_MC_B 4
+#define G3D_MC_A 8
+
+typedef struct {
+    unsigned int  versao;       /* 2 */
+    unsigned int  flags;        /* G3D2_* */
+    unsigned char func_z;       /* G3D_CMP_* */
+    unsigned char func_alfa;    /* G3D_CMP_* */
+    unsigned char ref_alfa;     /* 0..255 */
+    unsigned char mascara_cor;  /* G3D_MC_*: canales que se escriben (15 = todos) */
+    unsigned char mez_orig_rgb, mez_dest_rgb, mez_orig_alfa, mez_dest_alfa;   /* G3D_F_* */
+    unsigned char mez_eq_rgb, mez_eq_alfa;      /* G3D_EQ_* */
+    unsigned char op_logica;    /* G3D_LOG_* (0..15) */
+    unsigned char unidades;     /* unidades que cuentan (0..4): de la 0 a unidades-1 */
+    unsigned char est_func, est_ref, est_mascara, est_escrita;   /* G3D_CMP_*, referencia, máscara de lectura y de escritura */
+    unsigned char est_falha, est_zfalha, est_zpassa, reservado0; /* G3D_EST_* */
+    unsigned short tijera_x, tijera_y, tijera_l, tijera_a;       /* píxeles del destino, origen arriba a la izquierda */
+    unsigned int  cor_neblina;  /* 0x00RRGGBB */
+    gpu3d_unidade_t u[4];
+    unsigned int  reservado[4];
+} gpu3d_estado2_t;
+
+typedef struct {
+    unsigned int vaga;          /* 0 .. GPU3D_TEXTURAS - 1 */
+    unsigned int formato;       /* G3D_FMT_* */
+    unsigned int tipo;          /* G3D_TEX_* */
+    unsigned int face;          /* cubo: 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z; 2D: 0 */
+    unsigned int nivel;         /* 0 = el grande; el nivel 0 de la cara 0 (re)crea el hueco */
+    unsigned int niveis;        /* niveles que tendrá (en el nivel 0 de la cara 0) */
+    unsigned int larg, alt;     /* de este nivel */
+    unsigned int dados;         /* puntero del programa (0: soltar el hueco entero) */
+    unsigned int bytes;         /* ARGB: larg*alt*4; DXT1: bloques*8; DXT3/5: bloques*16 */
+    unsigned int reservado[2];
+} gpu3d_textura2_t;
+
+#define G3D_LIMPA_COR 1
+#define G3D_LIMPA_Z   2
+#define G3D_LIMPA_EST 4
+typedef struct {
+    unsigned int  mascara;      /* G3D_LIMPA_* */
+    unsigned int  cor;          /* 0xAARRGGBB */
+    unsigned int  z;            /* 0 .. 0xFFFFFF (0xFFFFFF = el fondo, como v1) */
+    unsigned int  estencil;     /* 0..255 */
+    unsigned char mascara_cor;  /* G3D_MC_* */
+    unsigned char mascara_est;  /* bits del esténcil que se escriben */
+    unsigned char tijera;       /* 1: solo dentro del rectángulo */
+    unsigned char reservado0;
+    unsigned short tx, ty, tl, ta;
+    unsigned int  reservado[2];
+} gpu3d_limpar2_t;
 
 typedef struct {
     unsigned int versao;        /* 1 */
@@ -1315,7 +1581,10 @@ typedef struct {
     unsigned int prazo_ms;      /* plazo del vigilante */
     unsigned int pontos;        /* última puntuación 3D medida (0 = sin medir) */
     unsigned int tri_s, kpix_s; /* y sus medidas */
-    unsigned int reservado[6];  /* D358: [0] = KB de RAM del sistema en el GTT (con GPU3D_VAR_GTT) */
+    unsigned int reservado[6];  /* D358: [0] = KB de RAM del sistema en el GTT (con GPU3D_VAR_GTT);
+                                 * D425: [1] = bits G3D_CAP_* del driver encendido, [2] = sus unidades de textura;
+                                 * D432: [3] = presentaciones directas a la pantalla, [4] = las que no se pudieron
+                                 * (se presentó como siempre), [5] = ventana con la pantalla en exclusiva + 1 (0: nadie) */
 } info_gpu3d_t;
 /* D358: info_gpu3d_t.variante, lo que de verdad quedó en marcha (bits). */
 #define GPU3D_VAR_ANEL      0x01  /* órdenes en el anillo (pedido, o el lote no se ejecutaba) */
@@ -2060,6 +2329,11 @@ typedef struct {
 #define PLAN_PRIORIDADE  4   /* (pid o 0, nice -20..19) -> 0; se consulta con PLAN_INFO (un nice negativo
                                  * se confundiría con un error) */
 #define PLAN_INFO        5   /* (pid/tid o 0, &info_planificacion_t) -> 0 */
+#define PLAN_AUDIO       6   /* D436: (1 encender, 0 apagar, -1 consultar) -> 0/1 antes; solo el hilo que llama:
+                                 * «alta prioridad de audio». Al despertar pasa delante de los demás, pero solo
+                                 * mientras gaste poco (PLAN_AUDIO_MAX_USO tics de cada ~250 ms): no hace falta ser
+                                 * root, porque un hilo que acapara la CPU la pierde solo. Uno por proceso. */
+#define PLAN_AUDIO_MAX_USO 5
 
 /* Lo que el planificador sabe de un proceso o hilo (PLAN_INFO). */
 typedef struct {
@@ -2197,6 +2471,9 @@ typedef struct {
 #define EV_RODA_H    20  /* D407: rueda horizontal (desplazar con dos dedos o por el borde inferior del panel táctil):
                             "cliques" = muescas con signo (+ hacia la derecha), x, y y la ventana como EV_RODA.
                             Quien no la trata, la ignora (no se convierte en vertical). Ler com (int)e.cliques. */
+#define EV_TEMA      21  /* D428: cambió el esquema de apariencia (Configuración > Estilos): los colores del sistema son otros.
+                            La libsagui ya los recargó al entregar el evento (esq, mod_tema); el programa repinta. Quien no la
+                            trata, la ignora y coge el esquema al abrirse. */
 #define EVW_MOVIDO     1
 #define EVW_QUITAR     2
 #define EVW_FIN_SESION 3

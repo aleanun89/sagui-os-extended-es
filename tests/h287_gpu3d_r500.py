@@ -74,6 +74,30 @@ def unidad():
     print("   ", r.stdout.strip().replace("\n", "\n    ")[-600:])
     verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
               "órdenes del CP de R5xx, formato del vértice, programa de vértices y programas de fragmentos")
+    # D426: el programa de fragmentos de gpu3d v2, ejecutado por un intérprete del US contra la cuenta de referencia.
+    exe = os.path.join(DIR, "r500_fp_unidad")
+    r = subprocess.run(["gcc", "-O1", "-fno-builtin", "-Wall", "-Wno-builtin-declaration-mismatch",
+                        "-I", os.path.join(RAIZ, "kernel", "inc"), "-I", os.path.join(RAIZ, "kernel", "dispositivos"),
+                        "-o", exe, os.path.join(RAIZ, "tests", "r500_fp_unidad.c"),
+                        os.path.join(RAIZ, "kernel", "gui", "gpu3d_mem.c")], capture_output=True, text=True)
+    verificar(r.returncode == 0, "la prueba del programa de fragmentos v2 compila\n" + r.stderr)
+    r = subprocess.run([exe], capture_output=True, text=True)
+    print("   ", r.stdout.strip().replace("\n", "\n    ")[-600:])
+    verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
+              "gpu3d v2 en R5xx: programa de fragmentos generado (COMBINE, 4 unidades, niebla) igual a la referencia (D426)")
+    # D426: las pruebas v2 que hace el driver en la máquina: un driver «perfecto» por la CPU las pasa todas y,
+    # con cada capacidad rota, pierde justo esa (los píxeles esperados están bien calculados).
+    exe = os.path.join(DIR, "g3d_v2_provas_unidad")
+    r = subprocess.run(["gcc", "-O1", "-no-pie", "-fno-builtin", "-Wall", "-Wno-builtin-declaration-mismatch", "-Wno-int-to-pointer-cast",
+                        "-Wno-pointer-to-int-cast", "-I", os.path.join(RAIZ, "kernel", "inc"),
+                        "-o", exe, os.path.join(RAIZ, "tests", "g3d_v2_provas_unidad.c"),
+                        os.path.join(RAIZ, "kernel", "dispositivos", "g3d_v2_provas.c"),
+                        os.path.join(RAIZ, "kernel", "gui", "gpu3d_mem.c")], capture_output=True, text=True)
+    verificar(r.returncode == 0, "la prueba de las pruebas v2 compila\n" + r.stderr)
+    r = subprocess.run([exe], capture_output=True, text=True)
+    print("   ", r.stdout.strip().replace("\n", "\n    ")[-600:])
+    verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
+              "gpu3d v2: las pruebas de capacidades de los drivers aciertan con un driver por la CPU (D426)")
     # D386: dónde va la zona 3D en la VRAM, con los registros del Amilo (D2 activo en c0100000).
     exe = os.path.join(DIR, "vram_zona_unidad")
     r = subprocess.run(["gcc", "-O1", "-Wall", "-Wextra", "-Werror", "-I", os.path.join(RAIZ, "kernel", "dispositivos"),

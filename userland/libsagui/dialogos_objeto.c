@@ -28,7 +28,7 @@ static int entero(const char *s)
 
 static void gal_celda(jan_t *j, int x, int y, const imagem_t *im, bool sel)
 {
-    g_retangulo(j, x, y, CEL_L, CEL_A, COR_BRANCO);
+    g_retangulo(j, x, y, CEL_L, CEL_A, COR_CAMPO);
     if (im && im->px) imagem_desenhar(j->px, j->larg, x, y, CEL_L, CEL_A, im, x + 2, y + 2, CEL_L - 4, CEL_A - 4, false);
     g_bisel(j, x, y, CEL_L, CEL_A, true);
     if (sel) {

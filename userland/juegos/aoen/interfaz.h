@@ -129,6 +129,7 @@ typedef struct {
 	int compartida;                                               /* victoria compartida por equipos y aliados */
 	int recursos_mapa;                                            /* 0 escasos, 1 normales, 2 abundantes (orden del menú) */
 	int comercio;                                                 /* comercio mejorado (barcos y carros con modo intercambio) */
+	int fuego_amigo;                                              /* fuego amigo del daño en área (D447) */
 	int diff[MAX_PLAYERS], civ[MAX_PLAYERS], team[MAX_PLAYERS];   /* team 0: sin equipo */
 	int color[MAX_PLAYERS];                                       /* 1..8 */
 	int res[RES_COUNT];                                           /* recursos personalizados: índice en la tabla */
@@ -164,6 +165,7 @@ int saltar_aviso(void);
 int hud_orden_pos(int k, int *x, int *y);               /* centro del botón k de la rejilla, en píxeles reales (pruebas) */
 void hud_mm_pos(float wx, float wy, int *x, int *y);    /* un punto del mundo en el minimapa, en píxeles reales */
 extern Rect prueba_tributo, prueba_relacion;            /* botones de la diplomacia (pruebas) */
+extern Rect prueba_fuego;                                  /* casilla «Fuego amigo» de la configuración (pruebas) */
 extern Rect prueba_comercio;                            /* casilla «Comercio mejorado» de la configuración (pruebas) */
 void prueba_paso(int frame);                            /* AOEN_PRUEBA: guiones de las pruebas de la interfaz */
 extern int prueba_activa;                               /* hay guion AOEN_PRUEBA (el ratón simulado está dentro) */

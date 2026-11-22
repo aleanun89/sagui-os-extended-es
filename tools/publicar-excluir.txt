@@ -27,6 +27,12 @@
 /*.ogg
 /*.flac
 
+# D421: sonidos privados del sistema (jingles de Windows y MP3 de Pixabay; solo en imágenes con INPUT_SHARE)
+/apps/sonidos/
+Windows_*.wav
+only_private
+pixbay_free
+
 # --- Secretos y configuración de los agentes ---
 # Tokens (.env_agents, etc.)
 .env*
@@ -47,6 +53,8 @@
 /status.md
 # docs/CONTINUAR.md: traspaso a otro PC, con rutas y nombres de cuentas privadas
 /docs/CONTINUAR.md
+# docs/vm-ayuda.md: la VM de ayuda del mantenedor (acceso, claves, sudo): interno, nunca al público
+/docs/vm-ayuda.md
 # Salida de baterías y diario de trabajo internos
 /docs/regressao-final.txt
 
@@ -90,3 +98,8 @@
 
 # D380: los modelos de IA locales (licencias no libres) no se publican
 *.gguf
+
+# --- D418: imágenes de depuración y claves SSH (nunca al público) ---
+debug-ssh
+ssh_host_*_key
+/debug/

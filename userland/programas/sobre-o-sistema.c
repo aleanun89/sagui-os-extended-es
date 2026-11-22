@@ -96,6 +96,8 @@ static const char *const creditos[] = {   /* se traducen al dibujarlos (las que 
     N_("(musl/FreeBSD), partes de drivers de Linux"),
     N_("(GPLv2). Ver docs/terceros.md."),
     "",
+    N_("Sonidos: Kenney (kenney.nl), CC0"),
+    "",
 };
 
 static void pagina_creditos(jan_t *j)

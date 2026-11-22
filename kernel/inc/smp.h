@@ -29,4 +29,14 @@ void smp_acordar(uint32_t cpu);
 /* Quantos processadores secundários arrancaram de facto. */
 uint32_t smp_arrancadas(void);
 
+/* D450: al apagar o reiniciar, desde la CPU 0 con el cerrojo general y las interrupciones
+ * cerradas: manda la IPI VETOR_PARAR a los demás y espera como mucho "ms" a que se paren.
+ * Devuelve cuántos se pararon. Los que no contestan (dentro del kernel, esperando el
+ * cerrojo) se quedan así: no pueden hacer nada sin él. */
+uint32_t smp_parar_secundarias(uint32_t ms);
+SEM_RETORNO void smp_parar_esta_cpu(void);   /* la IPI, en el secundario (idt.c) */
+/* D450: puesto por smp_parar_secundarias. Quien espera el cerrojo general (con las interrupciones
+ * cerradas, así que no ve la IPI) lo mira y se para también (trava_geral.c). */
+extern volatile bool smp_parando;
+
 #endif

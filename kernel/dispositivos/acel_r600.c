@@ -93,6 +93,17 @@
 #define D2_DESLOC              0x0800
 #define D1GRPH_SURFACE_HIGH    0x6914      /* R7xx: bits 39:32 de la superficie */
 #define D2GRPH_SURFACE_HIGH    0x6114
+/* D424: el reparto del controlador de memoria entre la pantalla y lo demás (Linux 6.6, evergreend.h y
+ * evergreen_program_watermarks). La pantalla se suma con evg_crtc_desloc; la tubería, de 0x20 en 0x20. */
+#define EVG_DC_LB_MEMORY_SPLIT 0x6B0C
+#define EVG_PRIORITY_A_CNT     0x6B18
+#define EVG_PRIORITY_B_CNT     0x6B1C
+#define EVG_PRIORITY_ALWAYS_ON (1u << 20)
+#define EVG_PIPE0_ARB_CONTROL3 0x0BF0
+#define EVG_PIPE0_LATENCY_CONTROL 0x0BF4
+#define EVG_PIPE0_DMIF_BUFFER_CONTROL 0x0CA0
+#define D1MODE_PRIORITY_A_CNT  0x6548      /* D424: R6xx/R7xx (rv515d.h), solo para el detalle */
+#define D1MODE_PRIORITY_B_CNT  0x654C
 #define D1CUR_CONTROL          0x6400      /* bit 0: cursor por hardware encendido */
 #define D1CUR_SURFACE          0x6408
 /* Memoria. */
@@ -327,6 +338,45 @@ static bool dentro(int x, int y, int l, int a)
     return x >= 0 && y >= 0 && l > 0 && a > 0 && x + l <= larg && y + a <= alt_util;
 }
 
+/* D424: la prioridad de la pantalla en el controlador de memoria (Evergreen/NI). La BIOS la deja para su
+ * modo VBE; con la CPU escribiendo a toda velocidad en la VRAM por el BAR la pantalla podría quedarse sin
+ * datos a tiempo. Como Linux con radeon.disp_priority=2: PRIORITY_ALWAYS_ON en A y B. Se guarda lo de la
+ * BIOS y se repone al quitarla o al apagar el driver. */
+static bool prio_mudada;
+static uint32_t o_prio_a, o_prio_b;
+
+static void prioridade_repor(void)
+{
+    if (!prio_mudada || !mmio || crtc_tela < 0) return;
+    uint32_t o = evg_crtc_desloc(crtc_tela);
+    wr(EVG_PRIORITY_A_CNT + o, o_prio_a);
+    wr(EVG_PRIORITY_B_CNT + o, o_prio_b);
+    prio_mudada = false;
+}
+
+/* op 0: al log; 1: forzar la prioridad alta; 2: la de la BIOS. */
+bool r600_prioridade_tela(int op)
+{
+    if (!mmio || gen < EVG_GEN_EVERGREEN || crtc_tela < 0) {
+        klog("[ACEL2D] r600: prioridad de la pantalla: solo Evergreen/NI con el driver en marcha\n");
+        return false;
+    }
+    uint32_t o = evg_crtc_desloc(crtc_tela);
+    if (op == 1 && !prio_mudada) {
+        o_prio_a = rd(EVG_PRIORITY_A_CNT + o);
+        o_prio_b = rd(EVG_PRIORITY_B_CNT + o);
+        prio_mudada = true;
+        wr(EVG_PRIORITY_A_CNT + o, (o_prio_a & ~(1u << 16)) | EVG_PRIORITY_ALWAYS_ON);
+        wr(EVG_PRIORITY_B_CNT + o, (o_prio_b & ~(1u << 16)) | EVG_PRIORITY_ALWAYS_ON);
+    } else if (op == 2) {
+        prioridade_repor();
+    }
+    klog("[ACEL2D] r600: prioridad de la pantalla (controlador %d): A %x B %x (%s; la BIOS: A %x B %x)\n", crtc_tela + 1,
+         rd(EVG_PRIORITY_A_CNT + o), rd(EVG_PRIORITY_B_CNT + o), prio_mudada ? "forzada" : "la de la BIOS",
+         prio_mudada ? o_prio_a : rd(EVG_PRIORITY_A_CNT + o), prio_mudada ? o_prio_b : rd(EVG_PRIORITY_B_CNT + o));
+    return true;
+}
+
 /* D246: «acel2d probar --detalle»: los registros clave de la memoria y del motor, para el log. */
 static void r6_detalle(const char *fase)
 {
@@ -348,6 +398,18 @@ static void r6_detalle(const char *fase)
              "superficie %x (alta %x) pitch %u fin %ux%u cursor %x\n", fase, gen, crtc_tela + 1, rd(EVG_CRTC_CONTROL + o),
              rd(EVG_GRPH_ENABLE + o), rd(EVG_GRPH_CONTROL + o), rd(EVG_GRPH_SUPERFICIE + o), rd(EVG_GRPH_SUPERFICIE_HI + o),
              rd(EVG_GRPH_PITCH + o), rd(EVG_GRPH_X_END + o), rd(EVG_GRPH_Y_END + o), rd(EVG_CUR_CONTROL + o));
+    }
+    if (gen >= EVG_GEN_EVERGREEN && crtc_tela >= 0) {
+        uint32_t o = evg_crtc_desloc(crtc_tela), t = (uint32_t)crtc_tela * 0x20u;
+        klog("[ACEL2D] r600 detalle (%s): prioridad de la pantalla A %x B %x (%s), LB_MEMORY_SPLIT %x, ARB_CONTROL3 %x, "
+             "LATENCY_CONTROL %x, DMIF_BUFFER_CONTROL %x\n", fase, rd(EVG_PRIORITY_A_CNT + o), rd(EVG_PRIORITY_B_CNT + o),
+             prio_mudada ? "forzada por acel2d" : "la de la BIOS", rd(EVG_DC_LB_MEMORY_SPLIT + o), rd(EVG_PIPE0_ARB_CONTROL3 + t),
+             rd(EVG_PIPE0_LATENCY_CONTROL + t), rd(EVG_PIPE0_DMIF_BUFFER_CONTROL + t));
+    }
+    if (gen < EVG_GEN_EVERGREEN && crtc_tela >= 0) {   /* D424: solo lectura, para comparar con la HD 7600M */
+        uint32_t o = crtc_tela ? D2_DESLOC : 0;
+        klog("[ACEL2D] r600 detalle (%s): prioridad de la pantalla D%d A %x B %x (la de la BIOS)\n", fase, crtc_tela + 1,
+             rd(D1MODE_PRIORITY_A_CNT + o), rd(D1MODE_PRIORITY_B_CNT + o));
     }
     klog("[ACEL2D] r600 detalle (%s): valla %x (esperada %x), pendiente %d, pantalla en MC %x:%x, pitch %u, zona de paso %d filas\n",
          fase, ctrl ? ctrl[CTRL_VALLA] : 0, seq, pendente, alto, geo.mc_tela, geo.pitch, geo.filas_rascunho);
@@ -381,6 +443,7 @@ static void r6_desligar(void)
 {
     if (!programado || !mmio) return;
     programado = false;
+    prioridade_repor();   /* D424 */
     wr(DMA_RB_CNTL, rd(DMA_RB_CNTL) & ~DMA_RB_ENABLE);
     /* Lo que estuviera copiando termina enseguida; se espera un poco (sin
      * reiniciar el bloque: la CPU redibuja la pantalla después). */
@@ -548,7 +611,7 @@ uint32_t r600_fim_2d(const acel_tela_t *t)
 void r600_hdp_vaciar(const r600_base_t *b, volatile uint32_t *leitura)
 {
     __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
-    if (b->gen >= 7 && !b->agp) {
+    if (b->gen == 7 && !b->agp) {   /* D427: solo las R7xx (como hdp_vaciar); Evergreen/NI por el registro */
         *(volatile uint32_t *)(b->mmio + HDP_DEBUG1) = 0;
         (void)*leitura;
     } else {
@@ -560,6 +623,7 @@ void r600_hdp_vaciar(const r600_base_t *b, volatile uint32_t *leitura)
 static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
 {
     programado = false;
+    prioridade_repor();   /* D424: por si quedó forzada de un intento anterior */
     crtc_tela = -1;
     etapa = 1;
     r600_base_t base;
@@ -740,7 +804,17 @@ static bool r6_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_
 static bool r6_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, char *m, int nm)
 {
     etapa = 0;
-    if (r6_iniciar_etapas(d, geracao, t, m, nm)) return true;
+    if (r6_iniciar_etapas(d, geracao, t, m, nm)) {
+        /* D424: en las Evergreen/NI, la prioridad alta de la pantalla mientras el driver esté en marcha
+         * (r6_desligar repone la de la BIOS). El VBE la deja sin programar (Toshiba: marcas y latencia a 0) y,
+         * con la CPU escribiendo en la VRAM a ~3 GB/s, la pantalla se quedaba sin datos: rayas y zonas pálidas. */
+        if (gen >= EVG_GEN_EVERGREEN && crtc_tela >= 0) {
+            uint32_t o = evg_crtc_desloc(crtc_tela);
+            uint32_t a = rd(EVG_PRIORITY_A_CNT + o), b = rd(EVG_PRIORITY_B_CNT + o);
+            if (!(a & EVG_PRIORITY_ALWAYS_ON) || !(b & EVG_PRIORITY_ALWAYS_ON)) (void)r600_prioridade_tela(1);
+        }
+        return true;
+    }
     if (etapa >= 1) {
         char tx[160];
         snformatar(tx, sizeof tx, "etapa %d: %s", etapa, m);

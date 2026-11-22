@@ -220,7 +220,13 @@ def main():
                     default=os.environ.get("SAGUI_SESION_ROOT") == "1",
                     help="imagen de prueba: el escritorio y el Terminal como root en vez de sagui (D255). "
                          "Las pruebas lo ponen con SAGUI_SESION_ROOT=1")
-    ap.add_argument("--sin-pedir-root", action="store_true", default=os.environ.get("SAGUI_PRUEBA_USUARIOS") == "1",
+    ap.add_argument("--conf-extra", metavar="CARPETA", default=os.environ.get("SAGUI_CONF_EXTRA") or None,
+                    help="D418: copia el árbol de CARPETA a SAGUI-CONF (CARPETA/etc/... acaba en /etc al arrancar). Es lo que "
+                         "usa «make debug_variantes» para dejar la clave del PC, sshd activado y la huella fija; si lleva "
+                         "authorized_keys o claves del servidor, la imagen queda marcada como de DEPURACIÓN y "
+                         "tools/publicar.sh la rechaza")
+    ap.add_argument("--sin-pedir-root", action="store_true",
+                    default=os.environ.get("SAGUI_PRUEBA_USUARIOS") == "1" or os.environ.get("SAGUI_DEBUG_SIN_ROOT") == "1",
                     help="D371: el primer arranque con SAGUI-CONF no pide la contraseña de root en su pantalla "
                          "(para las pruebas, que ponen SAGUI_PRUEBA_USUARIOS=1; las de prueba la llevan salvo con --pedir-root). "
                          "Además: la consola no pide la cuenta y se entra sin la pantalla (inicio automático)")
@@ -513,7 +519,8 @@ def main():
     if not 0 <= a.swap_mb <= 1024:
         sys.exit("mkimagem: --swap-mb tiene que estar entre 1 y 1024 (0 = automático)")
     cab += struct.pack("<H", a.swap_mb)   # CAB_TROCA_MB (160, D352): tope de la swap comprimida en MB
-    cab += struct.pack("<B", (1 if a.sin_pedir_root else 0) | (2 if a.sin_migrar_home else 0))   # CAB_USU_OPC (162, D371)
+    cab += struct.pack("<B", (1 if a.sin_pedir_root else 0) | (2 if a.sin_migrar_home else 0) |
+                       (4 if (a.conf_extra and conf_extra_sensible(a.conf_extra)) else 0))   # CAB_USU_OPC (162, D371)
     assert len(cab) == 163, "CAB_RAIZ_OPC tiene que caer en el byte 163"
     cab += struct.pack("<B", MODOS_RAIZ[a.modo_raiz])   # CAB_RAIZ_OPC (163, D379)
     assert len(cab) == 164, "CAB_TERM_OPC tiene que caer en el byte 164"
@@ -591,6 +598,8 @@ def main():
     if conf_mb:   # D256: solo lleva un LEEME
         with open(os.path.join(tmp_conf.name, "LEEME"), "w", encoding="utf-8") as g:
             g.write(TEXTO_LEEME_CONF)
+        if a.conf_extra:
+            copiar_conf_extra(a.conf_extra, tmp_conf.name)
         sistema.append((ROTULO_CONF, conf_mb, "ext2", "/conf"))
         conteudos[ROTULO_CONF] = tmp_conf.name
     if raiz_mb:
@@ -952,6 +961,31 @@ TEXTO_LEEME_CONF = (
     "\n"
     "No la borres ni la formatees: sin ella SaguiOS arranca con los valores de\n"
     "fábrica y se pierden las contraseñas y las claves.\n")
+
+
+# D418: marca de las imágenes de depuración (con la clave del PC en authorized_keys de root y la clave del
+# servidor SSH fija). tools/publicar.sh y las comprobaciones de la entrega buscan este texto en la imagen.
+MARCA_DEPURACION = "IMAGEN-DE-DEPURACION-D418-NO-DISTRIBUIR"
+
+
+def conf_extra_sensible(origem):
+    """D418: ¿el árbol lleva authorized_keys o claves del servidor (imagen de depuración)?"""
+    for _r, _d, arqs in os.walk(origem):
+        for n in arqs:
+            if n == "authorized_keys" or n.startswith("ssh_host_"):
+                return True
+    return False
+
+
+def copiar_conf_extra(origem, destino):
+    """D418: copia el árbol de «origem» a SAGUI-CONF. Si lleva claves de acceso, deja la marca de depuración."""
+    if not os.path.isdir(origem):
+        sys.exit(f"mkimagem: --conf-extra: no existe la carpeta {origem}")
+    shutil.copytree(origem, destino, dirs_exist_ok=True)
+    if conf_extra_sensible(origem):
+        with open(os.path.join(destino, MARCA_DEPURACION), "w", encoding="utf-8") as g:
+            g.write(MARCA_DEPURACION + "\nEsta imagen lleva claves de acceso por SSH para root: no se distribuye.\n")
+        print("mkimagem: AVISO: imagen de DEPURACIÓN (clave de root por SSH en SAGUI-CONF): NO distribuir (D418)")
 
 
 def texto_leeme(ponto, tipo):

@@ -9,16 +9,37 @@
 #include "sagui.h"
 #include "imagem.h"   /* imagem_t, para el lienzo (mejora 042) */
 
+#include "esquemas.h"
+
+/* Esquema de apariencia (D428): todos los colores del sistema en una estructura (kernel/inc/esquemas.h) que el kernel
+ * guarda y la libsagui lee. `sagui_esq` se carga al abrir la primera ventana y se recarga solo cuando llega EV_TEMA (lo hace
+ * proximo_evento / esperar_evento), así que COR_* y W98_* valen siempre lo del esquema vigente: con «SaguiOS»
+ * (el de serie), los de antes. Los programas que no tratan EV_TEMA se repintan con los colores nuevos la próxima vez
+ * que dibujan. */
+extern esquema_t sagui_esq;
+void esq_asegurar(void);          /* carga el esquema del kernel si cambió (la versión); lo llaman jan_abrir y el bucle de eventos */
+int  esq_recargar(void);          /* lo lee del kernel y rehace mod_tema; 0 = bien */
+int  esq_aplicar(const esquema_t *e, bool login);   /* lo pone en el sistema (redibuja todo y avisa a las ventanas); login = el de la pantalla de inicio (root) */
+void esq_para_mod_tema(void);     /* rehace mod_tema desde sagui_esq */
+/* Una variante clara de un color de trazo oscuro para fondos oscuros (iconos, D428): sube la luminosidad si sagui_esq.escuro. */
+uint32_t esq_trazo(uint32_t c);
+int  esq_para_texto(const esquema_t *e, char *buf, int max);   /* formato de /home/.config/estilo.conf (D428) */
+bool esq_de_texto(const char *txt, esquema_t *e);
+
 /* Colores del tema. */
-#define COR_FUNDO      0xF4F4F0
-#define COR_TEXTO      0x1E2328
-#define COR_TEXTO_FRACO 0x6A737C
-#define COR_BORDA      0x8A939C
-#define COR_BOTAO      0xE2E6EA
-#define COR_BOTAO_APERTADO 0xC4CBD2
-#define COR_DESTAQUE   0x0B7A3E   /* verde de SaguiOS */
-#define COR_SELECAO    0x2A6FD8
+#define COR_FUNDO      (sagui_esq.fundo)
+#define COR_TEXTO      (sagui_esq.texto)
+#define COR_TEXTO_FRACO (sagui_esq.texto_fraco)
+#define COR_BORDA      (sagui_esq.borda)
+#define COR_BOTAO      (sagui_esq.botao)
+#define COR_BOTAO_APERTADO (sagui_esq.botao_apertado)
+#define COR_DESTAQUE   (sagui_esq.destaque)   /* verde de SaguiOS */
+#define COR_SELECAO    (sagui_esq.selecao)
 #define COR_BRANCO     0xFFFFFF
+#define COR_CAMPO      (sagui_esq.campo_fundo)   /* fondo de campos, listas y cuadros de texto (era COR_BRANCO) */
+#define COR_SEL_TEXTO  (sagui_esq.selecao_texto) /* texto sobre la selección (era COR_BRANCO) */
+#define COR_SEL_SUAVE  (sagui_esq.sel_suave)     /* fondo de la selección de texto dentro de un campo */
+#define COR_LISTA_FUNDO (sagui_esq.lista_fundo)
 
 typedef struct {
     int       id;
@@ -27,6 +48,7 @@ typedef struct {
     unsigned  estilo;          /* lo que se pidió en jan_estilo (D044) */
     int       min_l, min_a;
 } jan_t;
+void esq_vista_previa(jan_t *j, int x, int y, int l, int a, const esquema_t *e);   /* miniatura 320x200: escritorio, ventanas, menú, botón, campo */
 
 /* ---- ventana y dibujo ---- */
 jan_t *jan_abrir(const char *titulo, int largura, int altura);
@@ -69,13 +91,17 @@ void botao_desenhar(jan_t *j, botao_t *b);
 bool botao_tratar(jan_t *j, botao_t *b, const evento_t *e);   /* true = fue pulsado */
 
 /* ---- cuadro de texto de una línea ---- */
-typedef struct {
+typedef struct caixa_gui {
     int  x, y, l;
     char texto[128];
     int  cursor;
     bool foco;
     bool oculta;   /* D145: si es cierto, el texto se dibuja con asteriscos
                     * (para las claves de API). */
+    /* D423: dibujo propio. Si no es NULL, caixa_tratar lo usa en lugar de caixa_desenhar al redibujar tras
+     * escribir o hacer clic (así Archivos pone su campo moderno sin que el antiguo asome un instante).
+     * Al final de la estructura: los inicializadores posicionales antiguos lo dejan en NULL. */
+    void (*desenhar)(jan_t *j, struct caixa_gui *c);
 } caixa_t;
 void caixa_desenhar(jan_t *j, caixa_t *c);
 bool caixa_tratar(jan_t *j, caixa_t *c, const evento_t *e);   /* true = Enter */
@@ -265,12 +291,14 @@ void    rico_contar(const rico_t *r, int i, rico_contagem_t *c);
  * patrón de siempre: una estructura del programa, una función que dibuja y otra que trata
  * el evento. Las medidas del documento van en TWIPS (1/20 de punto; 1 cm = 567 twips).
  * ====================================================================== */
-#define W98_FACE    0xC0C0C0   /* gris de los botones y las barras */
-#define W98_SOMBRA  0x808080
-#define W98_OSCURO  0x404040
-#define W98_LUZ     0xFFFFFF
-#define W98_AZUL    0x000080   /* barra de título y selección */
-#define W98_NEGRO   0x000000
+#define W98_FACE    (sagui_esq.cara)     /* gris de los botones y las barras */
+#define W98_SOMBRA  (sagui_esq.sombra)
+#define W98_OSCURO  (sagui_esq.oscuro)
+#define W98_LUZ     (sagui_esq.luz)
+#define W98_AZUL    (sagui_esq.azul)     /* barra de título y selección */
+#define W98_NEGRO   (sagui_esq.negro)
+#define W98_CLARO   esq_mix(sagui_esq.cara, sagui_esq.luz, 50)   /* DFDFDF con el gris de siempre */
+#define W98_MARCADA (sagui_esq.cara == 0xC0C0C0 ? 0xE0E0E0 : esq_mix(sagui_esq.cara, sagui_esq.luz, 50))   /* botón de barra activado */
 void g_bisel(jan_t *j, int x, int y, int l, int a, bool afundado);   /* borde de 2 px estilo Win98 */
 void g_flecha(jan_t *j, int x, int y, int dir, uint32_t cor);        /* triángulo 7x4: 0 arriba, 1 abajo, 2 izq., 3 der. */
 
@@ -701,6 +729,244 @@ typedef struct {
 } pestanas_t;
 void pestanas_desenhar(jan_t *j, pestanas_t *p);
 bool pestanas_tratar(jan_t *j, pestanas_t *p, const evento_t *e);
+
+/* ---- componentes de explorador de archivos (v8.5.5.2, D420; libsagui/gui_explorador.c) ---- */
+/* abas_t: pestañas con cierre, «+» y orden arrastrable. Alto fijo ABAS_ALTURA. Los nombres los pone quien la usa. */
+#define ABAS_MAX 12
+#define ABAS_ALTURA 22
+typedef struct {
+    int x, y, l;
+    int n, sel;
+    char titulos[ABAS_MAX][32];
+    int destaque;     /* pestaña resaltada como destino de un arrastre (-1 = ninguna) */
+    int premida;      /* pestaña bajo el botón apretado (para moverla), -1 = ninguna */
+    int hover;        /* D423: pestaña con el ratón encima + 1; -1 = el «+»; 0 = ninguna */
+} abas_t;
+enum { ABAS_NADA, ABAS_SELECIONOU, ABAS_FECHOU, ABAS_NOVA, ABAS_MOVEU };
+void abas_desenhar(jan_t *j, abas_t *a);
+/* Devuelve ABAS_*: SELECIONOU (nueva en *i), FECHOU (la *i), NOVA, MOVEU (de *i a *k; quien llama cambia sus datos). */
+int  abas_tratar(jan_t *j, abas_t *a, const evento_t *e, int *i, int *k);
+int  abas_em(const abas_t *a, int x, int y);   /* la pestaña que hay en el punto, o -1 */
+
+/* migas_t: la ruta como migas de pan; tras cada parte hay una flecha que sirve para listar sus subcarpetas. */
+#define MIGAS_MAX 16
+typedef struct {
+    int x, y, l, a;
+    int n;
+    struct { int x, l, xs; char cam[160]; char nome[40]; } p[MIGAS_MAX];
+    int  hover;        /* D423: parte con el ratón encima + 1 (0 = ninguna) */
+    bool hover_seta;   /* ...y si es su flecha */
+    bool foco;         /* panel activo: borde de acento */
+} migas_t;
+void migas_desenhar(jan_t *j, migas_t *m, const char *caminho);
+/* 0 = nada; 1 = una parte (en cam, su ruta); 2 = la flecha de una parte (en cam, la carpeta de cuyas subcarpetas se habla). */
+int  migas_em(const migas_t *m, int x, int y, char *cam, int max);
+/* La parte bajo el punto + 1 (0 = ninguna), y en *seta si es su flecha: para resaltarla con el ratón (D423). */
+int  migas_hover_em(const migas_t *m, int x, int y, bool *seta);
+
+/* colunas_t: encabezado de columnas. La columna 0 ocupa lo que sobra; las demás tienen ancho fijo
+ * (larg[k]) y se ajustan arrastrando su borde izquierdo. */
+#define COLUNAS_MAX 6
+typedef struct {
+    int x, y, l;
+    int n;
+    const char *titulos[COLUNAS_MAX];
+    int larg[COLUNAS_MAX];
+    bool direita[COLUNAS_MAX];
+    int ord; bool desc;
+    int arrasto, arrasto_x0, arrasto_l0;   /* columna que se está ajustando (0 = ninguna) */
+} colunas_t;
+enum { COLUNAS_NADA, COLUNAS_ORDENAR, COLUNAS_REDIM };
+int  colunas_x(const colunas_t *c, int k);   /* x izquierda de la columna k */
+void colunas_desenhar(jan_t *j, colunas_t *c);
+int  colunas_tratar(jan_t *j, colunas_t *c, const evento_t *e, int *col);   /* ORDENAR (col pulsada) o REDIM (col ajustada) */
+int  colunas_em(const colunas_t *c, int x, int y);   /* columna del encabezado bajo el punto, o -1 */
+/* Barra de espacio usado (0-100 %), roja si queda poco. */
+void barra_uso_desenhar(jan_t *j, int x, int y, int l, int a, int pct);
+
+/* ---- componentes modernos (v8.5.5.2, D423; libsagui/gui_moderno.c) ----
+ * Botones planos y con esquinas redondeadas, control segmentado, interruptor, chips, progreso, insignia,
+ * campo de búsqueda, tarjeta, tooltip con retardo y toast. Todos beben de una sola paleta (mod_tema):
+ * verde y turquesa de SaguiOS, superficie clara, bordes finos y radio 4. Cambiando mod_tema cambian a la vez
+ * todos los componentes (un tema oscuro solo necesita otra paleta y variantes oscuras de los iconos). Las esquinas se suavizan
+ * a mano (4x4 muestras por píxel de esquina) sobre lo que ya hubiera dibujado.
+ * Convención: cada componente es una estructura con su posición y estado, *_desenhar y *_tratar
+ * (que devuelve lo que pasó). Cada uno limpia su rectángulo con "fundo" (el color que hay detrás;
+ * 0 = mod_tema.barra) antes de dibujar, así un botón plano vuelve a su aspecto sin dejar rastro del hover. */
+typedef struct {
+    uint32_t acento, acento_hover, acento_press, acento_suave, sobre_acento;   /* verde SaguiOS y lo que va encima */
+    uint32_t foco;                          /* anillo del foco de teclado (turquesa) */
+    uint32_t superficie, barra, campo;      /* tarjetas y menús / barras de órdenes / interior de los campos */
+    uint32_t pista, borde, borde_forte;     /* fondo de barras y selectores / líneas finas / líneas con hover */
+    uint32_t hover, press;                  /* botón plano con el ratón encima y pulsado */
+    uint32_t texto, texto_fraco;
+    uint32_t desab_fundo, desab_texto;
+    uint32_t peligro, peligro_suave, aviso, ok;
+    uint32_t dica_fundo, dica_texto;        /* tooltip y toast */
+    int radio;                              /* esquinas de los botones y campos (px) */
+    int radio_cartao;                       /* esquinas de las tarjetas */
+    int altura;                             /* alto normal de un botón o campo */
+} mod_tema_t;
+extern mod_tema_t mod_tema;
+void mod_tema_padrao(mod_tema_t *t);        /* la clara de SaguiOS (la de arranque) */
+uint32_t mod_mezclar(uint32_t a, uint32_t b, unsigned t);   /* a*(255-t)/255 + b*t/255, por canal */
+
+/* Primitivas con esquinas suaves: se mezclan con el píxel que ya hay. r se acota a la mitad del lado
+ * (r = a/2 da una píldora; l == a con r = a/2 da un círculo). */
+void g_retangulo_red(jan_t *j, int x, int y, int l, int a, int r, uint32_t cor);
+void g_retangulo_red_a(jan_t *j, int x, int y, int l, int a, int r, uint32_t cor, unsigned alfa);   /* alfa 0..255 */
+void g_caixa_red(jan_t *j, int x, int y, int l, int a, int r, uint32_t fundo, uint32_t borde);       /* relleno con borde de 1 px */
+void g_aro_red(jan_t *j, int x, int y, int l, int a, int r, int esp, uint32_t cor);                  /* solo el contorno, de esp px */
+void g_sombra_red(jan_t *j, int x, int y, int l, int a, int r, int fuerza);                          /* sombra suave (fuerza 1 o 2); ocupa 3 px alrededor */
+
+/* Botón moderno. Variantes: primario (relleno de acento), secundario (borde), plano (sin borde hasta el
+ * hover), peligro (plano con texto rojo), icono (cuadrado) e icono redondo. texto = NULL o "" -> solo icono. */
+enum { MB_PRIMARIO, MB_SECUNDARIO, MB_PLANO, MB_PELIGRO, MB_ICONO, MB_ICONO_REDONDO };
+typedef struct {
+    int x, y, l, a;                 /* l = 0 o a = 0 -> mbotao_ajustar los calcula */
+    int variante;
+    const char *texto;              /* se traduce solo (idioma_traducir_sl) */
+    const char *icone;              /* clave de icones.h, o NULL */
+    const char *dica;               /* texto del tooltip para quien use dica_t; NULL = ninguno */
+    uint32_t fundo;                 /* color que hay detrás (0 = mod_tema.barra) */
+    bool ativo;                     /* conmutado: plano/icono con fondo de acento suave */
+    bool desabilitado;
+    bool foco;                      /* foco de teclado: anillo turquesa; Enter o espacio lo pulsan */
+    bool hover, apertado;           /* los pone mbotao_tratar */
+} mbotao_t;
+#define MB_ICONO_L 16
+void mbotao_ajustar(mbotao_t *b);                 /* a = mod_tema.altura si es 0; l según el contenido si es 0 */
+void mbotao_desenhar(jan_t *j, mbotao_t *b);
+bool mbotao_tratar(jan_t *j, mbotao_t *b, const evento_t *e);   /* true = pulsado (suelta dentro del botón o Enter con foco); gestiona el hover */
+
+/* Control segmentado (vistas lista/detalles/iconos...): un solo seleccionado, resaltado con el acento. */
+#define SEG_MAX 6
+typedef struct {
+    int x, y, l, a;                 /* l se calcula en segmentado_ajustar; a = 0 -> mod_tema.altura */
+    int n, sel;
+    const char *icones[SEG_MAX];    /* NULL = sin icono */
+    const char *textos[SEG_MAX];    /* NULL = solo icono */
+    const char *dicas[SEG_MAX];
+    int larg[SEG_MAX];              /* ancho de cada segmento (lo pone segmentado_ajustar) */
+    int hover;                      /* -1 = ninguno */
+    uint32_t fundo;
+    bool foco;
+} segmentado_t;
+void segmentado_ajustar(segmentado_t *s);
+void segmentado_desenhar(jan_t *j, segmentado_t *s);
+int  segmentado_tratar(jan_t *j, segmentado_t *s, const evento_t *e);   /* el segmento pulsado, o -1 (cambia sel) */
+int  segmentado_em(const segmentado_t *s, int x, int y);                /* el segmento bajo el punto, o -1 */
+void segmentado_rect(const segmentado_t *s, int k, int *x, int *y, int *l, int *a);
+
+/* Interruptor de dos estados con su etiqueta a la derecha. Al pulsarlo la bolita se desliza (4 pasos). */
+typedef struct {
+    int x, y;                       /* el interruptor mide 36 x 20; la etiqueta va a su derecha */
+    bool ligado, desabilitado, foco, hover;
+    const char *texto;
+    uint32_t fundo;
+} interruptor_t;
+#define INTERRUPTOR_L 36
+#define INTERRUPTOR_A 20
+int  interruptor_largura(const interruptor_t *s);   /* con la etiqueta */
+void interruptor_desenhar(jan_t *j, interruptor_t *s);
+bool interruptor_tratar(jan_t *j, interruptor_t *s, const evento_t *e);   /* true = cambió (ya dibujado, con animación) */
+
+/* Chip o etiqueta: píldora con texto, un punto de color opcional y una «x» opcional. */
+typedef struct {
+    int x, y, l, a;                 /* l y a = 0 -> chip_ajustar */
+    const char *texto;
+    uint32_t cor;                   /* punto de color a la izquierda (0 = ninguno) */
+    bool fechavel, sel, hover, hover_x;
+    uint32_t fundo;
+} chip_t;
+enum { CHIP_NADA, CHIP_CLIQUE, CHIP_FECHAR };
+void chip_ajustar(chip_t *c);
+void chip_desenhar(jan_t *j, chip_t *c);
+int  chip_tratar(jan_t *j, chip_t *c, const evento_t *e);
+
+/* Barra de progreso redondeada. pct 0-100; con MP_USO cambia a ámbar y rojo cuando se llena (espacio de
+ * discos). El indeterminado desliza un bloque según fase (0-99; quien llama la va subiendo). */
+#define MP_USO 1
+#define MOD_FUNDO_NENHUM 0xFF000000u   /* como fundo: no limpiar el rectángulo, solo mezclar las esquinas con lo que haya */
+void progresso_mod_desenhar(jan_t *j, int x, int y, int l, int a, int pct, unsigned flags, uint32_t fundo);
+void progresso_mod_indet(jan_t *j, int x, int y, int l, int a, int fase, uint32_t fundo);
+
+/* Insignia (badge) con número; devuelve el ancho dibujado (alto fijo 18). Con cor = 0 usa el color de peligro. */
+int  insignia_desenhar(jan_t *j, int x, int y, int n, uint32_t cor);
+
+/* Campo de texto redondeado (el de Archivos para la ruta y la búsqueda; el campo de búsqueda con lupa y
+ * botón de borrar). Edita sobre caixa_t: texto, cursor y foco son los de siempre. */
+#define CAMPO_LUPA    1       /* icono de lupa a la izquierda */
+#define CAMPO_LIMPAR  2       /* botón «x» a la derecha mientras haya texto */
+#define CAMPO_HOVER   4
+#define CAMPO_HOVER_X 8
+#define CAMPO_RECTO   16      /* esquinas de radio normal en vez de píldora, y 5 px de margen (la caja de ruta de Archivos) */
+void campo_desenhar(jan_t *j, caixa_t *c, int a, const char *dica, unsigned flags, uint32_t fundo);
+bool campo_x_em(const caixa_t *c, int a, int x, int y);     /* el punto cae sobre su botón de borrar */
+typedef struct {
+    caixa_t c;                      /* c.x, c.y, c.l, y el texto */
+    int a;                          /* 0 -> mod_tema.altura */
+    const char *dica;               /* texto gris cuando está vacío */
+    bool hover, hover_x;
+    uint32_t fundo;
+} campo_busca_t;
+enum { BUSCA_NADA, BUSCA_MUDOU, BUSCA_ENTER, BUSCA_LIMPOU };
+void campo_busca_desenhar(jan_t *j, campo_busca_t *b);
+int  campo_busca_tratar(jan_t *j, campo_busca_t *b, const evento_t *e);   /* MUDOU: cambió el texto; ENTER; LIMPOU: pulsó la «x» o Esc */
+
+/* Tarjeta con sombra suave, título y su icono. cartao_interior da el área libre bajo el título. */
+typedef struct {
+    int x, y, l, a;                 /* la sombra ocupa 3 px más alrededor: dejar ese margen */
+    const char *titulo;             /* NULL = sin cabecera */
+    const char *icone;
+    bool hover, sel;
+    uint32_t fundo;                 /* lo que hay detrás (para la sombra y las esquinas) */
+} cartao_t;
+void cartao_desenhar(jan_t *j, cartao_t *c);
+void cartao_interior(const cartao_t *c, int *x, int *y, int *l, int *a);
+bool cartao_tratar(jan_t *j, cartao_t *c, const evento_t *e);   /* gestiona el hover; true = clic dentro */
+
+/* Separador vertical fino para las barras de órdenes. */
+void mod_separador(jan_t *j, int x, int y, int a);
+
+/* Tooltip con retardo (DICA_RETARDO ms). Se dibuja encima de lo que haya y al ocultarse restaura los
+ * píxeles de debajo; por eso quien lo use lo oculta (dica_ocultar) antes de redibujar la zona.
+ *     EV_MOVER: dica_mover(j, &d, id_del_elemento_o_-1, texto, x, y, l, a);   (cambiar de id reinicia el retardo)
+ *     inactivo: dica_tic(j, &d);                                             (lo muestra cuando toca)
+ *     cualquier otro evento: dica_ocultar(j, &d). */
+#define DICA_RETARDO 450
+#define DICA_MAX_L 320
+#define DICA_ALT 24
+typedef struct {
+    int alvo;                       /* elemento bajo el ratón (-1 = ninguno) */
+    char texto[96];
+    int ex, ey, el, ea;             /* rectángulo del elemento, para colocar el tooltip */
+    unsigned t0;
+    bool visivel, gasta;            /* gasta: ya se enseñó (o se descartó) para este elemento */
+    int rx, ry, rl, ra;             /* donde está dibujado */
+    uint32_t salvo[DICA_MAX_L * DICA_ALT];
+} dica_t;
+void dica_iniciar(dica_t *d);
+void dica_mover(jan_t *j, dica_t *d, int alvo, const char *texto, int ex, int ey, int el, int ea);
+bool dica_tic(jan_t *j, dica_t *d);     /* true = acaba de aparecer */
+void dica_ocultar(jan_t *j, dica_t *d);
+
+/* Toast: aviso que aparece abajo y se va solo. */
+enum { TOAST_INFO, TOAST_OK, TOAST_AVISO, TOAST_ERRO };
+#define TOAST_MAX_L 400
+#define TOAST_ALT 32
+typedef struct {
+    char texto[96];
+    int tipo;
+    unsigned t0, dur;
+    bool visivel;
+    int rx, ry, rl, ra;
+    uint32_t salvo[TOAST_MAX_L * TOAST_ALT];
+} toast_t;
+void toast_iniciar(toast_t *t);
+void toast_mostrar(jan_t *j, toast_t *t, const char *texto, int tipo, unsigned dur_ms);
+bool toast_tic(jan_t *j, toast_t *t);   /* true = acaba de irse; llamarlo en los ratos libres */
+void toast_ocultar(jan_t *j, toast_t *t);
 
 /* ---- controles Win98 de diálogo, compartidos (D291/D293): botón, casilla y lista con marco ---- */
 void boton98(jan_t *j, botao_t *b);

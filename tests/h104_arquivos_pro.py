@@ -24,10 +24,12 @@ from qemu import Maquina, verificar  # noqa: E402
 
 # As coordenadas do programa (a janela do Archivos, coordenadas do cliente):
 # a lista começa em x=146 (depois do painel lateral) e y=70, com itens de 20 px.
-LISTA_X, LISTA_Y, ALT_ITEM = 146, 70, 20
-# A barra de ferramentas: oito botões, o primeiro em x=8.
-BT = {"voltar": 8, "nova": 106, "borrar": 224, "adelante": 304, "arriba": 390,
-      "ocultos": 476, "vista": 588, "buscar": 636}
+LISTA_X, LISTA_Y, ALT_ITEM = 146, 98, 20
+# A barra de ferramentas moderna (D423, ventana de 720 px): centro x de cada botão (botões planos de 28 px, os
+# três primeiros só com ícone; «Nueva carpeta» 112-258, «Borrar» 262-352, ocultos 356-384), as vistas num
+# controle segmentado (lista, detalhes, ícones e mosaicos: 30 px cada um desde x=398) e o campo de busca à direita.
+BT = {"voltar": 22, "adelante": 54, "arriba": 86, "nova": 185, "borrar": 307, "ocultos": 370,
+      "lista": 413, "detalles": 443, "iconos": 473, "mosaicos": 503, "buscar": 621}
 
 
 def janela(serial, titulo):
@@ -42,7 +44,7 @@ def item(a, i):
 
 def botao(a, nome):
     """O centro de um botão da barra de ferramentas."""
-    return a["x"] + BT[nome] + 35, a["y"] + 7 + 13
+    return a["x"] + BT[nome], a["y"] + 6 + 14
 
 
 def principal():
@@ -85,20 +87,20 @@ def principal():
         verificar(True, "com Ctrl+H outra vez os ocultos desaparecem")
 
         # ---- a vista de detalhes ordena pela coluna pulsada
-        m.clique(*botao(a, "vista"))
+        m.clique(*botao(a, "detalles"))
         m.esperar_serial("arquivos: vista detalhes", 10)
         time.sleep(0.4)
         m.captura("H104-3-detalhes")
         m.clique(a["x"] + LISTA_X + 566 - 250 - 20, a["y"] + LISTA_Y + 8)   # a coluna "Tamano"
         m.esperar_serial("arquivos: ordenada por tamanho", 10)
         verificar(True, "a vista de detalhes ordena pela coluna pulsada")
-        m.clique(*botao(a, "vista"))
+        m.clique(*botao(a, "iconos"))
         m.esperar_serial("arquivos: vista icones", 10)
         time.sleep(0.4)
         m.captura("H104-4-icones")
-        m.clique(*botao(a, "vista"))
+        m.clique(*botao(a, "lista"))
         m.esperar_serial("arquivos: vista lista", 10)
-        verificar(True, "as três vistas (lista, detalhes e ícones) mudam com o botão Vista")
+        verificar(True, "as três vistas (lista, detalhes e ícones) mudam com o controle segmentado")
 
         # ---- nova pasta
         m.clique(*botao(a, "nova"))

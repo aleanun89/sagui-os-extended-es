@@ -129,7 +129,7 @@ static int      GAP;           /* espacio entre bloques */
 static int      y_cur;
 static int      n_blocos, n_linhas, n_titulos;
 static int      doc_alt;
-static uint32_t cor_base = COR_TEXTO;
+#define cor_base COR_TEXTO   /* D428: sigue al esquema vigente */
 static int      fluir_xfim;
 static bool     reg_titulos;   /* registrar los títulos en la serial (pruebas) */
 

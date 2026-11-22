@@ -7,6 +7,7 @@
  * programa, y el programa decide cuándo dibujar y a quién enviar cada
  * evento. Es simple de entender y de probar. */
 #include "gui.h"
+#include "sonidos.h"
 
 extern const unsigned char fonte_sagui[256][16];
 
@@ -16,6 +17,7 @@ jan_t *jan_abrir(const char *titulo, int largura, int altura)
 {
     jan_t *j = aloca(sizeof(jan_t));
     if (!j) return NULL;
+    esq_asegurar();   /* D428: la ventana nace con el esquema vigente */
     j->id = criar_janela(titulo, largura, altura, &j->px);
     if (j->id < 0) { libera(j); return NULL; }
     j->larg = largura;
@@ -215,7 +217,7 @@ void g_desenho(jan_t *j, int x, int y, const char *const *linhas, int l, int a,
  * (o al revés, para parecer hundido). */
 void g_relevo(jan_t *j, int x, int y, int l, int a, bool afundado)
 {
-    uint32_t claro = 0xFFFFFF, escuro = COR_BORDA;
+    uint32_t claro = W98_LUZ, escuro = COR_BORDA;
     if (afundado) { uint32_t t = claro; claro = escuro; escuro = t; }
     g_retangulo(j, x, y, l, 1, claro);
     g_retangulo(j, x, y, 1, a, claro);
@@ -242,7 +244,7 @@ void botao_desenhar(jan_t *j, botao_t *b)
 {
     g_retangulo(j, b->x, b->y, b->l, b->a, b->apertado ? COR_BOTAO_APERTADO : COR_BOTAO);
     g_relevo(j, b->x, b->y, b->l, b->a, b->apertado);
-    g_moldura(j, b->x - 1, b->y - 1, b->l + 2, b->a + 2, 0x5A6470);
+    g_moldura(j, b->x - 1, b->y - 1, b->l + 2, b->a + 2, sagui_esq.borda_forte);
     const char *rot = idioma_traducir_sl(b->texto);   /* D313 */
     int tx = b->x + (b->l - g_largura_texto(rot)) / 2 + (b->apertado ? 1 : 0);
     int ty = b->y + (b->a - LETRA_A) / 2 + (b->apertado ? 1 : 0);
@@ -278,7 +280,7 @@ void caixa_definir(caixa_t *c, const char *texto)
 void caixa_desenhar(jan_t *j, caixa_t *c)
 {
     int a = LETRA_A + 8;
-    g_retangulo(j, c->x, c->y, c->l, a, COR_BRANCO);
+    g_retangulo(j, c->x, c->y, c->l, a, COR_CAMPO);
     g_moldura(j, c->x, c->y, c->l, a, c->foco ? COR_DESTAQUE : COR_BORDA);
     if (c->foco) g_moldura(j, c->x + 1, c->y + 1, c->l - 2, a - 2, COR_DESTAQUE);
     int cabem = (c->l - 10) / LETRA_L;
@@ -322,7 +324,7 @@ bool caixa_tratar(jan_t *j, caixa_t *c, const evento_t *e)
             int n = (int)tam_texto(c->texto);
             c->cursor = col < 0 ? 0 : col > n ? n : col;
         }
-        if (c->foco || estava) caixa_desenhar(j, c);
+        if (c->foco || estava) (c->desenhar ? c->desenhar : caixa_desenhar)(j, c);
         return false;
     }
     if (e->tipo != EV_TECLA || !c->foco) return false;
@@ -350,7 +352,7 @@ bool caixa_tratar(jan_t *j, caixa_t *c, const evento_t *e)
         memmove(c->texto + c->cursor + 1, c->texto + c->cursor, (size_t)(n - c->cursor + 1));
         c->texto[c->cursor++] = (char)t;
     } else return false;
-    caixa_desenhar(j, c);
+    (c->desenhar ? c->desenhar : caixa_desenhar)(j, c);
     return false;
 }
 
@@ -456,7 +458,7 @@ void area_mudar_tamanho(area_t *a, int l, int al)
 void area_desenhar(jan_t *j, area_t *a)
 {
     int texto_l = a->l - BARRA_ROLAGEM;
-    g_retangulo(j, a->x, a->y, a->l, a->a, COR_BRANCO);
+    g_retangulo(j, a->x, a->y, a->l, a->a, COR_CAMPO);
     g_moldura(j, a->x, a->y, a->l, a->a, a->foco ? COR_DESTAQUE : COR_BORDA);
     int vis = area_linhas_visiveis(a), cabem = (texto_l - 10) / LETRA_L;
     int lin_cur, col_cur;
@@ -468,7 +470,7 @@ void area_desenhar(jan_t *j, area_t *a)
         if (tem_sel && s0 <= pos + n && s1 > pos) {   /* fondo de la selección (el fin de línea seleccionado vale media letra) */
             int c0 = s0 > pos ? s0 - pos : 0, c1 = s1 - pos > n ? n + 1 : s1 - pos;
             if (c1 > cabem) c1 = cabem;
-            if (c1 > c0) g_retangulo(j, a->x + 5 + c0 * LETRA_L, a->y + 4 + k * LETRA_A, (c1 - c0) * LETRA_L, LETRA_A, 0xB9D3F2);
+            if (c1 > c0) g_retangulo(j, a->x + 5 + c0 * LETRA_L, a->y + 4 + k * LETRA_A, (c1 - c0) * LETRA_L, LETRA_A, COR_SEL_SUAVE);
         }
         g_texto_n(j, a->x + 5, a->y + 4 + k * LETRA_A, a->buf + pos, n < cabem ? n : cabem, COR_TEXTO);
         if (a->foco && !a->somente_leitura && a->topo + k == lin_cur && col_cur <= cabem)
@@ -478,7 +480,7 @@ void area_desenhar(jan_t *j, area_t *a)
     }
     /* Barra de desplazamiento: el "pulgar" muestra qué parte del texto está a la vista. */
     int bx = a->x + a->l - BARRA_ROLAGEM, total = total_linhas(a);
-    g_retangulo(j, bx, a->y + 1, BARRA_ROLAGEM - 1, a->a - 2, 0xE4E7EA);
+    g_retangulo(j, bx, a->y + 1, BARRA_ROLAGEM - 1, a->a - 2, sagui_esq.scroll_pista);
     int trilho = a->a - 4;
     int pol_a = total <= vis ? trilho : trilho * vis / total;
     if (pol_a < 12) pol_a = 12;
@@ -486,7 +488,7 @@ void area_desenhar(jan_t *j, area_t *a)
     if (pol_a > trilho) pol_a = trilho;
     if (pol_y > trilho - pol_a) pol_y = trilho - pol_a;   /* D217: el pulgar no se sale del carril */
     if (pol_y < 0) pol_y = 0;
-    g_retangulo(j, bx + 2, a->y + 2 + pol_y, BARRA_ROLAGEM - 5, pol_a, 0x9AA3AC);
+    g_retangulo(j, bx + 2, a->y + 2 + pol_y, BARRA_ROLAGEM - 5, pol_a, sagui_esq.scroll_polegar);
     jan_mostrar_area(j, a->x, a->y, a->l, a->a);
     GR_REG(j, "area", a, a->x, a->y, a->l, a->a, "", 0, 0);
 }
@@ -698,7 +700,7 @@ void lista_desenhar(jan_t *j, lista_t *l)
 {
     int vis = lista_visiveis(l);
     lista_limitar_topo(l);
-    g_retangulo(j, l->x, l->y, l->l, l->a, COR_BRANCO);
+    g_retangulo(j, l->x, l->y, l->l, l->a, COR_CAMPO);
     g_moldura(j, l->x, l->y, l->l, l->a, COR_BORDA);
     for (int k = 0; k < vis && l->topo + k < l->qtd; k++) {
         int i = l->topo + k, y = l->y + 2 + k * LISTA_ALTURA_ITEM;
@@ -707,7 +709,7 @@ void lista_desenhar(jan_t *j, lista_t *l)
         int tx = l->x + 6;
         if (l->icone) { l->icone(j, tx, y + 2, i); tx += 22; }
         int cols = (l->x + l->l - tx - 4) / LETRA_L;
-        if (cols > 0) g_texto_n(j, tx, y + 2, l->itens[i], cols, sel ? COR_BRANCO : COR_TEXTO);
+        if (cols > 0) g_texto_n(j, tx, y + 2, l->itens[i], cols, sel ? COR_SEL_TEXTO : COR_TEXTO);
     }
     if (l->qtd > vis) {   /* indicador simple de que hay más ítems */
         int total = l->qtd, trilho = l->a - 4;
@@ -715,7 +717,7 @@ void lista_desenhar(jan_t *j, lista_t *l)
         if (pol_a < 8) pol_a = 8;
         if (pol_a > trilho) pol_a = trilho;
         int pol_y = (trilho - pol_a) * l->topo / (total - vis);   /* total > vis: sin división por cero */
-        g_retangulo(j, l->x + l->l - 6, l->y + 2 + pol_y, 4, pol_a, 0x9AA3AC);
+        g_retangulo(j, l->x + l->l - 6, l->y + 2 + pol_y, 4, pol_a, sagui_esq.scroll_polegar);
     }
     jan_mostrar_area(j, l->x, l->y, l->l, l->a);
     GR_REG(j, "lista", l, l->x, l->y, l->l, l->a, "", 0, 0);
@@ -869,11 +871,22 @@ static int dialogo(const char *titulo, const char *texto, const char *b1, const 
 
 bool confirmar(const char *titulo, const char *pergunta)
 {
+    sonido_evento("pregunta");   /* D421: suena solo si la persona lo activó en Configuración > Sonido */
     return dialogo(titulo, pergunta, _("Sí"), _("No"), NULL) == 1;
+}
+
+/* ¿El título habla de un error? (los programas no tienen un diálogo de error aparte: D421) */
+static bool titulo_de_error(const char *t)
+{
+    for (; *t; t++)
+        if ((t[0] == 'E' || t[0] == 'e') && t[1] == 'r' && t[2] == 'r' && t[3] == 'o' && t[4] == 'r') return true;
+        else if ((t[0] == 'F' || t[0] == 'f') && t[1] == 'a' && t[2] == 'l' && t[3] == 'l' && t[4] == 'o') return true;
+    return false;
 }
 
 void mensagem(const char *titulo, const char *texto)
 {
+    sonido_evento(titulo_de_error(titulo) ? "error" : "aviso");   /* D421 */
     dialogo(titulo, texto, _("OK"), NULL, NULL);
 }
 

@@ -7,7 +7,7 @@
 typedef struct { float cx, cy, zoom; int sw, sh; } View;
 extern View V;
 
-typedef struct { Slp *stand, *move, *attack, *die, *decay; } AnimSet;
+typedef struct { Slp *stand, *move, *attack, *die, *decay; Slp *over[2]; int die_sin_dir, over_acting; } AnimSet;   /* over: capas encima (velas, remos) */
 
 int assets_load(const char *dir);
 void assets_free(void);
@@ -28,6 +28,8 @@ int tex_load(const char *dir);
 int tex_available(void);
 u32 tex_tile_color(int kind);
 void render_terrain_hd(float time, int y0, int y1);   /* solo las filas [y0, y1) */
+void render_terrain_hd_gpu(float time, int y0, int y1);   /* D436: lo mismo por la GPU */
+void render_terrain_tiles_gpu(int x0, int x1, int y0, int y1);   /* D436: las losetas por la GPU */
 extern int hd_enabled;
 void fondo_propio(void);   /* paisaje dibujado por código, cuando faltan los fondos originales (fondo.c) */
 void draw_background(int which);   /* 0 menú principal, 1 pantalla de un jugador */

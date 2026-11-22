@@ -11,14 +11,18 @@
  *   - tudo que foi enviado fica no anel de envio até o outro lado confirmar
  *     (ACK); sem confirmação no prazo (RTO), volta ao primeiro byte não
  *     confirmado e reenvia ("go-back-N"), dobrando o prazo;
- *   - recepção em ordem num anel de 32 KB; a janela anunciada é o espaço
- *     livre do anel, então quem manda rápido demais espera o programa ler.
+ *   - recepção em ordem num anel de 128 KB (32 KB se faltar memória); a janela
+ *     anunciada é o espaço livre do anel, então quem manda rápido demais espera
+ *     o programa ler. Com mais de 64 KB vai com a escala de janela (RFC 7323);
+ *   - ACK retrasado (RFC 1122/5681, D437): um ACK a cada dois segmentos cheios
+ *     ou aos 40 ms; o que não for um segmento cheio em ordem, ACK na hora;
  *     Segmento fora de ordem é descartado (o ACK repetido faz o outro lado
  *     reenviar); um segmento repetido que traz bytes novos é aproveitado;
  *   - fechamento pelos dois lados (FIN) e RST; sem TIME-WAIT: a conexão
  *     some quando os dois FIN foram confirmados (ou 10 s depois de fechada).
- * Sem opções além do MSS, sem controle de congestionamento (manda o que a
- * janela do outro lado permitir) e sem "keep-alive". */
+ * Opções: MSS e escala de janela. Sem controle de congestionamento (manda o
+ * que a janela do outro lado permitir, até a placa recusar: então espera o
+ * próximo ACK ou o próximo tique, D437) e sem "keep-alive". */
 #include "rede.h"
 #include "abi.h"
 #include "console.h"
@@ -30,8 +34,15 @@
 #include "aleatorio.h"
 
 #define CONEXOES   32
-#define RX_TAM     32768
-#define TX_TAM     16384
+/* D437: anéis maiores para não parar o emissor esperando confirmações (com 32 KB e uns
+ * 36 ms de ida e volta, a descarga não passava de ~900 KB/s). Potências de 2; se não houver
+ * memória seguida para os grandes, os de antes. */
+#define RX_TAM       131072
+#define TX_TAM       65536
+#define RX_TAM_MIN   32768
+#define TX_TAM_MIN   16384
+#define ACK_ATRASO   (TIQUES_POR_SEGUNDO * 4 / 100)   /* 40 ms */
+#define TCP_LOG_MAX  8      /* conexões que deixam a linha «[REDE] TCP» no registro */
 #define RTO_MIN    (TIQUES_POR_SEGUNDO / 5)    /* 200 ms */
 #define RTO_MAX    (10 * TIQUES_POR_SEGUNDO)
 #define TENTATIVAS 8
@@ -56,8 +67,17 @@ typedef struct tcp_conexao {
     uint16_t porta_local, porta_remota;
     uint32_t iss, snd_una, snd_nxt, rcv_nxt;
     uint32_t janela_remota, mss, janela_anunciada;
-    uint8_t *rx; uint32_t rx_ini, rx_qtd;
-    uint8_t *tx; uint32_t tx_ini, tx_qtd;   /* bytes a partir de snd_una (não confirmados + não enviados) */
+    uint8_t *rx; uint32_t rx_ini, rx_qtd, rx_tam;
+    uint8_t *tx; uint32_t tx_ini, tx_qtd, tx_tam;   /* bytes a partir de snd_una (não confirmados + não enviados) */
+    /* D437: escala de janela (RFC 7323). esc_env: a nossa (o que anunciamos vai >> esc_env);
+     * esc_rec: a do outro lado (a janela dele vem << esc_rec). Ambas 0 se não foi negociada. */
+    uint8_t  esc_env, esc_rec;
+    bool     esc_oferecer;        /* o nosso SYN (ou SYN+ACK) leva a opção */
+    /* D437: ACK retrasado e envio travado pela placa. */
+    bool     ack_pendente;        /* um segmento em ordem ainda sem ACK */
+    uint32_t ack_em;              /* o tique em que o ACK pendente sai de qualquer jeito */
+    uint32_t seg_cheio;           /* o maior segmento recebido (a partir de 536): é o "cheio" */
+    bool     envio_travado;       /* a placa (ou o lo, ou o túnel) recusou: tenta de novo no tique */
     bool     fin_recebido, fechar_pedido, fin_enviado;
     uint32_t rto, reenviar_em, desistir_em;
     int      tentativas;
@@ -78,11 +98,12 @@ static bool passou(uint32_t t) { return (int32_t)(agora() - t) >= 0; }
 
 /* Monta e manda um segmento com "n" bytes do anel de envio a partir de
  * "desloc" (contado de snd_una). */
-static void segmento_para(uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, uint32_t ack, uint8_t flags,
+static bool segmento_para(uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, uint32_t ack, uint8_t flags,
                           uint16_t janela, const tcp_t *c, uint32_t desloc, uint32_t n)
 {
     uint8_t *t = rede_carga();
-    uint32_t cab = (flags & F_SYN) ? 24 : 20;
+    bool escala = (flags & F_SYN) && c && c->esc_oferecer;
+    uint32_t cab = (flags & F_SYN) ? (escala ? 28 : 24) : 20;
     poe16(t, pl);
     poe16(t + 2, pr);
     poe32(t + 4, seq);
@@ -93,17 +114,28 @@ static void segmento_para(uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, u
     poe16(t + 16, 0);
     poe16(t + 18, 0);
     if (flags & F_SYN) { t[20] = 2; t[21] = 4; poe16(t + 22, (uint16_t)rede_mss_para(ip)); }   /* opção MSS (D363: menor por el túnel) */
-    for (uint32_t i = 0; i < n; i++) t[cab + i] = c->tx[(c->tx_ini + desloc + i) % TX_TAM];
+    if (escala) { t[24] = 1; t[25] = 3; t[26] = 3; t[27] = c->esc_env; }   /* NOP + escala de janela (D437) */
+    for (uint32_t i = 0; i < n; i++) t[cab + i] = c->tx[(c->tx_ini + desloc + i) & (c->tx_tam - 1)];
     poe16(t + 16, soma_pseudo(rede_origem_para(ip), ip, IP_TCP, t, cab + n));
-    ip_enviar(ip, IP_TCP, cab + n);
+    return ip_enviar(ip, IP_TCP, cab + n) && !rede_envio_recusado();
 }
 
-static void segmento(tcp_t *c, uint32_t seq, uint8_t flags, uint32_t desloc, uint32_t n)
+/* Devolve false se a placa (ou o lo, ou o túnel) recusou o segmento por estar cheia. */
+static bool segmento(tcp_t *c, uint32_t seq, uint8_t flags, uint32_t desloc, uint32_t n)
 {
-    uint32_t livre = RX_TAM - c->rx_qtd;
-    c->janela_anunciada = livre > 65535 ? 65535 : livre;
-    segmento_para(c->ip, c->porta_local, c->porta_remota, seq, c->rcv_nxt, flags,
-                  (uint16_t)c->janela_anunciada, c, desloc, n);
+    uint32_t livre = c->rx_tam - c->rx_qtd;
+    uint32_t janela;
+    if (flags & F_SYN) {                          /* a janela do SYN nunca vai escalada */
+        janela = livre > 65535 ? 65535 : livre;
+        c->janela_anunciada = janela;
+    } else {
+        janela = livre >> c->esc_env;
+        if (janela > 65535) janela = 65535;
+        c->janela_anunciada = janela << c->esc_env;
+    }
+    if (flags & F_ACK) { c->ack_pendente = false; }   /* este segmento já confirma tudo */
+    return segmento_para(c->ip, c->porta_local, c->porta_remota, seq, c->rcv_nxt, flags,
+                         (uint16_t)janela, c, desloc, n);
 }
 
 /* Resposta a um segmento que não pertence a nenhuma conexão (RFC 793). */
@@ -125,6 +157,7 @@ static void armar_reenvio(tcp_t *c) { c->reenviar_em = agora() + c->rto; }
 static void enviar_pendente(tcp_t *c)
 {
     if (c->estado != T_ESTABELECIDA) return;
+    c->envio_travado = false;
     for (;;) {
         uint32_t em_voo = c->snd_nxt - c->snd_una - (c->fin_enviado ? 1 : 0);
         if (em_voo >= c->tx_qtd) break;
@@ -137,7 +170,13 @@ static void enviar_pendente(tcp_t *c)
             if (!c->reenviar_em) armar_reenvio(c);
             break;
         }
-        segmento(c, c->snd_nxt, F_ACK | F_PSH, em_voo, n);
+        if (!segmento(c, c->snd_nxt, F_ACK | F_PSH, em_voo, n)) {
+            /* D437: a placa está cheia: o resto sai com o próximo ACK ou no próximo tique, sem
+             * gastar o prazo de reenvio (o segmento não saiu). */
+            c->envio_travado = true;
+            if (!c->reenviar_em) armar_reenvio(c);
+            return;
+        }
         if (!c->reenviar_em) armar_reenvio(c);
         if (!c->medindo) { c->medindo = true; c->medindo_seq = c->snd_nxt; c->medindo_desde = agora(); }
         c->snd_nxt += n;
@@ -164,10 +203,24 @@ static tcp_t *nova(void)
     return NULL;
 }
 
+static uint8_t escala_para(uint32_t tam)
+{
+    uint8_t e = 0;
+    while ((tam >> e) > 65535 && e < 14) e++;
+    return e;
+}
+
 static bool buffers(tcp_t *c)
 {
+    /* D437: os anéis grandes; sem memória seguida para eles, os pequenos de antes. */
+    c->rx_tam = RX_TAM;
     c->rx = kmalloc(RX_TAM);
+    if (!c->rx) { c->rx_tam = RX_TAM_MIN; c->rx = kmalloc(RX_TAM_MIN); }
+    c->tx_tam = TX_TAM;
     c->tx = kmalloc(TX_TAM);
+    if (!c->tx) { c->tx_tam = TX_TAM_MIN; c->tx = kmalloc(TX_TAM_MIN); }
+    c->esc_env = escala_para(c->rx_tam);
+    c->seg_cheio = 536;
     if (c->rx && c->tx) return true;
     if (c->rx) kfree(c->rx);
     if (c->tx) kfree(c->tx);
@@ -225,18 +278,40 @@ uint16_t tcp_porta_livre(void)
 
 /* ------------------------------------------------------------ chegada */
 
-static void ler_mss(tcp_t *c, const uint8_t *t, uint32_t cab)
+/* Lê as opções do SYN: o MSS e a escala de janela (devolve -1 se não veio, D437). */
+static int ler_mss(tcp_t *c, const uint8_t *t, uint32_t cab)
 {
+    int escala = -1;
     c->mss = 536;
     for (uint32_t i = 20; i < cab;) {          /* procura a opção MSS */
         if (t[i] == 0) break;
         if (t[i] == 1) { i++; continue; }
         if (i + 1 >= cab || t[i + 1] < 2 || i + t[i + 1] > cab) break;
         if (t[i] == 2 && t[i + 1] == 4) c->mss = be16(t + i + 2);
+        if (t[i] == 3 && t[i + 1] == 3) escala = t[i + 2] > 14 ? 14 : t[i + 2];   /* RFC 7323: no máximo 14 */
         i += t[i + 1];
     }
     if (c->mss > rede_mss_para(c->ip)) c->mss = rede_mss_para(c->ip);   /* D363: 1380 por el túnel */
     if (c->mss < 64) c->mss = 64;
+    return escala;
+}
+
+/* D437: o que ficou combinado no SYN. Sem a opção dos dois lados, nenhuma escala. */
+static void combinar_escala(tcp_t *c, int do_outro)
+{
+    if (do_outro < 0) { c->esc_env = 0; c->esc_rec = 0; c->esc_oferecer = false; }
+    else { c->esc_rec = (uint8_t)do_outro; c->esc_oferecer = true; }
+}
+
+static void registrar_conexao(const tcp_t *c)
+{
+    static int registradas;
+    if (registradas >= TCP_LOG_MAX) return;
+    registradas++;
+    klog("[REDE] TCP %u.%u.%u.%u:%u: MSS %u, ventana %u KB%s (escala %u, la del otro lado %u), envío %u KB\n",
+         c->ip >> 24, (c->ip >> 16) & 255, (c->ip >> 8) & 255, c->ip & 255, c->porta_remota, c->mss,
+         c->rx_tam / 1024, c->esc_oferecer ? " con escala de ventana" : " sin escala de ventana",
+         c->esc_env, c->esc_rec, c->tx_tam / 1024);
 }
 
 static void medir_rtt(tcp_t *c, uint32_t ack)
@@ -276,7 +351,7 @@ static void aceitar_syn(tcp_t *e, uint32_t origem, const uint8_t *t, uint32_t ca
     c->snd_una = c->iss;
     c->snd_nxt = c->iss + 1;
     c->janela_remota = be16(t + 14);
-    ler_mss(c, t, cab);
+    combinar_escala(c, ler_mss(c, t, cab));
     c->rto = TIQUES_POR_SEGUNDO;
     segmento(c, c->iss, F_SYN | F_ACK, 0, 0);
     armar_reenvio(c);
@@ -316,8 +391,9 @@ void tcp_receber(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t n
         c->rcv_nxt = seq + 1;
         c->snd_una = c->snd_nxt = ack;
         c->janela_remota = be16(t + 14);
-        ler_mss(c, t, cab);
+        combinar_escala(c, ler_mss(c, t, cab));
         c->estado = T_ESTABELECIDA;
+        registrar_conexao(c);
         c->tentativas = 0;
         c->rto = TIQUES_POR_SEGUNDO;
         c->reenviar_em = 0;
@@ -346,17 +422,18 @@ void tcp_receber(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t n
         c->rto = TIQUES_POR_SEGUNDO;
         c->reenviar_em = 0;
         c->na_fila = true;
+        registrar_conexao(c);
         if (c->pai) despertar(c->pai);
         /* continua: o ACK pode trazer dados */
     }
 
     if (flags & F_ACK) {
-        uint16_t janela = be16(t + 14);
+        uint32_t janela = (uint32_t)be16(t + 14) << c->esc_rec;   /* D437: fora do SYN, escalada */
         if (antes(c->snd_una, ack) && !antes(c->snd_nxt, ack)) {   /* confirma algo novo */
             uint32_t conf = ack - c->snd_una;
             if (c->fin_enviado && ack == c->snd_nxt) conf--;      /* o FIN ocupa um número, não um byte */
             if (conf > c->tx_qtd) conf = c->tx_qtd;
-            c->tx_ini = (c->tx_ini + conf) % TX_TAM;
+            c->tx_ini = (c->tx_ini + conf) & (c->tx_tam - 1);
             c->tx_qtd -= conf;
             c->tx_total += conf;
             medir_rtt(c, ack);
@@ -378,8 +455,9 @@ void tcp_receber(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t n
         c->janela_remota = janela;
     }
 
-    bool responder = false;
+    bool responder = false, atrasar = false;
     if (tam || (flags & F_FIN)) {
+        bool em_ordem = seq == c->rcv_nxt;
         if (antes(seq, c->rcv_nxt)) {          /* repetido: aproveita só o que for novo */
             uint32_t pular = c->rcv_nxt - seq;
             if (pular > tam) { tam = 0; flags = (uint8_t)(flags & ~F_FIN); }   /* até o FIN já tinha vindo */
@@ -392,17 +470,30 @@ void tcp_receber(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t n
                 cair(c, ERRO_CONEXAO_CAIU);
                 return;
             }
-            uint32_t livre = RX_TAM - c->rx_qtd, k = tam < livre ? tam : livre;
-            for (uint32_t i = 0; i < k; i++) c->rx[(c->rx_ini + c->rx_qtd + i) % RX_TAM] = dados[i];
+            uint32_t livre = c->rx_tam - c->rx_qtd, k = tam < livre ? tam : livre;
+            for (uint32_t i = 0; i < k; i++) c->rx[(c->rx_ini + c->rx_qtd + i) & (c->rx_tam - 1)] = dados[i];
             c->rx_qtd += k;
             c->rx_total += k;
             c->rcv_nxt += k;
             if ((flags & F_FIN) && k == tam) { c->rcv_nxt++; c->fin_recebido = true; }
             if (k || c->fin_recebido) despertar(c);
+            /* D437: ACK retrasado só para um segmento cheio, novo, em ordem, que coube inteiro e
+             * sem FIN; e no máximo um pendente (o segundo segmento cheio confirma os dois). O que
+             * for pequeno (interativo, o fim de uma resposta) ou estranho leva o ACK na hora. */
+            uint32_t teto = rede_mss_para(c->ip);   /* o MSS que anunciamos: o maior que deve vir */
+            if (k > c->seg_cheio) c->seg_cheio = k < teto ? k : teto;
+            if (em_ordem && k == tam && k >= c->seg_cheio && !(flags & (F_FIN | F_SYN)) && !c->ack_pendente &&
+                c->estado == T_ESTABELECIDA)
+                atrasar = true;
         }
         responder = true;   /* em ordem ou não, confirma até onde temos */
     }
-    if (flags & F_SYN) responder = true;   /* o SYN+ACK voltou: o nosso ACK se perdeu */
+    if (flags & F_SYN) { responder = true; atrasar = false; }   /* o SYN+ACK voltou: o nosso ACK se perdeu */
+    if (responder && atrasar) {
+        c->ack_pendente = true;
+        c->ack_em = agora() + ACK_ATRASO;
+        responder = false;
+    }
     if (responder) segmento(c, c->snd_nxt, F_ACK, 0, 0);
     enviar_pendente(c);
     /* Os dois lados já fecharam e o nosso FIN foi confirmado: acabou. */
@@ -419,6 +510,9 @@ void tcp_tique(void)
         if (c->estado == T_LIVRE || c->estado == T_ESCUTA) continue;
         if (c->estado == T_FECHADA) { if (solta(c)) liberar(c); continue; }
         if (solta(c) && c->desistir_em && passou(c->desistir_em)) { liberar(c); continue; }
+        /* D437: o ACK retrasado que venceu, e o que a placa recusou antes. */
+        if (c->ack_pendente && passou(c->ack_em)) segmento(c, c->snd_nxt, F_ACK, 0, 0);
+        if (c->envio_travado && c->estado == T_ESTABELECIDA) enviar_pendente(c);
         if (!c->reenviar_em || !passou(c->reenviar_em)) continue;
         bool sonda = c->estado == T_ESTABELECIDA && c->janela_remota == 0 && c->snd_nxt == c->snd_una;
         int limite = (c->estado == T_SYN_ENVIADO || c->estado == T_SYN_RECEBIDO) ? 5 : TENTATIVAS;   /* SYN: ~25 s */
@@ -469,6 +563,7 @@ tcp_t *tcp_abrir(uint32_t ip, uint16_t porta, int32_t *erro)
     c->snd_una = c->snd_nxt = c->iss + 1;
     c->rto = TIQUES_POR_SEGUNDO;
     c->mss = 536;
+    c->esc_oferecer = true;   /* D437: o SYN oferece a escala; vale se o SYN+ACK também a trouxer */
     segmento(c, c->iss, F_SYN, 0, 0);
     armar_reenvio(c);
     return c;
@@ -521,11 +616,11 @@ int32_t tcp_ler(tcp_t *c, char *destino, uint32_t n)
         return SIS_REPETIR;                          /* quem chamou bloqueia no canal c */
     }
     uint32_t k = n < c->rx_qtd ? n : c->rx_qtd;
-    for (uint32_t i = 0; i < k; i++) destino[i] = (char)c->rx[(c->rx_ini + i) % RX_TAM];
-    c->rx_ini = (c->rx_ini + k) % RX_TAM;
+    for (uint32_t i = 0; i < k; i++) destino[i] = (char)c->rx[(c->rx_ini + i) & (c->rx_tam - 1)];
+    c->rx_ini = (c->rx_ini + k) & (c->rx_tam - 1);
     c->rx_qtd -= k;
     /* A janela anunciada estava pequena: avisa o outro lado que abriu espaço. */
-    if (c->estado == T_ESTABELECIDA && c->janela_anunciada < RX_TAM / 2 && RX_TAM - c->rx_qtd >= RX_TAM / 2)
+    if (c->estado == T_ESTABELECIDA && c->janela_anunciada < c->rx_tam / 2 && c->rx_tam - c->rx_qtd >= c->rx_tam / 2)
         segmento(c, c->snd_nxt, F_ACK, 0, 0);
     return (int32_t)k;
 }
@@ -536,10 +631,10 @@ int32_t tcp_escrever(tcp_t *c, const char *origem, uint32_t n)
     if (c->estado == T_FECHADA) return c->erro ? c->erro : ERRO_PIPE_QUEBRADO;
     if (c->fechar_pedido) return ERRO_PIPE_QUEBRADO;
     if (n == 0) return 0;
-    uint32_t livre = TX_TAM - c->tx_qtd;
+    uint32_t livre = c->tx_tam - c->tx_qtd;
     if (!livre) return SIS_REPETIR;
     uint32_t k = n < livre ? n : livre;
-    for (uint32_t i = 0; i < k; i++) c->tx[(c->tx_ini + c->tx_qtd + i) % TX_TAM] = (uint8_t)origem[i];
+    for (uint32_t i = 0; i < k; i++) c->tx[(c->tx_ini + c->tx_qtd + i) & (c->tx_tam - 1)] = (uint8_t)origem[i];
     c->tx_qtd += k;
     enviar_pendente(c);
     return (int32_t)k;

@@ -87,7 +87,7 @@ int tz_caminho(TzMundo *m, TzId u, int x0, int y0, const int r[4], int alc, int 
 {
 	TzPriv *p = m->priv;
 	TzObj *o = &m->obj[u];
-	int capa = tz_obj_capa(m, o), n = m->lado;
+	int capa = tz_obj_capa(m, o), n = m->lado, grande = tz_unid_celulas(o->classe) > 1;
 	if (++p->marca == 0) { memset(p->visto, 0, (size_t)n * n * sizeof *p->visto); p->marca = 1; }
 	int nh = 0;
 	uint32_t seq = 0;
@@ -138,6 +138,12 @@ int tz_caminho(TzMundo *m, TzId u, int x0, int y0, const int r[4], int alc, int 
 		for (int d = 0; d < 8; ++d) {
 			int nx = x + DX[d], ny = y + DY[d];
 			if (!tz_cel_transitavel(m, capa, o->dono, nx, ny)) continue;
+			if (grande) {
+				/* unidad grande: toda su huella (2x2, con el ancla arriba a la izquierda) ha de ser transitable */
+				int cabe = 1;
+				for (int q = 1; q < 4 && cabe; ++q) cabe = tz_cel_transitavel(m, capa, o->dono, nx + (q & 1), ny + (q >> 1));
+				if (!cabe) continue;
+			}
 			if (DX[d] && DY[d] && capa != TZ_CAPA_AR &&
 			    (!tz_cel_transitavel(m, capa, o->dono, x + DX[d], y) || !tz_cel_transitavel(m, capa, o->dono, x, y + DY[d]))) continue;
 			int j = ny * n + nx;

@@ -33,6 +33,7 @@
 #include <uacpi/kernel_api.h>
 #include <uacpi/internal/opregion.h>   /* D405: solo para encontrar el manejador de serie de SystemMemory */
 #include <uacpi/internal/io.h>
+#include <uacpi/sleep.h>
 #include "acpi.h"
 #include "acoes.h"
 #include "bateria.h"
@@ -662,6 +663,66 @@ static void trocar_manejador_memoria(void)
     }
 }
 
+/* ------------------------------------------------------------ apagar y reiniciar (D450)
+ *
+ * Antes de apagar o reiniciar, el AML que el firmware espera, como Linux: _TTS(5) («el sistema va
+ * a pasar a S5», si existe) y, solo al apagar, _PTS(5) y _SST(0) (uacpi_prepare_for_sleep_state).
+ * Lo ejecuta la tarea "acpi-aml", que es la única que llama a uACPI: la tarea "apagar" deja el
+ * pedido y espera como mucho el plazo que diga. Si uACPI no está activo, no se hace nada. */
+static volatile int energia_pedido;      /* 0 = nada; 1 = reiniciar; 2 = apagar */
+static volatile bool energia_feito;
+static volatile bool aml_ativo;          /* la tarea ya cargó el espacio de nombres y está en su bucle */
+static const char canal_energia = 0;
+static char energia_texto[96];
+
+static uacpi_status avaliar_com_inteiro(const char *nome, uacpi_u64 valor)
+{
+    uacpi_object *arg = uacpi_object_create_integer(valor);
+    if (!arg) return UACPI_STATUS_OUT_OF_MEMORY;
+    uacpi_object_array args = { &arg, 1 };
+    uacpi_status r = uacpi_eval(uacpi_namespace_root(), nome, &args, UACPI_NULL);
+    uacpi_object_unref(arg);
+    return r;
+}
+
+static void energia_atender(void)
+{
+    int p = energia_pedido;
+    if (!p || energia_feito) return;
+    uacpi_status tts = avaliar_com_inteiro("_TTS", 5);
+    uacpi_status pts = UACPI_STATUS_OK;
+    if (p == 2) pts = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
+    snformatar(energia_texto, sizeof energia_texto, "_TTS(5): %s; _PTS(5): %s",
+               tts == UACPI_STATUS_NOT_FOUND ? "no existe" : uacpi_status_to_string(tts),
+               p == 2 ? (pts == UACPI_STATUS_OK ? "hecho" : uacpi_status_to_string(pts)) : "no (reinicio)");
+    bool i0 = int_salva_desliga();
+    energia_feito = true;
+    acordar(&canal_energia);
+    int_restaura(i0);
+}
+
+/* Desde la tarea "apagar" (puede dormir). Devuelve el texto para el registro. */
+const char *uacpi_sagui_preparar_energia(bool apagar, uint32_t ms)
+{
+    if (!aml_ativo) return "uACPI no esta activo: sin _TTS ni _PTS";
+    energia_feito = false;
+    energia_pedido = apagar ? 2 : 1;
+    uacpi_sagui_acordar();
+    uint32_t fim = relogio_tiques() + (ms * TIQUES_POR_SEGUNDO + 999) / 1000;
+    for (;;) {
+        int_desliga();
+        int32_t falta = (int32_t)(fim - relogio_tiques());
+        if (energia_feito || falta <= 0) { int_liga(); break; }
+        dormir_em(&canal_energia, (uint32_t)falta);
+        int_liga();
+    }
+    if (!energia_feito) {
+        snformatar(energia_texto, sizeof energia_texto, "el AML no termino en %u ms: se sigue sin esperar", ms);
+        aml_ativo = false;   /* que nadie más lo espere */
+    }
+    return energia_texto;
+}
+
 /* ------------------------------------------------------------ la tarea */
 
 static uint32_t *guarda;    /* la página de guarda, debajo de la pila */
@@ -718,8 +779,10 @@ static void executar(void)
     klog("[UACPI] listo en %u ms (ventanas: %u paginas en uso, maximo %u)\n", (uint32_t)ms, janela_em_uso,
          janela_maximo);
     bateria_uacpi_estado(UACPI_ATIVO, "");
+    aml_ativo = true;   /* D450 */
 
     for (;;) {
+        energia_atender();   /* D450: primero, si la tarea "apagar" lo espera */
         uacpi_sagui_trabalho_pendente();
         ec_atender_eventos();
         bateria_ciclo();
@@ -733,7 +796,7 @@ static void executar(void)
             for (;;) { int_desliga(); dormir_em(&canal_tarefa, 0x7FFFFFFF); int_liga(); }
         }
         int_desliga();
-        if (fila_ini == fila_fim && !pedido_novo && !portatil_pendente())
+        if (fila_ini == fila_fim && !pedido_novo && !portatil_pendente() && !(energia_pedido && !energia_feito))
             dormir_em(&canal_tarefa, (ec_presente() ? PERIODO_EC_MS : PERIODO_MS) * TIQUES_POR_SEGUNDO / 1000);
         pedido_novo = false;
         int_liga();

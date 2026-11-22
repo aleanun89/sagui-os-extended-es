@@ -4654,6 +4654,7 @@ resumen idéntico al de `rodar_todos.py` («N/M testes passaram», «Falharam: .
 siempre con KVM (h39, b6, b7) y h04 por perder `LD_LIBRARY_PATH` dentro de `sg`; la repetición sin
 KVM las pasa. Las esperas fijas dentro de las pruebas siguen ahí: el límite ahora es la prueba más
 larga (h68, h70_sonido, ~150 s).
+
 ## D097. Los comandos del Terminal se parecen a los de Unix
 
 **Contexto.** Al usar el Terminal faltaban argumentos en varios comandos (`ls -a`, `rm -r`,
@@ -4822,6 +4823,7 @@ y estallidos para provocar bloques cortos; nada con derechos) codificado con ffm
 - **Pendiente:** Ogg Vorbis (fase 4); MPEG-2.5 (8-12 kHz); cubrir con pruebas los bloques mixtos,
   el estéreo de intensidad y el preflag de MPEG-2; FLAC de más de 2 canales; que CHIP-8 y Python
   usen la biblioteca; un reproductor gráfico con lista y barra de progreso.
+
 ## D104. SaguiGL v5: motor por software de referencia, determinista y comprobable en el anfitrión (mejora 054)
 
 **Decisión:** `libsgl` (userland/libsgl/) implementa un subconjunto de OpenGL ES 1.1 (matrices con
@@ -4854,6 +4856,7 @@ pila, matrices de vértices y colores, `glBegin`/`glEnd`, Z de 16/32 bits, plano
 **Medida:** `sgldemo -t 3000` (320x240, Z de 16 bits) en QEMU con KVM: unos 9000 cuadros por
 segundo en un PC de desarrollo; sin ventana ni compositor, es un orden de magnitud, no una referencia.
 **Pruebas:** `tests/h77_sgl.py`.
+
 ## D102. SaguiMark 2: grupo «Gráficos 2D» con una ventana real (mejora 051)
 
 - **Por qué una ventana de verdad.** Los demás grupos miden la CPU y la memoria; lo que el
@@ -4946,6 +4949,7 @@ leían de bibliotecas LGPL del anfitrión (D098-D100).
 arranque (h03, h05), consola (h09), escritorio (h20), red con e1000 (h44), sensores (h71) y h81: `SAGUI_BUILD=$PWD/build-sem-gpl python3 tests/rodar_paralelo.py --sem-make -k 'h03|h05|h09|h20|h44|h71'` (6/6) tras `make SEM_GPL=1`. Resultado de la normal con KVM: 82/82 (h39, b6, b7 y h34 pasaron en la repetición). **No cambia la
 licencia del proyecto:** la publicación o distribución de cualquiera de las dos variantes sigue
 necesitando el permiso de Eli Rigobeli y M4R4G0N (rama `licencia`).
+
 ## D107. Ajustes de códecs HDA por códec y subsistema, autosilencio y programa `sonido` (mejora 041)
 
 **Problema:** en el HP Pavilion dv7 (HDA AMD `1002:4383`, códec IDT `111d:7603` = 92HD75B3X5,
@@ -5010,6 +5014,7 @@ resto de fabricantes (Realtek, Conexant...): se añadirán cuando un portátil r
 **Pruebas:** `tests/h79_sonido_hp.py` (anfitrión: 13 casos de elección; QEMU HDA: sin ajuste,
 `sonido` en todas sus órdenes y el tono grabado y analizado; AC'97: `sonido` avisa). h70, h75 y
 b3 siguen igual. **En el dv7:** `testes_hw/hp-dv7-sonido-pruebas.md`.
+
 ## D106. Driver de frecuencia de la CPU: P-states declarados por la BIOS y límite de 79 °C (mejora 061)
 
 **Contexto.** En el HP dv7 (Athlon X2 QL-64, familia 11h, P0 2100 / P1 1050 MHz) la BIOS deja la
@@ -5075,6 +5080,7 @@ QEMU; políticas, 79/72 °C, límite, sin temperatura, forzar, desactivar, opci�
 
 **Pendiente:** probarlo en el HP dv7 (`testes_hw/hp-dv7-frecuencia-pruebas.txt`), en un Intel
 Sandy Bridge (G470) y en un Ryzen (17h).
+
 ## D108. Optimizaciones del generador común de `cc` y Pascal (mejora 040, test h80)
 
 **Decisión:** el generador de `cc` y el de `pascal` (`gerador_x86.h` y el código de cada
@@ -5162,6 +5168,7 @@ sitio nuevo sin llamar a `marcar_rotulo()` permitiría que la mirilla junte cód
 él; los sitios actuales están cubiertos y la fuzzificación contra GCC no encontró casos. (2) Las
 anotaciones de «última instrucción» de `cc` se apoyan en comprobar los bytes emitidos antes de
 reescribirlos. (3) `-O0` sirve de red de seguridad: reproduce los binarios anteriores.
+
 ## D110. Cipó: ventana redimensionable y maximizable, navegación, búsqueda e imágenes (mejora 063)
 
 - **Ventana como Markdown (D048).** `jan_estilo(JAN_REDIMENSIONAVEL, 560, 300)`; `LARG`/`ALT` pasan a
@@ -5306,6 +5313,7 @@ muestra de `INFO_SENSORES`). Se añade `INFO_BANDEJA` (**60**) para pruebas y pr
 
 **Numeración:** D114, `INFO_BANDEJA` 60, prueba `tests/h85_bandeja.py`; las syscalls 107-108
 quedan libres.
+
 ## D113. Apagado por ACPI (S5) y botón de encendido, sin intérprete AML
 
 **Decisión (2026-11-08, mejora 030 en su parte básica):** `kernel/dispositivos/acpi.c` (código
@@ -5430,6 +5438,7 @@ registrada en `docs/terceros.md`.
 - **Rendimiento:** `.bench [N]` en el programa `sqlite3` (API de C) y `tests/recursos/sqlite/bench.py`
   (Python); `tests/h89_sqlite_rendimiento.py` imprime las cifras, con y sin KVM (en `docs/sqlite.md`).
 - **`repr()` con tildes:** ver `docs/sqlite.md` (apartado Python).
+
 ## D117. lite-monkey: base de datos documental propia en C, puerto 7979, y SIS_ESPERAR_REDE (mejora 067)
 
 **Decisión (2026-11-08):** un motor de documentos propio, `litemonkey/` (C99, código 100 %
@@ -5587,6 +5596,7 @@ un archivo nuevo, `kernel/gui/atalhos.c`, **sin syscalls nuevas**:
 combinaciones enteras. Comprueba cada atajo por el log y la barra, Alt+F4 en el Editor con
 cambios (pregunta, y «No» cierra), y AltGr (también Ctrl+AltGr+2) escribiendo «@». Capturas
 `H90-*`.
+
 ## D121. Utilidad gráfica «Discos»: el espacio de cada disco a la vista (v6.0 beta)
 
 - **Qué es:** el programa `discos` (el de siempre, H34/D040) gana una ventana. Un bloque por disco
@@ -6215,6 +6225,7 @@ completa (textura + luz + niebla + mezcla) tiene 9216 píxeles pintados de 160x1
 muchos colores, y que la ruta SIMD **no se diferencia de la de referencia en ningún
 píxel**. El programa dentro del SaguiOS da exactamente los mismos números que en el
 anfitrión.
+
 ## D133. El `cc` compila varios ficheros de origen y su biblioteca crece (mejora 003)
 
 **Qué hay.** El `cc` (el compilador de C que vive dentro del SaguiOS) compila ahora
@@ -6269,6 +6280,7 @@ los `static` de cada fichero no se ven entre ellos (ni chocan cuando tienen el m
 nombre), que una función repetida sin `static` da error, que un programa de un solo
 fichero sigue igual, y que la biblioteca nueva funciona: `qsort` ordena, `strtol` lee
 un número, `fopen`/`fwrite`/`fread` escriben y leen un fichero y `time` da la hora.
+
 ## D135. Una biblioteca de iconos para el SaguiOS, generada de los "Fluent UI System Icons"
 
 **Qué hay.** El SaguiOS dibujaba sus iconos a mano, en pixel art, dentro de cada programa
@@ -6498,6 +6510,7 @@ cambian y que la de detalles ordena por la columna pulsada, que se crea una
 pasta, se renombra con F2 y se borra con confirmación, que Ctrl+C y Ctrl+V
 copian un archivo de una carpeta a otra, y que la búsqueda con `*.txt` encuentra
 los archivos. Las capturas quedan en `docs/capturas/H104-*.png`.
+
 ## D138. Un visor de PDF con motor propio, en `userland/pdf/`, y el programa `visorpdf` (mejora 059)
 
 **Qué hay.** El SaguiOS no tenía forma de leer un PDF. Había visor de imágenes
@@ -6592,6 +6605,7 @@ de 32 a 48 ou 64 bytes.
 DEFLATE crudo (RFC 1951), pero el FlateDecode del PDF es un flujo zlib
 (RFC 1950): dos bytes de cabecera, el DEFLATE y el Adler-32 al final. El módulo
 del PDF quita la cabecera antes de inflar.
+
 ## D139. Iconos en todo el menú Inicio, la rejilla del Archivos que rueda por filas y las acciones de grupo (mejora 080)
 
 **Qué hay.** Tres cosas que se notaban al usar el escritorio. El menú Inicio tenía
@@ -6710,6 +6724,7 @@ explica `userland/web/ORIGEM.md`.
 **Prueba:** `tests/h112_motor_web.py`, con el programa `/testes/cipo-motor`, que
 carga un HTML, hace el layout y lo pinta: 21 nodos, 17 comandos de pintura, 202
 píxeles de alto y 5542 píxeles pintados con las fuentes del sistema.
+
 ## D142. La hoja de cálculo «Macaco», con fórmulas, gráficos y ficheros `.mxs` (mejora 078)
 
 **Qué hay.** Un programa nuevo, `macaco` (Macaco eXcel Sheet): la hoja de cálculo
@@ -7148,6 +7163,7 @@ bool motor_tick(motor_t *m, unsigned ms);
    pendurado com uma página comprida), por isso o registo ganhou a linha
    `cipo: pagina pintada`, que sai quando a página já está toda na tela. É o
    que as provas esperam antes de tirarem a captura.
+
 ## D149. El QuickJS entra en el SO: las páginas del Cipó corren JavaScript (mejora 081)
 
 **Decisión:** el motor de JavaScript es **de terceros**: el **QuickJS** (Bellard,
@@ -7818,6 +7834,7 @@ ROADMAP), no la fase 2:
 **Prueba:** `tests/h133_smp_multinucleo.py` (arranque con 1, 2 y 4 CPUs, los
 procesadores secundarios anunciándose, el `infopc` viendo los núcleos y el
 benchmark con 4 procesos).
+
 ## D158. El motor 3D por la GPU: el armazón de las familias y el mínimo del kernel para leer los registros (mejora 090)
 
 **Decisión:** la parte B2 de la mejora 054 (las familias de AMD que van después de R6xx/R7xx:
@@ -7952,6 +7969,7 @@ que el Cipó llega a la página de destino en los dos casos, que la dirección
 relativa queda absoluta y que el navegador no se cae. La prueba h125 (el
 programa de prueba del QuickJS) comprueba además la ventana: `window`,
 `location.href`, `document.URL` y `navigator.userAgent`.
+
 ## D160. El JavaScript de las páginas ve un DOM de verdad: los elementos se consultan y el clic llama al tratador (mejora 092)
 
 **Decisión:** el DOM del QuickJS del Cipó deja de ser el **objeto tonto** de la
@@ -22746,6 +22764,7 @@ Pedido del mantenedor (adelantado de la 8.5.5.3): AoEN multinúcleo y más rápi
   L850, mini PC i3-1220P).
 - **Pruebas**: `tests/h398_aoen_multinucleo.py` (nueva: `pc`, `determinismo-pc`, `tcc`, `saguios`; `bench` aparte), h389
   (todas sus partes) y h392 (TCC compila AoEN dentro, ahora con `hilos.c`).
+
 ## D407. Paneles táctiles PS/2: Synaptics, ALPS y Elantech en modo absoluto, con gestos (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-touchpad`)
 
 **Pedido del mantenedor:** mejor soporte de los paneles táctiles de portátiles, que hasta ahora `mouse.c` trataba como
@@ -22822,6 +22841,7 @@ ratón PS/2 de QEMU (sin vmmouse) sigue igual (IntelliMouse id 3, posición, cli
 en el kernel, `panel ps2` sin panel no reinicia nada, y la Configuración dibuja el bloque. **Pendiente:** probarlo en
 el HP dv7 y el Amilo (órdenes en `ORDENES.txt`); ALPS v3+ y Elantech v1 si alguna máquina de prueba los tiene;
 reconocer el panel otra vez tras suspender (SaguiOS aún no suspende).
+
 ## D408. Radeon R7xx/Evergreen/NI: direcciones del MC de 40 bits en el 2D por DMA (decidido el 2026-11-19; v8.5.5, rama `v8.5.5-turks-40bits`)
 
 **Contexto (Toshiba con Radeon HD 7600M «Thames»/Turks, `1002:6840`, 1 GB):** el 2D por DMA (D286) se paraba en la
@@ -22922,6 +22942,7 @@ fuentes (enganches, firmware con SHA-256, licencias, documentación); QEMU sin p
 nuevos, `wifi` sin adaptador, ningún mensaje `[WIFI]`) y, con `h215`, la parte sin pincho de h215 para comprobar que el
 8188EU sigue igual. QEMU no puede falsear un VID:PID de USB: la conexión real la prueba quien tenga el pincho
 (guía en `wifi_usb.md`).
+
 ## D410. Más Wi-Fi integradas PCIe de portátiles: familia Atheros ath9k, Broadcom BCM4313 y Ralink RT3090; primera pieza = reconocimiento y lógica pura (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-wifi-pcie`; [`wifi-pcie.md`](wifi-pcie.md))
 
 **Contexto.** Hoy solo funciona la Atheros AR9485 (D280, Toshiba L850). Los portátiles del mantenedor llevan otras: el
@@ -22957,6 +22978,7 @@ driver que lo cargue). Ralink: `rt2860.bin` (v40, también para el RT3090) bajo 
 **Pruebas:** h410 (anfitrión con ASan/UBSan: catálogo, SREV, ROM 4K y AR5416 construidas a mano, canales y sintetizador,
 recalculados en Python; fuentes: el AR9485 sin cambios respecto a la base; QEMU sin tarjeta y con una PCI ajena: sin
 `[WPCI]`, `wifi` igual, la red sigue). h280 (AR9485) debe seguir pasando igual.
+
 ## D411. Bluetooth con controladores que necesitan firmware (Broadcom, Realtek, Atheros) y búsqueda BLE (decidido el 2026-11-19; v8.5.5.1, rama `v8.5.5.1-bt-firmware`; **experimental, sin probar en hardware real**)
 
 **Contexto.** Hasta la D389 el Bluetooth solo funcionaba con controladores USB que arrancan listos (el CSR8510 `0a12:0001`). Los
@@ -23004,7 +23026,8 @@ por notificación, que ya entra por `hid_bt_*`). Intel (AX200/AX210, `ibt`) qued
 Atheros, fragmentos e índices, la máquina de estados de Broadcom, Realtek y Atheros contra el controlador simulado (incluidos
 los rechazos, el tiempo agotado, ROM sin parche y sin archivo) y la búsqueda LE; la prueba de la pila con CSR (`bt_unidad.c`)
 sigue igual; en QEMU, el firmware en `/lib/firmware` y la orden `bluetooth` sin controlador.
-## D413. GNU make dentro de SaguiOS: `/apps/bin/make` (decidido el 2026-11-19; v8.5.5.3, rama `v8.5.5.3-make`)
+
+## D413. GNU make dentro de SaguiOS: `/apps/bin/make` (decidido el 2026-11-19; publicado en la v8.5.5.1, rama `v8.5.5.3-make`)
 
 **Qué.** `make` de verdad dentro del sistema: **GNU make 4.4.1** (GPL-3.0-or-later, tarball oficial de ftp.gnu.org con SHA-256
 fijo, `tools/make_fuentes.sh`; las fuentes no van a git). Instalado en `/apps/bin/make` (200 KB), con `/apps/make`
@@ -23030,7 +23053,7 @@ segundo pueden pasar inadvertidos; `-l` no limita (no hay carga media).
 
 **Pruebas.** `tests/h413_make.py` (ver el resultado en el informe del commit). Pasan además h392 (TCC) y h403 (procesos).
 
-## D414. Laboratorio de C: aplicación educativa con libtcc (decidido el 2026-11-19; v8.5.5.3, rama `v8.5.5.3-make`)
+## D414. Laboratorio de C: aplicación educativa con libtcc (decidido el 2026-11-19; publicado en la v8.5.5.1, rama `v8.5.5.3-make`)
 
 **Qué.** `/apps/bin/labc` («Laboratorio de C», Inicio > Educación, junto a Jabuti): un editor con resaltado, el botón **Ejecutar (F5)** que
 compila con **libtcc en memoria** y ejecuta lo compilado, los **errores con su línea** (pestaña Errores; un clic lleva el editor a
@@ -23056,7 +23079,7 @@ símbolos: para eso, `tcc` en el Terminal).
 **Pruebas.** `tests/h414_labc.py` (con capturas `H414-*`); h392 (TCC) y h403 siguen pasando.
 
 
-## D415. AoEN: islas que terminan, conquista sin bloqueos y diplomacia de la máquina con el humano (decidido el 2026-11-19; v8.5.5.3, rama `v8.5.5.3-aoen-islas`)
+## D415. AoEN: islas que terminan, conquista sin bloqueos y diplomacia de la máquina con el humano (decidido el 2026-11-19; publicado en la v8.5.5.1, rama `v8.5.5.3-aoen-islas`)
 
 **Contexto.** En mapas de islas las partidas se quedaban atascadas (la IA no cruzaba, la flota no salía o desembarcaba en su
 propia isla, había unidades varadas y la conquista no se alcanzaba por un último aldeano o un barco de pesca). Además, la
@@ -23171,3 +23194,1295 @@ SDL2 de SaguiOS y lo nativo del sistema, tomando como referencia **ReTzar** (Rus
 - **Pruebas sin datos reales.** Una instalación sintética **jugable** (`tools/tzar_ia_sintetico.py`: catálogo, mapa y
   guiones hechos a mano) permite que la batería juegue IA contra IA con la simulación real. Los guiones y mapas reales
   solo en `h417_tzar.py privado_ia`, a mano.
+
+## D418. Imágenes de depuración para probar por SSH sin códigos de DEBUG-APP (decidido el 2026-11-20; v8.5.5.1, rama `v8.5.5.1-imagen-debug`; [`debug-ssh.md`](debug-ssh.md))
+
+- **Qué es.** `make debug_variantes DEBUG_DESTINO=DIR [DEBUG_CLAVE=~/.ssh/saguios_amilo.pub] [JOGOS_MB=1600] [DEBUG_SIN_ROOT=1]`
+  genera lo mismo que `priv_variantes` (input_share, multinúcleo, uACPI...) pero con SAGUI-CONF preparada para entrar por
+  SSH sin ningún código: la clave pública del PC en `/etc/ssh/authorized_keys` (root), `sshd` y `ntp` activados
+  (`/etc/servicios/activados`, `solo_red_local=si`), zona Europe/Madrid y una **clave de servidor fija**.
+- **Huella fija.** El par ed25519 del servidor se crea UNA vez en `~/SO/private/debug-ssh/` (fuera de git, 0600) y se
+  copia a `etc/ssh/ssh_host_ed25519_key(.pub)`; así el `known_hosts` del PC no cambia al regrabar. El objetivo imprime la
+  huella y deja un `known_hosts` listo en esa carpeta. La contraseña de root del primer arranque se sigue pidiendo salvo
+  `DEBUG_SIN_ROOT=1` (opcional, apagado por defecto).
+- **Mecanismo.** `tools/mkimagem.py --conf-extra CARPETA` (o `SAGUI_CONF_EXTRA`) copia un árbol a SAGUI-CONF;
+  `tools/debug_conf.py` lo genera; `tools/debug_variantes.sh` lo orquesta. Como make no ve el cambio de entorno, borra las
+  imágenes de `build/` antes y después (así un `make` normal no reutiliza una imagen con clave).
+- **Marca y aviso.** Si el árbol lleva `authorized_keys` o claves del servidor, mkimagem deja la marca
+  `IMAGEN-DE-DEPURACION-D418-NO-DISTRIBUIR` en SAGUI-CONF y el bit `CAB_USU_DEPURACAO` (0x04 de `CAB_USU_OPC`) en la
+  cabecera; el escritorio (`kernel/gui/area_trabalho.c`) dibuja un aviso en rojo abajo a la izquierda, sobre el fondo,
+  «IMAGEN DE PRUEBA / Acceso SSH para revision automatica». `VERSION.txt` dice «IMAGEN DE DEPURACIÓN: entra por SSH con la
+  clave del PC; no distribuir».
+- **Seguridad.** `make variantes` falla si recibe `DEBUG_*`; `tools/publicar.sh` (`preparar`: ficheros `authorized_keys`,
+  `ssh_host_*_key`, `debug-ssh`; `release`/`comprobar-imagenes DIR`: la marca dentro de cualquier imagen, también `.xz`, o en
+  `VERSION.txt`) los rechaza; `tools/publicar-excluir.txt` excluye `debug-ssh`, `ssh_host_*_key` y `/debug/`. La clave
+  privada del servidor nunca va a git ni a una Release.
+- **Prueba.** `tests/h418_imagen_debug.py` (huella fija, rechazos de publicar.sh y de `make variantes`, imagen en QEMU con
+  hostfwd, `ssh -i clave root@127.0.0.1 id` con `StrictHostKeyChecking=yes`, captura `docs/capturas/H418-debug-escritorio.png`).
+
+## D420. Archivos renovado, con ideas de «Files» y el aspecto de SaguiOS (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-archivos`)
+
+- **Qué.** `userland/programas/arquivos.c` gana pestañas, doble panel con arrastrar y soltar, barra de órdenes con iconos,
+  barra lateral (Inicio, Favoritos, unidades con barra de uso, Papelera, etiquetas de color), migas con flecha, ruta
+  editable con completado (Tab), vistas lista/detalles/iconos/mosaicos con miniaturas, agrupar por tipo o fecha, panel de
+  vista previa (imagen, texto con resaltado, propiedades), búsqueda recursiva con filtros **en segundo plano**, página de
+  Inicio (favoritos, unidades, recientes) y estado de git (rama y M/A/D/? por archivo, con `/apps/bin/git status`).
+  «Files» (MIT) solo inspira el diseño: no hay código suyo.
+- **Estado por panel.** `painel_t` agrupa lo que antes eran variables globales; los nombres cortos de siempre (`pasta`,
+  `nomes`, `lista`...) son macros sobre el panel activo, así el resto del programa no cambió. Los miembros de `painel_t`
+  llevan el prefijo `s_` para no chocar con esas macros.
+- **Componentes nuevos de la libsagui** (`gui_explorador.c`, valen para otras apps): `abas_t` (pestañas con cierre, «+» y
+  orden arrastrable), `migas_t` (migas de pan con flecha), `colunas_t` (encabezado ordenable con columnas ajustables) y
+  `barra_uso_desenhar`.
+- **Compatibilidad.** El registro serie no cambia («arquivos: pasta ...», «pronto»...). Los menús contextuales conservan sus
+  líneas y las nuevas van al final (el del elemento pasa de 10 a 17 líneas; el de grupo no cambia). La barra de órdenes
+  desplaza la lista 28 px (empieza en y=98): se ajustaron h23, h55, h63, h104, h108, h152, h157 y h217. «Abrir con...» ya no
+  está en la barra lateral sino en el menú del elemento. Las pestañas solo se ven con más de una; el botón «Vista» sigue
+  alternando lista/detalles/iconos (los mosaicos, en «Ver»).
+- **Configuración por cuenta** en `~/.config` (HOME o la carpeta de la cuenta; `/etc` si no hay): `arquivos` (preferencias,
+  ahora también agrupar, vista previa y anchos de columna), `arquivos.fav`, `arquivos.recientes`, `arquivos.etiquetas`.
+- **Rendimiento.** Carga limitada a 256 elementos por carpeta como antes; fechas solo cuando se ordena o agrupa por fecha;
+  miniaturas de a una por vuelta ociosa (<= 400 KB, caché de 24); la búsqueda procesa un puñado de entradas por vuelta; git
+  se consulta una vez cada 2 s por repositorio.
+- **Codificación.** `arquivos.c` pasa entero a UTF-8 (eran 6 comentarios sueltos en Latin-1); `tools/extraer_textos.py` ya no
+  lo trata como Latin-1.
+- **Sin hacer** (queda para después): tema oscuro (el sistema no lo tiene), PDF/audio/vídeo incrustados en la vista previa
+  (solo enlazan al visor), resaltado más allá de comentarios, cadenas, números y palabras clave, y carga perezosa real por
+  encima de los 256 elementos.
+- **Pruebas.** `tests/h420_archivos_files.py` (capturas `H420-*`).
+
+## D421. Sonidos del sistema: esquemas, eventos y Configuración (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-sonidos`)
+
+**Contexto**: el mantenedor pidió sonidos del sistema opcionales, elegibles desde Configuración como los esquemas de
+Windows. Aportó jingles de Windows (privados) y tres MP3 de Pixabay; las imágenes públicas necesitan sonidos libres.
+
+**Decisión**:
+- **Esquemas** = carpetas con `esquema.conf` (`nombre`, `creditos`, `evento=archivo`): `/sistema/sonidos/<id>` (en toda imagen)
+  y `/apps/sonidos/<id>` (solo imágenes privadas). Del sistema: **«SaguiOS»**, generado por `tools/gerar_sonidos.py` en el
+  `make` (senos con envolventes, determinista, «generado por SaguiOS-Extended, GPL v3»; es el de serie al activar), y
+  **«Kenney»** («Interface Sounds» de Kenney, CC0): 10 WAV mono de 22050 Hz (190 KB) **en git** con su LICENCIA y CREDITOS
+  (`userland/terceros/kenney-sonidos/`; se rehacen con `tools/sonidos_datos.sh`, SHA-256 fijado). Se prefirió git a bajarlos al
+  compilar: son pocos KB, CC0, y así la compilación no necesita red ni ffmpeg. No se usa el tema de sonidos de freedesktop (mezcla
+  licencias, incluida GPL-2.0-only); el de Yaru (CC-BY-SA) queda solo como opción futura.
+- **Privados** (`input_share/sounds`): jingles de Windows (solo definen «arranque») y «Pixabay» (aviso, error, pregunta, USB,
+  batería y papelera): `tools/sonidos_privados.py` los monta en `/apps/sonidos` solo con `INPUT_SHARE`; `gerar_versao.sh` y
+  `make variantes` compilan con `INPUT_SHARE=` vacío, así que no entran. `tools/publicar-excluir.txt` y `publicar.sh`
+  (`comp_sonidos_privados`) rechazan sus rutas. **Pixabay se trata como privado** (su licencia no deja redistribuir los MP3 «tal
+  cual» por separado; `LICENCE.txt` vacío): el mantenedor decide si pasan a públicos.
+- **Eventos** (10): arranque, apagar, reiniciar, aviso, error, pregunta, usb_conectar, usb_desconectar, bateria, papelera.
+  Aviso/error/pregunta salen de los diálogos de la libsagui (`mensagem`, con «error»/«fallo» en el título = error; `confirmar`);
+  apagar y reiniciar, de `ejecutar` y de los comandos `apagar-pc`/`reiniciar` de sagsh, **antes** de apagar y con plazo
+  (`sonido_evento_esperar`, 3 s como máximo; sin tarjeta o sin sonido para ese evento no espera nada); arranque, USB (cuenta de
+  «Dispositivo N:» de INFO_USB) y batería (INFO_BATERIA, con uACPI: ≤ 10 % o crítica y sin cargador, una vez) los hace el servicio
+  `sonidos` (`/etc/servicios/sonidos.conf`, `sonidos --vigilar --arranque`). **Vaciar la papelera**: el evento y su sonido existen
+  (`sonido_evento("papelera")`) pero **no se ha enganchado** en Archivos (`arquivos.c` lo renueva otra rama): pendiente de una
+  línea allí. «Inicio de sesión» se reduce al de arranque (el servicio arranca con el escritorio).
+- **Reproducción**: `/bin/sonidos --tocar EVENTO [--max MS]` (proceso corto: no bloquea la interfaz) con `audio_arquivo_*` (WAV,
+  MP3, FLAC...) y el mezclador del kernel; volumen propio del flujo. Sin tarjeta: silencio. `--max` calla al instante al pasar el
+  plazo.
+- **Configuración**: Escritorio > «Sonidos del sistema»: interruptor general, esquema, volumen, eventos con casilla y «Probar» (toca
+  aunque esté apagado). Se guarda **por cuenta** en `/home/.config/sonidos.conf` (como el resto de preferencias de la persona;
+  el servicio corre como `sagui`). **Todo apagado de serie**; al activar, suenan todos los eventos menos arranque, apagado y reinicio
+  (retrasan o molestan: se piden aparte).
+- Créditos (a petición del mantenedor, aunque CC0 no los exija): `docs/terceros.md`, `CREDITOS.txt` junto a cada esquema, la ayuda
+  (`/ayuda/sonidos.md`) y la línea «Sonidos: Kenney (kenney.nl), CC0» en Configuración al elegir el esquema.
+- Pendiente: «UI Audio» de Kenney (CC0; sin enlace de descarga estable), engancharlo en Archivos (papelera) y en «Acerca de».
+- Prueba: `tests/h421_sonidos.py` (audio, apagado, sinsonido, gui; analiza el .wav de QEMU). Los privados solo se comprueban a mano.
+
+## D422. Energía y pantalla: salvapantallas, bloqueo y apagado de la pantalla por inactividad, aviso de batería y «no molestar» (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-energia-pantalla`)
+
+**Pedido del mantenedor:** opciones de energía, salvapantallas y bloqueo de pantalla por inactividad, con apartado en
+Configuración y orden de consola.
+
+**Qué hay** (`kernel/gui/ocio.c`, `kernel/lib/ocio_efectos.c`, `userland/programas/energia.c`, Configuración >
+Sistema > Energía y pantalla; ayuda en `rootfs/ayuda/energia.md`; prueba `tests/h422_energia.py`).
+
+- **Inactividad.** El gestor de ventanas llama a `ocio_entrada()` por cada tecla y cada evento de ratón (los del escritorio
+  remoto y el panel táctil llegan por las mismas colas) y a `ocio_tique()` en cada tic. La inactividad son los segundos desde
+  la última entrada. **La primera entrada que despierta el salvapantallas o la pantalla apagada se descarta**: no llega al
+  programa de detrás (probado: la tecla no aparece en el Terminal).
+- **«No molestar».** `INFO_OCIO_CTL` con `OCIO_OP_NO_MOLESTAR` (cualquier programa; envoltorio `no_molestar(1/0)` en
+  `userland/inc/energia.h`): hasta 8 peticiones por proceso, que el kernel suelta solas si el proceso acaba. Una ventana a
+  pantalla completa (F11) cuenta también, sin llamar a nada. Mientras haya «no molestar» **la cuenta no avanza**: ni salvapantallas, ni
+  bloqueo, ni apagado de la pantalla. No se ha tocado el reproductor ni los juegos (DOOM, AoEN, Tzar tienen
+  otros trabajadores en sus archivos): a pantalla completa ya quedan cubiertos; añadirles la llamada es una línea.
+- **Salvapantallas.** Cuatro efectos dibujados por código, sin imágenes ni biblioteca (solo enteros), deterministas y con
+  el cuadro entero a partir del estado y del tiempo: *Estrellas*, *Logotipo SaguiOS* rebotando, *Tuberías* (se reinician al
+  llenarse) y *Reloj* grande (letras propias de 5x7; cambia de sitio cada minuto contra el quemado de la pantalla), más *Pantalla negra*.
+  El **mismo `.c`** lo usan el kernel (a pantalla completa, unos 12 cuadros por segundo) y Configuración (vista previa en vivo, que
+  se incluye con `#include`): la prueba de unidad `tests/ocio_unidad.c` lo compila en el PC con ASan/UBSan y comprueba que no
+  escribe fuera del lienzo ni con 20 000 cuadros ni en tamaños raros. Mientras está en marcha, el compositor **no dibuja las
+  ventanas** (`ocio_cobre()` en `gui_mostrar`) y el búfer de la pantalla conserva el último cuadro: si algo de detrás pide
+  repintar, no se redibuja el efecto (solo se muestra). **Queda fuera: «fotos de una carpeta»** (el kernel no decodifica imágenes;
+  sería un salvapantallas de usuario, futuro).
+- **Bloqueo por inactividad.** «No bloquear», «tras N minutos» o «al salir del salvapantallas». Reutiliza la pantalla de D371
+  (`sessao_bloquear`) con `sessao_bloquear_inatividade()`: **solo bloquea si la cuenta de la sesión tiene contraseña**; sin ella
+  no hay nada que pedir para volver y no se bloquea (`[OCIO] no se bloquea: la cuenta X no tiene contraseña`). No bloquea en modo
+  rescate ni con la sesión de root de las imágenes de prueba, como Windows+L.
+- **Pantalla apagada.** Tras N minutos con batería (10 de serie) y N enchufado (30; 0 = nunca): pantalla en negro. **Sin DPMS real**:
+  SaguiOS no hace llamadas a la BIOS en modo real (sin v86; VBE/PM función 10h no es alcanzable) y las rutas de sincronía de VGA no
+  valen con un framebuffer lineal de GOP/UEFI. Tampoco se toca el brillo del panel (por ACPI sale su propio aviso en pantalla y el
+  firmware lo deja en un mínimo visible). Anotado como **futuro**: DPMS por registros de las GPU con driver, y por VBE/PM en
+  BIOS si se añade un monitor v86.
+- **Batería** (con la lectura de ACPI de D192; sin batería se usan los valores de «enchufado»). Aviso de batería baja (15 %) y crítica (5 %,
+  siempre menor que el aviso), y la acción opcional **apagar al llegar a crítico**: avisa y a los 30 s llama a `acpi_pedir_apagado()`;
+  si enchufas el cargador o la batería sube más de 3 puntos, se cancela. El **perfil del gobernador** (`FREQ_OP_POLITICA`) puede ser
+  distinto con batería y enchufado (rendimiento, ahorro, a demanda o sin cambiar) y se aplica al cambiar de estado; sin driver de
+  frecuencia se deja de intentar (`[OCIO] gobernador: ... -> -2`).
+- **Suspender (S3): no existe** en SaguiOS; **no se añade**. Queda anotado como futuro (ACPI `_S3`, volver con el RTC o una tecla).
+
+**Valores de serie** (sin `/etc/energia.conf`): **salvapantallas y bloqueo apagados** (molestan: el primero cuesta CPU y el segundo
+pide contraseña a quien no la espera); pantalla apagada a los 10 min con batería y a los 30 enchufado (ahorra sin sorprender: la
+primera pulsación solo despierta); aviso de batería baja 15 %, crítica 5 % **sin apagar** (apagar solo si lo pide quien lo elige);
+perfil de la CPU sin cambiar. En un equipo con la pantalla apagada que no despierte bien, `Configuración > Energía y pantalla` o
+`/etc/energia.conf` (`pantalla_red_min=0`) lo quitan.
+
+**Configuración de la máquina (D371).** `/etc/energia.conf` (`clave=valor`, ver `rootfs/ayuda/energia.md`), de root, escrito con
+`maquina_gravar_arquivo()` (pide permisos de administrador por el diálogo D269 y se copia a SAGUI-CONF). Va en **un archivo propio** y no
+en `sistema.conf`/`sagui.conf` para no tocar `conf_gravar()` ni la lista de claves de la máquina (los trabajadores de Archivos y de sonidos
+también tocan Configuración; en `configuracion.c` solo se añadió la sección «Energía y pantalla» tras Aceleración gráfica y su
+entrada en el enum). El kernel lo lee al arrancar la interfaz, 10 s después si no estaba (la copia de SAGUI-CONF a `/etc`) y con
+`OCIO_OP_RECARGAR` (lo hace Configuración al guardar y `energia recargar`).
+
+**ABI.** `INFO_OCIO` (100, estado, lo lee cualquiera) e `INFO_OCIO_CTL` (101, `OCIO_PEDIDO(op, arg)`); recargar, no molestar, actividad y
+probar para cualquiera; **simular** (suma segundos de inactividad) y **batería simulada**, solo para el administrador (son ganchos de prueba).
+
+**Pruebas** (`tests/h422_energia.py`): unidad de los efectos; en QEMU con la sesión de sagui, la inactividad se simula con
+`energia simular` desde un guion (lo tecleado reinicia la cuenta, así que entre tramos no puede haber teclas): sale a su hora y la tecla solo
+despierta (no llega al Terminal), los cuatro efectos con captura (`H422-salvapantallas-*`), bloqueo sin contraseña (no bloquea) y con ella
+(mala contraseña, buena, y «al salir del salvapantallas»), pantalla en negro con batería y enchufado, «no molestar» de un programa
+(y se suelta al acabar o al morir), batería simulada (aviso baja y crítica, perfil del gobernador al enchufar y desenchufar, apagado
+ordenado y su cancelación) y Configuración con capturas (`H422-energia-*`) y un cambio guardado con el diálogo de permisos.
+
+**Riesgos conocidos.** El ratón óptico con ruido, o un teclado con una tecla pegada, mantienen la pantalla despierta (es lo esperable);
+en 86Box/QEMU el cursor del ratón se sigue viendo sobre el salvapantallas (lo pinta la capa del cursor). **Toca el núcleo gráfico solo en
+`gui_mostrar` (un `if` al principio) y en el bucle de entrada del gestor de ventanas**; ni memoria, planificador, VFS ni arranque.
+
+## D423. Componentes modernos en la libsagui y Archivos con el aspecto nuevo (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-componentes`)
+
+Pedido del mantenedor: un botón más moderno y mejores componentes visuales, y con ellos mejorar el explorador. Se mantiene la estética
+de SaguiOS (verde y turquesa, fuente de mapa de bits de 8x16, iconos de `icones.h`) y se moderniza la forma.
+
+- **Fichero nuevo** `userland/libsagui/gui_moderno.c` (en `libsagui.so.1`, lista base), declarado en `gui.h`. **Paleta y métricas en un solo
+  sitio:** `mod_tema` (`mod_tema_t`: acento verde, acento suave, foco turquesa, superficie, barra, campo, pista, bordes, hover, pulsado,
+  texto, peligro, aviso, tooltip, radio 4, radio de tarjeta 6, alto normal 28). Cambiar `mod_tema` cambia todos los componentes; un tema
+  oscuro necesitaría además iconos oscuros (los de `icones.h` son de trazo oscuro), por eso no se incluye todavía.
+- **Primitivas** con esquinas suavizadas a mano (4x4 muestras por píxel de esquina, mezcladas con lo que ya hay):
+  `g_retangulo_red[_a]`, `g_caixa_red` (relleno + borde de 1 px), `g_aro_red` (contorno), `g_sombra_red`.
+- **Componentes:** `mbotao_t` (variantes `MB_PRIMARIO`, `MB_SECUNDARIO`, `MB_PLANO`, `MB_PELIGRO`, `MB_ICONO`, `MB_ICONO_REDONDO`; estados
+  normal, hover, pulsado, deshabilitado, activo/conmutado y foco de teclado con anillo; icono + texto; el primario y el deshabilitado
+  usan el icono de una sola tinta), `segmentado_t`, `interruptor_t` (la bolita se desliza en 4 pasos), `chip_t` (punto de color y «x»
+  opcionales), `progresso_mod_desenhar` / `progresso_mod_indet` (con `MP_USO`: ámbar y rojo al llenarse), `insignia_desenhar`,
+  `campo_desenhar` / `campo_busca_t` (píldora con lupa y botón de borrar; edita sobre `caixa_t`), `cartao_t` (sombra suave, título e
+  icono), `dica_t` (tooltip con retardo de 450 ms que restaura los píxeles de debajo) y `toast_t` (aviso que se va solo).
+  Cada uno limpia su rectángulo con `fundo` antes de dibujar; el hover solo exige pasar los `EV_MOVER` a `*_tratar`.
+- **Cambios en componentes existentes:** `caixa_t` gana el gancho `desenhar` (al final: los inicializadores antiguos no cambian);
+  `abas_t` pasa a pestañas planas con subrayado de acento y hover; `migas_t` gana `hover`, `hover_seta` y `foco` y cada parte y su flecha
+  se resaltan (chevron en lugar del triángulo); `barra_uso_desenhar` usa el progreso redondeado.
+- **Archivos:** primera fila = navegación (atrás, adelante, arriba, solo icono), «Nueva carpeta», «Borrar» (peligro), «Ocultos» (conmutador),
+  vistas en un control segmentado (lista, detalles, iconos, mosaicos: sustituye al botón cíclico «Vista») y el campo de búsqueda redondeado
+  a la derecha (es la misma `caixa` de siempre en modo búsqueda: Enter, Esc, filtros y atajos no cambian; la «x» quita filtro y búsqueda; «Filtros»
+  pasa a la banda de la ruta). Segunda fila = órdenes de solo icono con hover y separadores. Migas: cada parte es un botón plano; se arregla
+  el cuadro de ruta (la banda se limpia entera y la edición va con `campo_desenhar`). Barra lateral: selección con fondo de acento redondeado y
+  marca, hover suave, etiquetas como puntos, unidades con el progreso nuevo. Inicio: tarjetas (favoritos, unidades con su barra, recientes
+  con filas resaltables). La geometría vertical no cambia (lista en y=98, barra 40 + 28): h55, h63, h152 y h157 no necesitan ajuste.
+- **Ajustes de pruebas:** h23, h104 y h108 hacían clic en los botones por su x antigua (Atrás 8, Nueva carpeta 106, Borrar 224, Arriba 390, Vista 588,
+  Buscar 636): ahora usan los centros nuevos (Atrás 22, Adelante 54, Arriba 86, Nueva carpeta 185, Borrar 307, vistas 413/443/473/503, Buscar 621;
+  el programa los anota en la serie: «arquivos: barra ...»). h104, h108 y h217 pasaban de vista pulsando el botón cíclico: ahora pulsan el
+  segmento de la vista. h420 y h217: sin más cambios de geometría.
+- **Demo y prueba:** `componentes --moderno` (todos los componentes) y `tests/h423_componentes.py` (capturas `H423-*`, datos sintéticos).
+- **Sin hacer:** tema oscuro, toasts en Archivos, tooltips con teclas de atajo, foco de teclado en la barra de Archivos.
+
+## D424. Radeon Evergreen/NI: prioridad alta de la pantalla en el controlador de memoria mientras va el 2D; el puntero dentro de la copia (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-turks-parpadeo`)
+
+**Fallo (Toshiba con HD 7600M «Turks» `1002:6840`, D408):** defectos y parpadeo al mover el puntero por el menú
+Inicio > Juegos y al moverse por AoEN. En un vídeo del mantenedor se ven, en fotogramas sueltos, rectángulos pálidos
+con trama fina (el borde de arriba es una fila del barrido) y rayas de 1 px sobre el texto, siempre en la zona que la
+CPU acababa de reescribir.
+
+**Datos:** en 4 h 39 min de sesión, «GPU: copias 0, rellenos 0» y 10.845 volcados de la CPU: el DMA del 2D no hacía
+nada. El cursor por hardware estaba apagado (`CUR_CONTROL` 4000010), la superficie, el pitch y el modo eran los del VBE
+(`GRPH_CONTROL` 10800a lineal, 32 bpp) y la tarjeta no tiene driver de energía. Lo que sí se vio (`acel2d probar
+--detalle`): la BIOS deja **`PRIORITY_A_CNT` 0, `PRIORITY_B_CNT` 0 y `PIPE0_LATENCY_CONTROL` 0** (sin marcas de latencia ni
+prioridad; Linux las calcula por modo en `evergreen_program_watermarks`, drivers/gpu/drm/radeon/evergreen.c 6.6), y la
+CPU escribe en la VRAM por el BAR con write-combining a ~2,9 GB/s. Con esos ceros, la pantalla pierde contra la escritura
+y se queda sin datos (underflow) en las filas que barre en ese momento. **Comprobado en el Toshiba** (kernel de prueba,
+`arranque probar`): con `acel2d prioridad alta` (A y B a 0x100000) el mantenedor: «ahora se ve bien»; con `acel2d
+prioridad bios`: «ahora vuelve a fallar»; con alta otra vez, bien.
+
+**Decisión:**
+- `acel_r600.c`: en las Evergreen/NI, al acabar el inicio del driver, `PRIORITY_ALWAYS_ON` (bit 20) en
+  `PRIORITY_A_CNT`/`PRIORITY_B_CNT` (0x6B18/0x6B1C + controlador) del controlador que muestra la pantalla, como Linux con
+  `radeon.disp_priority=2`; quita `PRIORITY_OFF` y conserva la marca. Se guarda lo de la BIOS y se repone en
+  `r6_desligar` (`acel2d apagar`, el vigilante) y antes de un nuevo intento. No se calculan las marcas de latencia como
+  Linux: hacen falta los relojes de la memoria y del motor (tablas ATOM), que el driver no lee; la prioridad siempre
+  alta es lo que Linux hace cuando se le pide y basta aquí.
+- Las R6xx/R7xx (HD 4530 del dv7) y la X1400 (R5xx, `acel_radeon.c`) **no cambian**: no hay fallo visto en ellas;
+  `acel2d probar --detalle` lee y escribe en el log `D1MODE_PRIORITY_A/B_CNT` (0x6548/0x654C) de las R6xx/R7xx para
+  comparar la próxima vez que se pruebe el dv7.
+- `acel2d prioridad [leer | alta | bios | estres]` (órdenes 50-53 de `INFO_ACEL2D_CTL`): mirar, forzar o reponer, y
+  reescribir la pantalla entera 1.500 veces con el mismo contenido (unos 1,6 s) para provocar el fallo.
+- `video.c`: con una sola pantalla, la flecha del ratón se escribe **dentro** de la copia del rectángulo sucio (la fila
+  que la cruza va en tres trozos: lo de antes, la flecha mezclada con el búfer de atrás y lo de después) en lugar de
+  copiar la zona, que la borra, y pintarla luego. Así el barrido nunca ve la zona sin el puntero.
+- El detalle de `acel2d probar --detalle` en Evergreen/NI añade la prioridad, `DC_LB_MEMORY_SPLIT`,
+  `PIPE0_ARBITRATION_CONTROL3`, `PIPE0_LATENCY_CONTROL` y `PIPE0_DMIF_BUFFER_CONTROL` (Toshiba: 70000, 30002, 0, 11).
+
+**Para otras tarjetas (si aparece el mismo síntoma).** Síntoma: zonas pálidas o lavadas, con trama fina, y rayas de
+1 px **justo donde la CPU acaba de escribir** (menús al pasar el puntero, juegos a pantalla completa que vuelcan cada
+cuadro), con el borde de arriba en una fila cualquiera del barrido; no pasa con la pantalla quieta. Diagnóstico: `acel2d
+probar --detalle` (la prioridad y las marcas en el log) y la contraprueba `acel2d prioridad alta` / `bios` /
+`estres`, mirando la pantalla (el 2026-11-20 en el Toshiba: con ALTA bien, con la BIOS vuelve a fallar). Registros
+equivalentes y referencia de Linux 6.6 (drivers/gpu/drm/radeon):
+- **Evergreen/NI (DCE4/DCE5):** `PRIORITY_A_CNT` 0x6B18 y `PRIORITY_B_CNT` 0x6B1C (+ desplazamiento del controlador:
+  0, 0xC00, 0x2800, 0x3400, 0x4000, 0x4C00); `PRIORITY_MARK_MASK` 0x7FFF, `PRIORITY_OFF` bit 16, `PRIORITY_ALWAYS_ON`
+  bit 20; `PIPE0_ARBITRATION_CONTROL3` 0x0BF0 y `PIPE0_LATENCY_CONTROL` 0x0BF4 (+ 0x20 por tubería). Linux:
+  `evergreen_program_watermarks` (evergreen.c), que fuerza ALWAYS_ON con `radeon.disp_priority=2`. **Aplicado.**
+- **R5xx y R6xx/R7xx (AVIVO):** `D1MODE_PRIORITY_A_CNT` 0x6548 y `D1MODE_PRIORITY_B_CNT` 0x654C (D2: 0x6D48/0x6D4C),
+  con los mismos bits (`MODE_PRIORITY_OFF` 16, `MODE_PRIORITY_ALWAYS_ON` 20). Linux: `rv515_bandwidth_avivo_update`
+  (rv515.c; las R6xx/R7xx entran por `r600_bandwidth_update`, y las IGP por `rs690_bandwidth_update`). Para estas
+  familias Linux pone `disp_priority` 2 por defecto en las R300/RV515 discretas (`radeon_update_display_priority`).
+  **No aplicado:** ni la X1400 del Amilo ni la HD 4530 del dv7 lo muestran (el mantenedor, 2026-11-20); el detalle
+  de las R6xx/R7xx ya escribe estos dos registros en el log para comparar.
+- **SI/CIK (DCE6/DCE8, el 2D de GCN, D360):** `dce6_program_watermarks` (si.c) / `dce8_program_watermarks` (cik.c),
+  con `DPG_PIPE_ARBITRATION_CONTROL3`, `DPG_PIPE_LATENCY_CONTROL` y `PRIORITY_A/B_CNT` del DCE6. Sin aplicar.
+Aplicarlo a otra familia: forzar ALWAYS_ON en A y B del controlador que muestra la pantalla al acabar el inicio del
+driver, guardar y reponer los valores de la BIOS al apagarlo (como `r600_prioridade_tela` en `acel_r600.c`), y anotar
+la contraprueba en la decisión.
+
+**De paso:** la raíz en disco (D379 M1) rechaza un kernel de otra versión: para `arranque probar` en un pendrive de la
+v8.5.5, el kernel de prueba se compila con `SAGUI_VERSAO` igual a `/sistema/raiz/versao`, o arranca en modo rescate.
+
+**Visto de paso, sin arreglar (anterior a D424):** en el Toshiba, `acel2d apagar` seguido de `acel2d encender` no
+vuelve a arrancar el 2D: «etapa 3: el DMA no esta parado (DMA_STATUS 4c83156)» tras reponer los registros del DMA
+(`DMA_CNTL` 38421000). Hasta reiniciar sigue la CPU, y con ella la prioridad de la BIOS (y las rayas).
+
+**Pruebas:** h286 `fuentes` (registros, solo Evergreen/NI, reposición, R6xx/R7xx solo lectura, el puntero en la copia),
+h19, h223, h286, h362 y h41 en QEMU. Toshiba: arriba, y con el kernel final (`arranque probar`, sin confirmar) el
+arranque deja A y B en 0x100000 por sí solo. Sin probar: otras Evergreen/NI (L635 con la HD 5000).
+
+## D425. SaguiGL OpenGL ES 1.1 completo y gpu3d v2 con bits de capacidad (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-sgl-es11`)
+
+**Qué:** SaguiGL pasa a ser OpenGL ES 1.1 (perfil Common) completo, con un paquete de extensiones, cabeceras
+estándar (`GLES/gl.h`, `EGL/egl.h`...) y EGL 1.4 mínimo; y la interfaz 3D del kernel gana una **v2** para que los
+drivers puedan acelerar lo nuevo.
+
+**gpu3d v2 (fase 4, la primera en hacerse porque la esperan los drivers):**
+- Se **añade** a la v1, sin cambiarla: operaciones 8 a 13 (`CAPACIDADES`, `ESTADO2`, `TRIANGULOS2`, `TEXTURA2`,
+  `LIMPAR2`, `DESTINO`), estructuras de tamaño fijo y cinco funciones al final de `gpu3d_driver_t` que pueden ser
+  `NULL`. Un driver de antes funciona igual (prueba h285 sin tocar).
+- **Bits de capacidad** por driver (`G3D_CAP_*`, `gpu3d_capas_t`): cada driver anuncia lo que ha probado. La capa
+  quita los que dependen de funciones que el driver no tiene y **revisa cada estado** contra ellos, así que un
+  driver nunca recibe algo que no anunció. Por qué bits y no «versión del driver»: las familias aprenden cosas
+  sueltas (la R5xx puede tener esténcil antes que cubos), y un bit sin anunciar solo cuesta velocidad.
+- La **combinación de TexEnv** llega siempre como `GL_COMBINE` (funciones, fuentes, operandos y escala por unidad):
+  SaguiGL traduce MODULATE, REPLACE, DECAL, BLEND y ADD. Es la forma en que un driver escribe su programa de
+  píxeles sin conocer GL.
+- Lo que hace la CPU (matrices, luces, generación de coordenadas, planos de recorte, desplazamiento del polígono,
+  puntos, líneas anchas, `glDrawTexOES`) **no** entra en la interfaz: llega como triángulos.
+- **Cuando un dibujo no cabe**: SaguiGL trae el cuadro (`LER`) y sigue por software hasta el final del cuadro; los
+  cuadros siguientes empiezan por software y vuelven a la GPU cuando un cuadro entero habría cabido. No se puede
+  hacer «por dibujo» de verdad porque el Z de la GPU no vuelve a la RAM; así el cuadro mezclado solo pasa una vez.
+- Hoy ningún driver anuncia nada: todo lo nuevo va por software. El driver simulado (`gpu3d_sim.c`) tampoco (es
+  de los agentes de drivers; sería la referencia natural para probar v2 en QEMU).
+
+Detalle para los drivers: `docs/gpu3d.md`, «gpu3d v2».
+
+**Cambios de la interfaz el mismo día (a petición de los drivers, D426):** `G3D_CAP_TEX_NPOT` es «sin mipmaps» y
+`G3D_CAP_TEX_NPOT_MIP` (nuevo) «con mipmaps»; `GPU3D_OP_ABRIR` lleva el esténcil en `c << 8` (la capa lo quita antes
+de `alvo()` y con esténcil pide Z de 24). Anotado en `docs/gpu3d.md`, «Cambios en la interfaz».
+
+**SaguiGL, OpenGL ES 1.1 completo (fases 1 a 3):**
+- **Una tubería aparte, sin tocar la de siempre.** `sgl_es.c` (incluido al final de `sgl.c`, para usar sus funciones
+  estáticas) tiene lo nuevo. Cada dibujo mira una vez (`precisa_es`) si pide algo que las rutas de antes
+  (`triangulo_fixo`, `triangulo_v6`, `triangulo_v7`) no saben: multitextura, TexEnv distinto de MODULATE, cubos,
+  generación de coordenadas, matriz de textura, esténcil, prueba alfa, tijera, máscaras, Z distinto de </<=/siempre,
+  rango de Z, desplazamiento, planos, mezcla extendida, lógica, puntos, líneas anchas, paleta, FBO, tipos de array
+  que no son float. Si no, va por donde iba: **los mismos píxeles y el mismo tiempo** (h77, h101, h405 y las sumas
+  del paisaje iguales; `tests/sgl/es11_rendimiento.c`: 1,90 ms por cuadro con textura y 0,60 en color plano a
+  640x480, antes y después). Por qué así: no arriesgar los programas de antes ni su velocidad, y que la tubería
+  nueva pueda ser completa sin atajos.
+- La tubería nueva sigue el orden de la especificación (unidades con `GL_COMBINE`, especular, niebla, alfa, tijera,
+  esténcil, Z, mezcla o lógica, máscaras) en coma flotante y con corrección de perspectiva; los modos clásicos de
+  TexEnv se traducen a COMBINE (tabla 3.15), la misma forma que va a los drivers.
+- **Fuera del cc de dentro.** `/ejemplos/sagui_gl` lo compila el cc de SaguiOS, que no tiene enteros de 64 bits:
+  con `SGL_POR_CC` no se incluye nada de esto y sigue siendo el motor de antes (h99).
+- **Cabeceras propias** (`userland/inc/GLES`, `EGL`, `KHR`), con los valores de las especificaciones: las de Khronos
+  serían compatibles (MIT/Apache-2.0) pero no hacían falta (regla de autoría). `sgl.h` las incluye.
+- **EGL 1.4** (`sgl_egl.c`): una pantalla, cuatro configuraciones (Z 16/24, esténcil 0/8, sin alfa), ventanas
+  (`jan_t *`) y pbuffers; `eglGetProcAddress` con todas las funciones (`sgl_procs.inc`). Sin pixmaps, sin
+  compartir objetos entre contextos.
+- **SDL 2:** `SDL_GL_*` en `userland/libsdl2/sdl2_gl.c` sobre EGL, solo ES 1 (lo enlaza quien lo usa).
+- **TCC:** `/apps/tcc/include/{GLES,EGL,KHR}` y `-lGLESv1_CM -lEGL` (las dos bibliotecas llevan todo: el orden da igual).
+- Pequeñas decisiones: `glGenTextures` ya no toma como id lo que traiga el array (podía repetir uno en uso); el
+  formato interno distinto del de la imagen se sigue aceptando (como antes); las caras de los cubos siempre
+  sujetas al borde; el anisótropo, hasta 4 muestras por el eje largo; `GL_UNPACK_ALIGNMENT` 4 por defecto (como GL).
+- **La GPU:** SaguiGL manda v1 cuando el dibujo cabe en v1 (también REPLACE, con el vértice en blanco) y v2 cuando
+  cabe en los bits del driver; si no, el cuadro sigue por software (ver arriba). `tests/sgl/es11_gpu_falsa.c` lo
+  prueba en el PC contra una GPU falsa por la CPU (v1 y v2 dan lo mismo que el software, salvo bordes).
+
+**Pruebas:** h424 (unidad: 174 comprobaciones de conformidad, GPU falsa, demo; fuentes; rendimiento; qemu: `es11conf`
+y `es11demo -c` dan en el SaguiOS las sumas del PC; capturas `docs/capturas/H424-*.png`), y siguen pasando h77,
+h99, h101, h405, h285, h386 y h315.
+
+**Pendiente:**
+- `gpu3d_sim.c` (el driver simulado de QEMU) sin v2: añadirlo lo pidió el coordinador, pero tocar los drivers 3D
+  quedó fuera de este trabajo (permiso denegado); el camino v2 solo se prueba en el PC (GPU falsa). Lo natural es
+  que lo haga el agente de drivers con `g3d_v2_provas.c`.
+- Por la GPU no van aún: el FBO (`GPU3D_OP_DESTINO`, va por software aparte del cuadro de la GPU), `glDrawTexOES`
+  (lleva el cuadro a software), las texturas S3TC en su formato (se suben descomprimidas, ARGB).
+- Visto de paso, sin arreglar (cambiaría píxeles de antes): las líneas de las rutas de siempre dejan huecos en
+  horizontal y vertical porque `piso()` redondea al par; la tubería nueva lo hace bien.
+
+## D426. gpu3d v2 en las Radeon R5xx y R6xx/R7xx: programas de píxeles generados y capacidades probadas en la máquina (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-gpu3d-v2`)
+
+**Qué:** los drivers 3D de la X1400 (R5xx, `gpu3d_r500.c`) y de la HD 4500 (RV710, R7xx, `gpu3d_r600.c`; también las
+R6xx) implementan la interfaz gpu3d v2 de la D425: las cinco funciones nuevas (`capacidades`, `desenhar2`,
+`textura2`, `limpar2`, `destino`).
+
+**Cómo:**
+- **El programa de píxeles se genera de la combinación** (`gpu3d_unidade_t`): una lectura de textura por unidad
+  activa, la combinación de color y de alfa de cada unidad (sustituir, modular, sumar, sumar con signo, interpolar,
+  restar, DOT3; operandos «1 - x»; escala 1/2/4; saturación) y la salida (especular y niebla). En R5xx, instrucciones
+  del US (`r5_fp_gerar`, `r500_pacotes.h`); en R6xx/R7xx, un sombreador con cláusulas TEX y ALU (`r63d_ps2_gerar`,
+  `r600_3d_pacotes.c`) que respeta los puertos de lectura de cada grupo (un registro por canal y ciclo, 4 literales;
+  si una media instrucción del color y una del alfa no caben juntas, van en grupos distintos).
+- **Caché de programas por combinación** (no se genera cada cuadro): 8 en cada driver. En R5xx el programa se vuelve a
+  cargar en el US solo si cambia; en R7xx los 8 viven en la VRAM (zona de sombreadores, 4 KB cada uno) y cambiar es
+  solo `SQ_PGM_START_PS`. Las constantes de las unidades van en R5xx como constantes del US y en R7xx como literales
+  (el programa depende de ellas: forman parte de la clave).
+- **Vértices:** en R5xx van en la orden con 6 + 2 palabras por juego de coordenadas usado (con uno, el formato de v1);
+  en R7xx el `gpu3d_vert2_t` tal cual (88 bytes) con un sombreador de vértices v2 fijo (6 parámetros).
+- **Lo demás por registros:** esténcil de 8 bits (R7xx: el Z de 24 bits pasa a `DEPTH_8_24`, también en v1), prueba
+  alfa (R5xx en el FG con el valor de 8 bits; R7xx en el SX, con el Z tarde como Mesa), tijera, máscara de color,
+  mezcla separada y ecuaciones, operación lógica, espejo, anisótropo, DXT1/3/5 subidas tal cual, NPOT con repetición
+  (solo R7xx), dibujar en una textura con un Z propio.
+- **Solo se anuncia lo que funciona en esa máquina** (regla 1 de la D425): `kernel/dispositivos/g3d_v2_provas.c`
+  (común, sirve también para Evergreen u otros) dibuja con las funciones del propio driver un caso pequeño de cada
+  capacidad (15 pruebas en un destino de 64x32, huecos 28-31), lee los píxeles y quita los bits de lo que falla. Cada
+  fallo deja `[GPU3D] <driver> v2: prueba N (<qué>) MAL: pixel (x,y) esperado X obtenido Y` en el log; al final,
+  `[GPU3D] <driver> v2: pruebas: pedidas 0x..., superadas 0x... (faltan 0x...)`. Si ni el dibujo v2 más sencillo sale,
+  no hay v2 y todo sigue como antes (v1 y software). Los píxeles esperados se comprueban en el PC con un driver «perfecto»
+  por la CPU (pasa todas) y uno con cada capacidad rota (pierde justo esa): `tests/g3d_v2_provas_unidad.c`.
+- **Pruebas sin la tarjeta:** `tests/r500_fp_unidad.c` y `tests/r600_ps_unidad.c` ejecutan los programas generados con
+  un intérprete propio de cada ISA (campos de Mesa `r300_reg.h`, `r600_asm.c`/`r700_asm.c`, MIT) para miles de estados al
+  azar y los comparan con la cuenta de referencia (`tests/g3d_combinar_ref.h`). Lo que no pueden ver es una lectura
+  distinta de un campo por el hardware: eso lo dicen las pruebas v2 en la máquina.
+
+**Qué no se hace (va por software):** mipmaps, cubos y coordenadas proyectivas en las dos familias; en R5xx, además, NPOT
+con repetición o espejo (como la limitación de Gen3; con borde sí) y destinos o texturas de más de 2048 (en R7xx, 1024).
+
+**Por qué así:** generar el programa del estado es lo que hacen Mesa (r300/r600) y el hardware fijo que emula GL ES 1.1;
+escribir a mano cada combinación sería imposible (miles). Probar en la máquina en vez de fiarse de la tabla: ninguna de
+estas piezas se ha visto aún en una X1400 o una RV710, y un bit mal anunciado da píxeles malos, mientras que uno sin
+anunciar solo cuesta velocidad.
+
+**Añadido el 2026-11-20 (tras la SaguiGL ES 1.1 de la D425, `85d96cc3`):**
+- La interfaz separó `G3D_CAP_TEX_NPOT` (sin mipmaps) de `G3D_CAP_TEX_NPOT_MIP`, y `GPU3D_OP_ABRIR` pide esténcil en
+  `c << 8` (la capa quita el esténcil y pide Z de 24). Los dos drivers ya daban Z24 + esténcil 8 en el Z de 24 y no
+  anuncian mipmaps: no cambian. La R5xx no anuncia NPOT (no puede repetir con lados que no son potencia de 2), así que
+  SaguiGL dibuja por software las texturas NPOT también con borde; la R7xx anuncia `TEX_NPOT` (no `NPOT_MIP`).
+- **El driver simulado** (`gpu3d_sim.c`, solo pruebas) entiende v2 con enteros: 4 unidades con COMBINE y DOT3,
+  especular y niebla, prueba alfa, tijera, esténcil (8 bits altos del Z), 8 funciones de Z, mezcla separada y con
+  resta, lógica, máscaras, repetir/borde/espejo con vecino o bilineal, cualquier lado, **mipmaps** (nivel por píxel con
+  las diferencias al píxel vecino, como SaguiGL), DXT1/3/5 (descomprimidas al subirlas) y destino textura. Anuncia lo
+  que pasa `g3d_v2_provas.c`, que gana la **prueba 15 (mipmaps)**. Así el camino v2 entero (SaguiGL -> capa -> driver ->
+  pruebas v2) se recorre en QEMU: `h424 gpu` (imagen `--gpu3d=simulado`) comprueba que las pruebas v2 pasan todas, que
+  llegan dibujos v2 y que `es11demo -g N` (nuevo: la escena por software y por la GPU) da la misma suma de software
+  que el PC y pocos píxeles distintos (bordes; en «particulas», cientos de sprites, hasta el 12 %).
+- Queda para otra vez: que el FBO de SaguiGL use `GPU3D_OP_DESTINO` y que las S3TC se suban comprimidas.
+
+**Probado en la X1400 del Amilo y corregido (2026-11-20, rama `v8.5.5.2-amilo-d426`, depurador-drivers con autorización
+del mantenedor):**
+- **Síntoma:** con la v8.5.5.2, `gpu3d probar --detalle` daba la autoprueba de v1 BIEN y después «FALLO: la medida no
+  terminó»: valla sin llegar, «el CP NO ejecuta la cola» (RPTR fijo, `RBBM_STATUS 9401c100`, GA ocupado), «v2:
+  capacidades 0», y luego el 2D apagado («la FIFO no se vacia», GART aparcada).
+- **Cómo se encontró:** kernels de prueba con `arranque probar` y ajustes de depuración en `gpu3d-r500.conf`
+  (`inicio 4ff0 N`, `docs/gpu3d.md`): cada parte del estado de un dibujo v2 con su valla y la cola alrededor del RPTR
+  en el log. Con una unidad, v2 no colgaba; con varias, colgaba al cambiar el formato del vértice; con una valla entre
+  cada parte, nunca. La valla vacía las cachés de color y de Z antes de esperar; `r5_estado_vertices` no.
+- **Causa:** `r5_estado_vertices` (al cambiar el número de juegos de coordenadas: v2 con varias unidades, o v1 tras
+  eso) ponía `WAIT_UNTIL` con `WAIT_3D_IDLECLEAN` **sin pedir antes el vaciado** de `RB3D_DSTCACHE` y `ZB_ZCACHE`. Tras
+  un dibujo las cachés quedan sucias, «limpio» no llega nunca y el CP se queda en esa orden para siempre. Mesa no espera
+  aquí (solo `VAP_PVS_STATE_FLUSH_REG`); la valla de Linux y nuestro `r5_vaciar` vacían antes de esperar.
+- **Arreglo:** `r5_vaciar` (vaciado + espera) en lugar del `WAIT_UNTIL` solo. `tests/r500_3d_unidad.c` comprueba que
+  ningún `WAIT_UNTIL` de «3D limpio» va sin el vaciado delante (falla con el código de la v8.5.5.2). De paso, los
+  semáforos de textura del programa generado van como en Mesa 23.3 (`radeon_pair_schedule.c`: `TEX_SEM_WAIT` y
+  `TEX_SEM_ACQUIRE` solo en la última lectura del bloque; `r500_fp_unidad` lo comprueba); en la X1400 dan lo mismo
+  que antes (probado con la bandera 8), no eran la causa.
+- **Lo que anuncia la X1400 ahora** (pruebas v2 en la máquina): v2 con una unidad, prueba alfa, tijera, máscaras, Z,
+  mezcla, lógica, espejo, anisótropo, destino textura, DXT (`0xa2fe9`, formatos `0xf`). Fallan en la máquina (sin
+  cuelgue) y no se anuncian: combinar con varias unidades (negro) y niebla. **Esténcil y LIMPAR2 se quitan de los
+  candidatos en R5xx:** pasan la prueba pequeña, pero en «sombra» de `es11demo` dejaban rayas negras en el fondo
+  (captura privada); por software, la escena sale igual que en el PC. Queda: por qué el combinar de varias unidades da
+  negro, la niebla y el esténcil en escenas reales.
+- **Medido en el Amilo** (kernel de prueba, sin confirmar): autoprueba 8 de 8, 338.504 triángulos/s, 152.492 kpíxeles/s,
+  puntuación 2455; cuatro `gpu3d apagar`/`encender` seguidos sin fallos; el 2D sigue en «radeon». En ventana: cubo de
+  `sgldemo` 91-99 fps por la GPU (por software sin ventana 1250 fps: el cubo es pequeño y traer el cuadro cuesta);
+  paisaje de 640x480 **13,7 fps por la GPU frente a 3,0 por software** (×4,6); `es11demo` lightmap 27, partículas 81,
+  sombra 58, reflejo 25 fps; `sgldemo -g` BIEN en las siete escenas; `es11demo -g` igual que el software en lightmap,
+  sombra y reflejo, y partículas con 8134 de 76800 píxeles distintos (sprites, como en el simulado).
+
+**DXT en la HD 4500 del dv7: probado y corregido (2026-11-21, rama `v8.5.5.2-r7xx-dxt`, depurador-drivers con
+autorización del mantenedor):**
+- **Síntoma:** todo v2 pasaba en la RV710 (`1002:9553`) menos la prueba 11: `DXT1 ... esperado ff0000 obtenido 5700a7`,
+  `DXT3 ... ffffff`, `DXT5 ... 000000`, y el driver se quedaba con `formatos 0x1` (las S3TC por software).
+- **Cómo se encontró** (kernels de prueba con `arranque probar`, volcados de 8x8 y 16x16 píxeles en el log; rama de
+  diagnóstico `diag-r7xx-dxt`, no se fusiona): el recurso de textura era el de Mesa (`FMT_BC1/2/3` = `0x31-0x33` de
+  `r600d.h`, paso en texels, `REQUEST_SIZE` 1, mezcla X Y Z W) y la VRAM tenía los bloques bien (leída por la CPU), pero
+  la tarjeta no los leía de su sitio: rellenando la memoria con «c0 = 0x8000 | número de palabra», cada texel salía de
+  otra palabra (los colores de la palabra 0, los índices de la 8, las filas 2-3 del bloque de la 520...), con texturas
+  de 4x4 a 256x32, con `LINEAR_GENERAL`, `TILE_TYPE`, `REQUEST_SIZE`, `SRF_MODE`, otro intercambio de bytes, una
+  memoria sin usar o vaciando toda la caché de texturas. En `ARRAY_1D_TILED_THIN1`, en cambio, cada bloque salía entero
+  de su ranura, siempre igual.
+- **Causa:** las R6xx/R7xx no leen bien una textura comprimida en lineal alineada. Mesa no lo hace nunca
+  (`r600_texture.c`, `r600_choose_tiling`: «Compressed textures and DB surfaces must always be tiled»: 1D si un lado
+  es de 16 o menos, 2D si no); nosotros la poníamos en lineal como las ARGB. No eran el paso de 256, el formato, la
+  mezcla de canales ni el orden de los datos de la prueba. La X1400 (R5xx) no tiene este fallo de fondo: allí las DXT
+  en lineal pasan en la máquina (formatos `0xf`, ver arriba) y Mesa r300 también las deja en lineal.
+- **Arreglo:** las DXT van en **1D en mosaico** (`TILE_MODE` 2 en `r63d_textura2`; las ARGB siguen en lineal) y
+  `r3_textura2` pone cada bloque en su sitio (`r63d_bc_desloc`, `r600_3d.h`): micro-mosaicos de 8x8 bloques seguidos por
+  filas y, dentro, el orden «displayable» de AddrLib para elementos de 64 bits (BC1: bits x0 y0 x1 x2 y1 y2) o de 128
+  (BC2/BC3: y0 x0 x1 x2 y1 y2), que es el que se midió en la tarjeta. Paso de 8 bloques (32 texels) y alto de 8 filas
+  de bloques (`r600_get_array_mode_alignment` de Linux, `r600_cs.c`). Si la tarjeta lo leyera distinto, la prueba 11
+  falla y las S3TC siguen por software (regla 1 de la D425): no hay camino nuevo que pueda dar píxeles malos.
+- **Pruebas:** `tests/r600_3d_unidad.c` (h284) comprueba el recurso de las DXT (2D, 1D en mosaico, paso, `FMT_BC1/2/3`,
+  mezcla), que las ARGB siguen en lineal, y el orden de los bloques contra las filas medidas en el dv7 (falla con el
+  código de antes: 58 y 61 bloques distintos y el recurso en lineal).
+- **En el dv7** (kernel de prueba con la etiqueta «v8.5.4.10», sin confirmar): `r600 v2: pruebas: pedidas 0x1a7fff,
+  superadas 0x1a7fff (faltan 0x0); 4 unidades; formatos 0xf`, `v2: capacidades 0x5a7fff, 4 unidades, formatos 0xf`;
+  `gpu3d probar` BIEN, puntuación 9578. Hoy SaguiGL aún descomprime las S3TC al subirlas (ver «Queda» arriba): el
+  camino comprimido solo lo usan las pruebas v2 y los programas que llamen a `GPU3D_OP_TEXTURA2` con DXT.
+
+**Referencias** (valores y secuencias; código propio, `docs/terceros.md`): Mesa 23.3 `r300_reg.h`, `r300_state.c`,
+`r300_texture.c` (`dxtc_swizzle` de las R500), `r500_fragprog_emit.c`; `r600d.h`, `r600_state.c`, `r600_asm.c`,
+`r700_asm.c`, `r600_isa.c` (MIT).
+
+## D427. 3D por la GPU en las Radeon Evergreen y Northern Islands sin Cayman (HD 5000-6000, HD 7500M/7600M): driver `gpu3d_evergreen` (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-evergreen3d`)
+
+**Contexto:** autorizado por el mantenedor el 2026-11-20 y adelantado a la v8.5.5.2 (Opus, esfuerzo medio). El Toshiba
+con la HD 7600M «Thames»/Turks (`1002:6840`) tiene el 2D por DMA confirmado (D408, D424) y SaguiGL por software; el
+3D de las R7xx (D284/D357/D402) funciona en el dv7. Objetivo de esta fase (A): la interfaz `gpu3d` de hoy (v1) en
+Evergreen/NI igual que en R5xx y R6xx/R7xx: triángulos transformados, Z, mezcla y una textura ARGB, color =
+`saturar(textura × color + especular)`, con su autoprueba y su vigilante, para que SaguiGL, `sgldemo` y la SDL 2 la
+usen sin cambiar nada. La fase B (capacidades de la interfaz v2) espera al commit «gpu3d v2:» de la rama
+`v8.5.5.2-sgl-es11`. (Numeración: el encargo pedía el primer número libre; D425 y D426 los cogieron a la vez
+la interfaz v2 y su driver de R5xx en otras ramas, así que esta es la D427 y su prueba `h427`.)
+
+**Decisión:**
+
+1. **Un driver nuevo, no ampliar el de las R7xx.** `kernel/dispositivos/gpu3d_evergreen.c` (`gpu3d_evergreen`), con la
+   lógica pura en `kernel/dispositivos/evergreen_3d_pacotes.c` y `kernel/inc/evergreen_3d.h` (probada en el PC con
+   `tests/evergreen_3d_unidad.c`). Cambian demasiadas cosas para meterlas con `if` en `gpu3d_r600.c` (que además está
+   cambiando otro agente): rangos de los recursos (0x30000, 8 palabras, los del VS desde el 176), secuenciador con HS/LS
+   y LDS, otros registros de color y Z, la mezcla en `CB_BLEND0_CONTROL`, el Z obligatoriamente en mosaico, la
+   interpolación hecha por el sombreador de píxeles (`INTERP_XY/ZW` con las baricéntricas que el SPI deja en R0) y otro
+   CF (contador de 6 bits, `EXPORT_DONE` 0x54). Se reutilizan sin cambiarlos los lotes, `ME_INITIALIZE`, el flotante y
+   el paso alineado de `r600_3d_pacotes.c`, la sonda `r600_sondar` del 2D (D286/D408) y las piezas `g3d_*`. Familias:
+   Cedar, Redwood, Juniper, Cypress/Hemlock, Barts, Turks y Caicos (`eg3d_familia_por_nome`, por el nombre de la tabla
+   del 2D). **Cayman no** (VLIW4, CF sin `END_OF_PROGRAM`, otro inicio): «gpu3d» lo deja en software.
+2. **Mismo esquema que en las R7xx:** el CP con su microcódigo lee la cola (64 KB) en la VRAM, sin escritura de vuelta
+   (`RB_NO_UPDATE`, `SCRATCH_UMSK` 0), vallas en un registro de apuntes, sin GART, sin bus maestro ni interrupciones; el
+   cuadro vuelve a la RAM leído por la CPU (con SSE2, D402). Zona 3D (4 a 128 MB) detrás del 2D, de las superficies de
+   los otros controladores (hasta 6) y de los cursores, y **dentro de los primeros 64 MB del BAR 0** (D286: en
+   Evergreen no hay registro con el tamaño de la apertura y medir el BAR obligaría a escribirlo); 16 MB con ventana fija
+   y el resto por la ventana móvil (Z y texturas).
+3. **40 bits (D408):** la zona usa las mismas direcciones del MC que el 2D (en el Toshiba, `0xF_xxxx_xxxx`). Todos los
+   registros de base llevan los bits 39:8 (`CP_RB_BASE`, `CB_COLOR0_BASE`, `DB_Z_*_BASE`, `SQ_PGM_START_*`, la textura) y
+   el recurso de vértices los bits 39:32 en su palabra 2; `SURFACE_SYNC` cubre toda la memoria (tamaño 0xFFFFFFFF, como
+   Mesa), lo que de paso evita el fallo de los rangos sin alinear de la D402. El 3D de las R7xx sigue rechazando la VRAM
+   alta (no lo toca este cambio).
+4. **Firmware:** el 2D de estas tarjetas no carga ninguno (motor DMA, D286). El 3D carga el PFP (4480 bytes) y el ME
+   (5504) de linux-firmware `20241110` (`CEDAR`, `REDWOOD`, `JUNIPER`, `CYPRESS`, `BARTS`, `TURKS`, `CAICOS`; Hemlock usa
+   los de Cypress), en `firmware/radeon/` con `LICENSE.radeon.txt` y sus SHA-256 en `tools/firmware_radeon.sh`; fuera con
+   `SEM_FIRMWARE=1`. **No** se carga el RLC (Linux lo pone para interrupciones y ahorro de energía, que aquí no se usan;
+   en las R7xx tampoco y el 3D va) ni el del MC (lo deja cargado la BIOS: Linux solo lo carga si el secuenciador del MC
+   está parado; la etapa 3 lee `MC_SEQ_SUP_CNTL` y lo dice).
+5. **Encendido por etapas (como D357/D358)** con su línea `[GPU3D] evergreen: etapa N` y el motivo `etapa N (nombre): …`
+   en la salida de `gpu3d probar`: 0 sonda (solo lectura), 1 microcódigo y comprobar que la VRAM de la zona guarda lo
+   escrito, 2 parar el CP y cargarlo (`evergreen_cp_load_microcode`), 3 valores por defecto del motor por MMIO (lo de
+   `evergreen_gpu_init` que es del 3D; **no** se tocan el HDP, DMIF/HDP/DMA/UVD_ADDR_CONFIG, el MC ni la pantalla;
+   `GB_ADDR_CONFIG` y `GB_BACKEND_MAP` se dejan como los puso la BIOS salvo que estén a cero), 4 cola y reinicio del CP
+   con los bloques del 3D que dependen de él (`GRBM_SOFT_RESET` CP, PA, SPI, SH, SX y VGT, como `evergreen_cp_resume`;
+   nunca SRBM ni el motor entero), 5 `ME_INITIALIZE` y prueba de la cola, 6 sombreadores y estado base (con el preámbulo
+   `PREAMBLE_CNTL` + `CLEAR_STATE` de `evergreen_cp_start` y el mismo estado otra vez fuera del preámbulo).
+6. **No se enciende solo** (como las R6xx/R7xx y las R5xx): «apagado» al arrancar; `gpu3d probar` / `gpu3d encender` (o
+   una imagen con `--gpu3d=radeon`) lo encienden con la autoprueba común (8 pruebas que leen píxeles); `gpu3d apagar`
+   para el CP y todo vuelve al software; el vigilante de la capa (2 s por valla) lo apaga ante cualquier espera agotada.
+   El 3D (CP) y el 2D (motor DMA) son independientes: un 2D fallido no lo impide.
+7. **Diagnóstico:** `gpu3d probar --detalle` vuelca `GRBM_STATUS`, `GRBM_STATUS_SE0`, `SRBM_STATUS`, `CP_STAT`, punteros
+   de la cola, apuntes, `GB_ADDR_CONFIG`/`GB_BACKEND_MAP` (los de la BIOS al lado), `SQ_CONFIG`, `MC_SEQ_SUP_CNTL`,
+   `VM_CONTEXT0_CNTL`, la zona y el destino en `alto:bajo`, y cada 600 cuadros el tiempo de la valla y de la copia.
+   `/sistema/conf/gpu3d-evergreen.conf` (D390) admite contexto `0x28000-0x28FFC`, VGT/PA/SQ `0x8800-0x8EFC`, SPI
+   `0x9100-0x91FC`, DB `0x9830-0x985C` y `GB_ADDR_CONFIG`/`GB_BACKEND_MAP`, todo por la cola.
+8. **De paso:** `r600_hdp_vaciar` (la usa el 3D) usaba el rodeo `HDP_DEBUG1` de las R7xx también con las generaciones 8 y
+   9; ahora solo con la 7, como el 2D (`hdp_vaciar`) y Linux (`r600_mmio_hdp_flush`). No cambia nada para el dv7.
+
+**Referencias** (solo números, bits y orden de las secuencias; código propio, `docs/terceros.md`): xf86-video-ati
+(`evergreen_accel.c`, `evergreen_shader.c/.h`, `evergreen_reg*.h`), Mesa 23.3 (`evergreend.h`, `eg_sq.h`,
+`evergreen_state.c`) y Linux 6.6 (`evergreen.c`, `evergreend.h`, `evergreen_reg.h`, `evergreen_blit_shaders.h`), todos MIT.
+
+**Pruebas:** `tests/h427_gpu3d_evergreen.py` (`fuentes`: interfaz, arranque apagado, registros que escribe, plazos,
+firmware, 40 bits, documentos; `unidad`: `tests/evergreen_3d_unidad.c` con ASan/UBSan: los tres sombreadores contra una
+segunda codificación y palabras de xf86-video-ati, el recorrido de los paquetes como el CP con un banco de registros
+simulado, el inicio del motor y un simulador del ISA que ejecuta los sombreadores y exige `sat(textura × color +
+especular)`; `qemu`: nada cambia sin Radeon y el microcódigo está en la imagen). Siguen pasando h284, h285, h286, h287,
+h359, h386 y h19.
+
+## D428. Estilos de apariencia para todo el sistema (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-estilos`)
+
+Pedido del mantenedor: esquemas de apariencia al estilo de los de Windows 98 («Desierto»...), no solo la barra de arriba:
+ventanas, títulos, menús, botones, campos, listas, selección, barra de tareas y escritorio, configurables en Configuración.
+
+- **Una estructura** `esquema_t` (`kernel/inc/esquemas.h`, solo cabecera, la usan igual el kernel y la libsagui): unos 100 colores con
+  nombre (escritorio, título activo e inactivo con dos colores de degradado y texto, marco, contorno, cerrar, superficie y luz/sombra
+  de los controles, texto y atenuados, ventana, campo y lista, selección, menú, barra de tareas, menú Inicio, acento y foco,
+  información, panel y avisos del kernel, barras de desplazamiento, la paleta de `mod_tema` y los colores de Archivos). **«SaguiOS»**
+  (id 0) es valor por valor lo de antes: la prueba h428 lo compara con los `COR_*`, `W98_*`, `TEMA_CLARO`, el título, el menú y la barra
+  de siempre, y dos capturas del mismo estado (antes de tocar nada y después de pasar por otros estilos) salen idénticas píxel a píxel.
+  Los otros once se generan de una paleta corta (`esq_prim_t`: escritorio, títulos, fondo, texto, campo, selección, menú, barra, acento,
+  información) con derivaciones fijas.
+- **Kernel** (`kernel/gui/aparencia.c`): guarda el esquema vigente y el de la pantalla de inicio de sesión. `SIS_ESQUEMA` (151): `ESQ_OP_LER`,
+  `ESQ_OP_VERSAO`, `ESQ_OP_FIJAR` (redibuja todo y manda `EV_TEMA` (21) a todas las ventanas) y `ESQ_OP_FIJAR_LOGIN` (solo root). El marco y el título
+  de las ventanas (con degradado horizontal), los botones de maximizar, minimizar y cerrar, el menú contextual, la barra de tareas
+  (`barra_propia`: con un esquema que no es SaguiOS la barra usa sus colores y el estilo elegido en Configuración no cuenta), el menú Inicio, Alt+Tab,
+  los avisos y el escritorio (degradado de dos colores; el tricolor de SaguiOS se queda para SaguiOS) leen de él. **El acento (D112)** es un campo más:
+  con «SaguiOS» manda y da el título activo; con otro esquema, elegir un acento recolorea los títulos y el esquema pasa a personalizado.
+  Al cerrar la sesión vuelve el esquema de `/etc/estilo.conf`. La pantalla de inicio de sesión y el diálogo de permisos mantienen sus colores propios (pendiente).
+- **libsagui**: `sagui_esq` (copia del esquema, se carga al abrir una ventana y en cada `EV_TEMA`); `COR_FUNDO`, `COR_TEXTO`, `COR_BORDA`,
+  `COR_BOTAO`, `COR_SELECAO`, `W98_*` pasan a ser lecturas de ella (así todos los programas que los usan lo siguen sin cambios), y se añaden `COR_CAMPO`
+  (el fondo de campos y listas, antes `COR_BRANCO`), `COR_SEL_TEXTO` y `COR_SEL_SUAVE`. `mod_tema` se rehace desde el esquema (`esq_para_mod_tema`).
+  Los colores fijos de los widgets (`gui.c`, `gui_arvore.c`, `gui_barras.c`, `gui_explorador.c`, `gui_arquivos.c`, listas, barras de desplazamiento) y los de Archivos pasan
+  al esquema. Con esquemas oscuros los iconos de trazo oscuro (`P` y `D` de `icones.c` y de Archivos) se aclaran (`esq_trazo`); no hizo falta una variante clara aparte.
+- **EV_TEMA**: `proximo_evento`/`esperar_evento` recargan el esquema y llaman a la función que el programa registró con `tema_ao_mudar`. Lo atienden Archivos, Configuración,
+  Terminal, Editor, Visor y Calculadora; los demás lo ignoran y cogen el esquema al abrirse (el resto de programas, pendiente).
+- **Configuración > Escritorio > Estilos** (sección nueva, tras «Colores y fondo»): lista de los doce esquemas y de los guardados, miniatura de 320x200 (`esq_vista_previa`:
+  escritorio, barra, ventana activa e inactiva, menú, botón, campo y tooltip), aplicar en vivo al elegir, «Usar en el inicio de sesión» (`/etc/estilo.conf`) y el modo
+  «Personalizar...»: 26 elementos, el selector de color de siempre, guardar con nombre (`/home/.config/estilos.lista`) y borrar. Se guarda por cuenta en
+  `/home/.config/estilo.conf`; `configuracion --aplicar` lo aplica al arrancar y en cada sesión. Cancelar devuelve el de antes. Orden `configuracion estilo ...`.
+- **Contraste** (lo vigila h428, WCAG): texto sobre fondo, títulos activos, selección, menús, barra, campos, tooltip y escritorio >= 4,5:1 (7:1 en los dos de alto contraste); título
+  inactivo >= 3:1.
+
+- **Más esquemas (segunda tanda):** Arce, Lavanda, Océano, Cereza, Grafito (oscuro con acento naranja), Nórdico, Terminal (verde fósforo sobre negro), Solarizado claro y
+  oscuro (valores propios inspirados en la idea) y Alto contraste amarillo: 22 en total. Todos pasan el contraste de h428. El texto sobre el acento se elige negro o blanco
+  según la luminosidad (umbral 120). En alto contraste la fila elegida de Archivos es el color de selección puro.
+- **Pantalla de inicio de sesión, diálogo de permisos y bandeja:** con un esquema propio toman sus colores (`barra_propia`); con SaguiOS siguen igual. Con una barra clara los iconos
+  de la bandeja se oscurecen.
+- **Fuente del sistema** (`esquema_t.fonte`, fuera de los colores): 0 la de SaguiOS (la de siempre, intacta), 1 Terminus, 2 Terminus negrita y 3 Fixed, todas 8x16 con el Latin-1 entero
+  (`kernel/inc/fontes_sistema.h`, generado por `tools/psf2fonte.py`; licencias en `docs/terceros.md`). `fonte_sagui` deja de ser `const` y el kernel (al fijar el esquema) y la libsagui
+  (al recargarlo con `EV_TEMA`) copian la tabla elegida encima; se guarda por cuenta (`fonte=` en `estilo.conf`, también en los estilos guardados), se aplica en vivo y cambiar de estilo
+  no la toca. Selector en Estilos y orden `configuracion estilo fuente N`. **No se hizo** el tamaño grande ni la TrueType rasterizada: la geometría de los widgets y de muchas pruebas
+  da por hecho 8x16 (`LETRA_L`, `LETRA_A`); una fuente de otro tamaño exigiría pasar toda esa geometría a variables.
+
+**Pruebas:** h428 (parte estática con `tests/estilos_unidad.c`; QEMU 1280x1024: clic real en Desierto, Oscuro y Alto contraste negro con captura de Archivos, un menú y Configuración,
+píxeles de barra, escritorio, títulos, menú y selección; SaguiOS idéntico; personalizado guardado, reinicio y repintado de la Calculadora abierta), más h83, h315, h369, h386, h420 y h423.
+Capturas `docs/capturas/H428-*.png`. **Pendiente:** el resto de programas con `tema_ao_mudar`, los colores fijos de cada programa, la pantalla de inicio de sesión y el diálogo de permisos.
+
+## D429. Tzar: el juego escala él mismo su lienzo (modos de pantalla) y vigila su bucle (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-tzar`)
+
+**Contexto:** la SDL del SaguiOS ya amplía el lienzo de una ventana a pantalla completa (vecino más próximo, con su proporción), pero
+sin escalado entero, sin filtro a elegir y sin que el programa sepa dónde queda su imagen. Tzar necesita además un lienzo de al menos
+800x600 (la interfaz original) y una «interfaz x2» para pantallas grandes, como AoEN. Y el mantenedor vio el juego «colgado» con la
+imagen quieta y el sonido sonando.
+
+**Decisión:**
+1. A pantalla completa Tzar pide a la SDL un lienzo del tamaño de la pantalla (como AoEN) y escala él su lienzo de juego
+   (`opcoes.c`): entero o ajustado con bandas negras, nítido o suave, y el ratón vuelve al lienzo con la misma cuenta. La interfaz x2
+   es dibujar a la mitad y ampliar x2 (`hud_layout` de ReTzar: el mayor factor que deja 800x600). Lo elegido va en `tzar.cfg`.
+2. Un hilo vigilante (`vigia.c`) mira el latido del bucle principal y, si se para, pausa la tarjeta y deja en el registro la pila de
+   módulos donde estaba. No sustituye a encontrar la causa: el cuelgue visto era una frase de conversación que no se podía cerrar
+   (`tz_guiao_fechar` no cierra conversaciones; se sigue con `tz_guiao_responder`).
+
+**Por qué:** el escalado propio no toca la SDL común (otros programas siguen igual) y se prueba en el PC sin pantalla; el vigilante
+convierte un «se colgó» sin datos en una línea de registro con el sitio.
+
+**Pruebas:** h417 `cuelgue` (batería) y `saguios`; a mano, `h417_tzar.py privado_saguios` y el guion privado de reproducción.
+
+## D430. Tzar: simulación completa (comercio, objetos, taberna, hechizos, experiencia, mapas aleatorios cargables) (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-tzar-sim`)
+
+La simulación de Tzar sigue a ReTzar también donde difiere de lo aproximado antes: la experiencia pide Learning/academias/Heroism (sin ellos no
+se sube de nivel), los blancos se eligen con las tablas de prioridad de `combat.rs` y los recursos de los aliados que comparten se gastan.
+Las unidades grandes ocupan 2x2 con el ancla arriba a la izquierda. Solo se añadió a `mundo.h` (detalle en `docs/tzar.md`, «Simulación
+completa»). Las partidas en mapas aleatorios se guardan con los parámetros del mapa (una línea `ALEAT ...`) y se regeneran al cargar.
+Pruebas: h417 `extras` y `campanhas`; a mano, los 71 mapas reales y las 65 misiones (sin datos reales en git).
+
+## D431. AoEN: el audio va por su cuenta y no depende de los FPS (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-aoen-audio`)
+
+Pedido del mantenedor: que el audio no se sincronice con los FPS, para que un juego lento siga siendo jugable. Causa: en SaguiOS la SDL
+mueve el audio desde el hilo principal, una vez por cuadro (120 ms de adelanto), y los cerrojos del dispositivo eran los del hilo del
+juego. Cambio, solo en AoEN: mezclador sin SDL (`mezcla.c`) con cola de eventos sin cerrojos, hilo de audio propio en SaguiOS (tarjeta
+directa, 150 ms por delante) y búfer de 93 ms en la llamada de vuelta del PC, música por buzón sin cerrojos y ambiente en tiempo real.
+No se toca la SDL de SaguiOS ni el kernel (otros juegos la usan tal cual). El modo «AoE original» no cambia. Variables de prueba:
+`AOEN_FPS_LENTO`, `AOEN_FPS_OCUPADO`, `AOEN_AUDIO_WAV`, `AOEN_AUDIO_SEG` y la escena `AOEN_SCENE=audio`. Pruebas: h431 (`mezcla`, `juego`,
+`fuentes`) con datos sintéticos, y las de AoEN de siempre (h389, h398, h415). Detalle en `docs/aoen.md`.
+
+## D432. Presentar por la GPU sin volver a la RAM: la GPU escribe el cuadro en la pantalla y el compositor se la cede a la ventana a pantalla completa (decidido el 2026-11-20; v8.5.5.2, rama `v8.5.5.2-presentar-gpu`)
+
+**Contexto.** El renderizador por GPU de la SDL 2 (D288) dibuja en la zona 3D y trae cada cuadro a la RAM para que el
+compositor lo pinte: la lectura de la VRAM (sin caché) se come lo que gana, y por eso sigue apagado para AoEN (D394). El
+mantenedor pidió la «fase 1» del plan de `docs/aoen.md`: que los juegos de la SDL a pantalla completa se presenten por la
+GPU sin volver a la RAM, como opción.
+
+**Decisión.**
+1. **Una operación nueva de la capa `gpu3d`: `GPU3D_OP_APRESENTAR` (14)**, con bit de capacidad `G3D_CAP_APRESENTAR` y una
+   función más al final de `gpu3d_driver_t` (`apresentar`, puede ser `NULL`). Copia, escalando, un rectángulo del destino
+   del 3D **o de una textura** a un rectángulo de la pantalla; el resto queda negro (bandas). La interfaz solo se amplía:
+   un programa o un driver de antes siguen igual.
+2. **El destino es la superficie del CRTC, con su paso** (la pantalla vive en la VRAM en las tres familias: X1400 en MC
+   `c0000000`, R7xx, y Evergreen con direcciones de 40 bits, D408). Es un dibujo normal con el destino de color cambiado
+   mientras dura; **de la pantalla solo se leen registros** (para comprobar que sigue donde estaba, su modo de superficie y
+   el retrazado). No se cambia la base del CRTC: el doble búfer queda anotado, no hecho.
+3. **Solo presenta quien tiene la pantalla en exclusiva.** El compositor se la cede a la ventana a pantalla completa y con
+   el foco de quien llama, deja de pintar (y de dibujar la flecha) mientras dure, y la recupera, repintando todo, con
+   Alt+Tab o cualquier pérdida de foco o de pantalla completa, un aviso, un menú, el diálogo de permisos, la sesión o el
+   bloqueo, el salvapantallas o la pantalla apagada (D422), varias pantallas, si el programa suelta el motor o vuelve a
+   pintar su ventana, si el 3D se apaga y tras 3 s sin cuadros. Se comprueba **en cada cuadro y en cada tic del gestor**. Al
+   recuperarla trae el último cuadro de la pantalla a los píxeles de la ventana. El programa recibe «ahora no» y presenta
+   ese cuadro como siempre: ni el programa ni el usuario tienen que hacer nada.
+4. **Drivers:** `gpu3d_r500.c` (vaciado de cachés antes de esperar al 3D limpio, D426; la ventana móvil de la CPU no
+   interviene), `gpu3d_r600.c` (`r63d_alvo_modo`: color = pantalla con el `ARRAY_MODE` que dejó la BIOS, sin Z; exige el
+   paso alineado al grupo de la tarjeta, D402), `gpu3d_evergreen.c` (`eg3d_alvo_modo`; la prioridad de la pantalla de la
+   D424 no se toca y el log dice cómo está) y `gpu3d_sim.c` (escribe en el framebuffer, para las pruebas). Intel Gen3, sin
+   la operación.
+5. **SDL 2:** con el renderizador por GPU y a pantalla completa, `SDL_RenderPresent` presenta directo. El `SDL_RenderCopy`
+   opaco que cubre todo el lienzo (una textura actualizada cada cuadro: DOOM, AoEN, emuladores) **se aplaza** y la GPU lleva
+   la textura a la pantalla: una subida a la VRAM y una copia escalada por la GPU. Los programas que pintan en la superficie
+   de la ventana (Tzar, OpenTTD) tienen un camino experimental que sube el lienzo cuando cambia.
+6. **Sigue siendo opcional.** Nada cambia por defecto en ningún juego: hace falta el 3D encendido y el renderizador por
+   GPU, que se pide con `SDL_SAGUI_GPU=1` (nombre nuevo de `SAGUI_SDL2_GPU`, que sigue valiendo), con Configuración
+   (D323) o con la opción del propio juego (`render2d`/`AOEN_RENDER` en AoEN, apagada por defecto, D394).
+   `SDL_SAGUI_GPU_PRESENTAR=0` deja la GPU como antes de esta decisión; `SDL_SAGUI_GPU_VSYNC=1` y `SDL_SAGUI_GPU_FILTRO=1`,
+   la espera al retrazado y el filtro bilineal.
+
+**Por qué así.**
+- *La pantalla como destino, sin doble búfer:* es lo que menos toca. Cambiar la base del CRTC obliga a escribir registros
+  de pantalla y a devolverlos bien en cada salida y en cada fallo; un error ahí deja la máquina sin imagen. El precio es
+  el desgarro, que se atenúa con la espera al retrazado (solo lectura, con plazo), opcional porque es una espera activa.
+- *Exclusiva por cuadro y por tic, en el compositor:* el compositor ya sabe todo lo que puede tener que verse encima; una
+  sola función (`excl_impedimento`) lo decide, y «ante la duda, la pantalla es del compositor». Un programa colgado no se
+  queda con la pantalla (3 s) y un fallo de la GPU la devuelve antes de apagar el driver.
+- *Fuente = textura:* el caso real de los ports es una textura por cuadro; presentarla directa ahorra la copia intermedia
+  al destino del 3D y no usa el destino como textura.
+- *Capacidad preguntada al driver al encender (`apresentar(NULL)`):* depende de la pantalla de esa máquina (32 bits, paso,
+  modo de superficie), no solo del modelo.
+
+**Límites conocidos.** Solo a pantalla completa, con 32 bits y una pantalla; en R7xx/Evergreen la fuente no pasa de
+1024x1024 (lienzos mayores van por software, como antes); una captura de pantalla durante la exclusiva no ve el cuadro de
+la GPU; la flecha del sistema, si el juego no la esconde, se redibuja tras cada cuadro (puede parpadear); en R7xx y
+Evergreen la textura se sube por la ventana sin caché de la CPU (en R5xx ya va en write-combining); SaguiGL/EGL todavía no
+la usa.
+
+**Estado en hardware (2026-11-20).** **Probado en el Amilo (X1400)** con un kernel de prueba (`arranque probar`, sin
+confirmar): la imagen que deja la GPU en la pantalla es correcta (traída de la VRAM y capturada), 0 fallos, el 2D sigue
+activo. `sdl2presentar` (una textura por cuadro) a 640x480: **177 fps directo**, 32 con la vuelta a la RAM de antes y 83
+por software; DOOM (`-timedemo demo1`, pantalla completa): **109 fps** frente a 82 por software. La primera tanda perdía
+contra el software (la textura se subía por la ventana sin caché, ~100 MB/s): se añadió la **subida en write-combining**
+en `r5_textura` (por la ventana móvil, solo si el framebuffer ya va en WC por la PAT). Tabla completa en `docs/gpu3d.md`.
+**Sin probar:** el dv7 (R7xx) y el Toshiba (Evergreen), apagados; en ellos la subida sigue sin caché (si las medidas lo
+piden, lo mismo que en R5xx). Nadie miró la pantalla del Amilo: desgarro, flecha, Alt+Tab y avisos, por ver.
+
+**Pruebas.** `tests/h432_presentar_gpu.py`: `unidad` (bandas, vértices de la copia, la pantalla como destino en R5xx,
+R6xx/R7xx y Evergreen con 40 bits; los destinos de siempre no cambian ni una palabra), `fuentes` (entre otras cosas, que
+presentar no escribe ningún registro por MMIO y que toda espera tiene plazo), `std` (sin GPU nada cambia) y `simulado`
+(QEMU con `--gpu3d=simulado`: el cuadro llega a la pantalla escalado y con bandas, el compositor no pinta encima, y la
+recupera con Alt+Tab, un aviso, al salir y con `gpu3d apagar`; en ventana, con la opción apagada o con un driver que dice
+«no puedo», como antes). Programa de prueba y de medida: `/apps/bin/sdl2presentar`.
+
+## D435. Tzar: pantalla del mapa aleatorio con las opciones del original (decidido el 2026-11-21; v8.5.5.2, rama `v8.5.5.2-tzar-aleat`)
+
+Pedido del mantenedor: la generación de mapas aleatorios de Tzar no se podía configurar (el botón «Mapa aleatorio» abría la pantalla de la
+escaramuza y la partida salía con tamaño, terreno y recursos fijos). Ahora «Mapa aleatorio» abre su pantalla propia, la `S_SINGLERND` del
+original (traducida de `Screen::Random` de ReTzar, mismos rectángulos y arte), con **todas las opciones que tiene ReTzar**: tamaño (64 a 512),
+tipo de mapa (al azar, archipiélagos, islas, continente, lagos, tierra), terreno (al azar, hierba, verano, nieve, desierto), recursos del mapa,
+torres de guardia, animales, objetos mágicos, puertas mágicas, de 2 a 8 reinos con civilización y equipo cada uno, tipo de partida, condición
+de victoria, límite de población, dificultad, recursos iniciales y niebla/explorar. Los límites son los del original (64: 4 reinos y sin
+archipiélagos, islas ni lagos; 96: 6 reinos y sin archipiélagos ni lagos; 128: sin archipiélagos). Añadido por SaguiOS: vista previa del mapa
+generado (clic para verla grande) y «Otro mapa» (cambia la semilla); las últimas opciones se recuerdan en `tzar.cfg` (`aleatorio=ALEAT2 ...`).
+Cada partida nueva deja otra semilla para la siguiente.
+
+**Sin hacer, y por qué:** las montañas (la casilla sale apagada: ReTzar tampoco las genera), el comportamiento de la IA de cada reino y la
+rendición de la IA (la IA de Tzar en SaguiOS usa el guion estándar), el límite de la condición de victoria por tiempo o puntos (queda en 30), el
+jugador humano en otra fila (siempre el primero) y las unidades iniciales (el original no las deja elegir: son castillo y tres peones).
+
+**Cambio de comportamiento:** en el mapa aleatorio los reinos del mismo equipo ahora son aliados (antes cada reino tenía su propio equipo
+y las casillas de equipo no hacían nada; los equipos solo cambiaban dónde se colocan los castillos). La línea `ALEAT` de la partida guardada
+no cambia (ya llevaba equipos, civilizaciones, puertas y objetos). No toca el núcleo del kernel.
+
+**Pruebas:** h417 `campanhas` (el mapa cambia como debe con cada opción, misma semilla = mismo mapa, guardar y cargar), `ui` (la pantalla, los
+límites y recordar en `tzar.cfg`) y `pc` (partida en mapa aleatorio con opciones, guardar, cargar y línea `ALEAT`); a mano y en privado,
+`h417_tzar.py privado_aleat` con los datos reales en QEMU.
+
+## D436. AoEN dibujado por la GPU («fase 2»): terreno como malla, sprites en atlas, la interfaz en una capa por franjas, y el HUD de rendimiento (decidido el 2026-11-21; v8.5.5.2r2, rama `v8.5.5.2-aoen-gpu`)
+
+**Contexto.** Con la fase 1 (D432) AoEN ya se presenta por la GPU, pero en el Amilo (Radeon X1400, Core Duo T2400, 1024x768,
+terreno HD, sin efectos) seguía a 14-18 fps: lo caro era dibujar el cuadro con la CPU. Medido en el Amilo con los datos reales
+(`AOEN_PERFIL=1 AOEN_BENCH=200`, partida de 4 jugadores adelantada 5 minutos, cámara en vaivén), en ms por cuadro: **terreno HD
+50,2**, entidades 2,1, interfaz 3,4, presentar 12,0 (por la CPU) u 10,8 (fase 1: subir el cuadro de 3 MB). El terreno HD (cada
+píxel con cuatro casillas, ruido y ondas) era casi todo. El mantenedor pidió pasar el dibujo a la GPU, como opción.
+
+**Decisión.**
+1. **SDL de SaguiOS** (`userland/libsdl2/sdl2_sagui.c`, `sdl2gpu.h`): `SDL_RenderGeometry` (triángulos con color por vértice y
+   textura; por GPU y por software), `SDL_RenderSetClipRect` (en la GPU, recortando los polígonos con la CPU: no hace falta la
+   tijera de v2 ni el simulado la tiene), modos `ADD`, `MOD`, `MUL` y compuestos (`SDL_ComposeCustomBlendMode`; por la GPU los
+   que caben en gpu3d v1: opaco, alfa, suma y **alfa premultiplicado**; el resto por software), lotes de **3072 vértices** (el
+   máximo del kernel) con color por vértice, **32 huecos de textura** (8 con un kernel de antes de la D425) y un aviso en el
+   registro si hay que sacar texturas por falta de huecos. Con `SDL_RenderGeometry`, las coordenadas fuera de [0, 1] **repiten**
+   la textura si sus lados son potencia de 2 (la SDL real las rechaza; AoEN lo usa para el terreno). Si algo no cabe, vuelta al
+   software como en la D288.
+2. **AoEN, modo «Dibujo por GPU»** (`gpu.c`, opcional: Opciones > Gráficos o `AOEN_GPU=1`; en SaguiOS solo a pantalla completa):
+   - **Terreno HD:** la rejilla de los centros de las casillas como triángulos, con las texturas HD repetidas en coordenadas del
+     mundo y la luz de la niebla en el color de los vértices. Lo que cuesta en esta GPU es **cada triángulo** (en el Amilo los
+     vértices van por la cola del CP: con más de ~680 triángulos pendientes la CPU espera a que la GPU acabe), así que las
+     celdas de un solo tipo y la misma luz se **juntan por filas** en un cuadrilátero (exacto: la textura es lineal en el
+     mundo), la costa y el borde de la niebla van celda a celda (una pasada por tipo con su peso en el alfa) y las manchas de
+     la segunda textura van en tramos de 6 celdas. De 1.700 triángulos por cuadro a unos 300-800.
+   - **Losetas** (terreno clásico): un rombo por casilla con su loseta del atlas y la luz de las esquinas.
+   - **Sprites:** se convierten una vez a ARGB (transparente, sombra = negro con alfa 116, que deja 140/256 como la CPU) en
+     páginas de atlas de 1024x1024, con el color de jugador ya puesto solo en los que lo llevan; la sombra de la niebla es el
+     color del vértice. Los nuevos van a una **página de paso** de 512x512 que pasa a las grandes al llenarse (en vez de subir 4 MB
+     en cada cuadro mientras aparecen cuadros de animación); hasta 12 páginas, se vacía la menos usada.
+   - **Lo de encima del suelo** (sombras, selección, barras de vida, partículas, día y noche, líneas): las primitivas de `gfx.c`
+     se graban, todos los sprites se resuelven en el atlas (cada página se sube una vez por cuadro) y se mandan **en el mismo
+     orden** que dibuja la CPU; rellenos, elipses y líneas usan un blanco y un disco reservados en cada página, así casi todo va
+     en el mismo lote.
+   - **La interfaz** la sigue pintando la CPU, en una **capa con alfa premultiplicado** partida en 8 franjas: solo se sube una
+     franja si cambió y solo se dibujan sus bloques de 64x32 con algo (los opacos sin mezcla).
+   - **Vuelta a la CPU:** si no hay 3D, si el renderizador no es el de la GPU o lo deja en un cuadro, con aviso en la partida y en
+     el registro. El modo «AoE original» y el dibujo por CPU no cambian.
+3. **HUD de rendimiento** (`rendimiento.c`; Ctrl+F u Opciones > Gráficos, apagado de serie; F3 ya era la diplomacia): fps actual
+   y media con el tiempo de cuadro, CPU total, por núcleo y frecuencia, RAM del sistema y de AoEN, GPU (cuadros y triángulos por
+   segundo del 3D y cuánto espera AoEN a la GPU), VRAM, camino de dibujo y de presentación, y temperaturas de CPU y GPU, con las
+   llamadas de htop, sensores, infopc y el Administrador de tareas, dos veces por segundo; «—» si la máquina no lo tiene.
+
+**Medido en el Amilo (2026-11-21, datos reales, kernel de prueba de la fase 1; privado).**
+
+| 1024x768, terreno HD, sin efectos | CPU | GPU fase 1 (D432) | GPU fase 2 (D436) |
+| --- | --- | --- | --- |
+| banco (cámara en vaivén, 200-300 cuadros) | 14,3 fps | 14,8 fps | 25-29 fps |
+| partida (espectador, cámara quieta; `[AOEN] estado ... fps=`) | 12-13 fps | 14 fps | 25-30 fps |
+
+Fase 2, por cuadro: unos 1.100 triángulos en 19 lotes, 800 KB subidos; terreno 10,8 ms (incluye esperar a la GPU), entidades
+4,9, interfaz 3,0, presentar 15,9 (capa, últimos lotes y `SDL_RenderPresent`, que solo él ya cuesta ~8 ms: borrar y copiar a la
+pantalla). Sin errores de la GPU (`gpu3d`: fallos 0).
+
+**Diferencias visuales conocidas** (mismo mundo dibujado por los dos caminos, `AOEN_COMPARAR=1`; en el Amilo, diferencia media
+9,4 por canal y un 3,7 % de píxeles lejos): la costa del terreno HD es algo más difuminada (la CPU realza los pesos dentro de la
+celda; aquí son lineales), la onda del agua mueve toda el agua a la vez (la deriva es la misma), las manchas de la hierba se
+interpolan cada 6 casillas, y en el terreno clásico no están las transiciones ni el agua animada; los bordes de los sprites
+escalados pueden diferir un píxel. La interfaz es la misma.
+
+**Por qué así.** El dibujo por CPU de los sprites y de la interfaz era barato; lo caro era el terreno y subir el cuadro. Pasar
+todo a la GPU de golpe (texto, cursor, minimapa) daría miles de triángulos pequeños, que en esta GPU es lo que cuesta; la capa
+por franjas deja la interfaz igual que antes y casi no sube nada. Atlas con página de paso: subir una textura es la otra cosa
+cara (no hay subida parcial en gpu3d).
+
+**Pendiente.** El kernel espera a que la GPU acabe cuando la cola del CP se llena (`emitir` en `gpu3d_r500.c`): con una cola mayor
+o esperas parciales, CPU y GPU trabajarían a la vez (es kernel: con autorización). Transiciones y agua del terreno clásico por la
+GPU. Probar en el dv7 (R7xx: texturas de 1024 como mucho, ya respetado) y en Evergreen.
+
+**Pruebas.** `tests/h436_aoen_gpu.py`: `unidad` (`tests/aoen_gpu_unidad.c` con la SDL del PC y ASan: lotes, atlas, orden,
+recorte, capa), `fuentes`, `std` (sin 3D: sigue por la CPU) y `simulado` (`--gpu3d=simulado`, datos sintéticos: el cuadro por la
+GPU contra el de la CPU con terreno HD y con losetas, el HUD con Ctrl+F con todos sus campos, fps de los dos caminos).
+
+**Audio con el dibujo por GPU (2026-11-21, rama `v8.5.5.2-aoen-gpu-audio`).** En el Amilo, con el dibujo por GPU el sonido
+petardeaba (por la CPU, no). Medido antes de tocar nada (banco de 1.500 cuadros en partida, `SDL_SAGUI_GPU_TIEMPOS=1`, que
+escribe cada 5 s cuánto dura cada llamada al 3D):
+- ninguna llamada de la partida pasa de ~25 ms (las vallas y la cola llena giran, pero poco cada vez); en cambio, al empezar,
+  **tres `GPU3D_OP_LER` de ~255 ms** (antes de que la pantalla completa presente por la GPU, la SDL trae el cuadro a la RAM y
+  el kernel lee 3 MB de la VRAM por la CPU con las interrupciones apagadas). El mezclador del kernel (`audio.c`) va 100 ms por
+  delante de la tarjeta y solo corre en el tic y en la IRQ de la tarjeta: con 255 ms sin interrupciones la tarjeta lo pasa
+  («3 falhas»), y el kernel sube su latencia 20 ms por corte (a 160 ms);
+- AoEN dejaba **150 ms fijos** por delante, contando lo que el kernel ya mezcló en el anillo (`audio_pendente`). Con la latencia
+  del kernel en 160 ms, el flujo de AoEN se quedaba vacío en cada tic y el kernel rellenaba con silencio: **chasquidos el resto
+  de la partida** (el kernel: «20169 ms sem dados do programa» en 45 s; por la CPU, 112 ms). El contador «sin datos» de AoEN
+  (pend <= 0) no lo veía nunca: 0.
+
+**Arreglo.**
+1. **AoEN** (`audio.c`): lo que deja por delante es la latencia del kernel (`INFO_AUDIO`, cada 0,5 s) + 60 ms (+ 100 ms con
+   el dibujo por GPU: 200 ms con la latencia de serie, sin que se note en los efectos), como mínimo 150; «sin datos» cuenta las rachas con el flujo propio vacío (lo pendiente por debajo de la latencia del kernel). Cada 10 s,
+   si algo cambió, `[AOEN] audio: hasta ahora sin datos ...` con la latencia y los cortes del kernel (con `kill` ya no se
+   pierde), y al salir una línea más con eso.
+2. **Kernel, capa gpu3d** (`gpu3d_respirar`): las esperas largas de un driver (vallas, cola llena, retrazado, leer el cuadro
+   por la CPU) dejan pasar las interrupciones (`sti; nop; cli`) y ceden la CPU (`ceder()`) cada 2 ms, solo si son de una
+   llamada de un programa; en el arranque, en las tareas del kernel o en una IRQ siguen girando como antes. Los plazos son del
+   TSC (tiempo real), así que el vigilante no cambia; la valla se mira antes que el plazo, para que el tiempo cedido no dé un
+   falso «no llega». Mientras se cede, otro proceso puede entrar en el driver, por eso solo se respira entre órdenes completas
+   de la cola; otro hilo del mismo programa espera en la puerta de `gpu3d_op` (un hilo cada vez; si el de dentro muere, la
+   puerta se abre) y «gpu3d apagar/encender/probar» contestan ocupado.
+3. **R5xx** (`gpu3d_r500.c`): con la cola del CP llena ya no se espera a que la GPU acabe todo (una valla): se avisa al CP y se
+   espera solo a que haya sitio (RPTR, como Linux), con plazo y la prueba de vida si no se mueve. La opción 36 (`acel2d volcado
+   paso 36`, se cambia sin reiniciar) vuelve a lo de antes. Leer el cuadro por la CPU respira cada 16 filas.
+4. **Alta prioridad de audio** (pedido del mantenedor): `PLAN_AUDIO` en `SIS_PLANIFICADOR` (`planificador_hilo_audio()` en la
+   libsagui), para el hilo que llama y uno por proceso. Con cualquier política, el hilo marcado que queda listo pasa delante y,
+   si su CPU corre otro, se le pide planificar ya (en el tic, o al ceder dentro de una espera de la GPU). Solo mientras gaste
+   poco: con más de `PLAN_AUDIO_MAX_USO` (5) tics de uso reciente (el que decae a la mitad cada 250 ms; ~20 % de una CPU) va
+   por turnos como todos, así que un programa normal no puede acaparar la CPU con ella y no hace falta ser root. No se hereda.
+   En AoEN: Opciones > Sonido, «Alta prioridad de audio» (`audio_prioridad` en aoen.cfg; `AOEN_AUDIO_PRIO=0/1` para probar).
+   **De serie sigue al dibujo por GPU** (encendida con él, apagada sin él) mientras no se toque la casilla: es donde el hilo
+   principal pasa casi todo el tiempo dentro del kernel esperando a la GPU; por la CPU no hacía falta (0 cortes) y así no
+   cambia nada para quien no usa la GPU. Con un kernel de antes, la casilla dice «este sistema no la tiene». El HUD (Ctrl+F)
+   tiene una línea «Audio:» con la prioridad, las veces sin datos, el hueco y la latencia y los cortes del kernel.
+   **Dónde no se cede nunca** (primera prueba en el Amilo: pánico «Excepción 7: Coprocesador no disponible» en modo kernel,
+   en `sse3_copiar`, CR0.TS=1): dentro de un `fpu_kernel_inicio/fim` (las copias con SSE de `rapido_inicio`), que cuenta con
+   las interrupciones cerradas y con la FPU suya; al volver de otro proceso TS está a 1 y la siguiente instrucción SSE es una
+   excepción del kernel. `gpu3d_respirar` no hace nada si `fpu_kernel_ativo()` (y lo dice una vez en el registro), ni dentro
+   de las entradas del driver que usan el 2D y la energía (`gpu3d_r500_2d`, `_2d_esperar`, `_copia_cp`, `_ocioso`) ni de la
+   vuelta por la GART (`acel_retornar`), que cierran las interrupciones a propósito (`gpu3d_respirar_bloquear`): solo cede
+   en las esperas propias del 3D llamadas desde `gpu3d_op`. En QEMU lo comprueba h431 «gpu» con «inicio 1010 1» en el
+   simulado (cada lectura del cuadro copia con SSE2 llamando a `gpu3d_respirar` en medio, forzado a ceder siempre): sin la
+   guarda, el mismo pánico (`EXCECAO 7 (Coprocesador no disponible)`, comprobado); con ella, sin excepciones y el aviso en
+   el registro (h431 «gpu» BIEN con KVM: 3,2 fps, 0 cortes, sin datos 0, hueco 100 ms, 2.108 veces cedida la CPU).
+   **Permisos.** `PLAN_AUDIO` es libre para cualquier usuario (`permisos.c`): solo vale para el hilo que llama y el tope de uso
+   la quita a quien acapara. `PLAN_PRIORIDADE` (de antes) ya estaba protegido: sin ser root, solo procesos del mismo usuario y
+   sin nice negativo; no era un agujero.
+5. **El driver simulado** puede hacer de GPU lenta («inicio 100c N» en `gpu3d-simulado.conf`: cada espera, lectura y
+   presentación tarda N ms, girando con `gpu3d_respirar`), para probarlo en QEMU. Sus texturas y `max_lado` pasan de 512 (un
+   límite arbitrario, sin hardware detrás) a `GPU3D_MAX_LADO`: la SDL sube el lienzo entero (1000x700, 1024x768) por
+   `GPU3D_OP_TEXTURA`, y con un «no» deja la GPU para todo el programa (D288), así que h436 «simulado» nunca dibujaba por la
+   GPU. Con un driver real de lado máximo menor que el lienzo pasaría lo mismo: queda como mejora de la SDL (trocear o
+   dibujar solo esa textura por software).
+
+## D437. Red más rápida: vaciar la tarjeta en cada vuelta y ventana TCP grande con escala y ACK retrasado (decidido el 2026-11-21; v8.5.5.2, rama `v8.5.5.2-red-rapida`)
+
+Pedido del mantenedor: «la red va lenta en general». Referencias en hardware real (v8.5.5.1): en el Amilo (RTL8169
+integrada) un `wget` de 10 MB de internet tarda 11,75 s (~890 KB/s); en un portátil con Ethernet USB RTL8156B (driver
+`ure`, rama aparte) tarda ~70 s (~145 KB/s). Solo dos arreglos para esta versión; IRQ/MSI, varias lecturas USB en vuelo
+y menos copias quedan para la v8.5.5.3.
+
+**Causa medida.** La pila ya vaciaba hasta 64 tramas por vuelta (`processar_chegadas`): con la e1000 y la RTL8139 de
+QEMU entran de 8 a 400 tramas por tic, no una. Lo que frena en los drivers PCI es la **ventana TCP**: un anillo de
+recepción de 32 KB sin escala da como mucho 32 KB por ida y vuelta (32 KB / 36 ms ≈ 900 KB/s, justo lo del Amilo), y el de
+envío de 16 KB, 16 KB por ida y vuelta (790 KB/s con 20 ms de retardo en QEMU). Además, un segmento que no cabía en la
+tarjeta (e1000: 32 descriptores; RTL8139: 4) o en la cola del `lo` se perdía y salía al vencer el RTO (≥ 200 ms). El
+«un paquete por tic» del `ure` es del driver: una sola transferencia USB en vuelo, que trae lo que el chip haya juntado
+desde la anterior; eso es de la v8.5.5.3.
+
+**Arreglos.**
+1. **Recepción**: se mantiene el tope de 64 tramas (un anillo) por vuelta, pero si se alcanza la tarea «rede» vuelve
+   enseguida (cede el turno y repite, hasta 4 vueltas seguidas) en vez de esperar 10 ms, y la interrupción la despierta.
+   Estadística en el registro cada 10 s con tráfico (`[REDE] rx ... KB/s; T tramas en V vueltas ...`), para medir en
+   las máquinas reales con `dmesg`.
+2. **TCP** (`tcp.c`): anillos de **128 KB** (recepción) y **64 KB** (envío), con vuelta a 32/16 KB si no hay memoria
+   seguida (nunca falla una conexión por pedir más). **Escala de ventana** (RFC 7323, escala 2): el SYN la ofrece; el
+   SYN+ACK solo la contesta si el otro lado la ofreció; sin los dos, ventana de 64 KB como mucho y nada escalado; la
+   ventana de los SYN nunca se escala; la del otro lado se aplica a todo lo que no es SYN. **ACK retrasado** (RFC
+   1122/5681): uno cada dos segmentos llenos o a los 40 ms; lo pequeño, lo repetido o fuera de orden, el FIN, el SYN y
+   las sondas de ventana llevan el ACK en el acto, para no frenar lo interactivo (SSH) ni chocar con el Nagle del otro
+   lado. **El emisor espera a la tarjeta**: `rede_envio_recusado()` dice si la última trama no cupo; entonces el
+   segmento no se da por enviado y sale con el siguiente ACK o en el tic siguiente.
+
+**Por qué así.** 128 KB y no más: cuadruplica la ventana (≈ 3,5 MB/s con 36 ms) sin que una ráfaga desborde los anillos
+de las tarjetas por sondeo, y sin cola fuera de orden ni SACK una ventana enorme reenvía mucho tras una pérdida. Con 32
+conexiones abiertas serían 6 MB, y lo normal son unas pocas. Se mantiene sin control de congestión.
+
+**Medidas en QEMU (KVM; 10 MB; `tests/h437_velocidad_red.py`).**
+
+| Rodada | Sentido | Antes | Después | ACK/tramas antes → después |
+|---|---|---|---|---|
+| e1000 (slirp) | bajar | 31-32 MB/s | 54-57 MB/s | 7920/7283 → 3768/7285 |
+| e1000 (slirp) | subir | 27-29 MB/s | 26-27 MB/s | = |
+| RTL8139 (slirp) | bajar | 15-16 MB/s | 35 MB/s | 7922 → 3768 |
+| RTL8139 (slirp) | subir | 14,4 MB/s | 14,4-14,8 MB/s | = |
+| e1000, retardo 0-20 ms (slirp) | bajar | 1177 KB/s | 1188 KB/s | el slirp no tiene escala y limita su envío |
+| e1000, retardo 0-20 ms (slirp) | subir | 790 KB/s | 3102 KB/s | |
+| dos SaguiOS, retardo 0-10 ms por sentido | subir | 791 KB/s | 3140 KB/s | escala 2 en los dos lados |
+
+La descarga con retardo no cambia en QEMU porque el slirp no habla la escala de ventana y su propio envío se queda en
+~32 KB por ida y vuelta; con un servidor de internet (Linux, con escala) se espera la ganancia de la subida con retardo.
+
+**Pruebas.** `tests/h437_velocidad_red.py` (nueva: integridad de 10 MB en los dos sentidos con e1000 y RTL8139, con
+retardo, por el bucle local y entre dos SaguiOS; opciones del SYN y SYN+ACK leídas de un pcap; mínimos de velocidad y
+ACK retrasado) y `/testes/vazao`. Con KVM pasan h44, h59, h248, h251, h365 (WireGuard), h218 (DNS), h328, h165, h70,
+h215, h409, h410 (Wi-Fi), h114 y h386. h317 (salida del `ssh` con una secuencia de escape delante), h314 (`rsync`:
+`blk_recv` en la segunda subida) y h62 (`python` ya no está en el ramdisk) fallan igual en la base `v8.5.5.2` sin este
+cambio. Documentación: `docs/red.md`.
+
+**Qué gana el `ure` (rama `v8.5.5.2-ure`), sin tocarla.** Poco en la descarga mientras tenga una sola transferencia en
+vuelo: lo que limita es cuántas tramas junta el chip por transferencia, no la pila. Gana con el ACK retrasado (la mitad de
+transferencias de envío, que en el `ure` son una orden USB bloqueante por trama) y con el emisor que espera (su cola de
+envío de 16 tramas ya no pierde segmentos en la subida), y la ventana grande le servirá en cuanto tenga varias lecturas
+en vuelo (v8.5.5.3).
+
+## D439. «arranque probar» también arrancando por UEFI: el cargador lee las mismas ranuras de la cabecera (decidido el 2026-11-21; v8.5.5.2, rama `v8.5.5.2-arranque-uefi`)
+
+**Problema.** El kernel de prueba de una vez (D392) solo existía por BIOS: la etapa 2 lee la marca y la borra antes
+de cargarlo; por UEFI `arranque probar` se negaba. Hace falta para probar drivers en portátiles que solo arrancan
+por UEFI (el de la UHD 620, el mini PC i3-1220P).
+
+**Opciones que se miraron para la marca de «una vez»:**
+(a) un fichero en la ESP (`\SAGUI\PRUEBA.BIN` y una marca que el cargador borra con `EFI_FILE_PROTOCOL.Delete`);
+(b) una variable UEFI no volátil (`SetVariable`);
+(c) **la misma ranura de la cabecera del disco que ya usa la etapa 2** (bytes 256-511 del LBA 1, `CAB_PR_*`/`CAB_PB`),
+    escrita por el cargador con Block I/O.
+
+**Decisión: (c).** Razones:
+1. **Lo que escribe el cargador es un sector fuera de la ESP**, releído y comparado, como la etapa 2 (riesgo (a) de
+   D392, ya aceptado). Con (a), borrar o escribir un fichero cambia la FAT y la carpeta de la ESP con el controlador
+   FAT del firmware (en máquinas reales, de calidad variable): un corte de luz o un fallo del firmware a medias
+   puede estropear la ESP, que es justo donde está `\SAGUI\KERNEL.BIN` y el propio cargador: el disco quedaría sin
+   arrancar por UEFI. Con (c) la ESP no la escribe nunca el cargador.
+2. **Las variables UEFI** (b) dependen de la NVRAM de cada placa (llenas, con fallos conocidos, perdidas al quitar la
+   pila) y se quedan en la máquina, no en el disco: un pendrive preparado en una máquina no lo vería otra. Además el
+   kernel no tiene servicios de ejecución (no podría leerlas ni escribirlas: `arranque probar` no podría crearla).
+3. **La misma semántica y las mismas órdenes sin código nuevo en el kernel ni formato nuevo**: `probar`,
+   `confirmar` (pasa a último bueno), `cancelar`, `original` y `estado` siguen igual, y **un mismo disco se comporta
+   igual arranque por BIOS o por UEFI** (una prueba preparada por UEFI la arranca la BIOS y al revés; se gasta una vez
+   con cualquiera de los dos). La comprobación del espacio, los dos juegos de ficheros en la ESP y la lectura de sus
+   sectores de D392 valen tal cual.
+4. **`confirmar` no copia nada encima del kernel de la ESP**: deja la prueba como último bueno (segunda ranura). El
+   «guardar una copia del anterior» del encargo lo cumple mejor no tocarlo: `\SAGUI\KERNEL.BIN` (el original) sigue
+   siempre ahí y es el último recurso, así que **la ESP nunca se queda sin un kernel arrancable**.
+
+**El cargador** (`boot/uefi/cargador.c`, x64 e IA32), solo con la cabecera del disco (no con `CABECERA.BIN` de la ESP),
+nunca desde un CD ni con Ctrl (rescate: el kernel de la imagen y las marcas intactas):
+- `decidir_ranura`: prueba `PR_PENDENTE` válida (firma y suma) → quita la marca en su copia (y pone `PR_ARRANCADA`),
+  **escribe el sector de la cabecera** (`gravar_setor`: lee el bloque entero, cambia esos 512 bytes, `WriteBlocks`,
+  `FlushBlocks`, relee y compara; no con medios de solo lectura) y **solo si salió bien** arranca la prueba; si no,
+  la marca sigue y se arranca el último bueno o el original. Prueba con `PR_FIXA` (formato del primer `confirmar`) >
+  último bueno (`usar_bueno`: copia en memoria 392-511 encima de 256-375, como la etapa 2) > original.
+- `carregar`: kernel y ramdisk de la ranura por sus tramos (sectores del disco: la partición de SaguiOS o los
+  ficheros de la ESP); con `NR = 0`, el ramdisk normal. Si no se puede leer, no suma o no hay memoria, en ese mismo
+  arranque el último bueno y después el original (que sí para con un mensaje si falla, como antes).
+- `boot_info.opcoes`: `OPC_KERNEL_PRUEBA`/`OPC_KERNEL_FIXO` como la etapa 2 (`arranque estado` y
+  `[BOOT] kernel de prueba ...` sin cambios en el kernel) y **`OPC_UEFI_RANURA` (0x400000) siempre**: «este cargador
+  sabe de las ranuras». Con un cargador UEFI de antes, `probar` y `confirmar` por UEFI se niegan («graba una imagen
+  nueva»): ese cargador ignoraría las ranuras y la marca quedaría para el siguiente arranque por BIOS.
+- Sin ranuras en la cabecera hace exactamente lo de antes: las imágenes publicadas arrancan igual.
+
+**`arranque`:** quita la negativa por UEFI; `estado` dice «Cargador UEFI (x64|IA32): sabe…» o «ANTIGUO» y «Este
+arranque: … (por BIOS|UEFI)»; **solo root** (lo comprueba al empezar, además del kernel); antes de escribir la prueba
+en la ESP mira el **sitio libre** (`INFO_MONTAGENS`) con 256 KB de margen y, si no cabe, lo dice sin escribir nada
+(la ESP de la imagen, SAGUI-EFI, mide 40 MB y ya lleva el kernel y el ramdisk: un kernel con ramdisk propio puede no
+caber; con el ramdisk normal sí). Lo normal es que no haga falta la ESP: `mkimagem.py` deja hueco en la partición de
+SaguiOS (`--ranura-mb`, D392). Las escrituras siguen el orden de D392: datos aparte (nunca encima de lo que arranca),
+releídos, y la cabecera la última, en un sector.
+
+**Límites.** (a) Solo discos con MBR (la imagen grabada, o instalados con MBR); un disco instalado con GPT (D266) sigue
+sin kernel de prueba (`arranque` lo dice). (b) La primera vez hay que **grabar una imagen nueva**: el cargador UEFI de
+la ESP de un disco ya grabado es el de antes (no hay `arranque uefi`: reemplazar el `.EFI` dentro de la ESP es
+justamente la escritura de FAT arriesgada que se evita; pendiente si hiciera falta). (c) El firmware tiene que dejar
+escribir con Block I/O el disco del que arrancó (OVMF sí; si una placa no, el cargador lo dice —«no se pudo borrar la
+marca»— y arranca el normal: nunca se repite la prueba). (d) Secure Boot sigue sin firmar (como D264).
+
+**Cómo comprobarlo en una máquina UEFI real** (en `docs/uefi.md`): grabar la imagen nueva; arrancar por UEFI;
+`arranque estado` → «Cargador UEFI (x64): sabe arrancar el kernel de prueba»; `arranque probar /ruta/kernel.bin` y
+reiniciar: el cargador escribe «Kernel de prueba: esta vez (marca borrada…)» y `[2/6] kernel de la ranura`;
+`arranque estado` → «Este arranque: el KERNEL DE PRUEBA (una vez) (por UEFI)»; reiniciar sin confirmar → vuelve el
+original; probar otra vez y `arranque confirmar` → queda el último bueno.
+
+**Pruebas:** h439 (OVMF x64: una vez y vuelta, un kernel que se cuelga, confirmar, probar y cancelar, original, datos
+estropeados, el mismo disco por BIOS; sin hueco en la partición, la prueba en la ESP, también con OVMF IA32); h396
+(BIOS, sin cambios), h264 y h270 (UEFI).
+
+## D440. awk y Lua 5.4 dentro de SaguiOS (decidido el 2026-11-21; v8.5.5.2, rama `v8.5.5.2-awk-lua`)
+
+**Qué.** Se portan *The One True AWK* (Kernighan, etiqueta `20261106`) y Lua 5.4.9, dos herramientas pequeñas que usan
+los guiones y los programas que incrustan un lenguaje. Las fuentes no van a git: `tools/awk_fuentes.sh` y
+`tools/lua_fuentes.sh` bajan los tarballs con SHA-256 fijo (awk `1b354fe6...b3d464`, Lua `2335b6c5...c6fb8e6`), como GNU
+make y TCC. Los dos entran también en `make SEM_GPL=1` (licencias permisivas: Lucent y MIT). Detalle en `docs/awk-lua.md`.
+
+**Dónde se instala.**
+- `/bin/awk` (140 KB, en el ramdisk): es una herramienta básica de los guiones y está siempre en el PATH. La regla de base
+  contra aplicaciones (D324) lo permite por su tamaño.
+- `/apps/bin/lua` y `/apps/bin/luac` (210 y 135 KB), `/apps/lua` (ejemplos, léeme, licencia, la raíz de los módulos y
+  `lua-din`), `/apps/lib/liblua.so.5.4` (D378) y, con TCC, `/apps/tcc/lib/liblua.a` y las cabeceras en `/apps/tcc/include`.
+
+**Cómo.** Sin parches en awk y con un solo `sed` en Lua (`LUA_ROOT` = `/apps/lua/`). El anfitrión no trae bison, así que
+la gramática de awk ya generada (`awkgram.tab.c` y `.h`, bison 3.8.2) va en git, en `userland/terceros/awk/gerado/`, y el
+guion de descarga vigila el SHA-256 de `awkgram.y`. La libc no tiene caracteres anchos y su `MB_CUR_MAX` es 1, así que awk
+trabaja por bytes (Latin-1); faltaban `wctype.h`, `mbtowc`, `wctomb` y las constantes `FPE_*` (`userland/terceros/awk/plataforma/`).
+Lua se compila con `LUA_USE_POSIX` (`io.popen` y `os.execute` por `popen` y `system`, D401) y un puñado de macros para
+`getc_unlocked` y `flockfile`. No hay `package.loadlib` ni `readline` (el terminal edita la línea). Opciones: `AWK_DENTRO=0` y
+`LUA_DENTRO=0`.
+
+**Pruebas.** `tests/h440_awk_lua.py`: awk con `informe.awk` igual que el awk del PC; `pruebas.lua` con salida idéntica
+(SHA-256) a la del Lua 5.4.9 del PC, tanto con el `lua` estático como con `lua-din` (enlazado a `liblua.so.5.4`); `luac`; modo
+interactivo; y un programa de C con Lua dentro compilado con `tcc -llua` en SaguiOS.
+
+## D441. Cipó sin parpadeo: búfer aparte, repintados agrupados y desplazamiento por copia
+
+**Causa.** `desenhar_pagina` rellenaba la zona de la página con el fondo directamente en la ventana y la **presentaba**
+vacía; después las franjas de 96 filas se iban pintando encima, y cada trozo recibido durante la carga (cada imagen)
+rehacía la maquetación y repetía todo (40 veces en 1 s con 40 imágenes). El desplazamiento hacía lo mismo entero. El
+compositor mostraba entre medias el fondo vacío (en la prueba, 2 a 4 de ~26 capturas durante la carga).
+
+**Decisión.**
+- La página se pinta en un **búfer aparte** (`pag_fb`, del tamaño de la zona) y se copia a la ventana de una vez, con una
+  sola presentación. La ventana conserva lo anterior hasta que la página nueva está entera; nunca se borra en ella.
+- **Carga:** los trozos se siguen descargando uno por vuelta, pero la maquetación y el repintado se agrupan, como mucho cada
+  80 ms (`REPINTA_MS`, ~12 por segundo), más un repintado final al terminar.
+- **Desplazamiento:** se mueven (`memmove`) las filas ya pintadas del búfer y solo se pinta la franja que entra, con una
+  presentación. Si la página tiene `fixed`/`sticky` (`motor_tem_camadas`), hay un `<video>` activo o el salto es mayor que
+  la zona, se repinta entera de una vez (sin pasar por el fondo vacío). Los saltos de 120 px o más se reparten en 3-4 pasos
+  (desplazamiento suave). Al soltar la barra solo se redibuja la columna de la barra.
+- Se registra «cipo: pintura: N repintados, M apresentacoes, L layouts, T ms pintando, K trozos» y «rolagem pintada en X ms».
+
+**Medidas** (página de 40 imágenes que llegan despacio, TCG): antes 40 repintados en ~1000 ms de carga (uno por trozo),
+después 12 repintados y 11 presentaciones en 950 ms (con 11 maquetaciones en vez de 40); capturas en blanco durante la carga:
+antes 2-4 de ~26, después 0 de 26. El final de la página alcanzado por copias es idéntico, píxel a píxel, al repintado entero.
+
+**Pruebas.** `tests/h441_cipo_parpadeo.py`. Siguen pasando h113, h121, h123, h124, h128.
+
+## D442. AoEN: el mapeo de gráficos de unidades sigue el EMPIRES.DAT del juego original
+
+**Qué:** la tabla `unit_art_ids` de `userland/juegos/aoen/render.c` (SLP de quieta, andar, atacar, morir y cuerpo de cada unidad) se
+había hecho comparando colores y varias filas estaban cambiadas. Se corrige con lo que dice el `EMPIRES.DAT` del AoE original
+(gráfico de andar tras el nombre de la unidad, quieta y muerte 133 bytes antes, unidad muerta 105 bytes antes, ataque a +273..281;
+estudio hecho en privado, los datos comerciales no se versionan). Los barcos del original son **compuestos** (casco + vela + remos):
+`AnimSet` gana dos capas superpuestas (`over`) y la muerte de un solo ángulo (`die_sin_dir`); `dir_frame` entiende los SLP de 16
+ángulos (9 orientaciones guardadas). No cambia ningún comportamiento ni regla. El AoE original no tiene carro mercante: se
+mantiene el gráfico provisional del carro arquero (con el icono propio 42 de INTERFAC.DRS).
+**Prueba:** `tests/aoen_sprites.py` (tabla coherente con el DRS sintético y un caso por corrección).
+
+## D443. AoEN: proyectiles del original, daño en área y recarga de la fe del sacerdote
+
+**Proyectiles:** el `EMPIRES.DAT` da la piedra de catapulta (SLP 360), la piedra de fuego (461, la catapulta pesada), el virote de
+balista (242, 8 direcciones) y el impacto «Explosion Cata» (409, polvo y explosión donde cae). La flecha sigue siendo el trazo.
+La piedra vuela más despacio (0,6 s) en arco y al caer deja el impacto; el daño se aplica al lanzarla (como antes: no cambia
+el equilibrio ni el determinismo), así que visualmente precede al impacto.
+**Daño en área:** ya existía (`unit_splash`: catapulta 1,3 y pesada 1,8 casillas, mitad de daño, solo enemigos). Regla propia que
+se mantiene; el AoE original también daña a lo propio y lo aliado: `fuego_amigo` (0 por defecto; `AOEN_FUEGO_AMIGO=1` en pruebas) lo
+activa. Resuelto en D447: opción de partida.
+**Fe del sacerdote:** tras convertir una unidad no puede convertir otra durante 10 s (5 s con Monoteísmo); puede andar y curar.
+Se guarda en `gacc` del sacerdote (no cambia el formato de las partidas guardadas), barra azul bajo la de vida del sacerdote
+seleccionado, y si iba por su cuenta (IA, postura) deja el objetivo en lugar de quedarse quieto. No hay modo «AoE original» en
+el motor: el valor del DAT no se ha mirado (pendiente).
+**Pruebas:** `tests/aoen_area.py` (daño a varios en el radio y a nadie fuera, con y sin fuego amigo; conversión, intento
+bloqueado y conversión tras la recarga).
+
+## D444. Brumacanto: juego de vóxeles con SDL 2 y OpenGL ES 1.1 (decidido el 2026-11-21; v8.5.5.2r2, rama `v8.5.5.2-brumacanto`)
+
+**Decisión.** Se porta Brumacanto (código MIT, gráficos CC0 de Kenney, ZIP del mantenedor) a `userland/terceros/brumacanto/`, sobre nuestra SDL 2,
+`SDL_GL_*` por EGL y SaguiGL (D425). Ejecutable `/apps/bin/brumacanto`, gráficos en `/apps/brumacanto`, entrada en Inicio > Juegos, ayuda
+y `docs/brumacanto.md`. Entra en la variante sin GPL (todo MIT o CC0). No se copian `third_party/sdl2` ni `khronos`, ni binarios.
+
+**Cambios generales.** `SDL_HINT_OPENGL_ES_DRIVER`; `SDL_CreateWindow` reduce las ventanas mayores de 1000x700 conservando la proporción.
+**Cambios al juego** (bajo `SAGUI_BRUMACANTO` o genéricos y pequeños): ruta de los gráficos, distancia de dibujo ajustable (`--view`, F3; la niebla la
+acompaña), `--bench` y líneas de registro.
+
+**Memoria.** El mundo ya se genera por sectores bajo demanda en una caché fija de 16x16: 12 MB con 48 de altura, 32 MB con 128; no hace falta bajar el tamaño de serie.
+
+**Rendimiento** (KVM, 1000x562): por software 7-10 cuadros/s según la vista (104-32); el driver simulado de la GPU, 0,7 (el simulado es lento por diseño).
+
+**Pruebas.** `tests/h444_brumacanto.py`; siguen h424, h386 y h81 (`make SEM_GPL=1`).
+
+## D447. AoEN: fuego amigo como opción de partida y retoque del carro mercante (decidido el 2026-11-21; v8.5.5.2r2, rama `v8.5.5.2r2-aoen-opciones`)
+
+**Fuego amigo (resuelve la decisión pendiente de D443):** casilla «Fuego amigo (daño en área)» en la configuración de la partida,
+bajo «Victoria compartida», apagada de serie. Se guarda en `Setup.fuego_amigo` y el motor la copia a la variable `fuego_amigo` al
+crear o cargar la partida (`AOEN_FUEGO_AMIGO` sigue mandando en las pruebas). No hay un modo «AoE original» en el motor: la regla
+solo afecta al daño en área de catapultas (los demás comportamientos no cambian).
+**Compatibilidad de partidas:** el formato de guardado sube a 6 (`Setup` gana un campo al final). El formato 5 se sigue cargando
+(`SETUP_TAM_V5` bytes de `Setup`, el resto a 0, así que con el fuego amigo apagado): `read_header` acepta las dos versiones y
+`save_info` también. Las anteriores a 5 ya se rechazaban.
+**Carro mercante:** sigue con el gráfico provisional del carro arquero (el AoE original no tiene carro mercante), pero
+`carro_mercante_carga` (render.c) le dibuja encima una caja con tapa, un fardo atado con cuerda, una moneda y una banda dorada de
+comercio, que tapan al arquero. Solo usa `gfx_fill`, así que sale igual por la CPU que por la GPU (D436, que ya graba esas
+primitivas) y no se copia ningún gráfico. El icono propio 42 de INTERFAC.DRS no cambia.
+**Pruebas:** `tests/aoen_area.py` (opción, guardado de las dos opciones, carga de una partida de formato 5 fabricada a partir de una
+nueva, carga del carro en píxeles a dos escalas y a la sombra; se quitó `rendimiento.c` de la compilación, que dependía de `main.c`),
+`h389 interfaz` (casilla de la configuración, captura H389-39).
+
+## D449. Brumacanto: ideas y texturas de Luanti (decidido el 2026-11-21; v8.5.5.2r2, rama `v8.5.5.2r2-brumacanto-luanti`)
+
+**Decisión del mantenedor.** Brumacanto se mejora con **ideas** de Luanti y de sus juegos libres (Minetest Game): mecánicas, recetas, tipos de bloque
+e items, **reescritos en C** (las ideas no tienen copyright). **No se copia código Lua ni C++ de Luanti (LGPL)**: el código sigue MIT. Las **texturas**
+admiten CC0 y CC BY-SA (3.0/4.0), con la licencia comprobada una a una; van aparte (`datos/luanti/`) con un fichero de créditos por textura. Nada de
+licencia dudosa o de uso no comercial. No se recrea ningún juego concreto (ni Minecraft ni sus clones, VoxeLibre/Mineclonia): Brumacanto conserva nombre,
+menús y estilo.
+
+**Hecho.** 10 bloques nuevos (cobre, diamante, obsidiana, pino, tablas de pino, agujas, arenisca, ladrillo de piedra, horno, lava) y 9 objetos
+(lingotes de cobre y de hierro, diamante, herramientas de hierro y de diamante); generación con minerales (segunda tirada de hash para no alterar los
+antiguos), lava en cuevas hondas, pinos en zonas frías, arenisca bajo la arena y rosas; 13 recetas nuevas con fundición (requiere el horno en la mochila);
+herramientas con niveles y **desgaste**; la lava quema y brilla; lista de recetas desplazable y bolsa de 8 columnas. Los ids nuevos van detrás de
+`BEDROCK`; el guardado pasa a la versión 3 (con el desgaste) y las versiones 1 y 2 se cargan renumerando los objetos. Texturas: 15 PNG CC BY-SA 3.0 de
+`mods/default` y `mods/flowers` de Minetest Game (autores en `CREDITOS.md`), fundidos en el atlas (casillas 42-62) con `fuentes/tools/build_atlas_luanti.py`;
+las herramientas nuevas son iconos CC0 de Kenney recoloreados. El atlas queda CC BY-SA 3.0 (datos, no código): entra en la variante `SEM_GPL=1` como agregación.
+
+**Rendimiento.** Vista 64 con KVM: 8,3-8,6 cuadros/s por software (antes 8,2) y 0,7 con la GPU simulada (igual); imagen software/GPU 96 % parecida.
+
+**Repositorio público aparte.** El juego portable (MIT + gráficos) se publica como `aleanun89/brumacanto`, con historial limpio y un commit inicial; lo sube el
+coordinador. Se prepara en `/home/aanun/SO/brumacanto-repo`.
+
+**Pruebas.** `tests/h444_brumacanto.py` (world_test ampliado: minerales, horno, desgaste, lava, tier del diamante y carga de partidas v2; fuentes y
+créditos; QEMU por software y GPU simulada).
+
+## D450. Reiniciar y apagar con un orden fijo y plazos, y el reinicio por el RESET_REG del ACPI primero (decidido el 2026-11-21; v8.5.5.2, rama `v8.5.5.2-reinicio`)
+
+**Problema.** El portátil Dell de la UHD 620 (i5-8365U, UEFI, SMP, uACPI) se queda colgado al reiniciar
+(`reiniciar` por SSH no lo reinicia) y otras máquinas lo hacen a veces. El camino era corto y desigual:
+- `maquina_reiniciar` solo probaba el **8042** (0xFE al 0x64) y luego el **triple fallo**. En los chipsets Intel
+  desde el ICH, los dos **no reinician la plataforma**: el RCIN# del controlador de teclado y el ciclo de *shutdown*
+  del triple fallo hacen que el PCH mande un **INIT a la CPU** (reinicio en caliente), con los dispositivos tal como
+  los dejó el sistema (el xHCI corriendo y escribiendo en la RAM, el IOAPIC programado, el NVMe sin aviso). Un
+  firmware UEFI que arranca así puede quedarse parado en su POST: es el cuelgue que se ve. Y si no hay 8042 (la FADT
+  de varios Latitude lo dice: IAPC_BOOT_ARCH sin el bit 1), solo quedaba el triple fallo.
+- **El registro de reinicio de la FADT (RESET_REG) no se usaba nunca.** En los volcados de máquinas reales es lo
+  que el firmware espera: los Dell Latitude 3590, 5420, 5480, 5511, 7390 2-in-1 y 7480 (uACPI/ACPIDumps) dicen
+  `RESET_REG_SUP = 1`, E/S **0xB2 (SMI_CMD) ← 0x73** (el firmware reinicia desde su SMM, que sabe apagar lo suyo);
+  los Fujitsu U938 y Toshiba L655/L850 del mantenedor, E/S 0xB2 ← 0xFB. Linux y Windows lo usan primero.
+  **La FADT del propio Dell** (sacada con `tablasacpi` por SSH, guardada fuera de git en `~/SO/private/acpi/dell_uhd620/`):
+  revisión 6, `RESET_REG_SUP = 1`, **E/S 0xB2 ← 0x73**, IAPC_BOOT_ARCH = 2 (hay 8042, el del EC), `\_S5_` = 7/0,
+  `_PTS` sí y `_TTS` no, LOW_POWER_S0 = 1. Es decir: hasta ahora el Dell recibía el 0xFE del 8042 (un INIT de CPU
+  con todo encendido) y nunca la SMI de reinicio que su firmware declara.
+- **Sin servicios, `sis_reiniciar` reiniciaba dentro de la llamada al sistema**, en la CPU del programa (con SMP,
+  un secundario), y sin parar a los demás procesadores ni a ningún driver. Con servicios iba por la tarea "apagar",
+  con otro orden. El apagado tampoco paraba nada y no ejecutaba `_PTS`.
+
+**Decisión.** Un solo camino, `energia_executar` (`kernel/nucleo/energia.c`), siempre en la tarea "apagar" del
+kernel (que solo corre en la CPU 0, D165), para reiniciar y para apagar, con estos pasos y un plazo en cada uno; si
+un paso no termina, se apunta y se sigue:
+1. inicio (qué se pidió, desde qué CPU);
+2. **servicios**: el supervisor para los suyos (20 s como mucho, D216);
+3. **discos**: grabar y desmontar (`montagem_desmontar_tudo`, D040/D281); cada orden de los drivers ya tiene su plazo
+   por el TSC (D199);
+4. **ACPI**: con uACPI activo, la tarea "acpi-aml" (la única que llama a uACPI) ejecuta `_TTS(5)` si existe y, **solo
+   al apagar**, `_PTS(5)` y `_SST(0)` (`uacpi_prepare_for_sleep_state`), como Linux. La tarea "apagar" espera **3 s
+   como mucho**; si el AML no termina, sigue. Sin uACPI no se ejecuta AML (como antes). Sin apagado ACPI (sin `\_S5_`
+   o `--sem-acpi`), el aviso «Ya puedes apagar» de siempre y aquí acaba.
+   **Desde aquí las interrupciones quedan cerradas para siempre y no se vuelve a planificar**; la pantalla pasa a la
+   consola (como la pantalla de error) para enseñar las marcas;
+   **procesadores**: IPI `VETOR_PARAR` (0x84) a los secundarios, que apagan su tic y se quedan en `cli; hlt`
+   (el `stop_this_cpu` de Linux), **100 ms como mucho**. La IPI se atiende antes de tomar el cerrojo general: solo
+   entra con las interrupciones abiertas, así que el secundario no tiene ningún cerrojo. No se usa INIT: un
+   procesador en espera de SIPI no contesta a las SMI y el reinicio de los Dell es una SMI que las reúne a todas; uno
+   que no contesta está dentro del kernel esperando el cerrojo general, y sin él no puede hacer nada;
+5. **drivers, al revés que al arrancar**: sonido, red, inalámbricos y comunicaciones sin bus master, sin INTx ni
+   MSI/MSI-X; el **xHCI** y el **EHCI** parados (Run/Stop = 0, HCHalted en 20 ms, como `xhci_shutdown`); el **NVMe**
+   con su aviso de apagado (CC.SHN = 01 y CSTS.SHST = 10, **5 s** por controlador, el `shutdown_timeout` de Linux: sin
+   él apunta un «apagado inseguro»); después el USB y los discos también sin bus master; el **IOAPIC** y el **8259**
+   enmascarados. **La GPU no se toca** (ni los puentes ni el SMBus ni los del sistema): sin bus master el motor de
+   pantalla de la gráfica integrada deja de leer la memoria y se perderían las marcas; el reinicio de la plataforma
+   la reinicia igual;
+6. **reiniciar**, en el orden de Linux: **RESET_REG de la FADT** (si `RESET_REG_SUP`, FADT ≥ 2.0, espacio de E/S,
+   memoria o configuración PCI; 8 bits; espera 1 s) → **8042** (0xFE diez veces, esperando el búfer libre como mucho
+   10 ms; 0,5 s) → **0xCF9** (2 y luego 0x0E, reinicio completo; 0,5 s) → **triple fallo**. **Apagar**: los GPE
+   desactivados (uno encendido por uACPI podría despertar la máquina recién apagada) y SLP_TYP|SLP_EN del `\_S5_`
+   (3 s); si sigue encendida, «Ya puedes apagar el ordenador» en la pantalla.
+
+Cada paso deja una marca «[ENERGIA] +N ms, paso P: ...» en el serie y en el registro, en el **rastro** que sobrevive
+a un reinicio en caliente (`0x00450000 | modo << 12 | paso`, rastro.h: el arranque siguiente dice dónde se quedó) y,
+desde la parada de los procesadores, en la pantalla.
+
+**Para probar en cada máquina**, `reiniciar acpi|teclado|cf9|triple` (shell; `reiniciar_metodo()` en la libsagui,
+el argumento de `SIS_REINICIAR`) empieza por ese método; si no reinicia, sigue con los demás y el triple fallo al
+final. `reiniciar` a secas es el orden normal.
+
+**Lo que no se hace (y por qué).**
+- **EFI ResetSystem**: el kernel es de 32 bits y el cargador no le pasa los servicios de ejecución; con un firmware
+  de 64 bits (el Dell) habría que volver al modo largo con su mapa de memoria. El RESET_REG y el 0xCF9 cubren lo
+  mismo en estas máquinas. Queda pendiente si alguna solo reiniciara así.
+- **El 8042 no se salta aunque la FADT diga que no hay**: como Linux; sin 8042 el puerto lee 0xFF y se pasa en ~100 ms.
+- **`--sem-acpi` tampoco usa el RESET_REG** («deja todo como antes»): va por el 8042, el 0xCF9 y el triple fallo.
+- **No se manda STANDBY IMMEDIATE a los discos ATA/AHCI** al apagar (Linux sí, para aparcar los cabezales de los
+  discos duros): pendiente.
+
+**Riesgos.** (a) El 0xCF9 en un chipset que no sea Intel ni compatible: una escritura de un byte en 0xCF9 no toca el
+mecanismo 1 del PCI (solo usa 0xCF8 de 32 bits) y llega después del RESET_REG y del 8042. (b) El aviso de apagado al
+NVMe y el bus master apagado llegan después de grabar y vaciar la caché; nada escribe después. (c) Si el `_PTS` de un
+firmware se cuelga, son 3 s y se sigue.
+
+**Pruebas.** `tests/h450_reinicio.py` (siete partes; con KVM, y la a y la c también sin KVM): i440fx (FADT 1.0, sin
+RESET_REG → 8042) y tres reinicios seguidos en q35 (RESET_REG E/S 0xCF9); cada método por separado (`reiniciar
+teclado|cf9|triple`); SMP de 4 CPU con IOAPIC, NVMe y arranque por xHCI (3 de 3 secundarios parados, xHCI parado,
+NVMe con su aviso de apagado terminado) para reiniciar y apagar; uACPI (`_PTS(5)` al apagar y no al reiniciar);
+UEFI x64; `--sem-acpi`; y lo más parecido al Dell (UEFI x64, q35, SMP, IOAPIC, uACPI, escritorio: tres reinicios por
+el RESET_REG y un apagado con `_PTS(5)` y S5). Todos cierran el QEMU en 1-1,5 s desde la orden. Siguen pasando
+h84 (ACPI y botón), h16 (shell, reiniciar), h216 (servicios) y h254 (reiniciar por SSH con SAGUI-CONF grabada).
+Un secundario que esperaba el cerrojo general con las interrupciones cerradas no veía la IPI (en la primera
+versión, «2 de 3»): ahora la espera del cerrojo mira `smp_parando` y se para también.
+
+**Pendiente en el Dell:** arrancar este kernel (imagen de depuración o `arranque probar`) y repetir `reiniciar`
+varias veces, `reiniciar teclado` (para confirmar que era el 8042 lo que lo colgaba) y `apagar-pc`; si se queda
+parado, la última marca de la pantalla dice el paso.
+
+## D451. Brumacanto por la GPU: niebla en el vértice para v2, búfer de atrás propio, presentar directo, escala de dibujo y el cuelgue de la X1400 con el 2D (decidido el 2026-11-21; v8.5.5.2r2, rama `v8.5.5.2r2-brumacanto-gpu`)
+
+**Problema (Amilo, Mobility X1400 R5xx, Core Duo T2400 a 1,83 GHz).** Brumacanto «iba muy mal y con parpadeos»: 0,9
+cuadros/s en ventana (1000x562, vista 64), exactamente lo mismo con el 3D encendido que apagado.
+
+**Causas (medidas con el perfil nuevo, `SAGUI_GL_PERFIL=1`):**
+1. **El mundo no iba por la GPU.** Sus dibujos llevan prueba alfa y niebla: no caben en gpu3d v1 (sin prueba alfa) y en v2
+   la X1400 no anuncia niebla (su prueba 9 sale mal), así que cada cuadro empezaba por la GPU (cielo), traía el cuadro a
+   la RAM y seguía todo por software.
+2. **Cuadros a medias:** el contexto de ventana dibujaba directamente en los píxeles de la ventana, que el compositor
+   lee cuando quiere (otra ventana, el puntero, el reloj); con un cuadro de 1 s se veía el cielo solo, el mundo a medias...
+3. **Volver a la RAM:** en ventana, `sgl_trocar` trae el cuadro de la VRAM con la CPU: 245 ms por cuadro a 9 MB/s.
+4. Con el mundo ya por la GPU (punto 1 arreglado), **la X1400 se colgaba** en el primer cuadro (GA ocupado para siempre,
+   `RBBM_STATUS 94004134`). Aislado en la máquina: con cada parte sincronizada (`inicio 4ff0 2`) no; con una espera antes
+   de cada dibujo o de cada orden de triángulos, sí; **con `acel2d apagar`, no**. Las copias del 2D del compositor, que van
+   por el mismo anillo del CP (D387), entraban entre dos dibujos v2 con el 3D todavía dibujando. Con v1 (AoEN) no se había
+   visto nunca.
+5. Lo que quedaba era CPU: SaguiGL hacía el recorte y el descarte de caras después de copiar y convertir cada vértice,
+   calculaba normales sin luces y la cola del CP (64 KB, sin caché) no dejaba a la CPU adelantarse a la GPU.
+
+**Decisión (general para cualquier programa OpenGL ES, no solo Brumacanto):**
+- **SaguiGL, niebla por la CPU en v2:** si el driver no anuncia `G3D_CAP_NEBLINA` y el dibujo tiene una sola unidad en
+  MODULATE (o ninguna), la niebla se mezcla en el color y el especular del vértice como ya hacía v1
+  (`tex·(cor·f) + neblina·(1-f)`). Así un dibujo con prueba alfa y niebla va por v2 en la X1400.
+- **SaguiGL, lotes de `GPU3D_MAX_VERT`** (3072; eran 1020 en v1 y 504 en v2), descarte de caras antes de recortar (por la
+  GPU, con w > 0, por el signo de det(x, y, w)), recorte sin copias cuando el triángulo está dentro o fuera de un plano
+  entero, normales y matriz de textura solo si hacen falta. Por software los píxeles no cambian (h424: misma suma).
+- **SaguiGL/EGL, búfer de atrás propio:** las superficies de ventana de EGL dibujan en un búfer del contexto y
+  `eglSwapBuffers` copia el cuadro entero a la ventana (2-4 ms): el compositor no vuelve a ver cuadros a medias. Los
+  programas que usan `sgl_criar_contexto` a mano (sgldemo, con HUD por la CPU tras `glFinish`) siguen como antes.
+- **Presentar directo (D432) también para OpenGL ES:** con la GPU, si hay algo nuevo dibujado por ella, `sgl_trocar` pide
+  `GPU3D_OP_APRESENTAR`; el kernel solo lo acepta a pantalla completa, con el foco y nada encima. Tras un «ahora no» no se
+  vuelve a pedir en 500 ms. Brumacanto: `--fullscreen` (F11 ya lo cambiaba el gestor de ventanas, su ventana es
+  redimensionable).
+- **Escala de dibujo** (`SDL_HINT_SAGUI_GL_ESCALA` / variable de entorno `SDL_SAGUI_GL_ESCALA`, 25-100; `sgl_escala`): el
+  contexto dibuja a ese tanto por ciento de la ventana y se amplía al presentar, por la GPU con filtro bilineal a pantalla
+  completa o con la CPU (vecino más próximo). `SDL_GL_GetDrawableSize` da el tamaño reducido. La interfaz del juego también se
+  escala (dibujarla aparte pediría dos pasadas en el juego). Brumacanto: `--escala 50|75|100` (solo para esa vez), F4 (100 → 75 → 50,
+  se guarda en `escala.txt` junto a las partidas). A 50 % con ampliación por la CPU (vecino más próximo) la letra pequeña
+  de la interfaz pierde trazos. No hay menú de opciones en esta versión del juego: la entrada en el menú se añade
+  cuando se fusione la rama `v8.5.5.2r2-brumacanto-luanti` (que trae menús), para no tocar los mismos ficheros.
+- **Driver R5xx (con autorización del mantenedor):** delante de cada orden del 2D por el anillo, vaciar las cachés del 3D
+  y esperar al 2D y al 3D parados (`r5_vaciar`); también al pasar de v1 a v2, de v2 a v1 y al cambiar de programa v2. La
+  cola del CP pasa a 256 KB y se escribe por una segunda vista en write-combining (con la PAT, como las texturas de D432;
+  `avisar()` ya vacía los búferes de combinación). Bits nuevos de `inicio 4ff0 N` para aislar fallos: 80 (sin las esperas
+  entre v1 y v2), 100 (espera delante de cada dibujo), 200 (el 2D sin espera), 400 (la cola sin write-combining).
+- **La vuelta del 3D por la GART (D391) se enciende sola en la X1400:** su autoprueba sale igual que la CPU (328 MB/s
+  frente a 9) y aguantó 1.500 cuadros de Brumacanto en ventana. Traer el cuadro baja de 245 a 10 ms.
+- **Diagnóstico en SaguiGL por variables de entorno:** `SAGUI_GL_PERFIL=1` (una línea cada 2 s: lotes, vértices, ms en
+  SaguiGL y en el kernel, vuelta a la RAM, copia, presentar, cuadros directos, por la RAM y por software),
+  `SAGUI_GL_LOTE=N`, `SAGUI_GL_NEBLINA_CPU=0`, `SAGUI_GL_PRESENTAR=0`, `SAGUI_GL_DIAG=1|2` (forzar v2; sin prueba alfa en
+  la GPU).
+
+**Medidas en el Amilo** (semilla Prueba 160x160x48, vista 64, `--bench 60`; ventana 1000x562, pantalla completa 1024x768;
+cuadros/s, entre paréntesis el peor cuadro):
+
+| | Antes | Después |
+| --- | --- | --- |
+| GPU, ventana | 0,9 (1330 ms) | 8,3 (380 ms) (con la vuelta por la GART; sin ella, 2,8) |
+| GPU, pantalla completa | — (no había opción; igual que en ventana) | 8,4 (390 ms) |
+| Software, ventana | 0,9 (1320 ms) | 1,1 |
+| Software, pantalla completa | — | 0,8 |
+
+Escala de dibujo (después; ventana / pantalla completa): GPU 100 % 8,3 / 8,4; 75 % 8,9 / 9,7; 50 % 9,3 / 10,8. Software
+100 % 1,1 / 0,8; 75 % 1,7 / 1,4; 50 % 2,9 / 2,5. Por la GPU el límite ya no es el relleno sino los vértices: unos 55.000 por
+cuadro, ~40 ms en el kernel (la X1400 hace unos 390.000 triángulos/s con los vértices en la orden) y ~55 ms de SaguiGL en la
+CPU. Lo siguiente sería que la GPU transforme los vértices (VBO en la VRAM y el procesador de vértices de la R5xx), que es
+otra pieza (D425 no lo prevé: el driver recibe vértices ya en la pantalla).
+
+**Medidas en el HP dv7** (Mobility HD 4500 RV710, R7xx; imagen de depuración de la 8.5.5.2 con el kernel de esta rama por
+`arranque probar`; mismas condiciones): antes 4,3 cuadros/s en ventana por la GPU; ahora 8,8 en ventana y 9,7 a pantalla
+completa (75 %: 9,0 / 9,4; 50 %: 9,1 / 9,7: ahí manda la CPU). Por software: antes 0,8; ahora 0,9 / 0,7 (100 %), 1,5 / 1,2
+(75 %), 2,7 / 2,3 (50 %).
+
+**es11demo y sgldemo** (`-n 300`, cuadros/s; «sistema» = el binario de la imagen, «rama» = el de esta rama; software con
+`gpu3d apagar`):
+
+| | Amilo GPU (rama / sistema) | Amilo software | HP GPU (rama / sistema) | HP software |
+| --- | --- | --- | --- | --- |
+| es11demo lightmap | 27 / 27 | 27 | 714 / 909 | 27 |
+| es11demo partículas | 291 / 306 | 16 | 535 / 681 | 16 |
+| es11demo sombra | 59 / 60 | 58 | 750 / 967 | 54 |
+| es11demo reflejo | 25 / 25 | 25 | 25 / 26 | 25 |
+| sgldemo (320x240, `-s`) | 555 | 833 | 937 | 1000 |
+
+En la X1400 lightmap, sombra y reflejo siguen por software (dos unidades de textura, esténcil: no los anuncia); reflejo
+tampoco va por la GPU en el HP. La rama pierde algo en las demos pequeñas a cientos de cuadros/s: es la copia del búfer de
+atrás a la ventana en cada cuadro (unos 0,3 ms), el precio de no enseñar cuadros a medias.
+
+**Pruebas.** h424 (unidad, fuentes, rendimiento: misma suma por software), h444, h432, h436.

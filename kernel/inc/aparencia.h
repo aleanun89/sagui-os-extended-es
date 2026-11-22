@@ -3,7 +3,9 @@
 #ifndef SAGUI_APARENCIA_H
 #define SAGUI_APARENCIA_H
 #include "tipos.h"
+#include "esquemas.h"
 
+const esquema_t *esquema(void);                      /* D428: el esquema de apariencia vigente (solo lectura) */
 uint32_t aparencia_acento(void);                     /* 0xRRGGBB */
 uint32_t aparencia_escurecer(uint32_t cor, int pct); /* mezcla con negro */
 uint32_t aparencia_clarear(uint32_t cor, int pct);   /* mezcla con blanco */

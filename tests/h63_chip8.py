@@ -332,7 +332,7 @@ def main():
         a = janela(m.serial(), "Archivos")
         nomes = ["fuentes", "aurora.xo8", "canoa.sc8", "ramas.ch8", "sumas.ch8"]   # pastas primeiro
         i = nomes.index("sumas.ch8")
-        m.clique(a["x"] + 146 + 120, a["y"] + 70 + 2 + i * 20 + 8, duplo=True)
+        m.clique(a["x"] + 146 + 120, a["y"] + 98 + 2 + i * 20 + 8, duplo=True)
         esperar(m, r"chip8: rom /jogos/chip8/sumas.ch8 \(\d+ bytes\) modo chip8", 20, marca)
         verificar(True, "duplo clique numa .ch8 no Archivos abre o emulador")
         time.sleep(3)

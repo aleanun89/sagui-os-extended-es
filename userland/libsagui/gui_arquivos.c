@@ -20,8 +20,8 @@
 
 #define DA_L   560
 #define DA_A   372
-#define CINZA  0xC0C0C0
-#define AZUL95 0x000080
+#define CINZA  W98_FACE     /* D428: los colores salen del esquema */
+#define AZUL95 W98_AZUL
 #define FILA   18
 #define RUTA_MAX 128
 
@@ -68,8 +68,8 @@ typedef struct { char t[24][100]; char p[24][RUTA_MAX]; int n; } pop_t;
 
 static void bisel(jan_t *j, int x, int y, int l, int a, bool af)
 {
-    uint32_t e1 = af ? 0x808080 : 0xFFFFFF, e2 = af ? 0xFFFFFF : 0x000000;
-    uint32_t i1 = af ? 0x404040 : 0xDFDFDF, i2 = af ? 0xDFDFDF : 0x808080;
+    uint32_t e1 = af ? W98_SOMBRA : W98_LUZ, e2 = af ? W98_LUZ : W98_NEGRO;
+    uint32_t i1 = af ? W98_OSCURO : W98_CLARO, i2 = af ? W98_CLARO : W98_SOMBRA;
     g_retangulo(j, x, y, l, 1, e1); g_retangulo(j, x, y, 1, a, e1);
     g_retangulo(j, x, y + a - 1, l, 1, e2); g_retangulo(j, x + l - 1, y, 1, a, e2);
     g_retangulo(j, x + 1, y + 1, l - 2, 1, i1); g_retangulo(j, x + 1, y + 1, 1, a - 2, i1);
@@ -86,20 +86,20 @@ static void botao95(jan_t *j, int x, int y, int l, int a, const char *t, bool fo
 {
     g_retangulo(j, x, y, l, a, CINZA);
     bisel(j, x, y, l, a, false);
-    if (foco) { g_moldura(j, x, y, l, a, 0x000000); }
+    if (foco) { g_moldura(j, x, y, l, a, W98_NEGRO); }
     int w = g_largura_texto(t);
-    g_texto(j, x + (l - w) / 2, y + (a - LETRA_A) / 2, t, 0x000000);
+    g_texto(j, x + (l - w) / 2, y + (a - LETRA_A) / 2, t, W98_NEGRO);
     if (foco) pontilhado(j, x + 4, y + 4, l - 8, a - 8);
 }
 
 static void seta_baixo(jan_t *j, int x, int y)
 {
-    for (int i = 0; i < 4; i++) g_retangulo(j, x + i, y + i, 7 - 2 * i, 1, 0x000000);
+    for (int i = 0; i < 4; i++) g_retangulo(j, x + i, y + i, 7 - 2 * i, 1, W98_NEGRO);
 }
 
 static void combo95(jan_t *j, int x, int y, int l, const char *t, bool com_pasta, bool foco)
 {
-    g_retangulo(j, x, y, l, 24, COR_BRANCO);
+    g_retangulo(j, x, y, l, 24, COR_CAMPO);
     bisel(j, x, y, l, 24, true);
     int tx = x + 4;
     if (com_pasta) { icone_desenhar(j, tx, y + 4, "pasta", 1); tx += 20; }
@@ -113,9 +113,9 @@ static void combo95(jan_t *j, int x, int y, int l, const char *t, bool com_pasta
         tx = x + 4;
         if (com_pasta) { icone_desenhar(j, tx, y + 4, "pasta", 1); tx += 20; }
         if (n > cols) {
-            g_texto(j, tx, y + 4, "...", COR_BRANCO);
-            g_texto_n(j, tx + 24, y + 4, t + n - (cols - 3), cols - 3, COR_BRANCO);
-        } else g_texto_n(j, tx, y + 4, t, cols, COR_BRANCO);
+            g_texto(j, tx, y + 4, "...", COR_SEL_TEXTO);
+            g_texto_n(j, tx + 24, y + 4, t + n - (cols - 3), cols - 3, COR_SEL_TEXTO);
+        } else g_texto_n(j, tx, y + 4, t, cols, COR_SEL_TEXTO);
     }
     g_retangulo(j, x + l - 22, y + 2, 20, 20, CINZA);
     bisel(j, x + l - 22, y + 2, 20, 20, false);
@@ -258,12 +258,12 @@ static int desplegar(jan_t *j, int x, int y, int l, int alto_combo, const pop_t 
     for (;;) {
         if (sel < topo) topo = sel;
         if (sel >= topo + filas) topo = sel - filas + 1;
-        g_retangulo(j, x, py, l, a, COR_BRANCO);
-        g_moldura(j, x, py, l, a, 0x000000);
+        g_retangulo(j, x, py, l, a, COR_CAMPO);
+        g_moldura(j, x, py, l, a, W98_NEGRO);
         for (int k = 0; k < filas; k++) {
             int i = topo + k, yy = py + 2 + k * FILA;
             if (i == sel) g_retangulo(j, x + 2, yy, l - 4, FILA, AZUL95);
-            g_texto_n(j, x + 6, yy + 1, p->t[i], (l - 12) / LETRA_L, i == sel ? COR_BRANCO : COR_TEXTO);
+            g_texto_n(j, x + 6, yy + 1, p->t[i], (l - 12) / LETRA_L, i == sel ? COR_SEL_TEXTO : COR_TEXTO);
         }
         jan_mostrar(j);
         for (;;) {
@@ -428,7 +428,7 @@ static void ver_sel(dlg_t *d)
 static void desenhar_lista(dlg_t *d)
 {
     jan_t *j = d->j;
-    g_retangulo(j, LI_X, LI_Y, LI_L, LI_A, COR_BRANCO);
+    g_retangulo(j, LI_X, LI_Y, LI_L, LI_A, COR_CAMPO);
     bisel(j, LI_X, LI_Y, LI_L, LI_A, true);
     int y0 = LI_Y + 2;
     if (d->detalhes) {
@@ -448,14 +448,14 @@ static void desenhar_lista(dlg_t *d)
         int i = d->topo + k, y = y0 + k * FILA;
         const entrada_pasta_t *e = &d->ent[d->vis[i]];
         bool sel = i == d->sel;
-        uint32_t cf = d->foco == F_LISTA ? AZUL95 : 0x808080;
+        uint32_t cf = d->foco == F_LISTA ? AZUL95 : W98_SOMBRA;
         icone_desenhar(j, LI_X + 6, y + 1, e->tipo == TIPO_PASTA ? "pasta" : "formulario", 1);
         int tx = LI_X + 26;
         int cols = ((d->detalhes ? 300 : LI_L - 20) - 26) / LETRA_L;
         int nn = (int)tam_texto(e->nome);
         int wsel = (nn < cols ? nn : cols) * LETRA_L + 4;
         if (sel) g_retangulo(j, tx - 2, y, wsel, FILA, cf);
-        g_texto_n(j, tx, y + 1, e->nome, cols, sel ? COR_BRANCO : COR_TEXTO);
+        g_texto_n(j, tx, y + 1, e->nome, cols, sel ? COR_SEL_TEXTO : COR_TEXTO);
         if (d->detalhes) {
             char t[24];
             if (e->tipo != TIPO_PASTA) {
@@ -469,7 +469,7 @@ static void desenhar_lista(dlg_t *d)
     }
     if (d->nvis > v) {
         int tr = LI_A - 6 - (d->detalhes ? FILA : 0), ax = LI_X + LI_L - 14;
-        g_retangulo(j, ax, y0, 12, tr, 0xDFDFDF);
+        g_retangulo(j, ax, y0, 12, tr, W98_CLARO);
         int pa = tr * v / d->nvis;
         if (pa < 10) pa = 10;
         int py = (tr - pa) * d->topo / (d->nvis - v);
@@ -501,7 +501,7 @@ static void desenhar_tudo(dlg_t *d)
     else {
         char t[80];
         formatar_texto(t, sizeof t, _("%d elementos"), d->nvis);
-        g_texto(j, 16, Y_ESTADO + 1, t, 0x404040);
+        g_texto(j, 16, Y_ESTADO + 1, t, W98_OSCURO);
     }
     caixa_desenhar(j, &d->nome);
     jan_mostrar(j);
@@ -989,7 +989,7 @@ static void arv_desenhar(arv_t *a)
     jan_t *j = a->j;
     g_retangulo(j, 0, 0, AR_L, AR_A, CINZA);
     g_texto(j, 10, 8, _("Elige una carpeta:"), 0);
-    g_retangulo(j, AR_X, AR_Y, AR_W, AR_H, COR_BRANCO);
+    g_retangulo(j, AR_X, AR_Y, AR_W, AR_H, COR_CAMPO);
     bisel(j, AR_X, AR_Y, AR_W, AR_H, true);
     int v = arv_filas();
     for (int k = 0; k < v && a->topo + k < a->qtd; k++) {
@@ -997,18 +997,18 @@ static void arv_desenhar(arv_t *a)
         const no_t *no = &a->n[i];
         int x = AR_X + 6 + no->prof * 16;
         /* cuadro [+] o [-] de Windows 95 */
-        g_moldura(j, x, y + 4, 9, 9, 0x808080);
+        g_moldura(j, x, y + 4, 9, 9, W98_SOMBRA);
         g_retangulo(j, x + 2, y + 8, 5, 1, 0);
         if (!no->aberto && !no->semperm) g_retangulo(j, x + 4, y + 6, 1, 5, 0);
         icone_desenhar(j, x + 14, y + 1, "pasta", 1);
         int w = (int)tam_texto(no->nome) * LETRA_L + 4;
-        if (i == a->sel) g_retangulo(j, x + 32, y, w, FILA, a->foco == A_ARV ? AZUL95 : 0x808080);
-        g_texto(j, x + 34, y + 1, no->nome, i == a->sel ? COR_BRANCO : (no->semperm ? 0x808080 : COR_TEXTO));
+        if (i == a->sel) g_retangulo(j, x + 32, y, w, FILA, a->foco == A_ARV ? AZUL95 : W98_SOMBRA);
+        g_texto(j, x + 34, y + 1, no->nome, i == a->sel ? COR_SEL_TEXTO : (no->semperm ? W98_SOMBRA : COR_TEXTO));
         if (i == a->sel && a->foco == A_ARV) pontilhado(j, x + 32, y, w, FILA);
     }
     if (a->qtd > v) {
         int tr = AR_H - 6, ax = AR_X + AR_W - 14;
-        g_retangulo(j, ax, AR_Y + 2, 12, tr, 0xDFDFDF);
+        g_retangulo(j, ax, AR_Y + 2, 12, tr, W98_CLARO);
         int pa = tr * v / a->qtd;
         if (pa < 10) pa = 10;
         int py = (tr - pa) * a->topo / (a->qtd - v);
@@ -1017,7 +1017,7 @@ static void arv_desenhar(arv_t *a)
     }
     g_texto(j, 10, AR_Y + AR_H + 8, _("Carpeta:"), 0);
     bisel(j, 90, AR_Y + AR_H + 4, AR_L - 100, 24, true);
-    g_retangulo(j, 92, AR_Y + AR_H + 6, AR_L - 104, 20, COR_BRANCO);
+    g_retangulo(j, 92, AR_Y + AR_H + 6, AR_L - 104, 20, COR_CAMPO);
     g_texto_n(j, 96, AR_Y + AR_H + 8, a->n[a->sel].caminho, (AR_L - 112) / LETRA_L, COR_TEXTO);
     int yb = AR_Y + AR_H + 38;
     botao95(j, 10, yb, 120, 24, _("Nueva carpeta"), a->foco == A_NOVA);

@@ -8,8 +8,8 @@
  * un temporizador suma o resta 1000 cada 1000 ms; a igual hora, en el orden en que se encolaron. Una regla que se cumple corre sus
  * acciones en el mismo reparto hasta que una pide esperar; se borra tras la última salvo que una sea «mantener regla».
  *
- * Diferencias con ReTzar, todas por mundo.h: (1) los recursos son los propios del reino (el original suma los de los que comparten
- * recursos); (2) «explorar» descubre el mapa para siempre en vez de un rato; (3) lo que el mundo no ofrece lo escribe el guion en
+ * Diferencias con ReTzar, todas por mundo.h: (1) y (2), que eran los recursos compartidos y «explorar» temporal, ya no lo son desde la
+ * v8.5.5.2 (tz_mundo_recursos_compartidos, tz_mundo_guiao_revelar_temp); (3) lo que el mundo no ofrece lo escribe el guion en
  * TzObj (ver las funciones gm_*); (4) la IA se maneja por TzGuiaoServicos. */
 #include "guiao_i.h"
 #include <stdlib.h>
@@ -151,12 +151,15 @@ static uint64_t agora(const TzMundo *m) { return (uint64_t)m->tic * TZ_TIC_MS; }
 static int32_t recurso(Ctx *c, int p, int r)
 {
 	if (p < 1 || p > 8 || !c->m->reino[p].ativo) return 0;
-	int32_t v = c->m->reino[p].recursos[r];
-	return v < 0 ? 0 : v;
+	/* lo que puede gastar: lo propio y lo de los que comparten con él (ReTzar stock) */
+	int32_t t[TZ_NREC];
+	tz_mundo_recursos_compartidos(c->m, p, t);
+	return t[r] < 0 ? 0 : t[r];
 }
 static int32_t definir_recurso(Ctx *c, int p, int r, int32_t v)
 {
 	if (p < 1 || p > 8 || !c->m->reino[p].ativo) return 0;
+	/* escribe solo lo propio, tal cual (set_own, 0x4678d0) */
 	int32_t atual = c->m->reino[p].recursos[r];
 	tz_mundo_guiao_recursos(c->m, p, r, (v < 0 ? 0 : v) - atual);
 	return recurso(c, p, r);
@@ -240,6 +243,7 @@ static int32_t ex_chamar(void *vc, int fn, const int32_t a[8], int obj)
 		int existe_k = k == 0 || (k >= 9 && k <= 11) || (k >= 1 && k <= 8 && m->reino[k].ativo);
 		if (!existe_k) return 0;
 		if (g->serv.pode_resgatar) g->serv.pode_resgatar(m, g->serv.dados, k, a[1] != 0);
+		tz_mundo_pode_resgatar(m, k, a[1] != 0);
 		return 1;
 	}
 	case TZ_FN_SET_TIME: g->hora = ((unsigned)a[0] & 0xff) % 24; return 1;
@@ -902,7 +906,8 @@ static uint64_t executar(Ctx *c, int idx, uint64_t tempo)
 	}
 	case TZ_ACC_EXPLORAR: {
 		int cx, cy, raio;
-		(void)eval(c, a->t[0] ? a->t[0] : "", -1);
+		int32_t ms = eval(c, a->t[0] ? a->t[0] : "", -1);
+		if (ms < 0) ms = 0;
 		if (a->a.em_volta) {
 			int i = id_a_obj(c, a->a.objeto);
 			if (i < 0) break;
@@ -914,7 +919,9 @@ static uint64_t executar(Ctx *c, int idx, uint64_t tempo)
 			int rr = (r[2] - r[0] + 1 + r[3] - r[1] + 1) / 4;
 			raio = rr >= 1 && rr <= 31 ? rr : 8;
 		}
-		tz_mundo_guiao_revelar(m, m->jogador, clamp_lado(c, cx), clamp_lado(c, cy), raio);
+		/* un rato y no para siempre (0x4bc3dc): el tiempo dado; un área sin tiempo, 4 s; alrededor de un objeto sin tiempo, nada */
+		if (!ms && !a->a.em_volta) ms = 4000;
+		if (ms) tz_mundo_guiao_revelar_temp(m, m->jogador, clamp_lado(c, cx), clamp_lado(c, cy), raio, ((uint32_t)ms + TZ_TIC_MS - 1) / TZ_TIC_MS);
 		break;
 	}
 	case TZ_ACC_APARECER:

@@ -27,6 +27,7 @@ extern gdt_reg_t gdt_registro[CPU_MAX];
 #define VETOR_SISTEMA 0x80  /* llamadas al sistema (fase 3) */
 #define VETOR_CEDER   0x81
 #define VETOR_ACORDAR 0x83   /* D164: IPI que despierta a una CPU ociosa para que planifique */
+#define VETOR_PARAR   0x84   /* D450: IPI de apagar o reiniciar: el secundario se para (cli; hlt) sin el cerrojo general */
 #define VETOR_TIC_CPU 0x82   /* o tic do temporizador do APIC local (D157) */  /* la tarea del kernel cede el turno (solo anillo 0) */
 
 /* Todo lo que deja en la pila el código de entrada (kernel/arch/vetores.asm), desde

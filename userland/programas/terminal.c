@@ -1741,6 +1741,7 @@ int principal(int argc, char **argv)
                 }
                 goto fim;
             }
+            if (e.tipo == EV_TEMA) { sujar_tudo(); barra_suja = true; continue; }   /* D428: la barra de pestañas y el acento del esquema nuevo */
             if (e.tipo == EV_TECLA) {
                 cursor_aceso = true; t_cursor = tempo_ms();
                 if (!atalho(&e)) enviar_tecla(e.tecla, e.modificadores);

@@ -103,6 +103,12 @@ suave, sombras, humo, fuego y polvo, obras y ruinas, día y noche y zoom suave, 
 grande y un equipo lento, la **Resolución de dibujo** al 75 % o al 50 % dibuja menos píxeles en pantalla completa y el
 sistema los amplía. En un equipo antiguo (Pentium III o Athlon) a 800x600, usa **Equipos lentos**.
 
+**Dibujo por GPU** (8.5.5.2r2, en Opciones > Gráficos): con una tarjeta con 3D encendido (Radeon X1300-X1950, HD 2000-4000,
+HD 5000-7000) y en pantalla completa, la partida la dibuja la tarjeta gráfica y el procesador queda para el juego: en un
+portátil de 2006 (Radeon X1400) pasa de unos 13 a unos 27 cuadros por segundo. Si la tarjeta no puede, el juego sigue por el
+procesador y lo avisa. **HUD de rendimiento** (`Ctrl`+`F`, o la casilla en Opciones > Gráficos): cuadros por segundo, uso del
+procesador y de la memoria, la tarjeta gráfica y las temperaturas, en una esquina.
+
 En **Opciones > Interfaz**: el tamaño de la interfaz (Automático: x2 desde 1600x960 y x3 desde 2880x1620), el **cursor del
 juego** (cambia según lo que haría el clic derecho: espada para atacar, hacha, cesta o pico para recoger, martillo para
 construir, círculo tachado si un edificio no cabe) y el rótulo con el nombre de lo que hay bajo el ratón. **Opciones >

@@ -21,6 +21,7 @@ void rastro_pci_erros_log(const char *quando);   /* los bits de error del PCI de
 /* Códigos: 0x0100 | k para las marcas de gart_encender (vmarca k); 0x10000 | fila << 12 | col << 4 | estado
  * para las finas; 0x200000 | paso << 12 | franja << 4 | fase para los experimentos («acel2d volcado paso 7-16»:
  * fase 0 antes de la orden, 1 orden puesta, 2 espera terminada, 3 plazo agotado, 4 comparada igual, 5 distinta);
+ * 0x00450000 | modo << 12 | paso para el apagado y el reinicio (D450: modo 0 reiniciar, 1 apagar; pasos 1-6);
  * 0xE0000000 | vector para una excepción; 0xF... para valores con etiqueta (0x30/0x31 páginas de una región,
  * 0x40 opciones de depuración, 0x50 error del PCI, 0x61 puerto 61h en un NMI, 0x70 banco del MCE). */
 #define RASTRO_VALOR(etq) (0xF0000000u | ((uint32_t)(etq) << 16))

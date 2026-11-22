@@ -479,8 +479,8 @@ static bool cf_casa(const char *nombre, const char *filtro)
 /* Una fila con el nombre dibujado con su propia fuente. */
 static void cf_fila(jan_t *j, int x, int y, int l, int fam, const char *nombre, bool sel)
 {
-    g_retangulo(j, x, y, l, LISTA_ALTURA_ITEM, sel ? COR_SELECAO : COR_BRANCO);
-    rte_fmt_t f = { (uint8_t)fam, 0, 11, sel ? COR_BRANCO : 0x000000 };
+    g_retangulo(j, x, y, l, LISTA_ALTURA_ITEM, sel ? COR_SELECAO : COR_CAMPO);
+    rte_fmt_t f = { (uint8_t)fam, 0, 11, sel ? COR_SEL_TEXTO : 0x000000 };
     rte_amostra(j, x, y, l, LISTA_ALTURA_ITEM, &f, nombre);
 }
 
@@ -554,7 +554,7 @@ static void fd_tam_texto(caixa_t *c, int tam)
 
 static void fd_marco_caja(jan_t *j, int x, int y, int l, const char *t)
 {
-    g_retangulo(j, x, y, l, 24, COR_BRANCO);
+    g_retangulo(j, x, y, l, 24, COR_CAMPO);
     g_bisel(j, x - 1, y - 1, l + 2, 26, true);
     g_texto_n(j, x + 5, y + 4, t, (l - 10) / LETRA_L, W98_NEGRO);
 }
@@ -762,7 +762,7 @@ void combo_fuentes_definir(combo_fuentes_t *c, int fam)
 
 void combo_fuentes_desenhar(jan_t *j, combo_fuentes_t *c)
 {
-    g_retangulo(j, c->x, c->y, c->l, c->a, COR_BRANCO);
+    g_retangulo(j, c->x, c->y, c->l, c->a, COR_CAMPO);
     g_bisel(j, c->x, c->y, c->l, c->a, true);
     int cols = (c->l - 4 - 17 - 4) / LETRA_L;
     g_texto_n(j, c->x + 4, c->y + 2, c->texto, cols, W98_NEGRO);

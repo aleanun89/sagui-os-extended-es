@@ -40,9 +40,37 @@ void tz_recalcular(TzMundo *m, TzId i);        /* ataque y defensa con nivel e i
 int tz_pesquisas(const TzMundo *m, int k, const char *nome);   /* veces completada */
 int tz_cel_livre(const TzMundo *m, int capa, int dono, int x, int y);
 int tz_lugar_livre(const TzMundo *m, int capa, int dono, const int r[4], int *x, int *y);   /* casilla libre alrededor */
+int tz_unid_celulas(int classe);                   /* casillas por lado de una unidad: 2 las grandes (mercader, catapultas, barcos, dragón) */
+int tz_unid_cabe(const TzMundo *m, TzId i, int x, int y);   /* toda la huella de la unidad i cabe con el ancla en (x, y) */
+int tz_lugar_livre_cls(const TzMundo *m, int classe, int dono, const int r[4], int *x, int *y);   /* como tz_lugar_livre, con la huella de la clase */
 void tz_aplicar_comando(TzMundo *m, const TzComando *c);
 int tz_hostil(const TzMundo *m, int k, TzId t);   /* gameplay.rs hostile_to: ¿el reino k ataca solo a t? */
 int tz_disponivel(const TzMundo *m, int k, int civ, const char *nome, int tecnologia);   /* 0 o -1 con tz_erro */
+
+void tz_experiencia(TzMundo *m, TzId i, int pontos, int propagar);   /* mundo.c */
+void tz_gastar(TzMundo *m, int k, const uint32_t c[TZ_NREC]);       /* mundo.c: gasta lo propio y luego lo de quien comparte */
+
+/* itens.c */
+void tz_largar_itens(TzMundo *m, TzId i);          /* quien lleva objetos los deja caer a su alrededor (muerte) */
+void tz_item_tic(TzMundo *m, TzId i);              /* órdenes de objetos: TZ_O_PEGAR_ITEM, TZ_O_USAR_ITEM, TZ_O_SOLTAR_ITEM */
+void tz_vender_item(TzMundo *m, int k, TzId mercado, TzId item);
+void tz_item_gastar(TzMundo *m, TzId item);        /* el objeto desaparece (lo llevaba alguien o estaba en el suelo) */
+
+/* comercio.c */
+void tz_comerciar_tic(TzMundo *m, TzId i);         /* TZ_O_COMERCIAR */
+void tz_vender_tic(TzMundo *m, TzId i);            /* TZ_O_VENDER */
+void tz_negocio_tic(TzMundo *m);                   /* préstamos, intercambios, ofertas de taberna, cruzadas: una vez por tic */
+int tz_negocio_comando(TzMundo *m, const TzComando *c);   /* 1 si lo atendió */
+int tz_comercio_ordem(TzMundo *m, TzId i, const TzOrdem *o, int fila);   /* prepara la ruta; 0 bien, -1 no vale */
+
+/* magia.c */
+void tz_efeitos_tic(TzMundo *m, TzId i);           /* caducan maldición, hipnosis, invisibilidad; energía del espía */
+void tz_remoinhos_tic(TzMundo *m);
+const char *tz_feitico_chave(int idx);             /* world.rs spell_key: «spell_firerain»... o NULL */
+int tz_feitico_ordem(const TzMundo *m, const char *chave);   /* índice en cat->ord de la orden del hechizo o -1 */
+void tz_espia_revelar(TzMundo *m, TzId host);      /* el espía infiltrado vuelve a aparecer */
+void tz_espia_tic(TzMundo *m, TzId i);             /* TZ_O_ASESINAR, TZ_O_SUPLANTAR */
+int tz_converter(TzMundo *m, TzId i, int classe);  /* cambia la clase de una unidad (monje a sacerdote...) */
 
 /* acoes.c */
 void tz_ator_tic(TzMundo *m, TzId i);
@@ -59,6 +87,11 @@ void tz_dano(TzMundo *m, TzId alvo, uint32_t golpe, int categoria, TzId de);
 /* magia.c */
 void tz_hechizo_tic(TzMundo *m, TzId i);
 int tz_mover_para(TzMundo *m, TzId i, const int r[4], int alc);   /* acoes.c: 1 llegó, 0 andando, -1 no puede */
+int tz_mover_obj(TzMundo *m, TzId i, TzId j, int alc);             /* acoes.c: igual, hacia un objeto */
+void tz_proxima_ordem(TzMundo *m, TzId i);                          /* acoes.c: la orden de ahora acabó */
+void tz_estado(TzMundo *m, TzObj *o, int e, int trab);              /* acoes.c */
+void tz_olhar_obj(const TzMundo *m, TzObj *o, const TzObj *t);      /* acoes.c */
+int tz_pagar(TzMundo *m, int k, const uint32_t c[TZ_NREC]);         /* acoes.c: cobra y avisa; 0 bien */
 int tz_efeito(const TzMundo *m, const TzObj *o, int ef);   /* el efecto está activo */
 
 /* gravar.c */

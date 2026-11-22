@@ -116,7 +116,7 @@ def main():
         sys.exit(f"mkfonte: faltam caracteres ASCII: {''.join(faltando)}")
     with open(sys.argv[2], "w") as f:
         f.write("/* Gerado por tools/mkfonte.py a partir de tools/fonte/sagui8x16.txt. Não editar. */\n")
-        f.write("const unsigned char fonte_sagui[256][16] = {\n")
+        f.write("unsigned char fonte_sagui[256][16] = {\n")   # no const: D428 deja cambiar de fuente en vivo
         for c in range(256):
             f.write("    {" + ", ".join(f"0x{v:02X}" for v in fonte[c]) + f"}},  /* 0x{c:02X} */\n")
         f.write("};\n")

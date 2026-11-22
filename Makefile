@@ -175,8 +175,8 @@ LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/use
 # depende de la otra; «medios» es el resto (sonido y vídeo, documentos, particiones, saguimark...). Los programas
 # estáticos siguen enlazando LIBSAGUI_OBJ entero, como siempre.
 LIBSAGUI_BASE_NOMES := ambiente catalogo chamadas compressao conf_maquina contas div64 empacotar entrada formatar fuso gui \
-  gui_arquivos gui_barras gui_revisar hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
-  inicio.asm mandos memoria rapido rede regex servicos sincronia sse1 sse2 sse3 ssse3 texto utilitarios zonas
+  gui_arquivos gui_barras gui_explorador gui_moderno gui_revisar hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
+  inicio.asm mandos memoria rapido rede regex servicos sincronia sonidos sse1 sse2 sse3 ssse3 texto utilitarios zonas
 LIBSAGUI_BASE_OBJ := $(B)/userland/fonte8x16.o $(addprefix $(B)/userland/libsagui/,$(addsuffix .o,$(LIBSAGUI_BASE_NOMES)))
 LIBSAGUI_MEDIOS_OBJ := $(filter-out $(LIBSAGUI_BASE_OBJ),$(LIBSAGUI_OBJ))
 USER_HDR  := $(wildcard userland/inc/*.h) kernel/inc/abi.h kernel/inc/sha256.h kernel/inc/fuso.h kernel/inc/versao.h
@@ -272,6 +272,7 @@ PROGRAMAS += $(B)/userland/bin/sagsh $(B)/userland/bin/sh
 # A prova da rota v6 do SaguiGL (texturas, mistura, neblina e luzes, D130): o
 # programa está em tests/sgl/ porque o mesmo código compila no anfitrião.
 PROGRAMAS += $(B)/userland/bin/sglv6
+PROGRAMAS += $(B)/userland/bin/es11conf
 # SQLite 3 (mejora 064, D116): la amalgamación de dominio público en userland/terceros/sqlite/,
 # con el VFS propio (sqlite_vfs_sagui.c) y la libc común (D210; hasta entonces, sqlite_libc.c y
 # unas cabeceras mínimas). Esos objetos no entran en la libsagui común: los ligan solo el
@@ -444,7 +445,7 @@ APPS_MB ?= 0
 # RAM al arrancar). APPS_MOVER acumula, ademas, lo que solo existe segun la configuracion
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
 APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini visorpdf chatia ia \
-  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo \
+  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo es11demo \
   chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti llm
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
@@ -639,11 +640,21 @@ endif
 include userland/libsdl2/teste.mk
 # AoEN (D382): RTS propio estilo Age of Empires (GPL-3.0-or-later); los datos del juego original no se distribuyen.
 include userland/juegos/aoen/aoen.mk
+# Brumacanto (D444): juego de vóxeles con SDL 2 y OpenGL ES 1.1 (MIT; gráficos CC0 de Kenney). Entra también sin GPL. BRUMACANTO=0 lo deja fuera.
+BRUMACANTO ?= 1
+ifeq ($(BRUMACANTO),1)
+include userland/terceros/brumacanto/brumacanto.mk
+endif
 # Tzar (D417): visor de mapas de Tzar con lectores traducidos de ReTzar (GPL-3.0-or-later); los datos no se distribuyen.
 # Fuera de la variante sin GPL, como los demás ports de código GPL de terceros.
 ifneq ($(SEM_GPL),1)
 include userland/juegos/tzar/tzar.mk
 endif
+# awk (D440): /bin/awk, The One True AWK; sus fuentes las baja tools/awk_fuentes.sh. Es permisivo: entra también con SEM_GPL=1.
+include userland/terceros/awk/awk.mk
+# Lua 5.4 (D440): /apps/bin/lua y luac y liblua.a; sus fuentes las baja tools/lua_fuentes.sh. MIT: entra también con SEM_GPL=1.
+include userland/terceros/lua/lua.mk
+
 # TCC (D384): el compilador de C dentro de SaguiOS (/apps/bin/tcc) y los fuentes de AoEN para recompilarlo dentro.
 # Solo si se bajaron sus fuentes (tools/tcc_fuentes.sh); TCC=0 lo deja fuera.
 # Fuera de la variante sin GPL (lo que compila lleva la libsagui GPL-3.0-only y libtcc1.c es GPL-2.0+), como Freeciv.
@@ -716,7 +727,7 @@ CD_DEP := $(CD_RAMDISK)
 CD_OPC := --ramdisk $(CD_RAMDISK)
 endif
 
-.PHONY: help uefi variantes priv_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
+.PHONY: help uefi variantes priv_variantes debug_variantes priv_descargas imagem-smp imagem-persistente-smp imagem-persistente-smp-uacpi imagem-uacpi all vazio vdi iso test rodar entrega limpar dashboard imagem-persistente imagem-persistente-fat32 imagem-particoes imagem-particoes-xz
 
 all: $(B)/saguios.img $(B)/host/chip8
 
@@ -946,10 +957,10 @@ $(B)/userland/ia/%.o: userland/ia/%.c $(USER_HDR)
 # libsgl (D104, mejora 054): SaguiGL por software. Usa SSE2 (el sgldemo comprueba
 # el CPUID), sin FMA y sin errno en la raíz, para que el anfitrión dé los mismos bits.
 SGL_FLAGS := -msse -msse2 -mfpmath=sse -ffp-contract=off -fno-math-errno -mstackrealign -Iuserland/libsgl
-SGL_OBJ   := $(B)/userland/libsgl/sgl.o $(B)/userland/libsgl/cenas.o
+SGL_OBJ   := $(B)/userland/libsgl/sgl.o $(B)/userland/libsgl/sgl_fixo.o $(B)/userland/libsgl/sgl_egl.o $(B)/userland/libsgl/cenas.o
 # D404: el paisaje y el cargador de OBJ, solo para el sgldemo.
 SGL_OBJ_DEMO := $(B)/userland/libsgl/paisaje.o $(B)/userland/libsgl/sgl_obj.o
-SGL_HDR   := $(wildcard userland/libsgl/*.h)
+SGL_HDR   := $(wildcard userland/libsgl/*.h) userland/libsgl/sgl_es.c userland/libsgl/sgl_procs.inc $(wildcard userland/inc/GLES/*.h userland/inc/EGL/*.h userland/inc/KHR/*.h)
 # A prova da rota v6 (texturas, mistura, neblina e luzes, D130): o mesmo programa
 # compila-se no anfitrião (tests/h101_sagui_gl_v6.py) e dentro do SaguiOS.
 SGL_PROG_OBJ := $(B)/userland/programas/sglv6.o
@@ -960,6 +971,16 @@ $(SGL_PROG_OBJ): tests/sgl/sglv6.c $(SGL_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(UCFLAGS) -c -o $@ $<
 $(B)/userland/bin/sglv6: $(SGL_OBJ) $(SGL_PROG_OBJ)
+# D425: OpenGL ES 1.1. es11conf = las pruebas de conformidad (tests/sgl/es11_conformidad.c, las mismas que en
+# el anfitrión); es11demo = la demostración con EGL (userland/programas/es11demo.c).
+ES11_PROG_OBJ := $(B)/userland/programas/es11conf.o
+$(ES11_PROG_OBJ) $(B)/userland/programas/es11demo.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) $(SGL_FLAGS)
+$(ES11_PROG_OBJ) $(B)/userland/programas/es11demo.o: $(SGL_HDR)
+$(ES11_PROG_OBJ): tests/sgl/es11_conformidad.c $(SGL_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -c -o $@ $<
+$(B)/userland/bin/es11conf: $(SGL_OBJ) $(ES11_PROG_OBJ)
+$(B)/userland/bin/es11demo: $(SGL_OBJ)
 
 # O armazón do driver 3D das GPU da AMD (melhora 054, parte B2, D158): a tabela
 # de familias, a identificação (com o mapeo do BAR que faz o kernel) e o
@@ -1497,7 +1518,14 @@ $(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
 # ramdisk con /apps dentro («completo» y el CD con RAIZ_DISCO=0). Con la raíz en ext2 (M1, lo de por defecto:
 # imágenes de disco y la ISO) sí van: el SGFS queda solo para el initramfs y esos formatos de compatibilidad.
 SGFS_MAX_RUTA := 55
-$(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO_SISTEMA) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
+# D421: el esquema de sonidos propio «SaguiOS» (generado por código, deterministico) y el «Kenney» (CC0, en git).
+SONIDOS_KENNEY := $(wildcard userland/terceros/kenney-sonidos/*)
+$(B)/sonidos/saguios/.feito: tools/gerar_sonidos.py
+	@rm -rf $(B)/sonidos/saguios && mkdir -p $(B)/sonidos
+	$(PY) tools/gerar_sonidos.py $(B)/sonidos/saguios
+	@touch $@
+
+$(B)/ramdisk.sgfs: $(B)/sonidos/saguios/.feito $(SONIDOS_KENNEY) $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO_SISTEMA) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
                   userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) $(FIRMWARE_BT_RTL) $(FIRMWARE_BT_ATH) \
                   $(UEFI_EFI) $(B)/boot/mbr.bin
 	@set -e; \
@@ -1533,6 +1561,9 @@ $(B)/ramdisk.sgfs: $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO
 	if [ -n "$(FIRMWARE_BT_ATH)" ]; then mkdir -p "$$d/lib/firmware/ar3k"; cp $(FIRMWARE_BT_ATH) "$$d/lib/firmware/ar3k/"; fi; \
 	mkdir -p "$$d/sistema/efi/EFI/BOOT" "$$d/sistema/arranque" "$$d/sistema/idiomas"; \
 	cp -r $(B)/idiomas/* "$$d/sistema/idiomas/"; \
+	mkdir -p "$$d/sistema/sonidos/kenney"; \
+	cp -r $(B)/sonidos/saguios "$$d/sistema/sonidos/saguios"; rm -f "$$d/sistema/sonidos/saguios/.feito"; \
+	cp userland/terceros/kenney-sonidos/* "$$d/sistema/sonidos/kenney/"; \
 	cp $(UEFI_EFI) "$$d/sistema/efi/EFI/BOOT/"; \
 	cp $(B)/boot/mbr.bin "$$d/sistema/arranque/mbr.bin"; \
 	$(PY) tools/mksgfs.py "$$d" "$@.novo"; \
@@ -1564,13 +1595,13 @@ $(B)/userland/bin/pluma $(B)/userland/bin/tucan $(B)/userland/bin/fuentes $(B)/u
 # D228: lo de $(INPUT_SHARE)/apps (docs/input_share.md) va encima, tal cual; la marca
 # (tools/marca_carpeta.py) cambia cuando cambia lo que hay allí.
 APPS_MARCA_ENTRADA := $(B)/apps/entradas.txt
-$(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA) "INPUT_SHARE=$(INPUT_SHARE)" "$(INPUT_SHARE)/apps")
+$(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA) "INPUT_SHARE=$(INPUT_SHARE)" "$(INPUT_SHARE)/apps" "$(INPUT_SHARE)/sounds")
 # El árbol de la partición SAGUI-APPS: /bin con los ejecutables de las apps y
 # una carpeta por app con sus datos, más el leeme.txt. Se monta en una carpeta
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(AOEN_RES) $(CD_RECURSOS) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(AOEN_RES) $(BR_RECURSOS) $(CD_RECURSOS) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt tools/sonidos_privados.py
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \
@@ -1583,6 +1614,9 @@ $(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(N
 	cp userland/apps/leeme.txt "$$t/leeme.txt"; \
 	if [ -n "$(INPUT_SHARE)" ] && [ -d "$(INPUT_SHARE)/apps" ]; then \
 	  echo "Makefile: $(INPUT_SHARE)/apps -> /apps"; cp -r "$(INPUT_SHARE)/apps/." "$$t/"; fi; \
+	if [ -n "$(INPUT_SHARE)" ] && [ -d "$(INPUT_SHARE)/sounds" ]; then \
+	  echo "Makefile: $(INPUT_SHARE)/sounds -> /apps/sonidos (esquemas de sonido PRIVADOS, D421)"; \
+	  $(PY) tools/sonidos_privados.py "$(INPUT_SHARE)/sounds" "$$t/sonidos"; fi; \
 	rm -rf $(B)/apps/raiz; \
 	mv "$$t" $(B)/apps/raiz; \
 	touch $@
@@ -1653,6 +1687,9 @@ $(B)/saguios.img: $(B)/boot/mbr.bin $(B)/boot/estagio2.bin $(B)/kernel.bin $(IMG
 DESTINO ?= entrega/latest
 GERAR_OPC ?=
 variantes:
+	@# D418: las imagenes de depuracion (clave de root por SSH) nunca salen de «variantes»
+	@if [ -n "$(DEBUG_DESTINO)$(DEBUG_CLAVE)$(DEBUG_SIN_ROOT)$(SAGUI_CONF_EXTRA)$(SAGUI_DEBUG_SIN_ROOT)" ]; then \
+	    echo "variantes: DEBUG_* no vale aqui (D418): las imagenes de depuracion se hacen con make debug_variantes y no se publican"; exit 1; fi
 	./gerar_versao.sh --todas --destino $(DESTINO) $(GERAR_OPC)
 
 # Variantes privadas (solo para quien compila, NUNCA publicar, D228): todas las de
@@ -1692,6 +1729,12 @@ OPENTTD_URL ?=
 priv_variantes: priv_descargas
 	./gerar_versao.sh --todas --con-input-share --destino $(PRIV_DESTINO) $(GERAR_OPC)
 	@echo "priv_variantes: en $(PRIV_DESTINO): son para uso propio, NO publicar (D228)"
+
+# D418: imagenes de DEPURACION para probar en portatiles por SSH: como priv_variantes, pero con la clave publica
+# del PC en root, sshd y ntp activados, huella del servidor fija y un aviso rojo en el escritorio. NO publicar.
+#   make debug_variantes DEBUG_DESTINO=DIR [DEBUG_CLAVE=~/.ssh/saguios_amilo.pub] [JOGOS_MB=1600] [DEBUG_SIN_ROOT=1]
+debug_variantes:
+	DEBUG_DESTINO="$(DEBUG_DESTINO)" DEBUG_CLAVE="$(DEBUG_CLAVE)" DEBUG_SIN_ROOT="$(DEBUG_SIN_ROOT)" GERAR_OPC="$(GERAR_OPC)" bash tools/debug_variantes.sh
 
 # Ayuda: objetivos y variables principales (el detalle, en compilar_versiones.md).
 help:

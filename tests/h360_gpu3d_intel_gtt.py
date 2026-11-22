@@ -111,8 +111,9 @@ def fuentes():
     verificar("--gpu3d-gtt" in ler("tools/mkimagem.py") and "0x40 if a.gpu3d_gtt" in ler("tools/mkimagem.py"),
               "mkimagem.py --gpu3d-gtt")
     capa = ler("kernel/gui/gpu3d.c")
-    verificar("op < 1 || op > 4" in capa and "variante_real" in capa, "gpu3d.c: ctl 3 y 4, y la variante real")
-    verificar("encender [anillo] [gtt]" in ler("userland/programas/gpu3d.c"), "gpu3d: «encender [anillo] [gtt]»")
+    verificar(re.search(r"op < 1 \|\| op > [4-9]", capa) is not None and "variante_real" in capa,
+              "gpu3d.c: ctl 3 y 4 (y las que añadieron D406 y siguientes), y la variante real")
+    verificar("encender [anillo] [gtt" in ler("userland/programas/gpu3d.c"), "gpu3d: «encender [anillo] [gtt…]»")
     verificar("## D358." in ler("docs/decisoes.md"), "la decisión D358 está en docs/decisoes.md")
     doc = ler("docs/gpu3d.md")
     verificar("gpu3d encender gtt" in doc and "etapa 6" in doc and "D358" in doc, "docs/gpu3d.md: RAM en el GTT y etapas")
@@ -151,7 +152,7 @@ def simulado():
         out = m.comando("gpu3d", 30)
         verificar("en el anillo" in out and "RAM del sistema en el GTT" in out, "«gpu3d»: anillo y RAM en el GTT")
         out = m.comando("gpu3d encender raro", 30)
-        verificar("uso: gpu3d encender [anillo] [gtt]" in out, "una opción desconocida da el uso")
+        verificar("uso: gpu3d encender [anillo] [gtt" in out, "una opción desconocida da el uso")
         out = m.comando("gpu3d encender", 120)
         verificar("gpu3d encender: activo" in out, "«gpu3d encender» vuelve a lotes sin la RAM del GTT")
         out = m.comando("gpu3d", 30)

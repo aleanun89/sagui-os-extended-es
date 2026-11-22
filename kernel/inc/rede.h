@@ -90,6 +90,7 @@ void        rede_renovar_dhcp(void);
 uint8_t *rede_carga(void);             /* onde montar o conteúdo do próximo pacote IP */
 /* Manda o pacote montado em rede_carga() (n bytes). false = sem rota/placa. */
 bool     ip_enviar(uint32_t destino, uint8_t protocolo, uint32_t n);
+bool     rede_envio_recusado(void);   /* D437: el último ip_enviar no cupo en la tarjeta (o el lo/túnel) */
 bool     udp_enviar(uint32_t destino, uint16_t porta_origem, uint16_t porta_destino, uint32_t n);   /* dados em rede_carga()+8 */
 uint32_t soma_parcial(uint32_t s, const uint8_t *p, uint32_t n);
 uint16_t soma_final(uint32_t s);

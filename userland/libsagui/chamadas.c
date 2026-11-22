@@ -64,7 +64,9 @@ int  bloqueo_dns(int op, const void *a, unsigned b) { return chamar(SIS_BLOQUEO,
 /* D216: con servicios en marcha, el kernel reinicia desde su tarea "apagar"
  * después de pararlos: la llamada vuelve y aquí solo se espera. */
 /* D255: si el kernel lo niega (un servicio, una sesión SSH sin ser root), vuelve con el error. */
-int  reiniciar(void)                  { int r = chamar(SIS_REINICIAR, 0, 0, 0); if (r == ERRO_ACESSO) return r; for (;;) dormir(1000); }
+int  reiniciar(void)                  { return reiniciar_metodo(0); }
+/* D450: el primer método de reinicio que prueba el kernel (REINICIO_* en sagui.h; 0 = el orden normal). */
+int  reiniciar_metodo(int m)          { int r = chamar(SIS_REINICIAR, (unsigned)m, 0, 0); if (r == ERRO_ACESSO) return r; for (;;) dormir(1000); }
 /* D216: el gestor de servicios (SERV_* en abi.h). */
 int  servicos_kernel(int op, int arg) { return chamar(SIS_SERVICOS, (unsigned)op, (unsigned)arg, 0); }
 int  servicos_kernel3(int op, int a, int b) { return chamar(SIS_SERVICOS, (unsigned)op, (unsigned)a, (unsigned)b); }
@@ -98,6 +100,7 @@ int  bip(int freq, int ms)
 int  teclas_seguradas(unsigned char mapa[32]) { return chamar(SIS_TECLAS_SEGURADAS, (unsigned)mapa, 0, 0); }
 int  teclado_layout(int layout)        { return chamar(SIS_TECLADO, (unsigned)layout, 0, 0); }
 int  acento_cor(int rgb)               { return chamar(SIS_ACENTO, (unsigned)rgb, 0, 0); }
+int  esquema_op(unsigned op, void *ptr, unsigned n) { return chamar(SIS_ESQUEMA, op, (unsigned)ptr, n); }   /* D428 */
 void silenciar(void)                  { chamar(SIS_BIP, 0, 0, 0); }
 
 /* ---- audio (D088): la cuarta llamada usa ESI ---- */
@@ -145,14 +148,27 @@ int  criar_janela(const char *t, int l, int a, uint32_t **px)
                                       { return chamar(SIS_CRIAR_JANELA, (unsigned)t, (unsigned)(l | (a << 16)), (unsigned)px); }
 int  fechar_janela(int id)            { return chamar(SIS_FECHAR_JANELA, (unsigned)id, 0, 0); }
 int  atualizar_janela(int id, const retangulo_t *r) { return chamar(SIS_ATUALIZAR_JANELA, (unsigned)id, (unsigned)r, 0); }
-int  proximo_evento(int id, evento_t *e, bool esperar) { return chamar(SIS_PROXIMO_EVENTO, (unsigned)id, (unsigned)e, esperar); }
+int esq_recargar(void);   /* gui_moderno.c */
+/* D428: EV_TEMA recarga el esquema de apariencia antes de entregarse al programa; si el programa registró cómo repintarse
+ * (tema_ao_mudar), se repinta aquí mismo, y el evento le llega igualmente por si quiere hacer algo más. */
+static void (*tema_repintar)(void);
+void tema_ao_mudar(void (*repintar)(void)) { tema_repintar = repintar; }
+static int tras_evento(int r, evento_t *e)
+{
+    if (r > 0 && e->tipo == EV_TEMA) {
+        esq_recargar();
+        if (tema_repintar) tema_repintar();
+    }
+    return r;
+}
+int  proximo_evento(int id, evento_t *e, bool esperar) { return tras_evento(chamar(SIS_PROXIMO_EVENTO, (unsigned)id, (unsigned)e, esperar), e); }
 /* Espera un evento durante hasta ms milisegundos (D083); ms < 0 = sin plazo. */
 int  esperar_evento(int id, evento_t *e, int ms)
 {
     if (ms < 0) return proximo_evento(id, e, true);
     if (ms == 0) return proximo_evento(id, e, false);
     unsigned prazo = (tempo_ms() + (unsigned)ms) & ~EVENTO_PRAZO;
-    return chamar(SIS_PROXIMO_EVENTO, (unsigned)id, (unsigned)e, EVENTO_PRAZO | prazo);
+    return tras_evento(chamar(SIS_PROXIMO_EVENTO, (unsigned)id, (unsigned)e, EVENTO_PRAZO | prazo), e);
 }
 int  titulo_janela(int id, const char *t) { return chamar(SIS_TITULO_JANELA, (unsigned)id, (unsigned)t, 0); }
 int  estilo_janela(int id, unsigned estilo, int min_l, int min_a)

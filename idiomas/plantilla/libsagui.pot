@@ -44,19 +44,19 @@ msgstr ""
 msgid "Sin efecto con el reloj oculto"
 msgstr ""
 
-#: userland/libsagui/gui.c:872 userland/libsagui/gui_arquivos.c:694
+#: userland/libsagui/gui.c:875 userland/libsagui/gui_arquivos.c:694
 msgid "Sí"
 msgstr ""
 
-#: userland/libsagui/gui.c:872 userland/libsagui/gui_arquivos.c:695
+#: userland/libsagui/gui.c:875 userland/libsagui/gui_arquivos.c:695
 msgid "No"
 msgstr ""
 
-#: userland/libsagui/gui.c:877 userland/libsagui/gui.c:886 userland/libsagui/gui.c:897
+#: userland/libsagui/gui.c:890 userland/libsagui/gui.c:899 userland/libsagui/gui.c:910
 msgid "OK"
 msgstr ""
 
-#: userland/libsagui/gui.c:886 userland/libsagui/gui.c:897 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
+#: userland/libsagui/gui.c:899 userland/libsagui/gui.c:910 userland/libsagui/gui_arquivos.c:498 userland/libsagui/gui_arquivos.c:1025
 msgid "Cancelar"
 msgstr ""
 

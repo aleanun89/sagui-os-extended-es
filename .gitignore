@@ -89,3 +89,7 @@ __pycache__/
 
 # Fuentes de libgit2 (D400): las baja tools/git_fuentes.sh; no van en git
 /userland/terceros/git/fuentes
+Windows_*.wav
+# Fuentes de awk y Lua (D440): las bajan tools/awk_fuentes.sh y tools/lua_fuentes.sh; no van en git
+/userland/terceros/awk/fuentes
+/userland/terceros/lua/fuentes

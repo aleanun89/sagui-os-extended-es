@@ -432,6 +432,130 @@ static UINT32 cabecera_do_disco(UINT8 *dest)
     return achado;
 }
 
+/* ------------------------------------------------------------ kernel de prueba (D439, D392) */
+
+/* Lo mismo que la etapa 2 por BIOS: la segunda mitad de la cabecera del disco describe dos ranuras
+ * (boot/cabecalho.inc, CAB_PR_* y CAB_PB): la de prueba (256-391, PR_PENDENTE = arrancarla UNA vez) y la
+ * del último bueno (392-511, PR_FIXA). Si hay que arrancar la prueba, la marca se BORRA en el disco
+ * (un sector, escrito con Block I/O, releído y comparado) ANTES de leer nada de ella: si el kernel de
+ * prueba se cuelga, el siguiente arranque ya es el último bueno o el original. Si no se puede borrar,
+ * no se arranca. Los datos de la ranura se leen del disco por sus sectores (la partición de SaguiOS o
+ * ficheros de la ESP, que «arranque» ya convirtió en sectores): el sistema de archivos de la ESP no se
+ * escribe nunca desde aquí. */
+#define CAB_PR             256
+#define CAB_PB             392
+#define CAB_PB_COPIA       120        /* bytes 392-511 -> 256-375 (la nota, cortada a 16) */
+#define R_ESTADO           4
+#define R_NK               5
+#define R_NR               6
+#define R_K_BYTES          8
+#define R_K_SOMA           12
+#define R_K_ENTR           16
+#define R_R_ENDER          20
+#define R_R_BYTES          24
+#define R_R_SOMA           28
+#define R_TRAMOS           32
+#define R_SOMA             96
+#define PR_ASSINATURA      0x52504753u   /* 'SGPR' */
+#define PR_PENDENTE        1
+#define PR_ARRANCADA       2
+#define PR_FIXA            4
+#define OPC_KERNEL_PRUEBA  0x100000u   /* boot_info: este arranque es el kernel de una ranura */
+#define OPC_KERNEL_FIXO    0x200000u   /* y además el último bueno */
+#define OPC_UEFI_RANURA    0x400000u   /* D439: este cargador UEFI sabe de las ranuras («arranque probar» por UEFI) */
+
+/* La ranura de 256-391 (en memoria) suma lo que dice y tiene de 1 a 4 tramos de kernel y como mucho 4 de
+ * ramdisk (validar_ranura de la etapa 2). */
+static int ranura_valida(const UINT8 *cab)
+{
+    const UINT8 *r = cab + CAB_PR;
+    if (le32(r) != PR_ASSINATURA || somar(r + R_NK, R_SOMA - R_NK) != le32(r + R_SOMA)) return 0;
+    return r[R_NK] >= 1 && r[R_NK] <= 4 && r[R_NR] <= 4;
+}
+
+/* Escribe los 512 bytes de 'dados' en el sector 'setor' (de 512) del disco, lo relee y lo compara. Con
+ * bloques de más de 512 se lee el bloque entero y solo cambian esos 512 bytes. 0 = escrito y comprobado. */
+static int gravar_setor(UINT32 setor, const UINT8 *dados)
+{
+    if (!disco_bio || disco_cd || !disco_bio->WriteBlocks) return -1;
+    EFI_BLOCK_IO_MEDIA *m = disco_bio->Media;
+    if (m->ReadOnly || !m->MediaPresent || m->IoAlign > 4096) return -1;
+    UINT32 bs = m->BlockSize, sh = 0;
+    while ((1u << sh) < bs) sh++;
+    EFI_PHYSICAL_ADDRESS a = 0xFFFFFFFFu;
+    if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, 2, &a))) return -1;
+    UINT8 *b = (UINT8 *)(UINTN)a, *volta = b + 4096;   /* bs <= 4096 (abrir_disco): una página cada uno */
+    UINT64 pos = (UINT64)setor * 512, bloco = pos >> sh;
+    UINTN desl = (UINTN)(pos & (bs - 1));
+    int r = -1;
+    if (!EFI_ERROR(disco_bio->ReadBlocks(disco_bio, m->MediaId, bloco, bs, b))) {
+        memcpy(b + desl, dados, 512);
+        if (!EFI_ERROR(disco_bio->WriteBlocks(disco_bio, m->MediaId, bloco, bs, b))) {
+            if (disco_bio->FlushBlocks) disco_bio->FlushBlocks(disco_bio);   /* sin caché, puede no hacer nada */
+            if (!EFI_ERROR(disco_bio->ReadBlocks(disco_bio, m->MediaId, bloco, bs, volta)) && memcmp(volta, b, bs) == 0)
+                r = 0;
+        }
+    }
+    BS->FreePages(a, 2);
+    return r;
+}
+
+/* El último bueno (bytes 392-511, 'SGPR' y PR_FIXA): se copia EN MEMORIA encima de la ranura de prueba
+ * (misma disposición) y, si vale, devuelve 2. Después de esto la cabecera ya no se escribe nunca. */
+static int usar_bueno(UINT8 *cab)
+{
+    if (le32(cab + CAB_PB) != PR_ASSINATURA || !(cab[CAB_PB + R_ESTADO] & PR_FIXA)) return 0;
+    memcpy(cab + CAB_PR, cab + CAB_PB, CAB_PB_COPIA);
+    memset(cab + CAB_PR + CAB_PB_COPIA, 0, CAB_PB - CAB_PR - CAB_PB_COPIA);
+    if (!ranura_valida(cab)) {
+        memset(cab + CAB_PR, 0, 4);
+        escrever(L"      Kernel ultimo bueno: la cabecera no cuadra, se ignora\r\n");
+        return 0;
+    }
+    escrever(L"      Kernel: el ultimo bueno (arranque confirmar)\r\n");
+    return 2;
+}
+
+/* 1 = la ranura de prueba (una vez, con la marca ya borrada en el disco, o fijada con el formato de
+ * antes), 2 = el último bueno, 0 = el kernel de la imagen. 'setor' es dónde está la cabecera. */
+static int decidir_ranura(UINT8 *cab, UINT32 setor)
+{
+    UINT8 *r = cab + CAB_PR;
+    if (le32(r) == PR_ASSINATURA && (r[R_ESTADO] & (PR_PENDENTE | PR_FIXA))) {
+        if (!ranura_valida(cab)) {
+            escrever(L"      Kernel de prueba: la cabecera no cuadra, se ignora\r\n");
+        } else if (r[R_ESTADO] & PR_PENDENTE) {
+            UINT8 antes = r[R_ESTADO];
+            r[R_ESTADO] = (UINT8)((antes & ~PR_PENDENTE) | PR_ARRANCADA);
+            if (gravar_setor(setor, cab) == 0) {
+                escrever(L"      Kernel de prueba: esta vez (marca borrada: el siguiente arranque es el ultimo bueno)\r\n");
+                return 1;
+            }
+            r[R_ESTADO] = antes;   /* la copia en memoria vuelve a ser la del disco */
+            escrever(L"      Kernel de prueba: no se pudo borrar la marca en el disco: no se arranca\r\n");
+        } else {
+            escrever(L"      Kernel de prueba: fijado (arranque confirmar)\r\n");
+            return 1;
+        }
+    }
+    return usar_bueno(cab);
+}
+
+/* Lee los tramos (u32 LBA, u32 sectores) seguidos en memoria hasta 'bytes'. 0 = bien. */
+static int ler_tramos(const UINT8 *t, UINT32 n, void *dest, UINT64 bytes)
+{
+    UINT8 *p = dest;
+    UINT64 feito = 0;
+    for (UINT32 i = 0; i < n && feito < bytes; i++) {
+        UINT64 q = (UINT64)le32(t + 8 * i + 4) * 512;
+        if (q > bytes - feito) q = bytes - feito;
+        if (ler_do_disco(le32(t + 8 * i), p + feito, q) != 0) return -1;
+        feito += q;
+    }
+    if (feito != bytes) { escrever(L" los tramos de la ranura no llegan al tamano"); return -1; }
+    return 0;
+}
+
 /* Las dos cabeceras describen el mismo sistema (pueden diferir en lo que se graba
  * después: la resolución preferida, la marca de instalación...). */
 /* v8.5.4.2 (D379): el menú de la tecla M: el modo de la raíz para este arranque (RAIZ_OPC_* del núcleo:
@@ -695,6 +819,144 @@ static void parar_sem_firmware(const video_t *v, UINT64 fb)
     for (;;) __asm__ volatile("cli; hlt");
 }
 
+/* ------------------------------------------------------------ carga del kernel y el ramdisk */
+
+/* Qué se carga: el kernel de la imagen (CAB_K_*, de los ficheros de la ESP o del disco) o el de una
+ * ranura (D439: por sus tramos, del disco). Con una ranura sin ramdisk propio, el ramdisk normal. */
+typedef struct {
+    UINT32 k_bytes, k_soma, entrada, r_ender, r_bytes, r_soma;
+    const UINT8 *tk, *tr;   /* tramos de la ranura; 0 = el de la imagen */
+    UINT32 nk, nr;
+} sistema_t;
+
+typedef struct {
+    EFI_PHYSICAL_ADDRESS zona, carga, rd;
+    UINT32 total, r_paginas;
+    int no_sitio;   /* 1 = el kernel se leyó ya en 1 MB */
+} carga_t;
+
+static void descrever(const UINT8 *cab, int ranura, sistema_t *s)
+{
+    memset(s, 0, sizeof *s);
+    s->r_bytes = le32(cab + CAB_R_BYTES);
+    s->r_soma = le32(cab + CAB_R_SOMA);
+    if (!ranura) {
+        s->k_bytes = le32(cab + CAB_K_BYTES);
+        s->k_soma = le32(cab + CAB_K_SOMA);
+        s->entrada = le32(cab + CAB_K_ENTRADA);
+        s->r_ender = le32(cab + CAB_R_ENDERECO);
+        return;
+    }
+    const UINT8 *r = cab + CAB_PR;
+    s->k_bytes = le32(r + R_K_BYTES);
+    s->k_soma = le32(r + R_K_SOMA);
+    s->entrada = le32(r + R_K_ENTR);
+    s->r_ender = le32(r + R_R_ENDER);
+    s->tk = r + R_TRAMOS;
+    s->nk = r[R_NK];
+    if (r[R_NR]) {
+        s->r_bytes = le32(r + R_R_BYTES);
+        s->r_soma = le32(r + R_R_SOMA);
+        s->tr = r + R_TRAMOS + 32;
+        s->nr = r[R_NR];
+    }
+}
+
+/* Reserva la memoria y lee el kernel y el ramdisk de 's', con las sumas. Con 'fatal' (el kernel de la
+ * imagen: no hay otro detrás) un fallo para con un mensaje; si no, devuelve -1 con la memoria devuelta
+ * al firmware y se prueba el siguiente (el último bueno, el de la imagen). */
+static int carregar(const UINT8 *cab, const sistema_t *s, int do_disco, int fatal, carga_t *c)
+{
+    const CHAR16 *mal = 0;
+    UINT32 k_ender = le32(cab + CAB_K_ENDERECO);
+    memset(c, 0, sizeof *c);
+    if (k_ender != 0x100000 || s->r_ender < k_ender + s->k_bytes || !s->k_bytes || !s->r_bytes ||
+        s->r_ender + s->r_bytes < s->r_ender) {
+        mal = L"la cabecera tiene direcciones de carga raras";
+        goto falhou;
+    }
+    /* Solo el kernel tiene que estar en su sitio: la imagen y la BSS, de 1 MB a la dirección del
+     * ramdisk (mkimagem y «arranque» la ponen tras el fin de la BSS). El ramdisk va donde el firmware
+     * dé memoria: el kernel lo encuentra por la boot_info (OVMF, por ejemplo, tiene memoria NVS en
+     * 8 MB, en medio de donde iría por BIOS). */
+    UINT64 dest_fim = s->r_ender;
+    c->total = (UINT32)((dest_fim - k_ender + 0xFFF) & ~0xFFFull);
+    c->r_paginas = (s->r_bytes + 0xFFF) / 4096;
+
+    /* La zona de transferencia: mejor por debajo de 1 MB (nunca pisa el kernel); si no hay sitio,
+     * en cualquier parte por debajo de 4 GB fuera del destino. */
+    c->zona = 0x9FFFF;
+    if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderCode, ZONA_PAGINAS, &c->zona))) {
+        int ok = 0;
+        for (int t = 0; t < 8 && !ok; t++) {
+            c->zona = 0xFFFFFFFFu;
+            if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderCode, ZONA_PAGINAS, &c->zona))) break;
+            ok = c->zona + ZONA_PAGINAS * 4096 <= k_ender || c->zona >= dest_fim;
+            /* la que pisa el destino se queda reservada: la siguiente sale en otro sitio */
+        }
+        if (!ok) { c->zona = 0; mal = L"no hay memoria para la zona de transferencia"; goto falhou; }
+    }
+
+    /* El kernel: en su sitio si el firmware lo deja; si no, debajo de 4 GB y el trampolín lo mueve. */
+    c->carga = k_ender;
+    c->no_sitio = !EFI_ERROR(BS->AllocatePages(AllocateAddress, EfiLoaderData, c->total / 4096, &c->carga));
+    if (!c->no_sitio) {
+        c->carga = 0xFFFFFFFFu;
+        if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, c->total / 4096, &c->carga))) {
+            c->carga = 0;
+            mal = L"no hay memoria por debajo de 4 GB para el kernel";
+            goto falhou;
+        }
+    }
+    /* El ramdisk: donde lo pone la etapa 2 si está libre; si no, en la RAM que el kernel mapea
+     * (por debajo de 0x78000000, D049) y fuera del destino del kernel. Se queda ahí. */
+    c->rd = s->r_ender;
+    if (EFI_ERROR(BS->AllocatePages(AllocateAddress, EfiLoaderData, c->r_paginas, &c->rd))) {
+        int ok = 0;
+        for (int t = 0; t < 8 && !ok; t++) {
+            c->rd = 0x77FFFFFFu;
+            if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, c->r_paginas, &c->rd))) break;
+            ok = c->rd + (UINT64)c->r_paginas * 4096 <= k_ender || c->rd >= dest_fim;
+        }
+        if (!ok) { c->rd = 0; mal = L"no hay memoria por debajo de 1,875 GB para el ramdisk"; goto falhou; }
+    }
+
+    UINT8 *buf = (UINT8 *)(UINTN)c->carga;
+    escrever(s->tk ? L"[2/6] kernel de la ranura " : L"[2/6] kernel ");
+    if (s->tk ? ler_tramos(s->tk, s->nk, buf, s->k_bytes) != 0
+              : do_disco ? ler_do_disco(le32(cab + CAB_K_LBA), buf, s->k_bytes) != 0
+                         : ler_arquivo(L"\\SAGUI\\KERNEL.BIN", buf, s->k_bytes) != 0) {
+        mal = s->tk ? L"no se pudo leer el kernel de la ranura" : do_disco ? L"no se pudo leer el kernel del disco"
+                                                                          : L"no se pudo leer \\SAGUI\\KERNEL.BIN";
+        goto falhou;
+    }
+    if (somar(buf, s->k_bytes) != s->k_soma) { mal = L"kernel: datos leidos corruptos (la suma no coincide)"; goto falhou; }
+    escrever(s->tr ? L" ok\r\n[3/6] ramdisk de la ranura " : L" ok\r\n[3/6] ramdisk ");
+    void *rp = (void *)(UINTN)c->rd;
+    if (s->tr ? ler_tramos(s->tr, s->nr, rp, s->r_bytes) != 0
+              : do_disco ? ler_do_disco(le32(cab + CAB_R_LBA), rp, s->r_bytes) != 0
+                         : ler_arquivo(L"\\SAGUI\\RAMDISK.SGF", rp, s->r_bytes) != 0) {
+        mal = s->tr ? L"no se pudo leer el ramdisk de la ranura" : do_disco ? L"no se pudo leer el ramdisk del disco"
+                                                                           : L"no se pudo leer \\SAGUI\\RAMDISK.SGF";
+        goto falhou;
+    }
+    if (somar((const UINT8 *)rp, s->r_bytes) != s->r_soma) { mal = L"ramdisk: datos leidos corruptos (la suma no coincide)"; goto falhou; }
+    escrever(L" ok\r\n");
+    if (!c->no_sitio) { escrever(L"      (kernel cargado en "); escrever_hex(c->carga); escrever(L": se movera a 1 MB)\r\n"); }
+    if (c->rd != s->r_ender) { escrever(L"      (ramdisk en "); escrever_hex(c->rd); escrever(L")\r\n"); }
+    return 0;
+
+falhou:
+    if (fatal) parar(mal);
+    escrever(L"\r\n      ");
+    escrever(mal);
+    escrever(L"\r\n      Kernel de la ranura: datos corruptos o ilegibles: se arranca el anterior\r\n");
+    if (c->rd) BS->FreePages(c->rd, c->r_paginas);
+    if (c->carga) BS->FreePages(c->carga, c->total / 4096);
+    if (c->zona) BS->FreePages(c->zona, ZONA_PAGINAS);
+    return -1;
+}
+
 /* ------------------------------------------------------------ principal */
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
@@ -786,70 +1048,24 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
         parar(L"no se encuentra SaguiOS: ni \\SAGUI\\CABECERA.BIN en la ESP ni la cabecera de arranque en el disco "
               L"(LBA 1 o primer sector de la particion GPT de SaguiOS)");
     }
-    UINT32 k_ender = le32(cab + CAB_K_ENDERECO), k_bytes = le32(cab + CAB_K_BYTES);
-    UINT32 r_ender = le32(cab + CAB_R_ENDERECO), r_bytes = le32(cab + CAB_R_BYTES);
-    if (k_ender != 0x100000 || r_ender < k_ender + k_bytes || !k_bytes || !r_bytes || r_ender + r_bytes < r_ender)
-        parar(L"la cabecera tiene direcciones de carga raras");
-    /* Solo el kernel tiene que estar en su sitio: la imagen y la BSS, de 1 MB a la
-     * dirección del ramdisk de la cabecera (mkimagem la pone tras el fin de la BSS). El
-     * ramdisk va donde el firmware dé memoria: el kernel lo encuentra por la boot_info
-     * (OVMF, por ejemplo, tiene memoria NVS en 8 MB, en medio de donde iría por BIOS). */
-    UINT64 dest_fim = r_ender;
-    UINT32 total = (UINT32)((dest_fim - k_ender + 0xFFF) & ~0xFFFull);
-    UINT32 r_paginas = (r_bytes + 0xFFF) / 4096;
-
-    /* La zona de transferencia: mejor por debajo de 1 MB (nunca pisa el kernel); si no
-     * hay sitio, en cualquier parte por debajo de 4 GB fuera del destino. */
-    EFI_PHYSICAL_ADDRESS zona = 0x9FFFF;
-    if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderCode, ZONA_PAGINAS, &zona))) {
-        int ok = 0;
-        for (int t = 0; t < 8 && !ok; t++) {
-            zona = 0xFFFFFFFFu;
-            if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderCode, ZONA_PAGINAS, &zona))) break;
-            ok = zona + ZONA_PAGINAS * 4096 <= k_ender || zona >= dest_fim;
-            /* la que pisa el destino se queda reservada: la siguiente sale en otro sitio */
-        }
-        if (!ok) parar(L"no hay memoria para la zona de transferencia");
+    /* D439: el kernel de prueba y el último bueno, como la etapa 2 por BIOS (D392): solo con la cabecera
+     * del disco (la de la ESP no se puede escribir de forma segura desde aquí), nunca desde un CD ni con
+     * Ctrl (modo rescate: el kernel de la imagen y las marcas siguen). Si la ranura no se puede leer o no
+     * suma, en este mismo arranque el último bueno, y si tampoco, el de la imagen. */
+    int ranura = (cab_lba && !disco_cd && !rescate) ? decidir_ranura(cab, cab_lba) : 0;
+    sistema_t sis;
+    carga_t c;
+    for (;;) {
+        descrever(cab, ranura, &sis);
+        if (carregar(cab, &sis, do_disco, ranura == 0, &c) == 0) break;
+        ranura = ranura == 1 ? usar_bueno(cab) : 0;   /* la marca de una vez ya está borrada */
     }
+    UINT32 k_ender = le32(cab + CAB_K_ENDERECO), k_bytes = sis.k_bytes, r_bytes = sis.r_bytes;
+    UINT64 dest_fim = sis.r_ender;
+    EFI_PHYSICAL_ADDRESS zona = c.zona, carga = c.carga, rd = c.rd;
+    int no_sitio = c.no_sitio;
     UINT8 *z = (UINT8 *)(UINTN)zona;
     memset(z, 0, ZONA_PAGINAS * 4096);
-
-    /* El kernel: en su sitio si el firmware lo deja; si no, debajo de 4 GB y el trampolín lo mueve. */
-    EFI_PHYSICAL_ADDRESS carga = k_ender;
-    int no_sitio = !EFI_ERROR(BS->AllocatePages(AllocateAddress, EfiLoaderData, total / 4096, &carga));
-    if (!no_sitio) {
-        carga = 0xFFFFFFFFu;
-        if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, total / 4096, &carga)))
-            parar(L"no hay memoria por debajo de 4 GB para el kernel");
-    }
-    UINT8 *buf = (UINT8 *)(UINTN)carga;
-    /* El ramdisk: donde lo pone la etapa 2 si está libre; si no, en la RAM que el kernel mapea
-     * (por debajo de 0x78000000, D049) y fuera del destino del kernel. Se queda ahí. */
-    EFI_PHYSICAL_ADDRESS rd = r_ender;
-    if (EFI_ERROR(BS->AllocatePages(AllocateAddress, EfiLoaderData, r_paginas, &rd))) {
-        int ok = 0;
-        for (int t = 0; t < 8 && !ok; t++) {
-            rd = 0x77FFFFFFu;
-            if (EFI_ERROR(BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, r_paginas, &rd))) break;
-            ok = rd + (UINT64)r_paginas * 4096 <= k_ender || rd >= dest_fim;
-        }
-        if (!ok) parar(L"no hay memoria por debajo de 1,875 GB para el ramdisk");
-    }
-
-    /* ---------------------------------------------------------- [2/6] y [3/6] */
-    escrever(L"[2/6] kernel ");
-    if (do_disco ? ler_do_disco(le32(cab + CAB_K_LBA), buf, k_bytes) != 0 : ler_arquivo(L"\\SAGUI\\KERNEL.BIN", buf, k_bytes) != 0)
-        parar(do_disco ? L"no se pudo leer el kernel del disco" : L"no se pudo leer \\SAGUI\\KERNEL.BIN");
-    if (somar(buf, k_bytes) != le32(cab + CAB_K_SOMA)) parar(L"kernel: datos leidos corruptos (la suma no coincide)");
-    escrever(L" ok\r\n[3/6] ramdisk ");
-    if (do_disco ? ler_do_disco(le32(cab + CAB_R_LBA), (void *)(UINTN)rd, r_bytes) != 0
-                 : ler_arquivo(L"\\SAGUI\\RAMDISK.SGF", (void *)(UINTN)rd, r_bytes) != 0)
-        parar(do_disco ? L"no se pudo leer el ramdisk del disco" : L"no se pudo leer \\SAGUI\\RAMDISK.SGF");
-    if (somar((const UINT8 *)(UINTN)rd, r_bytes) != le32(cab + CAB_R_SOMA))
-        parar(L"ramdisk: datos leidos corruptos (la suma no coincide)");
-    escrever(L" ok\r\n");
-    if (!no_sitio) { escrever(L"      (kernel cargado en "); escrever_hex(carga); escrever(L": se movera a 1 MB)\r\n"); }
-    if (rd != r_ender) { escrever(L"      (ramdisk en "); escrever_hex(rd); escrever(L")\r\n"); }
 
     /* ---------------------------------------------------------- [4/6] tablas */
     info_boot_t *bi = (info_boot_t *)(z + Z_BOOTINFO);
@@ -908,7 +1124,11 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
     bi->ramdisk_bytes = r_bytes;
     bi->setores_lidos = (k_bytes + 511) / 512 + (r_bytes + 511) / 512;
     memcpy(bi->teste, cab + CAB_TESTE, 64);
-    bi->opcoes = le16(cab + CAB_OPCOES) | (cab[CAB_MOTOR] ? OPC_SGL_SOFTWARE : 0) | (rescate ? OPC_RESCATE : 0) | (acel_segura ? OPC_ACEL_SEGURA : 0) | raiz_modo << 17;
+    bi->opcoes = le16(cab + CAB_OPCOES) | (cab[CAB_MOTOR] ? OPC_SGL_SOFTWARE : 0) | (rescate ? OPC_RESCATE : 0) | (acel_segura ? OPC_ACEL_SEGURA : 0) | raiz_modo << 17 | OPC_UEFI_RANURA;
+    if (ranura) {   /* D439: como OPC_KERNEL_PRUEBA/FIXO de la etapa 2: «arranque estado» sabe con qué arrancó */
+        bi->opcoes |= OPC_KERNEL_PRUEBA;
+        if (cab[CAB_PR + R_ESTADO] & PR_FIXA) bi->opcoes |= OPC_KERNEL_FIXO;
+    }
     bi->res_pref = le16(cab + CAB_RES_LARG) | (UINT32)le16(cab + CAB_RES_ALT) << 16;
     bi->bpp_pref = cab[CAB_BPP_PREF];
     bi->modos_qtd = qtd_modos;
@@ -994,7 +1214,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *st)
     par->destino = k_ender;
     par->origem = (UINT32)carga;
     par->bytes = (k_bytes + 3) & ~3u;   /* la BSS la pone a cero el kernel */
-    par->entrada = le32(cab + CAB_K_ENTRADA);
+    par->entrada = sis.entrada;
     par->bootinfo = (UINT32)(zona + Z_BOOTINFO);
     par->pilha = (UINT32)(zona + Z_PILHA);
     UINTN tam_t = (UINTN)(trampolim_fim - trampolim_ini);

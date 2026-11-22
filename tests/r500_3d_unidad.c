@@ -45,7 +45,7 @@ typedef struct {
     uint32_t val[N_REG];           /* último valor de cada registro */
     uint8_t  vezes[N_REG];
     uint32_t pvs[64], n_pvs;       /* lo escrito en VAP_PVS_DADOS */
-    uint32_t us[64], n_us;         /* lo escrito en GA_US_DADOS */
+    uint32_t us[512], n_us;        /* lo escrito en GA_US_DADOS (D426: hasta 64 instrucciones; las constantes no) */
     int      n_prim, n_vert, n_ordens, desconhecidos;
     uint32_t vf_cntl;
     const uint32_t *vert;          /* los vértices de la última orden de dibujo */
@@ -87,8 +87,8 @@ static bool percorrer(const uint32_t *p, uint32_t n, cp_t *c, bool acumula)
                 if (c->vezes[r / 4] < 255) c->vezes[r / 4]++;
                 if (r == R5_VAP_PVS_INDICE) c->n_pvs = v * 4;   /* índice en instrucciones de 4 palabras */
                 if (r == R5_VAP_PVS_DADOS) { if (c->n_pvs >= 64) return false; c->pvs[c->n_pvs++] = v; }
-                if (r == R5_GA_US_INDICE) c->n_us = v * 6;
-                if (r == R5_GA_US_DADOS) { if (c->n_us >= 64) return false; c->us[c->n_us++] = v; }
+                if (r == R5_GA_US_INDICE) c->n_us = (v & 0x10000u) ? 0x40000000u : v * 6;   /* D426: constantes aparte */
+                if (r == R5_GA_US_DADOS && c->n_us < 0x40000000u) { if (c->n_us >= 512) return false; c->us[c->n_us++] = v; }
             }
             i += 1 + cnt;
             continue;
@@ -411,6 +411,79 @@ static void prova_2d(void)
     VER(!ra2d_ok(&o) && ra2d_pacotes(&o, p, 64) == 0, "demasiadas escrituras: error, nada al anillo");
 }
 
+/* D426: el formato del vértice v2 (1 a 4 juegos de coordenadas) y su dibujo: lo que declara PROG_STREAM_CNTL mide
+ * VAP_VTX_SIZE, el programa de vértices copia 3 + ntc entradas, el RS escribe cada juego en su temporal, y un dibujo
+ * v2 completo (estado, unidades, constantes, programa, fragmento) se recorre entero. */
+static void prova_v2(void)
+{
+    static uint32_t b[6144];
+    static cp_t c;
+    for (int ntc = 1; ntc <= 4; ntc++) {
+        g3d_fila_t f;
+        g3d_fila_iniciar(&f, b, 6144);
+        r5_estado_vertices(&f, ntc);
+        VER(percorrer(b, f.n, &c, false), "v2: formato del vertice con %d juegos", ntc);
+        /* D426 (Amilo): una espera de «3D parado y limpio» sin pedir antes el vaciado de las cachés de color y Z no
+         * termina nunca tras un dibujo (colgaba el CP de la X1400). */
+        bool dc = false, zc = false, espera_ok = true;
+        for (uint32_t k = 0; k + 1 < f.n; k += 2) {
+            uint32_t reg = (b[k] & 0xFFFFu) << 2;
+            if (reg == R5_RB3D_DSTCACHE) dc = true;
+            if (reg == R5_ZB_ZCACHE) zc = true;
+            if (reg == R5_WAIT_UNTIL && (b[k + 1] & R5_WAIT_3D_LIMPO) && !(dc && zc)) espera_ok = false;
+        }
+        VER(espera_ok, "v2: formato del vertice con %d juegos: WAIT_UNTIL 3D limpio sin vaciar antes las caches", ntc);
+        int pal = 0, ultimo = -1;
+        for (int k = 0; k < 8; k++) {
+            uint32_t e = (R(&c, R5_VAP_PSC_0 + (uint32_t)(k / 2) * 4) >> (16 * (k & 1))) & 0xFFFF;
+            if (k >= 3 + ntc) break;
+            pal += psc_palavras(e);
+            if (e & R5_PSC_ULTIMO) { ultimo = k; break; }
+        }
+        VER(ultimo == 2 + ntc, "v2: el ultimo elemento del flujo es el %d (%d)", 2 + ntc, ultimo);
+        VER(pal == (int)r5_pal_vert(ntc) && R(&c, R5_VAP_VTX_SIZE) == r5_pal_vert(ntc), "v2: %d palabras por vertice", pal);
+        VER(c.n_pvs == 4u * (3u + (uint32_t)ntc), "v2: programa de vertices de %d instrucciones", 3 + ntc);
+        VER((R(&c, R5_RS_COUNT) & 0x7F) == 2u * (uint32_t)ntc, "v2: el RS interpola %d componentes de textura", 2 * ntc);
+        for (int i = 0; i < ntc; i++)
+            VER(((R(&c, R5_RS_INST_0 + (uint32_t)i * 4) >> 5) & 0x7F) == R5V_T_COORD(i), "v2: el juego %d al temporal %u", i, R5V_T_COORD(i));
+    }
+    /* Un dibujo v2 de dos unidades con todo encendido. */
+    gpu3d_estado2_t e;
+    memset(&e, 0, sizeof e);
+    e.versao = 2; e.unidades = 2; e.flags = G3D2_Z_TESTE | G3D2_ESTENCIL | G3D2_ALFA_TESTE | G3D2_TIJERA | G3D2_MEZCLA | G3D2_NEBLINA;
+    e.func_z = G3D_CMP_IGUAL; e.mascara_cor = G3D_MC_R | G3D_MC_G; e.tijera_x = 2; e.tijera_y = 3; e.tijera_l = 10; e.tijera_a = 20;
+    e.mez_orig_rgb = G3D_F_ALFA; e.mez_dest_rgb = G3D_F_UM_MENOS_ALFA; e.mez_orig_alfa = G3D_F_UM; e.mez_dest_alfa = G3D_F_ZERO;
+    e.mez_eq_rgb = G3D_EQ_SUBTRAI;
+    for (int u = 0; u < 2; u++) {
+        e.u[u].ativa = 1; e.u[u].vaga = (unsigned char)u; e.u[u].coord = (unsigned char)u; e.u[u].rgb_escala = e.u[u].alfa_escala = 1;
+        e.u[u].rgb_func = G3D_CB_MODULAR; e.u[u].rgb_fonte[1] = G3D_FT_CONSTANTE; e.u[u].alfa_opd[0] = e.u[u].alfa_opd[1] = e.u[u].alfa_opd[2] = 2;
+        e.u[u].env_s = G3D_ENV_ESPELHO; e.u[u].aniso = 4;
+    }
+    static r5_fp_t fp;
+    r5_fp_gerar(&fp, &e);
+    g3d_fila_t f;
+    g3d_fila_iniciar(&f, b, 6144);
+    r5_estado_vertices(&f, fp.ntc);
+    r5_tex_t t = { 0xC0400000u, 64, 50, 30, R5_TX_DXT5 };
+    for (uint32_t u = 0; u < 2; u++) r5_estado_unidade(&f, u, &t, &e.u[u]);
+    r5_fp_constantes(&f, &fp, &e);
+    r5_fp_carregar(&f, &fp);
+    r5_estado_fragmento(&f, &e, 64, 48, true);
+    gpu3d_vert2_t v[3];
+    memset(v, 0, sizeof v);
+    r5_triangulos2(&f, v, 3, fp.ntc, fp.mapa);
+    VER(!f.transbordou && percorrer(b, f.n, &c, false), "v2: un dibujo completo se recorre entero");
+    VER(c.n_prim == 1 && c.n_vert == 3, "v2: un dibujo de 3 vertices");
+    VER((R(&c, R5_ZB_CNTL) & 3) == 3 && (R(&c, R5_ZB_ZSTENCILCNTL) & 7) == 3, "v2: Z y esténcil encendidos; «igual» es el 3 de R300");
+    VER(R(&c, R5_FG_ALPHA_FUNC) & (1u << 11), "v2: prueba alfa encendida");
+    VER(R(&c, R5_RB3D_MASCARA) == 6, "v2: mascara de color R y G (bits 2 y 1)");
+    VER(R(&c, R5_SC_SCISSOR0) == (2u | (3u << 13)) && R(&c, R5_SC_SCISSOR1) == (11u | (22u << 13)), "v2: tijera inclusiva");
+    VER((R(&c, R5_RB3D_CBLEND) & 3) == 3 && ((R(&c, R5_RB3D_CBLEND) >> 12) & 7) == 2, "v2: mezcla separada y resta");
+    VER((R(&c, R5_TX_FILTER0_0) & 7) == 1 && ((R(&c, R5_TX_FILTER0_0) >> 9) & 3) == 3, "v2: espejo y anisotropo");
+    VER(R(&c, R5_TX_FORMAT1_0 + 4) == R5_TX_DXT5, "v2: formato DXT5 en la unidad 1");
+    VER(c.n_us == 0x40000000u || c.n_us == (uint32_t)fp.n * 6, "v2: el programa se carga");
+}
+
 int main(void)
 {
     prova_ajustes();
@@ -419,6 +492,7 @@ int main(void)
     prova_fp();
     prova_desenho();
     prova_2d();
+    prova_v2();
     printf("r500_3d_unidad: %d comprobaciones, %d fallos\n", feitas, falhas);
     return falhas ? 1 : 0;
 }

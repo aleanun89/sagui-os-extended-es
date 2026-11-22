@@ -1181,11 +1181,17 @@ static void start_dying(Entity *e) {
 	if (is_naval(e->type)) ent_kill(e);   /* los barcos no dejan cadáver */
 }
 
-static void add_shot(float x0, float y0, float x1, float y1) {
+int fuego_amigo;   /* ver game.h; AOEN_FUEGO_AMIGO=1 lo activa (pruebas) */
+
+/* tipo de proyectil de cada unidad: flecha, virote (balista), piedra (catapulta) o piedra de fuego (catapulta pesada) */
+static int shot_kind(EntType t) { return t == E_BALLISTA ? 1 : t == E_CATAPULT ? 2 : t == E_HEAVYCAT ? 3 : 0; }
+
+static void add_shot(float x0, float y0, float x1, float y1, int kind) {
 	if (W.nshots >= 64) return;
 	W.shots[W.nshots].x0 = x0; W.shots[W.nshots].y0 = y0;
 	W.shots[W.nshots].x1 = x1; W.shots[W.nshots].y1 = y1;
 	W.shots[W.nshots].t = 0;
+	W.shots[W.nshots].kind = kind;
 	++W.nshots;
 }
 
@@ -1386,7 +1392,14 @@ int transport_load(const Entity *boat) { return boat ? boat->ncargo : 0; }
 
 static void actualizar_comercio(Entity *e, float dt);
 
+/* Recarga de la fe del sacerdote (D443): tras convertir una unidad no puede convertir otra durante unos 10 s (la mitad con
+ * Monoteísmo); mientras tanto puede andar y curar. Se guarda en gacc, que un sacerdote no usa (así no cambia el formato de las partidas
+ * guardadas); la barra del sacerdote seleccionado la enseña con priest_fe(). */
+float priest_recarga(int owner) { return has_tech(owner, T_MONOTHEISM) ? 5.0f : 10.0f; }
+float priest_fe(const Entity *e) { return e->type == E_PRIEST && e->gacc > 0 && e->gacc <= 20 ? e->gacc : 0.0f; }
+
 static void update_unit(Entity *e, float dt) {
+	if (e->type == E_PRIEST && e->gacc > 0) e->gacc = e->gacc > dt && e->gacc <= 20 ? e->gacc - dt : 0.0f;
 	const UnitDef *ud = &unit_def[e->type - E_VILLAGER];
 	e->walking = 0;
 	e->acting = 0;
@@ -1660,11 +1673,16 @@ static void update_unit(Entity *e, float dt) {
 			if (friendly) {
 				t->hp = MIN(t->maxhp, t->hp + 4.0f * (has_tech(e->owner, T_MEDICINE) ? 2.0f : 1.0f) * (has_tech(e->owner, T_MYSTICISM) ? 1.5f : 1.0f) * dt);
 				e->timer = 0;
+			} else if (priest_fe(e) > 0) {
+				/* sin fe: no convierte; si iba por su cuenta (o la IA lo manda) deja el objetivo para no quedarse quieto delante del enemigo */
+				e->timer = 0;
+				if (e->auto_target) stop_unit(e);
 			} else if (e->timer >= (has_tech(e->owner, T_MONOTHEISM) ? 2.5f : 5.0f) / (civ_def[W.pl[e->owner].civ].priest > 0 ? civ_def[W.pl[e->owner].civ].priest : 1.0f)) {
 				/* conversión */
 				e->timer = 0;
 				if (frand() < (has_tech(e->owner, T_FAITH) ? 0.9f : 0.7f) && is_unit(t->type) && t->type != E_PRIEST) {
 					t->owner = e->owner;
+					e->gacc = priest_recarga(e->owner);
 					stop_unit(t);
 					t->carry = 0;
 					snd_event(SND_CONVERT, t->x, t->y);
@@ -1680,7 +1698,7 @@ static void update_unit(Entity *e, float dt) {
 			e->timer = 0;
 			if (is_resource(t->type)) { stop_unit(e); break; }
 			float dmg = eff_attack(e->owner, e->type, is_building(t->type));
-			if (ud->ranged) add_shot(e->x, e->y, t->x, t->y);
+			if (ud->ranged) add_shot(e->x, e->y, t->x, t->y, shot_kind(e->type));
 			snd_event(ud->ranged ? SND_SHOOT : SND_HIT_MELEE, e->x, e->y);
 			float tx0 = t->x, ty0 = t->y;
 			damage(t, dmg, e, ud->ranged);
@@ -1690,7 +1708,9 @@ static void update_unit(Entity *e, float dt) {
 				int golpes = 0;
 				for (int k = 0; k < W.nents; ++k) {
 					Entity *o = &W.ents[k];
-					if (!o->alive || o == t || o->state == ST_DYING || o->state == ST_ABOARD || is_resource(o->type) || !hostile(e->owner, o->owner)) continue;
+					if (!o->alive || o == t || o == e || o->state == ST_DYING || o->state == ST_ABOARD || is_resource(o->type)) continue;
+					/* el AoE original también daña a lo propio y lo aliado; en AoEN solo a los enemigos salvo que se active fuego_amigo */
+					if (!hostile(e->owner, o->owner) && !(fuego_amigo && o->owner >= 0 && e->owner >= 0)) continue;
 					float ox = o->x - tx0, oy = o->y - ty0;
 					float reachr = rad + (is_building(o->type) ? o->size * 0.5f : 0.0f);
 					if (ox * ox + oy * oy <= reachr * reachr) { damage(o, eff_attack(e->owner, e->type, is_building(o->type)) * 0.5f, e, 1); ++golpes; }
@@ -1819,7 +1839,7 @@ static void update_building(Entity *b, float dt) {
 			}
 			if (best >= 0) {
 				b->timer = 0;
-				add_shot(b->x, b->y, W.ents[best].x, W.ents[best].y);
+				add_shot(b->x, b->y, W.ents[best].x, W.ents[best].y, 0);
 				damage(&W.ents[best], tdmg, b, 1);
 			}
 		}
@@ -2542,6 +2562,68 @@ static void dev_escena(const char *nombre) {
 		if (o >= 0) W.ents[o].stance = STANCE_PASSIVE;
 		if (u >= 0 && o >= 0) cmd_target(ent_ref(u), ent_ref(o));
 		AOEN_LOG("[AOEN] escena minimo: catapulta %d contra %d", u, o);
+	} else if (!strcmp(nombre, "sprites")) {
+		/* revisión de gráficos (D442): una bahía con los cuatro barcos y las unidades de tierra cuyo mapeo se corrigió. AOEN_ESC_MODO:
+		 * quieto (por defecto), andar, atacar o morir; se hace una captura de cada uno con AOEN_SHOT/AOEN_FRAMES y AOEN_VISTA=dx,dy */
+		const char *modo = getenv("AOEN_ESC_MODO") ? getenv("AOEN_ESC_MODO") : "quieto";
+		W.pl[0].age = AGE_IRON;
+		memset(W.fog, 2, (size_t)W.w * W.h);
+		dev_bahia(cx, cy);
+		if (!strcmp(modo, "fe")) {
+			/* dos sacerdotes seleccionados convierten a soldados enemigos quietos: la barra de fe se ve vaciarse y llenarse */
+			for (int k = 0; k < 2; ++k) {
+				int pr = dev_place(E_PRIEST, 0, cx - 2.0f, cy - 2.0f + k * 3.0f);
+				int o = dev_place(E_CLUBMAN, 1, cx + 0.5f, cy - 2.0f + k * 3.0f);
+				if (o >= 0) W.ents[o].stance = STANCE_PASSIVE;
+				if (pr >= 0) { W.ents[pr].sel = 1; if (o >= 0) cmd_target(ent_ref(pr), ent_ref(o)); }
+			}
+			return;
+		}
+		if (!strcmp(modo, "piedra")) {
+			/* catapulta, catapulta pesada y balista contra grupos de soldados enemigos quietos: proyectil, impacto y daño en área */
+			static const EntType maq[3] = { E_CATAPULT, E_HEAVYCAT, E_BALLISTA };
+			for (int k = 0; k < 3; ++k) {
+				int m = dev_place(maq[k], 0, cx - 3.0f, cy - 4.0f + k * 4.0f);
+				int primero = -1;
+				for (int j = 0; j < 4; ++j) {
+					int o = dev_place(E_CLUBMAN, 1, cx + 3.0f + (j % 2) * 0.8f, cy - 4.0f + k * 4.0f + (j / 2) * 0.8f);
+					if (o >= 0) { W.ents[o].stance = STANCE_PASSIVE; if (primero < 0) primero = o; }
+				}
+				if (m >= 0 && primero >= 0) cmd_target(ent_ref(m), ent_ref(primero));
+			}
+			AOEN_LOG("[AOEN] escena sprites: modo piedra");
+			return;
+		}
+		static const EntType naves[4] = { E_FISHBOAT, E_TRANSPORT, E_TRADESHIP, E_WARSHIP };
+		static const EntType tierra[15] = { E_BOWMAN, E_IMPBOW, E_CHARIOT, E_SCOUT, E_HORSEARCHER, E_HOPLITE, E_PHALANX, E_CENTURION,
+		                                    E_SHORTSWORD, E_BALLISTA, E_CATAPULT, E_HEAVYCAT, E_WARELE, E_ELEARCHER, E_TRADECART };
+		int fish = dev_place(E_FISH, -1, cx + 12, cy + 7);
+		(void)fish;
+		for (int k = 0; k < 4; ++k) {
+			int n = dev_place(naves[k], 0, cx + 11.0f + k * 4.0f, cy - 4.0f + (k & 1) * 6.0f);
+			if (n < 0) continue;
+			if (!strcmp(modo, "andar")) cmd_move(ent_ref(n), cx + 11.0f + k * 4.0f + 3.0f, cy - 4.0f + (k & 1) * 6.0f - 1.0f);
+			else if (!strcmp(modo, "morir")) { W.ents[n].state = ST_DYING; W.ents[n].die_t = 0; }
+			else if (!strcmp(modo, "atacar")) {
+				if (naves[k] == E_FISHBOAT) { int f = dev_place(E_FISH, -1, cx + 11.0f, cy - 2.5f); if (f >= 0) cmd_target(ent_ref(n), ent_ref(f)); }
+				if (naves[k] == E_WARSHIP) {
+					int o = dev_place(E_CLUBMAN, 1, cx + 6.5f, cy + 3.0f);
+					if (o >= 0) { W.ents[o].stance = STANCE_STAND; cmd_target(ent_ref(n), ent_ref(o)); }
+				}
+			}
+		}
+		for (int k = 0; k < 15; ++k) {
+			float x = cx - 9.0f + (k % 5) * 2.4f, y = cy - 6.0f + (k / 5) * 3.0f;
+			int u = dev_place(tierra[k], 0, x, y);
+			if (u < 0) continue;
+			if (!strcmp(modo, "andar")) cmd_move(ent_ref(u), x + 5.0f, y + 0.5f);
+			else if (!strcmp(modo, "morir")) { W.ents[u].state = ST_DYING; W.ents[u].die_t = 0; }
+			else if (!strcmp(modo, "atacar")) {
+				int o = dev_place(E_CLUBMAN, 1, x + 1.3f, y);
+				if (o >= 0) { W.ents[o].stance = STANCE_PASSIVE; cmd_target(ent_ref(u), ent_ref(o)); }
+			}
+		}
+		AOEN_LOG("[AOEN] escena sprites: modo %s", modo);
 	} else if (!strcmp(nombre, "flota")) {
 		/* un trirreme contra soldados enemigos quietos en la orilla (estando a más alcance que ellos) */
 		W.pl[0].age = AGE_BRONZE;
@@ -2605,6 +2687,8 @@ void world_new(const Setup *s) {
 	memset(&W, 0, sizeof W);
 	memset(caida_t, 0, sizeof caida_t); memset(tuvo_edif, 0, sizeof tuvo_edif); memset(rendido, 0, sizeof rendido);   /* D415 */
 	W.setup = *s;
+	fuego_amigo = W.setup.fuego_amigo;   /* D447: la opción de la partida; AOEN_FUEGO_AMIGO sigue mandando en las pruebas */
+	if (getenv("AOEN_FUEGO_AMIGO")) fuego_amigo = W.setup.fuego_amigo = atoi(getenv("AOEN_FUEGO_AMIGO")) != 0;
 	W.w = CLAMP(s->width, 48, 512);
 	W.h = CLAMP(s->height, 48, 512);
 	W.rng = (unsigned)s->seed * 2654435761u + 12345u;
@@ -2704,8 +2788,16 @@ void world_update(float dt) {
 	}
 
 	for (int k = 0; k < W.nshots; ) {
-		W.shots[k].t += dt * 4;
-		if (W.shots[k].t >= 1) W.shots[k] = W.shots[--W.nshots];
+		W.shots[k].t += dt * (W.shots[k].kind >= 2 ? 1.6f : 4);   /* las piedras vuelan más despacio */
+		if (W.shots[k].t >= 1) {
+			if (W.shots[k].kind >= 2 && W.nimpactos < 24) { W.impactos[W.nimpactos].x = W.shots[k].x1; W.impactos[W.nimpactos].y = W.shots[k].y1; W.impactos[W.nimpactos].t = 0; ++W.nimpactos; }
+			W.shots[k] = W.shots[--W.nshots];
+		}
+		else ++k;
+	}
+	for (int k = 0; k < W.nimpactos; ) {
+		W.impactos[k].t += dt * 1.8f;
+		if (W.impactos[k].t >= 1) W.impactos[k] = W.impactos[--W.nimpactos];
 		else ++k;
 	}
 

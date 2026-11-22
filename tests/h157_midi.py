@@ -422,7 +422,7 @@ def gui(placa):
         time.sleep(0.5)
         a = janela(m.serial()[ini:], "Archivos")
         m.captura("h157-archivos", guardar=False)
-        m.clique(a["x"] + 146 + 120, a["y"] + 70 + 2 + 0 * 20 + 8, duplo=True)
+        m.clique(a["x"] + 146 + 120, a["y"] + 98 + 2 + 0 * 20 + 8, duplo=True)
         esperar(m, r"arquivos: abrindo no midi /ejemplos/musica/alegria.kar", 30, ini)
         verificar(True, "doble clic en un .kar en Archivos abre /bin/midi")
         esperar(m, r"midi: pista 1 alegria.kar: karaoke 38499 ms 6 pistas \d+ notas \d+ letras titulo 'Alegria'", 30, ini)

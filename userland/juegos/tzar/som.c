@@ -40,6 +40,19 @@ typedef struct {
 	int volume, pan;         /* centésimas de dB */
 } Voz;
 
+/* un sonido del mapa puesto con el editor (<mapa>.sounds, world.rs SoundSource) */
+typedef struct {
+	char som[48];            /* grupo de SOUNDS.INI o WAV */
+	uint8_t modo, atrasado;  /* 0 una vez (o cada periodo s), 1 en bucle, 2 cada R(min, max) s */
+	uint16_t periodo, min, max;
+	int cx, cy;
+	uint32_t prox_ms;        /* cuándo suena la próxima vez (0 = aún no se decidió) */
+	int voz;                 /* hueco del bucle que suena (-1 ninguno) */
+	const void *pcm;         /* lo que suena en ese hueco (para saber si sigue siendo suyo) */
+	uint8_t feito;           /* modo 0 sin periodo: ya sonó */
+} FonteMapa;
+#define FONTES_MAPA 64
+
 struct TzSom {
 	SDL_AudioDeviceID dev;
 	TzRecursos *rec;
@@ -58,6 +71,9 @@ struct TzSom {
 	uint32_t semente;
 	uint32_t ultimo_trabalho;
 	float amp_tab[251];      /* amplitud para 0, -10, -20 ... -2500 cB */
+	FonteMapa fontes[FONTES_MAPA]; int nfontes;
+	/* lluvia (audio/ambience.rs Rain): nivel 0-2, terminando, cuándo empieza el clip siguiente (ms del juego) */
+	int chuva_ativa, chuva_nivel, chuva_fim; uint32_t chuva_prox;
 };
 
 /* ------------------------------------------------------------------ cerrojo */
@@ -291,14 +307,15 @@ static void gains_voz(TzSom *s, Voz *v, int canal)
 	v->gl = gl; v->gr = gr;
 }
 
-static int tocar_pcm(TzSom *s, const Pcm *pcm, int categoria, int canal, int tem_sitio, int cx, int cy, int dono, int repetir)
+/* devuelve el hueco que tomó o -1 */
+static int tocar_pcm_k(TzSom *s, const Pcm *pcm, int categoria, int canal, int tem_sitio, int cx, int cy, int dono, int repetir)
 {
 	int volume = 0, pan = 0;
 	if (tem_sitio) {
 		int dx = cx - s->cam_cx, dy = cy - s->cam_cy;
 		if (canal == TZ_CANAL_EFEITO) {
 			tz_som_atenuacao(dx, dy, s->cam_larg, 1, &volume, &pan);
-			if (volume <= -2500) return 0;
+			if (volume <= -2500) return -1;
 		} else {
 			tz_som_atenuacao(dx, dy, s->cam_larg, 0, &volume, &pan);
 			if (volume < -400) volume = -400;   /* las voces de unidades y edificios nunca bajan de -400 */
@@ -334,7 +351,32 @@ static int tocar_pcm(TzSom *s, const Pcm *pcm, int categoria, int canal, int tem
 		s->voz[k] = nova;
 	}
 	tz_som_destrancar(s);
-	return k >= 0;
+	return k;
+}
+
+static int tocar_pcm(TzSom *s, const Pcm *pcm, int categoria, int canal, int tem_sitio, int cx, int cy, int dono, int repetir)
+{
+	return tocar_pcm_k(s, pcm, categoria, canal, tem_sitio, cx, cy, dono, repetir) >= 0;
+}
+
+/* el clip de un nombre de recurso o de un grupo («@grupo», o un nombre sin «/» que es grupo o WAV de SOUND/) */
+static const Pcm *escolher_clip(TzSom *s, const char *nome)
+{
+	Cand c[64];
+	int n;
+	if (nome[0] == '@') n = grupo(s, nome + 1, c, 64);
+	else if (!strchr(nome, '/') && !strchr(nome, '\\')) n = grupo(s, nome, c, 64);
+	else {
+		n = 1;
+		snprintf(c[0].nome, sizeof c[0].nome, "%s", nome);
+		c[0].peso = 1000;
+		for (char *p = c[0].nome; *p; ++p) if (*p == '\\') *p = '/';
+	}
+	if (!n) return NULL;
+	int pesos[64];
+	for (int i = 0; i < n; ++i) pesos[i] = c[i].peso;
+	int k = tz_som_escolher(pesos, n, (int)(sorteio(s) % 1001));
+	return k < 0 ? NULL : carregar(s, c[k].nome);
 }
 
 int tz_som_tocar(TzSom *s, const char *nome, int categoria, int canal, int cx, int cy)
@@ -365,6 +407,23 @@ void tz_som_parar_todos(TzSom *s)
 {
 	tz_som_trancar(s);
 	for (int i = 0; i < N_HUECOS; ++i) s->voz[i].ativa = 0;
+	tz_som_destrancar(s);
+}
+
+void tz_som_pausar(TzSom *s, int pausar)
+{
+	if (s && s->dev) SDL_PauseAudioDevice(s->dev, pausar != 0);
+}
+
+void tz_som_cursor(TzSom *s, uint32_t seq)
+{
+	if (s) s->cursor = seq;
+}
+
+void tz_som_parar_filme(TzSom *s)
+{
+	tz_som_trancar(s);
+	s->filme_n = 0; s->filme_ini = 0;
 	tz_som_destrancar(s);
 }
 
@@ -460,6 +519,18 @@ void tz_som_misturar(TzSom *s, int16_t *saida, int quadros)
 static void chamada(void *ud, Uint8 *stream, int len) { tz_som_misturar((TzSom *)ud, (int16_t *)stream, len / 4); }
 
 /* ------------------------------------------------------------------ cámara */
+/* volumen y panorama de una voz con sitio desde el centro de la vista (con el cerrojo tomado) */
+static void recolocar(TzSom *s, Voz *v, int canal)
+{
+	int vol, pan;
+	tz_som_atenuacao(v->ax - s->cam_cx, v->ay - s->cam_cy, s->cam_larg, canal == TZ_CANAL_EFEITO, &vol, &pan);
+	if (canal == TZ_CANAL_EFEITO && vol < -2500 && !v->repetir) { v->ativa = 0; return; }
+	if (canal == TZ_CANAL_EFEITO && vol < -2500) vol = -2500;   /* un bucle del mapa lejos: casi mudo, pero sigue */
+	if (canal != TZ_CANAL_EFEITO && vol < -400) vol = -400;
+	v->volume = vol; v->pan = pan;
+	gains_voz(s, v, canal);
+}
+
 void tz_som_camara(TzSom *s, int cx, int cy, int largura_px)
 {
 	int mexeu = !s->cam_listo || abs(cx - s->cam_cx) + abs(cy - s->cam_cy) > 3;
@@ -470,17 +541,30 @@ void tz_som_camara(TzSom *s, int cx, int cy, int largura_px)
 		for (int canal = TZ_CANAL_EFEITO; canal < TZ_CANAIS; ++canal)
 			for (int k = 0; k < HUECOS[canal]; ++k) {
 				Voz *v = &s->voz[HUECO_INI[canal] + k];
-				if (!v->ativa || v->dono_tipo == 0) continue;
-				int vol, pan;
-				tz_som_atenuacao(v->ax - cx, v->ay - cy, largura_px, canal == TZ_CANAL_EFEITO, &vol, &pan);
-				if (canal == TZ_CANAL_EFEITO && vol < -2500) { v->ativa = 0; continue; }
-				if (canal != TZ_CANAL_EFEITO && vol < -400) vol = -400;
-				v->volume = vol; v->pan = pan;
-				gains_voz(s, v, canal);
+				if (v->ativa && v->dono_tipo != 0) recolocar(s, v, canal);
 			}
 	}
 	tz_som_destrancar(s);
 }
+
+/* Las voces que siguen a un objeto (dueño de tipo 2) van a donde está ahora: audio.rs Listener.objects (0x4d01c0), que el
+ * original pasa cada vez que la vista se mueve; aquí además cuando el objeto anda con la vista quieta. */
+static void seguir_objetos(TzSom *s, const TzMundo *m)
+{
+	tz_som_trancar(s);
+	for (int canal = TZ_CANAL_EFEITO; canal < TZ_CANAIS; ++canal)
+		for (int k = 0; k < HUECOS[canal]; ++k) {
+			Voz *v = &s->voz[HUECO_INI[canal] + k];
+			if (!v->ativa || v->dono_tipo != 2 || v->dono < 0 || v->dono >= m->nobj) continue;
+			const TzObj *o = &m->obj[v->dono];
+			if (o->cx == v->ax && o->cy == v->ay) continue;
+			v->ax = o->cx; v->ay = o->cy;
+			recolocar(s, v, canal);
+		}
+	tz_som_destrancar(s);
+}
+
+static void fontes_tic(TzSom *s, const TzMundo *m, uint32_t ms);
 
 /* ------------------------------------------------------------------ eventos del mundo */
 static const char *const FEITICOS[21] = {
@@ -548,6 +632,8 @@ void tz_som_eventos(TzSom *s, const TzMundo *m)
 {
 	TzEvento ev[128];
 	int n;
+	seguir_objetos(s, m);
+	fontes_tic(s, m, m->tic * TZ_TIC_MS);
 	while ((n = tz_mundo_eventos(m, &s->cursor, ev, 128)) > 0) {
 		for (int i = 0; i < n; ++i) {
 			const TzEvento *e = &ev[i];
@@ -633,8 +719,120 @@ void tz_som_eventos(TzSom *s, const TzMundo *m)
 	}
 }
 
+/* ------------------------------------------------------------------ sonidos del mapa (<mapa>.sounds) */
+static uint16_t le16b(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+
+int tz_som_fontes_mapa(TzSom *s, const uint8_t *d, uint32_t n, const TzMapa *mapa)
+{
+	s->nfontes = 0;
+	/* world.rs sound_sources (0x440dba): registros de 112 bytes; con +0x68 el sonido es del objeto de id +0x6e, si no de la
+	 * casilla (+0x6a, +0x6c) */
+	for (uint32_t off = 0; d && off + 112 <= n && s->nfontes < FONTES_MAPA; off += 112) {
+		const uint8_t *r = d + off;
+		FonteMapa *f = &s->fontes[s->nfontes];
+		memset(f, 0, sizeof *f);
+		int l = 0;
+		while (l < 47 && l < 0x40 && r[0x20 + l]) { f->som[l] = (char)r[0x20 + l]; l++; }
+		f->som[l] = 0;
+		if (!l) continue;
+		f->modo = r[0x60]; f->atrasado = r[0x61];
+		f->periodo = le16b(r + 0x62); f->min = le16b(r + 0x64); f->max = le16b(r + 0x66);
+		f->cx = le16b(r + 0x6a); f->cy = le16b(r + 0x6c);
+		if (r[0x68]) {
+			uint16_t id = le16b(r + 0x6e);
+			int achou = 0;
+			for (int i = 0; mapa && i < mapa->nobj; ++i) if (mapa->obj[i].id == id) { f->cx = mapa->obj[i].x; f->cy = mapa->obj[i].y; achou = 1; break; }
+			if (!achou) continue;
+		}
+		f->voz = -1;
+		s->nfontes++;
+	}
+	return s->nfontes;
+}
+
+int tz_som_nfontes(const TzSom *s) { return s->nfontes; }
+
+static uint32_t espera_fonte(TzSom *s, const FonteMapa *f)
+{
+	if (f->modo == 2) { uint32_t a = f->min, b = f->max >= f->min ? f->max : f->min; return (a + sorteio(s) % (b - a + 1)) * 1000u; }
+	return (uint32_t)f->periodo * 1000u;
+}
+
+/* gameplay.rs map_sounds: suenan donde la niebla está levantada; los bucles callan si se dejan de ver */
+static void fontes_tic(TzSom *s, const TzMundo *m, uint32_t ms)
+{
+	for (int i = 0; i < s->nfontes; ++i) {
+		FonteMapa *f = &s->fontes[i];
+		int ve = f->cx >= 0 && f->cy >= 0 && f->cx < m->lado && f->cy < m->lado && tz_mundo_nevoa(m, m->jogador, f->cx, f->cy) == 2;
+		if (f->modo == 1) {
+			int suena = f->voz >= 0 && s->voz[f->voz].ativa && (const void *)s->voz[f->voz].pcm == f->pcm;
+			if (ve && !suena) {
+				const Pcm *p = escolher_clip(s, f->som);
+				f->voz = p ? tocar_pcm_k(s, p, TZ_CAT_OBJ_MAPA, TZ_CANAL_EFEITO, 1, f->cx, f->cy, -1, 1) : -1;
+				f->pcm = f->voz >= 0 ? p : NULL;
+			} else if (!ve && suena) {
+				tz_som_trancar(s);
+				s->voz[f->voz].ativa = 0;
+				tz_som_destrancar(s);
+				f->voz = -1;
+			}
+			continue;
+		}
+		if (f->feito) continue;
+		if (!f->prox_ms) f->prox_ms = ms + (f->atrasado ? espera_fonte(s, f) : 0) + 1;
+		if (ms < f->prox_ms) continue;
+		if (ve) {
+			const Pcm *p = escolher_clip(s, f->som);
+			if (p) tocar_pcm(s, p, TZ_CAT_OBJ_MAPA, TZ_CANAL_EFEITO, 1, f->cx, f->cy, -1, 0);
+		}
+		uint32_t e = espera_fonte(s, f);
+		if (f->modo == 0 && !e) f->feito = 1;
+		else f->prox_ms = ms + (e ? e : 1000);
+	}
+}
+
+/* ------------------------------------------------------------------ lluvia (audio/ambience.rs, audio.rs rain_clip) */
+static const char *clip_chuva(int nivel, const char *clip, char *b, size_t n)
+{
+	static const char *const niveis[3] = { "LIGHT", "MID", "HEAVY" };
+	snprintf(b, n, "SOUND/RAIN/%s/RAIN %s.WAV", niveis[nivel < 0 ? 0 : nivel > 2 ? 2 : nivel], clip);
+	return b;
+}
+
+/* el clip siguiente empieza 700 ms antes de que acabe este (0x4a81d0) */
+static uint32_t duracao_menos(const Pcm *p) { uint32_t ms = p && p->taxa ? (uint32_t)((uint64_t)p->n * 1000 / (uint32_t)p->taxa) : 1000; return ms > 700 ? ms - 700 : ms; }
+
+void tz_som_chuva(TzSom *s, int chove, uint32_t ms)
+{
+	char b[80];
+	if (s->chuva_ativa && s->chuva_fim && chove) s->chuva_ativa = 0;   /* vuelve a llover mientras acaba: otra con nivel nuevo */
+	if (!s->chuva_ativa && chove) {
+		s->chuva_nivel = (int)(sorteio(s) % 3);
+		const Pcm *p = carregar(s, clip_chuva(s->chuva_nivel, "START", b, sizeof b));
+		if (p) tocar_pcm(s, p, 0, TZ_CANAL_NATUREZA, 0, -1, -1, -1, 0);
+		s->chuva_ativa = 1; s->chuva_fim = 0;
+		s->chuva_prox = ms + duracao_menos(p);
+		return;
+	}
+	if (s->chuva_ativa && !chove) s->chuva_fim = 1;
+	if (!s->chuva_ativa || ms < s->chuva_prox) return;
+	if (s->chuva_fim) {
+		const Pcm *p = carregar(s, clip_chuva(s->chuva_nivel, "END", b, sizeof b));
+		if (p) tocar_pcm(s, p, 0, TZ_CANAL_NATUREZA, 0, -1, -1, -1, 0);
+		s->chuva_ativa = 0;
+		return;
+	}
+	char n[4];
+	snprintf(n, sizeof n, "%d", 1 + (int)(sorteio(s) % 6));
+	const Pcm *p = carregar(s, clip_chuva(s->chuva_nivel, n, b, sizeof b));
+	if (p) tocar_pcm(s, p, 0, TZ_CANAL_NATUREZA, 0, -1, -1, -1, 0);
+	s->chuva_prox = ms + duracao_menos(p);
+}
+
+int tz_som_chovendo(const TzSom *s) { return s->chuva_ativa && !s->chuva_fim; }
+
 /* ------------------------------------------------------------------ vida */
-void tz_som_fonte_missao(TzSom *s, TzHpfs *mapa) { s->missao = mapa; }
+void tz_som_fonte_missao(TzSom *s, TzHpfs *mapa) { s->missao = mapa; s->nfontes = 0; s->chuva_ativa = 0; }
 
 void tz_som_volumes(TzSom *s, int efeitos, int fala, int musica)
 {

@@ -104,7 +104,8 @@ puertos de por medio, conecta con `--host` y `--puerto`.
 
 `arranque probar` deja un kernel en la ranura de prueba del disco de arranque y lo arranca **una sola vez**: la
 etapa 2 borra la marca antes de cargarlo, así que si el kernel nuevo se cuelga, basta con reiniciar (o que alguien
-apriete el botón) para volver al **último bueno** (el último confirmado; si no hay, el de la imagen). Solo por BIOS.
+apriete el botón) para volver al **último bueno** (el último confirmado; si no hay, el de la imagen). Por BIOS y,
+desde D439, también por UEFI (el cargador de la ESP hace lo mismo que la etapa 2; hace falta una imagen grabada con él).
 
 Hay tres kernels, y `arranque estado` los muestra: el **original** (el de la imagen, que `arranque` no cambia nunca),
 el **último bueno** (lo deja `confirmar`) y el **en prueba**. Se puede probar otro aunque haya un último bueno: si

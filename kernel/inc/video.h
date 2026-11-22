@@ -54,5 +54,12 @@ void video_cursor(int x, int y, bool visivel);
  * con JAN_SEM_CURSOR y foco); l o a <= 0 = ninguno. Lo pone el gestor de
  * ventanas; true = cambió (quien llama hace video_mostrar). */
 bool video_zona_sem_cursor(int x, int y, int l, int a);
+/* D432: la pantalla cedida a un programa que presenta por la GPU (gpu3d): video_mostrar no escribe. */
+void video_exclusiva(bool ligar);
+bool video_exclusiva_ativa(void);
+bool video_cursor_exclusiva(int *x, int *y);   /* la flecha sobre el cuadro recién presentado */
+bool video_ler_placa(int x, int y, int l, int a, uint32_t *dest, int passo_px);   /* de la pantalla a la RAM (lento) */
+#define VIDEO_CUR_L 12
+#define VIDEO_CUR_A 19
 
 #endif

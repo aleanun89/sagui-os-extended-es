@@ -27,6 +27,13 @@ Ejemplo: `tcc /apps/tcc/ejemplos/ventana.c -o ventana && ./ventana` abre una ven
 
 `#include <SDL2/SDL.h>` o `"SDL.h"`. Ejemplo: `/apps/tcc/ejemplos/sdl.c` (un cuadrado que rebota).
 
+## Con OpenGL ES 1.1 y EGL
+
+    tcc gles.c -o gles -lSDL2 -lGLESv1_CM -lEGL     (o sin la SDL: -lGLESv1_CM -lEGL)
+
+`#include <GLES/gl.h>` y `<EGL/egl.h>` (o `SDL_GL_CreateContext` con la SDL). Ejemplo: `/apps/tcc/ejemplos/gles.c`
+(un cubo girando). Más en `/ayuda/opengl-es.md`.
+
 ## Encontrar errores de memoria con -b
 
 `-b` añade **comprobación de límites**: si el programa escribe fuera de un array o usa memoria ya liberada,

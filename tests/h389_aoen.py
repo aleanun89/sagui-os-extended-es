@@ -362,6 +362,11 @@ def interfaz():
         verificar(g[0] == "0" and g[1] == "0", "sin la opción, el mercante sigue en modo oro (%s)" % (g,))
         verificar("ayuda: Modo intercambio | coste 0/0/0/0 | Activa Comercio mejorado al crear la partida" in t, "sin la opción, el botón gris explica cómo activarlo")
 
+        # v8.5.5.2r2 (D447): casilla «Fuego amigo» de la configuración: apagada de serie y, marcada, llega a la partida
+        t, g = correr(m, "AOEN_SCENE=setup AOEN_SEED=7 AOEN_PRUEBA=fuego", 300, r"\[AOEN\] prueba fuego: partida fuego_amigo=(\d) motor=(\d)", "H389-39-fuego-amigo")
+        verificar("prueba fuego: casilla=1" in t, "el clic marca la casilla «Fuego amigo» de la configuración")
+        verificar(g == ("1", "1"), "con la casilla marcada la partida y el motor llevan el fuego amigo (%s)" % (g,))
+
         # v8.5.4.10: sin los fondos originales (DRS sintéticos) el menú principal usa el paisaje propio, no el negro liso
         t, g = correr(m, "AOEN_FULL=1", 120, r"\[AOEN\] pantalla (\d+x\d+)", "H389-30-menu-fondo")
         pix = png_rgb(os.path.join(RAIZ, "docs", "capturas", "H389-30-menu-fondo.png"))   # sin ImageMagick
@@ -462,7 +467,7 @@ def lectores():
     os.makedirs(SAIDA, exist_ok=True)
     exe = os.path.join(SAIDA, "aoen_lectores")
     d0 = os.path.join(RAIZ, "userland", "juegos", "aoen")
-    fuentes = [os.path.join(d0, f) for f in sorted(os.listdir(d0)) if f.endswith(".c") and f not in ("aoen_config.c", "puente.c", "save.c", "main.c") and not f.startswith("ui_")]   # la interfaz (ui_*.c) necesita main.c
+    fuentes = [os.path.join(d0, f) for f in sorted(os.listdir(d0)) if f.endswith(".c") and f not in ("aoen_config.c", "puente.c", "save.c", "main.c", "rendimiento.c") and not f.startswith("ui_")]   # la interfaz (ui_*.c) necesita main.c
     sdl = subprocess.run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout.split()
     libs = subprocess.run(["sdl2-config", "--libs"], capture_output=True, text=True).stdout.split()
     subprocess.run(["gcc", "-std=gnu99", "-g", "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined", "-w", "-I", d0,
@@ -519,7 +524,7 @@ def compilar_arnes():
     os.makedirs(SAIDA, exist_ok=True)
     exe = os.path.join(SAIDA, "aoen_ia")
     d0 = os.path.join(RAIZ, "userland", "juegos", "aoen")
-    fuentes = [os.path.join(d0, f) for f in sorted(os.listdir(d0)) if f.endswith(".c") and f not in ("aoen_config.c", "puente.c", "main.c") and not f.startswith("ui_")]
+    fuentes = [os.path.join(d0, f) for f in sorted(os.listdir(d0)) if f.endswith(".c") and f not in ("aoen_config.c", "puente.c", "main.c", "rendimiento.c") and not f.startswith("ui_")]
     sdl = subprocess.run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout.split()
     libs = subprocess.run(["sdl2-config", "--libs"], capture_output=True, text=True).stdout.split()
     subprocess.run(["gcc", "-std=gnu99", "-O2", "-w", "-I", d0, "-I", os.path.join(RAIZ, "userland", "terceros", "stbimage")] + sdl +
@@ -671,7 +676,7 @@ def ia():
     os.makedirs(SAIDA, exist_ok=True)
     exe = os.path.join(SAIDA, "aoen_ia")
     d0 = os.path.join(RAIZ, "userland", "juegos", "aoen")
-    fuentes = [os.path.join(d0, f) for f in sorted(os.listdir(d0)) if f.endswith(".c") and f not in ("aoen_config.c", "puente.c", "main.c") and not f.startswith("ui_")]
+    fuentes = [os.path.join(d0, f) for f in sorted(os.listdir(d0)) if f.endswith(".c") and f not in ("aoen_config.c", "puente.c", "main.c", "rendimiento.c") and not f.startswith("ui_")]
     sdl = subprocess.run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout.split()
     libs = subprocess.run(["sdl2-config", "--libs"], capture_output=True, text=True).stdout.split()
     subprocess.run(["gcc", "-std=gnu99", "-O2", "-w", "-I", d0, "-I", os.path.join(RAIZ, "userland", "terceros", "stbimage")] + sdl +

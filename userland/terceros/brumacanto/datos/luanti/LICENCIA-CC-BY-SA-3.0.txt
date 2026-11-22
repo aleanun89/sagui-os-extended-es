@@ -1,0 +1,14 @@
+Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)
+Texto completo: https://creativecommons.org/licenses/by-sa/3.0/legalcode
+Resumen: https://creativecommons.org/licenses/by-sa/3.0/
+
+Resumen (no es el texto legal; vale el enlace de arriba):
+
+  Eres libre de compartir (copiar y redistribuir el material en cualquier medio o formato) y de adaptar (remezclar,
+  transformar y crear a partir del material) para cualquier fin, incluso comercial, siempre que:
+
+  - Atribucion: des credito adecuado (ver CREDITOS.md), enlaces a la licencia e indiques si hiciste cambios.
+  - CompartirIgual: si remezclas, transformas o creas a partir del material, distribuyas tu contribucion con la misma licencia.
+  - Sin restricciones adicionales.
+
+Las texturas de esta carpeta proceden de Minetest Game (Luanti): ver CREDITOS.md.

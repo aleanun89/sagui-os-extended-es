@@ -27,6 +27,7 @@
 #else
 #include "tipos.h"
 #endif
+#include "abi.h"     /* gpu3d v2 (D426): gpu3d_estado2_t y sus G3D_* */
 
 /* Órdenes PM4 (tipo 3). */
 #define R63D_IT_NOP             0x10
@@ -157,6 +158,9 @@ void r63d_estado_base(r6_lote_t *l, int familia, bool r7xx, uint32_t qd_pipes, u
 /* Superficie de color (lineal, ARGB8888) y Z (mosaico 1D, 16 o 24 bits) y los recortes.
  * «sbu»: emitir SURFACE_BASE_UPDATE tras las bases (R63D_PRECISA_SBU, solo RV6xx). */
 void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool sbu);
+/* D432: con el ARRAY_MODE del color dado (0 lineal general, 1 lineal alineada): la pantalla como destino. */
+void r63d_alvo_modo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool sbu,
+                    uint32_t modo);
 /* Sombreadores en VRAM (direcciones múltiplo de 256): el de vértices y el de píxeles. */
 void r63d_programas(r6_lote_t *l, uint32_t mc_vs, uint32_t mc_ps, bool com_textura);
 void r63d_textura(r6_lote_t *l, uint32_t mc, int larg, int alt, int passo, bool borde_s, bool borde_t, bool linear);
@@ -199,5 +203,68 @@ static inline int r63d_alinhamento_passo(uint32_t gb_tiling_config)
     return grupo / 4u > 64u ? (int)(grupo / 4u) : 64;
 }
 static inline int r63d_passo(int larg, int alin) { return (larg + alin - 1) / alin * alin; }
+
+
+/* ============================================================ gpu3d v2 (D426) */
+
+/* Vértices v2: gpu3d_vert2_t tal cual en el búfer de vértices (88 bytes). El sombreador de vértices v2 lee
+ * posición, color, especular y los cuatro juegos (s, t, r, q) y exporta POS0 y PARAM0-5 (color, especular,
+ * juegos 0-3); el de píxeles los recibe en R0-R5. */
+#define R63D_VERT2_BYTES 88
+#define R63D_VS2_MAX     48
+int r63d_vs2(uint32_t *p);
+/* SPI: cuántos parámetros pasan del de vértices al de píxeles (3 los de v1, 6 los de v2). */
+void r63d_spi(r6_lote_t *l, int nparams);
+/* Sombreadores de un dibujo v2: el de vértices v2 y uno de píxeles generado (gprs registros, «bytes» de largo
+ * para el vaciado de la caché de sombreadores). */
+void r63d_programas2(r6_lote_t *l, uint32_t mc_vs, uint32_t mc_ps, int gprs_ps, uint32_t bytes_ps);
+/* Recurso y muestreador de la unidad u (0-3). fmt: G3D_FMT_*; passo en texels (alineado: r63d_passo_tex). */
+void r63d_textura2(r6_lote_t *l, int u, uint32_t mc, int larg, int alt, int passo, uint32_t fmt, const gpu3d_unidade_t *un,
+                   uint32_t bytes);
+/* Paso de una textura v2 en texels: ARGB como el destino (lineal alineada); DXT en 1D en mosaico (ver
+ * r63d_bc_desloc), múltiplo de 8 bloques (32 texels): r600_get_array_mode_alignment de Linux (r600_cs.c,
+ * ARRAY_1D_TILED_THIN1: max(8, grupo / (8 * bytes del bloque)), que con grupos de 256 o 512 bytes es 8). */
+static inline int r63d_passo_tex(int larg, uint32_t fmt, int alin)
+{
+    return fmt == G3D_FMT_ARGB8888 ? r63d_passo(larg, alin) : r63d_passo(larg, 32);
+}
+/* D426, DXT: las R6xx/R7xx no leen bien las texturas comprimidas en lineal (probado en la HD 4500: cada texel sale de
+ * otro sitio; Mesa no las deja nunca en lineal, r600_texture.c: «Compressed textures ... must always be tiled»).
+ * Van en ARRAY_1D_TILED_THIN1: micro-mosaicos de 8x8 bloques seguidos por filas (passo_blocos / 8 por fila) y,
+ * dentro, el orden «displayable» de los elementos de 64 bits (BC1: x0 y0 x1 x2 y1 y2) o de 128 (BC2/BC3:
+ * y0 x0 x1 x2 y1 y2), el de AddrLib (EgBasedLib::ComputePixelIndexWithinMicroTile) y el medido en la tarjeta.
+ * Desplazamiento en bytes del bloque (bx, by); bs = 8 o 16 bytes por bloque. */
+static inline uint32_t r63d_bc_desloc(uint32_t bx, uint32_t by, uint32_t passo_blocos, uint32_t bs)
+{
+    uint32_t x = bx & 7u, y = by & 7u, i;
+    if (bs == 8) i = (x & 1u) | (y & 1u) << 1 | (x >> 1) << 2 | (y >> 1) << 4;
+    else i = (y & 1u) | (x & 1u) << 1 | (x >> 1) << 2 | (y >> 1) << 4;
+    uint32_t mosaico = (by >> 3) * (passo_blocos >> 3) + (bx >> 3);
+    return (mosaico * 64u + i) * bs;
+}
+/* Z, esténcil, prueba alfa, máscaras, mezcla u operación lógica y tijera de un dibujo v2 (todo cada vez).
+ * estencil: el destino tiene esténcil (Z de 24 + 8). */
+void r63d_estado2(r6_lote_t *l, const gpu3d_estado2_t *e, int larg, int alt, bool estencil, bool r600_puro);
+/* Lo que el estado de v1 no vuelve a poner tras un dibujo v2. */
+void r63d_estado_v1(r6_lote_t *l);
+/* n vértices de «passo» bytes en mc_vb. */
+void r63d_desenhar2(r6_lote_t *l, uint32_t mc_vb, int n, uint32_t passo, bool sem_cache_vertices);
+/* Los 32 bits del flotante b / 255 (0 <= b <= 255). */
+uint32_t r63d_float_byte(uint32_t b);
+
+/* El sombreador de píxeles de un estado v2 (combinación de hasta 4 unidades, especular y niebla).
+ * Registros: R0 color, R1 especular, R2-R5 juegos de coordenadas, R6-R9 el texel de cada unidad, R10-R11 el
+ * resultado de la unidad anterior (alternando), R12-R16 operandos y pasos intermedios, R17 la salida y R18 la
+ * constante de la unidad. Las constantes (GL_TEXTURE_ENV_COLOR, la niebla) van como literales de la
+ * instrucción: el programa depende de sus valores (y la caché del driver también). */
+#define R63D_PS2_MAX   1024   /* palabras (4 KB en la VRAM) */
+#define R63D_PS2_GPRS  19
+typedef struct {
+    uint32_t p[R63D_PS2_MAX];
+    int      n;                /* palabras */
+    int      grupos, clausulas;
+    bool     erro;             /* no cabe: el dibujo va por software */
+} r63d_ps2_t;
+void r63d_ps2_gerar(r63d_ps2_t *ps, const gpu3d_estado2_t *e, bool r7xx);
 
 #endif

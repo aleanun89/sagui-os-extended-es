@@ -15,6 +15,8 @@ typedef struct {
 	int nivel_recursos;          /* recursos iniciales: 0 bajo, 1 medio, 2 alto (RES.INI) */
 	int guardado;                /* torres de madera junto a cada castillo */
 	int animais;
+	int portas;                  /* puertas mágicas (la mitad que reinos) */
+	int itens;                   /* objetos al azar: libros, equipo y pociones */
 	char bioma[16];              /* grass, summer, snow, desert */
 	uint64_t semente;
 	uint8_t equipe[8];           /* equipo de cada reino (0 = el propio) */
@@ -24,6 +26,12 @@ typedef struct {
 void tz_aleatorio_padrao(TzAleatorio *o);   /* 2 reinos, 128, continente al azar, hierba */
 /* Genera el mapa. cat da el tamaño de castillos, minas y torres (puede ser NULL: tamaños del original). Devuelve -1 con tz_erro(). */
 int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const TzAleatorio *op);
+
+/* v8.5.5.2: las partidas en mapas aleatorios se pueden cargar. El mapa sale siempre igual de los parámetros (y el catálogo del
+ * bioma), así que basta guardar estos en una línea de texto: «ALEAT lado jugadores humano tipo mapa recursos guardado animales bioma
+ * semilla equipos[8] civilizaciones[8] puertas objetos» (los dos últimos pueden faltar: valen 1). Devuelven 0, o -1 con tz_erro() si el texto no sirve (valores fuera de rango incluidos). */
+int tz_aleatorio_texto(const TzAleatorio *op, char *out, size_t n);
+int tz_aleatorio_de_texto(const char *texto, TzAleatorio *op);
 
 /* piezas que prueba el arnés */
 uint64_t tz_aleatorio_proximo(uint64_t *estado);                                  /* SplitMix64 */

@@ -116,4 +116,5 @@ CAB_PB_COPIA        equ 120        ; bytes 392-511 -> 256-375 (la nota, cortada 
 CAB_PB_NOTA         equ 496        ; char[16]
 OPC_KERNEL_PRUEBA   equ 0x100000   ; en boot_info (u32): este arranque es el kernel de una ranura (prueba o último bueno)
 OPC_KERNEL_FIXO     equ 0x200000   ; y además fijado (PR_FIXA: el último bueno)
+OPC_UEFI_RANURA     equ 0x400000   ; D439: lo pone el cargador UEFI que sabe de las ranuras (boot/uefi/cargador.c)
 E2_CAPACIDADES      equ 3          ; marca SGE2 de la etapa 2: bit 0 ranura de prueba, bit 1 último bueno

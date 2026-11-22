@@ -1672,6 +1672,24 @@ static void apagar_msi(xhci_t *c)
     }
 }
 
+/* D450: al apagar o reiniciar, con las interrupciones cerradas para siempre: cada controlador
+ * se para (Run/Stop = 0, sin interrupciones) y se espera el HCHalted como mucho 20 ms (la
+ * especificación pide 16 microcuadros: 2 ms). Como el xhci_shutdown de Linux: algunos
+ * firmwares se cuelgan al arrancar de nuevo si el xHCI sigue escribiendo en la RAM. */
+int xhci_parar_todos(void)
+{
+    int paradas = 0;
+    for (int i = 0; i < qtd_ctls; i++) {
+        xhci_t *c = &ctls[i];
+        if (!c->ok) continue;
+        escreve_op(c, OP_USBCMD, le_op(c, OP_USBCMD) & ~(CMD_RS | CMD_INTE));
+        if (esperar_op(c, OP_USBSTS, STS_HCH, STS_HCH, 20)) paradas++;
+        else klog("[XHCI] %d: no se ha parado en 20 ms (USBSTS %x): se sigue\n", i, le_op(c, OP_USBSTS));
+        c->morto = true;
+    }
+    return paradas;
+}
+
 void xhci_modo_assincrono(bool ligado)
 {
     if (ligado) {

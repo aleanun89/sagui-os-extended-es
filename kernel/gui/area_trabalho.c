@@ -7,6 +7,8 @@
  * redibujado sólo se copia la parte necesaria. La barra superior (barra.c) se
  * dibuja por encima, porque el reloj y las tareas cambian. */
 #include "gui.h"
+#include "aparencia.h"
+#include "bootinfo.h"
 #include "permisos.h"
 #include "idioma.h"
 #include "arte.h"
@@ -469,7 +471,8 @@ static uint32_t mistura(uint32_t a, uint32_t b, int num, int den)
 
 static void texto_com_sombra(superficie_t *s, int x, int y, const char *t, uint32_t cor)
 {
-    sup_texto(s, x + 1, y + 1, t, 0x101010);
+    /* La sombra es oscura bajo texto claro y clara bajo texto oscuro (D428: escritorios de arena, blancos...). */
+    sup_texto(s, x + 1, y + 1, t, esq_lum(cor) > 128 ? 0x101010 : 0xF0F0F0);
     sup_texto(s, x, y, t, cor);
 }
 
@@ -507,6 +510,28 @@ static void marca_ia_rect(int *x, int *y)
         }
         if (livre) return;
     }
+}
+
+/* D418: en las imagenes de depuracion (bit CAB_USU_DEPURACION de la cabecera, que solo pone
+ * «make debug_variantes») un aviso en rojo abajo a la izquierda, sobre el fondo y debajo de las ventanas:
+ * deja claro que es una imagen de prueba con acceso SSH para revision automatica. */
+static void desenhar_aviso_depuracao(superficie_t *s)
+{
+    if (!(cabecalho_boot[CAB_USU_OPC] & CAB_USU_DEPURACAO)) return;
+    const char *l1 = "IMAGEN DE PRUEBA", *l2 = "Acceso SSH para revision automatica";
+    int pl, pa;
+    prim_tam(&pl, &pa);
+    int w = texto_largura(l2) + 20, h = 40;
+    int x = 10, y = pa - h - 12 - (marca_ia ? MARCA_A + 8 : 0);   /* abajo a la izquierda (encima del logo IA si lo hay) */
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) {
+            int px = x + i, py = y + j;
+            if (px < s->cx0 || px >= s->cx1 || py < s->cy0 || py >= s->cy1) continue;
+            uint32_t *p = &s->px[py * s->larg + px];
+            *p = (i < 2 || j < 2 || i >= w - 2 || j >= h - 2) ? 0xE02020 : mistura(*p, 0x000000, 65, 100);
+        }
+    sup_texto(s, x + 10, y + 6, l1, 0xFF5050);
+    sup_texto(s, x + 10, y + 22, l2, 0xFF5050);
 }
 
 static void desenhar_marca_ia(superficie_t *s)
@@ -558,9 +583,11 @@ static void desenhar_fundo_em(int rx, int ry, int rl, int ra)
     /* Degradado vertical en los colores de Brasil: verde arriba, amarillo en el medio,
      * azul abajo, en tonos más suaves que los de la bandera para que el texto y los
      * íconos sigan siendo legibles. */
+    const esquema_t *q = esquema();   /* D428: con «SaguiOS» el tricolor de siempre; los demás, degradado de dos colores */
     const uint32_t verde = 0x0B7A3E, amarelo = 0xE0B92A, azul = 0x14337E;
     for (int y = y0; y < y1; y++) {
-        uint32_t c = y < alt / 2 ? mistura(verde, amarelo, y, alt / 2)
+        uint32_t c = q->escritorio_liso ? mistura(q->escritorio_a, q->escritorio_b, y, alt > 1 ? alt - 1 : 1)
+                   : y < alt / 2 ? mistura(verde, amarelo, y, alt / 2)
                                  : mistura(amarelo, azul, y - alt / 2, alt - alt / 2);
         uint32_t *p = fundo + y * larg;
         for (int x = x0; x < x1; x++) p[x] = c;
@@ -571,9 +598,10 @@ static void desenhar_fundo_em(int rx, int ry, int rl, int ra)
     int esc = pl >= 1000 ? 5 : 3;
     int mx = pl - 32 * esc - 30, my = pa - 32 * esc - 40;
     sup_desenho(&s, mx, my, &arte_sagui, esc);
-    texto_com_sombra(&s, mx + 16 * esc - texto_largura(SAGUI_NOME) / 2, my + 32 * esc + 6, SAGUI_NOME, 0xFFFFFF);
+    texto_com_sombra(&s, mx + 16 * esc - texto_largura(SAGUI_NOME) / 2, my + 32 * esc + 6, SAGUI_NOME, q->escritorio_texto);
 iconos:
     desenhar_marca_ia(&s);   /* D380: debajo de los iconos */
+    desenhar_aviso_depuracao(&s);   /* D418 */
     /* Íconos con el nombre abajo, cada uno en su casilla. */
     for (int i = 0; i < QTD_ICONES; i++) {
         if (!icone_visivel(i)) continue;
@@ -583,7 +611,7 @@ iconos:
         if (sel[i]) realcar(&s, x + 2, y - 2, l - 4, ICONE_A - 2, 28);
         sup_desenho(&s, x + (l - 64) / 2, y, icones[i].desenho, 2);
         const char *nome = nome_do_icone(i);
-        texto_com_sombra(&s, x + (l - texto_largura(nome)) / 2, y + 68, nome, 0xFFFFFF);
+        texto_com_sombra(&s, x + (l - texto_largura(nome)) / 2, y + 68, nome, esquema()->escritorio_texto);
         if (foco_esc && foco_ic == i) sup_moldura(&s, x + 2, y - 2, l - 4, ICONE_A - 2, 0xFFFFFF);
     }
     if (banda_vis) {   /* rectángulo de selección */
@@ -722,6 +750,12 @@ void area_sessao_nova(void)
 }
 
 /* D313: cambió el idioma: los rótulos de los iconos van pintados en el fondo, se pintan de nuevo. */
+/* D428: cambió el esquema de apariencia: el fondo y las etiquetas de los iconos se pintan de nuevo. */
+void area_tema_mudou(void)
+{
+    if (fundo) desenhar_fundo();
+}
+
 void area_idioma_mudou(void)
 {
     if (fundo) desenhar_fundo();

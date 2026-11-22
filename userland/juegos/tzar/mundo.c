@@ -57,7 +57,14 @@ static void pegada(const TzMundo *m, const TzObj *o, int *w, int *h)
 		int dir = o->original && o->original->ndados > 56 ? o->original->dados[56] & 3 : 0;
 		if (dir & 1) { int t = *w; *w = *h; *h = t; }
 	}
-	if (!tz_obj_edificio(o) && o->classe != TZC_RES_GOLD && o->classe != TZC_RES_STONE) *w = *h = 1;
+	if (!tz_obj_edificio(o) && o->classe != TZC_RES_GOLD && o->classe != TZC_RES_STONE) *w = *h = tz_unid_celulas(o->classe);
+}
+
+/* world.rs unit_cells: casillas por lado de las unidades grandes (mercader, catapultas y ballesta, galeón, carraca, jabeque y
+ * dragón: 2x2, con la casilla de arriba a la izquierda como ancla); el resto, una */
+int tz_unid_celulas(int classe)
+{
+	return classe == TZC_TRADER || (classe >= 19 && classe <= 21) || (classe >= TZC_GALLEON && classe <= TZC_XEBEC) || classe == 32 ? 2 : 1;
 }
 
 void tz_obj_ret(const TzMundo *m, const TzObj *o, int r[4])
@@ -201,14 +208,99 @@ void tz_recalcular(TzMundo *m, TzId i)
 		if (o->classe == 42) at += 10 * N("te_gunpowder");
 #undef N
 	}
+	/* pociones bebidas (permanentes) y equipo que lleva puesto (refresh_equipment: ataque y defensa del objeto mientras se lleva) */
+	at += o->pocao_ataque; df += o->pocao_defesa;
+	if (o->ator && o->ator->nitens)
+		for (int q = 0; q < m->nobj; ++q) {
+			const TzObj *e = &m->obj[q];
+			if (e->classe == TZC_ITEM_MAIS && (e->flags & TZ_F_CARREGADO) && e->dentro_de == i) { at += e->item.ataque; df += e->item.defesa; }
+		}
 	/* hechizos: bendición +3/+3, furia +50 % de ataque (magia.c) */
 	if (o->ator && o->ator->efeito && m->tic < o->ator->efeito_ate) {
 		if (o->ator->efeito == TZ_EF_BENDICAO) { at += 3; df += 3; }
 		if (o->ator->efeito == TZ_EF_FURIA) at += at / 2;
 	}
+	/* maldición (effect 20): la mitad del ataque y nada de defensa */
+	if (o->ator && o->ator->maldicao_ate && m->tic < o->ator->maldicao_ate) { at /= 2; df = 0; }
 	o->ataque = (uint16_t)(at > 65535 ? 65535 : at);
 	o->defesa = (uint16_t)(df > 65535 ? 65535 : df);
 }
+
+/* ------------------------------------------------------------------ experiencia (gameplay.rs add_experience, experience_rules) */
+/* El nivel al que puede llegar un reino por experiencia: 0 sin investigaciones, +4 por Learning, +10 por academia, sin
+ * tope con Heroism; y cuántos puntos pide cada nivel (en %: 100, Warfare 70, Tactics 50, Sun Tzu 35). */
+void tz_mundo_regras_xp(const TzMundo *m, int k, int *tope, int *velocidade)
+{
+	int cap = 0, vel = 100;
+	if (k >= 1 && k <= 8) {
+		if (tz_pesquisas(m, k, "te_heroism")) cap = 30000;
+		cap += 4 * tz_pesquisas(m, k, "te_learning");
+		if (tz_pesquisas(m, k, "te_suntzubook")) vel = 35;
+		else if (tz_pesquisas(m, k, "te_tactics")) vel = 50;
+		else if (tz_pesquisas(m, k, "te_warfare")) vel = 70;
+		int academias = 0;
+		for (int i = 0; i < m->nobj; ++i) {
+			const TzObj *o = &m->obj[i];
+			if (o->classe == 56 && o->dono == k && !(o->flags & (TZ_F_OBRA | TZ_F_INATIVO | TZ_F_MORTO | TZ_F_MORRENDO))) academias++;
+		}
+		cap += 10 * academias;
+		if (cap > 30000) cap = 30000;
+	}
+	if (tope) *tope = cap;
+	if (velocidade) *velocidade = vel;
+}
+
+/* Un punto de experiencia o varios (0x5022e0 y 0x4de900): no sube por encima del tope del reino; al llegar a
+ * velocidad * nivel / 100 puntos sube un nivel y empieza otra vez; con Body Building suma vida máxima; al nivel 12 es
+ * héroe; con Nobility sus puntos llegan a los suyos de alrededor y con Tournaments cada 75 puntos del reino todos los
+ * monjes asiáticos ganan uno. */
+void tz_experiencia(TzMundo *m, TzId i, int pontos, int propagar)
+{
+	TzObj *o = &m->obj[i];
+	int c = o->classe;
+	if (!tz_obj_vivo(o) || !tz_obj_unidade(o) || c == 15 || (c >= 19 && c <= 21) || (c >= 23 && c <= 25) || c == TZC_FISHING_BOAT || c == TZC_COW) return;
+	int k = o->dono, cap, vel;
+	tz_mundo_regras_xp(m, k, &cap, &vel);
+	if (o->nivel >= cap) return;
+	uint32_t x = (uint32_t)o->xp + (uint32_t)pontos;
+	o->xp = (uint16_t)(x > 65535 ? 65535 : x);
+	int subiu = (uint32_t)o->xp >= (uint32_t)vel * o->nivel / 100;
+	if (subiu && o->nivel < 255) {
+		o->nivel++; o->xp = 0;
+		tz_recalcular(m, i);
+		tz_ev(m, TZ_EV_NIVEL, k, i, TZ_NENHUM, o->cx, o->cy, o->classe, o->nivel);
+	} else if (subiu) o->xp = 0;
+	if (c == TZC_SPY) return;
+	if (subiu && k >= 1 && k <= 8) {
+		int bb = 5 * tz_pesquisas(m, k, "te_bodybuilding");
+		if (bb) { o->vida_max += bb; o->vida += bb; if (o->vida > o->vida_max) o->vida = o->vida_max; }
+	}
+	if (!(o->flags & TZ_F_HEROI)) { if (o->nivel >= 12) o->flags |= TZ_F_HEROI; }
+	else if (propagar && k >= 1 && k <= 8 && tz_pesquisas(m, k, "te_nobility")) {
+		int vis = o->visao;
+		for (int q = 0; q < m->nobj; ++q) {
+			TzObj *u = &m->obj[q];
+			if (q == i || u->dono != k || !tz_obj_vivo(u) || !tz_obj_unidade(u) || u->nivel >= 11) continue;
+			int dx = u->cx - o->cx, dy = u->cy - o->cy;
+			if (dx < 0) dx = -dx;
+			if (dy < 0) dy = -dy;
+			if ((dx > dy ? dx : dy) < vis) tz_experiencia(m, q, pontos, 0);
+		}
+	}
+	if (propagar && k >= 1 && k <= 8 && tz_pesquisas(m, k, "te_tournaments")) {
+		TzReinoEstado *r = &m->reino[k];
+		r->torneio = (uint16_t)(r->torneio + pontos);
+		if (r->torneio >= 75) {
+			r->torneio = 0;
+			for (int q = 0; q < m->nobj; ++q) {
+				TzObj *u = &m->obj[q];
+				if (u->dono == k && tz_obj_vivo(u) && u->civ == TZ_CIV_ASIA && (u->classe == TZC_PEON || u->classe == TZC_MONK || u->classe == TZC_NINJA || u->classe == TZC_PRIEST))
+					tz_experiencia(m, q, 1, 0);
+			}
+		}
+	}
+}
+void tz_mundo_experiencia(TzMundo *m, TzId i, int pontos) { if (i >= 0 && i < m->nobj && pontos > 0) tz_experiencia(m, i, pontos, 1); }
 
 /* ------------------------------------------------------------------ casillas */
 static int tipo_terreno(uint16_t t)   /* pathing.rs kind(): 0 acantilado, 1 tierra, 2 agua, 3 costa */
@@ -283,13 +375,53 @@ void tz_marcar(TzMundo *m, TzId i, int pon)
 		return;
 	}
 	if (!tz_obj_unidade(o) || o->cx < 0 || o->cy < 0 || o->cx >= n || o->cy >= n) return;
-	TzCelula *c = &m->cel[o->cy * n + o->cx];
-	if (tz_obj_capa(m, o) == TZ_CAPA_AR) {
-		if (pon) c->bits |= TZ_CEL_OCUPADA_AR; else c->bits &= (uint16_t)~TZ_CEL_OCUPADA_AR;
-		return;
+	int g = tz_unid_celulas(o->classe), capa = tz_obj_capa(m, o);
+	for (int dy = 0; dy < g; ++dy) for (int dx = 0; dx < g; ++dx) {
+		int x = o->cx + dx, y = o->cy + dy;
+		if (x >= n || y >= n) continue;
+		TzCelula *c = &m->cel[y * n + x];
+		if (capa == TZ_CAPA_AR) {
+			if (pon) c->bits |= TZ_CEL_OCUPADA_AR; else c->bits &= (uint16_t)~TZ_CEL_OCUPADA_AR;
+			continue;
+		}
+		if (pon) { c->ocupante = i; c->bits |= TZ_CEL_OCUPADA; }
+		else if (c->ocupante == i) { c->ocupante = TZ_NENHUM; c->bits &= (uint16_t)~TZ_CEL_OCUPADA; }
 	}
-	if (pon) { c->ocupante = i; c->bits |= TZ_CEL_OCUPADA; }
-	else if (c->ocupante == i) { c->ocupante = TZ_NENHUM; c->bits &= (uint16_t)~TZ_CEL_OCUPADA; }
+}
+
+/* ¿cabe la unidad i, con toda su huella, con el ancla en (x, y)? (las casillas que ya son suyas cuentan como libres) */
+int tz_unid_cabe(const TzMundo *m, TzId i, int x, int y)
+{
+	const TzObj *o = &m->obj[i];
+	int g = tz_unid_celulas(o->classe), capa = tz_obj_capa(m, o);
+	for (int dy = 0; dy < g; ++dy) for (int dx = 0; dx < g; ++dx) {
+		int xx = x + dx, yy = y + dy;
+		if (!tz_cel_transitavel(m, capa, o->dono, xx, yy)) return 0;
+		const TzCelula *c = &m->cel[yy * m->lado + xx];
+		if (capa != TZ_CAPA_AR && (c->ocupante >= 0 && c->ocupante != i)) return 0;
+		if (capa != TZ_CAPA_AR && (c->bits & TZ_CEL_PORTA)) return 0;
+	}
+	return 1;
+}
+
+/* un lugar libre alrededor de r para una unidad de esa clase (las grandes piden toda su huella libre) */
+int tz_lugar_livre_cls(const TzMundo *m, int classe, int dono, const int r[4], int *x, int *y)
+{
+	TzObj tmp; memset(&tmp, 0, sizeof tmp); tmp.classe = (uint16_t)classe;
+	tmp.civ = 1;
+	int capa = tz_obj_capa(m, &tmp), g = tz_unid_celulas(classe);
+	if (g == 1) return tz_lugar_livre(m, capa, dono, r, x, y);
+	for (int d = 1; d < 24; ++d)
+		for (int yy = r[1] - d - (g - 1); yy <= r[3] + d; ++yy) for (int xx = r[0] - d - (g - 1); xx <= r[2] + d; ++xx) {
+			if (xx > r[0] - d - (g - 1) && xx < r[2] + d && yy > r[1] - d - (g - 1) && yy < r[3] + d) continue;   /* solo el anillo de este radio */
+			int ok = 1;
+			for (int dy = 0; dy < g && ok; ++dy) for (int dx = 0; dx < g; ++dx) {
+				int cx = xx + dx, cy = yy + dy;
+				if (!tz_cel_livre(m, capa, dono, cx, cy)) { ok = 0; break; }
+			}
+			if (ok) { *x = xx; *y = yy; return 1; }
+		}
+	return 0;
 }
 
 /* ------------------------------------------------------------------ creación de objetos */
@@ -309,7 +441,7 @@ static TzId reservar(TzMundo *m)
 
 static int precisa_ator(const TzObj *o)
 {
-	return tz_obj_unidade(o) || tz_obj_edificio(o);
+	return tz_obj_unidade(o) || tz_obj_edificio(o) || o->classe == TZC_REDEMOINHO;
 }
 
 static TzAtor *novo_ator(void)
@@ -320,6 +452,7 @@ static TzAtor *novo_ator(void)
 	a->ordem.alvo = a->retomar.alvo = TZ_NENHUM;
 	a->reuniao[0] = a->reuniao[1] = -1;
 	a->destino[0] = a->destino[1] = -1;
+	a->com_origem = a->com_parceiro = a->espia_em = a->ancla_cruzada = a->remoinho_dono = a->rota.reservado = a->livro = TZ_NENHUM;
 	return a;
 }
 
@@ -362,6 +495,7 @@ TzId tz_novo_obj(TzMundo *m, int classe, int civ, int dono, int cx, int cy, int 
 	if (classe == TZC_COW) o->mana = o->mana_max = 100;
 	if (precisa_ator(o)) {
 		o->ator = novo_ator();
+		if (o->ator && classe == TZC_SPY) o->ator->espia_energia = 100;
 		if (o->ator && (classe == TZC_GATE_WOOD || classe == TZC_GATE_STONE)) o->ator->ciclos = 6;
 		if (obra && o->ator) {
 			uint32_t t = a->tempo_ms ? a->tempo_ms : 1000;
@@ -372,6 +506,31 @@ TzId tz_novo_obj(TzMundo *m, int classe, int civ, int dono, int cx, int cy, int 
 	tz_recalcular(m, i);
 	tz_marcar(m, i, 1);
 	return i;
+}
+
+int tz_obj_item(const TzObj *o)
+{
+	return o && (o->classe == TZC_ITEM_MAIS || o->classe == TZC_PERGAMINHO || o->classe == TZC_LIVRO || o->classe == TZC_POCAO ||
+	             o->classe == TZC_ITEM_ALMA);
+}
+
+/* la carga de un objeto del registro (world.rs MapObject::word/byte; fill_item): vida 0x12, ataque 0x16 y 0x17, defensa
+ * 0x18, experiencia 0x1c, maná 0x24, hechizo 0x60, cargas 0x66, con cargas contadas 0x63 */
+static void item_do_registro(TzObj *o, const uint8_t *d, int n)
+{
+	TzItem *t = &o->item;
+	memset(t, 0, sizeof *t);
+	if (n > 0x13) t->vida = tz_u16(d + 0x12);
+	if (n > 0x17) t->ataque = (uint16_t)(d[0x16] + d[0x17]);
+	if (n > 0x19) t->defesa = tz_u16(d + 0x18);
+	if (n > 0x1d) t->xp = tz_u16(d + 0x1c);
+	if (n > 0x25) t->mana = tz_u16(d + 0x24);
+	if (o->classe == TZC_LIVRO && n > 0x60) {
+		t->feitico = d[0x60];
+		t->finito = n > 0x63 ? (uint8_t)(d[0x63] != 0) : 0;
+		t->cargas = n > 0x67 ? tz_u16(d + 0x66) : 0;
+	}
+	if (o->classe == TZC_PERGAMINHO) t->texto = 1;
 }
 
 /* simulation.rs ObjectState::read: un objeto del mapa con lo que dice su registro */
@@ -419,6 +578,7 @@ static TzId obj_do_mapa(TzMundo *m, const TzObjeto *r)
 	}
 	if (precisa_ator(o) && !(o->flags & TZ_F_MORTO)) {
 		o->ator = novo_ator();
+		if (o->ator && o->classe == TZC_SPY) o->ator->espia_energia = 100;
 		if (o->ator && (o->classe == TZC_GATE_WOOD || o->classe == TZC_GATE_STONE)) o->ator->ciclos = r->ndados > 57 && r->dados[57] ? 0 : 6;
 		if (o->ator && (o->flags & TZ_F_OBRA)) {
 			uint32_t t = a->tempo_ms ? a->tempo_ms : 1000;
@@ -428,6 +588,7 @@ static TzId obj_do_mapa(TzMundo *m, const TzObjeto *r)
 			if (!o->ator->obra_ms) o->ator->obra_ms = 1;
 		}
 	}
+	if (tz_obj_item(o) && r->ndados > 0x1a) item_do_registro(o, r->dados, r->ndados);
 	tz_recalcular(m, i);
 	return i;
 }
@@ -488,6 +649,7 @@ int tz_mundo_criar(TzMundo *m, const TzCatalogo *c, const TzMapa *mapa, const Tz
 		for (int j = 0; j < TZ_NREC; ++j)
 			r->recursos[j] = nivel >= 1 && nivel <= 3 ? (int32_t)c->recursos_ini_nivel[nivel][j] : (mr ? (int32_t)mr->recursos[j] : 0);
 		r->populacao_limite = m->regras.populacao;
+		r->emp_quantia = 1000; r->cruzados = 16; r->cruz_ancla = TZ_NENHUM;
 		r->pesquisas = calloc((size_t)(c->ntec ? c->ntec : 1), 1);
 		r->proibido = calloc((size_t)(c->ntec + TZ_NCLASSES), 1);
 		r->nevoa = calloc((size_t)n * n, 1);
@@ -544,14 +706,12 @@ void tz_matar(TzMundo *m, TzId i, TzId por)
 	if (por >= 0 && m->obj[por].dono >= 1 && m->obj[por].dono <= 8) {
 		m->reino[m->obj[por].dono].matadas++;
 		m->reino[m->obj[por].dono].pontos += (uint32_t)tz_obj_at(m, o)->vida / 2 + 10;
-		TzObj *a = &m->obj[por];
-		if (tz_obj_unidade(a) && tz_mundo_relacao(m, a->dono, o->dono) < 1 && ++a->xp >= 4u + a->nivel * 2u && a->nivel < 255) {
-			a->xp = 0; a->nivel++;
-			tz_recalcular(m, por);
-			tz_ev(m, TZ_EV_NIVEL, a->dono, por, TZ_NENHUM, a->cx, a->cy, a->classe, a->nivel);
-		}
+		/* experiencia: un punto por baja del enemigo (gameplay.rs 0x504f20) */
+		if (tz_obj_unidade(&m->obj[por]) && tz_mundo_relacao(m, m->obj[por].dono, o->dono) < 1) tz_experiencia(m, por, 1, 1);
+		o = &m->obj[i];
 	}
 	tz_marcar(m, i, 0);
+	tz_largar_itens(m, i);
 	/* los que van dentro mueren con él (barco) o salen (edificio) */
 	for (int j = 0; j < m->nobj; ++j) {
 		TzObj *q = &m->obj[j];
@@ -670,6 +830,7 @@ int tz_mundo_ve(const TzMundo *m, int k, TzId i)
 	const TzObj *o = &m->obj[i];
 	if (o->flags & (TZ_F_MORTO | TZ_F_INATIVO | TZ_F_DENTRO | TZ_F_CARREGADO)) return 0;
 	if (o->dono == k) return 1;
+	if (o->ator && o->ator->invisivel_ate && m->tic < o->ator->invisivel_ate && tz_mundo_relacao(m, k, o->dono) < 1) return 0;
 	int r[4];
 	tz_obj_ret(m, o, r);
 	int fixo_ = tz_obj_edificio(o) || o->classe == TZC_RES_GOLD || o->classe == TZC_RES_STONE;
@@ -762,6 +923,8 @@ int tz_mundo_gancho(TzMundo *m, const TzGancho *g)
 }
 
 /* ------------------------------------------------------------------ el tic */
+static void resgate_tic(TzMundo *m, TzId i);
+
 void tz_mundo_tic(TzMundo *m)
 {
 	TzPriv *p = m->priv;
@@ -789,9 +952,14 @@ void tz_mundo_tic(TzMundo *m)
 			continue;
 		}
 		if (o->flags & (TZ_F_MORTO | TZ_F_INATIVO | TZ_F_DENTRO | TZ_F_CARREGADO)) continue;
+		if (o->classe == TZC_REDEMOINHO) continue;   /* lo mueve tz_remoinhos_tic */
+		if (o->dono == 9 && tz_obj_unidade(o)) { resgate_tic(m, i); if (o->dono == 9 && o->ator && o->ator->ordem.tipo == TZ_O_NADA) continue; }
 		if (tz_obj_unidade(o)) tz_ator_tic(m, i);
 		else tz_producao_tic(m, i);
 	}
+	/* 3b. comercio, préstamos, taberna, cruzadas y remolinos */
+	tz_negocio_tic(m);
+	tz_remoinhos_tic(m);
 	/* 4. proyectiles */
 	tz_projeteis_tic(m);
 	m->dentro_tic = 0;
@@ -814,7 +982,7 @@ TzId tz_mundo_em(const TzMundo *m, int cx, int cy)
 	/* unidades que vuelan, objetos sueltos */
 	for (int i = m->nobj - 1; i >= 0; --i) {
 		const TzObj *o = &m->obj[i];
-		if (o->cx == cx && o->cy == cy && tz_obj_vivo(o) && (tz_obj_unidade(o) || o->classe == TZC_FISHPATCH || o->classe == 80 || o->classe == TZC_ITEM)) return i;
+		if (o->cx == cx && o->cy == cy && tz_obj_vivo(o) && (tz_obj_unidade(o) || o->classe == TZC_FISHPATCH || o->classe == 80 || o->classe == TZC_ITEM || tz_obj_item(o))) return i;
 	}
 	return TZ_NENHUM;
 }
@@ -973,10 +1141,14 @@ TzId tz_mundo_guiao_criar(TzMundo *m, int classe, int civ, int dono, int cx, int
 	if (classe <= 0 || classe >= TZ_NCLASSES || cx < 0 || cy < 0 || cx >= m->lado || cy >= m->lado) return TZ_NENHUM;
 	if (!civ && dono >= 1 && dono <= 8) civ = m->reino[dono].civ;
 	TzObj tmp; memset(&tmp, 0, sizeof tmp); tmp.classe = (uint16_t)classe; tmp.civ = (uint8_t)(civ ? civ : 1);
-	if (tz_classe_e_unidade(classe) && !tz_cel_livre(m, tz_obj_capa(m, &tmp), dono, cx, cy)) {
-		int r[4] = { cx, cy, cx, cy }, x, y;
-		if (!tz_lugar_livre(m, tz_obj_capa(m, &tmp), dono, r, &x, &y)) return TZ_NENHUM;
-		cx = x; cy = y;
+	if (tz_classe_e_unidade(classe)) {
+		int g = tz_unid_celulas(classe), ok = 1;
+		for (int dy = 0; dy < g; ++dy) for (int dx = 0; dx < g; ++dx) if (!tz_cel_livre(m, tz_obj_capa(m, &tmp), dono, cx + dx, cy + dy)) ok = 0;
+		if (!ok) {
+			int r[4] = { cx, cy, cx, cy }, x, y;
+			if (!tz_lugar_livre_cls(m, classe, dono, r, &x, &y)) return TZ_NENHUM;
+			cx = x; cy = y;
+		}
 	}
 	TzId i = tz_novo_obj(m, classe, civ, dono, cx, cy, 0);
 	if (i >= 0) tz_ev(m, TZ_EV_CRIADO, dono, i, TZ_NENHUM, cx, cy, classe, 0);
@@ -1167,9 +1339,52 @@ void tz_mundo_recursos_compartidos(const TzMundo *m, int k, int32_t out[TZ_NREC]
 	memset(out, 0, sizeof(int32_t) * TZ_NREC);
 	if (k < 1 || k > 8) return;
 	for (int q = 1; q <= 8; ++q) {
-		if (q != k && !((m->reino[k].diplomacia[q] & TZ_DIP_RECURSOS) && (m->reino[q].diplomacia[k] & TZ_DIP_RECURSOS))) continue;
+		if (q != k && !(m->reino[q].diplomacia[k] & TZ_DIP_RECURSOS)) continue;
 		if (!m->reino[q].ativo) continue;
-		for (int j = 0; j < TZ_NREC; ++j) out[j] += m->reino[q].recursos[j];
+		for (int j = 0; j < TZ_NREC; ++j) out[j] += m->reino[q].recursos[j] < 0 ? 0 : m->reino[q].recursos[j];
+	}
+}
+
+/* Gasta c del reino k (gameplay.rs spend): lo propio primero y lo que falte de cada reino que comparte, en orden de reino. Antes hay que
+ * comprobar que alcanza con tz_mundo_recursos_compartidos. */
+void tz_gastar(TzMundo *m, int k, const uint32_t c[TZ_NREC])
+{
+	for (int r = 0; r < TZ_NREC; ++r) {
+		uint32_t falta = c[r];
+		if (!falta) continue;
+		for (int step = 0; step <= 8 && falta; ++step) {
+			int q = step == 0 ? k : step;
+			if (step && (q == k || !m->reino[q].ativo || !(m->reino[q].diplomacia[k] & TZ_DIP_RECURSOS))) continue;
+			int32_t tem = m->reino[q].recursos[r] < 0 ? 0 : m->reino[q].recursos[r];
+			uint32_t toma = (uint32_t)tem < falta ? (uint32_t)tem : falta;
+			m->reino[q].recursos[r] -= (int32_t)toma;
+			falta -= toma;
+		}
+	}
+}
+
+void tz_mundo_pode_resgatar(TzMundo *m, int k, int pode)
+{
+	if (k < 1 || k > 8) return;
+	if (pode) m->sem_resgate &= (uint16_t)~(1u << k); else m->sem_resgate |= (uint16_t)(1u << k);
+}
+
+/* el programa de rescate (Intent::Rescue, 0x502e18): cada segundo un soldado de un reino que pueda rescatar, en la casilla de
+ * al lado o encima del prisionero (reino 9), lo hace suyo */
+static void resgate_tic(TzMundo *m, TzId i)
+{
+	TzObj *o = &m->obj[i];
+	if (((m->tic + (uint32_t)i) % TZ_TICS_SEG) != 0) return;
+	for (int q = 0; q < m->nobj; ++q) {
+		const TzObj *u = &m->obj[q];
+		if (q == i || u->dono < 1 || u->dono > 8 || !m->reino[u->dono].ativo || (m->sem_resgate & (1u << u->dono))) continue;
+		if (!tz_obj_unidade(u) || !tz_obj_vivo(u) || !u->ataque) continue;
+		int c = u->classe;
+		if (c == TZC_PEON || c == TZC_TRADER || c == TZC_SPY || c == TZC_COW || c == TZC_FISHING_BOAT) continue;
+		int dx = u->cx - o->cx, dy = u->cy - o->cy;
+		if (dx < -1 || dx > 1 || dy < -1 || dy > 1) continue;
+		tz_trocar_dono(m, i, u->dono);
+		return;
 	}
 }
 

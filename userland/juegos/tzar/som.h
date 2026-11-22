@@ -47,6 +47,20 @@ void tz_som_eventos(TzSom *s, const TzMundo *m);
 /* Un sonido suelto por nombre de recurso («SOUND/NOTIFY/CHAT.WAV») o de grupo («@infantry_cmd»), en el sitio (cx, cy) o sin sitio (-1). */
 int tz_som_tocar(TzSom *s, const char *nome, int categoria, int canal, int cx, int cy);
 void tz_som_parar_todos(TzSom *s);
+/* el vigilante (vigia.c): 1 calla la tarjeta (sin cerrojo: se llama desde otro hilo), 0 la vuelve a poner */
+void tz_som_pausar(TzSom *s, int pausar);
+/* el cursor de eventos: una partida nueva o cargada empieza a leer desde su cola (seq = TzMundo.ev_seq) */
+void tz_som_cursor(TzSom *s, uint32_t seq);
+/* tira lo que quede del sonido de la película (al saltar la introducción) */
+void tz_som_parar_filme(TzSom *s);
+/* Los sonidos puestos en el mapa con el editor (<mapa>.sounds: registros de 112 bytes, world.rs SoundSource): se leen al empezar
+ * la misión y suenan solos desde tz_som_eventos (una vez, cada tanto o en bucle) donde el jugador ve. Devuelve cuántos. */
+int tz_som_fontes_mapa(TzSom *s, const uint8_t *dados, uint32_t n, const TzMapa *mapa);
+int tz_som_nfontes(const TzSom *s);
+/* La lluvia (audio/ambience.rs): con chove, el clip de empezar, los del medio uno tras otro y el de acabar cuando para. ms es el
+ * reloj del juego (se para con la partida). */
+void tz_som_chuva(TzSom *s, int chove, uint32_t ms);
+int tz_som_chovendo(const TzSom *s);
 /* Habla de una historia o conversación («USER\voz.wav» de la misión): para los efectos y suena; NULL o vacío la calla. */
 int tz_som_fala(TzSom *s, const char *wav);
 /* Sonido de una película (PCM estéreo de 44100 Hz): se encola; mientras haya, calla el resto. */

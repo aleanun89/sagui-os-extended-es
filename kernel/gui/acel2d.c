@@ -242,9 +242,11 @@ static pci_disp_t disp;
  * donde ya se han probado en hardware real (como D244), cada uno por separado. La X1400 del Amilo se colgó
  * con la primera versión (2026-11-19); con el arreglo de esperar a cada franja pasó más de 20.000 volcados
  * sin fallo, y 60.000 cuadros 3D con volcado con el 3D por el CP (v8.5.5, D387): el volcado se enciende solo
- * en ella. La vuelta, no (sin prueba propia en hardware real): «acel2d vuelta encender». */
+ * en ella. La vuelta también desde la D451 (2026-11-21, Brumacanto en el Amilo). */
 static const struct { uint16_t fab, modelo; bool volcado, vuelta; } volcado_confirmadas[] = {
-    { 0x1002, 0x7145, true, false },   /* Mobility X1400 (RV515) del Amilo: volcado, 2026-11-19 */
+    /* Mobility X1400 (RV515) del Amilo: volcado, 2026-11-19; vuelta, 2026-11-21 (D451: su autoprueba IGUAL, 328 MB/s
+     * frente a 9 de la CPU, y 1.500 cuadros de Brumacanto en ventana por la GPU sin fallo) */
+    { 0x1002, 0x7145, true, true },
 };
 static bool volcado_confirmada(bool vuelta)
 {
@@ -1507,7 +1509,10 @@ static inline uint32_t prova_px(int x, int y) { return ((uint32_t)x * 2654435761
  * acel_sincronizar» (rojo) / fuera (verde), C cambia de color en cada volcado (azul, cian, magenta, amarillo).
  * Mientras dura la autoprueba solo se pintan en la pantalla (el búfer de atrás se compara con la VRAM); antes
  * de video_mostrar_tudo se copian también al búfer de atrás, y desde entonces van a los dos. */
-#define VMARCA_SI 1
+/* Las marcas solo salen en pantalla si se piden («acel2d volcado paso 25», GVO_MARCAS): eran de la depuración
+ * del Amilo y se quedaron encendidas siempre (tres cuadros de colores arriba a la izquierda). El rastro las
+ * sigue guardando todas. */
+#define VMARCA_SI (acel_radeon_dbg_marcas())
 static bool gart_decidindo;
 static uint32_t vmarcas;   /* bit k-1: la marca k ya salió */
 static void vmarca_cuadro(int x0, int y0, uint32_t cor, bool tras)
@@ -1967,7 +1972,19 @@ int32_t acel2d_volcado_ctl(int op)
     }
     if (op == 4) return volcado_medir();
     if (op >= 5 && op <= 7) return acel2d_retorno_ctl(op);   /* D391 */
-    if (op >= 37 && op <= 45) {   /* D387: las opciones de la valla del 3D (gpu3d_r500.c): también con el 2D ya apagado */
+    if (op >= 50 && op <= 53) {   /* D424: «acel2d prioridad [leer | alta | bios | estres]» (Evergreen/NI) */
+        extern bool r600_prioridade_tela(int op);
+        if (!ativo || drv != &acel_r600) { klog("[ACEL2D] prioridad: solo con el 2D r600dma en marcha\n"); return ERRO_INVALIDO; }
+        if (op < 53) return r600_prioridade_tela(op - 50) ? 0 : ERRO_INVALIDO;
+        /* estres: la CPU reescribe la pantalla entera, igual, 1500 veces (unos 2 s): si la pantalla falla
+         * por falta de ancho de banda se verá aunque lo escrito no cambie. */
+        uint64_t t0 = tsc();
+        for (int i = 0; i < 1500; i++) video_mostrar_tudo();
+        klog("[ACEL2D] prioridad estres: 1500 pantallas enteras reescritas en %u ms\n",
+             (uint32_t)((tsc() - t0) / (hw_tsc_khz() ? hw_tsc_khz() : 1)));
+        return 0;
+    }
+    if (op >= 37 && op <= 46) {   /* D387: las opciones de la valla del 3D (gpu3d_r500.c; 36, D436): también con el 2D ya apagado */
         extern bool gpu3d_r500_opcao(int paso);
         return gpu3d_r500_opcao(op - 10) ? 0 : ERRO_INVALIDO;
     }

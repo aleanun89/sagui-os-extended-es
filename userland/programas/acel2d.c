@@ -32,7 +32,7 @@
  *                     depuración y 21-25 cambian una (RELOJ, AGP, SNOOP, CIEGO, MARCAS); 26 (D387) el 2D por MMIO
  *                     aunque el CP del 3D esté en marcha (solo para comparar); 27-35 (D387) la valla del 3D
  *                     y su espera: 27 VRAM, 28 RBBM, 29 HDP, 30 PAUSA, 31 TIJERA, 32 LINUX, 33 SINESPERA,
- *                     34 LEERCOLA, 35 2DSINESPERA (ver gpu3d_r500.c; funcionan también con el 2D apagado)
+ *                     34 LEERCOLA, 35 2DSINESPERA, 36 COLAENTERA (D436) (ver gpu3d_r500.c; funcionan también con el 2D apagado)
  *
  *   acel2d vuelta [apagar | encender | medir]   (D391) la vuelta del cuadro del 3D a la RAM por la GPU
  *                     (la misma GART): sin más, su estado y cuántos cuadros ha traído; apagar y encender
@@ -186,6 +186,20 @@ int principal(int argc, char **argv)
         imprimir("acel2d %s: %s (%s)\n", argv[1], v.ativo ? "acelerador activo" : "la CPU hace todo", v.motivo);
         return enc ? (r == 0 ? 0 : 1) : 0;
     }
+    if (argc > 1 && compara_texto(argv[1], "prioridad") == 0) {   /* D424: la prioridad de la pantalla (Evergreen/NI) */
+        int op = 50;
+        if (argc > 2) {
+            if (compara_texto(argv[2], "leer") == 0) op = 50;
+            else if (compara_texto(argv[2], "alta") == 0) op = 51;
+            else if (compara_texto(argv[2], "bios") == 0) op = 52;
+            else if (compara_texto(argv[2], "estres") == 0) op = 53;
+            else { imprimir_em(ERROS, "uso: acel2d prioridad [leer | alta | bios | estres]\n"); return 1; }
+        }
+        int r = info_sistema(INFO_ACEL2D_CTL, (void *)(long)op, 0);
+        imprimir("acel2d prioridad %s: %s (detalle: dmesg | grep ACEL2D)\n", argc > 2 ? argv[2] : "leer",
+                 r == 0 ? "BIEN" : "no disponible (solo Radeon Evergreen/NI con el 2D en marcha)");
+        return r == 0 ? 0 : 1;
+    }
     if (argc > 1 && compara_texto(argv[1], "volcado") == 0) {
         int op = 0;
         if (argc > 2) {
@@ -194,7 +208,7 @@ int principal(int argc, char **argv)
             else if (compara_texto(argv[2], "medir") == 0) op = 4;
             else if (compara_texto(argv[2], "paso") == 0 && argc > 3 && argv[3][0] >= '0' && argv[3][0] <= '9' &&
                      (!argv[3][1] || (argv[3][1] >= '0' && argv[3][1] <= '9' && !argv[3][2])) &&
-                     (argv[3][1] ? (argv[3][0] - '0') * 10 + argv[3][1] - '0' : argv[3][0] - '0') <= 35) {
+                     (argv[3][1] ? (argv[3][0] - '0') * 10 + argv[3][1] - '0' : argv[3][0] - '0') <= 36) {
                 /* Depuración en hardware real: la puesta en marcha de la GART hasta el paso N, y deshecha (0-6);
                  * 7-17, experimentos de copia de la pantalla entera; 20-25, opciones de depuración; 26 (D387),
                  * el 2D por MMIO aunque el CP del 3D esté en marcha (solo para comparar). */
@@ -203,7 +217,7 @@ int principal(int argc, char **argv)
                 imprimir("acel2d volcado paso %s: %s (detalle: dmesg | grep GART)\n", argv[3], r == 0 ? "BIEN" : "FALLO o no disponible");
                 return r == 0 ? 0 : 1;
             }
-            else { imprimir_em(ERROS, "uso: acel2d volcado [apagar | encender | medir | paso 0-35]\n"); return 1; }
+            else { imprimir_em(ERROS, "uso: acel2d volcado [apagar | encender | medir | paso 0-36]\n"); return 1; }
         }
         int r = op ? info_sistema(INFO_ACEL2D_CTL, (void *)(long)op, 0) : 0;
         info_acel2d_t v;
@@ -240,7 +254,7 @@ int principal(int argc, char **argv)
     }
     if (argc > 1) {
         imprimir_em(ERROS, "uso: acel2d [probar [--detalle] | apagar | encender | volcado [apagar | encender | medir | paso 0-6] |"
-                           " vuelta [apagar | encender | medir] | energia [leer | bios | bajo | alto | auto | estado N | simular N | detalle]]\n");
+                           " vuelta [apagar | encender | medir] | prioridad [leer | alta | bios | estres] | energia [leer | bios | bajo | alto | auto | estado N | simular N | detalle]]\n");
         return 1;
     }
     info_acel2d_t v;

@@ -3,6 +3,7 @@
 /* Renderizador por software: búfer de 32 bits, copia de sprites con paleta, escalado y colores de jugador, y una pequeña fuente integrada. */
 #include "aoen.h"
 #include "hilos.h"
+#include "gpu.h"
 
 Fb fb;
 int gfx_us = 1;                    /* factor de escala de la interfaz (1, 2...): ver gfx_ui_begin */
@@ -44,6 +45,26 @@ void gfx_clip(int x0, int y0, int x1, int y1) {
 }
 
 void gfx_clip_reset(void) { fb.cx0 = 0; fb.cy0 = 0; fb.cx1 = real_w; fb.cy1 = real_h; }
+
+/* ---------- D436: dibujo por la GPU ----------
+ * Con gfx_gpu (el mundo de la partida en el modo «Dibujo por GPU»), las primitivas se mandan a gpu.c en vez de escribir
+ * en fb.px. Con gfx_capa, fb.px es la capa de la interfaz, con alfa premultiplicado (0 = transparente): se apuntan las
+ * filas que se pintan y las mezclas y los oscurecidos guardan también el alfa. */
+static inline Recorte recorte_atual(void) { Recorte r = { fb.cx0, fb.cy0, fb.cx1, fb.cy1 }; return r; }
+
+/* d = col * a + d * (1 - a) en los cuatro canales (col opaco), a de 0 a 256 */
+static void capa_mezcla(u32 *d, u32 col, int n, int a) {
+	u32 ia = (u32)(256 - a), crb = (col & 0xff00ffu) * (u32)a, cag = (((col | 0xff000000u) >> 8) & 0xff00ffu) * (u32)a;
+	for (int i = 0; i < n; ++i) {
+		u32 y = d[i];
+		u32 rb = ((crb + (y & 0xff00ffu) * ia) >> 8) & 0xff00ffu, ag = ((cag + ((y >> 8) & 0xff00ffu) * ia) >> 8) & 0xff00ffu;
+		d[i] = (ag << 8) | rb;
+	}
+}
+/* mitad de luz sobre la capa: color / 2 y alfa (255 + alfa) / 2 (lo de debajo, la partida, también queda a la mitad) */
+static void capa_oscurecer(u32 *d, int n) {
+	for (int i = 0; i < n; ++i) { u32 y = d[i], a = ((y >> 24) + 256) >> 1; d[i] = ((y >> 1) & 0x7f7f7fu) | (MIN(a, 255u) << 24); }
+}
 
 /* ---------- lista de dibujo (D393) ----------
  * Lo que se dibuja encima del terreno (entidades, sombras, barras de vida, partículas, la luz del día) se puede grabar en
@@ -154,6 +175,8 @@ static void dim_en(int x, int y, int w, int h, int cx0, int cy0, int cx1, int cy
 }
 
 static void fill_raw(int x, int y, int w, int h, u32 col) {
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_relleno(x, y, w, h, col, 255, &r); return; }
+	if (gfx_capa) { col |= 0xff000000u; gpu_capa_marca(MAX(y, fb.cy0), MIN(y + h, fb.cy1)); }
 	if (lista_activa) {
 		if (w <= 0 || h <= 0) return;
 		OpDibujo *o = lista_op(OP_RELLENO);
@@ -166,6 +189,14 @@ static void fill_raw(int x, int y, int w, int h, u32 col) {
 }
 
 static void fill_a_raw(int x, int y, int w, int h, u32 col, int alpha) {
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_relleno(x, y, w, h, col, alpha, &r); return; }
+	if (gfx_capa && alpha > 0 && alpha < 255) {
+		int x0 = MAX(x, fb.cx0), y0 = MAX(y, fb.cy0), x1 = MIN(x + w, fb.cx1), y1 = MIN(y + h, fb.cy1);
+		if (x1 <= x0 || y1 <= y0) return;
+		gpu_capa_marca(y0, y1);
+		for (int yy = y0; yy < y1; ++yy) capa_mezcla(fb.px + (size_t)yy * fb.pitch + x0, col, x1 - x0, alpha * 256 / 255);
+		return;
+	}
 	if (lista_activa) {
 		if (w <= 0 || h <= 0 || alpha <= 0) return;
 		OpDibujo *o = lista_op(OP_MEZCLA);
@@ -205,6 +236,8 @@ void gfx_fill_grad(int x, int y, int w, int h, u32 top, u32 bottom) {
 }
 
 static void line_raw(int x0, int y0, int x1, int y1, u32 col) {
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_linea(x0, y0, x1, y1, col, &r); return; }
+	if (gfx_capa) { col |= 0xff000000u; gpu_capa_marca(MAX(MIN(y0, y1), fb.cy0), MIN(MAX(y0, y1) + 1, fb.cy1)); }
 	if (lista_activa) {
 		OpDibujo *o = lista_op(OP_LINEA);
 		if (o) { o->x = x0; o->y = y0; o->w = x1; o->h = y1; o->col = col; lista_franjas(MAX(MIN(y0, y1), fb.cy0), MIN(MAX(y0, y1) + 1, fb.cy1)); return; }
@@ -238,6 +271,7 @@ void gfx_diamond(int cx, int cy, int hw, int hh, u32 col) {
 /* elipse rellena: opaca (alpha 255) o mezclada con lo que hay debajo (sombras de las unidades y selección) */
 void gfx_ellipse(int cx, int cy, int rx, int ry, u32 col, int alpha) {
 	if (rx <= 0 || ry <= 0) return;
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_elipse(cx * gfx_us, cy * gfx_us, rx * gfx_us, ry * gfx_us, col, MIN(alpha, 255), &r); return; }
 	if (lista_activa && alpha > 0) {
 		OpDibujo *o = lista_op(OP_ELIPSE);
 		if (o) {
@@ -257,6 +291,18 @@ void gfx_shadow_ellipse(int cx, int cy, int rx, int ry) {
 	cx *= gfx_us; cy *= gfx_us; rx *= gfx_us; ry *= gfx_us;
 	if (rx <= 0 || ry <= 0) return;
 	if (cx + rx < fb.cx0 || cx - rx >= fb.cx1 || cy + ry < fb.cy0 || cy - ry >= fb.cy1) return;
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_elipse(cx, cy, rx, ry, 0, 256, &r); return; }
+	if (gfx_capa) {
+		gpu_capa_marca(MAX(cy - ry, fb.cy0), MIN(cy + ry + 1, fb.cy1));
+		for (int y = -ry; y <= ry; ++y) {
+			int yy = cy + y;
+			if (yy < fb.cy0 || yy >= fb.cy1) continue;
+			int w = (int)(rx * sqrtf(1.0f - (float)(y * y) / (float)(ry * ry)));
+			int x0 = MAX(cx - w, fb.cx0), x1 = MIN(cx + w + 1, fb.cx1);
+			if (x1 > x0) capa_oscurecer(fb.px + (size_t)yy * fb.pitch + x0, x1 - x0);
+		}
+		return;
+	}
 	if (lista_activa) {
 		OpDibujo *o = lista_op(OP_SOMBRA);
 		if (o) { o->x = cx; o->y = cy; o->w = rx; o->h = ry; lista_franjas(MAX(cy - ry, fb.cy0), MIN(cy + ry + 1, fb.cy1)); return; }
@@ -272,6 +318,14 @@ void gfx_shadow_ellipse(int cx, int cy, int rx, int ry) {
 
 /* oscurece un rectángulo a la mitad (niebla de guerra, de las zonas ya exploradas) */
 void gfx_dim(int x, int y, int w, int h) {
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_oscuro(x * gfx_us, y * gfx_us, w * gfx_us, h * gfx_us, &r); return; }
+	if (gfx_capa) {
+		int x0 = MAX(x * gfx_us, fb.cx0), y0 = MAX(y * gfx_us, fb.cy0), x1 = MIN((x + w) * gfx_us, fb.cx1), y1 = MIN((y + h) * gfx_us, fb.cy1);
+		if (x1 <= x0 || y1 <= y0) return;
+		gpu_capa_marca(y0, y1);
+		for (int yy = y0; yy < y1; ++yy) capa_oscurecer(fb.px + (size_t)yy * fb.pitch + x0, x1 - x0);
+		return;
+	}
 	if (lista_activa && w > 0 && h > 0) {
 		OpDibujo *o = lista_op(OP_OSCURO);
 		if (o) { o->x = x * gfx_us; o->y = y * gfx_us; o->w = w * gfx_us; o->h = h * gfx_us; lista_franjas(MAX(o->y, fb.cy0), MIN(o->y + o->h, fb.cy1)); return; }
@@ -287,6 +341,7 @@ static u32 shade_pal[4][256];
 static int shade_val[4] = { -1, -1, -1, -1 }, shade_next;
 static int pal_version, shade_version[4];
 void gfx_pal_changed(void) { ++pal_version; }
+int fb_pal_version(void) { return pal_version; }
 
 static const u32 *shaded_pal(int shade) {
 	for (int k = 0; k < 4; ++k) if (shade_val[k] == shade && shade_version[k] == pal_version) return shade_pal[k];
@@ -301,6 +356,11 @@ static const u32 *shaded_pal(int shade) {
 
 static inline void shadow_px(u32 *d) {
 	u32 c = *d;
+	if (gfx_capa) {   /* D436: en la capa, la sombra también deja pasar menos de lo de debajo */
+		u32 a = 255 - ((255 - (c >> 24)) * 140 >> 8);
+		*d = (a << 24) | ((((c >> 16) & 255) * 140 >> 8) << 16) | ((((c >> 8) & 255) * 140 >> 8) << 8) | ((c & 255) * 140 >> 8);
+		return;
+	}
 	*d = 0xff000000u | ((((c >> 16) & 255) * 140 >> 8) << 16) | ((((c >> 8) & 255) * 140 >> 8) << 8) | ((c & 255) * 140 >> 8);
 }
 
@@ -371,6 +431,7 @@ static void sprite_en(const Sprite *s, int x, int y, int scale, int player, cons
 	int cx0 = MAX(dx0, rx0), cy0 = MAX(dy0, ry0), cx1 = MIN(dx0 + dw, rx1), cy1 = MIN(dy0 + dh, ry1);
 	if (cx0 >= cx1 || cy0 >= cy1)
 		return;
+	if (gfx_capa) gpu_capa_marca(cy0, cy1);
 
 	int poff = 16 * (player + 1);
 
@@ -419,6 +480,7 @@ void gfx_sprite(const Sprite *s, int x, int y, int scale, int player, int shade,
 		return;
 	static GfxTemp tmp;
 	x *= gfx_us; y *= gfx_us; scale *= gfx_us;
+	if (gfx_gpu) { Recorte r = recorte_atual(); gpu_op_sprite(s, x, y, scale, player, shade, flip, &r); return; }
 	if (lista_activa) {
 		/* la paleta con sombra se copia en la lista (la caché de shaded_pal solo guarda cuatro) */
 		int k = -1;
@@ -701,6 +763,7 @@ static void texto8x16(int x, int y, const char *s, u32 col, int tam) {
 	x *= us; y *= us;
 	while (*s) {
 		unsigned cp = cp_utf8(&s);
+		if (cp == 0x2014) { fill_raw(x, y + 8 * cell, 8 * cell, cell, col); x += 8 * cell; continue; }   /* «—» (D436: el HUD) */
 		if (cp > 255) cp = '?';
 		const unsigned char *g = fonte_sagui[cp];
 		for (int r = 0; r < 16; ++r) {

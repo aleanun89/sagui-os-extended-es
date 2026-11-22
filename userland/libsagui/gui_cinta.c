@@ -262,7 +262,7 @@ static void dibujar_ctrl(jan_t *j, cinta_t *c, cinta_ctrl_t *k, int nivel)
         for (int i = 0; i < v; i++) {
             int cx = x + i * 62;
             bool s = k->sel == i;
-            g_retangulo(j, cx, y, 60, a, COR_BRANCO);
+            g_retangulo(j, cx, y, 60, a, COR_CAMPO);
             g_moldura(j, cx, y, 60, a, s ? c->acento : W98_SOMBRA);
             if (s) g_moldura(j, cx + 1, y + 1, 58, a - 2, c->acento);
             g_texto_n(j, cx + (60 - 8 * (int)tam_texto(k->lista[i])) / 2 + 1, y + (a - 16) / 2, k->lista[i], 7, W98_NEGRO);

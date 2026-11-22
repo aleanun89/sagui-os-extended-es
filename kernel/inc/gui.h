@@ -54,6 +54,10 @@ bool gui_iniciar(void);                    /* activa el escritorio y el gestor *
 bool gui_ativa(void);
 uint32_t gui_tc_quadros(void);   /* D245: cuadros de pantalla completa dibujados */
 uint32_t gui_tc_fps(void);       /* D245: fps medidos (0 = aún sin medida) */
+/* D432: pantalla exclusiva para quien presenta por la GPU (janelas.c; docs/gpu3d.md). */
+bool gui_exclusiva_apresentar(int pid, int id, int *ox, int *oy, int *dl, int *da, int *jl, int *ja, bool *nova);
+void gui_exclusiva_soltar(int pid, const char *motivo);   /* pid 0: sea de quien sea */
+int  gui_exclusiva_estado(uint32_t *vezes);
 void gui_redesenhar(int x, int y, int l, int a);
 void gui_mostrar(void);
 void gui_aviso(const char *texto);   /* notificación en la esquina de la pantalla durante unos segundos */
@@ -100,6 +104,7 @@ void gui_janela_ativar(int id);                     /* trae al frente (y restaur
 void gui_janela_minimizar(int id);
 void gui_janela_menu(int id, int x, int y);         /* el menú de la barra de título, abierto en (x, y) */
 bool gui_abrir_unico(const char *processo, const char *caminho, int argc, char *argv[]);
+bool gui_tela_cheia_ativa(void);                   /* D422: la ventana con el foco está a pantalla completa */
 void gui_sair_tela_cheia(void);                     /* la ventana con el foco sale de la pantalla completa */
 int  janelas_por_uso(janela_barra_t *v, int max);   /* orden de uso reciente: visibles desde arriba, luego minimizadas (D119) */
 int  gui_janela_focada(void);                       /* id de la ventana con el foco, 0 = ninguna */
@@ -139,6 +144,9 @@ int  barra_y0(void);                                /* el borde de arriba de la 
 bool barra_esta_visivel(void);
 bool barra_intersecta(int y0, int y1);              /* ¿la franja [y0, y1) toca la barra (si se ve)? */
 bool barra_contem(int x, int y);
+void barra_tema_mudou(void);                        /* D428: cambió el esquema de apariencia */
+void area_tema_mudou(void);                         /* D428: el escritorio se pinta con el esquema nuevo */
+void janelas_tema_mudou(void);                      /* D428: EV_TEMA a todas las ventanas y repintado */
 void barra_sujar(void);                             /* vuelve a dibujar la barra */
 int  barra_cfg(int bc);                             /* un ajuste (BC_*) */
 void barra_conf_padrao(void);                       /* los ajustes de serie (al cerrar la sesión) */

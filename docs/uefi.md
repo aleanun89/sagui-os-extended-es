@@ -70,6 +70,14 @@ VBE, ni INT 13h. Las resoluciones de la lista son las de la GOP; cambiar de reso
 solo se puede con una tarjeta con driver (Bochs/QEMU, VMware...); en las demás, `pantalla --guardar`
 y reiniciar (como por BIOS).
 
+**Kernel de prueba de una vez (D439):** el cargador lee las ranuras de la cabecera del disco igual que la
+etapa 2 (D392): con una prueba pendiente (`arranque probar`), **borra la marca en el disco** (un sector, la
+cabecera, con Block I/O, releído y comparado) **antes** de leer el kernel de prueba por sus sectores; si se
+cuelga, el siguiente arranque es el último bueno o el original. Si no puede borrar la marca, no la arranca. Con
+un último bueno (`arranque confirmar`) arranca ese. La ESP no la escribe nunca el cargador: `\SAGUI\KERNEL.BIN`
+(el original) sigue siempre ahí. Le dice al kernel con qué arrancó (`OPC_KERNEL_PRUEBA`/`FIXO`) y que sabe de las
+ranuras (`OPC_UEFI_RANURA`): con un cargador de antes, `arranque probar` por UEFI se niega.
+
 **Rescate:** Ctrl al arrancar funciona si el firmware entrega la tecla con el estado de Ctrl
 (Simple Text Input Ex); si no, la imagen con `--rescate`.
 
@@ -99,6 +107,25 @@ Graba `saguios.img` en un pendrive como siempre (Rufus en modo DD, o `dd`).
 4. **Above 4G Decoding / Resizable BAR:** si están activados, la GOP de la tarjeta gráfica puede
    quedar por encima de 4 GB, donde un kernel de 32 bits no llega. El cargador lo avisa («el
    framebuffer está por encima de 4 GB»); desactívalos.
+
+### Probar un kernel de una vez por UEFI (D439)
+
+La primera vez hay que **grabar la imagen nueva** (el cargador cambia; uno de antes no sabe de las ranuras).
+Después, arrancando por UEFI y como root:
+
+1. `arranque estado` → «Cargador UEFI (x64): sabe arrancar el kernel de prueba y el último bueno (D439)» y
+   «Este arranque: el kernel original (por UEFI)».
+2. `arranque probar /ruta/kernel.bin` (con `[RAMDISK]` si hace falta; en la ESP, de 40 MB, un ramdisk propio
+   puede no caber: lo dice) y `reiniciar`.
+3. En la pantalla del cargador: «Kernel de prueba: esta vez (marca borrada: ...)» y `[2/6] kernel de la ranura`.
+   Ya en el sistema, `arranque estado` → «Este arranque: el KERNEL DE PRUEBA (una vez) (por UEFI)».
+4. Reiniciar sin confirmar → vuelve el original. Si el kernel de prueba se cuelga, apagar con el botón y volver a
+   encender: arranca el original (la marca ya estaba borrada).
+5. Probar otra vez y, desde el arranque de prueba, `arranque confirmar` → en adelante arranca ese (el cargador dice
+   «Kernel: el ultimo bueno»); `arranque original` vuelve al de la imagen.
+
+Si la placa no deja escribir el disco desde UEFI, el cargador dice «no se pudo borrar la marca en el disco: no se
+arranca» y arranca el normal: foto de esa pantalla.
 
 ### Qué foto mandar si falla
 

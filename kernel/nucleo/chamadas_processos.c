@@ -8,6 +8,7 @@
 #include "acel2d.h"
 #include "gpu3d.h"
 #include "gpu_energia.h"
+#include "ocio.h"
 #include "mandos.h"
 #include "audio.h"
 #include "sistema.h"
@@ -343,12 +344,14 @@ int32_t sis_info_sistema(uint32_t tipo, uint32_t ptr, uint32_t n, uint32_t d, ui
     }
     if (tipo == INFO_ACEL2D) return acel2d_info(ptr, n);         /* D195 */
     if (tipo == INFO_ACEL2D_CTL)   /* D244; D387: 2-4, el volcado por GPU; D391: 5-7, la vuelta */
-        return ptr == 0 ? acel2d_apagar() : ptr == 1 ? acel2d_acender() : ptr <= 35 ? acel2d_volcado_ctl((int)ptr) : ERRO_INVALIDO;
+        return ptr == 0 ? acel2d_apagar() : ptr == 1 ? acel2d_acender() : ptr <= 35 || (ptr >= 50 && ptr <= 53) ? acel2d_volcado_ctl((int)ptr) : ERRO_INVALIDO;   /* D424: 50-53, prioridad */
     if (tipo == INFO_ACEL2D_PROVA) return acel2d_prova(ptr, n);  /* D195: acel2d probar */
     if (tipo == INFO_GPU3D) return gpu3d_info(ptr, n);           /* D285: 3D por la GPU */
     if (tipo == INFO_GPU3D_OP) return gpu3d_op(ptr, n);
     if (tipo == INFO_GPU3D_PROVA) return gpu3d_prova(ptr, n);
     if (tipo == INFO_GPU3D_CTL) return gpu3d_ctl(ptr);
+    if (tipo == INFO_OCIO) return ocio_info(ptr, n);   /* D422 */
+    if (tipo == INFO_OCIO_CTL) return ocio_ctl(ptr);
     if (tipo == INFO_GPU_ENERGIA) return gpu_energia_info(ptr, n);   /* D399 */
     if (tipo == INFO_GPU_ENERGIA_CTL) return gpu_energia_ctl(ptr);
     if (tipo == INFO_CAB_OPC) {   /* D323: configuración de aceleración y disco en la cabecera de arranque */
@@ -502,14 +505,18 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
 
 /* D216: con servicios en marcha, el reinicio lo hace la tarea "apagar" del
  * kernel, que primero los para (puede tardar unos segundos): la llamada vuelve
- * y el programa solo espera (reiniciar() de la libsagui ya no vuelve). Sin
- * servicios, como siempre: aquí mismo. */
+ * y el programa solo espera (reiniciar() de la libsagui ya no vuelve).
+ * D450: ahora siempre por esa tarea, con o sin servicios: corre en la CPU 0 (la
+ * llamada puede venir de un secundario), con su orden y sus plazos (energia.c).
+ * "a" elige el primer método (ENERGIA_RESET_*; 0 = el orden normal). Solo si la
+ * tarea todavía no existe se reinicia aquí mismo. */
 int32_t sis_reiniciar(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 {
-    (void)a; (void)b; (void)c; (void)d; (void)e;
-    if (supervisor_ativo()) {
-        klog("[SAGUI] reinicio pedido por %s (pid %d): primero los servicios\n", processo_atual()->nome, processo_atual()->pid);
-        acpi_pedir_reinicio();
+    (void)b; (void)c; (void)d; (void)e;
+    int metodo = a <= ENERGIA_RESET_MAX ? (int)a : ENERGIA_RESET_AUTO;
+    if (acpi_tarefa_pronta()) {
+        klog("[SAGUI] reinicio pedido por %s (pid %d), metodo %d\n", processo_atual()->nome, processo_atual()->pid, metodo);
+        acpi_pedir_reinicio(metodo);
         return 0;
     }
     montagem_desmontar_tudo();   /* graba lo que esté pendiente (D040) */

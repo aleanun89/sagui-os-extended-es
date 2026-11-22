@@ -425,7 +425,7 @@ def principal():
         time.sleep(0.8)
         ja = janela(m.serial(), "Archivos")
         marca = len(m.serial())
-        m.clique(ja["x"] + 146 + 120, ja["y"] + 70 + 2 + 8, duplo=True)    # el primero: ejemplo.jclic.zip
+        m.clique(ja["x"] + 146 + 120, ja["y"] + 98 + 2 + 8, duplo=True)    # el primero: ejemplo.jclic.zip
         esperar(m, r"arquivos: abrindo no jclic /jogos/jclic/ejemplo\.jclic\.zip", desde=marca)
         m.esperar_serial("jclic: proyecto \"Aprende jugando", 30)
         verificar(True, "Archivos abre un .jclic.zip con el visor de JClic (asociación de la extensión)")

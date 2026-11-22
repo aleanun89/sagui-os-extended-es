@@ -6,9 +6,11 @@
  * objetos). El generador de números es el de ReTzar (SplitMix64, no la corriente global del original). La geometría, los núcleos del
  * campo y la colocación están traducidos.
  *
- * NO se traduce todo: faltan las montañas (la opción de acantilados de ReTzar, apagada por defecto), las puertas mágicas, las ruinas del
- * rey de la colina, los parches y objetos de suelo decorativos y los objetos al azar (libros, pociones, armas). Lo demás sí: el plasma,
- * el terreno por capas, los bosques, las formas de inicio con su castillo, torres, minas, aldeanos y árboles, los peces y los animales. */
+ * NO se traduce todo: faltan las montañas (la opción de acantilados de ReTzar, apagada por defecto), las ruinas del rey de la colina (solo
+ * existe ese modo de juego en ReTzar) y los parches y objetos de suelo decorativos (la edición FX no trae dibujos «gp_» ni «go_», así que
+ * no habría nada que colocar). Desde la v8.5.5.2 sí están las puertas mágicas (la mitad que reinos) y los objetos al azar (equipo, libros
+ * y pociones con las cifras del original), y las águilas ya son águilas. Lo demás: el plasma, el terreno por capas, los bosques, las formas
+ * de inicio con su castillo, torres, minas, aldeanos y árboles, los peces y los animales. */
 #include "aleatorio.h"
 #include <stdlib.h>
 #include <string.h>
@@ -401,7 +403,7 @@ static int cabe(const Chao *c, int camada, int ax, int ay, int tam)
 /* 0x4b1560: hasta `cuenta` objetos en casillas al azar con margen `margen` (16 para pájaros), en 6999 sorteos */
 static int espalhar(Chao *c, uint64_t *rng, int classe, int camada, int tw, int th, int cuenta, int margen, Pt *saida, int max)
 {
-	int borda = (classe == 112 || classe == 135) ? 16 : margen;   /* bird, eagle */
+	int borda = (classe == 112 || classe == 119) ? 16 : margen;   /* bird, eagle */
 	int colocados = 0;
 	if (classe == TZC_COW || cuenta == 0 || c->lado < 2 * (borda > margen ? borda : margen) + 1) return 0;
 	for (int t = 1; t < 7000; ++t) {
@@ -475,12 +477,107 @@ static void pegada(const TzCatalogo *cat, int classe, int civ, int def, int *w, 
 void tz_aleatorio_padrao(TzAleatorio *o)
 {
 	memset(o, 0, sizeof *o);
-	o->lado = 128; o->jogadores = 2; o->tipo = 0; o->recursos_mapa = 1; o->nivel_recursos = 1; o->guardado = 1; o->animais = 1;
+	o->lado = 128; o->jogadores = 2; o->tipo = 0; o->recursos_mapa = 1; o->nivel_recursos = 1; o->guardado = 1; o->animais = 1; o->portas = 1; o->itens = 1;
 	snprintf(o->bioma, sizeof o->bioma, "grass");
 	o->semente = 417;
 }
 
+int tz_aleatorio_texto(const TzAleatorio *op, char *out, size_t n)
+{
+	int k = snprintf(out, n, "ALEAT %d %d %d %d %d %d %d %d %s %llu", op->lado, op->jogadores, op->humano, op->tipo, op->recursos_mapa,
+	                 op->nivel_recursos, op->guardado, op->animais, op->bioma[0] ? op->bioma : "grass", (unsigned long long)op->semente);
+	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %d", op->equipe[i]);
+	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %d", op->civ[i]);
+	if (k > 0 && (size_t)k < n) k += snprintf(out + k, n - (size_t)k, " %d %d", op->portas != 0, op->itens != 0);
+	return k > 0 && (size_t)k < n ? 0 : tz_falha("no cabe el texto del mapa aleatorio");
+}
+
+/* la siguiente palabra del texto (separadas por espacios); NULL al acabar */
+static const char *pal_texto(const char *p, char *out, size_t n, const char **fim)
+{
+	while (*p == ' ') ++p;
+	if (!*p) return NULL;
+	size_t k = 0;
+	while (*p && *p != ' ') { if (k + 1 < n) out[k++] = *p; ++p; }
+	out[k] = 0;
+	*fim = p;
+	return out;
+}
+
+int tz_aleatorio_de_texto(const char *t, TzAleatorio *op)
+{
+	char w[40];
+	const char *p = t;
+	if (!pal_texto(p, w, sizeof w, &p) || strcmp(w, "ALEAT")) return tz_falha("no es un mapa aleatorio guardado");
+	TzAleatorio o;
+	tz_aleatorio_padrao(&o);
+	int v[8];
+	for (int i = 0; i < 8; ++i) {
+		if (!pal_texto(p, w, sizeof w, &p)) return tz_falha("texto de mapa aleatorio incompleto");
+		v[i] = atoi(w);
+	}
+	o.lado = v[0]; o.jogadores = v[1]; o.humano = v[2]; o.tipo = v[3]; o.recursos_mapa = v[4]; o.nivel_recursos = v[5]; o.guardado = v[6]; o.animais = v[7];
+	if (!pal_texto(p, w, sizeof w, &p)) return tz_falha("texto de mapa aleatorio incompleto");
+	snprintf(o.bioma, sizeof o.bioma, "%s", w);
+	if (!pal_texto(p, w, sizeof w, &p)) return tz_falha("texto de mapa aleatorio incompleto");
+	o.semente = strtoull(w, NULL, 10);
+	for (int i = 0; i < 16; ++i) {
+		if (!pal_texto(p, w, sizeof w, &p)) return tz_falha("texto de mapa aleatorio incompleto");
+		int x = atoi(w);
+		if (x < 0 || x > 8) return tz_falha("texto de mapa aleatorio fuera de rango");
+		if (i < 8) o.equipe[i] = (uint8_t)x; else o.civ[i - 8] = (uint8_t)x;
+	}
+	/* puertas y objetos: opcionales (valen 1 si faltan) */
+	if (pal_texto(p, w, sizeof w, &p)) { o.portas = atoi(w) != 0; if (pal_texto(p, w, sizeof w, &p)) o.itens = atoi(w) != 0; }
+	int lado_ok = 0;
+	for (int i = 0; i < 7; ++i) if (LADOS[i] == o.lado) lado_ok = 1;
+	if (!lado_ok || o.jogadores < 2 || o.jogadores > 8 || o.humano < 0 || o.humano >= o.jogadores || o.tipo < 0 || o.tipo > 5 || o.recursos_mapa < 0 ||
+	    o.recursos_mapa > 2 || o.nivel_recursos < 0 || o.nivel_recursos > 2)
+		return tz_falha("parámetros de mapa aleatorio fuera de rango");
+	*op = o;
+	return 0;
+}
+
 static void liberar_formas(Forma *f, int n) { for (int i = 0; i < n; ++i) free(f[i].px); }
+
+/* random_map.rs item (0x4b5c50-0x4b6150): el dibujo, el hechizo y las cifras de un objeto al azar. Registro de 106 bytes: nombre del dibujo
+ * en 56, vida 0x12, ataque 0x16 y 0x17, defensa 0x18, experiencia 0x1c, maná 0x24, hechizo 0x60, cargas 0x66 */
+static void palavra_reg(TzObjeto *o, int at, unsigned v) { o->dados[at] = (uint8_t)v; o->dados[at + 1] = (uint8_t)(v >> 8); }
+
+static void preencher_item(TzObjeto *o, uint64_t *rng)
+{
+	static const uint8_t HECHIZOS[7] = { 9, 17, 14, 1, 12, 5, 2 };
+	char imagem[32];
+	int at, bonus;
+	if (o->classe == TZC_LIVRO) {
+		snprintf(imagem, sizeof imagem, "item_book%d", (int)abaixo(rng, 3) + 1);
+		at = 102; bonus = 1 + (int)abaixo(rng, 3);
+	} else if (o->classe == TZC_ITEM_MAIS) {
+		int t = (int)entre(rng, 2, 4);
+		if (t == 2) { snprintf(imagem, sizeof imagem, "item_bow%d", (int)abaixo(rng, 3) + 1); at = 22; bonus = (int)entre(rng, 5, 15) << 8; }
+		else if (t == 3) { snprintf(imagem, sizeof imagem, "item_shield%d", (int)abaixo(rng, 3) + 1); at = 24; bonus = (int)entre(rng, 5, 15); }
+		else {
+			static const char *const esp[4] = { "item_sword", "item_sword1", "item_sword2", "item_sword3" };
+			snprintf(imagem, sizeof imagem, "%s", esp[abaixo(rng, 4)]); at = 22; bonus = (int)entre(rng, 5, 15);
+		}
+	} else {
+		int t = abaixo(rng, 2) == 1 ? (int)entre(rng, 2, 4) : (int)abaixo(rng, 2);
+		static const char *const pocao[5] = { "item_potion2", "item_potion4", "item_potion3", "item_potion7", "item_potion6" };
+		static const int onde[5] = { 18, 36, 28, 22, 24 };
+		snprintf(imagem, sizeof imagem, "%s", pocao[t]);
+		at = onde[t];
+		bonus = t < 2 ? (int)entre(rng, 10, 50) : (int)entre(rng, 2, 8);
+	}
+	memcpy(o->dados + 56, imagem, strlen(imagem) < 31 ? strlen(imagem) : 31);
+	o->vida = o->vida_max = 0;
+	o->dados[18] = o->dados[19] = o->dados[20] = o->dados[21] = 0;
+	palavra_reg(o, at, (unsigned)bonus);
+	if (o->classe == TZC_LIVRO) {
+		o->dados[96] = HECHIZOS[abaixo(rng, 7)];
+		o->dados[98] = 1; o->dados[99] = 1;
+		palavra_reg(o, 100, (unsigned)entre(rng, 1, 5));
+	} else if (o->classe == TZC_ITEM_MAIS) o->dados[96] = !strncmp(imagem, "item_shield", 11) ? 2 : 1;
+}
 
 int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const TzAleatorio *op)
 {
@@ -589,13 +686,14 @@ int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const T
 		TzReino *k = &out->reinos[i];
 		snprintf(k->nome, sizeof k->nome, "Reino %d", i);
 		snprintf(k->lider, sizeof k->lider, "Heroe");
-		k->ativo = i < jog; k->cor = i + 1; k->equipe = i + 1;
+		k->ativo = i < jog; k->cor = i + 1;
+		/* equipo: 0 = reino solo (equipo propio, sin aliados); el mismo número = aliados (v8.5.5.2) */
+		k->equipe = i < jog && op->equipe[i] ? op->equipe[i] : 10 + i;
 		k->civ = (int)(1 + abaixo(&reino_rng, 3));
 		if (i < jog && op->civ[i] >= 1 && op->civ[i] <= 3) k->civ = op->civ[i];
 		civs[i] = (uint8_t)k->civ;
 		for (int j = 0; j < 4; ++j) k->recursos[j] = (uint32_t)recursos[j];
 	}
-	if (jog > 0) out->reinos[op->humano].equipe = out->reinos[op->humano].equipe;   /* el humano es el reino «op->humano»; los demás los lleva la IA */
 
 	/* los objetos, en el orden del original */
 	Lista lis = { out, 0, 1, cat };
@@ -753,10 +851,33 @@ int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const T
 		int ns = espalhar(&chao, &rng, TZC_FISHPATCH, 2, w, h, peces < 512 ? peces : 512, 4, sitios, 512);
 		for (int i = 0; i < ns; ++i) { TzObjeto *o = novo_objeto(&lis, TZC_FISHPATCH, 0, 0, sitios[i].x, sitios[i].y, 60); if (o) poner_cantidad(o, 1000); }
 	}
+	/* 0x4b54e9: puertas mágicas, la mitad que reinos, con el ancho de su dibujo más dos de margen */
+	if (op->portas) {
+		Pt sitios[8];
+		int w, h;
+		pegada(cat, 72, 0, 3, &w, &h);
+		int ns = espalhar(&chao, &rng, 72, 1, w, h, jog / 2, w + 2, sitios, 8);
+		for (int i = 0; i < ns; ++i) novo_objeto(&lis, 72, 10, 0, sitios[i].x, sitios[i].y, 60);
+	}
+	/* 0x4b5b14: objetos al azar, R(1,10) + lado/32 de cada clase (equipo, libros, pociones), cada uno con sus cifras */
+	if (op->itens) {
+		int itens = (int)entre(&rng, 1, 10) + lado / 32;
+		static const int clases_item[3] = { TZC_ITEM_MAIS, TZC_LIVRO, TZC_POCAO };
+		for (int k = 0; k < 3; ++k) {
+			Pt sitios[64];
+			int w, h;
+			pegada(cat, clases_item[k], 0, 1, &w, &h);
+			int ns = espalhar(&chao, &rng, clases_item[k], 1, w, h, itens < 64 ? itens : 64, 1, sitios, 64);
+			for (int i = 0; i < ns; ++i) {
+				TzObjeto *o = novo_objeto(&lis, clases_item[k], 0, 0, sitios[i].x, sitios[i].y, 106);
+				if (o) preencher_item(o, &rng);
+			}
+		}
+	}
 	/* animales: osos, pájaros y águilas (el número del original: R(1,5) + lado/64) */
 	if (op->animais) {
 		int animais = (int)entre(&rng, 1, 5) + lado / 64;
-		static const struct { int classe, camada; } clases[] = { { 26, 1 }, { TZC_COW, 1 }, { 112, 0 }, { 135, 0 } };   /* oso, vaca, pájaro, águila */
+		static const struct { int classe, camada; } clases[] = { { 26, 1 }, { TZC_COW, 1 }, { 112, 0 }, { 119, 0 } };   /* oso, vaca, pájaro, águila */
 		for (unsigned k = 0; k < sizeof clases / sizeof *clases; ++k) {
 			Pt sitios[256];
 			int w, h;

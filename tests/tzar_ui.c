@@ -373,6 +373,121 @@ static int botao_texto(TzMenu *m, int i, int *x, int *y, char *rot)
 }
 static void mpremir(TzMenu *m, int i) { int x, y; if (botao_texto(m, i, &x, &y, NULL) >= 0) mclic(m, x, y); }
 
+/* la pantalla del mapa aleatorio (S_SINGLERND, v8.5.5.2): opciones, límites por tamaño, otro mapa, jugar, recordar y ampliar */
+static void prueba_menu_aleatorio(void)
+{
+	TzUiSkin skin;
+	tz_ui_skin_vazia(&skin);
+	TzMenu m;
+	tz_menu_iniciar(&m, &skin, 1024, 768);
+	int ox = (1024 - 800) / 2, oy = (768 - 600) / 2;
+	mpremir(&m, 0);   /* un solo jugador */
+	mpremir(&m, 2);   /* mapa aleatorio */
+	VER(m.tela == TZ_MN_ALEAT, "aleatorio (pantalla): «mapa aleatorio» abre su pantalla");
+	int lado0 = m.aleat.lado;
+	mclic(&m, ox + 565 + 180 - 13, oy + 56 + 13);
+	VER(m.aleat.lado == lado0 + 1 && m.aleat_mudou, "aleatorio (pantalla): la flecha derecha del tamaño lo sube (%d)", m.aleat.lado);
+	for (int i = 0; i < 8; ++i) mclic(&m, ox + 565 + 13, oy + 56 + 13);
+	VER(m.aleat.lado == (lado0 + 1 - 8 + 7 * 2) % 7, "aleatorio (pantalla): el tamaño da la vuelta (%d)", m.aleat.lado);
+	m.aleat.lado = 0;
+	m.aleat.c.jogadores = 2;
+	for (int i = 0; i < 10; ++i) mclic(&m, ox + 66 + 180 - 13, oy + 369 + 13);
+	VER(m.aleat.c.jogadores == 4, "aleatorio (pantalla): con 64 casillas los reinos no pasan de 4 (%d)", m.aleat.c.jogadores);
+	m.aleat.lado = 2;
+	for (int i = 0; i < 10; ++i) mclic(&m, ox + 66 + 180 - 13, oy + 369 + 13);
+	VER(m.aleat.c.jogadores == 8, "aleatorio (pantalla): con 128 casillas llegan a 8 (%d)", m.aleat.c.jogadores);
+	m.aleat.lado = 0;
+	mclic(&m, ox + 565 + 180 - 13, oy + 56 + 13); mclic(&m, ox + 565 + 13, oy + 56 + 13);   /* sube y baja: normaliza */
+	VER(m.aleat.lado == 0 && m.aleat.c.jogadores == 4, "aleatorio (pantalla): al achicar el mapa los reinos se recortan al límite (%d)", m.aleat.c.jogadores);
+	/* geografías: en 64 solo valen «al azar», «continente» y «tierra» */
+	m.aleat.tipo = 0;
+	mclic(&m, ox + 565 + 180 - 13, oy + 111 + 13);
+	VER(m.aleat.tipo == 3, "aleatorio (pantalla): con 64 casillas el tipo salta archipiélagos e islas (%d)", m.aleat.tipo);
+	mclic(&m, ox + 565 + 180 - 13, oy + 111 + 13);
+	VER(m.aleat.tipo == 5, "aleatorio (pantalla): ...y los lagos (%d)", m.aleat.tipo);
+	m.aleat.lado = 4;
+	m.aleat.tipo = 1;
+	mclic(&m, ox + 565 + 180 - 13, oy + 56 + 13); mclic(&m, ox + 565 + 13, oy + 56 + 13);
+	VER(m.aleat.tipo == 1, "aleatorio (pantalla): con 256 casillas valen todos los tipos");
+	m.aleat.lado = 0; m.aleat.tipo = 1; tz_mn_aleat_normalizar(&m.aleat);
+	VER(m.aleat.tipo == 0, "aleatorio (pantalla): un tipo que el tamaño no admite se normaliza a «al azar»");
+	/* terreno y recursos del mapa */
+	m.aleat.lado = 2;
+	mclic(&m, ox + 565 + 180 - 13, oy + 169 + 13);
+	mclic(&m, ox + 565 + 180 - 13, oy + 228 + 13);
+	VER(m.aleat.terreno == 1 && m.aleat.recursos_mapa == 2, "aleatorio (pantalla): terreno y recursos del mapa (%d, %d)", m.aleat.terreno, m.aleat.recursos_mapa);
+	/* casillas: animales sí, montañas no (sin generador) */
+	int an = m.aleat.animais;
+	mclic(&m, ox + 564 + 15, oy + 303 + 15);
+	VER(m.aleat.animais == !an, "aleatorio (pantalla): la casilla de animales");
+	mclic(&m, ox + 564 + 15, oy + 376 + 15);
+	VER(m.aleat.penhascos == 0, "aleatorio (pantalla): las montañas están apagadas y no se marcan");
+	mclic(&m, ox + 268 + 15, oy + 539 + 15);
+	mclic(&m, ox + 268 + 15, oy + 569 + 15);
+	VER(m.aleat.c.sem_nevoa == 1 && m.aleat.c.explorado == 1 && m.cfg.sem_nevoa == 0, "aleatorio (pantalla): sin niebla y explorar son de esta pantalla");
+	/* reinos: equipo (clic en la casilla de la fila 2 = reino 1) y civilización */
+	m.aleat.c.jogadores = 3;
+	mclic(&m, ox + 511 + 6, oy + 31 + 35 + 6);
+	mclic(&m, ox + 511 + 6, oy + 31 + 35 + 6);
+	VER(m.aleat.c.equipe[1] == 2 && m.aleat.c.equipe[0] == 0, "aleatorio (pantalla): el equipo de un reino da la vuelta 0-1-2-3-4-0 (%d)", m.aleat.c.equipe[1]);
+	mclic(&m, ox + 311 + 180 - 13, oy + 23 + 35 * 2 + 13);
+	VER(m.aleat.c.raca[2] == 1 && m.aleat.c.raca[1] == 0, "aleatorio (pantalla): la civilización del reino 3 (%d)", m.aleat.c.raca[2]);
+	/* reglas: tipo de partida con 2 valores, recursos iniciales con 3 */
+	for (int i = 0; i < 3; ++i) mclic(&m, ox + 66 + 180 - 13, oy + 427 + 13);
+	VER(m.aleat.c.tipo == 1, "aleatorio (pantalla): el tipo de partida tiene dos valores (%d)", m.aleat.c.tipo);
+	for (int i = 0; i < 4; ++i) mclic(&m, ox + 270 + 180 - 13, oy + 487 + 13);
+	VER(m.aleat.c.recursos >= 0 && m.aleat.c.recursos <= 2, "aleatorio (pantalla): los recursos iniciales van de 0 a 2 (%d)", m.aleat.c.recursos);
+	/* otro mapa: otra semilla */
+	unsigned long long s0 = m.aleat.semente;
+	m.aleat_mudou = 0;
+	mpremir(&m, 0);
+	VER(m.aleat.semente != s0 && m.aleat_mudou, "aleatorio (pantalla): «otro mapa» cambia la semilla");
+	/* ampliar la vista previa */
+	mclic(&m, ox + 452 + 40, oy + 320 + 40);
+	VER(m.ampliada == 1, "aleatorio (pantalla): un clic en la vista previa la amplía");
+	mclic(&m, ox + 10, oy + 10);
+	VER(m.ampliada == 0 && m.tela == TZ_MN_ALEAT, "aleatorio (pantalla): otro clic la cierra sin hacer nada más");
+	{
+		TzTela t;
+		tz_tela_criar(&t, 1024, 768);
+		m.ampliada = 1; tz_menu_desenhar(&m, &t); m.ampliada = 0; tz_menu_desenhar(&m, &t);
+		tz_tela_liberar(&t);
+	}
+	/* jugar devuelve lo elegido; la próxima partida tendrá otra semilla */
+	TzMnAleat elegido = m.aleat;
+	s0 = m.aleat.semente;
+	mpremir(&m, 1);
+	VER(m.acao == TZ_MR_JOGAR && m.res_indice == -1 && m.res_aleat.semente == s0 && m.res_aleat.c.jogadores == elegido.c.jogadores && m.res_aleat.terreno == elegido.terreno &&
+	    m.res_aleat.recursos_mapa == elegido.recursos_mapa && m.res_aleat.c.equipe[1] == 2 && m.res_cfg.jogadores == 3 && m.aleat.semente != s0,
+	    "aleatorio (pantalla): JUGAR devuelve el mapa elegido y deja otra semilla para la siguiente");
+	m.acao = 0;
+	/* recordar: todo a una línea y de vuelta; en tzar.cfg */
+	char tx[400];
+	TzMnAleat a2;
+	elegido.c.equipe[7] = 4; elegido.c.raca[7] = 3; elegido.semente = 18446744073709551557ull;
+	int ok = !tz_mn_aleat_texto(&elegido, tx, sizeof tx) && !tz_mn_aleat_de_texto(tx, &a2) && !memcmp(&elegido, &a2, sizeof a2);
+	VER(ok, "aleatorio (pantalla): las opciones van a una línea y vuelven iguales («%.50s...»)", tx);
+	TzOpcoes o1, o2;
+	tz_opcoes_padrao(&o1); tz_opcoes_padrao(&o2);
+	snprintf(o1.aleat, sizeof o1.aleat, "%s", tx);
+	ok = !tz_opcoes_gravar(&o1, "/tmp/tzar_ui_aleat.cfg") && !tz_opcoes_ler(&o2, "/tmp/tzar_ui_aleat.cfg") && !strcmp(o1.aleat, o2.aleat) && o2.volume_som == o1.volume_som;
+	TzMnAleat a3;
+	ok = ok && !tz_mn_aleat_de_texto(o2.aleat, &a3) && !memcmp(&a3, &elegido, sizeof a3);
+	VER(ok, "aleatorio (pantalla): tzar.cfg guarda y devuelve las opciones y sigue guardando las demás");
+	remove("/tmp/tzar_ui_aleat.cfg");
+	static const char *const malos[] = { "", "ALEAT 1 2", "ALEAT2 9 0 0 0 1 1 1 1 5 2 0 0 200 1 1 0 0", "ALEAT2 abc", "otra cosa" };
+	int rech = 0;
+	for (unsigned i = 0; i < sizeof malos / sizeof *malos; ++i) rech += tz_mn_aleat_de_texto(malos[i], &a3) != 0;
+	VER(rech == 5, "aleatorio (pantalla): el texto incompleto o ajeno se rechaza (%d de 5)", rech);
+	TzMnAleat fuera;
+	tz_mn_aleat_padrao(&fuera);
+	fuera.lado = 0; fuera.c.jogadores = 8; fuera.tipo = 2; fuera.c.recursos = 9; fuera.terreno = 7; fuera.c.equipe[0] = 12;
+	tz_mn_aleat_normalizar(&fuera);
+	VER(fuera.c.jogadores == 4 && fuera.tipo == 0 && fuera.c.recursos == 1 && fuera.terreno == 0 && fuera.c.equipe[0] == 0, "aleatorio (pantalla): lo fuera de rango se mete en rango");
+	tz_menu_liberar(&m);
+	tz_ui_skin_liberar(&skin);
+}
+
 static void prueba_menus(void)
 {
 	TzUiSkin skin;
@@ -492,6 +607,165 @@ static void prueba_menus(void)
 /* ---------------------------------------------------------------- datos reales (privado) */
 static void real(const char *raiz, const char *saida);
 
+/* v8.5.5.2: modos de pantalla, panel derecho, diplomacia y chat, cursor y menús nuevos */
+static void prueba_v8552(void)
+{
+	TzOpcoes o;
+	TzModo m;
+	tz_opcoes_padrao(&o);
+	tz_modo_calcular(&o, 2560, 1440, &m);
+	VER(m.cw == 1280 && m.ch == 720 && m.fator == 2 && m.dw == 2560 && m.dx == 0, "pantalla: 2560x1440 con interfaz automática dibuja a 1280x720 y amplía x2");
+	tz_modo_calcular(&o, 1920, 1080, &m);
+	VER(m.cw == 1920 && m.ch == 1080 && m.fator == 1, "pantalla: 1920x1080 a su tamaño (la mitad no llega a 800x600)");
+	o.interface = 2;
+	tz_modo_calcular(&o, 1920, 1080, &m);
+	VER(m.cw == 1920 && m.ch == 1080 && m.fator == 1, "pantalla: interfaz x2 pedida en 1920x1080 baja a x1 (en 960x540 no cabe la interfaz) -> %dx%d", m.cw, m.ch);
+	o.interface = 0; o.resolucao = 2;   /* 800x600 */
+	tz_modo_calcular(&o, 1920, 1080, &m);
+	VER(m.cw == 800 && m.fator == 1 && m.dw == 800 && m.dx == 560 && m.dy == 240, "pantalla: 800x600 entero en 1920x1080, centrado con bandas");
+	o.escala = TZ_ESC_AJUSTAR;
+	tz_modo_calcular(&o, 1920, 1080, &m);
+	VER(m.dw == 1440 && m.dh == 1080 && m.dx == 240 && m.fator == 0, "pantalla: ajustado mantiene la proporción (1440x1080 y bandas a los lados)");
+	int cx, cy;
+	tz_modo_ponto(&m, 240 + 720, 540, &cx, &cy);
+	VER(cx == 400 && cy == 300, "pantalla: el ratón vuelve al lienzo (%d,%d)", cx, cy);
+	tz_modo_ponto(&m, 5, 5, &cx, &cy);
+	VER(cx == 0 && cy == 2, "pantalla: en la banda de la izquierda se recorta al borde (%d,%d)", cx, cy);
+	o.resolucao = 1; o.escala = TZ_ESC_INTEIRA;
+	tz_modo_calcular(&o, 640, 480, &m);
+	VER(m.cw == 800 && m.ch == 600 && m.dw == 640 && m.dh == 480, "pantalla: 640x480 dibuja a 800x600 y reduce");
+	{
+		uint32_t src[4] = { 0xff112233, 0xff445566, 0xff778899, 0xffaabbcc }, dst[6 * 4];
+		TzModo q;
+		TzOpcoes oo; tz_opcoes_padrao(&oo);
+		tz_modo_destino(&oo, 2, 2, 6, 4, &q);
+		tz_apresentar_escala(src, &q, dst, 6, 0);
+		VER(q.fator == 2 && dst[0] == 0 && dst[1] == 0x112233 && dst[2] == 0x112233 && dst[3] == 0x445566 && dst[5] == 0 && dst[6 * 3 + 4] == 0xaabbcc,
+		    "pantalla: x2 nítido copia cada píxel en 2x2 y pinta las bandas de negro");
+		tz_modo_destino(&(TzOpcoes){ .escala = TZ_ESC_AJUSTAR }, 2, 2, 3, 3, &q);
+		tz_apresentar_escala(src, &q, dst, 3, 1);
+		VER(q.fator == 0 && dst[4] != 0x112233 && dst[4] != 0, "pantalla: el suave mezcla en el centro (%06x)", dst[4]);
+	}
+	/* opciones guardadas */
+	{
+		char ruta[] = "/tmp/tzar_ui_opcoes.cfg";
+		TzOpcoes a, b;
+		tz_opcoes_padrao(&a);
+		a.tela_cheia = 1; a.resolucao = 3; a.escala = TZ_ESC_AJUSTAR; a.suave = 1; a.interface = 2; a.painel_direita = 1; a.volume_musica = 30;
+		tz_opcoes_padrao(&b);
+		VER(!tz_opcoes_gravar(&a, ruta) && !tz_opcoes_ler(&b, ruta) && !memcmp(&a, &b, sizeof a), "opciones: tzar.cfg se guarda y se lee igual");
+		remove(ruta);
+	}
+	/* panel derecho */
+	Cena c;
+	cena_iniciar(&c, 1024, 768);
+	TzRect mi = c.u.mapa_rect;
+	tz_ui_lado(&c.u, 1);
+	VER(c.u.mapa_rect.x == 0 && c.u.mapa_rect.w == 1024 - 149 && c.u.minimapa_rect.x == 668 + 224 && mi.x == 150,
+	    "panel derecho: el mapa empieza en 0 y el minimapa sigue al borde derecho (%d)", c.u.minimapa_rect.x);
+	TzRect rm = tz_ui_rect(&c.u, TZ_UR_MENU);
+	VER(rm.x == 668 + 224 && tz_ui_botao_em(&c.u, 668 + 224 + 19 + 5, 335 + 5) < 0, "panel derecho: el botón del menú a la derecha");
+	TzUiEntrada e = { TZ_IN_BAIXO, rm.x + 5, rm.y + 5, 1, 0, 0, 0 };
+	tz_ui_entrada(&c.u, &e, reloj);
+	VER(c.u.pedir_menu == 1, "panel derecho: el clic en el menú lo pide");
+	TzRect rd = tz_ui_rect(&c.u, TZ_UR_DIPLOMACIA);
+	e = (TzUiEntrada){ TZ_IN_BAIXO, rd.x + 5, rd.y + 5, 1, 0, 0, 0 };
+	tz_ui_entrada(&c.u, &e, reloj);
+	VER(c.u.janela == TZ_UJ_DIPLOMACIA, "diplomacia: el botón abre la ventana");
+	TzTela t;
+	tz_tela_criar(&t, 1024, 768);
+	tz_ui_desenhar_hud(&c.u, &t);
+	TzRect j = tz_ui_janela_rect(&c.u);
+	/* el reino 2 en la primera fila: su actitud en (j.x + 250, j.y + 72) */
+	int antes = tz_mundo_relacao(&c.m, 1, 2);
+	limpar_log();
+	e = (TzUiEntrada){ TZ_IN_BAIXO, j.x + 20 + 230 + 10, j.y + 70 + 10, 1, 0, 0, 0 };
+	tz_ui_entrada(&c.u, &e, reloj);
+	VER(c.u.n_comandos > 0, "diplomacia: cambiar la actitud manda TZ_C_DIPLOMACIA (antes %d)", antes);
+	e = (TzUiEntrada){ TZ_IN_TECLA, 0, 0, 0, TZ_TC_ESC, 0, 0 };
+	tz_ui_entrada(&c.u, &e, reloj);
+	e = (TzUiEntrada){ TZ_IN_TECLA, 0, 0, 0, TZ_TC_ENTER, 0, 0 };
+	tz_ui_entrada(&c.u, &e, reloj);
+	VER(c.u.janela == TZ_UJ_CHAT, "chat: Intro lo abre");
+	const char *txt = "ai war";
+	for (const char *p = txt; *p; ++p) { e = (TzUiEntrada){ TZ_IN_TECLA, 0, 0, 0, *p, 0, 0 }; tz_ui_entrada(&c.u, &e, reloj); }
+	e = (TzUiEntrada){ TZ_IN_TECLA, 0, 0, 0, TZ_TC_ENTER, 0, 0 };
+	tz_ui_entrada(&c.u, &e, reloj);
+	VER(c.u.janela == 0 && !strcmp(c.u.chat_saida, "ai war") && c.u.nchat == 1, "chat: lo escrito sale para el programa y queda en el historial");
+	tz_ui_chat_recebido(&c.u, "Reino 2: preparaos");
+	tz_ui_desenhar_hud(&c.u, &t);
+	VER(c.u.nchat == 2, "chat: las frases de la IA se ven");
+	/* cursor propio sin datos: una flecha negra y blanca */
+	memset(t.px, 0, (size_t)t.w * t.h * 4);
+	tz_ui_cursor_desenhar(&c.skin, &t, "", 100, 100);
+	VER(t.px[100 * t.w + 100] == 0xff000000u && t.px[105 * t.w + 102] == 0xffffffffu, "cursor: sin arte, la flecha propia en su punto");
+	tz_tela_liberar(&t);
+	cena_liberar(&c);
+	tz_ui_cursor_liberar();
+	/* menús nuevos: opciones de pantalla, misiones de la campaña, fin de partida, instrucciones y créditos */
+	TzUiSkin s;
+	tz_ui_skin_vazia(&s);
+	TzMenu mn;
+	tz_menu_iniciar(&mn, &s, 800, 600);
+	TzTela tm;
+	tz_tela_criar(&tm, 800, 600);
+	tz_menu_ir(&mn, TZ_MN_OPCOES);
+	TzRect bt[40]; char rot[40][64];
+	tz_menu_desenhar(&mn, &tm);
+	/* la flecha derecha del primer spin de pantalla: (578 + 186 - 27, 328) */
+	e = (TzUiEntrada){ TZ_IN_BAIXO, 548 + 196 - 20, 322 + 10, 1, 0, 0, 0 };
+	tz_menu_entrada(&mn, &e);
+	e.tipo = TZ_IN_CIMA;
+	tz_menu_entrada(&mn, &e);
+	VER(mn.op_mudou && mn.op.tela_cheia == 1, "opciones: el spin de Modo pasa a pantalla completa");
+	mn.ncampanhas = 1;
+	mn.campanhas = calloc(1, sizeof *mn.campanhas);
+	snprintf(mn.campanhas[0].titulo, sizeof mn.campanhas[0].titulo, "Prueba");
+	mn.nmissoes = 3;
+	mn.missoes = calloc(3, sizeof *mn.missoes);
+	for (int i = 0; i < 3; ++i) { snprintf(mn.missoes[i].titulo, 64, "Mision %d", i + 1); mn.missoes[i].indice = i; mn.missoes[i].disponivel = i < 2; }
+	tz_menu_ir(&mn, TZ_MN_CAMPANHAS);
+	e = (TzUiEntrada){ TZ_IN_BAIXO, 80 + 10, 43 + 5, 1, 0, 0, 0 };
+	tz_menu_entrada(&mn, &e); e.tipo = TZ_IN_CIMA; tz_menu_entrada(&mn, &e);
+	VER(mn.missao_sel == 1, "campañas: al elegir la campaña queda la última misión alcanzada (%d)", mn.missao_sel);
+	e = (TzUiEntrada){ TZ_IN_BAIXO, 80 + 10, 352 + 2 * 16 + 5, 1, 0, 0, 0 };
+	tz_menu_entrada(&mn, &e); e.tipo = TZ_IN_CIMA; tz_menu_entrada(&mn, &e);
+	VER(mn.missao_sel == 1, "campañas: una misión no alcanzada no se elige");
+	e = (TzUiEntrada){ TZ_IN_BAIXO, 80 + 10, 352 + 5, 1, 0, 0, 0 };
+	tz_menu_entrada(&mn, &e); e.tipo = TZ_IN_CIMA; tz_menu_entrada(&mn, &e);
+	int nb = tz_menu_botoes(&mn, bt, rot, 40);
+	for (int i = 0; i < nb; ++i) if (bt[i].x == 78 && bt[i].y == 545) { e = (TzUiEntrada){ TZ_IN_BAIXO, 90, 550, 1, 0, 0, 0 }; tz_menu_entrada(&mn, &e); e.tipo = TZ_IN_CIMA; tz_menu_entrada(&mn, &e); }
+	VER(mn.acao == TZ_MR_CAMPANHA && mn.res_missao == 0, "campañas: jugar la misión elegida (%d)", mn.res_missao);
+	tz_menu_desenhar(&mn, &tm);
+	mn.acao = 0;
+	mn.fim_ganhou = 1; mn.fim_seguinte = 1; mn.nfim_resumo = 1; snprintf(mn.fim_resumo[0], 160, "Tiempo de juego: 0:10:00");
+	mn.tela = TZ_MN_PRINCIPAL; mn.npilha = 0;
+	tz_menu_ir(&mn, TZ_MN_FIM);
+	nb = tz_menu_botoes(&mn, bt, rot, 40);
+	VER(nb == 4, "fin de partida: cuatro botones (repetir, siguiente, salir, ocultar)");
+	tz_menu_desenhar(&mn, &tm);
+	if (nb == 4) {
+		e = (TzUiEntrada){ TZ_IN_BAIXO, bt[1].x + 150 + 5, bt[1].y + 140 + 5, 1, 0, 0, 0 };
+		tz_menu_entrada(&mn, &e); e.tipo = TZ_IN_CIMA; tz_menu_entrada(&mn, &e);
+		VER(mn.acao == TZ_MR_SEGUINTE, "fin de partida: «siguiente» pide la misión siguiente");
+	}
+	mn.acao = 0;
+	tz_menu_ir(&mn, TZ_MN_AJUDA);
+	tz_menu_desenhar(&mn, &tm);
+	VER(mn.najuda > 3, "instrucciones: sin HELP/HK.TXT, el texto propio partido en %d líneas", mn.najuda);
+	mn.tela = TZ_MN_PRINCIPAL;
+	tz_menu_tic(&mn, 1000);
+	tz_menu_ir(&mn, TZ_MN_CREDITOS);
+	tz_menu_desenhar(&mn, &tm);
+	int c1 = checksum(&tm);
+	tz_menu_tic(&mn, 4000);
+	tz_menu_desenhar(&mn, &tm);
+	VER(mn.ncreditos > 3 && checksum(&tm) != c1, "créditos: el texto sube con el tiempo");
+	tz_tela_liberar(&tm);
+	tz_menu_liberar(&mn);
+	tz_ui_skin_liberar(&s);
+}
+
 int main(int argc, char **argv)
 {
 	if (argc >= 3 && !strcmp(argv[1], "unidad")) {
@@ -502,6 +776,8 @@ int main(int argc, char **argv)
 		prueba_minimapa_y_avisos();
 		prueba_dibujo();
 		prueba_menus();
+		prueba_menu_aleatorio();
+		prueba_v8552();
 		printf("%s: %d fallos\n", fallos ? "FALLO" : "OK", fallos);
 		return fallos != 0;
 	}

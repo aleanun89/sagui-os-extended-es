@@ -470,17 +470,34 @@ def dados_simulacao(data):
             ["Peon", "peon", "50f", "8", "5", "", "50", "5", "0", "4", "3", "Castle", "*"],
             ["Footman", "footman", "50f", "12", "5", "", "65", "6", "3", "4", "5", "Barracks", "*"],
             ["Archer", "archer", '"40f, 20w"', "12", "10", "6", "50", "5", "0", "4", "4", "Barracks", "*"],
-            ["Knight", "knight", '"70g,120f"', "22", "5", "", "120", "12", "6", "6", "4", "Barracks", "*"]]
+            ["Knight", "knight", '"70g,120f"', "22", "5", "", "120", "12", "6", "6", "4", "Barracks", "*"],
+            # v8.5.5.2: comercio, objetos, taberna y hechizos (tests/tzar_extras.c)
+            ["Trader", "trader", "100g", "10", "5", "", "40", "0", "0", "4", "3", "Castle", "*"],
+            ["Mage", "mage", '"60g,20f"', "20", "6", "6", "40", "8", "0", "4", "4", "Castle", "*"],
+            ["Monk", "monk", "40g", "15", "5", "", "40", "4", "0", "4", "4", "Castle", "*"],
+            ["Priest", "priest", "80g", "20", "5", "", "40", "4", "0", "4", "4", "Castle", "*"],
+            ["Ninja", "ninja", "90g", "20", "6", "", "50", "10", "0", "5", "4", "Castle", "*"],
+            ["Spy", "spy", "70g", "20", "6", "", "30", "2", "0", "5", "4", "Castle", "*"],
+            ["Skeleton", "skeleton", "10g", "5", "5", "", "30", "5", "0", "4", "4", "Castle", "*"],
+            ["Crusader", "crusader", "10g", "5", "5", "", "60", "8", "2", "4", "4", "Castle", "*"],
+            ["Jihad warrior", "jihad_warrior", "10g", "5", "5", "", "60", "8", "2", "4", "4", "Castle", "*"],
+            ["Catapult", "catapult", "100g", "20", "6", "8", "60", "30", "0", "3", "6", "Castle", "*"]]
     edif = [["BUILDING", "CLASS", "COST", "TIME", "SIGHT", "RESISTANCE", "HEALTH", "EMIT (own/other)", "DEPENDS ON"], [""] * 9,
             ["Castle", "castle", '"1500s,1500w"', "120", "12", "1000", "8000", '"+400,-200"', "*"],
             ["House", "house", "75w", "20", "4", "50", "500", "*", "*"],
-            ["Barracks", "barrack", '"200s,200f"', "60", "6", "500", "1400", "*", "*"]]
+            ["Barracks", "barrack", '"200s,200f"', "60", "6", "500", "1400", "*", "*"],
+            ["Market", "market", "150w", "40", "5", "200", "800", "*", "*"],
+            ["Tavern", "tavern", "150w", "40", "5", "200", "800", "*", "*"],
+            ["Cathedral", "cathedral", "300w", "60", "6", "400", "1200", "*", "*"],
+            ["Academy", "academy", "300w", "60", "6", "400", "1200", "*", "*"]]
     data.append(("DATA\\COMM UNITS.TXT", "\r\n".join(t.join(f) for f in unid).encode() + b"\r\n"))
     data.append(("DATA\\COMM BUILDINGS.TXT", "\r\n".join(t.join(f) for f in edif).encode() + b"\r\n"))
     data.append(("DATA\\OBJECTS\\CASTLE.INI", b"[general]\nclass=castle\ntype=building\n[euro]\nimage=castle\nmenu=e_castle\npop_count=20\n"))
-    data.append(("DATA\\OBJECTS\\BARRACK.INI", b"[general]\nclass=barrack\n[euro]\nimage=barrack\nmenu=e_barrack\n"))
+    data.append(("DATA\\OBJECTS\\BARRACK.INI", b"[general]\nclass=barrack\n[comm]\nmenu=e_barrack\n[euro]\nimage=barrack\nmenu=e_barrack\n"))
+    data.append(("DATA\\OBJECTS\\MAGE.INI", b"[general]\nclass=mage\n[comm]\nmax_manna=100\nmax_obj_in_holder=4\n"))
+    data.append(("DATA\\OBJECTS\\CRUSADE_ANCHOR.INI", b"[general]\nclass=crusadeanchor\n[euro]\ncost=100g\n"))
     data.append(("DATA\\OBJECTS\\RES_GOLD.INI", b"[general]\nclass=res_gold\n[comm]\nimage=res_gold\n"))
-    data.append(("DATA\\OBJECTS\\FOOTMAN.INI", b"[general]\nclass=footman\n[comm]\nimage_idle=footman_idle\n"))
+    data.append(("DATA\\OBJECTS\\FOOTMAN.INI", b"[general]\nclass=footman\n[comm]\nimage_idle=footman_idle\nmax_obj_in_holder=4\n"))
     data.append(("DATA\\OBJECTS\\ARCHER.INI", b"[general]\nclass=archer\n[comm]\nimage_idle=archer_idle\n"))
     data.append(("DATA\\ORDERS.INI", b"""[move]
 ACTION = move
@@ -505,7 +522,7 @@ CLASSNAME = archer
 [te_goldplus]
 ACTION = TECHNOLOGY
 CLASSNAME = te_goldplus
-"""))
+""" + b"[spell_firerain]\nACTION = spell spell_firerain\nCLASSNAME = spell_firerain\n\n[spell_lightning]\nACTION = spell spell_lightning\nCLASSNAME = spell_lightning\n\n[spell_heal]\nACTION = spell spell_heal\nCLASSNAME = spell_heal\n\n[spell_spawncarpet]\nACTION = spell spell_spawncarpet\nCLASSNAME = spell_spawncarpet\n\n[spell_spawnbat]\nACTION = spell spell_spawnbat\nCLASSNAME = spell_spawnbat\n\n[spell_bless]\nACTION = spell spell_bless\nCLASSNAME = spell_bless\n\n[spell_freeze]\nACTION = spell spell_freeze\nCLASSNAME = spell_freeze\n\n[spell_berserk]\nACTION = spell spell_berserk\nCLASSNAME = spell_berserk\n\n[spell_cloak]\nACTION = spell spell_cloak\nCLASSNAME = spell_cloak\n\n[spell_spawnstonegolem]\nACTION = spell spell_spawnstonegolem\nCLASSNAME = spell_spawnstonegolem\n\n[spell_magicvision]\nACTION = spell spell_magicvision\nCLASSNAME = spell_magicvision\n\n[spell_raisedead]\nACTION = spell spell_raisedead\nCLASSNAME = spell_raisedead\n\n[spell_hypnotize]\nACTION = spell spell_hypnotize\nCLASSNAME = spell_hypnotize\n\n[spell_turntostone]\nACTION = spell spell_turntostone\nCLASSNAME = spell_turntostone\n\n[spell_whirlpool]\nACTION = spell spell_whirlpool\nCLASSNAME = spell_whirlpool\n\n[spell_spawndragon]\nACTION = spell spell_spawndragon\nCLASSNAME = spell_spawndragon\n\n[spell_flamebolt]\nACTION = spell spell_flamebolt\nCLASSNAME = spell_flamebolt\n\n[spell_raiseexp]\nACTION = spell spell_raiseexp\nCLASSNAME = spell_raiseexp\n\n[spell_spawnjin]\nACTION = spell spell_spawnjin\nCLASSNAME = spell_spawnjin\n\n[spell_curse]\nACTION = spell spell_curse\nCLASSNAME = spell_curse\n"))
     data.append(("DATA\\MENU.INI", b"""[e_peon]
 move = M
 e_build = B
@@ -519,8 +536,11 @@ te_goldplus = G
 e_footman = F
 e_archer = A
 """))
-    data.append(("DATA\\TECHNOLOGIES.INI", b"[te_goldplus]\ndisplayname = Mas oro\ntime = 20000\ngold = 100\n"))
-    data.append(("DATA\\RES.INI", b"[Others]\ngolden rocks = 2000\nrocks = 2000\nfish patch = 500\n"))
+    data.append(("DATA\\TECHNOLOGIES.INI", b"[te_goldplus]\ndisplayname = Mas oro\ntime = 20000\ngold = 100\n" +
+                 b"".join(b"[%s]\ndisplayname = %s\ntime = 10000\ngold = 10\n" % (t, t) for t in
+                          [b"te_mercenaries", b"te_heroesquest", b"te_learning", b"te_heroism", b"te_fame", b"te_tradetaxes", b"te_banking",
+                           b"te_nobility", b"te_bodybuilding", b"te_tournaments", b"te_warfare"])))
+    data.append(("DATA\\RES.INI", b"[Others]\ngolden rocks = 2000\nrocks = 2000\nfish patch = 500\n[Low]\ngold=500\nstone=500\nfood=300\nwood=300\n[Medium]\ngold=1500\nstone=1000\nfood=500\nwood=500\n[High]\ngold=5000\nstone=3000\nfood=1000\nwood=1000\n"))
 
 
 def mapa_simulacao():
@@ -630,7 +650,30 @@ img_trees=trees.bmp
 img_shadows=trees_s.bmp
 pos_tree=0,1
 pos_shadow=0,0
+[randomterrainset]
+base=128,0,3,1
+21=100,255,3,1
+[randomtreeset]
+64=1,255,11,5,1,1,40,235
+96=1,255,11,5,1,1,40,235
+128=1,255,11,5,1,1,40,235
+[treename]
+pine=3
+oak=2
+[treeterrain]
+pine=1,2
+oak=2,3
 """))
+    # mapa aleatorio (v8.5.5.2): formas de inicio (el juego completo las pide con los datos sintéticos)
+    def forma_ini(x, y):
+        if 9 <= x <= 17 and 9 <= y <= 17:
+            return (0, 255, 0)
+        if 3 <= x <= 24 and 3 <= y <= 24:
+            return (0, 0, 0)
+        return (255, 255, 255)
+    for fam in (30, 40, 60):
+        for n in (1, 2, 3):
+            images.append(("IMAGES\\RANDOMMAP\\%d_RND_SHAPE%d.BMP" % (fam, n), bmp24(28, 28, forma_ini)))
     terrains.append(("IMAGES\\TERRAIN\\GRASS\\WATER.BMP", bmp24(64, 128, lambda x, y: COR_AGUA if y < 64 else (40, 70, 200))))
     terrains.append(("IMAGES\\TERRAIN\\GRASS\\GRASS.BMP", bmp24(64, 64, lambda x, y: COR_ERVA if (x * 7 + y * 3) % 11 else (40, 150, 40) if x else COR_ERVA)))
     # máscaras de costa: magenta (terreno a) a la izquierda, verde (terreno b) a la derecha, borde marrón

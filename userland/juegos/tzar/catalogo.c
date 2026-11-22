@@ -447,6 +447,16 @@ const TzAtributos *tz_catalogo_at(const TzCatalogo *c, int classe, int civ)
 	return &c->at[civ][classe];
 }
 
+/* el coste que dice el INI de la clase («cost = 1000g,2000f», p. ej. el ancla de la cruzada); 0 si lo tiene, -1 si no */
+int tz_catalogo_custo_ini(const TzCatalogo *c, int classe, int civ, uint32_t custo_[TZ_NREC])
+{
+	const char *v = classe > 0 && classe < TZ_NCLASSES ? prop(c->bib, classe, civ, "cost") : NULL;
+	uint16_t mana;
+	if (!v) { memset(custo_, 0, sizeof(uint32_t) * TZ_NREC); return -1; }
+	custo(v, custo_, &mana);
+	return 0;
+}
+
 int tz_catalogo_tec(const TzCatalogo *c, const char *nome)
 {
 	if (!nome) return -1;

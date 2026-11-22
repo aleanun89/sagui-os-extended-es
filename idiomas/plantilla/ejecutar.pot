@@ -8,15 +8,15 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: userland/programas/ejecutar.c:43
+#: userland/programas/ejecutar.c:46
 msgid "Cambiar de usuario"
 msgstr ""
 
-#: userland/programas/ejecutar.c:43
+#: userland/programas/ejecutar.c:46
 msgid "Cerrar sesión"
 msgstr ""
 
-#: userland/programas/ejecutar.c:44
+#: userland/programas/ejecutar.c:47
 msgid ""
 "Se cerrarán todos los programas de esta sesión.\n"
 "Lo que no esté guardado se perderá. ¿Seguir?"

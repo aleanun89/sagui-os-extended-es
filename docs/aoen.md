@@ -31,7 +31,7 @@ Presentación: superficie de la ventana o renderizador 2D de la SDL (`render2d`,
 ## Variables de prueba
 
 `AOEN_SCENE=game|fx|options`, `AOEN_SEED`, `AOEN_SELECT=1`, `AOEN_FULL=1` (pantalla completa a la resolución del escritorio),
-`AOEN_BENCH=N` (N cuadros sin límite de 60 por segundo, con la cámara en vaivén, y sale). Cada suceso sale por el registro
+`AOEN_BENCH=N` (N cuadros sin límite de 60 por segundo, con la cámara en vaivén, y sale), `AOEN_FPS_LENTO` y `AOEN_AUDIO_WAV` (audio, D431). Cada suceso sale por el registro
 (serie) como `[AOEN] ...`.
 
 ## Rendimiento (fps, escaramuza de 4 jugadores, cámara en vaivén)
@@ -406,6 +406,85 @@ los 60 minutos). Sin unidades en terreno ajeno en ningún caso, y la misma semil
 `fuentes` y, aparte, `compat` (h389 ia/reglas/terreno y h398 pc/determinismo-pc). Variables nuevas del arnés:
 `AOEN_IA_MAPA=1` (dibuja el mapa), `AOEN_IA_VOLCAR=segundos` (vuelca entidades a esa hora) y la línea `mapa separadas=N`.
 
+## v8.5.5.2: el audio no depende de los FPS (D431)
+
+**Antes.** En el PC la SDL ya llamaba a la mezcla desde su hilo de audio (búfer de 1024 cuadros, 23 ms), pero en SaguiOS la
+SDL no tiene hilo de audio: `sdl2_sagui.c` ejecuta la llamada de vuelta desde el hilo principal, en `SDL_PollEvent`,
+`SDL_RenderPresent` y `SDL_Delay`, y solo mientras queden menos de 120 ms por tocar en el flujo del sistema. Con los cuadros
+rápidos da igual; con un cuadro de más de ~100 ms la tarjeta se queda sin datos (cortes y silencios) y los efectos
+disparados en un cuadro lento sonaban juntos o tarde. La música ya avanzaba por muestras mezcladas (reloj de audio), no por
+cuadros; las simulaciones y animaciones no tocaban el audio, salvo el temporizador del ambiente (tiempo de simulación, con
+`dt` limitado a 0,1 s) y los cerrojos `SDL_LockAudioDevice` que el hilo del juego tomaba al disparar un efecto o cambiar de pista.
+
+**Ahora.**
+- `mezcla.c/.h` (sin SDL): voces y cola de eventos de un productor (el juego) y un consumidor (el audio) sin cerrojos; el
+  hilo de audio vacía la cola al empezar cada bloque. Los efectos suenan a su velocidad aunque el juego vaya a 3 fps; si la
+  cola se llena (256 eventos) o no hay voz libre (24), el efecto nuevo se descarta, nunca bloquea.
+- En SaguiOS, `audio.c` abre la tarjeta (`audio_abrir`) y un hilo propio (`SDL_CreateThread`) mezcla bloques de 1024 cuadros
+  siempre que haya menos de lo que toca por tocar: la latencia del mezclador del kernel + 60 ms (100 ms con el dibujo por GPU), como mínimo 150 ms (D436; el
+  flujo del kernel guarda 8192 cuadros, ~186 ms). Sin tarjeta, el mismo hilo
+  mezcla y tira al ritmo del reloj. En el PC sigue la llamada de vuelta de la SDL, ahora con un búfer de 4096 cuadros (~93 ms).
+- La música cambia de pista por un buzón sin cerrojos (`music.c`): el juego deja la pista, el audio la toma al empezar el
+  bloque y devuelve la vieja por otro buzón para que la libere el hilo del juego (el de audio no llama a `free`).
+  La pausa y las cargas del juego no paran el audio: la música sigue y los efectos terminan; no se repite ningún trozo.
+- El ambiente cuenta tiempo real (`SDL_GetTicks`), no el de la simulación.
+
+**Variables de prueba.** `AOEN_FPS_LENTO=MS` mete una espera de MS ms en cada cuadro (con `AOEN_FPS_OCUPADO=1`, un bucle que gasta
+CPU en vez de dormir); `AOEN_AUDIO_WAV=ruta` graba lo que mezcla el hilo de audio (`AOEN_AUDIO_SEG`, 60 s por defecto) y al salir
+escribe en el registro `[AOEN] audio: CUADROS cuadros en N bloques, E efectos, P perdidos, hueco máximo H ms, sin datos V veces`
+(el hueco es el mayor tiempo entre dos mezclas; «sin datos», las veces que el flujo de AoEN se quedó vacío y el kernel metió
+silencio, solo en SaguiOS), seguida de `[AOEN] audio: kernel: latencia L ms, C cortes de la tarjeta; por delante D ms; alta
+prioridad sí/no` (y cada 10 s, si algo cambió, `[AOEN] audio: hasta ahora ...`).
+`AOEN_SCENE=audio` es una escena sin partida (datos sintéticos): música de `AOEN_MUSIC` (el MIDI «open»), una alarma generada
+por segundo y una parada de 400 ms a mitad. Prueba: `python3 tests/h431_aoen_audio.py [mezcla juego saguios gpu fuentes]`; `saguios` arranca la escena dentro de QEMU con la tarjeta HDA y el audio a un .wav (1 CPU sin freno, 1 CPU y 4 CPU con cuadros de 150 ms): «sin datos» 0, hueco máximo 40-100 ms, el .wav de un solo trozo y AoEN sale con código 0.
+
+## v8.5.5.2r2: dibujo por la GPU, opcional (D436)
+
+Pedido del mantenedor (2026-11-20, urgente el 2026-11-21): que AoEN pueda usar la GPU, **como opción**. El dibujo por la
+CPU (varios núcleos, D393) sigue de serie.
+
+- **Fase 1 (D432, v8.5.5.2, sirve a todos los juegos SDL):** presentar a pantalla completa sin volver a la RAM. Con
+  `AOEN_RENDER=1` (o `render2d = 1`), el 3D encendido y a pantalla completa, AoEN sube su cuadro a una textura y la GPU lo
+  lleva a la pantalla. En el Amilo no ganaba casi nada (14,8 fps contra 14,3): el cuadro lo seguía dibujando la CPU.
+- **Fase 2 (D436, v8.5.5.2r2): la partida entera se dibuja por la GPU.** Opciones > Gráficos, «Dibujo por GPU (tarjetas con
+  3D)», o `AOEN_GPU=1` (`dibujo_gpu = 1` en `aoen.cfg`). En SaguiOS hace falta el 3D encendido (`gpu3d encender` o una imagen
+  con `--gpu3d=radeon`) y la **pantalla completa** (en ventana el cuadro volvería a la RAM: sigue por la CPU). Pide él solo el
+  renderizador acelerado de la SDL; los menús siguen por la CPU (y se presentan como en la fase 1).
+  - **Terreno HD**: malla de triángulos con las texturas HD y la luz de la niebla en los vértices; las celdas iguales se juntan
+    por filas (cada triángulo cuenta en esta GPU). **Losetas** (terreno clásico): un rombo por casilla.
+  - **Sprites** (unidades, edificios, árboles, recursos, proyectiles, fuego): atlas de 1024x1024 (hasta 12 páginas) con el color
+    de jugador ya puesto en los que lo llevan, y una página de paso de 512x512 para los nuevos. Sombras, selección, barras de
+    vida, partículas y día y noche, en el mismo orden que la CPU.
+  - **Interfaz y minimapa**: los pinta la CPU en una capa transparente que se sube por franjas, solo cuando cambian.
+  - **Vuelta a la CPU** con aviso («Dibujo por GPU desactivado: sigue por la CPU») si no hay 3D o el renderizador deja la GPU.
+  - Diferencias con la CPU (`AOEN_COMPARAR=1` las mide): costa algo más suave, la onda del agua mueve toda el agua a la vez, y
+    en el terreno clásico no hay transiciones ni agua animada. El modo «AoE original» no cambia.
+  - Para medir: `AOEN_PERFIL=1 AOEN_BENCH=N` añade `(gpu: triángulos ... capa ... mostrar ...)` y `[AOEN] GPU por cuadro: N
+    triángulos en L lotes, K KB subidos ...`; `AOEN_GPU_QUITAR=1|2|4` (sin terreno, sin lo de encima, sin la capa),
+    `AOEN_GPU_PAGINAS=N`, `AOEN_GPU_TRAMO=N`; en el PC, `AOEN_GPU_FORZAR=1` acepta el renderizador por software (pruebas).
+
+**Medido en el Amilo** (Radeon X1400, Core Duo T2400, 1024x768, terreno HD sin efectos, datos reales; detalle en D436):
+
+| | CPU | GPU fase 1 | GPU fase 2 |
+| --- | --- | --- | --- |
+| Banco (cámara en vaivén) | 14,3 fps | 14,8 fps | 25-29 fps |
+| Partida (cámara quieta) | 12-13 fps | 14 fps | 25-30 fps |
+
+**HUD de rendimiento** (D436): **Ctrl+F** o Opciones > Gráficos («HUD de rendimiento»), apagado de serie (`hud_rendimiento`,
+`AOEN_HUD=1`). Arriba a la izquierda, semitransparente: fps (actual y media) y ms por cuadro; CPU total, por núcleo y MHz; RAM
+usada y libre del sistema y la de AoEN; GPU (cuadros y miles de triángulos por segundo del 3D, y cuánto espera AoEN a la GPU),
+VRAM de la tarjeta y de la zona 3D; dibujo por GPU o CPU y presentación por la GPU (D432) o no; temperaturas de CPU y GPU; el
+audio (alta prioridad, veces sin datos, hueco máximo, latencia y cortes del mezclador del kernel). Se
+actualiza dos veces por segundo; lo que la máquina no tiene sale como «—».
+
+**Sonido con el dibujo por GPU** (D436, 2026-11-21): petardeaba en el Amilo. Causas: tres lecturas del cuadro por la CPU al
+empezar (~255 ms cada una sin interrupciones: la tarjeta adelantaba al mezclador del kernel y este subía su latencia a 160 ms)
+y el adelanto fijo de 150 ms de AoEN, que desde entonces dejaba su flujo vacío en cada tic. Ahora el adelanto sigue a la
+latencia del kernel, las esperas de la GPU ceden la CPU (`gpu3d_respirar`), la cola llena del R5xx solo espera sitio, y hay
+**«Alta prioridad de audio»** en Opciones > Sonido (`audio_prioridad` en aoen.cfg: 1 sí, 0 no; sin tocarla, encendida con el
+dibujo por GPU; `AOEN_AUDIO_PRIO=0/1`): el kernel deja pasar delante al hilo de audio mientras gaste poco (`PLAN_AUDIO`).
+`SDL_SAGUI_GPU_TIEMPOS=1` escribe cada 5 s cuánto dura cada llamada al 3D (la más larga y cuántas pasan de 20 y de 80 ms).
+
 ## Plan: gráficos propios de las unidades (solo documentado)
 
 Decisión del mantenedor (2026-11-19): **sin trabajo previsto** en la 8.5.5.3; aquí solo el plan y el alcance.
@@ -419,10 +498,35 @@ Decisión del mantenedor (2026-11-19): **sin trabajo previsto** en la 8.5.5.3; a
   propios), anotados en `docs/terceros.md`; el motor no cambia (mismo formato de DRS).
 - **Pruebas**: las de `h389` con los gráficos nuevos en vez de los sintéticos.
 
+## Mapeo de gráficos de unidades (D442)
+
+`render.c` (`unit_art_ids`, `unit_art_sup`) asocia cada unidad con sus SLP de GRAPHICS.DRS (quieta, andar, atacar, morir, cuerpo) y
+`ui_comun.c` (`icono_unidad`) con su icono de INTERFAC.DRS 50730. Referencia: el `EMPIRES.DAT` del original. Los barcos se dibujan
+como en el juego: casco + capas (`over`: vela 583 en el transporte; remos 694 y vela 584 en el trirreme); la pesca usa 697 al pescar.
+Corregidos: barco de pesca (473; antes el casco del transporte), transporte (647+vela; antes 640), mercante (639; antes 648),
+trirreme (con remos y vela), arquero (muerte/cuerpo), arquero en carro (andar 650), explorador (era el del arquero a caballo),
+arquero a caballo (era el de caballería), espadachín corto, hoplita, falange, centurión, balista, catapultas, elefantes (andar,
+muerte y cuerpo) y los iconos de barcos, elefantes, balista, caballo y carro mercante. Herramienta para comprobarlo con datos
+reales: `python3 tools/aoen_hoja_sprites.py DATOS salida.png` (la salida va a un directorio privado, nunca a git).
+
+## Proyectiles, daño en área y fe del sacerdote (D443)
+
+La catapulta lanza una piedra (SLP 360; la pesada, de fuego, 461) en arco y deja el impacto del original (409); la balista, su virote
+(242); los arqueros, la flecha de siempre. El daño en área (catapulta 1,3 y pesada 1,8 casillas, mitad de daño) solo alcanza a los
+enemigos; `fuego_amigo` (`AOEN_FUEGO_AMIGO=1`) hace como el original y daña también a lo propio. El sacerdote necesita 10 s (5 con
+Monoteísmo) tras cada conversión; una barra azul bajo su vida (seleccionado) enseña la recarga. `python3 tests/aoen_area.py`.
+Revisión de gráficos con datos reales: `AOEN_SCENE=game AOEN_ESCENA=sprites AOEN_ESC_MODO=quieto|andar|atacar|morir|piedra
+AOEN_VISTA=dx,dy AOEN_ZOOM=z AOEN_SHOT=...` (capturas privadas, nunca a git).
+
 ## Pruebas
 
 `python3 tests/h389_aoen.py [generador licencia sin-datos con-datos efectos funciones ia interfaz presentacion reglas terreno edificios]` y, aparte, `bench`.
 Varios núcleos: `python3 tests/h398_aoen_multinucleo.py [pc determinismo-pc tcc saguios]` y, aparte, `bench` (mejor con
 `SAGUI_KVM=1`; `H398_CPUS="1,2,4"`).
-Usan DRS sintéticos de
+Audio independiente de los FPS: `python3 tests/h431_aoen_audio.py [mezcla juego fuentes]`.
+Dibujo por la GPU y HUD (D436): `python3 tests/h436_aoen_gpu.py [unidad fuentes std simulado]` y, aparte, `bench`.
+Mapeo de gráficos: `python3 tests/aoen_sprites.py`; área y fe: `python3 tests/aoen_area.py`. Usan DRS sintéticos de
 `tools/aoen_drs_sintetico.py`; nunca los reales.
+
+- **Fuego amigo y carro mercante (D447, v8.5.5.2r2):** casilla «Fuego amigo» en la configuración (apagada de serie; se guarda con la
+  partida, formato 6; las de formato 5 cargan con ella apagada) y carro mercante con carga y banda dorada sobre el gráfico del carro arquero.

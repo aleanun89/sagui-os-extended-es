@@ -368,6 +368,175 @@ static int conf_gravar(void)
     return r < 0 ? r : 0;
 }
 
+
+/* ------------------------------------------------------------ estilos de apariencia (D428) */
+
+#define ARQ_ESTILO   "/home/.config/estilo.conf"      /* el esquema vigente de la cuenta (esq_para_texto) */
+#define ARQ_ESTILOS  "/home/.config/estilos.lista"    /* los personalizados con nombre, separados por una línea «--» */
+#define MAQ_ESTILO   "estilo.conf"                    /* /etc/estilo.conf: el de la pantalla de inicio de sesión */
+#define EST_GUARD_MAX 16
+
+static esquema_t est_vigente;                /* lo que el kernel tiene ahora */
+static void est_leer_vigente(void) { esquema_op(ESQ_OP_LER, &est_vigente, sizeof est_vigente); }
+static esquema_t est_guard[EST_GUARD_MAX];   /* los personalizados guardados por la persona */
+static int est_nguard;
+
+static int est_ler_texto(const char *arq, char *t, int max)
+{
+    int fd = abrir(arq, ABRIR_LER);
+    if (fd < 0) return -1;
+    int n = ler(fd, t, (unsigned)max - 1);
+    fechar(fd);
+    if (n < 0) return -1;
+    t[n] = 0;
+    return n;
+}
+
+/* El esquema que la cuenta dejó guardado; false = no hay (se queda el del sistema). */
+static bool est_ler_arq(const char *arq, esquema_t *e)
+{
+    static char t[2048];
+    return est_ler_texto(arq, t, sizeof t) >= 0 && esq_de_texto(t, e);
+}
+
+static void est_gravar_arq(const esquema_t *e)
+{
+    char t[2048];
+    int n = formatar_texto(t, sizeof t, "# Estilo de apariencia de la cuenta (D428); lo escribe Configuración.\n");
+    n += esq_para_texto(e, t + n, (int)sizeof t - n);
+    criar_pasta(DIR_CONF);
+    int fd = abrir(ARQ_ESTILO, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    escrever_tudo(fd, t, (unsigned)n);
+    fechar(fd);
+}
+
+static void est_ler_guardados(void)
+{
+    static char t[EST_GUARD_MAX * 1000];
+    est_nguard = 0;
+    if (est_ler_texto(ARQ_ESTILOS, t, sizeof t) < 0) return;
+    for (char *p = t; *p && est_nguard < EST_GUARD_MAX;) {
+        char *fim = p;
+        while (*fim && !(fim[0] == '-' && fim[1] == '-' && (fim == p || fim[-1] == '\n'))) fim++;
+        char c = *fim;
+        *fim = 0;
+        if (esq_de_texto(p, &est_guard[est_nguard])) est_nguard++;
+        if (!c) break;
+        p = fim + 2;
+        while (*p == '\n' || *p == '\r') p++;
+    }
+}
+
+static void est_gravar_guardados(void)
+{
+    static char t[EST_GUARD_MAX * 1000];
+    int n = 0;
+    for (int i = 0; i < est_nguard && n < (int)sizeof t - 1000; i++) {
+        n += esq_para_texto(&est_guard[i], t + n, (int)sizeof t - n);
+        n += formatar_texto(t + n, sizeof t - (unsigned)n, "--\n");
+    }
+    criar_pasta(DIR_CONF);
+    int fd = abrir(ARQ_ESTILOS, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    escrever_tudo(fd, t, (unsigned)n);
+    fechar(fd);
+}
+
+/* Pone un esquema en el sistema (redibuja todo y avisa a las ventanas) y lo recuerda en el archivo de la cuenta. */
+static void est_aplicar(const esquema_t *e)
+{
+    esq_aplicar(e, false);
+    est_gravar_arq(e);
+    registrar("configuracion: estilo '%s' aplicado (id %u)", e->nome, e->id);
+}
+
+
+/* Guarda el esquema vigente con un nombre (lo reemplaza si ya existe). 0 = bien; 1 = sin nombre; 2 = es el de un incluido;
+ * 3 = no caben más. */
+static int est_guardar_como(const char *nome_pedido)
+{
+    char nome[ESQ_NOME_MAX];
+    copia_texto(nome, nome_pedido, sizeof nome);
+    if (!nome[0]) return 1;
+    for (int i = 0; i < ESQ_QTD; i++)
+        if (compara_texto(nome, i == 0 ? "SaguiOS" : esq_prims[i].nome) == 0) return 2;
+    est_ler_guardados();
+    int pos = -1;
+    for (int i = 0; i < est_nguard; i++) if (compara_texto(est_guard[i].nome, nome) == 0) pos = i;
+    if (pos < 0) {
+        if (est_nguard >= EST_GUARD_MAX) return 3;
+        pos = est_nguard++;
+    }
+    est_leer_vigente();
+    est_guard[pos] = est_vigente;
+    est_guard[pos].id = ESQ_PERSONAL;
+    copia_texto(est_guard[pos].nome, nome, sizeof est_guard[pos].nome);
+    est_gravar_guardados();
+    est_aplicar(&est_guard[pos]);
+    return 0;
+}
+
+/* configuracion estilo [lista | NOMBRE | color N RRGGBB | guardar NOMBRE | inicio] (D428; N = elemento 0..EE_QTD-1) */
+static int estilo_cli(int argc, char **argv)
+{
+    esquema_t e;
+    est_leer_vigente();
+    if (argc == 2) {
+        imprimir("Estilo: %s (id %u, acento %06x, titulo activo %06x, fondo %06x)\n", est_vigente.nome, est_vigente.id, est_vigente.acento,
+                 est_vigente.titulo_a1, est_vigente.fundo);
+        return 0;
+    }
+    est_ler_guardados();
+    if (compara_texto(argv[2], "lista") == 0) {
+        for (int i = 0; i < ESQ_QTD; i++) imprimir("%s\n", esq_claves[i]);
+        for (int i = 0; i < est_nguard; i++) imprimir("%s (guardado)\n", est_guard[i].nome);
+        return 0;
+    }
+    if (compara_texto(argv[2], "color") == 0 && argc == 5) {
+        uint32_t cor;
+        int el = texto_para_int(argv[3]);
+        if (el < 0 || el >= EE_QTD || !ler_cor(argv[4], &cor)) { imprimir_em(ERROS, "configuracion: estilo color N(0-%d) RRGGBB\n", EE_QTD - 1); return 2; }
+        e = est_vigente;
+        esq_poner(&e, el, cor);
+        est_aplicar(&e);
+        return 0;
+    }
+    if (compara_texto(argv[2], "guardar") == 0 && argc == 4) {
+        int r = est_guardar_como(argv[3]);
+        if (r) { imprimir_em(ERROS, "configuracion: no se pudo guardar el estilo (%d)\n", r); return 1; }
+        return 0;
+    }
+    if (compara_texto(argv[2], "inicio") == 0) {
+        char t[2048];
+        int n = formatar_texto(t, sizeof t, "# Estilo de la pantalla de inicio de sesión (D428)\n");
+        n += esq_para_texto(&est_vigente, t + n, (int)sizeof t - n);
+        int r = maquina_gravar_arquivo(MAQ_ESTILO, t, n, "cambiar el estilo de la pantalla de inicio de sesión");
+        if (r < 0) { imprimir_em(ERROS, "configuracion: no se pudo guardar el estilo de inicio\n"); return 1; }
+        esquema_op(ESQ_OP_FIJAR_LOGIN, &est_vigente, sizeof est_vigente);
+        return 0;
+    }
+    if (compara_texto(argv[2], "fuente") == 0 && argc == 4) {   /* D428: 0 SaguiOS, 1 Terminus, 2 Terminus negrita, 3 Fixed */
+        int f = texto_para_int(argv[3]);
+        if (f < 0 || f > 3) { imprimir_em(ERROS, "configuracion: estilo fuente 0-3\n"); return 2; }
+        e = est_vigente;
+        e.fonte = (uint32_t)f;
+        est_aplicar(&e);
+        return 0;
+    }
+    for (int i = 0; i < ESQ_QTD; i++)
+        if (compara_texto(argv[2], esq_claves[i]) == 0) {
+            esq_incluido(&e, i, i == ESQ_SAGUIOS ? (conf.acento != 0xFFFFFFFFu ? conf.acento : ACENTO_PADRAO) : 0xFFFFFFFFu);
+            e.fonte = est_vigente.fonte;
+            est_aplicar(&e);
+            return 0;
+        }
+    for (int i = 0; i < est_nguard; i++)
+        if (compara_texto(argv[2], est_guard[i].nome) == 0) { est_aplicar(&est_guard[i]); return 0; }
+    imprimir_em(ERROS, "configuracion: el estilo «%s» no existe (configuracion estilo lista)\n", argv[2]);
+    return 2;
+}
+
 /* ------------------------------------------------------------ aplicar */
 
 /* D361: pone los ajustes de la barra y del menú Inicio en el kernel (se aplican al momento). */
@@ -638,7 +807,8 @@ static void acel_ler_estado(void)
 }
 
 /* Tarjetas con 3D sin probar en hardware (D284, D287, D357): R5xx, R6xx y R7xx. */
-static bool acel_3d_experimental(void) { return contem(ac3.placa, "R5xx") || contem(ac3.placa, "R6xx") || contem(ac3.placa, "R7xx"); }
+static bool acel_3d_experimental(void) { return contem(ac3.placa, "R5xx") || contem(ac3.placa, "R6xx") || contem(ac3.placa, "R7xx") ||
+                                                  contem(ac3.placa, "Evergreen"); }   /* D427 */
 static bool acel_3d_hay_driver(void) { return ac3.estado != GPU3D_SEM_GPU && ac3.estado != GPU3D_DESATIVADO; }
 
 static const char *acel_texto_2d(void)
@@ -813,9 +983,19 @@ static int aplicar_tudo(int argc, char **argv)
      * sagui.conf, el del sistema se aplica: el kernel traduce su interfaz con él. */
     if (!conf.idioma[0]) idioma_sistema_ler(conf.idioma, sizeof conf.idioma);
     if (conf.idioma[0]) registrar("configuracion: idioma %s -> %d", conf.idioma, idioma_fijar(conf.idioma));
+    if (!sesion && sou_root()) {   /* D428: el estilo de la pantalla de inicio de sesión (/etc), antes de bajar de identidad */
+        esquema_t e;
+        static char t[2048];
+        if (est_ler_texto("/etc/" MAQ_ESTILO, t, sizeof t) >= 0 && esq_de_texto(t, &e))
+            registrar("configuracion: estilo de la pantalla de inicio '%s' -> %d", e.nome, esquema_op(ESQ_OP_FIJAR_LOGIN, &e, sizeof e) < 0);
+    }
     if (argc >= 4 && sou_root()) {   /* y ahora, a la identidad de la sesión: el resto va con los permisos de siempre */
         int uid = texto_para_int(argv[2]), gid = texto_para_int(argv[3]);
         if (uid > 0) registrar("configuracion: bajo a uid %d -> %d", uid, usuario_op(USU_FIJAR, uid, gid));
+    }
+    {   /* D428: el estilo de la cuenta (con «SaguiOS», el acento elegido manda; los demás esquemas traen el suyo) */
+        esquema_t e;
+        if (est_ler_arq(ARQ_ESTILO, &e)) registrar("configuracion: estilo '%s' -> %d", e.nome, esq_aplicar(&e, false));
     }
     if (!tem_conf) { registrar("configuracion: sin %s, nada que aplicar", ARQ_CONF); return 0; }
     if (conf.salida[0]) registrar("configuracion: salida '%s' -> %d", conf.salida, aplicar_salida(conf.salida));
@@ -839,7 +1019,11 @@ static int aplicar_tudo(int argc, char **argv)
         ler_zona(&z);
         if (compara_texto(z.nome, conf.zona) != 0) registrar("configuracion: zona %s -> %d", conf.zona, aplicar_zona(conf.zona));
     }
-    if (conf.acento != 0xFFFFFFFFu) registrar("configuracion: acento %06x -> %d", conf.acento, acento_cor((int)conf.acento) < 0);
+    if (conf.acento != 0xFFFFFFFFu) {   /* el acento elegido solo manda con «SaguiOS»; en los demás esquemas el esquema trae el suyo */
+        esquema_t cur;
+        esquema_op(ESQ_OP_LER, &cur, sizeof cur);
+        if (cur.id == ESQ_SAGUIOS) registrar("configuracion: acento %06x -> %d", conf.acento, acento_cor((int)conf.acento) < 0);
+    }
     if (conf.pnl_def) registrar("configuracion: panel tactil toque %d dos dedos %d borde %d natural %d sensibilidad %d escribir %d ms sin usb %d ps2 %d -> %d",
                                 conf.pnl[CP_TOQUE], conf.pnl[CP_DOS_DEDOS], conf.pnl[CP_BORDE], conf.pnl[CP_NATURAL], conf.pnl[CP_SENSIB],
                                 conf.pnl[CP_ESCRIBIR], conf.pnl[CP_SIN_USB], conf.pnl[CP_PS2], aplicar_panel());
@@ -1188,6 +1372,8 @@ static int linha_de_comandos(int argc, char **argv)
         copia_texto(conf.idioma, norm, sizeof conf.idioma);
         r = idioma_fijar(norm);
         if (r < 0) { imprimir_em(ERROS, "configuracion: no se pudo cambiar el idioma: %s\n", nome_erro(r)); return 1; }
+    } else if (compara_texto(c, "estilo") == 0) {   /* D428 */
+        return estilo_cli(argc, argv);
     } else if (compara_texto(c, "acento") == 0 && argc == 3) {
         uint32_t cor;
         if (!ler_cor(argv[2], &cor)) { imprimir_em(ERROS, "configuracion: acento RRGGBB (por ejemplo 2A6FD8)\n"); return 2; }
@@ -1224,7 +1410,8 @@ static int linha_de_comandos(int argc, char **argv)
     } else {
         imprimir_em(ERROS, "uso: configuracion [--aplicar | mostrar | teclado es|abnt2 | idioma es|pt_BR|en [--sistema] | volumen N | zona NOMBRE |\n"
                            "                      salida N | balance -100..100 | latencia MS | microfono entrada N|ganancia N|silencio|activar |\n"
-                           "                      acento RRGGBB | fondo ARCHIVO [modo] | fondo ninguno |\n"
+                           "                      acento RRGGBB | estilo [lista | NOMBRE | color N RRGGBB | guardar NOMBRE | inicio] |\n"
+                           "                      fondo ARCHIVO [modo] | fondo ninguno |\n"
                            "                      fuente documentos|titulos RUTA|ninguna | aceleracion [2d|3d|sdl|disco VALOR | restablecer] |\n"
                            "                      barra mostrar | restablecer | CLAVE=N... | panel [mostrar | restablecer | CLAVE=N...]]\n");
         return 2;
@@ -1348,7 +1535,7 @@ static bool ui_casilla(int x, int y, const char *t, bool marcada)
     const char *r = idioma_traducir_sl(t);
     int l = 22 + g_largura_texto(r);
     if (ui_ev) return !ui_gris && ui_clic(x, y - 1, l, 18);
-    g_retangulo(jn, x, y, 14, 14, ui_gris ? COR_BOTAO : COR_BRANCO);
+    g_retangulo(jn, x, y, 14, 14, ui_gris ? COR_BOTAO : COR_CAMPO);
     g_moldura(jn, x, y, 14, 14, COR_BORDA);
     if (marcada) {
         g_linha(jn, x + 3, y + 7, x + 6, y + 10, COR_DESTAQUE);
@@ -1369,9 +1556,9 @@ static bool ui_opcion(int x, int y, const char *t, bool elegida)
     static const signed char borde[14][2] = { {4, 6}, {2, 2}, {1, 1}, {1, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {1, 1}, {1, 1}, {2, 2}, {4, 6} };
     for (int f = 0; f < 14; f++) {
         int e0 = borde[f][0], n = borde[f][1];
-        if (f == 0 || f == 13) { g_retangulo(jn, x + 4, y + f, 6, 1, COR_BORDA); g_retangulo(jn, x + 4, y + f + (f == 0 ? 1 : -1), 6, 1, COR_BRANCO); continue; }
+        if (f == 0 || f == 13) { g_retangulo(jn, x + 4, y + f, 6, 1, COR_BORDA); g_retangulo(jn, x + 4, y + f + (f == 0 ? 1 : -1), 6, 1, COR_CAMPO); continue; }
         int ancho = 14 - 2 * e0;
-        g_retangulo(jn, x + e0 + n, y + f, ancho - 2 * n, 1, COR_BRANCO);
+        g_retangulo(jn, x + e0 + n, y + f, ancho - 2 * n, 1, COR_CAMPO);
         g_retangulo(jn, x + e0, y + f, n, 1, COR_BORDA);
         g_retangulo(jn, x + 14 - e0 - n, y + f, n, 1, COR_BORDA);
     }
@@ -1405,8 +1592,8 @@ static int ui_parrafo(int x, int y, int l, const char *t, uint32_t cor)
 }
 
 /* El registro de secciones. Está más abajo (seccoes[]); aquí los índices. */
-enum { S_SISTEMA, S_TELA, S_ACEL, S_KERNEL, S_ZONA, S_IDIOMA, S_USUARIOS,
-       S_ESCRITORIO, S_COLORES, S_BARRA, S_WIDGETS, S_FUENTES, S_CAPTURAS,
+enum { S_SISTEMA, S_TELA, S_ACEL, S_ENERGIA, S_KERNEL, S_ZONA, S_IDIOMA, S_USUARIOS,
+       S_ESCRITORIO, S_COLORES, S_ESTILOS, S_BARRA, S_WIDGETS, S_FUENTES, S_CAPTURAS, S_SONIDOS,
        S_DISPOSITIVOS, S_TECLADO, S_MANDOS, S_SONIDO,
        S_REDES, S_BLOQUEO, S_VPN, S_VNC,
        S_IA, S_IA_LOCAL, S_QTD };
@@ -3140,6 +3327,8 @@ static void pg_colores(void)
             if (ui_clic(x, yy, 26, 26)) {
                 acento_cor((int)cores[i].cor);
                 conf.acento = cores[i].cor;
+                est_leer_vigente();
+                est_gravar_arq(&est_vigente);   /* D428: con otro esquema, el acento lo vuelve personalizado: se recuerda entero */
                 dizer_gravado(conf_gravar());
                 ui_mudou = true;
             }
@@ -4265,6 +4454,190 @@ static void pg_ialocal(void)
 static int iv_ialocal(void) { return il_pid ? 500 : 0; }
 static bool tq_ialocal(void) { return il_ler_estado(); }
 
+/* ------------------------------------------------------------ Sistema > Energía y pantalla (D422) */
+/* El motor de los efectos del salvapantallas es el mismo del kernel (kernel/lib/ocio_efectos.c): la vista previa
+ * dibuja con él en un búfer propio y lo copia al panel. */
+#include "../../kernel/lib/ocio_efectos.c"
+
+typedef struct {
+    int salva_efecto, salva_min, bloqueo_modo, bloqueo_min, pant_bat, pant_red;
+    int bat_aviso, bat_crit, bat_accion, gob_bat, gob_red;
+} energia_t;
+static const energia_t EN_PREDET = { 0, 10, 0, 15, 10, 30, 15, 5, 0, 3, 3 };
+static energia_t en;
+static bool en_bateria;
+#define EN_VW 240
+#define EN_VH 135
+static unsigned en_buf[EN_VW * EN_VH];
+static ocio_ef_t en_ef;
+static int en_ef_vivo = -1;
+
+static void en_preparar(void)
+{
+    static info_ocio_t v;
+    memset(&v, 0, sizeof v);
+    en = EN_PREDET;
+    en_bateria = false;
+    if (info_sistema(INFO_OCIO, &v, sizeof v) == 0 && v.versao == 1) {
+        en = (energia_t){ (int)v.salva_efecto, (int)v.salva_min, (int)v.bloqueo_modo, (int)v.bloqueo_min, (int)v.pantalla_bat_min,
+                          (int)v.pantalla_red_min, (int)v.bat_aviso, (int)v.bat_critica, (int)v.bat_accion, (int)v.gob_bat, (int)v.gob_red };
+        en_bateria = v.con_bateria != 0;
+    }
+    en_ef_vivo = -1;
+    registrar("configuracion: pantalla vista energia salvapantallas=%d/%d bloqueo=%d/%d pantalla=%d/%d bateria=%d/%d/%d bat=%d",
+              en.salva_efecto, en.salva_min, en.bloqueo_modo, en.bloqueo_min, en.pant_bat, en.pant_red, en.bat_aviso, en.bat_crit,
+              en.bat_accion, en_bateria);
+}
+
+/* Guarda /etc/energia.conf (de la máquina: pide permisos de administrador si hace falta) y se lo dice al kernel. */
+static void en_guardar(void)
+{
+    char t[640];
+    int n = formatar_texto(t, sizeof t,
+        "# Energía y pantalla (D422): lo escribe Configuración; el kernel lo lee al arrancar y con «energia recargar».\n"
+        "salvapantallas=%d\nsalvapantallas_min=%d\nbloqueo=%d\nbloqueo_min=%d\npantalla_bateria_min=%d\npantalla_red_min=%d\n"
+        "bateria_aviso=%d\nbateria_critica=%d\nbateria_accion=%d\ngobernador_bateria=%d\ngobernador_red=%d\n",
+        en.salva_efecto, en.salva_min, en.bloqueo_modo, en.bloqueo_min, en.pant_bat, en.pant_red, en.bat_aviso, en.bat_crit,
+        en.bat_accion, en.gob_bat, en.gob_red);
+    int r = maquina_gravar_arquivo("energia.conf", t, n, "guardar la configuración de energía y pantalla");
+    if (r >= 0) info_sistema(INFO_OCIO_CTL, (void *)(unsigned long)OCIO_PEDIDO(OCIO_OP_RECARGAR, 0), 0);
+    if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo guardar la energía y pantalla: %s"), nome_erro(r));
+    else dizer(_("Guardado en /etc/energia.conf (configuración de la máquina)."));
+    registrar("configuracion: energia guardado %d", r);
+}
+
+static void en_predet(void) { en = EN_PREDET; en_guardar(); }
+
+/* La escalera de los minutos: de 1 en 1 hasta 10, de 5 en 5 hasta 60, de 30 en 30 después. */
+static int en_escalon(int v, int dir, int min, int max)
+{
+    int n;
+    if (dir > 0) n = v < 10 ? v + 1 : v < 60 ? v + 5 : v + 30;
+    else n = v <= 10 ? v - 1 : v <= 60 ? v - 5 : v - 30;
+    return n < min ? min : n > max ? max : n;
+}
+
+/* [-] valor [+] y el texto del valor; true = cambió. «cero»: cómo se llama el 0 (NULL = no hay). */
+static bool en_paso(int x, int y, int *v, int min, int max, bool minutos, const char *cero)
+{
+    bool c = false;
+    char t[40];
+    if (ui_boton(x, y, 26, "-", false)) { *v = minutos ? en_escalon(*v, -1, min, max) : (*v > min ? *v - 1 : min); c = true; }
+    if (ui_boton(x + 118, y, 26, "+", false)) { *v = minutos ? en_escalon(*v, 1, min, max) : (*v < max ? *v + 1 : max); c = true; }
+    if (!*v && cero) copia_texto(t, _(cero), sizeof t);
+    else formatar_texto(t, sizeof t, minutos ? _("%d min") : "%d %%", *v);
+    ui_texto(x + 34 + (76 - g_largura_texto(t)) / 2, y + 5, t, COR_TEXTO);
+    return c;
+}
+
+/* La vista previa: un cuadro del efecto, en el panel, recortado a su zona visible. */
+static void en_vista(int x, int y)
+{
+    if (ui_ev) return;
+    if (en_ef_vivo != en.salva_efecto) {
+        ocio_ef_iniciar(&en_ef, en.salva_efecto, 0x51A9u, EN_VW, EN_VH, tempo_ms());
+        en_ef_vivo = en.salva_efecto;
+    }
+    fuso_data_t l;
+    agora_local(&l);
+    ocio_ef_cuadro(&en_ef, en_buf, EN_VW, EN_VH, EN_VW, tempo_ms(), 1, l.hora, l.minuto, l.segundo);
+    for (int f = 0; f < EN_VH; f++) {
+        int wy = y + f + OY, wx = x + OX;
+        if (wy < PY || wy >= PY + PH || wy >= jn->alt) continue;
+        for (int c = 0; c < EN_VW; c++) {
+            int px = wx + c;
+            if (px < PX || px >= PX + PW - 14 || px >= jn->larg) continue;
+            jn->px[wy * jn->larg + px] = en_buf[f * EN_VW + c];
+        }
+    }
+    g_moldura(jn, x - 1, y - 1, EN_VW + 2, EN_VH + 2, COR_BORDA);
+}
+
+static const char *en_nombre_perfil(int g)
+{
+    static const char *const n[] = { N_("Rendimiento"), N_("Ahorro"), N_("A demanda"), N_("Sin cambiar") };
+    return n[g >= 0 && g < 4 ? g : 3];
+}
+
+static void pg_energia(void)
+{
+    static const char *const efectos[OCIO_EF_N] = { N_("Pantalla negra"), N_("Estrellas"), N_("Logotipo SaguiOS"), N_("Tuberías"), N_("Reloj") };
+    char t[160];
+    int w = XR - XL, gy = 0, y;
+    bool cambio = false;
+
+    /* Salvapantallas */
+    y = gy + 26;
+    for (int i = 0; i < OCIO_EF_N; i++)
+        if (ui_opcion(XL + (i & 1) * 190, y + (i >> 1) * 22, efectos[i], en.salva_efecto == i) && en.salva_efecto != i) { en.salva_efecto = i; cambio = true; }
+    int yp = y + 70;
+    ui_texto(XL, yp + 5, _("Empezar tras:"), COR_TEXTO);
+    ui_gris = en.salva_efecto == 0;
+    if (en_paso(XL + 110, yp, &en.salva_min, 1, 60, true, NULL)) cambio = true;
+    ui_gris = false;
+    en_vista(XR - EN_VW - 6, y);
+    if (ui_boton(XR - EN_VW - 6, y + EN_VH + 8, 150, N_("Probar ahora"), false)) {
+        info_sistema(INFO_OCIO_CTL, (void *)(unsigned long)OCIO_PEDIDO(OCIO_OP_PROBAR, en.salva_efecto), 0);
+        dizer(_("Se muestra el salvapantallas: toca una tecla o mueve el ratón para volver."));
+        ui_mudou = true;
+    }
+    int fin = y + EN_VH + 8 + 26 + 10;
+    int fin_izq = yp + 36;
+    if (fin_izq > fin) fin = fin_izq;
+    if (!ui_ev) ui_grupo(gy, fin - gy, N_("Salvapantallas"));
+    gy = fin + 12;
+
+    /* Bloqueo */
+    y = gy + 26;
+    if (ui_opcion(XL, y, N_("No bloquear"), en.bloqueo_modo == 0) && en.bloqueo_modo != 0) { en.bloqueo_modo = 0; cambio = true; }
+    if (ui_opcion(XL, y + 28, N_("Bloquear tras"), en.bloqueo_modo == 1) && en.bloqueo_modo != 1) { en.bloqueo_modo = 1; cambio = true; }
+    ui_gris = en.bloqueo_modo != 1;
+    if (en_paso(XL + 190, y + 24, &en.bloqueo_min, 1, 120, true, NULL)) { en.bloqueo_modo = 1; cambio = true; }
+    ui_gris = false;
+    ui_gris = en.salva_efecto == 0;
+    if (ui_opcion(XL, y + 58, N_("Al salir del salvapantallas"), en.bloqueo_modo == 2) && en.bloqueo_modo != 2) { en.bloqueo_modo = 2; cambio = true; }
+    ui_gris = false;
+    y = ui_parrafo(XL, y + 86, w, _("Solo se bloquea si la cuenta tiene contraseña: sin contraseña no hay nada que pedir para volver y la pantalla no se bloquea."), COR_TEXTO_FRACO);
+    if (!ui_ev) ui_grupo(gy, y + 4 - gy, N_("Bloqueo de pantalla por inactividad"));
+    gy = y + 4 + 12;
+
+    /* Apagar la pantalla */
+    y = gy + 26;
+    ui_texto(XL, y + 5, _("Con batería:"), COR_TEXTO);
+    if (en_paso(XL + 200, y, &en.pant_bat, 0, 240, true, N_("Nunca"))) cambio = true;
+    ui_texto(XL, y + 36, _("Enchufado:"), COR_TEXTO);
+    if (en_paso(XL + 200, y + 31, &en.pant_red, 0, 240, true, N_("Nunca"))) cambio = true;
+    y = ui_parrafo(XL, y + 66, w, _("La pantalla se pone en negro y se despierta con cualquier tecla o movimiento (esa primera pulsación no llega a los programas)."), COR_TEXTO_FRACO);
+    if (!ui_ev) ui_grupo(gy, y + 4 - gy, N_("Apagar la pantalla"));
+    gy = y + 4 + 12;
+
+    /* Batería */
+    y = gy + 26;
+    if (!en_bateria) {
+        y = ui_parrafo(XL, y, w, _("Este equipo no tiene batería (o no se detecta): los valores se guardan por si lo usas en un portátil."), COR_TEXTO_FRACO) + 4;
+    }
+    ui_texto(XL, y + 5, _("Avisar de batería baja al:"), COR_TEXTO);
+    if (en_paso(XL + 250, y, &en.bat_aviso, 0, 50, false, N_("No avisar"))) {
+        if (en.bat_aviso && en.bat_crit >= en.bat_aviso) en.bat_crit = en.bat_aviso > 1 ? en.bat_aviso - 1 : 1;
+        cambio = true;
+    }
+    ui_texto(XL, y + 36, _("Batería crítica al:"), COR_TEXTO);
+    if (en_paso(XL + 250, y + 31, &en.bat_crit, 1, 30, false, NULL)) {
+        if (en.bat_aviso && en.bat_crit >= en.bat_aviso) en.bat_aviso = en.bat_crit + 1;
+        cambio = true;
+    }
+    if (ui_casilla(XL, y + 68, N_("Apagar el equipo al llegar a crítico (avisa 30 s antes)"), en.bat_accion != 0)) { en.bat_accion = !en.bat_accion; cambio = true; }
+    ui_texto(XL, y + 100, _("Perfil de la CPU con batería:"), COR_TEXTO);
+    if (ui_boton(XL + 250, y + 95, 150, en_nombre_perfil(en.gob_bat), false)) { en.gob_bat = (en.gob_bat + 1) & 3; cambio = true; }
+    ui_texto(XL, y + 132, _("Perfil de la CPU enchufado:"), COR_TEXTO);
+    if (ui_boton(XL + 250, y + 127, 150, en_nombre_perfil(en.gob_red), false)) { en.gob_red = (en.gob_red + 1) & 3; cambio = true; }
+    y = ui_parrafo(XL, y + 160, w, _("El perfil cambia al enchufar o desenchufar el cargador (necesita el driver de frecuencia). Suspender (S3) aún no está disponible."), COR_TEXTO_FRACO);
+    if (!ui_ev) ui_grupo(gy, y + 4 - gy, N_("Batería"));
+    cont_h = y + 16;
+    (void)t;
+    if (cambio) { en_guardar(); ui_mudou = true; }
+}
+
 /* Para añadir una sección: una entrada en seccoes[] (y su índice en el enum de más arriba, en el mismo orden) y las
  * funciones que use. Ver la guía «cómo portar una sección al árbol» en docs/decisoes.md (D367). */
 typedef struct {
@@ -4296,6 +4669,298 @@ PAGINA_UI(barra)
 PAGINA_UI(widgets)
 PAGINA_UI(vpn)
 PAGINA_UI(ialocal)
+PAGINA_UI(energia)
+
+#include "sonidos.h"   /* D421 */
+/* Escritorio > Sonidos del sistema (D421): esquema, eventos y volumen. Es de la persona: /home/.config/sonidos.conf
+ * (lo lee también el servicio «sonidos»). Todo apagado por defecto. */
+static sonidos_conf_t sn_conf;
+static sonidos_esquema_t sn_esq[12];
+static int sn_nesq;
+static const char *const sn_nombres[SON_EV_N] = {
+    N_("Arranque del sistema"), N_("Apagar el equipo"), N_("Reiniciar el equipo"), N_("Aviso"), N_("Error"),
+    N_("Pregunta o confirmación"), N_("Conectar un USB"), N_("Desconectar un USB"), N_("Batería baja"), N_("Vaciar la papelera"),
+};
+
+static void p_sonidos(void)
+{
+    sonidos_conf_ler(&sn_conf);
+    sn_nesq = sonidos_esquemas(sn_esq, 12);
+    registrar("configuracion: escritorio vista sonidos esquemas=%d activo=%d", sn_nesq, sn_conf.activo);
+}
+
+static void sn_guardar(void) { dizer_gravado(sonidos_conf_gravar(&sn_conf)); ui_mudou = true; }
+
+/* El botón «Probar»: toca el evento con lo elegido ahora, aunque los sonidos estén apagados. */
+static void sn_probar(int ev)
+{
+    char vol[8];
+    formatar_texto(vol, sizeof vol, "%d", sn_conf.volumen);
+    const char *esq = sn_conf.esquema[0] ? sn_conf.esquema : "ninguno";
+    char *av[] = { "sonidos", "--tocar", (char *)sonidos_evento_id(ev), "--siempre", "--esquema", (char *)esq, "--volumen", vol, NULL };
+    int pid = executar("/bin/sonidos", av);
+    registrar("configuracion: sonidos probar %s (%s) pid=%d", sonidos_evento_id(ev), esq, pid);
+}
+
+static void sn_predet(void)
+{
+    sonidos_conf_defecto(&sn_conf);
+    sn_conf.activo = 0;
+    sn_guardar();
+}
+
+static void pg_sonidos(void)
+{
+    int w = XR - XL;
+    int y = 26;
+    int cod;
+    while (recolher(&cod) > 0) { }   /* los «Probar» ya terminados */
+    if (ui_casilla(XL, y, N_("Activar los sonidos del sistema"), sn_conf.activo != 0)) { sn_conf.activo = !sn_conf.activo; sn_guardar(); }
+    y = ui_parrafo(XL + 22, y + 20, w - 22, _("Apagados de serie. Suenan al arrancar y apagar, en avisos, errores, preguntas, USB y batería baja."), COR_TEXTO_FRACO);
+    /* Esquema */
+    int g1 = y + 6;
+    int ey = g1 + 26;
+    bool ning = !sn_conf.esquema[0] || compara_texto(sn_conf.esquema, "ninguno") == 0;
+    if (ui_opcion(XL, ey, N_("Ninguno"), ning) && !ning) { copia_texto(sn_conf.esquema, "ninguno", sizeof sn_conf.esquema); sn_guardar(); }
+    ey += 22;
+    const char *creditos = "";
+    for (int i = 0; i < sn_nesq; i++) {
+        bool el = compara_texto(sn_conf.esquema, sn_esq[i].id) == 0;
+        if (el) creditos = sn_esq[i].creditos;
+        char rot[64];
+        formatar_texto(rot, sizeof rot, "%s%s", sn_esq[i].nombre, sn_esq[i].privado ? " (privado)" : "");
+        if (ui_opcion(XL, ey, rot, el) && !el) { copia_texto(sn_conf.esquema, sn_esq[i].id, sizeof sn_conf.esquema); sn_guardar(); }
+        ey += 22;
+    }
+    if (creditos[0]) { ui_texto(XL, ey, creditos, COR_TEXTO_FRACO); ey += 20; }
+    if (!ui_ev) ui_grupo(g1, ey - g1 + 2, N_("Esquema de sonidos"));
+    /* Volumen */
+    int g2 = ey + 10;
+    int vy = g2 + 24;
+    char tv[40];
+    formatar_texto(tv, sizeof tv, _("Volumen de los sonidos: %d %%"), sn_conf.volumen);
+    ui_texto(XL, vy + 5, tv, COR_TEXTO);
+    if (ui_boton(XR - 110, vy, 50, "-", false) && sn_conf.volumen > 0) { sn_conf.volumen = sn_conf.volumen < 10 ? 0 : sn_conf.volumen - 10; sn_guardar(); }
+    if (ui_boton(XR - 54, vy, 50, "+", false) && sn_conf.volumen < 100) { sn_conf.volumen = sn_conf.volumen > 90 ? 100 : sn_conf.volumen + 10; sn_guardar(); }
+    if (!ui_ev) ui_grupo(g2, 58, N_("Volumen"));
+    /* Eventos */
+    int g3 = g2 + 70;
+    int cy = g3 + 28;
+    for (int i = 0; i < SON_EV_N; i++) {
+        if (ui_casilla(XL, cy + 4, sn_nombres[i], sn_conf.ev[i] != 0)) { sn_conf.ev[i] = !sn_conf.ev[i]; sn_guardar(); }
+        char ruta[128];
+        bool tiene = !ning && sonidos_ruta(sn_conf.esquema, sonidos_evento_id(i), ruta, sizeof ruta) == 0;
+        ui_gris = !tiene;
+        if (ui_boton(XR - 84, cy, 80, N_("Probar"), false) && tiene) { sn_probar(i); ui_mudou = true; }
+        ui_gris = false;
+        cy += 28;
+    }
+    if (!ui_ev) ui_grupo(g3, cy - g3 + 4, N_("Eventos"));
+    int fin = ui_parrafo(XL, cy + 12, w, _("Arranque, apagado y reinicio van desactivados de serie: el apagado espera hasta 3 s a que termine el sonido."), COR_TEXTO_FRACO);
+    cont_h = fin + 12;
+}
+
+PAGINA_UI(sonidos)
+
+/* Escritorio > Estilos (D428): los esquemas de apariencia de todo el sistema. Elegir uno lo aplica al momento (el kernel
+ * redibuja y las ventanas abiertas reciben EV_TEMA); «Personalizar» deja cambiar el color de cada elemento y guardar el
+ * resultado como esquema nuevo con nombre. */
+static const char *const nomes_esq[ESQ_QTD] = {
+    N_("SaguiOS"), N_("SaguiOS clásico"), N_("Desierto"), N_("Berenjena"), N_("Pizarra"), N_("Marino"), N_("Ladrillo"),
+    N_("Lluvia"), N_("Bosque"), N_("Alto contraste negro"), N_("Alto contraste blanco"), N_("Oscuro"), N_("Arce"), N_("Lavanda"),
+    N_("Océano"), N_("Cereza"), N_("Grafito"), N_("Nórdico"), N_("Terminal"), N_("Solarizado claro"), N_("Solarizado oscuro"),
+    N_("Alto contraste amarillo"),
+};
+static const char *const nomes_fonte[4] = { N_("Normal (SaguiOS)"), N_("Terminus"), N_("Terminus negrita"), N_("Fixed") };
+static const char *const nomes_elem[EE_QTD] = {
+    N_("Escritorio (arriba)"), N_("Escritorio (abajo)"), N_("Título activo (color 1)"), N_("Título activo (color 2)"),
+    N_("Texto del título activo"), N_("Título inactivo (color 1)"), N_("Título inactivo (color 2)"), N_("Texto del título inactivo"),
+    N_("Marco de la ventana"), N_("Ventana"), N_("Texto"), N_("Controles"), N_("Campo y lista"), N_("Texto del campo"),
+    N_("Selección"), N_("Texto de la selección"), N_("Menú"), N_("Texto del menú"), N_("Resaltado del menú"), N_("Barra de tareas"),
+    N_("Texto de la barra"), N_("Acento y foco"), N_("Información (tooltip)"), N_("Texto de información"), N_("Texto deshabilitado"),
+    N_("Barra de desplazamiento"),
+};
+#define EST_LISTA_MAX (ESQ_QTD + EST_GUARD_MAX)
+static lista_t lista_est, lista_elem;
+static char itens_est[EST_LISTA_MAX][64], itens_elem[EE_QTD][64];
+static esquema_t est_ini;         /* lo que había al abrir la ventana (Cancelar lo devuelve) */
+static bool est_ini_ok;
+static bool est_personal;         /* el modo «Personalizado» está abierto */
+static caixa_t c_est_nombre;
+static bool est_registrado;       /* la posición de la lista ya está en el registro (para las pruebas) */
+
+static void p_estilos(void)
+{
+    est_leer_vigente();
+    est_registrado = false;
+    est_ler_guardados();
+    lista_est.qtd = 0;
+    lista_est.sel = -1;
+    for (int i = 0; i < ESQ_QTD; i++) copia_texto(itens_est[lista_est.qtd++], _(nomes_esq[i]), 64);
+    for (int i = 0; i < est_nguard; i++) {
+        formatar_texto(itens_est[lista_est.qtd], 64, "%s *", est_guard[i].nome);
+        lista_est.qtd++;
+    }
+    if (est_vigente.id < ESQ_QTD) lista_est.sel = (int)est_vigente.id;
+    else for (int i = 0; i < est_nguard; i++)
+        if (memcmp(est_guard[i].v, est_vigente.v, sizeof est_vigente.v) == 0) lista_est.sel = ESQ_QTD + i;
+    lista_elem.qtd = EE_QTD;
+    for (int i = 0; i < EE_QTD; i++) copia_texto(itens_elem[i], _(nomes_elem[i]), 64);
+    if (lista_elem.sel < 0) lista_elem.sel = EE_TIT_A1;
+    if (!c_est_nombre.texto[0]) caixa_definir(&c_est_nombre, est_vigente.id == ESQ_PERSONAL ? est_vigente.nome : "");
+}
+
+static void est_elegir(int k)
+{
+    esquema_t e;
+    if (k < ESQ_QTD) esq_incluido(&e, k, k == ESQ_SAGUIOS ? (conf.acento != 0xFFFFFFFFu ? conf.acento : ACENTO_PADRAO) : 0xFFFFFFFFu);
+    else if (k - ESQ_QTD < est_nguard) e = est_guard[k - ESQ_QTD];
+    else return;
+    est_leer_vigente();
+    e.fonte = est_vigente.fonte;   /* la fuente es de la persona: cambiar de estilo no la toca */
+    est_aplicar(&e);
+    est_leer_vigente();
+    if (k < ESQ_QTD) dizer(_("Estilo aplicado."));
+    else dizer(_("Estilo personalizado aplicado."));
+}
+
+static void est_predet(void)
+{
+    est_elegir(ESQ_SAGUIOS);
+    lista_est.sel = ESQ_SAGUIOS;
+    est_personal = false;
+}
+
+/* El icono de cada fila de la lista de elementos: una muestra de su color. */
+static void est_muestra(jan_t *j, int x, int y, int item)
+{
+    (g_retangulo)(j, x + 1, y + 2, 14, 12, esq_dame(&est_vigente, item));
+    (g_moldura)(j, x + 1, y + 2, 14, 12, COR_BORDA);
+}
+
+static void est_guardar_nombre(void)
+{
+    int r = est_guardar_como(c_est_nombre.texto);
+    if (r == 1) { dizer(_("Escribe un nombre para el estilo.")); return; }
+    if (r == 2) { dizer(_("Ese nombre es de un estilo incluido.")); return; }
+    if (r == 3) { dizer(_("Hay demasiados estilos guardados: borra alguno.")); return; }
+    p_estilos();
+    for (int k = 0; k < est_nguard; k++) if (compara_texto(est_guard[k].nome, c_est_nombre.texto) == 0) lista_est.sel = ESQ_QTD + k;
+    dizer(_("Estilo guardado."));
+}
+
+static void est_borrar(void)
+{
+    int k = lista_est.sel - ESQ_QTD;
+    if (k < 0 || k >= est_nguard) return;
+    for (int i = k; i < est_nguard - 1; i++) est_guard[i] = est_guard[i + 1];
+    est_nguard--;
+    est_gravar_guardados();
+    p_estilos();
+    lista_est.sel = -1;
+    dizer(_("Estilo borrado."));
+}
+
+static void est_inicio_sesion(void)
+{
+    char t[2048];
+    int n = formatar_texto(t, sizeof t, "# Estilo de la pantalla de inicio de sesión (D428)\n");
+    n += esq_para_texto(&est_vigente, t + n, (int)sizeof t - n);
+    int r = maquina_gravar_arquivo(MAQ_ESTILO, t, n, "cambiar el estilo de la pantalla de inicio de sesión");
+    if (r < 0) { dizer(_("No se pudo guardar el estilo de la pantalla de inicio.")); return; }
+    esquema_op(ESQ_OP_FIJAR_LOGIN, &est_vigente, sizeof est_vigente);
+    dizer(_("Este estilo también se usa en la pantalla de inicio de sesión."));
+}
+
+static void pg_estilos(void)
+{
+    int w = XR - XL;
+    int y = ui_parrafo(XL, 26, w, _("Un estilo cambia a la vez las ventanas, los menús, los botones, los campos, la barra de tareas y el escritorio. Se aplica al elegirlo."), COR_TEXTO);
+    y += 4;
+    bool lado = w >= 520;                      /* lista y miniatura lado a lado, o una debajo de la otra */
+    int lw = lado ? 196 : w, ly = y;
+    lista_est.x = XL; lista_est.y = ly; lista_est.l = lw; lista_est.a = lado ? 204 : 164;   /* altura fija (con barra de desplazamiento): caben los botones y la fuente a 800x600 */
+    if (!ui_ev && !est_registrado) { est_registrado = true; registrar("configuracion: estilos lista x=%d y=%d", lista_est.x, lista_est.y); }
+    if (!ui_ev) lista_desenhar(jn, &lista_est);
+    else {
+        int at = lista_tratar(jn, &lista_est, ui_ev);
+        if (at == LISTA_SELECIONOU || at == LISTA_ATIVOU) { est_elegir(lista_est.sel); ui_mudou = true; return; }
+    }
+    int px = lado ? XL + lw + 4 : XL, py = lado ? ly : ly + lista_est.a + 8;
+    if (!ui_ev) {
+        esq_vista_previa(jn, px + OX, py + OY, 320, 200, &est_vigente);
+        g_moldura(jn, px - 1, py - 1, 322, 202, COR_BORDA);
+        char nt[ESQ_NOME_MAX + 24];
+        formatar_texto(nt, sizeof nt, "%s", est_vigente.id < ESQ_QTD ? _(nomes_esq[est_vigente.id]) : est_vigente.nome);
+        g_texto_n(jn, px, py + 206, nt, 38, COR_TEXTO_FRACO);
+    }
+    y = (lado ? ly + 204 : py + 200) + 26;   /* deja sitio al nombre bajo la miniatura */
+    if (!lado) y += 22;
+    if (ui_boton(XL, y, 170, est_personal ? N_("Cerrar personalizar") : N_("Personalizar..."), est_personal)) { est_personal = !est_personal; ui_mudou = true; return; }
+    if (ui_boton(XL + 180, y, 270, N_("Usar en el inicio de sesión"), false)) { est_inicio_sesion(); ui_mudou = true; return; }
+    y += 34;
+    /* D428: la fuente del sistema (kernel y libsagui), en vivo; va con el estilo y se guarda por cuenta */
+    if (!ui_ev) g_texto(jn, XL, y, _("Fuente del sistema (se aplica en vivo):"), COR_TEXTO_FRACO);
+    static const int pos_fonte[4] = { 0, 170, 270, 440 };
+    for (int i = 0; i < 4; i++)
+        if (ui_opcion(XL + pos_fonte[i], y + 24, nomes_fonte[i], est_vigente.fonte == (uint32_t)i) && est_vigente.fonte != (uint32_t)i) {
+            esquema_t e = est_vigente;
+            e.fonte = (uint32_t)i;
+            est_aplicar(&e);
+            est_leer_vigente();
+            dizer(_("Fuente aplicada."));
+            ui_mudou = true;
+            return;
+        }
+    y += 56;
+    if (!est_personal) {
+        if (!ui_ev) ui_grupo(0, y - 4, N_("Estilos"));
+        cont_h = y + 6;
+        return;
+    }
+    /* modo Personalizado: elegir un elemento, cambiar su color y guardarlo */
+    int gy = y;
+    y += 26;
+    lista_elem.x = XL; lista_elem.y = y; lista_elem.l = 230; lista_elem.a = 176; lista_elem.icone = est_muestra;
+    if (!ui_ev) lista_desenhar(jn, &lista_elem);
+    else if (lista_tratar(jn, &lista_elem, ui_ev)) ui_mudou = true;
+    int rx = XL + 244;
+    uint32_t cor = esq_dame(&est_vigente, lista_elem.sel);
+    if (!ui_ev) {
+        char hx[24];
+        g_retangulo(jn, rx, y, 60, 40, cor);
+        g_moldura(jn, rx, y, 60, 40, COR_BORDA);
+        formatar_texto(hx, sizeof hx, "#%06x", cor & 0xFFFFFF);
+        g_texto(jn, rx + 70, y + 12, hx, COR_TEXTO);
+    }
+    if (ui_boton(rx, y + 50, 150, N_("Cambiar color..."), false)) {
+        uint32_t nuevo = cor;
+        if (dialogo_cor(_("Color del elemento"), &nuevo)) {
+            esquema_t e = est_vigente;
+            esq_poner(&e, lista_elem.sel, nuevo);
+            copia_texto(e.nome, c_est_nombre.texto[0] ? c_est_nombre.texto : "Personal", sizeof e.nome);
+            est_aplicar(&e);
+            est_leer_vigente();
+            lista_est.sel = -1;
+        }
+        ui_mudou = true;
+        return;
+    }
+    if (!ui_ev) g_texto(jn, rx, y + 88, _("Nombre del estilo:"), COR_TEXTO_FRACO);
+    c_est_nombre.x = rx; c_est_nombre.y = y + 108; c_est_nombre.l = XR - rx; c_est_nombre.foco = true;
+    if (!ui_ev) caixa_desenhar(jn, &c_est_nombre);
+    else if (caixa_tratar(jn, &c_est_nombre, ui_ev)) { est_guardar_nombre(); ui_mudou = true; return; }
+    if (ui_boton(rx, y + 140, 150, N_("Guardar estilo"), false)) { est_guardar_nombre(); ui_mudou = true; return; }
+    bool propio = lista_est.sel >= ESQ_QTD;
+    ui_gris = !propio;
+    if (ui_boton(rx + 158, y + 140, 100, N_("Borrar"), false) && propio) { est_borrar(); ui_gris = false; ui_mudou = true; return; }
+    ui_gris = false;
+    y += 184;
+    if (!ui_ev) ui_grupo(gy - 4, y - gy + 4, N_("Personalizado"));
+    cont_h = y + 6;
+}
+
+PAGINA_UI(estilos)
 
 static void p_tela(void) { ler_modos_video(); }
 static void p_acel(void)
@@ -4308,6 +4973,9 @@ static void p_acel(void)
     registrar("configuracion: gpu energia soporte=%u modo=%u estado=%d motor=%u memoria=%u temp=%d zonas=%u vram=%u/%u", ac_en.soporte,
               ac_en.modo, ac_en.estado, ac_en.sclk_khz, ac_en.mclk_khz, ac_en.temp_mili_c, ac_en.n_zonas, ac_en.vram_usada_kb, ac_en.vram_kb);
 }
+static void p_energia(void) { en_preparar(); }
+static int iv_energia(void) { return en.salva_efecto ? 100 : 0; }   /* la vista previa se mueve */
+static bool tq_energia(void) { return en.salva_efecto != 0; }
 static void p_kernel(void) { kc_preparar(); registrar("configuracion: pantalla vista kernel"); }
 static void p_sonido(void) { mic_abrir(); }
 static void p_colores(void) { listar_imagens(); }
@@ -4356,16 +5024,19 @@ static const seccao_t seccoes[S_QTD] = {
     [S_SISTEMA]   = { "sistema", N_("Sistema"), "Sistema", 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
     [S_TELA]      = { "tela", N_("Pantalla"), "Pantalla", 1, p_tela, NULL, d_tela, t_tela, NULL, NULL, NULL, NULL },
     [S_ACEL]      = { "aceleracion", N_("Aceleración gráfica"), "Aceleración gráfica", 1, p_acel, NULL, d_acel, t_acel, acel_predet, NULL, NULL, NULL },
+    [S_ENERGIA]   = { "energia", N_("Energía y pantalla"), "Energía y pantalla", 1, p_energia, NULL, d_energia, t_energia, en_predet, NULL, iv_energia, tq_energia },
     [S_KERNEL]    = { "kernel", N_("Kernel"), "Kernel", 1, p_kernel, NULL, d_kernel, t_kernel, kc_predet, NULL, NULL, NULL },
     [S_ZONA]      = { "zona", N_("Fecha y hora"), "Fecha y hora", 1, NULL, NULL, d_zona, t_zona, NULL, NULL, NULL, NULL },
     [S_IDIOMA]    = { "idioma", N_("Idioma"), "Idioma", 1, NULL, NULL, d_idioma, t_idioma, predet_idioma, NULL, NULL, NULL },
     [S_USUARIOS]  = { "usuarios", N_("Usuarios"), "Usuarios", 1, p_usuarios, NULL, d_usuarios, t_usuarios, NULL, NULL, NULL, NULL },
     [S_ESCRITORIO] = { "escritorio-cat", N_("Escritorio"), "Escritorio", 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
     [S_COLORES]   = { "escritorio", N_("Colores y fondo"), "Escritorio", 1, p_colores, NULL, d_colores, t_colores, colores_predet, NULL, NULL, NULL },
+    [S_ESTILOS]   = { "estilos", N_("Estilos"), "Estilos", 1, p_estilos, NULL, d_estilos, t_estilos, est_predet, NULL, NULL, NULL },
     [S_BARRA]     = { "barra", N_("Barra y menú Inicio"), "Barra y menú Inicio", 1, p_barra, NULL, d_barra, t_barra, barra_predet, NULL, NULL, NULL },
     [S_WIDGETS]   = { "widgets", N_("Widgets"), "Widgets", 1, NULL, NULL, d_widgets, t_widgets, NULL, NULL, NULL, NULL },
     [S_FUENTES]   = { "fuentes", N_("Fuentes"), "Fuentes", 1, p_fuentes, NULL, d_fuentes, t_fuentes, fuentes_predet, NULL, NULL, NULL },
     [S_CAPTURAS]  = { "capturas", N_("Capturas"), "Capturas", 1, p_capturas, cap_sair, d_capturas, t_capturas, cap_predet, cap_aplicar, NULL, NULL },
+    [S_SONIDOS]   = { "sonidos", N_("Sonidos del sistema"), "Sonidos del sistema", 1, p_sonidos, NULL, d_sonidos, t_sonidos, sn_predet, NULL, NULL, NULL },
     [S_DISPOSITIVOS] = { "dispositivos", N_("Dispositivos"), "Dispositivos", 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
     [S_TECLADO]   = { "teclado", N_("Teclado"), "Teclado", 1, NULL, NULL, d_teclado, t_teclado, predet_teclado, NULL, NULL, NULL },
     [S_MANDOS]    = { "mandos", N_("Mandos"), "Mandos", 1, p_mandos, s_mandos, d_mandos, t_mandos, NULL, NULL, iv_mandos, tq_mandos },
@@ -4382,10 +5053,10 @@ static const seccao_t seccoes[S_QTD] = {
 static int seccion_por_nombre(const char *n)
 {
     static const struct { const char *alias; int s; } alias[] = {
-        { "pantalla", S_TELA }, { "resolucion", S_TELA }, { "aceleracion", S_ACEL }, { "gpu", S_ACEL }, { "fecha", S_ZONA },
-        { "hora", S_ZONA }, { "fondo", S_COLORES }, { "colores", S_COLORES }, { "fuente", S_FUENTES }, { "sonido", S_SONIDO },
+        { "pantalla", S_TELA }, { "salvapantallas", S_ENERGIA }, { "bateria", S_ENERGIA }, { "resolucion", S_TELA }, { "aceleracion", S_ACEL }, { "gpu", S_ACEL }, { "fecha", S_ZONA },
+        { "hora", S_ZONA }, { "fondo", S_COLORES }, { "colores", S_COLORES }, { "apariencia", S_ESTILOS }, { "esquemas", S_ESTILOS }, { "temas", S_ESTILOS }, { "fuente", S_FUENTES }, { "sonido", S_SONIDO },
         { "teclado", S_TECLADO }, { "mandos", S_MANDOS }, { "joystick", S_MANDOS }, { "usuarios", S_USUARIOS },
-        { "idioma", S_IDIOMA }, { "bloqueo", S_BLOQUEO }, { "escritorio-remoto", S_VNC }, { "kernel", S_KERNEL },
+        { "idioma", S_IDIOMA }, { "bloqueo", S_BLOQUEO }, { "escritorio-remoto", S_VNC }, { "kernel", S_KERNEL }, { "sonidos-sistema", S_SONIDOS }, { "sonidos-del-sistema", S_SONIDOS },
     };
     for (int i = 0; i < S_QTD; i++) if (compara_texto(n, seccoes[i].chave) == 0) return i;
     for (unsigned i = 0; i < sizeof alias / sizeof alias[0]; i++) if (compara_texto(n, alias[i].alias) == 0) return alias[i].s;
@@ -4520,7 +5191,10 @@ static void deshacer_apertura(void)
         info_aparencia_t ap;
         memset(&ap, 0, sizeof ap);
         info_sistema(INFO_APARENCIA, &ap, sizeof ap);
-        if (acento_ini && ap.acento != acento_ini) acento_cor((int)acento_ini);
+        esquema_t cur;
+        esquema_op(ESQ_OP_LER, &cur, sizeof cur);
+        if (est_ini_ok && (cur.id != est_ini.id || memcmp(cur.v, est_ini.v, sizeof cur.v) != 0)) est_aplicar(&est_ini);   /* D428 */
+        else if (acento_ini && ap.acento != acento_ini) acento_cor((int)acento_ini);
     }
     if (compara_texto(conf.idioma, conf0.idioma) != 0 && conf0.idioma[0]) idioma_fijar(conf0.idioma);
     if (compara_texto(conf.fundo, conf0.fundo) != 0 || conf.modo != conf0.modo) fundo_aplicar(conf0.fundo, conf0.fundo[0] ? conf0.modo : M_DEGRADE);
@@ -4650,6 +5324,7 @@ static bool roda_en_lista(const evento_t *el)
     else if (pagina == S_VNC) ls[0] = &lista_vnc;
     else if (pagina == S_IA) { ls[0] = &lista_prov; ls[1] = &lista_mod; }
     else if (pagina == S_COLORES) ls[0] = &lista_img;
+    else if (pagina == S_ESTILOS) { ls[0] = &lista_est; ls[1] = est_personal ? &lista_elem : NULL; }
     for (int i = 0; i < 3; i++) if (ls[i] && dentro(el, ls[i]->x, ls[i]->y, ls[i]->l, ls[i]->a)) return true;
     return false;
 }
@@ -4691,6 +5366,8 @@ static int janela(int sec_inicial)
         memset(&ap, 0, sizeof ap);
         info_sistema(INFO_APARENCIA, &ap, sizeof ap);
         acento_ini = ap.acento;
+        esquema_op(ESQ_OP_LER, &est_ini, sizeof est_ini);   /* D428: el esquema de antes, para Cancelar */
+        est_ini_ok = true;
         teclado_ini = teclado_layout(-1);
         volumen_ini = audio_volume_mestre(-1);
         silencio_ini = audio_silencio(-1) > 0;
@@ -4705,6 +5382,8 @@ static int janela(int sec_inicial)
     lista_zona = (lista_t){ 24, Y_PAG + 34, 200, 100, itens_zona, 0, -1, 0, NULL };
     lista_modo = (lista_t){ 24, 40, 200, 100, itens_modo, 0, -1, 0, NULL };
     lista_img = (lista_t){ XL, 0, 200, 100, itens_img, 0, -1, 0, NULL };
+    lista_est = (lista_t){ XL, 0, 170, 200, itens_est, 0, -1, 0, NULL };   /* D428 */
+    lista_elem = (lista_t){ XL, 0, 230, 176, itens_elem, 0, -1, 0, NULL };
     /* La página de la IA (D145): las seis cajas, las dos listas y los botones. */
     c_ia[1].oculta = true;
     lista_prov = (lista_t){ 24, Y_PAG + 24, 190, 220, itens_prov, 0, -1, 0, NULL };
@@ -4732,6 +5411,7 @@ static int janela(int sec_inicial)
         if (e.tipo == EV_FECHAR) { aceptar = true; break; }   /* cerrar con la X = Aceptar: lo cambiado ya está aplicado */
         if (jan_redimensionar(jn, &e)) { layout(); desenhar(); continue; }
         if (e.tipo == EV_TELA) { ler_modos_video(); desenhar(); continue; }
+        if (e.tipo == EV_TEMA) { est_leer_vigente(); desenhar(); continue; }   /* D428: otro esquema: los colores ya están recargados */
         bool mudou = false;
         OX = OY = 0;
         /* el árbol (el teclado solo si lo tiene) */

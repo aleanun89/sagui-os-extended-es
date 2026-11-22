@@ -69,6 +69,7 @@ static const chamada_t tabela[SIS_MAX] = {
     [SIS_MOVER_JANELA] = sis_mover_janela,   /* D102 */
     [SIS_FREQUENCIA] = sis_frequencia,       /* D106 */
     [SIS_FUNDO] = sis_fundo, [SIS_ACENTO] = sis_acento,   /* D112 */
+    [SIS_ESQUEMA] = sis_esquema,   /* D428 */
     [SIS_MENU_CONTEXTUAL] = sis_menu_contextual,
     [SIS_MODOS_VIDEO] = sis_modos_video, [SIS_MUDAR_MODO] = sis_mudar_modo,
     [SIS_GRUPO] = sis_grupo,             [SIS_INTERRUPCOES] = sis_interrupcoes,

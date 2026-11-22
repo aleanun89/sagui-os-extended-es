@@ -206,10 +206,16 @@ uint32_t rede_tsc_khz(void) { return hw_tsc_khz(); }
 
 /* ------------------------------------------------------------ Ethernet */
 
+/* D437: el último ip_enviar no salió porque la tarjeta (o la cola del lo o del túnel) estaba
+ * llena. ip_enviar devuelve true en ese caso (la trama «salió» hacia el cable, como siempre);
+ * el TCP lo pregunta para no dar el segmento por enviado y esperar a que haya hueco. */
+static bool envio_recusado;
+bool rede_envio_recusado(void) { return envio_recusado; }
+
 static bool quadro_enviar(const uint8_t *q, uint32_t n)
 {
     if (!tem_placa || desativada) return false;
-    if (!placa.enviar(q, n)) { placa.tx_erros++; return false; }
+    if (!placa.enviar(q, n)) { placa.tx_erros++; envio_recusado = true; return false; }
     placa.tx_pacotes++;
     placa.tx_bytes += n;
     return true;
@@ -354,6 +360,7 @@ static void lo_processar(void)
 bool ip_enviar(uint32_t destino, uint8_t protocolo, uint32_t n)
 {
     static uint16_t ident;
+    envio_recusado = false;
     bool local = rede_eh_local(destino);
     bool tunel = !local && pelo_tunel(destino);
     if ((!tem_placa && !local && !tunel) || n > ETH_MAX - 34) return false;
@@ -936,10 +943,18 @@ static void ip_chegou(const uint8_t *h, uint32_t n, int de)
     else if (h[9] == IP_TCP && (eh_meu(destino) || para_lo)) tcp_receber(origem, destino, c, t);
 }
 
-static void processar_chegadas(void)
+/* D437: se vacía la tarjeta en cada vuelta, con un tope (un anillo) para no tener el sistema
+ * parado; si se llega al tope, la tarea de la red vuelve enseguida (cediendo antes el turno)
+ * en vez de esperar al tic siguiente. Estadística para «[REDE] rx ...» (cada 10 s con tráfico). */
+#define RX_POR_VOLTA   64
+#define VOLTAS_SEGUIDAS 4
+static uint32_t est_voltas, est_quadros, est_max_volta, est_topes;
+
+static int processar_chegadas(void)
 {
-    if (!tem_placa) return;
-    for (int k = 0; k < 64; k++) {     /* no máximo um anel por vez, para não segurar o sistema */
+    if (!tem_placa) return 0;
+    int k;
+    for (k = 0; k < RX_POR_VOLTA; k++) {
         int n = placa.receber(chegada);
         if (n == 0) break;
         if (n < 14 || n > ETH_MAX) { placa.rx_erros++; continue; }
@@ -961,6 +976,13 @@ static void processar_chegadas(void)
                       chegada, (uint32_t)n);
         }
     }
+    if (k) {
+        est_voltas++;
+        est_quadros += (uint32_t)k;
+        if ((uint32_t)k > est_max_volta) est_max_volta = (uint32_t)k;
+        if (k == RX_POR_VOLTA) est_topes++;
+    }
+    return k;
 }
 
 /* ------------------------------------------------------------ interrupção e tarefa */
@@ -989,7 +1011,7 @@ static quadro_t *ao_irq(quadro_t *q)
         for (int k = 0; k < 64 && placa_eth.receber(lixo) != 0; k++) { }
         return q;
     }
-    processar_chegadas();
+    if (processar_chegadas() == RX_POR_VOLTA) acordar(&canal_rede);   /* D437: queda más: la tarea sigue */
     if (processo_atual() && processo_atual()->pid == 0) return escalonar(q);   /* o ocioso cede logo a quem acordou */
     return q;
 }
@@ -1008,13 +1030,32 @@ static void amostrar_trafego(void)
     trafego_tx_ant = placa.tx_bytes;
 }
 
+/* D437: cada 10 s con tráfico, una línea en el registro para medir en una máquina real (dmesg). */
+static void registrar_trafego(void)
+{
+    static uint32_t marca_rx, marca_tx, marca_voltas, marca_quadros, marca_topes, segundos;
+    if (++segundos < 10) return;
+    segundos = 0;
+    uint32_t drx = placa.rx_bytes - marca_rx, dtx = placa.tx_bytes - marca_tx;
+    if (drx + dtx >= 64 * 1024 && tem_placa) {
+        uint32_t v = est_voltas - marca_voltas, q = est_quadros - marca_quadros;
+        klog("[REDE] rx %u KB/s, tx %u KB/s; %u tramas en %u vueltas (media %u, hasta %u por vuelta; tope %u: %u veces)%s\n",
+             drx / 10240, dtx / 10240, q, v, v ? q / v : 0, est_max_volta, RX_POR_VOLTA, est_topes - marca_topes,
+             usa_irq ? "" : ", por sondeo");
+        est_max_volta = 0;
+    }
+    marca_rx = placa.rx_bytes; marca_tx = placa.tx_bytes;
+    marca_voltas = est_voltas; marca_quadros = est_quadros; marca_topes = est_topes;
+}
+
 static void tarefa_rede(void *arg)
 {
     (void)arg;
     uint32_t proximo_segundo = agora() + TIQUES_POR_SEGUNDO;
+    int seguidas = 0;
     for (;;) {
         int_desliga();
-        processar_chegadas();
+        int chegaram = processar_chegadas();
         lo_processar();
         tunel_processar();
         arp_tique();
@@ -1024,7 +1065,16 @@ static void tarefa_rede(void *arg)
             irq_alheias = 0;
             proximo_segundo = agora() + TIQUES_POR_SEGUNDO;
             amostrar_trafego();
+            registrar_trafego();
         }
+        if (chegaram == RX_POR_VOLTA && seguidas < VOLTAS_SEGUIDAS) {
+            /* D437: la tarjeta tenía más: otra vuelta en cuanto los demás hayan tenido su turno. */
+            seguidas++;
+            ceder();
+            int_liga();
+            continue;
+        }
+        seguidas = 0;
         processo_atual()->acordar_em = agora() + 1;
         bloquear(&canal_rede);
         ceder();

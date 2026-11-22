@@ -7,6 +7,7 @@
  * (entrar, donde, eco, limpiar, matar; y los de antes en portugués: onde, limpar,
  * sair) llegan aquí por la tabla de ayuda.c. */
 #include "sagsh.h"
+#include "sonidos.h"
 
 static int fontes;   /* profundidad de "source": return vale allí dentro */
 
@@ -78,12 +79,25 @@ static int i_limpar(int argc, char **argv)
     return 0;
 }
 
+/* D450: «reiniciar acpi|teclado|cf9|triple» empieza por ese método (para saber cuál vale en
+ * una máquina); los demás siguen después si no reinicia. */
 static int i_reiniciar(int argc, char **argv)
 {
-    (void)argc; (void)argv;
+    static const char *const metodos[] = { "auto", "acpi", "teclado", "cf9", "triple" };
+    int m = REINICIO_AUTO;
+    if (argc > 1) {
+        m = -1;
+        for (int i = 0; i < 5; i++)
+            if (compara_texto(argv[1], metodos[i]) == 0) m = i;
+        if (m < 0) {
+            imprimir_em(ERROS, "uso: reiniciar [auto|acpi|teclado|cf9|triple]\n");
+            return 2;
+        }
+    }
     sai("Reiniciando...\n");
+    sonido_evento_esperar("reiniciar", SON_APAGADO_MAX_MS);   /* D421: con plazo; sin sonido no espera */
     dormir(200);
-    int r = reiniciar();   /* D255: solo vuelve si se negó (servicio o SSH sin ser root) */
+    int r = reiniciar_metodo(m);   /* D255: solo vuelve si se negó (servicio o SSH sin ser root) */
     imprimir_em(ERROS, "reiniciar: %s\n", nome_erro(r));
     return 1;
 }
@@ -94,6 +108,7 @@ static int i_apagar_pc(int argc, char **argv)
 {
     (void)argc; (void)argv;
     sai("Apagando...\n");
+    sonido_evento_esperar("apagar", SON_APAGADO_MAX_MS);   /* D421 */
     dormir(200);
     int r = desligar();   /* D255: solo vuelve si se negó */
     imprimir_em(ERROS, "apagar-pc: %s\n", nome_erro(r));

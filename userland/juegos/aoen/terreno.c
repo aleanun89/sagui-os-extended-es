@@ -9,6 +9,7 @@
 #include "ui.h"
 #include "efectos.h"
 #include "hilos.h"
+#include "gpu.h"
 
 Sprite *terrain_sprite(int kind, int variant);
 
@@ -254,4 +255,42 @@ void render_terrain_tiles(int x0, int x1, int y0, int y1, float time) {
 	}
 	f.vis = vis_buf; f.nvis = nv;
 	hilos_repartir(franja, &f, hilos_partes());
+}
+
+/* ---------- D436: las losetas por la GPU ----------
+ * Cada casilla visible es un rombo con su loseta del atlas (los vértices, en coma flotante desde la vista: rombos vecinos
+ * comparten vértices y no quedan rendijas) y la luz de la niebla en las esquinas: con «Niebla suave», la de cada esquina
+ * (vertice(), como la CPU); sin ella, toda la casilla a la luz de su paleta (130/256 en lo explorado). Las transiciones y el
+ * agua animada de la CPU no están (D436: diferencias conocidas). */
+static inline void pantalla_f(float wx, float wy, float *x, float *y) {
+	*x = V.sw * 0.5f + ((wx + wy) * 32.0f - V.cx) * V.zoom + 0.5f;
+	*y = V.sh * 0.5f + ((wx - wy) * 16.0f - V.cy) * V.zoom + 0.5f;
+}
+
+void render_terrain_tiles_gpu(int x0, int x1, int y0, int y1) {
+	int sc = (int)(V.zoom * 256) + (V.zoom == 1.0f ? 0 : 1), tw = (int)(32 * V.zoom), th = (int)(16 * V.zoom);
+	for (int k = 0; k < 4; ++k) for (int v = 0; v < 9; ++v) gpu_loseta_preparar(terrain_sprite(k, v));
+	for (int y = y0; y <= y1; ++y) {
+		for (int x = x0; x <= x1; ++x) {
+			int i = y * W.w + x;
+			u8 fg = W.fog[i];
+			if (!fg) continue;
+			int sx, sy;
+			view_to_screen(x + 0.5f, y + 0.5f, &sx, &sy);
+			if (sx < -tw * 2 || sx > V.sw + tw * 2 || sy < -th * 2 || sy > V.sh + th * 2) continue;
+			int kind = W.tile[i];
+			const Sprite *sp = terrain_sprite(kind, kind >= TILE_WATER ? 0 : W.variant[i] % 9);
+			if (!sp || !sp->px) continue;
+			int ox = sx - tw - ((sp->hx * sc) >> 8), oy = sy - th - ((sp->hy * sc) >> 8);
+			float px[4], py[4];
+			pantalla_f((float)x, (float)y, &px[0], &py[0]);           /* izquierda */
+			pantalla_f((float)x + 1, (float)y, &px[1], &py[1]);       /* abajo */
+			pantalla_f((float)x, (float)y + 1, &px[2], &py[2]);       /* arriba */
+			pantalla_f((float)x + 1, (float)y + 1, &px[3], &py[3]);   /* derecha */
+			int l[4];
+			if (efx.niebla) { l[0] = vertice(x, y); l[1] = vertice(x + 1, y); l[2] = vertice(x, y + 1); l[3] = vertice(x + 1, y + 1); }
+			else l[0] = l[1] = l[2] = l[3] = fg == 2 ? 256 : 130;
+			gpu_loseta(sp, ox, oy, sc, px, py, l);
+		}
+	}
 }

@@ -318,6 +318,11 @@ int principal(int argc, char **argv)
     if (v.us_autoprova) imprimir("  autoprueba: %u us\n", v.us_autoprova);
     imprimir("  triangulos %u en %u entregas, cuadros %u, fallos %u, peticiones no atendidas %u\n",
              v.triangulos, v.lotes, v.quadros, v.falhas, v.recusas);
+    /* D432: presentar sin volver a la RAM. */
+    if (v.estado == GPU3D_ATIVO)
+        imprimir("  presentar en la pantalla (D432): %s; %u cuadros directos, %u por la RAM; pantalla en exclusiva: %s\n",
+                 v.reservado[1] & G3D_CAP_APRESENTAR ? "si" : "no", v.reservado[3], v.reservado[4],
+                 v.reservado[5] ? "una ventana la tiene" : "nadie");
     if (v.pontos) imprimir("  ultima medida: %u triangulos/s, %u kpix/s, %u puntos\n", v.tri_s, v.kpix_s, v.pontos);
     return 0;
 }

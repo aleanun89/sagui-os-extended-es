@@ -20,7 +20,7 @@ msgstr ""
 msgid "Aviso:"
 msgstr ""
 
-#: userland/programas/calculadora.c:255
+#: userland/programas/calculadora.c:264
 msgid "Calculadora"
 msgstr ""
 

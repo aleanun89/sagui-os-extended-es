@@ -1,25 +1,41 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* AoEN, copyright de su autor (el mantenedor de SaguiOS-Extended); GPL v3 o posterior. Port a SaguiOS: D382. */
-/* Sonido: decodifica los WAV originales, mezcla hasta 24 voces por software y las reproduce con el audio de SDL. */
+/* Sonido: decodifica los WAV originales y los dispara en el mezclador (mezcla.c, hasta 24 voces por software). El audio va por
+ * su cuenta, no por cuadros (D431): en el PC lo llama la SDL desde su hilo de audio con un búfer de ~93 ms; en SaguiOS lo
+ * mezcla un hilo propio al ritmo de la tarjeta, por delante de la latencia del kernel (D436: 60 ms más, como mínimo 150), con
+ * «alta prioridad de audio» opcional (PLAN_AUDIO). El hilo del juego solo deja eventos en una cola. */
 #include "ui.h"
 #include "config.h"
+#include "mezcla.h"
+#include "gpu.h"
+#ifdef SAGUI_AOEN
+#include "sagui.h"
+#endif
 
-#define RATE 44100
-#define MAX_VOICES 24
+#define RATE MEZCLA_RATE
 #define MAX_SOUNDS 512
+#define BLOQUE 4096            /* cuadros por llamada de la SDL en el PC (~93 ms) */
+#define BLOQUE_HILO 1024       /* cuadros por bloque del hilo propio (~23 ms) */
+#define ADELANTO_MS 150        /* lo que el hilo propio deja por delante en el flujo del sistema (como mínimo) */
+#define ADELANTO_EXTRA_MS 60   /* D436: lo que va por delante de lo que el kernel ya mezcló en la tarjeta */
+#define ADELANTO_EXTRA_GPU_MS 100   /* D436: lo mismo con el dibujo por GPU (el hilo principal pasa casi todo en el kernel) */
 
 typedef struct { int id; int16_t *pcm; int n; } Sound; /* mono, RATE */
-typedef struct { const int16_t *pcm; int n, pos; float vl, vr; int loop; } Voice;
 
+#ifndef SAGUI_AOEN
 static SDL_AudioDeviceID dev;
+#endif
 static Drs d_sounds, d_ui;
 static int have_sounds, have_ui;
 static Sound sounds[MAX_SOUNDS];
 static int nsounds;
-static Voice voices[MAX_VOICES];
 static float vol_sfx = 0.8f, vol_amb = 0.4f;
 static char amb_dir[1200];
 static float amb_timer = 6.0f;
+static int audio_vivo;                              /* hay salida de audio (tarjeta, dispositivo de la SDL o mudo con hilo) */
+static Uint32 est_ult, est_hueco_max;               /* reloj de la última mezcla y mayor hueco entre dos */
+static long est_vacios;                             /* veces que la tarjeta se quedó sin datos antes de tiempo */
+static const char *grab_ruta;
 static Sound amb_cache[24]; static char amb_names[24][16]; static int amb_count;
 
 static u32 rd32(const u8 *p) { return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24); }
@@ -87,28 +103,124 @@ static Sound *get_sound(int id) {
 	return s->pcm ? s : NULL;
 }
 
+/* medida de continuidad: el mayor hueco entre dos mezclas seguidas */
+static void anotar_mezcla(void) {
+	Uint32 ahora = SDL_GetTicks();
+	if (est_ult && ahora - est_ult > est_hueco_max) est_hueco_max = ahora - est_ult;
+	est_ult = ahora;
+}
+
+#ifndef SAGUI_AOEN
+/* llamada de vuelta de la SDL: el hilo de audio de la SDL, al ritmo del dispositivo */
 static void mix(void *ud, Uint8 *stream, int len) {
-	int16_t *out = (int16_t *)stream;
-	int frames = len / 4;
-	for (int i = 0; i < frames * 2; ++i) out[i] = 0;
+	(void)ud;
+	anotar_mezcla();
+	mezcla_render((int16_t *)stream, len / 4);
+}
+#else
+static SDL_Thread *hilo_audio;
+static volatile int hilo_parar;
+static int fd_audio = -1;
 
-	music_render(out, frames);
+/* D436 (audio con el dibujo por GPU): lo que dice el kernel de su mezclador. audio_pendente() cuenta lo que queda en el
+ * flujo MÁS lo que el kernel ya mezcló en el anillo de la tarjeta, y el kernel va «latencia» por delante de la tarjeta:
+ * 100 ms, pero 20 ms más tras cada corte (hasta 300). Con un adelanto fijo de 150 ms, en cuanto la latencia pasaba de
+ * 150 el flujo se quedaba vacío en cada tic del kernel, que rellenaba con silencio: chasquidos sin parar (en el Amilo,
+ * 20 s «sin datos del programa» en 45 s de partida) y el contador de antes no lo veía (miraba pend <= 0). Ahora el
+ * adelanto es la latencia del kernel + ADELANTO_EXTRA_MS, y «sin datos» cuenta las veces que el flujo propio estaba
+ * vacío (lo pendiente no llegaba ni a la latencia del kernel). */
+static int lat_kernel_ms = 100;
+static unsigned falhas_kernel0, falhas_kernel;
+static Uint32 lat_visto;
+static volatile int alta_prio_ok;   /* D436: 0 apagada, 1 activa, -1 pedida y el kernel no la tiene (anterior a la D436) */
+static volatile int prio_cfg = -1;  /* «Alta prioridad de audio»: 1 sí, 0 no, -1 automática (sí con el dibujo por GPU) */
 
-	for (int v = 0; v < MAX_VOICES; ++v) {
-		Voice *vo = &voices[v];
-		if (!vo->pcm) continue;
-		for (int i = 0; i < frames; ++i) {
-			if (vo->pos >= vo->n) {
-				if (vo->loop) vo->pos = 0;
-				else { vo->pcm = NULL; break; }
-			}
-			int s = vo->pcm[vo->pos++];
-			int l = out[i * 2] + (int)(s * vo->vl), r = out[i * 2 + 1] + (int)(s * vo->vr);
-			out[i * 2] = (int16_t)CLAMP(l, -32768, 32767);
-			out[i * 2 + 1] = (int16_t)CLAMP(r, -32768, 32767);
+static void ler_kernel_audio(void) {
+	static info_audio_t ia;   /* grande (los flujos y las salidas): fuera de la pila del hilo */
+	if (info_sistema(INFO_AUDIO, &ia, sizeof ia) < 0 || ia.estado != AUDIO_FUNCIONANDO) return;
+	lat_kernel_ms = (int)CLAMP((int)ia.latencia_ms, 10, 1000);
+	if (!lat_visto) falhas_kernel0 = ia.falhas;
+	falhas_kernel = ia.falhas - falhas_kernel0;
+}
+
+int audio_adelanto_ms(void) { return MAX(ADELANTO_MS, lat_kernel_ms + (gpu_pedido ? ADELANTO_EXTRA_GPU_MS : ADELANTO_EXTRA_MS)); }
+int audio_latencia_kernel_ms(void) { return lat_kernel_ms; }
+long audio_sin_datos(void) { return est_vacios; }
+unsigned audio_hueco_max(void) { return est_hueco_max; }
+unsigned audio_cortes_kernel(void) { return falhas_kernel; }
+int audio_alta_prioridad(void) { return alta_prio_ok; }
+int audio_prioridad_opcion(void) { return prio_cfg < 0 ? gpu_pedido : prio_cfg; }
+void audio_prioridad_elegir(int si) { prio_cfg = si ? 1 : 0; }
+
+/* el propio hilo de audio la pide o la suelta (PLAN_AUDIO solo vale para el hilo que llama) */
+static void prioridad_aplicar(int *aplicada) {
+	int quer = audio_prioridad_opcion();
+	if (quer == *aplicada) return;
+	*aplicada = quer;
+	int r = planificador_hilo_audio(quer);
+	alta_prio_ok = r < 0 ? (quer ? -1 : 0) : quer;
+	AOEN_LOG("[AOEN] audio: alta prioridad del hilo %s", r < 0 ? (quer ? "no disponible (el kernel no la tiene)" : "apagada")
+	         : quer ? "encendida" : "apagada");
+}
+
+/* cada 10 s, si algo cambió: lo que se escribía solo al salir (con kill no se escribía) */
+static void informe_periodico(Uint32 ahora) {
+	static Uint32 ult;
+	static long vac_ult = -1;
+	static unsigned hueco_ult, falhas_ult;
+	if (ult && ahora - ult < 10000) return;
+	ult = ahora;
+	if (vac_ult == est_vacios && hueco_ult == est_hueco_max && falhas_ult == falhas_kernel) return;
+	vac_ult = est_vacios; hueco_ult = est_hueco_max; falhas_ult = falhas_kernel;
+	AOEN_LOG("[AOEN] audio: hasta ahora sin datos %ld veces, hueco máximo %u ms; kernel: latencia %d ms, %u cortes de la tarjeta; "
+	         "por delante %d ms; alta prioridad %s", est_vacios, (unsigned)est_hueco_max, lat_kernel_ms, falhas_kernel,
+	         audio_adelanto_ms(), alta_prio_ok > 0 ? "sí" : alta_prio_ok < 0 ? "no disponible" : "no");
+}
+
+/* hilo propio: mezcla en cuanto la tarjeta tiene sitio, sin esperar a ningún cuadro del juego */
+static int hilo_audio_fn(void *arg) {
+	(void)arg;
+	static int16_t buf[BLOQUE_HILO * 2];
+	Uint32 marca = SDL_GetTicks();
+	long credito = 0;   /* sin tarjeta: cuadros que tocaba haber mezclado según el reloj, en milésimas de cuadro */
+	int vacio_antes = 0, prio_aplicada = 0, lleno = 0;
+	while (!hilo_parar) {
+		prioridad_aplicar(&prio_aplicada);
+		if (fd_audio >= 0) {
+			Uint32 ahora = SDL_GetTicks();
+			if (!lat_visto || ahora - lat_visto >= 500) { ler_kernel_audio(); lat_visto = ahora ? ahora : 1; informe_periodico(ahora); }
+			int pend = audio_pendente(fd_audio);
+			if (pend >= audio_adelanto_ms() || audio_livre(fd_audio) < BLOQUE_HILO * 4) { lleno = 1; SDL_Delay(5); continue; }
+			/* el flujo propio, vacío: el kernel ya está metiendo silencio (una vez por racha; al empezar, hasta llenarlo
+			 * la primera vez, es lo normal) */
+			int vacio = lleno && pend + 5 < lat_kernel_ms;
+			if (vacio && !vacio_antes) ++est_vacios;
+			vacio_antes = vacio;
+			anotar_mezcla();
+			mezcla_render(buf, BLOQUE_HILO);
+			audio_escrever(fd_audio, buf, BLOQUE_HILO * 4);
+		} else {
+			/* sin tarjeta: se mezcla (y se tira) al ritmo del reloj, para que lo demás (grabación, eventos) funcione igual */
+			Uint32 ahora = SDL_GetTicks();
+			credito += (long)(ahora - marca) * RATE / 1000; marca = ahora;
+			while (credito >= BLOQUE_HILO) { anotar_mezcla(); mezcla_render(buf, BLOQUE_HILO); credito -= BLOQUE_HILO; }
+			SDL_Delay(5);
 		}
 	}
+	if (prio_aplicada) planificador_hilo_audio(0);
+	return 0;
 }
+#endif
+#ifndef SAGUI_AOEN
+int audio_adelanto_ms(void) { return 0; }
+int audio_latencia_kernel_ms(void) { return 0; }
+long audio_sin_datos(void) { return 0; }
+unsigned audio_hueco_max(void) { return est_hueco_max; }
+unsigned audio_cortes_kernel(void) { return 0; }
+int audio_alta_prioridad(void) { return 0; }
+int audio_prioridad_opcion(void) { return 0; }
+void audio_prioridad_elegir(int si) { (void)si; }
+#endif
 
 static int open_data_drs(Drs *d, const char *dir, const char *name) {
 	char p[1200], low[64];
@@ -121,46 +233,82 @@ static int open_data_drs(Drs *d, const char *dir, const char *name) {
 	return drs_open(d, p);
 }
 
-static void play(Sound *s, float vol, float pan, int loop, int slot) {
-	if (!dev || !s) return;
-	SDL_LockAudioDevice(dev);
-	int v = slot;
-	if (v < 0) {
-		for (int i = 0; i < MAX_VOICES; ++i) if (!voices[i].pcm) { v = i; break; }
-		/* todas ocupadas: no quita ninguna, descarta el sonido */
-	}
-	if (v >= 0) {
-		voices[v].pcm = s->pcm; voices[v].n = s->n; voices[v].pos = 0; voices[v].loop = loop;
-		voices[v].vl = vol * (1.0f - MAX(0.0f, pan)); voices[v].vr = vol * (1.0f + MIN(0.0f, pan));
-	}
-	SDL_UnlockAudioDevice(dev);
+/* hilo del juego: deja el efecto en la cola del mezclador (sin cerrojos); si está llena, se descarta */
+static void play(Sound *s, float vol, float pan, int loop) {
+	if (!audio_vivo || !s) return;
+	mezcla_voz(s->pcm, s->n, vol * (1.0f - MAX(0.0f, pan)), vol * (1.0f + MIN(0.0f, pan)), loop);
 }
 
 int audio_init(const char *data_dir) {
 	have_sounds = open_data_drs(&d_sounds, data_dir, "SOUNDS.DRS");
 	have_ui = open_data_drs(&d_ui, data_dir, "INTERFAC.DRS");
 
+	/* AOEN_AUDIO_WAV=ruta graba lo que mezcla el hilo de audio (hasta AOEN_AUDIO_SEG segundos, 60 por defecto): las pruebas
+	 * comparan su duración y su continuidad (D431) */
+	grab_ruta = getenv("AOEN_AUDIO_WAV");
+	if (grab_ruta && *grab_ruta) {
+		int seg = getenv("AOEN_AUDIO_SEG") ? atoi(getenv("AOEN_AUDIO_SEG")) : 60;
+		mezcla_grabar((CLAMP(seg, 1, 600) + 2) * RATE);
+	} else grab_ruta = NULL;
+
+#ifdef SAGUI_AOEN
+	/* en SaguiOS la SDL mueve el audio desde el hilo principal, una vez por cuadro: con pocos FPS se queda sin datos.
+	 * Se abre la tarjeta directamente y un hilo la alimenta al ritmo del reloj de la tarjeta (audio_escrever espera cuando
+	 * el flujo está lleno). Sin tarjeta, el hilo mezcla por el reloj del sistema. */
+	{
+		const char *e = getenv("AOEN_AUDIO_PRIO");   /* D436: 1/0 para las pruebas; si no, aoen.cfg (-1: automática) */
+		prio_cfg = e && *e ? (atoi(e) > 0) : CLAMP(cfg_get_int("audio_prioridad", -1), -1, 1);
+	}
+	fd_audio = audio_abrir(RATE, 2, 16);
+	if (fd_audio < 0) fd_audio = -1;
+	hilo_parar = 0;
+	hilo_audio = SDL_CreateThread(hilo_audio_fn, "aoen-audio", NULL);
+	if (!hilo_audio) { if (fd_audio >= 0) audio_fechar(fd_audio, 0); fd_audio = -1; return 0; }
+	audio_vivo = 1;
+	AOEN_LOG("[AOEN] audio: hilo propio, %s, bloque %d, por delante %d ms", fd_audio >= 0 ? "con tarjeta" : "mudo", BLOQUE_HILO, ADELANTO_MS);
+#else
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) return 0;
 
 	SDL_AudioSpec want, got;
 	SDL_zero(want);
-	want.freq = RATE; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 1024; want.callback = mix;
+	want.freq = RATE; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = BLOQUE; want.callback = mix;
 	dev = SDL_OpenAudioDevice(NULL, 0, &want, &got, 0);
 	if (!dev) return 0;
 	if (got.freq != RATE || got.format != AUDIO_S16SYS || got.channels != 2) { SDL_CloseAudioDevice(dev); dev = 0; return 0; }
 	SDL_PauseAudioDevice(dev, 0);
+	audio_vivo = 1;
+#endif
 
 	/* los clips de ambiente están en la carpeta de sonido del CD, junto a DATA */
 	snprintf(amb_dir, sizeof amb_dir, "%s/../SOUND", data_dir);
 	return 1;
 }
 
-void audio_lock(void) { if (dev) SDL_LockAudioDevice(dev); }
-void audio_unlock(void) { if (dev) SDL_UnlockAudioDevice(dev); }
-
 void audio_shutdown(void) {
+#ifdef SAGUI_AOEN
+	hilo_parar = 1;
+	if (hilo_audio) SDL_WaitThread(hilo_audio, NULL);
+	hilo_audio = NULL;
+	if (fd_audio >= 0) audio_fechar(fd_audio, 0);
+	fd_audio = -1;
+#else
 	if (dev) SDL_CloseAudioDevice(dev);
 	dev = 0;
+#endif
+	if (audio_vivo) {
+		MezclaEst e = mezcla_estadisticas();
+		AOEN_LOG("[AOEN] audio: %lld cuadros en %ld bloques, %ld efectos, %ld perdidos, hueco máximo %u ms, sin datos %ld veces",
+		         e.frames, e.llamadas, e.eventos, e.perdidos, (unsigned)est_hueco_max, est_vacios);
+#ifdef SAGUI_AOEN
+		AOEN_LOG("[AOEN] audio: kernel: latencia %d ms, %u cortes de la tarjeta; por delante %d ms; alta prioridad %s",
+		         lat_kernel_ms, falhas_kernel, audio_adelanto_ms(), alta_prio_ok > 0 ? "sí" : alta_prio_ok < 0 ? "no disponible" : "no");
+#endif
+	}
+	audio_vivo = 0;
+	if (grab_ruta) {
+		AOEN_LOG("[AOEN] audio: grabación %s %s", grab_ruta, mezcla_grabar_guardar(grab_ruta) ? "guardada" : "no se pudo guardar");
+		grab_ruta = NULL;
+	}
 }
 
 void audio_set_volumes(float sfx, float amb) {
@@ -226,14 +374,14 @@ static int event_sound(SndEvent ev) {
 }
 
 void snd_ui(SndEvent ev) {
-	if (!dev) return;
-	if (ev == SND_ALERT) { play(alert_sound(), vol_sfx, 0, 0, -1); return; }
+	if (!audio_vivo) return;
+	if (ev == SND_ALERT) { play(alert_sound(), vol_sfx, 0, 0); return; }
 	int id = event_sound(ev);
-	if (id) play(get_sound(id), vol_sfx, 0, 0, -1);
+	if (id) play(get_sound(id), vol_sfx, 0, 0);
 }
 
 void snd_event(SndEvent ev, float wx, float wy) {
-	if (!dev || W.w == 0) return;
+	if (!audio_vivo || W.w == 0) return;
 
 	float cx, cy;
 	screen_to_world(V.sw / 2, V.sh / 2, &cx, &cy);
@@ -247,7 +395,7 @@ void snd_event(SndEvent ev, float wx, float wy) {
 	float vol = vol_sfx * (1.0f - d / range * 0.8f);
 
 	int id = event_sound(ev);
-	if (id) play(get_sound(id), vol, pan, 0, -1);
+	if (id) play(get_sound(id), vol, pan, 0);
 }
 
 /* un clip de la carpeta de sonido, decodificado una sola vez */
@@ -278,7 +426,14 @@ static Sound *amb_clip(const char *name) {
 
 /* de vez en cuando, un sonido natural que encaja con el terreno alrededor de la cámara: bosque, desierto, hierba o agua */
 void audio_ambience_tick(float dt) {
-	if (!dev || W.w == 0 || vol_amb <= 0.01f) return;
+	if (!audio_vivo || W.w == 0 || vol_amb <= 0.01f) return;
+	/* el ambiente cuenta tiempo real, no el de la simulación (que con pocos FPS se arrastra, D431) */
+	{
+		static Uint32 ult;
+		Uint32 ahora = SDL_GetTicks();
+		if (ult) dt = MIN((ahora - ult) / 1000.0f, 1.0f);
+		ult = ahora;
+	}
 	amb_timer -= dt;
 	if (amb_timer > 0) return;
 	amb_timer = 14.0f + (float)(rand() % 22);
@@ -310,5 +465,5 @@ void audio_ambience_tick(float dt) {
 	else if (grass >= desert) name = gra[rand() % 4];
 	else name = des[rand() % 4];
 
-	play(amb_clip(name), vol_amb * 0.8f, 0, 0, -1);
+	play(amb_clip(name), vol_amb * 0.8f, 0, 0);
 }

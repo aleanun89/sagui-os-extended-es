@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSAO 4
+#define VERSAO 5
 
 enum { V_SUMA = 0, V_GRAVAR = 1, V_LER = 2 };
 typedef struct { int modo; FILE *f; uint32_t h; int erro; } V;
@@ -73,6 +73,25 @@ static void v_ator(V *v, TzAtor *a)
 		VV(t->tipo); VV(t->arg); VV(t->restante_ms); VV(t->total_ms); VA(t->pago); VV(t->esperando);
 	}
 	VA(a->reuniao); VV(a->obra_ms); VV(a->obra_total_ms); VV(a->modo); VV(a->ultimo_golpe); VV(a->efeito); VV(a->efeito_ate);
+	/* v8.5.5.2: comercio, taberna, hechizos, objetos */
+	struct TzRota *r = &a->rota;
+	VV(r->ativa); VA(r->rec); VV(r->quantidade); VV(r->distancia); VV(r->lado_mapa); VV(r->carga); VV(r->reintento);
+	VV(r->carga_tipo); VV(r->reservado); VV(a->com_origem); VV(a->com_parceiro);
+	struct TzTroca *t = &a->troca;
+	VV(t->ativa); VV(t->de); VV(t->para); VV(t->pago); VV(t->total); VV(t->entregue); VV(t->proximo);
+	for (int l = 0; l < 2; ++l) {
+		VV(a->noferta[l]);
+		if (a->noferta[l] > 8) { v->erro = 1; return; }
+		for (int q = 0; q < 8; ++q) {
+			struct TzOferta *o = &a->oferta[l][q];
+			VV(o->id); VV(o->classe); VV(o->civ); VV(o->quantidade); VV(o->nivel);
+		}
+	}
+	VV(a->oferta_prox); VV(a->cruzada_prox); VV(a->dono_orig); VV(a->maldicao_ate); VV(a->hipnose_ate); VV(a->invisivel_ate);
+	VV(a->espia_energia); VV(a->espia_em); VA(a->aprendidos); VV(a->naprendidos); VV(a->ancla_cruzada); VV(a->nitens);
+	VV(a->remoinho_dono); VV(a->remoinho_mov); VV(a->livro); VV(a->remoinho_golpe); VV(a->remoinho_mueve);
+	VV(a->espia_reino); VV(a->espia_civ); VV(a->espia_nivel); VV(a->espia_heroi); VV(a->espia_xp); VV(a->espia_vida); VV(a->espia_vida_max);
+	if (a->naprendidos > 8) v->erro = 1;
 }
 
 static void v_obj(V *v, TzMundo *m, TzObj *o)
@@ -81,6 +100,8 @@ static void v_obj(V *v, TzMundo *m, TzObj *o)
 	VV(o->flags); VV(o->cx); VV(o->cy); VV(o->px); VV(o->py); VV(o->vida); VV(o->vida_max);
 	VV(o->ataque); VV(o->defesa); VV(o->visao); VV(o->alcance); VV(o->resistencia); VV(o->xp); VV(o->mana); VV(o->mana_max);
 	VV(o->recurso); VV(o->anim_tic); VV(o->dentro_de); VV(o->ndentro);
+	VV(o->item.vida); VV(o->item.mana); VV(o->item.ataque); VV(o->item.defesa); VV(o->item.xp); VV(o->item.feitico);
+	VV(o->item.finito); VV(o->item.cargas); VV(o->item.texto); VV(o->pocao_ataque); VV(o->pocao_defesa);
 	uint8_t tem = o->ator != NULL;
 	VV(tem);
 	if (v->modo == V_LER) {
@@ -96,7 +117,7 @@ static void visitar(V *v, TzMundo *m)
 	VV(m->tic); VV(m->rng.s); VV(m->semente); VV(m->jogador); VV(m->acabou); VV(m->ganhou);
 	VV(m->regras.sem_nevoa); VV(m->regras.explorado); VV(m->regras.populacao); VV(m->regras.dificuldade);
 	VV(m->regras.vitoria); VV(m->regras.vitoria_limite); VV(m->regras.nivel_recursos); VV(m->regras.campanha);
-	VV(m->regras.troncos); VV(m->regras.sem_vitoria_auto);
+	VV(m->regras.troncos); VV(m->regras.sem_vitoria_auto); VV(m->sem_resgate);
 	/* objetos: los del mapa ya existen (mismo índice); los nuevos se añaden */
 	int32_t n = m->nobj;
 	VV(n);
@@ -119,6 +140,8 @@ static void visitar(V *v, TzMundo *m)
 		for (int c = 0; c < (int)sizeof r->nome; ++c) VV(r->nome[c]);
 		VA(r->recursos); VV(r->populacao); VV(r->populacao_max); VV(r->populacao_limite); VA(r->diplomacia);
 		VV(r->pontos); VV(r->criadas); VV(r->perdidas); VV(r->matadas); VA(r->recolhido);
+		VV(r->emp_quantia); VV(r->emp_rec); VV(r->emp_aumenta_tic); VV(r->emp_aumenta_quantia); VV(r->cruzados);
+		VV(r->cruzadas_completas); VV(r->cruz_ancla); VV(r->cruz_faltan); VV(r->cruz_proximo); VV(r->proxima_oferta); VV(r->torneio);
 		if (k >= 1 && r->pesquisas) {
 			for (int t = 0; t < m->cat->ntec; ++t) VV(r->pesquisas[t]);
 			for (int t = 0; t < m->cat->ntec + TZ_NCLASSES; ++t) VV(r->proibido[t]);

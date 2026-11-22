@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 26f5d85e (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 7ed8bff4 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -742,6 +742,8 @@ testes_eli/  fotos dos testes do Eli no G470
 | [`docs/multihilo.md`](docs/multihilo.md) | Multithread e multinúcleo: o que há, o que falta e como se mede o ganho |
 | [`docs/licencia.md`](docs/licencia.md) | A licença GPL v3 explicada: camadas, SPDX, compatibilidades, o que se pode colocar e o que não |
 | [`docs/terceros.md`](docs/terceros.md) | O código de terceiros: o que é, de onde vem, com qual licença e em qual decisão foi aceito |
+| [`docs/guia-kernel_PT.md`](docs/guia-kernel_PT.md) | Guia para aprender o kernel: arranque, cada bloco, a tabela de todos os seus arquivos e uma chamada ao sistema passo a passo |
+| [`docs/guia-aplicaciones_PT.md`](docs/guia-aplicaciones_PT.md) | Guia das aplicações por categorias do menu Iniciar, comandos, bibliotecas e ports, com o caminho do seu código |
 | [`docs/historias/`](docs/historias/) | Uma página por história |
 | [`status.md`](status.md) e [`dashboard/`](dashboard/index.html) | Estado de cada fase e história |
 

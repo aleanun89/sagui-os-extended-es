@@ -15,11 +15,35 @@
 
 /* ---------------------------------------------------------------- geometría */
 
-static TzRect r_comando(int i) { return (TzRect){ 16 + 3 + (i % 2) * 62, 332 + 3 + (i / 2) * 57, 48, 48 }; }
-static const int xs_setas[3] = { 25, 63, 101 };
-static TzRect r_seta(int i) { return (TzRect){ xs_setas[i], 302, 25, 25 }; }
-static const TzRect r_recursos[5] = { { 360, 0, 48, 18 }, { 463, 0, 39, 18 }, { 549, 0, 46, 18 }, { 644, 0, 46, 18 }, { 740, 0, 46, 18 } };
-static const TzRect r_menu = { 4, 0, 128, 25 }, r_dipl = { 166, 0, 61, 25 }, r_chat = { 233, 0, 61, 25 };
+/* Un rectángulo del arte de 800x600 en la ventana. Con el panel a la derecha (LAYOUT800R) lo que está desde x = 480
+ * sigue al borde derecho de la ventana (hud.rs Layout::at). */
+static TzRect L(const TzUi *u, int x, int y, int w, int h)
+{
+	if (u->direita && x >= 480) x += u->w - 800;
+	return (TzRect){ x, y, w, h };
+}
+
+static TzRect r_comando(const TzUi *u, int i) { return L(u, (u->direita ? 668 : 16) + 3 + (i % 2) * 62, 332 + 3 + (i / 2) * 57, 48, 48); }
+
+TzRect tz_ui_rect(const TzUi *u, int qual)
+{
+	static const int xs_esq[3] = { 25, 63, 101 }, xs_dir[3] = { 675, 712, 750 };
+	static const int rec_esq[5][2] = { { 360, 48 }, { 463, 39 }, { 549, 46 }, { 644, 46 }, { 740, 46 } };
+	static const int rec_dir[5][2] = { { 30, 46 }, { 131, 39 }, { 219, 45 }, { 313, 46 }, { 408, 46 } };
+	int d = u->direita;
+	unsigned is = (unsigned)(qual - TZ_UR_SETA0), ir = (unsigned)(qual - TZ_UR_RECURSO0);
+	if (is < 3u) return L(u, d ? xs_dir[is % 3u] : xs_esq[is % 3u], 302, 25, 25);
+	if (ir < 5u) return L(u, d ? rec_dir[ir % 5u][0] : rec_esq[ir % 5u][0], 0, d ? rec_dir[ir % 5u][1] : rec_esq[ir % 5u][1], 18);
+	switch (qual) {
+	case TZ_UR_MENU: return L(u, d ? 668 : 4, 0, 128, 25);
+	case TZ_UR_DIPLOMACIA: return L(u, d ? 573 : 166, 0, 61, 25);
+	case TZ_UR_CHAT: return L(u, d ? 506 : 233, 0, 61, 25);
+	case TZ_UR_PAINEL: return d ? (TzRect){ u->w - 150, 30, 150, u->h - 30 } : (TzRect){ 0, 30, 150, u->h - 30 };
+	case TZ_UR_RELOGIO: return L(u, d ? 622 : 142, d ? 32 : 31, 36, 36);
+	default: return (TzRect){ 0, 0, 0, 0 };
+	}
+}
+static TzRect r_seta(const TzUi *u, int i) { return tz_ui_rect(u, TZ_UR_SETA0 + i); }
 
 /* el marco de piedra a tamaño de ventana (hud.rs background): lo de arriba y el panel izquierdo salen del arte de
  * 800x600 y de 1024x768; las franjas que sobran se repiten en espejo para que no se vea la costura */
@@ -32,22 +56,29 @@ static int espelho(int k, int de, int len)
 static void fazer_fundo(TzUi *u)
 {
 	tz_img_liberar(&u->fundo);
-	const TzImg *a8 = tz_ui_img(u->skin, "SCREENS/S_VIEW/SCREEN 800 LEFT", -1);
-	const TzImg *a10 = tz_ui_img(u->skin, "SCREENS/S_VIEW/SCREEN 1024 LEFT", -1);
+	int esq = !u->direita;
+	const TzImg *a8 = tz_ui_img(u->skin, esq ? "SCREENS/S_VIEW/SCREEN 800 LEFT" : "SCREENS/S_VIEW/SCREEN 800 RIGHT", -1);
+	const TzImg *a10 = tz_ui_img(u->skin, esq ? "SCREENS/S_VIEW/SCREEN 1024 LEFT" : "SCREENS/S_VIEW/SCREEN 1024 RIGHT", -1);
 	u->fundo.w = u->w; u->fundo.h = u->h;
 	u->fundo.px = calloc((size_t)u->w * (size_t)u->h, 4);
 	if (!u->fundo.px) return;
 	if (!a8 || !a10 || a8->w != 800 || a8->h != 600 || a10->w != 1024 || a10->h != 768) return;
-	int alto = u->h >= 680, baixo = alto ? 120 : 40;
+	int alto = u->h >= 680, baixo = alto ? 120 : 40, W = u->w;
 	for (int y = 0; y < u->h; ++y)
-		for (int x = 0; x < u->w; ++x) {
+		for (int x = 0; x < W; ++x) {
 			const TzImg *art; int sx, sy;
-			if (y < 30) { art = a10; sx = x < 1024 ? x : espelho(x - 1024, 800, 224); sy = y; }
-			else {
-				if (x >= 218) continue;
-				if (y < 560) { art = a8; sx = x; sy = y; }
-				else if (y >= u->h - baixo) { if (alto) { art = a10; sx = x; sy = y - (u->h - 768); } else { art = a8; sx = x; sy = y - (u->h - 600); } }
-				else { art = a10; sx = x; sy = espelho(y - 560, 560, 88); }
+			if (y < 30) {
+				art = a10; sy = y;
+				if (esq) sx = x < 1024 ? x : espelho(x - 1024, 800, 224);
+				else if (x >= W - 294) sx = x - (W - 1024);   /* el panel derecho: la barra sigue al borde */
+				else if (x < 460) sx = x;
+				else sx = espelho(x - 460, 460, 270);
+			} else {
+				if (esq ? x >= 218 : x < W - 218) continue;
+				int ax8 = esq ? x : x - (W - 800), ax10 = esq ? x : x - (W - 1024);
+				if (y < 560) { art = a8; sx = ax8; sy = y; }
+				else if (y >= u->h - baixo) { if (alto) { art = a10; sx = ax10; sy = y - (u->h - 768); } else { art = a8; sx = ax8; sy = y - (u->h - 600); } }
+				else { art = a10; sx = ax10; sy = espelho(y - 560, 560, 88); }
 			}
 			if (sx < 0 || sy < 0 || sx >= art->w || sy >= art->h) continue;
 			u->fundo.px[(size_t)y * u->w + x] = art->px[(size_t)sy * art->w + sx];
@@ -56,9 +87,10 @@ static void fazer_fundo(TzUi *u)
 
 static void calcular_rects(TzUi *u)
 {
-	u->mapa_rect = (TzRect){ 150, 30, u->w - 150, u->h - 30 };
-	u->minimapa_rect = (TzRect){ 4, 31, 128, 128 };
-	u->selecao_rect = (TzRect){ 6, 169, 118, 157 };
+	/* LAYOUT800L (150,30,650,570) y LAYOUT800R (0,30,651,570) a la medida de la ventana */
+	u->mapa_rect = u->direita ? (TzRect){ 0, 30, u->w - 149, u->h - 30 } : (TzRect){ 150, 30, u->w - 150, u->h - 30 };
+	u->minimapa_rect = L(u, u->direita ? 668 : 4, 31, 128, 128);
+	u->selecao_rect = L(u, u->direita ? 657 : 6, 169, 118, 157);
 }
 
 int tz_ui_iniciar(TzUi *u, TzUiSkin *s, TzMundo *m, const TzBiblioteca *bib, int w, int h)
@@ -77,6 +109,13 @@ void tz_ui_liberar(TzUi *u)
 	tz_img_liberar(&u->fundo);
 	free(u->lista);
 	memset(u, 0, sizeof *u);
+}
+
+void tz_ui_lado(TzUi *u, int direita)
+{
+	if (u->direita == (direita != 0)) return;
+	u->direita = direita != 0;
+	tz_ui_redimensionar(u, u->w, u->h);
 }
 
 void tz_ui_redimensionar(TzUi *u, int w, int h)
@@ -199,7 +238,7 @@ void tz_ui_menu_atualizar(TzUi *u)
 int tz_ui_botao_em(const TzUi *u, int x, int y)
 {
 	for (int i = 0; i < u->nbotoes; ++i)
-		if (tz_rect_dentro(r_comando(i), x, y)) return i;
+		if (tz_rect_dentro(r_comando(u, i), x, y)) return i;
 	return -1;
 }
 
@@ -426,7 +465,7 @@ static void rejilla(TzUi *u, TzTela *t)
 	const TzImg *moldura = tz_ui_img(u->skin, "ORDERS/FRAME1", -1);
 	for (int i = 0; i < u->nbotoes; ++i) {
 		const TzUiBotao *b = &u->botoes[i];
-		TzRect r = r_comando(i);
+		TzRect r = r_comando(u, i);
 		int desloca = u->botao_sobre == i && (u->mods & 0x100);   /* pulsado */
 		int icone = b->def->icone;
 		if (ordens && icone >= 0 && (icone + 1) * 48 <= ordens->h)
@@ -453,7 +492,7 @@ static void rejilla(TzUi *u, TzTela *t)
 	int ativa[3] = { u->pagina > 0 || u->npilha > 0, 0, u->pagina + 1 < paginas };
 	for (int i = 0; i < 3 && n; ++i) {
 		const TzImg *im = tz_ui_img(u->skin, art[i], -1);
-		if (im && im->w >= 100) tz_tela_imagem(t, im, (TzRect){ ativa[i] ? 0 : 75, 0, 25, 25 }, r_seta(i).x, r_seta(i).y, 0);
+		if (im && im->w >= 100) tz_tela_imagem(t, im, (TzRect){ ativa[i] ? 0 : 75, 0, 25, 25 }, r_seta(u, i).x, r_seta(u, i).y, 0);
 	}
 }
 
@@ -502,7 +541,7 @@ void tz_ui_desenhar_hud(TzUi *u, TzTela *t)
 	if (u->fundo.px) tz_tela_imagem(t, &u->fundo, (TzRect){ 0, 0, 0, 0 }, 0, 0, 0);
 	else {   /* sin arte: marco liso */
 		tz_tela_preencher(t, (TzRect){ 0, 0, u->w, 30 }, 0xff383830);
-		tz_tela_preencher(t, (TzRect){ 0, 30, 150, u->h - 30 }, 0xff383830);
+		tz_tela_preencher(t, tz_ui_rect(u, TZ_UR_PAINEL), 0xff383830);
 	}
 	/* contadores: oro, madera, comida, piedra y población/límite */
 	const TzReinoEstado *k = &m->reino[m->jogador > 0 && m->jogador <= TZ_REINOS ? m->jogador : 1];
@@ -510,20 +549,31 @@ void tz_ui_desenhar_hud(TzUi *u, TzTela *t)
 	const int ord[4] = { TZ_OURO, TZ_MADEIRA, TZ_COMIDA, TZ_PEDRA };
 	for (int i = 0; i < 4; ++i) {
 		snprintf(b, sizeof b, "%d", (int)k->recursos[ord[i]]);
-		tz_ui_fonte_caixa(t, &u->skin->f10, r_recursos[i], b, COR_TEXTO, 1);
+		tz_ui_fonte_caixa(t, &u->skin->f10, tz_ui_rect(u, TZ_UR_RECURSO0 + i), b, COR_TEXTO, 1);
 	}
 	int lim = k->populacao_max < k->populacao_limite || !k->populacao_limite ? k->populacao_max : k->populacao_limite;
 	snprintf(b, sizeof b, "%d/%d", k->populacao, lim);
-	tz_ui_fonte_caixa(t, &u->skin->f10, r_recursos[4], b, COR_TEXTO, 1);
+	tz_ui_fonte_caixa(t, &u->skin->f10, tz_ui_rect(u, TZ_UR_RECURSO0 + 4), b, COR_TEXTO, 1);
 	/* botones de arriba */
-	const TzImg *bm = tz_ui_img(u->skin, "SCREENS/S_VIEW/BTN MENU LEFT", -1);
+	const char *lado = u->direita ? "RIGHT" : "LEFT";
+	char nb[64];
+	TzRect r_menu = tz_ui_rect(u, TZ_UR_MENU), r_dipl = tz_ui_rect(u, TZ_UR_DIPLOMACIA), r_chat = tz_ui_rect(u, TZ_UR_CHAT);
+	snprintf(nb, sizeof nb, "SCREENS/S_VIEW/BTN MENU %s", lado);
+	const TzImg *bm = tz_ui_img(u->skin, nb, -1);
+	int premido = u->mods & 0x100;
 	int sobre_menu = tz_rect_dentro(r_menu, u->mx, u->my);
-	if (bm) tz_tela_imagem(t, bm, (TzRect){ sobre_menu && (u->mods & 0x100) ? 128 : 0, 0, 128, 25 }, r_menu.x, r_menu.y, 0);
+	if (bm) tz_tela_imagem(t, bm, (TzRect){ sobre_menu && premido ? 128 : 0, 0, 128, 25 }, r_menu.x, r_menu.y, 0);
+	else tz_tela_preencher(t, r_menu, 0xff484038);
 	tz_ui_fonte_caixa(t, &u->skin->f10, r_menu, tz_ui_txt(u->skin, "game_scr", "menu", "Menu"), COR_TEXTO, 1);
-	const TzImg *bd = tz_ui_img(u->skin, "SCREENS/S_VIEW/BTN DIPLOMACY LEFT", -1);
-	const TzImg *bc = tz_ui_img(u->skin, "SCREENS/S_VIEW/BTN CHAT LEFT", -1);
-	if (bd) tz_tela_imagem(t, bd, (TzRect){ 0, 0, 61, 25 }, r_dipl.x, r_dipl.y, 0);
-	if (bc) tz_tela_imagem(t, bc, (TzRect){ 0, 0, 61, 25 }, r_chat.x, r_chat.y, 0);
+	snprintf(nb, sizeof nb, "SCREENS/S_VIEW/BTN DIPLOMACY %s", lado);
+	const TzImg *bd = tz_ui_img(u->skin, nb, -1);
+	snprintf(nb, sizeof nb, "SCREENS/S_VIEW/BTN CHAT %s", lado);
+	const TzImg *bc = tz_ui_img(u->skin, nb, -1);
+	int sd = tz_rect_dentro(r_dipl, u->mx, u->my) && premido, sc = tz_rect_dentro(r_chat, u->mx, u->my) && premido;
+	if (bd) tz_tela_imagem(t, bd, (TzRect){ sd && bd->w >= 122 ? 61 : 0, 0, 61, 25 }, r_dipl.x, r_dipl.y, 0);
+	else { tz_tela_preencher(t, r_dipl, 0xff484038); tz_ui_fonte_caixa(t, &u->skin->f10, r_dipl, tz_ui_txt(u->skin, "game_scr", "diplomacy", "Diplom."), COR_TEXTO, 1); }
+	if (bc) tz_tela_imagem(t, bc, (TzRect){ sc && bc->w >= 122 ? 61 : 0, 0, 61, 25 }, r_chat.x, r_chat.y, 0);
+	else { tz_tela_preencher(t, r_chat, 0xff484038); tz_ui_fonte_caixa(t, &u->skin->f10, r_chat, tz_ui_txt(u->skin, "game_scr", "chat", "Chat"), COR_TEXTO, 1); }
 	minimapa(u, t);
 	vista_selecao(u, t);
 	rejilla(u, t);
@@ -542,6 +592,7 @@ void tz_ui_desenhar_hud(TzUi *u, TzTela *t)
 		tz_ui_fonte_caixa(t, &u->skin->f12b, r, u->aviso, 0xffe080, 1);
 	}
 	if (u->pausa) tz_ui_fonte_caixa(t, &u->skin->f22, u->mapa_rect, tz_ui_txt(u->skin, "viewmsg", "pause", "PAUSA"), 0xffffff, 1);
+	tz_ui_janela_desenhar(u, t);
 }
 
 /* marcas sobre el mapa: círculos y vida de lo seleccionado, recuadro y fantasma del edificio por colocar */

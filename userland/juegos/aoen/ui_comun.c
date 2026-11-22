@@ -3,6 +3,7 @@
 /* Controles de la interfaz (v8.5.4.7): botones, selectores, ayudas emergentes, iconos, texturas de los paneles con los
  * gráficos originales y la comprobación de solapes que usan las pruebas. */
 #include "interfaz.h"
+#include "gpu.h"
 #include "efectos.h"
 
 App app = { SC_MENU, SC_MENU, SC_MENU, 0, 1, 0, 0, 2, 1, 0, 1 };
@@ -435,10 +436,10 @@ int coste_linea(int x, int y, const int *coste, int faltan_marca) {
 Sprite *icono_unidad(EntType t) {
 	static const struct { EntType t; int icon; } ul[] = {
 		{ E_VILLAGER, 0 }, { E_CLUBMAN, 2 }, { E_AXEMAN, 3 }, { E_SHORTSWORD, 4 }, { E_BOWMAN, 6 }, { E_IMPBOW, 7 }, { E_CHARIOT, 10 },
-		{ E_SCOUT, 31 }, { E_CAVALRY, 11 }, { E_HEAVYCAV, 12 }, { E_HOPLITE, 16 }, { E_PRIEST, 1 },
-		{ E_BALLISTA, 53 }, { E_CATAPULT, 14 }, { E_HEAVYCAT, 15 },
-		{ E_SLINGER, 8 }, { E_WARELE, 33 }, { E_ELEARCHER, 33 }, { E_FISHBOAT, 22 }, { E_TRANSPORT, 23 }, { E_WARSHIP, 24 },
-		{ E_PHALANX, 54 }, { E_CENTURION, 50 }, { E_CATAPHRACT, 11 }, { E_HORSEARCHER, 48 }, { E_TRADESHIP, 25 }, { E_TRADECART, 10 }, { E_HORSE, 31 }, { E_ELEPHANT, 33 },
+		{ E_SCOUT, 31 }, { E_CAVALRY, 11 }, { E_HEAVYCAV, 11 }, { E_HOPLITE, 16 }, { E_PRIEST, 1 },
+		{ E_BALLISTA, 9 }, { E_CATAPULT, 14 }, { E_HEAVYCAT, 15 },
+		{ E_SLINGER, 8 }, { E_WARELE, 12 }, { E_ELEARCHER, 47 }, { E_FISHBOAT, 18 }, { E_TRANSPORT, 21 }, { E_WARSHIP, 24 },
+		{ E_PHALANX, 54 }, { E_CENTURION, 50 }, { E_CATAPHRACT, 11 }, { E_HORSEARCHER, 29 }, { E_TRADESHIP, 19 }, { E_TRADECART, 42 }, { E_HORSE, 32 }, { E_ELEPHANT, 33 },
 	};
 	for (int i = 0; i < ARRAY_LEN(ul); ++i) if (ul[i].t == t) { Sprite *s = icon_unit(ul[i].icon); return s && s->w >= 16 ? s : NULL; }
 	return NULL;
@@ -635,6 +636,7 @@ static int pegar_textura(int tipo, int x, int y, int w, int h) {
 	int us = app.us, rx = x * us, ry = y * us, rw = w * us, rh = h * us;
 	u32 *t = textura(tipo, rw, rh);
 	if (!t) return 0;
+	gpu_capa_marca(ry, ry + rh);   /* D436 */
 	for (int yy = 0; yy < rh; ++yy) {
 		int dy = ry + yy;
 		if (dy < 0 || dy >= gfx_real_h()) continue;

@@ -76,6 +76,7 @@ static void iniciar(TzMundo *m, TzObj *o, const TzOrdem *ord)
 	a->trabalho_tic = 0; a->ciclos = 0;
 	a->recarga = 0;
 	a->automatica = 0;
+	a->livro = TZ_NENHUM;
 	(void)m;
 }
 
@@ -186,7 +187,9 @@ static int mover_para(TzMundo *m, TzId i, const int r[4], int alc)
 	}
 	int nx = a->caminho[a->icaminho][0], ny = a->caminho[a->icaminho][1];
 	if (!tz_cel_transitavel(m, capa, o->dono, nx, ny)) { a->ncaminho = 0; a->falhas++; return 0; }
-	if (!tz_cel_livre(m, capa, o->dono, nx, ny) && !(m->cel[ny * m->lado + nx].bits & TZ_CEL_PORTA && m->cel[ny * m->lado + nx].ocupante < 0)) {
+	int cabe = tz_unid_celulas(o->classe) > 1 ? tz_unid_cabe(m, i, nx, ny) :
+	           (tz_cel_livre(m, capa, o->dono, nx, ny) || (m->cel[ny * m->lado + nx].bits & TZ_CEL_PORTA && m->cel[ny * m->lado + nx].ocupante < 0));
+	if (!cabe) {
 		/* ocupada: esperar, luego buscar otro camino evitando a los parados */
 		a->espera++;
 		if (o->estado == TZ_E_ANDANDO) estado(m, o, TZ_E_PARADO, 0);
@@ -217,6 +220,11 @@ static int mover_obj(TzMundo *m, TzId i, TzId t, int alc)
 	tz_obj_ret(m, &m->obj[t], r);
 	return mover_para(m, i, r, alc);
 }
+
+int tz_mover_obj(TzMundo *m, TzId i, TzId j, int alc) { return mover_obj(m, i, j, alc); }
+void tz_estado(TzMundo *m, TzObj *o, int e, int trab) { estado(m, o, e, trab); }
+void tz_olhar_obj(const TzMundo *m, TzObj *o, const TzObj *t) { olhar_obj(m, o, t); }
+void tz_proxima_ordem(TzMundo *m, TzId i) { proxima(m, i); }
 
 /* ------------------------------------------------------------------ daño (gameplay.rs physical_damage, wound) */
 static uint32_t dano_fisico(uint32_t at, uint32_t df, int cat)
@@ -332,6 +340,7 @@ static void golpear(TzMundo *m, TzId i, TzId j)
 	TzAtor *a = o->ator;
 	const TzAtributos *at = tz_obj_at(m, o);
 	if (o->estado != TZ_E_ATACANDO) { estado(m, o, TZ_E_ATACANDO, 0); a->recarga = at->ataque_lead_ms ? at->ataque_lead_ms : 1; }
+	a->invisivel_ate = 0;   /* atacar descubre al invisible */
 	olhar_obj(m, o, &m->obj[j]);
 	if (a->recarga > TZ_TIC_MS) { a->recarga -= TZ_TIC_MS; return; }
 	a->recarga = at->ataque_ms ? at->ataque_ms : 1000;
@@ -341,11 +350,117 @@ static void golpear(TzMundo *m, TzId i, TzId j)
 	else tz_dano(m, j, o->ataque, at->categoria_arma, i);
 }
 
-/* combat.rs search (simplificada): el enemigo más cercano dentro del radio, primero unidades armadas */
+/* combat.rs: las prioridades por categoría de blanco 1..13 (0x4129d0): de un reino humano y de uno del ordenador; las catapultas
+ * (19 y 20) tienen las suyas */
+static const uint16_t PRIORIDADE[13] = { 0, 2000, 3000, 4000, 4000, 6000, 7000, 8000, 500, 4000, 2800, 2200, 0 };
+static const uint16_t PRIORIDADE_IA[13] = { 0, 2000, 4000, 4000, 4000, 6000, 7000, 8000, 500, 5000, 2800, 2800, 2700 };
+static const uint16_t PRIORIDADE_CAT[13] = { 4000, 5000, 1000, 6000, 3000, 2000, 2500, 7000, 0, 3000, 5500, 5200, 4000 };
+static const uint16_t PRIORIDADE_CAT_IA[13] = { 0, 5000, 1000, 6000, 3000, 2000, 2500, 7000, 0, 3000, 5500, 5200, 6000 };
+
+static int militar(const TzObj *t)
+{
+	if (!t->ataque) return 0;
+	if (tz_obj_unidade(t)) return !(t->classe == TZC_PEON || t->classe == TZC_TRADER || t->classe == TZC_SPY || t->classe == TZC_COW || t->classe == TZC_FISHING_BOAT);
+	return t->classe >= 39 && t->classe <= 43 && !(t->flags & TZ_F_OBRA);
+}
+
+/* la categoría del blanco t para u (combat.rs category, 0x412730) */
+static int categoria_alvo(const TzMundo *m, const TzObj *u, const TzObj *t, int prof)
+{
+	int alc = u->alcance;
+	switch (t->classe) {
+	case TZC_PEON: {
+		const TzAtor *ta = t->ator;
+		if (ta && ta->ordem.tipo == TZ_O_CONSTRUIR && ta->ordem.alvo >= 0 && ta->ordem.alvo < m->nobj) {
+			const TzObj *b = &m->obj[ta->ordem.alvo];
+			if (tz_obj_edificio(b) && b->classe >= 39 && b->classe <= 43) return tz_obj_dist(m, u, t) <= alc + 2 ? 6 : 3;
+		}
+		if (ta && ta->ordem.tipo == TZ_O_CAPTURAR) return 7;
+		if (ta && ta->ordem.tipo == TZ_O_ATACAR) return 5;
+		if (ta && ta->ordem.tipo == TZ_O_REPARAR && !prof && ta->ordem.alvo >= 0 && ta->ordem.alvo < m->nobj) {
+			const TzObj *r = &m->obj[ta->ordem.alvo];
+			if (tz_obj_vivo(r) && r->vida < r->vida_max) return categoria_alvo(m, u, r, 1);
+		}
+		return 3;
+	}
+	case 17: return 10;
+	case 44: case 55: case 56: case 60: case 65: case 70: case 71: return 12;
+	case 45: case 49: case 59: return 11;
+	case TZC_DUMMY: return 9;
+	}
+	if (tz_obj_unidade(t)) return militar(t) ? 5 : 3;
+	if (tz_obj_edificio(t)) {
+		if ((t->flags & TZ_F_OBRA) && t->ator && t->ator->obra_ms == t->ator->obra_total_ms && tz_obj_dist(m, u, t) <= alc + 4) return 8;
+		if (t->classe >= 39 && t->classe <= 43) return 4;
+		if (t->classe == TZC_WALL_STONE || t->classe == TZC_WALL_WOOD) return 1;
+		return 2;
+	}
+	return 0;
+}
+
+static int prioridade_alvo(const TzMundo *m, const TzObj *u, const TzObj *t)
+{
+	int cat = categoria_alvo(m, u, t, 0);
+	if (!cat) return 0;
+	int ia = u->dono >= 1 && u->dono <= 8 && m->reino[u->dono].ia;
+	int catapulta = u->classe == 19 || u->classe == 20;
+	const uint16_t *tab = catapulta ? (ia ? PRIORIDADE_CAT_IA : PRIORIDADE_CAT) : (ia ? PRIORIDADE_IA : PRIORIDADE);
+	return tab[cat - 1];
+}
+
+/* el blanco está oculto para el reino k (invisible y no aliado) */
+static int oculto_para(const TzMundo *m, int k, const TzObj *t)
+{
+	return t->ator && t->ator->invisivel_ate && m->tic < t->ator->invisivel_ate && tz_mundo_relacao(m, k, t->dono) < 1;
+}
+
+/* combat.rs can_attack (lo principal): el hielo y la piedra protegen o dejan sin acción, el luchador de tierra sin alcance no
+ * llega al agua, las catapultas no al aire, nadie ataca puentes ni minas ni la puerta mágica */
+static int puede_atacar(const TzMundo *m, const TzObj *u, const TzObj *t)
+{
+	if (t->classe == TZC_BRIDGE || t->classe == 72 || t->classe == TZC_RES_GOLD || t->classe == TZC_RES_STONE) return 0;
+	if (t->ator && t->ator->efeito == TZ_EF_PEDRA && m->tic < t->ator->efeito_ate) return 0;
+	int ct = tz_obj_capa(m, t), cu = tz_obj_capa(m, u);
+	if (cu == TZ_CAPA_TERRA && !u->alcance && ct == TZ_CAPA_AGUA) return 0;
+	if ((u->classe == 19 || u->classe == 20 || u->classe == 21) && ct == TZ_CAPA_AR) return 0;
+	return 1;
+}
+
+/* ¿es t mejor blanco que b para u? (combat.rs better, sin los contadores de atacantes) */
+static int melhor_alvo(const TzMundo *m, const TzObj *u, TzId b, TzId t, int pt)
+{
+	if (b < 0) return pt > 0;
+	const TzObj *x = &m->obj[t], *y = &m->obj[b];
+	int pb = prioridade_alvo(m, u, y);
+	if (!pt || pt < pb) return 0;
+	if (pt > pb) return 1;
+	int gt = tz_obj_dist(m, u, x) - 1, gb = tz_obj_dist(m, u, y) - 1;
+	if (gt < 0) gt = 0;
+	if (gb < 0) gb = 0;
+	int alc = u->alcance & 0xff;
+	int rt = alc >= gt, rb = alc >= gb;
+	if (rt != rb) return rt;
+	int ia = u->dono >= 1 && u->dono <= 8 && m->reino[u->dono].ia;
+	int apart = gt > gb ? gt - gb : gb - gt;
+	if (apart < (ia ? 4 : 2)) {
+		int mt = (int)tz_catalogo_bonus(m->cat, u->classe, u->civ, x->classe, x->civ, u->ataque) - (int)tz_catalogo_bonus(m->cat, x->classe, x->civ, u->classe, u->civ, x->ataque);
+		int mb = (int)tz_catalogo_bonus(m->cat, u->classe, u->civ, y->classe, y->civ, u->ataque) - (int)tz_catalogo_bonus(m->cat, y->classe, y->civ, u->classe, u->civ, y->ataque);
+		if (mt != mb) return mt > mb;
+	}
+	if (apart < 2) {
+		int d = x->vida - y->vida;
+		if (d > 20 || d < -20) return d < 0;
+	}
+	return gt < gb;
+}
+
+/* combat.rs search: el mejor blanco a la vista por prioridad de su categoría, alcance, ventaja del bono y vida */
 static TzId buscar_inimigo(TzMundo *m, TzId i, int raio)
 {
 	TzObj *o = &m->obj[i];
-	int n = m->lado, melhor = -1, dmelhor = 1 << 30, pmelhor = 9;
+	int n = m->lado;
+	TzId melhor = TZ_NENHUM;
+	int pmelhor = 0;
 	for (int dy = -raio; dy <= raio; ++dy) {
 		int y = o->cy + dy;
 		if (y < 0 || y >= n) continue;
@@ -356,16 +471,18 @@ static TzId buscar_inimigo(TzMundo *m, TzId i, int raio)
 			TzId cand[2] = { c->ocupante, c->fixo };
 			for (int q = 0; q < 2; ++q) {
 				TzId j = cand[q];
-				if (j < 0 || j == i) continue;
+				if (j < 0 || j == i || j == melhor) continue;
 				const TzObj *t = &m->obj[j];
 				if (!tz_obj_vivo(t) || !tz_hostil(m, o->dono, j)) continue;
 				if (o->dono >= 1 && o->dono <= 8 && tz_mundo_nevoa(m, o->dono, x, y) != 2) continue;
-				int pr = tz_obj_unidade(t) ? (t->ataque ? 0 : 1) : (t->ataque ? 2 : 3);
-				int d = dx < 0 ? -dx : dx; if ((dy < 0 ? -dy : dy) > d) d = dy < 0 ? -dy : dy;
-				if (pr < pmelhor || (pr == pmelhor && (d < dmelhor || (d == dmelhor && j < melhor)))) { melhor = j; dmelhor = d; pmelhor = pr; }
+				if (oculto_para(m, o->dono, t) || !puede_atacar(m, o, t)) continue;
+				if ((t->classe == TZC_GATE_WOOD || t->classe == TZC_GATE_STONE) && !(o->dono >= 1 && o->dono <= 8 && m->reino[o->dono].ia)) continue;
+				int p = prioridade_alvo(m, o, t);
+				if (melhor_alvo(m, o, melhor, j, p)) { melhor = j; pmelhor = p; }
 			}
 		}
 	}
+	(void)pmelhor;
 	return melhor;
 }
 
@@ -375,6 +492,7 @@ static void atacar(TzMundo *m, TzId i)
 	TzAtor *a = o->ator;
 	TzId j = a->ordem.alvo;
 	if (j < 0 || j >= m->nobj || !tz_obj_vivo(&m->obj[j]) || j == i || !o->ataque) { proxima(m, i); return; }
+	if (oculto_para(m, o->dono, &m->obj[j])) { proxima(m, i); return; }
 	/* lo automático no persigue más allá del doble de la vista */
 	int alc = alcance_de(m, o);
 	int d = tz_obj_dist(m, o, &m->obj[j]);
@@ -815,8 +933,11 @@ void tz_ator_tic(TzMundo *m, TzId i)
 {
 	TzObj *o = &m->obj[i];
 	TzAtor *a = o->ator;
+	tz_efeitos_tic(m, i);
+	o = &m->obj[i]; a = o->ator;
+	if (!a) return;
 	/* buscar enemigo: las unidades armadas sin órdenes (o de guardia/patrulla), cada 8 tics, escalonado */
-	if (o->ataque && o->classe != TZC_PEON && o->classe != TZC_TRADER && !(a->modo & TZ_MODO_QUIETO) &&
+	if (o->ataque && o->classe != TZC_PEON && o->classe != TZC_TRADER && o->dono != 9 && !(a->modo & TZ_MODO_QUIETO) &&
 	    (a->ordem.tipo == TZ_O_NADA || a->ordem.tipo == TZ_O_PATRULHAR || a->ordem.tipo == TZ_O_GUARDAR) &&
 	    ((m->tic + (uint32_t)i) & 7) == 0 && o->dono != 0 && !esta_andando(o)) {
 		int raio = o->visao ? o->visao : 5;
@@ -898,8 +1019,12 @@ void tz_ator_tic(TzMundo *m, TzId i)
 		} else { descarregar(m, i); proxima(m, i); }
 		return;
 	}
+	case TZ_O_COMERCIAR: tz_comerciar_tic(m, i); return;
+	case TZ_O_VENDER: tz_vender_tic(m, i); return;
+	case TZ_O_PEGAR_ITEM: case TZ_O_USAR_ITEM: case TZ_O_SOLTAR_ITEM: tz_item_tic(m, i); return;
+	case TZ_O_ASESINAR: case TZ_O_SUPLANTAR: tz_espia_tic(m, i); return;
 	default:
-		/* órdenes aún sin programa (comerciar, objetos, hechizos): se descartan */
+		/* órdenes sin programa: se descartan */
 		proxima(m, i);
 		return;
 	}
@@ -910,15 +1035,19 @@ static int dono_ok(const TzMundo *m, int k) { return k >= 1 && k <= 8 && m->rein
 
 static int pagar(TzMundo *m, int k, const uint32_t c[TZ_NREC])
 {
-	TzReinoEstado *r = &m->reino[k];
+	/* lo que puede gastar el reino: lo suyo y lo de los que comparten con él (gameplay.rs debit, stock, spend) */
+	int32_t tem[TZ_NREC];
+	tz_mundo_recursos_compartidos(m, k, tem);
 	for (int j = 0; j < TZ_NREC; ++j)
-		if ((uint32_t)(r->recursos[j] < 0 ? 0 : r->recursos[j]) < c[j]) {
+		if ((uint32_t)tem[j] < c[j]) {
 			tz_ev(m, TZ_EV_SEM_RECURSOS, k, TZ_NENHUM, TZ_NENHUM, 0, 0, j, (int32_t)c[j]);
 			return tz_falha("faltan recursos");
 		}
-	for (int j = 0; j < TZ_NREC; ++j) r->recursos[j] -= (int32_t)c[j];
+	tz_gastar(m, k, c);
 	return 0;
 }
+
+int tz_pagar(TzMundo *m, int k, const uint32_t c[TZ_NREC]) { return pagar(m, k, c); }
 
 int tz_enfileirar_trabalho(TzMundo *m, TzId e, int tipo, int arg)
 {
@@ -963,8 +1092,7 @@ static void treinado(TzMundo *m, TzId e, int classe)
 	TzObj tmp; memset(&tmp, 0, sizeof tmp); tmp.classe = (uint16_t)classe; tmp.civ = o->civ;
 	int r[4], x, y;
 	tz_obj_ret(m, o, r);
-	int capa = tz_obj_capa(m, &tmp);
-	if (!tz_lugar_livre(m, capa, o->dono, r, &x, &y)) return;
+	if (!tz_lugar_livre_cls(m, classe, o->dono, r, &x, &y)) return;
 	TzId u = tz_novo_obj(m, classe, o->civ, o->dono, x, y, 0);
 	if (u < 0) return;
 	o = &m->obj[e];   /* tz_novo_obj puede mover m->obj */
@@ -1124,7 +1252,7 @@ static int meu(const TzMundo *m, const TzComando *c, TzId i)
 {
 	if (i < 0 || i >= m->nobj) return 0;
 	const TzObj *o = &m->obj[i];
-	return o->ator && tz_obj_vivo(o) && o->dono == c->reino && !(o->flags & TZ_F_BLOQUEADO);
+	return o->ator && tz_obj_vivo(o) && (o->dono == c->reino || o->ator->espia_reino == c->reino) && !(o->flags & TZ_F_BLOQUEADO);
 }
 
 /* formación: la k-ésima casilla libre en espiral alrededor del destino */
@@ -1171,6 +1299,11 @@ void tz_aplicar_comando(TzMundo *m, const TzComando *c)
 				if (!(u.tipo == TZ_O_RECOLHER && o->classe == TZC_FISHING_BOAT)) { u.tipo = TZ_O_MOVER; u.alvo = TZ_NENHUM; }
 			}
 			nunid++;
+			if (u.tipo == TZ_O_COMERCIAR) {
+				if (tz_comercio_ordem(m, i, &u, c->flags & TZ_CMD_FILA)) continue;
+				if (primeiro) { tz_ev(m, TZ_EV_ORDEM, k, i, u.alvo, u.x, u.y, o->classe, u.tipo); primeiro = 0; }
+				continue;
+			}
 			tz_dar_ordem(m, i, &u, c->flags & TZ_CMD_FILA);
 			if (primeiro) { tz_ev(m, TZ_EV_ORDEM, k, i, u.alvo, u.x, u.y, o->classe, u.tipo); primeiro = 0; }
 		}
@@ -1229,6 +1362,9 @@ void tz_aplicar_comando(TzMundo *m, const TzComando *c)
 		return;
 	case TZ_C_RENDIR:
 		m->reino[k].rendido = 1;
+		return;
+	case TZ_C_EMPRESTAR: case TZ_C_DEVOLVER: case TZ_C_TROCAR: case TZ_C_CONTRATAR: case TZ_C_CRUZADA: case TZ_C_CONVERTIR: case TZ_C_VENDER:
+		tz_negocio_comando(m, c);
 		return;
 	case TZ_C_TRUCO:
 		/* cheats.rs (lo básico): 1 recursos, 2 mapa a la vista, 3 terminar las obras del reino */

@@ -16,6 +16,7 @@
 #include "permisos_dialogo.h"
 #include "abi.h"
 #include "gui.h"
+#include "aparencia.h"
 #include "idioma.h"
 #include "console.h"
 #include "mouse.h"
@@ -27,8 +28,8 @@
 
 #define DW        500
 #define SENHA_MIN 4
-#define COR_AZUL  0x1F5FAF
-#define COR_FUNDO 0xF2F4F7
+#define COR_AZUL  (esquema()->barra_propia ? esquema()->titulo_a1 : 0x1F5FAF)   /* D428: con un esquema propio, los colores del esquema */
+#define COR_FUNDO (esquema()->barra_propia ? esquema()->fundo : 0xF2F4F7)
 
 static bool ativo, comprobando, enviado;
 static uint32_t id;
@@ -228,7 +229,7 @@ bool pd_mouse(int x, int y, int botoes, int mudaram)
 static void botao(superficie_t *t, ret_t r, const char *txt, uint32_t cor, bool ativo_b)
 {
     sup_retangulo(t, r.x, r.y, r.l, r.a, ativo_b ? cor : 0x9AA3AE);
-    sup_moldura(t, r.x, r.y, r.l, r.a, 0x101820);
+    sup_moldura(t, r.x, r.y, r.l, r.a, (esquema()->barra_propia ? esquema()->texto : 0x101820));
     sup_texto(t, r.x + (r.l - texto_largura(txt)) / 2, r.y + (r.a - 16) / 2, txt, 0xFFFFFF);
 }
 
@@ -247,7 +248,7 @@ void pd_desenhar(superficie_t *t)
     sup_moldura(t, c.x - 1, c.y - 1, c.l + 2, c.a + 2, 0x000000);
     sup_moldura(t, c.x, c.y, c.l, c.a, COR_AZUL);
     sup_retangulo(t, c.x, c.y, c.l, 30, COR_AZUL);
-    sup_texto(t, c.x + 14, c.y + 7, _("Control de permisos del sistema"), 0xFFFFFF);
+    sup_texto(t, c.x + 14, c.y + 7, _("Control de permisos del sistema"), (esquema()->barra_propia ? esquema()->titulo_a_texto : 0xFFFFFF));
     /* Icono y nombre del programa (el nombre lo pone el kernel). */
     const desenho_t *ic = barra_icone_processo(vista.nome);
     int ix = c.x + 24, iy = c.y + 30 + 16;
@@ -256,9 +257,9 @@ void pd_desenhar(superficie_t *t)
     int tx = c.x + 72;
     char l1[48];
     txt_copia_n(l1, vista.nome, sizeof l1);
-    sup_texto(t, tx, iy, l1, 0x101820);
-    sup_texto(t, tx + 1, iy, l1, 0x101820);   /* negrita */
-    sup_texto(t, tx, iy + 18, _("quiere hacer cambios en el sistema."), 0x303840);
+    sup_texto(t, tx, iy, l1, (esquema()->barra_propia ? esquema()->texto : 0x101820));
+    sup_texto(t, tx + 1, iy, l1, (esquema()->barra_propia ? esquema()->texto : 0x101820));   /* negrita */
+    sup_texto(t, tx, iy + 18, _("quiere hacer cambios en el sistema."), (esquema()->barra_propia ? esquema()->texto_fraco : 0x303840));
     if (L.n_motivo) {
         int ini[3], tam[3];
         partir(vista.motivo, (DW - 96) / 8, ini, tam);
@@ -267,25 +268,25 @@ void pd_desenhar(superficie_t *t)
             int n = tam[i] < 63 ? tam[i] : 63;
             for (int k = 0; k < n; k++) b[k] = vista.motivo[ini[i] + k];
             b[n] = 0;
-            sup_texto(t, tx, L.y_motivo + i * 16, b, 0x303840);
+            sup_texto(t, tx, L.y_motivo + i * 16, b, (esquema()->barra_propia ? esquema()->texto_fraco : 0x303840));
         }
     }
     for (int k = 0; k < L.campos; k++) {
-        sup_texto(t, c.x + 24, L.y_rotulo[k], rotulo_senha(k), 0x101820);
+        sup_texto(t, c.x + 24, L.y_rotulo[k], rotulo_senha(k), (esquema()->barra_propia ? esquema()->texto : 0x101820));
         ret_t f = L.campo[k];
-        sup_retangulo(t, f.x, f.y, f.l, f.a, 0xFFFFFF);
+        sup_retangulo(t, f.x, f.y, f.l, f.a, (esquema()->barra_propia ? esquema()->campo_fundo : 0xFFFFFF));
         sup_moldura(t, f.x, f.y, f.l, f.a, k == foco && !comprobando ? COR_AZUL : 0x808890);
         char pts[PED_SENHA_MAX];
         int n = slen[k];
         for (int i = 0; i < n; i++) pts[i] = '*';
         pts[n] = 0;
         int max = (f.l - 12) / 8;
-        sup_texto(t, f.x + 6, f.y + 4, n > max ? pts + (n - max) : pts, 0x101820);
-        if (k == foco && !comprobando) sup_retangulo(t, f.x + 6 + (n > max ? max : n) * 8, f.y + 4, 2, 16, 0x101820);
+        sup_texto(t, f.x + 6, f.y + 4, n > max ? pts + (n - max) : pts, (esquema()->barra_propia ? esquema()->texto : 0x101820));
+        if (k == foco && !comprobando) sup_retangulo(t, f.x + 6 + (n > max ? max : n) * 8, f.y + 4, 2, 16, (esquema()->barra_propia ? esquema()->texto : 0x101820));
     }
     if (comprobando) sup_texto(t, c.x + 24, L.y_msg, _("Comprobando..."), COR_AZUL);
     else if (msg[0]) sup_texto(t, c.x + 24, L.y_msg, msg, 0xC0261B);
     botao(t, L.si, _("Sí, continuar"), 0x2E7D32, !comprobando);
     botao(t, L.nao, _("No"), 0x5A6470, !comprobando);
-    sup_texto(t, c.x + 24, c.y + c.a - 22, _("Solo el sistema muestra esta ventana. Esc = No."), 0x6A727C);
+    sup_texto(t, c.x + 24, c.y + c.a - 22, _("Solo el sistema muestra esta ventana. Esc = No."), (esquema()->barra_propia ? esquema()->texto_fraco : 0x6A727C));
 }

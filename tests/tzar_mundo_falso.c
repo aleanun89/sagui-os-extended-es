@@ -181,6 +181,20 @@ void tz_mundo_guiao_fim(TzMundo *m, int k, int ganhou)
 	ev(m, TZ_EV_FIM, k, TZ_NENHUM, TZ_NENHUM, ganhou);
 }
 
+/* v8.5.5.2: lo que el guion pide de revelar un rato, recursos compartidos y rescate (lo mínimo, para comprobarlo) */
+struct FalsoRevelar { int n, k, cx, cy, raio; uint32_t tics; };
+struct FalsoRevelar falso_rev;
+void tz_mundo_guiao_revelar_temp(TzMundo *m, int k, int cx, int cy, int raio, uint32_t tics)
+{
+	(void)m;
+	falso_rev.n++; falso_rev.k = k; falso_rev.cx = cx; falso_rev.cy = cy; falso_rev.raio = raio; falso_rev.tics = tics;
+}
+void tz_mundo_recursos_compartidos(const TzMundo *m, int k, int32_t out[TZ_NREC])
+{
+	for (int j = 0; j < TZ_NREC; ++j) out[j] = k >= 1 && k <= 8 ? m->reino[k].recursos[j] : 0;
+}
+void tz_mundo_pode_resgatar(TzMundo *m, int k, int pode) { if (k >= 1 && k <= 8) { if (pode) m->sem_resgate &= (uint16_t)~(1u << k); else m->sem_resgate |= (uint16_t)(1u << k); } }
+
 /* las acciones que el mundo añadió en la integración (aparecer, atributos, terminar obra): lo mínimo, como el mundo */
 int tz_mundo_guiao_aparecer(TzMundo *m, TzId i)
 {

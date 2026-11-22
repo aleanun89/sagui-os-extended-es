@@ -53,7 +53,21 @@ void prueba_paso(int f) {
 		if (f == 8) in.key[SDL_SCANCODE_RETURN] = 1;
 		return;
 	}
+	if (!strcmp(p, "fuego") && app.screen == SC_SETUP) {
+		/* D447: clic en la casilla «Fuego amigo» de la configuración y empezar con Intro */
+		if (f == 4) { in.mx = (prueba_fuego.x + 8) * app.us; in.my = (prueba_fuego.y + 8) * app.us; in.mclick = 1; }
+		if (f == 6) AOEN_LOG("[AOEN] prueba fuego: casilla=%d", su.fuego_amigo);
+		if (f == 8) in.key[SDL_SCANCODE_RETURN] = 1;
+		return;
+	}
 	if (tc < 0 || app.screen != SC_GAME) return;
+
+	if (!strcmp(p, "fuego")) {
+		static int g0 = -1;
+		if (g0 < 0) g0 = f;
+		if (f == g0 + 6) AOEN_LOG("[AOEN] prueba fuego: partida fuego_amigo=%d motor=%d", W.setup.fuego_amigo, fuego_amigo);
+		return;
+	}
 
 	if (!strcmp(p, "comercio")) {
 		/* un carro mercante elegido: I (modo intercambio), clic en «Dar», M (recibir) y la ayuda del botón del modo */

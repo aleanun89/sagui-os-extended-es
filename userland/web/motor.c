@@ -7770,6 +7770,15 @@ void motor_pintar(motor_t *m, uint32_t *px, int larg, int passo, int y, int a)
     }
 }
 
+/* true si algún comando sigue la rodadura (fixed/sticky): entonces la página no se puede
+ * desplazar copiando lo ya pintado (D441). */
+bool motor_tem_camadas(motor_t *m)
+{
+    if (!m) return false;
+    for (int i = 0; i < m->n_cmds; i++) if (m->cmds[i].cam) return true;
+    return false;
+}
+
 void motor_rolagem(motor_t *m, int y)
 {
     if (m) { m->rolagem = y; m->rol_def = true; }

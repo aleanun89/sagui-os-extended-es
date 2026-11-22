@@ -1,0 +1,15 @@
+Lua 5.4.9 en SaguiOS (D440)
+===========================
+
+  lua guion.lua [argumentos]   ejecuta un guion        lua -e "print(1+1)"   una línea       lua   modo interactivo
+  luac -o guion.luac guion.lua compila a código de bytes (lua guion.luac lo ejecuta)
+
+  /apps/bin/lua y /apps/bin/luac     el intérprete y el compilador
+  /apps/lua/ejemplos/                pruebas.lua (recorre las bibliotecas), miutil.lua (un módulo para require), incrustar.c
+  /apps/lua/share/lua/5.4/           módulos de Lua (?.lua); /apps/lua/lib/lua/5.4/ los de C (no hay carga dinámica de módulos)
+  /apps/tcc/lib/liblua.a             la biblioteca; las cabeceras (lua.h, lauxlib.h, lualib.h, luaconf.h, lua.hpp) están en
+                                     /apps/tcc/include:   tcc incrustar.c -llua -o incrustar
+
+Qué trae: todas las bibliotecas estándar (string, table, math, utf8, coroutine, os, io, debug). io.popen y os.execute usan
+popen y system del sistema. Los números son enteros de 64 bits y dobles. package.loadlib no está (sin dlopen).
+Licencia MIT: LICENCIA-LUA.txt.

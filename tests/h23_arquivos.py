@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar  # noqa: E402
+from qemu import Maquina, verificar, raiz_en_disco, IMAGEM  # noqa: E402
 
 TEXTO = "Olá, SaguiOS! Ação e coração."
 # Pastas da raiz em ordem (o Arquivos mostra as pastas primeiro): os índices
@@ -20,8 +20,12 @@ TEXTO = "Olá, SaguiOS! Ação e coração."
 _ROOTFS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rootfs")
 # D194: el punto de montaje /apps (SAGUI-APPS) también está en la raíz.
 # D255: /sistema (con /sistema/conf, SAGUI-CONF) también aparece en la raíz.
-PASTAS = sorted(set(d for d in os.listdir(_ROOTFS) if os.path.isdir(os.path.join(_ROOTFS, d))) | {"apps", "sistema"})
-ITENS_RAIZ = len(set(os.listdir(_ROOTFS)) | {"apps", "sistema"})
+# D371: /root también. D379: con la raíz en disco (ext2) hay además las carpetas que crea mkimagem.py.
+_EXTRA = {"apps", "sistema", "root"}
+if raiz_en_disco(IMAGEM):
+    _EXTRA |= {"home", "tmp", "jogos", "logs", "initrd", "lost+found"}
+PASTAS = sorted(set(d for d in os.listdir(_ROOTFS) if os.path.isdir(os.path.join(_ROOTFS, d))) | _EXTRA)
+ITENS_RAIZ = len(set(os.listdir(_ROOTFS)) | _EXTRA)
 
 
 def janela(serial, titulo):
@@ -34,7 +38,7 @@ def fechar(m, j):
 
 
 def item(a, i):
-    return a["x"] + 146 + 120, a["y"] + 70 + 2 + i * 20 + 8   # a lista começa depois da lateral (H34)
+    return a["x"] + 146 + 120, a["y"] + 98 + 2 + i * 20 + 8   # a lista começa depois da lateral (H34)
 
 
 def main():
@@ -74,9 +78,12 @@ def main():
         m.esperar_serial("editor: fechado", 10)
         time.sleep(0.4)
 
-        m.clique(a["x"] + 8 + 45, a["y"] + 7 + 13)               # Voltar
+        m.clique(a["x"] + 22, a["y"] + 20)                       # Voltar (botón plano de icono, D423)
         m.esperar_serial(f"arquivos: pasta / ({ITENS_RAIZ} itens)", 10)
-        m.clique(*item(a, PASTAS.index("tmp")), duplo=True)        # tmp/
+        # D379: con la raiz en disco /tmp queda fuera de la vista: se va por la barra de ruta (Ctrl+L)
+        m.tecla("ctrl-l")
+        time.sleep(0.4)
+        m.digitar("/tmp\n", 0.05)
         m.esperar_serial("arquivos: pasta /tmp (1 itens)", 10)
         m.clique(*item(a, 0), duplo=True)                         # nota.txt
         m.esperar_serial("editor: aberto /tmp/nota.txt (29 bytes)", 10)
@@ -87,14 +94,14 @@ def main():
         m.esperar_serial("editor: fechado", 10)
         time.sleep(0.4)
 
-        m.clique(a["x"] + 106 + 55, a["y"] + 7 + 13)              # Nova pasta
+        m.clique(a["x"] + 185, a["y"] + 20)                      # Nova pasta (112-258)
         m.esperar_serial('"Nueva carpeta"', 10)
         time.sleep(0.3)
         m.digitar("teste\n", 0.05)
         m.esperar_serial("arquivos: pasta criada /tmp/teste", 10)
         verificar("arquivos: pasta /tmp (2 itens)" in m.serial(), "pasta /tmp/teste criada e aparece na lista")
         m.clique(*item(a, 0))                                      # seleciona teste/
-        m.clique(a["x"] + 224 + 45, a["y"] + 7 + 13)              # Apagar
+        m.clique(a["x"] + 307, a["y"] + 20)                      # Apagar («Borrar», 262-352)
         m.esperar_serial('"Borrar"', 10)
         time.sleep(0.4)
         m.captura("H23-confirmar-apagar")

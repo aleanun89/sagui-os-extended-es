@@ -15,6 +15,7 @@
  * Terminal. */
 #include "sagui.h"
 #include "gui.h"
+#include "sonidos.h"
 
 #define MAX_ARGS 16
 #define CAMINHO_MAX 128
@@ -24,6 +25,7 @@ static int reiniciar_pc(void)
     if (!confirmar("Reiniciar", "¿Reiniciar el ordenador ahora?\nLo que no esté guardado se perderá."))
         return 0;
     registrar("ejecutar: reiniciando a pedido do menu Inicio");
+    sonido_evento_esperar("reiniciar", SON_APAGADO_MAX_MS);   /* D421: suena antes, con plazo; sin sonido no espera nada */
     reiniciar();
     return 0;
 }
@@ -33,6 +35,7 @@ static int apagar_pc(void)
     if (!confirmar("Apagar", "¿Apagar el ordenador ahora?\nLo que no esté guardado se perderá."))
         return 0;
     registrar("ejecutar: apagando a pedido do menu Inicio");
+    sonido_evento_esperar("apagar", SON_APAGADO_MAX_MS);   /* D421 */
     desligar();
     return 0;
 }

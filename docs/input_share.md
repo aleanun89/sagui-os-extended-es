@@ -14,6 +14,7 @@ input_share/
     <carpeta>/      ->  /jogos/<carpeta>   (la partición de juegos SAGUI-JOGOS)
   apps/             ->  /apps              (la partición de aplicaciones SAGUI-APPS)
   modelos/          ->  (no va a la imagen) modelos de IA locales (D380)
+  sounds/           ->  /apps/sonidos      esquemas de sonido PRIVADOS (D421)
 ```
 
 - **`modelos/`** (D380) guarda los modelos de lenguaje (`.gguf`) del que compila, para medir el motor `llm`
@@ -21,6 +22,9 @@ input_share/
   copia nunca: los modelos no van dentro del sistema (en SaguiOS viven en `/home/compartido/modelos` o
   `~/modelos`, ver docs/llm.md). Tampoco se ponen en `apps/`: inflarían SAGUI-APPS y SAGUI-RAIZ.
 
+- **`sounds/`** (D421): `sounds/only_private/*.wav` (jingles de arranque de Windows) y `sounds/pixbay_free/*.mp3` los convierte
+  `tools/sonidos_privados.py` en esquemas de sonido (`/apps/sonidos/<id>`, uno por archivo de Windows y «Pixabay»), elegibles en
+  Configuración > Sonidos del sistema. Solo imágenes privadas: nunca en git, en `make variantes` ni en la batería.
 - **`games/<carpeta>/`** se copia, tal cual y con sus subcarpetas, a `/jogos/<carpeta>/` de la
   partición `SAGUI-JOGOS` (ext2 de lectura y escritura, montada en `/jogos`). Por ejemplo, la versión
   completa de Jazz Jackrabbit (la de GOG) en `input_share/games/Jazz/` acaba en `/jogos/Jazz`, y

@@ -29,6 +29,8 @@ int planificador_numero(const char *nome)
 int afinidade_cpu(int pid, unsigned mascara)    { return chamar4(PLAN_AFINIDADE, (unsigned)pid, mascara, 0); }
 int afinidade_consultar(int pid)                { return chamar4(PLAN_AFINIDADE, (unsigned)pid, 0xFFFFFFFFu, 0); }
 int prioridade_processo(int pid, int nice)      { return chamar4(PLAN_PRIORIDADE, (unsigned)pid, (unsigned)nice, 0); }
+/* D436: «alta prioridad de audio» para el hilo que llama (1/0; -1 consulta). -> el estado anterior, o un error */
+int planificador_hilo_audio(int ligar)          { return chamar4(PLAN_AUDIO, (unsigned)ligar, 0, 0); }
 int planificacion_info(int pid, info_planificacion_t *v)
 {
     return chamar4(PLAN_INFO, (unsigned)pid, (unsigned)v, 0);

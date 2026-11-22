@@ -33,6 +33,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: Laboratorio de C (D414).** Con las fuentes de TCC, `make` compila también `/apps/bin/labc`, el Laboratorio de C (editor con resaltado, ejecución con libtcc en memoria, errores con su línea y diez ejemplos en `/apps/labc/ejemplos`). No necesita nada más: se incluye desde `tcc.mk`, así que `TCC=0` y `SEM_GPL=1` también lo quitan, y `LABC=0` quita solo él. Ver `rootfs/ayuda/laboratorio-c.md`.
 
+**Opcional: awk y Lua dentro (D440).** `tools/awk_fuentes.sh` baja The One True AWK 20261106 (SHA-256 fijo; licencia permisiva de Lucent) a `userland/terceros/awk/fuentes/`; con eso `make` instala `/bin/awk`. No hace falta bison: la gramática ya generada va en git. `tools/lua_fuentes.sh` baja Lua 5.4.9 (SHA-256 fijo; MIT) a `userland/terceros/lua/fuentes/`; con eso `make` instala `lua` y `luac` en `/apps/bin`, `liblua.a` para TCC y `liblua.so.5.4`. Sin las fuentes cada una se salta con un aviso (`AWK_DENTRO=0` y `LUA_DENTRO=0` las desactivan). Las dos entran también con `SEM_GPL=1`. Ver `docs/awk-lua.md`.
+
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baja libgit2 1.9.1 (etiqueta fija, SHA-256 comprobado) a `userland/terceros/git/fuentes/`; con eso `make` también compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote y config; HTTP(S) con TLS, y SSH). Sin las fuentes se salta con un aviso (`GIT=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/git.md`.
 
 | Paquete | Para qué |
@@ -129,6 +131,8 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `GIT` | `1` | git de SaguiOS (`/apps/bin/git`, D400): solo entra si están las fuentes de libgit2 (`tools/git_fuentes.sh`, ver 1 y 5). `GIT=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `MAKE_DENTRO` | `1` | GNU make de SaguiOS (`/apps/bin/make`, D413): solo entra si están las fuentes (`tools/make_fuentes.sh`, ver 1 y 5). `MAKE_DENTRO=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `LABC` | `1` | el Laboratorio de C (`/apps/bin/labc`, D414): solo entra con TCC. `LABC=0` lo quita (y `TCC=0` también) |
+| `AWK_DENTRO` | `1` | The One True AWK (`/bin/awk`, D440): solo entra si están las fuentes (`tools/awk_fuentes.sh`, ver 1 y 5). `AWK_DENTRO=0` lo quita; con `SEM_GPL=1` también entra |
+| `LUA_DENTRO` | `1` | Lua 5.4 (`/apps/bin/lua` y `luac`, `liblua.a` y `liblua.so.5.4`, D440): solo entra si están las fuentes (`tools/lua_fuentes.sh`, ver 1 y 5). `LUA_DENTRO=0` lo quita; con `SEM_GPL=1` también entra |
 | `GO` | `1` | programas en Go con TinyGo (`/apps/go/`, ver 1). Sin TinyGo instalado se saltan con un aviso; `GO=0` los desactiva |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | solo para `make priv_descargas`: dónde está el repositorio de OpenTTD (o de dónde clonarlo). Sin él, la imagen privada no lleva OpenTTD (ver 5) |
 
@@ -256,6 +260,8 @@ Desde la v8.5.4.10r2 (D388) el orden en el disco es: arranque, la ESP, y la exte
 | Fuentes de Chocolate Doom 3.1.1 y Freedoom 0.13.0 (unos 12 y 57 MB) | `bash tools/doom_fuentes.sh [--tarball FICHERO] [--forzar]` y `bash tools/doom_datos.sh [--zip FICHERO] [--forzar]` | `https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-3.1.1.tar.gz` y `https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip` | GPL-2.0 o posterior (Chocolate Doom); BSD-3-Clause (Freedoom) | `userland/terceros/chocolatedoom/fuentes/` y `datos/` (ignoradas por git) |
 | Fuentes de libgit2 1.9.1 (la orden `git`, D400) | `bash tools/git_fuentes.sh [--tarball FICHERO]` | `https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.1.tar.gz` | GPL-2.0 con excepción de enlace | `userland/terceros/git/fuentes/` (ignorada por git) |
 | Fuentes de GNU make 4.4.1 (`/apps/bin/make`, D413) | `bash tools/make_fuentes.sh [--tarball FICHERO]` | `https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz` | GPL-3.0-or-later | `userland/terceros/make/fuentes/` (ignorada por git) |
+| Fuentes de The One True AWK 20261106 (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball FICHERO]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | permisiva de Lucent (tipo HPND) | `userland/terceros/awk/fuentes/` (ignorada por git) |
+| Fuentes de Lua 5.4.9 (`/apps/bin/lua` y `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball FICHERO]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignorada por git) |
 | Modelos 3D CC0 para la demo de SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` y `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (dominio público) | `userland/terceros/modelos3d/datos/` (ignorada por git); no entran en las imágenes |
 
 Notas:
@@ -403,6 +409,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Optional: C Lab (D414).** With the TCC sources, `make` also builds `/apps/bin/labc`, the C Lab (a highlighting editor, code run from memory with libtcc, errors with their line, and ten examples in `/apps/labc/ejemplos`). It needs nothing else: it is included from `tcc.mk`, so `TCC=0` and `SEM_GPL=1` also remove it, and `LABC=0` removes only it. See `rootfs/ayuda/laboratorio-c.md`.
 
+**Optional: awk and Lua inside (D440).** `tools/awk_fuentes.sh` downloads The One True AWK 20261106 (fixed SHA-256; permissive Lucent licence) into `userland/terceros/awk/fuentes/`; with it, `make` installs `/bin/awk`. No bison is needed: the already generated grammar is in git. `tools/lua_fuentes.sh` downloads Lua 5.4.9 (fixed SHA-256; MIT) into `userland/terceros/lua/fuentes/`; with it, `make` installs `lua` and `luac` in `/apps/bin`, `liblua.a` for TCC and `liblua.so.5.4`. Without the sources each one is skipped with a warning (`AWK_DENTRO=0` and `LUA_DENTRO=0` turn them off). Both are included with `SEM_GPL=1` too. See `docs/awk-lua.md`.
+
 **Optional: git inside (D400).** `tools/git_fuentes.sh` downloads libgit2 1.9.1 (fixed tag, SHA-256 checked) into `userland/terceros/git/fuentes/`; with it, `make` also builds `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote and config; HTTP(S) with TLS, and SSH). Without the sources it is skipped with a notice (`GIT=0` disables it). It is left out of `SEM_GPL=1`. See `docs/git.md`.
 
 | Package | What for |
@@ -499,6 +507,8 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `GIT` | `1` | SaguiOS git (`/apps/bin/git`, D400): only included if the libgit2 sources are there (`tools/git_fuentes.sh`, see 1 and 5). `GIT=0` removes it; with `SEM_GPL=1` it is not included either |
 | `MAKE_DENTRO` | `1` | SaguiOS GNU make (`/apps/bin/make`, D413): only included if its sources are there (`tools/make_fuentes.sh`, see 1 and 5). `MAKE_DENTRO=0` removes it; with `SEM_GPL=1` it is not included either |
 | `LABC` | `1` | the C Lab (`/apps/bin/labc`, D414): only included with TCC. `LABC=0` removes it (and `TCC=0` does too) |
+| `AWK_DENTRO` | `1` | The One True AWK (`/bin/awk`, D440): only included if its sources are there (`tools/awk_fuentes.sh`, see 1 and 5). `AWK_DENTRO=0` removes it; with `SEM_GPL=1` it is included too |
+| `LUA_DENTRO` | `1` | Lua 5.4 (`/apps/bin/lua` and `luac`, `liblua.a` and `liblua.so.5.4`, D440): only included if its sources are there (`tools/lua_fuentes.sh`, see 1 and 5). `LUA_DENTRO=0` removes it; with `SEM_GPL=1` it is included too |
 | `GO` | `1` | programs in Go with TinyGo (`/apps/go/`, see 1). Without TinyGo installed they are skipped with a notice; `GO=0` disables them |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | only for `make priv_descargas`: where the OpenTTD repository is (or where to clone it from). Without it the private image does not carry OpenTTD (see 5) |
 
@@ -626,6 +636,8 @@ Since v8.5.4.10r2 (D388) the order on the disk is: boot, the ESP, and the extend
 | Chocolate Doom 3.1.1 and Freedoom 0.13.0 sources (about 12 and 57 MB) | `bash tools/doom_fuentes.sh [--tarball FILE] [--forzar]` and `bash tools/doom_datos.sh [--zip FILE] [--forzar]` | `https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-3.1.1.tar.gz` and `https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip` | GPL-2.0 or later (Chocolate Doom); BSD-3-Clause (Freedoom) | `userland/terceros/chocolatedoom/fuentes/` and `datos/` (ignored by git) |
 | libgit2 1.9.1 sources (the `git` command, D400) | `bash tools/git_fuentes.sh [--tarball FILE]` | `https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.1.tar.gz` | GPL-2.0 with linking exception | `userland/terceros/git/fuentes/` (ignored by git) |
 | GNU make 4.4.1 sources (`/apps/bin/make`, D413) | `bash tools/make_fuentes.sh [--tarball FILE]` | `https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz` | GPL-3.0-or-later | `userland/terceros/make/fuentes/` (ignored by git) |
+| The One True AWK 20261106 sources (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball FILE]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | Lucent permissive (HPND-style) | `userland/terceros/awk/fuentes/` (ignored by git) |
+| Lua 5.4.9 sources (`/apps/bin/lua` and `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball FILE]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignored by git) |
 | CC0 3D models for the SaguiGL demo (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` and `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (public domain) | `userland/terceros/modelos3d/datos/` (ignored by git); not in the images |
 
 Notes:
@@ -773,6 +785,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: Laboratório de C (D414).** Com as fontes do TCC, o `make` também compila `/apps/bin/labc`, o Laboratório de C (editor com realce, execução com libtcc na memória, erros com a sua linha e dez exemplos em `/apps/labc/ejemplos`). Não precisa de mais nada: é incluído a partir de `tcc.mk`, então `TCC=0` e `SEM_GPL=1` também o removem, e `LABC=0` remove só ele. Ver `rootfs/ayuda/laboratorio-c.md`.
 
+**Opcional: awk e Lua dentro (D440).** `tools/awk_fuentes.sh` baixa o The One True AWK 20261106 (SHA-256 fixo; licença permissiva de Lucent) para `userland/terceros/awk/fuentes/`; com isso o `make` instala `/bin/awk`. Não precisa de bison: a gramática já gerada está no git. `tools/lua_fuentes.sh` baixa o Lua 5.4.9 (SHA-256 fixo; MIT) para `userland/terceros/lua/fuentes/`; com isso o `make` instala `lua` e `luac` em `/apps/bin`, `liblua.a` para o TCC e `liblua.so.5.4`. Sem as fontes, cada um é pulado com um aviso (`AWK_DENTRO=0` e `LUA_DENTRO=0` os desativam). Os dois também entram com `SEM_GPL=1`. Ver `docs/awk-lua.md`.
+
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baixa o libgit2 1.9.1 (tag fixa, SHA-256 verificado) para `userland/terceros/git/fuentes/`; com isso o `make` também compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote e config; HTTP(S) com TLS, e SSH). Sem as fontes ele é pulado com um aviso (`GIT=0` o desativa). Fica fora de `SEM_GPL=1`. Ver `docs/git.md`.
 
 | Pacote | Para quê |
@@ -869,6 +883,8 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `GIT` | `1` | o git do SaguiOS (`/apps/bin/git`, D400): só entra se as fontes do libgit2 estiverem (`tools/git_fuentes.sh`, ver 1 e 5). `GIT=0` o remove; com `SEM_GPL=1` também não entra |
 | `MAKE_DENTRO` | `1` | o GNU make do SaguiOS (`/apps/bin/make`, D413): só entra se as fontes estiverem (`tools/make_fuentes.sh`, ver 1 e 5). `MAKE_DENTRO=0` o remove; com `SEM_GPL=1` também não entra |
 | `LABC` | `1` | o Laboratório de C (`/apps/bin/labc`, D414): só entra com o TCC. `LABC=0` o remove (e `TCC=0` também) |
+| `AWK_DENTRO` | `1` | o The One True AWK (`/bin/awk`, D440): só entra se as fontes estiverem (`tools/awk_fuentes.sh`, ver 1 e 5). `AWK_DENTRO=0` o remove; com `SEM_GPL=1` também entra |
+| `LUA_DENTRO` | `1` | o Lua 5.4 (`/apps/bin/lua` e `luac`, `liblua.a` e `liblua.so.5.4`, D440): só entra se as fontes estiverem (`tools/lua_fuentes.sh`, ver 1 e 5). `LUA_DENTRO=0` o remove; com `SEM_GPL=1` também entra |
 | `GO` | `1` | programas em Go com TinyGo (`/apps/go/`, veja 1). Sem o TinyGo instalado são pulados com um aviso; `GO=0` os desativa |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | só para `make priv_descargas`: onde está o repositório do OpenTTD (ou de onde cloná-lo). Sem ele, a imagem privada não leva o OpenTTD (veja 5) |
 
@@ -996,6 +1012,8 @@ Desde a v8.5.4.10r2 (D388) a ordem no disco é: inicialização, a ESP, e a este
 | Fontes do Chocolate Doom 3.1.1 e do Freedoom 0.13.0 (cerca de 12 e 57 MB) | `bash tools/doom_fuentes.sh [--tarball ARQUIVO] [--forzar]` e `bash tools/doom_datos.sh [--zip ARQUIVO] [--forzar]` | `https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-3.1.1.tar.gz` e `https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip` | GPL-2.0 ou posterior (Chocolate Doom); BSD-3-Clause (Freedoom) | `userland/terceros/chocolatedoom/fuentes/` e `datos/` (ignoradas pelo git) |
 | Fontes do libgit2 1.9.1 (o comando `git`, D400) | `bash tools/git_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.1.tar.gz` | GPL-2.0 com exceção de ligação | `userland/terceros/git/fuentes/` (ignorada pelo git) |
 | Fontes do GNU make 4.4.1 (`/apps/bin/make`, D413) | `bash tools/make_fuentes.sh [--tarball ARQUIVO]` | `https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz` | GPL-3.0-or-later | `userland/terceros/make/fuentes/` (ignorada pelo git) |
+| Fontes do The One True AWK 20261106 (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | permissiva de Lucent (tipo HPND) | `userland/terceros/awk/fuentes/` (ignorada pelo git) |
+| Fontes do Lua 5.4.9 (`/apps/bin/lua` e `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball ARQUIVO]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignorada pelo git) |
 | Modelos 3D CC0 para a demo do SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` e `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (domínio público) | `userland/terceros/modelos3d/datos/` (ignorada pelo git); não entram nas imagens |
 
 Notas:

@@ -41,6 +41,14 @@
 #include <stdlib.h>
 #define SGL_ALOCAR(n)  calloc(1, (n))
 #define SGL_LIBERAR(p) free(p)
+#ifdef SGL_GPU_FALSA
+/* D425: pruebas en el PC del camino por la GPU (tests/sgl/es11_gpu_falsa.c): la capa del kernel
+ * es una función del propio programa, que recibe los punteros de verdad (de 64 bits). */
+#include "../../kernel/inc/abi.h"
+int sgl_gpu_falsa(unsigned op, unsigned a, unsigned b, unsigned c, const void *ptr);
+extern const void *sgl_falsa_dados;
+#define SGL_TEM_GPU 1
+#endif
 #elif defined(SGL_POR_CC)
 /* Compilado por el cc de dentro del SaguiOS (el ejemplo /ejemplos/sagui_gl):
  * el cc ya trae calloc y free, y no hay libsagui (la ventana es del propio
@@ -53,6 +61,13 @@
 #define SGL_ALOCAR(n)  aloca_zerado(n)
 #define SGL_LIBERAR(p) libera(p)
 #define SGL_TEM_GPU 1     /* D285: los triángulos pueden ir a la GPU (capa gpu3d del kernel) */
+#endif
+
+/* D451: milisegundos para el perfil (en el PC, sin reloj: el perfil no se enciende allí) */
+#if !defined(SGL_ANFITRIAO) && !defined(SGL_POR_CC)
+#define SGL_MS() tempo_ms()
+#else
+#define SGL_MS() 0u
 #endif
 
 #define PILHA_MV   32
@@ -70,7 +85,7 @@ typedef struct { float x, y, z, w, r, g, b; float u, v, a, luz; float ex, ey, ez
 #define MAX_NIVEIS 12      /* 2048 -> 1 */
 #define GPU_VAGAS_MAX 32   /* huecos de textura de la GPU que la biblioteca sabe usar */
 
-typedef struct {
+typedef struct textura_s {
     int           usada;
     GLuint        id;
     int           larg, alt;
@@ -85,7 +100,40 @@ typedef struct {
     unsigned char *nivel_px[MAX_NIVEIS];
     int           nivel_l[MAX_NIVEIS], nivel_a[MAX_NIVEIS];
     uint32_t      geracao;              /* cambia con los píxeles: la copia de la GPU caduca */
+    /* D425: OpenGL ES 1.1 completo */
+    int           formato_base;         /* GL_RGB, GL_RGBA, GL_LUMINANCE, GL_LUMINANCE_ALPHA o GL_ALPHA */
+    int           formato_int;          /* el que se pidió (glGetTexLevelParameter no existe en ES: para la GPU) */
+    int           cubo;                 /* 1: textura de cubo; las caras están en faces[] */
+    struct textura_s *faces;            /* seis texturas (una por cara), del mismo tamaño */
+    int           recorte[4];           /* GL_TEXTURE_CROP_RECT_OES */
+    float         aniso;                /* GL_TEXTURE_MAX_ANISOTROPY_EXT */
+    int           comprimida;           /* formato comprimido de la subida (0 si ninguno) */
 } textura_t;
+
+/* D425: unidades de textura de OpenGL ES 1.1. */
+#define SGL_UNIDADES 4
+#define PILHA_TEX    4
+typedef struct {
+    int       on, cubo_on;        /* GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP_OES */
+    int       sel, sel_cubo;      /* índice en tex[], -1 si ninguna */
+    /* TexEnv */
+    int       env_modo;           /* GL_MODULATE, GL_REPLACE, GL_DECAL, GL_BLEND, GL_ADD o GL_COMBINE */
+    int       cb_rgb, cb_alfa;    /* GL_COMBINE_RGB, GL_COMBINE_ALPHA */
+    int       src_rgb[3], src_alfa[3], opd_rgb[3], opd_alfa[3];
+    float     esc_rgb, esc_alfa;  /* GL_RGB_SCALE, GL_ALPHA_SCALE */
+    float     env_cor[4];         /* GL_TEXTURE_ENV_COLOR, 0..1 */
+    int       coord_replace;      /* GL_COORD_REPLACE_OES */
+    /* generación de coordenadas (OES_texture_cube_map) */
+    int       gen_on, gen_modo;
+    /* matriz de textura */
+    float     mat[PILHA_TEX][16];
+    int       mat_n;
+    /* lado del cliente */
+    int       t_ativo, t_tam, t_tipo, t_passo;
+    const void *t_ptr;
+    GLuint    t_vbo;
+    float     tc[4];              /* glMultiTexCoord4f (s, t, r, q) */
+} unid_t;
 
 struct sgl_ctx {
     uint32_t *px;
@@ -101,21 +149,19 @@ struct sgl_ctx {
     float     z_limpo;
     int       teste_z, cull, cull_face, frente, plano, func_z;
     GLenum    erro;
-    int       v_ativo, c_ativo, t_ativo;
+    int       v_ativo, c_ativo;
     int       v_tam, v_passo, c_tam, c_tipo, c_passo;
     const void *v_ptr, *c_ptr;
-    int       t_tam, t_tipo, t_passo;
-    const void *t_ptr;
     float     cor[4];         /* glColor, 0..255 (alfa en cor[3]) */
-    float     tc[2];          /* glTexCoord */
     /* glBegin/glEnd */
     int       begin_modo, em_begin, begin_n;
     float     begin_v[MAX_BEGIN][3], begin_c[MAX_BEGIN][4], begin_t[MAX_BEGIN][2];
     /* v6: texturas, mezcla, niebla y luces */
     int       extras;          /* 1 si hay textura, mezcla, niebla o luces */
     textura_t tex[MAX_TEX];
-    int       tex_sel;         /* índice de la textura ligada, -1 si ninguna */
-    int       tex_on;          /* GL_TEXTURE_2D activo */
+    /* D425: unidades de textura (la 0 es la de siempre: on, sel, tc y t_* eran
+     * tex_on, tex_sel, tc y t_* del contexto). */
+    unid_t    un[SGL_UNIDADES];
     int       blend, blend_s, blend_d;
     int       fog;
     float     fog_ini, fog_fim;
@@ -128,6 +174,18 @@ struct sgl_ctx {
     int       gpu_n;           /* vértices pendientes en gpu_v */
     int       gpu_sujo;        /* la GPU tiene dibujo que px todavía no tiene */
     void     *gpu_v;
+    /* D451: búfer de atrás propio (superficies de ventana de EGL) y presentar por la GPU (D432). */
+    int       tras_on;         /* dibuja en un búfer propio; la ventana solo recibe cuadros enteros */
+    uint32_t *tras, *px_janela;  /* el búfer propio y los píxeles de la ventana (NULL: se dibuja en la ventana) */
+    int       tras_n;          /* píxeles reservados en tras */
+    int       jl, ja;          /* tamaño de la ventana (px_janela) */
+    int       escala;          /* D451: escala de dibujo en %, 0 = 100 (sgl_escala) */
+    int      *xmapa; int xmapa_n;   /* columnas de origen para ampliar a la ventana */
+    int       pres_ok;         /* el driver presenta en la pantalla (G3D_CAP_APRESENTAR) */
+    unsigned  pres_espera;     /* tras un «ahora no», no se vuelve a pedir hasta este tempo_ms */
+    /* D451: perfil (SAGUI_GL_PERFIL=1): cuentas desde la última línea del registro */
+    int       perfil;
+    unsigned  pf_t0, pf_quadros, pf_ms_desenho, pf_ms_kernel, pf_ms_ler, pf_ms_copia, pf_ms_apres, pf_diretos, pf_ram, pf_lotes, pf_vert, pf_sw;
     /* D404: caché de texturas en la GPU. Cada hueco del kernel guarda qué
      * textura tiene y con qué generación; se reutiliza mientras no cambie y
      * se reemplaza el que lleva más tiempo sin usarse. */
@@ -154,6 +212,55 @@ struct sgl_ctx {
     int       fog_modo;        /* 0: el de v6 (z de la ventana); GL_LINEAR, GL_EXP, GL_EXP2: distancia al ojo */
     float     fog_dens;
     sgl_estat_t est;
+#ifdef SGL_ES
+    /* ---- D425: OpenGL ES 1.1 completo (sgl_es.c) ---- */
+    int       es;              /* este dibujo va por la tubería completa (sgl_es.c) */
+    int       unid, unid_cli;  /* glActiveTexture, glClientActiveTexture */
+    int       v_tipo, n_tipo;  /* tipos de los arrays (GL_FLOAT, GL_SHORT...) */
+    GLuint    v_vbo, c_vbo, n_vbo;
+    GLuint    vbo_array, vbo_elem;           /* GL_ARRAY_BUFFER, GL_ELEMENT_ARRAY_BUFFER */
+    void     *bufs;                          /* búferes (sgl_es.c) */
+    int       n_bufs;
+    /* fragmentos */
+    int       alfa_on, alfa_func; float alfa_ref;
+    int       est_on, est_func, est_ref; unsigned est_masc, est_escr; int est_falha, est_zfalha, est_zpassa;
+    int       est_limpo;
+    int       tij_on, tij_x, tij_y, tij_l, tij_a;
+    int       masc_cor;        /* bits 1 R, 2 G, 4 B, 8 A */
+    int       masc_z;
+    float     z_perto, z_longe;           /* glDepthRangef */
+    int       off_on; float off_fator, off_unid;
+    int       log_on, log_op;
+    int       blend_sa, blend_da, blend_eq, blend_eqa;   /* mezcla separada y ecuaciones */
+    int       planos;          /* bits de GL_CLIP_PLANEn */
+    float     plano_cl[6][4];  /* glClipPlanef, en el espacio de la vista */
+    float     linha_larg;
+    float     ponto_tam, ponto_min, ponto_max, ponto_fade, ponto_att[3];
+    int       sprite_on, ps_ativo, ps_tipo, ps_passo; const void *ps_ptr; GLuint ps_vbo;
+    float     cob_valor; int cob_inv, cob_on;
+    int       alfa_limpo;      /* alfa de glClearColor (0..255): solo lo guarda un FBO con alfa */
+    int       dither, ms_on, alfa_cob, alfa_um, suave_p, suave_l;
+    int       dois_lados;      /* GL_LIGHT_MODEL_TWO_SIDE */
+    float     l_dir[SGL_MAX_LUZES][3], l_exp[SGL_MAX_LUZES], l_corte[SGL_MAX_LUZES];
+    int       pack_alin, unpack_alin;
+    int       dicas[4];        /* glHint: niebla, puntos, líneas, mipmaps */
+    /* OES_matrix_palette */
+    int       paleta_on, paleta_atual;
+    float     paleta[32][16];
+    int       mi_ativo, mi_tam, mi_tipo, mi_passo; const void *mi_ptr; GLuint mi_vbo;
+    int       pe_ativo, pe_tam, pe_tipo, pe_passo; const void *pe_ptr; GLuint pe_vbo;
+    /* destino: el de la ventana o el de un FBO (sgl_es.c) */
+    uint8_t  *ebuf;            /* esténcil de 8 bits (NULL hasta que se use) */
+    int       alvo_alfa;       /* el destino guarda el alfa en el byte alto */
+    void     *fbos, *rbs;      /* OES_framebuffer_object */
+    int       n_fbos, n_rbs;
+    GLuint    fbo, rb;         /* ligados */
+    struct { uint32_t *px; int larg, alt, zbits; void *zbuf; uint8_t *ebuf; int alfa; } princ;
+    int       sem_estencil;    /* EGL: configuración sin esténcil */
+    /* GPU: cuadros por software cuando un dibujo no cabe en lo que sabe el driver */
+    int       gpu_sw, gpu_sw_prox, gpu_coube, gpu_capas_ok;
+    uint32_t  gpu_bits, gpu_unid, gpu_formatos;
+#endif
 };
 
 /* Motor de sombreado: 1 = SIMD (SSE2), 0 = referencia. Las dos rutas dan
@@ -163,6 +270,21 @@ static int sgl_simd = 1;
 static sgl_ctx_t *C;   /* contexto actual */
 
 static int tex_preparar_mip(textura_t *t);   /* D404: genera los niveles que falten */
+#ifdef SGL_ES
+/* D425: la tubería completa de OpenGL ES 1.1 (sgl_es.c, incluido al final). */
+static void  es_estado_inicial(sgl_ctx_t *c);
+static float *es_atual(void);
+static int   es_capacidade(GLenum cap, int v, int consultar, int *res);
+static int   es_limpar_precisa(GLbitfield m);
+static void  es_limpar(GLbitfield m);
+static void  es_fbo_soltar_tudo(sgl_ctx_t *c);
+static void  tex_es_iniciar(textura_t *t);
+static const void *vbo_resolver(const void *p, GLuint vbo);
+#ifdef SGL_TEM_GPU
+static void  es_gpu_quadro_novo(GLbitfield m);
+static int   es_gpu_limpar2(GLbitfield m);
+#endif
+#endif
 
 /* ------------------------------------------------------------ utilidades */
 
@@ -232,23 +354,59 @@ uint32_t sgl_soma(const uint32_t *px, int n)
  * el motor es de otro programa, no cabe) o la GPU falla, el contexto sigue por
  * software: lo que ya estaba dibujado en ese cuadro se pierde, el siguiente
  * sale entero. Las líneas van como rectángulos de un píxel de ancho. */
-#define GV_MAX 1020
+#define GV_MAX GPU3D_MAX_VERT   /* D451: lotes grandes (eran 1020) */
+#ifdef SGL_ES
+#define GPU_SW() (C->gpu_sw)     /* D425: este cuadro va por software (un dibujo no cabía en el driver) */
+#else
+#define GPU_SW() 0
+#endif
 typedef struct { float x, y, z, rhw; uint32_t cor, espec; float u, v; } gvert_t;   /* = gpu3d_vert_t */
 
 static sgl_ctx_t *gpu_ctx;        /* el contexto que tiene el motor (uno por proceso) */
+/* D451: ajustes para medir y para aislar fallos de un driver, por variables de entorno (se leen al ligar):
+ *   SAGUI_GL_LOTE=N        vértices por entrega al kernel (por defecto GPU3D_MAX_VERT; antes 1020 en v1 y 504 en v2)
+ *   SAGUI_GL_NEBLINA_CPU=0 sin mezclar la niebla en el vértice para v2 (ese dibujo va por software si el driver no la tiene)
+ *   SAGUI_GL_PRESENTAR=0   sin presentar directo en la pantalla (cada cuadro vuelve a la RAM) */
+static int gpu_lote = GV_MAX, gpu_neb_cpu = 1, gpu_pres = 1, gpu_diag = 0;   /* gpu_diag: SAGUI_GL_DIAG (1 forzar v2, 2 sin prueba alfa en la GPU) */
+
+static int env_int(const char *nome, int def)
+{
+#if !defined(SGL_ANFITRIAO) && !defined(SGL_POR_CC)
+    const char *e = obter_env(nome);
+    if (!e || *e < '0' || *e > '9') return def;
+    int v = 0;
+    while (*e >= '0' && *e <= '9') v = v * 10 + (*e++ - '0');
+    return v;
+#else
+    (void)nome;
+    return def;
+#endif
+}
 static int gpu_auto = 1;          /* los contextos de ventana prueban la GPU */
 
 static int gpu_chamar(unsigned op, unsigned a, unsigned b, unsigned c, const void *ptr)
 {
+#ifdef SGL_GPU_FALSA
+    return sgl_gpu_falsa(op, a, b, c, ptr);
+#else
     gpu3d_pedido_t q;
     q.op = op; q.a = a; q.b = b; q.c = c; q.ptr = (unsigned)ptr; q.bytes = 0;
     return info_sistema(INFO_GPU3D_OP, &q, sizeof q);
+#endif
 }
 
 /* Vuelta al software (para siempre en este contexto, salvo sgl_gpu_ligar). */
+#ifdef SGL_ES
+static void es_gpu_despejar2(void);
+static void es_gpu_soltar2(void);
+#endif
+
 static void gpu_cair(sgl_ctx_t *c)
 {
     if (!c->gpu) return;
+#ifdef SGL_ES
+    es_gpu_soltar2();
+#endif
     c->gpu = 0; c->gpu_n = 0; c->gpu_sujo = 0;
     for (int i = 0; i < GPU_VAGAS_MAX; i++) c->vaga_tex[i] = -1;
     if (gpu_ctx == c) { gpu_chamar(GPU3D_OP_FECHAR, 0, 0, 0, 0); gpu_ctx = 0; }
@@ -265,9 +423,21 @@ int sgl_gpu_ligar(sgl_ctx_t *c)
     if (c->gpu) return 1;
     if (gpu_ctx && gpu_ctx != c) return 0;
     if (c->larg < 8 || c->alt < 8) return 0;
+    gpu_lote = env_int("SAGUI_GL_LOTE", GV_MAX);
+    gpu_lote -= gpu_lote % 3;
+    if (gpu_lote < 3 || gpu_lote > GV_MAX) gpu_lote = GV_MAX;
+    gpu_neb_cpu = env_int("SAGUI_GL_NEBLINA_CPU", 1);
+    gpu_pres = env_int("SAGUI_GL_PRESENTAR", 1);
+    gpu_diag = env_int("SAGUI_GL_DIAG", 0);
     c->gpu_v = SGL_ALOCAR(GV_MAX * sizeof(gvert_t));
     if (!c->gpu_v) return 0;
-    if (gpu_chamar(GPU3D_OP_ABRIR, (unsigned)c->larg, (unsigned)c->alt, c->zbits == 16 ? 16 : 24, 0) != 0) {
+#ifdef SGL_ES
+    /* D425: con el esténcil (8 bits salvo que EGL diga que no) */
+    unsigned zpedido = (c->zbits == 16 ? 16u : 24u) | (c->sem_estencil ? 0u : 8u << 8);
+#else
+    unsigned zpedido = c->zbits == 16 ? 16u : 24u;
+#endif
+    if (gpu_chamar(GPU3D_OP_ABRIR, (unsigned)c->larg, (unsigned)c->alt, zpedido, 0) != 0) {
         SGL_LIBERAR(c->gpu_v); c->gpu_v = 0;
         return 0;
     }
@@ -281,6 +451,14 @@ int sgl_gpu_ligar(sgl_ctx_t *c)
         gpu_chamar(GPU3D_OP_TEXTURA, GPU_VAGAS_MAX - 1, 0, 0, 0);
     }
     for (int i = 0; i < GPU_VAGAS_MAX; i++) c->vaga_tex[i] = -1;
+    /* D451: ¿puede el driver presentar en la pantalla sin volver a la RAM (D432)? */
+    {
+        gpu3d_capas_t k;
+        uint8_t *q = (uint8_t *)&k;
+        for (unsigned i = 0; i < sizeof k; i++) q[i] = 0;
+        c->pres_ok = gpu_chamar(GPU3D_OP_CAPACIDADES, 0, 0, 0, &k) == 0 && (k.bits & G3D_CAP_APRESENTAR);
+        c->pres_espera = 0;
+    }
     gpu_ctx = c;
     return 1;
 }
@@ -355,16 +533,23 @@ static int gpu_textura_vaga(textura_t *t)
 /* Manda lo pendiente: textura (si cambió), estado y triángulos. */
 static void gpu_despejar(void)
 {
+#ifdef SGL_ES
+    es_gpu_despejar2();   /* D425: lo pendiente de gpu3d v2 */
+#endif
     if (!C || !C->gpu || !C->gpu_n) return;
     gpu3d_estado_t e;
     e.flags = 0; e.textura = 0;
+#ifdef SGL_ES
+    if (C->teste_z) e.flags |= G3D_Z_TESTE | (C->masc_z ? G3D_Z_ESCRITA : 0);
+#else
     if (C->teste_z) e.flags |= G3D_Z_TESTE | G3D_Z_ESCRITA;
+#endif
     e.func_z = C->func_z == GL_LEQUAL ? G3D_Z_MENOR_IGUAL : C->func_z == GL_ALWAYS ? G3D_Z_SEMPRE : G3D_Z_MENOR;
     e.mez_orig = (unsigned char)gpu_fator(C->blend_s); e.mez_dest = (unsigned char)gpu_fator(C->blend_d);
     if (C->blend) e.flags |= G3D_MEZCLA;
     int r = 0;
-    if (C->tex_on && C->tex_sel >= 0 && C->tex[C->tex_sel].usada && C->tex[C->tex_sel].px) {
-        textura_t *t = &C->tex[C->tex_sel];
+    if (C->un[0].on && C->un[0].sel >= 0 && C->tex[C->un[0].sel].usada && C->tex[C->un[0].sel].px) {
+        textura_t *t = &C->tex[C->un[0].sel];
         e.flags |= G3D_TEXTURA;
         if (t->wrap_s == GL_REPEAT) e.flags |= G3D_TEX_REPETE_S;
         if (t->wrap_t == GL_REPEAT) e.flags |= G3D_TEX_REPETE_T;
@@ -378,7 +563,10 @@ static void gpu_despejar(void)
         else e.textura = (unsigned char)s;
     }
     if (r == 0) r = gpu_chamar(GPU3D_OP_ESTADO, 0, 0, 0, &e);
+    unsigned tk = C->perfil > 0 ? SGL_MS() : 0;
     if (r == 0) r = gpu_chamar(GPU3D_OP_TRIANGULOS, (unsigned)C->gpu_n, 0, 0, C->gpu_v);
+    if (C->perfil > 0) C->pf_ms_kernel += SGL_MS() - tk;
+    C->pf_lotes++; C->pf_vert += (unsigned)C->gpu_n;
     C->gpu_n = 0;
     if (r != 0) { gpu_cair(C); return; }
     C->gpu_sujo = 1;
@@ -387,7 +575,7 @@ static void gpu_despejar(void)
 /* Trae el cuadro de la GPU a los píxeles del contexto. */
 static void gpu_sincronizar(void)
 {
-    if (!C || !C->gpu) return;
+    if (!C || !C->gpu || GPU_SW()) return;
     gpu_despejar();
     if (!C->gpu || !C->gpu_sujo) return;
     if (gpu_chamar(GPU3D_OP_LER, (unsigned)C->larg, 0, 0, C->px) != 0) { gpu_cair(C); return; }
@@ -452,7 +640,10 @@ static void gpu_vertice(const vert_t *v, gvert_t *o)
 
 static gvert_t *gpu_sitio(int n)
 {
-    if (C->gpu_n + n > GV_MAX) gpu_despejar();
+#ifdef SGL_ES
+    es_gpu_despejar2();
+#endif
+    if (C->gpu_n + n > gpu_lote) gpu_despejar();
     if (!C->gpu) return 0;
     gvert_t *g = (gvert_t *)C->gpu_v + C->gpu_n;
     C->gpu_n += n;
@@ -529,7 +720,7 @@ static void ctx_estado_inicial(sgl_ctx_t *c)
     c->teste_z = 0; c->cull = 0; c->cull_face = GL_BACK; c->frente = GL_CCW; c->plano = 0; c->func_z = GL_LESS;
     c->cor[0] = c->cor[1] = c->cor[2] = 255.0f; c->cor[3] = 255.0f;
     /* v6 */
-    c->extras = 0; c->tex_sel = -1; c->tex_on = 0;
+    c->extras = 0; c->un[0].sel = -1; c->un[0].on = 0;
     c->blend = 0; c->blend_s = GL_SRC_ALPHA; c->blend_d = GL_ONE_MINUS_SRC_ALPHA;
     c->fog = 0; c->fog_ini = 0; c->fog_fim = 1; c->fog_cor[0] = c->fog_cor[1] = c->fog_cor[2] = 0.0f;
     c->luz_on = 0;
@@ -551,6 +742,9 @@ static void ctx_estado_inicial(sgl_ctx_t *c)
     c->normal[0] = 0; c->normal[1] = 0; c->normal[2] = 1;
     c->fog_modo = 0; c->fog_dens = 1.0f;
     for (int i = 0; i < GPU_VAGAS_MAX; i++) c->vaga_tex[i] = -1;
+#ifdef SGL_ES
+    es_estado_inicial(c);
+#endif
 }
 
 static sgl_ctx_t *criar(uint32_t *px, int larg, int alt, int zbits, void *janela, int dono)
@@ -581,14 +775,72 @@ sgl_ctx_t *sgl_criar_contexto(void *janela, int zbits)
     return c;
 }
 
+/* D451: el búfer de atrás propio. Con tras_on y una ventana, el contexto dibuja en c->tras y sgl_trocar copia el
+ * cuadro entero a los píxeles de la ventana: el compositor, que lee esos píxeles cuando quiere (otra ventana, el
+ * puntero), ya no ve cuadros a medias (el parpadeo de Brumacanto, sobre todo por software o con la vuelta a la RAM,
+ * que tarda cientos de ms). Se llama cada vez que cambia el destino; c->px es el de la ventana al entrar. */
+static void tras_preparar(sgl_ctx_t *c)
+{
+    c->px_janela = 0;
+    c->jl = c->larg; c->ja = c->alt;
+    if (!c->tras_on || !c->janela) return;
+    /* D451: con la escala de dibujo, el contexto es más pequeño que la ventana y sgl_trocar lo amplía */
+    int l = c->escala ? sgl_escala_medida(c->larg, c->escala) : c->larg;
+    int a = c->escala ? sgl_escala_medida(c->alt, c->escala) : c->alt;
+    int n = l * a;
+    if (n > c->tras_n) {
+        uint32_t *t = SGL_ALOCAR((size_t)n * 4);
+        if (!t) return;   /* sin memoria: se dibuja en la ventana, como antes */
+        if (c->tras) SGL_LIBERAR(c->tras);
+        c->tras = t; c->tras_n = n;
+    }
+    uint32_t *j = c->px;
+    if (l == c->jl && a == c->ja) for (int i = 0; i < n; i++) c->tras[i] = j[i];   /* EGL_BUFFER_PRESERVED: empieza con lo que se ve */
+    else for (int i = 0; i < n; i++) c->tras[i] = 0;
+    c->px_janela = j; c->px = c->tras; c->larg = l; c->alt = a;
+}
+
+void sgl_tras_proprio(sgl_ctx_t *c)
+{
+    if (!c || c->tras_on) return;
+    c->tras_on = 1;
+    if (c->fbo) return;   /* se prepara al volver al destino principal (sgl_mudar_destino) */
+    tras_preparar(c);
+}
+
+/* D451: la escala de dibujo de un contexto de ventana con búfer propio (EGL): 100 = la ventana; 50 = la mitad de
+ * ancho y de alto. El cuadro se amplía a la ventana al presentar (por la GPU, o con la CPU). */
+int sgl_escala_medida(int lado, int pct)
+{
+    if (pct <= 0 || pct >= 100) return lado;
+    int v = (lado * pct + 50) / 100;
+    return v < 8 ? (lado < 8 ? lado : 8) : v;
+}
+
+int sgl_escala(sgl_ctx_t *c, int pct)
+{
+    if (!c) return 0;
+    if (pct < 25) pct = 25;
+    if (pct >= 100) pct = 0;
+    if (pct == c->escala) return 1;
+    c->escala = pct;
+    if (!c->tras_on || !c->janela || !c->px_janela || c->fbo) return 1;   /* se aplica en el próximo cambio de destino */
+    return sgl_mudar_destino(c, c->janela, c->px_janela, c->jl, c->ja);
+}
+
 void sgl_redimensionar(sgl_ctx_t *c)
 {
     jan_t *j = c->janela;
     if (!j) return;
     int tinha_gpu = c->gpu;
     if (tinha_gpu) gpu_cair(c);   /* el destino de la GPU cambia de tamaño: se vuelve a abrir abajo */
+#ifdef SGL_ES
+    { sgl_ctx_t *ant = C; C = c; if (c->fbo) glBindFramebufferOES(GL_FRAMEBUFFER_OES, 0); C = ant; }
+    if (c->ebuf) { SGL_LIBERAR(c->ebuf); c->ebuf = 0; }
+#endif
     SGL_LIBERAR(c->zbuf);
     c->px = j->px; c->larg = j->larg; c->alt = j->alt;
+    tras_preparar(c);
     c->zbuf = SGL_ALOCAR((size_t)c->larg * c->alt * (c->zbits / 8));
     c->vx = c->vy = 0;
     c->vw = c->larg > LIM_VIEW ? LIM_VIEW : c->larg;
@@ -596,20 +848,115 @@ void sgl_redimensionar(sgl_ctx_t *c)
     if (tinha_gpu) sgl_gpu_ligar(c);
 }
 
+/* D451: el cuadro de la GPU directo a la pantalla (GPU3D_OP_APRESENTAR, D432), sin volver a la RAM. Solo lo
+ * acepta el kernel con la ventana a pantalla completa, con el foco y nada encima; si dice «ahora no», no se vuelve
+ * a pedir en 500 ms (en ventana sería una llamada inútil por cuadro). 1 = presentado. */
+static int gpu_apresentar(void)
+{
+    if (!gpu_pres || !C->pres_ok || !C->janela || C->fbo || GPU_SW()) return 0;
+    unsigned agora = tempo_ms();
+    if (C->pres_espera && (int)(agora - C->pres_espera) < 0) return 0;
+    gpu_despejar();
+    if (!C->gpu || !C->gpu_sujo || GPU_SW()) return 0;   /* nada nuevo de la GPU (p. ej. tras glFinish y dibujo con la CPU) */
+    if (C->larg > 0xFFFF || C->alt > 0xFFFF) return 0;
+    gpu3d_apresentar_t a;
+    uint8_t *q = (uint8_t *)&a;
+    for (unsigned i = 0; i < sizeof a; i++) q[i] = 0;
+    a.fonte = GPU3D_DESTINO_PRINCIPAL;
+    a.janela = (unsigned)((jan_t *)C->janela)->id;
+    a.ol = (unsigned short)C->larg; a.oa = (unsigned short)C->alt;
+    a.dl = (unsigned short)(C->px_janela ? C->jl : C->larg); a.da = (unsigned short)(C->px_janela ? C->ja : C->alt);
+    if (a.dl != a.ol || a.da != a.oa) a.flags |= G3D_APRES_LINEAR;   /* D451: la escala de dibujo, ampliada por la GPU */
+    int r = gpu_chamar(GPU3D_OP_APRESENTAR, 0, 0, 0, &a);
+    if (r < 0) { gpu_cair(C); return 0; }
+    if (r > 0) { C->pres_espera = agora + 500; if (!C->pres_espera) C->pres_espera = 1; return 0; }
+    C->pres_espera = 0;
+    return 1;
+}
+
+/* D451: el búfer propio (más pequeño, por la escala) ampliado a la ventana, por el vecino más próximo. */
+static void tras_ampliar(void)
+{
+    int jl = C->jl, ja = C->ja, l = C->larg, a = C->alt;
+    if (C->xmapa_n != jl) {
+        if (C->xmapa) SGL_LIBERAR(C->xmapa);
+        C->xmapa = SGL_ALOCAR((size_t)jl * sizeof(int));
+        C->xmapa_n = C->xmapa ? jl : 0;
+        if (!C->xmapa) return;
+    }
+    for (int x = 0; x < jl; x++) C->xmapa[x] = x * l / jl;
+    uint32_t *d = C->px_janela;
+    for (int y = 0; y < ja; y++) {
+        const uint32_t *o = C->px + (size_t)(y * a / ja) * l;
+        uint32_t *dl = d + (size_t)y * jl;
+        if (y > 0 && (y * a / ja) == ((y - 1) * a / ja)) { const uint32_t *ant = dl - jl; for (int x = 0; x < jl; x++) dl[x] = ant[x]; continue; }
+        for (int x = 0; x < jl; x++) dl[x] = o[C->xmapa[x]];
+    }
+}
+
+/* D451: una línea del perfil cada 2 s (SAGUI_GL_PERFIL=1). */
+static void perfil_linha(unsigned agora)
+{
+    unsigned ms = agora - C->pf_t0, q = C->pf_quadros ? C->pf_quadros : 1;
+    registrar("[SGL] perfil (D451): %u cuadros en %u ms (%u.%u fps), %s %ux%u; por cuadro: %u lotes, %u vertices, "
+              "en SaguiGL %u ms (de ellos en el kernel dibujando %u ms), volver a la RAM %u ms, copiar a la ventana %u ms, presentar %u ms; directos %u, por la RAM %u, por software %u",
+              C->pf_quadros, ms, ms ? C->pf_quadros * 1000u / ms : 0, ms ? (C->pf_quadros * 10000u / ms) % 10 : 0,
+              C->gpu ? "GPU" : "software", (unsigned)C->larg, (unsigned)C->alt, C->pf_lotes / q, C->pf_vert / q,
+              C->pf_ms_desenho / q, C->pf_ms_kernel / q, C->pf_ms_ler / q, C->pf_ms_copia / q, C->pf_ms_apres / q, C->pf_diretos, C->pf_ram, C->pf_sw);
+    C->pf_t0 = agora;
+    C->pf_quadros = C->pf_ms_desenho = C->pf_ms_kernel = C->pf_ms_ler = C->pf_ms_copia = C->pf_ms_apres = C->pf_diretos = C->pf_ram = C->pf_lotes = C->pf_vert = C->pf_sw = 0;
+}
+
 void sgl_trocar(void)
 {
-    gpu_sincronizar();
-    if (C && C->janela) jan_mostrar(C->janela);
+    if (!C) return;
+    if (!C->perfil) {
+        const char *e = obter_env("SAGUI_GL_PERFIL");
+        C->perfil = e && e[0] == '1' ? 1 : -1;
+        C->pf_t0 = tempo_ms();
+    }
+    unsigned t0 = C->perfil > 0 ? tempo_ms() : 0;
+    if (C->gpu && GPU_SW()) C->pf_sw++;
+    if (C->gpu && gpu_apresentar()) {
+        C->pf_diretos++;
+        if (C->perfil > 0) C->pf_ms_apres += tempo_ms() - t0;
+    } else {
+        int ler = C->gpu && !GPU_SW() && (C->gpu_n || C->gpu_sujo);
+        gpu_sincronizar();
+        unsigned t1 = C->perfil > 0 ? tempo_ms() : 0;
+        if (ler) { C->pf_ram++; C->pf_ms_ler += t1 - t0; }
+        if (C->px_janela && C->px != C->px_janela && !C->fbo) {
+            uint32_t *d = C->px_janela; const uint32_t *o = C->px;
+            if (C->larg == C->jl && C->alt == C->ja) {
+                int n = C->larg * C->alt;
+                for (int i = 0; i < n; i++) d[i] = o[i];
+            } else tras_ampliar();
+            if (C->perfil > 0) C->pf_ms_copia += tempo_ms() - t1;
+        }
+        if (C->janela) jan_mostrar(C->janela);
+    }
+    if (C->perfil > 0) {
+        C->pf_quadros++;
+        unsigned agora = tempo_ms();
+        if (agora - C->pf_t0 >= 2000) perfil_linha(agora);
+    }
 }
 #else
+static void tras_preparar(sgl_ctx_t *c) { (void)c; }
+int sgl_escala_medida(int lado, int pct) { (void)pct; return lado; }
+int sgl_escala(sgl_ctx_t *c, int pct) { (void)c; (void)pct; return 1; }
 void sgl_redimensionar(sgl_ctx_t *c) { (void)c; }
 void sgl_trocar(void) {}
+void sgl_tras_proprio(sgl_ctx_t *c) { (void)c; }
 #endif
 
 void sgl_destruir_contexto(sgl_ctx_t *c)
 {
     if (!c) return;
     sgl_gpu_desligar(c);
+#ifdef SGL_ES
+    { sgl_ctx_t *ant = C; C = c; es_fbo_soltar_tudo(c); C = ant; }
+#endif
     /* D404: las texturas y sus niveles (antes se quedaban). */
     for (int i = 0; i < MAX_TEX; i++) {
         textura_t *t = &c->tex[i];
@@ -617,16 +964,55 @@ void sgl_destruir_contexto(sgl_ctx_t *c)
         if (t->px) SGL_LIBERAR(t->px);
     }
     if (C == c) C = 0;
+    if (c->tras) SGL_LIBERAR(c->tras);
+    if (c->xmapa) SGL_LIBERAR(c->xmapa);
     SGL_LIBERAR(c->zbuf);
     SGL_LIBERAR(c);
 }
 
 void sgl_usar_contexto(sgl_ctx_t *c) { C = c; }
+sgl_ctx_t *sgl_contexto_atual(void) { return C; }   /* D426: p. ej. para sgl_gpu_ligar() bajo EGL */
+
+/* D425: el contexto pasa a dibujar en otro sitio (eglMakeCurrent con otra superficie). */
+int sgl_mudar_destino(sgl_ctx_t *c, void *janela, uint32_t *px, int larg, int alt)
+{
+    if (!c || larg <= 0 || alt <= 0) return 0;
+#ifdef SGL_ES
+    { sgl_ctx_t *ant = C; C = c; if (c->fbo) glBindFramebufferOES(GL_FRAMEBUFFER_OES, 0); C = ant; }
+    if (c->ebuf) { SGL_LIBERAR(c->ebuf); c->ebuf = 0; }
+#endif
+#ifdef SGL_TEM_GPU
+    int tinha_gpu = c->gpu;
+    if (tinha_gpu) gpu_cair(c);
+#endif
+    void *z = SGL_ALOCAR((size_t)larg * alt * (c->zbits / 8));
+    if (!z) return 0;
+    SGL_LIBERAR(c->zbuf);
+    c->zbuf = z; c->px = px; c->larg = larg; c->alt = alt; c->janela = janela;
+    tras_preparar(c);   /* D451 */
+#ifdef SGL_TEM_GPU
+    if (janela && (tinha_gpu || gpu_auto)) sgl_gpu_ligar(c);
+#endif
+    return 1;
+}
+
+void sgl_estencil(sgl_ctx_t *c, int bits)
+{
+#ifdef SGL_ES
+    if (c) c->sem_estencil = bits == 0;
+#else
+    (void)c; (void)bits;
+#endif
+}
 
 /* ------------------------------------------------------------ matrizes */
 
 static float *atual(void)
 {
+#ifdef SGL_ES
+    float *e = es_atual();
+    if (e) return e;
+#endif
     return C->modo_mat == GL_PROJECTION ? C->proj[C->proj_n - 1] : C->mv[C->mv_n - 1];
 }
 
@@ -643,12 +1029,14 @@ static void mat_mul(float *r, const float *a, const float *b)
     for (int i = 0; i < 16; i++) r[i] = t[i];
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glMatrixMode(GLenum m)
 {
     if (!C) return;
     if (m != GL_MODELVIEW && m != GL_PROJECTION) { erro(GL_INVALID_ENUM); return; }
     C->modo_mat = (int)m;
 }
+#endif
 
 void glLoadIdentity(void)
 {
@@ -671,6 +1059,7 @@ void glMultMatrixf(const GLfloat *s)
     mat_mul(m, m, s);
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glPushMatrix(void)
 {
     if (!C) return;
@@ -684,7 +1073,9 @@ void glPushMatrix(void)
         C->mv_n++;
     }
 }
+#endif
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glPopMatrix(void)
 {
     if (!C) return;
@@ -692,6 +1083,7 @@ void glPopMatrix(void)
     if (*n <= 1) { erro(GL_STACK_UNDERFLOW); return; }
     (*n)--;
 }
+#endif
 
 void glTranslatef(GLfloat x, GLfloat y, GLfloat z)
 {
@@ -764,12 +1156,31 @@ void glClearColor(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
     (void)a;
     if (!C) return;
     C->cor_limpa = ((uint32_t)a_byte(r) << 16) | ((uint32_t)a_byte(g) << 8) | (uint32_t)a_byte(b);
+#ifdef SGL_ES
+    C->alfa_limpo = a_byte(a);
+#endif
 }
 
 void glClear(GLbitfield m)
 {
     if (!C) return;
+#ifdef SGL_ES
+    if (m & ~(GLbitfield)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) { erro(GL_INVALID_VALUE); return; }
 #ifdef SGL_TEM_GPU
+    es_gpu_quadro_novo(m);
+    if (C->gpu && !C->gpu_sw && !C->fbo) {
+        if (!es_limpar_precisa(m) && gpu_limpar(m)) return;
+        if (C->gpu && es_limpar_precisa(m) && es_gpu_limpar2(m)) return;
+        if (C->gpu && !C->gpu_sw) {
+            /* lo que gpu3d v1 no limpia (esténcil, máscaras, tijera): el cuadro va por software */
+            C->gpu_coube = 0;
+            gpu_sincronizar();
+            C->gpu_sw = 1;
+        }
+    }
+#endif
+    if (es_limpar_precisa(m)) { es_limpar(m); return; }
+#elif defined(SGL_TEM_GPU)
     if (C->gpu && gpu_limpar(m)) return;
 #endif
     int n = C->larg * C->alt;
@@ -784,7 +1195,7 @@ void glClear(GLbitfield m)
 /* ¿Hace falta la ruta v6 (texturas, mezcla, niebla, luces)? */
 static void refaz_extras(void)
 {
-    C->extras = (C->tex_on || C->blend || C->fog || C->luz_on) ? 1 : 0;
+    C->extras = (C->un[0].on || C->blend || C->fog || C->luz_on) ? 1 : 0;
     C->luz_v7 = C->luz_on && C->luz_nova;
 }
 
@@ -794,13 +1205,20 @@ void glEnable(GLenum cap)
     GPU_DESPEJAR();
     if (cap == GL_DEPTH_TEST) C->teste_z = 1;
     else if (cap == GL_CULL_FACE) C->cull = 1;
-    else if (cap == GL_TEXTURE_2D) { C->tex_on = 1; refaz_extras(); }
+#ifdef SGL_ES
+    else if (cap == GL_TEXTURE_2D) { C->un[C->unid].on = 1; refaz_extras(); }
+#else
+    else if (cap == GL_TEXTURE_2D) { C->un[0].on = 1; refaz_extras(); }
+#endif
     else if (cap == GL_BLEND) { C->blend = 1; refaz_extras(); }
     else if (cap == GL_FOG) { C->fog = 1; refaz_extras(); }
     else if (cap == GL_LIGHTING) { C->luz_on = 1; refaz_extras(); }
     else if (cap >= GL_LIGHT0 && cap <= GL_LIGHT7) { C->luz_ligada[cap - GL_LIGHT0] = 1; C->luz_nova = 1; refaz_extras(); }
     else if (cap == GL_COLOR_MATERIAL) { C->cor_material = 1; C->luz_nova = 1; refaz_extras(); }
     else if (cap == GL_NORMALIZE || cap == GL_RESCALE_NORMAL) {}   /* las normales se normalizan siempre */
+#ifdef SGL_ES
+    else if (es_capacidade(cap, 1, 0, 0)) {}
+#endif
     else erro(GL_INVALID_ENUM);
 }
 
@@ -810,20 +1228,31 @@ void glDisable(GLenum cap)
     GPU_DESPEJAR();
     if (cap == GL_DEPTH_TEST) C->teste_z = 0;
     else if (cap == GL_CULL_FACE) C->cull = 0;
-    else if (cap == GL_TEXTURE_2D) { C->tex_on = 0; refaz_extras(); }
+#ifdef SGL_ES
+    else if (cap == GL_TEXTURE_2D) { C->un[C->unid].on = 0; refaz_extras(); }
+#else
+    else if (cap == GL_TEXTURE_2D) { C->un[0].on = 0; refaz_extras(); }
+#endif
     else if (cap == GL_BLEND) { C->blend = 0; refaz_extras(); }
     else if (cap == GL_FOG) { C->fog = 0; refaz_extras(); }
     else if (cap == GL_LIGHTING) { C->luz_on = 0; refaz_extras(); }
     else if (cap >= GL_LIGHT0 && cap <= GL_LIGHT7) C->luz_ligada[cap - GL_LIGHT0] = 0;
     else if (cap == GL_COLOR_MATERIAL) C->cor_material = 0;
     else if (cap == GL_NORMALIZE || cap == GL_RESCALE_NORMAL) {}
+#ifdef SGL_ES
+    else if (es_capacidade(cap, 0, 0, 0)) {}
+#endif
     else erro(GL_INVALID_ENUM);
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glCullFace(GLenum f) { if (C) { if (f == GL_FRONT || f == GL_BACK) C->cull_face = (int)f; else erro(GL_INVALID_ENUM); } }
+#endif
 void glFrontFace(GLenum m) { if (C) { if (m == GL_CW || m == GL_CCW) C->frente = (int)m; else erro(GL_INVALID_ENUM); } }
 void glShadeModel(GLenum m) { if (C) { if (m == GL_FLAT) C->plano = 1; else if (m == GL_SMOOTH) C->plano = 0; else erro(GL_INVALID_ENUM); } }
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glDepthFunc(GLenum f) { if (C) { GPU_DESPEJAR(); if (f == GL_LESS || f == GL_LEQUAL || f == GL_ALWAYS) C->func_z = (int)f; else erro(GL_INVALID_ENUM); } }
+#endif
 GLenum glGetError(void) { GLenum e = C ? C->erro : GL_INVALID_OPERATION; if (C) C->erro = GL_NO_ERROR; return e; }
 
 /* ------------------------------------------------------------ rasterizador */
@@ -961,7 +1390,7 @@ typedef struct {
 static void amostra_textura(pix_t *p)
 {
     const textura_t *t = 0;
-    if (C->tex_on && C->tex_sel >= 0 && C->tex[C->tex_sel].usada) t = &C->tex[C->tex_sel];
+    if (C->un[0].on && C->un[0].sel >= 0 && C->tex[C->un[0].sel].usada) t = &C->tex[C->un[0].sel];
     if (!t || t->larg <= 0 || t->alt <= 0) { p->tr = p->tg = p->tb = p->ta = 255; return; }
     int u = p->u, v = p->v;
     if (u > 65536) u = 65536; else if (u < -65536) u = -65536;
@@ -1257,9 +1686,18 @@ typedef struct { int X, Y; double z; float q; float at[NAT7]; } sv7_t;
 /* Suelo de un float sin libm (|v| < 2^30). */
 static inline int piso_f(float v) { int i = (int)v; return v < (float)i ? i - 1 : i; }
 
-static inline int envolver(int i, int n, int repete)
+static inline int envolver(int i, int n, int modo)
 {
-    if (repete) {
+#ifdef SGL_ES
+    if (modo == GL_MIRRORED_REPEAT_OES) {
+        /* D425: espejo, periodo 2n */
+        int p = 2 * n;
+        i %= p;
+        if (i < 0) i += p;
+        return i < n ? i : p - 1 - i;
+    }
+#endif
+    if (modo == GL_REPEAT) {
         if ((n & (n - 1)) == 0) return i & (n - 1);
         i %= n;
         return i < 0 ? i + n : i;
@@ -1270,8 +1708,8 @@ static inline int envolver(int i, int n, int repete)
 static inline const unsigned char *texel(const textura_t *t, int k, int x, int y)
 {
     int l = t->nivel_l[k], a = t->nivel_a[k];
-    x = envolver(x, l, t->wrap_s == GL_REPEAT);
-    y = envolver(y, a, t->wrap_t == GL_REPEAT);
+    x = envolver(x, l, t->wrap_s);
+    y = envolver(y, a, t->wrap_t);
     return t->nivel_px[k] + ((size_t)y * (size_t)l + (size_t)x) * 4;
 }
 
@@ -1365,7 +1803,7 @@ static void a_pantalha7(const vert_t *v, sv7_t *s)
 
 static const textura_t *textura_ativa(void)
 {
-    if (C->tex_on && C->tex_sel >= 0 && C->tex[C->tex_sel].usada && C->tex[C->tex_sel].px) return &C->tex[C->tex_sel];
+    if (C->un[0].on && C->un[0].sel >= 0 && C->tex[C->un[0].sel].usada && C->tex[C->un[0].sel].px) return &C->tex[C->un[0].sel];
     return 0;
 }
 
@@ -1542,7 +1980,7 @@ static void emitir_triangulo(vert_t t[3])
     if (n < 3) return;
     C->est.triangulos += (uint32_t)(n - 2);
 #ifdef SGL_TEM_GPU
-    if (C->gpu) { gpu_poligono(pol[cur], n); return; }
+    if (C->gpu && !GPU_SW()) { gpu_poligono(pol[cur], n); return; }
 #endif
     if (C->realista) {
         sv7_t s7[12];
@@ -1575,7 +2013,7 @@ static void emitir_linha(const vert_t *va, const vert_t *vb)
     }
     (void)t0; (void)t1;
 #ifdef SGL_TEM_GPU
-    if (C->gpu) { gpu_linha(&a, &b); return; }
+    if (C->gpu && !GPU_SW()) { gpu_linha(&a, &b); return; }
 #endif
     sv_t s0, s1;
     a_pantalha(&a, &s0);
@@ -1614,7 +2052,13 @@ typedef struct {
     float        tc_uv[2];
     const char  *n; int n_passo;   /* D404: normales (NULL: la actual) */
     const float *nv;               /* normales por vértice (glBegin) */
+    int          v_tipo, n_tipo;   /* D425: tipos de los arrays (las rutas de siempre: GL_FLOAT) */
 } fonte_t;
+
+#ifdef SGL_ES
+static int  precisa_es(GLenum modo, const fonte_t *f);
+static void desenhar_es(GLenum modo, int primeiro, int n, const void *idx, GLenum tipo, const fonte_t *f);
+#endif
 
 /* ---- D404: luz de OpenGL ES 1.1 por vértice y niebla por distancia ---- */
 
@@ -1666,6 +2110,8 @@ static void preparar_normais(void)
  * (ambiente + difusa + especular, con atenuación). El difuso y el ambiente
  * van en r, g, b (0..255); el especular aparte, en sr, sg, sb. El observador
  * está en el infinito (GL_LIGHT_MODEL_LOCAL_VIEWER falso). */
+static void es_luz_olho(vert_t *o, float nx, float ny, float nz);
+
 static void luz_vertice(vert_t *o, const float *nn)
 {
     /* normal (fila i de nm) */
@@ -1675,6 +2121,13 @@ static void luz_vertice(vert_t *o, const float *nn)
     float nz = m[2] * nn[0] + m[5] * nn[1] + m[8] * nn[2];
     float ln = raiz(nx * nx + ny * ny + nz * nz);
     if (ln > 0.0f) { ln = 1.0f / ln; nx *= ln; ny *= ln; nz *= ln; }
+    es_luz_olho(o, nx, ny, nz);
+}
+
+/* D425: la luz con la normal ya en el espacio de la vista y normalizada (la usa
+ * también la tubería completa: paleta de matrices, luz de dos caras). */
+static void es_luz_olho(vert_t *o, float nx, float ny, float nz)
+{
     float ma[3], md[3], alfa;
     if (C->cor_material) {
         ma[0] = md[0] = o->r * (1.0f / 255.0f); ma[1] = md[1] = o->g * (1.0f / 255.0f); ma[2] = md[2] = o->b * (1.0f / 255.0f);
@@ -1698,6 +2151,17 @@ static void luz_vertice(vert_t *o, const float *nn)
         }
         float dl = raiz(lx * lx + ly * ly + lz * lz);
         if (dl > 0.0f) { dl = 1.0f / dl; lx *= dl; ly *= dl; lz *= dl; }
+#ifdef SGL_ES
+        if (p[3] != 0.0f && C->l_corte[i] != 180.0f) {
+            /* D425: foco (GL_SPOT_*): fuera del cono no ilumina; dentro, cos^expoente */
+            const float *d = C->l_dir[i];
+            float dd = raiz(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            float cs = dd > 0.0f ? -(lx * d[0] + ly * d[1] + lz * d[2]) / dd : 0.0f;
+            float lim = sgl_cos(C->l_corte[i] * 0.017453292f);
+            if (cs < lim) continue;
+            att *= potencia(cs < 0.0f ? 0.0f : cs, C->l_exp[i]);
+        }
+#endif
         float ndl = nx * lx + ny * ly + nz * lz;
         if (ndl < 0.0f) ndl = 0.0f;
         for (int k = 0; k < 3; k++) c[k] += att * (C->l_amb[i][k] * ma[k] + ndl * C->l_dif[i][k] * md[k]);
@@ -1815,14 +2279,23 @@ static void linha_prim(const vert_t *a, const vert_t *b)
 /* idx = NULL: índices consecutivos desde primeiro. */
 static void desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum tipo, const fonte_t *f)
 {
+#ifdef SGL_ES
+    /* D425: lo que las rutas de siempre no saben va entero por la tubería completa */
+    if (precisa_es(modo, f)) {
+        unsigned td = C->perfil > 0 ? SGL_MS() : 0;
+        desenhar_es(modo, primeiro, n, idx, tipo, f);
+        if (C->perfil > 0) C->pf_ms_desenho += SGL_MS() - td;
+        return;
+    }
+#endif
     /* D404: ¿ruta realista? Se decide una vez por dibujo (el estado no cambia dentro). */
     const textura_t *ta = textura_ativa();
     C->realista = C->persp || C->luz_v7 || (C->fog && C->fog_modo) ||
                   (ta && (ta->filtro_min != GL_NEAREST || ta->filtro_mag != GL_NEAREST));
     if (C->realista && ta && ta->filtro_min != GL_NEAREST && ta->filtro_min != GL_LINEAR && !C->gpu)
-        tex_preparar_mip(&C->tex[C->tex_sel]);
+        tex_preparar_mip(&C->tex[C->un[0].sel]);
     if (C->luz_v7) preparar_normais();
-    #define VERT(k, out) do { int _i = idx ? (tipo == GL_UNSIGNED_BYTE ? ((const uint8_t *)idx)[k] : ((const uint16_t *)idx)[k]) : primeiro + (k); buscar(f, _i, &out); } while (0)
+    #define VERT(k, out) do { int _i = idx ? (tipo == GL_UNSIGNED_BYTE ? ((const uint8_t *)idx)[k] : tipo == GL_UNSIGNED_SHORT ? ((const uint16_t *)idx)[k] : (int)((const uint32_t *)idx)[k]) : primeiro + (k); buscar(f, _i, &out); } while (0)
     vert_t a, b, c;
     switch (modo) {
     case GL_TRIANGLES:
@@ -1852,52 +2325,71 @@ static void desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum t
     #undef VERT
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glEnableClientState(GLenum m)
 {
     if (!C) return;
     if (m == GL_VERTEX_ARRAY) C->v_ativo = 1;
     else if (m == GL_COLOR_ARRAY) C->c_ativo = 1;
-    else if (m == GL_TEXTURE_COORD_ARRAY) C->t_ativo = 1;
+    else if (m == GL_TEXTURE_COORD_ARRAY) C->un[0].t_ativo = 1;
     else if (m == GL_NORMAL_ARRAY) { C->n_ativo = 1; C->luz_nova = 1; refaz_extras(); }
     else erro(GL_INVALID_ENUM);
 }
+#endif
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glDisableClientState(GLenum m)
 {
     if (!C) return;
     if (m == GL_VERTEX_ARRAY) C->v_ativo = 0;
     else if (m == GL_COLOR_ARRAY) C->c_ativo = 0;
-    else if (m == GL_TEXTURE_COORD_ARRAY) C->t_ativo = 0;
+    else if (m == GL_TEXTURE_COORD_ARRAY) C->un[0].t_ativo = 0;
     else if (m == GL_NORMAL_ARRAY) C->n_ativo = 0;
     else erro(GL_INVALID_ENUM);
 }
+#endif
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glVertexPointer(GLint tam, GLenum tipo, GLsizei passo, const void *p)
 {
     if (!C) return;
     if (tam < 2 || tam > 4 || tipo != GL_FLOAT || passo < 0) { erro(GL_INVALID_VALUE); return; }
     C->v_tam = tam; C->v_passo = passo ? passo : tam * 4; C->v_ptr = p;
 }
+#endif
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glColorPointer(GLint tam, GLenum tipo, GLsizei passo, const void *p)
 {
     if (!C) return;
     if (tam < 3 || tam > 4 || (tipo != GL_FLOAT && tipo != GL_UNSIGNED_BYTE) || passo < 0) { erro(GL_INVALID_VALUE); return; }
     C->c_tam = tam; C->c_tipo = (int)tipo; C->c_passo = passo ? passo : tam * (tipo == GL_FLOAT ? 4 : 1); C->c_ptr = p;
 }
+#endif
 
 static int fonte_do_contexto(fonte_t *f)
 {
+#ifdef SGL_ES
+    /* D425: los punteros dados con un búfer ligado son desplazamientos dentro de él */
+    const void *vp = vbo_resolver(C->v_ptr, C->v_vbo), *cp = vbo_resolver(C->c_ptr, C->c_vbo);
+    const void *tp = vbo_resolver(C->un[0].t_ptr, C->un[0].t_vbo), *np = vbo_resolver(C->n_ptr, C->n_vbo);
+    if (!C->v_ativo || (!vp && !C->v_vbo)) { erro(GL_INVALID_OPERATION); return 0; }
+    if (!vp) return 0;
+    f->v_tipo = C->v_tipo; f->n_tipo = C->n_tipo;
+#else
+    const void *vp = C->v_ptr, *cp = C->c_ptr, *tp = C->un[0].t_ptr, *np = C->n_ptr;
     if (!C->v_ativo || !C->v_ptr) { erro(GL_INVALID_OPERATION); return 0; }
-    f->v = C->v_ptr; f->v_tam = C->v_tam; f->v_passo = C->v_passo;
-    f->tem_cor = C->c_ativo && C->c_ptr;
-    f->c = C->c_ptr; f->c_tam = C->c_tam; f->c_tipo = C->c_tipo; f->c_passo = C->c_passo;
+    f->v_tipo = GL_FLOAT; f->n_tipo = GL_FLOAT;
+#endif
+    f->v = vp; f->v_tam = C->v_tam; f->v_passo = C->v_passo;
+    f->tem_cor = C->c_ativo && cp;
+    f->c = cp; f->c_tam = C->c_tam; f->c_tipo = C->c_tipo; f->c_passo = C->c_passo;
     for (int k = 0; k < 4; k++) f->cor[k] = C->cor[k];
     f->tcv = 0;
-    f->tem_tc = C->t_ativo && C->t_ptr;
-    f->tc = C->t_ptr; f->tc_tam = C->t_tam; f->tc_tipo = C->t_tipo; f->tc_passo = C->t_passo;
-    f->tc_uv[0] = C->tc[0]; f->tc_uv[1] = C->tc[1];
-    f->n = C->n_ativo && C->n_ptr ? (const char *)C->n_ptr : 0; f->n_passo = C->n_passo; f->nv = 0;
+    f->tem_tc = C->un[0].t_ativo && tp;
+    f->tc = tp; f->tc_tam = C->un[0].t_tam; f->tc_tipo = C->un[0].t_tipo; f->tc_passo = C->un[0].t_passo;
+    f->tc_uv[0] = C->un[0].tc[0]; f->tc_uv[1] = C->un[0].tc[1];
+    f->n = C->n_ativo && np ? (const char *)np : 0; f->n_passo = C->n_passo; f->nv = 0;
     return 1;
 }
 
@@ -1909,6 +2401,7 @@ void glDrawArrays(GLenum modo, GLint primeiro, GLsizei n)
     desenhar(modo, primeiro, n, 0, 0, &f);
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glDrawElements(GLenum modo, GLsizei n, GLenum tipo, const void *indices)
 {
     fonte_t f;
@@ -1917,6 +2410,7 @@ void glDrawElements(GLenum modo, GLsizei n, GLenum tipo, const void *indices)
     if (!fonte_do_contexto(&f)) return;
     desenhar(modo, 0, n, indices, tipo, &f);
 }
+#endif
 
 void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
 {
@@ -1941,7 +2435,7 @@ void glVertex3f(GLfloat x, GLfloat y, GLfloat z)
     int i = C->begin_n++;
     C->begin_v[i][0] = x; C->begin_v[i][1] = y; C->begin_v[i][2] = z;
     for (int k = 0; k < 4; k++) C->begin_c[i][k] = C->cor[k] * (1.0f / 255.0f);
-    C->begin_t[i][0] = C->tc[0]; C->begin_t[i][1] = C->tc[1];
+    C->begin_t[i][0] = C->un[0].tc[0]; C->begin_t[i][1] = C->un[0].tc[1];
     for (int k = 0; k < 3; k++) C->begin_nv[i][k] = C->normal[k];
 }
 
@@ -1957,8 +2451,9 @@ void glEnd(void)
     f.cor[0] = f.cor[1] = f.cor[2] = f.cor[3] = 255.0f;
     f.tem_tc = 0; f.tc = 0; f.tc_tam = 2; f.tc_tipo = GL_FLOAT; f.tc_passo = 8;
     f.tcv = &C->begin_t[0][0];
-    f.tc_uv[0] = C->tc[0]; f.tc_uv[1] = C->tc[1];
+    f.tc_uv[0] = C->un[0].tc[0]; f.tc_uv[1] = C->un[0].tc[1];
     f.n = 0; f.n_passo = 12; f.nv = &C->begin_nv[0][0];
+    f.v_tipo = GL_FLOAT; f.n_tipo = GL_FLOAT;
     desenhar((GLenum)C->begin_modo, 0, C->begin_n, 0, 0, &f);
 }
 
@@ -1988,6 +2483,9 @@ static void textura_nova(textura_t *t, GLuint id)
     t->gerar_mip = 0; t->mip_pronto = 0; t->n_niveis = 1;
     for (int k = 0; k < MAX_NIVEIS; k++) { t->nivel_px[k] = 0; t->nivel_l[k] = t->nivel_a[k] = 0; }
     t->geracao = ++C->ger_cont;
+#ifdef SGL_ES
+    tex_es_iniciar(t);
+#endif
 }
 
 /* D404: suelta los niveles 1 en adelante. */
@@ -2006,17 +2504,26 @@ void glGenTextures(GLsizei n, GLuint *ids)
     for (int i = 0; i < n; i++) {
         int k = textura_livre();
         if (k < 0) { ids[i] = 0; continue; }
+#ifdef SGL_ES
+        /* D425: como en GL, lo que traiga ids[] no cuenta (antes un valor ya
+         * puesto se tomaba como id y podía repetir uno en uso) */
+        GLuint id = (GLuint)(k + 1);
+        while (textura_por_id(id)) id++;
+        textura_nova(&C->tex[k], id);
+#else
         textura_nova(&C->tex[k], ids[i] ? ids[i] : (GLuint)(k + 1));
+#endif
         ids[i] = C->tex[k].id;
     }
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glBindTexture(GLenum alvo, GLuint id)
 {
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
     GPU_DESPEJAR();
-    if (id == 0) { C->tex_sel = -1; return; }
+    if (id == 0) { C->un[0].sel = -1; return; }
     textura_t *t = textura_por_id(id);
     if (!t) {
         int k = textura_livre();
@@ -2024,8 +2531,9 @@ void glBindTexture(GLenum alvo, GLuint id)
         t = &C->tex[k];
         textura_nova(t, id);
     }
-    C->tex_sel = (int)(t - C->tex);
+    C->un[0].sel = (int)(t - C->tex);
 }
+#endif
 
 /* D404: un nivel a partir del anterior, con una caja de 2x2 (los lados
  * impares o de 1 repiten el último texel). Enteros: el mismo resultado en
@@ -2112,17 +2620,18 @@ static int bytes_texel(GLenum formato, GLenum tipo)
     return -1;
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glTexImage2D(GLenum alvo, GLint nivel, GLint formato_interno, GLsizei larg,
                    GLsizei alt, GLint bord, GLenum formato, GLenum tipo, const void *dados)
 {
     (void)formato_interno; (void)bord;
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
-    if (C->tex_sel < 0) { erro(GL_INVALID_OPERATION); return; }
+    if (C->un[0].sel < 0) { erro(GL_INVALID_OPERATION); return; }
     if (nivel < 0 || nivel >= MAX_NIVEIS) { erro(GL_INVALID_VALUE); return; }
     if (larg <= 0 || alt <= 0 || larg > SGL_MAX_LADO || alt > SGL_MAX_LADO) { erro(GL_INVALID_VALUE); return; }
     GPU_DESPEJAR();
-    textura_t *t = &C->tex[C->tex_sel];
+    textura_t *t = &C->tex[C->un[0].sel];
     t->geracao = ++C->ger_cont;     /* la copia de la GPU caduca */
     int comp = bytes_texel(formato, tipo);
     if (comp < 0) { erro(GL_INVALID_ENUM); return; }
@@ -2156,16 +2665,19 @@ void glTexImage2D(GLenum alvo, GLint nivel, GLint formato_interno, GLsizei larg,
     }
     refaz_extras();
 }
+#endif
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glGenerateMipmap(GLenum alvo)
 {
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
-    if (C->tex_sel < 0 || !C->tex[C->tex_sel].px) { erro(GL_INVALID_OPERATION); return; }
-    textura_t *t = &C->tex[C->tex_sel];
+    if (C->un[0].sel < 0 || !C->tex[C->un[0].sel].px) { erro(GL_INVALID_OPERATION); return; }
+    textura_t *t = &C->tex[C->un[0].sel];
     soltar_niveis(t);
     if (!tex_preparar_mip(t)) erro(GL_OUT_OF_MEMORY);
 }
+#endif
 
 static int filtro_valido(GLenum nome, GLint v)
 {
@@ -2174,13 +2686,14 @@ static int filtro_valido(GLenum nome, GLint v)
                                              v == GL_NEAREST_MIPMAP_LINEAR || v == GL_LINEAR_MIPMAP_LINEAR);
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glTexParameteri(GLenum alvo, GLenum nome, GLint valor)
 {
     if (!C) return;
     if (alvo != GL_TEXTURE_2D) { erro(GL_INVALID_ENUM); return; }
-    if (C->tex_sel < 0) { erro(GL_INVALID_OPERATION); return; }
+    if (C->un[0].sel < 0) { erro(GL_INVALID_OPERATION); return; }
     GPU_DESPEJAR();
-    textura_t *t = &C->tex[C->tex_sel];
+    textura_t *t = &C->tex[C->un[0].sel];
     if (nome == GL_TEXTURE_WRAP_S) {
         if (valor != GL_REPEAT && valor != GL_CLAMP_TO_EDGE) { erro(GL_INVALID_ENUM); return; }
         t->wrap_s = valor;
@@ -2196,7 +2709,9 @@ void glTexParameteri(GLenum alvo, GLenum nome, GLint valor)
         if (t->gerar_mip && t->px) tex_preparar_mip(t);
     } else erro(GL_INVALID_ENUM);
 }
+#endif
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glDeleteTextures(GLsizei n, const GLuint *ids)
 {
     if (!C || !ids || n < 0) return;
@@ -2213,27 +2728,31 @@ void glDeleteTextures(GLsizei n, const GLuint *ids)
         if (t->px) SGL_LIBERAR(t->px);
         t->px = 0; t->usada = 0; t->larg = t->alt = 0; t->nivel_px[0] = 0;
         t->geracao = ++C->ger_cont;
-        if (C->tex_sel == ti) C->tex_sel = -1;
+        if (C->un[0].sel == ti) C->un[0].sel = -1;
     }
 }
+#endif
 
 void glTexCoord2f(GLfloat u, GLfloat v)
 {
     if (!C) return;
-    C->tc[0] = u; C->tc[1] = v;
+    C->un[0].tc[0] = u; C->un[0].tc[1] = v;
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glTexCoordPointer(GLint tam, GLenum tipo, GLsizei passo, const void *p)
 {
     if (!C) return;
     if (tam != 2 || (tipo != GL_FLOAT && tipo != GL_UNSIGNED_BYTE) || passo < 0) { erro(GL_INVALID_VALUE); return; }
-    C->t_tam = tam; C->t_tipo = (int)tipo;
-    C->t_passo = passo ? passo : tam * (tipo == GL_FLOAT ? 4 : 1);
-    C->t_ptr = p;
+    C->un[0].t_tam = tam; C->un[0].t_tipo = (int)tipo;
+    C->un[0].t_passo = passo ? passo : tam * (tipo == GL_FLOAT ? 4 : 1);
+    C->un[0].t_ptr = p;
 }
+#endif
 
 /* ------------------------------------------------------------ v6: mezcla, niebla y luces */
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glBlendFunc(GLenum src, GLenum dst)
 {
     if (!C) return;
@@ -2242,6 +2761,7 @@ void glBlendFunc(GLenum src, GLenum dst)
     GPU_DESPEJAR();
     C->blend_s = (int)src; C->blend_d = (int)dst;
 }
+#endif
 
 void glFogf(GLenum nome, GLfloat valor)
 {
@@ -2290,11 +2810,26 @@ void glLightfv(GLenum luz, GLenum nome, const GLfloat *valor)
     } else if (nome == GL_CONSTANT_ATTENUATION || nome == GL_LINEAR_ATTENUATION || nome == GL_QUADRATIC_ATTENUATION) {
         if (valor[0] < 0.0f) { erro(GL_INVALID_VALUE); return; }
         C->l_att[i][nome - GL_CONSTANT_ATTENUATION] = valor[0];
+#ifdef SGL_ES
+    } else if (nome == GL_SPOT_DIRECTION) {
+        /* D425: como la posición, con la modelo/vista de ahora (sin la traslación) */
+        const float *M = C->mv[C->mv_n - 1];
+        for (int l = 0; l < 3; l++) C->l_dir[i][l] = M[l] * valor[0] + M[4 + l] * valor[1] + M[8 + l] * valor[2];
+    } else if (nome == GL_SPOT_EXPONENT) {
+        if (valor[0] < 0.0f || valor[0] > 128.0f) { erro(GL_INVALID_VALUE); return; }
+        C->l_exp[i] = valor[0];
+    } else if (nome == GL_SPOT_CUTOFF) {
+        if ((valor[0] < 0.0f || valor[0] > 90.0f) && valor[0] != 180.0f) { erro(GL_INVALID_VALUE); return; }
+        C->l_corte[i] = valor[0];
+#endif
     } else erro(GL_INVALID_ENUM);
 }
 
 void glLightf(GLenum luz, GLenum nome, GLfloat valor)
 {
+#ifdef SGL_ES
+    if (nome == GL_SPOT_EXPONENT || nome == GL_SPOT_CUTOFF) { GLfloat v[4] = { valor, 0, 0, 0 }; glLightfv(luz, nome, v); return; }
+#endif
     if (nome != GL_CONSTANT_ATTENUATION && nome != GL_LINEAR_ATTENUATION && nome != GL_QUADRATIC_ATTENUATION) {
         erro(GL_INVALID_ENUM); return;
     }
@@ -2305,6 +2840,9 @@ void glLightf(GLenum luz, GLenum nome, GLfloat valor)
 void glLightModelfv(GLenum nome, const GLfloat *valor)
 {
     if (!C || !valor) return;
+#ifdef SGL_ES
+    if (nome == GL_LIGHT_MODEL_TWO_SIDE) { GPU_DESPEJAR(); C->dois_lados = valor[0] != 0.0f; return; }
+#endif
     if (nome != GL_LIGHT_MODEL_AMBIENT) { erro(GL_INVALID_ENUM); return; }
     for (int k = 0; k < 3; k++) C->modelo_amb[k] = valor[k];
 }
@@ -2340,18 +2878,27 @@ void glNormal3f(GLfloat x, GLfloat y, GLfloat z)
     if (!C->luz_nova) { C->luz_nova = 1; refaz_extras(); }
 }
 
+#ifndef SGL_ES   /* D425: la versión de ES 1.1 está en sgl_es.c */
 void glNormalPointer(GLenum tipo, GLsizei passo, const void *p)
 {
     if (!C) return;
     if (tipo != GL_FLOAT || passo < 0) { erro(GL_INVALID_ENUM); return; }
     C->n_passo = passo ? passo : 12; C->n_ptr = p;
 }
+#endif
 
 void glHint(GLenum alvo, GLenum modo)
 {
     if (!C) return;
     if (modo != GL_FASTEST && modo != GL_NICEST && modo != GL_DONT_CARE) { erro(GL_INVALID_ENUM); return; }
     if (alvo == GL_PERSPECTIVE_CORRECTION_HINT) { GPU_DESPEJAR(); C->persp = modo == GL_NICEST; }
+#ifdef SGL_ES
+    else if (alvo == GL_FOG_HINT) C->dicas[0] = (int)modo;
+    else if (alvo == GL_POINT_SMOOTH_HINT) C->dicas[1] = (int)modo;
+    else if (alvo == GL_LINE_SMOOTH_HINT) C->dicas[2] = (int)modo;
+    else if (alvo == GL_GENERATE_MIPMAP_HINT) C->dicas[3] = (int)modo;
+    else erro(GL_INVALID_ENUM);
+#endif
     /* los demás (niebla, mipmaps...) se aceptan sin efecto */
 }
 
@@ -2377,3 +2924,7 @@ void sgl_estatisticas(sgl_estat_t *e, int zerar)
 
 void sgl_motor_simd(int ativo) { sgl_simd = ativo ? 1 : 0; }
 int  sgl_motor_simd_ativo(void) { return sgl_simd; }
+
+#ifdef SGL_ES
+#include "sgl_es.c"
+#endif

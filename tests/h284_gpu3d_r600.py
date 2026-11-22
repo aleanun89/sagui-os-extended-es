@@ -153,6 +153,15 @@ def unidad():
         r = subprocess.run([exe], capture_output=True, text=True)
         print("   ", (r.stdout + r.stderr).strip().replace("\n", "\n    "))
         verificar(r.returncode == 0 and "todo bien" in r.stdout, f"{nome}: sombreadores, paquetes e inicio del motor")
+    # D426: el sombreador de píxeles de gpu3d v2, ejecutado por un intérprete del ISA contra la cuenta de referencia.
+    fontes = [os.path.join(RAIZ, "tests", "r600_ps_unidad.c"), os.path.join(RAIZ, "kernel", "dispositivos", "r600_3d_pacotes.c")]
+    exe = os.path.join(DIR, "r600_ps_unidad")
+    r = subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-Werror"] + inc + ["-o", exe] + fontes, capture_output=True, text=True)
+    verificar(r.returncode == 0, "r600_ps_unidad compila\n" + r.stderr)
+    r = subprocess.run([exe], capture_output=True, text=True)
+    print("   ", (r.stdout + r.stderr).strip().replace("\n", "\n    ")[-600:])
+    verificar(r.returncode == 0 and re.search(r"\d+ comprobaciones, 0 fallos", r.stdout),
+              "gpu3d v2 en R6xx/R7xx: sombreador de píxeles generado (COMBINE, 4 unidades, niebla) igual a la referencia (D426)")
 
 
 def qemu():

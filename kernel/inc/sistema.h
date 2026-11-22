@@ -76,6 +76,7 @@ int32_t sis_abrir_tv(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_primeiro_plano(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_estilo_janela(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_acento(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D112 */
+int32_t sis_esquema(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D428 */
 int32_t sis_idioma(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D313 */
 int32_t sis_criar_widget(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D365 */
 int32_t sis_fundo(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);

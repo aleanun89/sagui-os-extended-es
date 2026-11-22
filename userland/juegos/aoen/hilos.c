@@ -147,13 +147,14 @@ void perf_informe(int cuadros) {
 	unsigned long long ciclos = perf_reloj() - perf_t0;
 	unsigned ms = SDL_GetTicks() - perf_ms0;
 	if (!ciclos || !ms) return;
-	static const char *nombre[PERF_N] = { "simulación", "ia", "terreno", "entidades", "interfaz", "presentar", "eventos", "(entidades: recoger", "lista)" };
+	static const char *nombre[PERF_N] = { "simulación", "ia", "terreno", "entidades", "interfaz", "presentar", "eventos", "(entidades: recoger", "lista)",
+	                                       "(gpu: triángulos", "capa", "mostrar)" };
 	/* las fases van anidadas: la simulación incluye la IA y la interfaz incluye el terreno y las entidades */
 	double v[PERF_N];
 	for (int f = 0; f < PERF_N; ++f) v[f] = (double)perf_acum[f] * ms / (double)ciclos / cuadros;
 	v[PERF_SIM] -= v[PERF_IA];
 	v[PERF_INTERFAZ] -= v[PERF_TERRENO] + v[PERF_ENTIDADES];
-	char b[300];
+	char b[400];
 	int n = snprintf(b, sizeof b, "por cuadro (ms):");
 	for (int f = 0; f < PERF_N && n < (int)sizeof b; ++f)
 		n += snprintf(b + n, sizeof b - (size_t)n, " %s %.2f", nombre[f], v[f] < 0 ? 0.0 : v[f]);

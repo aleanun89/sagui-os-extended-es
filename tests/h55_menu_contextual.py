@@ -60,7 +60,7 @@ def linha(menu, i, separadores_antes=0):
 
 
 def item_arquivos(a, i):
-    return a["cx"] + 146 + 120, a["cy"] + 70 + 2 + i * 20 + 8   # a lista começa depois da lateral (H34)
+    return a["cx"] + 146 + 120, a["cy"] + 98 + 2 + i * 20 + 8   # a lista começa depois da lateral (H34)
 
 
 def main():
@@ -114,7 +114,7 @@ def main():
         marca = len(m.serial())
         menu = abrir_menu(m, *item_arquivos(a, i_tmp))
         esperar(m, rf"arquivos: menu do item {pasta}", desde=marca)
-        verificar(menu[4] == 10, "botão direito numa pasta do Archivos: menu do programa com 10 linhas (Abrir, Renombrar, Borrar, -, Propiedades e, desde a mejora 056, -, Comprimir x2, Extraer x2)")
+        verificar(menu[4] == 17, "botão direito numa pasta do Archivos: menu do programa com 17 linhas (Abrir, Renombrar, Borrar, -, Propiedades e, desde a mejora 056, -, Comprimir x2, Extraer x2 e, desde a D420, -, Abrir con, Copiar, Cortar, Anclar, Etiqueta, Terminal)")
         time.sleep(0.3)
         m.captura("H55-2-menu-archivos-item")
         marca = len(m.serial())

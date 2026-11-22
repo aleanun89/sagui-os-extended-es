@@ -29,11 +29,15 @@
  * leen aquí, antes de encender, y se filtran con los rangos que declara el driver. */
 #include "gpu3d.h"
 #include "bootinfo.h"
+#include "gui.h"
+#include "video.h"
 #include "console.h"
 #include "cpu.h"
 #include "info_hardware.h"
 #include "memoria.h"
 #include "processo.h"
+#include "prazo.h"
+#include "fpu.h"
 #include "sensores_conv.h"
 #include "sistema.h"
 #include "texto.h"
@@ -51,9 +55,25 @@ static char placa_nome[40];
 static int dono;                          /* pid; 0 = libre */
 static int alvo_l, alvo_a, alvo_z;
 static gpu3d_estado_t est_atual;
+/* gpu3d v2 (D425): capacidades del driver encendido, el estado v2, el destino actual (el principal
+ * o un hueco de textura) y el tamaño del nivel 0 de cada hueco (para dibujar en él). */
+static gpu3d_capas_t capas;
+static gpu3d_estado2_t est2_atual;
+static bool est2_valido;
+static int dest_vaga = -1, dest_l, dest_a;
+static uint16_t vaga_l[GPU3D_TEXTURAS], vaga_a[GPU3D_TEXTURAS];
+/* La ABI v2 no cambia de tamaño (los drivers y SaguiGL la comparten; docs/gpu3d.md). */
+_Static_assert(sizeof(gpu3d_capas_t) == 64 && sizeof(gpu3d_vert2_t) == 88 && sizeof(gpu3d_unidade_t) == 28 &&
+               sizeof(gpu3d_estado2_t) == 168 && sizeof(gpu3d_textura2_t) == 48 && sizeof(gpu3d_limpar2_t) == 36,
+               "gpu3d v2: tamaño de la ABI");
 static uint32_t n_tri, n_lotes, n_quadros, n_falhas, n_recusas, us_autoprova, n_desenhos_prova;
 static uint32_t pontos, tri_s, kpix_s;
 static bool desligando;
+/* D432: presentaciones directas a la pantalla, las que el compositor no dejó hacer, veces que retiró la
+ * pantalla, si hay que repintar las bandas negras y el último rectángulo de destino. */
+static uint32_t n_apres, n_apres_nao, n_excl_perdidas;
+static bool apres_bandas;
+static int apres_dx, apres_dy, apres_dl, apres_da;
 
 /* D390: diagnóstico común (gpu3d_diag.h). */
 g3d_ajustes_t gpu3d_ajustes;
@@ -91,6 +111,7 @@ static void soltar_driver(void)
 {
     if (desligando) return;
     desligando = true;
+    gui_exclusiva_soltar(0, "el 3D se apaga");   /* D432: antes de que el driver deje de poder escribir */
     if (drv && drv->desligar) drv->desligar();
     desligando = false;
     dono = 0; alvo_l = alvo_a = 0;
@@ -110,6 +131,8 @@ static void falha(const char *m)
     estado = GPU3D_FALHOU;
     snformatar(motivo, sizeof motivo, "%s: apagado, SaguiGL sigue por software (%s)", placa_nome, m);
 }
+
+void gpu3d_exclusiva_perdida(void) { n_excl_perdidas++; apres_bandas = true; }
 
 /* acel_intel.c paró el ring (el 2D se apagó, a mano o por su vigilante). */
 void gpu3d_anel_parado(void)
@@ -524,6 +547,19 @@ void gpu3d_iniciar(void)
                 estado = GPU3D_APAGADO;
                 snformatar(motivo, sizeof motivo, "%s: 3D apagado; no se enciende solo («gpu3d probar» lo comprueba y lo activa; --gpu3d=radeon al grabar)", placa_nome);
             }
+        } else if (d2 == &acel_r600 && geracao == 8) {
+            /* D427: Radeon Evergreen y Northern Islands sin Cayman (generación 8 de la tabla del 2D, D286).
+             * Como las R6xx/R7xx: sin probar en hardware y el inicio carga microcódigo y reinicia el CP, así
+             * que NO se enciende con el primer uso salvo con --gpu3d=radeon. Cayman (9) no tiene 3D. */
+            drv = &gpu3d_evergreen;
+            snformatar(placa_nome, sizeof placa_nome, "Radeon Evergreen/NI %04x:%04x", disp.fabricante, disp.modelo);
+            if (pedido == GPU3D_CAB_RADEON) {
+                estado = GPU3D_SIN_PROBAR;
+                snformatar(motivo, sizeof motivo, "%s: 3D sin probar todavia (--gpu3d=radeon: se prueba con el primer uso)", placa_nome);
+            } else {
+                estado = GPU3D_APAGADO;
+                snformatar(motivo, sizeof motivo, "%s: 3D apagado; no se enciende solo («gpu3d probar» lo comprueba y lo activa; --gpu3d=radeon al grabar)", placa_nome);
+            }
         } else if (d2 == &acel_radeon && geracao == 2 &&
                    disp.modelo >= 0x7100 && disp.modelo <= 0x72FF) {
             /* D287: Radeon R5xx. Sin probar en hardware: no se enciende con el primer uso
@@ -561,6 +597,44 @@ static uint32_t variante_real(uint32_t *ram_kb)
 }
 
 /* Pone el driver en marcha y lo prueba. true: activo. */
+/* D425: lo que el driver dice que sabe hacer, sin lo que depende de funciones que no tiene. */
+static void capas_calcular(void)
+{
+    memset(&capas, 0, sizeof capas);
+    capas.versao = 2; capas.unidades = 1; capas.max_lado = GPU3D_MAX_LADO; capas.max_aniso = 1;
+    capas.formatos = 1u << G3D_FMT_ARGB8888; capas.zbits = 3;
+    if (!drv) return;
+    /* D432: presentar no depende de v2; el driver dice si puede escribir en la pantalla de ahora. */
+    bool apres = drv->apresentar && drv->apresentar(NULL) == G3D_OK;
+    if (!drv->capacidades) {
+        if (apres) capas.bits = G3D_CAP_APRESENTAR;
+        klog("[GPU3D] v1: presentar sin volver a la RAM (D432): %s\n", apres ? "si" : "no");
+        return;
+    }
+    drv->capacidades(&capas);
+    capas.versao = 2;
+    if (!drv->desenhar2) { capas.bits = 0; capas.unidades = 1; }
+    capas.bits = (capas.bits & ~G3D_CAP_APRESENTAR) | (apres ? G3D_CAP_APRESENTAR : 0);
+    if (capas.unidades < 1) capas.unidades = 1;
+    if (capas.unidades > 4) capas.unidades = 4;
+    if (capas.max_lado > GPU3D_MAX_LADO || capas.max_lado < 64) capas.max_lado = GPU3D_MAX_LADO;
+    if (capas.max_aniso < 1) capas.max_aniso = 1;
+    if (capas.max_aniso > 16) capas.max_aniso = 16;
+    if (capas.estencil_bits != 8) { capas.estencil_bits = 0; capas.bits &= ~G3D_CAP_ESTENCIL; }
+    capas.formatos |= 1u << G3D_FMT_ARGB8888;
+    capas.formatos &= 0xFu;
+    if (!drv->textura2) {
+        capas.formatos = 1u << G3D_FMT_ARGB8888;
+        capas.bits &= ~(G3D_CAP_TEX_CUBO | G3D_CAP_TEX_MIPMAP);
+    }
+    if (!(capas.bits & G3D_CAP_TEX_MIPMAP) || !(capas.bits & G3D_CAP_TEX_NPOT)) capas.bits &= ~G3D_CAP_TEX_NPOT_MIP;
+    if (!drv->destino) capas.bits &= ~G3D_CAP_DESTINO_TEX;
+    if (!drv->limpar2) capas.bits &= ~(G3D_CAP_LIMPAR2 | G3D_CAP_ESTENCIL);
+    if (!(capas.bits & G3D_CAP_TEX_ANISO)) capas.max_aniso = 1;
+    klog("[GPU3D] v2: capacidades 0x%x, %u unidades, formatos 0x%x; presentar sin volver a la RAM (D432): %s\n", capas.bits,
+         capas.unidades, capas.formatos, capas.bits & G3D_CAP_APRESENTAR ? "si" : "no");
+}
+
 static bool ligar(info_gpu3d_prova_t *r)
 {
     info_gpu3d_prova_t local;
@@ -607,7 +681,7 @@ static bool ligar(info_gpu3d_prova_t *r)
             return false;
         }
     }
-    if (drv == &gpu3d_r600) {
+    if (drv == &gpu3d_r600 || drv == &gpu3d_evergreen) {   /* D427: las Evergreen/NI, con las mismas reglas */
         const acel_driver_t *d2 = NULL;
         bool suspeito = false;
         if (!acel2d_placa(&disp, &geracao, &d2, &tela, &suspeito) || d2 != &acel_r600 || !hw_tsc_khz()) {
@@ -639,6 +713,7 @@ static bool ligar(info_gpu3d_prova_t *r)
         return false;
     }
     us_autoprova = r->us_autoprova;
+    capas_calcular();
     alvo_l = alvo_a = 0; dono = 0;
     uint32_t ram_kb, vr = variante_real(&ram_kb);
     char gtt[48] = "";
@@ -652,6 +727,60 @@ static bool ligar(info_gpu3d_prova_t *r)
 
 /* ------------------------------------------------------------ las llamadas */
 
+/* D436 (audio): el hilo que está dentro de gpu3d_op (0: ninguno). Como las esperas del driver ceden la CPU
+ * (gpu3d_respirar), otro hilo del mismo programa podría entrar mientras tanto y pisar lo que el driver tiene a medias
+ * (la cola preparada, el estado): espera en la puerta. «gpu3d apagar/encender/probar» tampoco entran. Si el hilo murió
+ * dentro (le mataron mientras cedía), la puerta se abre: lo que dejó en la cola son órdenes completas. */
+static int op_hilo;
+static uint32_t n_respiros, n_puerta, n_respiros_fpu;
+static bool respirar_sempre;   /* pruebas (simulado, 0x1010): ceder en cada llamada, sin esperar 2 ms */
+void gpu3d_respirar_forcar(bool sim) { respirar_sempre = sim; }
+/* Las entradas del driver que usa el 2D (acel_radeon.c: órdenes por la cola del CP, la vuelta por la GART) o la energía
+ * no ceden nunca: quien las llama puede tener las interrupciones cerradas a propósito o la FPU tomada (y no lo sabemos). */
+static int resp_bloqueo;
+void gpu3d_respirar_bloquear(bool sim) { if (sim) resp_bloqueo++; else if (resp_bloqueo > 0) resp_bloqueo--; }
+
+static bool op_hilo_vivo(void)
+{
+    if (!op_hilo) return false;
+    processo_t *o = processo_por_pid(op_hilo);
+    if (o && o->estado != P_ZUMBI && o->estado != P_LIVRE) return true;
+    klog("[GPU3D] el hilo %d termino dentro de una orden del 3D: la puerta queda libre\n", op_hilo);
+    op_hilo = 0;
+    return false;
+}
+
+/* sti; nop; cli: las interrupciones pendientes entran en el nop (el reloj puede cambiar de proceso ahí mismo) */
+static void deixar_irq(void)
+{
+    bool i0 = int_salva_desliga();
+    int_liga();
+    __asm__ volatile("nop");
+    int_desliga();
+    int_restaura(i0);
+}
+
+void gpu3d_respirar(void)
+{
+    static uint64_t prox;
+    processo_t *eu = processo_atual();
+    if (!eu || !eu->usuario || eu->pid == 0 || eu->pid != op_hilo || contexto_irq() || resp_bloqueo) return;
+    /* Amilo, 2026-11-21 (#NM en el kernel, en sse3_copiar): dentro de un fpu_kernel_inicio/fim (las copias con SSE,
+     * rapido_inicio) NUNCA: ese tramo cuenta con las interrupciones cerradas y con la FPU suya; al volver de otro
+     * proceso CR0.TS está a 1 y la siguiente instrucción SSE es una excepción del kernel. Ahí se sigue girando. */
+    if (fpu_kernel_ativo()) {
+        if (!n_respiros_fpu++) klog("[GPU3D] una espera dentro de una copia con SSE: no se cede la CPU ahi (D436)\n");
+        return;
+    }
+    uint32_t khz = hw_tsc_khz();
+    uint64_t t = prazo_tsc();
+    if (!khz || (t < prox && !respirar_sempre)) return;
+    prox = t + (uint64_t)khz * GPU3D_RESPIRAR_MS;
+    n_respiros++;
+    deixar_irq();
+    ceder();   /* vuelve enseguida si no hay nadie más listo */
+}
+
 static bool dono_vivo(void)
 {
     if (!dono) return false;
@@ -663,20 +792,126 @@ static bool dono_vivo(void)
 
 /* x, y dentro del destino (con un margen), z de 0 a 1 y lo demás finito y razonable:
  * la GPU no recorta y no debe recibir números que no sean de un triángulo de verdad. */
+static bool coord_ok(uint32_t x, uint32_t y, uint32_t z, uint32_t rhw)
+{
+    int32_t px = g3d_fixo_de_float(x, 4), py = g3d_fixo_de_float(y, 4), pz = g3d_fixo_de_float(z, 16);
+    if (px < -32 || px > (dest_l + 2) * 16 || py < -32 || py > (dest_a + 2) * 16 || pz < 0 || pz > 65536) return false;
+    if ((rhw & 0x80000000u) || ((rhw >> 23) & 0xFF) > 127 + 24) return false;
+    return true;
+}
+
+/* D425: lo mismo para los vértices v2; las coordenadas de textura, finitas y como mucho 2^15. */
+static bool vertices2_ok(const gpu3d_vert2_t *v, int n)
+{
+    for (int i = 0; i < n; i++) {
+        const uint32_t c[4] = { v[i].x, v[i].y, v[i].z, v[i].rhw };
+        for (int k = 0; k < 4; k++) if (((c[k] >> 23) & 0xFF) == 0xFF) return false;
+        if (!coord_ok(v[i].x, v[i].y, v[i].z, v[i].rhw)) return false;
+        for (int u = 0; u < 4; u++)
+            for (int k = 0; k < 4; k++) if (((v[i].tc[u][k] >> 23) & 0xFF) > 127 + 15) return false;
+    }
+    return true;
+}
+
+/* D425: un estado v2 con valores conocidos y que no pide más de lo que el driver anunció. */
+static bool estado2_ok(const gpu3d_estado2_t *e, bool *sem_suporte)
+{
+    *sem_suporte = false;
+    uint32_t b = capas.bits;
+    if (e->versao != 2 || e->func_z > 7 || e->func_alfa > 7 || e->mascara_cor > 15 || e->op_logica > 15 ||
+        e->mez_orig_rgb > G3D_F_ALFA_SATURADO || e->mez_orig_alfa > G3D_F_ALFA_SATURADO ||
+        e->mez_dest_rgb > G3D_F_UM_MENOS_ALFA_DEST || e->mez_dest_alfa > G3D_F_UM_MENOS_ALFA_DEST ||
+        e->mez_eq_rgb > G3D_EQ_SUBTRAI_INV || e->mez_eq_alfa > G3D_EQ_SUBTRAI_INV || e->unidades > 4 ||
+        e->est_func > 7 || e->est_falha > 7 || e->est_zfalha > 7 || e->est_zpassa > 7 ||
+        (e->flags & ~0xFFu)) return false;
+    if ((e->flags & G3D2_TIJERA) && ((int)e->tijera_x + e->tijera_l > dest_l || (int)e->tijera_y + e->tijera_a > dest_a))
+        return false;
+    bool falta = !(b & G3D_CAP_V2) || e->unidades > capas.unidades;
+    if ((e->flags & G3D2_ALFA_TESTE) && !(b & G3D_CAP_ALFA_TESTE)) falta = true;
+    if ((e->flags & G3D2_ESTENCIL) && !(b & G3D_CAP_ESTENCIL)) falta = true;
+    if ((e->flags & G3D2_TIJERA) && !(b & G3D_CAP_TIJERA)) falta = true;
+    if ((e->flags & G3D2_NEBLINA) && !(b & G3D_CAP_NEBLINA)) falta = true;
+    if ((e->flags & G3D2_LOGICA) && !(b & G3D_CAP_LOGICA)) falta = true;
+    if (e->mascara_cor != 15 && !(b & G3D_CAP_MASCARAS)) falta = true;
+    if (e->func_z != G3D_CMP_MENOR && e->func_z != G3D_CMP_MENOR_IGUAL && e->func_z != G3D_CMP_SEMPRE && !(b & G3D_CAP_Z_FUNCS))
+        falta = true;
+    if (e->flags & G3D2_MEZCLA) {
+        if ((e->mez_orig_rgb > G3D_F_UM_MENOS_ALFA || e->mez_dest_rgb > G3D_F_UM_MENOS_ALFA ||
+             e->mez_orig_alfa > G3D_F_UM_MENOS_ALFA || e->mez_dest_alfa > G3D_F_UM_MENOS_ALFA) && !(b & G3D_CAP_MEZCLA_EXT))
+            falta = true;
+        if ((e->mez_orig_rgb != e->mez_orig_alfa || e->mez_dest_rgb != e->mez_dest_alfa || e->mez_eq_rgb != e->mez_eq_alfa) &&
+            !(b & G3D_CAP_MEZCLA_SEP)) falta = true;
+        if ((e->mez_eq_rgb || e->mez_eq_alfa) && !(b & G3D_CAP_MEZCLA_EQ)) falta = true;
+    }
+    for (int i = 0; i < e->unidades; i++) {
+        const gpu3d_unidade_t *u = &e->u[i];
+        if (!u->ativa) continue;
+        if (u->vaga >= GPU3D_TEXTURAS || u->tipo > G3D_TEX_CUBO || u->filtro > 15 || u->env_s > 2 || u->env_t > 2 ||
+            u->coord > 3 || u->rgb_func > G3D_CB_DOT3_RGBA || u->alfa_func > G3D_CB_SUBTRAIR) return false;
+        if ((u->rgb_escala != 1 && u->rgb_escala != 2 && u->rgb_escala != 4) ||
+            (u->alfa_escala != 1 && u->alfa_escala != 2 && u->alfa_escala != 4)) return false;
+        for (int k = 0; k < 3; k++)
+            if (u->rgb_fonte[k] > 3 || u->rgb_opd[k] > 3 || u->alfa_fonte[k] > 3 || u->alfa_opd[k] < 2 || u->alfa_opd[k] > 3)
+                return false;
+        if ((int)u->vaga == dest_vaga) return false;   /* no se lee la textura en la que se dibuja */
+        bool classico = u->rgb_func <= G3D_CB_MODULAR && u->alfa_func <= G3D_CB_MODULAR && u->rgb_escala == 1 && u->alfa_escala == 1;
+        if (!classico && !(b & G3D_CAP_COMBINAR)) falta = true;
+        if (u->rgb_func >= G3D_CB_DOT3_RGB && !(b & G3D_CAP_DOT3)) falta = true;
+        if (u->tipo == G3D_TEX_CUBO && !(b & G3D_CAP_TEX_CUBO)) falta = true;
+        if ((u->env_s == G3D_ENV_ESPELHO || u->env_t == G3D_ENV_ESPELHO) && !(b & G3D_CAP_TEX_ESPELHO)) falta = true;
+        if ((u->filtro & (G3D_FIL_MIP_VECINO | G3D_FIL_MIP_LINEAR)) && !(b & G3D_CAP_TEX_MIPMAP)) falta = true;
+        if (u->aniso > capas.max_aniso) falta = true;
+        /* lados que no son potencia de 2: sin mipmaps (NPOT) o con ellos (NPOT_MIP) */
+        int l = vaga_l[u->vaga], a = vaga_a[u->vaga];
+        if ((l & (l - 1)) || (a & (a - 1))) {
+            if (!(b & G3D_CAP_TEX_NPOT)) falta = true;
+            if ((u->filtro & (G3D_FIL_MIP_VECINO | G3D_FIL_MIP_LINEAR)) && !(b & G3D_CAP_TEX_NPOT_MIP)) falta = true;
+        }
+    }
+    *sem_suporte = falta;
+    return true;
+}
+
 static bool vertices_ok(const gpu3d_vert_t *v, int n)
 {
     for (int i = 0; i < n; i++) {
         const uint32_t c[6] = { v[i].x, v[i].y, v[i].z, v[i].rhw, v[i].u, v[i].v };
         for (int k = 0; k < 6; k++) if (((c[k] >> 23) & 0xFF) == 0xFF) return false;
-        int32_t x = g3d_fixo_de_float(v[i].x, 4), y = g3d_fixo_de_float(v[i].y, 4), z = g3d_fixo_de_float(v[i].z, 16);
-        if (x < -32 || x > (alvo_l + 2) * 16 || y < -32 || y > (alvo_a + 2) * 16 || z < 0 || z > 65536) return false;
-        if ((v[i].rhw & 0x80000000u) || ((v[i].rhw >> 23) & 0xFF) > 127 + 24) return false;
+        if (!coord_ok(v[i].x, v[i].y, v[i].z, v[i].rhw)) return false;
         if (((v[i].u >> 23) & 0xFF) > 127 + 7 || ((v[i].v >> 23) & 0xFF) > 127 + 7) return false;
     }
     return true;
 }
 
+static int32_t op_dentro(uint32_t ptr, uint32_t n);
+
 int32_t gpu3d_op(uint32_t ptr, uint32_t n)
+{
+    processo_t *eu = processo_atual();
+    /* D436: un hilo cada vez (ver op_hilo); el que espera deja correr al de dentro */
+    while (op_hilo && op_hilo != eu->pid && op_hilo_vivo()) {
+        n_puerta++;
+        deixar_irq();
+        ceder();
+    }
+    int antes = op_hilo;
+    op_hilo = eu->pid;
+    int32_t r = op_dentro(ptr, n);
+    op_hilo = antes == eu->pid ? antes : 0;
+    /* diagnóstico: las primeras negativas, con la operación (el programa sigue por software y no dice cuál fue) */
+    static uint32_t negativas;
+    if ((r == GPU3D_SEM_SUPORTE || r == ERRO_INVALIDO) && negativas < 8 && usuario_ok((void *)ptr, sizeof(gpu3d_pedido_t), false)) {
+        const gpu3d_pedido_t *q = (const gpu3d_pedido_t *)ptr;
+        if (q->op != GPU3D_OP_ABRIR && q->op != GPU3D_OP_CAPACIDADES) {
+            negativas++;
+            klog("[GPU3D] el proceso %d: la orden %u (a %u b %u c %u) no se hace: %s\n", eu->pid, q->op, q->a, q->b, q->c,
+                 r == GPU3D_SEM_SUPORTE ? "no la admite" : "invalida");
+        }
+    }
+    return r;
+}
+
+static int32_t op_dentro(uint32_t ptr, uint32_t n)
 {
     gpu3d_pedido_t *q = (gpu3d_pedido_t *)ptr;
     if (n < sizeof *q || !usuario_ok(q, sizeof *q, false)) return ERRO_ENDERECO;
@@ -688,6 +923,11 @@ int32_t gpu3d_op(uint32_t ptr, uint32_t n)
         if (p.a < 8 || p.b < 8 || p.a > GPU3D_MAX_LADO || p.b > GPU3D_MAX_LADO) return GPU3D_SEM_SUPORTE;
         if (estado == GPU3D_SIN_PROBAR && !ligar(NULL)) return GPU3D_SEM_SUPORTE;
         for (int i = 0; i < GPU3D_TEXTURAS; i++) drv->textura(i, 0, 0, NULL);
+        /* D425: c = bits de Z | bits de esténcil << 8. El esténcil va con un Z de 24 (Z24S8): un driver
+         * v1 recibe solo los bits de Z, como siempre. */
+        int zb_ped = (int)(p.c & 0xFF), est_ped = (int)((p.c >> 8) & 0xFF);
+        if (est_ped && zb_ped == 16) zb_ped = 24;
+        p.c = (uint32_t)zb_ped;
         int r = drv->alvo((int)p.a, (int)p.b, (int)p.c);
         if (r == G3D_FALHA) { falha("la GPU no creo el destino"); return ERRO_TEMPO; }
         if (r != G3D_OK) {
@@ -698,13 +938,30 @@ int32_t gpu3d_op(uint32_t ptr, uint32_t n)
         }
         dono = pid; alvo_l = (int)p.a; alvo_a = (int)p.b; alvo_z = (int)p.c;
         est_atual = (gpu3d_estado_t){ 0, G3D_Z_MENOR, G3D_F_UM, G3D_F_ZERO, 0 };
+        est2_valido = false; dest_vaga = -1; dest_l = alvo_l; dest_a = alvo_a;
+        memset(vaga_l, 0, sizeof vaga_l); memset(vaga_a, 0, sizeof vaga_a);
         return 0;
+    }
+    if (p.op == GPU3D_OP_CAPACIDADES) {
+        /* D425: lo puede preguntar cualquiera; antes del primer uso, un driver sin probar dice lo de v1. */
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_capas_t), true)) return ERRO_ENDERECO;
+        gpu3d_capas_t c;
+        if (estado == GPU3D_ATIVO) c = capas;
+        else { memset(&c, 0, sizeof c); c.versao = 2; c.unidades = 1; c.max_lado = GPU3D_MAX_LADO; c.max_aniso = 1;
+               c.formatos = 1u << G3D_FMT_ARGB8888; c.zbits = 3; }
+        *(gpu3d_capas_t *)p.ptr = c;
+        return estado == GPU3D_ATIVO || estado == GPU3D_SIN_PROBAR ? 0 : GPU3D_SEM_SUPORTE;
     }
     if (estado != GPU3D_ATIVO || dono != pid || !alvo_l) return ERRO_ACESSO;
     int r = G3D_OK;
     const char *que = "";
     switch (p.op) {
     case GPU3D_OP_FECHAR:
+        gui_exclusiva_soltar(pid, "el programa suelta el motor 3D");   /* D432 */
+        klog("[GPU3D] el proceso %d suelta el motor; las esperas de la GPU cedieron la CPU %u veces, %u esperas en la puerta, "
+             "%u dentro de una copia con SSE sin ceder (D436)\n", pid, n_respiros, n_puerta, n_respiros_fpu);
+        if (dest_vaga >= 0 && drv->destino) drv->destino(-1, alvo_z, 0);
+        dest_vaga = -1;
         for (int i = 0; i < GPU3D_TEXTURAS; i++) drv->textura(i, 0, 0, NULL);
         dono = 0; alvo_l = alvo_a = 0;
         return 0;
@@ -716,7 +973,9 @@ int32_t gpu3d_op(uint32_t ptr, uint32_t n)
         if (!p.ptr) { r = drv->textura((int)p.a, 0, 0, NULL); que = "soltar una textura"; break; }
         if (p.b < 1 || p.c < 1 || p.b > GPU3D_MAX_LADO || p.c > GPU3D_MAX_LADO) return GPU3D_SEM_SUPORTE;
         if (!usuario_ok((void *)p.ptr, p.b * p.c * 4, false)) return ERRO_ENDERECO;
+        if ((int)p.a == dest_vaga) return ERRO_INVALIDO;
         r = drv->textura((int)p.a, (int)p.b, (int)p.c, (const uint32_t *)p.ptr); que = "cargar una textura";
+        if (r == G3D_OK) { vaga_l[p.a] = (uint16_t)p.b; vaga_a[p.a] = (uint16_t)p.c; }
         break;
     case GPU3D_OP_ESTADO: {
         if (!usuario_ok((void *)p.ptr, sizeof est_atual, false)) return ERRO_ENDERECO;
@@ -738,11 +997,136 @@ int32_t gpu3d_op(uint32_t ptr, uint32_t n)
         break;
     }
     case GPU3D_OP_LER:
-        if (p.a < (uint32_t)alvo_l || p.a > 8192) return ERRO_INVALIDO;
-        if (!usuario_ok((void *)p.ptr, ((uint32_t)(alvo_a - 1) * p.a + (uint32_t)alvo_l) * 4, true)) return ERRO_ENDERECO;
+        /* D425: lee el destino actual (el principal o la textura de GPU3D_OP_DESTINO). */
+        if (p.a < (uint32_t)dest_l || p.a > 8192) return ERRO_INVALIDO;
+        if (!usuario_ok((void *)p.ptr, ((uint32_t)(dest_a - 1) * p.a + (uint32_t)dest_l) * 4, true)) return ERRO_ENDERECO;
         r = drv->ler((uint32_t *)p.ptr, (int)p.a); que = "leer el cuadro";
         if (r == G3D_OK) n_quadros++;
         break;
+    /* ---- gpu3d v2 (D425) ---- */
+    case GPU3D_OP_ESTADO2: {
+        if (!usuario_ok((void *)p.ptr, sizeof est2_atual, false)) return ERRO_ENDERECO;
+        gpu3d_estado2_t e = *(const gpu3d_estado2_t *)p.ptr;
+        bool falta;
+        if (!estado2_ok(&e, &falta)) return ERRO_INVALIDO;
+        if (falta) { est2_valido = false; n_recusas++; return GPU3D_SEM_SUPORTE; }
+        est2_atual = e; est2_valido = true;
+        return 0;
+    }
+    case GPU3D_OP_TRIANGULOS2: {
+        if (!p.a) return 0;
+        if (!drv->desenhar2 || !est2_valido) return GPU3D_SEM_SUPORTE;
+        if (p.a > GPU3D_MAX_VERT || p.a % 3) return ERRO_INVALIDO;
+        if (!usuario_ok((void *)p.ptr, p.a * sizeof(gpu3d_vert2_t), false)) return ERRO_ENDERECO;
+        if (!vertices2_ok((const gpu3d_vert2_t *)p.ptr, (int)p.a)) return ERRO_INVALIDO;
+        if ((cab & GPU3D_CAB_P_TEMPO) && ++n_desenhos_prova > 2) { falha("tiempo agotado esperando a la GPU (simulado)"); return ERRO_TEMPO; }
+        r = drv->desenhar2(&est2_atual, (const gpu3d_vert2_t *)p.ptr, (int)p.a, NULL); que = "dibujar (v2)";
+        if (r == G3D_OK) { n_tri += p.a / 3; n_lotes++; }
+        break;
+    }
+    case GPU3D_OP_TEXTURA2: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_textura2_t), false)) return ERRO_ENDERECO;
+        gpu3d_textura2_t t = *(const gpu3d_textura2_t *)p.ptr;
+        if (t.vaga >= GPU3D_TEXTURAS || (int)t.vaga == dest_vaga) return ERRO_INVALIDO;
+        if (!drv->textura2) return GPU3D_SEM_SUPORTE;
+        if (!t.dados) {
+            r = drv->textura2(&t); que = "soltar una textura";
+            if (r == G3D_OK) vaga_l[t.vaga] = vaga_a[t.vaga] = 0;
+            break;
+        }
+        if (t.formato > G3D_FMT_DXT5 || t.tipo > G3D_TEX_CUBO || t.face > 5 || (t.tipo == G3D_TEX_2D && t.face) ||
+            t.nivel > 11 || t.niveis > 12 || t.larg < 1 || t.alt < 1) return ERRO_INVALIDO;
+        if (t.larg > capas.max_lado || t.alt > capas.max_lado || !(capas.formatos & (1u << t.formato))) return GPU3D_SEM_SUPORTE;
+        if (t.tipo == G3D_TEX_CUBO && (!(capas.bits & G3D_CAP_TEX_CUBO) || t.larg != t.alt)) return GPU3D_SEM_SUPORTE;
+        if ((t.nivel || t.niveis > 1) && !(capas.bits & G3D_CAP_TEX_MIPMAP)) return GPU3D_SEM_SUPORTE;
+        uint32_t precisa = t.formato == G3D_FMT_ARGB8888 ? t.larg * t.alt * 4 :
+                           ((t.larg + 3) / 4) * ((t.alt + 3) / 4) * (t.formato == G3D_FMT_DXT1 ? 8u : 16u);
+        if (t.bytes != precisa) return ERRO_INVALIDO;
+        if (!usuario_ok((void *)t.dados, t.bytes, false)) return ERRO_ENDERECO;
+        r = drv->textura2(&t); que = "cargar una textura (v2)";
+        if (r == G3D_OK && t.nivel == 0 && t.face == 0) { vaga_l[t.vaga] = (uint16_t)t.larg; vaga_a[t.vaga] = (uint16_t)t.alt; }
+        break;
+    }
+    case GPU3D_OP_LIMPAR2: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_limpar2_t), false)) return ERRO_ENDERECO;
+        gpu3d_limpar2_t l = *(const gpu3d_limpar2_t *)p.ptr;
+        if (!drv->limpar2 || !(capas.bits & G3D_CAP_LIMPAR2)) return GPU3D_SEM_SUPORTE;
+        if ((l.mascara & ~7u) || l.z > 0xFFFFFF || l.estencil > 255 || l.mascara_cor > 15) return ERRO_INVALIDO;
+        if (l.tijera && ((int)l.tx + l.tl > dest_l || (int)l.ty + l.ta > dest_a)) return ERRO_INVALIDO;
+        if ((l.mascara & G3D_LIMPA_EST) && !(capas.bits & G3D_CAP_ESTENCIL)) return GPU3D_SEM_SUPORTE;
+        if ((l.tijera && !(capas.bits & G3D_CAP_TIJERA)) || (l.mascara_cor != 15 && !(capas.bits & G3D_CAP_MASCARAS)))
+            return GPU3D_SEM_SUPORTE;
+        r = drv->limpar2(&l); que = "limpiar (v2)";
+        break;
+    }
+    case GPU3D_OP_DESTINO: {
+        if (!drv->destino || !(capas.bits & G3D_CAP_DESTINO_TEX)) return GPU3D_SEM_SUPORTE;
+        if ((p.b != 0 && p.b != 16 && p.b != 24) || (p.c != 0 && p.c != 8)) return ERRO_INVALIDO;
+        if (p.a == GPU3D_DESTINO_PRINCIPAL) {
+            r = drv->destino(-1, alvo_z, 0); que = "volver al destino principal";
+            if (r == G3D_OK) { dest_vaga = -1; dest_l = alvo_l; dest_a = alvo_a; est2_valido = false; }
+            break;
+        }
+        if (p.a >= GPU3D_TEXTURAS || !vaga_l[p.a] || vaga_l[p.a] < 8 || vaga_a[p.a] < 8) return ERRO_INVALIDO;
+        if (p.c && !(capas.bits & G3D_CAP_ESTENCIL)) return GPU3D_SEM_SUPORTE;
+        r = drv->destino((int)p.a, (int)p.b, (int)p.c); que = "dibujar en una textura";
+        if (r == G3D_OK) { dest_vaga = (int)p.a; dest_l = vaga_l[p.a]; dest_a = vaga_a[p.a]; est2_valido = false; }
+        break;
+    }
+    /* ---- D432: presentar sin volver a la RAM ---- */
+    case GPU3D_OP_APRESENTAR: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_apresentar_t), false)) return ERRO_ENDERECO;
+        gpu3d_apresentar_t a = *(const gpu3d_apresentar_t *)p.ptr;
+        if (!drv->apresentar || !(capas.bits & G3D_CAP_APRESENTAR)) return GPU3D_SEM_SUPORTE;
+        if (a.flags & ~(G3D_APRES_LINEAR | G3D_APRES_VSYNC)) return ERRO_INVALIDO;
+        g3d_apres_t g;
+        int fl, fa;
+        if (a.fonte == GPU3D_DESTINO_PRINCIPAL) {
+            if (dest_vaga >= 0) return ERRO_INVALIDO;
+            g.vaga = -1; fl = alvo_l; fa = alvo_a;
+        } else {
+            if (a.fonte >= GPU3D_TEXTURAS || !vaga_l[a.fonte] || (int)a.fonte == dest_vaga) return ERRO_INVALIDO;
+            g.vaga = (int)a.fonte; fl = vaga_l[a.fonte]; fa = vaga_a[a.fonte];
+        }
+        if (!a.ol || !a.oa || a.ox + a.ol > fl || a.oy + a.oa > fa || !a.dl || !a.da) return ERRO_INVALIDO;
+        /* ¿El compositor cede (o sigue cediendo) la pantalla a esa ventana? */
+        int ox, oy, dl, da, jl, ja;
+        bool nova = false;
+        if (!gui_exclusiva_apresentar(pid, (int)a.janela, &ox, &oy, &dl, &da, &jl, &ja, &nova)) { n_apres_nao++; return GPU3D_SEM_SUPORTE; }
+        int tl = (int)video_largura(), ta = (int)video_altura();
+        if (a.dx + a.dl > jl || a.dy + a.da > ja) {
+            gui_exclusiva_soltar(pid, "rectangulo de destino fuera de la ventana");
+            return ERRO_INVALIDO;
+        }
+        /* Del contenido de la ventana (jl x ja) a donde lo pone la pantalla completa (dl x da en ox, oy). */
+        g.ox = a.ox; g.oy = a.oy; g.ol = a.ol; g.oa = a.oa;
+        g.dx = ox + a.dx * dl / jl; g.dy = oy + a.dy * da / ja;
+        g.dl = ox + (a.dx + a.dl) * dl / jl - g.dx; g.da = oy + (a.dy + a.da) * da / ja - g.dy;
+        if (g.dx < 0 || g.dy < 0 || g.dl < 1 || g.da < 1 || g.dx + g.dl > tl || g.dy + g.da > ta) {
+            gui_exclusiva_soltar(pid, "rectangulo de destino fuera de la pantalla");
+            n_apres_nao++;
+            return GPU3D_SEM_SUPORTE;
+        }
+        g.flags = a.flags;
+        if (nova || apres_bandas || g.dx != apres_dx || g.dy != apres_dy || g.dl != apres_dl || g.da != apres_da) g.flags |= G3D_APRES_BANDAS;
+        r = drv->apresentar(&g); que = "presentar en la pantalla";
+        if (r == G3D_OK) {
+            if (nova) klog("[GPU3D] presentar (D432): fuente %s %dx%d+%d+%d de %dx%d -> pantalla %dx%d+%d+%d de %dx%d%s%s\n",
+                           g.vaga < 0 ? "destino" : "textura", g.ol, g.oa, g.ox, g.oy, fl, fa, g.dl, g.da, g.dx, g.dy, tl, ta,
+                           g.flags & G3D_APRES_LINEAR ? ", bilineal" : "", g.flags & G3D_APRES_VSYNC ? ", con espera al retrazado" : "");
+            n_apres++;
+            apres_dx = g.dx; apres_dy = g.dy; apres_dl = g.dl; apres_da = g.da;
+            /* La flecha, encima del cuadro (el driver ya esperó a la GPU). Si cae sobre las bandas, el
+             * próximo cuadro las repinta para borrarla de donde estaba. */
+            int cx, cy;
+            apres_bandas = video_cursor_exclusiva(&cx, &cy) &&
+                           (cx < g.dx || cy < g.dy || cx + VIDEO_CUR_L > g.dx + g.dl || cy + VIDEO_CUR_A > g.dy + g.da);
+        } else if (r == G3D_NAO) {
+            gui_exclusiva_soltar(pid, "el driver no puede presentar eso");
+            n_apres_nao++;
+        }
+        break;
+    }
     default:
         return ERRO_INVALIDO;
     }
@@ -775,6 +1159,10 @@ int32_t gpu3d_info(uint32_t ptr, uint32_t n)
     v->variante = variante_real(&v->reservado[0]);   /* D358: bits GPU3D_VAR_*; reservado[0] = KB de RAM en el GTT */
     v->prazo_ms = GPU3D_PRAZO_MS;
     v->pontos = pontos; v->tri_s = tri_s; v->kpix_s = kpix_s;
+    if (estado == GPU3D_ATIVO) { v->reservado[1] = capas.bits; v->reservado[2] = capas.unidades; }   /* D425 */
+    /* D432: presentaciones directas, las que no se pudieron y la ventana que tiene la pantalla (+1; 0 = nadie). */
+    v->reservado[3] = n_apres; v->reservado[4] = n_apres_nao;
+    v->reservado[5] = (uint32_t)(gui_exclusiva_estado(NULL) + 1);
     return 0;
 }
 
@@ -847,7 +1235,7 @@ int32_t gpu3d_prova(uint32_t ptr, uint32_t n)
         snformatar(r->texto, sizeof r->texto, "sin 3D por GPU: %s", motivo);
         return 0;
     }
-    if (dono_vivo()) {
+    if (dono_vivo() || op_hilo_vivo()) {
         r->resultado = -1;
         snformatar(r->texto, sizeof r->texto, "el motor 3D lo esta usando el proceso %d: cierre ese programa y repita", dono);
         return 0;
@@ -890,6 +1278,7 @@ int32_t gpu3d_prova(uint32_t ptr, uint32_t n)
 int32_t gpu3d_ctl(uint32_t op)
 {
     if (!drv || estado == GPU3D_DESATIVADO || estado == GPU3D_SEM_GPU) return ERRO_INVALIDO;
+    if (op_hilo_vivo()) return ERRO_OCUPADO;   /* D436: un programa está dentro de una orden (cediendo la CPU) */
     if (op == 0) {
         if (estado == GPU3D_ATIVO) soltar_driver();
         dono = 0;

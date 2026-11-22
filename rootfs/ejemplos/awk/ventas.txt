@@ -1,0 +1,5 @@
+manzana 3 1.25
+pera 2 2.10
+manzana 5 1.30
+uva 10 0.75
+pera 1 2.20

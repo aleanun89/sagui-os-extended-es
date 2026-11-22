@@ -202,7 +202,7 @@ void dibujar_teclas(int x, int y, int w, int h) {
 		{ "Q", "detener" }, { "E / R", "desembarcar / embarcar" }, { "Y", "punto de reunión (o clic der.)" }, { ". / ,", "aldeano / soldado inactivo" },
 		{ "Espacio", "ir al último aviso (ataque)" }, { "H", "centro urbano" }, { "Tab", "marcador: pequeño, ampliado, nada" },
 		{ "F1 F3", "ayuda, diplomacia" }, { "F5 F9", "guardado rápido, cargar" }, { "+ / -", "velocidad" }, { "Esc / F10", "cancelar / pausa" },
-		{ "F11", "pantalla completa" },
+		{ "F11", "pantalla completa" }, { "Ctrl+F", "HUD de rendimiento" },
 	};
 	/* ancho de la columna de las teclas y de la más larga de las descripciones: dos columnas solo si caben enteras */
 	int ki = 0, di = 0, kd = 0, dd = 0;

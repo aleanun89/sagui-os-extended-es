@@ -778,6 +778,8 @@ testes_eli/  fotos dos testes do Eli no G470
 | [`docs/multihilo.md`](docs/multihilo.md) | Multihilo y multinúcleo: lo que hay, lo que falta y cómo se mide la ganancia |
 | [`docs/licencia.md`](docs/licencia.md) | La licencia GPL v3 explicada: capas, SPDX, compatibilidades, qué se puede meter y qué no |
 | [`docs/terceros.md`](docs/terceros.md) | El código de terceros: qué es, de dónde viene, con qué licencia y en qué decisión se aceptó |
+| [`docs/guia-kernel.md`](docs/guia-kernel.md) | Guía para aprender el kernel: arranque, cada bloque, la tabla de todos sus ficheros y una llamada al sistema paso a paso |
+| [`docs/guia-aplicaciones.md`](docs/guia-aplicaciones.md) | Guía de las aplicaciones por categorías del menú Inicio, órdenes, bibliotecas y ports, con la ruta de su código |
 | [`docs/historias/`](docs/historias/) | Una página por historia |
 | [`status.md`](status.md) y [`dashboard/`](dashboard/index.html) | Estado de cada fase e historia |
 

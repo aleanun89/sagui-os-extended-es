@@ -285,7 +285,7 @@ static void paquetes(void)
     recorre("superficie", &l);
     VERIFICA(tem_reg(&l, 0x28040, 0x103000) && tem_reg(&l, 0x28060, 79u | ((640u * 512 / 64 - 1) << 10)), "base y tamaño del color");
     VERIFICA(tem_reg(&l, 0x280A0, 0x08110068u), "CB_COLOR0_INFO: 8888 lineal, ARGB, mezcla saturada");
-    VERIFICA(tem_reg(&l, 0x2800C, 0x104000) && tem_reg(&l, 0x28010, 2u | (2u << 15)), "Z de 24 bits en mosaico 1D");
+    VERIFICA(tem_reg(&l, 0x2800C, 0x104000) && tem_reg(&l, 0x28010, 3u | (2u << 15)), "Z de 24 bits (con esténcil de 8, D426) en mosaico 1D");
     VERIFICA(tem_reg(&l, 0x28034, 640u | (480u << 16)), "recorte de la superficie");
     VERIFICA(tem_reg(&l, 0x28D34, 512 / 8 - 1), "DB_PREFETCH_LIMIT: filas de bloques de 8 menos 1");
     for (int i = 0; i < l.n; i++) VERIFICA(l.p[i] != 0xC0007300u, "sin SURFACE_BASE_UPDATE si no se pide");
@@ -453,6 +453,67 @@ static void inicio_r6(void)
     VERIFICA(r63d_inicio_motor(R63D_RV710, &le, p, R7_INICIO_MAX, &ctx) > 40, "r63d_inicio_motor elige el de las R7xx");
 }
 
+/* D426, DXT: recurso de las texturas comprimidas (1D en mosaico, paso de 8 bloques) y orden de los bloques,
+ * contra lo medido en la HD 4500 del dv7 (2026-11-21): cada bloque de la memoria con c0 = 0x8000 | ranura y se
+ * dibujó un píxel por bloque de una textura de 64x64 (paso de 64 bloques). Las tablas son esas lecturas. */
+static void texturas_bc(void)
+{
+    static const uint16_t bc1[4][16] = {   /* filas de bloques 0, 1, 8 y 15 */
+        { 0, 1, 4, 5, 8, 9, 12, 13, 64, 65, 68, 69, 72, 73, 76, 77 },
+        { 2, 3, 6, 7, 10, 11, 14, 15, 66, 67, 70, 71, 74, 75, 78, 79 },
+        { 512, 513, 516, 517, 520, 521, 524, 525, 576, 577, 580, 581, 584, 585, 588, 589 },
+        { 562, 563, 566, 567, 570, 571, 574, 575, 626, 627, 630, 631, 634, 635, 638, 639 } };
+    static const uint16_t bc3[4][16] = {
+        { 0, 2, 4, 6, 8, 10, 12, 14, 64, 66, 68, 70, 72, 74, 76, 78 },
+        { 1, 3, 5, 7, 9, 11, 13, 15, 65, 67, 69, 71, 73, 75, 77, 79 },
+        { 512, 514, 516, 518, 520, 522, 524, 526, 576, 578, 580, 582, 584, 586, 588, 590 },
+        { 561, 563, 565, 567, 569, 571, 573, 575, 625, 627, 629, 631, 633, 635, 637, 639 } };
+    static const int fila[4] = { 0, 1, 8, 15 };
+    int mal1 = 0, mal3 = 0;
+    for (int f = 0; f < 4; f++)
+        for (int x = 0; x < 16; x++) {
+            if (r63d_bc_desloc((uint32_t)x, (uint32_t)fila[f], 64, 8) != bc1[f][x] * 8u) mal1++;
+            if (r63d_bc_desloc((uint32_t)x, (uint32_t)fila[f], 64, 16) != bc3[f][x] * 16u) mal3++;
+        }
+    VERIFICA(!mal1, "orden de los bloques BC1 en 1D en mosaico como en la tarjeta (%d distintos)", mal1);
+    VERIFICA(!mal3, "orden de los bloques BC3 en 1D en mosaico como en la tarjeta (%d distintos)", mal3);
+    /* Ningún bloque pisa a otro y todos caben en paso * alto alineado a 8. */
+    static uint8_t usado[40 * 16];
+    int pisa = 0, fuera = 0;
+    for (uint32_t bs = 8; bs <= 16; bs += 8) {
+        memset(usado, 0, sizeof usado);
+        for (uint32_t by = 0; by < 13; by++)        /* 40x13 bloques: paso 40, alto 16 */
+            for (uint32_t bx = 0; bx < 40; bx++) {
+                uint32_t o = r63d_bc_desloc(bx, by, 40, bs) / bs;
+                if (o >= 40u * 16u) { fuera++; continue; }
+                if (usado[o]++) pisa++;
+            }
+    }
+    VERIFICA(!pisa && !fuera, "bloques sin pisarse y dentro del búfer (%d, %d)", pisa, fuera);
+    VERIFICA(r63d_passo_tex(4, G3D_FMT_DXT1, 128) == 32 && r63d_passo_tex(33, G3D_FMT_DXT5, 128) == 64 &&
+             r63d_passo_tex(4, G3D_FMT_ARGB8888, 128) == 128, "paso de las texturas v2: 8 bloques las DXT, el grupo las ARGB");
+
+    gpu3d_unidade_t un;
+    memset(&un, 0, sizeof un);
+    un.env_s = un.env_t = G3D_ENV_BORDE;
+    uint32_t b[128];
+    r6_lote_t l;
+    static const uint32_t fmt[3] = { 0x31, 0x32, 0x33 };
+    for (uint32_t f = G3D_FMT_DXT1; f <= G3D_FMT_DXT5; f++) {
+        r63d_lote(&l, b, 128);
+        r63d_textura2(&l, 1, 0x10500000u, 4, 4, 32, f, &un, 4096);
+        VERIFICA(tem_reg(&l, 0x38000 + 28, 1u | (2u << 3) | (3u << 8) | (3u << 19)), "DXT%u: 2D, 1D en mosaico, paso 32, ancho 4",
+                 f == 1 ? 1u : f * 2u - 1u);
+        VERIFICA(tem_reg(&l, 0x38004 + 28, 3u | (fmt[f - 1] << 26)) && tem_reg(&l, 0x38008 + 28, 0x105000) &&
+                 tem_reg(&l, 0x38018 + 28, 2u << 30), "DXT%u: alto 4, FMT_BC%u, dirección, válida", f == 1 ? 1u : f * 2u - 1u, f);
+        VERIFICA(tem_reg(&l, 0x38010 + 28, (1u << 14) | (0u << 16) | (1u << 19) | (2u << 22) | (3u << 25)),
+                 "DXT: R, G, B, A en X, Y, Z, W");
+    }
+    r63d_lote(&l, b, 128);
+    r63d_textura2(&l, 0, 0x10500000u, 2, 2, 128, G3D_FMT_ARGB8888, &un, 1024);
+    VERIFICA(tem_reg(&l, 0x38000, 1u | (1u << 3) | (15u << 8) | (1u << 19)), "ARGB v2: sigue en lineal alineada");
+}
+
 int main(void)
 {
     sombreadores(1);
@@ -461,6 +522,7 @@ int main(void)
     flotantes();
     inicio();
     inicio_r6();
+    texturas_bc();
     if (falhas) { printf("%d fallos\n", falhas); return 1; }
     printf("sombreadores (3, en R6xx y R7xx), paquetes PM4, flotantes e inicio del motor (R6xx y R7xx): todo bien\n");
     return 0;

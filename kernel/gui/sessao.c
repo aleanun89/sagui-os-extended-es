@@ -41,8 +41,8 @@
 
 #define CONTAS_TELA 8
 #define PW 460
-#define COR_AZUL  0x1F5FAF
-#define COR_PAINEL 0xF2F4F7
+#define COR_AZUL  (esquema()->barra_propia ? esquema()->titulo_a1 : 0x1F5FAF)   /* D428: con un esquema propio, los colores del esquema */
+#define COR_PAINEL (esquema()->barra_propia ? esquema()->fundo : 0xF2F4F7)
 
 typedef struct {
     char     nome[32];
@@ -479,6 +479,23 @@ void sessao_bloquear(void)
     tela_toda();
 }
 
+/* D422: bloquear por inactividad, solo si la cuenta tiene contraseña. */
+bool sessao_bloquear_inatividade(void)
+{
+    if (estado != S_INATIVA || permisos_modo_rescate() || permisos_sesion_raiz()) return false;
+    carregar_contas();
+    for (int i = 0; i < n_contas; i++)
+        if (contas[i].uid == permisos_uid_inicial()) {
+            if (!contas[i].senha) { klog("[OCIO] no se bloquea: la cuenta %s no tiene contraseña\n", contas[i].nome); return false; }
+            sessao_bloquear();
+            return estado == S_BLOQUEO;
+        }
+    klog("[OCIO] no se bloquea: la cuenta de la sesion no esta en la lista\n");
+    return false;
+}
+
+bool sessao_bloqueada(void) { return estado == S_BLOQUEO; }
+
 static void tentar(void)
 {
     if (pedido || (estado != S_TELA && estado != S_BLOQUEO) || !n_contas) return;
@@ -601,22 +618,22 @@ static bool dentro(ret_t r, int x, int y) { return x >= r.x && x < r.x + r.l && 
 static void botao(superficie_t *t, ret_t r, const char *txt, uint32_t cor)
 {
     sup_retangulo(t, r.x, r.y, r.l, r.a, cor);
-    sup_moldura(t, r.x, r.y, r.l, r.a, 0x101820);
+    sup_moldura(t, r.x, r.y, r.l, r.a, (esquema()->barra_propia ? esquema()->texto : 0x101820));
     sup_texto(t, r.x + (r.l - texto_largura(txt)) / 2, r.y + (r.a - 16) / 2, txt, 0xFFFFFF);
 }
 
 /* D371: la pantalla de la primera contraseña de root. */
 static void campo_pts(superficie_t *t, ret_t f, int n, bool ativo)
 {
-    sup_retangulo(t, f.x, f.y, f.l, f.a, 0xFFFFFF);
+    sup_retangulo(t, f.x, f.y, f.l, f.a, (esquema()->barra_propia ? esquema()->campo_fundo : 0xFFFFFF));
     sup_moldura(t, f.x, f.y, f.l, f.a, ativo && !pedido ? COR_AZUL : 0xA0A8B0);
     char pts[PED_SENHA_MAX];
     int max = (f.l - 12) / 8;
     if (n > max) n = max;
     for (int i = 0; i < n; i++) pts[i] = '*';
     pts[n] = 0;
-    sup_texto(t, f.x + 6, f.y + 4, pts, 0x101820);
-    if (ativo && !pedido) sup_retangulo(t, f.x + 6 + n * 8, f.y + 4, 2, 16, 0x101820);
+    sup_texto(t, f.x + 6, f.y + 4, pts, (esquema()->barra_propia ? esquema()->texto : 0x101820));
+    if (ativo && !pedido) sup_retangulo(t, f.x + 6 + n * 8, f.y + 4, 2, 16, (esquema()->barra_propia ? esquema()->texto : 0x101820));
 }
 
 static void layout_raiz(ret_t *c, ret_t *f1, ret_t *f2, ret_t *ok)
@@ -638,12 +655,12 @@ static void desenhar_raiz(superficie_t *t)
     sup_moldura(t, c.x - 1, c.y - 1, c.l + 2, c.a + 2, 0x000000);
     sup_retangulo(t, c.x, c.y, c.l, 30, COR_AZUL);
     sup_texto(t, c.x + 14, c.y + 7, _("Contraseña del administrador (root)"), 0xFFFFFF);
-    sup_texto(t, c.x + 20, c.y + 44, _("Este sistema guarda su configuración y root aún no"), 0x101820);
-    sup_texto(t, c.x + 20, c.y + 62, _("tiene contraseña. Elígela ahora: la pedirán el diálogo"), 0x101820);
-    sup_texto(t, c.x + 20, c.y + 80, _("de permisos, admin y su. (Esc: más tarde)"), 0x101820);
-    sup_texto(t, c.x + 20, f1.y - 18, _("Contraseña nueva:"), 0x101820);
+    sup_texto(t, c.x + 20, c.y + 44, _("Este sistema guarda su configuración y root aún no"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
+    sup_texto(t, c.x + 20, c.y + 62, _("tiene contraseña. Elígela ahora: la pedirán el diálogo"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
+    sup_texto(t, c.x + 20, c.y + 80, _("de permisos, admin y su. (Esc: más tarde)"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
+    sup_texto(t, c.x + 20, f1.y - 18, _("Contraseña nueva:"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
     campo_pts(t, f1, raiz_campo == 0 ? slen : slen, raiz_campo == 0);
-    sup_texto(t, c.x + 20, f2.y - 18, _("Repítela:"), 0x101820);
+    sup_texto(t, c.x + 20, f2.y - 18, _("Repítela:"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
     campo_pts(t, f2, raiz2_len, raiz_campo == 1);
     if (pedido) sup_texto(t, c.x + 20, c.y + c.a - 70, _("Guardando..."), COR_AZUL);
     else if (msg[0]) sup_texto(t, c.x + 20, c.y + c.a - 70, msg, 0xC0261B);
@@ -673,15 +690,15 @@ void sessao_desenhar(superficie_t *t)
     sup_moldura(t, c.x - 1, c.y - 1, c.l + 2, c.a + 2, 0x000000);
     sup_retangulo(t, c.x, c.y, c.l, 30, COR_AZUL);
     sup_texto(t, c.x + 14, c.y + 7, estado == S_BLOQUEO ? _("Pantalla bloqueada") : _("Iniciar sesión"), 0xFFFFFF);
-    sup_texto(t, c.x + 20, c.y + 30 + 14, estado == S_BLOQUEO ? _("Escribe tu contraseña para volver:") : _("Elige tu cuenta:"), 0x101820);
+    sup_texto(t, c.x + 20, c.y + 30 + 14, estado == S_BLOQUEO ? _("Escribe tu contraseña para volver:") : _("Elige tu cuenta:"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
     for (int i = 0; i < n_contas; i++) {
         ret_t r = L.linha[i];
         bool s = i == sel;
-        sup_retangulo(t, r.x, r.y, r.l, r.a, s ? 0xD6E4F5 : 0xFFFFFF);
+        sup_retangulo(t, r.x, r.y, r.l, r.a, s ? (esquema()->barra_propia ? esquema()->sel_suave : 0xD6E4F5) : (esquema()->barra_propia ? esquema()->campo_fundo : 0xFFFFFF));
         sup_moldura(t, r.x, r.y, r.l, r.a, s ? COR_AZUL : 0xC0C6CE);
         sup_desenho(t, r.x + 6, r.y + 2, &arte_sagui, 1);
-        sup_texto(t, r.x + 48, r.y + 2, contas[i].nome, 0x101820);
-        sup_texto(t, r.x + 49, r.y + 2, contas[i].nome, 0x101820);
+        sup_texto(t, r.x + 48, r.y + 2, contas[i].nome, (esquema()->barra_propia ? esquema()->texto : 0x101820));
+        sup_texto(t, r.x + 49, r.y + 2, contas[i].nome, (esquema()->barra_propia ? esquema()->texto : 0x101820));
         const char *d = contas[i].descr[0] ? contas[i].descr : "";
         sup_texto(t, r.x + 48, r.y + 18, d, 0x5A6470);
         if (!contas[i].senha) {
@@ -690,19 +707,19 @@ void sessao_desenhar(superficie_t *t)
         }
     }
     if (n_contas && contas[sel].senha) {
-        sup_texto(t, c.x + 20, L.y_rotulo, _("Contraseña:"), 0x101820);
+        sup_texto(t, c.x + 20, L.y_rotulo, _("Contraseña:"), (esquema()->barra_propia ? esquema()->texto : 0x101820));
         ret_t f = L.campo;
-        sup_retangulo(t, f.x, f.y, f.l, f.a, 0xFFFFFF);
+        sup_retangulo(t, f.x, f.y, f.l, f.a, (esquema()->barra_propia ? esquema()->campo_fundo : 0xFFFFFF));
         sup_moldura(t, f.x, f.y, f.l, f.a, pedido ? 0x808890 : COR_AZUL);
         char pts[PED_SENHA_MAX];
         int n = slen, max = (f.l - 12) / 8;
         if (n > max) n = max;
         for (int i = 0; i < n; i++) pts[i] = '*';
         pts[n] = 0;
-        sup_texto(t, f.x + 6, f.y + 4, pts, 0x101820);
-        if (!pedido) sup_retangulo(t, f.x + 6 + n * 8, f.y + 4, 2, 16, 0x101820);
+        sup_texto(t, f.x + 6, f.y + 4, pts, (esquema()->barra_propia ? esquema()->texto : 0x101820));
+        if (!pedido) sup_retangulo(t, f.x + 6 + n * 8, f.y + 4, 2, 16, (esquema()->barra_propia ? esquema()->texto : 0x101820));
     } else if (n_contas) {
-        sup_texto(t, c.x + 20, L.y_rotulo + 24, _("Esta cuenta no tiene contraseña: pulsa Entrar."), 0x303840);
+        sup_texto(t, c.x + 20, L.y_rotulo + 24, _("Esta cuenta no tiene contraseña: pulsa Entrar."), (esquema()->barra_propia ? esquema()->texto_fraco : 0x303840));
     }
     if (pedido) sup_texto(t, c.x + 20, L.y_msg, _("Comprobando..."), COR_AZUL);
     else if (msg[0]) sup_texto(t, c.x + 20, L.y_msg, msg, 0xC0261B);
@@ -772,7 +789,7 @@ bool sessao_mouse(int x, int y, int botoes, int mudaram)
     layout(&L);
     if (dentro(L.entrar, x, y)) tentar();
     else if (dentro(L.apagar, x, y) && !pedido) { klog("[SESION] apagar desde la pantalla de inicio de sesion\n"); acpi_pedir_apagado(); }
-    else if (dentro(L.reiniciar, x, y) && !pedido) { klog("[SESION] reiniciar desde la pantalla de inicio de sesion\n"); acpi_pedir_reinicio(); }
+    else if (dentro(L.reiniciar, x, y) && !pedido) { klog("[SESION] reiniciar desde la pantalla de inicio de sesion\n"); acpi_pedir_reinicio(ENERGIA_RESET_AUTO); }
     else for (int i = 0; i < n_contas; i++) if (dentro(L.linha[i], x, y)) escolher(i);
     return true;
 }

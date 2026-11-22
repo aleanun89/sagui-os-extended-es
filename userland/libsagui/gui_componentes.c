@@ -604,7 +604,7 @@ void casilla_desenhar(jan_t *j, casilla_t *c)
 {
     if (!c) return;
     int s = 14;
-    g_retangulo(j, c->x, c->y, s, s, COR_BRANCO);
+    g_retangulo(j, c->x, c->y, s, s, COR_CAMPO);
     g_moldura(j, c->x, c->y, s, s, COR_BORDA);
     if (c->marcada) {
         g_linha(j, c->x + 3, c->y + 7, c->x + 6, c->y + 10, COR_DESTAQUE);

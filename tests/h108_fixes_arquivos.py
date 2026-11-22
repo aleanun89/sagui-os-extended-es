@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, ler_ppm, _fonte, SAIDA  # noqa: E402
 
 # A janela do Archivos: a lista comeca depois do painel lateral (LATERAL=140).
-LISTA_X, LISTA_Y = 146, 70
+LISTA_X, LISTA_Y = 146, 98
 # As celulas da grelha de icones (largura e altura, com o passo do codigo).
 CEL_L, CEL_A = 92, 74
 # A cor do rectangulo de selecao (COR_SELECAO da libsagui).
@@ -60,9 +60,10 @@ def item_lista(a, i):
 
 def botao(a, nome):
     """O centro de um botao da barra de ferramentas."""
-    bt = {"voltar": 8, "nova": 106, "borrar": 224, "adelante": 304, "arriba": 390,
-          "ocultos": 476, "vista": 588, "buscar": 636}
-    return a["x"] + bt[nome] + 35, a["y"] + 7 + 13
+    # D423: barra moderna (centro x en una ventana de 720 px; las vistas, en un control segmentado de 30 px por vista)
+    bt = {"voltar": 22, "adelante": 54, "arriba": 86, "nova": 185, "borrar": 307, "ocultos": 370,
+          "lista": 413, "detalles": 443, "iconos": 473, "mosaicos": 503, "buscar": 621}
+    return a["x"] + bt[nome], a["y"] + 6 + 14
 
 
 def caractere(px, larg, x, y):
@@ -154,16 +155,22 @@ def principal():
         m.clique(*item_lista(a, 0))       # "doc.pdf" e o primeiro item da lista
         time.sleep(0.4)
         marca_ab = len(m.serial())
-        m.clique(a["x"] + 28, a["y"] + 190)     # o botao "Abrir con..." do lateral
+        # D420: «Abrir con...» ya no esta en la barra lateral: esta en el menu del elemento (linea 11)
+        m.clique(*item_lista(a, 0), botao=DIREITO)
+        gm = esperar(m, r"\[GUI\] menu aberto em \((\d+),(\d+)\) (\d+)x(\d+) com (\d+) linhas", 15, desde=marca_ab)
+        menu_item = tuple(int(v) for v in gm)
+        time.sleep(0.4)
+        marca_ab = len(m.serial())
+        m.clique(*linha_do_menu(menu_item, 11, separadores_antes=3))
         g = esperar(m, r"\[GUI\] menu linhas: (.*)", 15, desde=marca_ab)
         verificar("*visorpdf" in g, f"o .pdf abre por omissao no Visor de PDF ({g[:70]})")
         m.tecla("esc")
         time.sleep(0.4)
 
         # ---- a vista de icones
-        m.clique(*botao(a, "vista"))
+        m.clique(*botao(a, "detalles"))
         m.esperar_serial("arquivos: vista detalhes", 10)
-        m.clique(*botao(a, "vista"))
+        m.clique(*botao(a, "iconos"))
         m.esperar_serial("arquivos: vista icones", 10)
         time.sleep(0.5)
 

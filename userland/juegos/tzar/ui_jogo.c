@@ -95,6 +95,7 @@ static void tecla(TzUi *u, const TzUiEntrada *e)
 		else u->pedir_menu = 1;
 		return;
 	}
+	if (k == TZ_TC_ENTER) { u->janela = TZ_UJ_CHAT; u->chat[0] = 0; return; }   /* Intro abre el chat, como el original */
 	if (k >= '0' && k <= '9') {
 		int g = k - '0';
 		if (e->mods & TZ_MOD_CTRL) { tz_ui_sel_grupo_guardar(&u->sel, g); tz_ui_aviso(u, "Grupo %d", g); }
@@ -124,6 +125,7 @@ static void tecla(TzUi *u, const TzUiEntrada *e)
 void tz_ui_entrada(TzUi *u, const TzUiEntrada *e, uint32_t ms)
 {
 	u->agora_ms = ms;
+	if (u->janela && tz_ui_janela_entrada(u, e)) return;
 	int shift = e->mods & TZ_MOD_SHIFT;
 	switch (e->tipo) {
 	case TZ_IN_MOVER:
@@ -150,12 +152,14 @@ void tz_ui_entrada(TzUi *u, const TzUiEntrada *e, uint32_t ms)
 				}
 				u->arrasta_mini = 1;
 				tz_ui_centrar(u, cx, cy);
-			} else if (tz_rect_dentro((TzRect){ 4, 0, 128, 25 }, e->x, e->y)) u->pedir_menu = 1;
-			else if (tz_rect_dentro((TzRect){ 0, 0, 150, u->h }, e->x, e->y) || e->y < 30) {
+			} else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_MENU), e->x, e->y)) u->pedir_menu = 1;
+			else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_DIPLOMACIA), e->x, e->y)) u->janela = TZ_UJ_DIPLOMACIA;
+			else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_CHAT), e->x, e->y)) { u->janela = TZ_UJ_CHAT; u->chat[0] = 0; }
+			else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_PAINEL), e->x, e->y) || e->y < 30) {
 				int b = tz_ui_botao_em(u, e->x, e->y);
 				u->botao_press = b >= 0 ? b + 1 : 0;
 				for (int s = 0; s < 3; ++s)
-					if (tz_rect_dentro((TzRect){ (int[]){ 25, 63, 101 }[s], 302, 25, 25 }, e->x, e->y)) {
+					if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_SETA0 + s), e->x, e->y)) {
 						if (s == 0 && u->npilha) { u->npilha--; u->pagina = 0; tz_ui_menu_atualizar(u); }
 						else if (s == 0 && u->pagina > 0) { u->pagina--; tz_ui_menu_atualizar(u); }
 						else if (s == 2 && (u->pagina + 1) * TZ_UI_BOTOES < u->ntotal_botoes) { u->pagina++; tz_ui_menu_atualizar(u); }

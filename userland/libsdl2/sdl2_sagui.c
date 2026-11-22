@@ -647,9 +647,14 @@ struct SDL_Window {
     uint32_t *ant;          /* copia del lienzo tal como se presentó (l x a) */
     size_t ant_n;
     int completo;           /* la próxima presentación es entera (ventana nueva, otra escala...) */
+    /* D432: la superficie de la ventana (SDL_UpdateWindowSurface) presentada por la GPU. */
+    struct sdlgpu *sup_gpu; /* el motor 3D abierto para subir el lienzo y presentarlo (NULL: no) */
+    int sup_nao;            /* no se puede o no se pidió: no se vuelve a intentar */
 };
 
 static SDL_Window *janela = NULL;   /* una sola */
+static int superficie_gpu(SDL_Window *w);          /* D432 */
+static void superficie_gpu_fechar(SDL_Window *w);
 
 static void tratar_evento(evento_t *e);
 
@@ -872,6 +877,14 @@ SDL_Window *SDL_CreateWindow(const char *titulo, int x, int y, int l, int a, Uin
     (void)x; (void)y;
     if (janela) { SDL_SetError("la SDL del SaguiOS tiene una sola ventana"); return NULL; }
     if (l <= 0 || a <= 0) { SDL_SetError("ventana de %dx%d", l, a); return NULL; }
+    /* D444: una ventana más grande que el máximo del sistema (1000x700) se reduce conservando la proporción
+     * (Brumacanto pide 1152x648); el programa sigue viendo su tamaño real con SDL_GetWindowSize. */
+    if (l > JANELA_LARG_MAX || a > JANELA_ALT_MAX) {
+        int l2 = l, a2 = a;
+        if (l2 > JANELA_LARG_MAX) { a2 = (int)((long long)a2 * JANELA_LARG_MAX / l2); l2 = JANELA_LARG_MAX; }
+        if (a2 > JANELA_ALT_MAX) { l2 = (int)((long long)l2 * JANELA_ALT_MAX / a2); a2 = JANELA_ALT_MAX; }
+        l = l2 < 40 ? 40 : l2; a = a2 < 20 ? 20 : a2;
+    }
     SDL_Window *w = calloc(1, sizeof *w);
     if (!w) { SDL_SetError("sin memoria"); return NULL; }
     if (lienzo_novo(w, l, a) < 0) { free(w); return NULL; }
@@ -904,6 +917,7 @@ void SDL_DestroyWindow(SDL_Window *w)
 {
     if (!w) return;
     if (w->renderer) SDL_DestroyRenderer(w->renderer);
+    superficie_gpu_fechar(w);
     if (w->superficie) { w->superficie->flags &= ~SDL_DONTFREE; SDL_FreeSurface(w->superficie); }
     fechar_janela(w->id);
     free(w->tela);
@@ -912,6 +926,14 @@ void SDL_DestroyWindow(SDL_Window *w)
     free(w->tfila);
     if (janela == w) janela = NULL;
     free(w);
+}
+
+/* D425: lo que necesita EGL (sdl2_gl.c) para dibujar en esta ventana. */
+int sagui_sdl2_janela_nativa(SDL_Window *w, int *id, uint32_t **px, int *l, int *a)
+{
+    if (!w || !w->px) return -1;
+    *id = w->id; *px = w->px; *l = w->jl; *a = w->ja;
+    return 0;
 }
 
 void SDL_SetWindowTitle(SDL_Window *w, const char *t)
@@ -995,6 +1017,7 @@ SDL_Surface *SDL_GetWindowSurface(SDL_Window *w)
 int SDL_UpdateWindowSurface(SDL_Window *w)
 {
     SDL_PumpEvents();
+    if (w && !w->sup_nao && superficie_gpu(w)) return 0;   /* D432: presentado por la GPU en la pantalla */
     return apresentar(w);
 }
 int SDL_UpdateWindowSurfaceRects(SDL_Window *w, const SDL_Rect *rs, int n)
@@ -1052,9 +1075,116 @@ struct SDL_Renderer {
     Uint32 limpar_cor;
     SDL_BlendMode modo_des;  /* SDL_SetRenderDrawBlendMode */
     struct sdlgpu *gpu;      /* D288: la GPU lleva el lienzo de la ventana (NULL: software) */
+    int recorte;             /* D436: SDL_RenderSetClipRect activo */
+    SDL_Rect rec;            /* en coordenadas del programa (con el tamaño lógico) */
 };
 
 #include "sdl2gpu.h"
+
+/* D436: los modos de mezcla compuestos se guardan como en la SDL real (SDL_COMPOSE_BLENDMODE) */
+#define MEZ_COMPOR(oc, dc, opc, oa, da, opa) ((Uint32)(opc) | ((Uint32)(oc) << 4) | ((Uint32)(dc) << 8) | \
+                                              ((Uint32)(opa) << 16) | ((Uint32)(oa) << 20) | ((Uint32)(da) << 24))
+#define MEZ_PREMULT MEZ_COMPOR(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD, \
+                               SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD)
+SDL_BlendMode SDL_ComposeCustomBlendMode(SDL_BlendFactor oc, SDL_BlendFactor dc, SDL_BlendOperation opc,
+                                         SDL_BlendFactor oa, SDL_BlendFactor da, SDL_BlendOperation opa)
+{
+    if (oc < SDL_BLENDFACTOR_ZERO || oc > SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA || dc < SDL_BLENDFACTOR_ZERO ||
+        dc > SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA || oa < SDL_BLENDFACTOR_ZERO || oa > SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA ||
+        da < SDL_BLENDFACTOR_ZERO || da > SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA || opc < SDL_BLENDOPERATION_ADD ||
+        opc > SDL_BLENDOPERATION_MAXIMUM || opa < SDL_BLENDOPERATION_ADD || opa > SDL_BLENDOPERATION_MAXIMUM)
+        return SDL_BLENDMODE_INVALID;
+    return (SDL_BlendMode)MEZ_COMPOR(oc, dc, opc, oa, da, opa);
+}
+
+/* El modo de un lote de la GPU (SDLG_M_*) para un modo de la SDL; -1 si gpu3d v1 no lo sabe hacer (va por software). */
+static int modo_gpu(SDL_BlendMode m)
+{
+    switch ((Uint32)m) {
+    case SDL_BLENDMODE_NONE: return SDLG_M_NADA;
+    case SDL_BLENDMODE_BLEND: return SDLG_M_ALFA;
+    case SDL_BLENDMODE_ADD: return SDLG_M_SOMA;
+    case MEZ_PREMULT: return SDLG_M_PREMULT;
+    case MEZ_COMPOR(SDL_BLENDFACTOR_SRC_ALPHA, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+                    SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD): return SDLG_M_ALFA;
+    default: return -1;
+    }
+}
+
+/* Un factor de mezcla (0..255) de un canal k (0 B, 1 G, 2 R, 3 A) para el software. */
+static unsigned fator_px(Uint32 f, Uint32 o, Uint32 d, int k)
+{
+    unsigned oa = o >> 24, da = d >> 24, oc = (o >> (k * 8)) & 255u, dc = (d >> (k * 8)) & 255u;
+    switch (f) {
+    case SDL_BLENDFACTOR_ZERO: return 0;
+    case SDL_BLENDFACTOR_ONE: return 255;
+    case SDL_BLENDFACTOR_SRC_COLOR: return oc;
+    case SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR: return 255 - oc;
+    case SDL_BLENDFACTOR_SRC_ALPHA: return oa;
+    case SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA: return 255 - oa;
+    case SDL_BLENDFACTOR_DST_COLOR: return dc;
+    case SDL_BLENDFACTOR_ONE_MINUS_DST_COLOR: return 255 - dc;
+    case SDL_BLENDFACTOR_DST_ALPHA: return da;
+    default: return 255 - da;
+    }
+}
+
+/* Un pixel o (ya modulado) sobre uno d del lienzo con el modo m (D436: ADD, MOD, MUL y los compuestos, ademas de BLEND).
+ * El lienzo de la ventana no tiene alfa (se queda opaco); una textura destino si lo guarda. */
+static Uint32 mezcla_modo(Uint32 o, Uint32 d, SDL_BlendMode m)
+{
+    unsigned al = o >> 24;
+    switch ((Uint32)m) {
+    case SDL_BLENDMODE_NONE: return o;
+    case SDL_BLENDMODE_BLEND: {
+        if (al == 0) return d;
+        if (al == 255) return o | 0xFF000000u;
+        unsigned rr = (((o >> 16) & 255) * al + ((d >> 16) & 255) * (255 - al)) / 255;
+        unsigned gg = (((o >> 8) & 255) * al + ((d >> 8) & 255) * (255 - al)) / 255;
+        unsigned bb = ((o & 255) * al + (d & 255) * (255 - al)) / 255;
+        unsigned aa = al + (d >> 24) * (255 - al) / 255;
+        return (aa << 24) | (rr << 16) | (gg << 8) | bb;
+    }
+    case SDL_BLENDMODE_ADD: {
+        Uint32 r = d & 0xFF000000u;
+        for (int k = 0; k < 24; k += 8) {
+            unsigned c = ((d >> k) & 255) + ((o >> k) & 255) * al / 255;
+            r |= (Uint32)(c > 255 ? 255 : c) << k;
+        }
+        return r;
+    }
+    case SDL_BLENDMODE_MOD: case SDL_BLENDMODE_MUL: {
+        Uint32 r = d & 0xFF000000u;
+        for (int k = 0; k < 24; k += 8) {
+            unsigned oc = (o >> k) & 255, dc = (d >> k) & 255;
+            unsigned c = oc * dc / 255;
+            if ((Uint32)m == SDL_BLENDMODE_MUL) c += dc * (255 - al) / 255;
+            r |= (Uint32)(c > 255 ? 255 : c) << k;
+        }
+        return r;
+    }
+    default: {   /* compuesto */
+        Uint32 v = (Uint32)m, r = 0;
+        for (int k = 0; k < 4; k++) {
+            Uint32 fo = k == 3 ? (v >> 20) & 15 : (v >> 4) & 15, fd = k == 3 ? (v >> 24) & 15 : (v >> 8) & 15;
+            Uint32 op = k == 3 ? (v >> 16) & 15 : v & 15;
+            int oc = (int)(((o >> (k * 8)) & 255) * fator_px(fo, o, d, k) / 255);
+            int dc = (int)(((d >> (k * 8)) & 255) * fator_px(fd, o, d, k) / 255);
+            int c = op == SDL_BLENDOPERATION_SUBTRACT ? oc - dc : op == SDL_BLENDOPERATION_REV_SUBTRACT ? dc - oc :
+                    op == SDL_BLENDOPERATION_MINIMUM ? (oc < dc ? oc : dc) : op == SDL_BLENDOPERATION_MAXIMUM ? (oc > dc ? oc : dc) : oc + dc;
+            r |= (Uint32)(c < 0 ? 0 : c > 255 ? 255 : c) << (k * 8);
+        }
+        return r;
+    }
+    }
+}
+
+/* D436: faltan huecos de textura en la GPU: se avisa en el registro (con un atlas grande no pasa). */
+static void sdlg_aviso_desalojo(sdlgpu_t *g)
+{
+    registrar("[%s] renderizador por GPU: faltan huecos de textura (%d en la GPU): %lu texturas sacadas y vueltas a subir; "
+              "mejor menos texturas y mas grandes (atlas)", sagui_sdl2_nome, g->nvagas, g->desalojos);
+}
 
 static const SDL_RendererInfo info_renderer = {
     "saguios", SDL_RENDERER_SOFTWARE | SDL_RENDERER_TARGETTEXTURE, 3,
@@ -1064,6 +1194,8 @@ static const SDL_RendererInfo info_renderer_gpu = {
     "saguios-gpu", SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE, 3,
     { SDL_PIXELFORMAT_ARGB8888, SDL_PIXELFORMAT_RGB888, SDL_PIXELFORMAT_INDEX8 }, GPU3D_MAX_LADO, GPU3D_MAX_LADO
 };
+
+static SDL_Rect recorte_lienzo(SDL_Renderer *r, int l, int a);
 
 /* D288: vuelta al software de este renderizador (lo dibujado se trae antes al lienzo). */
 static void gpu_cair(SDL_Renderer *r, int preservar, const char *motivo)
@@ -1082,11 +1214,30 @@ static void gpu_erro(SDL_Renderer *r, int rc)
 static sdlgpu_t *gpu_de(SDL_Renderer *r)
 {
     if (!r->gpu || r->alvo || r->alvo_sup) return NULL;
-    if (!r->w || !r->w->tela || r->w->l != r->gpu->l || r->w->a != r->gpu->a) {
-        gpu_cair(r, 1, "cambio el tamano del lienzo");
+    if (!r->w || !r->w->tela) {
+        gpu_cair(r, 1, "la ventana no tiene lienzo");
         return NULL;
     }
-    return r->gpu;
+    if (r->w->l != r->gpu->l || r->w->a != r->gpu->a) {
+        /* D432: el lienzo cambio de tamano (p. ej. al pasar a pantalla completa, como hace AoEN): se reabre el
+         * destino de la GPU al tamano nuevo en vez de pasar al software. Las texturas se vuelven a subir solas
+         * (sdlg_fechar las suelta y quedan sin hueco). Si la GPU no puede, el software de siempre. */
+        sdlg_fechar(r->gpu, NULL, 0);
+        r->gpu = sdlg_abrir(r->w->l, r->w->a);
+        if (!r->gpu) {
+            registrar("[%s] renderizador por GPU apagado: no se pudo reabrir a %dx%d (sigue por software)",
+                      sagui_sdl2_nome, r->w->l, r->w->a);
+            return NULL;
+        }
+        registrar("[%s] renderizador por GPU: destino reabierto a %dx%d", sagui_sdl2_nome, r->w->l, r->w->a);
+    }
+    sdlgpu_t *g = r->gpu;
+    /* D436: el recorte del renderizador, en pixeles del destino */
+    if (r->recorte) {
+        SDL_Rect c = recorte_lienzo(r, g->l, g->a);
+        g->cx0 = c.x; g->cy0 = c.y; g->cx1 = c.x + c.w; g->cy1 = c.y + c.h;
+    } else { g->cx0 = 0; g->cy0 = 0; g->cx1 = g->l; g->cy1 = g->a; }
+    return g;
 }
 
 int SDL_GetNumRenderDrivers(void) { return 1; }
@@ -1224,36 +1375,61 @@ static SDL_Rect para_lienzo(SDL_Renderer *r, const SDL_Rect *rect, int l, int a)
     return d;
 }
 
+/* D436: el recorte (SDL_RenderSetClipRect) en pixeles del lienzo de l x a, ya dentro de el. */
+static SDL_Rect recorte_lienzo(SDL_Renderer *r, int l, int a)
+{
+    SDL_Rect todo = { 0, 0, l, a }, c;
+    if (!r->recorte) return todo;
+    SDL_Rect q = para_lienzo(r, &r->rec, l, a);
+    if (!SDL_IntersectRect(&q, &todo, &c)) c = (SDL_Rect){ 0, 0, 0, 0 };
+    return c;
+}
+
+int SDL_RenderSetClipRect(SDL_Renderer *r, const SDL_Rect *rect)
+{
+    if (!r) return -1;
+    r->recorte = rect != NULL;
+    if (rect) r->rec = *rect;
+    return 0;
+}
+void SDL_RenderGetClipRect(SDL_Renderer *r, SDL_Rect *rect)
+{
+    if (!rect) return;
+    if (r && r->recorte) *rect = r->rec;
+    else *rect = (SDL_Rect){ 0, 0, 0, 0 };
+}
+SDL_bool SDL_RenderIsClipEnabled(SDL_Renderer *r) { return r && r->recorte ? SDL_TRUE : SDL_FALSE; }
+
 int SDL_RenderFillRect(SDL_Renderer *r, const SDL_Rect *rect)
 {
     if (!r) return -1;
-    int mezcla = r->modo_des == SDL_BLENDMODE_BLEND && r->ca < 255;
+    SDL_BlendMode modo = r->modo_des;
+    if (modo == SDL_BLENDMODE_BLEND && r->ca == 255) modo = SDL_BLENDMODE_NONE;
     sdlgpu_t *g = gpu_de(r);
     if (g) {
         SDL_Rect d = para_lienzo(r, rect, g->l, g->a);
         if (d.w <= 0 || d.h <= 0) return 0;
-        int rc = sdlg_rect(g, d.x, d.y, d.w, d.h, r->cr, r->cg, r->cb, r->ca, mezcla);
+        int mg = modo_gpu(modo);
+        int rc = mg < 0 ? 1 : sdlg_rect(g, d.x, d.y, d.w, d.h, r->cr, r->cg, r->cb, r->ca, mg);
         if (!rc) return 0;
         gpu_erro(r, rc);
     }
     int l, a, p;
     Uint32 *t = lienzo_de(r, &l, &a, &p);
     if (!t) return -1;
-    SDL_Rect d = para_lienzo(r, rect, l, a), todo = { 0, 0, l, a }, c;
-    if (!SDL_IntersectRect(&d, &todo, &c)) return 0;
+    SDL_Rect d = para_lienzo(r, rect, l, a), cl = recorte_lienzo(r, l, a), c;
+    if (!SDL_IntersectRect(&d, &cl, &c)) return 0;
     Uint32 cor = 0xFF000000u | ((Uint32)r->cr << 16) | ((Uint32)r->cg << 8) | r->cb;
-    if (!mezcla) {
+    if (modo == SDL_BLENDMODE_NONE) {
         for (int y = c.y; y < c.y + c.h; y++) preencher32(t + (size_t)y * p + c.x, cor, (size_t)c.w);
         return 0;
     }
-    unsigned al = r->ca;   /* SDL_BLENDMODE_BLEND: color * alfa + fondo * (1 - alfa) */
+    Uint32 o = ((Uint32)r->ca << 24) | (cor & 0xFFFFFFu);
+    int opaco = !r->alvo;   /* el lienzo de la ventana no tiene alfa */
     for (int y = c.y; y < c.y + c.h; y++)
         for (int x = c.x; x < c.x + c.w; x++) {
-            Uint32 f = t[(size_t)y * p + x];
-            unsigned rr = (r->cr * al + ((f >> 16) & 255) * (255 - al)) / 255;
-            unsigned gg = (r->cg * al + ((f >> 8) & 255) * (255 - al)) / 255;
-            unsigned bb = (r->cb * al + (f & 255) * (255 - al)) / 255;
-            t[(size_t)y * p + x] = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
+            Uint32 v = mezcla_modo(o, t[(size_t)y * p + x], modo);
+            t[(size_t)y * p + x] = opaco ? v | 0xFF000000u : v;
         }
     return 0;
 }
@@ -1275,10 +1451,12 @@ int SDL_RenderClear(SDL_Renderer *r)
         MEDIR_FIM(ciclos_escala);
         return 0;
     }
-    int ll = r->log_l, la = r->log_a;
-    r->log_l = r->log_a = 0;   /* todo el lienzo, sin tamaño lógico */
+    int ll = r->log_l, la = r->log_a, rc = r->recorte;
+    SDL_BlendMode md = r->modo_des;
+    r->log_l = r->log_a = 0;   /* todo el lienzo, sin tamaño lógico ni recorte, y sin mezcla (como la SDL) */
+    r->recorte = 0; r->modo_des = SDL_BLENDMODE_NONE;
     int v = SDL_RenderFillRect(r, NULL);
-    r->log_l = ll; r->log_a = la;
+    r->log_l = ll; r->log_a = la; r->recorte = rc; r->modo_des = md;
     MEDIR_FIM(ciclos_escala);
     return v;
 }
@@ -1353,6 +1531,7 @@ void SDL_DestroyTexture(SDL_Texture *t)
     if (t->r && t->r->gpu && t->gpu_vaga >= 0) {   /* soltar su hueco en la GPU */
         sdlgpu_t *g = t->r->gpu;
         if (g->vaga[t->gpu_vaga] == t) {
+            sdlg_adiado(g);   /* D432: si era la copia aplazada, al destino antes de soltarla */
             sdlg_despejar(g);
             g->vaga[t->gpu_vaga] = NULL;
             sdlg_chamar(GPU3D_OP_TEXTURA, (unsigned)t->gpu_vaga, 0, 0, 0);
@@ -1435,29 +1614,26 @@ static void sen_cos(double grados, double *sn, double *cs)
     *sn = s; *cs = c;
 }
 
-/* Un pixel de textura sobre uno del lienzo (modulacion y mezcla de la textura). */
+/* Un pixel de textura sobre uno del lienzo (modulacion y mezcla de la textura; D436: todos los modos). */
 static inline Uint32 pixel_copia(Uint32 v, Uint32 f, const SDL_Texture *t)
 {
     if (t->mod != 0xFFFFFFFFu) v = modular_px(v, t->mod);
+    if (t->modo == SDL_BLENDMODE_NONE) return v;
     if (t->modo == SDL_BLENDMODE_BLEND) {
         unsigned al = v >> 24;
         if (al == 0) return f;
-        if (al < 255) {
-            unsigned rr = (((v >> 16) & 255) * al + ((f >> 16) & 255) * (255 - al)) / 255;
-            unsigned gg = (((v >> 8) & 255) * al + ((f >> 8) & 255) * (255 - al)) / 255;
-            unsigned bb = ((v & 255) * al + (f & 255) * (255 - al)) / 255;
-            v = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
-        }
+        if (al == 255) return v;
     }
-    return v;
+    return mezcla_modo(v, f, t->modo) | 0xFF000000u;
 }
 
 /* Copia con giro (SDL_RenderCopyEx con angulo): para cada pixel del destino, el de la textura
  * que le toca por la rotacion inversa (vecino mas proximo); el giro es en el sentido de las
  * agujas del reloj alrededor de «centro» (por defecto el centro del destino). */
-static void copia_girada(Uint32 *dst, int l, int a, int p, const SDL_Texture *t, SDL_Rect o, SDL_Rect d,
+static void copia_girada(Uint32 *dst, SDL_Rect cl, int p, const SDL_Texture *t, SDL_Rect o, SDL_Rect d,
                          double angulo, double cx, double cy, SDL_RendererFlip espelho)
 {
+    int l = cl.x + cl.w, a = cl.y + cl.h;
     double sn, cs;
     sen_cos(angulo, &sn, &cs);
     /* La caja del destino girado, recortada al lienzo. */
@@ -1472,8 +1648,8 @@ static void copia_girada(Uint32 *dst, int l, int a, int p, const SDL_Texture *t,
         if (Y > my1) my1 = Y;
     }
     int x0 = (int)mx0 - 1, y0 = (int)my0 - 1, x1 = (int)mx1 + 2, y1 = (int)my1 + 2;
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
+    if (x0 < cl.x) x0 = cl.x;
+    if (y0 < cl.y) y0 = cl.y;
     if (x1 > l) x1 = l;
     if (y1 > a) y1 = a;
     for (int y = y0; y < y1; y++)
@@ -1510,22 +1686,31 @@ int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const 
             double cy = d.y + (centro ? centro->y * (double)d.h / (rd ? rd->h : d.h) : d.h / 2.0);
             double sn = 0, cs = 1;
             if (angulo != 0.0) sen_cos(angulo, &sn, &cs);
-            sdlg_pt_t p[4] = { { (float)d.x, (float)d.y, u0, v0 }, { (float)(d.x + d.w), (float)d.y, u1, v0 },
-                               { (float)(d.x + d.w), (float)(d.y + d.h), u1, v1 }, { (float)d.x, (float)(d.y + d.h), u0, v1 } };
+            sdlg_pt_t p[4] = { { (float)d.x, (float)d.y, u0, v0, t->mod }, { (float)(d.x + d.w), (float)d.y, u1, v0, t->mod },
+                               { (float)(d.x + d.w), (float)(d.y + d.h), u1, v1, t->mod }, { (float)d.x, (float)(d.y + d.h), u0, v1, t->mod } };
             if (angulo != 0.0)
                 for (int i = 0; i < 4; i++) {
                     double dx = p[i].x - cx, dy = p[i].y - cy;
                     p[i].x = (float)(cx + dx * cs - dy * sn);
                     p[i].y = (float)(cy + dx * sn + dy * cs);
                 }
-            int rc = sdlg_poligono(g, v, t->modo == SDL_BLENDMODE_BLEND, t->mod, p, 4);
+            /* D432: una copia opaca, sin giro ni espejo, que cubre todo el lienzo, a pantalla completa:
+             * se aplaza; si nada se dibuja encima, la GPU la llevara directamente a la pantalla. */
+            if (g->pres && r->w->em_cheia && angulo == 0.0 && !espelho && t->modo == SDL_BLENDMODE_NONE && !r->recorte &&
+                t->mod == 0xFFFFFFFFu && d.x == 0 && d.y == 0 && d.w == g->l && d.h == g->a &&
+                o.x >= 0 && o.y >= 0 && o.x + o.w <= t->l && o.y + o.h <= t->a) {
+                sdlg_adiar(g, t, o.x, o.y, o.w, o.h, p);
+                return 0;
+            }
+            int mg = modo_gpu(t->modo);
+            int rc = mg < 0 ? 1 : sdlg_poligono(g, v, mg, 0, p, 4);
             if (!rc) return 0;
             gpu_erro(r, rc);
         } else {
             gpu_erro(r, v == -1 ? -1 : 1);
         }
     }
-    if (r->limpar_pend && !r->alvo && !r->alvo_sup && r->w && t->modo != SDL_BLENDMODE_BLEND) {
+    if (r->limpar_pend && !r->alvo && !r->alvo_sup && r->w && t->modo == SDL_BLENDMODE_NONE && !r->recorte) {
         /* ¿La copia cubre todo el lienzo sin dejar huecos? Entonces el borrado aplazado sobra. */
         SDL_Rect dd = para_lienzo(r, rd, r->w->l, r->w->a);
         SDL_Rect oo = ro ? *ro : (SDL_Rect){ 0, 0, t->l, t->a };
@@ -1539,17 +1724,19 @@ int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const 
     SDL_Rect o = ro ? *ro : (SDL_Rect){ 0, 0, t->l, t->a };
     SDL_Rect d = para_lienzo(r, rd, l, a);
     if (o.w <= 0 || o.h <= 0 || d.w <= 0 || d.h <= 0) return 0;
-    int mistura = (t->modo == SDL_BLENDMODE_BLEND);
+    int mistura = (t->modo != SDL_BLENDMODE_NONE);
     int modular = t->mod != 0xFFFFFFFFu;
+    SDL_Rect cl = recorte_lienzo(r, l, a);   /* D436 */
+    if (cl.w <= 0 || cl.h <= 0) return 0;
     if (angulo != 0.0) {
         SDL_Rect dd = para_lienzo(r, rd, l, a);
         double cx = dd.x + (centro ? centro->x * (double)dd.w / (rd ? rd->w : dd.w) : dd.w / 2.0);
         double cy = dd.y + (centro ? centro->y * (double)dd.h / (rd ? rd->h : dd.h) : dd.h / 2.0);
-        copia_girada(dst, l, a, p, t, o, d, angulo, cx, cy, espelho);
+        copia_girada(dst, cl, p, t, o, d, angulo, cx, cy, espelho);
         return 0;
     }
     /* El caso de los juegos: la textura entera, del mismo tamaño, sin espejo. */
-    if (!mistura && !modular && !espelho && o.w == d.w && o.h == d.h && o.x == 0 && o.y == 0 && d.x == 0 && d.y == 0 &&
+    if (!mistura && !modular && !espelho && !r->recorte && o.w == d.w && o.h == d.h && o.x == 0 && o.y == 0 && d.x == 0 && d.y == 0 &&
         d.w <= l && d.h <= a && o.w <= t->l && o.h <= t->a) {
         for (int y = 0; y < d.h; y++)
             memcpy(dst + (size_t)y * p, t->px + (size_t)y * t->pitch, (size_t)d.w * 4);
@@ -1567,7 +1754,7 @@ int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const 
         colmapa = n;
         colmapa_cap = d.w;
     }
-    int x0 = d.x < 0 ? -d.x : 0, x1 = d.x + d.w > l ? l - d.x : d.w;   /* columnas de destino dentro del lienzo */
+    int x0 = d.x < cl.x ? cl.x - d.x : 0, x1 = d.x + d.w > cl.x + cl.w ? cl.x + cl.w - d.x : d.w;   /* columnas de destino dentro del recorte */
     for (int x = 0; x < d.w; x++) {
         int sx = o.x + (int)((long long)(espelho & SDL_FLIP_HORIZONTAL ? d.w - 1 - x : x) * o.w / d.w);
         colmapa[x] = sx < 0 || sx >= t->l ? -1 : sx;
@@ -1575,7 +1762,7 @@ int SDL_RenderCopyEx(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const 
     int ant_sy = -1, ant_yy = -1;
     for (int y = 0; y < d.h; y++) {
         int yy = d.y + y;
-        if (yy < 0 || yy >= a) continue;
+        if (yy < cl.y || yy >= cl.y + cl.h) continue;
         int sy = o.y + (int)((long long)(espelho & SDL_FLIP_VERTICAL ? d.h - 1 - y : y) * o.h / d.h);
         if (sy < 0 || sy >= t->a) continue;
         Uint32 *ld = dst + (size_t)yy * p;
@@ -1604,6 +1791,133 @@ int SDL_RenderCopy(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *ro, const SD
     int v = SDL_RenderCopyEx(r, t, ro, rd, 0.0, NULL, SDL_FLIP_NONE);
     MEDIR_FIM(ciclos_escala);
     return v;
+}
+
+/* ------------------------------------------------------------------ D436: SDL_RenderGeometry */
+
+int SDL_GetTextureColorMod(SDL_Texture *t, Uint8 *r, Uint8 *g, Uint8 *b)
+{
+    if (!t) return -1;
+    if (r) *r = (Uint8)(t->mod >> 16);
+    if (g) *g = (Uint8)(t->mod >> 8);
+    if (b) *b = (Uint8)t->mod;
+    return 0;
+}
+int SDL_GetTextureAlphaMod(SDL_Texture *t, Uint8 *a) { if (!t) return -1; if (a) *a = (Uint8)(t->mod >> 24); return 0; }
+int SDL_GetTextureBlendMode(SDL_Texture *t, SDL_BlendMode *m) { if (!t) return -1; if (m) *m = t->modo; return 0; }
+
+/* Lado potencia de 2 (la GPU solo repite esas texturas). */
+static int pot2(int v) { return v > 0 && !(v & (v - 1)); }
+
+/* Un triángulo por software: centros de píxel, vecino más próximo, color interpolado que multiplica, la mezcla del modo
+ * m y el recorte cl. rep: las coordenadas de textura se repiten (si no, se sujetan al borde). */
+static void triangulo_sw(Uint32 *dst, int p, SDL_Rect cl, const SDL_Texture *t, const SDL_Vertex *v0, const SDL_Vertex *v1,
+                         const SDL_Vertex *v2, SDL_BlendMode m, int rep, int opaco)
+{
+    float x0 = v0->position.x, y0 = v0->position.y, x1 = v1->position.x, y1 = v1->position.y, x2 = v2->position.x, y2 = v2->position.y;
+    float area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    if (area == 0.0f || area != area) return;
+    float mnx = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2), mxx = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
+    float mny = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2), mxy = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
+    int ix0 = (int)(mnx - 1.0f), ix1 = (int)(mxx + 1.0f), iy0 = (int)(mny - 1.0f), iy1 = (int)(mxy + 1.0f);
+    if (ix0 < cl.x) ix0 = cl.x;
+    if (iy0 < cl.y) iy0 = cl.y;
+    if (ix1 > cl.x + cl.w - 1) ix1 = cl.x + cl.w - 1;
+    if (iy1 > cl.y + cl.h - 1) iy1 = cl.y + cl.h - 1;
+    float inv = 1.0f / area;
+    const SDL_Color *c0 = &v0->color, *c1 = &v1->color, *c2 = &v2->color;
+    for (int y = iy0; y <= iy1; y++) {
+        float py = (float)y + 0.5f;
+        for (int x = ix0; x <= ix1; x++) {
+            float px = (float)x + 0.5f;
+            /* pesos baricentricos (con la regla de «dentro si >= 0» y el signo del área) */
+            float w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
+            float w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+            float w2 = 1.0f - w0 - w1;
+            if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f) continue;
+            Uint32 o;
+            unsigned cr = (unsigned)(c0->r * w0 + c1->r * w1 + c2->r * w2 + 0.5f), cg = (unsigned)(c0->g * w0 + c1->g * w1 + c2->g * w2 + 0.5f);
+            unsigned cb = (unsigned)(c0->b * w0 + c1->b * w1 + c2->b * w2 + 0.5f), ca = (unsigned)(c0->a * w0 + c1->a * w1 + c2->a * w2 + 0.5f);
+            Uint32 cor = ((ca > 255 ? 255u : ca) << 24) | ((cr > 255 ? 255u : cr) << 16) | ((cg > 255 ? 255u : cg) << 8) | (cb > 255 ? 255u : cb);
+            if (t) {
+                float u = v0->tex_coord.x * w0 + v1->tex_coord.x * w1 + v2->tex_coord.x * w2;
+                float vv = v0->tex_coord.y * w0 + v1->tex_coord.y * w1 + v2->tex_coord.y * w2;
+                int tx = (int)(u * (float)t->l + 65536.0f) - 65536, ty = (int)(vv * (float)t->a + 65536.0f) - 65536;
+                if (rep) { tx &= t->l - 1; ty &= t->a - 1; }
+                else { tx = tx < 0 ? 0 : tx >= t->l ? t->l - 1 : tx; ty = ty < 0 ? 0 : ty >= t->a ? t->a - 1 : ty; }
+                o = modular_px(((const Uint32 *)(t->px + (size_t)ty * t->pitch))[tx], cor);
+            } else o = cor;
+            Uint32 *q = dst + (size_t)y * p + x;
+            Uint32 n = mezcla_modo(o, *q, m);
+            *q = opaco ? n | 0xFF000000u : n;
+        }
+    }
+}
+
+int SDL_RenderGeometry(SDL_Renderer *r, SDL_Texture *t, const SDL_Vertex *vs, int nv, const int *ind, int ni)
+{
+    if (!r || !vs || nv < 3) return r && vs ? 0 : -1;
+    int n = ind ? ni : nv;
+    if (n % 3) return SDL_SetError("SDL_RenderGeometry: %d vertices no son triangulos", n);
+    for (int i = 0; ind && i < ni; i++) if (ind[i] < 0 || ind[i] >= nv) return SDL_SetError("indice fuera de rango");
+    SDL_BlendMode modo = t ? t->modo : r->modo_des;
+    /* ¿Repetir la textura? Si alguna coordenada sale de [0, 1] y los lados son potencia de 2 (D436: lo usa AoEN para el
+     * terreno); si no son potencia de 2, se sujeta al borde, como la SDL real. */
+    int rep = 0;
+    if (t && pot2(t->l) && pot2(t->a))
+        for (int i = 0; i < nv; i++)
+            if (vs[i].tex_coord.x < 0.0f || vs[i].tex_coord.x > 1.0f || vs[i].tex_coord.y < 0.0f || vs[i].tex_coord.y > 1.0f) { rep = 1; break; }
+    float sx = 1.0f, sy = 1.0f;   /* tamaño lógico */
+    sdlgpu_t *g = gpu_de(r);
+    if (g) {
+        int mg = modo_gpu(modo), vaga = -1, rc = 0;
+        if (mg < 0) rc = 1;
+        else if (t) { vaga = sdlg_textura(g, t); if (vaga < 0) rc = vaga == -1 ? -1 : 1; }
+        if (r->log_l > 0 && r->log_a > 0) { sx = (float)g->l / (float)r->log_l; sy = (float)g->a / (float)r->log_a; }
+        Uint32 mod = t ? t->mod : 0xFFFFFFFFu;
+        if (!rc && (rc = sdlg_adiado(g)) == 0) {
+            for (int i = 0; i + 2 < n && !rc; i += 3) {
+                sdlg_pt_t q[3];
+                for (int k = 0; k < 3; k++) {
+                    const SDL_Vertex *v = &vs[ind ? ind[i + k] : i + k];
+                    Uint32 c = ((Uint32)v->color.a << 24) | ((Uint32)v->color.r << 16) | ((Uint32)v->color.g << 8) | v->color.b;
+                    q[k].x = v->position.x * sx; q[k].y = v->position.y * sy;
+                    q[k].u = v->tex_coord.x; q[k].v = v->tex_coord.y;
+                    q[k].cor = mod == 0xFFFFFFFFu ? c : modular_px(c, mod);
+                    if (q[k].x != q[k].x || q[k].y != q[k].y || q[k].u != q[k].u || q[k].v != q[k].v) q[k].x = q[k].y = q[k].u = q[k].v = 0;
+                }
+                rc = sdlg_poligono_int(g, vaga, mg, rep, q, 3);
+            }
+        }
+        if (!rc) return 0;
+        gpu_erro(r, rc);
+        sx = sy = 1.0f;
+    }
+    int l, a, p;
+    Uint32 *dst = lienzo_de(r, &l, &a, &p);
+    if (!dst) return -1;
+    if (r->log_l > 0 && r->log_a > 0 && !r->alvo) { sx = (float)l / (float)r->log_l; sy = (float)a / (float)r->log_a; }
+    SDL_Rect cl = recorte_lienzo(r, l, a);
+    if (cl.w <= 0 || cl.h <= 0) return 0;
+    if (t && t->mod != 0xFFFFFFFFu) {   /* la modulación de la textura multiplica el color de cada vértice */
+        for (int i = 0; i + 2 < n; i += 3) {
+            SDL_Vertex q[3];
+            for (int k = 0; k < 3; k++) {
+                q[k] = vs[ind ? ind[i + k] : i + k];
+                Uint32 c = modular_px(((Uint32)q[k].color.a << 24) | ((Uint32)q[k].color.r << 16) | ((Uint32)q[k].color.g << 8) | q[k].color.b, t->mod);
+                q[k].color.a = (Uint8)(c >> 24); q[k].color.r = (Uint8)(c >> 16); q[k].color.g = (Uint8)(c >> 8); q[k].color.b = (Uint8)c;
+                q[k].position.x *= sx; q[k].position.y *= sy;
+            }
+            triangulo_sw(dst, p, cl, t, &q[0], &q[1], &q[2], modo, rep, !r->alvo);
+        }
+        return 0;
+    }
+    for (int i = 0; i + 2 < n; i += 3) {
+        SDL_Vertex q[3];
+        for (int k = 0; k < 3; k++) { q[k] = vs[ind ? ind[i + k] : i + k]; q[k].position.x *= sx; q[k].position.y *= sy; }
+        triangulo_sw(dst, p, cl, t, &q[0], &q[1], &q[2], modo, rep, !r->alvo);
+    }
+    return 0;
 }
 
 int SDL_SetRenderTarget(SDL_Renderer *r, SDL_Texture *t)
@@ -1668,7 +1982,32 @@ void SDL_RenderPresent(SDL_Renderer *r)
     bombear_audio();
     MEDIR_INI();
     sdlgpu_t *g = gpu_de(r);
+    if (g && g->pres && r->w->em_cheia) {
+        /* D432: a pantalla completa la GPU copia el cuadro a la pantalla y no vuelve a la RAM. */
+        SDL_Window *w = r->w;
+        int rc = sdlg_apresentar(g, w->id, w->dx, w->dy, w->dl, w->da);
+        if (rc == 0) {
+            if (!g->excl) {
+                g->excl = 1;
+                registrar("[%s] presentar por la GPU en la pantalla (D432): lienzo %dx%d -> %dx%d+%d+%d", sagui_sdl2_nome,
+                          g->l, g->a, w->dl, w->da, w->dx, w->dy);
+            }
+            if (!w->primeiro_quadro) {
+                w->primeiro_quadro = 1;
+                registrar("[%s] primer cuadro dibujado (%dx%d)", sagui_sdl2_nome, w->jl, w->ja);
+            }
+            MEDIR_FIM(ciclos_apres);
+            medir_cuadro();
+            return;
+        }
+        if (rc < 0) { gpu_erro(r, rc); g = NULL; }
+    }
     if (g) {   /* D288: el cuadro vuelve de la GPU al lienzo y se presenta como siempre */
+        if (g->excl) {
+            g->excl = 0;
+            r->w->completo = 1;   /* el compositor no tiene los cuadros que fueron directos */
+            registrar("[%s] presentar: la pantalla vuelve al compositor (%lu cuadros directos)", sagui_sdl2_nome, g->pres_n);
+        }
         int rc = sdlg_ler(g, r->w->tela);
         if (rc) gpu_erro(r, rc);
     }
@@ -1676,6 +2015,95 @@ void SDL_RenderPresent(SDL_Renderer *r)
     apresentar(r->w);
     MEDIR_FIM(ciclos_apres);
     medir_cuadro();
+}
+
+/* D432: los programas que pintan en la superficie de la ventana (SDL_UpdateWindowSurface: Tzar, OpenTTD...)
+ * no tienen renderizador. Con SDL_SAGUI_GPU=1 (solo con la variable: es experimental) y la ventana a pantalla
+ * completa, el lienzo se sube entero a una textura de la GPU cuando cambia y la GPU lo copia, escalado, a la
+ * pantalla (GPU3D_OP_APRESENTAR): el escalado y las copias del compositor dejan de hacerlos la CPU. Si el
+ * kernel dice «ahora no» (un aviso, Alt+Tab...), ese cuadro va por el camino de siempre. 1: presentado. */
+static void superficie_gpu_fechar(SDL_Window *w)
+{
+    if (!w || !w->sup_gpu) return;
+    sdlg_chamar(GPU3D_OP_FECHAR, 0, 0, 0, 0);
+    free(w->sup_gpu);
+    w->sup_gpu = NULL;
+    w->completo = 1;
+}
+
+static int superficie_gpu(SDL_Window *w)
+{
+    if (w->renderer || !w->tela || !w->px) return 0;
+    if (!w->em_cheia) { superficie_gpu_fechar(w); return 0; }   /* en ventana, el motor queda libre para otros */
+    if (!w->sup_gpu) {
+        const char *e = getenv("SDL_SAGUI_GPU");
+        if (!e || e[0] != '1') { w->sup_nao = 1; return 0; }
+        sdlgpu_t *g = sdlg_abrir(8, 8);   /* el destino del 3D no se usa: solo una textura con el lienzo */
+        if (g && !g->pres) { sdlg_chamar(GPU3D_OP_FECHAR, 0, 0, 0, 0); free(g); g = NULL; }
+        if (!g) {
+            w->sup_nao = 1;
+            registrar("[%s] superficie de la ventana por software (no hay GPU 3D que presente en la pantalla)", sagui_sdl2_nome);
+            return 0;
+        }
+        w->sup_gpu = g;
+        w->completo = 1;
+        registrar("[%s] superficie de la ventana por la GPU (D432): lienzo %dx%d -> %dx%d+%d+%d", sagui_sdl2_nome, w->l, w->a,
+                  w->dl, w->da, w->dx, w->dy);
+    }
+    sdlgpu_t *g = w->sup_gpu;
+    /* ¿Cambió algo desde lo último presentado? (la misma comparación que el camino de software) */
+    size_t n = (size_t)w->l * (size_t)w->a;
+    if (w->ant_n != n || !w->ant) {
+        free(w->ant);
+        w->ant = malloc(n * 4);
+        w->ant_n = w->ant ? n : 0;
+        w->completo = 1;
+    }
+    if (!w->completo && w->ant && g->excl) {
+        zona_t cx[MAX_CAIXAS];
+        if (achar_mudancas(w, cx) == 0) return 1;   /* la pantalla ya lo tiene */
+    } else if (w->ant) memcpy(w->ant, w->tela, n * 4);
+    w->completo = 0;
+    int rc = sdlg_chamar(GPU3D_OP_TEXTURA, 0, (unsigned)w->l, (unsigned)w->a, w->tela);
+    if (rc == 0) {
+        gpu3d_apresentar_t a;
+        memset(&a, 0, sizeof a);
+        a.fonte = 0; a.janela = (unsigned)w->id;
+        a.ol = (unsigned short)w->l; a.oa = (unsigned short)w->a;
+        a.dx = (unsigned short)w->dx; a.dy = (unsigned short)w->dy; a.dl = (unsigned short)w->dl; a.da = (unsigned short)w->da;
+        a.flags = g->pres_flags;
+        rc = sdlg_chamar(GPU3D_OP_APRESENTAR, 0, 0, 0, &a);
+        if (rc == 0) {
+            if (!g->excl) g->excl = 1;
+            g->pres_n++;
+            if (!w->primeiro_quadro) {
+                w->primeiro_quadro = 1;
+                registrar("[%s] primer cuadro dibujado (%dx%d)", sagui_sdl2_nome, w->jl, w->ja);
+            }
+            return 1;
+        }
+    }
+    /* Ahora no (rc > 0) o la GPU no puede con este lienzo o falló: este cuadro, por el camino de siempre. */
+    w->completo = 1;
+    if (g->excl) g->excl = 0;
+    g->pres_nao++;
+    if (rc < 0 || g->pres_nao > 600 + 4 * g->pres_n) {
+        /* la GPU falló, o casi nunca se puede (el lienzo no cabe en una textura...): se deja */
+        registrar("[%s] superficie de la ventana por la GPU: se deja (%s; %lu cuadros directos)", sagui_sdl2_nome,
+                  rc < 0 ? "la GPU fallo" : "casi nunca se puede", g->pres_n);
+        superficie_gpu_fechar(w);
+        w->sup_nao = 1;
+    }
+    return 0;
+}
+
+/* Los cuadros directos y los que no, del renderizador o de la superficie de la ventana (r NULL). */
+int sagui_sdl2_gpu_estado(SDL_Renderer *r, unsigned long *directos, unsigned long *por_ram)
+{
+    sdlgpu_t *g = r ? r->gpu : janela ? janela->sup_gpu : NULL;
+    if (directos) *directos = g ? g->pres_n : 0;
+    if (por_ram) *por_ram = g ? (r ? g->ler_n : g->pres_nao) : 0;
+    return g ? 1 : 0;
 }
 
 /* ------------------------------------------------------------------ ratón y cursor */
@@ -2074,8 +2502,13 @@ static void tratar_evento(evento_t *pe)
     case EV_TECLA: {
         int sc = scancode_do_kernel(e.tecla, e.modificadores);
         if (sc != SDL_SCANCODE_UNKNOWN) {
+            /* D436: si el kernel dice que va con Ctrl y el mapa no vio la tecla Ctrl (p. ej. Ctrl+F mandada de golpe),
+             * el evento lleva el Ctrl igualmente (AoEN: Ctrl+F, el HUD) */
+            Uint16 antes = mods_atual;
+            if ((e.modificadores & 2) && !(mods_atual & KMOD_CTRL)) mods_atual |= KMOD_LCTRL;
             /* Ya pulsada (el mapa la vio): la repetición del teclado. */
             evento_tecla(SDL_KEYDOWN, sc, estado_teclas[sc] ? 1 : 0);
+            mods_atual = antes;
         }
         evento_texto(e.tecla);
         break;

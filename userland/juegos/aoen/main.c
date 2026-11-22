@@ -6,6 +6,7 @@
 #include "config.h"
 #include "efectos.h"
 #include "hilos.h"
+#include "gpu.h"
 #include <time.h>
 
 static SDL_Window *win;
@@ -200,6 +201,40 @@ static void pantalla_sin_datos(void) {
 	}
 }
 
+/* D431, prueba de audio con pocos FPS: AOEN_FPS_LENTO=MS mete una espera de MS milisegundos en cada cuadro (de dibujo, o de la
+ * escena «audio»); con AOEN_FPS_OCUPADO=1 la espera es un bucle que gasta CPU, como un cuadro lento de verdad. El audio no
+ * debe notarlo: va por su cuenta (audio.c, mezcla.c). */
+static void cuadro_lento(void) {
+	static int ms = -1, ocupado;
+	if (ms < 0) { ms = getenv("AOEN_FPS_LENTO") ? atoi(getenv("AOEN_FPS_LENTO")) : 0; ocupado = getenv("AOEN_FPS_OCUPADO") && atoi(getenv("AOEN_FPS_OCUPADO")) > 0; }
+	if (ms <= 0) return;
+	if (ocupado) { Uint32 t0 = SDL_GetTicks(); while (SDL_GetTicks() - t0 < (Uint32)ms) { } }
+	else SDL_Delay((Uint32)ms);
+}
+
+/* escena «audio» (ayuda de las pruebas, D431): sin partida ni datos del juego. Durante AOEN_AUDIO_SEG segundos (10 por defecto)
+ * suena la música de AOEN_MUSIC (si hay), la alarma generada cada segundo, y a mitad una parada de 400 ms de «carga» del
+ * hilo del juego. Con AOEN_FPS_LENTO los cuadros van despacio. Se espera el WAV de AOEN_AUDIO_WAV y el resumen del registro. */
+static void escena_audio(void) {
+	int seg = getenv("AOEN_AUDIO_SEG") ? atoi(getenv("AOEN_AUDIO_SEG")) : 10;
+	Uint32 t0 = SDL_GetTicks(), ult_alarma = 0;
+	int parada = 0, cuadros = 0;
+	music_play_menu();
+	while (SDL_GetTicks() - t0 < (Uint32)seg * 1000) {
+		SDL_Event e;
+		while (SDL_PollEvent(&e)) if (e.type == SDL_QUIT) seg = 0;
+		Uint32 t = SDL_GetTicks() - t0;
+		if (t - ult_alarma >= 1000) { ult_alarma = t; snd_ui(SND_ALERT); }
+		if (!parada && t >= (Uint32)seg * 500) { parada = 1; SDL_Delay(400); }   /* pausa o carga: el audio no se detiene */
+		music_update();
+		cuadro_lento();
+		SDL_Delay(1);
+		++cuadros;
+	}
+	AOEN_LOG("[AOEN] escena audio: %d segundos, %d cuadros del juego", seg, cuadros);
+	audio_shutdown();
+}
+
 int main(int argc, char **argv) {
 	const char *shot = getenv("AOEN_SHOT");
 	const char *scene = getenv("AOEN_SCENE");
@@ -249,9 +284,17 @@ int main(int argc, char **argv) {
 	perf_activo = getenv("AOEN_PERFIL") && atoi(getenv("AOEN_PERFIL")) > 0;
 	{
 		int want = getenv("AOEN_RENDER") ? atoi(getenv("AOEN_RENDER")) : cfg_get_int("render2d", 0);
-		if (want) {
+		/* D436: dibujo por la GPU (Opciones > Gráficos o AOEN_GPU=1): pide también el renderizador acelerado */
+		gpu_pedido = getenv("AOEN_GPU") ? atoi(getenv("AOEN_GPU")) > 0 : cfg_get_int("dibujo_gpu", 0) > 0;
+		hud_rend_visible = getenv("AOEN_HUD") ? atoi(getenv("AOEN_HUD")) > 0 : cfg_get_int("hud_rendimiento", 0) > 0;
+		if (want || gpu_pedido) {
 			rnd = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+			if (!rnd && getenv("AOEN_GPU_FORZAR")) rnd = SDL_CreateRenderer(win, -1, 0);
 			use_renderer = rnd != NULL;
+			if (gpu_pedido && !gpu_iniciar(rnd)) {
+				gpu_pedido = 0;
+				if (!want && rnd) { SDL_DestroyRenderer(rnd); rnd = NULL; use_renderer = 0; }
+			}
 			AOEN_LOG("[AOEN] presentación: %s", use_renderer ? "renderizador 2D de la SDL" : "superficie de la ventana (no hay renderizador)");
 		}
 	}
@@ -277,6 +320,8 @@ int main(int argc, char **argv) {
 		music_test();
 		return 0;
 	}
+
+	if (scene && !strcmp(scene, "audio")) { escena_audio(); return 0; }
 
 	if (scene && !strcmp(scene, "fx")) {
 		/* ayuda de desarrollo y de las pruebas: una obra a medias, un edificio dañado que echa humo y otro que se derrumba */
@@ -575,6 +620,12 @@ int main(int argc, char **argv) {
 		if (getenv("AOEN_PEST")) final_pest = atoi(getenv("AOEN_PEST"));
 	}
 
+	if (getenv("AOEN_VISTA")) {   /* desarrollo: centra la vista en la base + (dx,dy) y AOEN_ZOOM fija el zoom (revisión de gráficos, D442) */
+		float dx = 0, dy = 0;
+		sscanf(getenv("AOEN_VISTA"), "%f,%f", &dx, &dy);
+		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].type == E_TOWN_CENTER && W.ents[i].owner == W.human) { view_center_on(W.ents[i].x + dx, W.ents[i].y + dy); break; }
+		if (getenv("AOEN_ZOOM")) V.zoom = (float)atof(getenv("AOEN_ZOOM"));
+	}
 	SDL_StartTextInput();
 	Uint32 last = SDL_GetTicks();
 	float accum = 0;
@@ -618,6 +669,7 @@ int main(int argc, char **argv) {
 			case SDL_KEYDOWN:
 				if (app.screen == SC_SETUP && setup_tecla(ev.key.keysym.sym)) break;
 				if (!ev.key.repeat && ev.key.keysym.scancode < 512) in.key[ev.key.keysym.scancode] = 1;
+				if (ev.key.keysym.sym == SDLK_f && (ev.key.keysym.mod & KMOD_CTRL) && !ev.key.repeat) { hud_rend_alternar(); break; }   /* D436 */
 				if (ev.key.keysym.sym == SDLK_F11 || (ev.key.keysym.sym == SDLK_RETURN && (ev.key.keysym.mod & KMOD_ALT))) {
 					app.fullscreen = !app.fullscreen;
 					apply_fullscreen();
@@ -676,7 +728,15 @@ int main(int argc, char **argv) {
 			music_update();
 		}
 
-		/* dibujo */
+		/* dibujo; D436: la partida, por la GPU si se pidió (en SaguiOS, a pantalla completa: en ventana el cuadro volvería
+		 * a la RAM en cada cuadro) */
+		int por_gpu = 0, capa_gpu = 0;
+		if (gpu_pedido && app.screen == SC_GAME && W.nents) {
+#ifdef SAGUI_AOEN
+			if (app.fullscreen || getenv("AOEN_GPU_VENTANA"))
+#endif
+				por_gpu = gpu_cuadro_empezar(fb.w, fb.h);
+		}
 		PERF_INI();
 		hud_disponer();
 		switch (app.screen) {
@@ -689,7 +749,8 @@ int main(int argc, char **argv) {
 			if (!app.paused && !W.over) game_input(dt);
 			if (!W.nents || app.screen != SC_GAME) { gfx_ui_begin(app.us); break; }
 			render_world(top_h * app.us, bottom_h * app.us);
-			if (frame == suma_cuadro) {
+			if (gpu_ativo) { gpu_capa_empezar(); capa_gpu = 1; }   /* D436: la interfaz, en la capa que se pone encima */
+			if (frame == suma_cuadro && !gpu_ativo) {
 				unsigned h = 2166136261u;
 				for (int y = top_h * app.us; y < fb.h - bottom_h * app.us; ++y)
 					for (int x = 0; x < fb.w; ++x) h = (h ^ (fb.px[(size_t)y * fb.pitch + x] & 0xffffffu)) * 16777619u;
@@ -742,15 +803,47 @@ int main(int argc, char **argv) {
 			char b[32]; snprintf(b, sizeof b, "%d fps", app.fps);
 			gfx_text(fb.w - 80, top_h * app.us + 4, b, gfx_rgb(255, 255, 0), 1);
 		}
+		hud_rend_cuadro();
+		hud_rend_dibujar();   /* D436: HUD de rendimiento (Ctrl+F), encima de todo */
 
 		PERF_FIN(PERF_INTERFAZ);
 		{
 			PERF_INI();
-			present_frame();
+			gpu_capa_terminar();
+			if (por_gpu && capa_gpu && gpu_ativo) {
+				int captura = shot && frame + 1 == shot_frame;   /* AOEN_SHOT: el cuadro de la GPU vuelve a fbs */
+				gpu_cuadro_presentar(captura ? (u32 *)fbs->pixels : NULL, fbs->pitch / 4);
+			} else {
+				gpu_ativo = 0;   /* se empezó por la GPU pero la partida no se dibujó (salió al menú): por la CPU */
+				present_frame();
+			}
 			PERF_FIN(PERF_PRESENTAR);
 		}
 
 		++frame;
+		if (shot && frame == shot_frame && por_gpu && capa_gpu && getenv("AOEN_COMPARAR")) {
+			/* D436, pruebas: el cuadro de la GPU (ya en fbs) contra el mismo mundo dibujado por la CPU, en la franja del mundo */
+			int y0 = top_h * app.us, y1 = fb.h - bottom_h * app.us, n = (y1 - y0) * fb.w;
+			u32 *g = n > 0 ? (u32 *)malloc((size_t)n * 4) : NULL;
+			if (g) {
+				for (int y = y0; y < y1; ++y) memcpy(g + (size_t)(y - y0) * fb.w, fb.px + (size_t)y * fb.pitch, (size_t)fb.w * 4);
+				render_world(top_h * app.us, bottom_h * app.us);   /* gpu_ativo ya es 0: por la CPU */
+				unsigned long long suma = 0, lejos = 0, negro_g = 0, negro_c = 0;
+				for (int y = y0; y < y1; ++y)
+					for (int x = 0; x < fb.w; ++x) {
+						u32 a = g[(size_t)(y - y0) * fb.w + x], b = fb.px[(size_t)y * fb.pitch + x];
+						int d = 0;
+						for (int k = 0; k < 24; k += 8) { int e = (int)((a >> k) & 255) - (int)((b >> k) & 255); d += e < 0 ? -e : e; }
+						suma += (unsigned)d; lejos += d > 3 * 48;
+						negro_g += (a & 0xffffff) == 0; negro_c += (b & 0xffffff) == 0;
+					}
+				AOEN_LOG("[AOEN] comparar CPU/GPU: %dx%d, diferencia media %.2f por canal, píxeles lejos %.2f%%, negros GPU %.2f%% CPU %.2f%%",
+				         fb.w, y1 - y0, suma / 3.0 / n, lejos * 100.0 / n, negro_g * 100.0 / n, negro_c * 100.0 / n);
+				/* en fbs, la del CPU encima de la GPU no: se deja la de la GPU para la captura */
+				for (int y = y0; y < y1; ++y) memcpy(fb.px + (size_t)y * fb.pitch, g + (size_t)(y - y0) * fb.w, (size_t)fb.w * 4);
+				free(g);
+			}
+		}
 		if (shot && frame == shot_frame) {
 			if (getenv("AOEN_STATS")) {
 				for (int p = 0; p < MAX_PLAYERS; ++p) {
@@ -774,17 +867,19 @@ int main(int argc, char **argv) {
 			if (++bench_warm <= 30) continue;   /* los primeros cuadros (cambio de tamaño, cachés) no cuentan */
 			/* la cámara se desplaza en vaivén: cada cuadro cambia entero, como al mover el mapa (el peor caso de dibujo y presentación) */
 			{ static float bx0, by0; if (!bench_t0) { bx0 = V.cx; by0 = V.cy; } V.cx = bx0 + 500.0f * sinf(bench_n * 0.07f); V.cy = by0 + 160.0f * sinf(bench_n * 0.05f); }
-			if (!bench_t0) { bench_t0 = SDL_GetTicks(); perf_empezar(); }
+			if (!bench_t0) { bench_t0 = SDL_GetTicks(); perf_empezar(); gpu_informe_empezar(); }
 			if (++bench_n >= bench_frames) {
 				Uint32 ms = SDL_GetTicks() - bench_t0;
 				AOEN_LOG("[AOEN] bench %dx%d cuadros=%d ms=%u fps=%.1f efectos=%d hilos=%d", fb.w, fb.h, bench_n, (unsigned)ms, ms ? bench_n * 1000.0f / ms : 0.0f, getenv("AOEN_EFECTOS") ? atoi(getenv("AOEN_EFECTOS")) : -1, hilos_n());
 				perf_informe(bench_n);
+				gpu_informe();
 				break;
 			}
 			continue;
 		}
 		Uint32 spent = SDL_GetTicks() - now;
 		if (spent < 16) SDL_Delay(16 - spent);
+		cuadro_lento();
 	}
 
 	hilos_parar();

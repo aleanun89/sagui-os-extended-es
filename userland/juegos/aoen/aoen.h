@@ -96,6 +96,8 @@ void gfx_ui_end(void);
 int gfx_ui_suspend(void);
 void gfx_ui_resume(int s);
 void gfx_pal_changed(void);                      /* avisa de que cambió fb.pal (se guardan paletas con sombra) */
+int fb_pal_version(void);                        /* D436: cambia cada vez que cambia fb.pal (el atlas de la GPU se rehace) */
+void carro_mercante_carga(int sx, int sy, int sc, int shade);   /* render.c, D447: carga y banda dorada sobre el gráfico provisional del carro mercante */
 void gfx_fill_grad(int x, int y, int w, int h, u32 top, u32 bottom);
 void gfx_ellipse(int cx, int cy, int rx, int ry, u32 col, int alpha);
 void gfx_shadow_ellipse(int cx, int cy, int rx, int ry);
@@ -144,6 +146,15 @@ void snd_event(SndEvent ev, float wx, float wy); /* posicional (casillas), atenu
 void snd_ui(SndEvent ev);                        /* no posicional */
 void audio_set_volumes(float sfx, float ambience);
 void audio_ambience_tick(float dt);
+/* D436: el estado del audio (HUD, informe) y la «alta prioridad de audio» (Opciones > Sonido, aoen.cfg audio_prioridad) */
+int audio_adelanto_ms(void);          /* lo que el hilo deja por delante (ms) */
+int audio_latencia_kernel_ms(void);   /* lo que el kernel mezcla por delante de la tarjeta (crece tras un corte) */
+long audio_sin_datos(void);           /* veces que el flujo propio se quedó vacío */
+unsigned audio_hueco_max(void);       /* mayor hueco entre dos mezclas (ms) */
+unsigned audio_cortes_kernel(void);   /* cortes de la tarjeta desde que se abrió (el mezclador del kernel llegó tarde) */
+int audio_alta_prioridad(void);       /* 1 activa, 0 apagada, -1 pedida pero el kernel no la tiene */
+int audio_prioridad_opcion(void);     /* lo que dice la opción ahora (la automática sigue al dibujo por GPU) */
+void audio_prioridad_elegir(int si);  /* la casilla: fija sí o no */
 
 /* ---------- music.c: secuenciador MIDI y pequeño sintetizador por software ---------- */
 int music_setup(const char *data_dir);      /* busca los ficheros MIDI; devuelve cuántas pistas hay */

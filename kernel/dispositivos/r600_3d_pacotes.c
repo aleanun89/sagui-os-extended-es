@@ -417,6 +417,15 @@ void r63d_estado_base(r6_lote_t *l, int f, bool r7xx, uint32_t qd_pipes, uint32_
 
 void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool sbu)
 {
+    r63d_alvo_modo(l, mc_cor, mc_z, passo, alt_buf, larg, alt, zbits, sbu, 0);
+}
+
+/* D432: lo mismo con el modo de la superficie de color dado (ARRAY_MODE de CB_COLOR0_INFO: 0 lineal
+ * general, como los destinos propios; 1 lineal alineada). Para dibujar en la pantalla del CRTC, que
+ * lleva el modo que le puso la BIOS (D1GRPH_CONTROL), sin Z (zbits 0: DB_DEPTH_INFO sin formato). */
+void r63d_alvo_modo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_buf, int larg, int alt, int zbits, bool sbu,
+                    uint32_t modo)
+{
     uint32_t tam = (uint32_t)(passo / 8 - 1) | ((uint32_t)(passo * alt_buf / 64 - 1) << 10);
     r63d_reg(l, 0x28040, mc_cor >> 8);                          /* CB_COLOR0_BASE */
     r63d_reg(l, 0x280C0, mc_cor >> 8);                          /* CB_COLOR0_TILE (sin usar: apunta al color) */
@@ -425,14 +434,15 @@ void r63d_alvo(r6_lote_t *l, uint32_t mc_cor, uint32_t mc_z, int passo, int alt_
     r63d_reg(l, 0x28080, 0);                                    /* CB_COLOR0_VIEW */
     r63d_reg(l, 0x28100, 0);                                    /* CB_COLOR0_MASK */
     /* 8888 sin signo normalizado, lineal, bytes en el orden ARGB (0xAARRGGBB), mezcla saturada. */
-    r63d_reg(l, 0x280A0, (0x1Au << 2) | (0u << 8) | (0u << 12) | (1u << 16) | (1u << 20) | (1u << 27));
+    r63d_reg(l, 0x280A0, (0x1Au << 2) | ((modo & 0xFu) << 8) | (0u << 12) | (1u << 16) | (1u << 20) | (1u << 27));
     if (sbu) { r63d_p(l, R63D_PKT3(R63D_IT_SURFACE_BASE_UPDATE, 1)); r63d_p(l, 1u << 1); }   /* RV6xx: COLOR0 */
     if (zbits) {
         r63d_reg(l, 0x28000, tam);                              /* DB_DEPTH_SIZE */
         r63d_reg(l, 0x28004, 0);                                /* DB_DEPTH_VIEW */
         r63d_reg(l, 0x2800C, mc_z >> 8);                        /* DB_DEPTH_BASE */
         r63d_reg(l, 0x28014, mc_z >> 8);                        /* DB_HTILE_DATA_BASE (sin usar) */
-        r63d_reg(l, 0x28010, (zbits == 16 ? 1u : 2u) | (2u << 15));   /* DB_DEPTH_INFO: mosaico 1D */
+        /* DB_DEPTH_INFO: mosaico 1D; el de 24 bits con su esténcil de 8 (DEPTH_8_24, D426: antes X8_24) */
+        r63d_reg(l, 0x28010, (zbits == 16 ? 1u : 3u) | (2u << 15));
         r63d_reg(l, 0x28D34, (uint32_t)(alt_buf / 8 - 1));      /* DB_PREFETCH_LIMIT: filas de bloques de 8 - 1 (como Mesa) */
         if (sbu) { r63d_p(l, R63D_PKT3(R63D_IT_SURFACE_BASE_UPDATE, 1)); r63d_p(l, 1u << 0); }   /* RV6xx: DEPTH */
     } else {
@@ -643,4 +653,465 @@ int r63d_ps_tex(uint32_t *p, bool r7xx)
     p[26] = (0u << 15) | (SEL_X << 20) | (SEL_Y << 23) | (SEL_0 << 26) | (SEL_1 << 29);         /* muestreador 0; (u, v, 0, 1) */
     p[27] = 0;
     return 28;
+}
+
+/* ================================================================== gpu3d v2 (D426) */
+
+uint32_t r63d_float_byte(uint32_t b)
+{
+    if (!b) return 0;
+    if (b >= 255) return R63D_F_1;
+    return r63d_float((int)(b * 0x10101u)) - (24u << 23);   /* b * 0x10101 / 2^24 = b / 255 (casi exacto) */
+}
+
+int r63d_vs2(uint32_t *p)
+{
+    cf(p + 0, 8, 7, CF_VTX);                                       /* 0: siete lecturas en la palabra 8 */
+    cf_exp(p + 2, 60, EXP_POS, 1, CF_EXP_F, false, true);          /* 1: POS0 = R1 */
+    for (uint32_t i = 0; i < 6; i++)                               /* 2-7: PARAM0-5 = R2-R7; el último, fin */
+        cf_exp(p + 4 + 2 * i, i, EXP_PARAM, 2 + i, i == 5 ? CF_EXP_F : CF_EXP, i == 5, false);
+    vtx(p + 16, 1, 35, false, 0, R63D_VERT2_BYTES > 64 ? 32 : R63D_VERT2_BYTES, true, SEL_X, SEL_Y, SEL_Z, SEL_W);
+    vtx(p + 20, 2, 26, true, 16, 4, false, SEL_Z, SEL_Y, SEL_X, SEL_W);      /* color 0xAARRGGBB -> RGBA */
+    vtx(p + 24, 3, 26, true, 20, 4, false, SEL_Z, SEL_Y, SEL_X, SEL_W);      /* especular (alfa: niebla) */
+    for (uint32_t i = 0; i < 4; i++)                                         /* (s, t, r, q) de cada juego */
+        vtx(p + 28 + 4 * i, 4 + i, 35, false, 24 + 16 * i, 16, false, SEL_X, SEL_Y, SEL_Z, SEL_W);
+    return 44;
+}
+
+void r63d_spi(r6_lote_t *l, int np)
+{
+    uint32_t v[6];
+    if (np < 3) np = 3;
+    if (np > 6) np = 6;
+    v[0] = 0u | (1u << 8) | (2u << 16) | (np > 3 ? 3u << 24 : 0u);
+    v[1] = np > 4 ? 4u | (5u << 8) : 0u;
+    r63d_regs(l, 0x28614, v, 2);                                /* SPI_VS_OUT_ID_0, _1 */
+    for (int i = 0; i < np; i++) v[i] = (uint32_t)i | (1u << 8);
+    r63d_regs(l, 0x28644, v, np);                               /* SPI_PS_INPUT_CNTL_0.. */
+    r63d_reg(l, 0x286C4, (uint32_t)(np - 1) << 1);              /* SPI_VS_OUT_CONFIG */
+    r63d_reg(l, 0x286CC, (uint32_t)np | (1u << 28));            /* SPI_PS_IN_CONTROL_0 */
+}
+
+void r63d_programas2(r6_lote_t *l, uint32_t mc_vs, uint32_t mc_ps, int gprs_ps, uint32_t bytes_ps)
+{
+    sync(l, SYNC_SH, R63D_VS2_MAX * 4, mc_vs);
+    r63d_reg(l, 0x28858, mc_vs >> 8);                           /* SQ_PGM_START_VS */
+    r63d_reg(l, 0x28868, 8);                                    /* SQ_PGM_RESOURCES_VS: R0 a R7 */
+    r63d_reg(l, 0x288D0, 0);
+    sync(l, SYNC_SH, bytes_ps, mc_ps);
+    r63d_reg(l, 0x28840, mc_ps >> 8);                           /* SQ_PGM_START_PS */
+    r63d_reg(l, 0x28850, (uint32_t)gprs_ps | (1u << 28));       /* SQ_PGM_RESOURCES_PS */
+    r63d_reg(l, 0x28854, 2);                                    /* SQ_PGM_EXPORTS_PS: un color */
+    r63d_reg(l, 0x288CC, 0);
+}
+
+void r63d_textura2(r6_lote_t *l, int u, uint32_t mc, int larg, int alt, int passo, uint32_t fmt, const gpu3d_unidade_t *un,
+                   uint32_t bytes)
+{
+    static const uint32_t dfmt[4] = { 26, 0x31, 0x32, 0x33 };  /* 8_8_8_8, BC1, BC2, BC3 */
+    static const uint32_t env[3] = { 0, 2, 1 };                 /* repetir (WRAP), sujetar (CLAMP_LAST_TEXEL), espejo (MIRROR) */
+    uint32_t v[7];
+    sync(l, SYNC_TC, bytes, mc);
+    /* ARGB lineal alineada (1); DXT en 1D en mosaico (2, D426, DXT: en lineal la tarjeta no las lee bien). */
+    uint32_t modo = fmt == G3D_FMT_ARGB8888 ? 1u : 2u;
+    v[0] = 1u | (modo << 3) | ((uint32_t)(passo / 8 - 1) << 8) | ((uint32_t)(larg - 1) << 19);
+    v[1] = (uint32_t)(alt - 1) | (dfmt[fmt & 3] << 26);
+    v[2] = mc >> 8;
+    v[3] = mc >> 8;
+    /* ARGB8888 está en memoria como B, G, R, A: X = B; los DXT dan R, G, B, A en X, Y, Z, W. */
+    v[4] = (1u << 14) | (fmt == G3D_FMT_ARGB8888 ? (2u << 16) | (1u << 19) | (0u << 22) : (0u << 16) | (1u << 19) | (2u << 22)) | (3u << 25);
+    v[5] = 0;
+    v[6] = 2u << 30;
+    r63d_regs(l, 0x38000 + (uint32_t)u * 28, v, 7);
+    uint32_t mag = un->filtro & G3D_FIL_LINEAR_MAG ? 1u : 0u, min = un->filtro & G3D_FIL_LINEAR_MIN ? 1u : 0u, an = 0;
+    if (un->aniso > 1) {
+        mag |= 4u; min |= 4u;                                   /* SQ_TEX_XY_FILTER_ANISO_* */
+        an = un->aniso >= 16 ? 4u : un->aniso >= 8 ? 3u : un->aniso >= 4 ? 2u : 1u;
+    }
+    v[0] = env[un->env_s > 2 ? 1 : un->env_s] | (env[un->env_t > 2 ? 1 : un->env_t] << 3) | (mag << 9) | (min << 12) | (an << 19);
+    v[1] = 0;
+    v[2] = 0;
+    r63d_regs(l, 0x3C000 + (uint32_t)u * 12, v, 3);
+}
+
+/* G3D_F_* -> V_028804_BLEND_*; G3D_EQ_* -> COMB_*. */
+static uint32_t fator2(uint8_t f) { static const uint8_t m[11] = { 0, 1, 4, 5, 2, 3, 8, 9, 6, 7, 10 }; return f <= 10 ? m[f] : 1u; }
+static uint32_t eq2(uint8_t q) { return q == G3D_EQ_SUBTRAI ? 1u : q == G3D_EQ_SUBTRAI_INV ? 4u : 0u; }
+
+void r63d_estado2(r6_lote_t *l, const gpu3d_estado2_t *e, int larg, int alt, bool estencil, bool r600_puro)
+{
+    static const uint8_t rop[16] = { 0x00, 0x88, 0x44, 0xCC, 0x22, 0xAA, 0x66, 0xEE, 0x11, 0x99, 0x55, 0xDD, 0x33, 0xBB, 0x77, 0xFF };
+    uint32_t fl = e->flags, z = 0;
+    if (fl & G3D2_Z_TESTE) z |= (1u << 1) | (fl & G3D2_Z_ESCRITA ? 1u << 2 : 0u) | ((uint32_t)(e->func_z & 7) << 4);
+    if ((fl & G3D2_ESTENCIL) && estencil) {
+        uint32_t s = ((uint32_t)(e->est_func & 7)) | ((uint32_t)(e->est_falha & 7) << 3) | ((uint32_t)(e->est_zpassa & 7) << 6) |
+                     ((uint32_t)(e->est_zfalha & 7) << 9);
+        z |= 1u | (s << 8) | (s << 20);                         /* delante y detrás, lo mismo */
+    }
+    r63d_reg(l, 0x28800, z);                                    /* DB_DEPTH_CONTROL */
+    uint32_t rm[2];
+    rm[0] = rm[1] = (uint32_t)e->est_ref | ((uint32_t)e->est_mascara << 8) | ((uint32_t)e->est_escrita << 16);
+    r63d_regs(l, 0x28430, rm, 2);                               /* DB_STENCILREFMASK, _BF */
+    bool alfa = (fl & G3D2_ALFA_TESTE) != 0;
+    r63d_reg(l, 0x28410, alfa ? (uint32_t)(e->func_alfa & 7) | (1u << 3) : 0u);   /* SX_ALPHA_TEST_CONTROL */
+    r63d_reg(l, 0x28438, r63d_float_byte(e->ref_alfa));         /* SX_ALPHA_REF */
+    /* Con la prueba alfa, el Z después del sombreador (LATE_Z), como r600_update_db_shader_control de Mesa. */
+    r63d_reg(l, 0x2880C, (alfa ? 0u : 1u << 4) | (1u << 9));    /* DB_SHADER_CONTROL */
+    r63d_reg(l, 0x28238, (uint32_t)(e->mascara_cor & 15));      /* CB_TARGET_MASK: R, G, B, A */
+    bool mz = (fl & G3D2_MEZCLA) && !(fl & G3D2_LOGICA);
+    uint32_t r3 = (fl & G3D2_LOGICA) ? rop[e->op_logica & 15] : 0xCCu;
+    r63d_reg(l, 0x28808, (r3 << 16) | (mz ? (1u << 8) | (r600_puro ? 0u : 1u << 7) : 0u));   /* CB_COLOR_CONTROL */
+    uint32_t b = fator2(e->mez_orig_rgb) | (eq2(e->mez_eq_rgb) << 5) | (fator2(e->mez_dest_rgb) << 8);
+    if (e->mez_orig_rgb != e->mez_orig_alfa || e->mez_dest_rgb != e->mez_dest_alfa || e->mez_eq_rgb != e->mez_eq_alfa)
+        b |= (fator2(e->mez_orig_alfa) << 16) | (eq2(e->mez_eq_alfa) << 21) | (fator2(e->mez_dest_alfa) << 24) | (1u << 29);
+    r63d_reg(l, 0x28804, b);                                    /* CB_BLEND_CONTROL */
+    if (!r600_puro) r63d_reg(l, 0x28780, b);                    /* CB_BLEND0_CONTROL */
+    int x0 = 0, y0 = 0, x1 = larg, y1 = alt;
+    if (fl & G3D2_TIJERA) { x0 = e->tijera_x; y0 = e->tijera_y; x1 = x0 + e->tijera_l; y1 = y0 + e->tijera_a; }
+    if (x1 > larg) x1 = larg;
+    if (y1 > alt) y1 = alt;
+    uint32_t v[2];
+    v[0] = (uint32_t)x0 | ((uint32_t)y0 << 16) | (1u << 31);
+    v[1] = (uint32_t)x1 | ((uint32_t)y1 << 16);
+    r63d_regs(l, 0x28240, v, 2);                                /* PA_SC_GENERIC_SCISSOR */
+}
+
+void r63d_estado_v1(r6_lote_t *l)
+{
+    r63d_reg(l, 0x28410, 0);                                    /* sin prueba alfa */
+    r63d_reg(l, 0x2880C, (1u << 4) | (1u << 9));                /* DB_SHADER_CONTROL del estado base */
+}
+
+void r63d_desenhar2(r6_lote_t *l, uint32_t mc_vb, int n, uint32_t passo, bool sem_cache_vertices)
+{
+    uint32_t bytes = (uint32_t)n * passo, v[7];
+    sync(l, sem_cache_vertices ? SYNC_TC : SYNC_VC, bytes, mc_vb);
+    v[0] = mc_vb;
+    v[1] = bytes - 1;
+    v[2] = passo << 8;
+    v[3] = 1;
+    v[4] = v[5] = 0;
+    v[6] = 3u << 30;
+    r63d_regs(l, 0x38000 + 160 * 28, v, 7);
+    r63d_reg(l, 0x8958, 4u);
+    r63d_p(l, R63D_PKT3(R63D_IT_INDEX_TYPE, 1));
+    r63d_p(l, 0);
+    r63d_p(l, R63D_PKT3(R63D_IT_NUM_INSTANCES, 1));
+    r63d_p(l, 1);
+    r63d_p(l, R63D_PKT3(R63D_IT_DRAW_INDEX_AUTO, 2));
+    r63d_p(l, (uint32_t)n);
+    r63d_p(l, 2);
+}
+
+/* ------------------------------------------------------------------ el sombreador de píxeles v2 */
+
+#define R7_T_COR      0u
+#define R7_T_ESPEC    1u
+#define R7_T_COORD(i) (2u + (i))
+#define R7_T_TEX(u)   (6u + (u))
+#define R7_T_ANT(k)   (10u + (k))
+#define R7_T_AUX(k)   (12u + (k))
+#define R7_T_SAIDA    17u
+#define R7_T_CONST    18u           /* GL_TEXTURE_ENV_COLOR de la unidad que se está combinando */
+#define R7_SRC_0      248u          /* constantes del ALU: 0.0, 1.0, 0.5 y literal */
+#define R7_SRC_1      249u
+#define R7_SRC_05     252u
+#define R7_SRC_LIT    253u
+#define R7_OP_ADD     0x00u
+#define R7_OP_MUL     0x01u
+#define R7_OP_MOV     0x19u
+#define R7_OP_DOT4    0x50u
+#define R7_OP3_MULADD 0x10u         /* _M2 0x11, _M4 0x12: el resultado por 2 o por 4 */
+
+/* Un argumento: un registro (sus canales r, g, b o su alfa repetido), un literal (los cuatro valores) o una
+ * constante del ALU; con signo. */
+typedef struct { uint8_t tipo; uint8_t reg; bool alfa; uint8_t neg; uint32_t lit[4]; } r7a_t;
+#define R7A_GPR 0
+#define R7A_LIT 1
+#define R7A_K   2
+/* Una media instrucción (la del color, en los canales x, y, z; o la del alfa, en w). */
+typedef struct { bool usada; uint8_t op; uint8_t ns; r7a_t a[3]; uint8_t dst; uint8_t omod; bool sat; bool escreve_w; } r7m_t;
+
+static r7a_t a_gpr(uint8_t reg, bool alfa) { r7a_t a = { R7A_GPR, reg, alfa, 0, { 0, 0, 0, 0 } }; return a; }
+static r7a_t a_k(uint8_t k) { r7a_t a = { R7A_K, k, false, 0, { 0, 0, 0, 0 } }; return a; }
+static r7a_t a_neg(r7a_t a) { a.neg ^= 1u; return a; }
+
+/* Un operando del ALU de un canal: sel, canal, signo y (literal) su valor. */
+typedef struct { uint32_t sel, chan, neg, lit; } r7s_t;
+static r7s_t operando(const r7a_t *a, uint32_t canal)
+{
+    r7s_t s = { 0, 0, a->neg, 0 };
+    if (a->tipo == R7A_GPR) { s.sel = a->reg; s.chan = a->alfa ? 3u : canal; }
+    else if (a->tipo == R7A_LIT) { s.sel = R7_SRC_LIT; s.lit = a->lit[a->alfa ? 3u : canal]; }
+    else s.sel = a->reg;
+    return s;
+}
+
+/* Un grupo de instrucciones del ALU (hasta las cuatro ranuras x, y, z, w) y sus literales. */
+typedef struct { bool usada[4]; uint8_t op[4], ns[4], dst[4], omod[4]; bool sat[4], escreve[4]; r7s_t s[4][3]; } r7g_t;
+
+/* Comprueba los puertos de lectura de los registros (VEC_012: el origen i en el ciclo i; en cada ciclo, un
+ * registro por canal) y que no haya más de 4 literales distintos, como check_vector/reserve_gpr de Mesa
+ * (r600_asm.c). nlit/lit: los literales del grupo, con el canal que le toca a cada uno. */
+static bool grupo_ok(r7g_t *g, uint32_t lit[4], int *nlit)
+{
+    int hw[3][4];
+    for (int c = 0; c < 3; c++) for (int k = 0; k < 4; k++) hw[c][k] = -1;
+    *nlit = 0;
+    for (int r = 0; r < 4; r++) {
+        if (!g->usada[r]) continue;
+        for (int i = 0; i < g->ns[r]; i++) {
+            r7s_t *s = &g->s[r][i];
+            if (s->sel < 128) {
+                if (i == 1 && s->sel == g->s[r][0].sel && s->chan == g->s[r][0].chan) continue;
+                int *h = &hw[i][s->chan & 3];
+                if (*h == -1) *h = (int)s->sel;
+                else if (*h != (int)s->sel) return false;
+            } else if (s->sel == R7_SRC_LIT) {
+                int j = 0;
+                while (j < *nlit && lit[j] != s->lit) j++;
+                if (j == *nlit) { if (*nlit == 4) return false; lit[(*nlit)++] = s->lit; }
+                s->chan = (uint32_t)j;
+            }
+        }
+    }
+    return true;
+}
+
+typedef struct { uint32_t *alu; int n, max; int grupos; bool erro; bool r7; int gini[160]; } r7_ps_t;
+
+static void grupo_emitir(r7_ps_t *ps, r7g_t *g)
+{
+    uint32_t lit[4];
+    int nlit;
+    if (!grupo_ok(g, lit, &nlit)) { ps->erro = true; return; }
+    int ultima = -1;
+    for (int r = 0; r < 4; r++) if (g->usada[r]) ultima = r;
+    if (ultima < 0) return;
+    if (ps->n + 8 + 4 > ps->max || ps->grupos >= 159) { ps->erro = true; return; }
+    ps->gini[ps->grupos] = ps->n;
+    for (int r = 0; r < 4; r++) {
+        if (!g->usada[r]) continue;
+        const r7s_t *s = g->s[r];
+        uint32_t w0 = s[0].sel | (s[0].chan << 10) | (s[0].neg << 12) | (r == ultima ? 1u << 31 : 0u);
+        if (g->ns[r] > 1) w0 |= (s[1].sel << 13) | (s[1].chan << 23) | (s[1].neg << 25);
+        uint32_t w1;
+        if (g->op[r] == R7_OP3_MULADD) {
+            uint32_t op = R7_OP3_MULADD + (g->omod[r] == 1 ? 1u : g->omod[r] == 2 ? 2u : 0u);
+            w1 = s[2].sel | (s[2].chan << 10) | (s[2].neg << 12) | (op << 13);
+        } else {
+            w1 = (g->escreve[r] ? 1u << 4 : 0u) | ((uint32_t)g->omod[r] << (ps->r7 ? 5 : 6)) | ((uint32_t)g->op[r] << (ps->r7 ? 7 : 8));
+        }
+        w1 |= ((uint32_t)g->dst[r] << 21) | ((uint32_t)r << 29) | (g->sat[r] ? 1u << 31 : 0u);
+        ps->alu[ps->n++] = w0;
+        ps->alu[ps->n++] = w1;
+    }
+    for (int i = 0; i < nlit; i++) ps->alu[ps->n++] = lit[i];
+    if (nlit & 1) ps->alu[ps->n++] = 0;
+    ps->grupos++;
+    ps->gini[ps->grupos] = ps->n;
+}
+
+/* Pone una media instrucción en las ranuras de un grupo (color: x, y, z; alfa: w). */
+static void meia_por(r7g_t *g, const r7m_t *m, bool alfa)
+{
+    int r0 = alfa ? 3 : 0, r1 = alfa ? 4 : 3;
+    for (int r = r0; r < r1; r++) {
+        g->usada[r] = true;
+        g->op[r] = m->op; g->ns[r] = m->ns; g->dst[r] = m->dst; g->omod[r] = m->omod; g->sat[r] = m->sat; g->escreve[r] = true;
+        for (int i = 0; i < m->ns; i++) g->s[r][i] = operando(&m->a[i], alfa ? 3u : (uint32_t)r);
+    }
+}
+
+/* El producto escalar (DOT4) de a·b en x, y, z y 0·0 en w: el resultado en el color y, si «com_alfa», en el alfa. */
+static void dot_por(r7g_t *g, const r7m_t *m, bool com_alfa)
+{
+    for (int r = 0; r < 4; r++) {
+        g->usada[r] = true;
+        g->op[r] = R7_OP_DOT4; g->ns[r] = 2; g->dst[r] = m->dst; g->omod[r] = m->omod; g->sat[r] = m->sat;
+        g->escreve[r] = r < 3 || com_alfa;
+        if (r < 3) { g->s[r][0] = operando(&m->a[0], (uint32_t)r); g->s[r][1] = operando(&m->a[1], (uint32_t)r); }
+        else { g->s[r][0] = (r7s_t){ R7_SRC_0, 0, 0, 0 }; g->s[r][1] = (r7s_t){ R7_SRC_0, 0, 0, 0 }; }
+    }
+}
+
+static const r7g_t r7g_vazio;
+typedef struct { r7m_t m[8]; int n; } r7l_t;
+static r7m_t *l_nova(r7l_t *l, uint8_t op, uint8_t ns)
+{
+    static r7m_t lixo;
+    if (l->n >= 8) return &lixo;
+    r7m_t *m = &l->m[l->n++];
+    *m = (r7m_t){ true, op, ns, { a_k(R7_SRC_0), a_k(R7_SRC_0), a_k(R7_SRC_0) }, 0, 0, false, false };
+    return m;
+}
+
+/* Los tres argumentos de un canal de la unidad u: «1 - x» con una media instrucción antes (a un auxiliar).
+ * La constante de la unidad ya está en R7_T_CONST (r63d_ps2_gerar la carga con literales: así ninguna
+ * media instrucción necesita más de los 4 literales que caben en un grupo). */
+static void args7(r7l_t *l, const uint8_t ft[3], const uint8_t opd[3], uint32_t u, uint8_t ant, bool alfa, r7a_t a[3])
+{
+    for (int k = 0; k < 3; k++) {
+        bool de_alfa = alfa || opd[k] == G3D_OPD_ALFA || opd[k] == G3D_OPD_UM_MENOS_ALFA;
+        bool inv = opd[k] == G3D_OPD_UM_MENOS_COR || opd[k] == G3D_OPD_UM_MENOS_ALFA;
+        uint8_t reg = ft[k] == G3D_FT_TEXTURA ? (uint8_t)R7_T_TEX(u) : ft[k] == G3D_FT_PRIMARIA ? (uint8_t)R7_T_COR :
+                      ft[k] == G3D_FT_CONSTANTE ? (uint8_t)R7_T_CONST : ant;
+        r7a_t x = a_gpr(reg, de_alfa);
+        if (inv) {
+            r7m_t *m = l_nova(l, R7_OP_ADD, 2);              /* aux = 1 - x */
+            m->a[0] = a_k(R7_SRC_1); m->a[1] = a_neg(x); m->dst = (uint8_t)R7_T_AUX(k);
+            x = a_gpr((uint8_t)R7_T_AUX(k), alfa);
+        }
+        a[k] = x;
+    }
+}
+
+/* Un canal de la unidad: func(arg0, arg1, arg2) * escala, saturado, a «dest». DOT3: devuelve true (va aparte). */
+static bool canal7(r7l_t *l, uint8_t func, const r7a_t a[3], uint8_t escala, uint8_t dest, bool alfa)
+{
+    uint8_t omod = escala == 4 ? 2 : escala == 2 ? 1 : 0;
+    r7a_t t3 = a_gpr((uint8_t)R7_T_AUX(3), alfa), t4 = a_gpr((uint8_t)R7_T_AUX(4), alfa);
+    r7m_t *m;
+    bool dot = false;
+    switch (func) {
+    case G3D_CB_MODULAR: m = l_nova(l, R7_OP_MUL, 2); m->a[0] = a[0]; m->a[1] = a[1]; break;
+    case G3D_CB_SOMAR:   m = l_nova(l, R7_OP_ADD, 2); m->a[0] = a[0]; m->a[1] = a[1]; break;
+    case G3D_CB_SOMAR_SINAL:
+        m = l_nova(l, R7_OP_ADD, 2); m->a[0] = a[0]; m->a[1] = a[1]; m->dst = (uint8_t)R7_T_AUX(3);
+        m = l_nova(l, R7_OP_ADD, 2); m->a[0] = t3; m->a[1] = a_neg(a_k(R7_SRC_05)); break;
+    case G3D_CB_INTERPOLAR:      /* aux3 = a0 - a1; res = aux3 * a2 + a1 */
+        m = l_nova(l, R7_OP_ADD, 2); m->a[0] = a[0]; m->a[1] = a_neg(a[1]); m->dst = (uint8_t)R7_T_AUX(3);
+        m = l_nova(l, R7_OP3_MULADD, 3); m->a[0] = t3; m->a[1] = a[2]; m->a[2] = a[1]; break;
+    case G3D_CB_SUBTRAIR: m = l_nova(l, R7_OP_ADD, 2); m->a[0] = a[0]; m->a[1] = a_neg(a[1]); break;
+    case G3D_CB_DOT3_RGB:
+    case G3D_CB_DOT3_RGBA:       /* aux3 = 2 (a0 - 0,5); aux4 = 2 (a1 - 0,5); res = aux3 · aux4 */
+        m = l_nova(l, R7_OP3_MULADD, 3); m->a[0] = a[0]; m->a[1] = a_k(R7_SRC_1); m->a[2] = a_neg(a_k(R7_SRC_05)); m->omod = 1;
+        m->dst = (uint8_t)R7_T_AUX(3);
+        m = l_nova(l, R7_OP3_MULADD, 3); m->a[0] = a[1]; m->a[1] = a_k(R7_SRC_1); m->a[2] = a_neg(a_k(R7_SRC_05)); m->omod = 1;
+        m->dst = (uint8_t)R7_T_AUX(4);
+        m = l_nova(l, R7_OP_DOT4, 2); m->a[0] = t3; m->a[1] = t4;
+        dot = true;
+        break;
+    default: m = l_nova(l, R7_OP_MOV, 1); m->a[0] = a[0]; break;
+    }
+    m->dst = dest; m->omod = omod; m->sat = true;
+    return dot;
+}
+
+/* Las dos listas, en grupos: la i-ésima del color con la i-ésima del alfa si los puertos lo permiten (si no,
+ * cada una en su grupo). El DOT4 ocupa las cuatro ranuras: va solo (con el alfa si es DOT3_RGBA). */
+static void juntar7(r7_ps_t *ps, const r7l_t *c, const r7l_t *a, bool dot3_rgba)
+{
+    int ia = 0;
+    for (int ic = 0; ic < c->n; ic++) {
+        r7g_t g = r7g_vazio;
+        if (c->m[ic].op == R7_OP_DOT4) { dot_por(&g, &c->m[ic], dot3_rgba); grupo_emitir(ps, &g); continue; }
+        meia_por(&g, &c->m[ic], false);
+        if (ia < a->n) {
+            r7g_t h = g;
+            meia_por(&h, &a->m[ia], true);
+            uint32_t lit[4];
+            int nl;
+            r7g_t prova = h;
+            if (grupo_ok(&prova, lit, &nl)) { grupo_emitir(ps, &h); ia++; continue; }
+        }
+        grupo_emitir(ps, &g);
+    }
+    for (; ia < a->n; ia++) {
+        r7g_t g = r7g_vazio;
+        meia_por(&g, &a->m[ia], true);
+        grupo_emitir(ps, &g);
+    }
+}
+
+void r63d_ps2_gerar(r63d_ps2_t *out, const gpu3d_estado2_t *e, bool r7xx)
+{
+    static uint32_t alu[R63D_PS2_MAX];
+    static r7_ps_t ps;
+    ps.alu = alu; ps.n = 0; ps.max = R63D_PS2_MAX - 64; ps.grupos = 0; ps.erro = false; ps.r7 = r7xx; ps.gini[0] = 0;
+    out->erro = false; out->n = 0; out->grupos = 0; out->clausulas = 0;
+    int nu = e->unidades > 4 ? 4 : e->unidades, ntex = 0;
+    uint32_t tex[4][4];
+    for (int u = 0; u < nu; u++) {
+        const gpu3d_unidade_t *x = &e->u[u];
+        if (!x->ativa) continue;
+        uint32_t co = x->coord > 3 ? (uint32_t)u : x->coord;
+        tex[ntex][0] = 0x10u | ((uint32_t)u << 8) | (R7_T_COORD(co) << 16);                  /* SAMPLE, recurso u */
+        tex[ntex][1] = R7_T_TEX(u) | (SEL_X << 9) | (SEL_Y << 12) | (SEL_Z << 15) | (SEL_W << 18) | (0xFu << 28);
+        tex[ntex][2] = ((uint32_t)u << 15) | (SEL_X << 20) | (SEL_Y << 23) | (SEL_0 << 26) | (SEL_1 << 29);   /* muestreador u */
+        tex[ntex][3] = 0;
+        ntex++;
+    }
+    uint8_t ant = (uint8_t)R7_T_COR;
+    int k = 0;
+    for (int u = 0; u < nu; u++) {
+        const gpu3d_unidade_t *x = &e->u[u];
+        if (!x->ativa) continue;
+        uint8_t dest = (uint8_t)R7_T_ANT(k);
+        r7l_t lc, la;
+        lc.n = la.n = 0;
+        r7a_t ac[3], aa[3];
+        bool usa_c = false, d3a = x->rgb_func == G3D_CB_DOT3_RGBA;
+        for (int j = 0; j < 3; j++) usa_c |= x->rgb_fonte[j] == G3D_FT_CONSTANTE || (!d3a && x->alfa_fonte[j] == G3D_FT_CONSTANTE);
+        if (usa_c) {   /* R18 = la constante (un grupo con sus cuatro literales) */
+            r7g_t g = r7g_vazio;
+            uint32_t c = x->constante, by[4] = { (c >> 16) & 0xFFu, (c >> 8) & 0xFFu, c & 0xFFu, c >> 24 };
+            for (int r = 0; r < 4; r++) {
+                g.usada[r] = true; g.op[r] = R7_OP_MOV; g.ns[r] = 1; g.dst[r] = (uint8_t)R7_T_CONST; g.escreve[r] = true;
+                g.s[r][0] = (r7s_t){ R7_SRC_LIT, 0, 0, r63d_float_byte(by[r]) };
+            }
+            grupo_emitir(&ps, &g);
+        }
+        args7(&lc, x->rgb_fonte, x->rgb_opd, (uint32_t)u, ant, false, ac);
+        if (!d3a) args7(&la, x->alfa_fonte, x->alfa_opd, (uint32_t)u, ant, true, aa);
+        canal7(&lc, x->rgb_func, ac, x->rgb_escala, dest, false);
+        if (!d3a) canal7(&la, x->alfa_func > G3D_CB_SUBTRAIR ? G3D_CB_SUBSTITUIR : x->alfa_func, aa, x->alfa_escala, dest, true);
+        juntar7(&ps, &lc, &la, d3a);
+        ant = dest;
+        k ^= 1;
+    }
+    /* Salida: sat(ant + especular) y el alfa de ant; con niebla, mezclada con su color por el alfa del especular. */
+    r7l_t lc, la;
+    lc.n = la.n = 0;
+    r7m_t *m = l_nova(&lc, R7_OP_ADD, 2);
+    m->a[0] = a_gpr(ant, false); m->a[1] = a_gpr((uint8_t)R7_T_ESPEC, false); m->dst = (uint8_t)R7_T_SAIDA; m->sat = true;
+    m = l_nova(&la, R7_OP_MOV, 1);
+    m->a[0] = a_gpr(ant, true); m->dst = (uint8_t)R7_T_SAIDA;
+    if (e->flags & G3D2_NEBLINA) {
+        uint32_t c = e->cor_neblina;
+        r7a_t nb = { R7A_LIT, 0, false, 0, { r63d_float_byte((c >> 16) & 0xFFu), r63d_float_byte((c >> 8) & 0xFFu), r63d_float_byte(c & 0xFFu), 0 } };
+        m = l_nova(&lc, R7_OP_ADD, 2);                 /* aux0 = saida - niebla */
+        m->a[0] = a_gpr((uint8_t)R7_T_SAIDA, false); m->a[1] = a_neg(nb); m->dst = (uint8_t)R7_T_AUX(0);
+        m = l_nova(&lc, R7_OP3_MULADD, 3);             /* saida = aux0 * f + niebla */
+        m->a[0] = a_gpr((uint8_t)R7_T_AUX(0), false); m->a[1] = a_gpr((uint8_t)R7_T_ESPEC, true); m->a[2] = nb;
+        m->dst = (uint8_t)R7_T_SAIDA; m->sat = true;
+    }
+    juntar7(&ps, &lc, &la, false);
+    if (ps.erro) { out->erro = true; return; }
+
+    /* Montaje: CF (lectura de texturas, cláusulas del ALU de 128 ranuras como mucho, exportación), las lecturas
+     * (alineadas a 16 bytes) y el código del ALU. Las cláusulas se cortan entre grupos. */
+    int cl_ini[16], cl_n[16], ncl = 0;
+    for (int g = 0; g < ps.grupos;) {
+        if (ncl == 16) { out->erro = true; return; }
+        int g0 = g;
+        while (g < ps.grupos && ps.gini[g + 1] - ps.gini[g0] <= 256) g++;
+        if (g == g0) { out->erro = true; return; }
+        cl_ini[ncl] = ps.gini[g0]; cl_n[ncl] = ps.gini[g] - ps.gini[g0]; ncl++;
+    }
+    int ncf = (ntex ? 1 : 0) + ncl + 1;
+    int tex_end = (ncf + 1) & ~1, alu_end = tex_end + 2 * ntex;   /* en palabras de 64 bits */
+    int total = 2 * alu_end + ps.n;
+    if (total > R63D_PS2_MAX) { out->erro = true; return; }
+    uint32_t *p = out->p;
+    for (int i = 0; i < total; i++) p[i] = 0;
+    int c = 0;
+    if (ntex) { cf(p + 2 * c, (uint32_t)tex_end, (uint32_t)ntex, CF_TEX); c++; }
+    for (int i = 0; i < ncl; i++) { cf_alu(p + 2 * c, (uint32_t)(alu_end + cl_ini[i] / 2), (uint32_t)(cl_n[i] / 2)); c++; }
+    cf_exp(p + 2 * c, 0, EXP_PIXEL, R7_T_SAIDA, CF_EXP_F, true, true);
+    for (int t = 0; t < ntex; t++) for (int w = 0; w < 4; w++) p[2 * tex_end + 4 * t + w] = tex[t][w];
+    for (int i = 0; i < ps.n; i++) p[2 * alu_end + i] = alu[i];
+    out->grupos = ps.grupos;
+    out->clausulas = ncl;
+    out->n = total;
 }

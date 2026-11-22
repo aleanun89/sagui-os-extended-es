@@ -14,6 +14,7 @@
 int  xhci_iniciar_todos(void);
 int  xhci_quantidade(void);
 xhci_t *xhci_controlador(int i);
+int  xhci_parar_todos(void);   /* D450: apagar/reiniciar: Run/Stop = 0 en todos (20 ms cada uno); cuántos se pararon */
 void xhci_modo_assincrono(bool ligado);   /* D095/D211: IRQ (con su sonda) y esperas que duermen */
 
 #define XHCI_MAX_CTL    4

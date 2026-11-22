@@ -4,13 +4,11 @@
 #include "ui.h"
 #include "config.h"
 #include <ctype.h>
+#include "mezcla.h"
 
 #define RATE 44100
 #define MAX_MV 40
 #define SIN_N 1024
-
-void audio_lock(void);
-void audio_unlock(void);
 
 typedef struct { u32 tick; u8 type, ch, a, b; u32 val, order; } Ev; /* tipo: 0 apagado 1 encendido 2 programa 3 control 4 inflexión de tono 5 tempo */
 typedef struct { Ev *ev; int n; int division; } Song;
@@ -42,6 +40,30 @@ static float bend[16];
 static Mv mv[MAX_MV];
 static unsigned rngs = 12345u;
 static unsigned gap_until;
+
+/* D431: el cambio de pista no usa cerrojos. El hilo del juego deja la pista nueva en un buzón (cola de un productor y un
+ * consumidor) y el hilo de audio la toma al empezar su siguiente bloque; la pista que se retira vuelve por otro buzón, para
+ * que la libere el hilo del juego (el de audio no llama a free). */
+#define BUZON_N 4
+static char parada;                            /* su dirección es la orden «silencio» */
+static Song *buzon[BUZON_N];
+static volatile unsigned bz_esc, bz_lec;       /* juego -> audio */
+static Song *retiradas[BUZON_N * 2];
+static volatile unsigned rt_esc, rt_lec;       /* audio -> juego */
+
+static void song_free(Song *s);
+static void liberar_retiradas(void) {
+	while (rt_lec != rt_esc) { Song *s = retiradas[rt_lec % (BUZON_N * 2)]; MEZCLA_BARRERA(); rt_lec = rt_lec + 1; song_free(s); }
+}
+/* hilo del juego: 0 si el buzón está lleno (la pista no se envía) */
+static int enviar_pista(Song *s) {
+	unsigned e = bz_esc;
+	if (e - bz_lec >= BUZON_N) return 0;
+	buzon[e % BUZON_N] = s ? s : (Song *)&parada;
+	MEZCLA_BARRERA();
+	bz_esc = e + 1;
+	return 1;
+}
 
 static u32 be32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
 static u32 be16(const u8 *p) { return ((u32)p[0] << 8) | p[1]; }
@@ -275,7 +297,22 @@ static inline float tsin(float phase) {
 	return sintab[i] + (sintab[i + 1] - sintab[i]) * f;
 }
 
+/* hilo de audio: toma las órdenes de pista pendientes (la última manda) y devuelve la que se retira */
+static void tomar_pistas(void) {
+	while (bz_lec != bz_esc) {
+		Song *n = buzon[bz_lec % BUZON_N];
+		MEZCLA_BARRERA();
+		bz_lec = bz_lec + 1;
+		Song *old = song;
+		reset_synth();
+		song = n == (Song *)&parada ? NULL : n;
+		ended = 0;
+		if (old && rt_esc - rt_lec < BUZON_N * 2) { retiradas[rt_esc % (BUZON_N * 2)] = old; MEZCLA_BARRERA(); rt_esc = rt_esc + 1; }
+	}
+}
+
 void music_render(int16_t *out, int frames) {
+	tomar_pistas();
 	if (!song || vol_music <= 0.001f) return;
 
 	for (int n = 0; n < frames; ++n) {
@@ -358,6 +395,7 @@ static int icontains(const char *s, const char *sub) {
 int music_setup(const char *data_dir) {
 	folder[0] = 0;
 	nfiles = 0; nplay = 0; menu_file = won_file = lost_file = -1;
+	mezcla_musica(music_render);
 	for (int i = 0; i <= SIN_N; ++i) sintab[i] = sinf(6.2831853f * i / SIN_N);
 	if (!cfg_find_music(data_dir, folder, sizeof folder)) return 0;
 	nfiles = cfg_list_files(folder, ".mid", files, 64);
@@ -383,13 +421,9 @@ static int start_file(int idx) {
 	Song *s = song_load(p);
 	if (!s) return 0;
 
-	audio_lock();
-	Song *old = song;
-	reset_synth();
-	song = s;
+	liberar_retiradas();
+	if (!enviar_pista(s)) { song_free(s); return 0; }
 	ended = 0;
-	audio_unlock();
-	song_free(old);
 	snprintf(current, sizeof current, "%s", files[idx]);
 	return 1;
 }
@@ -423,15 +457,14 @@ void music_play_result(int victory) {
 
 void music_stop(void) {
 	mode = 0;
-	audio_lock();
-	Song *old = song;
-	song = NULL;
-	audio_unlock();
-	song_free(old);
+	liberar_retiradas();
+	enviar_pista(NULL);
 	current[0] = 0;
 }
 
 void music_update(void) {
+	liberar_retiradas();
+	if (bz_lec != bz_esc) return;   /* hay una pista nueva por tomar: el «ended» que se ve es de la anterior */
 	if (!song || !ended) return;
 	if (mode == 1) { if (menu_file >= 0) start_file(menu_file); return; }
 	if (mode == 2) {

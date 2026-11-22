@@ -145,6 +145,8 @@ typedef enum { SDL_HINT_DEFAULT, SDL_HINT_NORMAL, SDL_HINT_OVERRIDE } SDL_HintPr
 #define SDL_HINT_RENDER_SCALE_QUALITY "SDL_RENDER_SCALE_QUALITY"
 #define SDL_HINT_RENDER_DRIVER        "SDL_RENDER_DRIVER"
 #define SDL_HINT_RENDER_VSYNC         "SDL_RENDER_VSYNC"
+#define SDL_HINT_OPENGL_ES_DRIVER     "SDL_OPENGL_ES_DRIVER"   /* Brumacanto (D444): se acepta y se ignora (siempre EGL/SaguiGL) */
+#define SDL_HINT_SAGUI_GL_ESCALA      "SDL_SAGUI_GL_ESCALA"    /* D451 (SaguiOS): escala de dibujo de OpenGL ES, 25..100 */
 #define SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS"
 #define SDL_HINT_MOUSE_RELATIVE_MODE_WARP "SDL_MOUSE_RELATIVE_MODE_WARP"
 SDL_bool SDL_SetHint(const char *nome, const char *valor);
@@ -261,7 +263,21 @@ void SDL_FreeFormat(SDL_PixelFormat *f);
 #define SDL_PREALLOC  0x00000001
 #define SDL_RLEACCEL  0x00000002
 #define SDL_DONTFREE  0x00000004
-typedef enum { SDL_BLENDMODE_NONE = 0, SDL_BLENDMODE_BLEND = 1, SDL_BLENDMODE_ADD = 2, SDL_BLENDMODE_MOD = 4 } SDL_BlendMode;
+typedef enum { SDL_BLENDMODE_NONE = 0, SDL_BLENDMODE_BLEND = 1, SDL_BLENDMODE_ADD = 2, SDL_BLENDMODE_MOD = 4,
+               SDL_BLENDMODE_MUL = 8, SDL_BLENDMODE_INVALID = 0x7FFFFFFF } SDL_BlendMode;
+/* D436: modos de mezcla compuestos (como en la SDL 2.0.6 y siguientes; el renderizador por GPU lleva los que caben
+ * en gpu3d v1: factores ZERO, ONE, SRC_ALPHA y ONE_MINUS_SRC_ALPHA con la suma; el resto va por software) */
+typedef enum {
+    SDL_BLENDOPERATION_ADD = 1, SDL_BLENDOPERATION_SUBTRACT = 2, SDL_BLENDOPERATION_REV_SUBTRACT = 3,
+    SDL_BLENDOPERATION_MINIMUM = 4, SDL_BLENDOPERATION_MAXIMUM = 5
+} SDL_BlendOperation;
+typedef enum {
+    SDL_BLENDFACTOR_ZERO = 1, SDL_BLENDFACTOR_ONE = 2, SDL_BLENDFACTOR_SRC_COLOR = 3, SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR = 4,
+    SDL_BLENDFACTOR_SRC_ALPHA = 5, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA = 6, SDL_BLENDFACTOR_DST_COLOR = 7,
+    SDL_BLENDFACTOR_ONE_MINUS_DST_COLOR = 8, SDL_BLENDFACTOR_DST_ALPHA = 9, SDL_BLENDFACTOR_ONE_MINUS_DST_ALPHA = 10
+} SDL_BlendFactor;
+SDL_BlendMode SDL_ComposeCustomBlendMode(SDL_BlendFactor orig_cor, SDL_BlendFactor dest_cor, SDL_BlendOperation op_cor,
+                                         SDL_BlendFactor orig_alfa, SDL_BlendFactor dest_alfa, SDL_BlendOperation op_alfa);
 
 typedef struct SDL_Surface {
     Uint32 flags;
@@ -379,6 +395,10 @@ extern int sagui_sdl2_cheia_inicial;
 extern int sagui_sdl2_escala;
 extern int sagui_sdl2_medir;   /* D247: escribe el tiempo de cada fase por cuadro */
 extern int sagui_sdl2_gpu;     /* D288: renderizador por GPU: 0 solo con SDL_RENDERER_ACCELERATED, 1 siempre, -1 nunca (o SAGUI_SDL2_GPU=0/1) */
+/* D432: cuadros que este renderizador presentó directamente en la pantalla por la GPU y cuadros que, con la
+ * GPU, tuvieron que volver por la RAM. Devuelve 1 si lo lleva la GPU, 0 si va por software. */
+struct SDL_Renderer;
+int sagui_sdl2_gpu_estado(struct SDL_Renderer *r, unsigned long *directos, unsigned long *por_ram);
 
 /* ---- renderer de software ---- */
 typedef struct SDL_Renderer SDL_Renderer;
@@ -432,6 +452,15 @@ void SDL_UnlockTexture(SDL_Texture *t);
 int  SDL_SetTextureBlendMode(SDL_Texture *t, SDL_BlendMode m);
 int  SDL_SetTextureColorMod(SDL_Texture *t, Uint8 r, Uint8 g, Uint8 b);
 int  SDL_SetTextureAlphaMod(SDL_Texture *t, Uint8 a);
+int  SDL_GetTextureColorMod(SDL_Texture *t, Uint8 *r, Uint8 *g, Uint8 *b);
+int  SDL_GetTextureAlphaMod(SDL_Texture *t, Uint8 *a);
+int  SDL_GetTextureBlendMode(SDL_Texture *t, SDL_BlendMode *m);
+/* D436: triángulos con color por vértice y textura (SDL 2.0.18); el recorte (SDL 2.0.4) */
+typedef struct SDL_Vertex { SDL_FPoint position; SDL_Color color; SDL_FPoint tex_coord; } SDL_Vertex;
+int  SDL_RenderGeometry(SDL_Renderer *r, SDL_Texture *t, const SDL_Vertex *vertices, int nv, const int *indices, int ni);
+int  SDL_RenderSetClipRect(SDL_Renderer *r, const SDL_Rect *rect);
+void SDL_RenderGetClipRect(SDL_Renderer *r, SDL_Rect *rect);
+SDL_bool SDL_RenderIsClipEnabled(SDL_Renderer *r);
 
 /* ---- ratón y cursor ---- */
 typedef struct SDL_Cursor SDL_Cursor;
@@ -972,6 +1001,42 @@ SDL_JoystickGUID SDL_JoystickGetGUIDFromString(const char *texto);
 #define SDL_main main
 
 #include "SDL_rwops.h"
+
+/* ---- D425: contexto OpenGL ES 1 (SaguiGL por EGL, userland/libsdl2/sdl2_gl.c) ----
+ * Solo OpenGL ES 1.x (SDL_GL_CONTEXT_PROFILE_ES con versión 1; sin perfil también es ES 1).
+ * Hay que enlazar además la SaguiGL: SDL2GL_OBJ y SGL_OBJ en el Makefile, o con tcc
+ * «-lSDL2 -lGLESv1_CM -lEGL». */
+typedef void *SDL_GLContext;
+typedef enum {
+    SDL_GL_RED_SIZE, SDL_GL_GREEN_SIZE, SDL_GL_BLUE_SIZE, SDL_GL_ALPHA_SIZE, SDL_GL_BUFFER_SIZE,
+    SDL_GL_DOUBLEBUFFER, SDL_GL_DEPTH_SIZE, SDL_GL_STENCIL_SIZE, SDL_GL_ACCUM_RED_SIZE, SDL_GL_ACCUM_GREEN_SIZE,
+    SDL_GL_ACCUM_BLUE_SIZE, SDL_GL_ACCUM_ALPHA_SIZE, SDL_GL_STEREO, SDL_GL_MULTISAMPLEBUFFERS, SDL_GL_MULTISAMPLESAMPLES,
+    SDL_GL_ACCELERATED_VISUAL, SDL_GL_RETAINED_BACKING, SDL_GL_CONTEXT_MAJOR_VERSION, SDL_GL_CONTEXT_MINOR_VERSION,
+    SDL_GL_CONTEXT_EGL, SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_SHARE_WITH_CURRENT_CONTEXT,
+    SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, SDL_GL_CONTEXT_RELEASE_BEHAVIOR, SDL_GL_CONTEXT_RESET_NOTIFICATION,
+    SDL_GL_CONTEXT_NO_ERROR
+} SDL_GLattr;
+#define SDL_GL_CONTEXT_PROFILE_CORE          0x0001
+#define SDL_GL_CONTEXT_PROFILE_COMPATIBILITY 0x0002
+#define SDL_GL_CONTEXT_PROFILE_ES            0x0004
+int           SDL_GL_LoadLibrary(const char *ruta);
+void          SDL_GL_UnloadLibrary(void);
+void         *SDL_GL_GetProcAddress(const char *nome);
+SDL_bool      SDL_GL_ExtensionSupported(const char *ext);
+void          SDL_GL_ResetAttributes(void);
+int           SDL_GL_SetAttribute(SDL_GLattr a, int v);
+int           SDL_GL_GetAttribute(SDL_GLattr a, int *v);
+SDL_GLContext SDL_GL_CreateContext(SDL_Window *w);
+int           SDL_GL_MakeCurrent(SDL_Window *w, SDL_GLContext c);
+SDL_Window   *SDL_GL_GetCurrentWindow(void);
+SDL_GLContext SDL_GL_GetCurrentContext(void);
+void          SDL_GL_GetDrawableSize(SDL_Window *w, int *l, int *a);
+int           SDL_GL_SetSwapInterval(int i);
+int           SDL_GL_GetSwapInterval(void);
+void          SDL_GL_SwapWindow(SDL_Window *w);
+void          SDL_GL_DeleteContext(SDL_GLContext c);
+/* interna: la ventana del sistema detrás de una SDL_Window (para EGL) */
+int sagui_sdl2_janela_nativa(SDL_Window *w, int *id, uint32_t **px, int *l, int *a);
 
 #ifdef __cplusplus
 }

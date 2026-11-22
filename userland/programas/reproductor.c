@@ -43,6 +43,7 @@
 #include "gui.h"
 #include "video.h"
 #include "audio_formato.h"
+#include "energia.h"
 
 #define LARG_INICIO 800
 #define ALT_INICIO  600
@@ -2027,7 +2028,10 @@ int principal(int argc, char **argv)
     evento_t e;
     bool continuar = true;
     unsigned t_esp = 0, t_pan = 0;
+    bool sin_molestar = false;
     while (continuar) {
+        /* Con vídeo en marcha, ni salvapantallas ni bloqueo (D422); el kernel lo suelta si el programa acaba. */
+        if (sin_molestar != (tocando && med == MED_VIDEO)) { sin_molestar = !sin_molestar; no_molestar(sin_molestar); }
         if (tocando && med == MED_VIDEO) {
             unsigned t0 = tempo_ms();
             unsigned g0 = geracao;

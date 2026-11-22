@@ -8,227 +8,227 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: userland/programas/reproductor.c:480
+#: userland/programas/reproductor.c:481
 msgid "Añadir..."
 msgstr "Adicionar..."
 
-#: userland/programas/reproductor.c:481
+#: userland/programas/reproductor.c:482
 msgid "Carpeta..."
 msgstr "Pasta..."
 
-#: userland/programas/reproductor.c:482
+#: userland/programas/reproductor.c:483
 msgid "Quitar"
 msgstr "Remover"
 
-#: userland/programas/reproductor.c:483
+#: userland/programas/reproductor.c:484
 msgid "Subir"
 msgstr "Subir"
 
-#: userland/programas/reproductor.c:484
+#: userland/programas/reproductor.c:485
 msgid "Bajar"
 msgstr "Descer"
 
-#: userland/programas/reproductor.c:620
+#: userland/programas/reproductor.c:621
 msgid "Aleat."
 msgstr "Aleat."
 
-#: userland/programas/reproductor.c:621
+#: userland/programas/reproductor.c:622
 msgid "Repet."
 msgstr "Repet."
 
-#: userland/programas/reproductor.c:622
+#: userland/programas/reproductor.c:623
 msgid "Lista"
 msgstr "Lista"
 
-#: userland/programas/reproductor.c:642 userland/programas/reproductor.c:1577
+#: userland/programas/reproductor.c:643 userland/programas/reproductor.c:1578
 msgid "Lista de reproducción"
 msgstr "Lista de reprodução"
 
-#: userland/programas/reproductor.c:656
+#: userland/programas/reproductor.c:657
 msgid "Lista vacía"
 msgstr "Lista vazia"
 
-#: userland/programas/reproductor.c:726
+#: userland/programas/reproductor.c:727
 msgid "Reproductor de SaguiOS"
 msgstr "Reprodutor do SaguiOS"
 
-#: userland/programas/reproductor.c:727
+#: userland/programas/reproductor.c:728
 msgid "Abre un archivo o una carpeta con Ctrl+O"
 msgstr "Abra um arquivo ou uma pasta com Ctrl+O"
 
-#: userland/programas/reproductor.c:731
+#: userland/programas/reproductor.c:732
 msgid "Sin cuadro"
 msgstr "Sem quadro"
 
-#: userland/programas/reproductor.c:802 userland/programas/reproductor.c:803
+#: userland/programas/reproductor.c:803 userland/programas/reproductor.c:804
 msgid "Reproductor de vídeo"
 msgstr "Reprodutor de vídeo"
 
-#: userland/programas/reproductor.c:1352
+#: userland/programas/reproductor.c:1353
 msgid "Abrir vídeo o audio"
 msgstr "Abrir vídeo ou áudio"
 
-#: userland/programas/reproductor.c:1368
+#: userland/programas/reproductor.c:1369
 msgid "Añadir a la lista"
 msgstr "Adicionar à lista"
 
-#: userland/programas/reproductor.c:1382
+#: userland/programas/reproductor.c:1383
 msgid "Añadir carpeta"
 msgstr "Adicionar pasta"
 
-#: userland/programas/reproductor.c:1397
+#: userland/programas/reproductor.c:1398
 msgid "Abrir lista"
 msgstr "Abrir lista"
 
-#: userland/programas/reproductor.c:1413
+#: userland/programas/reproductor.c:1414
 msgid "Guardar lista"
 msgstr "Salvar lista"
 
-#: userland/programas/reproductor.c:1493 userland/programas/reproductor.c:1596
+#: userland/programas/reproductor.c:1494 userland/programas/reproductor.c:1597
 msgid "Archivo"
 msgstr "Arquivo"
 
-#: userland/programas/reproductor.c:1493
+#: userland/programas/reproductor.c:1494
 msgid "Tamaño"
 msgstr "Tamanho"
 
-#: userland/programas/reproductor.c:1503 userland/programas/reproductor.c:1505 userland/programas/reproductor.c:1515
+#: userland/programas/reproductor.c:1504 userland/programas/reproductor.c:1506 userland/programas/reproductor.c:1516
 msgid "Formato"
 msgstr "Formato"
 
-#: userland/programas/reproductor.c:1503
+#: userland/programas/reproductor.c:1504
 msgid "Códecs"
 msgstr "Codecs"
 
-#: userland/programas/reproductor.c:1507
+#: userland/programas/reproductor.c:1508
 msgid "Resolución"
 msgstr "Resolução"
 
-#: userland/programas/reproductor.c:1508 userland/programas/reproductor.c:1516
+#: userland/programas/reproductor.c:1509 userland/programas/reproductor.c:1517
 msgid "Duración"
 msgstr "Duração"
 
-#: userland/programas/reproductor.c:1510 userland/programas/reproductor.c:1512 userland/programas/reproductor.c:1516
+#: userland/programas/reproductor.c:1511 userland/programas/reproductor.c:1513 userland/programas/reproductor.c:1517
 msgid "Audio"
 msgstr "Áudio"
 
-#: userland/programas/reproductor.c:1510 userland/programas/reproductor.c:1516
+#: userland/programas/reproductor.c:1511 userland/programas/reproductor.c:1517
 msgid "canales"
 msgstr "canais"
 
-#: userland/programas/reproductor.c:1512
+#: userland/programas/reproductor.c:1513
 msgid "sin audio"
 msgstr "sem áudio"
 
-#: userland/programas/reproductor.c:1517
+#: userland/programas/reproductor.c:1518
 msgid "Tasa de bits"
 msgstr "Taxa de bits"
 
-#: userland/programas/reproductor.c:1518
+#: userland/programas/reproductor.c:1519
 msgid "Título"
 msgstr "Título"
 
-#: userland/programas/reproductor.c:1519
+#: userland/programas/reproductor.c:1520
 msgid "Artista"
 msgstr "Artista"
 
-#: userland/programas/reproductor.c:1520
+#: userland/programas/reproductor.c:1521
 msgid "Álbum"
 msgstr "Álbum"
 
-#: userland/programas/reproductor.c:1525
+#: userland/programas/reproductor.c:1526
 msgid "Propiedades"
 msgstr "Propriedades"
 
-#: userland/programas/reproductor.c:1533 userland/programas/reproductor.c:1593
+#: userland/programas/reproductor.c:1534 userland/programas/reproductor.c:1594
 msgid "Atajos de teclado"
 msgstr "Atalhos de teclado"
 
-#: userland/programas/reproductor.c:1544 userland/programas/reproductor.c:1594
+#: userland/programas/reproductor.c:1545 userland/programas/reproductor.c:1595
 msgid "Acerca del reproductor"
 msgstr "Sobre o reprodutor"
 
-#: userland/programas/reproductor.c:1568
+#: userland/programas/reproductor.c:1569
 msgid "Abrir archivo..."
 msgstr "Abrir arquivo..."
 
-#: userland/programas/reproductor.c:1569
+#: userland/programas/reproductor.c:1570
 msgid "Abrir carpeta..."
 msgstr "Abrir pasta..."
 
-#: userland/programas/reproductor.c:1570
+#: userland/programas/reproductor.c:1571
 msgid "Abrir lista (.m3u)..."
 msgstr "Abrir lista (.m3u)..."
 
-#: userland/programas/reproductor.c:1571
+#: userland/programas/reproductor.c:1572
 msgid "Guardar lista..."
 msgstr "Salvar lista..."
 
-#: userland/programas/reproductor.c:1573
+#: userland/programas/reproductor.c:1574
 msgid "Propiedades..."
 msgstr "Propriedades..."
 
-#: userland/programas/reproductor.c:1575
+#: userland/programas/reproductor.c:1576
 msgid "Salir"
 msgstr "Sair"
 
-#: userland/programas/reproductor.c:1578
+#: userland/programas/reproductor.c:1579
 msgid "Pantalla completa"
 msgstr "Tela cheia"
 
-#: userland/programas/reproductor.c:1579
+#: userland/programas/reproductor.c:1580
 msgid "Estadísticas"
 msgstr "Estatísticas"
 
-#: userland/programas/reproductor.c:1581
+#: userland/programas/reproductor.c:1582
 msgid "Reproducir / Pausa"
 msgstr "Reproduzir / Pausar"
 
-#: userland/programas/reproductor.c:1582
+#: userland/programas/reproductor.c:1583
 msgid "Parar"
 msgstr "Parar"
 
-#: userland/programas/reproductor.c:1583
+#: userland/programas/reproductor.c:1584
 msgid "Anterior"
 msgstr "Anterior"
 
-#: userland/programas/reproductor.c:1584
+#: userland/programas/reproductor.c:1585
 msgid "Siguiente"
 msgstr "Próximo"
 
-#: userland/programas/reproductor.c:1586
+#: userland/programas/reproductor.c:1587
 msgid "Aleatorio"
 msgstr "Aleatório"
 
-#: userland/programas/reproductor.c:1587
+#: userland/programas/reproductor.c:1588
 msgid "Repetir"
 msgstr "Repetir"
 
-#: userland/programas/reproductor.c:1589
+#: userland/programas/reproductor.c:1590
 msgid "Silencio"
 msgstr "Silenciar"
 
-#: userland/programas/reproductor.c:1590
+#: userland/programas/reproductor.c:1591
 msgid "Subir volumen"
 msgstr "Aumentar volume"
 
-#: userland/programas/reproductor.c:1591
+#: userland/programas/reproductor.c:1592
 msgid "Bajar volumen"
 msgstr "Diminuir volume"
 
-#: userland/programas/reproductor.c:1597
+#: userland/programas/reproductor.c:1598
 msgid "Ver"
 msgstr "Exibir"
 
-#: userland/programas/reproductor.c:1598
+#: userland/programas/reproductor.c:1599
 msgid "Reproducir"
 msgstr "Reproduzir"
 
-#: userland/programas/reproductor.c:1599
+#: userland/programas/reproductor.c:1600
 msgid "Ayuda"
 msgstr "Ajuda"
 
-#: userland/programas/reproductor.c:1609
+#: userland/programas/reproductor.c:1610
 msgid "Abrir carpeta"
 msgstr "Abrir pasta"
 

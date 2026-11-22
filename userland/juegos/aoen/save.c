@@ -4,7 +4,8 @@
 #include "game.h"
 
 #define SAVE_MAGIC "AOENSAV1"
-#define SAVE_VERSION 5   /* 5 (v8.5.4.7): victoria compartida y recursos del mapa en Setup; 4: asedio, diplomacia, victorias, órdenes en cola. Las anteriores se
+#define SAVE_VERSION 6   /* 6 (D447): Setup gana fuego_amigo; las de formato 5 (Setup de SETUP_TAM_V5 bytes) se siguen cargando con la opción apagada.
+                           * 5 (v8.5.4.7): victoria compartida y recursos del mapa en Setup; 4: asedio, diplomacia, victorias, órdenes en cola. Las anteriores se
                            * rechazan como incompatibles (Setup cambia de tamaño) */
 
 typedef struct {
@@ -59,8 +60,9 @@ int world_save(const char *path, long long stamp) {
 }
 
 static int read_header(FILE *f, SaveHeader *h) {
-	if (!rd(f, h, sizeof *h) || memcmp(h->magic, SAVE_MAGIC, 8) || h->version != SAVE_VERSION) return 0;
-	if (h->sizeof_setup != (int)sizeof(Setup) || h->sizeof_player != (int)sizeof(Player) || h->sizeof_entity != (int)sizeof(Entity)) return 0;
+	if (!rd(f, h, sizeof *h) || memcmp(h->magic, SAVE_MAGIC, 8)) return 0;
+	if (!((h->version == SAVE_VERSION && h->sizeof_setup == (int)sizeof(Setup)) || (h->version == 5 && h->sizeof_setup == SETUP_TAM_V5))) return 0;
+	if ( h->sizeof_player != (int)sizeof(Player) || h->sizeof_entity != (int)sizeof(Entity)) return 0;
 	if (h->w < 48 || h->w > 512 || h->h < 48 || h->h > 512) return 0;
 	if (h->capents != (int)((size_t)h->w * h->h / 4) + 8192 || h->nents < 0 || h->nents > h->capents) return 0;
 	return 1;
@@ -71,7 +73,8 @@ int save_info(const char *path, SaveInfo *si) {
 	if (!f) return 0;
 	SaveHeader h;
 	Setup s;
-	int ok = read_header(f, &h) && rd(f, &s, sizeof s);
+	memset(&s, 0, sizeof s);   /* en las de formato 5 los campos nuevos quedan a 0 */
+	int ok = read_header(f, &h) && rd(f, &s, h.sizeof_setup);
 	fclose(f);
 	if (!ok) return 0;
 	si->stamp = h.stamp; si->w = h.w; si->h = h.h; si->players = s.players; si->map_kind = s.map_kind; si->time = h.time;
@@ -94,7 +97,7 @@ static int world_validate(void) {
 	if (W.setup.victory < 0 || W.setup.victory >= VIC_COUNT || W.setup.time_limit < 0 || W.setup.time_limit > 240 || W.setup.relics_total < 0 || W.setup.relics_total > 4096) return 0;
 	if (W.setup.victoria_compartida < 0 || W.setup.victoria_compartida > 1) return 0;
 	if (W.setup.recursos_mapa < 0 || W.setup.recursos_mapa > 2) return 0;
-	if (W.setup.comercio_mejorado < 0 || W.setup.comercio_mejorado > 1) return 0;
+	if (W.setup.comercio_mejorado < 0 || W.setup.comercio_mejorado > 1 || W.setup.fuego_amigo < 0 || W.setup.fuego_amigo > 1) return 0;
 	for (int p = 0; p < MAX_PLAYERS; ++p) {
 		const Player *pl = &W.pl[p];
 		if (W.setup.color[p] < 0 || W.setup.color[p] > MAX_PLAYERS) return 0;
@@ -169,7 +172,7 @@ int world_load(const char *path) {
 	int ok = world_alloc(h.w, h.h);
 	size_t n = (size_t)h.w * h.h;
 
-	ok = ok && rd(f, &W.setup, sizeof W.setup) && rd(f, W.pl, sizeof W.pl)
+	ok = ok && rd(f, &W.setup, h.sizeof_setup) && rd(f, W.pl, sizeof W.pl)
 		&& rd(f, W.tile, n) && rd(f, W.variant, n) && rd(f, W.block, n) && rd(f, W.fog, n);
 
 	W.nents = h.nents;
@@ -198,6 +201,7 @@ int world_load(const char *path) {
 
 	W.time = h.time; W.over = h.over; W.human = h.human; W.rng = h.rng; W.relic_team = -1;
 	W.setup.width = h.w; W.setup.height = h.h;
+	fuego_amigo = W.setup.fuego_amigo;   /* D447: antiguas (formato 5) = apagado */
 
 	/* el mundo anterior ya puede liberarse */
 	World loaded = W;

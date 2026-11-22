@@ -125,9 +125,11 @@ void trava_geral_pegar(void)
             uint64_t t0 = tsc();
             if (d) d->esperando_trava = 1;
             uint32_t at;
-            while ((at = turnos.atendendo) != vez)
+            while ((at = turnos.atendendo) != vez) {
+                if (smp_parando) smp_parar_esta_cpu();   /* D450: apagar o reiniciar (no vuelve) */
                 for (uint32_t k = (vez - at) * ESPERA_POR_TURNO; k; k--)
                     pausa();
+            }
             if (d) d->esperando_trava = 0;
             por_cpu[cpu].esperas++;
             por_cpu[cpu].ciclos += tsc() - t0;
@@ -138,8 +140,10 @@ void trava_geral_pegar(void)
         uint64_t t0 = tsc();
         if (d) d->esperando_trava = 1;
         do {
-            while (turnos.proximo != turnos.atendendo)
+            while (turnos.proximo != turnos.atendendo) {
+                if (smp_parando) smp_parar_esta_cpu();   /* D450 */
                 pausa();
+            }
         } while (!tomar_se_livre());
         if (d) d->esperando_trava = 0;
         por_cpu[cpu].esperas++;

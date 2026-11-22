@@ -19,6 +19,8 @@
 #include <strings.h>
 #include <time.h>
 
+struct FalsoRevelar { int n, k, cx, cy, raio; uint32_t tics; };
+extern struct FalsoRevelar falso_rev;
 TzMundo *falso_criar(const TzMapa *mapa, int jogador);
 void falso_liberar(TzMundo *m);
 void falso_tic(TzMundo *m);
@@ -244,6 +246,9 @@ static void prueba_guion(void)
 	{ Buf c = { 0 }; bstr(&c, "Construye 2 cuarteles"); bstr(&c, ""); g_accion(&s, "Quest1", TZ_ACC_MISSAO, &c); bfree(&c); }
 	{ Buf c = { 0 }; bstr(&c, "Hola\r\nmundo"); bstr(&c, "USER\\retrato.bmp"); bstr(&c, "USER\\voz.wav"); bstr(&c, ""); bstr(&c, "0"); b8(&c, 0); g_accion(&s, "Historia", TZ_ACC_HISTORIA, &c); bfree(&c); }
 	g_expr(&s, "Pon1", "$depois = 1");
+	/* v8.5.5.2: «explorar» un rato (3 s sobre un área de 5x5) y @KingdomCanRescue */
+	{ Buf c = { 0 }; barea(&c, 0, 8, 8, 12, 12, 0, "0"); bstr(&c, "3000"); g_accion(&s, "Explora", TZ_ACC_EXPLORAR, &c); bfree(&c); }
+	g_expr(&s, "SemResgate", "@kingdomcanrescue(2, 0)");
 	g_expr(&s, "PonKept", "#kept = 7\r\n$gold = $gold + 5");
 	{ Buf c = { 0 }; bstr(&c, "4000"); b8(&c, 1); g_accion(&s, "Cuenta", TZ_ACC_TEMPORIZADOR, &c); bfree(&c); }
 	{ Buf c = { 0 }; bstr(&c, "2000"); g_accion(&s, "Espera2s", TZ_ACC_ESPERAR, &c); bfree(&c); }
@@ -262,9 +267,10 @@ static void prueba_guion(void)
 	{ const char *a[] = { "Conversa" }; g_regla(&s, "Habla", "dois_soldados && $depois", 1, a); }
 	{ const char *a[] = { "Ganha", "Proximo" }; g_regla(&s, "Gana", "castelo_inimigo_caiu", 2, a); }
 	{ const char *a[] = { "Cuidado", "NoExiste", "Pon1" }; g_regla(&s, "Accion rota", "0", 3, a); }
+	{ const char *a[] = { "Explora", "SemResgate" }; g_regla(&s, "Explorar", "$depois", 2, a); }
 	TzGuiao g;
 	int rc = g_ler(&g, &s);
-	VER(rc == 0 && g.neventos == 5 && g.nacoes == 14 && g.nregras == 6, "guion: %d sucesos, %d acciones, %d reglas leídos", g.neventos, g.nacoes, g.nregras);
+	VER(rc == 0 && g.neventos == 5 && g.nacoes == 16 && g.nregras == 7, "guion: %d sucesos, %d acciones, %d reglas leídos", g.neventos, g.nacoes, g.nregras);
 	VER(g.regras[0].nacoes == 3 && g.regras[5].acoes[1] == -1 && g.regras[5].acoes[0] >= 0, "guion: los nombres de acción se resuelven y los desconocidos quedan en -1");
 	conv_prueba(&g);
 	/* personajes (.objext) */
@@ -299,6 +305,9 @@ static void prueba_guion(void)
 	VER(var(&g, "$esperou") == 0, "reglas: «esperar» detiene la regla");
 	tics(m, 60);
 	VER(var(&g, "$esperou") == 1, "reglas: pasada la espera, la regla sigue");
+	VER(falso_rev.n == 1 && falso_rev.k == 1 && falso_rev.cx == 10 && falso_rev.cy == 10 && falso_rev.raio == 2 && falso_rev.tics == 60,
+	    "explorar descubre un rato y no para siempre: %d llamada, área en (%d,%d) radio %d durante %u tics", falso_rev.n, falso_rev.cx, falso_rev.cy, falso_rev.raio, (unsigned)falso_rev.tics);
+	VER((m->sem_resgate & (1u << 2)) && !(m->sem_resgate & (1u << 1)), "@kingdomcanrescue(2, 0) quita al reino 2 el rescate de prisioneros");
 	tics(m, 20);
 	VER(g.ntemps == 0, "temporizadores: al llegar a 0 se borra (%d)", var(&g, "Cuenta"));
 	/* Refuerzos: crear y aparecer */
@@ -734,6 +743,48 @@ static void prueba_som(const char *raiz)
 		VER(tz_som_ativas(s2) == 2, "sonido: la orden del propio reino sí (voz de la unidad)");
 		tz_som_eventos(s2, m);
 		VER(tz_som_ativas(s2) == 2, "sonido: cada evento suena una sola vez (cursor propio)");
+		/* la voz sigue al objeto: si anda hacia la derecha de la vista, suena más por la derecha */
+		{
+			int16_t mb[2048 * 2];
+			tz_som_parar_todos(s2);
+			m->obj[3].cx = 21; m->obj[3].cy = 20;
+			e.tipo = TZ_EV_ORDEM; e.reino = 1; e.obj = 3;
+			tz_mundo_evento(m, &e);
+			tz_som_eventos(s2, m);
+			tz_som_misturar(s2, mb, 512);
+			double l0 = energia(mb, 512, 0), r0 = energia(mb, 512, 1);
+			m->obj[3].cx = 21 + 40;
+			tz_som_eventos(s2, m);
+			tz_som_misturar(s2, mb, 512);
+			double l1 = energia(mb, 512, 0), r1 = energia(mb, 512, 1);
+			VER(l0 > 0 && r0 > 0 && l0 < r0 * 1.5 && r1 > l1 * 1.5, "sonido: la voz sigue al objeto que anda (centro %.0f/%.0f, a la derecha %.0f/%.0f)", l0, r0, l1, r1);
+			m->obj[3].cx = 21;
+			tz_som_parar_todos(s2);
+		}
+		/* sonidos puestos en el mapa (<mapa>.sounds, registros de 112 bytes): uno en bucle en (21,20) y uno de un objeto que no existe */
+		{
+			uint8_t reg[224];
+			memset(reg, 0, sizeof reg);
+			strcpy((char *)reg + 0x20, "SOUND/ATTACKS/HAND1.WAV");
+			reg[0x60] = 1; reg[0x6a] = 21; reg[0x6c] = 20;
+			strcpy((char *)reg + 112 + 0x20, "SOUND/ATTACKS/HAND2.WAV");
+			reg[112 + 0x68] = 1; reg[112 + 0x6e] = 0xee; reg[112 + 0x6f] = 0xee;
+			VER(tz_som_fontes_mapa(s2, reg, sizeof reg, &mapa) == 1, "sonido: <mapa>.sounds: un sonido en una casilla; el de un objeto que no existe se salta");
+			tz_som_eventos(s2, m);
+			VER(tz_som_ativas(s2) == 1, "sonido: el sonido del mapa en bucle empieza donde se ve");
+			int16_t mb[2048 * 2];
+			for (int i = 0; i < 30; ++i) tz_som_misturar(s2, mb, 2048);
+			tz_som_eventos(s2, m);
+			VER(tz_som_ativas(s2) == 1, "sonido: y sigue en bucle (una sola voz) %d", tz_som_ativas(s2));
+			tz_som_fontes_mapa(s2, NULL, 0, NULL);
+			tz_som_parar_todos(s2);
+		}
+		/* la lluvia: empieza, sigue y acaba con sus clips (sin los WAV de lluvia en los datos sintéticos, solo los estados) */
+		tz_som_chuva(s2, 1, 0);
+		VER(tz_som_chovendo(s2), "sonido: empieza a llover");
+		tz_som_chuva(s2, 1, 5000);
+		tz_som_chuva(s2, 0, 6000);
+		VER(!tz_som_chovendo(s2), "sonido: deja de llover (el clip de acabar)");
 		falso_liberar(m);
 		tz_som_fechar(s2);
 		tz_ini_liberar(&ini);
@@ -839,6 +890,59 @@ static void prueba_aleatorio(const char *raiz, int verboso)
 			tz_mapa_liberar(&m1);
 		}
 	VER(mal == 0 && hechos >= 20, "aleatorio: %d mapas de 64 a 256 casillas y de 2 a 8 reinos (castillo único y separado, minas, ids, determinismo)", hechos);
+	/* guardar y cargar: los parámetros van a una línea de texto y regeneran el mismo mapa (v8.5.5.2) */
+	{
+		TzAleatorio a1, a2;
+		tz_aleatorio_padrao(&a1);
+		a1.lado = 96; a1.jogadores = 5; a1.humano = 3; a1.tipo = 2; a1.recursos_mapa = 2; a1.nivel_recursos = 0; a1.guardado = 0; a1.animais = 0;
+		a1.semente = 0x123456789abcdefull; snprintf(a1.bioma, sizeof a1.bioma, "grass");
+		for (int i = 0; i < 8; ++i) { a1.equipe[i] = (uint8_t)(i % 3); a1.civ[i] = (uint8_t)(i % 4); }
+		char t[320];
+		int ok = !tz_aleatorio_texto(&a1, t, sizeof t) && !tz_aleatorio_de_texto(t, &a2) && !memcmp(&a1, &a2, sizeof a1);
+		VER(ok, "aleatorio: los parámetros se guardan en texto y vuelven iguales («%.60s...»)", t);
+		TzMapa m1, m2;
+		int e1 = tz_mapa_aleatorio(&m1, &r, NULL, &a1); if (e1) printf("   (%s)\n", tz_erro());
+		ok = !e1 && !tz_mapa_aleatorio(&m2, &r, NULL, &a2) && suma_mapa(&m1) == suma_mapa(&m2) && m1.nobj == m2.nobj;
+		VER(ok, "aleatorio: el mapa regenerado desde el texto es el mismo (%d objetos)", ok ? m1.nobj : -1);
+		if (ok) { tz_mapa_liberar(&m1); tz_mapa_liberar(&m2); }
+		/* puertas mágicas y objetos al azar (v8.5.5.2) */
+		{
+			TzAleatorio a3;
+			tz_aleatorio_padrao(&a3);
+			a3.lado = 128; a3.jogadores = 4; a3.semente = 77;
+			TzMapa mm;
+			int puertas = 0, libros = 0, pociones = 0, equipo = 0, mal3 = 0, aguilas = 0, banderas = 0;
+			if (!tz_mapa_aleatorio(&mm, &r, NULL, &a3)) {
+				for (int i = 0; i < mm.nobj; ++i) {
+					const TzObjeto *o = &mm.obj[i];
+					if (o->classe == 72) puertas++;
+					if (o->classe == 119) aguilas++;
+					if (o->classe == 135) banderas++;
+					if (o->classe == TZC_LIVRO || o->classe == TZC_POCAO || o->classe == TZC_ITEM_MAIS) {
+						int ok = o->ndados == 106 && o->dados[56] == 'i' && o->vida == 0 && o->vida_max == 0;
+						if (o->classe == TZC_LIVRO) { libros++; ok = ok && o->dados[96] < 21 && o->dados[99] == 1 && tz_u16(o->dados + 0x66) >= 1 && tz_u16(o->dados + 0x66) <= 3; }
+						else if (o->classe == TZC_POCAO) { pociones++; ok = ok && (tz_u16(o->dados + 0x12) + tz_u16(o->dados + 0x24) + tz_u16(o->dados + 0x1c) + o->dados[0x16] + tz_u16(o->dados + 0x18)) >= 2; }
+						else { equipo++; ok = ok && (o->dados[0x16] + o->dados[0x17] + tz_u16(o->dados + 0x18)) >= 5; }
+						if (!ok) mal3++;
+					}
+				}
+				tz_mapa_liberar(&mm);
+			}
+			VER(puertas == 2 && libros >= 5 && pociones >= 5 && equipo >= 5 && !mal3 && aguilas >= 1 && !banderas,
+			    "aleatorio: 4 reinos dan 2 puertas mágicas, objetos al azar con sus cifras (%d libros, %d pociones, %d equipos, %d mal), águilas %d y ninguna bandera de objeto %d",
+			    libros, pociones, equipo, mal3, aguilas, banderas);
+			a3.portas = 0; a3.itens = 0;
+			int sin = 0;
+			if (!tz_mapa_aleatorio(&mm, &r, NULL, &a3)) { for (int i = 0; i < mm.nobj; ++i) sin += mm.obj[i].classe == 72 || mm.obj[i].classe == TZC_LIVRO || mm.obj[i].classe == TZC_POCAO || mm.obj[i].classe == TZC_ITEM_MAIS; tz_mapa_liberar(&mm); }
+			VER(sin == 0, "aleatorio: sin las opciones no hay puertas ni objetos al azar");
+		}
+		const char *malos[] = { "", "ALEAT", "ALEAT 96 5 3 2 2 0 0 0 grass 5", "ALEAT 100 5 3 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		                        "ALEAT 96 1 0 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", "ALEAT 96 5 7 2 2 0 0 0 snow 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		                        "ALEAT 96 5 3 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 9 0 0 0 0 0 0 0", "otra cosa 1 2 3" };
+		int rechazados = 0;
+		for (unsigned i = 0; i < sizeof malos / sizeof *malos; ++i) rechazados += tz_aleatorio_de_texto(malos[i], &a2) != 0;
+		VER(rechazados == (int)(sizeof malos / sizeof *malos), "aleatorio: el texto dañado, incompleto o fuera de rango se rechaza (%d de %d)", rechazados, (int)(sizeof malos / sizeof *malos));
+	}
 	tz_aleatorio_padrao(&op);
 	op.lado = 100;
 	TzMapa mx;
@@ -848,6 +952,130 @@ static void prueba_aleatorio(const char *raiz, int verboso)
 	tz_aleatorio_padrao(&op);
 	snprintf(op.bioma, sizeof op.bioma, "lava");
 	VER(tz_mapa_aleatorio(&mx, &r, NULL, &op) != 0, "aleatorio: un bioma que no existe se rechaza");
+	/* v8.5.5.2: cada opción de la pantalla del mapa aleatorio cambia el mapa como debe */
+	{
+		TzAleatorio o;
+		TzMapa mm;
+		int ok;
+		/* tamaño */
+		static const int lados2[] = { 64, 96, 128, 192, 256 };
+		ok = 1;
+		for (unsigned i = 0; i < sizeof lados2 / sizeof *lados2; ++i) {
+			tz_aleatorio_padrao(&o); o.lado = lados2[i]; o.semente = 9;
+			if (tz_mapa_aleatorio(&mm, &r, NULL, &o)) { ok = 0; continue; }
+			ok = ok && mm.lado == lados2[i] && mm.nobj > 10;
+			tz_mapa_liberar(&mm);
+		}
+		VER(ok, "opciones aleatorias: el tamaño elegido es el del mapa (64, 96, 128, 192 y 256)");
+		/* número de reinos colocados */
+		ok = 1;
+		for (int jog = 2; jog <= 8; ++jog) {
+			tz_aleatorio_padrao(&o); o.lado = 192; o.jogadores = jog; o.semente = 31;
+			if (tz_mapa_aleatorio(&mm, &r, NULL, &o)) { ok = 0; continue; }
+			int cast[10] = { 0 }, total = 0, act = 0;
+			for (int i = 0; i < mm.nobj; ++i) if (mm.obj[i].classe == TZC_CASTLE && mm.obj[i].dono >= 1 && mm.obj[i].dono <= 9) { cast[mm.obj[i].dono]++; total++; }
+			for (int k = 0; k < 8; ++k) act += mm.reinos[k].ativo;
+			for (int k = 1; k <= jog; ++k) ok = ok && cast[k] == 1;
+			ok = ok && total == jog && act == jog;
+			tz_mapa_liberar(&mm);
+		}
+		VER(ok, "opciones aleatorias: de 2 a 8 reinos, cada uno con su castillo y los demás inactivos");
+		/* recursos del mapa: más minas (cantidad total) de «pocos» a «muchos» */
+		long suma_min[3] = { 0, 0, 0 };
+		for (int rm = 0; rm < 3; ++rm) {
+			tz_aleatorio_padrao(&o); o.lado = 192; o.jogadores = 4; o.semente = 55; o.recursos_mapa = rm;
+			if (tz_mapa_aleatorio(&mm, &r, NULL, &o)) continue;
+			for (int i = 0; i < mm.nobj; ++i) if ((mm.obj[i].classe == TZC_RES_GOLD || mm.obj[i].classe == TZC_RES_STONE) && mm.obj[i].ndados >= 62) suma_min[rm] += (long)tz_u32(mm.obj[i].dados + 58);
+			tz_mapa_liberar(&mm);
+		}
+		VER(suma_min[0] > 0 && suma_min[0] < suma_min[1] && suma_min[1] < suma_min[2], "opciones aleatorias: recursos del mapa pocos < normales < muchos (%ld, %ld, %ld)", suma_min[0], suma_min[1], suma_min[2]);
+		/* recursos iniciales: bajo < medio < alto en el reino */
+		long ini[3] = { 0, 0, 0 };
+		for (int nv = 0; nv < 3; ++nv) {
+			tz_aleatorio_padrao(&o); o.lado = 128; o.semente = 56; o.nivel_recursos = nv;
+			if (tz_mapa_aleatorio(&mm, &r, NULL, &o)) continue;
+			for (int j = 0; j < 4; ++j) ini[nv] += (long)mm.reinos[0].recursos[j];
+			tz_mapa_liberar(&mm);
+		}
+		VER(ini[0] > 0 && ini[0] < ini[1] && ini[1] < ini[2], "opciones aleatorias: recursos iniciales bajo < medio < alto (%ld, %ld, %ld)", ini[0], ini[1], ini[2]);
+		/* agua: archipiélagos tienen mucha, «tierra» ninguna */
+		int agua[6] = { 0 };
+		for (int tp = 1; tp <= 5; ++tp) {
+			tz_aleatorio_padrao(&o); o.lado = 192; o.jogadores = 2; o.semente = 77; o.tipo = tp;
+			if (tz_mapa_aleatorio(&mm, &r, NULL, &o)) continue;
+			for (int i = 0; i < mm.lado * mm.lado; ++i) agua[tp] += (mm.casillas[i] >> 7) == 0;
+			tz_mapa_liberar(&mm);
+		}
+		VER(agua[1] > 192 * 192 / 10 && agua[5] == 0 && agua[1] > agua[3], "opciones aleatorias: agua según el tipo (archipiélagos %d, islas %d, continente %d, lagos %d, tierra %d)", agua[1], agua[2], agua[3], agua[4], agua[5]);
+		/* torres de guardia, animales, puertas y objetos: con la opción apagada hay menos objetos */
+		int nobj_[2][4] = { { 0 } };
+		for (int enc = 0; enc < 2; ++enc) {
+			TzAleatorio b;
+			tz_aleatorio_padrao(&b); b.lado = 192; b.jogadores = 4; b.semente = 91;
+			b.guardado = b.animais = b.portas = b.itens = enc;
+			if (tz_mapa_aleatorio(&mm, &r, NULL, &b)) continue;
+			nobj_[enc][0] = mm.nobj;
+			tz_mapa_liberar(&mm);
+		}
+		VER(nobj_[0][0] > 0 && nobj_[1][0] > nobj_[0][0], "opciones aleatorias: guardias, animales, puertas y objetos añaden objetos (%d sin, %d con)", nobj_[0][0], nobj_[1][0]);
+		for (int opc = 0; opc < 4; ++opc) {   /* cada una por separado */
+			TzAleatorio b, c0;
+			tz_aleatorio_padrao(&b); b.lado = 192; b.jogadores = 4; b.semente = 91;
+			b.guardado = b.animais = b.portas = b.itens = 0;
+			c0 = b;
+			if (opc == 0) b.guardado = 1; else if (opc == 1) b.animais = 1; else if (opc == 2) b.portas = 1; else b.itens = 1;
+			TzMapa m0;
+			int n0 = -1, n1 = -1;
+			if (!tz_mapa_aleatorio(&m0, &r, NULL, &c0)) { n0 = m0.nobj; tz_mapa_liberar(&m0); }
+			if (!tz_mapa_aleatorio(&m0, &r, NULL, &b)) { n1 = m0.nobj; tz_mapa_liberar(&m0); }
+			VER(n0 > 0 && n1 > n0, "opciones aleatorias: sola la opción «%s» añade objetos (%d -> %d)", opc == 0 ? "guardias" : opc == 1 ? "animales" : opc == 2 ? "puertas" : "objetos", n0, n1);
+		}
+		/* equipos: los del mismo equipo son aliados, los solos no */
+		tz_aleatorio_padrao(&o); o.lado = 192; o.jogadores = 4; o.semente = 33;
+		o.equipe[0] = 1; o.equipe[1] = 1; o.equipe[2] = 2; o.equipe[3] = 0;
+		if (!tz_mapa_aleatorio(&mm, &r, NULL, &o)) {
+			VER(mm.reinos[0].equipe == mm.reinos[1].equipe && mm.reinos[0].equipe != mm.reinos[2].equipe && mm.reinos[3].equipe != mm.reinos[0].equipe &&
+			    mm.reinos[3].equipe != mm.reinos[2].equipe && mm.reinos[2].equipe != mm.reinos[1].equipe,
+			    "opciones aleatorias: equipos (1 y 2 aliados, 3 y 4 solos): %d %d %d %d", mm.reinos[0].equipe, mm.reinos[1].equipe, mm.reinos[2].equipe, mm.reinos[3].equipe);
+			tz_mapa_liberar(&mm);
+		}
+		/* civilización de cada reino */
+		tz_aleatorio_padrao(&o); o.lado = 128; o.jogadores = 3; o.semente = 34; o.civ[0] = 3; o.civ[1] = 2; o.civ[2] = 1;
+		if (!tz_mapa_aleatorio(&mm, &r, NULL, &o)) { VER(mm.reinos[0].civ == 3 && mm.reinos[1].civ == 2 && mm.reinos[2].civ == 1, "opciones aleatorias: la civilización de cada reino"); tz_mapa_liberar(&mm); }
+		/* la misma semilla y las mismas opciones dan el mismo mapa; otra semilla u otra opción, otro */
+		TzMapa ma, mb;
+		tz_aleatorio_padrao(&o); o.lado = 192; o.jogadores = 5; o.tipo = 3; o.recursos_mapa = 2; o.semente = 4242; o.equipe[1] = 1; o.civ[2] = 2;
+		ok = !tz_mapa_aleatorio(&ma, &r, NULL, &o) && !tz_mapa_aleatorio(&mb, &r, NULL, &o) && suma_mapa(&ma) == suma_mapa(&mb);
+		VER(ok, "opciones aleatorias: la misma semilla con las mismas opciones da el mismo mapa");
+		if (ok) {
+			uint32_t base = suma_mapa(&ma);
+			tz_mapa_liberar(&mb);
+			int distintos = 0, total = 0;
+			for (int v = 0; v < 6; ++v) {
+				TzAleatorio o2 = o;
+				if (v == 0) o2.semente++; else if (v == 1) o2.tipo = 1; else if (v == 2) o2.jogadores = 6; else if (v == 3) o2.recursos_mapa = 0; else if (v == 4) o2.lado = 256; else o2.animais = 0;
+				if (tz_mapa_aleatorio(&mb, &r, NULL, &o2)) continue;
+				total++; distintos += suma_mapa(&mb) != base;
+				tz_mapa_liberar(&mb);
+			}
+			VER(total == 6 && distintos == 6, "opciones aleatorias: cambiar la semilla o cualquier opción cambia el mapa (%d de %d)", distintos, total);
+			tz_mapa_liberar(&ma);
+		}
+		/* guardar y cargar: una línea con todas las opciones y el mapa regenerado es el mismo */
+		tz_aleatorio_padrao(&o); o.lado = 256; o.jogadores = 6; o.humano = 0; o.tipo = 4; o.recursos_mapa = 0; o.nivel_recursos = 2; o.guardado = 0; o.animais = 1; o.portas = 0; o.itens = 1;
+		o.semente = 987654321987ull; snprintf(o.bioma, sizeof o.bioma, "grass");   /* los datos sintéticos solo traen hierba */
+		for (int i = 0; i < 6; ++i) { o.equipe[i] = (uint8_t)(i / 2 + (i & 1)); o.civ[i] = (uint8_t)(i % 4); }
+		char tx[320]; TzAleatorio o3;
+		int cargado = !tz_aleatorio_texto(&o, tx, sizeof tx) && !tz_aleatorio_de_texto(tx, &o3) && !memcmp(&o, &o3, sizeof o);
+		VER(cargado, "opciones aleatorias: guardar y cargar conserva tamaño, tipo, recursos, equipos, civilizaciones y las casillas");
+		int g1 = cargado ? tz_mapa_aleatorio(&ma, &r, NULL, &o) : -1;
+		if (g1) printf("   (%s)\n", tz_erro());
+		if (!g1 && !tz_mapa_aleatorio(&mb, &r, NULL, &o3)) {
+			VER(suma_mapa(&ma) == suma_mapa(&mb) && ma.reinos[2].equipe == mb.reinos[2].equipe && ma.reinos[3].civ == mb.reinos[3].civ,
+			    "opciones aleatorias: el mapa cargado es el mismo (equipos y civilizaciones incluidos)");
+			tz_mapa_liberar(&ma); tz_mapa_liberar(&mb);
+		}
+	}
 	tz_recursos_fechar(&r);
 }
 

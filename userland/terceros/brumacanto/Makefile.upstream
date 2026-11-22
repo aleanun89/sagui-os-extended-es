@@ -1,0 +1,25 @@
+CC ?= cc
+PKG_CONFIG ?= pkg-config
+CFLAGS ?= -O2 -Wall -Wextra -Wpedantic -Wshadow
+SDL_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags sdl2)
+SDL_LIBS ?= $(shell $(PKG_CONFIG) --libs sdl2)
+GLES_HEADERS = -Ithird_party/khronos/include
+CORE = src/world.c src/sim.c src/save.c
+SOURCES = src/main.c src/draw.c $(CORE)
+HEADERS = src/game.h src/draw.h src/gl_api.h
+
+all: brumacanto
+
+brumacanto: $(SOURCES) $(HEADERS)
+	$(CC) $(CPPFLAGS) $(SDL_CFLAGS) $(GLES_HEADERS) $(CFLAGS) -std=c11 $(SOURCES) $(LDFLAGS) $(SDL_LIBS) -lm -o $@
+
+test-game: tests/world_test.c $(CORE) src/game.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Isrc tests/world_test.c $(CORE) $(LDFLAGS) -lm -o $@
+
+test: test-game
+	@dir=$$(mktemp -d) && trap 'rmdir "$$dir"' EXIT && ./test-game "$$dir/save.bruma"
+
+clean:
+	rm -f brumacanto test-game
+
+.PHONY: all test clean

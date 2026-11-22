@@ -135,6 +135,37 @@ static void apagar(nvme_ctl_t *c)
     wr32(c, R_CC, 0);
 }
 
+/* D450: aviso de apagado (CC.SHN = 01, «apagado normal») y espera a CSTS.SHST = 10 («hecho»),
+ * como mucho 5 s por controlador (el shutdown_timeout de Linux). Sin él, el disco apunta un
+ * «apagado inseguro» y en el próximo arranque revisa sus tablas (más lento). Va después de grabar
+ * y de vaciar la caché (montagem_desmontar_tudo y el FLUSH): aquí ya no se escribe nada. */
+#define CC_SHN_NORMAL   (1u << 14)
+#define CC_SHN_MASCARA  (3u << 14)
+#define CSTS_SHST_MASC  (3u << 2)
+#define CSTS_SHST_FEITO (2u << 2)
+#define ESPERA_SHN_MS   5000u
+
+int nvme_desligar_todos(void)
+{
+    int feitos = 0;
+    for (int i = 0; i < qtd_ctls; i++) {
+        nvme_ctl_t *c = &ctls[i];
+        if (!c->ok || c->morto || !c->regs) continue;
+        wr32(c, R_INTMS, 0xFFFFFFFFu);   /* sin interrupciones */
+        wr32(c, R_CC, (rd32(c, R_CC) & ~CC_SHN_MASCARA) | CC_SHN_NORMAL);
+        prazo_t pz = prazo_ms(ESPERA_SHN_MS);
+        uint32_t s;
+        for (;;) {
+            s = rd32(c, R_CSTS);
+            if (s == 0xFFFFFFFFu || (s & CSTS_SHST_MASC) == CSTS_SHST_FEITO || prazo_vencido(&pz)) break;
+        }
+        if ((s & CSTS_SHST_MASC) == CSTS_SHST_FEITO && s != 0xFFFFFFFFu) feitos++;
+        else klog("[NVME] %d: el aviso de apagado no termino en %u ms (CSTS %x): se sigue\n", i, ESPERA_SHN_MS, s);
+        c->morto = true;   /* nada más por esta cola */
+    }
+    return feitos;
+}
+
 /* ------------------------------------------------------------- colas */
 
 /* Mete una orden (16 palabras) en la cola y espera su finalización. Devuelve el estado

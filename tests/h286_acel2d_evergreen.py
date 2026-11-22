@@ -114,6 +114,19 @@ def fuentes():
     verificar("## D286" in ler("docs/decisoes.md"), "la decisión D286 está en docs/decisoes.md")
     verificar("evergreen_dma.c" in ler("docs/terceros.md"), "docs/terceros.md registra las referencias")
     verificar("D286" in ler("docs/gpus.md"), "docs/gpus.md lleva la fila de Evergreen/NI")
+    # D424: la prioridad de la pantalla (Toshiba: la BIOS la deja a 0 y la pantalla se quedaba sin datos).
+    verificar("#define EVG_PRIORITY_A_CNT     0x6B18" in codigo and "#define EVG_PRIORITY_B_CNT     0x6B1C" in codigo
+              and "#define EVG_PRIORITY_ALWAYS_ON (1u << 20)" in codigo, "D424: PRIORITY_A/B_CNT y ALWAYS_ON como evergreend.h")
+    ini = codigo[codigo.index("static bool r6_iniciar(const pci_disp_t"):]
+    ini = ini[:ini.index("\n}\n")]
+    verificar(re.search(r"if \(r6_iniciar_etapas\(d, geracao, t, m, nm\)\) \{.*gen >= EVG_GEN_EVERGREEN && crtc_tela >= 0.*"
+                        r"r600_prioridade_tela\(1\)", ini, re.S), "D424: la prioridad alta solo en Evergreen/NI y solo con el driver ya en marcha")
+    desl = codigo[codigo.index("static void r6_desligar(void)"):]
+    verificar("prioridade_repor();" in desl[:desl.index("\n}\n")], "D424: al apagar el driver vuelve la prioridad de la BIOS")
+    verificar(not re.search(r"wr\(D1MODE_PRIORITY", codigo), "D424: en R6xx/R7xx la prioridad solo se lee (detalle)")
+    verificar("ptr >= 50 && ptr <= 53" in ler("kernel/nucleo/chamadas_processos.c"), "D424: «acel2d prioridad» llega al kernel")
+    verificar("copiar_linha_cursor(y, x0, x1, cx, cy)" in ler("kernel/dispositivos/video.c"),
+              "D424: el puntero va dentro de la copia del rectángulo (sin borrarlo y repintarlo)")
 
 
 def unidad():

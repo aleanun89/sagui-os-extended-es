@@ -61,7 +61,7 @@ bool boton98_tratar(jan_t *j, botao_t *b, const evento_t *e)
 
 void casilla98(jan_t *j, casilla_t *c, const char *texto)
 {
-    g_retangulo(j, c->x, c->y, 13, 13, COR_BRANCO);
+    g_retangulo(j, c->x, c->y, 13, 13, COR_CAMPO);
     g_bisel(j, c->x, c->y, 13, 13, true);
     if (c->marcada) {
         for (int i = 0; i < 3; i++) { g_retangulo(j, c->x + 3 + i, c->y + 5 + i, 1, 3, W98_NEGRO); }
@@ -112,8 +112,8 @@ static void lista_familias_desenhar(jan_t *j, lista_t *l)
     for (int k = 0; k < vis && l->topo + k < l->qtd; k++) {
         int i = l->topo + k, y = l->y + 2 + k * LISTA_ALTURA_ITEM;
         bool sel = i == l->sel;
-        g_retangulo(j, l->x + 3, y, l->l - 12, LISTA_ALTURA_ITEM, sel ? COR_SELECAO : COR_BRANCO);
-        rte_fmt_t f = { (uint8_t)i, 0, 11, sel ? COR_BRANCO : 0x000000 };
+        g_retangulo(j, l->x + 3, y, l->l - 12, LISTA_ALTURA_ITEM, sel ? COR_SELECAO : COR_CAMPO);
+        rte_fmt_t f = { (uint8_t)i, 0, 11, sel ? COR_SEL_TEXTO : 0x000000 };
         rte_amostra(j, l->x + 3, y, l->l - 12, LISTA_ALTURA_ITEM, &f, l->itens[i]);
     }
     jan_mostrar_area(j, l->x, l->y, l->l, l->a);

@@ -46,6 +46,8 @@
 #include "texto.h"
 #include "montagem.h"
 #include "supervisor.h"
+#include "memoria.h"
+#include "paginacao.h"
 
 /* PM1_STS / PM1_EN */
 #define PM1_TMR          0x0001
@@ -68,6 +70,20 @@ static uint16_t gpe_blk[2];
 static uint8_t gpe_len[2];
 static uint16_t sleep_ctl;          /* ACPI 5+ hardware reduzido: SLEEP_CONTROL_REG (E/S) */
 static volatile int pedido;        /* 0 = nada, 1 = menú/shell, 2 = botón, 3 = reiniciar (D216) */
+static volatile int metodo_pedido; /* D450: con qué método empieza el reinicio (ENERGIA_RESET_*) */
+static bool tarefa_pronta;         /* D450: la tarea "apagar" existe (antes, el reinicio va directo) */
+
+/* D450: el registro de reinicio de la FADT (RESET_REG, ACPI 2.0+): una GAS de 12 bytes en el
+ * desplazamiento 116 y el valor que hay que escribir en el 128. Solo si el firmware dice que vale
+ * (RESET_REG_SUP, bit 10 de las Flags). Espacio 0 = memoria, 1 = E/S, 2 = configuración PCI. */
+#define FADT_RESET_REG_SUP (1u << 10)
+static struct {
+    bool     ok;
+    uint8_t  espaco, valor;
+    uint64_t endereco;
+    volatile uint8_t *mem;   /* espacio de memoria: la ventana, mapeada en acpi_iniciar */
+} reset;
+static uint16_t iapc_boot;   /* IAPC_BOOT_ARCH (byte 109): bit 1 = hay un 8042 */
 static const char canal_pedido = 0;
 static bool sci_ligado;
 
@@ -191,6 +207,22 @@ void acpi_capturar(void)
         if (!e.pm1b_cnt) e.pm1b_cnt = gas_porta(f + 184);
     }
     if (e.reduzido && tam >= 256) sleep_ctl = (uint16_t)gas_porta(f + 244);
+    /* D450: el registro de reinicio (ACPI 2.0+, FADT de 129 bytes o más). Se apunta aunque no
+     * haya \_S5_: reiniciar no lo necesita. */
+    if (f[8] >= 2 && tam >= 129) {
+        iapc_boot = *(const uint16_t *)(f + 109);
+        uint64_t end = (uint64_t)le32(f + 120) | ((uint64_t)le32(f + 124) << 32);
+        reset.espaco = f[116];
+        reset.endereco = end;
+        reset.valor = f[128];
+        reset.ok = (flags & FADT_RESET_REG_SUP) && end && reset.espaco <= 2;
+        if (reset.espaco == 1 && end > 0xFFFF) reset.ok = false;
+        if (reset.espaco == 0 && end > 0xFFFFF000ull) reset.ok = false;   /* por encima de 4 GB no se ve */
+        klog("[ACPI] RESET_REG: espacio %u direccion %x:%x valor %x%s; IAPC_BOOT_ARCH %x (8042 %s)\n",
+             reset.espaco, (uint32_t)(end >> 32), (uint32_t)end, reset.valor,
+             reset.ok ? "" : (flags & FADT_RESET_REG_SUP) ? " (no utilizable)" : " (RESET_REG_SUP=0)",
+             iapc_boot, (iapc_boot & 2) ? "declarado" : "no declarado");
+    }
     if (e.pm1a_cnt > 0xFFFF || e.pm1b_cnt > 0xFFFF || e.pm1a_evt > 0xFFFF || e.pm1b_evt > 0xFFFF) {
         motivo("registros PM1 fuera del espacio de E/S");
         return;
@@ -345,24 +377,17 @@ static void tarefa_apagar(void *arg)
             }
             relogio_dormir_ms(800);   /* para que se vea el aviso */
         }
-        if (pedido == 3) {
-            supervisor_parar_servicos(SERV_MOTIVO_REINICIAR);
-            bool i0 = int_salva_desliga();   /* como sis_reiniciar: nadie escribe mientras tanto */
-            montagem_desmontar_tudo();       /* graba lo que esté pendiente (D040) */
-            int_restaura(i0);
-            maquina_reiniciar();
-        }
-        supervisor_parar_servicos(SERV_MOTIVO_APAGAR);
-        maquina_apagar();
+        /* D450: todo el orden (servicios, discos, ACPI, procesadores, drivers, reinicio o S5) en energia.c. */
+        energia_executar(pedido == 3 ? ENERGIA_REINICIAR : ENERGIA_APAGAR, metodo_pedido);
     }
 }
 
 /* D216: reiniciar con servicios en marcha pasa por esta tarea, que los para
  * antes (sis_reiniciar, si supervisor_ativo()). */
-void acpi_pedir_reinicio(void)
+void acpi_pedir_reinicio(int metodo)
 {
     bool i0 = int_salva_desliga();
-    if (!pedido) pedido = 3;
+    if (!pedido) { pedido = 3; metodo_pedido = metodo; }
     acordar(&canal_pedido);
     int_restaura(i0);
 }
@@ -405,8 +430,16 @@ static bool modo_acpi(void)
 
 void acpi_iniciar(void)
 {
-    tarefa_kernel("apagar", tarefa_apagar, NULL);
+    tarefa_pronta = tarefa_kernel("apagar", tarefa_apagar, NULL) != NULL;
     klog("[ACPI] tarefa \"apagar\" do kernel pronta\n");
+    /* D450: el RESET_REG en memoria se mapea ya (después, con las interrupciones cerradas para
+     * siempre, no se pide memoria). Sin caché: es un registro. */
+    if (reset.ok && reset.espaco == 0) {
+        uint32_t fis = (uint32_t)reset.endereco;
+        uint32_t v = janela_mapear_tipo(fis & ~0xFFFu, PAGINA, PG_PCD | PG_PWT);
+        if (v) reset.mem = (volatile uint8_t *)(v + (fis & 0xFFFu));
+        else { reset.ok = false; klog("[ACPI] RESET_REG en memoria: sin ventana, no se usara\n"); }
+    }
     if (info_boot.opcoes & OPC_BOOT_SEM_ACPI) {
         desativado = por_arranque = true;
         klog("[ACPI] desativado pela opcao de arranque (--sem-acpi)\n");
@@ -447,6 +480,7 @@ bool acpi_apagar(void)
     }
     klog("[ACPI] S5: SLP_TYPa=%u SLP_TYPb=%u\n", e.slp_typ_a, e.slp_typ_b);
     bool i0 = int_salva_desliga();
+    gpe_desligar();   /* D450: ningún GPE (uACPI pudo encender alguno) despierta la máquina recién apagada */
     if (e.pm1a_cnt) {
         if (e.pm1a_evt) {
             pm1_habilitar(0);
@@ -467,6 +501,42 @@ bool acpi_apagar(void)
     klog("[ACPI] a maquina nao desligou em 3 s\n");
     if (e.botao && e.pm1a_evt) pm1_habilitar(PM1_PWRBTN);
     return false;
+}
+
+bool acpi_tarefa_pronta(void) { return tarefa_pronta; }
+
+/* D450: ¿hay un RESET_REG que el firmware declara utilizable? (también con --sem-acpi: es solo
+ * una escritura, la que hace Linux primero.) Texto para las marcas del reinicio. */
+bool acpi_reset_disponivel(void) { return reset.ok && !por_arranque; }
+
+void acpi_reset_descrever(char *b, uint32_t n)
+{
+    static const char *const nomes[] = { "memoria", "E/S", "PCI" };
+    if (!reset.ok) { snformatar(b, n, "no hay (FADT sin RESET_REG utilizable)"); return; }
+    snformatar(b, n, "%s %x:%x <- %x", nomes[reset.espaco], (uint32_t)(reset.endereco >> 32),
+               (uint32_t)reset.endereco, reset.valor);
+}
+
+bool acpi_8042_declarado(void) { return (iapc_boot & 2) != 0; }
+
+/* D450: escribe el valor de reinicio (8 bits, como Linux y NT, sea cual sea el ancho de la GAS).
+ * Con las interrupciones cerradas; si la máquina sigue aquí, vuelve. */
+void acpi_reset_escrever(void)
+{
+    if (!acpi_reset_disponivel()) return;
+    if (reset.espaco == 1) {
+        porta_escreve8((uint16_t)reset.endereco, reset.valor);
+    } else if (reset.espaco == 0) {
+        if (reset.mem) *reset.mem = reset.valor;
+    } else {
+        /* Configuración PCI del bus 0: dispositivo en los bits 32-47, función en 16-31 y el
+         * registro en 0-15 (ACPI 6.x, 5.2.3.2). Byte a byte por el mecanismo 1. */
+        uint32_t disp = (uint32_t)(reset.endereco >> 32) & 0x1F;
+        uint32_t func = (uint32_t)(reset.endereco >> 16) & 0x07;
+        uint32_t reg = (uint32_t)reset.endereco & 0xFF;
+        porta_escreve32(0xCF8, 0x80000000u | (disp << 11) | (func << 8) | (reg & 0xFC));
+        porta_escreve8((uint16_t)(0xCFC + (reg & 3)), reset.valor);
+    }
 }
 
 int32_t acpi_controle(uint32_t op)

@@ -135,6 +135,10 @@ static int     coincidencias;
 static bool recursos_pendentes;
 static bool a_carregar_registrado;   /* ja se registou que a carga comecou */
 static bool pintura_pendente;
+static bool relayout_pendente;      /* hay trozos nuevos sin maquetar (D441) */
+static unsigned ult_relayout;
+static unsigned est_repintados, est_apresentacoes, est_layouts, est_ms_pintura, est_trozos;   /* medidas del log */
+static video_t *vid;                  /* declaración anticipada (la definición está en la sección de <video>) */
 static int pintura_y;
 static char salvar_imagem_url[URL_MAX];
 static char salvar_link_url[URL_MAX];
@@ -1013,17 +1017,29 @@ static int max_topo(void)
     return m;
 }
 
-static void desenhar_pagina(void)
+/* ---- pintura de la página sin parpadeo (D441) ----
+ * La página se pinta en un búfer aparte (pag_fb) y se copia a la ventana de una vez: la
+ * ventana nunca muestra el fondo vacío ni una página a medias. Al desplazarse se mueven
+ * las filas ya pintadas del búfer y solo se pinta la franja que entra. */
+static uint32_t *pag_fb;          /* la página visible: (LARG - ROLAGEM) x AREA_A */
+static int pag_fb_l, pag_fb_a;
+static bool pag_fb_ok;            /* pag_fb tiene la página entera para rol_px */
+
+static bool pag_fb_garantir(void)
 {
-    if (painel) { painel_desenhar(); return; }
-    if (motor) {
-        pintura_y = rol_px;
-        pintura_pendente = true;
-        g_retangulo(j, 0, ABA_Y, LARG - ROLAGEM, AREA_A, motor_fundo(motor));
-    } else {
-        pintura_pendente = false;
-        g_retangulo(j, 0, ABA_Y, LARG - ROLAGEM, AREA_A, COR_BRANCO);
-    }
+    int l = LARG - ROLAGEM, a = AREA_A;
+    if (l <= 0 || a <= 0) return false;
+    if (pag_fb && pag_fb_l == l && pag_fb_a == a) return true;
+    libera(pag_fb);
+    pag_fb = aloca((size_t)l * (size_t)a * 4);
+    pag_fb_l = l; pag_fb_a = a;
+    pag_fb_ok = false;
+    return pag_fb != NULL;
+}
+
+/* La barra de desplazamiento (solo ella se dibuja directo en la ventana: es una columna). */
+static void desenhar_barra_rolagem(void)
+{
     int bx = LARG - ROLAGEM;
     g_retangulo(j, bx, ABA_Y, ROLAGEM, AREA_A, 0xE6E9EC);
     g_retangulo(j, bx, ABA_Y, 1, AREA_A, COR_BORDA);
@@ -1034,7 +1050,80 @@ static void desenhar_pagina(void)
         int y = ABA_Y + (AREA_A - a) * rol_px / max;
         g_retangulo(j, bx + 3, y + 2, ROLAGEM - 5, a - 4, rolando ? 0x5A636C : 0x8A939C);
     }
+}
+
+/* Copia el búfer entero a la ventana y la presenta una sola vez. */
+static void pag_fb_apresentar(void)
+{
+    for (int y = 0; y < pag_fb_a; y++)
+        memcpy(j->px + (ABA_Y + y) * j->larg, pag_fb + y * pag_fb_l, (size_t)pag_fb_l * 4);
+    desenhar_barra_rolagem();
     jan_mostrar_area(j, 0, ABA_Y, LARG, AREA_A);
+    est_apresentacoes++;
+}
+
+/* Pinta en el búfer las filas [f0, f0 + n) (filas de la ventana; y de la página = rol_px + f). */
+static void pag_fb_pintar(int f0, int n)
+{
+    if (n <= 0) return;
+    motor_rolagem(motor, rol_px);      /* fixed y sticky siguen el desplazamiento, no la franja (D271) */
+    motor_pintar(motor, pag_fb + f0 * pag_fb_l, pag_fb_l, pag_fb_l, rol_px + f0, n);
+}
+
+/* Repinta la página entera de golpe (sin ceder el control). */
+static void pagina_pintar_agora(void)
+{
+    if (!motor || !pag_fb_garantir()) return;
+    unsigned t0 = tempo_ms();
+    for (int f = 0; f < pag_fb_a; f += FAIXA_PINTURA)
+        pag_fb_pintar(f, pag_fb_a - f < FAIXA_PINTURA ? pag_fb_a - f : FAIXA_PINTURA);
+    pag_fb_ok = true;
+    pintura_pendente = false;
+    pag_fb_apresentar();
+    est_ms_pintura += tempo_ms() - t0;
+}
+
+static void desenhar_pagina(void)
+{
+    if (painel) { painel_desenhar(); return; }
+    if (motor && pag_fb_garantir()) {
+        /* se pinta en franjas dentro del búfer (cediendo el control entre ellas);
+         * la ventana sigue mostrando lo anterior hasta que la página nueva está entera */
+        est_repintados++;
+        pintura_y = rol_px;
+        pintura_pendente = true;
+        pag_fb_ok = false;
+        return;
+    }
+    pintura_pendente = false;
+    g_retangulo(j, 0, ABA_Y, LARG - ROLAGEM, AREA_A, motor ? motor_fundo(motor) : COR_BRANCO);
+    desenhar_barra_rolagem();
+    jan_mostrar_area(j, 0, ABA_Y, LARG, AREA_A);
+}
+
+/* Desplaza la página hasta rol_px (desde velho): mueve lo ya pintado y pinta solo la franja nueva. */
+static void rolar_pintar(int velho)
+{
+    int d = rol_px - velho;
+    bool copiar = motor && !painel && pag_fb_ok && pag_fb_garantir() && !pintura_pendente && !vid &&
+                  d != 0 && (d < 0 ? -d : d) < pag_fb_a && !motor_tem_camadas(motor);
+    if (!copiar) {
+        if (motor && !painel) { est_repintados++; pagina_pintar_agora(); }
+        else desenhar_pagina();
+        return;
+    }
+    unsigned t0 = tempo_ms();
+    int H = pag_fb_a, L = pag_fb_l;
+    if (d > 0) {
+        memmove(pag_fb, pag_fb + d * L, (size_t)(H - d) * (size_t)L * 4);
+        pag_fb_pintar(H - d, d);
+    } else {
+        memmove(pag_fb + (-d) * L, pag_fb, (size_t)(H + d) * (size_t)L * 4);
+        pag_fb_pintar(0, -d);
+    }
+    pag_fb_apresentar();
+    est_repintados++;
+    est_ms_pintura += tempo_ms() - t0;
 }
 
 static void rolar(int para)
@@ -1048,9 +1137,20 @@ static void rolar(int para)
     if (novo > limite) novo = limite;
     if (novo < 0) novo = 0;
     if (novo == rol_px) return;
-    rol_px = novo;
-    registrar("cipo: rolagem para %d px (linha %d)\n", rol_px, topo);
-    desenhar_pagina();
+    int velho = rol_px;
+    registrar("cipo: rolagem para %d px (linha %d)\n", novo, topo);
+    unsigned t0 = tempo_ms();
+    /* un salto grande se reparte en pasos (desplazamiento suave) */
+    int dist = novo - velho, ad = dist < 0 ? -dist : dist;
+    int pasos = ad >= 120 && !painel ? (ad >= 360 ? 4 : 3) : 1;
+    for (int k = 1; k <= pasos; k++) {
+        int alvo = pasos == 1 || k == pasos ? novo : velho + dist * k / pasos;
+        int ant = rol_px;
+        rol_px = alvo;
+        rolar_pintar(ant);
+        if (k < pasos) dormir(6);
+    }
+    registrar("cipo: rolagem pintada en %u ms\n", tempo_ms() - t0);
 }
 
 /* Altura y posición del pulgar de la barra de desplazamiento. */
@@ -1074,9 +1174,10 @@ static void rolar_para_pulgar(int y)
     if (pos < 0) pos = 0;
     if (pos > livre) pos = livre;
     int max = motor_altura > AREA_A ? motor_altura - AREA_A : 0;
+    int velho = rol_px;
     rol_px = (pos * max + livre / 2) / livre;
     topo = (rol_px + LINHA_A / 2) / LINHA_A;
-    desenhar_pagina();
+    if (rol_px != velho) rolar_pintar(velho);
 }
 
 
@@ -2206,7 +2307,7 @@ static void diagramar(void)
             motor_altura = 0;
         } else {
             motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
-            recursos_pendentes = true;
+            recursos_pendentes = true; relayout_pendente = false; ult_relayout = tempo_ms(); est_repintados = est_apresentacoes = est_layouts = est_ms_pintura = est_trozos = 0;
             a_carregar_registrado = false;
             copia_texto(titulo, motor_titulo(motor), sizeof titulo);
             if (motor_altura < 0) motor_altura = 0;
@@ -2418,7 +2519,7 @@ static uint8_t *motor_baixar(const char *url, unsigned *n)
  * Si el equipo no llega a tiempo real se saltan cuadros (sin convertir color) y el
  * sonido manda, como en el reproductor. Un clic en el vídeo lo pausa o lo reanuda. */
 #define VIDEO_MAX_BYTES (48 * 1024 * 1024)
-static video_t *vid;                  /* el vídeo activo (NULL = ninguno) */
+/* vid: el vídeo activo (NULL = ninguno), declarado arriba */
 static uint8_t *vid_dados;            /* el MP4 entero en memoria */
 static char vid_url[URL_MAX];         /* de dónde se bajó el activo */
 static char vid_quer[URL_MAX];        /* el que pidió la última pintura */
@@ -2683,22 +2784,48 @@ static void liberar_imagens(void)
 
 static unsigned rec_t0;   /* cuándo empezó la descarga de recursos de la página (para medirla) */
 
+#define REPINTA_MS 80            /* durante la carga, como mucho ~12 repintados por segundo (D441) */
+
+/* Rehace la maquetación con lo descargado hasta ahora y repinta. */
+static void relayout_agora(void)
+{
+    relayout_pendente = false;
+    ult_relayout = tempo_ms();
+    est_layouts++;
+    motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
+    if (motor_altura < 0) motor_altura = 0;
+    int nos = 0, cmds = 0, im = 0;
+    if (motor) motor_numeros(motor, &nos, &cmds, &im);
+    if (motor_altura > MOTOR_ALTURA_MAX || cmds > MOTOR_CMDS_MAX || nos > MOTOR_NOS_MAX) {
+        registrar("cipo: layout excede limite (%d px, %d nos, %d comandos)\n", motor_altura, nos, cmds);
+        motor_fim(motor);
+        motor = NULL;
+        motor_altura = 0;
+        recursos_pendentes = false;
+    }
+    registrar("cipo: recurso en trozo nos=%d cmds=%d imgs=%d\n", nos, cmds, im);
+    desenhar_pagina();
+}
+
 /* Descarga un recurso del motor por vuelta del bucle de eventos. */
 static void processar_recurso(void)
 {
     if (painel) pintura_pendente = false;   /* el panel ocupa el sitio de la página */
-    if (pintura_pendente && motor) {
-        int fim = rol_px + AREA_A;
-        int faixa = fim - pintura_y < FAIXA_PINTURA ? fim - pintura_y : FAIXA_PINTURA;
+    if (pintura_pendente && motor && pag_fb_garantir()) {
+        /* franjas en el búfer: la ventana solo cambia cuando la página entera está lista (D441) */
+        int fim = AREA_A;
+        int f = pintura_y - rol_px;
+        int faixa = fim - f < FAIXA_PINTURA ? fim - f : FAIXA_PINTURA;
+        unsigned t0 = tempo_ms();
         if (faixa > 0) {
-            motor_rolagem(motor, rol_px);      /* antes de pintar: fixed y sticky siguen el desplazamiento, no la franja (D271) */
-            motor_pintar(motor, j->px + (ABA_Y + pintura_y - rol_px) * j->larg,
-                         LARG - ROLAGEM, j->larg, pintura_y, faixa);
+            pag_fb_pintar(f, faixa);
             pintura_y += faixa;
-            jan_mostrar_area(j, 0, ABA_Y + pintura_y - rol_px - faixa, LARG - ROLAGEM, faixa);
         }
-        if (pintura_y >= fim) {
+        est_ms_pintura += tempo_ms() - t0;
+        if (pintura_y - rol_px >= fim) {
             pintura_pendente = false;
+            pag_fb_ok = true;
+            pag_fb_apresentar();
             registrar("cipo: pagina pintada\n");
             if (sug_n) sugestoes_desenhar();
         }
@@ -2720,23 +2847,16 @@ static void processar_recurso(void)
         registrar("cipo: a carregar recursos\n");
     }
     if (motor_imagens(motor, 1) > 0) {
-        motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
-        if (motor_altura < 0) motor_altura = 0;
-        int nos = 0, cmds = 0, im = 0;
-        if (motor) motor_numeros(motor, &nos, &cmds, &im);
-        if (motor_altura > MOTOR_ALTURA_MAX || cmds > MOTOR_CMDS_MAX || nos > MOTOR_NOS_MAX) {
-            registrar("cipo: layout excede limite (%d px, %d nos, %d comandos)\n", motor_altura, nos, cmds);
-            motor_fim(motor);
-            motor = NULL;
-            motor_altura = 0;
-            recursos_pendentes = false;
-        }
-        registrar("cipo: recurso en trozo nos=%d cmds=%d imgs=%d\n", nos, cmds, im);
-        desenhar_pagina();
+        /* cada trozo que llega rehacía la maquetación y repintaba: ahora, como mucho cada REPINTA_MS (D441) */
+        relayout_pendente = true;
+        est_trozos++;
+        if (tempo_ms() - ult_relayout >= REPINTA_MS) relayout_agora();
         return;
     }
+    if (relayout_pendente) relayout_agora();
     recursos_pendentes = false;
     registrar("cipo: recursos listos en %u ms\n", tempo_ms() - rec_t0);
+    registrar("cipo: pintura: %u repintados, %u apresentacoes, %u layouts, %u ms pintando, %u trozos\n", est_repintados, est_apresentacoes, est_layouts, est_ms_pintura, est_trozos);
     rodape("Listo");
     desenhar_pagina();
 }
@@ -4803,7 +4923,7 @@ int principal(int argc, char **argv)
             }
             continue;
         }
-        if (e.tipo == EV_SOLTOU && rolando) { rolando = false; desenhar_pagina(); continue; }
+        if (e.tipo == EV_SOLTOU && rolando) { rolando = false; desenhar_barra_rolagem(); jan_mostrar_area(j, LARG - ROLAGEM, ABA_Y, ROLAGEM, AREA_A); continue; }
         if (e.tipo == EV_TECLA) {
             unsigned t = e.tecla;
             if (atalho(&e)) continue;

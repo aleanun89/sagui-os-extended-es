@@ -17,6 +17,7 @@
 #include "ioapic.h"
 #include "cpu_dados.h"
 #include "trava_geral.h"
+#include "smp.h"
 #include "info_hardware.h"
 #include "irq_rotas.h"
 #include "bootinfo.h"
@@ -303,6 +304,12 @@ quadro_t *tratar_interrupcao(quadro_t *q)
         quadro_t *t = manipuladores[v](q);   /* relogio_tic_cpu: toma el cerrojo si lo necesita */
         return trava_geral_minha() ? sinais_ao_sair(t) : t;   /* D401: solo con el cerrojo */
     }
+
+    /* D450: apagar o reiniciar. El secundario se para aquí mismo, sin tomar el cerrojo general (lo
+     * tiene la CPU 0 para siempre): la IPI solo entra con las interrupciones abiertas, así que no
+     * tiene ningún cerrojo del kernel. No vuelve. */
+    if (v == VETOR_PARAR)
+        smp_parar_esta_cpu();
 
     trava_geral_pegar();
 

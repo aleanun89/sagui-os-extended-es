@@ -471,10 +471,18 @@ static int informar(int argc, char **argv)
     return 0;
 }
 
+/* D428: otro esquema de apariencia: se repinta todo con los colores nuevos. */
+static void repintar_tema(void)
+{
+    desenhar_tudo();
+    jan_mostrar(j);
+}
+
 int principal(int argc, char **argv)
 {
     if (argc > 1 && compara_texto(argv[1], "-i") == 0) return informar(argc, argv);
     j = jan_abrir(_("Visor de imágenes"), LARG_INICIO, ALT_INICIO);
+    tema_ao_mudar(repintar_tema);   /* D428 */
     if (!j) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, LARG_MIN, ALT_MIN);
     seletor.icone = NULL;

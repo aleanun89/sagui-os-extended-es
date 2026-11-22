@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-or-later
 # firmware_radeon.sh - baja y comprueba el microcódigo del procesador de órdenes
-# (CP) de las Radeon R7xx (D284) y R6xx (D357) para el 3D por la GPU.
+# (CP) de las Radeon R7xx (D284), R6xx (D357) y Evergreen/NI sin Cayman (D427) para el 3D por la GPU.
 #
 # Los archivos (RV710/RV730/RV770 _pfp.bin y _me.bin, unos 27 KB; R600/RV610/RV630/
-# RV670 _pfp.bin y _me.bin, unos 94 KB) son de
+# RV670 _pfp.bin y _me.bin, unos 94 KB; D427: CEDAR, REDWOOD, JUNIPER, CYPRESS, BARTS,
+# TURKS y CAICOS _pfp.bin y _me.bin, unos 70 KB) son de
 # AMD y vienen de linux-firmware: se pueden redistribuir sin cambios, solo en
 # binario (LICENSE.radeon), pero no son libres. Van en git, en firmware/radeon/,
 # con su licencia al lado (D073 punto 5, D284), para que la imagen se construya
@@ -38,6 +39,20 @@ RV630_pfp.bin radeon/RV630_pfp.bin c0f58b75401acef29861a399430ce51681a39771ca30d
 RV630_me.bin radeon/RV630_me.bin 2a7e310ab6fd2d8c466ddbb394ae0da26303b1da9f924c04d7cbc4f47836e9e0
 RV670_pfp.bin radeon/RV670_pfp.bin c0f58b75401acef29861a399430ce51681a39771ca30d020de24358dc1909246
 RV670_me.bin radeon/RV670_me.bin 7630b5499e2f73b81098dac53b047480cb58bcba07e6604d2cee481ed1c7bc7b
+CEDAR_pfp.bin radeon/CEDAR_pfp.bin bf614bcdd72fd23a919d2bf39ec065824f0c327e50b9ba3d9d39cb675764fcf3
+CEDAR_me.bin radeon/CEDAR_me.bin 86cec272c18673356c0e8d774d7ed48976baa631f79734225522a928e9089db4
+REDWOOD_pfp.bin radeon/REDWOOD_pfp.bin bf614bcdd72fd23a919d2bf39ec065824f0c327e50b9ba3d9d39cb675764fcf3
+REDWOOD_me.bin radeon/REDWOOD_me.bin bc98d6afb1fa179dc2113e0c16bb609f4d395020cfb7e47652304ccf5206cade
+JUNIPER_pfp.bin radeon/JUNIPER_pfp.bin 5f4e98e1bd41bbbba68fb4c1b8761ab0fd7c2f9f4f088c44b1464b7c2e08a9e2
+JUNIPER_me.bin radeon/JUNIPER_me.bin 3890437894d09dbb0b99900e661a8a0d3ad264a650b6ad2d84e5b8e1156cc9a0
+CYPRESS_pfp.bin radeon/CYPRESS_pfp.bin 5f4e98e1bd41bbbba68fb4c1b8761ab0fd7c2f9f4f088c44b1464b7c2e08a9e2
+CYPRESS_me.bin radeon/CYPRESS_me.bin 3890437894d09dbb0b99900e661a8a0d3ad264a650b6ad2d84e5b8e1156cc9a0
+BARTS_pfp.bin radeon/BARTS_pfp.bin c9cfed97f54c24190761524e2fbbab80ff1ac07f09d84bb3c955c2337ea7e4f6
+BARTS_me.bin radeon/BARTS_me.bin 37fa5fb7cdb13df94c9a64d7ba752b63119f063f64326b67ec54656cd184363b
+TURKS_pfp.bin radeon/TURKS_pfp.bin 65d98665384252ddd627c365dbfd2f238b0538570d9e1dad6d4382bb93723089
+TURKS_me.bin radeon/TURKS_me.bin 37fa5fb7cdb13df94c9a64d7ba752b63119f063f64326b67ec54656cd184363b
+CAICOS_pfp.bin radeon/CAICOS_pfp.bin 210b9c42cf7866fcacf9239016142e799f52901ef3b001f7081fc92ff2c43401
+CAICOS_me.bin radeon/CAICOS_me.bin 37fa5fb7cdb13df94c9a64d7ba752b63119f063f64326b67ec54656cd184363b
 LICENSE.radeon.txt LICENSE.radeon fc6223d4bfe9f2f9e2eddc44b9fe5721d0caf49f01cb08d602906add686d8c6f
 "
 

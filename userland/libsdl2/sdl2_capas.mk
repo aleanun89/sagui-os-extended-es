@@ -30,6 +30,11 @@ $(B)/userland/libsdl2/sdl2_mixer.o: userland/libsdl2/sdl2_mixer.c userland/libsd
 $(B)/userland/libsdl2/sdl2_vorbis.o: userland/libsdl2/sdl2_vorbis.c userland/terceros/stbvorbis/stb_vorbis.c $(LIBC_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(SDL2CAPAS_FLAGS) -w -c -o $@ $<
+# D425: SDL_GL_* (OpenGL ES 1 por EGL y SaguiGL): aparte, para que solo lo enlace quien lo usa (con $(SGL_OBJ)).
+SDL2GL_OBJ := $(B)/userland/libsdl2/sdl2_gl.o
+$(SDL2GL_OBJ): userland/libsdl2/sdl2_gl.c userland/libsdl2/SDL.h userland/inc/EGL/egl.h userland/inc/GLES/gl.h $(LIBC_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(SDL2CAPAS_FLAGS) -c -o $@ $<
 ifndef SDL2_OBJ
 SDL2_OBJ := $(B)/userland/libsdl2/sdl2_sagui.o
 $(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/sdl2gpu.h userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)

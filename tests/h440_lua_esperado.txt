@@ -1,0 +1,48 @@
+Lua 5.4
+HOLA MUNDO	hola mundo	10	Hola	Hola Mundo-Hola Mundo	odnuM aloH
+ 3.14|42|x|"a\
+b"|ff|   ab|cd   |
+2	h0la mund0	2
+a:1 b:2 
+1,3,5,8	4	4
+3 5 8 10
+xyz
+V(3)	false	30
+true	2
+true	20
+true	fin	z
+dead	false	cannot resume dead coroutine
+1	4	9
+3.1415926535898	1.4142135623731	-4	4	9	4
+3	1	3.5	1024.0	1099511627776	9223372036854775807	-9223372036854775808	integer	float
+3	inf	2	-1	0.0	1.0	1.0	3.0
+0.3	1e+15	9.007199254741e+15	12	7	-1
+false	pruebas.lua:59: malo
+false	table	7
+pruebas.lua:62: attempt to index a nil value (local 'x')
+false	manejado: pruebas.lua:63: uno
+1971-01-01 00:00:00
+86400
+valor	nil
+nil	exit	3
+true	exit	0
+[linea uno][linea dos][42 3.5]
+linea uno	nil	linea dos
+42 3.5
+
+0	linea	5	27
+32	3
+nil	2
+desde popen
+segunda
+
+true	exit	0
+escrito al pipe
+miutil	42	hola, SaguiOS	true
+true
+3	1
+Hä€	3	3
+1	0	0	0
+2	nil	[string "syntax error here"]:1: syntax error near 'error'
+true	0
+PRUEBAS_LUA_OK

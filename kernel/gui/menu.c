@@ -26,6 +26,7 @@
  * incluidos: así no cambia cuando una línea se activa o desactiva, y
  * un texto sin submenús sigue con los mismos índices de antes. */
 #include "gui.h"
+#include "aparencia.h"
 #include "abi.h"
 #include "console.h"
 #include "teclado.h"
@@ -42,13 +43,14 @@
 #define SOMBRA     4
 #define MENU_PROF  4     /* paneles abiertos al mismo tiempo: el menú y 3 niveles de submenú */
 
-#define COR_FUNDO_MENU  0xF4F4F0   /* el mismo fondo de las ventanas (COR_FUNDO de la libsagui) */
-#define COR_BORDA_MENU  0x101010   /* el contorno de los marcos */
-#define COR_TEXTO_MENU  0x1E2328
-#define COR_DESATIVADO  0x9AA3AC
-#define COR_DESTAQUE    0x0B7A3E   /* verde de la barra de título con foco */
-#define COR_SEPARADOR   0xC4CBD2
-#define COR_ATALHO      0x6A737C   /* COR_TEXTO_FRACO de la libsagui */
+/* D428: los colores del menú salen del esquema de apariencia (con «SaguiOS», los de siempre). */
+#define COR_FUNDO_MENU  (esquema()->menu_fundo)
+#define COR_BORDA_MENU  (esquema()->menu_borde)
+#define COR_TEXTO_MENU  (esquema()->menu_texto)
+#define COR_DESATIVADO  (esquema()->texto_dis)
+#define COR_DESTAQUE    (esquema()->menu_sel)
+#define COR_SEPARADOR   (esquema()->menu_sep)
+#define COR_ATALHO      (esquema()->menu_atalho)
 
 enum { ITEM_NORMAL, ITEM_DESATIVADO, ITEM_SEPARADOR, ITEM_SUBMENU, ITEM_FIM };
 
@@ -509,7 +511,7 @@ static void desenhar_faixa(superficie_t *t, painel_t *p)
 
 static void desenhar_painel(superficie_t *t, painel_t *p)
 {
-    bool classico = m.tema == 1;
+    bool classico = m.tema == 1 && !esquema()->barra_propia;   /* el estilo clásico es de SaguiOS; los demás esquemas traen sus colores */
     uint32_t fundo_c = classico ? 0xD4D0C8 : COR_FUNDO_MENU, destaque_c = classico ? 0x0A246A : COR_DESTAQUE;
     int dx = tem_faixa(p) ? FAIXA_L : 0;
     sombra(t, p->x + p->l, p->y + SOMBRA, SOMBRA, p->a);
@@ -530,7 +532,7 @@ static void desenhar_painel(superficie_t *t, painel_t *p)
             uint32_t cor = ativo ? COR_TEXTO_MENU : COR_DESATIVADO;
             if (i == p->sel) {
                 sup_retangulo(t, p->x + 4 + dx, y, p->l - 6 - dx, h, destaque_c);
-                cor = 0xFFFFFF;
+                cor = classico ? 0xFFFFFF : esquema()->menu_sel_texto;
             }
             if (m.icone[i]) sup_desenho_metade(t, p->x + 12 + dx, y + (h - 16) / 2, m.icone[i]);
             if (m.marcada[i]) visto(t, p->x + 5 + dx + (p->icones ? 20 : 0), y + (h - 8) / 2, cor);
@@ -538,7 +540,7 @@ static void desenhar_painel(superficie_t *t, painel_t *p)
             const char *at = atalho_de(i);
             if (*at)
                 sup_texto(t, p->x + p->l - MARGEM_X - texto_largura(at) - (m.tipo[i] == ITEM_SUBMENU ? SETA_L : 0),
-                          y + (h - 16) / 2, at, i == p->sel ? 0xFFFFFF : ativo ? COR_ATALHO : COR_DESATIVADO);
+                          y + (h - 16) / 2, at, i == p->sel ? (classico ? 0xFFFFFF : esquema()->menu_sel_texto) : ativo ? COR_ATALHO : COR_DESATIVADO);
             if (m.tipo[i] == ITEM_SUBMENU) seta(t, p->x + p->l - 14, y + (h - 7) / 2, cor);
         }
         y += h;

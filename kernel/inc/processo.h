@@ -107,6 +107,7 @@ typedef struct processo {
     uint32_t    fd_fechar_exec;   /* en el líder: bit n = FD_CLOEXEC del descriptor n */
     bool        exec_sem_volta;   /* revisión D401: execve ya mató los demás hilos; si falla ahora, el proceso termina */
     bool        fpu_usada;        /* ya usó FPU/MMX/SSE: "fpu" guarda sus registros */
+    bool        prio_audio;       /* D436: «alta prioridad de audio» (PLAN_AUDIO); no se hereda */
     /* área del FXSAVE o del XSAVE (D381): XSAVE pide 64 bytes de alineación y la cabecera
      * (bytes 512-575) a cero hasta el primer guardado; memset al crear el proceso lo deja así. */
     uint8_t     fpu[FPU_ESTADO] __attribute__((aligned(FPU_ESTADO_ALINHA)));

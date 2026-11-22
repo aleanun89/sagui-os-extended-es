@@ -147,6 +147,7 @@ struct ehci {
 
 int  ehci_iniciar_todos(void);                 /* devuelve cuántos controladores encendió */
 int  ehci_quantidade(void);
+int  ehci_parar_todos(void);   /* D450: apagar/reiniciar: Run/Stop = 0 (20 ms cada uno); cuántos se pararon */
 void ehci_modo_assincrono(bool ligado);        /* D095: puede dormir esperando el DMA (solo con planificador y IRQ) */
 ehci_t *ehci_controlador(int i);
 uint32_t ehci_porta_estado(ehci_t *c, int porta);

@@ -251,17 +251,18 @@ bool atalhos_visivel(void) { return alternando && pl > 0; }   /* D195 */
 void atalhos_desenhar(superficie_t *s)
 {
     if (!alternando || pl <= 0) return;
+    const esquema_t *q = esquema();   /* D428 */
     uint32_t acento = aparencia_acento();
-    sup_retangulo(s, px, py, pl, pa, 0x18202A);
+    sup_retangulo(s, px, py, pl, pa, q->painel_fundo);
     sup_moldura(s, px, py, pl, pa, acento);
     sup_moldura(s, px + 1, py + 1, pl - 2, pa - 2, acento);
     int x0 = px + (pl - colunas * CELDA) / 2;
     for (int i = 0; i < qtd_lista; i++) {
         int cx = x0 + (i % colunas) * CELDA, cy = py + MARGEN + (i / colunas) * CELDA;
         if (i == elegida) {
-            sup_retangulo(s, cx + 2, cy + 2, CELDA - 4, CELDA - 4, 0x34485C);
-            sup_moldura(s, cx + 2, cy + 2, CELDA - 4, CELDA - 4, 0xFFDF4A);
-            sup_moldura(s, cx + 3, cy + 3, CELDA - 6, CELDA - 6, 0xFFDF4A);
+            sup_retangulo(s, cx + 2, cy + 2, CELDA - 4, CELDA - 4, q->barra_propia ? esq_mix(q->painel_fundo, q->painel_texto, 22) : 0x34485C);
+            sup_moldura(s, cx + 2, cy + 2, CELDA - 4, CELDA - 4, q->painel_borde);
+            sup_moldura(s, cx + 3, cy + 3, CELDA - 6, CELDA - 6, q->painel_borde);
         }
         desenhar_icone(s, cx + (CELDA - 32) / 2, cy + (CELDA - 32) / 2, lista[i].processo);
         if (lista[i].minimizada)   /* una raya gris debajo: está minimizada */
@@ -277,5 +278,5 @@ void atalhos_desenhar(superficie_t *s)
         if (cabe >= 4) t[cabe - 1] = t[cabe - 2] = '.';
     }
     int tl = (int)txt_tamanho(t) * 8;
-    sup_texto(s, px + (pl - tl) / 2, py + pa - ALTO_TITULO, t, 0xFFFFFF);
+    sup_texto(s, px + (pl - tl) / 2, py + pa - ALTO_TITULO, t, q->painel_texto);
 }

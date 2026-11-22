@@ -78,6 +78,7 @@ void     motor_pintar(motor_t *m, uint32_t *px, int larg, int passo, int y, int 
  * exemplo, uma animação mudou de estado). Sem chamadas a motor_tick o motor
  * fica como sempre: sem animações. */
 bool     motor_tick(motor_t *m, unsigned ms);
+bool     motor_tem_camadas(motor_t *m);      /* hay fixed/sticky: no se puede desplazar copiando (D441) */
 void     motor_rolagem(motor_t *m, int y);   /* mantém hit-test alinhado após pintura em faixas */
 /* Alvo no ponto (x, y) da página, ou NULL. */
 const motor_alvo_t *motor_alvo(motor_t *m, int x, int y);

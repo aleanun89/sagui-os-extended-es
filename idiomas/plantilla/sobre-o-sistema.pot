@@ -65,11 +65,11 @@ msgstr ""
 msgid "Red (driver e1000, TCP/IP) y navegador Cipó:"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:92 userland/programas/sobre-o-sistema.c:127
+#: userland/programas/sobre-o-sistema.c:92 userland/programas/sobre-o-sistema.c:129
 msgid "con mejoras escritas con Claude (Anthropic)"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:93 userland/programas/sobre-o-sistema.c:128
+#: userland/programas/sobre-o-sistema.c:93 userland/programas/sobre-o-sistema.c:130
 msgid "y con un agente de IA (MiniMax Code)."
 msgstr ""
 
@@ -85,39 +85,43 @@ msgstr ""
 msgid "(GPLv2). Ver docs/terceros.md."
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:108 userland/programas/sobre-o-sistema.c:124 userland/programas/sobre-o-sistema.c:147 userland/programas/sobre-o-sistema.c:160
+#: userland/programas/sobre-o-sistema.c:99
+msgid "Sonidos: Kenney (kenney.nl), CC0"
+msgstr ""
+
+#: userland/programas/sobre-o-sistema.c:110 userland/programas/sobre-o-sistema.c:126 userland/programas/sobre-o-sistema.c:149 userland/programas/sobre-o-sistema.c:162
 msgid "Créditos"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:125
+#: userland/programas/sobre-o-sistema.c:127
 msgid "Basado en SaguiOS, de Eli Rigobeli (Claude,"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:126
+#: userland/programas/sobre-o-sistema.c:128
 msgid "Anthropic). Mantenido por Alejandro Anuncibay,"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:129
+#: userland/programas/sobre-o-sistema.c:131
 msgid "Pulsa \"Créditos\" para ver los créditos"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:137
+#: userland/programas/sobre-o-sistema.c:139
 msgid "Acerca de SaguiOS-Extended"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:143
+#: userland/programas/sobre-o-sistema.c:145
 msgid "un sistema operativo"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:144
+#: userland/programas/sobre-o-sistema.c:146
 msgid "escrito desde cero"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:146
+#: userland/programas/sobre-o-sistema.c:148
 msgid "Cerrar"
 msgstr ""
 
-#: userland/programas/sobre-o-sistema.c:160
+#: userland/programas/sobre-o-sistema.c:162
 msgid "Información"
 msgstr ""
 

@@ -79,10 +79,15 @@ TCC_EJEMPLOS := $(wildcard $(TCC_DIR)/ejemplos/*)
 # así «tcc hola.c» no necesita -l; principal_main.o da principal() a los programas con main().
 TCC_LIBC_OBJ := $(LIBC_OBJ) $(QJS_LIBM) $(filter-out %/inicio.asm.o,$(LIBSAGUI_OBJ)) $(TCC_B)/principal_main.o
 TCC_SDL_OBJ := $(SDL2_OBJ) $(B)/userland/libsdl2/sdl2_rwops.o
+# D425: OpenGL ES 1.1 (SaguiGL) y EGL: -lGLESv1_CM -lEGL, con <GLES/gl.h> y <EGL/egl.h>.
+TCC_GL_OBJ := $(B)/userland/libsgl/sgl.o $(B)/userland/libsgl/sgl_fixo.o
+TCC_EGL_OBJ := $(B)/userland/libsgl/sgl_egl.o
 $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B)/tcc_simbolos.c $(TCC_B)/tcc_simbolos.o \
                     $(TCC_DIR)/autocompilar.sh $(TCC_DIR)/Makefile.autocompilar $(TCC_LIBC_OBJ) $(TCC_SDL_OBJ) $(SDL2CAPAS_OBJ) $(FONTES_OBJ) $(B)/userland/libsagui/inicio.asm.o \
                     $(LIBC_HDR) $(USER_HDR) $(TCC_KERNEL_H) $(wildcard userland/libsdl2/*.h userland/libsdl2/SDL2/*.h) \
-                    $(wildcard $(TCC_DIR)/plataforma/include/*.h) $(TCC_EJEMPLOS) $(TCC_DIR)/leeme.txt $(TCC_DIR)/tcc.mk
+                    $(wildcard $(TCC_DIR)/plataforma/include/*.h) $(TCC_EJEMPLOS) $(TCC_DIR)/leeme.txt $(TCC_DIR)/tcc.mk \
+                    $(TCC_GL_OBJ) $(TCC_EGL_OBJ) $(SDL2GL_OBJ) $(wildcard userland/inc/GLES/*.h userland/inc/EGL/*.h userland/inc/KHR/*.h) kernel/inc/esquemas.h \
+                    $(LUA_A)
 	rm -rf $(TCC_RAIZ) && mkdir -p $(TCC_RAIZ)/include/sagui $(TCC_RAIZ)/include/kernel $(TCC_RAIZ)/include/SDL2 \
 	  $(TCC_RAIZ)/lib $(TCC_RAIZ)/ejemplos $(TCC_B)/lib-obj
 	cp $(TCC_F)/include/*.h $(TCC_RAIZ)/include/
@@ -91,18 +96,26 @@ $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B
 	cp -r $(TCC_DIR)/plataforma/include/. $(TCC_RAIZ)/include/
 	cp $(TCC_F)/libtcc.h $(TCC_RAIZ)/include/
 	cp userland/inc/*.h $(TCC_RAIZ)/include/sagui/
+	@# D428: gui.h incluye esquemas.h (el esquema de apariencia, compartido con el kernel)
+	cp kernel/inc/esquemas.h $(TCC_RAIZ)/include/sagui/
 	cp $(TCC_KERNEL_H) $(TCC_RAIZ)/include/kernel/
 	cp userland/libsdl2/*.h $(TCC_RAIZ)/include/SDL2/
 	cp -r userland/libsdl2/SDL2 $(TCC_RAIZ)/include/SDL2/
+	cp -r userland/inc/GLES userland/inc/EGL userland/inc/KHR $(TCC_RAIZ)/include/
+	@# D440: Lua 5.4 para incrustarlo: <lua.h>, <lauxlib.h>, <lualib.h>, <luaconf.h>, <lua.hpp> y -llua
+	$(if $(LUA_A),cp $(addprefix $(LUA_F)/,lua.h lauxlib.h lualib.h luaconf.h lua.hpp) $(TCC_RAIZ)/include/ && cp $(LUA_A) $(TCC_RAIZ)/lib/liblua.a)
 	@# crt1.o: el _inicio de la libsagui (en .text: NASM deja .text.inicio sin permiso de ejecución) y _start
 	objcopy --rename-section .text.inicio=.text,alloc,code,readonly,load,contents \
 	  --add-symbol _start=.text:0,global,function $(B)/userland/libsagui/inicio.asm.o $(TCC_RAIZ)/lib/crt1.o
 	as --32 -o $(TCC_RAIZ)/lib/crti.o /dev/null
 	cp $(TCC_RAIZ)/lib/crti.o $(TCC_RAIZ)/lib/crtn.o
 	ar rcs $(TCC_RAIZ)/lib/libc.a $(TCC_LIBC_OBJ)
-	ar rcs $(TCC_RAIZ)/lib/libSDL2.a $(TCC_SDL_OBJ)
+	ar rcs $(TCC_RAIZ)/lib/libSDL2.a $(TCC_SDL_OBJ) $(SDL2GL_OBJ)
 	ar rcs $(TCC_RAIZ)/lib/libSDL2_image.a $(B)/userland/libsdl2/sdl2_image.o
 	ar rcs $(TCC_RAIZ)/lib/libSDL2_ttf.a $(B)/userland/libsdl2/sdl2_ttf.o $(FONTES_OBJ)
+	@# las dos con todo: así da igual el orden de -lEGL y -lGLESv1_CM
+	ar rcs $(TCC_RAIZ)/lib/libGLESv1_CM.a $(TCC_GL_OBJ) $(TCC_EGL_OBJ)
+	ar rcs $(TCC_RAIZ)/lib/libEGL.a $(TCC_EGL_OBJ) $(TCC_GL_OBJ)
 	ar rcs $(TCC_RAIZ)/lib/libSDL2_mixer.a $(B)/userland/libsdl2/sdl2_mixer.o $(B)/userland/libsdl2/sdl2_vorbis.o
 	@# -lm, -lsagui y -lpthread no hacen falta (todo está en libc.a) pero se aceptan: archivos con un objeto vacío
 	as --32 -o $(TCC_B)/lib-obj/vacio.o /dev/null

@@ -97,6 +97,24 @@ typedef uint32_t g3d_vala_t;     /* número de secuencia de una entrega; 0 = nin
 
 /* ------------------------------------------------------------ un driver */
 
+/* D432: una presentación directa. Coordenadas ya recortadas: la fuente dentro de su búfer y el
+ * destino dentro de la pantalla visible. */
+#define G3D_APRES_BANDAS  0x100u   /* (interno) antes, pintar de negro la pantalla fuera del destino */
+typedef struct {
+    int      vaga;                 /* hueco de textura, o < 0: el destino principal */
+    int      ox, oy, ol, oa;       /* en píxeles de la fuente */
+    int      dx, dy, dl, da;       /* en píxeles de la pantalla */
+    uint32_t flags;                /* G3D_APRES_* (abi.h) y G3D_APRES_BANDAS */
+} g3d_apres_t;
+/* Los rectángulos negros (hasta 4: arriba, abajo, izquierda, derecha) que rodean el destino en una
+ * pantalla de larg x alt; devuelve cuántos (los vacíos no cuentan). r[i] = { x, y, l, a }. */
+int g3d_apres_bandas(const g3d_apres_t *p, int larg, int alt, int r[4][4]);
+/* Seis vértices v1 (dos triángulos) que llevan el rectángulo de la fuente (de un búfer de fl x fa
+ * texels, coordenadas de textura de 0 a 1) al de destino; color blanco opaco, sin especular. */
+void g3d_apres_quad(const g3d_apres_t *p, int fl, int fa, gpu3d_vert_t q[6]);
+/* Seis vértices de color «cor» (0xAARRGGBB) sobre el rectángulo x, y, l, a. */
+void g3d_quad_cor(int x, int y, int l, int a, uint32_t cor, gpu3d_vert_t q[6]);
+
 typedef struct {
     const char *nome;
     /* Pone el motor en marcha (variante: GPU3D_CAB_ANEL...). No dibuja nada todavía. */
@@ -124,6 +142,25 @@ typedef struct {
     int                n_faixas;
     /* Lo que la CPU ve del destino actual (cpu NULL: nada). Sin destino, las dos vacías. */
     void (*vistas)(g3d_vista_t *cor, g3d_vista_t *z);
+    /* ---- gpu3d v2 (D425; docs/gpu3d.md «gpu3d v2»). Todas pueden ser NULL: un driver sin ellas
+     * sigue como v1 y SaguiGL dibuja por software lo que no cabe en v1. */
+    /* Qué sabe hacer (tras iniciar). La capa ya rellenó los valores de v1 (bits 0, 1 unidad,
+     * GPU3D_MAX_LADO, solo ARGB, Z 16 y 24, sin esténcil): el driver cambia lo que tenga. */
+    void (*capacidades)(gpu3d_capas_t *c);
+    /* Como desenhar, con el estado v2 (ya validado contra las capacidades) y vértices v2. */
+    int  (*desenhar2)(const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n, g3d_vala_t *vala);
+    /* Un nivel de una cara (t->dados: puntero del programa ya comprobado, como en v1); dados 0: soltar el hueco. */
+    int  (*textura2)(const gpu3d_textura2_t *t);
+    int  (*limpar2)(const gpu3d_limpar2_t *l);
+    /* Dibujar en el hueco «vaga» (su nivel 0; cara 0) o, con vaga < 0, en el destino principal.
+     * zbits 0/16/24 y estencil 0/8: el Z y el esténcil propios de ese destino. */
+    int  (*destino)(int vaga, int zbits, int estencil);
+    /* ---- D432: presentar sin volver a la RAM (docs/gpu3d.md). Puede ser NULL.
+     * p == NULL: «¿puedes escribir en la pantalla de ahora?» (G3D_OK o G3D_NAO; sin tocar la GPU).
+     * Si no, copia el rectángulo de la fuente al de la pantalla visible (escalando), espera a que
+     * la GPU termine (con plazo) y deja el destino de dibujo como estaba. La capa ya comprobó los
+     * rectángulos y que quien llama tiene la pantalla en exclusiva. */
+    int  (*apresentar)(const g3d_apres_t *p);
 } gpu3d_driver_t;
 
 /* D390: los ajustes del fichero del driver, leídos por la capa antes de iniciar() y ya
@@ -133,6 +170,7 @@ extern g3d_ajustes_t gpu3d_ajustes;
 extern const gpu3d_driver_t gpu3d_intel;   /* Gen3: 915, 945, G33, Pineview (gpu3d_intel.c) */
 extern const gpu3d_driver_t gpu3d_r600;    /* Radeon R7xx por el CP (gpu3d_r600.c, D284): no se enciende solo */
 extern const gpu3d_driver_t gpu3d_r500;    /* Radeon R5xx: X1300 a X1950 (gpu3d_r500.c, D287) */
+extern const gpu3d_driver_t gpu3d_evergreen; /* Radeon Evergreen y NI sin Cayman: HD 5000-6000, HD 7500M/7600M (gpu3d_evergreen.c, D427) */
 extern const gpu3d_driver_t gpu3d_sim;     /* de mentira, por la CPU (gpu3d_sim.c): solo pruebas */
 
 /* D358: lo que quedó en marcha en la Intel (GPU3D_VAR_*) y los KB de RAM en el GTT. */
@@ -148,6 +186,21 @@ int32_t gpu3d_op(uint32_t ptr, uint32_t n);
 int32_t gpu3d_prova(uint32_t ptr, uint32_t n);
 int32_t gpu3d_ctl(uint32_t op);
 const char *gpu3d_resumo(void);              /* una línea para el arranque */
+/* D432: el compositor retiró la pantalla exclusiva (para el contador y el log). */
+void gpu3d_exclusiva_perdida(void);
+
+/* D436 (audio): las esperas largas de un driver (vallas, cola llena, leer el cuadro por la CPU) llaman a esto en cada
+ * vuelta. Si la espera es de una llamada de un programa (GPU3D_OP_*), cada GPU3D_RESPIRAR_MS deja pasar las
+ * interrupciones pendientes (el reloj y la tarjeta de sonido: el mezclador del kernel) y cede la CPU a quien esté listo
+ * (el hilo de audio). Fuera de eso (arranque, tareas del kernel, una IRQ) no hace nada: se sigue girando como antes.
+ * Solo se puede llamar donde el estado del driver está entero (entre órdenes completas en la cola): mientras cede,
+ * otro proceso puede entrar en el driver (el 2D por la cola del CP); otro hilo del dueño, no (espera en gpu3d_op). */
+#define GPU3D_RESPIRAR_MS 2
+void gpu3d_respirar(void);
+/* Nunca cede dentro de un fpu_kernel_inicio/fim (copias con SSE): allí no hace nada. Pruebas: forzar ceder siempre. */
+void gpu3d_respirar_forcar(bool sim);
+/* Mientras haya un bloqueo, no cede (las entradas del driver para el 2D y la energía, la vuelta por la GART). */
+void gpu3d_respirar_bloquear(bool sim);
 
 /* Coma flotante sin coma flotante: bits IEEE-754 <-> coma fija con «frac» bits. */
 uint32_t g3d_float_de_fixo(int32_t v, int frac);

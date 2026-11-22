@@ -52,7 +52,7 @@ msgstr "Não há imagens em %s"
 msgid "%s - Visor de imágenes"
 msgstr "%s - Visualizador de imagens"
 
-#: userland/programas/visor.c:210 userland/programas/visor.c:477
+#: userland/programas/visor.c:210 userland/programas/visor.c:484
 msgid "Visor de imágenes"
 msgstr "Visualizador de imagens"
 

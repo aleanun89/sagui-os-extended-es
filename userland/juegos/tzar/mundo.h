@@ -61,6 +61,12 @@ enum {
 	TZC_FISH = 111, TZC_FISHPATCH = 115, TZC_FISHING_BOAT = 136,
 	TZ_NCLASSES = 144,
 };
+/* Clases añadidas en la v8.5.5.2 (comercio, objetos, taberna, hechizos): solo se añade, nada cambia de sitio. */
+enum {
+	TZC_CRUSADER = 11, TZC_MONK = 12, TZC_NINJA = 13, TZC_MAGE = 17, TZC_PRIEST = 18, TZC_GALLEON = 23, TZC_HULK = 24, TZC_XEBEC = 25,
+	TZC_JIHAD = 33, TZC_SKELETON = 36, TZC_TAVERN = 48, TZC_CATHEDRAL = 55, TZC_MOSQUE = 71, TZC_ITEM_MAIS = 81,
+	TZC_PERGAMINHO = 103, TZC_LIVRO = 104, TZC_POCAO = 106, TZC_ANCORA = 116, TZC_ITEM_ALMA = 125, TZC_REDEMOINHO = 130,
+};
 
 /* ================================================================== números aleatorios (simulation.rs NativeRng) */
 typedef struct { uint32_t s; } TzRng;
@@ -136,6 +142,7 @@ const TzAtributos *tz_catalogo_at(const TzCatalogo *c, int classe, int civ);
 int tz_catalogo_tec(const TzCatalogo *c, const char *nome);          /* índice o -1 */
 const TzOrdemDef *tz_catalogo_ordem(const TzCatalogo *c, const char *chave);
 int tz_catalogo_classe(const char *nome);                            /* índice en tz_classes o -1 */
+int tz_catalogo_custo_ini(const TzCatalogo *c, int classe, int civ, uint32_t custo[TZ_NREC]);   /* «cost» del INI de la clase */
 /* las órdenes que tiene el menú de una clase (con los submenús), para los botones de la interfaz */
 int tz_catalogo_menu(const TzCatalogo *c, int classe, int civ, const TzOrdemDef **out, int max);
 /* el golpe con el bono de BONUS.INI del atacante (clase, civ) contra el defensor (gameplay.rs received) */
@@ -189,6 +196,10 @@ enum TzOrdemTipo {
 	TZ_O_HECHIZO,        /* arg = índice de la orden «spell ...» en cat->ord; objeto o casilla */
 	TZ_O_FUGIR,
 	TZ_O_PARAR,          /* vaciar órdenes */
+	/* v8.5.5.2 */
+	TZ_O_VENDER,         /* objeto: mercado, puerto o castillo donde se vende la carga de comercio (Sell) */
+	TZ_O_ASESINAR,       /* objeto: el golpe mortal del ninja (Murder) */
+	TZ_O_SUPLANTAR,      /* objeto: el espía se mete en una unidad (Impersonate) */
 	TZ_O_NTIPOS
 };
 
@@ -255,10 +266,43 @@ typedef struct {
 	uint32_t ultimo_golpe;        /* tic del último daño recibido (para avisos y huidas) */
 	uint8_t efeito;               /* TZ_EF_*: hechizo que lo afecta (gameplay.rs effect) */
 	uint32_t efeito_ate;          /* tic en que se acaba */
+	/* ---- v8.5.5.2: solo se añade (comercio.c, itens.c, magia.c) ---- */
+	/* ruta comercial (gameplay.rs Route, 0x4e8060): la unidad va y viene entre dos mercados cargando recursos */
+	struct TzRota {
+		uint8_t ativa, rec[2];    /* rec[0] se carga en el mercado de origen, rec[1] en el otro */
+		uint32_t quantidade, distancia, lado_mapa, carga, reintento;
+		uint8_t carga_tipo;
+		TzId reservado;           /* el mercado que ocupa mientras comercia */
+	} rota;
+	TzId com_origem, com_parceiro;        /* los dos mercados de la ruta */
+	/* intercambio de la taberna (TRADE1): pagado de golpe, entregado a una unidad cada 6 tics */
+	struct TzTroca { uint8_t ativa, de, para; uint32_t pago, total, entregue, proximo; } troca;
+	/* ofertas de la taberna: [0] mercenarios, [1] héroes (TZ_OFERTAS cada una, la más vieja sale primero) */
+	struct TzOferta { uint16_t id; uint8_t classe, civ; uint16_t quantidade, nivel; } oferta[2][8];
+	uint8_t noferta[2];
+	uint32_t oferta_prox;                 /* tic de la siguiente oferta */
+	uint32_t cruzada_prox;                /* catedral: tic en que suma otro cruzado */
+	uint32_t dono_orig;                   /* hipnosis: el dueño al que vuelve (0 = ninguna) */
+	uint32_t maldicao_ate, hipnose_ate, invisivel_ate;   /* tic en que acaban (0 = no activo) */
+	uint8_t espia_energia;                /* espía disfrazado: 100 al principio, +1 por segundo */
+	TzId espia_em;                        /* el objeto en el que se ha metido, o TZ_NENHUM */
+	uint8_t aprendidos[8]; uint8_t naprendidos;   /* hechizos aprendidos con libros (índice 0..20) */
+	TzId ancla_cruzada;                   /* cruzado: el ancla de su cruzada (TZ_NENHUM = ninguna) */
+	uint8_t nitens;                       /* objetos que lleva */
+	TzId remoinho_dono;                   /* remolino: quién lo lanzó */
+	uint8_t remoinho_mov;                 /* remolino: movimientos que le quedan */
+	TzId livro;                           /* libro desde el que se lanza el hechizo en curso (sin gastar maná), o TZ_NENHUM */
+	uint32_t remoinho_golpe, remoinho_mueve;   /* remolino: tics del siguiente daño y del siguiente movimiento */
+	/* espía infiltrado en esta unidad (ReTzar Mole): el reino del espía también la manda; con 60 de energía puede pasar a otra */
+	uint8_t espia_reino, espia_civ, espia_nivel, espia_heroi;
+	uint16_t espia_xp;
+	int32_t espia_vida, espia_vida_max;
 } TzAtor;
 
 /* efectos de los hechizos sobre una unidad (gameplay.rs effect: BLESS 5, FREEZE 6, STONE 14...) */
-enum { TZ_EF_NADA = 0, TZ_EF_BENDICAO = 5, TZ_EF_GELO = 6, TZ_EF_FURIA = 7, TZ_EF_PEDRA = 14 };
+enum { TZ_EF_NADA = 0, TZ_EF_BENDICAO = 5, TZ_EF_GELO = 6, TZ_EF_FURIA = 7, TZ_EF_PEDRA = 14,
+       /* v8.5.5.2: no usan el hueco único (TzAtor.efeito), tienen su propio plazo para sumarse a los demás */
+       TZ_EF_INVISIVEL = 9, TZ_EF_HIPNOSE = 13, TZ_EF_MALDICAO = 20 };
 
 /* ================================================================== objetos */
 enum {   /* TzObj.flags: los bits de world.rs (FLAG_*) que se conservan del mapa, más los propios de la simulación */
@@ -273,6 +317,18 @@ enum {   /* TzObj.flags: los bits de world.rs (FLAG_*) que se conservan del mapa
 	TZ_F_DENTRO      = 0x20000000,    /* FLAG_HELD: dentro de otro (guarnición, barco) */
 	TZ_F_OBRA        = 0x40000000,    /* FLAG_CONSTRUCTION */
 };
+
+/* La carga de un objeto (poción, libro, pergamino, equipo): los campos del registro del mapa (ReTzar fill_item:
+ * vida 0x12, ataque 0x16/0x17, defensa 0x18, experiencia 0x1c, maná 0x24, hechizo 0x60 del libro, cargas 0x66). */
+typedef struct {
+	int32_t vida, mana;           /* sube el máximo y el actual (pociones) */
+	uint16_t ataque, defesa;      /* pociones: permanente; equipo: mientras se lleva */
+	uint16_t xp;                  /* pociones: puntos de experiencia */
+	uint8_t feitico;              /* libro: índice del hechizo (spell_key de world.rs, 0..20) */
+	uint8_t finito;               /* libro con cargas contadas */
+	uint16_t cargas;              /* libro: usos que le quedan (si finito) */
+	uint8_t texto;                /* pergamino: tiene texto de historia (lo muestra el guion) */
+} TzItem;
 
 typedef struct {
 	uint16_t id_mapa;             /* id del registro del mapa (los guiones lo usan), o el siguiente libre */
@@ -293,6 +349,10 @@ typedef struct {
 	uint16_t ndentro;             /* cuántos lleva */
 	const TzObjeto *original;     /* el registro del mapa (nombre de héroe, dibujo propio...), o NULL */
 	TzAtor *ator;                 /* NULL en decoración, recursos y objetos muertos */
+	/* v8.5.5.2: lo que lleva un objeto (clases 81, 103, 104, 106, 125). Un objeto llevado tiene TZ_F_CARREGADO y
+	 * dentro_de = quien lo lleva (no cuenta como TZ_F_DENTRO: no es de guarnición). */
+	TzItem item;
+	uint16_t pocao_ataque, pocao_defesa;   /* lo que sumaron las pociones bebidas (permanente) */
 } TzObj;
 
 /* ================================================================== reinos */
@@ -319,6 +379,17 @@ typedef struct {
 	uint32_t criadas, perdidas, matadas, recolhido[TZ_NREC];
 	/* niebla (simulation.rs Fog): 0 nunca visto, 1 visto, 2 visible ahora; lado*lado */
 	uint8_t *nevoa;
+	/* ---- v8.5.5.2: préstamos y cruzadas (gameplay.rs Treasury) ---- */
+	uint32_t emp_quantia;         /* lo que da el próximo préstamo (1000, +200 por cada uno devuelto) */
+	uint8_t emp_rec;              /* recurso del préstamo vivo + 1 (0 = ninguno) */
+	uint32_t emp_aumenta_tic, emp_aumenta_quantia;   /* el aumento que llega un minuto después de devolver (0 = ninguno) */
+	uint16_t cruzados;            /* cruzados listos (16 al principio); 0xffff mientras corre una cruzada */
+	uint16_t cruzadas_completas;  /* cada una completa sube el techo en 4 */
+	TzId cruz_ancla;              /* la cruzada en marcha: su ancla (TZ_NENHUM = ninguna) */
+	uint16_t cruz_faltan;         /* cruzados que aún han de llegar */
+	uint32_t cruz_proximo;        /* tic del siguiente que llega */
+	uint16_t proxima_oferta;      /* contador de ofertas de la taberna (id) */
+	uint16_t torneio;             /* Tournaments: puntos de experiencia del reino hacia el siguiente punto a los monjes */
 } TzReinoEstado;
 
 /* ================================================================== eventos (gameplay.rs GameEvent, SoundEvent, Show) */
@@ -352,6 +423,13 @@ enum TzEventoTipo {
 	TZ_EV_SOM,           /* sonido con nombre de un guion: valor = índice en m->textos */
 	TZ_EV_DIPLOMACIA,    /* reino cambió su relación con valor */
 	TZ_EV_TRABALHO,      /* obj dio un golpe de trabajo (talar, minar, cavar, construir...): valor = TZ_TRAB_*, para el sonido */
+	/* v8.5.5.2 */
+	TZ_EV_COMERCIO,      /* obj (mercader) cobró valor del recurso classe en el mercado alvo */
+	TZ_EV_ITEM,          /* obj recogió (valor 1), soltó (2), usó (3) o vendió (4) el objeto alvo */
+	TZ_EV_CONTRATO,      /* obj (taberna) contrató valor unidades de la clase classe */
+	TZ_EV_EMPRESTIMO,    /* el reino recibió (valor > 0) o devolvió (valor < 0) un préstamo del recurso classe */
+	TZ_EV_CRUZADA,       /* el reino lanzó una cruzada desde obj; alvo = el ancla; valor = cruzados */
+	TZ_EV_TROCA,         /* obj (taberna) entregó una unidad del recurso classe en un intercambio */
 	TZ_EV_NTIPOS
 };
 
@@ -378,6 +456,14 @@ enum TzComandoTipo {
 	TZ_C_DIPLOMACIA,     /* relación del reino con arg = valor (bits TZ_DIP_*) */
 	TZ_C_RENDIR,         /* el reino se rinde */
 	TZ_C_TRUCO,          /* cheats.rs: arg = código, valor */
+	/* v8.5.5.2 (ids[0] es la taberna salvo donde se dice) */
+	TZ_C_EMPRESTAR,      /* préstamo: arg = recurso (TZ_OURO...) */
+	TZ_C_DEVOLVER,       /* devolver el préstamo (lo prestado + 200) */
+	TZ_C_TROCAR,         /* intercambio: arg = de | (para << 2), valor = cantidad pagada (500..20000 de 500 en 500) */
+	TZ_C_CONTRATAR,      /* contratar la oferta arg (TzOferta.id) */
+	TZ_C_CRUZADA,        /* catedral ids[0]: lanzar la cruzada en (x, y) con los cruzados listos */
+	TZ_C_CONVERTIR,      /* ids[]: arg = TZC_PRIEST o TZC_JIHAD (become_priest, become_jihad_warrior) */
+	TZ_C_VENDER,         /* mercado ids[0]: vender el objeto arg (TzId en valor) por su valor en oro */
 };
 #define TZ_CMD_FILA   1          /* encolar en vez de sustituir */
 #define TZ_CMD_IDS    64         /* objetos por comando (más: varios comandos) */
@@ -455,6 +541,7 @@ typedef struct TzMundo {
 	/* rendimiento y depuración */
 	uint32_t ms_ultimo_tic;
 	void *priv;                   /* lo interno de la simulación (búsqueda de caminos...) */
+	uint16_t sem_resgate;         /* v8.5.5.2: bit k = el reino k no rescata prisioneros (@kingdomcanrescue); se guarda con la partida */
 } TzMundo;
 
 /* ---------------------------------------------------------------- vida de la partida (mundo.c) */
@@ -532,11 +619,47 @@ void tz_mundo_guiao_atributos(TzMundo *m, TzId i, int32_t vida, int nivel, int m
 void tz_mundo_guiao_terminar_obra(TzMundo *m, TzId i);             /* @build: la obra queda hecha */
 /* revelar una zona solo durante unos tics (vuelve a la niebla después); hasta TZ_VISOES a la vez */
 void tz_mundo_guiao_revelar_temp(TzMundo *m, int k, int cx, int cy, int raio, uint32_t tics);
-/* los recursos de un reino sumando los de los reinos que comparten con él (relación 0x02 en los dos sentidos) */
+/* los recursos que puede gastar un reino: los suyos más los de cada reino que comparte los suyos con él (gameplay.rs stock: el bit 0x02 de la
+ * relación de ese reino hacia él). Pagar (obras, entrenar, investigar, mejorar, contratar) gasta primero lo propio y luego lo de los que comparten. */
 void tz_mundo_recursos_compartidos(const TzMundo *m, int k, int32_t out[TZ_NREC]);
+/* @kingdomcanrescue: ¿puede el reino k rescatar prisioneros (unidades del reino 9)? Un soldado suyo a una casilla de un prisionero lo libera. */
+void tz_mundo_pode_resgatar(TzMundo *m, int k, int pode);
 /* partida libre (world/starting.rs reset_initial_forces): quita las unidades y edificios de los reinos y pone a cada
  * reino activo un castillo y tres peones en su casilla de inicio (o donde estaban sus fuerzas). Antes del primer tic. */
 int tz_mundo_inicio_livre(TzMundo *m);
+
+/* ---------------------------------------------------------------- v8.5.5.2: comercio, taberna, objetos, experiencia
+ * Todo se maneja con comandos (TZ_C_*, TZ_O_COMERCIAR, TZ_O_PEGAR_ITEM, TZ_O_USAR_ITEM, TZ_O_SOLTAR_ITEM, TZ_O_HECHIZO);
+ * estas consultas son para que la interfaz y la IA enseñen precios y ofertas. */
+/* TZ_O_COMERCIAR: ordem.alvo = el mercado de destino, (x2, y2) = una casilla del mercado de origen, arg =
+ * rec0 | (rec1 << 2) | ((cantidad / 50) << 4): rec0 se carga en el origen y rec1 en el destino. */
+#define TZ_ARG_COMERCIO(r0, r1, q) ((int16_t)((r0) | ((r1) << 2) | (((q) / 50) << 4)))
+/* ganancia de una carga entre dos mercados (el «(+n)» del diálogo de ReTzar) */
+uint32_t tz_mundo_lucro_rota(const TzMundo *m, int k, TzId mercado_a, TzId mercado_b, uint32_t carga);
+/* carga que lleva el objeto en cada viaje (0 = no comercia) */
+uint32_t tz_mundo_capacidade_comercio(const TzMundo *m, TzId i);
+/* ofertas de una taberna: lista 0 mercenarios, 1 héroes; devuelve cuántas escribió */
+int tz_mundo_ofertas(const TzMundo *m, TzId taberna, int lista, struct TzOferta *out, int max);
+/* precio de una oferta (gameplay.rs hire_price: coste de la clase × cantidad × 1,6, + 30 de oro por nivel y 15 por nivel de
+ * los demás recursos que cueste la clase) */
+void tz_mundo_preco_oferta(const TzMundo *m, const struct TzOferta *o, uint32_t preco[TZ_NREC]);
+/* experiencia y niveles (gameplay.rs add_experience, experience_rules): el reino puede subir de nivel hasta este tope
+ * (0 sin investigaciones, +4 por Learning, +10 por academia, sin tope con Heroism) y cuántos puntos pide cada nivel (%) */
+void tz_mundo_regras_xp(const TzMundo *m, int k, int *tope, int *velocidad);
+void tz_mundo_experiencia(TzMundo *m, TzId i, int pontos);
+/* objetos: ¿puede la unidad llevar más? ¿qué lleva? */
+int tz_mundo_itens(const TzMundo *m, TzId i, TzId *out, int max);
+int tz_mundo_capacidade_itens(const TzMundo *m, TzId i);
+int tz_obj_item(const TzObj *o);                      /* es un objeto recogible (poción, libro, pergamino, equipo, alma) */
+/* un objeto nuevo en el suelo con esa carga (para guiones, taberna y mercado; TZ_NENHUM si no cabe) */
+TzId tz_mundo_criar_item(TzMundo *m, int classe, int cx, int cy, const TzItem *item);
+/* ¿conoce la unidad el hechizo (de su clase o aprendido en un libro)? */
+int tz_mundo_conhece_feitico(const TzMundo *m, TzId i, const char *chave);
+/* la orden de hechizo (índice en cat->ord, para TzOrdem.arg de TZ_O_HECHIZO) de «spell_curse»... o -1; y la clave de un libro (0..20) */
+int tz_feitico_ordem(const TzMundo *m, const char *chave);
+const char *tz_feitico_chave(int idx);
+/* valor en oro de un objeto (ReTzar item_value); 0 = no se puede vender */
+uint32_t tz_mundo_valor_item(const TzMundo *m, TzId i);
 
 /* ---------------------------------------------------------------- puente con el dibujo de la fase 2 (escena.c)
  * Rellena un TzObjeto (como los del mapa) con el estado actual del objeto: casilla, dueño, variante con la dirección

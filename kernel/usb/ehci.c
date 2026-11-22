@@ -37,6 +37,7 @@
 #include "texto.h"
 #include "trava.h"
 #include "irq_rotas.h"
+#include "prazo.h"
 
 /* Registros de operación (desplazamiento / 4) */
 #define USBCMD     0
@@ -148,6 +149,26 @@ static void usar(ehci_t *c)
 }
 
 int ehci_quantidade(void) { return qtd_ctls; }
+
+/* D450: al apagar o reiniciar (interrupciones cerradas): sin interrupciones, Run/Stop = 0 y el
+ * HCHalted como mucho 20 ms por controlador (por el TSC). CONFIGFLAG no se toca: el firmware lo
+ * pone a su gusto al arrancar. */
+int ehci_parar_todos(void)
+{
+    int paradas = 0;
+    for (int i = 0; i < qtd_ctls; i++) {
+        ehci_t *c = &ctls[i];
+        if (!c->op) continue;
+        c->op[USBINTR] = 0;
+        c->op[USBCMD] &= ~CMD_RS;
+        prazo_t pz = prazo_ms(20);
+        while (!(c->op[USBSTS] & STS_HALTED) && !prazo_vencido(&pz)) ;
+        if (c->op[USBSTS] & STS_HALTED) paradas++;
+        else klog("[EHCI] %d: no se ha parado en 20 ms (USBSTS %x): se sigue\n", i, c->op[USBSTS]);
+        c->ok = false;
+    }
+    return paradas;
+}
 ehci_t *ehci_controlador(int i) { return i < qtd_ctls ? &ctls[i] : NULL; }
 
 /* ------------------------------------------------------------ tiempo */

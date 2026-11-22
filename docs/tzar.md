@@ -303,13 +303,76 @@ de campaña; capturas privadas `saguios-*.png` y cuadros por segundo).
 
 ### Lo que falta o difiere
 
-- Simulación: comercio, mercaderes y rutas, objetos (pociones, armas, pergaminos), mercenarios y héroes de la taberna,
-  préstamos, cruzada, yihad, remolino, maldición, alzar muertos, hipnosis, invisibilidad, espías infiltrados; la
-  elección de blanco no usa las tablas de prioridad de `combat.rs`; las unidades grandes ocupan una casilla; la
-  experiencia y los niveles son aproximados.
-- Juego: la escaramuza y las campañas de un jugador (sin red); las partidas en mapas aleatorios no se pueden cargar;
-  el panel derecho, la diplomacia y el chat de la interfaz original no están; los cursores son los del sistema.
+- Simulación (tras la v8.5.5.2, ver «Simulación completa»): las piedras del alma y los objetos de la fábrica mágica y las joyas del mercado asiático,
+  los pergaminos no abren historia, los héroes de la taberna no reciben nombre de HEROES.INI, los precios de la taberna no llevan las rebajas de
+  investigaciones, la elección de blanco no cuenta los atacantes que ya tiene cada candidato, y el juego de dados («gamble») no está.
+- Juego: la escaramuza y las campañas de un jugador (sin red).
+- Interfaz: la diplomacia no tiene tributos ni rendición; el chat solo sirve para la orden «ai ...» de la IA y para leer
+  lo que dice; los cursores no se animan (primer cuadro de cada forma); la taberna, el comercio, los objetos, los préstamos,
+  el intercambio y la cruzada de la simulación completa aún no tienen ventanas propias (se mandan por las órdenes del menú).
 
+## Simulación completa (v8.5.5.2, rama `v8.5.5.2-tzar-sim`, D430)
+
+Todo traducido de `gameplay.rs`/`combat.rs`/`random_map.rs` de ReTzar (cada fichero cita su origen). Pruebas: `tests/tzar_extras.c`
+(h417 `extras`, 123 comprobaciones con ASan/UBSan y datos sintéticos) y las ampliaciones de `campanhas`.
+
+| Fichero | Qué hace |
+|---|---|
+| `comercio.c` | rutas de mercaderes entre mercados (`TZ_O_COMERCIAR`: carga 500/300/100, ganancia `carga*distancia*(40+bonus)/(lado*100)`, un mercader por mercado, Trade taxes y Banking), `TZ_O_VENDER`, intercambio de la taberna (`TZ_C_TROCAR`), préstamos, ofertas y contratos de mercenarios y héroes, cruzadas de la catedral, monje a sacerdote y peón a guerrero de la yihad |
+| `itens.c` | recoger, llevar (hasta `max_obj_in_holder`), soltar, dar, usar: pociones (suben máximos, ataque y defensa para siempre, experiencia), equipo (suma mientras se lleva), libros (aprender o lanzar sin maná con cargas), venta en el mercado, soltar al morir |
+| `magia.c` | además: maldición, hipnosis, invisibilidad, remolino, alzar muertos, enseñar, espías (suplantar, revelar) y el golpe mortal del ninja |
+| `mundo.c` | experiencia y niveles como el original (tope 0 / Learning +4 / academias +10 / Heroism sin tope; 100/70/50/35 %; Body Building, Nobility, Tournaments; héroe al nivel 12), unidades grandes 2x2, recursos compartidos, rescate de prisioneros del reino 9 |
+| `acoes.c` | elección de blanco con las tablas de prioridad de `combat.rs` (humano, IA y catapultas), invisibles fuera de la vista enemiga |
+| `aleatorio.c` | mapas aleatorios que se pueden guardar y cargar (`tz_aleatorio_texto`/`_de_texto`, una línea en el `.txt` de la partida), puertas mágicas y objetos al azar; las águilas eran la clase 135 (bandera) y ahora la 119 |
+
+**Cambios en `mundo.h` (solo se añade):** clases `TZC_*` nuevas; `TzItem` y `TzObj.item/pocao_ataque/pocao_defesa`; campos nuevos al final de
+`TzAtor` (ruta, intercambio, ofertas, efectos, espía, libro, remolino) y de `TzReinoEstado` (préstamo, cruzada, torneo); `TzMundo.sem_resgate`;
+órdenes `TZ_O_VENDER/ASESINAR/SUPLANTAR`; comandos `TZ_C_EMPRESTAR/DEVOLVER/TROCAR/CONTRATAR/CRUZADA/CONVERTIR/VENDER`; eventos
+`TZ_EV_COMERCIO/ITEM/CONTRATO/EMPRESTIMO/CRUZADA/TROCA` (`TZ_EV_TRABALHO`, un evento por golpe de trabajo, ya existía: el sonido no necesita
+sondear); consultas `tz_mundo_ofertas/preco_oferta/lucro_rota/capacidade_comercio/itens/capacidade_itens/criar_item/valor_item/conhece_feitico/
+regras_xp/experiencia/pode_resgatar`, `tz_feitico_ordem`, `tz_catalogo_custo_ini`. `TZSV` pasa a la versión 5. Convenciones: comercio con
+`TZ_ARG_COMERCIO(r0, r1, cantidad)`, origen en `(x2, y2)`, destino en `alvo`; objetos: `alvo` = el objeto, `arg = 1` con objetivo en `(x, y)`;
+revelarse el espía: `TZ_C_CONVERTIR` con `arg = TZC_SPY` sobre el anfitrión. **Unidades grandes** (mercader, catapultas, ballesta, barcos,
+dragón): la casilla `cx,cy` y `px,py` son la de arriba a la izquierda y ocupan 2x2; la escena no cambia.
+
+## Pantalla del mapa aleatorio (v8.5.5.2, rama `v8.5.5.2-tzar-aleat`, D435)
+
+Inicio > Un solo jugador > Mapa aleatorio abre `TZ_MN_ALEAT` (`ui_menu.c`), la `S_SINGLERND` del original, con el mismo arte y rectángulos que
+`Screen::Random` de ReTzar. Lo que tiene el original (y ReTzar) y cómo está aquí:
+
+| Opción | Estado |
+|---|---|
+| Tamaño 64, 96, 128, 192, 256, 384, 512 | sí; el número de reinos y los tipos permitidos dependen del tamaño como en el original |
+| Tipo de mapa (al azar, archipiélagos, islas, continente, lagos, tierra) | sí; en 64 no hay archipiélagos, islas ni lagos; en 96 ni archipiélagos ni lagos; en 128 ni archipiélagos |
+| Terreno (al azar, hierba, verano, nieve, desierto) | sí; «al azar» sale de la semilla |
+| Recursos del mapa (pocos, normales, muchos) | sí (cantidad de las minas) |
+| Torres de guardia, animales, objetos mágicos, puertas mágicas | sí |
+| Montañas | **apagada** (la casilla sale en gris): ReTzar no las genera y falta la traducción |
+| Número de reinos (2 a 8), civilización y equipo de cada uno | sí; los del mismo equipo son aliados (nuevo) |
+| Tipo de partida, victoria, población, dificultad, recursos iniciales (bajo, medio, alto), sin niebla, explorar | sí |
+| Comportamiento de la IA de cada reino, rendición de la IA, límite de la victoria por tiempo o puntos | no (la IA usa su guion estándar; el límite queda en 30) |
+| Jugador humano en otra fila, unidades iniciales, edad de inicio | el original no deja elegirlas (el humano es el reino 1; castillo y tres peones) |
+| Semilla | sí, «Otro mapa» la cambia y se ve bajo la vista previa |
+
+La **vista previa** (96 píxeles; un clic la amplía a 420) genera el mapa con las opciones de la pantalla y la reutiliza el minimapa de la
+escaramuza (`previa_desenhar`, `jogo.c`); se regenera solo cuando cambia la línea de opciones, y el catálogo del bioma queda guardado entre
+cambios. Las **últimas opciones** se guardan en `tzar.cfg` (clave `aleatorio=`, una línea `ALEAT2 ...` con todo) al salir de la pantalla o al
+jugar, y cada partida nueva avanza la semilla. La **partida guardada** lleva la línea `ALEAT` de siempre (tamaño, reinos, tipo, recursos,
+torres, animales, terreno, semilla, equipos, civilizaciones, puertas, objetos), así que cargar regenera el mismo mapa; «reiniciar» y
+«repetir» tras perder o ganar repiten el mismo mapa (antes salía otro).
+
+Variables de prueba: `TZAR_MENU=13` abre la pantalla, `TZAR_ALEAT='ALEAT2 ...'` pone las opciones, `TZAR_AMPLIAR=1` amplía la vista previa,
+`TZAR_AUTO=aleatorio` juega con ellas y `TZAR_PRUEBA_GUARDAR=1` guarda, carga y compara. Pruebas: h417 `campanhas`, `ui` y `pc`; a mano,
+`h417_tzar.py privado_aleat` (SaguiOS con los datos reales; capturas privadas `aleat-*.png`, nunca en git).
+
+**Mapas aleatorios aún sin traducir:** montañas (opción apagada en ReTzar), ruinas del rey de la colina (solo en ese modo) y parches/objetos de
+suelo (la edición FX no trae dibujos `gp_`/`go_`). **Guiones:** recursos compartidos, «explorar» temporal, rescate del reino 9 y
+`@kingdomcanrescue` ya funcionan; `@build` termina la obra como cualquiera (ya lo hacía).
+
+**Posibles causas de cuelgue** que se vieron leyendo el código (no reproducidas): `tz_mover_para` devuelve 0 mientras `falhas` es 1..4 y el
+destino sigue sin camino, y `tz_caminho` sigue limitado a 40 000 nodos, sin bucle sin fin en lo revisado; el bucle de `repartir` en `guiao.c`
+solo acaba si cada regla acaba o espera: una regla «mantener» sin espera con una acción que no avanza el reloj lo repetiría cada periodo, no
+dentro del mismo tic.
 ## Arquitectura del juego (fases 3-8)
 
 El contrato entre los módulos está en **`userland/juegos/tzar/mundo.h`**; esta sección explica cómo encaja. Lo
@@ -395,10 +458,11 @@ Convenciones que la simulación debe respetar (o decir si cambian):
 - La interfaz recorre `m->obj` (solo lectura) en lugar de `tz_mundo_area` porque el contrato no dice qué «dono» significa «cualquiera».
 - Eventos que usa: `TZ_EV_SELECIONADO` (lo emite ella al elegir), `SEM_RECURSOS` (`classe` = recurso), `SEM_POPULACAO`, `ATAQUE_AVISO`, `MENSAGEM`, `FIM`.
 
-Pruebas: `python3 tests/h417_tzar.py ui` (93 comprobaciones con ASan/UBSan, mundo de prueba `tests/tzar_ui_stub.c`, sin datos del juego) y,
+Pruebas: `python3 tests/h417_tzar.py ui` (121 comprobaciones desde la v8.5.5.2; eran 93 con ASan/UBSan, mundo de prueba `tests/tzar_ui_stub.c`, sin datos del juego) y,
 a mano con los datos reales, `h417_tzar.py privado` (capturas `ui-*.png` en `/home/aanun/SO/private/tzar/capturas/`).
-Pendiente: panel a la derecha (solo está el izquierdo), diplomacia y chat, ayuda (`HELP.INI`), pantalla de créditos animada, lista de misiones
-de una campaña, previsualización del mapa en la escaramuza, pantalla de resultados (`D_ENDGAME`), cursores del juego, y conectar con `visor.c`.
+Hecho en la v8.5.5.2 (ver «Interfaz, pantalla y sonido (v8.5.5.2)»): panel a la derecha, diplomacia y chat, instrucciones, créditos
+animados, lista de misiones, previsualización del mapa, fin de partida (`D_ENDGAME`) y cursores del juego. Pendiente: las pistas de
+`LOCAL/HELP.INI` sobre los controles de los menús (las instrucciones salen de `HELP/HK.TXT`, como en ReTzar) y conectar con `visor.c`.
 
 ## Fase 7: campañas, guiones, mapas aleatorios, sonido, música e introducción
 
@@ -438,12 +502,10 @@ nivel, maná, bloqueo, «dios»): están en `guiao.c` (`gm_*` y los `case`), par
 
 ### Qué falta o difiere de ReTzar
 
-- Guiones: los recursos son los propios del reino (ReTzar suma los de los que comparten); «explorar» descubre el mapa para siempre y no un rato;
-  «aparecer» solo quita `TZ_F_INATIVO` (el mundo tiene que colocar el objeto) y no inicia el programa de rescate de los del reino 9; `@build` deja la
-  obra con todo el trabajo para que el mundo la termine.
-- Mapa aleatorio: sin montañas (opción de acantilados), puertas mágicas, ruinas del rey de la colina, parches y objetos de suelo ni objetos al azar.
-- Sonido: no se recolocan las voces que siguen a un objeto cuando la cámara se mueve (sí las de un sitio); el trabajo (talar, minar, construir) suena
-  mirando el estado de los objetos, porque el mundo no emite un evento por golpe; los sonidos de objeto del mapa (`.sounds`) y la lluvia no están.
+- Guiones y mapa aleatorio: resuelto en la v8.5.5.2 salvo lo que dice «Simulación completa».
+- Sonido: el trabajo (talar, minar, construir) suena mirando el estado de los objetos (el mundo ya emite `TZ_EV_TRABALHO` por golpe:
+  pendiente usarlo); sin sonidos de la naturaleza por hábitat y hora (`audio/ambience.rs`). Las voces que siguen a un objeto, los
+  sonidos del mapa (`.sounds`) y la lluvia están desde la v8.5.5.2.
 
 ### Resultado (2026-11-20)
 
@@ -456,8 +518,7 @@ nivel, maná, bloqueo, «dios»): están en `guiao.c` (`gm_*` y los `case`), par
 - **Pruebas**: `tests/h417_tzar.py campanhas` (134 comprobaciones con datos sintéticos, ASan/UBSan: expresiones, reglas, ventanas, temporizadores,
   conversaciones, final, héroes, guardar y cargar con 1 800 bloques dañados, 606 bytes cambiados al azar, catálogo, progreso, mapas aleatorios,
   mezcladora y MIDI) y `tests/tzar_campanas.c privado|real` a mano.
-- `userland/libsagui/audio_midi.c:142` tiene un desbordamiento de entero con signo (`tmp[i] * 22000` con `tmp` de 98 644): no es de este módulo y
-  la prueba lo compila sin UBSan.
+- El desbordamiento de `userland/libsagui/audio_midi.c` (`tmp[i] * 22000`) ya está arreglado (cuenta en 64 bits).
 
 ## La IA (fase 6, rama `tzar-ia`)
 
@@ -525,3 +586,89 @@ IA de los 71 mapas reales (sueltos y de campañas) también (random.ais: 1 147 r
 condiciones, 35 gatillos). MP1-MP6 con castillo, 24 000 tics (20 minutos de juego): deterministas, guardar/cargar igual
 en MP2-MP6 (y en Barcelona de «La Reconquista» con los guiones de la campaña, 12 000 tics), economía, casas, investigaciones, ejército y ataques (MP1, 30 minutos: 171 y 177 unidades
 creadas, 92 y 119 bajas). MP6 con 8 IA: 1,3 ms por tic en el PC.
+
+## Interfaz, pantalla y sonido (v8.5.5.2, rama `v8.5.5.2-tzar`)
+
+### El «cuelgue» de las campañas
+
+Síntoma (el mantenedor): «el Tzar se bloquea repitiendo el audio»: la imagen se queda quieta y suena lo mismo.
+
+Causa: en una conversación del guion (`.conv`), una frase sin elecciones se pasaba con `tz_guiao_fechar`, que solo cierra
+historias y avisos (`guiao.c`: con una conversación activa no hace nada). La ventana seguía abierta para siempre, el mundo no
+avanzaba (la partida espera mientras `tz_guiao_modal`), la escena dejaba de animarse y solo seguía la música. Pasa en la primera
+misión de las campañas (en QEMU con los datos reales, «El Imperio de Gengis Khan»: tic 4 para siempre). Arreglo: `modal_seguir()`
+en `jogo.c` llama a `tz_guiao_responder` si hay frase (dice la siguiente o acaba la conversación) y a `tz_guiao_fechar` si es una
+historia o un aviso.
+
+Otras comprobaciones que no dieron cuelgue (QEMU con KVM, datos reales, 10-12 minutos cada una): escaramuza con el jugador de
+prueba, con clics y teclas al azar y con 768 MB; el menú; las partidas en el PC con el sintetizador MIDI. El mezclador del kernel
+pone en silencio lo ya tocado, así que un programa parado se queda callado: si alguna vez se oye repetir el último trozo con la
+imagen quieta, es el sistema entero el que está parado (el anillo de la tarjeta se repite), no el juego.
+
+**Vigilante** (`vigia.c`): un hilo mira el latido del bucle principal; si no avanza en `TZAR_VIGIA` segundos (8; 0 lo apaga), pausa la
+tarjeta y escribe `[TZAR] vigilante: el juego no avanza desde hace N ms (en: dibujo > ...; dato T)` con la pila de módulos que marca
+el bucle (eventos, menú, carga, mundo con el tic, guion e interfaz, sonido, dibujo, presentar, introducción, previa del mapa); al
+volver, `[TZAR] vigilante: el juego vuelve tras N ms`. Además, la introducción ya no se queda en un cuadro que no se puede leer.
+
+Otros arreglos: los volúmenes iban de 0 a 256 a una función de 0 a 100 (siempre al máximo); los cursores de eventos del sonido y de
+la interfaz se ponen al de la partida al empezar o cargar (una partida cargada con menos eventos los dejaba sordos).
+
+### Modos de pantalla (`opcoes.c`, `tzar.cfg`)
+
+El juego dibuja en un lienzo (al menos 800x600, lo que necesita la interfaz original) y lo escala él mismo a la ventana o a la
+pantalla completa, con bandas negras:
+
+- **Ventana o pantalla completa**: F11 (en SaguiOS lo atiende el sistema y el juego lo nota), Alt+Intro u Opciones > Modo. A pantalla
+  completa pide «no molestar» (`no_molestar(1)`, D422) y lo suelta al salir.
+- **Resolución**: «Pantalla» (la de la pantalla) o las del original, 640x480, 800x600 y 1024x768 (640x480 se dibuja a 800x600 y se
+  reduce, como ReTzar).
+- **Escalado**: entero (por defecto; si no cabe x1, ajustado) o ajustado a la pantalla manteniendo la proporción.
+- **Filtro**: nítido (vecino más próximo, por defecto) o suave (bilineal).
+- **Interfaz**: con la resolución de la pantalla, automática (el mayor factor hasta x3 que deja al menos 800x600, `hud_layout` de
+  ReTzar: 2560x1440 se dibuja a 1280x720 y se amplía x2) o x1/x2/x3.
+- **Panel** a la izquierda o a la derecha (LAYOUT800R) y **cursor** del juego o del sistema.
+
+Se guarda en `tzar.cfg` (en la carpeta de las partidas, `$HOME/.tzar`), con los volúmenes. Pruebas: `TZAR_FULL=1`, `TZAR_W`/`TZAR_H`
+(fijan el lienzo).
+
+### Interfaz
+
+- **Panel derecho** (`ui_hud.c`, `tz_ui_rect`): el arte `SCREEN 800/1024 RIGHT`, los botones `... RIGHT` y las posiciones de
+  `hud.rs Layout` (lo que está desde x = 480 sigue al borde derecho).
+- **Diplomacia y chat** (`ui_janelas.c`): botones de la barra; la diplomacia cambia la actitud con cada reino (aliado con vista,
+  neutral, enemigo: `TZ_C_DIPLOMACIA`) y enseña la suya; el chat (también con Intro) manda «ai talk on», «ai war»... a la IA y
+  enseña sus frases `SAY` sobre el mapa.
+- **Cursores del juego** (`ui_cursor.c`): `CURSORS/S_DEF` y las formas `cs_*` de `DATA/IMAGES.INI` según la orden (atacar, recoger,
+  reparar, capturar, mover...); sin datos, una flecha propia.
+- **Fin de partida** (`D_ENDGAME`): repetir, siguiente misión o cargar, salir y ocultar (ver el mapa), con el dibujo `WIN`/`LOSE` y las
+  cuentas de cada reino.
+- **Campañas**: la lista de misiones (las no alcanzadas en gris) con la descripción de la campaña y de la misión; se puede jugar
+  cualquiera de las alcanzadas.
+- **Escaramuza**: previsualización del mapa (minimapa del terreno con los objetos de cada reino) y su descripción.
+- **Instrucciones** (Menú > Instrucciones o F1): `HELP/HK.TXT`, o un texto propio con las teclas.
+- **Créditos animados**: `LOCAL/CREDITS.TXT` sube por la página derecha del libro con los estilos `@N`.
+
+### Sonido
+
+- Las voces que siguen a un objeto se recolocan cuando el objeto anda o la vista se mueve.
+- Los sonidos puestos en el mapa (`<mapa>.sounds`, `world.rs SoundSource`): una vez, cada tanto o en bucle donde el jugador ve
+  (ningún mapa original trae, pero el editor los pone).
+- La lluvia (`audio/ambience.rs`): clips `SOUND/RAIN/<nivel>/RAIN START|1-6|END` y gotas en la vista; el clima sigue a
+  `simulation.rs update_weather` (ocho pares de 480-720 s despejado y 60-120 s de lluvia, en los biomas con `rain=1`; nieve en el de
+  nieve). Solo se ve y se oye: no cambia la simulación. `TZAR_CHUVA=1` la pone ya, `TZAR_SEM_CLIMA=1` la quita.
+
+### Pruebas
+
+`h417_tzar.py cuelgue` (batería, PC): la campaña sintética abre una historia y una conversación al empezar; cerradas como un jugador
+(`TZAR_AUTO_FECHAR`), el mundo sigue (con el código de antes: tic 4 para siempre); el vigilante avisa de una parada provocada
+(`TZAR_PRUEBA_PARADA`) con el módulo y apunta la vuelta; sin paradas calla. `saguios` hace lo mismo dentro de SaguiOS.
+`campanhas`: la voz que sigue al objeto, los sonidos del mapa y la lluvia (140 comprobaciones).
+
+A mano, con los datos reales en QEMU (KVM, 2 GB, tarjeta HDA, guion privado `/home/aanun/SO/private/tzar/repro_cuelgue.py` que mueve
+el ratón, hace clics, lleva la vista a los bordes y pulsa teclas al azar): campaña 1 en ventana, escaramuza y mapa aleatorio a pantalla
+completa (1024x768, entero) y escaramuza con 768 MB, unos 10 minutos cada una: sin cuelgues ni avisos del vigilante, 50 cuadros por
+segundo (el tope del bucle). Capturas privadas `repro-*.png` y `v8552-menu-*.png` en `/home/aanun/SO/private/tzar/capturas/`.
+
+Visto de paso: `intro.MPG` de la edición FX no la abre el lector de vídeo de la libsagui («no es un vídeo que se lea»): la
+introducción se salta (ahora lo dice el registro). Pendiente: las ventanas de la taberna, el comercio, los objetos, los préstamos, el
+intercambio y la cruzada de la simulación completa (D430), y usar `TZ_EV_TRABALHO` para el sonido del trabajo.

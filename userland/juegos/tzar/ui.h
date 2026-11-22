@@ -15,6 +15,7 @@
 
 #include "tzar.h"
 #include "mundo.h"
+#include "opcoes.h"
 
 /* ------------------------------------------------------------------ lienzo (ui_lienzo.c) */
 typedef struct { int w, h; uint32_t *px; } TzTela;          /* 0xAARRGGBB, un píxel por entrada (sin pitch) */
@@ -148,7 +149,14 @@ typedef struct {
 	int scroll_bordes;                   /* 1 = el ratón en el borde de la ventana mueve la cámara */
 	uint32_t ultimo_ms;
 	int pedir_menu, pedir_sair;          /* el jugador pidió el menú de partida / salir */
+	/* ventanas de la partida (ui_janelas.c): 0 ninguna, TZ_UJ_DIPLOMACIA o TZ_UJ_CHAT */
+	int janela;
+	char chat[72]; int chat_dest;        /* la línea que se escribe y a quién va (0 todos, 1 aliados, 2 enemigos) */
+	char chat_hist[6][128]; uint32_t chat_cor[6]; int nchat;   /* las últimas líneas */
+	uint32_t chat_ate;                   /* las líneas se ven sobre el mapa hasta entonces (ms) */
+	char chat_saida[80];                 /* lo que se mandó: el programa lo lee (IA) y lo vacía */
 	int pausa;
+	int direita;                         /* el panel a la derecha (LAYOUT800R); se cambia con tz_ui_lado */
 	/* estadística para la prueba */
 	uint32_t n_comandos;
 } TzUi;
@@ -156,6 +164,10 @@ typedef struct {
 int tz_ui_iniciar(TzUi *u, TzUiSkin *s, TzMundo *m, const TzBiblioteca *bib, int w, int h);
 void tz_ui_liberar(TzUi *u);
 void tz_ui_redimensionar(TzUi *u, int w, int h);
+void tz_ui_lado(TzUi *u, int direita);                               /* panel a la izquierda (0) o a la derecha (1) */
+/* rectángulos del marco según el lado del panel (hud.rs Layout) */
+enum { TZ_UR_MENU = 0, TZ_UR_DIPLOMACIA, TZ_UR_CHAT, TZ_UR_PAINEL, TZ_UR_RELOGIO, TZ_UR_SETA0, TZ_UR_RECURSO0 = TZ_UR_SETA0 + 3 };
+TzRect tz_ui_rect(const TzUi *u, int qual);
 void tz_ui_mover_camara(TzUi *u, int dx, int dy);                    /* en píxeles, con límites */
 void tz_ui_centrar(TzUi *u, int cx, int cy);                         /* cámara sobre una casilla */
 void tz_ui_entrada(TzUi *u, const TzUiEntrada *e, uint32_t ms);
@@ -190,26 +202,69 @@ typedef struct {
 } TzUiMapa;
 void tz_ui_mapa_desenhar(TzUi *u, TzTela *t, const TzUiMapa *mp);
 
+/* diplomacia y chat (ui_janelas.c) */
+enum { TZ_UJ_DIPLOMACIA = 1, TZ_UJ_CHAT = 2 };
+void tz_ui_janela_desenhar(TzUi *u, TzTela *t);
+int tz_ui_janela_entrada(TzUi *u, const TzUiEntrada *e);            /* 1 si la ventana se quedó con la entrada */
+TzRect tz_ui_janela_rect(const TzUi *u);
+/* la línea escrita pasa al historial («Tú: ...») y a chat_saida; extra (o NULL) es una respuesta del sistema */
+void tz_ui_chat_linha(TzUi *u, int reino, const char *extra);
+void tz_ui_chat_recebido(TzUi *u, const char *texto);              /* una frase de otro reino (la IA con «talk on») */
+
+/* cursores del juego (ui_cursor.c): la forma que toca en la partida («» = la flecha) y su dibujo en el lienzo */
+const char *tz_ui_cursor_forma(TzUi *u);
+void tz_ui_cursor_desenhar(TzUiSkin *s, TzTela *t, const char *forma, int x, int y);
+void tz_ui_cursor_liberar(void);
+
 /* ------------------------------------------------------------------ menús principales (ui_menu.c) */
 enum {
 	TZ_MN_PRINCIPAL = 0, TZ_MN_UM, TZ_MN_CAMPANHAS, TZ_MN_MAPAS, TZ_MN_CONFIG, TZ_MN_CARREGAR, TZ_MN_GUARDAR, TZ_MN_OPCOES,
-	TZ_MN_CREDITOS, TZ_MN_SAIR, TZ_MN_PARTIDA /* el de dentro de una partida */, TZ_MN_NTELAS
+	TZ_MN_CREDITOS, TZ_MN_SAIR, TZ_MN_PARTIDA /* el de dentro de una partida */,
+	TZ_MN_FIM /* fin de la partida (D_ENDGAME) */, TZ_MN_AJUDA /* instrucciones (HELP/HK.TXT) */,
+	TZ_MN_ALEAT /* mapa aleatorio (S_SINGLERND, v8.5.5.2) */, TZ_MN_NTELAS
 };
-enum { TZ_MR_NADA = 0, TZ_MR_JOGAR, TZ_MR_CAMPANHA, TZ_MR_CARREGAR, TZ_MR_GUARDAR, TZ_MR_SAIR, TZ_MR_CONTINUAR, TZ_MR_REINICIAR };
+enum {
+	TZ_MR_NADA = 0, TZ_MR_JOGAR, TZ_MR_CAMPANHA, TZ_MR_CARREGAR, TZ_MR_GUARDAR, TZ_MR_SAIR, TZ_MR_CONTINUAR, TZ_MR_REINICIAR,
+	TZ_MR_SEGUINTE /* fin: la misión siguiente */, TZ_MR_REPETIR /* fin: otra vez la misma */, TZ_MR_ABANDONAR /* fin: al menú principal */,
+};
 
 typedef struct {
 	char titulo[64];
 	char fich[200];                      /* fichero del mapa o de la campaña (relativo a la instalación) */
 	char dentro[100];
 	int jogadores_min, jogadores_max;
+	const char *descricao;               /* texto de la campaña o de la misión (lo guarda el llamador) o NULL */
+	int campanha, indice;                /* misiones: campaña y número de la misión en ella */
+	int disponivel;                      /* misiones: alcanzada o inicial */
 } TzMnItem;
 
 typedef struct {                          /* opciones de la escaramuza (sp_setupmap) */
 	int jogadores, populacao, dificuldade, recursos, vitoria, tipo;
 	int sem_nevoa, explorado;
 	int raca[8];                          /* civilización del reino i (0 al azar, 1 europeo, 2 árabe, 3 asiático) */
-	int equipe[8];
+	int equipe[8];                        /* 0 solo, 1..4 equipo (en el mapa aleatorio) */
 } TzMnConfig;
+
+/* pantalla del mapa aleatorio (S_SINGLERND de menu.rs, D435): lo que elige la persona; jogo.c lo pasa a TzAleatorio.
+ * c lleva las reglas y los reinos (jugadores, civilización y equipo de cada uno, victoria, población, dificultad, recursos
+ * iniciales 0..2, niebla); lado es un índice en tz_mn_lados. */
+typedef struct {
+	int lado;                             /* 0..6: 64, 96, 128, 192, 256, 384, 512 */
+	int terreno;                          /* 0 al azar, 1 hierba, 2 verano, 3 nieve, 4 desierto */
+	int tipo;                             /* 0 al azar, 1 archipiélagos, 2 islas, 3 continente, 4 lagos, 5 tierra */
+	int recursos_mapa;                    /* minas del mapa: 0 pocas, 1 normales, 2 muchas */
+	int guardado, animais, itens, portas, penhascos;   /* penhascos (montañas): sin generador, siempre 0 */
+	unsigned long long semente;
+	TzMnConfig c;
+} TzMnAleat;
+extern const int tz_mn_lados[7];
+extern const char *const tz_mn_biomas[4];
+int tz_mn_aleat_limite(int lado_idx);                  /* reinos que admite el tamaño (ReTzar random_player_limit: 4, 6 u 8) */
+int tz_mn_aleat_tipo_ok(int lado_idx, int tipo);       /* tipos de geografía que admite el tamaño (random_kind_allowed) */
+void tz_mn_aleat_padrao(TzMnAleat *a);
+void tz_mn_aleat_normalizar(TzMnAleat *a);             /* mete todo en rango (jugadores según el tamaño, tipo permitido...) */
+int tz_mn_aleat_texto(const TzMnAleat *a, char *out, size_t n);       /* una línea para tzar.cfg */
+int tz_mn_aleat_de_texto(const char *t, TzMnAleat *a);                /* 0 si se leyó; si no, a queda como estaba */
 
 typedef struct {
 	char nome[64], data[40];
@@ -227,12 +282,30 @@ typedef struct {
 	TzMnGuardado *guardados; int nguardados;
 	int campanha_sel, mapa_sel, guardado_sel, rolo;
 	TzMnConfig cfg;
+	TzMnAleat aleat;                      /* pantalla del mapa aleatorio (se recuerda en tzar.cfg) */
+	int ampliada;                         /* mapa aleatorio: la vista previa ampliada sobre la pantalla (un clic la cierra) */
+	int aleat_mudou;                      /* 1 = la persona cambió algo: el llamador lo guarda y lo pone a 0 */
+	TzMnAleat res_aleat;                  /* TZ_MR_JOGAR en el mapa aleatorio (res_indice -1): lo elegido */
 	char nome_guardar[32]; int editando;
 	int volume_som, volume_musica;        /* 0-100, tela de opciones */
 	/* resultado: cuando acao != 0 el llamador lo atiende y lo pone a 0 */
 	int acao, res_indice;
 	TzMnConfig res_cfg;
 	char res_nome[32];
+	/* lista de misiones de las campañas (todas; TzMnItem.campanha dice de cuál) */
+	TzMnItem *missoes; int nmissoes;
+	int missao_sel;                       /* índice en missoes (-1 ninguna) */
+	int res_missao;                       /* TZ_MR_CAMPANHA: número de la misión en la campaña */
+	/* opciones de pantalla (pantalla Opciones): op_mudou = 1 cuando el jugador cambió algo; el llamador las aplica */
+	TzOpcoes op; int op_mudou;
+	const TzImg *previa;                  /* minimapa del mapa elegido (escaramuza; lo pone el llamador, puede ser NULL) */
+	/* fin de la partida (TZ_MN_FIM) */
+	int fim_ganhou, fim_seguinte;         /* ganó; hay misión siguiente */
+	char fim_resumo[8][160]; uint32_t fim_cor[8]; int nfim_resumo;   /* tiempo y estadísticas de cada reino */
+	/* instrucciones y créditos (se leen de los datos la primera vez) */
+	char **ajuda; int najuda, ajuda_lido;
+	char **creditos; uint8_t *creditos_estilo; int ncreditos, creditos_lido;
+	uint32_t agora_ms, creditos_ms0;
 } TzMenu;
 
 void tz_menu_iniciar(TzMenu *m, TzUiSkin *s, int w, int h);
@@ -240,6 +313,8 @@ void tz_menu_liberar(TzMenu *m);
 void tz_menu_ir(TzMenu *m, int tela);
 void tz_menu_entrada(TzMenu *m, const TzUiEntrada *e);
 void tz_menu_desenhar(TzMenu *m, TzTela *t);
+void tz_menu_tic(TzMenu *m, uint32_t ms);                           /* reloj (créditos animados) */
+void tz_menu_redimensionar(TzMenu *m, int w, int h);
 /* rectángulos de los botones de la pantalla actual (para las pruebas); devuelve cuántos */
 int tz_menu_botoes(const TzMenu *m, TzRect *out, char rotulos[][64], int max);
 

@@ -135,7 +135,10 @@ typedef struct {
 	int victoria_compartida;    /* 1: la partida acaba cuando los que quedan son del mismo equipo o aliados, y ganan juntos */
 	int recursos_mapa;          /* oro, piedra, bayas y bosques del mapa: 0 normales, 1 escasos, 2 abundantes */
 	int comercio_mejorado;      /* 1: barcos y carros mercantes con el modo intercambio además del oro */
+	int fuego_amigo;            /* D447, formato de partida 6: 1: el daño en área alcanza también a lo propio y lo aliado (0 por defecto) */
 } Setup;
+/* tamaño de Setup en las partidas guardadas con formato 5 (sin fuego_amigo): se cargan con fuego_amigo apagado */
+#define SETUP_TAM_V5 ((int)offsetof(Setup, fuego_amigo))
 
 typedef struct {
 	Setup setup;
@@ -151,8 +154,10 @@ typedef struct {
 	unsigned ganadores;     /* al acabar: jugadores del bando ganador (bit p), 0 si no se sabe (no se guarda) */
 	char msg[96];
 	float msg_t;
-	struct { float x0, y0, x1, y1, t; } shots[64]; /* efectos de flechas y virotes */
+	struct { float x0, y0, x1, y1, t; int kind; } shots[64]; /* flechas, virotes y piedras (kind: 0 flecha, 1 virote, 2 piedra, 3 piedra de fuego) */
 	int nshots;
+	struct { float x, y, t; } impactos[24]; /* polvo y explosión donde cae una piedra de catapulta (solo se dibuja) */
+	int nimpactos;
 	struct { float x, y, t; } pings[8]; /* círculos rojos en el minimapa cuando alguien es atacado */
 	int npings;
 	float alert_t;
@@ -239,6 +244,9 @@ int tech_allowed(int player, int tech);  /* la civilización puede investigarla 
 int transport_load(const Entity *boat);   /* pasajeros a bordo */
 float unit_cooldown(EntType t);          /* segundos entre golpes */
 float unit_splash(EntType t);
+float priest_recarga(int owner);       /* segundos de recarga de la fe tras convertir */
+float priest_fe(const Entity *e);       /* segundos que le faltan para volver a convertir (0 = lista) */
+extern int fuego_amigo;   /* 1: el daño en área de las catapultas alcanza también a lo propio y lo aliado, como en el AoE original (0 por defecto, regla propia de AoEN) */
 float unit_min_range(EntType t);         /* alcance mínimo (catapultas): más cerca no pueden disparar */            /* radio del daño de área (casillas), 0 si no tiene */
 int unit_tech_req(EntType t);            /* tecnología necesaria para entrenarla, -1 ninguna */
 int pcolor(int player);                  /* color (0..7) del jugador */

@@ -8,6 +8,7 @@
 #include "ui.h"
 #include "config.h"
 #include "hilos.h"
+#include "gpu.h"
 
 #define TEX 512
 #define TEXELS_PER_TILE 48
@@ -348,4 +349,219 @@ void render_terrain_hd(float time, int ry0, int ry1) {
 	if (!usar_float) ruido_preparar();
 	FranjasHD f = { time, ry0, ry1, usar_float };
 	hilos_repartir(franja_hd, &f, hilos_partes());
+}
+
+/* ---------- D436: el terreno HD por la GPU ----------
+ * La CPU calcula cada píxel con las cuatro casillas que lo rodean (pesos bilineales entre sus centros, realzados en la costa)
+ * y la luz de la niebla bilineal. Aquí la misma rejilla (vértices en los centros de las casillas; en el borde del mapa, en el
+ * borde) se dibuja como triángulos: la textura de cada tipo con coordenadas del mundo (48 texeles por casilla, repetida) y
+ * la luz en el color de los vértices.
+ * Lo que cuesta en la GPU de SaguiOS es cada triángulo (en el Amilo, unos 10 us: van por la cola del CP), así que:
+ *  - las celdas con un solo tipo y la misma luz en las cuatro esquinas se juntan por filas de la rejilla en un solo
+ *    cuadrilátero (las coordenadas de textura son lineales en el mundo: la unión es exacta);
+ *  - las demás (costa, borde de la niebla) van celda a celda: una pasada por tipo con su peso en el alfa (la primera opaca;
+ *    la k-ésima con peso_k / suma de los pesos hasta k: así queda la media ponderada). Sin subdividir: la costa queda algo
+ *    más difuminada que en la CPU (que realza los pesos);
+ *  - las manchas de la segunda textura de la hierba y la arena, otra pasada con el alfa del ruido, en tramos de 6 celdas;
+ *  - el agua: la misma deriva que la CPU, pero la onda mueve toda el agua a la vez (en la CPU depende del punto).
+ * Las pasadas se agrupan por textura (pocos lotes). */
+#define HD_TEXS 6
+static SDL_Texture *hd_t[HD_TEXS];   /* hierba 0, hierba 1, arena 0, arena 1, agua, agua profunda */
+static const Tex *hd_tex_de[HD_TEXS];
+static int hd_fallo;
+
+typedef struct { SDL_Vertex *v; int n, cap; } Cubo;
+static Cubo cubos[4][HD_TEXS];   /* [pasada][textura] */
+
+static void cubo_poner(int pasada, int tex, const SDL_Vertex *v, int n) {
+	Cubo *c = &cubos[pasada][tex];
+	if (c->n + n > c->cap) {
+		int cap = MAX(c->cap * 2, c->n + n + 1024);
+		SDL_Vertex *nv = (SDL_Vertex *)realloc(c->v, sizeof(SDL_Vertex) * (size_t)cap);
+		if (!nv) return;
+		c->v = nv; c->cap = cap;
+	}
+	memcpy(c->v + c->n, v, sizeof(SDL_Vertex) * (size_t)n);
+	c->n += n;
+}
+
+static int hd_gpu_preparar(void) {
+	if (hd_fallo) return 0;
+	const Tex *ts[HD_TEXS] = { tex_grass[0], tex_grass[1], tex_desert[0], tex_desert[1], tex_water, tex_deep };
+	for (int k = 0; k < HD_TEXS; ++k) {
+		if (hd_t[k] && hd_tex_de[k] == ts[k]) continue;
+		/* la misma textura en dos papeles (sin g_gr6, por ejemplo) se sube una vez */
+		SDL_Texture *t = NULL;
+		for (int j = 0; j < k; ++j) if (ts[j] == ts[k]) t = hd_t[j];
+		if (!t) t = gpu_textura_fija(ts[k]->px, TEX, TEX);
+		if (!t) { hd_fallo = 1; AOEN_LOG("[AOEN] GPU: no se pudieron subir las texturas HD del terreno"); return 0; }
+		hd_t[k] = t; hd_tex_de[k] = ts[k];
+	}
+	return 1;
+}
+
+/* la textura base de un tipo (índice en hd_t) */
+static int tex_tipo(int kind) { return kind == TILE_GRASS ? 0 : kind == TILE_DESERT ? 2 : kind == TILE_WATER ? 4 : 5; }
+
+/* un punto de la rejilla: posición en el mundo y en la pantalla, tipo, luz (0..255) y peso de las manchas (0..255) */
+typedef struct { float wx, wy, x, y; u8 kind, luz, mancha; } PtoHD;
+static PtoHD *rej; static int rej_cap;
+static float agua_du, agua_dv;   /* la onda y la deriva del agua en este cuadro (en texturas) */
+static int hd_quitar = -1;      /* AOEN_GPU_QUITAR (medidas): 8 sin manchas, 16 sin niebla */
+static int hd_tramo = 64;       /* celdas que se juntan como mucho (AOEN_GPU_TRAMO) */
+
+/* un cuadrilátero (a, b, c, d alrededor) de la pasada y la textura dadas; alfa de cada esquina (0..255); du, dv: desplazamiento */
+static void quad_hd(int pasada, int tex, int kind, const PtoHD *p[4], const u8 al[4], float du, float dv) {
+	SDL_Vertex q[4];
+	float mu = 1e9f, mv = 1e9f;
+	if (kind >= TILE_WATER) { du += agua_du; dv += agua_dv; }
+	for (int k = 0; k < 4; ++k) {
+		q[k].position.x = p[k]->x; q[k].position.y = p[k]->y;
+		q[k].tex_coord.x = p[k]->wx * (TEXELS_PER_TILE / (float)TEX) + du;
+		q[k].tex_coord.y = p[k]->wy * (TEXELS_PER_TILE / (float)TEX) + dv;
+		q[k].color.r = q[k].color.g = q[k].color.b = p[k]->luz; q[k].color.a = al[k];
+		mu = MIN(mu, q[k].tex_coord.x); mv = MIN(mv, q[k].tex_coord.y);
+	}
+	/* la textura se repite: se quita la parte entera común (números pequeños) */
+	float fu = (float)piso(mu), fv = (float)piso(mv);
+	for (int k = 0; k < 4; ++k) {
+		q[k].tex_coord.x -= fu; q[k].tex_coord.y -= fv;
+#ifndef SAGUI_AOEN
+		/* la SDL del PC rechaza coordenadas fuera de [0, 1] (la de SaguiOS repite): para probar en el PC se sujetan */
+		q[k].tex_coord.x = CLAMP(q[k].tex_coord.x, 0.0f, 1.0f); q[k].tex_coord.y = CLAMP(q[k].tex_coord.y, 0.0f, 1.0f);
+#endif
+	}
+	SDL_Vertex t[6] = { q[0], q[1], q[2], q[0], q[2], q[3] };
+	cubo_poner(pasada, tex, t, 6);
+}
+
+/* peso de las manchas (segunda textura) en un punto del mundo, del ruido de las esquinas de las casillas (como color_tipo) */
+static u8 mancha_de(float wx, float wy) {
+	if (!ruido) return 0;
+	int wxf = (int)(wx * 65536.0f), wyf = (int)(wy * 65536.0f);
+	int ix = wxf >> 16, iy = wyf >> 16, fx = (wxf >> 8) & 255, fy = (wyf >> 8) & 255;
+	if (ix >= ruido_w - 1) { ix = ruido_w - 2; fx = 255; }
+	if (iy >= ruido_h - 1) { iy = ruido_h - 2; fy = 255; }
+	if (ix < 0) ix = 0;
+	if (iy < 0) iy = 0;
+	const u16 *r0 = ruido + iy * ruido_w + ix, *r1 = r0 + ruido_w;
+	int n0 = r0[0] + (((r0[1] - r0[0]) * fx) >> 8), n1 = r1[0] + (((r1[1] - r1[0]) * fx) >> 8);
+	int n = n0 + (((n1 - n0) * fy) >> 8);
+	int t = ((n - 26214) * 5) >> 8;
+	return (u8)CLAMP(t, 0, 255);
+}
+
+/* las manchas sobre un tramo de celdas sencillas [ia, ib) de la fila j (tipo hierba o arena) */
+static void manchas_tramo(const PtoHD *f0, const PtoHD *f1, int ia, int ib, int kind) {
+	int tb = tex_tipo(kind);
+	if (hd_quitar & 8) return;
+	if (hd_tex_de[tb + 1] == hd_tex_de[tb]) return;
+	/* tramos de hasta 6 celdas (las manchas miden unas 9 casillas: la interpolación lineal casi no se nota y cada
+	 * triángulo cuenta) */
+	for (int a = ia; a < ib; a += 6) {
+		int b = MIN(a + 6, ib);
+		const PtoHD *p[4] = { &f0[a], &f0[b], &f1[b], &f1[a] };
+		u8 al[4] = { p[0]->mancha, p[1]->mancha, p[2]->mancha, p[3]->mancha };
+		if (al[0] | al[1] | al[2] | al[3]) quad_hd(1, tb + 1, kind, p, al, 211.0f / TEX, 97.0f / TEX);
+	}
+}
+
+/* una celda que no se junta: costa o luz distinta en las esquinas */
+static void celda_hd(const PtoHD *p[4]) {
+	static const u8 uno[4] = { 255, 255, 255, 255 };
+	int k0 = p[0]->kind;
+	if (k0 == p[1]->kind && k0 == p[2]->kind && k0 == p[3]->kind) {
+		quad_hd(0, tex_tipo(k0), k0, p, uno, 0, 0);
+		if (k0 < TILE_WATER) {
+			int tb = tex_tipo(k0);
+			u8 al[4] = { p[0]->mancha, p[1]->mancha, p[2]->mancha, p[3]->mancha };
+			if (!(hd_quitar & 8) && hd_tex_de[tb + 1] != hd_tex_de[tb] && (al[0] | al[1] | al[2] | al[3])) quad_hd(1, tb + 1, k0, p, al, 211.0f / TEX, 97.0f / TEX);
+		}
+		return;
+	}
+	int pasada = 0;
+	for (int kind = 0; kind < 4; ++kind) {
+		if (p[0]->kind != kind && p[1]->kind != kind && p[2]->kind != kind && p[3]->kind != kind) continue;
+		u8 al[4];
+		/* en las esquinas el peso es 0 o 1: la primera pasada, opaca; las siguientes, 1 donde la esquina es de este tipo */
+		for (int c = 0; c < 4; ++c) al[c] = pasada == 0 ? 255 : p[c]->kind == kind ? 255 : 0;
+		quad_hd(pasada, tex_tipo(kind), kind, p, al, 0, 0);
+		++pasada;
+	}
+}
+
+void render_terrain_hd_gpu(float time, int ry0, int ry1) {
+	(void)ry0; (void)ry1;
+	if (!loaded || !hd_gpu_preparar()) return;
+	if (hd_quitar < 0) {
+		hd_quitar = getenv("AOEN_GPU_QUITAR") ? atoi(getenv("AOEN_GPU_QUITAR")) : 0;
+		if (getenv("AOEN_GPU_TRAMO")) hd_tramo = CLAMP(atoi(getenv("AOEN_GPU_TRAMO")), 1, 64);
+	}
+	ruido_preparar();
+	for (int p = 0; p < 4; ++p) for (int t = 0; t < HD_TEXS; ++t) cubos[p][t].n = 0;
+	agua_du = (sinf(time * 0.9f) * 5.0f + fmodf(time * 3.0f, (float)TEX)) / TEX;
+	agua_dv = sinf(time * 0.7f) * 5.0f / TEX;
+	/* los puntos de la rejilla que tocan la pantalla: las esquinas de la pantalla en el mundo, con margen */
+	float wx[4], wy[4];
+	screen_to_world(0, 0, &wx[0], &wy[0]); screen_to_world(V.sw, 0, &wx[1], &wy[1]);
+	screen_to_world(0, V.sh, &wx[2], &wy[2]); screen_to_world(V.sw, V.sh, &wx[3], &wy[3]);
+	float mnx = wx[0], mxx = wx[0], mny = wy[0], mxy = wy[0];
+	for (int k = 1; k < 4; ++k) { mnx = MIN(mnx, wx[k]); mxx = MAX(mxx, wx[k]); mny = MIN(mny, wy[k]); mxy = MAX(mxy, wy[k]); }
+	const int W_ = W.w, H_ = W.h;
+	/* rejilla: el punto 0 es el borde del mapa, el k (1..W) el centro de la casilla k-1 y el W+1 el otro borde */
+	int i0 = CLAMP(piso(mnx) - 1, 0, W_ + 1), i1 = CLAMP(piso(mxx) + 3, 0, W_ + 1);
+	int j0 = CLAMP(piso(mny) - 1, 0, H_ + 1), j1 = CLAMP(piso(mxy) + 3, 0, H_ + 1);
+	int nw = i1 - i0 + 1, nh = j1 - j0 + 1;
+	if (nw < 2 || nh < 2) return;
+	if (rej_cap < nw * nh) { free(rej); rej_cap = nw * nh + 256; rej = (PtoHD *)malloc(sizeof(PtoHD) * (size_t)rej_cap); if (!rej) { rej_cap = 0; return; } }
+	static const u8 luz_lv[3] = { 0, 128, 255 };
+	for (int j = j0; j <= j1; ++j) {
+		float gy = j == 0 ? 0.0f : j == H_ + 1 ? (float)H_ : j - 0.5f;
+		int ty = CLAMP(j - 1, 0, H_ - 1);
+		PtoHD *f = rej + (size_t)(j - j0) * nw;
+		for (int i = i0; i <= i1; ++i) {
+			PtoHD *q = &f[i - i0];
+			float gx = i == 0 ? 0.0f : i == W_ + 1 ? (float)W_ : i - 0.5f;
+			int t = ty * W_ + CLAMP(i - 1, 0, W_ - 1);
+			q->wx = gx; q->wy = gy;
+			/* el píxel sx de la CPU toma el mundo en su borde izquierdo; la GPU, en el centro: medio píxel de diferencia */
+			q->x = V.sw * 0.5f + ((gx + gy) * 32.0f - V.cx) * V.zoom + 0.5f;
+			q->y = V.sh * 0.5f + ((gx - gy) * 16.0f - V.cy) * V.zoom + 0.5f;
+			q->kind = W.tile[t]; q->luz = (hd_quitar & 16) ? 255 : luz_lv[W.fog[t]];
+			q->mancha = q->kind < TILE_WATER ? mancha_de(gx, gy) : 0;
+		}
+	}
+	float m = 40.0f * V.zoom;
+	for (int j = j0; j < j1; ++j) {
+		const PtoHD *f0 = rej + (size_t)(j - j0) * nw, *f1 = f0 + nw;
+		int ini = -1, kind = 0, luz = 0;   /* tramo de celdas sencillas que se está juntando */
+		for (int i = i0; i <= i1; ++i) {
+			int a = i - i0;
+			int fim = i == i1;   /* la última vuelta solo cierra el tramo */
+			const PtoHD *p[4] = { NULL, NULL, NULL, NULL };
+			int sencilla = 0, ver = 0;
+			if (!fim) {
+				p[0] = &f0[a]; p[1] = &f0[a + 1]; p[2] = &f1[a + 1]; p[3] = &f1[a];
+				/* fuera de la pantalla (el centro de la celda), o todo negro: nada */
+				float cx = (p[0]->x + p[2]->x) * 0.5f, cy = (p[0]->y + p[2]->y) * 0.5f;
+				ver = !(cx < -m || cx > V.sw + m || cy < -m || cy > V.sh + m) && (p[0]->luz | p[1]->luz | p[2]->luz | p[3]->luz);
+				sencilla = ver && p[0]->kind == p[1]->kind && p[0]->kind == p[2]->kind && p[0]->kind == p[3]->kind &&
+				           p[0]->luz == p[1]->luz && p[0]->luz == p[2]->luz && p[0]->luz == p[3]->luz;
+			}
+			if (ini >= 0 && (!sencilla || p[0]->kind != kind || p[0]->luz != luz || a - ini >= hd_tramo)) {
+				/* se cierra el tramo [ini, a) */
+				static const u8 uno[4] = { 255, 255, 255, 255 };
+				const PtoHD *t[4] = { &f0[ini], &f0[a], &f1[a], &f1[ini] };
+				quad_hd(0, tex_tipo(kind), kind, t, uno, 0, 0);
+				if (kind < TILE_WATER) manchas_tramo(f0, f1, ini, a, kind);
+				ini = -1;
+			}
+			if (fim || !ver) continue;
+			if (sencilla) { if (ini < 0) { ini = a; kind = p[0]->kind; luz = p[0]->luz; } }
+			else celda_hd(p);
+		}
+	}
+	for (int p = 0; p < 4; ++p)
+		for (int t = 0; t < HD_TEXS; ++t)
+			if (cubos[p][t].n) gpu_triangulos(hd_t[t], p == 0 ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_BLEND, cubos[p][t].v, cubos[p][t].n);
 }

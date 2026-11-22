@@ -107,3 +107,48 @@ void g3d_buffer_soltar(g3d_arena_t *a, g3d_buffer_t *b)
     }
     memset(b, 0, sizeof *b);
 }
+
+/* ------------------------------------------------------------ presentar (D432) */
+
+int g3d_apres_bandas(const g3d_apres_t *p, int larg, int alt, int r[4][4])
+{
+    int n = 0;
+    int x0 = p->dx, y0 = p->dy, x1 = p->dx + p->dl, y1 = p->dy + p->da;
+    if (y0 > 0)    { r[n][0] = 0;  r[n][1] = 0;  r[n][2] = larg;      r[n][3] = y0;       n++; }
+    if (y1 < alt)  { r[n][0] = 0;  r[n][1] = y1; r[n][2] = larg;      r[n][3] = alt - y1; n++; }
+    if (x0 > 0)    { r[n][0] = 0;  r[n][1] = y0; r[n][2] = x0;        r[n][3] = y1 - y0;  n++; }
+    if (x1 < larg) { r[n][0] = x1; r[n][1] = y0; r[n][2] = larg - x1; r[n][3] = y1 - y0;  n++; }
+    return n;
+}
+
+static void quad6(gpu3d_vert_t q[6], const uint32_t x[2], const uint32_t y[2], const uint32_t u[2], const uint32_t v[2], uint32_t cor)
+{
+    static const uint8_t ix[6] = { 0, 1, 1, 0, 1, 0 }, iy[6] = { 0, 0, 1, 0, 1, 1 };
+    for (int i = 0; i < 6; i++) {
+        q[i].x = x[ix[i]]; q[i].y = y[iy[i]];
+        q[i].z = 0x3F000000u;        /* 0,5 */
+        q[i].rhw = 0x3F800000u;      /* 1 */
+        q[i].cor = cor; q[i].espec = 0;
+        q[i].u = u[ix[i]]; q[i].v = v[iy[i]];
+    }
+}
+
+void g3d_apres_quad(const g3d_apres_t *p, int fl, int fa, gpu3d_vert_t q[6])
+{
+    uint32_t x[2] = { g3d_float_de_fixo(p->dx, 0), g3d_float_de_fixo(p->dx + p->dl, 0) };
+    uint32_t y[2] = { g3d_float_de_fixo(p->dy, 0), g3d_float_de_fixo(p->dy + p->da, 0) };
+    /* Fracción del búfer con 18 bits (lados de hasta 8191 sin desbordar 32 bits). */
+    uint32_t u[2] = { g3d_float_de_fixo((int32_t)(((uint32_t)p->ox << 18) / (uint32_t)fl), 18),
+                      g3d_float_de_fixo((int32_t)(((uint32_t)(p->ox + p->ol) << 18) / (uint32_t)fl), 18) };
+    uint32_t v[2] = { g3d_float_de_fixo((int32_t)(((uint32_t)p->oy << 18) / (uint32_t)fa), 18),
+                      g3d_float_de_fixo((int32_t)(((uint32_t)(p->oy + p->oa) << 18) / (uint32_t)fa), 18) };
+    quad6(q, x, y, u, v, 0xFFFFFFFFu);
+}
+
+void g3d_quad_cor(int x, int y, int l, int a, uint32_t cor, gpu3d_vert_t q[6])
+{
+    uint32_t xs[2] = { g3d_float_de_fixo(x, 0), g3d_float_de_fixo(x + l, 0) };
+    uint32_t ys[2] = { g3d_float_de_fixo(y, 0), g3d_float_de_fixo(y + a, 0) };
+    uint32_t z[2] = { 0, 0 };
+    quad6(q, xs, ys, z, z, cor);
+}

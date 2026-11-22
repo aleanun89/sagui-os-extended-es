@@ -10,6 +10,7 @@ int nvme_iniciar(void);
 
 /* Cuántos controladores NVMe se han visto en el PCI y cuántos no se han podido usar. */
 int nvme_controladores(void);
+int nvme_desligar_todos(void);   /* D450: apagar/reiniciar: CC.SHN y espera SHST (5 s cada uno); cuántos terminaron */
 int nvme_sem_suporte(void);
 
 #endif

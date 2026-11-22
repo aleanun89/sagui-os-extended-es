@@ -135,12 +135,35 @@ bool barra_contem(int x, int y)
     return barra_esta_visivel() && x >= 0 && x < largura_barra() && y >= barra_y0() && y < barra_y0() + g.alt;
 }
 void barra_sujar(void) { gui_redesenhar(0, barra_y0(), largura_barra(), g.alt); }
+void barra_tema_mudou(void) { barra_sujar(); }   /* D428: cambió el esquema de apariencia */
 int barra_cfg(int i) { return i >= 0 && i < BC_N ? cfg[i] : 0; }
 
+/* D428: el panel de la bandeja sale del esquema cuando la barra usa sus colores (tema_atualizar los pone). */
+static uint32_t pn_fundo = 0x1C2630, pn_borde = 0x3E4E5C, pn_trilho = 0x0E141A, pn_botao = 0x2C3A46;
+
 /* Los temas de color de la barra (0 oscuro, 1 claro, 2 del acento, 3 negro, 4 azul noche). */
-static void tema_atualizar(void)
+/* D428: los iconos de la bandeja se oscurecen con una barra clara. */
+static uint32_t ico_cinza = 0x6A7682, ico_apag = 0x4A5662, ico_ok = 0x6FD98F, ico_erro = 0xE0524A;
+
+static void tema_atualizar_base(void)
 {
     uint32_t a = aparencia_acento();
+    const esquema_t *q = esquema();
+    if (q->barra_propia) {   /* D428: la barra con los colores del esquema (el estilo elegido en Configuración no cuenta) */
+        uint32_t b = q->barra, t = q->barra_texto;
+        bool clara = esq_lum(b) > 140;
+        tm.barra = b;
+        tm.tarefa = clara ? esq_mix(b, 0, 8) : esq_mix(b, 0xFFFFFF, 14);
+        tm.borda = esq_mix(b, t, 35);
+        tm.foco = clara ? 0xFFFFFF : esq_mix(b, 0xFFFFFF, 28);
+        tm.minimizada = clara ? esq_mix(b, 0, 3) : esq_mix(b, 0xFFFFFF, 5);
+        tm.min_borda = esq_mix(b, t, 22); tm.min_texto = esq_mix(t, b, 45);
+        tm.texto = t; tm.texto_foco = clara ? 0x000000 : 0xFFFFFF; tm.ico = t;
+        pn_fundo = clara ? esq_mix(b, 0, 6) : esq_mix(b, 0xFFFFFF, 8); pn_borde = esq_mix(b, t, 35);
+        pn_trilho = clara ? esq_mix(b, 0, 25) : esq_mix(b, 0, 40); pn_botao = tm.tarefa;
+        return;
+    }
+    pn_fundo = 0x1C2630; pn_borde = 0x3E4E5C; pn_trilho = 0x0E141A; pn_botao = 0x2C3A46;
     switch (cfg[BC_TEMA]) {
     case 1:
         tm.barra = 0xD8DEE4; tm.tarefa = 0xEEF1F4; tm.borda = 0xA4B0BC; tm.foco = 0xFFFFFF; tm.minimizada = 0xC6CED6;
@@ -163,6 +186,13 @@ static void tema_atualizar(void)
         tm.barra = 0x18202A; tm.tarefa = 0x2C3A46; tm.borda = 0x3E4E5C; tm.foco = 0x4A5E70; tm.minimizada = 0x1E2730;
         tm.min_borda = 0x34404C; tm.min_texto = 0x8A96A2; tm.texto = 0xD8DEE4; tm.texto_foco = 0xFFFFFF; tm.ico = 0xD8DEE4;
     }
+}
+
+static void tema_atualizar(void)
+{
+    tema_atualizar_base();
+    if (esq_lum(tm.barra) > 140) { ico_cinza = 0x4A5662; ico_apag = 0x8A96A2; ico_ok = 0x1E8A44; ico_erro = 0xC0302A; }
+    else { ico_cinza = 0x6A7682; ico_apag = 0x4A5662; ico_ok = 0x6FD98F; ico_erro = 0xE0524A; }
 }
 
 /* ------------------------------------------------------------ disposición */
@@ -333,6 +363,7 @@ static uint32_t assinatura(void)
     for (int i = 0; i < BC_N; i++) MISTURA(cfg[i]);
     MISTURA(g.visivel);
     MISTURA(aparencia_acento());
+    MISTURA(esquema()->versao);   /* D428 */
     MISTURA(inicio_aberto);
     MISTURA(lay.nic);
     MISTURA(njb);
@@ -482,18 +513,20 @@ static void desenhar_mais(superficie_t *s)
 
 enum { P_NADA, P_VOL, P_RED, P_TEMP, P_BAT };
 #define COR_ICO       (tm.ico)
-#define COR_ICO_CINZA 0x6A7682
-#define COR_ICO_APAG  0x4A5662
-#define COR_ICO_OK    0x6FD98F
-#define COR_ICO_ERRO  0xE0524A
+/* D428: los iconos de la bandeja se oscurecen con una barra clara (tema_atualizar los pone). */
+#define COR_ICO_CINZA ico_cinza
+#define COR_ICO_APAG  ico_apag
+#define COR_ICO_OK    ico_ok
+#define COR_ICO_ERRO  ico_erro
 #define COR_TEMP_QUENTE 0xFFB02E     /* >= 70 °C */
 #define COR_TEMP_ALTA   0xFF4A3A     /* >= 79 °C */
 #define TEMP_QUENTE_MC  70000
 #define TEMP_ALTA_MC    79000
-#define COR_PAINEL      0x1C2630
-#define COR_PAINEL_BORDA 0x3E4E5C
-#define COR_TRILHO      0x0E141A
-#define COR_BOTAO_BAND  0x2C3A46
+/* D428: el panel de la bandeja sale del esquema cuando la barra usa sus colores (tema_atualizar los pone). */
+#define COR_PAINEL      pn_fundo
+#define COR_PAINEL_BORDA pn_borde
+#define COR_TRILHO      pn_trilho
+#define COR_BOTAO_BAND  pn_botao
 #define COR_BAT_BAIXA   0xFF4A3A     /* D192: menos del 15 % y sin cargar */
 #define COR_BAT_RAIO    0xFFD23F     /* el rayo de "cargando" */
 #define BAT_COR_AVISO   15           /* % : el relleno pasa a rojo */
@@ -1203,6 +1236,7 @@ static const programa_t programas[] = {
     { N_("Solitario Spider"),        "/apps/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
     { N_("Buscaminas"),              "/apps/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
     { N_("AoEN"),                    "/apps/bin/aoen",        NULL, "aoen",        G_JUEGOS,     &arte_mini_aoen, false },   /* D382: estrategia en tiempo real; en /apps, sólo si está */
+    { N_("Brumacanto"),              "/apps/bin/brumacanto",  NULL, "brumacanto",  G_JUEGOS,     &arte_mini_brumacanto, false },   /* D444: juego de vóxeles con OpenGL ES 1.1 (MIT); en /apps, sólo si está */
 #ifndef SAGUI_SEM_GPL   /* D184: la h81 encontraba «OpenTyrian» en el kernel sin GPL */
     { N_("OpenTyrian"),              "/apps/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
     { N_("OpenTyrian (pantalla completa)"), "/apps/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */

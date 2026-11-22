@@ -219,9 +219,19 @@ static void novo_tamanho(void)
     registrar("editor: janela %dx%d, %d linhas visiveis\n", LARG, ALT, area_linhas_visiveis(&area));
 }
 
+/* D428: otro esquema de apariencia: se repinta todo con los colores nuevos. */
+static void repintar_tema(void)
+{
+    g_retangulo(j, 0, 0, LARG, ALT, COR_FUNDO);
+    desenhar_barra();
+    redibujar_centro();
+    jan_mostrar(j);
+}
+
 int principal(int argc, char **argv)
 {
     j = jan_abrir(_("Editor - sin nombre"), LARG_INICIO, ALT_INICIO);
+    tema_ao_mudar(repintar_tema);   /* D428 */
     if (!j || !area_iniciar(&area, 6, BARRA + 4, LARG - 12, ALT - BARRA - 10)) return 1;
     jan_estilo(j, JAN_REDIMENSIONAVEL, 400, 160);
     desenhar_barra();

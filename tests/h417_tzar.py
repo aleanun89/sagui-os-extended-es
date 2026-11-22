@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """H417 - Tzar: lectores de datos traducidos de ReTzar y el visor de mapas «tzar» (D417, docs/tzar.md).
 
-Partes (por defecto: git lectores ui simulacao campanhas ia pc saguios; «privado» y «privado_ia» aparte y solo a mano):
+Partes (por defecto: git lectores ui simulacao extras campanhas ia cuelgue pc saguios; «privado» y «privado_ia» aparte y solo a mano):
   git       ningún dato de Tzar en git (paquetes .wdt, mapas .wmp, campañas .wcm, el Tzar.exe) y cada fichero
             traducido cita a ReTzar y su licencia.
   lectores  en el PC con ASan/UBSan (tests/tzar_lectores.c) sobre una instalación SINTÉTICA de tools/tzar_sintetico.py:
@@ -15,6 +15,8 @@ Partes (por defecto: git lectores ui simulacao campanhas ia pc saguios; «privad
             del juego: ratón y teclado simulados, comandos que salen, avisos de eventos y las pantallas a 800x600-1920x1080.
   simulacao la simulación (fase 5) sin cabeza en el PC con ASan/UBSan (tests/tzar_simulacao.c) sobre prueba/sim.wmp
             sintético: 3000 tics con el jugador de prueba (demo.c), economía y combate, determinismo y guardar/cargar.
+  extras    la simulación de la v8.5.5.2 en el PC con ASan/UBSan (tests/tzar_extras.c, datos sintéticos): comercio, taberna, préstamos,
+            objetos, hechizos pendientes, espías, cruzada, experiencia, prioridad de blancos, determinismo y guardar/cargar.
   campanhas campañas, guiones, mapas aleatorios y sonido (fase 7) en el PC con ASan/UBSan (tests/tzar_campanas.c) contra un
             mundo falso (tests/tzar_mundo_falso.c) y una instalación sintética (tools/tzar_sintetico.py --campanhas): el lenguaje
             de expresiones de los guiones, reglas, ventanas, temporizadores, conversaciones, final, héroes y variables «#» que
@@ -25,6 +27,11 @@ Partes (por defecto: git lectores ui simulacao campanhas ia pc saguios; «privad
             simulación real sobre la instalación sintética de tools/tzar_ia_sintetico.py (ASan/UBSan): sin fallos,
             determinista, guardar/cargar igual, y las dos IA construyen, entrenan, investigan y pelean.
   privado_ia (a mano) los guiones de IA reales compilan y partidas IA contra IA en mapas reales.
+  cuelgue   el «cuelgue» de las campañas (v8.5.5.2): una frase de conversación sin elecciones no se cerraba con un clic
+            (tz_guiao_fechar no cierra conversaciones) y la partida se quedaba parada para siempre con la frase en pantalla y la
+            música sonando. Con una campaña sintética que abre una historia y una conversación al empezar, el juego del PC cierra
+            las ventanas como lo haría un jugador (TZAR_AUTO_FECHAR) y el mundo sigue; y el vigilante del bucle (vigia.c) avisa,
+            con el módulo, cuando el bucle se para (TZAR_PRUEBA_PARADA) y cuando vuelve.
   pc        el visor en el PC (SDL sin pantalla) con los datos sintéticos y sin datos (pantalla de instrucciones), y
             300 tics de partida (TZAR_JOGAR, TZAR_DEMO) con su suma.
   saguios   el visor en SaguiOS (QEMU) con los datos sintéticos en /jogos/TZAR (captura H417-1), sin datos (H417-2) y la
@@ -35,6 +42,7 @@ Partes (por defecto: git lectores ui simulacao campanhas ia pc saguios; «privad
             con el arte, las fuentes y los textos del juego) en /home/aanun/SO/private/tzar/capturas/.
 Los datos de Tzar nunca se usan en la batería ni en capturas públicas.
 """
+import io
 import os
 import re
 import struct
@@ -49,9 +57,10 @@ D0 = os.path.join(RAIZ, "userland", "juegos", "tzar")
 LECTORES = ["wdt.c", "hpfs.c", "recursos.c", "imagem.c", "mapa.c", "terreno.c", "escena.c", "animacao.c", "dibujo.c", "textos.c", "selecao.c"]
 # interfaz (fase 4): los .c con partes traducidas de ReTzar citan su origen y licencia; los otros son código propio
 UI_TRADUCIDOS = ["ui_fonte.c", "ui_skin.c", "ui_hud.c", "ui_jogo.c", "ui_menu.c", "ui_selecao.c"]
-UI_FUENTES = ["ui_fonte.c", "ui_hud.c", "ui_jogo.c", "ui_lienzo.c", "ui_mapa.c", "ui_menu.c", "ui_selecao.c", "ui_skin.c"]
+UI_FUENTES = ["ui_fonte.c", "ui_hud.c", "ui_jogo.c", "ui_lienzo.c", "ui_mapa.c", "ui_menu.c", "ui_selecao.c", "ui_skin.c", "ui_janelas.c",
+              "ui_cursor.c", "opcoes.c"]
 # simulación (fase 5): traducida de ReTzar; demo.c y partida.c son propios
-SIM_TRADUCIDOS = ["catalogo.c", "mundo.c", "acoes.c", "caminho.c", "gravar.c", "magia.c"]
+SIM_TRADUCIDOS = ["catalogo.c", "mundo.c", "acoes.c", "caminho.c", "gravar.c", "magia.c", "comercio.c", "itens.c"]
 SIM_FUENTES = SIM_TRADUCIDOS + ["demo.c"]
 CAMPANHAS_TRADUCIDOS = ["guiao.c", "guiao_expr.c", "guiao_ler.c", "guiao_gravar.c", "campanha.c", "aleatorio.c", "som.c", "musica.c", "intro.c"]
 CAMPANHAS_FUENTES = ["guiao.c", "guiao_expr.c", "guiao_ler.c", "guiao_gravar.c", "campanha.c", "aleatorio.c", "som.c", "musica.c", "wdt.c", "hpfs.c", "recursos.c", "imagem.c", "mapa.c"]
@@ -193,7 +202,7 @@ def ui():
         if l.startswith("FALLO"):
             print("   ", l)
     oks = len(re.findall(r"^OK ", r.stdout, re.M))
-    verificar(r.returncode == 0 and "OK: 0 fallos" in r.stdout and oks >= 90,
+    verificar(r.returncode == 0 and "OK: 0 fallos" in r.stdout and oks >= 140,
               "interfaz con datos sintéticos, ASan/UBSan y sin fugas: %d comprobaciones bien%s" % (oks, "" if r.returncode == 0 else "\n" + r.stdout[-2500:] + r.stderr[-2500:]))
     # captura sintética: el HUD sin arte (marco liso) y el menú principal sin fondo, solo con la letra del sistema
     for src, dst in (("/tmp/tzar_ui_sint_1024.bmp", "H417-ui-hud.png"), ("/tmp/tzar_ui_sint_menu.bmp", "H417-ui-menu.png")):
@@ -230,6 +239,31 @@ def simulacao():
     verificar(g and int(g.group(2)) > 0, "hay combate: el reino 1 mata (%s)" % (g.group(2) if g else "?"))
 
 
+def compilar_extras():
+    exe = os.path.join(saida(), "tzar_extras")
+    fuentes = [os.path.join(D0, f) for f in LECTORES + SIM_TRADUCIDOS]
+    subprocess.run(["gcc", "-std=gnu99", "-g", "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined", "-Wall", "-Wno-format-truncation",
+                    "-I", D0, "-o", exe, os.path.join(RAIZ, "tests", "tzar_extras.c")] + fuentes + ["-lm"], check=True)
+    return exe
+
+
+def extras():
+    """La simulación de la v8.5.5.2 (tests/tzar_extras.c) con ASan/UBSan y datos sintéticos: rutas de mercaderes y su ganancia, un
+    mercader por mercado, intercambio, préstamos, ofertas y contratos de la taberna, objetos (recoger, soltar, usar, vender, equipo,
+    libros, soltar al morir), maldición, hipnosis, invisibilidad, remolino, alzar muertos, espías, golpe del ninja, cruzada,
+    conversiones, experiencia y niveles, prioridad de blancos; determinismo y guardar/cargar con todo eso en marcha."""
+    from qemu import verificar
+    exe = compilar_extras()
+    d = sintetico()
+    r = subprocess.run([exe, d], capture_output=True, text=True, errors="replace", env=dict(os.environ, ASAN_OPTIONS="detect_leaks=1"), timeout=900)
+    for l in r.stdout.splitlines():
+        if l.startswith("FALLO"):
+            print("   ", l)
+    oks = len(re.findall(r"^OK ", r.stdout, re.M))
+    verificar(r.returncode == 0 and "0 fallos" in r.stdout and oks >= 100,
+              "simulación nueva (comercio, objetos, taberna, hechizos, espías, cruzada, experiencia): %d comprobaciones bien%s" % (oks, "" if r.returncode == 0 else "\n" + r.stdout[-2000:] + r.stderr[-2500:]))
+
+
 def suma_visor(exe, d, frames):
     env = dict(os.environ, SDL_VIDEODRIVER="dummy", TZAR_FRAMES=str(frames), TZAR_W="640", TZAR_H="480", TZAR_JOGAR="1", TZAR_DEMO="1", TZAR_SEM_IA="1", TZAR_MS="0")
     r = subprocess.run([exe, "--visor", d, "prueba/sim.wmp"], capture_output=True, text=True, env=env, timeout=120)
@@ -263,7 +297,7 @@ def campanhas():
         if l.startswith("FALLO"):
             print("   ", l)
     oks = len(re.findall(r"^OK ", r.stdout, re.M))
-    verificar(r.returncode == 0 and "OK sintético: 0 fallos" in r.stdout and oks >= 120,
+    verificar(r.returncode == 0 and "OK sintético: 0 fallos" in r.stdout and oks >= 140,
               "campañas, guiones, mapas aleatorios y sonido con datos sintéticos, ASan/UBSan: %d comprobaciones bien%s" % (oks, "" if r.returncode == 0 else "\n" + r.stdout[-2500:] + r.stderr[-2500:]))
 
 
@@ -310,10 +344,60 @@ def pc():
     rj = subprocess.run([exe, d], capture_output=True, text=True, errors="replace", env=dict(gj, TZAR_AUTO="escaramuza", TZAR_FRAMES="200", TZAR_SEM_IA="1"), timeout=120)
     ge = re.search(r"\[TZAR\] partida: tic (\d+) suma [0-9a-f]{8} objetos (\d+)", rj.stderr)
     verificar(rj.returncode == 0 and "escaramuza:" in rj.stderr and ge and ge.group(1) == "200", "escaramuza en el juego: 200 tics" + ("" if ge else "\n" + rj.stderr[-1500:]))
+    # v8.5.5.2: el mapa aleatorio con las opciones de su pantalla (96 casillas, 4 reinos, equipos, civilización, continente) dentro del juego,
+    # y guardar, cargar y recordar las opciones (tzar.cfg)
+    lin = "ALEAT2 1 1 3 1 1 1 1 1 417 4 0 0 200 1 1 0 0 0 2 0 0 0 0 0 0 0 1 1 2 0 0 0 0"
+    pg = tempfile.mkdtemp(prefix="tzar-g-")
+    rj = subprocess.run([exe, d], capture_output=True, text=True, errors="replace",
+                        env=dict(gj, TZAR_GUARDAR=pg, TZAR_AUTO="aleatorio", TZAR_ALEAT=lin, TZAR_PRUEBA_GUARDAR="1", TZAR_FRAMES="60", TZAR_SEM_IA="1"), timeout=120)
+    verificar(rj.returncode == 0 and re.search(r"escaramuza: mapa aleatorio, 4 reinos, jugador \d+, lado 96", rj.stderr),
+              "el mapa aleatorio del juego sale con los reinos y el tamaño elegidos" + ("" if rj.returncode == 0 else "\n" + rj.stderr[-1500:]))
+    verificar("[TZAR] prueba guardar/cargar aleatorio: igual" in rj.stderr, "guardar y cargar la partida en mapa aleatorio da el mismo mapa y las mismas opciones" + ("" if "igual" in rj.stderr else "\n" + rj.stderr[-1500:]))
+    txt = io.open(os.path.join(pg, "prueba.txt"), encoding="latin-1").read().splitlines() if os.path.exists(os.path.join(pg, "prueba.txt")) else []
+    verificar(len(txt) >= 7 and txt[6] == "ALEAT 96 4 0 3 1 1 1 1 grass 417 0 1 1 2 0 0 0 0 0 2 0 0 0 0 0 0 1 1",
+              "la partida guardada lleva la línea ALEAT con tamaño, reinos, tipo y equipos (%s)" % (txt[6][:70] if len(txt) > 6 else "falta"))
     r = subprocess.run([exe, "--visor", "/no/existe"], capture_output=True, text=True, env=env, timeout=60)
     verificar(r.returncode == 1 and "[TZAR] sin datos del juego" in r.stderr, "sin datos explica qué falta y sale con 1")
     w, h, px = bmp_pixels(shot)
     verificar(px(5, 5) == (0x14, 0x0d, 0x09), "la pantalla de instrucciones se dibuja")
+
+
+def instalacion_juego():
+    """La instalación sintética con gráficos más la campaña con guion (historia y conversación al empezar) de --campanhas."""
+    import shutil
+    d = sintetico()
+    c = os.path.join(tempfile.mkdtemp(prefix="tzar-camp-"), "TZAR")
+    subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "tzar_sintetico.py"), "--campanhas", c], check=True, stdout=subprocess.DEVNULL)
+    shutil.copy(os.path.join(c, "Campaign", "HISTORIA.wcm"), os.path.join(d, "Campaign", "HISTORIA.wcm"))
+    return d
+
+
+def cuelgue():
+    from qemu import verificar
+    exe = compilar_visor()
+    d = instalacion_juego()
+    base = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy", TZAR_SEM_INTRO="1", TZAR_SEM_IA="1",
+                TZAR_GUARDAR=tempfile.mkdtemp(prefix="tzar-g-"))
+    # 1) la conversación del principio se cierra y la partida sigue (antes: tic 4 para siempre)
+    r = subprocess.run([exe, d], capture_output=True, text=True, errors="replace", timeout=180,
+                       env=dict(base, TZAR_AUTO="campanha:0", TZAR_AUTO_FECHAR="5", TZAR_FRAMES="300"))
+    g = re.search(r"\[TZAR\] partida: tic (\d+)", r.stderr)
+    cerradas = r.stderr.count("[TZAR] guion: ventana cerrada")
+    verificar(r.returncode == 0 and "misi" in r.stderr and g and int(g.group(1)) >= 250 and 2 <= cerradas <= 4,
+              "la historia y la frase de la conversación se cierran y el mundo sigue (tic %s, %d ventanas)" % (g.group(1) if g else "?", cerradas)
+              + ("" if g else "\n" + r.stderr[-1500:]))
+    # 2) el vigilante: el bucle se para 2,5 s en el cuadro 40 (vigilante a 1 s) -> aviso con el módulo y vuelta
+    r = subprocess.run([exe, d], capture_output=True, text=True, errors="replace", timeout=180,
+                       env=dict(base, TZAR_AUTO="escaramuza", TZAR_FRAMES="80", TZAR_VIGIA="1", TZAR_PRUEBA_PARADA="40:2500"))
+    av = re.search(r"\[TZAR\] vigilante: el juego no avanza desde hace (\d+) ms \(en: ([^;]*);", r.stderr)
+    verificar(r.returncode == 0 and av and "prueba de parada" in av.group(2) and int(av.group(1)) >= 1000,
+              "el vigilante avisa del bucle parado y dice dónde (%s)" % (av.group(2) if av else "\n" + r.stderr[-1200:]))
+    verificar(re.search(r"\[TZAR\] vigilante: el juego vuelve tras \d+ ms", r.stderr) is not None and "vigilante: 1 avisos" in r.stderr,
+              "y apunta cuando vuelve (un aviso)")
+    # 3) sin paradas no avisa
+    r = subprocess.run([exe, d], capture_output=True, text=True, errors="replace", timeout=180,
+                       env=dict(base, TZAR_AUTO="escaramuza", TZAR_FRAMES="80", TZAR_VIGIA="1"))
+    verificar(r.returncode == 0 and "vigilante" not in r.stderr, "sin paradas el vigilante calla")
 
 
 def saguios():
@@ -323,7 +407,7 @@ def saguios():
     if not os.path.isfile(os.path.join(APPS_RAIZ, "bin", "tzar")):
         print("AVISO: la imagen no lleva tzar (make): se salta la parte «saguios»")
         return
-    d = sintetico()
+    d = instalacion_juego()
     jogos = os.path.dirname(d)
     img = imagem_de_teste("h417", ["--vesa", "--apps", APPS_RAIZ, "--jogos", jogos, "--jogos-mb", "32"])
     with Maquina("h417", "ide", imagem=img, memoria="256M") as m:
@@ -364,6 +448,17 @@ def saguios():
         m.captura("H417-3-partida-sintetica")
         g = esperar(m, r"\[TZAR\] partida: tic (\d+) suma ([0-9a-f]{8})", 400, desde=marca)
         verificar(sm is not None and g[0] == "600" and g[1] == sm[1], "la partida da la misma suma en SaguiOS que en el PC (%s / %s)" % (g[1], sm[1] if sm else "?"))
+        # el cuelgue de las campañas, dentro de SaguiOS: la conversación del principio se cierra y la partida sigue; el vigilante no salta
+        esperar(m, r"sagui:/\$", 60, desde=marca)
+        time.sleep(2)
+        h136.focar_terminal(m)
+        marca = len(m.serial())
+        m.digitar("TZAR_SEM_INTRO=1 TZAR_SEM_IA=1 TZAR_AUTO=campanha:0 TZAR_AUTO_FECHAR=5 TZAR_FRAMES=300 TZAR_W=800 TZAR_H=600 /apps/bin/tzar", 0.04)
+        m.tecla("ret")
+        g = esperar(m, r"\[TZAR\] partida: tic (\d+)", 400, desde=marca)
+        log = m.serial()[marca:]
+        verificar(int(g) >= 250 and "guion: ventana cerrada" in log and "no avanza" not in log,
+                  "en SaguiOS la conversación se cierra y la partida sigue (tic %s)" % g)
 
 
 def compilar_ia():
@@ -570,10 +665,59 @@ def privado_saguios():
         verificar(True, "la campaña abre su primera misión con la historia (%s)" % g[1])
         esperar(m, r"\[TZAR\] fin", 900, desde=marca)
 
-PARTES = {"git": git, "lectores": lectores, "ui": ui, "simulacao": simulacao, "campanhas": campanhas, "ia": ia, "pc": pc, "saguios": saguios, "privado": privado, "privado_ia": privado_ia, "privado_saguios": privado_saguios}
+def privado_aleat():
+    """(a mano, nunca en la batería) La pantalla del mapa aleatorio y cuatro mapas distintos dentro de SaguiOS con la instalación REAL
+    (como privado_saguios: TZAR_JOGOS o se copia de REAL). Capturas privadas en PRIVADO/capturas/aleat-saguios-*.png (aquí PRIVADO/aleat-*)."""
+    from qemu import Maquina, imagem_de_teste, verificar, APPS_RAIZ
+    from h60_barra_tareas import esperar
+    import h136_opentyrian as h136
+    import shutil
+    jogos = os.environ.get("TZAR_JOGOS")
+    if not jogos:
+        if not os.path.isdir(os.path.join(REAL, "Packs")):
+            print("AVISO: no hay instalación real de Tzar: se salta «privado_aleat»")
+            return
+        jogos = tempfile.mkdtemp(prefix="tzar-jogos-")
+        os.makedirs(os.path.join(jogos, "TZAR"))
+        for x in ("Packs", "Maps", "Campaign"):
+            shutil.copytree(os.path.join(REAL, x), os.path.join(jogos, "TZAR", x))
+    destino = os.path.join(os.path.dirname(PRIVADO), "capturas")
+    os.makedirs(destino, exist_ok=True)
+    # lado terreno tipo rmapa guardado animales objetos puertas semilla reinos tipo victoria pob dif rec niebla explorar civ*8 equipo*8
+    casos = [("1-continente-europeo", "4 1 3 1 1 1 1 1 11 4 0 0 200 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", 0),
+             ("2-archipielagos-nieve", "4 3 1 2 1 1 1 1 22 3 0 0 200 1 2 0 0 0 2 0 0 0 0 0 0 0 1 2 0 0 0 0 0", 0),
+             ("3-islas-desierto-8", "5 4 2 0 1 0 1 1 33 8 0 0 200 1 0 0 0 0 0 0 0 0 0 0 0 1 1 2 2 0 0 0 0", 0),
+             ("4-lagos-verano-grande", "6 2 4 2 0 1 0 0 44 5 0 0 200 1 1 0 0 0 3 0 0 0 0 0 0 0 1 1 2 0 0 0 0", 1)]
+    img = imagem_de_teste("h417p", ["--vesa", "--apps", APPS_RAIZ, "--jogos", jogos, "--jogos-mb", "700", "--smp"])
+    with Maquina("h417p", "ide", imagem=img, memoria="2048M") as m:
+        esperar(m, r"sagui:/\$", 240)
+        time.sleep(4)
+        h136.focar_terminal(m)
+        for nome, lin, ampliar in casos:
+            marca = len(m.serial())
+            m.digitar("TZAR_SEM_INTRO=1 TZAR_MENU=13 TZAR_ALEAT=ALEAT2_%s %s TZAR_FRAMES=1500 TZAR_W=1024 TZAR_H=768 /apps/bin/tzar" % (lin.replace(" ", "_"), "TZAR_AMPLIAR=1" if ampliar else ""), 0.04)
+            m.tecla("ret")
+            esperar(m, r"\[TZAR\] instalacion: (\d+) paquetes", 300, desde=marca)
+            time.sleep(10)
+            src = m.captura("tzar-aleat-" + nome, guardar=False)
+            shutil.move(src, os.path.join(destino, "aleat-saguios-%s.png" % nome))
+            esperar(m, r"\[TZAR\] fin", 300, desde=marca)
+            time.sleep(2)
+            h136.focar_terminal(m)
+            verificar(True, "SaguiOS dibuja la pantalla del mapa aleatorio con la vista previa (%s)" % nome)
+        # una partida en un mapa aleatorio con esas opciones (sin IA para que no pese) y guardar/cargar
+        marca = len(m.serial())
+        m.digitar("TZAR_SEM_INTRO=1 TZAR_AUTO=aleatorio TZAR_ALEAT=ALEAT2_%s TZAR_PRUEBA_GUARDAR=1 TZAR_FRAMES=300 TZAR_W=1024 TZAR_H=768 /apps/bin/tzar" % casos[1][1].replace(" ", "_"), 0.04)
+        m.tecla("ret")
+        esperar(m, r"\[TZAR\] prueba guardar/cargar aleatorio: igual", 600, desde=marca)
+        verificar(True, "SaguiOS guarda y carga una partida en mapa aleatorio con sus opciones")
+        esperar(m, r"\[TZAR\] fin", 600, desde=marca)
+
+
+PARTES = {"git": git, "lectores": lectores, "ui": ui, "simulacao": simulacao, "extras": extras, "cuelgue": cuelgue, "campanhas": campanhas, "ia": ia, "pc": pc, "saguios": saguios, "privado": privado, "privado_ia": privado_ia, "privado_saguios": privado_saguios, "privado_aleat": privado_aleat}
 
 if __name__ == "__main__":
-    pedidas = sys.argv[1:] or ["git", "lectores", "ui", "simulacao", "campanhas", "ia", "pc", "saguios"]
+    pedidas = sys.argv[1:] or ["git", "lectores", "ui", "simulacao", "extras", "campanhas", "ia", "cuelgue", "pc", "saguios"]
     for p in pedidas:
         print("== H417", p)
         PARTES[p]()

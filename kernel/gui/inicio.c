@@ -16,6 +16,7 @@
  * panel se vuelve a componer entero en cada cambio (la mezcla con el fondo solo es correcta si lo de debajo
  * se recompone también, como la sombra de menu.c). */
 #include "gui.h"
+#include "aparencia.h"
 #include "console.h"
 #include "idioma.h"
 #include "mouse.h"
@@ -544,6 +545,14 @@ static void cores(cores_t *c)
     } else {
         *c = (cores_t){ 0xF2F6FA, 0x1E2328, 0x4A5A6A, 0x9CC0EC, 0x0A1A30, 0x0C1624, 0xE8EEF4, 0x3A6EB0, 0xFFFFFF };
     }
+    const esquema_t *q = esquema();   /* D428: con un esquema propio, el menú Inicio toma sus colores */
+    if (q->barra_propia) {
+        c->fundo_esq = q->menu_fundo; c->texto_esq = q->menu_texto; c->cab_texto = q->menu_atalho;
+        c->sel_fundo = q->menu_sel; c->sel_texto = q->menu_sel_texto;
+        c->fundo_dir = moderno() ? q->barra : esq_mix(q->menu_fundo, q->menu_texto, 10);
+        c->texto_dir = moderno() ? q->barra_texto : q->menu_texto;
+        c->dir_sel = q->menu_sel; c->dir_sel_texto = q->menu_sel_texto;
+    }
 }
 
 static void desenhar_lista(superficie_t *t, const cores_t *c)
@@ -706,7 +715,7 @@ void inicio_painel_desenhar(superficie_t *t)
     if (!moderno()) {
         sup_retangulo(t, S.x, S.y, S.l, S.a, c.fundo_esq);
         /* cabecera con degradado azul, la cuenta y su imagen (el sagui) */
-        degradado(t, S.x, S.y, S.l, S.cab_a, 0x2A5FC8, 0x1B3F94);
+        degradado(t, S.x, S.y, S.l, S.cab_a, esquema()->inicio_a, esquema()->inicio_b);
         sup_retangulo(t, S.x + 8, S.y + 8, 38, 38, 0xF2F2F2);
         sup_moldura(t, S.x + 8, S.y + 8, 38, 38, 0xFFFFFF);
         sup_desenho(t, S.x + 11, S.y + 11, &arte_sagui, 1);
@@ -719,20 +728,20 @@ void inicio_painel_desenhar(superficie_t *t)
         sup_retangulo(t, S.dir_x - 1, S.dir_y, 1, S.dir_a, 0x9CB8E0);
         desenhar_lista(t, &c);
         desenhar_lugares(t, &c);
-        degradado(t, S.x, S.y + S.a - S.rod_a, S.l, S.rod_a, 0x1B3F94, 0x2A5FC8);
+        degradado(t, S.x, S.y + S.a - S.rod_a, S.l, S.rod_a, esquema()->inicio_b, esquema()->inicio_a);
         for (int k = 0; k < S.nbotao; k++) {
             int bl, bx = rodape_botao_x(k, &bl);
             (void)bl;
             desenhar_botao(t, bx, rodape_y(), it(S.botao[k])->icono, S.col == 2 && S.sel == k);
         }
-        sup_moldura(t, S.x, S.y, S.l, S.a, 0x0A3C9C);
+        sup_moldura(t, S.x, S.y, S.l, S.a, esquema()->barra_propia ? esquema()->inicio_b : 0x0A3C9C);
         dica_botao(t);
     } else {
         if (S.p.translucido) {
-            retangulo_alfa(t, S.x, S.y, S.l, S.a, 0x0A1C34, 205);   /* cristal: lo de debajo se transparenta */
+            retangulo_alfa(t, S.x, S.y, S.l, S.a, esquema()->barra_propia ? esq_mix(esquema()->barra, 0, 20) : 0x0A1C34, 205);   /* cristal: lo de debajo se transparenta */
             retangulo_alfa(t, S.x, S.y, S.l, S.a / 3, 0x6A9AD0, 40);
         } else {
-            degradado(t, S.x, S.y, S.l, S.a, 0x1E3250, 0x060C16);
+            degradado(t, S.x, S.y, S.l, S.a, esquema()->barra_propia ? esquema()->barra : 0x1E3250, esquema()->barra_propia ? esq_mix(esquema()->barra, 0, 55) : 0x060C16);
         }
         /* la lista, sobre un fondo claro */
         retangulo_alfa(t, S.esq_x, S.esq_y, S.esq_l, S.esq_a, c.fundo_esq, S.p.translucido ? 236 : 255);

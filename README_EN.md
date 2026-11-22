@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 26f5d85e (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit 7ed8bff4 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -736,6 +736,8 @@ testes_eli/  Eli's test photos on the G470
 | [`docs/multihilo.md`](docs/multihilo.md) | Multithreading and multicore: what exists, what is missing and how the gain is measured |
 | [`docs/licencia.md`](docs/licencia.md) | The GPL v3 license explained: layers, SPDX, compatibilities, what may be included and what may not |
 | [`docs/terceros.md`](docs/terceros.md) | Third-party code: what it is, where it comes from, under which license and in which decision it was accepted |
+| [`docs/guia-kernel_EN.md`](docs/guia-kernel_EN.md) | Guide to learning the kernel: boot, each block, the table of all its files and a system call step by step |
+| [`docs/guia-aplicaciones_EN.md`](docs/guia-aplicaciones_EN.md) | Guide to the applications by Start menu category, console commands, libraries and ports, with the path to their code |
 | [`docs/historias/`](docs/historias/) | One page per story |
 | [`status.md`](status.md) and [`dashboard/`](dashboard/index.html) | Status of each phase and story |
 

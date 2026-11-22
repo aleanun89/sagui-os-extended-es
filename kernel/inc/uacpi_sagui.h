@@ -22,6 +22,7 @@ void uacpi_sagui_dormir_ms(uint32_t ms);          /* duerme la tarea (no gira) *
 void uacpi_sagui_trabalho_pendente(void);         /* corre las notificaciones encoladas */
 void uacpi_sagui_acordar(void);                   /* despierta la tarea (un pedido nuevo, D405) */
 bool uacpi_sagui_pode_dormir(void);               /* quien llama puede dormir (tarea o programa, fuera de IRQ) */
+const char *uacpi_sagui_preparar_energia(bool apagar, uint32_t ms);   /* D450: _TTS(5) y, al apagar, _PTS(5); con plazo */
 
 /* ec.c: el controlador embebido (PNP0C09) por sondeo, sin su GPE. */
 bool     ec_iniciar(void);                 /* busca el EC e instala su manejador (antes de _INI) */

@@ -27,10 +27,11 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, ler_ppm, SAIDA  # noqa: E402
 
-LATERAL, Y_LISTA, LARG_LISTA = 140, 70, 566
+LATERAL, Y_LISTA, LARG_LISTA = 140, 98, 566
 LISTA_X = LATERAL + 6                      # 146
 COL_TIPO = LISTA_X + LARG_LISTA - 240      # 472
-BOTON_VISTA = (600, 20)                    # centro del boton «Vista» de la barra
+# D423: las vistas son un control segmentado (30 px cada una desde x=398; centro de la fila en y=20)
+SEG_VISTA = {"lista": 413, "detalhes": 443, "icones": 473, "mosaicos": 503}
 
 
 def janela(serial, titulo):
@@ -84,7 +85,7 @@ def poner_vista(m, a, nombre):
         g = re.findall(r"arquivos: vista (\w+)", m.serial())
         if g and g[-1] == nombre:
             return
-        m.clique(a["x"] + BOTON_VISTA[0], a["y"] + BOTON_VISTA[1])
+        m.clique(a["x"] + SEG_VISTA[nombre], a["y"] + 20)
         time.sleep(0.6)
     raise AssertionError(f"no se pudo poner la vista {nombre}")
 

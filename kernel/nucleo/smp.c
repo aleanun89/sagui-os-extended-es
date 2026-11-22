@@ -111,6 +111,34 @@ void smp_acordar(uint32_t cpu)
     lapic_ipi(d->apic_id, VETOR_ACORDAR);
 }
 
+/* D450: parar los secundarios antes de apagar o reiniciar. Como el stop_this_cpu de Linux: cada
+ * uno apaga su tic y se queda en "cli; hlt" (no un INIT: un procesador en espera de SIPI no
+ * contesta a las SMI, y el reinicio de algunos firmwares, como el de los Dell por SMI_CMD, las
+ * reúne a todas). Un NMI o una SMI lo despiertan y vuelve al bucle. */
+static volatile uint32_t paradas;
+volatile bool smp_parando;
+
+SEM_RETORNO void smp_parar_esta_cpu(void)
+{
+    __asm__ volatile("cli");
+    lapic_escrever(LAPIC_LVT_TIMER, 0x10000);   /* el tic, enmascarado */
+    lapic_fim();
+    atomic_inc32(&paradas);
+    for (;;)
+        __asm__ volatile("cli; hlt");
+}
+
+uint32_t smp_parar_secundarias(uint32_t ms)
+{
+    if (!arrancadas) return 0;
+    smp_parando = true;
+    __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory", "cc");   /* barrera (sin mfence: i686) */
+    lapic_ipi_todos(VETOR_PARAR);   /* todos menos esta (la CPU 0) */
+    for (uint32_t t = 0; t < ms * 10u && paradas < arrancadas; t++)
+        esperar_us(100);
+    return paradas;
+}
+
 /* La entrada del procesador secundario: la llama el trampolín, con el número
  * de la CPU como argumento, la paginación activa y los segmentos planos de la
  * GDT local. Lo primero es cargar su GDT, su GS, su TSS y la IDT: hasta

@@ -20,7 +20,7 @@ msgstr "Cannot divide by zero"
 msgid "Aviso:"
 msgstr "Warning:"
 
-#: userland/programas/calculadora.c:255
+#: userland/programas/calculadora.c:264
 msgid "Calculadora"
 msgstr "Calculator"
 
